@@ -1,4 +1,5 @@
-import { ForbiddenException, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import {
   SwapTransactionsService,
   SWAP_TERMINAL_STATUSES,
@@ -25,6 +26,7 @@ describe('SwapTransactionsService', () => {
       {} as any,
       {} as any,
       { emit: jest.fn() } as any,
+      { recordByActor: jest.fn() } as any,
     );
   });
 
@@ -91,7 +93,7 @@ describe('markStatus transitions', () => {
   let service: SwapTransactionsService;
 
   beforeEach(() => {
-    service = new SwapTransactionsService({} as any, {} as any, {} as any, { emit: jest.fn() } as any);
+    service = new SwapTransactionsService({} as any, {} as any, {} as any, { emit: jest.fn() } as any, { recordByActor: jest.fn() } as any);
   });
 
   it('COMPLIANCE_PENDING + kyt_approved → PROCESSING', async () => {
@@ -130,6 +132,74 @@ describe('markStatus transitions', () => {
     } as any;
     await expect(service.markStatus('s1', SwapTransactionAction.SUCCESS, tx))
       .rejects.toThrow(/Invalid transition/);
+  });
+
+  it('COMPLIANCE_PENDING + kyt_approved → PROCESSING 时清空 slaDeadline（PROCESSING 无 SLA 配置）', async () => {
+    const swap = { id: 's1', status: 'COMPLIANCE_PENDING' };
+    const tx = {
+      swapTransaction: {
+        findUnique: jest.fn().mockResolvedValue(swap),
+        update: jest.fn().mockResolvedValue({ ...swap, status: 'PROCESSING' }),
+      },
+    } as any;
+    await service.markStatus('s1', SwapTransactionAction.KYT_APPROVED, tx);
+    expect(tx.swapTransaction.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ slaDeadline: null, slaBreached: false }),
+      }),
+    );
+  });
+});
+
+describe('SLA deadline 在状态机收口处统一设', () => {
+  let service: SwapTransactionsService;
+
+  beforeEach(() => {
+    service = new SwapTransactionsService({} as any, {} as any, {} as any, { emit: jest.fn() } as any, { recordByActor: jest.fn() } as any);
+  });
+
+  it('建单进入 COMPLIANCE_PENDING 时设 5 分钟 deadline', async () => {
+    const before = Date.now();
+    const tx = {
+      swapTransaction: {
+        create: jest.fn().mockImplementation(({ data }: any) =>
+          Promise.resolve({ id: 'swap-new', ...data }),
+        ),
+      },
+    } as any;
+
+    const created = await service.create(
+      {
+        swapNo: 'SWP-SLA-1',
+        quoteId: 'q1',
+        quoteNo: 'Q1',
+        ownerType: 'CUSTOMER',
+        ownerId: 'cust-1',
+        ownerNo: 'C1',
+        fromAssetId: 'a1',
+        fromAssetCode: 'USDT',
+        fromAmount: new Prisma.Decimal('100'),
+        toAssetId: 'a2',
+        toAssetCode: 'AED',
+        toAmount: new Prisma.Decimal('367'),
+        netToAmount: new Prisma.Decimal('365'),
+        feeAmount: new Prisma.Decimal('2'),
+        feeCurrency: 'AED',
+        feeBreakdown: null,
+        spreadAmount: new Prisma.Decimal('0'),
+        exchangeRate: new Prisma.Decimal('3.67'),
+        traceId: 't1',
+        status: SwapTransactionStatus.COMPLIANCE_PENDING,
+      },
+      tx,
+    );
+
+    expect(created.status).toBe(SwapTransactionStatus.COMPLIANCE_PENDING);
+    expect(created.slaDeadline).not.toBeNull();
+    const delta = new Date(created.slaDeadline as Date).getTime() - before;
+    expect(delta).toBeGreaterThan(4 * 60_000);
+    expect(delta).toBeLessThan(6 * 60_000);
+    expect(created.slaBreached).toBe(false);
   });
 });
 
@@ -203,7 +273,7 @@ describe('customer-facing tipping-off whitelist (findOneForCustomer / findAllFor
         findMany: jest.fn().mockResolvedValue([]),
       },
     };
-    service = new SwapTransactionsService(prisma as any, {} as any, {} as any, { emit: jest.fn() } as any);
+    service = new SwapTransactionsService(prisma as any, {} as any, {} as any, { emit: jest.fn() } as any, { recordByActor: jest.fn() } as any);
   });
 
   describe('findOneForCustomer', () => {
@@ -322,7 +392,7 @@ describe('Task 10: 客户面三层防线', () => {
       },
       fundsOrder: { findMany: jest.fn().mockResolvedValue([]) },
     };
-    service = new SwapTransactionsService(prisma as any, {} as any, {} as any, { emit: jest.fn() } as any);
+    service = new SwapTransactionsService(prisma as any, {} as any, {} as any, { emit: jest.fn() } as any, { recordByActor: jest.fn() } as any);
   });
 
   describe('响应体：FROZEN 收敛成 REJECTED（不原样透传）', () => {
@@ -435,7 +505,7 @@ describe('findOneForAdmin', () => {
       swapTransaction: { findUnique: jest.fn() },
       fundsOrder: { findMany: jest.fn().mockResolvedValue([]) },
     };
-    service = new SwapTransactionsService(prisma as any, {} as any, {} as any, { emit: jest.fn() } as any);
+    service = new SwapTransactionsService(prisma as any, {} as any, {} as any, { emit: jest.fn() } as any, { recordByActor: jest.fn() } as any);
   });
 
   it('well-formed official-shape payload: parseDetail 输出提现同源形状（parity 2026-08-14）', async () => {
@@ -581,7 +651,7 @@ describe('markStatus · FROZEN 迁移边', () => {
   let service: SwapTransactionsService;
 
   beforeEach(() => {
-    service = new SwapTransactionsService({} as any, {} as any, {} as any, { emit: jest.fn() } as any);
+    service = new SwapTransactionsService({} as any, {} as any, {} as any, { emit: jest.fn() } as any, { recordByActor: jest.fn() } as any);
   });
 
   it('COMPLIANCE_PENDING + freeze → FROZEN（唯一合法入边）', async () => {
@@ -637,5 +707,101 @@ describe('markStatus · FROZEN 迁移边', () => {
     expect(updateArg.data.completedAt).toBeUndefined();
     expect(updateArg.data.status).toBe('FROZEN');
     expect(updateArg.data.rejectReason).toBe('SANCTION_APPLICANT');
+  });
+});
+
+describe('setSlaDeadlineByNo (演示用「模拟超时」端点)', () => {
+  let service: SwapTransactionsService;
+  let prisma: any;
+  let auditLogsService: any;
+
+  beforeEach(() => {
+    prisma = {
+      swapTransaction: {
+        findFirst: jest.fn(),
+        update: jest.fn(),
+      },
+    };
+    auditLogsService = { recordByActor: jest.fn().mockResolvedValue(undefined) };
+    service = new SwapTransactionsService(
+      prisma as any,
+      {} as any,
+      {} as any,
+      { emit: jest.fn() } as any,
+      auditLogsService as any,
+    );
+  });
+
+  it('按 swapNo 查不到单时抛 NotFoundException', async () => {
+    prisma.swapTransaction.findFirst.mockResolvedValue(null);
+
+    await expect(
+      service.setSlaDeadlineByNo('SWP-MISSING', new Date(), {}),
+    ).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it('slaDeadline 为 null（不计时状态）时抛 BadRequestException，不落库不写审计', async () => {
+    prisma.swapTransaction.findFirst.mockResolvedValue({
+      id: 'swp-1',
+      slaDeadline: null,
+      ownerType: 'CUSTOMER',
+      ownerId: 'cust-1',
+    });
+
+    await expect(
+      service.setSlaDeadlineByNo('SWP0001', new Date(), {}),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(prisma.swapTransaction.update).not.toHaveBeenCalled();
+    expect(auditLogsService.recordByActor).not.toHaveBeenCalled();
+  });
+
+  it('单据在 SLA 计时状态时把 deadline 拨过去并写审计', async () => {
+    const pastDate = new Date(Date.now() - 1000);
+    prisma.swapTransaction.findFirst.mockResolvedValue({
+      id: 'swp-1',
+      slaDeadline: new Date(Date.now() + 5 * 60_000),
+      ownerType: 'CUSTOMER',
+      ownerId: 'cust-1',
+    });
+    prisma.swapTransaction.update.mockResolvedValue({ id: 'swp-1', slaDeadline: pastDate });
+
+    const result = await service.setSlaDeadlineByNo('SWP0001', pastDate, {
+      actorId: 'admin-1',
+      actorRole: 'OPERATOR',
+    });
+
+    expect(prisma.swapTransaction.update).toHaveBeenCalledWith({
+      where: { id: 'swp-1' },
+      data: { slaDeadline: pastDate },
+    });
+    expect(auditLogsService.recordByActor).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'SWAP_SLA_TIMEOUT_SIMULATED',
+        entityType: 'SWAP_TRANSACTION',
+        entityId: 'swp-1',
+        entityNo: 'SWP0001',
+        requestId: expect.stringContaining('SLA_TIMEOUT_SIMULATED'),
+      }),
+      expect.objectContaining({ actorType: 'ADMIN', actorId: 'admin-1', actorRole: 'OPERATOR' }),
+    );
+    expect(result.slaDeadline).toEqual(pastDate);
+  });
+
+  it('同一张单连续两次模拟超时，产出不同的 requestId（幂等键不能恒定，否则第二条审计被静默丢弃）', async () => {
+    const pastDate = new Date(Date.now() - 1000);
+    prisma.swapTransaction.findFirst.mockResolvedValue({
+      id: 'swp-1',
+      slaDeadline: new Date(Date.now() + 5 * 60_000),
+      ownerType: 'CUSTOMER',
+      ownerId: 'cust-1',
+    });
+    prisma.swapTransaction.update.mockResolvedValue({ id: 'swp-1', slaDeadline: pastDate });
+
+    await service.setSlaDeadlineByNo('SWP0001', pastDate, { actorId: 'admin-1', actorRole: 'OPERATOR' });
+    await service.setSlaDeadlineByNo('SWP0001', pastDate, { actorId: 'admin-1', actorRole: 'OPERATOR' });
+
+    const calls = auditLogsService.recordByActor.mock.calls;
+    expect(calls).toHaveLength(2);
+    expect(calls[0][0].requestId).not.toBe(calls[1][0].requestId);
   });
 });

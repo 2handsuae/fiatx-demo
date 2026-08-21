@@ -1208,6 +1208,8 @@ model SwapTransaction {
   status           String
   currentStage     String?
   needsReview      Boolean          @default(false)
+  slaDeadline      DateTime?
+  slaBreached      Boolean          @default(false)
   fromAssetId      String
   fromAssetCode    String?
   fromAmount       Decimal

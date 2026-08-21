@@ -35,6 +35,12 @@ export class SwapTransactionsController {
     private readonly swapWorkflow: SwapWorkflowService,
   ) {}
 
+  private assertAdmin(req: any) {
+    if (req.user?.type !== 'ADMIN') {
+      throw new ForbiddenException('Admin only');
+    }
+  }
+
   @Post()
   @ApiOperation({ summary: 'Create a new swap transaction' })
   async create(@Body() _createSwapTransactionDto: CreateSwapTransactionDto) {
@@ -90,6 +96,19 @@ export class SwapTransactionsController {
   ) {
     const op = req.user?.userNo || req.user?.sub || 'ADMIN';
     return this.swapWorkflow.resumeLeg(swapNo, Number(legSeq), op);
+  }
+
+  @Post(':swapNo/simulate-sla-timeout')
+  @ApiOperation({ summary: '演示用：把该单的 SLA 截止时间拨到过去，下次扫描即破线' })
+  @RequirePermissions(
+    buildPermissionCode('POST', '/admin/swap-transactions/:swapNo/simulate-sla-timeout'),
+  )
+  simulateSlaTimeout(@Param('swapNo') swapNo: string, @Req() req: any) {
+    this.assertAdmin(req);
+    return this.swapTransactionsService.setSlaDeadlineByNo(swapNo, new Date(Date.now() - 1000), {
+      actorId: req.user?.userId,
+      actorRole: req.user?.role,
+    });
   }
 
   @Get(':id')

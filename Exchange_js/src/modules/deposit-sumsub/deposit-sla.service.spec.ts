@@ -12,6 +12,7 @@ describe('DepositSlaService', () => {
     depositService = {
       findSlaBreachCandidates: jest.fn().mockResolvedValue([]),
       updateStatus: jest.fn(),
+      markSlaBreached: jest.fn(),
     } as unknown as jest.Mocked<DepositTransactionsService>;
 
     auditLogsService = {
@@ -44,10 +45,14 @@ describe('DepositSlaService', () => {
     expect(depositService.updateStatus).toHaveBeenCalledWith(
       'dep-1',
       expect.objectContaining({ action: DepositTransactionAction.SLA_BREACH }),
-      expect.objectContaining({ extraData: { slaBreached: true } }),
+      expect.anything(),
     );
     expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
-      expect.objectContaining({ action: 'DEPOSIT_SLA_BREACHED', entityId: 'dep-1' }),
+      expect.objectContaining({
+        action: 'DEPOSIT_SLA_BREACHED',
+        entityId: 'dep-1',
+        requestId: expect.stringContaining('DEPOSIT_SLA_BREACHED'),
+      }),
     );
   });
 
@@ -74,10 +79,14 @@ describe('DepositSlaService', () => {
     expect(depositService.updateStatus).toHaveBeenCalledWith(
       'dep-2',
       expect.objectContaining({ action: DepositTransactionAction.SLA_BREACH }),
-      expect.objectContaining({ extraData: { slaBreached: true } }),
+      expect.anything(),
     );
     expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
-      expect.objectContaining({ action: 'DEPOSIT_SLA_BREACHED', entityId: 'dep-2' }),
+      expect.objectContaining({
+        action: 'DEPOSIT_SLA_BREACHED',
+        entityId: 'dep-2',
+        requestId: expect.stringContaining('DEPOSIT_SLA_BREACHED'),
+      }),
     );
   });
 
@@ -170,6 +179,79 @@ describe('DepositSlaService', () => {
       const calls = auditLogsService.recordSystem.mock.calls;
       const call = calls[calls.length - 1][0];
       expect(call.reason).not.toMatch(/no compliance action/i);
+    });
+  });
+
+  describe('硬/软两类破线', () => {
+    it('硬 SLA(COMPLIANCE_PENDING) 破线 → 推 MANUAL_CHECKING', async () => {
+      depositService.findSlaBreachCandidates.mockResolvedValue([
+        { id: 'd1', depositNo: 'DEP1', status: 'COMPLIANCE_PENDING', ownerType: 'CUSTOMER', ownerId: 'c1', slaDeadline: new Date(0) },
+      ] as any);
+      await service.checkSlaBreaches();
+      expect(depositService.updateStatus).toHaveBeenCalledWith(
+        'd1',
+        expect.objectContaining({ action: DepositTransactionAction.SLA_BREACH }),
+        expect.anything(),
+      );
+      expect(depositService.markSlaBreached).not.toHaveBeenCalled();
+    });
+
+    it('软 SLA(MANUAL_CHECKING) 破线 → 只置标记,状态一步不动,审计带 requestId', async () => {
+      depositService.findSlaBreachCandidates.mockResolvedValue([
+        { id: 'd2', depositNo: 'DEP2', status: 'MANUAL_CHECKING', ownerType: 'CUSTOMER', ownerId: 'c1', slaDeadline: new Date(0) },
+      ] as any);
+      await service.checkSlaBreaches();
+      expect(depositService.markSlaBreached).toHaveBeenCalledWith('d2');
+      expect(depositService.updateStatus).not.toHaveBeenCalled();
+      expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: 'DEPOSIT_SLA_BREACHED',
+          entityId: 'd2',
+          requestId: expect.stringContaining('DEPOSIT_SLA_BREACHED'),
+        }),
+      );
+    });
+
+    it('软 SLA(OPERATION_PENDING) 同样只置标记', async () => {
+      depositService.findSlaBreachCandidates.mockResolvedValue([
+        { id: 'd3', depositNo: 'DEP3', status: 'OPERATION_PENDING', ownerType: 'CUSTOMER', ownerId: 'c1', slaDeadline: new Date(0) },
+      ] as any);
+      await service.checkSlaBreaches();
+      expect(depositService.markSlaBreached).toHaveBeenCalledWith('d3');
+      expect(depositService.updateStatus).not.toHaveBeenCalled();
+    });
+
+    it('硬破线不传 slaBreached —— 否则进 MANUAL_CHECKING 后的软计时器一出生就被标成已破线', async () => {
+      depositService.findSlaBreachCandidates.mockResolvedValue([
+        { id: 'd4', depositNo: 'DEP4', status: 'COMPLIANCE_PENDING', ownerType: 'CUSTOMER', ownerId: 'c1', slaDeadline: new Date(0) },
+      ] as any);
+      await service.checkSlaBreaches();
+      const opts = depositService.updateStatus.mock.calls[0][2];
+      expect(opts?.extraData?.slaBreached).toBeUndefined();
+    });
+
+    it('硬 SLA 连续两轮扫描命中同一张单，产出不同的 requestId（幂等键不能恒定，否则第二条审计被静默丢弃）', async () => {
+      depositService.findSlaBreachCandidates.mockResolvedValue([
+        { id: 'd1', depositNo: 'DEP1', status: 'COMPLIANCE_PENDING', ownerType: 'CUSTOMER', ownerId: 'c1', slaDeadline: new Date(0) },
+      ] as any);
+      await service.checkSlaBreaches();
+      await service.checkSlaBreaches();
+
+      const calls = auditLogsService.recordSystem.mock.calls;
+      expect(calls).toHaveLength(2);
+      expect(calls[0][0].requestId).not.toBe(calls[1][0].requestId);
+    });
+
+    it('软 SLA 连续两轮扫描命中同一张单，产出不同的 requestId（幂等键不能恒定，否则第二条审计被静默丢弃）', async () => {
+      depositService.findSlaBreachCandidates.mockResolvedValue([
+        { id: 'd2', depositNo: 'DEP2', status: 'MANUAL_CHECKING', ownerType: 'CUSTOMER', ownerId: 'c1', slaDeadline: new Date(0) },
+      ] as any);
+      await service.checkSlaBreaches();
+      await service.checkSlaBreaches();
+
+      const calls = auditLogsService.recordSystem.mock.calls;
+      expect(calls).toHaveLength(2);
+      expect(calls[0][0].requestId).not.toBe(calls[1][0].requestId);
     });
   });
 });

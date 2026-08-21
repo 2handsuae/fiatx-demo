@@ -318,9 +318,6 @@ export class DepositWorkflowService implements OnModuleInit {
     DepositTransactionStatus.SEIZING,
   ]);
 
-  private static readonly ONHOLD_SLA_DAYS = 7;
-  private static readonly ACTION_SLA_DAYS = 7;
-
   /**
    * Sumsub KYT 裁决落地入口(DepositKytVerdictHandler 调用)。State-aware:
    * 已终态 no-op;已在目标态(重复 webhook)也 no-op。spec §5.1b + 校正(FROZEN 零记账)。
@@ -652,9 +649,6 @@ export class DepositWorkflowService implements OnModuleInit {
     applicantActions?: { applicantActionId: string; externalActionId: string }[],
   ) {
     const incoming = applicantActions ?? [];
-    const slaDeadline = new Date(
-      Date.now() + DepositWorkflowService.ACTION_SLA_DAYS * 24 * 60 * 60 * 1000,
-    );
 
     // 集合同步先做:无论状态动不动,子表都必须与报文的**全量列表**对齐。
     const { added, retired } = await this.applicantActions.syncApplicantActions(
@@ -711,6 +705,17 @@ export class DepositWorkflowService implements OnModuleInit {
       // 本就是把两表包进事务写的,这里的判据口径要跟它对齐。
       if (deposit.actionSubmittedAt == null) return; // 缓存本就干净,真 no-op
 
+      // reissue:客户被要求重新交材料,7 天的钟重新起算。状态没变、不经过
+      // updateStatus 的收口处,所以在这里显式取一次同一张配置表的值——
+      // 不要另立常量,那会让"7 天"有第二个真相源(正是本批要消灭的模式)。
+      const { slaDeadline } = this.depositService.resolveSlaFields(
+        DepositTransactionStatus.ACTION_PENDING,
+      );
+      if (!slaDeadline) {
+        // ACTION_PENDING 在 DEPOSIT_SLA_MINUTES_BY_STATUS 里恒有配置,理论上到不了
+        // 这里——留一道硬失败,防止有人把它从配置表删掉却漏改这处调用方。
+        throw new Error('resolveSlaFields(ACTION_PENDING) 未配置 —— 检查 DEPOSIT_SLA_MINUTES_BY_STATUS');
+      }
       await this.applicantActions.clearDepositCache(deposit.id, slaDeadline);
       await this.auditLogsService.recordSystem({
         action: AuditActions.DEPOSIT_ACTION_REISSUED,
@@ -760,11 +765,13 @@ export class DepositWorkflowService implements OnModuleInit {
 
     const manualReason = sceneTag === 'PEP' ? 'EDD_PEP' : 'CLIENT_ACTION';
     const oldStatus = deposit.status;
-    // actionSubmittedAt/slaBreached 必须在这条跨状态弧(常见于 MANUAL_CHECKING →
+    // actionSubmittedAt 必须在这条跨状态弧(常见于 MANUAL_CHECKING →
     // ACTION_PENDING,Sumsub officer 把已进人工复核的单又打回 awaitingUser,
-    // 2026-07-31 沙盒实测过)里一并清掉。它们是两个独立的持久字段,updateStatus
+    // 2026-07-31 沙盒实测过)里显式清掉——它是独立于 SLA 的持久字段,updateStatus
     // 不会替你清,不显式写就会原样带过去——客户此前交过的材料让缓存留着旧值,
     // 客户端会一直显示"已收到,审核中",客户被永久卡死。
+    // slaDeadline/slaBreached 不在这里写:进入 ACTION_PENDING 由 updateStatus
+    // 内部的 resolveSlaFields 统一算,这里再传会覆盖收口处刚算好的值。
     const updated = await this.depositService.updateStatus(
       deposit.id,
       {
@@ -776,9 +783,7 @@ export class DepositWorkflowService implements OnModuleInit {
         sourcePlatform: 'SYSTEM',
         extraData: {
           manualReason,
-          slaDeadline,
           actionSubmittedAt: null,
-          slaBreached: false,
         },
       },
     );
@@ -791,21 +796,25 @@ export class DepositWorkflowService implements OnModuleInit {
     );
   }
 
+  /**
+   * Sumsub onHold 回调：只记录「官员接手在看了」这一事实。
+   *
+   * ⚠️ 2026-08-21：本方法**不再**设 slaDeadline。SLA 按「状态」计时
+   * （进入 COMPLIANCE_PENDING 时由 DepositTransactionsService.resolveSlaFields 设），
+   * 与状态内部收到什么 webhook 无关。此前把计时挂在这里，导致「没收到 onHold 的单
+   * 永远不计时」——那正是「Sumsub 一直不回、单子永远挂在合规中」的成因。
+   * 不要把 SLA 逻辑再绑回任何 webhook 上。
+   */
   private async applyKytOnHold(deposit: any) {
     // Minor b 修复:状态守卫——onHold 只对当前在 COMPLIANCE_PENDING 的 deposit 生效。
     // 迟到的 onHold webhook(deposit 已转到 ACTION_PENDING/MANUAL_CHECKING/FROZEN 等其它
-    // 状态)no-op,防止重写 slaDeadline + 记多余 DEPOSIT_ONHOLD 审计。
+    // 状态)no-op,防止记多余 DEPOSIT_ONHOLD 审计。
     if (deposit.status !== DepositTransactionStatus.COMPLIANCE_PENDING) {
       this.logger.debug(
         `applyKytOnHold no-op: deposit ${deposit.id} not in COMPLIANCE_PENDING (status=${deposit.status}), late onHold webhook ignored`,
       );
       return;
     }
-
-    const slaDeadline = new Date(
-      Date.now() + DepositWorkflowService.ONHOLD_SLA_DAYS * 24 * 60 * 60 * 1000,
-    );
-    await this.depositService.setSlaDeadline(deposit.id, slaDeadline);
 
     await this.auditLogsService.recordSystem({
       action: AuditActions.DEPOSIT_ONHOLD,
@@ -817,7 +826,7 @@ export class DepositWorkflowService implements OnModuleInit {
       traceId: deposit.traceId || undefined,
       workflowType: 'DEPOSIT',
       reason: 'KYT verdict: onHold, awaiting officer review',
-      metadata: { slaDeadline: slaDeadline.toISOString() },
+      metadata: { note: 'onHold 不影响 SLA —— SLA 按状态计时,见 DEPOSIT_SLA_MINUTES_BY_STATUS' },
       sourcePlatform: 'SYSTEM',
     });
   }

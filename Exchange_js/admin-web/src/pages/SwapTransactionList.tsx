@@ -14,6 +14,7 @@ import {
 import { StatusPill } from '../components/ui/StatusPill';
 import { PageTitleBar } from '../components/ui/PageTitleBar';
 import { formatAssetAmount, formatRate8 } from '../utils/number-format';
+import { formatSlaRemaining } from '../utils/slaDisplay';
 
 /* ── Types ──────────────────────────────────────────────────── */
 
@@ -41,6 +42,8 @@ interface SwapTransactionListItem {
   spreadAmount: string | null;
   exchangeRate: string;
   createdAt: string;
+  slaDeadline?: string | null;
+  slaBreached?: boolean;
   customer?: {
     firstName: string | null;
     lastName: string | null;
@@ -54,6 +57,8 @@ interface FilterState {
   startDate: string;
   endDate: string;
   needsReviewOnly: boolean;
+  /** 仅看 SLA 已超时的单（前端过滤，后端暂无该查询参数）。 */
+  slaBreachedOnly: boolean;
 }
 
 const PAGE_SIZE = 20;
@@ -79,6 +84,7 @@ const SwapTransactionList = () => {
     startDate: '',
     endDate: '',
     needsReviewOnly: false,
+    slaBreachedOnly: false,
   });
 
   const hasFilters = useMemo(
@@ -87,7 +93,8 @@ const SwapTransactionList = () => {
       !!filters.ownerNo.trim() ||
       !!filters.startDate ||
       !!filters.endDate ||
-      filters.needsReviewOnly,
+      filters.needsReviewOnly ||
+      filters.slaBreachedOnly,
     [filters],
   );
 
@@ -138,6 +145,7 @@ const SwapTransactionList = () => {
       startDate: '',
       endDate: '',
       needsReviewOnly: false,
+      slaBreachedOnly: false,
     };
     setFilters(empty);
     setPage(1);
@@ -149,12 +157,19 @@ const SwapTransactionList = () => {
     void fetchData(p);
   };
 
-  // Backend has no `needsReview` query filter yet; apply client-side over the
-  // current page so operators can quickly isolate stuck swaps.
+  // Backend has no `needsReview` / `slaBreached` query filter yet; apply
+  // client-side over the current page only, so operators can quickly isolate
+  // stuck swaps — this does not search the full table, just what's loaded.
   const visibleItems = useMemo(
     () =>
-      filters.needsReviewOnly ? items.filter((it) => it.needsReview) : items,
-    [items, filters.needsReviewOnly],
+      items
+        .filter((it) => (filters.needsReviewOnly ? it.needsReview : true))
+        .filter((it) =>
+          filters.slaBreachedOnly
+            ? formatSlaRemaining(it.slaDeadline, it.slaBreached).tone === 'breached'
+            : true,
+        ),
+    [items, filters.needsReviewOnly, filters.slaBreachedOnly],
   );
 
   const fi =
@@ -224,6 +239,21 @@ const SwapTransactionList = () => {
           />
           Needs review only
         </label>
+        {/* 前端过滤，只对当前页生效（后端暂无 slaBreached 查询参数）——同上 needsReviewOnly 的局限 */}
+        <label
+          className="ml-2 inline-flex cursor-pointer items-center gap-1.5 font-mono text-[11px] text-adm-t2"
+          title="仅过滤当前页已加载的行，不是全库筛选"
+        >
+          <input
+            type="checkbox"
+            checked={filters.slaBreachedOnly}
+            onChange={(e) =>
+              setFilters((f) => ({ ...f, slaBreachedOnly: e.target.checked }))
+            }
+            className="h-3.5 w-3.5 accent-adm-red"
+          />
+          SLA breached only (this page)
+        </label>
       </div>
 
       {/* Table */}
@@ -242,6 +272,7 @@ const SwapTransactionList = () => {
                   ['Status',      '120px'],
                   ['Stage',       '110px'],
                   ['Review',      '80px'],
+                  ['SLA',         '100px'],
                   ['Created',     '150px'],
                 ] as [string, string][]
               ).map(([label, w]) => (
@@ -258,20 +289,20 @@ const SwapTransactionList = () => {
           <tbody>
             {error ? (
               <tr>
-                <td colSpan={10} className="px-4 py-10 text-center font-mono text-[11px] text-adm-red">
+                <td colSpan={11} className="px-4 py-10 text-center font-mono text-[11px] text-adm-red">
                   {error}
                 </td>
               </tr>
             ) : loading && items.length === 0 ? (
               <tr>
-                <td colSpan={10} className="px-4 py-10 text-center font-mono text-[11px] text-adm-t3">
+                <td colSpan={11} className="px-4 py-10 text-center font-mono text-[11px] text-adm-t3">
                   <RefreshCw className="mx-auto mb-2 animate-spin text-adm-amber" size={20} />
                   Loading…
                 </td>
               </tr>
             ) : visibleItems.length === 0 ? (
               <tr>
-                <td colSpan={10} className="px-4 py-10 text-center font-mono text-[11px] text-adm-t3">
+                <td colSpan={11} className="px-4 py-10 text-center font-mono text-[11px] text-adm-t3">
                   No swap transactions found.
                 </td>
               </tr>
@@ -326,6 +357,16 @@ const SwapTransactionList = () => {
                     ) : (
                       <span className="font-mono text-[10px] text-adm-t3">—</span>
                     )}
+                  </td>
+                  <td className="px-4 py-2.5">
+                    {(() => {
+                      const sla = formatSlaRemaining(item.slaDeadline, item.slaBreached);
+                      return (
+                        <span className={sla.tone === 'breached' ? 'font-medium text-red-600' : 'text-gray-600'}>
+                          {sla.text}
+                        </span>
+                      );
+                    })()}
                   </td>
                   <td className="px-4 py-2.5 font-mono text-[10px] text-adm-t2 whitespace-nowrap">
                     {fmt(item.createdAt)}

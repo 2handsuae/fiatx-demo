@@ -14,6 +14,7 @@ import {
 } from './dto/withdraw-transaction.dto';
 import { Prisma } from '@prisma/client';
 import { EventEmitter2 } from '@nestjs/event-emitter';
+import { randomUUID } from 'crypto';
 import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import {
   AuditActions,
@@ -47,6 +48,22 @@ export const WITHDRAW_TERMINAL_STATUSES: ReadonlySet<string> = new Set<string>([
   WithdrawTransactionStatus.REJECTED,
   WithdrawTransactionStatus.FAILED,
   WithdrawTransactionStatus.RETURNED,
+]);
+
+/**
+ * 提现域 SLA 配置（2026-08-21 第三批）。与充值域各写一份（deliberate fork）。
+ * ⚠️ SLA 按「状态」计时——不要把它绑到 onHold 之类的 webhook 上。
+ */
+const WITHDRAW_SLA_MINUTES_BY_STATUS: Partial<Record<WithdrawTransactionStatus, number>> = {
+  [WithdrawTransactionStatus.COMPLIANCE_PENDING]: 5,            // 等 Sumsub 回裁决
+  [WithdrawTransactionStatus.ACTION_PENDING]: 7 * 24 * 60,      // 等客户交材料
+  [WithdrawTransactionStatus.MANUAL_CHECKING]: 3 * 24 * 60,     // 软:等合规官
+  [WithdrawTransactionStatus.PENDING_APPROVAL]: 1 * 24 * 60,    // 软:等审批人
+};
+
+export const WITHDRAW_SLA_SOFT_STATUSES: ReadonlySet<string> = new Set<string>([
+  WithdrawTransactionStatus.MANUAL_CHECKING,
+  WithdrawTransactionStatus.PENDING_APPROVAL,
 ]);
 
 export interface WithdrawStatusUpdateContext {
@@ -485,12 +502,17 @@ export class WithdrawTransactionsService {
   }
 
   /** Pure persistence: insert a withdrawal row inside a caller-owned tx.
-   *  No events, no audit, no accounting — the workflow owns those. */
+   *  No events, no audit, no accounting — the workflow owns those.
+   *  ⚠️ 出生态写入不经过 updateStatus（brief 收口处覆盖不到）——每笔提现出生即落
+   *  COMPLIANCE_PENDING（"出生即着陆"），这里按同一张配置表补上 SLA 字段，否则
+   *  「进入 COMPLIANCE_PENDING 就开始计时」对提现建单这条路会落空。 */
   async insertRecord(
     tx: Prisma.TransactionClient,
     data: Record<string, any>,
   ) {
-    return (tx as any).withdrawTransaction.create({ data });
+    return (tx as any).withdrawTransaction.create({
+      data: { ...this.resolveSlaFields(data.status), ...data },
+    });
   }
 
   /** Persist TB pending transfer ids on a withdrawal inside a caller-owned tx. */
@@ -623,6 +645,21 @@ export class WithdrawTransactionsService {
     return { ...item, sumsubDetail, approvals };
   }
 
+  /**
+   * 进入 nextStatus 时该带的 SLA 字段。有配置就起新计时，没配置就清空。
+   * slaBreached 一律归 false —— 换了状态就是换了等待对象，旧的破线记录不该跟过来。
+   *
+   * 公开的原因：reissue 路径（Sumsub 重发 applicant actions，客户要重新交材料）
+   * 状态不变、不走 updateStatus，收口处盖不到它，只能由调用方显式取一次。
+   * 这是**唯一**的例外出口 —— 不要因为"方便"从别处调它绕过收口处。
+   */
+  resolveSlaFields(nextStatus: WithdrawTransactionStatus) {
+    const minutes = WITHDRAW_SLA_MINUTES_BY_STATUS[nextStatus];
+    return minutes === undefined
+      ? { slaDeadline: null, slaBreached: false }
+      : { slaDeadline: new Date(Date.now() + minutes * 60_000), slaBreached: false };
+  }
+
   async updateStatus(
     id: string,
     dto: UpdateWithdrawTransactionStatusDto,
@@ -693,6 +730,8 @@ export class WithdrawTransactionsService {
             ? new Date()
             : item.completedAt,
           statusHistory: JSON.stringify(history),
+          // SLA 字段必须在 extraData 之前展开 —— 调用方显式传的值优先级更高。
+          ...this.resolveSlaFields(nextStatus),
           ...(context?.extraData || {}),
         },
       });
@@ -799,6 +838,7 @@ export class WithdrawTransactionsService {
           feeAmount: new Prisma.Decimal(0),
           toAddress: isCrypto ? '0x' + Math.random().toString(16).slice(2) : null,
           toIban: !isCrypto ? 'IBAN' + Math.random().toString().slice(2) : null,
+          ...this.resolveSlaFields(WithdrawTransactionStatus.PENDING_APPROVAL),
           statusHistory: JSON.stringify([{
             from: 'NONE',
             to: WithdrawTransactionStatus.PENDING_APPROVAL,
@@ -868,14 +908,82 @@ export class WithdrawTransactionsService {
   }
 
   /**
-   * Sets/refreshes the SLA deadline for a withdrawal sitting in onHold
-   * (COMPLIANCE_PENDING). No status change here — callers manage the
-   * transition (or lack thereof) separately via updateStatus.
+   * 按 id 直接改写一条 withdrawal 的 slaDeadline；不碰状态。
+   *
+   * 目前零调用方——Task 3 把计时收拢到进入状态时统一设（见
+   * WithdrawTransactionsService.resolveSlaFields，挂在 updateStatus 等状态
+   * 机收口处）之后，业务流程里再没人调它。留着是给后面「模拟超时」端点
+   * 用的（按 id 直接推 deadline 演示破线），不是死代码。**不要**在业务
+   * 流程里用它设 deadline，会绕开收口处、重新制造"漏计时"的窗口。
    */
   async setSlaDeadline(id: string, slaDeadline: Date) {
     return (this.prisma as any).withdrawTransaction.update({
       where: { id },
       data: { slaDeadline },
+    });
+  }
+
+  /**
+   * 演示用：把 slaDeadline 拨到过去，下一次 cron 扫描即破线。
+   * 按业务号查（铁律③：有稳定业务键就别用 id 当查询合同），内部解出 id 后
+   * 复用 setSlaDeadline。`slaDeadline === null` 时拒绝——那说明单子当前
+   * 状态不计时（终态 / FROZEN / 等外部执行的态），硬拨会让扫描器捞出一个
+   * 本不该计时的单去处置。
+   *
+   * operator 点按钮触发、改了持久字段 → 必须写审计（规则①），走
+   * recordByActor（不是 recordSystem——这是人触发的，不是 cron）。
+   */
+  async setSlaDeadlineByNo(
+    withdrawNo: string,
+    slaDeadline: Date,
+    actor: { actorId?: string; actorRole?: string },
+  ) {
+    const row = await (this.prisma as any).withdrawTransaction.findFirst({
+      where: { withdrawNo },
+      select: { id: true, slaDeadline: true, ownerType: true, ownerId: true },
+    });
+    if (!row) throw new NotFoundException(`Withdraw not found: ${withdrawNo}`);
+    if (row.slaDeadline === null) {
+      throw new BadRequestException(
+        `Withdraw ${withdrawNo} is not in an SLA-timed state — nothing to time out`,
+      );
+    }
+
+    const updated = await this.setSlaDeadline(row.id, slaDeadline);
+
+    await this.auditLogsService.recordByActor(
+      {
+        action: AuditActions.WITHDRAW_SLA_TIMEOUT_SIMULATED,
+        entityType: AuditEntityTypes.WITHDRAW_TRANSACTION,
+        entityId: row.id,
+        entityNo: withdrawNo,
+        entityOwnerType: row.ownerType,
+        entityOwnerId: row.ownerId,
+        workflowType: AuditWorkflowTypes.WITHDRAW,
+        reason: 'Demo: SLA deadline moved to the past to trigger an immediate breach on the next scan',
+        metadata: { previousSlaDeadline: row.slaDeadline, newSlaDeadline: slaDeadline },
+        requestId: `WITHDRAW_SLA_TIMEOUT_SIMULATED_${withdrawNo}_${randomUUID()}`,
+        sourcePlatform: 'ADMIN_API',
+      },
+      {
+        actorType: 'ADMIN',
+        actorId: actor?.actorId || 'ADMIN_SYSTEM',
+        actorRole: actor?.actorRole,
+      },
+    );
+
+    return updated;
+  }
+
+  /**
+   * 软 SLA 破线：只置标记，**不碰 status**。
+   * 业主裁定（2026-08-21）：等自己人的状态超时了，超时的是我们自己，
+   * 不能把怠工转嫁给客户——单子该怎么判还得人判，系统只负责把它标红催人。
+   */
+  async markSlaBreached(id: string) {
+    return (this.prisma as any).withdrawTransaction.update({
+      where: { id },
+      data: { slaBreached: true },
     });
   }
 
@@ -930,9 +1038,9 @@ export class WithdrawTransactionsService {
   }
 
   /**
-   * SLA timer (WithdrawSlaService) scan: onHold(COMPLIANCE_PENDING) and
-   * ACTION_PENDING withdrawals whose slaDeadline has passed and haven't been
-   * flagged yet.
+   * SLA 破线候选扫描。硬软两类都扫，由 WithdrawSlaService 按状态分流：
+   *   硬（COMPLIANCE_PENDING / ACTION_PENDING）→ 推 MANUAL_CHECKING
+   *   软（MANUAL_CHECKING / PENDING_APPROVAL）→ 只置 slaBreached
    */
   async findSlaBreachCandidates(now: Date) {
     return (this.prisma as any).withdrawTransaction.findMany({
@@ -941,6 +1049,8 @@ export class WithdrawTransactionsService {
           in: [
             WithdrawTransactionStatus.COMPLIANCE_PENDING,
             WithdrawTransactionStatus.ACTION_PENDING,
+            WithdrawTransactionStatus.MANUAL_CHECKING,
+            WithdrawTransactionStatus.PENDING_APPROVAL,
           ],
         },
         slaDeadline: { lt: now },
@@ -1030,6 +1140,9 @@ export class WithdrawTransactionsService {
       where: { id },
       data: {
         status: WithdrawTransactionStatus.PENDING_APPROVAL,
+        // 同样绕过 updateStatus——落地 PENDING_APPROVAL 时按配置表重起 SLA 计时，
+        // 顶掉出生时留下的 COMPLIANCE_PENDING deadline（换了状态就是换了等待对象）。
+        ...this.resolveSlaFields(WithdrawTransactionStatus.PENDING_APPROVAL),
         statusHistory: JSON.stringify(history),
       },
     });

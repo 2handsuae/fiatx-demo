@@ -115,6 +115,30 @@ export const DEPOSIT_TERMINAL_STATUSES: ReadonlySet<string> = new Set<string>([
   DepositTransactionStatus.SEIZED,
 ]);
 
+/**
+ * 充值域 SLA 配置（2026-08-21 第三批）。key = 进入该状态后开始计时，value = 分钟数。
+ * 不在表里的状态 = 不计时（终态、等外部执行的态、FROZEN）。
+ *
+ * ⚠️ SLA 按「状态」计时，与状态内部发生了什么无关。此前把计时挂在 onHold 回调上
+ * 是错的挂法——没收到 onHold 的单永远不计时，那正是「Sumsub 不回、单子永远挂着」
+ * 的成因。不要再把任何 SLA 逻辑绑到某个 webhook 上。
+ */
+const DEPOSIT_SLA_MINUTES_BY_STATUS: Partial<Record<DepositTransactionStatus, number>> = {
+  [DepositTransactionStatus.COMPLIANCE_PENDING]: 5,            // 等 Sumsub 回裁决
+  [DepositTransactionStatus.ACTION_PENDING]: 7 * 24 * 60,      // 等客户交材料
+  [DepositTransactionStatus.MANUAL_CHECKING]: 3 * 24 * 60,     // 软:等合规官
+  [DepositTransactionStatus.OPERATION_PENDING]: 1 * 24 * 60,   // 软:等运营
+};
+
+/**
+ * 软 SLA：破线只置 slaBreached 标记、**不推状态**。
+ * 业主裁定：超时的是我们自己人，不能把怠工转嫁给客户——单子该怎么判还得人判。
+ */
+export const DEPOSIT_SLA_SOFT_STATUSES: ReadonlySet<string> = new Set<string>([
+  DepositTransactionStatus.MANUAL_CHECKING,
+  DepositTransactionStatus.OPERATION_PENDING,
+]);
+
 export interface DepositStatusUpdateActorContext {
   actorType: string;
   actorId: string;
@@ -587,6 +611,21 @@ export class DepositTransactionsService {
     return this.findOneForCustomer(row.id, customerId);
   }
 
+  /**
+   * 进入 nextStatus 时该带的 SLA 字段。有配置就起新计时，没配置就清空。
+   * slaBreached 一律归 false —— 换了状态就是换了等待对象，旧的破线记录不该跟过来。
+   *
+   * 公开的原因：reissue 路径（Sumsub 重发 applicant actions，客户要重新交材料）
+   * 状态不变、不走 updateStatus，收口处盖不到它，只能由调用方显式取一次。
+   * 这是**唯一**的例外出口 —— 不要因为"方便"从别处调它绕过收口处。
+   */
+  resolveSlaFields(nextStatus: DepositTransactionStatus) {
+    const minutes = DEPOSIT_SLA_MINUTES_BY_STATUS[nextStatus];
+    return minutes === undefined
+      ? { slaDeadline: null, slaBreached: false }
+      : { slaDeadline: new Date(Date.now() + minutes * 60_000), slaBreached: false };
+  }
+
   async updateStatus(
     id: string,
     dto: UpdateDepositTransactionStatusDto,
@@ -648,6 +687,8 @@ export class DepositTransactionsService {
     const updateData: any = {
       status: nextStatus,
       statusHistory: JSON.stringify(currentHistory),
+      // SLA 字段必须在 extraData 之前展开 —— 调用方显式传的值优先级更高。
+      ...this.resolveSlaFields(nextStatus),
       ...(options?.extraData || {}),
     };
 
@@ -811,9 +852,14 @@ export class DepositTransactionsService {
   }
 
   /**
-   * Sets/refreshes the SLA deadline for a deposit sitting in onHold
-   * (COMPLIANCE_PENDING) or ACTION_PENDING. No status change here — callers
-   * manage the transition (or lack thereof) separately via updateStatus.
+   * 按 id 直接设置/刷新一条 deposit 的 slaDeadline，不触发状态变更。
+   *
+   * ⚠️ 2026-08-21：Task 3 把计时改为进入状态时统一设（见 resolveSlaFields，
+   * 在 updateStatus 等状态机收口处调用）之后，这个方法**已无任何调用方**。
+   * 保留是有意的——后续「模拟超时」端点需要按 id 直接改 deadline 来演示
+   * 破线，到时会调它。**不要**拿它在正常业务流程里设 deadline——那是状态
+   * 机收口处（resolveSlaFields）的职责，绕过收口处设 deadline 又会重蹈
+   * Task 3 刚修掉的覆盖面缺口。
    */
   async setSlaDeadline(id: string, slaDeadline: Date) {
     return (this.prisma as any).depositTransaction.update({
@@ -823,8 +869,73 @@ export class DepositTransactionsService {
   }
 
   /**
-   * SLA timer (Task 10) scan: onHold(COMPLIANCE_PENDING) and ACTION_PENDING
-   * deposits whose slaDeadline has passed and haven't been flagged yet.
+   * 演示用：把 slaDeadline 拨到过去，下一次 cron 扫描即破线。
+   * 按业务号查（铁律③：有稳定业务键就别用 id 当查询合同），内部解出 id 后
+   * 复用 setSlaDeadline。`slaDeadline === null` 时拒绝——那说明单子当前
+   * 状态不计时（终态 / FROZEN / 等外部执行的态），硬拨会让扫描器捞出一个
+   * 本不该计时的单去处置。
+   *
+   * operator 点按钮触发、改了持久字段 → 必须写审计（规则①），走
+   * recordByActor（不是 recordSystem——这是人触发的，不是 cron）。
+   */
+  async setSlaDeadlineByNo(
+    depositNo: string,
+    slaDeadline: Date,
+    actor: { actorId?: string; actorRole?: string },
+  ) {
+    const row = await (this.prisma as any).depositTransaction.findFirst({
+      where: { depositNo },
+      select: { id: true, slaDeadline: true, ownerType: true, ownerId: true },
+    });
+    if (!row) throw new NotFoundException(`Deposit not found: ${depositNo}`);
+    if (row.slaDeadline === null) {
+      throw new BadRequestException(
+        `Deposit ${depositNo} is not in an SLA-timed state — nothing to time out`,
+      );
+    }
+
+    const updated = await this.setSlaDeadline(row.id, slaDeadline);
+
+    await this.auditLogsService.recordByActor(
+      {
+        action: AuditActions.DEPOSIT_SLA_TIMEOUT_SIMULATED,
+        entityType: AuditEntityTypes.DEPOSIT_TRANSACTION,
+        entityId: row.id,
+        entityNo: depositNo,
+        entityOwnerType: row.ownerType,
+        entityOwnerId: row.ownerId,
+        workflowType: 'DEPOSIT',
+        reason: 'Demo: SLA deadline moved to the past to trigger an immediate breach on the next scan',
+        metadata: { previousSlaDeadline: row.slaDeadline, newSlaDeadline: slaDeadline },
+        requestId: `DEPOSIT_SLA_TIMEOUT_SIMULATED_${depositNo}_${randomUUID()}`,
+        sourcePlatform: 'ADMIN_API',
+      },
+      {
+        actorType: 'ADMIN',
+        actorId: actor?.actorId || 'ADMIN_SYSTEM',
+        actorRole: actor?.actorRole,
+      },
+    );
+
+    return updated;
+  }
+
+  /**
+   * 软 SLA 破线：只置标记，**不碰 status**。
+   * 业主裁定（2026-08-21）：等自己人的状态超时了，超时的是我们自己，
+   * 不能把怠工转嫁给客户——单子该怎么判还得人判，系统只负责把它标红催人。
+   */
+  async markSlaBreached(id: string) {
+    return (this.prisma as any).depositTransaction.update({
+      where: { id },
+      data: { slaBreached: true },
+    });
+  }
+
+  /**
+   * SLA 破线候选扫描。硬软两类都扫，由 DepositSlaService 按状态分流：
+   *   硬（COMPLIANCE_PENDING / ACTION_PENDING）→ 推 MANUAL_CHECKING
+   *   软（MANUAL_CHECKING / OPERATION_PENDING）→ 只置 slaBreached
    */
   async findSlaBreachCandidates(now: Date) {
     return (this.prisma as any).depositTransaction.findMany({
@@ -833,6 +944,8 @@ export class DepositTransactionsService {
           in: [
             DepositTransactionStatus.COMPLIANCE_PENDING,
             DepositTransactionStatus.ACTION_PENDING,
+            DepositTransactionStatus.MANUAL_CHECKING,
+            DepositTransactionStatus.OPERATION_PENDING,
           ],
         },
         slaDeadline: { lt: now },

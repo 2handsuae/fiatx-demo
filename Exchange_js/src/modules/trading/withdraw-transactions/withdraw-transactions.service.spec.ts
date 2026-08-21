@@ -1,5 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { BadRequestException, ForbiddenException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { WithdrawTransactionsService } from './withdraw-transactions.service';
@@ -59,7 +59,7 @@ describe('WithdrawTransactionsService', () => {
         $transaction: jest.fn((cb: any) => cb(mockTx)),
         asset: { findUnique: jest.fn() },
         customerMain: { findUnique: jest.fn() },
-        withdrawTransaction: { findUnique: jest.fn() },
+        withdrawTransaction: { findUnique: jest.fn(), findFirst: jest.fn(), update: jest.fn() },
         withdrawalAddress: { findFirst: jest.fn() },
         auditLogEvent: {
           findUnique: jest.fn(),
@@ -242,6 +242,32 @@ describe('WithdrawTransactionsService', () => {
         }),
       }),
     );
+  });
+
+  // SLA deadline（第三批）：出生态写入（insertRecord）不经过 updateStatus，
+  // 收口处覆盖不到 —— insertRecord 必须自己按配置表补 SLA 字段，否则
+  // 「进入 COMPLIANCE_PENDING 就开始计时」对提现建单这条路会落空（brief 明确点名
+  // 的三条 COMPLIANCE_PENDING 入路之一）。
+  it('建单（insertRecord）落 COMPLIANCE_PENDING 时也设 5 分钟 SLA deadline', async () => {
+    prisma.asset.findUnique.mockResolvedValue({ id: 'asset-1', type: 'CRYPTO' });
+    prisma.customerMain.findUnique.mockResolvedValue({ customerNo: 'C001', onboardingStatus: 'APPROVED', adminStatus: 'ACTIVE' });
+    mockTx.withdrawTransaction.create.mockImplementation(({ data }: any) =>
+      Promise.resolve({ id: 'wd-create-sla', fromWalletId: null, ...data }),
+    );
+    mockTx.auditLogEvent.create.mockResolvedValue({ id: 'audit-create-sla' });
+    const before = Date.now();
+
+    await workflow.createWithdrawal(
+      { assetId: 'asset-1', amount: 100, quoteId: 'wq-1' } as any,
+      'user-1',
+    );
+
+    const call = (mockTx.withdrawTransaction.create as jest.Mock).mock.calls[0][0];
+    expect(call.data.status).toBe(WithdrawTransactionStatus.COMPLIANCE_PENDING);
+    const delta = new Date(call.data.slaDeadline).getTime() - before;
+    expect(delta).toBeGreaterThan(4 * 60_000);
+    expect(delta).toBeLessThan(6 * 60_000);
+    expect(call.data.slaBreached).toBe(false);
   });
 
   // ── Task 3: address-registration guard + VASP derivation (RED → GREEN) ──
@@ -991,6 +1017,30 @@ describe('WithdrawTransactionsService', () => {
       expect(writtenHistory[1]).toMatchObject({ status: WithdrawTransactionStatus.PENDING_APPROVAL });
       expect(result.status).toBe(WithdrawTransactionStatus.PENDING_APPROVAL);
     });
+
+    // SLA deadline（第三批）：这条写入也绕过 updateStatus，收口处覆盖不到 ——
+    // landOnPendingApproval 必须自己按配置表重起 SLA 计时（顶掉出生时留下的
+    // COMPLIANCE_PENDING deadline），否则一笔大额提现走审批闸这条路，PENDING_APPROVAL
+    // 永远不计时。
+    it('也按配置表设 1 天（软）SLA deadline，顶掉出生时的 COMPLIANCE_PENDING deadline', async () => {
+      prisma.withdrawTransaction.findUnique.mockResolvedValue({
+        statusHistory: JSON.stringify([
+          { status: WithdrawTransactionStatus.COMPLIANCE_PENDING, note: 'Withdrawal created — awaiting approval-gate valuation' },
+        ]),
+      });
+      prisma.withdrawTransaction.update = jest.fn().mockImplementation(({ data }: any) =>
+        Promise.resolve({ id: 'wd-birth-route-2', ...data }),
+      );
+      const before = Date.now();
+
+      const result = await service.landOnPendingApproval('wd-birth-route-2');
+
+      expect(result.status).toBe(WithdrawTransactionStatus.PENDING_APPROVAL);
+      const delta = new Date(result.slaDeadline).getTime() - before;
+      expect(delta).toBeGreaterThan(23 * 60 * 60_000);
+      expect(delta).toBeLessThan(25 * 60 * 60_000);
+      expect(result.slaBreached).toBe(false);
+    });
   });
 
   it('should transition to FAILED when payout fails', async () => {
@@ -1248,6 +1298,137 @@ describe('WithdrawTransactionsService', () => {
           ).rejects.toThrow(BadRequestException);
         }
       }
+    });
+  });
+
+  describe('SLA deadline 在状态机收口处统一设', () => {
+    const mockId = 'wd-sla-1';
+
+    function setupMock(status: WithdrawTransactionStatus) {
+      const mockRecord = {
+        id: mockId,
+        withdrawNo: 'WD-SLA',
+        ownerType: 'CUSTOMER',
+        ownerId: 'cust-sla',
+        assetId: 'asset-sla',
+        status,
+        statusHistory: '[]',
+        approvedAt: null,
+        payoutRequestedAt: null,
+        completedAt: null,
+        asset: { type: 'CRYPTO' },
+      };
+      mockTx.withdrawTransaction.findUnique.mockResolvedValue(mockRecord);
+      mockTx.withdrawTransaction.update.mockImplementation(({ data }: any) =>
+        Promise.resolve({ ...mockRecord, ...data }),
+      );
+    }
+
+    it('进入 COMPLIANCE_PENDING 时设 5 分钟 deadline', async () => {
+      setupMock(WithdrawTransactionStatus.PENDING_APPROVAL);
+      const before = Date.now();
+
+      const updated = await service.updateStatus(mockId, {
+        action: WithdrawTransactionAction.GATE_APPROVE,
+      });
+
+      expect(updated.status).toBe(WithdrawTransactionStatus.COMPLIANCE_PENDING);
+      const delta = new Date(updated.slaDeadline).getTime() - before;
+      expect(delta).toBeGreaterThan(4 * 60_000);
+      expect(delta).toBeLessThan(6 * 60_000);
+      expect(updated.slaBreached).toBe(false);
+    });
+
+    it('进入无 SLA 的状态时把 deadline 清空', async () => {
+      setupMock(WithdrawTransactionStatus.COMPLIANCE_PENDING);
+
+      const updated = await service.updateStatus(mockId, {
+        action: WithdrawTransactionAction.APPROVE,
+      });
+
+      expect(updated.status).toBe(WithdrawTransactionStatus.PAYOUT_PENDING);
+      expect(updated.slaDeadline).toBeNull();
+    });
+  });
+
+  describe('setSlaDeadlineByNo (演示用「模拟超时」端点)', () => {
+    it('按 withdrawNo 查不到单时抛 NotFoundException', async () => {
+      (prisma.withdrawTransaction.findFirst as jest.Mock).mockResolvedValue(null);
+
+      await expect(
+        service.setSlaDeadlineByNo('WDR-MISSING', new Date(), {}),
+      ).rejects.toBeInstanceOf(NotFoundException);
+    });
+
+    it('slaDeadline 为 null（不计时状态）时抛 BadRequestException，不落库不写审计', async () => {
+      (prisma.withdrawTransaction.findFirst as jest.Mock).mockResolvedValue({
+        id: 'wd-1',
+        slaDeadline: null,
+        ownerType: 'CUSTOMER',
+        ownerId: 'cust-1',
+      });
+
+      await expect(
+        service.setSlaDeadlineByNo('WDR0001', new Date(), {}),
+      ).rejects.toBeInstanceOf(BadRequestException);
+      expect(prisma.withdrawTransaction.update).not.toHaveBeenCalled();
+      expect(auditLogsService.recordByActor).not.toHaveBeenCalled();
+    });
+
+    it('单据在 SLA 计时状态时把 deadline 拨过去并写审计', async () => {
+      const pastDate = new Date(Date.now() - 1000);
+      (prisma.withdrawTransaction.findFirst as jest.Mock).mockResolvedValue({
+        id: 'wd-1',
+        slaDeadline: new Date(Date.now() + 5 * 60_000),
+        ownerType: 'CUSTOMER',
+        ownerId: 'cust-1',
+      });
+      (prisma.withdrawTransaction.update as jest.Mock).mockResolvedValue({
+        id: 'wd-1',
+        slaDeadline: pastDate,
+      });
+
+      const result = await service.setSlaDeadlineByNo('WDR0001', pastDate, {
+        actorId: 'admin-1',
+        actorRole: 'OPERATOR',
+      });
+
+      expect(prisma.withdrawTransaction.update).toHaveBeenCalledWith({
+        where: { id: 'wd-1' },
+        data: { slaDeadline: pastDate },
+      });
+      expect(auditLogsService.recordByActor).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: 'WITHDRAW_SLA_TIMEOUT_SIMULATED',
+          entityType: 'WITHDRAW_TRANSACTION',
+          entityId: 'wd-1',
+          entityNo: 'WDR0001',
+          requestId: expect.stringContaining('SLA_TIMEOUT_SIMULATED'),
+        }),
+        expect.objectContaining({ actorType: 'ADMIN', actorId: 'admin-1', actorRole: 'OPERATOR' }),
+      );
+      expect(result.slaDeadline).toEqual(pastDate);
+    });
+
+    it('同一张单连续两次模拟超时，产出不同的 requestId（幂等键不能恒定，否则第二条审计被静默丢弃）', async () => {
+      const pastDate = new Date(Date.now() - 1000);
+      (prisma.withdrawTransaction.findFirst as jest.Mock).mockResolvedValue({
+        id: 'wd-1',
+        slaDeadline: new Date(Date.now() + 5 * 60_000),
+        ownerType: 'CUSTOMER',
+        ownerId: 'cust-1',
+      });
+      (prisma.withdrawTransaction.update as jest.Mock).mockResolvedValue({
+        id: 'wd-1',
+        slaDeadline: pastDate,
+      });
+
+      await service.setSlaDeadlineByNo('WDR0001', pastDate, { actorId: 'admin-1', actorRole: 'OPERATOR' });
+      await service.setSlaDeadlineByNo('WDR0001', pastDate, { actorId: 'admin-1', actorRole: 'OPERATOR' });
+
+      const calls = auditLogsService.recordByActor.mock.calls;
+      expect(calls).toHaveLength(2);
+      expect(calls[0][0].requestId).not.toBe(calls[1][0].requestId);
     });
   });
 });

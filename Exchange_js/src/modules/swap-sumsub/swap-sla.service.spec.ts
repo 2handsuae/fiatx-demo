@@ -8,7 +8,7 @@ import { BadRequestException } from '@nestjs/common';
 
 describe('SwapSlaService', () => {
   let prisma: any;
-  let swapService: jest.Mocked<Pick<SwapTransactionsService, 'markStatus'>>;
+  let swapService: jest.Mocked<Pick<SwapTransactionsService, 'markStatus' | 'findSlaBreachCandidates'>>;
   let workflow: jest.Mocked<Pick<SwapWorkflowService, 'submitSumsubTxnOut'>>;
   let auditLogsService: jest.Mocked<Pick<AuditLogsService, 'recordSystem'>>;
   let markStatusSpy: jest.Mock;
@@ -16,11 +16,13 @@ describe('SwapSlaService', () => {
 
   beforeEach(() => {
     markStatusSpy = jest.fn().mockResolvedValue('REJECTED');
-    swapService = { markStatus: markStatusSpy } as any;
+    swapService = {
+      markStatus: markStatusSpy,
+      findSlaBreachCandidates: jest.fn().mockResolvedValue([]),
+    } as any;
     workflow = { submitSumsubTxnOut: jest.fn().mockResolvedValue(undefined) } as any;
     auditLogsService = { recordSystem: jest.fn().mockResolvedValue(undefined) } as any;
     prisma = {
-      swapTransaction: { findMany: jest.fn().mockResolvedValue([]) },
       // 与 swap-workflow.service.spec.ts 同款：$transaction 直接把回调塞进同一个 tx。
       $transaction: jest.fn((cb: (tx: any) => Promise<any>) => cb(prisma)),
     };
@@ -34,7 +36,7 @@ describe('SwapSlaService', () => {
   });
 
   it('超过合规超时的 COMPLIANCE_PENDING 单 → REJECTED(TIMEOUT)', async () => {
-    prisma.swapTransaction.findMany.mockResolvedValue([
+    (swapService.findSlaBreachCandidates as jest.Mock).mockResolvedValue([
       {
         id: 's1',
         swapNo: 'SWP001',
@@ -60,7 +62,7 @@ describe('SwapSlaService', () => {
   });
 
   it('已建单但未提交（sumsubTxnIdOut 为空）→ 重试提交而非判超时', async () => {
-    prisma.swapTransaction.findMany.mockResolvedValue([
+    (swapService.findSlaBreachCandidates as jest.Mock).mockResolvedValue([
       {
         id: 's2',
         swapNo: 'SWP002',
@@ -83,7 +85,7 @@ describe('SwapSlaService', () => {
   });
 
   it('超时判死会写一条 SWAP_SLA_BREACHED 审计（markStatus 本身不写审计，调用方负责）', async () => {
-    prisma.swapTransaction.findMany.mockResolvedValue([
+    (swapService.findSlaBreachCandidates as jest.Mock).mockResolvedValue([
       {
         id: 's1',
         swapNo: 'SWP001',
@@ -112,7 +114,7 @@ describe('SwapSlaService', () => {
   });
 
   it('无候选单（没有过期的 COMPLIANCE_PENDING）→ 空扫描，什么都不做', async () => {
-    prisma.swapTransaction.findMany.mockResolvedValue([]);
+    (swapService.findSlaBreachCandidates as jest.Mock).mockResolvedValue([]);
 
     const r = await service.sweep();
 
@@ -123,7 +125,7 @@ describe('SwapSlaService', () => {
   });
 
   it('一笔判死抛错（并发竞态：webhook 抢先把单子推进了终态，markStatus 抛 Invalid transition）不影响其余候选单继续处理', async () => {
-    prisma.swapTransaction.findMany.mockResolvedValue([
+    (swapService.findSlaBreachCandidates as jest.Mock).mockResolvedValue([
       {
         id: 's1', swapNo: 'SWP001', status: 'COMPLIANCE_PENDING', sumsubTxnIdOut: 'T1',
         ownerType: 'CUSTOMER', ownerId: 'cust-1', traceId: null,
@@ -146,7 +148,7 @@ describe('SwapSlaService', () => {
   });
 
   it('一笔重试提交抛错不影响其余候选单继续处理', async () => {
-    prisma.swapTransaction.findMany.mockResolvedValue([
+    (swapService.findSlaBreachCandidates as jest.Mock).mockResolvedValue([
       {
         id: 's1', swapNo: 'SWP001', status: 'COMPLIANCE_PENDING', sumsubTxnIdOut: null,
         ownerType: 'CUSTOMER', ownerId: 'cust-1', traceId: null,
@@ -171,18 +173,5 @@ describe('SwapSlaService', () => {
     );
     expect(r.timedOut).toBe(1);
     expect(r.resubmitted).toBe(0); // s1 的重试抛错了，不计入成功
-  });
-
-  it('只查询 COMPLIANCE_PENDING 且 createdAt 早于超时截止线的单', async () => {
-    await service.sweep();
-
-    expect(prisma.swapTransaction.findMany).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: expect.objectContaining({
-          status: 'COMPLIANCE_PENDING',
-          createdAt: expect.objectContaining({ lt: expect.any(Date) }),
-        }),
-      }),
-    );
   });
 });

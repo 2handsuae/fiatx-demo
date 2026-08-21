@@ -649,6 +649,12 @@ function buildFullWorkflow(overrides: {
     setSumsubTxn: jest.fn().mockResolvedValue(undefined),
     saveSumsubVerdict: jest.fn().mockResolvedValue(undefined),
     setSlaDeadline: jest.fn().mockResolvedValue(undefined),
+    // reissue 路径(applyKytAwaitUser 的 clearWithdrawCache 调用点)显式查一次
+    // 收口处同一张配置表 —— mock 出一个恒有效的 ACTION_PENDING deadline。
+    resolveSlaFields: jest.fn().mockReturnValue({
+      slaDeadline: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+      slaBreached: false,
+    }),
     updateStatus: jest.fn().mockResolvedValue(undefined),
     markNeedsReview: jest.fn().mockResolvedValue(undefined),
     ...overrides.withdrawService,
@@ -995,8 +1001,8 @@ describe('WithdrawWorkflowService.applyKytVerdict (Task 5: verdict-driven state 
     });
   });
 
-  describe('awaitUser branch — atomic extraData (manualReason + slaDeadline)', () => {
-    it('sceneTag=PEP → manualReason=EDD_PEP, slaDeadline ~7d out, single atomic updateStatus call', async () => {
+  describe('awaitUser branch — atomic extraData (manualReason only; SLA 由收口处的 resolveSlaFields 统一算)', () => {
+    it('sceneTag=PEP → manualReason=EDD_PEP, single atomic updateStatus call, extraData 不带 slaDeadline/slaBreached', async () => {
       const { workflow, withdrawService } = buildFullWorkflow();
       withdrawService.findOneInternal.mockResolvedValue(
         baseWithdrawRow({ status: WithdrawTransactionStatus.COMPLIANCE_PENDING }),
@@ -1008,11 +1014,11 @@ describe('WithdrawWorkflowService.applyKytVerdict (Task 5: verdict-driven state 
       const [, dto, ctx] = withdrawService.updateStatus.mock.calls[0];
       expect(dto.action).toBe(WithdrawTransactionAction.ACTION_PENDING);
       expect((ctx as any).extraData.manualReason).toBe('EDD_PEP');
-      expect((ctx as any).extraData.slaDeadline).toBeInstanceOf(Date);
-      const daysOut =
-        ((ctx as any).extraData.slaDeadline.getTime() - Date.now()) / (24 * 60 * 60 * 1000);
-      expect(daysOut).toBeGreaterThan(6.9);
-      expect(daysOut).toBeLessThan(7.1);
+      // 2026-08-21 第三批：进入 ACTION_PENDING 的 slaDeadline/slaBreached 由
+      // updateStatus 内部的 resolveSlaFields(收口处)统一算,extraData 不再带这两个 key
+      // ——否则会覆盖收口处刚算好的值。
+      expect((ctx as any).extraData).not.toHaveProperty('slaDeadline');
+      expect((ctx as any).extraData).not.toHaveProperty('slaBreached');
     });
 
     it('no sceneTag (general) → manualReason=CLIENT_ACTION', async () => {
@@ -1040,7 +1046,22 @@ describe('WithdrawWorkflowService.applyKytVerdict (Task 5: verdict-driven state 
   });
 
   describe('onHold branch — non-transitional, COMPLIANCE_PENDING guard', () => {
-    it('COMPLIANCE_PENDING → refreshes slaDeadline + audits WITHDRAW_ONHOLD, no status change', async () => {
+    // 2026-08-21 第三批：onHold 与 SLA 解绑（业主裁定「onHold 从来没表达过 SLA，
+    // 跟它一点关系都没有」）。SLA 只按「状态」计时，onHold 回调不再触碰 slaDeadline，
+    // 但 WITHDRAW_ONHOLD 审计这一事实仍要记录。
+    it('onHold 不改变 slaDeadline —— SLA 按状态计时,与 webhook 无关', async () => {
+      const { workflow, withdrawService } = buildFullWorkflow();
+      withdrawService.findOneInternal.mockResolvedValue(
+        baseWithdrawRow({ status: WithdrawTransactionStatus.COMPLIANCE_PENDING }),
+      );
+
+      await workflow.applyKytVerdict('wd-sumsub-1', { verdict: 'onHold' });
+
+      expect(withdrawService.setSlaDeadline).not.toHaveBeenCalled();
+      expect(withdrawService.updateStatus).not.toHaveBeenCalled();
+    });
+
+    it('onHold 仍写 WITHDRAW_ONHOLD 审计', async () => {
       const { workflow, withdrawService, auditLogsService } = buildFullWorkflow();
       withdrawService.findOneInternal.mockResolvedValue(
         baseWithdrawRow({ status: WithdrawTransactionStatus.COMPLIANCE_PENDING }),
@@ -1048,8 +1069,6 @@ describe('WithdrawWorkflowService.applyKytVerdict (Task 5: verdict-driven state 
 
       await workflow.applyKytVerdict('wd-sumsub-1', { verdict: 'onHold' });
 
-      expect(withdrawService.setSlaDeadline).toHaveBeenCalledWith('wd-sumsub-1', expect.any(Date));
-      expect(withdrawService.updateStatus).not.toHaveBeenCalled();
       expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
         expect.objectContaining({ action: AuditActions.WITHDRAW_ONHOLD }),
       );
@@ -1441,9 +1460,13 @@ describe('WithdrawWorkflowService.applyKytVerdict (Task 5: verdict-driven state 
       expect(withdrawService.updateStatus).toHaveBeenCalledTimes(1);
       const [, dto, ctx] = withdrawService.updateStatus.mock.calls[0];
       expect(dto.action).toBe(WithdrawTransactionAction.ACTION_PENDING);
+      // 2026-08-21 第三批：extraData 不再带 slaDeadline/slaBreached —— 由
+      // updateStatus 内部的 resolveSlaFields(收口处)统一算。
       expect((ctx as any).extraData).toEqual(
-        expect.objectContaining({ actionSubmittedAt: null, slaBreached: false }),
+        expect.objectContaining({ actionSubmittedAt: null }),
       );
+      expect((ctx as any).extraData).not.toHaveProperty('slaDeadline');
+      expect((ctx as any).extraData).not.toHaveProperty('slaBreached');
     });
 
     it('重复 webhook,集合完全一致、缓存本就干净:真 no-op', async () => {
@@ -1516,7 +1539,7 @@ describe('WithdrawWorkflowService.applyKytVerdict (Task 5: verdict-driven state 
       );
     });
 
-    it('MANUAL_CHECKING → ACTION_PENDING 跨状态弧:清缓存(actionSubmittedAt/slaBreached 随原子写归零)', async () => {
+    it('MANUAL_CHECKING → ACTION_PENDING 跨状态弧:清缓存(actionSubmittedAt 随原子写归零,slaDeadline/slaBreached 由收口处的 resolveSlaFields 统一算)', async () => {
       const { workflow, withdrawService, applicantActions } = buildFullWorkflow();
       const w = baseWithdrawRow({ status: WithdrawTransactionStatus.MANUAL_CHECKING });
       applicantActions.syncApplicantActions.mockResolvedValue({ added: [1], retired: [] });
@@ -1531,9 +1554,10 @@ describe('WithdrawWorkflowService.applyKytVerdict (Task 5: verdict-driven state 
         expect.objectContaining({
           manualReason: 'EDD_PEP',
           actionSubmittedAt: null,
-          slaBreached: false,
         }),
       );
+      expect((ctx as any).extraData).not.toHaveProperty('slaDeadline');
+      expect((ctx as any).extraData).not.toHaveProperty('slaBreached');
     });
 
     it('FROZEN:子表仍同步,但不推进状态(no ACTION_PENDING edge)', async () => {

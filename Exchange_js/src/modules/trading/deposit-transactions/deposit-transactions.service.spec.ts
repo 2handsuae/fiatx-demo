@@ -20,6 +20,7 @@ describe('DepositTransactionsService', () => {
   let fundsOrderService: Record<string, jest.Mock>;
   let limitRules: Record<string, jest.Mock>;
   let approvalsService: Record<string, jest.Mock>;
+  let auditLogsService: AuditLogsService;
   let module: TestingModule;
 
   beforeEach(async () => {
@@ -44,6 +45,7 @@ describe('DepositTransactionsService', () => {
           useValue: {
             depositTransaction: {
               findUnique: jest.fn(),
+              findFirst: jest.fn(),
               findMany: jest.fn(),
               update: jest.fn(),
               updateMany: jest.fn(),
@@ -75,6 +77,7 @@ describe('DepositTransactionsService', () => {
           provide: AuditLogsService,
           useValue: {
             recordSystem: jest.fn().mockResolvedValue(undefined),
+            recordByActor: jest.fn().mockResolvedValue(undefined),
           },
         },
         {
@@ -91,6 +94,7 @@ describe('DepositTransactionsService', () => {
     service = module.get<DepositTransactionsService>(DepositTransactionsService);
     prisma = module.get<PrismaService>(PrismaService);
     eventEmitter = module.get<EventEmitter2>(EventEmitter2);
+    auditLogsService = module.get<AuditLogsService>(AuditLogsService);
   });
 
   it('should be defined', () => {
@@ -1270,6 +1274,115 @@ describe('DepositTransactionsService', () => {
           }
         }
       });
+    });
+
+    describe('SLA deadline 在状态机收口处统一设', () => {
+      it('进入 COMPLIANCE_PENDING 时设 5 分钟 deadline', async () => {
+        setupMock(DepositTransactionStatus.PAYIN_PENDING);
+        const before = Date.now();
+
+        const updated = await service.updateStatus(mockId, {
+          action: DepositTransactionAction.PAYIN_CONFIRMED,
+        });
+
+        expect(updated.status).toBe(DepositTransactionStatus.COMPLIANCE_PENDING);
+        const delta = new Date(updated.slaDeadline).getTime() - before;
+        expect(delta).toBeGreaterThan(4 * 60_000);
+        expect(delta).toBeLessThan(6 * 60_000);
+        expect(updated.slaBreached).toBe(false);
+      });
+
+      it('进入无 SLA 的状态时把 deadline 清空', async () => {
+        setupMock(DepositTransactionStatus.COMPLIANCE_PENDING);
+
+        const updated = await service.updateStatus(mockId, {
+          action: DepositTransactionAction.APPROVE,
+        });
+
+        expect(updated.status).toBe(DepositTransactionStatus.SUCCESS);
+        expect(updated.slaDeadline).toBeNull();
+      });
+    });
+  });
+
+  describe('setSlaDeadlineByNo (演示用「模拟超时」端点)', () => {
+    it('按 depositNo 查不到单时抛 NotFoundException', async () => {
+      ((prisma as any).depositTransaction.findFirst as jest.Mock).mockResolvedValue(null);
+
+      await expect(
+        service.setSlaDeadlineByNo('DEP-MISSING', new Date(), {}),
+      ).rejects.toBeInstanceOf(NotFoundException);
+    });
+
+    it('slaDeadline 为 null（不计时状态）时抛 BadRequestException，不落库不写审计', async () => {
+      ((prisma as any).depositTransaction.findFirst as jest.Mock).mockResolvedValue({
+        id: 'dep-1',
+        slaDeadline: null,
+        ownerType: 'CUSTOMER',
+        ownerId: 'cust-1',
+      });
+
+      await expect(
+        service.setSlaDeadlineByNo('DEP0001', new Date(), {}),
+      ).rejects.toBeInstanceOf(BadRequestException);
+      expect((prisma as any).depositTransaction.update).not.toHaveBeenCalled();
+      expect((auditLogsService as any).recordByActor).not.toHaveBeenCalled();
+    });
+
+    it('单据在 SLA 计时状态时把 deadline 拨过去并写审计', async () => {
+      const pastDate = new Date(Date.now() - 1000);
+      ((prisma as any).depositTransaction.findFirst as jest.Mock).mockResolvedValue({
+        id: 'dep-1',
+        slaDeadline: new Date(Date.now() + 5 * 60_000),
+        ownerType: 'CUSTOMER',
+        ownerId: 'cust-1',
+      });
+      ((prisma as any).depositTransaction.update as jest.Mock).mockResolvedValue({
+        id: 'dep-1',
+        slaDeadline: pastDate,
+      });
+
+      const result = await service.setSlaDeadlineByNo('DEP0001', pastDate, {
+        actorId: 'admin-1',
+        actorRole: 'OPERATOR',
+      });
+
+      expect((prisma as any).depositTransaction.update).toHaveBeenCalledWith({
+        where: { id: 'dep-1' },
+        data: { slaDeadline: pastDate },
+      });
+      expect((auditLogsService as any).recordByActor).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: 'DEPOSIT_SLA_TIMEOUT_SIMULATED',
+          entityType: 'DEPOSIT_TRANSACTION',
+          entityId: 'dep-1',
+          entityNo: 'DEP0001',
+          requestId: expect.stringContaining('SLA_TIMEOUT_SIMULATED'),
+        }),
+        expect.objectContaining({ actorType: 'ADMIN', actorId: 'admin-1', actorRole: 'OPERATOR' }),
+      );
+      expect(result.slaDeadline).toEqual(pastDate);
+    });
+
+    it('同一张单连续两次模拟超时，产出不同的 requestId（幂等键不能恒定，否则第二条审计被静默丢弃）', async () => {
+      const pastDate = new Date(Date.now() - 1000);
+      ((prisma as any).depositTransaction.findFirst as jest.Mock).mockResolvedValue({
+        id: 'dep-1',
+        slaDeadline: new Date(Date.now() + 5 * 60_000),
+        ownerType: 'CUSTOMER',
+        ownerId: 'cust-1',
+      });
+      ((prisma as any).depositTransaction.update as jest.Mock).mockResolvedValue({
+        id: 'dep-1',
+        slaDeadline: pastDate,
+      });
+
+      await service.setSlaDeadlineByNo('DEP0001', pastDate, { actorId: 'admin-1', actorRole: 'OPERATOR' });
+      await service.setSlaDeadlineByNo('DEP0001', pastDate, { actorId: 'admin-1', actorRole: 'OPERATOR' });
+
+      const calls = (auditLogsService as any).recordByActor.mock.calls;
+      expect(calls).toHaveLength(2);
+      expect(calls[0][0].requestId).not.toBe(calls[1][0].requestId);
     });
   });
 

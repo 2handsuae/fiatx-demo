@@ -20,6 +20,7 @@ import {
   getApiErrorMessage,
 } from '../utils/adminFetch';
 import { formatAssetAmount } from '../utils/number-format';
+import { formatSlaRemaining } from '../utils/slaDisplay';
 import {
   formatTransactionTypeLabel,
   normalizeRailDisplayStatus,
@@ -96,6 +97,7 @@ interface DepositDetail {
   sumsubVerdict?: string | null;
   sumsubScore?: number | null;
   slaDeadline?: string | null;
+  slaBreached?: boolean | null;
   sumsubActionId?: string | null;
   actionSubmittedAt?: string | null;
   asset: {
@@ -188,6 +190,8 @@ const DepositTransactionDetail = () => {
   const { enabled: simEnabled } = useSimulationMode();
   const [simSubmitting, setSimSubmitting] = useState<string | null>(null);
   const [simError, setSimError] = useState('');
+  const [slaSubmitting, setSlaSubmitting] = useState(false);
+  const [slaError, setSlaError] = useState('');
 
   const fetchData = async () => {
     setLoading(true);
@@ -380,6 +384,32 @@ const DepositTransactionDetail = () => {
     }
   };
 
+  /* ── SLA (演示用「模拟超时」——不是 ⚡ Simulation 面板那个模拟 Sumsub
+      webhook 的东西；见 SidebarGroup title="SLA") ── */
+
+  const handleSimulateSlaTimeout = async () => {
+    if (!data) return;
+    setSlaSubmitting(true);
+    setSlaError('');
+    try {
+      const response = await adminFetch(
+        `${import.meta.env.VITE_API_URL}/deposit-transactions/${data.depositNo}/simulate-sla-timeout`,
+        { method: 'POST' },
+      );
+      if (!response.ok) {
+        setSlaError(await getApiErrorMessage(response, 'Failed to simulate SLA timeout.'));
+        return;
+      }
+      setNotice('SLA deadline moved to the past — next scan will breach it');
+      await fetchData();
+    } catch (error) {
+      if (error instanceof AdminSessionError) return;
+      setSlaError(error instanceof Error ? error.message : 'Failed to simulate SLA timeout.');
+    } finally {
+      setSlaSubmitting(false);
+    }
+  };
+
   /* ── Loading / Empty ── */
 
   if (loading) {
@@ -470,6 +500,25 @@ const DepositTransactionDetail = () => {
                   </button>
                 </div>
               )}
+              {/* SLA — 没有 deadline（终态 / FROZEN 等不计时的单）整格不显示；
+                  slaBreached 优先于时间计算（formatSlaRemaining 内部已处理），
+                  软破线后单据状态与 deadline 都不变，只有这个标记能表达已超时。 */}
+              {data.slaDeadline && (() => {
+                const sla = formatSlaRemaining(data.slaDeadline, data.slaBreached ?? undefined);
+                return (
+                  <div>
+                    <span className="block font-mono text-[9px] uppercase tracking-wider text-adm-t3">SLA</span>
+                    <span className={`mt-1 inline-flex items-center gap-2 ${sla.tone === 'breached' ? 'font-semibold text-red-600' : 'text-adm-t1'}`}>
+                      {sla.text}
+                      {sla.tone === 'breached' && (
+                        <span className="rounded bg-red-100 px-2 py-0.5 text-[10px] text-red-700">
+                          已于 {new Date(data.slaDeadline).toLocaleString()} 超时
+                        </span>
+                      )}
+                    </span>
+                  </div>
+                );
+              })()}
             </div>
           </div>
 
@@ -725,6 +774,22 @@ const DepositTransactionDetail = () => {
             <p className="mb-4 font-mono text-[11px] text-adm-t3">
               Disposition happens in the Sumsub console (officer tags the txn, then re-rejects).
             </p>
+          )}
+
+          {/* SLA — 演示用「模拟超时」，不是 ⚡ Simulation 面板那个模拟 Sumsub
+              webhook 的东西。data.slaDeadline 非空 = 该单当前处于计时状态；
+              已破线（slaBreached）就不再需要这个按钮了。 */}
+          {data.slaDeadline && !data.slaBreached && (
+            <SidebarGroup title="SLA">
+              {slaError && <p className="mb-2 text-[11px] text-adm-red">{slaError}</p>}
+              <button
+                onClick={handleSimulateSlaTimeout}
+                disabled={slaSubmitting}
+                className="w-full rounded border border-amber-300 px-3 py-2 text-sm text-amber-700 hover:bg-amber-50 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {slaSubmitting ? 'Processing...' : 'Simulate SLA Timeout'}
+              </button>
+            </SidebarGroup>
           )}
 
           {/* Identity */}
