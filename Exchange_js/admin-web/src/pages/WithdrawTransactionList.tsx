@@ -1,5 +1,5 @@
 // admin-web/src/pages/WithdrawTransactionList.tsx
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { RefreshCw, Search } from 'lucide-react';
 import Pagination from '../components/common/Pagination';
@@ -15,6 +15,7 @@ import {
 } from '../utils/adminFetch';
 import { formatTransactionTypeLabel } from '../utils/transactionRootDisplay';
 import { getWithdrawStatusMeta, WITHDRAW_STATUS_FILTERS } from '../utils/withdrawStatusMap';
+import { formatSlaRemaining } from '../utils/slaDisplay';
 import { PageTitleBar } from '../components/ui/PageTitleBar';
 
 /* ── Interfaces ──────────────────────────────────────────────── */
@@ -30,6 +31,8 @@ interface WithdrawItem {
   type?: string | null;
   asset: { code: string; type: string; decimals?: number };
   createdAt: string;
+  slaDeadline?: string | null;
+  slaBreached?: boolean;
 }
 
 interface FilterState {
@@ -39,6 +42,8 @@ interface FilterState {
   type: string;
   startDate: string;
   endDate: string;
+  /** 仅看 SLA 已超时的单（前端过滤，后端暂无该查询参数）。 */
+  slaBreachedOnly: boolean;
 }
 
 /* ── Constants ───────────────────────────────────────────────── */
@@ -52,6 +57,7 @@ const DEFAULT_FILTERS: FilterState = {
   type: '',
   startDate: '',
   endDate: '',
+  slaBreachedOnly: false,
 };
 
 /* ── Helpers ─────────────────────────────────────────────────── */
@@ -130,7 +136,8 @@ const WithdrawTransactionList = () => {
 
   const hasFilter =
     !!filters.withdrawNo || !!filters.ownerNo || !!filters.status ||
-    !!filters.type || !!filters.startDate || !!filters.endDate;
+    !!filters.type || !!filters.startDate || !!filters.endDate ||
+    filters.slaBreachedOnly;
 
   const updateFilter = (key: keyof FilterState, value: string) =>
     setFilters((prev) => ({ ...prev, [key]: value }));
@@ -141,6 +148,16 @@ const WithdrawTransactionList = () => {
     setFilters(DEFAULT_FILTERS);
     void fetchItems(1, DEFAULT_FILTERS);
   };
+
+  // Backend has no `slaBreached` query filter yet; apply client-side over the
+  // current page only (same known limitation as needsReviewOnly on the swap list).
+  const visibleItems = useMemo(
+    () =>
+      filters.slaBreachedOnly
+        ? items.filter((i) => formatSlaRemaining(i.slaDeadline, i.slaBreached).tone === 'breached')
+        : items,
+    [items, filters.slaBreachedOnly],
+  );
 
   /* ── Render ── */
 
@@ -219,6 +236,21 @@ const WithdrawTransactionList = () => {
         >
           Reset
         </button>
+        {/* 前端过滤，只对当前页生效（后端暂无 slaBreached 查询参数）——与 SwapTransactionList 的 needsReviewOnly 同类局限 */}
+        <label
+          className="ml-2 inline-flex cursor-pointer items-center gap-1.5 font-mono text-[11px] text-adm-t2"
+          title="仅过滤当前页已加载的行，不是全库筛选"
+        >
+          <input
+            type="checkbox"
+            checked={filters.slaBreachedOnly}
+            onChange={(e) =>
+              setFilters((f) => ({ ...f, slaBreachedOnly: e.target.checked }))
+            }
+            className="h-3.5 w-3.5 accent-adm-red"
+          />
+          SLA breached only (this page)
+        </label>
       </div>
 
       {/* ── Notices ── */}
@@ -240,6 +272,7 @@ const WithdrawTransactionList = () => {
                   ['Amount',      '140px'],
                   ['Type',        '90px'],
                   ['Owner',       '130px'],
+                  ['SLA',         '100px'],
                   ['Created',     '150px'],
                 ] as [string, string][]
               ).map(([label, w]) => (
@@ -256,19 +289,19 @@ const WithdrawTransactionList = () => {
           <tbody>
             {loading && (
               <tr>
-                <td colSpan={6} className="px-4 py-10 text-center font-mono text-[11px] text-adm-t3">
+                <td colSpan={7} className="px-4 py-10 text-center font-mono text-[11px] text-adm-t3">
                   Loading…
                 </td>
               </tr>
             )}
-            {!loading && items.length === 0 && (
+            {!loading && visibleItems.length === 0 && (
               <tr>
-                <td colSpan={6} className="px-4 py-10 text-center font-mono text-[11px] text-adm-t3">
+                <td colSpan={7} className="px-4 py-10 text-center font-mono text-[11px] text-adm-t3">
                   No withdrawals found.
                 </td>
               </tr>
             )}
-            {!loading && items.map((item) => (
+            {!loading && visibleItems.map((item) => (
               <tr
                 key={item.id}
                 className="cursor-pointer border-b border-adm-border transition-colors hover:bg-adm-hover"
@@ -305,6 +338,18 @@ const WithdrawTransactionList = () => {
                 {/* Owner */}
                 <td className="px-4 py-2.5">
                   <span className="font-mono text-[11px] text-adm-blue">{item.ownerNo || '—'}</span>
+                </td>
+
+                {/* SLA */}
+                <td className="px-4 py-2.5">
+                  {(() => {
+                    const sla = formatSlaRemaining(item.slaDeadline, item.slaBreached);
+                    return (
+                      <span className={sla.tone === 'breached' ? 'font-medium text-red-600' : 'text-gray-600'}>
+                        {sla.text}
+                      </span>
+                    );
+                  })()}
                 </td>
 
                 {/* Created */}
