@@ -367,7 +367,7 @@ const WithdrawTransactionList = () => {
         <div className="flex items-center justify-between">
           <span className="font-mono text-[10px] text-adm-t3">
             {total > 0
-              ? `Showing ${items.length} / ${total} withdrawal${total === 1 ? '' : 's'}`
+              ? `Showing ${visibleItems.length} / ${total} withdrawal${total === 1 ? '' : 's'}`
               : 'No withdrawals'}
           </span>
           {total > PAGE_SIZE && (

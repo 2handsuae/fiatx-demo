@@ -373,7 +373,7 @@ const DepositTransactionList = () => {
         <div className="flex items-center justify-between">
           <span className="font-mono text-[10px] text-adm-t3">
             {total > 0
-              ? `Showing ${items.length} / ${total} deposit${total === 1 ? '' : 's'}`
+              ? `Showing ${visibleItems.length} / ${total} deposit${total === 1 ? '' : 's'}`
               : 'No deposits'}
           </span>
           {total > PAGE_SIZE && (
