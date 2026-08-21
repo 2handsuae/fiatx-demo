@@ -3,10 +3,7 @@ import { Cron } from '@nestjs/schedule';
 import { PrismaService } from '../../core/prisma/prisma.service';
 import { SwapTransactionsService } from '../trading/swap-transactions/swap-transactions.service';
 import { SwapWorkflowService } from '../trading/swap-transactions/swap-workflow.service';
-import {
-  SwapTransactionAction,
-  SwapTransactionStatus,
-} from '../trading/swap-transactions/dto/swap-transaction.dto';
+import { SwapTransactionAction } from '../trading/swap-transactions/dto/swap-transaction.dto';
 import { AuditLogsService } from '../audit-logging/audit-logs.service';
 import {
   AuditActions,
@@ -18,8 +15,11 @@ import {
  * 合规超时的独立时钟 —— 与 quote TTL 无关。quote 一旦被 initiateSwap 消费，价格
  * 就已经锁定；之后 Sumsub 回 verdict 慢，是平台自己的问题，不能拿它去废掉客户
  * 已经接受的报价，所以这里另起一条计时线，不复用 quote 的过期逻辑。
+ *
+ * 2026-08-21：60 秒 → 5 分钟（业主裁定），与充值/提现的 COMPLIANCE_PENDING 对齐。
+ * 三域等的都是同一件事——Sumsub 回裁决——没有理由分三个数。
  */
-export const SWAP_COMPLIANCE_TIMEOUT_MS = Number(process.env.SWAP_COMPLIANCE_TIMEOUT_MS ?? 60_000);
+export const SWAP_COMPLIANCE_TIMEOUT_MS = Number(process.env.SWAP_COMPLIANCE_TIMEOUT_MS ?? 300_000);
 
 /**
  * 兑换合规超时看门狗（Task 8）—— mirror of DepositSlaService / WithdrawSlaService
@@ -71,13 +71,10 @@ export class SwapSlaService {
    * 能拖垮整个 sweep：逐笔 try/catch，记录后继续下一单。
    */
   async sweep(): Promise<{ timedOut: number; resubmitted: number }> {
-    const cutoff = new Date(Date.now() - SWAP_COMPLIANCE_TIMEOUT_MS);
-    const stale = await this.prisma.swapTransaction.findMany({
-      where: {
-        status: SwapTransactionStatus.COMPLIANCE_PENDING,
-        createdAt: { lt: cutoff },
-      },
-    });
+    // 2026-08-21：从「建单至今 > 超时」改成「进入状态时算好的 slaDeadline 已过」。
+    // 前者算的是这单活了多久，后者才是「在这个状态待了多久」——业主口径。
+    // 今天 COMPLIANCE_PENDING 是出生态、两者等价，但多一条进该状态的路就会分道。
+    const stale = await this.swapService.findSlaBreachCandidates(new Date());
 
     let timedOut = 0;
     let resubmitted = 0;
@@ -98,6 +95,10 @@ export class SwapSlaService {
             tx,
             { rejectReason: 'TIMEOUT' },
           );
+          // 防重复扫：不需要在这里额外置 slaBreached=true。markStatus 已把状态推
+          // 到 REJECTED，而 REJECTED 不在 SWAP_SLA_MINUTES_BY_STATUS 配置表里 →
+          // resolveSlaFields 收口处会把 slaDeadline 置 null，天然不再匹配
+          // findSlaBreachCandidates 的 `slaDeadline: { lt: now }` 条件。
           // markStatus 本身不写审计（本文件其余审计调用同款约定：调用方负责）。
           // 与状态迁移落在同一事务内，保持"状态变了就一定有审计"的原子性。
           await this.auditLogsService.recordSystem(

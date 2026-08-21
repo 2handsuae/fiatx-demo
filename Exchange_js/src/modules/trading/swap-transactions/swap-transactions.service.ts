@@ -464,6 +464,20 @@ export class SwapTransactionsService {
       : { slaDeadline: new Date(Date.now() + minutes * 60_000), slaBreached: false };
   }
 
+  /**
+   * SLA 破线候选扫描。兑换**没有软 SLA** —— 它没有「等自己人」的状态。
+   * 扫出来的一律是硬破线（COMPLIANCE_PENDING → REJECTED）。
+   */
+  async findSlaBreachCandidates(now: Date) {
+    return (this.prisma as any).swapTransaction.findMany({
+      where: {
+        status: SwapTransactionStatus.COMPLIANCE_PENDING,
+        slaDeadline: { lt: now },
+        slaBreached: false,
+      },
+    });
+  }
+
   async markStatus(
     swapId: string,
     action: SwapTransactionAction,
