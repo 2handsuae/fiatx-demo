@@ -53,7 +53,7 @@ COMPLIANCE_PENDING ──(KYT rejected 且客户本人命中制裁 SANCTION_APPL
 - **报价**：`SwapQuoteService.createQuote()` → `resolveBestLevel()`（多 level 取最低费）+ `BinanceRateProvider.fetchRate()`（实时 + 3s 缓存 + AED 钉 3.6725）+ `PricingEngineService.buildSwapQuote()`（amountOut/spread/fee）→ 30s TTL
 - **L1 资格**：`SwapWorkflowService.initiateSwap()` 内 `assertTradingEligibility(ownerId, 'SWAP')`（`:210`，pre-creation 同步；限制账摁住 `SWAP` 能力时在此拦，403）。⚠️ 本条此前还写着一个 `ensureCustomerCanTransact()`——那个方法**已随 2026-08-16「客户生命周期 + 限制账」批次退役**（收敛进 `CustomerAccessService.assertCapability`），全仓 `src/` grep 零命中，只剩 `superpowers/plans/` 里的历史设计稿提到它；2026-08-22 订正删除。⚠️ **这道闸自 `04433cdd`（2026-05-31）起就在**——2026-08-22 第四批过程中一度流传的「兑换此前完全没有客户资格/限制闸」是**假前提**，已在 B2 审查当场订正：`assertTradingEligibility` 内部就是 `assertCapability`（资格 + 限制），对非 DEPOSIT 还多跑一层 `assertTradingReady`，**严格强于** L1 的那两项判定。第四批加的是**取证**（可回显的九格快照），不是从无到有的闸，见 §3.9
 - **L1 金额限额门**（资格之后、`$transaction` 之前）：`initiateSwap()` 事务外 peek quote（`swapQuote.findUnique` 取 `fromAssetId`/`amountIn`）→ `TransactionLimitGateService.evaluate({operationType:'SWAP',customerId:ownerId,assetId,amount})`——A 单笔 min/max（原生币种）+ B 周期累计（AED，迪拜日历日/月窗口，用量 = 窗口内该客户 swap `grossAedValue` 之和[排除 FAILED/REVERSED] + 本笔）；有 B 规则但汇率失败 → fail-closed `UNPRICEABLE`。拒绝 = **swap 不建、quote 不耗**，审计 `TRANSACTION_LIMIT_REJECTED`（workflowType `TRANSACTION_LIMIT_ENFORCEMENT`）；通过则 `grossAedValue` 随 swap 行落库。peek 到空 quote 不在此抛（落到事务内 `getActiveQuoteOrThrow` 的既有 SWAP_FAILED 路径）。**无 D1 大额审批门**（业主决策：兑换资金不出境、无第三方对手方，不做大额审批）
-- **建单前余额校验**（第四批 2026-08-22 新补；跑在限额门之后、R4 与建单事务之前）：卖出侧可用余额不足即 400 `INSUFFICIENT_BALANCE`，**quote 不耗、swap 不建**。补它是因为此前要等 KYT 过、建第一条腿时才发现钱不够，而 `PROCESSING` 无失败出边 → 单子永久卡死。详见 §3.9。
+- **建单前余额校验**（第四批 2026-08-22 新补；跑在限额门之后、R4 与建单事务之前）：卖出侧可用余额不足即 400 `INSUFFICIENT_BALANCE`，**quote 不耗、swap 不建**。补它是因为此前要等 KYT 过、建第一条腿时才发现钱不够，而 `PROCESSING` 无失败出边 → 单子永久卡死。⚠️ **只读不锁，因此只堵住单笔场景**：并发同币种多单仍可各自通过校验、各自落 `PROCESSING`，撞出同一个永久卡死（终审 I2 订正，详见 §3.9 的限定框与 BACKLOG）。
 - **R4 双边收款账户门**：`initiateSwap()` 读到 quote 后（事务内，consume 前）逐一检查 buy/sell 两侧资产的 `WalletQueryService.hasReceivingAccount(ownerId, assetId)`（ACTIVE 的 C_DEP/C_VIBAN），任一缺失即 `RECEIVING_ACCOUNT_REQUIRED`（带 assetCode），先于 consumeQuote/建 swap 行拦截，避免裁决通过后才在 `buildLegContext()`/`resolveLegWallets()` 撞见钱包缺失
   - **前端逐币预检**（`Swap.tsx` + `GET /client/trading-readiness/receiving-accounts`）：选定 buy/sell 后即查两侧收款账户，缺失则禁提交并提示，CTA「Create receiving account」**跳 `/deposit`**（收款账户=充值地址，Deposit 页是自然落点；2026-07-11 起，原 `/wallet`）
 - **建单 = 零记账**（Task 4 重设计）：`initiateSwap()` 通过上述四道门后（资格 / 限额 / 余额 / R4——余额那道是 2026-08-22 第四批新补，原文写"三道门"），事务内只做 consume Quote + 建 swap 行（`COMPLIANCE_PENDING`），**不建 leg1、不碰 TB**；事务外 `submitSumsubTxnOut()` 同步 awaited 把出账腿（fromAsset，direction=out）送 Sumsub KYT——**整个 initiateSwap 调用期间零 TB 写入**，客户端拿到的响应已经是终态之一的前置态。`submitSumsubTxnOut` 全程 try/catch（I2 教训）：Sumsub 不可达时静默留 `COMPLIANCE_PENDING` 等重试（SLA 看门狗兜底），绝不 500 客户
@@ -150,11 +150,15 @@ COMPLIANCE_PENDING ──(KYT rejected 且客户本人命中制裁 SANCTION_APPL
 
 > 📖 **L1 的定义、三域共用求值器 `L1GateService` 的完整语义（不抛错只出快照 / 自判三项 / `SELF_OWNED_CHECKS` 保护 / `PASS` vs `SKIPPED` 的判据 / 九项 × 三域 NA 表）→ [v4-deposit.md](v4-deposit.md) §4.8。本节只写兑换切片。**
 
-### 建单前余额校验（本批真正补的那个洞）
+### 建单前余额校验（**只堵住单笔场景**，不锁额）
 
 `initiateSwap()` 在 L1 求值**之前**、事务之外，按 `quotePeek.fromAssetId` 取卖出侧资产，用 `accountingService.getCustomerAvailableBalance()` 比一次可用余额；不足即抛 400 `INSUFFICIENT_BALANCE`（带 `assetCode`），**quote 不耗、swap 不建**。
 
 **为什么必须前移**：提现建单即压 TB pending 锁额，余额不足当场被 TB 拒；兑换此前**没有这道闸**——要等 KYT 裁决 `approved` 之后建第一条腿时才发现钱不够。那时报价已烧、KYT 已过、swap 已在 `PROCESSING`，而 **`PROCESSING` 没有任何失败出边**（转移表里它只有 `success→SUCCESS` 一条），单子**永久卡死**。
+
+> ⚠️ **限定（2026-08-22 终审 I2 订正，此前本节标题写「本批真正补的那个洞」、代码注释写「堵住」，都说过头了）**：这道校验**只读不锁** —— 它比一下 `getCustomerAvailableBalance` 就完事，**不像提现那样在建单时压 TB pending 锁额**（`available = creditsPosted − debitsPosted − debitsPending`，而兑换要等 KYT 通过建腿才写 pending）。因此**并发同币种多单仍能撞出同一个 stuck `PROCESSING`**：客户有 100 USDT，提交兑换 A 用 60 → 校验通过（可用 100）→ `COMPLIANCE_PENDING`；A 的裁决还没回，再提交兑换 B 用 60 → **校验又通过**（仍是 100，什么都没锁）；两笔都 `kyt_approved` → `PROCESSING`；A 的腿抽干余额，B 的第一条腿失败 → B 永久卡在 `PROCESSING` + `needsReview`。
+>
+> 换句话说：本批**严格改善了单笔场景**（一笔一笔提交时钱不够当场被拒），但**没有消灭**这个洞的并发形态。真正的修法是建单即压 TB pending、与提现同形状 —— 已登记 BACKLOG，本批未做。
 
 实现上在 Decimal 空间比，不在 bigint 空间：`decimalToBigint` 是 `swap-leg-accounting.ts` 的私有方法拿不到，而 `getCustomerAvailableBalance` 返回账本最小单位的 bigint，除以 `10^decimals` 降回业务单位即可，不新造 helper。
 

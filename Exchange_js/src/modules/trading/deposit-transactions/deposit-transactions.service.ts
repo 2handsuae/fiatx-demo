@@ -761,7 +761,7 @@ export class DepositTransactionsService {
       [DepositTransactionStatus.ACTION_PENDING]: {
         [DepositTransactionAction.APPROVE]: DepositTransactionStatus.SUCCESS,
         // 终审 Critical 2 回归闸:approveDeposit 的 oldStatus 白名单接受
-        // ACTION_PENDING,金额闸(holdBelowMinIfNeeded)下沉到该唯一出口后会从这里
+        // ACTION_PENDING,挂起闸(holdIfHeld,原 holdBelowMinIfNeeded)下沉到该唯一出口后会从这里
         // 调 operation_pending 动作——此边此前只从 COMPLIANCE_PENDING 出发存在,
         // 两边前置条件对不上,below-min 单补料后被 approve 翻案时在这里抛 Invalid action。
         [DepositTransactionAction.OPERATION_PENDING]:

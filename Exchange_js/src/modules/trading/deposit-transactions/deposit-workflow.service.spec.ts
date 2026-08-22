@@ -1138,7 +1138,7 @@ describe('DepositWorkflowService', () => {
     // → fails safe",但表现其实是转移表抛 BadRequestException('Invalid action
     // operation_pending for status OPERATION_PENDING')——语义上没漏钱,但不是干净的
     // no-op,重复点①就能触发。改成显式 no-op(早退 + debug 日志),不再让它掉进
-    // holdBelowMinIfNeeded 去撞转移表。
+    // holdIfHeld 去撞转移表。
     it('顺带修复:重复 approve 于仍持有 BELOW_MIN 挂起的 OPERATION_PENDING 单 → 显式 no-op,不再落入金额闸重复尝试 operation_pending 动作', async () => {
       depositService.findOne.mockResolvedValue({
         id: 'dep-repeat-1',
@@ -1179,6 +1179,99 @@ describe('DepositWorkflowService', () => {
 
       expect(depositService.updateStatus).not.toHaveBeenCalled();
       expect(auditLogsService.recordSystem).not.toHaveBeenCalled();
+    });
+
+    // ── 2026-08-22 终审 Critical ────────────────────────────────────────────
+    // 上面那条 no-op 只盖住 `oldStatus === OPERATION_PENDING` 这**一条**入口。白名单
+    // 另外三条（COMPLIANCE_PENDING / ACTION_PENDING / MANUAL_CHECKING）当时全裸：
+    // 挂起原因非 BELOW_MIN 时，旧的金额闸返回 false → TB 过账 → SUCCESS，而
+    // limitHoldReason 还挂着 → 客户面三处读侧「非空即整单不可见」→ 钱加了、单子在
+    // /my 列表里不存在、按单号打详情 404，且再没有任何调用方会清这一列。
+    //
+    // 终审实测复现的到达路径（全自动、无需任何运营动作）：
+    //   Gate 0 行政级挂起(CAPABILITY_RESTRICTED) → OPERATION_PENDING
+    //   → 后开的制裁便签广播 freeze（OPERATION_PENDING--freeze-->FROZEN 边存在）
+    //   → 误报，MLRO 解冻审批 RESUME → COMPLIANCE_PENDING（这一路不清挂起原因）
+    //   → Gate 0 重跑（客户已干净）PASS → 送 Sumsub → KYT approved → approveDeposit
+    // 因此这条用例把 status 钉死在 COMPLIANCE_PENDING —— 正是特判照不到的那一格。
+    it('终审 Critical:approve 于 COMPLIANCE_PENDING + 行政级挂起(CAPABILITY_RESTRICTED)的单 → 不入账,落 OPERATION_PENDING(制裁误报解冻后绕回本态的真实路径)', async () => {
+      depositService.findOne.mockResolvedValue({
+        id: 'dep-crit-1',
+        depositNo: 'DEP-CRIT-001',
+        status: DepositTransactionStatus.COMPLIANCE_PENDING,
+        limitHoldReason: 'CAPABILITY_RESTRICTED',
+        ownerType: 'CUSTOMER',
+        ownerId: 'cust-1',
+        traceId: 'tr-crit-1',
+        amount: '500',
+        asset: { currency: 'USDT', tbLedgerId: 2, decimals: 6 },
+      });
+      const executeAccountingSpy = jest.spyOn(service as any, 'executeDepositAccounting');
+
+      await service.approveDeposit('dep-crit-1');
+
+      // 落 OPERATION_PENDING，不是 APPROVE
+      expect(depositService.updateStatus).toHaveBeenCalledWith(
+        'dep-crit-1',
+        expect.objectContaining({ action: DepositTransactionAction.OPERATION_PENDING }),
+        expect.anything(),
+      );
+      expect(depositService.updateStatus).not.toHaveBeenCalledWith('dep-crit-1', {
+        action: DepositTransactionAction.APPROVE,
+      });
+      // 不记账、不写放行/完成审计
+      expect(executeAccountingSpy).not.toHaveBeenCalled();
+      expect(fundsOrders.findByParent).not.toHaveBeenCalled();
+      expect(auditLogsService.recordSystem).not.toHaveBeenCalledWith(
+        expect.objectContaining({ action: AuditActions.DEPOSIT_APPROVED }),
+      );
+      expect(auditLogsService.recordSystem).not.toHaveBeenCalledWith(
+        expect.objectContaining({ action: AuditActions.DEPOSIT_COMPLETED }),
+      );
+      // 审计动作名按真实原因走：不是 BELOW_MIN 就别写 DEPOSIT_HELD_BELOW_MIN
+      // （硬写会是伪证据），改走状态跃迁审计 + 带 requestId（否则第二次被静默去重）。
+      expect(auditLogsService.recordSystem).not.toHaveBeenCalledWith(
+        expect.objectContaining({ action: AuditActions.DEPOSIT_HELD_BELOW_MIN }),
+      );
+      expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: 'DEPOSIT_COMPLIANCE_PENDING_TO_OPERATION_PENDING',
+          reason: expect.stringContaining('CAPABILITY_RESTRICTED'),
+          requestId: expect.stringContaining('DEPOSIT_HOLD_INTACT_DEP-CRIT-001_'),
+        }),
+      );
+    });
+
+    // 另外两条入口同理（MANUAL_CHECKING = KYT 误报翻案后放行、ACTION_PENDING =
+    // 客户补料后放行），一并钉住，免得日后有人只把 COMPLIANCE_PENDING 那格补回特判。
+    it.each([
+      [DepositTransactionStatus.MANUAL_CHECKING, 'LIFECYCLE_NOT_ACTIVE'],
+      [DepositTransactionStatus.ACTION_PENDING, 'CAPABILITY_RESTRICTED'],
+    ])('终审 Critical:approve 于 %s + 挂起(%s) → 同样不入账,落 OPERATION_PENDING', async (status, holdReason) => {
+      depositService.findOne.mockResolvedValue({
+        id: 'dep-crit-2',
+        depositNo: 'DEP-CRIT-002',
+        status,
+        limitHoldReason: holdReason,
+        ownerType: 'CUSTOMER',
+        ownerId: 'cust-1',
+        traceId: 'tr-crit-2',
+        amount: '500',
+        asset: { currency: 'USDT', tbLedgerId: 2, decimals: 6 },
+      });
+      const executeAccountingSpy = jest.spyOn(service as any, 'executeDepositAccounting');
+
+      await service.approveDeposit('dep-crit-2');
+
+      expect(depositService.updateStatus).toHaveBeenCalledWith(
+        'dep-crit-2',
+        expect.objectContaining({ action: DepositTransactionAction.OPERATION_PENDING }),
+        expect.anything(),
+      );
+      expect(executeAccountingSpy).not.toHaveBeenCalled();
+      expect(auditLogsService.recordSystem).not.toHaveBeenCalledWith(
+        expect.objectContaining({ action: AuditActions.DEPOSIT_APPROVED }),
+      );
     });
   });
 

@@ -271,9 +271,18 @@ const DepositTransactionDetail = () => {
     // 行政级挂起上解的是「客户被停用 / 生命周期非 ACTIVE」——写死「below-minimum」
     // 会让运营以为自己只在解除账户暂停。
     const holdReason = data?.limitHoldReason ?? null;
-    const holdLabel =
-      holdReason === 'BELOW_MIN' ? 'below-minimum hold' : `hold (${holdReason})`;
-    if (!window.confirm(`Release the ${holdLabel} and resume compliance processing for this deposit?`)) {
+    const isBelowMin = holdReason === 'BELOW_MIN';
+    const holdLabel = isBelowMin ? 'below-minimum hold' : `hold (${holdReason})`;
+    // 终审 I1：此前无论哪种挂起都写「and resume compliance processing」——对行政级挂起
+    // 是**假的**。Gate 0 落的挂起（CAPABILITY_RESTRICTED / LIFECYCLE_NOT_ACTIVE）那条
+    // 分支刻意不送 Sumsub，单子没有裁决；waive 之后后端的 checkAutoApproval 读到
+    // sumsubVerdict=null 就静默早退，不会自动放行、也没有边能把它送回 COMPLIANCE_PENDING
+    // 重跑 Gate 0。运营点完只会得到一笔「无挂起、无裁决」的 OPERATION_PENDING 单，
+    // 实际只剩 Initiate Return to Sender 一条出路。文案必须照实说，别让人以为点完就走完了。
+    const outcomeLine = isBelowMin
+      ? 'Compliance already cleared this deposit, so releasing the hold lets it finish and credit the customer.'
+      : `This deposit was never submitted to Sumsub (Gate 0 held it before screening), so releasing the hold will NOT resume compliance and will NOT credit the customer. It stays in OPERATION_PENDING with no hold and no KYT case — from there the only remaining action is "Initiate Return to Sender".`;
+    if (!window.confirm(`Release the ${holdLabel}?\n\n${outcomeLine}`)) {
       return;
     }
     setDispositionSubmitting(true);
@@ -287,7 +296,11 @@ const DepositTransactionDetail = () => {
         setDispositionError(await getApiErrorMessage(response, 'Failed to release hold.'));
         return;
       }
-      setNotice(`Hold released (${holdReason}) — deposit resumed compliance`);
+      setNotice(
+        isBelowMin
+          ? `Hold released (${holdReason}) — deposit resumed compliance`
+          : `Hold released (${holdReason}) — deposit was never screened, so it does NOT resume compliance; it stays awaiting ops disposition (Return to Sender)`,
+      );
       await fetchData();
     } catch (error) {
       if (error instanceof AdminSessionError) return;
@@ -797,8 +810,21 @@ const DepositTransactionDetail = () => {
                       ? 'Processing...'
                       : isBelowMinPending
                         ? 'PASS (Waive Min-Limit)'
-                        : 'Release Hold'}
+                        : 'Release Hold (does not resume compliance)'}
                   </button>
+                )}
+                {/* 终审 I1：行政级挂起的单从未送 Sumsub（Gate 0 在送检之前就把它挂住了），
+                    所以解除挂起**不会**自动走合规、也不会入账——后端 checkAutoApproval
+                    读到 sumsubVerdict=null 就早退，且没有任何边能把它送回 COMPLIANCE_PENDING
+                    重跑 Gate 0。按钮旁必须写明，否则运营点完会以为流程还在走。
+                    ⚠️ 这是如实描述现状，不是设计终态：该不该给挂起分支送检 / 该不该补
+                    OPERATION_PENDING--resume-->COMPLIANCE_PENDING 边，待业主拍板（BACKLOG 已登记）。 */}
+                {isHoldPending && !isBelowMinPending && (
+                  <p className="-mt-1 text-[10px] leading-snug text-adm-t3">
+                    This deposit was never screened by Sumsub, so releasing the hold will not
+                    resume compliance or credit the customer — it stays here awaiting disposition.
+                    The remaining exit is <span className="text-adm-t2">Initiate Return to Sender</span>.
+                  </p>
                 )}
                 {isBelowMinPending && (
                   <button

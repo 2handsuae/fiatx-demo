@@ -276,6 +276,15 @@ export class SwapWorkflowService {
     // 要等 KYT 过了建第一条腿才发现钱不够 —— 那时报价已烧、KYT 已过,而 PROCESSING
     // 没有失败出边,单子永久卡死。所以必须前移到建单前。
     //
+    // ⚠️ 2026-08-22 终审 I2 订正：这道校验**只读不锁**,因此**只堵住单笔场景**,原注释
+    // 写「堵住」是说过头了。它比一下 getCustomerAvailableBalance 就完事,**不像提现
+    // 那样压 TB pending**(available = creditsPosted − debitsPosted − debitsPending,
+    // 而兑换要等 KYT 通过建腿才写 pending)。并发同币种多单照样各自通过:客户 100 USDT,
+    // A 用 60 过闸落 COMPLIANCE_PENDING,A 裁决未回时 B 又用 60 —— 可用仍读到 100,
+    // B 也过闸;两笔都 kyt_approved → PROCESSING,A 抽干余额,B 的第一条腿失败 →
+    // B 永久卡在 PROCESSING + needsReview,正是这道闸想防的那个洞。
+    // 真正的修法是建单即压 TB pending、与提现同形状,已登记 BACKLOG,本批未做。
+    //
     // 在 Decimal 空间比,不在 bigint 空间比：`decimalToBigint` 是
     // swap-leg-accounting.ts 的**私有**方法,本文件拿不到;而
     // getCustomerAvailableBalance 返回的是账本最小单位的 bigint,

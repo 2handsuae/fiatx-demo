@@ -400,11 +400,17 @@ export class DepositWorkflowService implements OnModuleInit {
 
     // 状态跃迁审计走动态动作名（DEPOSIT_COMPLIANCE_PENDING_TO_OPERATION_PENDING），
     // 不新造审计动作常量 —— 本批不做审计专项。
+    //
+    // ⚠️ requestId 必传：没有它幂等键退化成
+    // `entityType|entityId|action|NO_REQUEST_ID`，**同一笔单的第二次 Gate 0 挂起会被
+    // 静默去重**。而二次挂起是常规操作 —— freeze→unfreeze(RESUME 回 COMPLIANCE_PENDING)
+    // →Gate 0 重跑重新挂起，或 waive→重新挂起。少这一行 = 取证链缺一次挂起事实。
     await this.recordStateTransitionAudit(
       deposit,
       DepositTransactionStatus.COMPLIANCE_PENDING,
       DepositTransactionStatus.OPERATION_PENDING,
       `${reason} (${holdTrace})`,
+      `DEPOSIT_GATE0_HOLD_${deposit.depositNo}_${randomUUID()}`,
     );
   }
 
@@ -746,23 +752,65 @@ export class DepositWorkflowService implements OnModuleInit {
   }
 
   /**
-   * 合规通过后的金额闸(2026-07-31 口径反转:旧=建单时判金额、合规只是后续;
-   * 新=先走完合规,approved 之后才判金额)。
+   * 入账前的**挂起闸**：`limitHoldReason` 非空 = 这笔单还挂着，**一律不得入账**。
    *
    * 返回 true = 已被挂起(调用方须 return,不得放行)。
    *
-   * 判定依据是建单时落的 `limitHoldReason`,**不在此处重查限额规则** —— 规则可能在
-   * 单子生命周期内被改,用出生时的标记更稳定、可追溯。边界沿用 `amount < min`,
-   * 即恰好等于下限放行。
+   * ⚠️ 2026-08-22 终审 Critical：本方法此前叫 `holdBelowMinIfNeeded`、只认
+   * `'BELOW_MIN'`。那在 `limitHoldReason` 值域只有一个成员时是等价的 —— 于是
+   * 「落到 SUCCESS 的单，`limitHoldReason` 必为 null」这条不变量一直成立，客户面
+   * 三处读侧（findAll / findOneForCustomer / findOneForCustomerByDepositNo，判据都是
+   * 「非空即整单不可见」）就靠它。B4 的 `holdAtGate0` 把值域扩到三个
+   * （+ CAPABILITY_RESTRICTED / LIFECYCLE_NOT_ACTIVE）之后，只认 BELOW_MIN 就漏：
+   * approveDeposit 的白名单有四个入口（COMPLIANCE_PENDING / ACTION_PENDING /
+   * MANUAL_CHECKING / OPERATION_PENDING），当时只有 OPERATION_PENDING 那一条被
+   * 单独的 no-op 特判盖住。终审实测复现的漏法（钱对、记录消失）：
+   *   Gate 0 行政级挂起 → OPERATION_PENDING(CAPABILITY_RESTRICTED)
+   *   → 后开的制裁便签广播 freeze → FROZEN
+   *   → 误报，MLRO 解冻 RESUME → COMPLIANCE_PENDING（**这一路不清挂起原因**）
+   *   → Gate 0 重跑 PASS → 送 Sumsub → KYT approved → approveDeposit
+   *     此时 oldStatus=COMPLIANCE_PENDING，特判不适用、旧闸不认 →
+   *     TB 过账落 SUCCESS，而 limitHoldReason 仍是 'CAPABILITY_RESTRICTED'
+   *     → 余额加了全额，单子对客户永久不可见（列表无、筛选桶无、详情 404），
+   *       且没有任何调用方会再清这一列。
+   * 判据泛化成「非空即挂」后，四条入口一次性全部恢复不变量。**不要再收窄回
+   * 特定原因名** —— 那等于把这个洞按原样装回去。
+   *
+   * 判定依据是单子当前落库的 `limitHoldReason`,**不在此处重查限额规则** —— 规则可能在
+   * 单子生命周期内被改,用落库的标记更稳定、可追溯。BELOW_MIN 的边界沿用建单时的
+   * `amount < min`,即恰好等于下限放行。
+   *
+   * ⚠️ 已经在 OPERATION_PENDING 的单：no-op 返回 true（不再尝试 operation_pending
+   * 动作 —— 转移表在这个状态上没有自环边，会抛 Invalid action）。合法的重复调用
+   * （operator 手滑双击、上游重放）由此得到干净的早退。真正解除挂起走
+   * `waiveLimitHold`。
+   *
+   * ⚠️ 审计动作名按**实际挂起原因**分流，不新造常量（本批不做审计专项）：
+   * BELOW_MIN 照旧 `DEPOSIT_HELD_BELOW_MIN`；其余原因走既有的状态跃迁审计 helper
+   * （硬写 BELOW_MIN 语义到一笔行政级挂起上是伪证据）。
    */
-  private async holdBelowMinIfNeeded(deposit: any): Promise<boolean> {
-    if (deposit.limitHoldReason !== 'BELOW_MIN') return false;
+  private async holdIfHeld(deposit: any): Promise<boolean> {
+    const holdReason: string | null = deposit.limitHoldReason ?? null;
+    if (!holdReason) return false;
+
+    if (deposit.status === DepositTransactionStatus.OPERATION_PENDING) {
+      this.logger.debug(
+        `approveDeposit no-op: deposit ${deposit.id} already OPERATION_PENDING with hold intact ` +
+          `(${holdReason}) — repeat approve ignored, release the hold first`,
+      );
+      return true;
+    }
+
+    const belowMin = holdReason === 'BELOW_MIN';
+    const reason = belowMin
+      ? 'Compliance approved; amount below configured minimum — awaiting ops disposition'
+      : `Compliance approved; deposit still held (${holdReason}) — awaiting ops disposition`;
 
     await this.depositService.updateStatus(
       deposit.id,
       {
         action: DepositTransactionAction.OPERATION_PENDING,
-        reason: 'Compliance approved; amount below configured minimum — awaiting ops disposition',
+        reason,
       },
       {
         actor: { actorType: 'SYSTEM', actorId: 'SYSTEM' },
@@ -770,22 +818,37 @@ export class DepositWorkflowService implements OnModuleInit {
       },
     );
 
-    await this.auditLogsService.recordSystem({
-      action: AuditActions.DEPOSIT_HELD_BELOW_MIN,
-      entityType: AuditEntityTypes.DEPOSIT_TRANSACTION,
-      entityId: deposit.id,
-      entityNo: deposit.depositNo,
-      entityOwnerType: deposit.ownerType,
-      entityOwnerId: deposit.ownerId,
-      traceId: deposit.traceId || undefined,
-      workflowType: 'DEPOSIT',
-      reason: 'Deposit held: compliance approved but amount below configured minimum (BELOW_MIN)',
-      metadata: { depositNo: deposit.depositNo, amount: String(deposit.amount) },
-      sourcePlatform: 'SYSTEM',
-    });
+    if (belowMin) {
+      await this.auditLogsService.recordSystem({
+        action: AuditActions.DEPOSIT_HELD_BELOW_MIN,
+        entityType: AuditEntityTypes.DEPOSIT_TRANSACTION,
+        entityId: deposit.id,
+        entityNo: deposit.depositNo,
+        entityOwnerType: deposit.ownerType,
+        entityOwnerId: deposit.ownerId,
+        traceId: deposit.traceId || undefined,
+        workflowType: 'DEPOSIT',
+        reason:
+          'Deposit held: compliance approved but amount below configured minimum (BELOW_MIN)',
+        metadata: {
+          depositNo: deposit.depositNo,
+          amount: String(deposit.amount),
+          limitHoldReason: holdReason,
+        },
+        sourcePlatform: 'SYSTEM',
+      });
+    } else {
+      await this.recordStateTransitionAudit(
+        deposit,
+        deposit.status,
+        DepositTransactionStatus.OPERATION_PENDING,
+        `Compliance approved but the deposit hold is still in place (${holdReason}) — not credited, awaiting ops disposition`,
+        `DEPOSIT_HOLD_INTACT_${deposit.depositNo}_${randomUUID()}`,
+      );
+    }
 
     this.logger.warn(
-      `Below-min hold: deposit ${deposit.id} approved by compliance but below minimum — OPERATION_PENDING`,
+      `Hold intact: deposit ${deposit.id} approved by compliance but still held (${holdReason}) — OPERATION_PENDING`,
     );
     return true;
   }
@@ -1240,11 +1303,18 @@ export class DepositWorkflowService implements OnModuleInit {
    * checkAutoApproval 的老 mock 自动放行路径、admin 直调 PATCH /deposit-transactions/:id/status
    * {action: approve} 的人工路径)最终都汇聚到这一个函数记账+转 SUCCESS。
    *
-   * 金额闸(BELOW_MIN,见 holdBelowMinIfNeeded)因此也装在这里,紧跟在 oldStatus 白名单
-   * 校验通过之后、任何记账/状态推进之前:装在出口上只需把一次关,不会再出现"调用点
+   * 挂起闸(`limitHoldReason` 非空即挂,见 holdIfHeld)因此也装在这里,紧跟在 oldStatus
+   * 白名单校验通过之后、任何记账/状态推进之前:装在出口上只需把一次关,不会再出现"调用点
    * 忘了加闸"——历史上就出现过 admin 直接 PATCH 状态接口绕过 applyKytApproved/
    * checkAutoApproval 里各自的闸、直接把 BELOW_MIN 单放行入账的资金安全缺口。
    * 不要再往调用点(applyKytApproved/checkAutoApproval 等)上加这道闸。
+   *
+   * ⚠️ 2026-08-22 终审 Critical：这道闸此前只认 `BELOW_MIN`，且「已在 OPERATION_PENDING
+   * 且挂起未解除」的 no-op 被写成 `oldStatus === OPERATION_PENDING` 的独立特判 ——
+   * 白名单里另外三个入口（COMPLIANCE_PENDING / ACTION_PENDING / MANUAL_CHECKING）
+   * 一个都没盖到，带着行政级挂起原因绕回这三态的单会带着 `limitHoldReason` 落 SUCCESS
+   * （复现路径见 holdIfHeld 的 JSDoc）。现在特判并入 holdIfHeld，判据泛化成「非空即挂」，
+   * 四条入口共用同一道闸。
    */
   async approveDeposit(depositId: string) {
     const deposit = await this.depositService.findOne(depositId);
@@ -1257,10 +1327,10 @@ export class DepositWorkflowService implements OnModuleInit {
       // Task 7 companion fix: OPERATION_PENDING is the waived-hold re-approval path
       // (waiveLimitHold clears limitHoldReason then re-runs checkAutoApproval, which
       // now calls in here). A still-held OPERATION_PENDING deposit reaching this
-      // point without going through the waive is handled explicitly below (repeat-
-      // approve no-op) — the transition table has no operation_pending edge from an
-      // already-OPERATION_PENDING deposit, so falling through to holdBelowMinIfNeeded
-      // would throw instead of a clean no-op; no silent bypass either way.
+      // point without going through the waive is handled inside holdIfHeld (explicit
+      // no-op) — the transition table has no operation_pending edge from an
+      // already-OPERATION_PENDING deposit, so re-issuing the action would throw
+      // instead of a clean no-op; no silent bypass either way.
       oldStatus !== DepositTransactionStatus.OPERATION_PENDING
     ) {
       // FROZEN is the sanctions/MLRO-hold case: a caller reaching this path is a
@@ -1296,30 +1366,10 @@ export class DepositWorkflowService implements OnModuleInit {
       return;
     }
 
-    // 终审"顺带"项:重复 approve 于一笔已经在 OPERATION_PENDING、且挂起
-    // 仍未解除的单(没有经过 waiveLimitHold),是合法的重复调用(operator 手滑双击
-    // ①、或上游重放),不是错误——显式 no-op,不再落入 holdBelowMinIfNeeded 去对一个
-    // 已经处于 OPERATION_PENDING 的单再次尝试 operation_pending 动作(转移表在这个
-    // 状态上没有这条自环边,会抛 Invalid action)。真正解除挂起走 waiveLimitHold。
-    //
-    // B4:判据从 `=== 'BELOW_MIN'` 放宽到「挂起原因非空」。Gate 0 开始往
-    // OPERATION_PENDING 上落行政级挂起(CAPABILITY_RESTRICTED / LIFECYCLE_NOT_ACTIVE)
-    // 之后,原判据变得不够宽:那样一笔单走 PATCH :id/status {action:approve} 会
-    // 径直穿过金额闸(holdBelowMinIfNeeded 只认 BELOW_MIN,返回 false)落 SUCCESS,
-    // 而 limitHoldReason 还挂着 —— 客户面三处读侧「limitHoldReason != null 即隐藏」
-    // 会让这笔已入账的单对客户永久不可见。挂起未解除时一律 no-op。
-    if (
-      oldStatus === DepositTransactionStatus.OPERATION_PENDING &&
-      deposit.limitHoldReason
-    ) {
-      this.logger.debug(
-        `approveDeposit no-op: deposit ${depositId} already OPERATION_PENDING with hold intact ` +
-          `(${deposit.limitHoldReason}) — repeat approve ignored, release the hold first`,
-      );
-      return;
-    }
-
-    if (await this.holdBelowMinIfNeeded(deposit)) return;
+    // 挂起闸：`limitHoldReason` 非空 = 不得入账。四条白名单入口共用这一道
+    //（含「已在 OPERATION_PENDING、挂起未解除」的重复调用 no-op —— 并入 holdIfHeld，
+    // 不再是这里的 oldStatus 特判，那个特判只盖得住四条里的一条）。
+    if (await this.holdIfHeld(deposit)) return;
 
     // ⑥ DEPOSIT_APPROVED — record before state change
     await this.auditLogsService.recordSystem({
@@ -1415,10 +1465,28 @@ export class DepositWorkflowService implements OnModuleInit {
 
   /**
    * PASS (release) disposition: ops 解除这一笔单的挂起。
-   * This does NOT approve/入账 the deposit — it clears the hold and
-   * re-runs checkAutoApproval so the deposit proceeds through the normal L2
-   * compliance gates (KYT/TR/trading-ready). 解除挂起不等于豁免合规。
-   * Single-operator action — no maker-checker.
+   * This does NOT approve/入账 the deposit — it clears the hold and re-runs
+   * `checkAutoApproval`. Single-operator action — no maker-checker.
+   *
+   * ⚠️ 2026-08-22 终审 I1 · 这段 JSDoc 此前写的是「re-runs checkAutoApproval so the
+   * deposit proceeds through the normal L2 compliance gates」——**这个承诺兑现不了**，
+   * 已订正为下面的如实描述：
+   *
+   *   `checkAutoApproval` 只在这笔单**已经有 Sumsub 裁决**（`sumsubVerdict === 'approved'`）
+   *   时才会往下推进；裁决为 null 时它提前 return。而 **Gate 0 挂起的单从未送检** ——
+   *   `holdAtGate0` 那条分支刻意不调 `submitSumsubTxns`。所以：
+   *     · BELOW_MIN 挂起（合规已过之后才落的闸）→ 有裁决 → waive 后确实会自动放行。
+   *     · 行政级挂起（CAPABILITY_RESTRICTED / LIFECYCLE_NOT_ACTIVE，Gate 0 落的）
+   *       → **没有裁决** → waive 之后 `checkAutoApproval` 静默早退，单子停在
+   *       OPERATION_PENDING、无挂起、无 KYT 案，**不会**自动走合规。
+   *
+   *   此时这笔单的处境：waive 再点会抛（挂起已清）、没收要求 BELOW_MIN、详情页没有
+   *   Approve 按钮，实际只剩「原路退回汇款人」一条出路，否则钱一直压在 DEPOSIT_SUSPENSE。
+   *   `OPERATION_PENDING --resume--> COMPLIANCE_PENDING` 这条能重新武装 Gate 0 的边
+   *   **不存在**（FROZEN 有、这里没有），所以也重跑不了。
+   *
+   *   三个候选解法（挂起分支也送检 / 补 resume 边 / 维持现状但把文案说清）待业主拍板，
+   *   已登记 BACKLOG。**本批不改行为。**
    *
    * B4（§3）：守卫从只认 `BELOW_MIN` 放宽到**任何非空挂起原因**。原因是 Gate 0
    * 开始往 OPERATION_PENDING 上落行政级挂起（CAPABILITY_RESTRICTED /
@@ -2235,11 +2303,18 @@ export class DepositWorkflowService implements OnModuleInit {
     return BigInt(whole + paddedFrac);
   }
 
+  /**
+   * ⚠️ `requestId`（可选）：不传时审计幂等键退化成
+   * `entityType|entityId|action|NO_REQUEST_ID` —— **同一笔单的同一条状态跃迁第二次
+   * 就会被静默去重**。会重复发生的跃迁（如 Gate 0 挂起：freeze→unfreeze→重新挂起、
+   * 或 waive→重新挂起）必须传一个唯一值，否则监管面的取证链从第一天就缺行。
+   */
   private async recordStateTransitionAudit(
     deposit: any,
     fromStatus: string,
     toStatus: string,
     reason: string,
+    requestId?: string,
   ) {
     await this.auditLogsService.recordSystem({
       action: buildStateTransitionAction('DEPOSIT', fromStatus, toStatus),
@@ -2251,6 +2326,7 @@ export class DepositWorkflowService implements OnModuleInit {
       traceId: deposit.traceId || undefined,
       workflowType: 'DEPOSIT',
       reason,
+      ...(requestId ? { requestId } : {}),
       sourcePlatform: 'SYSTEM',
     });
   }
