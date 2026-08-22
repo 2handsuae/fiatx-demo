@@ -111,7 +111,8 @@ interface DepositDetail {
     decimals: number;
   };
   statusHistory: string | null;
-  customer?: { complianceStatus?: string | null; sumsubApplicantId?: string | null } | null;
+  /** `lifecycle` = 客户关系生命周期七态（PROSPECT/IN_VERIFICATION/…/ACTIVE/…/OFFBOARDED）。 */
+  customer?: { lifecycle?: string | null; sumsubApplicantId?: string | null } | null;
   linkedFundOrders?: LinkedFundOrder[];
   latestSumsubWebhook?: LatestSumsubWebhook | null;
   sumsubDetail?: SumsubTxnDetail | null;
@@ -487,11 +488,15 @@ const DepositTransactionDetail = () => {
   const isOperationPending = data.status === 'OPERATION_PENDING';
   const isBelowMinPending = pendingHoldReason === 'BELOW_MIN';
   // 合规闸门只在 COMPLIANCE_PENDING 及之后才评估 —— 钱还没到账(PAYIN_PENDING)时
-  // L1/L2 一律显示 PENDING(未评估)。此前 L1 直接绑客户级 complianceStatus,那个值
-  // 与本单无关且恒为 APPROVED,导致钱还没到闸门就已经是绿的。
+  // L1/L2 一律显示 PENDING(未评估)。
+  // 第四批修复轮：钱到账之后这一格此前读 `customer.complianceStatus` —— 那一列与
+  // `restrictions` 是同一次 migration（20260816063807_customer_lifecycle_restrictions）
+  // 一起 drop 的,早已不存在,恒 undefined → 恒显示灰色 `N/A`（上面那句旧注释说它
+  // 「恒为 APPROVED」同样是错的）。改读 `lifecycle`：它正是 L1GateService 的
+  // CUSTOMER_ELIGIBILITY 判的东西（`access.lifecycle === 'ACTIVE'`）,口径天然一致。
   const gatesNotEvaluated = data.status === 'PAYIN_PENDING';
   const eligibilityStyle = getComplianceLayerStyle(
-    gatesNotEvaluated ? 'PENDING' : data.customer?.complianceStatus,
+    gatesNotEvaluated ? 'PENDING' : data.customer?.lifecycle,
   );
   // L2 · Transaction Screen — a deposit now submits a single Sumsub txn
   // (finance or travelRule, decided by the type judge), not two lanes — so

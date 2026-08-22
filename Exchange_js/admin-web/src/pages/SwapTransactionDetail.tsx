@@ -7,7 +7,7 @@ import {
   InfoField,
 } from '../components/compliance/DetailPageComponents';
 import { SidebarGroup, SidebarKV } from '../components/ui/SidebarPrimitives';
-import { getSwapStatusMeta } from '../utils/swapStatusMap';
+import { getSwapStatusMeta, isSwapTerminalStatus } from '../utils/swapStatusMap';
 import { AdminBadge } from '../components/ui/AdminBadge';
 import { adminButtonClass } from '../components/common/adminButtonStyles';
 import { AdminSessionError, adminFetch, getApiErrorMessage } from '../utils/adminFetch';
@@ -112,7 +112,8 @@ interface SwapTransactionDetailData {
     firstName: string | null;
     lastName: string | null;
     customerNo: string;
-    complianceStatus?: string | null;
+    /** 客户关系生命周期七态（PROSPECT/IN_VERIFICATION/…/ACTIVE/…/OFFBOARDED）。 */
+    lifecycle?: string | null;
     sumsubApplicantId?: string | null;
     // 拒绝处置在客户身上留下的状态位——本页侧栏只读展示，
     // 处置动作本身全在 Sumsub 控制台（officer）与 webhook 链路完成，无按钮。
@@ -299,9 +300,13 @@ const SwapTransactionDetail = () => {
   ) : null;
 
   // ── Compliance 双层样式（对齐提现详情页）──
-  // L1 读客户三轴里的 complianceStatus（真实值，不再写死 PASSED）；
-  // L2 读本单 KYT 终裁 verdict（approved/rejected/null=还没等到）。
-  const eligibilityStyle = getComplianceLayerStyle(data.customer?.complianceStatus);
+  // L1 读客户生命周期 `lifecycle`；L2 读本单 KYT 终裁 verdict（approved/rejected/null=还没等到）。
+  // 第四批修复轮：此前读 `customer.complianceStatus` —— 那一列与 `restrictions` 是
+  // 同一次 migration（20260816063807_customer_lifecycle_restrictions）一起 drop 的,
+  // 早已不存在,恒 undefined → 这一格恒显示灰色 `N/A`（一笔被制裁冻结的单也是 N/A）。
+  // 改读 `lifecycle`：它正是 L1GateService 的 CUSTOMER_ELIGIBILITY 判的东西
+  // （`access.lifecycle === 'ACTIVE'`）,口径天然一致。
+  const eligibilityStyle = getComplianceLayerStyle(data.customer?.lifecycle);
   // 未裁决时传 'PENDING' 拿琥珀色（而非无值的灰色）——未决恰是 operator 最该注意的态。
   const l2Style = getComplianceLayerStyle(data.sumsubDetail?.verdict || 'PENDING');
 
@@ -313,7 +318,10 @@ const SwapTransactionDetail = () => {
   const restrictionCaps: string[] = Array.from(
     new Set((data.customer?.restrictionRows ?? []).map((r) => r.scope).filter(Boolean)),
   );
-  const isTerminal = data.status === 'SUCCESS' || data.status === 'REJECTED';
+  // 第四批修复轮：此前手写 `SUCCESS || REJECTED`,漏了 FROZEN —— 它是转移表里
+  // 明写的零出边终态,却不显示 Terminal 提示。改走 isSwapTerminalStatus（本域自己
+  // 那一份,不与提现共用：提现的 FROZEN 有合法出边,不是终态）。
+  const isTerminal = isSwapTerminalStatus(data.status);
 
   /* Group internalFunds by legSeq, then sort attempts ascending. */
   const legGroups: Array<{ legSeq: number; attempts: InternalFundLeg[] }> = (() => {
@@ -487,7 +495,8 @@ const SwapTransactionDetail = () => {
           </DetailCard>
 
           {/* 4. Compliance — L1 真实资格 + L2 KYT 单闸（对齐充值/提现的双层卡）。
-              L1 不再写死 PASSED：读客户 complianceStatus；L2 读本单 KYT 终裁。
+              L1 读客户 lifecycle（与 L1GateService 的 CUSTOMER_ELIGIBILITY 同一口径）；
+              L2 读本单 KYT 终裁。
               兑换无 TR/大额门——L2 只有 KYT 一道，这是设计而非缺失（无对手方）。 */}
           <div className="px-6 py-5">
             <h3 className="mb-3 font-mono text-[9px] font-semibold uppercase tracking-[0.1em] text-adm-t2">
@@ -547,7 +556,7 @@ const SwapTransactionDetail = () => {
             {/* 第四批：此前读 CustomerMain 上一个不存在的列（pending-action 指针，
                 随材料请求账重写退役），恒 `—`。改显示本单还挂着的材料请求活行数。 */}
             <InfoField
-              label="Material Requests"
+              label="Verification Requests"
               value={
                 (data.materialRequests?.length ?? 0) > 0
                   ? `${data.materialRequests!.length} open`
@@ -749,7 +758,7 @@ const SwapTransactionDetail = () => {
               }
             />
             <SidebarKV
-              label="Material Requests"
+              label="Verification Requests"
               value={
                 (data.materialRequests?.length ?? 0) > 0
                   ? `${data.materialRequests!.length} open`

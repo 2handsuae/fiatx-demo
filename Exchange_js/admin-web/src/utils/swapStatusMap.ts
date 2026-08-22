@@ -60,6 +60,28 @@ export function getSwapStatusMeta(status: string): SwapStatusMeta {
    （fallback 会把 label 设成状态码本身），键集比对才会红。 */
 export const ALL_SWAP_STATUSES: string[] = Object.keys(SWAP_STATUS_MAP);
 
+/* 兑换转移表里**零出边**的终态全集,来源逐字对照：
+   src/modules/trading/swap-transactions/swap-transactions.service.ts 的 TRANSITIONS
+   —— SUCCESS / REJECTED / FROZEN / FAILED / REVERSED 五行都是 `{}`。
+   FROZEN 的零出边是**故意的**（服务里原话）,不是忘了写:制裁/MLRO 冻结在兑换域
+   不可逆,与提现的 FROZEN（有 unfreeze/refund 两条合法出边,故那边**不**算终态）
+   刻意相反 —— 所以这份不能跟 isWithdrawTerminalStatus 合并。
+   FAILED / REVERSED 零入边不可达,一并列出的理由与上面映射表保留其条目一致。 */
+const SWAP_TERMINAL_STATUSES = new Set([
+  'SUCCESS',
+  'REJECTED',
+  'FROZEN',
+  'FAILED',
+  'REVERSED',
+]);
+
+/**
+ * 兑换单是否已到终态 —— 详情页据此显示「Terminal — no further action available」。
+ */
+export function isSwapTerminalStatus(status: string): boolean {
+  return SWAP_TERMINAL_STATUSES.has(String(status || '').toUpperCase());
+}
+
 export const SWAP_STATUS_FILTERS: Array<{ label: string; statuses: string[] }> = [
   { label: 'In progress', statuses: ['COMPLIANCE_PENDING', 'PROCESSING'] },
   { label: 'Needs officer', statuses: ['FROZEN'] },

@@ -1,4 +1,9 @@
-import { getSwapStatusMeta, ALL_SWAP_STATUSES, SWAP_STATUS_FILTERS } from './swapStatusMap';
+import {
+  getSwapStatusMeta,
+  isSwapTerminalStatus,
+  ALL_SWAP_STATUSES,
+  SWAP_STATUS_FILTERS,
+} from './swapStatusMap';
 
 /* 七个后端状态,来源：
    src/modules/trading/swap-transactions/dto/swap-transaction.dto.ts */
@@ -41,6 +46,17 @@ describe('swapStatusMap', () => {
     expect(meta.label).toBe('SOME_FUTURE_STATUS');
     expect(meta.group).toBe('EXCEPTION');
     expect(meta.badgeClass).toContain('adm-yellow');
+  });
+
+  it('FROZEN 算终态 —— 兑换域零出边(与提现的 FROZEN 刻意相反)', () => {
+    expect(isSwapTerminalStatus('FROZEN')).toBe(true);
+  });
+
+  it('终态判定 == 转移表里出边为空的那几行,一个不多一个不少', () => {
+    const terminal = ['SUCCESS', 'REJECTED', 'FROZEN', 'FAILED', 'REVERSED'];
+    for (const s of BACKEND_STATUSES) {
+      expect(isSwapTerminalStatus(s)).toBe(terminal.includes(s));
+    }
   });
 
   it('筛选分组覆盖到每个状态', () => {
