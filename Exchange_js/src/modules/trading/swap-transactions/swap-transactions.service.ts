@@ -18,6 +18,7 @@ import { SwapQuoteService } from '../swap-fee-level/swap-quote.service';
 import { BinanceRateProvider } from '../pricing-center/providers/binance-rate.provider';
 import { DomainEventNames } from '../../../common/events/domain-events.constants';
 import { AuditLogsService } from '../../audit-logging/audit-logs.service';
+import { MATERIAL_REQUEST_LIVE_STATUSES } from '../../identity/material-requests/constants/material-request.constant';
 import {
   AuditActions,
   AuditEntityTypes,
@@ -611,7 +612,19 @@ export class SwapTransactionsService {
       include: {
         fromAsset: true,
         toAsset: true,
-        customer: true,
+        // 第四批：限制从 CustomerMain 上一个**不存在的列**（`restrictions`）改读真正的
+        // 限制账。关系名是 `restrictionRows`（schema.prisma:CustomerMain）。
+        // 数据模型是**一行一个 scope**：一张便签一个 restrictionNo，卡多个能力
+        // = 同号多行不同 scope，同贴同撕同事务。所以这里拿到的是扁平的行集合，
+        // 不是嵌套数组。只取 OPEN，含 SILENT —— admin 面要看全（客户面另有白名单收敛）。
+        customer: {
+          include: {
+            restrictionRows: {
+              where: { status: 'OPEN' },
+              select: { restrictionNo: true, cause: true, scope: true, visibility: true },
+            },
+          },
+        },
       },
     });
     if (!item) throw new NotFoundException('Swap transaction not found');
@@ -784,7 +797,23 @@ export class SwapTransactionsService {
       ? { ...parsed, txnIdOut: item.sumsubTxnIdOut, txnIdIn: item.sumsubTxnIdIn }
       : null;
 
-    return { ...item, sumsubDetail };
+    // 第四批：侧栏/References 卡的 `Pending Action` 此前读 CustomerMain 上一个
+    // 不存在的列（pendingActionExternalId，该指针随材料请求账重写退役），恒 `—`。
+    // 改接材料请求账的活行（PENDING_SUBMISSION / SUBMITTED = 客户还欠着材料）。
+    // 只在 admin 投影里查：findOne 是客户面共用的（findOneForCustomer），
+    // 材料请求的存在本身属于调查信息，客户面根本不该查它。
+    const materialRequests = item.swapNo
+      ? await this.prisma.materialRequest.findMany({
+          where: {
+            orderDomain: 'SWAP',
+            orderRef: item.swapNo,
+            status: { in: [...MATERIAL_REQUEST_LIVE_STATUSES] },
+          },
+          select: { requestNo: true, materialType: true, status: true },
+        })
+      : [];
+
+    return { ...item, sumsubDetail, materialRequests };
   }
 
   /**

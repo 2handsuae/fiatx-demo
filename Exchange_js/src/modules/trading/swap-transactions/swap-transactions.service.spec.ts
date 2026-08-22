@@ -44,7 +44,16 @@ describe('SwapTransactionsService', () => {
       include: {
         fromAsset: true,
         toAsset: true,
-        customer: true,
+        // 第四批：限制账真数据（此前详情页读 CustomerMain 上一个不存在的
+        // 列 `restrictions`，侧栏恒显示 None）。一行一个 scope，只取 OPEN。
+        customer: {
+          include: {
+            restrictionRows: {
+              where: { status: 'OPEN' },
+              select: { restrictionNo: true, cause: true, scope: true, visibility: true },
+            },
+          },
+        },
       },
     });
     expect(result).toEqual(
@@ -504,6 +513,8 @@ describe('findOneForAdmin', () => {
     prisma = {
       swapTransaction: { findUnique: jest.fn() },
       fundsOrder: { findMany: jest.fn().mockResolvedValue([]) },
+      // 第四批：admin 投影补材料请求活行（侧栏那格此前读一个不存在的列，恒 `—`）
+      materialRequest: { findMany: jest.fn().mockResolvedValue([]) },
     };
     service = new SwapTransactionsService(prisma as any, {} as any, {} as any, { emit: jest.fn() } as any, { recordByActor: jest.fn() } as any);
   });
@@ -586,6 +597,33 @@ describe('findOneForAdmin', () => {
 
     expect(result.sumsubDetail).toBeNull();
     expect(result.rejectReason).toBe('TIMEOUT');
+  });
+
+  // 第四批：详情页侧栏/References 卡的 `Material Requests` 那格。此前它读
+  // CustomerMain 上一个不存在的 pending-action 指针列，恒显示 `—`。
+  it('materialRequests 只带本单的活行（按 SWAP + swapNo + 活状态过滤）', async () => {
+    prisma.swapTransaction.findUnique.mockResolvedValue({
+      id: 'swap-a5',
+      swapNo: 'SWP0203',
+      sumsubDetailJson: null,
+    });
+    prisma.materialRequest.findMany.mockResolvedValue([
+      { requestNo: 'MRQ0001', materialType: 'PROOF_OF_ADDRESS', status: 'PENDING_SUBMISSION' },
+    ]);
+
+    const result: any = await service.findOneForAdmin('swap-a5');
+
+    expect(prisma.materialRequest.findMany).toHaveBeenCalledWith({
+      where: {
+        orderDomain: 'SWAP',
+        orderRef: 'SWP0203',
+        // 活行 = 客户还欠着材料；终态行（APPROVED/REJECTED/CANCELLED）不算
+        status: { in: ['PENDING_SUBMISSION', 'SUBMITTED'] },
+      },
+      select: { requestNo: true, materialType: true, status: true },
+    });
+    expect(result.materialRequests).toHaveLength(1);
+    expect(result.materialRequests[0].requestNo).toBe('MRQ0001');
   });
 
   it('saveSumsubVerdict 写在传入的 tx client 上（原子性另一半，配 workflow 层的同 tx 断言）', async () => {

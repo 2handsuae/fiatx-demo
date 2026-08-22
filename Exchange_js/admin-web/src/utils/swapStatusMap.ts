@@ -55,6 +55,11 @@ export function getSwapStatusMeta(status: string): SwapStatusMeta {
   );
 }
 
+/* 映射表实际覆盖的状态码全集 —— 与 depositStatusMap / withdrawStatusMap 同款出口。
+   测试拿它跟后端七态做**键集**断言：只验 label 不含 'UNKNOWN' 是测不出条目被删的
+   （fallback 会把 label 设成状态码本身），键集比对才会红。 */
+export const ALL_SWAP_STATUSES: string[] = Object.keys(SWAP_STATUS_MAP);
+
 export const SWAP_STATUS_FILTERS: Array<{ label: string; statuses: string[] }> = [
   { label: 'In progress', statuses: ['COMPLIANCE_PENDING', 'PROCESSING'] },
   { label: 'Needs officer', statuses: ['FROZEN'] },

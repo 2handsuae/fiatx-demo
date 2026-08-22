@@ -7,7 +7,7 @@ import {
   InfoField,
 } from '../components/compliance/DetailPageComponents';
 import { SidebarGroup, SidebarKV } from '../components/ui/SidebarPrimitives';
-import { StatusPill } from '../components/ui/StatusPill';
+import { getSwapStatusMeta } from '../utils/swapStatusMap';
 import { AdminBadge } from '../components/ui/AdminBadge';
 import { adminButtonClass } from '../components/common/adminButtonStyles';
 import { AdminSessionError, adminFetch, getApiErrorMessage } from '../utils/adminFetch';
@@ -114,15 +114,24 @@ interface SwapTransactionDetailData {
     customerNo: string;
     complianceStatus?: string | null;
     sumsubApplicantId?: string | null;
-    // 拒绝处置在客户身上留下的三个状态位（Task 7/13）——本页侧栏只读展示，
+    // 拒绝处置在客户身上留下的状态位——本页侧栏只读展示，
     // 处置动作本身全在 Sumsub 控制台（officer）与 webhook 链路完成，无按钮。
-    restrictions?: string | null;
-    pendingActionExternalId?: string | null;
+    // 限制账的行：一行 = 一个被卡住的能力（scope），同一张便签（restrictionNo）
+    // 卡多个能力就是同号多行。此前这里读的是 CustomerMain 上一个**不存在的列**
+    // `restrictions`，恒解析成空数组 → 侧栏恒显示 None。
+    restrictionRows?: Array<{
+      restrictionNo: string;
+      cause: string;
+      scope: string;
+      visibility: string;
+    }>;
     hardLineDispositionedAt?: string | null;
   } | null;
   statusHistory: string | null;
   l1Snapshot?: string | null;
   internalFunds?: InternalFundLeg[];
+  /** 本单还挂着的材料请求活行（PENDING_SUBMISSION / SUBMITTED）。 */
+  materialRequests?: Array<{ requestNo: string; materialType: string; status: string }>;
   sumsubDetail?: SwapSumsubDetail | null;
   // parity 2026-08-14：行级裸列（References 卡消费，镜像提现顶层列）
   complianceVerdict?: string | null;
@@ -169,7 +178,6 @@ const SwapTransactionDetail = () => {
   const navigate = useNavigate();
   const [data, setData] = useState<SwapTransactionDetailData | null>(null);
   const [loading, setLoading] = useState(true);
-  const [legBusy, setLegBusy] = useState<number | null>(null);
   const { enabled: simEnabled } = useSimulationMode();
   const [simSubmitting, setSimSubmitting] = useState<string | null>(null);
   const [simError, setSimError] = useState('');
@@ -202,30 +210,6 @@ const SwapTransactionDetail = () => {
   useEffect(() => {
     if (id) void fetchData();
   }, [id]);
-
-  const resumeLeg = async (swapNo: string, legSeq: number) => {
-    setLegBusy(legSeq);
-    try {
-      const res = await adminFetch(
-        `${import.meta.env.VITE_API_URL}/admin/swap-transactions/${swapNo}/legs/${legSeq}/resume`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-        },
-      );
-      if (!res.ok) {
-        alert(await getApiErrorMessage(res, `Failed to resume leg ${legSeq}`));
-        return;
-      }
-      await fetchData();
-    } catch (error) {
-      if (error instanceof AdminSessionError) return;
-      console.error('Failed to resume leg', error);
-      alert('Failed to resume leg');
-    } finally {
-      setLegBusy(null);
-    }
-  };
 
   /* ── Demo verdict handler (SUMSUB_MOCK_MODE-gated backend endpoint) ── */
 
@@ -322,17 +306,13 @@ const SwapTransactionDetail = () => {
   const l2Style = getComplianceLayerStyle(data.sumsubDetail?.verdict || 'PENDING');
 
   // ── 客户处置状态（侧栏只读；无任何按钮）──
-  // 拒绝处置写在人身上：restrictions / pendingAction / 硬线标记。
-  const restrictionCaps: string[] = (() => {
-    try {
-      const parsed = JSON.parse(data.customer?.restrictions || '[]');
-      return Array.isArray(parsed)
-        ? parsed.map((r: { capability?: string }) => r.capability || '').filter(Boolean)
-        : [];
-    } catch {
-      return [];
-    }
-  })();
+  // 拒绝处置写在人身上：限制账 / 材料请求 / 硬线标记。
+  // 第四批：改读限制账真数据（此前读 CustomerMain 上一个不存在的列,恒 None）。
+  // 限制账是**一行一个 scope**,所以直接取 scope 去重即可,不需要 JSON.parse
+  // （旧代码那次 JSON.parse 正是因为读了个不存在的列才恒返回 []）。
+  const restrictionCaps: string[] = Array.from(
+    new Set((data.customer?.restrictionRows ?? []).map((r) => r.scope).filter(Boolean)),
+  );
   const isTerminal = data.status === 'SUCCESS' || data.status === 'REJECTED';
 
   /* Group internalFunds by legSeq, then sort attempts ascending. */
@@ -394,9 +374,20 @@ const SwapTransactionDetail = () => {
                 <span className="block font-mono text-[9px] uppercase tracking-wider text-adm-t3">
                   Status
                 </span>
-                <span className="mt-1 inline-block">
-                  <StatusPill value={data.status} size="md" />
+                {/* 第四批：改用兑换域映射表 —— 通用 StatusPill 把 FROZEN 渲染成青色,
+                    与列表页/充值/提现的红色对不上（同一笔单两个颜色）。 */}
+                <span
+                  className={`mt-1 inline-flex items-center rounded-full px-3 py-0.5 text-xs font-medium ${getSwapStatusMeta(data.status).badgeClass}`}
+                >
+                  {getSwapStatusMeta(data.status).label}
                 </span>
+                {/* 拒绝理由 —— 类型早就声明了却全页零渲染（第四批补上）。
+                    这是 operator 唯一能看到"为什么被拒"的地方。 */}
+                {data.rejectReason && (
+                  <div className="mt-1 font-mono text-[11px] text-adm-red">
+                    Reject reason: {data.rejectReason}
+                  </div>
+                )}
               </div>
               <div>
                 <span className="block font-mono text-[9px] uppercase tracking-wider text-adm-t3">
@@ -553,7 +544,16 @@ const SwapTransactionDetail = () => {
               value={data.sumsubScoredAt ? new Date(data.sumsubScoredAt).toLocaleString() : null}
               mono
             />
-            <InfoField label="Pending Action ID" value={data.customer?.pendingActionExternalId} mono />
+            {/* 第四批：此前读 CustomerMain 上一个不存在的列（pending-action 指针，
+                随材料请求账重写退役），恒 `—`。改显示本单还挂着的材料请求活行数。 */}
+            <InfoField
+              label="Material Requests"
+              value={
+                (data.materialRequests?.length ?? 0) > 0
+                  ? `${data.materialRequests!.length} open`
+                  : '—'
+              }
+            />
           </DetailCard>
 
           {/* 6. Sumsub Detail — 裁决分析（verdict/规则/原始报文）。 */}
@@ -613,17 +613,13 @@ const SwapTransactionDetail = () => {
                           return (
                             <LegAttemptRow
                               key={row.id}
-                              swapNo={data.swapNo}
-                              legSeq={legSeq}
                               row={row}
                               amountLabel={amountLabel}
                               routeLabel={routeLabel}
                               isLatest={isLatest}
-                              busy={legBusy === legSeq}
                               onNavigate={() =>
                                 navigate(`/admin/funds-orders/${row.fundsOrderNo}`)
                               }
-                              onResume={resumeLeg}
                             />
                           );
                         })}
@@ -710,7 +706,16 @@ const SwapTransactionDetail = () => {
 
           <SidebarGroup title="Identity">
             <SidebarKV label="Swap No" value={data.swapNo} mono />
-            <SidebarKV label="Status" value={<StatusPill value={data.status} />} />
+            <SidebarKV
+              label="Status"
+              value={
+                <span
+                  className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-[10px] font-semibold ${getSwapStatusMeta(data.status).badgeClass}`}
+                >
+                  {getSwapStatusMeta(data.status).label}
+                </span>
+              }
+            />
             <SidebarKV
               label="Current Stage"
               value={data.currentStage ?? '—'}
@@ -744,8 +749,12 @@ const SwapTransactionDetail = () => {
               }
             />
             <SidebarKV
-              label="Pending Action"
-              value={data.customer?.pendingActionExternalId ?? '—'}
+              label="Material Requests"
+              value={
+                (data.materialRequests?.length ?? 0) > 0
+                  ? `${data.materialRequests!.length} open`
+                  : '—'
+              }
               mono
             />
             <SidebarKV
@@ -792,32 +801,27 @@ const SwapTransactionDetail = () => {
 /* ── LegAttemptRow ──────────────────────────────────────────── */
 
 const LegAttemptRow = ({
-  swapNo,
-  legSeq,
   row,
   amountLabel,
   routeLabel,
   isLatest,
-  busy,
   onNavigate,
-  onResume,
 }: {
-  swapNo: string;
-  legSeq: number;
   row: InternalFundLeg;
   amountLabel: string;
   routeLabel: string | null;
   isLatest: boolean;
-  busy: boolean;
   onNavigate: () => void;
-  onResume: (swapNo: string, legSeq: number) => void;
 }) => {
   const status = row.status;
   const attemptLabel = `Attempt ${row.attempt ?? 1}`;
-  const showResume = isLatest && status === 'NEEDS_REVIEW';
-  // Routine leg-state advance was removed here — funds-order state is now driven
-  // from the funds-order detail page's ⚡ simulation panel. Resume (stuck-leg
-  // recovery) stays; the fundsOrderNo link navigates to that panel.
+  // 这里没有任何修复按钮 —— 业主 2026-08-22 裁定：兑换单不该有 resume 按钮，
+  // needsReview 只标红、不给修复入口。（此前那个 Resume Leg 按钮的判据是
+  // status === 'NEEDS_REVIEW'，而 FundsOrderStatus 枚举里根本没有这个值，
+  // 所以它从来就点不出来。）后端 resume 端点保留，留一条命令行的路。
+  // Routine leg-state advance also lives elsewhere — funds-order state is driven
+  // from the funds-order detail page's ⚡ simulation panel; the fundsOrderNo
+  // link navigates to that panel.
 
   return (
     <div
@@ -849,18 +853,6 @@ const LegAttemptRow = ({
       {routeLabel && (
         <div className="font-mono text-[10px] text-adm-t3">{routeLabel}</div>
       )}
-      {showResume && (
-        <div className="flex justify-end">
-          <button
-            type="button"
-            onClick={() => onResume(swapNo, legSeq)}
-            disabled={busy}
-            className={adminButtonClass('repair')}
-          >
-            Resume Leg
-          </button>
-        </div>
-      )}
     </div>
   );
 };
@@ -882,7 +874,8 @@ const SumsubDetailSection = ({
     {detail ? (
       <div className="space-y-3">
         {/* parity 2026-08-14：逐行对齐提现 WithdrawTransactionDetail 的同名组件。
-            Txn ID Out/In 已上移 References 卡；rejectReason 行级裸列在 Hero/侧栏。 */}
+            Txn ID Out/In 已上移 References 卡；rejectReason 行级裸列渲染在 Hero 区
+            状态徽章下方（第四批补上——此前声明了类型却全页零渲染）。 */}
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-4">
           <InfoField label="Score" value={detail.score} mono />
           <InfoField label="Verdict" value={detail.verdict} />
