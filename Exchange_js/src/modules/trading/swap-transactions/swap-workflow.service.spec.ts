@@ -84,6 +84,12 @@ function buildMocks(quote: ReturnType<typeof baseQuote>) {
     postPendingTransfer: jest.fn(() => Promise.resolve({ tbTransferId: 0n })),
     executeTransfer: jest.fn(() => Promise.resolve({ tbTransferId: 1n })),
     voidPendingTransferBestEffort: jest.fn(() => Promise.resolve()),
+    // B3: 建单前余额校验。默认给一个远超任何测试用 amountIn(=100) 的可用余额
+    // （即使按 decimals=2 的最小精度折算也远够），既有 initiateSwap 用例
+    // 全部照常放行；余额不足场景由各测试自行 mockResolvedValue 覆盖。
+    getCustomerAvailableBalance: jest.fn(() => Promise.resolve({
+      available: 999_999_999_999n, held: 0n, total: 999_999_999_999n,
+    })),
   };
 
   const swapQuoteService = {
@@ -149,6 +155,15 @@ function buildMocks(quote: ReturnType<typeof baseQuote>) {
     // for the from-asset + amount before evaluating the gate.
     swapQuote: {
       findUnique: jest.fn(() => Promise.resolve({ fromAssetId: quote.fromAssetId, amountIn: quote.amountIn })),
+    },
+    // B3: 建单前余额校验读卖出侧资产的 currency/decimals（在 $transaction 之外，
+    // 与 quotePeek 同一层级）。
+    asset: {
+      findUnique: jest.fn(({ where }: any) => Promise.resolve(
+        assetMap[where.id]
+          ? { currency: assetMap[where.id].currency, decimals: assetMap[where.id].decimals }
+          : null,
+      )),
     },
     // submitSumsubTxnOut reads/writes the swap row directly (outside the
     // create transaction) — used by initiateSwap's post-commit submit call
@@ -295,13 +310,53 @@ describe('B2 · 兑换 L1 资格闸', () => {
     const codes = arg.preChecks.map((c: any) => c.code);
     expect(codes).toEqual([
       'SINGLE_LIMIT', 'CUMULATIVE_LIMIT', 'QUOTE_VALIDITY',
-      'ACCOUNT_READINESS', 'TRADING_READINESS',
+      'ACCOUNT_READINESS', 'TRADING_READINESS', 'BALANCE_SUFFICIENCY',
     ]);
     // 自判的资格/限制两项永远由 L1GateService 自己算，调用方不许传
     expect(codes).not.toContain('CUSTOMER_ELIGIBILITY');
     expect(codes).not.toContain('CUSTOMER_RESTRICTION');
-    // 这一刻没人判过余额 → 不传，留给 L1GateService 落 SKIPPED（不许盖 PASS 的章）
-    expect(codes).not.toContain('BALANCE_SUFFICIENCY');
+    // B3（第四批）之前：这一刻没人判过余额 → 不传，留给 L1GateService 落 SKIPPED。
+    // B3 之后：余额校验已前移到本行之前无条件执行（跑不过直接抛出不留单），
+    // 故这一格现在合法地落 PASS —— 不再是伪证据。
+    expect(codes).toContain('BALANCE_SUFFICIENCY');
+  });
+});
+
+// B3（第四批）：建单前补卖出侧余额校验。此前兑换没有这道闸 —— 报价烧了、KYT 过了、
+// 单子建了，等到建第一条腿才发现钱不够，而 PROCESSING 没有失败出边，单子永久卡死。
+// 用 reverseQuote()（AED(2位小数,from) → USDT(to)）作卖出侧夹具：amountIn=100 AED，
+// 用可用余额除以 10^decimals(=2) 折回业务单位与之比较。
+describe('B3 · 兑换建单余额校验', () => {
+  it('卖出侧余额不足 → 建单前就拒,不消费报价', async () => {
+    const mocks = buildMocks(reverseQuote()); // AED(from) → USDT(to), amountIn=100
+    mocks.accountingService.getCustomerAvailableBalance.mockResolvedValue({
+      available: 50n, held: 0n, total: 50n,
+    });
+    const service = makeService(mocks);
+
+    await expect(
+      service.initiateSwap('c1', 'q1'),
+    ).rejects.toMatchObject({ response: { code: 'INSUFFICIENT_BALANCE' } });
+
+    expect(mocks.swapQuoteService.getActiveQuoteOrThrow).not.toHaveBeenCalled();
+  });
+
+  it('余额充足 → 放行,快照里 BALANCE_SUFFICIENCY 为 PASS', async () => {
+    const mocks = buildMocks(reverseQuote());
+    mocks.accountingService.getCustomerAvailableBalance.mockResolvedValue({
+      available: 100_000_00n, held: 0n, total: 100_000_00n,
+    });
+    const service = makeService(mocks);
+
+    await service.initiateSwap('c1', 'q1').catch(() => undefined);
+
+    expect(mocks.l1Gate.evaluate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        preChecks: expect.arrayContaining([
+          expect.objectContaining({ code: 'BALANCE_SUFFICIENCY', outcome: 'PASS' }),
+        ]),
+      }),
+    );
   });
 });
 

@@ -245,7 +245,8 @@ export class SwapWorkflowService {
     //  · TRADING_READINESS —— :210 的 assertTradingReady 已过（本行之前，确凿）。
     //  · ACCOUNT_READINESS —— 双边收款账户由建单事务内的 hasReceivingAccount 无条件
     //    校验，未过则整单回滚：**能落库的快照，这一格必然为真**。
-    //  · BALANCE_SUFFICIENCY —— 这一刻没人判过 → 不传，由 L1GateService 落 SKIPPED。
+    //  · BALANCE_SUFFICIENCY —— 第四批补：建单前无条件校验卖出侧可用余额（本行
+    //    之前跑过、跑不过直接抛出不留单），跑在本次 evaluate() 调用之前，故可写 PASS。
     const preChecks: L1Check[] = [];
     if (quotePeek) {
       preChecks.push({
@@ -269,6 +270,43 @@ export class SwapWorkflowService {
       code: 'TRADING_READINESS', outcome: 'PASS',
       detail: '交易起始前置已满足（建单前 assertTradingReady 已过）',
     });
+
+    // ── 建单前余额校验（第四批补）──
+    // 提现建单即压 TB pending 锁额,余额不足当场被 TB 拒;兑换此前**没有这道闸**,
+    // 要等 KYT 过了建第一条腿才发现钱不够 —— 那时报价已烧、KYT 已过,而 PROCESSING
+    // 没有失败出边,单子永久卡死。所以必须前移到建单前。
+    //
+    // 在 Decimal 空间比,不在 bigint 空间比：`decimalToBigint` 是
+    // swap-leg-accounting.ts 的**私有**方法,本文件拿不到;而
+    // getCustomerAvailableBalance 返回的是账本最小单位的 bigint,
+    // 除以 10^decimals 降回业务单位即可,不必新造 helper。
+    if (quotePeek) {
+      const sellAsset = await this.prisma.asset.findUnique({
+        where: { id: quotePeek.fromAssetId },
+        select: { currency: true, decimals: true },
+      });
+      if (sellAsset) {
+        const bal = await this.accountingService.getCustomerAvailableBalance(
+          ownerId,
+          sellAsset.currency,
+        );
+        const availableDecimal = new Prisma.Decimal(bal.available.toString()).div(
+          new Prisma.Decimal(10).pow(sellAsset.decimals),
+        );
+        const needed = new Prisma.Decimal(quotePeek.amountIn);
+        if (availableDecimal.lt(needed)) {
+          throw new BadRequestException({
+            code: 'INSUFFICIENT_BALANCE',
+            assetCode: sellAsset.currency,
+            message: `余额不足：需要 ${needed.toString()} ${sellAsset.currency}，可用 ${availableDecimal.toString()}`,
+          });
+        }
+        preChecks.push({
+          code: 'BALANCE_SUFFICIENCY', outcome: 'PASS',
+          detail: `卖出侧余额充足（需 ${needed.toString()} ${sellAsset.currency}，可用 ${availableDecimal.toString()}）`,
+        });
+      }
+    }
 
     const l1 = await this.l1Gate.evaluate({
       domain: 'SWAP',
