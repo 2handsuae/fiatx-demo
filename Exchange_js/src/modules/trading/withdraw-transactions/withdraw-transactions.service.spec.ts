@@ -128,6 +128,7 @@ describe('WithdrawTransactionsService', () => {
       {} as any, // applicantActions
       { assertCapability: jest.fn(), assertOffboardable: jest.fn(), resolve: jest.fn().mockResolvedValue({ lifecycle: 'ACTIVE', blocked: new Set(), disclosedBlocked: new Set(), disclosed: [], openCount: 0 }) } as any, // customerAccessService
       { open: jest.fn().mockResolvedValue({ restrictionNo: 'CR-TEST', created: true }) } as any, // customerRestrictionsService
+      { evaluate: jest.fn().mockResolvedValue({ evaluatedAt: '2026-08-22T00:00:00.000Z', domain: 'WITHDRAW', verdict: 'PASS', holdReason: null, tradingTier: 'BASIC', checks: [] }) } as any, // l1Gate
     );
 
     jest.clearAllMocks();
@@ -194,6 +195,71 @@ describe('WithdrawTransactionsService', () => {
         timeout: 20000,
       }),
     );
+  });
+
+  // B2（第四批）：提现的 assertCapability 快速失败保留不动；这里再跑一次
+  // L1GateService 是为了拿到**逐项可回显的快照**落库（assertCapability 抛的是
+  // 中性错误，拿不到明细）。
+  describe('B2 · 提现 L1 快照', () => {
+    const seedCreateRow = () => {
+      prisma.asset.findUnique.mockResolvedValue({ id: 'asset-1', type: 'CRYPTO' });
+      prisma.customerMain.findUnique.mockResolvedValue({ customerNo: 'C001', onboardingStatus: 'APPROVED', adminStatus: 'ACTIVE' });
+      mockTx.withdrawTransaction.create.mockResolvedValue({
+        id: 'wd-l1-1', ownerType: 'CUSTOMER', ownerId: 'user-1', assetId: 'asset-1',
+        amount: new Prisma.Decimal(100), netAmount: new Prisma.Decimal(100),
+        feeAmount: new Prisma.Decimal(0), withdrawNo: 'WD1009',
+        fromWalletId: null, fromWalletNo: null, toWalletId: null, toWalletNo: null,
+      });
+      mockTx.auditLogEvent.create.mockResolvedValue({ id: 'audit-l1-1' });
+    };
+
+    it('PASS 时快照落进提现行（含档位与逐项 checks）', async () => {
+      seedCreateRow();
+      ((workflow as any).l1Gate.evaluate as jest.Mock).mockResolvedValue({
+        evaluatedAt: '2026-08-22T00:00:00.000Z',
+        domain: 'WITHDRAW', verdict: 'PASS', holdReason: null, tradingTier: 'PREMIUM',
+        checks: [{ code: 'SINGLE_LIMIT', outcome: 'PASS', detail: '单笔上下限已过（100）' }],
+      });
+
+      await workflow.createWithdrawal(
+        { assetId: 'asset-1', amount: 100, quoteId: 'wq-1' } as any,
+        'user-1',
+      );
+
+      const data = mockTx.withdrawTransaction.create.mock.calls[0][0].data;
+      expect(JSON.parse(data.l1Snapshot)).toMatchObject({
+        domain: 'WITHDRAW', verdict: 'PASS', tradingTier: 'PREMIUM',
+      });
+
+      // 调用入参：只传六项 preChecks，绝不传自判的资格/限制两项
+      const arg = ((workflow as any).l1Gate.evaluate as jest.Mock).mock.calls[0][0];
+      expect(arg.domain).toBe('WITHDRAW');
+      expect(arg.customerId).toBe('user-1');
+      expect(arg.preChecks.map((c: any) => c.code)).toEqual([
+        'SINGLE_LIMIT', 'CUMULATIVE_LIMIT', 'ACCOUNT_READINESS',
+        'BALANCE_SUFFICIENCY', 'QUOTE_VALIDITY', 'TRADING_READINESS',
+      ]);
+    });
+
+    it('BLOCK（并发窗口内便签刚开出来）→ 中性拒绝，不建单', async () => {
+      seedCreateRow();
+      ((workflow as any).l1Gate.evaluate as jest.Mock).mockResolvedValue({
+        evaluatedAt: '2026-08-22T00:00:00.000Z',
+        domain: 'WITHDRAW', verdict: 'BLOCK', holdReason: null, tradingTier: 'BASIC',
+        checks: [{ code: 'CUSTOMER_RESTRICTION', outcome: 'FAIL', detail: '客户被限制账摁住 WITHDRAW 能力' }],
+      });
+
+      const err: any = await workflow
+        .createWithdrawal({ assetId: 'asset-1', amount: 100, quoteId: 'wq-1' } as any, 'user-1')
+        .catch((e) => e);
+
+      const body = err?.getResponse ? err.getResponse() : err;
+      expect(body.code).toBe('L1_GATE_BLOCKED');
+      expect(body.message).toBe('This operation is not available for your account at the moment.');
+      expect(JSON.stringify(body)).not.toMatch(/SANCTION|RESTRICTION|限制|便签/);
+      expect(prisma.$transaction).not.toHaveBeenCalled();
+      expect(mockTx.withdrawTransaction.create).not.toHaveBeenCalled();
+    });
   });
 
   it('should create FIAT withdraw in COMPLIANCE_PENDING', async () => {

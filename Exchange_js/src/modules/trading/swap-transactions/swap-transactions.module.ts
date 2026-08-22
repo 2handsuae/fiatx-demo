@@ -17,6 +17,7 @@ import { TransactionLimitsModule } from '../../asset-treasury/transaction-limits
 import { DepositSumsubModule } from '../../deposit-sumsub/deposit-sumsub.module';
 import { CustomersModule } from '../../identity/customers/customers.module';
 import { MaterialRequestsModule } from '../../identity/material-requests/material-requests.module';
+import { L1GateModule } from '../shared/l1-gate/l1-gate.module';
 
 @Module({
   imports: [
@@ -60,6 +61,8 @@ import { MaterialRequestsModule } from '../../identity/material-requests/materia
     // SwapApplicantActionHandler 的 GREEN 回调），而 SwapSumsubModule 又
     // forwardRef 本模块 —— 同一条环上再加一段，同样必须 forwardRef。
     forwardRef(() => MaterialRequestsModule),
+    // B2（第四批）：SwapWorkflowService 注入 L1GateService（三域共用的 L1 快照求值器）。
+    L1GateModule,
   ],
   controllers: [SwapTransactionsController, SwapTransactionsCustomerController],
   providers: [SwapTransactionsService, SwapWorkflowService, SwapLegAccounting],

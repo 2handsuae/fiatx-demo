@@ -885,6 +885,8 @@ export class SwapTransactionsService {
       tbSpreadTransferId?: string | null;
       traceId: string;
       grossAedValue?: Prisma.Decimal | null;
+      /** B2：建单当时的 L1 判定快照（JSON.stringify(L1Snapshot)）。 */
+      l1Snapshot?: string;
       status: SwapTransactionStatus;
     },
     tx: Prisma.TransactionClient,
@@ -920,6 +922,7 @@ export class SwapTransactionsService {
         tbSpreadTransferId: input.tbSpreadTransferId ?? null,
         traceId: input.traceId,
         grossAedValue: input.grossAedValue ?? null,
+        l1Snapshot: input.l1Snapshot ?? null,
         completedAt: null,
         statusHistory: JSON.stringify([
           {

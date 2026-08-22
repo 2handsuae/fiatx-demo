@@ -71,6 +71,7 @@ describe('WithdrawWorkflowService — releaseLock on approval decline', () => {
       {} as any, // applicantActions
       { assertCapability: jest.fn(), assertOffboardable: jest.fn(), resolve: jest.fn().mockResolvedValue({ lifecycle: 'ACTIVE', blocked: new Set(), disclosedBlocked: new Set(), disclosed: [], openCount: 0 }) } as any, // customerAccessService
       { open: jest.fn().mockResolvedValue({ restrictionNo: 'CR-TEST', created: true }) } as any, // customerRestrictionsService
+      { evaluate: jest.fn().mockResolvedValue({ evaluatedAt: '2026-08-22T00:00:00.000Z', domain: 'WITHDRAW', verdict: 'PASS', holdReason: null, tradingTier: 'BASIC', checks: [] }) } as any, // l1Gate
     );
   });
 
@@ -151,6 +152,7 @@ describe('WithdrawWorkflowService — releaseLock on payout leg failure (P6)', (
       {} as any, // applicantActions
       { assertCapability: jest.fn(), assertOffboardable: jest.fn(), resolve: jest.fn().mockResolvedValue({ lifecycle: 'ACTIVE', blocked: new Set(), disclosedBlocked: new Set(), disclosed: [], openCount: 0 }) } as any, // customerAccessService
       { open: jest.fn().mockResolvedValue({ restrictionNo: 'CR-TEST', created: true }) } as any, // customerRestrictionsService
+      { evaluate: jest.fn().mockResolvedValue({ evaluatedAt: '2026-08-22T00:00:00.000Z', domain: 'WITHDRAW', verdict: 'PASS', holdReason: null, tradingTier: 'BASIC', checks: [] }) } as any, // l1Gate
     );
   });
 
@@ -256,6 +258,7 @@ describe('WithdrawWorkflowService — assertWithdrawSettled (乙 SUCCESS invaria
       {} as any, // applicantActions
       { assertCapability: jest.fn(), assertOffboardable: jest.fn(), resolve: jest.fn().mockResolvedValue({ lifecycle: 'ACTIVE', blocked: new Set(), disclosedBlocked: new Set(), disclosed: [], openCount: 0 }) } as any, // customerAccessService
       { open: jest.fn().mockResolvedValue({ restrictionNo: 'CR-TEST', created: true }) } as any, // customerRestrictionsService
+      { evaluate: jest.fn().mockResolvedValue({ evaluatedAt: '2026-08-22T00:00:00.000Z', domain: 'WITHDRAW', verdict: 'PASS', holdReason: null, tradingTier: 'BASIC', checks: [] }) } as any, // l1Gate
     );
   });
 
@@ -330,6 +333,7 @@ describe('WithdrawWorkflowService — ensureSourceWalletBound (R4)', () => {
       {} as any, // applicantActions
       { assertCapability: jest.fn(), assertOffboardable: jest.fn(), resolve: jest.fn().mockResolvedValue({ lifecycle: 'ACTIVE', blocked: new Set(), disclosedBlocked: new Set(), disclosed: [], openCount: 0 }) } as any, // customerAccessService
       { open: jest.fn().mockResolvedValue({ restrictionNo: 'CR-TEST', created: true }) } as any, // customerRestrictionsService
+      { evaluate: jest.fn().mockResolvedValue({ evaluatedAt: '2026-08-22T00:00:00.000Z', domain: 'WITHDRAW', verdict: 'PASS', holdReason: null, tradingTier: 'BASIC', checks: [] }) } as any, // l1Gate
     );
   });
 
@@ -538,6 +542,7 @@ describe('WithdrawWorkflowService.handleWithdrawalCreated — birth landing (Tas
       {} as any, // applicantActions
       { assertCapability: jest.fn(), assertOffboardable: jest.fn(), resolve: jest.fn().mockResolvedValue({ lifecycle: 'ACTIVE', blocked: new Set(), disclosedBlocked: new Set(), disclosed: [], openCount: 0 }) } as any, // customerAccessService
       { open: jest.fn().mockResolvedValue({ restrictionNo: 'CR-TEST', created: true }) } as any, // customerRestrictionsService
+      { evaluate: jest.fn().mockResolvedValue({ evaluatedAt: '2026-08-22T00:00:00.000Z', domain: 'WITHDRAW', verdict: 'PASS', holdReason: null, tradingTier: 'BASIC', checks: [] }) } as any, // l1Gate
     );
     return { workflow, withdrawService, approvalsService, binanceRateProvider, limitRulesService };
   }
@@ -703,6 +708,7 @@ function buildFullWorkflow(overrides: {
     applicantActions as any,
     { assertCapability: jest.fn(), assertOffboardable: jest.fn(), resolve: jest.fn().mockResolvedValue({ lifecycle: 'ACTIVE', blocked: new Set(), disclosedBlocked: new Set(), disclosed: [], openCount: 0 }) } as any, // customerAccessService
     customerRestrictionsService as any,
+    { evaluate: jest.fn().mockResolvedValue({ evaluatedAt: '2026-08-22T00:00:00.000Z', domain: 'WITHDRAW', verdict: 'PASS', holdReason: null, tradingTier: 'BASIC', checks: [] }) } as any, // l1Gate
   );
 
   return { workflow, withdrawService, auditLogsService, accountingService, sumsubTxnClient, applicantActions, customerRestrictionsService };
@@ -1703,6 +1709,7 @@ function buildFeeWorkflow(overrides: {
     {} as any, // applicantActions
     { assertCapability: jest.fn(), assertOffboardable: jest.fn(), resolve: jest.fn().mockResolvedValue({ lifecycle: 'ACTIVE', blocked: new Set(), disclosedBlocked: new Set(), disclosed: [], openCount: 0 }) } as any, // customerAccessService
     { open: jest.fn().mockResolvedValue({ restrictionNo: 'CR-TEST', created: true }) } as any, // customerRestrictionsService
+    { evaluate: jest.fn().mockResolvedValue({ evaluatedAt: '2026-08-22T00:00:00.000Z', domain: 'WITHDRAW', verdict: 'PASS', holdReason: null, tradingTier: 'BASIC', checks: [] }) } as any, // l1Gate
   );
 
   return {
@@ -2050,6 +2057,7 @@ function buildBounceWorkflow(overrides: {
     {} as any, // applicantActions
     { assertCapability: jest.fn(), assertOffboardable: jest.fn(), resolve: jest.fn().mockResolvedValue({ lifecycle: 'ACTIVE', blocked: new Set(), disclosedBlocked: new Set(), disclosed: [], openCount: 0 }) } as any, // customerAccessService
     { open: jest.fn().mockResolvedValue({ restrictionNo: 'CR-TEST', created: true }) } as any, // customerRestrictionsService
+    { evaluate: jest.fn().mockResolvedValue({ evaluatedAt: '2026-08-22T00:00:00.000Z', domain: 'WITHDRAW', verdict: 'PASS', holdReason: null, tradingTier: 'BASIC', checks: [] }) } as any, // l1Gate
   );
 
   return { workflow, withdrawService, auditLogsService, accountingService, fundsOrders, prisma, sumsubTxnClient };
@@ -2413,6 +2421,7 @@ describe('WithdrawWorkflowService.initiateUnfreeze / initiateRefund (Task 8)', (
       {} as any, // applicantActions
       { assertCapability: jest.fn(), assertOffboardable: jest.fn(), resolve: jest.fn().mockResolvedValue({ lifecycle: 'ACTIVE', blocked: new Set(), disclosedBlocked: new Set(), disclosed: [], openCount: 0 }) } as any, // customerAccessService
       { open: jest.fn().mockResolvedValue({ restrictionNo: 'CR-TEST', created: true }) } as any, // customerRestrictionsService
+      { evaluate: jest.fn().mockResolvedValue({ evaluatedAt: '2026-08-22T00:00:00.000Z', domain: 'WITHDRAW', verdict: 'PASS', holdReason: null, tradingTier: 'BASIC', checks: [] }) } as any, // l1Gate
     );
 
     return { workflow, withdrawService, auditLogsService, approvalsService };
@@ -2650,6 +2659,7 @@ describe('WithdrawWorkflowService — Task 9: FROZEN execution side', () => {
       {} as any, // applicantActions
       { assertCapability: jest.fn(), assertOffboardable: jest.fn(), resolve: jest.fn().mockResolvedValue({ lifecycle: 'ACTIVE', blocked: new Set(), disclosedBlocked: new Set(), disclosed: [], openCount: 0 }) } as any, // customerAccessService
       { open: jest.fn().mockResolvedValue({ restrictionNo: 'CR-TEST', created: true }) } as any, // customerRestrictionsService
+      { evaluate: jest.fn().mockResolvedValue({ evaluatedAt: '2026-08-22T00:00:00.000Z', domain: 'WITHDRAW', verdict: 'PASS', holdReason: null, tradingTier: 'BASIC', checks: [] }) } as any, // l1Gate
     );
 
     return { workflow, withdrawService, auditLogsService, approvalsService, accountingService, sumsubTxnClient };
@@ -2894,6 +2904,7 @@ describe('WithdrawWorkflowService — Task 9: FROZEN execution side', () => {
         {} as any, // applicantActions
         { assertCapability: jest.fn(), assertOffboardable: jest.fn(), resolve: jest.fn().mockResolvedValue({ lifecycle: 'ACTIVE', blocked: new Set(), disclosedBlocked: new Set(), disclosed: [], openCount: 0 }) } as any, // customerAccessService
         { open: jest.fn().mockResolvedValue({ restrictionNo: 'CR-TEST', created: true }) } as any, // customerRestrictionsService
+        { evaluate: jest.fn().mockResolvedValue({ evaluatedAt: '2026-08-22T00:00:00.000Z', domain: 'WITHDRAW', verdict: 'PASS', holdReason: null, tradingTier: 'BASIC', checks: [] }) } as any, // l1Gate
       );
 
       // Trigger onLegCleared indirectly via handleFundsOrderChanged (which calls onLegCleared)
@@ -2968,6 +2979,7 @@ describe('WithdrawWorkflowService — onCustomerRestrictionOpened 批量冻单�
       {} as any, // applicantActions
       customerAccessService as any,
       { open: jest.fn().mockResolvedValue({ restrictionNo: 'CR-TEST', created: true }) } as any, // customerRestrictionsService
+      { evaluate: jest.fn().mockResolvedValue({ evaluatedAt: '2026-08-22T00:00:00.000Z', domain: 'WITHDRAW', verdict: 'PASS', holdReason: null, tradingTier: 'BASIC', checks: [] }) } as any, // l1Gate
     );
     return { workflow, withdrawService, auditLogsService };
   }

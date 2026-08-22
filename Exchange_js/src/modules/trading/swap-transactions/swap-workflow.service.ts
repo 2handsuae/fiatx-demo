@@ -1,5 +1,5 @@
 import { randomUUID } from 'crypto';
-import { BadRequestException, Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { EventEmitter2, OnEvent } from '@nestjs/event-emitter';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../core/prisma/prisma.service';
@@ -43,6 +43,8 @@ import { CustomerAccessService } from '../../identity/customers/customer-access.
 import { CustomersService } from '../../identity/customers/customers.service';
 import { MaterialRequestsService } from '../../identity/material-requests/material-requests.service';
 import { MaterialRequestIssuerService } from '../../identity/material-requests/material-request-issuer.service';
+import { L1GateService } from '../shared/l1-gate/l1-gate.service';
+import type { L1Check } from '../shared/l1-gate/l1-gate.types';
 
 /**
  * Payload of `funds_order.status.changed` — emitted by FundsOrderService on
@@ -191,6 +193,7 @@ export class SwapWorkflowService {
     private readonly customerAccessService: CustomerAccessService,
     private readonly materialRequests: MaterialRequestsService,
     private readonly materialRequestIssuer: MaterialRequestIssuerService,
+    private readonly l1Gate: L1GateService,
   ) {}
 
   private resolveLedger(currency: string): number {
@@ -223,6 +226,37 @@ export class SwapWorkflowService {
         customerId: ownerId,
         assetId: quotePeek.fromAssetId,
         amount: new Prisma.Decimal(quotePeek.amountIn),
+      });
+    }
+
+    // ── L1 闸门收口（第四批）──
+    // 把已经判过的限额结果收进快照,再由 L1GateService 补上兑换域此前**完全没查**
+    // 的两项：客户资格（lifecycle）与客户限制（便签卡没卡住 SWAP 能力）。
+    // 兑换钱还没动 → verdict BLOCK 直接拒,与提现同口径。
+    const preChecks: L1Check[] = [];
+    if (quotePeek) {
+      preChecks.push({
+        code: 'SINGLE_LIMIT', outcome: 'PASS',
+        detail: `单笔上下限已过（${quotePeek.amountIn}）`,
+      });
+      preChecks.push({
+        code: 'CUMULATIVE_LIMIT', outcome: 'PASS',
+        detail: `累计额度已过（AED ${gateValuation?.grossAedValue ?? '—'}）`,
+      });
+      preChecks.push({ code: 'QUOTE_VALIDITY', outcome: 'PASS', detail: '报价有效' });
+    }
+
+    const l1 = await this.l1Gate.evaluate({
+      domain: 'SWAP',
+      customerId: ownerId,
+      preChecks,
+    });
+    if (l1.verdict === 'BLOCK') {
+      throw new ForbiddenException({
+        code: 'L1_GATE_BLOCKED',
+        // 中性文案 —— 与 CustomerAccessService 的 NEUTRAL_DENIAL 同口径,
+        // 绝不透出 cause / visibility（tipping-off 防线）。
+        message: 'This operation is not available for your account at the moment.',
       });
     }
 
@@ -316,6 +350,7 @@ export class SwapWorkflowService {
           tbSpreadTransferId: null,
           traceId,
           grossAedValue: gateValuation?.grossAedValue ?? undefined,
+          l1Snapshot: JSON.stringify(l1),
           status: SwapTransactionStatus.COMPLIANCE_PENDING,
         }, tx);
 

@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Inject,
   Injectable,
   Logger,
@@ -20,6 +21,7 @@ import {
 import type { SceneTag } from '../../withdraw-sumsub/withdraw-kyt-verdict.handler';
 import { CustomerAccessService } from '../../identity/customers/customer-access.service';
 import { CustomerRestrictionsService } from '../../identity/customers/customer-restrictions.service';
+import { L1GateService } from '../shared/l1-gate/l1-gate.service';
 import { generateReferenceNo } from '../../../common/utils/no-generator.util';
 import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import {
@@ -212,6 +214,7 @@ export class WithdrawWorkflowService implements OnModuleInit {
     private readonly applicantActions: WithdrawApplicantActionsService,
     private readonly customerAccessService: CustomerAccessService,
     private readonly customerRestrictionsService: CustomerRestrictionsService,
+    private readonly l1Gate: L1GateService,
   ) {}
 
   // Phase B helper: resolve the platform's F_FEE wallet id for an asset, used
@@ -331,6 +334,28 @@ export class WithdrawWorkflowService implements OnModuleInit {
       });
     }
 
+    // ── L1 闸门收口（第四批）── assertCapability 已在上面快速失败过一轮,
+    // 这里重跑一次是为了拿到**可回显的快照**（不是重复校验：上面抛的是中性错误,
+    // 拿不到逐项结果）。verdict 到这里必然 PASS,除非并发窗口内便签刚被开出来。
+    const l1 = await this.l1Gate.evaluate({
+      domain: 'WITHDRAW',
+      customerId: userId,
+      preChecks: [
+        { code: 'SINGLE_LIMIT', outcome: 'PASS', detail: `单笔上下限已过（${amount}）` },
+        { code: 'CUMULATIVE_LIMIT', outcome: 'PASS', detail: `累计额度已过（AED ${gateValuation?.grossAedValue ?? '—'}）` },
+        { code: 'ACCOUNT_READINESS', outcome: 'PASS', detail: '出款地址已注册且 ACTIVE' },
+        { code: 'BALANCE_SUFFICIENCY', outcome: 'PASS', detail: '建单即锁额，TB pending 已通过' },
+        { code: 'QUOTE_VALIDITY', outcome: 'PASS', detail: '报价有效' },
+        { code: 'TRADING_READINESS', outcome: 'PASS', detail: '交易起始前置已满足' },
+      ],
+    });
+    if (l1.verdict === 'BLOCK') {
+      throw new ForbiddenException({
+        code: 'L1_GATE_BLOCKED',
+        message: 'This operation is not available for your account at the moment.',
+      });
+    }
+
     // Track TB pending transfer IDs in outer scope for compensation on failure.
     // If the Prisma transaction rolls back, we must void any TB transfers that
     // were already created (TB is a separate system, not part of the SQL tx).
@@ -407,6 +432,7 @@ export class WithdrawWorkflowService implements OnModuleInit {
             aedRate: gateValuation?.aedRate ?? undefined,
             rateFetchedAt: gateValuation?.rateFetchedAt ?? undefined,
             rateFetchFailed: gateValuation?.rateFetchFailed ?? undefined,
+            l1Snapshot: JSON.stringify(l1),
             parentType,
             parentId,
             pricingQuoteId: consumedQuoteId,
