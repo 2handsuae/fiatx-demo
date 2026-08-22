@@ -565,8 +565,8 @@ const SwapTransactionDetail = () => {
             />
           </DetailCard>
 
-          {/* 6. Sumsub Detail — 裁决分析（verdict/规则/原始报文）。 */}
-          <DetailCard title="Sumsub Detail" columns={1}>
+          {/* 6. Sumsub Transaction Detail — 裁决分析（verdict/规则/原始报文）。 */}
+          <DetailCard title="Sumsub Transaction Detail" columns={1}>
             <SumsubDetailSection detail={data.sumsubDetail} />
           </DetailCard>
 
@@ -581,7 +581,7 @@ const SwapTransactionDetail = () => {
           </DetailCard>
 
           {/* 8. Legs (per-legSeq attempt history) */}
-          <DetailCard title="Settlement Legs" columns={1}>
+          <DetailCard title="Linked Funds Orders" columns={1}>
             {legGroups.length === 0 ? (
               <div className="rounded border border-dashed border-adm-border bg-adm-bg px-4 py-3 font-mono text-[11px] text-adm-t3">
                 No legs created yet.
@@ -741,12 +741,25 @@ const SwapTransactionDetail = () => {
             <SidebarKV label="Net Received" value={netDisplay} mono />
           </SidebarGroup>
 
-          {/* ── Customer Disposition（只读，无任何按钮）——
+          {/* Frozen Disposition — 兑换的 FROZEN 是**零出边终态**（制裁命中客户本人时
+              落地,见 truth/v6-swap.md §1）。与充值/提现刻意不同：那两域的 FROZEN
+              可以经 maker-checker 解冻回流,兑换回不来 —— 所以这里**没有按钮**,
+              只说明现状,免得运营去找一个不存在的解冻入口。 */}
+          {data.status === 'FROZEN' && (
+            <SidebarGroup title="Frozen Disposition">
+              <p className="font-mono text-[11px] text-adm-t3">
+                制裁冻结（零出边终态）。本单不可解冻、不可继续 —— 客户侧收敛显示为
+                Unsuccessful，与普通 KYT 拒绝逐字相同。人身层处置见客户档案的限制账。
+              </p>
+            </SidebarGroup>
+          )}
+
+          {/* ── Ops Disposition（只读，无任何按钮）——
               兑换的拒绝处置作用在【人】身上而非订单：订单终态不可逆，
               officer 的所有处置动作都在 Sumsub 控制台完成（打 tag / 审 action），
               经 webhook 链路落回这里展示。此块回答 operator 一个问题：
               "这个客户现在被限制了什么、凭什么解锁"。 */}
-          <SidebarGroup title="Customer Disposition">
+          <SidebarGroup title="Ops Disposition">
             <SidebarKV
               label="Restrictions"
               value={
