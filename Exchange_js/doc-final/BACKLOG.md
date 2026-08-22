@@ -6,7 +6,7 @@
 >
 > 一行四要素：**是什么 ｜ 哪来的 ｜ 落点/状态**。
 
-Last Updated: 2026-08-20
+Last Updated: 2026-08-22
 
 ---
 
@@ -265,6 +265,61 @@ Last Updated: 2026-08-20
 - [ ] **兑换 resubmit 分支给重提的单子近乎零宽限（唯一没遵守"计的是在这个状态待了多久"的地方）**：`swap-sla.service.ts:73-78`——`sumsubTxnIdOut` 为空时补提交一次然后 `continue`，**不动 `slaDeadline`**（此刻它已经是过去时刻）。下一轮 sweep（30 秒后）看到 `sumsubTxnIdOut` 已有值，直接判超时拒单——Sumsub 实际只拿到 30 秒而不是 5 分钟。旧的 `createdAt` 口径下形态相同，**不是本批引入的回归**；但本批刚立了"deadline 计的是在这个状态待了多久"的模型，这个分支是三域里唯一没遵守它的地方。修法一行：补提交成功后顺手把 `slaDeadline` 往后推一个完整窗口（`resolveSlaFields(COMPLIANCE_PENDING)` 或等价写法）｜来源: 2026-08-21 SLA 批次
 - [ ] **硬破线的 `provider re-review` 理由现在永不可达 + 提现侧写死另一条理由（`actionSubmittedAt` 死列的下游后果）**：`deposit-sla.service.ts:96` 按 `deposit.actionSubmittedAt` 在两条 reason 之间选（交了→`'SLA breached: provider re-review exceeded deadline after customer submission'`／没交→`'SLA breached: no compliance action before deadline'`，metadata 的 `waitingOn` 跟着分 `PROVIDER`/`CUSTOMER`），但全仓再无任何地方把 `actionSubmittedAt` 写成非 null（`grep "actionSubmittedAt:" src/ | grep -v null` 零命中，2026-08-17 材料请求账迁移 `20260817020000_drop_legacy_action_stores` 之后的遗留；列本身仍在 `prisma/schema.prisma:1070`/`:1319`，见 truth/v4-deposit.md §4.6 订正段与本文件既有的「充值/提现域"全部交齐"缓存……已是死列」条），所以 `provider re-review` 那条分支**永远走不到**。`withdraw-sla.service.ts:98` 则直接写死了"未在期限内响应"这一条、连分支都没有——因为 `submitted` 恒为 `false`，**两域当前运行时输出其实完全一致**，不存在活的分歧；但一旦哪天 `actionSubmittedAt` 恢复写入（或改读材料账），同一个问题就会有两个答案：一个已配合交了材料的客户在提现侧仍会被以"未响应"的名义记进永久审计，充值侧不会。修这条死列时两域要一起改 ｜来源: 2026-08-21 SLA 批次
 - [ ] **SLA 倒计时不会自己走，要靠运营切页/刷新**：三域列表页 + 详情页共六个页面都没有 `setInterval`/轮询，`formatSlaRemaining()` 只在每次 render 求值一次——一格显示 `"4m"` 的单子十分钟后还写着 `"4m"`，直到运营切页或手动刷新才更新（破线红标同理，翻红要等下一次 render）。设计稿（`doc-final/superpowers/specs/2026-08-21-sla-design.md` §4.2:178）写的是"状态卡内显示倒计时"。纯观感问题，不影响后端判定 ｜来源: 2026-08-21 SLA 批次
+
+## 技术债 — 第四批 L1 与前端统一（2026-08-22 落地）
+
+> 本批四件事：Phase A 资金腿失败三域对齐 + 充值红标 ｜ Phase B L1 闸门收口（三域共用 `L1GateService` + 九格快照回显）｜ Phase C `OPERATION_PENDING → RETURNING` 退回弧 ｜ Phase D 前端统一化（兑换状态映射表 / 幽灵字段 / 客户面详情页）。
+> 现状见 `truth/v4-deposit.md` §4.8/§4.9、`truth/v5-withdraw.md` §4.8、`truth/v6-swap.md` §3.9/§7。
+> 实施记录：`.superpowers/sdd/batch4/task-{A1..A4,B1..B5,C1,D1..D4}-report.md` + `task-C1-return-visibility-report.md`。
+
+### 业主裁定不做（**不是遗漏**，看到别顺手补上）
+
+这七项在本批开工前就由业主逐条划出范围，写在 `.superpowers/sdd/batch4/global-constraints.md` 里。登记于此是为了让后来人知道「查了、问了、决定不做」，而不是「没想到」。
+
+- [ ] **审计日志专项**（单独一轮）：本批因此**不新造任何审计动作常量**——退回落地清挂起原因走既有 `DEPOSIT_RETURN_STARTED` 的 `metadata.clearedLimitHoldReason`，Gate 0 行政级挂起走动态状态跃迁动作名 `DEPOSIT_COMPLIANCE_PENDING_TO_OPERATION_PENDING`。下面「真欠账」里的三条审计缺口都归那一轮统一清 ｜业主裁定 2026-08-22
+- [ ] **权限 / 安全专项**（`assertAdmin` 类，业主单独任务）：本批只给**新增**端点加闸（`POST :id/return` 有 `assertAdmin` + `@RequirePermissions`），既有缺闸端点（如 `swap-transactions.controller.ts` 的 `advanceSwapLeg`/`resumeSwapLeg`，已登记在上方第三批 SLA 节）一律不碰 ｜业主裁定 2026-08-22
+- [ ] **Travel Rule 判定进 L1**：业主原话「判断照做，但不算 L1 内容、不进 L1 卡片」——`resolveKytTxnType()` 保持原位不动，`L1CheckCode` 九项里刻意没有它 ｜业主裁定 2026-08-22（判据写在 `l1-gate.types.ts` 文件头）
+- [ ] **资产状态闸**（下架/停牌资产不许交易）：业主原话「我们也不下架资产」，`L1CheckCode` 里刻意没有这一项 ｜业主裁定 2026-08-22
+- [ ] **充值累计额度**：`NOT_APPLICABLE.DEPOSIT` 把 `CUMULATIVE_LIMIT` 钉成 NA——充值是被动入金，累计额度**拦不住**（钱已经在链上了），不是「没实现」而是「不适用」｜业主裁定 2026-08-22
+- [ ] **充值大额审批**：同上钉成 NA——大额充值「拒了也没用」，钱已到账。三域里只有提现有大额转审批门 ｜业主裁定 2026-08-22
+- [ ] **`needsReview` 的任何修复按钮**：业主原话「兑换单不该有 resume，所有 needsReview 一律不给修复按钮」。本批据此**删掉**了兑换详情页的 `Resume Leg` 按钮（后端端点保留），充值新增的红标也只标不修。恢复靠人工（资金单详情页 ⚡ Simulation 面板 / 命令行）｜业主裁定 2026-08-22
+
+### 真欠账
+
+**闸门与测试基建**
+
+- [ ] 🔴 **四道闸门没有任何一道会编译 `.tsx` —— 第五道 `cd client-web && npx tsc -b --noEmit` 是本批新立的**：`tsconfig.json` 的 `exclude` 里就有 `client-web`（连同 `admin-web`/`frontend`），`include` 只有 `src/**/*`；`tsconfig.test.json` 继承它；`admin-web` 那道只管 admin。**改了 `client-web` 不跑第五道 = 一行没编译过。** 本批已把五道闸门写进 `.superpowers/sdd/batch4/global-constraints.md` **和仓库根 `CLAUDE.md`**（`global-constraints.md` 是 batch 级的一次性文件，不在 git 里，唯一持久的落点是 `CLAUDE.md`）｜来源: 2026-08-22 第四批 D3 实证
+- [ ] **`client-web` 的 vitest 测试在 jest 闸门里零执行**：`client-web/src/utils/*StatusView.spec.ts`（deposit/withdraw/swap 三份）+ `restrictedCapabilities.spec.ts` 用 vitest 写；`jest.config.js` 的 `roots` 含 `client-web/src`、`testRegex` 也匹配 `.spec.ts`，于是 jest 会**捡起它们并当场失败**（`Vitest cannot be imported in a CommonJS module using require()`）——这正是常年挂在 jest 基线里那条红。真正跑它们的是根 `package.json` 的 `test:client`（`npm test --prefix client-web` → `vitest run`），**而那条命令不在任何闸门清单里**。修法二选一：把 `client-web/src` 从 jest `roots` 摘掉并把 `test:client` 加进闸门；或统一测试框架 ｜来源: 2026-08-22 第四批 D3/D4
+- [ ] **`admin-web` 零组件测试基建**：`jest.config.js` 的 `testRegex: '.*\\.spec\\.ts$'` 只匹配 `.spec.ts`，`.spec.tsx` **永不执行**。本批建过一个 `L1GateCard.spec.tsx`、发现跑不起来后删掉（`5e943691`），并把 `admin-web/tsconfig.app.json` 的 `exclude` 补上 `src/**/*.spec.tsx` 免得空跑 build 时报错。admin 前端组件目前只能靠渲染截图验证 ｜来源: 2026-08-22 第四批 B5
+
+**Gate 0 / 退回弧**
+
+- [ ] **Gate 0 的 `FROZEN` 分支不写审计，与本批新增的挂起分支不对称**：`runGate0()` 的执法级分支（`releasePolicy === 'MLRO_APPROVAL'`）只有 `logger.warn` + `updateStatus(FREEZE)`，无 `auditLogsService` 调用；而本批新增的 `holdAtGate0()` 走 `recordStateTransitionAudit()`、放行分支写 `DEPOSIT_GATE0_PASSED`——三条分支里**只有冻结这条没有审计**。**非本批引入**（既有缺口已登记在上方「制裁命中分主体」节的「`runGate0` 冻单零审计」条），但本批把不对称放得更明显了，一并在此交叉引用，归审计专项那一轮统一清 ｜来源: 2026-08-22 第四批 B4
+- [ ] **`holdAtGate0()` 的状态跃迁审计缺 `requestId`**：`recordStateTransitionAudit()` 不传 `requestId`，而 `buildIdempotencyKey()` 在无 `requestId` 时退化成 `entityType|entityId|action|NO_REQUEST_ID`——同一笔单**二次挂起**（例如 waive 之后客户仍被停用、又被挂一次）会被幂等键**静默吞掉**，第二次挂起在审计里查无此事。三域 SLA 那批已经为七处审计补过 `requestId` 拼 `randomUUID()`，这里是同一类问题的新实例 ｜来源: 2026-08-22 第四批 B4
+- [ ] **`clearLimitHold` 失败时单子仍会 `RETURNING`→`RETURNED` 且对客户永久不可见**：`onReturnApproved()` 里 `updateStatus(RETURN)` 与 `clearAdministrativeHoldOnReturn()` 是**两个没有事务包着的写**，且刻意「先翻后清」（理由见 `truth/v4-deposit.md` §4.8：先清后翻会新增一个「本该藏着的挂起单被永久曝光」的失败模式）。代价是 clear 失败时残局 = 修复前的既有行为——钱退回去了，客户面零记录。正解是把两个写包进同一个事务 ｜来源: 2026-08-22 第四批 C1 复审
+- [ ] **`DepositTransactionsService.clearNeedsReview()` 零生产调用方**：`markNeedsReview()` 有六处调用（三条处置弧 × 正常耗尽 + catch 崩溃），`clearNeedsReview()` 全仓 grep **只有单测在调**——充值的红标一旦立起来就没有任何代码路径能放下（提现域有：`onLegCleared` 在 SUCCESS 结算时清）。运营手工处置完那笔腿之后，列表上那面旗会一直挂着 ｜来源: 2026-08-22 第四批 A2/E1
+- [ ] **`DEPOSIT_CONFISCATION_LEG_FAILED` 成死常量**：`audit-actions.constant.ts:275` 仍在，但随 A3 退役 `confiscate_failed` 边后**已无写入方**（新的两条是 `DEPOSIT_CONFISCATION_RETRIED`/`DEPOSIT_CONFISCATION_STUCK`）。本批不做审计专项，交由那一轮统一清 ｜来源: 2026-08-22 第四批 A3
+
+**L1 闸门本身**
+
+- [ ] **九项里只有三项是 `L1GateService` 亲自执行的，其余六项靠 `preChecks` 传入**：`CUSTOMER_ELIGIBILITY`/`CUSTOMER_RESTRICTION`/`tradingTier` 三项自判（且有 `SELF_OWNED_CHECKS` 保护不被 `preChecks` 覆盖），单笔/累计/大额/账户/余额/报价/起始就绪七项住在各域自己的守卫里。**若将来要真正"统一执行"**，需要重写各域守卫、并改错误码契约（现在各域抛的是自己的 `TRANSACTION_LIMIT_REJECTED`/`WITHDRAWAL_ADDRESS_NOT_REGISTERED`/`RECEIVING_ACCOUNT_REQUIRED` 等，统一执行后要么全变成 `L1_GATE_BLOCKED`（丢失可诊断性）、要么求值器得回传结构化错误码）。本批刻意不重写能跑的代码 ｜来源: 2026-08-22 第四批 B1
+- [ ] **`CAPABILITY_RESTRICTED` 挂起原因区分不出 SANCTION 与 ADMIN_SUSPENSION，客户面一律藏**：`holdReasonOf()` 只按**哪一格 FAIL** 映射原因，拿不到便签的 `cause`；而客户面的可见性判据是「`limitHoldReason` 非空即整单不可见」，于是行政级挂起在**挂着的时候**对客户是零记录（退回落地才清、才可见，见 `truth/v4-deposit.md` §4.8）。保守是刻意的——tipping-off 的代价不对称（藏错了客户少看见一条记录，露错了是刑事风险）。要精确区分需让 `holdReasonOf()` 带上 `cause`，并给客户面定一套「哪些 cause 可见」的白名单 ｜来源: 2026-08-22 第四批 B4
+- [ ] **`holdReasonOf()` 的 `SINGLE_LIMIT → 'BELOW_MIN'` 与 `default → first.code` 两条分支无单测**：`l1-gate.service.spec.ts` 覆盖了 `LIFECYCLE_NOT_ACTIVE`/`CAPABILITY_RESTRICTED` 两条（以及九格 NA/SKIPPED 表逐格、`SELF_OWNED_CHECKS` 两条防覆盖），但没有一条用例让 `SINGLE_LIMIT` 或其余六格成为 `failed[0]`。`default` 分支会把 code 原样当挂起原因写进 `limitHoldReason`（例如 `'ACCOUNT_READINESS'`），那个值不在 `ADMINISTRATIVE_HOLD_REASONS` 里、也不是 `BELOW_MIN`，退回时不会被清——静默产生一类永久对客户不可见的单 ｜来源: 2026-08-22 第四批 E1
+
+**兑换域**
+
+- [ ] **`FAILED` / `REVERSED` 两个不可达死枚举未删**：转移表零入边、全仓无 `markStatus` 写入方、无 reverse 端点；只作为「排除项」出现在三处集合里（`SWAP_TERMINAL_STATUSES`、`swap-workflow` 终态集、累计额度用量排除列表）。本批新建的 `admin-web/src/utils/swapStatusMap.ts` 也为它们保留了条目（若复活，fallback 会渲染成 WARNING 黄误导运营）。**与上方「技术债 — V6 兑换」节的同名条是同一件事**，此处只记「第四批仍未删」｜来源: 2026-08-22 第四批 D1
+- [ ] **客户面 `GET /swap-transactions/:id` 零调用方，且越权返 403 泄漏存在性**：`swap-transactions-customer.controller.ts` 的 `@Get(':id')` → `findOneForCustomer(id, userId)`，`ownerId` 不符时抛 `ForbiddenException('Not your swap transaction')` ——403 与 404 的差别就是一个存在性预言机（拿别人的 swapId 试一试，403 = 存在，404 = 不存在）。充值/提现的对应实现都用**同一个 404** 兼作 IDOR 守卫。本批新增的 `GET my/:swapNo` 已按铁律③走业务键，前端 `client-web` 全仓 grep 确认**没有任何调用方**打 `:id` 那条——建议直接退役该端点 ｜来源: 2026-08-22 第四批 D3
+- [ ] **`swap-transactions.service.ts → findOne()` 的 `customer: { include: … }` 会把 `passwordHash` 返给 admin 端**：本批把 `customer: true` 改成 `customer: { include: { restrictionRows: … } }` 以取限制账真数据——**改动前后完全一样**，`include` 不做字段裁剪，`CustomerMain` 上的 `passwordHash`/`passwordUpdatedAt`/`failedLoginCount`/`lockedUntil` 全都在响应里。**提现域三处 `customer: true` 同样如此**（`findAll`/`findOneInternal`/`findOne`）；**充值域已经是安全的**（两处都用 `customer: { select: {...} }` 五六个字段）——所以这不是「三域皆然」，是「充值早已修好、另两域没跟上」。修法照抄充值：改 `select` ｜来源: 2026-08-22 第四批 D2/E1（非本批引入）
+
+**前端**
+
+- [ ] **`client-web/src/pages/Withdraw.tsx` 的 tab 仍存组件 state**：`Deposit.tsx` 与本批改造的 `Swap.tsx` 都已把 tab 放进 URL 查询参数（`useSearchParams`），提现页还是 `useState`。今天没有可见症状——提现**没有**「列表 → 详情 → `navigate(-1)` 回列表」这条往返（详情页返回落点判据虽然同款，但提现列表 tab 与详情页不构成同一循环）；一旦将来补上同款往返，这条就会立刻表现为「从 History 点进详情，返回后站在下单表单」｜来源: 2026-08-22 第四批 D3
+- [ ] **`admin-web/src/components/L1GateCard.tsx` 头部注释已过期**：注释写「与页面上既有的 `L1 · Eligibility` 格子是两回事：那个读的是客户级 `complianceStatus`」——同一批次后面的 commit（`339195e4`）已把三域那一格改读 `customer.lifecycle`（`complianceStatus` 是被 drop 的列）。注释里的列名是死的，一行字的事 ｜来源: 2026-08-22 第四批 E1 自查
+
+**记账**
+
+- [ ] **`directionOf()` 把提现两条腿都判成 `OUT`**：`funds-order.service.ts` 对 `withdrawTransactionId` 非空恒判 `OUT`，不按 `legSeq` 分叉——但费腿（legSeq=2）是 `FIRM_ASSET → INCOME_WITHDRAW_FEE` 的**纯内部划账**，按语义应是 `INTERNAL`（对照充值：`legSeq > 1` 一律判 `INTERNAL`）。**功能上无影响**：`getTransitionMap` 里 `INTERNAL` 落到的也是 OUT 那张表，两者当前等价。是命名/语义债，不是 bug ｜来源: 2026-08-22 第四批 A4/E1
 
 ## 技术债 — 平账处置（推单）
 
