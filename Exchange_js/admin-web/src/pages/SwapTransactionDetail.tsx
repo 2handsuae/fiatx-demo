@@ -15,6 +15,7 @@ import { formatAssetAmount, formatRate8 } from '../utils/number-format';
 import { formatSlaRemaining } from '../utils/slaDisplay';
 import { useSimulationMode } from '../utils/simulationMode';
 import { getComplianceLayerStyle } from '../utils/depositActionMap';
+import L1GateCard from '../components/L1GateCard';
 import MaterialRequestPanel from '../components/MaterialRequestPanel';
 
 /* ── Types ──────────────────────────────────────────────────── */
@@ -120,6 +121,7 @@ interface SwapTransactionDetailData {
     hardLineDispositionedAt?: string | null;
   } | null;
   statusHistory: string | null;
+  l1Snapshot?: string | null;
   internalFunds?: InternalFundLeg[];
   sumsubDetail?: SwapSumsubDetail | null;
   // parity 2026-08-14：行级裸列（References 卡消费，镜像提现顶层列）
@@ -528,6 +530,9 @@ const SwapTransactionDetail = () => {
                       ? `Scoring action: ${data.complianceAction}`
                       : 'Awaiting Sumsub verdict'}
                 </div>
+              </div>
+              <div className="col-span-2 mt-2">
+                <L1GateCard raw={data.l1Snapshot} />
               </div>
             </div>
           </div>

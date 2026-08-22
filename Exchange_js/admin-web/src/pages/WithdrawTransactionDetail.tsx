@@ -23,6 +23,7 @@ import { formatAssetAmount } from '../utils/number-format';
 import { formatSlaRemaining } from '../utils/slaDisplay';
 import { formatTransactionTypeLabel } from '../utils/transactionRootDisplay';
 import { getComplianceLayerStyle } from '../utils/depositActionMap';
+import L1GateCard from '../components/L1GateCard';
 import {
   getWithdrawStatusMeta,
   isWithdrawTerminalStatus,
@@ -135,6 +136,7 @@ interface WithdrawDetail {
   completedAt: string | null;
   traceId?: string | null;
   statusHistory: string | null;
+  l1Snapshot?: string | null;
   asset: { code: string; type: string; network: string | null; decimals: number };
   customer?: { complianceStatus?: string | null; sumsubApplicantId?: string | null; customerNo?: string | null } | null;
   linkedFundOrders?: LinkedFundOrder[];
@@ -499,6 +501,9 @@ const WithdrawTransactionDetail = () => {
                     · Score {data.sumsubScore ?? '—'}
                   </span>
                 </div>
+              </div>
+              <div className="col-span-2 mt-2">
+                <L1GateCard raw={data.l1Snapshot} />
               </div>
             </div>
           </DetailCard>

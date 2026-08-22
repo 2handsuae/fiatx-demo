@@ -27,6 +27,7 @@ import {
   normalizeRailDisplayStatus,
 } from '../utils/transactionRootDisplay';
 import { getComplianceLayerStyle } from '../utils/depositActionMap';
+import L1GateCard from '../components/L1GateCard';
 import { getDepositStatusMeta } from '../utils/depositStatusMap';
 import { adminButtonClass } from '../components/common/adminButtonStyles';
 import { useSimulationMode } from '../utils/simulationMode';
@@ -102,6 +103,7 @@ interface DepositDetail {
   slaBreached?: boolean | null;
   sumsubActionId?: string | null;
   actionSubmittedAt?: string | null;
+  l1Snapshot?: string | null;
   asset: {
     code: string;
     type: string;
@@ -582,6 +584,9 @@ const DepositTransactionDetail = () => {
                     Score: {gatesNotEvaluated ? '—' : (data.sumsubScore ?? '—')}
                   </span>
                 </div>
+              </div>
+              <div className="col-span-2 mt-2">
+                <L1GateCard raw={data.l1Snapshot} />
               </div>
             </div>
           </DetailCard>
