@@ -79,8 +79,12 @@ const L1GateCard = ({ raw }: { raw?: string | null }) => {
         {snap.evaluatedAt ? ` · ${new Date(snap.evaluatedAt).toLocaleString()}` : ''}
       </div>
 
+      {/* checks 必须防御：这一列是裸 String? 不是 Prisma Json,没有 schema 校验。
+          一条结构合法但缺 checks 的行会让 undefined.map() 抛在渲染期,而本页没有
+          Error Boundary —— 炸的不是这张卡,是整页白屏(资金流水/Sumsub/状态历史
+          全看不见,运营还无从判断是哪笔单的问题)。审查在隔离库实测复现过。 */}
       <div className="mt-2 space-y-1">
-        {snap.checks.map((c) => (
+        {(Array.isArray(snap.checks) ? snap.checks : []).map((c) => (
           <div key={c.code} className="flex items-start gap-2">
             <span className={`w-[124px] shrink-0 font-mono text-[10px] ${OUTCOME_CLASS[c.outcome] ?? 'text-adm-t3'}`}>
               {c.code}
