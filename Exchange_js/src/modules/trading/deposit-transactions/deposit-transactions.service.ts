@@ -727,7 +727,8 @@ export class DepositTransactionsService {
       );
     }
 
-    // 状态机收窄(业主 2026-07-31 定稿,14 状态/15 动作/26 边)。每个终态都必须回答
+    // 状态机收窄(业主 2026-07-31 定稿;含 2026-08-13 增两条、2026-08-22 退役
+    // confiscate_failed 一条后为 14 状态/15 动作/27 边)。每个终态都必须回答
     // 「钱去哪了」——REJECTED/EXPIRED 是仅有的说不出资金去向的终态(钱已到账却"拒绝"/
     // "过期",资金悬空),已删除。payin 结束就是钱到了,COMPLIANCE_PENDING 之后不再有
     // FAILED(FAIL 的唯一入口是 PAYIN_PENDING)。FROZEN 收窄为只剩两个合法归宿
@@ -811,13 +812,11 @@ export class DepositTransactionsService {
         [DepositTransactionAction.SEIZE]: DepositTransactionStatus.SEIZING,
       },
       [DepositTransactionStatus.CONFISCATING]: {
+        // 2026-08-22(A3):唯一出边。没收腿 FAILED/TIMEOUT 不再退状态——改重试三级梯,
+        // 耗尽后单子原地留 CONFISCATING + 置 needsReview 红标(业主定稿:「卡住了」是一
+        // 面旗,不是一个状态),与 RETURNING/SEIZING 两条处置弧完全同形状。
         [DepositTransactionAction.CONFISCATE_SETTLE]:
           DepositTransactionStatus.CONFISCATED,
-        // A1: 没收腿 FAILED/TIMEOUT — 此前这条信号掉地上(onConfiscationLegChanged 只认
-        // CONFIRMED),deposit 永停 CONFISCATING、两笔 pending 锁永不释放、四条恢复路径全堵。
-        // 现在解锁两笔后退回 OPERATION_PENDING,运营可重新发起没收。
-        [DepositTransactionAction.CONFISCATE_FAILED]:
-          DepositTransactionStatus.OPERATION_PENDING,
       },
       [DepositTransactionStatus.RETURNING]: {
         [DepositTransactionAction.RETURNED_DONE]:

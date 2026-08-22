@@ -2919,7 +2919,7 @@ describe('DepositWorkflowService', () => {
       depositService.findOne.mockResolvedValue(dep);
       accountingService.postPendingTransfer.mockRejectedValue(new Error('TB down'));
 
-      await (service as any).settleConfiscation(dep, 'fo2');
+      await (service as any).settleConfiscation(dep, 'fo2', 1);
 
       // leg1 rejects on every attempt → 1 call/attempt = 3 total (leg2 never reached).
       expect(accountingService.postPendingTransfer).toHaveBeenCalledTimes(3);
@@ -2951,28 +2951,38 @@ describe('DepositWorkflowService', () => {
     // CONFISCATING、两笔 pending 锁永不释放,且四条恢复路径全堵(资金单已终态不再发事件 /
     // CONFISCATING 只有 settle 一条出边 / ADMIN_API 被 ACCOUNTING_TERMINALS 挡 / 无重结算
     // 入口)。而 admin 资金单详情页的 ⚡失败/⚡超时 红按钮对没收腿照常渲染 —— 一点即死。
+    // A3(2026-08-22)改写:A1 那版「一次失败就退回 OPERATION_PENDING」已退役 ——
+    // 现在 FAILED/TIMEOUT 走重试三级梯,attempt 1 只 void + 重建 attempt 2,状态一步不动。
     it.each(['FAILED', 'TIMEOUT'])(
-      'A1: legSeq2 %s → voids BOTH pending legs → back to OPERATION_PENDING + audit',
+      'A3: legSeq2 %s (attempt 1) → voids BOTH pending legs → 重建 attempt 2,状态一步不动',
       async (legStatus) => {
         depositService.findOne.mockResolvedValue(baseDeposit({ status: 'CONFISCATING' }));
+        fundsOrders.create.mockResolvedValue({ fundsOrderNo: 'FO-CF-2R' });
 
-        await service.handleFundsOrderChanged(legEvent({ newStatus: legStatus }) as any);
+        await service.handleFundsOrderChanged(legEvent({ newStatus: legStatus, attempt: 1 }) as any);
 
         // 两笔 pending 都要解锁——只解一笔等于钱还锁着一半
         expect(accountingService.voidPendingTransfer).toHaveBeenCalledTimes(2);
         expect(accountingService.postPendingTransfer).not.toHaveBeenCalled();
-        expect(depositService.updateStatus).toHaveBeenCalledWith(
-          expect.any(String),
-          expect.objectContaining({ action: DepositTransactionAction.CONFISCATE_FAILED }),
+        // 重建:新腿 attempt 2 + 两笔新 pending(legIndex 2)
+        expect(fundsOrders.create).toHaveBeenCalledWith(
+          expect.objectContaining({ legSeq: 2, attempt: 2 }),
         );
+        expect(accountingService.executePendingTransfer).toHaveBeenCalledTimes(2);
+        expect(
+          accountingService.executePendingTransfer.mock.calls.map((c: any[]) => c[0].legIndex),
+        ).toEqual([2, 2]);
+        expect(depositService.updateStatus).not.toHaveBeenCalled();
+        expect(depositService.markNeedsReview).not.toHaveBeenCalled();
         expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
-          expect.objectContaining({ action: 'DEPOSIT_CONFISCATION_LEG_FAILED' }),
+          expect.objectContaining({ action: 'DEPOSIT_CONFISCATION_RETRIED' }),
         );
       },
     );
 
-    it('A1: void 的 pending id 必须与 startConfiscation 逐字一致(两笔 eventCode 各一)', async () => {
+    it('A3: void 的 pending id 必须与 pendConfiscationLegs 本次 attempt 逐字一致(两笔 eventCode 各一)', async () => {
       depositService.findOne.mockResolvedValue(baseDeposit({ status: 'CONFISCATING' }));
+      fundsOrders.create.mockResolvedValue({ fundsOrderNo: 'FO-CF-2R' });
 
       await service.handleFundsOrderChanged(legEvent({ newStatus: 'FAILED' }) as any);
 
@@ -2983,14 +2993,14 @@ describe('DepositWorkflowService', () => {
         'CONFISCATE_REVERSE_SUSPENSE_VOID',
         'CONFISCATE_INCOME_OTHER_VOID',
       ]);
-      // pending id 由 startConfiscation 的 eventCode + legIndex(=1) 决定,两笔必须不同
+      // pending id 由 eventCode + legIndex(=attempt) 决定,同 attempt 下两笔必须不同
       const pendingIds = accountingService.voidPendingTransfer.mock.calls.map(
         (c: any[]) => c[0].pendingTransferId,
       );
       expect(pendingIds[0]).not.toEqual(pendingIds[1]);
     });
 
-    it('A1: void 抛错 → 不上抛(@OnEvent 里没人接) + 留 CONFISCATING + UNLOCK_FAILED 审计', async () => {
+    it('A3: void 抛错 → 不上抛(@OnEvent 里没人接) + 留 CONFISCATING + 红标 + UNLOCK_FAILED 审计', async () => {
       depositService.findOne.mockResolvedValue(baseDeposit({ status: 'CONFISCATING' }));
       accountingService.voidPendingTransfer.mockRejectedValue(new Error('TB unreachable'));
 
@@ -2998,13 +3008,74 @@ describe('DepositWorkflowService', () => {
         service.handleFundsOrderChanged(legEvent({ newStatus: 'FAILED' }) as any),
       ).resolves.toBeUndefined();
 
-      expect(depositService.updateStatus).not.toHaveBeenCalledWith(
-        expect.any(String),
-        expect.objectContaining({ action: DepositTransactionAction.CONFISCATE_FAILED }),
-      );
+      expect(depositService.updateStatus).not.toHaveBeenCalled();
+      expect(depositService.markNeedsReview).toHaveBeenCalledWith('dep-1');
+      expect(fundsOrders.create).not.toHaveBeenCalled(); // 没走到重建那步
       expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
         expect.objectContaining({ action: 'DEPOSIT_CONFISCATION_UNLOCK_FAILED' }),
       );
+    });
+
+    // 资金安全线:重建后的 attempt 2 结算,必须 post attempt 2 的 pending id ——
+    // 写死 1 会 post 到上一 attempt 已 void 的 id 上(post 恒失败 → 单子卡死 CONFISCATING,
+    // 而 attempt 2 的两笔 pending 还锁着)。settleReturn/settleSeize 同样收 event.attempt。
+    it('A3: attempt 2 的腿 CONFIRMED → post 的是 attempt 2 的 pending id(不是 attempt 1 的)', async () => {
+      depositService.findOne.mockResolvedValue(baseDeposit({ status: 'CONFISCATING' }));
+
+      await service.handleFundsOrderChanged(legEvent({ newStatus: 'CONFIRMED', attempt: 2 }) as any);
+      const attempt2Ids = accountingService.postPendingTransfer.mock.calls.map(
+        (c: any[]) => c[0].pendingTransferId,
+      );
+
+      accountingService.postPendingTransfer.mockClear();
+      await service.handleFundsOrderChanged(legEvent({ newStatus: 'CONFIRMED', attempt: 1 }) as any);
+      const attempt1Ids = accountingService.postPendingTransfer.mock.calls.map(
+        (c: any[]) => c[0].pendingTransferId,
+      );
+
+      expect(attempt2Ids).toHaveLength(2);
+      expect(attempt1Ids).toHaveLength(2);
+      expect(attempt2Ids[0]).not.toEqual(attempt1Ids[0]);
+      expect(attempt2Ids[1]).not.toEqual(attempt1Ids[1]);
+    });
+
+    describe('A3 · 没收腿重试', () => {
+      const deposit = {
+        id: 'd3', depositNo: 'DEP003', ownerType: 'CUSTOMER', ownerId: 'c1',
+        assetId: 'a1', traceId: 't3', amount: '100', toWalletId: 'w1',
+        asset: { decimals: 2, currency: 'AED', tbLedgerId: 1 },
+        status: 'CONFISCATING',
+      };
+
+      it('第 1 次失败 → 重建 attempt 2,不推状态、不置红标', async () => {
+        accountingService.voidPendingTransfer.mockResolvedValue(undefined);
+        accountingService.resolveTbAccountId.mockResolvedValue(1n);
+        accountingService.executePendingTransfer.mockResolvedValue(undefined);
+        fundsOrders.create.mockResolvedValue({ fundsOrderNo: 'FO-C2' });
+
+        await (service as any).onConfiscationLegFailed(deposit, 'fo1', 'FAILED', 1);
+
+        expect(fundsOrders.create).toHaveBeenCalled();
+        expect(depositService.updateStatus).not.toHaveBeenCalled();
+        expect(depositService.markNeedsReview).not.toHaveBeenCalled();
+        // 自证型绿灯防线:显式钉住走的是 RETRIED 分支,而不是 catch 里的 UNLOCK_FAILED。
+        expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
+          expect.objectContaining({ action: AuditActions.DEPOSIT_CONFISCATION_RETRIED }),
+        );
+      });
+
+      it('第 3 次失败 → 置红标 + STUCK 审计,状态留在 CONFISCATING', async () => {
+        accountingService.voidPendingTransfer.mockResolvedValue(undefined);
+
+        await (service as any).onConfiscationLegFailed(deposit, 'fo1', 'TIMEOUT', 3);
+
+        expect(depositService.markNeedsReview).toHaveBeenCalledWith('d3');
+        expect(depositService.updateStatus).not.toHaveBeenCalled();
+        expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
+          expect.objectContaining({ action: AuditActions.DEPOSIT_CONFISCATION_STUCK }),
+        );
+        expect(fundsOrders.create).not.toHaveBeenCalled(); // 耗尽后不再重建
+      });
     });
   });
 

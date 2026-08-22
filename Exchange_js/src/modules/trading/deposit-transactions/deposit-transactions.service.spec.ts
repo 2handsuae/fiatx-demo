@@ -1193,12 +1193,16 @@ describe('DepositTransactionsService', () => {
     });
 
     // 守则性测试(防转移表再次漂移):brief `doc-final/superpowers/sdd/statemachine-brief.md`
-    // §二定稿的 26 条边 + 2026-08-13 新增 2 条 = 28 条边逐条列出——多一条、少一条、
-    // 边指向变了,这里都会红。同时用穷举(14 状态 × 16 动作)反向断言:凡不在这 28 条边
-    // 名单里的组合,一律必须抛 Invalid action/Cannot apply action(即没有偷偷长出第 29 条边)。
+    // §二定稿的 26 条边 + 2026-08-13 新增 2 条 − 2026-08-22 退役 1 条 = 27 条边逐条列出
+    // ——多一条、少一条、边指向变了,这里都会红。同时用穷举(14 状态 × 15 动作)反向断言:
+    // 凡不在这 27 条边名单里的组合,一律必须抛 Invalid action/Cannot apply action
+    // (即没有偷偷长出第 28 条边)。
     // 2026-08-13 新增两条:
     //   OPERATION_PENDING --freeze--> FROZEN            钱在暂扣里等处置,制裁命中必须冻得住
     //   CONFISCATING --confiscate_failed--> OPERATION_PENDING  A1 没收腿失败解锁后退回待处置
+    // 2026-08-22 退役一条(A3,业主定稿「重试三次仍不行就原地不动+标红」):
+    //   CONFISCATING --confiscate_failed--> OPERATION_PENDING  没收腿改重试三级梯,耗尽
+    //   后原地留 CONFISCATING + 置 needsReview 红标,与退回/上缴弧同形状,不再退状态。
     const EXPECTED_EDGES: Array<{
       from: DepositTransactionStatus;
       action: DepositTransactionAction;
@@ -1235,14 +1239,29 @@ describe('DepositTransactionsService', () => {
       { from: DepositTransactionStatus.FROZEN, action: DepositTransactionAction.SEIZE, to: DepositTransactionStatus.SEIZING },
 
       { from: DepositTransactionStatus.CONFISCATING, action: DepositTransactionAction.CONFISCATE_SETTLE, to: DepositTransactionStatus.CONFISCATED },
-      { from: DepositTransactionStatus.CONFISCATING, action: DepositTransactionAction.CONFISCATE_FAILED, to: DepositTransactionStatus.OPERATION_PENDING },
       { from: DepositTransactionStatus.RETURNING, action: DepositTransactionAction.RETURNED_DONE, to: DepositTransactionStatus.RETURNED },
       { from: DepositTransactionStatus.SEIZING, action: DepositTransactionAction.SEIZED_DONE, to: DepositTransactionStatus.SEIZED },
     ];
 
-    describe('state machine integrity guard (28-edge brief)', () => {
-      it('brief lists exactly 28 edges', () => {
-        expect(EXPECTED_EDGES).toHaveLength(28);
+    describe('state machine integrity guard (27-edge brief)', () => {
+      it('brief lists exactly 27 edges', () => {
+        expect(EXPECTED_EDGES).toHaveLength(27);
+      });
+
+      it('CONFISCATING 只剩 confiscate_settle 一条出边（confiscate_failed 已退役）', () => {
+        expect(() =>
+          (service as any).getNextStatus(
+            DepositTransactionStatus.CONFISCATING,
+            'confiscate_failed' as any,
+          ),
+        ).toThrow(/Invalid|not allowed|无效/i);
+
+        expect(
+          (service as any).getNextStatus(
+            DepositTransactionStatus.CONFISCATING,
+            DepositTransactionAction.CONFISCATE_SETTLE,
+          ),
+        ).toBe(DepositTransactionStatus.CONFISCATED);
       });
 
       it.each(
@@ -1257,7 +1276,7 @@ describe('DepositTransactionsService', () => {
         );
       });
 
-      it('every (status, action) pair NOT in the 28-edge list throws (no undocumented edge exists)', async () => {
+      it('every (status, action) pair NOT in the 27-edge list throws (no undocumented edge exists)', async () => {
         const edgeKeys = new Set(
           EXPECTED_EDGES.map((e) => `${e.from}::${e.action}`),
         );
