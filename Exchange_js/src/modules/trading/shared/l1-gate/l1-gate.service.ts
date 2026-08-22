@@ -42,6 +42,16 @@ const DOMAIN_CAPABILITY: Record<L1Domain, Capability> = {
 };
 
 /**
+ * 本 service 亲自执行、自判自赢的项 —— `preChecks` 里若意外带上同名 code
+ * （复制粘贴带出多余字段、误传整份旧快照等）一律丢弃，绝不覆盖本 service
+ * 刚算出来的结果。这两项是安全关键判定：覆盖成 PASS 等于闸门被静默绕过。
+ */
+const SELF_OWNED_CHECKS: ReadonlySet<L1CheckCode> = new Set<L1CheckCode>([
+  'CUSTOMER_ELIGIBILITY',
+  'CUSTOMER_RESTRICTION',
+]);
+
+/**
  * L1 闸门求值器（三域共用的**唯一**一份 —— 业主 2026-08-22：「通用模块要变成
  * 公共服务」。注意这是 deliberate fork 的例外：状态机/处置弧仍然三域各写各的,
  * 只有横切关注点收成公共实现）。
@@ -94,9 +104,14 @@ export class L1GateService {
     });
 
     // ③ 合并：本 service 判的 + 调用方传进来的 + 域内不适用的 + 其余 SKIPPED
+    //    自判项（①②）永远以本 service 为准，preChecks 里同名 code 一律丢弃 ——
+    //    不依赖两个循环的写入顺序,语义显式钉在 SELF_OWNED_CHECKS 里。
     const provided = new Map<L1CheckCode, L1Check>();
     for (const c of own) provided.set(c.code, c);
-    for (const c of input.preChecks ?? []) provided.set(c.code, c);
+    for (const c of input.preChecks ?? []) {
+      if (SELF_OWNED_CHECKS.has(c.code)) continue;
+      provided.set(c.code, c);
+    }
 
     const na = new Set(NOT_APPLICABLE[input.domain]);
     const checks: L1Check[] = CHECK_ORDER.map((code) => {

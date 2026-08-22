@@ -97,4 +97,75 @@ describe('L1GateService', () => {
     expect(snap.checks).toHaveLength(9);
     expect(snap.checks.find((c) => c.code === 'QUOTE_VALIDITY')?.outcome).toBe('NA');
   });
+
+  it('preChecks 若伪造 CUSTOMER_RESTRICTION=PASS,不能覆盖本 service 判的 FAIL(自判项永远赢)', async () => {
+    customerAccess.resolve.mockResolvedValue({
+      lifecycle: 'ACTIVE',
+      blocked: new Set(['WITHDRAW']),
+      disclosed: [],
+    });
+    prisma.customerMain.findUnique.mockResolvedValue({ tradingTier: 'BASIC' });
+
+    const snap = await service.evaluate({
+      domain: 'WITHDRAW',
+      customerId: 'c1',
+      preChecks: [{ code: 'CUSTOMER_RESTRICTION', outcome: 'PASS', detail: '伪造的放行' }],
+    });
+
+    const restriction = snap.checks.find((c) => c.code === 'CUSTOMER_RESTRICTION');
+    expect(restriction?.outcome).toBe('FAIL');
+    expect(restriction?.detail).not.toBe('伪造的放行');
+    expect(snap.verdict).toBe('BLOCK');
+  });
+
+  it('preChecks 若伪造 CUSTOMER_ELIGIBILITY=PASS,不能覆盖本 service 判的 FAIL(自判项永远赢)', async () => {
+    customerAccess.resolve.mockResolvedValue({ ...activeAccess, lifecycle: 'SUSPENDED' });
+    prisma.customerMain.findUnique.mockResolvedValue({ tradingTier: 'BASIC' });
+
+    const snap = await service.evaluate({
+      domain: 'DEPOSIT',
+      customerId: 'c1',
+      preChecks: [{ code: 'CUSTOMER_ELIGIBILITY', outcome: 'PASS', detail: '伪造的放行' }],
+    });
+
+    const eligibility = snap.checks.find((c) => c.code === 'CUSTOMER_ELIGIBILITY');
+    expect(eligibility?.outcome).toBe('FAIL');
+    expect(snap.verdict).toBe('HOLD');
+    expect(snap.holdReason).toBe('LIFECYCLE_NOT_ACTIVE');
+  });
+
+  describe('NOT_APPLICABLE 表:三域逐格钉住(业主 2026-08-22 拍板)', () => {
+    const NON_SELF_CODES = [
+      'SINGLE_LIMIT',
+      'CUMULATIVE_LIMIT',
+      'LARGE_APPROVAL',
+      'ACCOUNT_READINESS',
+      'BALANCE_SUFFICIENCY',
+      'QUOTE_VALIDITY',
+      'TRADING_READINESS',
+    ] as const;
+
+    const EXPECTED_NA: Record<'DEPOSIT' | 'WITHDRAW' | 'SWAP', string[]> = {
+      DEPOSIT: ['CUMULATIVE_LIMIT', 'LARGE_APPROVAL', 'BALANCE_SUFFICIENCY', 'QUOTE_VALIDITY'],
+      WITHDRAW: [],
+      SWAP: ['LARGE_APPROVAL'],
+    };
+
+    it.each(['DEPOSIT', 'WITHDRAW', 'SWAP'] as const)('%s 域:NA 项与 SKIPPED 项逐一钉住', async (domain) => {
+      customerAccess.resolve.mockResolvedValue(activeAccess);
+      prisma.customerMain.findUnique.mockResolvedValue({ tradingTier: 'BASIC' });
+
+      const snap = await service.evaluate({ domain, customerId: 'c1' });
+
+      const naSet = new Set(EXPECTED_NA[domain]);
+      for (const code of NON_SELF_CODES) {
+        const outcome = snap.checks.find((c) => c.code === code)?.outcome;
+        if (naSet.has(code)) {
+          expect(outcome).toBe('NA');
+        } else {
+          expect(outcome).toBe('SKIPPED');
+        }
+      }
+    });
+  });
 });
