@@ -3075,6 +3075,19 @@ describe('DepositWorkflowService', () => {
           expect.objectContaining({ action: AuditActions.DEPOSIT_CONFISCATION_STUCK }),
         );
         expect(fundsOrders.create).not.toHaveBeenCalled(); // 耗尽后不再重建
+
+        // 资金安全线:void 的两笔 pending id 必须精确等于本次 attempt(=3)推导出的
+        // deterministicTransferId,不能是写死的 attempt 1 —— 否则 voidPendingTransfer
+        // 会撞上 attempt 1 早已 void 过的 id,被 accounting.service 的
+        // pending_transfer_already_voided 豁免吞掉(不抛/不落审计/不置红标),
+        // attempt 3 真正的两笔 pending 永久锁死、全程静默。
+        const voidedIds = accountingService.voidPendingTransfer.mock.calls.map(
+          (c: any[]) => c[0].pendingTransferId,
+        );
+        expect(voidedIds).toEqual([
+          deterministicTransferId('DEPOSIT', 'DEP003', 'CONFISCATE_REVERSE_SUSPENSE', 3),
+          deterministicTransferId('DEPOSIT', 'DEP003', 'CONFISCATE_INCOME_OTHER', 3),
+        ]);
       });
     });
   });

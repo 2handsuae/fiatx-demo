@@ -1503,7 +1503,7 @@ export class DepositWorkflowService implements OnModuleInit {
     if (!existing) {
       await this.fundsOrders.create(this.buildConfiscationLegInput(deposit, 1, firmFeeWallet));
     }
-    await this.pendConfiscationLegs(deposit, 1, firmFeeWallet);
+    await this.pendConfiscationLegs(deposit, existing?.attempt ?? 1, firmFeeWallet);
 
     await this.depositService.updateStatus(deposit.id, { action: DepositTransactionAction.CONFISCATE_START, reason: 'Below-min confiscation started (funds in transit)' });
 
