@@ -84,6 +84,10 @@ describe('DepositWorkflowService', () => {
       setSumsubTxn: jest.fn().mockResolvedValue(undefined),
       clearLimitHold: jest.fn().mockResolvedValue(undefined),
       findNonTerminalByOwner: jest.fn().mockResolvedValue([]),
+      // 生产代码在崩溃分支里对返回值链 .catch(...)（见 A2）——必须 resolve 而非裸
+      // jest.fn()(返回 undefined),否则 undefined.catch(...) 同步抛错，会把既有
+      // "Fix 2" 崩溃路径用例带崩。
+      markNeedsReview: jest.fn().mockResolvedValue(undefined),
     };
     actionsService = {
       syncApplicantActions: jest.fn().mockResolvedValue({ added: [], retired: [] }),
@@ -3358,6 +3362,66 @@ describe('DepositWorkflowService', () => {
       );
       expect(fundsOrders.create).not.toHaveBeenCalled(); // never got to the rebuild step
       expect(depositService.updateStatus).not.toHaveBeenCalled(); // stays RETURNING
+    });
+
+    // A2（第四批）：重试三级梯耗尽后原地不动 + 置 needsReview 红标 —— 靠红标让运营
+    // 看见「卡住了」，而不是新起一个状态。onSeizeLegFailed 的用例也放在这里，因为
+    // 它需要同一份带 voidPendingTransfer 的 accountingService mock（本 describe 的
+    // beforeEach 已经建好），两条弧各改各的实现，测试没必要各建一套模块。
+    describe('A2 · 处置腿卡死置红标', () => {
+      it('退回腿第 3 次仍失败 → 写 STUCK 审计并置 needsReview,状态一步不动', async () => {
+        const deposit = {
+          id: 'd1', depositNo: 'DEP001', ownerType: 'CUSTOMER', ownerId: 'c1',
+          traceId: 't1', amount: '100', asset: { decimals: 2, currency: 'AED' },
+          status: 'RETURNING',
+        };
+        accountingService.voidPendingTransfer.mockResolvedValue(undefined);
+
+        await (service as any).onReturnLegFailed(deposit, 'fo1', 3);
+
+        expect(depositService.markNeedsReview).toHaveBeenCalledWith('d1');
+        expect(depositService.updateStatus).not.toHaveBeenCalled();
+        expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
+          expect.objectContaining({ action: AuditActions.DEPOSIT_RETURN_STUCK }),
+        );
+      });
+
+      it('退回腿第 1 次失败 → 重建 attempt 2,不置红标', async () => {
+        const deposit = {
+          id: 'd1', depositNo: 'DEP001', ownerType: 'CUSTOMER', ownerId: 'c1',
+          // brief 原始 fixture 缺 tbLedgerId —— pendReturnSuspense 会因此在重建分支里
+          // 抛 "Asset AED has no tbLedgerId",落进 catch 崩溃分支而非真正走通重试路径,
+          // 断言又恰好在两条分支下都成立,变成一次自证型绿灯（本轮改动前跑过,实测
+          // 命中的是 DEPOSIT_RETURN_STUCK,不是 RETRIED）。补上 tbLedgerId 让它真正
+          // 走通重试路径,并显式断言 RETRIED 审计,堵死这个假绿灯口子。
+          traceId: 't1', amount: '100', asset: { decimals: 2, currency: 'AED', tbLedgerId: 2 },
+          status: 'RETURNING',
+        };
+        accountingService.voidPendingTransfer.mockResolvedValue(undefined);
+        fundsOrders.create.mockResolvedValue({ fundsOrderNo: 'FO2' });
+
+        await (service as any).onReturnLegFailed(deposit, 'fo1', 1);
+
+        expect(depositService.markNeedsReview).not.toHaveBeenCalled();
+        expect(fundsOrders.create).toHaveBeenCalled();
+        expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
+          expect.objectContaining({ action: AuditActions.DEPOSIT_RETURN_RETRIED }),
+        );
+      });
+
+      it('上缴腿第 3 次仍失败 → 置 needsReview,状态一步不动', async () => {
+        const deposit = {
+          id: 'd2', depositNo: 'DEP002', ownerType: 'CUSTOMER', ownerId: 'c1',
+          traceId: 't2', amount: '100', asset: { decimals: 2, currency: 'AED' },
+          status: 'SEIZING',
+        };
+        accountingService.voidPendingTransfer.mockResolvedValue(undefined);
+
+        await (service as any).onSeizeLegFailed(deposit, 'fo9', 3);
+
+        expect(depositService.markNeedsReview).toHaveBeenCalledWith('d2');
+        expect(depositService.updateStatus).not.toHaveBeenCalled();
+      });
     });
   });
 

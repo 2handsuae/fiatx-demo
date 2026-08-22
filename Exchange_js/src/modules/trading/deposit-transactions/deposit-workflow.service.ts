@@ -2507,6 +2507,10 @@ export class DepositWorkflowService implements OnModuleInit {
         return;
       }
 
+      // 重试三级梯耗尽 —— 单子留在 RETURNING 原地不动,靠红标让运营看见。
+      // 「卡住了」是一面旗,不是一个状态（业主 2026-08-22 定稿）。
+      await this.depositService.markNeedsReview(deposit.id);
+
       await this.auditLogsService.recordSystem({
         action: AuditActions.DEPOSIT_RETURN_STUCK, entityType: AuditEntityTypes.DEPOSIT_TRANSACTION,
         entityId: deposit.id, entityNo: deposit.depositNo, entityOwnerType: deposit.ownerType, entityOwnerId: deposit.ownerId,
@@ -2517,6 +2521,11 @@ export class DepositWorkflowService implements OnModuleInit {
       });
     } catch (err: any) {
       this.logger.error(`onReturnLegFailed crashed for deposit ${deposit.depositNo} attempt ${attempt}: ${err.message}`);
+      // 崩溃路径同样置旗:pending 可能还锁着,更需要被看见。markNeedsReview 自带
+      // try/catch 兜底——它失败不能盖掉下面这条 STUCK 审计。
+      await this.depositService.markNeedsReview(deposit.id).catch((e) =>
+        this.logger.error(`markNeedsReview failed for deposit ${deposit.depositNo}: ${e.message}`),
+      );
       await this.auditLogsService.recordSystem({
         action: AuditActions.DEPOSIT_RETURN_STUCK, entityType: AuditEntityTypes.DEPOSIT_TRANSACTION,
         entityId: deposit.id, entityNo: deposit.depositNo, entityOwnerType: deposit.ownerType, entityOwnerId: deposit.ownerId,
@@ -2912,6 +2921,10 @@ export class DepositWorkflowService implements OnModuleInit {
         return;
       }
 
+      // 重试三级梯耗尽 —— 单子留在 SEIZING 原地不动,靠红标让运营看见。
+      // 「卡住了」是一面旗,不是一个状态（业主 2026-08-22 定稿）。
+      await this.depositService.markNeedsReview(deposit.id);
+
       await this.auditLogsService.recordSystem({
         action: AuditActions.DEPOSIT_SEIZE_STUCK, entityType: AuditEntityTypes.DEPOSIT_TRANSACTION,
         entityId: deposit.id, entityNo: deposit.depositNo, entityOwnerType: deposit.ownerType, entityOwnerId: deposit.ownerId,
@@ -2922,6 +2935,11 @@ export class DepositWorkflowService implements OnModuleInit {
       });
     } catch (err: any) {
       this.logger.error(`onSeizeLegFailed crashed for deposit ${deposit.depositNo} attempt ${attempt}: ${err.message}`);
+      // 崩溃路径同样置旗:pending 可能还锁着,更需要被看见。markNeedsReview 自带
+      // try/catch 兜底——它失败不能盖掉下面这条 STUCK 审计。
+      await this.depositService.markNeedsReview(deposit.id).catch((e) =>
+        this.logger.error(`markNeedsReview failed for deposit ${deposit.depositNo}: ${e.message}`),
+      );
       await this.auditLogsService.recordSystem({
         action: AuditActions.DEPOSIT_SEIZE_STUCK, entityType: AuditEntityTypes.DEPOSIT_TRANSACTION,
         entityId: deposit.id, entityNo: deposit.depositNo, entityOwnerType: deposit.ownerType, entityOwnerId: deposit.ownerId,
