@@ -479,6 +479,12 @@ const DepositTransactionDetail = () => {
   const pendingHoldReason =
     data.status === 'OPERATION_PENDING' ? (data.limitHoldReason ?? null) : null;
   const isHoldPending = pendingHoldReason !== null;
+  // C1 修复轮(Important C)：`Release Hold` clearing the hold reason (e.g. a Gate 0
+  // auto-approval no-op) used to make the whole Ops Disposition group — including the
+  // Return-to-Sender button — disappear, with no way back in. Return doesn't depend on
+  // a hold reason existing, so the group itself gates on OPERATION_PENDING alone; the
+  // Release Hold button still gates on isHoldPending below.
+  const isOperationPending = data.status === 'OPERATION_PENDING';
   const isBelowMinPending = pendingHoldReason === 'BELOW_MIN';
   // 合规闸门只在 COMPLIANCE_PENDING 及之后才评估 —— 钱还没到账(PAYIN_PENDING)时
   // L1/L2 一律显示 PENDING(未评估)。此前 L1 直接绑客户级 complianceStatus,那个值
@@ -762,27 +768,33 @@ const DepositTransactionDetail = () => {
         <div className="w-[272px] min-w-[272px] overflow-y-auto border-l border-adm-border bg-adm-panel px-4">
 
           {/* Ops Disposition */}
-          {isHoldPending && (
+          {isOperationPending && (
             <SidebarGroup title="Ops Disposition">
               {dispositionError && <p className="mb-2 text-[11px] text-adm-red">{dispositionError}</p>}
               {/* 运营必须先知道自己在解除**哪一条**挂起 —— 同一个按钮在
-                  BELOW_MIN 上是「豁免金额下限」、在行政级上是「解除账户挂起」。 */}
-              <p className="mb-2 font-mono text-[10px] text-adm-t3">
-                Hold reason:{' '}
-                <span className="font-semibold text-adm-amber">{pendingHoldReason}</span>
-              </p>
+                  BELOW_MIN 上是「豁免金额下限」、在行政级上是「解除账户挂起」。
+                  挂起原因可能已被清空(例如 Release Hold 点过之后)——此时只剩
+                  Return 出路,Hold reason 一行与 Release Hold 按钮一起隐藏。 */}
+              {isHoldPending && (
+                <p className="mb-2 font-mono text-[10px] text-adm-t3">
+                  Hold reason:{' '}
+                  <span className="font-semibold text-adm-amber">{pendingHoldReason}</span>
+                </p>
+              )}
               <div className="flex flex-col gap-2">
-                <button
-                  onClick={handleWaiveLimit}
-                  disabled={dispositionSubmitting}
-                  className={adminButtonClass('workflowPrimary', 'w-full')}
-                >
-                  {dispositionSubmitting
-                    ? 'Processing...'
-                    : isBelowMinPending
-                      ? 'PASS (Waive Min-Limit)'
-                      : 'Release Hold'}
-                </button>
+                {isHoldPending && (
+                  <button
+                    onClick={handleWaiveLimit}
+                    disabled={dispositionSubmitting}
+                    className={adminButtonClass('workflowPrimary', 'w-full')}
+                  >
+                    {dispositionSubmitting
+                      ? 'Processing...'
+                      : isBelowMinPending
+                        ? 'PASS (Waive Min-Limit)'
+                        : 'Release Hold'}
+                  </button>
+                )}
                 {isBelowMinPending && (
                   <button
                     onClick={() => {

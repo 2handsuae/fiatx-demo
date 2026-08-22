@@ -130,6 +130,7 @@ export class DepositTransactionsController {
   // DEPOSIT_APPROVE_WORKFLOW_ONLY guard style in deposit-transactions.service.ts.
   private static readonly PATCH_STATUS_WORKFLOW_ONLY_ACTIONS = new Set<DepositTransactionAction>([
     DepositTransactionAction.RESUME,
+    DepositTransactionAction.RETURN,
     DepositTransactionAction.SEIZED_DONE,
     DepositTransactionAction.RETURNED_DONE,
     DepositTransactionAction.CONFISCATE_SETTLE,

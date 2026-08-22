@@ -2326,7 +2326,7 @@ export class DepositWorkflowService implements OnModuleInit {
           approvalNo: approvalCase.approvalNo,
         },
         requestId: `DEPOSIT_RETURN_APPROVAL_REQUESTED_${deposit.depositNo}_${randomUUID()}`,
-        sourcePlatform: 'SYSTEM',
+        sourcePlatform: 'ADMIN_API',
       },
       this.toAuditActor(actor),
     );
