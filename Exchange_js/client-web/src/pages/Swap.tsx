@@ -924,7 +924,11 @@ const Swap = () => {
                       </tr>
                     ) : (
                       history.map(tx => (
-                        <tr key={tx.id} className="hover:bg-fx-ink/60 transition-colors">
+                        <tr
+                          key={tx.id}
+                          onClick={() => navigate(`/swap/${tx.swapNo}`)}
+                          className="hover:bg-fx-ink/60 transition-colors cursor-pointer"
+                        >
                           <td className="px-6 py-4 font-mono text-fx-sand">{tx.swapNo}</td>
                           <td className="px-6 py-4 text-fx-dune text-xs">
                             <div>{new Date(tx.createdAt).toLocaleDateString('en-US')}</div>

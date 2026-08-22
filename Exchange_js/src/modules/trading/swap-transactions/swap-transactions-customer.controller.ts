@@ -158,6 +158,15 @@ export class SwapTransactionsCustomerController {
     return this.swapTransactionsService.findAllForCustomer(req.user.userId, query);
   }
 
+  // ⚠️ 路由声明顺序：`my/:swapNo` 必须写在 `my` **之后**、`:id` 之前。Nest 按
+  // 声明先后匹配，先声明的先赢——详情见 deposit-transactions.controller.ts
+  // 同址（`my/:depositNo` 在 `:id` 之前）与 customer-withdraw.controller.ts。
+  @Get('my/:swapNo')
+  @ApiOperation({ summary: 'Get my swap transaction detail by swapNo (customer)' })
+  findMyOne(@Request() req: any, @Param('swapNo') swapNo: string) {
+    return this.swapTransactionsService.findOneForCustomerBySwapNo(swapNo, req.user.userId);
+  }
+
   @Get(':id')
   @ApiOperation({ summary: 'Get swap transaction by ID' })
   findOne(@Request() req: any, @Param('id') id: string) {

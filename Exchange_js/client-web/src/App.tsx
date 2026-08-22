@@ -17,6 +17,7 @@ const DepositDetail = lazy(() => import('./pages/DepositDetail'));
 const Withdraw = lazy(() => import('./pages/Withdraw'));
 const WithdrawDetail = lazy(() => import('./pages/WithdrawDetail'));
 const Swap = lazy(() => import('./pages/Swap'));
+const SwapDetail = lazy(() => import('./pages/SwapDetail'));
 const DashboardOverview = lazy(() => import('./pages/DashboardOverview'));
 const TransactionHistory = lazy(() => import('./pages/TransactionHistory'));
 const WithdrawalAddresses = lazy(() => import('./pages/WithdrawalAddresses'));
@@ -49,6 +50,7 @@ function App() {
                  <Route path="/deposit" element={<AuthGuard><Deposit /></AuthGuard>} />
                  <Route path="/deposit/:depositNo" element={<AuthGuard><DepositDetail /></AuthGuard>} />
                  <Route path="/swap" element={<AuthGuard><Swap /></AuthGuard>} />
+                 <Route path="/swap/:swapNo" element={<AuthGuard><SwapDetail /></AuthGuard>} />
                  <Route path="/withdraw" element={<AuthGuard><Withdraw /></AuthGuard>} />
                  <Route path="/withdraw/:withdrawNo" element={<AuthGuard><WithdrawDetail /></AuthGuard>} />
                  <Route path="/verification/:requestNo" element={<AuthGuard><MaterialVerification /></AuthGuard>} />

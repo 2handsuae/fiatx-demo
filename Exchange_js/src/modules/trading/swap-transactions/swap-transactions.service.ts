@@ -747,6 +747,27 @@ export class SwapTransactionsService {
   }
 
   /**
+   * 详情独立页用：客户面按业务键 `swapNo` 取单条（规则 3，禁止以 id 作对外
+   * 主查询合同）。镜像 DepositTransactionsService#findOneForCustomerByDepositNo /
+   * WithdrawTransactionsService#findOneForCustomerByWithdrawNo：先按
+   * `swapNo` + `ownerId` 解出内部 id，再复用 `findOneForCustomer`
+   * （IDOR 校验 + `toCustomerSwapView` 白名单）。兑换无充值那种
+   * `limitHoldReason` 隐藏单，where 条件只有这两项。
+   *
+   * 白名单是唯一出口——绝不在这里另拼一份响应体，否则
+   * complianceVerdict / sumsubTxnIdOut / rejectReason / needsReview /
+   * statusHistory 会从这条新路径漏到客户浏览器。
+   */
+  async findOneForCustomerBySwapNo(swapNo: string, customerId: string) {
+    const row = await (this.prisma as any).swapTransaction.findFirst({
+      where: { swapNo, ownerId: customerId },
+      select: { id: true },
+    });
+    if (!row) throw new NotFoundException('Swap transaction not found');
+    return this.findOneForCustomer(row.id, customerId);
+  }
+
+  /**
    * Admin detail fetch = findOne + parsed Sumsub compliance detail (Task 10,
    * mirror of WithdrawTransactionsService#findOneForAdmin). Kept separate from
    * `findOne` — that method is also called by the customer-facing controller
