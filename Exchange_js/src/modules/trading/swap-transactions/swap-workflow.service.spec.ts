@@ -226,8 +226,13 @@ function makeService(mocks: ReturnType<typeof buildMocks>) {
 
 // ── initiateSwap ─────────────────────────────────────────────────────────────
 
-// B2（第四批）：兑换域此前**完全没有**客户资格 / 客户限制这两项判定 —— 被限制便签
-// 摁住 SWAP 能力的客户照样能兑换。这里补上闸门，并把逐项判定落成可回显的快照。
+// B2（第四批）：把兑换的逐项 L1 判定落成可回显的快照。
+// ⚠️ 订正（B2 审查）：兑换域**并非**此前没有资格 / 限制判定 —— initiateSwap 起手
+// 的 assertTradingEligibility(:210) 内部就是 assertCapability(资格+限制)，且对非
+// DEPOSIT 还多跑一层 assertTradingReady，严格强于 L1 这两项；该调用自 04433cdd
+// (2026-05-31) 起就在。被便签摁住 SWAP 的客户拿到的一直是 403 CAPABILITY_RESTRICTED，
+// 从来兑换不了。下面 BLOCK 分支覆盖的是 :210 与 :249 之间的毫秒级竞态窗口（兜底），
+// 与提现侧完全同构。
 describe('B2 · 兑换 L1 资格闸', () => {
   it('L1 verdict=BLOCK 时不建单、不消费报价', async () => {
     const mocks = buildMocks(makeQuote());
@@ -278,7 +283,7 @@ describe('B2 · 兑换 L1 资格闸', () => {
     );
   });
 
-  it('限额闸判过的三项作为 preChecks 收进 L1（且不传自判的资格/限制两项）', async () => {
+  it('调用方判过的项作为 preChecks 收进 L1（且不传自判的资格/限制两项）', async () => {
     const mocks = buildMocks(makeQuote());
     const service = makeService(mocks);
 
@@ -288,7 +293,15 @@ describe('B2 · 兑换 L1 资格闸', () => {
     expect(arg.domain).toBe('SWAP');
     expect(arg.customerId).toBe('cust-1');
     const codes = arg.preChecks.map((c: any) => c.code);
-    expect(codes).toEqual(['SINGLE_LIMIT', 'CUMULATIVE_LIMIT', 'QUOTE_VALIDITY']);
+    expect(codes).toEqual([
+      'SINGLE_LIMIT', 'CUMULATIVE_LIMIT', 'QUOTE_VALIDITY',
+      'ACCOUNT_READINESS', 'TRADING_READINESS',
+    ]);
+    // 自判的资格/限制两项永远由 L1GateService 自己算，调用方不许传
+    expect(codes).not.toContain('CUSTOMER_ELIGIBILITY');
+    expect(codes).not.toContain('CUSTOMER_RESTRICTION');
+    // 这一刻没人判过余额 → 不传，留给 L1GateService 落 SKIPPED（不许盖 PASS 的章）
+    expect(codes).not.toContain('BALANCE_SUFFICIENCY');
   });
 });
 

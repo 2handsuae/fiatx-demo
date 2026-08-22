@@ -39,7 +39,7 @@ import {
   GateValuation,
 } from '../../asset-treasury/transaction-limits/transaction-limit-gate.service';
 import { CustomerRestrictionsService } from '../../identity/customers/customer-restrictions.service';
-import { CustomerAccessService } from '../../identity/customers/customer-access.service';
+import { CustomerAccessService, NEUTRAL_DENIAL } from '../../identity/customers/customer-access.service';
 import { CustomersService } from '../../identity/customers/customers.service';
 import { MaterialRequestsService } from '../../identity/material-requests/material-requests.service';
 import { MaterialRequestIssuerService } from '../../identity/material-requests/material-request-issuer.service';
@@ -229,10 +229,23 @@ export class SwapWorkflowService {
       });
     }
 
-    // ── L1 闸门收口（第四批）──
-    // 把已经判过的限额结果收进快照,再由 L1GateService 补上兑换域此前**完全没查**
-    // 的两项：客户资格（lifecycle）与客户限制（便签卡没卡住 SWAP 能力）。
-    // 兑换钱还没动 → verdict BLOCK 直接拒,与提现同口径。
+    // ── L1 闸门收口（第四批）── 与提现侧同口径：**上面已经快速失败过一轮**，
+    // 这里重跑一次是为了拿到逐项**可回显的快照**（上面抛的是中性错误，拿不到明细）。
+    //
+    // ⚠️ 订正（B2 审查）：兑换域并非「此前完全没查资格/限制」—— :210 的
+    // assertTradingEligibility(ownerId,'SWAP') 内部就是 assertCapability(资格+限制)，
+    // 且对非 DEPOSIT 还多跑一层 assertTradingReady，**严格强于** L1 这两项判定；
+    // 该调用自 04433cdd(2026-05-31) 起就在，B2 之前便签摁住 SWAP 的客户拿到的是
+    // 403 CAPABILITY_RESTRICTED，从来不能兑换。故下面的 BLOCK 分支逻辑上不可达，
+    // 只在 :210 与本行之间的毫秒级竞态窗口（便签刚被开出来）才触发 —— 兜底保留。
+    //
+    // 快照口径（**逐格只写这一刻真判过的**，写不实的 PASS = 伪证据）：
+    //  · SINGLE/CUMULATIVE_LIMIT、QUOTE_VALIDITY —— 限额闸已在上面按 quotePeek 跑过；
+    //    报价的有效性由建单事务内的 getActiveQuoteOrThrow 把关，未过则整单回滚不留单。
+    //  · TRADING_READINESS —— :210 的 assertTradingReady 已过（本行之前，确凿）。
+    //  · ACCOUNT_READINESS —— 双边收款账户由建单事务内的 hasReceivingAccount 无条件
+    //    校验，未过则整单回滚：**能落库的快照，这一格必然为真**。
+    //  · BALANCE_SUFFICIENCY —— 这一刻没人判过 → 不传，由 L1GateService 落 SKIPPED。
     const preChecks: L1Check[] = [];
     if (quotePeek) {
       preChecks.push({
@@ -243,8 +256,19 @@ export class SwapWorkflowService {
         code: 'CUMULATIVE_LIMIT', outcome: 'PASS',
         detail: `累计额度已过（AED ${gateValuation?.grossAedValue ?? '—'}）`,
       });
-      preChecks.push({ code: 'QUOTE_VALIDITY', outcome: 'PASS', detail: '报价有效' });
+      preChecks.push({
+        code: 'QUOTE_VALIDITY', outcome: 'PASS',
+        detail: '报价有效（建单事务内校验，未过则整单回滚）',
+      });
     }
+    preChecks.push({
+      code: 'ACCOUNT_READINESS', outcome: 'PASS',
+      detail: '双边收款账户已就绪（建单事务内校验，未过则整单回滚）',
+    });
+    preChecks.push({
+      code: 'TRADING_READINESS', outcome: 'PASS',
+      detail: '交易起始前置已满足（建单前 assertTradingReady 已过）',
+    });
 
     const l1 = await this.l1Gate.evaluate({
       domain: 'SWAP',
@@ -254,9 +278,9 @@ export class SwapWorkflowService {
     if (l1.verdict === 'BLOCK') {
       throw new ForbiddenException({
         code: 'L1_GATE_BLOCKED',
-        // 中性文案 —— 与 CustomerAccessService 的 NEUTRAL_DENIAL 同口径,
-        // 绝不透出 cause / visibility（tipping-off 防线）。
-        message: 'This operation is not available for your account at the moment.',
+        // 中性文案 —— 直接引用 CustomerAccessService 的那一份（禁止手抄副本：
+        // 拒绝理由有差异即可被指纹识别）。绝不透出 cause / visibility。
+        message: NEUTRAL_DENIAL,
       });
     }
 

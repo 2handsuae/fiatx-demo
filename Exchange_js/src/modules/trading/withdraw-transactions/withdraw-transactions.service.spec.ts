@@ -241,6 +241,76 @@ describe('WithdrawTransactionsService', () => {
       ]);
     });
 
+    // ── B2 审查 Important 2：快照是给运营/MLRO 看的合规证据。没真查过的项写
+    // SKIPPED 是诚实，写 PASS 是伪证 —— 比不记录更糟。下面三条把两格钉死。
+    const outcomeOf = (code: string) => {
+      const arg = ((workflow as any).l1Gate.evaluate as jest.Mock).mock.calls[0][0];
+      return arg.preChecks.find((c: any) => c.code === code);
+    };
+
+    it('无出款目的地（地址守卫整段被跳过）→ ACCOUNT_READINESS 必须是 SKIPPED，不许写 PASS', async () => {
+      seedCreateRow();
+
+      // 既有行为：crypto 不带 toAddress / fiat 不带 toIban，地址守卫两个分支都不命中
+      // → 整段跳过，单子照建（底层洞，本批不修）。快照不许替它盖章。
+      await workflow.createWithdrawal(
+        { assetId: 'asset-1', amount: 100, quoteId: 'wq-1' } as any,
+        'user-1',
+      );
+
+      expect(prisma.withdrawalAddress.findFirst).not.toHaveBeenCalled();
+      const check = outcomeOf('ACCOUNT_READINESS');
+      expect(check.outcome).toBe('SKIPPED');
+      expect(check.outcome).not.toBe('PASS');
+      expect(check.detail).toContain('未提供出款目的地');
+    });
+
+    it('带已注册 ACTIVE 地址 → ACCOUNT_READINESS 才是 PASS', async () => {
+      seedCreateRow();
+      prisma.withdrawalAddress.findFirst.mockResolvedValue({
+        id: 'wa-1', address: '0xabc', status: 'ACTIVE', addressType: 'EXTERNAL',
+      });
+
+      await workflow.createWithdrawal(
+        { assetId: 'asset-1', amount: 100, quoteId: 'wq-1', toAddress: '0xabc' } as any,
+        'user-1',
+      );
+
+      expect(prisma.withdrawalAddress.findFirst).toHaveBeenCalled();
+      expect(outcomeOf('ACCOUNT_READINESS').outcome).toBe('PASS');
+    });
+
+    it('BALANCE_SUFFICIENCY 恒 SKIPPED —— 评估点在压 TB pending 之前，这一刻不知道够不够', async () => {
+      seedCreateRow();
+
+      await workflow.createWithdrawal(
+        { assetId: 'asset-1', amount: 100, quoteId: 'wq-1' } as any,
+        'user-1',
+      );
+
+      const check = outcomeOf('BALANCE_SUFFICIENCY');
+      expect(check.outcome).toBe('SKIPPED');
+      expect(check.outcome).not.toBe('PASS');
+      expect(check.detail).not.toContain('已通过');
+    });
+
+    // ── B2 审查 Important 3：L1 闸必须与紧邻的 assertCapability / limitGate 一样
+    // 收窄到 CUSTOMER —— 否则非客户主体走进 CustomerAccessService.resolve() 会撞
+    // `Customer not found: <id>`（非中性 + 回显内部 id），且限额两格从未执行。
+    it('ownerType 非 CUSTOMER → 整段 L1 闸不执行，也不落快照', async () => {
+      seedCreateRow();
+
+      await workflow.createWithdrawal(
+        { assetId: 'asset-1', amount: 100, quoteId: 'wq-1' } as any,
+        'firm-1',
+        'FIRM',
+      );
+
+      expect(((workflow as any).l1Gate.evaluate as jest.Mock)).not.toHaveBeenCalled();
+      const data = mockTx.withdrawTransaction.create.mock.calls[0][0].data;
+      expect(data.l1Snapshot).toBeUndefined();
+    });
+
     it('BLOCK（并发窗口内便签刚开出来）→ 中性拒绝，不建单', async () => {
       seedCreateRow();
       ((workflow as any).l1Gate.evaluate as jest.Mock).mockResolvedValue({

@@ -19,9 +19,10 @@ import {
   WithdrawTransactionStatus,
 } from './dto/withdraw-transaction.dto';
 import type { SceneTag } from '../../withdraw-sumsub/withdraw-kyt-verdict.handler';
-import { CustomerAccessService } from '../../identity/customers/customer-access.service';
+import { CustomerAccessService, NEUTRAL_DENIAL } from '../../identity/customers/customer-access.service';
 import { CustomerRestrictionsService } from '../../identity/customers/customer-restrictions.service';
 import { L1GateService } from '../shared/l1-gate/l1-gate.service';
+import type { L1Check, L1Snapshot } from '../shared/l1-gate/l1-gate.types';
 import { generateReferenceNo } from '../../../common/utils/no-generator.util';
 import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import {
@@ -279,6 +280,10 @@ export class WithdrawWorkflowService implements OnModuleInit {
     // unregistered destination never burns the quote or locks funds.
     const isCryptoWithdraw = String(asset.type || '').toUpperCase() !== 'FIAT';
     let counterpartyIsVasp: boolean | null = null;
+    // L1 快照用：这道守卫**是否真的跑过**。crypto 无 toAddress / fiat 无 toIban 时
+    // 下面整段被跳过（既有行为，本批不改），那种情况下 ACCOUNT_READINESS 只能记
+    // SKIPPED —— 记成 PASS 就是给一份合规证据盖了没查过的章。
+    let destinationVerified = false;
     if (isCryptoWithdraw && toAddress) {
       const registeredAddress = await (this.prisma as any).withdrawalAddress.findFirst({
         where: { customerId: userId, address: toAddress, status: 'ACTIVE' },
@@ -290,6 +295,7 @@ export class WithdrawWorkflowService implements OnModuleInit {
         });
       }
       counterpartyIsVasp = registeredAddress.addressType === 'VASP';
+      destinationVerified = true;
     } else if (!isCryptoWithdraw && toIban) {
       // NOTE: registered bank rows are stamped addressType='BANK' (network is
       // the generic asset-network value 'FIAT', not 'BANK') — see
@@ -306,6 +312,7 @@ export class WithdrawWorkflowService implements OnModuleInit {
         });
       }
       // counterpartyIsVasp stays null — VASP counterparty is a crypto-only concept.
+      destinationVerified = true;
     }
 
     const withdrawNo = this.generateWithdrawNo();
@@ -337,23 +344,47 @@ export class WithdrawWorkflowService implements OnModuleInit {
     // ── L1 闸门收口（第四批）── assertCapability 已在上面快速失败过一轮,
     // 这里重跑一次是为了拿到**可回显的快照**（不是重复校验：上面抛的是中性错误,
     // 拿不到逐项结果）。verdict 到这里必然 PASS,除非并发窗口内便签刚被开出来。
-    const l1 = await this.l1Gate.evaluate({
-      domain: 'WITHDRAW',
-      customerId: userId,
-      preChecks: [
+    //
+    // 收窄到 ownerType==='CUSTOMER'，与紧邻的 assertCapability / limitGate 两道闸
+    // 一致：L1 的判定全部是客户级的，非客户主体走进去 CustomerAccessService.resolve()
+    // 只会抛 `Customer not found: <id>`（既不是中性拒绝，还把内部 id 原样回显），
+    // 且此时 limitGate 从未执行、下面的限额两格无从谈起。今日零行为变化 ——
+    // 唯一调用方恒传 'CUSTOMER'。
+    //
+    // 快照口径（**逐格只写这一刻真判过的**，写不实的 PASS = 伪证据）：
+    //  · SINGLE/CUMULATIVE_LIMIT —— 同一个 if 内的 limitGate 刚跑过，确凿。
+    //  · ACCOUNT_READINESS —— 只有地址守卫真跑过（查到已注册且 ACTIVE 的地址）才 PASS。
+    //  · BALANCE_SUFFICIENCY —— 本评估点在压 TB pending 之前，这一刻**根本不知道**
+    //    余额够不够，只能 SKIPPED。（TB flags 恒 0 → 透支压不住，是既有底层洞，
+    //    不在本批修复范围；但绝不能拿一句 PASS 把它盖住。）
+    //  · QUOTE_VALIDITY —— 报价有效性由建单事务内的 getActiveQuoteOrThrow 把关，
+    //    未过则整单回滚不留单：能落库的快照这一格必然为真。
+    //  · TRADING_READINESS —— 唯一入口 CustomerWithdrawController 在调本方法前
+    //    assertTradingEligibility('WITHDRAW') 已跑过 assertTradingReady。
+    let l1: L1Snapshot | null = null;
+    if (ownerType === 'CUSTOMER') {
+      const preChecks: L1Check[] = [
         { code: 'SINGLE_LIMIT', outcome: 'PASS', detail: `单笔上下限已过（${amount}）` },
         { code: 'CUMULATIVE_LIMIT', outcome: 'PASS', detail: `累计额度已过（AED ${gateValuation?.grossAedValue ?? '—'}）` },
-        { code: 'ACCOUNT_READINESS', outcome: 'PASS', detail: '出款地址已注册且 ACTIVE' },
-        { code: 'BALANCE_SUFFICIENCY', outcome: 'PASS', detail: '建单即锁额，TB pending 已通过' },
-        { code: 'QUOTE_VALIDITY', outcome: 'PASS', detail: '报价有效' },
-        { code: 'TRADING_READINESS', outcome: 'PASS', detail: '交易起始前置已满足' },
-      ],
-    });
-    if (l1.verdict === 'BLOCK') {
-      throw new ForbiddenException({
-        code: 'L1_GATE_BLOCKED',
-        message: 'This operation is not available for your account at the moment.',
+        destinationVerified
+          ? { code: 'ACCOUNT_READINESS', outcome: 'PASS', detail: '出款地址已注册且 ACTIVE' }
+          : { code: 'ACCOUNT_READINESS', outcome: 'SKIPPED', detail: '未提供出款目的地，本次未校验出款账户' },
+        { code: 'BALANCE_SUFFICIENCY', outcome: 'SKIPPED', detail: '余额在建单压 TB pending 时才校验，本次评估点在其之前' },
+        { code: 'QUOTE_VALIDITY', outcome: 'PASS', detail: '报价有效（建单事务内校验，未过则整单回滚）' },
+        { code: 'TRADING_READINESS', outcome: 'PASS', detail: '交易起始前置已满足（建单前 assertTradingEligibility 已过）' },
+      ];
+      l1 = await this.l1Gate.evaluate({
+        domain: 'WITHDRAW',
+        customerId: userId,
+        preChecks,
       });
+      if (l1.verdict === 'BLOCK') {
+        throw new ForbiddenException({
+          code: 'L1_GATE_BLOCKED',
+          // 中性文案 —— 直接引用 CustomerAccessService 的那一份（禁止手抄副本）。
+          message: NEUTRAL_DENIAL,
+        });
+      }
     }
 
     // Track TB pending transfer IDs in outer scope for compensation on failure.
@@ -432,7 +463,7 @@ export class WithdrawWorkflowService implements OnModuleInit {
             aedRate: gateValuation?.aedRate ?? undefined,
             rateFetchedAt: gateValuation?.rateFetchedAt ?? undefined,
             rateFetchFailed: gateValuation?.rateFetchFailed ?? undefined,
-            l1Snapshot: JSON.stringify(l1),
+            l1Snapshot: l1 ? JSON.stringify(l1) : undefined,
             parentType,
             parentId,
             pricingQuoteId: consumedQuoteId,
