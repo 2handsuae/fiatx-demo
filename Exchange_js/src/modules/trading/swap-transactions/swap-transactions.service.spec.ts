@@ -218,7 +218,7 @@ describe('SLA deadline 在状态机收口处统一设', () => {
 // the full Sumsub payload, verdict/action, txn ids) that would tip off a
 // customer under sanctions investigation. Mirrors
 // withdraw-transactions.service.spec.ts's toCustomerWithdrawView coverage.
-describe('customer-facing tipping-off whitelist (findOneForCustomer / findAllForCustomer)', () => {
+describe('customer-facing tipping-off whitelist (findOneForCustomer / findOneForCustomerBySwapNo / findAllForCustomer)', () => {
   let service: SwapTransactionsService;
   let prisma: any;
 
@@ -380,6 +380,55 @@ describe('customer-facing tipping-off whitelist (findOneForCustomer / findAllFor
           where: expect.objectContaining({ ownerId: 'cust-1', ownerType: 'CUSTOMER' }),
         }),
       );
+    });
+  });
+
+  // D4 修复轮（审查 I-4）：详情独立页那条新路径此前零测试。要防的回归很具体
+  // ——有人把 findOneForCustomerBySwapNo 的 where 里 ownerId 拿掉（理由现成：
+  // 「反正 findOneForCustomer 里还有一层 owner 校验」），越权立刻从 404 静默
+  // 降级成 403「Not your swap transaction」：单号存不存在被答了出去，存在性
+  // 泄漏当场重开，而 tsc 绿、jest 绿、grep 绿、页面照常渲染，没有任何闸门会响。
+  // 两条与 withdraw-transactions.service.spec.ts 的同名用例同构。
+  describe('findOneForCustomerBySwapNo', () => {
+    // findFirst 用一张假表模拟真实过滤语义（而不是恒定返回值）——where 少一个
+    // 条件命中的行就会变多，删 ownerId 这种变异才会真的把用例打红。
+    const seedFindFirst = () => {
+      prisma.swapTransaction.findFirst = jest
+        .fn()
+        .mockImplementation(({ where }: any) =>
+          Promise.resolve(
+            Object.entries(where).every(([k, v]) => (fullRow as any)[k] === v)
+              ? { id: fullRow.id }
+              : null,
+          ),
+        );
+      prisma.swapTransaction.findUnique.mockResolvedValue(fullRow);
+    };
+
+    it('IDOR miss（单号真实存在但不属于该客户）→ 与「单子不存在」完全相同的 404，不是 403', async () => {
+      seedFindFirst();
+
+      await expect(
+        service.findOneForCustomerBySwapNo('SWP0100', 'someone-else'),
+      ).rejects.toBeInstanceOf(NotFoundException);
+    });
+
+    it('命中 → where 同时锁 swapNo + ownerId，且走 findOneForCustomer 同一套白名单', async () => {
+      seedFindFirst();
+
+      const result: any = await service.findOneForCustomerBySwapNo('SWP0100', 'cust-1');
+
+      expect(prisma.swapTransaction.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { swapNo: 'SWP0100', ownerId: 'cust-1' },
+        }),
+      );
+      expect(result.complianceRuleNames).toBeUndefined();
+      expect(result.rejectReason).toBeUndefined();
+      expect(result.sumsubDetailJson).toBeUndefined();
+      expect(result.statusHistory).toBeUndefined();
+      expect(result.needsReview).toBeUndefined();
+      expect(result.swapNo).toBe('SWP0100');
     });
   });
 });

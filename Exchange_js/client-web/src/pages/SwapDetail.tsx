@@ -71,6 +71,12 @@ const SwapDetail = () => {
   // 徽章纯按 status 查表（单参纯查表）——同 DepositDetail/WithdrawDetail。
   const view = getSwapStatusView(tx.status);
 
+  // 只有真正成交的单子才敢用断言句（下方 You sold / You received）。判据只读
+  // 已收敛的 tx.status —— 服务端 toCustomerSwapStatus() 已把制裁冻结单收敛成
+  // 与普通 KYT 拒绝逐字相同的 REJECTED，这里跟着一起走同一个分支，绝不再按
+  // 别的字段二次判断（那等于把两类失败在页面上分辨出来，破 tipping-off 防线）。
+  const settled = tx.status === 'SUCCESS';
+
   // 费用币种在白名单里是独立字段（可能既不是卖出腿也不是买入腿的币种）。
   // 详情页不像 Swap.tsx 那样持有全量资产表，只能拿本单两条腿去对；对不上就
   // 交给 formatAssetAmount 的默认精度，不为此再拉一次资产接口。
@@ -115,8 +121,18 @@ const SwapDetail = () => {
             }
             mono
           />
-          <Field label="You sold" value={`${formatAssetAmount(tx.fromAmount, tx.fromAsset?.decimals)} ${tx.fromAsset?.currency ?? ''}`.trim()} />
-          <Field label="You received" value={`${formatAssetAmount(tx.netToAmount ?? tx.toAmount, tx.toAsset?.decimals)} ${tx.toAsset?.currency ?? ''}`.trim()} />
+          {/* 未成交的单子上写「You received X」是客户面财务页上的事实性错误：
+              失败单的钱原路退回、他一分没收到，卖出腿同样没扣；处理中的单子
+              也还没到账。非 SUCCESS 一律降级成中性名词（对齐列表页那一列
+              中性的 Amount 表头，不断言收付）。 */}
+          <Field
+            label={settled ? 'You sold' : 'Sell amount'}
+            value={`${formatAssetAmount(tx.fromAmount, tx.fromAsset?.decimals)} ${tx.fromAsset?.currency ?? ''}`.trim()}
+          />
+          <Field
+            label={settled ? 'You received' : 'Quoted amount'}
+            value={`${formatAssetAmount(tx.netToAmount ?? tx.toAmount, tx.toAsset?.decimals)} ${tx.toAsset?.currency ?? ''}`.trim()}
+          />
           <Field
             label="Fee"
             value={tx.feeAmount ? `${formatAssetAmount(tx.feeAmount, feeDecimals)} ${tx.feeCurrency ?? ''}`.trim() : '—'}
