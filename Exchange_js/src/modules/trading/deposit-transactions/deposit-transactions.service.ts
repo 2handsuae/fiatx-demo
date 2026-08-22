@@ -933,6 +933,28 @@ export class DepositTransactionsService {
   }
 
   /**
+   * 红标：资金腿重试耗尽后由 workflow 置起。**只写这一列，绝不碰状态** ——
+   * 三个在途处置态（CONFISCATING/RETURNING/SEIZING）卡死时单子留在原地，
+   * 「卡住了」这件事靠这面旗表达，不靠状态迁移（业主 2026-08-22 定稿）。
+   * 与 WithdrawTransactionsService.markNeedsReview / SwapTransactionsService
+   * 的同名方法逐字同构（三域故意分叉，各写各的，不抽 helper）。
+   */
+  async markNeedsReview(id: string) {
+    return (this.prisma as any).depositTransaction.update({
+      where: { id },
+      data: { needsReview: true },
+    });
+  }
+
+  /** 处置成功落地后清旗（运营卫生）。 */
+  async clearNeedsReview(id: string) {
+    return (this.prisma as any).depositTransaction.update({
+      where: { id },
+      data: { needsReview: false },
+    });
+  }
+
+  /**
    * SLA 破线候选扫描。硬软两类都扫，由 DepositSlaService 按状态分流：
    *   硬（COMPLIANCE_PENDING / ACTION_PENDING）→ 推 MANUAL_CHECKING
    *   软（MANUAL_CHECKING / OPERATION_PENDING）→ 只置 slaBreached

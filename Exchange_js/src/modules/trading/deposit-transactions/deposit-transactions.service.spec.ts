@@ -1756,4 +1756,30 @@ describe('DepositTransactionsService', () => {
     });
   });
 
+  describe('needsReview 红标', () => {
+    it('markNeedsReview 只写 needsReview 一列，不碰状态', async () => {
+      const update = jest.fn().mockResolvedValue({ id: 'd1', needsReview: true });
+      (prisma as any).depositTransaction = { update };
+
+      await service.markNeedsReview('d1');
+
+      expect(update).toHaveBeenCalledWith({
+        where: { id: 'd1' },
+        data: { needsReview: true },
+      });
+    });
+
+    it('clearNeedsReview 只写 needsReview 一列', async () => {
+      const update = jest.fn().mockResolvedValue({ id: 'd1', needsReview: false });
+      (prisma as any).depositTransaction = { update };
+
+      await service.clearNeedsReview('d1');
+
+      expect(update).toHaveBeenCalledWith({
+        where: { id: 'd1' },
+        data: { needsReview: false },
+      });
+    });
+  });
+
 });
