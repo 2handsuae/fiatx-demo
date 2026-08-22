@@ -343,7 +343,13 @@ const DepositTransactionList = () => {
                     <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-[10px] font-semibold ${getDepositStatusMeta(item.status).badgeClass}`}>
                       {getDepositStatusMeta(item.status).label}
                     </span>
-                    {item.limitHoldReason === 'BELOW_MIN' && <AdminBadge value="BELOW MIN" dot={false} />}
+                    {/* B4 修复轮：Gate 0 也会落 CAPABILITY_RESTRICTED /
+                        LIFECYCLE_NOT_ACTIVE，此前只认 BELOW_MIN → 行政级挂起单
+                        在列表上看不出任何异常。改成显示实际挂起原因（BELOW_MIN
+                        的徽章文案保持原样 "BELOW MIN"，不动既有观感）。 */}
+                    {item.limitHoldReason && (
+                      <AdminBadge value={item.limitHoldReason.replace(/_/g, ' ')} dot={false} />
+                    )}
                   </div>
                 </td>
 

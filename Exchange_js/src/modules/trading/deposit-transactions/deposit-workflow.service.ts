@@ -328,6 +328,15 @@ export class DepositWorkflowService implements OnModuleInit {
    * ⚠️ 挂起原因取自刚落库的快照 `holdReason`，两者由此天然一致 —— 不要在这里
    * 另算一份，那会长出「列上写 A、快照里写 B」的第二真相。
    *
+   * ⚠️ 但**已有的挂起原因优先保留**（`BELOW_MIN` 是建单时按金额下限落的）：
+   * `limitHoldReason` 这一列有两个主人 —— `BELOW_MIN` 是这笔单**自身**的属性
+   * （金额低于配置下限），Gate 0 这条是**客户**的属性（被停用/生命周期非 ACTIVE）。
+   * 覆盖写会把 `BELOW_MIN` 抹掉，后果有三：waive 后这笔低于下限的钱直接入客户
+   * 余额、`DEPOSIT_HELD_BELOW_MIN` 审计从未写过、且没收弧（`initiateConfiscation`
+   * 与落地前置都硬钉 `BELOW_MIN`）永远走不进去 —— 小额充值的专属处置被从另一个
+   * 方向绕掉。两个原因并存时列上留 `BELOW_MIN`，客户级那条在 `l1Snapshot` 里有
+   * 完整记录（含 `holdReason` 与逐格 detail），且单子照样被路由到 OPERATION_PENDING。
+   *
    * ⚠️ 挂起原因非空 = 该单对客户面三处读侧（findAll / findOneForCustomer /
    * findOneForCustomerByDepositNo）整单不可见。这是维持现状的刻意选择（业主：
    * 页面不漏字即可），不是疏漏。
@@ -336,8 +345,17 @@ export class DepositWorkflowService implements OnModuleInit {
    * 没有必要为他起一个 KYT 案子。
    */
   private async holdAtGate0(deposit: any, holdReason: string, reason: string) {
+    // 已有挂起原因优先（见方法头 ⚠️）：不覆盖建单时落的 BELOW_MIN。
+    const effectiveHoldReason: string = deposit.limitHoldReason ?? holdReason;
+    // 两者不一致 = 这笔单同时背着自身的金额原因和客户级原因；日志/审计两个都写出来，
+    // 免得运营在列上只看见 BELOW_MIN、不知道客户当下还被停用着。
+    const holdTrace =
+      effectiveHoldReason === holdReason
+        ? `holdReason=${holdReason}`
+        : `holdReason=${effectiveHoldReason} (kept; Gate 0 also flagged ${holdReason})`;
+
     this.logger.warn(
-      `Gate 0 HOLD: deposit ${deposit.id} — ${reason} (holdReason=${holdReason})`,
+      `Gate 0 HOLD: deposit ${deposit.id} — ${reason} (${holdTrace})`,
     );
 
     await this.depositService.updateStatus(
@@ -346,7 +364,7 @@ export class DepositWorkflowService implements OnModuleInit {
       {
         actor: { actorType: 'SYSTEM', actorId: 'COMPLIANCE_GATE_0' },
         sourcePlatform: 'SYSTEM',
-        extraData: { limitHoldReason: holdReason },
+        extraData: { limitHoldReason: effectiveHoldReason },
       },
     );
 
@@ -356,7 +374,7 @@ export class DepositWorkflowService implements OnModuleInit {
       deposit,
       DepositTransactionStatus.COMPLIANCE_PENDING,
       DepositTransactionStatus.OPERATION_PENDING,
-      `${reason} (holdReason=${holdReason})`,
+      `${reason} (${holdTrace})`,
     );
   }
 

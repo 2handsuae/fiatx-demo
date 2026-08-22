@@ -471,6 +471,54 @@ describe('DepositWorkflowService', () => {
       );
     });
 
+    // ── B4 修复轮 · Critical：`limitHoldReason` 一列两个主人 ──────────────────
+    // 「BELOW_MIN 单 + 便签命中」此前是**测试盲区**：本 spec 里 l1Gate 是 mock、
+    // holdReason 由 fixture 直接喂，这个组合从没被跑过。所以这一例刻意接**真**
+    // L1GateService 求值（只喂 access + 便签），让 holdReason 由真实的 CHECK_ORDER
+    // 算出来 —— 用 fixture 写死一个 'BELOW_MIN' 会是自证型绿灯，测不出覆盖。
+    it('B4 修复轮：BELOW_MIN 单被 Gate 0 行政级挂起时，列上必须仍是 BELOW_MIN（客户级原因不许覆盖单级原因）', async () => {
+      customerAccessService.resolve.mockResolvedValue(
+        accessBlocking('DEPOSIT', 'WITHDRAW', 'SWAP'),
+      );
+      customerRestrictionsService.listOpen.mockResolvedValue([
+        openRestriction('ADMIN_SUSPENSION'),
+      ]);
+      depositService.findOne.mockResolvedValue(gate0Deposit({ limitHoldReason: 'BELOW_MIN' }));
+
+      // 真求值器：holdReason 取 CHECK_ORDER 里第一条 FAIL，而 CUSTOMER_RESTRICTION
+      // 排在 SINGLE_LIMIT 前面 → 真实返回值是 CAPABILITY_RESTRICTED，**不是** BELOW_MIN。
+      const realGate = new L1GateService(customerAccessService as any, {
+        customerMain: {
+          findUnique: jest.fn().mockResolvedValue({ tradingTier: 'BASIC' }),
+        },
+      } as any);
+      l1Gate.evaluate.mockImplementation((input: any) => realGate.evaluate(input));
+
+      await service.handleDepositStatusChanged(gate0Event());
+
+      // 前提自证：这一轮真算出来的挂起原因确实是**客户级**那条。没有这两行，
+      // 下面那条断言可能只是「碰巧两边相等」而非「没被覆盖」。
+      const snapshot: L1Snapshot = JSON.parse(
+        depositService.saveL1Snapshot.mock.calls[0][1],
+      );
+      expect(snapshot.verdict).toBe('HOLD');
+      expect(snapshot.holdReason).toBe('CAPABILITY_RESTRICTED');
+
+      // 列上保留单级原因：否则 waive 后这笔低于下限的钱直接入账、
+      // DEPOSIT_HELD_BELOW_MIN 审计不写、没收弧（硬钉 BELOW_MIN）永远进不去。
+      expect(depositService.updateStatus).toHaveBeenCalledWith(
+        'dep-1',
+        expect.objectContaining({ action: DepositTransactionAction.OPERATION_PENDING }),
+        expect.objectContaining({ extraData: { limitHoldReason: 'BELOW_MIN' } }),
+      );
+      // 保留 BELOW_MIN ≠ 放过这个客户：单子照样被路由到挂起，且不该被冻。
+      expect(depositService.updateStatus).not.toHaveBeenCalledWith(
+        'dep-1',
+        expect.objectContaining({ action: DepositTransactionAction.FREEZE }),
+        expect.anything(),
+      );
+    });
+
     it('B4 §5：冻结路径同样落 l1Snapshot（证据不因处置分支而缺失）', async () => {
       customerAccessService.resolve.mockResolvedValue(accessBlocking('DEPOSIT'));
       customerRestrictionsService.listOpen.mockResolvedValue([openRestriction('SANCTION')]);

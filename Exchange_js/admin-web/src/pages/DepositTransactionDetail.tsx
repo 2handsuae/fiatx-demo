@@ -262,7 +262,13 @@ const DepositTransactionDetail = () => {
 
   const handleWaiveLimit = async () => {
     if (!id) return;
-    if (!window.confirm('Waive the below-minimum hold and resume compliance processing for this deposit?')) {
+    // 文案跟着挂起原因走：同一个端点在 BELOW_MIN 上解的是金额下限，在 Gate 0 的
+    // 行政级挂起上解的是「客户被停用 / 生命周期非 ACTIVE」——写死「below-minimum」
+    // 会让运营以为自己只在解除账户暂停。
+    const holdReason = data?.limitHoldReason ?? null;
+    const holdLabel =
+      holdReason === 'BELOW_MIN' ? 'below-minimum hold' : `hold (${holdReason})`;
+    if (!window.confirm(`Release the ${holdLabel} and resume compliance processing for this deposit?`)) {
       return;
     }
     setDispositionSubmitting(true);
@@ -273,14 +279,14 @@ const DepositTransactionDetail = () => {
         { method: 'POST' },
       );
       if (!response.ok) {
-        setDispositionError(await getApiErrorMessage(response, 'Failed to waive limit hold.'));
+        setDispositionError(await getApiErrorMessage(response, 'Failed to release hold.'));
         return;
       }
-      setNotice('Minimum-limit hold waived — deposit resumed compliance');
+      setNotice(`Hold released (${holdReason}) — deposit resumed compliance`);
       await fetchData();
     } catch (error) {
       if (error instanceof AdminSessionError) return;
-      setDispositionError(error instanceof Error ? error.message : 'Failed to waive limit hold.');
+      setDispositionError(error instanceof Error ? error.message : 'Failed to release hold.');
     } finally {
       setDispositionSubmitting(false);
     }
@@ -425,8 +431,17 @@ const DepositTransactionDetail = () => {
 
   if (!data) return null;
 
-  const isBelowMinPending =
-    data.status === 'OPERATION_PENDING' && data.limitHoldReason === 'BELOW_MIN';
+  // B4 修复轮：Gate 0 现在也会把「客户被停用 / 生命周期非 ACTIVE」的单挂到
+  // OPERATION_PENDING（挂起原因 CAPABILITY_RESTRICTED / LIFECYCLE_NOT_ACTIVE）。
+  // 处置组此前只认 BELOW_MIN，那些单在界面上无路可走（无 waive 按钮、approve 静默
+  // no-op、FROZEN 组也不显示），钱压在 DEPOSIT_SUSPENSE 里。
+  // 门控改为「挂起原因非空」；`Confiscate as Fee` 仍**只**在 BELOW_MIN 下出现 ——
+  // 没收是小额充值的专属处置，行政级挂起单不该有这个按钮（后端 initiateConfiscation
+  // 与没收落地前置也都硬钉 BELOW_MIN）。
+  const pendingHoldReason =
+    data.status === 'OPERATION_PENDING' ? (data.limitHoldReason ?? null) : null;
+  const isHoldPending = pendingHoldReason !== null;
+  const isBelowMinPending = pendingHoldReason === 'BELOW_MIN';
   // 合规闸门只在 COMPLIANCE_PENDING 及之后才评估 —— 钱还没到账(PAYIN_PENDING)时
   // L1/L2 一律显示 PENDING(未评估)。此前 L1 直接绑客户级 complianceStatus,那个值
   // 与本单无关且恒为 APPROVED,导致钱还没到闸门就已经是绿的。
@@ -706,28 +721,40 @@ const DepositTransactionDetail = () => {
         <div className="w-[272px] min-w-[272px] overflow-y-auto border-l border-adm-border bg-adm-panel px-4">
 
           {/* Ops Disposition */}
-          {isBelowMinPending && (
+          {isHoldPending && (
             <SidebarGroup title="Ops Disposition">
               {dispositionError && <p className="mb-2 text-[11px] text-adm-red">{dispositionError}</p>}
+              {/* 运营必须先知道自己在解除**哪一条**挂起 —— 同一个按钮在
+                  BELOW_MIN 上是「豁免金额下限」、在行政级上是「解除账户挂起」。 */}
+              <p className="mb-2 font-mono text-[10px] text-adm-t3">
+                Hold reason:{' '}
+                <span className="font-semibold text-adm-amber">{pendingHoldReason}</span>
+              </p>
               <div className="flex flex-col gap-2">
                 <button
                   onClick={handleWaiveLimit}
                   disabled={dispositionSubmitting}
-                  className="w-full rounded px-3 py-2 text-sm font-medium transition-colors bg-green-600 text-white hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                  className={adminButtonClass('workflowPrimary', 'w-full')}
                 >
-                  {dispositionSubmitting ? 'Processing...' : 'PASS (Waive Min-Limit)'}
+                  {dispositionSubmitting
+                    ? 'Processing...'
+                    : isBelowMinPending
+                      ? 'PASS (Waive Min-Limit)'
+                      : 'Release Hold'}
                 </button>
-                <button
-                  onClick={() => {
-                    setDispositionError('');
-                    setConfiscateReason('');
-                    setIsConfiscateModalOpen(true);
-                  }}
-                  disabled={dispositionSubmitting}
-                  className="w-full rounded px-3 py-2 text-sm font-medium transition-colors bg-red-600 text-white hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  Confiscate as Fee
-                </button>
+                {isBelowMinPending && (
+                  <button
+                    onClick={() => {
+                      setDispositionError('');
+                      setConfiscateReason('');
+                      setIsConfiscateModalOpen(true);
+                    }}
+                    disabled={dispositionSubmitting}
+                    className={adminButtonClass('workflowNegative', 'w-full')}
+                  >
+                    Confiscate as Fee
+                  </button>
+                )}
               </div>
             </SidebarGroup>
           )}
