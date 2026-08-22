@@ -206,6 +206,22 @@ describe('DepositTransactionsService', () => {
     slaDeadline: new Date('2026-01-03T00:00:00Z'),
     slaBreached: true,
     actionSubmittedAt: new Date('2026-08-01T00:00:00Z'),
+    // B4（第四批）：L1 快照列。业主裁定「后端不管 tipping-off，只要保证页面上没有
+    // 文字漏出」—— 快照在后端**可以**带 cause/holdReason 明细（下面这份就带着
+    // CAPABILITY_RESTRICTED 与逐格 detail），客户面必须一个字都拿不到。
+    // `toCustomerDepositView` 是构造式白名单（不是 `...item` 再删字段），新增列
+    // 天生不外泄 —— 这行 + SENSITIVE_KEYS 里的 'l1Snapshot' 就是把这件事钉死，
+    // 防止有人日后把它改回展开式。
+    l1Snapshot: JSON.stringify({
+      evaluatedAt: '2026-01-01T00:00:00.000Z',
+      domain: 'DEPOSIT',
+      verdict: 'HOLD',
+      holdReason: 'CAPABILITY_RESTRICTED',
+      tradingTier: 'BASIC',
+      checks: [
+        { code: 'CUSTOMER_RESTRICTION', outcome: 'FAIL', detail: '客户被限制账摁住 DEPOSIT 能力' },
+      ],
+    }),
   };
 
   const SENSITIVE_KEYS = [
@@ -223,6 +239,7 @@ describe('DepositTransactionsService', () => {
     'limitHoldReason',
     'slaDeadline',
     'slaBreached',
+    'l1Snapshot',
   ];
 
   describe('findAllForCustomer', () => {
@@ -1533,6 +1550,23 @@ describe('DepositTransactionsService', () => {
       expect(result.limitHoldReason).toBeNull();
     });
 
+    // B4（第四批）：Gate 0 的 L1 快照落库出口。workflow 禁止直接写 domain 表
+    // （铁律⑤），所以落库这一下必须由本 service 提供方法 —— 与 saveTxnDetail 同形状。
+    it('saveL1Snapshot writes the l1Snapshot column only (no status/hold side effects)', async () => {
+      const snapshot = JSON.stringify({ domain: 'DEPOSIT', verdict: 'PASS' });
+      ((prisma as any).depositTransaction.update as jest.Mock).mockResolvedValue({
+        id: 'dep-1',
+        l1Snapshot: snapshot,
+      });
+
+      const result = await service.saveL1Snapshot('dep-1', snapshot);
+
+      expect((prisma as any).depositTransaction.update).toHaveBeenCalledWith({
+        where: { id: 'dep-1' },
+        data: { l1Snapshot: snapshot },
+      });
+      expect(result.l1Snapshot).toBe(snapshot);
+    });
 
   });
 

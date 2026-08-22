@@ -44,7 +44,12 @@ import {
 } from '../../governance/approvals/constants/approval.constants';
 import { SystemWalletResolver } from '../../funds-layer/domain/system-wallet-resolver.service';
 import { DepositApplicantActionsService } from './deposit-applicant-actions.service';
-import { CustomerRestrictionsService } from '../../identity/customers/customer-restrictions.service';
+import {
+  CustomerRestrictionsService,
+  type RestrictionRow,
+} from '../../identity/customers/customer-restrictions.service';
+import { L1GateService } from '../shared/l1-gate/l1-gate.service';
+import type { L1Check } from '../shared/l1-gate/l1-gate.types';
 
 interface FundsOrderStatusChangedEvent {
   fundsOrderId: string;
@@ -99,6 +104,8 @@ export class DepositWorkflowService implements OnModuleInit {
     private readonly applicantActions: DepositApplicantActionsService,
     private readonly customerAccessService: CustomerAccessService,
     private readonly customerRestrictionsService: CustomerRestrictionsService,
+    // B4（第四批）：Gate 0 落 L1 快照用的三域共用求值器。它不抛错，只出快照。
+    private readonly l1Gate: L1GateService,
   ) {}
 
   private toAuditActor(actor: ApprovalActorContext) {
@@ -160,31 +167,131 @@ export class DepositWorkflowService implements OnModuleInit {
     }
   }
 
+  /**
+   * Gate 0 —— 进入 COMPLIANCE_PENDING 时跑一次的客户级闸。
+   *
+   * ⚠️ 口径澄清（B4，2026-08-22）：本次改动**不是**「堵住被限制客户的新钱入账」。
+   * 充值域在此之前就有三道限制账闸：`inbound-transfer-signals` 的
+   * `createForCustomer`/`scanForCustomer` 两道 `assertTradingEligibility`，加本函数
+   * 这一道；`detected()`（真正建单）全仓唯一的生产调用方就在第二道闸后面。
+   * 本次改的是**同一道闸后面的分流与取证**：
+   *   ① 按 `releasePolicy` 分流（执法级冻 / 行政级挂），不再一视同仁全 FROZEN；
+   *   ② 补上此前漏判的 `lifecycle`（已销户/停用但没贴便签的客户此前一路走得通）；
+   *   ③ 把这一刻的 L1 九格判定落成可回显快照（`l1Snapshot` 列，A1 已建）。
+   */
   private async runGate0(depositId: string, ownerId: string) {
     // Task 9：改读限制账。原先经 getOwnerComplianceStatus 读 CustomerMain.complianceStatus，
     // 该列已删；那个方法用 (prisma as any) 抹掉了类型，编译器看不见 —— 这道合规闸
     // 在删列后其实已经失效，构建却是绿的。
     // ownerId 由事件带入，不再为拿它多查一次库。
     const access = await this.customerAccessService.resolve(ownerId);
+    const deposit = await this.depositService.findOne(depositId);
+
+    // 分流要的 cause / releasePolicy 只有限制账的原始行有 —— `CustomerAccess` 结构性
+    // 给不出：`disclosed` 只装 DISCLOSED 行，而最要紧的 SANCTION 是 SILENT，压根不在
+    // 里面。所以这里直接读一次限制账。
+    const openRows: RestrictionRow[] =
+      await this.customerRestrictionsService.listOpen(ownerId);
+    // scope 展开：SANCTION 与 ADMIN_SUSPENSION 的 scope 都是 'ALL'，直接字符串比
+    // `=== 'DEPOSIT'` 会把这两种最要紧的因由全漏掉。
+    const depositBlockers = openRows.filter((row) =>
+      row.scopes.some((scope) => scope === 'ALL' || scope === 'DEPOSIT'),
+    );
+
+    // ── L1 快照（§5）─────────────────────────────────────────────────────────
+    // 逐格只写这一刻**真判过**的（B2 判据：写不实的 PASS 是伪证据，比不记录更糟）。
+    //  · CUSTOMER_ELIGIBILITY / CUSTOMER_RESTRICTION —— **不传**：L1GateService 自判，
+    //    传了也会被它的 SELF_OWNED_CHECKS 静默丢弃。
+    //  · SINGLE_LIMIT —— 建单时 `detected()` 判过下限（低于则出生带 BELOW_MIN 标记）。
+    //    带着标记的单那一格就是没过，照实记 FAIL。
+    //  · ACCOUNT_READINESS —— 建单时 `detected()` 无条件校验过收款钱包存在且资产匹配，
+    //    不过整单不建 → 能走到这里的单这一格必然为真。
+    //  · TRADING_READINESS —— **SKIPPED，不是 PASS**：`assertTradingEligibility` 对
+    //    DEPOSIT 刻意跳过 `assertTradingReady`（onboarding.service.ts:1192-1194），
+    //    真正判法币提现地址的是放行前的 `assertTradingReadyOrHold`，跑在本评估点之后。
+    //  · 其余四格（累计额度 / 大额审批 / 余额 / 报价）由 L1GateService 的 NA 表处理。
+    const belowMin = deposit.limitHoldReason === 'BELOW_MIN';
+    const preChecks: L1Check[] = [
+      belowMin
+        ? {
+            code: 'SINGLE_LIMIT',
+            outcome: 'FAIL',
+            detail: '建单时判定金额低于 DEPOSIT 单笔下限（BELOW_MIN），等运营处置',
+          }
+        : {
+            code: 'SINGLE_LIMIT',
+            outcome: 'PASS',
+            detail: '建单时已过 DEPOSIT 单笔下限判定（充值是被动入金，只判下限、无上限）',
+          },
+      {
+        code: 'ACCOUNT_READINESS',
+        outcome: 'PASS',
+        detail: '建单时校验过收款钱包存在且资产匹配（不匹配则整单不建）',
+      },
+      {
+        code: 'TRADING_READINESS',
+        outcome: 'SKIPPED',
+        detail:
+          '交易起始就绪（法币提现地址）由放行前的 assertTradingReadyOrHold 校验，本评估点在其之前',
+      },
+    ];
+    const l1 = await this.l1Gate.evaluate({
+      domain: 'DEPOSIT',
+      customerId: ownerId,
+      preChecks,
+    });
+    // 三条分支（冻 / 挂 / 放行）都要留下证据，所以落库放在分流之前。
+    await this.depositService.saveL1Snapshot(depositId, JSON.stringify(l1));
 
     if (access.blocked.has('DEPOSIT')) {
-      this.logger.warn(
-        `Gate 0 FAIL: deposit ${depositId} — customer DEPOSIT capability is blocked`,
+      // 分流（业主 2026-08-22 裁定一）：命中 DEPOSIT 的 OPEN 便签里只要有一条
+      // releasePolicy === 'MLRO_APPROVAL' → 执法级 → FROZEN（保持此前行为）；
+      // 全是 OPS_APPROVAL → 行政级（账户暂停这类）→ OPERATION_PENDING。
+      // 按 releasePolicy 派生而不是写死 cause 名单：日后新增一个 MLRO 级 cause
+      // 会自动走对分支。
+      // depositBlockers 为空 = access 说卡住、限制账却查不出卡 DEPOSIT 的 OPEN 行
+      //（两次读之间刚被撕掉之类的内部不一致）——分类不出来就**不降级**，保持 FROZEN。
+      const enforcement =
+        depositBlockers.length === 0 ||
+        depositBlockers.some((row) => row.releasePolicy === 'MLRO_APPROVAL');
+
+      if (enforcement) {
+        this.logger.warn(
+          `Gate 0 FAIL: deposit ${depositId} — customer DEPOSIT capability is blocked`,
+        );
+        await this.depositService.updateStatus(
+          depositId,
+          { action: DepositTransactionAction.FREEZE },
+          {
+            reason: 'Customer DEPOSIT capability is restricted',
+            actor: { actorType: 'SYSTEM', actorId: 'COMPLIANCE_GATE_0' },
+          },
+        );
+        return;
+      }
+
+      await this.holdAtGate0(
+        deposit,
+        l1.holdReason ?? 'CAPABILITY_RESTRICTED',
+        'Gate 0: customer DEPOSIT capability is restricted by an operational (non-enforcement) hold — awaiting ops disposition',
       );
-      await this.depositService.updateStatus(
-        depositId,
-        { action: DepositTransactionAction.FREEZE },
-        {
-          reason: 'Customer DEPOSIT capability is restricted',
-          actor: { actorType: 'SYSTEM', actorId: 'COMPLIANCE_GATE_0' },
-        },
+      return;
+    }
+
+    // §4：此前 Gate 0 只判 blocked，lifecycle 只写进审计 metadata —— 一个已销户/
+    // 停用但一张便签都没贴的客户，充值照样走得通。lifecycle 非 ACTIVE 属行政性
+    // （不是执法），走挂起分支。
+    if (access.lifecycle !== 'ACTIVE') {
+      await this.holdAtGate0(
+        deposit,
+        l1.holdReason ?? 'LIFECYCLE_NOT_ACTIVE',
+        `Gate 0: customer lifecycle is ${access.lifecycle} (not ACTIVE) — awaiting ops disposition`,
       );
       return;
     }
 
     this.logger.log(`Gate 0 PASS: deposit ${depositId}`);
 
-    const deposit = await this.depositService.findOne(depositId);
     await this.auditLogsService.recordSystem({
       action: AuditActions.DEPOSIT_GATE0_PASSED,
       entityType: AuditEntityTypes.DEPOSIT_TRANSACTION,
@@ -208,6 +315,49 @@ export class DepositWorkflowService implements OnModuleInit {
           `deposit remains COMPLIANCE_PENDING for manual handling/retry; Gate 0 continues`,
       );
     }
+  }
+
+  /**
+   * Gate 0 的**行政级**挂起（B4 裁定一的「非执法级」那一半）：钱已经在
+   * DEPOSIT_SUSPENSE 里，拒不了，只能挂在 OPERATION_PENDING 上等运营处置。
+   *
+   * 与执法级（FROZEN）的区别只在出场：这条挂起由运营用 `waiveLimitHold` 解除
+   * （§3 已把它从只认 BELOW_MIN 放宽到认任何非空挂起原因），FROZEN 只能走
+   * MLRO 解冻审批。
+   *
+   * ⚠️ 挂起原因取自刚落库的快照 `holdReason`，两者由此天然一致 —— 不要在这里
+   * 另算一份，那会长出「列上写 A、快照里写 B」的第二真相。
+   *
+   * ⚠️ 挂起原因非空 = 该单对客户面三处读侧（findAll / findOneForCustomer /
+   * findOneForCustomerByDepositNo）整单不可见。这是维持现状的刻意选择（业主：
+   * 页面不漏字即可），不是疏漏。
+   *
+   * 挂起路径**不提交 Sumsub** —— 与紧邻的 FROZEN 分支同形状：客户当下不该交易，
+   * 没有必要为他起一个 KYT 案子。
+   */
+  private async holdAtGate0(deposit: any, holdReason: string, reason: string) {
+    this.logger.warn(
+      `Gate 0 HOLD: deposit ${deposit.id} — ${reason} (holdReason=${holdReason})`,
+    );
+
+    await this.depositService.updateStatus(
+      deposit.id,
+      { action: DepositTransactionAction.OPERATION_PENDING, reason },
+      {
+        actor: { actorType: 'SYSTEM', actorId: 'COMPLIANCE_GATE_0' },
+        sourcePlatform: 'SYSTEM',
+        extraData: { limitHoldReason: holdReason },
+      },
+    );
+
+    // 状态跃迁审计走动态动作名（DEPOSIT_COMPLIANCE_PENDING_TO_OPERATION_PENDING），
+    // 不新造审计动作常量 —— 本批不做审计专项。
+    await this.recordStateTransitionAudit(
+      deposit,
+      DepositTransactionStatus.COMPLIANCE_PENDING,
+      DepositTransactionStatus.OPERATION_PENDING,
+      `${reason} (holdReason=${holdReason})`,
+    );
   }
 
   /**
@@ -1097,17 +1247,25 @@ export class DepositWorkflowService implements OnModuleInit {
       return;
     }
 
-    // 终审"顺带"项:重复 approve 于一笔已经在 OPERATION_PENDING、且 BELOW_MIN 挂起
+    // 终审"顺带"项:重复 approve 于一笔已经在 OPERATION_PENDING、且挂起
     // 仍未解除的单(没有经过 waiveLimitHold),是合法的重复调用(operator 手滑双击
     // ①、或上游重放),不是错误——显式 no-op,不再落入 holdBelowMinIfNeeded 去对一个
     // 已经处于 OPERATION_PENDING 的单再次尝试 operation_pending 动作(转移表在这个
     // 状态上没有这条自环边,会抛 Invalid action)。真正解除挂起走 waiveLimitHold。
+    //
+    // B4:判据从 `=== 'BELOW_MIN'` 放宽到「挂起原因非空」。Gate 0 开始往
+    // OPERATION_PENDING 上落行政级挂起(CAPABILITY_RESTRICTED / LIFECYCLE_NOT_ACTIVE)
+    // 之后,原判据变得不够宽:那样一笔单走 PATCH :id/status {action:approve} 会
+    // 径直穿过金额闸(holdBelowMinIfNeeded 只认 BELOW_MIN,返回 false)落 SUCCESS,
+    // 而 limitHoldReason 还挂着 —— 客户面三处读侧「limitHoldReason != null 即隐藏」
+    // 会让这笔已入账的单对客户永久不可见。挂起未解除时一律 no-op。
     if (
       oldStatus === DepositTransactionStatus.OPERATION_PENDING &&
-      deposit.limitHoldReason === 'BELOW_MIN'
+      deposit.limitHoldReason
     ) {
       this.logger.debug(
-        `approveDeposit no-op: deposit ${depositId} already OPERATION_PENDING with BELOW_MIN hold intact — repeat approve ignored, waive the hold first`,
+        `approveDeposit no-op: deposit ${depositId} already OPERATION_PENDING with hold intact ` +
+          `(${deposit.limitHoldReason}) — repeat approve ignored, release the hold first`,
       );
       return;
     }
@@ -1207,11 +1365,20 @@ export class DepositWorkflowService implements OnModuleInit {
   }
 
   /**
-   * PASS (waive) disposition: ops waives the amount floor for this one deposit.
-   * This does NOT approve/入账 the deposit — it clears the BELOW_MIN hold and
+   * PASS (release) disposition: ops 解除这一笔单的挂起。
+   * This does NOT approve/入账 the deposit — it clears the hold and
    * re-runs checkAutoApproval so the deposit proceeds through the normal L2
-   * compliance gates (KYT/TR/trading-ready). Waiving the amount line does not
-   * waive compliance. Single-operator action — no maker-checker.
+   * compliance gates (KYT/TR/trading-ready). 解除挂起不等于豁免合规。
+   * Single-operator action — no maker-checker.
+   *
+   * B4（§3）：守卫从只认 `BELOW_MIN` 放宽到**任何非空挂起原因**。原因是 Gate 0
+   * 开始往 OPERATION_PENDING 上落行政级挂起（CAPABILITY_RESTRICTED /
+   * LIFECYCLE_NOT_ACTIVE）之后，这类单若还只有 BELOW_MIN 能 waive，就**出场无路**
+   * ——没收那条路刻意不放宽（见 initiateConfiscation），approve 在挂起未解除时
+   * 是 no-op，钱会一直压在 DEPOSIT_SUSPENSE 里。
+   *
+   * ⚠️ 放宽的是「不再挑挂起原因」，**不是**「没有挂起也能 waive」：`!limitHoldReason`
+   * （null / 空串）照旧拒。
    */
   async waiveLimitHold(
     depositId: string,
@@ -1219,11 +1386,11 @@ export class DepositWorkflowService implements OnModuleInit {
   ) {
     const deposit = await this.depositService.findOne(depositId);
     if (
-      deposit.limitHoldReason !== 'BELOW_MIN' ||
+      !deposit.limitHoldReason ||
       deposit.status !== DepositTransactionStatus.OPERATION_PENDING
     ) {
       throw new BadRequestException(
-        'Deposit has no BELOW_MIN hold to waive',
+        'Deposit has no hold to release',
       );
     }
 
@@ -1240,8 +1407,14 @@ export class DepositWorkflowService implements OnModuleInit {
         traceId: deposit.traceId || undefined,
         workflowType: 'DEPOSIT',
         result: AuditResult.SUCCESS,
-        reason: 'Ops waived below-minimum amount hold (compliance gates still apply)',
-        metadata: { depositNo: deposit.depositNo, amount: String(deposit.amount) },
+        // B4：动作名 DEPOSIT_LIMIT_WAIVED 保持不变（不新造审计动作常量，本批不做
+        // 审计专项），实际挂起原因带进 metadata + reason。
+        reason: `Ops released the deposit hold (${deposit.limitHoldReason}); compliance gates still apply`,
+        metadata: {
+          depositNo: deposit.depositNo,
+          amount: String(deposit.amount),
+          limitHoldReason: deposit.limitHoldReason,
+        },
         requestId: `DEPOSIT_LIMIT_WAIVED_${deposit.depositNo}_${randomUUID()}`,
         sourcePlatform: 'ADMIN_API',
       },

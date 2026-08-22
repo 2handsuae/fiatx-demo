@@ -845,6 +845,25 @@ export class DepositTransactionsService {
     });
   }
 
+  /**
+   * L1 闸门快照落库(B4)。Gate 0 每跑一次求值就覆盖写一次 —— 快照是「这一刻
+   * 九格分别判成什么」的存证,不是流水,只留最近一次。
+   *
+   * 由本 service 提供而不是让 workflow 直接 update:铁律⑤(workflow 禁止直接写
+   * domain 实体的 Prisma 表)。形状照抄 saveTxnDetail —— 只写这一列,不碰状态、
+   * 不碰挂起原因。
+   *
+   * ⚠️ 这一列**不在** toCustomerDepositView 的白名单里,客户面拿不到(它是构造式
+   * 白名单,新增列天生不外泄)。业主 2026-08-22:后端不做 tipping-off 脱敏,快照
+   * 可以带 cause/holdReason 明细,页面不漏字即可。别把它加进任何客户面视图。
+   */
+  async saveL1Snapshot(id: string, json: string) {
+    return (this.prisma as any).depositTransaction.update({
+      where: { id },
+      data: { l1Snapshot: json },
+    });
+  }
+
   /** Sumsub getTxn 原始报文存证(乙口径落库)。 */
   async saveTxnDetail(id: string, json: string) {
     return (this.prisma as any).depositTransaction.update({ where: { id }, data: { sumsubTxnDetailJson: json } });
