@@ -1029,7 +1029,12 @@ export class DepositTransactionsService {
     });
   }
 
-  /** PASS (waive) disposition: clears the BELOW_MIN hold flag. Does not touch status. */
+  /**
+   * Clears the hold flag (whatever the reason was). Does not touch status.
+   * Two callers, each picking its own reasons in the workflow layer:
+   *   waiveLimitHold          — ops 手动解除，认任何非空挂起原因（B4 §3）
+   *   clearAdministrativeHold — 退回落地，只认行政级（C1 复审，BELOW_MIN 继续藏）
+   */
   async clearLimitHold(id: string) {
     return (this.prisma as any).depositTransaction.update({
       where: { id },

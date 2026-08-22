@@ -98,6 +98,26 @@ export class DepositWorkflowService implements OnModuleInit {
     DepositTransactionStatus.OPERATION_PENDING,
   ];
 
+  // 第四批 C1 复审 · 业主裁定（2026-08-22，甲/乙/丙 三案取乙）：`limitHoldReason`
+  // 这一列有两类主人，退回落地时**只清行政级这一类**。
+  //
+  //   行政级（下面这两个，Gate 0 按**客户**属性落的）—— 退回时清掉。
+  //     业主口径：「账户被停用期间你的钱退回去了」是客户**有权知道**的事实。
+  //   BELOW_MIN（建单时按**这笔单自身**的金额下限落的）—— 退回时保留、继续藏。
+  //     业主口径：藏小额单是为了不让客户看见「这笔太小我们没收了」这类处置噪音。
+  //
+  // 为什么非清不可：客户面三处读侧（findAll / findOneForCustomer /
+  // findOneForCustomerByDepositNo）的判据都是「limitHoldReason 非空即整单不可见」，
+  // 而 RETURNING/RETURNED 恰恰在 CUSTOMER_STATUS_PASSTHROUGH 白名单里、RETURNED 还在
+  // CUSTOMER_COMPLETED_STATUSES 里 —— 设计意图本来就是让客户看见这两个态。不清就是：
+  // 钱到过又原路退回，客户面零记录（列表查不到、两个筛选桶都空、按单号打详情 404）。
+  //
+  // ⚠️ 两个原因并存时列上留的是 BELOW_MIN（见 holdAtGate0 的「已有挂起原因优先」），
+  //    集合判定天然落在「保留」这一侧 —— 与业主裁定一致，不需要再补条件。
+  // ⚠️ 没收弧（initiateConfiscation + 没收落地前置）硬钉 BELOW_MIN，本清除不碰它们。
+  private static readonly ADMINISTRATIVE_HOLD_REASONS: ReadonlySet<string> =
+    new Set<string>(['CAPABILITY_RESTRICTED', 'LIFECYCLE_NOT_ACTIVE']);
+
   private readonly logger = new Logger(DepositWorkflowService.name);
 
   constructor(
@@ -348,7 +368,8 @@ export class DepositWorkflowService implements OnModuleInit {
    *
    * ⚠️ 挂起原因非空 = 该单对客户面三处读侧（findAll / findOneForCustomer /
    * findOneForCustomerByDepositNo）整单不可见。这是维持现状的刻意选择（业主：
-   * 页面不漏字即可），不是疏漏。
+   * 页面不漏字即可），不是疏漏。**挂着的时候**藏；一旦走上退回弧，行政级这两个
+   * 原因会被清掉（见 clearAdministrativeHoldOnReturn），客户看得见钱退回去了。
    *
    * 挂起路径**不提交 Sumsub** —— 与紧邻的 FROZEN 分支同形状：客户当下不该交易，
    * 没有必要为他起一个 KYT 案子。
@@ -2590,6 +2611,42 @@ export class DepositWorkflowService implements OnModuleInit {
     };
   }
 
+  /**
+   * 退回落地时按挂起原因分别处理 `limitHoldReason`（业主裁定见
+   * ADMINISTRATIVE_HOLD_REASONS 的注释）。返回本次真正清掉的原因，没清则 null。
+   *
+   *   CAPABILITY_RESTRICTED / LIFECYCLE_NOT_ACTIVE → 清掉，客户看得见这笔退回
+   *   BELOW_MIN                                    → 保留，继续对客户隐藏
+   *   null / 空串（没挂起过，走 MANUAL_CHECKING 老路）→ 无事发生
+   *
+   * ⚠️ 调用点在 `updateStatus(RETURN)` **之后**，不是之前。两个写没有事务包着，
+   *    顺序决定中间态：
+   *      先清后翻 —— 中间这一刻单子是 OPERATION_PENDING 且已无挂起,对客户可见
+   *      （收敛成 PROCESSING）；若接着 updateStatus 崩了,这个「本该藏着的挂起单
+   *      被永久曝光」的残局留在库里,是一个**新增**的失败模式。
+   *      先翻后清 —— 中间这一刻单子是 RETURNING 但仍挂着,对客户不可见；若接着
+   *      clear 崩了,残局恰好等于本次修复前的既有行为,不新增任何失败模式。
+   *
+   * ⚠️ 复用 depositService.clearLimitHold（Rule 5：不直写 domain 表），但**不动**
+   *    waiveLimitHold 的语义 —— 那是运营手动解除的入口（B4 §3 已放宽到认任何非空
+   *    挂起原因），挑不挑原因这件事只发生在这里。
+   */
+  private async clearAdministrativeHoldOnReturn(deposit: any): Promise<string | null> {
+    const holdReason: string | null = deposit.limitHoldReason ?? null;
+    if (
+      !holdReason ||
+      !DepositWorkflowService.ADMINISTRATIVE_HOLD_REASONS.has(holdReason)
+    ) {
+      return null;
+    }
+
+    await this.depositService.clearLimitHold(deposit.id);
+    this.logger.log(
+      `Deposit ${deposit.depositNo} return: cleared administrative hold (${holdReason}) — the return is now visible to the customer`,
+    );
+    return holdReason;
+  }
+
   private async onReturnApproved(deposit: any) {
     if (!DepositWorkflowService.RETURNABLE_STATUSES.includes(deposit.status)) {
       this.logger.debug(
@@ -2608,11 +2665,16 @@ export class DepositWorkflowService implements OnModuleInit {
       reason: 'Return to sender approved (funds in transit)',
     });
 
+    const clearedHoldReason = await this.clearAdministrativeHoldOnReturn(deposit);
+
     await this.auditLogsService.recordSystem({
       action: AuditActions.DEPOSIT_RETURN_STARTED, entityType: AuditEntityTypes.DEPOSIT_TRANSACTION,
       entityId: deposit.id, entityNo: deposit.depositNo, entityOwnerType: deposit.ownerType, entityOwnerId: deposit.ownerId,
       workflowType: 'DEPOSIT_RETURN', traceId: deposit.traceId || undefined, result: AuditResult.SUCCESS,
-      metadata: { depositNo: deposit.depositNo, amount: String(deposit.amount), fundsOrderNo: returnLeg.fundsOrderNo },
+      // clearedLimitHoldReason：本次退回清掉的行政级挂起原因（没清则 null）。挂起原因
+      // 决定客户看不看得见这笔单,属 operator 可见的状态变化 —— 按铁律留痕,但复用
+      // DEPOSIT_RETURN_STARTED 这条已有审计的 metadata,不新造审计动作常量。
+      metadata: { depositNo: deposit.depositNo, amount: String(deposit.amount), fundsOrderNo: returnLeg.fundsOrderNo, clearedLimitHoldReason: clearedHoldReason },
       requestId: `DEPOSIT_RETURN_STARTED_${deposit.depositNo}_${randomUUID()}`, sourcePlatform: 'SYSTEM',
     });
   }

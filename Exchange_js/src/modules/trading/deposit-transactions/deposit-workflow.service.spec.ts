@@ -3731,6 +3731,90 @@ describe('DepositWorkflowService', () => {
         expect.objectContaining({ action: 'DEPOSIT_RETURN_STARTED' }),
       );
     });
+
+    // ═══════════════════════════════════════════════════════════════════
+    // C1 复审 · 业主裁定（2026-08-22）：退回落地按挂起原因分别处理
+    // limitHoldReason —— 行政级清掉（客户有权知道钱退回去了），BELOW_MIN 保留
+    // （藏处置噪音）。客户面三处读侧判据都是「非空即整单不可见」，不清 = 钱到过
+    // 又原路退回、客户面零记录。
+    // ═══════════════════════════════════════════════════════════════════
+    describe('C1 复审：退回落地清行政级挂起（BELOW_MIN 继续藏）', () => {
+      const heldDeposit = (holdReason: string | null) =>
+        returnableDeposit({
+          status: DepositTransactionStatus.OPERATION_PENDING,
+          limitHoldReason: holdReason,
+        });
+
+      const startedAuditMetadata = () =>
+        auditLogsService.recordSystem.mock.calls
+          .map(([arg]: [any]) => arg)
+          .find((arg: any) => arg.action === 'DEPOSIT_RETURN_STARTED')?.metadata;
+
+      it('CAPABILITY_RESTRICTED（账户被停用挂起）→ 清掉，客户从 RETURNING 起就看得见', async () => {
+        await (service as any).onReturnApproved(heldDeposit('CAPABILITY_RESTRICTED'));
+
+        expect(depositService.clearLimitHold).toHaveBeenCalledWith('dep-rt-1');
+        expect(startedAuditMetadata()).toEqual(
+          expect.objectContaining({ clearedLimitHoldReason: 'CAPABILITY_RESTRICTED' }),
+        );
+      });
+
+      it('LIFECYCLE_NOT_ACTIVE（生命周期非 ACTIVE 挂起）→ 同样清掉', async () => {
+        await (service as any).onReturnApproved(heldDeposit('LIFECYCLE_NOT_ACTIVE'));
+
+        expect(depositService.clearLimitHold).toHaveBeenCalledWith('dep-rt-1');
+        expect(startedAuditMetadata()).toEqual(
+          expect.objectContaining({ clearedLimitHoldReason: 'LIFECYCLE_NOT_ACTIVE' }),
+        );
+      });
+
+      // 业主裁定的另一半：小额单退回后**仍然**对客户隐藏。这条同时守住没收弧
+      // ——没收前置硬钉 BELOW_MIN，清掉就等于从退回这个方向把它绕掉了。
+      it('BELOW_MIN（金额低于下限）→ 保留，继续对客户隐藏', async () => {
+        await (service as any).onReturnApproved(heldDeposit('BELOW_MIN'));
+
+        expect(depositService.clearLimitHold).not.toHaveBeenCalled();
+        expect(startedAuditMetadata()).toEqual(
+          expect.objectContaining({ clearedLimitHoldReason: null }),
+        );
+        // 退回本体照常落地 —— 保留挂起不等于不退钱。
+        expect(depositService.updateStatus).toHaveBeenCalledWith('dep-rt-1',
+          expect.objectContaining({ action: DepositTransactionAction.RETURN }),
+        );
+      });
+
+      it('没挂起过（MANUAL_CHECKING 老路，limitHoldReason=null）→ 无事发生', async () => {
+        await (service as any).onReturnApproved(returnableDeposit());
+
+        expect(depositService.clearLimitHold).not.toHaveBeenCalled();
+        expect(startedAuditMetadata()).toEqual(
+          expect.objectContaining({ clearedLimitHoldReason: null }),
+        );
+      });
+
+      // 顺序是刻意的：先翻状态再清挂起。反过来的话，两个写之间那一刻单子是
+      // OPERATION_PENDING 且已无挂起 = 对客户可见；若 updateStatus 随后崩了，
+      // 这个「本该藏着的挂起单被永久曝光」的残局是一个新增的失败模式。
+      it('清挂起发生在 updateStatus(RETURN) 之后，不是之前', async () => {
+        await (service as any).onReturnApproved(heldDeposit('CAPABILITY_RESTRICTED'));
+
+        const statusOrder = depositService.updateStatus.mock.invocationCallOrder[0];
+        const clearOrder = depositService.clearLimitHold.mock.invocationCallOrder[0];
+        expect(statusOrder).toBeLessThan(clearOrder);
+      });
+
+      // 重放守卫：已经不在 returnable 态的单（重复的 decided 事件）连挂起都不该动。
+      it('重放（已 RETURNING）→ 挂起原样不动', async () => {
+        await (service as any).onReturnApproved(
+          returnableDeposit({
+            status: DepositTransactionStatus.RETURNING,
+            limitHoldReason: 'CAPABILITY_RESTRICTED',
+          }),
+        );
+
+        expect(depositService.clearLimitHold).not.toHaveBeenCalled();
+      });
+    });
   });
 
   // A3: legSeq 3 return-leg settle (external confirm → POST → RETURNED) and
