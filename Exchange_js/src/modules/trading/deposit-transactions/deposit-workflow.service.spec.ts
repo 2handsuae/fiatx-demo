@@ -1509,6 +1509,67 @@ describe('DepositWorkflowService', () => {
     });
   });
 
+  // 第四批 C1：OPERATION_PENDING 是可退回状态之一 —— 运营看到 L1 挂起原因(如「客户
+  // 账户已暂停」)时,除了放行/上缴/冻结之外必须有「把钱原路退回去」这条路。
+  describe('C1 · OPERATION_PENDING 退回', () => {
+    const actor = {
+      actorType: 'ADMIN' as const,
+      userId: 'admin-c1',
+      userNo: 'ADM-C1',
+      role: 'MLRO',
+      roleCodes: ['MLRO'],
+    };
+
+    it('OPERATION_PENDING 的单可以开退回审批案', async () => {
+      depositService.findOne.mockResolvedValue({
+        id: 'd1',
+        depositNo: 'DEP001',
+        status: DepositTransactionStatus.OPERATION_PENDING,
+        fromAddress: 'TX-SENDER',
+        fromIban: null,
+        ownerType: 'CUSTOMER',
+        ownerId: 'c1',
+        assetId: 'asset-1',
+        amount: '5',
+        traceId: 'trace-c1',
+      });
+      approvalsService.list.mockResolvedValue({ total: 0, items: [] });
+      approvalsService.createAndSubmit.mockResolvedValue({ id: 'app-c1', approvalNo: 'APR-C1' });
+
+      await expect(
+        service.initiateReturn('d1', { reason: '客户账户已暂停，原路退回' }, actor),
+      ).resolves.toBeDefined();
+
+      expect(approvalsService.createAndSubmit).toHaveBeenCalledWith(
+        expect.objectContaining({ actionType: 'DEPOSIT_RETURN', entityRef: 'd1' }),
+        expect.anything(),
+        expect.anything(),
+      );
+      // 退回是 maker-checker 审批案,不是直推 —— 点下去钱不会立刻退,状态不动。
+      expect(depositService.updateStatus).not.toHaveBeenCalled();
+    });
+
+    it('SUCCESS 的单不能开退回审批案', async () => {
+      depositService.findOne.mockResolvedValue({
+        id: 'd2',
+        depositNo: 'DEP002',
+        status: DepositTransactionStatus.SUCCESS,
+        fromAddress: 'TX-SENDER',
+        fromIban: null,
+        ownerType: 'CUSTOMER',
+        ownerId: 'c1',
+        assetId: 'asset-1',
+        amount: '5',
+        traceId: 'trace-c2',
+      });
+
+      await expect(
+        service.initiateReturn('d2', { reason: 'x' }, actor),
+      ).rejects.toThrow(/cannot open a return approval/i);
+      expect(approvalsService.createAndSubmit).not.toHaveBeenCalled();
+    });
+  });
+
   describe('initiateSeize', () => {
     const adminActor = {
       actorType: 'ADMIN' as const,
@@ -3631,6 +3692,22 @@ describe('DepositWorkflowService', () => {
 
       expect(fundsOrders.create).not.toHaveBeenCalled();
       expect(accountingService.executePendingTransfer).toHaveBeenCalledTimes(1);
+    });
+
+    // 第四批 C1 第二处守卫：initiateReturn 放宽了却漏改这里的话,审批批准了但落地被
+    // 拒 —— 单子卡在「审批已通过、状态没动」的残局。
+    it('C1: OPERATION_PENDING 的单批准后同样落地(legSeq 3 + RETURNING)', async () => {
+      const dep = returnableDeposit({ status: DepositTransactionStatus.OPERATION_PENDING });
+
+      await (service as any).onReturnApproved(dep);
+
+      expect(fundsOrders.create).toHaveBeenCalledWith(
+        expect.objectContaining({ depositTransactionId: 'dep-rt-1', legSeq: 3 }),
+      );
+      expect(accountingService.executePendingTransfer).toHaveBeenCalledTimes(1);
+      expect(depositService.updateStatus).toHaveBeenCalledWith('dep-rt-1',
+        expect.objectContaining({ action: DepositTransactionAction.RETURN }),
+      );
     });
 
     it('no-op when deposit is not MANUAL_CHECKING (e.g. replayed decided event after already RETURNING)', async () => {

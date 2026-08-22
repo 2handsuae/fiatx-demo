@@ -185,6 +185,8 @@ const DepositTransactionDetail = () => {
   const [dispositionError, setDispositionError] = useState('');
   const [isConfiscateModalOpen, setIsConfiscateModalOpen] = useState(false);
   const [confiscateReason, setConfiscateReason] = useState('');
+  const [isReturnModalOpen, setIsReturnModalOpen] = useState(false);
+  const [returnReason, setReturnReason] = useState('');
   const [isSeizeModalOpen, setIsSeizeModalOpen] = useState(false);
   const [seizeReason, setSeizeReason] = useState('');
   const [seizeOrderRef, setSeizeOrderRef] = useState('');
@@ -319,6 +321,40 @@ const DepositTransactionDetail = () => {
     } catch (error) {
       if (error instanceof AdminSessionError) return;
       setDispositionError(error instanceof Error ? error.message : 'Failed to submit confiscation.');
+    } finally {
+      setDispositionSubmitting(false);
+    }
+  };
+
+  // 第四批 C1：OPERATION_PENDING 的第四条出路 —— 原路退回汇款人。与没收/没入同形状,
+  // 打的是「开审批案」的端点,返回 approvalNo,钱不会立刻退。
+  const handleReturnSubmit = async () => {
+    if (!id || !returnReason.trim()) return;
+    setDispositionSubmitting(true);
+    setDispositionError('');
+    try {
+      const response = await adminFetch(
+        `${import.meta.env.VITE_API_URL}/deposit-transactions/${id}/return`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ reason: returnReason.trim() }),
+        },
+      );
+      if (!response.ok) {
+        setDispositionError(await getApiErrorMessage(response, 'Failed to submit return request.'));
+        return;
+      }
+      const result = await response.json();
+      setNotice(
+        `Return submitted for approval — ${result.approvalNo} (funds stay on hold until MLRO approves)`,
+      );
+      setIsReturnModalOpen(false);
+      setReturnReason('');
+      await fetchData();
+    } catch (error) {
+      if (error instanceof AdminSessionError) return;
+      setDispositionError(error instanceof Error ? error.message : 'Failed to submit return request.');
     } finally {
       setDispositionSubmitting(false);
     }
@@ -760,6 +796,21 @@ const DepositTransactionDetail = () => {
                     Confiscate as Fee
                   </button>
                 )}
+                {/* 第四批 C1：挂起单的第四条出路。此前 OPERATION_PENDING 只能放行(不该
+                    放行)、上缴(小额专属)、冻结(执法级) —— 行政级挂起(客户账户已暂停)
+                    的单无路可走。退回是 MLRO maker-checker 审批案,不是直推:点下去开的
+                    是审批,钱不会立刻退。 */}
+                <button
+                  onClick={() => {
+                    setDispositionError('');
+                    setReturnReason('');
+                    setIsReturnModalOpen(true);
+                  }}
+                  disabled={dispositionSubmitting}
+                  className={adminButtonClass('workflowSecondary', 'w-full')}
+                >
+                  Initiate Return to Sender
+                </button>
               </div>
             </SidebarGroup>
           )}
@@ -908,6 +959,57 @@ const DepositTransactionDetail = () => {
                 className={adminButtonClass('modalConfirm')}
               >
                 {dispositionSubmitting ? 'Processing...' : 'Confirm'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Return to Sender Modal (C1) ── */}
+      {isReturnModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-md overflow-hidden rounded-xl border border-adm-border bg-adm-panel shadow-xl">
+            <div className="border-b border-adm-border bg-adm-card px-5 py-4">
+              <p className="font-mono text-[11px] font-semibold text-adm-t1">Initiate Return to Sender</p>
+            </div>
+            <div className="px-5 py-4 space-y-3">
+              {dispositionError && <p className="text-[11px] text-adm-red">{dispositionError}</p>}
+              {/* 运营最容易误解的一点:以为点完钱就退了。说清楚这一步只是开审批。 */}
+              <p className="rounded border border-adm-border bg-adm-bg px-3 py-2 font-mono text-[10px] leading-relaxed text-adm-amber">
+                This opens an MLRO approval request — it does NOT move any money yet. The
+                deposit stays on hold; the funds are only sent back to the original sender
+                after the approval is granted.
+              </p>
+              <div>
+                <label className="mb-1 block font-mono text-[9px] uppercase tracking-wider text-adm-t3">
+                  Reason
+                </label>
+                <textarea
+                  className="w-full rounded border border-adm-border bg-adm-bg px-3 py-2 font-mono text-[11px] text-adm-t1 placeholder:text-adm-t3 focus:border-adm-amber focus:outline-none"
+                  rows={3}
+                  placeholder="Why should these funds go back to the sender? (required)"
+                  value={returnReason}
+                  onChange={(e) => setReturnReason(e.target.value)}
+                />
+              </div>
+            </div>
+            <div className="border-t border-adm-border bg-adm-card px-5 py-4 flex justify-end gap-2">
+              <button
+                onClick={() => {
+                  setIsReturnModalOpen(false);
+                  setReturnReason('');
+                  setDispositionError('');
+                }}
+                className={adminButtonClass('modalCancel')}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleReturnSubmit}
+                disabled={dispositionSubmitting || !returnReason.trim()}
+                className={adminButtonClass('modalConfirm')}
+              >
+                {dispositionSubmitting ? 'Processing...' : 'Submit for Approval'}
               </button>
             </div>
           </div>

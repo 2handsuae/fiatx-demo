@@ -1085,6 +1085,15 @@ describe('DepositTransactionsService', () => {
       );
     });
 
+    it('OPERATION_PENDING 可以走 return → RETURNING（第四批新增边）', () => {
+      expect(
+        (service as any).getNextStatus(
+          DepositTransactionStatus.OPERATION_PENDING,
+          DepositTransactionAction.RETURN,
+        ),
+      ).toBe(DepositTransactionStatus.RETURNING);
+    });
+
     it('RETURNING → RETURNED via returned_done', async () => {
       setupMock(DepositTransactionStatus.RETURNING);
 
@@ -1210,10 +1219,11 @@ describe('DepositTransactionsService', () => {
     });
 
     // 守则性测试(防转移表再次漂移):brief `doc-final/superpowers/sdd/statemachine-brief.md`
-    // §二定稿的 26 条边 + 2026-08-13 新增 2 条 − 2026-08-22 退役 1 条 = 27 条边逐条列出
+    // §二定稿的 26 条边 + 2026-08-13 新增 2 条 − 2026-08-22 退役 1 条 + 第四批 C1 新增
+    // 1 条 = 28 条边逐条列出
     // ——多一条、少一条、边指向变了,这里都会红。同时用穷举(14 状态 × 15 动作)反向断言:
-    // 凡不在这 27 条边名单里的组合,一律必须抛 Invalid action/Cannot apply action
-    // (即没有偷偷长出第 28 条边)。
+    // 凡不在这 28 条边名单里的组合,一律必须抛 Invalid action/Cannot apply action
+    // (即没有偷偷长出第 29 条边)。
     // 2026-08-13 新增两条:
     //   OPERATION_PENDING --freeze--> FROZEN            钱在暂扣里等处置,制裁命中必须冻得住
     //   CONFISCATING --confiscate_failed--> OPERATION_PENDING  A1 没收腿失败解锁后退回待处置
@@ -1245,6 +1255,8 @@ describe('DepositTransactionsService', () => {
       { from: DepositTransactionStatus.OPERATION_PENDING, action: DepositTransactionAction.APPROVE, to: DepositTransactionStatus.SUCCESS },
       { from: DepositTransactionStatus.OPERATION_PENDING, action: DepositTransactionAction.CONFISCATE_START, to: DepositTransactionStatus.CONFISCATING },
       { from: DepositTransactionStatus.OPERATION_PENDING, action: DepositTransactionAction.FREEZE, to: DepositTransactionStatus.FROZEN },
+      // 第四批 C1：OPERATION_PENDING 的第四条出边 —— 原路退回汇款人。
+      { from: DepositTransactionStatus.OPERATION_PENDING, action: DepositTransactionAction.RETURN, to: DepositTransactionStatus.RETURNING },
 
       { from: DepositTransactionStatus.MANUAL_CHECKING, action: DepositTransactionAction.APPROVE, to: DepositTransactionStatus.SUCCESS },
       { from: DepositTransactionStatus.MANUAL_CHECKING, action: DepositTransactionAction.OPERATION_PENDING, to: DepositTransactionStatus.OPERATION_PENDING },
@@ -1260,9 +1272,9 @@ describe('DepositTransactionsService', () => {
       { from: DepositTransactionStatus.SEIZING, action: DepositTransactionAction.SEIZED_DONE, to: DepositTransactionStatus.SEIZED },
     ];
 
-    describe('state machine integrity guard (27-edge brief)', () => {
-      it('brief lists exactly 27 edges', () => {
-        expect(EXPECTED_EDGES).toHaveLength(27);
+    describe('state machine integrity guard (28-edge brief)', () => {
+      it('brief lists exactly 28 edges', () => {
+        expect(EXPECTED_EDGES).toHaveLength(28);
       });
 
       it('CONFISCATING 只剩 confiscate_settle 一条出边（confiscate_failed 已退役）', () => {
@@ -1293,7 +1305,7 @@ describe('DepositTransactionsService', () => {
         );
       });
 
-      it('every (status, action) pair NOT in the 27-edge list throws (no undocumented edge exists)', async () => {
+      it('every (status, action) pair NOT in the 28-edge list throws (no undocumented edge exists)', async () => {
         const edgeKeys = new Set(
           EXPECTED_EDGES.map((e) => `${e.from}::${e.action}`),
         );

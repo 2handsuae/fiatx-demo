@@ -1,4 +1,4 @@
-import { IsOptional, IsString, IsEnum, IsNumber, Min } from 'class-validator';
+import { IsOptional, IsString, IsEnum, IsNumber, IsNotEmpty, Min } from 'class-validator';
 import { Type, Transform } from 'class-transformer';
 
 export enum DepositTransactionStatus {
@@ -108,4 +108,12 @@ export class UpdateDepositTransactionStatusDto {
   @IsOptional()
   @IsString()
   reason?: string;
+}
+
+// 第四批 C1：POST /deposit-transactions/:id/return 的入参。退回是 MLRO maker-checker
+// 审批案（不是直推），reason 会进审批单与审计留痕，必填。
+export class InitiateDepositReturnDto {
+  @IsString()
+  @IsNotEmpty()
+  reason!: string;
 }

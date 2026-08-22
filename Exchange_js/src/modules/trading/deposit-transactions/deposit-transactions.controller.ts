@@ -18,6 +18,7 @@ import {
   DepositTransactionQueryDto,
   UpdateDepositTransactionStatusDto,
   DepositTransactionAction,
+  InitiateDepositReturnDto,
 } from './dto/deposit-transaction.dto';
 import { DepositWorkflowService } from './deposit-workflow.service';
 import {
@@ -32,6 +33,8 @@ import {
 } from '@nestjs/swagger';
 import { AuthGuard } from '@nestjs/passport';
 import { AdminPermissionGuard } from '../../../modules/identity/access-control/admin-permission.guard';
+import { RequirePermissions } from '../../../modules/identity/access-control/require-permissions.decorator';
+import { buildPermissionCode } from '../../../modules/identity/access-control/permission-code.util';
 import { InboundTransferSignalsService } from './inbound-transfer-signals.service';
 import { ApprovalActorContext } from '../../governance/approvals/constants/approval.constants';
 
@@ -194,6 +197,29 @@ export class DepositTransactionsController {
       roleCodes: req.user?.roleCodes || (req.user?.role ? [req.user.role] : []),
     };
     return this.workflow.initiateConfiscation(id, { reason: body?.reason ?? '' }, actor);
+  }
+
+  // 第四批 C1：充值域「原路退回汇款人」的运营正门。此前 initiateReturn 全仓唯一调用方
+  // 是 applyKytRejected 里判 dispoTag === 'RETURN_TO_SENDER' 的分支 —— 控制器上没有路由,
+  // 合规官想退钱得跑去 Sumsub 后台改裁决标签,让外部系统替我方发起我方自己的动钱流程。
+  // 与 confiscate/seize/unfreeze 同形状:开审批案,不直推。
+  @Post(':id/return')
+  @ApiOperation({ summary: 'Open a return-to-sender approval (MLRO maker-checker) for a deposit' })
+  @RequirePermissions(buildPermissionCode('POST', '/deposit-transactions/:id/return'))
+  initiateReturn(
+    @Param('id') id: string,
+    @Body() dto: InitiateDepositReturnDto,
+    @Req() req: any,
+  ) {
+    this.assertAdmin(req);
+    const actor: ApprovalActorContext = {
+      actorType: 'ADMIN',
+      userId: req.user?.userId,
+      userNo: req.user?.userNo,
+      role: req.user?.role,
+      roleCodes: req.user?.roleCodes || (req.user?.role ? [req.user.role] : []),
+    };
+    return this.workflow.initiateReturn(id, { reason: dto.reason }, actor);
   }
 
   @Post(':id/seize')

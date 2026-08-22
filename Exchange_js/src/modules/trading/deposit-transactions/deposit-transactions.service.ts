@@ -728,7 +728,8 @@ export class DepositTransactionsService {
     }
 
     // 状态机收窄(业主 2026-07-31 定稿;含 2026-08-13 增两条、2026-08-22 退役
-    // confiscate_failed 一条后为 14 状态/15 动作/27 边)。每个终态都必须回答
+    // confiscate_failed 一条、2026-08-22(C1) 增 OPERATION_PENDING--return-->RETURNING
+    // 一条后为 14 状态/15 动作/28 边)。每个终态都必须回答
     // 「钱去哪了」——REJECTED/EXPIRED 是仅有的说不出资金去向的终态(钱已到账却"拒绝"/
     // "过期",资金悬空),已删除。payin 结束就是钱到了,COMPLIANCE_PENDING 之后不再有
     // FAILED(FAIL 的唯一入口是 PAYIN_PENDING)。FROZEN 收窄为只剩两个合法归宿
@@ -785,6 +786,11 @@ export class DepositTransactionsService {
         // (判据:钱在哪决定能不能冻。PAYIN_PENDING 不给边——那时 SUSPENSE 是空的,
         //  冻了下游 seize 反冲空账户走不通。)
         [DepositTransactionAction.FREEZE]: DepositTransactionStatus.FROZEN,
+        // 2026-08-22(C1):原路退回汇款人。此前 OPERATION_PENDING 只有放行(不该放行)、
+        // 上缴(小额充值专属)、冻结(执法级)三条出边——L1 行政级挂起(客户账户已暂停/
+        // 生命周期非 ACTIVE)的单在这里无路可走。退回走 MLRO maker-checker 审批,
+        // 批准后才由 onReturnApproved 走到这条边(与 MANUAL_CHECKING 同一条落地路径)。
+        [DepositTransactionAction.RETURN]: DepositTransactionStatus.RETURNING,
       },
       [DepositTransactionStatus.MANUAL_CHECKING]: {
         [DepositTransactionAction.APPROVE]: DepositTransactionStatus.SUCCESS,

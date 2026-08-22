@@ -89,6 +89,15 @@ export class DepositWorkflowService implements OnModuleInit {
     roleCodes: ['SYSTEM'],
   };
 
+  // 第四批 C1：能发起「原路退回汇款人」的状态。OPERATION_PENDING 也在里面 —— 运营看到
+  // L1 挂起原因(如「客户账户已暂停」)时,除了放行/上缴/冻结之外必须有把钱退回去这条路。
+  // 发起端(initiateReturn)与落地端(onReturnApproved)共用同一份判据：只放宽发起端会让
+  // 审批批准后在落地时被静默拒绝,单子卡在「审批已通过、状态没动」的残局。
+  private static readonly RETURNABLE_STATUSES: string[] = [
+    DepositTransactionStatus.MANUAL_CHECKING,
+    DepositTransactionStatus.OPERATION_PENDING,
+  ];
+
   private readonly logger = new Logger(DepositWorkflowService.name);
 
   constructor(
@@ -1071,7 +1080,8 @@ export class DepositWorkflowService implements OnModuleInit {
     if (dispoTag === 'RETURN_TO_SENDER') {
       if (deposit.status === DepositTransactionStatus.RETURNING) return; // 已在目标态,防重复 webhook
 
-      // A2 着陆垫(2026-08-13):initiateReturn 只接受 MANUAL_CHECKING,非该态一律抛
+      // A2 着陆垫(2026-08-13):initiateReturn 只接受 RETURNABLE_STATUSES(C1 后为
+      // MANUAL_CHECKING / OPERATION_PENDING),非该态一律抛
       // BadRequestException——而本方法下面只 catch ConflictException,异常会一路上抛,
       // webhook 三次重试后进死信:不开审批、不流转、不记审计,界面上"点了没反应",
       // 钱一直压在 DEPOSIT_SUSPENSE 里。而合规官最标准的操作恰恰是「一边打 RETURN_TO_SENDER
@@ -2238,7 +2248,8 @@ export class DepositWorkflowService implements OnModuleInit {
 
   /**
    * RETURN disposition (initiate side, A2): KYT verdict says RETURN_TO_SENDER while the
-   * deposit sits in MANUAL_CHECKING. High-risk (moves customer money back out) → routed
+   * deposit sits in MANUAL_CHECKING — or (C1, 2026-08-22) ops presses "Initiate Return to
+   * Sender" on an OPERATION_PENDING hold. High-risk (moves customer money back out) → routed
    * through V1 maker-checker approval (single-step MLRO). Only opens the approval case +
    * audits the request; the actual return leg posting + status→RETURNING/RETURNED lands
    * in A3's decided-event handler.
@@ -2253,9 +2264,9 @@ export class DepositWorkflowService implements OnModuleInit {
     }
 
     const deposit = await this.depositService.findOne(depositId);
-    if (deposit.status !== DepositTransactionStatus.MANUAL_CHECKING) {
+    if (!DepositWorkflowService.RETURNABLE_STATUSES.includes(deposit.status)) {
       throw new BadRequestException(
-        'Deposit is not awaiting manual review, cannot open a return approval',
+        'Deposit is not in a returnable status (MANUAL_CHECKING / OPERATION_PENDING), cannot open a return approval',
       );
     }
 
@@ -2550,10 +2561,10 @@ export class DepositWorkflowService implements OnModuleInit {
    * null (external, not platform-owned). Idempotent: reuse an existing legSeq 3
    * order rather than creating a duplicate on replay.
    *
-   * Guarded to only run from MANUAL_CHECKING — a replayed decided event arriving
-   * after the deposit already left MANUAL_CHECKING (already RETURNING/RETURNED, or
-   * drifted to some other state) is a no-op rather than crashing on an invalid
-   * state-machine transition.
+   * Guarded to only run from a RETURNABLE_STATUSES state (MANUAL_CHECKING /
+   * OPERATION_PENDING) — a replayed decided event arriving after the deposit already
+   * left that state (already RETURNING/RETURNED, or drifted somewhere else) is a no-op
+   * rather than crashing on an invalid state-machine transition.
    */
   /**
    * Shared legSeq 3 (return-to-sender) funds order creation input — used by both
@@ -2580,9 +2591,9 @@ export class DepositWorkflowService implements OnModuleInit {
   }
 
   private async onReturnApproved(deposit: any) {
-    if (deposit.status !== DepositTransactionStatus.MANUAL_CHECKING) {
+    if (!DepositWorkflowService.RETURNABLE_STATUSES.includes(deposit.status)) {
       this.logger.debug(
-        `onReturnApproved no-op: deposit ${deposit.id} not in MANUAL_CHECKING (status=${deposit.status})`,
+        `onReturnApproved no-op: deposit ${deposit.id} not in a returnable status (status=${deposit.status})`,
       );
       return;
     }
