@@ -8,6 +8,7 @@ import {
   InfoField,
 } from '../components/compliance/DetailPageComponents';
 import { SidebarGroup, SidebarKV } from '../components/ui/SidebarPrimitives';
+import { AdminBadge } from '../components/ui/AdminBadge';
 import {
   LinkedRelationCard,
   LinkedRelationEmpty,
@@ -92,6 +93,7 @@ interface DepositDetail {
   payinType?: string | null;
   traceId?: string | null;
   limitHoldReason?: string | null;
+  needsReview?: boolean;
   sumsubTxnId?: string | null;
   sumsubTxnType?: 'finance' | 'travelRule' | null;
   sumsubVerdict?: string | null;
@@ -821,6 +823,10 @@ const DepositTransactionDetail = () => {
               mono
             />
             <SidebarKV label="Trace ID" value={data.traceId ?? null} mono />
+            <SidebarKV
+              label="Needs Review"
+              value={data.needsReview ? <AdminBadge value="NEEDS_REVIEW" /> : 'No'}
+            />
           </SidebarGroup>
         </div>
       </div>
