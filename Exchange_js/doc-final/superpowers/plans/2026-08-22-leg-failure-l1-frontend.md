@@ -78,7 +78,7 @@
 - Test: `src/modules/trading/deposit-transactions/deposit-transactions.service.spec.ts`
 
 **Interfaces:**
-- Produces: `DepositTransactionsService.markNeedsReview(id: string): Promise<any>` 与 `clearNeedsReview(id: string): Promise<any>`，签名与 `WithdrawTransactionsService` 同名方法逐字一致（`withdraw-transactions.service.ts:997` / `:1007`）。Task A2、A3 会调 `markNeedsReview`。
+- Produces: `DepositTransactionsService.markNeedsReview(id: string): Promise<any>` 与 `clearNeedsReview(id: string): Promise<any>`，签名与 `WithdrawTransactionsService` 同名方法逐字一致（`withdraw-transactions.service.ts:997` / `:1007`）；兑换域形状不同（`setNeedsReview(id, bool, tx)`，`swap-transactions.service.ts:854`）。Task A2、A3 会调 `markNeedsReview`。
 - Produces: `DepositTransaction.needsReview: boolean`（默认 `false`），Task A4 的前端读它。
 
 **背景**：提现（`schema.prisma:1210`）和兑换（`:1300`）都有 `needsReview Boolean @default(false)`，只有充值没有。这是充值域「没有标红这个能力」的根因。本 Task 只加能力，A2/A3 才用它。
@@ -171,8 +171,9 @@ Expected: `Your database is now in sync with your schema.`
    * 红标：资金腿重试耗尽后由 workflow 置起。**只写这一列，绝不碰状态** ——
    * 三个在途处置态（CONFISCATING/RETURNING/SEIZING）卡死时单子留在原地，
    * 「卡住了」这件事靠这面旗表达，不靠状态迁移（业主 2026-08-22 定稿）。
-   * 与 WithdrawTransactionsService.markNeedsReview / SwapTransactionsService
-   * 的同名方法逐字同构（三域故意分叉，各写各的，不抽 helper）。
+   * 与 WithdrawTransactionsService.markNeedsReview/clearNeedsReview 同构；
+   * 兑换域是单个切换方法 SwapTransactionsService.setNeedsReview(id, bool, tx)
+   * —— 三域故意分叉，各写各的形状，不抽 helper。
    */
   async markNeedsReview(id: string) {
     return (this.prisma as any).depositTransaction.update({
