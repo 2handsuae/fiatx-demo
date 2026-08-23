@@ -21,6 +21,7 @@ import { Prisma } from '@prisma/client';
 import { FundsOrderStatus } from '../../funds-orders/dto/funds-order.dto';
 import { SwapTransactionAction, SwapTransactionStatus } from './dto/swap-transaction.dto';
 import { buildSwapLegPlan } from '../../funds-layer/constants/swap-leg-plan.constant';
+import type { L1Snapshot } from '../shared/l1-gate/l1-gate.types';
 
 // ── helpers ─────────────────────────────────────────────────────────────────
 
@@ -83,6 +84,12 @@ function buildMocks(quote: ReturnType<typeof baseQuote>) {
     postPendingTransfer: jest.fn(() => Promise.resolve({ tbTransferId: 0n })),
     executeTransfer: jest.fn(() => Promise.resolve({ tbTransferId: 1n })),
     voidPendingTransferBestEffort: jest.fn(() => Promise.resolve()),
+    // B3: 建单前余额校验。默认给一个远超任何测试用 amountIn(=100) 的可用余额
+    // （即使按 decimals=2 的最小精度折算也远够），既有 initiateSwap 用例
+    // 全部照常放行；余额不足场景由各测试自行 mockResolvedValue 覆盖。
+    getCustomerAvailableBalance: jest.fn(() => Promise.resolve({
+      available: 999_999_999_999n, held: 0n, total: 999_999_999_999n,
+    })),
   };
 
   const swapQuoteService = {
@@ -131,6 +138,15 @@ function buildMocks(quote: ReturnType<typeof baseQuote>) {
     })),
   };
 
+  // B2: L1 闸门求值器。默认 PASS —— 既有 initiateSwap 用例全部照常走完。
+  const l1Gate = {
+    evaluate: jest.fn((): Promise<L1Snapshot> => Promise.resolve({
+      evaluatedAt: '2026-08-22T00:00:00.000Z',
+      domain: 'SWAP', verdict: 'PASS', holdReason: null, tradingTier: 'BASIC',
+      checks: [],
+    })),
+  };
+
   const prisma: any = {
     customerMain: {
       findUnique: jest.fn(() => Promise.resolve({ id: 'cust-1', complianceStatus: 'ACTIVE', adminStatus: 'ACTIVE', onboardingStatus: 'APPROVED' })),
@@ -139,6 +155,15 @@ function buildMocks(quote: ReturnType<typeof baseQuote>) {
     // for the from-asset + amount before evaluating the gate.
     swapQuote: {
       findUnique: jest.fn(() => Promise.resolve({ fromAssetId: quote.fromAssetId, amountIn: quote.amountIn })),
+    },
+    // B3: 建单前余额校验读卖出侧资产的 currency/decimals（在 $transaction 之外，
+    // 与 quotePeek 同一层级）。
+    asset: {
+      findUnique: jest.fn(({ where }: any) => Promise.resolve(
+        assetMap[where.id]
+          ? { currency: assetMap[where.id].currency, decimals: assetMap[where.id].decimals }
+          : null,
+      )),
     },
     // submitSumsubTxnOut reads/writes the swap row directly (outside the
     // create transaction) — used by initiateSwap's post-commit submit call
@@ -165,7 +190,7 @@ function buildMocks(quote: ReturnType<typeof baseQuote>) {
     }),
   };
 
-  return { accountingService, swapQuoteService, swapTransactionsService, auditLogsService, eventEmitter, onboardingService, walletQuery, limitGateService, prisma, sumsubTxnClient };
+  return { accountingService, swapQuoteService, swapTransactionsService, auditLogsService, eventEmitter, onboardingService, walletQuery, limitGateService, l1Gate, prisma, sumsubTxnClient };
 }
 
 function makeService(mocks: ReturnType<typeof buildMocks>) {
@@ -210,10 +235,130 @@ function makeService(mocks: ReturnType<typeof buildMocks>) {
     { resolve: jest.fn().mockResolvedValue({ lifecycle: 'ACTIVE', blocked: new Set(), disclosedBlocked: new Set(), disclosed: [], openCount: 0 }), assertCapability: jest.fn(), assertOffboardable: jest.fn() } as any, // customerAccessService
     {} as any, // materialRequests — not on this path
     {} as any, // materialRequestIssuer — not on this path
+    mocks.l1Gate as any,
   );
 }
 
 // ── initiateSwap ─────────────────────────────────────────────────────────────
+
+// B2（第四批）：把兑换的逐项 L1 判定落成可回显的快照。
+// ⚠️ 订正（B2 审查）：兑换域**并非**此前没有资格 / 限制判定 —— initiateSwap 起手
+// 的 assertTradingEligibility(:210) 内部就是 assertCapability(资格+限制)，且对非
+// DEPOSIT 还多跑一层 assertTradingReady，严格强于 L1 这两项；该调用自 04433cdd
+// (2026-05-31) 起就在。被便签摁住 SWAP 的客户拿到的一直是 403 CAPABILITY_RESTRICTED，
+// 从来兑换不了。下面 BLOCK 分支覆盖的是 :210 与 :249 之间的毫秒级竞态窗口（兜底），
+// 与提现侧完全同构。
+describe('B2 · 兑换 L1 资格闸', () => {
+  it('L1 verdict=BLOCK 时不建单、不消费报价', async () => {
+    const mocks = buildMocks(makeQuote());
+    mocks.l1Gate.evaluate.mockResolvedValue({
+      evaluatedAt: '2026-08-22T00:00:00.000Z',
+      domain: 'SWAP', verdict: 'BLOCK', holdReason: null, tradingTier: 'BASIC',
+      checks: [{ code: 'CUSTOMER_RESTRICTION', outcome: 'FAIL', detail: 'blocked' }],
+    });
+    const service = makeService(mocks);
+
+    await expect(service.initiateSwap('c1', 'q1')).rejects.toThrow();
+
+    expect(mocks.prisma.$transaction).not.toHaveBeenCalled();
+    expect(mocks.swapQuoteService.consumeQuote).not.toHaveBeenCalled();
+    expect(mocks.swapTransactionsService.create).not.toHaveBeenCalled();
+  });
+
+  it('BLOCK 的拒绝理由是中性文案 —— 不透出 cause / visibility（tipping-off 防线）', async () => {
+    const mocks = buildMocks(makeQuote());
+    mocks.l1Gate.evaluate.mockResolvedValue({
+      evaluatedAt: '2026-08-22T00:00:00.000Z',
+      domain: 'SWAP', verdict: 'BLOCK', holdReason: null, tradingTier: 'BASIC',
+      checks: [{ code: 'CUSTOMER_RESTRICTION', outcome: 'FAIL', detail: '客户被限制账摁住 SWAP 能力' }],
+    });
+    const service = makeService(mocks);
+
+    const err: any = await service.initiateSwap('c1', 'q1').catch((e) => e);
+    const body = err?.getResponse ? err.getResponse() : err;
+    expect(body.code).toBe('L1_GATE_BLOCKED');
+    expect(body.message).toBe('This operation is not available for your account at the moment.');
+    expect(JSON.stringify(body)).not.toMatch(/SANCTION|RESTRICTION|限制|便签/);
+  });
+
+  it('L1 verdict=PASS 时快照写进建单入参', async () => {
+    const mocks = buildMocks(makeQuote());
+    mocks.l1Gate.evaluate.mockResolvedValue({
+      evaluatedAt: '2026-08-22T00:00:00.000Z',
+      domain: 'SWAP', verdict: 'PASS', holdReason: null, tradingTier: 'PREMIUM',
+      checks: [],
+    });
+    const service = makeService(mocks);
+
+    await service.initiateSwap('c1', 'q1');
+
+    expect(mocks.swapTransactionsService.create).toHaveBeenCalledWith(
+      expect.objectContaining({ l1Snapshot: expect.stringContaining('"tradingTier":"PREMIUM"') }),
+      expect.anything(),
+    );
+  });
+
+  it('调用方判过的项作为 preChecks 收进 L1（且不传自判的资格/限制两项）', async () => {
+    const mocks = buildMocks(makeQuote());
+    const service = makeService(mocks);
+
+    await service.initiateSwap('cust-1', 'quote-1');
+
+    const arg = (mocks.l1Gate.evaluate as jest.Mock).mock.calls[0][0];
+    expect(arg.domain).toBe('SWAP');
+    expect(arg.customerId).toBe('cust-1');
+    const codes = arg.preChecks.map((c: any) => c.code);
+    expect(codes).toEqual([
+      'SINGLE_LIMIT', 'CUMULATIVE_LIMIT', 'QUOTE_VALIDITY',
+      'ACCOUNT_READINESS', 'TRADING_READINESS', 'BALANCE_SUFFICIENCY',
+    ]);
+    // 自判的资格/限制两项永远由 L1GateService 自己算，调用方不许传
+    expect(codes).not.toContain('CUSTOMER_ELIGIBILITY');
+    expect(codes).not.toContain('CUSTOMER_RESTRICTION');
+    // B3（第四批）之前：这一刻没人判过余额 → 不传，留给 L1GateService 落 SKIPPED。
+    // B3 之后：余额校验已前移到本行之前无条件执行（跑不过直接抛出不留单），
+    // 故这一格现在合法地落 PASS —— 不再是伪证据。
+    expect(codes).toContain('BALANCE_SUFFICIENCY');
+  });
+});
+
+// B3（第四批）：建单前补卖出侧余额校验。此前兑换没有这道闸 —— 报价烧了、KYT 过了、
+// 单子建了，等到建第一条腿才发现钱不够，而 PROCESSING 没有失败出边，单子永久卡死。
+// 用 reverseQuote()（AED(2位小数,from) → USDT(to)）作卖出侧夹具：amountIn=100 AED，
+// 用可用余额除以 10^decimals(=2) 折回业务单位与之比较。
+describe('B3 · 兑换建单余额校验', () => {
+  it('卖出侧余额不足 → 建单前就拒,不消费报价', async () => {
+    const mocks = buildMocks(reverseQuote()); // AED(from) → USDT(to), amountIn=100
+    mocks.accountingService.getCustomerAvailableBalance.mockResolvedValue({
+      available: 50n, held: 0n, total: 50n,
+    });
+    const service = makeService(mocks);
+
+    await expect(
+      service.initiateSwap('c1', 'q1'),
+    ).rejects.toMatchObject({ response: { code: 'INSUFFICIENT_BALANCE' } });
+
+    expect(mocks.swapQuoteService.getActiveQuoteOrThrow).not.toHaveBeenCalled();
+  });
+
+  it('余额充足 → 放行,快照里 BALANCE_SUFFICIENCY 为 PASS', async () => {
+    const mocks = buildMocks(reverseQuote());
+    mocks.accountingService.getCustomerAvailableBalance.mockResolvedValue({
+      available: 100_000_00n, held: 0n, total: 100_000_00n,
+    });
+    const service = makeService(mocks);
+
+    await service.initiateSwap('c1', 'q1').catch(() => undefined);
+
+    expect(mocks.l1Gate.evaluate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        preChecks: expect.arrayContaining([
+          expect.objectContaining({ code: 'BALANCE_SUFFICIENCY', outcome: 'PASS' }),
+        ]),
+      }),
+    );
+  });
+});
 
 describe('SwapWorkflowService.initiateSwap — COMPLIANCE_PENDING, no legs', () => {
   it('initiateSwap 消费 quote、建单为 COMPLIANCE_PENDING、不建任何腿', async () => {
@@ -655,6 +800,7 @@ function makeAdvanceLegService(mocks: ReturnType<typeof buildAdvanceLegMocks>) {
     { resolve: jest.fn().mockResolvedValue({ lifecycle: 'ACTIVE', blocked: new Set(), disclosedBlocked: new Set(), disclosed: [], openCount: 0 }), assertCapability: jest.fn(), assertOffboardable: jest.fn() } as any, // customerAccessService
     {} as any, // materialRequests — not on this path
     {} as any, // materialRequestIssuer — not on this path
+    {} as any, // l1Gate — not on this path (advanceLeg 不建单)
   );
 }
 
@@ -1348,6 +1494,7 @@ describe('SwapWorkflowService.applyKytVerdict', () => {
       { resolve: jest.fn().mockResolvedValue({ lifecycle: 'ACTIVE', blocked: new Set(), disclosedBlocked: new Set(), disclosed: [], openCount: 0 }), assertCapability: jest.fn(), assertOffboardable: jest.fn() } as any, // customerAccessService
       mocks.materialRequests as any,
       mocks.materialRequestIssuer as any,
+      {} as any, // l1Gate — not on this path (applyKytVerdict 不建单)
     );
   }
 
@@ -2345,6 +2492,7 @@ describe('SwapWorkflowService.onCustomerRestrictionOpened (Task 9 — FROZEN 落
       mocks.customerAccessService as any,
       {} as any, // materialRequests — not on this path
       {} as any, // materialRequestIssuer — not on this path
+      {} as any, // l1Gate — not on this path (限制便签监听器不建单)
     );
   }
 

@@ -18,6 +18,7 @@ import { SwapQuoteService } from '../swap-fee-level/swap-quote.service';
 import { BinanceRateProvider } from '../pricing-center/providers/binance-rate.provider';
 import { DomainEventNames } from '../../../common/events/domain-events.constants';
 import { AuditLogsService } from '../../audit-logging/audit-logs.service';
+import { MATERIAL_REQUEST_LIVE_STATUSES } from '../../identity/material-requests/constants/material-request.constant';
 import {
   AuditActions,
   AuditEntityTypes,
@@ -611,7 +612,19 @@ export class SwapTransactionsService {
       include: {
         fromAsset: true,
         toAsset: true,
-        customer: true,
+        // 第四批：限制从 CustomerMain 上一个**不存在的列**（`restrictions`）改读真正的
+        // 限制账。关系名是 `restrictionRows`（schema.prisma:CustomerMain）。
+        // 数据模型是**一行一个 scope**：一张便签一个 restrictionNo，卡多个能力
+        // = 同号多行不同 scope，同贴同撕同事务。所以这里拿到的是扁平的行集合，
+        // 不是嵌套数组。只取 OPEN，含 SILENT —— admin 面要看全（客户面另有白名单收敛）。
+        customer: {
+          include: {
+            restrictionRows: {
+              where: { status: 'OPEN' },
+              select: { restrictionNo: true, cause: true, scope: true, visibility: true },
+            },
+          },
+        },
       },
     });
     if (!item) throw new NotFoundException('Swap transaction not found');
@@ -734,6 +747,27 @@ export class SwapTransactionsService {
   }
 
   /**
+   * 详情独立页用：客户面按业务键 `swapNo` 取单条（规则 3，禁止以 id 作对外
+   * 主查询合同）。镜像 DepositTransactionsService#findOneForCustomerByDepositNo /
+   * WithdrawTransactionsService#findOneForCustomerByWithdrawNo：先按
+   * `swapNo` + `ownerId` 解出内部 id，再复用 `findOneForCustomer`
+   * （IDOR 校验 + `toCustomerSwapView` 白名单）。兑换无充值那种
+   * `limitHoldReason` 隐藏单，where 条件只有这两项。
+   *
+   * 白名单是唯一出口——绝不在这里另拼一份响应体，否则
+   * complianceVerdict / sumsubTxnIdOut / rejectReason / needsReview /
+   * statusHistory 会从这条新路径漏到客户浏览器。
+   */
+  async findOneForCustomerBySwapNo(swapNo: string, customerId: string) {
+    const row = await (this.prisma as any).swapTransaction.findFirst({
+      where: { swapNo, ownerId: customerId },
+      select: { id: true },
+    });
+    if (!row) throw new NotFoundException('Swap transaction not found');
+    return this.findOneForCustomer(row.id, customerId);
+  }
+
+  /**
    * Admin detail fetch = findOne + parsed Sumsub compliance detail (Task 10,
    * mirror of WithdrawTransactionsService#findOneForAdmin). Kept separate from
    * `findOne` — that method is also called by the customer-facing controller
@@ -784,7 +818,23 @@ export class SwapTransactionsService {
       ? { ...parsed, txnIdOut: item.sumsubTxnIdOut, txnIdIn: item.sumsubTxnIdIn }
       : null;
 
-    return { ...item, sumsubDetail };
+    // 第四批：侧栏/References 卡的 `Pending Action` 此前读 CustomerMain 上一个
+    // 不存在的列（pendingActionExternalId，该指针随材料请求账重写退役），恒 `—`。
+    // 改接材料请求账的活行（PENDING_SUBMISSION / SUBMITTED = 客户还欠着材料）。
+    // 只在 admin 投影里查：findOne 是客户面共用的（findOneForCustomer），
+    // 材料请求的存在本身属于调查信息，客户面根本不该查它。
+    const materialRequests = item.swapNo
+      ? await this.prisma.materialRequest.findMany({
+          where: {
+            orderDomain: 'SWAP',
+            orderRef: item.swapNo,
+            status: { in: [...MATERIAL_REQUEST_LIVE_STATUSES] },
+          },
+          select: { requestNo: true, materialType: true, status: true },
+        })
+      : [];
+
+    return { ...item, sumsubDetail, materialRequests };
   }
 
   /**
@@ -885,6 +935,8 @@ export class SwapTransactionsService {
       tbSpreadTransferId?: string | null;
       traceId: string;
       grossAedValue?: Prisma.Decimal | null;
+      /** B2：建单当时的 L1 判定快照（JSON.stringify(L1Snapshot)）。 */
+      l1Snapshot?: string;
       status: SwapTransactionStatus;
     },
     tx: Prisma.TransactionClient,
@@ -920,6 +972,7 @@ export class SwapTransactionsService {
         tbSpreadTransferId: input.tbSpreadTransferId ?? null,
         traceId: input.traceId,
         grossAedValue: input.grossAedValue ?? null,
+        l1Snapshot: input.l1Snapshot ?? null,
         completedAt: null,
         statusHistory: JSON.stringify([
           {

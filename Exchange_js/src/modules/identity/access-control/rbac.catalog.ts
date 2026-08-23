@@ -301,6 +301,7 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
   route('PATCH', '/deposit-transactions/:id/status', 'Update deposit transaction status', ['TRADING_DEPOSIT_WRITE']),
   route('POST', '/deposit-transactions/:id/waive-limit', 'Waive deposit below-minimum amount hold', ['TRADING_DEPOSIT_WRITE']),
   route('POST', '/deposit-transactions/:id/confiscate', 'Confiscate deposit below-minimum amount as fee', ['TRADING_DEPOSIT_WRITE']),
+  route('POST', '/deposit-transactions/:id/return', 'Open a return-to-sender approval for a deposit', ['TRADING_DEPOSIT_WRITE']),
   route('POST', '/deposit-transactions/:id/seize', 'Seize a frozen deposit under government order', ['TRADING_DEPOSIT_WRITE']),
   route('POST', '/deposit-transactions/:id/unfreeze', 'Unfreeze a frozen deposit', ['TRADING_DEPOSIT_WRITE']),
   // Task 6 (SLA 批次)：管理台「模拟超时」按钮 —— 演示用,把 slaDeadline 拨到过去

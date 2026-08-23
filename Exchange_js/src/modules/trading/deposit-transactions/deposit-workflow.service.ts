@@ -44,7 +44,12 @@ import {
 } from '../../governance/approvals/constants/approval.constants';
 import { SystemWalletResolver } from '../../funds-layer/domain/system-wallet-resolver.service';
 import { DepositApplicantActionsService } from './deposit-applicant-actions.service';
-import { CustomerRestrictionsService } from '../../identity/customers/customer-restrictions.service';
+import {
+  CustomerRestrictionsService,
+  type RestrictionRow,
+} from '../../identity/customers/customer-restrictions.service';
+import { L1GateService } from '../shared/l1-gate/l1-gate.service';
+import type { L1Check } from '../shared/l1-gate/l1-gate.types';
 
 interface FundsOrderStatusChangedEvent {
   fundsOrderId: string;
@@ -84,6 +89,35 @@ export class DepositWorkflowService implements OnModuleInit {
     roleCodes: ['SYSTEM'],
   };
 
+  // 第四批 C1：能发起「原路退回汇款人」的状态。OPERATION_PENDING 也在里面 —— 运营看到
+  // L1 挂起原因(如「客户账户已暂停」)时,除了放行/上缴/冻结之外必须有把钱退回去这条路。
+  // 发起端(initiateReturn)与落地端(onReturnApproved)共用同一份判据：只放宽发起端会让
+  // 审批批准后在落地时被静默拒绝,单子卡在「审批已通过、状态没动」的残局。
+  private static readonly RETURNABLE_STATUSES: string[] = [
+    DepositTransactionStatus.MANUAL_CHECKING,
+    DepositTransactionStatus.OPERATION_PENDING,
+  ];
+
+  // 第四批 C1 复审 · 业主裁定（2026-08-22，甲/乙/丙 三案取乙）：`limitHoldReason`
+  // 这一列有两类主人，退回落地时**只清行政级这一类**。
+  //
+  //   行政级（下面这两个，Gate 0 按**客户**属性落的）—— 退回时清掉。
+  //     业主口径：「账户被停用期间你的钱退回去了」是客户**有权知道**的事实。
+  //   BELOW_MIN（建单时按**这笔单自身**的金额下限落的）—— 退回时保留、继续藏。
+  //     业主口径：藏小额单是为了不让客户看见「这笔太小我们没收了」这类处置噪音。
+  //
+  // 为什么非清不可：客户面三处读侧（findAll / findOneForCustomer /
+  // findOneForCustomerByDepositNo）的判据都是「limitHoldReason 非空即整单不可见」，
+  // 而 RETURNING/RETURNED 恰恰在 CUSTOMER_STATUS_PASSTHROUGH 白名单里、RETURNED 还在
+  // CUSTOMER_COMPLETED_STATUSES 里 —— 设计意图本来就是让客户看见这两个态。不清就是：
+  // 钱到过又原路退回，客户面零记录（列表查不到、两个筛选桶都空、按单号打详情 404）。
+  //
+  // ⚠️ 两个原因并存时列上留的是 BELOW_MIN（见 holdAtGate0 的「已有挂起原因优先」），
+  //    集合判定天然落在「保留」这一侧 —— 与业主裁定一致，不需要再补条件。
+  // ⚠️ 没收弧（initiateConfiscation + 没收落地前置）硬钉 BELOW_MIN，本清除不碰它们。
+  private static readonly ADMINISTRATIVE_HOLD_REASONS: ReadonlySet<string> =
+    new Set<string>(['CAPABILITY_RESTRICTED', 'LIFECYCLE_NOT_ACTIVE']);
+
   private readonly logger = new Logger(DepositWorkflowService.name);
 
   constructor(
@@ -99,6 +133,8 @@ export class DepositWorkflowService implements OnModuleInit {
     private readonly applicantActions: DepositApplicantActionsService,
     private readonly customerAccessService: CustomerAccessService,
     private readonly customerRestrictionsService: CustomerRestrictionsService,
+    // B4（第四批）：Gate 0 落 L1 快照用的三域共用求值器。它不抛错，只出快照。
+    private readonly l1Gate: L1GateService,
   ) {}
 
   private toAuditActor(actor: ApprovalActorContext) {
@@ -160,31 +196,131 @@ export class DepositWorkflowService implements OnModuleInit {
     }
   }
 
+  /**
+   * Gate 0 —— 进入 COMPLIANCE_PENDING 时跑一次的客户级闸。
+   *
+   * ⚠️ 口径澄清（B4，2026-08-22）：本次改动**不是**「堵住被限制客户的新钱入账」。
+   * 充值域在此之前就有三道限制账闸：`inbound-transfer-signals` 的
+   * `createForCustomer`/`scanForCustomer` 两道 `assertTradingEligibility`，加本函数
+   * 这一道；`detected()`（真正建单）全仓唯一的生产调用方就在第二道闸后面。
+   * 本次改的是**同一道闸后面的分流与取证**：
+   *   ① 按 `releasePolicy` 分流（执法级冻 / 行政级挂），不再一视同仁全 FROZEN；
+   *   ② 补上此前漏判的 `lifecycle`（已销户/停用但没贴便签的客户此前一路走得通）；
+   *   ③ 把这一刻的 L1 九格判定落成可回显快照（`l1Snapshot` 列，A1 已建）。
+   */
   private async runGate0(depositId: string, ownerId: string) {
     // Task 9：改读限制账。原先经 getOwnerComplianceStatus 读 CustomerMain.complianceStatus，
     // 该列已删；那个方法用 (prisma as any) 抹掉了类型，编译器看不见 —— 这道合规闸
     // 在删列后其实已经失效，构建却是绿的。
     // ownerId 由事件带入，不再为拿它多查一次库。
     const access = await this.customerAccessService.resolve(ownerId);
+    const deposit = await this.depositService.findOne(depositId);
+
+    // 分流要的 cause / releasePolicy 只有限制账的原始行有 —— `CustomerAccess` 结构性
+    // 给不出：`disclosed` 只装 DISCLOSED 行，而最要紧的 SANCTION 是 SILENT，压根不在
+    // 里面。所以这里直接读一次限制账。
+    const openRows: RestrictionRow[] =
+      await this.customerRestrictionsService.listOpen(ownerId);
+    // scope 展开：SANCTION 与 ADMIN_SUSPENSION 的 scope 都是 'ALL'，直接字符串比
+    // `=== 'DEPOSIT'` 会把这两种最要紧的因由全漏掉。
+    const depositBlockers = openRows.filter((row) =>
+      row.scopes.some((scope) => scope === 'ALL' || scope === 'DEPOSIT'),
+    );
+
+    // ── L1 快照（§5）─────────────────────────────────────────────────────────
+    // 逐格只写这一刻**真判过**的（B2 判据：写不实的 PASS 是伪证据，比不记录更糟）。
+    //  · CUSTOMER_ELIGIBILITY / CUSTOMER_RESTRICTION —— **不传**：L1GateService 自判，
+    //    传了也会被它的 SELF_OWNED_CHECKS 静默丢弃。
+    //  · SINGLE_LIMIT —— 建单时 `detected()` 判过下限（低于则出生带 BELOW_MIN 标记）。
+    //    带着标记的单那一格就是没过，照实记 FAIL。
+    //  · ACCOUNT_READINESS —— 建单时 `detected()` 无条件校验过收款钱包存在且资产匹配，
+    //    不过整单不建 → 能走到这里的单这一格必然为真。
+    //  · TRADING_READINESS —— **SKIPPED，不是 PASS**：`assertTradingEligibility` 对
+    //    DEPOSIT 刻意跳过 `assertTradingReady`（onboarding.service.ts:1192-1194），
+    //    真正判法币提现地址的是放行前的 `assertTradingReadyOrHold`，跑在本评估点之后。
+    //  · 其余四格（累计额度 / 大额审批 / 余额 / 报价）由 L1GateService 的 NA 表处理。
+    const belowMin = deposit.limitHoldReason === 'BELOW_MIN';
+    const preChecks: L1Check[] = [
+      belowMin
+        ? {
+            code: 'SINGLE_LIMIT',
+            outcome: 'FAIL',
+            detail: '建单时判定金额低于 DEPOSIT 单笔下限（BELOW_MIN），等运营处置',
+          }
+        : {
+            code: 'SINGLE_LIMIT',
+            outcome: 'PASS',
+            detail: '建单时已过 DEPOSIT 单笔下限判定（充值是被动入金，只判下限、无上限）',
+          },
+      {
+        code: 'ACCOUNT_READINESS',
+        outcome: 'PASS',
+        detail: '建单时校验过收款钱包存在且资产匹配（不匹配则整单不建）',
+      },
+      {
+        code: 'TRADING_READINESS',
+        outcome: 'SKIPPED',
+        detail:
+          '交易起始就绪（法币提现地址）由放行前的 assertTradingReadyOrHold 校验，本评估点在其之前',
+      },
+    ];
+    const l1 = await this.l1Gate.evaluate({
+      domain: 'DEPOSIT',
+      customerId: ownerId,
+      preChecks,
+    });
+    // 三条分支（冻 / 挂 / 放行）都要留下证据，所以落库放在分流之前。
+    await this.depositService.saveL1Snapshot(depositId, JSON.stringify(l1));
 
     if (access.blocked.has('DEPOSIT')) {
-      this.logger.warn(
-        `Gate 0 FAIL: deposit ${depositId} — customer DEPOSIT capability is blocked`,
+      // 分流（业主 2026-08-22 裁定一）：命中 DEPOSIT 的 OPEN 便签里只要有一条
+      // releasePolicy === 'MLRO_APPROVAL' → 执法级 → FROZEN（保持此前行为）；
+      // 全是 OPS_APPROVAL → 行政级（账户暂停这类）→ OPERATION_PENDING。
+      // 按 releasePolicy 派生而不是写死 cause 名单：日后新增一个 MLRO 级 cause
+      // 会自动走对分支。
+      // depositBlockers 为空 = access 说卡住、限制账却查不出卡 DEPOSIT 的 OPEN 行
+      //（两次读之间刚被撕掉之类的内部不一致）——分类不出来就**不降级**，保持 FROZEN。
+      const enforcement =
+        depositBlockers.length === 0 ||
+        depositBlockers.some((row) => row.releasePolicy === 'MLRO_APPROVAL');
+
+      if (enforcement) {
+        this.logger.warn(
+          `Gate 0 FAIL: deposit ${depositId} — customer DEPOSIT capability is blocked`,
+        );
+        await this.depositService.updateStatus(
+          depositId,
+          { action: DepositTransactionAction.FREEZE },
+          {
+            reason: 'Customer DEPOSIT capability is restricted',
+            actor: { actorType: 'SYSTEM', actorId: 'COMPLIANCE_GATE_0' },
+          },
+        );
+        return;
+      }
+
+      await this.holdAtGate0(
+        deposit,
+        l1.holdReason ?? 'CAPABILITY_RESTRICTED',
+        'Gate 0: customer DEPOSIT capability is restricted by an operational (non-enforcement) hold — awaiting ops disposition',
       );
-      await this.depositService.updateStatus(
-        depositId,
-        { action: DepositTransactionAction.FREEZE },
-        {
-          reason: 'Customer DEPOSIT capability is restricted',
-          actor: { actorType: 'SYSTEM', actorId: 'COMPLIANCE_GATE_0' },
-        },
+      return;
+    }
+
+    // §4：此前 Gate 0 只判 blocked，lifecycle 只写进审计 metadata —— 一个已销户/
+    // 停用但一张便签都没贴的客户，充值照样走得通。lifecycle 非 ACTIVE 属行政性
+    // （不是执法），走挂起分支。
+    if (access.lifecycle !== 'ACTIVE') {
+      await this.holdAtGate0(
+        deposit,
+        l1.holdReason ?? 'LIFECYCLE_NOT_ACTIVE',
+        `Gate 0: customer lifecycle is ${access.lifecycle} (not ACTIVE) — awaiting ops disposition`,
       );
       return;
     }
 
     this.logger.log(`Gate 0 PASS: deposit ${depositId}`);
 
-    const deposit = await this.depositService.findOne(depositId);
     await this.auditLogsService.recordSystem({
       action: AuditActions.DEPOSIT_GATE0_PASSED,
       entityType: AuditEntityTypes.DEPOSIT_TRANSACTION,
@@ -208,6 +344,74 @@ export class DepositWorkflowService implements OnModuleInit {
           `deposit remains COMPLIANCE_PENDING for manual handling/retry; Gate 0 continues`,
       );
     }
+  }
+
+  /**
+   * Gate 0 的**行政级**挂起（B4 裁定一的「非执法级」那一半）：钱已经在
+   * DEPOSIT_SUSPENSE 里，拒不了，只能挂在 OPERATION_PENDING 上等运营处置。
+   *
+   * 与执法级（FROZEN）的区别只在出场：这条挂起由运营用 `waiveLimitHold` 解除
+   * （§3 已把它从只认 BELOW_MIN 放宽到认任何非空挂起原因），FROZEN 只能走
+   * MLRO 解冻审批。
+   *
+   * ⚠️ 挂起原因取自刚落库的快照 `holdReason`，两者由此天然一致 —— 不要在这里
+   * 另算一份，那会长出「列上写 A、快照里写 B」的第二真相。
+   *
+   * ⚠️ 但**已有的挂起原因优先保留**（`BELOW_MIN` 是建单时按金额下限落的）：
+   * `limitHoldReason` 这一列有两个主人 —— `BELOW_MIN` 是这笔单**自身**的属性
+   * （金额低于配置下限），Gate 0 这条是**客户**的属性（被停用/生命周期非 ACTIVE）。
+   * 覆盖写会把 `BELOW_MIN` 抹掉，后果有三：waive 后这笔低于下限的钱直接入客户
+   * 余额、`DEPOSIT_HELD_BELOW_MIN` 审计从未写过、且没收弧（`initiateConfiscation`
+   * 与落地前置都硬钉 `BELOW_MIN`）永远走不进去 —— 小额充值的专属处置被从另一个
+   * 方向绕掉。两个原因并存时列上留 `BELOW_MIN`，客户级那条在 `l1Snapshot` 里有
+   * 完整记录（含 `holdReason` 与逐格 detail），且单子照样被路由到 OPERATION_PENDING。
+   *
+   * ⚠️ 挂起原因非空 = 该单对客户面三处读侧（findAll / findOneForCustomer /
+   * findOneForCustomerByDepositNo）整单不可见。这是维持现状的刻意选择（业主：
+   * 页面不漏字即可），不是疏漏。**挂着的时候**藏；一旦走上退回弧，行政级这两个
+   * 原因会被清掉（见 clearAdministrativeHoldOnReturn），客户看得见钱退回去了。
+   *
+   * 挂起路径**不提交 Sumsub** —— 与紧邻的 FROZEN 分支同形状：客户当下不该交易，
+   * 没有必要为他起一个 KYT 案子。
+   */
+  private async holdAtGate0(deposit: any, holdReason: string, reason: string) {
+    // 已有挂起原因优先（见方法头 ⚠️）：不覆盖建单时落的 BELOW_MIN。
+    const effectiveHoldReason: string = deposit.limitHoldReason ?? holdReason;
+    // 两者不一致 = 这笔单同时背着自身的金额原因和客户级原因；日志/审计两个都写出来，
+    // 免得运营在列上只看见 BELOW_MIN、不知道客户当下还被停用着。
+    const holdTrace =
+      effectiveHoldReason === holdReason
+        ? `holdReason=${holdReason}`
+        : `holdReason=${effectiveHoldReason} (kept; Gate 0 also flagged ${holdReason})`;
+
+    this.logger.warn(
+      `Gate 0 HOLD: deposit ${deposit.id} — ${reason} (${holdTrace})`,
+    );
+
+    await this.depositService.updateStatus(
+      deposit.id,
+      { action: DepositTransactionAction.OPERATION_PENDING, reason },
+      {
+        actor: { actorType: 'SYSTEM', actorId: 'COMPLIANCE_GATE_0' },
+        sourcePlatform: 'SYSTEM',
+        extraData: { limitHoldReason: effectiveHoldReason },
+      },
+    );
+
+    // 状态跃迁审计走动态动作名（DEPOSIT_COMPLIANCE_PENDING_TO_OPERATION_PENDING），
+    // 不新造审计动作常量 —— 本批不做审计专项。
+    //
+    // ⚠️ requestId 必传：没有它幂等键退化成
+    // `entityType|entityId|action|NO_REQUEST_ID`，**同一笔单的第二次 Gate 0 挂起会被
+    // 静默去重**。而二次挂起是常规操作 —— freeze→unfreeze(RESUME 回 COMPLIANCE_PENDING)
+    // →Gate 0 重跑重新挂起，或 waive→重新挂起。少这一行 = 取证链缺一次挂起事实。
+    await this.recordStateTransitionAudit(
+      deposit,
+      DepositTransactionStatus.COMPLIANCE_PENDING,
+      DepositTransactionStatus.OPERATION_PENDING,
+      `${reason} (${holdTrace})`,
+      `DEPOSIT_GATE0_HOLD_${deposit.depositNo}_${randomUUID()}`,
+    );
   }
 
   /**
@@ -548,23 +752,65 @@ export class DepositWorkflowService implements OnModuleInit {
   }
 
   /**
-   * 合规通过后的金额闸(2026-07-31 口径反转:旧=建单时判金额、合规只是后续;
-   * 新=先走完合规,approved 之后才判金额)。
+   * 入账前的**挂起闸**：`limitHoldReason` 非空 = 这笔单还挂着，**一律不得入账**。
    *
    * 返回 true = 已被挂起(调用方须 return,不得放行)。
    *
-   * 判定依据是建单时落的 `limitHoldReason`,**不在此处重查限额规则** —— 规则可能在
-   * 单子生命周期内被改,用出生时的标记更稳定、可追溯。边界沿用 `amount < min`,
-   * 即恰好等于下限放行。
+   * ⚠️ 2026-08-22 终审 Critical：本方法此前叫 `holdBelowMinIfNeeded`、只认
+   * `'BELOW_MIN'`。那在 `limitHoldReason` 值域只有一个成员时是等价的 —— 于是
+   * 「落到 SUCCESS 的单，`limitHoldReason` 必为 null」这条不变量一直成立，客户面
+   * 三处读侧（findAll / findOneForCustomer / findOneForCustomerByDepositNo，判据都是
+   * 「非空即整单不可见」）就靠它。B4 的 `holdAtGate0` 把值域扩到三个
+   * （+ CAPABILITY_RESTRICTED / LIFECYCLE_NOT_ACTIVE）之后，只认 BELOW_MIN 就漏：
+   * approveDeposit 的白名单有四个入口（COMPLIANCE_PENDING / ACTION_PENDING /
+   * MANUAL_CHECKING / OPERATION_PENDING），当时只有 OPERATION_PENDING 那一条被
+   * 单独的 no-op 特判盖住。终审实测复现的漏法（钱对、记录消失）：
+   *   Gate 0 行政级挂起 → OPERATION_PENDING(CAPABILITY_RESTRICTED)
+   *   → 后开的制裁便签广播 freeze → FROZEN
+   *   → 误报，MLRO 解冻 RESUME → COMPLIANCE_PENDING（**这一路不清挂起原因**）
+   *   → Gate 0 重跑 PASS → 送 Sumsub → KYT approved → approveDeposit
+   *     此时 oldStatus=COMPLIANCE_PENDING，特判不适用、旧闸不认 →
+   *     TB 过账落 SUCCESS，而 limitHoldReason 仍是 'CAPABILITY_RESTRICTED'
+   *     → 余额加了全额，单子对客户永久不可见（列表无、筛选桶无、详情 404），
+   *       且没有任何调用方会再清这一列。
+   * 判据泛化成「非空即挂」后，四条入口一次性全部恢复不变量。**不要再收窄回
+   * 特定原因名** —— 那等于把这个洞按原样装回去。
+   *
+   * 判定依据是单子当前落库的 `limitHoldReason`,**不在此处重查限额规则** —— 规则可能在
+   * 单子生命周期内被改,用落库的标记更稳定、可追溯。BELOW_MIN 的边界沿用建单时的
+   * `amount < min`,即恰好等于下限放行。
+   *
+   * ⚠️ 已经在 OPERATION_PENDING 的单：no-op 返回 true（不再尝试 operation_pending
+   * 动作 —— 转移表在这个状态上没有自环边，会抛 Invalid action）。合法的重复调用
+   * （operator 手滑双击、上游重放）由此得到干净的早退。真正解除挂起走
+   * `waiveLimitHold`。
+   *
+   * ⚠️ 审计动作名按**实际挂起原因**分流，不新造常量（本批不做审计专项）：
+   * BELOW_MIN 照旧 `DEPOSIT_HELD_BELOW_MIN`；其余原因走既有的状态跃迁审计 helper
+   * （硬写 BELOW_MIN 语义到一笔行政级挂起上是伪证据）。
    */
-  private async holdBelowMinIfNeeded(deposit: any): Promise<boolean> {
-    if (deposit.limitHoldReason !== 'BELOW_MIN') return false;
+  private async holdIfHeld(deposit: any): Promise<boolean> {
+    const holdReason: string | null = deposit.limitHoldReason ?? null;
+    if (!holdReason) return false;
+
+    if (deposit.status === DepositTransactionStatus.OPERATION_PENDING) {
+      this.logger.debug(
+        `approveDeposit no-op: deposit ${deposit.id} already OPERATION_PENDING with hold intact ` +
+          `(${holdReason}) — repeat approve ignored, release the hold first`,
+      );
+      return true;
+    }
+
+    const belowMin = holdReason === 'BELOW_MIN';
+    const reason = belowMin
+      ? 'Compliance approved; amount below configured minimum — awaiting ops disposition'
+      : `Compliance approved; deposit still held (${holdReason}) — awaiting ops disposition`;
 
     await this.depositService.updateStatus(
       deposit.id,
       {
         action: DepositTransactionAction.OPERATION_PENDING,
-        reason: 'Compliance approved; amount below configured minimum — awaiting ops disposition',
+        reason,
       },
       {
         actor: { actorType: 'SYSTEM', actorId: 'SYSTEM' },
@@ -572,22 +818,37 @@ export class DepositWorkflowService implements OnModuleInit {
       },
     );
 
-    await this.auditLogsService.recordSystem({
-      action: AuditActions.DEPOSIT_HELD_BELOW_MIN,
-      entityType: AuditEntityTypes.DEPOSIT_TRANSACTION,
-      entityId: deposit.id,
-      entityNo: deposit.depositNo,
-      entityOwnerType: deposit.ownerType,
-      entityOwnerId: deposit.ownerId,
-      traceId: deposit.traceId || undefined,
-      workflowType: 'DEPOSIT',
-      reason: 'Deposit held: compliance approved but amount below configured minimum (BELOW_MIN)',
-      metadata: { depositNo: deposit.depositNo, amount: String(deposit.amount) },
-      sourcePlatform: 'SYSTEM',
-    });
+    if (belowMin) {
+      await this.auditLogsService.recordSystem({
+        action: AuditActions.DEPOSIT_HELD_BELOW_MIN,
+        entityType: AuditEntityTypes.DEPOSIT_TRANSACTION,
+        entityId: deposit.id,
+        entityNo: deposit.depositNo,
+        entityOwnerType: deposit.ownerType,
+        entityOwnerId: deposit.ownerId,
+        traceId: deposit.traceId || undefined,
+        workflowType: 'DEPOSIT',
+        reason:
+          'Deposit held: compliance approved but amount below configured minimum (BELOW_MIN)',
+        metadata: {
+          depositNo: deposit.depositNo,
+          amount: String(deposit.amount),
+          limitHoldReason: holdReason,
+        },
+        sourcePlatform: 'SYSTEM',
+      });
+    } else {
+      await this.recordStateTransitionAudit(
+        deposit,
+        deposit.status,
+        DepositTransactionStatus.OPERATION_PENDING,
+        `Compliance approved but the deposit hold is still in place (${holdReason}) — not credited, awaiting ops disposition`,
+        `DEPOSIT_HOLD_INTACT_${deposit.depositNo}_${randomUUID()}`,
+      );
+    }
 
     this.logger.warn(
-      `Below-min hold: deposit ${deposit.id} approved by compliance but below minimum — OPERATION_PENDING`,
+      `Hold intact: deposit ${deposit.id} approved by compliance but still held (${holdReason}) — OPERATION_PENDING`,
     );
     return true;
   }
@@ -903,7 +1164,8 @@ export class DepositWorkflowService implements OnModuleInit {
     if (dispoTag === 'RETURN_TO_SENDER') {
       if (deposit.status === DepositTransactionStatus.RETURNING) return; // 已在目标态,防重复 webhook
 
-      // A2 着陆垫(2026-08-13):initiateReturn 只接受 MANUAL_CHECKING,非该态一律抛
+      // A2 着陆垫(2026-08-13):initiateReturn 只接受 RETURNABLE_STATUSES(C1 后为
+      // MANUAL_CHECKING / OPERATION_PENDING),非该态一律抛
       // BadRequestException——而本方法下面只 catch ConflictException,异常会一路上抛,
       // webhook 三次重试后进死信:不开审批、不流转、不记审计,界面上"点了没反应",
       // 钱一直压在 DEPOSIT_SUSPENSE 里。而合规官最标准的操作恰恰是「一边打 RETURN_TO_SENDER
@@ -1041,11 +1303,18 @@ export class DepositWorkflowService implements OnModuleInit {
    * checkAutoApproval 的老 mock 自动放行路径、admin 直调 PATCH /deposit-transactions/:id/status
    * {action: approve} 的人工路径)最终都汇聚到这一个函数记账+转 SUCCESS。
    *
-   * 金额闸(BELOW_MIN,见 holdBelowMinIfNeeded)因此也装在这里,紧跟在 oldStatus 白名单
-   * 校验通过之后、任何记账/状态推进之前:装在出口上只需把一次关,不会再出现"调用点
+   * 挂起闸(`limitHoldReason` 非空即挂,见 holdIfHeld)因此也装在这里,紧跟在 oldStatus
+   * 白名单校验通过之后、任何记账/状态推进之前:装在出口上只需把一次关,不会再出现"调用点
    * 忘了加闸"——历史上就出现过 admin 直接 PATCH 状态接口绕过 applyKytApproved/
    * checkAutoApproval 里各自的闸、直接把 BELOW_MIN 单放行入账的资金安全缺口。
    * 不要再往调用点(applyKytApproved/checkAutoApproval 等)上加这道闸。
+   *
+   * ⚠️ 2026-08-22 终审 Critical：这道闸此前只认 `BELOW_MIN`，且「已在 OPERATION_PENDING
+   * 且挂起未解除」的 no-op 被写成 `oldStatus === OPERATION_PENDING` 的独立特判 ——
+   * 白名单里另外三个入口（COMPLIANCE_PENDING / ACTION_PENDING / MANUAL_CHECKING）
+   * 一个都没盖到，带着行政级挂起原因绕回这三态的单会带着 `limitHoldReason` 落 SUCCESS
+   * （复现路径见 holdIfHeld 的 JSDoc）。现在特判并入 holdIfHeld，判据泛化成「非空即挂」，
+   * 四条入口共用同一道闸。
    */
   async approveDeposit(depositId: string) {
     const deposit = await this.depositService.findOne(depositId);
@@ -1058,10 +1327,10 @@ export class DepositWorkflowService implements OnModuleInit {
       // Task 7 companion fix: OPERATION_PENDING is the waived-hold re-approval path
       // (waiveLimitHold clears limitHoldReason then re-runs checkAutoApproval, which
       // now calls in here). A still-held OPERATION_PENDING deposit reaching this
-      // point without going through the waive is handled explicitly below (repeat-
-      // approve no-op) — the transition table has no operation_pending edge from an
-      // already-OPERATION_PENDING deposit, so falling through to holdBelowMinIfNeeded
-      // would throw instead of a clean no-op; no silent bypass either way.
+      // point without going through the waive is handled inside holdIfHeld (explicit
+      // no-op) — the transition table has no operation_pending edge from an
+      // already-OPERATION_PENDING deposit, so re-issuing the action would throw
+      // instead of a clean no-op; no silent bypass either way.
       oldStatus !== DepositTransactionStatus.OPERATION_PENDING
     ) {
       // FROZEN is the sanctions/MLRO-hold case: a caller reaching this path is a
@@ -1097,22 +1366,10 @@ export class DepositWorkflowService implements OnModuleInit {
       return;
     }
 
-    // 终审"顺带"项:重复 approve 于一笔已经在 OPERATION_PENDING、且 BELOW_MIN 挂起
-    // 仍未解除的单(没有经过 waiveLimitHold),是合法的重复调用(operator 手滑双击
-    // ①、或上游重放),不是错误——显式 no-op,不再落入 holdBelowMinIfNeeded 去对一个
-    // 已经处于 OPERATION_PENDING 的单再次尝试 operation_pending 动作(转移表在这个
-    // 状态上没有这条自环边,会抛 Invalid action)。真正解除挂起走 waiveLimitHold。
-    if (
-      oldStatus === DepositTransactionStatus.OPERATION_PENDING &&
-      deposit.limitHoldReason === 'BELOW_MIN'
-    ) {
-      this.logger.debug(
-        `approveDeposit no-op: deposit ${depositId} already OPERATION_PENDING with BELOW_MIN hold intact — repeat approve ignored, waive the hold first`,
-      );
-      return;
-    }
-
-    if (await this.holdBelowMinIfNeeded(deposit)) return;
+    // 挂起闸：`limitHoldReason` 非空 = 不得入账。四条白名单入口共用这一道
+    //（含「已在 OPERATION_PENDING、挂起未解除」的重复调用 no-op —— 并入 holdIfHeld，
+    // 不再是这里的 oldStatus 特判，那个特判只盖得住四条里的一条）。
+    if (await this.holdIfHeld(deposit)) return;
 
     // ⑥ DEPOSIT_APPROVED — record before state change
     await this.auditLogsService.recordSystem({
@@ -1207,11 +1464,38 @@ export class DepositWorkflowService implements OnModuleInit {
   }
 
   /**
-   * PASS (waive) disposition: ops waives the amount floor for this one deposit.
-   * This does NOT approve/入账 the deposit — it clears the BELOW_MIN hold and
-   * re-runs checkAutoApproval so the deposit proceeds through the normal L2
-   * compliance gates (KYT/TR/trading-ready). Waiving the amount line does not
-   * waive compliance. Single-operator action — no maker-checker.
+   * PASS (release) disposition: ops 解除这一笔单的挂起。
+   * This does NOT approve/入账 the deposit — it clears the hold and re-runs
+   * `checkAutoApproval`. Single-operator action — no maker-checker.
+   *
+   * ⚠️ 2026-08-22 终审 I1 · 这段 JSDoc 此前写的是「re-runs checkAutoApproval so the
+   * deposit proceeds through the normal L2 compliance gates」——**这个承诺兑现不了**，
+   * 已订正为下面的如实描述：
+   *
+   *   `checkAutoApproval` 只在这笔单**已经有 Sumsub 裁决**（`sumsubVerdict === 'approved'`）
+   *   时才会往下推进；裁决为 null 时它提前 return。而 **Gate 0 挂起的单从未送检** ——
+   *   `holdAtGate0` 那条分支刻意不调 `submitSumsubTxns`。所以：
+   *     · BELOW_MIN 挂起（合规已过之后才落的闸）→ 有裁决 → waive 后确实会自动放行。
+   *     · 行政级挂起（CAPABILITY_RESTRICTED / LIFECYCLE_NOT_ACTIVE，Gate 0 落的）
+   *       → **没有裁决** → waive 之后 `checkAutoApproval` 静默早退，单子停在
+   *       OPERATION_PENDING、无挂起、无 KYT 案，**不会**自动走合规。
+   *
+   *   此时这笔单的处境：waive 再点会抛（挂起已清）、没收要求 BELOW_MIN、详情页没有
+   *   Approve 按钮，实际只剩「原路退回汇款人」一条出路，否则钱一直压在 DEPOSIT_SUSPENSE。
+   *   `OPERATION_PENDING --resume--> COMPLIANCE_PENDING` 这条能重新武装 Gate 0 的边
+   *   **不存在**（FROZEN 有、这里没有），所以也重跑不了。
+   *
+   *   三个候选解法（挂起分支也送检 / 补 resume 边 / 维持现状但把文案说清）待业主拍板，
+   *   已登记 BACKLOG。**本批不改行为。**
+   *
+   * B4（§3）：守卫从只认 `BELOW_MIN` 放宽到**任何非空挂起原因**。原因是 Gate 0
+   * 开始往 OPERATION_PENDING 上落行政级挂起（CAPABILITY_RESTRICTED /
+   * LIFECYCLE_NOT_ACTIVE）之后，这类单若还只有 BELOW_MIN 能 waive，就**出场无路**
+   * ——没收那条路刻意不放宽（见 initiateConfiscation），approve 在挂起未解除时
+   * 是 no-op，钱会一直压在 DEPOSIT_SUSPENSE 里。
+   *
+   * ⚠️ 放宽的是「不再挑挂起原因」，**不是**「没有挂起也能 waive」：`!limitHoldReason`
+   * （null / 空串）照旧拒。
    */
   async waiveLimitHold(
     depositId: string,
@@ -1219,11 +1503,11 @@ export class DepositWorkflowService implements OnModuleInit {
   ) {
     const deposit = await this.depositService.findOne(depositId);
     if (
-      deposit.limitHoldReason !== 'BELOW_MIN' ||
+      !deposit.limitHoldReason ||
       deposit.status !== DepositTransactionStatus.OPERATION_PENDING
     ) {
       throw new BadRequestException(
-        'Deposit has no BELOW_MIN hold to waive',
+        'Deposit has no hold to release',
       );
     }
 
@@ -1240,8 +1524,14 @@ export class DepositWorkflowService implements OnModuleInit {
         traceId: deposit.traceId || undefined,
         workflowType: 'DEPOSIT',
         result: AuditResult.SUCCESS,
-        reason: 'Ops waived below-minimum amount hold (compliance gates still apply)',
-        metadata: { depositNo: deposit.depositNo, amount: String(deposit.amount) },
+        // B4：动作名 DEPOSIT_LIMIT_WAIVED 保持不变（不新造审计动作常量，本批不做
+        // 审计专项），实际挂起原因带进 metadata + reason。
+        reason: `Ops released the deposit hold (${deposit.limitHoldReason}); compliance gates still apply`,
+        metadata: {
+          depositNo: deposit.depositNo,
+          amount: String(deposit.amount),
+          limitHoldReason: deposit.limitHoldReason,
+        },
         requestId: `DEPOSIT_LIMIT_WAIVED_${deposit.depositNo}_${randomUUID()}`,
         sourcePlatform: 'ADMIN_API',
       },
@@ -1439,78 +1729,71 @@ export class DepositWorkflowService implements OnModuleInit {
   }
 
   /**
+   * Shared legSeq 2 (below-min confiscation) funds order creation input — used by both
+   * the initial build (startConfiscation) and the rebuild-on-retry path
+   * (onConfiscationLegFailed). Only `attempt` varies between the two call sites,
+   * 与退回弧的 buildReturnLegInput / 上缴弧的 buildSeizeLegInput 逐字同构。
+   *
+   * `attempt` 进 deterministicTransferId 的第 4 参(经 pendConfiscationLegs 的 legIndex)
+   * —— 这是没收腿能重试的前提:2026-08-13 那版把第 4 参写死成常量 1,重建的新腿会算出
+   * 同一个 pending id 撞车,所以当时只能「一次失败就退回 OPERATION_PENDING」。
+   *
+   * 目的地是公司 F_FEE 钱包(不同于退回=原付款人、上缴=留空):没收是内部重分类,钱从
+   * 客户充值钱包挪进公司费用钱包,这条 by-wallet 记录是物理移动的对账锚点,故 firmFeeWallet
+   * 由调用方解析后传入(重建路径自行重解一次,同 onSeizeLegFailed 重取 orderRef 的做法)。
+   */
+  private buildConfiscationLegInput(
+    deposit: any,
+    attempt: number,
+    firmFeeWallet: { id: string; address?: string | null; iban?: string | null },
+  ): CreateFundsOrderInput {
+    return {
+      depositTransactionId: deposit.id,
+      legSeq: 2,
+      attempt,
+      initialStatus: FundsOrderStatus.CREATED,
+      assetId: deposit.assetId,
+      amount: String(deposit.amount),
+      netAmount: String(deposit.amount),
+      fromWalletId: deposit.toWalletId ?? null,
+      fromAddress: deposit.toAddress ?? undefined,
+      fromIban: deposit.toIban ?? undefined,
+      toWalletId: firmFeeWallet.id,
+      toAddress: firmFeeWallet.address ?? undefined,
+      toIban: firmFeeWallet.iban ?? undefined,
+      traceId: deposit.traceId || undefined,
+    };
+  }
+
+  /**
    * Start an approved below-min confiscation (two-phase, "start" half). 先账后状态:
    * PENDING-lock BOTH accounting legs + create the legSeq 2 funds order in CREATED
    * (advanceable, NOT auto-cleared), THEN flip the deposit to CONFISCATING via
    * CONFISCATE_START. The matching POST/settle half (funds order → CLEARED, pending
    * transfers posted, deposit → CONFISCATED) lands in C3's settleConfiscation, which
    * reproduces each pending transfer via deterministicTransferId('DEPOSIT',
-   * depositNo, eventCode, 1) — so the eventCodes + legIndex here are load-bearing.
+   * depositNo, eventCode, attempt) — so the eventCodes + legIndex(=attempt) that
+   * pendConfiscationLegs writes here are load-bearing.
    *
-   * The two pending legs (same ledger = asset.tbLedgerId):
-   *   leg1  DR DEPOSIT_SUSPENSE(CUSTOMER) / CR CLIENT_ASSET(SYSTEM) — exact reverse
-   *         of the payin STEP_1; zeroes the customer's suspense.
-   *   leg2  DR FIRM_ASSET(SYSTEM) / CR INCOME_OTHER(SYSTEM) — confiscation income,
-   *         segregated from service fees.
-   * Neither leg is an external crossing — confiscation reclassifies funds already in
-   * the firm's custody; the legSeq 2 funds order (customer deposit wallet → firm F_FEE
-   * wallet) is the by-wallet recon anchor for the physical move. Idempotent: reuse an
-   * existing legSeq 2 order, and every TB pending id is deterministic so a retry via a
-   * new approval re-books without duplicating.
+   * 起始腿恒为 attempt 1;A3(2026-08-22)起失败会由 onConfiscationLegFailed 重建到
+   * attempt 2/3(见 pendConfiscationLegs 的 legIndex 说明)。
+   *
+   * The two pending legs live in pendConfiscationLegs; the legSeq 2 funds order
+   * (customer deposit wallet → firm F_FEE wallet) is the by-wallet recon anchor for
+   * the physical move. Idempotent: reuse an existing legSeq 2 order —— 这条
+   * findByParent 判据防的是 startConfiscation 被重复调用,与腿级重试无关,勿删。
    */
   private async startConfiscation(deposit: any, approvalNo?: string) {
     const asset = deposit.asset;
     if (!asset) throw new Error(`Deposit ${deposit.id} has no associated asset`);
     if (!asset.tbLedgerId) throw new Error(`Asset ${asset.currency} has no tbLedgerId`);
-    const ledger = asset.tbLedgerId;
-    const amountBigint = this.decimalToBigint(deposit.amount, asset.decimals);
-    const customerWalletRef: string | null = deposit.toWalletId ?? null;
     const firmFeeWallet = await this.systemWalletResolver.resolve(deposit.assetId, 'F_FEE');
 
     const [existing] = await this.fundsOrders.findByParent({ depositTransactionId: deposit.id }, { legSeq: 2 });
     if (!existing) {
-      await this.fundsOrders.create({
-        depositTransactionId: deposit.id,
-        legSeq: 2,
-        initialStatus: FundsOrderStatus.CREATED,
-        assetId: deposit.assetId,
-        amount: String(deposit.amount),
-        netAmount: String(deposit.amount),
-        fromWalletId: deposit.toWalletId ?? null,
-        fromAddress: deposit.toAddress ?? undefined,
-        fromIban: deposit.toIban ?? undefined,
-        toWalletId: firmFeeWallet.id,
-        toAddress: firmFeeWallet.address ?? undefined,
-        toIban: firmFeeWallet.iban ?? undefined,
-        traceId: deposit.traceId || undefined,
-      });
+      await this.fundsOrders.create(this.buildConfiscationLegInput(deposit, 1, firmFeeWallet));
     }
-
-    const suspenseId = await this.accountingService.resolveTbAccountId({ code: TB_ACCOUNT_CODES.DEPOSIT_SUSPENSE, ledger, ownerType: 'CUSTOMER', ownerUuid: deposit.ownerId });
-    const clientAssetId = await this.accountingService.resolveTbAccountId({ code: TB_ACCOUNT_CODES.CLIENT_ASSET, ledger, ownerType: 'SYSTEM' });
-    const firmAssetId = await this.accountingService.resolveTbAccountId({ code: TB_ACCOUNT_CODES.FIRM_ASSET, ledger, ownerType: 'SYSTEM' });
-    const incomeOtherId = await this.accountingService.resolveTbAccountId({ code: TB_ACCOUNT_CODES.INCOME_OTHER, ledger, ownerType: 'SYSTEM' });
-
-    await this.accountingService.executePendingTransfer({
-      debitAccountId: suspenseId, creditAccountId: clientAssetId, amount: amountBigint, ledger,
-      code: TB_TRANSFER_CODES.DEPOSIT_CONFISCATE_SUSPENSE_TO_ASSET, timeout: 0, legIndex: 1,
-      evidence: {
-        sourceType: 'DEPOSIT', sourceNo: deposit.depositNo, eventCode: 'CONFISCATE_REVERSE_SUSPENSE',
-        debitCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.DEPOSIT_SUSPENSE], creditCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.CLIENT_ASSET],
-        assetCurrency: asset.currency, traceId: deposit.traceId || deposit.id, actorType: 'SYSTEM', actorId: 'SYSTEM',
-        memo: 'Below-min confiscation reverse suspense (pending)', debitWalletRef: customerWalletRef, creditWalletRef: customerWalletRef, isExternalCrossing: false,
-      },
-    });
-    await this.accountingService.executePendingTransfer({
-      debitAccountId: firmAssetId, creditAccountId: incomeOtherId, amount: amountBigint, ledger,
-      code: TB_TRANSFER_CODES.DEPOSIT_CONFISCATE_INCOME_OTHER, timeout: 0, legIndex: 1,
-      evidence: {
-        sourceType: 'DEPOSIT', sourceNo: deposit.depositNo, eventCode: 'CONFISCATE_INCOME_OTHER',
-        debitCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.FIRM_ASSET], creditCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.INCOME_OTHER],
-        assetCurrency: asset.currency, traceId: deposit.traceId || deposit.id, actorType: 'SYSTEM', actorId: 'SYSTEM',
-        memo: 'Below-min confiscation fee income (pending)', debitWalletRef: null, creditWalletRef: firmFeeWallet.id, isExternalCrossing: false,
-      },
-    });
+    await this.pendConfiscationLegs(deposit, existing?.attempt ?? 1, firmFeeWallet);
 
     await this.depositService.updateStatus(deposit.id, { action: DepositTransactionAction.CONFISCATE_START, reason: 'Below-min confiscation started (funds in transit)' });
 
@@ -1520,6 +1803,59 @@ export class DepositWorkflowService implements OnModuleInit {
       workflowType: 'DEPOSIT_CONFISCATION', traceId: deposit.traceId || undefined, result: AuditResult.SUCCESS,
       metadata: { depositNo: deposit.depositNo, amount: String(deposit.amount), approvalNo },
       requestId: `DEPOSIT_CONFISCATION_STARTED_${deposit.depositNo}_${randomUUID()}`, sourcePlatform: 'SYSTEM',
+    });
+  }
+
+  /**
+   * Books the TWO confiscation pending transfers (没收是本批唯一的两腿处置弧):
+   *   leg1  DR DEPOSIT_SUSPENSE(CUSTOMER) / CR CLIENT_ASSET(SYSTEM) — exact reverse of
+   *         the payin STEP_1; zeroes the customer's suspense.
+   *   leg2  DR FIRM_ASSET(SYSTEM) / CR INCOME_OTHER(SYSTEM) — confiscation income,
+   *         segregated from service fees.
+   * Neither leg is an external crossing — confiscation reclassifies funds already in the
+   * firm's custody (`isExternalCrossing: false`, 区别于退回/上缴那两条真出境的腿)。
+   *
+   * `legIndex: attempt` —— attempt 消歧 TB 的 deterministic id,让重建的腿不会和上一
+   * attempt 已 void 的 pending 锁撞 id(ExecutePendingTransferParams.legIndex 的既定用法,
+   * 与 pendReturnSuspense / pendSeizeSuspense 同一约定)。settleConfiscation 与
+   * onConfiscationLegFailed 必须用同一个 attempt 复算这两个 id,否则 post/void 全落空。
+   */
+  private async pendConfiscationLegs(
+    deposit: any,
+    attempt: number,
+    firmFeeWallet: { id: string },
+  ): Promise<void> {
+    const asset = deposit.asset;
+    if (!asset) throw new Error(`Deposit ${deposit.id} has no associated asset`);
+    if (!asset.tbLedgerId) throw new Error(`Asset ${asset.currency} has no tbLedgerId`);
+    const ledger = asset.tbLedgerId;
+    const amountBigint = this.decimalToBigint(deposit.amount, asset.decimals);
+    const customerWalletRef: string | null = deposit.toWalletId ?? null;
+
+    const suspenseId = await this.accountingService.resolveTbAccountId({ code: TB_ACCOUNT_CODES.DEPOSIT_SUSPENSE, ledger, ownerType: 'CUSTOMER', ownerUuid: deposit.ownerId });
+    const clientAssetId = await this.accountingService.resolveTbAccountId({ code: TB_ACCOUNT_CODES.CLIENT_ASSET, ledger, ownerType: 'SYSTEM' });
+    const firmAssetId = await this.accountingService.resolveTbAccountId({ code: TB_ACCOUNT_CODES.FIRM_ASSET, ledger, ownerType: 'SYSTEM' });
+    const incomeOtherId = await this.accountingService.resolveTbAccountId({ code: TB_ACCOUNT_CODES.INCOME_OTHER, ledger, ownerType: 'SYSTEM' });
+
+    await this.accountingService.executePendingTransfer({
+      debitAccountId: suspenseId, creditAccountId: clientAssetId, amount: amountBigint, ledger,
+      code: TB_TRANSFER_CODES.DEPOSIT_CONFISCATE_SUSPENSE_TO_ASSET, timeout: 0, legIndex: attempt,
+      evidence: {
+        sourceType: 'DEPOSIT', sourceNo: deposit.depositNo, eventCode: 'CONFISCATE_REVERSE_SUSPENSE',
+        debitCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.DEPOSIT_SUSPENSE], creditCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.CLIENT_ASSET],
+        assetCurrency: asset.currency, traceId: deposit.traceId || deposit.id, actorType: 'SYSTEM', actorId: 'SYSTEM',
+        memo: 'Below-min confiscation reverse suspense (pending)', debitWalletRef: customerWalletRef, creditWalletRef: customerWalletRef, isExternalCrossing: false,
+      },
+    });
+    await this.accountingService.executePendingTransfer({
+      debitAccountId: firmAssetId, creditAccountId: incomeOtherId, amount: amountBigint, ledger,
+      code: TB_TRANSFER_CODES.DEPOSIT_CONFISCATE_INCOME_OTHER, timeout: 0, legIndex: attempt,
+      evidence: {
+        sourceType: 'DEPOSIT', sourceNo: deposit.depositNo, eventCode: 'CONFISCATE_INCOME_OTHER',
+        debitCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.FIRM_ASSET], creditCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.INCOME_OTHER],
+        assetCurrency: asset.currency, traceId: deposit.traceId || deposit.id, actorType: 'SYSTEM', actorId: 'SYSTEM',
+        memo: 'Below-min confiscation fee income (pending)', debitWalletRef: null, creditWalletRef: firmFeeWallet.id, isExternalCrossing: false,
+      },
     });
   }
 
@@ -1550,41 +1886,47 @@ export class DepositWorkflowService implements OnModuleInit {
     if (!deposit) return;
     if (deposit.status !== DepositTransactionStatus.CONFISCATING) return; // already settled / not in transit
 
+    // A3(2026-08-22):两条分支都必须收下 event.attempt —— 没收腿现在会重建 attempt 2/3,
+    // 每个 attempt 有自己的一对 pending id。settle 用错 attempt 就 post 到已 void 的旧 id
+    // 上(钱锁死在新 attempt 的 pending 里),void 用错 attempt 就解不开锁。同
+    // onReturnLegChanged / onSeizeLegChanged 的路由。
     switch (event.newStatus) {
       case FundsOrderStatus.CONFIRMED:
-        await this.settleConfiscation(deposit, event.fundsOrderId);
+        await this.settleConfiscation(deposit, event.fundsOrderId, event.attempt);
         break;
       case FundsOrderStatus.FAILED:
       case FundsOrderStatus.TIMEOUT:
-        await this.onConfiscationLegFailed(deposit, event.fundsOrderId, event.newStatus);
+        await this.onConfiscationLegFailed(deposit, event.fundsOrderId, event.newStatus, event.attempt);
         break;
     }
   }
 
   /**
-   * A1: 没收腿 FAILED/TIMEOUT — 解锁 C2 下的两笔 pending,把 deposit 退回
-   * OPERATION_PENDING(待运营处置),运营可重新发起没收。
+   * 没收腿 FAILED/TIMEOUT —— 与退回/上缴弧同一形状（业主 2026-08-22 定稿：
+   * 资金单有问题就重试三次,还不行原地标红）：
+   *   1. void 掉本次 attempt 的两条 pending
+   *   2. attempt < 3 → 重建 attempt+1 的腿与 pending,写 RETRIED 审计
+   *   3. attempt 耗尽 → 置 needsReview 红标 + 写 STUCK 审计,**deposit 留在 CONFISCATING**
+   * 2026-08-13 那版「一次失败就退回 OPERATION_PENDING」已随 confiscate_failed
+   * 边一起退役——它是三个处置态里唯一的异类。
    *
-   * **不做重建重试**(区别于退回/上缴弧的三级梯):没收腿的 deterministicTransferId 第 4 参
-   * 写死常量 1(非 attempt),重建的新腿会算出同一个 pending id 撞车。demo 口径下
-   * 「解锁 → 回待处置 → 运营重点一次」更简单也更好演。
-   *
-   * 两笔 void 的 pending id 必须与 startConfiscation 逐字一致
-   * (eventCode CONFISCATE_REVERSE_SUSPENSE / CONFISCATE_INCOME_OTHER + legIndex 1)。
-   * 整体 try/catch 不上抛(@OnEvent 异步监听器里抛没人接);解锁失败时 deposit 留在
-   * CONFISCATING + 落 DEPOSIT_CONFISCATION_UNLOCK_FAILED 待人工介入。
+   * 两笔 void 的 pending id 必须与 pendConfiscationLegs 本次 attempt 逐字一致
+   * (eventCode CONFISCATE_REVERSE_SUSPENSE / CONFISCATE_INCOME_OTHER + legIndex=attempt)。
+   * 重建前重解一次 F_FEE 钱包(本调用点没有它),同 onSeizeLegFailed 重取 orderRef 的做法。
+   * 整体 try/catch 不上抛（@OnEvent 异步监听器里抛没人接）。
    */
   private async onConfiscationLegFailed(
     deposit: any,
     fundsOrderId: string,
     legStatus: string,
+    attempt: number,
   ) {
-    const asset = deposit.asset;
-    const amountBigint = this.decimalToBigint(deposit.amount, asset.decimals);
-    const pend1 = deterministicTransferId('DEPOSIT', deposit.depositNo, 'CONFISCATE_REVERSE_SUSPENSE', 1);
-    const pend2 = deterministicTransferId('DEPOSIT', deposit.depositNo, 'CONFISCATE_INCOME_OTHER', 1);
-
     try {
+      const asset = deposit.asset;
+      const amountBigint = this.decimalToBigint(deposit.amount, asset.decimals);
+      const pend1 = deterministicTransferId('DEPOSIT', deposit.depositNo, 'CONFISCATE_REVERSE_SUSPENSE', attempt);
+      const pend2 = deterministicTransferId('DEPOSIT', deposit.depositNo, 'CONFISCATE_INCOME_OTHER', attempt);
+
       await this.accountingService.voidPendingTransfer({
         pendingTransferId: pend1, amount: amountBigint,
         evidence: {
@@ -1602,30 +1944,51 @@ export class DepositWorkflowService implements OnModuleInit {
         },
       });
 
-      await this.depositService.updateStatus(deposit.id, {
-        action: DepositTransactionAction.CONFISCATE_FAILED,
-        reason: `Confiscation leg ${legStatus} — both pending legs voided, back to operation pending for re-disposition`,
-      });
+      const MAX = 3;
+      if (attempt < MAX) {
+        const nextAttempt = attempt + 1;
+        const firmFeeWallet = await this.systemWalletResolver.resolve(deposit.assetId, 'F_FEE');
+        const newLeg = await this.fundsOrders.create(this.buildConfiscationLegInput(deposit, nextAttempt, firmFeeWallet));
+        await this.pendConfiscationLegs(deposit, nextAttempt, firmFeeWallet);
 
+        await this.auditLogsService.recordSystem({
+          action: AuditActions.DEPOSIT_CONFISCATION_RETRIED, entityType: AuditEntityTypes.DEPOSIT_TRANSACTION,
+          entityId: deposit.id, entityNo: deposit.depositNo, entityOwnerType: deposit.ownerType, entityOwnerId: deposit.ownerId,
+          workflowType: 'DEPOSIT_CONFISCATION', traceId: deposit.traceId || undefined, result: AuditResult.SUCCESS,
+          reason: `Confiscation leg attempt ${attempt} ${legStatus} — rebuilt attempt ${nextAttempt}`,
+          metadata: { depositNo: deposit.depositNo, fundsOrderId, attempt: nextAttempt, fundsOrderNo: newLeg.fundsOrderNo },
+          requestId: `DEPOSIT_CONFISCATION_RETRIED_${deposit.depositNo}_${randomUUID()}`, sourcePlatform: 'SYSTEM',
+        });
+        return;
+      }
+
+      // 重试三级梯耗尽 —— 单子留在 CONFISCATING 原地不动,靠红标让运营看见。
+      // 「卡住了」是一面旗,不是一个状态（业主 2026-08-22 定稿）。
+      await this.depositService.markNeedsReview(deposit.id);
       await this.auditLogsService.recordSystem({
-        action: AuditActions.DEPOSIT_CONFISCATION_LEG_FAILED, entityType: AuditEntityTypes.DEPOSIT_TRANSACTION,
+        action: AuditActions.DEPOSIT_CONFISCATION_STUCK, entityType: AuditEntityTypes.DEPOSIT_TRANSACTION,
         entityId: deposit.id, entityNo: deposit.depositNo, entityOwnerType: deposit.ownerType, entityOwnerId: deposit.ownerId,
-        workflowType: 'DEPOSIT_CONFISCATION', traceId: deposit.traceId || undefined, result: AuditResult.SUCCESS,
-        reason: `Confiscation funds order ${legStatus} — pending legs released, deposit returned to OPERATION_PENDING`,
-        metadata: { depositNo: deposit.depositNo, fundsOrderId, legStatus },
-        requestId: `DEPOSIT_CONFISCATION_LEG_FAILED_${deposit.depositNo}_${randomUUID()}`, sourcePlatform: 'SYSTEM',
+        workflowType: 'DEPOSIT_CONFISCATION', traceId: deposit.traceId || undefined, result: AuditResult.FAILED,
+        reason: `Confiscation leg failed after ${attempt} attempts — manual intervention required (deposit stays CONFISCATING)`,
+        metadata: { depositNo: deposit.depositNo, fundsOrderId, attempt },
+        requestId: `DEPOSIT_CONFISCATION_STUCK_${deposit.depositNo}_${randomUUID()}`, sourcePlatform: 'SYSTEM',
       });
     } catch (err: any) {
       this.logger.error(
-        `onConfiscationLegFailed crashed for deposit ${deposit.depositNo}: ${err.message} — deposit stays CONFISCATING, pending legs may still be locked`,
+        `onConfiscationLegFailed crashed for deposit ${deposit.depositNo} attempt ${attempt}: ${err.message} — deposit stays CONFISCATING, pending legs may still be locked`,
+      );
+      // 崩溃路径同样置旗:pending 可能还锁着,更需要被看见。markNeedsReview 自带
+      // try/catch 兜底——它失败不能盖掉下面这条 UNLOCK_FAILED 审计。
+      await this.depositService.markNeedsReview(deposit.id).catch((e) =>
+        this.logger.error(`markNeedsReview failed for deposit ${deposit.depositNo}: ${e.message}`),
       );
       await this.auditLogsService
         .recordSystem({
           action: AuditActions.DEPOSIT_CONFISCATION_UNLOCK_FAILED, entityType: AuditEntityTypes.DEPOSIT_TRANSACTION,
           entityId: deposit.id, entityNo: deposit.depositNo, entityOwnerType: deposit.ownerType, entityOwnerId: deposit.ownerId,
           workflowType: 'DEPOSIT_CONFISCATION', traceId: deposit.traceId || undefined, result: AuditResult.FAILED,
-          reason: `Failed to release confiscation pending legs — manual intervention required (deposit stays CONFISCATING)`,
-          metadata: { depositNo: deposit.depositNo, fundsOrderId, legStatus, error: err.message },
+          reason: `onConfiscationLegFailed crashed (attempt ${attempt}): ${err.message} — manual intervention required (deposit stays CONFISCATING)`,
+          metadata: { depositNo: deposit.depositNo, fundsOrderId, attempt, legStatus, error: err.message },
           requestId: `DEPOSIT_CONFISCATION_UNLOCK_FAILED_${deposit.depositNo}_${randomUUID()}`, sourcePlatform: 'SYSTEM',
         })
         .catch(() => undefined);
@@ -1635,19 +1998,28 @@ export class DepositWorkflowService implements OnModuleInit {
   /**
    * POST the two pending confiscation legs C2 locked (先账后状态), then flip the deposit to
    * CONFISCATED. Each pending id is reproduced deterministically from the SAME business key
-   * C2 used — deterministicTransferId('DEPOSIT', depositNo, eventCode, 1) — so the eventCodes +
-   * legIndex(=1) MUST match startConfiscation exactly (leg1 CONFISCATE_REVERSE_SUSPENSE, leg2
-   * CONFISCATE_INCOME_OTHER). 3× retry on a transient TB failure; if every attempt fails the deposit
+   * pendConfiscationLegs used — deterministicTransferId('DEPOSIT', depositNo, eventCode, attempt)
+   * — so the eventCodes + legIndex(=attempt) MUST match pendConfiscationLegs exactly
+   * (leg1 CONFISCATE_REVERSE_SUSPENSE, leg2 CONFISCATE_INCOME_OTHER).
+   *
+   * `attempt` 是资金腿自己的 attempt(来自事件),不是本方法下面那个 TB 瞬时重试计数 ——
+   * A3(2026-08-22)之前这里写死 1,那时没收腿零重试、腿恒为 attempt 1 所以碰巧对得上;
+   * 现在腿会重建到 attempt 2/3,再写死 1 就会 post 到上一 attempt 已 void 的 id 上
+   * (post 必失败 → 3 次耗尽 → 单子卡死 CONFISCATING,而新 attempt 的两笔 pending 还锁着)。
+   * 同 settleReturn / settleSeize 收 event.attempt 的做法。
+   *
+   * 3× retry on a transient TB failure; if every attempt fails the deposit
    * stays CONFISCATING (no revert, no rethrow — silent stop in the async listener) with a
    * DEPOSIT_CONFISCATION_FAILED audit flagging it for manual intervention.
    */
-  private async settleConfiscation(deposit: any, fundsOrderId: string) {
+  private async settleConfiscation(deposit: any, fundsOrderId: string, attempt: number) {
     const asset = deposit.asset;
     const amountBigint = this.decimalToBigint(deposit.amount, asset.decimals);
-    const pend1 = deterministicTransferId('DEPOSIT', deposit.depositNo, 'CONFISCATE_REVERSE_SUSPENSE', 1);
-    const pend2 = deterministicTransferId('DEPOSIT', deposit.depositNo, 'CONFISCATE_INCOME_OTHER', 1);
+    const pend1 = deterministicTransferId('DEPOSIT', deposit.depositNo, 'CONFISCATE_REVERSE_SUSPENSE', attempt);
+    const pend2 = deterministicTransferId('DEPOSIT', deposit.depositNo, 'CONFISCATE_INCOME_OTHER', attempt);
     const MAX = 3;
-    for (let attempt = 1; attempt <= MAX; attempt++) {
+    // 循环计数用 i（同 settleReturn）—— 不叫 attempt,否则会遮蔽上面那个资金腿 attempt 参数。
+    for (let i = 1; i <= MAX; i++) {
       try {
         // leg1: DR DEPOSIT_SUSPENSE(CUSTOMER) / CR CLIENT_ASSET(SYSTEM) — reverse the payin suspense.
         await this.accountingService.postPendingTransfer({
@@ -1677,8 +2049,8 @@ export class DepositWorkflowService implements OnModuleInit {
         await this.clearDispositionLeg(deposit, fundsOrderId, 'DEPOSIT_CONFISCATION');
         return;
       } catch (err: any) {
-        this.logger.error(`Confiscation settle attempt ${attempt}/${MAX} for ${deposit.depositNo} failed: ${err.message}`);
-        if (attempt === MAX) {
+        this.logger.error(`Confiscation settle try ${i}/${MAX} (leg attempt ${attempt}) for ${deposit.depositNo} failed: ${err.message}`);
+        if (i === MAX) {
           await this.auditLogsService.recordSystem({
             action: AuditActions.DEPOSIT_CONFISCATION_FAILED, entityType: AuditEntityTypes.DEPOSIT_TRANSACTION,
             entityId: deposit.id, entityNo: deposit.depositNo, entityOwnerType: deposit.ownerType, entityOwnerId: deposit.ownerId,
@@ -1931,11 +2303,18 @@ export class DepositWorkflowService implements OnModuleInit {
     return BigInt(whole + paddedFrac);
   }
 
+  /**
+   * ⚠️ `requestId`（可选）：不传时审计幂等键退化成
+   * `entityType|entityId|action|NO_REQUEST_ID` —— **同一笔单的同一条状态跃迁第二次
+   * 就会被静默去重**。会重复发生的跃迁（如 Gate 0 挂起：freeze→unfreeze→重新挂起、
+   * 或 waive→重新挂起）必须传一个唯一值，否则监管面的取证链从第一天就缺行。
+   */
   private async recordStateTransitionAudit(
     deposit: any,
     fromStatus: string,
     toStatus: string,
     reason: string,
+    requestId?: string,
   ) {
     await this.auditLogsService.recordSystem({
       action: buildStateTransitionAction('DEPOSIT', fromStatus, toStatus),
@@ -1947,6 +2326,7 @@ export class DepositWorkflowService implements OnModuleInit {
       traceId: deposit.traceId || undefined,
       workflowType: 'DEPOSIT',
       reason,
+      ...(requestId ? { requestId } : {}),
       sourcePlatform: 'SYSTEM',
     });
   }
@@ -1965,7 +2345,8 @@ export class DepositWorkflowService implements OnModuleInit {
 
   /**
    * RETURN disposition (initiate side, A2): KYT verdict says RETURN_TO_SENDER while the
-   * deposit sits in MANUAL_CHECKING. High-risk (moves customer money back out) → routed
+   * deposit sits in MANUAL_CHECKING — or (C1, 2026-08-22) ops presses "Initiate Return to
+   * Sender" on an OPERATION_PENDING hold. High-risk (moves customer money back out) → routed
    * through V1 maker-checker approval (single-step MLRO). Only opens the approval case +
    * audits the request; the actual return leg posting + status→RETURNING/RETURNED lands
    * in A3's decided-event handler.
@@ -1980,9 +2361,9 @@ export class DepositWorkflowService implements OnModuleInit {
     }
 
     const deposit = await this.depositService.findOne(depositId);
-    if (deposit.status !== DepositTransactionStatus.MANUAL_CHECKING) {
+    if (!DepositWorkflowService.RETURNABLE_STATUSES.includes(deposit.status)) {
       throw new BadRequestException(
-        'Deposit is not awaiting manual review, cannot open a return approval',
+        'Deposit is not in a returnable status (MANUAL_CHECKING / OPERATION_PENDING), cannot open a return approval',
       );
     }
 
@@ -2042,7 +2423,7 @@ export class DepositWorkflowService implements OnModuleInit {
           approvalNo: approvalCase.approvalNo,
         },
         requestId: `DEPOSIT_RETURN_APPROVAL_REQUESTED_${deposit.depositNo}_${randomUUID()}`,
-        sourcePlatform: 'SYSTEM',
+        sourcePlatform: 'ADMIN_API',
       },
       this.toAuditActor(actor),
     );
@@ -2277,10 +2658,10 @@ export class DepositWorkflowService implements OnModuleInit {
    * null (external, not platform-owned). Idempotent: reuse an existing legSeq 3
    * order rather than creating a duplicate on replay.
    *
-   * Guarded to only run from MANUAL_CHECKING — a replayed decided event arriving
-   * after the deposit already left MANUAL_CHECKING (already RETURNING/RETURNED, or
-   * drifted to some other state) is a no-op rather than crashing on an invalid
-   * state-machine transition.
+   * Guarded to only run from a RETURNABLE_STATUSES state (MANUAL_CHECKING /
+   * OPERATION_PENDING) — a replayed decided event arriving after the deposit already
+   * left that state (already RETURNING/RETURNED, or drifted somewhere else) is a no-op
+   * rather than crashing on an invalid state-machine transition.
    */
   /**
    * Shared legSeq 3 (return-to-sender) funds order creation input — used by both
@@ -2306,10 +2687,46 @@ export class DepositWorkflowService implements OnModuleInit {
     };
   }
 
+  /**
+   * 退回落地时按挂起原因分别处理 `limitHoldReason`（业主裁定见
+   * ADMINISTRATIVE_HOLD_REASONS 的注释）。返回本次真正清掉的原因，没清则 null。
+   *
+   *   CAPABILITY_RESTRICTED / LIFECYCLE_NOT_ACTIVE → 清掉，客户看得见这笔退回
+   *   BELOW_MIN                                    → 保留，继续对客户隐藏
+   *   null / 空串（没挂起过，走 MANUAL_CHECKING 老路）→ 无事发生
+   *
+   * ⚠️ 调用点在 `updateStatus(RETURN)` **之后**，不是之前。两个写没有事务包着，
+   *    顺序决定中间态：
+   *      先清后翻 —— 中间这一刻单子是 OPERATION_PENDING 且已无挂起,对客户可见
+   *      （收敛成 PROCESSING）；若接着 updateStatus 崩了,这个「本该藏着的挂起单
+   *      被永久曝光」的残局留在库里,是一个**新增**的失败模式。
+   *      先翻后清 —— 中间这一刻单子是 RETURNING 但仍挂着,对客户不可见；若接着
+   *      clear 崩了,残局恰好等于本次修复前的既有行为,不新增任何失败模式。
+   *
+   * ⚠️ 复用 depositService.clearLimitHold（Rule 5：不直写 domain 表），但**不动**
+   *    waiveLimitHold 的语义 —— 那是运营手动解除的入口（B4 §3 已放宽到认任何非空
+   *    挂起原因），挑不挑原因这件事只发生在这里。
+   */
+  private async clearAdministrativeHoldOnReturn(deposit: any): Promise<string | null> {
+    const holdReason: string | null = deposit.limitHoldReason ?? null;
+    if (
+      !holdReason ||
+      !DepositWorkflowService.ADMINISTRATIVE_HOLD_REASONS.has(holdReason)
+    ) {
+      return null;
+    }
+
+    await this.depositService.clearLimitHold(deposit.id);
+    this.logger.log(
+      `Deposit ${deposit.depositNo} return: cleared administrative hold (${holdReason}) — the return is now visible to the customer`,
+    );
+    return holdReason;
+  }
+
   private async onReturnApproved(deposit: any) {
-    if (deposit.status !== DepositTransactionStatus.MANUAL_CHECKING) {
+    if (!DepositWorkflowService.RETURNABLE_STATUSES.includes(deposit.status)) {
       this.logger.debug(
-        `onReturnApproved no-op: deposit ${deposit.id} not in MANUAL_CHECKING (status=${deposit.status})`,
+        `onReturnApproved no-op: deposit ${deposit.id} not in a returnable status (status=${deposit.status})`,
       );
       return;
     }
@@ -2324,11 +2741,16 @@ export class DepositWorkflowService implements OnModuleInit {
       reason: 'Return to sender approved (funds in transit)',
     });
 
+    const clearedHoldReason = await this.clearAdministrativeHoldOnReturn(deposit);
+
     await this.auditLogsService.recordSystem({
       action: AuditActions.DEPOSIT_RETURN_STARTED, entityType: AuditEntityTypes.DEPOSIT_TRANSACTION,
       entityId: deposit.id, entityNo: deposit.depositNo, entityOwnerType: deposit.ownerType, entityOwnerId: deposit.ownerId,
       workflowType: 'DEPOSIT_RETURN', traceId: deposit.traceId || undefined, result: AuditResult.SUCCESS,
-      metadata: { depositNo: deposit.depositNo, amount: String(deposit.amount), fundsOrderNo: returnLeg.fundsOrderNo },
+      // clearedLimitHoldReason：本次退回清掉的行政级挂起原因（没清则 null）。挂起原因
+      // 决定客户看不看得见这笔单,属 operator 可见的状态变化 —— 按铁律留痕,但复用
+      // DEPOSIT_RETURN_STARTED 这条已有审计的 metadata,不新造审计动作常量。
+      metadata: { depositNo: deposit.depositNo, amount: String(deposit.amount), fundsOrderNo: returnLeg.fundsOrderNo, clearedLimitHoldReason: clearedHoldReason },
       requestId: `DEPOSIT_RETURN_STARTED_${deposit.depositNo}_${randomUUID()}`, sourcePlatform: 'SYSTEM',
     });
   }
@@ -2507,6 +2929,10 @@ export class DepositWorkflowService implements OnModuleInit {
         return;
       }
 
+      // 重试三级梯耗尽 —— 单子留在 RETURNING 原地不动,靠红标让运营看见。
+      // 「卡住了」是一面旗,不是一个状态（业主 2026-08-22 定稿）。
+      await this.depositService.markNeedsReview(deposit.id);
+
       await this.auditLogsService.recordSystem({
         action: AuditActions.DEPOSIT_RETURN_STUCK, entityType: AuditEntityTypes.DEPOSIT_TRANSACTION,
         entityId: deposit.id, entityNo: deposit.depositNo, entityOwnerType: deposit.ownerType, entityOwnerId: deposit.ownerId,
@@ -2517,6 +2943,11 @@ export class DepositWorkflowService implements OnModuleInit {
       });
     } catch (err: any) {
       this.logger.error(`onReturnLegFailed crashed for deposit ${deposit.depositNo} attempt ${attempt}: ${err.message}`);
+      // 崩溃路径同样置旗:pending 可能还锁着,更需要被看见。markNeedsReview 自带
+      // try/catch 兜底——它失败不能盖掉下面这条 STUCK 审计。
+      await this.depositService.markNeedsReview(deposit.id).catch((e) =>
+        this.logger.error(`markNeedsReview failed for deposit ${deposit.depositNo}: ${e.message}`),
+      );
       await this.auditLogsService.recordSystem({
         action: AuditActions.DEPOSIT_RETURN_STUCK, entityType: AuditEntityTypes.DEPOSIT_TRANSACTION,
         entityId: deposit.id, entityNo: deposit.depositNo, entityOwnerType: deposit.ownerType, entityOwnerId: deposit.ownerId,
@@ -2912,6 +3343,10 @@ export class DepositWorkflowService implements OnModuleInit {
         return;
       }
 
+      // 重试三级梯耗尽 —— 单子留在 SEIZING 原地不动,靠红标让运营看见。
+      // 「卡住了」是一面旗,不是一个状态（业主 2026-08-22 定稿）。
+      await this.depositService.markNeedsReview(deposit.id);
+
       await this.auditLogsService.recordSystem({
         action: AuditActions.DEPOSIT_SEIZE_STUCK, entityType: AuditEntityTypes.DEPOSIT_TRANSACTION,
         entityId: deposit.id, entityNo: deposit.depositNo, entityOwnerType: deposit.ownerType, entityOwnerId: deposit.ownerId,
@@ -2922,6 +3357,11 @@ export class DepositWorkflowService implements OnModuleInit {
       });
     } catch (err: any) {
       this.logger.error(`onSeizeLegFailed crashed for deposit ${deposit.depositNo} attempt ${attempt}: ${err.message}`);
+      // 崩溃路径同样置旗:pending 可能还锁着,更需要被看见。markNeedsReview 自带
+      // try/catch 兜底——它失败不能盖掉下面这条 STUCK 审计。
+      await this.depositService.markNeedsReview(deposit.id).catch((e) =>
+        this.logger.error(`markNeedsReview failed for deposit ${deposit.depositNo}: ${e.message}`),
+      );
       await this.auditLogsService.recordSystem({
         action: AuditActions.DEPOSIT_SEIZE_STUCK, entityType: AuditEntityTypes.DEPOSIT_TRANSACTION,
         entityId: deposit.id, entityNo: deposit.depositNo, entityOwnerType: deposit.ownerType, entityOwnerId: deposit.ownerId,

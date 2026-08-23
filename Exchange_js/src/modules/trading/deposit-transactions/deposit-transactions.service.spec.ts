@@ -206,6 +206,22 @@ describe('DepositTransactionsService', () => {
     slaDeadline: new Date('2026-01-03T00:00:00Z'),
     slaBreached: true,
     actionSubmittedAt: new Date('2026-08-01T00:00:00Z'),
+    // B4（第四批）：L1 快照列。业主裁定「后端不管 tipping-off，只要保证页面上没有
+    // 文字漏出」—— 快照在后端**可以**带 cause/holdReason 明细（下面这份就带着
+    // CAPABILITY_RESTRICTED 与逐格 detail），客户面必须一个字都拿不到。
+    // `toCustomerDepositView` 是构造式白名单（不是 `...item` 再删字段），新增列
+    // 天生不外泄 —— 这行 + SENSITIVE_KEYS 里的 'l1Snapshot' 就是把这件事钉死，
+    // 防止有人日后把它改回展开式。
+    l1Snapshot: JSON.stringify({
+      evaluatedAt: '2026-01-01T00:00:00.000Z',
+      domain: 'DEPOSIT',
+      verdict: 'HOLD',
+      holdReason: 'CAPABILITY_RESTRICTED',
+      tradingTier: 'BASIC',
+      checks: [
+        { code: 'CUSTOMER_RESTRICTION', outcome: 'FAIL', detail: '客户被限制账摁住 DEPOSIT 能力' },
+      ],
+    }),
   };
 
   const SENSITIVE_KEYS = [
@@ -223,6 +239,7 @@ describe('DepositTransactionsService', () => {
     'limitHoldReason',
     'slaDeadline',
     'slaBreached',
+    'l1Snapshot',
   ];
 
   describe('findAllForCustomer', () => {
@@ -1068,6 +1085,15 @@ describe('DepositTransactionsService', () => {
       );
     });
 
+    it('OPERATION_PENDING 可以走 return → RETURNING（第四批新增边）', () => {
+      expect(
+        (service as any).getNextStatus(
+          DepositTransactionStatus.OPERATION_PENDING,
+          DepositTransactionAction.RETURN,
+        ),
+      ).toBe(DepositTransactionStatus.RETURNING);
+    });
+
     it('RETURNING → RETURNED via returned_done', async () => {
       setupMock(DepositTransactionStatus.RETURNING);
 
@@ -1193,12 +1219,17 @@ describe('DepositTransactionsService', () => {
     });
 
     // 守则性测试(防转移表再次漂移):brief `doc-final/superpowers/sdd/statemachine-brief.md`
-    // §二定稿的 26 条边 + 2026-08-13 新增 2 条 = 28 条边逐条列出——多一条、少一条、
-    // 边指向变了,这里都会红。同时用穷举(14 状态 × 16 动作)反向断言:凡不在这 28 条边
-    // 名单里的组合,一律必须抛 Invalid action/Cannot apply action(即没有偷偷长出第 29 条边)。
+    // §二定稿的 26 条边 + 2026-08-13 新增 2 条 − 2026-08-22 退役 1 条 + 第四批 C1 新增
+    // 1 条 = 28 条边逐条列出
+    // ——多一条、少一条、边指向变了,这里都会红。同时用穷举(14 状态 × 15 动作)反向断言:
+    // 凡不在这 28 条边名单里的组合,一律必须抛 Invalid action/Cannot apply action
+    // (即没有偷偷长出第 29 条边)。
     // 2026-08-13 新增两条:
     //   OPERATION_PENDING --freeze--> FROZEN            钱在暂扣里等处置,制裁命中必须冻得住
     //   CONFISCATING --confiscate_failed--> OPERATION_PENDING  A1 没收腿失败解锁后退回待处置
+    // 2026-08-22 退役一条(A3,业主定稿「重试三次仍不行就原地不动+标红」):
+    //   CONFISCATING --confiscate_failed--> OPERATION_PENDING  没收腿改重试三级梯,耗尽
+    //   后原地留 CONFISCATING + 置 needsReview 红标,与退回/上缴弧同形状,不再退状态。
     const EXPECTED_EDGES: Array<{
       from: DepositTransactionStatus;
       action: DepositTransactionAction;
@@ -1224,6 +1255,8 @@ describe('DepositTransactionsService', () => {
       { from: DepositTransactionStatus.OPERATION_PENDING, action: DepositTransactionAction.APPROVE, to: DepositTransactionStatus.SUCCESS },
       { from: DepositTransactionStatus.OPERATION_PENDING, action: DepositTransactionAction.CONFISCATE_START, to: DepositTransactionStatus.CONFISCATING },
       { from: DepositTransactionStatus.OPERATION_PENDING, action: DepositTransactionAction.FREEZE, to: DepositTransactionStatus.FROZEN },
+      // 第四批 C1：OPERATION_PENDING 的第四条出边 —— 原路退回汇款人。
+      { from: DepositTransactionStatus.OPERATION_PENDING, action: DepositTransactionAction.RETURN, to: DepositTransactionStatus.RETURNING },
 
       { from: DepositTransactionStatus.MANUAL_CHECKING, action: DepositTransactionAction.APPROVE, to: DepositTransactionStatus.SUCCESS },
       { from: DepositTransactionStatus.MANUAL_CHECKING, action: DepositTransactionAction.OPERATION_PENDING, to: DepositTransactionStatus.OPERATION_PENDING },
@@ -1235,7 +1268,6 @@ describe('DepositTransactionsService', () => {
       { from: DepositTransactionStatus.FROZEN, action: DepositTransactionAction.SEIZE, to: DepositTransactionStatus.SEIZING },
 
       { from: DepositTransactionStatus.CONFISCATING, action: DepositTransactionAction.CONFISCATE_SETTLE, to: DepositTransactionStatus.CONFISCATED },
-      { from: DepositTransactionStatus.CONFISCATING, action: DepositTransactionAction.CONFISCATE_FAILED, to: DepositTransactionStatus.OPERATION_PENDING },
       { from: DepositTransactionStatus.RETURNING, action: DepositTransactionAction.RETURNED_DONE, to: DepositTransactionStatus.RETURNED },
       { from: DepositTransactionStatus.SEIZING, action: DepositTransactionAction.SEIZED_DONE, to: DepositTransactionStatus.SEIZED },
     ];
@@ -1243,6 +1275,22 @@ describe('DepositTransactionsService', () => {
     describe('state machine integrity guard (28-edge brief)', () => {
       it('brief lists exactly 28 edges', () => {
         expect(EXPECTED_EDGES).toHaveLength(28);
+      });
+
+      it('CONFISCATING 只剩 confiscate_settle 一条出边（confiscate_failed 已退役）', () => {
+        expect(() =>
+          (service as any).getNextStatus(
+            DepositTransactionStatus.CONFISCATING,
+            'confiscate_failed' as any,
+          ),
+        ).toThrow(/Invalid|not allowed|无效/i);
+
+        expect(
+          (service as any).getNextStatus(
+            DepositTransactionStatus.CONFISCATING,
+            DepositTransactionAction.CONFISCATE_SETTLE,
+          ),
+        ).toBe(DepositTransactionStatus.CONFISCATED);
       });
 
       it.each(
@@ -1514,6 +1562,23 @@ describe('DepositTransactionsService', () => {
       expect(result.limitHoldReason).toBeNull();
     });
 
+    // B4（第四批）：Gate 0 的 L1 快照落库出口。workflow 禁止直接写 domain 表
+    // （铁律⑤），所以落库这一下必须由本 service 提供方法 —— 与 saveTxnDetail 同形状。
+    it('saveL1Snapshot writes the l1Snapshot column only (no status/hold side effects)', async () => {
+      const snapshot = JSON.stringify({ domain: 'DEPOSIT', verdict: 'PASS' });
+      ((prisma as any).depositTransaction.update as jest.Mock).mockResolvedValue({
+        id: 'dep-1',
+        l1Snapshot: snapshot,
+      });
+
+      const result = await service.saveL1Snapshot('dep-1', snapshot);
+
+      expect((prisma as any).depositTransaction.update).toHaveBeenCalledWith({
+        where: { id: 'dep-1' },
+        data: { l1Snapshot: snapshot },
+      });
+      expect(result.l1Snapshot).toBe(snapshot);
+    });
 
   });
 
@@ -1753,6 +1818,32 @@ describe('DepositTransactionsService', () => {
         expect(a).not.toHaveProperty('steps');
         expect(a).not.toHaveProperty('step');
       }
+    });
+  });
+
+  describe('needsReview 红标', () => {
+    it('markNeedsReview 只写 needsReview 一列，不碰状态', async () => {
+      const update = jest.fn().mockResolvedValue({ id: 'd1', needsReview: true });
+      (prisma as any).depositTransaction = { update };
+
+      await service.markNeedsReview('d1');
+
+      expect(update).toHaveBeenCalledWith({
+        where: { id: 'd1' },
+        data: { needsReview: true },
+      });
+    });
+
+    it('clearNeedsReview 只写 needsReview 一列', async () => {
+      const update = jest.fn().mockResolvedValue({ id: 'd1', needsReview: false });
+      (prisma as any).depositTransaction = { update };
+
+      await service.clearNeedsReview('d1');
+
+      expect(update).toHaveBeenCalledWith({
+        where: { id: 'd1' },
+        data: { needsReview: false },
+      });
     });
   });
 

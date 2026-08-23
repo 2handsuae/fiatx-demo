@@ -23,6 +23,7 @@ import { formatAssetAmount } from '../utils/number-format';
 import { formatSlaRemaining } from '../utils/slaDisplay';
 import { formatTransactionTypeLabel } from '../utils/transactionRootDisplay';
 import { getComplianceLayerStyle } from '../utils/depositActionMap';
+import L1GateCard from '../components/L1GateCard';
 import {
   getWithdrawStatusMeta,
   isWithdrawTerminalStatus,
@@ -135,8 +136,10 @@ interface WithdrawDetail {
   completedAt: string | null;
   traceId?: string | null;
   statusHistory: string | null;
+  l1Snapshot?: string | null;
   asset: { code: string; type: string; network: string | null; decimals: number };
-  customer?: { complianceStatus?: string | null; sumsubApplicantId?: string | null; customerNo?: string | null } | null;
+  /** `lifecycle` = 客户关系生命周期七态（PROSPECT/IN_VERIFICATION/…/ACTIVE/…/OFFBOARDED）。 */
+  customer?: { lifecycle?: string | null; sumsubApplicantId?: string | null; customerNo?: string | null } | null;
   linkedFundOrders?: LinkedFundOrder[];
   sumsubDetail?: SumsubTxnDetail | null;
   approvals?: WithdrawApproval[];
@@ -373,7 +376,12 @@ const WithdrawTransactionDetail = () => {
 
   if (!data) return null;
 
-  const eligibilityStyle = getComplianceLayerStyle(data.customer?.complianceStatus);
+  // L1 · Eligibility — 读客户生命周期 `lifecycle`。
+  // 第四批修复轮：此前读 `customer.complianceStatus`,那一列与 `restrictions` 是同一次
+  // migration（20260816063807_customer_lifecycle_restrictions）一起 drop 的,早已不存在,
+  // 恒 undefined → 这一格恒显示灰色 `N/A`。`lifecycle` 正是 L1GateService 的
+  // CUSTOMER_ELIGIBILITY 判的东西（`access.lifecycle === 'ACTIVE'`）,口径天然一致。
+  const eligibilityStyle = getComplianceLayerStyle(data.customer?.lifecycle);
   // L2 · Transaction Screen — a withdrawal submits a single Sumsub txn (finance
   // or travelRule, decided by the type resolver), one verdict shown verbatim.
   const l2Style = getComplianceLayerStyle(data.sumsubVerdict);
@@ -499,6 +507,9 @@ const WithdrawTransactionDetail = () => {
                     · Score {data.sumsubScore ?? '—'}
                   </span>
                 </div>
+              </div>
+              <div className="col-span-2 mt-2">
+                <L1GateCard raw={data.l1Snapshot} />
               </div>
             </div>
           </DetailCard>

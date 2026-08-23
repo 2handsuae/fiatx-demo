@@ -727,7 +727,9 @@ export class DepositTransactionsService {
       );
     }
 
-    // 状态机收窄(业主 2026-07-31 定稿,14 状态/15 动作/26 边)。每个终态都必须回答
+    // 状态机收窄(业主 2026-07-31 定稿;含 2026-08-13 增两条、2026-08-22 退役
+    // confiscate_failed 一条、2026-08-22(C1) 增 OPERATION_PENDING--return-->RETURNING
+    // 一条后为 14 状态/15 动作/28 边)。每个终态都必须回答
     // 「钱去哪了」——REJECTED/EXPIRED 是仅有的说不出资金去向的终态(钱已到账却"拒绝"/
     // "过期",资金悬空),已删除。payin 结束就是钱到了,COMPLIANCE_PENDING 之后不再有
     // FAILED(FAIL 的唯一入口是 PAYIN_PENDING)。FROZEN 收窄为只剩两个合法归宿
@@ -759,7 +761,7 @@ export class DepositTransactionsService {
       [DepositTransactionStatus.ACTION_PENDING]: {
         [DepositTransactionAction.APPROVE]: DepositTransactionStatus.SUCCESS,
         // 终审 Critical 2 回归闸:approveDeposit 的 oldStatus 白名单接受
-        // ACTION_PENDING,金额闸(holdBelowMinIfNeeded)下沉到该唯一出口后会从这里
+        // ACTION_PENDING,挂起闸(holdIfHeld,原 holdBelowMinIfNeeded)下沉到该唯一出口后会从这里
         // 调 operation_pending 动作——此边此前只从 COMPLIANCE_PENDING 出发存在,
         // 两边前置条件对不上,below-min 单补料后被 approve 翻案时在这里抛 Invalid action。
         [DepositTransactionAction.OPERATION_PENDING]:
@@ -784,6 +786,11 @@ export class DepositTransactionsService {
         // (判据:钱在哪决定能不能冻。PAYIN_PENDING 不给边——那时 SUSPENSE 是空的,
         //  冻了下游 seize 反冲空账户走不通。)
         [DepositTransactionAction.FREEZE]: DepositTransactionStatus.FROZEN,
+        // 2026-08-22(C1):原路退回汇款人。此前 OPERATION_PENDING 只有放行(不该放行)、
+        // 上缴(小额充值专属)、冻结(执法级)三条出边——L1 行政级挂起(客户账户已暂停/
+        // 生命周期非 ACTIVE)的单在这里无路可走。退回走 MLRO maker-checker 审批,
+        // 批准后才由 onReturnApproved 走到这条边(与 MANUAL_CHECKING 同一条落地路径)。
+        [DepositTransactionAction.RETURN]: DepositTransactionStatus.RETURNING,
       },
       [DepositTransactionStatus.MANUAL_CHECKING]: {
         [DepositTransactionAction.APPROVE]: DepositTransactionStatus.SUCCESS,
@@ -811,13 +818,11 @@ export class DepositTransactionsService {
         [DepositTransactionAction.SEIZE]: DepositTransactionStatus.SEIZING,
       },
       [DepositTransactionStatus.CONFISCATING]: {
+        // 2026-08-22(A3):唯一出边。没收腿 FAILED/TIMEOUT 不再退状态——改重试三级梯,
+        // 耗尽后单子原地留 CONFISCATING + 置 needsReview 红标(业主定稿:「卡住了」是一
+        // 面旗,不是一个状态),与 RETURNING/SEIZING 两条处置弧完全同形状。
         [DepositTransactionAction.CONFISCATE_SETTLE]:
           DepositTransactionStatus.CONFISCATED,
-        // A1: 没收腿 FAILED/TIMEOUT — 此前这条信号掉地上(onConfiscationLegChanged 只认
-        // CONFIRMED),deposit 永停 CONFISCATING、两笔 pending 锁永不释放、四条恢复路径全堵。
-        // 现在解锁两笔后退回 OPERATION_PENDING,运营可重新发起没收。
-        [DepositTransactionAction.CONFISCATE_FAILED]:
-          DepositTransactionStatus.OPERATION_PENDING,
       },
       [DepositTransactionStatus.RETURNING]: {
         [DepositTransactionAction.RETURNED_DONE]:
@@ -843,6 +848,25 @@ export class DepositTransactionsService {
     return (this.prisma as any).depositTransaction.update({
       where: { id },
       data: { sumsubVerdict: verdict, sumsubScore: score ?? null, sumsubScoredAt: new Date() },
+    });
+  }
+
+  /**
+   * L1 闸门快照落库(B4)。Gate 0 每跑一次求值就覆盖写一次 —— 快照是「这一刻
+   * 九格分别判成什么」的存证,不是流水,只留最近一次。
+   *
+   * 由本 service 提供而不是让 workflow 直接 update:铁律⑤(workflow 禁止直接写
+   * domain 实体的 Prisma 表)。形状照抄 saveTxnDetail —— 只写这一列,不碰状态、
+   * 不碰挂起原因。
+   *
+   * ⚠️ 这一列**不在** toCustomerDepositView 的白名单里,客户面拿不到(它是构造式
+   * 白名单,新增列天生不外泄)。业主 2026-08-22:后端不做 tipping-off 脱敏,快照
+   * 可以带 cause/holdReason 明细,页面不漏字即可。别把它加进任何客户面视图。
+   */
+  async saveL1Snapshot(id: string, json: string) {
+    return (this.prisma as any).depositTransaction.update({
+      where: { id },
+      data: { l1Snapshot: json },
     });
   }
 
@@ -933,6 +957,29 @@ export class DepositTransactionsService {
   }
 
   /**
+   * 红标：资金腿重试耗尽后由 workflow 置起。**只写这一列，绝不碰状态** ——
+   * 三个在途处置态（CONFISCATING/RETURNING/SEIZING）卡死时单子留在原地，
+   * 「卡住了」这件事靠这面旗表达，不靠状态迁移（业主 2026-08-22 定稿）。
+   * 与 WithdrawTransactionsService.markNeedsReview/clearNeedsReview 同构；
+   * 兑换域是单个切换方法 SwapTransactionsService.setNeedsReview(id, bool, tx)
+   * —— 三域故意分叉，各写各的形状，不抽 helper。
+   */
+  async markNeedsReview(id: string) {
+    return (this.prisma as any).depositTransaction.update({
+      where: { id },
+      data: { needsReview: true },
+    });
+  }
+
+  /** 处置成功落地后清旗（运营卫生）。 */
+  async clearNeedsReview(id: string) {
+    return (this.prisma as any).depositTransaction.update({
+      where: { id },
+      data: { needsReview: false },
+    });
+  }
+
+  /**
    * SLA 破线候选扫描。硬软两类都扫，由 DepositSlaService 按状态分流：
    *   硬（COMPLIANCE_PENDING / ACTION_PENDING）→ 推 MANUAL_CHECKING
    *   软（MANUAL_CHECKING / OPERATION_PENDING）→ 只置 slaBreached
@@ -982,7 +1029,12 @@ export class DepositTransactionsService {
     });
   }
 
-  /** PASS (waive) disposition: clears the BELOW_MIN hold flag. Does not touch status. */
+  /**
+   * Clears the hold flag (whatever the reason was). Does not touch status.
+   * Two callers, each picking its own reasons in the workflow layer:
+   *   waiveLimitHold          — ops 手动解除，认任何非空挂起原因（B4 §3）
+   *   clearAdministrativeHold — 退回落地，只认行政级（C1 复审，BELOW_MIN 继续藏）
+   */
   async clearLimitHold(id: string) {
     return (this.prisma as any).depositTransaction.update({
       where: { id },

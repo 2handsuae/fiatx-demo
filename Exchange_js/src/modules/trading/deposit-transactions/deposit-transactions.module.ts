@@ -18,6 +18,7 @@ import { DepositUnfreezeApprovalService } from './deposit-unfreeze-approval.serv
 import { DepositApplicantActionsService } from './deposit-applicant-actions.service';
 import { CustomersModule } from '../../identity/customers/customers.module';
 import { MaterialRequestsModule } from '../../identity/material-requests/material-requests.module';
+import { L1GateModule } from '../shared/l1-gate/l1-gate.module';
 
 @Module({
   imports: [
@@ -33,6 +34,10 @@ import { MaterialRequestsModule } from '../../identity/material-requests/materia
     ApprovalsModule,
     // Task 8：DepositApplicantActionsService 改走材料账，需要 issuer/requests service
     forwardRef(() => MaterialRequestsModule),
+    // B4（第四批）：DepositWorkflowService 的 Gate 0 注入 L1GateService（三域共用的
+    // L1 快照求值器）。与提现/兑换同形状的平引用即可 —— L1GateModule 自己已用
+    // forwardRef 解开与 CustomersModule 的真实 require 环。
+    L1GateModule,
   ],
   controllers: [DepositTransactionsController],
   providers: [

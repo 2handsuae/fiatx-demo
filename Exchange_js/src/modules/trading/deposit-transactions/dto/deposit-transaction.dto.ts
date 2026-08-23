@@ -1,4 +1,4 @@
-import { IsOptional, IsString, IsEnum, IsNumber, Min } from 'class-validator';
+import { IsOptional, IsString, IsEnum, IsNumber, IsNotEmpty, Min } from 'class-validator';
 import { Type, Transform } from 'class-transformer';
 
 export enum DepositTransactionStatus {
@@ -89,9 +89,9 @@ export enum DepositTransactionAction {
   RESUME = 'resume',
   CONFISCATE_START = 'confiscate_start',
   CONFISCATE_SETTLE = 'confiscate_settle',
-  // 没收腿 FAILED/TIMEOUT → 解锁两笔 pending 后退回待处置(A1)。不做重建重试:
-  // 没收腿的 deterministicTransferId 第 4 参是常量 1(非 attempt),抄不了退回弧的三级梯。
-  CONFISCATE_FAILED = 'confiscate_failed',
+  // 2026-08-22(A3)退役 CONFISCATE_FAILED:没收腿改重试三级梯,attempt 已穿透进
+  // deterministicTransferId 第 4 参,不再需要「一次失败就退回 OPERATION_PENDING」这条边。
+  // 耗尽后原地留 CONFISCATING + 置 needsReview 红标,与退回/上缴弧同形状。
   FAIL = 'fail',
   SLA_BREACH = 'sla_breach',
   KYT_REJECTED = 'kyt_rejected',
@@ -108,4 +108,12 @@ export class UpdateDepositTransactionStatusDto {
   @IsOptional()
   @IsString()
   reason?: string;
+}
+
+// 第四批 C1：POST /deposit-transactions/:id/return 的入参。退回是 MLRO maker-checker
+// 审批案（不是直推），reason 会进审批单与审计留痕，必填。
+export class InitiateDepositReturnDto {
+  @IsString()
+  @IsNotEmpty()
+  reason!: string;
 }

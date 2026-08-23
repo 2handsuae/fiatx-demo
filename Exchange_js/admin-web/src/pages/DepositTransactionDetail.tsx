@@ -8,6 +8,7 @@ import {
   InfoField,
 } from '../components/compliance/DetailPageComponents';
 import { SidebarGroup, SidebarKV } from '../components/ui/SidebarPrimitives';
+import { AdminBadge } from '../components/ui/AdminBadge';
 import {
   LinkedRelationCard,
   LinkedRelationEmpty,
@@ -26,6 +27,7 @@ import {
   normalizeRailDisplayStatus,
 } from '../utils/transactionRootDisplay';
 import { getComplianceLayerStyle } from '../utils/depositActionMap';
+import L1GateCard from '../components/L1GateCard';
 import { getDepositStatusMeta } from '../utils/depositStatusMap';
 import { adminButtonClass } from '../components/common/adminButtonStyles';
 import { useSimulationMode } from '../utils/simulationMode';
@@ -92,6 +94,7 @@ interface DepositDetail {
   payinType?: string | null;
   traceId?: string | null;
   limitHoldReason?: string | null;
+  needsReview?: boolean;
   sumsubTxnId?: string | null;
   sumsubTxnType?: 'finance' | 'travelRule' | null;
   sumsubVerdict?: string | null;
@@ -100,6 +103,7 @@ interface DepositDetail {
   slaBreached?: boolean | null;
   sumsubActionId?: string | null;
   actionSubmittedAt?: string | null;
+  l1Snapshot?: string | null;
   asset: {
     code: string;
     type: string;
@@ -107,7 +111,8 @@ interface DepositDetail {
     decimals: number;
   };
   statusHistory: string | null;
-  customer?: { complianceStatus?: string | null; sumsubApplicantId?: string | null } | null;
+  /** `lifecycle` = 客户关系生命周期七态（PROSPECT/IN_VERIFICATION/…/ACTIVE/…/OFFBOARDED）。 */
+  customer?: { lifecycle?: string | null; sumsubApplicantId?: string | null } | null;
   linkedFundOrders?: LinkedFundOrder[];
   latestSumsubWebhook?: LatestSumsubWebhook | null;
   sumsubDetail?: SumsubTxnDetail | null;
@@ -181,6 +186,8 @@ const DepositTransactionDetail = () => {
   const [dispositionError, setDispositionError] = useState('');
   const [isConfiscateModalOpen, setIsConfiscateModalOpen] = useState(false);
   const [confiscateReason, setConfiscateReason] = useState('');
+  const [isReturnModalOpen, setIsReturnModalOpen] = useState(false);
+  const [returnReason, setReturnReason] = useState('');
   const [isSeizeModalOpen, setIsSeizeModalOpen] = useState(false);
   const [seizeReason, setSeizeReason] = useState('');
   const [seizeOrderRef, setSeizeOrderRef] = useState('');
@@ -260,7 +267,22 @@ const DepositTransactionDetail = () => {
 
   const handleWaiveLimit = async () => {
     if (!id) return;
-    if (!window.confirm('Waive the below-minimum hold and resume compliance processing for this deposit?')) {
+    // 文案跟着挂起原因走：同一个端点在 BELOW_MIN 上解的是金额下限，在 Gate 0 的
+    // 行政级挂起上解的是「客户被停用 / 生命周期非 ACTIVE」——写死「below-minimum」
+    // 会让运营以为自己只在解除账户暂停。
+    const holdReason = data?.limitHoldReason ?? null;
+    const isBelowMin = holdReason === 'BELOW_MIN';
+    const holdLabel = isBelowMin ? 'below-minimum hold' : `hold (${holdReason})`;
+    // 终审 I1：此前无论哪种挂起都写「and resume compliance processing」——对行政级挂起
+    // 是**假的**。Gate 0 落的挂起（CAPABILITY_RESTRICTED / LIFECYCLE_NOT_ACTIVE）那条
+    // 分支刻意不送 Sumsub，单子没有裁决；waive 之后后端的 checkAutoApproval 读到
+    // sumsubVerdict=null 就静默早退，不会自动放行、也没有边能把它送回 COMPLIANCE_PENDING
+    // 重跑 Gate 0。运营点完只会得到一笔「无挂起、无裁决」的 OPERATION_PENDING 单，
+    // 实际只剩 Initiate Return to Sender 一条出路。文案必须照实说，别让人以为点完就走完了。
+    const outcomeLine = isBelowMin
+      ? 'Compliance already cleared this deposit, so releasing the hold lets it finish and credit the customer.'
+      : `This deposit was never submitted to Sumsub (Gate 0 held it before screening), so releasing the hold will NOT resume compliance and will NOT credit the customer. It stays in OPERATION_PENDING with no hold and no KYT case — from there the only remaining action is "Initiate Return to Sender".`;
+    if (!window.confirm(`Release the ${holdLabel}?\n\n${outcomeLine}`)) {
       return;
     }
     setDispositionSubmitting(true);
@@ -271,14 +293,18 @@ const DepositTransactionDetail = () => {
         { method: 'POST' },
       );
       if (!response.ok) {
-        setDispositionError(await getApiErrorMessage(response, 'Failed to waive limit hold.'));
+        setDispositionError(await getApiErrorMessage(response, 'Failed to release hold.'));
         return;
       }
-      setNotice('Minimum-limit hold waived — deposit resumed compliance');
+      setNotice(
+        isBelowMin
+          ? `Hold released (${holdReason}) — deposit resumed compliance`
+          : `Hold released (${holdReason}) — deposit was never screened, so it does NOT resume compliance; it stays awaiting ops disposition (Return to Sender)`,
+      );
       await fetchData();
     } catch (error) {
       if (error instanceof AdminSessionError) return;
-      setDispositionError(error instanceof Error ? error.message : 'Failed to waive limit hold.');
+      setDispositionError(error instanceof Error ? error.message : 'Failed to release hold.');
     } finally {
       setDispositionSubmitting(false);
     }
@@ -309,6 +335,40 @@ const DepositTransactionDetail = () => {
     } catch (error) {
       if (error instanceof AdminSessionError) return;
       setDispositionError(error instanceof Error ? error.message : 'Failed to submit confiscation.');
+    } finally {
+      setDispositionSubmitting(false);
+    }
+  };
+
+  // 第四批 C1：OPERATION_PENDING 的第四条出路 —— 原路退回汇款人。与没收/没入同形状,
+  // 打的是「开审批案」的端点,返回 approvalNo,钱不会立刻退。
+  const handleReturnSubmit = async () => {
+    if (!id || !returnReason.trim()) return;
+    setDispositionSubmitting(true);
+    setDispositionError('');
+    try {
+      const response = await adminFetch(
+        `${import.meta.env.VITE_API_URL}/deposit-transactions/${id}/return`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ reason: returnReason.trim() }),
+        },
+      );
+      if (!response.ok) {
+        setDispositionError(await getApiErrorMessage(response, 'Failed to submit return request.'));
+        return;
+      }
+      const result = await response.json();
+      setNotice(
+        `Return submitted for approval — ${result.approvalNo} (funds stay on hold until MLRO approves)`,
+      );
+      setIsReturnModalOpen(false);
+      setReturnReason('');
+      await fetchData();
+    } catch (error) {
+      if (error instanceof AdminSessionError) return;
+      setDispositionError(error instanceof Error ? error.message : 'Failed to submit return request.');
     } finally {
       setDispositionSubmitting(false);
     }
@@ -423,14 +483,33 @@ const DepositTransactionDetail = () => {
 
   if (!data) return null;
 
-  const isBelowMinPending =
-    data.status === 'OPERATION_PENDING' && data.limitHoldReason === 'BELOW_MIN';
+  // B4 修复轮：Gate 0 现在也会把「客户被停用 / 生命周期非 ACTIVE」的单挂到
+  // OPERATION_PENDING（挂起原因 CAPABILITY_RESTRICTED / LIFECYCLE_NOT_ACTIVE）。
+  // 处置组此前只认 BELOW_MIN，那些单在界面上无路可走（无 waive 按钮、approve 静默
+  // no-op、FROZEN 组也不显示），钱压在 DEPOSIT_SUSPENSE 里。
+  // 门控改为「挂起原因非空」；`Confiscate as Fee` 仍**只**在 BELOW_MIN 下出现 ——
+  // 没收是小额充值的专属处置，行政级挂起单不该有这个按钮（后端 initiateConfiscation
+  // 与没收落地前置也都硬钉 BELOW_MIN）。
+  const pendingHoldReason =
+    data.status === 'OPERATION_PENDING' ? (data.limitHoldReason ?? null) : null;
+  const isHoldPending = pendingHoldReason !== null;
+  // C1 修复轮(Important C)：`Release Hold` clearing the hold reason (e.g. a Gate 0
+  // auto-approval no-op) used to make the whole Ops Disposition group — including the
+  // Return-to-Sender button — disappear, with no way back in. Return doesn't depend on
+  // a hold reason existing, so the group itself gates on OPERATION_PENDING alone; the
+  // Release Hold button still gates on isHoldPending below.
+  const isOperationPending = data.status === 'OPERATION_PENDING';
+  const isBelowMinPending = pendingHoldReason === 'BELOW_MIN';
   // 合规闸门只在 COMPLIANCE_PENDING 及之后才评估 —— 钱还没到账(PAYIN_PENDING)时
-  // L1/L2 一律显示 PENDING(未评估)。此前 L1 直接绑客户级 complianceStatus,那个值
-  // 与本单无关且恒为 APPROVED,导致钱还没到闸门就已经是绿的。
+  // L1/L2 一律显示 PENDING(未评估)。
+  // 第四批修复轮：钱到账之后这一格此前读 `customer.complianceStatus` —— 那一列与
+  // `restrictions` 是同一次 migration（20260816063807_customer_lifecycle_restrictions）
+  // 一起 drop 的,早已不存在,恒 undefined → 恒显示灰色 `N/A`（上面那句旧注释说它
+  // 「恒为 APPROVED」同样是错的）。改读 `lifecycle`：它正是 L1GateService 的
+  // CUSTOMER_ELIGIBILITY 判的东西（`access.lifecycle === 'ACTIVE'`）,口径天然一致。
   const gatesNotEvaluated = data.status === 'PAYIN_PENDING';
   const eligibilityStyle = getComplianceLayerStyle(
-    gatesNotEvaluated ? 'PENDING' : data.customer?.complianceStatus,
+    gatesNotEvaluated ? 'PENDING' : data.customer?.lifecycle,
   );
   // L2 · Transaction Screen — a deposit now submits a single Sumsub txn
   // (finance or travelRule, decided by the type judge), not two lanes — so
@@ -565,6 +644,9 @@ const DepositTransactionDetail = () => {
                     Score: {gatesNotEvaluated ? '—' : (data.sumsubScore ?? '—')}
                   </span>
                 </div>
+              </div>
+              <div className="col-span-2 mt-2">
+                <L1GateCard raw={data.l1Snapshot} />
               </div>
             </div>
           </DetailCard>
@@ -704,27 +786,73 @@ const DepositTransactionDetail = () => {
         <div className="w-[272px] min-w-[272px] overflow-y-auto border-l border-adm-border bg-adm-panel px-4">
 
           {/* Ops Disposition */}
-          {isBelowMinPending && (
+          {isOperationPending && (
             <SidebarGroup title="Ops Disposition">
               {dispositionError && <p className="mb-2 text-[11px] text-adm-red">{dispositionError}</p>}
+              {/* 运营必须先知道自己在解除**哪一条**挂起 —— 同一个按钮在
+                  BELOW_MIN 上是「豁免金额下限」、在行政级上是「解除账户挂起」。
+                  挂起原因可能已被清空(例如 Release Hold 点过之后)——此时只剩
+                  Return 出路,Hold reason 一行与 Release Hold 按钮一起隐藏。 */}
+              {isHoldPending && (
+                <p className="mb-2 font-mono text-[10px] text-adm-t3">
+                  Hold reason:{' '}
+                  <span className="font-semibold text-adm-amber">{pendingHoldReason}</span>
+                </p>
+              )}
               <div className="flex flex-col gap-2">
-                <button
-                  onClick={handleWaiveLimit}
-                  disabled={dispositionSubmitting}
-                  className="w-full rounded px-3 py-2 text-sm font-medium transition-colors bg-green-600 text-white hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {dispositionSubmitting ? 'Processing...' : 'PASS (Waive Min-Limit)'}
-                </button>
+                {isHoldPending && (
+                  <button
+                    onClick={handleWaiveLimit}
+                    disabled={dispositionSubmitting}
+                    className={adminButtonClass('workflowPrimary', 'w-full')}
+                  >
+                    {dispositionSubmitting
+                      ? 'Processing...'
+                      : isBelowMinPending
+                        ? 'PASS (Waive Min-Limit)'
+                        : 'Release Hold (does not resume compliance)'}
+                  </button>
+                )}
+                {/* 终审 I1：行政级挂起的单从未送 Sumsub（Gate 0 在送检之前就把它挂住了），
+                    所以解除挂起**不会**自动走合规、也不会入账——后端 checkAutoApproval
+                    读到 sumsubVerdict=null 就早退，且没有任何边能把它送回 COMPLIANCE_PENDING
+                    重跑 Gate 0。按钮旁必须写明，否则运营点完会以为流程还在走。
+                    ⚠️ 这是如实描述现状，不是设计终态：该不该给挂起分支送检 / 该不该补
+                    OPERATION_PENDING--resume-->COMPLIANCE_PENDING 边，待业主拍板（BACKLOG 已登记）。 */}
+                {isHoldPending && !isBelowMinPending && (
+                  <p className="-mt-1 text-[10px] leading-snug text-adm-t3">
+                    This deposit was never screened by Sumsub, so releasing the hold will not
+                    resume compliance or credit the customer — it stays here awaiting disposition.
+                    The remaining exit is <span className="text-adm-t2">Initiate Return to Sender</span>.
+                  </p>
+                )}
+                {isBelowMinPending && (
+                  <button
+                    onClick={() => {
+                      setDispositionError('');
+                      setConfiscateReason('');
+                      setIsConfiscateModalOpen(true);
+                    }}
+                    disabled={dispositionSubmitting}
+                    className={adminButtonClass('workflowNegative', 'w-full')}
+                  >
+                    Confiscate as Fee
+                  </button>
+                )}
+                {/* 第四批 C1：挂起单的第四条出路。此前 OPERATION_PENDING 只能放行(不该
+                    放行)、上缴(小额专属)、冻结(执法级) —— 行政级挂起(客户账户已暂停)
+                    的单无路可走。退回是 MLRO maker-checker 审批案,不是直推:点下去开的
+                    是审批,钱不会立刻退。 */}
                 <button
                   onClick={() => {
                     setDispositionError('');
-                    setConfiscateReason('');
-                    setIsConfiscateModalOpen(true);
+                    setReturnReason('');
+                    setIsReturnModalOpen(true);
                   }}
                   disabled={dispositionSubmitting}
-                  className="w-full rounded px-3 py-2 text-sm font-medium transition-colors bg-red-600 text-white hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                  className={adminButtonClass('workflowSecondary', 'w-full')}
                 >
-                  Confiscate as Fee
+                  Initiate Return to Sender
                 </button>
               </div>
             </SidebarGroup>
@@ -821,6 +949,10 @@ const DepositTransactionDetail = () => {
               mono
             />
             <SidebarKV label="Trace ID" value={data.traceId ?? null} mono />
+            <SidebarKV
+              label="Needs Review"
+              value={data.needsReview ? <AdminBadge value="NEEDS_REVIEW" /> : 'No'}
+            />
           </SidebarGroup>
         </div>
       </div>
@@ -870,6 +1002,57 @@ const DepositTransactionDetail = () => {
                 className={adminButtonClass('modalConfirm')}
               >
                 {dispositionSubmitting ? 'Processing...' : 'Confirm'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Return to Sender Modal (C1) ── */}
+      {isReturnModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-md overflow-hidden rounded-xl border border-adm-border bg-adm-panel shadow-xl">
+            <div className="border-b border-adm-border bg-adm-card px-5 py-4">
+              <p className="font-mono text-[11px] font-semibold text-adm-t1">Initiate Return to Sender</p>
+            </div>
+            <div className="px-5 py-4 space-y-3">
+              {dispositionError && <p className="text-[11px] text-adm-red">{dispositionError}</p>}
+              {/* 运营最容易误解的一点:以为点完钱就退了。说清楚这一步只是开审批。 */}
+              <p className="rounded border border-adm-border bg-adm-bg px-3 py-2 font-mono text-[10px] leading-relaxed text-adm-amber">
+                This opens an MLRO approval request — it does NOT move any money yet. The
+                deposit stays on hold; the funds are only sent back to the original sender
+                after the approval is granted.
+              </p>
+              <div>
+                <label className="mb-1 block font-mono text-[9px] uppercase tracking-wider text-adm-t3">
+                  Reason
+                </label>
+                <textarea
+                  className="w-full rounded border border-adm-border bg-adm-bg px-3 py-2 font-mono text-[11px] text-adm-t1 placeholder:text-adm-t3 focus:border-adm-amber focus:outline-none"
+                  rows={3}
+                  placeholder="Why should these funds go back to the sender? (required)"
+                  value={returnReason}
+                  onChange={(e) => setReturnReason(e.target.value)}
+                />
+              </div>
+            </div>
+            <div className="border-t border-adm-border bg-adm-card px-5 py-4 flex justify-end gap-2">
+              <button
+                onClick={() => {
+                  setIsReturnModalOpen(false);
+                  setReturnReason('');
+                  setDispositionError('');
+                }}
+                className={adminButtonClass('modalCancel')}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleReturnSubmit}
+                disabled={dispositionSubmitting || !returnReason.trim()}
+                className={adminButtonClass('modalConfirm')}
+              >
+                {dispositionSubmitting ? 'Processing...' : 'Submit for Approval'}
               </button>
             </div>
           </div>

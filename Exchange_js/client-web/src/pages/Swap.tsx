@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   ArrowRightLeft,
   History,
@@ -147,7 +147,17 @@ const Swap = () => {
   // 下发的 disclosed 逐条渲染，本页不推导任何文案。
   const swapRestricted = isCapabilityRestricted(user, 'SWAP');
   const navigate = useNavigate();
-  const [activeTab, setActiveTab] = useState<'swap' | 'history'>('swap');
+  // tab 放进 URL 而不是组件 state：详情页返回时是 navigate(-1) 回到本路由，
+  // 若 tab 只存在组件里，重新挂载就会掉回默认的 Swap 下单表单——用户明明是从
+  // History 点进去的，回来却站在下单页，还得重新点 History、重新翻到那一行，
+  // 那不叫"从哪来回哪去"。放进查询参数后，历史条目自带 tab，返回即还原；
+  // 顺带 tab 也变成可分享/可收藏的链接。（同 Deposit.tsx）
+  const [searchParams, setSearchParams] = useSearchParams();
+  const activeTab: 'swap' | 'history' =
+    searchParams.get('tab') === 'history' ? 'history' : 'swap';
+  const setActiveTab = (tab: 'swap' | 'history') =>
+    // replace：切 tab 不该往历史里堆条目，否则从详情返回要连按好几次才退得出去
+    setSearchParams(tab === 'swap' ? {} : { tab }, { replace: true });
   const [assets, setAssets] = useState<Asset[]>([]);
   const [balances, setBalances] = useState<AssetBalance[]>([]);
   const [fromAssetId, setFromAssetId] = useState('');
@@ -903,19 +913,20 @@ const Swap = () => {
                       <th className="px-6 py-4 font-medium text-fx-dust">Swap Pair</th>
                       <th className="px-6 py-4 font-medium text-fx-dust">Amount</th>
                       <th className="px-6 py-4 font-medium text-fx-dust">Status</th>
+                      <th className="px-6 py-4 font-medium text-fx-dust text-right">Action</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-fx-rule">
                     {historyLoading ? (
                       <tr>
-                        <td colSpan={5} className="px-6 py-12 text-center text-fx-dust">
+                        <td colSpan={6} className="px-6 py-12 text-center text-fx-dust">
                           <RefreshCw className="animate-spin mx-auto mb-2" size={24} />
                           Loading history...
                         </td>
                       </tr>
                     ) : history.length === 0 ? (
                       <tr>
-                        <td colSpan={5} className="px-6 py-12 text-center text-fx-dust">
+                        <td colSpan={6} className="px-6 py-12 text-center text-fx-dust">
                           <div className="flex flex-col items-center">
                             <History size={32} className="opacity-20 mb-2" />
                             <p>No swap transactions found</p>
@@ -950,6 +961,17 @@ const Swap = () => {
                           </td>
                           <td className="px-6 py-4">
                             {renderStatusBadge(tx.status)}
+                          </td>
+                          {/* 详情入口是按钮不是整行 onClick：<tr onClick> 不可聚焦，
+                              键盘用户在充值/提现能 Tab 到按钮回车进详情，在这里
+                              则完全进不去详情页。列本身也与充值/提现的 Action 列对齐。 */}
+                          <td className="px-6 py-4 text-right">
+                            <button
+                              onClick={() => navigate(`/swap/${tx.swapNo}`)}
+                              className="text-fx-brass hover:text-fx-brass/80 text-xs font-medium px-3 py-1.5 bg-fx-brass/10 rounded hover:bg-fx-brass/20 transition-colors"
+                            >
+                              Details
+                            </button>
                           </td>
                         </tr>
                       ))

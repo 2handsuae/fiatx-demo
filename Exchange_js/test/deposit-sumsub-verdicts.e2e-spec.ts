@@ -98,7 +98,7 @@ import { AuditActions, AuditEntityTypes } from '../src/modules/audit-logging/con
  *   驱动真实 Gate 0(compliance 状态检查 + submitSumsubTxns 提交 mock 交易)。
  * - below-min 用例直接在建单时落 `limitHoldReason: 'BELOW_MIN'`(生产里这是 `detected()`
  *   查限额规则后落的标 —— 这里跳过规则查询,直接给结果,与
- *   `DepositWorkflowService.holdBelowMinIfNeeded` 的 JSDoc "判定依据是建单时落的
+ *   `DepositWorkflowService.holdIfHeld`(原 holdBelowMinIfNeeded) 的 JSDoc "判定依据是建单时落的
  *   limitHoldReason,不重查规则" 完全一致)。
  *
  * ⚠️ 破坏性护栏(务必读):本 suite 的 `beforeAll` 会 `depositTransaction.deleteMany({})`

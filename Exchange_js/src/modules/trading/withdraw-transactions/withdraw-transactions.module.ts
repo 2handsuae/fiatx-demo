@@ -19,6 +19,7 @@ import { FundsOrdersModule } from '../../funds-orders/funds-orders.module';
 import { TransactionLimitsModule } from '../../asset-treasury/transaction-limits/transaction-limits.module';
 import { DepositSumsubModule } from '../../deposit-sumsub/deposit-sumsub.module';
 import { MaterialRequestsModule } from '../../identity/material-requests/material-requests.module';
+import { L1GateModule } from '../shared/l1-gate/l1-gate.module';
 
 @Module({
   imports: [
@@ -40,6 +41,8 @@ import { MaterialRequestsModule } from '../../identity/material-requests/materia
     forwardRef(() => DepositSumsubModule),
     // Task 9：WithdrawApplicantActionsService 改走材料账，需要 issuer/requests service
     forwardRef(() => MaterialRequestsModule),
+    // B2（第四批）：WithdrawWorkflowService 注入 L1GateService（三域共用的 L1 快照求值器）。
+    L1GateModule,
   ],
   controllers: [WithdrawTransactionsController, CustomerWithdrawController],
   providers: [

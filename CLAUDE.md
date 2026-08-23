@@ -39,6 +39,26 @@ npm run runtime:diagnose           # 诊断迁移漂移
 
 ---
 
+## 构建闸门（在 Exchange_js/ 内执行；改完代码收尾必跑，**五道，一道都不能省**）
+
+```bash
+npx tsc --noEmit -p tsconfig.json          # ① 后端 src/
+npx tsc --noEmit -p tsconfig.test.json     # ② 后端 src/ + test/（①照不到 test/）
+cd admin-web  && npx tsc -b --noEmit && cd ..   # ③ 管理台
+cd client-web && npx tsc -b --noEmit && cd ..   # ④ 客户端
+npx jest                                    # ⑤ 全量单测，不带任何路径过滤
+```
+
+> 🔴 **为什么③④非跑不可**：`tsconfig.json` 的 `exclude` 里直接写着 `client-web`/`admin-web`/`frontend`，`include` 只有 `src/**/*`，`tsconfig.test.json` 又继承它——**①②没有任何一道会编译 `.tsx`**。改了前端不跑③④，等于一行没编译过。（④ 这道是 2026-08-22 第四批补的，此前闸门清单只有四条、`client-web` 完全裸奔。）
+>
+> 🔴 **⑤ 必须不带路径过滤**：带 `npx jest <path>` 会漏掉 `admin-web/src`、`client-web/src` 两个 root。判据是**净新失败 = 0**，不是「全绿」——已知基线常年有 3 suites / 4 tests 红（两个 wallets + 一个 `client-web` 的 vitest 文件被 jest 捡起）。
+>
+> ⚠️ **⑤ 不含 e2e**：`jest.config.js` 的 `roots` 不含 `test/`。e2e 要单独跑 `npx jest --config test/jest-e2e.json`，其结果永远不在全量 jest 的数字里——报告里两者必须分开表述。
+>
+> ⚠️ **`client-web` 的 `*.spec.ts` 是 vitest 写的，⑤ 跑不了它们**（jest 捡起就撞 `Vitest cannot be imported in a CommonJS module`，正是那条基线红）。真要跑用 `npm run test:client`（`vitest run`）。`admin-web` 的 `.spec.tsx` 同理**永不执行**（`testRegex` 只匹配 `.spec.ts`）。两条都已登记 BACKLOG。
+
+---
+
 ## 并行工作 · Worktree 规范
 
 **并行任务一律用工作树隔离，不在同一个文件夹里切分支。** 一句话：一会话 = 一 worktree = 一分支 = 一套自动分配的栈。

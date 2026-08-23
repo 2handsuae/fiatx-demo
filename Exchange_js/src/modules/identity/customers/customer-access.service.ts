@@ -45,8 +45,14 @@ export interface CustomerAccess {
   openCount: number;
 }
 
-/** 中性文案：与网络失败 / 系统繁忙不可区分，绝不透出 cause / visibility。 */
-const NEUTRAL_DENIAL = 'This operation is not available for your account at the moment.';
+/**
+ * 中性文案：与网络失败 / 系统繁忙不可区分，绝不透出 cause / visibility。
+ *
+ * export 出去是**安全要求**，不是便利：任何域自己手抄一份字面量，都可能在改动时
+ * 漏改成一句不一样的话 —— 拒绝理由一旦有差异就可被客户端指纹识别（tipping-off）。
+ * 全仓只此一份，提现/兑换的 L1_GATE_BLOCKED 都引用它。
+ */
+export const NEUTRAL_DENIAL = 'This operation is not available for your account at the moment.';
 
 function expandScopes(scopes: RestrictionScope[]): Capability[] {
   const out: Capability[] = [];

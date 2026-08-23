@@ -22,7 +22,24 @@ const LAYER_PENDING = new Set([
   'ONHOLD',
   'AWAITUSER',
 ]);
-const LAYER_FAIL = new Set(['FAILED', 'REJECTED', 'SUSPENDED', 'BLOCKED']);
+// 第四批：这个函数还要吃第二套取值域 —— 客户关系生命周期（CustomerLifecycle 七态,
+// src/modules/identity/constants/customer-lifecycle.constant.ts）。三域详情页的
+// `L1 · Eligibility` 那一格读的就是它。口径与 L1GateService 的 CUSTOMER_ELIGIBILITY
+// 判定逐字一致：`lifecycle === 'ACTIVE'` 才算过（ACTIVE 已在 LAYER_PASS 里）,其余六态
+// 一律 FAIL —— 闸门是二值的,颜色也就该是二值的,不另造「琥珀=在途」这一档去暗示一个
+// 闸门根本没做的区分。REJECTED 两套取值域同名,共用下面这一条。
+// 两套取值域**不相交**（Sumsub 那套 vs 生命周期那套）,合在一个函数里不会互相污染。
+const LAYER_FAIL = new Set([
+  'FAILED',
+  'REJECTED',
+  'SUSPENDED',
+  'BLOCKED',
+  'PROSPECT',
+  'IN_VERIFICATION',
+  'PENDING_APPROVAL',
+  'WITHDRAWN',
+  'OFFBOARDED',
+]);
 
 export interface LayerStyle {
   borderColor: string;

@@ -44,7 +44,16 @@ describe('SwapTransactionsService', () => {
       include: {
         fromAsset: true,
         toAsset: true,
-        customer: true,
+        // 第四批：限制账真数据（此前详情页读 CustomerMain 上一个不存在的
+        // 列 `restrictions`，侧栏恒显示 None）。一行一个 scope，只取 OPEN。
+        customer: {
+          include: {
+            restrictionRows: {
+              where: { status: 'OPEN' },
+              select: { restrictionNo: true, cause: true, scope: true, visibility: true },
+            },
+          },
+        },
       },
     });
     expect(result).toEqual(
@@ -209,7 +218,7 @@ describe('SLA deadline 在状态机收口处统一设', () => {
 // the full Sumsub payload, verdict/action, txn ids) that would tip off a
 // customer under sanctions investigation. Mirrors
 // withdraw-transactions.service.spec.ts's toCustomerWithdrawView coverage.
-describe('customer-facing tipping-off whitelist (findOneForCustomer / findAllForCustomer)', () => {
+describe('customer-facing tipping-off whitelist (findOneForCustomer / findOneForCustomerBySwapNo / findAllForCustomer)', () => {
   let service: SwapTransactionsService;
   let prisma: any;
 
@@ -373,6 +382,55 @@ describe('customer-facing tipping-off whitelist (findOneForCustomer / findAllFor
       );
     });
   });
+
+  // D4 修复轮（审查 I-4）：详情独立页那条新路径此前零测试。要防的回归很具体
+  // ——有人把 findOneForCustomerBySwapNo 的 where 里 ownerId 拿掉（理由现成：
+  // 「反正 findOneForCustomer 里还有一层 owner 校验」），越权立刻从 404 静默
+  // 降级成 403「Not your swap transaction」：单号存不存在被答了出去，存在性
+  // 泄漏当场重开，而 tsc 绿、jest 绿、grep 绿、页面照常渲染，没有任何闸门会响。
+  // 两条与 withdraw-transactions.service.spec.ts 的同名用例同构。
+  describe('findOneForCustomerBySwapNo', () => {
+    // findFirst 用一张假表模拟真实过滤语义（而不是恒定返回值）——where 少一个
+    // 条件命中的行就会变多，删 ownerId 这种变异才会真的把用例打红。
+    const seedFindFirst = () => {
+      prisma.swapTransaction.findFirst = jest
+        .fn()
+        .mockImplementation(({ where }: any) =>
+          Promise.resolve(
+            Object.entries(where).every(([k, v]) => (fullRow as any)[k] === v)
+              ? { id: fullRow.id }
+              : null,
+          ),
+        );
+      prisma.swapTransaction.findUnique.mockResolvedValue(fullRow);
+    };
+
+    it('IDOR miss（单号真实存在但不属于该客户）→ 与「单子不存在」完全相同的 404，不是 403', async () => {
+      seedFindFirst();
+
+      await expect(
+        service.findOneForCustomerBySwapNo('SWP0100', 'someone-else'),
+      ).rejects.toBeInstanceOf(NotFoundException);
+    });
+
+    it('命中 → where 同时锁 swapNo + ownerId，且走 findOneForCustomer 同一套白名单', async () => {
+      seedFindFirst();
+
+      const result: any = await service.findOneForCustomerBySwapNo('SWP0100', 'cust-1');
+
+      expect(prisma.swapTransaction.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { swapNo: 'SWP0100', ownerId: 'cust-1' },
+        }),
+      );
+      expect(result.complianceRuleNames).toBeUndefined();
+      expect(result.rejectReason).toBeUndefined();
+      expect(result.sumsubDetailJson).toBeUndefined();
+      expect(result.statusHistory).toBeUndefined();
+      expect(result.needsReview).toBeUndefined();
+      expect(result.swapNo).toBe('SWP0100');
+    });
+  });
 });
 
 // Task 10: 兑换客户面三层防线。Task 8 给 SwapTransactionStatus 加了 FROZEN
@@ -504,6 +562,8 @@ describe('findOneForAdmin', () => {
     prisma = {
       swapTransaction: { findUnique: jest.fn() },
       fundsOrder: { findMany: jest.fn().mockResolvedValue([]) },
+      // 第四批：admin 投影补材料请求活行（侧栏那格此前读一个不存在的列，恒 `—`）
+      materialRequest: { findMany: jest.fn().mockResolvedValue([]) },
     };
     service = new SwapTransactionsService(prisma as any, {} as any, {} as any, { emit: jest.fn() } as any, { recordByActor: jest.fn() } as any);
   });
@@ -586,6 +646,33 @@ describe('findOneForAdmin', () => {
 
     expect(result.sumsubDetail).toBeNull();
     expect(result.rejectReason).toBe('TIMEOUT');
+  });
+
+  // 第四批：详情页侧栏/References 卡的 `Material Requests` 那格。此前它读
+  // CustomerMain 上一个不存在的 pending-action 指针列，恒显示 `—`。
+  it('materialRequests 只带本单的活行（按 SWAP + swapNo + 活状态过滤）', async () => {
+    prisma.swapTransaction.findUnique.mockResolvedValue({
+      id: 'swap-a5',
+      swapNo: 'SWP0203',
+      sumsubDetailJson: null,
+    });
+    prisma.materialRequest.findMany.mockResolvedValue([
+      { requestNo: 'MRQ0001', materialType: 'PROOF_OF_ADDRESS', status: 'PENDING_SUBMISSION' },
+    ]);
+
+    const result: any = await service.findOneForAdmin('swap-a5');
+
+    expect(prisma.materialRequest.findMany).toHaveBeenCalledWith({
+      where: {
+        orderDomain: 'SWAP',
+        orderRef: 'SWP0203',
+        // 活行 = 客户还欠着材料；终态行（APPROVED/REJECTED/CANCELLED）不算
+        status: { in: ['PENDING_SUBMISSION', 'SUBMITTED'] },
+      },
+      select: { requestNo: true, materialType: true, status: true },
+    });
+    expect(result.materialRequests).toHaveLength(1);
+    expect(result.materialRequests[0].requestNo).toBe('MRQ0001');
   });
 
   it('saveSumsubVerdict 写在传入的 tx client 上（原子性另一半，配 workflow 层的同 tx 断言）', async () => {

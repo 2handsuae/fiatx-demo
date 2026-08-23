@@ -1,5 +1,5 @@
 import { randomUUID } from 'crypto';
-import { BadRequestException, Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { EventEmitter2, OnEvent } from '@nestjs/event-emitter';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../core/prisma/prisma.service';
@@ -39,10 +39,12 @@ import {
   GateValuation,
 } from '../../asset-treasury/transaction-limits/transaction-limit-gate.service';
 import { CustomerRestrictionsService } from '../../identity/customers/customer-restrictions.service';
-import { CustomerAccessService } from '../../identity/customers/customer-access.service';
+import { CustomerAccessService, NEUTRAL_DENIAL } from '../../identity/customers/customer-access.service';
 import { CustomersService } from '../../identity/customers/customers.service';
 import { MaterialRequestsService } from '../../identity/material-requests/material-requests.service';
 import { MaterialRequestIssuerService } from '../../identity/material-requests/material-request-issuer.service';
+import { L1GateService } from '../shared/l1-gate/l1-gate.service';
+import type { L1Check } from '../shared/l1-gate/l1-gate.types';
 
 /**
  * Payload of `funds_order.status.changed` — emitted by FundsOrderService on
@@ -191,6 +193,7 @@ export class SwapWorkflowService {
     private readonly customerAccessService: CustomerAccessService,
     private readonly materialRequests: MaterialRequestsService,
     private readonly materialRequestIssuer: MaterialRequestIssuerService,
+    private readonly l1Gate: L1GateService,
   ) {}
 
   private resolveLedger(currency: string): number {
@@ -223,6 +226,108 @@ export class SwapWorkflowService {
         customerId: ownerId,
         assetId: quotePeek.fromAssetId,
         amount: new Prisma.Decimal(quotePeek.amountIn),
+      });
+    }
+
+    // ── L1 闸门收口（第四批）── 与提现侧同口径：**上面已经快速失败过一轮**，
+    // 这里重跑一次是为了拿到逐项**可回显的快照**（上面抛的是中性错误，拿不到明细）。
+    //
+    // ⚠️ 订正（B2 审查）：兑换域并非「此前完全没查资格/限制」—— :210 的
+    // assertTradingEligibility(ownerId,'SWAP') 内部就是 assertCapability(资格+限制)，
+    // 且对非 DEPOSIT 还多跑一层 assertTradingReady，**严格强于** L1 这两项判定；
+    // 该调用自 04433cdd(2026-05-31) 起就在，B2 之前便签摁住 SWAP 的客户拿到的是
+    // 403 CAPABILITY_RESTRICTED，从来不能兑换。故下面的 BLOCK 分支逻辑上不可达，
+    // 只在 :210 与本行之间的毫秒级竞态窗口（便签刚被开出来）才触发 —— 兜底保留。
+    //
+    // 快照口径（**逐格只写这一刻真判过的**，写不实的 PASS = 伪证据）：
+    //  · SINGLE/CUMULATIVE_LIMIT、QUOTE_VALIDITY —— 限额闸已在上面按 quotePeek 跑过；
+    //    报价的有效性由建单事务内的 getActiveQuoteOrThrow 把关，未过则整单回滚不留单。
+    //  · TRADING_READINESS —— :210 的 assertTradingReady 已过（本行之前，确凿）。
+    //  · ACCOUNT_READINESS —— 双边收款账户由建单事务内的 hasReceivingAccount 无条件
+    //    校验，未过则整单回滚：**能落库的快照，这一格必然为真**。
+    //  · BALANCE_SUFFICIENCY —— 第四批补：建单前无条件校验卖出侧可用余额（本行
+    //    之前跑过、跑不过直接抛出不留单），跑在本次 evaluate() 调用之前，故可写 PASS。
+    const preChecks: L1Check[] = [];
+    if (quotePeek) {
+      preChecks.push({
+        code: 'SINGLE_LIMIT', outcome: 'PASS',
+        detail: `单笔上下限已过（${quotePeek.amountIn}）`,
+      });
+      preChecks.push({
+        code: 'CUMULATIVE_LIMIT', outcome: 'PASS',
+        detail: `累计额度已过（AED ${gateValuation?.grossAedValue ?? '—'}）`,
+      });
+      preChecks.push({
+        code: 'QUOTE_VALIDITY', outcome: 'PASS',
+        detail: '报价有效（建单事务内校验，未过则整单回滚）',
+      });
+    }
+    preChecks.push({
+      code: 'ACCOUNT_READINESS', outcome: 'PASS',
+      detail: '双边收款账户已就绪（建单事务内校验，未过则整单回滚）',
+    });
+    preChecks.push({
+      code: 'TRADING_READINESS', outcome: 'PASS',
+      detail: '交易起始前置已满足（建单前 assertTradingReady 已过）',
+    });
+
+    // ── 建单前余额校验（第四批补）──
+    // 提现建单即压 TB pending 锁额,余额不足当场被 TB 拒;兑换此前**没有这道闸**,
+    // 要等 KYT 过了建第一条腿才发现钱不够 —— 那时报价已烧、KYT 已过,而 PROCESSING
+    // 没有失败出边,单子永久卡死。所以必须前移到建单前。
+    //
+    // ⚠️ 2026-08-22 终审 I2 订正：这道校验**只读不锁**,因此**只堵住单笔场景**,原注释
+    // 写「堵住」是说过头了。它比一下 getCustomerAvailableBalance 就完事,**不像提现
+    // 那样压 TB pending**(available = creditsPosted − debitsPosted − debitsPending,
+    // 而兑换要等 KYT 通过建腿才写 pending)。并发同币种多单照样各自通过:客户 100 USDT,
+    // A 用 60 过闸落 COMPLIANCE_PENDING,A 裁决未回时 B 又用 60 —— 可用仍读到 100,
+    // B 也过闸;两笔都 kyt_approved → PROCESSING,A 抽干余额,B 的第一条腿失败 →
+    // B 永久卡在 PROCESSING + needsReview,正是这道闸想防的那个洞。
+    // 真正的修法是建单即压 TB pending、与提现同形状,已登记 BACKLOG,本批未做。
+    //
+    // 在 Decimal 空间比,不在 bigint 空间比：`decimalToBigint` 是
+    // swap-leg-accounting.ts 的**私有**方法,本文件拿不到;而
+    // getCustomerAvailableBalance 返回的是账本最小单位的 bigint,
+    // 除以 10^decimals 降回业务单位即可,不必新造 helper。
+    if (quotePeek) {
+      const sellAsset = await this.prisma.asset.findUnique({
+        where: { id: quotePeek.fromAssetId },
+        select: { currency: true, decimals: true },
+      });
+      if (sellAsset) {
+        const bal = await this.accountingService.getCustomerAvailableBalance(
+          ownerId,
+          sellAsset.currency,
+        );
+        const availableDecimal = new Prisma.Decimal(bal.available.toString()).div(
+          new Prisma.Decimal(10).pow(sellAsset.decimals),
+        );
+        const needed = new Prisma.Decimal(quotePeek.amountIn);
+        if (availableDecimal.lt(needed)) {
+          throw new BadRequestException({
+            code: 'INSUFFICIENT_BALANCE',
+            assetCode: sellAsset.currency,
+            message: `余额不足：需要 ${needed.toString()} ${sellAsset.currency}，可用 ${availableDecimal.toString()}`,
+          });
+        }
+        preChecks.push({
+          code: 'BALANCE_SUFFICIENCY', outcome: 'PASS',
+          detail: `卖出侧余额充足（需 ${needed.toString()} ${sellAsset.currency}，可用 ${availableDecimal.toString()}）`,
+        });
+      }
+    }
+
+    const l1 = await this.l1Gate.evaluate({
+      domain: 'SWAP',
+      customerId: ownerId,
+      preChecks,
+    });
+    if (l1.verdict === 'BLOCK') {
+      throw new ForbiddenException({
+        code: 'L1_GATE_BLOCKED',
+        // 中性文案 —— 直接引用 CustomerAccessService 的那一份（禁止手抄副本：
+        // 拒绝理由有差异即可被指纹识别）。绝不透出 cause / visibility。
+        message: NEUTRAL_DENIAL,
       });
     }
 
@@ -316,6 +421,7 @@ export class SwapWorkflowService {
           tbSpreadTransferId: null,
           traceId,
           grossAedValue: gateValuation?.grossAedValue ?? undefined,
+          l1Snapshot: JSON.stringify(l1),
           status: SwapTransactionStatus.COMPLIANCE_PENDING,
         }, tx);
 

@@ -11,7 +11,8 @@ import {
   adminFetch,
   getApiErrorMessage,
 } from '../utils/adminFetch';
-import { StatusPill } from '../components/ui/StatusPill';
+import { getSwapStatusMeta, SWAP_STATUS_FILTERS } from '../utils/swapStatusMap';
+import { AdminBadge } from '../components/ui/AdminBadge';
 import { PageTitleBar } from '../components/ui/PageTitleBar';
 import { formatAssetAmount, formatRate8 } from '../utils/number-format';
 import { formatSlaRemaining } from '../utils/slaDisplay';
@@ -56,6 +57,8 @@ interface FilterState {
   ownerNo: string;
   startDate: string;
   endDate: string;
+  /** SWAP_STATUS_FILTERS[].label of the selected filter group, or '' for All. */
+  statusGroup: string;
   needsReviewOnly: boolean;
   /** 仅看 SLA 已超时的单（前端过滤，后端暂无该查询参数）。 */
   slaBreachedOnly: boolean;
@@ -83,6 +86,7 @@ const SwapTransactionList = () => {
     ownerNo: '',
     startDate: '',
     endDate: '',
+    statusGroup: '',
     needsReviewOnly: false,
     slaBreachedOnly: false,
   });
@@ -93,6 +97,7 @@ const SwapTransactionList = () => {
       !!filters.ownerNo.trim() ||
       !!filters.startDate ||
       !!filters.endDate ||
+      !!filters.statusGroup ||
       filters.needsReviewOnly ||
       filters.slaBreachedOnly,
     [filters],
@@ -144,6 +149,7 @@ const SwapTransactionList = () => {
       ownerNo: '',
       startDate: '',
       endDate: '',
+      statusGroup: '',
       needsReviewOnly: false,
       slaBreachedOnly: false,
     };
@@ -157,9 +163,12 @@ const SwapTransactionList = () => {
     void fetchData(p);
   };
 
-  // Backend has no `needsReview` / `slaBreached` query filter yet; apply
-  // client-side over the current page only, so operators can quickly isolate
-  // stuck swaps — this does not search the full table, just what's loaded.
+  // Backend `status` query param only accepts a single SwapTransactionStatus
+  // enum value (no comma-separated list support like the deposit endpoint),
+  // so a multi-status filter group (e.g. "In progress") can't be sent as a
+  // query param without a 400. Same as `needsReview` / `slaBreached`: apply
+  // client-side over the current page only — this does not search the full
+  // table, just what's loaded.
   const visibleItems = useMemo(
     () =>
       items
@@ -168,8 +177,13 @@ const SwapTransactionList = () => {
           filters.slaBreachedOnly
             ? formatSlaRemaining(it.slaDeadline, it.slaBreached).tone === 'breached'
             : true,
-        ),
-    [items, filters.needsReviewOnly, filters.slaBreachedOnly],
+        )
+        .filter((it) => {
+          if (!filters.statusGroup) return true;
+          const group = SWAP_STATUS_FILTERS.find((f) => f.label === filters.statusGroup);
+          return group ? group.statuses.includes(it.status) : true;
+        }),
+    [items, filters.needsReviewOnly, filters.slaBreachedOnly, filters.statusGroup],
   );
 
   const fi =
@@ -203,6 +217,16 @@ const SwapTransactionList = () => {
           placeholder="Owner No"
           className={`${fi} w-36`}
         />
+        <select
+          value={filters.statusGroup}
+          onChange={(e) => setFilters((f) => ({ ...f, statusGroup: e.target.value }))}
+          className={`${fi} w-40`}
+        >
+          <option value="">All</option>
+          {SWAP_STATUS_FILTERS.map((f) => (
+            <option key={f.label} value={f.label}>{f.label}</option>
+          ))}
+        </select>
         <input
           type="date"
           value={filters.startDate}
@@ -228,18 +252,8 @@ const SwapTransactionList = () => {
         >
           Reset
         </button>
-        <label className="ml-2 inline-flex cursor-pointer items-center gap-1.5 font-mono text-[11px] text-adm-t2">
-          <input
-            type="checkbox"
-            checked={filters.needsReviewOnly}
-            onChange={(e) =>
-              setFilters((f) => ({ ...f, needsReviewOnly: e.target.checked }))
-            }
-            className="h-3.5 w-3.5 accent-adm-red"
-          />
-          Needs review only
-        </label>
-        {/* 前端过滤，只对当前页生效（后端暂无 slaBreached 查询参数）——同上 needsReviewOnly 的局限 */}
+        {/* 前端过滤，只对当前页生效（后端暂无 slaBreached 查询参数）——同下 needsReviewOnly 的局限。
+            与充值/提现列表同顺序（SLA breached only 在前）——三域并排对齐,见 D1 A4 顺序对齐。 */}
         <label
           className="ml-2 inline-flex cursor-pointer items-center gap-1.5 font-mono text-[11px] text-adm-t2"
           title="仅过滤当前页已加载的行，不是全库筛选"
@@ -253,6 +267,17 @@ const SwapTransactionList = () => {
             className="h-3.5 w-3.5 accent-adm-red"
           />
           SLA breached only (this page)
+        </label>
+        <label className="ml-2 inline-flex cursor-pointer items-center gap-1.5 font-mono text-[11px] text-adm-t2">
+          <input
+            type="checkbox"
+            checked={filters.needsReviewOnly}
+            onChange={(e) =>
+              setFilters((f) => ({ ...f, needsReviewOnly: e.target.checked }))
+            }
+            className="h-3.5 w-3.5 accent-adm-red"
+          />
+          Needs review only
         </label>
       </div>
 
@@ -271,8 +296,8 @@ const SwapTransactionList = () => {
                   ['Spread',      '120px'],
                   ['Status',      '120px'],
                   ['Stage',       '110px'],
-                  ['Review',      '80px'],
                   ['SLA',         '100px'],
+                  ['Review',      '80px'],
                   ['Created',     '150px'],
                 ] as [string, string][]
               ).map(([label, w]) => (
@@ -340,23 +365,12 @@ const SwapTransactionList = () => {
                       : '—'}
                   </td>
                   <td className="px-4 py-2.5">
-                    <StatusPill value={item.status} />
+                    <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-[10px] font-semibold ${getSwapStatusMeta(item.status).badgeClass}`}>
+                      {getSwapStatusMeta(item.status).label}
+                    </span>
                   </td>
                   <td className="px-4 py-2.5 font-mono text-[10px] text-adm-t2">
                     {item.currentStage ?? '—'}
-                  </td>
-                  <td className="px-4 py-2.5">
-                    {item.needsReview ? (
-                      <span
-                        className="inline-flex items-center gap-1 font-mono text-[10px] font-semibold text-adm-red"
-                        title="Needs review"
-                      >
-                        <span className="h-2 w-2 rounded-full bg-adm-red" />
-                        Review
-                      </span>
-                    ) : (
-                      <span className="font-mono text-[10px] text-adm-t3">—</span>
-                    )}
                   </td>
                   <td className="px-4 py-2.5">
                     {(() => {
@@ -367,6 +381,9 @@ const SwapTransactionList = () => {
                         </span>
                       );
                     })()}
+                  </td>
+                  <td className="px-4 py-2.5">
+                    {item.needsReview ? <AdminBadge value="NEEDS_REVIEW" /> : <span className="text-adm-t3">—</span>}
                   </td>
                   <td className="px-4 py-2.5 font-mono text-[10px] text-adm-t2 whitespace-nowrap">
                     {fmt(item.createdAt)}

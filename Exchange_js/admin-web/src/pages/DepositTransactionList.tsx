@@ -35,6 +35,7 @@ interface DepositItem {
   limitHoldReason?: string | null;
   slaDeadline?: string | null;
   slaBreached?: boolean;
+  needsReview?: boolean;
 }
 
 interface FilterState {
@@ -45,6 +46,7 @@ interface FilterState {
   type: string;
   startDate: string;
   endDate: string;
+  needsReviewOnly: boolean;
   /** 仅看 SLA 已超时的单（前端过滤，后端暂无该查询参数）。 */
   slaBreachedOnly: boolean;
 }
@@ -60,6 +62,7 @@ const DEFAULT_FILTERS: FilterState = {
   type: '',
   startDate: '',
   endDate: '',
+  needsReviewOnly: false,
   slaBreachedOnly: false,
 };
 
@@ -140,7 +143,7 @@ const DepositTransactionList = () => {
   const hasFilter =
     !!filters.depositNo || !!filters.ownerNo || !!filters.status ||
     !!filters.type || !!filters.startDate || !!filters.endDate ||
-    filters.slaBreachedOnly;
+    filters.needsReviewOnly || filters.slaBreachedOnly;
 
   const updateFilter = (key: keyof FilterState, value: string) =>
     setFilters((prev) => ({ ...prev, [key]: value }));
@@ -152,14 +155,19 @@ const DepositTransactionList = () => {
     void fetchItems(1, DEFAULT_FILTERS);
   };
 
-  // Backend has no `slaBreached` query filter yet; apply client-side over the
-  // current page only (same known limitation as needsReviewOnly on the swap list).
+  // Backend has no `needsReview` / `slaBreached` query filter yet; apply
+  // client-side over the current page only (same known limitation as
+  // needsReviewOnly on the swap list).
   const visibleItems = useMemo(
     () =>
-      filters.slaBreachedOnly
-        ? items.filter((i) => formatSlaRemaining(i.slaDeadline, i.slaBreached).tone === 'breached')
-        : items,
-    [items, filters.slaBreachedOnly],
+      items
+        .filter((it) => (filters.needsReviewOnly ? it.needsReview : true))
+        .filter((i) =>
+          filters.slaBreachedOnly
+            ? formatSlaRemaining(i.slaDeadline, i.slaBreached).tone === 'breached'
+            : true,
+        ),
+    [items, filters.needsReviewOnly, filters.slaBreachedOnly],
   );
 
   /* ── Render ── */
@@ -254,6 +262,17 @@ const DepositTransactionList = () => {
           />
           SLA breached only (this page)
         </label>
+        <label className="ml-2 inline-flex cursor-pointer items-center gap-1.5 font-mono text-[11px] text-adm-t2">
+          <input
+            type="checkbox"
+            checked={filters.needsReviewOnly}
+            onChange={(e) =>
+              setFilters((f) => ({ ...f, needsReviewOnly: e.target.checked }))
+            }
+            className="h-3.5 w-3.5 accent-adm-red"
+          />
+          Needs review only
+        </label>
       </div>
 
       {/* ── Notices ── */}
@@ -276,6 +295,7 @@ const DepositTransactionList = () => {
                   ['Type',       '90px'],
                   ['Owner',      '130px'],
                   ['SLA',        '100px'],
+                  ['Review',     '80px'],
                   ['Created',    '150px'],
                 ] as [string, string][]
               ).map(([label, w]) => (
@@ -292,14 +312,14 @@ const DepositTransactionList = () => {
           <tbody>
             {loading && (
               <tr>
-                <td colSpan={7} className="px-4 py-10 text-center font-mono text-[11px] text-adm-t3">
+                <td colSpan={8} className="px-4 py-10 text-center font-mono text-[11px] text-adm-t3">
                   Loading…
                 </td>
               </tr>
             )}
             {!loading && visibleItems.length === 0 && (
               <tr>
-                <td colSpan={7} className="px-4 py-10 text-center font-mono text-[11px] text-adm-t3">
+                <td colSpan={8} className="px-4 py-10 text-center font-mono text-[11px] text-adm-t3">
                   No deposits found.
                 </td>
               </tr>
@@ -323,7 +343,13 @@ const DepositTransactionList = () => {
                     <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-[10px] font-semibold ${getDepositStatusMeta(item.status).badgeClass}`}>
                       {getDepositStatusMeta(item.status).label}
                     </span>
-                    {item.limitHoldReason === 'BELOW_MIN' && <AdminBadge value="BELOW MIN" dot={false} />}
+                    {/* B4 修复轮：Gate 0 也会落 CAPABILITY_RESTRICTED /
+                        LIFECYCLE_NOT_ACTIVE，此前只认 BELOW_MIN → 行政级挂起单
+                        在列表上看不出任何异常。改成显示实际挂起原因（BELOW_MIN
+                        的徽章文案保持原样 "BELOW MIN"，不动既有观感）。 */}
+                    {item.limitHoldReason && (
+                      <AdminBadge value={item.limitHoldReason.replace(/_/g, ' ')} dot={false} />
+                    )}
                   </div>
                 </td>
 
@@ -356,6 +382,11 @@ const DepositTransactionList = () => {
                       </span>
                     );
                   })()}
+                </td>
+
+                {/* Review */}
+                <td className="px-4 py-2.5">
+                  {item.needsReview ? <AdminBadge value="NEEDS_REVIEW" /> : <span className="text-adm-t3">—</span>}
                 </td>
 
                 {/* Created */}

@@ -24,6 +24,7 @@ describe('DepositTransactionsController', () => {
     adminFreeze: jest.Mock;
     waiveLimitHold: jest.Mock;
     initiateConfiscation: jest.Mock;
+    initiateReturn: jest.Mock;
     initiateSeize: jest.Mock;
     initiateUnfreeze: jest.Mock;
   };
@@ -45,6 +46,7 @@ describe('DepositTransactionsController', () => {
       adminFreeze: jest.fn(),
       waiveLimitHold: jest.fn(),
       initiateConfiscation: jest.fn(),
+      initiateReturn: jest.fn(),
       initiateSeize: jest.fn(),
       initiateUnfreeze: jest.fn(),
     };
@@ -116,6 +118,30 @@ describe('DepositTransactionsController', () => {
     );
   });
 
+  // C1 修复轮(Important B)：/return 此前是本域唯一一个没有 assertAdmin 成对测试的
+  // maker-checker 端点 —— AdminPermissionGuard 对非 ADMIN token 是 NO-OP,
+  // assertAdmin 是这个端点唯一的租户闸,必须钉住。
+  it('return rejects a CUSTOMER token with ForbiddenException (assertAdmin-first)', () => {
+    expect(() =>
+      controller.initiateReturn('dep-1', { reason: 'x' }, { user: { type: 'CUSTOMER', userId: 'c1' } }),
+    ).toThrow(ForbiddenException);
+    expect(depositWorkflow.initiateReturn).not.toHaveBeenCalled();
+  });
+
+  it('return forwards to the workflow with an admin approval actor for an ADMIN token', async () => {
+    depositWorkflow.initiateReturn.mockResolvedValue({ approvalNo: 'APR-R1' });
+
+    await controller.initiateReturn('dep-1', { reason: 'account suspended' }, {
+      user: { type: 'ADMIN', userId: 'admin-1', role: 'MLRO', roleCodes: ['MLRO'] },
+    });
+
+    expect(depositWorkflow.initiateReturn).toHaveBeenCalledWith(
+      'dep-1',
+      { reason: 'account suspended' },
+      expect.objectContaining({ actorType: 'ADMIN', userId: 'admin-1', roleCodes: ['MLRO'] }),
+    );
+  });
+
   it('seize rejects a CUSTOMER token with ForbiddenException (assertAdmin-first)', () => {
     expect(() =>
       controller.seize('dep-1', { reason: 'x', orderRef: 'ORD-1' }, { user: { type: 'CUSTOMER', userId: 'c1' } }),
@@ -166,6 +192,20 @@ describe('DepositTransactionsController', () => {
       controller.updateStatus(
         'dep-1',
         { action: DepositTransactionAction.RESUME } as any,
+        { user: { type: 'ADMIN', userId: 'admin-1', role: 'OPERATOR' } },
+      ),
+    ).toThrow(BadRequestException);
+    expect(depositService.updateStatus).not.toHaveBeenCalled();
+  });
+
+  // C1 修复轮(Important A)：return 是 A2 MLRO maker-checker 审批案(见 initiateReturn/
+  // POST :id/return),PATCH 直推会跳过 legSeq 3 资金单 + SUSPENSE pending 锁 + 审批 +
+  // DEPOSIT_RETURN_STARTED 审计,把单子留在没有出边的 RETURNING 里再也走不出来。
+  it('updateStatus rejects action=return via PATCH (bypasses A2 MLRO return approval)', () => {
+    expect(() =>
+      controller.updateStatus(
+        'dep-1',
+        { action: DepositTransactionAction.RETURN } as any,
         { user: { type: 'ADMIN', userId: 'admin-1', role: 'OPERATOR' } },
       ),
     ).toThrow(BadRequestException);
