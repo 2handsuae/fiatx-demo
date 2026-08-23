@@ -382,3 +382,43 @@ describe('规则① 同一模块显示逻辑一致 · ⚡ Simulation（Task 7）
     );
   });
 });
+
+const LIST_PAGES = {
+  DEPOSIT: 'DepositTransactionList.tsx',
+  WITHDRAW: 'WithdrawTransactionList.tsx',
+  SWAP: 'SwapTransactionList.tsx',
+} as const;
+
+describe('列表页三域对齐（Task 8）', () => {
+  const columnsOf = (file: string): string[] =>
+    [...srcOf(file).matchAll(/\[\s*'([^']+)',\s*'\d+px'\s*\]/g)].map((m) => m[1]);
+
+  it('三域都有 Review 列', () => {
+    for (const [domain, file] of Object.entries(LIST_PAGES)) {
+      expect([domain, columnsOf(file).includes('Review')]).toEqual([domain, true]);
+    }
+  });
+
+  it('列数与 colSpan 对得上（改了列忘改 colSpan 会串行）', () => {
+    for (const [domain, file] of Object.entries(LIST_PAGES)) {
+      const spans = [...srcOf(file).matchAll(/colSpan=\{(\d+)\}/g)].map((m) => Number(m[1]));
+      expect([domain, [...new Set(spans)]]).toEqual([domain, [columnsOf(file).length]]);
+    }
+  });
+
+  it('三域都有「只看需复核」勾选框与资产类型筛选', () => {
+    for (const [domain, file] of Object.entries(LIST_PAGES)) {
+      const src = srcOf(file).replace(/\s+/g, ' ');
+      expect([domain, src.includes('needsReviewOnly')]).toEqual([domain, true]);
+      expect([domain, src.includes('All types')]).toEqual([domain, true]);
+    }
+  });
+
+  it('三域状态下拉的「全部」文案统一为 All status', () => {
+    for (const [domain, file] of Object.entries(LIST_PAGES)) {
+      const src = srcOf(file);
+      expect([domain, src.includes('>All status<')]).toEqual([domain, true]);
+      expect([domain, /<option value="">All<\/option>/.test(src)]).toEqual([domain, false]);
+    }
+  });
+});

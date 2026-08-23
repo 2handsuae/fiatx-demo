@@ -210,7 +210,7 @@ const DepositTransactionList = () => {
           onChange={(e) => updateFilter('status', e.target.value)}
           className={`${fi} w-40`}
         >
-          <option value="">All</option>
+          <option value="">All status</option>
           {DEPOSIT_STATUS_FILTERS.map((f) => (
             <option key={f.label} value={f.label}>{f.label}</option>
           ))}
