@@ -343,7 +343,7 @@ const SwapTransactionDetail = () => {
 
       <NeedsReviewBanner
         show={!!data.needsReview}
-        message="Needs review — a KYT verdict arrived after approval/execution; no automatic action was taken on this order"
+        message="Needs review — this swap is parked with no automatic action left: either a settlement leg exhausted its retries, or a KYT verdict arrived after approval/execution. Check the audit trail for which."
       />
 
       {/* ── Body: Main + Sidebar ── */}

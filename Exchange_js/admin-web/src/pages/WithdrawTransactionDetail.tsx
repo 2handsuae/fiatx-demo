@@ -410,7 +410,7 @@ const WithdrawTransactionDetail = () => {
 
       <NeedsReviewBanner
         show={!!data.needsReview}
-        message="Needs review — a KYT verdict arrived after the payout broadcast; no automatic action was taken"
+        message="Needs review — this withdrawal is parked with no automatic action left: either a fee leg exhausted its retries, or a KYT verdict arrived after the payout broadcast. Check the audit trail for which."
       />
 
       {/* ── Body: Main + Sidebar ── */}
