@@ -8,7 +8,6 @@ import {
   InfoField,
 } from '../components/compliance/DetailPageComponents';
 import { SidebarGroup, SidebarKV } from '../components/ui/SidebarPrimitives';
-import { AdminBadge } from '../components/ui/AdminBadge';
 import {
   LinkedRelationCard,
   LinkedRelationEmpty,
@@ -31,6 +30,7 @@ import L1GateCard from '../components/L1GateCard';
 import { GateTile } from '../components/compliance/GateTile';
 import { SumsubDetailSection } from '../components/compliance/SumsubDetailSection';
 import { StatusTimeline } from '../components/compliance/StatusTimeline';
+import { NeedsReviewBanner } from '../components/compliance/NeedsReviewBanner';
 import { getDepositStatusMeta } from '../utils/depositStatusMap';
 import { adminButtonClass } from '../components/common/adminButtonStyles';
 import { useSimulationMode } from '../utils/simulationMode';
@@ -539,6 +539,11 @@ const DepositTransactionDetail = () => {
         </div>
       )}
 
+      <NeedsReviewBanner
+        show={!!data.needsReview}
+        message="Needs review — a disposition leg exhausted its retries; the order is parked and needs manual intervention"
+      />
+
       {/* ── Confiscation in-transit banner ── */}
       {data.status === 'CONFISCATING' && (
         <div className="shrink-0 border-b border-adm-border bg-adm-amber/5 px-6 py-2.5 font-mono text-[11px] text-adm-amber">
@@ -944,10 +949,6 @@ const DepositTransactionDetail = () => {
               mono
             />
             <SidebarKV label="Trace ID" value={data.traceId ?? null} mono />
-            <SidebarKV
-              label="Needs Review"
-              value={data.needsReview ? <AdminBadge value="NEEDS_REVIEW" /> : 'No'}
-            />
           </SidebarGroup>
         </div>
       </div>

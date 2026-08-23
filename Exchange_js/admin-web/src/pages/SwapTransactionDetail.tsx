@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { AlertTriangle, RefreshCw } from 'lucide-react';
+import { RefreshCw } from 'lucide-react';
 import {
   DetailPageHeader,
   DetailCard,
@@ -19,6 +19,7 @@ import L1GateCard from '../components/L1GateCard';
 import { GateTile } from '../components/compliance/GateTile';
 import { SumsubDetailSection } from '../components/compliance/SumsubDetailSection';
 import { StatusTimeline } from '../components/compliance/StatusTimeline';
+import { NeedsReviewBanner } from '../components/compliance/NeedsReviewBanner';
 import MaterialRequestPanel from '../components/MaterialRequestPanel';
 
 /* ── Types ──────────────────────────────────────────────────── */
@@ -340,16 +341,10 @@ const SwapTransactionDetail = () => {
         </div>
       )}
 
-      {/* ── Needs-review banner（从 Hero 徽标提为顶部横幅，对齐提现）——
-          成交后迟到的 KYT 拒绝裁决只标记不动单（SWAP_POST_APPROVAL_VERDICT），
-          这里给 operator 一句人话说明。── */}
-      {data.needsReview && (
-        <div className="flex items-center gap-2 border-b border-adm-border bg-adm-red/10 px-6 py-2 font-mono text-[11px] text-adm-red">
-          <AlertTriangle size={12} />
-          Needs review — a KYT verdict arrived after approval/execution; no automatic action was
-          taken on this order.
-        </div>
-      )}
+      <NeedsReviewBanner
+        show={!!data.needsReview}
+        message="Needs review — a KYT verdict arrived after approval/execution; no automatic action was taken on this order"
+      />
 
       {/* ── Body: Main + Sidebar ── */}
       <div className="flex min-h-0 flex-1 overflow-hidden">

@@ -188,3 +188,35 @@ describe('规则③ 侧栏结构必须一样（Task 4）', () => {
       ['SWAP', ['Swap No', 'Owner', 'Owner Type', 'Pair']]);
   });
 });
+
+describe('规则① 同一职责同一组件 · needsReview 横幅（Task 5）', () => {
+  it('三域都用共享的 NeedsReviewBanner，各一次', () => {
+    for (const [domain, file] of Object.entries(DETAIL_PAGES)) {
+      const src = srcOf(file).replace(/\s+/g, ' ');
+      expect([domain, src.includes("from '../components/compliance/NeedsReviewBanner'")]).toEqual([domain, true]);
+      expect([domain, (src.match(/<NeedsReviewBanner\b/g) ?? []).length]).toEqual([domain, 1]);
+    }
+  });
+
+  /* 反面断言：手写横幅与侧栏 KV 都必须消失。业主裁定这面旗只在页顶出现一次。 */
+  it('三域都不再手写横幅、也不再有 needsReview 侧栏 KV', () => {
+    for (const [domain, file] of Object.entries(DETAIL_PAGES)) {
+      const src = srcOf(file).replace(/\s+/g, ' ');
+      expect([domain, src.includes('bg-adm-red/5 px-6 py-2.5')]).toEqual([domain, false]);
+      expect([domain, src.includes('bg-adm-red/10 px-6 py-2 ')]).toEqual([domain, false]);
+      expect([domain, src.includes('label="Needs Review"')]).toEqual([domain, false]);
+    }
+  });
+
+  /* 三域文案必须**不同** —— 三个域的 needsReview 语义不是一回事，
+     照抄会说错话（充值那面旗是资金腿重试耗尽，不是迟到的 KYT 裁决）。 */
+  it('三域文案各不相同', () => {
+    const msgOf = (file: string) => {
+      const m = srcOf(file).replace(/\s+/g, ' ').match(/<NeedsReviewBanner[^>]*message=\{?["'`]([^"'`]+)/);
+      return m?.[1] ?? '';
+    };
+    const msgs = Object.values(DETAIL_PAGES).map(msgOf);
+    expect(msgs.every((m) => m.length > 0)).toBe(true);
+    expect(new Set(msgs).size).toBe(3);
+  });
+});

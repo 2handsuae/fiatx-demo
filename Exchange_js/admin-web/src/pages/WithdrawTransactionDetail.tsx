@@ -27,6 +27,7 @@ import L1GateCard from '../components/L1GateCard';
 import { GateTile } from '../components/compliance/GateTile';
 import { SumsubDetailSection } from '../components/compliance/SumsubDetailSection';
 import { StatusTimeline } from '../components/compliance/StatusTimeline';
+import { NeedsReviewBanner } from '../components/compliance/NeedsReviewBanner';
 import {
   getWithdrawStatusMeta,
   isWithdrawTerminalStatus,
@@ -407,14 +408,10 @@ const WithdrawTransactionDetail = () => {
         </div>
       )}
 
-      {/* ── Needs-review banner — a KYT verdict arrived after the payout already
-          broadcast, so there was no state-machine action to take (funds already
-          in flight); flagged for operator awareness rather than silently dropped. ── */}
-      {data.needsReview && (
-        <div className="shrink-0 border-b border-adm-border bg-adm-red/5 px-6 py-2.5 font-mono text-[11px] text-adm-red">
-          Needs review — a KYT verdict arrived after the payout broadcast; no automatic action was taken
-        </div>
-      )}
+      <NeedsReviewBanner
+        show={!!data.needsReview}
+        message="Needs review — a KYT verdict arrived after the payout broadcast; no automatic action was taken"
+      />
 
       {/* ── Body: Main + Sidebar ── */}
       <div className="flex min-h-0 flex-1 overflow-hidden">
