@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { AlertTriangle, RefreshCw, User } from 'lucide-react';
+import { AlertTriangle, RefreshCw } from 'lucide-react';
 import {
   DetailPageHeader,
   DetailCard,
@@ -18,6 +18,7 @@ import { getComplianceLayerStyle } from '../utils/depositActionMap';
 import L1GateCard from '../components/L1GateCard';
 import { GateTile } from '../components/compliance/GateTile';
 import { SumsubDetailSection } from '../components/compliance/SumsubDetailSection';
+import { StatusTimeline } from '../components/compliance/StatusTimeline';
 import MaterialRequestPanel from '../components/MaterialRequestPanel';
 
 /* ── Types ──────────────────────────────────────────────────── */
@@ -634,7 +635,7 @@ const SwapTransactionDetail = () => {
 
           {/* 6. Status History */}
           <DetailCard title="Status History" columns={1}>
-            <StatusTimeline historyJson={data.statusHistory} />
+            <StatusTimeline historyJson={data.statusHistory} getStatusMeta={getSwapStatusMeta} />
           </DetailCard>
 
           {/* Verification Requests — same component + endpoint as the customer
@@ -867,65 +868,6 @@ const LegAttemptRow = ({
       {routeLabel && (
         <div className="font-mono text-[10px] text-adm-t3">{routeLabel}</div>
       )}
-    </div>
-  );
-};
-
-/* ── StatusTimeline (adm-* tokens) ── */
-
-const StatusTimeline = ({ historyJson }: { historyJson: string | null }) => {
-  if (!historyJson) {
-    return <div className="p-4 text-center text-sm italic text-adm-t3">No history available</div>;
-  }
-
-  let history: Array<Record<string, string>> = [];
-  try {
-    const parsed = JSON.parse(historyJson);
-    if (!Array.isArray(parsed)) {
-      return <div className="p-4 text-center text-sm italic text-adm-t3">No history available</div>;
-    }
-    history = [...parsed].sort(
-      (a, b) =>
-        new Date(b.timestamp || b.changedAt || 0).getTime() -
-        new Date(a.timestamp || a.changedAt || 0).getTime(),
-    );
-  } catch {
-    return <div className="p-4 text-sm text-adm-red">Error parsing history</div>;
-  }
-
-  if (history.length === 0) {
-    return <div className="p-4 text-center text-sm italic text-adm-t3">No events</div>;
-  }
-
-  return (
-    <div className="relative my-2 ml-4 space-y-6 border-l-2 border-adm-border">
-      {history.map((item, idx) => (
-        <div key={`${item.timestamp || item.changedAt || idx}`} className="relative ml-8">
-          <span className="absolute -left-[44px] top-0 flex h-6 w-6 items-center justify-center rounded-full bg-adm-panel ring-4 ring-adm-panel">
-            <div className="h-3 w-3 rounded-full bg-adm-green" />
-          </span>
-          <div className="rounded-lg border border-adm-border bg-adm-bg p-3 transition-colors hover:bg-adm-hover">
-            <div className="flex items-center gap-2">
-              <span className="rounded border border-adm-green/30 bg-adm-green/10 px-2 py-0.5 font-mono text-[10px] font-bold text-adm-green">
-                {item.status || 'UNKNOWN'}
-              </span>
-            </div>
-            <p className="mt-1 text-sm text-adm-t2">
-              {item.note || item.reason || 'No reason provided'}
-            </p>
-            <div className="mt-1 flex items-center gap-2 text-[10px] text-adm-t3">
-              <User size={10} />
-              <span className="font-mono">
-                {item.operator || item.operatorId || item.actorType || 'SYSTEM'}
-              </span>
-              <span>·</span>
-              <time className="font-mono">
-                {new Date(item.timestamp || item.changedAt || 0).toLocaleString()}
-              </time>
-            </div>
-          </div>
-        </div>
-      ))}
     </div>
   );
 };

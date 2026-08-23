@@ -1,7 +1,7 @@
 // admin-web/src/pages/WithdrawTransactionDetail.tsx
 import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { RefreshCw, User } from 'lucide-react';
+import { RefreshCw } from 'lucide-react';
 import {
   DetailPageHeader,
   DetailCard,
@@ -26,6 +26,7 @@ import { getComplianceLayerStyle } from '../utils/depositActionMap';
 import L1GateCard from '../components/L1GateCard';
 import { GateTile } from '../components/compliance/GateTile';
 import { SumsubDetailSection } from '../components/compliance/SumsubDetailSection';
+import { StatusTimeline } from '../components/compliance/StatusTimeline';
 import {
   getWithdrawStatusMeta,
   isWithdrawTerminalStatus,
@@ -596,7 +597,7 @@ const WithdrawTransactionDetail = () => {
 
           {/* 8. Status History */}
           <DetailCard title="Status History" columns={1}>
-            <StatusTimeline historyJson={data.statusHistory} />
+            <StatusTimeline historyJson={data.statusHistory} getStatusMeta={getWithdrawStatusMeta} />
           </DetailCard>
 
           {/* Verification Requests — same component + endpoint as the customer
@@ -905,61 +906,6 @@ const WithdrawTransactionDetail = () => {
           </div>
         </div>
       )}
-    </div>
-  );
-};
-
-/* ── StatusTimeline ─────────────────────────────────────────── */
-
-/**
- * Renders the withdrawal's `statusHistory` JSON column. Defensively reads
- * both the current write shape (`{status, timestamp, operator, note}` — see
- * WithdrawTransactionsService#updateStatus/landOnPendingApproval) and the
- * older field names (`reason`/`operatorId`/`actorType`/`changedAt`), so
- * rows written under either shape render correctly instead of showing blank
- * reason/operator text.
- */
-const StatusTimeline = ({ historyJson }: { historyJson: string | null }) => {
-  if (!historyJson) return <div className="text-adm-t3 text-sm italic p-4 text-center">No history available</div>;
-
-  let history: any[] = [];
-  try {
-    history = JSON.parse(historyJson);
-    history.sort((a: any, b: any) =>
-      new Date(b.timestamp || b.changedAt).getTime() -
-      new Date(a.timestamp || a.changedAt).getTime(),
-    );
-  } catch {
-    return <div className="text-adm-red text-sm p-4">Error parsing history</div>;
-  }
-
-  if (history.length === 0) return <div className="text-adm-t3 text-sm italic p-4 text-center">No events</div>;
-
-  return (
-    <div className="relative ml-4 space-y-6 border-l-2 border-adm-border my-2">
-      {history.map((item: any, idx: number) => (
-        <div key={idx} className="ml-8 relative">
-          <span className="absolute -left-[44px] top-0 flex h-6 w-6 items-center justify-center rounded-full bg-adm-panel ring-4 ring-adm-panel">
-            <div className={`h-3 w-3 rounded-full ${getWithdrawStatusMeta(item.status).badgeClass}`} />
-          </span>
-          <div className="rounded-lg border border-adm-border bg-adm-bg p-3 transition-colors hover:bg-adm-hover">
-            <div className="flex items-center gap-2">
-              <span className={`rounded border px-2 py-0.5 font-mono text-[10px] font-bold ${getWithdrawStatusMeta(item.status).badgeClass}`}>
-                {getWithdrawStatusMeta(item.status).label}
-              </span>
-            </div>
-            <p className="mt-1 text-sm text-adm-t2">{item.note || item.reason || 'No reason provided'}</p>
-            <div className="mt-1 flex items-center gap-2 text-[10px] text-adm-t3">
-              <User size={10} />
-              <span className="font-mono">{item.operator || item.operatorId || item.actorType || 'SYSTEM'}</span>
-              <span>·</span>
-              <time className="font-mono">
-                {new Date(item.timestamp || item.changedAt).toLocaleString()}
-              </time>
-            </div>
-          </div>
-        </div>
-      ))}
     </div>
   );
 };

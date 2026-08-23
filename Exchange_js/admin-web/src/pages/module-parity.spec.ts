@@ -87,3 +87,53 @@ describe('规则① 同一职责同一组件 · SumsubDetailSection（Task 2）'
     }
   });
 });
+
+describe('规则① 同一职责同一组件 · StatusTimeline（Task 3）', () => {
+  it('三个详情页都不再本地定义 StatusTimeline', () => {
+    for (const [domain, file] of Object.entries(DETAIL_PAGES)) {
+      expect([domain, srcOf(file).includes('const StatusTimeline = ')]).toEqual([domain, false]);
+    }
+  });
+
+  it('三个详情页都从共享路径 import，且各渲染一次', () => {
+    for (const [domain, file] of Object.entries(DETAIL_PAGES)) {
+      const src = srcOf(file).replace(/\s+/g, ' ');
+      expect([domain, src.includes("from '../components/compliance/StatusTimeline'")]).toEqual([domain, true]);
+      expect([domain, (src.match(/<StatusTimeline\b/g) ?? []).length]).toEqual([domain, 1]);
+    }
+  });
+
+  /* 三域各传自己的 statusMeta —— 传错域会让颜色/文案串味（改之前兑换那份
+     硬编码绿色，同一条 FROZEN 事件充值页红、兑换页绿）。 */
+  it('三域各传自己域的 getStatusMeta', () => {
+    expect(srcOf(DETAIL_PAGES.DEPOSIT).replace(/\s+/g, ' ')).toContain('getStatusMeta={getDepositStatusMeta}');
+    expect(srcOf(DETAIL_PAGES.WITHDRAW).replace(/\s+/g, ' ')).toContain('getStatusMeta={getWithdrawStatusMeta}');
+    expect(srcOf(DETAIL_PAGES.SWAP).replace(/\s+/g, ' ')).toContain('getStatusMeta={getSwapStatusMeta}');
+  });
+});
+
+describe('合并后的 StatusTimeline 保住了最健壮那份的守卫（Task 3）', () => {
+  const shared = readFileSync(
+    join(__dirname, '..', 'components', 'compliance', 'StatusTimeline.tsx'),
+    'utf8',
+  ).replace(/\s+/g, ' ');
+
+  /* 合并前充值那份没有这三样，statusHistory 存进非数组 JSON 会整页白屏。
+     这三条钉住「合并时取的是最健壮的一份，不是随便挑一份」。 */
+  it('有非数组守卫', () => {
+    /* 组件顶部 JSDoc 出于文档目的也提到 "Array.isArray" 这个词，光查裸字符串
+       'Array.isArray' 删掉真实的 `if (!Array.isArray(parsed))` 守卫也测不出来
+       （变异验证时发现）。查带括号的调用形态,只在实际代码里出现。 */
+    expect(shared).toContain('Array.isArray(parsed)');
+  });
+  it('排序不可变（不原地改传入数组）', () => {
+    expect(shared).toContain('[...parsed].sort');
+  });
+  it('日期有兜底', () => {
+    expect(shared).toContain('|| 0');
+  });
+  it('读字段覆盖三域三种后端写入形状', () => {
+    expect(shared).toContain('item.note || item.reason');
+    expect(shared).toContain('item.operator || item.operatorId || item.actorType');
+  });
+});
