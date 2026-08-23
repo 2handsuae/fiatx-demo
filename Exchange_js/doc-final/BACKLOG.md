@@ -496,3 +496,13 @@ Last Updated: 2026-08-22
 - [ ] **`admin-web` 的 `.spec.ts` 不在任何 tsc 闸门内**（`tsconfig.app.json` 的 `exclude` 含 `src/**/*.spec.ts`，后端两个 tsconfig 也照不到 admin-web），类型错只有 `npx jest` 跑到才暴露。本批新建的 `module-parity.spec.ts` 即受此影响 ｜来源: 2026-08-23 第五批
 - [ ] **`tags: string[]` 三域 Sumsub DTO 都声明、全 admin-web 零渲染**（后端 `parseDetail` 确实在填）｜来源: 2026-08-23 第五批 Task 2 审查
 - [ ] **后端兑换详情接口是否还在吐 `restrictionRows`/`hardLineDispositionedAt`**：前端已零消费（第五批删了那个侧栏组），若后端 `include` 是专为这块加的即为死重 ｜来源: 2026-08-23 第五批 Task 4 审查
+- [ ] **另 12 个列表页有同款「页脚重影」**：`Pagination`（`components/common/Pagination.tsx`）默认形态**自己就是一整条页脚**（`border-t bg-adm-panel px-6 py-3` + 自带 `Showing X to Y of Z entries`），全仓 28 个消费者里有 13 个在它外面又套了一条手写页脚 → 超过一页时**两条边框叠一起、两个 Showing 并排**。2026-08-23 第五批已给三个交易列表页收口（新增 `components/common/ListFooter.tsx` + 给 `Pagination` 加 `bare` 开关，默认行为对其余 25 个调用方逐字不变），**剩余 12 个页面照旧**：EvidenceExports / RoleChangeRequests / RiskAssessmentList / RefreshCycles / CustomerManagement / SumsubEvents / MaterialManagement / FundsOrderList / WithdrawalAddressList / CustodianWalletList / PolicyChangeRequests / Approvals。迁移只需换成 `<ListFooter>` ｜来源: 2026-08-23 第五批终审
+- [ ] **详情页顶部横幅有三个承载物**：共享件 `NeedsReviewBanner`（红条，第五批抽出）/ 手写绿色 notice 条 / 充值独有的手写琥珀 CONFISCATING 条。绿条**兑换那份已分叉**：`bg-adm-green/10 + py-2 + 缺 shrink-0`，充值/提现是 `/5 + py-2.5 + shrink-0` —— 与红条被抽件前的病**一模一样**，红条修了绿条没碰 ｜来源: 2026-08-23 第五批终审
+- [ ] **`Simulate SLA Timeout` 是六个页面里唯一绕过 `adminButtonClass` 的按钮**：三份手写、裸 Tailwind 调色板（`border-amber-300 text-amber-700 hover:bg-amber-50`）而非 `adm-*` 令牌，字号 `text-sm` 比全站按钮 `text-[11px]` 大一档、`py-2` 比 `py-1.5` 高。`adminButtonStyles.ts` 的 `repair` 变体正是为它这种琥珀警示按钮准备的 ｜来源: 2026-08-23 第五批终审
+- [ ] **⚡ Simulation 面板 markup 仍是三份手写**：充值/提现两份做域名归一化后 diff **只差 1 行**（按钮数组名），其余 33 行逐字重复。今天零视觉差异，但这正是 L2 闸门格子当初分叉出三套排版的前一阶段状态 ｜来源: 2026-08-23 第五批终审
+- [ ] **列表页 error 态位置三域不同**：充值/提现是表**上方**红色通条（表格数据仍在），兑换是表**体内** `<td colSpan=11>`（**整表内容被顶掉**）｜来源: 2026-08-23 第五批终审
+- [ ] **侧栏 Terminal 提示三域三样**：充值**整块没有**、提现在 SLA 组**之前**（`text-[11px]`）、兑换在 Lifecycle 组**之后**（`text-[10px]`）。且兑换那个裸 `<p>` 放在 Lifecycle 之后会让 `SidebarGroup` 的 `last:border-b-0` 失效 → **多出一条本不该有的分隔线** ｜来源: 2026-08-23 第五批终审
+- [ ] **兑换 `Internal Approvals` 空态是手写 div**，充值/提现用共享 `LinkedRelationEmpty`（后者在消息上方还有一行 cap 微标签）→ 同一张卡的空态，另两域有小标题、兑换没有 ｜来源: 2026-08-23 第五批终审
+- [ ] **三页各手写一份逐字相同的「本单已进终态/处置态」`<p>`**（第五批 Task 7 引入，className 与文案全同）—— 同职责内联三份，正是本批立规矩要消灭的形状 ｜来源: 2026-08-23 第五批终审
+- [ ] **兑换详情页卡片编号注释重复**：现读作 `1,2,4,7,4,5,6,7,8,6,11`（4/7/6 各重复、缺 3/9/10），充值是干净的 1–10、提现 1–9。基线 `6236d9b9` 就已经坏 ｜来源: 2026-08-23 第五批终审
+- [ ] **兑换详情页注释写「7 个单步裁决按钮」实为 8 个**（V1–V8，后端 fixture 也是 8）；三页都还写着「admin-web 暂无测试基建」，而第五批已建 `module-parity.spec.ts`（40 条断言，jest 真跑）｜来源: 2026-08-23 第五批终审

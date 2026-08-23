@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { RefreshCw, Search } from 'lucide-react';
-import Pagination from '../components/common/Pagination';
+import { ListFooter } from '../components/common/ListFooter';
 import {
   adminButtonClass,
   adminIconButtonClass,
@@ -420,10 +420,14 @@ const SwapTransactionList = () => {
         </table>
       </div>
 
-      {/* Pagination */}
-      <Pagination
+      {/* ── Footer ──（三域共用 ListFooter：一条边框、一个计数、恒显示。
+          此前是「手写页脚套 Pagination」，Pagination 自己也是一整条页脚 → 超过一页时
+          两条 border-t 叠一起、两个 Showing 并排；见 ListFooter 的 JSDoc）── */}
+      <ListFooter
+        filteredCount={visibleItems.length}
+        total={total}
+        noun="swap"
         currentPage={page}
-        totalItems={total}
         pageSize={PAGE_SIZE}
         onPageChange={handlePageChange}
       />

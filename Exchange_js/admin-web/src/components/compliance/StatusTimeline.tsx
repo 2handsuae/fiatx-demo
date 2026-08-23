@@ -14,11 +14,19 @@ export interface StatusMetaView {
  *     两份都没有这三样，statusHistory 存进非数组 JSON 会让 sort 抛错、整页白屏。
  *   · 读字段取提现那份的兜底链 —— 后端三域写入形状不同：
  *       充值 {status, timestamp, operatorId, actorType, actorRole, reason, context}
+ *             —— deposit-transactions.service.ts 的 updateStatus
  *       提现 {status, timestamp, operator, note}
+ *             —— withdraw-transactions.service.ts 的 updateStatus
  *       兑换 {status, timestamp, operator, note}
- *     下面的 || 链把三种全覆盖，所以本组件内部不需要按域分支。
- *   · item.changedAt 是历史字段名，当前后端三域都不写（grep src/ 零命中），保留纯属
- *     防御，不要据此以为有第四种写入形状。
+ *             —— swap-transactions.service.ts 的状态跃迁收口
+ *       提现还有**第四种**：{from, to, action, timestamp} —— **没有 status 字段**，
+ *             由 withdraw-transactions.service.ts 的 createMockData() 写，经
+ *             POST /withdraw-transactions/mock 可达。所以下面读状态用
+ *             `item.status || item.to`（`to` 就是这条记录的落点状态，语义等价）。
+ *             ⚠️ 2026-08-23 订正：此处原写「三种全覆盖 / 不要以为有第四种」是**错的** ——
+ *             漏了这条，命中时 getStatusMeta(undefined) 落 fallback、徽章渲染成空白。
+ *   · item.changedAt 是历史字段名，当前后端四条写入路径都不写（grep src/ 零命中），
+ *     保留纯属防御。
  *   · 颜色与文案由各域传进来的 getStatusMeta 决定 —— 合并前兑换那份硬编码
  *     bg-adm-green + 显示原始枚举，同一条 FROZEN 事件充值页红、兑换页绿。
  */
@@ -57,12 +65,12 @@ export const StatusTimeline = ({
       {history.map((item, idx) => (
         <div key={`${idx}-${item.timestamp || item.changedAt || ''}`} className="relative ml-8">
           <span className="absolute -left-[44px] top-0 flex h-6 w-6 items-center justify-center rounded-full bg-adm-panel ring-4 ring-adm-panel">
-            <div className={`h-3 w-3 rounded-full ${getStatusMeta(item.status).badgeClass}`} />
+            <div className={`h-3 w-3 rounded-full ${getStatusMeta(item.status || item.to).badgeClass}`} />
           </span>
           <div className="rounded-lg border border-adm-border bg-adm-bg p-3 transition-colors hover:bg-adm-hover">
             <div className="flex items-center gap-2">
-              <span className={`rounded border px-2 py-0.5 font-mono text-[10px] font-bold ${getStatusMeta(item.status).badgeClass}`}>
-                {getStatusMeta(item.status).label}
+              <span className={`rounded border px-2 py-0.5 font-mono text-[10px] font-bold ${getStatusMeta(item.status || item.to).badgeClass}`}>
+                {getStatusMeta(item.status || item.to).label}
               </span>
             </div>
             <p className="mt-1 text-sm text-adm-t2">

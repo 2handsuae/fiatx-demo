@@ -137,6 +137,15 @@ describe('合并后的 StatusTimeline 保住了最健壮那份的守卫（Task 3
     expect(shared).toContain('a.timestamp || a.changedAt || 0).getTime()');
     expect((shared.match(/\|\| 0/g) ?? []).length).toBe(3);
   });
+  /* 提现的 createMockData() 写的是 {from,to,action,timestamp} —— **没有 status 字段**，
+     经 POST /withdraw-transactions/mock 可达。不读 `|| item.to` 的话
+     getStatusMeta(undefined) 落 fallback、徽章渲染成空白。
+     （2026-08-23 终审发现：原 JSDoc 声称「三种全覆盖、没有第四种」是错的。） */
+  it('状态读法覆盖第四种写入形状（提现 mock 数据的 {from,to} 无 status）', () => {
+    expect(shared).toContain('getStatusMeta(item.status || item.to)');
+    expect((shared.match(/getStatusMeta\(item\.status \|\| item\.to\)/g) ?? []).length).toBe(3);
+  });
+
   it('读字段覆盖三域三种后端写入形状', () => {
     expect(shared).toContain('item.note || item.reason');
     expect(shared).toContain('item.operator || item.operatorId || item.actorType');
