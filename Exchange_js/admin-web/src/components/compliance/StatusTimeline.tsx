@@ -10,13 +10,15 @@ export interface StatusMetaView {
  * 订单状态历史时间线（充值 / 提现 / 兑换三域共用）。
  *
  * 合并自三份已漂移的本地副本（第五批 §8）。合并规则不是「挑一份留下」：
- *   · 守卫取兑换那份 —— Array.isArray + 不可变排序 + 日期兜底。合并前充值那份
- *     没有这三样，statusHistory 存进非数组 JSON 会让 sort 抛错、整页白屏。
- *   · 读字段取提现那份的兜底链，并补上 actorType —— 后端三域写入形状不同：
+ *   · 守卫取兑换那份 —— Array.isArray + 不可变排序 + 日期兜底。合并前充值与提现
+ *     两份都没有这三样，statusHistory 存进非数组 JSON 会让 sort 抛错、整页白屏。
+ *   · 读字段取提现那份的兜底链 —— 后端三域写入形状不同：
  *       充值 {status, timestamp, operatorId, actorType, actorRole, reason, context}
  *       提现 {status, timestamp, operator, note}
  *       兑换 {status, timestamp, operator, note}
  *     下面的 || 链把三种全覆盖，所以本组件内部不需要按域分支。
+ *   · item.changedAt 是历史字段名，当前后端三域都不写（grep src/ 零命中），保留纯属
+ *     防御，不要据此以为有第四种写入形状。
  *   · 颜色与文案由各域传进来的 getStatusMeta 决定 —— 合并前兑换那份硬编码
  *     bg-adm-green + 显示原始枚举，同一条 FROZEN 事件充值页红、兑换页绿。
  */
@@ -53,7 +55,7 @@ export const StatusTimeline = ({
   return (
     <div className="relative my-2 ml-4 space-y-6 border-l-2 border-adm-border">
       {history.map((item, idx) => (
-        <div key={`${item.timestamp || item.changedAt || idx}`} className="relative ml-8">
+        <div key={`${idx}-${item.timestamp || item.changedAt || ''}`} className="relative ml-8">
           <span className="absolute -left-[44px] top-0 flex h-6 w-6 items-center justify-center rounded-full bg-adm-panel ring-4 ring-adm-panel">
             <div className={`h-3 w-3 rounded-full ${getStatusMeta(item.status).badgeClass}`} />
           </span>

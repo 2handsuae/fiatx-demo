@@ -130,7 +130,12 @@ describe('合并后的 StatusTimeline 保住了最健壮那份的守卫（Task 3
     expect(shared).toContain('[...parsed].sort');
   });
   it('日期有兜底', () => {
-    expect(shared).toContain('|| 0');
+    /* 光查裸字符串 '|| 0' 挡不住把排序比较器里那两处删掉却留着 <time> 那处的
+       变异（会让 new Date(undefined).getTime() → NaN 把排序打乱，仍然全绿——
+       变异验证时发现）。钉住比较器的真实形态 + 全文只应出现 3 次。 */
+    expect(shared).toContain('b.timestamp || b.changedAt || 0).getTime()');
+    expect(shared).toContain('a.timestamp || a.changedAt || 0).getTime()');
+    expect((shared.match(/\|\| 0/g) ?? []).length).toBe(3);
   });
   it('读字段覆盖三域三种后端写入形状', () => {
     expect(shared).toContain('item.note || item.reason');
