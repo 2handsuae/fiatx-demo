@@ -31,10 +31,11 @@ describe('规则① 同一职责同一组件 · L1/L2 闸门格子（Task 1）',
      加了新组件却留着旧 JSX，页面会渲染两遍，而正面断言照样绿。 */
   it('三域都不再内联手写闸门格子（旧 JSX 必须删干净）', () => {
     for (const [domain, file] of Object.entries(DETAIL_PAGES)) {
-      const src = srcOf(file).replace(/\s+/g, ' ');
-      expect([domain, /border-l-\[3px\]\} *`\}>/.test(src)]).toEqual([domain, false]);
-      expect([domain, src.includes('>L1 · Eligibility<')]).toEqual([domain, false]);
-      expect([domain, src.includes('>L2 · Transaction Screen<')]).toEqual([domain, false]);
+      // 全 admin-web 里只有 GateTile.tsx 含 border-l-[3px]，源文本里再出现即说明旧内联格子没删干净
+      expect([domain, srcOf(file).includes('border-l-[3px]')]).toEqual([domain, false]);
+      // \s* 允许 prettier 的多行换行；GateTile 的 title="L1 · Eligibility" 前后不是 > <，不会被误伤
+      expect([domain, />\s*L1 · Eligibility\s*</.test(srcOf(file))]).toEqual([domain, false]);
+      expect([domain, />\s*L2 · Transaction Screen\s*</.test(srcOf(file))]).toEqual([domain, false]);
     }
   });
 
@@ -49,7 +50,7 @@ describe('规则① 同一职责同一组件 · L1/L2 闸门格子（Task 1）',
   it('L2 主值：充值/提现按 sumsubTxnType 转人话；兑换锁死 Finance 且不再用 KYT:', () => {
     for (const d of ['DEPOSIT', 'WITHDRAW'] as const) {
       const src = srcOf(DETAIL_PAGES[d]).replace(/\s+/g, ' ');
-      expect([d, src.includes("'travelRule' ? 'Travel Rule' : 'Finance'")]).toEqual([d, true]);
+      expect([d, src.includes("'Travel Rule'") && src.includes("'Finance'")]).toEqual([d, true]);
     }
     const swap = srcOf(DETAIL_PAGES.SWAP).replace(/\s+/g, ' ');
     expect(swap).toContain('Finance:');
