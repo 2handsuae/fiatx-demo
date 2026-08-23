@@ -17,6 +17,7 @@ import { useSimulationMode } from '../utils/simulationMode';
 import { getComplianceLayerStyle } from '../utils/depositActionMap';
 import L1GateCard from '../components/L1GateCard';
 import { GateTile } from '../components/compliance/GateTile';
+import { SumsubDetailSection } from '../components/compliance/SumsubDetailSection';
 import MaterialRequestPanel from '../components/MaterialRequestPanel';
 
 /* ── Types ──────────────────────────────────────────────────── */
@@ -869,66 +870,6 @@ const LegAttemptRow = ({
     </div>
   );
 };
-
-/* ── SumsubDetailSection ─────────────────────────────────────── */
-
-/**
- * Renders the swap's parsed Sumsub compliance fields (Task 10) — verdict,
- * scoring action, matched rule names, reject reason, plus the raw sell-leg
- * getTxn payload collapsed behind a <details>. Mirrors
- * WithdrawTransactionDetail's SumsubDetailSection (deliberate fork).
- */
-const SumsubDetailSection = ({
-  detail,
-}: {
-  detail: SwapSumsubDetail | null | undefined;
-}) => (
-  <div>
-    {detail ? (
-      <div className="space-y-3">
-        {/* parity 2026-08-14：逐行对齐提现 WithdrawTransactionDetail 的同名组件。
-            Txn ID Out/In 已上移 References 卡；rejectReason 行级裸列渲染在 Hero 区
-            状态徽章下方（第四批补上——此前声明了类型却全页零渲染）。 */}
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-4">
-          <InfoField label="Score" value={detail.score} mono />
-          <InfoField label="Verdict" value={detail.verdict} />
-          <InfoField label="Review Status" value={detail.reviewStatus} />
-          <InfoField label="Review Answer" value={detail.reviewAnswer} />
-        </div>
-        <div>
-          <div className="font-mono text-[9px] uppercase tracking-[0.1em] text-adm-t3">Matched Rules</div>
-          {detail.matchedRules.length > 0 ? (
-            <ul className="mt-1 space-y-1">
-              {detail.matchedRules.map((r, idx) => (
-                <li key={r.id ?? idx} className="font-mono text-[11px] text-adm-t1">
-                  {r.name ?? '—'} · {r.action ?? '—'} · {r.score ?? '—'}
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <div className="mt-1 font-mono text-[11px] text-adm-t3">—</div>
-          )}
-        </div>
-        <div>
-          <div className="font-mono text-[9px] uppercase tracking-[0.1em] text-adm-t3">Applicant Action IDs</div>
-          <div className="mt-1 font-mono text-[11px] text-adm-t1">
-            {detail.applicantActionIds.length > 0 ? detail.applicantActionIds.join(', ') : '—'}
-          </div>
-        </div>
-        <details>
-          <summary className="cursor-pointer font-mono text-[10px] uppercase tracking-[0.1em] text-adm-t3">
-            Raw payload
-          </summary>
-          <pre className="mt-2 max-h-96 overflow-auto rounded bg-gray-900 p-3 font-mono text-[11px] text-gray-100">
-            {JSON.stringify(detail.raw, null, 2)}
-          </pre>
-        </details>
-      </div>
-    ) : (
-      <p className="font-mono text-[11px] text-adm-t3">No Sumsub transaction detail yet</p>
-    )}
-  </div>
-);
 
 /* ── StatusTimeline (adm-* tokens) ── */
 

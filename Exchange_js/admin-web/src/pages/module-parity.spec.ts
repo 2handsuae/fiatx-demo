@@ -65,3 +65,25 @@ describe('规则① 同一职责同一组件 · L1/L2 闸门格子（Task 1）',
     expect(swap).not.toContain('className="px-6 py-5"');
   });
 });
+
+describe('规则① 同一职责同一组件 · SumsubDetailSection（Task 2）', () => {
+  it('三个详情页都不再本地定义 SumsubDetailSection', () => {
+    for (const [domain, file] of Object.entries(DETAIL_PAGES)) {
+      expect([domain, srcOf(file).includes('const SumsubDetailSection = ')]).toEqual([domain, false]);
+    }
+  });
+
+  it('三个详情页都从共享路径 import 它', () => {
+    for (const [domain, file] of Object.entries(DETAIL_PAGES)) {
+      const src = srcOf(file).replace(/\s+/g, ' ');
+      expect([domain, /import \{[^}]*SumsubDetailSection[^}]*\} from '\.\.\/components\/compliance\/SumsubDetailSection'/.test(src)]).toEqual([domain, true]);
+    }
+  });
+
+  it('三个详情页仍各渲染它一次（合并不等于删功能）', () => {
+    for (const [domain, file] of Object.entries(DETAIL_PAGES)) {
+      const n = (srcOf(file).match(/<SumsubDetailSection\b/g) ?? []).length;
+      expect([domain, n]).toEqual([domain, 1]);
+    }
+  });
+});
