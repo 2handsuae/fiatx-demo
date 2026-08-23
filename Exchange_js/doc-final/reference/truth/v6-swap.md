@@ -203,10 +203,14 @@ COMPLIANCE_PENDING ──(KYT rejected 且客户本人命中制裁 SANCTION_APPL
   3. `rejectReason` 类型早就声明了却**全页零渲染**——operator 唯一能看到"为什么被拒"的地方是空的。补渲染进 Hero 区状态徽章下方。
   4. `complianceStatus`（`L1 · Eligibility` 那一格）→ 恒 `N/A`（连一笔被制裁冻结的单也是 N/A）。**这一列与 `restrictions` 是同一次 migration（`20260816063807_customer_lifecycle_restrictions`，`:9` 与 `:11`）一起 drop 的**。改读 `customer.lifecycle` —— 它正是 `L1GateService` 的 `CUSTOMER_ELIGIBILITY` 判的东西（`access.lifecycle === 'ACTIVE'`），口径天然一致。**三域同批改**（充值/提现/兑换详情页各一处）；配套把 `getComplianceLayerStyle()` 的 `LAYER_FAIL` 集合扩了生命周期六个非 ACTIVE 态——闸门是二值的，颜色也就该是二值的，不另造「琥珀=在途」那一档去暗示一个闸门根本没做的区分。
 - **`Resume Leg` 按钮删除**（业主 2026-08-22 裁定：兑换单不该有 resume，`needsReview` 一律不给修复按钮）。**后端 `POST /admin/swap-transactions/:swapNo/legs/:legSeq/resume` 端点保留**，留一条命令行的路。附带发现：那个按钮的显示判据是 `status === 'NEEDS_REVIEW'`，而 `FundsOrderStatus` 枚举里**根本没有这个值**——它从来就点不出来。
-- **卡片命名对齐充值/提现**：`Sumsub Detail` → `Sumsub Transaction Detail`；`Settlement Legs` → `Linked Funds Orders`；`Customer Disposition` → `Ops Disposition`。
-- **补 `Frozen Disposition` 说明卡（`status === 'FROZEN'` 时显示，无任何按钮）**：充值/提现的同名侧栏组里有 `Initiate Seize`/`Initiate Unfreeze` 之类按钮，兑换**故意一个都没有**——兑换的 `FROZEN` 是零出边终态，回不来。这张卡的作用就是把这件事说明白，免得运营去找一个不存在的解冻入口。
+- **卡片命名对齐充值/提现**：`Sumsub Detail` → `Sumsub Transaction Detail`；`Settlement Legs` → `Linked Funds Orders`；~~`Customer Disposition` → `Ops Disposition`~~ —— **该侧栏组已于 2026-08-23（第五批）整块删除**：它装的是客户级合规信息（限制/材料请求/硬线标记），业主裁定「**客户合规信息不放在订单里**」，且与充值/提现的同名组**同名不同物**（那两个装按钮、这个装只读信息）。
+- ~~**补 `Frozen Disposition` 说明卡**~~ —— **该卡已于 2026-08-23（第五批）整块删除**（业主裁定：兑换不要 Frozen Disposition）。兑换侧栏现在**没有任何 disposition 组**，因为「兑换不需要运营去推进状态」。FROZEN 单仍能看出被冻：Hero 红徽章（`getSwapStatusMeta` 的 `FROZEN → RED`）、Hero 的 `Reject reason`（`SANCTION_APPLICANT`）、侧栏 `Terminal — no further action available` 提示三处。⚠️ 原卡里那两句「本单不可解冻、不可继续」与「客户侧收敛显示为 Unsuccessful」在别处**没有等价表述**，属信息降级，业主已知情裁定。
 - **`isTerminal` 判据修正**：此前手写 `SUCCESS || REJECTED`，**漏了 FROZEN**——它是转移表里明写的零出边终态，却不显示 `Terminal — no further action available` 提示。改走 `isSwapTerminalStatus()`。
 - **`L1GateCard` 挂进 Compliance 卡**（三域共用组件，见 v4 §4.8）。
+- **侧栏定稿（2026-08-23 第五批，三域同构）**：结构固定为**【操作段】处置组（按状态条件出现）→【信息段】SLA → Identity → Lifecycle**。
+  兑换的操作段**恒为空**（零个 disposition 组），这不算不一致 —— 是「兑换不需要运营推进状态」在结构上的正确长相。
+  `Identity` 三域统一为**纯身份 4 行**：充值/提现 `单号 · Owner · Owner Type · Asset`，兑换 `Swap No · Owner · Owner Type · Pair`。
+  `needsReview` 三域统一走**顶部横幅**（共享件 `NeedsReviewBanner`），侧栏不再有该 KV。
 
 ### client 客户端
 
