@@ -142,3 +142,49 @@ describe('合并后的 StatusTimeline 保住了最健壮那份的守卫（Task 3
     expect(shared).toContain('item.operator || item.operatorId || item.actorType');
   });
 });
+
+describe('规则③ 侧栏结构必须一样（Task 4）', () => {
+  /** 抽出侧栏区（从 w-[272px] 到文件末）里 SidebarGroup 的 title，按出现顺序。 */
+  const sidebarGroupsOf = (file: string): string[] => {
+    const src = srcOf(file);
+    const i = src.indexOf('w-[272px]');
+    if (i < 0) throw new Error(`${file}: 找不到侧栏容器`);
+    return [...src.slice(i).matchAll(/<SidebarGroup title="([^"]*)"/g)].map((m) => m[1]);
+  };
+
+  it('三域信息段逐字相同：SLA → Identity → Lifecycle', () => {
+    const INFO = ['SLA', 'Identity', 'Lifecycle'];
+    for (const [domain, file] of Object.entries(DETAIL_PAGES)) {
+      const tail = sidebarGroupsOf(file).slice(-3);
+      expect([domain, tail]).toEqual([domain, INFO]);
+    }
+  });
+
+  it('兑换操作段为空 —— 侧栏只有信息段三组', () => {
+    expect(sidebarGroupsOf(DETAIL_PAGES.SWAP)).toEqual(['SLA', 'Identity', 'Lifecycle']);
+  });
+
+  /* 反面断言：兑换的 Ops Disposition 装的是客户合规信息（Restrictions / Hard Line），
+     业主裁定「客户合规信息不放在订单里」。这条钉住它不会被谁"顺手加回来"。 */
+  it('兑换侧栏不再出现客户级合规信息', () => {
+    const swap = srcOf(DETAIL_PAGES.SWAP);
+    expect(swap).not.toContain('label="Restrictions"');
+    expect(swap).not.toContain('label="Hard Line"');
+    expect(swap).not.toContain('<SidebarGroup title="Frozen Disposition">');
+  });
+
+  it('三域 Identity 都是纯身份 4 行，且第 4 行按域给（充值/提现 Asset、兑换 Pair）', () => {
+    const identityKVsOf = (file: string): string[] => {
+      const src = srcOf(file);
+      const i = src.indexOf('<SidebarGroup title="Identity">');
+      const j = src.indexOf('</SidebarGroup>', i);
+      return [...src.slice(i, j).matchAll(/<SidebarKV\s+label="([^"]*)"/g)].map((m) => m[1]);
+    };
+    expect(['DEPOSIT', identityKVsOf(DETAIL_PAGES.DEPOSIT)]).toEqual(
+      ['DEPOSIT', ['Deposit No', 'Owner', 'Owner Type', 'Asset']]);
+    expect(['WITHDRAW', identityKVsOf(DETAIL_PAGES.WITHDRAW)]).toEqual(
+      ['WITHDRAW', ['Withdraw No', 'Owner', 'Owner Type', 'Asset']]);
+    expect(['SWAP', identityKVsOf(DETAIL_PAGES.SWAP)]).toEqual(
+      ['SWAP', ['Swap No', 'Owner', 'Owner Type', 'Pair']]);
+  });
+});

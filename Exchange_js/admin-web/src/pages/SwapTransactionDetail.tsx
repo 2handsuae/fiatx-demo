@@ -313,14 +313,6 @@ const SwapTransactionDetail = () => {
   // 未裁决时传 'PENDING' 拿琥珀色（而非无值的灰色）——未决恰是 operator 最该注意的态。
   const l2Style = getComplianceLayerStyle(data.sumsubDetail?.verdict || 'PENDING');
 
-  // ── 客户处置状态（侧栏只读；无任何按钮）──
-  // 拒绝处置写在人身上：限制账 / 材料请求 / 硬线标记。
-  // 第四批：改读限制账真数据（此前读 CustomerMain 上一个不存在的列,恒 None）。
-  // 限制账是**一行一个 scope**,所以直接取 scope 去重即可,不需要 JSON.parse
-  // （旧代码那次 JSON.parse 正是因为读了个不存在的列才恒返回 []）。
-  const restrictionCaps: string[] = Array.from(
-    new Set((data.customer?.restrictionRows ?? []).map((r) => r.scope).filter(Boolean)),
-  );
   // 第四批修复轮：此前手写 `SUCCESS || REJECTED`,漏了 FROZEN —— 它是转移表里
   // 明写的零出边终态,却不显示 Terminal 提示。改走 isSwapTerminalStatus（本域自己
   // 那一份,不与提现共用：提现的 FROZEN 有合法出边,不是终态）。
@@ -708,86 +700,9 @@ const SwapTransactionDetail = () => {
 
           <SidebarGroup title="Identity">
             <SidebarKV label="Swap No" value={data.swapNo} mono />
-            <SidebarKV
-              label="Status"
-              value={
-                <span
-                  className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-[10px] font-semibold ${getSwapStatusMeta(data.status).badgeClass}`}
-                >
-                  {getSwapStatusMeta(data.status).label}
-                </span>
-              }
-            />
-            <SidebarKV
-              label="Current Stage"
-              value={data.currentStage ?? '—'}
-              mono
-            />
-            <SidebarKV
-              label="Needs Review"
-              value={
-                data.needsReview ? <AdminBadge value="NEEDS_REVIEW" /> : 'No'
-              }
-            />
             <SidebarKV label="Owner" value={ownerLink} />
-            <SidebarKV label="Pair" value={`${data.fromAsset.code}/${data.toAsset.code}`} mono />
-            <SidebarKV label="Net Received" value={netDisplay} mono />
-          </SidebarGroup>
-
-          {/* Frozen Disposition — 兑换的 FROZEN 是**零出边终态**（制裁命中客户本人时
-              落地,见 truth/v6-swap.md §1）。与充值/提现刻意不同：那两域的 FROZEN
-              可以经 maker-checker 解冻回流,兑换回不来 —— 所以这里**没有按钮**,
-              只说明现状,免得运营去找一个不存在的解冻入口。 */}
-          {data.status === 'FROZEN' && (
-            <SidebarGroup title="Frozen Disposition">
-              <p className="font-mono text-[11px] text-adm-t3">
-                制裁冻结（零出边终态）。本单不可解冻、不可继续 —— 客户侧收敛显示为
-                Unsuccessful，与普通 KYT 拒绝逐字相同。人身层处置见客户档案的限制账。
-              </p>
-            </SidebarGroup>
-          )}
-
-          {/* ── Ops Disposition（只读，无任何按钮）——
-              兑换的拒绝处置作用在【人】身上而非订单：订单终态不可逆，
-              officer 的所有处置动作都在 Sumsub 控制台完成（打 tag / 审 action），
-              经 webhook 链路落回这里展示。此块回答 operator 一个问题：
-              "这个客户现在被限制了什么、凭什么解锁"。 */}
-          <SidebarGroup title="Ops Disposition">
-            <SidebarKV
-              label="Restrictions"
-              value={
-                restrictionCaps.length > 0 ? (
-                  <span className="font-mono text-adm-red">{restrictionCaps.join(' · ')}</span>
-                ) : (
-                  'None'
-                )
-              }
-            />
-            <SidebarKV
-              label="Verification Requests"
-              value={
-                (data.materialRequests?.length ?? 0) > 0
-                  ? `${data.materialRequests!.length} open`
-                  : '—'
-              }
-              mono
-            />
-            <SidebarKV
-              label="Hard Line"
-              value={
-                data.customer?.hardLineDispositionedAt ? (
-                  <AdminBadge value="SANCTION_HELD" />
-                ) : (
-                  'Not set'
-                )
-              }
-            />
-            {ownerNo && (
-              <SidebarKV
-                label="Customer"
-                value={ownerLink}
-              />
-            )}
+            <SidebarKV label="Owner Type" value={data.ownerType} />
+            <SidebarKV label="Pair" value={pair} />
           </SidebarGroup>
 
           <SidebarGroup title="Lifecycle">
