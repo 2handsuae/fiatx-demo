@@ -223,3 +223,19 @@ describe('规则① 同一职责同一组件 · needsReview 横幅（Task 5）',
     expect(new Set(msgs).size).toBe(3);
   });
 });
+
+describe('规则② 内容差异允许，但同族卡片要连续（Task 6）', () => {
+  /** 抽出主列 DetailCard 的 title，按出现顺序。 */
+  const mainCardsOf = (file: string): string[] =>
+    [...srcOf(file).matchAll(/<DetailCard\s+title="([^"]*)"/g)].map((m) => m[1]);
+
+  it('兑换的交易信息三张卡连续出现在最前', () => {
+    const cards = mainCardsOf(DETAIL_PAGES.SWAP);
+    expect(cards.slice(0, 3)).toEqual(['Conversion', 'Pricing', 'Technical']);
+  });
+
+  it('充值/提现的交易信息卡也在最前（对照组，本轮不改）', () => {
+    expect(mainCardsOf(DETAIL_PAGES.DEPOSIT)[0]).toBe('Transaction Details');
+    expect(mainCardsOf(DETAIL_PAGES.WITHDRAW)[0]).toBe('Transaction Details');
+  });
+});

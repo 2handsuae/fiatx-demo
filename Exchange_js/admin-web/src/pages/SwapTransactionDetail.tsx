@@ -472,6 +472,15 @@ const SwapTransactionDetail = () => {
             <InfoField label="Net Out" value={netDisplay} highlight />
           </DetailCard>
 
+          {/* 7. Technical */}
+          <DetailCard title="Technical" columns={2}>
+            <InfoField label="Quote No" value={data.quoteNo} mono />
+            <InfoField label="Quote ID" value={data.quoteId} mono />
+            <InfoField label="Trace ID" value={data.traceId} mono />
+            <InfoField label="From Asset ID" value={data.fromAssetId} mono />
+            <InfoField label="To Asset ID" value={data.toAssetId} mono />
+          </DetailCard>
+
           {/* 4. Compliance — L1 真实资格 + L2 KYT 单闸。
               L1 读客户 lifecycle（与 L1GateService 的 CUSTOMER_ELIGIBILITY 同一口径）；
               L2 读本单 KYT 终裁。
@@ -618,15 +627,6 @@ const SwapTransactionDetail = () => {
               it to this swap's still-live rows (G6). */}
           <DetailCard title="Verification Requests" columns={1}>
             <MaterialRequestPanel mode="order" orderDomain="SWAP" orderRef={data.swapNo} />
-          </DetailCard>
-
-          {/* 7. Technical */}
-          <DetailCard title="Technical" columns={2}>
-            <InfoField label="Quote No" value={data.quoteNo} mono />
-            <InfoField label="Quote ID" value={data.quoteId} mono />
-            <InfoField label="Trace ID" value={data.traceId} mono />
-            <InfoField label="From Asset ID" value={data.fromAssetId} mono />
-            <InfoField label="To Asset ID" value={data.toAssetId} mono />
           </DetailCard>
 
           {/* 11. Simulation (demo only — gated by the local simulation-mode
