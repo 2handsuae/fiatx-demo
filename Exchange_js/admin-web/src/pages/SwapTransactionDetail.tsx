@@ -343,7 +343,7 @@ const SwapTransactionDetail = () => {
 
       <NeedsReviewBanner
         show={!!data.needsReview}
-        message="Needs review — this swap is parked with no automatic action left: either a settlement leg exhausted its retries, or a KYT verdict arrived after approval/execution. Check the audit trail for which."
+        message="Needs review — this swap is parked with no automatic action left: either a settlement leg exhausted its retries, a KYT verdict arrived after approval/execution, or the customer's swap capability was restricted mid-flight. Check the audit trail for which."
       />
 
       {/* ── Body: Main + Sidebar ── */}

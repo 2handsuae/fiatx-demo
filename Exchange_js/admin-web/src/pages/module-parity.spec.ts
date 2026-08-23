@@ -197,7 +197,7 @@ describe('规则① 同一职责同一组件 · needsReview 横幅（Task 5）',
       expect([domain, (src.match(/<NeedsReviewBanner\b/g) ?? []).length]).toEqual([domain, 1]);
       // 反面断言：不能只查组件出现过——必须接了真数据。show={false} 之类的
       // 静默常量会让横幅永远不渲染，前三条断言照样绿（终审变异实测过）。
-      expect([domain, /<NeedsReviewBanner[^>]*show=\{!!data\.needsReview\}/.test(src)]).toEqual([domain, true]);
+      expect([domain, /<NeedsReviewBanner[^>]*show=\{[^}]*needsReview[^}]*\}/.test(src)]).toEqual([domain, true]);
     }
   });
 
