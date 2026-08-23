@@ -118,18 +118,6 @@ interface SwapTransactionDetailData {
     /** 客户关系生命周期七态（PROSPECT/IN_VERIFICATION/…/ACTIVE/…/OFFBOARDED）。 */
     lifecycle?: string | null;
     sumsubApplicantId?: string | null;
-    // 拒绝处置在客户身上留下的状态位——本页侧栏只读展示，
-    // 处置动作本身全在 Sumsub 控制台（officer）与 webhook 链路完成，无按钮。
-    // 限制账的行：一行 = 一个被卡住的能力（scope），同一张便签（restrictionNo）
-    // 卡多个能力就是同号多行。此前这里读的是 CustomerMain 上一个**不存在的列**
-    // `restrictions`，恒解析成空数组 → 侧栏恒显示 None。
-    restrictionRows?: Array<{
-      restrictionNo: string;
-      cause: string;
-      scope: string;
-      visibility: string;
-    }>;
-    hardLineDispositionedAt?: string | null;
   } | null;
   statusHistory: string | null;
   l1Snapshot?: string | null;
