@@ -54,8 +54,29 @@ const SWAP_KYT_VERDICT_TERMINAL_STATUSES = new Set([
   'REVERSED',
 ]);
 
-const isSwapVerdictIgnored = (status: string): boolean =>
-  SWAP_KYT_VERDICT_TERMINAL_STATUSES.has(status) || status === 'FROZEN';
+/* ⑦⑧ 投的是 applicantActionReviewed —— 作用对象是**人**（客户补料的复核结果），
+   不走 applyKytVerdict，与本单状态无关。终态单上它们照样有效，这正是 BACKLOG
+   「⑦⑧ 人级模拟键在被拒单上无 UI 入口」要的入口，不能跟着裁决键一起灰。
+   同步源：src/modules/swap-sumsub/demo-scenario.service.ts 的类注释（那两个键
+   的 webhookType 见 fixtures/verdict-buttons.ts）。 */
+const SWAP_PERSON_LEVEL_KEYS = new Set(['V7_ACTION_GREEN', 'V8_ACTION_RED']);
+
+/* SUCCESS/REJECTED：本单状态不会再变，但 applyKytVerdict 的
+   KYT_VERDICT_TERMINAL_STATUSES 分支里有 carve-out ——
+   `if ((status === REJECTED || status === SUCCESS) && verdict === 'rejected')`
+   → handleRejectDisposition —— 重投拒绝类裁决仍会**重跑客户级处置**（限制/
+   pendingAction）。所以不能跟真 no-op 一起灰、也不能说"什么都不会发生"。 */
+const isSwapOrderTerminalButPersonStillAffected = (status: string): boolean =>
+  status === 'SUCCESS' || status === 'REJECTED';
+
+/* 100% no-op：SWAP_KYT_VERDICT_TERMINAL_STATUSES 减去上面那两个仍会重跑客户级
+   处置的状态，剩下 FAILED/REVERSED —— 这两个投什么裁决都不会改状态、也不会碰
+   客户；FROZEN 不在该数组里（另有含义，见数组上方注释），走单独一支判断，
+   与后端 applyKytVerdict 顶部那一行单独的 FROZEN no-op 同形。 */
+const isSwapFullyIgnored = (status: string): boolean =>
+  (SWAP_KYT_VERDICT_TERMINAL_STATUSES.has(status) &&
+    !isSwapOrderTerminalButPersonStillAffected(status)) ||
+  status === 'FROZEN';
 
 /** Matched-rule entry inside the Sumsub compliance detail. */
 /** parity 2026-08-14：与提现 SumsubTxnDetail 逐字段同形 + swap 双腿补充。 */
@@ -661,11 +682,18 @@ const SwapTransactionDetail = () => {
               </p>
               <p className="font-mono text-[11px] text-adm-amber">
                 ⑦/⑧ act on the customer (applicantActionReviewed), not on this
-                order — this swap's own status will not change.
+                order — this swap's own status will not change, and they stay
+                enabled on a terminal order on purpose (that's the whole point
+                of this being the only entry point for them).
               </p>
-              {isSwapVerdictIgnored(data.status) && (
+              {isSwapFullyIgnored(data.status) && (
                 <p className="font-mono text-[11px] text-adm-amber">
                   本单已进终态/处置态，投递的裁决会被后端记录但不改状态。
+                </p>
+              )}
+              {isSwapOrderTerminalButPersonStillAffected(data.status) && (
+                <p className="font-mono text-[11px] text-adm-amber">
+                  本单已终态，状态不会再变；但重投拒绝类裁决仍会重跑客户级处置（客户可能被限制）。
                 </p>
               )}
               {simError && <p className="text-[11px] text-adm-red">{simError}</p>}
@@ -673,7 +701,10 @@ const SwapTransactionDetail = () => {
                 {SWAP_VERDICT_BUTTONS.map((s) => (
                   <button
                     key={s.key}
-                    disabled={simSubmitting !== null || isSwapVerdictIgnored(data.status)}
+                    disabled={
+                      simSubmitting !== null ||
+                      (!SWAP_PERSON_LEVEL_KEYS.has(s.key) && isSwapFullyIgnored(data.status))
+                    }
                     onClick={() => handleRunVerdict(s.key)}
                     className={adminButtonClass('simulationAction')}
                   >
