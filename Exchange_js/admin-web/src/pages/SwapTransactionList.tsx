@@ -189,6 +189,9 @@ const SwapTransactionList = () => {
         })
         // 与充值/提现同为**页内过滤**（后端 DTO 没有 type 字段）——刻意对齐现状，
         // 不在本批扩后端。兑换一笔单有买卖两侧资产，任一命中即算。
+        // ⚠️ 语义提醒：后端只禁 FIAT↔FIAT（swap-transactions.service.ts），所以每笔兑换
+        //    至少有一条 crypto 腿 —— 「任一命中」下选 Crypto 恒 100% 命中、筛不掉任何行；
+        //    只有 Fiat 有效（能排掉 crypto↔crypto）。刻意与另两域对齐的语义，不是 bug。
         .filter((it) =>
           filters.type
             ? [it.fromAsset.type, it.toAsset.type].some(

@@ -389,9 +389,28 @@ const LIST_PAGES = {
   SWAP: 'SwapTransactionList.tsx',
 } as const;
 
+/* 注释里的散文不算数：三份列表页的注释本来就写着 needsReviewOnly（提现那句
+   在本 Task 之前就存在），裸 toContain 会被散文喂饱 —— 先把注释剥掉再扫。 */
+const codeOf = (file: string): string =>
+  srcOf(file)
+    .replace(/\{\/\*[\s\S]*?\*\/\}/g, ' ')
+    .replace(/\/\*[\s\S]*?\*\//g, ' ')
+    .replace(/^[ \t]*\/\/.*$/gm, ' ')
+    .replace(/\s+/g, ' ');
+
 describe('列表页三域对齐（Task 8）', () => {
   const columnsOf = (file: string): string[] =>
     [...srcOf(file).matchAll(/\[\s*'([^']+)',\s*'\d+px'\s*\]/g)].map((m) => m[1]);
+
+  /** 数据行里的 <td> 个数 —— thead/colSpan 都对但 tbody 少一格照样串列。 */
+  const bodyCellsOf = (file: string): number => {
+    const src = srcOf(file);
+    const start = src.indexOf('visibleItems.map((item)');
+    if (start < 0) throw new Error(`${file}: 找不到 visibleItems.map((item) 数据行锚点`);
+    const end = src.indexOf('</tr>', start);
+    if (end < 0) throw new Error(`${file}: 数据行没有闭合 </tr>`);
+    return (src.slice(start, end).match(/<td[\s>]/g) ?? []).length;
+  };
 
   it('三域都有 Review 列', () => {
     for (const [domain, file] of Object.entries(LIST_PAGES)) {
@@ -406,19 +425,59 @@ describe('列表页三域对齐（Task 8）', () => {
     }
   });
 
-  it('三域都有「只看需复核」勾选框与资产类型筛选', () => {
+  it('thead 列数 == tbody 每行 <td> 数（colSpan 对得上也可能少一格）', () => {
     for (const [domain, file] of Object.entries(LIST_PAGES)) {
-      const src = srcOf(file).replace(/\s+/g, ' ');
-      expect([domain, src.includes('needsReviewOnly')]).toEqual([domain, true]);
-      expect([domain, src.includes('All types')]).toEqual([domain, true]);
+      expect([domain, bodyCellsOf(file)]).toEqual([domain, columnsOf(file).length]);
     }
   });
 
-  it('三域状态下拉的「全部」文案统一为 All status', () => {
+  it('三域「只看需复核」勾选框真的接上了（绑定 / 亮灯谓词 / 页内过滤 / memo 依赖）', () => {
     for (const [domain, file] of Object.entries(LIST_PAGES)) {
-      const src = srcOf(file);
-      expect([domain, src.includes('>All status<')]).toEqual([domain, true]);
-      expect([domain, /<option value="">All<\/option>/.test(src)]).toEqual([domain, false]);
+      const code = codeOf(file);
+      expect([domain, 'bind', code.includes('checked={filters.needsReviewOnly}')])
+        .toEqual([domain, 'bind', true]);
+      expect([domain, 'onChange', code.includes('needsReviewOnly: e.target.checked')])
+        .toEqual([domain, 'onChange', true]);
+      expect([domain, 'reset-lamp', code.includes('filters.needsReviewOnly ||')])
+        .toEqual([domain, 'reset-lamp', true]);
+      expect([domain, 'page-filter', code.includes('filters.needsReviewOnly ? it.needsReview : true')])
+        .toEqual([domain, 'page-filter', true]);
+      expect([domain, 'memo-dep', code.includes('[items, filters.needsReviewOnly,')])
+        .toEqual([domain, 'memo-dep', true]);
+    }
+  });
+
+  it('三域资产类型筛选真的接上了（select 绑定 / 亮灯谓词 / 真过滤动作）', () => {
+    // 兑换一笔单有买卖两侧资产，任一命中即算 —— 正则同时钉住"两侧都在场"。
+    const REAL_FILTER: Record<string, RegExp> = {
+      DEPOSIT: /if \(next\.type\) \{ .{0,200}?\.toUpperCase\(\) === next\.type\.toUpperCase\(\)/,
+      WITHDRAW: /if \(next\.type\) \{ .{0,200}?\.toUpperCase\(\) === next\.type\.toUpperCase\(\)/,
+      SWAP: /filters\.type \? \[it\.fromAsset\.type, it\.toAsset\.type\]\.some\(/,
+    };
+    for (const [domain, file] of Object.entries(LIST_PAGES)) {
+      const code = codeOf(file);
+      expect([domain, 'bind', code.includes('value={filters.type}')])
+        .toEqual([domain, 'bind', true]);
+      expect([domain, 'option', code.includes('<option value="">All types</option>')])
+        .toEqual([domain, 'option', true]);
+      expect([domain, 'reset-lamp', code.includes('!!filters.type ||')])
+        .toEqual([domain, 'reset-lamp', true]);
+      expect([domain, 'real-filter', REAL_FILTER[domain].test(code)])
+        .toEqual([domain, 'real-filter', true]);
+    }
+    // 兑换的 type 过滤住在 useMemo 里，依赖数组漏了它就永远算旧结果。
+    expect(['SWAP', 'memo-dep', codeOf(LIST_PAGES.SWAP).includes(', filters.type]')])
+      .toEqual(['SWAP', 'memo-dep', true]);
+  });
+
+  it('三域状态下拉的「全部」文案统一为 All status（且真的挂在状态下拉上）', () => {
+    for (const [domain, file] of Object.entries(LIST_PAGES)) {
+      const code = codeOf(file);
+      expect([
+        domain,
+        /<option value="">All status<\/option> \{ ?\w*STATUS_FILTERS\.map\(/.test(code),
+      ]).toEqual([domain, true]);
+      expect([domain, /<option value="">All<\/option>/.test(code)]).toEqual([domain, false]);
     }
   });
 });
