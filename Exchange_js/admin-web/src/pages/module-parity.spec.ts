@@ -243,8 +243,10 @@ describe('规则② 内容差异允许，但同族卡片要连续（Task 6）', 
 describe('规则① 同一模块显示逻辑一致 · ⚡ Simulation（Task 7）', () => {
   it('三域面板都常显 —— 渲染条件里不许再有 data.status 判断', () => {
     for (const [domain, file] of Object.entries(DETAIL_PAGES)) {
-      const gate = srcOf(file).match(/\{simEnabled[^\n]*/);
-      expect([domain, gate?.[0]?.trim()]).toEqual([domain, '{simEnabled && (']);
+      /* 必须 matchAll 全量取：非全局 .match() 只看第一处，注释里单起一行恰好写着
+         `{simEnabled && (` 就能掩盖真闸门改回带 status 判断（审查变异 C5b 实证）。 */
+      const gates = [...srcOf(file).matchAll(/\{simEnabled[^\n]*/g)].map((m) => m[0].trim());
+      expect([domain, gates]).toEqual([domain, ['{simEnabled && (']]);
     }
   });
 
@@ -292,6 +294,22 @@ describe('规则① 同一模块显示逻辑一致 · ⚡ Simulation（Task 7）
       // 折行是预期格式，不该让断言对格式敏感）。
       expect([domain, /\|\|\s*status === 'FROZEN'/.test(predicateBody)]).toEqual([domain, true]);
     }
+  });
+
+  /* 兑换的第二档谓词是**手写字面量**（不是硬抄的数组），it2 钉不到它。
+     审查变异 N1（把它与 isSwapFullyIgnored 的取值域对调）会让 SUCCESS/REJECTED
+     重新被灰掉 —— Important #2 原样复活而八条断言全绿。这条专钉它。
+     依据：swap-workflow.service.ts 的 KYT_VERDICT_TERMINAL_STATUSES 分支里有
+     carve-out `(status === REJECTED || status === SUCCESS) && verdict === 'rejected'`
+     → handleRejectDisposition，这两态**会真的重跑客户级处置**，不是 no-op。 */
+  it('兑换「本单终态但客户仍受影响」那一档恰好是 SUCCESS + REJECTED', () => {
+    const bucket =
+      srcOf(DETAIL_PAGES.SWAP).match(/const isSwapOrderTerminalButPersonStillAffected[^;]*;/)?.[0] ?? '';
+    expect(bucket.length).toBeGreaterThan(0);
+    expect([...bucket.matchAll(/status === '([A-Z_]+)'/g)].map((x) => x[1]).sort()).toEqual([
+      'REJECTED',
+      'SUCCESS',
+    ]);
   });
 
   it('提现 PAYOUT_PENDING、兑换 PROCESSING 刻意不置灰', () => {
