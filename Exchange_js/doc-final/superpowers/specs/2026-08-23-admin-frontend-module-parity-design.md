@@ -60,10 +60,22 @@
 | # | 模块 | 现状 | 处置 |
 |---|---|---|---|
 | 1 | **L1 / L2 闸门格子** | 三域各写内联 JSX，L2 有三种排版 | **抽 `GateTile`**，一页用两次，共六次 |
-| 2 | **`SumsubDetailSection`** | 三份本地副本，95 / 103 / 110 行，**哈希全不同** | 合成一个共享件 |
+| 2 | **`SumsubDetailSection`** | 三份本地副本；**渲染体逐字节相同，唯一实质差异是 props 的类型名** | 合成一个共享件（几乎零风险） |
 | 3 | **`StatusTimeline`** | 三份本地副本，44 / 44 / 56 行，**哈希全不同** | 合成一个共享件 |
 | 4 | **关联资金单** | 充值/提现用共享 `LinkedRelationCard`；兑换自己写 `LegAttemptRow` | **本轮不动**（业主裁定乙，见 §4） |
-| 5 | **`AdminBadge`** | 充值 detail 2 处 / list 3 处；兑换 4 / 2；**提现 0 / 0** | 提现两个页面接上 |
+| 5 | **`AdminBadge`** | 充值 detail 2 处 / list 3 处；兑换 4 / 2；**提现 0 / 0** | 只补 **list 的 Review 列**；detail **不补**，见 §2.1 |
+
+### 2.1 提现 detail 的 `AdminBadge` 为 0 是对的，不要硬加
+
+逐处核实后，充值/兑换用 `AdminBadge` 的位置，提现要么**没有那个信息**、要么**已用同一职责的共享组件**：
+
+| 充值/兑换用 AdminBadge 的位置 | 提现的情况 |
+|---|---|
+| 充值 list 的 `limitHoldReason` 徽章 | `limitHoldReason` 是**充值独有字段**（Prisma 里只有 `DepositTransaction` 有），提现没有「金额下限挂起」这个概念 |
+| 兑换 detail 的 `Hard Line → SANCTION_HELD` | 判据 `customer.hardLineDispositionedAt` **只有兑换域会写**，提现语境下恒为 `Not set`，硬加是造假格子 |
+| 兑换 detail 关联腿的状态徽章 | 提现**已有等价展示** —— 走 `LinkedRelationCard`，那个共享组件内部就渲染 `AdminBadge` |
+
+→ **提现 detail 直接 grep 到 0 处并不等于缺失。** 本轮只补 list 的 Review 列（见 §10）。
 
 **已经是同一个组件、不用动的**：`DetailCard`、`InfoField`、`JsonBlock`、`ActionSection`（均来自 `components/compliance/DetailPageComponents.tsx`）、`SidebarGroup`、`SidebarKV`（`components/ui/SidebarPrimitives.tsx`）、`MaterialRequestPanel`、`L1GateCard`、`Pagination`、`PageTitleBar`、`adminButtonStyles`。
 
@@ -219,21 +231,50 @@ L1 与 L2 用同一个组件 → 视觉自动等重；三域用同一个组件 �
 
 ### 6.3 顺带发现的 Hero 差异
 
-| | 单号 | 状态 | Owner No | Stage |
+**2026-08-23 实证订正**：本稿初版写「兑换 Hero 缺 Owner No」是**错的** —— 兑换那处用的是局部变量 `ownerNo` + `ownerLink`（`{ownerNo && (...)}`），不是 `data.ownerNo`，初版 grep 漏了。
+
+| | 单号 | 状态 | Owner | Stage |
 |---|---|---|---|---|
 | 充值 | ✅ | ✅ | ✅ | — |
 | 提现 | ✅ | ✅ | ✅ | — |
-| 兑换 | ✅ | ✅ | **❌ 缺** | ✅ 多 |
+| 兑换 | ✅ | ✅ | ✅ | ✅ 多 |
 
-兑换 Hero 补 `Owner No`。`Stage` 是兑换独有的流转阶段，属内容差异，**保留**。
+→ **Hero 本轮无需改动。** `Stage` 是兑换独有的流转阶段，属内容差异，保留。
+
+### 6.4 三域横幅 markup 不一致 → 抽共享件
+
+现状（提现无图标、兑换有）：
+```
+提现  shrink-0 border-b border-adm-border bg-adm-red/5  px-6 py-2.5 …          无图标
+兑换  flex items-center gap-2 border-b border-adm-border bg-adm-red/10 px-6 py-2 …  + AlertTriangle
+```
+
+按规则①，这是同一职责的模块 → **抽 `NeedsReviewBanner` 共享件**，三域各传自己的文案。
+
+⚠️ **文案必须按域给，不能照抄**：充值的 `needsReview` 语义是「处置资金腿重试三级梯耗尽、单子卡在原地」，提现/兑换那句写的是「放款/成交后迟到的 KYT 裁决」—— 两回事，照抄会说错话。
 
 ---
 
 ## 7. `SumsubDetailSection` 合并（违规 #2）
 
-三份的 **props 名与四个字段标签完全相同**（`{ detail }`；`Score` / `Verdict` / `Review Status` / `Review Answer`），只有 TS 类型不同：充值/提现 `SumsubTxnDetail`，兑换 `SwapSumsubDetail`。
+**2026-08-23 实证订正**：本稿初版写「三份哈希全不同」是错的 —— 那是我 awk 取范围越界到 `StatusTimeline` 造成的假象。
 
-→ 合成一个共享件，入参类型取两者的并集或公共父类型。**这是三条里最好合的一条。**
+去掉注释与空白后逐字节比对，真相是：
+
+| | 渲染体 |
+|---|---|
+| 充值 | `a47bc04b629d` |
+| 提现 | `a47bc04b629d` ← **与充值逐字节相同** |
+| 兑换 | `05b8c2429786` |
+
+而兑换那份与充值的完整 diff **只有一行实质差异**：
+```diff
+-  detail: SumsubTxnDetail | null | undefined;
++  detail: SwapSumsubDetail | null | undefined;
+```
+其余全是注释。四个字段标签（`Score` / `Verdict` / `Review Status` / `Review Answer`）与 props 名（`{ detail }`）三域完全一致。
+
+→ 合成一个共享件，入参用**公共父类型**（字段全可选），各域自己的 DTO 靠结构化子类型直接可赋值，不必改各页的类型声明。**这是三条里风险最低的一条。**
 
 ---
 
@@ -281,7 +322,7 @@ L1 与 L2 用同一个组件 → 视觉自动等重；三域用同一个组件 �
 ⚠️ 三个坑：
 - 充值的集合是 `KYT_VERDICT_IGNORED_STATUSES`；**提现那份至今还叫 `KYT_VERDICT_TERMINAL_STATUSES`**（没跟着改名，grep `IGNORED` 在提现域一无所获）
 - **`FROZEN` 刻意不在充值那个集合里**（后端有成文注释解释），不要顺手加
-- 兑换没有同名常量，要读 `applyKytVerdict` 实现来判定
+- **兑换有 `KYT_VERDICT_TERMINAL_STATUSES`**（与提现同名，内容 `SUCCESS/REJECTED/FAILED/REVERSED`）—— 本稿初版写「兑换没有同名常量」是错的，2026-08-23 实证订正
 
 ---
 
