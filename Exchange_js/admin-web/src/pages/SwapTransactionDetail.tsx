@@ -16,6 +16,7 @@ import { formatSlaRemaining } from '../utils/slaDisplay';
 import { useSimulationMode } from '../utils/simulationMode';
 import { getComplianceLayerStyle } from '../utils/depositActionMap';
 import L1GateCard from '../components/L1GateCard';
+import { GateTile } from '../components/compliance/GateTile';
 import MaterialRequestPanel from '../components/MaterialRequestPanel';
 
 /* ── Types ──────────────────────────────────────────────────── */
@@ -494,48 +495,38 @@ const SwapTransactionDetail = () => {
             <InfoField label="Net Out" value={netDisplay} highlight />
           </DetailCard>
 
-          {/* 4. Compliance — L1 真实资格 + L2 KYT 单闸（对齐充值/提现的双层卡）。
+          {/* 4. Compliance — L1 真实资格 + L2 KYT 单闸。
               L1 读客户 lifecycle（与 L1GateService 的 CUSTOMER_ELIGIBILITY 同一口径）；
               L2 读本单 KYT 终裁。
-              兑换无 TR/大额门——L2 只有 KYT 一道，这是设计而非缺失（无对手方）。 */}
-          <div className="px-6 py-5">
-            <h3 className="mb-3 font-mono text-[9px] font-semibold uppercase tracking-[0.1em] text-adm-t2">
-              Compliance
-            </h3>
+              兑换无 TR/大额门 —— L2 只有 KYT 一道，这是设计而非缺失（无对手方），
+              所以 L2 前缀锁死 Finance，不做 travelRule 分支。
+              2026-08-23：容器从手写 div+h3 换成 DetailCard，两个格子换成共用的
+              GateTile —— 与充值/提现同一承载物（第五批 §3）。 */}
+          <DetailCard title="Compliance" columns={1}>
             <div className="grid grid-cols-2 gap-3">
-              <div
-                className={`rounded-lg border bg-adm-bg p-3 border-l-[3px] ${eligibilityStyle.borderColor}`}
-              >
-                <div className="font-mono text-[9px] uppercase tracking-wider text-adm-t3">
-                  L1 · Eligibility
-                </div>
-                <div className={`mt-1 text-sm font-bold ${eligibilityStyle.textColor}`}>
-                  {eligibilityStyle.label}
-                </div>
-                <div className="mt-0.5 font-mono text-[10px] text-adm-t3">Pre-execution gate</div>
-              </div>
-              <div
-                className={`rounded-lg border bg-adm-bg p-3 border-l-[3px] ${l2Style.borderColor}`}
-              >
-                <div className="font-mono text-[9px] uppercase tracking-wider text-adm-t3">
-                  L2 · Transaction Screen
-                </div>
-                <div className={`mt-1 text-sm font-bold ${l2Style.textColor}`}>
-                  {data.sumsubDetail?.verdict ? `KYT: ${data.sumsubDetail.verdict}` : 'PENDING'}
-                </div>
-                <div className="mt-0.5 font-mono text-[10px] text-adm-t3">
-                  {data.sumsubDetail?.score != null
+              <GateTile
+                title="L1 · Eligibility"
+                value={eligibilityStyle.label}
+                caption="Pre-creation check"
+                style={eligibilityStyle}
+              />
+              <GateTile
+                title="L2 · Transaction Screen"
+                value={`Finance: ${data.sumsubDetail?.verdict ?? '—'}`}
+                caption={
+                  data.sumsubDetail?.score != null
                     ? `Score ${data.sumsubDetail.score}`
                     : data.complianceAction
                       ? `Scoring action: ${data.complianceAction}`
-                      : 'Awaiting Sumsub verdict'}
-                </div>
-              </div>
+                      : 'Awaiting Sumsub verdict'
+                }
+                style={l2Style}
+              />
               <div className="col-span-2 mt-2">
                 <L1GateCard raw={data.l1Snapshot} />
               </div>
             </div>
-          </div>
+          </DetailCard>
 
           {/* 5. Sumsub References — 身份/关联键（对齐充值/提现同名卡）。 */}
           <DetailCard title="Sumsub References" columns={2}>

@@ -28,6 +28,7 @@ import {
 } from '../utils/transactionRootDisplay';
 import { getComplianceLayerStyle } from '../utils/depositActionMap';
 import L1GateCard from '../components/L1GateCard';
+import { GateTile } from '../components/compliance/GateTile';
 import { getDepositStatusMeta } from '../utils/depositStatusMap';
 import { adminButtonClass } from '../components/common/adminButtonStyles';
 import { useSimulationMode } from '../utils/simulationMode';
@@ -618,33 +619,25 @@ const DepositTransactionDetail = () => {
           {/* 3. Compliance Layers */}
           <DetailCard title="Compliance" columns={1}>
             <div className="grid grid-cols-2 gap-3">
-              {/* L1: Eligibility Guard */}
-              <div className={`rounded-lg border bg-adm-bg p-3 border-l-[3px] ${eligibilityStyle.borderColor}`}>
-                <div className="font-mono text-[9px] uppercase tracking-wider text-adm-t3">L1 · Eligibility</div>
-                <div className={`mt-1 text-sm font-bold ${eligibilityStyle.textColor}`}>{eligibilityStyle.label}</div>
-                <div className="mt-0.5 font-mono text-[10px] text-adm-t3">
-                  {gatesNotEvaluated ? 'Not evaluated until payin lands' : 'Post-arrival check'}
-                </div>
-              </div>
-              {/* L2: Transaction Screen — a deposit now submits exactly one
-                  Sumsub txn (finance or travelRule, per `sumsubTxnType`); the
-                  label follows the type and the value is the webhook verdict
-                  verbatim (approved/rejected/onHold/awaitUser — not
-                  translated). */}
-              <div className={`rounded-lg border bg-adm-bg p-3 border-l-[3px] ${l2Style.borderColor}`}>
-                <div className="font-mono text-[9px] uppercase tracking-wider text-adm-t3">L2 · Transaction Screen</div>
-                <div className="mt-2 flex items-center gap-2">
-                  <span className="font-mono text-[9px] text-adm-t3 w-24">
-                    {data.sumsubTxnType === 'travelRule' ? 'Travel Rule:' : 'Finance:'}
-                  </span>
-                  <span className={`text-[11px] font-semibold ${l2Style.textColor}`}>
-                    {gatesNotEvaluated ? '—' : (data.sumsubVerdict ?? '—')}
-                  </span>
-                  <span className="font-mono text-[10px] text-adm-t3">
-                    Score: {gatesNotEvaluated ? '—' : (data.sumsubScore ?? '—')}
-                  </span>
-                </div>
-              </div>
+              {/* L1: Eligibility Guard — 读客户生命周期。充值独有：钱没到账
+                  (PAYIN_PENDING) 时闸门根本没跑，主值恒 PENDING、副行改说明原因。 */}
+              <GateTile
+                title="L1 · Eligibility"
+                value={eligibilityStyle.label}
+                caption={gatesNotEvaluated ? 'Not evaluated until payin lands' : 'Post-arrival check'}
+                style={eligibilityStyle}
+              />
+              {/* L2: Transaction Screen — 充值只送一笔 Sumsub txn（finance 或
+                  travelRule，按 `sumsubTxnType`）；前缀跟着类型走，verdict 是 webhook
+                  原值（approved/rejected/onHold/awaitUser，不翻译）。 */}
+              <GateTile
+                title="L2 · Transaction Screen"
+                value={`${data.sumsubTxnType === 'travelRule' ? 'Travel Rule' : 'Finance'}: ${
+                  gatesNotEvaluated ? '—' : (data.sumsubVerdict ?? '—')
+                }`}
+                caption={`Score ${gatesNotEvaluated ? '—' : (data.sumsubScore ?? '—')}`}
+                style={l2Style}
+              />
               <div className="col-span-2 mt-2">
                 <L1GateCard raw={data.l1Snapshot} />
               </div>

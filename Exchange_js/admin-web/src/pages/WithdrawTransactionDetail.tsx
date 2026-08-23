@@ -24,6 +24,7 @@ import { formatSlaRemaining } from '../utils/slaDisplay';
 import { formatTransactionTypeLabel } from '../utils/transactionRootDisplay';
 import { getComplianceLayerStyle } from '../utils/depositActionMap';
 import L1GateCard from '../components/L1GateCard';
+import { GateTile } from '../components/compliance/GateTile';
 import {
   getWithdrawStatusMeta,
   isWithdrawTerminalStatus,
@@ -488,26 +489,25 @@ const WithdrawTransactionDetail = () => {
           {/* 3. Compliance Layers */}
           <DetailCard title="Compliance" columns={1}>
             <div className="grid grid-cols-2 gap-3">
-              {/* L1: Eligibility Guard */}
-              <div className={`rounded-lg border bg-adm-bg p-3 border-l-[3px] ${eligibilityStyle.borderColor}`}>
-                <div className="font-mono text-[9px] uppercase tracking-wider text-adm-t3">L1 · Eligibility</div>
-                <div className={`mt-1 text-sm font-bold ${eligibilityStyle.textColor}`}>{eligibilityStyle.label}</div>
-                <div className="mt-0.5 font-mono text-[10px] text-adm-t3">Pre-creation check</div>
-              </div>
-              {/* L2: Transaction Screen — a withdrawal submits exactly one
-                  Sumsub txn (finance or travelRule, per `sumsubTxnType`);
-                  single line: type: verdict · Score. */}
-              <div className={`rounded-lg border bg-adm-bg p-3 border-l-[3px] ${l2Style.borderColor}`}>
-                <div className="font-mono text-[9px] uppercase tracking-wider text-adm-t3">L2 · Transaction Screen</div>
-                <div className="mt-2 flex items-center gap-2">
-                  <span className={`text-[11px] font-semibold ${l2Style.textColor}`}>
-                    {data.sumsubTxnType ?? '—'}: {data.sumsubVerdict ?? '—'}
-                  </span>
-                  <span className="font-mono text-[10px] text-adm-t3">
-                    · Score {data.sumsubScore ?? '—'}
-                  </span>
-                </div>
-              </div>
+              {/* L1: Eligibility Guard — 读客户生命周期。提现的闸门在建单前跑。 */}
+              <GateTile
+                title="L1 · Eligibility"
+                value={eligibilityStyle.label}
+                caption="Pre-creation check"
+                style={eligibilityStyle}
+              />
+              {/* L2: Transaction Screen — 提现只送一笔 Sumsub txn（finance 或
+                  travelRule，按 `sumsubTxnType`）。2026-08-23：前缀改成与充值同款的
+                  人话（此前裸显后端字面量 `finance`），Score 从主值行挪到副行，
+                  主值字号升到与 L1 同级。 */}
+              <GateTile
+                title="L2 · Transaction Screen"
+                value={`${data.sumsubTxnType === 'travelRule' ? 'Travel Rule' : 'Finance'}: ${
+                  data.sumsubVerdict ?? '—'
+                }`}
+                caption={`Score ${data.sumsubScore ?? '—'}`}
+                style={l2Style}
+              />
               <div className="col-span-2 mt-2">
                 <L1GateCard raw={data.l1Snapshot} />
               </div>
