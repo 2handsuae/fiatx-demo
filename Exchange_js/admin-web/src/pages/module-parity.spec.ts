@@ -239,3 +239,44 @@ describe('规则② 内容差异允许，但同族卡片要连续（Task 6）', 
     expect(mainCardsOf(DETAIL_PAGES.WITHDRAW)[0]).toBe('Transaction Details');
   });
 });
+
+describe('规则① 同一模块显示逻辑一致 · ⚡ Simulation（Task 7）', () => {
+  it('三域面板都常显 —— 渲染条件里不许再有 data.status 判断', () => {
+    for (const [domain, file] of Object.entries(DETAIL_PAGES)) {
+      const gate = srcOf(file).match(/\{simEnabled[^\n]*/);
+      expect([domain, gate?.[0]?.trim()]).toEqual([domain, '{simEnabled && (']);
+    }
+  });
+
+  it('三域都按自家忽略集合置灰，且集合内容与后端逐字一致', () => {
+    const EXPECTED: Record<string, string[]> = {
+      DEPOSIT: ['SUCCESS', 'FAILED', 'CONFISCATED', 'RETURNED', 'SEIZED', 'CONFISCATING', 'RETURNING', 'SEIZING'],
+      WITHDRAW: ['SUCCESS', 'REJECTED', 'FAILED', 'RETURNED'],
+      SWAP: ['SUCCESS', 'REJECTED', 'FAILED', 'REVERSED'],
+    };
+    for (const [domain, file] of Object.entries(DETAIL_PAGES)) {
+      const src = srcOf(file);
+      const m = src.match(/_VERDICT_(?:IGNORED|TERMINAL)_STATUSES = new Set\(\[([\s\S]*?)\]\)/);
+      const got = [...(m?.[1] ?? '').matchAll(/'([A-Z_]+)'/g)].map((x) => x[1]);
+      expect([domain, got.sort()]).toEqual([domain, [...EXPECTED[domain]].sort()]);
+    }
+  });
+
+  /* FROZEN 三域都在集合之外、走谓词第二支 —— 与后端两行结构同形。
+     塞进数组就与后端语义脱节（后端那个集合另有含义）。 */
+  it('FROZEN 不在数组里，但谓词认它', () => {
+    for (const [domain, file] of Object.entries(DETAIL_PAGES)) {
+      const src = srcOf(file).replace(/\s+/g, ' ');
+      const setBody = src.match(/_VERDICT_(?:IGNORED|TERMINAL)_STATUSES = new Set\(\[([^\]]*)\]/)?.[1] ?? '';
+      expect([domain, setBody.includes('FROZEN')]).toEqual([domain, false]);
+      expect([domain, /\|\| status === 'FROZEN'/.test(src)]).toEqual([domain, true]);
+    }
+  });
+
+  it('提现 PAYOUT_PENDING、兑换 PROCESSING 刻意不置灰', () => {
+    const w = srcOf(DETAIL_PAGES.WITHDRAW);
+    const s = srcOf(DETAIL_PAGES.SWAP);
+    expect(w.match(/_VERDICT_TERMINAL_STATUSES = new Set\(\[([^\]]*)\]/)?.[1]).not.toContain('PAYOUT_PENDING');
+    expect(s.match(/_VERDICT_TERMINAL_STATUSES = new Set\(\[([^\]]*)\]/)?.[1]).not.toContain('PROCESSING');
+  });
+});

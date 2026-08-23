@@ -56,6 +56,22 @@ const WITHDRAW_VERDICT_BUTTONS: Array<{ key: string; label: string }> = [
   { key: 'V10_AWAIT_USER_MULTI', label: '⑩ Awaiting user · 多条' },
 ];
 
+/* 硬抄件。同步源：src/modules/trading/withdraw-transactions/withdraw-workflow.service.ts
+   的 WithdrawWorkflowService.KYT_VERDICT_TERMINAL_STATUSES。
+   ⚠️ 名字就是 TERMINAL —— 提现域**没有**跟着充值域改名成 IGNORED，grep 'IGNORED'
+   在这个域里搜不到集合定义。
+   ⚠️ PAYOUT_PENDING 刻意**不**在这里：后端判它 EVIDENCE_ONLY（证据照落 + 打
+   needsReview），不是 no-op，所以按钮不置灰。 */
+const WITHDRAW_KYT_VERDICT_TERMINAL_STATUSES = new Set([
+  'SUCCESS',
+  'REJECTED',
+  'FAILED',
+  'RETURNED',
+]);
+
+const isWithdrawVerdictIgnored = (status: string): boolean =>
+  WITHDRAW_KYT_VERDICT_TERMINAL_STATUSES.has(status) || status === 'FROZEN';
+
 interface LinkedFundOrder {
   kind: 'PAYOUT' | 'INTERNAL_FUND';
   no: string;
@@ -620,12 +636,17 @@ const WithdrawTransactionDetail = () => {
                 ⑨ only posts a rejected verdict tagged SLA_BREACH — it does not
                 drive the real SLA timer (WithdrawSlaService); same code path as ⑦.
               </p>
+              {isWithdrawVerdictIgnored(data.status) && (
+                <p className="font-mono text-[11px] text-adm-amber">
+                  本单已进终态/处置态，投递的裁决会被后端记录但不改状态。
+                </p>
+              )}
               {simError && <p className="text-[11px] text-adm-red">{simError}</p>}
               <div className="flex flex-wrap gap-2">
                 {WITHDRAW_VERDICT_BUTTONS.map((s) => (
                   <button
                     key={s.key}
-                    disabled={simSubmitting !== null}
+                    disabled={simSubmitting !== null || isWithdrawVerdictIgnored(data.status)}
                     onClick={() => handleRunVerdict(s.key)}
                     className={adminButtonClass('simulationAction')}
                   >

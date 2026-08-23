@@ -41,6 +41,22 @@ const SWAP_VERDICT_BUTTONS: Array<{ key: string; label: string }> = [
   { key: 'V8_ACTION_RED', label: '⑧ 认证不通过（升级）' },
 ];
 
+/* 硬抄件。同步源：src/modules/trading/swap-transactions/swap-workflow.service.ts
+   的 SwapWorkflowService.KYT_VERDICT_TERMINAL_STATUSES，以及同文件 applyKytVerdict
+   顶部那一行单独的 FROZEN 判断。
+   ⚠️ 兑换域没有叫 *_IGNORED_STATUSES 的常量，别去 grep IGNORED。
+   ⚠️ PROCESSING 刻意**不**在这里：后端在 PROCESSING 上落证据 + 打 needsReview +
+   写审计，不是 no-op，所以按钮不置灰。 */
+const SWAP_KYT_VERDICT_TERMINAL_STATUSES = new Set([
+  'SUCCESS',
+  'REJECTED',
+  'FAILED',
+  'REVERSED',
+]);
+
+const isSwapVerdictIgnored = (status: string): boolean =>
+  SWAP_KYT_VERDICT_TERMINAL_STATUSES.has(status) || status === 'FROZEN';
+
 /** Matched-rule entry inside the Sumsub compliance detail. */
 /** parity 2026-08-14：与提现 SumsubTxnDetail 逐字段同形 + swap 双腿补充。 */
 interface SwapMatchedRule {
@@ -629,12 +645,14 @@ const SwapTransactionDetail = () => {
             <MaterialRequestPanel mode="order" orderDomain="SWAP" orderRef={data.swapNo} />
           </DetailCard>
 
-          {/* 11. Simulation (demo only — gated by the local simulation-mode
-              toggle AND by status: a swap only accepts a verdict while sitting
-              in COMPLIANCE_PENDING — once it has moved to PROCESSING/SUCCESS/
-              REJECTED, SwapWorkflowService#applyKytVerdict no-ops on it, so
-              showing the panel there would mislead the operator. ) */}
-          {simEnabled && data.status === 'COMPLIANCE_PENDING' && (
+          {/* 11. Simulation（demo only —— 由本地 simulation-mode 开关控制，
+              与后端 SUMSUB_MOCK_MODE 标志无关）。
+              2026-08-23：与充值/提现统一为**常显**。此前这里额外挂了一道
+              `data.status === 'COMPLIANCE_PENDING'` 闸门，兑换是三域里唯一整块
+              消失的一个 —— operator 在别的状态下看不到面板，分不清「没这功能」和
+              「这单不适用」。改成常显 + 终态/处置态置灰 + 一句说明，把
+              applyKytVerdict 的 no-op 语义如实摊在页面上。 */}
+          {simEnabled && (
             <DetailCard title="⚡ Simulation" columns={1}>
               <p className="font-mono text-[11px] text-adm-t3">
                 Feeds ONE Sumsub verdict webhook into the real ingestion
@@ -645,12 +663,17 @@ const SwapTransactionDetail = () => {
                 ⑦/⑧ act on the customer (applicantActionReviewed), not on this
                 order — this swap's own status will not change.
               </p>
+              {isSwapVerdictIgnored(data.status) && (
+                <p className="font-mono text-[11px] text-adm-amber">
+                  本单已进终态/处置态，投递的裁决会被后端记录但不改状态。
+                </p>
+              )}
               {simError && <p className="text-[11px] text-adm-red">{simError}</p>}
               <div className="flex flex-wrap gap-2">
                 {SWAP_VERDICT_BUTTONS.map((s) => (
                   <button
                     key={s.key}
-                    disabled={simSubmitting !== null}
+                    disabled={simSubmitting !== null || isSwapVerdictIgnored(data.status)}
                     onClick={() => handleRunVerdict(s.key)}
                     className={adminButtonClass('simulationAction')}
                   >

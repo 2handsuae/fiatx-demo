@@ -56,6 +56,30 @@ const DEPOSIT_VERDICT_BUTTONS: Array<{ key: string; label: string }> = [
   { key: 'V10_AWAIT_USER_MULTI', label: '⑩ Awaiting user · 多条' },
 ];
 
+/* 硬抄件（admin-web 有独立 tsconfig，后端那份是 private static，import 不过来）。
+   同步源：src/modules/trading/deposit-transactions/deposit-workflow.service.ts
+   的 DepositWorkflowService.KYT_VERDICT_IGNORED_STATUSES —— 5 个终态 + 3 个在途
+   处置态。改了后端务必同步改这里，否则按钮置灰与后端实际 no-op 脱节。
+   ⚠️ FROZEN **刻意不在这个数组里**：后端那个集合的语义是「终态 + 在途处置态」，
+   FROZEN 属于另一族，加进去会影响别处对该集合的读取。后端是在 decideVerdictLanding
+   里单独一行 `if (status === FROZEN) return 'IGNORE'`，这里也照样单独一支。 */
+const DEPOSIT_KYT_VERDICT_IGNORED_STATUSES = new Set([
+  // 终态
+  'SUCCESS',
+  'FAILED',
+  'CONFISCATED',
+  'RETURNED',
+  'SEIZED',
+  // 在途处置态
+  'CONFISCATING',
+  'RETURNING',
+  'SEIZING',
+]);
+
+/** 该状态下投递的裁决会被后端 no-op（只落审计，不改状态）。 */
+const isDepositVerdictIgnored = (status: string): boolean =>
+  DEPOSIT_KYT_VERDICT_IGNORED_STATUSES.has(status) || status === 'FROZEN';
+
 interface LinkedFundOrder {
   kind: 'PAYOUT' | 'INTERNAL_FUND' | 'PAYIN' | 'CONFISCATION';
   no: string;
@@ -765,12 +789,17 @@ const DepositTransactionDetail = () => {
                 ⑨ only posts a rejected verdict tagged SLA_BREACH — it does not
                 drive the real SLA timer (DepositSlaService); same code path as ⑦.
               </p>
+              {isDepositVerdictIgnored(data.status) && (
+                <p className="font-mono text-[11px] text-adm-amber">
+                  本单已进终态/处置态，投递的裁决会被后端记录但不改状态。
+                </p>
+              )}
               {simError && <p className="text-[11px] text-adm-red">{simError}</p>}
               <div className="flex flex-wrap gap-2">
                 {DEPOSIT_VERDICT_BUTTONS.map((s) => (
                   <button
                     key={s.key}
-                    disabled={simSubmitting !== null}
+                    disabled={simSubmitting !== null || isDepositVerdictIgnored(data.status)}
                     onClick={() => handleRunVerdict(s.key)}
                     className={adminButtonClass('simulationAction')}
                   >
