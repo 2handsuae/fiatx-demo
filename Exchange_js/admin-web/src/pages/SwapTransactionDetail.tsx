@@ -318,7 +318,14 @@ const SwapTransactionDetail = () => {
   // （`access.lifecycle === 'ACTIVE'`）,口径天然一致。
   const eligibilityStyle = getComplianceLayerStyle(data.customer?.lifecycle);
   // 未裁决时传 'PENDING' 拿琥珀色（而非无值的灰色）——未决恰是 operator 最该注意的态。
-  const l2Style = getComplianceLayerStyle(data.sumsubDetail?.verdict || 'PENDING');
+  /* L2 读**顶层裁决列** `complianceVerdict`（＝充值/提现的 `sumsubVerdict`），不是
+     `sumsubDetail?.verdict`。2026-08-24 实测：`sumsubDetail` 由 `sumsubDetailJson` 派生，
+     而那一列只在 `applyKytVerdict` 收到 `detailRaw` 时才写（`getTxn` 没返回 raw、
+     或 demo 直接落裁决时都为空）—— 于是一笔 `complianceVerdict='approved'` 的 SUCCESS 单
+     L2 仍是琥珀 PENDING、值显示 `Finance: —`，与裁决本身无关。
+     ⚠️ 另注：充值的 `sumsubDetail.verdict` 实际是 scoringResult 的 action（值形如 'score'），
+     根本不是裁决 —— 三域都该读顶层列。 */
+  const l2Style = getComplianceLayerStyle(data.complianceVerdict || 'PENDING');
 
   // 第四批修复轮：此前手写 `SUCCESS || REJECTED`,漏了 FROZEN —— 它是转移表里
   // 明写的零出边终态,却不显示 Terminal 提示。改走 isSwapTerminalStatus（本域自己
@@ -516,10 +523,10 @@ const SwapTransactionDetail = () => {
               />
               <GateTile
                 title="L2 · Transaction Screen"
-                value={`Finance: ${data.sumsubDetail?.verdict ?? '—'}`}
+                value={`Finance: ${data.complianceVerdict ?? '—'}`}
                 caption={
-                  data.sumsubDetail?.score != null
-                    ? `Score ${data.sumsubDetail.score}`
+                  data.sumsubScore != null
+                    ? `Score ${data.sumsubScore}`
                     : data.complianceAction
                       ? `Scoring action: ${data.complianceAction}`
                       : 'Awaiting Sumsub verdict'

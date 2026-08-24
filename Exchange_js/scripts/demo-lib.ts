@@ -442,7 +442,9 @@ export async function runSwaps(ctx: DemoCtx): Promise<void> {
     // own applyKytVerdict calls above.
     const swap: any = await ctx.swapWf.initiateSwap(c.id, quote.id);
     console.log(`  ${c.customerNo} ${c.firstName}: ${swap.swapNo} ${usdtToAed ? 'USDT→AED' : 'AED→USDT'} ${plan.amount} → ${swap.netToAmount ?? swap.toAmount} ${to.currency} (COMPLIANCE_PENDING)`);
-    await ctx.swapWf.applyKytVerdict(swap.id, { verdict: 'approved' });
+    // riskScore 与充值/提现的 demo 调用对齐（各自 riskScore: 5）—— 不传的话
+    // sumsub_score 落 NULL，详情页 L2 副行只能显示 'Awaiting Sumsub verdict'。
+    await ctx.swapWf.applyKytVerdict(swap.id, { verdict: 'approved', riskScore: 5 });
     console.log(`  ${c.customerNo} ${c.firstName}: ${swap.swapNo} KYT approved → PROCESSING, leg1 booked`);
     await driveSwapToSuccess(ctx, { id: swap.id, swapNo: swap.swapNo });
     console.log(`  ${c.customerNo} ${c.firstName}: ${swap.swapNo} 4 legs CLEAR → SUCCESS`);

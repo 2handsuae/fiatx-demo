@@ -59,6 +59,23 @@ describe('规则① 同一职责同一组件 · L1/L2 闸门格子（Task 1）',
     expect(swap).not.toContain('Travel Rule');
   });
 
+  /* 2026-08-24 业主逮到：一笔 complianceVerdict='approved' 的 SUCCESS 兑换单，L2 仍是琥珀。
+     根因是兑换读的是**嵌套证据** `sumsubDetail?.verdict`，而那个对象由 sumsubDetailJson
+     派生 —— 该列只在 applyKytVerdict 收到 detailRaw 时才写（getTxn 没返回 raw、
+     或 demo 直接落裁决时都为空）。充值/提现读的是**顶层裁决列**，所以没这毛病。
+     这条钉住三域都读顶层列。 */
+  it('三域 L2 都读顶层裁决列，不读可能为空的嵌套 sumsubDetail', () => {
+    const l2StyleOf = (file: string): string =>
+      srcOf(file).match(/const l2Style = getComplianceLayerStyle\([\s\S]{0,120}?\);/)?.[0] ?? '';
+    expect(l2StyleOf(DETAIL_PAGES.DEPOSIT)).toContain('data.sumsubVerdict');
+    expect(l2StyleOf(DETAIL_PAGES.WITHDRAW)).toContain('data.sumsubVerdict');
+    expect(l2StyleOf(DETAIL_PAGES.SWAP)).toContain('data.complianceVerdict');
+    // 反面：三域都不许把 L2 的颜色判据接到嵌套证据上
+    for (const [domain, file] of Object.entries(DETAIL_PAGES)) {
+      expect([domain, l2StyleOf(file).includes('sumsubDetail')]).toEqual([domain, false]);
+    }
+  });
+
   it('兑换 Compliance 改用 DetailCard，不再手写 div+h3', () => {
     const swap = srcOf(DETAIL_PAGES.SWAP).replace(/\s+/g, ' ');
     expect(swap).toContain('<DetailCard title="Compliance"');

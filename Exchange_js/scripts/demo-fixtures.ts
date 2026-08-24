@@ -317,7 +317,7 @@ export async function createStuckSwap(
   //   是不是整数主单位不再要紧，故无需再搜整数 fromAmount，任意方向（含 to-USDT 6 位）皆可造。
   const quote: any = await mkQuote(new Prisma.Decimal(amount));
   const swap: any = await ctx.swapWf.initiateSwap(c.id, quote.id);
-  await ctx.swapWf.applyKytVerdict(swap.id, { verdict: 'approved' });
+  await ctx.swapWf.applyKytVerdict(swap.id, { verdict: 'approved', riskScore: 5 });
   await waitFor(`${swap.swapNo} PROCESSING`, async () => {
     const s: any = await ctx.prisma.swapTransaction.findUnique({ where: { id: swap.id } });
     return s?.status === 'PROCESSING' ? s : null;
