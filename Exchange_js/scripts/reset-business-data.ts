@@ -112,6 +112,12 @@ const BUSINESS_DELEGATES_FK_SAFE: string[] = [
   'wallet',
   // customer_restrictions FK → customer_main：子表必须先删，否则 reset 撞 FK。
   'customerRestriction',
+  // 2026-08-24 补：这两张也 FK → customer_main，此前漏在清单外 —— `material_requests`
+  // 有行时 reset-main 会在 customerMain 上抛 P2003（业主实测撞到过，库被清到一半卡住）。
+  // 两张表分别由 20260817000000_material_requests 与客户标签那批迁移加入，
+  // 加表时都没有同步更新本清单。**以后加任何 FK → customer_main 的表，必须回来加一行。**
+  'materialRequest',
+  'customerExplicitTag',
   'customerMain',
   'asset',
 ];

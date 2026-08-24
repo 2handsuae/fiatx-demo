@@ -34,48 +34,6 @@ const violations: Violation[] = [];
 
 // ─────────────────────────────────────────────────────────────
 // R1: InternalFund.from/toWalletId
-// ─────────────────────────────────────────────────────────────
-// Schema note: internal_funds has no eventCode column. We infer leg shape
-// from FK presence:
-//   - swapTransactionId set → SWAP leg. Customer-side legs need at least one
-//     wallet (from or to) pointing at the customer; pure firm-only legs would
-//     need both filled. Without eventCode we can't distinguish, so the
-//     baseline rule is conservative: both NULL is a violation regardless.
-//   - withdrawTransactionId set → WITHDRAW leg. Must have both from and to.
-//   - internalTransactionId set → legacy internal-transfer. Same as WITHDRAW.
-async function scanR1(prisma: PrismaClient): Promise<void> {
-  const ifs: any[] = await (prisma as any).internalFund.findMany();
-  for (const f of ifs) {
-    const isSwap = !!f.swapTransactionId;
-    const isWithdraw = !!f.withdrawTransactionId;
-    const isInternalTx = !!f.internalTransactionId;
-    const bothNull = !f.fromWalletId && !f.toWalletId;
-    const oneNull = !f.fromWalletId || !f.toWalletId;
-
-    if (isSwap && bothNull) {
-      violations.push({
-        rule: 'R1',
-        entity: f.internalFundNo,
-        detail: `SWAP leg (legSeq=${f.legSeq}) has both from/to NULL`,
-      });
-    }
-    if ((isWithdraw || isInternalTx) && oneNull) {
-      const kind = isWithdraw ? 'WITHDRAW' : 'INTERNAL_TX';
-      violations.push({
-        rule: 'R1',
-        entity: f.internalFundNo,
-        detail: `${kind} leg requires both wallets — from=${f.fromWalletId ?? 'NULL'} to=${f.toWalletId ?? 'NULL'}`,
-      });
-    }
-  }
-}
-
-// ─────────────────────────────────────────────────────────────
-// R2: AccountFlow.walletRef vs TbAccountRegistry owner
-// ─────────────────────────────────────────────────────────────
-// Aggregate accounts (CLIENT_ASSET=1, FIRM_ASSET=50) carry no per-customer
-// owner — skip them. For per-owner accounts, the walletRef wallet's
-// (ownerType, ownerNo) must align with the registry row.
 async function scanR2(prisma: PrismaClient): Promise<void> {
   const flows: any[] = await (prisma as any).accountFlow.findMany({
     select: { id: true, walletRef: true, tbAccountId: true },
@@ -125,69 +83,12 @@ async function scanR2(prisma: PrismaClient): Promise<void> {
 
 // ─────────────────────────────────────────────────────────────
 // R3: Payout/Payin CLEARED must have referenceNo (+ txHash for CRYPTO)
-// ─────────────────────────────────────────────────────────────
-async function scanR3(prisma: PrismaClient): Promise<void> {
-  const payouts: any[] = await (prisma as any).payout.findMany({
-    where: { status: 'CLEARED' },
-  });
-  for (const p of payouts) {
-    if (!p.referenceNo) {
-      violations.push({
-        rule: 'R3',
-        entity: p.payoutNo,
-        detail: `CLEARED payout has NULL referenceNo`,
-      });
-    }
-    if ((p.type || '').toUpperCase() === 'CRYPTO' && !p.txHash) {
-      violations.push({
-        rule: 'R3',
-        entity: p.payoutNo,
-        detail: `CLEARED CRYPTO payout has NULL txHash`,
-      });
-    }
-  }
-
-  const payins: any[] = await (prisma as any).payin.findMany({
-    where: { status: 'CLEARED' },
-  });
-  for (const p of payins) {
-    if (!p.referenceNo) {
-      violations.push({
-        rule: 'R3',
-        entity: p.payinNo,
-        detail: `CLEARED payin has NULL referenceNo`,
-      });
-    }
-    if ((p.type || '').toUpperCase() === 'CRYPTO' && !p.txHash) {
-      violations.push({
-        rule: 'R3',
-        entity: p.payinNo,
-        detail: `CLEARED CRYPTO payin has NULL txHash`,
-      });
-    }
-  }
-}
-
-// ─────────────────────────────────────────────────────────────
-// R4: WithdrawTransaction.fromWalletId owner + role
-// ─────────────────────────────────────────────────────────────
-// fromWalletId must be a wallet OWNED by the withdraw's owner (CUSTOMER, ownerNo).
-// Role must match payout type:
-//   - FIAT  → walletRole = C_VIBAN
-//   - CRYPTO → walletRole = C_DEP
-// Payout type lookup is via payoutId/payoutNo; fall back to asset code prefix
-// when payout link missing.
 async function scanR4(prisma: PrismaClient): Promise<void> {
   const withdraws: any[] = await (prisma as any).withdrawTransaction.findMany();
   const wallets: any[] = await (prisma as any).wallet.findMany({
     select: { id: true, ownerType: true, ownerNo: true, walletRole: true },
   });
   const wMap = new Map(wallets.map((w) => [w.id, w]));
-  const payouts: any[] = await (prisma as any).payout.findMany({
-    select: { id: true, payoutNo: true, type: true },
-  });
-  const poById = new Map(payouts.map((p) => [p.id, p]));
-
   for (const wt of withdraws) {
     if (!wt.fromWalletId) {
       violations.push({
@@ -218,36 +119,24 @@ async function scanR4(prisma: PrismaClient): Promise<void> {
       continue;
     }
 
-    // Role check by payout type
-    const payout = wt.payoutId ? poById.get(wt.payoutId) : undefined;
-    const payoutType = (payout?.type ?? '').toUpperCase();
-    const expectedRole =
-      payoutType === 'FIAT'
-        ? 'C_VIBAN'
-        : payoutType === 'CRYPTO'
-          ? 'C_DEP'
-          : null;
-    if (expectedRole && w.walletRole !== expectedRole) {
-      violations.push({
-        rule: 'R4',
-        entity: wt.withdrawNo,
-        detail:
-          `${payoutType} withdraw expects walletRole=${expectedRole} ` +
-          `but fromWallet.role=${w.walletRole}`,
-      });
-    }
   }
 }
 
+/* 2026-08-24：删掉 scanR1 / scanR3 与 scanR4 的尾段 —— 它们读的
+   `internalFund` / `payin` / `payout` 三张表在 funds_orders 三合一那批就被 DROP 了
+   （schema 里只剩 InternalFundAuditLog），Prisma client 上这三个 delegate 是
+   undefined → `undefined.findMany()` 直接抛，把整个 verify:demo-data 打挂，
+   连带让 `stack.sh reset-main`（set -euo pipefail）在重启栈之前中止。
+   scanR4 保留的是活的那半：提现的 fromWalletId 非空 / 存在 / 归属客户正确；
+   砍掉的是按 payout.type 反查钱包角色那段（payoutId 列也已随表消失）。
+   本项目 demo 约定不留兼容层，所以是删而不是加 `?.` 守卫。 */
 // ─────────────────────────────────────────────────────────────
 // Main
 // ─────────────────────────────────────────────────────────────
 async function main(): Promise<void> {
   const prisma = new PrismaClient();
   try {
-    await scanR1(prisma);
     await scanR2(prisma);
-    await scanR3(prisma);
     await scanR4(prisma);
   } finally {
     await prisma.$disconnect();
