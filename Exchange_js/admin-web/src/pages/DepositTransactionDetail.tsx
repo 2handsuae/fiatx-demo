@@ -1,14 +1,13 @@
 // admin-web/src/pages/DepositTransactionDetail.tsx
 import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { RefreshCw, User } from 'lucide-react';
+import { RefreshCw } from 'lucide-react';
 import {
   DetailPageHeader,
   DetailCard,
   InfoField,
 } from '../components/compliance/DetailPageComponents';
 import { SidebarGroup, SidebarKV } from '../components/ui/SidebarPrimitives';
-import { AdminBadge } from '../components/ui/AdminBadge';
 import {
   LinkedRelationCard,
   LinkedRelationEmpty,
@@ -28,6 +27,10 @@ import {
 } from '../utils/transactionRootDisplay';
 import { getComplianceLayerStyle } from '../utils/depositActionMap';
 import L1GateCard from '../components/L1GateCard';
+import { GateTile } from '../components/compliance/GateTile';
+import { SumsubDetailSection } from '../components/compliance/SumsubDetailSection';
+import { StatusTimeline } from '../components/compliance/StatusTimeline';
+import { NeedsReviewBanner } from '../components/compliance/NeedsReviewBanner';
 import { getDepositStatusMeta } from '../utils/depositStatusMap';
 import { adminButtonClass } from '../components/common/adminButtonStyles';
 import { useSimulationMode } from '../utils/simulationMode';
@@ -52,6 +55,30 @@ const DEPOSIT_VERDICT_BUTTONS: Array<{ key: string; label: string }> = [
   { key: 'V9_REJECTED_SLA', label: '⑨ Rejected · SLA breach' },
   { key: 'V10_AWAIT_USER_MULTI', label: '⑩ Awaiting user · 多条' },
 ];
+
+/* 硬抄件（admin-web 有独立 tsconfig，后端那份是 private static，import 不过来）。
+   同步源：src/modules/trading/deposit-transactions/deposit-workflow.service.ts
+   的 DepositWorkflowService.KYT_VERDICT_IGNORED_STATUSES —— 5 个终态 + 3 个在途
+   处置态。改了后端务必同步改这里，否则按钮置灰与后端实际 no-op 脱节。
+   ⚠️ FROZEN **刻意不在这个数组里**：后端那个集合的语义是「终态 + 在途处置态」，
+   FROZEN 属于另一族，加进去会影响别处对该集合的读取。后端是在 decideVerdictLanding
+   里单独一行 `if (status === FROZEN) return 'IGNORE'`，这里也照样单独一支。 */
+const DEPOSIT_KYT_VERDICT_IGNORED_STATUSES = new Set([
+  // 终态
+  'SUCCESS',
+  'FAILED',
+  'CONFISCATED',
+  'RETURNED',
+  'SEIZED',
+  // 在途处置态
+  'CONFISCATING',
+  'RETURNING',
+  'SEIZING',
+]);
+
+/** 该状态下投递的裁决会被后端 no-op（只落审计，不改状态）。 */
+const isDepositVerdictIgnored = (status: string): boolean =>
+  DEPOSIT_KYT_VERDICT_IGNORED_STATUSES.has(status) || status === 'FROZEN';
 
 interface LinkedFundOrder {
   kind: 'PAYOUT' | 'INTERNAL_FUND' | 'PAYIN' | 'CONFISCATION';
@@ -536,6 +563,11 @@ const DepositTransactionDetail = () => {
         </div>
       )}
 
+      <NeedsReviewBanner
+        show={!!data.needsReview}
+        message="Needs review — a disposition leg exhausted its retries; the order is parked and needs manual intervention"
+      />
+
       {/* ── Confiscation in-transit banner ── */}
       {data.status === 'CONFISCATING' && (
         <div className="shrink-0 border-b border-adm-border bg-adm-amber/5 px-6 py-2.5 font-mono text-[11px] text-adm-amber">
@@ -618,33 +650,25 @@ const DepositTransactionDetail = () => {
           {/* 3. Compliance Layers */}
           <DetailCard title="Compliance" columns={1}>
             <div className="grid grid-cols-2 gap-3">
-              {/* L1: Eligibility Guard */}
-              <div className={`rounded-lg border bg-adm-bg p-3 border-l-[3px] ${eligibilityStyle.borderColor}`}>
-                <div className="font-mono text-[9px] uppercase tracking-wider text-adm-t3">L1 · Eligibility</div>
-                <div className={`mt-1 text-sm font-bold ${eligibilityStyle.textColor}`}>{eligibilityStyle.label}</div>
-                <div className="mt-0.5 font-mono text-[10px] text-adm-t3">
-                  {gatesNotEvaluated ? 'Not evaluated until payin lands' : 'Post-arrival check'}
-                </div>
-              </div>
-              {/* L2: Transaction Screen — a deposit now submits exactly one
-                  Sumsub txn (finance or travelRule, per `sumsubTxnType`); the
-                  label follows the type and the value is the webhook verdict
-                  verbatim (approved/rejected/onHold/awaitUser — not
-                  translated). */}
-              <div className={`rounded-lg border bg-adm-bg p-3 border-l-[3px] ${l2Style.borderColor}`}>
-                <div className="font-mono text-[9px] uppercase tracking-wider text-adm-t3">L2 · Transaction Screen</div>
-                <div className="mt-2 flex items-center gap-2">
-                  <span className="font-mono text-[9px] text-adm-t3 w-24">
-                    {data.sumsubTxnType === 'travelRule' ? 'Travel Rule:' : 'Finance:'}
-                  </span>
-                  <span className={`text-[11px] font-semibold ${l2Style.textColor}`}>
-                    {gatesNotEvaluated ? '—' : (data.sumsubVerdict ?? '—')}
-                  </span>
-                  <span className="font-mono text-[10px] text-adm-t3">
-                    Score: {gatesNotEvaluated ? '—' : (data.sumsubScore ?? '—')}
-                  </span>
-                </div>
-              </div>
+              {/* L1: Eligibility Guard — 读客户生命周期。充值独有：钱没到账
+                  (PAYIN_PENDING) 时闸门根本没跑，主值恒 PENDING、副行改说明原因。 */}
+              <GateTile
+                title="L1 · Eligibility"
+                value={eligibilityStyle.label}
+                caption={gatesNotEvaluated ? 'Not evaluated until payin lands' : 'Post-arrival check'}
+                style={eligibilityStyle}
+              />
+              {/* L2: Transaction Screen — 充值只送一笔 Sumsub txn（finance 或
+                  travelRule，按 `sumsubTxnType`）；前缀跟着类型走，verdict 是 webhook
+                  原值（approved/rejected/onHold/awaitUser，不翻译）。 */}
+              <GateTile
+                title="L2 · Transaction Screen"
+                value={`${data.sumsubTxnType === 'travelRule' ? 'Travel Rule' : 'Finance'}: ${
+                  gatesNotEvaluated ? '—' : (data.sumsubVerdict ?? '—')
+                }`}
+                caption={`Score ${gatesNotEvaluated ? '—' : (data.sumsubScore ?? '—')}`}
+                style={l2Style}
+              />
               <div className="col-span-2 mt-2">
                 <L1GateCard raw={data.l1Snapshot} />
               </div>
@@ -739,7 +763,7 @@ const DepositTransactionDetail = () => {
 
           {/* 8. Status History */}
           <DetailCard title="Status History" columns={1}>
-            <StatusTimeline historyJson={data.statusHistory} />
+            <StatusTimeline historyJson={data.statusHistory} getStatusMeta={getDepositStatusMeta} />
           </DetailCard>
 
           {/* 9. Verification Requests — same component + endpoint as the
@@ -765,12 +789,17 @@ const DepositTransactionDetail = () => {
                 ⑨ only posts a rejected verdict tagged SLA_BREACH — it does not
                 drive the real SLA timer (DepositSlaService); same code path as ⑦.
               </p>
+              {isDepositVerdictIgnored(data.status) && (
+                <p className="font-mono text-[11px] text-adm-amber">
+                  本单已进终态/处置态，投递的裁决会被后端记录但不改状态。
+                </p>
+              )}
               {simError && <p className="text-[11px] text-adm-red">{simError}</p>}
               <div className="flex flex-wrap gap-2">
                 {DEPOSIT_VERDICT_BUTTONS.map((s) => (
                   <button
                     key={s.key}
-                    disabled={simSubmitting !== null}
+                    disabled={simSubmitting !== null || isDepositVerdictIgnored(data.status)}
                     onClick={() => handleRunVerdict(s.key)}
                     className={adminButtonClass('simulationAction')}
                   >
@@ -949,10 +978,6 @@ const DepositTransactionDetail = () => {
               mono
             />
             <SidebarKV label="Trace ID" value={data.traceId ?? null} mono />
-            <SidebarKV
-              label="Needs Review"
-              value={data.needsReview ? <AdminBadge value="NEEDS_REVIEW" /> : 'No'}
-            />
           </SidebarGroup>
         </div>
       </div>
@@ -1174,108 +1199,6 @@ const DepositTransactionDetail = () => {
           </div>
         </div>
       )}
-    </div>
-  );
-};
-
-/* ── SumsubDetailSection ─────────────────────────────────────── */
-
-/**
- * Renders the parsed Sumsub getTxn report for this deposit's single Sumsub
- * txn — the raw payload behind `detail.raw` is that txn's report verbatim.
- */
-const SumsubDetailSection = ({
-  detail,
-}: {
-  detail: SumsubTxnDetail | null | undefined;
-}) => (
-  <div>
-    {detail ? (
-      <div className="space-y-3">
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-4">
-          <InfoField label="Score" value={detail.score} mono />
-          <InfoField label="Verdict" value={detail.verdict} />
-          <InfoField label="Review Status" value={detail.reviewStatus} />
-          <InfoField label="Review Answer" value={detail.reviewAnswer} />
-        </div>
-        <div>
-          <div className="font-mono text-[9px] uppercase tracking-[0.1em] text-adm-t3">Matched Rules</div>
-          {detail.matchedRules.length > 0 ? (
-            <ul className="mt-1 space-y-1">
-              {detail.matchedRules.map((r, idx) => (
-                <li key={r.id ?? idx} className="font-mono text-[11px] text-adm-t1">
-                  {r.name ?? '—'} · {r.action ?? '—'} · {r.score ?? '—'}
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <div className="mt-1 font-mono text-[11px] text-adm-t3">—</div>
-          )}
-        </div>
-        <div>
-          <div className="font-mono text-[9px] uppercase tracking-[0.1em] text-adm-t3">Applicant Action IDs</div>
-          <div className="mt-1 font-mono text-[11px] text-adm-t1">
-            {detail.applicantActionIds.length > 0 ? detail.applicantActionIds.join(', ') : '—'}
-          </div>
-        </div>
-        <details>
-          <summary className="cursor-pointer font-mono text-[10px] uppercase tracking-[0.1em] text-adm-t3">
-            Raw payload
-          </summary>
-          <pre className="mt-2 max-h-96 overflow-auto rounded bg-gray-900 p-3 font-mono text-[11px] text-gray-100">
-            {JSON.stringify(detail.raw, null, 2)}
-          </pre>
-        </details>
-      </div>
-    ) : (
-      <p className="font-mono text-[11px] text-adm-t3">No Sumsub transaction detail yet</p>
-    )}
-  </div>
-);
-
-/* ── StatusTimeline (preserved from existing) ── */
-
-const StatusTimeline = ({ historyJson }: { historyJson: string | null }) => {
-  if (!historyJson) return <div className="text-adm-t3 text-sm italic p-4 text-center">No history available</div>;
-
-  let history: any[] = [];
-  try {
-    history = JSON.parse(historyJson);
-    history.sort((a: any, b: any) =>
-      new Date(b.timestamp || b.changedAt).getTime() -
-      new Date(a.timestamp || a.changedAt).getTime(),
-    );
-  } catch {
-    return <div className="text-adm-red text-sm p-4">Error parsing history</div>;
-  }
-
-  if (history.length === 0) return <div className="text-adm-t3 text-sm italic p-4 text-center">No events</div>;
-
-  return (
-    <div className="relative ml-4 space-y-6 border-l-2 border-adm-border my-2">
-      {history.map((item: any, idx: number) => (
-        <div key={idx} className="ml-8 relative">
-          <span className="absolute -left-[44px] top-0 flex h-6 w-6 items-center justify-center rounded-full bg-adm-panel ring-4 ring-adm-panel">
-            <div className={`h-3 w-3 rounded-full ${getDepositStatusMeta(item.status).badgeClass}`} />
-          </span>
-          <div className="rounded-lg border border-adm-border bg-adm-bg p-3 transition-colors hover:bg-adm-hover">
-            <div className="flex items-center gap-2">
-              <span className={`rounded border px-2 py-0.5 font-mono text-[10px] font-bold ${getDepositStatusMeta(item.status).badgeClass}`}>
-                {getDepositStatusMeta(item.status).label}
-              </span>
-            </div>
-            <p className="mt-1 text-sm text-adm-t2">{item.reason || 'No reason provided'}</p>
-            <div className="mt-1 flex items-center gap-2 text-[10px] text-adm-t3">
-              <User size={10} />
-              <span className="font-mono">{item.operatorId || item.actorType || 'SYSTEM'}</span>
-              <span>·</span>
-              <time className="font-mono">
-                {new Date(item.timestamp || item.changedAt).toLocaleString()}
-              </time>
-            </div>
-          </div>
-        </div>
-      ))}
     </div>
   );
 };

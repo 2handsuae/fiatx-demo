@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { AlertTriangle, RefreshCw, User } from 'lucide-react';
+import { RefreshCw } from 'lucide-react';
 import {
   DetailPageHeader,
   DetailCard,
@@ -16,6 +16,10 @@ import { formatSlaRemaining } from '../utils/slaDisplay';
 import { useSimulationMode } from '../utils/simulationMode';
 import { getComplianceLayerStyle } from '../utils/depositActionMap';
 import L1GateCard from '../components/L1GateCard';
+import { GateTile } from '../components/compliance/GateTile';
+import { SumsubDetailSection } from '../components/compliance/SumsubDetailSection';
+import { StatusTimeline } from '../components/compliance/StatusTimeline';
+import { NeedsReviewBanner } from '../components/compliance/NeedsReviewBanner';
 import MaterialRequestPanel from '../components/MaterialRequestPanel';
 
 /* ── Types ──────────────────────────────────────────────────── */
@@ -36,6 +40,24 @@ const SWAP_VERDICT_BUTTONS: Array<{ key: string; label: string }> = [
   { key: 'V7_ACTION_GREEN', label: '⑦ 认证通过（清限制）' },
   { key: 'V8_ACTION_RED', label: '⑧ 认证不通过（升级）' },
 ];
+
+
+/* ⑦⑧ 投的是 applicantActionReviewed —— 作用对象是**人**（客户补料的复核结果），
+   不走 applyKytVerdict，与本单状态无关。终态单上它们照样有效，这正是 BACKLOG
+   「⑦⑧ 人级模拟键在被拒单上无 UI 入口」要的入口，不能跟着裁决键一起灰。
+   同步源：src/modules/swap-sumsub/demo-scenario.service.ts 的类注释（那两个键
+   的 webhookType 见 fixtures/verdict-buttons.ts）。 */
+const SWAP_PERSON_LEVEL_KEYS = new Set(['V7_ACTION_GREEN', 'V8_ACTION_RED']);
+
+/* 业主 2026-08-24 裁定：兑换的裁决键**只在 COMPLIANCE_PENDING 高亮，其余一律置灰**
+   （与充值/提现同样是「置灰而不是整块消失」，但判据比那两域更严——兑换的状态机里
+   只有 COMPLIANCE_PENDING 这一个态投裁决能真正推进本单）。
+   这条取代了此前按后端 KYT_VERDICT_TERMINAL_STATUSES 反推的两档谓词：
+     · PROCESSING 后端虽落证据+打 needsReview（非 no-op），但推不动本单 → 按业主口径灰
+     · SUCCESS/REJECTED 后端有 carve-out 会重跑客户级处置，灰掉之后运营点不到，
+       那条风险随之消失（原先专门为它写的第二句提示因此也不再需要）
+   ⚠️ 不含 ⑦⑧ —— 见下方 SWAP_PERSON_LEVEL_KEYS。 */
+const isSwapVerdictActionable = (status: string): boolean => status === 'COMPLIANCE_PENDING';
 
 /** Matched-rule entry inside the Sumsub compliance detail. */
 /** parity 2026-08-14：与提现 SumsubTxnDetail 逐字段同形 + swap 双腿补充。 */
@@ -115,18 +137,6 @@ interface SwapTransactionDetailData {
     /** 客户关系生命周期七态（PROSPECT/IN_VERIFICATION/…/ACTIVE/…/OFFBOARDED）。 */
     lifecycle?: string | null;
     sumsubApplicantId?: string | null;
-    // 拒绝处置在客户身上留下的状态位——本页侧栏只读展示，
-    // 处置动作本身全在 Sumsub 控制台（officer）与 webhook 链路完成，无按钮。
-    // 限制账的行：一行 = 一个被卡住的能力（scope），同一张便签（restrictionNo）
-    // 卡多个能力就是同号多行。此前这里读的是 CustomerMain 上一个**不存在的列**
-    // `restrictions`，恒解析成空数组 → 侧栏恒显示 None。
-    restrictionRows?: Array<{
-      restrictionNo: string;
-      cause: string;
-      scope: string;
-      visibility: string;
-    }>;
-    hardLineDispositionedAt?: string | null;
   } | null;
   statusHistory: string | null;
   l1Snapshot?: string | null;
@@ -310,14 +320,6 @@ const SwapTransactionDetail = () => {
   // 未裁决时传 'PENDING' 拿琥珀色（而非无值的灰色）——未决恰是 operator 最该注意的态。
   const l2Style = getComplianceLayerStyle(data.sumsubDetail?.verdict || 'PENDING');
 
-  // ── 客户处置状态（侧栏只读；无任何按钮）──
-  // 拒绝处置写在人身上：限制账 / 材料请求 / 硬线标记。
-  // 第四批：改读限制账真数据（此前读 CustomerMain 上一个不存在的列,恒 None）。
-  // 限制账是**一行一个 scope**,所以直接取 scope 去重即可,不需要 JSON.parse
-  // （旧代码那次 JSON.parse 正是因为读了个不存在的列才恒返回 []）。
-  const restrictionCaps: string[] = Array.from(
-    new Set((data.customer?.restrictionRows ?? []).map((r) => r.scope).filter(Boolean)),
-  );
   // 第四批修复轮：此前手写 `SUCCESS || REJECTED`,漏了 FROZEN —— 它是转移表里
   // 明写的零出边终态,却不显示 Terminal 提示。改走 isSwapTerminalStatus（本域自己
   // 那一份,不与提现共用：提现的 FROZEN 有合法出边,不是终态）。
@@ -357,16 +359,10 @@ const SwapTransactionDetail = () => {
         </div>
       )}
 
-      {/* ── Needs-review banner（从 Hero 徽标提为顶部横幅，对齐提现）——
-          成交后迟到的 KYT 拒绝裁决只标记不动单（SWAP_POST_APPROVAL_VERDICT），
-          这里给 operator 一句人话说明。── */}
-      {data.needsReview && (
-        <div className="flex items-center gap-2 border-b border-adm-border bg-adm-red/10 px-6 py-2 font-mono text-[11px] text-adm-red">
-          <AlertTriangle size={12} />
-          Needs review — a KYT verdict arrived after approval/execution; no automatic action was
-          taken on this order.
-        </div>
-      )}
+      <NeedsReviewBanner
+        show={!!data.needsReview}
+        message="Needs review — this swap is parked with no automatic action left: either a settlement leg exhausted its retries, a KYT verdict arrived after approval/execution, or the customer's swap capability was restricted mid-flight. Check the audit trail for which."
+      />
 
       {/* ── Body: Main + Sidebar ── */}
       <div className="flex min-h-0 flex-1 overflow-hidden">
@@ -494,48 +490,47 @@ const SwapTransactionDetail = () => {
             <InfoField label="Net Out" value={netDisplay} highlight />
           </DetailCard>
 
-          {/* 4. Compliance — L1 真实资格 + L2 KYT 单闸（对齐充值/提现的双层卡）。
+          {/* 7. Technical */}
+          <DetailCard title="Technical" columns={2}>
+            <InfoField label="Quote No" value={data.quoteNo} mono />
+            <InfoField label="Quote ID" value={data.quoteId} mono />
+            <InfoField label="Trace ID" value={data.traceId} mono />
+            <InfoField label="From Asset ID" value={data.fromAssetId} mono />
+            <InfoField label="To Asset ID" value={data.toAssetId} mono />
+          </DetailCard>
+
+          {/* 4. Compliance — L1 真实资格 + L2 KYT 单闸。
               L1 读客户 lifecycle（与 L1GateService 的 CUSTOMER_ELIGIBILITY 同一口径）；
               L2 读本单 KYT 终裁。
-              兑换无 TR/大额门——L2 只有 KYT 一道，这是设计而非缺失（无对手方）。 */}
-          <div className="px-6 py-5">
-            <h3 className="mb-3 font-mono text-[9px] font-semibold uppercase tracking-[0.1em] text-adm-t2">
-              Compliance
-            </h3>
+              兑换无 TR/大额门 —— L2 只有 KYT 一道，这是设计而非缺失（无对手方），
+              所以 L2 前缀锁死 Finance，不做 travelRule 分支。
+              2026-08-23：容器从手写 div+h3 换成 DetailCard，两个格子换成共用的
+              GateTile —— 与充值/提现同一承载物（第五批 §3）。 */}
+          <DetailCard title="Compliance" columns={1}>
             <div className="grid grid-cols-2 gap-3">
-              <div
-                className={`rounded-lg border bg-adm-bg p-3 border-l-[3px] ${eligibilityStyle.borderColor}`}
-              >
-                <div className="font-mono text-[9px] uppercase tracking-wider text-adm-t3">
-                  L1 · Eligibility
-                </div>
-                <div className={`mt-1 text-sm font-bold ${eligibilityStyle.textColor}`}>
-                  {eligibilityStyle.label}
-                </div>
-                <div className="mt-0.5 font-mono text-[10px] text-adm-t3">Pre-execution gate</div>
-              </div>
-              <div
-                className={`rounded-lg border bg-adm-bg p-3 border-l-[3px] ${l2Style.borderColor}`}
-              >
-                <div className="font-mono text-[9px] uppercase tracking-wider text-adm-t3">
-                  L2 · Transaction Screen
-                </div>
-                <div className={`mt-1 text-sm font-bold ${l2Style.textColor}`}>
-                  {data.sumsubDetail?.verdict ? `KYT: ${data.sumsubDetail.verdict}` : 'PENDING'}
-                </div>
-                <div className="mt-0.5 font-mono text-[10px] text-adm-t3">
-                  {data.sumsubDetail?.score != null
+              <GateTile
+                title="L1 · Eligibility"
+                value={eligibilityStyle.label}
+                caption="Pre-creation check"
+                style={eligibilityStyle}
+              />
+              <GateTile
+                title="L2 · Transaction Screen"
+                value={`Finance: ${data.sumsubDetail?.verdict ?? '—'}`}
+                caption={
+                  data.sumsubDetail?.score != null
                     ? `Score ${data.sumsubDetail.score}`
                     : data.complianceAction
                       ? `Scoring action: ${data.complianceAction}`
-                      : 'Awaiting Sumsub verdict'}
-                </div>
-              </div>
+                      : 'Awaiting Sumsub verdict'
+                }
+                style={l2Style}
+              />
               <div className="col-span-2 mt-2">
                 <L1GateCard raw={data.l1Snapshot} />
               </div>
             </div>
-          </div>
+          </DetailCard>
 
           {/* 5. Sumsub References — 身份/关联键（对齐充值/提现同名卡）。 */}
           <DetailCard title="Sumsub References" columns={2}>
@@ -642,7 +637,7 @@ const SwapTransactionDetail = () => {
 
           {/* 6. Status History */}
           <DetailCard title="Status History" columns={1}>
-            <StatusTimeline historyJson={data.statusHistory} />
+            <StatusTimeline historyJson={data.statusHistory} getStatusMeta={getSwapStatusMeta} />
           </DetailCard>
 
           {/* Verification Requests — same component + endpoint as the customer
@@ -652,21 +647,14 @@ const SwapTransactionDetail = () => {
             <MaterialRequestPanel mode="order" orderDomain="SWAP" orderRef={data.swapNo} />
           </DetailCard>
 
-          {/* 7. Technical */}
-          <DetailCard title="Technical" columns={2}>
-            <InfoField label="Quote No" value={data.quoteNo} mono />
-            <InfoField label="Quote ID" value={data.quoteId} mono />
-            <InfoField label="Trace ID" value={data.traceId} mono />
-            <InfoField label="From Asset ID" value={data.fromAssetId} mono />
-            <InfoField label="To Asset ID" value={data.toAssetId} mono />
-          </DetailCard>
-
-          {/* 11. Simulation (demo only — gated by the local simulation-mode
-              toggle AND by status: a swap only accepts a verdict while sitting
-              in COMPLIANCE_PENDING — once it has moved to PROCESSING/SUCCESS/
-              REJECTED, SwapWorkflowService#applyKytVerdict no-ops on it, so
-              showing the panel there would mislead the operator. ) */}
-          {simEnabled && data.status === 'COMPLIANCE_PENDING' && (
+          {/* 11. Simulation（demo only —— 由本地 simulation-mode 开关控制，
+              与后端 SUMSUB_MOCK_MODE 标志无关）。
+              2026-08-23：与充值/提现统一为**常显**。此前这里额外挂了一道
+              `data.status === 'COMPLIANCE_PENDING'` 闸门，兑换是三域里唯一整块
+              消失的一个 —— operator 在别的状态下看不到面板，分不清「没这功能」和
+              「这单不适用」。改成常显 + 终态/处置态置灰 + 一句说明，把
+              applyKytVerdict 的 no-op 语义如实摊在页面上。 */}
+          {simEnabled && (
             <DetailCard title="⚡ Simulation" columns={1}>
               <p className="font-mono text-[11px] text-adm-t3">
                 Feeds ONE Sumsub verdict webhook into the real ingestion
@@ -675,14 +663,25 @@ const SwapTransactionDetail = () => {
               </p>
               <p className="font-mono text-[11px] text-adm-amber">
                 ⑦/⑧ act on the customer (applicantActionReviewed), not on this
-                order — this swap's own status will not change.
+                order — this swap's own status will not change, and they stay
+                enabled on a terminal order on purpose (that's the whole point
+                of this being the only entry point for them).
               </p>
+              {!isSwapVerdictActionable(data.status) && (
+                <p className="font-mono text-[11px] text-adm-amber">
+                  本单不在待合规状态，①-⑧ 里的裁决键不会推进本单，故置灰；⑦⑧ 作用于客户本人，仍可用。
+                </p>
+              )}
               {simError && <p className="text-[11px] text-adm-red">{simError}</p>}
               <div className="flex flex-wrap gap-2">
                 {SWAP_VERDICT_BUTTONS.map((s) => (
                   <button
                     key={s.key}
-                    disabled={simSubmitting !== null}
+                    disabled={
+                      simSubmitting !== null ||
+                      (!SWAP_PERSON_LEVEL_KEYS.has(s.key) &&
+                        !isSwapVerdictActionable(data.status))
+                    }
                     onClick={() => handleRunVerdict(s.key)}
                     className={adminButtonClass('simulationAction')}
                   >
@@ -715,86 +714,9 @@ const SwapTransactionDetail = () => {
 
           <SidebarGroup title="Identity">
             <SidebarKV label="Swap No" value={data.swapNo} mono />
-            <SidebarKV
-              label="Status"
-              value={
-                <span
-                  className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-[10px] font-semibold ${getSwapStatusMeta(data.status).badgeClass}`}
-                >
-                  {getSwapStatusMeta(data.status).label}
-                </span>
-              }
-            />
-            <SidebarKV
-              label="Current Stage"
-              value={data.currentStage ?? '—'}
-              mono
-            />
-            <SidebarKV
-              label="Needs Review"
-              value={
-                data.needsReview ? <AdminBadge value="NEEDS_REVIEW" /> : 'No'
-              }
-            />
             <SidebarKV label="Owner" value={ownerLink} />
-            <SidebarKV label="Pair" value={`${data.fromAsset.code}/${data.toAsset.code}`} mono />
-            <SidebarKV label="Net Received" value={netDisplay} mono />
-          </SidebarGroup>
-
-          {/* Frozen Disposition — 兑换的 FROZEN 是**零出边终态**（制裁命中客户本人时
-              落地,见 truth/v6-swap.md §1）。与充值/提现刻意不同：那两域的 FROZEN
-              可以经 maker-checker 解冻回流,兑换回不来 —— 所以这里**没有按钮**,
-              只说明现状,免得运营去找一个不存在的解冻入口。 */}
-          {data.status === 'FROZEN' && (
-            <SidebarGroup title="Frozen Disposition">
-              <p className="font-mono text-[11px] text-adm-t3">
-                制裁冻结（零出边终态）。本单不可解冻、不可继续 —— 客户侧收敛显示为
-                Unsuccessful，与普通 KYT 拒绝逐字相同。人身层处置见客户档案的限制账。
-              </p>
-            </SidebarGroup>
-          )}
-
-          {/* ── Ops Disposition（只读，无任何按钮）——
-              兑换的拒绝处置作用在【人】身上而非订单：订单终态不可逆，
-              officer 的所有处置动作都在 Sumsub 控制台完成（打 tag / 审 action），
-              经 webhook 链路落回这里展示。此块回答 operator 一个问题：
-              "这个客户现在被限制了什么、凭什么解锁"。 */}
-          <SidebarGroup title="Ops Disposition">
-            <SidebarKV
-              label="Restrictions"
-              value={
-                restrictionCaps.length > 0 ? (
-                  <span className="font-mono text-adm-red">{restrictionCaps.join(' · ')}</span>
-                ) : (
-                  'None'
-                )
-              }
-            />
-            <SidebarKV
-              label="Verification Requests"
-              value={
-                (data.materialRequests?.length ?? 0) > 0
-                  ? `${data.materialRequests!.length} open`
-                  : '—'
-              }
-              mono
-            />
-            <SidebarKV
-              label="Hard Line"
-              value={
-                data.customer?.hardLineDispositionedAt ? (
-                  <AdminBadge value="SANCTION_HELD" />
-                ) : (
-                  'Not set'
-                )
-              }
-            />
-            {ownerNo && (
-              <SidebarKV
-                label="Customer"
-                value={ownerLink}
-              />
-            )}
+            <SidebarKV label="Owner Type" value={data.ownerType} />
+            <SidebarKV label="Pair" value={pair} />
           </SidebarGroup>
 
           <SidebarGroup title="Lifecycle">
@@ -875,125 +797,6 @@ const LegAttemptRow = ({
       {routeLabel && (
         <div className="font-mono text-[10px] text-adm-t3">{routeLabel}</div>
       )}
-    </div>
-  );
-};
-
-/* ── SumsubDetailSection ─────────────────────────────────────── */
-
-/**
- * Renders the swap's parsed Sumsub compliance fields (Task 10) — verdict,
- * scoring action, matched rule names, reject reason, plus the raw sell-leg
- * getTxn payload collapsed behind a <details>. Mirrors
- * WithdrawTransactionDetail's SumsubDetailSection (deliberate fork).
- */
-const SumsubDetailSection = ({
-  detail,
-}: {
-  detail: SwapSumsubDetail | null | undefined;
-}) => (
-  <div>
-    {detail ? (
-      <div className="space-y-3">
-        {/* parity 2026-08-14：逐行对齐提现 WithdrawTransactionDetail 的同名组件。
-            Txn ID Out/In 已上移 References 卡；rejectReason 行级裸列渲染在 Hero 区
-            状态徽章下方（第四批补上——此前声明了类型却全页零渲染）。 */}
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-4">
-          <InfoField label="Score" value={detail.score} mono />
-          <InfoField label="Verdict" value={detail.verdict} />
-          <InfoField label="Review Status" value={detail.reviewStatus} />
-          <InfoField label="Review Answer" value={detail.reviewAnswer} />
-        </div>
-        <div>
-          <div className="font-mono text-[9px] uppercase tracking-[0.1em] text-adm-t3">Matched Rules</div>
-          {detail.matchedRules.length > 0 ? (
-            <ul className="mt-1 space-y-1">
-              {detail.matchedRules.map((r, idx) => (
-                <li key={r.id ?? idx} className="font-mono text-[11px] text-adm-t1">
-                  {r.name ?? '—'} · {r.action ?? '—'} · {r.score ?? '—'}
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <div className="mt-1 font-mono text-[11px] text-adm-t3">—</div>
-          )}
-        </div>
-        <div>
-          <div className="font-mono text-[9px] uppercase tracking-[0.1em] text-adm-t3">Applicant Action IDs</div>
-          <div className="mt-1 font-mono text-[11px] text-adm-t1">
-            {detail.applicantActionIds.length > 0 ? detail.applicantActionIds.join(', ') : '—'}
-          </div>
-        </div>
-        <details>
-          <summary className="cursor-pointer font-mono text-[10px] uppercase tracking-[0.1em] text-adm-t3">
-            Raw payload
-          </summary>
-          <pre className="mt-2 max-h-96 overflow-auto rounded bg-gray-900 p-3 font-mono text-[11px] text-gray-100">
-            {JSON.stringify(detail.raw, null, 2)}
-          </pre>
-        </details>
-      </div>
-    ) : (
-      <p className="font-mono text-[11px] text-adm-t3">No Sumsub transaction detail yet</p>
-    )}
-  </div>
-);
-
-/* ── StatusTimeline (adm-* tokens) ── */
-
-const StatusTimeline = ({ historyJson }: { historyJson: string | null }) => {
-  if (!historyJson) {
-    return <div className="p-4 text-center text-sm italic text-adm-t3">No history available</div>;
-  }
-
-  let history: Array<Record<string, string>> = [];
-  try {
-    const parsed = JSON.parse(historyJson);
-    if (!Array.isArray(parsed)) {
-      return <div className="p-4 text-center text-sm italic text-adm-t3">No history available</div>;
-    }
-    history = [...parsed].sort(
-      (a, b) =>
-        new Date(b.timestamp || b.changedAt || 0).getTime() -
-        new Date(a.timestamp || a.changedAt || 0).getTime(),
-    );
-  } catch {
-    return <div className="p-4 text-sm text-adm-red">Error parsing history</div>;
-  }
-
-  if (history.length === 0) {
-    return <div className="p-4 text-center text-sm italic text-adm-t3">No events</div>;
-  }
-
-  return (
-    <div className="relative my-2 ml-4 space-y-6 border-l-2 border-adm-border">
-      {history.map((item, idx) => (
-        <div key={`${item.timestamp || item.changedAt || idx}`} className="relative ml-8">
-          <span className="absolute -left-[44px] top-0 flex h-6 w-6 items-center justify-center rounded-full bg-adm-panel ring-4 ring-adm-panel">
-            <div className="h-3 w-3 rounded-full bg-adm-green" />
-          </span>
-          <div className="rounded-lg border border-adm-border bg-adm-bg p-3 transition-colors hover:bg-adm-hover">
-            <div className="flex items-center gap-2">
-              <span className="rounded border border-adm-green/30 bg-adm-green/10 px-2 py-0.5 font-mono text-[10px] font-bold text-adm-green">
-                {item.status || 'UNKNOWN'}
-              </span>
-            </div>
-            <p className="mt-1 text-sm text-adm-t2">
-              {item.note || item.reason || 'No reason provided'}
-            </p>
-            <div className="mt-1 flex items-center gap-2 text-[10px] text-adm-t3">
-              <User size={10} />
-              <span className="font-mono">
-                {item.operator || item.operatorId || item.actorType || 'SYSTEM'}
-              </span>
-              <span>·</span>
-              <time className="font-mono">
-                {new Date(item.timestamp || item.changedAt || 0).toLocaleString()}
-              </time>
-            </div>
-          </div>
-        </div>
-      ))}
     </div>
   );
 };

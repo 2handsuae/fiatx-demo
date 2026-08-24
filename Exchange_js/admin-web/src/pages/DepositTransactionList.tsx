@@ -2,7 +2,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { RefreshCw, Search } from 'lucide-react';
-import Pagination from '../components/common/Pagination';
+import { ListFooter } from '../components/common/ListFooter';
 import {
   adminButtonClass,
   adminIconButtonClass,
@@ -210,7 +210,7 @@ const DepositTransactionList = () => {
           onChange={(e) => updateFilter('status', e.target.value)}
           className={`${fi} w-40`}
         >
-          <option value="">All</option>
+          <option value="">All status</option>
           {DEPOSIT_STATUS_FILTERS.map((f) => (
             <option key={f.label} value={f.label}>{f.label}</option>
           ))}
@@ -399,24 +399,17 @@ const DepositTransactionList = () => {
         </table>
       </div>
 
-      {/* ── Footer ── */}
-      <div className="shrink-0 border-t border-adm-border bg-adm-panel px-5 py-2.5">
-        <div className="flex items-center justify-between">
-          <span className="font-mono text-[10px] text-adm-t3">
-            {total > 0
-              ? `Showing ${visibleItems.length} / ${total} deposit${total === 1 ? '' : 's'}`
-              : 'No deposits'}
-          </span>
-          {total > PAGE_SIZE && (
-            <Pagination
-              currentPage={currentPage}
-              totalItems={total}
-              pageSize={PAGE_SIZE}
-              onPageChange={(page) => void fetchItems(page)}
-            />
-          )}
-        </div>
-      </div>
+      {/* ── Footer ──（三域共用 ListFooter：一条边框、一个计数、恒显示。
+          此前是「手写页脚套 Pagination」，Pagination 自己也是一整条页脚 → 超过一页时
+          两条 border-t 叠一起、两个 Showing 并排；见 ListFooter 的 JSDoc）── */}
+      <ListFooter
+        filteredCount={visibleItems.length}
+        total={total}
+        noun="deposit"
+        currentPage={currentPage}
+        pageSize={PAGE_SIZE}
+        onPageChange={(page) => void fetchItems(page)}
+      />
     </div>
   );
 };

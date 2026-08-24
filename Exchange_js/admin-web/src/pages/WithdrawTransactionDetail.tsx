@@ -1,7 +1,7 @@
 // admin-web/src/pages/WithdrawTransactionDetail.tsx
 import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { RefreshCw, User } from 'lucide-react';
+import { RefreshCw } from 'lucide-react';
 import {
   DetailPageHeader,
   DetailCard,
@@ -24,6 +24,10 @@ import { formatSlaRemaining } from '../utils/slaDisplay';
 import { formatTransactionTypeLabel } from '../utils/transactionRootDisplay';
 import { getComplianceLayerStyle } from '../utils/depositActionMap';
 import L1GateCard from '../components/L1GateCard';
+import { GateTile } from '../components/compliance/GateTile';
+import { SumsubDetailSection } from '../components/compliance/SumsubDetailSection';
+import { StatusTimeline } from '../components/compliance/StatusTimeline';
+import { NeedsReviewBanner } from '../components/compliance/NeedsReviewBanner';
 import {
   getWithdrawStatusMeta,
   isWithdrawTerminalStatus,
@@ -51,6 +55,22 @@ const WITHDRAW_VERDICT_BUTTONS: Array<{ key: string; label: string }> = [
   { key: 'V9_REJECTED_SLA', label: '⑨ Rejected · SLA breach' },
   { key: 'V10_AWAIT_USER_MULTI', label: '⑩ Awaiting user · 多条' },
 ];
+
+/* 硬抄件。同步源：src/modules/trading/withdraw-transactions/withdraw-workflow.service.ts
+   的 WithdrawWorkflowService.KYT_VERDICT_TERMINAL_STATUSES。
+   ⚠️ 名字就是 TERMINAL —— 提现域**没有**跟着充值域改名成 IGNORED，grep 'IGNORED'
+   在这个域里搜不到集合定义。
+   ⚠️ PAYOUT_PENDING 刻意**不**在这里：后端判它 EVIDENCE_ONLY（证据照落 + 打
+   needsReview），不是 no-op，所以按钮不置灰。 */
+const WITHDRAW_KYT_VERDICT_TERMINAL_STATUSES = new Set([
+  'SUCCESS',
+  'REJECTED',
+  'FAILED',
+  'RETURNED',
+]);
+
+const isWithdrawVerdictIgnored = (status: string): boolean =>
+  WITHDRAW_KYT_VERDICT_TERMINAL_STATUSES.has(status) || status === 'FROZEN';
 
 interface LinkedFundOrder {
   kind: 'PAYOUT' | 'INTERNAL_FUND';
@@ -404,14 +424,10 @@ const WithdrawTransactionDetail = () => {
         </div>
       )}
 
-      {/* ── Needs-review banner — a KYT verdict arrived after the payout already
-          broadcast, so there was no state-machine action to take (funds already
-          in flight); flagged for operator awareness rather than silently dropped. ── */}
-      {data.needsReview && (
-        <div className="shrink-0 border-b border-adm-border bg-adm-red/5 px-6 py-2.5 font-mono text-[11px] text-adm-red">
-          Needs review — a KYT verdict arrived after the payout broadcast; no automatic action was taken
-        </div>
-      )}
+      <NeedsReviewBanner
+        show={!!data.needsReview}
+        message="Needs review — this withdrawal is parked with no automatic action left: either a fee leg exhausted its retries, or a KYT verdict arrived after the payout broadcast. Check the audit trail for which."
+      />
 
       {/* ── Body: Main + Sidebar ── */}
       <div className="flex min-h-0 flex-1 overflow-hidden">
@@ -488,26 +504,25 @@ const WithdrawTransactionDetail = () => {
           {/* 3. Compliance Layers */}
           <DetailCard title="Compliance" columns={1}>
             <div className="grid grid-cols-2 gap-3">
-              {/* L1: Eligibility Guard */}
-              <div className={`rounded-lg border bg-adm-bg p-3 border-l-[3px] ${eligibilityStyle.borderColor}`}>
-                <div className="font-mono text-[9px] uppercase tracking-wider text-adm-t3">L1 · Eligibility</div>
-                <div className={`mt-1 text-sm font-bold ${eligibilityStyle.textColor}`}>{eligibilityStyle.label}</div>
-                <div className="mt-0.5 font-mono text-[10px] text-adm-t3">Pre-creation check</div>
-              </div>
-              {/* L2: Transaction Screen — a withdrawal submits exactly one
-                  Sumsub txn (finance or travelRule, per `sumsubTxnType`);
-                  single line: type: verdict · Score. */}
-              <div className={`rounded-lg border bg-adm-bg p-3 border-l-[3px] ${l2Style.borderColor}`}>
-                <div className="font-mono text-[9px] uppercase tracking-wider text-adm-t3">L2 · Transaction Screen</div>
-                <div className="mt-2 flex items-center gap-2">
-                  <span className={`text-[11px] font-semibold ${l2Style.textColor}`}>
-                    {data.sumsubTxnType ?? '—'}: {data.sumsubVerdict ?? '—'}
-                  </span>
-                  <span className="font-mono text-[10px] text-adm-t3">
-                    · Score {data.sumsubScore ?? '—'}
-                  </span>
-                </div>
-              </div>
+              {/* L1: Eligibility Guard — 读客户生命周期。提现的闸门在建单前跑。 */}
+              <GateTile
+                title="L1 · Eligibility"
+                value={eligibilityStyle.label}
+                caption="Pre-creation check"
+                style={eligibilityStyle}
+              />
+              {/* L2: Transaction Screen — 提现只送一笔 Sumsub txn（finance 或
+                  travelRule，按 `sumsubTxnType`）。2026-08-23：前缀改成与充值同款的
+                  人话（此前裸显后端字面量 `finance`），Score 从主值行挪到副行，
+                  主值字号升到与 L1 同级。 */}
+              <GateTile
+                title="L2 · Transaction Screen"
+                value={`${data.sumsubTxnType === 'travelRule' ? 'Travel Rule' : 'Finance'}: ${
+                  data.sumsubVerdict ?? '—'
+                }`}
+                caption={`Score ${data.sumsubScore ?? '—'}`}
+                style={l2Style}
+              />
               <div className="col-span-2 mt-2">
                 <L1GateCard raw={data.l1Snapshot} />
               </div>
@@ -595,7 +610,7 @@ const WithdrawTransactionDetail = () => {
 
           {/* 8. Status History */}
           <DetailCard title="Status History" columns={1}>
-            <StatusTimeline historyJson={data.statusHistory} />
+            <StatusTimeline historyJson={data.statusHistory} getStatusMeta={getWithdrawStatusMeta} />
           </DetailCard>
 
           {/* Verification Requests — same component + endpoint as the customer
@@ -621,12 +636,17 @@ const WithdrawTransactionDetail = () => {
                 ⑨ only posts a rejected verdict tagged SLA_BREACH — it does not
                 drive the real SLA timer (WithdrawSlaService); same code path as ⑦.
               </p>
+              {isWithdrawVerdictIgnored(data.status) && (
+                <p className="font-mono text-[11px] text-adm-amber">
+                  本单已进终态/处置态，投递的裁决会被后端记录但不改状态。
+                </p>
+              )}
               {simError && <p className="text-[11px] text-adm-red">{simError}</p>}
               <div className="flex flex-wrap gap-2">
                 {WITHDRAW_VERDICT_BUTTONS.map((s) => (
                   <button
                     key={s.key}
-                    disabled={simSubmitting !== null}
+                    disabled={simSubmitting !== null || isWithdrawVerdictIgnored(data.status)}
                     onClick={() => handleRunVerdict(s.key)}
                     className={adminButtonClass('simulationAction')}
                   >
@@ -904,117 +924,6 @@ const WithdrawTransactionDetail = () => {
           </div>
         </div>
       )}
-    </div>
-  );
-};
-
-/* ── SumsubDetailSection ─────────────────────────────────────── */
-
-/**
- * Renders the parsed Sumsub getTxn report for this withdrawal's single Sumsub
- * txn — the raw payload behind `detail.raw` is that txn's report verbatim.
- * Mirrors DepositTransactionDetail's SumsubDetailSection (deliberate fork).
- */
-const SumsubDetailSection = ({
-  detail,
-}: {
-  detail: SumsubTxnDetail | null | undefined;
-}) => (
-  <div>
-    {detail ? (
-      <div className="space-y-3">
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-4">
-          <InfoField label="Score" value={detail.score} mono />
-          <InfoField label="Verdict" value={detail.verdict} />
-          <InfoField label="Review Status" value={detail.reviewStatus} />
-          <InfoField label="Review Answer" value={detail.reviewAnswer} />
-        </div>
-        <div>
-          <div className="font-mono text-[9px] uppercase tracking-[0.1em] text-adm-t3">Matched Rules</div>
-          {detail.matchedRules.length > 0 ? (
-            <ul className="mt-1 space-y-1">
-              {detail.matchedRules.map((r, idx) => (
-                <li key={r.id ?? idx} className="font-mono text-[11px] text-adm-t1">
-                  {r.name ?? '—'} · {r.action ?? '—'} · {r.score ?? '—'}
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <div className="mt-1 font-mono text-[11px] text-adm-t3">—</div>
-          )}
-        </div>
-        <div>
-          <div className="font-mono text-[9px] uppercase tracking-[0.1em] text-adm-t3">Applicant Action IDs</div>
-          <div className="mt-1 font-mono text-[11px] text-adm-t1">
-            {detail.applicantActionIds.length > 0 ? detail.applicantActionIds.join(', ') : '—'}
-          </div>
-        </div>
-        <details>
-          <summary className="cursor-pointer font-mono text-[10px] uppercase tracking-[0.1em] text-adm-t3">
-            Raw payload
-          </summary>
-          <pre className="mt-2 max-h-96 overflow-auto rounded bg-gray-900 p-3 font-mono text-[11px] text-gray-100">
-            {JSON.stringify(detail.raw, null, 2)}
-          </pre>
-        </details>
-      </div>
-    ) : (
-      <p className="font-mono text-[11px] text-adm-t3">No Sumsub transaction detail yet</p>
-    )}
-  </div>
-);
-
-/* ── StatusTimeline ─────────────────────────────────────────── */
-
-/**
- * Renders the withdrawal's `statusHistory` JSON column. Defensively reads
- * both the current write shape (`{status, timestamp, operator, note}` — see
- * WithdrawTransactionsService#updateStatus/landOnPendingApproval) and the
- * older field names (`reason`/`operatorId`/`actorType`/`changedAt`), so
- * rows written under either shape render correctly instead of showing blank
- * reason/operator text.
- */
-const StatusTimeline = ({ historyJson }: { historyJson: string | null }) => {
-  if (!historyJson) return <div className="text-adm-t3 text-sm italic p-4 text-center">No history available</div>;
-
-  let history: any[] = [];
-  try {
-    history = JSON.parse(historyJson);
-    history.sort((a: any, b: any) =>
-      new Date(b.timestamp || b.changedAt).getTime() -
-      new Date(a.timestamp || a.changedAt).getTime(),
-    );
-  } catch {
-    return <div className="text-adm-red text-sm p-4">Error parsing history</div>;
-  }
-
-  if (history.length === 0) return <div className="text-adm-t3 text-sm italic p-4 text-center">No events</div>;
-
-  return (
-    <div className="relative ml-4 space-y-6 border-l-2 border-adm-border my-2">
-      {history.map((item: any, idx: number) => (
-        <div key={idx} className="ml-8 relative">
-          <span className="absolute -left-[44px] top-0 flex h-6 w-6 items-center justify-center rounded-full bg-adm-panel ring-4 ring-adm-panel">
-            <div className={`h-3 w-3 rounded-full ${getWithdrawStatusMeta(item.status).badgeClass}`} />
-          </span>
-          <div className="rounded-lg border border-adm-border bg-adm-bg p-3 transition-colors hover:bg-adm-hover">
-            <div className="flex items-center gap-2">
-              <span className={`rounded border px-2 py-0.5 font-mono text-[10px] font-bold ${getWithdrawStatusMeta(item.status).badgeClass}`}>
-                {getWithdrawStatusMeta(item.status).label}
-              </span>
-            </div>
-            <p className="mt-1 text-sm text-adm-t2">{item.note || item.reason || 'No reason provided'}</p>
-            <div className="mt-1 flex items-center gap-2 text-[10px] text-adm-t3">
-              <User size={10} />
-              <span className="font-mono">{item.operator || item.operatorId || item.actorType || 'SYSTEM'}</span>
-              <span>·</span>
-              <time className="font-mono">
-                {new Date(item.timestamp || item.changedAt).toLocaleString()}
-              </time>
-            </div>
-          </div>
-        </div>
-      ))}
     </div>
   );
 };

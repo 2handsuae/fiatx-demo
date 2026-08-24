@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { RefreshCw, Search } from 'lucide-react';
-import Pagination from '../components/common/Pagination';
+import { ListFooter } from '../components/common/ListFooter';
 import {
   adminButtonClass,
   adminIconButtonClass,
@@ -59,6 +59,7 @@ interface FilterState {
   endDate: string;
   /** SWAP_STATUS_FILTERS[].label of the selected filter group, or '' for All. */
   statusGroup: string;
+  type: string;
   needsReviewOnly: boolean;
   /** 仅看 SLA 已超时的单（前端过滤，后端暂无该查询参数）。 */
   slaBreachedOnly: boolean;
@@ -87,6 +88,7 @@ const SwapTransactionList = () => {
     startDate: '',
     endDate: '',
     statusGroup: '',
+    type: '',
     needsReviewOnly: false,
     slaBreachedOnly: false,
   });
@@ -98,6 +100,7 @@ const SwapTransactionList = () => {
       !!filters.startDate ||
       !!filters.endDate ||
       !!filters.statusGroup ||
+      !!filters.type ||
       filters.needsReviewOnly ||
       filters.slaBreachedOnly,
     [filters],
@@ -150,6 +153,7 @@ const SwapTransactionList = () => {
       startDate: '',
       endDate: '',
       statusGroup: '',
+      type: '',
       needsReviewOnly: false,
       slaBreachedOnly: false,
     };
@@ -182,8 +186,20 @@ const SwapTransactionList = () => {
           if (!filters.statusGroup) return true;
           const group = SWAP_STATUS_FILTERS.find((f) => f.label === filters.statusGroup);
           return group ? group.statuses.includes(it.status) : true;
-        }),
-    [items, filters.needsReviewOnly, filters.slaBreachedOnly, filters.statusGroup],
+        })
+        // 与充值/提现同为**页内过滤**（后端 DTO 没有 type 字段）——刻意对齐现状，
+        // 不在本批扩后端。兑换一笔单有买卖两侧资产，任一命中即算。
+        // ⚠️ 语义提醒：后端只禁 FIAT↔FIAT（swap-transactions.service.ts），所以每笔兑换
+        //    至少有一条 crypto 腿 —— 「任一命中」下选 Crypto 恒 100% 命中、筛不掉任何行；
+        //    只有 Fiat 有效（能排掉 crypto↔crypto）。刻意与另两域对齐的语义，不是 bug。
+        .filter((it) =>
+          filters.type
+            ? [it.fromAsset.type, it.toAsset.type].some(
+                (t) => t?.toUpperCase() === filters.type.toUpperCase(),
+              )
+            : true,
+        ),
+    [items, filters.needsReviewOnly, filters.slaBreachedOnly, filters.statusGroup, filters.type],
   );
 
   const fi =
@@ -222,10 +238,19 @@ const SwapTransactionList = () => {
           onChange={(e) => setFilters((f) => ({ ...f, statusGroup: e.target.value }))}
           className={`${fi} w-40`}
         >
-          <option value="">All</option>
+          <option value="">All status</option>
           {SWAP_STATUS_FILTERS.map((f) => (
             <option key={f.label} value={f.label}>{f.label}</option>
           ))}
+        </select>
+        <select
+          value={filters.type}
+          onChange={(e) => setFilters((f) => ({ ...f, type: e.target.value }))}
+          className={`${fi} w-32`}
+        >
+          <option value="">All types</option>
+          <option value="CRYPTO">Crypto</option>
+          <option value="FIAT">Fiat</option>
         </select>
         <input
           type="date"
@@ -395,10 +420,14 @@ const SwapTransactionList = () => {
         </table>
       </div>
 
-      {/* Pagination */}
-      <Pagination
+      {/* ── Footer ──（三域共用 ListFooter：一条边框、一个计数、恒显示。
+          此前是「手写页脚套 Pagination」，Pagination 自己也是一整条页脚 → 超过一页时
+          两条 border-t 叠一起、两个 Showing 并排；见 ListFooter 的 JSDoc）── */}
+      <ListFooter
+        filteredCount={visibleItems.length}
+        total={total}
+        noun="swap"
         currentPage={page}
-        totalItems={total}
         pageSize={PAGE_SIZE}
         onPageChange={handlePageChange}
       />
