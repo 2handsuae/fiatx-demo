@@ -41,18 +41,6 @@ const SWAP_VERDICT_BUTTONS: Array<{ key: string; label: string }> = [
   { key: 'V8_ACTION_RED', label: '⑧ 认证不通过（升级）' },
 ];
 
-/* 硬抄件。同步源：src/modules/trading/swap-transactions/swap-workflow.service.ts
-   的 SwapWorkflowService.KYT_VERDICT_TERMINAL_STATUSES，以及同文件 applyKytVerdict
-   顶部那一行单独的 FROZEN 判断。
-   ⚠️ 兑换域没有叫 *_IGNORED_STATUSES 的常量，别去 grep IGNORED。
-   ⚠️ PROCESSING 刻意**不**在这里：后端在 PROCESSING 上落证据 + 打 needsReview +
-   写审计，不是 no-op，所以按钮不置灰。 */
-const SWAP_KYT_VERDICT_TERMINAL_STATUSES = new Set([
-  'SUCCESS',
-  'REJECTED',
-  'FAILED',
-  'REVERSED',
-]);
 
 /* ⑦⑧ 投的是 applicantActionReviewed —— 作用对象是**人**（客户补料的复核结果），
    不走 applyKytVerdict，与本单状态无关。终态单上它们照样有效，这正是 BACKLOG
@@ -61,22 +49,15 @@ const SWAP_KYT_VERDICT_TERMINAL_STATUSES = new Set([
    的 webhookType 见 fixtures/verdict-buttons.ts）。 */
 const SWAP_PERSON_LEVEL_KEYS = new Set(['V7_ACTION_GREEN', 'V8_ACTION_RED']);
 
-/* SUCCESS/REJECTED：本单状态不会再变，但 applyKytVerdict 的
-   KYT_VERDICT_TERMINAL_STATUSES 分支里有 carve-out ——
-   `if ((status === REJECTED || status === SUCCESS) && verdict === 'rejected')`
-   → handleRejectDisposition —— 重投拒绝类裁决仍会**重跑客户级处置**（限制/
-   pendingAction）。所以不能跟真 no-op 一起灰、也不能说"什么都不会发生"。 */
-const isSwapOrderTerminalButPersonStillAffected = (status: string): boolean =>
-  status === 'SUCCESS' || status === 'REJECTED';
-
-/* 100% no-op：SWAP_KYT_VERDICT_TERMINAL_STATUSES 减去上面那两个仍会重跑客户级
-   处置的状态，剩下 FAILED/REVERSED —— 这两个投什么裁决都不会改状态、也不会碰
-   客户；FROZEN 不在该数组里（另有含义，见数组上方注释），走单独一支判断，
-   与后端 applyKytVerdict 顶部那一行单独的 FROZEN no-op 同形。 */
-const isSwapFullyIgnored = (status: string): boolean =>
-  (SWAP_KYT_VERDICT_TERMINAL_STATUSES.has(status) &&
-    !isSwapOrderTerminalButPersonStillAffected(status)) ||
-  status === 'FROZEN';
+/* 业主 2026-08-24 裁定：兑换的裁决键**只在 COMPLIANCE_PENDING 高亮，其余一律置灰**
+   （与充值/提现同样是「置灰而不是整块消失」，但判据比那两域更严——兑换的状态机里
+   只有 COMPLIANCE_PENDING 这一个态投裁决能真正推进本单）。
+   这条取代了此前按后端 KYT_VERDICT_TERMINAL_STATUSES 反推的两档谓词：
+     · PROCESSING 后端虽落证据+打 needsReview（非 no-op），但推不动本单 → 按业主口径灰
+     · SUCCESS/REJECTED 后端有 carve-out 会重跑客户级处置，灰掉之后运营点不到，
+       那条风险随之消失（原先专门为它写的第二句提示因此也不再需要）
+   ⚠️ 不含 ⑦⑧ —— 见下方 SWAP_PERSON_LEVEL_KEYS。 */
+const isSwapVerdictActionable = (status: string): boolean => status === 'COMPLIANCE_PENDING';
 
 /** Matched-rule entry inside the Sumsub compliance detail. */
 /** parity 2026-08-14：与提现 SumsubTxnDetail 逐字段同形 + swap 双腿补充。 */
@@ -686,14 +667,9 @@ const SwapTransactionDetail = () => {
                 enabled on a terminal order on purpose (that's the whole point
                 of this being the only entry point for them).
               </p>
-              {isSwapFullyIgnored(data.status) && (
+              {!isSwapVerdictActionable(data.status) && (
                 <p className="font-mono text-[11px] text-adm-amber">
-                  本单已进终态/处置态，投递的裁决会被后端记录但不改状态。
-                </p>
-              )}
-              {isSwapOrderTerminalButPersonStillAffected(data.status) && (
-                <p className="font-mono text-[11px] text-adm-amber">
-                  本单已终态，状态不会再变；但重投拒绝类裁决仍会重跑客户级处置（客户可能被限制）。
+                  本单不在待合规状态，①-⑧ 里的裁决键不会推进本单，故置灰；⑦⑧ 作用于客户本人，仍可用。
                 </p>
               )}
               {simError && <p className="text-[11px] text-adm-red">{simError}</p>}
@@ -703,7 +679,8 @@ const SwapTransactionDetail = () => {
                     key={s.key}
                     disabled={
                       simSubmitting !== null ||
-                      (!SWAP_PERSON_LEVEL_KEYS.has(s.key) && isSwapFullyIgnored(data.status))
+                      (!SWAP_PERSON_LEVEL_KEYS.has(s.key) &&
+                        !isSwapVerdictActionable(data.status))
                     }
                     onClick={() => handleRunVerdict(s.key)}
                     className={adminButtonClass('simulationAction')}

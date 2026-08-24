@@ -207,6 +207,14 @@ COMPLIANCE_PENDING ──(KYT rejected 且客户本人命中制裁 SANCTION_APPL
 - ~~**补 `Frozen Disposition` 说明卡**~~ —— **该卡已于 2026-08-23（第五批）整块删除**（业主裁定：兑换不要 Frozen Disposition）。兑换侧栏现在**没有任何 disposition 组**，因为「兑换不需要运营去推进状态」。FROZEN 单仍能看出被冻：Hero 红徽章（`getSwapStatusMeta` 的 `FROZEN → RED`）、Hero 的 `Reject reason`（`SANCTION_APPLICANT`）、侧栏 `Terminal — no further action available` 提示三处。⚠️ 原卡里那两句「本单不可解冻、不可继续」与「客户侧收敛显示为 Unsuccessful」在别处**没有等价表述**，属信息降级，业主已知情裁定。
 - **`isTerminal` 判据修正**：此前手写 `SUCCESS || REJECTED`，**漏了 FROZEN**——它是转移表里明写的零出边终态，却不显示 `Terminal — no further action available` 提示。改走 `isSwapTerminalStatus()`。
 - **`L1GateCard` 挂进 Compliance 卡**（三域共用组件，见 v4 §4.8）。
+- **⚡ Simulation 面板（2026-08-24 业主裁定）**：三域**都常显**（兑换此前多挂一道
+  `data.status === 'COMPLIANCE_PENDING'`，整块消失，运营分不清「没这功能」和「这单不适用」）。
+  置灰判据**兑换与另两域不同**：兑换是**单态白名单** —— 只有 `COMPLIANCE_PENDING` 高亮，
+  其余（含 `PROCESSING`）一律置灰；充值/提现按各自后端的忽略集合置灰（那两域有多个态
+  投裁决有效：ACTION_PENDING / OPERATION_PENDING / MANUAL_CHECKING，一刀切到单态会误灰）。
+  ⚠️ **⑦⑧ 不随状态置灰** —— 它们投 `applicantActionReviewed`，作用对象是**人**（客户补料
+  复核），不走 `applyKytVerdict`，终态单上必须点得动。这正是 BACKLOG「⑦⑧ 人级模拟键在
+  被拒单上无 UI 入口」要的入口（该条已随此收口）。
 - **侧栏定稿（2026-08-23 第五批，三域同构）**：结构固定为**【操作段】处置组（按状态条件出现）→【信息段】SLA → Identity → Lifecycle**。
   兑换的操作段**恒为空**（零个 disposition 组），这不算不一致 —— 是「兑换不需要运营推进状态」在结构上的正确长相。
   `Identity` 三域统一为**纯身份 4 行**：充值/提现 `单号 · Owner · Owner Type · Asset`，兑换 `Swap No · Owner · Owner Type · Pair`。

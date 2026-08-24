@@ -249,7 +249,14 @@ describe('规则② 内容差异允许，但同族卡片要连续（Task 6）', 
   });
 });
 
-describe('规则① 同一模块显示逻辑一致 · ⚡ Simulation（Task 7）', () => {
+describe('规则① 同一模块显示逻辑一致 · ⚡ Simulation（Task 7 + 2026-08-24 业主改判）', () => {
+  /* 业主 2026-08-24 裁定：**兑换的裁决键只在 COMPLIANCE_PENDING 高亮，其余一律置灰**。
+     这条取代了原先按后端 KYT_VERDICT_TERMINAL_STATUSES 反推的两档谓词
+     （`isSwapFullyIgnored` / `isSwapOrderTerminalButPersonStillAffected`，都已删）。
+     充值/提现**不受影响**，仍按各自的后端忽略集合置灰 —— 那两域有多个态投裁决是有效的
+     （ACTION_PENDING / OPERATION_PENDING / MANUAL_CHECKING），一刀切到单态会误灰。 */
+  const ORDER_LEVEL_DOMAINS = { DEPOSIT: DETAIL_PAGES.DEPOSIT, WITHDRAW: DETAIL_PAGES.WITHDRAW } as const;
+
   it('三域面板都常显 —— 渲染条件里不许再有 data.status 判断', () => {
     for (const [domain, file] of Object.entries(DETAIL_PAGES)) {
       /* 必须 matchAll 全量取：非全局 .match() 只看第一处，注释里单起一行恰好写着
@@ -259,85 +266,68 @@ describe('规则① 同一模块显示逻辑一致 · ⚡ Simulation（Task 7）
     }
   });
 
-  it('三域都按自家忽略集合置灰，且集合内容与后端逐字一致', () => {
+  it('充值/提现按自家忽略集合置灰，集合内容与后端逐字一致', () => {
     const EXPECTED: Record<string, string[]> = {
       DEPOSIT: ['SUCCESS', 'FAILED', 'CONFISCATED', 'RETURNED', 'SEIZED', 'CONFISCATING', 'RETURNING', 'SEIZING'],
       WITHDRAW: ['SUCCESS', 'REJECTED', 'FAILED', 'RETURNED'],
-      SWAP: ['SUCCESS', 'REJECTED', 'FAILED', 'REVERSED'],
     };
-    for (const [domain, file] of Object.entries(DETAIL_PAGES)) {
-      const src = srcOf(file);
-      const m = src.match(/_VERDICT_(?:IGNORED|TERMINAL)_STATUSES = new Set\(\[([\s\S]*?)\]\)/);
-      // 数组体内的注释先剥掉再 matchAll —— 否则把真元素挪成体内注释（例如
-      // `// 在途处置态 'CONFISCATING'`）时，字面量还在文本里，matchAll 照样
-      // 抓到，测不出真元素其实已经没了（变异验证时发现）。数组*上方*的注释
-      // 不受影响，因为 m[1] 从 `new Set([` 起算，不含上方注释。
+    for (const [domain, file] of Object.entries(ORDER_LEVEL_DOMAINS)) {
+      const m = srcOf(file).match(/_VERDICT_(?:IGNORED|TERMINAL)_STATUSES = new Set\(\[([\s\S]*?)\]\)/);
+      /* 数组体内的注释先剥掉再 matchAll —— 否则把真元素挪成体内注释（例如
+         `// 在途处置态 'CONFISCATING'`）时字面量还在，matchAll 照样抓到，
+         测不出真元素其实已经没了（变异验证时发现）。数组*上方*的注释不受影响，
+         因为 m[1] 从 `new Set([` 起算。 */
       const body = (m?.[1] ?? '').replace(/\/\/[^\n]*|\/\*[\s\S]*?\*\//g, '');
       const got = [...body.matchAll(/'([A-Z_]+)'/g)].map((x) => x[1]);
       expect([domain, got.sort()]).toEqual([domain, [...EXPECTED[domain]].sort()]);
     }
   });
 
-  /* FROZEN 三域都在集合之外、走谓词第二支 —— 与后端两行结构同形。
-     塞进数组就与后端语义脱节（后端那个集合另有含义）。 */
-  it('FROZEN 不在数组里，但谓词认它', () => {
-    // 各域「忽略谓词」的真实名字——兑换在 Important #2 修复后拆成两个谓词，
-    // 真正 100% no-op（认 FROZEN）的那个改名叫 isSwapFullyIgnored,不再叫
-    // *VerdictIgnored,别去 grep 老名字。
-    const IGNORED_PREDICATE_NAME: Record<string, string> = {
+  it('充值/提现的 FROZEN 不在数组里、但谓词认它（与后端两行结构同形）', () => {
+    const NAME: Record<string, string> = {
       DEPOSIT: 'isDepositVerdictIgnored',
       WITHDRAW: 'isWithdrawVerdictIgnored',
-      SWAP: 'isSwapFullyIgnored',
     };
-    for (const [domain, file] of Object.entries(DETAIL_PAGES)) {
+    for (const [domain, file] of Object.entries(ORDER_LEVEL_DOMAINS)) {
       const src = srcOf(file);
       const setBody = src.match(/_VERDICT_(?:IGNORED|TERMINAL)_STATUSES = new Set\(\[([^\]]*)\]/)?.[1] ?? '';
       expect([domain, setBody.includes('FROZEN')]).toEqual([domain, false]);
-      // 正则钉在谓词体内（从 `const isXxx` 到它自己的第一个 `;`），不是打在
-      // 整份 collapsed 源文本上 —— 否则把谓词第二支删掉、只在注释里留一句
-      // `// || status === 'FROZEN'` 字面量,四条断言照样全绿(变异验证时发现)。
-      const predicateBody =
-        src.match(new RegExp(`const ${IGNORED_PREDICATE_NAME[domain]}[^;]*;`))?.[0] ?? '';
+      /* 正则钉在谓词体内（从 `const isXxx` 到它自己的第一个 `;`），不是打在整份
+         collapsed 源文本上 —— 否则把谓词第二支删掉、只在注释里留一句字面量，
+         断言照样全绿（变异验证时发现）。 */
+      const predicateBody = src.match(new RegExp(`const ${NAME[domain]}[^;]*;`))?.[0] ?? '';
       expect([domain, predicateBody.length > 0]).toEqual([domain, true]);
-      // \s* 允许 prettier 把 `||` 和 `status` 换行折断（兑换那个谓词体较长，
-      // 折行是预期格式，不该让断言对格式敏感）。
       expect([domain, /\|\|\s*status === 'FROZEN'/.test(predicateBody)]).toEqual([domain, true]);
     }
   });
 
-  /* 兑换的第二档谓词是**手写字面量**（不是硬抄的数组），it2 钉不到它。
-     审查变异 N1（把它与 isSwapFullyIgnored 的取值域对调）会让 SUCCESS/REJECTED
-     重新被灰掉 —— Important #2 原样复活而八条断言全绿。这条专钉它。
-     依据：swap-workflow.service.ts 的 KYT_VERDICT_TERMINAL_STATUSES 分支里有
-     carve-out `(status === REJECTED || status === SUCCESS) && verdict === 'rejected'`
-     → handleRejectDisposition，这两态**会真的重跑客户级处置**，不是 no-op。 */
-  it('兑换「本单终态但客户仍受影响」那一档恰好是 SUCCESS + REJECTED', () => {
-    const bucket =
-      srcOf(DETAIL_PAGES.SWAP).match(/const isSwapOrderTerminalButPersonStillAffected[^;]*;/)?.[0] ?? '';
-    expect(bucket.length).toBeGreaterThan(0);
-    expect([...bucket.matchAll(/status === '([A-Z_]+)'/g)].map((x) => x[1]).sort()).toEqual([
-      'REJECTED',
-      'SUCCESS',
-    ]);
+  /* 业主改判后兑换的判据是**单态白名单**，不再有硬抄数组、也不再有 FROZEN 单独一支
+     （FROZEN 不等于 COMPLIANCE_PENDING，天然落在置灰侧）。这条钉住它就是这一个态，
+     谁把它改成集合或多态白名单都会红。 */
+  it('兑换的判据是「只有 COMPLIANCE_PENDING 可投」这一个态', () => {
+    const src = srcOf(DETAIL_PAGES.SWAP);
+    const body = src.match(/const isSwapVerdictActionable[^;]*;/)?.[0] ?? '';
+    expect(body.length).toBeGreaterThan(0);
+    expect([...body.matchAll(/'([A-Z_]+)'/g)].map((x) => x[1])).toEqual(['COMPLIANCE_PENDING']);
+    // 旧的两档谓词与硬抄数组必须删净，否则是"新旧并存、谁在生效说不清"
+    expect(src).not.toContain('isSwapFullyIgnored');
+    expect(src).not.toContain('isSwapOrderTerminalButPersonStillAffected');
+    expect(src).not.toContain('SWAP_KYT_VERDICT_TERMINAL_STATUSES');
   });
 
-  it('提现 PAYOUT_PENDING、兑换 PROCESSING 刻意不置灰', () => {
+  it('提现 PAYOUT_PENDING 刻意不置灰（后端判 EVIDENCE_ONLY，不是 no-op）', () => {
     const w = srcOf(DETAIL_PAGES.WITHDRAW);
-    const s = srcOf(DETAIL_PAGES.SWAP);
     expect(w.match(/_VERDICT_TERMINAL_STATUSES = new Set\(\[([^\]]*)\]/)?.[1]).not.toContain('PAYOUT_PENDING');
-    expect(s.match(/_VERDICT_TERMINAL_STATUSES = new Set\(\[([^\]]*)\]/)?.[1]).not.toContain('PROCESSING');
   });
 
-  /* Important #3（Task 7 审查）：以上几条只查集合/谓词的静态定义，从没验证过
-     JSX 里的 disabled 属性、说明文案的渲染条件真的接到这些谓词上——审查跑了
-     7 个变异实测：三域各自把 disabled 里的谓词去掉、兑换谓词参数换成写死的
-     ''、删掉充值整段说明文案、提现文案改字、兑换说明条件取反 `!谓词`,
-     以上所有断言全绿。下面三条把"接线"本身钉死。 */
-  it('Simulation 按钮的 disabled 属性真的调用了自家忽略谓词（不是被摘掉/参数被换掉）', () => {
+  /* Important #3（Task 7 审查）：以上几条只查判据的静态定义，从没验证过 JSX 里的
+     disabled 属性、说明文案的渲染条件真的接到这些判据上 —— 审查跑了 7 个变异实测：
+     三域各自把 disabled 里的谓词去掉、参数换成写死的 ''、删整段文案、改文案字、
+     条件取反，以上断言全绿。下面三条把"接线"本身钉死。 */
+  it('Simulation 按钮的 disabled 真的接到自家判据上（不是被摘掉/参数被换掉）', () => {
     const disabledAttrOf = (file: string): string => {
-      // 用 `simSubmitting !== null` 定位——这行文本在各文件里只在 Simulation
-      // 按钮的 disabled 属性上出现一次，其余 disabled（dispositionSubmitting/
-      // slaSubmitting 等）都不含它，不会认错目标。
+      /* 用 `simSubmitting !== null` 定位 —— 这行文本在各文件里只在 Simulation
+         按钮的 disabled 上出现一次，其余 disabled 都不含它，不会认错目标。 */
       const m = srcOf(file).match(/disabled=\{\s*simSubmitting !== null[^}]*\}/);
       if (!m) throw new Error(`${file}: 找不到 Simulation 按钮的 disabled 属性`);
       return m[0];
@@ -345,48 +335,36 @@ describe('规则① 同一模块显示逻辑一致 · ⚡ Simulation（Task 7）
     expect(disabledAttrOf(DETAIL_PAGES.DEPOSIT)).toContain('isDepositVerdictIgnored(data.status)');
     expect(disabledAttrOf(DETAIL_PAGES.WITHDRAW)).toContain('isWithdrawVerdictIgnored(data.status)');
     const swapAttr = disabledAttrOf(DETAIL_PAGES.SWAP);
-    // 兑换：真正决定置灰的是 isSwapFullyIgnored（100% no-op），且必须给⑦⑧
-    // 人级键留豁免——否则 BACKLOG「⑦⑧ 在被拒单上无 UI 入口」等于没解
-    // （Important #1）。
-    expect(swapAttr).toContain('isSwapFullyIgnored(data.status)');
+    /* 兑换是**取反**接线（白名单：不在 COMPLIANCE_PENDING 就灰），且必须给 ⑦⑧
+       人级键留豁免 —— 否则 BACKLOG「⑦⑧ 在被拒单上无 UI 入口」等于没解。 */
+    expect(swapAttr).toContain('!isSwapVerdictActionable(data.status)');
     expect(swapAttr).toContain('SWAP_PERSON_LEVEL_KEYS.has(s.key)');
   });
 
-  it('说明文案的渲染条件就是自家谓词本身（不是取反、不是接到别的谓词）', () => {
+  it('说明文案的渲染条件就是自家判据本身（充值/提现正接、兑换取反）', () => {
     expect(srcOf(DETAIL_PAGES.DEPOSIT)).toMatch(/\{isDepositVerdictIgnored\(data\.status\) && \(/);
     expect(srcOf(DETAIL_PAGES.DEPOSIT)).not.toMatch(/\{!isDepositVerdictIgnored/);
     expect(srcOf(DETAIL_PAGES.WITHDRAW)).toMatch(/\{isWithdrawVerdictIgnored\(data\.status\) && \(/);
     expect(srcOf(DETAIL_PAGES.WITHDRAW)).not.toMatch(/\{!isWithdrawVerdictIgnored/);
-    // 兑换 Important #2 修复后是两句话，各自挂自己的谓词：isSwapFullyIgnored
-    // → 真 no-op 那句；isSwapOrderTerminalButPersonStillAffected → SUCCESS/
-    // REJECTED 那句"客户仍可能被限制"的新文案。
-    const swap = srcOf(DETAIL_PAGES.SWAP);
-    expect(swap).toMatch(/\{isSwapFullyIgnored\(data\.status\) && \(/);
-    expect(swap).toMatch(/\{isSwapOrderTerminalButPersonStillAffected\(data\.status\) && \(/);
-    expect(swap).not.toMatch(/\{!isSwapFullyIgnored/);
-    expect(swap).not.toMatch(/\{!isSwapOrderTerminalButPersonStillAffected/);
+    // 兑换是白名单，所以文案挂在**取反**上；正接会把话说反（可投时反而提示不可投）
+    expect(srcOf(DETAIL_PAGES.SWAP)).toMatch(/\{!isSwapVerdictActionable\(data\.status\) && \(/);
   });
 
   it('说明文案内容没被删、没被改字', () => {
     const IGNORED_MSG = '本单已进终态/处置态，投递的裁决会被后端记录但不改状态。';
-    for (const [domain, file] of Object.entries(DETAIL_PAGES)) {
+    for (const [domain, file] of Object.entries(ORDER_LEVEL_DOMAINS)) {
       expect([domain, srcOf(file).includes(IGNORED_MSG)]).toEqual([domain, true]);
     }
-    // 兑换独有的第二句（Important #2：SUCCESS/REJECTED 状态不变，但客户级
-    // 处置仍会重跑，不是"什么都不会发生"）。
-    expect(srcOf(DETAIL_PAGES.SWAP)).toContain(
-      '本单已终态，状态不会再变；但重投拒绝类裁决仍会重跑客户级处置（客户可能被限制）。',
-    );
+    // 兑换的判据不同（单态白名单），文案也另写一句，且必须点明 ⑦⑧ 仍可用
+    const swapMsg = '本单不在待合规状态，①-⑧ 里的裁决键不会推进本单，故置灰；⑦⑧ 作用于客户本人，仍可用。';
+    expect(srcOf(DETAIL_PAGES.SWAP)).toContain(swapMsg);
   });
 
-  /* Important #1（Task 7 审查）：⑦⑧ 投的是 applicantActionReviewed，作用对象
-     是人不是单，不走 applyKytVerdict——终态单上必须点得动，这正是 BACKLOG
-     「⑦⑧ 人级模拟键在被拒单上无 UI 入口」要的入口。上面「disabled 属性真的
-     调用了自家忽略谓词」那条已经断言了 SWAP_PERSON_LEVEL_KEYS 出现在 disabled
-     豁免里；这条钉住豁免集合本身没被改错。 */
+  /* Important #1（Task 7 审查）：⑦⑧ 投的是 applicantActionReviewed，作用对象是人
+     不是单，不走 applyKytVerdict —— 终态单上必须点得动，这正是 BACKLOG
+     「⑦⑧ 人级模拟键在被拒单上无 UI 入口」要的入口。 */
   it('兑换⑦⑧人级键的豁免集合就是 V7_ACTION_GREEN / V8_ACTION_RED', () => {
-    const src = srcOf(DETAIL_PAGES.SWAP);
-    expect(src).toContain(
+    expect(srcOf(DETAIL_PAGES.SWAP)).toContain(
       "const SWAP_PERSON_LEVEL_KEYS = new Set(['V7_ACTION_GREEN', 'V8_ACTION_RED']);",
     );
   });
