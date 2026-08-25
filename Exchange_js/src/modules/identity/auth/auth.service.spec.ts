@@ -3,15 +3,15 @@ import { AuthService } from './auth.service';
 import { UsersService } from '../users/users.service';
 import { AdminInvitationsService } from '../users/admin-invitations.service';
 import { JwtService } from '@nestjs/jwt';
-import { AuditLogsService } from '../../audit-logging/audit-logs.service';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { ForbiddenException } from '@nestjs/common';
 import { AccessControlService } from '../access-control/access-control.service';
-import { AuditBusinessWorkflowTypes } from '../../audit-logging/constants/audit-actions.constant';
+import { DomainEventNames } from '../../../common/events/domain-events.constants';
 
 describe('AuthService', () => {
   let service: AuthService;
   let usersService: any;
-  let auditLogsService: any;
+  let eventEmitter: any;
   let accessControlService: any;
 
   beforeEach(async () => {
@@ -22,8 +22,8 @@ describe('AuthService', () => {
       update: jest.fn(),
     };
 
-    auditLogsService = {
-      recordByActor: jest.fn(),
+    eventEmitter = {
+      emit: jest.fn(),
     };
 
     accessControlService = {
@@ -52,8 +52,8 @@ describe('AuthService', () => {
           },
         },
         {
-          provide: AuditLogsService,
-          useValue: auditLogsService,
+          provide: EventEmitter2,
+          useValue: eventEmitter,
         },
         {
           provide: AccessControlService,
@@ -69,6 +69,11 @@ describe('AuthService', () => {
     expect(service).toBeDefined();
   });
 
+  it('第一批 · V1 域打点上收：auth.service.ts 不再直接写审计', () => {
+    const src = require('fs').readFileSync(`${__dirname}/auth.service.ts`, 'utf8');
+    expect(src).not.toMatch(/recordByActor|recordSystem/);
+  });
+
   it('should reject inactive admin login with readable message', async () => {
     usersService.findByIdentifier.mockResolvedValue({
       id: 'user-1',
@@ -80,30 +85,75 @@ describe('AuthService', () => {
       failedLoginAttempts: 0,
       lockedUntil: null,
     });
-    auditLogsService.recordByActor.mockResolvedValue({});
 
     await expect(
       service.validateUser('ciso@fiatx.com', '123456'),
     ).rejects.toBeInstanceOf(ForbiddenException);
-    expect(auditLogsService.recordByActor).toHaveBeenCalled();
   });
 
   it('should reject deleted admin login through active-user lookup filtering', async () => {
     usersService.findByIdentifier.mockResolvedValue(null);
-    auditLogsService.recordByActor.mockResolvedValue({});
 
     const result = await service.validateUser('deleted-admin@fiatx.com', '123456');
 
     expect(result).toBeNull();
-    expect(auditLogsService.recordByActor).toHaveBeenCalledWith(
+    // 登录成功/失败流水归安全日志（本项目不做）——不再断言审计调用。
+    expect(eventEmitter.emit).not.toHaveBeenCalled();
+  });
+
+  it('连续失败第 5 次达阈值时 emit ADMIN_LOGIN_CONSECUTIVE_FAILURE，交由 workflow 层写 ADMIN_ACCOUNT_LOCK_APPLIED', async () => {
+    usersService.findByIdentifier.mockResolvedValue({
+      id: 'user-1',
+      userNo: 'ADM-001',
+      role: 'CISO',
+      email: 'ciso@fiatx.com',
+      password: '$2b$10$abc',
+      status: 'ACTIVE',
+      failedLoginAttempts: 4,
+      lockedUntil: null,
+    });
+    usersService.update.mockResolvedValue(undefined);
+
+    const bcrypt = require('bcrypt');
+    jest.spyOn(bcrypt, 'compare').mockResolvedValue(false);
+
+    const result = await service.validateUser('ciso@fiatx.com', 'wrong-password');
+
+    expect(result).toBeNull();
+    expect(usersService.update).toHaveBeenCalledWith(
       expect.objectContaining({
-        action: expect.any(String),
-        reason: 'Admin login failed: account not found',
-      }),
-      expect.objectContaining({
-        actorNo: 'UNKNOWN',
+        data: expect.objectContaining({ status: 'LOCKED', failedLoginAttempts: 5 }),
       }),
     );
+    expect(eventEmitter.emit).toHaveBeenCalledWith(
+      DomainEventNames.ADMIN_LOGIN_CONSECUTIVE_FAILURE,
+      expect.objectContaining({
+        userId: 'user-1',
+        userNo: 'ADM-001',
+        failedLoginAttempts: 5,
+      }),
+    );
+  });
+
+  it('未达阈值的失败登录不 emit 锁定事件', async () => {
+    usersService.findByIdentifier.mockResolvedValue({
+      id: 'user-1',
+      userNo: 'ADM-001',
+      role: 'CISO',
+      email: 'ciso@fiatx.com',
+      password: '$2b$10$abc',
+      status: 'ACTIVE',
+      failedLoginAttempts: 0,
+      lockedUntil: null,
+    });
+    usersService.update.mockResolvedValue(undefined);
+
+    const bcrypt = require('bcrypt');
+    jest.spyOn(bcrypt, 'compare').mockResolvedValue(false);
+
+    await service.validateUser('ciso@fiatx.com', 'wrong-password');
+
+    expect(eventEmitter.emit).not.toHaveBeenCalled();
   });
 
   it('should return resolved role and permission sets for admin session', async () => {
@@ -163,7 +213,7 @@ describe('AuthService', () => {
     expect((result as any).user.roles).toEqual(['SUPER_ADMIN', 'MLRO']);
   });
 
-  it('writes admin login success audit with login workflow and fresh trace', async () => {
+  it('successful admin login clears failed attempts and returns a fresh authTraceId without writing audit', async () => {
     usersService.findByIdentifier.mockResolvedValue({
       id: 'user-1',
       userNo: 'ADMIN-001',
@@ -176,27 +226,26 @@ describe('AuthService', () => {
       lastLoginAt: null,
     });
     usersService.update.mockResolvedValue(undefined);
-    auditLogsService.recordByActor.mockResolvedValue({});
 
     const bcrypt = require('bcrypt');
     jest.spyOn(bcrypt, 'compare').mockResolvedValue(true);
 
-    await service.validateUser('admin@fiatx.com', '123456', {
+    const result = await service.validateUser('admin@fiatx.com', '123456', {
       requestId: 'req-login-1',
       sourceIp: '127.0.0.1',
       sourcePlatform: 'ADMIN_AUTH_API',
     });
 
-    expect(auditLogsService.recordByActor).toHaveBeenCalledWith(
+    expect(result).toEqual(
+      expect.objectContaining({ userNo: 'ADMIN-001', authTraceId: expect.any(String) }),
+    );
+    expect(usersService.update).toHaveBeenCalledWith(
       expect.objectContaining({
-        action: 'ADMIN_LOGIN_SUCCESS',
-        workflowType: AuditBusinessWorkflowTypes.ADMIN_LOGIN_ACCESS,
-        traceId: expect.any(String),
-      }),
-      expect.objectContaining({
-        actorNo: 'ADMIN-001',
+        data: expect.objectContaining({ failedLoginAttempts: 0, lockedUntil: null }),
       }),
     );
+    // 登录成功流水归安全日志（本项目不做）——不再写审计、不再 emit 锁定事件。
+    expect(eventEmitter.emit).not.toHaveBeenCalled();
   });
 
   it('should reject deleted admin session snapshots', async () => {

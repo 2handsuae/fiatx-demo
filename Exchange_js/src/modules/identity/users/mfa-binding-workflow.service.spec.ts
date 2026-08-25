@@ -35,6 +35,7 @@ describe('MfaBindingWorkflowService', () => {
     };
     auditLogsService = {
       recordByActor: jest.fn().mockResolvedValue(undefined),
+      recordSystem: jest.fn().mockResolvedValue(undefined),
     };
     jwtService = {
       sign: jest.fn().mockReturnValue('full-access-token'),
@@ -174,5 +175,38 @@ describe('MfaBindingWorkflowService', () => {
     // fromStatus/toStatus 三个必填字段全给、START 现铸 correlationId（不复用
     // firstLoginTraceId——封锁是独立事件，不是首登旅程本身）、.catch() 兜底不挡 429。
     it.todo('ADMIN_ACCOUNT_LOCK_APPLIED — 阻于 getOtp() 动态 import，本 jest 配置下不可测（见上方注释）');
+  });
+
+  describe('第一批 · V1 域打点上收 · 连续密码失败锁定（auth.service.ts → workflow）', () => {
+    it('handleConsecutiveAuthFailure 写 ADMIN_ACCOUNT_LOCK_APPLIED：recordSystem + reasonCode=CONSECUTIVE_AUTH_FAILURE + fromStatus/toStatus', async () => {
+      await service.handleConsecutiveAuthFailure({
+        userId: 'u1',
+        userNo: 'ADM-001',
+        failedLoginAttempts: 5,
+      });
+
+      const call = auditLogsService.recordSystem.mock.calls.find(
+        (c: any[]) => c[0].action === 'ADMIN_ACCOUNT_LOCK_APPLIED',
+      );
+      expect(call).toBeDefined();
+      expect(call[0].reasonCode).toBe('CONSECUTIVE_AUTH_FAILURE');
+      expect(call[0].fromStatus).toBeTruthy();
+      expect(call[0].toStatus).toBeTruthy();
+      expect(call[0].primarySubjectNo).toBe('ADM-001');
+      // START：与 verifyMfaBind() 里 MFA 锁定同款，现铸新 UUID，不复用任何实体列。
+      expect(call[0].correlationId).toBeTruthy();
+    });
+
+    it('审计写入失败不冒泡——锁定判定本身不依赖审计成功', async () => {
+      auditLogsService.recordSystem.mockRejectedValueOnce(new Error('db down'));
+
+      await expect(
+        service.handleConsecutiveAuthFailure({
+          userId: 'u1',
+          userNo: 'ADM-001',
+          failedLoginAttempts: 5,
+        }),
+      ).resolves.toBeUndefined();
+    });
   });
 });

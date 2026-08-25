@@ -6,8 +6,10 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
+import { OnEvent } from '@nestjs/event-emitter';
 import { randomUUID } from 'crypto';
 import * as QRCode from 'qrcode';
+import { DomainEventNames } from '../../../common/events/domain-events.constants';
 import { decryptMfaSecret, encryptMfaSecret } from '../../../common/utils/mfa-crypto.util';
 
 // otplib v13 uses a functional API (no authenticator object); it is ESM-only.
@@ -55,6 +57,16 @@ export class TooManyRequestsException extends HttpException {
   constructor(response: string | Record<string, any> = 'Too Many Requests') {
     super(response, HttpStatus.TOO_MANY_REQUESTS);
   }
+}
+
+/**
+ * DOMAIN_EVENTS.ADMIN_LOGIN_CONSECUTIVE_FAILURE 的 payload 形状——
+ * auth.service.ts#validateUser 判定"连续失败达阈值"后 emit，本文件接住写审计。
+ */
+export interface AdminLoginConsecutiveFailureEvent {
+  userId: string;
+  userNo: string;
+  failedLoginAttempts: number;
 }
 
 interface MfaBindingUserState {
@@ -507,5 +519,40 @@ export class MfaBindingWorkflowService {
     });
 
     return { accessToken };
+  }
+
+  /**
+   * ADMIN_ACCOUNT_LOCK_APPLIED —— 常规密码登录连续失败达阈值锁定（区别于本文件其余
+   * 方法处理的 MFA 校验锁定）。触发判定留在 auth.service.ts#validateUser（域服务层，
+   * 只有它知道"这次是第几次失败"）；audit 写入上收到这里（编排层）——Task 9。
+   *
+   * recordSystem 而非 recordByActor：这是异步事件消费（@OnEvent），已经脱离了触发
+   * 那次 HTTP 请求的 actor 上下文，锁定本质是系统对失败模式的自动反应，同 CRON 定期
+   * 任务一样按 SYSTEM 记。
+   *
+   * correlationId 走 START（ADMIN_ACCOUNT_LOCK_APPLIED 声明 correlationMode=S）：
+   * 现铸新 UUID——同 verifyMfaBind() 里 MFA 锁定那处一致的模板（Task 7）。
+   */
+  @OnEvent(DomainEventNames.ADMIN_LOGIN_CONSECUTIVE_FAILURE, { async: true })
+  async handleConsecutiveAuthFailure(
+    event: AdminLoginConsecutiveFailureEvent,
+  ): Promise<void> {
+    await this.auditLogsService
+      .recordSystem({
+        action: 'ADMIN_ACCOUNT_LOCK_APPLIED',
+        actionDomain: 'IAM',
+        category: AuditCategory.GOVERNANCE,
+        primarySubjectType: AuditEntityTypes.ADMIN_USER,
+        primarySubjectNo: event.userNo,
+        correlationId: randomUUID(),
+        reasonCode: 'CONSECUTIVE_AUTH_FAILURE',
+        fromStatus: 'ACTIVE',
+        toStatus: 'LOCKED',
+        metadata: { failedLoginAttempts: event.failedLoginAttempts },
+        requestId: randomUUID(),
+        sourcePlatform: 'ADMIN_AUTH_API',
+      })
+      // 审计侧问题不能拖累锁定本身已经生效这件事——同文件里其余系统写入点一致的兜底。
+      .catch(() => undefined);
   }
 }

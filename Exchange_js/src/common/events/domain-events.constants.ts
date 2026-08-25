@@ -67,6 +67,17 @@ export const DOMAIN_EVENTS = {
       '兑换单状态变更。补于 2026-08-17 —— 此前三域只有充值/提现有单据级状态事件，' +
       '兑换只有资金单粒度的 FUNDS_ORDER_STATUS_CHANGED，材料账的作废监听器接不上。',
   },
+
+  // ── Admin Login Lockout（审计上收 Task 9，2026-08-26）──
+  // auth.service.ts#validateUser 在本地判定"连续失败达阈值"后 emit，不直接写审计——
+  // 审计要写 actor/旅程/权限依据等编排层才拿得到的信息，实体层不该攒这些参数。
+  // 由 MfaBindingWorkflowService 接住写 ADMIN_ACCOUNT_LOCK_APPLIED（Task 7 已实装该码）。
+  ADMIN_LOGIN_CONSECUTIVE_FAILURE: {
+    name: 'admin.login.consecutive_failure',
+    emitter: 'AuthService',
+    subscribers: ['MfaBindingWorkflowService'],
+    payload: '{ userId: string, userNo: string, failedLoginAttempts: number }',
+  },
 } as const;
 
 /** Type-safe event name accessor */
@@ -84,4 +95,6 @@ export const DomainEventNames = {
   MATERIAL_REQUEST_REVIEWED: DOMAIN_EVENTS.MATERIAL_REQUEST_REVIEWED.name,
   // Swap
   SWAP_STATUS_CHANGED: DOMAIN_EVENTS.SWAP_STATUS_CHANGED.name,
+  // Admin Login Lockout
+  ADMIN_LOGIN_CONSECUTIVE_FAILURE: DOMAIN_EVENTS.ADMIN_LOGIN_CONSECUTIVE_FAILURE.name,
 } as const;
