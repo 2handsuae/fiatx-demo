@@ -102,24 +102,21 @@ export interface AuditLogView {
   entityNo: string | null;
   workflowType: string | null;
   traceId: string | null;
-  entityOwnerType: string | null;
-  entityOwnerId: string | null;
-  entityOwnerNo: string | null;
+  ownerCustomerNo: string | null;
   actorType: string;
-  actorId: string;
   actorNo: string | null;
-  actorRole: string | null;
+  /** 当时的角色快照数组（JSON 反序列化）。取代旧单值 actorRole —— 一个人当时可能兼多角色 */
+  actorRolesAtTime: string[];
   requestId: string | null;
   sourceIp: string | null;
   sourcePlatform: string | null;
-  result: string | null;
+  outcome: string | null;
   reason: string | null;
   metadata: unknown;
   payloadDigest: string | null;
   retainedUntil: Date | string | null;
   occurredAt: Date | string;
-  createdAt?: Date | string | null;
-  updatedAt?: Date | string | null;
+  recordedAt?: Date | string | null;
   archivedAt?: Date | string | null;
 }
 
@@ -260,15 +257,37 @@ export class AuditLogQueryDto {
   @Max(200)
   take?: number;
 
-  @ApiPropertyOptional()
-  @IsOptional()
-  @IsString()
-  entityType?: string;
+  @ApiPropertyOptional({ description: '按主体业务键检索（经子表）——监管索档的主入口' })
+  @IsOptional() @IsString()
+  subjectNo?: string;
 
-  @ApiPropertyOptional()
-  @IsOptional()
-  @IsString()
-  entityId?: string;
+  @ApiPropertyOptional({ enum: AuditSubjectRole, description: '与 subjectNo 组合使用，限定该主体扮演的角色' })
+  @IsOptional() @IsEnum(AuditSubjectRole)
+  subjectRole?: AuditSubjectRole;
+
+  @ApiPropertyOptional() @IsOptional() @IsString()
+  primarySubjectType?: string;
+
+  @ApiPropertyOptional() @IsOptional() @IsString()
+  primarySubjectNo?: string;
+
+  @ApiPropertyOptional() @IsOptional() @IsString()
+  ownerCustomerNo?: string;
+
+  @ApiPropertyOptional() @IsOptional() @IsString()
+  actionDomain?: string;
+
+  @ApiPropertyOptional({ enum: AuditOutcome }) @IsOptional() @IsEnum(AuditOutcome)
+  outcome?: AuditOutcome;
+
+  @ApiPropertyOptional() @IsOptional() @IsString()
+  correlationId?: string;
+
+  @ApiPropertyOptional() @IsOptional() @IsString()
+  causationId?: string;
+
+  @ApiPropertyOptional() @IsOptional()
+  isReadOnly?: boolean;
 
   @ApiPropertyOptional()
   @IsOptional()
@@ -279,11 +298,6 @@ export class AuditLogQueryDto {
   @IsOptional()
   @IsString()
   actorNo?: string;
-
-  @ApiPropertyOptional()
-  @IsOptional()
-  @IsString()
-  entityOwnerNo?: string;
 
   @ApiPropertyOptional({ description: '按流程链ID过滤' })
   @IsOptional()

@@ -1766,4 +1766,50 @@ describe('AuditLogsService', () => {
       expect(prisma.auditLogSubject.createMany).not.toHaveBeenCalled();
     });
   });
+
+  describe('第一批 · 按主体检索', () => {
+    beforeEach(() => {
+      prisma.auditLogEvent.count.mockResolvedValue(0);
+      prisma.auditLogEvent.findMany.mockResolvedValue([]);
+    });
+
+    it('传 subjectNo 时用子表关系过滤', async () => {
+      await service.findAll({ subjectNo: 'CUS889' } as any);
+      expect(prisma.auditLogEvent.findMany.mock.calls[0][0].where.subjects)
+        .toEqual({ some: { subjectNo: 'CUS889' } });
+    });
+
+    it('subjectNo 与 subjectRole 同传时落在同一个 some 里', async () => {
+      await service.findAll({ subjectNo: 'CUS889', subjectRole: AuditSubjectRole.OWNER } as any);
+      expect(prisma.auditLogEvent.findMany.mock.calls[0][0].where.subjects)
+        .toEqual({ some: { subjectNo: 'CUS889', subjectRole: 'OWNER' } });
+    });
+
+    it('两个都不传时不加 subjects 条件', async () => {
+      await service.findAll({} as any);
+      expect(prisma.auditLogEvent.findMany.mock.calls[0][0].where.subjects).toBeUndefined();
+    });
+
+    it('outcome 与 actionDomain 可过滤', async () => {
+      await service.findAll({ outcome: AuditOutcome.DENIED, actionDomain: 'IAM' } as any);
+      const where = prisma.auditLogEvent.findMany.mock.calls[0][0].where;
+      expect(where.outcome).toBe('DENIED');
+      expect(where.actionDomain).toBe('IAM');
+    });
+
+    it('详情返回 subjects 数组', async () => {
+      prisma.auditLogEvent.findUnique.mockResolvedValue({
+        id: 'evt-9', eventNo: 'AUD9', action: 'ADMIN_SUSPENSION_APPLIED',
+        actionDomain: 'IAM', category: 'GOVERNANCE', actorType: 'ADMIN', actorNo: 'U1',
+        actorDisplayName: '张三', actorRolesAtTime: '["CISO"]', occurredAt: new Date(),
+        subjects: [{ subjectType: 'ADMIN_USER', subjectNo: 'USR001', subjectRole: 'PRIMARY' }],
+      });
+
+      const r: any = await service.findOne('evt-9');
+      expect(r.subjects).toEqual([
+        { subjectType: 'ADMIN_USER', subjectNo: 'USR001', subjectRole: 'PRIMARY' },
+      ]);
+      expect(r.actorRolesAtTime).toEqual(['CISO']);
+    });
+  });
 });

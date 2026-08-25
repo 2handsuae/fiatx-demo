@@ -330,24 +330,22 @@ export class AuditLogsService {
       entityNo: raw.entityNo ?? null,
       workflowType: raw.workflowType ?? null,
       traceId: raw.traceId ?? null,
-      entityOwnerType: raw.entityOwnerType ?? null,
-      entityOwnerId: raw.entityOwnerId ?? null,
-      entityOwnerNo: raw.entityOwnerNo ?? null,
+      ownerCustomerNo: raw.ownerCustomerNo ?? null,
       actorType: raw.actorType,
-      actorId: raw.actorId,
       actorNo: raw.actorNo ?? null,
-      actorRole: raw.actorRole ?? null,
+      actorRolesAtTime: (() => {
+        try { return JSON.parse(raw.actorRolesAtTime ?? '[]'); } catch { return []; }
+      })(),
       requestId: raw.requestId ?? null,
       sourceIp: raw.sourceIp ?? null,
       sourcePlatform: raw.sourcePlatform ?? null,
-      result: raw.result ?? null,
+      outcome: raw.outcome ?? null,
       reason: raw.reason ?? null,
       metadata,
       payloadDigest: raw.payloadDigest ?? null,
       retainedUntil: raw.retainedUntil ?? null,
       occurredAt: raw.occurredAt,
-      createdAt: raw.createdAt ?? null,
-      updatedAt: raw.updatedAt ?? null,
+      recordedAt: raw.recordedAt ?? null,
       archivedAt: raw.archivedAt ?? null,
     };
   }
@@ -513,11 +511,8 @@ export class AuditLogsService {
 
     const where: any = {};
     const andClauses: any[] = [];
-    if (query.entityType) andClauses.push({ entityType: query.entityType });
-    if (query.entityId) andClauses.push({ entityId: query.entityId });
     if (query.actorId) andClauses.push({ actorId: query.actorId });
     if (query.actorNo) andClauses.push({ actorNo: query.actorNo });
-    if (query.entityOwnerNo) andClauses.push({ entityOwnerNo: query.entityOwnerNo });
     if (query.traceId) andClauses.push({ traceId: query.traceId });
     if (query.workflowType) andClauses.push({ workflowType: query.workflowType });
     if (query.result) andClauses.push({ result: query.result });
@@ -755,7 +750,7 @@ export class AuditLogsService {
         workflowType: explicitWorkflowType,
         traceId: query.traceId || null,
         actorNo: query.actorNo || null,
-        entityOwnerNo: query.entityOwnerNo || null,
+        ownerCustomerNo: query.ownerCustomerNo || null,
       },
       filterSnapshot: {
         ...query,
@@ -991,6 +986,22 @@ export class AuditLogsService {
     }
     const where = await this.buildWhere(query, db);
 
+    if (query.actionDomain) (where as any).actionDomain = query.actionDomain;
+    if (query.outcome) (where as any).outcome = query.outcome;
+    if (query.correlationId) (where as any).correlationId = query.correlationId;
+    if (query.causationId) (where as any).causationId = query.causationId;
+    if (query.ownerCustomerNo) (where as any).ownerCustomerNo = query.ownerCustomerNo;
+    if (query.primarySubjectType) (where as any).primarySubjectType = query.primarySubjectType;
+    if (query.primarySubjectNo) (where as any).primarySubjectNo = query.primarySubjectNo;
+    if (query.isReadOnly !== undefined) (where as any).isReadOnly = query.isReadOnly;
+
+    if (query.subjectNo || query.subjectRole) {
+      const some: Record<string, string> = {};
+      if (query.subjectNo) some.subjectNo = query.subjectNo;
+      if (query.subjectRole) some.subjectRole = query.subjectRole;
+      (where as any).subjects = { some };
+    }
+
     const [total, rows] = await Promise.all([
       db.auditLogEvent.count({ where }),
       db.auditLogEvent.findMany({
@@ -1016,13 +1027,22 @@ export class AuditLogsService {
     }
     const found = await db.auditLogEvent.findUnique({
       where: { id },
+      include: {
+        subjects: { select: { subjectType: true, subjectNo: true, subjectRole: true } },
+      },
     });
 
     if (!found) {
       throw new NotFoundException(`Audit log not found: ${id}`);
     }
 
-    return this.mapEvent(found);
+    const mapped: any = this.mapEvent(found);
+    mapped.subjects = (found.subjects ?? []).map((s: any) => ({
+      subjectType: s.subjectType,
+      subjectNo: s.subjectNo,
+      subjectRole: s.subjectRole,
+    }));
+    return mapped;
   }
 
   private buildDepositEvidenceChain(params: {
