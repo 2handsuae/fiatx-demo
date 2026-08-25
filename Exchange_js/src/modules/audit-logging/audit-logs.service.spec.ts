@@ -1812,4 +1812,28 @@ describe('AuditLogsService', () => {
       expect(r.actorRolesAtTime).toEqual(['CISO']);
     });
   });
+
+  describe('第一批 · 查询过滤器不得引用已删列', () => {
+    beforeEach(() => {
+      prisma.auditLogEvent.count.mockResolvedValue(0);
+      prisma.auditLogEvent.findMany.mockResolvedValue([]);
+    });
+
+    it('keyword 的 OR 列表只用现存列名', async () => {
+      await service.findAll({ keyword: 'abc' } as any);
+      const where = prisma.auditLogEvent.findMany.mock.calls[0][0].where;
+      const json = JSON.stringify(where);
+      for (const dead of ['entityType', 'entityId', 'entityNo', 'entityOwnerNo', 'actorId', '"result"']) {
+        expect(json).not.toContain(dead);
+      }
+      expect(json).toContain('primarySubjectNo');
+    });
+
+    it('outcome 过滤落在 outcome 列上，不是 result', async () => {
+      await service.findAll({ outcome: AuditOutcome.DENIED } as any);
+      const json = JSON.stringify(prisma.auditLogEvent.findMany.mock.calls[0][0].where);
+      expect(json).toContain('"outcome"');
+      expect(json).not.toContain('"result"');
+    });
+  });
 });

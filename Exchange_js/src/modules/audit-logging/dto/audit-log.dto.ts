@@ -292,11 +292,6 @@ export class AuditLogQueryDto {
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()
-  actorId?: string;
-
-  @ApiPropertyOptional()
-  @IsOptional()
-  @IsString()
   actorNo?: string;
 
   @ApiPropertyOptional({ description: '按流程链ID过滤' })
@@ -308,11 +303,6 @@ export class AuditLogQueryDto {
   @IsOptional()
   @IsString()
   workflowType?: string;
-
-  @ApiPropertyOptional({ enum: AuditOutcome })
-  @IsOptional()
-  @IsEnum(AuditOutcome)
-  result?: AuditOutcome;
 
   @ApiPropertyOptional({ description: 'ISO 时间，起始（含）' })
   @IsOptional()

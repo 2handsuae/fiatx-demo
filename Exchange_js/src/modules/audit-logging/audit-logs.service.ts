@@ -511,11 +511,10 @@ export class AuditLogsService {
 
     const where: any = {};
     const andClauses: any[] = [];
-    if (query.actorId) andClauses.push({ actorId: query.actorId });
     if (query.actorNo) andClauses.push({ actorNo: query.actorNo });
     if (query.traceId) andClauses.push({ traceId: query.traceId });
     if (query.workflowType) andClauses.push({ workflowType: query.workflowType });
-    if (query.result) andClauses.push({ result: query.result });
+    if (query.outcome) andClauses.push({ outcome: query.outcome });
 
 
     if (query.includeArchived !== true) {
@@ -533,11 +532,10 @@ export class AuditLogsService {
       andClauses.push({
         OR: [
           { action: { contains: query.keyword } },
-          { entityType: { contains: query.keyword } },
-          { entityId: { contains: query.keyword } },
-          { entityNo: { contains: query.keyword } },
+          { primarySubjectType: { contains: query.keyword } },
+          { primarySubjectNo: { contains: query.keyword } },
           { actorNo: { contains: query.keyword } },
-          { entityOwnerNo: { contains: query.keyword } },
+          { ownerCustomerNo: { contains: query.keyword } },
           { traceId: { contains: query.keyword } },
           { reason: { contains: query.keyword } },
         ],
