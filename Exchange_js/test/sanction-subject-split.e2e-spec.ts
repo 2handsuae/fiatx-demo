@@ -354,9 +354,9 @@ describe('第二批 · 制裁命中分主体 (e2e)', () => {
     expect(
       await prisma.auditLogEvent.count({
         where: {
-          entityId: c.id,
+          primarySubjectNo: c.id,
           action: AuditActions.CUSTOMER_RESTRICTION_ADDED,
-          result: 'SKIPPED',
+          outcome: 'SKIPPED',
         },
       }),
     ).toBeGreaterThan(0);
@@ -424,7 +424,7 @@ describe('第二批 · 制裁命中分主体 (e2e)', () => {
     // ⅲ 审计留痕：客户面看不到的东西，运营/合规必须查得到。
     expect(
       await prisma.auditLogEvent.count({
-        where: { entityId: sw.id, action: AuditActions.SWAP_FROZEN },
+        where: { primarySubjectNo: sw.id, action: AuditActions.SWAP_FROZEN },
       }),
     ).toBeGreaterThan(0);
   });
@@ -454,7 +454,7 @@ describe('第二批 · 制裁命中分主体 (e2e)', () => {
     ).toBe(SwapTransactionStatus.FROZEN);
     expect(
       await prisma.auditLogEvent.count({
-        where: { entityId: sw.id, action: AuditActions.SWAP_KYT_VERDICT_IGNORED },
+        where: { primarySubjectNo: sw.id, action: AuditActions.SWAP_KYT_VERDICT_IGNORED },
       }),
     ).toBeGreaterThan(0);
   });
@@ -491,9 +491,9 @@ describe('第二批 · 制裁命中分主体 (e2e)', () => {
     expect(material.restrictionNo).not.toBe(sanction.restrictionNo);
 
     const addedRows = await prisma.auditLogEvent.findMany({
-      where: { entityId: c.id, action: AuditActions.CUSTOMER_RESTRICTION_ADDED },
+      where: { primarySubjectNo: c.id, action: AuditActions.CUSTOMER_RESTRICTION_ADDED },
     });
     expect(addedRows).toHaveLength(2);
-    expect(addedRows.every((r) => r.result === 'SUCCESS')).toBe(true);
+    expect(addedRows.every((r) => r.outcome === 'SUCCESS')).toBe(true);
   });
 });

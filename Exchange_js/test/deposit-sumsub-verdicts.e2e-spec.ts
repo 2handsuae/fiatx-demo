@@ -359,7 +359,7 @@ describe('Deposit Sumsub verdict buttons (e2e, Task 9)', () => {
 
   async function auditActionsFor(depositId: string): Promise<string[]> {
     const rows = await prisma.auditLogEvent.findMany({
-      where: { entityId: depositId, entityType: AuditEntityTypes.DEPOSIT_TRANSACTION },
+      where: { primarySubjectNo: depositId, primarySubjectType: AuditEntityTypes.DEPOSIT_TRANSACTION },
       select: { action: true },
     });
     return rows.map((r) => r.action);
