@@ -248,7 +248,7 @@ describe('CustomerRestrictionsService.open', () => {
     expect(audit.recordSystem).toHaveBeenCalledWith(
       expect.objectContaining({
         action: 'CUSTOMER_RESTRICTION_ADDED',
-        result: 'SKIPPED',
+        outcome: 'SUCCESS',
         metadata: expect.objectContaining({
           restrictionNo: 'RST2608150001',
           scopes: ['WITHDRAW', 'SWAP'],

@@ -210,15 +210,13 @@ export class PushOrderService {
     await this.auditLogs.recordByActor(
       {
         action: entry.action,
-        entityType: AuditEntityTypes.INTERNAL_FUND,
-        entityId: order.id,
-        entityNo: order.fundsOrderNo,
-        workflowType: AuditWorkflowTypes.SETTLEMENT,
+        primarySubjectType: AuditEntityTypes.INTERNAL_FUND,
+        primarySubjectNo: order.fundsOrderNo,
         reason: entry.reason,
         metadata: entry.metadata,
         sourcePlatform: 'ADMIN',
       },
-      { actorType: 'ADMIN', actorId: operatorId, actorNo: operatorId, actorRole: 'ADMIN' },
+      { actorType: 'ADMIN', actorNo: operatorId, actorDisplayName: operatorId, actorRolesAtTime: ['ADMIN'] },
     );
   }
 }

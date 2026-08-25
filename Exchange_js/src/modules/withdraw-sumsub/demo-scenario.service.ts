@@ -14,7 +14,7 @@ import {
   AuditEntityTypes,
   AuditWorkflowTypes,
 } from '../audit-logging/constants/audit-actions.constant';
-import { AuditResult } from '../audit-logging/dto/audit-log.dto';
+import { AuditOutcome } from '../audit-logging/dto/audit-log.dto';
 
 export interface DemoScenarioActor {
   actorId: string;
@@ -113,14 +113,10 @@ export class WithdrawDemoScenarioService {
     await this.auditLogsService.recordByActor(
       {
         action: AuditActions.WITHDRAW_DEMO_SCENARIO_RUN,
-        entityType: AuditEntityTypes.WITHDRAW_TRANSACTION,
-        entityId: withdraw.id,
-        entityNo: withdraw.withdrawNo,
-        entityOwnerType: withdraw.ownerType,
-        entityOwnerId: withdraw.ownerId,
+        primarySubjectType: AuditEntityTypes.WITHDRAW_TRANSACTION,
+        primarySubjectNo: withdraw.withdrawNo,
         traceId: withdraw.traceId || undefined,
-        workflowType: AuditWorkflowTypes.WITHDRAW,
-        result: AuditResult.SUCCESS,
+        outcome: AuditOutcome.SUCCESS,
         reason: `Demo verdict ${button.key} fed into withdrawal ${withdraw.withdrawNo}`,
         metadata: {
           verdict: button.key,
@@ -134,9 +130,9 @@ export class WithdrawDemoScenarioService {
       },
       {
         actorType: 'ADMIN',
-        actorId: actor.actorId,
-        actorNo: actor.actorNo,
-        actorRole: actor.actorRole || 'ADMIN',
+        actorNo: actor.actorNo || 'UNKNOWN',
+        actorDisplayName: actor.actorNo || 'UNKNOWN',
+        actorRolesAtTime: [actor.actorRole || 'ADMIN'],
       },
     );
 

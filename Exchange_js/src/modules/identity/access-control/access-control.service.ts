@@ -334,9 +334,8 @@ export class AccessControlService {
       await this.auditLogsService.recordByActor(
         this.applyAuditContext({
           action: AuditActions.USER_ROLE_BINDING_UPDATED,
-          entityType: AuditEntityTypes.ACCESS_CONTROL,
-          entityId: user.id,
-          entityNo: user.userNo,
+          primarySubjectType: AuditEntityTypes.ACCESS_CONTROL,
+          primarySubjectNo: user.userNo,
           metadata: {
             userId: user.id,
             userNo: user.userNo,
@@ -346,9 +345,9 @@ export class AccessControlService {
         }, auditContext),
         {
           actorType: 'ADMIN',
-          actorId: actor.actorId,
-          actorNo: actor.actorNo,
-          actorRole: actor.actorRole,
+          actorNo: actor.actorNo || 'UNKNOWN',
+          actorDisplayName: actor.actorNo || 'UNKNOWN',
+          actorRolesAtTime: [actor.actorRole],
         },
       );
     }

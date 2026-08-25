@@ -17,7 +17,7 @@ import {
   AuditModules,
 } from '../../audit-logging/constants/audit-actions.constant';
 import {
-  AuditResult,
+  AuditOutcome,
 } from '../../audit-logging/dto/audit-log.dto';
 
 const INVITATION_TTL_MS = 24 * 60 * 60 * 1000;
@@ -283,9 +283,8 @@ export class AdminInvitationsService {
       await this.auditLogsService.recordByActor(
         this.applyAuditContext({
           action: options.action,
-          entityType: AuditEntityTypes.ACCESS_CONTROL,
-          entityId: user.id,
-          entityNo: user.userNo,
+          primarySubjectType: AuditEntityTypes.ACCESS_CONTROL,
+          primarySubjectNo: user.userNo,
           metadata: {
             userId: user.id,
             userNo: user.userNo,
@@ -295,9 +294,9 @@ export class AdminInvitationsService {
         }, effectiveAuditContext),
         {
           actorType: 'ADMIN',
-          actorId: options.actor.actorId,
-          actorNo: options.actor.actorNo,
-          actorRole: options.actor.actorRole,
+          actorNo: options.actor.actorNo || 'UNKNOWN',
+          actorDisplayName: options.actor.actorNo || 'UNKNOWN',
+          actorRolesAtTime: [options.actor.actorRole],
         },
       );
     }
@@ -480,19 +479,18 @@ export class AdminInvitationsService {
           action: isAdminInviteFlow
             ? AuditGovernanceActions.ADMIN_INVITE.ACCOUNT_ACTIVATED
             : AuditActions.ADMIN_INVITATION_ACCEPTED,
-          entityType: AuditEntityTypes.AUTH,
-          entityId: accepted.id,
-          entityNo: accepted.userNo,
-          result: AuditResult.SUCCESS,
+          primarySubjectType: AuditEntityTypes.AUTH,
+          primarySubjectNo: accepted.userNo,
+          result: AuditOutcome.SUCCESS,
           requestId: ctx.requestId,
           sourceIp: ctx.sourceIp,
           sourcePlatform: ctx.sourcePlatform || 'ADMIN_INVITATION_API',
         }, effectiveAuditContext),
         {
           actorType: 'ADMIN',
-          actorId: accepted.id,
           actorNo: accepted.userNo,
-          actorRole: accepted.role || 'ADMIN',
+          actorDisplayName: accepted.userNo,
+          actorRolesAtTime: [accepted.role || 'ADMIN'],
         },
       );
 
@@ -506,8 +504,8 @@ export class AdminInvitationsService {
       await this.auditLogsService.recordByActor(
         this.applyAuditContext({
           action: AuditActions.ADMIN_INVITATION_ACCEPT_FAILED,
-          entityType: AuditEntityTypes.AUTH,
-          result: AuditResult.FAILED,
+          primarySubjectType: AuditEntityTypes.AUTH,
+          result: AuditOutcome.FAILED,
           reason: error?.message || 'Admin invitation accept failed',
           metadata: {
             tokenHashPrefix: this.maskToken(normalizedToken),
@@ -518,8 +516,9 @@ export class AdminInvitationsService {
         }, effectiveAuditContext),
         {
           actorType: 'ADMIN',
-          actorId: 'UNKNOWN',
-          actorRole: 'UNKNOWN',
+          actorNo: 'UNKNOWN',
+          actorDisplayName: 'UNKNOWN',
+          actorRolesAtTime: ['UNKNOWN'],
         },
       );
       throw error;

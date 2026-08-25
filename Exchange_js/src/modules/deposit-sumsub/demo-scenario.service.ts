@@ -10,7 +10,7 @@ import { KytVerdict } from './sumsub-txn.types';
 import { SumsubIngestionService } from '../sumsub-ingestion/sumsub-ingestion.service';
 import { AuditLogsService } from '../audit-logging/audit-logs.service';
 import { AuditActions, AuditEntityTypes } from '../audit-logging/constants/audit-actions.constant';
-import { AuditResult } from '../audit-logging/dto/audit-log.dto';
+import { AuditOutcome } from '../audit-logging/dto/audit-log.dto';
 
 export interface DemoScenarioActor {
   actorId: string;
@@ -109,14 +109,10 @@ export class DepositDemoScenarioService {
     await this.auditLogsService.recordByActor(
       {
         action: AuditActions.DEPOSIT_DEMO_SCENARIO_RUN,
-        entityType: AuditEntityTypes.DEPOSIT_TRANSACTION,
-        entityId: deposit.id,
-        entityNo: deposit.depositNo,
-        entityOwnerType: deposit.ownerType,
-        entityOwnerId: deposit.ownerId,
+        primarySubjectType: AuditEntityTypes.DEPOSIT_TRANSACTION,
+        primarySubjectNo: deposit.depositNo,
         traceId: deposit.traceId || undefined,
-        workflowType: 'DEPOSIT',
-        result: AuditResult.SUCCESS,
+        outcome: AuditOutcome.SUCCESS,
         reason: `Demo verdict ${button.key} fed into deposit ${deposit.depositNo}`,
         metadata: {
           verdict: button.key,
@@ -130,9 +126,9 @@ export class DepositDemoScenarioService {
       },
       {
         actorType: 'ADMIN',
-        actorId: actor.actorId,
-        actorNo: actor.actorNo,
-        actorRole: actor.actorRole || 'ADMIN',
+        actorNo: actor.actorNo || 'UNKNOWN',
+        actorDisplayName: actor.actorNo || 'UNKNOWN',
+        actorRolesAtTime: [actor.actorRole || 'ADMIN'],
       },
     );
 

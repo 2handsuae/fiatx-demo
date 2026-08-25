@@ -188,7 +188,7 @@ describe('GovernanceRegistriesService', () => {
     );
     expect(auditLogsService.recordByActor).toHaveBeenCalledWith(
       expect.objectContaining({
-        entityNo: 'APT2603300001',
+        primarySubjectNo: 'APT2603300001',
       }),
       expect.anything(),
     );

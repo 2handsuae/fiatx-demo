@@ -33,9 +33,9 @@ export class AuditLogsController {
 
     return {
       actorType: req.user.type,
-      actorId: req.user.userId,
-      actorNo: req.user.userNo,
-      actorRole: req.user.role,
+      actorNo: req.user.userNo || 'UNKNOWN',
+      actorDisplayName: req.user.userNo || 'UNKNOWN',
+      actorRolesAtTime: [req.user.role || 'UNKNOWN'],
     };
   }
 

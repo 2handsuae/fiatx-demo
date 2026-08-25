@@ -8,7 +8,7 @@ import {
 } from './constants/audit-actions.constant';
 import {
   AuditEvidencePackageStatus,
-  AuditResult,
+  AuditOutcome,
   ExportEvidencePackageDto,
 } from './dto/audit-log.dto';
 import { sha256Hex } from './utils/audit-digest.util';
@@ -51,9 +51,10 @@ export class AuditEvidenceExportWorkflowService {
   private toAuditActor(actor: ApprovalActorContext) {
     return {
       actorType: actor.actorType,
-      actorId: actor.userId,
-      actorNo: actor.userNo,
-      actorRole: actor.role || actor.roleCodes[0] || 'UNKNOWN',
+      actorNo: actor.userNo || 'UNKNOWN',
+
+      actorDisplayName: actor.userNo || 'UNKNOWN',
+      actorRolesAtTime: [actor.role || actor.roleCodes[0] || 'UNKNOWN'],
     };
   }
 
@@ -123,12 +124,10 @@ export class AuditEvidenceExportWorkflowService {
     await this.auditLogsService.recordByActor(
       {
         action: AuditGovernanceActions.AUDIT_EVIDENCE_EXPORT.EXPORT_REQUESTED,
-        entityType: AuditEntityTypes.AUDIT_EVIDENCE_PACKAGE,
-        entityId: evidencePackage.id,
-        entityNo: evidencePackage.packageNo,
-        workflowType: AuditBusinessWorkflowTypes.AUDIT_EVIDENCE_EXPORT,
+        primarySubjectType: AuditEntityTypes.AUDIT_EVIDENCE_PACKAGE,
+        primarySubjectNo: evidencePackage.packageNo,
         traceId: submitted.traceId,
-        result: AuditResult.SUCCESS,
+        outcome: AuditOutcome.SUCCESS,
         metadata: { dateRangeFrom, dateRangeTo, itemCount: selection.itemCount },
         requestId: `EVIDENCE_EXPORT_REQUESTED_${evidencePackage.packageNo}`,
         sourcePlatform: 'ADMIN_API',
@@ -164,12 +163,10 @@ export class AuditEvidenceExportWorkflowService {
     await this.auditLogsService.recordByActor(
       {
         action: AuditGovernanceActions.AUDIT_EVIDENCE_EXPORT.PACKAGE_DOWNLOADED,
-        entityType: AuditEntityTypes.AUDIT_EVIDENCE_PACKAGE,
-        entityId: found.id,
-        entityNo: found.packageNo,
-        workflowType: AuditBusinessWorkflowTypes.AUDIT_EVIDENCE_EXPORT,
+        primarySubjectType: AuditEntityTypes.AUDIT_EVIDENCE_PACKAGE,
+        primarySubjectNo: found.packageNo,
         traceId: this.normalizeOptionalString(found.approvalCase?.traceId) || undefined,
-        result: AuditResult.SUCCESS,
+        outcome: AuditOutcome.SUCCESS,
         requestId: `EVIDENCE_EXPORT_DOWNLOAD_${found.packageNo}_${Date.now()}`,
         sourcePlatform: 'ADMIN_API',
       },
@@ -243,12 +240,10 @@ export class AuditEvidenceExportWorkflowService {
       await this.auditLogsService.recordByActor(
         {
           action: AuditGovernanceActions.AUDIT_EVIDENCE_EXPORT.GENERATION_COMPLETED,
-          entityType: AuditEntityTypes.AUDIT_EVIDENCE_PACKAGE,
-          entityId: evidencePackage.id,
-          entityNo: evidencePackage.packageNo,
-          workflowType: AuditBusinessWorkflowTypes.AUDIT_EVIDENCE_EXPORT,
+          primarySubjectType: AuditEntityTypes.AUDIT_EVIDENCE_PACKAGE,
+          primarySubjectNo: evidencePackage.packageNo,
           traceId: event.traceId,
-          result: AuditResult.SUCCESS,
+          outcome: AuditOutcome.SUCCESS,
           metadata: { fileSize, fileCount: artifacts.itemCount },
           requestId: `EVIDENCE_EXPORT_GENERATION_COMPLETED_${evidencePackage.packageNo}`,
           sourcePlatform: 'ADMIN_API',
@@ -262,12 +257,10 @@ export class AuditEvidenceExportWorkflowService {
       await this.auditLogsService.recordByActor(
         {
           action: AuditGovernanceActions.AUDIT_EVIDENCE_EXPORT.GENERATION_FAILED,
-          entityType: AuditEntityTypes.AUDIT_EVIDENCE_PACKAGE,
-          entityId: evidencePackage.id,
-          entityNo: evidencePackage.packageNo,
-          workflowType: AuditBusinessWorkflowTypes.AUDIT_EVIDENCE_EXPORT,
+          primarySubjectType: AuditEntityTypes.AUDIT_EVIDENCE_PACKAGE,
+          primarySubjectNo: evidencePackage.packageNo,
           traceId: event.traceId,
-          result: AuditResult.FAILED,
+          outcome: AuditOutcome.FAILED,
           metadata: { failureReason: error instanceof Error ? error.message : 'Evidence export generation failed' },
           requestId: `EVIDENCE_EXPORT_GENERATION_FAILED_${evidencePackage.packageNo}_${Date.now()}`,
           sourcePlatform: 'ADMIN_API',

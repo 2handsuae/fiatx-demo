@@ -7,7 +7,7 @@ import {
   AuditEntityTypes,
   AuditModules,
 } from '../../audit-logging/constants/audit-actions.constant';
-import { AuditResult } from '../../audit-logging/dto/audit-log.dto';
+import { AuditOutcome } from '../../audit-logging/dto/audit-log.dto';
 
 const riskApprovalSummarySelect = {
   id: true,
@@ -55,13 +55,10 @@ export class CustomersService {
 
     await this.auditLogsService.recordSystem({
       action: AuditActions.CUSTOMER_CREATED,
-      entityType: AuditEntityTypes.CUSTOMER,
-      entityId: created.id,
-      entityNo: created.customerNo,
-      entityOwnerType: 'CUSTOMER',
-      entityOwnerId: created.id,
-      entityOwnerNo: created.customerNo,
-      result: AuditResult.SUCCESS,
+      primarySubjectType: AuditEntityTypes.CUSTOMER,
+      primarySubjectNo: created.customerNo,
+      ownerCustomerNo: created.customerNo,
+      outcome: AuditOutcome.SUCCESS,
       reason: 'Customer created',
       sourcePlatform: 'ADMIN_API',
     });
@@ -117,13 +114,10 @@ export class CustomersService {
 
     await this.auditLogsService.recordSystem({
       action: AuditActions.CUSTOMER_UPDATED,
-      entityType: AuditEntityTypes.CUSTOMER,
-      entityId: updated.id,
-      entityNo: updated.customerNo,
-      entityOwnerType: 'CUSTOMER',
-      entityOwnerId: updated.id,
-      entityOwnerNo: updated.customerNo,
-      result: AuditResult.SUCCESS,
+      primarySubjectType: AuditEntityTypes.CUSTOMER,
+      primarySubjectNo: updated.customerNo,
+      ownerCustomerNo: updated.customerNo,
+      outcome: AuditOutcome.SUCCESS,
       reason: 'Customer updated',
       sourcePlatform: 'ADMIN_API',
     });
@@ -139,13 +133,10 @@ export class CustomersService {
 
     await this.auditLogsService.recordSystem({
       action: AuditActions.CUSTOMER_DELETED,
-      entityType: AuditEntityTypes.CUSTOMER,
-      entityId: deleted.id,
-      entityNo: deleted.customerNo,
-      entityOwnerType: 'CUSTOMER',
-      entityOwnerId: deleted.id,
-      entityOwnerNo: deleted.customerNo,
-      result: AuditResult.SUCCESS,
+      primarySubjectType: AuditEntityTypes.CUSTOMER,
+      primarySubjectNo: deleted.customerNo,
+      ownerCustomerNo: deleted.customerNo,
+      outcome: AuditOutcome.SUCCESS,
       reason: 'Customer deleted',
       sourcePlatform: 'ADMIN_API',
     });

@@ -17,7 +17,7 @@ import {
   AuditEntityTypes,
 } from '../../audit-logging/constants/audit-actions.constant';
 import {
-  AuditResult,
+  AuditOutcome,
 } from '../../audit-logging/dto/audit-log.dto';
 import { ApprovalPolicyService } from './approval-policy.service';
 import {
@@ -92,9 +92,9 @@ export class ApprovalsService {
   private toAuditActor(actor: ApprovalActorContext) {
     return {
       actorType: actor.actorType,
-      actorId: actor.userId,
-      actorNo: actor.userNo,
-      actorRole: actor.role || actor.roleCodes[0] || 'UNKNOWN',
+      actorNo: actor.userNo || 'UNKNOWN',
+      actorDisplayName: actor.userNo || 'UNKNOWN',
+      actorRolesAtTime: [actor.role || actor.roleCodes[0] || 'UNKNOWN'],
     };
   }
 
@@ -116,18 +116,17 @@ export class ApprovalsService {
     action: string,
     approval: ApprovalCaseRow,
     actor: ApprovalActorContext,
-    result: AuditResult,
+    result: AuditOutcome,
     reason?: string | null,
     metadata?: Record<string, unknown>,
   ) {
     await this.auditLogsService.recordByActor(
       {
         action,
-        entityType: AuditEntityTypes.APPROVAL_CASE,
-        entityId: approval.id,
-        entityNo: approval.approvalNo,
+        primarySubjectType: AuditEntityTypes.APPROVAL_CASE,
+        primarySubjectNo: approval.approvalNo,
         traceId: approval.traceId,
-        result,
+        outcome: result,
         reason: reason || undefined,
         metadata: {
           approvalNo: approval.approvalNo,
@@ -531,7 +530,7 @@ export class ApprovalsService {
       AuditActions.APPROVAL_SUBMITTED,
       approval,
       actor,
-      AuditResult.SUCCESS,
+      AuditOutcome.SUCCESS,
       reason || 'Approval submitted',
       {
         timeoutAt: approval.timeoutAt?.toISOString(),
@@ -559,7 +558,7 @@ export class ApprovalsService {
         AuditActions.APPROVAL_SUBMITTED,
         submitted,
         actor,
-        AuditResult.SUCCESS,
+        AuditOutcome.SUCCESS,
         submitDto.reason || 'Approval submitted',
         {
           timeoutAt: submitted.timeoutAt?.toISOString(),
@@ -660,7 +659,7 @@ export class ApprovalsService {
       AuditActions.APPROVAL_APPROVED,
       updated,
       actor,
-      AuditResult.SUCCESS,
+      AuditOutcome.SUCCESS,
       dto.reason || 'Approval approved',
       this.isSuperAdmin(actor) && actor.userId === updated.createdByUserId
         ? { superAdminBypass: true }
@@ -744,7 +743,7 @@ export class ApprovalsService {
       AuditActions.APPROVAL_REJECTED,
       updated,
       actor,
-      AuditResult.SUCCESS,
+      AuditOutcome.SUCCESS,
       dto.reason || 'Approval rejected',
       this.isSuperAdmin(actor) && actor.userId === updated.createdByUserId
         ? { superAdminBypass: true }
@@ -807,7 +806,7 @@ export class ApprovalsService {
       AuditActions.APPROVAL_CANCELLED,
       updated,
       actor,
-      AuditResult.SUCCESS,
+      AuditOutcome.SUCCESS,
       dto.reason || 'Approval cancelled',
       this.isSuperAdmin(actor) && actor.userId !== updated.createdByUserId
         ? { superAdminBypass: true }
@@ -835,10 +834,9 @@ export class ApprovalsService {
         await this.auditLogsService.recordByActor(
           {
             action: AuditActions.APPROVAL_REQUIRED_MISSING,
-            entityType: AuditEntityTypes.APPROVAL_CASE,
-            entityId: input.entityRef,
-            entityNo: input.entityRef,
-            result: AuditResult.REJECTED,
+            primarySubjectType: AuditEntityTypes.APPROVAL_CASE,
+            primarySubjectNo: input.entityRef,
+            outcome: AuditOutcome.DENIED,
             reason: `Approval is required for ${input.actionType}:${input.entityRef}`,
             requestId: `APPROVAL_REQUIRED_${input.actionType}_${input.entityRef}`,
             sourcePlatform: 'ADMIN_API',
@@ -951,7 +949,7 @@ export class ApprovalsService {
       AuditActions.APPROVAL_EXPIRED,
       updated,
       this.systemActor(),
-      AuditResult.REJECTED,
+      AuditOutcome.DENIED,
       'Approval expired after timeout',
     );
     await this.projectGovernanceApprovalDecision(updated);

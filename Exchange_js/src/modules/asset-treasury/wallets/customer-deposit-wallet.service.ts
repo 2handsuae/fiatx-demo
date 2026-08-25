@@ -14,7 +14,7 @@ import {
   AuditEntityTypes,
   AuditBusinessWorkflowTypes,
 } from '../../audit-logging/constants/audit-actions.constant';
-import { AuditResult } from '../../audit-logging/dto/audit-log.dto';
+import { AuditOutcome } from '../../audit-logging/dto/audit-log.dto';
 import { CUSTODIAN_ADAPTER, CustodianAdapter } from './custodian-adapter.interface';
 import { WalletRole, WalletStatus } from './dto/wallet.dto';
 import { WalletsService } from './wallets.service';
@@ -172,14 +172,10 @@ export class CustomerDepositWalletService {
 
       await this.auditLogsService.recordSystem({
         action: AuditActions.DEPOSIT_WALLET_CREATED,
-        entityType: AuditEntityTypes.WALLET,
-        entityId: wallet.id,
-        entityNo: walletNo,
-        workflowType: AuditBusinessWorkflowTypes.CUSTODIAN_WALLET_CREATE,
+        primarySubjectType: AuditEntityTypes.WALLET,
+        primarySubjectNo: walletNo,
         traceId,
-        entityOwnerType: 'CUSTOMER',
-        entityOwnerId: customerId,
-        result: AuditResult.SUCCESS,
+        outcome: AuditOutcome.SUCCESS,
         metadata: {
           assetCurrency: asset.currency,
           assetType: asset.type,
@@ -209,14 +205,10 @@ export class CustomerDepositWalletService {
 
       await this.auditLogsService.recordSystem({
         action: AuditActions.DEPOSIT_WALLET_CREATE_FAILED,
-        entityType: AuditEntityTypes.WALLET,
-        entityId: wallet.id,
-        entityNo: walletNo,
-        workflowType: AuditBusinessWorkflowTypes.CUSTODIAN_WALLET_CREATE,
+        primarySubjectType: AuditEntityTypes.WALLET,
+        primarySubjectNo: walletNo,
         traceId,
-        entityOwnerType: 'CUSTOMER',
-        entityOwnerId: customerId,
-        result: AuditResult.FAILED,
+        outcome: AuditOutcome.FAILED,
         metadata: {
           assetCurrency: asset.currency,
           assetType: asset.type,

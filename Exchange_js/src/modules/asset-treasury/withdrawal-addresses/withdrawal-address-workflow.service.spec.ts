@@ -44,11 +44,9 @@ describe('WithdrawalAddressWorkflowService — deactivateAddress', () => {
     expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
       expect.objectContaining({
         action: AuditGovernanceActions.WITHDRAWAL_ADDRESS_REGISTRATION.ADDRESS_DEACTIVATED,
-        entityId: existingAddress.id,
-        entityNo: 'WAD1001',
+        primarySubjectNo: 'WAD1001',
         sourcePlatform: 'CLIENT_API',
-        entityOwnerId: 'cust-1',
-        entityOwnerNo: 'CUST0001',
+        ownerCustomerNo: 'CUST0001',
       }),
     );
     expect(result).toEqual(deactivatedResult);

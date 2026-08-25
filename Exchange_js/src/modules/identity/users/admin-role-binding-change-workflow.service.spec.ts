@@ -117,7 +117,7 @@ describe('AdminRoleBindingChangeWorkflowService', () => {
       expect(auditLogsService.recordByActor).toHaveBeenCalledWith(
         expect.objectContaining({
           action: 'CHANGE_REQUESTED',
-          entityType: 'ACCESS_CONTROL',
+          primarySubjectType: 'ACCESS_CONTROL',
         }),
         expect.any(Object),
       );

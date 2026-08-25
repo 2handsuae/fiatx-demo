@@ -8,7 +8,7 @@ import {
   AuditEntityTypes,
   AuditGovernanceActions,
 } from '../../audit-logging/constants/audit-actions.constant';
-import { AuditResult } from '../../audit-logging/dto/audit-log.dto';
+import { AuditOutcome } from '../../audit-logging/dto/audit-log.dto';
 import { ApprovalsService } from '../../governance/approvals/approvals.service';
 import { ApprovalDecidedEvent } from '../../governance/approvals/approval-handler.base';
 import {
@@ -41,9 +41,10 @@ export class AdminInviteWorkflowService {
   private toAuditActor(actor: ApprovalActorContext) {
     return {
       actorType: actor.actorType,
-      actorId: actor.userId,
-      actorNo: actor.userNo,
-      actorRole: actor.role || actor.roleCodes[0] || 'UNKNOWN',
+      actorNo: actor.userNo || 'UNKNOWN',
+
+      actorDisplayName: actor.userNo || 'UNKNOWN',
+      actorRolesAtTime: [actor.role || actor.roleCodes[0] || 'UNKNOWN'],
     };
   }
 
@@ -92,12 +93,10 @@ export class AdminInviteWorkflowService {
     await this.auditLogsService.recordByActor(
       {
         action: AuditGovernanceActions.ADMIN_INVITE.INVITE_REQUESTED,
-        entityType: AuditEntityTypes.ACCESS_CONTROL,
-        entityId: user.id,
-        entityNo: user.userNo,
-        workflowType: AuditBusinessWorkflowTypes.ADMIN_INVITE,
+        primarySubjectType: AuditEntityTypes.ACCESS_CONTROL,
+        primarySubjectNo: user.userNo,
         traceId,
-        result: AuditResult.SUCCESS,
+        outcome: AuditOutcome.SUCCESS,
         metadata: {
           userEmail: user.email,
           roleCodes,
@@ -155,12 +154,10 @@ export class AdminInviteWorkflowService {
       await this.auditLogsService.recordByActor(
         {
           action: AuditGovernanceActions.ADMIN_INVITE.INVITE_LINK_DISPATCHED,
-          entityType: AuditEntityTypes.ACCESS_CONTROL,
-          entityId: user.id,
-          entityNo: user.userNo,
-          workflowType: AuditBusinessWorkflowTypes.ADMIN_INVITE,
+          primarySubjectType: AuditEntityTypes.ACCESS_CONTROL,
+          primarySubjectNo: user.userNo,
           traceId: event.traceId,
-          result: AuditResult.SUCCESS,
+          outcome: AuditOutcome.SUCCESS,
           metadata: {
             approvalId: event.approvalId,
             approvalNo: event.approvalNo,
@@ -171,9 +168,9 @@ export class AdminInviteWorkflowService {
         },
         {
           actorType: 'ADMIN',
-          actorId: event.decisionByUserId || 'SYSTEM',
-          actorNo: event.decisionByUserNo || undefined,
-          actorRole: event.decisionByRole || 'SYSTEM',
+          actorNo: event.decisionByUserNo || 'UNKNOWN',
+          actorDisplayName: event.decisionByUserNo || 'UNKNOWN',
+          actorRolesAtTime: [event.decisionByRole || 'SYSTEM'],
         },
       );
 
@@ -181,12 +178,10 @@ export class AdminInviteWorkflowService {
       await this.auditLogsService.recordByActor(
         {
           action: AuditGovernanceActions.ADMIN_INVITE.INVITE_LINK_DISPATCHED,
-          entityType: AuditEntityTypes.ACCESS_CONTROL,
-          entityId: user.id,
-          entityNo: user.userNo,
-          workflowType: AuditBusinessWorkflowTypes.ADMIN_INVITE,
+          primarySubjectType: AuditEntityTypes.ACCESS_CONTROL,
+          primarySubjectNo: user.userNo,
           traceId: event.traceId,
-          result: AuditResult.FAILED,
+          outcome: AuditOutcome.FAILED,
           reason: error instanceof Error ? error.message : 'Failed to dispatch invite',
           metadata: { approvalId: event.approvalId },
           requestId: `ADMIN_INVITE_DISPATCH_FAILED_${user.userNo}`,
@@ -194,8 +189,9 @@ export class AdminInviteWorkflowService {
         },
         {
           actorType: 'ADMIN',
-          actorId: event.decisionByUserId || 'SYSTEM',
-          actorRole: event.decisionByRole || 'SYSTEM',
+          actorNo: event.decisionByUserId || 'SYSTEM',
+          actorDisplayName: event.decisionByUserId || 'SYSTEM',
+          actorRolesAtTime: [event.decisionByRole || 'SYSTEM'],
         },
       );
 
@@ -213,12 +209,10 @@ export class AdminInviteWorkflowService {
       .recordByActor(
         {
           action: AuditGovernanceActions.ADMIN_INVITE.INVITE_CANCELLED,
-          entityType: AuditEntityTypes.ACCESS_CONTROL,
-          entityId: user.id,
-          entityNo: user.userNo,
-          workflowType: AuditBusinessWorkflowTypes.ADMIN_INVITE,
+          primarySubjectType: AuditEntityTypes.ACCESS_CONTROL,
+          primarySubjectNo: user.userNo,
           traceId: event.traceId,
-          result: AuditResult.SUCCESS,
+          outcome: AuditOutcome.SUCCESS,
           metadata: {
             approvalId: event.approvalId,
             approvalNo: event.approvalNo,
@@ -230,9 +224,9 @@ export class AdminInviteWorkflowService {
         },
         {
           actorType: 'ADMIN',
-          actorId: event.decisionByUserId || 'SYSTEM',
-          actorNo: event.decisionByUserNo || undefined,
-          actorRole: event.decisionByRole || 'SYSTEM',
+          actorNo: event.decisionByUserNo || 'UNKNOWN',
+          actorDisplayName: event.decisionByUserNo || 'UNKNOWN',
+          actorRolesAtTime: [event.decisionByRole || 'SYSTEM'],
         },
       )
       .catch(() => undefined);

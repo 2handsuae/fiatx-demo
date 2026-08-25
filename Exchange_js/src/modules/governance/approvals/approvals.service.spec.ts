@@ -321,7 +321,7 @@ describe('ApprovalsService', () => {
     expect(auditLogsService.recordByActor).toHaveBeenCalledWith(
       expect.objectContaining({
         action: AuditActions.APPROVAL_APPROVED,
-        result: 'SUCCESS',
+        outcome: 'SUCCESS',
         metadata: expect.objectContaining({ superAdminBypass: true }),
       }),
       expect.anything(),

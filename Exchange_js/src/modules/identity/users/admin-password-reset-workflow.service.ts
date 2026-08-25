@@ -29,7 +29,7 @@ import {
   AuditEntityTypes,
   AuditGovernanceActions,
 } from '../../audit-logging/constants/audit-actions.constant';
-import { AuditResult } from '../../audit-logging/dto/audit-log.dto';
+import { AuditOutcome } from '../../audit-logging/dto/audit-log.dto';
 import { ApprovalsService } from '../../governance/approvals/approvals.service';
 import { ApprovalDecidedEvent } from '../../governance/approvals/approval-handler.base';
 import {
@@ -60,9 +60,10 @@ export class AdminPasswordResetWorkflowService {
   private toAuditActor(actor: ApprovalActorContext) {
     return {
       actorType: actor.actorType,
-      actorId: actor.userId,
-      actorNo: actor.userNo,
-      actorRole: actor.role || actor.roleCodes[0] || 'UNKNOWN',
+      actorNo: actor.userNo || 'UNKNOWN',
+
+      actorDisplayName: actor.userNo || 'UNKNOWN',
+      actorRolesAtTime: [actor.role || actor.roleCodes[0] || 'UNKNOWN'],
     };
   }
 
@@ -86,21 +87,19 @@ export class AdminPasswordResetWorkflowService {
     await this.auditLogsService.recordByActor(
       {
         action: AuditGovernanceActions.ADMIN_PASSWORD_RESET.SELF_RESET_REQUESTED,
-        entityType: AuditEntityTypes.ADMIN_USER,
-        entityId: user.id,
-        entityNo: user.userNo,
-        workflowType: AuditBusinessWorkflowTypes.ADMIN_PASSWORD_RESET,
+        primarySubjectType: AuditEntityTypes.ADMIN_USER,
+        primarySubjectNo: user.userNo,
         traceId,
-        result: AuditResult.SUCCESS,
+        outcome: AuditOutcome.SUCCESS,
         metadata: { email: user.email, requestSource: 'SELF' },
         requestId: `SELF_RESET_REQUESTED_${user.userNo}`,
         sourcePlatform: 'ADMIN_API',
       },
       {
         actorType: 'ADMIN',
-        actorId: user.id,
         actorNo: user.userNo,
-        actorRole: 'SELF',
+        actorDisplayName: user.userNo,
+        actorRolesAtTime: ['SELF'],
       },
     );
 
@@ -188,12 +187,10 @@ export class AdminPasswordResetWorkflowService {
     await this.auditLogsService.recordByActor(
       {
         action: AuditGovernanceActions.ADMIN_PASSWORD_RESET.RESET_REQUESTED,
-        entityType: AuditEntityTypes.ADMIN_USER,
-        entityId: targetUserId,
-        entityNo: target.userNo,
-        workflowType: AuditBusinessWorkflowTypes.ADMIN_PASSWORD_RESET,
+        primarySubjectType: AuditEntityTypes.ADMIN_USER,
+        primarySubjectNo: target.userNo,
         traceId,
-        result: AuditResult.SUCCESS,
+        outcome: AuditOutcome.SUCCESS,
         metadata: {
           targetEmail: target.email,
           approvalNo: approvalCase.approvalNo,
@@ -256,12 +253,10 @@ export class AdminPasswordResetWorkflowService {
 
       await this.auditLogsService.recordSystem({
         action: AuditGovernanceActions.ADMIN_PASSWORD_RESET.RESET_EXECUTED,
-        entityType: AuditEntityTypes.ADMIN_USER,
-        entityId: event.entityRef,
-        entityNo: target.userNo,
-        workflowType: AuditBusinessWorkflowTypes.ADMIN_PASSWORD_RESET,
+        primarySubjectType: AuditEntityTypes.ADMIN_USER,
+        primarySubjectNo: target.userNo,
         traceId: event.traceId,
-        result: AuditResult.SUCCESS,
+        outcome: AuditOutcome.SUCCESS,
         metadata: {
           approvalId: event.approvalId,
           approvalNo: event.approvalNo,
@@ -275,11 +270,10 @@ export class AdminPasswordResetWorkflowService {
     } catch (error) {
       await this.auditLogsService.recordSystem({
         action: AuditGovernanceActions.ADMIN_PASSWORD_RESET.RESET_FAILED,
-        entityType: AuditEntityTypes.ADMIN_USER,
-        entityId: event.entityRef,
-        workflowType: AuditBusinessWorkflowTypes.ADMIN_PASSWORD_RESET,
+        primarySubjectType: AuditEntityTypes.ADMIN_USER,
+        primarySubjectNo: event.entityRef,
         traceId: event.traceId,
-        result: AuditResult.FAILED,
+        outcome: AuditOutcome.FAILED,
         reason: error instanceof Error ? error.message : 'Password reset execution failed',
         metadata: { approvalId: event.approvalId },
         requestId: `ADMIN_PASSWORD_RESET_FAILED_${event.entityRef}`,
@@ -293,11 +287,10 @@ export class AdminPasswordResetWorkflowService {
   private async recordCancellation(event: ApprovalDecidedEvent) {
     await this.auditLogsService.recordSystem({
       action: AuditGovernanceActions.ADMIN_PASSWORD_RESET.RESET_CANCELLED,
-      entityType: AuditEntityTypes.ADMIN_USER,
-      entityId: event.entityRef,
-      workflowType: AuditBusinessWorkflowTypes.ADMIN_PASSWORD_RESET,
+      primarySubjectType: AuditEntityTypes.ADMIN_USER,
+      primarySubjectNo: event.entityRef,
       traceId: event.traceId,
-      result: AuditResult.SUCCESS,
+      outcome: AuditOutcome.SUCCESS,
       metadata: {
         approvalId: event.approvalId,
         approvalNo: event.approvalNo,
@@ -379,21 +372,19 @@ export class AdminPasswordResetWorkflowService {
       await this.auditLogsService.recordByActor(
         {
           action: AuditGovernanceActions.ADMIN_PASSWORD_RESET.SELF_RESET_TOKEN_CREATED,
-          entityType: AuditEntityTypes.ADMIN_USER,
-          entityId: userId,
-          entityNo: userNo,
-          workflowType: AuditBusinessWorkflowTypes.ADMIN_PASSWORD_RESET,
+          primarySubjectType: AuditEntityTypes.ADMIN_USER,
+          primarySubjectNo: userNo,
           traceId,
-          result: AuditResult.SUCCESS,
+          outcome: AuditOutcome.SUCCESS,
           metadata: { resetNo, requestSource: 'SELF' },
           requestId: `SELF_RESET_TOKEN_CREATED_${userNo}`,
           sourcePlatform: 'ADMIN_API',
         },
         {
           actorType: 'ADMIN',
-          actorId: userId,
           actorNo: userNo,
-          actorRole: 'SELF',
+          actorDisplayName: userNo,
+          actorRolesAtTime: ['SELF'],
         },
       );
     }
@@ -456,12 +447,10 @@ export class AdminPasswordResetWorkflowService {
     await this.auditLogsService.recordByActor(
       {
         action: consumeAction,
-        entityType: AuditEntityTypes.ADMIN_USER,
-        entityId: targetUser.id,
-        entityNo: targetUser.userNo,
-        workflowType: AuditBusinessWorkflowTypes.ADMIN_PASSWORD_RESET,
+        primarySubjectType: AuditEntityTypes.ADMIN_USER,
+        primarySubjectNo: targetUser.userNo,
         traceId: tokenRecord.traceId,
-        result: AuditResult.SUCCESS,
+        outcome: AuditOutcome.SUCCESS,
         metadata: {
           resetNo: tokenRecord.resetNo,
           requestSource: tokenRecord.requestSource,
@@ -471,9 +460,9 @@ export class AdminPasswordResetWorkflowService {
       },
       {
         actorType: 'ADMIN',
-        actorId: targetUser.id,
         actorNo: targetUser.userNo,
-        actorRole: 'SELF',
+        actorDisplayName: targetUser.userNo,
+        actorRolesAtTime: ['SELF'],
       },
     );
 

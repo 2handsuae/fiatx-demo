@@ -131,17 +131,15 @@ describe('AdminPasswordResetWorkflowService', () => {
       expect(mockAuditLogsService.recordByActor).toHaveBeenCalledWith(
         expect.objectContaining({
           action: 'SELF_RESET_REQUESTED',
-          entityType: 'ADMIN_USER',
-          entityId: 'u1',
-          entityNo: 'ADM001',
-          workflowType: 'ADMIN_PASSWORD_RESET',
+          primarySubjectType: 'ADMIN_USER',
+          primarySubjectNo: 'ADM001',
           traceId: expect.any(String),
         }),
         expect.objectContaining({
           actorType: 'ADMIN',
-          actorId: 'u1',
           actorNo: 'ADM001',
-          actorRole: 'SELF',
+          actorDisplayName: 'ADM001',
+          actorRolesAtTime: ['SELF'],
         }),
       );
     });
@@ -213,17 +211,15 @@ describe('AdminPasswordResetWorkflowService', () => {
       expect(mockAuditLogsService.recordByActor).toHaveBeenCalledWith(
         expect.objectContaining({
           action: 'SELF_RESET_TOKEN_CREATED',
-          entityType: 'ADMIN_USER',
-          entityId: 'u1',
-          entityNo: 'ADM001',
-          workflowType: 'ADMIN_PASSWORD_RESET',
+          primarySubjectType: 'ADMIN_USER',
+          primarySubjectNo: 'ADM001',
           traceId: 'trace-abc',
         }),
         expect.objectContaining({
           actorType: 'ADMIN',
-          actorId: 'u1',
           actorNo: 'ADM001',
-          actorRole: 'SELF',
+          actorDisplayName: 'ADM001',
+          actorRolesAtTime: ['SELF'],
         }),
       );
     });
@@ -250,15 +246,14 @@ describe('AdminPasswordResetWorkflowService', () => {
       expect(mockAuditLogsService.recordByActor).toHaveBeenCalledWith(
         expect.objectContaining({
           action: 'SELF_RESET_COMPLETED',
-          entityId: 'u1',
-          entityNo: 'ADM001',
+          primarySubjectNo: 'ADM001',
           traceId: 'trace-1',
         }),
         expect.objectContaining({
           actorType: 'ADMIN',
-          actorId: 'u1',
           actorNo: 'ADM001',
-          actorRole: 'SELF',
+          actorDisplayName: 'ADM001',
+          actorRolesAtTime: ['SELF'],
         }),
       );
     });
@@ -281,15 +276,14 @@ describe('AdminPasswordResetWorkflowService', () => {
       expect(mockAuditLogsService.recordByActor).toHaveBeenCalledWith(
         expect.objectContaining({
           action: 'RESET_CONSUMED',
-          entityId: 'u2',
-          entityNo: 'ADM002',
+          primarySubjectNo: 'ADM002',
           traceId: 'trace-2',
         }),
         expect.objectContaining({
           actorType: 'ADMIN',
-          actorId: 'u2',
           actorNo: 'ADM002',
-          actorRole: 'SELF',
+          actorDisplayName: 'ADM002',
+          actorRolesAtTime: ['SELF'],
         }),
       );
     });

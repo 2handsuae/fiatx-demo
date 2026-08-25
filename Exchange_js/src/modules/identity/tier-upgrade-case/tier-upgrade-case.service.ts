@@ -69,13 +69,9 @@ export class TierUpgradeCaseService {
 
     await this.auditLogsService.recordSystem({
       action: 'TIER_UPGRADE_CASE_CREATED',
-      workflowType: 'TIER_UPGRADE',
-      entityType: 'TIER_UPGRADE_CASE',
-      entityId: upgradeCase.id,
-      entityNo: upgradeCase.caseNo,
+      primarySubjectType: 'TIER_UPGRADE_CASE',
+      primarySubjectNo: upgradeCase.caseNo,
       traceId,
-      entityOwnerType: 'CUSTOMER',
-      entityOwnerId: cra.customerId,
       metadata: { sourceCraId: cra.id },
     });
 
@@ -169,12 +165,9 @@ export class TierUpgradeCaseService {
 
       await this.auditLogsService.recordSystem({
         action: 'TIER_UPGRADE_CASE_COMPLETED',
-        workflowType: 'TIER_UPGRADE',
-        entityType: 'TIER_UPGRADE_CASE',
-        entityId: upgradeCase.id,
+        primarySubjectType: 'TIER_UPGRADE_CASE',
+        primarySubjectNo: upgradeCase.id,
         traceId: upgradeCase.traceId,
-        entityOwnerType: 'CUSTOMER',
-        entityOwnerId: upgradeCase.customerId,
         metadata: { approvalCaseId: upgradeCase.phase2ApprovalCaseId },
       });
     } else {
@@ -203,12 +196,9 @@ export class TierUpgradeCaseService {
 
       await this.auditLogsService.recordSystem({
         action: 'TIER_UPGRADE_CASE_REJECTED',
-        workflowType: 'TIER_UPGRADE',
-        entityType: 'TIER_UPGRADE_CASE',
-        entityId: upgradeCase.id,
+        primarySubjectType: 'TIER_UPGRADE_CASE',
+        primarySubjectNo: upgradeCase.id,
         traceId: upgradeCase.traceId,
-        entityOwnerType: 'CUSTOMER',
-        entityOwnerId: upgradeCase.customerId,
         metadata: { approvalCaseId: upgradeCase.phase2ApprovalCaseId },
       });
     }

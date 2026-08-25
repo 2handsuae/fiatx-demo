@@ -82,10 +82,8 @@ export class FundsOrdersAdminController {
     await this.auditLogs.recordByActor(
       {
         action: AuditActions.FUNDS_ORDER_ADVANCED,
-        entityType: AuditEntityTypes.INTERNAL_FUND,
-        entityId: updated.id,
-        entityNo: fundsOrderNo,
-        workflowType: AuditWorkflowTypes.DEPOSIT,
+        primarySubjectType: AuditEntityTypes.INTERNAL_FUND,
+        primarySubjectNo: fundsOrderNo,
         reason: `Sim advance ${dto.action}: ${before.status} → ${updated.status}`,
         metadata: {
           fundsOrderNo,
@@ -95,7 +93,7 @@ export class FundsOrdersAdminController {
         },
         sourcePlatform: 'ADMIN',
       },
-      { actorType: 'ADMIN', actorId: actorNo, actorNo, actorRole: 'ADMIN' },
+      { actorType: 'ADMIN', actorNo, actorDisplayName: actorNo, actorRolesAtTime: ['ADMIN'] },
     );
     return updated;
   }

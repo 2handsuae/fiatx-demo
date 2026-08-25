@@ -13,7 +13,7 @@ import {
   AuditBusinessWorkflowTypes,
   AuditEntityTypes,
 } from '../../audit-logging/constants/audit-actions.constant';
-import { AuditActorContext, AuditResult } from '../../audit-logging/dto/audit-log.dto';
+import { AuditActorContext, AuditOutcome } from '../../audit-logging/dto/audit-log.dto';
 import {
   ApprovalDecidedEvent,
 } from '../../governance/approvals/approval-handler.base';
@@ -65,9 +65,9 @@ export class CustomerRestrictionWorkflowService {
   private toAuditActor(actor: ApprovalActorContext): AuditActorContext {
     return {
       actorType: actor.actorType,
-      actorId: actor.userId,
       actorNo: actor.userNo,
-      actorRole: actor.role || actor.roleCodes?.[0] || 'UNKNOWN',
+      actorDisplayName: actor.userNo,
+      actorRolesAtTime: [actor.role || actor.roleCodes?.[0] || 'UNKNOWN'],
     } as AuditActorContext;
   }
 
@@ -228,9 +228,9 @@ export class CustomerRestrictionWorkflowService {
       row,
       {
         actorType: 'ADMIN',
-        actorId: event.decisionByUserId || 'SYSTEM',
-        actorNo: event.decisionByUserNo || undefined,
-        actorRole: event.decisionByRole || 'MLRO',
+        actorNo: event.decisionByUserNo || 'UNKNOWN',
+        actorDisplayName: event.decisionByUserNo || 'UNKNOWN',
+        actorRolesAtTime: [event.decisionByRole || 'MLRO'],
       },
       'MANUAL',
       event.approvalNo,
@@ -274,7 +274,7 @@ export class CustomerRestrictionWorkflowService {
 
     await this.auditRelease(
       row,
-      { actorType: 'SYSTEM', actorId, actorNo: 'SYSTEM', actorRole: 'SYSTEM' },
+      { actorType: 'SYSTEM', actorNo: 'SYSTEM', actorDisplayName: 'SYSTEM', actorRolesAtTime: ['SYSTEM'] },
       'AUTO',
       null,
       null,
@@ -356,13 +356,10 @@ export class CustomerRestrictionWorkflowService {
     await this.auditLogsService.recordByActor(
       {
         action,
-        entityType: AuditEntityTypes.CUSTOMER,
-        entityId: row.customerId,
-        entityOwnerType: 'CUSTOMER',
-        entityOwnerId: row.customerId,
+        primarySubjectType: AuditEntityTypes.CUSTOMER,
+        primarySubjectNo: row.customerId,
         traceId: row.traceId,
-        workflowType: AuditBusinessWorkflowTypes.CUSTOMER_RESTRICTION_RELEASE,
-        result: AuditResult.SUCCESS,
+        outcome: AuditOutcome.SUCCESS,
         reason,
         metadata: {
           restrictionNo: row.restrictionNo,

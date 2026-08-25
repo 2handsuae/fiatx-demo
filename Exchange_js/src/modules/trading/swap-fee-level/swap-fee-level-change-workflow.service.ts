@@ -13,7 +13,7 @@ import {
   AuditEntityTypes,
   AuditGovernanceActions,
 } from '../../audit-logging/constants/audit-actions.constant';
-import { AuditResult } from '../../audit-logging/dto/audit-log.dto';
+import { AuditOutcome } from '../../audit-logging/dto/audit-log.dto';
 import { ApprovalsService } from '../../governance/approvals/approvals.service';
 import {
   ApprovalActionTypes,
@@ -37,9 +37,10 @@ export class SwapFeeLevelChangeWorkflowService {
   private toAuditActor(actor: ApprovalActorContext) {
     return {
       actorType: actor.actorType,
-      actorId: actor.userId,
-      actorNo: actor.userNo,
-      actorRole: actor.role || actor.roleCodes[0] || 'UNKNOWN',
+      actorNo: actor.userNo || 'UNKNOWN',
+
+      actorDisplayName: actor.userNo || 'UNKNOWN',
+      actorRolesAtTime: [actor.role || actor.roleCodes[0] || 'UNKNOWN'],
     };
   }
 
@@ -111,12 +112,10 @@ export class SwapFeeLevelChangeWorkflowService {
     await this.auditLogsService.recordByActor(
       {
         action: AuditGovernanceActions.SWAP_FEE_LEVEL_CHANGE.CHANGE_REQUESTED,
-        entityType: AuditEntityTypes.SWAP_FEE_LEVEL,
-        entityId: request.id,
-        entityNo: requestNo,
-        workflowType: AuditBusinessWorkflowTypes.SWAP_FEE_LEVEL_CHANGE,
+        primarySubjectType: AuditEntityTypes.SWAP_FEE_LEVEL,
+        primarySubjectNo: requestNo,
         traceId,
-        result: AuditResult.SUCCESS,
+        outcome: AuditOutcome.SUCCESS,
         metadata: {
           levelId: level.id,
           levelCode: level.levelCode,
@@ -178,12 +177,10 @@ export class SwapFeeLevelChangeWorkflowService {
           await this.feeLevelService.markRequestExecutionFailed(request.requestNo, reason);
           await this.auditLogsService.recordSystem({
             action: AuditGovernanceActions.SWAP_FEE_LEVEL_CHANGE.CHANGE_APPLY_FAILED,
-            entityType: AuditEntityTypes.SWAP_FEE_LEVEL,
-            entityId: request.id,
-            entityNo: request.requestNo,
-            workflowType: AuditBusinessWorkflowTypes.SWAP_FEE_LEVEL_CHANGE,
+            primarySubjectType: AuditEntityTypes.SWAP_FEE_LEVEL,
+            primarySubjectNo: request.requestNo,
             traceId: event?.traceId,
-            result: AuditResult.FAILED,
+            outcome: AuditOutcome.FAILED,
             reason,
             metadata: { levelId: request.levelId, levelCode: request.levelCode },
             requestId: `SWAP_FEE_LEVEL_CHANGE_APPLY_FAILED_${request.requestNo}`,
@@ -198,12 +195,10 @@ export class SwapFeeLevelChangeWorkflowService {
       // 5. Audit CHANGE_APPLIED
       await this.auditLogsService.recordSystem({
         action: AuditGovernanceActions.SWAP_FEE_LEVEL_CHANGE.CHANGE_APPLIED,
-        entityType: AuditEntityTypes.SWAP_FEE_LEVEL,
-        entityId: request.id,
-        entityNo: request.requestNo,
-        workflowType: AuditBusinessWorkflowTypes.SWAP_FEE_LEVEL_CHANGE,
+        primarySubjectType: AuditEntityTypes.SWAP_FEE_LEVEL,
+        primarySubjectNo: request.requestNo,
         traceId: event?.traceId,
-        result: AuditResult.SUCCESS,
+        outcome: AuditOutcome.SUCCESS,
         metadata: {
           levelId: request.levelId,
           levelCode: request.levelCode,
@@ -229,12 +224,10 @@ export class SwapFeeLevelChangeWorkflowService {
 
       await this.auditLogsService.recordSystem({
         action: AuditGovernanceActions.SWAP_FEE_LEVEL_CHANGE.CHANGE_APPLY_FAILED,
-        entityType: AuditEntityTypes.SWAP_FEE_LEVEL,
-        entityId: requestId,
-        entityNo: request?.requestNo,
-        workflowType: AuditBusinessWorkflowTypes.SWAP_FEE_LEVEL_CHANGE,
+        primarySubjectType: AuditEntityTypes.SWAP_FEE_LEVEL,
+        primarySubjectNo: request?.requestNo,
         traceId: event?.traceId,
-        result: AuditResult.FAILED,
+        outcome: AuditOutcome.FAILED,
         reason: err.message,
         metadata: { approvalId },
         requestId: `SWAP_FEE_LEVEL_CHANGE_APPLY_FAILED_${requestId}`,
@@ -268,12 +261,10 @@ export class SwapFeeLevelChangeWorkflowService {
       // Audit
       await this.auditLogsService.recordSystem({
         action: AuditGovernanceActions.SWAP_FEE_LEVEL_CHANGE.CHANGE_CANCELLED,
-        entityType: AuditEntityTypes.SWAP_FEE_LEVEL,
-        entityId: request.id,
-        entityNo: request.requestNo,
-        workflowType: AuditBusinessWorkflowTypes.SWAP_FEE_LEVEL_CHANGE,
+        primarySubjectType: AuditEntityTypes.SWAP_FEE_LEVEL,
+        primarySubjectNo: request.requestNo,
         traceId: event?.traceId,
-        result: AuditResult.SUCCESS,
+        outcome: AuditOutcome.SUCCESS,
         metadata: {
           decision,
           levelId: request.levelId,

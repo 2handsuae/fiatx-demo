@@ -6,7 +6,7 @@ import {
   AuditEntityTypes,
   AuditGovernanceActions,
 } from '../../audit-logging/constants/audit-actions.constant';
-import { AuditResult } from '../../audit-logging/dto/audit-log.dto';
+import { AuditOutcome } from '../../audit-logging/dto/audit-log.dto';
 import { WithdrawalAddressService } from './withdrawal-address.service';
 import { TRAVEL_RULE_ADAPTER, TravelRuleAdapter } from './travel-rule-adapter.interface';
 import { CreateWithdrawalAddressDto } from './dto/create-withdrawal-address.dto';
@@ -75,16 +75,13 @@ export class WithdrawalAddressWorkflowService {
 
     await this.auditLogsService.recordSystem({
       action: AuditGovernanceActions.WITHDRAWAL_ADDRESS_REGISTRATION.ADDRESS_REGISTERED,
-      entityType: AuditEntityTypes.WITHDRAWAL_ADDRESS,
-      entityId: address.id,
-      entityNo: address.addressNo,
-      workflowType: AuditBusinessWorkflowTypes.WITHDRAWAL_ADDRESS_REGISTRATION,
+      primarySubjectType: AuditEntityTypes.WITHDRAWAL_ADDRESS,
+      primarySubjectNo: address.addressNo,
       traceId,
-      result: AuditResult.SUCCESS,
+      outcome: AuditOutcome.SUCCESS,
       metadata: { addressType, address: dto.address, network: asset.network, assetCurrency: asset.currency, counterpartyVaspName: attribution.vaspName, label: dto.label },
       sourcePlatform: 'CLIENT_API',
-      entityOwnerId: customerId,
-      entityOwnerNo: customerNo,
+      ownerCustomerNo: customerNo,
     });
 
     this.logger.log(`Withdrawal address ${address.addressNo} registered by customer ${customerNo}`);
@@ -133,16 +130,13 @@ export class WithdrawalAddressWorkflowService {
 
     await this.auditLogsService.recordSystem({
       action: AuditGovernanceActions.WITHDRAWAL_ADDRESS_REGISTRATION.ADDRESS_REGISTERED,
-      entityType: AuditEntityTypes.WITHDRAWAL_ADDRESS,
-      entityId: address.id,
-      entityNo: address.addressNo,
-      workflowType: AuditBusinessWorkflowTypes.WITHDRAWAL_ADDRESS_REGISTRATION,
+      primarySubjectType: AuditEntityTypes.WITHDRAWAL_ADDRESS,
+      primarySubjectNo: address.addressNo,
       traceId,
-      result: AuditResult.SUCCESS,
+      outcome: AuditOutcome.SUCCESS,
       metadata: { addressType: 'BANK', iban: maskedIban, bankName: dto.bankName, assetCurrency: asset.currency, skipCooling: address.status === 'ACTIVE' },
       sourcePlatform: 'CLIENT_API',
-      entityOwnerId: customerId,
-      entityOwnerNo: customerNo,
+      ownerCustomerNo: customerNo,
     });
 
     this.logger.log(`Bank account ${address.addressNo} registered by customer ${customerNo}`);
@@ -157,16 +151,13 @@ export class WithdrawalAddressWorkflowService {
 
     await this.auditLogsService.recordSystem({
       action: AuditGovernanceActions.WITHDRAWAL_ADDRESS_REGISTRATION.ADDRESS_CANCELLED,
-      entityType: AuditEntityTypes.WITHDRAWAL_ADDRESS,
-      entityId: existing.id,
-      entityNo: addressNo,
-      workflowType: AuditBusinessWorkflowTypes.WITHDRAWAL_ADDRESS_REGISTRATION,
+      primarySubjectType: AuditEntityTypes.WITHDRAWAL_ADDRESS,
+      primarySubjectNo: addressNo,
       traceId: existing.traceId,
-      result: AuditResult.SUCCESS,
+      outcome: AuditOutcome.SUCCESS,
       metadata: { cancelledByCustomerNo: customerNo },
       sourcePlatform: 'CLIENT_API',
-      entityOwnerId: customerId,
-      entityOwnerNo: customerNo,
+      ownerCustomerNo: customerNo,
     });
 
     return result;
@@ -180,16 +171,13 @@ export class WithdrawalAddressWorkflowService {
 
     await this.auditLogsService.recordSystem({
       action: AuditGovernanceActions.WITHDRAWAL_ADDRESS_REGISTRATION.ADDRESS_DEACTIVATED,
-      entityType: AuditEntityTypes.WITHDRAWAL_ADDRESS,
-      entityId: existing.id,
-      entityNo: addressNo,
-      workflowType: AuditBusinessWorkflowTypes.WITHDRAWAL_ADDRESS_REGISTRATION,
+      primarySubjectType: AuditEntityTypes.WITHDRAWAL_ADDRESS,
+      primarySubjectNo: addressNo,
       traceId: existing.traceId,
-      result: AuditResult.SUCCESS,
+      outcome: AuditOutcome.SUCCESS,
       metadata: { deactivatedByCustomerNo: customerNo },
       sourcePlatform: 'CLIENT_API',
-      entityOwnerId: customerId,
-      entityOwnerNo: customerNo,
+      ownerCustomerNo: customerNo,
     });
 
     return result;
@@ -204,16 +192,13 @@ export class WithdrawalAddressWorkflowService {
     if (result.status === 'ACTIVE' && existing.status === 'PENDING_ACTIVATION') {
       await this.auditLogsService.recordSystem({
         action: AuditGovernanceActions.WITHDRAWAL_ADDRESS_REGISTRATION.ADDRESS_ACTIVATED,
-        entityType: AuditEntityTypes.WITHDRAWAL_ADDRESS,
-        entityId: existing.id,
-        entityNo: addressNo,
-        workflowType: AuditBusinessWorkflowTypes.WITHDRAWAL_ADDRESS_REGISTRATION,
+        primarySubjectType: AuditEntityTypes.WITHDRAWAL_ADDRESS,
+        primarySubjectNo: addressNo,
         traceId: existing.traceId,
-        result: AuditResult.SUCCESS,
+        outcome: AuditOutcome.SUCCESS,
         metadata: { activatedBy },
         sourcePlatform: 'SYSTEM',
-        entityOwnerId: existing.customerId,
-        entityOwnerNo: existing.customerNo,
+        ownerCustomerNo: existing.customerNo,
       });
     }
 
@@ -229,18 +214,15 @@ export class WithdrawalAddressWorkflowService {
     await this.auditLogsService.recordByActor(
       {
         action: AuditGovernanceActions.WITHDRAWAL_ADDRESS_REGISTRATION.ADDRESS_SUSPENDED,
-        entityType: AuditEntityTypes.WITHDRAWAL_ADDRESS,
-        entityId: existing.id,
-        entityNo: addressNo,
-        workflowType: AuditBusinessWorkflowTypes.WITHDRAWAL_ADDRESS_REGISTRATION,
+        primarySubjectType: AuditEntityTypes.WITHDRAWAL_ADDRESS,
+        primarySubjectNo: addressNo,
         traceId: existing.traceId,
-        result: AuditResult.SUCCESS,
+        outcome: AuditOutcome.SUCCESS,
         metadata: { reason, suspendedBy: actor.userNo },
         sourcePlatform: 'ADMIN_API',
-        entityOwnerId: existing.customerId,
-        entityOwnerNo: existing.customerNo,
+        ownerCustomerNo: existing.customerNo,
       },
-      { actorType: 'ADMIN', actorId: actor.userId, actorNo: actor.userNo, actorRole: actor.role },
+      { actorType: 'ADMIN', actorNo: actor.userNo || 'UNKNOWN', actorDisplayName: actor.userNo || 'UNKNOWN', actorRolesAtTime: [actor.role || 'UNKNOWN'] },
     );
 
     return result;
@@ -272,18 +254,15 @@ export class WithdrawalAddressWorkflowService {
     await this.auditLogsService.recordByActor(
       {
         action: AuditGovernanceActions.WITHDRAWAL_ADDRESS_REGISTRATION.MANUAL_COOLING_SKIP,
-        entityType: AuditEntityTypes.WITHDRAWAL_ADDRESS,
-        entityId: existing.id,
-        entityNo: addressNo,
-        workflowType: AuditBusinessWorkflowTypes.WITHDRAWAL_ADDRESS_REGISTRATION,
+        primarySubjectType: AuditEntityTypes.WITHDRAWAL_ADDRESS,
+        primarySubjectNo: addressNo,
         traceId: existing.traceId,
-        result: AuditResult.SUCCESS,
+        outcome: AuditOutcome.SUCCESS,
         metadata: { skippedBy: actor.userNo },
         sourcePlatform: 'ADMIN_API',
-        entityOwnerId: existing.customerId,
-        entityOwnerNo: existing.customerNo,
+        ownerCustomerNo: existing.customerNo,
       },
-      { actorType: 'ADMIN', actorId: actor.userId, actorNo: actor.userNo, actorRole: actor.role },
+      { actorType: 'ADMIN', actorNo: actor.userNo || 'UNKNOWN', actorDisplayName: actor.userNo || 'UNKNOWN', actorRolesAtTime: [actor.role || 'UNKNOWN'] },
     );
 
     return result;

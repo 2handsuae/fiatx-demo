@@ -12,7 +12,7 @@ import {
   AuditEntityTypes,
   AuditGovernanceActions,
 } from '../../audit-logging/constants/audit-actions.constant';
-import { AuditResult } from '../../audit-logging/dto/audit-log.dto';
+import { AuditOutcome } from '../../audit-logging/dto/audit-log.dto';
 import { ApprovalsService } from '../../governance/approvals/approvals.service';
 import { ApprovalDecidedEvent } from '../../governance/approvals/approval-handler.base';
 import {
@@ -35,9 +35,10 @@ export class AssetReactivationWorkflowService {
   private toAuditActor(actor: ApprovalActorContext) {
     return {
       actorType: actor.actorType,
-      actorId: actor.userId,
-      actorNo: actor.userNo,
-      actorRole: actor.role || actor.roleCodes[0] || 'UNKNOWN',
+      actorNo: actor.userNo || 'UNKNOWN',
+
+      actorDisplayName: actor.userNo || 'UNKNOWN',
+      actorRolesAtTime: [actor.role || actor.roleCodes[0] || 'UNKNOWN'],
     };
   }
 
@@ -94,12 +95,10 @@ export class AssetReactivationWorkflowService {
     await this.auditLogsService.recordByActor(
       {
         action: AuditGovernanceActions.ASSET_REACTIVATION.REACTIVATION_REQUESTED,
-        entityType: AuditEntityTypes.ASSET,
-        entityId: asset.id,
-        entityNo: assetNo,
-        workflowType: AuditBusinessWorkflowTypes.ASSET_REACTIVATION,
+        primarySubjectType: AuditEntityTypes.ASSET,
+        primarySubjectNo: assetNo,
         traceId,
-        result: AuditResult.SUCCESS,
+        outcome: AuditOutcome.SUCCESS,
         metadata: {
           assetCurrency: asset.currency,
           suspendReason: asset.suspendReason,
@@ -132,12 +131,10 @@ export class AssetReactivationWorkflowService {
 
       await this.auditLogsService.recordSystem({
         action: AuditGovernanceActions.ASSET_REACTIVATION.ASSET_REACTIVATED,
-        entityType: AuditEntityTypes.ASSET,
-        entityId: event.entityRef,
-        entityNo: result.assetNo ?? undefined,
-        workflowType: AuditBusinessWorkflowTypes.ASSET_REACTIVATION,
+        primarySubjectType: AuditEntityTypes.ASSET,
+        primarySubjectNo: result.assetNo ?? undefined,
         traceId: event.traceId,
-        result: AuditResult.SUCCESS,
+        outcome: AuditOutcome.SUCCESS,
         metadata: {
           approvalId: event.approvalId,
           approvalNo: event.approvalNo,
@@ -151,11 +148,10 @@ export class AssetReactivationWorkflowService {
     } catch (error) {
       await this.auditLogsService.recordSystem({
         action: AuditGovernanceActions.ASSET_REACTIVATION.REACTIVATION_EXECUTION_FAILED,
-        entityType: AuditEntityTypes.ASSET,
-        entityId: event.entityRef,
-        workflowType: AuditBusinessWorkflowTypes.ASSET_REACTIVATION,
+        primarySubjectType: AuditEntityTypes.ASSET,
+        primarySubjectNo: event.entityRef,
         traceId: event.traceId,
-        result: AuditResult.FAILED,
+        outcome: AuditOutcome.FAILED,
         reason: error instanceof Error ? error.message : 'Reactivation execution failed',
         metadata: { approvalId: event.approvalId },
         requestId: `ASSET_REACTIVATION_EXEC_FAILED_${event.entityRef}`,

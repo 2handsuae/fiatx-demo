@@ -79,13 +79,9 @@ export class ClientRiskAssessmentService {
 
     await this.auditLogsService.recordSystem({
       traceId,
-      workflowType: 'RISK_ASSESSMENT',
       action: 'RISK_ASSESSMENT_STARTED',
-      entityType: 'ClientRiskAssessment',
-      entityId: assessment.id,
-      entityNo: assessment.assessmentNo,
-      entityOwnerType: 'Customer',
-      entityOwnerId: input.customerId,
+      primarySubjectType: 'ClientRiskAssessment',
+      primarySubjectNo: assessment.assessmentNo,
       metadata: { triggerType: input.triggerType },
     });
 
@@ -211,12 +207,9 @@ export class ClientRiskAssessmentService {
         });
         await this.auditLogsService.recordSystem({
           traceId: assessment.traceId,
-          workflowType: 'RISK_ASSESSMENT',
           action: 'RISK_ASSESSMENT_MLRO_SIGNED',
-          entityType: 'ClientRiskAssessment',
-          entityId: assessmentId,
-          entityOwnerType: 'Customer',
-          entityOwnerId: assessment.customerId,
+          primarySubjectType: 'ClientRiskAssessment',
+          primarySubjectNo: assessmentId,
           metadata: { scenarioType: 'LOW_TO_HIGH' },
         });
         await this.tierUpgradeCaseService.createFromCra(assessment);
@@ -230,12 +223,9 @@ export class ClientRiskAssessmentService {
         });
         await this.auditLogsService.recordSystem({
           traceId: assessment.traceId,
-          workflowType: 'RISK_ASSESSMENT',
           action: 'RISK_ASSESSMENT_MLRO_SIGNED',
-          entityType: 'ClientRiskAssessment',
-          entityId: assessmentId,
-          entityOwnerType: 'Customer',
-          entityOwnerId: assessment.customerId,
+          primarySubjectType: 'ClientRiskAssessment',
+          primarySubjectNo: assessmentId,
           metadata: { scenarioType: 'HIGH_TO_HIGH_UPGRADE' },
         });
         await this.postSignoffCascade(assessmentId);
@@ -257,12 +247,9 @@ export class ClientRiskAssessmentService {
         });
         await this.auditLogsService.recordSystem({
           traceId: assessment.traceId,
-          workflowType: 'RISK_ASSESSMENT',
           action: 'RISK_ASSESSMENT_MLRO_FALSE_POSITIVE',
-          entityType: 'ClientRiskAssessment',
-          entityId: assessmentId,
-          entityOwnerType: 'Customer',
-          entityOwnerId: assessment.customerId,
+          primarySubjectType: 'ClientRiskAssessment',
+          primarySubjectNo: assessmentId,
           metadata: { scenarioType: 'LOW_TO_HIGH_FALSE_POSITIVE' },
         });
       } else {
@@ -275,12 +262,9 @@ export class ClientRiskAssessmentService {
         });
         await this.auditLogsService.recordSystem({
           traceId: assessment.traceId,
-          workflowType: 'RISK_ASSESSMENT',
           action: 'RISK_ASSESSMENT_MLRO_DISMISSED',
-          entityType: 'ClientRiskAssessment',
-          entityId: assessmentId,
-          entityOwnerType: 'Customer',
-          entityOwnerId: assessment.customerId,
+          primarySubjectType: 'ClientRiskAssessment',
+          primarySubjectNo: assessmentId,
           metadata: { scenarioType: 'HIGH_TO_HIGH_DISMISSED' },
         });
       }
@@ -394,12 +378,9 @@ export class ClientRiskAssessmentService {
       });
       await this.auditLogsService.recordSystem({
         traceId: assessment.traceId,
-        workflowType: 'RISK_ASSESSMENT',
         action: 'RISK_ASSESSMENT_AUTO_SIGNED',
-        entityType: 'ClientRiskAssessment',
-        entityId: assessmentId,
-        entityOwnerType: 'Customer',
-        entityOwnerId: assessment.customerId,
+        primarySubjectType: 'ClientRiskAssessment',
+        primarySubjectNo: assessmentId,
         metadata: { scenarioType: output.scenarioType },
       });
       await this.postSignoffCascade(assessmentId);
@@ -470,12 +451,9 @@ export class ClientRiskAssessmentService {
     });
     await this.auditLogsService.recordSystem({
       traceId: assessment.traceId,
-      workflowType: 'RISK_ASSESSMENT',
       action: 'RISK_ASSESSMENT_ESCALATED_SANCTIONS',
-      entityType: 'ClientRiskAssessment',
-      entityId: assessment.id,
-      entityOwnerType: 'Customer',
-      entityOwnerId: customer.id,
+      primarySubjectType: 'ClientRiskAssessment',
+      primarySubjectNo: assessment.id,
       metadata: { labels },
     });
   }

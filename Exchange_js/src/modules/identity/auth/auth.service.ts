@@ -13,7 +13,7 @@ import {
   AuditEntityTypes,
   AuditModules,
 } from '../../audit-logging/constants/audit-actions.constant';
-import { AuditResult } from '../../audit-logging/dto/audit-log.dto';
+import { AuditOutcome } from '../../audit-logging/dto/audit-log.dto';
 
 interface AuthRequestContext {
   requestId?: string;
@@ -58,8 +58,8 @@ export class AuthService {
       await this.auditLogsService.recordByActor(
         {
           action: AuditActions.ADMIN_LOGIN_FAILED,
-          entityType: AuditEntityTypes.AUTH,
-          result: AuditResult.FAILED,
+          primarySubjectType: AuditEntityTypes.AUTH,
+          outcome: AuditOutcome.FAILED,
           reason: 'Admin login failed: account not found',
           metadata: {
             identifierHash: this.maskIdentifier(identifier),
@@ -74,8 +74,9 @@ export class AuthService {
         },
         {
           actorType: 'ADMIN',
-          actorId: 'UNKNOWN',
-          actorRole: 'UNKNOWN',
+          actorNo: 'UNKNOWN',
+          actorDisplayName: 'UNKNOWN',
+          actorRolesAtTime: ['UNKNOWN'],
         },
       );
       return null;
@@ -85,10 +86,9 @@ export class AuthService {
       await this.auditLogsService.recordByActor(
         {
           action: AuditActions.ADMIN_LOGIN_FAILED,
-          entityType: AuditEntityTypes.AUTH,
-          entityId: user.id,
-          entityNo: user.userNo,
-          result: AuditResult.REJECTED,
+          primarySubjectType: AuditEntityTypes.AUTH,
+          primarySubjectNo: user.userNo,
+          outcome: AuditOutcome.DENIED,
           reason: 'Admin login rejected: account not activated',
           metadata: {
             identifierHash: this.maskIdentifier(identifier),
@@ -105,9 +105,9 @@ export class AuthService {
         },
         {
           actorType: 'ADMIN',
-          actorId: user.id,
           actorNo: user.userNo,
-          actorRole: user.role,
+          actorDisplayName: user.userNo,
+          actorRolesAtTime: [user.role],
         },
       );
       throw new ForbiddenException(
@@ -119,10 +119,9 @@ export class AuthService {
       await this.auditLogsService.recordByActor(
         {
           action: AuditActions.ADMIN_LOGIN_FAILED,
-          entityType: AuditEntityTypes.AUTH,
-          entityId: user.id,
-          entityNo: user.userNo,
-          result: AuditResult.REJECTED,
+          primarySubjectType: AuditEntityTypes.AUTH,
+          primarySubjectNo: user.userNo,
+          outcome: AuditOutcome.DENIED,
           reason: 'Admin login rejected: account suspended',
           metadata: {
             identifierHash: this.maskIdentifier(identifier),
@@ -139,9 +138,9 @@ export class AuthService {
         },
         {
           actorType: 'ADMIN',
-          actorId: user.id,
           actorNo: user.userNo,
-          actorRole: user.role,
+          actorDisplayName: user.userNo,
+          actorRolesAtTime: [user.role],
         },
       );
       throw new ForbiddenException('Account has been suspended');
@@ -155,10 +154,9 @@ export class AuthService {
       await this.auditLogsService.recordByActor(
         {
           action: AuditActions.ACCOUNT_LOCKED,
-          entityType: AuditEntityTypes.AUTH,
-          entityId: user.id,
-          entityNo: user.userNo,
-          result: AuditResult.REJECTED,
+          primarySubjectType: AuditEntityTypes.AUTH,
+          primarySubjectNo: user.userNo,
+          outcome: AuditOutcome.DENIED,
           reason: 'Admin account locked',
           metadata: {
             lockedUntil: user.lockedUntil.toISOString(),
@@ -175,9 +173,9 @@ export class AuthService {
         },
         {
           actorType: 'ADMIN',
-          actorId: user.id,
           actorNo: user.userNo,
-          actorRole: user.role,
+          actorDisplayName: user.userNo,
+          actorRolesAtTime: [user.role],
         },
       );
       throw new ForbiddenException('Account is locked. Try again later.');
@@ -194,10 +192,9 @@ export class AuthService {
       await this.auditLogsService.recordByActor(
         {
           action: AuditActions.ACCOUNT_UNLOCKED,
-          entityType: AuditEntityTypes.AUTH,
-          entityId: user.id,
-          entityNo: user.userNo,
-          result: AuditResult.SUCCESS,
+          primarySubjectType: AuditEntityTypes.AUTH,
+          primarySubjectNo: user.userNo,
+          outcome: AuditOutcome.SUCCESS,
           ...this.buildLoginAuditContext({
             traceId: authTraceId,
             userNo: user.userNo,
@@ -210,9 +207,9 @@ export class AuthService {
         },
         {
           actorType: 'ADMIN',
-          actorId: user.id,
           actorNo: user.userNo,
-          actorRole: user.role,
+          actorDisplayName: user.userNo,
+          actorRolesAtTime: [user.role],
         },
       );
     }
@@ -230,10 +227,9 @@ export class AuthService {
       await this.auditLogsService.recordByActor(
         {
           action: AuditActions.ADMIN_LOGIN_SUCCESS,
-          entityType: AuditEntityTypes.AUTH,
-          entityId: user.id,
-          entityNo: user.userNo,
-          result: AuditResult.SUCCESS,
+          primarySubjectType: AuditEntityTypes.AUTH,
+          primarySubjectNo: user.userNo,
+          outcome: AuditOutcome.SUCCESS,
           ...this.buildLoginAuditContext({
             traceId: authTraceId,
             userNo: user.userNo,
@@ -245,9 +241,9 @@ export class AuthService {
         },
         {
           actorType: 'ADMIN',
-          actorId: user.id,
           actorNo: user.userNo,
-          actorRole: user.role,
+          actorDisplayName: user.userNo,
+          actorRolesAtTime: [user.role],
         },
       );
       const { password: _, ...result } = user;
@@ -270,10 +266,9 @@ export class AuthService {
       await this.auditLogsService.recordByActor(
         {
           action: AuditActions.ADMIN_LOGIN_FAILED,
-          entityType: AuditEntityTypes.AUTH,
-          entityId: user.id,
-          entityNo: user.userNo,
-          result: AuditResult.FAILED,
+          primarySubjectType: AuditEntityTypes.AUTH,
+          primarySubjectNo: user.userNo,
+          outcome: AuditOutcome.FAILED,
           reason:
             attempts >= 5
               ? 'Admin login failed and account locked'
@@ -293,9 +288,9 @@ export class AuthService {
         },
         {
           actorType: 'ADMIN',
-          actorId: user.id,
           actorNo: user.userNo,
-          actorRole: user.role,
+          actorDisplayName: user.userNo,
+          actorRolesAtTime: [user.role],
         },
       );
 
@@ -303,10 +298,9 @@ export class AuthService {
         await this.auditLogsService.recordByActor(
           {
               action: AuditActions.ACCOUNT_LOCKED,
-            entityType: AuditEntityTypes.AUTH,
-            entityId: user.id,
-            entityNo: user.userNo,
-            result: AuditResult.REJECTED,
+            primarySubjectType: AuditEntityTypes.AUTH,
+            primarySubjectNo: user.userNo,
+            outcome: AuditOutcome.DENIED,
             reason: 'Admin account locked by failed login attempts',
             metadata: {
               failedLoginAttempts: attempts,
@@ -323,9 +317,9 @@ export class AuthService {
           },
           {
             actorType: 'ADMIN',
-            actorId: user.id,
             actorNo: user.userNo,
-            actorRole: user.role,
+            actorDisplayName: user.userNo,
+            actorRolesAtTime: [user.role],
           },
         );
       }

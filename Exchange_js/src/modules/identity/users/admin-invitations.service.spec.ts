@@ -254,7 +254,7 @@ describe('AdminInvitationsService', () => {
         reason: 'Invitation link is no longer valid',
       }),
       expect.objectContaining({
-        actorId: 'UNKNOWN',
+        actorNo: 'UNKNOWN',
       }),
     );
   });

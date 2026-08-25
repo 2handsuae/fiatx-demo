@@ -1522,17 +1522,13 @@ describe('SwapWorkflowService.applyKytVerdict', () => {
       expect.objectContaining({ direction: 'in', orderId: 'SWP0001' }),
     );
 
-    // KYT_APPROVED audit recorded with the richer shape used elsewhere in
-    // this file (workflowType/traceId/entityOwnerType/entityOwnerId) — the
-    // sparse SWAP_KYT_SUBMITTED call is the odd one out, not the model.
+    // KYT_APPROVED audit — the sparse SWAP_KYT_SUBMITTED call is the odd one
+    // out, not the model.
     const approvedAudit = (mocks.auditLogsService.recordSystem as jest.Mock).mock.calls
       .map((c) => c[0])
       .find((a: any) => a.action === AuditActions.SWAP_KYT_APPROVED);
     expect(approvedAudit).toBeDefined();
-    expect(approvedAudit.workflowType).toBeDefined();
     expect(approvedAudit.traceId).toBe('TRACE-1');
-    expect(approvedAudit.entityOwnerType).toBe('CUSTOMER');
-    expect(approvedAudit.entityOwnerId).toBe('cust-1');
   });
 
   it('rejected → markStatus(KYT_REJECTED, {rejectReason: KYT_REJECTED}) with zero accounting/leg trace', async () => {
@@ -1560,8 +1556,6 @@ describe('SwapWorkflowService.applyKytVerdict', () => {
       .map((c) => c[0])
       .find((a: any) => a.action === AuditActions.SWAP_KYT_REJECTED);
     expect(rejectedAudit).toBeDefined();
-    expect(rejectedAudit.entityOwnerType).toBe('CUSTOMER');
-    expect(rejectedAudit.entityOwnerId).toBe('cust-1');
   });
 
   it('rejected hands off to handleRejectDisposition (Task 7 stub) with the swap + raw input', async () => {
@@ -1608,7 +1602,7 @@ describe('SwapWorkflowService.applyKytVerdict', () => {
     expect(mocks.auditLogsService.recordSystem).toHaveBeenCalledWith(
       expect.objectContaining({
         action: AuditActions.SWAP_KYT_VERDICT_IGNORED,
-        entityNo: 'SWP0001',
+        primarySubjectNo: 'SWP0001',
       }),
     );
   });
@@ -1976,7 +1970,7 @@ describe('SwapWorkflowService.applyKytVerdict', () => {
       const dispositionAudit = (mocks.auditLogsService.recordSystem as jest.Mock).mock.calls
         .map((c) => c[0])
         .find((a: any) => a.action === AuditActions.SWAP_KYT_REJECTED_DISPOSED);
-      expect(dispositionAudit.entityOwnerNo).toBe('C0001');
+      expect(dispositionAudit.ownerCustomerNo).toBe('C0001');
       expect(dispositionAudit.metadata.actionIds).toEqual(['EA1']);
     });
 
@@ -2117,7 +2111,7 @@ describe('SwapWorkflowService.applyKytVerdict', () => {
       expect(dispositionAudit.reason).toMatch(/not notified|tipping/i);
       // Review Fix 4 (Minor): business key present; no action ids leaked into
       // metadata when nothing was actually shown to the customer.
-      expect(dispositionAudit.entityOwnerNo).toBe('C0001');
+      expect(dispositionAudit.ownerCustomerNo).toBe('C0001');
       expect(dispositionAudit.metadata.actionIds).toBeUndefined();
     });
 
@@ -2152,7 +2146,7 @@ describe('SwapWorkflowService.applyKytVerdict', () => {
       expect(mocks.materialRequestIssuer.register).not.toHaveBeenCalled();
       const swapBAudit = (mocks.auditLogsService.recordSystem as jest.Mock).mock.calls
         .map((c) => c[0])
-        .find((a: any) => a.action === AuditActions.SWAP_KYT_REJECTED_DISPOSED && a.entityId === 'sB');
+        .find((a: any) => a.action === AuditActions.SWAP_KYT_REJECTED_DISPOSED && a.primarySubjectNo === 'SWP-B');
       expect(swapBAudit.metadata).toMatchObject({ alreadyHardLined: true, exposeToCustomer: false });
       // The sticky marker itself is what makes the above hold — confirm it
       // actually got stamped by the SANCTION verdict (swap A), not by chance.
@@ -2234,7 +2228,7 @@ describe('SwapWorkflowService.applyKytVerdict', () => {
         .find((a: any) => a.action === AuditActions.SWAP_KYT_REJECTED_DISPOSITION_FAILED);
       expect(failedAudit).toBeDefined();
       expect(failedAudit.reason).toBe('SQLITE_BUSY: database is locked');
-      expect(failedAudit.entityOwnerNo).toBe('C0001');
+      expect(failedAudit.ownerCustomerNo).toBe('C0001');
     });
   });
 
@@ -2331,12 +2325,8 @@ describe('SwapWorkflowService.applyKytVerdict', () => {
         .map((c) => c[0])
         .find((a: any) => a.action === AuditActions.SWAP_FROZEN);
       expect(frozenAudit).toBeDefined();
-      expect(frozenAudit.entityId).toBe('s1');
-      expect(frozenAudit.entityNo).toBe('SWP0001');
-      expect(frozenAudit.entityOwnerType).toBe('CUSTOMER');
-      expect(frozenAudit.entityOwnerId).toBe('cust-1');
-      expect(frozenAudit.entityOwnerNo).toBe('C0001');
-      expect(frozenAudit.workflowType).toBeDefined();
+      expect(frozenAudit.primarySubjectNo).toBe('SWP0001');
+      expect(frozenAudit.ownerCustomerNo).toBe('C0001');
     });
 
     // 2026-08-20 Review Important Fix：applyKytVerdict 顶部（:501）读出的 swap
@@ -2520,11 +2510,10 @@ describe('SwapWorkflowService.onCustomerRestrictionOpened (Task 9 — FROZEN 落
       .map((c) => c[0])
       .find((a: any) => a.action === AuditActions.SWAP_FROZEN);
     expect(frozenAudit).toBeDefined();
-    expect(frozenAudit.entityId).toBe('s1');
-    expect(frozenAudit.entityNo).toBe('SWP0001');
+    expect(frozenAudit.primarySubjectNo).toBe('SWP0001');
     // Review Fix 4 (Minor): business key alongside the UUID, matching the
     // disposition-driven SWAP_FROZEN audit in handleRejectDisposition.
-    expect(frozenAudit.entityOwnerNo).toBe('C0001');
+    expect(frozenAudit.ownerCustomerNo).toBe('C0001');
     expect(frozenAudit.reason).toMatch(/RST2608200001/);
   });
 

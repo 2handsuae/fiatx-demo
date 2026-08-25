@@ -12,7 +12,7 @@ import {
   AuditEntityTypes,
   AuditGovernanceActions,
 } from '../../audit-logging/constants/audit-actions.constant';
-import { AuditResult } from '../../audit-logging/dto/audit-log.dto';
+import { AuditOutcome } from '../../audit-logging/dto/audit-log.dto';
 import { RBAC_PERMISSION_DEFINITIONS, type PermissionGroup } from './rbac.catalog';
 
 const ROLE_CODE_REGEX = /^[A-Z][A-Z0-9_]{1,48}$/;
@@ -131,12 +131,10 @@ export class RoleDefinitionCreateWorkflowService {
     await this.auditLogsService.recordByActor(
       {
         action: AuditGovernanceActions.ROLE_DEFINITION_CREATE.CREATE_REQUESTED,
-        entityType: AuditEntityTypes.ACCESS_CONTROL,
-        entityId: role.id,
-        entityNo: roleCode,
-        workflowType: AuditBusinessWorkflowTypes.ROLE_DEFINITION_CREATE,
+        primarySubjectType: AuditEntityTypes.ACCESS_CONTROL,
+        primarySubjectNo: roleCode,
         traceId,
-        result: AuditResult.SUCCESS,
+        outcome: AuditOutcome.SUCCESS,
         metadata: {
           roleName,
           permissionGroupCodes,
@@ -147,9 +145,9 @@ export class RoleDefinitionCreateWorkflowService {
       },
       {
         actorType: 'ADMIN',
-        actorId: actor.userId,
-        actorNo: actor.userNo,
-        actorRole: actor.role || actor.roleCodes[0] || 'UNKNOWN',
+        actorNo: actor.userNo || 'UNKNOWN',
+        actorDisplayName: actor.userNo || 'UNKNOWN',
+        actorRolesAtTime: [actor.role || actor.roleCodes[0] || 'UNKNOWN'],
       },
     );
 
@@ -224,12 +222,10 @@ export class RoleDefinitionCreateWorkflowService {
 
       await this.auditLogsService.recordSystem({
         action: AuditGovernanceActions.ROLE_DEFINITION_CREATE.ROLE_ACTIVATED,
-        entityType: AuditEntityTypes.ACCESS_CONTROL,
-        entityId: role.id,
-        entityNo: role.code,
-        workflowType: AuditBusinessWorkflowTypes.ROLE_DEFINITION_CREATE,
+        primarySubjectType: AuditEntityTypes.ACCESS_CONTROL,
+        primarySubjectNo: role.code,
         traceId: event?.traceId,
-        result: AuditResult.SUCCESS,
+        outcome: AuditOutcome.SUCCESS,
         metadata: {
           permissionGroupCodes: groupCodes,
           permissionsWritten: uniqueCodes.length,
@@ -243,10 +239,9 @@ export class RoleDefinitionCreateWorkflowService {
 
       await this.auditLogsService.recordSystem({
         action: AuditGovernanceActions.ROLE_DEFINITION_CREATE.ROLE_ACTIVATE_FAILED,
-        entityType: AuditEntityTypes.ACCESS_CONTROL,
-        entityId: roleId,
-        workflowType: AuditBusinessWorkflowTypes.ROLE_DEFINITION_CREATE,
-        result: AuditResult.FAILED,
+        primarySubjectType: AuditEntityTypes.ACCESS_CONTROL,
+        primarySubjectNo: roleId,
+        outcome: AuditOutcome.FAILED,
         metadata: { error: err.message },
         sourcePlatform: 'SYSTEM',
       });
@@ -265,12 +260,10 @@ export class RoleDefinitionCreateWorkflowService {
 
       await this.auditLogsService.recordSystem({
         action: AuditGovernanceActions.ROLE_DEFINITION_CREATE.CREATE_CANCELLED,
-        entityType: AuditEntityTypes.ACCESS_CONTROL,
-        entityId: role.id,
-        entityNo: role.code,
-        workflowType: AuditBusinessWorkflowTypes.ROLE_DEFINITION_CREATE,
+        primarySubjectType: AuditEntityTypes.ACCESS_CONTROL,
+        primarySubjectNo: role.code,
         traceId: event?.traceId,
-        result: AuditResult.SUCCESS,
+        outcome: AuditOutcome.SUCCESS,
         metadata: { decision },
         sourcePlatform: 'SYSTEM',
       });

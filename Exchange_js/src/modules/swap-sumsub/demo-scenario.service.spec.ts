@@ -100,14 +100,14 @@ describe('SwapDemoScenarioService', () => {
     expect(auditLogsService.recordByActor).toHaveBeenCalledTimes(1);
     const [eventArg, actorArg] = auditLogsService.recordByActor.mock.calls[0];
     expect(eventArg.action).toBe(AuditActions.SWAP_DEMO_SCENARIO_RUN);
-    expect(eventArg.entityId).toBe('swap-1');
+    expect(eventArg.primarySubjectNo).toBe('SWP001');
     expect(eventArg.metadata).toMatchObject({
       verdict: 'V2_REJECTED_HARD',
       webhookType: 'applicantKytTxnRejected',
       statusBefore: 'COMPLIANCE_PENDING',
       statusAfter: 'REJECTED',
     });
-    expect(actorArg).toMatchObject({ actorType: 'ADMIN', actorId: 'admin-1' });
+    expect(actorArg).toMatchObject({ actorType: 'ADMIN', actorNo: 'AD1' });
 
     expect(result).toEqual({
       verdict: 'V2_REJECTED_HARD',

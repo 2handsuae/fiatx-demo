@@ -7,7 +7,7 @@ import {
   AuditEntityTypes,
   AuditGovernanceActions,
 } from '../../audit-logging/constants/audit-actions.constant';
-import { AuditResult } from '../../audit-logging/dto/audit-log.dto';
+import { AuditOutcome } from '../../audit-logging/dto/audit-log.dto';
 import { ApprovalsService } from '../../governance/approvals/approvals.service';
 import {
   ApprovalActionTypes,
@@ -102,12 +102,10 @@ export class SwapFeeLevelCreationWorkflowService {
     await this.auditLogsService.recordByActor(
       {
         action: AuditGovernanceActions.SWAP_FEE_LEVEL_CREATION.CREATION_REQUESTED,
-        entityType: AuditEntityTypes.SWAP_FEE_LEVEL,
-        entityId: level.id,
-        entityNo: level.levelCode,
-        workflowType: AuditBusinessWorkflowTypes.SWAP_FEE_LEVEL_CREATION,
+        primarySubjectType: AuditEntityTypes.SWAP_FEE_LEVEL,
+        primarySubjectNo: level.levelCode,
         traceId,
-        result: AuditResult.SUCCESS,
+        outcome: AuditOutcome.SUCCESS,
         metadata: {
           levelCode,
           name,
@@ -122,9 +120,9 @@ export class SwapFeeLevelCreationWorkflowService {
       },
       {
         actorType: 'ADMIN',
-        actorId: actor.userId,
-        actorNo: actor.userNo,
-        actorRole: actor.role || actor.roleCodes[0] || 'UNKNOWN',
+        actorNo: actor.userNo || 'UNKNOWN',
+        actorDisplayName: actor.userNo || 'UNKNOWN',
+        actorRolesAtTime: [actor.role || actor.roleCodes[0] || 'UNKNOWN'],
       },
     );
 
@@ -168,12 +166,10 @@ export class SwapFeeLevelCreationWorkflowService {
 
       await this.auditLogsService.recordSystem({
         action: AuditGovernanceActions.SWAP_FEE_LEVEL_CREATION.CREATION_APPLIED,
-        entityType: AuditEntityTypes.SWAP_FEE_LEVEL,
-        entityId: level.id,
-        entityNo: level.levelCode,
-        workflowType: AuditBusinessWorkflowTypes.SWAP_FEE_LEVEL_CREATION,
+        primarySubjectType: AuditEntityTypes.SWAP_FEE_LEVEL,
+        primarySubjectNo: level.levelCode,
         traceId: event?.traceId,
-        result: AuditResult.SUCCESS,
+        outcome: AuditOutcome.SUCCESS,
         metadata: {
           levelCode: level.levelCode,
           name: level.name,
@@ -191,12 +187,10 @@ export class SwapFeeLevelCreationWorkflowService {
 
       await this.auditLogsService.recordSystem({
         action: AuditGovernanceActions.SWAP_FEE_LEVEL_CREATION.CREATION_APPLY_FAILED,
-        entityType: AuditEntityTypes.SWAP_FEE_LEVEL,
-        entityId: levelId,
-        entityNo: level?.levelCode,
-        workflowType: AuditBusinessWorkflowTypes.SWAP_FEE_LEVEL_CREATION,
+        primarySubjectType: AuditEntityTypes.SWAP_FEE_LEVEL,
+        primarySubjectNo: level?.levelCode,
         traceId: event?.traceId,
-        result: AuditResult.FAILED,
+        outcome: AuditOutcome.FAILED,
         metadata: { error: err.message },
         requestId: `SWAP_FEE_LEVEL_CREATION_APPLY_FAILED_${levelId}`,
         sourcePlatform: 'SYSTEM',
@@ -223,12 +217,10 @@ export class SwapFeeLevelCreationWorkflowService {
 
       await this.auditLogsService.recordSystem({
         action: AuditGovernanceActions.SWAP_FEE_LEVEL_CREATION.CREATION_CANCELLED,
-        entityType: AuditEntityTypes.SWAP_FEE_LEVEL,
-        entityId: level.id,
-        entityNo: level.levelCode,
-        workflowType: AuditBusinessWorkflowTypes.SWAP_FEE_LEVEL_CREATION,
+        primarySubjectType: AuditEntityTypes.SWAP_FEE_LEVEL,
+        primarySubjectNo: level.levelCode,
         traceId: event?.traceId,
-        result: AuditResult.SUCCESS,
+        outcome: AuditOutcome.SUCCESS,
         metadata: { decision },
         requestId: `SWAP_FEE_LEVEL_CREATION_CANCELLED_${level.levelCode}`,
         sourcePlatform: 'SYSTEM',

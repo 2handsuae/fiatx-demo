@@ -15,7 +15,7 @@ import {
   AuditEntityTypes,
   AuditWorkflowTypes,
 } from '../audit-logging/constants/audit-actions.constant';
-import { AuditResult } from '../audit-logging/dto/audit-log.dto';
+import { AuditOutcome } from '../audit-logging/dto/audit-log.dto';
 
 export interface DemoScenarioActor {
   actorId: string;
@@ -244,14 +244,10 @@ export class SwapDemoScenarioService {
     await this.auditLogsService.recordByActor(
       {
         action: AuditActions.SWAP_DEMO_SCENARIO_RUN,
-        entityType: AuditEntityTypes.SWAP_TRANSACTION,
-        entityId: swap.id,
-        entityNo: swap.swapNo || undefined,
-        entityOwnerType: swap.ownerType,
-        entityOwnerId: swap.ownerId,
+        primarySubjectType: AuditEntityTypes.SWAP_TRANSACTION,
+        primarySubjectNo: swap.swapNo || undefined,
         traceId: swap.traceId || undefined,
-        workflowType: AuditWorkflowTypes.SWAP,
-        result: AuditResult.SUCCESS,
+        outcome: AuditOutcome.SUCCESS,
         reason: opts.reason,
         metadata: {
           verdict: button.key,
@@ -265,9 +261,9 @@ export class SwapDemoScenarioService {
       },
       {
         actorType: 'ADMIN',
-        actorId: actor.actorId,
-        actorNo: actor.actorNo,
-        actorRole: actor.actorRole || 'ADMIN',
+        actorNo: actor.actorNo || 'UNKNOWN',
+        actorDisplayName: actor.actorNo || 'UNKNOWN',
+        actorRolesAtTime: [actor.actorRole || 'ADMIN'],
       },
     );
   }

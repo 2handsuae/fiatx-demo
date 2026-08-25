@@ -903,9 +903,8 @@ export class WalletReconRunService {
   private async auditCaseOpened(input: { traceId: string | null; walletRef: string; bucket: ReconBucket; delta: bigint; caseNo: string }): Promise<void> {
     await this.auditLogs.recordSystem({
       action: AuditActions.RECON_CASE_OPENED,
-      entityType: AuditEntityTypes.RECONCILIATION_CASE,
-      entityNo: input.caseNo,
-      workflowType: AuditBusinessWorkflowTypes.V8_RECONCILIATION,
+      primarySubjectType: AuditEntityTypes.RECONCILIATION_CASE,
+      primarySubjectNo: input.caseNo,
       traceId: input.traceId ?? undefined,
       metadata: {
         walletRef: input.walletRef,
@@ -919,9 +918,8 @@ export class WalletReconRunService {
   private async auditCaseAutoHealed(input: { traceId: string | null; walletRef: string; caseNo: string }): Promise<void> {
     await this.auditLogs.recordSystem({
       action: AuditActions.SYSTEM_RECON_CASE_AUTO_HEALED,
-      entityType: AuditEntityTypes.RECONCILIATION_CASE,
-      entityNo: input.caseNo,
-      workflowType: AuditBusinessWorkflowTypes.V8_RECONCILIATION,
+      primarySubjectType: AuditEntityTypes.RECONCILIATION_CASE,
+      primarySubjectNo: input.caseNo,
       traceId: input.traceId ?? undefined,
       metadata: { walletRef: input.walletRef, caseNo: input.caseNo },
     });
@@ -939,9 +937,8 @@ export class WalletReconRunService {
   }): Promise<void> {
     await this.auditLogs.recordSystem({
       action: AuditActions.SYSTEM_RECON_RUN_COMPLETED,
-      entityType: AuditEntityTypes.RECONCILIATION_RUN_V8,
-      entityId: input.runId,
-      workflowType: AuditBusinessWorkflowTypes.V8_RECONCILIATION,
+      primarySubjectType: AuditEntityTypes.RECONCILIATION_RUN_V8,
+      primarySubjectNo: input.runId,
       traceId: input.traceId ?? undefined,
       metadata: {
         status: input.status,

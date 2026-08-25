@@ -13,7 +13,7 @@ import {
   AuditEntityTypes,
   AuditGovernanceActions,
 } from '../../audit-logging/constants/audit-actions.constant';
-import { AuditResult } from '../../audit-logging/dto/audit-log.dto';
+import { AuditOutcome } from '../../audit-logging/dto/audit-log.dto';
 import { ApprovalsService } from '../../governance/approvals/approvals.service';
 import { ApprovalDecidedEvent } from '../../governance/approvals/approval-handler.base';
 import {
@@ -37,9 +37,10 @@ export class AdminRoleBindingChangeWorkflowService {
   private toAuditActor(actor: ApprovalActorContext) {
     return {
       actorType: actor.actorType,
-      actorId: actor.userId,
-      actorNo: actor.userNo,
-      actorRole: actor.role || actor.roleCodes[0] || 'UNKNOWN',
+      actorNo: actor.userNo || 'UNKNOWN',
+
+      actorDisplayName: actor.userNo || 'UNKNOWN',
+      actorRolesAtTime: [actor.role || actor.roleCodes[0] || 'UNKNOWN'],
     };
   }
 
@@ -112,12 +113,10 @@ export class AdminRoleBindingChangeWorkflowService {
     await this.auditLogsService.recordByActor(
       {
         action: AuditGovernanceActions.ADMIN_ROLE_BINDING_CHANGE.CHANGE_REQUESTED,
-        entityType: AuditEntityTypes.ACCESS_CONTROL,
-        entityId: request.id,
-        entityNo: requestNo,
-        workflowType: AuditBusinessWorkflowTypes.ADMIN_ROLE_BINDING_CHANGE,
+        primarySubjectType: AuditEntityTypes.ACCESS_CONTROL,
+        primarySubjectNo: requestNo,
         traceId,
-        result: AuditResult.SUCCESS,
+        outcome: AuditOutcome.SUCCESS,
         metadata: {
           targetUserId: targetUser.id,
           targetUserNo: targetUser.userNo,
@@ -218,12 +217,10 @@ export class AdminRoleBindingChangeWorkflowService {
       await this.auditLogsService.recordByActor(
         {
           action: AuditGovernanceActions.ADMIN_ROLE_BINDING_CHANGE.CHANGE_APPLIED,
-          entityType: AuditEntityTypes.ACCESS_CONTROL,
-          entityId: request.id,
-          entityNo: request.requestNo,
-          workflowType: AuditBusinessWorkflowTypes.ADMIN_ROLE_BINDING_CHANGE,
+          primarySubjectType: AuditEntityTypes.ACCESS_CONTROL,
+          primarySubjectNo: request.requestNo,
           traceId: event.traceId,
-          result: AuditResult.SUCCESS,
+          outcome: AuditOutcome.SUCCESS,
           metadata: {
             targetUserId: targetUser.id,
             targetUserNo: targetUser.userNo,
@@ -236,9 +233,9 @@ export class AdminRoleBindingChangeWorkflowService {
         },
         {
           actorType: 'ADMIN',
-          actorId: event.decisionByUserId || 'SYSTEM',
-          actorNo: event.decisionByUserNo || undefined,
-          actorRole: event.decisionByRole || 'SYSTEM',
+          actorNo: event.decisionByUserNo || 'UNKNOWN',
+          actorDisplayName: event.decisionByUserNo || 'UNKNOWN',
+          actorRolesAtTime: [event.decisionByRole || 'SYSTEM'],
         },
       );
 
@@ -254,12 +251,10 @@ export class AdminRoleBindingChangeWorkflowService {
       await this.auditLogsService.recordByActor(
         {
           action: AuditGovernanceActions.ADMIN_ROLE_BINDING_CHANGE.CHANGE_APPLY_FAILED,
-          entityType: AuditEntityTypes.ACCESS_CONTROL,
-          entityId: request.id,
-          entityNo: request.requestNo,
-          workflowType: AuditBusinessWorkflowTypes.ADMIN_ROLE_BINDING_CHANGE,
+          primarySubjectType: AuditEntityTypes.ACCESS_CONTROL,
+          primarySubjectNo: request.requestNo,
           traceId: event.traceId,
-          result: AuditResult.FAILED,
+          outcome: AuditOutcome.FAILED,
           reason: failureReason,
           metadata: {
             targetUserId: request.targetUserId,
@@ -270,8 +265,9 @@ export class AdminRoleBindingChangeWorkflowService {
         },
         {
           actorType: 'ADMIN',
-          actorId: event.decisionByUserId || 'SYSTEM',
-          actorRole: event.decisionByRole || 'SYSTEM',
+          actorNo: event.decisionByUserId || 'SYSTEM',
+          actorDisplayName: event.decisionByUserId || 'SYSTEM',
+          actorRolesAtTime: [event.decisionByRole || 'SYSTEM'],
         },
       );
 

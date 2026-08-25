@@ -94,13 +94,9 @@ export class SwapSlaService {
           await this.auditLogsService.recordSystem(
             {
               action: AuditActions.SWAP_SLA_BREACHED,
-              entityType: AuditEntityTypes.SWAP_TRANSACTION,
-              entityId: swap.id,
-              entityNo: swap.swapNo || undefined,
+              primarySubjectType: AuditEntityTypes.SWAP_TRANSACTION,
+              primarySubjectNo: swap.swapNo || undefined,
               traceId: swap.traceId || undefined,
-              workflowType: AuditWorkflowTypes.SWAP,
-              entityOwnerType: swap.ownerType,
-              entityOwnerId: swap.ownerId,
               reason:
                 'Swap compliance SLA breached — no Sumsub verdict before timeout, order rejected (fail-closed; no customer disposition, see class comment)',
               metadata: { sumsubTxnIdOut: swap.sumsubTxnIdOut, createdAt: swap.createdAt },

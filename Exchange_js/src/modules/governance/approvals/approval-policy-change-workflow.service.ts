@@ -25,7 +25,7 @@ import {
   AuditEntityTypes,
   AuditGovernanceActions,
 } from '../../audit-logging/constants/audit-actions.constant';
-import { AuditResult } from '../../audit-logging/dto/audit-log.dto';
+import { AuditOutcome } from '../../audit-logging/dto/audit-log.dto';
 import { generateReferenceNo } from '../../../common/utils/no-generator.util';
 
 const SECONDARY_EVENT = 'workflow.approval-policy.decided';
@@ -44,9 +44,10 @@ export class ApprovalPolicyChangeWorkflowService {
   private toAuditActor(actor: ApprovalActorContext) {
     return {
       actorType: actor.actorType,
-      actorId: actor.userId,
-      actorNo: actor.userNo,
-      actorRole: actor.role || actor.roleCodes[0] || 'UNKNOWN',
+      actorNo: actor.userNo || 'UNKNOWN',
+
+      actorDisplayName: actor.userNo || 'UNKNOWN',
+      actorRolesAtTime: [actor.role || actor.roleCodes[0] || 'UNKNOWN'],
     };
   }
 
@@ -158,12 +159,10 @@ export class ApprovalPolicyChangeWorkflowService {
     await this.auditLogsService.recordByActor(
       {
         action: AuditGovernanceActions.APPROVAL_POLICY.MODIFICATION_REQUESTED,
-        entityType: AuditEntityTypes.APPROVAL_POLICY,
-        entityId: request.id,
-        entityNo: requestNo,
-        workflowType: AuditBusinessWorkflowTypes.APPROVAL_POLICY,
+        primarySubjectType: AuditEntityTypes.APPROVAL_POLICY,
+        primarySubjectNo: requestNo,
         traceId,
-        result: AuditResult.SUCCESS,
+        outcome: AuditOutcome.SUCCESS,
         metadata: {
           targetActionType,
           currentStepsConfig: currentPolicy.steps,
@@ -238,12 +237,10 @@ export class ApprovalPolicyChangeWorkflowService {
       await this.auditLogsService.recordByActor(
         {
           action: AuditGovernanceActions.APPROVAL_POLICY.MODIFICATION_APPLIED,
-          entityType: AuditEntityTypes.APPROVAL_POLICY,
-          entityId: request.id,
-          entityNo: request.requestNo,
-          workflowType: AuditBusinessWorkflowTypes.APPROVAL_POLICY,
+          primarySubjectType: AuditEntityTypes.APPROVAL_POLICY,
+          primarySubjectNo: request.requestNo,
           traceId: event.traceId,
-          result: AuditResult.SUCCESS,
+          outcome: AuditOutcome.SUCCESS,
           metadata: {
             targetActionType: request.targetActionType,
             appliedStepsConfig: proposedSteps,
@@ -256,9 +253,9 @@ export class ApprovalPolicyChangeWorkflowService {
         },
         {
           actorType: 'ADMIN',
-          actorId: event.decisionByUserId || 'SYSTEM',
-          actorNo: event.decisionByUserNo || undefined,
-          actorRole: event.decisionByRole || 'SYSTEM',
+          actorNo: event.decisionByUserNo || 'UNKNOWN',
+          actorDisplayName: event.decisionByUserNo || 'UNKNOWN',
+          actorRolesAtTime: [event.decisionByRole || 'SYSTEM'],
         },
       );
 
@@ -276,12 +273,10 @@ export class ApprovalPolicyChangeWorkflowService {
       await this.auditLogsService.recordByActor(
         {
           action: AuditGovernanceActions.APPROVAL_POLICY.MODIFICATION_APPLY_FAILED,
-          entityType: AuditEntityTypes.APPROVAL_POLICY,
-          entityId: request.id,
-          entityNo: request.requestNo,
-          workflowType: AuditBusinessWorkflowTypes.APPROVAL_POLICY,
+          primarySubjectType: AuditEntityTypes.APPROVAL_POLICY,
+          primarySubjectNo: request.requestNo,
           traceId: event.traceId,
-          result: AuditResult.FAILED,
+          outcome: AuditOutcome.FAILED,
           reason: failureReason,
           metadata: {
             targetActionType: request.targetActionType,
@@ -292,8 +287,9 @@ export class ApprovalPolicyChangeWorkflowService {
         },
         {
           actorType: 'ADMIN',
-          actorId: event.decisionByUserId || 'SYSTEM',
-          actorRole: event.decisionByRole || 'SYSTEM',
+          actorNo: event.decisionByUserId || 'SYSTEM',
+          actorDisplayName: event.decisionByUserId || 'SYSTEM',
+          actorRolesAtTime: [event.decisionByRole || 'SYSTEM'],
         },
       );
 

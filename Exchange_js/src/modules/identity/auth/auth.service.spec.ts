@@ -101,7 +101,7 @@ describe('AuthService', () => {
         reason: 'Admin login failed: account not found',
       }),
       expect.objectContaining({
-        actorId: 'UNKNOWN',
+        actorNo: 'UNKNOWN',
       }),
     );
   });
@@ -194,7 +194,6 @@ describe('AuthService', () => {
         traceId: expect.any(String),
       }),
       expect.objectContaining({
-        actorId: 'user-1',
         actorNo: 'ADMIN-001',
       }),
     );

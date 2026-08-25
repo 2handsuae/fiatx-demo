@@ -43,7 +43,7 @@ import {
   AuditEntityTypes,
   AuditGovernanceActions,
 } from '../../audit-logging/constants/audit-actions.constant';
-import { AuditResult } from '../../audit-logging/dto/audit-log.dto';
+import { AuditOutcome } from '../../audit-logging/dto/audit-log.dto';
 import { UsersDomainService } from './users.domain.service';
 
 const MFA_ISSUER = process.env.MFA_ISSUER || 'Exchange Admin';
@@ -88,9 +88,9 @@ export class MfaBindingWorkflowService {
   private buildActor(user: MfaBindingUserState) {
     return {
       actorType: 'ADMIN',
-      actorId: user.id,
       actorNo: user.userNo,
-      actorRole: user.role,
+      actorDisplayName: user.userNo,
+      actorRolesAtTime: [user.role],
     };
   }
 
@@ -137,13 +137,11 @@ export class MfaBindingWorkflowService {
     await this.auditLogsService.recordByActor(
       {
         action: AuditGovernanceActions.ADMIN_FIRST_LOGIN.IDENTITY_CONFIRMED,
-        entityType: AuditEntityTypes.ADMIN_USER,
-        entityId: user.id,
-        entityNo: user.userNo,
-        workflowType: AuditBusinessWorkflowTypes.ADMIN_FIRST_LOGIN,
+        primarySubjectType: AuditEntityTypes.ADMIN_USER,
+        primarySubjectNo: user.userNo,
         traceId,
         requestId: traceId,
-        result: AuditResult.SUCCESS,
+        outcome: AuditOutcome.SUCCESS,
         metadata: { fromStatus: 'PENDING_IDENTITY_CONFIRM', toStatus: 'MFA_BINDING' },
         sourcePlatform: 'ADMIN_API',
       },
@@ -177,13 +175,11 @@ export class MfaBindingWorkflowService {
     await this.auditLogsService.recordByActor(
       {
         action: AuditGovernanceActions.ADMIN_FIRST_LOGIN.MFA_BINDING_INITIATED,
-        entityType: AuditEntityTypes.ADMIN_USER,
-        entityId: user.id,
-        entityNo: user.userNo,
-        workflowType: AuditBusinessWorkflowTypes.ADMIN_FIRST_LOGIN,
+        primarySubjectType: AuditEntityTypes.ADMIN_USER,
+        primarySubjectNo: user.userNo,
         traceId,
         requestId: traceId,
-        result: AuditResult.SUCCESS,
+        outcome: AuditOutcome.SUCCESS,
         metadata: { issuer: MFA_ISSUER },
         sourcePlatform: 'ADMIN_API',
       },
@@ -268,13 +264,11 @@ export class MfaBindingWorkflowService {
       await this.auditLogsService.recordByActor(
         {
           action: AuditGovernanceActions.ADMIN_FIRST_LOGIN.MFA_VERIFY_FAILED,
-          entityType: AuditEntityTypes.ADMIN_USER,
-          entityId: user.id,
-          entityNo: user.userNo,
-          workflowType: AuditBusinessWorkflowTypes.ADMIN_FIRST_LOGIN,
+          primarySubjectType: AuditEntityTypes.ADMIN_USER,
+          primarySubjectNo: user.userNo,
           traceId: user.firstLoginTraceId || undefined,
           requestId: user.firstLoginTraceId || randomUUID(),
-          result: AuditResult.FAILED,
+          outcome: AuditOutcome.FAILED,
           metadata: { failCount: newCount, locked },
           sourcePlatform: 'ADMIN_API',
         },
@@ -285,13 +279,11 @@ export class MfaBindingWorkflowService {
         await this.auditLogsService.recordByActor(
           {
             action: AuditGovernanceActions.ADMIN_FIRST_LOGIN.MFA_VERIFY_LOCKED,
-            entityType: AuditEntityTypes.ADMIN_USER,
-            entityId: user.id,
-            entityNo: user.userNo,
-            workflowType: AuditBusinessWorkflowTypes.ADMIN_FIRST_LOGIN,
+            primarySubjectType: AuditEntityTypes.ADMIN_USER,
+            primarySubjectNo: user.userNo,
             traceId: user.firstLoginTraceId || undefined,
             requestId: user.firstLoginTraceId || randomUUID(),
-            result: AuditResult.FAILED,
+            outcome: AuditOutcome.FAILED,
             metadata: { failCount: newCount, lockoutMinutes: 15 },
             sourcePlatform: 'ADMIN_API',
           },
@@ -315,13 +307,11 @@ export class MfaBindingWorkflowService {
     await this.auditLogsService.recordByActor(
       {
         action: AuditGovernanceActions.ADMIN_FIRST_LOGIN.MFA_BINDING_COMPLETED,
-        entityType: AuditEntityTypes.ADMIN_USER,
-        entityId: user.id,
-        entityNo: user.userNo,
-        workflowType: AuditBusinessWorkflowTypes.ADMIN_FIRST_LOGIN,
+        primarySubjectType: AuditEntityTypes.ADMIN_USER,
+        primarySubjectNo: user.userNo,
         traceId: user.firstLoginTraceId || undefined,
         requestId: user.firstLoginTraceId || randomUUID(),
-        result: AuditResult.SUCCESS,
+        outcome: AuditOutcome.SUCCESS,
         metadata: { fromStatus: 'MFA_BINDING', toStatus: 'COMPLETED' },
         sourcePlatform: 'ADMIN_API',
       },
@@ -331,13 +321,11 @@ export class MfaBindingWorkflowService {
     await this.auditLogsService.recordByActor(
       {
         action: AuditGovernanceActions.ADMIN_FIRST_LOGIN.FIRST_LOGIN_COMPLETED,
-        entityType: AuditEntityTypes.ADMIN_USER,
-        entityId: user.id,
-        entityNo: user.userNo,
-        workflowType: AuditBusinessWorkflowTypes.ADMIN_FIRST_LOGIN,
+        primarySubjectType: AuditEntityTypes.ADMIN_USER,
+        primarySubjectNo: user.userNo,
         traceId: user.firstLoginTraceId || undefined,
         requestId: user.firstLoginTraceId || randomUUID(),
-        result: AuditResult.SUCCESS,
+        outcome: AuditOutcome.SUCCESS,
         metadata: { userNo: user.userNo, role: user.role },
         sourcePlatform: 'ADMIN_API',
       },
@@ -398,12 +386,10 @@ export class MfaBindingWorkflowService {
       await this.auditLogsService.recordByActor(
         {
           action: AuditGovernanceActions.ADMIN_FIRST_LOGIN.MFA_LOGIN_VERIFY_FAILED,
-          entityType: AuditEntityTypes.ADMIN_USER,
-          entityId: user.id,
-          entityNo: user.userNo,
+          primarySubjectType: AuditEntityTypes.ADMIN_USER,
+          primarySubjectNo: user.userNo,
           traceId: loginTraceId,
-          workflowType: loginTraceId ? AuditBusinessWorkflowTypes.ADMIN_LOGIN_ACCESS : undefined,
-          result: AuditResult.FAILED,
+          outcome: AuditOutcome.FAILED,
           metadata: { failCount: newCount, locked },
           requestId: ctx.requestId,
           sourceIp: ctx.sourceIp,
@@ -430,12 +416,10 @@ export class MfaBindingWorkflowService {
     await this.auditLogsService.recordByActor(
       {
         action: AuditGovernanceActions.ADMIN_FIRST_LOGIN.MFA_LOGIN_VERIFIED,
-        entityType: AuditEntityTypes.ADMIN_USER,
-        entityId: user.id,
-        entityNo: user.userNo,
+        primarySubjectType: AuditEntityTypes.ADMIN_USER,
+        primarySubjectNo: user.userNo,
         traceId: loginTraceId,
-        workflowType: loginTraceId ? AuditBusinessWorkflowTypes.ADMIN_LOGIN_ACCESS : undefined,
-        result: AuditResult.SUCCESS,
+        outcome: AuditOutcome.SUCCESS,
         metadata: { userNo },
         requestId: ctx.requestId,
         sourceIp: ctx.sourceIp,

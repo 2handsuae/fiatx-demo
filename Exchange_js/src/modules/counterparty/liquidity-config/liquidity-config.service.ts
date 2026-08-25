@@ -18,7 +18,7 @@ import {
   AuditEntityTypes,
   AuditModules,
 } from '../../audit-logging/constants/audit-actions.constant';
-import { AuditResult } from '../../audit-logging/dto/audit-log.dto';
+import { AuditOutcome } from '../../audit-logging/dto/audit-log.dto';
 
 @Injectable()
 export class LiquidityConfigService {
@@ -80,9 +80,9 @@ export class LiquidityConfigService {
     await this.auditLogsService.recordSystem({
 
       action: AuditActions.LP_CONFIG_UPDATED,
-      entityType: AuditEntityTypes.LIQUIDITY_CONFIG,
-      entityId: result.id,
-      result: AuditResult.SUCCESS,
+      primarySubjectType: AuditEntityTypes.LIQUIDITY_CONFIG,
+      primarySubjectNo: result.id,
+      outcome: AuditOutcome.SUCCESS,
       reason: 'Liquidity config created',
       sourcePlatform: 'ADMIN_API',
     });
@@ -171,9 +171,9 @@ export class LiquidityConfigService {
     await this.auditLogsService.recordSystem({
 
       action: AuditActions.LP_CONFIG_UPDATED,
-      entityType: AuditEntityTypes.LIQUIDITY_CONFIG,
-      entityId: result.id,
-      result: AuditResult.SUCCESS,
+      primarySubjectType: AuditEntityTypes.LIQUIDITY_CONFIG,
+      primarySubjectNo: result.id,
+      outcome: AuditOutcome.SUCCESS,
       reason: 'Liquidity config updated',
       sourcePlatform: 'ADMIN_API',
     });
@@ -189,9 +189,9 @@ export class LiquidityConfigService {
     await this.auditLogsService.recordSystem({
 
       action: AuditActions.LP_CONFIG_UPDATED,
-      entityType: AuditEntityTypes.LIQUIDITY_CONFIG,
-      entityId: id,
-      result: AuditResult.SUCCESS,
+      primarySubjectType: AuditEntityTypes.LIQUIDITY_CONFIG,
+      primarySubjectNo: id,
+      outcome: AuditOutcome.SUCCESS,
       reason: 'Liquidity config deleted',
       sourcePlatform: 'ADMIN_API',
     });
@@ -208,9 +208,9 @@ export class LiquidityConfigService {
     await this.auditLogsService.recordSystem({
 
       action: AuditActions.LP_CONFIG_UPDATED,
-      entityType: AuditEntityTypes.LIQUIDITY_CONFIG,
-      entityId: id,
-      result: AuditResult.SUCCESS,
+      primarySubjectType: AuditEntityTypes.LIQUIDITY_CONFIG,
+      primarySubjectNo: id,
+      outcome: AuditOutcome.SUCCESS,
       reason: 'Liquidity config status changed',
       sourcePlatform: 'ADMIN_API',
     });

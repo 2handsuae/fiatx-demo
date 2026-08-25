@@ -13,7 +13,7 @@ import {
   AuditEntityTypes,
   AuditGovernanceActions,
 } from '../../audit-logging/constants/audit-actions.constant';
-import { AuditResult } from '../../audit-logging/dto/audit-log.dto';
+import { AuditOutcome } from '../../audit-logging/dto/audit-log.dto';
 import { ApprovalsService } from '../../governance/approvals/approvals.service';
 import { ApprovalDecidedEvent } from '../../governance/approvals/approval-handler.base';
 import {
@@ -41,9 +41,10 @@ export class AdminSuspensionWorkflowService {
   private toAuditActor(actor: ApprovalActorContext) {
     return {
       actorType: actor.actorType,
-      actorId: actor.userId,
-      actorNo: actor.userNo,
-      actorRole: actor.role || actor.roleCodes[0] || 'UNKNOWN',
+      actorNo: actor.userNo || 'UNKNOWN',
+
+      actorDisplayName: actor.userNo || 'UNKNOWN',
+      actorRolesAtTime: [actor.role || actor.roleCodes[0] || 'UNKNOWN'],
     };
   }
 
@@ -107,12 +108,10 @@ export class AdminSuspensionWorkflowService {
     await this.auditLogsService.recordByActor(
       {
         action: AuditGovernanceActions.ADMIN_SUSPENSION.SUSPENSION_REQUESTED,
-        entityType: AuditEntityTypes.ADMIN_USER,
-        entityId: dto.targetUserId,
-        entityNo: targetUser.userNo,
-        workflowType: AuditBusinessWorkflowTypes.ADMIN_SUSPENSION,
+        primarySubjectType: AuditEntityTypes.ADMIN_USER,
+        primarySubjectNo: targetUser.userNo,
         traceId,
-        result: AuditResult.SUCCESS,
+        outcome: AuditOutcome.SUCCESS,
         metadata: {
           targetEmail: targetUser.email,
           reason: dto.reason,
@@ -145,12 +144,10 @@ export class AdminSuspensionWorkflowService {
 
       await this.auditLogsService.recordSystem({
         action: AuditGovernanceActions.ADMIN_SUSPENSION.ACCOUNT_SUSPENDED,
-        entityType: AuditEntityTypes.ADMIN_USER,
-        entityId: event.entityRef,
-        entityNo: result.userNo,
-        workflowType: AuditBusinessWorkflowTypes.ADMIN_SUSPENSION,
+        primarySubjectType: AuditEntityTypes.ADMIN_USER,
+        primarySubjectNo: result.userNo,
         traceId: event.traceId,
-        result: AuditResult.SUCCESS,
+        outcome: AuditOutcome.SUCCESS,
         metadata: {
           approvalId: event.approvalId,
           approvalNo: event.approvalNo,
@@ -164,11 +161,10 @@ export class AdminSuspensionWorkflowService {
     } catch (error) {
       await this.auditLogsService.recordSystem({
         action: AuditGovernanceActions.ADMIN_SUSPENSION.ACCOUNT_SUSPENDED,
-        entityType: AuditEntityTypes.ADMIN_USER,
-        entityId: event.entityRef,
-        workflowType: AuditBusinessWorkflowTypes.ADMIN_SUSPENSION,
+        primarySubjectType: AuditEntityTypes.ADMIN_USER,
+        primarySubjectNo: event.entityRef,
         traceId: event.traceId,
-        result: AuditResult.FAILED,
+        outcome: AuditOutcome.FAILED,
         reason: error instanceof Error ? error.message : 'Suspension execution failed',
         metadata: { approvalId: event.approvalId },
         requestId: `ADMIN_SUSPENSION_EXEC_FAILED_${event.entityRef}`,

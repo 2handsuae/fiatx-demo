@@ -83,9 +83,8 @@ describe('AuditEvidenceExportWorkflowService', () => {
       expect(auditLogsService.recordByActor).toHaveBeenCalledWith(
         expect.objectContaining({
           action: 'EXPORT_REQUESTED',
-          workflowType: 'AUDIT_EVIDENCE_EXPORT',
         }),
-        expect.objectContaining({ actorId: 'admin-1' }),
+        expect.objectContaining({ actorNo: 'USR-1' }),
       );
     });
   });
