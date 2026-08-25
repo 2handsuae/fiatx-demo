@@ -810,9 +810,40 @@ export class CreateAuditLogEventDto {
 **4c.** 把 `return this.mapEvent(created);` 改为：
 
 ```typescript
-    await this.persistSubjects(created.id, occurredAt, input.subjects, client);
+    // ⚠️ 幂等命中（createEventWithUniqueNo 返回的是已存在行）时必须跳过 subjects 写入。
+    //    子表唯一键是 (eventId, subjectType, subjectNo, subjectRole) 且不做 upsert，
+    //    SQLite 的 Prisma provider 也不支持 createMany 的 skipDuplicates。
+    //    无条件重放 = 合法的幂等重试会抛 Unique constraint failed，
+    //    与「幂等重试应当安全」这条设计承诺相反。
+    if (isNewEvent) {
+      await this.persistSubjects(created.id, occurredAt, input.subjects, client);
+    }
 
     return this.mapEvent(created);
+```
+
+`isNewEvent` 的传递方式由实现者选**改动最小、最不绕**的一种（让 `createEventWithUniqueNo` 返回 `{ row, isNew }`、或加 out 参数、或 `persistSubjects` 自己先查一次），理由写进报告。
+
+配套测试（与 Step 1 的 7 个用例同一个 describe 块）：
+
+```typescript
+  it('幂等命中时不重放 subjects，避免撞子表唯一键', async () => {
+    prisma.auditLogEvent.findUnique.mockResolvedValue({ id: 'evt-existing', eventNo: 'AUD-OLD' });
+    prisma.auditLogSubject = { createMany: jest.fn() };
+
+    await service.recordSystem({
+      action: 'ADMIN_SUSPENSION_APPLIED',
+      actionDomain: 'IAM',
+      category: AuditCategory.GOVERNANCE,
+      correlationId: 'c1',
+      idempotencyKey: 'dup-key',
+      subjects: [
+        { subjectType: 'ADMIN_USER', subjectNo: 'USR001', subjectRole: AuditSubjectRole.PRIMARY },
+      ],
+    } as any);
+
+    expect(prisma.auditLogSubject.createMany).not.toHaveBeenCalled();
+  });
 ```
 
 **4d.** 在 `createEventWithUniqueNo` 之前新增私有方法：
