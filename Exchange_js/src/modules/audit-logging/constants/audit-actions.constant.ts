@@ -646,12 +646,9 @@ export const AuditGovernanceActions = {
   // C3b — Admin Reactivation：已退役，Task 7 迁到 V1_AUDIT_ACTIONS 的
   // ADMIN_REACTIVATION_REQUESTED/APPLIED 两码，全仓零消费方，本组已删。
 
-  // C4b — Approval Policy Modification
-  APPROVAL_POLICY: {
-    MODIFICATION_REQUESTED:    'MODIFICATION_REQUESTED',
-    MODIFICATION_APPLIED:      'MODIFICATION_APPLIED',
-    MODIFICATION_APPLY_FAILED: 'MODIFICATION_APPLY_FAILED',
-  },
+  // C4b — Approval Policy Modification：已退役，Task 8 迁到 V1_AUDIT_ACTIONS 的
+  // APPROVAL_POLICY_CHANGE_REQUESTED/APPLIED 两码（不复用 APPROVAL_SUBMITTED——拆条判据乙
+  // "PRIMARY 不同必须拆"），全仓零消费方，本组已删。
 
   // C5 — Audit Evidence Export
   AUDIT_EVIDENCE_EXPORT: {
