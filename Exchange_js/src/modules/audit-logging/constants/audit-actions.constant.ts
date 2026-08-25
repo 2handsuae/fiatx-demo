@@ -640,17 +640,11 @@ export const AuditGovernanceActions = {
   // ADMIN_ROLE_CHANGE_REQUESTED/APPLIED/CANCELLED 三码（新增 CANCELLED），
   // 全仓零消费方，本组已删。
 
-  // C3a — Admin Suspension
-  ADMIN_SUSPENSION: {
-    SUSPENSION_REQUESTED: 'SUSPENSION_REQUESTED',
-    ACCOUNT_SUSPENDED:    'ACCOUNT_SUSPENDED',
-  },
+  // C3a — Admin Suspension：已退役，Task 7 迁到 V1_AUDIT_ACTIONS 的
+  // ADMIN_SUSPENSION_REQUESTED/APPLIED 两码，全仓零消费方，本组已删。
 
-  // C3b — Admin Reactivation
-  ADMIN_REACTIVATION: {
-    REACTIVATION_REQUESTED: 'REACTIVATION_REQUESTED',
-    ACCOUNT_REACTIVATED:    'ACCOUNT_REACTIVATED',
-  },
+  // C3b — Admin Reactivation：已退役，Task 7 迁到 V1_AUDIT_ACTIONS 的
+  // ADMIN_REACTIVATION_REQUESTED/APPLIED 两码，全仓零消费方，本组已删。
 
   // C4b — Approval Policy Modification
   APPROVAL_POLICY: {

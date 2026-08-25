@@ -165,6 +165,14 @@ export class CreateAuditLogEventDto {
   @ApiPropertyOptional() @IsOptional() @IsString()
   authnMethod?: string;
 
+  /**
+   * 同上 authnMethod 的两处独立声明道理——assertActionSpec 只查 input（本 DTO），
+   * 查不到 AuditActorContext.onBehalfOfNo（落库到 actor 快照那份）。密码重置/MFA 重置
+   * 的官员代操作码词表声明 onBehalfOfNo 必填，同调用点两处都要传同一个值。
+   */
+  @ApiPropertyOptional() @IsOptional() @IsString()
+  onBehalfOfNo?: string;
+
   @ApiPropertyOptional() @IsOptional() @IsString()
   reasonCode?: string;
 
