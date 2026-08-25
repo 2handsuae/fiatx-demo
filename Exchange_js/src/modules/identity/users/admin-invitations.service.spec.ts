@@ -304,6 +304,56 @@ describe('AdminInvitationsService', () => {
     );
   });
 
+  it('第一批 · ADMIN_INVITE_ACCEPTED：接受邀请与账号激活合成一条，带 fromStatus/toStatus/correlationId', async () => {
+    prisma.adminUserInvitation.findUnique.mockResolvedValue({
+      id: 'invite-1',
+      expiresAt: new Date(Date.now() + 60_000),
+      revokedAt: null,
+      consumedAt: null,
+      // ADMIN_INVITE_ACCEPTED 是 INHERIT：correlationId 从这条邀请记录自己的 traceId 列读——
+      // executeInviteDispatch 建邀请记录时写入的那份（原样来自 initiateInvite 铸造的值）。
+      traceId: 'trace-invite-1',
+      user: {
+        id: 'user-1',
+        userNo: 'ADM-001',
+        email: 'new@fiatx.com',
+        role: 'OPS',
+        status: 'INVITE_SENT',
+        deletedAt: null,
+      },
+    });
+    txUserUpdate.mockResolvedValue({
+      id: 'user-1',
+      userNo: 'ADM-001',
+      email: 'new@fiatx.com',
+      role: 'OPS',
+      status: 'ACTIVE',
+    });
+    txAdminInvitationUpdate.mockResolvedValue(undefined);
+    txAdminInvitationUpdateMany.mockResolvedValue({ count: 0 });
+
+    await service.acceptInvitation('token-1', '123456', {
+      requestId: 'req-1',
+      sourcePlatform: 'ADMIN_INVITATION_API',
+      auditContext: {
+        workflowType: 'ADMIN_INVITE',
+        traceId: 'trace-invite-1',
+      },
+    } as any);
+
+    const calls = auditLogsService.recordByActor.mock.calls.filter((c: any[]) =>
+      ['ADMIN_INVITE_ACCEPTED', 'ADMIN_INVITATION_ACCEPTED'].includes(c[0].action),
+    );
+    // 拆条两判据都不触发（同事务、同 PRIMARY）：只应有一条，且是新码而非旧的
+    // ADMIN_INVITATION_ACCEPTED——不要拆成"接受邀请"+"账号激活"两条。
+    expect(calls).toHaveLength(1);
+    expect(calls[0][0].action).toBe('ADMIN_INVITE_ACCEPTED');
+    expect(calls[0][0].actionDomain).toBe('IAM');
+    expect(calls[0][0].correlationId).toBe('trace-invite-1');
+    expect(calls[0][0].fromStatus).toBe('INVITE_SENT');
+    expect(calls[0][0].toStatus).toBe('ACTIVE');
+  });
+
   it('derives invitation accept audit context from the invitation chain when request auditContext is missing', async () => {
     prisma.adminUserInvitation.findUnique.mockResolvedValue({
       id: 'invite-1',

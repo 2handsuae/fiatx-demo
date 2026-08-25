@@ -13,10 +13,10 @@ import {
   AuditActions,
   AuditBusinessWorkflowTypes,
   AuditEntityTypes,
-  AuditGovernanceActions,
   AuditModules,
 } from '../../audit-logging/constants/audit-actions.constant';
 import {
+  AuditCategory,
   AuditOutcome,
 } from '../../audit-logging/dto/audit-log.dto';
 
@@ -411,6 +411,11 @@ export class AdminInvitationsService {
       this.resolvePersistableAuditContext(ctx.auditContext) ||
       (await this.findInvitationAuditContextByTokenHash(tokenHash));
 
+    // 接受邀请与账号激活合成一条：下面这一次事务里，读到的邀请记录（携带 workflowType/
+    // traceId）与被激活的 User 是同一次调用、同一个 PRIMARY，不拆成两条。
+    let fromStatus: string | undefined;
+    let invitationTraceId: string | null = null;
+
     try {
       const accepted = await this.prisma.$transaction(async (tx) => {
         const invitation = await (tx as any).adminUserInvitation.findUnique({
@@ -434,6 +439,8 @@ export class AdminInvitationsService {
         }
 
         this.assertInvitationUsable(invitation, now);
+        fromStatus = invitation.user.status;
+        invitationTraceId = invitation.traceId ?? null;
 
         const passwordHash = await bcrypt.hash(password, 10);
         const updatedUser = await tx.user.update({
@@ -476,15 +483,26 @@ export class AdminInvitationsService {
         effectiveAuditContext?.workflowType === AuditBusinessWorkflowTypes.ADMIN_INVITE;
       await this.auditLogsService.recordByActor(
         this.applyAuditContext({
-          action: isAdminInviteFlow
-            ? AuditGovernanceActions.ADMIN_INVITE.ACCOUNT_ACTIVATED
-            : AuditActions.ADMIN_INVITATION_ACCEPTED,
-          primarySubjectType: AuditEntityTypes.AUTH,
+          action: isAdminInviteFlow ? 'ADMIN_INVITE_ACCEPTED' : AuditActions.ADMIN_INVITATION_ACCEPTED,
+          // ADMIN_INVITE_ACCEPTED 对齐同一旅程其余 4 码的 primarySubjectType
+          // （REQUESTED/DISPATCHED/CANCELLED 都用 ACCESS_CONTROL），不沿用旧码的 AUTH。
+          primarySubjectType: isAdminInviteFlow ? AuditEntityTypes.ACCESS_CONTROL : AuditEntityTypes.AUTH,
           primarySubjectNo: accepted.userNo,
-          result: AuditOutcome.SUCCESS,
+          outcome: AuditOutcome.SUCCESS,
           requestId: ctx.requestId,
           sourceIp: ctx.sourceIp,
           sourcePlatform: ctx.sourcePlatform || 'ADMIN_INVITATION_API',
+          ...(isAdminInviteFlow
+            ? {
+                actionDomain: 'IAM',
+                category: AuditCategory.GOVERNANCE,
+                // INHERIT：读邀请记录自己的 traceId 列——executeInviteDispatch 建邀请记录时
+                // 写入的那份 correlationId（原样来自 initiateInvite 铸造的值）。
+                correlationId: invitationTraceId ?? undefined,
+                fromStatus,
+                toStatus: accepted.status,
+              }
+            : {}),
         }, effectiveAuditContext),
         {
           actorType: 'ADMIN',
