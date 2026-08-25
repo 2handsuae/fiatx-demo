@@ -93,7 +93,6 @@ export class AdminInviteWorkflowService {
         user.id,
         roleCodes,
         { actorId: actor.userId, actorNo: actor.userNo, actorRole: actor.role || actor.roleCodes[0] || 'UNKNOWN' },
-        { workflowType: AuditBusinessWorkflowTypes.ADMIN_INVITE, traceId: correlationId },
       );
 
       approvalCase = await this.approvalsService.createAndSubmit(

@@ -1,12 +1,10 @@
 import { NotFoundException } from '@nestjs/common';
 import { AccessControlService } from './access-control.service';
 import { PrismaService } from '../../../core/prisma/prisma.service';
-import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 
 describe('AccessControlService', () => {
   let service: AccessControlService;
   let prisma: any;
-  let auditLogsService: any;
 
   beforeEach(() => {
     prisma = {
@@ -31,14 +29,12 @@ describe('AccessControlService', () => {
       ),
     };
 
-    auditLogsService = {
-      recordByActor: jest.fn().mockResolvedValue(undefined),
-    };
+    service = new AccessControlService(prisma as PrismaService);
+  });
 
-    service = new AccessControlService(
-      prisma as PrismaService,
-      auditLogsService as AuditLogsService,
-    );
+  it('第一批 · V1 域打点上收：access-control.service.ts 不再直接写审计', () => {
+    const src = require('fs').readFileSync(`${__dirname}/access-control.service.ts`, 'utf8');
+    expect(src).not.toMatch(/recordByActor|recordSystem/);
   });
 
   it('rejects role replacement for deleted admin users', async () => {

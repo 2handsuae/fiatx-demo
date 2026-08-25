@@ -159,11 +159,13 @@ describe('AdminRoleBindingChangeWorkflowService', () => {
 
       await service.handleApprovalDecided(event);
 
+      // Task 9：AccessControlService.replaceUserRoles 不再接收 auditContext 第 4 参——
+      // 它不再自己写审计，ADMIN_ROLE_CHANGE_APPLIED 完全由本方法（编排层）写，
+      // 见下方对 auditLogsService.recordByActor 的断言。
       expect(accessControlService.replaceUserRoles).toHaveBeenCalledWith(
         'user-2',
         ['MLRO'],
         expect.objectContaining({ actorId: 'SYSTEM' }),
-        expect.objectContaining({ workflowType: 'ADMIN_ROLE_BINDING_CHANGE' }),
       );
       expect(prisma.adminRoleChangeRequest.update).toHaveBeenCalledWith(
         expect.objectContaining({

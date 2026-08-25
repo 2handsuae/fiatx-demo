@@ -8,10 +8,7 @@ import { randomUUID } from 'crypto';
 import { generateReferenceNo } from '../../../common/utils/no-generator.util';
 import { PrismaService } from '../../../core/prisma/prisma.service';
 import { AuditLogsService } from '../../audit-logging/audit-logs.service';
-import {
-  AuditBusinessWorkflowTypes,
-  AuditEntityTypes,
-} from '../../audit-logging/constants/audit-actions.constant';
+import { AuditEntityTypes } from '../../audit-logging/constants/audit-actions.constant';
 import { AuditCategory, AuditOutcome } from '../../audit-logging/dto/audit-log.dto';
 import { ApprovalsService } from '../../governance/approvals/approvals.service';
 import { ApprovalDecidedEvent } from '../../governance/approvals/approval-handler.base';
@@ -209,10 +206,6 @@ export class AdminRoleBindingChangeWorkflowService {
         request.targetUserId,
         proposedRoleCodes,
         systemActor,
-        {
-          workflowType: AuditBusinessWorkflowTypes.ADMIN_ROLE_BINDING_CHANGE,
-          traceId: event.traceId,
-        },
       );
 
       await (this.prisma as any).adminRoleChangeRequest.update({
