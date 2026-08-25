@@ -446,7 +446,7 @@ describe('CustomerRestrictionsService.release', () => {
     expect(audit.recordSystem).toHaveBeenCalledWith(
       expect.objectContaining({
         action: 'CUSTOMER_RESTRICTION_CLEARED',
-        result: 'SUCCESS',
+        outcome: 'SUCCESS',
         traceId: 'CUSTOMER_RESTRICTION:t-1',
         metadata: expect.objectContaining({
           restrictionNo: 'RST2608150001',
