@@ -21,7 +21,9 @@ import {
   AuditEvidencePackageStatus,
   AuditLogView,
   AuditLogQueryDto,
-  AuditResult,
+  AuditOutcome,
+  AuditSubjectInput,
+  AuditSubjectRole,
   CreateAuditLogEventDto,
   EvidencePackageQueryDto,
   ExportEvidencePackageDto,
@@ -136,12 +138,6 @@ export interface WithdrawEvidenceSnapshots {
   withdrawEvidenceChain: WithdrawEvidenceChainItem[];
 }
 
-interface AuditWorkflowContext {
-  traceId: string | null;
-  workflowType: string | null;
-  entityOwnerNo: string | null;
-}
-
 type AuditWriteClient = any;
 
 @Injectable()
@@ -187,12 +183,6 @@ export class AuditLogsService {
     );
   }
 
-  private normalizeEntityType(input?: string | null): string {
-    return String(input || '')
-      .trim()
-      .toUpperCase();
-  }
-
   private toSortedUniqueStrings(values: Array<string | null | undefined>): string[] {
     return Array.from(
       new Set(
@@ -207,396 +197,6 @@ export class AuditLogsService {
     const parsed = this.parseJson(value);
     if (!Array.isArray(parsed)) return [];
     return this.toSortedUniqueStrings(parsed.map((item) => String(item ?? '')));
-  }
-
-  private async resolveActorNo(
-    actor: AuditActorContext,
-    db: any,
-  ): Promise<string | null> {
-    if (actor.actorNo) return actor.actorNo;
-
-    const actorType = this.normalizeEntityType(actor.actorType);
-    if (actorType === 'SYSTEM') return 'SYSTEM';
-
-    try {
-      if (actorType === 'ADMIN' && db?.user?.findUnique && actor.actorId) {
-        const admin = await db.user.findUnique({
-          where: { id: actor.actorId },
-          select: { userNo: true },
-        });
-        return admin?.userNo || null;
-      }
-
-      if (actorType === 'CUSTOMER' && db?.customerMain?.findUnique && actor.actorId) {
-        const customer = await db.customerMain.findUnique({
-          where: { id: actor.actorId },
-          select: { customerNo: true },
-        });
-        return customer?.customerNo || null;
-      }
-    } catch {
-      return null;
-    }
-
-    return null;
-  }
-
-  private async resolveEntityOwnerNo(
-    input: CreateAuditLogEventDto,
-    db: any,
-  ): Promise<string | null> {
-    if (input.entityOwnerNo) return input.entityOwnerNo;
-    if (!input.entityOwnerId || !input.entityOwnerType) return null;
-
-    const ownerType = this.normalizeEntityType(input.entityOwnerType);
-
-    try {
-      if (ownerType === 'CUSTOMER' && db?.customerMain?.findUnique) {
-        const owner = await db.customerMain.findUnique({
-          where: { id: input.entityOwnerId },
-          select: { customerNo: true },
-        });
-        return owner?.customerNo || null;
-      }
-
-      if ((ownerType === 'ADMIN' || ownerType === 'USER') && db?.user?.findUnique) {
-        const owner = await db.user.findUnique({
-          where: { id: input.entityOwnerId },
-          select: { userNo: true },
-        });
-        return owner?.userNo || null;
-      }
-    } catch {
-      return null;
-    }
-
-    return null;
-  }
-
-  private async resolveEntityNo(
-    entityType: string,
-    entityId?: string | null,
-    db?: any,
-  ): Promise<string | null> {
-    if (!entityId || !db) return null;
-    const normalizedType = this.normalizeEntityType(entityType);
-
-    const lookupConfig: Record<
-      string,
-      { model: string; field: string }
-    > = {
-      CUSTOMER: { model: 'customerMain', field: 'customerNo' },
-      CUSTOMER_MAIN: { model: 'customerMain', field: 'customerNo' },
-      WALLET: { model: 'wallet', field: 'walletNo' },
-      WITHDRAW_TRANSACTION: { model: 'withdrawTransaction', field: 'withdrawNo' },
-      DEPOSIT_TRANSACTION: { model: 'depositTransaction', field: 'depositNo' },
-      SWAP_TRANSACTION: { model: 'swapTransaction', field: 'swapNo' },
-      INTERNAL_FUND: { model: 'fundsOrder', field: 'fundsOrderNo' },
-      SWAP_QUOTE: { model: 'swapQuote', field: 'quoteNo' },
-      KYT_CASE: { model: 'kytCase', field: 'caseNo' },
-      TRAVEL_RULE_CASE: { model: 'travelRuleCase', field: 'caseNo' },
-      ASSET: { model: 'asset', field: 'assetNo' },
-      USER: { model: 'user', field: 'userNo' },
-      ADMIN: { model: 'user', field: 'userNo' },
-      APPROVAL_CASE: { model: 'approvalCase', field: 'approvalNo' },
-      AUDIT_EVIDENCE_PACKAGE: { model: 'auditEvidencePackage', field: 'packageNo' },
-    };
-
-    const target = lookupConfig[normalizedType];
-    if (!target) return null;
-
-    try {
-      const model = db[target.model];
-      if (!model || typeof model.findUnique !== 'function') {
-        return null;
-      }
-
-      const row = await model.findUnique({
-        where: { id: entityId },
-        select: { [target.field]: true },
-      });
-      return row?.[target.field] || null;
-    } catch {
-      return null;
-    }
-  }
-
-  private buildDepositTraceId(
-    deposit?: { id?: string | null; traceId?: string | null } | null,
-  ): string | null {
-    const depositTrace = this.normalizeOptionalString(deposit?.traceId);
-    if (depositTrace) return depositTrace;
-    const rootId = this.normalizeOptionalString(deposit?.id);
-    return rootId ? `${AuditWorkflowTypes.DEPOSIT}:${rootId}` : null;
-  }
-
-  private buildSwapTraceId(
-    swap?: { id?: string | null; traceId?: string | null } | null,
-    quote?: { id?: string | null; traceId?: string | null } | null,
-  ): string | null {
-    const swapTrace = this.normalizeOptionalString(swap?.traceId);
-    if (swapTrace) return swapTrace;
-    const quoteTrace = this.normalizeOptionalString(quote?.traceId);
-    if (quoteTrace) return quoteTrace;
-    const rootId = this.normalizeOptionalString(swap?.id);
-    return rootId ? `${AuditWorkflowTypes.SWAP}:${rootId}` : null;
-  }
-
-  private buildSettlementTraceId(
-    batch?: { id?: string | null; traceId?: string | null } | null,
-  ): string | null {
-    const batchTrace = this.normalizeOptionalString(batch?.traceId);
-    if (batchTrace) return batchTrace;
-    const rootId = this.normalizeOptionalString(batch?.id);
-    return rootId ? `BATCH:${rootId}` : null;
-  }
-
-  private async resolveDepositWorkflowContext(
-    input: CreateAuditLogEventDto,
-    entityOwnerNo: string | null,
-    db: any,
-  ): Promise<AuditWorkflowContext> {
-    const explicitWorkflowType = this.normalizeEntityType(input.workflowType);
-    const entityType = this.normalizeEntityType(input.entityType);
-    const shouldResolveWithdraw =
-      explicitWorkflowType === AuditWorkflowTypes.WITHDRAW ||
-      entityType === AuditEntityTypes.WITHDRAW_TRANSACTION;
-    const shouldResolveDeposit =
-      explicitWorkflowType === AuditWorkflowTypes.DEPOSIT ||
-      entityType === AuditEntityTypes.DEPOSIT_TRANSACTION;
-    const shouldResolveSwap =
-      explicitWorkflowType === AuditWorkflowTypes.SWAP ||
-      entityType === AuditEntityTypes.SWAP_TRANSACTION ||
-      entityType === AuditEntityTypes.SWAP_QUOTE;
-    const shouldResolveSettlement =
-      explicitWorkflowType === AuditWorkflowTypes.SETTLEMENT ||
-      entityType === AuditEntityTypes.SETTLEMENT_BATCH;
-
-    if (
-      !shouldResolveWithdraw &&
-      !shouldResolveDeposit &&
-      !shouldResolveSwap &&
-      !shouldResolveSettlement
-    ) {
-      return {
-        traceId: this.normalizeOptionalString(input.traceId),
-        workflowType: this.normalizeOptionalString(input.workflowType),
-        entityOwnerNo,
-      };
-    }
-
-    if (shouldResolveWithdraw) {
-      let withdraw: any = null;
-
-      if (
-        (entityType === AuditEntityTypes.WITHDRAW_TRANSACTION ||
-          explicitWorkflowType === AuditWorkflowTypes.WITHDRAW) &&
-        input.entityId &&
-        db?.withdrawTransaction?.findUnique
-      ) {
-        withdraw = await db.withdrawTransaction.findUnique({
-          where: { id: input.entityId },
-          select: {
-            id: true,
-            withdrawNo: true,
-            ownerId: true,
-            traceId: true,
-            customer: {
-              select: {
-                customerNo: true,
-              },
-            },
-          },
-        });
-      }
-
-      const withdrawId = this.normalizeOptionalString(withdraw?.id) || null;
-      const resolvedEntityOwnerNo =
-        entityOwnerNo || withdraw?.customer?.customerNo || null;
-
-      return {
-        traceId:
-          this.normalizeOptionalString(input.traceId) ||
-          this.normalizeOptionalString(withdraw?.traceId) ||
-          (withdrawId ? `${AuditWorkflowTypes.WITHDRAW}:${withdrawId}` : null),
-        workflowType: AuditWorkflowTypes.WITHDRAW,
-        entityOwnerNo: resolvedEntityOwnerNo,
-      };
-    }
-
-    if (shouldResolveSwap) {
-      let swap: any = null;
-      let quote: any = null;
-
-      if (
-        (entityType === AuditEntityTypes.SWAP_TRANSACTION ||
-          explicitWorkflowType === AuditWorkflowTypes.SWAP) &&
-        input.entityId &&
-        db?.swapTransaction?.findUnique
-      ) {
-        swap = await db.swapTransaction.findUnique({
-          where: { id: input.entityId },
-          select: {
-            id: true,
-            swapNo: true,
-            ownerId: true,
-            ownerNo: true,
-            quoteId: true,
-            quoteNo: true,
-            traceId: true,
-            customer: {
-              select: {
-                customerNo: true,
-              },
-            },
-            quote: {
-              select: {
-                id: true,
-                quoteNo: true,
-                ownerNo: true,
-                traceId: true,
-              },
-            },
-          },
-        });
-        if (!swap && input.entityId) {
-          swap = await db.swapTransaction.findUnique({
-            where: { id: input.entityId },
-            select: {
-              id: true,
-              swapNo: true,
-              ownerId: true,
-              ownerNo: true,
-              quoteId: true,
-              quoteNo: true,
-              traceId: true,
-              customer: {
-                select: {
-                  customerNo: true,
-                },
-              },
-              quote: {
-                select: {
-                  id: true,
-                  quoteNo: true,
-                  ownerNo: true,
-                  traceId: true,
-                },
-              },
-            },
-          });
-        }
-        quote = swap?.quote || null;
-      }
-
-      if (
-        !quote &&
-        entityType === AuditEntityTypes.SWAP_QUOTE &&
-        input.entityId &&
-        db?.swapQuote?.findUnique
-      ) {
-        quote = await db.swapQuote.findUnique({
-          where: { id: input.entityId },
-          select: {
-            id: true,
-            quoteNo: true,
-            ownerId: true,
-            ownerNo: true,
-            traceId: true,
-            swapTransaction: {
-              select: {
-                id: true,
-                swapNo: true,
-                ownerId: true,
-                ownerNo: true,
-                traceId: true,
-              },
-            },
-          },
-        });
-        if (quote?.swapTransaction) {
-          swap = quote.swapTransaction;
-        }
-      }
-
-      const resolvedEntityOwnerNo =
-        entityOwnerNo ||
-        swap?.ownerNo ||
-        swap?.customer?.customerNo ||
-        quote?.ownerNo ||
-        null;
-
-      return {
-        traceId:
-          this.normalizeOptionalString(input.traceId) ||
-          this.buildSwapTraceId(swap, quote),
-        workflowType: AuditWorkflowTypes.SWAP,
-        entityOwnerNo: resolvedEntityOwnerNo,
-      };
-    }
-
-    if (shouldResolveSettlement) {
-      let batch: any = null;
-
-      if (
-        (entityType === AuditEntityTypes.SETTLEMENT_BATCH ||
-          explicitWorkflowType === AuditWorkflowTypes.SETTLEMENT) &&
-        input.entityId &&
-        db?.settlementBatch?.findUnique
-      ) {
-        batch = await db.settlementBatch.findUnique({
-          where: { id: input.entityId },
-          select: {
-            id: true,
-            traceId: true,
-            batchNo: true,
-          },
-        });
-      }
-
-      return {
-        traceId:
-          this.normalizeOptionalString(input.traceId) ||
-          this.buildSettlementTraceId(batch),
-        workflowType: AuditWorkflowTypes.SETTLEMENT,
-        entityOwnerNo: entityOwnerNo || null,
-      };
-    }
-
-    let deposit: any = null;
-
-    if (
-      (entityType === AuditEntityTypes.DEPOSIT_TRANSACTION ||
-        explicitWorkflowType === AuditWorkflowTypes.DEPOSIT) &&
-      input.entityId &&
-      db?.depositTransaction?.findUnique
-    ) {
-      deposit = await db.depositTransaction.findUnique({
-        where: { id: input.entityId },
-        select: {
-          id: true,
-          depositNo: true,
-          ownerId: true,
-          traceId: true,
-          customer: {
-            select: {
-              customerNo: true,
-            },
-          },
-        },
-      });
-    }
-
-    const resolvedEntityOwnerNo =
-      entityOwnerNo || deposit?.customer?.customerNo || null;
-
-    return {
-      traceId:
-        this.normalizeOptionalString(input.traceId) ||
-        this.buildDepositTraceId(deposit),
-      workflowType: AuditWorkflowTypes.DEPOSIT,
-      entityOwnerNo: resolvedEntityOwnerNo,
-    };
   }
 
   private serializeJson(value: unknown): string | null {
@@ -701,9 +301,11 @@ export class AuditLogsService {
     const normalizedRequestId = this.normalizeOptionalString(input.requestId);
 
     const parts = [
-      input.entityType,
-      input.entityId || 'NA',
+      input.actionDomain,
       input.action,
+      input.primarySubjectType || 'NA',
+      input.primarySubjectNo || 'NA',
+      input.correlationId || 'NO_CORRELATION',
       normalizedRequestId || 'NO_REQUEST_ID',
     ];
 
@@ -956,6 +558,42 @@ export class AuditLogsService {
     return where;
   }
 
+  /**
+   * 把 subjects 逐行落子表。与主记录同一个 client（同事务）。
+   * 不做 upsert —— 唯一键冲突意味着调用方重复传了同一 (类型, 业务键, 角色)，是调用方 bug，应当响。
+   */
+  private async persistSubjects(
+    eventId: string,
+    occurredAt: Date,
+    subjects: AuditSubjectInput[] | undefined,
+    client?: AuditWriteClient,
+  ): Promise<void> {
+    if (!subjects || subjects.length === 0) return;
+
+    const primaryCount = subjects.filter(
+      (s) => s.subjectRole === AuditSubjectRole.PRIMARY,
+    ).length;
+    if (primaryCount > 1) {
+      throw new BadRequestException(
+        `Audit event must carry at most exactly one PRIMARY subject, got ${primaryCount}. ` +
+          '改了 N 个对象就写 N 条记录，不要在一条记录上挂多个 PRIMARY。',
+      );
+    }
+
+    const db = this.getDb(client) as any;
+    if (!db?.auditLogSubject?.createMany) return;
+
+    await db.auditLogSubject.createMany({
+      data: subjects.map((s) => ({
+        eventId,
+        subjectType: s.subjectType,
+        subjectNo: s.subjectNo,
+        subjectRole: s.subjectRole,
+        occurredAt,
+      })),
+    });
+  }
+
   private async createEventWithUniqueNo(
     data: any,
     client?: AuditWriteClient,
@@ -977,14 +615,14 @@ export class AuditLogsService {
       try {
         const createData: any = {
           ...data,
-          auditNo: generateReferenceNo('AUD'),
+          eventNo: generateReferenceNo('AUD'),
         };
 
         return await db.auditLogEvent.create({
           data: createData,
         });
       } catch (error) {
-        if (this.isUniqueConflict(error, 'auditNo')) continue;
+        if (this.isUniqueConflict(error, 'eventNo')) continue;
 
         if (data.idempotencyKey && this.isUniqueConflict(error, 'idempotencyKey')) {
           const existing = await db.auditLogEvent.findUnique({
@@ -1226,7 +864,6 @@ export class AuditLogsService {
     actor: AuditActorContext,
     client?: AuditWriteClient,
   ) {
-    const db = this.getDb(client) as any;
     const occurredAt = input.occurredAt ? this.toDate(input.occurredAt) : new Date();
     if (!occurredAt) {
       throw new BadRequestException('occurredAt parsing failed');
@@ -1237,35 +874,20 @@ export class AuditLogsService {
 
     const idempotencyKey = this.buildIdempotencyKey(input);
     const retainedUntil = this.toRetainedUntil(occurredAt);
-    const actorNo = await this.resolveActorNo(actor, db);
-    const entityNo =
-      input.entityNo || (await this.resolveEntityNo(input.entityType, input.entityId, db));
-    const resolvedEntityOwnerNo = await this.resolveEntityOwnerNo(input, db);
-    const workflowContext = await this.resolveDepositWorkflowContext(
-      input,
-      resolvedEntityOwnerNo,
-      db,
-    );
-    const entityOwnerNo = workflowContext.entityOwnerNo;
 
     const payloadDigest = sha256Hex({
       action: input.action,
-      entityType: input.entityType,
-      entityId: input.entityId || null,
-      entityNo: entityNo || null,
-      traceId: workflowContext.traceId,
-      workflowType: workflowContext.workflowType,
-      entityOwnerType: input.entityOwnerType || null,
-      entityOwnerId: input.entityOwnerId || null,
-      entityOwnerNo: entityOwnerNo || null,
+      actionDomain: input.actionDomain || null,
+      primarySubjectType: input.primarySubjectType || null,
+      primarySubjectNo: input.primarySubjectNo || null,
+      ownerCustomerNo: input.ownerCustomerNo || null,
+      traceId: input.traceId || null,
       actorType: actor.actorType,
-      actorId: actor.actorId,
-      actorNo: actorNo || null,
-      actorRole: actor.actorRole || null,
+      actorNo: actor.actorNo,
       requestId: normalizedRequestId,
       sourceIp: maskedSourceIp,
       sourcePlatform: input.sourcePlatform || null,
-      result: input.result || AuditResult.SUCCESS,
+      outcome: input.outcome || AuditOutcome.SUCCESS,
       reason: input.reason || null,
       metadata: input.metadata ?? null,
       occurredAt: occurredAt.toISOString(),
@@ -1275,31 +897,57 @@ export class AuditLogsService {
     const created = await this.createEventWithUniqueNo(
       {
         action: input.action,
-        entityType: input.entityType,
-        entityId: input.entityId ?? null,
-        entityNo: entityNo ?? null,
-        traceId: workflowContext.traceId ?? null,
-        workflowType: workflowContext.workflowType ?? null,
-        entityOwnerType: input.entityOwnerType ?? null,
-        entityOwnerId: input.entityOwnerId ?? null,
-        entityOwnerNo: entityOwnerNo ?? null,
+        actionDomain: input.actionDomain,
+        category: input.category,
+        isReadOnly: input.isReadOnly ?? false,
+        primarySubjectType: input.primarySubjectType ?? null,
+        primarySubjectNo: input.primarySubjectNo ?? null,
+        ownerCustomerNo: input.ownerCustomerNo ?? null,
         actorType: actor.actorType,
-        actorId: actor.actorId,
-        actorNo: actorNo ?? null,
-        actorRole: actor.actorRole ?? null,
+        actorNo: actor.actorNo,
+        actorDisplayName: actor.actorDisplayName,
+        actorRolesAtTime: JSON.stringify(actor.actorRolesAtTime ?? []),
+        onBehalfOfType: actor.onBehalfOfType ?? null,
+        onBehalfOfNo: actor.onBehalfOfNo ?? null,
+        authnMethod: actor.authnMethod ?? null,
+        sourcePlatform: input.sourcePlatform ?? 'SYSTEM',
         requestId: normalizedRequestId,
+        sessionId: input.sessionId ?? null,
         sourceIp: maskedSourceIp,
-        sourcePlatform: input.sourcePlatform ?? null,
-        result: input.result ?? AuditResult.SUCCESS,
+        userAgent: input.userAgent ?? null,
+        endpoint: input.endpoint ?? null,
+        outcome: input.outcome ?? AuditOutcome.SUCCESS,
+        reasonCode: input.reasonCode ?? null,
         reason: input.reason ?? null,
+        fromStatus: input.fromStatus ?? null,
+        toStatus: input.toStatus ?? null,
+        beforeData: this.serializeJson(input.beforeData ?? null),
+        afterData: this.serializeJson(input.afterData ?? null),
+        amount: input.amount ?? null,
+        currency: input.currency ?? null,
+        permissionCode: input.permissionCode ?? null,
+        policyCode: input.policyCode ?? null,
+        policyVersion: input.policyVersion ?? null,
+        approvalNo: input.approvalNo ?? null,
+        ruleCode: input.ruleCode ?? null,
+        ruleVersion: input.ruleVersion ?? null,
+        correlationId: input.correlationId ?? null,
+        causationId: input.causationId ?? null,
+        traceId: input.traceId ?? null,
+        groupEventId: input.groupEventId ?? null,
+        externalEvidenceRef: input.externalEvidenceRef ?? null,
         metadata: this.serializeJson(input.metadata ?? null),
+        effectiveDate: input.effectiveDate ? this.toDate(input.effectiveDate) : null,
         idempotencyKey,
         payloadDigest,
         retainedUntil,
         occurredAt,
+        recordedAt: new Date(),
       },
       client,
     );
+
+    await this.persistSubjects(created.id, occurredAt, input.subjects, client);
 
     return this.mapEvent(created);
   }
@@ -1315,9 +963,9 @@ export class AuditLogsService {
       },
       {
         actorType: 'SYSTEM',
-        actorId: 'SYSTEM',
         actorNo: 'SYSTEM',
-        actorRole: 'SYSTEM',
+        actorDisplayName: 'SYSTEM',
+        actorRolesAtTime: [],
       },
       client,
     );
