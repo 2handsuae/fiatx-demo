@@ -43,7 +43,7 @@ import {
   AuditEntityTypes,
   AuditGovernanceActions,
 } from '../../audit-logging/constants/audit-actions.constant';
-import { AuditOutcome } from '../../audit-logging/dto/audit-log.dto';
+import { AuditCategory, AuditOutcome } from '../../audit-logging/dto/audit-log.dto';
 import { UsersDomainService } from './users.domain.service';
 
 const MFA_ISSUER = process.env.MFA_ISSUER || 'Exchange Admin';
@@ -85,12 +85,15 @@ export class MfaBindingWorkflowService {
     return user;
   }
 
-  private buildActor(user: MfaBindingUserState) {
+  private buildActor(user: MfaBindingUserState, authnMethod?: string) {
     return {
       actorType: 'ADMIN',
       actorNo: user.userNo,
       actorDisplayName: user.userNo,
       actorRolesAtTime: [user.role],
+      // 落库到 actor 快照那份 authnMethod；DTO 上还要单独传一份给 assertActionSpec
+      // 校验必填（见 audit-log.dto.ts 里 authnMethod 字段的注释）。
+      ...(authnMethod ? { authnMethod } : {}),
     };
   }
 
@@ -131,24 +134,32 @@ export class MfaBindingWorkflowService {
       );
     }
 
-    const traceId = randomUUID();
-    await this.usersDomainService.setFirstLoginStatus(userId, 'MFA_BINDING', undefined, traceId);
+    // START：该行政员这次首登旅程的 correlationId。firstLoginTraceId 是 User 表上现成的
+    // 承载列（专为首登流程起的名字），同一次 update 里跟状态一起写回，供后续三步 INHERIT 读回。
+    const correlationId = randomUUID();
+    await this.usersDomainService.setFirstLoginStatus(userId, 'MFA_BINDING', undefined, correlationId);
 
     await this.auditLogsService.recordByActor(
       {
-        action: AuditGovernanceActions.ADMIN_FIRST_LOGIN.IDENTITY_CONFIRMED,
+        action: 'ADMIN_FIRST_LOGIN_IDENTITY_CONFIRMED',
+        actionDomain: 'IAM',
+        category: AuditCategory.GOVERNANCE,
         primarySubjectType: AuditEntityTypes.ADMIN_USER,
         primarySubjectNo: user.userNo,
-        traceId,
-        requestId: traceId,
+        correlationId,
+        // 这步是"确认身份"本身：走到这里之前已经用密码登录过一次拿到了 mfa-binding
+        // 专用的临时令牌（MfaBindingGuard 把关），本步没有独立再认证一次，如实记 PASSWORD。
+        authnMethod: 'PASSWORD',
         outcome: AuditOutcome.SUCCESS,
-        metadata: { fromStatus: 'PENDING_IDENTITY_CONFIRM', toStatus: 'MFA_BINDING' },
+        fromStatus: 'PENDING_IDENTITY_CONFIRM',
+        toStatus: 'MFA_BINDING',
+        requestId: randomUUID(),
         sourcePlatform: 'ADMIN_API',
       },
-      this.buildActor(user),
+      this.buildActor(user, 'PASSWORD'),
     );
 
-    return { nextStep: 'MFA_BINDING', traceId };
+    return { nextStep: 'MFA_BINDING', traceId: correlationId };
   }
 
   async initMfaBind(userId: string): Promise<{
@@ -169,18 +180,25 @@ export class MfaBindingWorkflowService {
     const qrDataUrl = await QRCode.toDataURL(otpauthUri);
 
     const encryptedSecret = encryptMfaSecret(secret);
+    // storeMfaSecret 的 traceId 入参是既有业务落库行为（写回同一列，幂等），保留原有兜底；
+    // 但审计 correlationId 严格 INHERIT 读 user.firstLoginTraceId 本身，不做 ?? randomUUID()
+    // 兜底——confirmIdentity 早已把它和 MFA_BINDING 状态一起写回，这里读不到就是真的有问题。
     const traceId = user.firstLoginTraceId || randomUUID();
     await this.usersDomainService.storeMfaSecret(userId, encryptedSecret, traceId, undefined);
 
     await this.auditLogsService.recordByActor(
       {
-        action: AuditGovernanceActions.ADMIN_FIRST_LOGIN.MFA_BINDING_INITIATED,
+        action: 'ADMIN_FIRST_LOGIN_MFA_INITIATED',
+        actionDomain: 'IAM',
+        category: AuditCategory.GOVERNANCE,
         primarySubjectType: AuditEntityTypes.ADMIN_USER,
         primarySubjectNo: user.userNo,
-        traceId,
-        requestId: traceId,
+        correlationId: user.firstLoginTraceId || undefined,
         outcome: AuditOutcome.SUCCESS,
         metadata: { issuer: MFA_ISSUER },
+        // 每次调用独立 nonce——这一步允许重复触发（例如用户刷新二维码页面重新生成密钥），
+        // 若沿用固定的 correlationId 系 requestId，幂等键会撞车、第二次调用被静默吞掉。
+        requestId: randomUUID(),
         sourcePlatform: 'ADMIN_API',
       },
       this.buildActor(user),
@@ -261,35 +279,32 @@ export class MfaBindingWorkflowService {
     if (!isValid) {
       const { newCount, locked } = await this.usersDomainService.incrementMfaVerifyFail(userId);
 
+      // 同一个动作码 ADMIN_FIRST_LOGIN_MFA_BOUND，失败与成功只靠 outcome 区分——
+      // 退役码 FIRST_LOGIN_MFA_VERIFY_FAILED 收编到这里，不再另起一个 _FAILED 后缀码。
       await this.auditLogsService.recordByActor(
         {
-          action: AuditGovernanceActions.ADMIN_FIRST_LOGIN.MFA_VERIFY_FAILED,
+          action: 'ADMIN_FIRST_LOGIN_MFA_BOUND',
+          actionDomain: 'IAM',
+          category: AuditCategory.GOVERNANCE,
           primarySubjectType: AuditEntityTypes.ADMIN_USER,
           primarySubjectNo: user.userNo,
-          traceId: user.firstLoginTraceId || undefined,
-          requestId: user.firstLoginTraceId || randomUUID(),
+          correlationId: user.firstLoginTraceId || undefined,
+          authnMethod: 'TOTP',
           outcome: AuditOutcome.FAILED,
+          reasonCode: 'INVALID_CODE',
           metadata: { failCount: newCount, locked },
+          requestId: randomUUID(),
           sourcePlatform: 'ADMIN_API',
         },
-        this.buildActor(user),
+        this.buildActor(user, 'TOTP'),
       );
 
       if (locked) {
-        await this.auditLogsService.recordByActor(
-          {
-            action: AuditGovernanceActions.ADMIN_FIRST_LOGIN.MFA_VERIFY_LOCKED,
-            primarySubjectType: AuditEntityTypes.ADMIN_USER,
-            primarySubjectNo: user.userNo,
-            traceId: user.firstLoginTraceId || undefined,
-            requestId: user.firstLoginTraceId || randomUUID(),
-            outcome: AuditOutcome.FAILED,
-            metadata: { failCount: newCount, lockoutMinutes: 15 },
-            sourcePlatform: 'ADMIN_API',
-          },
-          this.buildActor(user),
-        );
-
+        // TODO(Task 7): 连续失败触发锁定改变了访问能力，是另一件事——应另写一条
+        // ADMIN_ACCOUNT_LOCK_APPLIED（domain: IAM, correlationMode: START,
+        // requiredFields: reasonCode/fromStatus/toStatus，声明已在 V1_AUDIT_ACTIONS 里）。
+        // 退役码 FIRST_LOGIN_MFA_VERIFY_LOCKED 的写入点原样删除，不在本任务实装新码，
+        // 只留这条注释指向 Task 7；本次失败尝试本身已由上面那条 MFA_BOUND(FAILED) 记录。
         throw new TooManyRequestsException({
           message: 'MFA verification locked due to too many failed attempts',
           retryAfterSeconds: 15 * 60,
@@ -306,27 +321,33 @@ export class MfaBindingWorkflowService {
 
     await this.auditLogsService.recordByActor(
       {
-        action: AuditGovernanceActions.ADMIN_FIRST_LOGIN.MFA_BINDING_COMPLETED,
+        action: 'ADMIN_FIRST_LOGIN_MFA_BOUND',
+        actionDomain: 'IAM',
+        category: AuditCategory.GOVERNANCE,
         primarySubjectType: AuditEntityTypes.ADMIN_USER,
         primarySubjectNo: user.userNo,
-        traceId: user.firstLoginTraceId || undefined,
-        requestId: user.firstLoginTraceId || randomUUID(),
+        correlationId: user.firstLoginTraceId || undefined,
+        authnMethod: 'TOTP',
         outcome: AuditOutcome.SUCCESS,
-        metadata: { fromStatus: 'MFA_BINDING', toStatus: 'COMPLETED' },
+        requestId: randomUUID(),
         sourcePlatform: 'ADMIN_API',
       },
-      this.buildActor(user),
+      this.buildActor(user, 'TOTP'),
     );
 
     await this.auditLogsService.recordByActor(
       {
-        action: AuditGovernanceActions.ADMIN_FIRST_LOGIN.FIRST_LOGIN_COMPLETED,
+        action: 'ADMIN_FIRST_LOGIN_COMPLETED',
+        actionDomain: 'IAM',
+        category: AuditCategory.GOVERNANCE,
         primarySubjectType: AuditEntityTypes.ADMIN_USER,
         primarySubjectNo: user.userNo,
-        traceId: user.firstLoginTraceId || undefined,
-        requestId: user.firstLoginTraceId || randomUUID(),
+        correlationId: user.firstLoginTraceId || undefined,
         outcome: AuditOutcome.SUCCESS,
+        fromStatus: 'MFA_BINDING',
+        toStatus: 'COMPLETED',
         metadata: { userNo: user.userNo, role: user.role },
+        requestId: randomUUID(),
         sourcePlatform: 'ADMIN_API',
       },
       this.buildActor(user),

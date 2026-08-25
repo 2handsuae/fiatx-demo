@@ -157,6 +157,14 @@ export class CreateAuditLogEventDto {
   @ApiPropertyOptional({ enum: AuditOutcome }) @IsOptional() @IsEnum(AuditOutcome)
   outcome?: AuditOutcome;
 
+  /**
+   * 词表声明的必填字段——assertActionSpec 只查 input 上的字段，查不到 actor.authnMethod。
+   * 与 AuditActorContext.authnMethod（落库到 actor 快照那份）是两处独立声明，
+   * 同调用点应两处都传同一个值：这里满足 requiredFields 校验，actor 那份负责实际落库。
+   */
+  @ApiPropertyOptional() @IsOptional() @IsString()
+  authnMethod?: string;
+
   @ApiPropertyOptional() @IsOptional() @IsString()
   reasonCode?: string;
 
