@@ -41,6 +41,7 @@ describe('AdminInviteWorkflowService', () => {
     adminInvitationsService = {
       createInvitationForUser: jest.fn(),
       resendInvitationForUser: jest.fn(),
+      acceptInvitation: jest.fn(),
     };
     auditLogsService = {
       recordByActor: jest.fn().mockResolvedValue(undefined),
@@ -236,6 +237,79 @@ describe('AdminInviteWorkflowService', () => {
       );
       const call = adminInvitationsService.resendInvitationForUser.mock.calls[0][0];
       expect(call.auditContext).toBeUndefined();
+    });
+  });
+
+  describe('第一批 · V1 域打点上收 · acceptInvitation（admin-invitations.service.ts → workflow）', () => {
+    it('成功时写 ADMIN_INVITE_ACCEPTED：outcome=SUCCESS + correlationId/fromStatus/toStatus 来自域服务的返回值', async () => {
+      adminInvitationsService.acceptInvitation.mockResolvedValue({
+        userId: 'user-1',
+        userNo: 'ADM-001',
+        email: 'new@fiatx.com',
+        role: 'OPS',
+        status: 'ACTIVE',
+        fromStatus: 'INVITE_SENT',
+        correlationId: 'trace-invite-1',
+      });
+
+      const result = await service.acceptInvitation('token-1', '123456', {
+        requestId: 'req-1',
+        sourcePlatform: 'ADMIN_INVITATION_API',
+      });
+
+      expect(adminInvitationsService.acceptInvitation).toHaveBeenCalledWith('token-1', '123456');
+      expect(result).toEqual({
+        userId: 'user-1',
+        userNo: 'ADM-001',
+        email: 'new@fiatx.com',
+        status: 'ACTIVE',
+      });
+
+      const call = auditLogsService.recordByActor.mock.calls.find(
+        (c: any[]) => c[0].action === 'ADMIN_INVITE_ACCEPTED',
+      );
+      expect(call).toBeDefined();
+      expect(call[0].actionDomain).toBe('IAM');
+      expect(call[0].outcome).toBe('SUCCESS');
+      expect(call[0].correlationId).toBe('trace-invite-1');
+      expect(call[0].fromStatus).toBe('INVITE_SENT');
+      expect(call[0].toStatus).toBe('ACTIVE');
+      expect(call[1]).toEqual(
+        expect.objectContaining({ actorNo: 'ADM-001', actorRolesAtTime: ['OPS'] }),
+      );
+    });
+
+    it('域服务抛带 reasonCode 的结构化异常时写 ADMIN_INVITE_ACCEPTED：outcome=DENIED + 原样透传 reasonCode，且把原异常继续抛给调用方', async () => {
+      const { BadRequestException } = require('@nestjs/common');
+      adminInvitationsService.acceptInvitation.mockRejectedValue(
+        new BadRequestException({
+          message: 'Invitation link has expired',
+          reasonCode: 'INVITATION_EXPIRED',
+        }),
+      );
+
+      await expect(
+        service.acceptInvitation('token-1', '123456'),
+      ).rejects.toThrow('Invitation link has expired');
+
+      const call = auditLogsService.recordByActor.mock.calls.find(
+        (c: any[]) => c[0].action === 'ADMIN_INVITE_ACCEPTED' && c[0].outcome === 'DENIED',
+      );
+      expect(call).toBeDefined();
+      expect(call[0].reasonCode).toBe('INVITATION_EXPIRED');
+      expect(call[1]).toEqual(expect.objectContaining({ actorNo: 'UNKNOWN' }));
+    });
+
+    it('审计写入本身失败不吞掉原始拒绝原因——仍以域服务的异常为准向上抛', async () => {
+      const { NotFoundException } = require('@nestjs/common');
+      adminInvitationsService.acceptInvitation.mockRejectedValue(
+        new NotFoundException({ message: 'Invitation not found', reasonCode: 'INVITATION_NOT_FOUND' }),
+      );
+      auditLogsService.recordByActor.mockRejectedValueOnce(new Error('audit db down'));
+
+      await expect(
+        service.acceptInvitation('bogus-token', '123456'),
+      ).rejects.toThrow('Invitation not found');
     });
   });
 });

@@ -1,4 +1,9 @@
-import { BadRequestException, Injectable, InternalServerErrorException } from '@nestjs/common';
+import {
+  BadRequestException,
+  HttpException,
+  Injectable,
+  InternalServerErrorException,
+} from '@nestjs/common';
 import { OnEvent } from '@nestjs/event-emitter';
 import { randomUUID } from 'crypto';
 import { PrismaService } from '../../../core/prisma/prisma.service';
@@ -302,6 +307,99 @@ export class AdminInviteWorkflowService {
         actorNo: actor.userNo,
       },
     });
+  }
+
+  /**
+   * 从捕获的异常里取出 AdminInvitationsService 抛出的 reasonCode（结构化异常体
+   * {message, reasonCode}）。取不到（非本文件约定的异常形状）就回落 'UNKNOWN'——
+   * 断言最终必填的是"有 reasonCode"，不是"reasonCode 必须命中已知枚举"。
+   */
+  private extractReasonCode(error: unknown): string {
+    if (error instanceof HttpException) {
+      const response = error.getResponse();
+      if (response && typeof response === 'object' && 'reasonCode' in response) {
+        const code = (response as { reasonCode?: unknown }).reasonCode;
+        if (typeof code === 'string' && code) return code;
+      }
+    }
+    return 'UNKNOWN';
+  }
+
+  /**
+   * ADMIN_INVITE_ACCEPTED 唯一写入点——Task 9 从 AdminInvitationsService 上收。
+   * 域服务只返回结果（成功）或抛带 reasonCode 的结构化异常（拒绝），这里拿到后
+   * 落审计：成功 outcome=SUCCESS 带 fromStatus/toStatus/correlationId（INHERIT
+   * 自邀请记录自己的 traceId 列）；拒绝 outcome=DENIED 带 reasonCode，不強求
+   * fromStatus/toStatus（判据②：非成功路径只强制 reasonCode）。
+   *
+   * actor：接受邀请这一步的"操作者"就是被邀请人本人（自助激活账号，此刻还未登录、
+   * 没有其它身份可用）——成功时用刚激活的账号自身身份记；失败时（token 不存在/
+   * 已用/已过期等）身份未知，记 UNKNOWN，同旧实现一致。
+   */
+  async acceptInvitation(
+    token: string,
+    password: string,
+    ctx: { requestId?: string; sourceIp?: string; sourcePlatform?: string } = {},
+  ): Promise<{ userId: string; userNo: string; email: string; status: string }> {
+    try {
+      const accepted = await this.adminInvitationsService.acceptInvitation(token, password);
+
+      await this.auditLogsService.recordByActor(
+        {
+          action: 'ADMIN_INVITE_ACCEPTED',
+          actionDomain: 'IAM',
+          category: AuditCategory.GOVERNANCE,
+          // 对齐同一旅程其余 4 码的 primarySubjectType（REQUESTED/DISPATCHED/
+          // CANCELLED 都用 ACCESS_CONTROL）。
+          primarySubjectType: AuditEntityTypes.ACCESS_CONTROL,
+          primarySubjectNo: accepted.userNo,
+          outcome: AuditOutcome.SUCCESS,
+          correlationId: accepted.correlationId,
+          fromStatus: accepted.fromStatus,
+          toStatus: accepted.status,
+          requestId: ctx.requestId,
+          sourceIp: ctx.sourceIp,
+          sourcePlatform: ctx.sourcePlatform || 'ADMIN_INVITATION_API',
+        },
+        {
+          actorType: 'ADMIN',
+          actorNo: accepted.userNo,
+          actorDisplayName: accepted.userNo,
+          actorRolesAtTime: [accepted.role || 'ADMIN'],
+        },
+      );
+
+      return {
+        userId: accepted.userId,
+        userNo: accepted.userNo,
+        email: accepted.email,
+        status: accepted.status,
+      };
+    } catch (error) {
+      await this.auditLogsService
+        .recordByActor(
+          {
+            action: 'ADMIN_INVITE_ACCEPTED',
+            actionDomain: 'IAM',
+            category: AuditCategory.GOVERNANCE,
+            primarySubjectType: AuditEntityTypes.ACCESS_CONTROL,
+            outcome: AuditOutcome.DENIED,
+            reasonCode: this.extractReasonCode(error),
+            reason: error instanceof Error ? error.message : 'Admin invitation accept failed',
+            requestId: ctx.requestId,
+            sourceIp: ctx.sourceIp,
+            sourcePlatform: ctx.sourcePlatform || 'ADMIN_INVITATION_API',
+          },
+          {
+            actorType: 'ADMIN',
+            actorNo: 'UNKNOWN',
+            actorDisplayName: 'UNKNOWN',
+            actorRolesAtTime: ['UNKNOWN'],
+          },
+        )
+        .catch(() => undefined);
+      throw error;
+    }
   }
 
   /**

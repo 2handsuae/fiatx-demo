@@ -50,6 +50,12 @@ import { UsersController } from './users.controller';
     AdminMfaResetWorkflowService,
   ],
   controllers: [UsersController, AdminRoleChangeRequestController, AdminCredentialMgmtController],
-  exports: [UsersService, UsersDomainService, AdminInvitationsService, AdminPasswordResetWorkflowService],
+  exports: [
+    UsersService,
+    UsersDomainService,
+    AdminInvitationsService,
+    AdminInviteWorkflowService,
+    AdminPasswordResetWorkflowService,
+  ],
 })
 export class UsersModule {}

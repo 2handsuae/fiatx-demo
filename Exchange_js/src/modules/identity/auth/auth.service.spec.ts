@@ -2,6 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { AuthService } from './auth.service';
 import { UsersService } from '../users/users.service';
 import { AdminInvitationsService } from '../users/admin-invitations.service';
+import { AdminInviteWorkflowService } from '../users/admin-invite-workflow.service';
 import { JwtService } from '@nestjs/jwt';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { ForbiddenException } from '@nestjs/common';
@@ -42,6 +43,11 @@ describe('AuthService', () => {
           provide: AdminInvitationsService,
           useValue: {
             getInvitationPreview: jest.fn(),
+          },
+        },
+        {
+          provide: AdminInviteWorkflowService,
+          useValue: {
             acceptInvitation: jest.fn(),
           },
         },

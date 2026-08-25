@@ -8,17 +8,6 @@ import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../../core/prisma/prisma.service';
 import * as bcrypt from 'bcrypt';
 import { createHash, randomBytes } from 'crypto';
-import { AuditLogsService } from '../../audit-logging/audit-logs.service';
-import {
-  AuditActions,
-  AuditBusinessWorkflowTypes,
-  AuditEntityTypes,
-  AuditModules,
-} from '../../audit-logging/constants/audit-actions.constant';
-import {
-  AuditCategory,
-  AuditOutcome,
-} from '../../audit-logging/dto/audit-log.dto';
 
 const INVITATION_TTL_MS = 24 * 60 * 60 * 1000;
 const MAX_TOKEN_GENERATION_RETRIES = 5;
@@ -32,14 +21,6 @@ type AdminActor = {
 type IssueInvitationOptions = {
   userId: string;
   actor: AdminActor;
-  action: string;
-  auditContext?: InternalAuditContext;
-};
-
-type RequestContext = {
-  requestId?: string;
-  sourceIp?: string;
-  sourcePlatform?: string;
   auditContext?: InternalAuditContext;
 };
 
@@ -53,7 +34,6 @@ export class AdminInvitationsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly configService: ConfigService,
-    private readonly auditLogsService: AuditLogsService,
   ) {}
 
   private normalizeToken(token: string): string {
@@ -70,10 +50,6 @@ export class AdminInvitationsService {
     return createHash('sha256').update(token).digest('hex');
   }
 
-  private maskToken(token: string): string {
-    return this.hashToken(token).slice(0, 16);
-  }
-
   private resolveAdminUrl(): string {
     const configured =
       this.configService.get<string>('ADMIN_URL') ||
@@ -88,20 +64,6 @@ export class AdminInvitationsService {
 
   private buildExpiresAt(): Date {
     return new Date(Date.now() + INVITATION_TTL_MS);
-  }
-
-  private applyAuditContext<T extends Record<string, unknown>>(
-    payload: T,
-    auditContext?: InternalAuditContext,
-  ): T {
-    const workflowType = this.normalizeOptionalString(auditContext?.workflowType);
-    const traceId = this.normalizeOptionalString(auditContext?.traceId);
-
-    return {
-      ...payload,
-      workflowType: workflowType || undefined,
-      traceId: traceId || undefined,
-    } as T;
   }
 
   private resolvePersistableAuditContext(
@@ -141,41 +103,48 @@ export class AdminInvitationsService {
     return this.resolvePersistableAuditContext(latest || undefined);
   }
 
-  private async findInvitationAuditContextByTokenHash(
-    tokenHash: string,
-  ): Promise<InternalAuditContext | undefined> {
-    const invitation = await (this.prisma as any).adminUserInvitation.findUnique?.({
-      where: { tokenHash },
-      select: {
-        workflowType: true,
-        traceId: true,
-      },
-    });
-
-    return this.resolvePersistableAuditContext(invitation || undefined);
-  }
-
   private assertPassword(password: string): void {
     if (String(password || '').length < 6) {
-      throw new BadRequestException('Password must be at least 6 characters');
+      // Task 9：拒绝改为带 reasonCode 的结构化异常——message 字面量原样保留
+      // （前端/既有调用方读 error.message 不受影响），编排层捕获后按 reasonCode
+      // 写 outcome=DENIED，不必再解析文案。
+      throw new BadRequestException({
+        message: 'Password must be at least 6 characters',
+        reasonCode: 'PASSWORD_TOO_SHORT',
+      });
     }
   }
 
   private assertInvitationUsable(invitation: any, now: Date): void {
     if (invitation.user?.deletedAt) {
-      throw new BadRequestException('Invitation link is no longer valid');
+      throw new BadRequestException({
+        message: 'Invitation link is no longer valid',
+        reasonCode: 'ACCOUNT_DELETED',
+      });
     }
     if (invitation.revokedAt) {
-      throw new BadRequestException('Invitation link is no longer valid');
+      throw new BadRequestException({
+        message: 'Invitation link is no longer valid',
+        reasonCode: 'INVITATION_REVOKED',
+      });
     }
     if (invitation.consumedAt) {
-      throw new BadRequestException('Invitation link already used');
+      throw new BadRequestException({
+        message: 'Invitation link already used',
+        reasonCode: 'INVITATION_ALREADY_USED',
+      });
     }
     if (invitation.expiresAt <= now) {
-      throw new BadRequestException('Invitation link has expired');
+      throw new BadRequestException({
+        message: 'Invitation link has expired',
+        reasonCode: 'INVITATION_EXPIRED',
+      });
     }
     if (invitation.user?.status === 'ACTIVE') {
-      throw new BadRequestException('Account already activated');
+      throw new BadRequestException({
+        message: 'Account already activated',
+        reasonCode: 'ACCOUNT_ALREADY_ACTIVE',
+      });
     }
   }
 
@@ -277,29 +246,16 @@ export class AdminInvitationsService {
       return { invitation, token };
     });
 
-    const workflowOwnsAudit =
-      effectiveAuditContext?.workflowType === AuditBusinessWorkflowTypes.ADMIN_INVITE;
-    if (!workflowOwnsAudit) {
-      await this.auditLogsService.recordByActor(
-        this.applyAuditContext({
-          action: options.action,
-          primarySubjectType: AuditEntityTypes.ACCESS_CONTROL,
-          primarySubjectNo: user.userNo,
-          metadata: {
-            userId: user.id,
-            userNo: user.userNo,
-            userEmail: user.email,
-            inviteExpiresAt: issued.invitation.expiresAt.toISOString(),
-          },
-        }, effectiveAuditContext),
-        {
-          actorType: 'ADMIN',
-          actorNo: options.actor.actorNo || 'UNKNOWN',
-          actorDisplayName: options.actor.actorNo || 'UNKNOWN',
-          actorRolesAtTime: [options.actor.actorRole],
-        },
-      );
-    }
+    // Task 9：审计上收——本方法只返回结果，写审计交给调用方（编排层，拿得到 actor/
+    // 旅程）。这条自身审计写入在删除前已实证是死分支：本方法仅有的两个真实调用
+    // 路径——executeInviteDispatch（走 create）与 AdminInviteWorkflowService
+    // .resendInvitation（走 resend）——都必然把 effectiveAuditContext 解析成
+    // workflowType=ADMIN_INVITE（前者显式传入；后者由 findLatestInvitationAuditContext
+    // 从该用户已有邀请记录继承，而能触发 resend 的用户必然已有一条这样的邀请记录），
+    // 旧的 !workflowOwnsAudit 分支从未真正触发过。executeInviteDispatch 那侧已经写
+    // ADMIN_INVITE_DISPATCHED 补上了；resendInvitation 那侧目前没有等价的补写——
+    // "重发邀请"本身此前也从未真正产生过审计记录，是既有缺口，非本次改动引入，
+    // 已在任务报告的顾虑里登记。
 
     return {
       userId: user.id,
@@ -328,7 +284,6 @@ export class AdminInvitationsService {
     return this.issueInvitation({
       userId: input.userId,
       actor: input.actor,
-      action: AuditActions.ADMIN_INVITATION_CREATED,
       auditContext: input.auditContext,
     });
   }
@@ -349,7 +304,6 @@ export class AdminInvitationsService {
     return this.issueInvitation({
       userId: input.userId,
       actor: input.actor,
-      action: AuditActions.ADMIN_INVITATION_RESENT,
       auditContext: input.auditContext,
     });
   }
@@ -394,152 +348,118 @@ export class AdminInvitationsService {
     };
   }
 
+  /**
+   * Task 9：域服务只返回结果（含 fromStatus/toStatus 等价物 + correlationId），
+   * 不再自己写审计——ADMIN_INVITE_ACCEPTED 由调用方（AdminInviteWorkflowService，
+   * 编排层）写，它才拿得到 actor/旅程。拒绝路径全部经 assertPassword/
+   * assertInvitationUsable 抛带 reasonCode 的结构化异常，调用方捕获后写
+   * outcome=DENIED，不必再解析文案。
+   */
   async acceptInvitation(
     token: string,
     password: string,
-    ctx: RequestContext = {},
-  ): Promise<{ userId: string; userNo: string; email: string; status: string }> {
+  ): Promise<{
+    userId: string;
+    userNo: string;
+    email: string;
+    role: string;
+    status: string;
+    fromStatus: string;
+    correlationId?: string;
+  }> {
     const normalizedToken = this.normalizeToken(token);
     if (!normalizedToken) {
-      throw new BadRequestException('Invitation token is required');
+      throw new BadRequestException({
+        message: 'Invitation token is required',
+        reasonCode: 'TOKEN_REQUIRED',
+      });
     }
     this.assertPassword(password);
 
     const tokenHash = this.hashToken(normalizedToken);
     const now = new Date();
-    const effectiveAuditContext =
-      this.resolvePersistableAuditContext(ctx.auditContext) ||
-      (await this.findInvitationAuditContextByTokenHash(tokenHash));
 
-    // 接受邀请与账号激活合成一条：下面这一次事务里，读到的邀请记录（携带 workflowType/
-    // traceId）与被激活的 User 是同一次调用、同一个 PRIMARY，不拆成两条。
+    // 接受邀请与账号激活合成一条：下面这一次事务里，读到的邀请记录（携带 traceId）
+    // 与被激活的 User 是同一次调用、同一个 PRIMARY，不拆成两条。
     let fromStatus: string | undefined;
     let invitationTraceId: string | null = null;
 
-    try {
-      const accepted = await this.prisma.$transaction(async (tx) => {
-        const invitation = await (tx as any).adminUserInvitation.findUnique({
-          where: { tokenHash },
-          include: {
-            user: {
-              select: {
-                id: true,
-                userNo: true,
-                email: true,
-                role: true,
-                status: true,
-                deletedAt: true,
-              },
+    const accepted = await this.prisma.$transaction(async (tx) => {
+      const invitation = await (tx as any).adminUserInvitation.findUnique({
+        where: { tokenHash },
+        include: {
+          user: {
+            select: {
+              id: true,
+              userNo: true,
+              email: true,
+              role: true,
+              status: true,
+              deletedAt: true,
             },
           },
-        });
-
-        if (!invitation || !invitation.user) {
-          throw new NotFoundException('Invitation not found');
-        }
-
-        this.assertInvitationUsable(invitation, now);
-        fromStatus = invitation.user.status;
-        invitationTraceId = invitation.traceId ?? null;
-
-        const passwordHash = await bcrypt.hash(password, 10);
-        const updatedUser = await tx.user.update({
-          where: { id: invitation.user.id },
-          data: {
-            password: passwordHash,
-            status: 'ACTIVE',
-            failedLoginAttempts: 0,
-            lockedUntil: null,
-          },
-          select: {
-            id: true,
-            userNo: true,
-            email: true,
-            role: true,
-            status: true,
-          },
-        });
-
-        await (tx as any).adminUserInvitation.update({
-          where: { id: invitation.id },
-          data: { consumedAt: now },
-        });
-
-        await (tx as any).adminUserInvitation.updateMany({
-          where: {
-            userId: updatedUser.id,
-            id: { not: invitation.id },
-            consumedAt: null,
-            revokedAt: null,
-            expiresAt: { gt: now },
-          },
-          data: { revokedAt: now },
-        });
-
-        return updatedUser;
+        },
       });
 
-      const isAdminInviteFlow =
-        effectiveAuditContext?.workflowType === AuditBusinessWorkflowTypes.ADMIN_INVITE;
-      await this.auditLogsService.recordByActor(
-        this.applyAuditContext({
-          action: isAdminInviteFlow ? 'ADMIN_INVITE_ACCEPTED' : AuditActions.ADMIN_INVITATION_ACCEPTED,
-          // ADMIN_INVITE_ACCEPTED 对齐同一旅程其余 4 码的 primarySubjectType
-          // （REQUESTED/DISPATCHED/CANCELLED 都用 ACCESS_CONTROL），不沿用旧码的 AUTH。
-          primarySubjectType: isAdminInviteFlow ? AuditEntityTypes.ACCESS_CONTROL : AuditEntityTypes.AUTH,
-          primarySubjectNo: accepted.userNo,
-          outcome: AuditOutcome.SUCCESS,
-          requestId: ctx.requestId,
-          sourceIp: ctx.sourceIp,
-          sourcePlatform: ctx.sourcePlatform || 'ADMIN_INVITATION_API',
-          ...(isAdminInviteFlow
-            ? {
-                actionDomain: 'IAM',
-                category: AuditCategory.GOVERNANCE,
-                // INHERIT：读邀请记录自己的 traceId 列——executeInviteDispatch 建邀请记录时
-                // 写入的那份 correlationId（原样来自 initiateInvite 铸造的值）。
-                correlationId: invitationTraceId ?? undefined,
-                fromStatus,
-                toStatus: accepted.status,
-              }
-            : {}),
-        }, effectiveAuditContext),
-        {
-          actorType: 'ADMIN',
-          actorNo: accepted.userNo,
-          actorDisplayName: accepted.userNo,
-          actorRolesAtTime: [accepted.role || 'ADMIN'],
-        },
-      );
+      if (!invitation || !invitation.user) {
+        throw new NotFoundException({
+          message: 'Invitation not found',
+          reasonCode: 'INVITATION_NOT_FOUND',
+        });
+      }
 
-      return {
-        userId: accepted.id,
-        userNo: accepted.userNo,
-        email: accepted.email,
-        status: accepted.status,
-      };
-    } catch (error: any) {
-      await this.auditLogsService.recordByActor(
-        this.applyAuditContext({
-          action: AuditActions.ADMIN_INVITATION_ACCEPT_FAILED,
-          primarySubjectType: AuditEntityTypes.AUTH,
-          outcome: AuditOutcome.FAILED,
-          reason: error?.message || 'Admin invitation accept failed',
-          metadata: {
-            tokenHashPrefix: this.maskToken(normalizedToken),
-          },
-          requestId: ctx.requestId,
-          sourceIp: ctx.sourceIp,
-          sourcePlatform: ctx.sourcePlatform || 'ADMIN_INVITATION_API',
-        }, effectiveAuditContext),
-        {
-          actorType: 'ADMIN',
-          actorNo: 'UNKNOWN',
-          actorDisplayName: 'UNKNOWN',
-          actorRolesAtTime: ['UNKNOWN'],
+      this.assertInvitationUsable(invitation, now);
+      fromStatus = invitation.user.status;
+      // INHERIT：读邀请记录自己的 traceId 列——executeInviteDispatch 建邀请记录时
+      // 写入的那份 correlationId（原样来自 initiateInvite 铸造的值）。读不到就是
+      // NULL，原样交给调用方，不在这里兜底铸造。
+      invitationTraceId = invitation.traceId ?? null;
+
+      const passwordHash = await bcrypt.hash(password, 10);
+      const updatedUser = await tx.user.update({
+        where: { id: invitation.user.id },
+        data: {
+          password: passwordHash,
+          status: 'ACTIVE',
+          failedLoginAttempts: 0,
+          lockedUntil: null,
         },
-      );
-      throw error;
-    }
+        select: {
+          id: true,
+          userNo: true,
+          email: true,
+          role: true,
+          status: true,
+        },
+      });
+
+      await (tx as any).adminUserInvitation.update({
+        where: { id: invitation.id },
+        data: { consumedAt: now },
+      });
+
+      await (tx as any).adminUserInvitation.updateMany({
+        where: {
+          userId: updatedUser.id,
+          id: { not: invitation.id },
+          consumedAt: null,
+          revokedAt: null,
+          expiresAt: { gt: now },
+        },
+        data: { revokedAt: now },
+      });
+
+      return updatedUser;
+    });
+
+    return {
+      userId: accepted.id,
+      userNo: accepted.userNo,
+      email: accepted.email,
+      role: accepted.role,
+      status: accepted.status,
+      fromStatus: fromStatus!,
+      correlationId: invitationTraceId ?? undefined,
+    };
   }
 }

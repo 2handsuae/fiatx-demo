@@ -1,6 +1,7 @@
 import { Injectable, ForbiddenException, Optional } from '@nestjs/common';
 import { UsersService } from '../users/users.service';
 import { AdminInvitationsService } from '../users/admin-invitations.service';
+import { AdminInviteWorkflowService } from '../users/admin-invite-workflow.service';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
 import { randomUUID } from 'crypto';
@@ -20,6 +21,7 @@ export class AuthService {
   constructor(
     private usersService: UsersService,
     private adminInvitationsService: AdminInvitationsService,
+    private adminInviteWorkflowService: AdminInviteWorkflowService,
     private jwtService: JwtService,
     private eventEmitter: EventEmitter2,
     @Optional() private accessControlService?: AccessControlService,
@@ -226,6 +228,9 @@ export class AuthService {
     password: string,
     ctx: AuthRequestContext = {},
   ) {
-    return this.adminInvitationsService.acceptInvitation(token, password, ctx);
+    // Task 9：接受邀请审计（ADMIN_INVITE_ACCEPTED）已上收到 AdminInviteWorkflowService
+    // （编排层）——它拿到 AdminInvitationsService 的结果/拒绝原因码后落审计，
+    // 这里只是路由，不再直接调域服务。
+    return this.adminInviteWorkflowService.acceptInvitation(token, password, ctx);
   }
 }
