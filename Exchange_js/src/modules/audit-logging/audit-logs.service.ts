@@ -594,10 +594,12 @@ export class AuditLogsService {
     });
   }
 
+  // 返回 isNew 供调用方判断：幂等命中（isNew=false）时子表已在首次写入时落过，
+  // 调用方不应重放 persistSubjects——否则撞 subjects 唯一键。
   private async createEventWithUniqueNo(
     data: any,
     client?: AuditWriteClient,
-  ): Promise<any> {
+  ): Promise<{ row: any; isNew: boolean }> {
     const db = this.getDb(client) as any;
 
     if (!this.canOperateAuditLogEvent(db)) {
@@ -608,7 +610,7 @@ export class AuditLogsService {
       const existing = await db.auditLogEvent.findUnique({
         where: { idempotencyKey: data.idempotencyKey },
       });
-      if (existing) return existing;
+      if (existing) return { row: existing, isNew: false };
     }
 
     for (let i = 0; i < AuditLogsService.MAX_NO_RETRIES; i += 1) {
@@ -618,9 +620,10 @@ export class AuditLogsService {
           eventNo: generateReferenceNo('AUD'),
         };
 
-        return await db.auditLogEvent.create({
+        const row = await db.auditLogEvent.create({
           data: createData,
         });
+        return { row, isNew: true };
       } catch (error) {
         if (this.isUniqueConflict(error, 'eventNo')) continue;
 
@@ -628,7 +631,7 @@ export class AuditLogsService {
           const existing = await db.auditLogEvent.findUnique({
             where: { idempotencyKey: data.idempotencyKey },
           });
-          if (existing) return existing;
+          if (existing) return { row: existing, isNew: false };
         }
 
         throw error;
@@ -877,7 +880,7 @@ export class AuditLogsService {
 
     const payloadDigest = sha256Hex({
       action: input.action,
-      actionDomain: input.actionDomain || null,
+      actionDomain: input.actionDomain || 'UNCLASSIFIED',
       primarySubjectType: input.primarySubjectType || null,
       primarySubjectNo: input.primarySubjectNo || null,
       ownerCustomerNo: input.ownerCustomerNo || null,
@@ -894,11 +897,14 @@ export class AuditLogsService {
       retainedUntil: retainedUntil.toISOString(),
     });
 
-    const created = await this.createEventWithUniqueNo(
+    const { row: created, isNew } = await this.createEventWithUniqueNo(
       {
         action: input.action,
-        actionDomain: input.actionDomain,
-        category: input.category,
+        // NOT NULL 列，无 DB default——业主裁定其他域暂不传分类，占位值
+        // 'UNCLASSIFIED' 如实标注"未分类"，可用 WHERE actionDomain='UNCLASSIFIED'
+        // 一把捞出待各域批次补分类的记录；不猜一个像样的值(如 SYSTEM/BUSINESS)充数。
+        actionDomain: input.actionDomain ?? 'UNCLASSIFIED',
+        category: input.category ?? 'UNCLASSIFIED',
         isReadOnly: input.isReadOnly ?? false,
         primarySubjectType: input.primarySubjectType ?? null,
         primarySubjectNo: input.primarySubjectNo ?? null,
@@ -947,7 +953,11 @@ export class AuditLogsService {
       client,
     );
 
-    await this.persistSubjects(created.id, occurredAt, input.subjects, client);
+    // 幂等命中（isNew=false）时 created 是既有行，子表早已写过——重放会撞
+    // @@unique([eventId, subjectType, subjectNo, subjectRole])，只在真新建时落子表。
+    if (isNew) {
+      await this.persistSubjects(created.id, occurredAt, input.subjects, client);
+    }
 
     return this.mapEvent(created);
   }

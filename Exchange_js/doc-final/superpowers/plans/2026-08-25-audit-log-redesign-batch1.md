@@ -41,7 +41,11 @@
   | **V1 域** | 全部正确：45 码 + 声明校验 + subjects + 三条追踪线 | — |
   | **其他域**（交易 / 客户 / 对账 / 资产等 33 文件） | **只机械改字段名，让它编译过** | 内容对不对、码对不对、subjects 有没有、拒绝路径接没接 —— **一概不管** |
 
-  配套放宽：`actionDomain` / `category` 在 DTO 里**声明为可选**，服务层只对 **V1 词表内的码**强制（`assertActionSpec` 的 `if (!spec) return;` 天然如此）。于是其他域的调用**能编译、能跑、写出来的记录内容残缺** —— 正是业主要的效果。
+  配套放宽：`actionDomain` / `category` 在 DTO 里**声明为可选**，服务层只对 **V1 词表内的码**强制（`assertActionSpec` 的 `if (!spec) return;` 天然如此）。
+
+  ⚠️ **DTO 可选 ≠ 落库可以是 `undefined`**：这两列在 DB schema 里是 **NOT NULL、无 default**（`category String` / `actionDomain String`，见 `prisma/schema.prisma`）。服务层若原样透传 `input.actionDomain` / `input.category`，其他域不传时 Prisma 会直接抛 `PrismaClientValidationError: Argument category is missing`，**整条请求 500**——不是「记录内容残缺」这么轻，是全系统任何触发审计写入的接口都打不通。故服务层必须兜底占位值：`actionDomain: input.actionDomain ?? 'UNCLASSIFIED'`、`category: input.category ?? 'UNCLASSIFIED'`。
+
+  **为什么用 `'UNCLASSIFIED'` 而不是猜一个像样的值**：这些记录的分类确实还没做，占位值如实说出这一点；且后续各域批次能用 `WHERE actionDomain='UNCLASSIFIED'` 一把捞出「还欠账的记录」。填 `SYSTEM`/`BUSINESS` 这种像样的值反而是撒谎，且捞不出来。于是其他域的调用**能编译、能跑、写出来的记录内容残缺（`actionDomain`/`category` 都是 `'UNCLASSIFIED'`）** —— 正是业主要的效果。
 
   **机械改名的确切含义**（Task 2 Step 8 执行）：只做下列字面替换 —— **前四组可 sed，后三组要人工判断**；一律**不改任何语义、不加任何字段、不动任何动作码**。
   ```
@@ -752,8 +756,8 @@ export class CreateAuditLogEventDto {
 ```typescript
       {
         action: input.action,
-        actionDomain: input.actionDomain,
-        category: input.category,
+        actionDomain: input.actionDomain ?? 'UNCLASSIFIED',
+        category: input.category ?? 'UNCLASSIFIED',
         isReadOnly: input.isReadOnly ?? false,
         primarySubjectType: input.primarySubjectType ?? null,
         primarySubjectNo: input.primarySubjectNo ?? null,

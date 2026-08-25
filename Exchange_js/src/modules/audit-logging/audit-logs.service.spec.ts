@@ -1733,5 +1733,37 @@ describe('AuditLogsService', () => {
 
       expect(k1).not.toBe(k2);
     });
+
+    it('不传 actionDomain/category 时落占位值，不传 undefined 给 NOT NULL 列', async () => {
+      await service.recordSystem({
+        action: 'SOME_LEGACY_TRADING_ACTION',
+        primarySubjectType: 'DEPOSIT_TRANSACTION',
+        primarySubjectNo: 'DEP001',
+      } as any);
+
+      const data = prisma.auditLogEvent.create.mock.calls[0][0].data;
+      expect(data.actionDomain).toBe('UNCLASSIFIED');
+      expect(data.category).toBe('UNCLASSIFIED');
+      expect(data.actionDomain).not.toBeUndefined();
+      expect(data.category).not.toBeUndefined();
+    });
+
+    it('幂等命中时不重放 subjects，避免撞子表唯一键', async () => {
+      prisma.auditLogEvent.findUnique.mockResolvedValue({ id: 'evt-existing', eventNo: 'AUD-OLD' });
+      prisma.auditLogSubject = { createMany: jest.fn() };
+
+      await service.recordSystem({
+        action: 'ADMIN_SUSPENSION_APPLIED',
+        actionDomain: 'IAM',
+        category: AuditCategory.GOVERNANCE,
+        correlationId: 'c1',
+        idempotencyKey: 'dup-key',
+        subjects: [
+          { subjectType: 'ADMIN_USER', subjectNo: 'USR001', subjectRole: AuditSubjectRole.PRIMARY },
+        ],
+      } as any);
+
+      expect(prisma.auditLogSubject.createMany).not.toHaveBeenCalled();
+    });
   });
 });
