@@ -74,15 +74,17 @@ describe('AuditEvidenceExportWorkflowService', () => {
         expect.objectContaining({
           actionType: 'AUDIT_EVIDENCE_EXPORT_APPROVAL',
           entityRef: 'pkg-1',
-          traceId: 'trace-1',
+          // AUDIT_EVIDENCE_EXPORT_REQUESTED 是 START 码——按设计铸新 correlationId
+          // （本表用 traceId 列承载），不再沿用调用方传入的值。
+          traceId: expect.any(String),
         }),
-        expect.objectContaining({ traceId: 'trace-1' }),
+        expect.objectContaining({ traceId: expect.any(String) }),
         actor,
       );
       expect(auditLogsService.linkEvidencePackageApproval).toHaveBeenCalledWith('pkg-1', 'approval-1', 'APR2603140001');
       expect(auditLogsService.recordByActor).toHaveBeenCalledWith(
         expect.objectContaining({
-          action: 'EXPORT_REQUESTED',
+          action: 'AUDIT_EVIDENCE_EXPORT_REQUESTED',
         }),
         expect.objectContaining({ actorNo: 'USR-1' }),
       );
@@ -106,7 +108,7 @@ describe('AuditEvidenceExportWorkflowService', () => {
         expect.objectContaining({ approvalCaseId: 'approval-1', entityRef: 'pkg-1' }),
       );
       expect(auditLogsService.recordByActor).toHaveBeenCalledWith(
-        expect.objectContaining({ action: 'PACKAGE_DOWNLOADED' }),
+        expect.objectContaining({ action: 'AUDIT_EVIDENCE_EXPORT_DOWNLOADED' }),
         expect.any(Object),
       );
       expect(result.packageNo).toBe('EVP-1');
@@ -167,7 +169,7 @@ describe('AuditEvidenceExportWorkflowService', () => {
         expect.objectContaining({ status: 'READY', digest: 'd'.repeat(64) }),
       );
       expect(auditLogsService.recordByActor).toHaveBeenCalledWith(
-        expect.objectContaining({ action: 'GENERATION_COMPLETED' }),
+        expect.objectContaining({ action: 'AUDIT_EVIDENCE_EXPORT_GENERATED' }),
         expect.any(Object),
       );
       expect(approvalsService.markExecutionResult).not.toHaveBeenCalled();

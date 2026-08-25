@@ -901,12 +901,25 @@ export class AuditLogsService {
       );
     }
 
-    const missing = spec.requiredFields.filter(
-      (f) => (input as any)[f] === undefined || (input as any)[f] === null,
-    );
-    if (missing.length > 0) {
+    // requiredFields 描述的是「成功执行会产出什么」——失败/被拒时按定义就产不出来：
+    //   AUDIT_EVIDENCE_EXPORT_GENERATED 失败时没有产物，就没有产物摘要；
+    //   ADMIN_ROLE_CHANGE_APPLIED 失败时变更没落地，就没有 afterData。
+    // 若不分成败一律强制，每条失败分支都会被拒绝写入 —— 而「失败必须留痕」是本批的核心。
+    // 故：成功路径强制 requiredFields；非成功路径改为强制 reasonCode（失败要能被机器聚合）。
+    const isSuccess = !input.outcome || input.outcome === AuditOutcome.SUCCESS;
+    if (isSuccess) {
+      const missing = spec.requiredFields.filter(
+        (f) => (input as any)[f] === undefined || (input as any)[f] === null,
+      );
+      if (missing.length > 0) {
+        throw new BadRequestException(
+          `Audit action ${input.action} missing required field(s): ${missing.join(', ')}.`,
+        );
+      }
+    } else if (!input.reasonCode) {
       throw new BadRequestException(
-        `Audit action ${input.action} missing required field(s): ${missing.join(', ')}.`,
+        `Audit action ${input.action} has outcome=${input.outcome} and must carry reasonCode. ` +
+          '非成功的记录必须带机器可读原因码，否则「这个月因什么拦了多少笔」统计不出来。',
       );
     }
 

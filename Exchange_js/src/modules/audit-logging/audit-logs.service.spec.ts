@@ -1894,6 +1894,55 @@ describe('AuditLogsService', () => {
       } as any)).rejects.toThrow('deprecated');
     });
   });
+
+  describe('第一批 · requiredFields 成败分流', () => {
+    beforeEach(() => {
+      prisma.auditLogSubject = { createMany: jest.fn() };
+      prisma.auditLogEvent.findUnique.mockResolvedValue(null);
+      prisma.auditLogEvent.create.mockResolvedValue({ id: 'e', eventNo: 'A' });
+    });
+
+    it('失败路径不强制 requiredFields —— 失败时按定义就产不出那些字段', async () => {
+      // AUDIT_EVIDENCE_EXPORT_GENERATED 的 requiredFields 是 ['payloadDigest']（产物摘要），
+      // 生成失败时没有产物、也就没有摘要。若一律强制，这条失败分支就永远写不进审计。
+      await expect(
+        service.recordSystem({
+          action: 'AUDIT_EVIDENCE_EXPORT_GENERATED',
+          actionDomain: 'AUDIT',
+          category: AuditCategory.GOVERNANCE,
+          correlationId: 'c1',
+          causationId: 'x1',
+          outcome: AuditOutcome.FAILED,
+          reasonCode: 'GENERATION_ERROR',
+        } as any),
+      ).resolves.toBeDefined();
+    });
+
+    it('成功路径仍然强制 requiredFields', async () => {
+      await expect(
+        service.recordSystem({
+          action: 'AUDIT_EVIDENCE_EXPORT_GENERATED',
+          actionDomain: 'AUDIT',
+          category: AuditCategory.GOVERNANCE,
+          correlationId: 'c1',
+          causationId: 'x1',
+        } as any),
+      ).rejects.toThrow('missing required field');
+    });
+
+    it('非成功路径必须带 reasonCode，否则失败无法被机器聚合', async () => {
+      await expect(
+        service.recordSystem({
+          action: 'AUDIT_EVIDENCE_EXPORT_GENERATED',
+          actionDomain: 'AUDIT',
+          category: AuditCategory.GOVERNANCE,
+          correlationId: 'c1',
+          causationId: 'x1',
+          outcome: AuditOutcome.FAILED,
+        } as any),
+      ).rejects.toThrow('must carry reasonCode');
+    });
+  });
 });
 
 describe('第一批 · 守则：审计写入不得再用 result 当键名', () => {
@@ -1908,4 +1957,6 @@ describe('第一批 · 守则：审计写入不得再用 result 当键名', () =
     // 这类「失败被记成成功」正是本批要根治的缺陷，加守则防复发。
     expect(out).toBe('');
   });
+
 });
+

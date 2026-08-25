@@ -173,6 +173,17 @@ export class CreateAuditLogEventDto {
   @ApiPropertyOptional() @IsOptional() @IsString()
   onBehalfOfNo?: string;
 
+  /**
+   * 同上 authnMethod 的两处独立声明道理——assertActionSpec 只查 input（本 DTO）。
+   * 与 DB 的 payloadDigest 列（recordByActor 内部对整条记录自算的脱敏前完整性摘要，
+   * 每条记录都有、与调用方无关）是两个不同概念：这里指的是产物本身的摘要（例如
+   * AUDIT_EVIDENCE_EXPORT_GENERATED 场景下证据包内容的 sha256），只用于满足
+   * requiredFields 校验，实际落库并入 metadata（详见 audit-evidence-export-workflow
+   * .service.ts 调用点，不与同名的行级完整性摘要混淆/互相覆盖）。
+   */
+  @ApiPropertyOptional() @IsOptional() @IsString()
+  payloadDigest?: string;
+
   @ApiPropertyOptional() @IsOptional() @IsString()
   reasonCode?: string;
 

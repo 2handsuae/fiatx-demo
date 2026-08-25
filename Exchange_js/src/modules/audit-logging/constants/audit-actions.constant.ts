@@ -650,13 +650,10 @@ export const AuditGovernanceActions = {
   // APPROVAL_POLICY_CHANGE_REQUESTED/APPLIED 两码（不复用 APPROVAL_SUBMITTED——拆条判据乙
   // "PRIMARY 不同必须拆"），全仓零消费方，本组已删。
 
-  // C5 — Audit Evidence Export
-  AUDIT_EVIDENCE_EXPORT: {
-    EXPORT_REQUESTED:     'EXPORT_REQUESTED',
-    GENERATION_COMPLETED: 'GENERATION_COMPLETED',
-    GENERATION_FAILED:    'GENERATION_FAILED',
-    PACKAGE_DOWNLOADED:   'PACKAGE_DOWNLOADED',
-  },
+  // C5 — Audit Evidence Export：已退役，Task 8 迁到 V1_AUDIT_ACTIONS 的
+  // AUDIT_EVIDENCE_EXPORT_REQUESTED/GENERATED/DOWNLOADED 三码 + 新增 AUDIT_LOG_QUERIED，
+  // 全仓零消费方，本组已删。GENERATION_FAILED 未被收编（见 audit-evidence-export-
+  // workflow.service.ts 对应分支注释——payloadDigest 必填，失败时无产物可摘要）。
 
   // Credential Reset Governance (2026-05-10)：已退役，Task 7 迁到 V1_AUDIT_ACTIONS 的
   // ADMIN_PASSWORD_RESET_SELF_REQUESTED/SELF_TOKEN_ISSUED/SELF_COMPLETED/
