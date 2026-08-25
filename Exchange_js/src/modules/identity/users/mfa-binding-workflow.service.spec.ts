@@ -119,4 +119,60 @@ describe('MfaBindingWorkflowService', () => {
       await expect(service.verifyMfaBind('u1', '123456')).rejects.toThrow(ForbiddenException);
     });
   });
+
+  describe('第一批 · 账号锁定 2 码', () => {
+    it('mfaVerifyLockedUntil 已过期时惰性发现并写 ADMIN_ACCOUNT_LOCK_RELEASED，同时清空计数', async () => {
+      usersDomainService.findFirstLoginState.mockResolvedValue({
+        ...baseState,
+        firstLoginStatus: 'MFA_BINDING',
+        firstLoginTraceId: 'trace-first-login',
+        mfaSecret: 'enc:tag:ct',
+        mfaVerifyFailCount: 5,
+        mfaVerifyLockedUntil: new Date(Date.now() - 1000),
+      });
+
+      // 释放锁这段发生在 decryptMfaSecret/getOtp() 之前——本用例只关心这段是否
+      // 正确触发；再往后（getOtp 的 ESM 墙）必然会抛出一个不相关的异常，吞掉即可。
+      await service.verifyMfaBind('u1', '123456').catch(() => undefined);
+
+      expect(usersDomainService.clearMfaVerifyFail).toHaveBeenCalledWith('u1');
+
+      const call = auditLogsService.recordByActor.mock.calls.find(
+        (c: any[]) => c[0].action === 'ADMIN_ACCOUNT_LOCK_RELEASED',
+      );
+      expect(call).toBeDefined();
+      expect(call[0].actionDomain).toBe('IAM');
+      expect(call[0].primarySubjectNo).toBe('ADM-001');
+      // INHERIT：借用同一次首登旅程的 firstLoginTraceId 承载（User 表没有为账号锁定
+      // 单独开列）——见 mfa-binding-workflow.service.ts 内该分支的注释。
+      expect(call[0].correlationId).toBe('trace-first-login');
+      expect(call[0].fromStatus).toBe('LOCKED');
+      expect(call[0].toStatus).toBe('ACTIVE');
+    });
+
+    it('mfaVerifyLockedUntil 仍在未来时不触发解锁写入', async () => {
+      usersDomainService.findFirstLoginState.mockResolvedValue({
+        ...baseState,
+        firstLoginStatus: 'MFA_BINDING',
+        mfaSecret: 'enc:tag:ct',
+        mfaVerifyLockedUntil: new Date(Date.now() + 60000),
+      });
+
+      await expect(service.verifyMfaBind('u1', '123456')).rejects.toThrow(TooManyRequestsException);
+
+      expect(usersDomainService.clearMfaVerifyFail).not.toHaveBeenCalled();
+      const call = auditLogsService.recordByActor.mock.calls.find(
+        (c: any[]) => c[0].action === 'ADMIN_ACCOUNT_LOCK_RELEASED',
+      );
+      expect(call).toBeUndefined();
+    });
+
+    // ADMIN_ACCOUNT_LOCK_APPLIED 的写入点在 getOtp() 之后（!isValid 分支、locked===true
+    // 那一支内），同 MFA_INITIATED/MFA_BOUND/COMPLETED 三码一样阻于同一堵 ESM 动态 import
+    // 墙（见上方"第一批 · 首次登录 4 码"块顶部注释），本 jest 配置下不可执行到。已按同一
+    // 模板人工复核：actionDomain/category 与紧邻的 MFA_BOUND(FAILED) 一致、reasonCode/
+    // fromStatus/toStatus 三个必填字段全给、START 现铸 correlationId（不复用
+    // firstLoginTraceId——封锁是独立事件，不是首登旅程本身）、.catch() 兜底不挡 429。
+    it.todo('ADMIN_ACCOUNT_LOCK_APPLIED — 阻于 getOtp() 动态 import，本 jest 配置下不可测（见上方注释）');
+  });
 });

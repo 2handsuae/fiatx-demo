@@ -264,6 +264,36 @@ export class MfaBindingWorkflowService {
       throw new ForbiddenException('MFA secret not initialized');
     }
 
+    // ADMIN_ACCOUNT_LOCK_RELEASED：15 分钟封锁到期后的第一次尝试，惰性发现并解封——
+    // 镜像 auth.service.ts 里另一套锁定机制（lockedUntil）已有的"下次登录时自动解锁"
+    // 写法（那套是 Task 9 的活，见该文件 TODO；这套 mfaVerifyLockedUntil 是本任务的活）。
+    // 顺带清零 mfaVerifyFailCount，否则"已解封"这条记录本身会说谎——不清零的话下一次
+    // 答错就会带着陈旧计数立即再次触发锁定，而不是真的重新给满 5 次机会。
+    if (user.mfaVerifyLockedUntil && user.mfaVerifyLockedUntil <= new Date()) {
+      await this.usersDomainService.clearMfaVerifyFail(userId);
+      await this.auditLogsService.recordByActor(
+        {
+          action: 'ADMIN_ACCOUNT_LOCK_RELEASED',
+          actionDomain: 'IAM',
+          category: AuditCategory.GOVERNANCE,
+          primarySubjectType: AuditEntityTypes.ADMIN_USER,
+          primarySubjectNo: user.userNo,
+          // INHERIT：User 表没有为"账号锁定"单独开一列 correlationId/traceId——借用
+          // 同一次首登旅程的 firstLoginTraceId 承载（该值在 firstLoginStatus==='MFA_BINDING'
+          // 时必非空，见 confirmIdentity）。注意这不是 APPLIED 铸造的那个值本身：APPLIED
+          // 按 START 语义现铸一个新 UUID（见下方），两条记录不共享字面相同的 correlationId，
+          // 但都挂在同一个 primarySubjectNo 下，靠它仍可查出该账号完整的封锁/解封历史。
+          correlationId: user.firstLoginTraceId || undefined,
+          fromStatus: 'LOCKED',
+          toStatus: 'ACTIVE',
+          reason: 'MFA verify lockout expired',
+          requestId: randomUUID(),
+          sourcePlatform: 'ADMIN_API',
+        },
+        this.buildActor(user),
+      ).catch(() => undefined);
+    }
+
     if (user.mfaVerifyLockedUntil && user.mfaVerifyLockedUntil > new Date()) {
       throw new TooManyRequestsException({
         message: 'MFA verification temporarily locked',
@@ -300,11 +330,29 @@ export class MfaBindingWorkflowService {
       );
 
       if (locked) {
-        // TODO(Task 7): 连续失败触发锁定改变了访问能力，是另一件事——应另写一条
-        // ADMIN_ACCOUNT_LOCK_APPLIED（domain: IAM, correlationMode: START,
-        // requiredFields: reasonCode/fromStatus/toStatus，声明已在 V1_AUDIT_ACTIONS 里）。
-        // 退役码 FIRST_LOGIN_MFA_VERIFY_LOCKED 的写入点原样删除，不在本任务实装新码，
-        // 只留这条注释指向 Task 7；本次失败尝试本身已由上面那条 MFA_BOUND(FAILED) 记录。
+        // 连续失败触发锁定改变了访问能力，是另一件事——单独写一条 ADMIN_ACCOUNT_LOCK_APPLIED。
+        // 本次失败尝试本身已由上面那条 MFA_BOUND(FAILED) 记录，这条只记"锁定被施加"这件事。
+        // START：这次封锁是独立事件的起点，现铸新 UUID（不复用 firstLoginTraceId——
+        // 那条线是首登旅程本身的，被锁定不等于首登旅程结束，两者语义不同一件事）。
+        // .catch() 兜底：审计侧问题不能盖过即将抛出的 429，锁定本身必须照常生效。
+        await this.auditLogsService.recordByActor(
+          {
+            action: 'ADMIN_ACCOUNT_LOCK_APPLIED',
+            actionDomain: 'IAM',
+            category: AuditCategory.GOVERNANCE,
+            primarySubjectType: AuditEntityTypes.ADMIN_USER,
+            primarySubjectNo: user.userNo,
+            correlationId: randomUUID(),
+            reasonCode: 'MFA_VERIFY_LOCKOUT',
+            fromStatus: 'ACTIVE',
+            toStatus: 'LOCKED',
+            metadata: { failCount: newCount },
+            requestId: randomUUID(),
+            sourcePlatform: 'ADMIN_API',
+          },
+          this.buildActor(user, 'TOTP'),
+        ).catch(() => undefined);
+
         throw new TooManyRequestsException({
           message: 'MFA verification locked due to too many failed attempts',
           retryAfterSeconds: 15 * 60,

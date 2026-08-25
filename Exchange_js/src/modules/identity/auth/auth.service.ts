@@ -294,6 +294,13 @@ export class AuthService {
         },
       );
 
+      // TODO(Task 9): 这里与上面 194 行的 ACCOUNT_UNLOCKED 用的都是旧退役码
+      // AuditActions.ACCOUNT_LOCKED/ACCOUNT_UNLOCKED——业主裁定"连续失败自动锁定算
+      // 业务审计"，触发点留在这个领域服务层（auth.service.ts）没问题，但审计写入要
+      // 上收到编排层，改调 workflow 层暴露的方法、落 V1 新码 ADMIN_ACCOUNT_LOCK_APPLIED/
+      // RELEASED（domain: IAM, 声明已在 V1_AUDIT_ACTIONS 里；mfa-binding-workflow
+      // .service.ts 里 verifyMfaBind() 的同名锁定机制已在 Task 7 落地，可参考同一模板）。
+      // 本任务只留注释，不改这里的行为。
       if (attempts >= 5) {
         await this.auditLogsService.recordByActor(
           {
