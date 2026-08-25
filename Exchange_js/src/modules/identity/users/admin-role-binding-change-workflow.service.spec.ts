@@ -106,20 +106,25 @@ describe('AdminRoleBindingChangeWorkflowService', () => {
       );
 
       expect(result.status).toBe('PENDING_APPROVAL');
+
+      const call = auditLogsService.recordByActor.mock.calls.find(
+        (c: any[]) => c[0].action === 'ADMIN_ROLE_CHANGE_REQUESTED',
+      );
+      expect(call).toBeDefined();
+      expect(call[0].actionDomain).toBe('IAM');
+      expect(call[0].primarySubjectType).toBe('ACCESS_CONTROL');
+      expect(call[0].correlationId).toBeTruthy();
+
+      // START：铸造的 correlationId 同一份传给了 approvalsService.createAndSubmit
+      // 的 traceId（ApprovalCase.traceId 是过渡期承载列），供 APPLIED/CANCELLED 读回。
       expect(approvalsService.createAndSubmit).toHaveBeenCalledWith(
         expect.objectContaining({
           actionType: 'ADMIN_ROLE_BINDING_CHANGE_APPROVAL',
           entityRef: 'req-1',
+          traceId: call[0].correlationId,
         }),
-        expect.objectContaining({ reason: 'promotion' }),
+        expect.objectContaining({ reason: 'promotion', traceId: call[0].correlationId }),
         actor,
-      );
-      expect(auditLogsService.recordByActor).toHaveBeenCalledWith(
-        expect.objectContaining({
-          action: 'CHANGE_REQUESTED',
-          primarySubjectType: 'ACCESS_CONTROL',
-        }),
-        expect.any(Object),
       );
     });
   });
@@ -141,6 +146,7 @@ describe('AdminRoleBindingChangeWorkflowService', () => {
         id: 'req-1',
         requestNo: 'RCR-1',
         targetUserId: 'user-2',
+        currentRoleCodes: '["COMPLIANCE_OFFICER"]',
         proposedRoleCodes: '["MLRO"]',
         status: 'PENDING_APPROVAL',
         approvalCaseId: 'apr-1',
@@ -164,13 +170,21 @@ describe('AdminRoleBindingChangeWorkflowService', () => {
           data: expect.objectContaining({ status: 'APPROVED' }),
         }),
       );
-      expect(auditLogsService.recordByActor).toHaveBeenCalledWith(
-        expect.objectContaining({ action: 'CHANGE_APPLIED' }),
-        expect.any(Object),
+
+      const call = auditLogsService.recordByActor.mock.calls.find(
+        (c: any[]) => c[0].action === 'ADMIN_ROLE_CHANGE_APPLIED',
       );
+      expect(call).toBeDefined();
+      expect(call[0].outcome).toBe('SUCCESS');
+      expect(call[0].beforeData).toBeDefined();
+      expect(call[0].afterData).toBeDefined();
+      expect(call[0].approvalNo).toBe('APR-1');
+      // INHERIT + 异步驱动：correlationId 原样继承事件的 traceId，causationId 指向触发它的审批单。
+      expect(call[0].correlationId).toBe('trace-1');
+      expect(call[0].causationId).toBe('apr-1');
     });
 
-    it('marks FAILED and writes CHANGE_APPLY_FAILED on execution error', async () => {
+    it('marks FAILED 且 ADMIN_ROLE_CHANGE_APPLIED 改用 outcome=FAILED 记录（退役码 CHANGE_APPLY_FAILED 收编）', async () => {
       const event: ApprovalDecidedEvent = {
         decision: 'APPROVED',
         actionType: 'ADMIN_ROLE_BINDING_CHANGE_APPROVAL',
@@ -186,6 +200,7 @@ describe('AdminRoleBindingChangeWorkflowService', () => {
         id: 'req-1',
         requestNo: 'RCR-1',
         targetUserId: 'user-2',
+        currentRoleCodes: '["COMPLIANCE_OFFICER"]',
         proposedRoleCodes: '["MLRO","CISO"]',
         status: 'PENDING_APPROVAL',
         approvalCaseId: 'apr-1',
@@ -205,15 +220,20 @@ describe('AdminRoleBindingChangeWorkflowService', () => {
           }),
         }),
       );
-      expect(auditLogsService.recordByActor).toHaveBeenCalledWith(
-        expect.objectContaining({ action: 'CHANGE_APPLY_FAILED' }),
-        expect.any(Object),
+
+      const call = auditLogsService.recordByActor.mock.calls.find(
+        (c: any[]) => c[0].action === 'ADMIN_ROLE_CHANGE_APPLIED' && c[0].outcome === 'FAILED',
       );
+      expect(call).toBeDefined();
+      expect(call[0].beforeData).toBeDefined();
+      expect(call[0].afterData).toBeDefined();
+      expect(call[0].approvalNo).toBe('APR-1');
+      expect(call[0].causationId).toBe('apr-1');
     });
   });
 
   describe('handleApprovalDecided — DECLINED', () => {
-    it('updates request status to REJECTED', async () => {
+    it('updates request status to REJECTED 并写 ADMIN_ROLE_CHANGE_CANCELLED', async () => {
       const event: ApprovalDecidedEvent = {
         decision: 'DECLINED',
         actionType: 'ADMIN_ROLE_BINDING_CHANGE_APPROVAL',
@@ -222,11 +242,13 @@ describe('AdminRoleBindingChangeWorkflowService', () => {
         approvalNo: 'APR-1',
         traceId: 'trace-1',
         workflowType: 'ADMIN_ROLE_BINDING_CHANGE',
+        decisionReason: 'Scope too broad',
         metadata: {},
       };
 
       prisma.adminRoleChangeRequest.findFirst.mockResolvedValue({
         id: 'req-1',
+        requestNo: 'RCR-1',
         status: 'PENDING_APPROVAL',
       });
 
@@ -237,11 +259,57 @@ describe('AdminRoleBindingChangeWorkflowService', () => {
           data: expect.objectContaining({ status: 'REJECTED' }),
         }),
       );
+
+      const call = auditLogsService.recordByActor.mock.calls.find(
+        (c: any[]) => c[0].action === 'ADMIN_ROLE_CHANGE_CANCELLED',
+      );
+      expect(call).toBeDefined();
+      expect(call[0].reason).toBeTruthy();
+      expect(call[0].correlationId).toBe('trace-1');
+      expect(call[0].causationId).toBe('apr-1');
+    });
+  });
+
+  describe('handleApprovalDecided — CANCELLED', () => {
+    it('第一批 · 取消路径写 ADMIN_ROLE_CHANGE_CANCELLED（本轮新增码）', async () => {
+      const event: ApprovalDecidedEvent = {
+        decision: 'CANCELLED',
+        actionType: 'ADMIN_ROLE_BINDING_CHANGE_APPROVAL',
+        entityRef: 'req-1',
+        approvalId: 'apr-1',
+        approvalNo: 'APR-1',
+        traceId: 'trace-1',
+        workflowType: 'ADMIN_ROLE_BINDING_CHANGE',
+        decisionReason: 'Requester withdrew the request',
+        metadata: {},
+      };
+
+      prisma.adminRoleChangeRequest.findFirst.mockResolvedValue({
+        id: 'req-1',
+        requestNo: 'RCR-1',
+        status: 'PENDING_APPROVAL',
+      });
+
+      await service.handleApprovalDecided(event);
+
+      expect(prisma.adminRoleChangeRequest.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ status: 'CANCELLED' }),
+        }),
+      );
+
+      const call = auditLogsService.recordByActor.mock.calls.find(
+        (c: any[]) => c[0].action === 'ADMIN_ROLE_CHANGE_CANCELLED',
+      );
+      expect(call).toBeDefined();
+      expect(call[0].actionDomain).toBe('IAM');
+      expect(call[0].reason).toBeTruthy();
+      expect(call[0].reason).toBe('Requester withdrew the request');
     });
   });
 
   describe('handleApprovalDecided — EXPIRED', () => {
-    it('updates request status to EXPIRED', async () => {
+    it('updates request status to EXPIRED 并写 ADMIN_ROLE_CHANGE_CANCELLED', async () => {
       const event: ApprovalDecidedEvent = {
         decision: 'EXPIRED',
         actionType: 'ADMIN_ROLE_BINDING_CHANGE_APPROVAL',
@@ -255,6 +323,7 @@ describe('AdminRoleBindingChangeWorkflowService', () => {
 
       prisma.adminRoleChangeRequest.findFirst.mockResolvedValue({
         id: 'req-1',
+        requestNo: 'RCR-1',
         status: 'PENDING_APPROVAL',
       });
 
@@ -265,6 +334,13 @@ describe('AdminRoleBindingChangeWorkflowService', () => {
           data: expect.objectContaining({ status: 'EXPIRED' }),
         }),
       );
+
+      const call = auditLogsService.recordByActor.mock.calls.find(
+        (c: any[]) => c[0].action === 'ADMIN_ROLE_CHANGE_CANCELLED',
+      );
+      expect(call).toBeDefined();
+      // 没传 decisionReason 时兜底文案仍要非空——CANCELLED 声明 reason 必填。
+      expect(call[0].reason).toBeTruthy();
     });
   });
 

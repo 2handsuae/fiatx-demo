@@ -11,9 +11,8 @@ import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import {
   AuditBusinessWorkflowTypes,
   AuditEntityTypes,
-  AuditGovernanceActions,
 } from '../../audit-logging/constants/audit-actions.constant';
-import { AuditOutcome } from '../../audit-logging/dto/audit-log.dto';
+import { AuditCategory, AuditOutcome } from '../../audit-logging/dto/audit-log.dto';
 import { ApprovalsService } from '../../governance/approvals/approvals.service';
 import { ApprovalDecidedEvent } from '../../governance/approvals/approval-handler.base';
 import {
@@ -66,7 +65,10 @@ export class AdminRoleBindingChangeWorkflowService {
 
     this.accessControlService.validateHardMutex(dto.roleCodes);
 
-    const traceId = dto.traceId || randomUUID();
+    // START：不再采信调用方传入的 dto.traceId——铁律要求 START 永远铸造新值，且这个值要
+    // 和写进 ApprovalCase.traceId 的那份保持同一个，否则 APPLIED/CANCELLED 的 INHERIT
+    // 读到的 event.traceId 会跟这条 REQUESTED 记录的 correlationId 对不上，断链。
+    const correlationId = randomUUID();
     const requestNo = generateReferenceNo('RCR-');
 
     const request = await (this.prisma as any).adminRoleChangeRequest.create({
@@ -85,7 +87,7 @@ export class AdminRoleBindingChangeWorkflowService {
       {
         actionType: ApprovalActionTypes.ADMIN_ROLE_BINDING_CHANGE_APPROVAL,
         entityRef: request.id,
-        traceId,
+        traceId: correlationId,
         objectSnapshot: {
           requestNo: request.requestNo,
           targetUserId: request.targetUserId,
@@ -98,7 +100,7 @@ export class AdminRoleBindingChangeWorkflowService {
           createdAt: request.createdAt,
         },
       },
-      { reason: dto.changeReason, traceId },
+      { reason: dto.changeReason, traceId: correlationId },
       actor,
     );
 
@@ -112,10 +114,12 @@ export class AdminRoleBindingChangeWorkflowService {
 
     await this.auditLogsService.recordByActor(
       {
-        action: AuditGovernanceActions.ADMIN_ROLE_BINDING_CHANGE.CHANGE_REQUESTED,
+        action: 'ADMIN_ROLE_CHANGE_REQUESTED',
+        actionDomain: 'IAM',
+        category: AuditCategory.GOVERNANCE,
         primarySubjectType: AuditEntityTypes.ACCESS_CONTROL,
         primarySubjectNo: requestNo,
-        traceId,
+        correlationId,
         outcome: AuditOutcome.SUCCESS,
         metadata: {
           targetUserId: targetUser.id,
@@ -124,7 +128,7 @@ export class AdminRoleBindingChangeWorkflowService {
           proposedRoleCodes: dto.roleCodes,
           approvalNo: approvalCase.approvalNo,
         },
-        requestId: `ADMIN_ROLE_BINDING_CHANGE_REQUESTED_${requestNo}`,
+        requestId: randomUUID(),
         sourcePlatform: 'ADMIN_API',
       },
       this.toAuditActor(actor),
@@ -192,6 +196,8 @@ export class AdminRoleBindingChangeWorkflowService {
     if (!targetUser) return;
 
     const proposedRoleCodes: string[] = JSON.parse(request.proposedRoleCodes);
+    const beforeData = { roleCodes: JSON.parse(request.currentRoleCodes) };
+    const afterData = { roleCodes: proposedRoleCodes };
     const systemActor = {
       actorId: event.decisionByUserId || 'SYSTEM',
       actorNo: event.decisionByUserNo || undefined,
@@ -216,19 +222,25 @@ export class AdminRoleBindingChangeWorkflowService {
 
       await this.auditLogsService.recordByActor(
         {
-          action: AuditGovernanceActions.ADMIN_ROLE_BINDING_CHANGE.CHANGE_APPLIED,
+          action: 'ADMIN_ROLE_CHANGE_APPLIED',
+          actionDomain: 'IAM',
+          category: AuditCategory.GOVERNANCE,
           primarySubjectType: AuditEntityTypes.ACCESS_CONTROL,
           primarySubjectNo: request.requestNo,
-          traceId: event.traceId,
+          // INHERIT：读 ApprovalDecidedEvent.traceId——它就是 createRoleChangeRequest
+          // 铸造的 correlationId 原样传播过来的（经 ApprovalCase.traceId）。
+          correlationId: event.traceId,
+          // 异步驱动：这条记录是被"审批已批准"这个决定触发的，causationId 指向那条审批单。
+          causationId: event.approvalId,
           outcome: AuditOutcome.SUCCESS,
+          beforeData,
+          afterData,
+          approvalNo: event.approvalNo,
           metadata: {
             targetUserId: targetUser.id,
             targetUserNo: targetUser.userNo,
-            appliedRoleCodes: proposedRoleCodes,
-            approvalId: event.approvalId,
-            approvalNo: event.approvalNo,
           },
-          requestId: `ADMIN_ROLE_BINDING_CHANGE_APPLIED_${request.requestNo}`,
+          requestId: randomUUID(),
           sourcePlatform: 'ADMIN_API',
         },
         {
@@ -248,19 +260,28 @@ export class AdminRoleBindingChangeWorkflowService {
         data: { status: 'FAILED', failureReason },
       });
 
+      // 退役码 CHANGE_APPLY_FAILED 收编进来——同一动作码 ADMIN_ROLE_CHANGE_APPLIED，
+      // 靠 outcome=FAILED 区分，不另起一个 _FAILED 后缀码（该退役词还被三个非 V1 域复用，
+      // inV1Domain 网关会直接拒绝在 IAM 域写它，见 audit-actions.constant.ts 顶部注释）。
       await this.auditLogsService.recordByActor(
         {
-          action: AuditGovernanceActions.ADMIN_ROLE_BINDING_CHANGE.CHANGE_APPLY_FAILED,
+          action: 'ADMIN_ROLE_CHANGE_APPLIED',
+          actionDomain: 'IAM',
+          category: AuditCategory.GOVERNANCE,
           primarySubjectType: AuditEntityTypes.ACCESS_CONTROL,
           primarySubjectNo: request.requestNo,
-          traceId: event.traceId,
+          correlationId: event.traceId,
+          causationId: event.approvalId,
           outcome: AuditOutcome.FAILED,
           reason: failureReason,
+          beforeData,
+          afterData,
+          approvalNo: event.approvalNo,
           metadata: {
             targetUserId: request.targetUserId,
             failureReason,
           },
-          requestId: `ADMIN_ROLE_BINDING_CHANGE_APPLY_FAILED_${request.requestNo}`,
+          requestId: randomUUID(),
           sourcePlatform: 'ADMIN_API',
         },
         {
@@ -287,5 +308,39 @@ export class AdminRoleBindingChangeWorkflowService {
       where: { id: request.id },
       data: { status },
     });
+
+    // ADMIN_ROLE_CHANGE_CANCELLED：本轮新增码，之前这条路径（驳回/撤销/超时）完全没有
+    // 审计留痕。三种终止原因合成一条码，用 reason/metadata.decision 区分是哪一种——
+    // 与 ADMIN_INVITE_CANCELLED 同款处理（拆条两判据都不触发：同事务、同 PRIMARY）。
+    await this.auditLogsService
+      .recordByActor(
+        {
+          action: 'ADMIN_ROLE_CHANGE_CANCELLED',
+          actionDomain: 'IAM',
+          category: AuditCategory.GOVERNANCE,
+          primarySubjectType: AuditEntityTypes.ACCESS_CONTROL,
+          primarySubjectNo: request.requestNo,
+          correlationId: event.traceId,
+          causationId: event.approvalId,
+          outcome: AuditOutcome.SUCCESS,
+          reason:
+            event.decisionReason || `Role change request ${status.toLowerCase()}`,
+          metadata: {
+            approvalId: event.approvalId,
+            approvalNo: event.approvalNo,
+            decision: event.decision,
+            terminalStatus: status,
+          },
+          requestId: randomUUID(),
+          sourcePlatform: 'ADMIN_API',
+        },
+        {
+          actorType: 'ADMIN',
+          actorNo: event.decisionByUserNo || 'UNKNOWN',
+          actorDisplayName: event.decisionByUserNo || 'UNKNOWN',
+          actorRolesAtTime: [event.decisionByRole || 'SYSTEM'],
+        },
+      )
+      .catch(() => undefined);
   }
 }
