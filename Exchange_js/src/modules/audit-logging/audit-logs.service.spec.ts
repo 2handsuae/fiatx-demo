@@ -1631,6 +1631,11 @@ describe('AuditLogsService', () => {
         action: 'ADMIN_SUSPENSION_APPLIED',
         actionDomain: 'IAM',
         category: AuditCategory.GOVERNANCE,
+        fromStatus: 'ACTIVE',
+        toStatus: 'SUSPENDED',
+        approvalNo: 'APR001',
+        correlationId: 'corr-susp-1',
+        causationId: 'cause-susp-1',
         primarySubjectType: 'ADMIN_USER',
         primarySubjectNo: 'USR001',
         subjects: [
@@ -1652,6 +1657,11 @@ describe('AuditLogsService', () => {
           action: 'ADMIN_SUSPENSION_APPLIED',
           actionDomain: 'IAM',
           category: AuditCategory.GOVERNANCE,
+          fromStatus: 'ACTIVE',
+          toStatus: 'SUSPENDED',
+          approvalNo: 'APR001',
+          correlationId: 'corr-susp-2',
+          causationId: 'cause-susp-2',
           subjects: [
             { subjectType: 'ADMIN_USER', subjectNo: 'U1', subjectRole: AuditSubjectRole.PRIMARY },
             { subjectType: 'ADMIN_USER', subjectNo: 'U2', subjectRole: AuditSubjectRole.PRIMARY },
@@ -1665,6 +1675,7 @@ describe('AuditLogsService', () => {
         action: 'ADMIN_INVITE_REQUESTED',
         actionDomain: 'IAM',
         category: AuditCategory.GOVERNANCE,
+        afterData: { status: 'REQUESTED' },
         outcome: AuditOutcome.DENIED,
         reasonCode: 'SOD_CONFLICT',
         subjects: [
@@ -1689,6 +1700,7 @@ describe('AuditLogsService', () => {
         action: 'APPROVAL_SOD_DENIED',
         actionDomain: 'APPROVAL',
         category: AuditCategory.GOVERNANCE,
+        correlationId: 'corr-sod-1',
         outcome: AuditOutcome.DENIED,
         reasonCode: 'SELF_APPROVE',
       } as any);
@@ -1700,7 +1712,11 @@ describe('AuditLogsService', () => {
 
     it('actorRolesAtTime 以 JSON 数组落库，不是单值字符串', async () => {
       await service.recordByActor(
-        { action: 'ADMIN_ROLE_CHANGE_APPLIED', actionDomain: 'IAM', category: AuditCategory.GOVERNANCE } as any,
+        {
+          action: 'ADMIN_ROLE_CHANGE_APPLIED', actionDomain: 'IAM', category: AuditCategory.GOVERNANCE,
+          beforeData: { role: 'OPERATOR' }, afterData: { role: 'ADMIN' }, approvalNo: 'APR002',
+          correlationId: 'corr-role-1', causationId: 'cause-role-1',
+        } as any,
         { actorType: 'ADMIN', actorNo: 'USR009', actorDisplayName: '张三', actorRolesAtTime: ['MLRO', 'CISO'] } as any,
       );
 
@@ -1714,6 +1730,7 @@ describe('AuditLogsService', () => {
         action: 'APPROVAL_GRANTED',
         actionDomain: 'APPROVAL',
         category: AuditCategory.GOVERNANCE,
+        approvalNo: 'APR077',
         primarySubjectNo: 'APR077',
         correlationId: 'corr-1',
         requestId: 'req-1',
@@ -1725,6 +1742,7 @@ describe('AuditLogsService', () => {
         action: 'APPROVAL_GRANTED',
         actionDomain: 'APPROVAL',
         category: AuditCategory.GOVERNANCE,
+        approvalNo: 'APR077',
         primarySubjectNo: 'APR077',
         correlationId: 'corr-2',
         requestId: 'req-1',
@@ -1756,7 +1774,11 @@ describe('AuditLogsService', () => {
         action: 'ADMIN_SUSPENSION_APPLIED',
         actionDomain: 'IAM',
         category: AuditCategory.GOVERNANCE,
+        fromStatus: 'ACTIVE',
+        toStatus: 'SUSPENDED',
+        approvalNo: 'APR003',
         correlationId: 'c1',
+        causationId: 'cause-susp-3',
         idempotencyKey: 'dup-key',
         subjects: [
           { subjectType: 'ADMIN_USER', subjectNo: 'USR001', subjectRole: AuditSubjectRole.PRIMARY },
@@ -1834,6 +1856,42 @@ describe('AuditLogsService', () => {
       const json = JSON.stringify(prisma.auditLogEvent.findMany.mock.calls[0][0].where);
       expect(json).toContain('"outcome"');
       expect(json).not.toContain('"result"');
+    });
+  });
+
+  describe('第一批 · 声明校验', () => {
+    beforeEach(() => {
+      prisma.auditLogSubject = { createMany: jest.fn() };
+      prisma.auditLogEvent.findUnique.mockResolvedValue(null);
+      prisma.auditLogEvent.create.mockResolvedValue({ id: 'e', eventNo: 'A' });
+    });
+
+    it('缺声明里的必填字段时拒绝写入', async () => {
+      await expect(service.recordSystem({
+        action: 'ADMIN_ROLE_CHANGE_APPLIED', actionDomain: 'IAM',
+        category: AuditCategory.GOVERNANCE, correlationId: 'c1', causationId: 'x1',
+      } as any)).rejects.toThrow('missing required field');
+    });
+
+    it('INHERIT 的码没有 correlationId 时拒绝写入，不静默生成', async () => {
+      await expect(service.recordSystem({
+        action: 'ADMIN_INVITE_ACCEPTED', actionDomain: 'IAM',
+        category: AuditCategory.GOVERNANCE, fromStatus: 'A', toStatus: 'B',
+      } as any)).rejects.toThrow('must inherit an existing correlationId');
+    });
+
+    it('actionDomain 与声明不符时拒绝写入', async () => {
+      await expect(service.recordSystem({
+        action: 'AUDIT_LOG_QUERIED', actionDomain: 'IAM',
+        category: AuditCategory.GOVERNANCE,
+      } as any)).rejects.toThrow('must carry actionDomain=AUDIT');
+    });
+
+    it('退役码拒绝新写入', async () => {
+      await expect(service.recordSystem({
+        action: 'ADMIN_LOGIN_SUCCESS', actionDomain: 'IAM',
+        category: AuditCategory.SECURITY,
+      } as any)).rejects.toThrow('deprecated');
     });
   });
 });

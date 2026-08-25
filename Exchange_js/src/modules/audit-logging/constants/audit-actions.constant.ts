@@ -904,3 +904,120 @@ export function buildInternalFundStateAction(nextStatus: string): string {
     INTERNAL_FUND_STATE_TO_ACTION[nextStatus] ?? nextStatus.toUpperCase()
   );
 }
+
+import { AuditCorrelationMode } from '../dto/audit-log.dto';
+
+/** V1 治理四域，声明与下方 assertActionSpec 的退役码放行闸共用同一份 */
+export const V1_ACTION_DOMAINS = ['IAM', 'APPROVAL', 'CONFIG', 'AUDIT'] as const;
+
+export interface AuditActionSpec {
+  /** actionDomain 列的值 */
+  domain: (typeof V1_ACTION_DOMAINS)[number];
+  /** 开启还是延续旅程——码的固有属性，不随场景变 */
+  correlationMode: AuditCorrelationMode;
+  /** 该码特有的必填字段（通用必填不在此列） */
+  requiredFields: string[];
+  /** 异步驱动的码必须带 causationId */
+  requiresCausation: boolean;
+}
+
+const S = AuditCorrelationMode.START;
+const I = AuditCorrelationMode.INHERIT;
+const N = AuditCorrelationMode.NONE;
+
+/**
+ * V1 治理底座动作词表 —— 45 码，扁平全局唯一，前缀优先命名。
+ * 每码出生即定死：新增码时必须当场声明四件事，不允许「先上线回头补」。
+ * 一旦有记录用某码写入，再补必填规则时那些历史记录永远残缺且改不了（只增不改）。
+ */
+export const V1_AUDIT_ACTIONS: Record<string, AuditActionSpec> = {
+  // ── 横切 · 审批引擎（8 个工作流共用）────────────────────────
+  APPROVAL_SUBMITTED:  { domain: 'APPROVAL', correlationMode: I, requiredFields: ['policyCode', 'policyVersion'], requiresCausation: false },
+  APPROVAL_GRANTED:    { domain: 'APPROVAL', correlationMode: I, requiredFields: ['approvalNo'], requiresCausation: false },
+  APPROVAL_DECLINED:   { domain: 'APPROVAL', correlationMode: I, requiredFields: ['approvalNo', 'reason'], requiresCausation: false },
+  APPROVAL_CANCELLED:  { domain: 'APPROVAL', correlationMode: I, requiredFields: ['approvalNo', 'reason'], requiresCausation: false },
+  APPROVAL_EXPIRED:    { domain: 'APPROVAL', correlationMode: I, requiredFields: ['approvalNo'], requiresCausation: false },
+  APPROVAL_SOD_DENIED: { domain: 'APPROVAL', correlationMode: I, requiredFields: ['reasonCode'], requiresCausation: false },
+
+  // ── ① 入职邀请 ──────────────────────────────────────────
+  ADMIN_INVITE_REQUESTED:  { domain: 'IAM', correlationMode: S, requiredFields: ['afterData'], requiresCausation: false },
+  ADMIN_INVITE_DISPATCHED: { domain: 'IAM', correlationMode: I, requiredFields: [], requiresCausation: false },
+  ADMIN_INVITE_ACCEPTED:   { domain: 'IAM', correlationMode: I, requiredFields: ['fromStatus', 'toStatus'], requiresCausation: false },
+  ADMIN_INVITE_EXPIRED:    { domain: 'IAM', correlationMode: I, requiredFields: [], requiresCausation: false },
+  ADMIN_INVITE_CANCELLED:  { domain: 'IAM', correlationMode: I, requiredFields: ['reason'], requiresCausation: false },
+
+  // ── ② 首次登录（四步）───────────────────────────────────
+  ADMIN_FIRST_LOGIN_IDENTITY_CONFIRMED: { domain: 'IAM', correlationMode: S, requiredFields: ['authnMethod'], requiresCausation: false },
+  ADMIN_FIRST_LOGIN_MFA_INITIATED:      { domain: 'IAM', correlationMode: I, requiredFields: [], requiresCausation: false },
+  ADMIN_FIRST_LOGIN_MFA_BOUND:          { domain: 'IAM', correlationMode: I, requiredFields: ['authnMethod'], requiresCausation: false },
+  ADMIN_FIRST_LOGIN_COMPLETED:          { domain: 'IAM', correlationMode: I, requiredFields: ['fromStatus', 'toStatus'], requiresCausation: false },
+
+  // ── ③ 角色绑定变更 ──────────────────────────────────────
+  ADMIN_ROLE_CHANGE_REQUESTED: { domain: 'IAM', correlationMode: S, requiredFields: [], requiresCausation: false },
+  ADMIN_ROLE_CHANGE_APPLIED:   { domain: 'IAM', correlationMode: I, requiredFields: ['beforeData', 'afterData', 'approvalNo'], requiresCausation: true },
+  ADMIN_ROLE_CHANGE_CANCELLED: { domain: 'IAM', correlationMode: I, requiredFields: ['reason'], requiresCausation: true },
+
+  // ── ④⑤ 停用 / 恢复（代码里无取消路径，刻意不加 CANCELLED）──
+  ADMIN_SUSPENSION_REQUESTED:   { domain: 'IAM', correlationMode: S, requiredFields: ['reason'], requiresCausation: false },
+  ADMIN_SUSPENSION_APPLIED:     { domain: 'IAM', correlationMode: I, requiredFields: ['fromStatus', 'toStatus', 'approvalNo'], requiresCausation: true },
+  ADMIN_REACTIVATION_REQUESTED: { domain: 'IAM', correlationMode: S, requiredFields: ['reason'], requiresCausation: false },
+  ADMIN_REACTIVATION_APPLIED:   { domain: 'IAM', correlationMode: I, requiredFields: ['fromStatus', 'toStatus', 'approvalNo'], requiresCausation: true },
+
+  // ── ⑥ 密码重置（自助 / 官员代操作两条路各自成链）──────────
+  ADMIN_PASSWORD_RESET_SELF_REQUESTED:    { domain: 'IAM', correlationMode: S, requiredFields: [], requiresCausation: false },
+  ADMIN_PASSWORD_RESET_SELF_TOKEN_ISSUED: { domain: 'IAM', correlationMode: I, requiredFields: [], requiresCausation: false },
+  ADMIN_PASSWORD_RESET_SELF_COMPLETED:    { domain: 'IAM', correlationMode: I, requiredFields: [], requiresCausation: false },
+  ADMIN_PASSWORD_RESET_OFFICER_REQUESTED: { domain: 'IAM', correlationMode: S, requiredFields: ['onBehalfOfNo'], requiresCausation: false },
+  ADMIN_PASSWORD_RESET_OFFICER_APPLIED:   { domain: 'IAM', correlationMode: I, requiredFields: ['onBehalfOfNo', 'approvalNo'], requiresCausation: true },
+  ADMIN_PASSWORD_RESET_CANCELLED:         { domain: 'IAM', correlationMode: I, requiredFields: ['reason'], requiresCausation: false },
+
+  // ── ⑦ MFA 重置 ─────────────────────────────────────────
+  ADMIN_MFA_RESET_REQUESTED: { domain: 'IAM', correlationMode: S, requiredFields: ['onBehalfOfNo'], requiresCausation: false },
+  ADMIN_MFA_RESET_APPLIED:   { domain: 'IAM', correlationMode: I, requiredFields: ['fromStatus', 'toStatus', 'approvalNo'], requiresCausation: true },
+  ADMIN_MFA_RESET_CANCELLED: { domain: 'IAM', correlationMode: I, requiredFields: ['reason'], requiresCausation: true },
+
+  // ── ⑧ 账号锁定 / 解锁（业主裁定：连续失败自动锁定算业务审计）─
+  ADMIN_ACCOUNT_LOCK_APPLIED:  { domain: 'IAM', correlationMode: S, requiredFields: ['reasonCode', 'fromStatus', 'toStatus'], requiresCausation: false },
+  ADMIN_ACCOUNT_LOCK_RELEASED: { domain: 'IAM', correlationMode: I, requiredFields: ['fromStatus', 'toStatus'], requiresCausation: false },
+
+  // ── ⑨ 角色定义（建 / 改）────────────────────────────────
+  ROLE_DEFINITION_CREATE_REQUESTED: { domain: 'CONFIG', correlationMode: S, requiredFields: ['afterData'], requiresCausation: false },
+  ROLE_DEFINITION_CREATE_APPLIED:   { domain: 'CONFIG', correlationMode: I, requiredFields: ['afterData', 'approvalNo'], requiresCausation: true },
+  ROLE_DEFINITION_CREATE_CANCELLED: { domain: 'CONFIG', correlationMode: I, requiredFields: ['reason'], requiresCausation: true },
+  ROLE_DEFINITION_MODIFY_REQUESTED: { domain: 'CONFIG', correlationMode: S, requiredFields: ['beforeData', 'afterData'], requiresCausation: false },
+  ROLE_DEFINITION_MODIFY_APPLIED:   { domain: 'CONFIG', correlationMode: I, requiredFields: ['beforeData', 'afterData', 'approvalNo'], requiresCausation: true },
+  ROLE_DEFINITION_MODIFY_CANCELLED: { domain: 'CONFIG', correlationMode: I, requiredFields: ['reason'], requiresCausation: true },
+
+  // ── ⑩ 审批策略变更（改策略自身走策略自己审批）──────────────
+  APPROVAL_POLICY_CHANGE_REQUESTED: { domain: 'CONFIG', correlationMode: S, requiredFields: ['beforeData', 'afterData'], requiresCausation: false },
+  APPROVAL_POLICY_CHANGE_APPLIED:   { domain: 'CONFIG', correlationMode: I, requiredFields: ['beforeData', 'afterData', 'policyVersion', 'approvalNo'], requiresCausation: true },
+
+  // ── ⑪ 审计日志自身的操作 ────────────────────────────────
+  AUDIT_EVIDENCE_EXPORT_REQUESTED:  { domain: 'AUDIT', correlationMode: S, requiredFields: [], requiresCausation: false },
+  AUDIT_EVIDENCE_EXPORT_GENERATED:  { domain: 'AUDIT', correlationMode: I, requiredFields: ['payloadDigest'], requiresCausation: true },
+  AUDIT_EVIDENCE_EXPORT_DOWNLOADED: { domain: 'AUDIT', correlationMode: I, requiredFields: ['sourceIp'], requiresCausation: false },
+  AUDIT_LOG_QUERIED:                { domain: 'AUDIT', correlationMode: N, requiredFields: [], requiresCausation: false },
+};
+
+/**
+ * 退役码：标记 deprecated、不再允许新写入、历史仍可读。不是删除。
+ * 7 个 *_FAILED 收编进 outcome=FAILED + reasonCode；4 个登录码归安全日志（③）。
+ *
+ * ⚠️ 这些都是老命名法裸词，不是扁平全局唯一——'CHANGE_APPLY_FAILED' 同时还被
+ * TRANSACTION_LIMIT_CHANGE / SWAP_FEE_LEVEL_CHANGE / WITHDRAWAL_FEE_LEVEL_CHANGE
+ * 三个保留（非 V1）域复用，且全部 11 个码此刻仍有真实调用方在写（迁移是 Task 5-9 的事）。
+ * 因此 assertActionSpec 里对这份名单的拦截刻意加了 actionDomain 网关，见该方法注释。
+ */
+export const DEPRECATED_AUDIT_ACTIONS: readonly string[] = [
+  'FIRST_LOGIN_MFA_VERIFY_FAILED',
+  'RESET_FAILED',
+  'CHANGE_APPLY_FAILED',
+  'ROLE_ACTIVATE_FAILED',
+  'ROLE_MODIFY_FAILED',
+  'MODIFICATION_APPLY_FAILED',
+  'GENERATION_FAILED',
+  'ADMIN_LOGIN_SUCCESS',
+  'ADMIN_LOGIN_FAILED',
+  'MFA_LOGIN_VERIFIED',
+  'MFA_LOGIN_VERIFY_FAILED',
+] as const;

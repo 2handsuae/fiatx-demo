@@ -14,9 +14,13 @@ import {
   AuditModules,
   mapRawAuditActionToUserAction,
   AuditWorkflowTypes,
+  V1_AUDIT_ACTIONS,
+  V1_ACTION_DOMAINS,
+  DEPRECATED_AUDIT_ACTIONS,
 } from './constants/audit-actions.constant';
 import {
   AuditActorContext,
+  AuditCorrelationMode,
   AuditEvidenceExportMode,
   AuditEvidencePackageStatus,
   AuditLogView,
@@ -862,11 +866,71 @@ export class AuditLogsService {
     return !!existing;
   }
 
+  /**
+   * 按词表声明做写入前校验。声明缺一项就拒绝写入——
+   * 「条件必填」由此从一句文档变成硬闸门。
+   * 未在 V1 词表里的码（交易域）暂不校验，留给交易域批次。
+   *
+   * 退役码拦截刻意加了一道 actionDomain 网关（必须显式落在 V1 四域内才拦）——
+   * DEPRECATED_AUDIT_ACTIONS 里的裸词是老命名法遗留、不是扁平全局唯一：
+   * 'CHANGE_APPLY_FAILED' 这一个词就同时被 TRANSACTION_LIMIT_CHANGE /
+   * SWAP_FEE_LEVEL_CHANGE / WITHDRAWAL_FEE_LEVEL_CHANGE 三个保留（非 V1）域复用，
+   * 且全部 11 个退役码此刻仍有真实调用方在写（含 auth.service.ts 的登录打点）——
+   * 这些调用方一个都还没迁移到 V1 新码（迁移是 Task 5-9 的事）。若不带这道网关无
+   * 差别硬拒，会把这些当下仍在正常工作的调用点现在就打炸，而不是「其他域打审计
+   * 失败没关系」那种优雅降级。V1 调用方迁移后会显式传 actionDomain，这条闸门才
+   * 对它生效——与下面 spec 校验的适用范围用同一套判据（见 Task 4 report）。
+   */
+  private assertActionSpec(input: CreateAuditLogEventDto): void {
+    const inV1Domain = (V1_ACTION_DOMAINS as readonly string[]).includes(
+      input.actionDomain as string,
+    );
+
+    if (inV1Domain && DEPRECATED_AUDIT_ACTIONS.includes(input.action)) {
+      throw new BadRequestException(
+        `Audit action ${input.action} is deprecated and no longer accepts new writes.`,
+      );
+    }
+
+    const spec = V1_AUDIT_ACTIONS[input.action];
+    if (!spec) return;
+
+    if (input.actionDomain !== spec.domain) {
+      throw new BadRequestException(
+        `Audit action ${input.action} must carry actionDomain=${spec.domain}, got ${input.actionDomain}.`,
+      );
+    }
+
+    const missing = spec.requiredFields.filter(
+      (f) => (input as any)[f] === undefined || (input as any)[f] === null,
+    );
+    if (missing.length > 0) {
+      throw new BadRequestException(
+        `Audit action ${input.action} missing required field(s): ${missing.join(', ')}.`,
+      );
+    }
+
+    if (spec.requiresCausation && !input.causationId) {
+      throw new BadRequestException(
+        `Audit action ${input.action} is asynchronously driven and must carry causationId.`,
+      );
+    }
+
+    if (spec.correlationMode === AuditCorrelationMode.INHERIT && !input.correlationId) {
+      throw new BadRequestException(
+        `Audit action ${input.action} is INHERIT and must inherit an existing correlationId. ` +
+          '读不到就是有问题（主单没落库，或 START 那步漏了）——绝不允许静默生成新值。',
+      );
+    }
+  }
+
   async recordByActor(
     input: CreateAuditLogEventDto,
     actor: AuditActorContext,
     client?: AuditWriteClient,
   ) {
+    this.assertActionSpec(input);
+
     const occurredAt = input.occurredAt ? this.toDate(input.occurredAt) : new Date();
     if (!occurredAt) {
       throw new BadRequestException('occurredAt parsing failed');
