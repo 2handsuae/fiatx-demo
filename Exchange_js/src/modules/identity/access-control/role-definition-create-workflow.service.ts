@@ -10,9 +10,8 @@ import {
 import {
   AuditBusinessWorkflowTypes,
   AuditEntityTypes,
-  AuditGovernanceActions,
 } from '../../audit-logging/constants/audit-actions.constant';
-import { AuditOutcome } from '../../audit-logging/dto/audit-log.dto';
+import { AuditCategory, AuditOutcome } from '../../audit-logging/dto/audit-log.dto';
 import { RBAC_PERMISSION_DEFINITIONS, type PermissionGroup } from './rbac.catalog';
 
 const ROLE_CODE_REGEX = /^[A-Z][A-Z0-9_]{1,48}$/;
@@ -82,7 +81,11 @@ export class RoleDefinitionCreateWorkflowService {
       throw new BadRequestException(`Role code '${roleCode}' already exists`);
     }
 
-    const traceId = crypto.randomUUID();
+    // START：本次创建旅程的 correlationId。Role 表没有 traceId/correlationId 列，
+    // 同一个值同事务写进 ApprovalCase.traceId（经 createAndSubmit 的 traceId 入参）承载，
+    // 供下游 executeActivation/executeCancellation 经 ApprovalDecidedEvent.traceId INHERIT 读回
+    // ——与 Task 6 角色变更工作流同款模式。
+    const correlationId = crypto.randomUUID();
 
     const role = await this.prisma.role.create({
       data: {
@@ -100,7 +103,7 @@ export class RoleDefinitionCreateWorkflowService {
         {
           actionType: ApprovalActionTypes.ROLE_DEFINITION_CREATE,
           entityRef: role.id,
-          traceId,
+          traceId: correlationId,
           objectSnapshot: {
             roleCode,
             roleName,
@@ -111,7 +114,7 @@ export class RoleDefinitionCreateWorkflowService {
         },
         {
           reason: changeReason,
-          traceId,
+          traceId: correlationId,
         },
         actor,
       );
@@ -128,19 +131,24 @@ export class RoleDefinitionCreateWorkflowService {
       },
     });
 
+    // afterData：CREATE 没有「前」态，只存提案身份本身——不存 status/id/createdAt 等机械字段。
+    const afterData = { roleName, description, permissionGroupCodes };
+
     await this.auditLogsService.recordByActor(
       {
-        action: AuditGovernanceActions.ROLE_DEFINITION_CREATE.CREATE_REQUESTED,
+        action: 'ROLE_DEFINITION_CREATE_REQUESTED',
+        actionDomain: 'CONFIG',
+        category: AuditCategory.GOVERNANCE,
         primarySubjectType: AuditEntityTypes.ACCESS_CONTROL,
         primarySubjectNo: roleCode,
-        traceId,
+        correlationId,
         outcome: AuditOutcome.SUCCESS,
+        reason: changeReason,
+        afterData,
         metadata: {
-          roleName,
-          permissionGroupCodes,
-          changeReason,
           approvalNo: approvalCase.approvalNo,
         },
+        requestId: crypto.randomUUID(),
         sourcePlatform: 'ADMIN_API',
       },
       {
@@ -178,14 +186,19 @@ export class RoleDefinitionCreateWorkflowService {
   }
 
   private async executeActivation(approvalId: string, roleId: string, event: any) {
-    try {
-      const role = await this.prisma.role.findUnique({ where: { id: roleId } });
-      if (!role || role.status !== 'PENDING_APPROVAL') {
-        this.logger.warn(`Role ${roleId} not found or not in PENDING_APPROVAL status`);
-        return;
-      }
+    const role = await this.prisma.role.findUnique({ where: { id: roleId } });
+    if (!role || role.status !== 'PENDING_APPROVAL') {
+      this.logger.warn(`Role ${roleId} not found or not in PENDING_APPROVAL status`);
+      return;
+    }
 
-      const groupCodes: string[] = JSON.parse(role.proposedPermissionGroups || '[]');
+    // 保留未注入 BASE_ACCESS 前的原始提案列表，供 afterData 与 REQUESTED 记录的口径保持一致
+    // （BASE_ACCESS 注入是内部实现细节，不是管理员的变更意图）。
+    const proposedGroupCodes: string[] = JSON.parse(role.proposedPermissionGroups || '[]');
+    const afterData = { permissionGroupCodes: proposedGroupCodes };
+
+    try {
+      const groupCodes = [...proposedGroupCodes];
 
       /* Every role must include BASE_ACCESS for /auth/me to work */
       if (!groupCodes.includes('BASE_ACCESS')) {
@@ -221,29 +234,47 @@ export class RoleDefinitionCreateWorkflowService {
       });
 
       await this.auditLogsService.recordSystem({
-        action: AuditGovernanceActions.ROLE_DEFINITION_CREATE.ROLE_ACTIVATED,
+        action: 'ROLE_DEFINITION_CREATE_APPLIED',
+        actionDomain: 'CONFIG',
+        category: AuditCategory.GOVERNANCE,
         primarySubjectType: AuditEntityTypes.ACCESS_CONTROL,
         primarySubjectNo: role.code,
-        traceId: event?.traceId,
+        // INHERIT：读 ApprovalDecidedEvent.traceId——它就是 initiateCreate 铸造的
+        // correlationId 原样传播过来的（经 ApprovalCase.traceId）。
+        correlationId: event?.traceId,
+        // 异步驱动：这条记录是被"审批已批准"这个决定触发的。
+        causationId: approvalId,
         outcome: AuditOutcome.SUCCESS,
+        afterData,
+        approvalNo: event?.approvalNo,
         metadata: {
-          permissionGroupCodes: groupCodes,
           permissionsWritten: uniqueCodes.length,
         },
-        sourcePlatform: 'SYSTEM',
+        requestId: crypto.randomUUID(),
+        sourcePlatform: 'ADMIN_API',
       });
 
       this.logger.log(`Role ${role.code} activated with ${uniqueCodes.length} permissions`);
     } catch (err: any) {
       this.logger.error(`Failed to activate role ${roleId}: ${err.message}`);
 
+      // 退役码 ROLE_ACTIVATE_FAILED 收编进来——同一动作码 ROLE_DEFINITION_CREATE_APPLIED，
+      // 靠 outcome=FAILED 区分，不另起一个 _FAILED 后缀码（词表未给这一步单独开码）。
       await this.auditLogsService.recordSystem({
-        action: AuditGovernanceActions.ROLE_DEFINITION_CREATE.ROLE_ACTIVATE_FAILED,
+        action: 'ROLE_DEFINITION_CREATE_APPLIED',
+        actionDomain: 'CONFIG',
+        category: AuditCategory.GOVERNANCE,
         primarySubjectType: AuditEntityTypes.ACCESS_CONTROL,
-        primarySubjectNo: roleId,
+        primarySubjectNo: role.code,
+        correlationId: event?.traceId,
+        causationId: approvalId,
         outcome: AuditOutcome.FAILED,
+        reason: err.message,
+        afterData,
+        approvalNo: event?.approvalNo,
         metadata: { error: err.message },
-        sourcePlatform: 'SYSTEM',
+        requestId: crypto.randomUUID(),
+        sourcePlatform: 'ADMIN_API',
       });
     }
   }
@@ -259,13 +290,18 @@ export class RoleDefinitionCreateWorkflowService {
       await this.prisma.role.delete({ where: { id: role.id } });
 
       await this.auditLogsService.recordSystem({
-        action: AuditGovernanceActions.ROLE_DEFINITION_CREATE.CREATE_CANCELLED,
+        action: 'ROLE_DEFINITION_CREATE_CANCELLED',
+        actionDomain: 'CONFIG',
+        category: AuditCategory.GOVERNANCE,
         primarySubjectType: AuditEntityTypes.ACCESS_CONTROL,
         primarySubjectNo: role.code,
-        traceId: event?.traceId,
+        correlationId: event?.traceId,
+        causationId: approvalId,
         outcome: AuditOutcome.SUCCESS,
+        reason: event?.decisionReason || `Role definition create request ${String(decision).toLowerCase()}`,
         metadata: { decision },
-        sourcePlatform: 'SYSTEM',
+        requestId: crypto.randomUUID(),
+        sourcePlatform: 'ADMIN_API',
       });
 
       this.logger.log(`Role ${role.code} creation cancelled (${decision}), row deleted`);
