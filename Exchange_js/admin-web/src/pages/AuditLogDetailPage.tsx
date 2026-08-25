@@ -9,15 +9,15 @@ import {
 import { adminButtonClass } from '../components/common/adminButtonStyles';
 import { AdminBadge } from '../components/ui/AdminBadge';
 
-type AuditResult = 'SUCCESS' | 'FAILED' | 'REJECTED';
+type AuditOutcome = 'SUCCESS' | 'DENIED' | 'FAILED' | 'PARTIAL';
 
 interface AuditLogDetail {
   id: string;
-  auditNo: string;
+  eventNo: string;
   triggerType: string;
   action: string;
   entityType: string;
-  entityNo?: string | null;
+  primarySubjectNo?: string | null;
   entityOwnerType?: string | null;
   entityOwnerId?: string | null;
   entityOwnerNo?: string | null;
@@ -25,7 +25,7 @@ interface AuditLogDetail {
   actorId: string;
   actorNo?: string | null;
   actorRole?: string | null;
-  result: AuditResult;
+  outcome: AuditOutcome;
   reason?: string | null;
   statusFrom?: string | null;
   statusTo?: string | null;
@@ -262,7 +262,7 @@ const AuditLogDetailPage = () => {
           {/* ── 1 · HERO ── */}
           <section className="bg-adm-card px-6 py-5">
             <p className="font-mono text-[19px] font-bold leading-none text-adm-amber">
-              {detail.auditNo}
+              {detail.eventNo}
             </p>
             <div className="mt-4 border-t border-adm-border pt-4 grid grid-cols-2 gap-x-8 gap-y-3">
               <div className="col-span-2">
@@ -271,7 +271,7 @@ const AuditLogDetailPage = () => {
               </div>
               <div>
                 <p className="mb-1 font-mono text-[8.5px] uppercase tracking-[0.14em] text-adm-t3">Result</p>
-                <AdminBadge value={detail.result} />
+                <AdminBadge value={detail.outcome} />
               </div>
               <div>
                 <p className="mb-1 font-mono text-[8.5px] uppercase tracking-[0.14em] text-adm-t3">Occurred</p>
@@ -332,7 +332,7 @@ const AuditLogDetailPage = () => {
                 {detail.entityType}
               </p>
               <p className="mt-1 font-mono text-[14px] font-semibold text-adm-amber">
-                {detail.entityNo ?? '—'}
+                {detail.primarySubjectNo ?? '—'}
               </p>
             </div>
 

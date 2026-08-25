@@ -91,7 +91,7 @@ export enum AuditEvidenceExportMode {
 
 export interface AuditLogView {
   id: string;
-  auditNo: string;
+  eventNo: string;
   businessWorkflow: string | null;
   businessWorkflowLabel: string | null;
   userAction: string | null;
@@ -100,13 +100,20 @@ export interface AuditLogView {
   entityType: string;
   entityId: string | null;
   entityNo: string | null;
+  primarySubjectType: string | null;
+  primarySubjectNo: string | null;
   workflowType: string | null;
   traceId: string | null;
+  correlationId: string | null;
+  causationId: string | null;
   ownerCustomerNo: string | null;
   actorType: string;
   actorNo: string | null;
+  actorDisplayName: string;
   /** 当时的角色快照数组（JSON 反序列化）。取代旧单值 actorRole —— 一个人当时可能兼多角色 */
   actorRolesAtTime: string[];
+  isReadOnly: boolean;
+  reasonCode: string | null;
   requestId: string | null;
   sourceIp: string | null;
   sourcePlatform: string | null;

@@ -319,7 +319,7 @@ export class AuditLogsService {
 
     return {
       id: raw.id,
-      auditNo: raw.auditNo,
+      eventNo: raw.eventNo,
       businessWorkflow,
       businessWorkflowLabel: this.toDisplayLabel(businessWorkflow),
       userAction,
@@ -328,14 +328,21 @@ export class AuditLogsService {
       entityType: raw.entityType,
       entityId: raw.entityId ?? null,
       entityNo: raw.entityNo ?? null,
+      primarySubjectType: raw.primarySubjectType ?? null,
+      primarySubjectNo: raw.primarySubjectNo ?? null,
       workflowType: raw.workflowType ?? null,
       traceId: raw.traceId ?? null,
+      correlationId: raw.correlationId ?? null,
+      causationId: raw.causationId ?? null,
       ownerCustomerNo: raw.ownerCustomerNo ?? null,
       actorType: raw.actorType,
       actorNo: raw.actorNo ?? null,
+      actorDisplayName: raw.actorDisplayName,
       actorRolesAtTime: (() => {
         try { return JSON.parse(raw.actorRolesAtTime ?? '[]'); } catch { return []; }
       })(),
+      isReadOnly: raw.isReadOnly ?? false,
+      reasonCode: raw.reasonCode ?? null,
       requestId: raw.requestId ?? null,
       sourceIp: raw.sourceIp ?? null,
       sourcePlatform: raw.sourcePlatform ?? null,
@@ -790,7 +797,7 @@ export class AuditLogsService {
     };
     const recordDigests = selection.records.map((row: any) => ({
       id: row.id,
-      auditNo: row.auditNo,
+      eventNo: row.eventNo,
       digest: row.payloadDigest || sha256Hex(row),
     }));
 
@@ -1007,6 +1014,9 @@ export class AuditLogsService {
         skip,
         take,
         orderBy: { occurredAt: 'desc' },
+        include: {
+          subjects: { select: { subjectType: true, subjectNo: true, subjectRole: true } },
+        },
       }),
     ]);
 
@@ -1014,7 +1024,15 @@ export class AuditLogsService {
       total,
       skip,
       take,
-      items: rows.map((row: any) => this.mapEvent(row)),
+      items: rows.map((row: any) => {
+        const mapped: any = this.mapEvent(row);
+        mapped.subjects = (row.subjects ?? []).map((s: any) => ({
+          subjectType: s.subjectType,
+          subjectNo: s.subjectNo,
+          subjectRole: s.subjectRole,
+        }));
+        return mapped;
+      }),
     };
   }
 

@@ -10,19 +10,19 @@ import { AdminSessionError, adminFetch, getApiErrorMessage } from '../utils/admi
 import { AdminBadge } from '../components/ui/AdminBadge';
 import { PageTitleBar } from '../components/ui/PageTitleBar';
 
-type AuditResult = 'SUCCESS' | 'FAILED' | 'REJECTED';
+type AuditOutcome = 'SUCCESS' | 'DENIED' | 'FAILED' | 'PARTIAL';
 
 interface AuditLogItem {
   id: string;
-  auditNo: string;
+  eventNo: string;
   action: string;
   entityType: string;
-  entityNo?: string | null;
+  primarySubjectNo?: string | null;
   entityOwnerNo?: string | null;
   actorType: string;
   actorId: string;
   actorNo?: string | null;
-  result: AuditResult;
+  outcome: AuditOutcome;
   occurredAt: string;
   traceId?: string | null;
   workflowType?: string | null;
@@ -53,7 +53,7 @@ interface FilterState {
   actorNo: string;
   ownerCustomerNo: string;
   traceId: string;
-  outcome: '' | AuditResult;
+  outcome: '' | AuditOutcome;
   startAt: string;
   endAt: string;
   includeArchived: boolean;
@@ -281,8 +281,9 @@ const AuditLogsPage = () => {
         >
           <option value="">All Results</option>
           <option value="SUCCESS">SUCCESS</option>
+          <option value="DENIED">DENIED</option>
           <option value="FAILED">FAILED</option>
-          <option value="REJECTED">REJECTED</option>
+          <option value="PARTIAL">PARTIAL</option>
         </select>
         <input
           value={filters.actorNo}
@@ -456,11 +457,11 @@ const AuditLogsPage = () => {
             {!loading &&
               items.map((item) => {
                 const borderCls =
-                  item.result === 'SUCCESS'
+                  item.outcome === 'SUCCESS'
                     ? 'border-l-2 border-l-adm-green'
-                    : item.result === 'FAILED'
+                    : item.outcome === 'FAILED'
                       ? 'border-l-2 border-l-adm-red'
-                      : item.result === 'REJECTED'
+                      : item.outcome === 'DENIED'
                         ? 'border-l-2 border-l-adm-amber'
                         : '';
                 return (
@@ -492,12 +493,12 @@ const AuditLogsPage = () => {
                     {/* Audit No — amber + status left-border */}
                     <td className={`px-3 py-2.5 ${borderCls}`}>
                       <span className="font-mono text-[11px] font-semibold text-adm-amber">
-                        {item.auditNo}
+                        {item.eventNo}
                       </span>
                     </td>
                     {/* Result badge */}
                     <td className="px-3 py-2.5">
-                      <AdminBadge value={item.result} />
+                      <AdminBadge value={item.outcome} />
                     </td>
                     {/* Workflow Type */}
                     <td className="px-3 py-2.5 font-mono text-[11px] text-adm-t2">
@@ -509,7 +510,7 @@ const AuditLogsPage = () => {
                     </td>
                     {/* Entity No */}
                     <td className="px-3 py-2.5 font-mono text-[11px] text-adm-amber">
-                      {item.entityNo ?? <span className="text-adm-t3">—</span>}
+                      {item.primarySubjectNo ?? <span className="text-adm-t3">—</span>}
                     </td>
                     {/* Entity Type */}
                     <td className="px-3 py-2.5 font-mono text-[11px] text-adm-t2">
