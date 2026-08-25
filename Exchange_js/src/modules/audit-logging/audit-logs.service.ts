@@ -880,7 +880,7 @@ export class AuditLogsService {
 
     const payloadDigest = sha256Hex({
       action: input.action,
-      actionDomain: input.actionDomain || 'UNCLASSIFIED',
+      actionDomain: input.actionDomain ?? 'UNCLASSIFIED',
       primarySubjectType: input.primarySubjectType || null,
       primarySubjectNo: input.primarySubjectNo || null,
       ownerCustomerNo: input.ownerCustomerNo || null,
