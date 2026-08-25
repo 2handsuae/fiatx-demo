@@ -75,14 +75,14 @@ CREATE UNIQUE INDEX "audit_log_events_eventNo_key"        ON "audit_log_events"(
 CREATE UNIQUE INDEX "audit_log_events_idempotencyKey_key" ON "audit_log_events"("idempotencyKey");
 CREATE INDEX "audit_log_events_occurredAt_idx"            ON "audit_log_events"("occurredAt");
 CREATE INDEX "audit_log_events_actorNo_occurredAt_idx"    ON "audit_log_events"("actorNo","occurredAt");
-CREATE INDEX "audit_log_events_owner_occurredAt_idx"      ON "audit_log_events"("ownerCustomerNo","occurredAt");
+CREATE INDEX "audit_log_events_ownerCustomerNo_occurredAt_idx"      ON "audit_log_events"("ownerCustomerNo","occurredAt");
 CREATE INDEX "audit_log_events_action_occurredAt_idx"     ON "audit_log_events"("action","occurredAt");
-CREATE INDEX "audit_log_events_domain_occurredAt_idx"     ON "audit_log_events"("actionDomain","occurredAt");
-CREATE INDEX "audit_log_events_corr_occurredAt_idx"       ON "audit_log_events"("correlationId","occurredAt");
+CREATE INDEX "audit_log_events_actionDomain_occurredAt_idx"     ON "audit_log_events"("actionDomain","occurredAt");
+CREATE INDEX "audit_log_events_correlationId_occurredAt_idx"       ON "audit_log_events"("correlationId","occurredAt");
 CREATE INDEX "audit_log_events_causationId_idx"           ON "audit_log_events"("causationId");
 CREATE INDEX "audit_log_events_traceId_occurredAt_idx"    ON "audit_log_events"("traceId","occurredAt");
 CREATE INDEX "audit_log_events_outcome_occurredAt_idx"    ON "audit_log_events"("outcome","occurredAt");
-CREATE INDEX "audit_log_events_primarySubject_idx"        ON "audit_log_events"("primarySubjectType","primarySubjectNo");
+CREATE INDEX "audit_log_events_primarySubjectType_primarySubjectNo_idx"        ON "audit_log_events"("primarySubjectType","primarySubjectNo");
 CREATE INDEX "audit_log_events_isReadOnly_occurredAt_idx" ON "audit_log_events"("isReadOnly","occurredAt");
 CREATE INDEX "audit_log_events_retainedUntil_idx"         ON "audit_log_events"("retainedUntil");
 CREATE INDEX "audit_log_events_legalHold_idx"             ON "audit_log_events"("legalHold");
@@ -100,11 +100,11 @@ CREATE TABLE "audit_log_subjects" (
         REFERENCES "audit_log_events" ("id") ON DELETE CASCADE ON UPDATE CASCADE
 );
 
-CREATE UNIQUE INDEX "audit_log_subjects_event_type_no_role_key"
+CREATE UNIQUE INDEX "audit_log_subjects_eventId_subjectType_subjectNo_subjectRole_key"
     ON "audit_log_subjects"("eventId","subjectType","subjectNo","subjectRole");
 CREATE INDEX "audit_log_subjects_subjectNo_occurredAt_idx"
     ON "audit_log_subjects"("subjectNo","occurredAt");
-CREATE INDEX "audit_log_subjects_type_no_occurredAt_idx"
+CREATE INDEX "audit_log_subjects_subjectType_subjectNo_occurredAt_idx"
     ON "audit_log_subjects"("subjectType","subjectNo","occurredAt");
 CREATE INDEX "audit_log_subjects_subjectRole_occurredAt_idx"
     ON "audit_log_subjects"("subjectRole","occurredAt");
