@@ -523,7 +523,7 @@ export class AdminInvitationsService {
         this.applyAuditContext({
           action: AuditActions.ADMIN_INVITATION_ACCEPT_FAILED,
           primarySubjectType: AuditEntityTypes.AUTH,
-          result: AuditOutcome.FAILED,
+          outcome: AuditOutcome.FAILED,
           reason: error?.message || 'Admin invitation accept failed',
           metadata: {
             tokenHashPrefix: this.maskToken(normalizedToken),

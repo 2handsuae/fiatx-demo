@@ -213,7 +213,7 @@ describe('AuditLogsService', () => {
         actorType: 'ADMIN',
         actorId: 'admin-1',
         actorNo: 'ADMIN-001',
-        result: AuditOutcome.SUCCESS,
+        outcome: AuditOutcome.SUCCESS,
         metadata: null,
         beforeData: null,
         afterData: null,
@@ -230,7 +230,7 @@ describe('AuditLogsService', () => {
         actorType: 'ADMIN',
         actorId: 'admin-1',
         actorNo: 'ADMIN-001',
-        result: AuditOutcome.SUCCESS,
+        outcome: AuditOutcome.SUCCESS,
         metadata: null,
         beforeData: null,
         afterData: null,
@@ -392,7 +392,7 @@ describe('AuditLogsService', () => {
         entityId: 'wd-1',
         actorType: 'ADMIN',
         actorId: 'admin-1',
-        result: AuditOutcome.SUCCESS,
+        outcome: AuditOutcome.SUCCESS,
         metadata: JSON.stringify({ source: 'api' }),
         beforeData: JSON.stringify({ status: 'CREATED' }),
         afterData: JSON.stringify({ status: 'SUCCESS' }),
@@ -421,7 +421,7 @@ describe('AuditLogsService', () => {
         workflowType: AuditBusinessWorkflowTypes.ADMIN_ROLE_BINDING_CHANGE,
         actorType: 'ADMIN',
         actorId: 'admin-1',
-        result: AuditOutcome.SUCCESS,
+        outcome: AuditOutcome.SUCCESS,
         metadata: null,
         beforeData: null,
         afterData: null,
@@ -438,7 +438,7 @@ describe('AuditLogsService', () => {
         actorType: 'ADMIN',
         actorId: 'admin-1',
         actorNo: 'ADM2604010001',
-        result: AuditOutcome.SUCCESS,
+        outcome: AuditOutcome.SUCCESS,
         metadata: null,
         beforeData: null,
         afterData: null,
@@ -454,7 +454,7 @@ describe('AuditLogsService', () => {
         workflowType: AuditBusinessWorkflowTypes.AUDIT_EVIDENCE_EXPORT,
         actorType: 'ADMIN',
         actorId: 'admin-1',
-        result: AuditOutcome.SUCCESS,
+        outcome: AuditOutcome.SUCCESS,
         metadata: null,
         beforeData: null,
         afterData: null,
@@ -499,7 +499,7 @@ describe('AuditLogsService', () => {
         workflowType: AuditBusinessWorkflowTypes.ADMIN_ROLE_BINDING_CHANGE,
         actorType: 'ADMIN',
         actorId: 'admin-1',
-        result: AuditOutcome.FAILED,
+        outcome: AuditOutcome.FAILED,
         metadata: null,
         beforeData: null,
         afterData: null,
@@ -528,7 +528,7 @@ describe('AuditLogsService', () => {
       traceId: 'trace-role-binding-1',
       actorType: 'ADMIN',
       actorId: 'admin-1',
-      result: AuditOutcome.SUCCESS,
+      outcome: AuditOutcome.SUCCESS,
       metadata: null,
       beforeData: null,
       afterData: null,
@@ -1893,5 +1893,19 @@ describe('AuditLogsService', () => {
         category: AuditCategory.SECURITY,
       } as any)).rejects.toThrow('deprecated');
     });
+  });
+});
+
+describe('第一批 · 守则：审计写入不得再用 result 当键名', () => {
+  const { execSync } = require('child_process');
+
+  it('全仓生产代码零处 `result: AuditOutcome`', () => {
+    const out = execSync(
+      `grep -rn "result: AuditOutcome" src/ 2>/dev/null | grep -v "\\.spec\\." || true`,
+      { encoding: 'utf8' },
+    ).trim();
+    // 键名写成 result 会被 DTO 白名单静默丢弃 → 失败记录落库成 outcome=SUCCESS。
+    // 这类「失败被记成成功」正是本批要根治的缺陷，加守则防复发。
+    expect(out).toBe('');
   });
 });

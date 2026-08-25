@@ -261,7 +261,7 @@ export class CustomerRestrictionsService {
       ownerCustomerNo: outcome.customerNo || undefined,
       // traceId 撕时继承便签行上的值（贴时生成）
       traceId: first.traceId,
-      result: AuditOutcome.SUCCESS,
+      outcome: AuditOutcome.SUCCESS,
       reason: `${first.cause} released by ${opts.releaseMode.toLowerCase()}`,
       metadata: {
         restrictionNo,
