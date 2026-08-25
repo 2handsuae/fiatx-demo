@@ -14,7 +14,11 @@
 
 ## Global Constraints
 
-- **工作目录**：`/Users/songshengwei/Documents/codex/projects/重做版/Exchange_js`。每个 Task 开始前 `source ~/.nvm/nvm.sh && nvm use 20`。
+- **工作目录**：`/Users/songshengwei/Documents/codex/projects/重做版/.claude/worktrees/audit1/Exchange_js`（**worktree，不是主工作树**）。每个 Task 开始前 `source ~/.nvm/nvm.sh && nvm use 20`。
+- 🔴 **栈隔离铁律**：本批一律用**本 worktree 的 self 栈**（`bash scripts/stack.sh up`，DB 在 `/tmp/exchange_js_wt_audit1/`）。
+  **绝对禁止碰 main 栈**（`/tmp/exchange_js_main/dev.db`，端口 3000-3003）—— 那里有常驻后端在跑旧 Prisma Client，
+  用新表结构去迁移它会当场炸穿所有触发审计写入的业务事务。
+  Task 1 的迁移、Task 11 的 `demo:all`，全部在 self 栈内跑。
 - **Demo 数据约定**：数据可随时格式化重铺。**禁止** backfill / 迁移兼容层 / 双写过渡 / 向后兼容列。schema 改动直接按目标终态做；`prisma/migrations` 仍按正常流程新增（保证空库能从零建起），迁移内容不必兼容已有行。
 - **字段名与枚举一律以应然为准**（业主裁定，代码不一致时听应然的）：
   `auditNo→eventNo` ｜ `result→outcome` ｜ 六值枚举 → **四值 `SUCCESS`/`DENIED`/`FAILED`/`PARTIAL`** ｜ `entityType/entityId/entityNo→primarySubjectType/primarySubjectNo` ｜ `entityOwnerNo→ownerCustomerNo` ｜ `createdAt→recordedAt` ｜ `actorRole→actorRolesAtTime`（数组） ｜ `updatedAt` **删除** ｜ `workflowType` **停止 V1 域写入**。
@@ -95,10 +99,15 @@
 ```prisma
 model AuditLogEvent {
   // 组 A · 信封
-  id                 String   @id @default(uuid())
+  // ⚠️ seq 必须是 @id：SQLite 下 Prisma 拒绝 autoincrement() 挂在非 @id 字段上
+  //    （实测 P1012: "The `autoincrement()` default value is used on a non-id field
+  //     even though the datasource does not support this."）
+  //    seq 当物理主键 = SQLite rowid 别名，由 DB 保证单调，应用层碰不到、改不了。
+  //    id 保留为稳定 UUID 供子表外键引用（Prisma 支持 references 任意 @unique 字段）。
+  seq                Int      @id @default(autoincrement())
+  id                 String   @unique @default(uuid())
   eventNo            String   @unique @default("TEMP")
   schemaVersion      Int      @default(1)
-  seq                Int      @unique @default(autoincrement())
   category           String
   isReadOnly         Boolean  @default(false)
   supersedesEventNo  String?
@@ -230,10 +239,11 @@ SQLite 无法直接改列，走表重建。创建 `prisma/migrations/20260825010
 DROP TABLE IF EXISTS "audit_log_events";
 
 CREATE TABLE "audit_log_events" (
-    "id"                 TEXT NOT NULL PRIMARY KEY,
+    -- seq 是 INTEGER PRIMARY KEY AUTOINCREMENT = SQLite rowid 别名，DB 保证单调且不复用
+    "seq"                INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+    "id"                 TEXT NOT NULL,
     "eventNo"            TEXT NOT NULL DEFAULT 'TEMP',
     "schemaVersion"      INTEGER NOT NULL DEFAULT 1,
-    "seq"                INTEGER NOT NULL,
     "category"           TEXT NOT NULL,
     "isReadOnly"         BOOLEAN NOT NULL DEFAULT false,
     "supersedesEventNo"  TEXT,
@@ -295,8 +305,8 @@ CREATE TABLE "audit_log_events" (
     "metadata"           TEXT
 );
 
+CREATE UNIQUE INDEX "audit_log_events_id_key"             ON "audit_log_events"("id");
 CREATE UNIQUE INDEX "audit_log_events_eventNo_key"        ON "audit_log_events"("eventNo");
-CREATE UNIQUE INDEX "audit_log_events_seq_key"            ON "audit_log_events"("seq");
 CREATE UNIQUE INDEX "audit_log_events_idempotencyKey_key" ON "audit_log_events"("idempotencyKey");
 CREATE INDEX "audit_log_events_occurredAt_idx"            ON "audit_log_events"("occurredAt");
 CREATE INDEX "audit_log_events_actorNo_occurredAt_idx"    ON "audit_log_events"("actorNo","occurredAt");
@@ -349,10 +359,10 @@ Expected: `Generated Prisma Client`；迁移脚本无报错。
 - [ ] **Step 4: 验证表真的按目标建成**
 
 ```bash
-sqlite3 /tmp/exchange_js_main/dev.db "PRAGMA table_info(audit_log_events);" | wc -l
-sqlite3 /tmp/exchange_js_main/dev.db "PRAGMA table_info(audit_log_events);" | grep -cE "outcome|correlationId|causationId|legalHold|seq|actionDomain|actorRolesAtTime"
-sqlite3 /tmp/exchange_js_main/dev.db "PRAGMA table_info(audit_log_events);" | grep -c "updatedAt"
-sqlite3 /tmp/exchange_js_main/dev.db ".schema audit_log_subjects" | grep -c subjectRole
+sqlite3 /tmp/exchange_js_wt_audit1/dev.db "PRAGMA table_info(audit_log_events);" | wc -l
+sqlite3 /tmp/exchange_js_wt_audit1/dev.db "PRAGMA table_info(audit_log_events);" | grep -cE "outcome|correlationId|causationId|legalHold|seq|actionDomain|actorRolesAtTime"
+sqlite3 /tmp/exchange_js_wt_audit1/dev.db "PRAGMA table_info(audit_log_events);" | grep -c "updatedAt"
+sqlite3 /tmp/exchange_js_wt_audit1/dev.db ".schema audit_log_subjects" | grep -c subjectRole
 ```
 
 Expected: 第一条 ≥ 57；第二条 `7`；第三条 `0`（`updatedAt` 已删）；第四条 ≥ 2。
@@ -2226,10 +2236,10 @@ git commit -m "refactor(audit): 其余 28 个文件打点上收编排层（机�
 - [ ] **Step 1: 重铺数据并跑一轮 V1 业务**
 
 ```bash
-bash scripts/stack.sh down main
-rm -rf /tmp/exchange_js_main
-bash scripts/stack.sh up main
-bash scripts/on-stack.sh main demo:all
+bash scripts/stack.sh down
+rm -rf /tmp/exchange_js_wt_audit1
+bash scripts/stack.sh up
+bash scripts/on-stack.sh self demo:all
 ```
 
 Expected: `demo:all` 输出 8/8 PASS。
@@ -2343,7 +2353,7 @@ main();
 - [ ] **Step 4: 跑验收**
 
 ```bash
-bash scripts/on-stack.sh main verify:audit
+bash scripts/on-stack.sh self verify:audit
 ```
 
 Expected:
@@ -2365,11 +2375,11 @@ ALL AUDIT CHECKS PASS
 
 - [ ] **Step 5: 变异测试 —— 证明这个脚本不是恒绿**
 
-依次做三次，每次改完跑 `bash scripts/on-stack.sh main verify:audit`，确认**变红且指向正确的那一条**，然后撤销：
+依次做三次，每次改完跑 `bash scripts/on-stack.sh self verify:audit`，确认**变红且指向正确的那一条**，然后撤销：
 
 1. 手工插一条多 PRIMARY 的子表行：
    ```bash
-   sqlite3 /tmp/exchange_js_main/dev.db "
+   sqlite3 /tmp/exchange_js_wt_audit1/dev.db "
      INSERT INTO audit_log_subjects (id,eventId,subjectType,subjectNo,subjectRole,occurredAt)
      SELECT 'mutant-1', eventId, 'X', 'X1', 'PRIMARY', occurredAt
      FROM audit_log_subjects WHERE subjectRole='PRIMARY' LIMIT 1;"
@@ -2379,7 +2389,7 @@ ALL AUDIT CHECKS PASS
 
 2. 手工清掉一条 INHERIT 记录的 `correlationId`：
    ```bash
-   sqlite3 /tmp/exchange_js_main/dev.db "
+   sqlite3 /tmp/exchange_js_wt_audit1/dev.db "
      UPDATE audit_log_events SET correlationId=NULL
      WHERE action='APPROVAL_GRANTED' AND correlationId IS NOT NULL LIMIT 1;"
    ```
