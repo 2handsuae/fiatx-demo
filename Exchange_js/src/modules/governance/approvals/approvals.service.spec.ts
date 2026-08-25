@@ -1,6 +1,5 @@
 import { BadRequestException, ForbiddenException } from '@nestjs/common';
 import { ApprovalsService } from './approvals.service';
-import { AuditActions } from '../../audit-logging/constants/audit-actions.constant';
 import {
   ApprovalActionTypes,
   ApprovalEvents,
@@ -56,7 +55,7 @@ const buildApproval = (overrides: Record<string, unknown> = {}) => ({
 
 describe('ApprovalsService', () => {
   let prisma: any;
-  let auditLogsService: { recordByActor: jest.Mock };
+  let auditLogsService: { recordByActor: jest.Mock; recordSystem: jest.Mock };
   let approvalPolicyService: {
     getPolicy: jest.Mock;
     isSameUserMakerCheckerDenied: jest.Mock;
@@ -119,6 +118,7 @@ describe('ApprovalsService', () => {
 
     auditLogsService = {
       recordByActor: jest.fn().mockResolvedValue(undefined),
+      recordSystem: jest.fn().mockResolvedValue(undefined),
     };
 
     approvalPolicyService = {
@@ -320,7 +320,7 @@ describe('ApprovalsService', () => {
     expect(result.status).toBe(ApprovalStatuses.APPROVED);
     expect(auditLogsService.recordByActor).toHaveBeenCalledWith(
       expect.objectContaining({
-        action: AuditActions.APPROVAL_APPROVED,
+        action: 'APPROVAL_GRANTED',
         outcome: 'SUCCESS',
         metadata: expect.objectContaining({ superAdminBypass: true }),
       }),
@@ -774,6 +774,236 @@ describe('ApprovalsService', () => {
         ApprovalEvents.REJECTED,
         expect.objectContaining({ approvalId: 'approval-ms-2' }),
       );
+    });
+  });
+
+  describe('第一批 · 审批横切 6 码', () => {
+    // 两步审批共用的案子形状：MLRO 先签、SENIOR_MANAGEMENT_OFFICER 后签。
+    const buildTwoStepCase = (overrides: Record<string, unknown> = {}) => ({
+      id: 'approval-2step',
+      approvalNo: 'APR2603140020',
+      actionType: ApprovalActionTypes.RISK_RATING_HIGH_APPROVAL,
+      entityRef: 'customer-2step',
+      createdByUserId: 'maker-2step',
+      createdByUserNo: 'USR-MAKER-2STEP',
+      status: ApprovalStatuses.PENDING,
+      allowCancel: true,
+      allowRetry: true,
+      metadataJson: '{}',
+      traceId: 'trace-2step',
+      createdAt: baseDate,
+      updatedAt: baseDate,
+      submittedAt: baseDate,
+      timeoutAt: new Date(baseDate.getTime() + 168 * 60 * 60 * 1000),
+      decidedAt: null,
+      executedAt: null,
+      decisionByUserId: null,
+      decisionByUserNo: null,
+      decisionByRole: null,
+      decisionReason: null,
+      evidencePackage: null,
+      steps: [
+        {
+          id: 'step-2step-1',
+          approvalCaseId: 'approval-2step',
+          approvalNo: 'APR2603140020',
+          stepNo: 1,
+          status: ApprovalStatuses.PENDING,
+          checkerRoleCandidates: 'MLRO',
+          decidedByUserId: null,
+          decidedByUserNo: null,
+          decidedByRole: null,
+          reason: null,
+          decidedAt: null,
+          createdAt: baseDate,
+          updatedAt: baseDate,
+        },
+        {
+          id: 'step-2step-2',
+          approvalCaseId: 'approval-2step',
+          approvalNo: 'APR2603140020',
+          stepNo: 2,
+          status: ApprovalStatuses.PENDING,
+          checkerRoleCandidates: 'SENIOR_MANAGEMENT_OFFICER',
+          decidedByUserId: null,
+          decidedByUserNo: null,
+          decidedByRole: null,
+          reason: null,
+          decidedAt: null,
+          createdAt: baseDate,
+          updatedAt: baseDate,
+        },
+      ],
+      ...overrides,
+    });
+
+    it('提交审批写 APPROVAL_SUBMITTED，PRIMARY 是审批单、业务对象是 RELATED', async () => {
+      const draft = buildApproval({
+        status: ApprovalStatuses.DRAFT,
+        createdByUserId: actor.userId,
+      });
+      prisma.approvalCase.findUnique.mockResolvedValue(draft);
+      prisma.approvalCase.update.mockResolvedValue(
+        buildApproval({ status: ApprovalStatuses.PENDING, createdByUserId: actor.userId }),
+      );
+
+      await service.submit('approval-1', { reason: 'please review' }, actor);
+
+      const call = auditLogsService.recordByActor.mock.calls.find(
+        (c: any[]) => c[0].action === 'APPROVAL_SUBMITTED',
+      );
+      expect(call).toBeDefined();
+      expect(call[0].actionDomain).toBe('APPROVAL');
+      expect(call[0].primarySubjectNo).toBe(draft.approvalNo);
+      expect(call[0].subjects).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ subjectRole: 'PRIMARY', subjectNo: draft.approvalNo }),
+          expect.objectContaining({ subjectRole: 'RELATED' }),
+        ]),
+      );
+      expect(
+        call[0].subjects.filter((s: any) => s.subjectRole === 'PRIMARY'),
+      ).toHaveLength(1);
+    });
+
+    it('中间票的 fromStatus/toStatus 留空——审批单状态未变', async () => {
+      const caseRecord: any = buildTwoStepCase();
+
+      prisma.approvalCase.findUnique.mockImplementation(async () => ({
+        ...caseRecord,
+        steps: caseRecord.steps.map((s: any) => ({ ...s })),
+      }));
+      prisma.approvalStep.update.mockImplementation(
+        async ({ where, data }: { where: any; data: any }) => {
+          const stepNo = where.approvalCaseId_stepNo?.stepNo;
+          const step = caseRecord.steps.find((s: any) => s.stepNo === stepNo);
+          if (step) Object.assign(step, data);
+          return step;
+        },
+      );
+
+      const mlroActor = {
+        actorType: 'ADMIN' as const,
+        userId: 'checker-mlro-mid',
+        userNo: 'USR-MLRO-MID',
+        role: 'MLRO',
+        roleCodes: ['MLRO'],
+      };
+
+      await service.approve('approval-2step', { reason: 'MLRO sign-off' }, mlroActor);
+
+      const call = auditLogsService.recordByActor.mock.calls.find(
+        (c: any[]) => c[0].action === 'APPROVAL_GRANTED',
+      );
+      expect(call).toBeDefined();
+      expect(call[0].fromStatus).toBeUndefined();
+      expect(call[0].toStatus).toBeUndefined();
+    });
+
+    it('末票推动单据状态，fromStatus/toStatus 有值', async () => {
+      const caseRecord: any = buildTwoStepCase({
+        steps: [
+          {
+            id: 'step-last-1',
+            approvalCaseId: 'approval-2step',
+            approvalNo: 'APR2603140020',
+            stepNo: 1,
+            status: ApprovalStatuses.APPROVED,
+            checkerRoleCandidates: 'MLRO',
+            decidedByUserId: 'checker-mlro-prior',
+            decidedByUserNo: 'USR-MLRO-PRIOR',
+            decidedByRole: 'MLRO',
+            reason: 'MLRO sign-off',
+            decidedAt: baseDate,
+            createdAt: baseDate,
+            updatedAt: baseDate,
+          },
+          {
+            id: 'step-last-2',
+            approvalCaseId: 'approval-2step',
+            approvalNo: 'APR2603140020',
+            stepNo: 2,
+            status: ApprovalStatuses.PENDING,
+            checkerRoleCandidates: 'SENIOR_MANAGEMENT_OFFICER',
+            decidedByUserId: null,
+            decidedByUserNo: null,
+            decidedByRole: null,
+            reason: null,
+            decidedAt: null,
+            createdAt: baseDate,
+            updatedAt: baseDate,
+          },
+        ],
+      });
+
+      prisma.approvalCase.findUnique.mockImplementation(async () => ({
+        ...caseRecord,
+        steps: caseRecord.steps.map((s: any) => ({ ...s })),
+      }));
+      prisma.approvalStep.update.mockImplementation(
+        async ({ where, data }: { where: any; data: any }) => {
+          const stepNo = where.approvalCaseId_stepNo?.stepNo;
+          const step = caseRecord.steps.find((s: any) => s.stepNo === stepNo);
+          if (step) Object.assign(step, data);
+          return step;
+        },
+      );
+      prisma.approvalCase.update.mockImplementation(async ({ data }: { data: any }) => {
+        Object.assign(caseRecord, data);
+        return { ...caseRecord, steps: caseRecord.steps.map((s: any) => ({ ...s })) };
+      });
+
+      const seniorActor = {
+        actorType: 'ADMIN' as const,
+        userId: 'checker-senior-last',
+        userNo: 'USR-SENIOR-LAST',
+        role: 'SENIOR_MANAGEMENT_OFFICER',
+        roleCodes: ['SENIOR_MANAGEMENT_OFFICER'],
+      };
+
+      await service.approve('approval-2step', { reason: 'Senior sign-off' }, seniorActor);
+
+      const call = auditLogsService.recordByActor.mock.calls.find(
+        (c: any[]) => c[0].action === 'APPROVAL_GRANTED',
+      );
+      expect(call).toBeDefined();
+      expect(call[0].fromStatus).toBe('PENDING');
+      expect(call[0].toStatus).toBe('APPROVED');
+    });
+
+    it('驳回的 outcome 是 SUCCESS——驳回这个动作成功执行了', async () => {
+      prisma.approvalCase.findUnique.mockResolvedValue(
+        buildApproval({ status: ApprovalStatuses.PENDING, createdByUserId: 'maker-reject-1' }),
+      );
+      prisma.approvalCase.update.mockResolvedValue(
+        buildApproval({ status: ApprovalStatuses.REJECTED, createdByUserId: 'maker-reject-1' }),
+      );
+
+      await service.reject('approval-1', { reason: 'insufficient evidence' }, actor);
+
+      const call = auditLogsService.recordByActor.mock.calls.find(
+        (c: any[]) => c[0].action === 'APPROVAL_DECLINED',
+      );
+      expect(call).toBeDefined();
+      expect(call[0].outcome).toBe('SUCCESS');
+      expect(call[0].reason).toBeTruthy();
+    });
+
+    it('SoD 自审拦截写 APPROVAL_SOD_DENIED + outcome=DENIED', async () => {
+      prisma.approvalCase.findUnique.mockResolvedValue(
+        buildApproval({ status: ApprovalStatuses.PENDING, createdByUserId: actor.userId }),
+      );
+
+      await expect(
+        service.approve('approval-1', { reason: 'self review' }, actor),
+      ).rejects.toThrow(ForbiddenException);
+
+      const call = auditLogsService.recordByActor.mock.calls.find(
+        (c: any[]) => c[0].action === 'APPROVAL_SOD_DENIED',
+      );
+      expect(call).toBeDefined();
+      expect(call[0].outcome).toBe('DENIED');
+      expect(call[0].reasonCode).toBe('SELF_APPROVE');
     });
   });
 });
