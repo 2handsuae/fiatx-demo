@@ -863,10 +863,12 @@ import { AuditCorrelationMode } from '../dto/audit-log.dto';
 
 /** V1 治理四域，声明与下方 assertActionSpec 的退役码放行闸共用同一份 */
 export const V1_ACTION_DOMAINS = ['IAM', 'APPROVAL', 'CONFIG', 'AUDIT'] as const;
+/** 新合同已入住的全部域——站1b-β 起交易域逐域加入（充值第一个）。机器校验的域闸读这份。 */
+export const CONTRACT_ACTION_DOMAINS = [...V1_ACTION_DOMAINS, 'DEPOSIT'] as const;
 
 export interface AuditActionSpec {
   /** actionDomain 列的值 */
-  domain: (typeof V1_ACTION_DOMAINS)[number];
+  domain: (typeof CONTRACT_ACTION_DOMAINS)[number];
   /** 开启还是延续旅程——码的固有属性，不随场景变 */
   correlationMode: AuditCorrelationMode;
   /** 该码特有的必填字段（通用必填不在此列） */
@@ -962,8 +964,66 @@ export const V1_AUDIT_ACTIONS: Record<string, AuditActionSpec> = {
  * 三个保留（非 V1）域复用，且全部 11 个码此刻仍有真实调用方在写（迁移是 Task 5-9 的事）。
  * 因此 assertActionSpec 里对这份名单的拦截刻意加了 actionDomain 网关，见该方法注释。
  */
+/**
+ * 充值域名册（站1b-β，2026-08-26，业主终审版 31 码）。
+ * 设计稿：doc-final/superpowers/specs/2026-08-26-deposit-audit-vocab-design.md
+ * 要点：*_FAILED 不铸码（outcome+reasonCode 表达）；「放行」一码四态
+ * （成功/翻案走 from 列/冻结拒批 DENIED/记账失败 FAILED）；动态迁移码族废除
+ * （状态变化进 from/to 两列）；三停摆一名三因；一笔充值一段旅程
+ * （CREATED=START 铸号落单，其余 INHERIT）。
+ */
+export const V4_DEPOSIT_AUDIT_ACTIONS: Record<string, AuditActionSpec> = {
+  // ── 主线（6）──────────────────────────────────────────────
+  DEPOSIT_CREATED:        { domain: 'DEPOSIT', correlationMode: S, requiredFields: ['amount', 'currency', 'ownerCustomerNo'], requiresCausation: false },
+  DEPOSIT_PAYIN_COMPLETED:{ domain: 'DEPOSIT', correlationMode: I, requiredFields: ['fromStatus', 'toStatus'], requiresCausation: false },
+  DEPOSIT_HELD:           { domain: 'DEPOSIT', correlationMode: I, requiredFields: ['reasonCode'], requiresCausation: false },
+  DEPOSIT_SUMSUB_SUBMITTED:{ domain: 'DEPOSIT', correlationMode: I, requiredFields: [], requiresCausation: false },
+  DEPOSIT_APPROVED:       { domain: 'DEPOSIT', correlationMode: I, requiredFields: ['fromStatus', 'toStatus'], requiresCausation: false },
+  DEPOSIT_LIMIT_WAIVED:   { domain: 'DEPOSIT', correlationMode: I, requiredFields: ['reason'], requiresCausation: false },
+  // ── 裁决与复核（5）────────────────────────────────────────
+  DEPOSIT_ONHOLD:         { domain: 'DEPOSIT', correlationMode: I, requiredFields: [], requiresCausation: false },
+  DEPOSIT_MANUAL_CHECKING:{ domain: 'DEPOSIT', correlationMode: I, requiredFields: ['reasonCode'], requiresCausation: false },
+  DEPOSIT_FROZEN:         { domain: 'DEPOSIT', correlationMode: I, requiredFields: ['fromStatus', 'toStatus'], requiresCausation: false },
+  DEPOSIT_ACTION_REQUIRED:{ domain: 'DEPOSIT', correlationMode: I, requiredFields: ['fromStatus', 'toStatus'], requiresCausation: false },
+  DEPOSIT_KYT_VERDICT_IGNORED: { domain: 'DEPOSIT', correlationMode: I, requiredFields: ['reason'], requiresCausation: false },
+  // ── 处置四弧（17）────────────────────────────────────────
+  DEPOSIT_CONFISCATION_REQUESTED: { domain: 'DEPOSIT', correlationMode: I, requiredFields: [], requiresCausation: false },
+  DEPOSIT_RETURN_REQUESTED:       { domain: 'DEPOSIT', correlationMode: I, requiredFields: [], requiresCausation: false },
+  DEPOSIT_SEIZE_REQUESTED:        { domain: 'DEPOSIT', correlationMode: I, requiredFields: [], requiresCausation: false },
+  DEPOSIT_UNFREEZE_REQUESTED:     { domain: 'DEPOSIT', correlationMode: I, requiredFields: [], requiresCausation: false },
+  DEPOSIT_CONFISCATION_STARTED:   { domain: 'DEPOSIT', correlationMode: I, requiredFields: ['approvalNo'], requiresCausation: true },
+  DEPOSIT_RETURN_STARTED:         { domain: 'DEPOSIT', correlationMode: I, requiredFields: ['approvalNo'], requiresCausation: true },
+  DEPOSIT_SEIZE_STARTED:          { domain: 'DEPOSIT', correlationMode: I, requiredFields: ['approvalNo'], requiresCausation: true },
+  DEPOSIT_CONFISCATION_RETRIED:   { domain: 'DEPOSIT', correlationMode: I, requiredFields: [], requiresCausation: false },
+  DEPOSIT_RETURN_RETRIED:         { domain: 'DEPOSIT', correlationMode: I, requiredFields: [], requiresCausation: false },
+  DEPOSIT_SEIZE_RETRIED:          { domain: 'DEPOSIT', correlationMode: I, requiredFields: [], requiresCausation: false },
+  DEPOSIT_CONFISCATION_EXECUTED:  { domain: 'DEPOSIT', correlationMode: I, requiredFields: ['fromStatus', 'toStatus'], requiresCausation: false },
+  DEPOSIT_RETURNED:               { domain: 'DEPOSIT', correlationMode: I, requiredFields: ['fromStatus', 'toStatus'], requiresCausation: false },
+  DEPOSIT_SEIZED:                 { domain: 'DEPOSIT', correlationMode: I, requiredFields: ['fromStatus', 'toStatus'], requiresCausation: false },
+  DEPOSIT_CONFISCATION_STUCK:     { domain: 'DEPOSIT', correlationMode: I, requiredFields: [], requiresCausation: false },
+  DEPOSIT_RETURN_STUCK:           { domain: 'DEPOSIT', correlationMode: I, requiredFields: [], requiresCausation: false },
+  DEPOSIT_SEIZE_STUCK:            { domain: 'DEPOSIT', correlationMode: I, requiredFields: [], requiresCausation: false },
+  DEPOSIT_UNFROZEN:               { domain: 'DEPOSIT', correlationMode: I, requiredFields: ['approvalNo'], requiresCausation: true },
+  // ── SLA 与演示（3）───────────────────────────────────────
+  DEPOSIT_SLA_BREACHED:           { domain: 'DEPOSIT', correlationMode: I, requiredFields: ['fromStatus'], requiresCausation: false },
+  DEPOSIT_SLA_TIMEOUT_SIMULATED:  { domain: 'DEPOSIT', correlationMode: I, requiredFields: [], requiresCausation: false },
+  DEPOSIT_DEMO_SCENARIO_RUN:      { domain: 'DEPOSIT', correlationMode: I, requiredFields: [], requiresCausation: false },
+};
+
+/** 动态迁移码族（DEPOSIT_<从>_TO_<到>，站1b-β 整族废除）——机器校验按此形状拒写。 */
+export const RETIRED_DYNAMIC_TRANSITION_PATTERN = /^DEPOSIT_[A-Z_]+_TO_[A-Z_]+$/;
+
 export const DEPRECATED_AUDIT_ACTIONS: readonly string[] = [
   'FIRST_LOGIN_MFA_VERIFY_FAILED',
+  // ── 充值域（站1b-β，2026-08-26）──────────────────────────
+  'DEPOSIT_GATE', 'DEPOSIT_HELD_BELOW_MIN', 'DEPOSIT_HELD_NOT_TRADING_READY',
+  'DEPOSIT_PAYIN_CONFIRMED', 'DEPOSIT_PAYIN_FAILED', 'DEPOSIT_COMPLETED',
+  'DEPOSIT_COMPLIANCE_STARTED', 'DEPOSIT_MANUAL_APPROVED', 'DEPOSIT_APPROVE_BLOCKED_FROZEN',
+  'DEPOSIT_ACCOUNTING_BLOCKED', 'DEPOSIT_AWAITUSER_EMPTY_ACTIONS',
+  'DEPOSIT_SANCTION_HIT_ON_IGNORED_VERDICT', 'DEPOSIT_CONFISCATION_FAILED',
+  'DEPOSIT_CONFISCATION_UNLOCK_FAILED', 'DEPOSIT_RETURN_APPROVAL_REQUESTED',
+  'DEPOSIT_SEIZE_APPROVAL_REQUESTED', 'DEPOSIT_UNFREEZE_APPROVAL_REQUESTED',
+  'DEPOSIT_LEG_CLEAR_FAILED',
   'RESET_FAILED',
   'CHANGE_APPLY_FAILED',
   'ROLE_ACTIVATE_FAILED',
