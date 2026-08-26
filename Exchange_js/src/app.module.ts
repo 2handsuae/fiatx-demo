@@ -14,6 +14,7 @@ import { LiquidityConfigModule } from './modules/counterparty/liquidity-config/l
 import { WalletsModule } from './modules/asset-treasury/wallets/wallets.module';
 import { WithdrawalAddressesModule } from './modules/asset-treasury/withdrawal-addresses/withdrawal-addresses.module';
 import { DepositTransactionsModule } from './modules/trading/deposit-transactions/deposit-transactions.module';
+import { DepositDemoModule } from './modules/deposit-sumsub/deposit-demo.module';
 import { TigerBeetleModule } from './modules/accounting/tigerbeetle/tigerbeetle.module';
 import { WorkflowsModule } from './orchestrators/workflows.module';
 import { TreasuryModule } from './modules/asset-treasury/treasury/treasury.module';
@@ -71,6 +72,7 @@ import { TransactionLimitsModule as TransactionLimitRulesModule } from './module
     WalletsModule,
     WithdrawalAddressesModule,
     DepositTransactionsModule,
+    DepositDemoModule,
     TigerBeetleModule,
     WorkflowsModule,
     TreasuryModule,
