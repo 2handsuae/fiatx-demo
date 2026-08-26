@@ -1,0 +1,75 @@
+# V2 · 客户与合规（开户 / 生命周期 / 限制 / 持续尽调）
+
+> 对应 PRD：待写 ｜ 技术节点 Last Verified：2026-08-26（底稿 truth 2026-08-16 逐段重写版 + 制裁分主体批次）
+> 演示幕次：第二幕「迎客」 ｜ 验收用例：**缺位**（TC-01~09 无客户篇，已登记 BACKLOG）
+> 范围：仅个人客户；机构客户显式禁用（表结构在、业务逻辑无）。
+
+## 0. 一句话定位
+
+管**客户是谁、能不能干事**：开户准入（Sumsub 尽调 + MLRO 终审）、客户关系生命周期、限制管控（冻结/解冻）、持续尽调（定期重评 + 材料时效 + 高风险升级）。V4–V6 每一笔交易动手前，都要先过这里的**能力门**。
+
+## 1. 业务叙事
+
+最重要的一件事：**"客户关系"和"能不能干事"是两根轴，分开管。** 关系轴（lifecycle）记录这个人和我们走到了哪一步——申请中、已开户、已离场；限制账（restrictions）记录他此刻被摁住了什么。制裁命中的客户关系仍是"已开户"——变的不是关系，是能力。这一分离是整个模块的地基。
+
+**开户之路。** 申请人 → 发起认证（Sumsub 采集证件与人脸）→ 认证通过进待批 → **MLRO 终审**放行 → 正式客户。被拒和主动撤回可以重新申请；已开户的客户不会"退回申请中"——要么被限制账摁住，要么走离场终态。
+
+**便签机制（限制账的白话名）。** 摁住一个客户 = 给他贴一张便签。便签的三个属性——**摁住哪些能力、客户自己看不看得见、谁有权撕**——不由操作员填写，由"原因"查表决定：制裁命中 → 静默便签（客户无感）、只有 MLRO 能撕；材料过期 → 明示便签（客户看得见提示）、运营能撕。**贴不用批、撕必须批**：贴是保护动作，制裁 24 小时上报窗口等不起审批，立即生效；撕是解除保护，必须过审批门。同一客户可以同时挂多张便签，各撕各的、互不牵连。
+
+**全域联动。** 贴一张"全能力"便签的瞬间：他名下所有在途充值、提现单立即冻结，兑换单拦住推进——先冻人，单只是载体。
+
+**持续尽调。** 开户不是终点：每月定期重评（打 Sumsub AML，制裁命中自动贴静默便签）；材料时效每日巡查（新鲜 → 提醒 → 紧急 → 拦断，拦断即贴明示便签）；**材料账与限制账互补**——限制账说"你现在不能做什么"，材料账说"交什么材料才能松开"。评出高风险的客户走增强尽调：冻结 + 加做一层深度认证 + MLRO 与高管双签。
+
+## 2. 状态机
+
+| 主体 | 状态流 |
+|---|---|
+| 关系轴 lifecycle | `PROSPECT → IN_VERIFICATION → PENDING_APPROVAL → ACTIVE`；旁支 `REJECTED / WITHDRAWN`（可重新申请）；终态 `OFFBOARDED`。**不变量：不存在 ACTIVE 回头边**——已开户只能离场或被便签摁住 |
+| 限制账（便签） | `OPEN → RELEASED`（撕签经审批；同便签多能力多行、按便签号整撕） |
+| 材料时效 | `FRESH → NOTIFIED → URGENT → BLOCKING → CLEARED`（BLOCKING 时贴明示便签） |
+| 材料请求 | `PENDING_SUBMISSION → SUBMITTED → APPROVED / REJECTED / CANCELLED`（被打回 RETRY 回到待提交，FINAL 拒绝进终态） |
+| 高风险升级案 | `PENDING_LEVEL2 → PENDING_PHASE2_APPROVAL → COMPLETED / REJECTED` |
+
+## 3. 决策点与角色
+
+| 动作 | 谁发起 | 谁裁决 | 要点 |
+|---|---|---|---|
+| 开户终审 | 系统（认证通过自动进待批） | **MLRO** | 人进来的最后一道人门 |
+| 贴便签（冻结） | 合规 / 系统（重评、材料巡查自动贴） | **无审批，立即生效** | 保护动作等不起；理由与痕迹全留 |
+| 撕便签（解冻） | 运营发起 | 按原因分流：制裁/硬拒 → **MLRO**；其余 → **运营主管** | MLRO 类必须关联依据单据，缺了直接拒 |
+| 高风险升级（EDD） | 定期重评判 HIGH 自动开案 | **MLRO + 高管双签** | 冻结伴随全程 |
+| 材料请求下发 | Sumsub 推送 / 运营手发 / 系统巡查 | — | 一次下发一行账，打回可重交 |
+| 定期重评 | 系统（月度 cron） | 低风险自动过，升档走 MLRO | 演示时可手动触发 |
+
+## 4. 演示脚本（第二幕 · 迎客）
+
+1. **客户列表**：9 位种子客户的状态矩阵一屏看全（谁在申请、谁被摁住、谁高风险——见 demo/data.md）
+2. **静默 vs 明示对照**（本幕高光）：管理台看 Carol 的制裁便签 → **切客户端登录 Carol：一切如常、按钮可点**（点了被中性文案拒绝，与普通受限响应逐字相同）；再看 Ivy：客户端明确显示受限提示——**同是被摁住，一个蒙在鼓里一个明白告知，这就是 tipping-off**
+3. **现场贴签看联动**：给 Bob 贴"全能力"便签 → 他的在途充值/提现单当场全冻、兑换拦腿 → 三域列表逐一看
+4. **撕签走门**：对 Bob 的便签发起解除 → 运营主管审批 → 恢复；对照 Carol 的制裁便签——只有 MLRO 能撕且要附依据
+5. **走一遍开户**：用 Eve（新注册）发起认证 → Sumsub 模拟通过 → MLRO 终审 → 转正
+6. **材料请求**：给某客户手发一张材料请求 → 客户端出现补料入口 → 提交 → 审核通过自动松绑
+
+演示口径两条：高风险升级案**没有客户端提交页**（后端全建、前端缺，演到开案为止）；机构客户入口是禁用的（讲"当前版本只服务个人客户"）。
+
+## 5. 关键技术节点（≤30 行）
+
+- 关系轴 `identity/constants/customer-lifecycle.constant.ts → nextLifecycle()`（8 动作，非法边显式抛）｜ canonical 读法 `customers/customer-status.util.ts → resolveCustomerCanonicalState()`
+- 限制账 `identity/customers/`：`customer-restrictions.service.ts`（实体不变量：幂等键 customerId×cause×caseRef）｜ `customer-restriction-workflow.service.ts → openRestriction()/initiateRelease()/onReleaseDecided()`（贴即生效；撕按 releasePolicy 分流两条审批门）｜ 原因注册表 `constants/restriction-cause.constant.ts → RESTRICTION_CAUSE_POLICY`（范围/可见性/解除路径查表，人工不可填）
+- **能力门（V4–V6 都调）** `customer-access.service.ts → resolve()`：唯一执法依据 = lifecycle 为 ACTIVE + 能力不在被摁清单；**`blocked`（含静默，服务端执法）与 `disclosedBlocked`（仅明示，客户面）分列是 tipping-off 命门**，客户面 DTO 禁止出现前者（契约测试逐文件扫描守着）；并入交易起始门（须有 ACTIVE 法币提现地址）
+- 开户 `identity/onboarding/onboarding.service.ts → startVerification()/handleSumsubVerificationEvent()` ｜ 终审 `onboarding-final-approval.service.ts`（30 个审批 handler 里唯一不继承基类的钦定例外）
+- 定期重评 `identity/client-risk-assessment/client-risk-assessment.service.ts → routeSignoff()/handleSanctionsPath()`（6 条策略规则）｜ cron `client-risk-assessment-cron.service.ts`
+- 材料时效 `identity/material-refresh/material-refresh.service.ts → enterBlockingStage()` ｜ cron `material-freshness-cron.service.ts`（每日 02:00）
+- 材料账 `material-requests/`（一行=一次下发；`externalActionId` 全表唯一、绝不下发客户面）
+- 高风险升级 `identity/tier-upgrade-case/tier-upgrade-case.service.ts → createFromCra()`（无 controller——前端缺位的根源）
+- Sumsub 翻译层 `sumsub-ingestion/sumsub-ingestion.service.ts → ingest()/dispatch()`（webhook 统一入口，按事件×生命周期路由到 V2/V4/V5/V6 消费方）
+
+## 6. 演示缺口（BACKLOG 有账）
+
+- **V2 无验收用例文件**：TC-01~09 没有客户/开户/限制篇——第二幕的验收没有依据（本次新发现，待补 TC-11）
+- **高风险升级缺客户端 UI**：后端全建，客户无处提交材料——真实卡点，演到开案为止
+- **制裁客户的订单级折叠未做**：贴签冻单后，管理台没有"这个客户名下全部被冻单"的聚合视图
+- **销户只落了轴上位置**：OFFBOARDED 态在，完整销户流程（余额清退等）没做
+- **重评巡查的筛选值对不上**：材料到期 cron 的扫描条件与实际写入值不匹配，巡查可能永不命中（实证在案）
+- **打回的材料请求便签无人清理**：REJECTED 后便签长挂、无提醒
+- **机构客户全线 stub**：表在逻辑无，入口禁用
