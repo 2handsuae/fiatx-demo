@@ -209,10 +209,24 @@ Last Updated: 2026-08-22
 ## 技术债 — V1 审计底座
 
 - [ ] 🔴 **通知 send/retry = STUB**：`core/notifications/` 只有 WebSocket `NotificationsGateway`，无 email/webhook/失败重试实现——roadmap 标 Notification send/retry ✅ MVP 为过度声明；这是 V4-V6 各版本"通知未接"的根因（本体没做，不是没调）｜来源: 2026-07-04 V1 体检
-- [ ] 🔴 **subjectNos 合约漂移 + 幻影字段**：`rules/audit-logging.md` Query Contract 要求 detail 返回 `subjectNos[]`，但代码 `mapEvent()` 不返回、DTO 无字段、query 无 subjectNo 过滤（表 2026-05-19 已删）；代码仍有 `item.subjectNos` 幻影访问恒 undefined。需二选一：改文档承认已删 or 补 subjectNos 返回｜来源: 2026-07-04 V1 体检（与 2026-07-03 体检重复项收口）
+- [x] ~~🔴 **subjectNos 合约漂移 + 幻影字段**~~ —— **已兑现（2026-08-25，审计日志重构第一批）**：`audit_log_subjects` 子表按同形状（含 `subjectRole`）重建，`GET /admin/audit-logs` 支持 `subjectNo`/`subjectRole` 精确过滤，详情与列表返回 `subjects[]`（新形状，非旧 `subjectNos[]` 字符串数组）；`rules/audit-logging.md` Query Contract 已同步改写为 `subjects` 新形状。**但覆盖面有新发现的缺口，见下方「审计日志重构 · 第一批之后仍欠的账」第 8 条**｜来源: 2026-07-04 V1 体检 → 2026-08-25 Task 1-3 兑现、Task 11 验收
 - [ ] **audit-retention-job.ts 死脚本**：`scripts/audit-retention-job.ts:33-45` 仍 select/access 已删列 `module`/`triggerType`，脚本会坏/返 undefined｜来源: 2026-07-04 V1 体检
-- [ ] **SUPER_ADMIN 硬编码 bypass**：`access-control.service.ts` 对 SUPER_ADMIN 跳过 SoD + 直给全权限；roadmap 定性演示角色，**上线前须移除此 bypass**｜来源: 2026-07-04 V1 体检
-- [ ] traceId 共享待核：首登 `ADMIN_LOGIN_SUCCESS`(authTraceId) 与 `MFA_LOGIN_VERIFIED`(loginTraceId) 是否共享同一 traceId 存疑（roadmap 称共享，agent 存疑）｜来源: 2026-07-04 V1 体检
+- [ ] **SUPER_ADMIN 硬编码 bypass**：`access-control.service.ts` 对 SUPER_ADMIN 跳过 SoD + 直给全权限；roadmap 定性演示角色，**上线前须移除此 bypass**｜来源: 2026-07-04 V1 体检。⚠️ 2026-08-25 Task 11 实测确认此 bypass 仍生效且范围比字面更广：SUPER_ADMIN 对**任意**审批类型（非仅其自身权限相关的）都能自批自己提交的请求（`admin@fiatx.com` 提交的 `ADMIN_SUSPENSION_APPROVAL` 被同一账号自批成功，`APPROVAL_SOD_DENIED` 未触发）；换成 CISO 自批 `ROLE_DEFINITION_CREATE` 才会正确触发 SoD 拦截。行为本身与 `prisma/seed.base.ts:220` 注释的设计意图一致（"unless SUPER_ADMIN bypass applies"），非本批引入，但此前无人用真实数据坐实过
+- [ ] traceId 共享待核：首登 `ADMIN_LOGIN_SUCCESS`(authTraceId) 与 `MFA_LOGIN_VERIFIED`(loginTraceId) 是否共享同一 traceId 存疑（roadmap 称共享，agent 存疑）｜来源: 2026-07-04 V1 体检。⚠️ 2026-08-25 补注：这两个码本身已随本批退役（不再进 V1 域，业主裁定归③安全日志，见设计稿 §12.2/§12.3），`不变量③`（Task 11 `verify:audit`）确认零新写入；该疑问随之失去 V1 域内的验证场景，是否需要在③建设时重新提出留给运维批次判断
+
+## 技术债 — 审计日志重构 · 第一批之后仍欠的账（2026-08-25）
+
+> 本节由 Task 11（端到端验收）登记，对应设计稿 `doc-final/superpowers/specs/2026-08-25-audit-log-redesign-design.md`。前 7 条是设计稿 §16 明确划出本批范围外、业主已认可延后的项；第 8-9 条是 Task 11 实测过程中新发现、之前所有任务与 progress.md 均未记录的缺口。
+
+- [ ] **三个交易域（充值/提现/兑换）的日志梳理**：动作码定义、`subjects` 填充、拒绝路径接入，全部留给后续批次｜设计稿 §16
+- [ ] **`workflowType` 物理删列**：本批唯一的过渡层例外——V1 域已停止依赖该列语义，但列本身保留，因为交易域仍有 63 处写入点在传该字段；删列排在交易域批次一并做｜设计稿 §4.3、§16
+- [ ] **交易域词表瘦身（496 → 实际在用量级，约 59）**：现有 496 个历史动作码里只有约 59 个在用，V1 完成后词表精简是交易域批次的活｜设计稿 §16
+- [ ] **`seq` 与哈希链（`prevHash`/`selfHash`）的校验工具**：列本批（Task 1）已建、主表也在写，但没有校验脚本核实链条完整性，第三批再补｜设计稿 §16
+- [ ] **`legalHold` 的触发与解除运维流程**：列本批已建（`Boolean @default(false)`），但触发/解除的操作流程与权限门未定义，第三批再补｜设计稿 §16
+- [ ] **回放对账 / 覆盖率闸门**：验证"打点是否漏记"的自动化机制，业主裁定本期不做，方法已留档｜设计稿 §11、§16
+- [ ] **`AUDIT_LOG_QUERIED` 的查询规模分级**：目前不分规模无差别记录每次查询（含无过滤的大范围查询），后续按查询规模/敏感度分级是否需要单独打点尚待设计｜设计稿 §12.1、§16
+- [ ] 🔴 **`audit_log_subjects` 子表覆盖面远小于设计前提，45 码里只有 ~7 码真正在用子表**：设计稿 §5.1 的立论前提是"一对 primarySubjectType+primarySubjectNo 装不下多主体，需要子表"，但 Task 11 端到端实测（真实 API 驱动 admin 停用/恢复/角色定义创建等流程）坐实：只有横切的 6 个 `APPROVAL_*` 码（经 `approvals.service.ts`）与 `AUDIT_LOG_QUERIED`（且仅当查询带 `ownerCustomerNo` 参数时）会调用 `persistSubjects` 写子表；其余 IAM（`ADMIN_INVITE_*`/`ADMIN_FIRST_LOGIN_*`/`ADMIN_ROLE_CHANGE_*`/`ADMIN_SUSPENSION_*`/`ADMIN_REACTIVATION_*`/`ADMIN_PASSWORD_RESET_*`/`ADMIN_MFA_RESET_*`/`ADMIN_ACCOUNT_LOCK_*`，共 25 码）与 CONFIG（`ROLE_DEFINITION_*`/`APPROVAL_POLICY_CHANGE_*`，共 8 码）、以及 `AUDIT_EVIDENCE_EXPORT_*`（3 码）在各自的 workflow service 里 `recordByActor`/`recordSystem` 调用**从不传 `subjects:` 数组**——只设置主表扁平字段。实测复现：`admin-suspension-workflow.service.ts` 让 `ADM2501010008` 挂了 4 条事件（`ADMIN_SUSPENSION_REQUESTED`/`APPLIED`、`ADMIN_REACTIVATION_REQUESTED`/`APPLIED`）的 `primarySubjectNo`，但 `SELECT COUNT(*) FROM audit_log_subjects WHERE subjectNo='ADM2501010008'` = 0，`GET /admin/audit-logs?subjectNo=ADM2501010008` 实测返回 `total:0`（必须改用 `primarySubjectNo=` 才能查到同样 4 条）。**验收标准 #6"按依据查得到"字面上仍算通过**（该标准原文限定的是"按审批单号"，approvals.service.ts 那 7 个码确实覆盖了），但设计稿 §5.1 举的例子（"充值单"为 PRIMARY、审批单只是其中一个 INSTRUMENT）说明子表原意是覆盖**所有** V1 主体，不是只覆盖审批单号——按这个更完整的意图，"某个 admin 用户/某条角色定义从生到死被谁碰过"这条监管索档能力目前并不成立。修法：把这 36 个码所在的 8 个 workflow service 补上 `subjects:` 数组（多数只需 1-2 行，模式已有 `approvals.service.ts` 可抄）｜Task 11 端到端验收实测新发现，无历史来源
+- [ ] **Q4"按客户查全部"目前唯一的数据来源是查询动作自证**：`verify:audit` 的 Q4 判据（`M>0`）能通过，靠的是 `GET /admin/audit-logs?ownerCustomerNo=X` 这个查询动作自己把 `AUDIT_LOG_QUERIED` 记成 `OWNER=CUSTOMER`，即"查询这个动作本身构成了它所验证的证据"。这不是 `verify-audit.ts` 脚本的缺陷（脚本按 brief 逐字实现，且经变异测试证明能正确识别数据缺陷），而是**V1 治理域现实中没有任何其它场景会把 CUSTOMER 设为某条治理事件的 OWNER**（V1 域本身不直接操作客户实体，客户只会通过"查询时按客户号过滤"这一条路径进子表）。换言之，Q4 目前只证明了"查询行为自身可追溯"，不能证明"客户被牵连在其他 V1 治理动作里时可追溯"——因为 V1 域里后一种场景目前不存在，等三个交易域（充值/提现/兑换，这些才会有 `ownerCustomerNo` 意义下的客户关联事件）接入 `subjects` 后，Q4 式的验证才有更丰富的场景可测｜Task 11 端到端验收实测新发现，无历史来源
 
 ## 技术债 — V2 客户合规
 
