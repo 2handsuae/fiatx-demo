@@ -23,6 +23,7 @@ import { TB_TRANSFER_CODES } from '../../accounting/tigerbeetle/constants/tb-tra
 import { deterministicTransferId, bigintToHex } from '../../accounting/tigerbeetle/utils/tb-id.util';
 import { TbEvidenceService } from '../../accounting/tigerbeetle/tb-evidence.service';
 import { FundsOrderService } from '../../funds-orders/funds-order.service';
+import { DispositionService, DispositionSpec } from '../../funds-orders/disposition.service';
 import {
   FundsOrderAction,
   FundsOrderStatus,
@@ -123,6 +124,7 @@ export class DepositWorkflowService implements OnModuleInit {
   constructor(
     private readonly depositService: DepositTransactionsService,
     private readonly fundsOrders: FundsOrderService,
+    private readonly disposition: DispositionService,
     private readonly auditLogsService: AuditLogsService,
     private readonly accountingService: AccountingService,
     private readonly withdrawalAddresses: WithdrawalAddressService,
@@ -1643,71 +1645,65 @@ export class DepositWorkflowService implements OnModuleInit {
   }
 
   /**
-   * Shared legSeq 2 (below-min confiscation) funds order creation input — used by both
-   * the initial build (startConfiscation) and the rebuild-on-retry path
-   * (onConfiscationLegFailed). Only `attempt` varies between the two call sites,
-   * 与退回弧的 buildReturnLegInput / 上缴弧的 buildSeizeLegInput 逐字同构。
-   *
-   * `attempt` 进 deterministicTransferId 的第 4 参(经 pendConfiscationLegs 的 legIndex)
-   * —— 这是没收腿能重试的前提:2026-08-13 那版把第 4 参写死成常量 1,重建的新腿会算出
-   * 同一个 pending id 撞车,所以当时只能「一次失败就退回 OPERATION_PENDING」。
-   *
-   * 目的地是公司 F_FEE 钱包(不同于退回=原付款人、上缴=留空):没收是内部重分类,钱从
-   * 客户充值钱包挪进公司费用钱包,这条 by-wallet 记录是物理移动的对账锚点,故 firmFeeWallet
-   * 由调用方解析后传入(重建路径自行重解一次,同 onSeizeLegFailed 重取 orderRef 的做法)。
+   * 没收弧处置说明书（地基站 2026-08-26：钱侧六件套收敛进 DispositionService，
+   * 本弧只保留业务判断与留痕；账本/资金单机制见 disposition.service.ts 头注，
+   * 六件套原文见 git 历史）。两笔锁定：①反冲暂扣（SUSPENSE→CLIENT_ASSET，逐字
+   * 反转 payin STEP_1）②没收计入其他收入（FIRM_ASSET→INCOME_OTHER，与服务费
+   * 隔离）；均为行内重分类、非外部穿越。目的地=公司 F_FEE 钱包（by-wallet 对账锚）。
    */
-  private buildConfiscationLegInput(
+  private confiscationSpec(
     deposit: any,
-    attempt: number,
     firmFeeWallet: { id: string; address?: string | null; iban?: string | null },
-  ): CreateFundsOrderInput {
+  ): DispositionSpec {
+    const asset = deposit.asset;
+    if (!asset) throw new Error(`Deposit ${deposit.id} has no associated asset`);
+    if (!asset.tbLedgerId) throw new Error(`Asset ${asset.currency} has no tbLedgerId`);
+    const customerWalletRef: string | null = deposit.toWalletId ?? null;
     return {
-      depositTransactionId: deposit.id,
-      legSeq: 2,
-      attempt,
-      initialStatus: FundsOrderStatus.CREATED,
-      assetId: deposit.assetId,
-      amount: String(deposit.amount),
-      netAmount: String(deposit.amount),
-      fromWalletId: deposit.toWalletId ?? null,
-      fromAddress: deposit.toAddress ?? undefined,
-      fromIban: deposit.toIban ?? undefined,
-      toWalletId: firmFeeWallet.id,
-      toAddress: firmFeeWallet.address ?? undefined,
-      toIban: firmFeeWallet.iban ?? undefined,
-      traceId: deposit.traceId || undefined,
+      kind: 'CONFISCATE', sourceType: 'DEPOSIT', sourceNo: deposit.depositNo,
+      traceId: deposit.traceId || deposit.id,
+      ledger: asset.tbLedgerId, currency: asset.currency, decimals: asset.decimals,
+      amount: String(deposit.amount), legSeq: 2,
+      buildLegInput: (attempt: number) => ({
+        depositTransactionId: deposit.id, legSeq: 2, attempt,
+        initialStatus: FundsOrderStatus.CREATED,
+        assetId: deposit.assetId, amount: String(deposit.amount), netAmount: String(deposit.amount),
+        fromWalletId: deposit.toWalletId ?? null, fromAddress: deposit.toAddress ?? undefined, fromIban: deposit.toIban ?? undefined,
+        toWalletId: firmFeeWallet.id, toAddress: firmFeeWallet.address ?? undefined, toIban: firmFeeWallet.iban ?? undefined,
+        traceId: deposit.traceId || undefined,
+      }),
+      tbLegs: [
+        {
+          transferCode: TB_TRANSFER_CODES.DEPOSIT_CONFISCATE_SUSPENSE_TO_ASSET,
+          eventCode: 'CONFISCATE_REVERSE_SUSPENSE', voidEventCode: 'CONFISCATE_REVERSE_SUSPENSE_VOID',
+          debit: { code: TB_ACCOUNT_CODES.DEPOSIT_SUSPENSE, ownerType: 'CUSTOMER', ownerUuid: deposit.ownerId },
+          credit: { code: TB_ACCOUNT_CODES.CLIENT_ASSET, ownerType: 'SYSTEM' },
+          debitCoa: TB_CODE_TO_COA[TB_ACCOUNT_CODES.DEPOSIT_SUSPENSE], creditCoa: TB_CODE_TO_COA[TB_ACCOUNT_CODES.CLIENT_ASSET],
+          memo: 'Below-min confiscation reverse suspense (pending)',
+          debitWalletRef: customerWalletRef, creditWalletRef: customerWalletRef, isExternalCrossing: false,
+        },
+        {
+          transferCode: TB_TRANSFER_CODES.DEPOSIT_CONFISCATE_INCOME_OTHER,
+          eventCode: 'CONFISCATE_INCOME_OTHER', voidEventCode: 'CONFISCATE_INCOME_OTHER_VOID',
+          debit: { code: TB_ACCOUNT_CODES.FIRM_ASSET, ownerType: 'SYSTEM' },
+          credit: { code: TB_ACCOUNT_CODES.INCOME_OTHER, ownerType: 'SYSTEM' },
+          debitCoa: TB_CODE_TO_COA[TB_ACCOUNT_CODES.FIRM_ASSET], creditCoa: TB_CODE_TO_COA[TB_ACCOUNT_CODES.INCOME_OTHER],
+          memo: 'Below-min confiscation fee income (pending)',
+          debitWalletRef: null, creditWalletRef: firmFeeWallet.id, isExternalCrossing: false,
+        },
+      ],
     };
   }
 
   /**
-   * Start an approved below-min confiscation (two-phase, "start" half). 先账后状态:
-   * PENDING-lock BOTH accounting legs + create the legSeq 2 funds order in CREATED
-   * (advanceable, NOT auto-cleared), THEN flip the deposit to CONFISCATING via
-   * CONFISCATE_START. The matching POST/settle half (funds order → CLEARED, pending
-   * transfers posted, deposit → CONFISCATED) lands in C3's settleConfiscation, which
-   * reproduces each pending transfer via deterministicTransferId('DEPOSIT',
-   * depositNo, eventCode, attempt) — so the eventCodes + legIndex(=attempt) that
-   * pendConfiscationLegs writes here are load-bearing.
-   *
-   * 起始腿恒为 attempt 1;A3(2026-08-22)起失败会由 onConfiscationLegFailed 重建到
-   * attempt 2/3(见 pendConfiscationLegs 的 legIndex 说明)。
-   *
-   * The two pending legs live in pendConfiscationLegs; the legSeq 2 funds order
-   * (customer deposit wallet → firm F_FEE wallet) is the by-wallet recon anchor for
-   * the physical move. Idempotent: reuse an existing legSeq 2 order —— 这条
-   * findByParent 判据防的是 startConfiscation 被重复调用,与腿级重试无关,勿删。
+   * 起始半程（先账后状态）：engine.initiate 幂等复用既有 legSeq 2 单（防
+   * startConfiscation 被重复调用，与腿级重试无关）+ 挂两笔 pending，随后才翻
+   * CONFISCATE_START。settle 半程见 settleConfiscation。
    */
   private async startConfiscation(deposit: any, approvalNo?: string) {
-    const asset = deposit.asset;
-    if (!asset) throw new Error(`Deposit ${deposit.id} has no associated asset`);
-    if (!asset.tbLedgerId) throw new Error(`Asset ${asset.currency} has no tbLedgerId`);
     const firmFeeWallet = await this.systemWalletResolver.resolve(deposit.assetId, 'F_FEE');
-
-    const [existing] = await this.fundsOrders.findByParent({ depositTransactionId: deposit.id }, { legSeq: 2 });
-    if (!existing) {
-      await this.fundsOrders.create(this.buildConfiscationLegInput(deposit, 1, firmFeeWallet));
-    }
-    await this.pendConfiscationLegs(deposit, existing?.attempt ?? 1, firmFeeWallet);
+    const spec = this.confiscationSpec(deposit, firmFeeWallet);
+    await this.disposition.initiate(spec);
 
     await this.depositService.updateStatus(deposit.id, { action: DepositTransactionAction.CONFISCATE_START, reason: 'Below-min confiscation started (funds in transit)' });
 
@@ -1721,74 +1717,14 @@ export class DepositWorkflowService implements OnModuleInit {
   }
 
   /**
-   * Books the TWO confiscation pending transfers (没收是本批唯一的两腿处置弧):
-   *   leg1  DR DEPOSIT_SUSPENSE(CUSTOMER) / CR CLIENT_ASSET(SYSTEM) — exact reverse of
-   *         the payin STEP_1; zeroes the customer's suspense.
-   *   leg2  DR FIRM_ASSET(SYSTEM) / CR INCOME_OTHER(SYSTEM) — confiscation income,
-   *         segregated from service fees.
-   * Neither leg is an external crossing — confiscation reclassifies funds already in the
-   * firm's custody (`isExternalCrossing: false`, 区别于退回/上缴那两条真出境的腿)。
-   *
-   * `legIndex: attempt` —— attempt 消歧 TB 的 deterministic id,让重建的腿不会和上一
-   * attempt 已 void 的 pending 锁撞 id(ExecutePendingTransferParams.legIndex 的既定用法,
-   * 与 pendReturnSuspense / pendSeizeSuspense 同一约定)。settleConfiscation 与
-   * onConfiscationLegFailed 必须用同一个 attempt 复算这两个 id,否则 post/void 全落空。
-   */
-  private async pendConfiscationLegs(
-    deposit: any,
-    attempt: number,
-    firmFeeWallet: { id: string },
-  ): Promise<void> {
-    const asset = deposit.asset;
-    if (!asset) throw new Error(`Deposit ${deposit.id} has no associated asset`);
-    if (!asset.tbLedgerId) throw new Error(`Asset ${asset.currency} has no tbLedgerId`);
-    const ledger = asset.tbLedgerId;
-    const amountBigint = this.decimalToBigint(deposit.amount, asset.decimals);
-    const customerWalletRef: string | null = deposit.toWalletId ?? null;
-
-    const suspenseId = await this.accountingService.resolveTbAccountId({ code: TB_ACCOUNT_CODES.DEPOSIT_SUSPENSE, ledger, ownerType: 'CUSTOMER', ownerUuid: deposit.ownerId });
-    const clientAssetId = await this.accountingService.resolveTbAccountId({ code: TB_ACCOUNT_CODES.CLIENT_ASSET, ledger, ownerType: 'SYSTEM' });
-    const firmAssetId = await this.accountingService.resolveTbAccountId({ code: TB_ACCOUNT_CODES.FIRM_ASSET, ledger, ownerType: 'SYSTEM' });
-    const incomeOtherId = await this.accountingService.resolveTbAccountId({ code: TB_ACCOUNT_CODES.INCOME_OTHER, ledger, ownerType: 'SYSTEM' });
-
-    await this.accountingService.executePendingTransfer({
-      debitAccountId: suspenseId, creditAccountId: clientAssetId, amount: amountBigint, ledger,
-      code: TB_TRANSFER_CODES.DEPOSIT_CONFISCATE_SUSPENSE_TO_ASSET, timeout: 0, legIndex: attempt,
-      evidence: {
-        sourceType: 'DEPOSIT', sourceNo: deposit.depositNo, eventCode: 'CONFISCATE_REVERSE_SUSPENSE',
-        debitCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.DEPOSIT_SUSPENSE], creditCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.CLIENT_ASSET],
-        assetCurrency: asset.currency, traceId: deposit.traceId || deposit.id, actorType: 'SYSTEM', actorId: 'SYSTEM',
-        memo: 'Below-min confiscation reverse suspense (pending)', debitWalletRef: customerWalletRef, creditWalletRef: customerWalletRef, isExternalCrossing: false,
-      },
-    });
-    await this.accountingService.executePendingTransfer({
-      debitAccountId: firmAssetId, creditAccountId: incomeOtherId, amount: amountBigint, ledger,
-      code: TB_TRANSFER_CODES.DEPOSIT_CONFISCATE_INCOME_OTHER, timeout: 0, legIndex: attempt,
-      evidence: {
-        sourceType: 'DEPOSIT', sourceNo: deposit.depositNo, eventCode: 'CONFISCATE_INCOME_OTHER',
-        debitCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.FIRM_ASSET], creditCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.INCOME_OTHER],
-        assetCurrency: asset.currency, traceId: deposit.traceId || deposit.id, actorType: 'SYSTEM', actorId: 'SYSTEM',
-        memo: 'Below-min confiscation fee income (pending)', debitWalletRef: null, creditWalletRef: firmFeeWallet.id, isExternalCrossing: false,
-      },
-    });
-  }
-
-  /**
-   * Confiscation settle half (C3): the legSeq 2 funds order reached a status. Ops advancing
-   * the leg to CONFIRMED is the trigger to POST both pending legs and land the deposit in
-   * CONFISCATED. Non-CONFIRMED statuses (SUBMITTED/…) are ignored. Idempotent: only a deposit
-   * still CONFISCATING is in flight — an already-CONFISCATED one (or one that never entered
-   * confiscation) is a no-op, so a replayed CONFIRMED never double-settles.
+   * settle 半程路由。守卫与 attempt 语义同六件套时代：终态腿才读库、只有仍在
+   * CONFISCATING 的单在途（重放事件幂等 no-op）；两分支都必须收下 event.attempt——
+   * 腿会重建到 attempt 2/3，settle/void 用错 attempt 就 post 到已 void 的旧 id 上。
    */
   private async onConfiscationLegChanged(event: FundsOrderStatusChangedEvent) {
     const depositId = event.parent.depositTransactionId;
     if (!depositId) return;
 
-    // A1(2026-08-13):此前这里是 `if (newStatus !== CONFIRMED) return`——FAILED/TIMEOUT
-    // 直接掉地上,deposit 永停 CONFISCATING、两笔 pending 锁永不释放,且四条恢复路径全堵
-    // (资金单已终态不再发事件 / CONFISCATING 只有 settle 一条出边 / ADMIN_API 被
-    // ACCOUNTING_TERMINALS 守卫挡 / 无重结算入口)。现在 FAILED/TIMEOUT 也接住。
-    // 途中态(SUBMITTED/CONFIRMING…)仍在读库前就返回——既省一次 DB 读,也保持原有语义。
     const TERMINAL_LEG_STATUSES: string[] = [
       FundsOrderStatus.CONFIRMED,
       FundsOrderStatus.FAILED,
@@ -1800,77 +1736,47 @@ export class DepositWorkflowService implements OnModuleInit {
     if (!deposit) return;
     if (deposit.status !== DepositTransactionStatus.CONFISCATING) return; // already settled / not in transit
 
-    // A3(2026-08-22):两条分支都必须收下 event.attempt —— 没收腿现在会重建 attempt 2/3,
-    // 每个 attempt 有自己的一对 pending id。settle 用错 attempt 就 post 到已 void 的旧 id
-    // 上(钱锁死在新 attempt 的 pending 里),void 用错 attempt 就解不开锁。同
-    // onReturnLegChanged / onSeizeLegChanged 的路由。
+    const firmFeeWallet = await this.systemWalletResolver.resolve(deposit.assetId, 'F_FEE');
+    const spec = this.confiscationSpec(deposit, firmFeeWallet);
+
     switch (event.newStatus) {
       case FundsOrderStatus.CONFIRMED:
-        await this.settleConfiscation(deposit, event.fundsOrderId, event.attempt);
+        await this.settleConfiscation(spec, deposit, event.fundsOrderId, event.attempt);
         break;
       case FundsOrderStatus.FAILED:
       case FundsOrderStatus.TIMEOUT:
-        await this.onConfiscationLegFailed(deposit, event.fundsOrderId, event.newStatus, event.attempt);
+        await this.onConfiscationLegFailed(spec, deposit, event.fundsOrderId, event.newStatus, event.attempt);
         break;
     }
   }
 
   /**
-   * 没收腿 FAILED/TIMEOUT —— 与退回/上缴弧同一形状（业主 2026-08-22 定稿：
-   * 资金单有问题就重试三次,还不行原地标红）：
-   *   1. void 掉本次 attempt 的两条 pending
-   *   2. attempt < 3 → 重建 attempt+1 的腿与 pending,写 RETRIED 审计
-   *   3. attempt 耗尽 → 置 needsReview 红标 + 写 STUCK 审计,**deposit 留在 CONFISCATING**
-   * 2026-08-13 那版「一次失败就退回 OPERATION_PENDING」已随 confiscate_failed
-   * 边一起退役——它是三个处置态里唯一的异类。
-   *
-   * 两笔 void 的 pending id 必须与 pendConfiscationLegs 本次 attempt 逐字一致
-   * (eventCode CONFISCATE_REVERSE_SUSPENSE / CONFISCATE_INCOME_OTHER + legIndex=attempt)。
-   * 重建前重解一次 F_FEE 钱包(本调用点没有它),同 onSeizeLegFailed 重取 orderRef 的做法。
-   * 整体 try/catch 不上抛（@OnEvent 异步监听器里抛没人接）。
+   * 没收腿 FAILED/TIMEOUT——与退回/上缴弧同一形状（业主 2026-08-22 定稿：资金单
+   * 有问题就重试三次，还不行原地标红）。void 本 attempt 两笔 pending → 未耗尽则
+   * 重建 attempt+1，耗尽则红旗停手；deposit 始终留在 CONFISCATING。整体 try/catch
+   * 不上抛（@OnEvent 里抛没人接）。
    */
   private async onConfiscationLegFailed(
+    spec: DispositionSpec,
     deposit: any,
     fundsOrderId: string,
     legStatus: string,
     attempt: number,
   ) {
     try {
-      const asset = deposit.asset;
-      const amountBigint = this.decimalToBigint(deposit.amount, asset.decimals);
-      const pend1 = deterministicTransferId('DEPOSIT', deposit.depositNo, 'CONFISCATE_REVERSE_SUSPENSE', attempt);
-      const pend2 = deterministicTransferId('DEPOSIT', deposit.depositNo, 'CONFISCATE_INCOME_OTHER', attempt);
-
-      await this.accountingService.voidPendingTransfer({
-        pendingTransferId: pend1, amount: amountBigint,
-        evidence: {
-          sourceType: 'DEPOSIT', sourceNo: deposit.depositNo, eventCode: 'CONFISCATE_REVERSE_SUSPENSE_VOID',
-          debitCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.DEPOSIT_SUSPENSE], creditCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.CLIENT_ASSET],
-          assetCurrency: asset.currency, traceId: deposit.traceId || deposit.id, actorType: 'SYSTEM', actorId: 'SYSTEM',
-        },
-      });
-      await this.accountingService.voidPendingTransfer({
-        pendingTransferId: pend2, amount: amountBigint,
-        evidence: {
-          sourceType: 'DEPOSIT', sourceNo: deposit.depositNo, eventCode: 'CONFISCATE_INCOME_OTHER_VOID',
-          debitCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.FIRM_ASSET], creditCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.INCOME_OTHER],
-          assetCurrency: asset.currency, traceId: deposit.traceId || deposit.id, actorType: 'SYSTEM', actorId: 'SYSTEM',
-        },
-      });
+      await this.disposition.voidAttempt(spec, attempt);
 
       const MAX = 3;
       if (attempt < MAX) {
         const nextAttempt = attempt + 1;
-        const firmFeeWallet = await this.systemWalletResolver.resolve(deposit.assetId, 'F_FEE');
-        const newLeg = await this.fundsOrders.create(this.buildConfiscationLegInput(deposit, nextAttempt, firmFeeWallet));
-        await this.pendConfiscationLegs(deposit, nextAttempt, firmFeeWallet);
+        const { fundsOrderNo } = await this.disposition.rebuild(spec, nextAttempt);
 
         await this.auditLogsService.recordSystem({
           action: AuditActions.DEPOSIT_CONFISCATION_RETRIED, primarySubjectType: AuditEntityTypes.DEPOSIT_TRANSACTION,
           primarySubjectNo: deposit.depositNo,
           traceId: deposit.traceId || undefined, outcome: AuditOutcome.SUCCESS,
           reason: `Confiscation leg attempt ${attempt} ${legStatus} — rebuilt attempt ${nextAttempt}`,
-          metadata: { depositNo: deposit.depositNo, fundsOrderId, attempt: nextAttempt, fundsOrderNo: newLeg.fundsOrderNo },
+          metadata: { depositNo: deposit.depositNo, fundsOrderId, attempt: nextAttempt, fundsOrderNo },
           requestId: `DEPOSIT_CONFISCATION_RETRIED_${deposit.depositNo}_${randomUUID()}`, sourcePlatform: 'SYSTEM',
         });
         return;
@@ -1910,71 +1816,43 @@ export class DepositWorkflowService implements OnModuleInit {
   }
 
   /**
-   * POST the two pending confiscation legs C2 locked (先账后状态), then flip the deposit to
-   * CONFISCATED. Each pending id is reproduced deterministically from the SAME business key
-   * pendConfiscationLegs used — deterministicTransferId('DEPOSIT', depositNo, eventCode, attempt)
-   * — so the eventCodes + legIndex(=attempt) MUST match pendConfiscationLegs exactly
-   * (leg1 CONFISCATE_REVERSE_SUSPENSE, leg2 CONFISCATE_INCOME_OTHER).
-   *
-   * `attempt` 是资金腿自己的 attempt(来自事件),不是本方法下面那个 TB 瞬时重试计数 ——
-   * A3(2026-08-22)之前这里写死 1,那时没收腿零重试、腿恒为 attempt 1 所以碰巧对得上;
-   * 现在腿会重建到 attempt 2/3,再写死 1 就会 post 到上一 attempt 已 void 的 id 上
-   * (post 必失败 → 3 次耗尽 → 单子卡死 CONFISCATING,而新 attempt 的两笔 pending 还锁着)。
-   * 同 settleReturn / settleSeize 收 event.attempt 的做法。
-   *
-   * 3× retry on a transient TB failure; if every attempt fails the deposit
-   * stays CONFISCATING (no revert, no rethrow — silent stop in the async listener) with a
-   * DEPOSIT_CONFISCATION_FAILED audit flagging it for manual intervention.
+   * settle 半程：engine.settle post 两笔 pending（3× 瞬时重试在引擎内），成功才
+   * 翻 CONFISCATE_SETTLE + 留痕 + 腿收口；耗尽则留 CONFISCATING + FAILED 留痕
+   * （no revert, no rethrow——语义与六件套时代逐字一致）。
    */
-  private async settleConfiscation(deposit: any, fundsOrderId: string, attempt: number) {
-    const asset = deposit.asset;
-    const amountBigint = this.decimalToBigint(deposit.amount, asset.decimals);
-    const pend1 = deterministicTransferId('DEPOSIT', deposit.depositNo, 'CONFISCATE_REVERSE_SUSPENSE', attempt);
-    const pend2 = deterministicTransferId('DEPOSIT', deposit.depositNo, 'CONFISCATE_INCOME_OTHER', attempt);
-    const MAX = 3;
-    // 循环计数用 i（同 settleReturn）—— 不叫 attempt,否则会遮蔽上面那个资金腿 attempt 参数。
-    for (let i = 1; i <= MAX; i++) {
-      try {
-        // leg1: DR DEPOSIT_SUSPENSE(CUSTOMER) / CR CLIENT_ASSET(SYSTEM) — reverse the payin suspense.
-        await this.accountingService.postPendingTransfer({
-          pendingTransferId: pend1, amount: amountBigint,
-          evidence: {
-            sourceType: 'DEPOSIT', sourceNo: deposit.depositNo, eventCode: 'CONFISCATE_REVERSE_SUSPENSE',
-            debitCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.DEPOSIT_SUSPENSE], creditCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.CLIENT_ASSET],
-            assetCurrency: asset.currency, traceId: deposit.traceId || deposit.id, actorType: 'SYSTEM', actorId: 'SYSTEM',
-          },
-        });
-        // leg2: DR FIRM_ASSET(SYSTEM) / CR INCOME_OTHER(SYSTEM) — confiscation income, segregated from service fees.
-        await this.accountingService.postPendingTransfer({
-          pendingTransferId: pend2, amount: amountBigint,
-          evidence: {
-            sourceType: 'DEPOSIT', sourceNo: deposit.depositNo, eventCode: 'CONFISCATE_INCOME_OTHER',
-            debitCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.FIRM_ASSET], creditCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.INCOME_OTHER],
-            assetCurrency: asset.currency, traceId: deposit.traceId || deposit.id, actorType: 'SYSTEM', actorId: 'SYSTEM',
-          },
-        });
-        await this.depositService.updateStatus(deposit.id, { action: DepositTransactionAction.CONFISCATE_SETTLE, reason: 'Below-min confiscation settled' });
-        await this.auditLogsService.recordSystem({
-          action: AuditActions.DEPOSIT_CONFISCATION_EXECUTED, primarySubjectType: AuditEntityTypes.DEPOSIT_TRANSACTION,
-          primarySubjectNo: deposit.depositNo,
-          traceId: deposit.traceId || undefined, outcome: AuditOutcome.SUCCESS,
-          metadata: { depositNo: deposit.depositNo, fundsOrderId }, requestId: `DEPOSIT_CONFISCATION_EXECUTED_${deposit.depositNo}_${randomUUID()}`, sourcePlatform: 'SYSTEM',
-        });
-        await this.clearDispositionLeg(deposit, fundsOrderId, 'DEPOSIT_CONFISCATION');
-        return;
-      } catch (err: any) {
-        this.logger.error(`Confiscation settle try ${i}/${MAX} (leg attempt ${attempt}) for ${deposit.depositNo} failed: ${err.message}`);
-        if (i === MAX) {
-          await this.auditLogsService.recordSystem({
-            action: AuditActions.DEPOSIT_CONFISCATION_FAILED, primarySubjectType: AuditEntityTypes.DEPOSIT_TRANSACTION,
-            primarySubjectNo: deposit.depositNo,
-            traceId: deposit.traceId || undefined, outcome: AuditOutcome.FAILED,
-            reason: `Settle failed after ${MAX} retries — manual intervention required (deposit stays CONFISCATING)`,
-            metadata: { depositNo: deposit.depositNo, fundsOrderId, error: err.message }, requestId: `DEPOSIT_CONFISCATION_FAILED_${deposit.depositNo}_${randomUUID()}`, sourcePlatform: 'SYSTEM',
-          });
-          return; // stay CONFISCATING, no revert, no rethrow (silent stop in the async listener)
-        }
-      }
+  private async settleConfiscation(spec: DispositionSpec, deposit: any, fundsOrderId: string, attempt: number) {
+    const result = await this.disposition.settle(spec, fundsOrderId, attempt);
+    if (!result.ok) {
+      await this.auditLogsService.recordSystem({
+        action: AuditActions.DEPOSIT_CONFISCATION_FAILED, primarySubjectType: AuditEntityTypes.DEPOSIT_TRANSACTION,
+        primarySubjectNo: deposit.depositNo,
+        traceId: deposit.traceId || undefined, outcome: AuditOutcome.FAILED,
+        reason: `Settle failed after 3 retries — manual intervention required (deposit stays CONFISCATING)`,
+        metadata: { depositNo: deposit.depositNo, fundsOrderId, error: result.error }, requestId: `DEPOSIT_CONFISCATION_FAILED_${deposit.depositNo}_${randomUUID()}`, sourcePlatform: 'SYSTEM',
+      });
+      return; // stay CONFISCATING, no revert, no rethrow (silent stop in the async listener)
+    }
+    await this.depositService.updateStatus(deposit.id, { action: DepositTransactionAction.CONFISCATE_SETTLE, reason: 'Below-min confiscation settled' });
+    await this.auditLogsService.recordSystem({
+      action: AuditActions.DEPOSIT_CONFISCATION_EXECUTED, primarySubjectType: AuditEntityTypes.DEPOSIT_TRANSACTION,
+      primarySubjectNo: deposit.depositNo,
+      traceId: deposit.traceId || undefined, outcome: AuditOutcome.SUCCESS,
+      metadata: { depositNo: deposit.depositNo, fundsOrderId }, requestId: `DEPOSIT_CONFISCATION_EXECUTED_${deposit.depositNo}_${randomUUID()}`, sourcePlatform: 'SYSTEM',
+    });
+    const clearErr = await this.disposition.clearLeg(fundsOrderId);
+    if (clearErr) {
+      await this.auditLogsService.recordSystem({
+        action: AuditActions.DEPOSIT_LEG_CLEAR_FAILED,
+        primarySubjectType: AuditEntityTypes.DEPOSIT_TRANSACTION,
+        primarySubjectNo: deposit.depositNo,
+        traceId: deposit.traceId || undefined,
+        outcome: AuditOutcome.FAILED,
+        reason:
+          'Disposition leg settled (accounting posted, deposit terminal) but funds order could not be CLEARED — funds order status lags, no accounting impact',
+        metadata: { depositNo: deposit.depositNo, fundsOrderId, error: clearErr },
+        requestId: `DEPOSIT_LEG_CLEAR_FAILED_${deposit.depositNo}_${randomUUID()}`,
+        sourcePlatform: 'SYSTEM',
+      });
     }
   }
 
