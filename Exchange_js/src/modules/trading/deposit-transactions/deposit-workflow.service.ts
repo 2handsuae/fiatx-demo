@@ -323,15 +323,7 @@ export class DepositWorkflowService implements OnModuleInit {
 
     this.logger.log(`Gate 0 PASS: deposit ${depositId}`);
 
-    await this.auditLogsService.recordSystem({
-      action: AuditActions.DEPOSIT_GATE0_PASSED,
-      primarySubjectType: AuditEntityTypes.DEPOSIT_TRANSACTION,
-      primarySubjectNo: deposit.depositNo,
-      traceId: deposit.traceId || undefined,
-      reason: 'Gate 0 passed: customer DEPOSIT capability is not restricted',
-      metadata: { lifecycle: access.lifecycle, openRestrictionCount: access.openCount },
-      sourcePlatform: 'SYSTEM',
-    });
+    // 站1b-β：GATE0_PASSED 留痕删除——每单必过属高频噪音，资格快照已落单上 l1Snapshot 列。
 
     try {
       await this.submitSumsubTxns(deposit);
@@ -580,22 +572,7 @@ export class DepositWorkflowService implements OnModuleInit {
           openedBy: 'system',
         });
 
-        await this.auditLogsService
-          .recordSystem({
-            action: AuditActions.DEPOSIT_SANCTION_HIT_ON_IGNORED_VERDICT,
-            primarySubjectType: AuditEntityTypes.DEPOSIT_TRANSACTION,
-            primarySubjectNo: deposit.depositNo,
-            traceId: deposit.traceId || undefined,
-            outcome: AuditOutcome.SUCCESS,
-            reason: `Deposit ${deposit.depositNo} KYT rejected: applicant sanctioned (verdict arrived while order already ${status}) — order left untouched, customer restricted`,
-            metadata: { depositNo: deposit.depositNo, sceneTag: v.sceneTag, status },
-            sourcePlatform: 'SYSTEM',
-          })
-          .catch((err) => {
-            this.logger.error(
-              `DEPOSIT_SANCTION_HIT_ON_IGNORED_VERDICT audit failed for ${deposit.depositNo}: ${err?.message}`,
-            );
-          });
+        // 站1b-β：独立留痕并入 DEPOSIT_KYT_VERDICT_IGNORED（metadata.sceneTag 已携制裁信号）；冻人动作留痕在客户域限制账。
       }
 
       return;
@@ -840,14 +817,7 @@ export class DepositWorkflowService implements OnModuleInit {
     if (deposit.status === DepositTransactionStatus.MANUAL_CHECKING) {
       // 误报翻案:此前进了人工复核,官方裁决翻回 approved。记账/SUCCESS 由下面的
       // approveDeposit 统一处理,这里只补一条“翻案”审计。
-      await this.auditLogsService.recordSystem({
-        action: AuditActions.DEPOSIT_MANUAL_APPROVED,
-        primarySubjectType: AuditEntityTypes.DEPOSIT_TRANSACTION,
-        primarySubjectNo: deposit.depositNo,
-        traceId: deposit.traceId || undefined,
-        reason: 'KYT verdict approved: manual checking overturned',
-        sourcePlatform: 'SYSTEM',
-      });
+      // 站1b-β：翻案不再单独留痕——approveDeposit 的 DEPOSIT_APPROVED 携 fromStatus=MANUAL_CHECKING 即翻案证据。
     }
     // 金额闸(BELOW_MIN)已下沉到 approveDeposit() 内部——它是资金入账唯一出口,
     // 这里不再重复判定(见 approveDeposit 的 JSDoc)。
@@ -886,16 +856,7 @@ export class DepositWorkflowService implements OnModuleInit {
         this.logger.warn(
           `applyKytAwaitUser: deposit ${deposit.id} synced to zero outstanding actions while already ACTION_PENDING, refusing to treat as reissue`,
         );
-        await this.auditLogsService.recordSystem({
-          action: AuditActions.DEPOSIT_AWAITUSER_EMPTY_ACTIONS,
-          primarySubjectType: AuditEntityTypes.DEPOSIT_TRANSACTION,
-          primarySubjectNo: deposit.depositNo,
-          traceId: deposit.traceId || undefined,
-          reason:
-            'Sumsub awaitUser synced to zero outstanding actions while already ACTION_PENDING — kept existing cache, not treated as reissue',
-          metadata: { addedSeqs: added, retiredSeqs: retired },
-          sourcePlatform: 'SYSTEM',
-        });
+        // 站1b-β：空清单异常留痕删除（业主裁定），warn 日志足够。
         return;
       }
 
@@ -913,16 +874,7 @@ export class DepositWorkflowService implements OnModuleInit {
       this.logger.warn(
         `applyKytAwaitUser: deposit ${deposit.id} received awaitUser verdict with zero outstanding actions after sync, keeping status ${deposit.status}`,
       );
-      await this.auditLogsService.recordSystem({
-        action: AuditActions.DEPOSIT_AWAITUSER_EMPTY_ACTIONS,
-        primarySubjectType: AuditEntityTypes.DEPOSIT_TRANSACTION,
-        primarySubjectNo: deposit.depositNo,
-        traceId: deposit.traceId || undefined,
-        reason:
-          'Sumsub sent awaitUser verdict with no outstanding applicant actions — refused to move into ACTION_PENDING with nothing for the customer to act on',
-        metadata: { fromStatus: deposit.status, incomingCount: incoming.length },
-        sourcePlatform: 'SYSTEM',
-      });
+      // 站1b-β：空清单异常留痕删除（业主裁定），warn 日志足够。
       return;
     }
 
@@ -1289,14 +1241,6 @@ export class DepositWorkflowService implements OnModuleInit {
     });
 
     // ⑦ DEPOSIT_COMPLETED — record after state change
-    await this.auditLogsService.recordSystem({
-      action: AuditActions.DEPOSIT_COMPLETED,
-      primarySubjectType: AuditEntityTypes.DEPOSIT_TRANSACTION,
-      primarySubjectNo: deposit.depositNo,
-      traceId: deposit.traceId || undefined,
-      reason: 'Deposit completed successfully',
-      sourcePlatform: 'SYSTEM',
-    });
 
     this.logger.log(`Deposit ${depositId} approved and credited.`);
   }
@@ -2028,6 +1972,9 @@ export class DepositWorkflowService implements OnModuleInit {
       causationId?: string;
       fundsOrderNo?: string;
       metadata?: Record<string, unknown>;
+      /** 人为动作传 actor → 走 recordByActor；缺省系统动作走 recordSystem */
+      actor?: { actorType: string; actorId: string; actorRole?: string };
+      sourcePlatform?: string;
     },
   ): Promise<void> {
     const customerNo: string | null =
@@ -2048,7 +1995,7 @@ export class DepositWorkflowService implements OnModuleInit {
     if (patch.fundsOrderNo) {
       subjects.push({ subjectType: 'FUNDS_ORDER', subjectNo: patch.fundsOrderNo, subjectRole: AuditSubjectRole.RELATED });
     }
-    await this.auditLogsService.recordSystem({
+    const input = {
       action: patch.action,
       actionDomain: 'DEPOSIT',
       category: AuditCategory.BUSINESS,
@@ -2067,8 +2014,13 @@ export class DepositWorkflowService implements OnModuleInit {
       traceId: deposit.traceId || undefined,
       metadata: patch.metadata,
       requestId: `${patch.action}_${deposit.depositNo}_${randomUUID()}`,
-      sourcePlatform: 'SYSTEM',
-    });
+      sourcePlatform: patch.sourcePlatform ?? 'SYSTEM',
+    };
+    if (patch.actor) {
+      await this.auditLogsService.recordByActor(input as any, patch.actor as any);
+    } else {
+      await this.auditLogsService.recordSystem(input as any);
+    }
   }
 
   private async recordStateTransitionAudit(
