@@ -1153,7 +1153,6 @@ model DepositTransaction {
   slaBreached           Boolean   @default(false)
   sumsubActionId          String?
   sumsubExternalActionId  String?
-  actionSubmittedAt       DateTime?
   asset                Asset             @relation(fields: [assetId], references: [id])
   wallet               Wallet            @relation(fields: [toWalletId], references: [id])
   fromWallet           Wallet?           @relation("DepositFromWallet", fields: [fromWalletId], references: [id])

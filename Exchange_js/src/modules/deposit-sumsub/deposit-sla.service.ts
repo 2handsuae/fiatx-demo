@@ -96,13 +96,10 @@ export class DepositSlaService {
    */
   private async hardBreach(deposit: any): Promise<void> {
     const oldStatus = deposit.status;
-    // 这块表量的是"等谁"：客户没交 → 等客户；交了 → 等 Provider 重评。
-    // 理由必须跟着换，否则一个已经配合交了材料的客户会被以"未响应"的名义
-    // 踢进人工复核，而这条会进审计。
-    const submitted = !!deposit.actionSubmittedAt;
-    const reason = submitted
-      ? 'SLA breached: provider re-review exceeded deadline after customer submission'
-      : 'SLA breached: no compliance action before deadline';
+    // 站1b-α：原「客户已交 → 等 provider 重评」理由分支已删——它读的
+    // actionSubmittedAt 是从无非空写入方的死列（2026-08-17 材料账迁移后），
+    // 分支从未可达（BACKLOG 在案）。列已 drop，理由只剩一种。
+    const reason = 'SLA breached: no compliance action before deadline';
 
     await this.depositService.updateStatus(
       deposit.id,
@@ -130,7 +127,7 @@ export class DepositSlaService {
       primarySubjectNo: deposit.depositNo,
       traceId: deposit.traceId || undefined,
       reason: `${reason} (deposit was ${oldStatus})`,
-      metadata: { slaType: 'HARD', fromStatus: oldStatus, slaDeadline: deposit.slaDeadline, waitingOn: submitted ? 'PROVIDER' : 'CUSTOMER' },
+      metadata: { slaType: 'HARD', fromStatus: oldStatus, slaDeadline: deposit.slaDeadline, waitingOn: 'CUSTOMER' },
       requestId: `DEPOSIT_SLA_BREACHED_${deposit.depositNo}_${randomUUID()}`,
       sourcePlatform: 'SYSTEM',
     });

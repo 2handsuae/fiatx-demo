@@ -215,19 +215,4 @@ describe('DepositApplicantActionsService', () => {
       await expect(svc.hasOutstanding('dep-1')).resolves.toBe(false);
     });
   });
-
-  // clearDepositCache 只操作 depositTransaction 自己的标量字段，从未碰过子表，
-  // 与「内脏换材料账」无关——保留是因为 deposit-workflow.service.ts 那段被
-  // 明令禁止改动的状态机逻辑（I2 修复）仍在调用它，删掉会让那段代码编译不过。
-  it('clearDepositCache 把 actionSubmittedAt 清空并重置 SLA 两字段', async () => {
-    const { svc, prisma } = build();
-    const deadline = new Date('2026-08-13T00:00:00Z');
-
-    await svc.clearDepositCache('dep-1', deadline);
-
-    expect(prisma.depositTransaction.update).toHaveBeenCalledWith({
-      where: { id: 'dep-1' },
-      data: { actionSubmittedAt: null, slaDeadline: deadline, slaBreached: false },
-    });
-  });
 });

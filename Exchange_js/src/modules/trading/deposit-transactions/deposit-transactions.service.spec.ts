@@ -1832,18 +1832,6 @@ describe('DepositTransactionsService', () => {
         data: { needsReview: true },
       });
     });
-
-    it('clearNeedsReview 只写 needsReview 一列', async () => {
-      const update = jest.fn().mockResolvedValue({ id: 'd1', needsReview: false });
-      (prisma as any).depositTransaction = { update };
-
-      await service.clearNeedsReview('d1');
-
-      expect(update).toHaveBeenCalledWith({
-        where: { id: 'd1' },
-        data: { needsReview: false },
-      });
-    });
   });
 
 });

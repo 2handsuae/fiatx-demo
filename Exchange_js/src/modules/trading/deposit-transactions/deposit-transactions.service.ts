@@ -957,7 +957,7 @@ export class DepositTransactionsService {
    * 红标：资金腿重试耗尽后由 workflow 置起。**只写这一列，绝不碰状态** ——
    * 三个在途处置态（CONFISCATING/RETURNING/SEIZING）卡死时单子留在原地，
    * 「卡住了」这件事靠这面旗表达，不靠状态迁移（业主 2026-08-22 定稿）。
-   * 与 WithdrawTransactionsService.markNeedsReview/clearNeedsReview 同构；
+   * 与 WithdrawTransactionsService.markNeedsReview 同构（清旗侧本域零调用方，站1b-α 已删）；
    * 兑换域是单个切换方法 SwapTransactionsService.setNeedsReview(id, bool, tx)
    * —— 三域故意分叉，各写各的形状，不抽 helper。
    */
@@ -965,14 +965,6 @@ export class DepositTransactionsService {
     return (this.prisma as any).depositTransaction.update({
       where: { id },
       data: { needsReview: true },
-    });
-  }
-
-  /** 处置成功落地后清旗（运营卫生）。 */
-  async clearNeedsReview(id: string) {
-    return (this.prisma as any).depositTransaction.update({
-      where: { id },
-      data: { needsReview: false },
     });
   }
 

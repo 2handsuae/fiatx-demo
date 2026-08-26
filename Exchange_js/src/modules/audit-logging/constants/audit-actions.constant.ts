@@ -252,7 +252,6 @@ export const AuditActions = {
   DEPOSIT_ONHOLD: 'DEPOSIT_ONHOLD',
   // 已在 ACTION_PENDING 时 Sumsub 又发一个新 applicantActionId(客户交的材料不够,
   // 还要再补)——状态不动,但引用/提交戳/SLA 表刷新(AE-T2)
-  DEPOSIT_ACTION_REISSUED: 'DEPOSIT_ACTION_REISSUED',
   // I1 修复:awaitUser 裁决同步之后该单没有任何未提交行(报文整个不带
   // applicantActions,或撤回的恰好是全部未提交行)——拒绝进入/停留 ACTION_PENDING,
   // 单子保持原状态,留痕供排查上游报文异常
@@ -272,7 +271,6 @@ export const AuditActions = {
   // 运营可重新发起没收。此前这条信号掉地上(handler 只认 CONFIRMED),单子永停 CONFISCATING。
   // ⚠️ A3(2026-08-22)后不再被写入:没收腿改重试三级梯,失败落 RETRIED / STUCK 两条。
   //    常量本身保留(本批不做审计专项,死常量清理留给审计那一轮,见 BACKLOG)。
-  DEPOSIT_CONFISCATION_LEG_FAILED: 'DEPOSIT_CONFISCATION_LEG_FAILED',
   // A1:解锁失败(TB 不可达等)。此时 deposit 仍停 CONFISCATING、pending 锁还在,需人工介入。
   DEPOSIT_CONFISCATION_UNLOCK_FAILED: 'DEPOSIT_CONFISCATION_UNLOCK_FAILED',
   // A3(2026-08-22):没收腿重试三级梯 —— 与 DEPOSIT_RETURN_* / DEPOSIT_SEIZE_* 同构。

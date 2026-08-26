@@ -127,7 +127,7 @@ describe('DepositSlaService', () => {
     expect(auditLogsService.recordSystem).toHaveBeenCalledTimes(2);
   });
 
-  describe('breach 理由按客户是否已提交分岔', () => {
+  describe('breach 理由（站1b-α：死列删除后仅剩「客户未响应」一种）', () => {
     it('未提交 → 理由指向客户未响应', async () => {
       depositService.findSlaBreachCandidates.mockResolvedValue([
         { id: 'd-1', depositNo: 'DEP1', status: 'ACTION_PENDING', actionSubmittedAt: null },
@@ -144,42 +144,6 @@ describe('DepositSlaService', () => {
       );
     });
 
-    it('已提交 → 理由指向 Provider 重评超时，不冤枉客户', async () => {
-      depositService.findSlaBreachCandidates.mockResolvedValue([
-        {
-          id: 'd-2', depositNo: 'DEP2', status: 'ACTION_PENDING',
-          actionSubmittedAt: new Date('2026-08-01T00:00:00Z'),
-        },
-      ] as any);
-
-      await service.checkSlaBreaches();
-
-      expect(depositService.updateStatus).toHaveBeenCalledWith(
-        'd-2',
-        expect.objectContaining({
-          reason:
-            'SLA breached: provider re-review exceeded deadline after customer submission',
-        }),
-        expect.anything(),
-      );
-    });
-
-    it('已提交的单，审计理由里不得出现"no compliance action"字样', async () => {
-      depositService.findSlaBreachCandidates.mockResolvedValue([
-        {
-          id: 'd-3', depositNo: 'DEP3', status: 'ACTION_PENDING',
-          actionSubmittedAt: new Date('2026-08-01T00:00:00Z'),
-        },
-      ] as any);
-
-      await service.checkSlaBreaches();
-
-      // 项目 tsconfig target 为 ES2021，Array.prototype.at() 需要 ES2022 lib，
-      // 编译期会报 TS2550；改用等价的下标写法拿最后一次调用，语义不变。
-      const calls = auditLogsService.recordSystem.mock.calls;
-      const call = calls[calls.length - 1][0];
-      expect(call.reason).not.toMatch(/no compliance action/i);
-    });
   });
 
   describe('硬/软两类破线', () => {

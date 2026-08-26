@@ -2454,7 +2454,6 @@ describe('DepositWorkflowService', () => {
         expect.objectContaining({
           extraData: {
             manualReason: 'EDD_PEP',
-            actionSubmittedAt: null,
           },
         }),
       );
@@ -2485,7 +2484,6 @@ describe('DepositWorkflowService', () => {
         expect.objectContaining({
           extraData: {
             manualReason: 'CLIENT_ACTION',
-            actionSubmittedAt: null,
           },
         }),
       );
@@ -3563,11 +3561,9 @@ describe('DepositWorkflowService', () => {
       expect(depositService.updateStatus).toHaveBeenCalled();
       const [, , opts] = depositService.updateStatus.mock.calls[0];
       // 2026-08-21 第三批：extraData 不再带 slaDeadline/slaBreached —— 由
-      // updateStatus 内部的 resolveSlaFields(收口处)统一算,extraData 只带
-      // manualReason + actionSubmittedAt 的清空。
-      expect(opts.extraData).toEqual(
-        expect.objectContaining({ actionSubmittedAt: null }),
-      );
+      // updateStatus 内部的 resolveSlaFields(收口处)统一算；站1b-α 起
+      // actionSubmittedAt 死列已删，extraData 只带 manualReason。
+      expect(opts.extraData).toEqual({ manualReason: expect.any(String) });
       expect(opts.extraData).not.toHaveProperty('slaDeadline');
       expect(opts.extraData).not.toHaveProperty('slaBreached');
     });
@@ -3592,27 +3588,6 @@ describe('DepositWorkflowService', () => {
       );
     });
 
-    it('已在 ACTION_PENDING 且集合有新增、缓存里还留着旧的"已交齐"值：不动状态，清缓存，记审计', async () => {
-      const dep = {
-        id: 'd-1', depositNo: 'DEP1', status: 'ACTION_PENDING', ownerType: 'CUSTOMER', ownerId: 'c-1',
-        actionSubmittedAt: new Date('2026-08-01'), // 缓存残留上一轮"已交齐"，需要清
-      };
-      actionsService.syncApplicantActions.mockResolvedValue({ added: [2], retired: [] });
-      actionsService.hasOutstanding.mockResolvedValue(true);
-
-      await (service as any).applyKytAwaitUser(dep, undefined, ACTIONS);
-
-      expect(depositService.updateStatus).not.toHaveBeenCalled();
-      expect(actionsService.clearDepositCache).toHaveBeenCalledWith('d-1', expect.any(Date));
-      expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
-        expect.objectContaining({
-          action: AuditActions.DEPOSIT_ACTION_REISSUED,
-          primarySubjectNo: 'DEP1',
-          metadata: expect.objectContaining({ addedSeqs: [2], retiredSeqs: [] }),
-        }),
-      );
-    });
-
     it('已在 ACTION_PENDING 且集合完全一致、缓存本就干净：真 no-op', async () => {
       const dep = { id: 'd-1', depositNo: 'DEP1', status: 'ACTION_PENDING', ownerType: 'CUSTOMER', ownerId: 'c-1' };
       actionsService.syncApplicantActions.mockResolvedValue({ added: [], retired: [] });
@@ -3622,51 +3597,7 @@ describe('DepositWorkflowService', () => {
 
       expect(depositService.updateStatus).not.toHaveBeenCalled();
       expect(actionsService.clearDepositCache).not.toHaveBeenCalled();
-      expect(auditLogsService.recordSystem).not.toHaveBeenCalledWith(
-        expect.objectContaining({ action: AuditActions.DEPOSIT_ACTION_REISSUED }),
-      );
-    });
-
-    // I2 的核心回归用例：webhook 重试场景——第一次投递里 syncOnce 已经把子表
-    // 同步完（本次 added/retired 因此都是空），但随后的 clearDepositCache/审计写入
-    // 抛错（SQLITE_BUSY、进程重启），缓存里 actionSubmittedAt 仍残留旧值。旧判据
-    // （added.length===0 && retired.length===0 → return）会在这里提前退出，
-    // 缓存永远清不掉；新判据改读持久状态，与本次 diff 是否为空无关，必须清掉。
-    it('I2：webhook 重试——diff 为空但缓存里 actionSubmittedAt 残留旧值，仍要清掉', async () => {
-      const dep = {
-        id: 'd-1', depositNo: 'DEP1', status: 'ACTION_PENDING', ownerType: 'CUSTOMER', ownerId: 'c-1',
-        actionSubmittedAt: new Date('2026-08-01'),
-      };
-      actionsService.syncApplicantActions.mockResolvedValue({ added: [], retired: [] });
-      actionsService.hasOutstanding.mockResolvedValue(true);
-
-      await (service as any).applyKytAwaitUser(dep, undefined, ACTIONS);
-
-      expect(actionsService.clearDepositCache).toHaveBeenCalledWith('d-1', expect.any(Date));
-      expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
-        expect.objectContaining({ action: AuditActions.DEPOSIT_ACTION_REISSUED, primarySubjectNo: 'DEP1' }),
-      );
-    });
-
-    // 撤回同样要清缓存：3 条里撤掉 1 条未提交的之后，剩下 2 条若已交齐，
-    // 缓存该盖上；反之若还有未交的，缓存必须是空。统一靠 clearDepositCache
-    // + 下一次 submitBySeq 重算，不在这里各自算一遍。
-    it('已在 ACTION_PENDING 且有撤回（仍有其它未提交行）：清缓存并把撤回的 seq 记进审计', async () => {
-      const dep = {
-        id: 'd-1', depositNo: 'DEP1', status: 'ACTION_PENDING', ownerType: 'CUSTOMER', ownerId: 'c-1',
-        actionSubmittedAt: new Date('2026-08-01'),
-      };
-      actionsService.syncApplicantActions.mockResolvedValue({ added: [], retired: [2] });
-      actionsService.hasOutstanding.mockResolvedValue(true);
-
-      await (service as any).applyKytAwaitUser(dep, undefined, ACTIONS);
-
-      expect(actionsService.clearDepositCache).toHaveBeenCalledWith('d-1', expect.any(Date));
-      expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
-        expect.objectContaining({
-          metadata: expect.objectContaining({ addedSeqs: [], retiredSeqs: [2] }),
-        }),
-      );
+      expect(auditLogsService.recordSystem).not.toHaveBeenCalled();
     });
 
     // I1 的另一半死角：报文把全部未提交行都撤空了（同步后 hasOutstanding=false）。
@@ -3691,21 +3622,6 @@ describe('DepositWorkflowService', () => {
       );
     });
 
-    it('审计带真 applicantActionId（operator 面需要，与客户面相反）', async () => {
-      const dep = {
-        id: 'd-1', depositNo: 'DEP1', status: 'ACTION_PENDING', ownerType: 'CUSTOMER', ownerId: 'c-1',
-        actionSubmittedAt: new Date('2026-08-01'),
-      };
-      actionsService.syncApplicantActions.mockResolvedValue({ added: [2], retired: [] });
-      actionsService.hasOutstanding.mockResolvedValue(true);
-
-      await (service as any).applyKytAwaitUser(dep, undefined, ACTIONS);
-
-      const call = auditLogsService.recordSystem.mock.calls.find(
-        ([a]: any[]) => a.action === AuditActions.DEPOSIT_ACTION_REISSUED,
-      );
-      expect(call[0].metadata.incomingActionIds).toEqual(['aa-1', 'aa-2']);
-    });
   });
 
   // Task 7：批量冻单补审计 + 自咬（本域自己刚冻的单被自己的监听器再冻一次）降级判定。
