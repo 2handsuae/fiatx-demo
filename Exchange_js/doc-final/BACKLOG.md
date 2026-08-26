@@ -271,3 +271,8 @@ Last Updated: 2026-08-26
 - [ ] **兑换 `Internal Approvals` 空态是手写 div**，充值/提现用共享 `LinkedRelationEmpty`（后者在消息上方还有一行 cap 微标签）→ 同一张卡的空态，另两域有小标题、兑换没有 ｜来源: 2026-08-23 第五批终审
 - [ ] **三页各手写一份逐字相同的「本单已进终态/处置态」`<p>`**（第五批 Task 7 引入，className 与文案全同）—— 同职责内联三份，正是本批立规矩要消灭的形状 ｜来源: 2026-08-23 第五批终审
 - [ ] 🔴 **`scripts/stack.sh` 从不跑迁移 —— 每次改 schema，跑着的栈都会悄悄留在旧库上**：`grep -c 'migrate\|prisma' scripts/stack.sh` = **0**。`stack.sh up` 会自愈 `.env`、切 node20、重建后端，但**不迁移**。2026-08-24 实测后果：main 栈的库停在 `20260817020000_drop_legacy_action_stores`，第四批的 `20260822010000_batch4_needs_review_and_l1` 从没应用过 → `l1Snapshot` / `needsReview` 列根本不存在，业主在 admin 上看不到 L1 闸门，误以为"第四批没合进 main"（代码其实早在 main 上，merge `6236d9b9`）。**这是个会反复咬人的坑**：只要有人改 schema 又没手动 `prisma migrate deploy`，跑着的栈就与代码脱节，且没有任何报错提示。修法二选一：① `stack.sh up` 里加一步 `prisma migrate deploy`（幂等，已应用的迁移不会重跑）；② 加一步 `prisma migrate status` 检查，有待应用迁移就 fail-closed 并打印提示。⚠️ 顺带：`npm run runtime:diagnose` 号称"诊断迁移漂移"，但它不在 `stack.sh` 的路径上，没人会主动跑 ｜来源: 2026-08-24 业主问"为什么 gate1 那些没有在 main"时查出
+
+## 演示装备（2026-08-26 批次三实测盘点）
+
+- [ ] **recon:demo:break 答案键 9 中漏检 2**：#5 BANK_CHARGE、#7 BANK_INTEREST 两类 SOFT_FLAG 破口铺下后引擎未逮到（7/9 DETECTED）——break 演示时答案键对不上，观众问"9 种怎么只见 7 种"讲不圆 ｜ 批次三 main 栈实测 ｜ 待查引擎或答案键口径
+- [ ] **重铺后审计新词表零写入（verify:audit 5 项挂）**：demo:all 只驱交易域（旧合同码），V1 治理动作无造数 → 第七幕追溯开场空白，须现场先做一笔治理动作垫场 ｜ 批次三 main 栈实测 ｜ 待治理动作进造数或审计第二批

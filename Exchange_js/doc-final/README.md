@@ -6,7 +6,7 @@
 |---|---|---|---|
 | `modules/` | 各模块业务说明 + 关键技术节点；首读 `overview.md` | agent | 每次任务 |
 | `prd/` | 需求原文（重新撰写中，篇目另定）（待建） | 业主 | 改对应模块前 |
-| `demo/` | 演示剧本 / 数据字典 / 模拟说明（待建） | 主线业主定，其余 agent | 演示前；改页面/种子时同步 |
+| `demo/` | 演示剧本（七幕）/ 数据字典 / 模拟说明 | 主线业主定，其余 agent | 演示前；改页面/种子时同步 |
 | `decisions.md` | 业务决策记录，只追加 | 业主 | **动任何设计前** |
 | `rules/` | 写法约束 + `review-rubric.md` 评审表 | 业主 | 写码 / 评审时 |
 | `test-cases/` | 验收用例（按 PRD 应然写，不按代码现值写） | agent | 验收 / 写用例时 |
@@ -15,7 +15,7 @@
 | `reference/roadmap.md` | 版本规划（V1–V9；`roadmap.en.md` 为英文渲染，中文版为唯一真相） | 业主 | 排期时 |
 | `reference/truth/` | 旧现状文档；`modules/` 未覆盖的模块暂读这里，改写一份删一份 | 退役中 | 过渡期 |
 | `BACKLOG.md` | 业务缺口（只登记业务缺口） | agent | 说"以后做"时 |
-| `CHANGELOG.md` | 业务口径变更日志，一合并一行（待建，Phase 3 起用） | agent | 回顾时 |
+| `CHANGELOG.md` | 业务口径变更日志，一合并一行 | agent | 回顾时 |
 | `PRODUCTION-NOTES.md` | 生产化才做的账 | agent 只追加 | **不读** |
 | `archive/` | 历史存档：superpowers 存量 specs/plans/product-docs/backlog 已迁入（2026-08-26） | 只读 | **不读** |
 
