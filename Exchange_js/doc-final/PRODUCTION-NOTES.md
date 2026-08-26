@@ -1,0 +1,301 @@
+# PRODUCTION-NOTES — 生产化才做的账
+
+> 本系统是演示系统，不做技术兜底（CLAUDE.md §2）。凡发现兜底类缺口，在对应分区**追加一行即完成处理**：不修、不讨论、不进 plan、不进 BACKLOG。
+> 本文件不是待办清单：agent 只许追加，不许读它来安排工作。将来若生产化，从这里起步。
+
+格式：`- [日期] 一句话缺口 ｜ 位置（模块/文件） ｜ 来源（会话/审查）`
+
+## 安全与权限
+
+> 2026-08-26 BACKLOG 分流迁入（原文照搬，上下文见 git 历史 db01f280）。另补 2026-08-15 逐条实证过的既有安全洞：
+
+- [2026-08-15] JWT_SECRET 恒回落字面量 'secretKey'（6 处源码，.env 不写该键），可自签 SUPER_ADMIN 令牌 ｜ 全局 ｜ 实证于 27530d9b
+- [2026-08-15] G1 权限守卫多处 fail-open（对非 ADMIN token 等同放行） ｜ 多 admin 端点 ｜ 实证于 27530d9b
+- [2026-08-15] C1 ACCOUNTING_TERMINALS 缺 COMPLIANCE_PENDING，可凭空造余额 ｜ accounting ｜ 实证于 27530d9b
+- [2026-08-15] C2 TB flags 恒 0，"不可透支"约束从未启用（truth v3 相关描述有误） ｜ accounting ｜ 实证于 27530d9b
+- [2026-08-25] 审计五条非字段约定未实现：库级撤销 UPDATE/DELETE ｜ 展示名映射表 ｜ UTC+NTP ｜ digest 取未脱敏原文 ｜ 超长截断优先级 ｜ audit-logging ｜ 8/25 第一批设计
+
+**原 BACKLOG §技术债 — V5 提现**
+
+- [ ] **`POST /client/withdraw-transactions` 创建响应未过白名单**：`CustomerWithdrawController.create()` 直接返回 `workflow.createWithdrawal()` 的原始行（含 `sumsubTxnId`/`manualReason`/`slaDeadline`/`statusHistory`/`tbPendingNetId`/`tbPendingFeeId`/`approvalNo`/`traceId` 等调查性字段），列表/详情两个读端点均已正确走 `toCustomerWithdrawView()` 白名单，仅创建这一个响应体漏网；真机验证实测复现（见 `.superpowers/sdd/task-12-report.md`）｜来源: 2026-08-04 Task 12 真机验证
+
+**原 BACKLOG §技术债 — V1 审计底座**
+
+- [ ] **SUPER_ADMIN 硬编码 bypass**：`access-control.service.ts` 对 SUPER_ADMIN 跳过 SoD + 直给全权限；roadmap 定性演示角色，**上线前须移除此 bypass**｜来源: 2026-07-04 V1 体检。⚠️ 2026-08-25 Task 11 实测确认此 bypass 仍生效且范围比字面更广：SUPER_ADMIN 对**任意**审批类型（非仅其自身权限相关的）都能自批自己提交的请求（`admin@fiatx.com` 提交的 `ADMIN_SUSPENSION_APPROVAL` 被同一账号自批成功，`APPROVAL_SOD_DENIED` 未触发）；换成 CISO 自批 `ROLE_DEFINITION_CREATE` 才会正确触发 SoD 拦截。行为本身与 `prisma/seed.base.ts:220` 注释的设计意图一致（"unless SUPER_ADMIN bypass applies"），非本批引入，但此前无人用真实数据坐实过
+
+**原 BACKLOG §技术债 — 第三批 SLA（三域，2026-08-21 落地）**
+
+- [ ] **`SwapTransactionsController` 的 `advance`/`resume` 两端点缺 `assertAdmin`**：`swap-transactions.controller.ts` 的 `advanceSwapLeg()`（`:68`）与 `resumeSwapLeg()`（`:87`）只挂 `@RequirePermissions` 装饰器，没有调用本批新增的私有 `assertAdmin(req)`——而 `AdminPermissionGuard.canActivate` 对非 ADMIN token 直接 `return true`（NO-OP，`DepositTransactionsController` 那组同类洞已登记于「安全守卫」节），意味着理论上一个持有对应权限码的 CUSTOMER token 也能打这两个端点。本批只给新增的 `simulate-sla-timeout` 端点加了 `assertAdmin()`（`d5979c15`，"跨租户越权"修复），`advance`/`resume` 是旧端点，按仓库先例（BACKLOG 现有条目只覆盖 `DepositTransactionsController` 的四个路由）未在本批修复，登记为新债 ｜来源: 2026-08-21 SLA 批次
+
+**原 BACKLOG §真欠账**
+
+- [ ] **客户面 `GET /swap-transactions/:id` 零调用方，且越权返 403 泄漏存在性**：`swap-transactions-customer.controller.ts` 的 `@Get(':id')` → `findOneForCustomer(id, userId)`，`ownerId` 不符时抛 `ForbiddenException('Not your swap transaction')` ——403 与 404 的差别就是一个存在性预言机（拿别人的 swapId 试一试，403 = 存在，404 = 不存在）。充值/提现的对应实现都用**同一个 404** 兼作 IDOR 守卫。本批新增的 `GET my/:swapNo` 已按铁律③走业务键，前端 `client-web` 全仓 grep 确认**没有任何调用方**打 `:id` 那条——建议直接退役该端点 ｜来源: 2026-08-22 第四批 D3
+- [ ] **`swap-transactions.service.ts → findOne()` 的 `customer: { include: … }` 会把 `passwordHash` 返给 admin 端**：本批把 `customer: true` 改成 `customer: { include: { restrictionRows: … } }` 以取限制账真数据——**改动前后完全一样**，`include` 不做字段裁剪，`CustomerMain` 上的 `passwordHash`/`passwordUpdatedAt`/`failedLoginCount`/`lockedUntil` 全都在响应里。**提现域三处 `customer: true` 同样如此**（`findAll`/`findOneInternal`/`findOne`）；**充值域已经是安全的**（两处都用 `customer: { select: {...} }` 五六个字段）——所以这不是「三域皆然」，是「充值早已修好、另两域没跟上」。修法照抄充值：改 `select` ｜来源: 2026-08-22 第四批 D2/E1（非本批引入）
+
+**前端**
+
+
+**原 BACKLOG §技术债 — 平账处置（推单）**
+
+- [ ] **推单/sim-advance 端点用 INTERNAL_FUND_READ 读权限门控变更操作**：/admin/funds-orders/:no/push/sync|manual + :no/advance 都是变更/动钱操作却挂 _READ → 读权限 operator 也能推单结算。应新增**写/处置权限**统一门控三端点（需 db:base:sync + 重启）｜来源: 2026-07-03 推单 T3 code-review M-2 ｜下期专门 RBAC 轮（与下条命名债一并做）
+
+**原 BACKLOG §安全守卫（已生成卡片，跟踪落地）**
+
+- [ ] 提现后端补提现地址 ACTIVE 校验（绕过前端可用任意地址提现）｜卡片 task_20678a2c ｜来源: 2026-07-03 V3 体检
+- [ ] 充值"已记账不可直转终态"守卫（回退分录未实现前，拦住对已入暂扣充值的拒绝）｜卡片 task_16af8187 ｜来源: 2026-07-03 V4 体检
+- [ ] **`DepositTransactionsController` 兄弟 admin 端点缺 `assertAdmin` 授权洞（PRE-EXISTING，早于 deposit-min）**：`AdminPermissionGuard.canActivate` 对非 ADMIN token 直接 `return true`（NO-OP），控制器需各 admin 路由自己调 `assertAdmin(req)` 才真拦。`GET /deposit-transactions`(findAll)、`GET /deposit-transactions/export`、`PATCH /deposit-transactions/:id/status`(updateStatus) 三个端点均缺此调用 → **今天客户 token 即可列出/导出全部客户的充值、乱推状态机**（越权读他人数据 + 篡改）。本轮仅修了新增的 `POST :id/waive-limit`（已加 assertAdmin）；这三个同源兄弟洞属既存债，需一次 DepositTransactionsController 全量硬化补齐（对齐 `withdraw-transactions.controller.ts` 每路由 assertAdmin 模式）｜来源: 2026-07-16 D5 review
+- [ ] **同一洞第四个成员 + 已实测证据 + 已另开专修分支（2026-08-05 补）**：`deposit-transactions.controller.ts` 缺 `assertAdmin` 的完整清单是四条，不是三条——上一行漏记了 `GET /deposit-transactions/:id`（`findOne`，第 117 行；`GET /deposit-transactions`(`findAll`，第 110 行)/`PATCH /:id/status`(`updateStatus`，第 139 行)/`GET /export`(`export`，第 247 行) 同上一行）。**已在干净 `main` 上实测坐实**：新注册客户 token 打 `GET /deposit-transactions` 得 HTTP 200（应得 403）；对照有闸的 `POST :id/seize` 同 token 得 403 `"Admin only"`——证明问题确实是"这四条路由各自漏调 `assertAdmin(req)`"而非 guard 整体失效。业主已决定本轮（deposit-action-embed）不顺手修，本任务未触碰 `deposit-transactions.controller.ts` 的权限代码。⚠️ **2026-08-07 更新**：当时开的专修分支 `fix/deposit-transactions-authz` 已随 deposit-action-embed 一并清理（该分支零 commit、只是占位），本条**仍未修复**，重开时直接从当时的 main 拉新分支即可，复现步骤见上（新注册客户 token 打 `GET /deposit-transactions` 得 200） ｜来源: 2026-08-05 Task 7 验收前置排查
+
+
+**原 BACKLOG §交付 / 可移植 Docker（2026-07-04 本会话新增）**
+
+- [ ] **泄露 dev `.env` 仍在 git 历史**：`.env` 已 `git rm --cached`（合 c80ce5e）+ 本地换新 MFA key 作废旧值；旧值仍留在历史（用户选不重写历史，属 demo key）。若确认该 key 曾用于任何真实用途，需重评是否 filter-repo 抹历史 ｜来源: 2026-07-04 一级审计
+
+## 幂等 · 去重 · 回放
+
+## 并发与竞态
+
+## 迁移与兼容
+
+## 测试框架
+
+**原 BACKLOG §演示/测试环境卫生（2026-08-13 A1-A6 收官实跑发现，均为既存问题非本轮引入）**
+
+- [ ] **money-arcs 两个 e2e spec 会把 worktree 常驻栈的验收库搞脏**：`test/deposit-money-arcs.e2e-spec.ts` / `withdraw-money-arcs.e2e-spec.ts` 直接在 `MANUAL_CHECKING`/`FROZEN` 等态建 fixture 单**不跑 STEP_1**，随后走退回/上缴弧 post `DEPOSIT_SUSPENSE→CLIENT_ASSET`，把从未入账的科目扣成负数。实测跑完 4 个 e2e suite 后 `verify:coa` 报 5 处负余额（`CLIENT_ASSET` −118000 / 某客户 `DEPOSIT_SUSPENSE` −1e12 等），而**两条恒等式照常全绿**（两边同减正负相消）——正是本轮新增负余额断言首次逮到的实例。对照：`deposit-sumsub-verdicts.e2e-spec.ts` 有物理拦截、跑在专用 `e2e-` 库上。建议这两个 spec 同样切专用库 ｜来源: 2026-08-13 T11
+- [ ] **`deposit-sumsub-verdicts.e2e-spec.ts` 把 DB 路径硬编码成一个早已删除的 worktree 目录**：`process.env.DATABASE_URL = 'file:/tmp/exchange_js_wt_deposit_arcs/e2e-deposit-verdicts.db'`（第 17 行）。任何新 worktree 首跑必挂 `Error code 14: Unable to open the database file`，且需要手动 `mkdir` + `migrate deploy` + `db:base:sync` + `db:biz:init` 才能起。隔离意图正确（防止误清常驻栈，第 22 行还有二道保险），但路径应改成按当前 worktree 派生 ｜来源: 2026-08-13 T11
+
+**原 BACKLOG §技术债 — 充值状态机·计划1 引擎（deposit-sumsub，2026-07-28）**
+
+- [ ] **payin→COMPLIANCE_PENDING 管道（STEP_1/funds_order 级联）无 e2e 覆盖**：Task 12 e2e 为避开 `detected()→funds_order→事件级联`（fire-and-forget `emit`，测试里会竞态），改为直接 Prisma 建一条 `status=COMPLIANCE_PENDING` 的 deposit + 手动调 `handleDepositStatusChanged()`，绕过了 PAYIN_PENDING→COMPLIANCE_PENDING 这段（payin 检测 + TB Step1 记账）。该段仍缺 e2e 直接覆盖 ｜来源: `test/deposit-sumsub-scenarios.e2e-spec.ts` 文件头注释 + task-13-brief
+
+**原 BACKLOG §技术债 — 充值前端（F1-F8，2026-07-29 落地，Task 8 真机渲染验证发现）**
+
+- [ ] **SEIZE 弧 e2e 场景 2 间歇性断言不到 `DEPOSIT_SEIZE_STARTED` 审计（既存 flaky race，与终审四修无关）**：`test/deposit-money-arcs.e2e-spec.ts` 场景 2 在两步审批（SENIOR_MANAGEMENT_OFFICER→MLRO）批准后用 `waitUntil()` 每 50ms 轮询 `finalStatusOf(deposit.id)===SEIZING`，一旦轮到即断言 `auditActionsFor(deposit.id)` 包含 `DEPOSIT_SEIZE_STARTED`；但 `deposit-workflow.service.ts → onSeizeApproved()` 里状态先经 `updateStatus(SEIZE)` 落库、审计 `recordSystem(DEPOSIT_SEIZE_STARTED)` 紧随其后才写，且触发链是 `approvalsService.approve()` 内 `emit()`（非 `emitAsync`）fire-and-forget 派发 `workflow.deposit-seize.decided` 事件——测试的 `await approve()` 返回时监听器可能仍在途，`waitUntil` 抓到状态已翻但审计尚未落库的窗口即断言失败。**已用 `git stash` 对照清本 HEAD 反复实测确认为既存问题**：干净 HEAD（无终审四修改动）5 次里失败 3 次，与本次 Fix 1-4 无因果关系（bisect 逐文件隔离复测同样验证过 Fix 1/2/3/4 单独套用均不改变该题的间歇性）。修法方向：`onSeizeApproved()` 改成先写审计再切状态（或同一事务内原子提交两者），或测试改用 `emitAsync`/直接 `await` 事件处理完成而非轮询状态字段 ｜来源: 2026-07-29 终审四修 task-9 验证阶段发现，e2e 反复跑触发（15/15 并非每次稳定，取决于该题命中与否）
+
+
+**原 BACKLOG §技术债 — V5 提现**
+
+- [ ] **e2e 无 teardown，专用库无限增长**：`test/kyt-verdict-landing.e2e-spec.ts` 不清理创建的行，跑在带 `e2e-` 前缀的专用库上（有 fail-closed 护栏，不污染常驻栈），fixture 用时间戳后缀不撞号，故非正确性风险，但库会随重跑增长 ｜来源: 2026-08-20 第一批终审
+
+**原 BACKLOG §技术债 — 制裁命中分主体（sanction-subject-split，2026-08-20 落地）**
+
+- [ ] **`test/customer-restrictions.e2e-spec.ts` 用例⑤有既有偶发 flake**：用例断言"贴 SANCTION 便签后三域在途单均被冻结"，紧跟 `waitUntil()` 确认兑换单 `status===FROZEN` 之后立即断言 `SWAP_FROZEN` 审计计数 `>0`——`markStatus(FREEZE)` 与写审计是两次独立 `await`，状态提交与审计落库之间存在时序窗口。已用 `git stash` 跑基线证实非本批引入 ｜来源: 2026-08-20 制裁分主体批次
+
+**原 BACKLOG §技术债 — 第三批 SLA（三域，2026-08-21 落地）**
+
+- [ ] **e2e 未覆盖的三格**：`test/sla.e2e-spec.ts`（三域共 7 例）未覆盖 `ACTION_PENDING`（充值/提现，7 天硬）、`PENDING_APPROVAL`（提现，1 天软）、`OPERATION_PENDING`（充值，1 天软）三个配置格——这三格的收口/破线逻辑目前只有单测覆盖（`deposit-transactions.service.spec.ts`/`withdraw-transactions.service.spec.ts` 等），未经真实 AppModule 端到端验证 ｜来源: 2026-08-21 SLA 批次
+
+**原 BACKLOG §真欠账**
+
+- [ ] **`client-web` 的 vitest 测试在 jest 闸门里零执行**：`client-web/src/utils/*StatusView.spec.ts`（deposit/withdraw/swap 三份）+ `restrictedCapabilities.spec.ts` 用 vitest 写；`jest.config.js` 的 `roots` 含 `client-web/src`、`testRegex` 也匹配 `.spec.ts`，于是 jest 会**捡起它们并当场失败**（`Vitest cannot be imported in a CommonJS module using require()`）——这正是常年挂在 jest 基线里那条红。真正跑它们的是根 `package.json` 的 `test:client`（`npm test --prefix client-web` → `vitest run`），**而那条命令不在任何闸门清单里**。修法二选一：把 `client-web/src` 从 jest `roots` 摘掉并把 `test:client` 加进闸门；或统一测试框架 ｜来源: 2026-08-22 第四批 D3/D4
+- [ ] 🔴 **`test/swap-sumsub-scenarios.e2e-spec.ts` 整个 suite 常年 9/9 全红，此前全仓零登记**：成因是**第二批「制裁命中分主体」（2026-08-20）给兑换加了 `FROZEN` 态，e2e 的期望没跟着更新** —— 那批把 `REJECTED · Sanctions` 改判成 `FROZEN`（零出边终态），而这份 e2e 的 9 条用例仍按旧口径断言，典型失败形态是 `Expected: "REJECTED" / Received: "FROZEN"`。**既存破损，非第四批引入**：控制方已在 merge-base 的独立工作树、用同样的干净库复跑确认 **9/9 与分支上逐字相同**。⚠️ 它**不在全量 `npx jest` 的数字里**（`jest.config.js` 的 `roots` 不含 `test/`），只有 `npx jest --config test/jest-e2e.json` 才跑得到——所以两批都没人注意到。**修法**：按第二批的 `FROZEN` 终态口径逐条更新 9 条用例的期望（重点是 ④ Sanctions 那条与 sticky hard-line 那条），不是删测试。**一个没人记录的常年红 suite，是下次真回归被挥手放行的方式** ｜来源: 2026-08-22 终审 Minor #14
+- [ ] **`admin-web` 零组件测试基建**：`jest.config.js` 的 `testRegex: '.*\\.spec\\.ts$'` 只匹配 `.spec.ts`，`.spec.tsx` **永不执行**。本批建过一个 `L1GateCard.spec.tsx`、发现跑不起来后删掉（`5e943691`），并把 `admin-web/tsconfig.app.json` 的 `exclude` 补上 `src/**/*.spec.tsx` 免得空跑 build 时报错。admin 前端组件目前只能靠渲染截图验证 ｜来源: 2026-08-22 第四批 B5
+
+**Gate 0 / 退回弧**
+
+
+**原 BACKLOG §对账应然设计 gap（2026-07-12 target design）**
+
+- [ ] **`scripts/e2e-confiscation-async.ts` 的修复未实跑验证(2026-07-31 终审必修项 Important 3)**:该脚本是没收两阶段(CONFISCATING/CONFISCATED 两态各跑一次 `verify:coa`)唯一的活体 money-path 验收脚本。终审发现它 `waitFor(COMPLIANCE_PENDING+BELOW_MIN)` 后直接调 `initiateConfiscation`,但新前置是 `status===OPERATION_PENDING`,必抛 `Deposit has no BELOW_MIN hold to confiscate`。已修复(`makeBelowMinDeposit` 补一次 `ctx.depositWf.applyKytVerdict(..., {verdict:'approved'})` 把单驱到 `OPERATION_PENDING` 再没收,及配套断言标签)。**但本次未实跑**——脚本 bootstrap 一个真实 Nest app 跑真实记账(TigerBeetle post),而本 worktree `.env` 的 `DATABASE_URL` 指向的正是该 worktree**当前正被业主验收的常驻栈库**(`/tmp/exchange_js_wt_deposit_arcs/dev.db`),与本轮"不要动数据库"的硬约束冲突,故只改代码、未执行验证。需要:找一个隔离 DB+TigerBeetle 实例(或专用 e2e 库,参照上面 `deposit-sumsub-verdicts.e2e-spec.ts` 的物理护栏模式)把这个脚本真跑一次,确认 CONFISCATING/CONFISCATED 两态 `verify:coa` 仍 PASS ｜来源: 2026-07-31 终审必修项 Important 3
+- [ ] **`admin-web` 的 `.spec.ts` 不在任何 tsc 闸门内**（`tsconfig.app.json` 的 `exclude` 含 `src/**/*.spec.ts`，后端两个 tsconfig 也照不到 admin-web），类型错只有 `npx jest` 跑到才暴露。本批新建的 `module-parity.spec.ts` 即受此影响 ｜来源: 2026-08-23 第五批
+
+## 性能
+
+## 其他
+
+**原 BACKLOG §演示/测试环境卫生（2026-08-13 A1-A6 收官实跑发现，均为既存问题非本轮引入）**
+
+- [ ] **4 个 e2e suite 共库串跑时 `withdrawNo` 唯一约束偶发冲突**：`--runInBand` 全量跑偶现 `Unique constraint failed on the fields: (withdrawNo)`（`withdraw-sumsub-scenarios` ③ PEP 用例），单跑该 suite 连续 2 次均通过。根因是 `generateReferenceNo('WD')` 只带 4 位随机、同日命名空间拥挤时撞车（`demo-lib.ts:401` 注释已知此事并对 demo 侧加了重试，测试侧没有）｜来源: 2026-08-13 T11
+
+
+**原 BACKLOG §死码清理（Phase C 统一清扫）**
+
+- [ ] 五公式旧对账链 provider 仍注册未删（BalanceRecon / MatchEngine / ClassifierService / InternalActionsService / LegProjection 等，模块注释自认 wallet-* 三件套才是 sole live path）｜来源: 2026-07-03 死码体检 ｜Phase C
+- [ ] 证据包防御死分支：`complianceAlert / complianceIncident / journal / clearing / kytCase / travelRuleCase` 模型均不存在，audit-logs.service 仍带可选链查询（`?.findMany` 优雅降级不炸，但恒空）｜来源: 2026-07-03 死码清理（超清单范围未动）｜Phase C
+- [ ] `reconciliation.constants.ts` 的 `L.TRADE_CLEARING` 常量（credit-net 旧引擎残留）｜来源: 2026-07-03 死码体检 ｜Phase C
+- [ ] **`/admin/pricing/policies*` 幽灵路由 + `CUSTOMER_RATE_READ/WRITE` 死权限组**：`rbac.catalog.ts` 注册 4 条 `/admin/pricing/policies*` + `/admin/pricing/simulator/swap`（挂 `CUSTOMER_RATE_READ`），但 pricing-center 模块只剩 engine（`PricingEngineService`/providers/types，**无 controller**）——PricingCenter admin surface 删除后路由残留、无人服务；`CUSTOMER_RATE_READ/WRITE` 除 catalog 外全仓 0 引用；活的定价 admin 面是 fee-levels（swap/withdrawal-fee-levels）。应删 5 条 route def + 2 个死权限组 ｜来源: 2026-07-11 权限包细化（用户疑老菜单，代码证实幽灵）
+- [ ] **`deposit-workflow.service.ts` applyKytApproved 的 FROZEN 守卫成死码**：`applyKytApproved`（L525-548）内对 FROZEN 状态的检查与 `DEPOSIT_APPROVE_BLOCKED_FROZEN` 审计已于 2026-08-19 Task 1 中变为不可达——`decideVerdictLanding` 私有方法拦截所有抵达 FROZEN deposit 的 verdict 并返回 IGNORE，故该方法不再被 webhook 路径调用。⚠️ 同一常量 `DEPOSIT_APPROVE_BLOCKED_FROZEN` 仍在生产代码另处活跃（`approveDeposit` L940-975，admin 直接批准冻结单的路径），行为已由通用 `DEPOSIT_KYT_VERDICT_IGNORED`（`metadata` 含 `verdict`/`status`）替代、取证信息得以保留；仅 webhook 路径的守卫是死码 ｜来源: 2026-08-19 Task 1 审查 ｜Phase C
+
+
+**原 BACKLOG §技术债 — V4 充值**
+
+- [ ] Deposit/资金单层无 `txHash` 唯一约束（仅信号层 `dedupeKey` 有）→ 同 txHash 可能产生多 Deposit ｜来源: 2026-07-03 V4 体检
+- [ ] TB 记账失败无 repair surface：仅记 `DEPOSIT_ACCOUNTING_BLOCKED` 审计后卡住 ｜来源: roadmap V4 待实现
+- [ ] `deposit.status.changed` 用 `emit` 非 `emitAsync`，异常不传播到调用方 ｜来源: roadmap V4 待实现
+- [ ] ERC-20 合约失败交易未过滤（合约执行失败仍建 Payin）｜来源: roadmap V4
+- [ ] 区块重组自动回退未做（与"按链确认数配置"一起设计，该功能项在 roadmap V4 ADVANCED）｜来源: roadmap V4
+
+**原 BACKLOG §技术债 — 充值状态机·计划1 引擎（deposit-sumsub，2026-07-28）**
+
+- [ ] **`sumsub-txn-client.http.ts` 三处 minor**：① `resolveVerdict()` 在 `review.reviewResult` 和 `scoringResult.action` 都缺失时返回 `undefined`（无兜底/无告警，边缘场景）；② `submitTxn()` 的 counterparty 只设 `paymentMethod.accountId`，未设 `paymentMethod.type`（生产 crypto travelRule 场景需要补，当前沙盒未触发校验）；③ `deposit-kyt-verdict.handler.ts` 的 `SCENE_TAGS`/`DISPO_TAGS` 字面量集合与 `deposit-workflow.service.ts → applyKytVerdict()` 参数上手写的 `sceneTag`/`dispoTag` 联合类型两处手工同步，未共享一个类型/常量源 ｜来源: 2026-07-28 Task 13 code 走查
+- [ ] **`prisma/schema.prisma` 新增字段列未对齐**：`DepositTransaction` 新增的 `sumsubFinanceTxnId`/`sumsubTravelRuleTxnId`/`manualReason`/`slaDeadline`/`slaBreached` 5 列缩进与同 model 其它列的列对齐格式不一致（`prisma format` 未跑），纯格式债 ｜来源: 2026-07-28 Task 13 code 走查
+- [ ] **`scripts/stack-stop.sh` 孤儿进程清理相对/绝对路径不匹配，永不命中**：`cleanup_orphans_by_pattern "backend-orphan" "${APP_DIR}/dist/main"` 用绝对路径 pattern 做 `pgrep -f`，但 `stack-up.sh:114` 实际以相对路径 `["node","dist/main"]` 启动后端进程，命令行里不含 `${APP_DIR}` 前缀 → 该 orphan 清理分支永远 0 命中，无法杀残留 backend 进程。建议 `stack-up.sh` 改绝对路径启动，或 `stack-stop.sh` 的 pattern 改成只匹配 `dist/main`（相对）｜来源: 2026-07-28 Task 13 走查
+- [ ] **must-fix-before-applicant-registration-go-live：trading-ready 闸已两路统一，上线前需回归验证**：终审 I1 发现 `applyKytVerdict()`（新 KYT-only approve 路径）直接调 `approveDeposit()`，绕过了 `checkAutoApproval()`（老 mock kyt-check/tr-check 路径）唯一的 trading-ready（法币提现地址）闸——客户没设法币提现地址也能经 KYT approve 通过充值，违背 2026-07-11 上线的"未 trading-ready 就 hold"不变量。本次已修：抽共享私有 helper `assertTradingReadyOrHold()`（`deposit-workflow.service.ts`），`checkAutoApproval()` 与 `applyKytApproved()` 都先过这道闸，不通过则原地 hold（不改状态）+ 记 `DEPOSIT_HELD_NOT_TRADING_READY` 审计，消除两路门禁漂移。**applicant-registration 正式接真实 Sumsub webhook 上线前，需对这条闸单独做一次回归验证**（未设法币提现地址的客户，真实 approve webhook 打过来时仍应被 hold 在 COMPLIANCE_PENDING，不应被放过）｜来源: 2026-07-28 终审 I1，已修，见 `deposit-workflow.service.spec.ts` "I1: approved but customer has no active fiat withdrawal address" 用例
+- [ ] **`findBySumsubTxnId` 查询列缺 DB unique index**：`deposit-transactions.service.ts → findBySumsubTxnId()` 用 `OR[{sumsubFinanceTxnId},{sumsubTravelRuleTxnId}]` 做 `findFirst()` 按 Sumsub txnId 反查 deposit，业务上靠"Sumsub txnId 全局唯一"这一假设撑着，但 `prisma/schema.prisma` 里这两列只是普通可空 `String?`，DB 层无 unique 约束硬化——一旦假设被打破（重复值/竞态写入），`findFirst` 可能悄悄解析到错误的 deposit，webhook 状态机会被错误驱动。建议补唯一索引（两列各自 `@@unique`，注意都可空，SQLite/大多数 DB 唯一索引允许多行 NULL 共存，不影响未提交场景）｜来源: 2026-07-28 终审
+- [ ] **充值动钱弧 start 阶段缺事务包裹**：`onReturnApproved`（返回弧）与没收的 `startConfiscation` 都把「建资金单 + TB pending 锁 + updateStatus」三步裸序执行，无 `prisma.$transaction`、无失败补偿——对比 `withdraw-workflow.service.ts → createWithdrawal()` 用 `$transaction` 包资金单/记录创建 + TB pending 调用，失败时在 catch 里对已落地的 TB pending 做 `voidPendingTransferBestEffort` 补偿。若 pending 锁在建单后抛错，会留下孤儿 CREATED 资金单，且 `@OnEvent` 监听器无重试队列、无自动自愈路径（`onReturnApproved` 的"pending transfer throws→rethrows"单测只验证了 deposit 状态未跳、STARTED 审计未记，未验证资金单是否已孤儿落地）。应开专门任务统一治理（同时覆盖退回与没收两条弧），避免单点偏离造成不一致；关联现有条目「CONFISCATING 结算耗尽重试后无手动重触发出口」（同一 start 阶段裸序问题的下游症状）｜来源: 2026-07-28 A3 Minor review
+- [ ] **V1 审批 approve/reject 的 decided-cascade 并非同步完成，尽管代码全程 `await emitAsync(...)`**：`ApprovalsService.approve()/reject()` → `ApprovalEvents.APPROVED/REJECTED` → `ApprovalHandlerBase.handleApproved/handleRejected`（`@OnEvent({async:true})`）→ 内部再 `emitAsync` 出 `workflow.<kebab-workflowType>.decided` → 对应 workflow 的 `on*Decided()`——这是同一个 `EventEmitter2` 单例上的**嵌套/重入 `emitAsync` 调用**（外层 `governance.approval.approved` 的迭代仍在进行时，内层监听器又对同一实例发起第二次 `emitAsync`）。实测（`test/deposit-money-arcs.e2e-spec.ts` 场景 1/3/5 起初裸跑，`approve()` resolve 后立刻查 DB，deposit 状态/审计均未落地；加 2 秒 sleep 后再查，状态已正确落地）证实：外层调用方拿到的 `approve()` promise **不会**等到内层 cascade 真正跑完——虽然每一跳字面上都 `await ... emitAsync(...)`，实际是最终一致（毫秒到数百毫秒量级），不是真同步。影响面 = 所有走 `ApprovalHandlerBase` 的 V1 审批类型（不止充值四条弧，没收/角色变更/资产上下架等全共享同一基类+机制），任何"approve 完立刻读实体断言已生效"的代码/测试都可能撞见这个竞态。本任务测试文件已按此规律加 `waitUntil()` 轮询规避（未改产品代码），但框架本身这个"看似同步实则最终一致"的特性未被记录/未被验证是否符合业主对 admin UX 的预期（`initiateSeize`/审批本身另非本 bug 范畴）｜来源: 2026-07-28 Task A6 e2e 排障实测发现
+
+
+**原 BACKLOG §技术债 — 充值单笔提交 + VARA TR 类型判定（deposit-sumsub，2026-07-31）**
+
+- [ ] **合规待确认三项（切换开关前的硬前提，不确认不得启用）**：
+  1. **规则双类型作用域**——Sumsub 制裁/AML/链上筛查类规则的 `types` 若只挂 `["finance"]`，`travelRule` 类型交易根本不进该规则；而 TR 交易按定义正是"crypto+对手方 VASP+金额≥阈值"的**最大额那批**，等于恰好在最大额交易上关闭筛查。需合规把相关规则作用域改为 `types:["finance","travelRule"]` 并确认。
+  2. **聚合规则分桶**——`txns.finance` 与 `txns.travelRule` 是 Sumsub 侧独立聚合桶，速度/模式类规则（如"24 小时内累计金额"）若只挂 `finance` 桶，会漏算同一客户走 `travelRule` 类型的交易，产生聚合口径的筛查盲区。需合规确认聚合类规则是否需要同样双挂。
+  3. **币种守卫**——判定器 `resolveKytTxnType()` 对 `TR_THRESHOLD_BY_CURRENCY`（代码常量，现仅 `USDT=1000`/`AED=3500`）未覆盖的币种兜底判 `finance` + `logger.warn`（静默降级，不卡单）；平台新增可交易币种时若未同步补阈值，该币种的 crypto 充值将**永远判 finance、永不触发 TR 筛查**，且只有服务端日志可见、无监控告警。需合规确认：①现有阈值表是否已覆盖当前全部可交易币种；②后续新增币种上架流程是否纳入"补 TR 阈值"检查项。
+  ｜来源: 2026-07-31 spec §7/§9，业主口径"切换顺序：合规先改规则作用域并确认 → 我方再切提交逻辑"
+- [ ] **真实 VASP 归属服务未接**：对手方是否为 VASP（`counterpartyIsVasp`）当前由客户端"模拟充值"弹窗人工录入（本质模拟 Sumsub `wallet-attribution` 归属服务），演示系统不接真服务——真实场景下这一判断应由链上地址归属分析自动得出，而非客户/运营手工勾选。真实接入待合规建好 VASP 主体后单独立项 ｜来源: 2026-07-31 spec §9「明确不做」
+- [ ] **`SUMSUB_SINGLE_TXN_SUBMIT` 开关待合规确认后启用并最终删除**：该环境变量是代码落地与合规切换生效之间的过渡门（默认/未设=关闭，恒提交 `type='finance'`，退回旧筛查覆盖面）。待上方三项合规确认完成、开关翻 `true` 稳定运行一段时间后，应把开关判断从 `submitSumsubTxns()` 里整个删除（`resolveKytTxnType()` 判定结果直接生效，不再有"判定但不采用"这层间接），避免开关长期滞留成为死配置/认知负担 ｜来源: 2026-07-31 `deposit-workflow.service.ts → submitSumsubTxns()` 注释"确认后置为 true"
+
+
+**原 BACKLOG §技术债 — 充值仿真裁决按钮 + 小额充值流程改造（deposit-sumsub，2026-07-31）**
+
+- [ ] **`VERDICT_OF`（`demo-scenario.service.ts`）与 `VERDICT_BY_TYPE`（`deposit-kyt-verdict.handler.ts`）两份独立字面量表**：两处各自把 webhook `type` 映射到归一 `KytVerdict`，未共享同一常量源；已验证 `detail.verdict` 从不被 handler 读取（handler 自己从 `payload.type` 算裁决，不读 mock 塞进 `detail` 里的 `verdict` 字段），故当前两表不一致不会导致状态机走错，仅代码异味/未来维护风险（新增裁决类型时容易只改一处漏改另一处）｜来源: 2026-07-31 Task 4 final-review triage Minor①
+
+**原 BACKLOG §技术债 — 充值前端（F1-F8，2026-07-29 落地，Task 8 真机渲染验证发现）**
+
+- [ ] **FROZEN 态迟到 approved webhook 会刷闸门 + 覆写报文（新，2026-07-30）**：`writeBackGateStatus`/`saveTxnDetail` 只受 `KYT_VERDICT_TERMINAL_STATUSES` 早退保护，**FROZEN 不在该 Set**。一笔制裁/MLRO 冻结（FROZEN）单若收到迟到的 `applicantKytTxnApproved`，会先把 `financeStatus` 刷成 `PASSED`、再用 approved 报文覆写既有制裁证据（状态机本身仍 no-op 停在 FROZEN，不放行）——闸门展示值与报文证据在 FROZEN 期间可被覆写。`writeBackGateStatus` 的刷闸门是既有行为，报文覆写是乙口径的designed覆盖；但**决策 7（approved 也拉 getTxn）使这条路径新变得可达**。修法待议：把 FROZEN（乃至 SEIZING/RETURNING 等处置中态）纳入回写/存证的早退保护，或明确"冻结期间证据也冻结"｜来源: 2026-07-30 Sumsub 详情增强 Task 2 review
+- [ ] **`parseDetail` 的 `typedTags.map` 仍缺 `.filter(Boolean)`（Minor，新，2026-07-30）**：`deposit-transactions.service.ts` 的 `parseDetail` 已对 `matchedRules`/`applicantActions` 数组 `.filter(Boolean)` 防 null 元素，但 `(d.typedTags ?? []).map(t => t.label)` 未同款设防——若报文 `typedTags` 含 null 元素会同源崩。一行补齐即可｜来源: 2026-07-30 Sumsub 详情增强 Task 4 re-review
+- [ ] **`findOneForAdmin` 的 approvals 反查无分页（Minor，新，2026-07-30）**：`approvalsService.list({entityRef})` 走默认 `take`（20，上限 200），单笔 deposit 若有 >20 条审批会静默截断。单 deposit 罕见 >20 审批，可接受；如需彻底可显式传大 take 或分页｜来源: 2026-07-30 Sumsub 详情增强 Task 4 review
+- [ ] **`getDepositStatusBadgeClass` 零调用方待清理（F3 遗留）**：`admin-web/src/utils/depositActionMap.ts` 的 `getDepositStatusBadgeClass`（+ 其背后的 `DEPOSIT_BADGE_MAP`）自 Task 3 把三处徽章渲染统一改到 `depositStatusMap.ts → getDepositStatusMeta` 后，在 `admin-web/src` 内已无任何 import 调用方（Task 2/3 报告均已 grep 确认），是可安全删除的死码，尚未清理 ｜来源: 2026-07-29 Task 2/3 报告标记
+
+**原 BACKLOG §技术债 — V3 财务配置**
+
+- [ ] TB 账户创建失败无 backlog 重试（仅转账凭证 `TbEvidenceBacklog` 有）｜来源: 2026-07-03 V3 体检
+- [ ] `contractAddress` 字段 schema/DTO 残留（前端已移除）｜来源: 2026-07-03 V3 体检
+- [ ] **Asset `min/maxDeposit/WithdrawAmount` 4 列待 drop**：单笔上下限已由 `transaction_limit_rules` SINGLE 行接管，资产表单 4 输入框已撤、schema 列现无人配无人读（弃用残留），留待未来迁移 drop ｜来源: 2026-07-16 transaction-limits
+- [ ] 法币就绪查询 where-clause 三处重复（`WithdrawalAddressService.hasActiveFiatWithdrawalAddress`/`countActiveFiatAddresses` + `onboarding.service.ts` 内联 `assertTradingReady`）→ 未来抽 cycle-free 共享查询层 ｜来源: 2026-07-11 交易起始前置门 Task 2 质量审
+
+
+**原 BACKLOG §技术债 — V5 提现**
+
+- [ ] TB 记账失败 repair surface 偏薄：靠 `assertWithdrawSettled()` fail-closed 卡在 PAYOUT_PENDING 等人工，无专用修复 UI/端点；**费腿两种三级梯（FAILED 重建 / TB settle 瞬时故障）耗尽后同样无专用 repair 端点**，仅 `needsReview`+审计留痕，见 truth/v5-withdraw.md §5/§9 ｜来源: 2026-07-03 V5 体检 → 2026-08-04 Task 12 e2e 补充
+- [ ] 在途提现守卫（deactivate 的 `ADDRESS_HAS_INFLIGHT_WITHDRAWAL`）靠 `toIban/toAddress` 字符串匹配，`Withdraw.tsx` 手输地址模式下会漏配（无 addressNo FK 关联提现与地址）→ 假阴性可绕过守卫；正解需给 WithdrawTransaction 加 addressNo/addressId FK ｜来源: 2026-07-11 Task 6 spec 审
+- [ ] **旧 "L3: Post-Tx Archive" 命名与交易风控 L3 撞名**：`withdraw-workflow.service.ts → archivePostKyt()` 注释标 `// L3: Post-Tx Archive`；交易风控 spec（2026-07-12）把 **L3 定义为「行为监测」**，此 txHash 归档实为 L3 的数据上游（喂 Sumsub TM），落地时改名（如 "Post-Tx txHash 归档"），勿再叫 L3 ｜来源: 2026-07-12 交易风控三闸门 spec §1
+- [ ] **`require_approval` 死枚举待清**：`WithdrawTransactionAction.REQUIRE_APPROVAL` 转移表零引用、代码零调用点（Task 1 状态机重写遗留），应删 ｜来源: 2026-08-04 Task 12 e2e 排查
+- [ ] **真实 VASP 归因服务未接**：`counterpartyIsVasp` 由客户自己注册地址时的 `addressType==='VASP'` 自报，无外部 VASP 名录/归属服务校验真实性（与充值 §4.5 同一性质缺口，提现从已注册地址派生，非每笔手选）｜来源: 2026-08-04 Task 12 truth 核对
+- [ ] **看门狗①「Sumsub 回执丢单重提」未做（deposit/withdraw 两域共有）**：spec §2 定义的两只看门狗之一——单笔交易提交 Sumsub KYT 后若 N 分钟内未收到 `applicantKytTxnCreated` 回执，视为丢单，需定时巡检扫描 + 告警重提（幂等）；两域目前均无此定时任务 ｜来源: 2026-08-04 Task 12 truth 核对
+- [ ] **`generateReferenceNo()` 无碰撞重试，随交易量增长会真的撞号（deposit/withdraw/swap 三域共用，非提现独有）**：`src/common/utils/no-generator.util.ts → generateReferenceNo(prefix)` 只拼 `prefix + YYMMDD + 4位随机数`，10000 个槽位/天，`create()` 调用方（`FundsOrderService.create()` 等）拿到号直接插库，**不查重、不重试**，撞了就是 Prisma `P2002` 唯一约束异常直接抛出。本轮（2026-08-07 withdraw-action-embed Task 6）跑 `test/withdraw-sumsub-scenarios.e2e-spec.ts` 时**实测复现过一次**：`funds_orders` 表当天（同一 worktree 栈库，反复起停跑了一整天测试）已积攒 101 行 `FO2608%` 前缀记录，某次 `initiatePayoutPhase()` 内 `FundsOrderService.create()` 直接因 `fundsOrderNo` 唯一约束撞号而抛错，导致那一条 e2e 用例失败（重跑即通过——随机数换了）；生日悖论下 n=101/10000 槽位的碰撞概率已逼近四成，绝非罕见边界。修法：`create()` 撞 `P2002` 时重新生成号重试几次（同类模式已见于 `WithdrawApplicantActionsService.syncApplicantActions()` 的 `P2002` 捕获重读），或干脆把 4 位随机扩成更大值域/换成严格递增序列 ｜来源: 2026-08-07 withdraw-action-embed Task 6 e2e 实测复现
+- [ ] **`withdraw-workflow.service.ts` 四处 FROZEN 死码（decideVerdictLanding 短路）**：`applyKytRejected`（L2642-2643）里 SANCTION/FROZEN_BY_MLRO 的 early-return + L2700-2710 里 REJECT_REFUND 的 FROZEN 守卫（写的 `WITHDRAW_REFUND_TAG_ON_FROZEN_IGNORED` 审计动作随之不可达）+ L2739-2741 里无 tag 分支的 FROZEN 守卫 + `applyKytAwaitUser`（L2536-2552）的 FROZEN 分支（见下条）。四处均因 `decideVerdictLanding` 私有方法拦截所有抵达 FROZEN withdraw 的 verdict 并返回 IGNORE，在 webhook 路径上不再可达——代码**未被删除**（有意保留，登记是为了留账）。顺带的一处文档漂移：`withdraw-workflow.service.ts:1899-1900` 的 `initiateRefund` 文档注释仍把 `WITHDRAW_REFUND_TAG_ON_FROZEN_IGNORED` 守卫当作活的执行路径来引用，清理死码时应一并更新 ｜来源: 2026-08-19 第一批 Task 2 审查 ｜Phase C
+- [ ] **去重比对只跟「最新一条」比**：`sumsub-ingestion.service.ts` 的去重用 `findFirst({ where: { eventType, applicantId, status: 'PROCESSED' }, orderBy: { createdAt: 'desc' } })`——只跟同 `(type, applicantId)` 的**最近一条**比键。改前 KYT 事件键恒相同故看不出；本批给键补了 `kytTxnId` 之后，若两笔交易的同类型裁决交错到达，前一笔的真重投会因「最近一条是后一笔」而逃过去重、被重新派发。爆炸半径有限（handler 都有「已在目标态」守卫、终态单现判 IGNORE），后果主要是多一条 IGNORED 审计。彻底修法需按 key 查（要加列或索引），超出本批「不动 schema」硬约束 ｜来源: 2026-08-20 第一批终审
+- [ ] **无 tag 的 rejected 落到已是 `MANUAL_CHECKING` 的单子仍是「先写证据后 return」**：与本次 Fix 1 修的 onHold 格子同族，但**有意不修**——该情形下 verdict 类型未变（rejected → rejected），属于「同类型裁决刷新分数与报文」而非「异类型覆盖」，刷新是合理行为而非证据破坏。若日后判断连刷新也不该发生，修法与 Fix 1 同款（在 `decideVerdictLanding` 加一格）｜来源: 2026-08-20 第一批终审，控制方裁定接受
+
+
+**原 BACKLOG §技术债 — V6 兑换**
+
+- [ ] **FAILED/REVERSED 死枚举**：`SwapTransactionStatus` 定义 FAILED/REVERSED 但全代码无 `markStatus` 设置（只调 SUCCESS）→ 不可达；控制器只有 advance/resume，**无 reverse 端点**（roadmap 曾标 ✅2026-06-26 整笔冲正实为过度声明）。需求要么补 reverse+FAILED 状态机，要么删死枚举 ｜来源: 2026-07-04 V6 体检
+- [ ] Sumsub TM 真实集成未做（大额兑换合规）｜来源: 2026-07-04 V6 体检
+- [ ] TB 记账失败无专用 repair surface（仅 resume 重试，无修复 UI/端点）｜来源: 2026-07-04 V6 体检
+- [ ] 架构命名漂移：roadmap 写"SwapSettlementService"该类不存在，实为 SwapWorkflowService+SwapLegAccounting+SwapTransactionsService（文档订正即可，非代码债）｜来源: 2026-07-04 V6 体检
+- [ ] **兑换 KYT 真接前必测**：规则自动裁决（无 officer 介入）是否自动发 applicantKytTxnApproved/Rejected webhook ——
+      充值实测矩阵该格为空；不发则每笔兑换走超时死｜来源: 2026-08-13 兑换合规 spec §12
+
+**原 BACKLOG §技术债 — V8 对账**
+
+- [ ] **Reimbursement 三处残留未清**（表已 drop）：`schema.prisma` `reconciliation_case.reimbursementObligationId` 孤立外键列 + `reset-business-data.ts:45` 引用 + `permissions.ts:110` `REIMBURSEMENT_OBLIGATIONS_READ` 孤儿权限（53f711c 清死权限时漏网）｜来源: 2026-07-04 V8 体检
+- [ ] **FIRM Treasury snapshot 历史残留**：旧 Run 历史数据余额标记行误入交易下钻（Phase B 后新 run 不产生，历史数据未清）｜来源: 2026-07-04 V8 体检（Round3 遗留）
+- [ ] **`formatAmount(raw, decimals)` 三处重复**：`ReconciliationCasesDetailPage.tsx` + `ReconciliationRunsDetailPage.tsx` 各有一份 bigint-safe 版（字符串插点），`ReconciliationExternalBalancesPage.tsx` 另有一个 `fmtAmount` float 版（`Number()/10^d`，大额/6 位币种有精度风险）。应抽到共享 util、统一到 bigint-safe 版并三处引用｜来源: 2026-07-04 canon2 T4 Minor
+- [ ] **金额精度断言（`.toFixed(0)` 元→分取整）跨 matcher + receipt-lookup 横切**：`wallet-flow-matcher.service.ts` `toMinor` 与 `receipt-lookup.service.ts` `orderMinor` 都用 `Prisma.Decimal.mul(10^decimals).toFixed(0)` 把 funds_order 元→分，靠 `.toFixed(0)` 舍入。两处口径必须始终一致（否则同一单在途认领与推单回执会错配）；元→分整层迁移后此横切消失。当前无守卫两处不漂移的测试｜来源: 2026-07-04 canon2 T3 M2
+- [ ] **`receipt-lookup.service.ts:77` `extMinor` 的 `String(a)` 死兜底分支**：`l.amount` 恒为 Prisma.Decimal（有 `.toFixed`），三元 `a?.toFixed ? a.toFixed(0) : String(a)` 的 else 永不命中。可删掉与匹配器 `extMinor = BigInt(d.toFixed(0))` 对齐（T3 M1）｜来源: 2026-07-04 canon2 T3 双审
+
+**原 BACKLOG §技术债 — V1 审计底座**
+
+- [ ] **audit-retention-job.ts 死脚本**：`scripts/audit-retention-job.ts:33-45` 仍 select/access 已删列 `module`/`triggerType`，脚本会坏/返 undefined｜来源: 2026-07-04 V1 体检
+- [ ] traceId 共享待核：首登 `ADMIN_LOGIN_SUCCESS`(authTraceId) 与 `MFA_LOGIN_VERIFIED`(loginTraceId) 是否共享同一 traceId 存疑（roadmap 称共享，agent 存疑）｜来源: 2026-07-04 V1 体检。⚠️ 2026-08-25 补注：这两个码本身已随本批退役（不再进 V1 域，业主裁定归③安全日志，见设计稿 §12.2/§12.3），`不变量③`（Task 11 `verify:audit`）确认零新写入；该疑问随之失去 V1 域内的验证场景，是否需要在③建设时重新提出留给运维批次判断
+
+
+**原 BACKLOG §技术债 — 审计日志重构 · 第一批之后仍欠的账（2026-08-25）**
+
+- [ ] **`workflowType` 物理删列**：本批唯一的过渡层例外——V1 域已停止依赖该列语义，但列本身保留，因为交易域仍有 63 处写入点在传该字段；删列排在交易域批次一并做｜设计稿 §4.3、§16
+- [ ] **`seq` 与哈希链（`prevHash`/`selfHash`）的校验工具**：列本批（Task 1）已建、主表也在写，但没有校验脚本核实链条完整性，第三批再补｜设计稿 §16
+- [ ] **`legalHold` 的触发与解除运维流程**：列本批已建（`Boolean @default(false)`），但触发/解除的操作流程与权限门未定义，第三批再补｜设计稿 §16
+- [ ] **回放对账 / 覆盖率闸门**：验证"打点是否漏记"的自动化机制，业主裁定本期不做，方法已留档｜设计稿 §11、§16
+- [ ] **`AUDIT_LOG_QUERIED` 的查询规模分级**：目前不分规模无差别记录每次查询（含无过滤的大范围查询），后续按查询规模/敏感度分级是否需要单独打点尚待设计｜设计稿 §12.1、§16
+- [ ] **Task 5 未经独立复审**：该任务实现者在复审派单前被 API 中断，其 diff 未走过 task-reviewer 关。分支终审须补覆盖这一段 ｜来源: 2026-08-26 台账核对
+
+
+**原 BACKLOG §技术债 — 制裁命中分主体（sanction-subject-split，2026-08-20 落地）**
+
+- [ ] **兑换 `FROZEN` 幂等闸让制裁处置不可重入，与 `REJECTED` carve-out 不对称**：`REJECTED`/`SUCCESS` 终态有 carve-out 允许 webhook 重投时重跑 `handleRejectDisposition()`（"单已终态≠处置已落地"）；`FROZEN` 没有——已冻结的单再收裁决在 `applyKytVerdict()` 顶部就被幂等闸拦下（写 `SWAP_KYT_VERDICT_IGNORED`），到不了处置逻辑。本批裁定**不改**：改它会偏离第一批（合规裁决落地）立的跨域幂等契约；且冻单排在冻人之后，能走到 `FROZEN` 就意味着人已经被限制，不存在"单冻了、处置没跟上"的风险窗口。**补充（2026-08-20 终审）**：上面"能走到 FROZEN 就意味着人已经被限制"这条论断只对**限制**成立，不覆盖 `markHardLineDisposition` 这个 sticky 标记——若客户是在**别的域**（如充值）命中 `SANCTION_APPLICANT` 触发跨域广播冻单，本单在收到自己的裁决前就已被那次广播冻成 `FROZEN`，随后自己到达的裁决撞上这道幂等闸提前 return，`handleRejectDisposition()`（连同其内的 sticky 章）从未跑到；MLRO 解除限制后，该客户下一笔软线兑换拒绝重新算出 `alreadyHardLined=false`，补料请求重新暴露 ｜来源: 2026-08-20 制裁分主体批次
+- [ ] **`scripts/backfill-internal-fund-keys.ts` 是死码**：引用已 DROP 的 `internalFund` 表（`prisma.internalFund.findMany/update`），且硬编码了已废弃的 `/tmp/exchange_js_branch` 路径。因此 `tsconfig.test.json` 刻意不含 `scripts/`，避免这份死码把"改了跨 src/test 边界类型后做一次全覆盖检查"这道闸拖成非二元结果 ｜来源: 2026-08-20 制裁分主体批次
+- ~~**兑换域缺 `SANCTION_COUNTERPARTY` 的 e2e 覆盖**~~ —— **已删除（2026-08-20 终审收口，业主裁定）**：兑换是平台内 crypto↔fiat 余额交换，没有第三方对手方，Sumsub 不可能对一笔 swap 回传"对手方被制裁"，这个场景本身不存在——测不了也不该测。原条目登记的补测任务连同其依据的 demo fixture 按钮 `V4B_REJECTED_SANCTION_COUNTERPARTY` 已随本次收口一并物理删除（`hasApplicantSanctionHit()` 只认 `SANCTION_APPLICANT` 保留为防御性写法，不代表该分支被期待触达）；`SANCTION_COUNTERPARTY` 在充值/提现两域仍有真实外部对手方场景，覆盖不受影响 ｜来源: 2026-08-20 制裁分主体批次登记 → 同日终审收口判定为不适用、删除
+- [ ] **双裁决毫秒级并发可开出两张同因由便签**：两笔不同订单（如同一客户的一笔充值 + 一笔提现）的 KYT rejected webhook 若在毫秒级窗口内并发到达，各自独立调用 `CustomerRestrictionsService.open({cause:'SANCTION'})`，`openWithin()` 的"查重复→插入"不是跨请求原子的，理论上可能各自查到"无重复"后都插入，开出两张同因由的 OPEN 便签。窗口极窄、后果轻（MLRO 需要多签一次撕两张而非一张）；要根治需要加客户级锁，成本收益不划算，暂不做 ｜来源: 2026-08-20 制裁分主体批次
+- 🟡 **`scripts/reset-business-data.ts` 的删除清单缺 `materialRequest`** —— 该表对 `CustomerMain` 有必填 FK，库里若有历史材料请求行，`npm run db:biz:reset` 会撞 FK 违例中止。本批在 worktree 栈重铺时实际撞上，手工清阻塞数据后才跑通（未改该脚本，非本批范围）｜来源: 2026-08-20 制裁分主体批次 Task 12 重铺实测
+- 🟡 **`scripts/verify-demo-data.ts` 的 `scanR1()` 引用已 DROP 的 `internalFund` 表**（`:47` `prisma.internalFund.findMany()`）—— `schema.prisma` 里只剩 `InternalFundAuditLog`，`InternalFund` 模型已在 funds_orders 重构中删除。后果：`npm run db:seed:business` 末尾内建的 `verify:demo-data` 校验步骤**必炸**（业务数据本身在此之前已成功落库，不影响 seed 结果，但开发者会看到一次失败）。与本节 `backfill-internal-fund-keys.ts` 那条同根因、不同文件｜来源: 2026-08-20 制裁分主体批次 Task 12 重铺实测
+- ~~**【需业主裁定】`SANCTION_COUNTERPARTY` 在兑换 vs 充值/提现的客户面结果相反**~~ —— **已关闭（2026-08-20 终审收口，业主裁定：该场景不存在）**：终审提这条时的前提是"兑换域会收到 `SANCTION_COUNTERPARTY`"，而业主指出**兑换是平台内 crypto↔fiat 余额交换、没有第三方对手方**（truth `v6-swap.md` §概述/§L1 两处早有成文表述："无第三方对手方"，那正是兑换不做 Travel Rule、不做大额审批门的原因）。Sumsub 不可能对一笔 swap 回传"对手方被制裁"，所以"兑换披露 vs 充值提现静默"这个跨域不一致**不会发生**。铸出该形状的 demo fixture `V4B_REJECTED_SANCTION_COUNTERPARTY`（兑换域那份）已随收口物理删除；`hasApplicantSanctionHit()` 只认 `SANCTION_APPLICANT` 保留为防御性写法。充值/提现两域有真实外部对手方，其 `SANCTION_COUNTERPARTY` 行为不受影响 ｜来源: 2026-08-20 制裁分主体批次终审登记 → 同日业主裁定关闭
+- ~~**【小】兑换域的 `SANCTION_COUNTERPARTY` 审计与普通软线拒绝同形**~~ —— **已关闭（2026-08-20 终审收口，业主裁定：该场景不存在）**：与上一条同根因、同依据 —— 兑换域无第三方对手方，`SANCTION_COUNTERPARTY` 不会到达该域，故不存在"审计分不出对手方制裁命中"的问题。充值/提现两域已把 `sceneTag` 标签名写进各自审计文案，覆盖充分 ｜来源: 2026-08-20 制裁分主体批次终审登记 → 同日业主裁定关闭
+
+
+
+**原 BACKLOG §技术债 — 第三批 SLA（三域，2026-08-21 落地）**
+
+- [ ] **`markSlaBreached()` 无条件写、不校验 `slaBreached` 仍为 `false`——结论：现状正确，多实例部署时再回来看**：三域的 `markSlaBreached(id)` 都是裸 `update({data:{slaBreached:true}})`，没有 `where: {slaBreached: false}` 这层条件写保护。单实例 cron 下不可达：`findSlaBreachCandidates()` 的 `where` 里已经带了 `slaBreached: false`，能被扫到的单必然还没被标过。加条件写属于对"将来可能多实例部署、两个 cron 同时扫到同一单"的投机加固（YAGNI），且真到那天该修的是加分布式锁而不是这一行。**这不是待办**——真上多实例部署时回来看这条 ｜来源: 2026-08-21 SLA 批次
+- [ ] **硬破线的 `provider re-review` 理由现在永不可达 + 提现侧写死另一条理由（`actionSubmittedAt` 死列的下游后果）**：`deposit-sla.service.ts:96` 按 `deposit.actionSubmittedAt` 在两条 reason 之间选（交了→`'SLA breached: provider re-review exceeded deadline after customer submission'`／没交→`'SLA breached: no compliance action before deadline'`，metadata 的 `waitingOn` 跟着分 `PROVIDER`/`CUSTOMER`），但全仓再无任何地方把 `actionSubmittedAt` 写成非 null（`grep "actionSubmittedAt:" src/ | grep -v null` 零命中，2026-08-17 材料请求账迁移 `20260817020000_drop_legacy_action_stores` 之后的遗留；列本身仍在 `prisma/schema.prisma:1070`/`:1319`，见 truth/v4-deposit.md §4.6 订正段与本文件既有的「充值/提现域"全部交齐"缓存……已是死列」条），所以 `provider re-review` 那条分支**永远走不到**。`withdraw-sla.service.ts:98` 则直接写死了"未在期限内响应"这一条、连分支都没有——因为 `submitted` 恒为 `false`，**两域当前运行时输出其实完全一致**，不存在活的分歧；但一旦哪天 `actionSubmittedAt` 恢复写入（或改读材料账），同一个问题就会有两个答案：一个已配合交了材料的客户在提现侧仍会被以"未响应"的名义记进永久审计，充值侧不会。修这条死列时两域要一起改 ｜来源: 2026-08-21 SLA 批次
+
+**原 BACKLOG §真欠账**
+
+- [ ] **`clearLimitHold` 失败时单子仍会 `RETURNING`→`RETURNED` 且对客户永久不可见**：`onReturnApproved()` 里 `updateStatus(RETURN)` 与 `clearAdministrativeHoldOnReturn()` 是**两个没有事务包着的写**，且刻意「先翻后清」（理由见 `truth/v4-deposit.md` §4.8：先清后翻会新增一个「本该藏着的挂起单被永久曝光」的失败模式）。代价是 clear 失败时残局 = 修复前的既有行为——钱退回去了，客户面零记录。正解是把两个写包进同一个事务 ｜来源: 2026-08-22 第四批 C1 复审
+- [ ] **`DepositTransactionsService.clearNeedsReview()` 零生产调用方**：`markNeedsReview()` 有六处调用（三条处置弧 × 正常耗尽 + catch 崩溃），`clearNeedsReview()` 全仓 grep **只有单测在调**——充值的红标一旦立起来就没有任何代码路径能放下（提现域有：`onLegCleared` 在 SUCCESS 结算时清）。运营手工处置完那笔腿之后，列表上那面旗会一直挂着 ｜来源: 2026-08-22 第四批 A2/E1
+- [ ] **`DEPOSIT_CONFISCATION_LEG_FAILED` 成死常量**：`audit-actions.constant.ts:275` 仍在，但随 A3 退役 `confiscate_failed` 边后**已无写入方**（新的两条是 `DEPOSIT_CONFISCATION_RETRIED`/`DEPOSIT_CONFISCATION_STUCK`）。本批不做审计专项，交由那一轮统一清 ｜来源: 2026-08-22 第四批 A3
+
+**L1 闸门本身**
+
+- [ ] **九项里只有三项是 `L1GateService` 亲自执行的，其余六项靠 `preChecks` 传入**：`CUSTOMER_ELIGIBILITY`/`CUSTOMER_RESTRICTION`/`tradingTier` 三项自判（且有 `SELF_OWNED_CHECKS` 保护不被 `preChecks` 覆盖），单笔/累计/大额/账户/余额/报价/起始就绪七项住在各域自己的守卫里。**若将来要真正"统一执行"**，需要重写各域守卫、并改错误码契约（现在各域抛的是自己的 `TRANSACTION_LIMIT_REJECTED`/`WITHDRAWAL_ADDRESS_NOT_REGISTERED`/`RECEIVING_ACCOUNT_REQUIRED` 等，统一执行后要么全变成 `L1_GATE_BLOCKED`（丢失可诊断性）、要么求值器得回传结构化错误码）。本批刻意不重写能跑的代码 ｜来源: 2026-08-22 第四批 B1
+- [ ] **`holdReasonOf()` 的 `SINGLE_LIMIT → 'BELOW_MIN'` 与 `default → first.code` 两条分支无测试覆盖**：`l1-gate.service.spec.ts` 覆盖了 `LIFECYCLE_NOT_ACTIVE`/`CAPABILITY_RESTRICTED` 两条（以及九格 NA/SKIPPED 表逐格、`SELF_OWNED_CHECKS` 两条防覆盖），但没有一条用例让 `SINGLE_LIMIT` 或其余六格成为 `failed[0]`。⚠️ **2026-08-22 终审订正**：本条此前把后果写成「静默产生一类永久对客户不可见的单」——**登记过头了，DEPOSIT 域不可达**。该域能 `FAIL` 的只有 `CUSTOMER_ELIGIBILITY`/`CUSTOMER_RESTRICTION`/`SINGLE_LIMIT` 三格，三格都有显式 `case` 分支，`default` 走不进去。真正欠的只是这两条分支没测试，别去追那个幻影 ｜来源: 2026-08-22 第四批 E1（后果表述于同日终审订正）
+
+**兑换域**
+
+- [ ] 🔴 **兑换建单余额校验不锁额，并发下仍会卡死 `PROCESSING`**：`swap-workflow.service.ts` 的建单前余额校验（第四批新补）读 `getCustomerAvailableBalance` 比一下就完了，**不像提现那样在建单时压 TB pending 锁额**（`available = creditsPosted − debitsPosted − debitsPending`，而兑换要等 KYT 通过建腿才写 pending）。失败剧本：客户 100 USDT，提交兑换 A 用 60 → 校验通过 → `COMPLIANCE_PENDING`；A 裁决未回，再提交 B 用 60 → **校验又通过**（仍读到 100，什么都没锁）；两笔都 `kyt_approved` → `PROCESSING`；A 的腿抽干余额，B 的第一条腿失败，而 `PROCESSING` 唯一出边是 `success→SUCCESS` → **B 永久卡在 `PROCESSING` + `needsReview`**，正是这道校验想防的那个洞。**这是残留不是回归**——第四批严格改善了单笔场景。**真正的修法**：建单即压 TB pending、与提现同形状（建单事务内对卖出侧起 pending transfer，KYT 通过时 post、拒绝/SLA 破线时 void）。已同步订正 `truth/v6-swap.md` §3.9 与代码注释里「堵住」那句过头的措辞 ｜来源: 2026-08-22 终审 Important I2
+- [ ] **`FAILED` / `REVERSED` 两个不可达死枚举未删**：转移表零入边、全仓无 `markStatus` 写入方、无 reverse 端点；只作为「排除项」出现在三处集合里（`SWAP_TERMINAL_STATUSES`、`swap-workflow` 终态集、累计额度用量排除列表）。本批新建的 `admin-web/src/utils/swapStatusMap.ts` 也为它们保留了条目（若复活，fallback 会渲染成 WARNING 黄误导运营）。**与上方「技术债 — V6 兑换」节的同名条是同一件事**，此处只记「第四批仍未删」｜来源: 2026-08-22 第四批 D1
+- [ ] **`admin-web/src/components/L1GateCard.tsx` 头部注释已过期**：注释写「与页面上既有的 `L1 · Eligibility` 格子是两回事：那个读的是客户级 `complianceStatus`」——同一批次后面的 commit（`339195e4`）已把三域那一格改读 `customer.lifecycle`（`complianceStatus` 是被 drop 的列）。注释里的列名是死的，一行字的事 ｜来源: 2026-08-22 第四批 E1 自查
+
+**记账**
+
+
+**原 BACKLOG §待决策（等业主拍板）**
+
+- [ ] **InternalFundAuditLog 有读无写**：Round 2 后零写入方，详情页审计列表永远空——补写状态变更 or 改读中央审计日志 ｜来源: 2026-07-03 死码 D6 改判（勿删表，有活读取链）
+
+**原 BACKLOG §文档漂移（随 roadmap 全量重排处理）**
+
+- [ ] `frontend-admin.md` AuditLog sidebar 字段表仍列 `triggerType` 幽灵字段（后端已删该列）｜来源: 2026-07-03 体检 ｜已生成卡片 task_6d29bd5c
+
+**原 BACKLOG §交付 / 可移植 Docker（2026-07-04 本会话新增）**
+
+- [ ] **launch.json 治理（待决策）**：`.claude/launch.json` 全机器专属绝对路径 + 预览工具自动重生成 stale 配置（settle-opt/claude-admin 反复回填）；已经 `.gitattributes` export-ignore 不进交付包，但仍被 git 跟踪。待决策：gitignore 停止跟踪、交预览工具本地生成 ｜来源: 2026-07-04 可移植 Docker
+- [ ] **Docker `tb-format` 非幂等**：重跑演示需先 `docker compose down -v` 清账本端数据卷（否则 format 撞已存在文件报错）；可给 format 加 if-missing 守卫做到重跑免 down -v ｜来源: 2026-07-04 Docker 交付
+- [ ] **Docker Desktop Mac 4.42+ io_uring 风险留账**：新版 Mac 版可能 VM 级封 io_uring，`seccomp=unconfined` 也救不回 → 退 OrbStack（已写进 `READ-ME-FIRST.md`，此处备查）｜来源: 2026-07-04 Docker 交付
+
+**原 BACKLOG §账本流水（2026-07-10 本会话新增）**
+
+- [ ] **提现 eventCode 去阶段化（向 swap 看齐）**：提现两步腿现发 `WITHDRAW_LOCK_NET` → `WITHDRAW_NET_POST`（`tb-evidence.service.ts → enrichForPost()` 落账时把 eventCode 从 LOCK 改成 POST），把阶段塞进了 event 名。目标口径（账本 PRD 附录 B 已采用）＝**一笔分录一个稳定 event、阶段交给 `transferType`（PENDING/POSTED/VOIDED）**，如 swap 的 `SWAP_SELL_CLIENT` 全程不变。落地＝提现净额/费腿 eventCode 合并为 `WITHDRAW_NET` / `WITHDRAW_FEE`（去掉 LOCK/POST/VOID 后缀），`enrichForPost` 不再改 eventCode。deposit/swap 已是干净模型、无需改。业主 2026-07-12 定（甲：PRD 写应然、代码待对齐）｜来源: 2026-07-12 账本 PRD 附录 B（对应模块 8 · G2）
+
+
+**原 BACKLOG §对账应然设计 gap（2026-07-12 target design）**
+
+- [ ] **恒等校验未左移**：仅日 run 预门 + 手动 `verify:coa` 脚本；应 CI / 每次记账后断言镜像恒等，从源头拦（日 run 是最后一道网、非唯一）｜来源: spec §1.3
+- [ ] 恒等左移落点（CI 断言 / 每次记账后同步断言 / 高频轻量 cron）｜来源: spec §10
+
+**对账 PRD 重写范围决策（2026-07-12 业主拍板，doc WOaEds8s）**
+
+> 本期对账聚焦「正常业务会出现的问题」＝时间差（在途）：检测 + 自愈 + 同步腿推单。所有"异常/真差异"侧本期不做。以下为据此决策产生的 defer / 代码改名账。
+
+- [ ] **五桶命名 SOFT_FLAG→COMPENSATING 代码改名**：PRD 已改用专业名 `COMPENSATING`（抵销错误）；代码仍 `SOFT_FLAG`（`engine/v2/bucket-classifier.ts` `ReconBucket`、`dto/reconciliation.dto.ts` `ReconWalletBucket`+`ReconCaseQueryDto.bucket` `@IsIn`、`reconciliation_cases.bucket` 列值、前端徽章）。`HELD→AWAITING`（待外部数据）未进码、随 HELD 落地直接用新名 ｜来源: 2026-07-12 PRD 重写 Q4
+- [ ] **Run 结果字段枚举待重命名**：`reconciliation_runs.invariantStatus`（PASS/FAIL）语义像生命周期状态、且外部 break 也写 FAIL（与"内部恒等"名不符）；PRD 拟结论字段用 `RECONCILED / EXCEPTIONS_FOUND`（对平 / 有差异）。代码字段名+值待随之调（与 `status` RUNNING/COMPLETED/FAILED 两轴分清）｜来源: 2026-07-12 PRD 重写 Q5
+- [ ] **`SUMSUB_SINGLE_TXN_SUBMIT` 开关翻开前置清单(2026-07-31)**:该开关默认 `false`(恒报 `finance`)**——但 `SUMSUB_MOCK_MODE=true` 时隐含开启**(2026-07-31 修:该阀门守的是真实租户规则作用域的筛查真空,mock 下没有真实规则引擎、风险结构性不存在;此前它把演示/Docker 交付一并锁死,验收实测 3000 USDT+VASP 恒落 `finance`,判定器全程等于死码)。下方前置清单只约束**真实 Sumsub** 环境翻 `true`,须依次满足:①**合规书面确认** Sumsub 筛查规则作用域已含 `types:["finance","travelRule"]`——否则 travelRule 单不进规则=筛查真空,而 TR 单按定义正是「≥阈值+对手方 VASP」的最大额那批;②补一条 `SUMSUB_SINGLE_TXN_SUBMIT=true` + 超阈值的 e2e(当前 S2 场景金额 10.5 USDT 远低于 1000,travelRule 提交链路从未在真实 ingestion 里跑过);③翻开后删除该开关与 `finance` 强制分支 ｜来源: 2026-07-31 单笔提交改造终审
+- [ ] **`scripts/**` 不在 tsc 覆盖范围(防复发闸,2026-07-31)**:`tsconfig.json` 的 include 只有 `src/**/*`,且 `DemoCtx.depositWf` 声明为 `any` —— 双层盲区,导致本轮删方法后 `scripts/demo-lib.ts` 的残留调用直到终审才被发现(`demo:all` 运行时必炸,而 Docker 启动脚本就跑它)。建议:把 `scripts/**` 纳入一个单独的 `tsc --noEmit` 检查,并把 `DemoCtx` 的 `any` 换成真类型 ｜来源: 2026-07-31 终审 Recommendation 2
+- [ ] **判定器对 NaN 金额 fail-open 到 travelRule(Minor,2026-07-31)**:`kyt-txn-type.resolver.ts` 的 `amount < threshold` 对 `NaN` 恒 false → 落 `travelRule`。上游是 `Number(Prisma Decimal)` 实际拿不到 NaN,但开关翻开后这是个隐含的 fail-open 方向。加一行 `if (!Number.isFinite(input.amount))` 显式兜底 ｜来源: 2026-07-31 终审 Minor 6
+- [ ] **signal dedupe 命中时静默丢弃 `counterpartyIsVasp`(Minor,2026-07-31)**:`inbound-transfer-signals.service.ts` dedupe 命中直接 `return existing`,新提交的 `counterpartyIsVasp` 被丢。这是既有 dedupe 语义,但现在被丢的字段喂的是监管判定 —— 同 txHash 重提改对手方类型不会生效 ｜来源: 2026-07-31 终审 Minor 7
+- [ ] **两处注释过时/字面矛盾(Minor,2026-07-31)**:`deposit-workflow.service.ts:364` 仍称 `checkAutoApproval` 为「老 kyt/tr mock 路径」(该路径本轮已退役,现为 `waiveLimitHold` 的事后重评入口);`:356` 注释「仅供 L2 显示,不作决策依据」与 `:623` 读该列做判断字面打架(实质无冲突:一个是 webhook 同步路径、一个是豁免后异步重评,但缺例外说明,易被误判为违规而"修坏")｜来源: 2026-07-31 终审 Minor 4/5
+
+- [ ] **状态机收窄后 `OPERATION_PENDING` 收到迟到制裁裁决会抛(2026-08-02)**：`OPERATION_PENDING` 转移表收窄回仅 `approve`/`confiscate_start` 两条出边后，below-min 挂起单若在等运营处置期间收到迟到的 Sumsub `rejected`/`awaitUser` 裁决 webhook（`applyKytRejected`/`applyKytAwaitUser` 会调 `KYT_REJECTED`/`ACTION_PENDING` 动作），会撞上转移表抛 `Invalid action`，webhook 三次重试后进 DEAD、静默黑洞（单子既不入账也不进合规处置弧）。业主口径本轮不给边，但应改成显式 no-op + 落审计（照抄 `onPayinFailed` 白名单守卫 + warn 的写法，再补一条审计记录）｜来源: 2026-08-02 充值状态机收窄，业主定稿 brief §七（登记待办，非本轮实现）
+- [ ] **`FROZEN` 收到任何 Sumsub 裁决都会抛(2026-08-02)**：`FROZEN` 转移表只剩 `resume`/`seize` 两条边（有意为之——制裁/MLRO 冻结的钱只有两个合法归宿），但 `applyKytApproved` 的 FROZEN 守卫只挡了 `approved` 裁决（no-op），`rejected`/`awaitUser`/`onHold` 类迟到裁决若命中 `applyKytRejected`/`applyKytAwaitUser`/`applyKytOnHold` 仍会调 `updateStatus` 撞上转移表抛错。需要补 no-op 兜底（同上两条一并处理，三处都是"迟到的 Sumsub webhook 撞上收窄后的转移表"同一类缺口）｜来源: 2026-08-02 充值状态机收窄，业主定稿 brief §七（登记待办，非本轮实现）
+
+- [ ] **同一份「公司/自有钱包科目码集合」在三处各自硬编码，靠人工同步(2026-08-13 终审根因)**：`wallet-balance-checker.service.ts → FIRM_CODES`、`wallet-flow-matcher.service.ts → OWNED_CODES`、`scripts/recon-demo.ts → FIRM_CODES` 三处各写一份 `{200,201,210,211,212}(+202,203 退役保留)`，无共享常量。COA v2 落地时正是 `recon-demo.ts` 那份漏切换（费流水落 210/211 被镜像生成器过滤 → F_FEE 钱包镜像 `lines=0` 而引擎侧已认领 → `recon:demo` 假 BREAK：`casesOpened=2 orphanInternal=8`），终审实跑才逮到（此前 `recon:demo` 的 PASS 记录时间戳早于所有 210/211 费流水，该组合从未被测过）。三份目前已同步一致，但下次再拆/退役科目同样的手工遗漏还会复现。建议在 `tb-account-codes.constant.ts` 提炼一个共享导出（如 `MIRRORED_FIRM_CODES`，含活跃 + 退役保留两段）供三处消费 ｜来源: 2026-08-13 COA v2 整分支终审 Critical 的根因
+- [ ] **AuthGuard 里 `/wallet/send` 的受限重定向守着一条不存在的路由(2026-08-16)**：`client-web/src/components/AuthGuard.tsx` 有一段「WITHDRAW 受限时把 `/wallet/send` 重定向到 `/profile`」——理由是该页没有禁用 UI、放进去会裸奔。但 `App.tsx` 的路由表里**只有 `/wallet`，没有 `/wallet/send`**，也没有 catch-all `path="*"`，所以直接访问 `/wallet/send` 渲染的是一片空白（与本分支无关，`git show merge-base:App.tsx` 同样没有这条路由）。这段守卫因此是死码，Task 13 的验收项 4 无法按写法验证。两条路：① 若 `/wallet/send` 是计划中的页面，补路由后这段守卫才生效；② 若已废弃，删掉守卫，并给路由表补一个 catch-all（现在任何拼错的 URL 都是白屏，不只这一个）｜来源: 2026-08-16 Task 13 渲染验收
+- [ ] **真接 Sumsub 前确认 `externalActionId` 对同一 `applicantActionId` 是否终身不变**：2026-08-18 材料请求账把各域 applicant action 的去重键从 `applicantActionId` 换成了 `externalActionId`（后者是 `material_requests` 的 `@unique` 列、是整套架构的定位键，`markSubmitted`/`cancel`/铸 token 全走它；前者无唯一约束、只在服务端与审计可见）。换键本身正确，但**若同一个 `applicantActionId` 在两次 webhook 投递里带出不同的 `externalActionId`，新实现会当成新 action 再登记一次，造成静默重复登记**（旧实现按 `applicantActionId` 去重则不会）。仓库内既无证据证明会发生（两条落地路径的 `externalActionId` 都是一次性生成后不再变），也无证据排除。真接生产前需拿 Sumsub 官方口径确认；拿不到保证就在 `syncApplicantActions` 加一层「两个 id 任一命中即视为已存在 + 不一致时告警」的检测 ｜来源: 2026-08-18 材料请求账 Task 8 评审裁定
+- [ ] **充值/提现域"全部交齐"缓存（`actionSubmittedAt`/`slaDeadline` 提交时重置）迁到材料账后没有对应写入方，已是死列(2026-08-18)**：子表时代 `submitBySeq` 在最后一条 action 提交时顺带把 `depositTransaction`/`withdrawTransaction` 的 `actionSubmittedAt` 置为 `new Date()`、并在 `resetSla` 时重置 `slaDeadline`/`slaBreached`（供 `deposit-sla.service.ts`/等价 withdraw 逻辑判断"客户已交齐、现在等 Provider 复核"，否则 SLA 到期理由永远写"客户未响应"）。材料请求账迁移（Task 8/9）把提交入口挪到 `MaterialRequestsService.markSubmitted`（客户面走 `material-requests.client.controller.ts`）之后，全仓 grep `actionSubmittedAt:` 只剩 `clearDepositCache`/`clearWithdrawCache` 两处写 `null`（新 action 到达时清缓存），没有任何代码再把它置为非 null——即"客户已交齐材料"这件事从此再也不会反映到这两个字段上，`deposit-sla.service.ts` 的 `waitingOn` 判断会永远判成"等客户"（即使客户早就交了）。`test/deposit-sumsub-verdicts.e2e-spec.ts`/`test/withdraw-sumsub-scenarios.e2e-spec.ts` 的对应断言已改读材料账自身状态（`SUBMITTED`）而非这两个死列。修法：在 `MaterialRequestsClientController.submit()`（或 `MaterialRequestsService.markSubmitted`）成功且该单已无 `PENDING_SUBMISSION` 行时，回调对应域的 `clearDepositCache`/`clearWithdrawCache`（改造成能写非 null 值），或干脆让 `deposit-sla.service.ts` 直接查材料账而非这两个缓存列 ｜来源: 2026-08-18 修 deposit/withdraw sumsub e2e 时验收发现
+- [ ] **`deposit_transactions.sumsubActionId`/`sumsubExternalActionId` 两列疑似历史死列，全仓零 TS 引用(2026-08-18 Task 12 收口自查发现)**：Task 12 删 `customer_main.pendingAction*` 三列 + `material_refresh_cycles.sumsubAction*` 三列时，用 `grep -c "sumsubAction" prisma/schema.prisma` 自查收尾，命中了这两列——与本轮要删的 `material_refresh_cycles.sumsubActionId` 同名但是 `deposit_transactions` 表上完全独立的字段。全仓 `grep -rn "\.sumsubActionId\b\|sumsubExternalActionId" src/ test/` 零命中（只有历史注释提到 `cycle.sumsubActionId`，指的是另一张表），`deposit-applicant-actions.service.ts`（材料请求账实际接管充值补料同步的服务）从未读写过它们，疑似比 `deposit_applicant_actions` 子表更早一轮（单指针时代）的重构遗留。**不在 task-12-brief 的删除清单内**（brief 只列了 `customer_main` 三列 + `material_refresh_cycles` 三列，未提这两列），本任务未删，登记留追；若确认死列，建议单开一次表重建迁移一并删掉（同一张表还可以顺带核实 `actionSubmittedAt` 是否也该迁移到材料账写入方，见上一条 380 号条目）｜来源: 2026-08-18 材料请求账 Task 12 收口自查
+- [ ] **`config/material-refresh-policy.json` 里 5 个 level 名与 Sumsub 租户实际配置是否对得上，真接前须核对（设计稿 §9 Q2）**：`materials` 注册表的 5 个 `sumsubActionLevelName`（`wave3-action-id-refresh`/`wave3-action-liveness-refresh`/`wave3-action-poa-refresh`/`wave3-action-sof-refresh`/`wave3-action-sow-refresh`）目前只在 `SUMSUB_MOCK_MODE=true` 下跑通，从未拿真实 Sumsub 租户验证过这些 level 是否真的配置存在、`sumsubIdDocSetType` 等参数是否对得上；demo 阶段照用没问题，真接前必须逐个去 Sumsub 后台核对。连带：`ProfileBannerService.formatMaterialName()`（`src/modules/identity/profile-banners/profile-banners.service.ts:25`）的展示名映射里有 `PASSPORT: 'Passport'`，但 `PASSPORT` **不在** `material-refresh-policy.json` 的 `materials` 注册表里——运营在下发弹窗的下拉框里选不到它（下拉以注册表为准），这条映射目前是死条目，要么把 `PASSPORT` 补进注册表，要么从展示名映射里删掉，别留一个选不到却映射得出名字的幽灵材料类型 ｜来源: 设计稿 `doc-final/superpowers/specs/2026-08-17-material-request-ledger-design.md` §9 Q2
+- [ ] **后端兑换详情接口是否还在吐 `restrictionRows`/`hardLineDispositionedAt`**：前端已零消费（第五批删了那个侧栏组），若后端 `include` 是专为这块加的即为死重 ｜来源: 2026-08-23 第五批 Task 4 审查
+- [ ] **兑换详情页卡片编号注释重复**：现读作 `1,2,4,7,4,5,6,7,8,6,11`（4/7/6 各重复、缺 3/9/10），充值是干净的 1–10、提现 1–9。基线 `6236d9b9` 就已经坏 ｜来源: 2026-08-23 第五批终审
+- [ ] **兑换详情页注释写「7 个单步裁决按钮」实为 8 个**（V1–V8，后端 fixture 也是 8）；三页都还写着「admin-web 暂无测试基建」，而第五批已建 `module-parity.spec.ts`（40 条断言，jest 真跑）｜来源: 2026-08-23 第五批终审
