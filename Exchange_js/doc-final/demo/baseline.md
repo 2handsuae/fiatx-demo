@@ -12,7 +12,7 @@
 | 重铺 | `stack.sh reset main`（新入口，含 TigerBeetle 清理重建，全链实跑）｜ `stack.sh reset-main`（旧入口） |
 | 演示 | demo:setup ｜ demo:deposit ｜ demo:swap ｜ demo:withdraw ｜ demo:in-transit ｜ demo:all（8 场景断言终态） |
 | 对账 | recon:demo:pass ｜ verify:demo-data |
-| 账本 | verify:coa —— 两恒等式 + 负余额断言（重铺后 49 科目全部 ≥ 0）ALL INVARIANTS PASS |
+| 账本 | verify:coa —— 两恒等式 + 负余额断言（重铺后 49 科目全部 ≥ 0）ALL INVARIANTS PASS。⚠️ 此绿的测点是**重铺后立即**；demo:all 跑完后再测必见 2 个公司 AED 负余额（浮存未预铺，见 BACKLOG 环境卫生节），不算净新红 |
 
 ## 红名单（已知旧账，允许持续红）
 

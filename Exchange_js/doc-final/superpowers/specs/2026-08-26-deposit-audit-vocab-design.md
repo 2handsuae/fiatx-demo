@@ -1,6 +1,7 @@
 # 充值域审计新名册设计稿（站1b-β）
 
 日期：2026-08-26 ｜ 分支：refactor/v4-slim-1b ｜ 底稿：现役 44 码实测清单 + V1 第一批合同格式
+修订：v2 落地版——业主终审再砍 + 接线实况，**终盘 31 码**，逐点差异见文末「落地修订（as-built）」；下方 33 码表为送审底稿留档。
 目标：充值域操作留痕切入 2026-08-25 新合同（四属性出生冻结 / assertActionSpec 机器校验 / subjects 五角色 / 三追踪 ID），第七幕"按单号、按客户、按旅程"检索从此对充值域成立。
 
 ## 七条裁定（先拍这个，码表随之）
@@ -64,3 +65,28 @@
 ## 接线范围（认了名册就动）
 
 ① 常量文件新增 `V4_DEPOSIT_AUDIT_ACTIONS`（四属性表）+ 废除名单进拒写闸；② 充值单表加旅程号列（迁移+重铺闸）；③ 全部 recordSystem/recordByActor 调用点换新参数形（actionDomain='DEPOSIT'、旅程号继承、subjects 四角色、outcome/reasonCode 规范）；④ 动态迁移调用点改为对应业务码；⑤ 测试同步；⑥ 收尾闸全家 + verify:audit 充值段应转绿（Q2/Q4/Q5 因有真数据而活）。
+
+
+## 落地修订（as-built · 31 码，2026-08-26 站1b-β 接线终盘）
+
+送审稿 33 码 → 落地 31 码。业主两条总裁定贯穿：**失败不单独起名（进 outcome+reasonCode）**、**同一动作不因语境拆名（语境进从/到与 reasonCode）**。逐点：
+
+| 送审稿 | 落地 | 理由 |
+|---|---|---|
+| PAYIN_CONFIRMED + PAYIN_FAILED | **PAYIN_COMPLETED** 一码双结局 | 同一事件两种结果，outcome 说话 |
+| COMPLIANCE_STARTED | 删 | 与 PAYIN_COMPLETED(从/到=→COMPLIANCE_PENDING) 完全重复 |
+| COMPLETED | 并入 **APPROVED**（toStatus=SUCCESS 即终局） | 放行与到账是一步，双写删除 |
+| ACCOUNTING_BLOCKED | **APPROVED · outcome=FAILED** | 失败不起名 |
+| MANUAL_APPROVED | **APPROVED · fromStatus=MANUAL_CHECKING** | 翻案语义在从/到列里 |
+| APPROVE_BLOCKED_FROZEN | **APPROVED · outcome=DENIED · reasonCode=FROZEN** | 守卫拒绝=同一动作被拒 |
+| AWAITUSER_EMPTY_ACTIONS | 删（warn 降日志） | 业主裁定：上游报文异常，日志足够 |
+| SANCTION_HIT_ON_IGNORED_VERDICT | 并入 **KYT_VERDICT_IGNORED**（sceneTag 进 metadata） | 冻人动作由限制账自己留痕，单侧只记"裁决被忽略" |
+| RETURN/SEIZE/UNFREEZE_APPROVAL_REQUESTED | 去 APPROVAL_ 中缀 → **\*_REQUESTED** | 与没收弧同款命名 |
+| LEG_CLEAR_FAILED | 删（warn 降日志） | 腿状态滞后不伤资金，非业务事件 |
+| （现役未列）GATE0_PASSED | 删 | 每单必过属高频噪音，资格快照已在 l1Snapshot 列 |
+| CONFISCATION_FAILED / UNLOCK_FAILED | **CONFISCATION_STUCK** 三因（SETTLE_EXHAUSTED/LEG_EXHAUSTED/CRASHED） | D6 如稿；退回/上缴同款补因 |
+| 没收 skip（漂出可没收态） | **CONFISCATION_STARTED · outcome=DENIED · reasonCode=NOT_CONFISCABLE** | 失败不起名 |
+
+**终盘 31 码**：CREATED(S) ｜ PAYIN_COMPLETED ｜ HELD ｜ SUMSUB_SUBMITTED ｜ APPROVED ｜ LIMIT_WAIVED ｜ ONHOLD ｜ MANUAL_CHECKING ｜ FROZEN ｜ ACTION_REQUIRED ｜ KYT_VERDICT_IGNORED ｜ CONFISCATION_{REQUESTED,STARTED★,RETRIED,EXECUTED,STUCK} ｜ RETURN_{REQUESTED,STARTED★,RETRIED,STUCK} + RETURNED ｜ SEIZE_{REQUESTED,STARTED★,RETRIED,STUCK} + SEIZED ｜ UNFREEZE_REQUESTED + UNFROZEN★ ｜ SLA_BREACHED ｜ SLA_TIMEOUT_SIMULATED ｜ DEMO_SCENARIO_RUN。（★=requiresCausation，必携审批事件因果前件）
+
+废除 18 名进 DEPRECATED 拒写闸（合同域内旧名写入即拒）；动态迁移族 `DEPOSIT_<从>_TO_<到>` 按正则整族拒写。落地实测：verify:audit 充值段 Q2（按单据）/Q4（按客户）由基线红转绿；Q5/Q6/V1 词表使用属他域账，随各域回收站清。

@@ -1,3 +1,4 @@
+import { randomUUID } from 'crypto';
 import * as path from 'path';
 import * as dotenv from 'dotenv';
 
@@ -175,6 +176,7 @@ describe('Deposit money arcs (e2e, Task A6)', () => {
       data: {
         depositNo,
         traceId: depositNo,
+        correlationId: randomUUID(), // 审计主线根——INHERIT 闸要求主单必携（生产由 detected() 铸）
         ownerType: 'CUSTOMER',
         ownerId: customerId,
         status,
@@ -303,9 +305,14 @@ describe('Deposit money arcs (e2e, Task A6)', () => {
     }
   }
 
+  async function depositNoOf(depositId: string): Promise<string> {
+    const row = await prisma.depositTransaction.findUnique({ where: { id: depositId }, select: { depositNo: true } });
+    return row!.depositNo;
+  }
+
   async function auditActionsFor(depositId: string): Promise<string[]> {
     const rows = await prisma.auditLogEvent.findMany({
-      where: { primarySubjectNo: depositId, primarySubjectType: AuditEntityTypes.DEPOSIT_TRANSACTION },
+      where: { primarySubjectNo: await depositNoOf(depositId), primarySubjectType: AuditEntityTypes.DEPOSIT_TRANSACTION },
       select: { action: true },
     });
     return rows.map((r) => r.action);
@@ -313,7 +320,7 @@ describe('Deposit money arcs (e2e, Task A6)', () => {
 
   async function auditRowsFor(depositId: string, action: string): Promise<any[]> {
     return prisma.auditLogEvent.findMany({
-      where: { primarySubjectNo: depositId, primarySubjectType: AuditEntityTypes.DEPOSIT_TRANSACTION, action },
+      where: { primarySubjectNo: await depositNoOf(depositId), primarySubjectType: AuditEntityTypes.DEPOSIT_TRANSACTION, action },
     });
   }
 

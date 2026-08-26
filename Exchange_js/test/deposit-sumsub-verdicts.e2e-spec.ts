@@ -1,7 +1,7 @@
 import { resolveE2eDatabaseUrl } from './e2e-db';
 import * as path from 'path';
 import * as dotenv from 'dotenv';
-import { createHash } from 'crypto';
+import { createHash, randomUUID } from 'crypto';
 
 // Same Node 18 polyfill as src/main.ts (@nestjs/schedule needs globalThis.crypto,
 // stable only in Node 19+) — main.ts isn't loaded in this e2e harness, so it has
@@ -304,6 +304,7 @@ describe('Deposit Sumsub verdict buttons (e2e, Task 9)', () => {
       data: {
         depositNo,
         traceId: depositNo,
+        correlationId: randomUUID(), // 审计主线根——INHERIT 闸要求主单必携（生产由 detected() 铸）
         ownerType: 'CUSTOMER',
         ownerId: customerId,
         status: DepositTransactionStatus.COMPLIANCE_PENDING,
@@ -358,8 +359,9 @@ describe('Deposit Sumsub verdict buttons (e2e, Task 9)', () => {
   }
 
   async function auditActionsFor(depositId: string): Promise<string[]> {
+    const dep = await prisma.depositTransaction.findUnique({ where: { id: depositId }, select: { depositNo: true } });
     const rows = await prisma.auditLogEvent.findMany({
-      where: { primarySubjectNo: depositId, primarySubjectType: AuditEntityTypes.DEPOSIT_TRANSACTION },
+      where: { primarySubjectNo: dep!.depositNo, primarySubjectType: AuditEntityTypes.DEPOSIT_TRANSACTION },
       select: { action: true },
     });
     return rows.map((r) => r.action);
