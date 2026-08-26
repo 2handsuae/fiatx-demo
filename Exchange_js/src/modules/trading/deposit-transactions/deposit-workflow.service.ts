@@ -16,7 +16,7 @@ import {
   AuditEntityTypes,
   buildStateTransitionAction,
 } from '../../audit-logging/constants/audit-actions.constant';
-import { AuditOutcome } from '../../audit-logging/dto/audit-log.dto';
+import { AuditOutcome, AuditCategory, AuditSubjectRole, AuditSubjectInput } from '../../audit-logging/dto/audit-log.dto';
 import { AccountingService } from '../../accounting/tigerbeetle/accounting.service';
 import { TB_ACCOUNT_CODES, TB_CODE_TO_COA } from '../../accounting/tigerbeetle/constants/tb-account-codes.constant';
 import { TB_TRANSFER_CODES } from '../../accounting/tigerbeetle/constants/tb-transfer-codes.constant';
@@ -2008,6 +2008,69 @@ export class DepositWorkflowService implements OnModuleInit {
    * 就会被静默去重**。会重复发生的跃迁（如 Gate 0 挂起：freeze→unfreeze→重新挂起、
    * 或 waive→重新挂起）必须传一个唯一值，否则监管面的取证链从第一天就缺行。
    */
+  /**
+   * 充值域新合同信封（站1b-β）：统一 actionDomain=DEPOSIT、category=BUSINESS、
+   * 旅程号从单上继承（CREATED=START 铸号落列，见 detected()）、subjects 四角色
+   * （主体=单号｜归属=客户号｜凭据=审批号｜牵连=资金单号）。requestId 沿用
+   * 「码_单号_uuid」模板防静默去重。causationId 语义：直接引发本条的前件
+   * （异步审批驱动的码传 approval 事件 id）。
+   */
+  private async depositAudit(
+    deposit: any,
+    patch: {
+      action: string;
+      outcome?: AuditOutcome;
+      reasonCode?: string;
+      reason?: string;
+      fromStatus?: string;
+      toStatus?: string;
+      approvalNo?: string;
+      causationId?: string;
+      fundsOrderNo?: string;
+      metadata?: Record<string, unknown>;
+    },
+  ): Promise<void> {
+    const customerNo: string | null =
+      deposit.customer?.customerNo ?? deposit.ownerNo ?? null;
+    const subjects: AuditSubjectInput[] = [
+      {
+        subjectType: AuditEntityTypes.DEPOSIT_TRANSACTION,
+        subjectNo: deposit.depositNo,
+        subjectRole: AuditSubjectRole.PRIMARY,
+      },
+    ];
+    if (customerNo) {
+      subjects.push({ subjectType: 'CUSTOMER', subjectNo: customerNo, subjectRole: AuditSubjectRole.OWNER });
+    }
+    if (patch.approvalNo) {
+      subjects.push({ subjectType: AuditEntityTypes.APPROVAL_CASE, subjectNo: patch.approvalNo, subjectRole: AuditSubjectRole.INSTRUMENT });
+    }
+    if (patch.fundsOrderNo) {
+      subjects.push({ subjectType: 'FUNDS_ORDER', subjectNo: patch.fundsOrderNo, subjectRole: AuditSubjectRole.RELATED });
+    }
+    await this.auditLogsService.recordSystem({
+      action: patch.action,
+      actionDomain: 'DEPOSIT',
+      category: AuditCategory.BUSINESS,
+      primarySubjectType: AuditEntityTypes.DEPOSIT_TRANSACTION,
+      primarySubjectNo: deposit.depositNo,
+      ownerCustomerNo: customerNo ?? undefined,
+      correlationId: deposit.correlationId ?? undefined,
+      causationId: patch.causationId,
+      outcome: patch.outcome ?? AuditOutcome.SUCCESS,
+      reasonCode: patch.reasonCode,
+      reason: patch.reason,
+      fromStatus: patch.fromStatus,
+      toStatus: patch.toStatus,
+      approvalNo: patch.approvalNo,
+      subjects,
+      traceId: deposit.traceId || undefined,
+      metadata: patch.metadata,
+      requestId: `${patch.action}_${deposit.depositNo}_${randomUUID()}`,
+      sourcePlatform: 'SYSTEM',
+    });
+  }
+
   private async recordStateTransitionAudit(
     deposit: any,
     fromStatus: string,
