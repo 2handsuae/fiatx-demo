@@ -42,7 +42,7 @@ describe('buildInternalFundStateAction', () => {
   });
 });
 
-import { V1_AUDIT_ACTIONS, DEPRECATED_AUDIT_ACTIONS } from './audit-actions.constant';
+import { V1_AUDIT_ACTIONS, V4_DEPOSIT_AUDIT_ACTIONS, DEPRECATED_AUDIT_ACTIONS } from './audit-actions.constant';
 import { AuditCorrelationMode } from '../dto/audit-log.dto';
 
 describe('第一批 · V1 词表守则', () => {
@@ -90,8 +90,9 @@ describe('第一批 · V1 词表守则', () => {
       .toHaveLength(13);
   });
 
-  it('退役码 11 个，且与在用码零交集', () => {
-    expect(DEPRECATED_AUDIT_ACTIONS).toHaveLength(11);
+  it('退役码 29 个（第一批 V1 域 11 + 站1b-β 充值域 18），且与两本在用名册零交集', () => {
+    expect(DEPRECATED_AUDIT_ACTIONS).toHaveLength(29);
     expect(DEPRECATED_AUDIT_ACTIONS.filter((d) => codes.includes(d))).toEqual([]);
+    expect(DEPRECATED_AUDIT_ACTIONS.filter((d) => d in V4_DEPOSIT_AUDIT_ACTIONS)).toEqual([]);
   });
 });

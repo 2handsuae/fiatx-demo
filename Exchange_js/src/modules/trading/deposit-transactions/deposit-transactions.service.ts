@@ -23,6 +23,7 @@ import {
   AuditActions,
   AuditEntityTypes,
 } from '../../audit-logging/constants/audit-actions.constant';
+import { AuditCategory, AuditSubjectRole } from '../../audit-logging/dto/audit-log.dto';
 import { TransactionLimitRulesService } from '../../asset-treasury/transaction-limits/transaction-limit-rules.service';
 import { ApprovalsService } from '../../governance/approvals/approvals.service';
 
@@ -909,7 +910,7 @@ export class DepositTransactionsService {
   ) {
     const row = await (this.prisma as any).depositTransaction.findFirst({
       where: { depositNo },
-      select: { id: true, slaDeadline: true, ownerType: true, ownerId: true },
+      select: { id: true, slaDeadline: true, correlationId: true, customer: { select: { customerNo: true } } },
     });
     if (!row) throw new NotFoundException(`Deposit not found: ${depositNo}`);
     if (row.slaDeadline === null) {
@@ -923,8 +924,18 @@ export class DepositTransactionsService {
     await this.auditLogsService.recordByActor(
       {
         action: AuditActions.DEPOSIT_SLA_TIMEOUT_SIMULATED,
+        actionDomain: 'DEPOSIT',
+        category: AuditCategory.BUSINESS,
         primarySubjectType: AuditEntityTypes.DEPOSIT_TRANSACTION,
         primarySubjectNo: depositNo,
+        ownerCustomerNo: row.customer?.customerNo,
+        correlationId: row.correlationId ?? undefined,
+        subjects: [
+          { subjectType: AuditEntityTypes.DEPOSIT_TRANSACTION, subjectNo: depositNo, subjectRole: AuditSubjectRole.PRIMARY },
+          ...(row.customer?.customerNo
+            ? [{ subjectType: 'CUSTOMER', subjectNo: row.customer.customerNo, subjectRole: AuditSubjectRole.OWNER }]
+            : []),
+        ],
         reason: 'Demo: SLA deadline moved to the past to trigger an immediate breach on the next scan',
         metadata: { previousSlaDeadline: row.slaDeadline, newSlaDeadline: slaDeadline },
         requestId: `DEPOSIT_SLA_TIMEOUT_SIMULATED_${depositNo}_${randomUUID()}`,
@@ -957,7 +968,7 @@ export class DepositTransactionsService {
    * 红标：资金腿重试耗尽后由 workflow 置起。**只写这一列，绝不碰状态** ——
    * 三个在途处置态（CONFISCATING/RETURNING/SEIZING）卡死时单子留在原地，
    * 「卡住了」这件事靠这面旗表达，不靠状态迁移（业主 2026-08-22 定稿）。
-   * 与 WithdrawTransactionsService.markNeedsReview/clearNeedsReview 同构；
+   * 与 WithdrawTransactionsService.markNeedsReview 同构（清旗侧本域零调用方，站1b-α 已删）；
    * 兑换域是单个切换方法 SwapTransactionsService.setNeedsReview(id, bool, tx)
    * —— 三域故意分叉，各写各的形状，不抽 helper。
    */
@@ -965,14 +976,6 @@ export class DepositTransactionsService {
     return (this.prisma as any).depositTransaction.update({
       where: { id },
       data: { needsReview: true },
-    });
-  }
-
-  /** 处置成功落地后清旗（运营卫生）。 */
-  async clearNeedsReview(id: string) {
-    return (this.prisma as any).depositTransaction.update({
-      where: { id },
-      data: { needsReview: false },
     });
   }
 
@@ -995,6 +998,7 @@ export class DepositTransactionsService {
         slaDeadline: { lt: now },
         slaBreached: false,
       },
+      include: { customer: { select: { customerNo: true } } },
     });
   }
 
@@ -1075,6 +1079,8 @@ export class DepositTransactionsService {
       String(wallet.asset?.type || '').toUpperCase() === 'CRYPTO';
     const resolvedTraceId = input.traceId ?? randomUUID();
     const depositNo = generateReferenceNo('DEP');
+    // 审计主线：DEPOSIT_CREATED=START 在此铸根，此后这笔单的所有审计都 INHERIT 同一条线。
+    const correlationId = randomUUID();
 
     // L1 金额下限判定(出生落标——deposit 是被动入金,低于 min 不拒绝,建单+隐藏+挂起)
     let limitHoldReason: string | undefined;
@@ -1087,6 +1093,7 @@ export class DepositTransactionsService {
       data: {
         depositNo,
         traceId: resolvedTraceId,
+        correlationId,
         ownerType: wallet.ownerType,
         ownerId: wallet.ownerId || 'UNKNOWN',
         status: DepositTransactionStatus.PAYIN_PENDING,
@@ -1134,20 +1141,37 @@ export class DepositTransactionsService {
       traceId: resolvedTraceId,
     });
 
+    const ownerCustomer = await (this.prisma as any).customerMain.findUnique({
+      where: { id: wallet.ownerId },
+      select: { customerNo: true },
+    });
+
     await this.auditLogsService.recordSystem({
       action: AuditActions.DEPOSIT_CREATED,
+      actionDomain: 'DEPOSIT',
+      category: AuditCategory.BUSINESS,
       primarySubjectType: AuditEntityTypes.DEPOSIT_TRANSACTION,
       primarySubjectNo: deposit.depositNo,
+      ownerCustomerNo: ownerCustomer?.customerNo,
+      correlationId,
+      amount: input.amount,
+      currency: input.assetId,
+      subjects: [
+        { subjectType: AuditEntityTypes.DEPOSIT_TRANSACTION, subjectNo: deposit.depositNo, subjectRole: AuditSubjectRole.PRIMARY },
+        ...(ownerCustomer?.customerNo
+          ? [{ subjectType: 'CUSTOMER', subjectNo: ownerCustomer.customerNo, subjectRole: AuditSubjectRole.OWNER }]
+          : []),
+        { subjectType: 'FUNDS_ORDER', subjectNo: fundsOrder.fundsOrderNo, subjectRole: AuditSubjectRole.RELATED },
+      ],
       traceId: resolvedTraceId,
       reason: 'Deposit created from inbound transfer detection',
       metadata: {
         fundsOrderId: fundsOrder.id,
         fundsOrderNo: fundsOrder.fundsOrderNo,
-        amount: input.amount,
-        assetCurrency: input.assetId,
         txHash: input.txHash ?? null,
         referenceNo: input.referenceNo ?? null,
       },
+      requestId: `DEPOSIT_CREATED_${deposit.depositNo}_${randomUUID()}`,
       sourcePlatform: 'SYSTEM',
     });
 

@@ -10,7 +10,7 @@ import { KytVerdict } from './sumsub-txn.types';
 import { SumsubIngestionService } from '../sumsub-ingestion/sumsub-ingestion.service';
 import { AuditLogsService } from '../audit-logging/audit-logs.service';
 import { AuditActions, AuditEntityTypes } from '../audit-logging/constants/audit-actions.constant';
-import { AuditOutcome } from '../audit-logging/dto/audit-log.dto';
+import { AuditOutcome, AuditCategory, AuditSubjectRole } from '../audit-logging/dto/audit-log.dto';
 
 export interface DemoScenarioActor {
   actorId: string;
@@ -109,8 +109,18 @@ export class DepositDemoScenarioService {
     await this.auditLogsService.recordByActor(
       {
         action: AuditActions.DEPOSIT_DEMO_SCENARIO_RUN,
+        actionDomain: 'DEPOSIT',
+        category: AuditCategory.BUSINESS,
         primarySubjectType: AuditEntityTypes.DEPOSIT_TRANSACTION,
         primarySubjectNo: deposit.depositNo,
+        ownerCustomerNo: deposit.customer?.customerNo,
+        correlationId: deposit.correlationId ?? undefined,
+        subjects: [
+          { subjectType: AuditEntityTypes.DEPOSIT_TRANSACTION, subjectNo: deposit.depositNo, subjectRole: AuditSubjectRole.PRIMARY },
+          ...(deposit.customer?.customerNo
+            ? [{ subjectType: 'CUSTOMER', subjectNo: deposit.customer.customerNo, subjectRole: AuditSubjectRole.OWNER }]
+            : []),
+        ],
         traceId: deposit.traceId || undefined,
         outcome: AuditOutcome.SUCCESS,
         reason: `Demo verdict ${button.key} fed into deposit ${deposit.depositNo}`,

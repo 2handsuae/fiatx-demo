@@ -1131,6 +1131,8 @@ model DepositTransaction {
   travelRuleTransferId String?
   counterpartyVasp     String?
   travelRuleCheckedAt  DateTime?
+  /// 审计旅程号（站1b-β）：CREATED=START 铸号落此列，本单其余留痕 INHERIT 继承
+  correlationId       String?
   traceId              String?
   statusHistory        String?
   limitHoldReason      String?           // 'BELOW_MIN' — L1 金额挂起原因(客户面隐藏依据)
@@ -1153,7 +1155,6 @@ model DepositTransaction {
   slaBreached           Boolean   @default(false)
   sumsubActionId          String?
   sumsubExternalActionId  String?
-  actionSubmittedAt       DateTime?
   asset                Asset             @relation(fields: [assetId], references: [id])
   wallet               Wallet            @relation(fields: [toWalletId], references: [id])
   fromWallet           Wallet?           @relation("DepositFromWallet", fields: [fromWalletId], references: [id])

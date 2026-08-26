@@ -12,11 +12,9 @@ import type { SceneTag } from '../../deposit-sumsub/deposit-kyt-verdict.handler'
 import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import { CustomerAccessService } from '../../identity/customers/customer-access.service';
 import {
-  AuditActions,
   AuditEntityTypes,
-  buildStateTransitionAction,
 } from '../../audit-logging/constants/audit-actions.constant';
-import { AuditOutcome } from '../../audit-logging/dto/audit-log.dto';
+import { AuditOutcome, AuditCategory, AuditSubjectRole, AuditSubjectInput } from '../../audit-logging/dto/audit-log.dto';
 import { AccountingService } from '../../accounting/tigerbeetle/accounting.service';
 import { TB_ACCOUNT_CODES, TB_CODE_TO_COA } from '../../accounting/tigerbeetle/constants/tb-account-codes.constant';
 import { TB_TRANSFER_CODES } from '../../accounting/tigerbeetle/constants/tb-transfer-codes.constant';
@@ -323,15 +321,7 @@ export class DepositWorkflowService implements OnModuleInit {
 
     this.logger.log(`Gate 0 PASS: deposit ${depositId}`);
 
-    await this.auditLogsService.recordSystem({
-      action: AuditActions.DEPOSIT_GATE0_PASSED,
-      primarySubjectType: AuditEntityTypes.DEPOSIT_TRANSACTION,
-      primarySubjectNo: deposit.depositNo,
-      traceId: deposit.traceId || undefined,
-      reason: 'Gate 0 passed: customer DEPOSIT capability is not restricted',
-      metadata: { lifecycle: access.lifecycle, openRestrictionCount: access.openCount },
-      sourcePlatform: 'SYSTEM',
-    });
+    // 站1b-β：GATE0_PASSED 留痕删除——每单必过属高频噪音，资格快照已落单上 l1Snapshot 列。
 
     try {
       await this.submitSumsubTxns(deposit);
@@ -359,7 +349,7 @@ export class DepositWorkflowService implements OnModuleInit {
    * `limitHoldReason` 这一列有两个主人 —— `BELOW_MIN` 是这笔单**自身**的属性
    * （金额低于配置下限），Gate 0 这条是**客户**的属性（被停用/生命周期非 ACTIVE）。
    * 覆盖写会把 `BELOW_MIN` 抹掉，后果有三：waive 后这笔低于下限的钱直接入客户
-   * 余额、`DEPOSIT_HELD_BELOW_MIN` 审计从未写过、且没收弧（`initiateConfiscation`
+   * 余额、`DEPOSIT_HELD`(reasonCode=BELOW_MIN) 审计从未写过、且没收弧（`initiateConfiscation`
    * 与落地前置都硬钉 `BELOW_MIN`）永远走不进去 —— 小额充值的专属处置被从另一个
    * 方向绕掉。两个原因并存时列上留 `BELOW_MIN`，客户级那条在 `l1Snapshot` 里有
    * 完整记录（含 `holdReason` 与逐格 detail），且单子照样被路由到 OPERATION_PENDING。
@@ -403,13 +393,13 @@ export class DepositWorkflowService implements OnModuleInit {
     // `entityType|entityId|action|NO_REQUEST_ID`，**同一笔单的第二次 Gate 0 挂起会被
     // 静默去重**。而二次挂起是常规操作 —— freeze→unfreeze(RESUME 回 COMPLIANCE_PENDING)
     // →Gate 0 重跑重新挂起，或 waive→重新挂起。少这一行 = 取证链缺一次挂起事实。
-    await this.recordStateTransitionAudit(
-      deposit,
-      DepositTransactionStatus.COMPLIANCE_PENDING,
-      DepositTransactionStatus.OPERATION_PENDING,
-      `${reason} (${holdTrace})`,
-      `DEPOSIT_GATE0_HOLD_${deposit.depositNo}_${randomUUID()}`,
-    );
+    await this.depositAudit(deposit, {
+      action: 'DEPOSIT_HELD',
+      reasonCode: holdReason,
+      reason: `${reason} (${holdTrace})`,
+      fromStatus: DepositTransactionStatus.COMPLIANCE_PENDING,
+      toStatus: DepositTransactionStatus.OPERATION_PENDING,
+    });
   }
 
   /**
@@ -477,14 +467,10 @@ export class DepositWorkflowService implements OnModuleInit {
       sumsubTxnType: submitType,
     });
 
-    await this.auditLogsService.recordSystem({
-      action: AuditActions.DEPOSIT_SUMSUB_SUBMITTED,
-      primarySubjectType: AuditEntityTypes.DEPOSIT_TRANSACTION,
-      primarySubjectNo: deposit.depositNo,
-      traceId: deposit.traceId || undefined,
+    await this.depositAudit(deposit, {
+      action: 'DEPOSIT_SUMSUB_SUBMITTED',
       reason: 'Deposit submitted to Sumsub KYT for transaction monitoring',
-      metadata: { sumsubTxnId: result.txnId, txnType: submitType, reason: decision.reason },
-      sourcePlatform: 'SYSTEM',
+      metadata: { sumsubTxnId: result.txnId, txnType: submitType, decisionReason: decision.reason },
     });
 
     this.logger.log(
@@ -580,22 +566,7 @@ export class DepositWorkflowService implements OnModuleInit {
           openedBy: 'system',
         });
 
-        await this.auditLogsService
-          .recordSystem({
-            action: AuditActions.DEPOSIT_SANCTION_HIT_ON_IGNORED_VERDICT,
-            primarySubjectType: AuditEntityTypes.DEPOSIT_TRANSACTION,
-            primarySubjectNo: deposit.depositNo,
-            traceId: deposit.traceId || undefined,
-            outcome: AuditOutcome.SUCCESS,
-            reason: `Deposit ${deposit.depositNo} KYT rejected: applicant sanctioned (verdict arrived while order already ${status}) — order left untouched, customer restricted`,
-            metadata: { depositNo: deposit.depositNo, sceneTag: v.sceneTag, status },
-            sourcePlatform: 'SYSTEM',
-          })
-          .catch((err) => {
-            this.logger.error(
-              `DEPOSIT_SANCTION_HIT_ON_IGNORED_VERDICT audit failed for ${deposit.depositNo}: ${err?.message}`,
-            );
-          });
+        // 站1b-β：独立留痕并入 DEPOSIT_KYT_VERDICT_IGNORED（metadata.sceneTag 已携制裁信号）；冻人动作留痕在客户域限制账。
       }
 
       return;
@@ -676,29 +647,16 @@ export class DepositWorkflowService implements OnModuleInit {
     v: { verdict: string; riskScore?: number | null; sceneTag?: SceneTag; dispoTag?: 'FROZEN_BY_MLRO' | 'RETURN_TO_SENDER' },
     status: DepositTransactionStatus,
   ): Promise<void> {
-    await this.auditLogsService
-      .recordSystem({
-        action: AuditActions.DEPOSIT_KYT_VERDICT_IGNORED,
-        primarySubjectType: AuditEntityTypes.DEPOSIT_TRANSACTION,
-        primarySubjectNo: deposit.depositNo,
-        traceId: deposit.traceId || undefined,
-        outcome: AuditOutcome.SUCCESS,
+    await this.depositAudit(deposit, {
+        action: 'DEPOSIT_KYT_VERDICT_IGNORED',
         reason: `Late KYT verdict '${v.verdict}' ignored — deposit is ${status} (terminal, disposition in flight, or frozen); existing verdict/evidence left untouched`,
         metadata: {
-          depositNo: deposit.depositNo,
-          verdict: v.verdict,
-          status,
-          riskScore: v.riskScore ?? null,
-          sceneTag: v.sceneTag ?? null,
-          dispoTag: v.dispoTag ?? null,
+          verdict: v.verdict, status,
+          riskScore: v.riskScore ?? null, sceneTag: v.sceneTag ?? null, dispoTag: v.dispoTag ?? null,
         },
-        requestId: `DEPOSIT_KYT_VERDICT_IGNORED_${deposit.depositNo}_${randomUUID()}`,
-        sourcePlatform: 'SYSTEM',
       })
       .catch((err) => {
-        this.logger.error(
-          `DEPOSIT_KYT_VERDICT_IGNORED audit failed for ${deposit.depositNo}: ${err?.message}`,
-        );
+        this.logger.error(`DEPOSIT_KYT_VERDICT_IGNORED audit failed for ${deposit.depositNo}: ${err?.message}`);
       });
   }
 
@@ -709,7 +667,7 @@ export class DepositWorkflowService implements OnModuleInit {
 
   /**
    * Trading-ready 闸(法币提现地址,2026-07-11 不变量):approve 前必须客户已设置 active
-   * 法币提现地址,否则原地 hold(不改状态)+ 记 DEPOSIT_HELD_NOT_TRADING_READY 审计。
+   * 法币提现地址,否则原地 hold(不改状态)+ 记 DEPOSIT_HELD(reasonCode=NOT_TRADING_READY) 审计。
    * `checkAutoApproval`(老 kyt/tr mock 路径)与 `applyKytApproved`(新 KYT-only 路径)
    * 共享此 helper,消除两路门禁漂移(I1 修复)。
    * 返回 true = trading-ready,调用方可继续;false = 已 hold,调用方须 return。
@@ -721,14 +679,10 @@ export class DepositWorkflowService implements OnModuleInit {
     this.logger.warn(
       `Trading-ready gate hold: deposit ${deposit.id} customer ${deposit.ownerId} not trading-ready (no active fiat withdrawal address)`,
     );
-    await this.auditLogsService.recordSystem({
-      action: AuditActions.DEPOSIT_HELD_NOT_TRADING_READY,
-      primarySubjectType: AuditEntityTypes.DEPOSIT_TRANSACTION,
-      primarySubjectNo: deposit.depositNo,
-      traceId: deposit.traceId || undefined,
+    await this.depositAudit(deposit, {
+      action: 'DEPOSIT_HELD',
+      reasonCode: 'NOT_TRADING_READY',
       reason: 'Deposit held: customer has no active fiat withdrawal address (not trading-ready)',
-      metadata: { depositNo: deposit.depositNo },
-      sourcePlatform: 'SYSTEM',
     });
     return false;
   }
@@ -767,9 +721,8 @@ export class DepositWorkflowService implements OnModuleInit {
    * （operator 手滑双击、上游重放）由此得到干净的早退。真正解除挂起走
    * `waiveLimitHold`。
    *
-   * ⚠️ 审计动作名按**实际挂起原因**分流，不新造常量（本批不做审计专项）：
-   * BELOW_MIN 照旧 `DEPOSIT_HELD_BELOW_MIN`；其余原因走既有的状态跃迁审计 helper
-   * （硬写 BELOW_MIN 语义到一笔行政级挂起上是伪证据）。
+   * ⚠️ 审计动作归一 `DEPOSIT_HELD`（站1b-β 词表），**实际挂起原因**进 reasonCode
+   * 说真话（硬写 BELOW_MIN 语义到一笔行政级挂起上是伪证据），状态变化进从/到两列。
    */
   private async holdIfHeld(deposit: any): Promise<boolean> {
     const holdReason: string | null = deposit.limitHoldReason ?? null;
@@ -801,28 +754,20 @@ export class DepositWorkflowService implements OnModuleInit {
     );
 
     if (belowMin) {
-      await this.auditLogsService.recordSystem({
-        action: AuditActions.DEPOSIT_HELD_BELOW_MIN,
-        primarySubjectType: AuditEntityTypes.DEPOSIT_TRANSACTION,
-        primarySubjectNo: deposit.depositNo,
-        traceId: deposit.traceId || undefined,
-        reason:
-          'Deposit held: compliance approved but amount below configured minimum (BELOW_MIN)',
-        metadata: {
-          depositNo: deposit.depositNo,
-          amount: String(deposit.amount),
-          limitHoldReason: holdReason,
-        },
-        sourcePlatform: 'SYSTEM',
+      await this.depositAudit(deposit, {
+        action: 'DEPOSIT_HELD',
+        reasonCode: 'BELOW_MIN',
+        reason: 'Deposit held: compliance approved but amount below configured minimum (BELOW_MIN)',
+        metadata: { amount: String(deposit.amount), limitHoldReason: holdReason },
       });
     } else {
-      await this.recordStateTransitionAudit(
-        deposit,
-        deposit.status,
-        DepositTransactionStatus.OPERATION_PENDING,
-        `Compliance approved but the deposit hold is still in place (${holdReason}) — not credited, awaiting ops disposition`,
-        `DEPOSIT_HOLD_INTACT_${deposit.depositNo}_${randomUUID()}`,
-      );
+      await this.depositAudit(deposit, {
+        action: 'DEPOSIT_HELD',
+        reasonCode: holdReason,
+        reason: `Compliance approved but the deposit hold is still in place (${holdReason}) — not credited, awaiting ops disposition`,
+        fromStatus: deposit.status,
+        toStatus: DepositTransactionStatus.OPERATION_PENDING,
+      });
     }
 
     this.logger.warn(
@@ -832,42 +777,15 @@ export class DepositWorkflowService implements OnModuleInit {
   }
 
   private async applyKytApproved(deposit: any) {
-    // Sanctions/MLRO freeze must never be auto-lifted by a late or re-scored
-    // "approved" KYT webhook (e.g. a sanctions veto followed by a subsequent
-    // applicantKytTxnApproved event). The only legal exit from FROZEN is the
-    // unfreeze maker-checker (RESUME → COMPLIANCE_PENDING → re-run compliance) or
-    // the seize/return disposition arcs — never a bare approve. no-op + audit,
-    // never throw (this runs off a webhook, not a request we can reject to a caller).
-    if (deposit.status === DepositTransactionStatus.FROZEN) {
-      this.logger.warn(
-        `applyKytApproved no-op: deposit ${deposit.id} is FROZEN, ignoring approved KYT verdict (requires unfreeze approval to resume)`,
-      );
-      await this.auditLogsService.recordSystem({
-        action: AuditActions.DEPOSIT_APPROVE_BLOCKED_FROZEN,
-        primarySubjectType: AuditEntityTypes.DEPOSIT_TRANSACTION,
-        primarySubjectNo: deposit.depositNo,
-        traceId: deposit.traceId || undefined,
-        reason:
-          'KYT verdict approved but deposit is FROZEN — ignored; requires unfreeze approval (MLRO) to resume',
-        sourcePlatform: 'SYSTEM',
-      });
-      return;
-    }
-
+    // FROZEN 在 decideVerdictLanding 已一律判 IGNORE（含 approved，留 DEPOSIT_KYT_VERDICT_IGNORED
+    // 审计），到不了这里——旧的方法内 FROZEN 守卫已随站1b-α 删除（保护上收，不双写）。
     const ready = await this.assertTradingReadyOrHold(deposit);
     if (!ready) return;
 
     if (deposit.status === DepositTransactionStatus.MANUAL_CHECKING) {
       // 误报翻案:此前进了人工复核,官方裁决翻回 approved。记账/SUCCESS 由下面的
       // approveDeposit 统一处理,这里只补一条“翻案”审计。
-      await this.auditLogsService.recordSystem({
-        action: AuditActions.DEPOSIT_MANUAL_APPROVED,
-        primarySubjectType: AuditEntityTypes.DEPOSIT_TRANSACTION,
-        primarySubjectNo: deposit.depositNo,
-        traceId: deposit.traceId || undefined,
-        reason: 'KYT verdict approved: manual checking overturned',
-        sourcePlatform: 'SYSTEM',
-      });
+      // 站1b-β：翻案不再单独留痕——approveDeposit 的 DEPOSIT_APPROVED 携 fromStatus=MANUAL_CHECKING 即翻案证据。
     }
     // 金额闸(BELOW_MIN)已下沉到 approveDeposit() 内部——它是资金入账唯一出口,
     // 这里不再重复判定(见 approveDeposit 的 JSDoc)。
@@ -906,59 +824,14 @@ export class DepositWorkflowService implements OnModuleInit {
         this.logger.warn(
           `applyKytAwaitUser: deposit ${deposit.id} synced to zero outstanding actions while already ACTION_PENDING, refusing to treat as reissue`,
         );
-        await this.auditLogsService.recordSystem({
-          action: AuditActions.DEPOSIT_AWAITUSER_EMPTY_ACTIONS,
-          primarySubjectType: AuditEntityTypes.DEPOSIT_TRANSACTION,
-          primarySubjectNo: deposit.depositNo,
-          traceId: deposit.traceId || undefined,
-          reason:
-            'Sumsub awaitUser synced to zero outstanding actions while already ACTION_PENDING — kept existing cache, not treated as reissue',
-          metadata: { addedSeqs: added, retiredSeqs: retired },
-          sourcePlatform: 'SYSTEM',
-        });
+        // 站1b-β：空清单异常留痕删除（业主裁定），warn 日志足够。
         return;
       }
 
-      // I2 修复(反直觉,细说原因):「要不要清缓存」的判据必须读持久状态
-      // (actionSubmittedAt 是否还残留旧的"已交齐"值),不能用本次
-      // syncApplicantActions 返回的 added/retired 是否为空来判断。
-      // syncApplicantActions 自带事务、与随后的 clearDepositCache/审计写入是两次
-      // 独立事务——若第一次投递里 syncOnce 已提交,而 clearDepositCache 或审计
-      // 写入抛错(SQLITE_BUSY、进程重启),webhook 重试时 syncOnce 已是
-      // no-op(added=retired=[]),旧判据会在这里提前 return,actionSubmittedAt
-      // 永远清不掉——客户端徽章永久卡在"已收到,审核中",而实际有新 action 待办。
-      // 改用持久状态:只要还有未提交行(上面已判定)且缓存里还留着"已交齐"的旧值
-      // 就该清,与这次 webhook 自己带没带来集合变化无关。同模块的 submitBySeq
-      // 本就是把两表包进事务写的,这里的判据口径要跟它对齐。
-      if (deposit.actionSubmittedAt == null) return; // 缓存本就干净,真 no-op
-
-      // reissue:客户被要求重新交材料,7 天的钟重新起算。状态没变、不经过
-      // updateStatus 的收口处,所以在这里显式取一次同一张配置表的值——
-      // 不要另立常量,那会让"7 天"有第二个真相源(正是本批要消灭的模式)。
-      const { slaDeadline } = this.depositService.resolveSlaFields(
-        DepositTransactionStatus.ACTION_PENDING,
-      );
-      if (!slaDeadline) {
-        // ACTION_PENDING 在 DEPOSIT_SLA_MINUTES_BY_STATUS 里恒有配置,理论上到不了
-        // 这里——留一道硬失败,防止有人把它从配置表删掉却漏改这处调用方。
-        throw new Error('resolveSlaFields(ACTION_PENDING) 未配置 —— 检查 DEPOSIT_SLA_MINUTES_BY_STATUS');
-      }
-      await this.applicantActions.clearDepositCache(deposit.id, slaDeadline);
-      await this.auditLogsService.recordSystem({
-        action: AuditActions.DEPOSIT_ACTION_REISSUED,
-        primarySubjectType: AuditEntityTypes.DEPOSIT_TRANSACTION,
-        primarySubjectNo: deposit.depositNo,
-        traceId: deposit.traceId || undefined,
-        reason: 'Sumsub changed the applicant-action set while already ACTION_PENDING',
-        metadata: {
-          addedSeqs: added,
-          retiredSeqs: retired,
-          // 审计是 operator 面,**必须**带真 id,否则运营对不上 Sumsub 后台。
-          // 与客户面正好相反(客户面永不下发 id)——别看混。
-          incomingActionIds: incoming.map((a) => a.applicantActionId),
-        },
-        sourcePlatform: 'SYSTEM',
-      });
+      // 已在 ACTION_PENDING:集合已同步——no-op 返回。
+      // (旧 I2 清缓存弧随 actionSubmittedAt 死列于站1b-α 一并删除:守卫读的列
+      //  从无非空写入方,整弧不可达;clearDepositCache/DEPOSIT_ACTION_REISSUED
+      //  同殉。原文与设计理由见 git 史。)
       return;
     }
 
@@ -969,26 +842,12 @@ export class DepositWorkflowService implements OnModuleInit {
       this.logger.warn(
         `applyKytAwaitUser: deposit ${deposit.id} received awaitUser verdict with zero outstanding actions after sync, keeping status ${deposit.status}`,
       );
-      await this.auditLogsService.recordSystem({
-        action: AuditActions.DEPOSIT_AWAITUSER_EMPTY_ACTIONS,
-        primarySubjectType: AuditEntityTypes.DEPOSIT_TRANSACTION,
-        primarySubjectNo: deposit.depositNo,
-        traceId: deposit.traceId || undefined,
-        reason:
-          'Sumsub sent awaitUser verdict with no outstanding applicant actions — refused to move into ACTION_PENDING with nothing for the customer to act on',
-        metadata: { fromStatus: deposit.status, incomingCount: incoming.length },
-        sourcePlatform: 'SYSTEM',
-      });
+      // 站1b-β：空清单异常留痕删除（业主裁定），warn 日志足够。
       return;
     }
 
     const manualReason = sceneTag === 'PEP' ? 'EDD_PEP' : 'CLIENT_ACTION';
     const oldStatus = deposit.status;
-    // actionSubmittedAt 必须在这条跨状态弧(常见于 MANUAL_CHECKING →
-    // ACTION_PENDING,Sumsub officer 把已进人工复核的单又打回 awaitingUser,
-    // 2026-07-31 沙盒实测过)里显式清掉——它是独立于 SLA 的持久字段,updateStatus
-    // 不会替你清,不显式写就会原样带过去——客户此前交过的材料让缓存留着旧值,
-    // 客户端会一直显示"已收到,审核中",客户被永久卡死。
     // slaDeadline/slaBreached 不在这里写:进入 ACTION_PENDING 由 updateStatus
     // 内部的 resolveSlaFields 统一算,这里再传会覆盖收口处刚算好的值。
     const updated = await this.depositService.updateStatus(
@@ -1002,17 +861,17 @@ export class DepositWorkflowService implements OnModuleInit {
         sourcePlatform: 'SYSTEM',
         extraData: {
           manualReason,
-          actionSubmittedAt: null,
         },
       },
     );
 
-    await this.recordStateTransitionAudit(
-      updated,
-      oldStatus,
-      updated.status,
-      `KYT verdict: awaitUser (manualReason=${manualReason})`,
-    );
+    await this.depositAudit(updated, {
+      action: 'DEPOSIT_ACTION_REQUIRED',
+      reason: `KYT verdict: awaitUser (manualReason=${manualReason})`,
+      fromStatus: oldStatus,
+      toStatus: updated.status,
+      metadata: { manualReason },
+    });
   }
 
   /**
@@ -1035,14 +894,10 @@ export class DepositWorkflowService implements OnModuleInit {
       return;
     }
 
-    await this.auditLogsService.recordSystem({
-      action: AuditActions.DEPOSIT_ONHOLD,
-      primarySubjectType: AuditEntityTypes.DEPOSIT_TRANSACTION,
-      primarySubjectNo: deposit.depositNo,
-      traceId: deposit.traceId || undefined,
+    await this.depositAudit(deposit, {
+      action: 'DEPOSIT_ONHOLD',
       reason: 'KYT verdict: onHold, awaiting officer review',
       metadata: { note: 'onHold 不影响 SLA —— SLA 按状态计时,见 DEPOSIT_SLA_MINUTES_BY_STATUS' },
-      sourcePlatform: 'SYSTEM',
     });
   }
 
@@ -1096,17 +951,16 @@ export class DepositWorkflowService implements OnModuleInit {
         },
       );
       // 校正:FROZEN 零记账——钱留在 DEPOSIT_SUSPENSE,不释放/不过账。
-      await this.auditLogsService.recordSystem({
-        action: AuditActions.DEPOSIT_FROZEN,
-        primarySubjectType: AuditEntityTypes.DEPOSIT_TRANSACTION,
-        primarySubjectNo: deposit.depositNo,
-        traceId: deposit.traceId || undefined,
+      await this.depositAudit(deposit, {
+        action: 'DEPOSIT_FROZEN',
+        fromStatus: deposit.status,
+        toStatus: DepositTransactionStatus.FROZEN,
         reason: isApplicantSanction
           ? 'KYT verdict rejected: SANCTION_APPLICANT hit (order frozen + customer restricted)'
           : sceneTag === 'SANCTION_COUNTERPARTY'
             ? 'KYT verdict rejected: SANCTION_COUNTERPARTY hit (order frozen only)'
             : 'KYT verdict rejected: FROZEN_BY_MLRO disposition',
-        sourcePlatform: 'SYSTEM',
+        metadata: { sceneTag: sceneTag ?? null, dispoTag: dispoTag ?? null },
       });
       return;
     }
@@ -1134,13 +988,11 @@ export class DepositWorkflowService implements OnModuleInit {
             sourcePlatform: 'SYSTEM',
           },
         );
-        await this.auditLogsService.recordSystem({
-          action: AuditActions.DEPOSIT_MANUAL_CHECKING,
-          primarySubjectType: AuditEntityTypes.DEPOSIT_TRANSACTION,
-          primarySubjectNo: deposit.depositNo,
-          traceId: deposit.traceId || undefined,
+        await this.depositAudit(deposit, {
+          action: 'DEPOSIT_MANUAL_CHECKING',
+          reasonCode: 'KYT_REJECTED',
           reason: `RETURN_TO_SENDER tag arrived while status=${deposit.status} — landed in manual review; officer can re-drive the return from there`,
-          sourcePlatform: 'SYSTEM',
+          metadata: { earlyReturnTag: true },
         });
         return;
       }
@@ -1185,13 +1037,10 @@ export class DepositWorkflowService implements OnModuleInit {
         sourcePlatform: 'SYSTEM',
       },
     );
-    await this.auditLogsService.recordSystem({
-      action: AuditActions.DEPOSIT_MANUAL_CHECKING,
-      primarySubjectType: AuditEntityTypes.DEPOSIT_TRANSACTION,
-      primarySubjectNo: deposit.depositNo,
-      traceId: deposit.traceId || undefined,
+    await this.depositAudit(deposit, {
+      action: 'DEPOSIT_MANUAL_CHECKING',
+      reasonCode: 'KYT_REJECTED',
       reason: 'KYT verdict rejected: routed to manual compliance review',
-      sourcePlatform: 'SYSTEM',
     });
   }
 
@@ -1285,13 +1134,11 @@ export class DepositWorkflowService implements OnModuleInit {
         this.logger.warn(
           `Blocked approve on FROZEN deposit ${depositId}: sanctions/MLRO hold requires unfreeze maker-checker, not a direct approve.`,
         );
-        await this.auditLogsService.recordSystem({
-          action: AuditActions.DEPOSIT_APPROVE_BLOCKED_FROZEN,
-          primarySubjectType: AuditEntityTypes.DEPOSIT_TRANSACTION,
-          primarySubjectNo: deposit.depositNo,
-          traceId: deposit.traceId || undefined,
-          reason:
-            'Blocked: attempted approve on a FROZEN deposit — requires unfreeze approval (MLRO), not a direct approve',
+        await this.depositAudit(deposit, {
+          action: 'DEPOSIT_APPROVED',
+          outcome: AuditOutcome.DENIED,
+          reasonCode: 'FROZEN',
+          reason: 'Blocked: attempted approve on a FROZEN deposit — requires unfreeze approval (MLRO), not a direct approve',
           sourcePlatform: 'ADMIN_API',
         });
         throw new BadRequestException({
@@ -1309,18 +1156,6 @@ export class DepositWorkflowService implements OnModuleInit {
     // 不再是这里的 oldStatus 特判，那个特判只盖得住四条里的一条）。
     if (await this.holdIfHeld(deposit)) return;
 
-    // ⑥ DEPOSIT_APPROVED — record before state change
-    await this.auditLogsService.recordSystem({
-      action: AuditActions.DEPOSIT_APPROVED,
-      primarySubjectType: AuditEntityTypes.DEPOSIT_TRANSACTION,
-      primarySubjectNo: deposit.depositNo,
-      traceId: deposit.traceId || undefined,
-      reason: 'Compliance approved, funds credited to client',
-      metadata: {
-        oldStatus,
-      },
-      sourcePlatform: 'SYSTEM',
-    });
 
     if (deposit.ownerType === DepositOwnerType.CUSTOMER) {
       try {
@@ -1332,33 +1167,28 @@ export class DepositWorkflowService implements OnModuleInit {
       } catch (err) {
         const error = err instanceof Error ? err : new Error(String(err));
         this.logger.error(`TB Step 2 failed for deposit ${depositId}: ${error.message}`);
-        await this.auditLogsService.recordSystem({
-          action: AuditActions.DEPOSIT_ACCOUNTING_BLOCKED,
-          primarySubjectType: AuditEntityTypes.DEPOSIT_TRANSACTION,
-          primarySubjectNo: deposit.depositNo,
-          traceId: deposit.traceId || undefined,
+        await this.depositAudit(deposit, {
+          action: 'DEPOSIT_APPROVED',
           outcome: AuditOutcome.FAILED,
+          reasonCode: 'ACCOUNTING',
           reason: `TB Step 2 failed: ${error.message}`,
           metadata: { eventCode: 'DEPOSIT_SUSPENSE_TO_PAYABLE', step: 'STEP_2' },
-          sourcePlatform: 'SYSTEM',
         });
         return;
       }
     }
 
-    await this.depositService.updateStatus(deposit.id, {
+    const approvedRow = await this.depositService.updateStatus(deposit.id, {
       action: DepositTransactionAction.APPROVE,
     });
 
-    // ⑦ DEPOSIT_COMPLETED — record after state change
-    await this.auditLogsService.recordSystem({
-      action: AuditActions.DEPOSIT_COMPLETED,
-      primarySubjectType: AuditEntityTypes.DEPOSIT_TRANSACTION,
-      primarySubjectNo: deposit.depositNo,
-      traceId: deposit.traceId || undefined,
-      reason: 'Deposit completed successfully',
-      sourcePlatform: 'SYSTEM',
+    await this.depositAudit(deposit, {
+      action: 'DEPOSIT_APPROVED',
+      reason: 'Compliance approved, funds credited to client',
+      fromStatus: oldStatus,
+      toStatus: approvedRow.status,
     });
+
 
     this.logger.log(`Deposit ${depositId} approved and credited.`);
   }
@@ -1368,6 +1198,7 @@ export class DepositWorkflowService implements OnModuleInit {
     reason: string | undefined,
     actor: { actorId: string; actorRole?: string },
   ) {
+    const deposit = await this.depositService.findOne(depositId);
     const updated = await this.depositService.updateStatus(
       depositId,
       { action: DepositTransactionAction.FREEZE, reason },
@@ -1380,12 +1211,19 @@ export class DepositWorkflowService implements OnModuleInit {
         sourcePlatform: 'ADMIN_API',
       },
     );
-    await this.recordStateTransitionAudit(
-      updated,
-      '',
-      updated.status,
-      reason || 'Admin freeze',
-    );
+    await this.depositAudit(deposit, {
+      action: 'DEPOSIT_FROZEN',
+      fromStatus: deposit.status,
+      toStatus: updated.status,
+      reason: reason || 'Admin freeze',
+      actor: {
+        actorType: 'ADMIN',
+        actorNo: actor.actorId,
+        actorDisplayName: actor.actorId,
+        actorRolesAtTime: [actor.actorRole || 'UNKNOWN'],
+      },
+      sourcePlatform: 'ADMIN_API',
+    });
     return updated;
   }
 
@@ -1439,31 +1277,18 @@ export class DepositWorkflowService implements OnModuleInit {
 
     await this.depositService.clearLimitHold(depositId);
 
-    await this.auditLogsService.recordByActor(
-      {
-        action: AuditActions.DEPOSIT_LIMIT_WAIVED,
-        primarySubjectType: AuditEntityTypes.DEPOSIT_TRANSACTION,
-        primarySubjectNo: deposit.depositNo,
-        traceId: deposit.traceId || undefined,
-        outcome: AuditOutcome.SUCCESS,
-        // B4：动作名 DEPOSIT_LIMIT_WAIVED 保持不变（不新造审计动作常量，本批不做
-        // 审计专项），实际挂起原因带进 metadata + reason。
-        reason: `Ops released the deposit hold (${deposit.limitHoldReason}); compliance gates still apply`,
-        metadata: {
-          depositNo: deposit.depositNo,
-          amount: String(deposit.amount),
-          limitHoldReason: deposit.limitHoldReason,
-        },
-        requestId: `DEPOSIT_LIMIT_WAIVED_${deposit.depositNo}_${randomUUID()}`,
-        sourcePlatform: 'ADMIN_API',
-      },
-      {
+    await this.depositAudit(deposit, {
+      action: 'DEPOSIT_LIMIT_WAIVED',
+      reason: `Ops released the deposit hold (${deposit.limitHoldReason}); compliance gates still apply`,
+      metadata: { amount: String(deposit.amount), limitHoldReason: deposit.limitHoldReason },
+      actor: {
         actorType: 'ADMIN',
         actorNo: actor.actorId,
         actorDisplayName: actor.actorId,
         actorRolesAtTime: [actor.actorRole || 'UNKNOWN'],
       },
-    );
+      sourcePlatform: 'ADMIN_API',
+    });
 
     await this.checkAutoApproval(depositId);
   }
@@ -1529,24 +1354,14 @@ export class DepositWorkflowService implements OnModuleInit {
       actor,
     );
 
-    await this.auditLogsService.recordByActor(
-      {
-        action: AuditActions.DEPOSIT_CONFISCATION_REQUESTED,
-        primarySubjectType: AuditEntityTypes.DEPOSIT_TRANSACTION,
-        primarySubjectNo: deposit.depositNo,
-        traceId: deposit.traceId || undefined,
-        outcome: AuditOutcome.SUCCESS,
-        reason: 'Ops requested confiscation of below-minimum deposit as T&C handling fee',
-        metadata: {
-          depositNo: deposit.depositNo,
-          amount: String(deposit.amount),
-          approvalNo: approvalCase.approvalNo,
-        },
-        requestId: `DEPOSIT_CONFISCATION_REQUESTED_${deposit.depositNo}_${randomUUID()}`,
-        sourcePlatform: 'ADMIN_API',
-      },
-      this.toAuditActor(actor),
-    );
+    await this.depositAudit(deposit, {
+      action: 'DEPOSIT_CONFISCATION_REQUESTED',
+      reason: 'Ops requested confiscation of below-minimum deposit as T&C handling fee',
+      approvalNo: approvalCase.approvalNo,
+      metadata: { amount: String(deposit.amount) },
+      actor: this.toAuditActor(actor),
+      sourcePlatform: 'ADMIN_API',
+    });
 
     return {
       depositNo: deposit.depositNo,
@@ -1624,23 +1439,21 @@ export class DepositWorkflowService implements OnModuleInit {
         `Confiscation skipped: deposit ${deposit.depositNo} no longer confiscable ` +
           `(status=${deposit.status}, hold=${deposit.limitHoldReason})`,
       );
-      await this.auditLogsService.recordSystem({
-        action: AuditActions.DEPOSIT_CONFISCATION_FAILED,
-        primarySubjectType: AuditEntityTypes.DEPOSIT_TRANSACTION,
-        primarySubjectNo: deposit.depositNo,
-        traceId: deposit.traceId || undefined,
-        outcome: AuditOutcome.FAILED,
+      await this.depositAudit(deposit, {
+        action: 'DEPOSIT_CONFISCATION_STARTED',
+        outcome: AuditOutcome.DENIED,
+        reasonCode: 'NOT_CONFISCABLE',
         reason:
           'Approved confiscation not executed: deposit drifted out of confiscable state ' +
           '(waived/rejected before approval landed)',
-        metadata: { depositNo: deposit.depositNo, status: deposit.status },
-        requestId: `DEPOSIT_CONFISCATION_SKIPPED_${deposit.depositNo}_${randomUUID()}`,
-        sourcePlatform: 'SYSTEM',
+        approvalNo: event.approvalNo,
+        causationId: event.approvalId,
+        metadata: { status: deposit.status },
       });
       return;
     }
 
-    await this.startConfiscation(deposit, event.approvalNo);
+    await this.startConfiscation(deposit, event.approvalNo, event.approvalId);
   }
 
   /**
@@ -1699,19 +1512,18 @@ export class DepositWorkflowService implements OnModuleInit {
    * startConfiscation 被重复调用，与腿级重试无关）+ 挂两笔 pending，随后才翻
    * CONFISCATE_START。settle 半程见 settleConfiscation。
    */
-  private async startConfiscation(deposit: any, approvalNo?: string) {
+  private async startConfiscation(deposit: any, approvalNo?: string, causationId?: string) {
     const firmFeeWallet = await this.systemWalletResolver.resolve(deposit.assetId, 'F_FEE');
     const spec = this.confiscationSpec(deposit, firmFeeWallet);
     await this.disposition.initiate(spec);
 
     await this.depositService.updateStatus(deposit.id, { action: DepositTransactionAction.CONFISCATE_START, reason: 'Below-min confiscation started (funds in transit)' });
 
-    await this.auditLogsService.recordSystem({
-      action: AuditActions.DEPOSIT_CONFISCATION_STARTED, primarySubjectType: AuditEntityTypes.DEPOSIT_TRANSACTION,
-      primarySubjectNo: deposit.depositNo,
-      traceId: deposit.traceId || undefined, outcome: AuditOutcome.SUCCESS,
-      metadata: { depositNo: deposit.depositNo, amount: String(deposit.amount), approvalNo },
-      requestId: `DEPOSIT_CONFISCATION_STARTED_${deposit.depositNo}_${randomUUID()}`, sourcePlatform: 'SYSTEM',
+    await this.depositAudit(deposit, {
+      action: 'DEPOSIT_CONFISCATION_STARTED',
+      approvalNo,
+      causationId,
+      metadata: { amount: String(deposit.amount) },
     });
   }
 
@@ -1770,13 +1582,11 @@ export class DepositWorkflowService implements OnModuleInit {
         const nextAttempt = attempt + 1;
         const { fundsOrderNo } = await this.disposition.rebuild(spec, nextAttempt);
 
-        await this.auditLogsService.recordSystem({
-          action: AuditActions.DEPOSIT_CONFISCATION_RETRIED, primarySubjectType: AuditEntityTypes.DEPOSIT_TRANSACTION,
-          primarySubjectNo: deposit.depositNo,
-          traceId: deposit.traceId || undefined, outcome: AuditOutcome.SUCCESS,
+        await this.depositAudit(deposit, {
+          action: 'DEPOSIT_CONFISCATION_RETRIED',
           reason: `Confiscation leg attempt ${attempt} ${legStatus} — rebuilt attempt ${nextAttempt}`,
-          metadata: { depositNo: deposit.depositNo, fundsOrderId, attempt: nextAttempt, fundsOrderNo },
-          requestId: `DEPOSIT_CONFISCATION_RETRIED_${deposit.depositNo}_${randomUUID()}`, sourcePlatform: 'SYSTEM',
+          fundsOrderNo,
+          metadata: { fundsOrderId, attempt: nextAttempt },
         });
         return;
       }
@@ -1784,13 +1594,12 @@ export class DepositWorkflowService implements OnModuleInit {
       // 重试三级梯耗尽 —— 单子留在 CONFISCATING 原地不动,靠红标让运营看见。
       // 「卡住了」是一面旗,不是一个状态（业主 2026-08-22 定稿）。
       await this.depositService.markNeedsReview(deposit.id);
-      await this.auditLogsService.recordSystem({
-        action: AuditActions.DEPOSIT_CONFISCATION_STUCK, primarySubjectType: AuditEntityTypes.DEPOSIT_TRANSACTION,
-        primarySubjectNo: deposit.depositNo,
-        traceId: deposit.traceId || undefined, outcome: AuditOutcome.FAILED,
+      await this.depositAudit(deposit, {
+        action: 'DEPOSIT_CONFISCATION_STUCK',
+        outcome: AuditOutcome.FAILED,
+        reasonCode: 'LEG_EXHAUSTED',
         reason: `Confiscation leg failed after ${attempt} attempts — manual intervention required (deposit stays CONFISCATING)`,
-        metadata: { depositNo: deposit.depositNo, fundsOrderId, attempt },
-        requestId: `DEPOSIT_CONFISCATION_STUCK_${deposit.depositNo}_${randomUUID()}`, sourcePlatform: 'SYSTEM',
+        metadata: { fundsOrderId, attempt },
       });
     } catch (err: any) {
       this.logger.error(
@@ -1801,16 +1610,13 @@ export class DepositWorkflowService implements OnModuleInit {
       await this.depositService.markNeedsReview(deposit.id).catch((e) =>
         this.logger.error(`markNeedsReview failed for deposit ${deposit.depositNo}: ${e.message}`),
       );
-      await this.auditLogsService
-        .recordSystem({
-          action: AuditActions.DEPOSIT_CONFISCATION_UNLOCK_FAILED, primarySubjectType: AuditEntityTypes.DEPOSIT_TRANSACTION,
-          primarySubjectNo: deposit.depositNo,
-          traceId: deposit.traceId || undefined, outcome: AuditOutcome.FAILED,
-          reason: `onConfiscationLegFailed crashed (attempt ${attempt}): ${err.message} — manual intervention required (deposit stays CONFISCATING)`,
-          metadata: { depositNo: deposit.depositNo, fundsOrderId, attempt, legStatus, error: err.message },
-          requestId: `DEPOSIT_CONFISCATION_UNLOCK_FAILED_${deposit.depositNo}_${randomUUID()}`, sourcePlatform: 'SYSTEM',
-        })
-        .catch(() => undefined);
+      await this.depositAudit(deposit, {
+        action: 'DEPOSIT_CONFISCATION_STUCK',
+        outcome: AuditOutcome.FAILED,
+        reasonCode: 'CRASHED',
+        reason: `onConfiscationLegFailed crashed (attempt ${attempt}): ${err.message} — manual intervention required (deposit stays CONFISCATING)`,
+        metadata: { fundsOrderId, attempt, legStatus, error: err.message },
+      }).catch(() => undefined);
     }
   }
 
@@ -1822,23 +1628,23 @@ export class DepositWorkflowService implements OnModuleInit {
   private async settleConfiscation(spec: DispositionSpec, deposit: any, fundsOrderId: string, attempt: number) {
     const result = await this.disposition.settle(spec, fundsOrderId, attempt);
     if (!result.ok) {
-      await this.auditLogsService.recordSystem({
-        action: AuditActions.DEPOSIT_CONFISCATION_FAILED, primarySubjectType: AuditEntityTypes.DEPOSIT_TRANSACTION,
-        primarySubjectNo: deposit.depositNo,
-        traceId: deposit.traceId || undefined, outcome: AuditOutcome.FAILED,
+      await this.depositAudit(deposit, {
+        action: 'DEPOSIT_CONFISCATION_STUCK',
+        outcome: AuditOutcome.FAILED,
+        reasonCode: 'SETTLE_EXHAUSTED',
         reason: `Settle failed after 3 retries — manual intervention required (deposit stays CONFISCATING)`,
-        metadata: { depositNo: deposit.depositNo, fundsOrderId, error: result.error }, requestId: `DEPOSIT_CONFISCATION_FAILED_${deposit.depositNo}_${randomUUID()}`, sourcePlatform: 'SYSTEM',
+        metadata: { fundsOrderId, error: result.error },
       });
       return; // stay CONFISCATING, no revert, no rethrow (silent stop in the async listener)
     }
-    await this.depositService.updateStatus(deposit.id, { action: DepositTransactionAction.CONFISCATE_SETTLE, reason: 'Below-min confiscation settled' });
-    await this.auditLogsService.recordSystem({
-      action: AuditActions.DEPOSIT_CONFISCATION_EXECUTED, primarySubjectType: AuditEntityTypes.DEPOSIT_TRANSACTION,
-      primarySubjectNo: deposit.depositNo,
-      traceId: deposit.traceId || undefined, outcome: AuditOutcome.SUCCESS,
-      metadata: { depositNo: deposit.depositNo, fundsOrderId }, requestId: `DEPOSIT_CONFISCATION_EXECUTED_${deposit.depositNo}_${randomUUID()}`, sourcePlatform: 'SYSTEM',
+    const settledRow = await this.depositService.updateStatus(deposit.id, { action: DepositTransactionAction.CONFISCATE_SETTLE, reason: 'Below-min confiscation settled' });
+    await this.depositAudit(deposit, {
+      action: 'DEPOSIT_CONFISCATION_EXECUTED',
+      fromStatus: DepositTransactionStatus.CONFISCATING,
+      toStatus: settledRow.status,
+      metadata: { fundsOrderId },
     });
-    await this.clearDispositionLegWithAudit(deposit, fundsOrderId);
+    await this.clearDispositionLeg(deposit, fundsOrderId);
   }
 
   /**
@@ -1865,17 +1671,15 @@ export class DepositWorkflowService implements OnModuleInit {
       reason: 'Payin funds order failed',
     });
 
-    await this.auditLogsService.recordSystem({
-      action: AuditActions.DEPOSIT_PAYIN_FAILED,
-      primarySubjectType: AuditEntityTypes.DEPOSIT_TRANSACTION,
-      primarySubjectNo: deposit.depositNo,
-      traceId: deposit.traceId || undefined,
+    await this.depositAudit(deposit, {
+      action: 'DEPOSIT_PAYIN_COMPLETED',
+      outcome: AuditOutcome.FAILED,
+      reasonCode: 'PAYIN_FAILED',
       reason: 'Payin funds order failed',
+      fromStatus: oldStatus,
+      toStatus: updated.status,
       metadata: { fundsOrderId },
-      sourcePlatform: 'SYSTEM',
     });
-
-    await this.recordStateTransitionAudit(updated, oldStatus, updated.status, 'Payin funds order failed');
   }
 
   private async onPayinConfirmed(depositId: string, fundsOrderId: string, effectiveDate?: string) {
@@ -1893,16 +1697,6 @@ export class DepositWorkflowService implements OnModuleInit {
       return;
     }
 
-    // ── DEPOSIT_PAYIN_CONFIRMED — record before posting/state change ──
-    await this.auditLogsService.recordSystem({
-      action: AuditActions.DEPOSIT_PAYIN_CONFIRMED,
-      primarySubjectType: AuditEntityTypes.DEPOSIT_TRANSACTION,
-      primarySubjectNo: deposit.depositNo,
-      traceId: deposit.traceId || undefined,
-      reason: 'Payin funds order confirmed',
-      metadata: { fundsOrderId, fundsOrderNo: fundsOrder?.fundsOrderNo ?? null },
-      sourcePlatform: 'SYSTEM',
-    });
 
     if (deposit.ownerType === DepositOwnerType.CUSTOMER) {
       try {
@@ -1910,31 +1704,28 @@ export class DepositWorkflowService implements OnModuleInit {
       } catch (err) {
         const error = err instanceof Error ? err : new Error(String(err));
         this.logger.error(`TB Step 1 failed for deposit ${deposit.id}: ${error.message}`);
-        await this.auditLogsService.recordSystem({
-          action: AuditActions.DEPOSIT_ACCOUNTING_BLOCKED,
-          primarySubjectType: AuditEntityTypes.DEPOSIT_TRANSACTION,
-          primarySubjectNo: deposit.depositNo,
-          traceId: deposit.traceId || undefined,
+        await this.depositAudit(deposit, {
+          action: 'DEPOSIT_PAYIN_COMPLETED',
           outcome: AuditOutcome.FAILED,
+          reasonCode: 'ACCOUNTING',
           reason: `TB Step 1 failed: ${error.message}`,
-          metadata: { eventCode: 'DEPOSIT_ASSET_TO_SUSPENSE', step: 'STEP_1' },
-          sourcePlatform: 'SYSTEM',
+          metadata: { eventCode: 'DEPOSIT_ASSET_TO_SUSPENSE', step: 'STEP_1', fundsOrderId },
         });
         return;
       }
     }
 
-    await this.depositService.updateStatus(deposit.id, {
+    const confirmedRow = await this.depositService.updateStatus(deposit.id, {
       action: DepositTransactionAction.PAYIN_CONFIRMED,
     });
 
-    await this.auditLogsService.recordSystem({
-      action: AuditActions.DEPOSIT_COMPLIANCE_STARTED,
-      primarySubjectType: AuditEntityTypes.DEPOSIT_TRANSACTION,
-      primarySubjectNo: deposit.depositNo,
-      traceId: deposit.traceId || undefined,
+    await this.depositAudit(deposit, {
+      action: 'DEPOSIT_PAYIN_COMPLETED',
       reason: 'Payin confirmed, deposit entering compliance review',
-      sourcePlatform: 'SYSTEM',
+      fromStatus: DepositTransactionStatus.PAYIN_PENDING,
+      toStatus: confirmedRow.status,
+      fundsOrderNo: fundsOrder?.fundsOrderNo ?? undefined,
+      metadata: { fundsOrderId },
     });
 
     await this.fundsOrders.advance(fundsOrderId, FundsOrderAction.CLEAR, 'SYSTEM');
@@ -2070,22 +1861,75 @@ export class DepositWorkflowService implements OnModuleInit {
    * 就会被静默去重**。会重复发生的跃迁（如 Gate 0 挂起：freeze→unfreeze→重新挂起、
    * 或 waive→重新挂起）必须传一个唯一值，否则监管面的取证链从第一天就缺行。
    */
-  private async recordStateTransitionAudit(
+  /**
+   * 充值域新合同信封（站1b-β）：统一 actionDomain=DEPOSIT、category=BUSINESS、
+   * 旅程号从单上继承（CREATED=START 铸号落列，见 detected()）、subjects 四角色
+   * （主体=单号｜归属=客户号｜凭据=审批号｜牵连=资金单号）。requestId 沿用
+   * 「码_单号_uuid」模板防静默去重。causationId 语义：直接引发本条的前件
+   * （异步审批驱动的码传 approval 事件 id）。
+   */
+  private async depositAudit(
     deposit: any,
-    fromStatus: string,
-    toStatus: string,
-    reason: string,
-    requestId?: string,
-  ) {
-    await this.auditLogsService.recordSystem({
-      action: buildStateTransitionAction('DEPOSIT', fromStatus, toStatus),
+    patch: {
+      action: string;
+      outcome?: AuditOutcome;
+      reasonCode?: string;
+      reason?: string;
+      fromStatus?: string;
+      toStatus?: string;
+      approvalNo?: string;
+      causationId?: string;
+      fundsOrderNo?: string;
+      metadata?: Record<string, unknown>;
+      /** 人为动作传 actor → 走 recordByActor；缺省系统动作走 recordSystem */
+      actor?: ReturnType<DepositWorkflowService['toAuditActor']>;
+      sourcePlatform?: string;
+    },
+  ): Promise<void> {
+    const customerNo: string | null =
+      deposit.customer?.customerNo ?? deposit.ownerNo ?? null;
+    const subjects: AuditSubjectInput[] = [
+      {
+        subjectType: AuditEntityTypes.DEPOSIT_TRANSACTION,
+        subjectNo: deposit.depositNo,
+        subjectRole: AuditSubjectRole.PRIMARY,
+      },
+    ];
+    if (customerNo) {
+      subjects.push({ subjectType: 'CUSTOMER', subjectNo: customerNo, subjectRole: AuditSubjectRole.OWNER });
+    }
+    if (patch.approvalNo) {
+      subjects.push({ subjectType: AuditEntityTypes.APPROVAL_CASE, subjectNo: patch.approvalNo, subjectRole: AuditSubjectRole.INSTRUMENT });
+    }
+    if (patch.fundsOrderNo) {
+      subjects.push({ subjectType: 'FUNDS_ORDER', subjectNo: patch.fundsOrderNo, subjectRole: AuditSubjectRole.RELATED });
+    }
+    const input = {
+      action: patch.action,
+      actionDomain: 'DEPOSIT',
+      category: AuditCategory.BUSINESS,
       primarySubjectType: AuditEntityTypes.DEPOSIT_TRANSACTION,
       primarySubjectNo: deposit.depositNo,
+      ownerCustomerNo: customerNo ?? undefined,
+      correlationId: deposit.correlationId ?? undefined,
+      causationId: patch.causationId,
+      outcome: patch.outcome ?? AuditOutcome.SUCCESS,
+      reasonCode: patch.reasonCode,
+      reason: patch.reason,
+      fromStatus: patch.fromStatus,
+      toStatus: patch.toStatus,
+      approvalNo: patch.approvalNo,
+      subjects,
       traceId: deposit.traceId || undefined,
-      reason,
-      ...(requestId ? { requestId } : {}),
-      sourcePlatform: 'SYSTEM',
-    });
+      metadata: patch.metadata,
+      requestId: `${patch.action}_${deposit.depositNo}_${randomUUID()}`,
+      sourcePlatform: patch.sourcePlatform ?? 'SYSTEM',
+    };
+    if (patch.actor) {
+      await this.auditLogsService.recordByActor(input as any, patch.actor as any);
+    } else {
+      await this.auditLogsService.recordSystem(input as any);
+    }
   }
 
   // ═══════════════════════════════════════════════════════════════════════
@@ -2162,24 +2006,14 @@ export class DepositWorkflowService implements OnModuleInit {
       actor,
     );
 
-    await this.auditLogsService.recordByActor(
-      {
-        action: AuditActions.DEPOSIT_RETURN_APPROVAL_REQUESTED,
-        primarySubjectType: AuditEntityTypes.DEPOSIT_TRANSACTION,
-        primarySubjectNo: deposit.depositNo,
-        traceId: deposit.traceId || undefined,
-        outcome: AuditOutcome.SUCCESS,
-        reason: dto.reason,
-        metadata: {
-          depositNo: deposit.depositNo,
-          amount: String(deposit.amount),
-          approvalNo: approvalCase.approvalNo,
-        },
-        requestId: `DEPOSIT_RETURN_APPROVAL_REQUESTED_${deposit.depositNo}_${randomUUID()}`,
-        sourcePlatform: 'ADMIN_API',
-      },
-      this.toAuditActor(actor),
-    );
+    await this.depositAudit(deposit, {
+      action: 'DEPOSIT_RETURN_REQUESTED',
+      reason: dto.reason,
+      approvalNo: approvalCase.approvalNo,
+      metadata: { amount: String(deposit.amount) },
+      actor: this.toAuditActor(actor),
+      sourcePlatform: 'ADMIN_API',
+    });
 
     return {
       depositNo: deposit.depositNo,
@@ -2243,25 +2077,14 @@ export class DepositWorkflowService implements OnModuleInit {
       actor,
     );
 
-    await this.auditLogsService.recordByActor(
-      {
-        action: AuditActions.DEPOSIT_SEIZE_APPROVAL_REQUESTED,
-        primarySubjectType: AuditEntityTypes.DEPOSIT_TRANSACTION,
-        primarySubjectNo: deposit.depositNo,
-        traceId: deposit.traceId || undefined,
-        outcome: AuditOutcome.SUCCESS,
-        reason: dto.reason,
-        metadata: {
-          depositNo: deposit.depositNo,
-          amount: String(deposit.amount),
-          orderRef: dto.orderRef,
-          approvalNo: approvalCase.approvalNo,
-        },
-        requestId: `DEPOSIT_SEIZE_APPROVAL_REQUESTED_${deposit.depositNo}_${randomUUID()}`,
-        sourcePlatform: 'ADMIN_API',
-      },
-      this.toAuditActor(actor),
-    );
+    await this.depositAudit(deposit, {
+      action: 'DEPOSIT_SEIZE_REQUESTED',
+      reason: dto.reason,
+      approvalNo: approvalCase.approvalNo,
+      metadata: { amount: String(deposit.amount), orderRef: dto.orderRef },
+      actor: this.toAuditActor(actor),
+      sourcePlatform: 'ADMIN_API',
+    });
 
     return {
       depositNo: deposit.depositNo,
@@ -2324,25 +2147,14 @@ export class DepositWorkflowService implements OnModuleInit {
       actor,
     );
 
-    await this.auditLogsService.recordByActor(
-      {
-        action: AuditActions.DEPOSIT_UNFREEZE_APPROVAL_REQUESTED,
-        primarySubjectType: AuditEntityTypes.DEPOSIT_TRANSACTION,
-        primarySubjectNo: deposit.depositNo,
-        traceId: deposit.traceId || undefined,
-        outcome: AuditOutcome.SUCCESS,
-        reason: dto.reason,
-        metadata: {
-          depositNo: deposit.depositNo,
-          amount: String(deposit.amount),
-          orderRef: dto.orderRef,
-          approvalNo: approvalCase.approvalNo,
-        },
-        requestId: `DEPOSIT_UNFREEZE_APPROVAL_REQUESTED_${deposit.depositNo}_${randomUUID()}`,
-        sourcePlatform: 'ADMIN_API',
-      },
-      this.toAuditActor(actor),
-    );
+    await this.depositAudit(deposit, {
+      action: 'DEPOSIT_UNFREEZE_REQUESTED',
+      reason: dto.reason,
+      approvalNo: approvalCase.approvalNo,
+      metadata: { amount: String(deposit.amount), orderRef: dto.orderRef },
+      actor: this.toAuditActor(actor),
+      sourcePlatform: 'ADMIN_API',
+    });
 
     return {
       depositNo: deposit.depositNo,
@@ -2383,7 +2195,7 @@ export class DepositWorkflowService implements OnModuleInit {
       return;
     }
 
-    await this.onReturnApproved(deposit);
+    await this.onReturnApproved(deposit, event);
   }
 
   /**
@@ -2483,7 +2295,7 @@ export class DepositWorkflowService implements OnModuleInit {
     return holdReason;
   }
 
-  private async onReturnApproved(deposit: any) {
+  private async onReturnApproved(deposit: any, event?: ApprovalDecidedEvent) {
     if (!DepositWorkflowService.RETURNABLE_STATUSES.includes(deposit.status)) {
       this.logger.debug(
         `onReturnApproved no-op: deposit ${deposit.id} not in a returnable status (status=${deposit.status})`,
@@ -2500,15 +2312,15 @@ export class DepositWorkflowService implements OnModuleInit {
 
     const clearedHoldReason = await this.clearAdministrativeHoldOnReturn(deposit);
 
-    await this.auditLogsService.recordSystem({
-      action: AuditActions.DEPOSIT_RETURN_STARTED, primarySubjectType: AuditEntityTypes.DEPOSIT_TRANSACTION,
-      primarySubjectNo: deposit.depositNo,
-      traceId: deposit.traceId || undefined, outcome: AuditOutcome.SUCCESS,
+    await this.depositAudit(deposit, {
+      action: 'DEPOSIT_RETURN_STARTED',
+      approvalNo: event?.approvalNo,
+      causationId: event?.approvalId,
+      fundsOrderNo: returnLeg.fundsOrderNo,
       // clearedLimitHoldReason：本次退回清掉的行政级挂起原因（没清则 null）。挂起原因
       // 决定客户看不看得见这笔单,属 operator 可见的状态变化 —— 按铁律留痕,但复用
       // DEPOSIT_RETURN_STARTED 这条已有审计的 metadata,不新造审计动作常量。
-      metadata: { depositNo: deposit.depositNo, amount: String(deposit.amount), fundsOrderNo: returnLeg.fundsOrderNo, clearedLimitHoldReason: clearedHoldReason },
-      requestId: `DEPOSIT_RETURN_STARTED_${deposit.depositNo}_${randomUUID()}`, sourcePlatform: 'SYSTEM',
+      metadata: { amount: String(deposit.amount), clearedLimitHoldReason: clearedHoldReason },
     });
   }
 
@@ -2542,24 +2354,23 @@ export class DepositWorkflowService implements OnModuleInit {
   private async settleReturn(spec: DispositionSpec, deposit: any, fundsOrderId: string, attempt: number) {
     const result = await this.disposition.settle(spec, fundsOrderId, attempt);
     if (!result.ok) {
-      await this.auditLogsService.recordSystem({
-        action: AuditActions.DEPOSIT_RETURN_STUCK, primarySubjectType: AuditEntityTypes.DEPOSIT_TRANSACTION,
-        primarySubjectNo: deposit.depositNo,
-        traceId: deposit.traceId || undefined, outcome: AuditOutcome.FAILED,
+      await this.depositAudit(deposit, {
+        action: 'DEPOSIT_RETURN_STUCK',
+        outcome: AuditOutcome.FAILED,
+        reasonCode: 'SETTLE_EXHAUSTED',
         reason: `Settle failed after 3 retries — manual intervention required (deposit stays RETURNING)`,
-        metadata: { depositNo: deposit.depositNo, fundsOrderId, error: result.error }, requestId: `DEPOSIT_RETURN_STUCK_${deposit.depositNo}_${randomUUID()}`, sourcePlatform: 'SYSTEM',
+        metadata: { fundsOrderId, error: result.error },
       });
       return; // stay RETURNING, no revert, no rethrow (silent stop in the async listener)
     }
-    await this.depositService.updateStatus(deposit.id, { action: DepositTransactionAction.RETURNED_DONE, reason: 'Return to sender settled' });
-    await this.auditLogsService.recordSystem({
-      action: AuditActions.DEPOSIT_RETURNED, primarySubjectType: AuditEntityTypes.DEPOSIT_TRANSACTION,
-      primarySubjectNo: deposit.depositNo,
-      traceId: deposit.traceId || undefined, outcome: AuditOutcome.SUCCESS,
-      metadata: { depositNo: deposit.depositNo, fundsOrderId, externalRef: result.externalRef },
-      requestId: `DEPOSIT_RETURNED_${deposit.depositNo}_${randomUUID()}`, sourcePlatform: 'SYSTEM',
+    const settledRow = await this.depositService.updateStatus(deposit.id, { action: DepositTransactionAction.RETURNED_DONE, reason: 'Return to sender settled' });
+    await this.depositAudit(deposit, {
+      action: 'DEPOSIT_RETURNED',
+      fromStatus: DepositTransactionStatus.RETURNING,
+      toStatus: settledRow.status,
+      metadata: { fundsOrderId, externalRef: result.externalRef },
     });
-    await this.clearDispositionLegWithAudit(deposit, fundsOrderId);
+    await this.clearDispositionLeg(deposit, fundsOrderId);
   }
 
   /**
@@ -2575,13 +2386,11 @@ export class DepositWorkflowService implements OnModuleInit {
         const nextAttempt = attempt + 1;
         const { fundsOrderNo } = await this.disposition.rebuild(spec, nextAttempt);
 
-        await this.auditLogsService.recordSystem({
-          action: AuditActions.DEPOSIT_RETURN_RETRIED, primarySubjectType: AuditEntityTypes.DEPOSIT_TRANSACTION,
-          primarySubjectNo: deposit.depositNo,
-          traceId: deposit.traceId || undefined, outcome: AuditOutcome.SUCCESS,
+        await this.depositAudit(deposit, {
+          action: 'DEPOSIT_RETURN_RETRIED',
           reason: `Return leg attempt ${attempt} failed — rebuilt attempt ${nextAttempt}`,
-          metadata: { depositNo: deposit.depositNo, fundsOrderId, attempt: nextAttempt, fundsOrderNo },
-          requestId: `DEPOSIT_RETURN_RETRIED_${deposit.depositNo}_${randomUUID()}`, sourcePlatform: 'SYSTEM',
+          fundsOrderNo,
+          metadata: { fundsOrderId, attempt: nextAttempt },
         });
         return;
       }
@@ -2590,13 +2399,12 @@ export class DepositWorkflowService implements OnModuleInit {
       // 「卡住了」是一面旗,不是一个状态（业主 2026-08-22 定稿）。
       await this.depositService.markNeedsReview(deposit.id);
 
-      await this.auditLogsService.recordSystem({
-        action: AuditActions.DEPOSIT_RETURN_STUCK, primarySubjectType: AuditEntityTypes.DEPOSIT_TRANSACTION,
-        primarySubjectNo: deposit.depositNo,
-        traceId: deposit.traceId || undefined, outcome: AuditOutcome.FAILED,
+      await this.depositAudit(deposit, {
+        action: 'DEPOSIT_RETURN_STUCK',
+        outcome: AuditOutcome.FAILED,
+        reasonCode: 'LEG_EXHAUSTED',
         reason: `Return leg failed after ${attempt} attempts — manual intervention required (deposit stays RETURNING)`,
-        metadata: { depositNo: deposit.depositNo, fundsOrderId, attempt },
-        requestId: `DEPOSIT_RETURN_STUCK_${deposit.depositNo}_${randomUUID()}`, sourcePlatform: 'SYSTEM',
+        metadata: { fundsOrderId, attempt },
       });
     } catch (err: any) {
       this.logger.error(`onReturnLegFailed crashed for deposit ${deposit.depositNo} attempt ${attempt}: ${err.message}`);
@@ -2605,35 +2413,23 @@ export class DepositWorkflowService implements OnModuleInit {
       await this.depositService.markNeedsReview(deposit.id).catch((e) =>
         this.logger.error(`markNeedsReview failed for deposit ${deposit.depositNo}: ${e.message}`),
       );
-      await this.auditLogsService
-        .recordSystem({
-          action: AuditActions.DEPOSIT_RETURN_STUCK, primarySubjectType: AuditEntityTypes.DEPOSIT_TRANSACTION,
-          primarySubjectNo: deposit.depositNo,
-          traceId: deposit.traceId || undefined, outcome: AuditOutcome.FAILED,
-          reason: `onReturnLegFailed crashed (attempt ${attempt}): ${err.message} — manual intervention required (deposit stays RETURNING)`,
-          metadata: { depositNo: deposit.depositNo, fundsOrderId, attempt, error: err.message },
-          requestId: `DEPOSIT_RETURN_STUCK_${deposit.depositNo}_${randomUUID()}`, sourcePlatform: 'SYSTEM',
-        })
-        .catch(() => undefined);
+      await this.depositAudit(deposit, {
+        action: 'DEPOSIT_RETURN_STUCK',
+        outcome: AuditOutcome.FAILED,
+        reasonCode: 'CRASHED',
+        reason: `onReturnLegFailed crashed (attempt ${attempt}): ${err.message} — manual intervention required (deposit stays RETURNING)`,
+        metadata: { fundsOrderId, attempt, error: err.message },
+      }).catch(() => undefined);
     }
   }
 
-  /** 腿收口 + 失败留痕（三弧共用；engine.clearLeg 幂等，失败仅腿状态滞后不伤资金）。 */
-  private async clearDispositionLegWithAudit(deposit: any, fundsOrderId: string): Promise<void> {
+  /** 腿收口（三弧共用；engine.clearLeg 幂等，失败仅腿状态滞后不伤资金——降日志，不留审计）。 */
+  private async clearDispositionLeg(deposit: any, fundsOrderId: string): Promise<void> {
     const clearErr = await this.disposition.clearLeg(fundsOrderId);
     if (!clearErr) return;
-    await this.auditLogsService.recordSystem({
-      action: AuditActions.DEPOSIT_LEG_CLEAR_FAILED,
-      primarySubjectType: AuditEntityTypes.DEPOSIT_TRANSACTION,
-      primarySubjectNo: deposit.depositNo,
-      traceId: deposit.traceId || undefined,
-      outcome: AuditOutcome.FAILED,
-      reason:
-        'Disposition leg settled (accounting posted, deposit terminal) but funds order could not be CLEARED — funds order status lags, no accounting impact',
-      metadata: { depositNo: deposit.depositNo, fundsOrderId, error: clearErr },
-      requestId: `DEPOSIT_LEG_CLEAR_FAILED_${deposit.depositNo}_${randomUUID()}`,
-      sourcePlatform: 'SYSTEM',
-    });
+    this.logger.warn(
+      `Disposition leg for deposit ${deposit.depositNo} settled but funds order ${fundsOrderId} could not be CLEARED (${clearErr}) — funds order status lags, no accounting impact`,
+    );
   }
 
   /**
@@ -2667,7 +2463,7 @@ export class DepositWorkflowService implements OnModuleInit {
       return;
     }
 
-    await this.onSeizeApproved(deposit);
+    await this.onSeizeApproved(deposit, event);
   }
 
   /**
@@ -2763,7 +2559,7 @@ export class DepositWorkflowService implements OnModuleInit {
    * Guarded to only run from FROZEN — a replayed decided event arriving after the
    * deposit already left FROZEN is a no-op rather than crashing.
    */
-  private async onSeizeApproved(deposit: any) {
+  private async onSeizeApproved(deposit: any, event?: ApprovalDecidedEvent) {
     if (deposit.status !== DepositTransactionStatus.FROZEN) {
       this.logger.debug(
         `onSeizeApproved no-op: deposit ${deposit.id} not in FROZEN (status=${deposit.status})`,
@@ -2782,12 +2578,12 @@ export class DepositWorkflowService implements OnModuleInit {
       reason: 'Seizure approved (funds in transit to government custody)',
     });
 
-    await this.auditLogsService.recordSystem({
-      action: AuditActions.DEPOSIT_SEIZE_STARTED, primarySubjectType: AuditEntityTypes.DEPOSIT_TRANSACTION,
-      primarySubjectNo: deposit.depositNo,
-      traceId: deposit.traceId || undefined, outcome: AuditOutcome.SUCCESS,
-      metadata: { depositNo: deposit.depositNo, amount: String(deposit.amount), fundsOrderNo: seizeLeg.fundsOrderNo, orderRef },
-      requestId: `DEPOSIT_SEIZE_STARTED_${deposit.depositNo}_${randomUUID()}`, sourcePlatform: 'SYSTEM',
+    await this.depositAudit(deposit, {
+      action: 'DEPOSIT_SEIZE_STARTED',
+      approvalNo: event?.approvalNo,
+      causationId: event?.approvalId,
+      fundsOrderNo: seizeLeg.fundsOrderNo,
+      metadata: { amount: String(deposit.amount), orderRef },
     });
   }
 
@@ -2822,24 +2618,23 @@ export class DepositWorkflowService implements OnModuleInit {
   private async settleSeize(spec: DispositionSpec, deposit: any, fundsOrderId: string, attempt: number) {
     const result = await this.disposition.settle(spec, fundsOrderId, attempt);
     if (!result.ok) {
-      await this.auditLogsService.recordSystem({
-        action: AuditActions.DEPOSIT_SEIZE_STUCK, primarySubjectType: AuditEntityTypes.DEPOSIT_TRANSACTION,
-        primarySubjectNo: deposit.depositNo,
-        traceId: deposit.traceId || undefined, outcome: AuditOutcome.FAILED,
+      await this.depositAudit(deposit, {
+        action: 'DEPOSIT_SEIZE_STUCK',
+        outcome: AuditOutcome.FAILED,
+        reasonCode: 'SETTLE_EXHAUSTED',
         reason: `Settle failed after 3 retries — manual intervention required (deposit stays SEIZING)`,
-        metadata: { depositNo: deposit.depositNo, fundsOrderId, error: result.error }, requestId: `DEPOSIT_SEIZE_STUCK_${deposit.depositNo}_${randomUUID()}`, sourcePlatform: 'SYSTEM',
+        metadata: { fundsOrderId, error: result.error },
       });
       return; // stay SEIZING, no revert, no rethrow (silent stop in the async listener)
     }
-    await this.depositService.updateStatus(deposit.id, { action: DepositTransactionAction.SEIZED_DONE, reason: 'Seizure settled — funds handed off to government custody' });
-    await this.auditLogsService.recordSystem({
-      action: AuditActions.DEPOSIT_SEIZED, primarySubjectType: AuditEntityTypes.DEPOSIT_TRANSACTION,
-      primarySubjectNo: deposit.depositNo,
-      traceId: deposit.traceId || undefined, outcome: AuditOutcome.SUCCESS,
-      metadata: { depositNo: deposit.depositNo, fundsOrderId },
-      requestId: `DEPOSIT_SEIZED_${deposit.depositNo}_${randomUUID()}`, sourcePlatform: 'SYSTEM',
+    const settledRow = await this.depositService.updateStatus(deposit.id, { action: DepositTransactionAction.SEIZED_DONE, reason: 'Seizure settled — funds handed off to government custody' });
+    await this.depositAudit(deposit, {
+      action: 'DEPOSIT_SEIZED',
+      fromStatus: DepositTransactionStatus.SEIZING,
+      toStatus: settledRow.status,
+      metadata: { fundsOrderId },
     });
-    await this.clearDispositionLegWithAudit(deposit, fundsOrderId);
+    await this.clearDispositionLeg(deposit, fundsOrderId);
   }
 
   /**
@@ -2857,13 +2652,11 @@ export class DepositWorkflowService implements OnModuleInit {
         const orderRef = await this.fetchSeizeOrderRef(deposit.id);
         const { fundsOrderNo } = await this.disposition.rebuild(this.seizeSpec(deposit, orderRef), nextAttempt);
 
-        await this.auditLogsService.recordSystem({
-          action: AuditActions.DEPOSIT_SEIZE_RETRIED, primarySubjectType: AuditEntityTypes.DEPOSIT_TRANSACTION,
-          primarySubjectNo: deposit.depositNo,
-          traceId: deposit.traceId || undefined, outcome: AuditOutcome.SUCCESS,
+        await this.depositAudit(deposit, {
+          action: 'DEPOSIT_SEIZE_RETRIED',
           reason: `Seize leg attempt ${attempt} failed — rebuilt attempt ${nextAttempt}`,
-          metadata: { depositNo: deposit.depositNo, fundsOrderId, attempt: nextAttempt, fundsOrderNo },
-          requestId: `DEPOSIT_SEIZE_RETRIED_${deposit.depositNo}_${randomUUID()}`, sourcePlatform: 'SYSTEM',
+          fundsOrderNo,
+          metadata: { fundsOrderId, attempt: nextAttempt },
         });
         return;
       }
@@ -2872,13 +2665,12 @@ export class DepositWorkflowService implements OnModuleInit {
       // 「卡住了」是一面旗,不是一个状态（业主 2026-08-22 定稿）。
       await this.depositService.markNeedsReview(deposit.id);
 
-      await this.auditLogsService.recordSystem({
-        action: AuditActions.DEPOSIT_SEIZE_STUCK, primarySubjectType: AuditEntityTypes.DEPOSIT_TRANSACTION,
-        primarySubjectNo: deposit.depositNo,
-        traceId: deposit.traceId || undefined, outcome: AuditOutcome.FAILED,
+      await this.depositAudit(deposit, {
+        action: 'DEPOSIT_SEIZE_STUCK',
+        outcome: AuditOutcome.FAILED,
+        reasonCode: 'LEG_EXHAUSTED',
         reason: `Seize leg failed after ${attempt} attempts — manual intervention required (deposit stays SEIZING)`,
-        metadata: { depositNo: deposit.depositNo, fundsOrderId, attempt },
-        requestId: `DEPOSIT_SEIZE_STUCK_${deposit.depositNo}_${randomUUID()}`, sourcePlatform: 'SYSTEM',
+        metadata: { fundsOrderId, attempt },
       });
     } catch (err: any) {
       this.logger.error(`onSeizeLegFailed crashed for deposit ${deposit.depositNo} attempt ${attempt}: ${err.message}`);
@@ -2887,16 +2679,13 @@ export class DepositWorkflowService implements OnModuleInit {
       await this.depositService.markNeedsReview(deposit.id).catch((e) =>
         this.logger.error(`markNeedsReview failed for deposit ${deposit.depositNo}: ${e.message}`),
       );
-      await this.auditLogsService
-        .recordSystem({
-          action: AuditActions.DEPOSIT_SEIZE_STUCK, primarySubjectType: AuditEntityTypes.DEPOSIT_TRANSACTION,
-          primarySubjectNo: deposit.depositNo,
-          traceId: deposit.traceId || undefined, outcome: AuditOutcome.FAILED,
-          reason: `onSeizeLegFailed crashed (attempt ${attempt}): ${err.message} — manual intervention required (deposit stays SEIZING)`,
-          metadata: { depositNo: deposit.depositNo, fundsOrderId, attempt, error: err.message },
-          requestId: `DEPOSIT_SEIZE_STUCK_${deposit.depositNo}_${randomUUID()}`, sourcePlatform: 'SYSTEM',
-        })
-        .catch(() => undefined);
+      await this.depositAudit(deposit, {
+        action: 'DEPOSIT_SEIZE_STUCK',
+        outcome: AuditOutcome.FAILED,
+        reasonCode: 'CRASHED',
+        reason: `onSeizeLegFailed crashed (attempt ${attempt}): ${err.message} — manual intervention required (deposit stays SEIZING)`,
+        metadata: { fundsOrderId, attempt, error: err.message },
+      }).catch(() => undefined);
     }
   }
 
@@ -2931,7 +2720,7 @@ export class DepositWorkflowService implements OnModuleInit {
       return;
     }
 
-    await this.onUnfreezeApproved(deposit);
+    await this.onUnfreezeApproved(deposit, event);
   }
 
   /**
@@ -3012,7 +2801,7 @@ export class DepositWorkflowService implements OnModuleInit {
    *      same rationale as A4's seizure orderRef).
    *   5. Best-effort Sumsub rescore (see triggerUnfreezeRescore) — never crashes.
    */
-  private async onUnfreezeApproved(deposit: any) {
+  private async onUnfreezeApproved(deposit: any, event?: ApprovalDecidedEvent) {
     if (deposit.status !== DepositTransactionStatus.FROZEN) {
       this.logger.debug(
         `onUnfreezeApproved no-op: deposit ${deposit.id} not in FROZEN (status=${deposit.status})`,
@@ -3022,21 +2811,19 @@ export class DepositWorkflowService implements OnModuleInit {
 
     const orderRef = await this.fetchUnfreezeOrderRef(deposit.id);
 
-    await this.depositService.updateStatus(deposit.id, {
+    const resumedRow = await this.depositService.updateStatus(deposit.id, {
       action: DepositTransactionAction.RESUME,
       reason: `Unfreeze approved (order ${orderRef}) — resumed into compliance flow`,
     });
 
-    await this.auditLogsService.recordSystem({
-      action: AuditActions.DEPOSIT_UNFROZEN,
-      primarySubjectType: AuditEntityTypes.DEPOSIT_TRANSACTION,
-      primarySubjectNo: deposit.depositNo,
-      traceId: deposit.traceId || undefined,
-      outcome: AuditOutcome.SUCCESS,
+    await this.depositAudit(deposit, {
+      action: 'DEPOSIT_UNFROZEN',
+      approvalNo: event?.approvalNo,
+      causationId: event?.approvalId,
       reason: `Unfreeze order ${orderRef} — deposit resumed to COMPLIANCE_PENDING`,
-      metadata: { depositNo: deposit.depositNo, orderRef },
-      requestId: `DEPOSIT_UNFROZEN_${deposit.depositNo}_${randomUUID()}`,
-      sourcePlatform: 'SYSTEM',
+      fromStatus: DepositTransactionStatus.FROZEN,
+      toStatus: resumedRow.status,
+      metadata: { orderRef },
     });
 
     await this.triggerUnfreezeRescore(deposit);
@@ -3076,14 +2863,12 @@ export class DepositWorkflowService implements OnModuleInit {
         // 「良性自咬」（因为单这时确实已经 FROZEN），只打 debug，审计缺失却无人
         // 知晓。审计失败与状态跃迁失败必须分开：这里失败只以 logger.error 现身，
         // 绝不让一笔已经冻结成功的单被判成失败。
-        await this.auditLogsService
-          .recordSystem({
-            action: AuditActions.DEPOSIT_FROZEN,
-            primarySubjectType: AuditEntityTypes.DEPOSIT_TRANSACTION,
-            primarySubjectNo: d.depositNo,
-            traceId: d.traceId || event.traceId || undefined,
+        await this.depositAudit(d, {
+            action: 'DEPOSIT_FROZEN',
+            fromStatus: d.status,
+            toStatus: DepositTransactionStatus.FROZEN,
             reason: `Frozen by customer restriction ${event.restrictionNo} (${event.cause})`,
-            sourcePlatform: 'SYSTEM',
+            metadata: { restrictionNo: event.restrictionNo, cause: event.cause },
           })
           .catch((err) => {
             this.logger.error(
