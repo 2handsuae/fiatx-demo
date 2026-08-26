@@ -257,7 +257,7 @@ export class SwapDemoScenarioService {
           ...opts.extraMetadata,
         },
         requestId: `SWAP_DEMO_VERDICT_${swap.swapNo ?? swap.id}_${randomUUID()}`,
-        sourcePlatform: 'ADMIN_API',
+        sourcePlatform: 'SCRIPT',
       },
       {
         actorType: 'ADMIN',

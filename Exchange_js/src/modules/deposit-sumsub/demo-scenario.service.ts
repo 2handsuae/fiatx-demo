@@ -122,7 +122,7 @@ export class DepositDemoScenarioService {
           statusAfter: refreshed.status,
         },
         requestId: `DEPOSIT_DEMO_VERDICT_${deposit.depositNo}_${randomUUID()}`,
-        sourcePlatform: 'ADMIN_API',
+        sourcePlatform: 'SCRIPT',
       },
       {
         actorType: 'ADMIN',

@@ -126,7 +126,7 @@ export class WithdrawDemoScenarioService {
           statusAfter: refreshed.status,
         },
         requestId: `WITHDRAW_DEMO_VERDICT_${withdraw.withdrawNo}_${randomUUID()}`,
-        sourcePlatform: 'ADMIN_API',
+        sourcePlatform: 'SCRIPT',
       },
       {
         actorType: 'ADMIN',
