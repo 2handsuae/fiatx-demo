@@ -29,6 +29,36 @@ db_file="$(resolve_db_file)"
 echo "[${STACK}] stopping services before business reset"
 bash "${SCRIPT_DIR}/stack-stop.sh" "${STACK}" >/dev/null 2>&1 || true
 
+# Wipe TigerBeetle data file alongside the SQLite reset (ported from
+# reset-main.sh 2026-08-26 — this block was the missing piece that made
+# self-stack resets break the COA identity: TB keeps every transfer ever
+# written, so balances drift from a freshly-seeded dev.db).
+if [ -n "${TB_DATA_FILE:-}" ] && [ -f "${TB_DATA_FILE}" ]; then
+  echo "[${STACK}] wiping TigerBeetle data file: ${TB_DATA_FILE}"
+  rm -f "${TB_DATA_FILE}"
+fi
+
+# Format + start a fresh TigerBeetle so TB-touching seed steps can connect
+# (otherwise seed hangs on TB connect with infinite ConnectionRefused retry).
+if [ -n "${TB_DATA_FILE:-}" ] && [ -n "${TB_ADDRESS:-}" ]; then
+  mkdir -p "$(dirname "${TB_DATA_FILE}")" "${RUNTIME_DIR:-/tmp}"
+  if [ ! -f "${TB_DATA_FILE}" ]; then
+    echo "[${STACK}] formatting new TigerBeetle data file..."
+    tigerbeetle format --cluster=0 --replica=0 --replica-count=1 "${TB_DATA_FILE}"
+  fi
+  echo "[${STACK}] starting TigerBeetle at ${TB_ADDRESS}"
+  tigerbeetle start --development --addresses="${TB_ADDRESS}" "${TB_DATA_FILE}" \
+    > "${TB_LOG:-/tmp/tb-reset-${STACK}.log}" 2>&1 &
+  echo $! > "${TB_PID_FILE:-/tmp/tb-reset-${STACK}.pid}"
+  for i in 1 2 3 4 5 6 7 8 9 10; do
+    if lsof -ti:"${TB_PORT:-3003}" >/dev/null 2>&1; then
+      echo "[${STACK}] TigerBeetle ready on ${TB_ADDRESS}"
+      break
+    fi
+    sleep 1
+  done
+fi
+
 mkdir -p "$(dirname "${db_file}")"
 
 echo "[${STACK}] applying pending migrations: ${db_file}"

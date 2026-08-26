@@ -1,7 +1,7 @@
 # 演示数据字典（data）
 
 > 现状版（2026-08-26 实测盘点后手写）。待造数脚本输出答案键清单后，本文件改为脚本自动生成（防漂移）。
-> 重铺入口：`bash scripts/stack.sh reset-main`；全量造数：`bash scripts/on-stack.sh main demo:all`。
+> 重铺入口：`bash scripts/stack.sh reset [main|self]`（含 TigerBeetle 清理重建）；全量造数：`bash scripts/on-stack.sh main demo:all`（worktree 内用 self）。基线见 [baseline.md](baseline.md)。
 
 ## 管理员（base seed，8 职务各一人，密码 123456）
 
