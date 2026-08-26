@@ -69,7 +69,7 @@ cd client-web && npx tsc -b --noEmit && cd ..    # ③ 客户端
 | 时机 | 读什么 |
 |---|---|
 | 会话开始 | `modules/overview.md` |
-| 改某模块 | `prd/<篇>`（未写则跳过）→ `modules/<篇>`；modules 未覆盖时暂读 `reference/truth/<篇>` |
+| 改某模块 | `prd/<篇>`（未写则跳过）→ `modules/<篇>` |
 | 动任何设计决定前 | `decisions.md` —— 已否决的方案不翻案 |
 | 写后端 / 前端代码 | `rules/backend.md` ｜ `rules/frontend-admin.md` / `rules/frontend-client.md`（UI 契约见 `ui-contract/`） |
 | 改页面 / 种子数据 | 同步 `demo/data.md`、`demo/script.md` 对应步骤 |
