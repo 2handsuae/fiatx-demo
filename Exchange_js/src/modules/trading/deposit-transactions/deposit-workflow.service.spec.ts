@@ -127,7 +127,7 @@ describe('DepositWorkflowService', () => {
     customerAccessService.resolve.mockReset();
     customerAccessService.resolve.mockResolvedValue(accessAllowing());
     depositService = {
-      updateStatus: jest.fn(),
+      updateStatus: jest.fn().mockResolvedValue({ status: DepositTransactionStatus.SUCCESS }),
       findOne: jest.fn(),
       updateSumsubVerdict: jest.fn(),
       saveTxnDetail: jest.fn().mockResolvedValue(undefined),
@@ -649,7 +649,7 @@ describe('DepositWorkflowService', () => {
             action: AuditActions.DEPOSIT_SUMSUB_SUBMITTED,
             primarySubjectType: AuditEntityTypes.DEPOSIT_TRANSACTION,
             primarySubjectNo: 'DEP-SUB-CRYPTO-TR-001',
-            metadata: { sumsubTxnId: 'TXN-TR-1', txnType: 'travelRule', reason: 'TR_REQUIRED' },
+            metadata: { sumsubTxnId: 'TXN-TR-1', txnType: 'travelRule', decisionReason: 'TR_REQUIRED' },
           }),
         );
       });
@@ -670,7 +670,7 @@ describe('DepositWorkflowService', () => {
         });
         expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
           expect.objectContaining({
-            metadata: { sumsubTxnId: 'TXN-FIN-2', txnType: 'finance', reason: 'COUNTERPARTY_NOT_VASP' },
+            metadata: { sumsubTxnId: 'TXN-FIN-2', txnType: 'finance', decisionReason: 'COUNTERPARTY_NOT_VASP' },
           }),
         );
       });
@@ -702,7 +702,7 @@ describe('DepositWorkflowService', () => {
             action: AuditActions.DEPOSIT_SUMSUB_SUBMITTED,
             primarySubjectType: AuditEntityTypes.DEPOSIT_TRANSACTION,
             primarySubjectNo: 'DEP-SUB-FIAT-001',
-            metadata: { sumsubTxnId: 'TXN-FIN-1', txnType: 'finance', reason: 'NOT_CRYPTO' },
+            metadata: { sumsubTxnId: 'TXN-FIN-1', txnType: 'finance', decisionReason: 'NOT_CRYPTO' },
           }),
         );
       });
@@ -762,7 +762,7 @@ describe('DepositWorkflowService', () => {
         });
         expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
           expect.objectContaining({
-            metadata: { sumsubTxnId: 'TXN-FIN-3', txnType: 'finance', reason: 'TR_REQUIRED' },
+            metadata: { sumsubTxnId: 'TXN-FIN-3', txnType: 'finance', decisionReason: 'TR_REQUIRED' },
           }),
         );
       });
@@ -884,7 +884,8 @@ describe('DepositWorkflowService', () => {
       expect(fundsOrders.findByParent).not.toHaveBeenCalled();
       expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
         expect.objectContaining({
-          action: 'DEPOSIT_HELD_NOT_TRADING_READY',
+          action: 'DEPOSIT_HELD',
+          reasonCode: 'NOT_TRADING_READY',
           primarySubjectType: AuditEntityTypes.DEPOSIT_TRANSACTION,
           primarySubjectNo: 'DEP001',
         }),
@@ -907,7 +908,7 @@ describe('DepositWorkflowService', () => {
       await service.checkAutoApproval('dep-1');
 
       expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
-        expect.objectContaining({ action: 'DEPOSIT_HELD_BELOW_MIN' }),
+        expect.objectContaining({ action: 'DEPOSIT_HELD', reasonCode: 'BELOW_MIN' }),
       );
       expect(depositService.updateStatus).toHaveBeenCalledWith(
         'dep-1',
@@ -1026,7 +1027,7 @@ describe('DepositWorkflowService', () => {
         expect.anything(),
       );
       expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
-        expect.objectContaining({ action: AuditActions.DEPOSIT_HELD_BELOW_MIN }),
+        expect.objectContaining({ action: 'DEPOSIT_HELD', reasonCode: 'BELOW_MIN' }),
       );
       // 终态不是 APPROVE/SUCCESS,也没有记账相关审计——闸真的拦住了钱,不只是拦住了某个 helper 调用
       expect(depositService.updateStatus).not.toHaveBeenCalledWith(
@@ -1085,7 +1086,7 @@ describe('DepositWorkflowService', () => {
       );
       // 写 DEPOSIT_HELD_BELOW_MIN 审计,不写 DEPOSIT_APPROVED/DEPOSIT_COMPLETED
       expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
-        expect.objectContaining({ action: AuditActions.DEPOSIT_HELD_BELOW_MIN }),
+        expect.objectContaining({ action: 'DEPOSIT_HELD', reasonCode: 'BELOW_MIN' }),
       );
       expect(auditLogsService.recordSystem).not.toHaveBeenCalledWith(
         expect.objectContaining({ action: AuditActions.DEPOSIT_APPROVED }),
@@ -1117,13 +1118,10 @@ describe('DepositWorkflowService', () => {
         action: DepositTransactionAction.APPROVE,
       });
       expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
-        expect.objectContaining({ action: AuditActions.DEPOSIT_APPROVED }),
-      );
-      expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
-        expect.objectContaining({ action: AuditActions.DEPOSIT_COMPLETED }),
+        expect.objectContaining({ action: AuditActions.DEPOSIT_APPROVED, toStatus: DepositTransactionStatus.SUCCESS }),
       );
       expect(auditLogsService.recordSystem).not.toHaveBeenCalledWith(
-        expect.objectContaining({ action: AuditActions.DEPOSIT_HELD_BELOW_MIN }),
+        expect.objectContaining({ action: 'DEPOSIT_HELD', reasonCode: 'BELOW_MIN' }),
       );
     });
 
@@ -1221,16 +1219,17 @@ describe('DepositWorkflowService', () => {
       expect(auditLogsService.recordSystem).not.toHaveBeenCalledWith(
         expect.objectContaining({ action: AuditActions.DEPOSIT_COMPLETED }),
       );
-      // 审计动作名按真实原因走：不是 BELOW_MIN 就别写 DEPOSIT_HELD_BELOW_MIN
-      // （硬写会是伪证据），改走状态跃迁审计 + 带 requestId（否则第二次被静默去重）。
+      // 审计动作名按真实原因走：不是 BELOW_MIN 就别写 BELOW_MIN 的 reasonCode
+      // （硬写会是伪证据）——归一 DEPOSIT_HELD，reasonCode 说真话，从/到列携迁移。
       expect(auditLogsService.recordSystem).not.toHaveBeenCalledWith(
-        expect.objectContaining({ action: AuditActions.DEPOSIT_HELD_BELOW_MIN }),
+        expect.objectContaining({ action: 'DEPOSIT_HELD', reasonCode: 'BELOW_MIN' }),
       );
       expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
         expect.objectContaining({
-          action: 'DEPOSIT_COMPLIANCE_PENDING_TO_OPERATION_PENDING',
-          reason: expect.stringContaining('CAPABILITY_RESTRICTED'),
-          requestId: expect.stringContaining('DEPOSIT_HOLD_INTACT_DEP-CRIT-001_'),
+          action: 'DEPOSIT_HELD',
+          reasonCode: 'CAPABILITY_RESTRICTED',
+          fromStatus: DepositTransactionStatus.COMPLIANCE_PENDING,
+          toStatus: DepositTransactionStatus.OPERATION_PENDING,
         }),
       );
     });
@@ -1546,7 +1545,7 @@ describe('DepositWorkflowService', () => {
         expect.anything(),
       );
       expect(auditLogsService.recordByActor).toHaveBeenCalledWith(
-        expect.objectContaining({ action: 'DEPOSIT_RETURN_APPROVAL_REQUESTED' }),
+        expect.objectContaining({ action: 'DEPOSIT_RETURN_REQUESTED' }),
         expect.anything(),
       );
       expect(res).toEqual(expect.objectContaining({ approvalNo: 'APR-R1' }));
@@ -1698,7 +1697,7 @@ describe('DepositWorkflowService', () => {
       );
       expect(auditLogsService.recordByActor).toHaveBeenCalledWith(
         expect.objectContaining({
-          action: 'DEPOSIT_SEIZE_APPROVAL_REQUESTED',
+          action: 'DEPOSIT_SEIZE_REQUESTED',
           metadata: expect.objectContaining({ orderRef: 'ORD-123' }),
         }),
         expect.anything(),
@@ -1781,7 +1780,7 @@ describe('DepositWorkflowService', () => {
       );
       expect(auditLogsService.recordByActor).toHaveBeenCalledWith(
         expect.objectContaining({
-          action: 'DEPOSIT_UNFREEZE_APPROVAL_REQUESTED',
+          action: 'DEPOSIT_UNFREEZE_REQUESTED',
           metadata: expect.objectContaining({ orderRef: 'ORD-U-1' }),
         }),
         expect.anything(),
@@ -1829,7 +1828,7 @@ describe('DepositWorkflowService', () => {
 
       await expect(service.onReturnDecided(decidedEvent())).resolves.toBeUndefined();
 
-      expect(stub).toHaveBeenCalledWith(deposit);
+      expect(stub).toHaveBeenCalledWith(deposit, expect.objectContaining({ approvalNo: 'APR-X1' }));
       expect(depositService.updateStatus).not.toHaveBeenCalled();
     });
 
@@ -1858,7 +1857,7 @@ describe('DepositWorkflowService', () => {
         service.onSeizeDecided(decidedEvent({ actionType: 'DEPOSIT_SEIZE', entityRef: 'dep-x2', workflowType: 'DEPOSIT_SEIZE' })),
       ).resolves.toBeUndefined();
 
-      expect(stub).toHaveBeenCalledWith(deposit);
+      expect(stub).toHaveBeenCalledWith(deposit, expect.objectContaining({ approvalNo: 'APR-X1' }));
       expect(depositService.updateStatus).not.toHaveBeenCalled();
     });
 
@@ -1883,7 +1882,7 @@ describe('DepositWorkflowService', () => {
         service.onUnfreezeDecided(decidedEvent({ actionType: 'DEPOSIT_UNFREEZE', entityRef: 'dep-x3', workflowType: 'DEPOSIT_UNFREEZE' })),
       ).resolves.toBeUndefined();
 
-      expect(stub).toHaveBeenCalledWith(deposit);
+      expect(stub).toHaveBeenCalledWith(deposit, expect.objectContaining({ approvalNo: 'APR-X1' }));
       expect(depositService.updateStatus).not.toHaveBeenCalled();
     });
 
@@ -2302,7 +2301,7 @@ describe('DepositWorkflowService', () => {
       );
     });
 
-    it('approved from MANUAL_CHECKING → records DEPOSIT_MANUAL_APPROVED then approveDeposit → SUCCESS', async () => {
+    it('approved from MANUAL_CHECKING → 归一 DEPOSIT_APPROVED（fromStatus=MANUAL_CHECKING，人工翻案語义在从/到列里）→ SUCCESS', async () => {
       const deposit = {
         id: 'dep-2',
         depositNo: 'DEP002',
@@ -2320,14 +2319,16 @@ describe('DepositWorkflowService', () => {
       await service.applyKytVerdict('dep-2', { verdict: 'approved' });
 
       expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
-        expect.objectContaining({ action: 'DEPOSIT_MANUAL_APPROVED', primarySubjectNo: 'DEP002' }),
+        expect.objectContaining({
+          action: 'DEPOSIT_APPROVED',
+          primarySubjectNo: 'DEP002',
+          fromStatus: DepositTransactionStatus.MANUAL_CHECKING,
+          toStatus: DepositTransactionStatus.SUCCESS,
+        }),
       );
       expect(depositService.updateStatus).toHaveBeenCalledWith('dep-2', {
         action: DepositTransactionAction.APPROVE,
       });
-      expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
-        expect.objectContaining({ action: 'DEPOSIT_COMPLETED' }),
-      );
     });
 
     it('approved from ACTION_PENDING (补料重检:Sumsub 自动重评发 applicantKytTxnApproved)→ delegates to approveDeposit (SUCCESS), no DEPOSIT_MANUAL_APPROVED overturn record', async () => {
@@ -2353,10 +2354,7 @@ describe('DepositWorkflowService', () => {
         action: DepositTransactionAction.APPROVE,
       });
       expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
-        expect.objectContaining({ action: 'DEPOSIT_APPROVED' }),
-      );
-      expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
-        expect.objectContaining({ action: 'DEPOSIT_COMPLETED' }),
+        expect.objectContaining({ action: 'DEPOSIT_APPROVED', fromStatus: DepositTransactionStatus.ACTION_PENDING }),
       );
       expect(auditLogsService.recordSystem).not.toHaveBeenCalledWith(
         expect.objectContaining({ action: 'DEPOSIT_MANUAL_APPROVED' }),
@@ -2381,7 +2379,8 @@ describe('DepositWorkflowService', () => {
       expect(depositService.updateStatus).not.toHaveBeenCalled();
       expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
         expect.objectContaining({
-          action: 'DEPOSIT_HELD_NOT_TRADING_READY',
+          action: 'DEPOSIT_HELD',
+          reasonCode: 'NOT_TRADING_READY',
           primarySubjectNo: 'DEP002C',
         }),
       );
@@ -2718,7 +2717,7 @@ describe('DepositWorkflowService', () => {
         expect.anything(),
       );
       expect(auditLogsService.recordByActor).toHaveBeenCalledWith(
-        expect.objectContaining({ action: 'DEPOSIT_RETURN_APPROVAL_REQUESTED' }),
+        expect.objectContaining({ action: 'DEPOSIT_RETURN_REQUESTED' }),
         expect.anything(),
       );
     });
@@ -2823,8 +2822,9 @@ describe('DepositWorkflowService', () => {
       // 写审计:MLRO 要能查到"虽然单子没动,但人被冻了"。
       expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
         expect.objectContaining({
-          action: AuditActions.DEPOSIT_SANCTION_HIT_ON_IGNORED_VERDICT,
+          action: 'DEPOSIT_KYT_VERDICT_IGNORED',
           primarySubjectNo: 'DEP-SANCTION-FROZEN',
+          metadata: expect.objectContaining({ sceneTag: 'SANCTION_APPLICANT' }),
         }),
       );
 
@@ -3074,7 +3074,7 @@ describe('DepositWorkflowService', () => {
   });
 
   describe('approveDeposit — oldStatus whitelist (fix: FROZEN→approve→SUCCESS single-operator release hole)', () => {
-    it('called directly (e.g. via PATCH :id/status {action:approve}) on a FROZEN deposit → blocked: throws BadRequestException + records DEPOSIT_APPROVE_BLOCKED_FROZEN audit, stays FROZEN, no DEPOSIT_APPROVED/COMPLETED audit, no TB posting', async () => {
+    it('called directly (e.g. via PATCH :id/status {action:approve}) on a FROZEN deposit → blocked: throws BadRequestException + records DEPOSIT_APPROVED·DENIED·FROZEN audit, stays FROZEN, no SUCCESS-outcome approve audit, no TB posting', async () => {
       depositService.findOne.mockResolvedValue({
         id: 'dep-frozen-direct',
         depositNo: 'DEP-FROZEN-DIRECT',
@@ -3092,15 +3092,14 @@ describe('DepositWorkflowService', () => {
       expect(fundsOrders.findByParent).not.toHaveBeenCalled();
       expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
         expect.objectContaining({
-          action: 'DEPOSIT_APPROVE_BLOCKED_FROZEN',
+          action: 'DEPOSIT_APPROVED',
+          outcome: 'DENIED',
+          reasonCode: 'FROZEN',
           primarySubjectNo: 'DEP-FROZEN-DIRECT',
         }),
       );
       expect(auditLogsService.recordSystem).not.toHaveBeenCalledWith(
-        expect.objectContaining({ action: 'DEPOSIT_APPROVED' }),
-      );
-      expect(auditLogsService.recordSystem).not.toHaveBeenCalledWith(
-        expect.objectContaining({ action: 'DEPOSIT_COMPLETED' }),
+        expect.objectContaining({ action: 'DEPOSIT_APPROVED', outcome: 'SUCCESS' }),
       );
     });
   });
@@ -3206,11 +3205,12 @@ describe('DepositWorkflowService', () => {
         expect(disposition.clearLeg).toHaveBeenCalledWith('fo-arc-1');
       });
 
-      it('settle 耗尽：只留 FAILED 痕，不翻终态（stay CONFISCATING）', async () => {
+      it('settle 耗尽：STUCK·SETTLE_EXHAUSTED 留痕，不翻终态（stay CONFISCATING）', async () => {
         disposition.settle.mockResolvedValue({ ok: false, error: 'tb down' });
         depositService.findOne.mockResolvedValue(arcDeposit({ status: DepositTransactionStatus.CONFISCATING }));
         await (service as any).onConfiscationLegChanged(legEvent());
-        expect(auditActions()).toContain(AuditActions.DEPOSIT_CONFISCATION_FAILED);
+        expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
+          expect.objectContaining({ action: 'DEPOSIT_CONFISCATION_STUCK', reasonCode: 'SETTLE_EXHAUSTED' }));
         expect(depositService.updateStatus).not.toHaveBeenCalled();
         expect(disposition.clearLeg).not.toHaveBeenCalled();
       });
@@ -3229,15 +3229,17 @@ describe('DepositWorkflowService', () => {
         await (service as any).onConfiscationLegChanged(legEvent({ newStatus: FundsOrderStatus.TIMEOUT, attempt: 3 }));
         expect(disposition.rebuild).not.toHaveBeenCalled();
         expect(depositService.markNeedsReview).toHaveBeenCalledWith('dep-arc-1');
-        expect(auditActions()).toContain(AuditActions.DEPOSIT_CONFISCATION_STUCK);
+        expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
+          expect.objectContaining({ action: 'DEPOSIT_CONFISCATION_STUCK', reasonCode: 'LEG_EXHAUSTED' }));
       });
 
-      it('void 崩溃：不上抛，红旗 + UNLOCK_FAILED 留痕', async () => {
+      it('void 崩溃：不上抛，红旗 + STUCK·CRASHED 留痕', async () => {
         disposition.voidAttempt.mockRejectedValue(new Error('tb crash'));
         depositService.findOne.mockResolvedValue(arcDeposit({ status: DepositTransactionStatus.CONFISCATING }));
         await expect((service as any).onConfiscationLegChanged(legEvent({ newStatus: FundsOrderStatus.FAILED }))).resolves.toBeUndefined();
         expect(depositService.markNeedsReview).toHaveBeenCalled();
-        expect(auditActions()).toContain(AuditActions.DEPOSIT_CONFISCATION_UNLOCK_FAILED);
+        expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
+          expect.objectContaining({ action: 'DEPOSIT_CONFISCATION_STUCK', reasonCode: 'CRASHED' }));
       });
     });
 
@@ -3253,7 +3255,9 @@ describe('DepositWorkflowService', () => {
         expect(depositService.updateStatus).toHaveBeenCalledWith('dep-arc-1',
           expect.objectContaining({ action: DepositTransactionAction.RETURN }));
         const started = auditLogsService.recordSystem.mock.calls.find((c: any[]) => c[0].action === AuditActions.DEPOSIT_RETURN_STARTED);
-        expect(started[0].metadata.fundsOrderNo).toBe('FO-DISP-1');
+        expect(started[0].subjects).toEqual(expect.arrayContaining([
+          expect.objectContaining({ subjectType: 'FUNDS_ORDER', subjectNo: 'FO-DISP-1', subjectRole: 'RELATED' }),
+        ]));
       });
 
       it('CONFIRMED → settle ok：RETURNED_DONE + RETURNED 留痕（携 settle 返回的外部参考号）+ 腿收口', async () => {
@@ -3524,7 +3528,7 @@ describe('DepositWorkflowService', () => {
         }),
       );
       expect(realAuditLogsService.recordSystem).toHaveBeenCalledWith(
-        expect.objectContaining({ action: AuditActions.DEPOSIT_HELD_BELOW_MIN }),
+        expect.objectContaining({ action: 'DEPOSIT_HELD', reasonCode: 'BELOW_MIN' }),
       );
     });
 
@@ -3572,7 +3576,7 @@ describe('DepositWorkflowService', () => {
     // undefined，handler 组装报文时又把空数组拍成 undefined——incoming 可能是
     // []。同步之后若这笔单零未提交行，绝不能推进到 ACTION_PENDING（那是一个
     // "ACTION_PENDING 但零条可提交项"的死角，客户永久卡死、SLA 还会把锅扣给他）。
-    it('I1：跨状态弧收到空 applicantActions（同步后零未提交行）——不推进状态，只记 warn 审计', async () => {
+    it('I1：跨状态弧收到空 applicantActions（同步后零未提交行）——不推进状态，warn 降日志、不留审计（站1b-β 业主裁定）', async () => {
       const dep = { id: 'd-1', depositNo: 'DEP1', status: 'COMPLIANCE_PENDING', ownerType: 'CUSTOMER', ownerId: 'c-1' };
       actionsService.syncApplicantActions.mockResolvedValue({ added: [], retired: [] });
       actionsService.hasOutstanding.mockResolvedValue(false);
@@ -3580,12 +3584,7 @@ describe('DepositWorkflowService', () => {
       await (service as any).applyKytAwaitUser(dep, undefined, undefined);
 
       expect(depositService.updateStatus).not.toHaveBeenCalled();
-      expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
-        expect.objectContaining({
-          action: AuditActions.DEPOSIT_AWAITUSER_EMPTY_ACTIONS,
-          primarySubjectNo: 'DEP1',
-        }),
-      );
+      expect(auditLogsService.recordSystem).not.toHaveBeenCalled();
     });
 
     it('已在 ACTION_PENDING 且集合完全一致、缓存本就干净：真 no-op', async () => {
@@ -3604,7 +3603,7 @@ describe('DepositWorkflowService', () => {
     // 不能把这当正常 reissue 处理——不清缓存、不推进，只留痕，
     // 否则一个原本可用的 ACTION_PENDING（还有未提交行）会被改造成死角
     // （还是 ACTION_PENDING，却零条可提交项）。
-    it('I1：已在 ACTION_PENDING，报文把全部未提交行撤空——不清缓存不推进，只记 warn 审计', async () => {
+    it('I1：已在 ACTION_PENDING，报文把全部未提交行撤空——不清缓存不推进，warn 降日志、不留审计（站1b-β 业主裁定）', async () => {
       const dep = { id: 'd-1', depositNo: 'DEP1', status: 'ACTION_PENDING', ownerType: 'CUSTOMER', ownerId: 'c-1' };
       actionsService.syncApplicantActions.mockResolvedValue({ added: [], retired: [1, 2] });
       actionsService.hasOutstanding.mockResolvedValue(false);
@@ -3613,13 +3612,7 @@ describe('DepositWorkflowService', () => {
 
       expect(actionsService.clearDepositCache).not.toHaveBeenCalled();
       expect(depositService.updateStatus).not.toHaveBeenCalled();
-      expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
-        expect.objectContaining({
-          action: AuditActions.DEPOSIT_AWAITUSER_EMPTY_ACTIONS,
-          primarySubjectNo: 'DEP1',
-          metadata: expect.objectContaining({ addedSeqs: [], retiredSeqs: [1, 2] }),
-        }),
-      );
+      expect(auditLogsService.recordSystem).not.toHaveBeenCalled();
     });
 
   });

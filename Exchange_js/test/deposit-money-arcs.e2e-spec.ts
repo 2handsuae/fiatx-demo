@@ -350,7 +350,7 @@ describe('Deposit money arcs (e2e, Task A6)', () => {
 
     expect(await finalStatusOf(deposit.id)).toBe(DepositTransactionStatus.MANUAL_CHECKING);
     let actions = await auditActionsFor(deposit.id);
-    expect(actions).toContain(AuditActions.DEPOSIT_RETURN_APPROVAL_REQUESTED);
+    expect(actions).toContain('DEPOSIT_RETURN_REQUESTED');
 
     const approvalCase = await latestApprovalCase(ApprovalActionTypes.DEPOSIT_RETURN, deposit.id);
     expect(approvalCase).toBeTruthy();

@@ -11,7 +11,7 @@ describe('DepositSlaService', () => {
   beforeEach(() => {
     depositService = {
       findSlaBreachCandidates: jest.fn().mockResolvedValue([]),
-      updateStatus: jest.fn(),
+      updateStatus: jest.fn().mockResolvedValue({ status: DepositTransactionStatus.MANUAL_CHECKING }),
       markSlaBreached: jest.fn(),
     } as unknown as jest.Mocked<DepositTransactionsService>;
 

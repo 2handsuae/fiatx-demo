@@ -406,22 +406,21 @@ describe('Deposit Sumsub verdict buttons (e2e, Task 9)', () => {
 
     expect(await statusOf(deposit.id)).toBe(DepositTransactionStatus.SUCCESS);
     const actions = await auditActionsFor(deposit.id);
-    expect(actions).toContain(AuditActions.DEPOSIT_GATE0_PASSED);
     expect(actions).toContain(AuditActions.DEPOSIT_SUMSUB_SUBMITTED);
-    expect(actions).toContain(AuditActions.DEPOSIT_COMPLETED);
+    expect(actions).toContain('DEPOSIT_APPROVED');
 
     const after = await accounting.getCustomerAvailableBalance(customerId, 'AED');
     expect(after.total - before.total).toBe(decimalToBigint(amount, fiatDecimals));
   });
 
-  it('小额挂起: ① (50 USDT, min=100 假定 belowMin) → OPERATION_PENDING + DEPOSIT_HELD_BELOW_MIN + 未记账', async () => {
+  it('小额挂起: ① (50 USDT, min=100 假定 belowMin) → OPERATION_PENDING + DEPOSIT_HELD·BELOW_MIN + 未记账', async () => {
     const deposit = await createDeposit({ isCrypto: true, amount: '50.000000', belowMin: true });
     await deliver(deposit.id, 'V1_APPROVED');
 
     expect(await statusOf(deposit.id)).toBe(DepositTransactionStatus.OPERATION_PENDING);
     const actions = await auditActionsFor(deposit.id);
-    expect(actions).toContain(AuditActions.DEPOSIT_HELD_BELOW_MIN);
-    expect(actions).not.toContain(AuditActions.DEPOSIT_COMPLETED);
+    expect(actions).toContain('DEPOSIT_HELD');
+    expect(actions).not.toContain('DEPOSIT_APPROVED');
   });
 
   it('小额放行: ① → waive → SUCCESS + limitHoldReason=null', async () => {
@@ -493,7 +492,7 @@ describe('Deposit Sumsub verdict buttons (e2e, Task 9)', () => {
     expect(await statusOf(deposit.id)).toBe(DepositTransactionStatus.FROZEN);
     const actions = await auditActionsFor(deposit.id);
     expect(actions).toContain(AuditActions.DEPOSIT_FROZEN);
-    expect(actions).not.toContain(AuditActions.DEPOSIT_COMPLETED);
+    expect(actions).not.toContain('DEPOSIT_APPROVED');
   });
 
   it('MLRO 冻结: ⑦ → ⑤ → MANUAL_CHECKING → FROZEN', async () => {
@@ -518,7 +517,7 @@ describe('Deposit Sumsub verdict buttons (e2e, Task 9)', () => {
     // status transition — deposit stays MANUAL_CHECKING.
     expect(await statusOf(deposit.id)).toBe(DepositTransactionStatus.MANUAL_CHECKING);
     const actions = await auditActionsFor(deposit.id);
-    expect(actions).toContain(AuditActions.DEPOSIT_RETURN_APPROVAL_REQUESTED);
+    expect(actions).toContain('DEPOSIT_RETURN_REQUESTED');
 
     const returnApproval = await (prisma as any).approvalCase.findFirst({
       where: { actionType: 'DEPOSIT_RETURN', entityRef: deposit.id },
@@ -585,13 +584,13 @@ describe('Deposit Sumsub verdict buttons (e2e, Task 9)', () => {
     await deliver(deposit.id, 'V1_APPROVED');
     expect(await statusOf(deposit.id)).toBe(DepositTransactionStatus.SUCCESS);
     const actionsAfterFirst = await auditActionsFor(deposit.id);
-    const completedAfterFirst = actionsAfterFirst.filter((a) => a === AuditActions.DEPOSIT_COMPLETED).length;
+    const completedAfterFirst = actionsAfterFirst.filter((a) => a === 'DEPOSIT_APPROVED').length;
     expect(completedAfterFirst).toBe(1);
 
     await deliver(deposit.id, 'V1_APPROVED');
     expect(await statusOf(deposit.id)).toBe(DepositTransactionStatus.SUCCESS);
     const actionsAfterSecond = await auditActionsFor(deposit.id);
-    const completedAfterSecond = actionsAfterSecond.filter((a) => a === AuditActions.DEPOSIT_COMPLETED).length;
+    const completedAfterSecond = actionsAfterSecond.filter((a) => a === 'DEPOSIT_APPROVED').length;
     expect(completedAfterSecond).toBe(1); // unchanged — 2nd delivery was a no-op
   });
 

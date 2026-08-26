@@ -12,6 +12,7 @@ import {
   AuditActions,
   AuditEntityTypes,
 } from '../audit-logging/constants/audit-actions.constant';
+import { AuditCategory, AuditSubjectRole } from '../audit-logging/dto/audit-log.dto';
 
 /**
  * SLA 破线扫描（2026-08-21 扩容至硬/软两类）。扫描 findSlaBreachCandidates
@@ -81,11 +82,22 @@ export class DepositSlaService {
     );
     await this.auditLogsService.recordSystem({
       action: AuditActions.DEPOSIT_SLA_BREACHED,
+      actionDomain: 'DEPOSIT',
+      category: AuditCategory.BUSINESS,
       primarySubjectType: AuditEntityTypes.DEPOSIT_TRANSACTION,
       primarySubjectNo: deposit.depositNo,
+      ownerCustomerNo: deposit.customer?.customerNo,
+      correlationId: deposit.correlationId ?? undefined,
+      fromStatus: deposit.status,
+      subjects: [
+        { subjectType: AuditEntityTypes.DEPOSIT_TRANSACTION, subjectNo: deposit.depositNo, subjectRole: AuditSubjectRole.PRIMARY },
+        ...(deposit.customer?.customerNo
+          ? [{ subjectType: 'CUSTOMER', subjectNo: deposit.customer.customerNo, subjectRole: AuditSubjectRole.OWNER }]
+          : []),
+      ],
       traceId: deposit.traceId || undefined,
       reason: `Soft SLA breached in ${deposit.status} — internal handling overdue, order status intentionally unchanged`,
-      metadata: { slaType: 'SOFT', status: deposit.status, slaDeadline: deposit.slaDeadline, waitingOn: 'INTERNAL' },
+      metadata: { slaType: 'SOFT', slaDeadline: deposit.slaDeadline, waitingOn: 'INTERNAL' },
       requestId: `DEPOSIT_SLA_BREACHED_${deposit.depositNo}_${randomUUID()}`,
       sourcePlatform: 'SYSTEM',
     });
@@ -101,7 +113,7 @@ export class DepositSlaService {
     // 分支从未可达（BACKLOG 在案）。列已 drop，理由只剩一种。
     const reason = 'SLA breached: no compliance action before deadline';
 
-    await this.depositService.updateStatus(
+    const breachedRow = await this.depositService.updateStatus(
       deposit.id,
       {
         action: DepositTransactionAction.SLA_BREACH,
@@ -123,11 +135,23 @@ export class DepositSlaService {
 
     await this.auditLogsService.recordSystem({
       action: AuditActions.DEPOSIT_SLA_BREACHED,
+      actionDomain: 'DEPOSIT',
+      category: AuditCategory.BUSINESS,
       primarySubjectType: AuditEntityTypes.DEPOSIT_TRANSACTION,
       primarySubjectNo: deposit.depositNo,
+      ownerCustomerNo: deposit.customer?.customerNo,
+      correlationId: deposit.correlationId ?? undefined,
+      fromStatus: oldStatus,
+      toStatus: breachedRow.status,
+      subjects: [
+        { subjectType: AuditEntityTypes.DEPOSIT_TRANSACTION, subjectNo: deposit.depositNo, subjectRole: AuditSubjectRole.PRIMARY },
+        ...(deposit.customer?.customerNo
+          ? [{ subjectType: 'CUSTOMER', subjectNo: deposit.customer.customerNo, subjectRole: AuditSubjectRole.OWNER }]
+          : []),
+      ],
       traceId: deposit.traceId || undefined,
       reason: `${reason} (deposit was ${oldStatus})`,
-      metadata: { slaType: 'HARD', fromStatus: oldStatus, slaDeadline: deposit.slaDeadline, waitingOn: 'CUSTOMER' },
+      metadata: { slaType: 'HARD', slaDeadline: deposit.slaDeadline, waitingOn: 'CUSTOMER' },
       requestId: `DEPOSIT_SLA_BREACHED_${deposit.depositNo}_${randomUUID()}`,
       sourcePlatform: 'SYSTEM',
     });
