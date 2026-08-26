@@ -295,7 +295,6 @@ export const AuditActions = {
   DEPOSIT_UNFREEZE_APPROVAL_REQUESTED: 'DEPOSIT_UNFREEZE_APPROVAL_REQUESTED',
   DEPOSIT_UNFROZEN: 'DEPOSIT_UNFROZEN',
   // 客户提交补料材料(AE-T4)——SLA 表由"等客户"切到"等 Provider 重评"
-  DEPOSIT_ACTION_SUBMITTED: 'DEPOSIT_ACTION_SUBMITTED',
   // Demo scenario runner (Task 6, 计划1·甲方案) — feeds a deposit through a Sumsub mock
   // scenario fixture (SUMSUB_MOCK_MODE only; endpoint doesn't exist otherwise)
   DEPOSIT_DEMO_SCENARIO_RUN: 'DEPOSIT_DEMO_SCENARIO_RUN',
@@ -397,7 +396,7 @@ export const AuditActions = {
   // RED (or any non-GREEN answer) — restrictions stay on, escalated for
   // manual review.
   SWAP_ACTION_ESCALATED: 'SWAP_ACTION_ESCALATED',
-  // parity 2026-08-14：客户提交补料材料（客户级会话，mirror DEPOSIT/WITHDRAW_ACTION_SUBMITTED）
+  // parity 2026-08-14：客户提交补料材料（客户级会话）
   SWAP_ACTION_SUBMITTED: 'SWAP_ACTION_SUBMITTED',
   WITHDRAW_CREATED: 'WITHDRAW_CREATED',
   WITHDRAW_CREATED_TO_PAYOUT_PENDING: 'WITHDRAW_CREATED_TO_PAYOUT_PENDING',
@@ -424,9 +423,6 @@ export const AuditActions = {
   // Task 5: Sumsub single-txn submit + applyKytVerdict branches + SLA cron
   WITHDRAW_SUMSUB_SUBMITTED: 'WITHDRAW_SUMSUB_SUBMITTED',
   WITHDRAW_ONHOLD: 'WITHDRAW_ONHOLD',
-  // 已在 ACTION_PENDING 时 Sumsub 又发一个新 applicantActionId(客户交的材料不够,
-  // 还要再补)——状态不动,但缓存/SLA 表刷新。mirrors DEPOSIT_ACTION_REISSUED。
-  WITHDRAW_ACTION_REISSUED: 'WITHDRAW_ACTION_REISSUED',
   // awaitUser 裁决同步之后该单没有任何未提交行(报文整个不带 applicantActions,
   // 或撤回的恰好是全部未提交行)——拒绝进入/停留 ACTION_PENDING,单子保持原状态,
   // 留痕供排查上游报文异常。mirrors DEPOSIT_AWAITUSER_EMPTY_ACTIONS。
@@ -462,9 +458,6 @@ export const AuditActions = {
   // Task 9: FROZEN maker-checker gates (execution side) — decided-event handlers.
   WITHDRAW_UNFROZEN: 'WITHDRAW_UNFROZEN',
   WITHDRAW_SANCTION_REFUNDED: 'WITHDRAW_SANCTION_REFUNDED',
-  // 客户提交补料材料(Task 3, action-embed)——SLA 表由"等客户"切到"等 Provider 重评"。
-  // mirrors DEPOSIT_ACTION_SUBMITTED。
-  WITHDRAW_ACTION_SUBMITTED: 'WITHDRAW_ACTION_SUBMITTED',
   // Task 10: Demo scenario runner — mirrors DEPOSIT_DEMO_SCENARIO_RUN. Feeds a
   // withdrawal through a Sumsub mock verdict fixture (SUMSUB_MOCK_MODE only —
   // endpoint doesn't exist otherwise).

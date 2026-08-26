@@ -253,8 +253,6 @@ export class WithdrawWorkflowService implements OnModuleInit {
       toWalletId,
       toAddress,
       toIban,
-      parentType,
-      parentId,
       quoteId,
     } = dto;
 
@@ -460,8 +458,6 @@ export class WithdrawWorkflowService implements OnModuleInit {
             rateFetchedAt: gateValuation?.rateFetchedAt ?? undefined,
             rateFetchFailed: gateValuation?.rateFetchFailed ?? undefined,
             l1Snapshot: l1 ? JSON.stringify(l1) : undefined,
-            parentType,
-            parentId,
             pricingQuoteId: consumedQuoteId,
             statusHistory: JSON.stringify([{
               status: WithdrawTransactionStatus.COMPLIANCE_PENDING,
@@ -2553,37 +2549,10 @@ export class WithdrawWorkflowService implements OnModuleInit {
         return;
       }
 
-      // I2(mirrors deposit):判据必须读持久状态(actionSubmittedAt 是否还残留旧的
-      // "已交齐"值),不能用本次 syncApplicantActions 返回的 added/retired 是否为空
-      // 来判断——webhook 重试场景下 syncOnce 可能已 no-op,但缓存仍需清。
-      if (w.actionSubmittedAt == null) return; // 缓存本就干净,真 no-op
-
-      // reissue:客户被要求重新交材料,7 天的钟重新起算。状态没变、不经过
-      // updateStatus 的收口处,所以在这里显式取一次同一张配置表的值——
-      // 不要另立常量,那会让"7 天"有第二个真相源(正是本批要消灭的模式)。
-      const { slaDeadline } = this.withdrawService.resolveSlaFields(
-        WithdrawTransactionStatus.ACTION_PENDING,
-      );
-      if (!slaDeadline) {
-        // ACTION_PENDING 在 WITHDRAW_SLA_MINUTES_BY_STATUS 里恒有配置,理论上到不了
-        // 这里——留一道硬失败,防止有人把它从配置表删掉却漏改这处调用方。
-        throw new Error('resolveSlaFields(ACTION_PENDING) 未配置 —— 检查 WITHDRAW_SLA_MINUTES_BY_STATUS');
-      }
-      await this.applicantActions.clearWithdrawCache(w.id, slaDeadline);
-      await this.auditLogsService.recordSystem({
-        action: AuditActions.WITHDRAW_ACTION_REISSUED,
-        primarySubjectType: AuditEntityTypes.WITHDRAW_TRANSACTION,
-        primarySubjectNo: w.withdrawNo,
-        traceId: w.traceId || undefined,
-        reason: 'Sumsub changed the applicant-action set while already ACTION_PENDING',
-        metadata: {
-          addedSeqs: added,
-          retiredSeqs: retired,
-          // 审计是 operator 面,必须带真 id,否则运营对不上 Sumsub 后台。
-          incomingActionIds: incoming.map((a) => a.applicantActionId),
-        },
-        sourcePlatform: 'SYSTEM',
-      });
+      // 已在 ACTION_PENDING:集合已同步——no-op 返回。
+      // (旧 I2 清缓存弧随 actionSubmittedAt 死列于站2-α 一并删除:守卫读的列
+      //  从无非空写入方,整弧不可达;clearWithdrawCache/WITHDRAW_ACTION_REISSUED
+      //  同殉。原文与设计理由见 git 史。)
       return;
     }
 
@@ -2621,11 +2590,6 @@ export class WithdrawWorkflowService implements OnModuleInit {
     }
 
     const manualReason = sceneTag === 'PEP' ? 'EDD_PEP' : 'CLIENT_ACTION';
-    // actionSubmittedAt 必须在这条跨状态弧(常见于 MANUAL_CHECKING →
-    // ACTION_PENDING,Sumsub officer 把已进人工复核的单又打回 awaitingUser)里
-    // 显式清掉——它是独立于 SLA 的持久字段,updateStatus 不会替你清,不显式写就会
-    // 原样带过去,客户此前交过的材料让缓存留着旧值,客户端会一直显示"已收到,
-    // 审核中",客户被永久卡死。single atomic updateStatus call(mirrors deposit)。
     // slaDeadline/slaBreached 不在这里写:进入 ACTION_PENDING 由 updateStatus
     // 内部的 resolveSlaFields 统一算,这里再传会覆盖收口处刚算好的值。
     await this.withdrawService.updateStatus(
@@ -2633,7 +2597,7 @@ export class WithdrawWorkflowService implements OnModuleInit {
       { action: WithdrawTransactionAction.ACTION_PENDING, reason: 'KYT verdict: awaitUser' },
       {
         ...this.systemCtx,
-        extraData: { manualReason, actionSubmittedAt: null },
+        extraData: { manualReason },
       },
     );
   }

@@ -98,14 +98,6 @@ export class CreateWithdrawTransactionDto {
   @IsString()
   toIban?: string;
 
-  @IsOptional()
-  @IsString()
-  parentType?: string;
-
-  @IsOptional()
-  @IsString()
-  parentId?: string;
-
   @IsString()
   quoteId!: string;
 }

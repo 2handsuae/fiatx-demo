@@ -149,36 +149,6 @@ export class WithdrawTransactionsService {
     private readonly approvalsService: ApprovalsService,
   ) {}
 
-  private createAccountingContext(withdrawal: {
-    ownerId: string;
-    ownerType: string;
-    assetId: string;
-    amount: Prisma.Decimal;
-    netAmount: Prisma.Decimal;
-    feeAmount: Prisma.Decimal;
-    withdrawNo: string;
-    fromWalletId?: string | null;
-    fromWalletNo?: string | null;
-    toWalletId?: string | null;
-    toWalletNo?: string | null;
-  }) {
-    return {
-      src: {
-        ownerId: withdrawal.ownerId,
-        ownerType: withdrawal.ownerType,
-        assetId: withdrawal.assetId,
-        amount: withdrawal.amount.toString(),
-        netAmount: withdrawal.netAmount.toString(),
-        feeAmount: withdrawal.feeAmount.toString(),
-        withdrawNo: withdrawal.withdrawNo,
-        fromWalletId: withdrawal.fromWalletId ?? null,
-        fromWalletNo: withdrawal.fromWalletNo ?? null,
-        toWalletId: withdrawal.toWalletId ?? null,
-        toWalletNo: withdrawal.toWalletNo ?? null,
-      },
-    };
-  }
-
   private normalizeStatusUpdateContext(
     context?: WithdrawStatusUpdateContext,
   ): Required<Omit<WithdrawStatusUpdateContext, 'extraData'>> {

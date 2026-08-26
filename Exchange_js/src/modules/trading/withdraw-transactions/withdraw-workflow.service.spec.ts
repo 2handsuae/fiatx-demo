@@ -1469,7 +1469,7 @@ describe('WithdrawWorkflowService.applyKytVerdict (Task 5: verdict-driven state 
       // 2026-08-21 第三批：extraData 不再带 slaDeadline/slaBreached —— 由
       // updateStatus 内部的 resolveSlaFields(收口处)统一算。
       expect((ctx as any).extraData).toEqual(
-        expect.objectContaining({ actionSubmittedAt: null }),
+        expect.objectContaining({ manualReason: 'CLIENT_ACTION' }),
       );
       expect((ctx as any).extraData).not.toHaveProperty('slaDeadline');
       expect((ctx as any).extraData).not.toHaveProperty('slaBreached');
@@ -1485,28 +1485,6 @@ describe('WithdrawWorkflowService.applyKytVerdict (Task 5: verdict-driven state 
 
       expect(withdrawService.updateStatus).not.toHaveBeenCalled();
       expect(applicantActions.clearWithdrawCache).not.toHaveBeenCalled();
-    });
-
-    it('已在 ACTION_PENDING 且集合有变、缓存里还留着旧的"已交齐"值:不动状态,清缓存,记 REISSUED 审计', async () => {
-      const { workflow, withdrawService, applicantActions, auditLogsService } = buildFullWorkflow();
-      const w = baseWithdrawRow({
-        status: WithdrawTransactionStatus.ACTION_PENDING,
-        actionSubmittedAt: new Date('2026-08-01'),
-      });
-      applicantActions.syncApplicantActions.mockResolvedValue({ added: [2], retired: [] });
-      applicantActions.hasOutstanding.mockResolvedValue(true);
-
-      await (workflow as any).applyKytAwaitUser(w, undefined, ACTIONS);
-
-      expect(withdrawService.updateStatus).not.toHaveBeenCalled();
-      expect(applicantActions.clearWithdrawCache).toHaveBeenCalledWith(w.id, expect.any(Date));
-      expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
-        expect.objectContaining({
-          action: AuditActions.WITHDRAW_ACTION_REISSUED,
-          primarySubjectNo: w.withdrawNo,
-          metadata: expect.objectContaining({ addedSeqs: [2], retiredSeqs: [] }),
-        }),
-      );
     });
 
     it('零未提交行(跨状态,COMPLIANCE_PENDING 收到空 applicantActions):状态不变,记 EMPTY_ACTIONS 审计,不进 ACTION_PENDING', async () => {
@@ -1545,7 +1523,7 @@ describe('WithdrawWorkflowService.applyKytVerdict (Task 5: verdict-driven state 
       );
     });
 
-    it('MANUAL_CHECKING → ACTION_PENDING 跨状态弧:清缓存(actionSubmittedAt 随原子写归零,slaDeadline/slaBreached 由收口处的 resolveSlaFields 统一算)', async () => {
+    it('MANUAL_CHECKING → ACTION_PENDING 跨状态弧:extraData 只携人工复核原因(slaDeadline/slaBreached 由收口处的 resolveSlaFields 统一算)', async () => {
       const { workflow, withdrawService, applicantActions } = buildFullWorkflow();
       const w = baseWithdrawRow({ status: WithdrawTransactionStatus.MANUAL_CHECKING });
       applicantActions.syncApplicantActions.mockResolvedValue({ added: [1], retired: [] });
@@ -1557,10 +1535,7 @@ describe('WithdrawWorkflowService.applyKytVerdict (Task 5: verdict-driven state 
       const [, dto, ctx] = withdrawService.updateStatus.mock.calls[0];
       expect(dto.action).toBe(WithdrawTransactionAction.ACTION_PENDING);
       expect((ctx as any).extraData).toEqual(
-        expect.objectContaining({
-          manualReason: 'EDD_PEP',
-          actionSubmittedAt: null,
-        }),
+        expect.objectContaining({ manualReason: 'EDD_PEP' }),
       );
       expect((ctx as any).extraData).not.toHaveProperty('slaDeadline');
       expect((ctx as any).extraData).not.toHaveProperty('slaBreached');
