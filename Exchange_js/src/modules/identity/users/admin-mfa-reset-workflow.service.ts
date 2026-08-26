@@ -11,9 +11,8 @@ import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import {
   AuditBusinessWorkflowTypes,
   AuditEntityTypes,
-  AuditGovernanceActions,
 } from '../../audit-logging/constants/audit-actions.constant';
-import { AuditResult } from '../../audit-logging/dto/audit-log.dto';
+import { AuditCategory, AuditOutcome } from '../../audit-logging/dto/audit-log.dto';
 import { ApprovalsService } from '../../governance/approvals/approvals.service';
 import { ApprovalDecidedEvent } from '../../governance/approvals/approval-handler.base';
 import {
@@ -33,17 +32,24 @@ export class AdminMfaResetWorkflowService {
     private readonly auditLogsService: AuditLogsService,
   ) {}
 
-  private toAuditActor(actor: ApprovalActorContext) {
+  private toAuditActor(
+    actor: ApprovalActorContext,
+    onBehalfOf?: { type: string; no: string },
+  ) {
     return {
       actorType: actor.actorType,
-      actorId: actor.userId,
-      actorNo: actor.userNo,
-      actorRole: actor.role || actor.roleCodes[0] || 'UNKNOWN',
+      actorNo: actor.userNo || 'UNKNOWN',
+
+      actorDisplayName: actor.userNo || 'UNKNOWN',
+      actorRolesAtTime: [actor.role || actor.roleCodes[0] || 'UNKNOWN'],
+      ...(onBehalfOf ? { onBehalfOfType: onBehalfOf.type, onBehalfOfNo: onBehalfOf.no } : {}),
     };
   }
 
   async initiateAdminMfaReset(targetUserId: string, actor: ApprovalActorContext) {
-    const traceId = randomUUID();
+    // START：本次 MFA 重置旅程的 correlationId，同事务写进 ApprovalCase.traceId，
+    // 供下游 executeReset/recordCancellation 经 ApprovalDecidedEvent.traceId INHERIT 读回。
+    const correlationId = randomUUID();
 
     if (actor.userId === targetUserId) {
       throw new ForbiddenException('Cannot reset your own MFA via admin path');
@@ -91,7 +97,7 @@ export class AdminMfaResetWorkflowService {
       {
         actionType: ApprovalActionTypes.ADMIN_MFA_RESET,
         entityRef: targetUserId,
-        traceId,
+        traceId: correlationId,
         objectSnapshot: {
           targetUserId,
           targetUserNo: targetUser.userNo,
@@ -101,33 +107,34 @@ export class AdminMfaResetWorkflowService {
       },
       {
         reason: `Admin MFA reset request for ${targetUser.email}`,
-        traceId,
+        traceId: correlationId,
       },
       actor,
     );
 
     await this.auditLogsService.recordByActor(
       {
-        action: AuditGovernanceActions.ADMIN_MFA_RESET.RESET_REQUESTED,
-        entityType: AuditEntityTypes.ADMIN_USER,
-        entityId: targetUserId,
-        entityNo: targetUser.userNo,
-        workflowType: AuditBusinessWorkflowTypes.ADMIN_MFA_RESET,
-        traceId,
-        result: AuditResult.SUCCESS,
+        action: 'ADMIN_MFA_RESET_REQUESTED',
+        actionDomain: 'IAM',
+        category: AuditCategory.GOVERNANCE,
+        primarySubjectType: AuditEntityTypes.ADMIN_USER,
+        primarySubjectNo: targetUser.userNo,
+        correlationId,
+        onBehalfOfNo: targetUser.userNo,
+        outcome: AuditOutcome.SUCCESS,
         metadata: {
           targetEmail: targetUser.email,
           approvalNo: approvalCase.approvalNo,
         },
-        requestId: `ADMIN_MFA_RESET_REQUESTED_${targetUser.userNo}`,
+        requestId: randomUUID(),
         sourcePlatform: 'ADMIN_API',
       },
-      this.toAuditActor(actor),
+      this.toAuditActor(actor, { type: AuditEntityTypes.ADMIN_USER, no: targetUser.userNo }),
     );
 
     return {
       approvalNo: approvalCase.approvalNo,
-      traceId,
+      traceId: correlationId,
       targetUserNo: targetUser.userNo,
       status: 'PENDING_APPROVAL',
     };
@@ -146,38 +153,55 @@ export class AdminMfaResetWorkflowService {
   }
 
   private async executeReset(event: ApprovalDecidedEvent) {
+    // fromStatus 取的是 firstLoginStatus（不是 user.status——MFA 重置不改那一列）：
+    // resetMfa 把它拨回 PENDING_IDENTITY_CONFIRM，逼这个 admin 重走一遍首登绑定。
+    const before = await this.usersDomainService.findFirstLoginState(event.entityRef);
+
     try {
       const result = await this.usersDomainService.resetMfa(event.entityRef);
 
       await this.auditLogsService.recordSystem({
-        action: AuditGovernanceActions.ADMIN_MFA_RESET.RESET_EXECUTED,
-        entityType: AuditEntityTypes.ADMIN_USER,
-        entityId: event.entityRef,
-        entityNo: result.userNo,
-        workflowType: AuditBusinessWorkflowTypes.ADMIN_MFA_RESET,
-        traceId: event.traceId,
-        result: AuditResult.SUCCESS,
+        action: 'ADMIN_MFA_RESET_APPLIED',
+        actionDomain: 'IAM',
+        category: AuditCategory.GOVERNANCE,
+        primarySubjectType: AuditEntityTypes.ADMIN_USER,
+        primarySubjectNo: result.userNo,
+        // INHERIT：读 ApprovalDecidedEvent.traceId——就是 initiateAdminMfaReset 铸造的
+        // correlationId 原样传播过来的（经 ApprovalCase.traceId）。
+        correlationId: event.traceId,
+        causationId: event.approvalId,
+        outcome: AuditOutcome.SUCCESS,
+        fromStatus: before?.firstLoginStatus ?? 'UNKNOWN',
+        toStatus: 'PENDING_IDENTITY_CONFIRM',
+        approvalNo: event.approvalNo,
+        onBehalfOfNo: result.userNo,
         metadata: {
           approvalId: event.approvalId,
-          approvalNo: event.approvalNo,
           resetByUserId: event.decisionByUserId,
           resetByUserNo: event.decisionByUserNo,
         },
-        requestId: `ADMIN_MFA_RESET_EXECUTED_${result.userNo}`,
+        requestId: randomUUID(),
         sourcePlatform: 'ADMIN_API',
       });
 
     } catch (error) {
       await this.auditLogsService.recordSystem({
-        action: AuditGovernanceActions.ADMIN_MFA_RESET.RESET_FAILED,
-        entityType: AuditEntityTypes.ADMIN_USER,
-        entityId: event.entityRef,
-        workflowType: AuditBusinessWorkflowTypes.ADMIN_MFA_RESET,
-        traceId: event.traceId,
-        result: AuditResult.FAILED,
+        action: 'ADMIN_MFA_RESET_APPLIED',
+        actionDomain: 'IAM',
+        category: AuditCategory.GOVERNANCE,
+        primarySubjectType: AuditEntityTypes.ADMIN_USER,
+        primarySubjectNo: before?.userNo ?? event.entityRef,
+        correlationId: event.traceId,
+        causationId: event.approvalId,
+        outcome: AuditOutcome.FAILED,
+        // 同 suspension/reactivation：fromStatus/toStatus 表达"本该达成的转移意图"。
+        fromStatus: before?.firstLoginStatus ?? 'UNKNOWN',
+        toStatus: 'PENDING_IDENTITY_CONFIRM',
+        approvalNo: event.approvalNo,
+        onBehalfOfNo: before?.userNo ?? event.entityRef,
         reason: error instanceof Error ? error.message : 'MFA reset execution failed',
         metadata: { approvalId: event.approvalId },
-        requestId: `ADMIN_MFA_RESET_FAILED_${event.entityRef}`,
+        requestId: randomUUID(),
         sourcePlatform: 'ADMIN_API',
       });
 
@@ -186,19 +210,24 @@ export class AdminMfaResetWorkflowService {
   }
 
   private async recordCancellation(event: ApprovalDecidedEvent) {
+    const target = await this.usersDomainService.findById(event.entityRef);
+
     await this.auditLogsService.recordSystem({
-      action: AuditGovernanceActions.ADMIN_MFA_RESET.RESET_CANCELLED,
-      entityType: AuditEntityTypes.ADMIN_USER,
-      entityId: event.entityRef,
-      workflowType: AuditBusinessWorkflowTypes.ADMIN_MFA_RESET,
-      traceId: event.traceId,
-      result: AuditResult.SUCCESS,
+      action: 'ADMIN_MFA_RESET_CANCELLED',
+      actionDomain: 'IAM',
+      category: AuditCategory.GOVERNANCE,
+      primarySubjectType: AuditEntityTypes.ADMIN_USER,
+      primarySubjectNo: target?.userNo ?? event.entityRef,
+      correlationId: event.traceId,
+      causationId: event.approvalId,
+      outcome: AuditOutcome.SUCCESS,
+      reason: event.decisionReason || `MFA reset request ${event.decision.toLowerCase()}`,
       metadata: {
         approvalId: event.approvalId,
         approvalNo: event.approvalNo,
         decision: event.decision,
       },
-      requestId: `ADMIN_MFA_RESET_CANCELLED_${event.entityRef}`,
+      requestId: randomUUID(),
       sourcePlatform: 'ADMIN_API',
     });
   }

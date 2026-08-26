@@ -15,7 +15,7 @@ import {
   AuditWorkflowTypes,
 } from '../../audit-logging/constants/audit-actions.constant';
 import {
-  AuditResult,
+  AuditOutcome,
 } from '../../audit-logging/dto/audit-log.dto';
 import {
   ApprovalActorContext,
@@ -134,9 +134,10 @@ export class RegulatoryGatesService {
   private toAuditActor(actor: ApprovalActorContext) {
     return {
       actorType: actor.actorType,
-      actorId: actor.userId,
-      actorNo: actor.userNo,
-      actorRole: actor.role || actor.roleCodes[0] || 'UNKNOWN',
+      actorNo: actor.userNo || 'UNKNOWN',
+
+      actorDisplayName: actor.userNo || 'UNKNOWN',
+      actorRolesAtTime: [actor.role || actor.roleCodes[0] || 'UNKNOWN'],
     };
   }
 
@@ -214,8 +215,7 @@ export class RegulatoryGatesService {
   private async recordAudit(
     input: {
       action: string;
-      entityId: string;
-      entityNo: string;
+      primarySubjectNo: string;
       traceId?: string | null;
       reason?: string | null;
     },
@@ -225,12 +225,10 @@ export class RegulatoryGatesService {
     await this.auditLogsService.recordByActor(
       {
         action: input.action,
-        entityType: AuditEntityTypes.REGULATORY_GATE_ITEM,
-        entityId: input.entityId,
-        entityNo: input.entityNo,
+        primarySubjectType: AuditEntityTypes.REGULATORY_GATE_ITEM,
+        primarySubjectNo: input.primarySubjectNo,
         traceId: input.traceId || undefined,
-        workflowType: AuditWorkflowTypes.REGULATORY_GATE,
-        result: AuditResult.SUCCESS,
+        outcome: AuditOutcome.SUCCESS,
         reason: input.reason || undefined,
         sourcePlatform: 'ADMIN_API',
       },
@@ -567,8 +565,7 @@ export class RegulatoryGatesService {
       await this.recordAudit(
         {
           action: AuditActions.REGULATORY_GATE_CREATED,
-          entityId: created.id,
-          entityNo: created.gateNo,
+          primarySubjectNo: created.gateNo,
           traceId: created.traceId,
         },
         actor,
@@ -647,8 +644,7 @@ export class RegulatoryGatesService {
       await this.recordAudit(
         {
           action: AuditActions.REGULATORY_GATE_UPDATED,
-          entityId: updated.id,
-          entityNo: updated.gateNo,
+          primarySubjectNo: updated.gateNo,
           traceId: updated.traceId,
         },
         actor,
@@ -698,8 +694,7 @@ export class RegulatoryGatesService {
       await this.recordAudit(
         {
           action: AuditActions.REGULATORY_GATE_SUBMITTED,
-          entityId: updated.id,
-          entityNo: updated.gateNo,
+          primarySubjectNo: updated.gateNo,
           traceId: updated.traceId,
         },
         actor,
@@ -763,8 +758,7 @@ export class RegulatoryGatesService {
       await this.recordAudit(
         {
           action: AuditActions.REGULATORY_GATE_FEEDBACK_RECORDED,
-          entityId: updated.id,
-          entityNo: updated.gateNo,
+          primarySubjectNo: updated.gateNo,
           traceId: updated.traceId,
         },
         actor,
@@ -820,8 +814,7 @@ export class RegulatoryGatesService {
       await this.recordAudit(
         {
           action: AuditActions.REGULATORY_GATE_RECEIPT_BOUND,
-          entityId: updated.id,
-          entityNo: updated.gateNo,
+          primarySubjectNo: updated.gateNo,
           traceId: updated.traceId,
         },
         actor,
@@ -917,8 +910,7 @@ export class RegulatoryGatesService {
     await this.recordAudit(
       {
         action: AuditActions.REGULATORY_GATE_MARKED_EFFECTIVE,
-        entityId: updated.id,
-        entityNo: updated.gateNo,
+        primarySubjectNo: updated.gateNo,
         traceId: updated.traceId,
       },
       actor,
@@ -958,8 +950,7 @@ export class RegulatoryGatesService {
       await this.recordAudit(
         {
           action: AuditActions.REGULATORY_GATE_REVOKED,
-          entityId: updated.id,
-          entityNo: updated.gateNo,
+          primarySubjectNo: updated.gateNo,
           traceId: updated.traceId,
           reason: this.normalizeOptionalString(dto.reason),
         },

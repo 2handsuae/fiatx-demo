@@ -905,7 +905,7 @@ describe('WithdrawWorkflowService.applyKytVerdict (Task 5: verdict-driven state 
       expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
         expect.objectContaining({
           action: AuditActions.WITHDRAW_KYT_VERDICT_IGNORED,
-          entityNo: 'WDB2',
+          primarySubjectNo: 'WDB2',
         }),
       );
     },
@@ -1001,7 +1001,7 @@ describe('WithdrawWorkflowService.applyKytVerdict (Task 5: verdict-driven state 
       await workflow.applyKytVerdict('wd-sumsub-1', { verdict: 'approved', riskScore: 3 });
 
       expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
-        expect.objectContaining({ action: AuditActions.WITHDRAW_MANUAL_APPROVED, entityId: 'wd-sumsub-1' }),
+        expect.objectContaining({ action: AuditActions.WITHDRAW_MANUAL_APPROVED, primarySubjectNo: 'WD-SUMSUB-1' }),
       );
       expect(initiateSpy).toHaveBeenCalledWith('wd-sumsub-1');
     });
@@ -1225,7 +1225,7 @@ describe('WithdrawWorkflowService.applyKytVerdict (Task 5: verdict-driven state 
       expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
         expect.objectContaining({
           action: AuditActions.WITHDRAW_SANCTION_HIT_ON_IGNORED_VERDICT,
-          entityNo: 'WD-SANCTION-FROZEN',
+          primarySubjectNo: 'WD-SANCTION-FROZEN',
         }),
       );
 
@@ -1503,7 +1503,7 @@ describe('WithdrawWorkflowService.applyKytVerdict (Task 5: verdict-driven state 
       expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
         expect.objectContaining({
           action: AuditActions.WITHDRAW_ACTION_REISSUED,
-          entityId: w.id,
+          primarySubjectNo: w.withdrawNo,
           metadata: expect.objectContaining({ addedSeqs: [2], retiredSeqs: [] }),
         }),
       );
@@ -1521,7 +1521,7 @@ describe('WithdrawWorkflowService.applyKytVerdict (Task 5: verdict-driven state 
       expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
         expect.objectContaining({
           action: AuditActions.WITHDRAW_AWAITUSER_EMPTY_ACTIONS,
-          entityId: w.id,
+          primarySubjectNo: w.withdrawNo,
         }),
       );
     });
@@ -1539,7 +1539,7 @@ describe('WithdrawWorkflowService.applyKytVerdict (Task 5: verdict-driven state 
       expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
         expect.objectContaining({
           action: AuditActions.WITHDRAW_AWAITUSER_EMPTY_ACTIONS,
-          entityId: w.id,
+          primarySubjectNo: w.withdrawNo,
           metadata: expect.objectContaining({ addedSeqs: [], retiredSeqs: [1, 2] }),
         }),
       );
@@ -2160,8 +2160,7 @@ describe('WithdrawWorkflowService.onBounce (Task 7: RETURNED bounce entry)', () 
     expect(auditLogsService.recordByActor).toHaveBeenCalledWith(
       expect.objectContaining({
         action: AuditActions.WITHDRAW_BOUNCED,
-        entityId: bounceWithdrawal.id,
-        entityNo: bounceWithdrawal.withdrawNo,
+        primarySubjectNo: bounceWithdrawal.withdrawNo,
         metadata: { reason },
         reason: expect.stringContaining('fee retained'),
       }),

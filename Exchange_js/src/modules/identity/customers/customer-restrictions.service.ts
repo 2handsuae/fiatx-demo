@@ -6,7 +6,7 @@ import type { CustomerRestriction as CustomerRestrictionRecord } from '@prisma/c
 import { PrismaService } from '../../../core/prisma/prisma.service';
 import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import { AuditActions, AuditEntityTypes } from '../../audit-logging/constants/audit-actions.constant';
-import { AuditResult } from '../../audit-logging/dto/audit-log.dto';
+import { AuditOutcome } from '../../audit-logging/dto/audit-log.dto';
 import { generateReferenceNo } from '../../../common/utils/no-generator.util';
 import {
   RESTRICTION_CAUSE_POLICY,
@@ -92,12 +92,11 @@ export class CustomerRestrictionsService {
         );
 
     const auditShell = {
-      entityType: AuditEntityTypes.CUSTOMER,
-      entityId: input.customerId,
-      entityNo: outcome.customerNo || undefined,
+      primarySubjectType: AuditEntityTypes.CUSTOMER,
+      primarySubjectNo: outcome.customerNo || undefined,
       entityOwnerType: 'CUSTOMER',
       entityOwnerId: input.customerId,
-      entityOwnerNo: outcome.customerNo || undefined,
+      ownerCustomerNo: outcome.customerNo || undefined,
       traceId: outcome.traceId,
       reason: input.reason,
       metadata: {
@@ -124,7 +123,7 @@ export class CustomerRestrictionsService {
     await this.auditLogsService.recordSystem({
       ...auditShell,
       action: AuditActions.CUSTOMER_RESTRICTION_ADDED,
-      result: outcome.created ? AuditResult.SUCCESS : AuditResult.SKIPPED,
+      outcome: AuditOutcome.SUCCESS,
       requestId: `CUSTOMER_RESTRICTION_ADDED_${outcome.restrictionNo}_${randomUUID()}`,
     }, tx);
 
@@ -135,7 +134,7 @@ export class CustomerRestrictionsService {
       await this.auditLogsService.recordSystem({
         ...auditShell,
         action: AuditActions.CUSTOMER_FROZEN,
-        result: AuditResult.SUCCESS,
+        outcome: AuditOutcome.SUCCESS,
         requestId: `CUSTOMER_FROZEN_${outcome.restrictionNo}_${randomUUID()}`,
       }, tx);
     }
@@ -255,15 +254,14 @@ export class CustomerRestrictionsService {
 
     const first = outcome.rows[0];
     const auditShell = {
-      entityType: AuditEntityTypes.CUSTOMER,
-      entityId: first.customerId,
-      entityNo: outcome.customerNo || undefined,
+      primarySubjectType: AuditEntityTypes.CUSTOMER,
+      primarySubjectNo: outcome.customerNo || undefined,
       entityOwnerType: 'CUSTOMER',
       entityOwnerId: first.customerId,
-      entityOwnerNo: outcome.customerNo || undefined,
+      ownerCustomerNo: outcome.customerNo || undefined,
       // traceId 撕时继承便签行上的值（贴时生成）
       traceId: first.traceId,
-      result: AuditResult.SUCCESS,
+      outcome: AuditOutcome.SUCCESS,
       reason: `${first.cause} released by ${opts.releaseMode.toLowerCase()}`,
       metadata: {
         restrictionNo,

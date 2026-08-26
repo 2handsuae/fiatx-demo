@@ -76,8 +76,9 @@ export class WithdrawTransactionsController {
     this.assertAdmin(req);
     return this.workflowService.onBounce(id, dto.reason, {
       actorType: 'ADMIN',
-      actorId: req.user?.userId || 'ADMIN_SYSTEM',
-      actorRole: req.user?.role || 'ADMIN',
+      actorNo: req.user?.userId || 'ADMIN_SYSTEM',
+      actorDisplayName: req.user?.userId || 'ADMIN_SYSTEM',
+      actorRolesAtTime: [req.user?.role || 'ADMIN'],
     });
   }
 

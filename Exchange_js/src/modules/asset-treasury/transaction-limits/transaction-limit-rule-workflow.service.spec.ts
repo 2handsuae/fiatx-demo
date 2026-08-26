@@ -1,7 +1,7 @@
 import { BadRequestException, ConflictException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { TransactionLimitRuleWorkflowService } from './transaction-limit-rule-workflow.service';
-import { AuditResult } from '../../audit-logging/dto/audit-log.dto';
+import { AuditOutcome } from '../../audit-logging/dto/audit-log.dto';
 
 const CHANGE_APPLIED = 'CHANGE_APPLIED';
 const CHANGE_APPLY_FAILED = 'CHANGE_APPLY_FAILED';
@@ -175,7 +175,7 @@ describe('TransactionLimitRuleWorkflowService', () => {
     expect(rulesService.applyAmountChange).not.toHaveBeenCalled();
     const failCall = failFindFor(CHANGE_APPLY_FAILED);
     expect(failCall).toBeTruthy();
-    expect(failCall[0].result).toBe(AuditResult.FAILED);
+    expect(failCall[0].outcome).toBe(AuditOutcome.FAILED);
   });
 
   it('APPROVED change with missing after snapshot → CHANGE_APPLY_FAILED, no apply', async () => {

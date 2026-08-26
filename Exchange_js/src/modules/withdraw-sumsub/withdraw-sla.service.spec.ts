@@ -53,7 +53,7 @@ describe('WithdrawSlaService', () => {
     expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
       expect.objectContaining({
         action: 'WITHDRAW_SLA_BREACHED',
-        entityId: 'wd-1',
+        primarySubjectNo: 'WD001',
         requestId: expect.stringContaining('WITHDRAW_SLA_BREACHED'),
       }),
     );
@@ -87,7 +87,7 @@ describe('WithdrawSlaService', () => {
     expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
       expect.objectContaining({
         action: 'WITHDRAW_SLA_BREACHED',
-        entityId: 'wd-2',
+        primarySubjectNo: 'WD002',
         requestId: expect.stringContaining('WITHDRAW_SLA_BREACHED'),
       }),
     );
@@ -152,7 +152,7 @@ describe('WithdrawSlaService', () => {
       expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
         expect.objectContaining({
           action: 'WITHDRAW_SLA_BREACHED',
-          entityId: 'w2',
+          primarySubjectNo: 'WD2',
           requestId: expect.stringContaining('WITHDRAW_SLA_BREACHED'),
         }),
       );

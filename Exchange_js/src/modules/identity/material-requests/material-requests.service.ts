@@ -13,7 +13,7 @@ import {
   AuditEntityTypes,
   AuditBusinessWorkflowTypes,
 } from '../../audit-logging/constants/audit-actions.constant';
-import { AuditResult } from '../../audit-logging/dto/audit-log.dto';
+import { AuditOutcome } from '../../audit-logging/dto/audit-log.dto';
 import { generateReferenceNo } from '../../../common/utils/no-generator.util';
 import { SumsubClient } from '../onboarding/providers/sumsub/sumsub.client';
 import {
@@ -145,14 +145,10 @@ export class MaterialRequestsService {
 
     await this.auditLogsService.recordSystem({
       action: AuditActions.MATERIAL_REQUEST_ISSUED,
-      entityType: AuditEntityTypes.MATERIAL_REQUEST,
-      entityId: created.id,
-      entityNo: created.requestNo,
-      workflowType: AuditBusinessWorkflowTypes.MATERIAL_REQUEST,
+      primarySubjectType: AuditEntityTypes.MATERIAL_REQUEST,
+      primarySubjectNo: created.requestNo,
       traceId,
-      entityOwnerType: 'CUSTOMER',
-      entityOwnerId: input.customerId,
-      result: AuditResult.SUCCESS,
+      outcome: AuditOutcome.SUCCESS,
       reason: input.reason,
       metadata: {
         materialType: input.materialType,
@@ -263,19 +259,17 @@ export class MaterialRequestsService {
     await this.auditLogsService.recordByActor(
       {
         action: AuditActions.MATERIAL_REQUEST_SUBMITTED,
-        entityType: AuditEntityTypes.MATERIAL_REQUEST,
-        entityId: row?.id,
-        entityNo: requestNo,
-        workflowType: AuditBusinessWorkflowTypes.MATERIAL_REQUEST,
+        primarySubjectType: AuditEntityTypes.MATERIAL_REQUEST,
+        primarySubjectNo: requestNo,
         traceId: row?.traceId,
-        result: AuditResult.SUCCESS,
+        outcome: AuditOutcome.SUCCESS,
         reason: 'Customer submitted requested materials',
       },
       {
         actorType: actor.actorType,
-        actorId: actor.actorId,
-        actorNo: actor.actorNo,
-        actorRole: actor.actorRole ?? 'CUSTOMER',
+        actorNo: actor.actorNo || 'UNKNOWN',
+        actorDisplayName: actor.actorNo || 'UNKNOWN',
+        actorRolesAtTime: [actor.actorRole ?? 'CUSTOMER'],
       },
     );
     return true;
@@ -349,14 +343,10 @@ export class MaterialRequestsService {
 
     await this.auditLogsService.recordSystem({
       action: auditAction,
-      entityType: AuditEntityTypes.MATERIAL_REQUEST,
-      entityId: row.id,
-      entityNo: requestNo,
-      workflowType: AuditBusinessWorkflowTypes.MATERIAL_REQUEST,
+      primarySubjectType: AuditEntityTypes.MATERIAL_REQUEST,
+      primarySubjectNo: requestNo,
       traceId: row.traceId,
-      entityOwnerType: 'CUSTOMER',
-      entityOwnerId: row.customerId,
-      result: AuditResult.SUCCESS,
+      outcome: AuditOutcome.SUCCESS,
       reason: `Sumsub action review ${answer}${rejectType ? ` (${rejectType})` : ''}`,
       metadata: { reviewAnswer: answer, reviewRejectType: rejectType, decidedBy: actor.actorNo ?? actor.actorId },
       sourcePlatform: 'SYSTEM',
@@ -377,14 +367,10 @@ export class MaterialRequestsService {
 
     await this.auditLogsService.recordSystem({
       action: AuditActions.MATERIAL_REQUEST_CANCELLED,
-      entityType: AuditEntityTypes.MATERIAL_REQUEST,
-      entityId: row.id,
-      entityNo: requestNo,
-      workflowType: AuditBusinessWorkflowTypes.MATERIAL_REQUEST,
+      primarySubjectType: AuditEntityTypes.MATERIAL_REQUEST,
+      primarySubjectNo: requestNo,
       traceId: row.traceId,
-      entityOwnerType: 'CUSTOMER',
-      entityOwnerId: row.customerId,
-      result: AuditResult.SUCCESS,
+      outcome: AuditOutcome.SUCCESS,
       reason: cancelReason,
       metadata: { cancelledBy: actor.actorNo ?? actor.actorId },
       sourcePlatform: 'SYSTEM',
@@ -407,14 +393,10 @@ export class MaterialRequestsService {
 
     await this.auditLogsService.recordSystem({
       action: AuditActions.MATERIAL_REQUEST_ORDER_UNBOUND,
-      entityType: AuditEntityTypes.MATERIAL_REQUEST,
-      entityId: row.id,
-      entityNo: requestNo,
-      workflowType: AuditBusinessWorkflowTypes.MATERIAL_REQUEST,
+      primarySubjectType: AuditEntityTypes.MATERIAL_REQUEST,
+      primarySubjectNo: requestNo,
       traceId: row.traceId,
-      entityOwnerType: 'CUSTOMER',
-      entityOwnerId: row.customerId,
-      result: AuditResult.SUCCESS,
+      outcome: AuditOutcome.SUCCESS,
       reason: `Order ${row.orderDomain}/${row.orderRef} reached a terminal state; restriction-bearing request kept at customer level`,
       metadata: { unboundBy: actor.actorNo ?? actor.actorId },
       sourcePlatform: 'SYSTEM',

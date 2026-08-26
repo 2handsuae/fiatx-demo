@@ -1,19 +1,14 @@
 import { Injectable, ForbiddenException, Optional } from '@nestjs/common';
 import { UsersService } from '../users/users.service';
 import { AdminInvitationsService } from '../users/admin-invitations.service';
+import { AdminInviteWorkflowService } from '../users/admin-invite-workflow.service';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
-import { createHash, randomUUID } from 'crypto';
-import { AuditLogsService } from '../../audit-logging/audit-logs.service';
+import { randomUUID } from 'crypto';
+import { EventEmitter2 } from '@nestjs/event-emitter';
+import { DomainEventNames } from '../../../common/events/domain-events.constants';
 import { AccessControlService } from '../access-control/access-control.service';
 import { getPrimaryRoleCode } from '../access-control/rbac.catalog';
-import {
-  AuditActions,
-  AuditBusinessWorkflowTypes,
-  AuditEntityTypes,
-  AuditModules,
-} from '../../audit-logging/constants/audit-actions.constant';
-import { AuditResult } from '../../audit-logging/dto/audit-log.dto';
 
 interface AuthRequestContext {
   requestId?: string;
@@ -26,124 +21,33 @@ export class AuthService {
   constructor(
     private usersService: UsersService,
     private adminInvitationsService: AdminInvitationsService,
+    private adminInviteWorkflowService: AdminInviteWorkflowService,
     private jwtService: JwtService,
-    private auditLogsService: AuditLogsService,
+    private eventEmitter: EventEmitter2,
     @Optional() private accessControlService?: AccessControlService,
   ) {}
-
-  private maskIdentifier(identifier: string) {
-    const normalized = String(identifier || '').trim().toLowerCase();
-    return createHash('sha256').update(normalized).digest('hex');
-  }
-
-  private buildLoginAuditContext(params: {
-    traceId: string;
-    userNo?: string | null;
-    identifier?: string;
-  }) {
-    return {
-      workflowType: AuditBusinessWorkflowTypes.ADMIN_LOGIN_ACCESS,
-      traceId: params.traceId,
-    };
-  }
 
   async validateUser(
     identifier: string,
     pass: string,
     ctx: AuthRequestContext = {},
   ): Promise<any> {
+    // 登录成功/失败流水归安全日志（本项目不做）——Task 9 起本方法不再直接写审计。
+    // authTraceId 仍保留：login() 之后 MFA 分支要靠它把 mfa_session token 与本次
+    // 登录串起来（见下方 return { ...result, authTraceId }），与审计无关。
     const authTraceId = randomUUID();
     const user = await this.usersService.findByIdentifier(identifier);
     if (!user) {
-      await this.auditLogsService.recordByActor(
-        {
-          action: AuditActions.ADMIN_LOGIN_FAILED,
-          entityType: AuditEntityTypes.AUTH,
-          result: AuditResult.FAILED,
-          reason: 'Admin login failed: account not found',
-          metadata: {
-            identifierHash: this.maskIdentifier(identifier),
-          },
-          ...this.buildLoginAuditContext({
-            traceId: authTraceId,
-            identifier,
-          }),
-          requestId: ctx.requestId,
-          sourceIp: ctx.sourceIp,
-          sourcePlatform: ctx.sourcePlatform || 'ADMIN_AUTH_API',
-        },
-        {
-          actorType: 'ADMIN',
-          actorId: 'UNKNOWN',
-          actorRole: 'UNKNOWN',
-        },
-      );
       return null;
     }
 
     if (user.status === 'INACTIVE') {
-      await this.auditLogsService.recordByActor(
-        {
-          action: AuditActions.ADMIN_LOGIN_FAILED,
-          entityType: AuditEntityTypes.AUTH,
-          entityId: user.id,
-          entityNo: user.userNo,
-          result: AuditResult.REJECTED,
-          reason: 'Admin login rejected: account not activated',
-          metadata: {
-            identifierHash: this.maskIdentifier(identifier),
-            accountStatus: user.status,
-          },
-          ...this.buildLoginAuditContext({
-            traceId: authTraceId,
-            userNo: user.userNo,
-            identifier,
-          }),
-          requestId: ctx.requestId,
-          sourceIp: ctx.sourceIp,
-          sourcePlatform: ctx.sourcePlatform || 'ADMIN_AUTH_API',
-        },
-        {
-          actorType: 'ADMIN',
-          actorId: user.id,
-          actorNo: user.userNo,
-          actorRole: user.role,
-        },
-      );
       throw new ForbiddenException(
         'Account not activated. Please complete invitation setup first.',
       );
     }
 
     if (user.status === 'SUSPENDED') {
-      await this.auditLogsService.recordByActor(
-        {
-          action: AuditActions.ADMIN_LOGIN_FAILED,
-          entityType: AuditEntityTypes.AUTH,
-          entityId: user.id,
-          entityNo: user.userNo,
-          result: AuditResult.REJECTED,
-          reason: 'Admin login rejected: account suspended',
-          metadata: {
-            identifierHash: this.maskIdentifier(identifier),
-            accountStatus: user.status,
-          },
-          ...this.buildLoginAuditContext({
-            traceId: authTraceId,
-            userNo: user.userNo,
-            identifier,
-          }),
-          requestId: ctx.requestId,
-          sourceIp: ctx.sourceIp,
-          sourcePlatform: ctx.sourcePlatform || 'ADMIN_AUTH_API',
-        },
-        {
-          actorType: 'ADMIN',
-          actorId: user.id,
-          actorNo: user.userNo,
-          actorRole: user.role,
-        },
-      );
       throw new ForbiddenException('Account has been suspended');
     }
 
@@ -152,34 +56,6 @@ export class AuthService {
       user.lockedUntil &&
       user.lockedUntil > new Date()
     ) {
-      await this.auditLogsService.recordByActor(
-        {
-          action: AuditActions.ACCOUNT_LOCKED,
-          entityType: AuditEntityTypes.AUTH,
-          entityId: user.id,
-          entityNo: user.userNo,
-          result: AuditResult.REJECTED,
-          reason: 'Admin account locked',
-          metadata: {
-            lockedUntil: user.lockedUntil.toISOString(),
-            identifierHash: this.maskIdentifier(identifier),
-          },
-          ...this.buildLoginAuditContext({
-            traceId: authTraceId,
-            userNo: user.userNo,
-            identifier,
-          }),
-          requestId: ctx.requestId,
-          sourceIp: ctx.sourceIp,
-          sourcePlatform: ctx.sourcePlatform || 'ADMIN_AUTH_API',
-        },
-        {
-          actorType: 'ADMIN',
-          actorId: user.id,
-          actorNo: user.userNo,
-          actorRole: user.role,
-        },
-      );
       throw new ForbiddenException('Account is locked. Try again later.');
     } else if (
       user.status === 'LOCKED' &&
@@ -191,30 +67,14 @@ export class AuthService {
         where: { id: user.id },
         data: { status: 'ACTIVE', failedLoginAttempts: 0, lockedUntil: null },
       });
-      await this.auditLogsService.recordByActor(
-        {
-          action: AuditActions.ACCOUNT_UNLOCKED,
-          entityType: AuditEntityTypes.AUTH,
-          entityId: user.id,
-          entityNo: user.userNo,
-          result: AuditResult.SUCCESS,
-          ...this.buildLoginAuditContext({
-            traceId: authTraceId,
-            userNo: user.userNo,
-            identifier,
-          }),
-          reason: 'Admin account auto unlocked after lock timeout',
-          requestId: ctx.requestId,
-          sourceIp: ctx.sourceIp,
-          sourcePlatform: ctx.sourcePlatform || 'ADMIN_AUTH_API',
-        },
-        {
-          actorType: 'ADMIN',
-          actorId: user.id,
-          actorNo: user.userNo,
-          actorRole: user.role,
-        },
-      );
+      // Task 9：解锁这侧"改变了访问能力"，本该同锁定一样上收为业务审计
+      // （ADMIN_ACCOUNT_LOCK_RELEASED，correlationMode=INHERIT）。但 User 表没有为
+      // 这套"连续密码失败锁"留任何可读的 correlationId 载体——不同于 MFA 校验锁定复用
+      // firstLoginTraceId 的写法（mfa-binding-workflow.service.ts），这里读不到任何
+      // 实体列可以 INHERIT。铁律是读不到就让它响、绝不 ?? randomUUID() 兜底冒充
+      // INHERIT，本任务范围内又不铺迁移，故本次只把「锁定」侧上收（见下方
+      // ADMIN_LOGIN_CONSECUTIVE_FAILURE emit），「解锁」侧的审计留空，需加列才能补，
+      // 记 BACKLOG。
     }
 
     const isMatch = await bcrypt.compare(pass, user.password);
@@ -227,29 +87,6 @@ export class AuthService {
           lastLoginAt: new Date(),
         },
       });
-      await this.auditLogsService.recordByActor(
-        {
-          action: AuditActions.ADMIN_LOGIN_SUCCESS,
-          entityType: AuditEntityTypes.AUTH,
-          entityId: user.id,
-          entityNo: user.userNo,
-          result: AuditResult.SUCCESS,
-          ...this.buildLoginAuditContext({
-            traceId: authTraceId,
-            userNo: user.userNo,
-            identifier,
-          }),
-          requestId: ctx.requestId,
-          sourceIp: ctx.sourceIp,
-          sourcePlatform: ctx.sourcePlatform || 'ADMIN_AUTH_API',
-        },
-        {
-          actorType: 'ADMIN',
-          actorId: user.id,
-          actorNo: user.userNo,
-          actorRole: user.role,
-        },
-      );
       const { password: _, ...result } = user;
       return { ...result, authTraceId };
     } else {
@@ -267,67 +104,17 @@ export class AuthService {
         data: updateData,
       });
 
-      await this.auditLogsService.recordByActor(
-        {
-          action: AuditActions.ADMIN_LOGIN_FAILED,
-          entityType: AuditEntityTypes.AUTH,
-          entityId: user.id,
-          entityNo: user.userNo,
-          result: AuditResult.FAILED,
-          reason:
-            attempts >= 5
-              ? 'Admin login failed and account locked'
-              : 'Admin login failed: invalid password',
-          metadata: {
-            failedLoginAttempts: attempts,
-            lockApplied: attempts >= 5,
-          },
-          ...this.buildLoginAuditContext({
-            traceId: authTraceId,
-            userNo: user.userNo,
-            identifier,
-          }),
-          requestId: ctx.requestId,
-          sourceIp: ctx.sourceIp,
-          sourcePlatform: ctx.sourcePlatform || 'ADMIN_AUTH_API',
-        },
-        {
-          actorType: 'ADMIN',
-          actorId: user.id,
-          actorNo: user.userNo,
-          actorRole: user.role,
-        },
-      );
-
+      // Task 9：连续失败达阈值的锁定改变了访问能力，业主裁定按业务审计保留
+      // （与限额自动拦截同性质）——但审计写入不留在这个领域服务层，emit 领域事件，
+      // 由 MfaBindingWorkflowService（workflow 层）接住写 ADMIN_ACCOUNT_LOCK_APPLIED。
+      // 触发判定（阈值命中）仍留在这里，只是"写"的动作上收，因为 actor/旅程/权限依据
+      // 这类审计要素只有编排层才拿得到，域服务不该为了凑审计参数而攒这些知识。
       if (attempts >= 5) {
-        await this.auditLogsService.recordByActor(
-          {
-              action: AuditActions.ACCOUNT_LOCKED,
-            entityType: AuditEntityTypes.AUTH,
-            entityId: user.id,
-            entityNo: user.userNo,
-            result: AuditResult.REJECTED,
-            reason: 'Admin account locked by failed login attempts',
-            metadata: {
-              failedLoginAttempts: attempts,
-              lockedUntil: updateData.lockedUntil?.toISOString?.() || null,
-            },
-            ...this.buildLoginAuditContext({
-              traceId: authTraceId,
-              userNo: user.userNo,
-              identifier,
-            }),
-            requestId: ctx.requestId,
-            sourceIp: ctx.sourceIp,
-            sourcePlatform: ctx.sourcePlatform || 'ADMIN_AUTH_API',
-          },
-          {
-            actorType: 'ADMIN',
-            actorId: user.id,
-            actorNo: user.userNo,
-            actorRole: user.role,
-          },
-        );
+        this.eventEmitter.emit(DomainEventNames.ADMIN_LOGIN_CONSECUTIVE_FAILURE, {
+          userId: user.id,
+          userNo: user.userNo,
+          failedLoginAttempts: attempts,
+        });
       }
 
       return null;
@@ -441,6 +228,9 @@ export class AuthService {
     password: string,
     ctx: AuthRequestContext = {},
   ) {
-    return this.adminInvitationsService.acceptInvitation(token, password, ctx);
+    // Task 9：接受邀请审计（ADMIN_INVITE_ACCEPTED）已上收到 AdminInviteWorkflowService
+    // （编排层）——它拿到 AdminInvitationsService 的结果/拒绝原因码后落审计，
+    // 这里只是路由，不再直接调域服务。
+    return this.adminInviteWorkflowService.acceptInvitation(token, password, ctx);
   }
 }

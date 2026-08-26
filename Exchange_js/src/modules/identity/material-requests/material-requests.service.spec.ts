@@ -106,7 +106,7 @@ describe('MaterialRequestsService.create', () => {
     const a = audit();
     await new MaterialRequestsService(prisma, a, sumsub()).create(INPUT);
     expect(a.recordSystem).toHaveBeenCalledWith(
-      expect.objectContaining({ action: 'MATERIAL_REQUEST_ISSUED', entityType: 'MATERIAL_REQUEST' }),
+      expect.objectContaining({ action: 'MATERIAL_REQUEST_ISSUED', primarySubjectType: 'MATERIAL_REQUEST' }),
       prisma,
     );
   });

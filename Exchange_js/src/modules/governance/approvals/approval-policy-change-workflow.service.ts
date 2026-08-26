@@ -23,9 +23,8 @@ import {
 import {
   AuditBusinessWorkflowTypes,
   AuditEntityTypes,
-  AuditGovernanceActions,
 } from '../../audit-logging/constants/audit-actions.constant';
-import { AuditResult } from '../../audit-logging/dto/audit-log.dto';
+import { AuditCategory, AuditOutcome } from '../../audit-logging/dto/audit-log.dto';
 import { generateReferenceNo } from '../../../common/utils/no-generator.util';
 
 const SECONDARY_EVENT = 'workflow.approval-policy.decided';
@@ -44,9 +43,10 @@ export class ApprovalPolicyChangeWorkflowService {
   private toAuditActor(actor: ApprovalActorContext) {
     return {
       actorType: actor.actorType,
-      actorId: actor.userId,
-      actorNo: actor.userNo,
-      actorRole: actor.role || actor.roleCodes[0] || 'UNKNOWN',
+      actorNo: actor.userNo || 'UNKNOWN',
+
+      actorDisplayName: actor.userNo || 'UNKNOWN',
+      actorRolesAtTime: [actor.role || actor.roleCodes[0] || 'UNKNOWN'],
     };
   }
 
@@ -104,7 +104,11 @@ export class ApprovalPolicyChangeWorkflowService {
       });
     }
 
-    const traceId = randomUUID();
+    // START：本次策略变更旅程的 correlationId。ApprovalPolicyChangeRequest 表没有
+    // traceId/correlationId 列，同一个值同事务写进 ApprovalCase.traceId（经
+    // createAndSubmit 的 traceId 入参）承载，供下游 executePolicyChange 经
+    // ApprovalDecidedEvent.traceId INHERIT 读回。
+    const correlationId = randomUUID();
     const requestNo = generateReferenceNo('APC');
 
     // 7. Create request (both JSON and CSV fields)
@@ -128,7 +132,7 @@ export class ApprovalPolicyChangeWorkflowService {
       {
         actionType: ApprovalActionTypes.APPROVAL_POLICY_CHANGE,
         entityRef: request.id,
-        traceId,
+        traceId: correlationId,
         objectSnapshot: {
           requestNo: request.requestNo,
           targetActionType: request.targetActionType,
@@ -141,7 +145,7 @@ export class ApprovalPolicyChangeWorkflowService {
           createdAt: request.createdAt,
         },
       },
-      { reason: changeReason, traceId },
+      { reason: changeReason, traceId: correlationId },
       actor,
     );
 
@@ -154,26 +158,30 @@ export class ApprovalPolicyChangeWorkflowService {
       },
     });
 
-    // 10. Audit: MODIFICATION_REQUESTED
+    // 10. Audit: APPROVAL_POLICY_CHANGE_REQUESTED（不复用 APPROVAL_SUBMITTED——发起变更的
+    // PRIMARY 是审批策略，提交审批的 PRIMARY 是审批单，拆条判据乙"PRIMARY 不同必须拆"）
     await this.auditLogsService.recordByActor(
       {
-        action: AuditGovernanceActions.APPROVAL_POLICY.MODIFICATION_REQUESTED,
-        entityType: AuditEntityTypes.APPROVAL_POLICY,
-        entityId: request.id,
-        entityNo: requestNo,
-        workflowType: AuditBusinessWorkflowTypes.APPROVAL_POLICY,
-        traceId,
-        result: AuditResult.SUCCESS,
+        action: 'APPROVAL_POLICY_CHANGE_REQUESTED',
+        actionDomain: 'CONFIG',
+        category: AuditCategory.GOVERNANCE,
+        primarySubjectType: AuditEntityTypes.APPROVAL_POLICY,
+        primarySubjectNo: requestNo,
+        correlationId,
+        outcome: AuditOutcome.SUCCESS,
+        reason: changeReason,
+        // beforeData/afterData 只存变更项——steps 本身就是"变更项"整体（proposedSteps 与
+        // currentPolicy.steps 不同才会走到这里，见上面第 5 步 No-change guard），checkerRoles
+        // 是从 steps 派生出的同一份信息，不重复存。
+        beforeData: { steps: currentPolicy.steps },
+        afterData: { steps: proposedSteps },
         metadata: {
           targetActionType,
-          currentStepsConfig: currentPolicy.steps,
-          proposedStepsConfig: proposedSteps,
           currentCheckerRoles: currentPolicy.checkerRoles,
           proposedCheckerRoles,
-          changeReason,
           approvalNo: approvalCase.approvalNo,
         },
-        requestId: `APPROVAL_POLICY_CHANGE_REQUESTED_${requestNo}`,
+        requestId: randomUUID(),
         sourcePlatform: 'ADMIN_API',
       },
       this.toAuditActor(actor),
@@ -237,28 +245,36 @@ export class ApprovalPolicyChangeWorkflowService {
 
       await this.auditLogsService.recordByActor(
         {
-          action: AuditGovernanceActions.APPROVAL_POLICY.MODIFICATION_APPLIED,
-          entityType: AuditEntityTypes.APPROVAL_POLICY,
-          entityId: request.id,
-          entityNo: request.requestNo,
-          workflowType: AuditBusinessWorkflowTypes.APPROVAL_POLICY,
-          traceId: event.traceId,
-          result: AuditResult.SUCCESS,
+          action: 'APPROVAL_POLICY_CHANGE_APPLIED',
+          actionDomain: 'CONFIG',
+          category: AuditCategory.GOVERNANCE,
+          primarySubjectType: AuditEntityTypes.APPROVAL_POLICY,
+          primarySubjectNo: request.requestNo,
+          // INHERIT：读 ApprovalDecidedEvent.traceId——它就是 requestChange 铸造的
+          // correlationId 原样传播过来的（经 ApprovalCase.traceId）。
+          correlationId: event.traceId,
+          // 异步驱动：这条记录是被"审批已批准"这个决定触发的。
+          causationId: event.approvalId,
+          outcome: AuditOutcome.SUCCESS,
+          beforeData: { steps: request.currentStepsConfig ? JSON.parse(request.currentStepsConfig) : null },
+          afterData: { steps: proposedSteps },
+          // policyVersion 占位固定 1，同 approvals.service.ts recordSubmitted() 的已知限制
+          // （ApprovalActionPolicy 单行 upsert 覆盖、无 version 列）——不是这里现造的新债，
+          // 见该处大段注释与 BACKLOG「技术债 — V1 审计底座」。
+          policyVersion: 1,
+          approvalNo: event.approvalNo,
           metadata: {
             targetActionType: request.targetActionType,
-            appliedStepsConfig: proposedSteps,
             appliedCheckerRoles: deriveCheckerRoles(proposedSteps),
-            approvalId: event.approvalId,
-            approvalNo: event.approvalNo,
           },
-          requestId: `APPROVAL_POLICY_MODIFICATION_APPLIED_${request.requestNo}`,
+          requestId: randomUUID(),
           sourcePlatform: 'ADMIN_API',
         },
         {
           actorType: 'ADMIN',
-          actorId: event.decisionByUserId || 'SYSTEM',
-          actorNo: event.decisionByUserNo || undefined,
-          actorRole: event.decisionByRole || 'SYSTEM',
+          actorNo: event.decisionByUserNo || 'UNKNOWN',
+          actorDisplayName: event.decisionByUserNo || 'UNKNOWN',
+          actorRolesAtTime: [event.decisionByRole || 'SYSTEM'],
         },
       );
 
@@ -273,27 +289,34 @@ export class ApprovalPolicyChangeWorkflowService {
         data: { status: 'FAILED', failureReason },
       });
 
+      // 退役码 MODIFICATION_APPLY_FAILED 收编进来——同一动作码 APPROVAL_POLICY_CHANGE_APPLIED，
+      // 靠 outcome=FAILED 区分，不另起一个 _FAILED 后缀码（词表未给这一步单独开码）。
       await this.auditLogsService.recordByActor(
         {
-          action: AuditGovernanceActions.APPROVAL_POLICY.MODIFICATION_APPLY_FAILED,
-          entityType: AuditEntityTypes.APPROVAL_POLICY,
-          entityId: request.id,
-          entityNo: request.requestNo,
-          workflowType: AuditBusinessWorkflowTypes.APPROVAL_POLICY,
-          traceId: event.traceId,
-          result: AuditResult.FAILED,
+          action: 'APPROVAL_POLICY_CHANGE_APPLIED',
+          actionDomain: 'CONFIG',
+          category: AuditCategory.GOVERNANCE,
+          primarySubjectType: AuditEntityTypes.APPROVAL_POLICY,
+          primarySubjectNo: request.requestNo,
+          correlationId: event.traceId,
+          causationId: event.approvalId,
+          outcome: AuditOutcome.FAILED,
           reason: failureReason,
+          beforeData: { steps: request.currentStepsConfig ? JSON.parse(request.currentStepsConfig) : null },
+          afterData: { steps: proposedSteps },
+          policyVersion: 1,
+          approvalNo: event.approvalNo,
           metadata: {
             targetActionType: request.targetActionType,
-            failureReason,
           },
-          requestId: `APPROVAL_POLICY_MODIFICATION_APPLY_FAILED_${request.requestNo}`,
+          requestId: randomUUID(),
           sourcePlatform: 'ADMIN_API',
         },
         {
           actorType: 'ADMIN',
-          actorId: event.decisionByUserId || 'SYSTEM',
-          actorRole: event.decisionByRole || 'SYSTEM',
+          actorNo: event.decisionByUserNo || 'SYSTEM',
+          actorDisplayName: event.decisionByUserNo || 'SYSTEM',
+          actorRolesAtTime: [event.decisionByRole || 'SYSTEM'],
         },
       );
 

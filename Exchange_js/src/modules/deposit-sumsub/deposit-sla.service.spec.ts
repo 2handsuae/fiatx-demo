@@ -50,7 +50,7 @@ describe('DepositSlaService', () => {
     expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
       expect.objectContaining({
         action: 'DEPOSIT_SLA_BREACHED',
-        entityId: 'dep-1',
+        primarySubjectNo: 'DEP001',
         requestId: expect.stringContaining('DEPOSIT_SLA_BREACHED'),
       }),
     );
@@ -84,7 +84,7 @@ describe('DepositSlaService', () => {
     expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
       expect.objectContaining({
         action: 'DEPOSIT_SLA_BREACHED',
-        entityId: 'dep-2',
+        primarySubjectNo: 'DEP002',
         requestId: expect.stringContaining('DEPOSIT_SLA_BREACHED'),
       }),
     );
@@ -206,7 +206,7 @@ describe('DepositSlaService', () => {
       expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
         expect.objectContaining({
           action: 'DEPOSIT_SLA_BREACHED',
-          entityId: 'd2',
+          primarySubjectNo: 'DEP2',
           requestId: expect.stringContaining('DEPOSIT_SLA_BREACHED'),
         }),
       );

@@ -617,7 +617,7 @@ describe('Withdraw money arcs (e2e, Task 12)', () => {
     await driveLegTransition(payoutLeg.id, FundsOrderStatus.CONFIRMED, w.id);
     expect(await statusOf(w.id)).toBe(WithdrawTransactionStatus.PAYOUT_PENDING); // fee leg still CREATED — not all legs cleared
 
-    await workflow.onBounce(w.id, 'bank returned: dead IBAN', { actorType: 'ADMIN', actorId: 'E2E_BOUNCE_1', actorRole: 'OPS_OFFICER' });
+    await workflow.onBounce(w.id, 'bank returned: dead IBAN', { actorType: 'ADMIN', actorNo: 'E2E_BOUNCE_1', actorDisplayName: 'E2E_BOUNCE_1', actorRolesAtTime: ['OPS_OFFICER'] });
     expect(await statusOf(w.id)).toBe(WithdrawTransactionStatus.RETURNED);
 
     const evidence = await tbEvidence.findBySource('WITHDRAWAL', w.withdrawNo);
@@ -648,7 +648,7 @@ describe('Withdraw money arcs (e2e, Task 12)', () => {
     await manuallyPostFeeLeg(wMidFlight, feeLeg);
     expect(await statusOf(w.id)).toBe(WithdrawTransactionStatus.PAYOUT_PENDING); // fee leg CONFIRMED (not CLEARED) — not all legs cleared
 
-    await workflow.onBounce(w.id, 'bank returned: closed account', { actorType: 'ADMIN', actorId: 'E2E_BOUNCE_2', actorRole: 'OPS_OFFICER' });
+    await workflow.onBounce(w.id, 'bank returned: closed account', { actorType: 'ADMIN', actorNo: 'E2E_BOUNCE_2', actorDisplayName: 'E2E_BOUNCE_2', actorRolesAtTime: ['OPS_OFFICER'] });
     expect(await statusOf(w.id)).toBe(WithdrawTransactionStatus.RETURNED);
 
     const bouncedAudit = await auditRowsFor(w.id, AuditActions.WITHDRAW_BOUNCED);

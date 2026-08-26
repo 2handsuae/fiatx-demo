@@ -864,12 +864,11 @@ describe('setSlaDeadlineByNo (演示用「模拟超时」端点)', () => {
     expect(auditLogsService.recordByActor).toHaveBeenCalledWith(
       expect.objectContaining({
         action: 'SWAP_SLA_TIMEOUT_SIMULATED',
-        entityType: 'SWAP_TRANSACTION',
-        entityId: 'swp-1',
-        entityNo: 'SWP0001',
+        primarySubjectType: 'SWAP_TRANSACTION',
+        primarySubjectNo: 'SWP0001',
         requestId: expect.stringContaining('SLA_TIMEOUT_SIMULATED'),
       }),
-      expect.objectContaining({ actorType: 'ADMIN', actorId: 'admin-1', actorRole: 'OPERATOR' }),
+      expect.objectContaining({ actorType: 'ADMIN', actorNo: 'admin-1', actorRolesAtTime: ['OPERATOR'] }),
     );
     expect(result.slaDeadline).toEqual(pastDate);
   });

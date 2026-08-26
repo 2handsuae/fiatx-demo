@@ -11,9 +11,8 @@ import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import {
   AuditBusinessWorkflowTypes,
   AuditEntityTypes,
-  AuditGovernanceActions,
 } from '../../audit-logging/constants/audit-actions.constant';
-import { AuditResult } from '../../audit-logging/dto/audit-log.dto';
+import { AuditCategory, AuditOutcome } from '../../audit-logging/dto/audit-log.dto';
 import { ApprovalsService } from '../../governance/approvals/approvals.service';
 import { ApprovalDecidedEvent } from '../../governance/approvals/approval-handler.base';
 import {
@@ -41,14 +40,17 @@ export class AdminReactivationWorkflowService {
   private toAuditActor(actor: ApprovalActorContext) {
     return {
       actorType: actor.actorType,
-      actorId: actor.userId,
-      actorNo: actor.userNo,
-      actorRole: actor.role || actor.roleCodes[0] || 'UNKNOWN',
+      actorNo: actor.userNo || 'UNKNOWN',
+
+      actorDisplayName: actor.userNo || 'UNKNOWN',
+      actorRolesAtTime: [actor.role || actor.roleCodes[0] || 'UNKNOWN'],
     };
   }
 
   async initiateReactivation(dto: InitiateReactivationDto, actor: ApprovalActorContext) {
-    const traceId = randomUUID();
+    // START：本次恢复旅程的 correlationId，同事务写进 ApprovalCase.traceId，
+    // 供下游 executeReactivation 经 ApprovalDecidedEvent.traceId INHERIT 读回。
+    const correlationId = randomUUID();
 
     if (actor.userId === dto.targetUserId) {
       throw new ForbiddenException('Cannot reactivate your own account');
@@ -88,7 +90,7 @@ export class AdminReactivationWorkflowService {
       {
         actionType: ApprovalActionTypes.ADMIN_REACTIVATION_APPROVAL,
         entityRef: dto.targetUserId,
-        traceId,
+        traceId: correlationId,
         objectSnapshot: {
           targetUserId: dto.targetUserId,
           targetUserNo: targetUser.userNo,
@@ -99,26 +101,26 @@ export class AdminReactivationWorkflowService {
       },
       {
         reason: dto.reason,
-        traceId,
+        traceId: correlationId,
       },
       actor,
     );
 
     await this.auditLogsService.recordByActor(
       {
-        action: AuditGovernanceActions.ADMIN_REACTIVATION.REACTIVATION_REQUESTED,
-        entityType: AuditEntityTypes.ADMIN_USER,
-        entityId: dto.targetUserId,
-        entityNo: targetUser.userNo,
-        workflowType: AuditBusinessWorkflowTypes.ADMIN_REACTIVATION,
-        traceId,
-        result: AuditResult.SUCCESS,
+        action: 'ADMIN_REACTIVATION_REQUESTED',
+        actionDomain: 'IAM',
+        category: AuditCategory.GOVERNANCE,
+        primarySubjectType: AuditEntityTypes.ADMIN_USER,
+        primarySubjectNo: targetUser.userNo,
+        correlationId,
+        outcome: AuditOutcome.SUCCESS,
+        reason: dto.reason,
         metadata: {
           targetEmail: targetUser.email,
-          reason: dto.reason,
           approvalNo: approvalCase.approvalNo,
         },
-        requestId: `ADMIN_REACTIVATION_REQUESTED_${targetUser.userNo}`,
+        requestId: randomUUID(),
         sourcePlatform: 'ADMIN_API',
       },
       this.toAuditActor(actor),
@@ -126,7 +128,7 @@ export class AdminReactivationWorkflowService {
 
     return {
       approvalNo: approvalCase.approvalNo,
-      traceId,
+      traceId: correlationId,
       targetUserNo: targetUser.userNo,
       status: 'PENDING',
     };
@@ -140,38 +142,52 @@ export class AdminReactivationWorkflowService {
   }
 
   private async executeReactivation(event: ApprovalDecidedEvent) {
+    // fromStatus 需要执行前的真实状态快照——reactivateUser 只回传执行后的最终状态。
+    const before = await this.usersDomainService.findById(event.entityRef);
+
     try {
       const result = await this.usersDomainService.reactivateUser(event.entityRef);
 
       await this.auditLogsService.recordSystem({
-        action: AuditGovernanceActions.ADMIN_REACTIVATION.ACCOUNT_REACTIVATED,
-        entityType: AuditEntityTypes.ADMIN_USER,
-        entityId: event.entityRef,
-        entityNo: result.userNo,
-        workflowType: AuditBusinessWorkflowTypes.ADMIN_REACTIVATION,
-        traceId: event.traceId,
-        result: AuditResult.SUCCESS,
+        action: 'ADMIN_REACTIVATION_APPLIED',
+        actionDomain: 'IAM',
+        category: AuditCategory.GOVERNANCE,
+        primarySubjectType: AuditEntityTypes.ADMIN_USER,
+        primarySubjectNo: result.userNo,
+        // INHERIT：读 ApprovalDecidedEvent.traceId——就是 initiateReactivation 铸造的
+        // correlationId 原样传播过来的（经 ApprovalCase.traceId）。
+        correlationId: event.traceId,
+        causationId: event.approvalId,
+        outcome: AuditOutcome.SUCCESS,
+        fromStatus: before?.status ?? 'UNKNOWN',
+        toStatus: result.status,
+        approvalNo: event.approvalNo,
         metadata: {
           approvalId: event.approvalId,
-          approvalNo: event.approvalNo,
           reactivatedByUserId: event.decisionByUserId,
           reactivatedByUserNo: event.decisionByUserNo,
         },
-        requestId: `ADMIN_REACTIVATION_EXECUTED_${result.userNo}`,
+        requestId: randomUUID(),
         sourcePlatform: 'ADMIN_API',
       });
 
     } catch (error) {
       await this.auditLogsService.recordSystem({
-        action: AuditGovernanceActions.ADMIN_REACTIVATION.ACCOUNT_REACTIVATED,
-        entityType: AuditEntityTypes.ADMIN_USER,
-        entityId: event.entityRef,
-        workflowType: AuditBusinessWorkflowTypes.ADMIN_REACTIVATION,
-        traceId: event.traceId,
-        result: AuditResult.FAILED,
+        action: 'ADMIN_REACTIVATION_APPLIED',
+        actionDomain: 'IAM',
+        category: AuditCategory.GOVERNANCE,
+        primarySubjectType: AuditEntityTypes.ADMIN_USER,
+        primarySubjectNo: before?.userNo ?? event.entityRef,
+        correlationId: event.traceId,
+        causationId: event.approvalId,
+        outcome: AuditOutcome.FAILED,
+        // 同 suspension：fromStatus/toStatus 表达"本该达成的转移意图"，不是"实际结果"。
+        fromStatus: before?.status ?? 'UNKNOWN',
+        toStatus: 'ACTIVE',
+        approvalNo: event.approvalNo,
         reason: error instanceof Error ? error.message : 'Reactivation execution failed',
         metadata: { approvalId: event.approvalId },
-        requestId: `ADMIN_REACTIVATION_EXEC_FAILED_${event.entityRef}`,
+        requestId: randomUUID(),
         sourcePlatform: 'ADMIN_API',
       });
 

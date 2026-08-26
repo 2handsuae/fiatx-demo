@@ -6,7 +6,7 @@ import {
   AuditEntityTypes,
   AuditGovernanceActions,
 } from '../../audit-logging/constants/audit-actions.constant';
-import { AuditResult } from '../../audit-logging/dto/audit-log.dto';
+import { AuditOutcome } from '../../audit-logging/dto/audit-log.dto';
 import { ApprovalActorContext } from '../../governance/approvals/constants/approval.constants';
 import { isStaticTag, isValidTag, NEW_CUSTOMER_DAYS } from './constants/customer-tag.constant';
 
@@ -20,9 +20,10 @@ export class CustomerTagService {
   private toAuditActor(actor: ApprovalActorContext) {
     return {
       actorType: actor.actorType,
-      actorId: actor.userId,
-      actorNo: actor.userNo,
-      actorRole: actor.role || actor.roleCodes[0] || 'UNKNOWN',
+      actorNo: actor.userNo || 'UNKNOWN',
+
+      actorDisplayName: actor.userNo || 'UNKNOWN',
+      actorRolesAtTime: [actor.role || actor.roleCodes[0] || 'UNKNOWN'],
     };
   }
 
@@ -52,11 +53,9 @@ export class CustomerTagService {
     await this.audit.recordByActor(
       {
         action: AuditGovernanceActions.CUSTOMER_TAG.TAG_ASSIGNED,
-        entityType: AuditEntityTypes.CUSTOMER_TAG,
-        entityId: row.id,
-        entityNo: `${customer.customerNo}:${tagCode}`,
-        workflowType: AuditBusinessWorkflowTypes.CUSTOMER_TAG,
-        result: AuditResult.SUCCESS,
+        primarySubjectType: AuditEntityTypes.CUSTOMER_TAG,
+        primarySubjectNo: `${customer.customerNo}:${tagCode}`,
+        outcome: AuditOutcome.SUCCESS,
         metadata: { customerId, tagCode },
         sourcePlatform: 'ADMIN_API',
       },
@@ -81,11 +80,9 @@ export class CustomerTagService {
     await this.audit.recordByActor(
       {
         action: AuditGovernanceActions.CUSTOMER_TAG.TAG_REVOKED,
-        entityType: AuditEntityTypes.CUSTOMER_TAG,
-        entityId: row.id,
-        entityNo: `${customer.customerNo}:${tagCode}`,
-        workflowType: AuditBusinessWorkflowTypes.CUSTOMER_TAG,
-        result: AuditResult.SUCCESS,
+        primarySubjectType: AuditEntityTypes.CUSTOMER_TAG,
+        primarySubjectNo: `${customer.customerNo}:${tagCode}`,
+        outcome: AuditOutcome.SUCCESS,
         metadata: { customerId, tagCode },
         sourcePlatform: 'ADMIN_API',
       },

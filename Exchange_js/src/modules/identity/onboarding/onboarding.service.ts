@@ -655,14 +655,10 @@ export class OnboardingService {
     await this.auditLogsService.recordByActor(
       {
         action: input.action,
-        entityType: AuditEntityTypes.ONBOARDING,
-        entityId: input.customerId,
-        entityNo: customer?.customerNo || undefined,
+        primarySubjectType: AuditEntityTypes.ONBOARDING,
+        primarySubjectNo: customer?.customerNo || undefined,
         traceId: workflowContext?.traceId || undefined,
-        workflowType: workflowContext?.workflowType || AuditWorkflowTypes.ONBOARDING,
-        entityOwnerType: 'CUSTOMER',
-        entityOwnerId: input.customerId,
-        entityOwnerNo: customer?.customerNo || undefined,
+        ownerCustomerNo: customer?.customerNo || undefined,
         reason: input.detail || undefined,
         metadata: {
           caseType: input.caseType || null,
@@ -674,8 +670,9 @@ export class OnboardingService {
       },
       {
         actorType,
-        actorId: input.actorId,
-        actorRole: input.actorRole,
+        actorNo: input.actorId,
+        actorDisplayName: input.actorId,
+        actorRolesAtTime: [input.actorRole],
       },
     );
 
@@ -715,14 +712,10 @@ export class OnboardingService {
       await this.auditLogsService.recordByActor(
         {
           action,
-          entityType: AuditEntityTypes.ONBOARDING,
-          entityId: input.customerId,
-          entityNo: input.customerNo || undefined,
-          entityOwnerType: 'CUSTOMER',
-          entityOwnerId: input.customerId,
-          entityOwnerNo: input.customerNo || undefined,
+          primarySubjectType: AuditEntityTypes.ONBOARDING,
+          primarySubjectNo: input.customerNo || undefined,
+          ownerCustomerNo: input.customerNo || undefined,
           traceId: input.onboardingTraceId || undefined,
-          workflowType: AuditWorkflowTypes.ONBOARDING,
           reason,
           metadata: {
             eventType: input.eventType,
@@ -742,10 +735,13 @@ export class OnboardingService {
         },
         {
           actorType: input.simulated ? 'ADMIN' : 'SYSTEM',
-          actorId: input.simulated
+          actorNo: input.simulated
             ? input.simulatedByUserId || 'ADMIN_SIM'
             : 'SUMSUB',
-          actorRole: input.simulated ? 'ADMIN' : 'SYSTEM',
+          actorDisplayName: input.simulated
+            ? input.simulatedByUserId || 'ADMIN_SIM'
+            : 'SUMSUB',
+          actorRolesAtTime: [input.simulated ? 'ADMIN' : 'SYSTEM'],
         },
       );
     } catch (err) {

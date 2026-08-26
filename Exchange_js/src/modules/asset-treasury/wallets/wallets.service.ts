@@ -16,7 +16,7 @@ import {
   AuditBusinessWorkflowTypes,
   AuditEntityTypes,
 } from '../../audit-logging/constants/audit-actions.constant';
-import { AuditResult } from '../../audit-logging/dto/audit-log.dto';
+import { AuditOutcome } from '../../audit-logging/dto/audit-log.dto';
 import { isProtectedSystemWalletRole } from './system-wallet.util';
 
 @Injectable()
@@ -66,23 +66,19 @@ export class WalletsService {
     await this.auditLogsService.recordByActor(
       {
         action: AuditActions.WALLET_STATUS_UPDATED,
-        entityType: AuditEntityTypes.WALLET,
-        entityId: result.id,
-        entityNo: result.walletNo || undefined,
-        entityOwnerType: result.ownerType,
-        entityOwnerId: result.ownerId || undefined,
-        entityOwnerNo: before.ownerNo || undefined,
-        workflowType: AuditBusinessWorkflowTypes.CUSTODIAN_WALLET_CREATE,
+        primarySubjectType: AuditEntityTypes.WALLET,
+        primarySubjectNo: result.walletNo || undefined,
+        ownerCustomerNo: before.ownerNo || undefined,
         traceId: randomUUID(),
-        result: AuditResult.SUCCESS,
+        outcome: AuditOutcome.SUCCESS,
         reason: `Wallet status changed: ${before.status} → ${status}`,
         sourcePlatform: 'ADMIN_API',
       },
       {
         actorType: 'ADMIN',
-        actorId: actor.actorId,
-        actorNo: actor.actorNo,
-        actorRole: actor.actorRole || 'ADMIN',
+        actorNo: actor.actorNo || 'UNKNOWN',
+        actorDisplayName: actor.actorNo || 'UNKNOWN',
+        actorRolesAtTime: [actor.actorRole || 'ADMIN'],
       },
     );
     return result;

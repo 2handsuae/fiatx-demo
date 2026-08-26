@@ -415,46 +415,130 @@ model UboProfile {
 }
 
 model AuditLogEvent {
-  id              String              @id @default(uuid())
-  auditNo         String              @unique @default("TEMP")
-  action          String
-  entityType      String
-  entityId        String?
-  entityNo        String?
-  traceId         String?
-  workflowType    String?
-  entityOwnerType String?
-  entityOwnerId   String?
-  actorType       String
-  actorId         String
-  actorNo         String?
-  actorRole       String?
-  requestId       String?
-  sourceIp        String?
-  sourcePlatform  String?
-  result          String              @default("SUCCESS")
-  reason          String?
-  metadata        String?
-  idempotencyKey  String?             @unique
-  payloadDigest   String
-  retainedUntil   DateTime
-  entityOwnerNo   String?
-  archivedAt      DateTime?
-  occurredAt      DateTime            @default(now())
-  createdAt       DateTime            @default(now())
-  updatedAt       DateTime            @updatedAt
+  // 组 A · 信封
+  // ⚠️ seq 必须是 @id：SQLite 下 Prisma 拒绝 autoincrement() 挂在非 @id 字段上
+  //    （实测 P1012: "The `autoincrement()` default value is used on a non-id field
+  //     even though the datasource does not support this."）
+  //    seq 当物理主键 = SQLite rowid 别名，由 DB 保证单调，应用层碰不到、改不了。
+  //    id 保留为稳定 UUID 供子表外键引用（Prisma 支持 references 任意 @unique 字段）。
+  seq                Int      @id @default(autoincrement())
+  id                 String   @unique @default(uuid())
+  eventNo            String   @unique @default("TEMP")
+  schemaVersion      Int      @default(1)
+  category           String
+  isReadOnly         Boolean  @default(false)
+  supersedesEventNo  String?
+  correctionReason   String?
+
+  // 组 B · 时间（三个，不可合并）
+  occurredAt         DateTime @default(now())
+  recordedAt         DateTime @default(now())
+  effectiveDate      DateTime?
+
+  // 组 C · 动作
+  action             String
+  actionDomain       String
+  workflowType       String?   // ⚠️ 过渡层例外：交易域仍在写，V1 域停止写入，删列排在交易域批次
+
+  // 组 D · 人（两个）
+  actorType          String
+  actorNo            String
+  actorDisplayName   String
+  onBehalfOfType     String?
+  onBehalfOfNo       String?
+  actorRolesAtTime   String    @default("[]")   // JSON 数组快照
+  authnMethod        String?
+
+  // 组 E · 来源
+  sourcePlatform     String
+  requestId          String?
+  sessionId          String?
+  sourceIp           String?
+  userAgent          String?
+  endpoint           String?
+
+  // 组 F · 主体（主表冗余；完整关系见 AuditLogSubject）
+  primarySubjectType String?
+  primarySubjectNo   String?
+  ownerCustomerNo    String?
+
+  // 组 G · 结果
+  outcome            String    @default("SUCCESS")
+  reasonCode         String?
+  reason             String?
+  fromStatus         String?
+  toStatus           String?
+  beforeData         String?
+  afterData          String?
+  amount             String?
+  currency           String?
+
+  // 组 H · 授权依据
+  permissionCode     String?
+  policyCode         String?
+  policyVersion      Int?
+  approvalNo         String?
+  ruleCode           String?
+  ruleVersion        Int?
+  isOverride         Boolean   @default(false)
+  overrideReason     String?
+
+  // 组 I · 关联（三条线）
+  correlationId       String?
+  causationId         String?
+  traceId             String?
+  groupEventId        String?
+  externalEvidenceRef String?
+
+  // 组 J · 完整性与生命周期
+  payloadDigest      String
+  prevHash           String?
+  selfHash           String?
+  retentionClass     String    @default("STANDARD_8Y")
+  retainedUntil      DateTime
+  legalHold          Boolean   @default(false)
+  idempotencyKey     String?   @unique
+  signature          String?
+  archivedAt         DateTime?
+  storageTier        String?   @default("HOT")
+
+  metadata           String?
+
+  subjects           AuditLogSubject[]
+
   @@index([occurredAt])
-  @@index([entityType, entityId])
-  @@index([actorType, actorId])
-  @@index([actorType, actorId, occurredAt])
   @@index([actorNo, occurredAt])
-  @@index([entityOwnerNo, occurredAt])
+  @@index([ownerCustomerNo, occurredAt])
+  @@index([action, occurredAt])
+  @@index([actionDomain, occurredAt])
+  @@index([correlationId, occurredAt])
+  @@index([causationId])
   @@index([traceId, occurredAt])
-  @@index([workflowType, occurredAt])
-  @@index([result, occurredAt])
+  @@index([outcome, occurredAt])
+  @@index([primarySubjectType, primarySubjectNo])
+  @@index([isReadOnly, occurredAt])
   @@index([retainedUntil])
-  @@index([archivedAt])
+  @@index([legalHold])
   @@map("audit_log_events")
+}
+
+model AuditLogSubject {
+  id          String        @id @default(uuid())
+  eventId     String
+  subjectType String
+  subjectNo   String
+  subjectRole String
+  occurredAt  DateTime
+  createdAt   DateTime      @default(now())
+
+  event       AuditLogEvent @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  @@unique([eventId, subjectType, subjectNo, subjectRole])
+  @@index([subjectNo, occurredAt])
+  @@index([subjectType, subjectNo, occurredAt])
+  @@index([subjectRole, occurredAt])
+  @@index([eventId])
+  @@map("audit_log_subjects")
 }
 
 model AuditEvidencePackage {

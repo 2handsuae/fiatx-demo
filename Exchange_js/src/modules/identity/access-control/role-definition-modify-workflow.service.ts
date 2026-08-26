@@ -1,5 +1,6 @@
 import { Injectable, BadRequestException, NotFoundException, Inject, Logger } from '@nestjs/common';
 import { OnEvent } from '@nestjs/event-emitter';
+import { randomUUID } from 'crypto';
 import { PrismaService } from '../../../core/prisma/prisma.service';
 import { ApprovalsService } from '../../governance/approvals/approvals.service';
 import { AuditLogsService } from '../../audit-logging/audit-logs.service';
@@ -10,9 +11,8 @@ import {
 import {
   AuditBusinessWorkflowTypes,
   AuditEntityTypes,
-  AuditGovernanceActions,
 } from '../../audit-logging/constants/audit-actions.constant';
-import { AuditResult } from '../../audit-logging/dto/audit-log.dto';
+import { AuditCategory, AuditOutcome } from '../../audit-logging/dto/audit-log.dto';
 import { RBAC_PERMISSION_DEFINITIONS, type PermissionGroup } from './rbac.catalog';
 import { generateReferenceNo } from '../../../common/utils/no-generator.util';
 
@@ -25,6 +25,12 @@ interface ModifyRoleDefinitionDto {
   proposedDescription?: string;
   proposedPermissionGroups: string[];
   changeReason: string;
+}
+
+interface RoleDefinitionSnapshot {
+  name: string;
+  description: string | null;
+  permissionGroups: string[];
 }
 
 const SECONDARY_EVENT = 'workflow.role-definition-modify.decided';
@@ -47,6 +53,56 @@ export class RoleDefinitionModifyWorkflowService {
     private readonly approvalsService: ApprovalsService,
     private readonly auditLogsService: AuditLogsService,
   ) {}
+
+  /**
+   * beforeData/afterData 只存变更项——三个可改字段（name/description/permissionGroups）
+   * 里只有值真的不同的那些才进结果，机械字段（status/timestamps/changeReason 等）
+   * 从不进来。REQUESTED 与 APPLIED（成功/失败两分支）三处调用同一份逻辑，保证同一次
+   * 变更旅程里的 diff 口径完全一致。
+   */
+  private buildModifyDiff(
+    before: RoleDefinitionSnapshot,
+    after: RoleDefinitionSnapshot,
+  ): { beforeData: Record<string, unknown>; afterData: Record<string, unknown> } {
+    const beforeData: Record<string, unknown> = {};
+    const afterData: Record<string, unknown> = {};
+
+    if (before.name !== after.name) {
+      beforeData.name = before.name;
+      afterData.name = after.name;
+    }
+    if ((before.description ?? null) !== (after.description ?? null)) {
+      beforeData.description = before.description ?? null;
+      afterData.description = after.description ?? null;
+    }
+    const sortedBefore = [...before.permissionGroups].sort();
+    const sortedAfter = [...after.permissionGroups].sort();
+    if (JSON.stringify(sortedBefore) !== JSON.stringify(sortedAfter)) {
+      beforeData.permissionGroups = before.permissionGroups;
+      afterData.permissionGroups = after.permissionGroups;
+    }
+
+    return { beforeData, afterData };
+  }
+
+  /**
+   * APPLIED（成功/失败两分支共用）与 REQUESTED 复算同一份 diff，来源是持久化在
+   * request 行上的 current 前缀 / proposed 前缀列——三处口径天然保持一致，不需要额外传参。
+   */
+  private buildModifyDiffFromRequest(request: any) {
+    return this.buildModifyDiff(
+      {
+        name: request.currentName,
+        description: request.currentDescription,
+        permissionGroups: JSON.parse(request.currentPermissionGroups),
+      },
+      {
+        name: request.proposedName,
+        description: request.proposedDescription,
+        permissionGroups: JSON.parse(request.proposedPermissionGroups),
+      },
+    );
+  }
 
   /* ── Initiate ── */
 
@@ -122,15 +178,18 @@ export class RoleDefinitionModifyWorkflowService {
       },
     });
 
-    /* Create and submit approval case */
-    const traceId = `rdm-${request.id}`;
+    // START：本次修改旅程的 correlationId。RoleDefinitionModifyRequest 表没有
+    // traceId/correlationId 列，同一个值同事务写进 ApprovalCase.traceId（经
+    // createAndSubmit 的 traceId 入参）承载，供下游 executeModification/executeCancellation
+    // 经 ApprovalDecidedEvent.traceId INHERIT 读回。
+    const correlationId = randomUUID();
     let approvalCase: any;
     try {
       approvalCase = await this.approvalsService.createAndSubmit(
         {
           actionType: ApprovalActionTypes.ROLE_DEFINITION_MODIFY,
           entityRef: request.id,
-          traceId,
+          traceId: correlationId,
           objectSnapshot: {
             roleCode: role.code,
             currentName: role.name,
@@ -141,7 +200,7 @@ export class RoleDefinitionModifyWorkflowService {
             proposedPermissionGroups,
           },
         },
-        { reason: changeReason.trim(), traceId },
+        { reason: changeReason.trim(), traceId: correlationId },
         actor,
       );
     } catch (err) {
@@ -159,29 +218,40 @@ export class RoleDefinitionModifyWorkflowService {
       },
     });
 
+    const { beforeData, afterData } = this.buildModifyDiff(
+      { name: role.name, description: role.description, permissionGroups: currentPermissionGroups },
+      {
+        name: proposedName.trim(),
+        description: proposedDescription?.trim() || null,
+        permissionGroups: proposedPermissionGroups,
+      },
+    );
+
     /* Audit */
     await this.auditLogsService.recordByActor(
       {
-        action: AuditGovernanceActions.ROLE_DEFINITION_MODIFY.MODIFY_REQUESTED,
-        entityType: AuditEntityTypes.ACCESS_CONTROL,
-        entityId: request.id,
-        entityNo: requestNo,
-        workflowType: AuditBusinessWorkflowTypes.ROLE_DEFINITION_MODIFY,
-        traceId,
-        result: AuditResult.SUCCESS,
+        action: 'ROLE_DEFINITION_MODIFY_REQUESTED',
+        actionDomain: 'CONFIG',
+        category: AuditCategory.GOVERNANCE,
+        primarySubjectType: AuditEntityTypes.ACCESS_CONTROL,
+        primarySubjectNo: requestNo,
+        correlationId,
+        outcome: AuditOutcome.SUCCESS,
+        reason: changeReason.trim(),
+        beforeData,
+        afterData,
         metadata: {
           roleCode: role.code,
-          proposedName: proposedName.trim(),
-          proposedPermissionGroups,
           approvalNo: approvalCase.approvalNo,
         },
+        requestId: randomUUID(),
         sourcePlatform: 'ADMIN_API',
       },
       {
         actorType: 'ADMIN',
-        actorId: actor.userId,
-        actorNo: actor.userNo,
-        actorRole: actor.role || actor.roleCodes[0] || 'UNKNOWN',
+        actorNo: actor.userNo || 'UNKNOWN',
+        actorDisplayName: actor.userNo || 'UNKNOWN',
+        actorRolesAtTime: [actor.role || actor.roleCodes[0] || 'UNKNOWN'],
       },
     );
 
@@ -216,7 +286,10 @@ export class RoleDefinitionModifyWorkflowService {
   /* ── Execute modification (on APPROVED) ── */
 
   private async executeModification(approvalId: string, requestId: string, payload: any) {
-    const traceId = payload?.traceId || `rdm-exec-${requestId}`;
+    // INHERIT：读 ApprovalDecidedEvent.traceId——它就是 initiateModify 铸造的 correlationId
+    // 原样传播过来的（经 ApprovalCase.traceId）。读不到就让 assertActionSpec 在写入时报错，
+    // 不再用 `rdm-exec-${requestId}` 这类兜底字符串掩盖断链。
+    const correlationId = payload?.traceId;
 
     const request = await this.prisma.roleDefinitionModifyRequest.findUnique({
       where: { id: requestId },
@@ -232,7 +305,7 @@ export class RoleDefinitionModifyWorkflowService {
     });
     if (!role || role.status !== 'ACTIVE') {
       const reason = !role ? 'Role not found' : `Role status is ${role.status}`;
-      await this.failRequest(request, approvalId, reason, traceId);
+      await this.failRequest(request, approvalId, reason, correlationId);
       return;
     }
 
@@ -250,7 +323,7 @@ export class RoleDefinitionModifyWorkflowService {
 
     if (JSON.stringify(actualGroups) !== JSON.stringify(snapshotGroups)) {
       const reason = `Conflict: role permissions changed since request was submitted. Expected groups: ${JSON.stringify(snapshotGroups)}, actual: ${JSON.stringify(actualGroups)}`;
-      await this.failRequest(request, approvalId, reason, traceId);
+      await this.failRequest(request, approvalId, reason, correlationId);
       return;
     }
 
@@ -308,22 +381,28 @@ export class RoleDefinitionModifyWorkflowService {
       });
     });
 
+    const { beforeData, afterData } = this.buildModifyDiffFromRequest(request);
+
     /* Audit */
     await this.auditLogsService.recordSystem({
-      action: AuditGovernanceActions.ROLE_DEFINITION_MODIFY.ROLE_MODIFIED,
-      entityType: AuditEntityTypes.ACCESS_CONTROL,
-      entityId: request.id,
-      entityNo: request.requestNo,
-      workflowType: AuditBusinessWorkflowTypes.ROLE_DEFINITION_MODIFY,
-      traceId,
-      result: AuditResult.SUCCESS,
+      action: 'ROLE_DEFINITION_MODIFY_APPLIED',
+      actionDomain: 'CONFIG',
+      category: AuditCategory.GOVERNANCE,
+      primarySubjectType: AuditEntityTypes.ACCESS_CONTROL,
+      primarySubjectNo: request.requestNo,
+      correlationId,
+      // 异步驱动：这条记录是被"审批已批准"这个决定触发的。
+      causationId: approvalId,
+      outcome: AuditOutcome.SUCCESS,
+      beforeData,
+      afterData,
+      approvalNo: payload?.approvalNo,
       metadata: {
         roleCode: role.code,
-        proposedName: request.proposedName,
-        proposedPermissionGroups: JSON.parse(request.proposedPermissionGroups),
         permissionCount: permissionCodes.length,
       },
-      sourcePlatform: 'SYSTEM',
+      requestId: randomUUID(),
+      sourcePlatform: 'ADMIN_API',
     });
 
     this.logger.log(`[executeModification] Role ${role.code} modified via request ${request.requestNo}`);
@@ -331,22 +410,35 @@ export class RoleDefinitionModifyWorkflowService {
 
   /* ── Fail request (conflict or missing role) ── */
 
-  private async failRequest(request: any, approvalId: string, reason: string, traceId: string) {
+  private async failRequest(request: any, approvalId: string, reason: string, correlationId: string | undefined) {
     await this.prisma.roleDefinitionModifyRequest.update({
       where: { id: request.id },
       data: { status: 'APPROVED', failureReason: reason, executedAt: new Date() },
     });
 
+    const { beforeData, afterData } = this.buildModifyDiffFromRequest(request);
+
+    // 退役码 ROLE_MODIFY_FAILED 收编进来——同一动作码 ROLE_DEFINITION_MODIFY_APPLIED，
+    // 靠 outcome=FAILED 区分，不另起一个 _FAILED 后缀码（词表未给这一步单独开码，同角色
+    // 定义创建工作流"同码不同 outcome"原则）。approvalNo 取 request.approvalCaseNo——
+    // 这条记录不是从 ApprovalDecidedEvent 直接派生的分支，request 行上的值与
+    // event.approvalNo 恒等（同一张审批单）。
     await this.auditLogsService.recordSystem({
-      action: AuditGovernanceActions.ROLE_DEFINITION_MODIFY.ROLE_MODIFY_FAILED,
-      entityType: AuditEntityTypes.ACCESS_CONTROL,
-      entityId: request.id,
-      entityNo: request.requestNo,
-      workflowType: AuditBusinessWorkflowTypes.ROLE_DEFINITION_MODIFY,
-      traceId,
-      result: AuditResult.FAILED,
+      action: 'ROLE_DEFINITION_MODIFY_APPLIED',
+      actionDomain: 'CONFIG',
+      category: AuditCategory.GOVERNANCE,
+      primarySubjectType: AuditEntityTypes.ACCESS_CONTROL,
+      primarySubjectNo: request.requestNo,
+      correlationId,
+      causationId: approvalId,
+      outcome: AuditOutcome.FAILED,
+      reason,
+      beforeData,
+      afterData,
+      approvalNo: request.approvalCaseNo || undefined,
       metadata: { failureReason: reason },
-      sourcePlatform: 'SYSTEM',
+      requestId: randomUUID(),
+      sourcePlatform: 'ADMIN_API',
     });
 
     this.logger.warn(`[failRequest] Request ${request.requestNo} failed: ${reason}`);
@@ -360,7 +452,7 @@ export class RoleDefinitionModifyWorkflowService {
     decision: string,
     payload: any,
   ) {
-    const traceId = payload?.traceId || `rdm-cancel-${requestId}`;
+    const correlationId = payload?.traceId;
 
     const request = await this.prisma.roleDefinitionModifyRequest.findUnique({
       where: { id: requestId },
@@ -378,15 +470,18 @@ export class RoleDefinitionModifyWorkflowService {
     });
 
     await this.auditLogsService.recordSystem({
-      action: AuditGovernanceActions.ROLE_DEFINITION_MODIFY.MODIFY_CANCELLED,
-      entityType: AuditEntityTypes.ACCESS_CONTROL,
-      entityId: request.id,
-      entityNo: request.requestNo,
-      workflowType: AuditBusinessWorkflowTypes.ROLE_DEFINITION_MODIFY,
-      traceId,
-      result: AuditResult.SUCCESS,
+      action: 'ROLE_DEFINITION_MODIFY_CANCELLED',
+      actionDomain: 'CONFIG',
+      category: AuditCategory.GOVERNANCE,
+      primarySubjectType: AuditEntityTypes.ACCESS_CONTROL,
+      primarySubjectNo: request.requestNo,
+      correlationId,
+      causationId: approvalId,
+      outcome: AuditOutcome.SUCCESS,
+      reason: payload?.decisionReason || `Role definition modify request ${String(decision).toLowerCase()}`,
       metadata: { decision },
-      sourcePlatform: 'SYSTEM',
+      requestId: randomUUID(),
+      sourcePlatform: 'ADMIN_API',
     });
 
     this.logger.log(`[executeCancellation] Request ${request.requestNo} ${newStatus}`);

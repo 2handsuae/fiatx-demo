@@ -41,6 +41,7 @@ const mockUsersService = {
 
 const mockUsersDomainService = {
   resetPassword: jest.fn(),
+  findById: jest.fn().mockResolvedValue(null),
 };
 
 const mockJwtService = {
@@ -63,6 +64,7 @@ describe('AdminPasswordResetWorkflowService', () => {
     // Reset findMany to return empty array by default
     mockPrisma.passwordResetToken.findMany.mockResolvedValue([]);
     mockPrisma.approvalCase.findFirst.mockResolvedValue(null);
+    mockUsersDomainService.findById.mockResolvedValue(null);
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         AdminPasswordResetWorkflowService,
@@ -121,7 +123,7 @@ describe('AdminPasswordResetWorkflowService', () => {
       expect(result).toEqual({ status: 'MFA_REQUIRED' });
     });
 
-    it('should write SELF_RESET_REQUESTED audit log for valid user', async () => {
+    it('should write ADMIN_PASSWORD_RESET_SELF_REQUESTED audit log for valid user', async () => {
       mockUsersService.findByIdentifier.mockResolvedValue({
         id: 'u1', userNo: 'ADM001', email: 'a@b.com',
         status: 'ACTIVE', firstLoginStatus: 'COMPLETED',
@@ -130,18 +132,17 @@ describe('AdminPasswordResetWorkflowService', () => {
       await service.requestSelfServiceReset('a@b.com');
       expect(mockAuditLogsService.recordByActor).toHaveBeenCalledWith(
         expect.objectContaining({
-          action: 'SELF_RESET_REQUESTED',
-          entityType: 'ADMIN_USER',
-          entityId: 'u1',
-          entityNo: 'ADM001',
-          workflowType: 'ADMIN_PASSWORD_RESET',
-          traceId: expect.any(String),
+          action: 'ADMIN_PASSWORD_RESET_SELF_REQUESTED',
+          actionDomain: 'IAM',
+          primarySubjectType: 'ADMIN_USER',
+          primarySubjectNo: 'ADM001',
+          correlationId: expect.any(String),
         }),
         expect.objectContaining({
           actorType: 'ADMIN',
-          actorId: 'u1',
           actorNo: 'ADM001',
-          actorRole: 'SELF',
+          actorDisplayName: 'ADM001',
+          actorRolesAtTime: ['SELF'],
         }),
       );
     });
@@ -184,7 +185,7 @@ describe('AdminPasswordResetWorkflowService', () => {
       ).rejects.toThrow(ConflictException);
     });
 
-    it('should create approval case for valid admin reset request', async () => {
+    it('should create approval case and write ADMIN_PASSWORD_RESET_OFFICER_REQUESTED with onBehalfOfNo', async () => {
       mockPrisma.user.findFirst.mockResolvedValue({
         id: 'u2', userNo: 'ADM002', email: 'b@b.com',
         status: 'ACTIVE', firstLoginStatus: 'COMPLETED',
@@ -196,7 +197,16 @@ describe('AdminPasswordResetWorkflowService', () => {
       expect(result.status).toBe('PENDING_APPROVAL');
       expect(result.approvalNo).toBe('APR001');
       expect(mockApprovalsService.createAndSubmit).toHaveBeenCalled();
-      expect(mockAuditLogsService.recordByActor).toHaveBeenCalled();
+      expect(mockAuditLogsService.recordByActor).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: 'ADMIN_PASSWORD_RESET_OFFICER_REQUESTED',
+          actionDomain: 'IAM',
+          primarySubjectNo: 'ADM002',
+          onBehalfOfNo: 'ADM002',
+          correlationId: expect.any(String),
+        }),
+        expect.objectContaining({ onBehalfOfNo: 'ADM002' }),
+      );
     });
   });
 
@@ -208,29 +218,135 @@ describe('AdminPasswordResetWorkflowService', () => {
       });
     });
 
-    it('should write SELF_RESET_TOKEN_CREATED audit log', async () => {
+    it('should write ADMIN_PASSWORD_RESET_SELF_TOKEN_ISSUED audit log', async () => {
       await service.createResetTokenForSelf('u1', 'ADM001', 'a@b.com', 'trace-abc');
       expect(mockAuditLogsService.recordByActor).toHaveBeenCalledWith(
         expect.objectContaining({
-          action: 'SELF_RESET_TOKEN_CREATED',
-          entityType: 'ADMIN_USER',
-          entityId: 'u1',
-          entityNo: 'ADM001',
-          workflowType: 'ADMIN_PASSWORD_RESET',
-          traceId: 'trace-abc',
+          action: 'ADMIN_PASSWORD_RESET_SELF_TOKEN_ISSUED',
+          actionDomain: 'IAM',
+          primarySubjectType: 'ADMIN_USER',
+          primarySubjectNo: 'ADM001',
+          correlationId: 'trace-abc',
+          outcome: 'SUCCESS',
         }),
         expect.objectContaining({
           actorType: 'ADMIN',
-          actorId: 'u1',
           actorNo: 'ADM001',
-          actorRole: 'SELF',
+          actorDisplayName: 'ADM001',
+          actorRolesAtTime: ['SELF'],
         }),
       );
+    });
+
+    it('should write outcome=DENIED reasonCode=RATE_LIMITED when a recent token already exists, and still throw', async () => {
+      mockPrisma.passwordResetToken.findFirst.mockResolvedValue({ id: 'existing' });
+
+      await expect(
+        service.createResetTokenForSelf('u1', 'ADM001', 'a@b.com', 'trace-abc'),
+      ).rejects.toThrow();
+
+      const call = mockAuditLogsService.recordByActor.mock.calls.find(
+        (c: any[]) => c[0].outcome === 'DENIED',
+      );
+      expect(call).toBeDefined();
+      expect(call[0].action).toBe('ADMIN_PASSWORD_RESET_SELF_TOKEN_ISSUED');
+      expect(call[0].reasonCode).toBe('RATE_LIMITED');
+      expect(call[0].correlationId).toBe('trace-abc');
+    });
+  });
+
+  describe('第一批 · 密码重置两条路各自成链', () => {
+    it('自助路径走 SELF_* 三码，不走 OFFICER_*', async () => {
+      mockUsersService.findByIdentifier.mockResolvedValue({
+        id: 'u1', userNo: 'ADM001', email: 'a@b.com',
+        status: 'ACTIVE', firstLoginStatus: 'COMPLETED',
+        mfaEnabledAt: new Date(), deletedAt: null,
+      });
+      await service.requestSelfServiceReset('a@b.com');
+
+      mockPrisma.passwordResetToken.findFirst.mockResolvedValue(null);
+      mockPrisma.passwordResetToken.create.mockResolvedValue({
+        id: 'prt1', resetNo: 'PWR001', status: 'PENDING',
+      });
+      await service.createResetTokenForSelf('u1', 'ADM001', 'a@b.com', 'trace-self');
+
+      mockPrisma.passwordResetToken.findUnique.mockResolvedValue({
+        id: 'prt1', resetNo: 'PWR001', userId: 'u1',
+        status: 'PENDING', expiresAt: new Date(Date.now() + 60000),
+        requestSource: 'SELF', traceId: 'trace-self',
+      });
+      mockPrisma.user.findFirst.mockResolvedValue({ id: 'u1', userNo: 'ADM001', status: 'ACTIVE' });
+      mockUsersDomainService.resetPassword.mockResolvedValue({ id: 'u1', userNo: 'ADM001', status: 'ACTIVE' });
+      mockPrisma.passwordResetToken.update.mockResolvedValue({});
+      await service.consumeResetToken('valid-token', 'NewPassword123!');
+
+      const actions = mockAuditLogsService.recordByActor.mock.calls.map((c: any[]) => c[0].action);
+      expect(actions).toEqual(expect.arrayContaining([
+        'ADMIN_PASSWORD_RESET_SELF_REQUESTED',
+        'ADMIN_PASSWORD_RESET_SELF_TOKEN_ISSUED',
+        'ADMIN_PASSWORD_RESET_SELF_COMPLETED',
+      ]));
+      expect(actions.filter((a: string) => a.includes('OFFICER'))).toEqual([]);
+    });
+
+    it('官员代操作走 OFFICER_* 两码，且带 onBehalfOfNo', async () => {
+      mockPrisma.user.findFirst.mockResolvedValue({
+        id: 'u2', userNo: 'ADM002', email: 'b@b.com',
+        status: 'ACTIVE', firstLoginStatus: 'COMPLETED',
+        mfaEnabledAt: new Date(), deletedAt: null,
+        userRoles: [{ role: { code: 'COMPLIANCE_OFFICER' } }],
+      });
+      // 第一次 approvalCase.findFirst 是 initiateAdminReset 里的 existingPending 检查。
+      mockPrisma.approvalCase.findFirst.mockResolvedValueOnce(null);
+      const requested = await service.initiateAdminReset('u2', mockAdminActor);
+
+      // 跳过 executeAdminReset（异步审批事件驱动，非本用例焦点）——直接构造一条
+      // 由 CISO 代请求出来的、traceId 与 REQUESTED 一致的 token，模拟"已获批并签发"。
+      mockPrisma.passwordResetToken.findUnique.mockResolvedValue({
+        id: 'prt2', resetNo: 'PWR002', userId: 'u2',
+        status: 'PENDING', expiresAt: new Date(Date.now() + 60000),
+        requestSource: 'CISO', traceId: requested.traceId,
+      });
+      mockPrisma.user.findFirst.mockResolvedValue({ id: 'u2', userNo: 'ADM002', status: 'ACTIVE' });
+      mockUsersDomainService.resetPassword.mockResolvedValue({ id: 'u2', userNo: 'ADM002', status: 'ACTIVE' });
+      mockPrisma.passwordResetToken.update.mockResolvedValue({});
+      // 第二次 approvalCase.findFirst 是 consumeResetToken 里 resolveOfficerApprovalRef 的查询。
+      mockPrisma.approvalCase.findFirst.mockResolvedValueOnce({ id: 'apr-9', approvalNo: 'APR2608260099' });
+
+      await service.consumeResetToken('admin-token', 'NewPassword123!');
+
+      const applied = mockAuditLogsService.recordByActor.mock.calls
+        .find((c: any[]) => c[0].action === 'ADMIN_PASSWORD_RESET_OFFICER_APPLIED');
+      expect(applied).toBeDefined();
+      expect(applied[0].onBehalfOfNo).toBe('ADM002');
+      expect(applied[0].approvalNo).toBeTruthy();
+      expect(applied[0].causationId).toBe('apr-9');
+      expect(applied[0].correlationId).toBe(requested.traceId);
+    });
+
+    it('令牌过期时 outcome=DENIED + reasonCode=TOKEN_EXPIRED', async () => {
+      mockPrisma.passwordResetToken.findUnique.mockResolvedValue({
+        id: 'prt1', resetNo: 'PWR001', userId: 'u1',
+        status: 'PENDING', expiresAt: new Date(Date.now() - 60000),
+        requestSource: 'SELF', traceId: 'trace-1',
+      });
+      mockUsersDomainService.findById.mockResolvedValue({ id: 'u1', userNo: 'ADM001' });
+
+      await expect(
+        service.consumeResetToken('expired-token', 'NewPassword123!'),
+      ).rejects.toThrow();
+
+      const call = mockAuditLogsService.recordByActor.mock.calls
+        .find((c: any[]) => c[0].outcome === 'DENIED');
+      expect(call).toBeDefined();
+      expect(call[0].reasonCode).toBe('TOKEN_EXPIRED');
+      expect(call[0].action).toBe('ADMIN_PASSWORD_RESET_SELF_COMPLETED');
+      expect(call[0].primarySubjectNo).toBe('ADM001');
     });
   });
 
   describe('consumeResetToken', () => {
-    it('should reset password and write SELF_RESET_COMPLETED audit for self-service token', async () => {
+    it('should reset password and write ADMIN_PASSWORD_RESET_SELF_COMPLETED audit for self-service token', async () => {
       mockPrisma.passwordResetToken.findUnique.mockResolvedValue({
         id: 'prt1', resetNo: 'PWR2605060001', userId: 'u1',
         status: 'PENDING', expiresAt: new Date(Date.now() + 60000),
@@ -249,21 +365,20 @@ describe('AdminPasswordResetWorkflowService', () => {
       expect(mockUsersDomainService.resetPassword).toHaveBeenCalled();
       expect(mockAuditLogsService.recordByActor).toHaveBeenCalledWith(
         expect.objectContaining({
-          action: 'SELF_RESET_COMPLETED',
-          entityId: 'u1',
-          entityNo: 'ADM001',
-          traceId: 'trace-1',
+          action: 'ADMIN_PASSWORD_RESET_SELF_COMPLETED',
+          primarySubjectNo: 'ADM001',
+          correlationId: 'trace-1',
         }),
         expect.objectContaining({
           actorType: 'ADMIN',
-          actorId: 'u1',
           actorNo: 'ADM001',
-          actorRole: 'SELF',
+          actorDisplayName: 'ADM001',
+          actorRolesAtTime: ['SELF'],
         }),
       );
     });
 
-    it('should write RESET_CONSUMED audit for admin-initiated token', async () => {
+    it('should write ADMIN_PASSWORD_RESET_OFFICER_APPLIED audit for admin-initiated token', async () => {
       mockPrisma.passwordResetToken.findUnique.mockResolvedValue({
         id: 'prt2', resetNo: 'PWR002', userId: 'u2',
         status: 'PENDING', expiresAt: new Date(Date.now() + 60000),
@@ -276,20 +391,22 @@ describe('AdminPasswordResetWorkflowService', () => {
         id: 'u2', userNo: 'ADM002', status: 'ACTIVE',
       });
       mockPrisma.passwordResetToken.update.mockResolvedValue({});
+      mockPrisma.approvalCase.findFirst.mockResolvedValue({ id: 'apr-2', approvalNo: 'APR002' });
 
       await service.consumeResetToken('admin-token', 'NewPassword123!');
       expect(mockAuditLogsService.recordByActor).toHaveBeenCalledWith(
         expect.objectContaining({
-          action: 'RESET_CONSUMED',
-          entityId: 'u2',
-          entityNo: 'ADM002',
-          traceId: 'trace-2',
+          action: 'ADMIN_PASSWORD_RESET_OFFICER_APPLIED',
+          primarySubjectNo: 'ADM002',
+          correlationId: 'trace-2',
+          onBehalfOfNo: 'ADM002',
+          approvalNo: 'APR002',
+          causationId: 'apr-2',
         }),
         expect.objectContaining({
           actorType: 'ADMIN',
-          actorId: 'u2',
           actorNo: 'ADM002',
-          actorRole: 'SELF',
+          actorDisplayName: 'ADM002',
         }),
       );
     });

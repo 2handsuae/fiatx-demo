@@ -1,14 +1,15 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { OnEvent } from '@nestjs/event-emitter';
+import { randomUUID } from 'crypto';
 import { AuditLogsService } from './audit-logs.service';
 import {
   AuditBusinessWorkflowTypes,
   AuditEntityTypes,
-  AuditGovernanceActions,
 } from './constants/audit-actions.constant';
 import {
+  AuditCategory,
   AuditEvidencePackageStatus,
-  AuditResult,
+  AuditOutcome,
   ExportEvidencePackageDto,
 } from './dto/audit-log.dto';
 import { sha256Hex } from './utils/audit-digest.util';
@@ -51,13 +52,19 @@ export class AuditEvidenceExportWorkflowService {
   private toAuditActor(actor: ApprovalActorContext) {
     return {
       actorType: actor.actorType,
-      actorId: actor.userId,
-      actorNo: actor.userNo,
-      actorRole: actor.role || actor.roleCodes[0] || 'UNKNOWN',
+      actorNo: actor.userNo || 'UNKNOWN',
+
+      actorDisplayName: actor.userNo || 'UNKNOWN',
+      actorRolesAtTime: [actor.role || actor.roleCodes[0] || 'UNKNOWN'],
     };
   }
 
   async createExportRequest(query: ExportEvidencePackageDto, actor: ApprovalActorContext) {
+    // START：本次导出旅程的 correlationId。不再采信调用方可能在 query.traceId 里传入的
+    // 值——铁律要求 START 永远铸造新值（同 Task 6-8 其余工作流）。AuditEvidencePackage
+    // 表没有 traceId/correlationId 列，同一个值同事务写进 ApprovalCase.traceId 承载，
+    // 供 executePackageGeneration 经 ApprovalDecidedEvent.traceId INHERIT 读回。
+    const correlationId = randomUUID();
     const selection = await this.auditLogsService.prepareEvidenceExportSelection(query);
     const requestedAt = new Date().toISOString();
     const requestManifest = {
@@ -102,11 +109,11 @@ export class AuditEvidenceExportWorkflowService {
           createdAt: evidencePackage.createdAt,
           workflowSummary: selection.workflowSummary,
         },
-        traceId: query.traceId,
+        traceId: correlationId,
       },
       {
         reason: `Evidence export request ${evidencePackage.packageNo} submitted`,
-        traceId: query.traceId,
+        traceId: correlationId,
       },
       actor,
     );
@@ -122,15 +129,15 @@ export class AuditEvidenceExportWorkflowService {
 
     await this.auditLogsService.recordByActor(
       {
-        action: AuditGovernanceActions.AUDIT_EVIDENCE_EXPORT.EXPORT_REQUESTED,
-        entityType: AuditEntityTypes.AUDIT_EVIDENCE_PACKAGE,
-        entityId: evidencePackage.id,
-        entityNo: evidencePackage.packageNo,
-        workflowType: AuditBusinessWorkflowTypes.AUDIT_EVIDENCE_EXPORT,
-        traceId: submitted.traceId,
-        result: AuditResult.SUCCESS,
-        metadata: { dateRangeFrom, dateRangeTo, itemCount: selection.itemCount },
-        requestId: `EVIDENCE_EXPORT_REQUESTED_${evidencePackage.packageNo}`,
+        action: 'AUDIT_EVIDENCE_EXPORT_REQUESTED',
+        actionDomain: 'AUDIT',
+        category: AuditCategory.GOVERNANCE,
+        primarySubjectType: AuditEntityTypes.AUDIT_EVIDENCE_PACKAGE,
+        primarySubjectNo: evidencePackage.packageNo,
+        correlationId,
+        outcome: AuditOutcome.SUCCESS,
+        metadata: { dateRangeFrom, dateRangeTo, itemCount: selection.itemCount, approvalNo: submitted.approvalNo },
+        requestId: randomUUID(),
         sourcePlatform: 'ADMIN_API',
       },
       this.toAuditActor(actor),
@@ -139,7 +146,7 @@ export class AuditEvidenceExportWorkflowService {
     return this.auditLogsService.findEvidencePackage(evidencePackage.id);
   }
 
-  async downloadEvidencePackage(id: string, actor: ApprovalActorContext) {
+  async downloadEvidencePackage(id: string, actor: ApprovalActorContext, sourceIp?: string) {
     const found = await this.auditLogsService.findEvidencePackage(id);
     if (!found) throw new NotFoundException(`Evidence package not found: ${id}`);
     if (!found.approvalCaseId) throw new BadRequestException('Evidence export is missing approval binding');
@@ -163,14 +170,17 @@ export class AuditEvidenceExportWorkflowService {
 
     await this.auditLogsService.recordByActor(
       {
-        action: AuditGovernanceActions.AUDIT_EVIDENCE_EXPORT.PACKAGE_DOWNLOADED,
-        entityType: AuditEntityTypes.AUDIT_EVIDENCE_PACKAGE,
-        entityId: found.id,
-        entityNo: found.packageNo,
-        workflowType: AuditBusinessWorkflowTypes.AUDIT_EVIDENCE_EXPORT,
-        traceId: this.normalizeOptionalString(found.approvalCase?.traceId) || undefined,
-        result: AuditResult.SUCCESS,
-        requestId: `EVIDENCE_EXPORT_DOWNLOAD_${found.packageNo}_${Date.now()}`,
+        action: 'AUDIT_EVIDENCE_EXPORT_DOWNLOADED',
+        actionDomain: 'AUDIT',
+        category: AuditCategory.GOVERNANCE,
+        primarySubjectType: AuditEntityTypes.AUDIT_EVIDENCE_PACKAGE,
+        primarySubjectNo: found.packageNo,
+        // INHERIT：读 ApprovalCase.traceId——它就是 createExportRequest 铸造的
+        // correlationId 原样传播过来的。读不到就让 assertActionSpec 在写入时报错。
+        correlationId: this.normalizeOptionalString(found.approvalCase?.traceId) || undefined,
+        outcome: AuditOutcome.SUCCESS,
+        sourceIp,
+        requestId: randomUUID(),
         sourcePlatform: 'ADMIN_API',
       },
       this.toAuditActor(actor),
@@ -242,15 +252,25 @@ export class AuditEvidenceExportWorkflowService {
 
       await this.auditLogsService.recordByActor(
         {
-          action: AuditGovernanceActions.AUDIT_EVIDENCE_EXPORT.GENERATION_COMPLETED,
-          entityType: AuditEntityTypes.AUDIT_EVIDENCE_PACKAGE,
-          entityId: evidencePackage.id,
-          entityNo: evidencePackage.packageNo,
-          workflowType: AuditBusinessWorkflowTypes.AUDIT_EVIDENCE_EXPORT,
-          traceId: event.traceId,
-          result: AuditResult.SUCCESS,
-          metadata: { fileSize, fileCount: artifacts.itemCount },
-          requestId: `EVIDENCE_EXPORT_GENERATION_COMPLETED_${evidencePackage.packageNo}`,
+          action: 'AUDIT_EVIDENCE_EXPORT_GENERATED',
+          actionDomain: 'AUDIT',
+          category: AuditCategory.GOVERNANCE,
+          primarySubjectType: AuditEntityTypes.AUDIT_EVIDENCE_PACKAGE,
+          primarySubjectNo: evidencePackage.packageNo,
+          // INHERIT：读 ApprovalDecidedEvent.traceId——它就是 createExportRequest 铸造的
+          // correlationId 原样传播过来的（经 ApprovalCase.traceId）。
+          correlationId: event.traceId,
+          // 异步驱动：这条记录是被"审批已批准"这个决定触发的。
+          causationId: event.approvalId,
+          outcome: AuditOutcome.SUCCESS,
+          // DTO 的 payloadDigest 字段只满足 assertActionSpec 的 requiredFields 校验
+          // （不落库——与 DB 的同名行级完整性摘要列是两个概念，recordByActor 从不读
+          // input.payloadDigest，见该字段上的 DTO 注释）；metadata.payloadDigest 才是
+          // 这份"证据包内容摘要"实际持久化、可查询的地方，与 evidencePackage.digest
+          // （finalizeEvidencePackage 已写）互为副本，供只看审计流不联表也能核对。
+          payloadDigest: artifacts.digest,
+          metadata: { fileSize, fileCount: artifacts.itemCount, payloadDigest: artifacts.digest },
+          requestId: randomUUID(),
           sourcePlatform: 'ADMIN_API',
         },
         this.toAuditActor(exporterActor),
@@ -259,22 +279,26 @@ export class AuditEvidenceExportWorkflowService {
     } catch (error) {
       await this.auditLogsService.markEvidencePackageFailed(evidencePackage.id);
 
+      // 生成失败也必须留痕——「失败必须记」是本批核心，静默失败＝没有证据证明它发生过。
+      // requiredFields（此码是产物摘要 payloadDigest）只在成功路径强制：失败时按定义就
+      // 没有产物、也就没有摘要，编一个假摘要比不写更误导。故走 outcome=FAILED + reasonCode，
+      // assertActionSpec 对非成功路径改为强制 reasonCode（失败要能被机器聚合）。
       await this.auditLogsService.recordByActor(
         {
-          action: AuditGovernanceActions.AUDIT_EVIDENCE_EXPORT.GENERATION_FAILED,
-          entityType: AuditEntityTypes.AUDIT_EVIDENCE_PACKAGE,
-          entityId: evidencePackage.id,
-          entityNo: evidencePackage.packageNo,
-          workflowType: AuditBusinessWorkflowTypes.AUDIT_EVIDENCE_EXPORT,
-          traceId: event.traceId,
-          result: AuditResult.FAILED,
-          metadata: { failureReason: error instanceof Error ? error.message : 'Evidence export generation failed' },
-          requestId: `EVIDENCE_EXPORT_GENERATION_FAILED_${evidencePackage.packageNo}_${Date.now()}`,
-          sourcePlatform: 'ADMIN_API',
+          action: 'AUDIT_EVIDENCE_EXPORT_GENERATED',
+          actionDomain: 'AUDIT',
+          category: AuditCategory.GOVERNANCE,
+          primarySubjectType: 'AUDIT_EVIDENCE_PACKAGE',
+          primarySubjectNo: evidencePackage.packageNo,
+          correlationId: event.traceId,
+          causationId: event.approvalId,
+          outcome: AuditOutcome.FAILED,
+          reasonCode: 'GENERATION_ERROR',
+          reason: `Evidence package generation failed: ${(error as Error)?.message ?? 'unknown'}`,
+          sourcePlatform: 'SYSTEM',
         },
         this.toAuditActor(exporterActor),
-      ).catch(() => {});
-
+      );
     }
   }
 

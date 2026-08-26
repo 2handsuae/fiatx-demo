@@ -81,13 +81,9 @@ export class DepositSlaService {
     );
     await this.auditLogsService.recordSystem({
       action: AuditActions.DEPOSIT_SLA_BREACHED,
-      entityType: AuditEntityTypes.DEPOSIT_TRANSACTION,
-      entityId: deposit.id,
-      entityNo: deposit.depositNo,
-      entityOwnerType: deposit.ownerType,
-      entityOwnerId: deposit.ownerId,
+      primarySubjectType: AuditEntityTypes.DEPOSIT_TRANSACTION,
+      primarySubjectNo: deposit.depositNo,
       traceId: deposit.traceId || undefined,
-      workflowType: 'DEPOSIT',
       reason: `Soft SLA breached in ${deposit.status} — internal handling overdue, order status intentionally unchanged`,
       metadata: { slaType: 'SOFT', status: deposit.status, slaDeadline: deposit.slaDeadline, waitingOn: 'INTERNAL' },
       requestId: `DEPOSIT_SLA_BREACHED_${deposit.depositNo}_${randomUUID()}`,
@@ -130,13 +126,9 @@ export class DepositSlaService {
 
     await this.auditLogsService.recordSystem({
       action: AuditActions.DEPOSIT_SLA_BREACHED,
-      entityType: AuditEntityTypes.DEPOSIT_TRANSACTION,
-      entityId: deposit.id,
-      entityNo: deposit.depositNo,
-      entityOwnerType: deposit.ownerType,
-      entityOwnerId: deposit.ownerId,
+      primarySubjectType: AuditEntityTypes.DEPOSIT_TRANSACTION,
+      primarySubjectNo: deposit.depositNo,
       traceId: deposit.traceId || undefined,
-      workflowType: 'DEPOSIT',
       reason: `${reason} (deposit was ${oldStatus})`,
       metadata: { slaType: 'HARD', fromStatus: oldStatus, slaDeadline: deposit.slaDeadline, waitingOn: submitted ? 'PROVIDER' : 'CUSTOMER' },
       requestId: `DEPOSIT_SLA_BREACHED_${deposit.depositNo}_${randomUUID()}`,

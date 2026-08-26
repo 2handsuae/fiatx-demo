@@ -12,19 +12,17 @@ describe('CustomerAuthService', () => {
   const jwtServiceMock: any = {
     sign: jest.fn(),
   };
-  const auditLogsServiceMock: any = {
-    recordByActor: jest.fn(),
-  };
 
   let service: CustomerAuthService;
 
   beforeEach(() => {
     jest.clearAllMocks();
-    service = new CustomerAuthService(
-      prismaMock,
-      jwtServiceMock,
-      auditLogsServiceMock,
-    );
+    service = new CustomerAuthService(prismaMock, jwtServiceMock);
+  });
+
+  it('第一批 · V1 域打点上收：customer-auth.service.ts 不再直接写审计', () => {
+    const src = require('fs').readFileSync(`${__dirname}/customer-auth.service.ts`, 'utf8');
+    expect(src).not.toMatch(/recordByActor|recordSystem/);
   });
 
   // ★ 本轮语义反转（Task 5）：登录门只认关系是否终止。

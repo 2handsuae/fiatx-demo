@@ -559,7 +559,9 @@ describe('WithdrawTransactionsService', () => {
         {
           source: 'ADMIN_API',
           actorType: 'ADMIN',
+
           actorId: 'admin-1',
+
           actorRole: 'ADMIN',
           sourcePlatform: 'ADMIN_API',
         },
@@ -605,7 +607,9 @@ describe('WithdrawTransactionsService', () => {
         {
           source: 'ADMIN_API',
           actorType: 'ADMIN',
+
           actorId: 'admin-1',
+
           actorRole: 'ADMIN',
           sourcePlatform: 'ADMIN_API',
         },
@@ -662,7 +666,9 @@ describe('WithdrawTransactionsService', () => {
       {
         source: 'WORKFLOW',
         actorType: 'SYSTEM',
+
         actorId: 'workflow-1',
+
         actorRole: 'SYSTEM',
         sourcePlatform: 'SYSTEM',
       },
@@ -705,7 +711,9 @@ describe('WithdrawTransactionsService', () => {
       {
         source: 'WORKFLOW',
         actorType: 'SYSTEM',
+
         actorId: 'workflow-1',
+
         actorRole: 'SYSTEM',
         sourcePlatform: 'SYSTEM',
       },
@@ -755,7 +763,8 @@ describe('WithdrawTransactionsService', () => {
         statusFrom: 'PAYOUT_PENDING',
         statusTo: 'SUCCESS',
         actorType: 'SYSTEM',
-        actorId: 'SYSTEM',
+        actorNo: 'SYSTEM',
+        actorDisplayName: 'SYSTEM',
         reason: 'closeout',
         occurredAt: '2026-03-28T10:00:00.000Z',
         result: 'SUCCESS',
@@ -1536,12 +1545,11 @@ describe('WithdrawTransactionsService', () => {
       expect(auditLogsService.recordByActor).toHaveBeenCalledWith(
         expect.objectContaining({
           action: 'WITHDRAW_SLA_TIMEOUT_SIMULATED',
-          entityType: 'WITHDRAW_TRANSACTION',
-          entityId: 'wd-1',
-          entityNo: 'WDR0001',
+          primarySubjectType: 'WITHDRAW_TRANSACTION',
+          primarySubjectNo: 'WDR0001',
           requestId: expect.stringContaining('SLA_TIMEOUT_SIMULATED'),
         }),
-        expect.objectContaining({ actorType: 'ADMIN', actorId: 'admin-1', actorRole: 'OPERATOR' }),
+        expect.objectContaining({ actorType: 'ADMIN', actorNo: 'admin-1', actorRolesAtTime: ['OPERATOR'] }),
       );
       expect(result.slaDeadline).toEqual(pastDate);
     });

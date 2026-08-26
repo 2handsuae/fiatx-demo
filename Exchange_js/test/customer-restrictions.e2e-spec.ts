@@ -521,7 +521,7 @@ describe('Customer lifecycle restrictions (e2e, Task 14)', () => {
     );
     expect(
       await prisma.auditLogEvent.count({
-        where: { entityId: sw.id, action: AuditActions.SWAP_FROZEN },
+        where: { primarySubjectNo: sw.id, action: AuditActions.SWAP_FROZEN },
       }),
     ).toBeGreaterThan(0);
   });

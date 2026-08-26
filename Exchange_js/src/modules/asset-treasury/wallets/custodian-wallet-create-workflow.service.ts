@@ -12,7 +12,7 @@ import {
   AuditEntityTypes,
   AuditGovernanceActions,
 } from '../../audit-logging/constants/audit-actions.constant';
-import { AuditResult } from '../../audit-logging/dto/audit-log.dto';
+import { AuditOutcome } from '../../audit-logging/dto/audit-log.dto';
 import { WalletRole } from './dto/wallet.dto';
 import { CreateCustodianWalletDto } from './dto/create-custodian-wallet.dto';
 import { getWalletRolePolicy } from './wallet-role-policies.constant';
@@ -194,12 +194,10 @@ export class CustodianWalletCreateWorkflowService {
     await this.auditLogsService.recordByActor(
       {
         action: AuditGovernanceActions.CUSTODIAN_WALLET_CREATE.CREATE_REQUESTED,
-        entityType: AuditEntityTypes.WALLET,
-        entityId: wallet.id,
-        entityNo: walletNo,
-        workflowType: AuditBusinessWorkflowTypes.CUSTODIAN_WALLET_CREATE,
+        primarySubjectType: AuditEntityTypes.WALLET,
+        primarySubjectNo: walletNo,
         traceId,
-        result: AuditResult.SUCCESS,
+        outcome: AuditOutcome.SUCCESS,
         metadata: {
           assetNo: dto.assetNo,
           assetCurrency: asset.currency,
@@ -212,9 +210,9 @@ export class CustodianWalletCreateWorkflowService {
       },
       {
         actorType: 'ADMIN',
-        actorId: actor.userId,
-        actorNo: actor.userNo,
-        actorRole: actor.role || actor.roleCodes?.[0] || 'UNKNOWN',
+        actorNo: actor.userNo || 'UNKNOWN',
+        actorDisplayName: actor.userNo || 'UNKNOWN',
+        actorRolesAtTime: [actor.role || actor.roleCodes?.[0] || 'UNKNOWN'],
       },
     );
 
@@ -256,12 +254,10 @@ export class CustodianWalletCreateWorkflowService {
 
       await this.auditLogsService.recordSystem({
         action: AuditGovernanceActions.CUSTODIAN_WALLET_CREATE.WALLET_CREATED,
-        entityType: AuditEntityTypes.WALLET,
-        entityId: walletId,
-        entityNo: wallet.walletNo ?? undefined,
-        workflowType: AuditBusinessWorkflowTypes.CUSTODIAN_WALLET_CREATE,
+        primarySubjectType: AuditEntityTypes.WALLET,
+        primarySubjectNo: wallet.walletNo ?? undefined,
         traceId,
-        result: AuditResult.SUCCESS,
+        outcome: AuditOutcome.SUCCESS,
         metadata: { iban: wallet.iban, skipAdapter: true },
         sourcePlatform: 'SYSTEM',
       });
@@ -288,12 +284,10 @@ export class CustodianWalletCreateWorkflowService {
 
       await this.auditLogsService.recordSystem({
         action: AuditGovernanceActions.CUSTODIAN_WALLET_CREATE.WALLET_CREATED,
-        entityType: AuditEntityTypes.WALLET,
-        entityId: walletId,
-        entityNo: wallet.walletNo ?? undefined,
-        workflowType: AuditBusinessWorkflowTypes.CUSTODIAN_WALLET_CREATE,
+        primarySubjectType: AuditEntityTypes.WALLET,
+        primarySubjectNo: wallet.walletNo ?? undefined,
         traceId,
-        result: AuditResult.SUCCESS,
+        outcome: AuditOutcome.SUCCESS,
         metadata: { vaultId: result.vaultId, address: result.address, iban: result.iban },
         sourcePlatform: 'SYSTEM',
       });
@@ -306,12 +300,10 @@ export class CustodianWalletCreateWorkflowService {
 
       await this.auditLogsService.recordSystem({
         action: AuditGovernanceActions.CUSTODIAN_WALLET_CREATE.WALLET_CREATE_FAILED,
-        entityType: AuditEntityTypes.WALLET,
-        entityId: walletId,
-        entityNo: wallet.walletNo ?? undefined,
-        workflowType: AuditBusinessWorkflowTypes.CUSTODIAN_WALLET_CREATE,
+        primarySubjectType: AuditEntityTypes.WALLET,
+        primarySubjectNo: wallet.walletNo ?? undefined,
         traceId,
-        result: AuditResult.FAILED,
+        outcome: AuditOutcome.FAILED,
         metadata: { error: err.message },
         sourcePlatform: 'SYSTEM',
       });
@@ -326,12 +318,10 @@ export class CustodianWalletCreateWorkflowService {
 
     await this.auditLogsService.recordSystem({
       action: AuditGovernanceActions.CUSTODIAN_WALLET_CREATE.CREATE_CANCELLED,
-      entityType: AuditEntityTypes.WALLET,
-      entityId: walletId,
-      entityNo: wallet.walletNo ?? undefined,
-      workflowType: AuditBusinessWorkflowTypes.CUSTODIAN_WALLET_CREATE,
+      primarySubjectType: AuditEntityTypes.WALLET,
+      primarySubjectNo: wallet.walletNo ?? undefined,
       traceId,
-      result: AuditResult.SUCCESS,
+      outcome: AuditOutcome.SUCCESS,
       metadata: { decision },
       sourcePlatform: 'SYSTEM',
     });
@@ -374,20 +364,18 @@ export class CustodianWalletCreateWorkflowService {
       await this.auditLogsService.recordByActor(
         {
           action: AuditGovernanceActions.CUSTODIAN_WALLET_CREATE.WALLET_CREATED,
-          entityType: AuditEntityTypes.WALLET,
-          entityId: wallet.id,
-          entityNo: walletNo,
-          workflowType: AuditBusinessWorkflowTypes.CUSTODIAN_WALLET_CREATE,
+          primarySubjectType: AuditEntityTypes.WALLET,
+          primarySubjectNo: walletNo,
           traceId,
-          result: AuditResult.SUCCESS,
+          outcome: AuditOutcome.SUCCESS,
           metadata: { vaultId: result.vaultId, retried: true },
           sourcePlatform: 'ADMIN_API',
         },
         {
           actorType: 'ADMIN',
-          actorId: actor.userId,
-          actorNo: actor.userNo,
-          actorRole: actor.role || actor.roleCodes?.[0] || 'UNKNOWN',
+          actorNo: actor.userNo || 'UNKNOWN',
+          actorDisplayName: actor.userNo || 'UNKNOWN',
+          actorRolesAtTime: [actor.role || actor.roleCodes?.[0] || 'UNKNOWN'],
         },
       );
 
@@ -398,20 +386,18 @@ export class CustodianWalletCreateWorkflowService {
       await this.auditLogsService.recordByActor(
         {
           action: AuditGovernanceActions.CUSTODIAN_WALLET_CREATE.WALLET_CREATE_FAILED,
-          entityType: AuditEntityTypes.WALLET,
-          entityId: wallet.id,
-          entityNo: walletNo,
-          workflowType: AuditBusinessWorkflowTypes.CUSTODIAN_WALLET_CREATE,
+          primarySubjectType: AuditEntityTypes.WALLET,
+          primarySubjectNo: walletNo,
           traceId,
-          result: AuditResult.FAILED,
+          outcome: AuditOutcome.FAILED,
           metadata: { error: err.message, retried: true },
           sourcePlatform: 'ADMIN_API',
         },
         {
           actorType: 'ADMIN',
-          actorId: actor.userId,
-          actorNo: actor.userNo,
-          actorRole: actor.role || actor.roleCodes?.[0] || 'UNKNOWN',
+          actorNo: actor.userNo || 'UNKNOWN',
+          actorDisplayName: actor.userNo || 'UNKNOWN',
+          actorRolesAtTime: [actor.role || actor.roleCodes?.[0] || 'UNKNOWN'],
         },
       );
 

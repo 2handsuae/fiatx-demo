@@ -3,7 +3,7 @@ import { AuditLogsService } from '../audit-logging/audit-logs.service';
 import {
   AuditActions, AuditEntityTypes, AuditWorkflowTypes,
 } from '../audit-logging/constants/audit-actions.constant';
-import { AuditResult } from '../audit-logging/dto/audit-log.dto';
+import { AuditOutcome } from '../audit-logging/dto/audit-log.dto';
 import { PrismaService } from '../../core/prisma/prisma.service';
 import { CustomersService } from '../identity/customers/customers.service';
 import { MaterialRequestsService } from '../identity/material-requests/material-requests.service';
@@ -50,13 +50,9 @@ export class SwapApplicantActionHandler {
 
     await this.auditLogsService.recordSystem({
       action: AuditActions.SWAP_ACTION_GREEN_HARDLINE_HELD,
-      entityType: AuditEntityTypes.CUSTOMER,
-      entityId: row.customerId,
-      entityNo: customer?.customerNo || undefined,
-      workflowType: AuditWorkflowTypes.SWAP,
-      entityOwnerType: 'CUSTOMER',
-      entityOwnerId: row.customerId,
-      result: AuditResult.SUCCESS,
+      primarySubjectType: AuditEntityTypes.CUSTOMER,
+      primarySubjectNo: customer?.customerNo || undefined,
+      outcome: AuditOutcome.SUCCESS,
       reason:
         `Material request ${requestNo} reviewed GREEN, but this customer carries a sticky ` +
         'hard-line disposition — restrictions deliberately held. Recorded so an investigator ' +

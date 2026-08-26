@@ -528,12 +528,8 @@ export class SwapTransactionsService {
     await this.auditLogsService.recordByActor(
       {
         action: AuditActions.SWAP_SLA_TIMEOUT_SIMULATED,
-        entityType: AuditEntityTypes.SWAP_TRANSACTION,
-        entityId: row.id,
-        entityNo: swapNo,
-        entityOwnerType: row.ownerType,
-        entityOwnerId: row.ownerId,
-        workflowType: AuditWorkflowTypes.SWAP,
+        primarySubjectType: AuditEntityTypes.SWAP_TRANSACTION,
+        primarySubjectNo: swapNo,
         reason: 'Demo: SLA deadline moved to the past to trigger an immediate breach on the next scan',
         metadata: { previousSlaDeadline: row.slaDeadline, newSlaDeadline: slaDeadline },
         requestId: `SWAP_SLA_TIMEOUT_SIMULATED_${swapNo}_${randomUUID()}`,
@@ -541,8 +537,9 @@ export class SwapTransactionsService {
       },
       {
         actorType: 'ADMIN',
-        actorId: actor?.actorId || 'ADMIN_SYSTEM',
-        actorRole: actor?.actorRole,
+        actorNo: actor?.actorId || 'ADMIN_SYSTEM',
+        actorDisplayName: actor?.actorId || 'ADMIN_SYSTEM',
+        actorRolesAtTime: [actor?.actorRole || 'UNKNOWN'],
       },
     );
 

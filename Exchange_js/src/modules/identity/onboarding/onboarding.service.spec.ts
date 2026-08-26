@@ -544,10 +544,9 @@ describe('OnboardingService', () => {
       expect(recordByActorSpy).toHaveBeenCalledTimes(1);
       const [auditInput, actor] = recordByActorSpy.mock.calls[0];
       expect(auditInput.action).toBe('SUMSUB_APPLICANT_ON_HOLD');
-      expect(auditInput.entityType).toBe('ONBOARDING');
-      expect(auditInput.entityId).toBe('customer-1');
+      expect(auditInput.primarySubjectType).toBe('ONBOARDING');
+      expect(auditInput.primarySubjectNo).toBe('CU0001');
       expect(auditInput.traceId).toBe(existingTrace);
-      expect(auditInput.workflowType).toBe('ONBOARDING');
       // workflowId and workflowNo MUST NOT be set (new rule)
       expect((auditInput as any).workflowId).toBeUndefined();
       expect((auditInput as any).workflowNo).toBeUndefined();
@@ -555,7 +554,7 @@ describe('OnboardingService', () => {
       expect((auditInput.metadata as any).substatusFrom).toBe('SUBMITTED');
       expect((auditInput.metadata as any).substatusTo).toBe('UNDER_REVIEW');
       expect((auditInput.metadata as any).isSimulated).toBe(false);
-      expect(actor.actorId).toBe('SUMSUB');
+      expect(actor.actorNo).toBe('SUMSUB');
       expect(actor.actorType).toBe('SYSTEM');
     });
 
@@ -586,7 +585,7 @@ describe('OnboardingService', () => {
       expect((auditInput.metadata as any).isSimulated).toBe(true);
       expect((auditInput.metadata as any).simulatedByUserId).toBe('admin-uuid-42');
       expect(actor.actorType).toBe('ADMIN');
-      expect(actor.actorId).toBe('admin-uuid-42');
+      expect(actor.actorNo).toBe('admin-uuid-42');
       expect(auditInput.reason).toContain('Simulated sumsub event applicantOnHold');
     });
   });

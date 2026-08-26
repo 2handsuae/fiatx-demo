@@ -1,7 +1,9 @@
 import { InternalServerErrorException, NotFoundException } from '@nestjs/common';
 import { AuditLogsService } from './audit-logs.service';
 import {
-  AuditResult,
+  AuditOutcome,
+  AuditSubjectRole,
+  AuditCategory,
 } from './dto/audit-log.dto';
 import {
   AuditActions,
@@ -211,7 +213,7 @@ describe('AuditLogsService', () => {
         actorType: 'ADMIN',
         actorId: 'admin-1',
         actorNo: 'ADMIN-001',
-        result: AuditResult.SUCCESS,
+        outcome: AuditOutcome.SUCCESS,
         metadata: null,
         beforeData: null,
         afterData: null,
@@ -228,7 +230,7 @@ describe('AuditLogsService', () => {
         actorType: 'ADMIN',
         actorId: 'admin-1',
         actorNo: 'ADMIN-001',
-        result: AuditResult.SUCCESS,
+        outcome: AuditOutcome.SUCCESS,
         metadata: null,
         beforeData: null,
         afterData: null,
@@ -252,46 +254,6 @@ describe('AuditLogsService', () => {
 
 
 
-  it('should derive deposit trace and workflow context from the deposit transaction', async () => {
-    // Payin is no longer a standalone entity (funds_orders 三合一); the deposit
-    // carries its own traceId and is the sole anchor for DEPOSIT-workflow audit rows.
-    prisma.depositTransaction.findUnique.mockResolvedValue({
-      id: 'dep-1',
-      depositNo: 'DEP2603010001',
-      ownerId: 'cust-1',
-      traceId: null,
-      customer: { customerNo: 'CU2603010001' },
-    });
-    prisma.auditLogEvent.findUnique.mockResolvedValue(null);
-    prisma.auditLogEvent.create.mockImplementation(({ data }: any) =>
-      Promise.resolve({
-        id: 'a-deposit-workflow',
-        auditNo: 'AUD2603010001',
-        ...data,
-        subjectNos: data.subjectNos?.create?.map((item: any, index: number) => ({
-          id: `subject-${index}`,
-          eventId: 'a-deposit-workflow',
-          createdAt: new Date('2026-03-01T10:00:00.000Z'),
-          ...item,
-        })),
-      }),
-    );
-
-    const result = await service.recordSystem({
-      action: AuditActions.DEPOSIT_CREATED,
-      entityType: AuditEntityTypes.DEPOSIT_TRANSACTION,
-      entityId: 'dep-1',
-      entityNo: 'DEP2603010001',
-      entityOwnerType: 'CUSTOMER',
-      entityOwnerId: 'cust-1',
-      workflowType: 'DEPOSIT',
-      reason: 'Initial simulation',
-    });
-
-    expect(result.traceId).toBe('DEPOSIT:dep-1');
-    expect(result.workflowType).toBe('DEPOSIT');
-  });
-
   it('should mask sourceIp and generate payloadDigest', async () => {
     prisma.auditLogEvent.findUnique.mockResolvedValue(null);
     prisma.auditLogEvent.create.mockImplementation(({ data }: any) =>
@@ -305,85 +267,19 @@ describe('AuditLogsService', () => {
     const result = await service.recordByActor(
       {
         action: 'WITHDRAW_PAYOUT_PENDING_TO_SUCCESS',
-        entityType: AuditEntityTypes.WITHDRAW_TRANSACTION,
-        entityId: 'wd-1',
+        primarySubjectType: AuditEntityTypes.WITHDRAW_TRANSACTION,
+        primarySubjectNo: 'wd-1',
         sourceIp: '192.168.8.50',
-      },
+      } as any,
       {
         actorType: 'ADMIN',
-        actorId: 'admin-2',
-        actorRole: 'OPS',
-      },
+        actorNo: 'admin-2',
+        actorDisplayName: 'admin-2',
+      } as any,
     );
 
     expect(result.sourceIp).toBe('192.168.8.0');
     expect(result.payloadDigest).toHaveLength(64);
-  });
-
-  it('should persist multi-anchor subjectNos and digest-backed evidence payloads', async () => {
-    prisma.auditLogEvent.findUnique.mockResolvedValue(null);
-    prisma.auditLogEvent.create.mockImplementation(({ data, include }: any) => {
-      const subjectNos = include?.subjectNos
-        ? [
-            {
-              id: 'subject-1',
-              eventId: 'a-contract',
-              subjectRole: 'OWNER',
-              subjectType: 'CUSTOMER',
-              subjectId: 'cust-1',
-              subjectNo: 'CUS2602180001',
-              occurredAt: new Date('2026-02-18T10:00:00.000Z'),
-              createdAt: new Date('2026-02-18T10:00:00.000Z'),
-            },
-            {
-              id: 'subject-2',
-              eventId: 'a-contract',
-              subjectRole: 'ENTITY',
-              subjectType: 'APPLICATION',
-              subjectId: 'app-1',
-              subjectNo: 'APP2602180001',
-              occurredAt: new Date('2026-02-18T10:00:00.000Z'),
-              createdAt: new Date('2026-02-18T10:00:00.000Z'),
-            },
-            {
-              id: 'subject-3',
-              eventId: 'a-contract',
-              subjectRole: 'ACTOR',
-              subjectType: 'ADMIN',
-              subjectId: 'admin-3',
-              subjectNo: 'OP2602180001',
-              occurredAt: new Date('2026-02-18T10:00:00.000Z'),
-              createdAt: new Date('2026-02-18T10:00:00.000Z'),
-            },
-          ]
-        : undefined;
-
-      return Promise.resolve({
-        id: 'a-contract',
-        auditNo: 'AUD2602180004',
-        ...data,
-        ...(subjectNos ? { subjectNos } : {}),
-      });
-    });
-
-    const result = await service.recordByActor(
-      {
-        action: 'APPLICATION_STATUS_UPDATED',
-        entityType: 'APPLICATION',
-        entityId: 'app-1',
-        entityNo: 'APP2602180001',
-        entityOwnerType: 'CUSTOMER',
-        entityOwnerId: 'cust-1',
-        entityOwnerNo: 'CUS2602180001',
-      },
-      {
-        actorType: 'ADMIN',
-        actorId: 'admin-3',
-        actorNo: 'OP2602180001',
-        actorRole: 'OPS',
-      },
-    );
-
   });
 
   it('should generate stable payloadDigest for semantically equal payloads', async () => {
@@ -400,32 +296,32 @@ describe('AuditLogsService', () => {
       {
         idempotencyKey: 'digest-test-1',
         action: 'WITHDRAW_METADATA_UPDATED',
-        entityType: AuditEntityTypes.WITHDRAW_TRANSACTION,
-        entityId: 'wd-2',
+        primarySubjectType: AuditEntityTypes.WITHDRAW_TRANSACTION,
+        primarySubjectNo: 'wd-2',
         metadata: { b: 2, a: 1 },
         occurredAt: '2026-02-18T10:00:00.000Z',
-      },
+      } as any,
       {
         actorType: 'ADMIN',
-        actorId: 'admin-7',
-        actorRole: 'OPS',
-      },
+        actorNo: 'admin-7',
+        actorDisplayName: 'admin-7',
+      } as any,
     );
 
     await service.recordByActor(
       {
         idempotencyKey: 'digest-test-2',
         action: 'WITHDRAW_METADATA_UPDATED',
-        entityType: AuditEntityTypes.WITHDRAW_TRANSACTION,
-        entityId: 'wd-2',
+        primarySubjectType: AuditEntityTypes.WITHDRAW_TRANSACTION,
+        primarySubjectNo: 'wd-2',
         metadata: { a: 1, b: 2 },
         occurredAt: '2026-02-18T10:00:00.000Z',
-      },
+      } as any,
       {
         actorType: 'ADMIN',
-        actorId: 'admin-7',
-        actorRole: 'OPS',
-      },
+        actorNo: 'admin-7',
+        actorDisplayName: 'admin-7',
+      } as any,
     );
 
     const firstDigest = prisma.auditLogEvent.create.mock.calls[0][0].data.payloadDigest;
@@ -456,28 +352,28 @@ describe('AuditLogsService', () => {
       {
         idempotencyKey: 'fixed-key-1',
         action: 'SYSTEM_RECONCILE_EXECUTED',
-        entityType: 'SYSTEM_TASK',
-        entityId: 'task-1',
-      },
+        primarySubjectType: 'SYSTEM_TASK',
+        primarySubjectNo: 'task-1',
+      } as any,
       {
         actorType: 'SYSTEM',
-        actorId: 'SYSTEM',
-        actorRole: 'SYSTEM',
-      },
+        actorNo: 'SYSTEM',
+        actorDisplayName: 'SYSTEM',
+      } as any,
     );
 
     const second = await service.recordByActor(
       {
         idempotencyKey: 'fixed-key-1',
         action: 'SYSTEM_RECONCILE_EXECUTED',
-        entityType: 'SYSTEM_TASK',
-        entityId: 'task-1',
-      },
+        primarySubjectType: 'SYSTEM_TASK',
+        primarySubjectNo: 'task-1',
+      } as any,
       {
         actorType: 'SYSTEM',
-        actorId: 'SYSTEM',
-        actorRole: 'SYSTEM',
-      },
+        actorNo: 'SYSTEM',
+        actorDisplayName: 'SYSTEM',
+      } as any,
     );
 
     expect(first.id).toBe('a-new');
@@ -496,7 +392,7 @@ describe('AuditLogsService', () => {
         entityId: 'wd-1',
         actorType: 'ADMIN',
         actorId: 'admin-1',
-        result: AuditResult.SUCCESS,
+        outcome: AuditOutcome.SUCCESS,
         metadata: JSON.stringify({ source: 'api' }),
         beforeData: JSON.stringify({ status: 'CREATED' }),
         afterData: JSON.stringify({ status: 'SUCCESS' }),
@@ -525,7 +421,7 @@ describe('AuditLogsService', () => {
         workflowType: AuditBusinessWorkflowTypes.ADMIN_ROLE_BINDING_CHANGE,
         actorType: 'ADMIN',
         actorId: 'admin-1',
-        result: AuditResult.SUCCESS,
+        outcome: AuditOutcome.SUCCESS,
         metadata: null,
         beforeData: null,
         afterData: null,
@@ -542,7 +438,7 @@ describe('AuditLogsService', () => {
         actorType: 'ADMIN',
         actorId: 'admin-1',
         actorNo: 'ADM2604010001',
-        result: AuditResult.SUCCESS,
+        outcome: AuditOutcome.SUCCESS,
         metadata: null,
         beforeData: null,
         afterData: null,
@@ -558,7 +454,7 @@ describe('AuditLogsService', () => {
         workflowType: AuditBusinessWorkflowTypes.AUDIT_EVIDENCE_EXPORT,
         actorType: 'ADMIN',
         actorId: 'admin-1',
-        result: AuditResult.SUCCESS,
+        outcome: AuditOutcome.SUCCESS,
         metadata: null,
         beforeData: null,
         afterData: null,
@@ -603,7 +499,7 @@ describe('AuditLogsService', () => {
         workflowType: AuditBusinessWorkflowTypes.ADMIN_ROLE_BINDING_CHANGE,
         actorType: 'ADMIN',
         actorId: 'admin-1',
-        result: AuditResult.FAILED,
+        outcome: AuditOutcome.FAILED,
         metadata: null,
         beforeData: null,
         afterData: null,
@@ -632,7 +528,7 @@ describe('AuditLogsService', () => {
       traceId: 'trace-role-binding-1',
       actorType: 'ADMIN',
       actorId: 'admin-1',
-      result: AuditResult.SUCCESS,
+      outcome: AuditOutcome.SUCCESS,
       metadata: null,
       beforeData: null,
       afterData: null,
@@ -810,13 +706,13 @@ describe('AuditLogsService', () => {
       service.recordByActor(
         {
           action: AuditActions.ADMIN_LOGIN_SUCCESS,
-          entityType: AuditEntityTypes.AUTH,
-        },
+          primarySubjectType: AuditEntityTypes.AUTH,
+        } as any,
         {
           actorType: 'ADMIN',
-          actorId: 'admin-1',
-          actorRole: 'OPS',
-        },
+          actorNo: 'admin-1',
+          actorDisplayName: 'admin-1',
+        } as any,
       ),
     ).rejects.toThrow(InternalServerErrorException);
 
@@ -1001,8 +897,8 @@ describe('AuditLogsService', () => {
         } as any,
         {
           actorType: 'ADMIN',
-          actorId: 'admin-1',
-          actorRole: 'OPS',
+          actorNo: 'admin-1',
+          actorDisplayName: 'admin-1',
         },
       );
       const snapshots = (artifacts.packageBody as any).snapshots;
@@ -1037,8 +933,8 @@ describe('AuditLogsService', () => {
         } as any,
         {
           actorType: 'ADMIN',
-          actorId: 'admin-1',
-          actorRole: 'OPS',
+          actorNo: 'admin-1',
+          actorDisplayName: 'admin-1',
         },
       );
 
@@ -1307,8 +1203,8 @@ describe('AuditLogsService', () => {
         } as any,
         {
           actorType: 'ADMIN',
-          actorId: 'admin-1',
-          actorRole: 'OPS',
+          actorNo: 'admin-1',
+          actorDisplayName: 'admin-1',
         },
       );
       const snapshots = (artifacts.packageBody as any).snapshots;
@@ -1605,8 +1501,8 @@ describe('AuditLogsService', () => {
         } as any,
         {
           actorType: 'ADMIN',
-          actorId: 'admin-1',
-          actorRole: 'OPS',
+          actorNo: 'admin-1',
+          actorDisplayName: 'admin-1',
         },
       );
       const snapshots = (artifacts.packageBody as any).snapshots;
@@ -1723,70 +1619,344 @@ describe('AuditLogsService', () => {
     ).rejects.toThrow('linked swap');
   });
 
-  describe('buildDepositTraceId fallback ordering', () => {
-    it('prefers deposit.traceId, then legacy DEPOSIT:<deposit.id>, else null', () => {
-      const svc: any = service;
+  describe('第一批 · 写入侧新契约', () => {
+    beforeEach(() => {
+      prisma.auditLogSubject = { createMany: jest.fn().mockResolvedValue({ count: 0 }) };
+      prisma.auditLogEvent.findUnique.mockResolvedValue(null);
+      prisma.auditLogEvent.create.mockResolvedValue({ id: 'evt-1', eventNo: 'AUD1' });
+    });
 
-      // 1) deposit.traceId wins
-      expect(
-        svc.buildDepositTraceId({ id: 'd1', traceId: 'DEPOSIT_T' }),
-      ).toBe('DEPOSIT_T');
+    it('subjects 逐行落子表，角色各留一行', async () => {
+      await service.recordSystem({
+        action: 'ADMIN_SUSPENSION_APPLIED',
+        actionDomain: 'IAM',
+        category: AuditCategory.GOVERNANCE,
+        fromStatus: 'ACTIVE',
+        toStatus: 'SUSPENDED',
+        approvalNo: 'APR001',
+        correlationId: 'corr-susp-1',
+        causationId: 'cause-susp-1',
+        primarySubjectType: 'ADMIN_USER',
+        primarySubjectNo: 'USR001',
+        subjects: [
+          { subjectType: 'ADMIN_USER',    subjectNo: 'USR001', subjectRole: AuditSubjectRole.PRIMARY },
+          { subjectType: 'APPROVAL_CASE', subjectNo: 'APR077', subjectRole: AuditSubjectRole.INSTRUMENT },
+        ],
+      } as any);
 
-      // 2) no deposit.traceId — legacy DEPOSIT:<deposit.id>
-      expect(
-        svc.buildDepositTraceId({ id: 'd1', traceId: null }),
-      ).toBe('DEPOSIT:d1');
+      expect(prisma.auditLogSubject.createMany).toHaveBeenCalledTimes(1);
+      const rows = prisma.auditLogSubject.createMany.mock.calls[0][0].data;
+      expect(rows).toHaveLength(2);
+      expect(rows.every((r: any) => r.eventId === 'evt-1')).toBe(true);
+      expect(rows.map((r: any) => r.subjectRole).sort()).toEqual(['INSTRUMENT', 'PRIMARY']);
+    });
 
-      // 3) totally empty — null
-      expect(svc.buildDepositTraceId(null)).toBeNull();
+    it('PRIMARY 多于一个时抛错', async () => {
+      await expect(
+        service.recordSystem({
+          action: 'ADMIN_SUSPENSION_APPLIED',
+          actionDomain: 'IAM',
+          category: AuditCategory.GOVERNANCE,
+          fromStatus: 'ACTIVE',
+          toStatus: 'SUSPENDED',
+          approvalNo: 'APR001',
+          correlationId: 'corr-susp-2',
+          causationId: 'cause-susp-2',
+          subjects: [
+            { subjectType: 'ADMIN_USER', subjectNo: 'U1', subjectRole: AuditSubjectRole.PRIMARY },
+            { subjectType: 'ADMIN_USER', subjectNo: 'U2', subjectRole: AuditSubjectRole.PRIMARY },
+          ],
+        } as any),
+      ).rejects.toThrow('exactly one PRIMARY');
+    });
+
+    it('PRIMARY 零个是合法的——建单前被拦截时没有主对象', async () => {
+      await service.recordSystem({
+        action: 'ADMIN_INVITE_REQUESTED',
+        actionDomain: 'IAM',
+        category: AuditCategory.GOVERNANCE,
+        afterData: { status: 'REQUESTED' },
+        outcome: AuditOutcome.DENIED,
+        reasonCode: 'SOD_CONFLICT',
+        subjects: [
+          { subjectType: 'ADMIN_USER', subjectNo: 'U1', subjectRole: AuditSubjectRole.OWNER },
+        ],
+      } as any);
+
+      expect(prisma.auditLogSubject.createMany).toHaveBeenCalledTimes(1);
+    });
+
+    it('没传 subjects 时不碰子表', async () => {
+      await service.recordSystem({
+        action: 'AUDIT_LOG_QUERIED',
+        actionDomain: 'AUDIT',
+        category: AuditCategory.GOVERNANCE,
+      } as any);
+      expect(prisma.auditLogSubject.createMany).not.toHaveBeenCalled();
+    });
+
+    it('outcome 四值枚举落库，reasonCode 原样保留', async () => {
+      await service.recordSystem({
+        action: 'APPROVAL_SOD_DENIED',
+        actionDomain: 'APPROVAL',
+        category: AuditCategory.GOVERNANCE,
+        correlationId: 'corr-sod-1',
+        outcome: AuditOutcome.DENIED,
+        reasonCode: 'SELF_APPROVE',
+      } as any);
+
+      const data = prisma.auditLogEvent.create.mock.calls[0][0].data;
+      expect(data.outcome).toBe('DENIED');
+      expect(data.reasonCode).toBe('SELF_APPROVE');
+    });
+
+    it('actorRolesAtTime 以 JSON 数组落库，不是单值字符串', async () => {
+      await service.recordByActor(
+        {
+          action: 'ADMIN_ROLE_CHANGE_APPLIED', actionDomain: 'IAM', category: AuditCategory.GOVERNANCE,
+          beforeData: { role: 'OPERATOR' }, afterData: { role: 'ADMIN' }, approvalNo: 'APR002',
+          correlationId: 'corr-role-1', causationId: 'cause-role-1',
+        } as any,
+        { actorType: 'ADMIN', actorNo: 'USR009', actorDisplayName: '张三', actorRolesAtTime: ['MLRO', 'CISO'] } as any,
+      );
+
+      const data = prisma.auditLogEvent.create.mock.calls[0][0].data;
+      expect(JSON.parse(data.actorRolesAtTime)).toEqual(['MLRO', 'CISO']);
+      expect(data.actorDisplayName).toBe('张三');
+    });
+
+    it('幂等键含 actionDomain 与 correlationId 两维', async () => {
+      await service.recordSystem({
+        action: 'APPROVAL_GRANTED',
+        actionDomain: 'APPROVAL',
+        category: AuditCategory.GOVERNANCE,
+        approvalNo: 'APR077',
+        primarySubjectNo: 'APR077',
+        correlationId: 'corr-1',
+        requestId: 'req-1',
+      } as any);
+      const k1 = prisma.auditLogEvent.create.mock.calls[0][0].data.idempotencyKey;
+
+      prisma.auditLogEvent.create.mockClear();
+      await service.recordSystem({
+        action: 'APPROVAL_GRANTED',
+        actionDomain: 'APPROVAL',
+        category: AuditCategory.GOVERNANCE,
+        approvalNo: 'APR077',
+        primarySubjectNo: 'APR077',
+        correlationId: 'corr-2',
+        requestId: 'req-1',
+      } as any);
+      const k2 = prisma.auditLogEvent.create.mock.calls[0][0].data.idempotencyKey;
+
+      expect(k1).not.toBe(k2);
+    });
+
+    it('不传 actionDomain/category 时落占位值，不传 undefined 给 NOT NULL 列', async () => {
+      await service.recordSystem({
+        action: 'SOME_LEGACY_TRADING_ACTION',
+        primarySubjectType: 'DEPOSIT_TRANSACTION',
+        primarySubjectNo: 'DEP001',
+      } as any);
+
+      const data = prisma.auditLogEvent.create.mock.calls[0][0].data;
+      expect(data.actionDomain).toBe('UNCLASSIFIED');
+      expect(data.category).toBe('UNCLASSIFIED');
+      expect(data.actionDomain).not.toBeUndefined();
+      expect(data.category).not.toBeUndefined();
+    });
+
+    it('幂等命中时不重放 subjects，避免撞子表唯一键', async () => {
+      prisma.auditLogEvent.findUnique.mockResolvedValue({ id: 'evt-existing', eventNo: 'AUD-OLD' });
+      prisma.auditLogSubject = { createMany: jest.fn() };
+
+      await service.recordSystem({
+        action: 'ADMIN_SUSPENSION_APPLIED',
+        actionDomain: 'IAM',
+        category: AuditCategory.GOVERNANCE,
+        fromStatus: 'ACTIVE',
+        toStatus: 'SUSPENDED',
+        approvalNo: 'APR003',
+        correlationId: 'c1',
+        causationId: 'cause-susp-3',
+        idempotencyKey: 'dup-key',
+        subjects: [
+          { subjectType: 'ADMIN_USER', subjectNo: 'USR001', subjectRole: AuditSubjectRole.PRIMARY },
+        ],
+      } as any);
+
+      expect(prisma.auditLogSubject.createMany).not.toHaveBeenCalled();
     });
   });
 
-  describe('buildSwapTraceId fallback ordering', () => {
-    it('prefers swap.traceId, then quote.traceId, then legacy SWAP:<id>, else null', () => {
-      const svc: any = service;
+  describe('第一批 · 按主体检索', () => {
+    beforeEach(() => {
+      prisma.auditLogEvent.count.mockResolvedValue(0);
+      prisma.auditLogEvent.findMany.mockResolvedValue([]);
+    });
 
-      // 1) swap.traceId wins
-      expect(
-        svc.buildSwapTraceId(
-          { id: 's1', traceId: 'SWAP_T' },
-          { id: 'q1', traceId: 'QUOTE_T' },
-        ),
-      ).toBe('SWAP_T');
+    it('传 subjectNo 时用子表关系过滤', async () => {
+      await service.findAll({ subjectNo: 'CUS889' } as any);
+      expect(prisma.auditLogEvent.findMany.mock.calls[0][0].where.subjects)
+        .toEqual({ some: { subjectNo: 'CUS889' } });
+    });
 
-      // 2) no swap.traceId — use quote.traceId
-      expect(
-        svc.buildSwapTraceId(
-          { id: 's1', traceId: null },
-          { id: 'q1', traceId: 'QUOTE_T' },
-        ),
-      ).toBe('QUOTE_T');
+    it('subjectNo 与 subjectRole 同传时落在同一个 some 里', async () => {
+      await service.findAll({ subjectNo: 'CUS889', subjectRole: AuditSubjectRole.OWNER } as any);
+      expect(prisma.auditLogEvent.findMany.mock.calls[0][0].where.subjects)
+        .toEqual({ some: { subjectNo: 'CUS889', subjectRole: 'OWNER' } });
+    });
 
-      // 3) neither — legacy SWAP:<swap.id>
-      expect(
-        svc.buildSwapTraceId(
-          { id: 's1', traceId: null },
-          { id: 'q1', traceId: null },
-        ),
-      ).toBe('SWAP:s1');
+    it('两个都不传时不加 subjects 条件', async () => {
+      await service.findAll({} as any);
+      expect(prisma.auditLogEvent.findMany.mock.calls[0][0].where.subjects).toBeUndefined();
+    });
 
-      // 4) totally empty — null
-      expect(svc.buildSwapTraceId(null, null)).toBeNull();
+    it('outcome 与 actionDomain 可过滤', async () => {
+      await service.findAll({ outcome: AuditOutcome.DENIED, actionDomain: 'IAM' } as any);
+      const where = prisma.auditLogEvent.findMany.mock.calls[0][0].where;
+      expect(where.outcome).toBe('DENIED');
+      expect(where.actionDomain).toBe('IAM');
+    });
+
+    it('详情返回 subjects 数组', async () => {
+      prisma.auditLogEvent.findUnique.mockResolvedValue({
+        id: 'evt-9', eventNo: 'AUD9', action: 'ADMIN_SUSPENSION_APPLIED',
+        actionDomain: 'IAM', category: 'GOVERNANCE', actorType: 'ADMIN', actorNo: 'U1',
+        actorDisplayName: '张三', actorRolesAtTime: '["CISO"]', occurredAt: new Date(),
+        subjects: [{ subjectType: 'ADMIN_USER', subjectNo: 'USR001', subjectRole: 'PRIMARY' }],
+      });
+
+      const r: any = await service.findOne('evt-9');
+      expect(r.subjects).toEqual([
+        { subjectType: 'ADMIN_USER', subjectNo: 'USR001', subjectRole: 'PRIMARY' },
+      ]);
+      expect(r.actorRolesAtTime).toEqual(['CISO']);
     });
   });
 
-  describe('buildSettlementTraceId fallback ordering', () => {
-    it('prefers batch.traceId, then legacy BATCH:<id>, else null', () => {
-      const svc: any = service;
+  describe('第一批 · 查询过滤器不得引用已删列', () => {
+    beforeEach(() => {
+      prisma.auditLogEvent.count.mockResolvedValue(0);
+      prisma.auditLogEvent.findMany.mockResolvedValue([]);
+    });
 
-      // 1) batch.traceId wins
-      expect(svc.buildSettlementTraceId({ id: 'b1', traceId: 'BATCH-T' })).toBe('BATCH-T');
+    it('keyword 的 OR 列表只用现存列名', async () => {
+      await service.findAll({ keyword: 'abc' } as any);
+      const where = prisma.auditLogEvent.findMany.mock.calls[0][0].where;
+      const json = JSON.stringify(where);
+      for (const dead of ['entityType', 'entityId', 'entityNo', 'entityOwnerNo', 'actorId', '"result"']) {
+        expect(json).not.toContain(dead);
+      }
+      expect(json).toContain('primarySubjectNo');
+    });
 
-      // 2) no batch.traceId — legacy BATCH:<id>
-      expect(svc.buildSettlementTraceId({ id: 'b1', traceId: null })).toBe('BATCH:b1');
+    it('outcome 过滤落在 outcome 列上，不是 result', async () => {
+      await service.findAll({ outcome: AuditOutcome.DENIED } as any);
+      const json = JSON.stringify(prisma.auditLogEvent.findMany.mock.calls[0][0].where);
+      expect(json).toContain('"outcome"');
+      expect(json).not.toContain('"result"');
+    });
+  });
 
-      // 3) totally empty — null
-      expect(svc.buildSettlementTraceId(null)).toBeNull();
+  describe('第一批 · 声明校验', () => {
+    beforeEach(() => {
+      prisma.auditLogSubject = { createMany: jest.fn() };
+      prisma.auditLogEvent.findUnique.mockResolvedValue(null);
+      prisma.auditLogEvent.create.mockResolvedValue({ id: 'e', eventNo: 'A' });
+    });
+
+    it('缺声明里的必填字段时拒绝写入', async () => {
+      await expect(service.recordSystem({
+        action: 'ADMIN_ROLE_CHANGE_APPLIED', actionDomain: 'IAM',
+        category: AuditCategory.GOVERNANCE, correlationId: 'c1', causationId: 'x1',
+      } as any)).rejects.toThrow('missing required field');
+    });
+
+    it('INHERIT 的码没有 correlationId 时拒绝写入，不静默生成', async () => {
+      await expect(service.recordSystem({
+        action: 'ADMIN_INVITE_ACCEPTED', actionDomain: 'IAM',
+        category: AuditCategory.GOVERNANCE, fromStatus: 'A', toStatus: 'B',
+      } as any)).rejects.toThrow('must inherit an existing correlationId');
+    });
+
+    it('actionDomain 与声明不符时拒绝写入', async () => {
+      await expect(service.recordSystem({
+        action: 'AUDIT_LOG_QUERIED', actionDomain: 'IAM',
+        category: AuditCategory.GOVERNANCE,
+      } as any)).rejects.toThrow('must carry actionDomain=AUDIT');
+    });
+
+    it('退役码拒绝新写入', async () => {
+      await expect(service.recordSystem({
+        action: 'ADMIN_LOGIN_SUCCESS', actionDomain: 'IAM',
+        category: AuditCategory.SECURITY,
+      } as any)).rejects.toThrow('deprecated');
+    });
+  });
+
+  describe('第一批 · requiredFields 成败分流', () => {
+    beforeEach(() => {
+      prisma.auditLogSubject = { createMany: jest.fn() };
+      prisma.auditLogEvent.findUnique.mockResolvedValue(null);
+      prisma.auditLogEvent.create.mockResolvedValue({ id: 'e', eventNo: 'A' });
+    });
+
+    it('失败路径不强制 requiredFields —— 失败时按定义就产不出那些字段', async () => {
+      // AUDIT_EVIDENCE_EXPORT_GENERATED 的 requiredFields 是 ['payloadDigest']（产物摘要），
+      // 生成失败时没有产物、也就没有摘要。若一律强制，这条失败分支就永远写不进审计。
+      await expect(
+        service.recordSystem({
+          action: 'AUDIT_EVIDENCE_EXPORT_GENERATED',
+          actionDomain: 'AUDIT',
+          category: AuditCategory.GOVERNANCE,
+          correlationId: 'c1',
+          causationId: 'x1',
+          outcome: AuditOutcome.FAILED,
+          reasonCode: 'GENERATION_ERROR',
+        } as any),
+      ).resolves.toBeDefined();
+    });
+
+    it('成功路径仍然强制 requiredFields', async () => {
+      await expect(
+        service.recordSystem({
+          action: 'AUDIT_EVIDENCE_EXPORT_GENERATED',
+          actionDomain: 'AUDIT',
+          category: AuditCategory.GOVERNANCE,
+          correlationId: 'c1',
+          causationId: 'x1',
+        } as any),
+      ).rejects.toThrow('missing required field');
+    });
+
+    it('非成功路径必须带 reasonCode，否则失败无法被机器聚合', async () => {
+      await expect(
+        service.recordSystem({
+          action: 'AUDIT_EVIDENCE_EXPORT_GENERATED',
+          actionDomain: 'AUDIT',
+          category: AuditCategory.GOVERNANCE,
+          correlationId: 'c1',
+          causationId: 'x1',
+          outcome: AuditOutcome.FAILED,
+        } as any),
+      ).rejects.toThrow('must carry reasonCode');
     });
   });
 });
+
+describe('第一批 · 守则：审计写入不得再用 result 当键名', () => {
+  const { execSync } = require('child_process');
+
+  it('全仓生产代码零处 `result: AuditOutcome`', () => {
+    const out = execSync(
+      `grep -rn "result: AuditOutcome" src/ 2>/dev/null | grep -v "\\.spec\\." || true`,
+      { encoding: 'utf8' },
+    ).trim();
+    // 键名写成 result 会被 DTO 白名单静默丢弃 → 失败记录落库成 outcome=SUCCESS。
+    // 这类「失败被记成成功」正是本批要根治的缺陷，加守则防复发。
+    expect(out).toBe('');
+  });
+
+});
+

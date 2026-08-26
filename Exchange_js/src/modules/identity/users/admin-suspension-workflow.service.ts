@@ -11,9 +11,8 @@ import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import {
   AuditBusinessWorkflowTypes,
   AuditEntityTypes,
-  AuditGovernanceActions,
 } from '../../audit-logging/constants/audit-actions.constant';
-import { AuditResult } from '../../audit-logging/dto/audit-log.dto';
+import { AuditCategory, AuditOutcome } from '../../audit-logging/dto/audit-log.dto';
 import { ApprovalsService } from '../../governance/approvals/approvals.service';
 import { ApprovalDecidedEvent } from '../../governance/approvals/approval-handler.base';
 import {
@@ -41,14 +40,18 @@ export class AdminSuspensionWorkflowService {
   private toAuditActor(actor: ApprovalActorContext) {
     return {
       actorType: actor.actorType,
-      actorId: actor.userId,
-      actorNo: actor.userNo,
-      actorRole: actor.role || actor.roleCodes[0] || 'UNKNOWN',
+      actorNo: actor.userNo || 'UNKNOWN',
+
+      actorDisplayName: actor.userNo || 'UNKNOWN',
+      actorRolesAtTime: [actor.role || actor.roleCodes[0] || 'UNKNOWN'],
     };
   }
 
   async initiateSuspension(dto: InitiateSuspensionDto, actor: ApprovalActorContext) {
-    const traceId = randomUUID();
+    // START：本次停用旅程的 correlationId。同一个值同事务写进 ApprovalCase.traceId
+    // （经 createAndSubmit 的 traceId 入参），供下游 executeSuspension 经
+    // ApprovalDecidedEvent.traceId INHERIT 读回——与 Task 6 角色变更工作流同款模式。
+    const correlationId = randomUUID();
 
     if (actor.userId === dto.targetUserId) {
       throw new ForbiddenException('Cannot suspend your own account');
@@ -88,7 +91,7 @@ export class AdminSuspensionWorkflowService {
       {
         actionType: ApprovalActionTypes.ADMIN_SUSPENSION_APPROVAL,
         entityRef: dto.targetUserId,
-        traceId,
+        traceId: correlationId,
         objectSnapshot: {
           targetUserId: dto.targetUserId,
           targetUserNo: targetUser.userNo,
@@ -99,26 +102,26 @@ export class AdminSuspensionWorkflowService {
       },
       {
         reason: dto.reason,
-        traceId,
+        traceId: correlationId,
       },
       actor,
     );
 
     await this.auditLogsService.recordByActor(
       {
-        action: AuditGovernanceActions.ADMIN_SUSPENSION.SUSPENSION_REQUESTED,
-        entityType: AuditEntityTypes.ADMIN_USER,
-        entityId: dto.targetUserId,
-        entityNo: targetUser.userNo,
-        workflowType: AuditBusinessWorkflowTypes.ADMIN_SUSPENSION,
-        traceId,
-        result: AuditResult.SUCCESS,
+        action: 'ADMIN_SUSPENSION_REQUESTED',
+        actionDomain: 'IAM',
+        category: AuditCategory.GOVERNANCE,
+        primarySubjectType: AuditEntityTypes.ADMIN_USER,
+        primarySubjectNo: targetUser.userNo,
+        correlationId,
+        outcome: AuditOutcome.SUCCESS,
+        reason: dto.reason,
         metadata: {
           targetEmail: targetUser.email,
-          reason: dto.reason,
           approvalNo: approvalCase.approvalNo,
         },
-        requestId: `ADMIN_SUSPENSION_REQUESTED_${targetUser.userNo}`,
+        requestId: randomUUID(),
         sourcePlatform: 'ADMIN_API',
       },
       this.toAuditActor(actor),
@@ -126,7 +129,7 @@ export class AdminSuspensionWorkflowService {
 
     return {
       approvalNo: approvalCase.approvalNo,
-      traceId,
+      traceId: correlationId,
       targetUserNo: targetUser.userNo,
       status: 'PENDING',
     };
@@ -140,38 +143,56 @@ export class AdminSuspensionWorkflowService {
   }
 
   private async executeSuspension(event: ApprovalDecidedEvent) {
+    // fromStatus 需要执行前的真实状态快照——suspendUser 只回传执行后的最终状态。
+    // findById 是只读方法，符合"workflow 只能通过 domain service 方法接触 Prisma 表"的铁律。
+    const before = await this.usersDomainService.findById(event.entityRef);
+
     try {
       const result = await this.usersDomainService.suspendUser(event.entityRef);
 
       await this.auditLogsService.recordSystem({
-        action: AuditGovernanceActions.ADMIN_SUSPENSION.ACCOUNT_SUSPENDED,
-        entityType: AuditEntityTypes.ADMIN_USER,
-        entityId: event.entityRef,
-        entityNo: result.userNo,
-        workflowType: AuditBusinessWorkflowTypes.ADMIN_SUSPENSION,
-        traceId: event.traceId,
-        result: AuditResult.SUCCESS,
+        action: 'ADMIN_SUSPENSION_APPLIED',
+        actionDomain: 'IAM',
+        category: AuditCategory.GOVERNANCE,
+        primarySubjectType: AuditEntityTypes.ADMIN_USER,
+        primarySubjectNo: result.userNo,
+        // INHERIT：读 ApprovalDecidedEvent.traceId——它就是 initiateSuspension 铸造的
+        // correlationId 原样传播过来的（经 ApprovalCase.traceId）。
+        correlationId: event.traceId,
+        // 异步驱动：这条记录是被"审批已批准"这个决定触发的。
+        causationId: event.approvalId,
+        outcome: AuditOutcome.SUCCESS,
+        fromStatus: before?.status ?? 'UNKNOWN',
+        toStatus: result.status,
+        approvalNo: event.approvalNo,
         metadata: {
           approvalId: event.approvalId,
-          approvalNo: event.approvalNo,
           suspendedByUserId: event.decisionByUserId,
           suspendedByUserNo: event.decisionByUserNo,
         },
-        requestId: `ADMIN_SUSPENSION_EXECUTED_${result.userNo}`,
+        requestId: randomUUID(),
         sourcePlatform: 'ADMIN_API',
       });
 
     } catch (error) {
       await this.auditLogsService.recordSystem({
-        action: AuditGovernanceActions.ADMIN_SUSPENSION.ACCOUNT_SUSPENDED,
-        entityType: AuditEntityTypes.ADMIN_USER,
-        entityId: event.entityRef,
-        workflowType: AuditBusinessWorkflowTypes.ADMIN_SUSPENSION,
-        traceId: event.traceId,
-        result: AuditResult.FAILED,
+        action: 'ADMIN_SUSPENSION_APPLIED',
+        actionDomain: 'IAM',
+        category: AuditCategory.GOVERNANCE,
+        primarySubjectType: AuditEntityTypes.ADMIN_USER,
+        primarySubjectNo: before?.userNo ?? event.entityRef,
+        correlationId: event.traceId,
+        causationId: event.approvalId,
+        outcome: AuditOutcome.FAILED,
+        // fromStatus/toStatus 表达的是这次施加"本该达成的转移意图"，不是"实际达成的结果"——
+        // 走到这条分支说明 toStatus=SUSPENDED 没有真正生效，意图仍要如实记录（同角色变更
+        // 工作流 beforeData/afterData 的处理原则）。
+        fromStatus: before?.status ?? 'UNKNOWN',
+        toStatus: 'SUSPENDED',
+        approvalNo: event.approvalNo,
         reason: error instanceof Error ? error.message : 'Suspension execution failed',
         metadata: { approvalId: event.approvalId },
-        requestId: `ADMIN_SUSPENSION_EXEC_FAILED_${event.entityRef}`,
+        requestId: randomUUID(),
         sourcePlatform: 'ADMIN_API',
       });
 

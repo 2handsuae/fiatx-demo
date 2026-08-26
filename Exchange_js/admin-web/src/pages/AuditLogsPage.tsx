@@ -10,19 +10,19 @@ import { AdminSessionError, adminFetch, getApiErrorMessage } from '../utils/admi
 import { AdminBadge } from '../components/ui/AdminBadge';
 import { PageTitleBar } from '../components/ui/PageTitleBar';
 
-type AuditResult = 'SUCCESS' | 'FAILED' | 'REJECTED';
+type AuditOutcome = 'SUCCESS' | 'DENIED' | 'FAILED' | 'PARTIAL';
 
 interface AuditLogItem {
   id: string;
-  auditNo: string;
+  eventNo: string;
   action: string;
   entityType: string;
-  entityNo?: string | null;
+  primarySubjectNo?: string | null;
   entityOwnerNo?: string | null;
   actorType: string;
   actorId: string;
   actorNo?: string | null;
-  result: AuditResult;
+  outcome: AuditOutcome;
   occurredAt: string;
   traceId?: string | null;
   workflowType?: string | null;
@@ -49,11 +49,11 @@ interface EvidencePackageExportResponse {
 
 interface FilterState {
   keyword: string;
-  entityNo: string;
+  primarySubjectNo: string;
   actorNo: string;
-  entityOwnerNo: string;
+  ownerCustomerNo: string;
   traceId: string;
-  result: '' | AuditResult;
+  outcome: '' | AuditOutcome;
   startAt: string;
   endAt: string;
   includeArchived: boolean;
@@ -61,11 +61,11 @@ interface FilterState {
 
 const DEFAULT_FILTERS: FilterState = {
   keyword: '',
-  entityNo: '',
+  primarySubjectNo: '',
   actorNo: '',
-  entityOwnerNo: '',
+  ownerCustomerNo: '',
   traceId: '',
-  result: '',
+  outcome: '',
   startAt: '',
   endAt: '',
   includeArchived: false,
@@ -106,13 +106,15 @@ const AuditLogsPage = () => {
     params.set('take', String(PAGE_SIZE));
 
     if (activeFilters.keyword.trim()) params.set('keyword', activeFilters.keyword.trim());
-    if (activeFilters.entityNo.trim()) params.set('entityNo', activeFilters.entityNo.trim());
+    if (activeFilters.primarySubjectNo.trim()) {
+      params.set('primarySubjectNo', activeFilters.primarySubjectNo.trim());
+    }
     if (activeFilters.actorNo.trim()) params.set('actorNo', activeFilters.actorNo.trim());
-    if (activeFilters.entityOwnerNo.trim()) {
-      params.set('entityOwnerNo', activeFilters.entityOwnerNo.trim());
+    if (activeFilters.ownerCustomerNo.trim()) {
+      params.set('ownerCustomerNo', activeFilters.ownerCustomerNo.trim());
     }
     if (activeFilters.traceId.trim()) params.set('traceId', activeFilters.traceId.trim());
-    if (activeFilters.result) params.set('result', activeFilters.result);
+    if (activeFilters.outcome) params.set('outcome', activeFilters.outcome);
 
     const startAt = toIsoString(activeFilters.startAt);
     const endAt = toIsoString(activeFilters.endAt);
@@ -186,7 +188,7 @@ const AuditLogsPage = () => {
       };
 
       if (filters.actorNo.trim()) payload.actorNo = filters.actorNo.trim();
-      if (filters.entityOwnerNo.trim()) payload.entityOwnerNo = filters.entityOwnerNo.trim();
+      if (filters.ownerCustomerNo.trim()) payload.ownerCustomerNo = filters.ownerCustomerNo.trim();
       if (filters.traceId.trim()) payload.traceId = filters.traceId.trim();
 
       const response = await adminFetch(
@@ -271,16 +273,17 @@ const AuditLogsPage = () => {
           className={`${fi} w-40`}
         />
         <select
-          value={filters.result}
+          value={filters.outcome}
           onChange={(e) =>
-            setFilters((p) => ({ ...p, result: e.target.value as FilterState['result'] }))
+            setFilters((p) => ({ ...p, outcome: e.target.value as FilterState['outcome'] }))
           }
           className={`${fi} w-32`}
         >
           <option value="">All Results</option>
           <option value="SUCCESS">SUCCESS</option>
+          <option value="DENIED">DENIED</option>
           <option value="FAILED">FAILED</option>
-          <option value="REJECTED">REJECTED</option>
+          <option value="PARTIAL">PARTIAL</option>
         </select>
         <input
           value={filters.actorNo}
@@ -316,14 +319,14 @@ const AuditLogsPage = () => {
       {showAdvanced && (
         <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-adm-border bg-adm-bg/60 px-5 py-2">
           <input
-            value={filters.entityNo}
-            onChange={(e) => setFilters((p) => ({ ...p, entityNo: e.target.value }))}
+            value={filters.primarySubjectNo}
+            onChange={(e) => setFilters((p) => ({ ...p, primarySubjectNo: e.target.value }))}
             placeholder="Entity No"
             className={`${fi} w-36`}
           />
           <input
-            value={filters.entityOwnerNo}
-            onChange={(e) => setFilters((p) => ({ ...p, entityOwnerNo: e.target.value }))}
+            value={filters.ownerCustomerNo}
+            onChange={(e) => setFilters((p) => ({ ...p, ownerCustomerNo: e.target.value }))}
             placeholder="Entity Owner No"
             className={`${fi} w-36`}
           />
@@ -454,11 +457,11 @@ const AuditLogsPage = () => {
             {!loading &&
               items.map((item) => {
                 const borderCls =
-                  item.result === 'SUCCESS'
+                  item.outcome === 'SUCCESS'
                     ? 'border-l-2 border-l-adm-green'
-                    : item.result === 'FAILED'
+                    : item.outcome === 'FAILED'
                       ? 'border-l-2 border-l-adm-red'
-                      : item.result === 'REJECTED'
+                      : item.outcome === 'DENIED'
                         ? 'border-l-2 border-l-adm-amber'
                         : '';
                 return (
@@ -490,12 +493,12 @@ const AuditLogsPage = () => {
                     {/* Audit No — amber + status left-border */}
                     <td className={`px-3 py-2.5 ${borderCls}`}>
                       <span className="font-mono text-[11px] font-semibold text-adm-amber">
-                        {item.auditNo}
+                        {item.eventNo}
                       </span>
                     </td>
                     {/* Result badge */}
                     <td className="px-3 py-2.5">
-                      <AdminBadge value={item.result} />
+                      <AdminBadge value={item.outcome} />
                     </td>
                     {/* Workflow Type */}
                     <td className="px-3 py-2.5 font-mono text-[11px] text-adm-t2">
@@ -507,7 +510,7 @@ const AuditLogsPage = () => {
                     </td>
                     {/* Entity No */}
                     <td className="px-3 py-2.5 font-mono text-[11px] text-adm-amber">
-                      {item.entityNo ?? <span className="text-adm-t3">—</span>}
+                      {item.primarySubjectNo ?? <span className="text-adm-t3">—</span>}
                     </td>
                     {/* Entity Type */}
                     <td className="px-3 py-2.5 font-mono text-[11px] text-adm-t2">

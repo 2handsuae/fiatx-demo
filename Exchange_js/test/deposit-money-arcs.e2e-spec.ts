@@ -305,7 +305,7 @@ describe('Deposit money arcs (e2e, Task A6)', () => {
 
   async function auditActionsFor(depositId: string): Promise<string[]> {
     const rows = await prisma.auditLogEvent.findMany({
-      where: { entityId: depositId, entityType: AuditEntityTypes.DEPOSIT_TRANSACTION },
+      where: { primarySubjectNo: depositId, primarySubjectType: AuditEntityTypes.DEPOSIT_TRANSACTION },
       select: { action: true },
     });
     return rows.map((r) => r.action);
@@ -313,7 +313,7 @@ describe('Deposit money arcs (e2e, Task A6)', () => {
 
   async function auditRowsFor(depositId: string, action: string): Promise<any[]> {
     return prisma.auditLogEvent.findMany({
-      where: { entityId: depositId, entityType: AuditEntityTypes.DEPOSIT_TRANSACTION, action },
+      where: { primarySubjectNo: depositId, primarySubjectType: AuditEntityTypes.DEPOSIT_TRANSACTION, action },
     });
   }
 

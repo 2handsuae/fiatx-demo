@@ -81,13 +81,9 @@ export class WithdrawSlaService {
     );
     await this.auditLogsService.recordSystem({
       action: AuditActions.WITHDRAW_SLA_BREACHED,
-      entityType: AuditEntityTypes.WITHDRAW_TRANSACTION,
-      entityId: w.id,
-      entityNo: w.withdrawNo,
-      entityOwnerType: w.ownerType,
-      entityOwnerId: w.ownerId,
+      primarySubjectType: AuditEntityTypes.WITHDRAW_TRANSACTION,
+      primarySubjectNo: w.withdrawNo,
       traceId: w.traceId || undefined,
-      workflowType: AuditWorkflowTypes.WITHDRAW,
       reason: `Soft SLA breached in ${w.status} — internal handling overdue, order status intentionally unchanged`,
       metadata: { slaType: 'SOFT', status: w.status, slaDeadline: w.slaDeadline, waitingOn: 'INTERNAL' },
       requestId: `WITHDRAW_SLA_BREACHED_${w.withdrawNo}_${randomUUID()}`,
@@ -125,13 +121,9 @@ export class WithdrawSlaService {
 
     await this.auditLogsService.recordSystem({
       action: AuditActions.WITHDRAW_SLA_BREACHED,
-      entityType: AuditEntityTypes.WITHDRAW_TRANSACTION,
-      entityId: w.id,
-      entityNo: w.withdrawNo,
-      entityOwnerType: w.ownerType,
-      entityOwnerId: w.ownerId,
+      primarySubjectType: AuditEntityTypes.WITHDRAW_TRANSACTION,
+      primarySubjectNo: w.withdrawNo,
       traceId: w.traceId || undefined,
-      workflowType: AuditWorkflowTypes.WITHDRAW,
       reason: `SLA breached: withdrawal was ${oldStatus} past its slaDeadline, routed to manual review`,
       metadata: { slaType: 'HARD', fromStatus: oldStatus, slaDeadline: w.slaDeadline },
       requestId: `WITHDRAW_SLA_BREACHED_${w.withdrawNo}_${randomUUID()}`,

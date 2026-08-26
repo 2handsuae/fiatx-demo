@@ -10,7 +10,7 @@ import {
   AuditEntityTypes,
   AuditWorkflowTypes,
 } from '../../audit-logging/constants/audit-actions.constant';
-import { AuditResult } from '../../audit-logging/dto/audit-log.dto';
+import { AuditOutcome } from '../../audit-logging/dto/audit-log.dto';
 import { OnboardingService } from '../../identity/onboarding/onboarding.service';
 import { SwapQuoteService } from '../swap-fee-level/swap-quote.service';
 import { AccountingService } from '../../accounting/tigerbeetle/accounting.service';
@@ -428,19 +428,15 @@ export class SwapWorkflowService {
         await this.auditLogsService.recordByActor(
           {
             action: AuditActions.SWAP_CREATED,
-            entityType: AuditEntityTypes.SWAP_TRANSACTION,
-            entityId: createdSwap.id,
-            entityNo: createdSwap.swapNo || undefined,
+            primarySubjectType: AuditEntityTypes.SWAP_TRANSACTION,
+            primarySubjectNo: createdSwap.swapNo || undefined,
             traceId,
-            workflowType: AuditWorkflowTypes.SWAP,
-            entityOwnerType: createdSwap.ownerType,
-            entityOwnerId: createdSwap.ownerId,
-            entityOwnerNo: createdSwap.ownerNo || undefined,
+            ownerCustomerNo: createdSwap.ownerNo || undefined,
             reason: `Swap executed from quote ${quote.quoteNo || quote.id}`,
             metadata: { quoteId: quote.id, quoteNo: quote.quoteNo },
             sourcePlatform: 'CUSTOMER_API',
           },
-          { actorType: 'CUSTOMER', actorId: ownerId, actorNo: quote.ownerNo || undefined, actorRole: 'CUSTOMER' },
+          { actorType: 'CUSTOMER', actorNo: quote.ownerNo || ownerId, actorDisplayName: quote.ownerNo || ownerId, actorRolesAtTime: ['CUSTOMER'] },
           tx,
         );
 
@@ -453,12 +449,8 @@ export class SwapWorkflowService {
       await this.auditLogsService
         .recordSystem({
           action: AuditActions.SWAP_FAILED,
-          entityType: AuditEntityTypes.SWAP_TRANSACTION,
-          entityId: undefined,
-          entityNo: swapNo,
-          entityOwnerType: 'CUSTOMER',
-          entityOwnerId: ownerId,
-          workflowType: AuditWorkflowTypes.SWAP,
+          primarySubjectType: AuditEntityTypes.SWAP_TRANSACTION,
+          primarySubjectNo: swapNo,
           reason: error instanceof Error ? error.message : 'Swap execution failed',
           sourcePlatform: 'SYSTEM',
           traceId: traceId ?? undefined,
@@ -539,10 +531,9 @@ export class SwapWorkflowService {
 
       await this.auditLogsService.recordSystem({
         action: AuditActions.SWAP_KYT_SUBMITTED,
-        entityType: AuditEntityTypes.SWAP_TRANSACTION,
-        entityId: swap.id,
-        entityNo: swap.swapNo || undefined,
-        result: AuditResult.SUCCESS,
+        primarySubjectType: AuditEntityTypes.SWAP_TRANSACTION,
+        primarySubjectNo: swap.swapNo || undefined,
+        outcome: AuditOutcome.SUCCESS,
         reason: 'Swap sell-leg submitted to Sumsub KYT',
         metadata: { sumsubTxnId: res.txnId, scoringAction: res.scoringResult?.action, direction: 'out' },
       });
@@ -553,13 +544,9 @@ export class SwapWorkflowService {
       await this.auditLogsService
         .recordSystem({
           action: AuditActions.SWAP_KYT_SUBMIT_FAILED,
-          entityType: AuditEntityTypes.SWAP_TRANSACTION,
-          entityId: swap?.id,
-          entityNo: swap?.swapNo || undefined,
-          entityOwnerType: swap?.ownerType,
-          entityOwnerId: swap?.ownerId,
+          primarySubjectType: AuditEntityTypes.SWAP_TRANSACTION,
+          primarySubjectNo: swap?.swapNo || undefined,
           traceId: swap?.traceId ?? undefined,
-          workflowType: AuditWorkflowTypes.SWAP,
           reason: err instanceof Error ? err.message : 'Sumsub KYT submit failed',
           sourcePlatform: 'SYSTEM',
         })
@@ -696,13 +683,9 @@ export class SwapWorkflowService {
         await this.auditLogsService.recordSystem(
           {
             action: AuditActions.SWAP_POST_APPROVAL_VERDICT,
-            entityType: AuditEntityTypes.SWAP_TRANSACTION,
-            entityId: swap.id,
-            entityNo: swap.swapNo || undefined,
+            primarySubjectType: AuditEntityTypes.SWAP_TRANSACTION,
+            primarySubjectNo: swap.swapNo || undefined,
             traceId: swap.traceId ?? undefined,
-            workflowType: AuditWorkflowTypes.SWAP,
-            entityOwnerType: swap.ownerType,
-            entityOwnerId: swap.ownerId,
             reason: `KYT verdict '${input.verdict}' received after swap entered PROCESSING — no state-machine action taken`,
             metadata: { verdict: input.verdict },
             sourcePlatform: 'SYSTEM',
@@ -732,13 +715,9 @@ export class SwapWorkflowService {
         await this.auditLogsService.recordSystem(
           {
             action: AuditActions.SWAP_KYT_APPROVED,
-            entityType: AuditEntityTypes.SWAP_TRANSACTION,
-            entityId: swap.id,
-            entityNo: swap.swapNo || undefined,
+            primarySubjectType: AuditEntityTypes.SWAP_TRANSACTION,
+            primarySubjectNo: swap.swapNo || undefined,
             traceId: swap.traceId ?? undefined,
-            workflowType: AuditWorkflowTypes.SWAP,
-            entityOwnerType: swap.ownerType,
-            entityOwnerId: swap.ownerId,
             reason: 'Swap KYT verdict approved — proceeding to settlement',
             sourcePlatform: 'SYSTEM',
           },
@@ -778,13 +757,9 @@ export class SwapWorkflowService {
       await this.auditLogsService.recordSystem(
         {
           action: AuditActions.SWAP_KYT_REJECTED,
-          entityType: AuditEntityTypes.SWAP_TRANSACTION,
-          entityId: swap.id,
-          entityNo: swap.swapNo || undefined,
+          primarySubjectType: AuditEntityTypes.SWAP_TRANSACTION,
+          primarySubjectNo: swap.swapNo || undefined,
           traceId: swap.traceId ?? undefined,
-          workflowType: AuditWorkflowTypes.SWAP,
-          entityOwnerType: swap.ownerType,
-          entityOwnerId: swap.ownerId,
           reason: 'Swap KYT verdict rejected — no settlement legs booked',
           metadata: { typedTags: input.typedTags },
           sourcePlatform: 'SYSTEM',
@@ -815,13 +790,9 @@ export class SwapWorkflowService {
     await this.auditLogsService
       .recordSystem({
         action: AuditActions.SWAP_KYT_VERDICT_IGNORED,
-        entityType: AuditEntityTypes.SWAP_TRANSACTION,
-        entityId: swap.id,
-        entityNo,
-        entityOwnerType: swap.ownerType,
-        entityOwnerId: swap.ownerId,
+        primarySubjectType: AuditEntityTypes.SWAP_TRANSACTION,
+        primarySubjectNo: entityNo,
         traceId: swap.traceId || undefined,
-        workflowType: AuditWorkflowTypes.SWAP,
         reason: `Late KYT verdict '${input.verdict}' ignored — swap is ${status} (terminal); existing verdict/evidence left untouched`,
         metadata: {
           swapNo: swap.swapNo,
@@ -885,10 +856,9 @@ export class SwapWorkflowService {
 
       await this.auditLogsService.recordSystem({
         action: AuditActions.SWAP_KYT_SUBMITTED,
-        entityType: AuditEntityTypes.SWAP_TRANSACTION,
-        entityId: swap.id,
-        entityNo: swap.swapNo || undefined,
-        result: AuditResult.SUCCESS,
+        primarySubjectType: AuditEntityTypes.SWAP_TRANSACTION,
+        primarySubjectNo: swap.swapNo || undefined,
+        outcome: AuditOutcome.SUCCESS,
         reason: 'Swap buy-leg submitted to Sumsub KYT (data-only, carries no verdict)',
         metadata: { sumsubTxnId: res.txnId, direction: 'in' },
       });
@@ -901,13 +871,9 @@ export class SwapWorkflowService {
       await this.auditLogsService
         .recordSystem({
           action: AuditActions.SWAP_KYT_SUBMIT_FAILED,
-          entityType: AuditEntityTypes.SWAP_TRANSACTION,
-          entityId: swap?.id,
-          entityNo: swap?.swapNo || undefined,
-          entityOwnerType: swap?.ownerType,
-          entityOwnerId: swap?.ownerId,
+          primarySubjectType: AuditEntityTypes.SWAP_TRANSACTION,
+          primarySubjectNo: swap?.swapNo || undefined,
           traceId: swap?.traceId ?? undefined,
-          workflowType: AuditWorkflowTypes.SWAP,
           reason: err instanceof Error ? err.message : 'Sumsub KYT buy-leg submit failed',
           metadata: { direction: 'in' },
           sourcePlatform: 'SYSTEM',
@@ -1138,14 +1104,10 @@ export class SwapWorkflowService {
           await this.auditLogsService
             .recordSystem({
               action: AuditActions.SWAP_FROZEN,
-              entityType: AuditEntityTypes.SWAP_TRANSACTION,
-              entityId: swap.id,
-              entityNo: swap.swapNo || undefined,
-              entityOwnerType: swap.ownerType,
-              entityOwnerId: swap.ownerId,
-              entityOwnerNo: swap.ownerNo || undefined,
+              primarySubjectType: AuditEntityTypes.SWAP_TRANSACTION,
+              primarySubjectNo: swap.swapNo || undefined,
+              ownerCustomerNo: swap.ownerNo || undefined,
               traceId: swap.traceId || undefined,
-              workflowType: AuditWorkflowTypes.SWAP,
               reason: `KYT verdict rejected: SANCTION_APPLICANT hit (order frozen + customer restricted)`,
               sourcePlatform: 'SYSTEM',
             })
@@ -1219,16 +1181,12 @@ export class SwapWorkflowService {
 
       await this.auditLogsService.recordSystem({
         action: AuditActions.SWAP_KYT_REJECTED_DISPOSED,
-        entityType: AuditEntityTypes.SWAP_TRANSACTION,
-        entityId: swap.id,
-        entityNo: swap.swapNo || undefined,
+        primarySubjectType: AuditEntityTypes.SWAP_TRANSACTION,
+        primarySubjectNo: swap.swapNo || undefined,
         traceId: swap.traceId ?? undefined,
-        workflowType: AuditWorkflowTypes.SWAP,
-        entityOwnerType: swap.ownerType,
-        entityOwnerId: swap.ownerId,
         // Review Fix 4 (Minor): business key alongside the UUID — this is the
         // record explaining a tipping-off decision to an investigator.
-        entityOwnerNo: swap.ownerNo || undefined,
+        ownerCustomerNo: swap.ownerNo || undefined,
         reason: hasSanction
           ? 'Sanction hit — customer not notified (tipping-off)'
           : alreadyHardLined
@@ -1266,14 +1224,10 @@ export class SwapWorkflowService {
       await this.auditLogsService
         .recordSystem({
           action: AuditActions.SWAP_KYT_REJECTED_DISPOSITION_FAILED,
-          entityType: AuditEntityTypes.SWAP_TRANSACTION,
-          entityId: swap.id,
-          entityNo: swap.swapNo || undefined,
+          primarySubjectType: AuditEntityTypes.SWAP_TRANSACTION,
+          primarySubjectNo: swap.swapNo || undefined,
           traceId: swap.traceId ?? undefined,
-          workflowType: AuditWorkflowTypes.SWAP,
-          entityOwnerType: swap.ownerType,
-          entityOwnerId: swap.ownerId,
-          entityOwnerNo: swap.ownerNo || undefined,
+          ownerCustomerNo: swap.ownerNo || undefined,
           reason: err instanceof Error ? err.message : 'Reject disposition failed',
           sourcePlatform: 'SYSTEM',
         })
@@ -1539,13 +1493,9 @@ export class SwapWorkflowService {
     await this.auditLogsService.recordSystem(
       {
         action: AuditActions.SWAP_LEG_POSTED,
-        entityType: AuditEntityTypes.SWAP_TRANSACTION,
-        entityId: swap.id,
-        entityNo: swap.swapNo,
+        primarySubjectType: AuditEntityTypes.SWAP_TRANSACTION,
+        primarySubjectNo: swap.swapNo,
         traceId: swap.traceId ?? swap.swapNo,
-        workflowType: AuditWorkflowTypes.SWAP,
-        entityOwnerType: swap.ownerType,
-        entityOwnerId: swap.ownerId,
         reason: `Swap leg ${legSeq} posted`,
         metadata: { legSeq, attempt: event.attempt },
         sourcePlatform: 'SYSTEM',
@@ -1559,13 +1509,9 @@ export class SwapWorkflowService {
       await this.auditLogsService.recordSystem(
         {
           action: AuditActions.SWAP_SUCCEEDED,
-          entityType: AuditEntityTypes.SWAP_TRANSACTION,
-          entityId: swap.id,
-          entityNo: swap.swapNo,
+          primarySubjectType: AuditEntityTypes.SWAP_TRANSACTION,
+          primarySubjectNo: swap.swapNo,
           traceId: swap.traceId ?? swap.swapNo,
-          workflowType: AuditWorkflowTypes.SWAP,
-          entityOwnerType: swap.ownerType,
-          entityOwnerId: swap.ownerId,
           reason: 'Swap settlement completed — all legs cleared',
           sourcePlatform: 'SYSTEM',
         },
@@ -1614,13 +1560,9 @@ export class SwapWorkflowService {
       await this.auditLogsService.recordSystem(
         {
           action: AuditActions.SWAP_LEG_RETRIED,
-          entityType: AuditEntityTypes.SWAP_TRANSACTION,
-          entityId: swap.id,
-          entityNo: swap.swapNo,
+          primarySubjectType: AuditEntityTypes.SWAP_TRANSACTION,
+          primarySubjectNo: swap.swapNo,
           traceId: swap.traceId ?? swap.swapNo,
-          workflowType: AuditWorkflowTypes.SWAP,
-          entityOwnerType: swap.ownerType,
-          entityOwnerId: swap.ownerId,
           reason: `Swap leg ${legSeq} failed (attempt ${failedAttempt}/${SwapWorkflowService.MAX_LEG_ATTEMPTS}); retry attempt ${nextAttempt} created`,
           metadata: { legSeq, failedAttempt, nextAttempt, failedStatus: event.newStatus },
           sourcePlatform: 'SYSTEM',
@@ -1634,13 +1576,9 @@ export class SwapWorkflowService {
       await this.auditLogsService.recordSystem(
         {
           action: AuditActions.SWAP_LEG_STUCK,
-          entityType: AuditEntityTypes.SWAP_TRANSACTION,
-          entityId: swap.id,
-          entityNo: swap.swapNo,
+          primarySubjectType: AuditEntityTypes.SWAP_TRANSACTION,
+          primarySubjectNo: swap.swapNo,
           traceId: swap.traceId ?? swap.swapNo,
-          workflowType: AuditWorkflowTypes.SWAP,
-          entityOwnerType: swap.ownerType,
-          entityOwnerId: swap.ownerId,
           reason: `Swap leg ${legSeq} stuck after ${failedAttempt} failed attempts; awaiting manual resume`,
           metadata: { legSeq, attempts: failedAttempt, lastFailedStatus: event.newStatus },
           sourcePlatform: 'SYSTEM',
@@ -1695,13 +1633,9 @@ export class SwapWorkflowService {
       await this.auditLogsService.recordSystem(
         {
           action: AuditActions.SWAP_LEG_RESUMED,
-          entityType: AuditEntityTypes.SWAP_TRANSACTION,
-          entityId: swap.id,
-          entityNo: swap.swapNo,
+          primarySubjectType: AuditEntityTypes.SWAP_TRANSACTION,
+          primarySubjectNo: swap.swapNo,
           traceId: swap.traceId ?? swap.swapNo,
-          workflowType: AuditWorkflowTypes.SWAP,
-          entityOwnerType: swap.ownerType,
-          entityOwnerId: swap.ownerId,
           reason: `Swap leg ${legSeq} manually resumed by ${operatorId} (attempt ${resumedAttempt})`,
           metadata: { legSeq, resumedAttempt, fromAttempt },
           sourcePlatform: 'SYSTEM',
@@ -1733,13 +1667,9 @@ export class SwapWorkflowService {
     await this.swapTransactionsService.setNeedsReview(swap.id, true).catch(() => undefined);
     await this.auditLogsService.recordSystem({
       action: AuditActions.SWAP_LEG_HALTED_BY_RESTRICTION,
-      entityType: AuditEntityTypes.SWAP_TRANSACTION,
-      entityId: swap.id,
-      entityNo: swap.swapNo || undefined,
-      entityOwnerType: swap.ownerType,
-      entityOwnerId: swap.ownerId,
+      primarySubjectType: AuditEntityTypes.SWAP_TRANSACTION,
+      primarySubjectNo: swap.swapNo || undefined,
       traceId: swap.traceId || undefined,
-      workflowType: AuditWorkflowTypes.SWAP,
       reason: `Customer SWAP capability restricted at ${stage} — in-flight swap leg progression halted`,
       metadata: { swapNo: swap.swapNo, stage },
       sourcePlatform: 'SYSTEM',
@@ -1799,14 +1729,10 @@ export class SwapWorkflowService {
           await this.auditLogsService
             .recordSystem({
               action: AuditActions.SWAP_FROZEN,
-              entityType: AuditEntityTypes.SWAP_TRANSACTION,
-              entityId: sw.id,
-              entityNo: sw.swapNo || undefined,
-              entityOwnerType: sw.ownerType,
-              entityOwnerId: sw.ownerId,
-              entityOwnerNo: sw.ownerNo || undefined,
+              primarySubjectType: AuditEntityTypes.SWAP_TRANSACTION,
+              primarySubjectNo: sw.swapNo || undefined,
+              ownerCustomerNo: sw.ownerNo || undefined,
               traceId: sw.traceId || event.traceId || undefined,
-              workflowType: AuditWorkflowTypes.SWAP,
               reason: `Frozen by customer restriction ${event.restrictionNo} (${event.cause})`,
               sourcePlatform: 'SYSTEM',
             })

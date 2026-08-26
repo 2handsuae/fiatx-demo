@@ -231,14 +231,10 @@ export class OnboardingFinalApprovalService {
     await this.auditLogsService.recordByActor(
       {
         action: input.action,
-        entityType: AuditEntityTypes.ONBOARDING,
-        entityId: input.customerId,
-        entityNo: input.customerNo || undefined,
+        primarySubjectType: AuditEntityTypes.ONBOARDING,
+        primarySubjectNo: input.customerNo || undefined,
         traceId: traceContext?.traceId || undefined,
-        workflowType: traceContext?.workflowType || AuditWorkflowTypes.ONBOARDING,
-        entityOwnerType: 'CUSTOMER',
-        entityOwnerId: input.customerId,
-        entityOwnerNo: input.customerNo || undefined,
+        ownerCustomerNo: input.customerNo || undefined,
         reason: input.reason || undefined,
         metadata: input.detail,
         sourcePlatform: 'APPLICATION',
@@ -248,8 +244,9 @@ export class OnboardingFinalApprovalService {
           String(input.actorRole || '').trim().toUpperCase() === 'CUSTOMER'
             ? 'CUSTOMER'
             : 'ADMIN',
-        actorId: input.actorId,
-        actorRole: input.actorRole,
+        actorNo: input.actorId,
+        actorDisplayName: input.actorId,
+        actorRolesAtTime: [input.actorRole],
       },
     );
   }

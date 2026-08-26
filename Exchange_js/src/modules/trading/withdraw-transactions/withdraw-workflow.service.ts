@@ -167,13 +167,9 @@ export class WithdrawWorkflowService implements OnModuleInit {
     await this.auditLogsService
       .recordSystem({
         action: AuditActions.WITHDRAW_FROZEN,
-        entityType: AuditEntityTypes.WITHDRAW_TRANSACTION,
-        entityId: w.id,
-        entityNo: w.withdrawNo,
-        entityOwnerType: w.ownerType,
-        entityOwnerId: w.ownerId,
+        primarySubjectType: AuditEntityTypes.WITHDRAW_TRANSACTION,
+        primarySubjectNo: w.withdrawNo,
         traceId: w.traceId || undefined,
-        workflowType: AuditWorkflowTypes.WITHDRAW,
         reason: `Customer-level capability gate (A4) failed at ${stage} — in-flight withdrawal frozen`,
         metadata: { withdrawNo: w.withdrawNo, lifecycle: access.lifecycle, stage },
         sourcePlatform: 'SYSTEM',
@@ -573,20 +569,17 @@ export class WithdrawWorkflowService implements OnModuleInit {
           await this.auditLogsService.recordByActor(
             {
               action: AuditActions.WITHDRAW_REQUESTED,
-              entityType: AuditEntityTypes.WITHDRAW_TRANSACTION,
-              entityId: record.id,
-              entityNo: record.withdrawNo,
-              entityOwnerType: record.ownerType,
-              entityOwnerId: record.ownerId,
+              primarySubjectType: AuditEntityTypes.WITHDRAW_TRANSACTION,
+              primarySubjectNo: record.withdrawNo,
               traceId,
-              workflowType: AuditWorkflowTypes.WITHDRAW,
               reason: 'Customer initiated withdrawal',
               sourcePlatform: ownerType === 'CUSTOMER' ? 'CUSTOMER_API' : 'ADMIN_API',
             },
             {
               actorType: ownerType,
-              actorId: userId,
-              actorRole: ownerType,
+              actorNo: userId,
+              actorDisplayName: userId,
+              actorRolesAtTime: [ownerType],
             },
             tx,
           );
@@ -747,13 +740,9 @@ export class WithdrawWorkflowService implements OnModuleInit {
 
       await this.auditLogsService.recordSystem({
         action: AuditActions.WITHDRAW_APPROVAL_REQUESTED,
-        entityType: AuditEntityTypes.WITHDRAW_TRANSACTION,
-        entityId: w.id,
-        entityNo: w.withdrawNo,
-        entityOwnerType: w.ownerType,
-        entityOwnerId: w.ownerId,
+        primarySubjectType: AuditEntityTypes.WITHDRAW_TRANSACTION,
+        primarySubjectNo: w.withdrawNo,
         traceId: w.traceId || undefined,
-        workflowType: AuditWorkflowTypes.WITHDRAW,
         reason: `Large-value approval requested (case ${approval.approvalNo})`,
         sourcePlatform: 'SYSTEM',
       });
@@ -792,13 +781,9 @@ export class WithdrawWorkflowService implements OnModuleInit {
       );
       await this.auditLogsService.recordSystem({
         action: AuditActions.WITHDRAW_APPROVAL_GRANTED,
-        entityType: AuditEntityTypes.WITHDRAW_TRANSACTION,
-        entityId: w.id,
-        entityNo: w.withdrawNo,
-        entityOwnerType: w.ownerType,
-        entityOwnerId: w.ownerId,
+        primarySubjectType: AuditEntityTypes.WITHDRAW_TRANSACTION,
+        primarySubjectNo: w.withdrawNo,
         traceId: w.traceId || undefined,
-        workflowType: AuditWorkflowTypes.WITHDRAW,
         reason: `Large-value approval granted (case ${payload.approvalNo}) — proceeding to compliance`,
         sourcePlatform: 'SYSTEM',
       });
@@ -812,13 +797,9 @@ export class WithdrawWorkflowService implements OnModuleInit {
       await this.releaseLock(w, 'Large-value approval ' + payload.decision);
       await this.auditLogsService.recordSystem({
         action: AuditActions.WITHDRAW_APPROVAL_DECLINED,
-        entityType: AuditEntityTypes.WITHDRAW_TRANSACTION,
-        entityId: w.id,
-        entityNo: w.withdrawNo,
-        entityOwnerType: w.ownerType,
-        entityOwnerId: w.ownerId,
+        primarySubjectType: AuditEntityTypes.WITHDRAW_TRANSACTION,
+        primarySubjectNo: w.withdrawNo,
         traceId: w.traceId || undefined,
-        workflowType: AuditWorkflowTypes.WITHDRAW,
         reason: `Large-value approval ${payload.decision} (case ${payload.approvalNo}) — pending lock voided`,
         sourcePlatform: 'SYSTEM',
       });
@@ -873,13 +854,9 @@ export class WithdrawWorkflowService implements OnModuleInit {
 
     await this.auditLogsService.recordSystem({
       action: AuditActions.WITHDRAW_LOCK_RELEASED,
-      entityType: AuditEntityTypes.WITHDRAW_TRANSACTION,
-      entityId: w.id,
-      entityNo: w.withdrawNo,
-      entityOwnerType: w.ownerType,
-      entityOwnerId: w.ownerId,
+      primarySubjectType: AuditEntityTypes.WITHDRAW_TRANSACTION,
+      primarySubjectNo: w.withdrawNo,
       traceId: w.traceId || undefined,
-      workflowType: AuditWorkflowTypes.WITHDRAW,
       reason: `Lock released: ${reason}`,
       sourcePlatform: 'SYSTEM',
     });
@@ -953,13 +930,9 @@ export class WithdrawWorkflowService implements OnModuleInit {
 
     await this.auditLogsService.recordSystem({
       action: AuditActions.WITHDRAW_COMPLIANCE_PASSED,
-      entityType: AuditEntityTypes.WITHDRAW_TRANSACTION,
-      entityId: w.id,
-      entityNo: w.withdrawNo,
-      entityOwnerType: w.ownerType,
-      entityOwnerId: w.ownerId,
+      primarySubjectType: AuditEntityTypes.WITHDRAW_TRANSACTION,
+      primarySubjectNo: w.withdrawNo,
       traceId: w.traceId || undefined,
-      workflowType: AuditWorkflowTypes.WITHDRAW,
       reason: 'Pre-broadcast compliance gates passed, payout initiated',
       sourcePlatform: 'SYSTEM',
     });
@@ -1017,13 +990,9 @@ export class WithdrawWorkflowService implements OnModuleInit {
 
     await this.auditLogsService.recordSystem({
       action: AuditActions.WITHDRAW_PAYOUT_INITIATED,
-      entityType: AuditEntityTypes.WITHDRAW_TRANSACTION,
-      entityId: w.id,
-      entityNo: w.withdrawNo,
-      entityOwnerType: w.ownerType,
-      entityOwnerId: w.ownerId,
+      primarySubjectType: AuditEntityTypes.WITHDRAW_TRANSACTION,
+      primarySubjectNo: w.withdrawNo,
       traceId: w.traceId || undefined,
-      workflowType: AuditWorkflowTypes.WITHDRAW,
       reason: `Payout initiated — principal leg ${payoutLeg.fundsOrderNo}` +
         (Number(w.feeAmount) > 0 ? ' + fee leg' : ''),
       sourcePlatform: 'SYSTEM',
@@ -1068,13 +1037,9 @@ export class WithdrawWorkflowService implements OnModuleInit {
 
     await this.auditLogsService.recordSystem({
       action: AuditActions.WITHDRAW_PAYOUT_CONFIRMED,
-      entityType: AuditEntityTypes.WITHDRAW_TRANSACTION,
-      entityId: w.id,
-      entityNo: w.withdrawNo,
-      entityOwnerType: w.ownerType,
-      entityOwnerId: w.ownerId,
+      primarySubjectType: AuditEntityTypes.WITHDRAW_TRANSACTION,
+      primarySubjectNo: w.withdrawNo,
       traceId: w.traceId || undefined,
-      workflowType: AuditWorkflowTypes.WITHDRAW,
       reason: 'Payout principal leg externally confirmed',
       sourcePlatform: 'SYSTEM',
     });
@@ -1323,13 +1288,9 @@ export class WithdrawWorkflowService implements OnModuleInit {
       await this.withdrawService.markNeedsReview(w.id);
       await this.auditLogsService.recordSystem({
         action: AuditActions.WITHDRAW_FEE_SETTLE_STUCK,
-        entityType: AuditEntityTypes.WITHDRAW_TRANSACTION,
-        entityId: w.id,
-        entityNo: w.withdrawNo,
-        entityOwnerType: w.ownerType,
-        entityOwnerId: w.ownerId,
+        primarySubjectType: AuditEntityTypes.WITHDRAW_TRANSACTION,
+        primarySubjectNo: w.withdrawNo,
         traceId: w.traceId || undefined,
-        workflowType: AuditWorkflowTypes.WITHDRAW,
         reason: `Fee settle failed ${attempts}/3 attempts: ${(err as Error).message} — manual intervention required (withdrawal stays PAYOUT_PENDING)`,
         sourcePlatform: 'SYSTEM',
       });
@@ -1411,13 +1372,9 @@ export class WithdrawWorkflowService implements OnModuleInit {
 
     await this.auditLogsService.recordSystem({
       action: AuditActions.WITHDRAW_ACCOUNTING_POSTED,
-      entityType: AuditEntityTypes.WITHDRAW_TRANSACTION,
-      entityId: w.id,
-      entityNo: w.withdrawNo,
-      entityOwnerType: w.ownerType,
-      entityOwnerId: w.ownerId,
+      primarySubjectType: AuditEntityTypes.WITHDRAW_TRANSACTION,
+      primarySubjectNo: w.withdrawNo,
       traceId: w.traceId || undefined,
-      workflowType: AuditWorkflowTypes.WITHDRAW,
       reason: w.asset?.type === 'FIAT'
         ? 'TB pending transfers posted after bank confirmation'
         : 'TB pending transfers posted after chain confirmation',
@@ -1438,13 +1395,9 @@ export class WithdrawWorkflowService implements OnModuleInit {
 
     await this.auditLogsService.recordSystem({
       action: AuditActions.WITHDRAW_SUCCESS,
-      entityType: AuditEntityTypes.WITHDRAW_TRANSACTION,
-      entityId: w.id,
-      entityNo: w.withdrawNo,
-      entityOwnerType: w.ownerType,
-      entityOwnerId: w.ownerId,
+      primarySubjectType: AuditEntityTypes.WITHDRAW_TRANSACTION,
+      primarySubjectNo: w.withdrawNo,
       traceId: w.traceId || undefined,
-      workflowType: AuditWorkflowTypes.WITHDRAW,
       reason: 'Withdrawal completed successfully',
       sourcePlatform: 'SYSTEM',
     });
@@ -1571,13 +1524,9 @@ export class WithdrawWorkflowService implements OnModuleInit {
 
     await this.auditLogsService.recordSystem({
       action: AuditActions.WITHDRAW_PAYOUT_FAILED,
-      entityType: AuditEntityTypes.WITHDRAW_TRANSACTION,
-      entityId: w.id,
-      entityNo: w.withdrawNo,
-      entityOwnerType: w.ownerType,
-      entityOwnerId: w.ownerId,
+      primarySubjectType: AuditEntityTypes.WITHDRAW_TRANSACTION,
+      primarySubjectNo: w.withdrawNo,
       traceId: w.traceId || undefined,
-      workflowType: AuditWorkflowTypes.WITHDRAW,
       reason,
       sourcePlatform: 'SYSTEM',
     });
@@ -1654,13 +1603,9 @@ export class WithdrawWorkflowService implements OnModuleInit {
 
       await this.auditLogsService.recordSystem({
         action: AuditActions.WITHDRAW_FEE_LEG_REBUILT,
-        entityType: AuditEntityTypes.WITHDRAW_TRANSACTION,
-        entityId: w.id,
-        entityNo: w.withdrawNo,
-        entityOwnerType: w.ownerType,
-        entityOwnerId: w.ownerId,
+        primarySubjectType: AuditEntityTypes.WITHDRAW_TRANSACTION,
+        primarySubjectNo: w.withdrawNo,
         traceId: w.traceId || undefined,
-        workflowType: AuditWorkflowTypes.WITHDRAW,
         reason: `${reason} — rebuilt attempt ${nextAttempt} (${newLeg.fundsOrderNo})`,
         sourcePlatform: 'SYSTEM',
       });
@@ -1675,13 +1620,9 @@ export class WithdrawWorkflowService implements OnModuleInit {
     await this.withdrawService.markNeedsReview(w.id);
     await this.auditLogsService.recordSystem({
       action: AuditActions.WITHDRAW_FEE_SETTLE_STUCK,
-      entityType: AuditEntityTypes.WITHDRAW_TRANSACTION,
-      entityId: w.id,
-      entityNo: w.withdrawNo,
-      entityOwnerType: w.ownerType,
-      entityOwnerId: w.ownerId,
+      primarySubjectType: AuditEntityTypes.WITHDRAW_TRANSACTION,
+      primarySubjectNo: w.withdrawNo,
       traceId: w.traceId || undefined,
-      workflowType: AuditWorkflowTypes.WITHDRAW,
       reason: `${reason} — fee leg failed after ${attempt} attempts, manual intervention required (withdrawal stays PAYOUT_PENDING)`,
       sourcePlatform: 'SYSTEM',
     });
@@ -1716,7 +1657,7 @@ export class WithdrawWorkflowService implements OnModuleInit {
   async onBounce(
     withdrawId: string,
     reason: string,
-    actorCtx: AuditActorContext = { actorType: 'SYSTEM', actorId: 'SYSTEM', actorRole: 'SYSTEM' },
+    actorCtx: AuditActorContext = { actorType: 'SYSTEM', actorNo: 'SYSTEM', actorDisplayName: 'SYSTEM', actorRolesAtTime: ['SYSTEM'] },
   ): Promise<void> {
     const w = await this.withdrawService.findOneInternal(withdrawId);
 
@@ -1773,7 +1714,7 @@ export class WithdrawWorkflowService implements OnModuleInit {
         assetCurrency: w.asset?.currency || '',
         traceId: w.traceId || w.id,
         actorType: actorCtx.actorType,
-        actorId: actorCtx.actorId,
+        actorId: actorCtx.actorNo,
         memo: `Payout bounced by bank/network — reason: ${reason}`,
         debitWalletRef: walletRef,
         creditWalletRef: walletRef,
@@ -1851,13 +1792,9 @@ export class WithdrawWorkflowService implements OnModuleInit {
     await this.auditLogsService.recordByActor(
       {
         action: AuditActions.WITHDRAW_BOUNCED,
-        entityType: AuditEntityTypes.WITHDRAW_TRANSACTION,
-        entityId: w.id,
-        entityNo: w.withdrawNo,
-        entityOwnerType: w.ownerType,
-        entityOwnerId: w.ownerId,
+        primarySubjectType: AuditEntityTypes.WITHDRAW_TRANSACTION,
+        primarySubjectNo: w.withdrawNo,
         traceId: w.traceId || undefined,
-        workflowType: AuditWorkflowTypes.WITHDRAW,
         reason: `Payout bounced: ${reason} — ${feeDisposition}`,
         metadata: { reason },
         sourcePlatform: 'ADMIN_API',
@@ -1882,9 +1819,9 @@ export class WithdrawWorkflowService implements OnModuleInit {
   private toAuditActor(actor: ApprovalActorContext): AuditActorContext {
     return {
       actorType: actor.actorType,
-      actorId: actor.userId,
-      actorNo: actor.userNo,
-      actorRole: actor.role || actor.roleCodes[0] || 'UNKNOWN',
+      actorNo: actor.userNo || 'UNKNOWN',
+      actorDisplayName: actor.userNo || 'UNKNOWN',
+      actorRolesAtTime: [actor.role || actor.roleCodes[0] || 'UNKNOWN'],
     };
   }
 
@@ -1946,13 +1883,9 @@ export class WithdrawWorkflowService implements OnModuleInit {
     await this.auditLogsService.recordByActor(
       {
         action: AuditActions.WITHDRAW_UNFREEZE_APPROVAL_REQUESTED,
-        entityType: AuditEntityTypes.WITHDRAW_TRANSACTION,
-        entityId: w.id,
-        entityNo: w.withdrawNo,
-        entityOwnerType: w.ownerType,
-        entityOwnerId: w.ownerId,
+        primarySubjectType: AuditEntityTypes.WITHDRAW_TRANSACTION,
+        primarySubjectNo: w.withdrawNo,
         traceId: w.traceId || undefined,
-        workflowType: AuditWorkflowTypes.WITHDRAW,
         reason: dto.reason,
         metadata: { withdrawNo: w.withdrawNo, orderRef: dto.orderRef, approvalNo: approvalCase.approvalNo },
         sourcePlatform: 'ADMIN_API',
@@ -2023,13 +1956,9 @@ export class WithdrawWorkflowService implements OnModuleInit {
     await this.auditLogsService.recordByActor(
       {
         action: AuditActions.WITHDRAW_SANCTION_REFUND_APPROVAL_REQUESTED,
-        entityType: AuditEntityTypes.WITHDRAW_TRANSACTION,
-        entityId: w.id,
-        entityNo: w.withdrawNo,
-        entityOwnerType: w.ownerType,
-        entityOwnerId: w.ownerId,
+        primarySubjectType: AuditEntityTypes.WITHDRAW_TRANSACTION,
+        primarySubjectNo: w.withdrawNo,
         traceId: w.traceId || undefined,
-        workflowType: AuditWorkflowTypes.WITHDRAW,
         reason: dto.reason,
         metadata: { withdrawNo: w.withdrawNo, approvalNo: approvalCase.approvalNo },
         sourcePlatform: 'ADMIN_API',
@@ -2171,13 +2100,9 @@ export class WithdrawWorkflowService implements OnModuleInit {
 
     await this.auditLogsService.recordSystem({
       action: AuditActions.WITHDRAW_UNFROZEN,
-      entityType: AuditEntityTypes.WITHDRAW_TRANSACTION,
-      entityId: w.id,
-      entityNo: w.withdrawNo,
-      entityOwnerType: w.ownerType,
-      entityOwnerId: w.ownerId,
+      primarySubjectType: AuditEntityTypes.WITHDRAW_TRANSACTION,
+      primarySubjectNo: w.withdrawNo,
       traceId: w.traceId || undefined,
-      workflowType: AuditWorkflowTypes.WITHDRAW,
       reason: `Unfreeze order ${orderRef} — withdrawal resumed to COMPLIANCE_PENDING`,
       sourcePlatform: 'SYSTEM',
     });
@@ -2239,13 +2164,9 @@ export class WithdrawWorkflowService implements OnModuleInit {
 
     await this.auditLogsService.recordSystem({
       action: AuditActions.WITHDRAW_SANCTION_REFUNDED,
-      entityType: AuditEntityTypes.WITHDRAW_TRANSACTION,
-      entityId: w.id,
-      entityNo: w.withdrawNo,
-      entityOwnerType: w.ownerType,
-      entityOwnerId: w.ownerId,
+      primarySubjectType: AuditEntityTypes.WITHDRAW_TRANSACTION,
+      primarySubjectNo: w.withdrawNo,
       traceId: w.traceId || undefined,
-      workflowType: AuditWorkflowTypes.WITHDRAW,
       reason: 'Sanction refund approved — withdrawal rejected and lock released',
       metadata: approvalNo ? { approvalNo } : undefined,
       sourcePlatform: 'SYSTEM',
@@ -2353,13 +2274,9 @@ export class WithdrawWorkflowService implements OnModuleInit {
 
       await this.auditLogsService.recordSystem({
         action: AuditActions.WITHDRAW_SUMSUB_SUBMITTED,
-        entityType: AuditEntityTypes.WITHDRAW_TRANSACTION,
-        entityId: w.id,
-        entityNo: w.withdrawNo,
-        entityOwnerType: w.ownerType,
-        entityOwnerId: w.ownerId,
+        primarySubjectType: AuditEntityTypes.WITHDRAW_TRANSACTION,
+        primarySubjectNo: w.withdrawNo,
         traceId: w.traceId || undefined,
-        workflowType: AuditWorkflowTypes.WITHDRAW,
         reason: 'Withdrawal submitted to Sumsub KYT for transaction monitoring',
         metadata: { sumsubTxnId: result.txnId, txnType: submitType, reason: decision.reason },
         sourcePlatform: 'SYSTEM',
@@ -2436,13 +2353,9 @@ export class WithdrawWorkflowService implements OnModuleInit {
         await this.auditLogsService
           .recordSystem({
             action: AuditActions.WITHDRAW_SANCTION_HIT_ON_IGNORED_VERDICT,
-            entityType: AuditEntityTypes.WITHDRAW_TRANSACTION,
-            entityId: w.id,
-            entityNo: w.withdrawNo,
-            entityOwnerType: w.ownerType,
-            entityOwnerId: w.ownerId,
+            primarySubjectType: AuditEntityTypes.WITHDRAW_TRANSACTION,
+            primarySubjectNo: w.withdrawNo,
             traceId: w.traceId || undefined,
-            workflowType: AuditWorkflowTypes.WITHDRAW,
             reason: `Withdrawal ${w.withdrawNo} KYT rejected: applicant sanctioned (verdict arrived while order already ${status}) — order left untouched, customer restricted`,
             metadata: { withdrawNo: w.withdrawNo, sceneTag: input.sceneTag, status },
             sourcePlatform: 'SYSTEM',
@@ -2472,13 +2385,9 @@ export class WithdrawWorkflowService implements OnModuleInit {
       await this.auditLogsService
         .recordSystem({
           action: AuditActions.WITHDRAW_POST_BROADCAST_VERDICT,
-          entityType: AuditEntityTypes.WITHDRAW_TRANSACTION,
-          entityId: w.id,
-          entityNo: w.withdrawNo,
-          entityOwnerType: w.ownerType,
-          entityOwnerId: w.ownerId,
+          primarySubjectType: AuditEntityTypes.WITHDRAW_TRANSACTION,
+          primarySubjectNo: w.withdrawNo,
           traceId: w.traceId || undefined,
-          workflowType: AuditWorkflowTypes.WITHDRAW,
           reason: `KYT verdict '${input.verdict}' received after payout broadcast — no state-machine action taken`,
           metadata: { verdict: input.verdict },
           sourcePlatform: 'SYSTEM',
@@ -2555,13 +2464,9 @@ export class WithdrawWorkflowService implements OnModuleInit {
     await this.auditLogsService
       .recordSystem({
         action: AuditActions.WITHDRAW_KYT_VERDICT_IGNORED,
-        entityType: AuditEntityTypes.WITHDRAW_TRANSACTION,
-        entityId: w.id,
-        entityNo: w.withdrawNo,
-        entityOwnerType: w.ownerType,
-        entityOwnerId: w.ownerId,
+        primarySubjectType: AuditEntityTypes.WITHDRAW_TRANSACTION,
+        primarySubjectNo: w.withdrawNo,
         traceId: w.traceId || undefined,
-        workflowType: AuditWorkflowTypes.WITHDRAW,
         reason: `Late KYT verdict '${input.verdict}' ignored — withdrawal is ${status} (terminal or frozen); existing verdict/evidence left untouched`,
         metadata: {
           withdrawNo: w.withdrawNo,
@@ -2593,13 +2498,9 @@ export class WithdrawWorkflowService implements OnModuleInit {
     if (w.status === WithdrawTransactionStatus.MANUAL_CHECKING) {
       await this.auditLogsService.recordSystem({
         action: AuditActions.WITHDRAW_MANUAL_APPROVED,
-        entityType: AuditEntityTypes.WITHDRAW_TRANSACTION,
-        entityId: w.id,
-        entityNo: w.withdrawNo,
-        entityOwnerType: w.ownerType,
-        entityOwnerId: w.ownerId,
+        primarySubjectType: AuditEntityTypes.WITHDRAW_TRANSACTION,
+        primarySubjectNo: w.withdrawNo,
         traceId: w.traceId || undefined,
-        workflowType: AuditWorkflowTypes.WITHDRAW,
         reason: 'KYT verdict approved: manual checking overturned',
         sourcePlatform: 'SYSTEM',
       });
@@ -2641,13 +2542,9 @@ export class WithdrawWorkflowService implements OnModuleInit {
         );
         await this.auditLogsService.recordSystem({
           action: AuditActions.WITHDRAW_AWAITUSER_EMPTY_ACTIONS,
-          entityType: AuditEntityTypes.WITHDRAW_TRANSACTION,
-          entityId: w.id,
-          entityNo: w.withdrawNo,
-          entityOwnerType: w.ownerType,
-          entityOwnerId: w.ownerId,
+          primarySubjectType: AuditEntityTypes.WITHDRAW_TRANSACTION,
+          primarySubjectNo: w.withdrawNo,
           traceId: w.traceId || undefined,
-          workflowType: AuditWorkflowTypes.WITHDRAW,
           reason:
             'Sumsub awaitUser synced to zero outstanding actions while already ACTION_PENDING — kept existing cache, not treated as reissue',
           metadata: { addedSeqs: added, retiredSeqs: retired },
@@ -2675,13 +2572,9 @@ export class WithdrawWorkflowService implements OnModuleInit {
       await this.applicantActions.clearWithdrawCache(w.id, slaDeadline);
       await this.auditLogsService.recordSystem({
         action: AuditActions.WITHDRAW_ACTION_REISSUED,
-        entityType: AuditEntityTypes.WITHDRAW_TRANSACTION,
-        entityId: w.id,
-        entityNo: w.withdrawNo,
-        entityOwnerType: w.ownerType,
-        entityOwnerId: w.ownerId,
+        primarySubjectType: AuditEntityTypes.WITHDRAW_TRANSACTION,
+        primarySubjectNo: w.withdrawNo,
         traceId: w.traceId || undefined,
-        workflowType: AuditWorkflowTypes.WITHDRAW,
         reason: 'Sumsub changed the applicant-action set while already ACTION_PENDING',
         metadata: {
           addedSeqs: added,
@@ -2716,13 +2609,9 @@ export class WithdrawWorkflowService implements OnModuleInit {
       );
       await this.auditLogsService.recordSystem({
         action: AuditActions.WITHDRAW_AWAITUSER_EMPTY_ACTIONS,
-        entityType: AuditEntityTypes.WITHDRAW_TRANSACTION,
-        entityId: w.id,
-        entityNo: w.withdrawNo,
-        entityOwnerType: w.ownerType,
-        entityOwnerId: w.ownerId,
+        primarySubjectType: AuditEntityTypes.WITHDRAW_TRANSACTION,
+        primarySubjectNo: w.withdrawNo,
         traceId: w.traceId || undefined,
-        workflowType: AuditWorkflowTypes.WITHDRAW,
         reason:
           'Sumsub sent awaitUser verdict with no outstanding applicant actions — refused to move into ACTION_PENDING with nothing for the customer to act on',
         metadata: { fromStatus: w.status, incomingCount: incoming.length },
@@ -2772,13 +2661,9 @@ export class WithdrawWorkflowService implements OnModuleInit {
 
     await this.auditLogsService.recordSystem({
       action: AuditActions.WITHDRAW_ONHOLD,
-      entityType: AuditEntityTypes.WITHDRAW_TRANSACTION,
-      entityId: w.id,
-      entityNo: w.withdrawNo,
-      entityOwnerType: w.ownerType,
-      entityOwnerId: w.ownerId,
+      primarySubjectType: AuditEntityTypes.WITHDRAW_TRANSACTION,
+      primarySubjectNo: w.withdrawNo,
       traceId: w.traceId || undefined,
-      workflowType: AuditWorkflowTypes.WITHDRAW,
       reason: 'KYT verdict: onHold, awaiting officer review',
       metadata: { note: 'onHold 不影响 SLA —— SLA 按状态计时,见 WITHDRAW_SLA_MINUTES_BY_STATUS' },
       sourcePlatform: 'SYSTEM',
@@ -2834,13 +2719,9 @@ export class WithdrawWorkflowService implements OnModuleInit {
       );
       await this.auditLogsService.recordSystem({
         action: AuditActions.WITHDRAW_FROZEN,
-        entityType: AuditEntityTypes.WITHDRAW_TRANSACTION,
-        entityId: w.id,
-        entityNo: w.withdrawNo,
-        entityOwnerType: w.ownerType,
-        entityOwnerId: w.ownerId,
+        primarySubjectType: AuditEntityTypes.WITHDRAW_TRANSACTION,
+        primarySubjectNo: w.withdrawNo,
         traceId: w.traceId || undefined,
-        workflowType: AuditWorkflowTypes.WITHDRAW,
         reason: isApplicantSanction
           ? 'KYT verdict rejected: SANCTION_APPLICANT hit (order frozen + customer restricted)'
           : sceneTag === 'SANCTION_COUNTERPARTY'
@@ -2864,13 +2745,9 @@ export class WithdrawWorkflowService implements OnModuleInit {
         await this.releaseLock(w, 'Officer refund tag');
         await this.auditLogsService.recordSystem({
           action: AuditActions.WITHDRAW_REFUNDED_BY_TAG,
-          entityType: AuditEntityTypes.WITHDRAW_TRANSACTION,
-          entityId: w.id,
-          entityNo: w.withdrawNo,
-          entityOwnerType: w.ownerType,
-          entityOwnerId: w.ownerId,
+          primarySubjectType: AuditEntityTypes.WITHDRAW_TRANSACTION,
+          primarySubjectNo: w.withdrawNo,
           traceId: w.traceId || undefined,
-          workflowType: AuditWorkflowTypes.WITHDRAW,
           reason: 'KYT verdict rejected: officer REJECT_REFUND tag — void pending locks, refund to available balance',
           sourcePlatform: 'SYSTEM',
         });
@@ -2889,13 +2766,9 @@ export class WithdrawWorkflowService implements OnModuleInit {
       if (w.status === WithdrawTransactionStatus.FROZEN) {
         await this.auditLogsService.recordSystem({
           action: AuditActions.WITHDRAW_REFUND_TAG_ON_FROZEN_IGNORED,
-          entityType: AuditEntityTypes.WITHDRAW_TRANSACTION,
-          entityId: w.id,
-          entityNo: w.withdrawNo,
-          entityOwnerType: w.ownerType,
-          entityOwnerId: w.ownerId,
+          primarySubjectType: AuditEntityTypes.WITHDRAW_TRANSACTION,
+          primarySubjectNo: w.withdrawNo,
           traceId: w.traceId || undefined,
-          workflowType: AuditWorkflowTypes.WITHDRAW,
           reason: 'KYT verdict rejected: officer REJECT_REFUND tag ignored — withdrawal is FROZEN, exits only via WITHDRAW_UNFREEZE / WITHDRAW_SANCTION_REFUND maker-checker approvals (Task 9)',
           sourcePlatform: 'SYSTEM',
         });

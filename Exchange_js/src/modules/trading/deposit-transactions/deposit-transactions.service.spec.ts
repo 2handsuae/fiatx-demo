@@ -1402,12 +1402,11 @@ describe('DepositTransactionsService', () => {
       expect((auditLogsService as any).recordByActor).toHaveBeenCalledWith(
         expect.objectContaining({
           action: 'DEPOSIT_SLA_TIMEOUT_SIMULATED',
-          entityType: 'DEPOSIT_TRANSACTION',
-          entityId: 'dep-1',
-          entityNo: 'DEP0001',
+          primarySubjectType: 'DEPOSIT_TRANSACTION',
+          primarySubjectNo: 'DEP0001',
           requestId: expect.stringContaining('SLA_TIMEOUT_SIMULATED'),
         }),
-        expect.objectContaining({ actorType: 'ADMIN', actorId: 'admin-1', actorRole: 'OPERATOR' }),
+        expect.objectContaining({ actorType: 'ADMIN', actorNo: 'admin-1', actorRolesAtTime: ['OPERATOR'] }),
       );
       expect(result.slaDeadline).toEqual(pastDate);
     });

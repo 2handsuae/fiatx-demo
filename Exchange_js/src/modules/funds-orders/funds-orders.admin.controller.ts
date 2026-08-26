@@ -15,12 +15,7 @@ import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { AdminPermissionGuard } from '../identity/access-control/admin-permission.guard';
 import { RequirePermissions } from '../identity/access-control/require-permissions.decorator';
 import { buildPermissionCode } from '../identity/access-control/permission-code.util';
-import { AuditLogsService } from '../audit-logging/audit-logs.service';
-import {
-  AuditActions,
-  AuditEntityTypes,
-  AuditWorkflowTypes,
-} from '../audit-logging/constants/audit-actions.constant';
+import { FundsOrderAdvanceWorkflowService } from './funds-order-advance-workflow.service';
 import { FundsOrderService } from './funds-order.service';
 import { FundsOrdersAdminQueryDto } from './dto/funds-orders-admin-query.dto';
 import { AdvanceFundsOrderDto } from './dto/advance-funds-order.dto';
@@ -41,7 +36,7 @@ import { AdvanceFundsOrderDto } from './dto/advance-funds-order.dto';
 export class FundsOrdersAdminController {
   constructor(
     private readonly fundsOrders: FundsOrderService,
-    private readonly auditLogs: AuditLogsService,
+    private readonly advanceWorkflow: FundsOrderAdvanceWorkflowService,
   ) {}
 
   @Get()
@@ -72,31 +67,12 @@ export class FundsOrdersAdminController {
     @Body() dto: AdvanceFundsOrderDto,
     @Req() req: any,
   ) {
-    const before = await this.fundsOrders.findOneByNoForAdmin(fundsOrderNo);
     const actorNo = req.user?.userNo || req.user?.sub || 'ADMIN';
-    const updated = await this.fundsOrders.advanceByNo(
-      fundsOrderNo,
-      dto.action,
+    return this.advanceWorkflow.advance(fundsOrderNo, dto.action, {
+      actorType: 'ADMIN',
       actorNo,
-    );
-    await this.auditLogs.recordByActor(
-      {
-        action: AuditActions.FUNDS_ORDER_ADVANCED,
-        entityType: AuditEntityTypes.INTERNAL_FUND,
-        entityId: updated.id,
-        entityNo: fundsOrderNo,
-        workflowType: AuditWorkflowTypes.DEPOSIT,
-        reason: `Sim advance ${dto.action}: ${before.status} → ${updated.status}`,
-        metadata: {
-          fundsOrderNo,
-          action: dto.action,
-          fromStatus: before.status,
-          toStatus: updated.status,
-        },
-        sourcePlatform: 'ADMIN',
-      },
-      { actorType: 'ADMIN', actorId: actorNo, actorNo, actorRole: 'ADMIN' },
-    );
-    return updated;
+      actorDisplayName: actorNo,
+      actorRolesAtTime: ['ADMIN'],
+    });
   }
 }

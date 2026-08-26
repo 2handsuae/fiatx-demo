@@ -122,10 +122,10 @@ describe('PushOrderService', () => {
     expect(audit.recordByActor).toHaveBeenCalledTimes(1);
     const [input, actor] = audit.recordByActor.mock.calls[0];
     expect(input.action).toBe('RECON_PUSH_ORDER_SYNCED');
-    expect(input.entityType).toBe('INTERNAL_FUND');
-    expect(input.entityNo).toBe('FO-1');
+    expect(input.primarySubjectType).toBe('INTERNAL_FUND');
+    expect(input.primarySubjectNo).toBe('FO-1');
     expect(input.metadata.manualConfirm).toBe(false);
-    expect(actor.actorId).toBe('admin-1');
+    expect(actor.actorNo).toBe('admin-1');
     expect(actor.actorType).toBe('ADMIN');
   });
 

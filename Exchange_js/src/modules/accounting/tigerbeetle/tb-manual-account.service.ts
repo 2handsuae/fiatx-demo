@@ -17,7 +17,7 @@ import {
   AuditEntityTypes,
   AuditBusinessWorkflowTypes,
 } from '../../audit-logging/constants/audit-actions.constant';
-import { AuditResult } from '../../audit-logging/dto/audit-log.dto';
+import { AuditOutcome } from '../../audit-logging/dto/audit-log.dto';
 import { isCustomerApprovedAndActive } from '../../identity/customer-lifecycle.util';
 import { AccountFlags } from 'tigerbeetle-node';
 
@@ -156,11 +156,10 @@ export class TbManualAccountService {
     await this.auditLogsService.recordByActor(
       {
         action: AuditActions.MANUAL_TB_ACCOUNT_CREATED,
-        entityType: AuditEntityTypes.TB_ACCOUNT,
-        entityId: created?.tbAccountId,
-        workflowType: AuditBusinessWorkflowTypes.TB_ACCOUNT_MANUAL_CREATE,
+        primarySubjectType: AuditEntityTypes.TB_ACCOUNT,
+        primarySubjectNo: created?.tbAccountId,
         traceId: randomUUID(),
-        result: AuditResult.SUCCESS,
+        outcome: AuditOutcome.SUCCESS,
         sourcePlatform: 'ADMIN_API',
         metadata: {
           accountCategory: input.accountCategory,
@@ -174,9 +173,9 @@ export class TbManualAccountService {
       },
       {
         actorType: 'ADMIN',
-        actorId: actor.actorId,
         actorNo: actor.actorNo,
-        actorRole: actor.actorRole,
+        actorDisplayName: actor.actorNo,
+        actorRolesAtTime: [actor.actorRole],
       },
     );
 

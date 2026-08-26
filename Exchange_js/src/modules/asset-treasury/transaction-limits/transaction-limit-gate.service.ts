@@ -107,12 +107,8 @@ export class TransactionLimitGateService {
   private async reject(input: GateInput, ruleNo: string, code: string, context: Record<string, string | undefined>): Promise<never> {
     await this.auditLogsService.recordSystem({
       action: AuditGovernanceActions.TRANSACTION_LIMIT_REJECTED,
-      entityType: AuditEntityTypes.TRANSACTION_LIMIT_POLICY,
-      entityId: ruleNo,
-      entityNo: ruleNo,
-      entityOwnerType: 'CUSTOMER',
-      entityOwnerId: input.customerId,
-      workflowType: AuditBusinessWorkflowTypes.TRANSACTION_LIMIT_ENFORCEMENT,
+      primarySubjectType: AuditEntityTypes.TRANSACTION_LIMIT_POLICY,
+      primarySubjectNo: ruleNo,
       // Per-attempt-unique requestId → distinct idempotency key so every rejection is
       // audited (default NO_REQUEST_ID fallback would dedup all breaches of one rule).
       requestId: `TRANSACTION_LIMIT_REJECTED_${ruleNo}_${input.customerId}_${randomUUID()}`,

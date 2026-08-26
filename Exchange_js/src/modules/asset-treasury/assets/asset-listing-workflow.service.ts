@@ -7,7 +7,7 @@ import {
   AuditEntityTypes,
   AuditGovernanceActions,
 } from '../../audit-logging/constants/audit-actions.constant';
-import { AuditResult } from '../../audit-logging/dto/audit-log.dto';
+import { AuditOutcome } from '../../audit-logging/dto/audit-log.dto';
 import { AssetProvisioningService } from './asset-provisioning.service';
 import { AssetsService } from './assets.service';
 import { SubmitAssetListingDto } from './dto/submit-asset-listing.dto';
@@ -67,19 +67,18 @@ export class AssetListingWorkflowService {
       await this.auditLogsService.recordByActor(
         {
           action: AuditGovernanceActions.ASSET_CREATION.ASSET_CREATION_FAILED,
-          entityType: AuditEntityTypes.ASSET,
-          workflowType: AuditBusinessWorkflowTypes.ASSET_CREATION,
+          primarySubjectType: AuditEntityTypes.ASSET,
           traceId,
-          result: AuditResult.FAILED,
+          outcome: AuditOutcome.FAILED,
           reason: error instanceof Error ? error.message : 'Asset creation failed',
           metadata: { assetCurrency: dto.currency, assetType: dto.type, network: dto.network },
           sourcePlatform: 'ADMIN_API',
         },
         {
           actorType: 'ADMIN',
-          actorId: actor.userId,
-          actorNo: actor.userNo,
-          actorRole: actor.role || 'ADMIN',
+          actorNo: actor.userNo || 'UNKNOWN',
+          actorDisplayName: actor.userNo || 'UNKNOWN',
+          actorRolesAtTime: [actor.role || 'ADMIN'],
         },
       );
 
@@ -90,12 +89,10 @@ export class AssetListingWorkflowService {
     await this.auditLogsService.recordByActor(
       {
         action: AuditGovernanceActions.ASSET_CREATION.ASSET_CREATED_AND_PROVISIONED,
-        entityType: AuditEntityTypes.ASSET,
-        entityId: asset.id,
-        entityNo: asset.assetNo,
-        workflowType: AuditBusinessWorkflowTypes.ASSET_CREATION,
+        primarySubjectType: AuditEntityTypes.ASSET,
+        primarySubjectNo: asset.assetNo,
         traceId,
-        result: AuditResult.SUCCESS,
+        outcome: AuditOutcome.SUCCESS,
         metadata: {
           assetCurrency: dto.currency,
           assetType: dto.type,
@@ -107,9 +104,9 @@ export class AssetListingWorkflowService {
       },
       {
         actorType: 'ADMIN',
-        actorId: actor.userId,
-        actorNo: actor.userNo,
-        actorRole: actor.role || 'ADMIN',
+        actorNo: actor.userNo || 'UNKNOWN',
+        actorDisplayName: actor.userNo || 'UNKNOWN',
+        actorRolesAtTime: [actor.role || 'ADMIN'],
       },
     );
 
@@ -138,21 +135,19 @@ export class AssetListingWorkflowService {
     await this.auditLogsService.recordByActor(
       {
         action: AuditGovernanceActions.ASSET_CREATION.ASSET_PROVISIONING_UPDATED,
-        entityType: AuditEntityTypes.ASSET,
-        entityId: asset.id,
-        entityNo: assetNo,
-        workflowType: AuditBusinessWorkflowTypes.ASSET_CREATION,
+        primarySubjectType: AuditEntityTypes.ASSET,
+        primarySubjectNo: assetNo,
         traceId: randomUUID(),
-        result: AuditResult.SUCCESS,
+        outcome: AuditOutcome.SUCCESS,
         reason: 'Asset updated during provisioning',
         metadata: { updatedFields: fieldsToUpdate },
         sourcePlatform: 'ADMIN_API',
       },
       {
         actorType: 'ADMIN',
-        actorId: actor.userId,
-        actorNo: actor.userNo,
-        actorRole: actor.role || 'ADMIN',
+        actorNo: actor.userNo || 'UNKNOWN',
+        actorDisplayName: actor.userNo || 'UNKNOWN',
+        actorRolesAtTime: [actor.role || 'ADMIN'],
       },
     );
 

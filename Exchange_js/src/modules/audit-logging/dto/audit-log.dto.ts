@@ -1,4 +1,4 @@
-import { ApiPropertyOptional } from '@nestjs/swagger';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import {
   IsArray,
@@ -13,16 +13,67 @@ import {
   Min,
 } from 'class-validator';
 
-export enum AuditResult {
+/** 动作执行成没成——不是「业务结果好不好」。审批被驳回时 outcome 仍是 SUCCESS。 */
+export enum AuditOutcome {
+  /** 动作成功执行 */
   SUCCESS = 'SUCCESS',
+  /** 系统主动挡住、动作压根没执行成：SoD 冲突、自审防篡改、速率限制、令牌失效 */
+  DENIED = 'DENIED',
+  /** 试了但技术上没成：邮件发送失败、下游写库失败 */
   FAILED = 'FAILED',
-  REJECTED = 'REJECTED',
-  /**
-   * 幂等命中：请求合法、但因目标已处于期望状态而未产生新的持久变更。
-   * 与 SUCCESS 区分开，事后取证才分得清「这次真的贴了一张便签」和
-   * 「这次是重复请求、什么都没发生」。设计稿 2026-08-15 §3.2。
-   */
-  SKIPPED = 'SKIPPED',
+  /** 部分成功 */
+  PARTIAL = 'PARTIAL',
+}
+
+export enum AuditCategory {
+  BUSINESS = 'BUSINESS',
+  GOVERNANCE = 'GOVERNANCE',
+  SECURITY = 'SECURITY',
+  SYSTEM = 'SYSTEM',
+}
+
+/**
+ * 主体在本条审计事件里扮演的角色。五值封闭。
+ * 刻意不设 ACTOR —— 操作人已由主表 actorNo 记录，同一份信息只存一处。
+ */
+export enum AuditSubjectRole {
+  /** 事件直接作用的对象。至多一个；零个合法（建单前被拦截时没有主对象） */
+  PRIMARY = 'PRIMARY',
+  /** 归属主体，通常是客户。监管索档走这个角色 */
+  OWNER = 'OWNER',
+  /** 动作所依据的凭据：审批单、规则行、提现地址、报价单 */
+  INSTRUMENT = 'INSTRUMENT',
+  /** 被牵连的相关单据：资金单、资产、钱包、账本账户 */
+  RELATED = 'RELATED',
+  /** 对手方：外部 VASP、收款人、汇款人 */
+  COUNTERPARTY = 'COUNTERPARTY',
+}
+
+export enum AuditCorrelationMode {
+  /** 开启新旅程：生成 UUID v4，同事务写回主单 */
+  START = 'START',
+  /** 延续已有旅程：从 PRIMARY 主体上读；读不到必须报错，不许静默生成 */
+  INHERIT = 'INHERIT',
+  /** 不属于任何旅程 */
+  NONE = 'NONE',
+}
+
+export interface AuditSubjectInput {
+  subjectType: string;
+  /** 业务键，不是 UUID —— 对象可能被删，业务键在记录里仍可读 */
+  subjectNo: string;
+  subjectRole: AuditSubjectRole;
+}
+
+export interface AuditActorContext {
+  actorType: string;
+  actorNo: string;
+  /** 当时的姓名/账号快照。人会离职改名，不存快照则记录三年后读不懂 */
+  actorDisplayName: string;
+  actorRolesAtTime?: string[];
+  onBehalfOfType?: string;
+  onBehalfOfNo?: string;
+  authnMethod?: string;
 }
 
 export enum AuditEvidencePackageStatus {
@@ -38,16 +89,9 @@ export enum AuditEvidenceExportMode {
   SELECTION = 'SELECTION',
 }
 
-export interface AuditActorContext {
-  actorType: string;
-  actorId: string;
-  actorNo?: string;
-  actorRole?: string;
-}
-
 export interface AuditLogView {
   id: string;
-  auditNo: string;
+  eventNo: string;
   businessWorkflow: string | null;
   businessWorkflowLabel: string | null;
   userAction: string | null;
@@ -56,111 +100,179 @@ export interface AuditLogView {
   entityType: string;
   entityId: string | null;
   entityNo: string | null;
+  primarySubjectType: string | null;
+  primarySubjectNo: string | null;
   workflowType: string | null;
   traceId: string | null;
-  entityOwnerType: string | null;
-  entityOwnerId: string | null;
-  entityOwnerNo: string | null;
+  correlationId: string | null;
+  causationId: string | null;
+  ownerCustomerNo: string | null;
   actorType: string;
-  actorId: string;
   actorNo: string | null;
-  actorRole: string | null;
+  actorDisplayName: string;
+  /** 当时的角色快照数组（JSON 反序列化）。取代旧单值 actorRole —— 一个人当时可能兼多角色 */
+  actorRolesAtTime: string[];
+  isReadOnly: boolean;
+  reasonCode: string | null;
   requestId: string | null;
   sourceIp: string | null;
   sourcePlatform: string | null;
-  result: string | null;
+  outcome: string | null;
   reason: string | null;
   metadata: unknown;
   payloadDigest: string | null;
   retainedUntil: Date | string | null;
   occurredAt: Date | string;
-  createdAt?: Date | string | null;
-  updatedAt?: Date | string | null;
+  recordedAt?: Date | string | null;
   archivedAt?: Date | string | null;
 }
 
 export class CreateAuditLogEventDto {
-  @ApiPropertyOptional({ description: '操作动作标识，例如 WITHDRAW_APPROVED' })
-  @IsString()
+  @ApiProperty() @IsString()
   action!: string;
 
-  @ApiPropertyOptional({ description: '实体类型，例如 WITHDRAW_TRANSACTION' })
-  @IsString()
-  entityType!: string;
+  /**
+   * ⚠️ 本批刻意声明为可选：只对 V1 词表内的码强制（见 assertActionSpec）。
+   * 其他域的调用不填也能编译能跑，写出来的记录内容残缺——业主 2026-08-25 裁定接受，
+   * 各域的审计正确性留给各域自己的任务。
+   */
+  @ApiPropertyOptional() @IsOptional() @IsString()
+  actionDomain?: string;
 
-  @ApiPropertyOptional()
-  @IsOptional()
-  @IsString()
-  entityId?: string;
+  @ApiPropertyOptional({ enum: AuditCategory }) @IsOptional() @IsEnum(AuditCategory)
+  category?: AuditCategory;
 
-  @ApiPropertyOptional()
-  @IsOptional()
-  @IsString()
-  entityNo?: string;
+  @ApiPropertyOptional() @IsOptional() @IsString()
+  primarySubjectType?: string;
 
-  @ApiPropertyOptional({ description: '流程链追踪ID（本轮主要用于 deposit workflow）' })
-  @IsOptional()
-  @IsString()
-  traceId?: string;
+  @ApiPropertyOptional() @IsOptional() @IsString()
+  primarySubjectNo?: string;
 
-  @ApiPropertyOptional({ description: '工作流类型，例如 DEPOSIT' })
-  @IsOptional()
-  @IsString()
-  workflowType?: string;
+  @ApiPropertyOptional() @IsOptional() @IsString()
+  ownerCustomerNo?: string;
 
-  @ApiPropertyOptional()
-  @IsOptional()
-  @IsString()
-  entityOwnerType?: string;
+  @ApiPropertyOptional() @IsOptional()
+  subjects?: AuditSubjectInput[];
 
-  @ApiPropertyOptional()
-  @IsOptional()
-  @IsString()
-  entityOwnerId?: string;
+  @ApiPropertyOptional({ enum: AuditOutcome }) @IsOptional() @IsEnum(AuditOutcome)
+  outcome?: AuditOutcome;
 
-  @ApiPropertyOptional()
-  @IsOptional()
-  @IsString()
-  entityOwnerNo?: string;
+  /**
+   * 词表声明的必填字段——assertActionSpec 只查 input 上的字段，查不到 actor.authnMethod。
+   * 与 AuditActorContext.authnMethod（落库到 actor 快照那份）是两处独立声明，
+   * 同调用点应两处都传同一个值：这里满足 requiredFields 校验，actor 那份负责实际落库。
+   */
+  @ApiPropertyOptional() @IsOptional() @IsString()
+  authnMethod?: string;
 
-  @ApiPropertyOptional({ enum: AuditResult })
-  @IsOptional()
-  @IsEnum(AuditResult)
-  result?: AuditResult;
+  /**
+   * 同上 authnMethod 的两处独立声明道理——assertActionSpec 只查 input（本 DTO），
+   * 查不到 AuditActorContext.onBehalfOfNo（落库到 actor 快照那份）。密码重置/MFA 重置
+   * 的官员代操作码词表声明 onBehalfOfNo 必填，同调用点两处都要传同一个值。
+   */
+  @ApiPropertyOptional() @IsOptional() @IsString()
+  onBehalfOfNo?: string;
 
-  @ApiPropertyOptional()
-  @IsOptional()
-  @IsString()
+  /**
+   * 同上 authnMethod 的两处独立声明道理——assertActionSpec 只查 input（本 DTO）。
+   * 与 DB 的 payloadDigest 列（recordByActor 内部对整条记录自算的脱敏前完整性摘要，
+   * 每条记录都有、与调用方无关）是两个不同概念：这里指的是产物本身的摘要（例如
+   * AUDIT_EVIDENCE_EXPORT_GENERATED 场景下证据包内容的 sha256），只用于满足
+   * requiredFields 校验，实际落库并入 metadata（详见 audit-evidence-export-workflow
+   * .service.ts 调用点，不与同名的行级完整性摘要混淆/互相覆盖）。
+   */
+  @ApiPropertyOptional() @IsOptional() @IsString()
+  payloadDigest?: string;
+
+  @ApiPropertyOptional() @IsOptional() @IsString()
+  reasonCode?: string;
+
+  @ApiPropertyOptional() @IsOptional() @IsString()
   reason?: string;
 
-  @ApiPropertyOptional({ type: Object })
-  @IsOptional()
-  metadata?: Record<string, unknown>;
+  @ApiPropertyOptional() @IsOptional() @IsString()
+  fromStatus?: string;
 
-  @ApiPropertyOptional({ description: '幂等键，不传则系统按规则自动生成' })
-  @IsOptional()
-  @IsString()
-  idempotencyKey?: string;
+  @ApiPropertyOptional() @IsOptional() @IsString()
+  toStatus?: string;
 
-  @ApiPropertyOptional()
-  @IsOptional()
-  @IsString()
+  @ApiPropertyOptional() @IsOptional()
+  beforeData?: Record<string, unknown>;
+
+  @ApiPropertyOptional() @IsOptional()
+  afterData?: Record<string, unknown>;
+
+  @ApiPropertyOptional() @IsOptional() @IsString()
+  amount?: string;
+
+  @ApiPropertyOptional() @IsOptional() @IsString()
+  currency?: string;
+
+  @ApiPropertyOptional() @IsOptional() @IsString()
+  permissionCode?: string;
+
+  @ApiPropertyOptional() @IsOptional() @IsString()
+  policyCode?: string;
+
+  @ApiPropertyOptional() @IsOptional()
+  policyVersion?: number;
+
+  @ApiPropertyOptional() @IsOptional() @IsString()
+  approvalNo?: string;
+
+  @ApiPropertyOptional() @IsOptional() @IsString()
+  ruleCode?: string;
+
+  @ApiPropertyOptional() @IsOptional()
+  ruleVersion?: number;
+
+  @ApiPropertyOptional() @IsOptional() @IsString()
+  correlationId?: string;
+
+  @ApiPropertyOptional() @IsOptional() @IsString()
+  causationId?: string;
+
+  @ApiPropertyOptional() @IsOptional() @IsString()
+  traceId?: string;
+
+  @ApiPropertyOptional() @IsOptional() @IsString()
+  groupEventId?: string;
+
+  @ApiPropertyOptional() @IsOptional() @IsString()
+  externalEvidenceRef?: string;
+
+  @ApiPropertyOptional() @IsOptional() @IsString()
   requestId?: string;
 
-  @ApiPropertyOptional()
-  @IsOptional()
-  @IsString()
+  @ApiPropertyOptional() @IsOptional() @IsString()
+  sessionId?: string;
+
+  @ApiPropertyOptional() @IsOptional() @IsString()
   sourceIp?: string;
 
-  @ApiPropertyOptional()
-  @IsOptional()
-  @IsString()
+  @ApiPropertyOptional() @IsOptional() @IsString()
   sourcePlatform?: string;
 
-  @ApiPropertyOptional({ description: 'UTC 时间字符串，不传则默认当前时间' })
-  @IsOptional()
-  @IsDateString()
+  @ApiPropertyOptional() @IsOptional() @IsString()
+  userAgent?: string;
+
+  @ApiPropertyOptional() @IsOptional() @IsString()
+  endpoint?: string;
+
+  @ApiPropertyOptional() @IsOptional()
+  isReadOnly?: boolean;
+
+  @ApiPropertyOptional() @IsOptional() @IsString()
+  effectiveDate?: string;
+
+  @ApiPropertyOptional() @IsOptional() @IsString()
   occurredAt?: string;
+
+  @ApiPropertyOptional() @IsOptional() @IsString()
+  idempotencyKey?: string;
+
+  @ApiPropertyOptional() @IsOptional()
+  metadata?: Record<string, unknown>;
 }
 
 export class AuditLogQueryDto {
@@ -179,30 +291,42 @@ export class AuditLogQueryDto {
   @Max(200)
   take?: number;
 
-  @ApiPropertyOptional()
-  @IsOptional()
-  @IsString()
-  entityType?: string;
+  @ApiPropertyOptional({ description: '按主体业务键检索（经子表）——监管索档的主入口' })
+  @IsOptional() @IsString()
+  subjectNo?: string;
 
-  @ApiPropertyOptional()
-  @IsOptional()
-  @IsString()
-  entityId?: string;
+  @ApiPropertyOptional({ enum: AuditSubjectRole, description: '与 subjectNo 组合使用，限定该主体扮演的角色' })
+  @IsOptional() @IsEnum(AuditSubjectRole)
+  subjectRole?: AuditSubjectRole;
 
-  @ApiPropertyOptional()
-  @IsOptional()
-  @IsString()
-  actorId?: string;
+  @ApiPropertyOptional() @IsOptional() @IsString()
+  primarySubjectType?: string;
+
+  @ApiPropertyOptional() @IsOptional() @IsString()
+  primarySubjectNo?: string;
+
+  @ApiPropertyOptional() @IsOptional() @IsString()
+  ownerCustomerNo?: string;
+
+  @ApiPropertyOptional() @IsOptional() @IsString()
+  actionDomain?: string;
+
+  @ApiPropertyOptional({ enum: AuditOutcome }) @IsOptional() @IsEnum(AuditOutcome)
+  outcome?: AuditOutcome;
+
+  @ApiPropertyOptional() @IsOptional() @IsString()
+  correlationId?: string;
+
+  @ApiPropertyOptional() @IsOptional() @IsString()
+  causationId?: string;
+
+  @ApiPropertyOptional() @IsOptional()
+  isReadOnly?: boolean;
 
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()
   actorNo?: string;
-
-  @ApiPropertyOptional()
-  @IsOptional()
-  @IsString()
-  entityOwnerNo?: string;
 
   @ApiPropertyOptional({ description: '按流程链ID过滤' })
   @IsOptional()
@@ -213,11 +337,6 @@ export class AuditLogQueryDto {
   @IsOptional()
   @IsString()
   workflowType?: string;
-
-  @ApiPropertyOptional({ enum: AuditResult })
-  @IsOptional()
-  @IsEnum(AuditResult)
-  result?: AuditResult;
 
   @ApiPropertyOptional({ description: 'ISO 时间，起始（含）' })
   @IsOptional()

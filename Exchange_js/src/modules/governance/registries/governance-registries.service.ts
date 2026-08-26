@@ -17,7 +17,7 @@ import {
   buildStateTransitionAction,
 } from '../../audit-logging/constants/audit-actions.constant';
 import {
-  AuditResult,
+  AuditOutcome,
 } from '../../audit-logging/dto/audit-log.dto';
 import { ApprovalActorContext } from '../approvals/constants/approval.constants';
 import {
@@ -131,29 +131,27 @@ export class GovernanceRegistriesService {
   private toAuditActor(actor: ApprovalActorContext) {
     return {
       actorType: actor.actorType,
-      actorId: actor.userId,
-      actorNo: actor.userNo,
-      actorRole: actor.role || actor.roleCodes[0] || 'UNKNOWN',
+      actorNo: actor.userNo || 'UNKNOWN',
+
+      actorDisplayName: actor.userNo || 'UNKNOWN',
+      actorRolesAtTime: [actor.role || actor.roleCodes[0] || 'UNKNOWN'],
     };
   }
 
   private async recordAudit(input: {
     action: string;
-    entityType: string;
-    entityId: string;
-    entityNo: string;
+    primarySubjectType: string;
+    primarySubjectNo: string;
     traceId?: string | null;
     reason?: string | null;
   }, actor: ApprovalActorContext) {
     await this.auditLogsService.recordByActor(
       {
         action: input.action,
-        entityType: input.entityType,
-        entityId: input.entityId,
-        entityNo: input.entityNo,
+        primarySubjectType: input.primarySubjectType,
+        primarySubjectNo: input.primarySubjectNo,
         traceId: input.traceId || undefined,
-        workflowType: AuditWorkflowTypes.GOVERNANCE_REGISTRY,
-        result: AuditResult.SUCCESS,
+        outcome: AuditOutcome.SUCCESS,
         reason: input.reason || undefined,
         sourcePlatform: 'ADMIN_API',
       },
@@ -512,9 +510,8 @@ export class GovernanceRegistriesService {
     await this.recordAudit(
       {
         action: AuditActions.SHAREHOLDING_REGISTRY_CREATED,
-        entityType: AuditEntityTypes.SHAREHOLDING_REGISTRY_VERSION,
-        entityId: outcome.created.id,
-        entityNo: outcome.created.registryNo,
+        primarySubjectType: AuditEntityTypes.SHAREHOLDING_REGISTRY_VERSION,
+        primarySubjectNo: outcome.created.registryNo,
         traceId: outcome.created.traceId,
       },
       actor,
@@ -531,9 +528,8 @@ export class GovernanceRegistriesService {
             outcome.superseded.status,
             ShareholdingRegistryStatuses.SUPERSEDED,
           ),
-          entityType: AuditEntityTypes.SHAREHOLDING_REGISTRY_VERSION,
-          entityId: outcome.superseded.id,
-          entityNo: outcome.superseded.registryNo,
+          primarySubjectType: AuditEntityTypes.SHAREHOLDING_REGISTRY_VERSION,
+          primarySubjectNo: outcome.superseded.registryNo,
           traceId: outcome.superseded.traceId,
           reason: `Superseded by ${outcome.created.registryNo}`,
         },
@@ -639,9 +635,8 @@ export class GovernanceRegistriesService {
                 outcome.updated.status,
               )
             : AuditActions.SHAREHOLDING_REGISTRY_UPDATED,
-        entityType: AuditEntityTypes.SHAREHOLDING_REGISTRY_VERSION,
-        entityId: outcome.updated.id,
-        entityNo: outcome.updated.registryNo,
+        primarySubjectType: AuditEntityTypes.SHAREHOLDING_REGISTRY_VERSION,
+        primarySubjectNo: outcome.updated.registryNo,
         traceId: outcome.updated.traceId,
         reason: options.auditReason || undefined,
       },
@@ -715,9 +710,8 @@ export class GovernanceRegistriesService {
     await this.recordAudit(
       {
         action: AuditActions.APPOINTMENT_RECORD_CREATED,
-        entityType: AuditEntityTypes.APPOINTMENT_RECORD,
-        entityId: created.id,
-        entityNo: created.appointmentNo,
+        primarySubjectType: AuditEntityTypes.APPOINTMENT_RECORD,
+        primarySubjectNo: created.appointmentNo,
         traceId: created.traceId,
       },
       actor,
@@ -799,9 +793,8 @@ export class GovernanceRegistriesService {
           current.status !== updated.status
             ? this.statusAction('APPOINTMENT_RECORD', current.status, updated.status)
             : AuditActions.APPOINTMENT_RECORD_UPDATED,
-        entityType: AuditEntityTypes.APPOINTMENT_RECORD,
-        entityId: updated.id,
-        entityNo: updated.appointmentNo,
+        primarySubjectType: AuditEntityTypes.APPOINTMENT_RECORD,
+        primarySubjectNo: updated.appointmentNo,
         traceId: updated.traceId,
         reason: options.auditReason || undefined,
       },
@@ -957,9 +950,8 @@ export class GovernanceRegistriesService {
     await this.recordAudit(
       {
         action: AuditActions.TRAINING_RECORD_CREATED,
-        entityType: AuditEntityTypes.TRAINING_RECORD,
-        entityId: created.id,
-        entityNo: created.trainingNo,
+        primarySubjectType: AuditEntityTypes.TRAINING_RECORD,
+        primarySubjectNo: created.trainingNo,
         traceId: created.traceId,
       },
       actor,
@@ -1019,9 +1011,8 @@ export class GovernanceRegistriesService {
           current.status !== updated.status
             ? this.statusAction('TRAINING_RECORD', current.status, updated.status)
             : AuditActions.TRAINING_RECORD_UPDATED,
-        entityType: AuditEntityTypes.TRAINING_RECORD,
-        entityId: updated.id,
-        entityNo: updated.trainingNo,
+        primarySubjectType: AuditEntityTypes.TRAINING_RECORD,
+        primarySubjectNo: updated.trainingNo,
         traceId: updated.traceId,
       },
       actor,
@@ -1091,9 +1082,8 @@ export class GovernanceRegistriesService {
     await this.recordAudit(
       {
         action: AuditActions.CONFLICT_DISCLOSURE_CREATED,
-        entityType: AuditEntityTypes.CONFLICT_DISCLOSURE,
-        entityId: created.id,
-        entityNo: created.disclosureNo,
+        primarySubjectType: AuditEntityTypes.CONFLICT_DISCLOSURE,
+        primarySubjectNo: created.disclosureNo,
         traceId: created.traceId,
       },
       actor,
@@ -1166,9 +1156,8 @@ export class GovernanceRegistriesService {
           current.status !== updated.status
             ? this.statusAction('CONFLICT_DISCLOSURE', current.status, updated.status)
             : AuditActions.CONFLICT_DISCLOSURE_UPDATED,
-        entityType: AuditEntityTypes.CONFLICT_DISCLOSURE,
-        entityId: updated.id,
-        entityNo: updated.disclosureNo,
+        primarySubjectType: AuditEntityTypes.CONFLICT_DISCLOSURE,
+        primarySubjectNo: updated.disclosureNo,
         traceId: updated.traceId,
       },
       actor,
@@ -1237,9 +1226,8 @@ export class GovernanceRegistriesService {
     await this.recordAudit(
       {
         action: AuditActions.WIND_DOWN_MATERIAL_CREATED,
-        entityType: AuditEntityTypes.WIND_DOWN_MATERIAL,
-        entityId: created.id,
-        entityNo: created.materialNo,
+        primarySubjectType: AuditEntityTypes.WIND_DOWN_MATERIAL,
+        primarySubjectNo: created.materialNo,
         traceId: created.traceId,
       },
       actor,
@@ -1306,9 +1294,8 @@ export class GovernanceRegistriesService {
           current.status !== updated.status
             ? this.statusAction('WIND_DOWN_MATERIAL', current.status, updated.status)
             : AuditActions.WIND_DOWN_MATERIAL_UPDATED,
-        entityType: AuditEntityTypes.WIND_DOWN_MATERIAL,
-        entityId: updated.id,
-        entityNo: updated.materialNo,
+        primarySubjectType: AuditEntityTypes.WIND_DOWN_MATERIAL,
+        primarySubjectNo: updated.materialNo,
         traceId: updated.traceId,
       },
       actor,

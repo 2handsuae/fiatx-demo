@@ -683,12 +683,8 @@ export class InboundTransferSignalsService {
     const { action, signal, reason, metadata, sourcePlatform } = params;
     await this.auditLogsService.recordSystem({
       action,
-      entityType: AuditEntityTypes.INBOUND_TRANSFER_SIGNAL,
-      entityId: signal.id,
-      entityNo: signal.signalNo,
-      entityOwnerType: 'CUSTOMER',
-      entityOwnerId: signal.ownerId,
-      workflowType: 'DEPOSIT',
+      primarySubjectType: AuditEntityTypes.INBOUND_TRANSFER_SIGNAL,
+      primarySubjectNo: signal.signalNo,
       reason,
       metadata,
       sourcePlatform,

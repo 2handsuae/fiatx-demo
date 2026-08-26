@@ -645,9 +645,8 @@ describe('DepositWorkflowService', () => {
         expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
           expect.objectContaining({
             action: AuditActions.DEPOSIT_SUMSUB_SUBMITTED,
-            entityType: AuditEntityTypes.DEPOSIT_TRANSACTION,
-            entityId: 'dep-sub-crypto-tr',
-            entityNo: 'DEP-SUB-CRYPTO-TR-001',
+            primarySubjectType: AuditEntityTypes.DEPOSIT_TRANSACTION,
+            primarySubjectNo: 'DEP-SUB-CRYPTO-TR-001',
             metadata: { sumsubTxnId: 'TXN-TR-1', txnType: 'travelRule', reason: 'TR_REQUIRED' },
           }),
         );
@@ -699,12 +698,8 @@ describe('DepositWorkflowService', () => {
         expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
           expect.objectContaining({
             action: AuditActions.DEPOSIT_SUMSUB_SUBMITTED,
-            entityType: AuditEntityTypes.DEPOSIT_TRANSACTION,
-            entityId: 'dep-sub-fiat',
-            entityNo: 'DEP-SUB-FIAT-001',
-            entityOwnerType: 'CUSTOMER',
-            entityOwnerId: 'cust-1',
-            workflowType: 'DEPOSIT',
+            primarySubjectType: AuditEntityTypes.DEPOSIT_TRANSACTION,
+            primarySubjectNo: 'DEP-SUB-FIAT-001',
             metadata: { sumsubTxnId: 'TXN-FIN-1', txnType: 'finance', reason: 'NOT_CRYPTO' },
           }),
         );
@@ -888,12 +883,8 @@ describe('DepositWorkflowService', () => {
       expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
         expect.objectContaining({
           action: 'DEPOSIT_HELD_NOT_TRADING_READY',
-          entityType: AuditEntityTypes.DEPOSIT_TRANSACTION,
-          entityId: 'dep-1',
-          entityNo: 'DEP001',
-          entityOwnerType: 'CUSTOMER',
-          entityOwnerId: 'cust-1',
-          workflowType: 'DEPOSIT',
+          primarySubjectType: AuditEntityTypes.DEPOSIT_TRANSACTION,
+          primarySubjectNo: 'DEP001',
         }),
       );
     });
@@ -2325,7 +2316,7 @@ describe('DepositWorkflowService', () => {
       await service.applyKytVerdict('dep-2', { verdict: 'approved' });
 
       expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
-        expect.objectContaining({ action: 'DEPOSIT_MANUAL_APPROVED', entityId: 'dep-2' }),
+        expect.objectContaining({ action: 'DEPOSIT_MANUAL_APPROVED', primarySubjectNo: 'DEP002' }),
       );
       expect(depositService.updateStatus).toHaveBeenCalledWith('dep-2', {
         action: DepositTransactionAction.APPROVE,
@@ -2387,8 +2378,7 @@ describe('DepositWorkflowService', () => {
       expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
         expect.objectContaining({
           action: 'DEPOSIT_HELD_NOT_TRADING_READY',
-          entityId: 'dep-2c',
-          entityNo: 'DEP002C',
+          primarySubjectNo: 'DEP002C',
         }),
       );
       expect(auditLogsService.recordSystem).not.toHaveBeenCalledWith(
@@ -2422,8 +2412,7 @@ describe('DepositWorkflowService', () => {
       expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
         expect.objectContaining({
           action: AuditActions.DEPOSIT_KYT_VERDICT_IGNORED,
-          entityId: 'dep-frozen-1',
-          entityNo: 'DEP-FROZEN-1',
+          primarySubjectNo: 'DEP-FROZEN-1',
         }),
       );
       expect(auditLogsService.recordSystem).not.toHaveBeenCalledWith(
@@ -2535,7 +2524,7 @@ describe('DepositWorkflowService', () => {
       await service.applyKytVerdict('dep-4', { verdict: 'onHold' });
 
       expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
-        expect.objectContaining({ action: AuditActions.DEPOSIT_ONHOLD, entityId: 'dep-4' }),
+        expect.objectContaining({ action: AuditActions.DEPOSIT_ONHOLD, primarySubjectNo: 'DEP004' }),
       );
     });
 
@@ -2563,7 +2552,7 @@ describe('DepositWorkflowService', () => {
       expect(depositService.updateSumsubVerdict).not.toHaveBeenCalled();
       expect(depositService.saveTxnDetail).not.toHaveBeenCalled();
       expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
-        expect.objectContaining({ action: AuditActions.DEPOSIT_KYT_VERDICT_IGNORED, entityId: 'dep-4b' }),
+        expect.objectContaining({ action: AuditActions.DEPOSIT_KYT_VERDICT_IGNORED, primarySubjectNo: 'DEP004B' }),
       );
     });
 
@@ -2833,7 +2822,7 @@ describe('DepositWorkflowService', () => {
       expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
         expect.objectContaining({
           action: AuditActions.DEPOSIT_SANCTION_HIT_ON_IGNORED_VERDICT,
-          entityNo: 'DEP-SANCTION-FROZEN',
+          primarySubjectNo: 'DEP-SANCTION-FROZEN',
         }),
       );
 
@@ -3007,7 +2996,7 @@ describe('DepositWorkflowService', () => {
         expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
           expect.objectContaining({
             action: AuditActions.DEPOSIT_KYT_VERDICT_IGNORED,
-            entityNo: 'DEPB1',
+            primarySubjectNo: 'DEPB1',
           }),
         );
       },
@@ -3102,8 +3091,7 @@ describe('DepositWorkflowService', () => {
       expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
         expect.objectContaining({
           action: 'DEPOSIT_APPROVE_BLOCKED_FROZEN',
-          entityId: 'dep-frozen-direct',
-          entityNo: 'DEP-FROZEN-DIRECT',
+          primarySubjectNo: 'DEP-FROZEN-DIRECT',
         }),
       );
       expect(auditLogsService.recordSystem).not.toHaveBeenCalledWith(
@@ -4870,7 +4858,7 @@ describe('DepositWorkflowService', () => {
       expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
         expect.objectContaining({
           action: AuditActions.DEPOSIT_AWAITUSER_EMPTY_ACTIONS,
-          entityId: 'd-1',
+          primarySubjectNo: 'DEP1',
         }),
       );
     });
@@ -4890,7 +4878,7 @@ describe('DepositWorkflowService', () => {
       expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
         expect.objectContaining({
           action: AuditActions.DEPOSIT_ACTION_REISSUED,
-          entityId: 'd-1',
+          primarySubjectNo: 'DEP1',
           metadata: expect.objectContaining({ addedSeqs: [2], retiredSeqs: [] }),
         }),
       );
@@ -4927,7 +4915,7 @@ describe('DepositWorkflowService', () => {
 
       expect(actionsService.clearDepositCache).toHaveBeenCalledWith('d-1', expect.any(Date));
       expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
-        expect.objectContaining({ action: AuditActions.DEPOSIT_ACTION_REISSUED, entityId: 'd-1' }),
+        expect.objectContaining({ action: AuditActions.DEPOSIT_ACTION_REISSUED, primarySubjectNo: 'DEP1' }),
       );
     });
 
@@ -4968,7 +4956,7 @@ describe('DepositWorkflowService', () => {
       expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
         expect.objectContaining({
           action: AuditActions.DEPOSIT_AWAITUSER_EMPTY_ACTIONS,
-          entityId: 'd-1',
+          primarySubjectNo: 'DEP1',
           metadata: expect.objectContaining({ addedSeqs: [], retiredSeqs: [1, 2] }),
         }),
       );
@@ -5025,9 +5013,7 @@ describe('DepositWorkflowService', () => {
       expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
         expect.objectContaining({
           action: AuditActions.DEPOSIT_FROZEN,
-          entityId: inflightDeposit.id,
-          entityNo: inflightDeposit.depositNo,
-          entityOwnerId: inflightDeposit.ownerId,
+          primarySubjectNo: inflightDeposit.depositNo,
         }),
       );
     });

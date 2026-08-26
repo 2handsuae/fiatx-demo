@@ -923,12 +923,8 @@ export class DepositTransactionsService {
     await this.auditLogsService.recordByActor(
       {
         action: AuditActions.DEPOSIT_SLA_TIMEOUT_SIMULATED,
-        entityType: AuditEntityTypes.DEPOSIT_TRANSACTION,
-        entityId: row.id,
-        entityNo: depositNo,
-        entityOwnerType: row.ownerType,
-        entityOwnerId: row.ownerId,
-        workflowType: 'DEPOSIT',
+        primarySubjectType: AuditEntityTypes.DEPOSIT_TRANSACTION,
+        primarySubjectNo: depositNo,
         reason: 'Demo: SLA deadline moved to the past to trigger an immediate breach on the next scan',
         metadata: { previousSlaDeadline: row.slaDeadline, newSlaDeadline: slaDeadline },
         requestId: `DEPOSIT_SLA_TIMEOUT_SIMULATED_${depositNo}_${randomUUID()}`,
@@ -936,8 +932,9 @@ export class DepositTransactionsService {
       },
       {
         actorType: 'ADMIN',
-        actorId: actor?.actorId || 'ADMIN_SYSTEM',
-        actorRole: actor?.actorRole,
+        actorNo: actor?.actorId || 'ADMIN_SYSTEM',
+        actorDisplayName: actor?.actorId || 'ADMIN_SYSTEM',
+        actorRolesAtTime: [actor?.actorRole || 'UNKNOWN'],
       },
     );
 
@@ -1139,13 +1136,9 @@ export class DepositTransactionsService {
 
     await this.auditLogsService.recordSystem({
       action: AuditActions.DEPOSIT_CREATED,
-      entityType: AuditEntityTypes.DEPOSIT_TRANSACTION,
-      entityId: deposit.id,
-      entityNo: deposit.depositNo,
-      entityOwnerType: deposit.ownerType,
-      entityOwnerId: deposit.ownerId,
+      primarySubjectType: AuditEntityTypes.DEPOSIT_TRANSACTION,
+      primarySubjectNo: deposit.depositNo,
       traceId: resolvedTraceId,
-      workflowType: 'DEPOSIT',
       reason: 'Deposit created from inbound transfer detection',
       metadata: {
         fundsOrderId: fundsOrder.id,

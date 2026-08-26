@@ -237,14 +237,13 @@ export class WithdrawTransactionsService {
         statusFrom: oldStatus,
         statusTo: newStatus,
         actorType: event.actorType || null,
-        actorId: event.actorId || null,
         actorNo: event.actorNo || null,
         reason: event.reason || null,
         occurredAt: event.occurredAt || event.createdAt || null,
         result: event.result || null,
         oldStatus,
         newStatus,
-        operatorId: event.actorId || null,
+        operatorId: event.actorNo || null,
         createdAt: event.occurredAt || event.createdAt || null,
       };
     });
@@ -265,13 +264,13 @@ export class WithdrawTransactionsService {
       where: {
         OR: [
           {
-            entityType: AuditEntityTypes.WITHDRAW_TRANSACTION,
-            entityId: withdrawId,
+            primarySubjectType: AuditEntityTypes.WITHDRAW_TRANSACTION,
+            primarySubjectNo: withdrawId,
           },
           withdrawNo
             ? {
                 workflowType: AuditWorkflowTypes.WITHDRAW,
-                entityNo: withdrawNo,
+                primarySubjectNo: withdrawNo,
               }
             : undefined,
           {
@@ -742,18 +741,16 @@ export class WithdrawTransactionsService {
         {
 
           action: buildStateTransitionAction('WITHDRAW', currentStatus, nextStatus),
-          entityType: AuditEntityTypes.WITHDRAW_TRANSACTION,
-          entityId: updated.id,
-          entityNo: updated.withdrawNo,
-          entityOwnerType: updated.ownerType,
-          entityOwnerId: updated.ownerId,
+          primarySubjectType: AuditEntityTypes.WITHDRAW_TRANSACTION,
+          primarySubjectNo: updated.withdrawNo,
           reason: reason || `Action: ${action}`,
           sourcePlatform: statusContext.sourcePlatform,
         },
         {
           actorType: statusContext.actorType,
-          actorId: statusContext.actorId,
-          actorRole: statusContext.actorRole,
+          actorNo: statusContext.actorId,
+          actorDisplayName: statusContext.actorId,
+          actorRolesAtTime: [statusContext.actorRole],
         },
         client,
       );
@@ -855,11 +852,8 @@ export class WithdrawTransactionsService {
       await this.auditLogsService.recordSystem({
 
         action: AuditActions.WITHDRAW_CREATED,
-        entityType: AuditEntityTypes.WITHDRAW_TRANSACTION,
-        entityId: created.id,
-        entityNo: created.withdrawNo,
-        entityOwnerType: created.ownerType,
-        entityOwnerId: created.ownerId,
+        primarySubjectType: AuditEntityTypes.WITHDRAW_TRANSACTION,
+        primarySubjectNo: created.withdrawNo,
         reason: 'Initial creation',
         sourcePlatform: 'SYSTEM',
       });
@@ -954,12 +948,8 @@ export class WithdrawTransactionsService {
     await this.auditLogsService.recordByActor(
       {
         action: AuditActions.WITHDRAW_SLA_TIMEOUT_SIMULATED,
-        entityType: AuditEntityTypes.WITHDRAW_TRANSACTION,
-        entityId: row.id,
-        entityNo: withdrawNo,
-        entityOwnerType: row.ownerType,
-        entityOwnerId: row.ownerId,
-        workflowType: AuditWorkflowTypes.WITHDRAW,
+        primarySubjectType: AuditEntityTypes.WITHDRAW_TRANSACTION,
+        primarySubjectNo: withdrawNo,
         reason: 'Demo: SLA deadline moved to the past to trigger an immediate breach on the next scan',
         metadata: { previousSlaDeadline: row.slaDeadline, newSlaDeadline: slaDeadline },
         requestId: `WITHDRAW_SLA_TIMEOUT_SIMULATED_${withdrawNo}_${randomUUID()}`,
@@ -967,8 +957,9 @@ export class WithdrawTransactionsService {
       },
       {
         actorType: 'ADMIN',
-        actorId: actor?.actorId || 'ADMIN_SYSTEM',
-        actorRole: actor?.actorRole,
+        actorNo: actor?.actorId || 'ADMIN_SYSTEM',
+        actorDisplayName: actor?.actorId || 'ADMIN_SYSTEM',
+        actorRolesAtTime: [actor?.actorRole || 'UNKNOWN'],
       },
     );
 

@@ -15,7 +15,7 @@ import {
   AuditEntityTypes,
   AuditGovernanceActions,
 } from '../../audit-logging/constants/audit-actions.constant';
-import { AuditResult } from '../../audit-logging/dto/audit-log.dto';
+import { AuditOutcome } from '../../audit-logging/dto/audit-log.dto';
 import { ApprovalsService } from '../../governance/approvals/approvals.service';
 import { ApprovalDecidedEvent } from '../../governance/approvals/approval-handler.base';
 import {
@@ -77,9 +77,10 @@ export class TransactionLimitRuleWorkflowService {
   private toAuditActor(actor: ApprovalActorContext) {
     return {
       actorType: actor.actorType,
-      actorId: actor.userId,
-      actorNo: actor.userNo,
-      actorRole: actor.role || actor.roleCodes[0] || 'UNKNOWN',
+      actorNo: actor.userNo || 'UNKNOWN',
+
+      actorDisplayName: actor.userNo || 'UNKNOWN',
+      actorRolesAtTime: [actor.role || actor.roleCodes[0] || 'UNKNOWN'],
     };
   }
 
@@ -139,12 +140,10 @@ export class TransactionLimitRuleWorkflowService {
     await this.auditLogsService.recordByActor(
       {
         action: AuditGovernanceActions.TRANSACTION_LIMIT_CREATION.CREATION_REQUESTED,
-        entityType: AuditEntityTypes.TRANSACTION_LIMIT_POLICY,
-        entityId: rule.id,
-        entityNo: ruleNo,
-        workflowType: AuditBusinessWorkflowTypes.TRANSACTION_LIMIT_CREATION,
+        primarySubjectType: AuditEntityTypes.TRANSACTION_LIMIT_POLICY,
+        primarySubjectNo: ruleNo,
         traceId,
-        result: AuditResult.SUCCESS,
+        outcome: AuditOutcome.SUCCESS,
         metadata: {
           gateType: input.gateType,
           operationType: input.operationType,
@@ -191,12 +190,10 @@ export class TransactionLimitRuleWorkflowService {
         await this.rulesService.activate(rule.ruleNo);
         await this.auditLogsService.recordSystem({
           action: AuditGovernanceActions.TRANSACTION_LIMIT_CREATION.CREATION_APPLIED,
-          entityType: AuditEntityTypes.TRANSACTION_LIMIT_POLICY,
-          entityId: rule.id,
-          entityNo: rule.ruleNo,
-          workflowType: AuditBusinessWorkflowTypes.TRANSACTION_LIMIT_CREATION,
+          primarySubjectType: AuditEntityTypes.TRANSACTION_LIMIT_POLICY,
+          primarySubjectNo: rule.ruleNo,
           traceId: event?.traceId,
-          result: AuditResult.SUCCESS,
+          outcome: AuditOutcome.SUCCESS,
           metadata: { gateType: rule.gateType, operationType: rule.operationType },
           requestId: `TRANSACTION_LIMIT_CREATION_APPLIED_${rule.ruleNo}`,
           sourcePlatform: 'SYSTEM',
@@ -206,12 +203,10 @@ export class TransactionLimitRuleWorkflowService {
         this.logger.error(`Failed to activate rule ${rule.ruleNo}: ${err.message}`);
         await this.auditLogsService.recordSystem({
           action: AuditGovernanceActions.TRANSACTION_LIMIT_CREATION.CREATION_APPLY_FAILED,
-          entityType: AuditEntityTypes.TRANSACTION_LIMIT_POLICY,
-          entityId: rule.id,
-          entityNo: rule.ruleNo,
-          workflowType: AuditBusinessWorkflowTypes.TRANSACTION_LIMIT_CREATION,
+          primarySubjectType: AuditEntityTypes.TRANSACTION_LIMIT_POLICY,
+          primarySubjectNo: rule.ruleNo,
           traceId: event?.traceId,
-          result: AuditResult.FAILED,
+          outcome: AuditOutcome.FAILED,
           reason: err.message,
           metadata: { error: err.message },
           requestId: `TRANSACTION_LIMIT_CREATION_APPLY_FAILED_${rule.ruleNo}`,
@@ -230,12 +225,10 @@ export class TransactionLimitRuleWorkflowService {
       await this.rulesService.deletePending(rule.ruleNo);
       await this.auditLogsService.recordSystem({
         action: AuditGovernanceActions.TRANSACTION_LIMIT_CREATION.CREATION_CANCELLED,
-        entityType: AuditEntityTypes.TRANSACTION_LIMIT_POLICY,
-        entityId: rule.id,
-        entityNo: rule.ruleNo,
-        workflowType: AuditBusinessWorkflowTypes.TRANSACTION_LIMIT_CREATION,
+        primarySubjectType: AuditEntityTypes.TRANSACTION_LIMIT_POLICY,
+        primarySubjectNo: rule.ruleNo,
         traceId: event?.traceId,
-        result: AuditResult.SUCCESS,
+        outcome: AuditOutcome.SUCCESS,
         metadata: { decision },
         requestId: `TRANSACTION_LIMIT_CREATION_CANCELLED_${rule.ruleNo}`,
         sourcePlatform: 'SYSTEM',
@@ -334,12 +327,10 @@ export class TransactionLimitRuleWorkflowService {
     await this.auditLogsService.recordByActor(
       {
         action: AuditGovernanceActions.TRANSACTION_LIMIT_CHANGE.CHANGE_REQUESTED,
-        entityType: AuditEntityTypes.TRANSACTION_LIMIT_POLICY,
-        entityId: rule.id,
-        entityNo: rule.ruleNo,
-        workflowType: AuditBusinessWorkflowTypes.TRANSACTION_LIMIT_CHANGE,
+        primarySubjectType: AuditEntityTypes.TRANSACTION_LIMIT_POLICY,
+        primarySubjectNo: rule.ruleNo,
         traceId,
-        result: AuditResult.SUCCESS,
+        outcome: AuditOutcome.SUCCESS,
         metadata: {
           gateType: rule.gateType,
           operationType: rule.operationType,
@@ -389,12 +380,10 @@ export class TransactionLimitRuleWorkflowService {
         if (!this.beforeMatchesCurrent(before as Record<string, unknown>, rule)) {
           await this.auditLogsService.recordSystem({
             action: AuditGovernanceActions.TRANSACTION_LIMIT_CHANGE.CHANGE_APPLY_FAILED,
-            entityType: AuditEntityTypes.TRANSACTION_LIMIT_POLICY,
-            entityId: rule.id,
-            entityNo: rule.ruleNo,
-            workflowType: AuditBusinessWorkflowTypes.TRANSACTION_LIMIT_CHANGE,
+            primarySubjectType: AuditEntityTypes.TRANSACTION_LIMIT_POLICY,
+            primarySubjectNo: rule.ruleNo,
             traceId: event?.traceId,
-            result: AuditResult.FAILED,
+            outcome: AuditOutcome.FAILED,
             reason: 'Concurrent change detected: rule amounts drifted from approval snapshot; apply skipped',
             metadata: {
               before,
@@ -414,12 +403,10 @@ export class TransactionLimitRuleWorkflowService {
         await this.rulesService.applyAmountChange(rule.ruleNo, after);
         await this.auditLogsService.recordSystem({
           action: AuditGovernanceActions.TRANSACTION_LIMIT_CHANGE.CHANGE_APPLIED,
-          entityType: AuditEntityTypes.TRANSACTION_LIMIT_POLICY,
-          entityId: rule.id,
-          entityNo: rule.ruleNo,
-          workflowType: AuditBusinessWorkflowTypes.TRANSACTION_LIMIT_CHANGE,
+          primarySubjectType: AuditEntityTypes.TRANSACTION_LIMIT_POLICY,
+          primarySubjectNo: rule.ruleNo,
           traceId: event?.traceId,
-          result: AuditResult.SUCCESS,
+          outcome: AuditOutcome.SUCCESS,
           metadata: { after, approvalNo: event?.approvalNo },
           requestId: `TRANSACTION_LIMIT_CHANGE_APPLIED_${rule.ruleNo}`,
           sourcePlatform: 'SYSTEM',
@@ -429,12 +416,10 @@ export class TransactionLimitRuleWorkflowService {
         this.logger.error(`Failed to apply change to rule ${rule.ruleNo}: ${err.message}`);
         await this.auditLogsService.recordSystem({
           action: AuditGovernanceActions.TRANSACTION_LIMIT_CHANGE.CHANGE_APPLY_FAILED,
-          entityType: AuditEntityTypes.TRANSACTION_LIMIT_POLICY,
-          entityId: rule.id,
-          entityNo: rule.ruleNo,
-          workflowType: AuditBusinessWorkflowTypes.TRANSACTION_LIMIT_CHANGE,
+          primarySubjectType: AuditEntityTypes.TRANSACTION_LIMIT_POLICY,
+          primarySubjectNo: rule.ruleNo,
           traceId: event?.traceId,
-          result: AuditResult.FAILED,
+          outcome: AuditOutcome.FAILED,
           reason: err.message,
           metadata: { error: err.message, approvalNo: event?.approvalNo },
           requestId: `TRANSACTION_LIMIT_CHANGE_APPLY_FAILED_${rule.ruleNo}`,
@@ -447,12 +432,10 @@ export class TransactionLimitRuleWorkflowService {
     // 否决/取消/超时 → 无副作用(规则保持原值),仅留痕
     await this.auditLogsService.recordSystem({
       action: AuditGovernanceActions.TRANSACTION_LIMIT_CHANGE.CHANGE_CANCELLED,
-      entityType: AuditEntityTypes.TRANSACTION_LIMIT_POLICY,
-      entityId: rule.id,
-      entityNo: rule.ruleNo,
-      workflowType: AuditBusinessWorkflowTypes.TRANSACTION_LIMIT_CHANGE,
+      primarySubjectType: AuditEntityTypes.TRANSACTION_LIMIT_POLICY,
+      primarySubjectNo: rule.ruleNo,
       traceId: event?.traceId,
-      result: AuditResult.SUCCESS,
+      outcome: AuditOutcome.SUCCESS,
       metadata: { decision, approvalNo: event?.approvalNo },
       requestId: `TRANSACTION_LIMIT_CHANGE_CANCELLED_${rule.ruleNo}`,
       sourcePlatform: 'SYSTEM',

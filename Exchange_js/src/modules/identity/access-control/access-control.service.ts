@@ -1,10 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../../core/prisma/prisma.service';
-import { AuditLogsService } from '../../audit-logging/audit-logs.service';
-import {
-  AuditActions,
-  AuditEntityTypes,
-} from '../../audit-logging/constants/audit-actions.constant';
 import {
   ACTION_BUCKET_CATALOG,
 
@@ -22,17 +17,9 @@ interface AdminActorContext {
   actorNo?: string;
 }
 
-type InternalAuditContext = {
-  workflowType?: string;
-  traceId?: string;
-};
-
 @Injectable()
 export class AccessControlService {
-  constructor(
-    private readonly prisma: PrismaService,
-    private readonly auditLogsService: AuditLogsService,
-  ) {}
+  constructor(private readonly prisma: PrismaService) {}
 
   private normalizeRoleCodes(roleCodes: string[]): string[] {
     return Array.from(
@@ -42,12 +29,6 @@ export class AccessControlService {
           .filter(Boolean),
       ),
     ).sort();
-  }
-
-  private normalizeOptionalString(value: unknown): string | null {
-    if (value === null || value === undefined) return null;
-    const normalized = String(value).trim();
-    return normalized.length ? normalized : null;
   }
 
   validateHardMutex(roleCodes: string[]) {
@@ -70,20 +51,6 @@ export class AccessControlService {
     return SOFT_WARNING_ROLE_GROUPS.filter((rule) =>
       rule.codes.every((code) => set.has(code)),
     ).map((rule) => rule.message);
-  }
-
-  private applyAuditContext<T extends Record<string, unknown>>(
-    payload: T,
-    auditContext?: InternalAuditContext,
-  ): T {
-    const workflowType = this.normalizeOptionalString(auditContext?.workflowType);
-    const traceId = this.normalizeOptionalString(auditContext?.traceId);
-
-    return {
-      ...payload,
-      workflowType: workflowType || undefined,
-      traceId: traceId || undefined,
-    } as T;
   }
 
   async listRoles() {
@@ -264,7 +231,6 @@ export class AccessControlService {
     userId: string,
     roleCodes: string[],
     actor: AdminActorContext,
-    auditContext?: InternalAuditContext,
   ) {
     const normalizedRoleCodes = this.normalizeRoleCodes(roleCodes);
     if (normalizedRoleCodes.length === 0) {
@@ -330,28 +296,12 @@ export class AccessControlService {
     const afterRoleCodes = await this.getUserRoleCodes(userId);
     const warnings = this.buildSoftWarnings(afterRoleCodes);
 
-    if (!auditContext?.workflowType) {
-      await this.auditLogsService.recordByActor(
-        this.applyAuditContext({
-          action: AuditActions.USER_ROLE_BINDING_UPDATED,
-          entityType: AuditEntityTypes.ACCESS_CONTROL,
-          entityId: user.id,
-          entityNo: user.userNo,
-          metadata: {
-            userId: user.id,
-            userNo: user.userNo,
-            userEmail: user.email,
-            warnings,
-          },
-        }, auditContext),
-        {
-          actorType: 'ADMIN',
-          actorId: actor.actorId,
-          actorNo: actor.actorNo,
-          actorRole: actor.actorRole,
-        },
-      );
-    }
+    // Task 9：审计上收——本方法只返回结果，不再自己写审计。这条自身写入在删除前
+    // 已实证是死分支：本方法仅有的两个真实调用方（admin-invite-workflow.service.ts
+    // 的 initiateInvite、admin-role-binding-change-workflow.service.ts 的
+    // executeRoleChange）都会显式传 workflowType，旧的 !auditContext?.workflowType
+    // 分支从未真正触发过；两条真实路径各自已经写了 ADMIN_INVITE_REQUESTED /
+    // ADMIN_ROLE_CHANGE_APPLIED，覆盖了这次角色变更。
 
     return {
       userId: user.id,

@@ -22,7 +22,7 @@ import {
   AuditActions,
   AuditEntityTypes,
 } from '../../audit-logging/constants/audit-actions.constant';
-import { AuditResult } from '../../audit-logging/dto/audit-log.dto';
+import { AuditOutcome } from '../../audit-logging/dto/audit-log.dto';
 import { SwapFeeLevelService } from './swap-fee-level.service';
 import { SwapFeeLevelTiersConfig } from './types/fee-level.types';
 import { AdminSwapQuoteQueryDto } from '../swap-transactions/dto/swap-quote.dto';
@@ -250,22 +250,19 @@ export class SwapQuoteService {
     await this.auditLogsService.recordByActor(
       {
         action: AuditActions.SWAP_QUOTE_CREATED,
-        entityType: AuditEntityTypes.SWAP_QUOTE,
-        entityId: created.id,
-        entityNo: created.quoteNo || undefined,
-        entityOwnerType: created.ownerType,
-        entityOwnerId: created.ownerId,
-        entityOwnerNo: created.ownerNo || undefined,
-        result: AuditResult.SUCCESS,
+        primarySubjectType: AuditEntityTypes.SWAP_QUOTE,
+        primarySubjectNo: created.quoteNo || undefined,
+        ownerCustomerNo: created.ownerNo || undefined,
+        outcome: AuditOutcome.SUCCESS,
         reason: 'Swap quote created',
         sourcePlatform: platform,
         traceId,
       },
       {
         actorType: input.ownerType === 'CUSTOMER' ? 'CUSTOMER' : input.ownerType === 'ADMIN' ? 'ADMIN' : 'SYSTEM',
-        actorId: input.ownerId,
-        actorNo: created.ownerNo || undefined,
-        actorRole: input.ownerType === 'CUSTOMER' ? 'CUSTOMER' : input.ownerType === 'ADMIN' ? 'ADMIN' : 'SYSTEM',
+        actorNo: created.ownerNo || 'UNKNOWN',
+        actorDisplayName: created.ownerNo || 'UNKNOWN',
+        actorRolesAtTime: [input.ownerType === 'CUSTOMER' ? 'CUSTOMER' : input.ownerType === 'ADMIN' ? 'ADMIN' : 'SYSTEM'],
       },
     );
 
@@ -320,20 +317,17 @@ export class SwapQuoteService {
     await this.auditLogsService.recordByActor(
       {
         action: AuditActions.SWAP_QUOTE_USED,
-        entityType: AuditEntityTypes.SWAP_QUOTE,
-        entityId: updated.id,
-        entityNo: updated.quoteNo || undefined,
-        entityOwnerType: updated.ownerType,
-        entityOwnerId: updated.ownerId,
-        entityOwnerNo: updated.ownerNo || undefined,
-        result: AuditResult.SUCCESS,
+        primarySubjectType: AuditEntityTypes.SWAP_QUOTE,
+        primarySubjectNo: updated.quoteNo || undefined,
+        ownerCustomerNo: updated.ownerNo || undefined,
+        outcome: AuditOutcome.SUCCESS,
         reason: 'Swap quote consumed',
       },
       {
         actorType: ownerType === 'CUSTOMER' ? 'CUSTOMER' : ownerType === 'ADMIN' ? 'ADMIN' : 'SYSTEM',
-        actorId: ownerId,
-        actorNo: updated.ownerNo || undefined,
-        actorRole: ownerType === 'CUSTOMER' ? 'CUSTOMER' : ownerType === 'ADMIN' ? 'ADMIN' : 'SYSTEM',
+        actorNo: updated.ownerNo || 'UNKNOWN',
+        actorDisplayName: updated.ownerNo || 'UNKNOWN',
+        actorRolesAtTime: [ownerType === 'CUSTOMER' ? 'CUSTOMER' : ownerType === 'ADMIN' ? 'ADMIN' : 'SYSTEM'],
       },
       tx as any,
     );
@@ -365,20 +359,17 @@ export class SwapQuoteService {
     await this.auditLogsService.recordByActor(
       {
         action: AuditActions.SWAP_QUOTE_CANCELLED,
-        entityType: AuditEntityTypes.SWAP_QUOTE,
-        entityId: updated.id,
-        entityNo: updated.quoteNo || undefined,
-        entityOwnerType: updated.ownerType,
-        entityOwnerId: updated.ownerId,
-        entityOwnerNo: updated.ownerNo || undefined,
-        result: AuditResult.SUCCESS,
+        primarySubjectType: AuditEntityTypes.SWAP_QUOTE,
+        primarySubjectNo: updated.quoteNo || undefined,
+        ownerCustomerNo: updated.ownerNo || undefined,
+        outcome: AuditOutcome.SUCCESS,
         reason: 'Swap quote cancelled',
       },
       {
         actorType: ownerType === 'CUSTOMER' ? 'CUSTOMER' : ownerType === 'ADMIN' ? 'ADMIN' : 'SYSTEM',
-        actorId: ownerId,
-        actorNo: updated.ownerNo || undefined,
-        actorRole: ownerType === 'CUSTOMER' ? 'CUSTOMER' : ownerType === 'ADMIN' ? 'ADMIN' : 'SYSTEM',
+        actorNo: updated.ownerNo || 'UNKNOWN',
+        actorDisplayName: updated.ownerNo || 'UNKNOWN',
+        actorRolesAtTime: [ownerType === 'CUSTOMER' ? 'CUSTOMER' : ownerType === 'ADMIN' ? 'ADMIN' : 'SYSTEM'],
       },
       tx as any,
     );

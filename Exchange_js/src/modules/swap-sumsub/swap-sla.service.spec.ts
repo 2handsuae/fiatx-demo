@@ -103,11 +103,8 @@ describe('SwapSlaService', () => {
     expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
       expect.objectContaining({
         action: AuditActions.SWAP_SLA_BREACHED,
-        entityId: 's1',
-        entityNo: 'SWP001',
+        primarySubjectNo: 'SWP001',
         traceId: 'trace-1',
-        entityOwnerType: 'CUSTOMER',
-        entityOwnerId: 'cust-1',
       }),
       expect.anything(),
     );

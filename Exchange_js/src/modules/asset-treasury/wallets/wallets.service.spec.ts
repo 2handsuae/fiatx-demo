@@ -115,12 +115,12 @@ describe('WalletsService', () => {
       expect(auditMock.recordByActor).toHaveBeenCalledWith(
         expect.objectContaining({
           action: 'WALLET_STATUS_UPDATED',
-          entityId: expect.any(String),
-          result: 'SUCCESS',
+          primarySubjectNo: expect.any(String),
+          outcome: 'SUCCESS',
         }),
         expect.objectContaining({
           actorType: 'ADMIN',
-          actorId: mockActor.actorId,
+          actorNo: mockActor.actorNo,
         }),
       );
     });

@@ -17,13 +17,17 @@ import {
   AuditEntityTypes,
 } from '../../audit-logging/constants/audit-actions.constant';
 import {
-  AuditResult,
+  AuditCategory,
+  AuditOutcome,
+  AuditSubjectInput,
+  AuditSubjectRole,
 } from '../../audit-logging/dto/audit-log.dto';
 import { ApprovalPolicyService } from './approval-policy.service';
 import {
   ApprovalActorContext,
   ApprovalDecisionEvent,
   ApprovalEvents,
+  ApprovalSoDRuleCodes,
   ApprovalStatuses,
   ApprovalStepStatuses,
   isSuperAdminRoleContext,
@@ -60,6 +64,10 @@ interface ApprovalRequirementInput {
 export class ApprovalsService {
   private static readonly DEFAULT_TAKE = 20;
   private static readonly MAX_NO_RETRIES = 10;
+  // 与 resolveDecisionRole 里的 SoD 拦截共用同一个常量，避免 approve()/reject()
+  // 事后靠字符串匹配识别"这次失败是不是 SoD 引起的"时跟抛出侧的文案走漂。
+  private static readonly SOD_SELF_APPROVE_MESSAGE =
+    'Maker and checker must be different users';
 
   constructor(
     @Inject(PrismaService)
@@ -92,9 +100,9 @@ export class ApprovalsService {
   private toAuditActor(actor: ApprovalActorContext) {
     return {
       actorType: actor.actorType,
-      actorId: actor.userId,
-      actorNo: actor.userNo,
-      actorRole: actor.role || actor.roleCodes[0] || 'UNKNOWN',
+      actorNo: actor.userNo || 'UNKNOWN',
+      actorDisplayName: actor.userNo || 'UNKNOWN',
+      actorRolesAtTime: [actor.role || actor.roleCodes[0] || 'UNKNOWN'],
     };
   }
 
@@ -112,30 +120,129 @@ export class ApprovalsService {
     return !!actor && isSuperAdminRoleContext(actor.roleCodes);
   }
 
-  private async recordAudit(
-    action: string,
+  /**
+   * PRIMARY=审批单、RELATED=被审批的业务对象。五个「非 SUBMITTED」横切码共用这一组
+   * subjects；SUBMITTED 额外再挂一个 APPROVAL_POLICY 的 INSTRUMENT（见 recordSubmitted）。
+   *
+   * RELATED 只能取 actionType/entityRef——ApprovalCase 表没有 entityType/entityNo 的
+   * 拆分列，且多数调用方传的 entityRef 本身就是 Prisma id 而非业务键（详见
+   * task-5-report.md 冲突记录①）。这是当前 schema 下能拿到的最好近似，不是编造值。
+   */
+  private approvalSubjects(approval: ApprovalCaseRow): AuditSubjectInput[] {
+    return [
+      {
+        subjectType: AuditEntityTypes.APPROVAL_CASE,
+        subjectNo: approval.approvalNo,
+        subjectRole: AuditSubjectRole.PRIMARY,
+      },
+      {
+        subjectType: approval.actionType,
+        subjectNo: approval.entityRef,
+        subjectRole: AuditSubjectRole.RELATED,
+      },
+    ];
+  }
+
+  /**
+   * 横切 6 码全部是 correlationMode=INHERIT，必须从 PRIMARY 主体上读 correlationId、
+   * 读不到就该报错，不许静默生成新值。
+   *
+   * ApprovalCase 表目前没有真正的 correlationId 列——业务侧「START」写入要等
+   * Task 6-8 才会落地（在业务实体上生成并回填 correlationId）。过渡期借用
+   * traceId：这不只是"矮子里拔将军"——旧设计里 approval_cases.traceId 本来就是
+   * "建单时生成一次、之后 submit/approve/reject/cancel 全程一致"的长效链路号
+   * （assertTraceConsistency 强制校验），行为上正好对应新设计里 correlationId 的
+   * 定义（"一个业务流程的一次完整执行"），而不是新设计里 traceId 的定义（"一次
+   * 外部触发"）。只是列名还没随语义搬家。
+   * TODO(Task 6-8)：业务侧 START 落地、ApprovalCase 补上真正的 correlationId 列后，
+   * 这里改读那一列。
+   */
+  private inheritedCorrelationId(approval: ApprovalCaseRow): string {
+    return approval.traceId;
+  }
+
+  /**
+   * APPROVAL_SUBMITTED 的唯一写入点，供 emitSubmittedSideEffects（submit() 路径）与
+   * createAndSubmit（~30 处工作流一步到位路径）共用，避免同一形状抄两遍。
+   */
+  private async recordSubmitted(
     approval: ApprovalCaseRow,
     actor: ApprovalActorContext,
-    result: AuditResult,
     reason?: string | null,
-    metadata?: Record<string, unknown>,
   ) {
+    const policy = await this.approvalPolicyService.getPolicy(approval.actionType);
     await this.auditLogsService.recordByActor(
       {
-        action,
-        entityType: AuditEntityTypes.APPROVAL_CASE,
-        entityId: approval.id,
-        entityNo: approval.approvalNo,
-        traceId: approval.traceId,
-        result,
-        reason: reason || undefined,
+        action: 'APPROVAL_SUBMITTED',
+        actionDomain: 'APPROVAL',
+        category: AuditCategory.GOVERNANCE,
+        primarySubjectType: AuditEntityTypes.APPROVAL_CASE,
+        primarySubjectNo: approval.approvalNo,
+        correlationId: this.inheritedCorrelationId(approval),
+        outcome: AuditOutcome.SUCCESS,
+        reason: reason || 'Approval submitted',
+        // policyCode = actionType：approval_action_policies 表以 actionType 为主键，
+        // 没有独立的 code 列，两者本就是同一个值，不是另编一个。
+        policyCode: policy.actionType,
+        // policyVersion 占位固定 1：ApprovalActionPolicy 是单行 upsert 覆盖、不留历史
+        // （无 version 列，upsertStepsConfig 直接覆盖同一行），此刻系统里只存在过
+        // "当前"这一份版本，不是瞎猜的业务值。但这确实达不到设计文档 §4.2 组H
+        // "带版本号是刚需——监管问的是按的哪条规则的哪个版本"的初衷：一旦策略被
+        // 改过，此刻仍会照样填 1，无法证明历史上提交时到底生效的是哪一版。
+        // 已记 BACKLOG「技术债 — V1 审计底座」，见 task-5-report.md 冲突记录②。
+        policyVersion: 1,
+        subjects: [
+          ...this.approvalSubjects(approval),
+          {
+            subjectType: AuditEntityTypes.APPROVAL_POLICY,
+            subjectNo: policy.actionType,
+            subjectRole: AuditSubjectRole.INSTRUMENT,
+          },
+        ],
         metadata: {
-          approvalNo: approval.approvalNo,
-          actionType: approval.actionType,
-          entityRef: approval.entityRef,
-          ...(metadata || {}),
+          timeoutAt: approval.timeoutAt?.toISOString(),
         },
-        requestId: `APPROVAL_${approval.approvalNo}_${action}`,
+        sourcePlatform: 'ADMIN_API',
+      },
+      this.toAuditActor(actor),
+    );
+  }
+
+  /**
+   * APPROVAL_SOD_DENIED 的唯一写入点。只在 approve()/reject() 捕到
+   * SOD_SELF_APPROVE_MESSAGE 这个特定 ForbiddenException 时调用，且必须在各自
+   * 那个 $transaction(...) 已经 settle（这里必然是 rejected）之后才调用——不能在
+   * 事务回调内部就地写，见 resolveDecisionRole 处注释（就地写实测拖慢到 ~5s）。
+   * 重新按 id 读一次 approval：事务回调里的那份 approval 局部变量出了回调作用域
+   * 就拿不到了，重读的代价（一次 SELECT）远小于在开着的事务里嵌查询的代价。
+   */
+  private async recordSoDDenied(
+    id: string,
+    actor: ApprovalActorContext,
+    error: unknown,
+  ): Promise<void> {
+    if (
+      !(error instanceof ForbiddenException) ||
+      (error as Error).message !== ApprovalsService.SOD_SELF_APPROVE_MESSAGE
+    ) {
+      return;
+    }
+
+    const approval = await this.findCaseOrThrow(id);
+    await this.auditLogsService.recordByActor(
+      {
+        action: 'APPROVAL_SOD_DENIED',
+        actionDomain: 'APPROVAL',
+        category: AuditCategory.GOVERNANCE,
+        primarySubjectType: AuditEntityTypes.APPROVAL_CASE,
+        primarySubjectNo: approval.approvalNo,
+        correlationId: this.inheritedCorrelationId(approval),
+        // 系统主动挡住、这次决定压根没执行成——outcome=DENIED，六码里唯一一个。
+        outcome: AuditOutcome.DENIED,
+        reasonCode: 'SELF_APPROVE',
+        reason: 'Maker cannot approve own request (SoD)',
+        ruleCode: ApprovalSoDRuleCodes.DENY_SAME_USER_MAKER_CHECKER,
+        subjects: this.approvalSubjects(approval),
         sourcePlatform: 'ADMIN_API',
       },
       this.toAuditActor(actor),
@@ -385,7 +492,13 @@ export class ApprovalsService {
       actor.userId === approval.createdByUserId &&
       (await this.approvalPolicyService.isSameUserMakerCheckerDenied())
     ) {
-      throw new ForbiddenException('Maker and checker must be different users');
+      // 不在这里写审计再抛异常：resolveDecisionRole 是从 approve()/reject() 一个
+      // 还开着的 $transaction(tx) 回调里调用的。实测过"就地用 this.prisma（非 tx）
+      // 写一条再抛异常"这个写法——SQLite 单连接对 tx 还没提交/回滚时的非 tx 查询
+      // 会顶牛，一次自审批请求量到 ~5s 才返回（正常路径 <10ms）。改成在这抛一个
+      // 纯净异常，audit 记录挪到 approve()/reject() 里事务已经 settle 之后再补写
+      // （见 recordSoDDenied），避免任何查询发生在打开的事务里面。
+      throw new ForbiddenException(ApprovalsService.SOD_SELF_APPROVE_MESSAGE);
     }
 
     if (approval.steps && this.hasActorApprovedAnyStep(approval.steps, actor.userId)) {
@@ -527,16 +640,7 @@ export class ApprovalsService {
     reason?: string | null,
   ) {
     const approval = await this.findCaseOrThrow(approvalId);
-    await this.recordAudit(
-      AuditActions.APPROVAL_SUBMITTED,
-      approval,
-      actor,
-      AuditResult.SUCCESS,
-      reason || 'Approval submitted',
-      {
-        timeoutAt: approval.timeoutAt?.toISOString(),
-      },
-    );
+    await this.recordSubmitted(approval, actor, reason);
     await this.emitApprovalEvent(ApprovalEvents.SUBMITTED, this.buildEventPayload(approval));
     return this.mapApproval(approval, actor);
   }
@@ -555,16 +659,7 @@ export class ApprovalsService {
         : await this.submitCase(created.id, submitDto, actor, client);
 
     if (options?.emitSideEffects !== false && submitted.status === ApprovalStatuses.PENDING) {
-      await this.recordAudit(
-        AuditActions.APPROVAL_SUBMITTED,
-        submitted,
-        actor,
-        AuditResult.SUCCESS,
-        submitDto.reason || 'Approval submitted',
-        {
-          timeoutAt: submitted.timeoutAt?.toISOString(),
-        },
-      );
+      await this.recordSubmitted(submitted, actor, submitDto.reason);
       await this.emitApprovalEvent(ApprovalEvents.SUBMITTED, this.buildEventPayload(submitted));
     }
 
@@ -585,88 +680,115 @@ export class ApprovalsService {
   }
 
   async approve(id: string, dto: DecisionApprovalDto, actor: ApprovalActorContext) {
-    const updated = await this.prisma.$transaction(async (tx: any) => {
-      const approval = await this.findCaseOrThrow(id, tx);
-      if (approval.status !== ApprovalStatuses.PENDING) {
-        throw new BadRequestException('Only PENDING approvals can be approved');
-      }
-      this.assertTraceConsistency(approval.traceId, dto.traceId);
+    let updated: ApprovalCaseRow;
+    try {
+      updated = await this.prisma.$transaction(async (tx: any) => {
+        const approval = await this.findCaseOrThrow(id, tx);
+        if (approval.status !== ApprovalStatuses.PENDING) {
+          throw new BadRequestException('Only PENDING approvals can be approved');
+        }
+        this.assertTraceConsistency(approval.traceId, dto.traceId);
 
-      // Find the FIRST pending step (enforce sequential ordering — no step skipping)
-      const firstPendingStep = (approval.steps || []).find(
-        (s: any) => s.status === ApprovalStepStatuses.PENDING,
-      );
-      if (!firstPendingStep) {
-        throw new ForbiddenException('No pending steps available');
-      }
-      const canAct =
-        splitRoleCsv(firstPendingStep.checkerRoleCandidates).some((candidate: string) =>
-          (actor.roleCodes || []).includes(candidate),
-        ) || this.isSuperAdmin(actor);
-      if (!canAct) {
-        throw new ForbiddenException(
-          `Actor role ${(actor.roleCodes || []).join(',')} cannot sign the current pending step (step ${firstPendingStep.stepNo})`,
+        // Find the FIRST pending step (enforce sequential ordering — no step skipping)
+        const firstPendingStep = (approval.steps || []).find(
+          (s: any) => s.status === ApprovalStepStatuses.PENDING,
         );
-      }
-      const currentStep = firstPendingStep;
+        if (!firstPendingStep) {
+          throw new ForbiddenException('No pending steps available');
+        }
+        const canAct =
+          splitRoleCsv(firstPendingStep.checkerRoleCandidates).some((candidate: string) =>
+            (actor.roleCodes || []).includes(candidate),
+          ) || this.isSuperAdmin(actor);
+        if (!canAct) {
+          throw new ForbiddenException(
+            `Actor role ${(actor.roleCodes || []).join(',')} cannot sign the current pending step (step ${firstPendingStep.stepNo})`,
+          );
+        }
+        const currentStep = firstPendingStep;
 
-      const stepCandidateRoles = splitRoleCsv(currentStep.checkerRoleCandidates);
-      const decisionRole = await this.resolveDecisionRole(approval, actor, dto.checkerRole, stepCandidateRoles);
-      const now = new Date();
+        const stepCandidateRoles = splitRoleCsv(currentStep.checkerRoleCandidates);
+        const decisionRole = await this.resolveDecisionRole(approval, actor, dto.checkerRole, stepCandidateRoles);
+        const now = new Date();
 
-      await tx.approvalStep.update({
-        where: {
-          approvalCaseId_stepNo: {
-            approvalCaseId: approval.id,
-            stepNo: currentStep.stepNo,
+        await tx.approvalStep.update({
+          where: {
+            approvalCaseId_stepNo: {
+              approvalCaseId: approval.id,
+              stepNo: currentStep.stepNo,
+            },
           },
-        },
-        data: {
-          status: ApprovalStepStatuses.APPROVED,
-          decidedByUserId: actor.userId,
-          decidedByUserNo: this.normalizeOptionalString(actor.userNo),
-          decidedByRole: decisionRole,
-          reason: this.normalizeOptionalString(dto.reason),
-          decidedAt: now,
-        },
-      });
+          data: {
+            status: ApprovalStepStatuses.APPROVED,
+            decidedByUserId: actor.userId,
+            decidedByUserNo: this.normalizeOptionalString(actor.userNo),
+            decidedByRole: decisionRole,
+            reason: this.normalizeOptionalString(dto.reason),
+            decidedAt: now,
+          },
+        });
 
-      // Check for any remaining pending steps with higher stepNo
-      const hasNextPending = (approval.steps || []).some(
-        (s: any) =>
-          s.stepNo > currentStep.stepNo &&
-          s.status === ApprovalStepStatuses.PENDING,
-      );
+        // Check for any remaining pending steps with higher stepNo
+        const hasNextPending = (approval.steps || []).some(
+          (s: any) =>
+            s.stepNo > currentStep.stepNo &&
+            s.status === ApprovalStepStatuses.PENDING,
+        );
 
-      if (hasNextPending) {
-        // Mid-flow: case stays PENDING, reload to get updated steps
-        return tx.approvalCase.findUnique({
+        if (hasNextPending) {
+          // Mid-flow: case stays PENDING, reload to get updated steps
+          return tx.approvalCase.findUnique({
+            where: { id: approval.id },
+            include: this.approvalInclude(),
+          }) as Promise<ApprovalCaseRow>;
+        }
+
+        // Last step: case APPROVED
+        return tx.approvalCase.update({
           where: { id: approval.id },
+          data: {
+            status: ApprovalStatuses.APPROVED,
+          },
           include: this.approvalInclude(),
         }) as Promise<ApprovalCaseRow>;
-      }
+      });
+    } catch (error) {
+      // SoD 自审拦截在这里落地补写审计（见 recordSoDDenied 与
+      // resolveDecisionRole 处注释：事务已经 settle/rejected，此刻查询/写入
+      // 不会再跟这个已经在回滚的 tx 顶牛）。非 SoD 原因的失败原样透传，
+      // recordSoDDenied 内部会判断、不是 SoD 就直接 no-op。
+      await this.recordSoDDenied(id, actor, error);
+      throw error;
+    }
 
-      // Last step: case APPROVED
-      return tx.approvalCase.update({
-        where: { id: approval.id },
-        data: {
-          status: ApprovalStatuses.APPROVED,
-        },
-        include: this.approvalInclude(),
-      }) as Promise<ApprovalCaseRow>;
-    });
-
-    await this.recordAudit(
-      AuditActions.APPROVAL_APPROVED,
-      updated,
-      actor,
-      AuditResult.SUCCESS,
-      dto.reason || 'Approval approved',
-      this.isSuperAdmin(actor) && actor.userId === updated.createdByUserId
-        ? { superAdminBypass: true }
-        : undefined,
+    // 末票＝这次表决之后案子已经从 PENDING 推到 APPROVED；中间票＝案子仍 PENDING
+    // （还有下一步待签）。中间票的 fromStatus/toStatus 必须留空——那一票发生了，
+    // 但没有推动 PRIMARY（审批单）的状态，不能写成 from==to。
+    const isFinalVote = updated.status === ApprovalStatuses.APPROVED;
+    await this.auditLogsService.recordByActor(
+      {
+        action: 'APPROVAL_GRANTED',
+        actionDomain: 'APPROVAL',
+        category: AuditCategory.GOVERNANCE,
+        primarySubjectType: AuditEntityTypes.APPROVAL_CASE,
+        primarySubjectNo: updated.approvalNo,
+        correlationId: this.inheritedCorrelationId(updated),
+        outcome: AuditOutcome.SUCCESS,
+        reason: dto.reason || 'Approval approved',
+        approvalNo: updated.approvalNo,
+        ...(isFinalVote
+          ? { fromStatus: ApprovalStatuses.PENDING, toStatus: ApprovalStatuses.APPROVED }
+          : {}),
+        subjects: this.approvalSubjects(updated),
+        sourcePlatform: 'ADMIN_API',
+        metadata:
+          this.isSuperAdmin(actor) && actor.userId === updated.createdByUserId
+            ? { superAdminBypass: true }
+            : undefined,
+      },
+      this.toAuditActor(actor),
     );
-    if (updated.status === ApprovalStatuses.APPROVED) {
+    if (isFinalVote) {
       await this.projectGovernanceApprovalDecision(updated);
       await this.emitApprovalEvent(ApprovalEvents.APPROVED, this.buildEventPayload(updated));
     }
@@ -674,81 +796,102 @@ export class ApprovalsService {
   }
 
   async reject(id: string, dto: DecisionApprovalDto, actor: ApprovalActorContext) {
-    const updated = await this.prisma.$transaction(async (tx: any) => {
-      const approval = await this.findCaseOrThrow(id, tx);
-      if (approval.status !== ApprovalStatuses.PENDING) {
-        throw new BadRequestException('Only PENDING approvals can be rejected');
-      }
-      this.assertTraceConsistency(approval.traceId, dto.traceId);
+    let updated: ApprovalCaseRow;
+    try {
+      updated = await this.prisma.$transaction(async (tx: any) => {
+        const approval = await this.findCaseOrThrow(id, tx);
+        if (approval.status !== ApprovalStatuses.PENDING) {
+          throw new BadRequestException('Only PENDING approvals can be rejected');
+        }
+        this.assertTraceConsistency(approval.traceId, dto.traceId);
 
-      // Find the FIRST pending step (enforce sequential ordering)
-      const firstPendingStep = (approval.steps || []).find(
-        (s: any) => s.status === ApprovalStepStatuses.PENDING,
-      );
-      if (!firstPendingStep) {
-        throw new ForbiddenException('No pending steps available');
-      }
-      const canAct =
-        splitRoleCsv(firstPendingStep.checkerRoleCandidates).some((candidate: string) =>
-          (actor.roleCodes || []).includes(candidate),
-        ) || this.isSuperAdmin(actor);
-      if (!canAct) {
-        throw new ForbiddenException(
-          `Actor role ${(actor.roleCodes || []).join(',')} cannot reject the current pending step (step ${firstPendingStep.stepNo})`,
+        // Find the FIRST pending step (enforce sequential ordering)
+        const firstPendingStep = (approval.steps || []).find(
+          (s: any) => s.status === ApprovalStepStatuses.PENDING,
         );
-      }
-      const currentStep = firstPendingStep;
+        if (!firstPendingStep) {
+          throw new ForbiddenException('No pending steps available');
+        }
+        const canAct =
+          splitRoleCsv(firstPendingStep.checkerRoleCandidates).some((candidate: string) =>
+            (actor.roleCodes || []).includes(candidate),
+          ) || this.isSuperAdmin(actor);
+        if (!canAct) {
+          throw new ForbiddenException(
+            `Actor role ${(actor.roleCodes || []).join(',')} cannot reject the current pending step (step ${firstPendingStep.stepNo})`,
+          );
+        }
+        const currentStep = firstPendingStep;
 
-      const stepCandidateRoles = splitRoleCsv(currentStep.checkerRoleCandidates);
-      const decisionRole = await this.resolveDecisionRole(approval, actor, dto.checkerRole, stepCandidateRoles);
-      const now = new Date();
+        const stepCandidateRoles = splitRoleCsv(currentStep.checkerRoleCandidates);
+        const decisionRole = await this.resolveDecisionRole(approval, actor, dto.checkerRole, stepCandidateRoles);
+        const now = new Date();
 
-      // Reject the current step
-      await tx.approvalStep.update({
-        where: {
-          approvalCaseId_stepNo: {
-            approvalCaseId: approval.id,
-            stepNo: currentStep.stepNo,
+        // Reject the current step
+        await tx.approvalStep.update({
+          where: {
+            approvalCaseId_stepNo: {
+              approvalCaseId: approval.id,
+              stepNo: currentStep.stepNo,
+            },
           },
-        },
-        data: {
-          status: ApprovalStepStatuses.REJECTED,
-          decidedByUserId: actor.userId,
-          decidedByUserNo: this.normalizeOptionalString(actor.userNo),
-          decidedByRole: decisionRole,
-          reason: this.normalizeOptionalString(dto.reason),
-          decidedAt: now,
-        },
+          data: {
+            status: ApprovalStepStatuses.REJECTED,
+            decidedByUserId: actor.userId,
+            decidedByUserNo: this.normalizeOptionalString(actor.userNo),
+            decidedByRole: decisionRole,
+            reason: this.normalizeOptionalString(dto.reason),
+            decidedAt: now,
+          },
+        });
+
+        // Cancel any remaining pending steps
+        await tx.approvalStep.updateMany({
+          where: {
+            approvalCaseId: approval.id,
+            status: ApprovalStepStatuses.PENDING,
+          },
+          data: { status: ApprovalStepStatuses.CANCELLED },
+        });
+
+        // Case REJECTED immediately
+        return tx.approvalCase.update({
+          where: { id: approval.id },
+          data: {
+            status: ApprovalStatuses.REJECTED,
+          },
+          include: this.approvalInclude(),
+        }) as Promise<ApprovalCaseRow>;
       });
+    } catch (error) {
+      await this.recordSoDDenied(id, actor, error);
+      throw error;
+    }
 
-      // Cancel any remaining pending steps
-      await tx.approvalStep.updateMany({
-        where: {
-          approvalCaseId: approval.id,
-          status: ApprovalStepStatuses.PENDING,
-        },
-        data: { status: ApprovalStepStatuses.CANCELLED },
-      });
-
-      // Case REJECTED immediately
-      return tx.approvalCase.update({
-        where: { id: approval.id },
-        data: {
-          status: ApprovalStatuses.REJECTED,
-        },
-        include: this.approvalInclude(),
-      }) as Promise<ApprovalCaseRow>;
-    });
-
-    await this.recordAudit(
-      AuditActions.APPROVAL_REJECTED,
-      updated,
-      actor,
-      AuditResult.SUCCESS,
-      dto.reason || 'Approval rejected',
-      this.isSuperAdmin(actor) && actor.userId === updated.createdByUserId
-        ? { superAdminBypass: true }
-        : undefined,
+    await this.auditLogsService.recordByActor(
+      {
+        action: 'APPROVAL_DECLINED',
+        actionDomain: 'APPROVAL',
+        category: AuditCategory.GOVERNANCE,
+        primarySubjectType: AuditEntityTypes.APPROVAL_CASE,
+        primarySubjectNo: updated.approvalNo,
+        correlationId: this.inheritedCorrelationId(updated),
+        // 驳回这个动作本身成功执行了——outcome 答的是「动作执行成没成」，不是
+        // 「业务结果好不好」。DENIED 只留给系统主动挡住、动作压根没执行成的场景。
+        outcome: AuditOutcome.SUCCESS,
+        reason: dto.reason || 'Approval rejected',
+        approvalNo: updated.approvalNo,
+        // reject 无论在哪一步触发都立即终结整案（cancel 剩余 PENDING 步骤），永远是末票。
+        fromStatus: ApprovalStatuses.PENDING,
+        toStatus: ApprovalStatuses.REJECTED,
+        subjects: this.approvalSubjects(updated),
+        sourcePlatform: 'ADMIN_API',
+        metadata:
+          this.isSuperAdmin(actor) && actor.userId === updated.createdByUserId
+            ? { superAdminBypass: true }
+            : undefined,
+      },
+      this.toAuditActor(actor),
     );
     await this.projectGovernanceApprovalDecision(updated);
     await this.emitApprovalEvent(ApprovalEvents.REJECTED, this.buildEventPayload(updated));
@@ -803,15 +946,27 @@ export class ApprovalsService {
       return next as ApprovalCaseRow;
     });
 
-    await this.recordAudit(
-      AuditActions.APPROVAL_CANCELLED,
-      updated,
-      actor,
-      AuditResult.SUCCESS,
-      dto.reason || 'Approval cancelled',
-      this.isSuperAdmin(actor) && actor.userId !== updated.createdByUserId
-        ? { superAdminBypass: true }
-        : undefined,
+    await this.auditLogsService.recordByActor(
+      {
+        action: 'APPROVAL_CANCELLED',
+        actionDomain: 'APPROVAL',
+        category: AuditCategory.GOVERNANCE,
+        primarySubjectType: AuditEntityTypes.APPROVAL_CASE,
+        primarySubjectNo: updated.approvalNo,
+        correlationId: this.inheritedCorrelationId(updated),
+        outcome: AuditOutcome.SUCCESS,
+        reason: dto.reason || 'Approval cancelled',
+        approvalNo: updated.approvalNo,
+        fromStatus: previousStatus,
+        toStatus: ApprovalStatuses.CANCELLED,
+        subjects: this.approvalSubjects(updated),
+        sourcePlatform: 'ADMIN_API',
+        metadata:
+          this.isSuperAdmin(actor) && actor.userId !== updated.createdByUserId
+            ? { superAdminBypass: true }
+            : undefined,
+      },
+      this.toAuditActor(actor),
     );
     await this.projectGovernanceApprovalDecision(updated);
     await this.emitApprovalEvent(ApprovalEvents.CANCELLED, this.buildEventPayload(updated));
@@ -835,10 +990,9 @@ export class ApprovalsService {
         await this.auditLogsService.recordByActor(
           {
             action: AuditActions.APPROVAL_REQUIRED_MISSING,
-            entityType: AuditEntityTypes.APPROVAL_CASE,
-            entityId: input.entityRef,
-            entityNo: input.entityRef,
-            result: AuditResult.REJECTED,
+            primarySubjectType: AuditEntityTypes.APPROVAL_CASE,
+            primarySubjectNo: input.entityRef,
+            outcome: AuditOutcome.DENIED,
             reason: `Approval is required for ${input.actionType}:${input.entityRef}`,
             requestId: `APPROVAL_REQUIRED_${input.actionType}_${input.entityRef}`,
             sourcePlatform: 'ADMIN_API',
@@ -947,13 +1101,23 @@ export class ApprovalsService {
       return null;
     }
 
-    await this.recordAudit(
-      AuditActions.APPROVAL_EXPIRED,
-      updated,
-      this.systemActor(),
-      AuditResult.REJECTED,
-      'Approval expired after timeout',
-    );
+    await this.auditLogsService.recordSystem({
+      action: 'APPROVAL_EXPIRED',
+      actionDomain: 'APPROVAL',
+      category: AuditCategory.GOVERNANCE,
+      primarySubjectType: AuditEntityTypes.APPROVAL_CASE,
+      primarySubjectNo: updated.approvalNo,
+      correlationId: this.inheritedCorrelationId(updated),
+      // 超时被系统记录下来，这个记录动作本身是成功的——不是系统挡住了谁。
+      // DENIED 只留给 APPROVAL_SOD_DENIED 那种主动拦截。
+      outcome: AuditOutcome.SUCCESS,
+      reason: 'Approval expired after timeout',
+      approvalNo: updated.approvalNo,
+      fromStatus: ApprovalStatuses.PENDING,
+      toStatus: ApprovalStatuses.EXPIRED,
+      subjects: this.approvalSubjects(updated),
+      sourcePlatform: 'CRON',
+    });
     await this.projectGovernanceApprovalDecision(updated);
     await this.emitApprovalEvent(ApprovalEvents.EXPIRED, this.buildEventPayload(updated));
     return this.mapApproval(updated, this.systemActor());
