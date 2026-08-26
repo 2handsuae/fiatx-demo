@@ -49,6 +49,7 @@
 
 ## 5. 关键技术节点（≤30 行）
 
+- **处置动词** `disposition.service.ts → DispositionService`（地基站 2026-08-26）：带账本两阶段锁定的资金移动执行器——initiate（找/建腿+挂锁）/ settle（post+补记+腿收口，3× 重试）/ voidAttempt / rebuild（新 attempt 新单，历史留档）；充值三弧首个消费者，提现/兑换按同一图纸复用
 - 执行引擎 `funds-orders/funds-order.service.ts`：`create()`（挂父单+腿号，初态按资产类型）｜ `advance()/advanceByNo()`（逐步推进+记账+生效日透传）｜ `findNonTerminalByWallet()`（对账在途识别）｜ `resolveExternalRef()/buildExternalRefPatch()`（参考号统一铸/读）
 - 迁移表 `constants/funds-order-transitions.constant.ts`（四套 + `getTransitionMap()`）；方向判定 `directionOf()`（父 FK + 腿号：充值腿 1=入金、腿>1=内部；提现=出金；兑换=内部）
 - 消费方分流：`deposit-workflow.service.ts → handleFundsOrderChanged()`（腿 1/2/3/4 各自 handler）；`withdraw-workflow` 本金/费腿分流；腿收口 `clearDispositionLeg()` + 守则测试（扫全部 settle* 必含收口调用）
