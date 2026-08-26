@@ -3,7 +3,8 @@ import { DepositWorkflowService } from './deposit-workflow.service';
 import { DepositTransactionsService } from './deposit-transactions.service';
 import { DepositApplicantActionsService } from './deposit-applicant-actions.service';
 import { FundsOrderService } from '../../funds-orders/funds-order.service';
-import { FundsOrderAction } from '../../funds-orders/dto/funds-order.dto';
+import { DispositionService } from '../../funds-orders/disposition.service';
+import { FundsOrderAction, FundsOrderStatus } from '../../funds-orders/dto/funds-order.dto';
 import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import { AccountingService } from '../../accounting/tigerbeetle/accounting.service';
 import { TbEvidenceService } from '../../accounting/tigerbeetle/tb-evidence.service';
@@ -206,6 +207,7 @@ describe('DepositWorkflowService', () => {
         DepositWorkflowService,
         { provide: DepositTransactionsService, useValue: depositService },
         { provide: FundsOrderService, useValue: fundsOrders },
+        { provide: DispositionService, useValue: { initiate: jest.fn().mockResolvedValue({ fundsOrderNo: 'FO-DISP-1', attempt: 1 }), rebuild: jest.fn().mockResolvedValue({ fundsOrderNo: 'FO-DISP-2' }), settle: jest.fn().mockResolvedValue({ ok: true, externalRef: null }), voidAttempt: jest.fn().mockResolvedValue(undefined), clearLeg: jest.fn().mockResolvedValue(null) } },
         { provide: AuditLogsService, useValue: auditLogsService },
         { provide: AccountingService, useValue: { resolveTbAccountId: jest.fn(), executeTransfer: jest.fn() } },
         { provide: WithdrawalAddressService, useValue: withdrawalAddresses },
@@ -1958,6 +1960,8 @@ describe('DepositWorkflowService', () => {
           DepositWorkflowService,
           { provide: DepositTransactionsService, useValue: depositService },
           { provide: FundsOrderService, useValue: fundsOrders },
+          { provide: DispositionService, useValue: { initiate: jest.fn().mockResolvedValue({ fundsOrderNo: 'FO-DISP-1', attempt: 1 }), rebuild: jest.fn().mockResolvedValue({ fundsOrderNo: 'FO-DISP-2' }), settle: jest.fn().mockResolvedValue({ ok: true, externalRef: null }), voidAttempt: jest.fn().mockResolvedValue(undefined), clearLeg: jest.fn().mockResolvedValue(null) } },
+        { provide: DispositionService, useValue: { initiate: jest.fn().mockResolvedValue({ fundsOrderNo: 'FO-DISP-1', attempt: 1 }), rebuild: jest.fn().mockResolvedValue({ fundsOrderNo: 'FO-DISP-2' }), settle: jest.fn().mockResolvedValue({ ok: true, externalRef: null }), voidAttempt: jest.fn().mockResolvedValue(undefined), clearLeg: jest.fn().mockResolvedValue(null) } },
           { provide: AuditLogsService, useValue: auditLogsService },
           { provide: AccountingService, useValue: accountingService },
           { provide: WithdrawalAddressService, useValue: withdrawalAddresses },
@@ -3103,563 +3107,18 @@ describe('DepositWorkflowService', () => {
     });
   });
 
-  describe('onConfiscationDecided — confiscation start (C2, two-phase)', () => {
-    let accountingService: {
-      resolveTbAccountId: jest.Mock;
-      executeTransfer: jest.Mock;
-      executePendingTransfer: jest.Mock;
+  describe('处置弧编排（地基站：钱侧机制收进 DispositionService，机制断言见其 spec）', () => {
+    let disposition: {
+      initiate: jest.Mock; rebuild: jest.Mock; settle: jest.Mock;
+      voidAttempt: jest.Mock; clearLeg: jest.Mock;
     };
 
-    const decidedEvent = (overrides: Record<string, unknown> = {}) => ({
-      decision: 'APPROVED' as const,
-      actionType: 'DEPOSIT_CONFISCATION',
-      entityRef: 'dep-cf-1',
-      approvalId: 'app-cf-1',
-      approvalNo: 'APR-CF-1',
-      traceId: 'trace-cf-1',
-      workflowType: 'DEPOSIT_CONFISCATION',
-      metadata: {},
-      ...overrides,
-    });
-
-    const confiscableDeposit = (overrides: Record<string, unknown> = {}) => ({
-      id: 'dep-cf-1',
-      depositNo: 'DEP-CF-001',
-      // Task 7: onConfiscationDecided's drift guard now requires OPERATION_PENDING
-      // (confiscation entry moved off COMPLIANCE_PENDING with the CONFISCATE_START
-      // edge in Task 5's transition table).
+    const arcDeposit = (overrides: Record<string, unknown> = {}) => ({
+      id: 'dep-arc-1',
+      depositNo: 'DEP-ARC-001',
       status: DepositTransactionStatus.OPERATION_PENDING,
       ownerType: 'CUSTOMER',
-      ownerId: 'cust-cf-1',
-      assetId: 'asset-usdt',
-      amount: '5',
-      toWalletId: 'cust-wallet-1',
-      toAddress: 'T_CUST_ADDR',
-      toIban: null,
-      traceId: 'trace-cf-1',
-      limitHoldReason: 'BELOW_MIN',
-      asset: { currency: 'USDT', tbLedgerId: 2, decimals: 6, type: 'CRYPTO' },
-      ...overrides,
-    });
-
-    beforeEach(async () => {
-      accountingService = {
-        // leg1: DEPOSIT_SUSPENSE, CLIENT_ASSET ; leg2: FIRM_ASSET, INCOME_OTHER
-        resolveTbAccountId: jest.fn()
-          .mockResolvedValueOnce('tb-suspense')
-          .mockResolvedValueOnce('tb-client-asset')
-          .mockResolvedValueOnce('tb-firm-asset')
-          .mockResolvedValueOnce('tb-firm-fee'),
-        executeTransfer: jest.fn().mockResolvedValue(undefined),
-        executePendingTransfer: jest.fn().mockResolvedValue({ tbTransferId: 1n }),
-      };
-      fundsOrders.findByParent.mockResolvedValue([]);
-      fundsOrders.create.mockResolvedValue({ id: 'fo-cf-1', fundsOrderNo: 'FO-CF-1', legSeq: 2, status: 'CREATED' });
-      fundsOrders.advance.mockResolvedValue(undefined);
-      depositService.updateStatus.mockResolvedValue({});
-
-      const module: TestingModule = await Test.createTestingModule({
-        providers: [
-        { provide: CustomerAccessService, useValue: customerAccessService },
-          DepositWorkflowService,
-          { provide: DepositTransactionsService, useValue: depositService },
-          { provide: FundsOrderService, useValue: fundsOrders },
-          { provide: AuditLogsService, useValue: auditLogsService },
-          { provide: AccountingService, useValue: accountingService },
-          { provide: WithdrawalAddressService, useValue: withdrawalAddresses },
-          { provide: SUMSUB_TXN_CLIENT, useValue: sumsubTxnClient },
-          { provide: ApprovalsService, useValue: approvalsService },
-          { provide: SystemWalletResolver, useValue: systemWalletResolver },
-          { provide: TbEvidenceService, useValue: tbEvidenceService },
-          { provide: DepositApplicantActionsService, useValue: actionsService },
-          { provide: CustomerRestrictionsService, useValue: customerRestrictionsService },
-          { provide: L1GateService, useValue: l1Gate },
-        ],
-      }).compile();
-
-      service = module.get<DepositWorkflowService>(DepositWorkflowService);
-    });
-
-    it('APPROVED → pends leg1 (reverse suspense) + leg2 (firm fee), funds order legSeq 2 CREATED (not advanced), CONFISCATING, STARTED audit', async () => {
-      depositService.findOne.mockResolvedValue(confiscableDeposit());
-
-      await service.onConfiscationDecided(decidedEvent());
-
-      // Funds order legSeq 2: customer deposit wallet → firm F_FEE wallet, CREATED (advanceable, NOT auto-cleared).
-      expect(systemWalletResolver.resolve).toHaveBeenCalledWith('asset-usdt', 'F_FEE');
-      expect(fundsOrders.create).toHaveBeenCalledWith(
-        expect.objectContaining({
-          depositTransactionId: 'dep-cf-1',
-          legSeq: 2,
-          initialStatus: 'CREATED',
-          fromWalletId: 'cust-wallet-1',
-          toWalletId: 'fee-wallet-1',
-        }),
-      );
-      expect(fundsOrders.advance).not.toHaveBeenCalled();
-
-      // Leg 1 (pending): DR DEPOSIT_SUSPENSE(CUSTOMER) / CR CLIENT_ASSET(SYSTEM)
-      expect(accountingService.resolveTbAccountId).toHaveBeenNthCalledWith(1, {
-        code: TB_ACCOUNT_CODES.DEPOSIT_SUSPENSE, ledger: 2, ownerType: 'CUSTOMER', ownerUuid: 'cust-cf-1',
-      });
-      expect(accountingService.resolveTbAccountId).toHaveBeenNthCalledWith(2, {
-        code: TB_ACCOUNT_CODES.CLIENT_ASSET, ledger: 2, ownerType: 'SYSTEM',
-      });
-      expect(accountingService.executePendingTransfer).toHaveBeenNthCalledWith(1,
-        expect.objectContaining({
-          debitAccountId: 'tb-suspense',
-          creditAccountId: 'tb-client-asset',
-          code: TB_TRANSFER_CODES.DEPOSIT_CONFISCATE_SUSPENSE_TO_ASSET,
-          timeout: 0,
-          legIndex: 1,
-          evidence: expect.objectContaining({
-            // C3's post must reproduce this via deterministicTransferId('DEPOSIT', depositNo, eventCode, 1)
-            eventCode: 'CONFISCATE_REVERSE_SUSPENSE',
-            debitCode: 'L.DEPOSIT_SUSPENSE',
-            creditCode: 'A.CLIENT_ASSET',
-            debitWalletRef: 'cust-wallet-1',
-            creditWalletRef: 'cust-wallet-1',
-            isExternalCrossing: false,
-          }),
-        }),
-      );
-
-      // Leg 2 (pending): DR FIRM_ASSET(SYSTEM) / CR INCOME_OTHER(SYSTEM)
-      expect(accountingService.resolveTbAccountId).toHaveBeenNthCalledWith(3, {
-        code: TB_ACCOUNT_CODES.FIRM_ASSET, ledger: 2, ownerType: 'SYSTEM',
-      });
-      expect(accountingService.resolveTbAccountId).toHaveBeenNthCalledWith(4, {
-        code: TB_ACCOUNT_CODES.INCOME_OTHER, ledger: 2, ownerType: 'SYSTEM',
-      });
-      expect(accountingService.executePendingTransfer).toHaveBeenNthCalledWith(2,
-        expect.objectContaining({
-          debitAccountId: 'tb-firm-asset',
-          creditAccountId: 'tb-firm-fee',
-          code: TB_TRANSFER_CODES.DEPOSIT_CONFISCATE_INCOME_OTHER,
-          timeout: 0,
-          legIndex: 1,
-          evidence: expect.objectContaining({
-            eventCode: 'CONFISCATE_INCOME_OTHER',
-            debitCode: 'A.FIRM_ASSET',
-            creditCode: 'E.INCOME_OTHER',
-            debitWalletRef: null,
-            creditWalletRef: 'fee-wallet-1',
-            isExternalCrossing: false,
-          }),
-        }),
-      );
-
-      // Never the synchronous post — pending only in the start half.
-      expect(accountingService.executeTransfer).not.toHaveBeenCalled();
-
-      // 先账后状态: deposit → CONFISCATING via CONFISCATE_START (via the service, Rule 5).
-      expect(depositService.updateStatus).toHaveBeenCalledWith('dep-cf-1',
-        expect.objectContaining({ action: DepositTransactionAction.CONFISCATE_START }),
-      );
-      expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
-        expect.objectContaining({
-          action: 'DEPOSIT_CONFISCATION_STARTED',
-          metadata: expect.objectContaining({ approvalNo: 'APR-CF-1' }),
-        }),
-      );
-    });
-
-    it('startConfiscation: CREATED legSeq2 funds order, pends 2 legs, deposit → CONFISCATING', async () => {
-      const dep = confiscableDeposit();
-      fundsOrders.findByParent.mockResolvedValue([]);
-      fundsOrders.create.mockResolvedValue({ id: 'fo2', fundsOrderNo: 'FO-2', legSeq: 2, status: 'CREATED' });
-      systemWalletResolver.resolve.mockResolvedValue({ id: 'firmFee', address: null, iban: null });
-      accountingService.resolveTbAccountId.mockResolvedValue('acct');
-      await (service as any).startConfiscation(dep, 'APR-1');
-      expect(fundsOrders.create).toHaveBeenCalledWith(expect.objectContaining({ legSeq: 2, initialStatus: 'CREATED' }));
-      expect(fundsOrders.advance).not.toHaveBeenCalled();
-      expect(accountingService.executePendingTransfer).toHaveBeenCalledTimes(2);
-      expect(accountingService.executeTransfer).not.toHaveBeenCalled();
-      expect(depositService.updateStatus).toHaveBeenCalledWith(
-        dep.id, expect.objectContaining({ action: DepositTransactionAction.CONFISCATE_START }),
-      );
-      expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
-        expect.objectContaining({ action: 'DEPOSIT_CONFISCATION_STARTED' }),
-      );
-    });
-
-    it('startConfiscation idempotent: reuses existing legSeq2 funds order', async () => {
-      const dep = confiscableDeposit();
-      fundsOrders.findByParent.mockResolvedValue([{ id: 'fo2', fundsOrderNo: 'FO-2', legSeq: 2, status: 'CREATED' }]);
-      systemWalletResolver.resolve.mockResolvedValue({ id: 'firmFee', address: null, iban: null });
-      accountingService.resolveTbAccountId.mockResolvedValue('acct');
-      await (service as any).startConfiscation(dep, 'APR-1');
-      expect(fundsOrders.create).not.toHaveBeenCalled();
-    });
-
-    it('DECLINED → no-op (no legs, no funds order, status unchanged)', async () => {
-      depositService.findOne.mockResolvedValue(confiscableDeposit());
-
-      await service.onConfiscationDecided(decidedEvent({ decision: 'DECLINED' }));
-
-      expect(fundsOrders.create).not.toHaveBeenCalled();
-      expect(accountingService.executeTransfer).not.toHaveBeenCalled();
-      expect(depositService.updateStatus).not.toHaveBeenCalled();
-    });
-
-    it('foreign entityRef (deposit not found) → graceful no-op', async () => {
-      depositService.findOne.mockRejectedValue(new NotFoundException('Deposit transaction not found'));
-
-      await expect(service.onConfiscationDecided(decidedEvent())).resolves.toBeUndefined();
-
-      expect(fundsOrders.create).not.toHaveBeenCalled();
-      expect(accountingService.executeTransfer).not.toHaveBeenCalled();
-      expect(depositService.updateStatus).not.toHaveBeenCalled();
-    });
-
-    it('already CONFISCATED deposit (replayed decided event) → no-op', async () => {
-      depositService.findOne.mockResolvedValue(
-        confiscableDeposit({ status: DepositTransactionStatus.CONFISCATED }),
-      );
-
-      await service.onConfiscationDecided(decidedEvent());
-
-      expect(accountingService.executeTransfer).not.toHaveBeenCalled();
-      expect(depositService.updateStatus).not.toHaveBeenCalled();
-    });
-
-    // C3 guard fix: a replayed APPROVED decided event that arrives while the deposit is
-    // already CONFISCATING (start half done, settle in flight) must be a clean no-op — NOT
-    // a misleading "drifted out of confiscable state" FAILED audit, and NOT a second start.
-    it('onConfiscationDecided replay while CONFISCATING → no-op (no FAILED audit, no double start)', async () => {
-      depositService.findOne.mockResolvedValue(
-        confiscableDeposit({ status: DepositTransactionStatus.CONFISCATING }),
-      );
-
-      await service.onConfiscationDecided(decidedEvent());
-
-      expect(accountingService.executePendingTransfer).not.toHaveBeenCalled();
-      expect(fundsOrders.create).not.toHaveBeenCalled();
-      expect(depositService.updateStatus).not.toHaveBeenCalled();
-      expect(auditLogsService.recordSystem).not.toHaveBeenCalledWith(
-        expect.objectContaining({ action: 'DEPOSIT_CONFISCATION_FAILED' }),
-      );
-    });
-
-    // Double-spend regression guard (D7 review): initiateConfiscation writes nothing to
-    // the deposit, so a concurrent waiveLimitHold→approve (SUCCESS) can drift it out of
-    // the confiscable state while the approval is PENDING (状态机收窄后 REJECT/adminReject
-    // 已删除,OPERATION_PENDING 唯二出边只剩 approve/confiscate_start,SUCCESS 是仅有的
-    // 漂移目标). The APPROVED decided event must then post NOTHING (else CLIENT_ASSET is
-    // zeroed while CLIENT_PAYABLE still owes the now-credited customer → phantom liability).
-    it('drift race: deposit already SUCCESS (waived→approved) → posts nothing, records FAILED audit', async () => {
-      depositService.findOne.mockResolvedValue(
-        confiscableDeposit({ status: DepositTransactionStatus.SUCCESS, limitHoldReason: null }),
-      );
-
-      await service.onConfiscationDecided(decidedEvent());
-
-      expect(accountingService.executeTransfer).not.toHaveBeenCalled();
-      expect(fundsOrders.create).not.toHaveBeenCalled();
-      expect(depositService.updateStatus).not.toHaveBeenCalled();
-      expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
-        expect.objectContaining({
-          action: 'DEPOSIT_CONFISCATION_FAILED',
-          reason: expect.stringContaining('drifted out of confiscable state'),
-        }),
-      );
-    });
-
-    it('pending transfer throws → rethrows, deposit NOT flipped to CONFISCATING, no STARTED audit (先账后状态)', async () => {
-      depositService.findOne.mockResolvedValue(confiscableDeposit());
-      accountingService.executePendingTransfer.mockRejectedValueOnce(new Error('TB rejected'));
-
-      await expect(service.onConfiscationDecided(decidedEvent())).rejects.toThrow('TB rejected');
-
-      // Deposit must remain COMPLIANCE_PENDING — CONFISCATE_START transition never applied.
-      expect(depositService.updateStatus).not.toHaveBeenCalledWith('dep-cf-1', expect.objectContaining({
-        action: DepositTransactionAction.CONFISCATE_START,
-      }));
-      expect(auditLogsService.recordSystem).not.toHaveBeenCalledWith(
-        expect.objectContaining({ action: 'DEPOSIT_CONFISCATION_STARTED' }),
-      );
-    });
-  });
-
-  describe('handleFundsOrderChanged — legSeq2 confiscation settle (C3)', () => {
-    let accountingService: {
-      resolveTbAccountId: jest.Mock;
-      executeTransfer: jest.Mock;
-      executePendingTransfer: jest.Mock;
-      postPendingTransfer: jest.Mock;
-      voidPendingTransfer: jest.Mock;
-    };
-
-    const baseDeposit = (overrides: Record<string, unknown> = {}) => ({
-      id: 'dep-1',
-      depositNo: 'DEP-CF-001',
-      status: DepositTransactionStatus.CONFISCATING,
-      ownerType: 'CUSTOMER',
-      ownerId: 'cust-1',
-      amount: '5',
-      traceId: 'trace-1',
-      asset: { currency: 'USDT', tbLedgerId: 2, decimals: 6, type: 'CRYPTO' },
-      ...overrides,
-    });
-
-    const legEvent = (overrides: Record<string, unknown> = {}) => ({
-      fundsOrderId: 'fo2',
-      fundsOrderNo: 'FO-CF-2',
-      parent: { depositTransactionId: 'dep-1' },
-      legSeq: 2,
-      attempt: 1,
-      oldStatus: 'CREATED',
-      newStatus: 'CONFIRMED',
-      ...overrides,
-    });
-
-    beforeEach(async () => {
-      accountingService = {
-        resolveTbAccountId: jest.fn(),
-        executeTransfer: jest.fn().mockResolvedValue(undefined),
-        executePendingTransfer: jest.fn().mockResolvedValue({ tbTransferId: 1n }),
-        postPendingTransfer: jest.fn().mockResolvedValue(undefined),
-        voidPendingTransfer: jest.fn().mockResolvedValue(undefined),
-      };
-      depositService.updateStatus.mockResolvedValue({});
-
-      const module: TestingModule = await Test.createTestingModule({
-        providers: [
-        { provide: CustomerAccessService, useValue: customerAccessService },
-          DepositWorkflowService,
-          { provide: DepositTransactionsService, useValue: depositService },
-          { provide: FundsOrderService, useValue: fundsOrders },
-          { provide: AuditLogsService, useValue: auditLogsService },
-          { provide: AccountingService, useValue: accountingService },
-          { provide: WithdrawalAddressService, useValue: withdrawalAddresses },
-          { provide: SUMSUB_TXN_CLIENT, useValue: sumsubTxnClient },
-          { provide: ApprovalsService, useValue: approvalsService },
-          { provide: SystemWalletResolver, useValue: systemWalletResolver },
-          { provide: TbEvidenceService, useValue: tbEvidenceService },
-          { provide: DepositApplicantActionsService, useValue: actionsService },
-          { provide: CustomerRestrictionsService, useValue: customerRestrictionsService },
-          { provide: L1GateService, useValue: l1Gate },
-        ],
-      }).compile();
-
-      service = module.get<DepositWorkflowService>(DepositWorkflowService);
-    });
-
-    it('handleFundsOrderChanged: legSeq2 CONFIRMED → posts 2 legs → CONFISCATED', async () => {
-      depositService.findOne.mockResolvedValue(baseDeposit({ status: 'CONFISCATING' }));
-      accountingService.postPendingTransfer.mockResolvedValue(undefined);
-
-      await service.handleFundsOrderChanged(legEvent() as any);
-
-      expect(accountingService.postPendingTransfer).toHaveBeenCalledTimes(2);
-      expect(depositService.updateStatus).toHaveBeenCalledWith(
-        expect.any(String),
-        expect.objectContaining({ action: DepositTransactionAction.CONFISCATE_SETTLE }),
-      );
-      expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
-        expect.objectContaining({ action: 'DEPOSIT_CONFISCATION_EXECUTED' }),
-      );
-    });
-
-    it('settle: post fails 3× → stays CONFISCATING + FAILED audit (no settle)', async () => {
-      const dep = baseDeposit({ status: 'CONFISCATING' });
-      depositService.findOne.mockResolvedValue(dep);
-      accountingService.postPendingTransfer.mockRejectedValue(new Error('TB down'));
-
-      await (service as any).settleConfiscation(dep, 'fo2', 1);
-
-      // leg1 rejects on every attempt → 1 call/attempt = 3 total (leg2 never reached).
-      expect(accountingService.postPendingTransfer).toHaveBeenCalledTimes(3);
-      expect(depositService.updateStatus).not.toHaveBeenCalledWith(
-        expect.any(String),
-        expect.objectContaining({ action: DepositTransactionAction.CONFISCATE_SETTLE }),
-      );
-      expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
-        expect.objectContaining({ action: 'DEPOSIT_CONFISCATION_FAILED' }),
-      );
-    });
-
-    it('settle idempotent: deposit already CONFISCATED → no-op', async () => {
-      depositService.findOne.mockResolvedValue(baseDeposit({ status: 'CONFISCATED' }));
-
-      await service.handleFundsOrderChanged(legEvent() as any);
-
-      expect(accountingService.postPendingTransfer).not.toHaveBeenCalled();
-    });
-
-    it('legSeq2 non-CONFIRMED status → no settle (e.g. SUBMITTED)', async () => {
-      await service.handleFundsOrderChanged(legEvent({ newStatus: 'SUBMITTED' }) as any);
-
-      expect(accountingService.postPendingTransfer).not.toHaveBeenCalled();
-    });
-
-    // ── A1 (2026-08-13): 没收腿 FAILED/TIMEOUT 此前掉地上 ──────────────────────
-    // 旧代码 `if (newStatus !== CONFIRMED) return` 把这两个信号一起吃掉,deposit 永停
-    // CONFISCATING、两笔 pending 锁永不释放,且四条恢复路径全堵(资金单已终态不再发事件 /
-    // CONFISCATING 只有 settle 一条出边 / ADMIN_API 被 ACCOUNTING_TERMINALS 挡 / 无重结算
-    // 入口)。而 admin 资金单详情页的 ⚡失败/⚡超时 红按钮对没收腿照常渲染 —— 一点即死。
-    // A3(2026-08-22)改写:A1 那版「一次失败就退回 OPERATION_PENDING」已退役 ——
-    // 现在 FAILED/TIMEOUT 走重试三级梯,attempt 1 只 void + 重建 attempt 2,状态一步不动。
-    it.each(['FAILED', 'TIMEOUT'])(
-      'A3: legSeq2 %s (attempt 1) → voids BOTH pending legs → 重建 attempt 2,状态一步不动',
-      async (legStatus) => {
-        depositService.findOne.mockResolvedValue(baseDeposit({ status: 'CONFISCATING' }));
-        fundsOrders.create.mockResolvedValue({ fundsOrderNo: 'FO-CF-2R' });
-
-        await service.handleFundsOrderChanged(legEvent({ newStatus: legStatus, attempt: 1 }) as any);
-
-        // 两笔 pending 都要解锁——只解一笔等于钱还锁着一半
-        expect(accountingService.voidPendingTransfer).toHaveBeenCalledTimes(2);
-        expect(accountingService.postPendingTransfer).not.toHaveBeenCalled();
-        // 重建:新腿 attempt 2 + 两笔新 pending(legIndex 2)
-        expect(fundsOrders.create).toHaveBeenCalledWith(
-          expect.objectContaining({ legSeq: 2, attempt: 2 }),
-        );
-        expect(accountingService.executePendingTransfer).toHaveBeenCalledTimes(2);
-        expect(
-          accountingService.executePendingTransfer.mock.calls.map((c: any[]) => c[0].legIndex),
-        ).toEqual([2, 2]);
-        expect(depositService.updateStatus).not.toHaveBeenCalled();
-        expect(depositService.markNeedsReview).not.toHaveBeenCalled();
-        expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
-          expect.objectContaining({ action: 'DEPOSIT_CONFISCATION_RETRIED' }),
-        );
-      },
-    );
-
-    it('A3: void 的 pending id 必须与 pendConfiscationLegs 本次 attempt 逐字一致(两笔 eventCode 各一)', async () => {
-      depositService.findOne.mockResolvedValue(baseDeposit({ status: 'CONFISCATING' }));
-      fundsOrders.create.mockResolvedValue({ fundsOrderNo: 'FO-CF-2R' });
-
-      await service.handleFundsOrderChanged(legEvent({ newStatus: 'FAILED' }) as any);
-
-      const eventCodes = accountingService.voidPendingTransfer.mock.calls.map(
-        (c: any[]) => c[0].evidence.eventCode,
-      );
-      expect(eventCodes).toEqual([
-        'CONFISCATE_REVERSE_SUSPENSE_VOID',
-        'CONFISCATE_INCOME_OTHER_VOID',
-      ]);
-      // pending id 由 eventCode + legIndex(=attempt) 决定,同 attempt 下两笔必须不同
-      const pendingIds = accountingService.voidPendingTransfer.mock.calls.map(
-        (c: any[]) => c[0].pendingTransferId,
-      );
-      expect(pendingIds[0]).not.toEqual(pendingIds[1]);
-    });
-
-    it('A3: void 抛错 → 不上抛(@OnEvent 里没人接) + 留 CONFISCATING + 红标 + UNLOCK_FAILED 审计', async () => {
-      depositService.findOne.mockResolvedValue(baseDeposit({ status: 'CONFISCATING' }));
-      accountingService.voidPendingTransfer.mockRejectedValue(new Error('TB unreachable'));
-
-      await expect(
-        service.handleFundsOrderChanged(legEvent({ newStatus: 'FAILED' }) as any),
-      ).resolves.toBeUndefined();
-
-      expect(depositService.updateStatus).not.toHaveBeenCalled();
-      expect(depositService.markNeedsReview).toHaveBeenCalledWith('dep-1');
-      expect(fundsOrders.create).not.toHaveBeenCalled(); // 没走到重建那步
-      expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
-        expect.objectContaining({ action: 'DEPOSIT_CONFISCATION_UNLOCK_FAILED' }),
-      );
-    });
-
-    // 资金安全线:重建后的 attempt 2 结算,必须 post attempt 2 的 pending id ——
-    // 写死 1 会 post 到上一 attempt 已 void 的 id 上(post 恒失败 → 单子卡死 CONFISCATING,
-    // 而 attempt 2 的两笔 pending 还锁着)。settleReturn/settleSeize 同样收 event.attempt。
-    it('A3: attempt 2 的腿 CONFIRMED → post 的是 attempt 2 的 pending id(不是 attempt 1 的)', async () => {
-      depositService.findOne.mockResolvedValue(baseDeposit({ status: 'CONFISCATING' }));
-
-      await service.handleFundsOrderChanged(legEvent({ newStatus: 'CONFIRMED', attempt: 2 }) as any);
-      const attempt2Ids = accountingService.postPendingTransfer.mock.calls.map(
-        (c: any[]) => c[0].pendingTransferId,
-      );
-
-      accountingService.postPendingTransfer.mockClear();
-      await service.handleFundsOrderChanged(legEvent({ newStatus: 'CONFIRMED', attempt: 1 }) as any);
-      const attempt1Ids = accountingService.postPendingTransfer.mock.calls.map(
-        (c: any[]) => c[0].pendingTransferId,
-      );
-
-      expect(attempt2Ids).toHaveLength(2);
-      expect(attempt1Ids).toHaveLength(2);
-      expect(attempt2Ids[0]).not.toEqual(attempt1Ids[0]);
-      expect(attempt2Ids[1]).not.toEqual(attempt1Ids[1]);
-    });
-
-    describe('A3 · 没收腿重试', () => {
-      const deposit = {
-        id: 'd3', depositNo: 'DEP003', ownerType: 'CUSTOMER', ownerId: 'c1',
-        assetId: 'a1', traceId: 't3', amount: '100', toWalletId: 'w1',
-        asset: { decimals: 2, currency: 'AED', tbLedgerId: 1 },
-        status: 'CONFISCATING',
-      };
-
-      it('第 1 次失败 → 重建 attempt 2,不推状态、不置红标', async () => {
-        accountingService.voidPendingTransfer.mockResolvedValue(undefined);
-        accountingService.resolveTbAccountId.mockResolvedValue(1n);
-        accountingService.executePendingTransfer.mockResolvedValue(undefined);
-        fundsOrders.create.mockResolvedValue({ fundsOrderNo: 'FO-C2' });
-
-        await (service as any).onConfiscationLegFailed(deposit, 'fo1', 'FAILED', 1);
-
-        expect(fundsOrders.create).toHaveBeenCalled();
-        expect(depositService.updateStatus).not.toHaveBeenCalled();
-        expect(depositService.markNeedsReview).not.toHaveBeenCalled();
-        // 自证型绿灯防线:显式钉住走的是 RETRIED 分支,而不是 catch 里的 UNLOCK_FAILED。
-        expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
-          expect.objectContaining({ action: AuditActions.DEPOSIT_CONFISCATION_RETRIED }),
-        );
-      });
-
-      it('第 3 次失败 → 置红标 + STUCK 审计,状态留在 CONFISCATING', async () => {
-        accountingService.voidPendingTransfer.mockResolvedValue(undefined);
-
-        await (service as any).onConfiscationLegFailed(deposit, 'fo1', 'TIMEOUT', 3);
-
-        expect(depositService.markNeedsReview).toHaveBeenCalledWith('d3');
-        expect(depositService.updateStatus).not.toHaveBeenCalled();
-        expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
-          expect.objectContaining({ action: AuditActions.DEPOSIT_CONFISCATION_STUCK }),
-        );
-        expect(fundsOrders.create).not.toHaveBeenCalled(); // 耗尽后不再重建
-
-        // 资金安全线:void 的两笔 pending id 必须精确等于本次 attempt(=3)推导出的
-        // deterministicTransferId,不能是写死的 attempt 1 —— 否则 voidPendingTransfer
-        // 会撞上 attempt 1 早已 void 过的 id,被 accounting.service 的
-        // pending_transfer_already_voided 豁免吞掉(不抛/不落审计/不置红标),
-        // attempt 3 真正的两笔 pending 永久锁死、全程静默。
-        const voidedIds = accountingService.voidPendingTransfer.mock.calls.map(
-          (c: any[]) => c[0].pendingTransferId,
-        );
-        expect(voidedIds).toEqual([
-          deterministicTransferId('DEPOSIT', 'DEP003', 'CONFISCATE_REVERSE_SUSPENSE', 3),
-          deterministicTransferId('DEPOSIT', 'DEP003', 'CONFISCATE_INCOME_OTHER', 3),
-        ]);
-      });
-    });
-  });
-
-  // A3: onReturnApproved fills in the real return-leg start (previously a stub —
-  // see A2). Mirrors startConfiscation's structure: single pending leg (DR
-  // DEPOSIT_SUSPENSE(CUSTOMER) / CR CLIENT_ASSET(SYSTEM) — same reverse-suspense
-  // direction as confiscation's leg1) + legSeq 3 funds order (confiscation owns
-  // legSeq 2) whose destination is the ORIGINAL SENDER (deposit.fromAddress/
-  // fromIban), not a firm wallet. 先账后状态: pending leg booked BEFORE the
-  // MANUAL_CHECKING → RETURNING transition, so a TB failure never leaves the
-  // deposit "in transit" without an actual lock.
-  describe('onReturnApproved — return leg start (A3)', () => {
-    let accountingService: {
-      resolveTbAccountId: jest.Mock;
-      executeTransfer: jest.Mock;
-      executePendingTransfer: jest.Mock;
-    };
-
-    const returnableDeposit = (overrides: Record<string, unknown> = {}) => ({
-      id: 'dep-rt-1',
-      depositNo: 'DEP-RT-001',
-      status: DepositTransactionStatus.MANUAL_CHECKING,
-      ownerType: 'CUSTOMER',
-      ownerId: 'cust-rt-1',
+      ownerId: 'cust-arc-1',
       assetId: 'asset-usdt',
       amount: '5',
       toWalletId: 'cust-wallet-1',
@@ -3667,300 +3126,41 @@ describe('DepositWorkflowService', () => {
       toIban: null,
       fromAddress: 'T_SENDER_ADDR',
       fromIban: null,
-      traceId: 'trace-rt-1',
-      asset: { currency: 'USDT', tbLedgerId: 2, decimals: 6, type: 'CRYPTO' },
-      ...overrides,
-    });
-
-    beforeEach(async () => {
-      accountingService = {
-        resolveTbAccountId: jest.fn()
-          .mockResolvedValueOnce('tb-suspense')
-          .mockResolvedValueOnce('tb-client-asset'),
-        executeTransfer: jest.fn().mockResolvedValue(undefined),
-        executePendingTransfer: jest.fn().mockResolvedValue({ tbTransferId: 1n }),
-      };
-      fundsOrders.findByParent.mockResolvedValue([]);
-      fundsOrders.create.mockResolvedValue({ id: 'fo-rt-1', fundsOrderNo: 'FO-RT-1', legSeq: 3, attempt: 1, status: 'CREATED' });
-      depositService.updateStatus.mockResolvedValue({});
-
-      const module: TestingModule = await Test.createTestingModule({
-        providers: [
-        { provide: CustomerAccessService, useValue: customerAccessService },
-          DepositWorkflowService,
-          { provide: DepositTransactionsService, useValue: depositService },
-          { provide: FundsOrderService, useValue: fundsOrders },
-          { provide: AuditLogsService, useValue: auditLogsService },
-          { provide: AccountingService, useValue: accountingService },
-          { provide: WithdrawalAddressService, useValue: withdrawalAddresses },
-          { provide: SUMSUB_TXN_CLIENT, useValue: sumsubTxnClient },
-          { provide: ApprovalsService, useValue: approvalsService },
-          { provide: SystemWalletResolver, useValue: systemWalletResolver },
-          { provide: TbEvidenceService, useValue: tbEvidenceService },
-          { provide: DepositApplicantActionsService, useValue: actionsService },
-          { provide: CustomerRestrictionsService, useValue: customerRestrictionsService },
-          { provide: L1GateService, useValue: l1Gate },
-        ],
-      }).compile();
-
-      service = module.get<DepositWorkflowService>(DepositWorkflowService);
-    });
-
-    it('MANUAL_CHECKING → creates legSeq 3 funds order (CREATED), pends reverse-suspense leg, RETURNING, STARTED audit', async () => {
-      const dep = returnableDeposit();
-
-      await (service as any).onReturnApproved(dep);
-
-      // Funds order legSeq 3: platform receiving wallet → external original sender
-      // (fromAddress/fromIban), CREATED (advanceable, NOT auto-cleared).
-      expect(fundsOrders.create).toHaveBeenCalledWith(
-        expect.objectContaining({
-          depositTransactionId: 'dep-rt-1',
-          legSeq: 3,
-          initialStatus: 'CREATED',
-          fromWalletId: 'cust-wallet-1',
-          toWalletId: null,
-          toAddress: 'T_SENDER_ADDR',
-        }),
-      );
-
-      // Pending leg: DR DEPOSIT_SUSPENSE(CUSTOMER) / CR CLIENT_ASSET(SYSTEM) —
-      // same direction as confiscation's leg1 (zeroes the customer's suspense).
-      expect(accountingService.resolveTbAccountId).toHaveBeenNthCalledWith(1, {
-        code: TB_ACCOUNT_CODES.DEPOSIT_SUSPENSE, ledger: 2, ownerType: 'CUSTOMER', ownerUuid: 'cust-rt-1',
-      });
-      expect(accountingService.resolveTbAccountId).toHaveBeenNthCalledWith(2, {
-        code: TB_ACCOUNT_CODES.CLIENT_ASSET, ledger: 2, ownerType: 'SYSTEM',
-      });
-      expect(accountingService.executePendingTransfer).toHaveBeenCalledWith(
-        expect.objectContaining({
-          debitAccountId: 'tb-suspense',
-          creditAccountId: 'tb-client-asset',
-          code: TB_TRANSFER_CODES.DEPOSIT_RETURN_PENDING,
-          timeout: 0,
-          legIndex: 1,
-          evidence: expect.objectContaining({
-            // settleReturn/onReturnLegFailed must reproduce this via
-            // deterministicTransferId('DEPOSIT', depositNo, eventCode, attempt)
-            eventCode: 'DEPOSIT_RETURN_PENDING',
-            debitCode: 'L.DEPOSIT_SUSPENSE',
-            creditCode: 'A.CLIENT_ASSET',
-            debitWalletRef: 'cust-wallet-1',
-            creditWalletRef: 'cust-wallet-1',
-            isExternalCrossing: true,
-          }),
-        }),
-      );
-
-      expect(accountingService.executeTransfer).not.toHaveBeenCalled();
-
-      // 先账后状态: deposit → RETURNING via RETURN action (via the service, Rule 5).
-      expect(depositService.updateStatus).toHaveBeenCalledWith('dep-rt-1',
-        expect.objectContaining({ action: DepositTransactionAction.RETURN }),
-      );
-      expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
-        expect.objectContaining({ action: 'DEPOSIT_RETURN_STARTED' }),
-      );
-    });
-
-    it('idempotent: reuses existing legSeq 3 funds order (no duplicate create)', async () => {
-      fundsOrders.findByParent.mockResolvedValue([
-        { id: 'fo-rt-1', fundsOrderNo: 'FO-RT-1', legSeq: 3, attempt: 1, status: 'CREATED' },
-      ]);
-      const dep = returnableDeposit();
-
-      await (service as any).onReturnApproved(dep);
-
-      expect(fundsOrders.create).not.toHaveBeenCalled();
-      expect(accountingService.executePendingTransfer).toHaveBeenCalledTimes(1);
-    });
-
-    // 第四批 C1 第二处守卫：initiateReturn 放宽了却漏改这里的话,审批批准了但落地被
-    // 拒 —— 单子卡在「审批已通过、状态没动」的残局。
-    it('C1: OPERATION_PENDING 的单批准后同样落地(legSeq 3 + RETURNING)', async () => {
-      const dep = returnableDeposit({ status: DepositTransactionStatus.OPERATION_PENDING });
-
-      await (service as any).onReturnApproved(dep);
-
-      expect(fundsOrders.create).toHaveBeenCalledWith(
-        expect.objectContaining({ depositTransactionId: 'dep-rt-1', legSeq: 3 }),
-      );
-      expect(accountingService.executePendingTransfer).toHaveBeenCalledTimes(1);
-      expect(depositService.updateStatus).toHaveBeenCalledWith('dep-rt-1',
-        expect.objectContaining({ action: DepositTransactionAction.RETURN }),
-      );
-    });
-
-    it('no-op when deposit is not MANUAL_CHECKING (e.g. replayed decided event after already RETURNING)', async () => {
-      const dep = returnableDeposit({ status: DepositTransactionStatus.RETURNING });
-
-      await (service as any).onReturnApproved(dep);
-
-      expect(fundsOrders.create).not.toHaveBeenCalled();
-      expect(accountingService.executePendingTransfer).not.toHaveBeenCalled();
-      expect(depositService.updateStatus).not.toHaveBeenCalled();
-    });
-
-    it('pending transfer throws → rethrows, deposit NOT flipped to RETURNING, no STARTED audit (先账后状态)', async () => {
-      accountingService.executePendingTransfer.mockRejectedValueOnce(new Error('TB rejected'));
-      const dep = returnableDeposit();
-
-      await expect((service as any).onReturnApproved(dep)).rejects.toThrow('TB rejected');
-
-      expect(depositService.updateStatus).not.toHaveBeenCalled();
-      expect(auditLogsService.recordSystem).not.toHaveBeenCalledWith(
-        expect.objectContaining({ action: 'DEPOSIT_RETURN_STARTED' }),
-      );
-    });
-
-    // ═══════════════════════════════════════════════════════════════════
-    // C1 复审 · 业主裁定（2026-08-22）：退回落地按挂起原因分别处理
-    // limitHoldReason —— 行政级清掉（客户有权知道钱退回去了），BELOW_MIN 保留
-    // （藏处置噪音）。客户面三处读侧判据都是「非空即整单不可见」，不清 = 钱到过
-    // 又原路退回、客户面零记录。
-    // ═══════════════════════════════════════════════════════════════════
-    describe('C1 复审：退回落地清行政级挂起（BELOW_MIN 继续藏）', () => {
-      const heldDeposit = (holdReason: string | null) =>
-        returnableDeposit({
-          status: DepositTransactionStatus.OPERATION_PENDING,
-          limitHoldReason: holdReason,
-        });
-
-      const startedAuditMetadata = () =>
-        auditLogsService.recordSystem.mock.calls
-          .map(([arg]: [any]) => arg)
-          .find((arg: any) => arg.action === 'DEPOSIT_RETURN_STARTED')?.metadata;
-
-      it('CAPABILITY_RESTRICTED（账户被停用挂起）→ 清掉，客户从 RETURNING 起就看得见', async () => {
-        await (service as any).onReturnApproved(heldDeposit('CAPABILITY_RESTRICTED'));
-
-        expect(depositService.clearLimitHold).toHaveBeenCalledWith('dep-rt-1');
-        expect(startedAuditMetadata()).toEqual(
-          expect.objectContaining({ clearedLimitHoldReason: 'CAPABILITY_RESTRICTED' }),
-        );
-      });
-
-      it('LIFECYCLE_NOT_ACTIVE（生命周期非 ACTIVE 挂起）→ 同样清掉', async () => {
-        await (service as any).onReturnApproved(heldDeposit('LIFECYCLE_NOT_ACTIVE'));
-
-        expect(depositService.clearLimitHold).toHaveBeenCalledWith('dep-rt-1');
-        expect(startedAuditMetadata()).toEqual(
-          expect.objectContaining({ clearedLimitHoldReason: 'LIFECYCLE_NOT_ACTIVE' }),
-        );
-      });
-
-      // 业主裁定的另一半：小额单退回后**仍然**对客户隐藏。这条同时守住没收弧
-      // ——没收前置硬钉 BELOW_MIN，清掉就等于从退回这个方向把它绕掉了。
-      it('BELOW_MIN（金额低于下限）→ 保留，继续对客户隐藏', async () => {
-        await (service as any).onReturnApproved(heldDeposit('BELOW_MIN'));
-
-        expect(depositService.clearLimitHold).not.toHaveBeenCalled();
-        expect(startedAuditMetadata()).toEqual(
-          expect.objectContaining({ clearedLimitHoldReason: null }),
-        );
-        // 退回本体照常落地 —— 保留挂起不等于不退钱。
-        expect(depositService.updateStatus).toHaveBeenCalledWith('dep-rt-1',
-          expect.objectContaining({ action: DepositTransactionAction.RETURN }),
-        );
-      });
-
-      it('没挂起过（MANUAL_CHECKING 老路，limitHoldReason=null）→ 无事发生', async () => {
-        await (service as any).onReturnApproved(returnableDeposit());
-
-        expect(depositService.clearLimitHold).not.toHaveBeenCalled();
-        expect(startedAuditMetadata()).toEqual(
-          expect.objectContaining({ clearedLimitHoldReason: null }),
-        );
-      });
-
-      // 顺序是刻意的：先翻状态再清挂起。反过来的话，两个写之间那一刻单子是
-      // OPERATION_PENDING 且已无挂起 = 对客户可见；若 updateStatus 随后崩了，
-      // 这个「本该藏着的挂起单被永久曝光」的残局是一个新增的失败模式。
-      it('清挂起发生在 updateStatus(RETURN) 之后，不是之前', async () => {
-        await (service as any).onReturnApproved(heldDeposit('CAPABILITY_RESTRICTED'));
-
-        const statusOrder = depositService.updateStatus.mock.invocationCallOrder[0];
-        const clearOrder = depositService.clearLimitHold.mock.invocationCallOrder[0];
-        expect(statusOrder).toBeLessThan(clearOrder);
-      });
-
-      // 重放守卫：已经不在 returnable 态的单（重复的 decided 事件）连挂起都不该动。
-      it('重放（已 RETURNING）→ 挂起原样不动', async () => {
-        await (service as any).onReturnApproved(
-          returnableDeposit({
-            status: DepositTransactionStatus.RETURNING,
-            limitHoldReason: 'CAPABILITY_RESTRICTED',
-          }),
-        );
-
-        expect(depositService.clearLimitHold).not.toHaveBeenCalled();
-      });
-    });
-  });
-
-  // A3: legSeq 3 return-leg settle (external confirm → POST → RETURNED) and
-  // fail/retry (external FAILED/TIMEOUT → VOID → rebuild leg, up to 3 attempts).
-  describe('handleFundsOrderChanged — legSeq3 return settle/fail (A3)', () => {
-    let accountingService: {
-      resolveTbAccountId: jest.Mock;
-      executeTransfer: jest.Mock;
-      executePendingTransfer: jest.Mock;
-      postPendingTransfer: jest.Mock;
-      voidPendingTransfer: jest.Mock;
-    };
-
-    const baseDeposit = (overrides: Record<string, unknown> = {}) => ({
-      id: 'dep-rt-2',
-      depositNo: 'DEP-RT-002',
-      status: DepositTransactionStatus.RETURNING,
-      ownerType: 'CUSTOMER',
-      ownerId: 'cust-rt-2',
-      amount: '5',
-      toWalletId: 'cust-wallet-2',
-      toAddress: 'T_CUST_ADDR_2',
-      toIban: null,
-      fromAddress: 'T_SENDER_ADDR_2',
-      fromIban: null,
-      assetId: 'asset-usdt',
-      traceId: 'trace-rt-2',
+      traceId: 'trace-arc-1',
+      limitHoldReason: 'BELOW_MIN',
       asset: { currency: 'USDT', tbLedgerId: 2, decimals: 6, type: 'CRYPTO' },
       ...overrides,
     });
 
     const legEvent = (overrides: Record<string, unknown> = {}) => ({
-      fundsOrderId: 'fo-rt-2',
-      fundsOrderNo: 'FO-RT-2',
-      parent: { depositTransactionId: 'dep-rt-2' },
-      legSeq: 3,
+      parent: { depositTransactionId: 'dep-arc-1' },
+      fundsOrderId: 'fo-arc-1',
+      fundsOrderNo: 'FO-ARC-001',
+      legSeq: 2,
+      newStatus: FundsOrderStatus.CONFIRMED,
       attempt: 1,
-      oldStatus: 'CONFIRMING',
-      newStatus: 'CONFIRMED',
       ...overrides,
     });
 
     beforeEach(async () => {
-      accountingService = {
-        resolveTbAccountId: jest.fn().mockResolvedValue('acct'),
-        executeTransfer: jest.fn().mockResolvedValue(undefined),
-        executePendingTransfer: jest.fn().mockResolvedValue({ tbTransferId: 1n }),
-        postPendingTransfer: jest.fn().mockResolvedValue(undefined),
-        voidPendingTransfer: jest.fn().mockResolvedValue(undefined),
+      disposition = {
+        initiate: jest.fn().mockResolvedValue({ fundsOrderNo: 'FO-DISP-1', attempt: 1 }),
+        rebuild: jest.fn().mockResolvedValue({ fundsOrderNo: 'FO-DISP-2' }),
+        settle: jest.fn().mockResolvedValue({ ok: true, externalRef: 'ext-ref-1' }),
+        voidAttempt: jest.fn().mockResolvedValue(undefined),
+        clearLeg: jest.fn().mockResolvedValue(null),
       };
-      fundsOrders.findById.mockResolvedValue({
-        id: 'fo-rt-2', fundsOrderNo: 'FO-RT-2', legSeq: 3, attempt: 1,
-        asset: { type: 'CRYPTO' }, txHash: '0xabc',
-      });
-      fundsOrders.create.mockResolvedValue({ id: 'fo-rt-3', fundsOrderNo: 'FO-RT-3', legSeq: 3, attempt: 2, status: 'CREATED' });
-      depositService.updateStatus.mockResolvedValue({});
-
       const module: TestingModule = await Test.createTestingModule({
         providers: [
-        { provide: CustomerAccessService, useValue: customerAccessService },
+          { provide: CustomerAccessService, useValue: customerAccessService },
           DepositWorkflowService,
           { provide: DepositTransactionsService, useValue: depositService },
           { provide: FundsOrderService, useValue: fundsOrders },
+          { provide: DispositionService, useValue: { initiate: jest.fn().mockResolvedValue({ fundsOrderNo: 'FO-DISP-1', attempt: 1 }), rebuild: jest.fn().mockResolvedValue({ fundsOrderNo: 'FO-DISP-2' }), settle: jest.fn().mockResolvedValue({ ok: true, externalRef: null }), voidAttempt: jest.fn().mockResolvedValue(undefined), clearLeg: jest.fn().mockResolvedValue(null) } },
+        { provide: DispositionService, useValue: { initiate: jest.fn().mockResolvedValue({ fundsOrderNo: 'FO-DISP-1', attempt: 1 }), rebuild: jest.fn().mockResolvedValue({ fundsOrderNo: 'FO-DISP-2' }), settle: jest.fn().mockResolvedValue({ ok: true, externalRef: null }), voidAttempt: jest.fn().mockResolvedValue(undefined), clearLeg: jest.fn().mockResolvedValue(null) } },
+          { provide: DispositionService, useValue: disposition },
           { provide: AuditLogsService, useValue: auditLogsService },
-          { provide: AccountingService, useValue: accountingService },
+          { provide: AccountingService, useValue: { resolveTbAccountId: jest.fn(), executeTransfer: jest.fn() } },
           { provide: WithdrawalAddressService, useValue: withdrawalAddresses },
           { provide: SUMSUB_TXN_CLIENT, useValue: sumsubTxnClient },
           { provide: ApprovalsService, useValue: approvalsService },
@@ -3971,648 +3171,175 @@ describe('DepositWorkflowService', () => {
           { provide: L1GateService, useValue: l1Gate },
         ],
       }).compile();
-
       service = module.get<DepositWorkflowService>(DepositWorkflowService);
     });
 
-    it('legSeq3 CONFIRMED → posts pending, enriches externalRef, RETURNED, DEPOSIT_RETURNED audit', async () => {
-      depositService.findOne.mockResolvedValue(baseDeposit());
+    const auditActions = () => auditLogsService.recordSystem.mock.calls.map((c: any[]) => c[0].action);
 
-      await service.handleFundsOrderChanged(legEvent() as any);
-
-      expect(accountingService.postPendingTransfer).toHaveBeenCalledTimes(1);
-      expect(accountingService.postPendingTransfer).toHaveBeenCalledWith(
-        expect.objectContaining({
-          pendingTransferId: deterministicTransferId('DEPOSIT', 'DEP-RT-002', 'DEPOSIT_RETURN_PENDING', 1),
-        }),
-      );
-      expect(tbEvidenceService.enrichForPost).toHaveBeenCalledWith(
-        expect.any(String),
-        expect.objectContaining({ eventCode: 'DEPOSIT_RETURN_POST', externalRef: '0xabc', isExternalCrossing: true }),
-      );
-      expect(depositService.updateStatus).toHaveBeenCalledWith(
-        'dep-rt-2',
-        expect.objectContaining({ action: DepositTransactionAction.RETURNED_DONE }),
-      );
-      expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
-        expect.objectContaining({ action: 'DEPOSIT_RETURNED' }),
-      );
-    });
-
-    it('settle: post fails 3× → stays RETURNING + STUCK audit (no RETURNED)', async () => {
-      const dep = baseDeposit();
-      accountingService.postPendingTransfer.mockRejectedValue(new Error('TB down'));
-
-      await (service as any).settleReturn(dep, 'fo-rt-2', 1);
-
-      expect(accountingService.postPendingTransfer).toHaveBeenCalledTimes(3);
-      expect(depositService.updateStatus).not.toHaveBeenCalledWith(
-        expect.any(String),
-        expect.objectContaining({ action: DepositTransactionAction.RETURNED_DONE }),
-      );
-      expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
-        expect.objectContaining({ action: 'DEPOSIT_RETURN_STUCK' }),
-      );
-    });
-
-    it('settle idempotent: deposit no longer RETURNING → no-op', async () => {
-      depositService.findOne.mockResolvedValue(baseDeposit({ status: 'RETURNED' }));
-
-      await service.handleFundsOrderChanged(legEvent() as any);
-
-      expect(accountingService.postPendingTransfer).not.toHaveBeenCalled();
-    });
-
-    it('legSeq3 FAILED, attempt < 3 → voids pending, rebuilds leg (attempt+1), RETRIED audit, stays RETURNING', async () => {
-      depositService.findOne.mockResolvedValue(baseDeposit());
-
-      await service.handleFundsOrderChanged(legEvent({ newStatus: 'FAILED', attempt: 1 }) as any);
-
-      const oldPendingId = deterministicTransferId('DEPOSIT', 'DEP-RT-002', 'DEPOSIT_RETURN_PENDING', 1);
-      const newPendingId = deterministicTransferId('DEPOSIT', 'DEP-RT-002', 'DEPOSIT_RETURN_PENDING', 2);
-      expect(newPendingId).not.toEqual(oldPendingId); // rebuilt attempt must not collide with the voided one
-
-      expect(accountingService.voidPendingTransfer).toHaveBeenCalledTimes(1);
-      expect(accountingService.voidPendingTransfer).toHaveBeenCalledWith(
-        expect.objectContaining({ pendingTransferId: oldPendingId }),
-      );
-      expect(fundsOrders.create).toHaveBeenCalledWith(
-        expect.objectContaining({ depositTransactionId: 'dep-rt-2', legSeq: 3, attempt: 2, initialStatus: 'CREATED' }),
-      );
-      expect(accountingService.executePendingTransfer).toHaveBeenCalledWith(
-        expect.objectContaining({ legIndex: 2 }),
-      );
-      expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
-        expect.objectContaining({ action: 'DEPOSIT_RETURN_RETRIED' }),
-      );
-      expect(depositService.updateStatus).not.toHaveBeenCalled();
-    });
-
-    it('legSeq3 TIMEOUT at attempt 3 (exhausted) → voids pending, no rebuild, STUCK audit, stays RETURNING', async () => {
-      depositService.findOne.mockResolvedValue(baseDeposit());
-
-      await service.handleFundsOrderChanged(legEvent({ newStatus: 'TIMEOUT', attempt: 3 }) as any);
-
-      expect(accountingService.voidPendingTransfer).toHaveBeenCalledTimes(1);
-      expect(accountingService.voidPendingTransfer).toHaveBeenCalledWith(
-        expect.objectContaining({
-          pendingTransferId: deterministicTransferId('DEPOSIT', 'DEP-RT-002', 'DEPOSIT_RETURN_PENDING', 3),
-        }),
-      );
-      expect(fundsOrders.create).not.toHaveBeenCalled();
-      expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
-        expect.objectContaining({ action: 'DEPOSIT_RETURN_STUCK' }),
-      );
-      expect(depositService.updateStatus).not.toHaveBeenCalled();
-    });
-
-    it('legSeq3 non-CONFIRMED/FAILED/TIMEOUT status → no-op (e.g. SUBMITTED)', async () => {
-      depositService.findOne.mockResolvedValue(baseDeposit());
-
-      await service.handleFundsOrderChanged(legEvent({ newStatus: 'SUBMITTED' }) as any);
-
-      expect(accountingService.postPendingTransfer).not.toHaveBeenCalled();
-      expect(accountingService.voidPendingTransfer).not.toHaveBeenCalled();
-    });
-
-    // Fix 2: onReturnLegFailed is a fire-and-forget @OnEvent downstream — its
-    // external calls (voidPendingTransfer, fundsOrders.create, pendReturnSuspense)
-    // must never throw uncaught, or it escapes as an unhandled rejection. Mirrors
-    // settleReturn's own try/catch.
-    it('Fix 2: voidPendingTransfer throws → does not throw, writes DEPOSIT_RETURN_STUCK audit, deposit stays RETURNING (in-flight, no revert)', async () => {
-      depositService.findOne.mockResolvedValue(baseDeposit());
-      accountingService.voidPendingTransfer.mockRejectedValueOnce(new Error('TB unreachable'));
-
-      await expect(
-        service.handleFundsOrderChanged(legEvent({ newStatus: 'FAILED', attempt: 1 }) as any),
-      ).resolves.toBeUndefined();
-
-      expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
-        expect.objectContaining({
-          action: 'DEPOSIT_RETURN_STUCK',
-          reason: expect.stringContaining('TB unreachable'),
-        }),
-      );
-      expect(fundsOrders.create).not.toHaveBeenCalled(); // never got to the rebuild step
-      expect(depositService.updateStatus).not.toHaveBeenCalled(); // stays RETURNING
-    });
-
-    // A2（第四批）：重试三级梯耗尽后原地不动 + 置 needsReview 红标 —— 靠红标让运营
-    // 看见「卡住了」，而不是新起一个状态。onSeizeLegFailed 的用例也放在这里，因为
-    // 它需要同一份带 voidPendingTransfer 的 accountingService mock（本 describe 的
-    // beforeEach 已经建好），两条弧各改各的实现，测试没必要各建一套模块。
-    describe('A2 · 处置腿卡死置红标', () => {
-      it('退回腿第 3 次仍失败 → 写 STUCK 审计并置 needsReview,状态一步不动', async () => {
-        const deposit = {
-          id: 'd1', depositNo: 'DEP001', ownerType: 'CUSTOMER', ownerId: 'c1',
-          traceId: 't1', amount: '100', asset: { decimals: 2, currency: 'AED' },
-          status: 'RETURNING',
-        };
-        accountingService.voidPendingTransfer.mockResolvedValue(undefined);
-
-        await (service as any).onReturnLegFailed(deposit, 'fo1', 3);
-
-        expect(depositService.markNeedsReview).toHaveBeenCalledWith('d1');
-        expect(depositService.updateStatus).not.toHaveBeenCalled();
-        expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
-          expect.objectContaining({ action: AuditActions.DEPOSIT_RETURN_STUCK }),
-        );
+    describe('没收弧', () => {
+      it('startConfiscation：initiate(legSeq2 双腿 spec) → CONFISCATE_START → STARTED 留痕（先账后状态）', async () => {
+        const dep = arcDeposit();
+        await (service as any).startConfiscation(dep, 'APR-CF-1');
+        expect(disposition.initiate).toHaveBeenCalledTimes(1);
+        const spec = disposition.initiate.mock.calls[0][0];
+        expect(spec).toMatchObject({ kind: 'CONFISCATE', legSeq: 2, sourceNo: 'DEP-ARC-001' });
+        expect(spec.tbLegs).toHaveLength(2);
+        expect(spec.buildLegInput(1)).toMatchObject({ legSeq: 2, attempt: 1, toWalletId: 'fee-wallet-1' });
+        expect(depositService.updateStatus).toHaveBeenCalledWith('dep-arc-1',
+          expect.objectContaining({ action: DepositTransactionAction.CONFISCATE_START }));
+        expect(auditActions()).toContain(AuditActions.DEPOSIT_CONFISCATION_STARTED);
       });
 
-      it('退回腿第 1 次失败 → 重建 attempt 2,不置红标', async () => {
-        const deposit = {
-          id: 'd1', depositNo: 'DEP001', ownerType: 'CUSTOMER', ownerId: 'c1',
-          // brief 原始 fixture 缺 tbLedgerId —— pendReturnSuspense 会因此在重建分支里
-          // 抛 "Asset AED has no tbLedgerId",落进 catch 崩溃分支而非真正走通重试路径,
-          // 断言又恰好在两条分支下都成立,变成一次自证型绿灯（本轮改动前跑过,实测
-          // 命中的是 DEPOSIT_RETURN_STUCK,不是 RETRIED）。补上 tbLedgerId 让它真正
-          // 走通重试路径,并显式断言 RETRIED 审计,堵死这个假绿灯口子。
-          traceId: 't1', amount: '100', asset: { decimals: 2, currency: 'AED', tbLedgerId: 2 },
-          status: 'RETURNING',
-        };
-        accountingService.voidPendingTransfer.mockResolvedValue(undefined);
-        fundsOrders.create.mockResolvedValue({ fundsOrderNo: 'FO2' });
+      it('onConfiscationLegChanged：途中态不读库、非 CONFISCATING 幂等 no-op', async () => {
+        await (service as any).onConfiscationLegChanged(legEvent({ newStatus: FundsOrderStatus.SUBMITTED }));
+        expect(depositService.findOne).not.toHaveBeenCalled();
+        depositService.findOne.mockResolvedValue(arcDeposit({ status: DepositTransactionStatus.CONFISCATED }));
+        await (service as any).onConfiscationLegChanged(legEvent());
+        expect(disposition.settle).not.toHaveBeenCalled();
+      });
 
-        await (service as any).onReturnLegFailed(deposit, 'fo1', 1);
+      it('CONFIRMED → settle ok：CONFISCATE_SETTLE + EXECUTED 留痕 + 腿收口', async () => {
+        depositService.findOne.mockResolvedValue(arcDeposit({ status: DepositTransactionStatus.CONFISCATING }));
+        await (service as any).onConfiscationLegChanged(legEvent({ attempt: 2 }));
+        expect(disposition.settle).toHaveBeenCalledWith(expect.objectContaining({ kind: 'CONFISCATE' }), 'fo-arc-1', 2);
+        expect(depositService.updateStatus).toHaveBeenCalledWith('dep-arc-1',
+          expect.objectContaining({ action: DepositTransactionAction.CONFISCATE_SETTLE }));
+        expect(auditActions()).toContain(AuditActions.DEPOSIT_CONFISCATION_EXECUTED);
+        expect(disposition.clearLeg).toHaveBeenCalledWith('fo-arc-1');
+      });
 
+      it('settle 耗尽：只留 FAILED 痕，不翻终态（stay CONFISCATING）', async () => {
+        disposition.settle.mockResolvedValue({ ok: false, error: 'tb down' });
+        depositService.findOne.mockResolvedValue(arcDeposit({ status: DepositTransactionStatus.CONFISCATING }));
+        await (service as any).onConfiscationLegChanged(legEvent());
+        expect(auditActions()).toContain(AuditActions.DEPOSIT_CONFISCATION_FAILED);
+        expect(depositService.updateStatus).not.toHaveBeenCalled();
+        expect(disposition.clearLeg).not.toHaveBeenCalled();
+      });
+
+      it('腿 FAILED attempt<3：void 本 attempt + rebuild(attempt+1) + RETRIED 留痕', async () => {
+        depositService.findOne.mockResolvedValue(arcDeposit({ status: DepositTransactionStatus.CONFISCATING }));
+        await (service as any).onConfiscationLegChanged(legEvent({ newStatus: FundsOrderStatus.FAILED, attempt: 1 }));
+        expect(disposition.voidAttempt).toHaveBeenCalledWith(expect.objectContaining({ kind: 'CONFISCATE' }), 1);
+        expect(disposition.rebuild).toHaveBeenCalledWith(expect.objectContaining({ kind: 'CONFISCATE' }), 2);
+        expect(auditActions()).toContain(AuditActions.DEPOSIT_CONFISCATION_RETRIED);
         expect(depositService.markNeedsReview).not.toHaveBeenCalled();
-        expect(fundsOrders.create).toHaveBeenCalled();
-        expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
-          expect.objectContaining({ action: AuditActions.DEPOSIT_RETURN_RETRIED }),
-        );
       });
 
-      it('上缴腿第 3 次仍失败 → 置 needsReview,状态一步不动', async () => {
-        const deposit = {
-          id: 'd2', depositNo: 'DEP002', ownerType: 'CUSTOMER', ownerId: 'c1',
-          traceId: 't2', amount: '100', asset: { decimals: 2, currency: 'AED' },
-          status: 'SEIZING',
-        };
-        accountingService.voidPendingTransfer.mockResolvedValue(undefined);
+      it('腿失败三级梯耗尽：红旗 + STUCK 留痕，不重建、状态原地', async () => {
+        depositService.findOne.mockResolvedValue(arcDeposit({ status: DepositTransactionStatus.CONFISCATING }));
+        await (service as any).onConfiscationLegChanged(legEvent({ newStatus: FundsOrderStatus.TIMEOUT, attempt: 3 }));
+        expect(disposition.rebuild).not.toHaveBeenCalled();
+        expect(depositService.markNeedsReview).toHaveBeenCalledWith('dep-arc-1');
+        expect(auditActions()).toContain(AuditActions.DEPOSIT_CONFISCATION_STUCK);
+      });
 
-        await (service as any).onSeizeLegFailed(deposit, 'fo9', 3);
+      it('void 崩溃：不上抛，红旗 + UNLOCK_FAILED 留痕', async () => {
+        disposition.voidAttempt.mockRejectedValue(new Error('tb crash'));
+        depositService.findOne.mockResolvedValue(arcDeposit({ status: DepositTransactionStatus.CONFISCATING }));
+        await expect((service as any).onConfiscationLegChanged(legEvent({ newStatus: FundsOrderStatus.FAILED }))).resolves.toBeUndefined();
+        expect(depositService.markNeedsReview).toHaveBeenCalled();
+        expect(auditActions()).toContain(AuditActions.DEPOSIT_CONFISCATION_UNLOCK_FAILED);
+      });
+    });
 
-        expect(depositService.markNeedsReview).toHaveBeenCalledWith('d2');
+    describe('退回弧', () => {
+      it('onReturnApproved：initiate(legSeq3 单腿 spec，目的地=原发款方) → RETURN → STARTED 留痕', async () => {
+        const dep = arcDeposit({ status: DepositTransactionStatus.MANUAL_CHECKING, limitHoldReason: null });
+        await (service as any).onReturnApproved(dep);
+        const spec = disposition.initiate.mock.calls[0][0];
+        expect(spec).toMatchObject({ kind: 'RETURN', legSeq: 3 });
+        expect(spec.tbLegs).toHaveLength(1);
+        expect(spec.postEnrich).toMatchObject({ eventCode: 'DEPOSIT_RETURN_POST' });
+        expect(spec.buildLegInput(1)).toMatchObject({ legSeq: 3, toWalletId: null, toAddress: 'T_SENDER_ADDR' });
+        expect(depositService.updateStatus).toHaveBeenCalledWith('dep-arc-1',
+          expect.objectContaining({ action: DepositTransactionAction.RETURN }));
+        const started = auditLogsService.recordSystem.mock.calls.find((c: any[]) => c[0].action === AuditActions.DEPOSIT_RETURN_STARTED);
+        expect(started[0].metadata.fundsOrderNo).toBe('FO-DISP-1');
+      });
+
+      it('CONFIRMED → settle ok：RETURNED_DONE + RETURNED 留痕（携 settle 返回的外部参考号）+ 腿收口', async () => {
+        depositService.findOne.mockResolvedValue(arcDeposit({ status: DepositTransactionStatus.RETURNING }));
+        await (service as any).onReturnLegChanged(legEvent({ legSeq: 3 }));
+        expect(disposition.settle).toHaveBeenCalledWith(expect.objectContaining({ kind: 'RETURN' }), 'fo-arc-1', 1);
+        expect(depositService.updateStatus).toHaveBeenCalledWith('dep-arc-1',
+          expect.objectContaining({ action: DepositTransactionAction.RETURNED_DONE }));
+        const done = auditLogsService.recordSystem.mock.calls.find((c: any[]) => c[0].action === AuditActions.DEPOSIT_RETURNED);
+        expect(done[0].metadata.externalRef).toBe('ext-ref-1');
+        expect(disposition.clearLeg).toHaveBeenCalledWith('fo-arc-1');
+      });
+
+      it('settle 耗尽：只留 RETURN_STUCK 痕，状态原地', async () => {
+        disposition.settle.mockResolvedValue({ ok: false, error: 'tb down' });
+        depositService.findOne.mockResolvedValue(arcDeposit({ status: DepositTransactionStatus.RETURNING }));
+        await (service as any).onReturnLegChanged(legEvent({ legSeq: 3 }));
+        expect(auditActions()).toContain(AuditActions.DEPOSIT_RETURN_STUCK);
         expect(depositService.updateStatus).not.toHaveBeenCalled();
       });
+
+      it('腿 FAILED：attempt<3 重建 + RETRIED；耗尽红旗 + STUCK', async () => {
+        depositService.findOne.mockResolvedValue(arcDeposit({ status: DepositTransactionStatus.RETURNING }));
+        await (service as any).onReturnLegChanged(legEvent({ legSeq: 3, newStatus: FundsOrderStatus.FAILED, attempt: 1 }));
+        expect(disposition.rebuild).toHaveBeenCalledWith(expect.objectContaining({ kind: 'RETURN' }), 2);
+        expect(auditActions()).toContain(AuditActions.DEPOSIT_RETURN_RETRIED);
+        jest.clearAllMocks();
+        depositService.findOne.mockResolvedValue(arcDeposit({ status: DepositTransactionStatus.RETURNING }));
+        await (service as any).onReturnLegChanged(legEvent({ legSeq: 3, newStatus: FundsOrderStatus.FAILED, attempt: 3 }));
+        expect(disposition.rebuild).not.toHaveBeenCalled();
+        expect(depositService.markNeedsReview).toHaveBeenCalled();
+        expect(auditActions()).toContain(AuditActions.DEPOSIT_RETURN_STUCK);
+      });
+    });
+
+    describe('上缴弧', () => {
+      it('onSeizeApproved：FROZEN 才走；initiate(legSeq4 单腿 spec，orderRef 嵌 memo，无 POST 补记) → SEIZE → STARTED 留痕', async () => {
+        jest.spyOn(service as any, 'fetchSeizeOrderRef').mockResolvedValue('GOV-REF-1');
+        const dep = arcDeposit({ status: DepositTransactionStatus.FROZEN });
+        await (service as any).onSeizeApproved(dep);
+        const spec = disposition.initiate.mock.calls[0][0];
+        expect(spec).toMatchObject({ kind: 'SEIZE', legSeq: 4 });
+        expect(spec.postEnrich).toBeUndefined();
+        expect(spec.tbLegs[0].memo).toContain('GOV-REF-1');
+        expect(spec.tbLegs[0].voidEventCode).toBe('SEIZE_REVERSE_SUSPENSE');
+        expect(spec.buildLegInput(1)).toMatchObject({ legSeq: 4, toWalletId: null });
+        expect(depositService.updateStatus).toHaveBeenCalledWith('dep-arc-1',
+          expect.objectContaining({ action: DepositTransactionAction.SEIZE }));
+        expect(auditActions()).toContain(AuditActions.DEPOSIT_SEIZE_STARTED);
+      });
+
+      it('非 FROZEN 幂等 no-op：不 initiate 不翻状态', async () => {
+        await (service as any).onSeizeApproved(arcDeposit({ status: DepositTransactionStatus.SUCCESS }));
+        expect(disposition.initiate).not.toHaveBeenCalled();
+        expect(depositService.updateStatus).not.toHaveBeenCalled();
+      });
+
+      it('CONFIRMED → settle ok：SEIZED_DONE + SEIZED 留痕 + 腿收口', async () => {
+        depositService.findOne.mockResolvedValue(arcDeposit({ status: DepositTransactionStatus.SEIZING }));
+        await (service as any).onSeizeLegChanged(legEvent({ legSeq: 4 }));
+        expect(disposition.settle).toHaveBeenCalledWith(expect.objectContaining({ kind: 'SEIZE' }), 'fo-arc-1', 1);
+        expect(depositService.updateStatus).toHaveBeenCalledWith('dep-arc-1',
+          expect.objectContaining({ action: DepositTransactionAction.SEIZED_DONE }));
+        expect(auditActions()).toContain(AuditActions.DEPOSIT_SEIZED);
+        expect(disposition.clearLeg).toHaveBeenCalledWith('fo-arc-1');
+      });
+
+      it('腿 FAILED attempt<3：void + 重取 orderRef + rebuild + RETRIED；耗尽红旗 + STUCK', async () => {
+        const refSpy = jest.spyOn(service as any, 'fetchSeizeOrderRef').mockResolvedValue('GOV-REF-2');
+        depositService.findOne.mockResolvedValue(arcDeposit({ status: DepositTransactionStatus.SEIZING }));
+        await (service as any).onSeizeLegChanged(legEvent({ legSeq: 4, newStatus: FundsOrderStatus.FAILED, attempt: 1 }));
+        expect(refSpy).toHaveBeenCalled();
+        const rebuiltSpec = disposition.rebuild.mock.calls[0][0];
+        expect(rebuiltSpec.tbLegs[0].memo).toContain('GOV-REF-2');
+        expect(auditActions()).toContain(AuditActions.DEPOSIT_SEIZE_RETRIED);
+        jest.clearAllMocks();
+        depositService.findOne.mockResolvedValue(arcDeposit({ status: DepositTransactionStatus.SEIZING }));
+        await (service as any).onSeizeLegChanged(legEvent({ legSeq: 4, newStatus: FundsOrderStatus.TIMEOUT, attempt: 3 }));
+        expect(depositService.markNeedsReview).toHaveBeenCalled();
+        expect(auditActions()).toContain(AuditActions.DEPOSIT_SEIZE_STUCK);
+      });
     });
   });
 
-  // A4: onSeizeApproved fills in the real seize-leg start (previously a stub —
-  // see A2). Mirrors onReturnApproved's structure exactly, including the credit
-  // account: final-review correction (2026-07-28) traced the A6 COA break to the
-  // leg crediting FIRM_SEIZED instead of CLIENT_ASSET — fixing that makes the
-  // single leg self-balancing on its own, so the two-leg version (A7) was
-  // reverted. Destination (toWalletId/toAddress/toIban) is deliberately left
-  // BLANK — no government/law-enforcement receiving account is modeled (owner
-  // decision 2026-07-28); orderRef (fetched from the APPROVED DEPOSIT_SEIZE
-  // case's objectSnapshot) is the sole 8-year retention anchor, carried in the
-  // pending lock's evidence.memo.
-  describe('onSeizeApproved — seize leg start (A4)', () => {
-    let accountingService: {
-      resolveTbAccountId: jest.Mock;
-      executeTransfer: jest.Mock;
-      executePendingTransfer: jest.Mock;
-    };
-
-    const seizableDeposit = (overrides: Record<string, unknown> = {}) => ({
-      id: 'dep-sz-1',
-      depositNo: 'DEP-SZ-001',
-      status: DepositTransactionStatus.FROZEN,
-      ownerType: 'CUSTOMER',
-      ownerId: 'cust-sz-1',
-      assetId: 'asset-usdt',
-      amount: '5',
-      toWalletId: 'cust-wallet-sz-1',
-      toAddress: 'T_CUST_ADDR_SZ',
-      toIban: null,
-      traceId: 'trace-sz-1',
-      asset: { currency: 'USDT', tbLedgerId: 2, decimals: 6, type: 'CRYPTO' },
-      ...overrides,
-    });
-
-    const approvedSeizeCase = (orderRef = 'ORD-SZ-1') => ({
-      total: 1,
-      items: [{ id: 'app-sz-1', objectSnapshot: { depositNo: 'DEP-SZ-001', orderRef } }],
-    });
-
-    beforeEach(async () => {
-      accountingService = {
-        // DEPOSIT_SUSPENSE, CLIENT_ASSET — single leg
-        resolveTbAccountId: jest.fn()
-          .mockResolvedValueOnce('tb-suspense')
-          .mockResolvedValueOnce('tb-client-asset'),
-        executeTransfer: jest.fn().mockResolvedValue(undefined),
-        executePendingTransfer: jest.fn().mockResolvedValue({ tbTransferId: 1n }),
-      };
-      fundsOrders.findByParent.mockResolvedValue([]);
-      fundsOrders.create.mockResolvedValue({ id: 'fo-sz-1', fundsOrderNo: 'FO-SZ-1', legSeq: 4, attempt: 1, status: 'CREATED' });
-      depositService.updateStatus.mockResolvedValue({});
-      approvalsService.list.mockResolvedValue(approvedSeizeCase());
-
-      const module: TestingModule = await Test.createTestingModule({
-        providers: [
-        { provide: CustomerAccessService, useValue: customerAccessService },
-          DepositWorkflowService,
-          { provide: DepositTransactionsService, useValue: depositService },
-          { provide: FundsOrderService, useValue: fundsOrders },
-          { provide: AuditLogsService, useValue: auditLogsService },
-          { provide: AccountingService, useValue: accountingService },
-          { provide: WithdrawalAddressService, useValue: withdrawalAddresses },
-          { provide: SUMSUB_TXN_CLIENT, useValue: sumsubTxnClient },
-          { provide: ApprovalsService, useValue: approvalsService },
-          { provide: SystemWalletResolver, useValue: systemWalletResolver },
-          { provide: TbEvidenceService, useValue: tbEvidenceService },
-          { provide: DepositApplicantActionsService, useValue: actionsService },
-          { provide: CustomerRestrictionsService, useValue: customerRestrictionsService },
-          { provide: L1GateService, useValue: l1Gate },
-        ],
-      }).compile();
-
-      service = module.get<DepositWorkflowService>(DepositWorkflowService);
-    });
-
-    it('FROZEN → creates legSeq 4 funds order (CREATED) with BLANK destination, pends reverse-suspense into CLIENT_ASSET, SEIZING, STARTED audit with orderRef', async () => {
-      const dep = seizableDeposit();
-
-      await (service as any).onSeizeApproved(dep);
-
-      expect(approvalsService.list).toHaveBeenCalledWith(
-        expect.objectContaining({ actionType: 'DEPOSIT_SEIZE', entityRef: 'dep-sz-1', status: 'APPROVED' }),
-      );
-
-      // Funds order legSeq 4: destination is deliberately blank (no government/
-      // law-enforcement account modeled) — only the source side (fromWalletId/
-      // fromAddress, the customer's original receiving wallet) is populated.
-      expect(fundsOrders.create).toHaveBeenCalledWith(
-        expect.objectContaining({
-          depositTransactionId: 'dep-sz-1',
-          legSeq: 4,
-          initialStatus: 'CREATED',
-          fromWalletId: 'cust-wallet-sz-1',
-          toWalletId: null,
-          toAddress: undefined,
-          toIban: undefined,
-        }),
-      );
-
-      // Single pending leg (final-review correction — mirrors pendReturnSuspense):
-      // DR DEPOSIT_SUSPENSE(CUSTOMER) / CR CLIENT_ASSET(SYSTEM) — zeroes the
-      // customer's suspense AND shrinks custodial CLIENT_ASSET (money genuinely
-      // leaves custody for the government).
-      expect(accountingService.resolveTbAccountId).toHaveBeenNthCalledWith(1, {
-        code: TB_ACCOUNT_CODES.DEPOSIT_SUSPENSE, ledger: 2, ownerType: 'CUSTOMER', ownerUuid: 'cust-sz-1',
-      });
-      expect(accountingService.resolveTbAccountId).toHaveBeenNthCalledWith(2, {
-        code: TB_ACCOUNT_CODES.CLIENT_ASSET, ledger: 2, ownerType: 'SYSTEM',
-      });
-      expect(accountingService.executePendingTransfer).toHaveBeenCalledWith(
-        expect.objectContaining({
-          debitAccountId: 'tb-suspense',
-          creditAccountId: 'tb-client-asset',
-          code: TB_TRANSFER_CODES.DEPOSIT_SEIZE_PENDING,
-          timeout: 0,
-          legIndex: 1,
-          evidence: expect.objectContaining({
-            // settleSeize/onSeizeLegFailed must reproduce this via
-            // deterministicTransferId('DEPOSIT', depositNo, eventCode, attempt)
-            eventCode: 'SEIZE_REVERSE_SUSPENSE',
-            debitCode: 'L.DEPOSIT_SUSPENSE',
-            creditCode: 'A.CLIENT_ASSET',
-            debitWalletRef: 'cust-wallet-sz-1',
-            // CLIENT_ASSET (COA 1) is an aggregate account (R2-exempt) — same
-            // customerWalletRef on both sides, copied from pendReturnSuspense's
-            // walletRef treatment.
-            creditWalletRef: 'cust-wallet-sz-1',
-            isExternalCrossing: true,
-            // 8-year retention anchor: orderRef must be embedded in the memo since
-            // the destination account itself is never modeled.
-            memo: expect.stringContaining('ORD-SZ-1'),
-          }),
-        }),
-      );
-
-      expect(accountingService.executeTransfer).not.toHaveBeenCalled();
-
-      // 先账后状态: deposit → SEIZING via SEIZE action (via the service, Rule 5).
-      expect(depositService.updateStatus).toHaveBeenCalledWith('dep-sz-1',
-        expect.objectContaining({ action: DepositTransactionAction.SEIZE }),
-      );
-      expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
-        expect.objectContaining({
-          action: 'DEPOSIT_SEIZE_STARTED',
-          metadata: expect.objectContaining({ orderRef: 'ORD-SZ-1' }),
-        }),
-      );
-    });
-
-    it('idempotent: reuses existing legSeq 4 funds order (no duplicate create)', async () => {
-      fundsOrders.findByParent.mockResolvedValue([
-        { id: 'fo-sz-1', fundsOrderNo: 'FO-SZ-1', legSeq: 4, attempt: 1, status: 'CREATED' },
-      ]);
-      const dep = seizableDeposit();
-
-      await (service as any).onSeizeApproved(dep);
-
-      expect(fundsOrders.create).not.toHaveBeenCalled();
-      expect(accountingService.executePendingTransfer).toHaveBeenCalledTimes(1);
-    });
-
-    it('no-op when deposit is not FROZEN (e.g. replayed decided event after already SEIZING)', async () => {
-      const dep = seizableDeposit({ status: DepositTransactionStatus.SEIZING });
-
-      await (service as any).onSeizeApproved(dep);
-
-      expect(fundsOrders.create).not.toHaveBeenCalled();
-      expect(accountingService.executePendingTransfer).not.toHaveBeenCalled();
-      expect(depositService.updateStatus).not.toHaveBeenCalled();
-    });
-
-    it('pending transfer throws → rethrows, deposit NOT flipped to SEIZING, no STARTED audit (先账后状态)', async () => {
-      accountingService.executePendingTransfer.mockRejectedValueOnce(new Error('TB rejected'));
-      const dep = seizableDeposit();
-
-      await expect((service as any).onSeizeApproved(dep)).rejects.toThrow('TB rejected');
-
-      expect(depositService.updateStatus).not.toHaveBeenCalled();
-      expect(auditLogsService.recordSystem).not.toHaveBeenCalledWith(
-        expect.objectContaining({ action: 'DEPOSIT_SEIZE_STARTED' }),
-      );
-    });
-
-    it('no APPROVED DEPOSIT_SEIZE case found (orderRef unavailable) → throws, no funds order created, no status change', async () => {
-      approvalsService.list.mockResolvedValue({ total: 0, items: [] });
-      const dep = seizableDeposit();
-
-      await expect((service as any).onSeizeApproved(dep)).rejects.toThrow(/orderRef/);
-
-      expect(fundsOrders.create).not.toHaveBeenCalled();
-      expect(accountingService.executePendingTransfer).not.toHaveBeenCalled();
-      expect(depositService.updateStatus).not.toHaveBeenCalled();
-    });
-  });
-
-  // A4: legSeq 4 seize-leg settle (offline handoff confirm → POST → SEIZED) and
-  // fail/retry (offline handoff FAILED/TIMEOUT → VOID → rebuild leg, up to 3
-  // attempts). Mirrors legSeq3's return settle/fail almost exactly (single leg,
-  // same as return), EXCEPT settleSeize deliberately does NOT call
-  // tbEvidenceService.enrichForPost — there is no external payout artifact
-  // (txHash/bank ref) to enrich with since the destination is intentionally
-  // blank (owner decision 2026-07-28).
-  describe('handleFundsOrderChanged — legSeq4 seize settle/fail (A4)', () => {
-    let accountingService: {
-      resolveTbAccountId: jest.Mock;
-      executeTransfer: jest.Mock;
-      executePendingTransfer: jest.Mock;
-      postPendingTransfer: jest.Mock;
-      voidPendingTransfer: jest.Mock;
-    };
-
-    const baseDeposit = (overrides: Record<string, unknown> = {}) => ({
-      id: 'dep-sz-2',
-      depositNo: 'DEP-SZ-002',
-      status: DepositTransactionStatus.SEIZING,
-      ownerType: 'CUSTOMER',
-      ownerId: 'cust-sz-2',
-      amount: '5',
-      toWalletId: 'cust-wallet-sz-2',
-      toAddress: 'T_CUST_ADDR_SZ_2',
-      toIban: null,
-      assetId: 'asset-usdt',
-      traceId: 'trace-sz-2',
-      asset: { currency: 'USDT', tbLedgerId: 2, decimals: 6, type: 'CRYPTO' },
-      ...overrides,
-    });
-
-    const legEvent = (overrides: Record<string, unknown> = {}) => ({
-      fundsOrderId: 'fo-sz-2',
-      fundsOrderNo: 'FO-SZ-2',
-      parent: { depositTransactionId: 'dep-sz-2' },
-      legSeq: 4,
-      attempt: 1,
-      oldStatus: 'CONFIRMING',
-      newStatus: 'CONFIRMED',
-      ...overrides,
-    });
-
-    beforeEach(async () => {
-      accountingService = {
-        resolveTbAccountId: jest.fn().mockResolvedValue('acct'),
-        executeTransfer: jest.fn().mockResolvedValue(undefined),
-        executePendingTransfer: jest.fn().mockResolvedValue({ tbTransferId: 1n }),
-        postPendingTransfer: jest.fn().mockResolvedValue(undefined),
-        voidPendingTransfer: jest.fn().mockResolvedValue(undefined),
-      };
-      fundsOrders.findById.mockResolvedValue({
-        id: 'fo-sz-2', fundsOrderNo: 'FO-SZ-2', legSeq: 4, attempt: 1,
-        asset: { type: 'CRYPTO' },
-      });
-      fundsOrders.create.mockResolvedValue({ id: 'fo-sz-3', fundsOrderNo: 'FO-SZ-3', legSeq: 4, attempt: 2, status: 'CREATED' });
-      depositService.updateStatus.mockResolvedValue({});
-      approvalsService.list.mockResolvedValue({
-        total: 1,
-        items: [{ id: 'app-sz-2', objectSnapshot: { depositNo: 'DEP-SZ-002', orderRef: 'ORD-SZ-2' } }],
-      });
-
-      const module: TestingModule = await Test.createTestingModule({
-        providers: [
-        { provide: CustomerAccessService, useValue: customerAccessService },
-          DepositWorkflowService,
-          { provide: DepositTransactionsService, useValue: depositService },
-          { provide: FundsOrderService, useValue: fundsOrders },
-          { provide: AuditLogsService, useValue: auditLogsService },
-          { provide: AccountingService, useValue: accountingService },
-          { provide: WithdrawalAddressService, useValue: withdrawalAddresses },
-          { provide: SUMSUB_TXN_CLIENT, useValue: sumsubTxnClient },
-          { provide: ApprovalsService, useValue: approvalsService },
-          { provide: SystemWalletResolver, useValue: systemWalletResolver },
-          { provide: TbEvidenceService, useValue: tbEvidenceService },
-          { provide: DepositApplicantActionsService, useValue: actionsService },
-          { provide: CustomerRestrictionsService, useValue: customerRestrictionsService },
-          { provide: L1GateService, useValue: l1Gate },
-        ],
-      }).compile();
-
-      service = module.get<DepositWorkflowService>(DepositWorkflowService);
-    });
-
-    it('legSeq4 CONFIRMED → posts the single pending leg (no externalRef enrich), SEIZED, DEPOSIT_SEIZED audit', async () => {
-      depositService.findOne.mockResolvedValue(baseDeposit());
-
-      await service.handleFundsOrderChanged(legEvent() as any);
-
-      expect(accountingService.postPendingTransfer).toHaveBeenCalledTimes(1);
-      expect(accountingService.postPendingTransfer).toHaveBeenCalledWith(
-        expect.objectContaining({
-          pendingTransferId: deterministicTransferId('DEPOSIT', 'DEP-SZ-002', 'SEIZE_REVERSE_SUSPENSE', 1),
-        }),
-      );
-      expect(tbEvidenceService.enrichForPost).not.toHaveBeenCalled();
-      expect(depositService.updateStatus).toHaveBeenCalledWith(
-        'dep-sz-2',
-        expect.objectContaining({ action: DepositTransactionAction.SEIZED_DONE }),
-      );
-      expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
-        expect.objectContaining({ action: 'DEPOSIT_SEIZED' }),
-      );
-    });
-
-    // 2026-08-02 真机发现:FO2608024242(legSeq=4 上缴腿)记账已 POSTED、充值单已 SEIZED,
-    // 资金单却永远停在 CONFIRMED。根因是充值域里 FundsOrderAction.CLEAR 只在 payin 确认
-    // 那一处被调用,三个处置腿的 settle 都只做「记账 + 业务状态 + 审计」,漏了资金单收口。
-    // 守则闸：不针对某一条弧，而是断言「每个 settle*() 都调了 clearDispositionLeg」。
-    // 三条处置弧由 C3/A3/A4 三轮分别实现、三次漏同一处，说明这不是手误而是职责边界问题——
-    // 所以这里守的是**规则**而非**实例**：将来新增第四条处置弧，若忘了收口资金单，本条即红。
-    it('守则：所有 settle*() 结算成功后都必须收口资金单（新增处置弧的防漏闸）', async () => {
-      const source = require('fs').readFileSync(
-        require('path').join(__dirname, 'deposit-workflow.service.ts'),
-        'utf8',
-      );
-      const settlers = [...source.matchAll(/private async (settle\w+)\s*\(/g)].map((m) => m[1]);
-      expect(settlers.length).toBeGreaterThanOrEqual(3); // 没收/退回/上缴
-
-      for (const name of settlers) {
-        const body = source.slice(
-          source.indexOf(`private async ${name}(`),
-          source.indexOf('\n  private async ', source.indexOf(`private async ${name}(`) + 10),
-        );
-        expect({ settler: name, clearsLeg: body.includes('clearDispositionLeg(') }).toEqual({
-          settler: name,
-          clearsLeg: true,
-        });
-      }
-    });
-
-    it('settle 成功后必须把处置腿收口到 CLEARED（真机回归闸）', async () => {
-      const dep = baseDeposit();
-
-      await (service as any).settleSeize(dep, 'fo-sz-2', 1);
-
-      expect(fundsOrders.advance).toHaveBeenCalledWith('fo-sz-2', FundsOrderAction.CLEAR, 'SYSTEM');
-    });
-
-    it('资金单已 CLEARED 时视为幂等成功，不把 settle 拖垮', async () => {
-      const dep = baseDeposit();
-      fundsOrders.advance.mockRejectedValueOnce(
-        new Error('FundsOrder fo-sz-2 already terminal (CLEARED) — invalid transition'),
-      );
-
-      await expect((service as any).settleSeize(dep, 'fo-sz-2', 1)).resolves.toBeUndefined();
-
-      // 记账与业务状态照常完成，且不会因为 CLEAR 失败而触发重试重跑
-      expect(accountingService.postPendingTransfer).toHaveBeenCalledTimes(1);
-      expect(depositService.updateStatus).toHaveBeenCalledWith(
-        'dep-sz-2',
-        expect.objectContaining({ action: DepositTransactionAction.SEIZED_DONE }),
-      );
-    });
-
-    it('settle: post fails 3× → stays SEIZING + STUCK audit (no SEIZED)', async () => {
-      const dep = baseDeposit();
-      accountingService.postPendingTransfer.mockRejectedValue(new Error('TB down'));
-
-      await (service as any).settleSeize(dep, 'fo-sz-2', 1);
-
-      expect(accountingService.postPendingTransfer).toHaveBeenCalledTimes(3);
-      expect(depositService.updateStatus).not.toHaveBeenCalledWith(
-        expect.any(String),
-        expect.objectContaining({ action: DepositTransactionAction.SEIZED_DONE }),
-      );
-      expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
-        expect.objectContaining({ action: 'DEPOSIT_SEIZE_STUCK' }),
-      );
-    });
-
-    it('settle idempotent: deposit no longer SEIZING → no-op', async () => {
-      depositService.findOne.mockResolvedValue(baseDeposit({ status: 'SEIZED' }));
-
-      await service.handleFundsOrderChanged(legEvent() as any);
-
-      expect(accountingService.postPendingTransfer).not.toHaveBeenCalled();
-    });
-
-    it('legSeq4 FAILED, attempt < 3 → voids the pending leg, rebuilds leg (attempt+1), RETRIED audit, stays SEIZING', async () => {
-      depositService.findOne.mockResolvedValue(baseDeposit());
-
-      await service.handleFundsOrderChanged(legEvent({ newStatus: 'FAILED', attempt: 1 }) as any);
-
-      const oldPendingId = deterministicTransferId('DEPOSIT', 'DEP-SZ-002', 'SEIZE_REVERSE_SUSPENSE', 1);
-      const newPendingId = deterministicTransferId('DEPOSIT', 'DEP-SZ-002', 'SEIZE_REVERSE_SUSPENSE', 2);
-      expect(newPendingId).not.toEqual(oldPendingId); // rebuilt attempt must not collide with the voided one
-
-      expect(accountingService.voidPendingTransfer).toHaveBeenCalledTimes(1);
-      expect(accountingService.voidPendingTransfer).toHaveBeenCalledWith(
-        expect.objectContaining({ pendingTransferId: oldPendingId }),
-      );
-      expect(fundsOrders.create).toHaveBeenCalledWith(
-        expect.objectContaining({ depositTransactionId: 'dep-sz-2', legSeq: 4, attempt: 2, initialStatus: 'CREATED' }),
-      );
-      expect(accountingService.executePendingTransfer).toHaveBeenCalledWith(
-        expect.objectContaining({ legIndex: 2 }),
-      );
-      expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
-        expect.objectContaining({ action: 'DEPOSIT_SEIZE_RETRIED' }),
-      );
-      expect(depositService.updateStatus).not.toHaveBeenCalled();
-    });
-
-    it('legSeq4 TIMEOUT at attempt 3 (exhausted) → voids the pending leg, no rebuild, STUCK audit, stays SEIZING', async () => {
-      depositService.findOne.mockResolvedValue(baseDeposit());
-
-      await service.handleFundsOrderChanged(legEvent({ newStatus: 'TIMEOUT', attempt: 3 }) as any);
-
-      expect(accountingService.voidPendingTransfer).toHaveBeenCalledTimes(1);
-      expect(accountingService.voidPendingTransfer).toHaveBeenCalledWith(
-        expect.objectContaining({
-          pendingTransferId: deterministicTransferId('DEPOSIT', 'DEP-SZ-002', 'SEIZE_REVERSE_SUSPENSE', 3),
-        }),
-      );
-      expect(fundsOrders.create).not.toHaveBeenCalled();
-      expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
-        expect.objectContaining({ action: 'DEPOSIT_SEIZE_STUCK' }),
-      );
-      expect(depositService.updateStatus).not.toHaveBeenCalled();
-    });
-
-    it('legSeq4 non-CONFIRMED/FAILED/TIMEOUT status → no-op (e.g. SUBMITTED)', async () => {
-      depositService.findOne.mockResolvedValue(baseDeposit());
-
-      await service.handleFundsOrderChanged(legEvent({ newStatus: 'SUBMITTED' }) as any);
-
-      expect(accountingService.postPendingTransfer).not.toHaveBeenCalled();
-      expect(accountingService.voidPendingTransfer).not.toHaveBeenCalled();
-    });
-
-    // Fix 2: onSeizeLegFailed is a fire-and-forget @OnEvent downstream — its
-    // external calls (voidPendingTransfer, fetchSeizeOrderRef, fundsOrders.create,
-    // pendSeizeSuspense) must never throw uncaught, or it escapes as an unhandled
-    // rejection. Mirrors settleSeize's own try/catch.
-    it('Fix 2: voidPendingTransfer throws → does not throw, writes DEPOSIT_SEIZE_STUCK audit, deposit stays SEIZING (in-flight, no revert)', async () => {
-      depositService.findOne.mockResolvedValue(baseDeposit());
-      accountingService.voidPendingTransfer.mockRejectedValueOnce(new Error('TB unreachable'));
-
-      await expect(
-        service.handleFundsOrderChanged(legEvent({ newStatus: 'FAILED', attempt: 1 }) as any),
-      ).resolves.toBeUndefined();
-
-      expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
-        expect.objectContaining({
-          action: 'DEPOSIT_SEIZE_STUCK',
-          reason: expect.stringContaining('TB unreachable'),
-        }),
-      );
-      expect(fundsOrders.create).not.toHaveBeenCalled(); // never got to the rebuild step
-      expect(depositService.updateStatus).not.toHaveBeenCalled(); // stays SEIZING
-    });
-  });
-
-  // A5: onUnfreezeApproved fills in the real resume-into-compliance-flow execution
-  // (previously a stub — see A2). Zero accounting (money never left DEPOSIT_SUSPENSE
-  // while FROZEN) — the only state change is FROZEN --RESUME--> COMPLIANCE_PENDING,
-  // plus a best-effort Sumsub rescore so a fresh verdict can drive the state machine
-  // post-resume (the whole reason this arc exists). rescore is an external HTTP call
-  // and must NEVER crash/roll back the already-committed resume (plan-1 终审 I2
-  // teaching re: submitSumsubTxns' missing try/catch stranding deposits).
   describe('onUnfreezeApproved — resume into compliance flow (A5)', () => {
     const frozenDeposit = (overrides: Record<string, unknown> = {}) => ({
       id: 'dep-uf-1',
@@ -4757,6 +3484,8 @@ describe('DepositWorkflowService', () => {
           { provide: PrismaService, useValue: { depositTransaction: prismaDeposit } },
           { provide: EventEmitter2, useValue: { emit: jest.fn() } },
           { provide: FundsOrderService, useValue: fundsOrders },
+          { provide: DispositionService, useValue: { initiate: jest.fn().mockResolvedValue({ fundsOrderNo: 'FO-DISP-1', attempt: 1 }), rebuild: jest.fn().mockResolvedValue({ fundsOrderNo: 'FO-DISP-2' }), settle: jest.fn().mockResolvedValue({ ok: true, externalRef: null }), voidAttempt: jest.fn().mockResolvedValue(undefined), clearLeg: jest.fn().mockResolvedValue(null) } },
+        { provide: DispositionService, useValue: { initiate: jest.fn().mockResolvedValue({ fundsOrderNo: 'FO-DISP-1', attempt: 1 }), rebuild: jest.fn().mockResolvedValue({ fundsOrderNo: 'FO-DISP-2' }), settle: jest.fn().mockResolvedValue({ ok: true, externalRef: null }), voidAttempt: jest.fn().mockResolvedValue(undefined), clearLeg: jest.fn().mockResolvedValue(null) } },
           { provide: AuditLogsService, useValue: realAuditLogsService },
           { provide: AccountingService, useValue: { resolveTbAccountId: jest.fn(), executeTransfer: jest.fn() } },
           { provide: WithdrawalAddressService, useValue: withdrawalAddresses },

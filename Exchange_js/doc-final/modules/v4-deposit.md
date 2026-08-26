@@ -1,6 +1,6 @@
 # V4 · 充值（钱怎么进来）
 
-> 对应 PRD：待写 ｜ 技术节点 Last Verified：2026-08-26（底稿 truth 2026-08-22 第四批逐行核对版）
+> 对应 PRD：待写 ｜ 技术节点 Last Verified：2026-08-26（地基站处置动词搬家后收尾闸全绿复核）
 > 演示幕次：第三幕「钱进」 ｜ 验收用例：TC-05（充值）
 
 ## 0. 一句话定位
@@ -61,7 +61,8 @@
 
 ## 5. 关键技术节点（≤30 行）
 
-- 工作流 `trading/deposit-transactions/deposit-workflow.service.ts`：`runGate0()`（L1 三分流：FREEZE / holdAtGate0 / 放行）｜ `applyKytVerdict()+decideVerdictLanding()`（四裁决落地路由）｜ `initiate{Confiscation,Return,Seize,Unfreeze}()` + 对应 `on*Decided/settle*`（四弧，先 pending 锁账再推状态、腿确认后 post 落终态）｜ `executeDepositAccounting()`（两步入账 + 客户级科目懒解析）
+- 工作流 `trading/deposit-transactions/deposit-workflow.service.ts`：`runGate0()`（L1 三分流：FREEZE / holdAtGate0 / 放行）｜ `applyKytVerdict()+decideVerdictLanding()`（四裁决落地路由）｜ `initiate{Confiscation,Return,Seize,Unfreeze}()` + `{confiscation,return,seize}Spec()`（三弧处置说明书）+ 对应 `on*Decided/settle*`（业务判断与留痕层）｜ `executeDepositAccounting()`（两步入账 + 客户级科目懒解析）
+- **处置动词** `funds-orders/disposition.service.ts → DispositionService`（地基站 2026-08-26）：initiate / rebuild / settle / voidAttempt / clearLeg——三弧的建腿、锁账、落账、重试三级梯、腿收口收敛为一份实现，工作流按说明书一句话调用
 - 状态机 `deposit-transactions.service.ts → getNextStatus()`（28 边迁移表 + 守则单测锁边数）；PATCH 侧门黑名单在 controller `updateStatus()`
 - L1 闸门 `trading/shared/` `L1GateService`（九项快照，三域共用求值器；判定结果整包落单上 l1Snapshot）
 - KYT 类型判定 `kyt-txn-type.resolver.ts → resolveKytTxnType()`（crypto ∧ VASP ∧ 金额≥阈值 → travelRule；阈值写死：AED 3500 / USDT 1000，边界取 ≥）
