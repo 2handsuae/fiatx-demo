@@ -2,7 +2,7 @@ import { ForbiddenException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { PrismaService } from '../../../core/prisma/prisma.service';
 import { AuditLogsService } from '../../audit-logging/audit-logs.service';
-import { OnboardingService } from '../../identity/onboarding/onboarding.service';
+import { CustomerAccessService } from '../../identity/customers/customer-access.service';
 import { CustomerDepositWalletService } from './customer-deposit-wallet.service';
 import { CUSTODIAN_ADAPTER } from './custodian-adapter.interface';
 import { WalletsService } from './wallets.service';
@@ -11,7 +11,7 @@ import { WalletRole, WalletStatus } from './dto/wallet.dto';
 describe('CustomerDepositWalletService', () => {
   let service: CustomerDepositWalletService;
   let prisma: any;
-  let onboardingService: any;
+  let customerAccess: any;
   let walletsService: any;
   let custodianAdapter: any;
 
@@ -63,7 +63,7 @@ describe('CustomerDepositWalletService', () => {
       ),
     };
 
-    onboardingService = {
+    customerAccess = {
       assertTradingReady: jest.fn().mockResolvedValue(undefined),
     };
 
@@ -83,7 +83,7 @@ describe('CustomerDepositWalletService', () => {
         { provide: AuditLogsService, useValue: { recordSystem: jest.fn().mockResolvedValue(undefined) } },
         { provide: WalletsService, useValue: walletsService },
         { provide: CUSTODIAN_ADAPTER, useValue: custodianAdapter },
-        { provide: OnboardingService, useValue: onboardingService },
+        { provide: CustomerAccessService, useValue: customerAccess },
       ],
     }).compile();
 
@@ -91,7 +91,7 @@ describe('CustomerDepositWalletService', () => {
   });
 
   it('should reject with NO_ACTIVE_FIAT_WITHDRAWAL_ADDRESS and create no wallet when customer is not trading-ready', async () => {
-    onboardingService.assertTradingReady.mockRejectedValue(
+    customerAccess.assertTradingReady.mockRejectedValue(
       new ForbiddenException({
         code: 'NO_ACTIVE_FIAT_WITHDRAWAL_ADDRESS',
         message: '需要先创建并激活一个法币提现地址才能开展业务',
@@ -103,7 +103,7 @@ describe('CustomerDepositWalletService', () => {
       response: expect.objectContaining({ code: 'NO_ACTIVE_FIAT_WITHDRAWAL_ADDRESS' }),
     });
 
-    expect(onboardingService.assertTradingReady).toHaveBeenCalledWith('cust-1');
+    expect(customerAccess.assertTradingReady).toHaveBeenCalledWith('cust-1');
     expect(prisma.$transaction).not.toHaveBeenCalled();
     expect(walletsService.createWalletRecord).not.toHaveBeenCalled();
   });
@@ -111,7 +111,7 @@ describe('CustomerDepositWalletService', () => {
   it('should create the wallet when customer is trading-ready (happy path)', async () => {
     const result = await service.createOrReturn('cust-1', 'asset-1');
 
-    expect(onboardingService.assertTradingReady).toHaveBeenCalledWith('cust-1');
+    expect(customerAccess.assertTradingReady).toHaveBeenCalledWith('cust-1');
     expect(walletsService.createWalletRecord).toHaveBeenCalled();
     expect(custodianAdapter.createVault).toHaveBeenCalled();
     expect(result).toMatchObject({ id: 'wallet-1', walletNo: 'WA0001' });
@@ -130,14 +130,14 @@ describe('CustomerDepositWalletService', () => {
       cb({ wallet: { findFirst: jest.fn().mockResolvedValue(existingWallet) } }),
     );
     // Customer is NOT trading-ready: if the gate ran, it would throw.
-    onboardingService.assertTradingReady.mockRejectedValue(
+    customerAccess.assertTradingReady.mockRejectedValue(
       new ForbiddenException({ code: 'NO_ACTIVE_FIAT_WITHDRAWAL_ADDRESS' }),
     );
 
     const result = await service.createOrReturn('cust-1', 'asset-1');
 
     expect(result).toMatchObject({ id: 'wallet-1', walletNo: 'WA0001', status: 'ACTIVE' });
-    expect(onboardingService.assertTradingReady).not.toHaveBeenCalled();
+    expect(customerAccess.assertTradingReady).not.toHaveBeenCalled();
     expect(walletsService.createWalletRecord).not.toHaveBeenCalled();
   });
 });

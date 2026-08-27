@@ -1,6 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { PrismaService } from '../../../core/prisma/prisma.service';
-import { OnboardingService } from '../../identity/onboarding/onboarding.service';
+import { CustomerAccessService } from '../../identity/customers/customer-access.service';
 import { DepositTransactionsService } from './deposit-transactions.service';
 import { FundsOrderService } from '../../funds-orders/funds-order.service';
 import { AuditLogsService } from '../../audit-logging/audit-logs.service';
@@ -19,7 +19,7 @@ import {
 describe('InboundTransferSignalsService', () => {
   let service: InboundTransferSignalsService;
   let prisma: any;
-  let onboardingService: any;
+  let customerAccess: any;
   let depositService: any;
   let fundsOrderService: any;
 
@@ -58,7 +58,7 @@ describe('InboundTransferSignalsService', () => {
       restrictions: null,
     });
 
-    onboardingService = {
+    customerAccess = {
       assertTradingEligibility: jest.fn(),
     };
 
@@ -93,7 +93,7 @@ describe('InboundTransferSignalsService', () => {
       providers: [
         InboundTransferSignalsService,
         { provide: PrismaService, useValue: prisma },
-        { provide: OnboardingService, useValue: onboardingService },
+        { provide: CustomerAccessService, useValue: customerAccess },
         { provide: DepositTransactionsService, useValue: depositService },
         { provide: FundsOrderService, useValue: fundsOrderService },
         {
@@ -110,7 +110,7 @@ describe('InboundTransferSignalsService', () => {
   });
 
   it('should create a pending inbound transfer signal for customer deposit wallet', async () => {
-    onboardingService.assertTradingEligibility.mockResolvedValue(undefined);
+    customerAccess.assertTradingEligibility.mockResolvedValue(undefined);
     prisma.wallet.findUnique.mockResolvedValue({
       id: 'wallet-1',
       ownerType: 'CUSTOMER',
@@ -162,7 +162,7 @@ describe('InboundTransferSignalsService', () => {
   });
 
   it('should reject a crypto inbound signal missing counterpartyIsVasp', async () => {
-    onboardingService.assertTradingEligibility.mockResolvedValue(undefined);
+    customerAccess.assertTradingEligibility.mockResolvedValue(undefined);
     prisma.wallet.findUnique.mockResolvedValue({
       id: 'wallet-1',
       ownerType: 'CUSTOMER',
@@ -186,7 +186,7 @@ describe('InboundTransferSignalsService', () => {
   });
 
   it('should reject a crypto inbound signal with counterpartyIsVasp explicitly null', async () => {
-    onboardingService.assertTradingEligibility.mockResolvedValue(undefined);
+    customerAccess.assertTradingEligibility.mockResolvedValue(undefined);
     prisma.wallet.findUnique.mockResolvedValue({
       id: 'wallet-1',
       ownerType: 'CUSTOMER',
@@ -211,7 +211,7 @@ describe('InboundTransferSignalsService', () => {
   });
 
   it('should reject a fiat inbound signal that provides counterpartyIsVasp', async () => {
-    onboardingService.assertTradingEligibility.mockResolvedValue(undefined);
+    customerAccess.assertTradingEligibility.mockResolvedValue(undefined);
     prisma.wallet.findUnique.mockResolvedValue({
       id: 'wallet-fiat-1',
       ownerType: 'CUSTOMER',
@@ -236,7 +236,7 @@ describe('InboundTransferSignalsService', () => {
   });
 
   it('should return existing inbound signal when dedupe key already exists', async () => {
-    onboardingService.assertTradingEligibility.mockResolvedValue(undefined);
+    customerAccess.assertTradingEligibility.mockResolvedValue(undefined);
     prisma.wallet.findUnique.mockResolvedValue({
       id: 'wallet-1',
       ownerType: 'CUSTOMER',
@@ -265,7 +265,7 @@ describe('InboundTransferSignalsService', () => {
   });
 
   it('should accept fiat medium risk with large deposit profile mismatch', async () => {
-    onboardingService.assertTradingEligibility.mockResolvedValue(undefined);
+    customerAccess.assertTradingEligibility.mockResolvedValue(undefined);
     prisma.wallet.findUnique.mockResolvedValue({
       id: 'wallet-fiat-1',
       ownerType: 'CUSTOMER',
@@ -320,7 +320,7 @@ describe('InboundTransferSignalsService', () => {
   });
 
   it('should reject fiat medium risk reasons that rely on crypto-only enums', async () => {
-    onboardingService.assertTradingEligibility.mockResolvedValue(undefined);
+    customerAccess.assertTradingEligibility.mockResolvedValue(undefined);
     prisma.wallet.findUnique.mockResolvedValue({
       id: 'wallet-fiat-1',
       ownerType: 'CUSTOMER',
@@ -347,7 +347,7 @@ describe('InboundTransferSignalsService', () => {
   });
 
   it('should accept fiat high risk with sanctions hit', async () => {
-    onboardingService.assertTradingEligibility.mockResolvedValue(undefined);
+    customerAccess.assertTradingEligibility.mockResolvedValue(undefined);
     prisma.wallet.findUnique.mockResolvedValue({
       id: 'wallet-fiat-1',
       ownerType: 'CUSTOMER',
@@ -403,7 +403,7 @@ describe('InboundTransferSignalsService', () => {
       assetId: 'asset-1',
       asset: { type: 'CRYPTO' },
     });
-    onboardingService.assertTradingEligibility.mockRejectedValue(
+    customerAccess.assertTradingEligibility.mockRejectedValue(
       new Error('DEPOSIT is blocked by onboarding gate'),
     );
     prisma.inboundTransferSignal.findMany.mockResolvedValue([
@@ -442,7 +442,7 @@ describe('InboundTransferSignalsService', () => {
       assetId: 'asset-1',
       asset: { type: 'CRYPTO' },
     });
-    onboardingService.assertTradingEligibility.mockResolvedValue(undefined);
+    customerAccess.assertTradingEligibility.mockResolvedValue(undefined);
     prisma.inboundTransferSignal.findMany.mockResolvedValue([
       {
         id: 'sig-1',
@@ -528,7 +528,7 @@ describe('InboundTransferSignalsService', () => {
       assetId: 'asset-1',
       asset: { type: 'CRYPTO' },
     });
-    onboardingService.assertTradingEligibility.mockResolvedValue(undefined);
+    customerAccess.assertTradingEligibility.mockResolvedValue(undefined);
     prisma.inboundTransferSignal.findMany.mockResolvedValue([
       {
         id: 'sig-frozen-1',
@@ -585,7 +585,7 @@ describe('InboundTransferSignalsService', () => {
       assetId: 'asset-1',
       asset: { type: 'FIAT' },
     });
-    onboardingService.assertTradingEligibility.mockResolvedValue(undefined);
+    customerAccess.assertTradingEligibility.mockResolvedValue(undefined);
     prisma.inboundTransferSignal.findMany.mockResolvedValue([
       {
         id: 'sig-1',
@@ -640,7 +640,7 @@ describe('InboundTransferSignalsService', () => {
       assetId: 'asset-1',
       asset: { type: 'CRYPTO' },
     });
-    onboardingService.assertTradingEligibility.mockResolvedValue(undefined);
+    customerAccess.assertTradingEligibility.mockResolvedValue(undefined);
     prisma.inboundTransferSignal.findMany.mockResolvedValue([
       {
         id: 'sig-interactive-1',
@@ -684,7 +684,7 @@ describe('InboundTransferSignalsService', () => {
   });
 
   it('should accept C_VIBAN wallet role for fiat deposit signal creation', async () => {
-    onboardingService.assertTradingEligibility.mockResolvedValue(undefined);
+    customerAccess.assertTradingEligibility.mockResolvedValue(undefined);
     prisma.wallet.findUnique.mockResolvedValue({
       id: 'wallet-viban-1',
       ownerType: 'CUSTOMER',

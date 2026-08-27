@@ -13,12 +13,11 @@ import { CUSTODIAN_ADAPTER } from './custodian-adapter.interface';
 import { PrismaModule } from '../../../core/prisma/prisma.module';
 import { AuditLogsModule } from '../../audit-logging/audit-logs.module';
 import { GovernanceModule } from '../../governance/governance.module';
-import { OnboardingModule } from '../../identity/onboarding/onboarding.module';
+import { CustomersModule } from '../../identity/customers/customers.module';
 
 @Module({
-  // Onboarding 边曾裹 forwardRef（2026-08-14 起，防循环 require 中段拿 undefined）；
-  // 站4 清扫实测环已不存在（sumsub 枢纽解包后装载链拉直），拆封并开机实证。
-  imports: [PrismaModule, AuditLogsModule, GovernanceModule, OnboardingModule],
+  // 站6：一期拆除后交易前置门迁 CustomerAccessService——本模块改引 CustomersModule。
+  imports: [PrismaModule, AuditLogsModule, GovernanceModule, CustomersModule],
   controllers: [WalletsController, CustodianWalletCreateController, CustomerDepositWalletController],
   providers: [
     WalletsService,

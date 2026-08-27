@@ -17,7 +17,6 @@ import { DepositTransactionsModule } from './modules/trading/deposit-transaction
 import { DepositDemoModule } from './modules/deposit-sumsub/deposit-demo.module';
 import { WithdrawDemoModule } from './modules/withdraw-sumsub/withdraw-demo.module';
 import { SwapDemoModule } from './modules/swap-sumsub/swap-demo.module';
-import { CraDemoModule } from './modules/identity/client-risk-assessment/cra-demo.module';
 import { TigerBeetleModule } from './modules/accounting/tigerbeetle/tigerbeetle.module';
 import { WorkflowsModule } from './orchestrators/workflows.module';
 import { TreasuryModule } from './modules/asset-treasury/treasury/treasury.module';
@@ -28,11 +27,9 @@ import { PricingCenterModule } from './modules/trading/pricing-center/pricing-ce
 import { WithdrawalFeeLevelModule } from './modules/trading/withdrawal-fee-level/withdrawal-fee-level.module';
 import { SwapFeeLevelModule } from './modules/trading/swap-fee-level/swap-fee-level.module';
 import { ReconciliationModule } from './modules/clearing-settle/reconciliation/reconciliation.module';
-import { OnboardingModule } from './modules/identity/onboarding/onboarding.module';
 import { AuditLogsModule } from './modules/audit-logging/audit-logs.module';
 import { GovernanceModule } from './modules/governance/governance.module';
 import { SumsubIngestionModule } from './modules/sumsub-ingestion/sumsub-ingestion.module';
-import { ClientRiskAssessmentModule } from './modules/identity/client-risk-assessment/client-risk-assessment.module';
 import { MaterialRefreshModule } from './modules/identity/material-refresh/material-refresh.module';
 import { MaterialRequestsModule } from './modules/identity/material-requests/material-requests.module';
 import { ProfileBannersModule } from './modules/identity/profile-banners/profile-banners.module';
@@ -78,7 +75,6 @@ import { TransactionLimitsModule as TransactionLimitRulesModule } from './module
     DepositDemoModule,
     WithdrawDemoModule,
     SwapDemoModule,
-    CraDemoModule,
     TigerBeetleModule,
     WorkflowsModule,
     TreasuryModule,
@@ -91,9 +87,7 @@ import { TransactionLimitsModule as TransactionLimitRulesModule } from './module
     ReconciliationModule,
     AuditLogsModule,
     GovernanceModule,
-    OnboardingModule,
     SumsubIngestionModule,
-    ClientRiskAssessmentModule,
     MaterialRefreshModule,
     MaterialRequestsModule,
     ProfileBannersModule,

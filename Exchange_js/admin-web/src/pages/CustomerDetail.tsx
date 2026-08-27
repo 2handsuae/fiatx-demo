@@ -20,24 +20,6 @@ import { scopeLabel, type AdminRestrictionRow } from '../utils/restrictionCauseM
 
 /* ── Interfaces ──────────────────────────────────────────────── */
 
-interface CorporateProfile {
-  companyName: string;
-  registrationNo: string;
-  incorporationCountry: string;
-  registeredAddress?: string | null;
-  licenseType?: string | null;
-  licenseNumber?: string | null;
-}
-
-interface UboProfile {
-  id: string;
-  fullName: string;
-  ownershipPercent?: number | null;
-  nationality?: string | null;
-  pepFlag?: boolean;
-  status: string;
-}
-
 interface PeriodicReviewCycleSummary {
   id: string;
   cycleNo: string;
@@ -82,14 +64,10 @@ interface CustomerDetailData {
   activePeriodicReviewCycleId?: string | null;
   activePeriodicReviewCycle?: PeriodicReviewCycleSummary | null;
   investorTier?: string | null;
-  investorTierSource?: string | null;
   investorTierUpdatedAt?: string | null;
   createdAt: string;
   updatedAt?: string | null;
-  corporateProfile?: CorporateProfile | null;
-  uboProfiles?: UboProfile[];
   // Verification (Sumsub) snapshot
-  verificationProvider?: string | null;
   verificationSubstatus?: string | null;
   verificationCustomerActionRequired?: boolean;
   verificationCanContinue?: boolean;
@@ -100,7 +78,6 @@ interface CustomerDetailData {
   sumsubLatestReviewId?: string | null;
   sumsubLatestAttemptId?: string | null;
   sumsubExperiencedLevel2?: boolean;
-  onboardingTraceId?: string | null;
 }
 
 /* ── Customer Tags ───────────────────────────────────────────── */
@@ -124,7 +101,6 @@ const displayName = (c: CustomerDetailData): string => {
   if (c.customerType === 'CORPORATE') {
     return (
       c.companyName ||
-      c.corporateProfile?.companyName ||
       `${c.firstName ?? ''} ${c.lastName ?? ''}`.trim() ||
       c.customerNo
     );
@@ -292,8 +268,6 @@ const CustomerDetail = () => {
   const [tierMessage, setTierMessage] = useState<string | null>(null);
 
   /* ── Risk Assessment trigger state ── */
-  const [assessmentLoading, setAssessmentLoading] = useState(false);
-  const [assessmentMessage, setAssessmentMessage] = useState<string | null>(null);
 
   /* ── Fetching ── */
 
@@ -448,14 +422,6 @@ const CustomerDetail = () => {
 
   /* ── Derived booleans ── */
 
-  const hasCorporate = useMemo(
-    () => detail?.customerType === 'CORPORATE' && !!detail.corporateProfile,
-    [detail],
-  );
-  const hasUbos = useMemo(
-    () => Array.isArray(detail?.uboProfiles) && (detail?.uboProfiles?.length ?? 0) > 0,
-    [detail],
-  );
   const hasPeriodicReview = useMemo(
     () =>
       !!detail?.activePeriodicReviewCycle ||
@@ -468,32 +434,10 @@ const CustomerDetail = () => {
   );
   const hasVerification = useMemo(
     () =>
-      !!detail?.verificationProvider ||
       !!detail?.verificationSubstatus ||
       !!detail?.sumsubApplicantId,
     [detail],
   );
-
-  /* ── Risk Assessment trigger handler ── */
-
-  const triggerAssessment = async () => {
-    if (!detail) return;
-    setAssessmentLoading(true);
-    setAssessmentMessage(null);
-    try {
-      const res = await adminFetch(
-        `${import.meta.env.VITE_API_URL}/admin/compliance/customers/${detail.id}/risk-assessment/trigger`,
-        { method: 'POST', body: JSON.stringify({}) },
-      );
-      const data = await res.json();
-      setAssessmentMessage(`Assessment started: ${data.assessmentNo || data.id || 'OK'}`);
-      await fetchDetail();
-    } catch (e) {
-      setAssessmentMessage(`Failed: ${e instanceof Error ? e.message : 'Unknown error'}`);
-    } finally {
-      setAssessmentLoading(false);
-    }
-  };
 
   /* ── Loading / error stubs ── */
 
@@ -711,7 +655,7 @@ const CustomerDetail = () => {
                 {isCorporate && (
                   <Field
                     label="Company Name"
-                    value={detail.companyName ?? detail.corporateProfile?.companyName ?? undefined}
+                    value={detail.companyName ?? undefined}
                     full
                   />
                 )}
@@ -752,7 +696,6 @@ const CustomerDetail = () => {
                 )}
               </div>
               <FieldGrid>
-                <Field label="Provider" value={detail.verificationProvider ?? undefined} />
                 <Field label="Current Level" value={detail.sumsubCurrentLevelName ?? undefined} />
                 <Field
                   label="Latest Event"
@@ -787,7 +730,6 @@ const CustomerDetail = () => {
                 <Field label="Applicant ID" value={detail.sumsubApplicantId ?? undefined} mono />
                 <Field label="Latest Review ID" value={detail.sumsubLatestReviewId ?? undefined} mono />
                 <Field label="Latest Attempt ID" value={detail.sumsubLatestAttemptId ?? undefined} mono />
-                <Field label="Trace ID" value={detail.onboardingTraceId ?? undefined} mono full />
               </FieldGrid>
             </section>
           )}
@@ -1045,33 +987,12 @@ const CustomerDetail = () => {
             </section>
           )}
 
-          {/* ⑨ Risk Assessment */}
-          <section className="px-6 py-5">
-            <Cap>Risk Assessment</Cap>
-            <p className="mt-1 mb-4 font-mono text-[9px] text-adm-t3">
-              Manually trigger a periodic risk assessment for this customer.
-            </p>
-            {assessmentMessage && (
-              <div className="mb-3 rounded border border-adm-green/30 bg-adm-green/10 px-3 py-2 font-mono text-[10px] text-adm-green">
-                {assessmentMessage}
-              </div>
-            )}
-            <button
-              disabled={assessmentLoading}
-              onClick={() => void triggerAssessment()}
-              className={adminButtonClass('simulationAction')}
-            >
-              {assessmentLoading ? 'Triggering...' : 'Start Risk Assessment'}
-            </button>
-          </section>
-
           {/* Investor Classification */}
           <section className="px-6 py-5">
             <Cap>Investor Tier</Cap>
             <div className="mt-3">
               <FieldGrid>
                 <Field label="Tier" value={detail.investorTier ?? 'RETAIL'} />
-                <Field label="Source" value={detail.investorTierSource ?? 'CDD'} />
                 <Field
                   label="Updated At"
                   value={fmt(detail.investorTierUpdatedAt)}
@@ -1161,71 +1082,9 @@ const CustomerDetail = () => {
           </section>
 
           {/* ⑫ Corporate Profile (only for CORPORATE) */}
-          {hasCorporate && detail.corporateProfile && (
-            <section className="px-6 py-5">
-              <Cap>Corporate Profile</Cap>
-              <div className="mt-3">
-                <FieldGrid>
-                  <Field label="Company Name" value={detail.corporateProfile.companyName} />
-                  <Field label="Registration No" value={detail.corporateProfile.registrationNo} mono />
-                  <Field
-                    label="Incorporation Country"
-                    value={detail.corporateProfile.incorporationCountry}
-                  />
-                  <Field
-                    label="License Type"
-                    value={detail.corporateProfile.licenseType ?? undefined}
-                  />
-                  <Field
-                    label="License Number"
-                    value={detail.corporateProfile.licenseNumber ?? undefined}
-                    mono
-                  />
-                  <Field
-                    label="Registered Address"
-                    value={detail.corporateProfile.registeredAddress ?? undefined}
-                    full
-                  />
-                </FieldGrid>
-              </div>
-            </section>
-          )}
-
+          
           {/* ⑪ UBO List (only for CORPORATE) */}
-          {hasUbos && (
-            <section className="px-6 py-5">
-              <Cap>Ultimate Beneficial Owners</Cap>
-              <p className="mt-1 mb-4 font-mono text-[9px] text-adm-t3">
-                {detail.uboProfiles?.length} declared UBO{(detail.uboProfiles?.length || 0) === 1 ? '' : 's'}
-              </p>
-              <div className="mt-3 flex flex-col gap-2">
-                {detail.uboProfiles?.map((ubo) => (
-                  <div
-                    key={ubo.id}
-                    className="flex items-center justify-between gap-3 rounded border border-adm-border bg-adm-bg px-4 py-2.5"
-                  >
-                    <div className="flex min-w-0 flex-col gap-0.5">
-                      <span className="truncate font-mono text-[11px] font-semibold text-adm-t2">
-                        {ubo.fullName}
-                      </span>
-                      <span className="font-mono text-[9px] text-adm-t3">
-                        {ubo.nationality || '—'} · Ownership {ubo.ownershipPercent ?? '—'}%
-                      </span>
-                    </div>
-                    <div className="flex shrink-0 items-center gap-2">
-                      {ubo.pepFlag && (
-                        <span className="inline-flex items-center rounded border border-adm-red/25 bg-adm-red/10 px-1.5 py-px font-mono text-[9px] text-adm-red">
-                          PEP
-                        </span>
-                      )}
-                      <AdminBadge value={ubo.status} />
-                    </div>
                   </div>
-                ))}
-              </div>
-            </section>
-          )}
-        </div>
 
         {/* ════ RIGHT SIDEBAR ════ */}
         <div className="w-[272px] min-w-[272px] overflow-y-auto border-l border-adm-border bg-adm-panel px-4 py-1">
@@ -1286,7 +1145,6 @@ const CustomerDetail = () => {
               <AdminBadge value={detail.verificationSubstatus || 'CREATED'} />
             </div>
             <SidebarKV label="Level" value={detail.sumsubCurrentLevelName} mono />
-            <SidebarKV label="Provider" value={detail.verificationProvider} />
             <SidebarKV label="Last Event" value={detail.verificationLatestEventType} mono />
             <SidebarKV label="Updated" value={fmt(detail.verificationLatestEventAt)} mono />
             <SidebarKV

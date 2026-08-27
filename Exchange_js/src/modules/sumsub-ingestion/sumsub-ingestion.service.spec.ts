@@ -70,10 +70,7 @@ describe('SumsubIngestionService — deposit/withdraw/swap KYT cascade (Task 4/5
 
     service = new SumsubIngestionService(
       prisma,
-      {} as any, // onboardingService
-      {} as any, // clientRiskAssessmentService
       materialRefreshService,
-      {} as any, // tierUpgradeCaseService
       {} as any, // depositWorkflowService
       {} as any, // withdrawService
       depositWebhookRouter,

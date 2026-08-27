@@ -220,11 +220,9 @@ describe('多因不互相解 — 材料自动撕不许碰制裁便签（Task 7�
     expect(access.disclosed).toHaveLength(0);
   });
 
-  it('INV-1 守则扫描：四个自动写入点不得再给 lifecycle 赋任何字面值', () => {
+  it('INV-1 守则扫描：自动写入点不得再给 lifecycle 赋任何字面值（站6 后剩两处——CRA/升级案随一期拆除）', () => {
     const files = [
       'material-refresh.service.ts',
-      '../tier-upgrade-case/tier-upgrade-case.service.ts',
-      '../client-risk-assessment/client-risk-assessment.service.ts',
       '../../sumsub-ingestion/sumsub-ingestion.service.ts',
     ];
     for (const rel of files) {

@@ -3,6 +3,7 @@ import { CustomersService } from './customers.service';
 import { CustomerRestrictionsService } from './customer-restrictions.service';
 import { CustomerAccessService } from './customer-access.service';
 import { CustomersController } from './customers.controller';
+import { CustomerProfileController } from './customer-profile.controller';
 import { PrismaModule } from '../../../core/prisma/prisma.module';
 import { NotificationsModule } from '../../../core/notifications/notifications.module';
 import { TigerBeetleModule } from '../../accounting/tigerbeetle/tigerbeetle.module';
@@ -43,6 +44,7 @@ import { CustomerRestrictionsClientController } from './customer-restrictions.cl
     CustomersController,
     CustomerRestrictionsAdminController,
     CustomerRestrictionsClientController,
+    CustomerProfileController,
   ],
   exports: [
     CustomerRestrictionWorkflowService,

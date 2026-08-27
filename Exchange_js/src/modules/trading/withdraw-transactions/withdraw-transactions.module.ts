@@ -4,7 +4,6 @@ import { WithdrawTransactionsController } from './withdraw-transactions.controll
 import { CustomerWithdrawController } from './customer-withdraw.controller';
 import { PrismaModule } from '../../../core/prisma/prisma.module';
 import { CustomersModule } from '../../identity/customers/customers.module';
-import { OnboardingModule } from '../../identity/onboarding/onboarding.module';
 import { WithdrawWorkflowService } from './withdraw-workflow.service';
 import { TigerBeetleModule } from '../../accounting/tigerbeetle/tigerbeetle.module';
 import { WithdrawalFeeLevelModule } from '../withdrawal-fee-level/withdrawal-fee-level.module';
@@ -26,8 +25,6 @@ import { L1GateModule } from '../shared/l1-gate/l1-gate.module';
     PrismaModule,
     // 站3-α2（2026-08-27）解包完成：站2 实测钉住的装载链已在站3 拆断
     // （swap-sumsub 直调环事件化 + CRA→ingestion 演示件独立挂载），开机考通过后平引用。
-    OnboardingModule,
-    // Task 5：WithdrawWorkflowService 注入 CustomerAccessService（客户级能力闸）
     CustomersModule,
     TigerBeetleModule,
     WithdrawalFeeLevelModule,

@@ -22,10 +22,6 @@ const customerListInclude = {
 } satisfies Prisma.CustomerMainInclude;
 
 const customerDetailInclude = {
-  corporateProfile: true,
-  uboProfiles: {
-    orderBy: { createdAt: 'asc' as const },
-  },
   latestRiskApproval: {
     select: riskApprovalSummarySelect,
   },

@@ -9,10 +9,7 @@ import { PrismaService } from '../../core/prisma/prisma.service';
 import { CustomerRestrictionsService } from '../identity/customers/customer-restrictions.service';
 import { CustomerRestrictionWorkflowService } from '../identity/customers/customer-restriction-workflow.service';
 import { MaterialRequestReviewService } from '../identity/material-requests/material-request-review.service';
-import { OnboardingService } from '../identity/onboarding/onboarding.service';
-import { ClientRiskAssessmentService } from '../identity/client-risk-assessment/client-risk-assessment.service';
 import { MaterialRefreshService } from '../identity/material-refresh/material-refresh.service';
-import { TierUpgradeCaseService } from '../identity/tier-upgrade-case/tier-upgrade-case.service';
 import { DepositWorkflowService } from '../trading/deposit-transactions/deposit-workflow.service';
 import { WithdrawTransactionsService } from '../trading/withdraw-transactions/withdraw-transactions.service';
 import { DepositWebhookRouter } from '../deposit-sumsub/deposit-webhook.router';
@@ -20,7 +17,6 @@ import { WithdrawWebhookRouter } from '../withdraw-sumsub/withdraw-webhook.route
 import { SwapWebhookRouter } from '../swap-sumsub/swap-webhook.router';
 import { KYT_VERDICT_TYPES } from '../deposit-sumsub/kyt-webhook-types';
 import { generateReferenceNo } from '../../common/utils/no-generator.util';
-import { SimulationScenario } from './dto/sumsub-ingestion.dto';
 import { SumsubWebhookEvent } from '@prisma/client';
 
 const MAX_NO_RETRIES = 5;
@@ -32,10 +28,7 @@ export class SumsubIngestionService {
 
   constructor(
     private readonly prisma: PrismaService,
-    private readonly onboardingService: OnboardingService,
-    private readonly clientRiskAssessmentService: ClientRiskAssessmentService,
     private readonly materialRefreshService: MaterialRefreshService,
-    private readonly tierUpgradeCaseService: TierUpgradeCaseService,
     private readonly depositWorkflowService: DepositWorkflowService,
     private readonly withdrawService: WithdrawTransactionsService,
     private readonly depositWebhookRouter: DepositWebhookRouter,
@@ -173,68 +166,7 @@ export class SumsubIngestionService {
       // withdrawKytCheckSimulated/withdrawTravelRuleCheckSimulated retired with the old
       // preKyt/travelRule mock pipeline (Task 5 — real Sumsub single-txn submit +
       // applyKytVerdict replaces it; see WithdrawWorkflowService).
-      else if (event.eventType === 'caseDecisionSimulated') {
-        const assessmentId = String(payload.assessmentId ?? '');
-        const customerId = String(payload.customerId ?? '');
-        const decision = String(payload.decision ?? '');
-        const assessment = await this.prisma.clientRiskAssessment.findUnique({ where: { id: assessmentId } });
-        if (!assessment || assessment.status !== 'ESCALATED_TO_SUMSUB') {
-          throw new Error(`Assessment ${assessmentId} is not in ESCALATED_TO_SUMSUB status`);
-        }
-        if (decision === 'APPROVE') {
-          // 自动撕：只撕这个客户的 SANCTION 便签，材料/升级等别的因由一概不动。
-          //
-          // ⚠️ caseRef 传 null 是刻意的，不是漏传：2026-08-20 起 SANCTION 是
-          // 客户级因由（restriction-cause.constant.ts R4），openWithin 把它的
-          // caseRef 归一成 customerNo，这里再按 assessmentId 精确匹配会永远
-          // 找不到 —— findOpenByCause 找不到时只 logger.log 一行就 return，
-          // 于是 MLRO 明明批准了、客户却还被冻着，且不报错。
-          // findOpenByCause(caseRef=null) 的语义正是"不限 caseRef、取该 cause
-          // 下最早一张 OPEN"（见该方法的文档注释），就是为自动撕设计的。
-          await this.restrictionWorkflowService.autoRelease(
-            customerId,
-            'SANCTION',
-            null,
-            'SYSTEM',
-          );
-          await this.prisma.clientRiskAssessment.update({
-            where: { id: assessmentId },
-            data: {
-              status: 'SIGNED',
-              signedBy: 'SUMSUB_MLRO',
-              signedAt: new Date(),
-              sumsubCaseFinalDecision: 'APPROVE',
-              sumsubCaseDecidedAt: new Date(),
-            },
-          });
-        } else {
-          // INV-1：Sumsub MLRO 判拒 ≠ lifecycle 回退成 REJECTED（原来还顺手把
-          // 行政轴写成 INACTIVE、合规轴写成 FROZEN，三件事糊成一件）。
-          // lifecycle 不动，摁住走便签。SANCTION 是客户级因由（restriction-
-          // cause.constant.ts R4），openWithin 会把 caseRef 归一成 customerNo
-          // —— 幂等跟这里传什么无关，同一客户第二次命中一律 created:false、
-          // 不贴第二张、不广播，但仍写一条 result=SKIPPED 的审计。
-          await this.restrictionsService.open({
-            customerId,
-            cause: 'SANCTION',
-            reason: `Sumsub MLRO case decision REJECT on assessment ${assessmentId}`,
-            caseRef: assessmentId,
-            openedBy: 'SYSTEM',
-          });
-          await this.prisma.clientRiskAssessment.update({
-            where: { id: assessmentId },
-            data: {
-              status: 'SIGNED',
-              signedBy: 'SUMSUB_MLRO',
-              signedAt: new Date(),
-              sumsubCaseFinalDecision: 'REJECT',
-              sumsubCaseDecidedAt: new Date(),
-            },
-          });
-        }
-        result = { assessmentId, decision };
-        dispatchedContext = 'CASE_DECISION';
-      }
+      // 站6：caseDecisionSimulated（CRA 制裁升级案终裁模拟）随一期风评拆除。
       // ── applicantActionReviewed：按 externalActionId 一次查表定位归属 ──
       // 2026-08-17 材料请求账之前，这里是一条「先问 swap 认不认、不认再落材料重检」
       // 的顺序尝试链，且因为同属一条 else-if 链，一旦命中就把下面的
@@ -259,16 +191,7 @@ export class SumsubIngestionService {
         result = await this.materialRefreshService.handleSumsubDocMonitoringFire({ applicantId });
         dispatchedContext = 'MATERIAL_REFRESH_MONITORING';
       }
-      // Clue 2: inspectionId matches pending ClientRiskAssessment
-      else if (inspectionId && reviewResult) {
-        const pendingAssessment = await this.prisma.clientRiskAssessment.findFirst({
-          where: { sumsubAmlCheckInspectionId: inspectionId, status: 'PENDING_SUMSUB_RESULT' },
-        });
-        if (pendingAssessment) {
-          result = await this.clientRiskAssessmentService.handleSumsubAmlResult(inspectionId, reviewResult);
-          dispatchedContext = 'AML_ASSESSMENT';
-        }
-      }
+      // 站6：Clue 2（AML 按 inspectionId 归属 CRA）随一期风评拆除。
       // Clue 3（已退役，2026-08-18）：原来按 actionId 查 pending MaterialRefreshCycle。
       // 2026-08-17 材料请求账 Task 11 之后建 cycle 全部改走
       // MaterialRequestIssuerService.issue()，cycle 定位其旧的 Sumsub action id
@@ -284,53 +207,14 @@ export class SumsubIngestionService {
           where: { sumsubApplicantId: applicantId },
         });
         if (customer) {
-          // Clue 4: still in onboarding → delegate to onboarding service
-          if (customer.lifecycle === 'IN_VERIFICATION') {
-            result = await this.onboardingService.handleSumsubVerificationEvent(payload, {
-              simulated: event.isSimulated,
-              actorId: event.isSimulated
-                ? (event.externalUserId || event.simulatedByUserId || 'ADMIN_SIM')
-                : 'SUMSUB',
-              simulatedByUserId: event.simulatedByUserId || null,
-              rawBody: Buffer.from(JSON.stringify(payload)),
-            });
-            dispatchedContext = 'ONBOARDING';
-          }
-          // Clue 4.5: APPROVED + applicantWorkflowCompleted → Level 2 completed
-          // handleLevel2WorkflowComplete is idempotent: it returns early if no PENDING_LEVEL2 case exists
-          else if (
-            customer.lifecycle === 'ACTIVE' &&
-            event.eventType === 'applicantWorkflowCompleted'
-          ) {
-            await this.tierUpgradeCaseService.handleLevel2WorkflowComplete(customer.id);
-            result = { handled: 'tier_upgrade_level2_complete' };
-            dispatchedContext = 'TIER_UPGRADE';
-          }
-          // Clue 5: APPROVED + spontaneous AML RED → create assessment from known result (no extra API call)
-          else if (
-            customer.lifecycle === 'ACTIVE' &&
-            event.eventType === 'applicantReviewed' &&
-            reviewResult?.reviewAnswer === 'RED'
-          ) {
-            await this.clientRiskAssessmentService.recordAssessmentFromKnownAmlResult({
-              customerId: customer.id,
-              triggerType: 'SUMSUB_AML_HIT',
-              knownAmlResult: {
-                reviewAnswer: reviewResult.reviewAnswer,
-                rejectLabels: reviewResult.rejectLabels || [],
-                inspectionId: inspectionId || undefined,
-              },
-              snapshot: payload,
-            });
-            result = { handled: 'spontaneous_aml_hit' };
-            dispatchedContext = 'AML_ASSESSMENT';
-          } else {
-            this.logger.warn('unrouted_sumsub_webhook', {
-              applicantId,
-              type: event.eventType,
-              customerStatus: customer.lifecycle,
-            });
-          }
+          // 站6：Clue 4（入驻验证）/4.5（升级案 Level2）/5（自发 AML 红）随一期
+          // 拆除（业主方案2）——申请人级 webhook 若不被上面的材料请求/材料刷新
+          // 分支认领，则落此警告；一期重做接真 Sumsub 时在此重新开路。
+          this.logger.warn('unrouted_sumsub_webhook', {
+            applicantId,
+            type: event.eventType,
+            customerStatus: customer.lifecycle,
+          });
         } else {
           this.logger.warn('unrouted_webhook_no_customer', { applicantId });
         }
@@ -376,79 +260,9 @@ export class SumsubIngestionService {
 
   // ─── Simulation: build payload for each scenario ─────────────────────────
 
-  async simulate(
-    customerId: string | undefined,
-    scenario: SimulationScenario,
-    simulatedByUserId: string,
-    overrides?: Record<string, unknown>,
-    customerNo?: string,
-  ): Promise<{ event: SumsubWebhookEvent; dispatchResult?: unknown }> {
-    let customer: { id: string; customerNo: string | null; sumsubApplicantId: string | null } | null = null;
-    if (customerNo) {
-      customer = await this.prisma.customerMain.findFirst({
-        where: { customerNo },
-        select: { id: true, customerNo: true, sumsubApplicantId: true },
-      });
-      if (!customer) throw new NotFoundException(`Customer with No ${customerNo} not found`);
-    } else if (customerId) {
-      customer = await this.prisma.customerMain.findUnique({
-        where: { id: customerId },
-        select: { id: true, customerNo: true, sumsubApplicantId: true },
-      });
-      if (!customer) throw new NotFoundException(`Customer ${customerId} not found`);
-    } else {
-      throw new BadRequestException('Either customerId or customerNo is required');
-    }
+  // 站6：scenario 式模拟（simulate/buildScenarioPayload——全部一期入驻场景）随一期拆除；
+  // 二期各域模拟走各自 demo 模块与 admin/sumsub/simulate 面板的存活端点。
 
-    // Only include applicantId if customer already has a real one.
-    // Without it, the webhook handler falls through to externalUserId lookup.
-    const applicantId = customer.sumsubApplicantId ?? null;
-    const basePayload = this.buildScenarioPayload(scenario, applicantId, customer.id);
-    const finalPayload = { ...basePayload, ...(overrides ?? {}) };
-
-    return this.ingest(finalPayload, { isSimulated: true, simulatedByUserId });
-  }
-
-  private buildScenarioPayload(
-    scenario: SimulationScenario,
-    applicantId: string | null,
-    externalUserId: string,
-  ): Record<string, unknown> {
-    const base: Record<string, unknown> = { externalUserId };
-    if (applicantId) base.applicantId = applicantId;
-    switch (scenario) {
-      case SimulationScenario.LOW_RISK_PASS:
-        return {
-          ...base,
-          type: 'applicantWorkflowCompleted',
-          reviewResult: { reviewAnswer: 'GREEN', reviewRejectType: 'FINAL' },
-        };
-      case SimulationScenario.MANUAL_REVIEW:
-        return { ...base, type: 'applicantOnHold' };
-      case SimulationScenario.RESUBMIT_REQUIRED:
-        return {
-          ...base,
-          type: 'applicantReviewed',
-          reviewResult: { reviewAnswer: 'RED', reviewRejectType: 'RETRY' },
-        };
-      case SimulationScenario.EDD_ESCALATE:
-        return { ...base, type: 'applicantLevelChanged', levelName: 'level2' };
-      case SimulationScenario.EDD_PASS:
-        // Sends applicantWorkflowCompleted — customer must have sumsubExperiencedLevel2=true
-        // (send EDD_ESCALATE first to set that flag)
-        return {
-          ...base,
-          type: 'applicantWorkflowCompleted',
-          reviewResult: { reviewAnswer: 'GREEN', reviewRejectType: 'FINAL' },
-        };
-      case SimulationScenario.WORKFLOW_FAIL:
-        return {
-          ...base,
-          type: 'applicantWorkflowFailed',
-          reviewResult: { reviewAnswer: 'RED', reviewRejectType: 'FINAL' },
-        };
-    }
-  }
 
   // ─── List / detail for admin UI ───────────────────────────────────────────
 

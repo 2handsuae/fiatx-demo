@@ -5,7 +5,6 @@ import { SwapLegAccounting } from './swap-leg-accounting';
 import { SwapTransactionsController } from './swap-transactions.controller';
 import { SwapTransactionsCustomerController } from './swap-transactions-customer.controller';
 import { PrismaModule } from '../../../core/prisma/prisma.module';
-import { OnboardingModule } from '../../identity/onboarding/onboarding.module';
 import { PricingCenterModule } from '../pricing-center/pricing-center.module';
 import { SwapFeeLevelModule } from '../swap-fee-level/swap-fee-level.module';
 import { TigerBeetleModule } from '../../accounting/tigerbeetle/tigerbeetle.module';
@@ -22,7 +21,6 @@ import { L1GateModule } from '../shared/l1-gate/l1-gate.module';
 @Module({
   imports: [
     PrismaModule,
-    OnboardingModule,
     PricingCenterModule,
     SwapFeeLevelModule,
     TigerBeetleModule,
