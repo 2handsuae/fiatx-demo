@@ -70,3 +70,22 @@
 ## 接线范围（认了名册就动）
 
 ① 常量表新增 `V5_WITHDRAW_AUDIT_ACTIONS` 四属性表 + 废除名单进拒写闸（含动态族正则）+ CONTRACT_ACTION_DOMAINS 纳 WITHDRAW；② 提现单表加旅程号列（迁移+重铺闸）；③ `updateStatus` 内建动态留痕拆除 + 边×码覆盖对照；④ 39 写点换信封（withdrawAudit 助手，镜像 depositAudit）；⑤ 测试同步；⑥ 收尾闸全家 + verify:audit 提现段转绿。
+
+
+## 落地实况（as-built，2026-08-27 站2-β 接线终盘）
+
+25 码全数落地，四项判断题按业主 2026-08-27 裁定执行：大额闸改名 LARGE_VALUE_* ✅｜
+锁释放并入落地行（REJECTED / PAYOUT_COMPLETED·FAILED / REFUNDED 携 releasedNet/releasedFee）✅｜
+POST_BROADCAST_VERDICT 保留 ✅｜费用词根统一 **FEE_RETRIED / FEE_STUCK**（对比表暴露的跨域
+不一致，取代草稿的 FEE_LEG_REBUILT/FEE_SETTLE_STUCK 保守留名）✅。
+
+接线中顺带矫正的生产件：
+- **状态机内建动态留痕拆除**（每流转双写的病根在 updateStatus 里，比充值重）；
+  边×码覆盖对照 21 条边全接住，新增 MANUAL_CHECKING×2 / ACTION_REQUIRED 三个落点
+- **详情页审计时间线读器**整个停在旧合同（orderBy 已删列当场炸/三臂查询全空/
+  靠解析动态码取从到）——矫正为按业务键单臂查询+直读从/到两列
+- mock 建单器删除（直插表违规、零使用方）；e2e 夹具补铸旅程号、查痕助手改查业务键
+
+落地实测：demo:all 8/8｜提现旅程样本 CREATED→COMPLIANCE_PASSED→SUMSUB_SUBMITTED→
+PAYOUT_INITIATED→PAYOUT_COMPLETED→SUCCESS 同旅程号一串｜verify:audit 提现行入
+Q2/Q4 双绿池（客户维度单客命中 26 条）｜退役码零写入 ✓｜五套 e2e 49/49。
