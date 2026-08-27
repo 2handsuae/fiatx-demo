@@ -13,8 +13,6 @@ import { CustomerRestrictionsService } from './customer-restrictions.service';
 
 export type Capability = 'DEPOSIT' | 'WITHDRAW' | 'SWAP';
 
-export const ALL_CAPABILITIES: readonly Capability[] = ['DEPOSIT', 'WITHDRAW', 'SWAP'];
-
 export interface DisclosedRestrictionView {
   restrictionNo: string;
   /**
@@ -53,6 +51,8 @@ export interface CustomerAccess {
  * 全仓只此一份，提现/兑换的 L1_GATE_BLOCKED 都引用它。
  */
 export const NEUTRAL_DENIAL = 'This operation is not available for your account at the moment.';
+
+export const ALL_CAPABILITIES: readonly Capability[] = ['DEPOSIT', 'WITHDRAW', 'SWAP'];
 
 function expandScopes(scopes: RestrictionScope[]): Capability[] {
   const out: Capability[] = [];
@@ -125,6 +125,31 @@ export class CustomerAccessService {
       // listOpen 已按 restrictionNo 聚合，一号一行
       openCount: openRows.length,
     };
+  }
+
+  /**
+   * 交易起始前置门（站6 自 OnboardingService 迁入——一期入驻流程拆除，门是二期
+   * 交易地基，落户能力闸本家）。语义逐字保真：能力闸必过；除充值外还须有一个
+   * 激活的法币提现地址（交易起始前置，dc6b426b 业主定式）。
+   */
+  async assertTradingEligibility(customerId: string, action: Capability): Promise<void> {
+    await this.assertCapability(customerId, action);
+    if (action !== 'DEPOSIT') {
+      await this.assertTradingReady(customerId);
+    }
+  }
+
+  async assertTradingReady(customerId: string): Promise<void> {
+    const n = await this.prisma.withdrawalAddress.count({
+      where: { customerId, status: 'ACTIVE', addressType: 'BANK' },
+    });
+    if (n === 0) {
+      throw new ForbiddenException({
+        code: 'NO_ACTIVE_FIAT_WITHDRAWAL_ADDRESS',
+        message: '需要先创建并激活一个法币提现地址才能开展业务',
+        customerId,
+      });
+    }
   }
 
   async assertCapability(customerId: string, capability: Capability): Promise<void> {

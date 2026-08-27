@@ -205,9 +205,7 @@ const AuthGuard = ({ children }: AuthGuardProps) => {
 
         {/* CTA + meta line */}
         <div className="mt-10 flex flex-wrap items-center gap-5">
-          <button onClick={() => navigate('/verification')} className="fx-btn-primary">
-            {copy.cta} →
-          </button>
+          {/* 站6：一期认证页拆除——IN_VERIFICATION 客户此屏只陈述状态,无跳转（重做接真 Sumsub 后再开门） */}
           <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-fx-dust">
             Est. 3 min · VARA regulated
           </span>

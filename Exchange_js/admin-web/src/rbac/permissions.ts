@@ -46,7 +46,6 @@ export const PERMISSIONS = {
   RECON_EXTERNAL_BALANCE_READ: 'api.get.admin_reconciliation_external_balances',
 
   SUMSUB_EVENTS_READ: 'api.get.admin_sumsub_events',
-  RISK_ASSESSMENTS_READ: 'api.get.admin_compliance_risk_assessments',
   RISK_DECISION_RECORD_DETAIL_READ: 'api.get.admin_risk_decision_records_id',
   AUDIT_LOGS_READ: 'api.get.admin_audit_logs',
   AUDIT_EXPORT_CREATE: 'api.post.admin_audit_evidence_packages',

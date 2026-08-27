@@ -2,7 +2,7 @@ import { Module, forwardRef } from '@nestjs/common';
 import { PrismaModule } from '../../../core/prisma/prisma.module';
 import { AuditLogsModule } from '../../audit-logging/audit-logs.module';
 import { CustomersModule } from '../customers/customers.module';
-import { OnboardingModule } from '../onboarding/onboarding.module';
+import { SumsubApplicantClientModule } from '../../sumsub-applicant-client/sumsub-applicant-client.module';
 import { MaterialRefreshModule } from '../material-refresh/material-refresh.module';
 import { MaterialRequestsService } from './material-requests.service';
 import { MaterialRequestIssuerService } from './material-request-issuer.service';
@@ -16,7 +16,7 @@ import { MaterialRequestsClientController } from './material-requests.client.con
     PrismaModule,
     AuditLogsModule,
     forwardRef(() => CustomersModule),
-    forwardRef(() => OnboardingModule),
+    SumsubApplicantClientModule,
     forwardRef(() => MaterialRefreshModule),
   ],
   providers: [

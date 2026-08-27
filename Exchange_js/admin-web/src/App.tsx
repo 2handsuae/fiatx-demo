@@ -62,8 +62,6 @@ const MaterialManagementPage = lazy(() => import('./pages/MaterialManagementPage
 const MaterialHoldingDetailPage = lazy(() => import('./pages/MaterialHoldingDetailPage'));
 const RefreshCyclesPage = lazy(() => import('./pages/RefreshCyclesPage'));
 const RefreshCycleDetailPage = lazy(() => import('./pages/RefreshCycleDetailPage'));
-const RiskAssessmentListPage = lazy(() => import('./pages/RiskAssessmentListPage'));
-const RiskAssessmentDetailPage = lazy(() => import('./pages/RiskAssessmentDetailPage'));
 const ApprovalPoliciesPage = lazy(() => import('./pages/ApprovalPoliciesPage'));
 const PolicyChangeRequestsPage = lazy(() => import('./pages/PolicyChangeRequestsPage'));
 const PolicyChangeRequestDetailPage = lazy(() => import('./pages/PolicyChangeRequestDetailPage'));
@@ -300,14 +298,6 @@ function App() {
             <Route
               path="compliance/refresh-cycles/:cycleId"
               element={withPermission(<RefreshCycleDetailPage />, [])}
-            />
-            <Route
-              path="compliance/risk-assessments"
-              element={withPermission(<RiskAssessmentListPage />, [PERMISSIONS.RISK_ASSESSMENTS_READ])}
-            />
-            <Route
-              path="compliance/risk-assessments/:assessmentId"
-              element={withPermission(<RiskAssessmentDetailPage />, [PERMISSIONS.RISK_ASSESSMENTS_READ])}
             />
             <Route
               path="audit/audit-logs"
@@ -627,8 +617,6 @@ function App() {
 
             {/* compliance */}
             <Route path="compliance/sumsub-events" element={withPermission(<SumsubEventsPage />, [PERMISSIONS.SUMSUB_EVENTS_READ])} />
-            <Route path="compliance/risk-assessments" element={withPermission(<RiskAssessmentListPage />, [PERMISSIONS.RISK_ASSESSMENTS_READ])} />
-            <Route path="compliance/risk-assessments/:assessmentId" element={withPermission(<RiskAssessmentDetailPage />, [PERMISSIONS.RISK_ASSESSMENTS_READ])} />
 
             {/* trading */}
             <Route path="trading/deposits" element={withPermission(<DepositTransactionList />, [PERMISSIONS.DEPOSIT_TRANSACTIONS_READ])} />

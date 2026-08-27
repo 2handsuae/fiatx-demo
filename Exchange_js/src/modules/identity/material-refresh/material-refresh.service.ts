@@ -2,7 +2,8 @@
 import { Injectable, Inject, Logger } from '@nestjs/common';
 import { randomUUID } from 'crypto';
 import { PrismaService } from '../../../core/prisma/prisma.service';
-import { SumsubClient } from '../onboarding/providers/sumsub/sumsub.client';
+import { AuditLogsService } from '../../audit-logging/audit-logs.service';
+import { SumsubClient } from '../../sumsub-applicant-client/sumsub.client';
 import { MaterialRefreshPolicyLoader } from './policy/material-refresh-policy';
 import { getRequiredMaterialsForLevel } from './policy/get-required-materials';
 import { generateReferenceNo } from '../../../common/utils/no-generator.util';
@@ -32,11 +33,11 @@ export class MaterialRefreshService {
   private readonly logger = new Logger(MaterialRefreshService.name);
 
   /** Property-injected to avoid circular deps — reserved for future use */
-  clientRiskAssessmentService?: Record<string, any>;
 
   constructor(
     @Inject(PrismaService)
     private readonly prisma: PrismaService & Record<string, any>,
+    private readonly auditLogsService: AuditLogsService,
     private readonly sumsubClient: SumsubClient,
     private readonly policyLoader: MaterialRefreshPolicyLoader,
     private readonly restrictionsService: CustomerRestrictionsService,
@@ -324,27 +325,7 @@ export class MaterialRefreshService {
     // Note: In the 3-state CRA design, material submission completion is handled by
     // TierUpgradeCaseService.handleLevel2WorkflowComplete (triggered by Sumsub Level 2 webhook)
 
-    // NEW — periodic refresh fully cleared → kick off fresh CRA
-    if (this.clientRiskAssessmentService) {
-      const anyPendingExpiryCycle = await this.prisma.materialRefreshCycle.count({
-        where: {
-          customerId: customer.id,
-          triggerType: 'SCHEDULED_EXPIRY',
-          status: { in: ['PENDING_CUSTOMER_EVIDENCE', 'PENDING_SUMSUB_REVIEW'] },
-        },
-      });
-      if (anyPendingExpiryCycle === 0) {
-        try {
-          await this.clientRiskAssessmentService.startAssessment({
-            customerId: customer.id,
-            triggerType: 'SCHEDULED_QUARTERLY',
-            triggeredContext: { reason: 'material_refresh_complete' },
-          });
-        } catch (err) {
-          console.error(`material-refresh→CRA trigger failed for ${customer.id}:`, String(err));
-        }
-      }
-    }
+    // 站6：一期 CRA 已拆除（业主方案2）——刷新清账后自动起风评的钩子随之移除。
   }
 
   async handleSumsubDocMonitoringFire(event: { applicantId: string }): Promise<void> {
@@ -535,5 +516,36 @@ export class MaterialRefreshService {
     if (idDoc.idDocType === 'ID_CARD' && idDoc.country === 'ARE') return 'EMIRATES_ID';
     if (idDoc.idDocType === 'PASSPORT') return 'PASSPORT';
     return null;
+  }
+
+  /**
+   * 站6：档位模拟的操作留痕（打点位置守则——审计调用只许住 service，
+   * admin-material-management.controller 调本方法）。原以一行假风评行当 trail，
+   * CRA 表随一期拆除后改写注册词 CUSTOMER_TIER_CHANGE_SIMULATED（操作员通道）。
+   */
+  async auditTierChangeSimulated(input: {
+    customerNo: string;
+    previousTier: string;
+    targetTier: string;
+    targetLevel: number;
+    operatorId: string;
+  }): Promise<void> {
+    await this.auditLogsService.recordByActor(
+      {
+        action: 'CUSTOMER_TIER_CHANGE_SIMULATED',
+        actionDomain: 'CUSTOMER',
+        primarySubjectType: 'CUSTOMER',
+        primarySubjectNo: input.customerNo,
+        ownerCustomerNo: input.customerNo,
+        subjects: [
+          { subjectType: 'CUSTOMER', subjectNo: input.customerNo, subjectRole: 'PRIMARY' },
+        ],
+        reason: `Simulated tier change ${input.previousTier} → ${input.targetTier} (level ${input.targetLevel})`,
+        requestId: `CUSTOMER_TIER_CHANGE_SIMULATED_${input.customerNo}_${Date.now()}`,
+        metadata: { previousTier: input.previousTier, targetTier: input.targetTier, targetLevel: input.targetLevel },
+        sourcePlatform: 'ADMIN_API',
+      } as any,
+      { actorType: 'ADMIN', actorNo: input.operatorId, actorDisplayName: input.operatorId, actorRolesAtTime: ['ADMIN'] } as any,
+    );
   }
 }

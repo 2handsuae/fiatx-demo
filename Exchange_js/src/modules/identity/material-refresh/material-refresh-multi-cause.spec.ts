@@ -5,7 +5,7 @@ import { EventEmitter2 } from '@nestjs/event-emitter';
 import { PrismaService } from '../../../core/prisma/prisma.service';
 import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import { ApprovalsService } from '../../governance/approvals/approvals.service';
-import { SumsubClient } from '../onboarding/providers/sumsub/sumsub.client';
+import { SumsubClient } from '../../sumsub-applicant-client/sumsub.client';
 import { MaterialRefreshPolicyLoader } from './policy/material-refresh-policy';
 import { MaterialRefreshService } from './material-refresh.service';
 import { CustomerRestrictionsService } from '../customers/customer-restrictions.service';
@@ -220,11 +220,9 @@ describe('多因不互相解 — 材料自动撕不许碰制裁便签（Task 7�
     expect(access.disclosed).toHaveLength(0);
   });
 
-  it('INV-1 守则扫描：四个自动写入点不得再给 lifecycle 赋任何字面值', () => {
+  it('INV-1 守则扫描：自动写入点不得再给 lifecycle 赋任何字面值（站6 后剩两处——CRA/升级案随一期拆除）', () => {
     const files = [
       'material-refresh.service.ts',
-      '../tier-upgrade-case/tier-upgrade-case.service.ts',
-      '../client-risk-assessment/client-risk-assessment.service.ts',
       '../../sumsub-ingestion/sumsub-ingestion.service.ts',
     ];
     for (const rel of files) {

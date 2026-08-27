@@ -14,10 +14,7 @@ import {
 import { AuthGuard } from '@nestjs/passport';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { SumsubIngestionService } from './sumsub-ingestion.service';
-import {
-  ListSumsubEventsQueryDto,
-  SimulateEventDto,
-} from './dto/sumsub-ingestion.dto';
+import { ListSumsubEventsQueryDto } from './dto/sumsub-ingestion.dto';
 
 @ApiTags('Admin - Sumsub Events')
 @Controller('admin/sumsub-events')
@@ -55,22 +52,6 @@ export class SumsubIngestionAdminController {
   findOne(@Req() req: any, @Param('id') id: string) {
     this.requireAdmin(req);
     return this.ingestionService.findOne(id);
-  }
-
-  @Post('simulate')
-  @ApiOperation({ summary: 'Simulate a Sumsub event for demo / testing' })
-  simulate(
-    @Req() req: any,
-    @Body(new ValidationPipe({ transform: true })) body: SimulateEventDto,
-  ) {
-    const adminId = this.requireAdmin(req);
-    return this.ingestionService.simulate(
-      body.customerId,
-      body.scenario,
-      adminId,
-      body.overrides,
-      body.customerNo,
-    );
   }
 
   @Post(':id/replay')

@@ -157,12 +157,6 @@ const DashboardLayout = () => {
           requiredPermissions: [PERMISSIONS.SUMSUB_EVENTS_READ],
         },
         // Hidden from sidebar 2026-07-02 (route stays live for direct links)
-        // {
-        //   path: '/admin/compliance/risk-assessments',
-        //   label: 'Risk Assessments',
-        //   icon: <Shield size={13} />,
-        //   requiredPermissions: [PERMISSIONS.RISK_ASSESSMENTS_READ],
-        // },
       ],
     },
     // ─── Trading ──────────────────────────────────────────────────

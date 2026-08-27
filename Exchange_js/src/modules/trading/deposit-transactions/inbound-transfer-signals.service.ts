@@ -13,7 +13,7 @@ import {
   AuditEntityTypes,
 } from '../../audit-logging/constants/audit-actions.constant';
 import { AuditLogsService } from '../../audit-logging/audit-logs.service';
-import { OnboardingService } from '../../identity/onboarding/onboarding.service';
+import { CustomerAccessService } from '../../identity/customers/customer-access.service';
 import { DepositTransactionsService } from './deposit-transactions.service';
 import { FundsOrderService } from '../../funds-orders/funds-order.service';
 import {
@@ -61,7 +61,7 @@ export class InboundTransferSignalsService {
     private readonly prisma: PrismaService,
     private readonly depositService: DepositTransactionsService,
     private readonly fundsOrderService: FundsOrderService,
-    private readonly onboardingService: OnboardingService,
+    private readonly customerAccess: CustomerAccessService,
     private readonly auditLogsService: AuditLogsService,
   ) {}
 
@@ -114,7 +114,7 @@ export class InboundTransferSignalsService {
     customerId: string,
     dto: CreateInboundTransferSignalDto,
   ) {
-    await this.onboardingService.assertTradingEligibility(customerId, 'DEPOSIT');
+    await this.customerAccess.assertTradingEligibility(customerId, 'DEPOSIT');
     const customer = await (this.prisma as any).customerMain.findUnique({
       where: { id: customerId },
     });
@@ -270,7 +270,7 @@ export class InboundTransferSignalsService {
 
     let tradingGateError: unknown = null;
     try {
-      await this.onboardingService.assertTradingEligibility(customerId, 'DEPOSIT');
+      await this.customerAccess.assertTradingEligibility(customerId, 'DEPOSIT');
     } catch (error) {
       tradingGateError = error;
     }

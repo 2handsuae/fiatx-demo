@@ -31,7 +31,7 @@ import { TbEvidenceService } from '../src/modules/accounting/tigerbeetle/tb-evid
 import { TB_ACCOUNT_CODES, TB_CODE_TO_COA } from '../src/modules/accounting/tigerbeetle/constants/tb-account-codes.constant';
 import { TB_TRANSFER_CODES } from '../src/modules/accounting/tigerbeetle/constants/tb-transfer-codes.constant';
 import { TB_LEDGERS } from '../src/modules/accounting/tigerbeetle/constants/tb-ledgers.constant';
-import { OnboardingService } from '../src/modules/identity/onboarding/onboarding.service';
+import { CustomerAccessService } from '../src/modules/identity/customers/customer-access.service';
 import { CustomerRestrictionsService } from '../src/modules/identity/customers/customer-restrictions.service';
 import { SUMSUB_TXN_CLIENT } from '../src/modules/deposit-sumsub/sumsub-txn-client.interface';
 import { MockSumsubTxnClient } from '../src/modules/deposit-sumsub/sumsub-txn-client.mock';
@@ -59,7 +59,7 @@ import { AuditActions, AuditEntityTypes } from '../src/modules/audit-logging/con
  * Harness notes:
  * - Uses `demo_acme@example.com` (CORPORATE, but customer-type is irrelevant
  *   to the trading gates — see customer-transaction-guard.ts /
- *   onboarding.service.ts#assertTradingEligibility, neither branches on it) —
+ *   customer-access.service.ts#assertTradingEligibility（站6 自 onboarding 迁入）, neither branches on it) —
  *   NOT alice/bob (deposit suites) or frank/grace (withdraw suites), and NOT
  *   shared with test/swap-sumsub-scenarios.e2e-spec.ts (its own fresh
  *   synthetic customer) — so this file's fixtures never race another spec
@@ -87,7 +87,7 @@ describe('Swap money arcs (e2e, Task 12)', () => {
   let fundsOrders: FundsOrderService;
   let accounting: AccountingService;
   let tbEvidence: TbEvidenceService;
-  let onboardingService: OnboardingService;
+  let customerAccess: CustomerAccessService;
   let restrictionsService: CustomerRestrictionsService;
 
   let customerId: string;
@@ -117,7 +117,7 @@ describe('Swap money arcs (e2e, Task 12)', () => {
     fundsOrders = app.get(FundsOrderService);
     accounting = app.get(AccountingService);
     tbEvidence = app.get(TbEvidenceService);
-    onboardingService = app.get(OnboardingService);
+    customerAccess = app.get(CustomerAccessService);
     restrictionsService = app.get(CustomerRestrictionsService);
 
     const customer = await prisma.customerMain.findUnique({
@@ -279,7 +279,8 @@ describe('Swap money arcs (e2e, Task 12)', () => {
     } else if (entityType === AuditEntityTypes.MATERIAL_REQUEST) {
       subjectNo = (await (prisma as any).materialRequest.findUnique({ where: { id: entityId }, select: { requestNo: true } }))?.requestNo ?? null;
     } else if (entityType === AuditEntityTypes.CUSTOMER) {
-      subjectNo = entityId; // V2 域未换新合同,客户限制审计仍以 UUID 为主对象号
+      // 站6 起 V2 已换新合同——客户审计主对象号是 customerNo,按 id 解号。
+      subjectNo = (await (prisma as any).customerMain.findUnique({ where: { id: entityId }, select: { customerNo: true } }))?.customerNo ?? null;
     }
     if (!subjectNo) return [];
     const rows = await (prisma as any).auditLogEvent.findMany({
@@ -440,8 +441,8 @@ describe('Swap money arcs (e2e, Task 12)', () => {
 
     const retryQuote = await createQuote(aedAssetId, 'AED', usdtAssetId, 'USDT', '10');
     await expect(workflow.initiateSwap(customerId, retryQuote.id)).rejects.toMatchObject({ status: 403 });
-    await expect(onboardingService.assertTradingEligibility(customerId, 'WITHDRAW')).rejects.toMatchObject({ status: 403 });
-    await expect(onboardingService.assertTradingEligibility(customerId, 'DEPOSIT')).resolves.toBeUndefined();
+    await expect(customerAccess.assertTradingEligibility(customerId, 'WITHDRAW')).rejects.toMatchObject({ status: 403 });
+    await expect(customerAccess.assertTradingEligibility(customerId, 'DEPOSIT')).resolves.toBeUndefined();
 
     const disposedAudit = await auditActionsFor(swap.id, AuditEntityTypes.SWAP_TRANSACTION);
     expect(disposedAudit).toContain(AuditActions.SWAP_KYT_REJECTED);

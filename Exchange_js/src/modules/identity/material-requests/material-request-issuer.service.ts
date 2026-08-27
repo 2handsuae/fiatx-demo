@@ -5,7 +5,7 @@ import { MaterialRequestsService, type IssueMaterialRequestInput } from './mater
 import { CustomerRestrictionWorkflowService } from '../customers/customer-restriction-workflow.service';
 import type { ApprovalActorContext } from '../../governance/approvals/constants/approval.constants';
 import type { RestrictionScope } from '../customers/constants/restriction-cause.constant';
-import { SumsubClient } from '../onboarding/providers/sumsub/sumsub.client';
+import { SumsubClient } from '../../sumsub-applicant-client/sumsub.client';
 import { MaterialRefreshPolicyLoader } from '../material-refresh/policy/material-refresh-policy';
 import {
   ISSUABLE_RESTRICTION_CAUSES,

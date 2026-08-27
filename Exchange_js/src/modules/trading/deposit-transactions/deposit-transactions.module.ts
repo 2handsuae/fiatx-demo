@@ -2,7 +2,6 @@ import { Module } from '@nestjs/common';
 import { DepositTransactionsController } from './deposit-transactions.controller';
 import { DepositTransactionsService } from './deposit-transactions.service';
 import { InboundTransferSignalsService } from './inbound-transfer-signals.service';
-import { OnboardingModule } from '../../identity/onboarding/onboarding.module';
 import { DepositWorkflowService } from './deposit-workflow.service';
 import { TigerBeetleModule } from '../../accounting/tigerbeetle/tigerbeetle.module';
 import { FundsLayerModule } from '../../funds-layer/funds-layer.module';
@@ -27,7 +26,6 @@ import { L1GateModule } from '../shared/l1-gate/l1-gate.module';
     // （identity→swap-sumsub 直调环、identity→CRA→ingestion 枢纽环）已分别以
     // 事件化与演示件独立挂载拆断（链路图见站3 α2 提交），开机考通过后全部平引用。
     CustomersModule,
-    OnboardingModule,
     TigerBeetleModule,
     FundsLayerModule,
     FundsOrdersModule,

@@ -274,8 +274,6 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
   route('POST', '/admin/sumsub-events/:id/replay', 'Replay Sumsub event', ['RISK_DECISION_RECORD_WRITE']),
 
   // Risk assessments
-  route('GET', '/admin/compliance/risk-assessments', 'List risk assessments', ['RISK_DECISION_RECORD_READ']),
-  route('GET', '/admin/compliance/risk-assessments/:id', 'Get risk assessment detail', ['RISK_DECISION_RECORD_READ']),
 
   // Deposit
   route('GET', '/deposit-transactions', 'List deposit transactions', ['TRADING_DEPOSIT_READ']),

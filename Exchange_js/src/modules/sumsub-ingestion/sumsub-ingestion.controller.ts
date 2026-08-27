@@ -9,7 +9,7 @@ import {
 } from '@nestjs/common';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import { SumsubIngestionService } from './sumsub-ingestion.service';
-import { SumsubClient } from '../identity/onboarding/providers/sumsub/sumsub.client';
+import { SumsubClient } from '../sumsub-applicant-client/sumsub.client';
 
 @ApiTags('Webhooks')
 @Controller('webhooks')

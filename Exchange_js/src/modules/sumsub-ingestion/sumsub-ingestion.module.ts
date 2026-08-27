@@ -1,9 +1,7 @@
 import { Module } from '@nestjs/common';
 import { PrismaModule } from '../../core/prisma/prisma.module';
-import { OnboardingModule } from '../identity/onboarding/onboarding.module';
-import { ClientRiskAssessmentModule } from '../identity/client-risk-assessment/client-risk-assessment.module';
+import { SumsubApplicantClientModule } from '../sumsub-applicant-client/sumsub-applicant-client.module';
 import { MaterialRefreshModule } from '../identity/material-refresh/material-refresh.module';
-import { TierUpgradeCaseModule } from '../identity/tier-upgrade-case/tier-upgrade-case.module';
 import { DepositTransactionsModule } from '../trading/deposit-transactions/deposit-transactions.module';
 import { WithdrawTransactionsModule } from '../trading/withdraw-transactions/withdraw-transactions.module';
 import { DepositSumsubModule } from '../deposit-sumsub/deposit-sumsub.module';
@@ -25,10 +23,8 @@ import { MaterialRequestsModule } from '../identity/material-requests/material-r
     // 限制账（Task 7）：CustomerRestrictionsService / CustomerRestrictionWorkflowService 由 CustomersModule exports。
     CustomersModule,
     PrismaModule,
-    OnboardingModule,
-    ClientRiskAssessmentModule,
+    SumsubApplicantClientModule,
     MaterialRefreshModule,
-    TierUpgradeCaseModule,
     DepositTransactionsModule,
     WithdrawTransactionsModule,
     DepositSumsubModule,

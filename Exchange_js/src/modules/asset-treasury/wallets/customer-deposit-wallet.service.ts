@@ -18,7 +18,7 @@ import { AuditOutcome } from '../../audit-logging/dto/audit-log.dto';
 import { CUSTODIAN_ADAPTER, CustodianAdapter } from './custodian-adapter.interface';
 import { WalletRole, WalletStatus } from './dto/wallet.dto';
 import { WalletsService } from './wallets.service';
-import { OnboardingService } from '../../identity/onboarding/onboarding.service';
+import { CustomerAccessService } from '../../identity/customers/customer-access.service';
 import * as crypto from 'crypto';
 
 @Injectable()
@@ -31,7 +31,7 @@ export class CustomerDepositWalletService {
     private readonly walletsService: WalletsService,
     @Inject(CUSTODIAN_ADAPTER)
     private readonly custodianAdapter: CustodianAdapter,
-    private readonly onboardingService: OnboardingService,
+    private readonly customerAccess: CustomerAccessService,
   ) {}
 
   async createOrReturn(customerId: string, assetId: string) {
@@ -79,7 +79,7 @@ export class CustomerDepositWalletService {
       },
     });
     if (!existingActive) {
-      await this.onboardingService.assertTradingReady(customerId);
+      await this.customerAccess.assertTradingReady(customerId);
     }
 
     // ── H5: Atomic check-then-create inside $transaction (prevents race condition) ──

@@ -91,14 +91,10 @@ const BUSINESS_DELEGATES_FK_SAFE: string[] = [
   'eddResponse',
   'cddResponse',
   'periodicReviewCycle',
-  'corporateProfile',
-  'uboProfile',
   'kytCase',
   'travelRuleCase',
   'customerMaterialHolding',
   'materialRefreshCycle',
-  'clientRiskAssessment',
-  'tierUpgradeCase',
   'sumsubWebhookEvent',
 
   // ── Liquidity ──────────────────────────────────────────────────────

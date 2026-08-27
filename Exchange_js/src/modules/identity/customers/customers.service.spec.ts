@@ -49,8 +49,7 @@ describe('CustomersService', () => {
       expect.objectContaining({
         where: { id: 'c1' },
         include: expect.objectContaining({
-          corporateProfile: true,
-          uboProfiles: expect.any(Object),
+          latestRiskApproval: expect.any(Object),
         }),
       }),
     );

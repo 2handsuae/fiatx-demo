@@ -1,13 +1,11 @@
 // material-refresh.module.ts
-import { Module, forwardRef, OnModuleInit } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { MaterialRefreshService } from './material-refresh.service';
 import { MaterialFreshnessCronService } from './material-freshness-cron.service';
 import { MaterialRefreshReviewListener } from './material-refresh-review.listener';
 import { AdminMaterialManagementController } from './admin-material-management.controller';
 import { MaterialRefreshPolicyLoader } from './policy/material-refresh-policy';
-import { OnboardingModule } from '../onboarding/onboarding.module';
-import { ClientRiskAssessmentModule } from '../client-risk-assessment/client-risk-assessment.module';
-import { ClientRiskAssessmentService } from '../client-risk-assessment/client-risk-assessment.service';
+import { SumsubApplicantClientModule } from '../../sumsub-applicant-client/sumsub-applicant-client.module';
 import { CustomersModule } from '../customers/customers.module';
 import { MaterialRequestsModule } from '../material-requests/material-requests.module';
 
@@ -16,8 +14,7 @@ import { MaterialRequestsModule } from '../material-requests/material-requests.m
     // Task 7：本模块的自动写入点改走限制账（CustomerRestrictionsService /
     // CustomerRestrictionWorkflowService），两者由 CustomersModule exports。
     forwardRef(() => CustomersModule),
-    forwardRef(() => OnboardingModule),
-    forwardRef(() => ClientRiskAssessmentModule),
+    SumsubApplicantClientModule,
     // Task 11：T-30 建行改走 MaterialRequestIssuerService.issue()，T-0 升档补挂
     // 限制改走 MaterialRequestsService.attachRestriction()。forwardRef：
     // MaterialRequestsModule 反过来也引本模块拿 MaterialRefreshPolicyLoader。
@@ -36,13 +33,5 @@ import { MaterialRequestsModule } from '../material-requests/material-requests.m
   // 查 Sumsub 认证等级名，需要从这里拿注册表（2026-08-17 材料请求账）。
   exports: [MaterialRefreshService, MaterialRefreshPolicyLoader],
 })
-export class MaterialRefreshModule implements OnModuleInit {
-  constructor(
-    private readonly materialRefreshService: MaterialRefreshService,
-    private readonly clientRiskAssessmentService: ClientRiskAssessmentService,
-  ) {}
-
-  onModuleInit() {
-    this.materialRefreshService.clientRiskAssessmentService = this.clientRiskAssessmentService;
-  }
-}
+// 站6：CRA 随一期拆除（业主方案2），可选钩子（onModuleInit 属性注入）一并断开。
+export class MaterialRefreshModule {}

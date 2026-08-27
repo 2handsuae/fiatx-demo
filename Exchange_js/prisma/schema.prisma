@@ -208,7 +208,6 @@ model CustomerMain {
   // 「摁住客户」不在这根轴上——制裁/行政暂停/材料过期/等升级/交易审查未过一律进
   // customer_restrictions 限制账（一行 = 一次摁住），可多因并存、各撕各的。
   lifecycle            String    @default("PROSPECT")
-  onboardingTraceId    String?
   onboardingApprovedAt DateTime?
 
   // Review Fix 2 (Important, swap-sumsub 终审): sticky 硬线标记。一旦客户被
@@ -220,13 +219,11 @@ model CustomerMain {
 
   // ═══ 产品属性 ═══
   investorTier          String    @default("STANDARD")
-  investorTierSource    String    @default("ONBOARDING")
   investorTierUpdatedAt DateTime?
 
   // Trading limits (2026-05-16)
   tradingTier              String   @default("BASIC")    // BASIC | PREMIUM
   riskLevel                String   @default("LOW")      // LOW | MEDIUM | HIGH
-  sumsubVerificationLevel  Int      @default(1)           // 1 | 2
 
   // ═══ 合规属性 ═══
   riskRating          String    @default("LOW")
@@ -242,7 +239,6 @@ model CustomerMain {
   sumsubLatestReviewId               String?
   sumsubLatestAttemptId              String?
   sumsubExperiencedLevel2            Boolean   @default(false)
-  verificationProvider               String?
   verificationSubstatus              String?
   verificationCustomerActionRequired Boolean   @default(false)
   verificationCanContinue            Boolean   @default(false)
@@ -264,13 +260,9 @@ model CustomerMain {
   swapTransactions          SwapTransaction[]
   withdrawTransactions      WithdrawTransaction[]
   inboundTransferSignals    InboundTransferSignal[]
-  corporateProfile          CorporateProfile?
-  uboProfiles               UboProfile[]
   latestRiskApproval        ApprovalCase?            @relation("CustomerLatestRiskApproval", fields: [latestRiskApprovalId], references: [id], onDelete: SetNull)
   materialHoldings          CustomerMaterialHolding[] @relation("CustomerMaterialHoldings")
   materialRefreshCycles     MaterialRefreshCycle[]   @relation("CustomerMaterialRefreshCycles")
-  riskAssessments           ClientRiskAssessment[]   @relation("CustomerRiskAssessments")
-  tierUpgradeCases          TierUpgradeCase[]        @relation("CustomerTierUpgradeCases")
   withdrawalAddresses       WithdrawalAddress[]
   explicitTags                CustomerExplicitTag[]
   restrictionRows             CustomerRestriction[]
@@ -373,45 +365,6 @@ model MaterialRequest {
   @@index([orderDomain, orderRef])
   @@index([restrictionNo])
   @@map("material_requests")
-}
-
-model CorporateProfile {
-  id                       String   @id @default(uuid())
-  customerId               String   @unique
-  companyName              String
-  registrationNo           String
-  incorporationCountry     String
-  registeredAddress        String?
-  licenseType              String?
-  licenseNumber            String?
-  authorizedSignatoryName  String?
-  authorizedSignatoryTitle String?
-  documents                String? // JSON array
-  createdAt                DateTime @default(now())
-  updatedAt                DateTime @updatedAt
-
-  customer CustomerMain @relation(fields: [customerId], references: [id])
-
-  @@map("corporate_profiles")
-}
-
-model UboProfile {
-  id               String   @id @default(uuid())
-  customerId       String
-  fullName         String
-  ownershipPercent Decimal?
-  nationality      String?
-  idNumber         String?
-  pepFlag          Boolean  @default(false)
-  status           String   @default("PENDING") // PENDING, CDD_IN_PROGRESS, CDD_APPROVED, EDD_IN_PROGRESS, EDD_APPROVED, REJECTED
-  documents        String? // JSON array
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
-
-  customer CustomerMain @relation(fields: [customerId], references: [id])
-
-  @@index([customerId])
-  @@map("ubo_profiles")
 }
 
 model AuditLogEvent {
@@ -593,9 +546,7 @@ model ApprovalCase {
   steps                          ApprovalStep[]
   evidencePackage                AuditEvidencePackage?          @relation("AuditEvidencePackageApprovalCase")
   latestForCustomerRiskApproval  CustomerMain?                  @relation("CustomerLatestRiskApproval")
-  riskAssessments                ClientRiskAssessment[]         @relation("ClientRiskAssessmentApprovalCase")
   linkedRegulatoryGates          RegulatoryGateItem[]           @relation("RegulatoryGateLinkedApproval")
-  tierUpgradeCaseApproval        TierUpgradeCase?               @relation("TierUpgradeCaseApproval")
 
   @@index([actionType, entityRef, status])
   @@index([status, timeoutAt])
@@ -1510,8 +1461,6 @@ model MaterialRefreshCycle {
   // 本轮到期提醒对应的材料请求。cycle 管「哪天到期」，材料账管「下发本身」。
   materialRequestNo        String?
 
-  triggeredByAssessmentId  String?
-  triggeredByAssessment    ClientRiskAssessment? @relation("AssessmentTriggeredCycles", fields: [triggeredByAssessmentId], references: [id])
 
   traceId                  String   @unique
 
@@ -1520,81 +1469,6 @@ model MaterialRefreshCycle {
   @@index([customerId, status])
   @@index([status, graceExpiresAt])
   @@map("material_refresh_cycles")
-}
-
-model ClientRiskAssessment {
-  id                          String   @id @default(cuid())
-  assessmentNo                String   @unique
-  customerId                  String
-  customer                    CustomerMain @relation("CustomerRiskAssessments", fields: [customerId], references: [id])
-
-  triggerType                 String
-  triggeredAt                 DateTime @default(now())
-
-  sumsubAmlCheckRequestedAt   DateTime?
-  sumsubAmlCheckInspectionId  String?
-  sumsubAmlReviewAnswer       String?
-  sumsubAmlLabels             String?  // JSON string
-  sumsubAmlRejectType         String?
-  sumsubSnapshotAt            DateTime?
-  sumsubRiskScore             Int?
-  sumsubTags                  String?  // JSON string
-
-  policyVersion               String
-  resultingRiskTier           String?
-  previousRiskTier            String?
-  scoreSuggestedTier          String?
-  recommendedAction           String?
-  reasoning                   String?  // JSON string
-
-  status                      String   @default("PENDING_SUMSUB_RESULT")
-  signoffMethod               String?
-  approvalCaseId              String?
-  approvalCase                ApprovalCase? @relation("ClientRiskAssessmentApprovalCase", fields: [approvalCaseId], references: [id])
-  signedBy                    String?
-  signedAt                    DateTime?
-  signedUnderPolicyVersion    String?
-
-  sumsubInternalCaseRef       String?
-  sumsubCaseFinalDecision     String?
-  sumsubCaseDecidedAt         DateTime?
-
-  triggeredRefreshCycles      MaterialRefreshCycle[] @relation("AssessmentTriggeredCycles")
-  tierUpgradeCase             TierUpgradeCase? @relation("CraTierUpgradeCase")
-
-  traceId                     String   @unique
-  createdAt                   DateTime @default(now())
-
-  @@index([customerId, status])
-  @@index([customerId, triggeredAt])
-  @@index([sumsubAmlCheckInspectionId])
-  @@index([status, triggeredAt])
-  @@map("client_risk_assessments")
-}
-
-model TierUpgradeCase {
-  id                   String    @id @default(cuid())
-  caseNo               String    @unique
-  customerId           String
-  customer             CustomerMain @relation("CustomerTierUpgradeCases", fields: [customerId], references: [id])
-  sourceCraId          String    @unique
-  sourceCra            ClientRiskAssessment @relation("CraTierUpgradeCase", fields: [sourceCraId], references: [id])
-
-  // PENDING_LEVEL2 | PENDING_PHASE2_APPROVAL | COMPLETED | REJECTED
-  status               String    @default("PENDING_LEVEL2")
-
-  phase2ApprovalCaseId String?   @unique
-  phase2ApprovalCase   ApprovalCase? @relation("TierUpgradeCaseApproval", fields: [phase2ApprovalCaseId], references: [id])
-
-  completedAt          DateTime?
-  rejectedAt           DateTime?
-  rejectedReason       String?
-  traceId              String    @unique
-  createdAt            DateTime  @default(now())
-  updatedAt            DateTime  @updatedAt
-
-  @@index([customerId, status])
-  @@map("tier_upgrade_cases")
 }
 
 model RoleDefinitionModifyRequest {

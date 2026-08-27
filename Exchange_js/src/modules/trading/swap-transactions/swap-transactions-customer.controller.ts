@@ -14,7 +14,7 @@ import { AdminPermissionGuard } from '../../../modules/identity/access-control/a
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { SwapTransactionsService } from './swap-transactions.service';
 import { SwapWorkflowService } from './swap-workflow.service';
-import { OnboardingService } from '../../identity/onboarding/onboarding.service';
+import { CustomerAccessService } from '../../identity/customers/customer-access.service';
 import {
   SwapTransactionQueryDto,
 } from './dto/swap-transaction.dto';
@@ -36,14 +36,14 @@ export class SwapTransactionsCustomerController {
     private readonly swapTransactionsService: SwapTransactionsService,
     private readonly swapQuoteService: SwapQuoteService,
     private readonly swapWorkflowService: SwapWorkflowService,
-    private readonly onboardingService: OnboardingService,
+    private readonly customerAccess: CustomerAccessService,
     private readonly prisma: PrismaService,
   ) {}
 
   @Post('quotes')
   @ApiOperation({ summary: 'Create a firm quote for customer swap' })
   async createQuote(@Request() req: any, @Body() dto: CreateSwapQuoteDto) {
-    await this.onboardingService.assertTradingEligibility(req.user.userId, 'SWAP');
+    await this.customerAccess.assertTradingEligibility(req.user.userId, 'SWAP');
     const fromAmount = new Prisma.Decimal(dto.fromAmount);
     if (fromAmount.lte(0)) {
       throw new BadRequestException('fromAmount must be greater than 0');

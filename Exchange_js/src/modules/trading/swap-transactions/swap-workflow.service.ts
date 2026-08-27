@@ -7,7 +7,6 @@ import { generateReferenceNo } from '../../../common/utils/no-generator.util';
 import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import { AuditEntityTypes } from '../../audit-logging/constants/audit-actions.constant';
 import { AuditOutcome, AuditCategory, AuditSubjectRole, AuditSubjectInput, AuditActorContext } from '../../audit-logging/dto/audit-log.dto';
-import { OnboardingService } from '../../identity/onboarding/onboarding.service';
 import { SwapQuoteService } from '../swap-fee-level/swap-quote.service';
 import { AccountingService } from '../../accounting/tigerbeetle/accounting.service';
 import { TB_LEDGERS } from '../../accounting/tigerbeetle/constants/tb-ledgers.constant';
@@ -173,7 +172,7 @@ export class SwapWorkflowService {
 
   constructor(
     private readonly prisma: PrismaService,
-    private readonly onboardingService: OnboardingService,
+    private readonly customerAccess: CustomerAccessService,
     private readonly swapQuoteService: SwapQuoteService,
     private readonly swapTransactionsService: SwapTransactionsService,
     private readonly accountingService: AccountingService,
@@ -203,7 +202,7 @@ export class SwapWorkflowService {
   async initiateSwap(ownerId: string, quoteId: string) {
     // ── L1 Eligibility gate (synchronous) ──
     const customer = await this.prisma.customerMain.findUnique({ where: { id: ownerId } });
-    await this.onboardingService.assertTradingEligibility(ownerId, 'SWAP');
+    await this.customerAccess.assertTradingEligibility(ownerId, 'SWAP');
 
     // ── L1 Transaction Limit gate (A + B) — evaluate BEFORE quote consumption ──
     // Peek the quote OUTSIDE the transaction only to get the from-asset + amount
