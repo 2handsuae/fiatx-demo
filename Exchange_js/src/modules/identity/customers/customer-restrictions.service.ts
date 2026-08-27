@@ -123,7 +123,8 @@ export class CustomerRestrictionsService {
     await this.auditLogsService.recordSystem({
       ...auditShell,
       action: AuditActions.CUSTOMER_RESTRICTION_ADDED,
-      outcome: AuditOutcome.SUCCESS,
+      outcome: outcome.created ? AuditOutcome.SUCCESS : AuditOutcome.DENIED,
+      reasonCode: outcome.created ? undefined : 'DUPLICATE_HIT',
       requestId: `CUSTOMER_RESTRICTION_ADDED_${outcome.restrictionNo}_${randomUUID()}`,
     }, tx);
 
@@ -180,7 +181,7 @@ export class CustomerRestrictionsService {
     // MLRO / 兑换 / 充值 / 提现），靠约定必然滞后（同 deposit-transactions.
     // service.ts:82 那段关于白名单滞后的教训）。归一后同一客户同一 cause 永远
     // 只有最早的那一张 OPEN，第 2..N 次命中 created=false、不广播、但仍写一条
-    // result=SKIPPED 的审计，可取证。
+    // outcome=DENIED + reasonCode=DUPLICATE_HIT 的审计，可取证。
     // ⚠️ 不能用 null 表达「客户级」—— null 在下面的分支里是「完全不去重」。
     const effectiveCaseRef = policy.customerLevel ? customer.customerNo : caseRef;
 

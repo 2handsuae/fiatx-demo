@@ -213,7 +213,7 @@ describe('CustomerRestrictionsService.open', () => {
     expect(createdRows(tx, 1).map((r) => r.scope)).toEqual(['WITHDRAW']);
   });
 
-  it('幂等：同 (customerId, cause, caseRef) 二次 open → created:false、不新增行、审计记 SKIPPED', async () => {
+  it('幂等：同 (customerId, cause, caseRef) 二次 open → created:false、不新增行、审计记 DENIED(DUPLICATE_HIT)', async () => {
     const { prisma, tx } = createPrismaMock();
     const audit = createAuditMock();
     tx.customerRestriction.findFirst.mockResolvedValue({
@@ -248,7 +248,8 @@ describe('CustomerRestrictionsService.open', () => {
     expect(audit.recordSystem).toHaveBeenCalledWith(
       expect.objectContaining({
         action: 'CUSTOMER_RESTRICTION_ADDED',
-        outcome: 'SUCCESS',
+        outcome: 'DENIED',
+        reasonCode: 'DUPLICATE_HIT',
         metadata: expect.objectContaining({
           restrictionNo: 'RST2608150001',
           scopes: ['WITHDRAW', 'SWAP'],
