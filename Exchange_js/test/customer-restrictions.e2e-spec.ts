@@ -150,6 +150,7 @@ describe('Customer lifecycle restrictions (e2e, Task 14)', () => {
     const row = await prisma.depositTransaction.create({
       data: {
         depositNo, traceId: depositNo,
+        correlationId: depositNo, // 审计主线根——INHERIT 闸要求主单必携(生产由 detected() 铸)
         ownerType: 'CUSTOMER', ownerId: c.id,
         status: DepositTransactionStatus.COMPLIANCE_PENDING,
         assetId: fiatAssetId, toWalletId: wallet.id,
@@ -167,6 +168,7 @@ describe('Customer lifecycle restrictions (e2e, Task 14)', () => {
     return prisma.withdrawTransaction.create({
       data: {
         withdrawNo, traceId: withdrawNo,
+        correlationId: withdrawNo, // 审计主线根——INHERIT 闸要求主单必携(生产由 createWithdrawal 铸)
         ownerType: 'CUSTOMER', ownerId: c.id, ownerNo: c.customerNo,
         status: WithdrawTransactionStatus.COMPLIANCE_PENDING,
         assetId: fiatAssetId,
@@ -521,7 +523,7 @@ describe('Customer lifecycle restrictions (e2e, Task 14)', () => {
     );
     expect(
       await prisma.auditLogEvent.count({
-        where: { primarySubjectNo: sw.id, action: AuditActions.SWAP_FROZEN },
+        where: { primarySubjectNo: sw.swapNo!, action: AuditActions.SWAP_FROZEN },
       }),
     ).toBeGreaterThan(0);
   });

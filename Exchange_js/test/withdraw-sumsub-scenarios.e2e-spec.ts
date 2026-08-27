@@ -338,8 +338,9 @@ describe('Withdraw Sumsub verdict buttons (e2e, Task 12)', () => {
   }
 
   async function auditActionsFor(id: string): Promise<string[]> {
+    const w = await (prisma as any).withdrawTransaction.findUnique({ where: { id }, select: { withdrawNo: true } });
     const rows = await (prisma as any).auditLogEvent.findMany({
-      where: { entityId: id, entityType: AuditEntityTypes.WITHDRAW_TRANSACTION },
+      where: { primarySubjectNo: w!.withdrawNo, primarySubjectType: AuditEntityTypes.WITHDRAW_TRANSACTION },
       select: { action: true },
     });
     return rows.map((r: any) => r.action);
@@ -422,8 +423,7 @@ describe('Withdraw Sumsub verdict buttons (e2e, Task 12)', () => {
     expect(await statusOf(w.id)).toBe(WithdrawTransactionStatus.REJECTED);
 
     const actions = await auditActionsFor(w.id);
-    expect(actions).toContain(AuditActions.WITHDRAW_REFUNDED_BY_TAG);
-    expect(actions).toContain(AuditActions.WITHDRAW_LOCK_RELEASED);
+    expect(actions).toContain('WITHDRAW_REFUNDED'); // 站2-β:标签路并入 REFUNDED,解锁事实在其 metadata
 
     const after = await accounting.getCustomerAvailableBalance(customerId, 'AED');
     expect(after.available).toBe(before.available); // fully restored

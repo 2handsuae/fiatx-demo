@@ -21,7 +21,6 @@ import {
   AuditActions,
   AuditEntityTypes,
   AuditModules,
-  AuditWorkflowTypes,
 } from '../../audit-logging/constants/audit-actions.constant';
 import { ApprovalsService } from '../../governance/approvals/approvals.service';
 import { DomainEventNames } from '../../../common/events/domain-events.constants';
@@ -198,57 +197,37 @@ export class WithdrawTransactionsService {
   }
 
   private mapCanonicalAuditLogs(events: any[]) {
-    return events.map((event: any) => {
-      // Parse status transition from action string (format: WITHDRAW_FROM_TO_TO)
-      const { from: oldStatus, to: newStatus } = this.parseStatusTransitionFromAction(event.action);
-      return {
-        id: event.id,
-        action: event.action || null,
-        statusFrom: oldStatus,
-        statusTo: newStatus,
-        actorType: event.actorType || null,
-        actorNo: event.actorNo || null,
-        reason: event.reason || null,
-        occurredAt: event.occurredAt || event.createdAt || null,
-        result: event.result || null,
-        oldStatus,
-        newStatus,
-        operatorId: event.actorNo || null,
-        createdAt: event.occurredAt || event.createdAt || null,
-      };
-    });
-  }
-
-  private parseStatusTransitionFromAction(action?: string): { from: string | null; to: string | null } {
-    if (!action) return { from: null, to: null };
-    const match = action.match(/^WITHDRAW_(.+)_TO_(.+)$/);
-    if (!match) return { from: null, to: null };
-    return { from: match[1], to: match[2] };
+    // 站2-β：动态迁移码族已废——状态变化直读留痕的从/到两列（新词表合同）。
+    return events.map((event: any) => ({
+      id: event.id,
+      action: event.action || null,
+      statusFrom: event.fromStatus || null,
+      statusTo: event.toStatus || null,
+      actorType: event.actorType || null,
+      actorNo: event.actorNo || null,
+      reason: event.reason || null,
+      occurredAt: event.occurredAt || null,
+      result: event.outcome || null,
+      oldStatus: event.fromStatus || null,
+      newStatus: event.toStatus || null,
+      operatorId: event.actorNo || null,
+      createdAt: event.occurredAt || null,
+    }));
   }
 
   private async getCanonicalWithdrawAuditLogs(
     withdrawId: string,
     withdrawNo?: string | null,
   ) {
+    // 站2-β：按业务键查（新合同 primarySubjectNo=单号）；旧的 UUID 臂/workflowType 臂/
+    // 拼接 traceId 臂全部随 8/25 改表与动态码族废除一并退役。
+    if (!withdrawNo) return [];
     const events = await (this.prisma as any).auditLogEvent.findMany({
       where: {
-        OR: [
-          {
-            primarySubjectType: AuditEntityTypes.WITHDRAW_TRANSACTION,
-            primarySubjectNo: withdrawId,
-          },
-          withdrawNo
-            ? {
-                workflowType: AuditWorkflowTypes.WITHDRAW,
-                primarySubjectNo: withdrawNo,
-              }
-            : undefined,
-          {
-            traceId: `${AuditWorkflowTypes.WITHDRAW}:${withdrawId}`,
-          },
-        ].filter(Boolean),
+        primarySubjectType: AuditEntityTypes.WITHDRAW_TRANSACTION,
+        primarySubjectNo: withdrawNo,
       },
-      orderBy: [{ occurredAt: 'desc' }, { createdAt: 'desc' }],
+      orderBy: [{ occurredAt: 'desc' }, { recordedAt: 'desc' }],
       take: 100,
     });
 
