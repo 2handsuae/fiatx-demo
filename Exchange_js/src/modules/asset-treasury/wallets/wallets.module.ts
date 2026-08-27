@@ -1,4 +1,4 @@
-import { Module, forwardRef } from '@nestjs/common';
+import { Module } from '@nestjs/common';
 import { WalletsService } from './wallets.service';
 import { WalletQueryService } from './wallet-query.service';
 import { WalletBalanceService } from './wallet-balance.service';
@@ -16,9 +16,9 @@ import { GovernanceModule } from '../../governance/governance.module';
 import { OnboardingModule } from '../../identity/onboarding/onboarding.module';
 
 @Module({
-  // forwardRef(Onboarding)：CustomersModule→OnboardingModule 新边（parity 2026-08-14，
-  // 客户级补料会话取 SumsubClient）使 Wallets 在循环 require 中段拿到 undefined。
-  imports: [PrismaModule, AuditLogsModule, GovernanceModule, forwardRef(() => OnboardingModule)],
+  // Onboarding 边曾裹 forwardRef（2026-08-14 起，防循环 require 中段拿 undefined）；
+  // 站4 清扫实测环已不存在（sumsub 枢纽解包后装载链拉直），拆封并开机实证。
+  imports: [PrismaModule, AuditLogsModule, GovernanceModule, OnboardingModule],
   controllers: [WalletsController, CustodianWalletCreateController, CustomerDepositWalletController],
   providers: [
     WalletsService,

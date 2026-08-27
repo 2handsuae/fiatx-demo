@@ -147,24 +147,6 @@ describe('AuditLogsService', () => {
     expect(mapRawAuditActionToUserAction(AuditActions.APPROVAL_SUBMITTED)).toBe(
       AuditUserActions.SUBMITTED,
     );
-    expect(mapRawAuditActionToUserAction(AuditActions.APPROVAL_APPROVED)).toBe(
-      AuditUserActions.APPROVED_FOR_EXECUTION,
-    );
-    expect(mapRawAuditActionToUserAction(AuditActions.APPROVAL_EXECUTED)).toBe(
-      AuditUserActions.EXECUTED,
-    );
-    expect(mapRawAuditActionToUserAction(AuditActions.ADMIN_INVITATION_CREATED)).toBe(
-      AuditUserActions.INVITATION_ISSUED,
-    );
-    expect(mapRawAuditActionToUserAction(AuditActions.ADMIN_INVITATION_RESENT)).toBe(
-      AuditUserActions.INVITATION_RESENT,
-    );
-    expect(mapRawAuditActionToUserAction(AuditActions.ADMIN_INVITATION_ACCEPTED)).toBe(
-      AuditUserActions.ACTIVATED,
-    );
-    expect(mapRawAuditActionToUserAction(AuditActions.ADMIN_INVITATION_ACCEPT_FAILED)).toBe(
-      AuditUserActions.ACTIVATION_FAILED,
-    );
     expect(mapRawAuditActionToUserAction(AuditActions.ADMIN_LOGIN_SUCCESS)).toBe(
       AuditUserActions.LOGIN_SUCCEEDED,
     );
@@ -177,30 +159,18 @@ describe('AuditLogsService', () => {
     expect(mapRawAuditActionToUserAction(AuditActions.ACCOUNT_UNLOCKED)).toBe(
       AuditUserActions.ACCOUNT_UNLOCKED,
     );
-    expect(mapRawAuditActionToUserAction(AuditActions.AUDIT_EVIDENCE_PACKAGE_EXPORTED)).toBe(
-      AuditUserActions.EXPORTED,
-    );
     expect(
       mapRawAuditActionToUserAction(AuditActions.AUDIT_EVIDENCE_EXPORT_REQUESTED),
     ).toBe(AuditUserActions.REQUEST_CREATED);
-    expect(
-      mapRawAuditActionToUserAction(AuditActions.AUDIT_EVIDENCE_PACKAGE_DOWNLOADED),
-    ).toBe(AuditUserActions.DOWNLOADED);
     expect(mapRawAuditActionToUserAction(AuditActions.APPROVAL_EXECUTION_FAILED)).toBe(
       AuditUserActions.EXPORT_FAILED,
-    );
-    expect(mapRawAuditActionToUserAction(AuditActions.USER_CREATED)).toBe(
-      AuditUserActions.EXECUTED,
-    );
-    expect(mapRawAuditActionToUserAction(AuditActions.USER_ROLE_BINDING_UPDATED)).toBe(
-      AuditUserActions.ROLE_BINDINGS_UPDATED,
     );
     expect(mapRawAuditActionToUserAction('UNKNOWN_WAVE1_ACTION')).toBeUndefined();
   });
 
 
-  it('should map evidence export request and download actions into the audit evidence export workflow', async () => {
-    prisma.auditLogEvent.count.mockResolvedValue(2);
+  it('should map evidence export request actions into the audit evidence export workflow', async () => {
+    prisma.auditLogEvent.count.mockResolvedValue(1);
     prisma.auditLogEvent.findMany.mockResolvedValue([
       {
         id: 'wf-exp-req-1',
@@ -219,23 +189,6 @@ describe('AuditLogsService', () => {
         afterData: null,
         occurredAt: new Date('2026-04-05T10:00:00.000Z'),
       },
-      {
-        id: 'wf-exp-download-1',
-        auditNo: 'AUD2604051002',
-        action: AuditActions.AUDIT_EVIDENCE_PACKAGE_DOWNLOADED,
-        entityType: AuditEntityTypes.AUDIT_EVIDENCE_PACKAGE,
-        entityId: 'pkg-1',
-        entityNo: 'EVP2604050351',
-        workflowType: AuditBusinessWorkflowTypes.AUDIT_EVIDENCE_EXPORT,
-        actorType: 'ADMIN',
-        actorId: 'admin-1',
-        actorNo: 'ADMIN-001',
-        outcome: AuditOutcome.SUCCESS,
-        metadata: null,
-        beforeData: null,
-        afterData: null,
-        occurredAt: new Date('2026-04-05T10:05:00.000Z'),
-      },
     ]);
 
     const result = await service.findAll({ take: 20 });
@@ -243,10 +196,6 @@ describe('AuditLogsService', () => {
     expect(result.items[0]).toMatchObject({
       businessWorkflow: AuditBusinessWorkflowTypes.AUDIT_EVIDENCE_EXPORT,
       userAction: AuditUserActions.REQUEST_CREATED,
-    });
-    expect(result.items[1]).toMatchObject({
-      businessWorkflow: AuditBusinessWorkflowTypes.AUDIT_EVIDENCE_EXPORT,
-      userAction: AuditUserActions.DOWNLOADED,
     });
   });
 
@@ -414,7 +363,7 @@ describe('AuditLogsService', () => {
       {
         id: 'wf-ct-1',
         auditNo: 'AUD2604010001',
-        action: AuditActions.APPROVAL_APPROVED,
+        action: AuditActions.APPROVAL_SUBMITTED,
         entityType: AuditEntityTypes.APPROVAL_CASE,
         entityId: 'approval-1',
         entityNo: 'APR2604010001',
@@ -447,7 +396,7 @@ describe('AuditLogsService', () => {
       {
         id: 'wf-exp-1',
         auditNo: 'AUD2604010004',
-        action: AuditActions.AUDIT_EVIDENCE_PACKAGE_EXPORTED,
+        action: AuditActions.AUDIT_EVIDENCE_EXPORT_REQUESTED,
         entityType: AuditEntityTypes.AUDIT_EVIDENCE_PACKAGE,
         entityId: 'pkg-1',
         entityNo: 'EVP2604010001',
@@ -467,9 +416,9 @@ describe('AuditLogsService', () => {
     expect(result.items[0]).toMatchObject({
       businessWorkflow: AuditBusinessWorkflowTypes.ADMIN_ROLE_BINDING_CHANGE,
       businessWorkflowLabel: 'Admin Role Binding Change',
-      userAction: AuditUserActions.APPROVED_FOR_EXECUTION,
-      userActionLabel: 'Approved For Execution',
-      action: AuditActions.APPROVAL_APPROVED,
+      userAction: AuditUserActions.SUBMITTED,
+      userActionLabel: 'Submitted',
+      action: AuditActions.APPROVAL_SUBMITTED,
     });
     expect(result.items[1]).toMatchObject({
       businessWorkflow: AuditBusinessWorkflowTypes.ADMIN_LOGIN_ACCESS,
@@ -480,8 +429,8 @@ describe('AuditLogsService', () => {
     expect(result.items[2]).toMatchObject({
       businessWorkflow: AuditBusinessWorkflowTypes.AUDIT_EVIDENCE_EXPORT,
       businessWorkflowLabel: 'Audit Evidence Export',
-      userAction: AuditUserActions.EXPORTED,
-      userActionLabel: 'Exported',
+      userAction: AuditUserActions.REQUEST_CREATED,
+      userActionLabel: 'Request Created',
     });
   });
 
@@ -520,7 +469,7 @@ describe('AuditLogsService', () => {
     prisma.auditLogEvent.findUnique.mockResolvedValue({
       id: 'detail-1',
       auditNo: 'AUD2604010100',
-      action: AuditActions.APPROVAL_APPROVED,
+      action: AuditActions.APPROVAL_SUBMITTED,
       entityType: AuditEntityTypes.APPROVAL_CASE,
       entityId: 'approval-1',
       entityNo: 'APR2604010001',
@@ -540,9 +489,9 @@ describe('AuditLogsService', () => {
     expect(result).toMatchObject({
       businessWorkflow: AuditBusinessWorkflowTypes.ADMIN_ROLE_BINDING_CHANGE,
       businessWorkflowLabel: 'Admin Role Binding Change',
-      userAction: AuditUserActions.APPROVED_FOR_EXECUTION,
-      userActionLabel: 'Approved For Execution',
-      action: AuditActions.APPROVAL_APPROVED,
+      userAction: AuditUserActions.SUBMITTED,
+      userActionLabel: 'Submitted',
+      action: AuditActions.APPROVAL_SUBMITTED,
       workflowType: AuditBusinessWorkflowTypes.ADMIN_ROLE_BINDING_CHANGE,
       traceId: 'trace-role-binding-1',
     });
@@ -965,7 +914,7 @@ describe('AuditLogsService', () => {
       {
         id: 'audit-swap-2',
         auditNo: 'AUD2603260002',
-        action: AuditActions.TX_SWAP_RELEASED,
+        action: 'SWAP_KYT_APPROVED',
         entityType: AuditEntityTypes.SWAP_TRANSACTION,
         entityId: 'swap-1',
         entityNo: 'SWP2603260001',
@@ -1260,7 +1209,7 @@ describe('AuditLogsService', () => {
       {
         id: 'audit-withdraw-1',
         auditNo: 'AUD2603270001',
-        action: AuditActions.SYSTEM_WITHDRAW_APPROVED_ORCHESTRATED,
+        action: 'WITHDRAW_COMPLIANCE_PASSED',
         entityType: AuditEntityTypes.WITHDRAW_TRANSACTION,
         entityId: 'withdraw-1',
         entityNo: 'WD2603270001',

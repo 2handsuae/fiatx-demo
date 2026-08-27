@@ -1,4 +1,4 @@
-import { Module, forwardRef } from '@nestjs/common';
+import { Module} from '@nestjs/common';
 import { PrismaModule } from '../../../core/prisma/prisma.module';
 import { ApprovalsModule } from '../../governance/approvals/approvals.module';
 import { AuditLogsModule } from '../../audit-logging/audit-logs.module';
@@ -15,7 +15,7 @@ import { OnboardingModule } from '../../identity/onboarding/onboarding.module';
 import { CustomerTagModule } from '../../identity/customer-tags/customer-tag.module';
 
 @Module({
-  imports: [PrismaModule, ApprovalsModule, AuditLogsModule, forwardRef(() => PricingCenterModule), forwardRef(() => OnboardingModule), CustomerTagModule],
+  imports: [PrismaModule, ApprovalsModule, AuditLogsModule, PricingCenterModule, OnboardingModule, CustomerTagModule],
   controllers: [WithdrawalFeeLevelController, WithdrawQuoteCustomerController],
   providers: [
     WithdrawalFeeLevelService,

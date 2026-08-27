@@ -1,4 +1,4 @@
-import { Module, forwardRef } from '@nestjs/common';
+import { Module } from '@nestjs/common';
 import { PrismaModule } from '../../core/prisma/prisma.module';
 import { OnboardingModule } from '../identity/onboarding/onboarding.module';
 import { ClientRiskAssessmentModule } from '../identity/client-risk-assessment/client-risk-assessment.module';
@@ -16,37 +16,27 @@ import { AdminSumsubSimulationController } from './admin-sumsub-simulation.contr
 import { SumsubRetryService } from './sumsub-ingestion-retry.service';
 import { CustomersModule } from '../identity/customers/customers.module';
 import { MaterialRequestsModule } from '../identity/material-requests/material-requests.module';
+// 站4 解包：本模块曾满身 forwardRef——那是三颗 sumsub 卫星还回指本模块的年代
+// （demo-scenario 走 ingest()）。站3-α2 把演示件摘进独立 demo 模块（AppModule 直挂、
+// 无人回指）后，环已不存在；2026-08-27 全数拆封并开机实证。若未来有人重新让
+// 卫星或身份域模块 import 本模块，先想想演示件是不是又放错了地方。
 @Module({
   imports: [
-    // Task 7：本模块的自动写入点改走限制账（CustomerRestrictionsService /
-    // CustomerRestrictionWorkflowService），两者由 CustomersModule exports。
-    forwardRef(() => CustomersModule),
+    // 限制账（Task 7）：CustomerRestrictionsService / CustomerRestrictionWorkflowService 由 CustomersModule exports。
+    CustomersModule,
     PrismaModule,
-    forwardRef(() => OnboardingModule),
-    forwardRef(() => ClientRiskAssessmentModule),
-    forwardRef(() => MaterialRefreshModule),
-    forwardRef(() => TierUpgradeCaseModule),
-    forwardRef(() => DepositTransactionsModule),
-    forwardRef(() => WithdrawTransactionsModule),
-    // Task 6: DepositSumsubModule now also imports this module (forwardRef(() =>
-    // SumsubIngestionModule)) so its demo-scenario service can call
-    // SumsubIngestionService.ingest() — wrap in forwardRef on this side too, matching
-    // the existing DepositTransactionsModule<->DepositSumsubModule cycle pattern.
-    forwardRef(() => DepositSumsubModule),
-    // Task 4: withdraw-sumsub's WithdrawWebhookRouter — deposit-first, withdraw-second
-    // cascade for KYT verdict webhooks (see dispatch() below). forwardRef because
-    // WithdrawSumsubModule → DepositSumsubModule → SumsubIngestionModule closes a cycle.
-    forwardRef(() => WithdrawSumsubModule),
-    // Task 5: swap-sumsub's SwapWebhookRouter — third and last cascade stage
-    // (deposit → withdraw → swap). forwardRef because SwapSumsubModule →
-    // SwapTransactionsModule → DepositSumsubModule → SumsubIngestionModule
-    // closes a cycle, same pattern as the WithdrawSumsubModule edge above.
-    forwardRef(() => SwapSumsubModule),
-    // Task 4（材料请求账）：applicantActionReviewed 改按 externalActionId 一次查表，
-    // 落在 MaterialRequestReviewService。forwardRef 因为 MaterialRequestsModule ->
-    // CustomersModule/OnboardingModule/MaterialRefreshModule 与本模块共享同一批
-    // forwardRef 依赖，防止循环依赖解析顺序问题。
-    forwardRef(() => MaterialRequestsModule),
+    OnboardingModule,
+    ClientRiskAssessmentModule,
+    MaterialRefreshModule,
+    TierUpgradeCaseModule,
+    DepositTransactionsModule,
+    WithdrawTransactionsModule,
+    DepositSumsubModule,
+    // 三段级联裁决路由（deposit → withdraw → swap，见 service.dispatch()）。
+    WithdrawSumsubModule,
+    SwapSumsubModule,
+    // 材料请求账（Task 4）：applicantActionReviewed 按 externalActionId 一次查表，落在 MaterialRequestReviewService。
+    MaterialRequestsModule,
   ],
   providers: [SumsubIngestionService, SumsubRetryService],
   controllers: [SumsubIngestionController, SumsubIngestionAdminController, AdminSumsubSimulationController],

@@ -1,11 +1,9 @@
 // src/modules/sumsub-ingestion/sumsub-ingestion.service.ts
 import {
   BadRequestException,
-  Inject,
   Injectable,
   Logger,
   NotFoundException,
-  forwardRef,
 } from '@nestjs/common';
 import { PrismaService } from '../../core/prisma/prisma.service';
 import { CustomerRestrictionsService } from '../identity/customers/customer-restrictions.service';
@@ -39,7 +37,6 @@ export class SumsubIngestionService {
     private readonly materialRefreshService: MaterialRefreshService,
     private readonly tierUpgradeCaseService: TierUpgradeCaseService,
     private readonly depositWorkflowService: DepositWorkflowService,
-    @Inject(forwardRef(() => WithdrawTransactionsService))
     private readonly withdrawService: WithdrawTransactionsService,
     private readonly depositWebhookRouter: DepositWebhookRouter,
     private readonly withdrawWebhookRouter: WithdrawWebhookRouter,
