@@ -19,3 +19,11 @@
 **留痕联动（β 词表随之）**：SWAP_CREATED 携锁定金额；SWAP_KYT_REJECTED / SWAP_FROZEN 携 releasedAmount。
 
 **对照**：提现 FROZEN 持锁不擦——它有出口（解冻续付要用锁）；兑换 FROZEN 零出边终态，终态持锁违反公理。
+
+## 竣工记（As-built，2026-08-27）
+
+- 落地与设计一致，另发现并补上**第四个擦圈出口**：SLA 破线 fail-closed 拒单（`swap-sla.service.ts` sweep 推 REJECTED 后擦圈）——设计稿时刻表只列了 KYT 拒绝与两处冻结，破线拒单同样是"终态要回答钱去哪了"。
+- **双侧圈实证**：腿 1 的圈是两条 pending（客户卖出侧 + 公司清算浮存侧）成对画、成对落笔/擦除——e2e 的零痕迹性质由「evidence 全 VOIDED + POSTED 流水为零 + 余额恢复」三断言表述。
+- `releaseBirthLock` 公开方法、best-effort（失败 CRITICAL 日志不阻断状态迁移），返回退还金额供审计留痕（`releasedFromAmount`）。
+- 批量冻结数据源 `findNonTerminalByOwner` select 补 `correlationId`——漏带则 SWAP_FROZEN 信封被机器闸拒收再被 catch 吞掉（e2e 逮到后修复，b9615058）。
+- 证据：干净库 e2e 全量 11 套件 83/83 绿；demo:all 8/8；verify:coa 全恒等式过。

@@ -50,18 +50,18 @@ COMPLIANCE_PENDING（出生态，零记账）
 ## 4. 演示脚本（第四幕 · 钱换）
 
 1. Alice 客户端拿报价 → 看 30 秒倒计时、点差与费（若第一幕改过费率，这里当场兑现）→ 确认
-2. 管理台看单：`COMPLIANCE_PENDING`，**账本零动静**（切账本页佐证"先问再动钱"）
+2. 管理台看单：`COMPLIANCE_PENDING`，**账本上卖出侧已画圈锁定全额**（出生锁：下单即锁，与提现同律；可用余额当场减少——再想拿同一笔钱发提现会被挡）
 3. ⚡喂"通过" → 看四条腿依次清算 → SUCCESS → 账本页看四腿分录、客户两侧余额变
-4. 再来一笔，⚡喂"拒绝" → REJECTED，账本依旧零痕迹；客户端显示"未成功"
-5. 再来一笔，⚡喂"制裁命中（申请人）" → 管理台红色 FROZEN + 客户被冻（V2 便签）；**切客户端：显示与第 4 步逐字相同的"未成功"**——第二幕 tipping-off 的交易域版本
+4. 再来一笔，⚡喂"拒绝" → REJECTED，**出生圈擦除、金额退回可用余额**（账本留圈+擦圈两笔痕，净额归零）；客户端显示"未成功"
+5. 再来一笔，⚡喂"制裁命中（申请人）" → 管理台红色 FROZEN + 客户被冻（V2 便签）；**出生圈同样擦除退回**（业主裁定：终态不押钱，押人靠限制账——客户整个人被冻，钱不用再押在单上）；**切客户端：显示与第 4 步逐字相同的"未成功"**——第二幕 tipping-off 的交易域版本
 6. 缺收款账户预检：用没有买入侧账户的客户试兑换 → 提交被禁 + 引导去开户
 
 ## 5. 关键技术节点（≤30 行）
 
-- 工作流 `trading/swap-transactions/swap-workflow.service.ts`：`initiateSwap()`（四道门 → 耗报价 → 建单零记账 → 同步铸 Sumsub 出账交易号）｜ `applyKytVerdict()`（三分支落地；顶部终态守卫，兑换**没有** decideVerdictLanding，勿照抄充值写法）｜ `handleRejectDisposition()`（拒绝→客户便签）
+- 工作流 `trading/swap-transactions/swap-workflow.service.ts`：`initiateSwap()`（四道门 → 耗报价 → 建单**同事务画出生圈**（腿1/attempt1 预占卖出全额）→ 同步铸 Sumsub 出账交易号；旅程号 correlationId 在此铸造全链继承）｜`swapAudit()`（域信封助手：PRIMARY=兑换单号/OWNER=客户号/RELATED=资金单号，18 码名册见 audit-actions.constant.ts V6 段）｜`releaseBirthLock()`（擦圈四出口：KYT 拒绝/制裁冻单/批量冻单/SLA 破线拒单）｜ `applyKytVerdict()`（三分支落地；顶部终态守卫，兑换**没有** decideVerdictLanding，勿照抄充值写法）｜ `handleRejectDisposition()`（拒绝→客户便签）
 - 状态机 `swap-transactions.service.ts → transitions`（5 边穷举）；四个 FROZEN 判据常量**答案刻意不同**：终态集合不含 FROZEN（防撕材料卡片=tipping-off）、冻结扫描排除含 FROZEN（不重复冻）、客户面白名单不含 FROZEN（收敛成 REJECTED）——同一问题四处四答，是本域最易做错处
 - 客户面防线 `toCustomerSwapStatus()` 白名单收敛 + 筛选按收敛值反向展开（派生自收敛函数，无平行表）
-- 记账 `swap-leg-accounting.ts`（四腿实时逐腿 post）；腿=挂 swapTransactionId 的资金单（见 funds-orders 篇）
+- 记账 `swap-leg-accounting.ts`（四腿实时逐腿 post）；腿=挂 swapTransactionId 的资金单（见 funds-orders 篇）；腿 1 特殊：圈在下单时已画（createLeg 对 legSeq=1&attempt=1 跳过画圈只落笔），重试 attempt≥2 恢复按次画圈
 - 报价 `swap-fee-level/swap-quote.service.ts`（TTL 30s 懒过期）+ `pricing-center/pricing-engine.service.ts` + Binance 价源（3s 缓存，AED 钉 3.6725）+ `fee-audience.util.ts → resolveBestLevel()`
 - SLA `swap-sumsub/swap-sla.service.ts → sweep()`（30s cron；超时推 REJECTED、不做客户处置；txnId 为空的单是漏提交，重提不判死）
 - L1/限额 `TransactionLimitGateService.evaluate()`（建单前；AED 估值快照落单供累计取数）
@@ -70,7 +70,6 @@ COMPLIANCE_PENDING（出生态，零记账）
 
 - **KYT 规则自动裁决未真机验证**（命门）：无人工介入时 Sumsub 会不会自动发裁决 webhook 未实测——不发则真集成下每笔兑换都会超时死
 - **成功通知未接**：换完客户收不到通知，演示别承诺
-- **腿失败第 2+ 次自愈重试的审计被静默吞掉**（去重键缺区分）——追溯时中间步会缺行
 - **运营分不出"技术卡单"与"人被冻结"**：两种情况共用同一面红旗
 - **兑换 demo 按钮缺"先交材料"前置**：部分场景按钮直接按会 500——演示按剧本顺序走
 - **报价过期无定时清扫**（只懒过期）：列表里可能躺着过期报价，讲解时说明

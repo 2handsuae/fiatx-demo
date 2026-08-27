@@ -80,7 +80,6 @@ Last Updated: 2026-08-26
 - [ ] **豁免位有效期**：poa/questionnaires 字段是否含提交时间戳待验；无时间戳则该档退回 tag + 我方管期限｜来源: 同上
 - [ ] **兑换域规则清单与阈值**：另起规则目录文档，含排雷（含 rejected 计数 / 缺 .notRejected 的聚合规则会造成
       「被拒→加分→再被拒」死循环）｜来源: 同上 §7
-- [ ] **`SWAP_LEG_RETRIED` 审计在同一 swap 内的第 2+ 次自愈重试被静默去重**：`SwapWorkflowService.onLegFailedSelfHeal()` 写 `SWAP_LEG_RETRIED` 审计时未传 `requestId`，`AuditLogsService#buildIdempotencyKey` 退化成 `entityType|entityId|action|NO_REQUEST_ID`——同一笔 swap 的每一次重试都算出同一个 key，`createEventWithUniqueNo` 的幂等短路（`audit-logs.service.ts`）因此把第 2 次及以后的重试审计静默吞掉（只返回第 1 次那行，不新建）。`funds_order` 侧（void + 建下一 attempt）完全不受影响、行为正确；只有审计追溯链缺失中间步骤。三试封顶（`MAX_LEG_ATTEMPTS=3`）场景下最多丢 1 条（2→3 那次），发现于 `scripts/verify-swap-self-heal.ts` 实跑（该脚本已按此真实行为调整断言，注释详述根因）。修法：`SWAP_LEG_RETRIED` 审计调用补一个按 attempt 区分的 `requestId`（如 `SWAP_LEG_RETRY_${swap.id}_${failedAttempt}`）｜来源: 2026-08-13 Task 12 实跑发现
 > 注：swap 腿 InternalFund 命名债已并入下方「平账处置」的 funds-orders 域 RBAC 命名债条目，不重复登记。
 
 

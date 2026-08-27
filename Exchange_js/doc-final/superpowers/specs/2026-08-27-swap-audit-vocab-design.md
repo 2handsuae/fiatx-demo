@@ -45,3 +45,11 @@ SWAP_KYT_SUBMIT_FAILED ｜ SWAP_KYT_REJECTED_DISPOSITION_FAILED ｜ SWAP_FAILED
 ## 接线范围
 
 ① 常量表 V6_SWAP_AUDIT_ACTIONS + CONTRACT_ACTION_DOMAINS 纳 SWAP + 退役 3 名（总 50）；② swap_transactions 加旅程号列（迁移+重铺闸）；③ swapAudit 信封助手 + 25 写点换装（含 LEG_RESUMED 操作员通道）；④ 测试同步；⑤ 收尾闸全家 + verify:audit 兑换段入双绿池。
+
+## 竣工记（As-built，2026-08-27）
+
+- 18 码全部接线（b9615058）：工作流 20 写点经 `swapAudit()` 助手换装；SLA 破线/模拟、演示场景、GREEN_HARDLINE 四卫星写点随迁。
+- 与设计差异仅一处：接线中发现 SLA 破线拒单缺擦出生锁，随手补上（见出生锁竣工记）。
+- 助手带事务 client 形参（兑换审计大半在事务内），client 缺省时不传占位参数（保持 mock 断言的参数簿相干净）。
+- verify:audit 兑换段入池后 7/8：Q2/Q4/Q5/V1 较基线转绿，唯 Q6（无人查过审计日志）为基线既有红。
+- 域内单测 189/189；兑换 e2e 11/11。
