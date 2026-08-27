@@ -103,6 +103,7 @@ function buildHarness(cycleStatus: string) {
 
   const materialRefreshService = new MaterialRefreshService(
     materialRefreshPrisma as any,
+    { recordByActor: jest.fn().mockResolvedValue(undefined), recordSystem: jest.fn().mockResolvedValue(undefined) } as any, // auditLogsService(站6)
     {} as any, // sumsubClient — SELF_MANAGED holding 不会碰它
     { getMaterialConfig: jest.fn().mockReturnValue({ windowDays: { LOW: 365 } }) } as any, // policyLoader
     {} as any, // restrictionsService — 本域 GREEN 收尾只碰 restrictionWorkflowService

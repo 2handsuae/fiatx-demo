@@ -2,6 +2,7 @@
 import { Injectable, Inject, Logger } from '@nestjs/common';
 import { randomUUID } from 'crypto';
 import { PrismaService } from '../../../core/prisma/prisma.service';
+import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import { SumsubClient } from '../../sumsub-applicant-client/sumsub.client';
 import { MaterialRefreshPolicyLoader } from './policy/material-refresh-policy';
 import { getRequiredMaterialsForLevel } from './policy/get-required-materials';
@@ -36,6 +37,7 @@ export class MaterialRefreshService {
   constructor(
     @Inject(PrismaService)
     private readonly prisma: PrismaService & Record<string, any>,
+    private readonly auditLogsService: AuditLogsService,
     private readonly sumsubClient: SumsubClient,
     private readonly policyLoader: MaterialRefreshPolicyLoader,
     private readonly restrictionsService: CustomerRestrictionsService,
@@ -514,5 +516,36 @@ export class MaterialRefreshService {
     if (idDoc.idDocType === 'ID_CARD' && idDoc.country === 'ARE') return 'EMIRATES_ID';
     if (idDoc.idDocType === 'PASSPORT') return 'PASSPORT';
     return null;
+  }
+
+  /**
+   * 站6：档位模拟的操作留痕（打点位置守则——审计调用只许住 service，
+   * admin-material-management.controller 调本方法）。原以一行假风评行当 trail，
+   * CRA 表随一期拆除后改写注册词 CUSTOMER_TIER_CHANGE_SIMULATED（操作员通道）。
+   */
+  async auditTierChangeSimulated(input: {
+    customerNo: string;
+    previousTier: string;
+    targetTier: string;
+    targetLevel: number;
+    operatorId: string;
+  }): Promise<void> {
+    await this.auditLogsService.recordByActor(
+      {
+        action: 'CUSTOMER_TIER_CHANGE_SIMULATED',
+        actionDomain: 'CUSTOMER',
+        primarySubjectType: 'CUSTOMER',
+        primarySubjectNo: input.customerNo,
+        ownerCustomerNo: input.customerNo,
+        subjects: [
+          { subjectType: 'CUSTOMER', subjectNo: input.customerNo, subjectRole: 'PRIMARY' },
+        ],
+        reason: `Simulated tier change ${input.previousTier} → ${input.targetTier} (level ${input.targetLevel})`,
+        requestId: `CUSTOMER_TIER_CHANGE_SIMULATED_${input.customerNo}_${Date.now()}`,
+        metadata: { previousTier: input.previousTier, targetTier: input.targetTier, targetLevel: input.targetLevel },
+        sourcePlatform: 'ADMIN_API',
+      } as any,
+      { actorType: 'ADMIN', actorNo: input.operatorId, actorDisplayName: input.operatorId, actorRolesAtTime: ['ADMIN'] } as any,
+    );
   }
 }

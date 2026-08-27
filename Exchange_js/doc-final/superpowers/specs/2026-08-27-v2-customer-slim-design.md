@@ -34,3 +34,18 @@
 ## 不做
 
 身份环手术（站4 已留档,16 张 forwardRef 是真环）｜ 客户生命周期机重设计 ｜ material-refresh 新增词（今日零写点,其动作经材料请求发声）｜ 入职验证流程改动 ｜ V1 地盘（users/access-control）
+
+## 变更记（业主改判，2026-08-27）
+
+设计稿原案（六模块全量入册）被业主否，改**方案2**：保留客户表+二期内容，一期（入驻流程/风评/升级案）整体删除、回头接真 Sumsub 重做。理由：总剧本第二幕只讲二期内容（一期流程零戏份，删了演示零损失）；给要拆的房子贴瓷砖不值；重做在新合同上出生更干净。
+
+## 竣工记（As-built，2026-08-27）
+
+- **拆除**：三模块整删（onboarding 含终审与两控制器 / CRA 含 cra-demo / tier-upgrade）；摄取分发器切五支路（ONBOARDING/TIER_UPGRADE/AML×2/CASE_DECISION）+ scenario 式模拟链整删；模拟面板拆半（留补料裁决+文档监控）；前端 client Verification.tsx 整页与 admin 风评两页/模拟弹窗/CustomerDetail 一期段全清；schema DROP 4 表 + customer_main 4 死列（有活读者的 onboardingApprovedAt→新客标签、sumsubExperiencedLevel2→档位模拟、verificationCanContinue 保留）。
+- **两面承重墙先搬**：SumsubClient（申请人侧）抽成零依赖叶子 SumsubApplicantClientModule（它早是全域共享件）；交易前置门 assertTradingEligibility/Ready 迁 CustomerAccessService（七调用点换注入）。
+- **抢救性迁址**：`/onboarding/me` 是客户端全局资料钩子唯一数据源（二期活件寄居一期路由）——重建为 customers/CustomerProfileController，URL 不动客户端零改。
+- **β**：V2_CUSTOMER_AUDIT_ACTIONS 15 码（14 现役+档位模拟 1 新铸）；全域子表修复；铁律⑥修（运营贴撕便签主对象 UUID→customerNo，活体探针实证）；材料请求机会性携带父单旅程号；打点位置守则撞了一次（审计调用误落 controller，守卫测试当场逮住，下沉 service）。
+- **α 误判认账 ×2**：材料请求迁移表经同文件函数 nextMaterialRequestStatus() 活着（刀C 归零）；ALL_CAPABILITIES/MATERIAL_TYPE_LABELS 同为同文件内用（死出口扫描盲区：只数跨文件引用）。
+- **既有观察（未动）**：运营贴一次便签落系统+操作员两条 ADDED（restrictions.open 与 workflow.audit 双写，站前如此）。
+- 终局记分：真环 6→3 模块（客户↔材料请求↔材料刷新）、forwardRef 全仓 16→5；词表-6（FINAL_APPROVAL 家族，其余 12 一期词从未入表）。
+- 证据：tsc×4 ｜ 全量 jest 净新 0 ｜ 重铺→demo:all 8/8 ｜ verify:audit 不变量三绿 ｜ e2e 全量 11 套件 83/83（兑换套件 CUSTOMER 分支随新合同同步）｜ 活体探针（贴便签→业务键+域+子表+操作员归属全中）｜ verify:coa 出现基线成文的 post-demo 公司 AED 负余额（"不算净新红"口径，站4/5 的全绿属超基线 bonus 态）。

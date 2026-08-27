@@ -279,7 +279,8 @@ describe('Swap money arcs (e2e, Task 12)', () => {
     } else if (entityType === AuditEntityTypes.MATERIAL_REQUEST) {
       subjectNo = (await (prisma as any).materialRequest.findUnique({ where: { id: entityId }, select: { requestNo: true } }))?.requestNo ?? null;
     } else if (entityType === AuditEntityTypes.CUSTOMER) {
-      subjectNo = entityId; // V2 域未换新合同,客户限制审计仍以 UUID 为主对象号
+      // 站6 起 V2 已换新合同——客户审计主对象号是 customerNo,按 id 解号。
+      subjectNo = (await (prisma as any).customerMain.findUnique({ where: { id: entityId }, select: { customerNo: true } }))?.customerNo ?? null;
     }
     if (!subjectNo) return [];
     const rows = await (prisma as any).auditLogEvent.findMany({
