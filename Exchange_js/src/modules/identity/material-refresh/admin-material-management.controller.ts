@@ -331,24 +331,7 @@ export class AdminMaterialManagementController {
       targetLevel,
     );
 
-    // 3. Create audit-trail ClientRiskAssessment record
-    const { randomUUID } = require('crypto');
-    await this.prisma.clientRiskAssessment.create({
-      data: {
-        assessmentNo: `CRA-SIM-${Date.now()}`,
-        customerId,
-        triggerType: 'MLRO_MANUAL',
-        policyVersion: 'simulated',
-        previousRiskTier: customer.riskRating,
-        resultingRiskTier: body.targetTier,
-        status: 'SIGNED',
-        signedBy: 'ADMIN_SIMULATION',
-        signedAt: new Date(),
-        recommendedAction: 'SIMULATE_TIER_CHANGE',
-        reasoning: JSON.stringify({ simulated: true, targetTier: body.targetTier }),
-        traceId: `CLIENT_RISK_ASSESSMENT:sim-${randomUUID()}`,
-      },
-    });
+    // 站6：CRA 表随一期拆除——此处原写一行假风评当 trail；操作留痕改由审计事件承担（β 补 CUSTOMER_TIER_CHANGE_SIMULATED）。
 
     return {
       ok: true,

@@ -1,7 +1,7 @@
 import { Test } from '@nestjs/testing';
 import { ClientRiskAssessmentService } from './client-risk-assessment.service';
 import { PrismaService } from '../../../core/prisma/prisma.service';
-import { SumsubClient } from '../onboarding/providers/sumsub/sumsub.client';
+import { SumsubClient } from '../../sumsub-applicant-client/sumsub.client';
 import { ApprovalsService } from '../../governance/approvals/approvals.service';
 import { ClientRiskAssessmentPolicyLoader } from './policy/policy-loader';
 import { TierUpgradeCaseService } from '../tier-upgrade-case/tier-upgrade-case.service';

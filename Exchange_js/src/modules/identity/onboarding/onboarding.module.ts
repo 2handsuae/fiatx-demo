@@ -5,7 +5,7 @@ import { OnboardingCustomerController } from './onboarding-customer.controller';
 import { OnboardingAdminController } from './onboarding-admin.controller';
 import { ApprovalsModule } from '../../governance/approvals/approvals.module';
 import { OnboardingFinalApprovalService } from './onboarding-final-approval.service';
-import { SumsubClient } from './providers/sumsub/sumsub.client';
+import { SumsubClient } from '../../sumsub-applicant-client/sumsub.client';
 import { MaterialRefreshModule } from '../material-refresh/material-refresh.module';
 import { MaterialRefreshService } from '../material-refresh/material-refresh.service';
 import { CustomersModule } from '../customers/customers.module';

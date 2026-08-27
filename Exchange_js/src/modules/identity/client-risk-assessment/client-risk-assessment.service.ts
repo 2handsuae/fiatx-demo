@@ -1,7 +1,7 @@
 import { Injectable, Inject, Logger } from '@nestjs/common';
 import { randomUUID } from 'crypto';
 import { PrismaService } from '../../../core/prisma/prisma.service';
-import { SumsubClient } from '../onboarding/providers/sumsub/sumsub.client';
+import { SumsubClient } from '../../sumsub-applicant-client/sumsub.client';
 import { ApprovalsService } from '../../governance/approvals/approvals.service';
 import { ClientRiskAssessmentPolicyLoader } from './policy/policy-loader';
 import { applyPolicy, PolicyInput, PolicyOutput } from './policy/client-risk-assessment-policy';

@@ -3,7 +3,7 @@ import { Injectable, Inject } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { PrismaService } from '../../../core/prisma/prisma.service';
 import { MaterialRefreshService } from './material-refresh.service';
-import { SumsubClient } from '../onboarding/providers/sumsub/sumsub.client';
+import { SumsubClient } from '../../sumsub-applicant-client/sumsub.client';
 import { computeStage } from './policy/compute-stage';
 
 @Injectable()

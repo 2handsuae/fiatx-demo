@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { PrismaModule } from '../../core/prisma/prisma.module';
 import { OnboardingModule } from '../identity/onboarding/onboarding.module';
+import { SumsubApplicantClientModule } from '../sumsub-applicant-client/sumsub-applicant-client.module';
 import { ClientRiskAssessmentModule } from '../identity/client-risk-assessment/client-risk-assessment.module';
 import { MaterialRefreshModule } from '../identity/material-refresh/material-refresh.module';
 import { TierUpgradeCaseModule } from '../identity/tier-upgrade-case/tier-upgrade-case.module';
@@ -26,6 +27,7 @@ import { MaterialRequestsModule } from '../identity/material-requests/material-r
     CustomersModule,
     PrismaModule,
     OnboardingModule,
+    SumsubApplicantClientModule,
     ClientRiskAssessmentModule,
     MaterialRefreshModule,
     TierUpgradeCaseModule,

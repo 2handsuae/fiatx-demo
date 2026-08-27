@@ -34,7 +34,7 @@ import {
   ONBOARDING_REVIEW_STAGES,
   ONBOARDING_WORKFLOW,
 } from '../../risk-engine/constants/onboarding-compliance-workflow.constant';
-import { SumsubClient } from './providers/sumsub/sumsub.client';
+import { SumsubClient } from '../../sumsub-applicant-client/sumsub.client';
 import {
   BootstrapResponsesDto,
   CreateResponseSessionDto,

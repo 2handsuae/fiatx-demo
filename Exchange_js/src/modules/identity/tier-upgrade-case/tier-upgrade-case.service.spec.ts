@@ -2,7 +2,7 @@ import { Test } from '@nestjs/testing';
 import { TierUpgradeCaseService } from './tier-upgrade-case.service';
 import { PrismaService } from '../../../core/prisma/prisma.service';
 import { ApprovalsService } from '../../governance/approvals/approvals.service';
-import { SumsubClient } from '../onboarding/providers/sumsub/sumsub.client';
+import { SumsubClient } from '../../sumsub-applicant-client/sumsub.client';
 import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import { CustomerRestrictionsService } from '../customers/customer-restrictions.service';
 import { CustomerRestrictionWorkflowService } from '../customers/customer-restriction-workflow.service';

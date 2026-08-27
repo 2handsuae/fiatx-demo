@@ -4,7 +4,7 @@ import { PrismaService } from '../../../core/prisma/prisma.service';
 import { CustomerRestrictionsService } from '../customers/customer-restrictions.service';
 import { CustomerRestrictionWorkflowService } from '../customers/customer-restriction-workflow.service';
 import { ApprovalsService } from '../../governance/approvals/approvals.service';
-import { SumsubClient } from '../onboarding/providers/sumsub/sumsub.client';
+import { SumsubClient } from '../../sumsub-applicant-client/sumsub.client';
 import { generateReferenceNo } from '../../../common/utils/no-generator.util';
 import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 

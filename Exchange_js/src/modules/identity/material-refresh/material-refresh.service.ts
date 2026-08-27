@@ -2,7 +2,7 @@
 import { Injectable, Inject, Logger } from '@nestjs/common';
 import { randomUUID } from 'crypto';
 import { PrismaService } from '../../../core/prisma/prisma.service';
-import { SumsubClient } from '../onboarding/providers/sumsub/sumsub.client';
+import { SumsubClient } from '../../sumsub-applicant-client/sumsub.client';
 import { MaterialRefreshPolicyLoader } from './policy/material-refresh-policy';
 import { getRequiredMaterialsForLevel } from './policy/get-required-materials';
 import { generateReferenceNo } from '../../../common/utils/no-generator.util';
@@ -32,7 +32,6 @@ export class MaterialRefreshService {
   private readonly logger = new Logger(MaterialRefreshService.name);
 
   /** Property-injected to avoid circular deps — reserved for future use */
-  clientRiskAssessmentService?: Record<string, any>;
 
   constructor(
     @Inject(PrismaService)
@@ -324,27 +323,7 @@ export class MaterialRefreshService {
     // Note: In the 3-state CRA design, material submission completion is handled by
     // TierUpgradeCaseService.handleLevel2WorkflowComplete (triggered by Sumsub Level 2 webhook)
 
-    // NEW — periodic refresh fully cleared → kick off fresh CRA
-    if (this.clientRiskAssessmentService) {
-      const anyPendingExpiryCycle = await this.prisma.materialRefreshCycle.count({
-        where: {
-          customerId: customer.id,
-          triggerType: 'SCHEDULED_EXPIRY',
-          status: { in: ['PENDING_CUSTOMER_EVIDENCE', 'PENDING_SUMSUB_REVIEW'] },
-        },
-      });
-      if (anyPendingExpiryCycle === 0) {
-        try {
-          await this.clientRiskAssessmentService.startAssessment({
-            customerId: customer.id,
-            triggerType: 'SCHEDULED_QUARTERLY',
-            triggeredContext: { reason: 'material_refresh_complete' },
-          });
-        } catch (err) {
-          console.error(`material-refresh→CRA trigger failed for ${customer.id}:`, String(err));
-        }
-      }
-    }
+    // 站6：一期 CRA 已拆除（业主方案2）——刷新清账后自动起风评的钩子随之移除。
   }
 
   async handleSumsubDocMonitoringFire(event: { applicantId: string }): Promise<void> {

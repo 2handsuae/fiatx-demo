@@ -22,7 +22,7 @@ interface SumsubKytTxnResponse {
 
 /**
  * 生产实现:真调 Sumsub KYT Transaction Monitoring API。
- * 签名范式复刻 src/modules/identity/onboarding/providers/sumsub/sumsub.client.ts
+ * 签名范式复刻 src/modules/sumsub-applicant-client/sumsub.client.ts
  * 的 buildHeaders(X-App-Token HMAC-SHA256:ts+method+path+body),该文件不做改动。
  */
 @Injectable()

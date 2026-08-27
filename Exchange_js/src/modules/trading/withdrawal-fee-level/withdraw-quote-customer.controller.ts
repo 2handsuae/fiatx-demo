@@ -14,7 +14,7 @@ import { AuthGuard } from '@nestjs/passport';
 import { AdminPermissionGuard } from '../../identity/access-control/admin-permission.guard';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { PrismaService } from '../../../core/prisma/prisma.service';
-import { OnboardingService } from '../../identity/onboarding/onboarding.service';
+import { CustomerAccessService } from '../../identity/customers/customer-access.service';
 import { CreateWithdrawPricingQuoteDto } from '../pricing-center/dto/pricing-center.dto';
 import { WithdrawQuoteService } from './withdraw-quote.service';
 
@@ -25,7 +25,7 @@ import { WithdrawQuoteService } from './withdraw-quote.service';
 export class WithdrawQuoteCustomerController {
   constructor(
     private readonly withdrawQuoteService: WithdrawQuoteService,
-    private readonly onboardingService: OnboardingService,
+    private readonly customerAccess: CustomerAccessService,
     private readonly prisma: PrismaService,
   ) {}
 
@@ -39,7 +39,7 @@ export class WithdrawQuoteCustomerController {
     }
 
     if (ownerType === 'CUSTOMER') {
-      await this.onboardingService.assertTradingEligibility(ownerId, 'WITHDRAW');
+      await this.customerAccess.assertTradingEligibility(ownerId, 'WITHDRAW');
     }
 
     // Resolve owner number inline (no PricingCenterService dependency)

@@ -127,6 +127,31 @@ export class CustomerAccessService {
     };
   }
 
+  /**
+   * 交易起始前置门（站6 自 OnboardingService 迁入——一期入驻流程拆除，门是二期
+   * 交易地基，落户能力闸本家）。语义逐字保真：能力闸必过；除充值外还须有一个
+   * 激活的法币提现地址（交易起始前置，dc6b426b 业主定式）。
+   */
+  async assertTradingEligibility(customerId: string, action: Capability): Promise<void> {
+    await this.assertCapability(customerId, action);
+    if (action !== 'DEPOSIT') {
+      await this.assertTradingReady(customerId);
+    }
+  }
+
+  async assertTradingReady(customerId: string): Promise<void> {
+    const n = await this.prisma.withdrawalAddress.count({
+      where: { customerId, status: 'ACTIVE', addressType: 'BANK' },
+    });
+    if (n === 0) {
+      throw new ForbiddenException({
+        code: 'NO_ACTIVE_FIAT_WITHDRAWAL_ADDRESS',
+        message: '需要先创建并激活一个法币提现地址才能开展业务',
+        customerId,
+      });
+    }
+  }
+
   async assertCapability(customerId: string, capability: Capability): Promise<void> {
     const access = await this.resolve(customerId);
 
