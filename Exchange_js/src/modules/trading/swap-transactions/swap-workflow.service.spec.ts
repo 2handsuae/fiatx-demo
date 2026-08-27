@@ -102,6 +102,7 @@ function buildMocks(quote: ReturnType<typeof baseQuote>) {
       id: 'swap-1', swapNo: 'SWP0001', ownerType: 'CUSTOMER', ownerId: 'cust-1', ownerNo: 'C0001',
       fromAssetId: quote.fromAssetId, fromAssetCode: quote.fromAssetCode,
       toAssetId: quote.toAssetId, toAssetCode: quote.toAssetCode,
+      fromAmount: quote.amountIn, toAmount: quote.amountOut, feeAmount: quote.feeTotal,
       status: 'COMPLIANCE_PENDING',
     })),
     findOne: jest.fn(() => Promise.resolve({ id: 'swap-1', swapNo: 'SWP0001', status: 'COMPLIANCE_PENDING' })),
@@ -373,10 +374,11 @@ describe('SwapWorkflowService.initiateSwap — COMPLIANCE_PENDING, no legs', () 
     expect(createLegSpy).not.toHaveBeenCalled();
     expect(mocks.accountingService.executePendingTransfer).not.toHaveBeenCalled();
 
-    // Stronger form of the same property (task guarantee #2): nothing is
-    // booked at all — no funds_order, no TB pending, no direct transfer.
+    // 站3·出生锁：下单即画圈（腿1条目、attempt=1）——initiateLegPending 恰好一次；
+    // 但仍不铸任何资金单、不做任何直接过账（结算真正开始前"单据零张"不变量保持）。
     expect((mocks as any).fundsOrders.create).not.toHaveBeenCalled();
-    expect((mocks as any).legAccounting.initiateLegPending).not.toHaveBeenCalled();
+    expect((mocks as any).legAccounting.initiateLegPending).toHaveBeenCalledTimes(1);
+    expect((mocks as any).legAccounting.initiateLegPending.mock.calls[0][0].attempt).toBe(1);
     expect(mocks.accountingService.executeTransfer).not.toHaveBeenCalled();
 
     // tb*TransferId columns are null at create time (legs post later, Task 6)
@@ -1257,10 +1259,8 @@ describe('SwapWorkflowService — R1: createLeg receives resolved wallets', () =
     // traceId propagates onto the created funds order.
     expect(createLegArg.traceId).toBe('TRACE-CREATELEG-1');
 
-    // legAccounting.initiateLegPending called once (positive assertion).
-    expect((mocks as any).legAccounting.initiateLegPending).toHaveBeenCalledTimes(1);
-    // createLeg's per-attempt context enrichment sets `attempt` on the leg context.
-    expect((mocks as any).legAccounting.initiateLegPending.mock.calls[0][0].attempt).toBe(1);
+    // 站3·出生锁：腿1第1次的圈在下单时已画——createLeg 此处不再自画（跳过）。
+    expect((mocks as any).legAccounting.initiateLegPending).not.toHaveBeenCalled();
 
     // createLeg must not auto-advance the leg.
     expect((mocks as any).fundsOrders.advance).not.toHaveBeenCalled();

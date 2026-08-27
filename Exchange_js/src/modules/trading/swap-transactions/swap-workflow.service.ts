@@ -433,12 +433,19 @@ export class SwapWorkflowService {
             traceId,
             ownerCustomerNo: createdSwap.ownerNo || undefined,
             reason: `Swap executed from quote ${quote.quoteNo || quote.id}`,
-            metadata: { quoteId: quote.id, quoteNo: quote.quoteNo },
+            metadata: { quoteId: quote.id, quoteNo: quote.quoteNo, lockedFromAmount: String(createdSwap.fromAmount) },
             sourcePlatform: 'CUSTOMER_API',
           },
           { actorType: 'CUSTOMER', actorNo: quote.ownerNo || ownerId, actorDisplayName: quote.ownerNo || ownerId, actorRolesAtTime: ['CUSTOMER'] },
           tx,
         );
+
+        // 站3·出生锁（业主 2026-08-27 裁定）：下单即画圈——按腿1（卖出腿）的记账
+        // 条目、attempt=1 预占 fromAmount。结算开始时腿1不再自画（见 createLeg），
+        // 编号天然衔接 postLeg；拒绝/冻结落地擦圈退余额（终态不押钱，押人靠限制账）。
+        const birthCtx = await this.buildLegContext(createdSwap, tx);
+        const birthSpecs = buildSwapLegPlan({ fromIsFiat: birthCtx.fromIsFiat });
+        await this.swapLegAccounting.initiateLegPending({ ...birthCtx, attempt: 1 }, birthSpecs[0]!, tx);
 
         return createdSwap;
       });
@@ -760,13 +767,15 @@ export class SwapWorkflowService {
           primarySubjectType: AuditEntityTypes.SWAP_TRANSACTION,
           primarySubjectNo: swap.swapNo || undefined,
           traceId: swap.traceId ?? undefined,
-          reason: 'Swap KYT verdict rejected — no settlement legs booked',
-          metadata: { typedTags: input.typedTags },
+          reason: 'Swap KYT verdict rejected — no settlement legs booked, sell-side birth lock released to balance',
+          metadata: { typedTags: input.typedTags, releasedFromAmount: String(swap.fromAmount) },
           sourcePlatform: 'SYSTEM',
         },
         tx,
       );
     });
+    // 出生锁擦圈：拒绝=终局，卖出侧预占退还客户余额（业主裁定：终态不押钱）。
+    await this.releaseBirthLock(swap, 'KYT rejected');
     await this.handleRejectDisposition(swap, input);
   }
 
@@ -1092,6 +1101,10 @@ export class SwapWorkflowService {
             `Swap ${swap.swapNo} already FROZEN when this disposition tried to freeze it — beaten by onCustomerRestrictionOpened broadcast (same open() call), not a real failure. Continuing to sticky mark + disposition audit.`,
           );
         }
+        if (frozeHere) {
+          // 出生锁擦圈（业主裁定：冻结终态不押钱——押人靠限制账，本场景人已被冻）。
+          await this.releaseBirthLock(swap, 'sanction freeze');
+        }
         // 审计调用独立 catch（与本文件 onCustomerRestrictionOpened 侧的孪生
         // SWAP_FROZEN 审计同款）：不能和上面的 markStatus 共享外层大 try —— 若
         // 共享，这里抛出会被外层 catch 当成整段处置失败重跑，把已经成功的
@@ -1274,6 +1287,27 @@ export class SwapWorkflowService {
    * (Task 6) calls this once the sell leg clears Sumsub KYT to reconstruct
    * the same ctx that used to be computed inline before the swap row existed.
    */
+  /**
+   * 出生锁擦圈（站3）：把下单时画的腿1/attempt=1 预占退还客户余额。
+   * best-effort——拒绝/冻结已成立后调用，失败只以 CRITICAL 现身，绝不回滚状态
+   * （镜像提现 releaseLock 的口径）；两处冻结点竞态时输家跳过（赢家已擦）。
+   */
+  private async releaseBirthLock(swap: any, why: string): Promise<void> {
+    try {
+      // 调用方可能只持窄行（批量冻单清单）——擦圈需要资产/金额字段，自取全行。
+      const full = await this.swapTransactionsService.findByIdInternal(swap.id);
+      const ctx = await this.buildLegContext(full, this.prisma);
+      const legSpecs = buildSwapLegPlan({ fromIsFiat: ctx.fromIsFiat });
+      await this.swapLegAccounting.voidLeg({ ...ctx, attempt: 1 }, legSpecs[0]!, this.prisma);
+    } catch (err) {
+      this.logger.error(
+        `CRITICAL: failed to void swap birth lock for ${swap.swapNo} (${why}) — sell-side funds may stay locked: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+    }
+  }
+
   private async buildLegContext(swap: any, tx: any): Promise<SwapSettleCtx> {
     const [fromAsset, toAsset] = await Promise.all([
       tx.asset.findUnique({ where: { id: swap.fromAssetId }, select: { decimals: true, currency: true, type: true } }),
@@ -1349,8 +1383,12 @@ export class SwapWorkflowService {
     );
     // Book this attempt's pending TB entries. deterministicTransferId keys on
     // attempt so retried legs never collide with the failed attempt's pending.
+    // 出生锁例外：腿1第1次的圈在下单事务里已画（executeFromQuote），此处只铸单据——
+    // 编号同为 (SWap, swapNo, eventCode, attempt=1)，postLeg 落笔天然命中出生圈。
     const legCtx = { ...ctx, attempt };
-    await this.swapLegAccounting.initiateLegPending(legCtx, spec, tx);
+    if (!(legSeq === 1 && attempt === 1)) {
+      await this.swapLegAccounting.initiateLegPending(legCtx, spec, tx);
+    }
     await this.swapTransactionsService.recomputeProjections(
       swap.id,
       (n) => this.stageOf(n),
@@ -1719,6 +1757,8 @@ export class SwapWorkflowService {
               { rejectReason: 'SANCTION_APPLICANT' },
             );
           });
+          // 出生锁擦圈（业主裁定：冻结终态不押钱——押人靠限制账，本事件正是冻人广播）。
+          await this.releaseBirthLock(sw, `customer restriction ${event.restrictionNo}`);
           // 铁律①：有持久状态、operator 可见 → 必须写审计。
           //
           // 审计调用独立 catch（与 deposit/withdraw 的 onCustomerRestrictionOpened
@@ -1733,7 +1773,8 @@ export class SwapWorkflowService {
               primarySubjectNo: sw.swapNo || undefined,
               ownerCustomerNo: sw.ownerNo || undefined,
               traceId: sw.traceId || event.traceId || undefined,
-              reason: `Frozen by customer restriction ${event.restrictionNo} (${event.cause})`,
+              reason: `Frozen by customer restriction ${event.restrictionNo} (${event.cause}) — sell-side birth lock released to balance`,
+              metadata: { releasedFromAmount: String(sw.fromAmount) },
               sourcePlatform: 'SYSTEM',
             })
             .catch((err) => {

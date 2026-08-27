@@ -49,7 +49,7 @@ import { AuditActions, AuditEntityTypes } from '../src/modules/audit-logging/con
  *   1. Happy path: initiateSwap (COMPLIANCE_PENDING, nothing booked) → an
  *      approving KYT verdict books leg1 and flips PROCESSING → driving all 4
  *      legs to CONFIRMED chains through to SUCCESS.
- *   2. THE HEADLINE PROPERTY — a rejected swap leaves zero accounting trace.
+ *   2. THE HEADLINE PROPERTY（站3·出生锁版）— 拒绝的兑换：圈全擦、余额复原、零落笔。
  *      Unlike deposit (money already sits in suspense, must be returned or
  *      confiscated) and withdraw (funds pending-locked, must be voided), a
  *      rejected swap costs nothing to unwind because nothing happened: no
@@ -272,8 +272,18 @@ describe('Swap money arcs (e2e, Task 12)', () => {
   }
 
   async function auditActionsFor(entityId: string, entityType: string): Promise<string[]> {
+    // 8/25 审计改表后按业务键查（primarySubjectNo/Type）；先按类型解出对应单号。
+    let subjectNo: string | null = null;
+    if (entityType === AuditEntityTypes.SWAP_TRANSACTION) {
+      subjectNo = (await (prisma as any).swapTransaction.findUnique({ where: { id: entityId }, select: { swapNo: true } }))?.swapNo ?? null;
+    } else if (entityType === AuditEntityTypes.MATERIAL_REQUEST) {
+      subjectNo = (await (prisma as any).materialRequest.findUnique({ where: { id: entityId }, select: { requestNo: true } }))?.requestNo ?? null;
+    } else if (entityType === AuditEntityTypes.CUSTOMER) {
+      subjectNo = entityId; // V2 域未换新合同,客户限制审计仍以 UUID 为主对象号
+    }
+    if (!subjectNo) return [];
     const rows = await (prisma as any).auditLogEvent.findMany({
-      where: { entityId, entityType },
+      where: { primarySubjectNo: subjectNo, primarySubjectType: entityType },
       select: { action: true },
     });
     return rows.map((r: any) => r.action);
@@ -389,7 +399,7 @@ describe('Swap money arcs (e2e, Task 12)', () => {
     expect(after.aed).toBe(before.aed + toDelta);
   });
 
-  it('2. THE HEADLINE PROPERTY — KYT rejected swap: zero accounting trace, quote consumed, restrictions block SWAP/WITHDRAW but not DEPOSIT', async () => {
+  it('2. THE HEADLINE PROPERTY（站3·出生锁版）— KYT rejected swap: 圈全擦、余额复原、零落笔零单据, quote consumed, restrictions block SWAP/WITHDRAW but not DEPOSIT', async () => {
     const before = await availableBalances();
     const amount = '50';
 
@@ -404,15 +414,17 @@ describe('Swap money arcs (e2e, Task 12)', () => {
     expect(after.status).toBe(SwapTransactionStatus.REJECTED);
     expect(after.rejectReason).toBe('KYT_REJECTED');
 
-    // ── zero accounting trace — the whole design's selling point ──
+    // ── 站3·出生锁（业主 2026-08-27 裁定）后的性质：下单画的圈被全数擦除、
+    // 无一笔落笔、零资金单——余额复原（下方 afterBalances 断言）是最终裁判。──
     const orders = await fundsOrders.findByParent({ swapTransactionId: swap.id }, {});
     expect(orders).toHaveLength(0);
     const evidence = await tbEvidence.findBySource('SWAP', swap.swapNo!);
-    expect(evidence).toHaveLength(0);
+    expect(evidence.length).toBeGreaterThan(0); // 圈画过（出生锁）
+    expect(evidence.every((e: any) => e.transferType === 'VOIDED')).toBe(true); // 且全擦
     const flows = await (prisma as any).accountFlow.findMany({
-      where: { sourceType: 'SWAP', sourceNo: swap.swapNo },
+      where: { sourceType: 'SWAP', sourceNo: swap.swapNo, transferType: 'POSTED' },
     });
-    expect(flows).toHaveLength(0);
+    expect(flows).toHaveLength(0); // 无一笔真正落账
 
     const afterBalances = await availableBalances();
     expect(afterBalances).toEqual(before);
