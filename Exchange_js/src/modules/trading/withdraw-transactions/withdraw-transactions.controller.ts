@@ -52,13 +52,6 @@ export class WithdrawTransactionsController {
     return this.service.findAll(query);
   }
 
-  @Post('mock')
-  @ApiOperation({ summary: 'Create 10 mock withdraw transactions' })
-  createMock(@Req() req: any) {
-    this.assertAdmin(req);
-    return this.service.createMockData();
-  }
-
   @Get(':id')
   @ApiOperation({ summary: 'Get withdraw transaction details' })
   findOne(@Req() req: any, @Param('id') id: string) {

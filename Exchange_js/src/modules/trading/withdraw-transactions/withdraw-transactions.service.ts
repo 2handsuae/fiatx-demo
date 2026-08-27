@@ -16,12 +16,12 @@ import { Prisma } from '@prisma/client';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { randomUUID } from 'crypto';
 import { AuditLogsService } from '../../audit-logging/audit-logs.service';
+import { AuditCategory, AuditSubjectRole } from '../../audit-logging/dto/audit-log.dto';
 import {
   AuditActions,
   AuditEntityTypes,
   AuditModules,
   AuditWorkflowTypes,
-  buildStateTransitionAction,
 } from '../../audit-logging/constants/audit-actions.constant';
 import { ApprovalsService } from '../../governance/approvals/approvals.service';
 import { DomainEventNames } from '../../../common/events/domain-events.constants';
@@ -707,23 +707,9 @@ export class WithdrawTransactionsService {
 
       const eventSource = updated;
 
-      await this.auditLogsService.recordByActor(
-        {
-
-          action: buildStateTransitionAction('WITHDRAW', currentStatus, nextStatus),
-          primarySubjectType: AuditEntityTypes.WITHDRAW_TRANSACTION,
-          primarySubjectNo: updated.withdrawNo,
-          reason: reason || `Action: ${action}`,
-          sourcePlatform: statusContext.sourcePlatform,
-        },
-        {
-          actorType: statusContext.actorType,
-          actorNo: statusContext.actorId,
-          actorDisplayName: statusContext.actorId,
-          actorRolesAtTime: [statusContext.actorRole],
-        },
-        client,
-      );
+      // 站2-β：状态机内建的动态迁移留痕（WITHDRAW_<从>_TO_<到>，每流转双写）整族废除。
+      // 每条边由工作流层的具名业务码携「从/到」两列接手（边×码覆盖对照见词表设计稿）；
+      // 操作人归因走各具名码的 recordByActor 通道，行级 operator 仍在 statusHistory。
 
       const postCommitEvents: Array<{ eventName: string; payload: any }> = [];
 
@@ -768,69 +754,6 @@ export class WithdrawTransactionsService {
     return result.updated;
   }
 
-  async createMockData() {
-    const assets = await (this.prisma as any).asset.findMany();
-    if (assets.length === 0) {
-      throw new BadRequestException('No assets found. Please seed assets first.');
-    }
-
-    const customers = await (this.prisma as any).customerMain.findMany({
-      take: 20,
-      select: {
-        id: true,
-        customerNo: true,
-      },
-    });
-    if (customers.length === 0) {
-      throw new BadRequestException('No customers found. Please seed customers first.');
-    }
-
-    const records = [];
-    for (let i = 0; i < 10; i++) {
-      const asset = assets[Math.floor(Math.random() * assets.length)];
-      const customer = customers[Math.floor(Math.random() * customers.length)];
-      const amount = (Math.random() * 1000 + 10).toFixed(2);
-      
-      const isCrypto = asset.type !== 'FIAT';
-      const created = await (this.prisma as any).withdrawTransaction.create({
-        data: {
-          withdrawNo: `WDR-${Date.now()}-${i}`,
-          ownerType: 'CUSTOMER',
-          ownerId: customer.id,
-          ownerNo: customer.customerNo,
-          status: WithdrawTransactionStatus.PENDING_APPROVAL,
-          assetId: asset.id,
-          amount: new Prisma.Decimal(amount),
-          netAmount: new Prisma.Decimal(amount),
-          feeAmount: new Prisma.Decimal(0),
-          toAddress: isCrypto ? '0x' + Math.random().toString(16).slice(2) : null,
-          toIban: !isCrypto ? 'IBAN' + Math.random().toString().slice(2) : null,
-          ...this.resolveSlaFields(WithdrawTransactionStatus.PENDING_APPROVAL),
-          statusHistory: JSON.stringify([{
-            from: 'NONE',
-            to: WithdrawTransactionStatus.PENDING_APPROVAL,
-            action: 'CREATE',
-            timestamp: new Date(),
-          }]),
-        },
-      });
-      records.push({
-        ...created,
-        type: this.deriveWithdrawType(asset.type),
-      });
-
-      await this.auditLogsService.recordSystem({
-
-        action: AuditActions.WITHDRAW_CREATED,
-        primarySubjectType: AuditEntityTypes.WITHDRAW_TRANSACTION,
-        primarySubjectNo: created.withdrawNo,
-        reason: 'Initial creation',
-        sourcePlatform: 'SYSTEM',
-      });
-    }
-
-    return records;
-  }
 
   /**
    * Persists the single Sumsub txn id + type returned by SumsubTxnClient.submitTxn at
@@ -904,7 +827,7 @@ export class WithdrawTransactionsService {
   ) {
     const row = await (this.prisma as any).withdrawTransaction.findFirst({
       where: { withdrawNo },
-      select: { id: true, slaDeadline: true, ownerType: true, ownerId: true },
+      select: { id: true, slaDeadline: true, correlationId: true, customer: { select: { customerNo: true } } },
     });
     if (!row) throw new NotFoundException(`Withdraw not found: ${withdrawNo}`);
     if (row.slaDeadline === null) {
@@ -918,8 +841,18 @@ export class WithdrawTransactionsService {
     await this.auditLogsService.recordByActor(
       {
         action: AuditActions.WITHDRAW_SLA_TIMEOUT_SIMULATED,
+        actionDomain: 'WITHDRAW',
+        category: AuditCategory.BUSINESS,
         primarySubjectType: AuditEntityTypes.WITHDRAW_TRANSACTION,
         primarySubjectNo: withdrawNo,
+        ownerCustomerNo: row.customer?.customerNo,
+        correlationId: row.correlationId ?? undefined,
+        subjects: [
+          { subjectType: AuditEntityTypes.WITHDRAW_TRANSACTION, subjectNo: withdrawNo, subjectRole: AuditSubjectRole.PRIMARY },
+          ...(row.customer?.customerNo
+            ? [{ subjectType: 'CUSTOMER', subjectNo: row.customer.customerNo, subjectRole: AuditSubjectRole.OWNER }]
+            : []),
+        ],
         reason: 'Demo: SLA deadline moved to the past to trigger an immediate breach on the next scan',
         metadata: { previousSlaDeadline: row.slaDeadline, newSlaDeadline: slaDeadline },
         requestId: `WITHDRAW_SLA_TIMEOUT_SIMULATED_${withdrawNo}_${randomUUID()}`,
