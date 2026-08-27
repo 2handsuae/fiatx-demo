@@ -138,7 +138,6 @@ interface WithdrawDetail {
   fromAddress: string | null;
   fromIban: string | null;
   txHash: string | null;
-  confirmations: number;
   referenceNo: string | null;
   counterpartyIsVasp?: boolean | null;
   manualReason?: string | null;
@@ -494,7 +493,6 @@ const WithdrawTransactionDetail = () => {
             <InfoField label="Fee" value={formatAssetAmount(data.feeAmount, data.asset.decimals)} />
             <InfoField label="Net Amount" value={formatAssetAmount(data.netAmount, data.asset.decimals)} accent />
             <InfoField label="Tx Hash" value={data.txHash} copyable onCopy={(v) => handleCopy(v, 'txHash')} isCopied={copiedField === 'txHash'} mono link={data.txHash ? explorerTxUrl(data.asset.network, data.txHash) : undefined} />
-            <InfoField label="Confirmations" value={data.confirmations ?? null} />
             <InfoField label="To Address" value={data.toAddress} copyable onCopy={(v) => handleCopy(v, 'toAddr')} isCopied={copiedField === 'toAddr'} mono />
             <InfoField label="To Iban" value={data.toIban} copyable onCopy={(v) => handleCopy(v, 'toIban')} isCopied={copiedField === 'toIban'} mono />
             <InfoField label="From Wallet" value={data.fromWalletNo} mono />

@@ -142,20 +142,4 @@ export class WithdrawApplicantActionsService {
     return live.some((r) => r.status === 'PENDING_SUBMISSION');
   }
 
-  /**
-   * 新 action 进来时清掉提现单的「全部交齐」缓存并重置 SLA 表。
-   * 不清的话：客户此前交过的材料让 actionSubmittedAt 留着旧值 → 单子明明又要
-   * 客户补材料，客户端却一直显示"已收到，审核中"，客户永远不知道要再交一次。
-   *
-   * **2026-08-18 材料请求账迁移后原样保留**：本方法只读写 `withdrawTransaction`
-   * 自己的标量字段，从未碰过本类旧时代的专属子表，与「内脏换成
-   * 材料账」无关——它不是 seq 时代产物，唯一调用方是 withdraw-workflow.service.ts
-   * 里那段明确禁止改动的状态机逻辑（I2 修复），删掉它会让那段代码编译不过。
-   */
-  async clearWithdrawCache(withdrawId: string, slaDeadline: Date): Promise<void> {
-    await this.prisma.withdrawTransaction.update({
-      where: { id: withdrawId },
-      data: { actionSubmittedAt: null, slaDeadline, slaBreached: false },
-    });
-  }
 }

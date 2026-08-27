@@ -8,6 +8,7 @@ import {
 } from '../trading/withdraw-transactions/withdraw-transactions.service';
 import { WithdrawTransactionAction } from '../trading/withdraw-transactions/dto/withdraw-transaction.dto';
 import { AuditLogsService } from '../audit-logging/audit-logs.service';
+import { AuditCategory, AuditSubjectRole } from '../audit-logging/dto/audit-log.dto';
 import {
   AuditActions,
   AuditEntityTypes,
@@ -81,11 +82,22 @@ export class WithdrawSlaService {
     );
     await this.auditLogsService.recordSystem({
       action: AuditActions.WITHDRAW_SLA_BREACHED,
+      actionDomain: 'WITHDRAW',
+      category: AuditCategory.BUSINESS,
       primarySubjectType: AuditEntityTypes.WITHDRAW_TRANSACTION,
       primarySubjectNo: w.withdrawNo,
+      ownerCustomerNo: w.customer?.customerNo,
+      correlationId: w.correlationId ?? undefined,
+      fromStatus: w.status,
+      subjects: [
+        { subjectType: AuditEntityTypes.WITHDRAW_TRANSACTION, subjectNo: w.withdrawNo, subjectRole: AuditSubjectRole.PRIMARY },
+        ...(w.customer?.customerNo
+          ? [{ subjectType: 'CUSTOMER', subjectNo: w.customer.customerNo, subjectRole: AuditSubjectRole.OWNER }]
+          : []),
+      ],
       traceId: w.traceId || undefined,
       reason: `Soft SLA breached in ${w.status} — internal handling overdue, order status intentionally unchanged`,
-      metadata: { slaType: 'SOFT', status: w.status, slaDeadline: w.slaDeadline, waitingOn: 'INTERNAL' },
+      metadata: { slaType: 'SOFT', slaDeadline: w.slaDeadline, waitingOn: 'INTERNAL' },
       requestId: `WITHDRAW_SLA_BREACHED_${w.withdrawNo}_${randomUUID()}`,
       sourcePlatform: 'SYSTEM',
     });
@@ -97,7 +109,7 @@ export class WithdrawSlaService {
   private async hardBreach(w: any): Promise<void> {
     const oldStatus = w.status;
 
-    await this.withdrawService.updateStatus(
+    const breachedRow = await this.withdrawService.updateStatus(
       w.id,
       {
         action: WithdrawTransactionAction.SLA_BREACH,
@@ -121,11 +133,23 @@ export class WithdrawSlaService {
 
     await this.auditLogsService.recordSystem({
       action: AuditActions.WITHDRAW_SLA_BREACHED,
+      actionDomain: 'WITHDRAW',
+      category: AuditCategory.BUSINESS,
       primarySubjectType: AuditEntityTypes.WITHDRAW_TRANSACTION,
       primarySubjectNo: w.withdrawNo,
+      ownerCustomerNo: w.customer?.customerNo,
+      correlationId: w.correlationId ?? undefined,
+      fromStatus: oldStatus,
+      toStatus: breachedRow.status,
+      subjects: [
+        { subjectType: AuditEntityTypes.WITHDRAW_TRANSACTION, subjectNo: w.withdrawNo, subjectRole: AuditSubjectRole.PRIMARY },
+        ...(w.customer?.customerNo
+          ? [{ subjectType: 'CUSTOMER', subjectNo: w.customer.customerNo, subjectRole: AuditSubjectRole.OWNER }]
+          : []),
+      ],
       traceId: w.traceId || undefined,
       reason: `SLA breached: withdrawal was ${oldStatus} past its slaDeadline, routed to manual review`,
-      metadata: { slaType: 'HARD', fromStatus: oldStatus, slaDeadline: w.slaDeadline },
+      metadata: { slaType: 'HARD', slaDeadline: w.slaDeadline },
       requestId: `WITHDRAW_SLA_BREACHED_${w.withdrawNo}_${randomUUID()}`,
       sourcePlatform: 'SYSTEM',
     });

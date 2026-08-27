@@ -176,6 +176,7 @@ describe('第三批 · 三域 SLA (e2e)', () => {
     return prisma.depositTransaction.create({
       data: {
         depositNo, traceId: depositNo,
+        correlationId: depositNo, // 审计主线根——INHERIT 闸要求主单必携(生产由 detected() 铸)
         ownerType: 'CUSTOMER', ownerId: c.id,
         status,
         assetId: fiatAssetId, toWalletId: wallet.id,
@@ -239,6 +240,7 @@ describe('第三批 · 三域 SLA (e2e)', () => {
     return prisma.$transaction((tx) =>
       withdrawService.insertRecord(tx, {
         withdrawNo, traceId: withdrawNo,
+        correlationId: withdrawNo, // 审计主线根——INHERIT 闸要求主单必携(生产由 createWithdrawal 铸)
         ownerType: 'CUSTOMER', ownerId: c.id, ownerNo: c.customerNo,
         status,
         assetId: fiatAssetId,

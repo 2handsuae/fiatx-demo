@@ -1373,7 +1373,6 @@ model WithdrawTransaction {
   fromIban             String?
   providerTxnId        String?
   txHash               String?
-  confirmations        Int                   @default(0)
   referenceNo          String?
   sumsubTxnId          String?               @unique
   sumsubTxnType        String?
@@ -1389,6 +1388,7 @@ model WithdrawTransaction {
   l1Snapshot           String?
   feeSettleAttempts    Int                   @default(0)
   traceId              String?
+  correlationId        String?
   grossAedValue        Decimal?
   aedRate              Decimal?
   rateFetchedAt        DateTime?
@@ -1397,15 +1397,12 @@ model WithdrawTransaction {
   approvalNo           String?
   tbPendingNetId       String?
   tbPendingFeeId       String?
-  parentType           String?
-  parentId             String?
   pricingQuoteId       String?               @unique
   createdAt            DateTime              @default(now())
   approvedAt           DateTime?
   completedAt          DateTime?
   statusHistory        String?
   updatedAt            DateTime              @updatedAt
-  actionSubmittedAt    DateTime?
   fundsOrders          FundsOrder[]          @relation("WithdrawFundsOrders")
   asset                Asset                 @relation(fields: [assetId], references: [id])
   pricingQuote         WithdrawPricingQuote? @relation(fields: [pricingQuoteId], references: [id])
@@ -1419,7 +1416,6 @@ model WithdrawTransaction {
   @@index([pricingQuoteId])
   @@index([providerTxnId])
   @@index([txHash])
-  @@index([parentId])
   @@index([createdAt])
   @@map("withdraw_transactions")
 }

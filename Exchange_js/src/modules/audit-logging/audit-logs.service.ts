@@ -15,7 +15,7 @@ import {
   mapRawAuditActionToUserAction,
   AuditWorkflowTypes,
   V1_AUDIT_ACTIONS,
-  V1_ACTION_DOMAINS, CONTRACT_ACTION_DOMAINS, V4_DEPOSIT_AUDIT_ACTIONS, RETIRED_DYNAMIC_TRANSITION_PATTERN,
+  V1_ACTION_DOMAINS, CONTRACT_ACTION_DOMAINS, V4_DEPOSIT_AUDIT_ACTIONS, V5_WITHDRAW_AUDIT_ACTIONS, RETIRED_DYNAMIC_TRANSITION_PATTERN,
   DEPRECATED_AUDIT_ACTIONS,
 } from './constants/audit-actions.constant';
 import {
@@ -898,7 +898,10 @@ export class AuditLogsService {
       );
     }
 
-    const spec = V1_AUDIT_ACTIONS[input.action] ?? V4_DEPOSIT_AUDIT_ACTIONS[input.action];
+    const spec =
+      V1_AUDIT_ACTIONS[input.action] ??
+      V4_DEPOSIT_AUDIT_ACTIONS[input.action] ??
+      V5_WITHDRAW_AUDIT_ACTIONS[input.action];
     if (!spec) return;
 
     if (input.actionDomain !== spec.domain) {

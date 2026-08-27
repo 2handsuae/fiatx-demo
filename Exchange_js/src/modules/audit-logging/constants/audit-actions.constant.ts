@@ -75,7 +75,6 @@ export const AuditEntityTypes = {
   INBOUND_TRANSFER_SIGNAL: 'INBOUND_TRANSFER_SIGNAL',
   SWAP_QUOTE: 'SWAP_QUOTE',
   PRICING_POLICY: 'PRICING_POLICY',
-  WITHDRAW_PRICING_QUOTE: 'WITHDRAW_PRICING_QUOTE',
   ADMIN_USER: 'ADMIN_USER',
   PASSWORD_RESET_TOKEN: 'PASSWORD_RESET_TOKEN',
   APPROVAL_POLICY: 'APPROVAL_POLICY',
@@ -295,7 +294,6 @@ export const AuditActions = {
   DEPOSIT_UNFREEZE_APPROVAL_REQUESTED: 'DEPOSIT_UNFREEZE_APPROVAL_REQUESTED',
   DEPOSIT_UNFROZEN: 'DEPOSIT_UNFROZEN',
   // 客户提交补料材料(AE-T4)——SLA 表由"等客户"切到"等 Provider 重评"
-  DEPOSIT_ACTION_SUBMITTED: 'DEPOSIT_ACTION_SUBMITTED',
   // Demo scenario runner (Task 6, 计划1·甲方案) — feeds a deposit through a Sumsub mock
   // scenario fixture (SUMSUB_MOCK_MODE only; endpoint doesn't exist otherwise)
   DEPOSIT_DEMO_SCENARIO_RUN: 'DEPOSIT_DEMO_SCENARIO_RUN',
@@ -397,14 +395,11 @@ export const AuditActions = {
   // RED (or any non-GREEN answer) — restrictions stay on, escalated for
   // manual review.
   SWAP_ACTION_ESCALATED: 'SWAP_ACTION_ESCALATED',
-  // parity 2026-08-14：客户提交补料材料（客户级会话，mirror DEPOSIT/WITHDRAW_ACTION_SUBMITTED）
+  // parity 2026-08-14：客户提交补料材料（客户级会话）
   SWAP_ACTION_SUBMITTED: 'SWAP_ACTION_SUBMITTED',
   WITHDRAW_CREATED: 'WITHDRAW_CREATED',
-  WITHDRAW_CREATED_TO_PAYOUT_PENDING: 'WITHDRAW_CREATED_TO_PAYOUT_PENDING',
-  WITHDRAW_PAYOUT_PENDING_TO_SUCCESS: 'WITHDRAW_PAYOUT_PENDING_TO_SUCCESS',
   PAYOUT_CREATED: 'PAYOUT_CREATED',
   PAYOUT_PENDING_TO_CLEAR: 'PAYOUT_PENDING_TO_CLEAR',
-  WITHDRAW_FAILED_REVERSED: 'WITHDRAW_FAILED_REVERSED',
   // V5 Withdrawal Happy Path
   WITHDRAW_REQUESTED: 'WITHDRAW_REQUESTED',
   WITHDRAW_COMPLIANCE_PASSED: 'WITHDRAW_COMPLIANCE_PASSED',
@@ -424,9 +419,6 @@ export const AuditActions = {
   // Task 5: Sumsub single-txn submit + applyKytVerdict branches + SLA cron
   WITHDRAW_SUMSUB_SUBMITTED: 'WITHDRAW_SUMSUB_SUBMITTED',
   WITHDRAW_ONHOLD: 'WITHDRAW_ONHOLD',
-  // 已在 ACTION_PENDING 时 Sumsub 又发一个新 applicantActionId(客户交的材料不够,
-  // 还要再补)——状态不动,但缓存/SLA 表刷新。mirrors DEPOSIT_ACTION_REISSUED。
-  WITHDRAW_ACTION_REISSUED: 'WITHDRAW_ACTION_REISSUED',
   // awaitUser 裁决同步之后该单没有任何未提交行(报文整个不带 applicantActions,
   // 或撤回的恰好是全部未提交行)——拒绝进入/停留 ACTION_PENDING,单子保持原状态,
   // 留痕供排查上游报文异常。mirrors DEPOSIT_AWAITUSER_EMPTY_ACTIONS。
@@ -462,9 +454,6 @@ export const AuditActions = {
   // Task 9: FROZEN maker-checker gates (execution side) — decided-event handlers.
   WITHDRAW_UNFROZEN: 'WITHDRAW_UNFROZEN',
   WITHDRAW_SANCTION_REFUNDED: 'WITHDRAW_SANCTION_REFUNDED',
-  // 客户提交补料材料(Task 3, action-embed)——SLA 表由"等客户"切到"等 Provider 重评"。
-  // mirrors DEPOSIT_ACTION_SUBMITTED。
-  WITHDRAW_ACTION_SUBMITTED: 'WITHDRAW_ACTION_SUBMITTED',
   // Task 10: Demo scenario runner — mirrors DEPOSIT_DEMO_SCENARIO_RUN. Feeds a
   // withdrawal through a Sumsub mock verdict fixture (SUMSUB_MOCK_MODE only —
   // endpoint doesn't exist otherwise).
@@ -496,7 +485,6 @@ export const AuditActions = {
   FIAT_STATEMENT_IMPORTED: 'FIAT_STATEMENT_IMPORTED',
   SAFEGUARDING_EVIDENCE_PACKAGE_EXPORTED:
     'SAFEGUARDING_EVIDENCE_PACKAGE_EXPORTED',
-  WITHDRAW_EXTREME_VOLATILITY_BLOCKED: 'WITHDRAW_EXTREME_VOLATILITY_BLOCKED',
   RISK_DECISION_MANUAL_SIMULATED: 'MANUAL_RISK_DECISION_SIMULATED',
   ADMIN_LOGIN_SUCCESS: 'ADMIN_LOGIN_SUCCESS',
   ADMIN_LOGIN_FAILED: 'ADMIN_LOGIN_FAILED',
@@ -513,10 +501,6 @@ export const AuditActions = {
   CUSTOMER_SWAP_RATE_UPDATED: 'CUSTOMER_SWAP_RATE_UPDATED',
   PRICING_POLICY_UPDATED: 'PRICING_POLICY_UPDATED',
   SWAP_PRICING_SIMULATED: 'SWAP_PRICING_SIMULATED',
-  WITHDRAW_PRICING_SIMULATED: 'WITHDRAW_PRICING_SIMULATED',
-  WITHDRAW_PRICING_QUOTE_CREATED: 'WITHDRAW_PRICING_QUOTE_CREATED',
-  WITHDRAW_PRICING_QUOTE_CANCELLED: 'WITHDRAW_PRICING_QUOTE_CANCELLED',
-  WITHDRAW_PRICING_QUOTE_USED: 'WITHDRAW_PRICING_QUOTE_USED',
   USER_CREATED: 'USER_CREATED',
   ADMIN_INVITATION_CREATED: 'ADMIN_INVITATION_CREATED',
   ADMIN_INVITATION_RESENT: 'ADMIN_INVITATION_RESENT',
@@ -864,7 +848,7 @@ import { AuditCorrelationMode } from '../dto/audit-log.dto';
 /** V1 治理四域，声明与下方 assertActionSpec 的退役码放行闸共用同一份 */
 export const V1_ACTION_DOMAINS = ['IAM', 'APPROVAL', 'CONFIG', 'AUDIT'] as const;
 /** 新合同已入住的全部域——站1b-β 起交易域逐域加入（充值第一个）。机器校验的域闸读这份。 */
-export const CONTRACT_ACTION_DOMAINS = [...V1_ACTION_DOMAINS, 'DEPOSIT'] as const;
+export const CONTRACT_ACTION_DOMAINS = [...V1_ACTION_DOMAINS, 'DEPOSIT', 'WITHDRAW'] as const;
 
 export interface AuditActionSpec {
   /** actionDomain 列的值 */
@@ -1010,8 +994,52 @@ export const V4_DEPOSIT_AUDIT_ACTIONS: Record<string, AuditActionSpec> = {
   DEPOSIT_DEMO_SCENARIO_RUN:      { domain: 'DEPOSIT', correlationMode: I, requiredFields: [], requiresCausation: false },
 };
 
-/** 动态迁移码族（DEPOSIT_<从>_TO_<到>，站1b-β 整族废除）——机器校验按此形状拒写。 */
-export const RETIRED_DYNAMIC_TRANSITION_PATTERN = /^DEPOSIT_[A-Z_]+_TO_[A-Z_]+$/;
+/**
+ * 站2-β（2026-08-27）提现域名册——25 码，业主终审版。承接充值域全部裁定：
+ * 失败不起名（outcome+reasonCode）｜同动作不因语境拆名｜动态迁移族废除（从/到两列）｜
+ * CREATED=旅程起点铸 correlationId，其余全 INHERIT｜锁释放并入落地行（metadata 携解锁金额）。
+ * 与充值的结构差（钱后动拆三码/大额前置闸/费用尾巴/退票/在途裁决窗口）见
+ * doc-final/superpowers/specs/2026-08-27-withdraw-audit-vocab-design.md。
+ */
+export const V5_WITHDRAW_AUDIT_ACTIONS: Record<string, AuditActionSpec> = {
+  // ── 出生（1）────────────────────────────────────────────
+  WITHDRAW_CREATED:         { domain: 'WITHDRAW', correlationMode: S, requiredFields: ['amount', 'currency', 'ownerCustomerNo'], requiresCausation: false },
+  // ── 大额闸（3）──────────────────────────────────────────
+  WITHDRAW_LARGE_VALUE_REQUESTED: { domain: 'WITHDRAW', correlationMode: I, requiredFields: [], requiresCausation: false },
+  WITHDRAW_LARGE_VALUE_PASSED:    { domain: 'WITHDRAW', correlationMode: I, requiredFields: ['approvalNo', 'fromStatus', 'toStatus'], requiresCausation: true },
+  WITHDRAW_REJECTED:              { domain: 'WITHDRAW', correlationMode: I, requiredFields: ['approvalNo', 'fromStatus', 'toStatus'], requiresCausation: true },
+  // ── 合规流转（8）────────────────────────────────────────
+  WITHDRAW_SUMSUB_SUBMITTED:      { domain: 'WITHDRAW', correlationMode: I, requiredFields: [], requiresCausation: false },
+  WITHDRAW_ONHOLD:                { domain: 'WITHDRAW', correlationMode: I, requiredFields: [], requiresCausation: false },
+  WITHDRAW_MANUAL_CHECKING:       { domain: 'WITHDRAW', correlationMode: I, requiredFields: ['fromStatus', 'toStatus'], requiresCausation: false },
+  WITHDRAW_ACTION_REQUIRED:       { domain: 'WITHDRAW', correlationMode: I, requiredFields: ['fromStatus', 'toStatus'], requiresCausation: false },
+  WITHDRAW_FROZEN:                { domain: 'WITHDRAW', correlationMode: I, requiredFields: ['fromStatus', 'toStatus'], requiresCausation: false },
+  WITHDRAW_KYT_VERDICT_IGNORED:   { domain: 'WITHDRAW', correlationMode: I, requiredFields: ['reason'], requiresCausation: false },
+  WITHDRAW_POST_BROADCAST_VERDICT:{ domain: 'WITHDRAW', correlationMode: I, requiredFields: ['reason'], requiresCausation: false },
+  WITHDRAW_COMPLIANCE_PASSED:     { domain: 'WITHDRAW', correlationMode: I, requiredFields: ['fromStatus', 'toStatus'], requiresCausation: false },
+  // ── 付款与终局（4）──────────────────────────────────────
+  WITHDRAW_PAYOUT_INITIATED:      { domain: 'WITHDRAW', correlationMode: I, requiredFields: [], requiresCausation: false },
+  // 一码双结局：成功=外部确认+落账（不迁状态，故无从/到必填）；失败=整单败+解锁（自愿携从/到）
+  WITHDRAW_PAYOUT_COMPLETED:      { domain: 'WITHDRAW', correlationMode: I, requiredFields: [], requiresCausation: false },
+  WITHDRAW_BOUNCED:               { domain: 'WITHDRAW', correlationMode: I, requiredFields: ['fromStatus', 'toStatus'], requiresCausation: false },
+  WITHDRAW_SUCCESS:               { domain: 'WITHDRAW', correlationMode: I, requiredFields: ['fromStatus', 'toStatus'], requiresCausation: false },
+  // ── 费用尾巴（2）────────────────────────────────────────
+  WITHDRAW_FEE_RETRIED:           { domain: 'WITHDRAW', correlationMode: I, requiredFields: [], requiresCausation: false },
+  WITHDRAW_FEE_STUCK:             { domain: 'WITHDRAW', correlationMode: I, requiredFields: [], requiresCausation: false },
+  // ── 冻结处置（4）────────────────────────────────────────
+  WITHDRAW_UNFREEZE_REQUESTED:    { domain: 'WITHDRAW', correlationMode: I, requiredFields: [], requiresCausation: false },
+  WITHDRAW_UNFROZEN:              { domain: 'WITHDRAW', correlationMode: I, requiredFields: ['approvalNo'], requiresCausation: true },
+  WITHDRAW_REFUND_REQUESTED:      { domain: 'WITHDRAW', correlationMode: I, requiredFields: [], requiresCausation: false },
+  // 两个门共用（官员标签路无审批因果，故不强制；审批路自愿携 approvalNo+causationId）
+  WITHDRAW_REFUNDED:              { domain: 'WITHDRAW', correlationMode: I, requiredFields: ['fromStatus', 'toStatus'], requiresCausation: false },
+  // ── SLA 与演示（3）──────────────────────────────────────
+  WITHDRAW_SLA_BREACHED:          { domain: 'WITHDRAW', correlationMode: I, requiredFields: ['fromStatus'], requiresCausation: false },
+  WITHDRAW_SLA_TIMEOUT_SIMULATED: { domain: 'WITHDRAW', correlationMode: I, requiredFields: [], requiresCausation: false },
+  WITHDRAW_DEMO_SCENARIO_RUN:     { domain: 'WITHDRAW', correlationMode: I, requiredFields: [], requiresCausation: false },
+};
+
+/** 动态迁移码族（<域>_<从>_TO_<到>，充值站1b-β/提现站2-β 整族废除）——机器校验按此形状拒写。 */
+export const RETIRED_DYNAMIC_TRANSITION_PATTERN = /^(DEPOSIT|WITHDRAW)_[A-Z_]+_TO_[A-Z_]+$/;
 
 export const DEPRECATED_AUDIT_ACTIONS: readonly string[] = [
   'FIRST_LOGIN_MFA_VERIFY_FAILED',
@@ -1024,6 +1052,15 @@ export const DEPRECATED_AUDIT_ACTIONS: readonly string[] = [
   'DEPOSIT_CONFISCATION_UNLOCK_FAILED', 'DEPOSIT_RETURN_APPROVAL_REQUESTED',
   'DEPOSIT_SEIZE_APPROVAL_REQUESTED', 'DEPOSIT_UNFREEZE_APPROVAL_REQUESTED',
   'DEPOSIT_LEG_CLEAR_FAILED',
+  // ── 提现域（站2-β，2026-08-27）──────────────────────────
+  'WITHDRAW_REQUESTED', 'WITHDRAW_APPROVAL_REQUESTED', 'WITHDRAW_APPROVAL_GRANTED',
+  'WITHDRAW_APPROVAL_DECLINED', 'WITHDRAW_MANUAL_APPROVED', 'WITHDRAW_ACCOUNTING_POSTED',
+  'WITHDRAW_PAYOUT_CONFIRMED', 'WITHDRAW_PAYOUT_FAILED',
+  'WITHDRAW_SANCTION_HIT_ON_IGNORED_VERDICT', 'WITHDRAW_REFUNDED_BY_TAG',
+  'WITHDRAW_SANCTION_REFUNDED', 'WITHDRAW_REFUND_TAG_ON_FROZEN_IGNORED',
+  'WITHDRAW_LOCK_RELEASED', 'WITHDRAW_AWAITUSER_EMPTY_ACTIONS',
+  'WITHDRAW_UNFREEZE_APPROVAL_REQUESTED', 'WITHDRAW_SANCTION_REFUND_APPROVAL_REQUESTED',
+  'WITHDRAW_FEE_LEG_REBUILT', 'WITHDRAW_FEE_SETTLE_STUCK',
   'RESET_FAILED',
   'CHANGE_APPLY_FAILED',
   'ROLE_ACTIVATE_FAILED',

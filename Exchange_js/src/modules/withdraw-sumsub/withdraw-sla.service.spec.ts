@@ -14,7 +14,7 @@ describe('WithdrawSlaService', () => {
   beforeEach(() => {
     withdrawService = {
       findSlaBreachCandidates: jest.fn().mockResolvedValue([]),
-      updateStatus: jest.fn(),
+      updateStatus: jest.fn().mockResolvedValue({ status: 'MANUAL_CHECKING' }),
       markSlaBreached: jest.fn(),
     } as unknown as jest.Mocked<WithdrawTransactionsService>;
 

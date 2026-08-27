@@ -3,42 +3,30 @@ import { WithdrawWebhookRouter } from './withdraw-webhook.router';
 import { WithdrawKytVerdictHandler } from './withdraw-kyt-verdict.handler';
 import { WithdrawSlaService } from './withdraw-sla.service';
 import { WithdrawTransactionsModule } from '../trading/withdraw-transactions/withdraw-transactions.module';
-import { DepositSumsubModule } from '../deposit-sumsub/deposit-sumsub.module';
-import { SumsubIngestionModule } from '../sumsub-ingestion/sumsub-ingestion.module';
-import { WithdrawDemoScenarioService } from './demo-scenario.service';
-import { AdminWithdrawDemoController } from './admin-withdraw-demo.controller';
-
-// Task 10: mirrors DepositSumsubModule's identically-named switch (see that
-// file's comment on process.env timing vs. ConfigModule.forRoot()).
-const SUMSUB_MOCK_MODE = process.env.SUMSUB_MOCK_MODE === 'true';
+import { SumsubTxnClientModule } from '../deposit-sumsub/sumsub-txn-client.module';
 
 /**
- * 提现域的 Sumsub webhook 落地模块——mirror of DepositSumsubModule(deliberate
- * fork, Task 4)。SUMSUB_TXN_CLIENT(mock/http 双模式开关)复用 DepositSumsubModule
- * 已导出的同一个 provider,不在这里重复声明——两域共用同一套 Sumsub API 凭据/开关。
+ * 提现域的 Sumsub webhook 落地模块——mirror of DepositSumsubModule(deliberate fork)。
  *
- * forwardRef 双向:本模块 → DepositSumsubModule(取 SUMSUB_TXN_CLIENT)、本模块 →
- * SumsubIngestionModule(取 SumsubIngestionService,供 Task 10 的
- * WithdrawDemoScenarioService 使用)、SumsubIngestionModule → 本模块(取
- * WithdrawWebhookRouter)。与 DepositSumsubModule↔DepositTransactionsModule↔
- * SumsubIngestionModule 的既有三角 forwardRef 环同一套模式。
+ * 站2-α2（2026-08-26）解环备忘（镜像站1b-α2）：
+ *  - SUMSUB_TXN_CLIENT 改引零依赖令牌叶子模块，对 DepositSumsubModule 的
+ *    forwardRef 边拆除——两域仍共用同一套 Sumsub 凭据/开关（叶子里同一个 provider）。
+ *  - 演示件（场景服务 + ⚡按钮 controller）摘入 WithdrawDemoModule（AppModule 挂载）
+ *    ——本模块不再引 ingestion，提现侧的 本模块↔ingestion 环就地解开。
+ *  - 对 WithdrawTransactionsModule 保留 forwardRef：文件级装载链
+ *    customers→material-requests→swap-sumsub→sumsub-ingestion→本模块→WTM 转圈
+ *    回来（与充值侧 DTM 同款实测缘由），站3/6 拆链前不可解包。
  */
 @Module({
   imports: [
     forwardRef(() => WithdrawTransactionsModule),
-    forwardRef(() => DepositSumsubModule),
-    forwardRef(() => SumsubIngestionModule),
+    SumsubTxnClientModule,
   ],
   providers: [
     WithdrawWebhookRouter,
     WithdrawKytVerdictHandler,
     WithdrawSlaService,
-    WithdrawDemoScenarioService,
   ],
-  // Security gate (a): mirrors DepositSumsubModule — this controller only exists
-  // in the Nest route table when SUMSUB_MOCK_MODE=true, in production it is
-  // never registered (not merely guard-blocked).
-  controllers: SUMSUB_MOCK_MODE ? [AdminWithdrawDemoController] : [],
   exports: [WithdrawWebhookRouter],
 })
 export class WithdrawSumsubModule {}

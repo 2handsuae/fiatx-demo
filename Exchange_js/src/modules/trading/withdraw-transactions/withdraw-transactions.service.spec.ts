@@ -756,18 +756,19 @@ describe('WithdrawTransactionsService', () => {
       customer: null,
       payout: null,
     });
+    // 站2-β：新词表行——状态变化在从/到两列，动态迁移码族已废。
     prisma.auditLogEvent.findMany.mockResolvedValue([
       {
         id: 'audit-1',
-        action: 'WITHDRAW_PAYOUT_PENDING_TO_SUCCESS',
-        statusFrom: 'PAYOUT_PENDING',
-        statusTo: 'SUCCESS',
+        action: 'WITHDRAW_SUCCESS',
+        fromStatus: 'PAYOUT_PENDING',
+        toStatus: 'SUCCESS',
         actorType: 'SYSTEM',
         actorNo: 'SYSTEM',
         actorDisplayName: 'SYSTEM',
         reason: 'closeout',
         occurredAt: '2026-03-28T10:00:00.000Z',
-        result: 'SUCCESS',
+        outcome: 'SUCCESS',
       },
     ]);
 
@@ -776,7 +777,7 @@ describe('WithdrawTransactionsService', () => {
     expect(result.auditLogs).toEqual([
       expect.objectContaining({
         id: 'audit-1',
-        action: 'WITHDRAW_PAYOUT_PENDING_TO_SUCCESS',
+        action: 'WITHDRAW_SUCCESS',
         oldStatus: 'PAYOUT_PENDING',
         newStatus: 'SUCCESS',
         operatorId: 'SYSTEM',

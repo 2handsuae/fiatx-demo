@@ -205,18 +205,4 @@ describe('WithdrawApplicantActionsService', () => {
     });
   });
 
-  // clearWithdrawCache 只操作 withdrawTransaction 自己的标量字段，从未碰过子表，
-  // 与「内脏换材料账」无关——保留是因为 withdraw-workflow.service.ts 那段被
-  // 明令禁止改动的状态机逻辑（I2 修复）仍在调用它，删掉会让那段代码编译不过。
-  it('clearWithdrawCache 把 actionSubmittedAt 清空并重置 SLA 两字段', async () => {
-    const { svc, prisma } = build();
-    const deadline = new Date('2026-08-13T00:00:00Z');
-
-    await svc.clearWithdrawCache('wd-1', deadline);
-
-    expect(prisma.withdrawTransaction.update).toHaveBeenCalledWith({
-      where: { id: 'wd-1' },
-      data: { actionSubmittedAt: null, slaDeadline: deadline, slaBreached: false },
-    });
-  });
 });

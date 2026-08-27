@@ -59,10 +59,11 @@
 5. 冻结两出口各演一笔：解冻（填文书号 → MLRO 批 → 回炉重查）；退款（MLRO 批 → 看客户余额**全额回来**）
 6. 大额：发一笔超阈值提现 → 出生即落审批 → 高管批准才进筛查
 7. 退汇：⚡触发 bounce → 单落 RETURNED → 账本看反向分录
+8. 全程任一步，审计页按单号查——留痕词表 25 码封闭（站2-β）：建单铸「旅程号」全链继承，按单号/按客户/按旅程三查成立；失败进 outcome+原因码，状态变化写从/到两列（垫第七幕）
 
 ## 5. 关键技术节点（≤30 行）
 
-- 工作流 `trading/withdraw-transactions/withdraw-workflow.service.ts`：`initiatePayoutPhase()`（两腿创建：本金 legSeq=1 / 费 legSeq=2）｜ `decideVerdictLanding()` 三档（IGNORE / EVIDENCE_ONLY / DISPATCH——FROZEN 一律 IGNORE 保护制裁证据；PAYOUT_PENDING 只留证据）｜ `initiateUnfreeze()/initiateRefund()`（双弧开案）+ `on*Approved()`（执行）｜ `onBounce()`（退汇，先账后状态）｜ `assertCustomerComplianceOrFreeze()`（客户级合规闸，三处接入）
+- 工作流 `trading/withdraw-transactions/withdraw-workflow.service.ts`：`initiatePayoutPhase()`（两腿创建：本金 legSeq=1 / 费 legSeq=2）｜ `decideVerdictLanding()` 三档（IGNORE / EVIDENCE_ONLY / DISPATCH——FROZEN 一律 IGNORE 保护制裁证据；PAYOUT_PENDING 只留证据）｜ `initiateUnfreeze()/initiateRefund()`（双弧开案）+ `on*Approved()`（执行）｜ `onBounce()`（退汇，先账后状态）｜ `assertCustomerComplianceOrFreeze()`（客户级合规闸，三处接入）｜ `withdrawAudit()`（站2-β 统一留痕信封：25 码名册见 audit-actions.constant V5 表）
 - 状态机 `withdraw-transactions.service.ts → transitions`（21 边 + 守则单测）；大额出生路由是表外钦定写（注释成文）
 - 解锁原语 `releaseLock()`（净额+费两笔 pending 一起 void——"拒绝即解锁"的物理形态，提现/退款/失败三处共用）
 - 客户面防线 `getWithdrawStatusView()`（FROZEN/MANUAL_CHECKING/PENDING_APPROVAL 逐字段收敛成 PROCESSING）+ `toCustomerWithdrawView()`（调查性字段白名单裁剪）+ 违禁词单测全态零命中
