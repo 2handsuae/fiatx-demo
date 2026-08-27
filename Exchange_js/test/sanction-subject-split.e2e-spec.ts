@@ -21,6 +21,7 @@ if (!process.env.DATABASE_URL?.includes('e2e-')) {
   );
 }
 
+import { randomUUID } from 'crypto';
 import { Test } from '@nestjs/testing';
 import { INestApplication } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
@@ -73,6 +74,9 @@ describe('第二批 · 制裁命中分主体 (e2e)', () => {
   let cryptoAssetId: string;
 
   const EMAIL_PREFIX = 'e2e_sanction_split_';
+  // 8/27 审计业务键化后，per-customerNo 的审计行会跨轮累积（audit 表从不清理）。
+  // 邮箱加轮次盐 → customerNo（由邮箱决定性派生）每轮独立，计数断言只见本轮。
+  const RUN_TAG = Date.now().toString(36);
   let seq = 0;
 
   beforeAll(async () => {
@@ -133,7 +137,7 @@ describe('第二批 · 制裁命中分主体 (e2e)', () => {
   /** 现建 fixture 客户：只写交易门真正读的列，形状对齐 seed.business.ts 的 ACTIVE 个人客户。 */
   async function makeCustomer(tag: string): Promise<Fixture> {
     seq += 1;
-    const email = `${EMAIL_PREFIX}${tag}@example.com`;
+    const email = `${EMAIL_PREFIX}${RUN_TAG}_${tag}@example.com`;
     const row = await prisma.customerMain.create({
       data: {
         email,
@@ -163,7 +167,7 @@ describe('第二批 · 制裁命中分主体 (e2e)', () => {
     const depositNo = generateReferenceNo('DEP');
     return prisma.depositTransaction.create({
       data: {
-        depositNo, traceId: depositNo,
+        depositNo, traceId: depositNo, correlationId: randomUUID(),
         ownerType: 'CUSTOMER', ownerId: c.id,
         status: DepositTransactionStatus.COMPLIANCE_PENDING,
         assetId: fiatAssetId, toWalletId: wallet.id,
@@ -179,7 +183,7 @@ describe('第二批 · 制裁命中分主体 (e2e)', () => {
     const withdrawNo = generateReferenceNo('WD');
     return prisma.withdrawTransaction.create({
       data: {
-        withdrawNo, traceId: withdrawNo,
+        withdrawNo, traceId: withdrawNo, correlationId: randomUUID(),
         ownerType: 'CUSTOMER', ownerId: c.id, ownerNo: c.customerNo,
         status: WithdrawTransactionStatus.COMPLIANCE_PENDING,
         assetId: fiatAssetId,
@@ -196,7 +200,7 @@ describe('第二批 · 制裁命中分主体 (e2e)', () => {
     const swapNo = generateReferenceNo('SWP');
     return prisma.swapTransaction.create({
       data: {
-        swapNo, traceId: swapNo,
+        swapNo, traceId: swapNo, correlationId: randomUUID(),
         ownerType: 'CUSTOMER', ownerId: c.id, ownerNo: c.customerNo,
         status: SwapTransactionStatus.COMPLIANCE_PENDING,
         fromAssetId: fiatAssetId, fromAssetCode: 'AED', fromAmount: new Prisma.Decimal(amount),
@@ -300,7 +304,7 @@ describe('第二批 · 制裁命中分主体 (e2e)', () => {
   // 等信标冻结之后再建 wd2，此时该轮监听器早已查过库、不可能再回头捞到
   // 后建的 wd2；随后直接对 wd2 喂 SANCTION_APPLICANT，必定走它自己
   // applyKytRejected 里的 open() 调用。
-  it('③ 同一客户经充值+提现两条路径命中 → 便签只有一张，第二次留 SKIPPED 审计', async () => {
+  it('③ 同一客户经充值+提现两条路径命中 → 便签只有一张，第二次留 DENIED(DUPLICATE_HIT) 审计', async () => {
     const c = await makeCustomer('two-paths');
     const dep = await makeDeposit(c, '5000');
     const wdBeacon = await makeWithdraw(c, '50');
@@ -350,13 +354,15 @@ describe('第二批 · 制裁命中分主体 (e2e)', () => {
     // 保证每次真实事件都有独立幂等键）：
     // `CUSTOMER_RESTRICTION_ADDED_${outcome.restrictionNo}_${randomUUID()}`。
     // 下面这条断言现在的角色是那次修复的回归闸——同因第二次命中必须仍留一条
-    // SKIPPED 审计；不同因由两条都落库的对照见下方用例⑥。
+    // DENIED(DUPLICATE_HIT) 审计（地基站四值 outcome 合同下 SKIPPED 的对应译法）；
+    // 不同因由两条都落库的对照见下方用例⑥。
     expect(
       await prisma.auditLogEvent.count({
         where: {
-          primarySubjectNo: c.id,
+          primarySubjectNo: c.customerNo,
           action: AuditActions.CUSTOMER_RESTRICTION_ADDED,
-          outcome: 'SKIPPED',
+          outcome: 'DENIED',
+          reasonCode: 'DUPLICATE_HIT',
         },
       }),
     ).toBeGreaterThan(0);
@@ -424,7 +430,7 @@ describe('第二批 · 制裁命中分主体 (e2e)', () => {
     // ⅲ 审计留痕：客户面看不到的东西，运营/合规必须查得到。
     expect(
       await prisma.auditLogEvent.count({
-        where: { primarySubjectNo: sw.id, action: AuditActions.SWAP_FROZEN },
+        where: { primarySubjectNo: sw.swapNo!, action: AuditActions.SWAP_FROZEN },
       }),
     ).toBeGreaterThan(0);
   });
@@ -454,7 +460,7 @@ describe('第二批 · 制裁命中分主体 (e2e)', () => {
     ).toBe(SwapTransactionStatus.FROZEN);
     expect(
       await prisma.auditLogEvent.count({
-        where: { primarySubjectNo: sw.id, action: AuditActions.SWAP_KYT_VERDICT_IGNORED },
+        where: { primarySubjectNo: sw.swapNo!, action: AuditActions.SWAP_KYT_VERDICT_IGNORED },
       }),
     ).toBeGreaterThan(0);
   });
@@ -491,7 +497,7 @@ describe('第二批 · 制裁命中分主体 (e2e)', () => {
     expect(material.restrictionNo).not.toBe(sanction.restrictionNo);
 
     const addedRows = await prisma.auditLogEvent.findMany({
-      where: { primarySubjectNo: c.id, action: AuditActions.CUSTOMER_RESTRICTION_ADDED },
+      where: { primarySubjectNo: c.customerNo, action: AuditActions.CUSTOMER_RESTRICTION_ADDED },
     });
     expect(addedRows).toHaveLength(2);
     expect(addedRows.every((r) => r.outcome === 'SUCCESS')).toBe(true);

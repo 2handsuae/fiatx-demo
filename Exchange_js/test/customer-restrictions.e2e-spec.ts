@@ -38,6 +38,7 @@ if (!process.env.DATABASE_URL?.includes('e2e-')) {
 
 import request from 'supertest';
 import { AuditActions } from '../src/modules/audit-logging/constants/audit-actions.constant';
+import { randomUUID } from 'crypto';
 import { Test } from '@nestjs/testing';
 import { INestApplication } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
@@ -185,7 +186,7 @@ describe('Customer lifecycle restrictions (e2e, Task 14)', () => {
     const swapNo = generateReferenceNo('SWP');
     return prisma.swapTransaction.create({
       data: {
-        swapNo, traceId: swapNo,
+        swapNo, traceId: swapNo, correlationId: randomUUID(),
         ownerType: 'CUSTOMER', ownerId: c.id, ownerNo: c.customerNo,
         status: SwapTransactionStatus.COMPLIANCE_PENDING,
         fromAssetId: fiatAssetId, fromAssetCode: 'AED', fromAmount: new Prisma.Decimal(amount),

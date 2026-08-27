@@ -299,17 +299,26 @@ describe('Withdraw money arcs (e2e, Task 12)', () => {
     return row?.status;
   }
 
+  // 8/25 审计改表后按业务键查（primarySubjectNo/Type）；先解出提现单号。
+  async function withdrawNoOf(id: string): Promise<string | null> {
+    return (await (prisma as any).withdrawTransaction.findUnique({ where: { id }, select: { withdrawNo: true } }))?.withdrawNo ?? null;
+  }
+
   async function auditActionsFor(id: string): Promise<string[]> {
+    const subjectNo = await withdrawNoOf(id);
+    if (!subjectNo) return [];
     const rows = await (prisma as any).auditLogEvent.findMany({
-      where: { entityId: id, entityType: AuditEntityTypes.WITHDRAW_TRANSACTION },
+      where: { primarySubjectNo: subjectNo, primarySubjectType: AuditEntityTypes.WITHDRAW_TRANSACTION },
       select: { action: true },
     });
     return rows.map((r: any) => r.action);
   }
 
   async function auditRowsFor(id: string, action: string): Promise<any[]> {
+    const subjectNo = await withdrawNoOf(id);
+    if (!subjectNo) return [];
     return (prisma as any).auditLogEvent.findMany({
-      where: { entityId: id, entityType: AuditEntityTypes.WITHDRAW_TRANSACTION, action },
+      where: { primarySubjectNo: subjectNo, primarySubjectType: AuditEntityTypes.WITHDRAW_TRANSACTION, action },
     });
   }
 
@@ -442,8 +451,8 @@ describe('Withdraw money arcs (e2e, Task 12)', () => {
     expect(codes).toContain('WITHDRAW_FEE_FIRM');
 
     const actions = await auditActionsFor(w.id);
-    expect(actions).toContain(AuditActions.WITHDRAW_ACCOUNTING_POSTED);
-    expect(actions).toContain(AuditActions.WITHDRAW_SUCCESS);
+    expect(actions).toContain('WITHDRAW_PAYOUT_COMPLETED');
+    expect(actions).toContain('WITHDRAW_SUCCESS');
   });
 
   it('2. principal leg FAILED → withdraw FAILED + both TB locks voided (available balance restored)', async () => {
@@ -461,9 +470,12 @@ describe('Withdraw money arcs (e2e, Task 12)', () => {
     // CLEAR/cascade involved) — deterministic, no waitUntil needed.
     expect(await statusOf(w.id)).toBe(WithdrawTransactionStatus.FAILED);
 
-    const actions = await auditActionsFor(w.id);
-    expect(actions).toContain(AuditActions.WITHDRAW_PAYOUT_FAILED);
-    expect(actions).toContain(AuditActions.WITHDRAW_LOCK_RELEASED);
+    const payoutRows = await auditRowsFor(w.id, 'WITHDRAW_PAYOUT_COMPLETED');
+    const failedRow = payoutRows.find((r: any) => r.outcome === 'FAILED');
+    expect(failedRow).toBeTruthy();
+    const failedMeta = JSON.parse(failedRow.metadata ?? '{}');
+    expect(failedMeta.releasedNet).toBeTruthy();
+    expect(failedMeta.releasedFee).toBeTruthy();
 
     const after = await availableBalance('AED');
     expect(after.available).toBe(before.available); // fully restored — net+fee both released
@@ -487,13 +499,13 @@ describe('Withdraw money arcs (e2e, Task 12)', () => {
       await driveLegTransition(currentFeeLeg.id, FundsOrderStatus.FAILED, w.id);
       const actions = await auditActionsFor(w.id);
       if (attempt < 3) {
-        expect(actions).toContain(AuditActions.WITHDRAW_FEE_LEG_REBUILT);
+        expect(actions).toContain('WITHDRAW_FEE_RETRIED');
         const legs = await fundsOrders.findByParent({ withdrawTransactionId: w.id }, { legSeq: 2 });
         currentFeeLeg = legs[legs.length - 1];
         expect(currentFeeLeg.attempt).toBe(attempt + 1);
         expect(currentFeeLeg.status).toBe(FundsOrderStatus.CREATED);
       } else {
-        expect(actions).toContain(AuditActions.WITHDRAW_FEE_SETTLE_STUCK);
+        expect(actions).toContain('WITHDRAW_FEE_STUCK');
       }
     }
 
@@ -597,9 +609,10 @@ describe('Withdraw money arcs (e2e, Task 12)', () => {
     await approvalsService.approve(approvalCase!.id, { reason: 'e2e approve' }, makeActor('E2E_MLRO_REFUND_WD1', 'MLRO'));
     await waitUntil(async () => (await statusOf(w.id)) === WithdrawTransactionStatus.REJECTED);
 
-    const actions = await auditActionsFor(w.id);
-    expect(actions).toContain(AuditActions.WITHDRAW_SANCTION_REFUNDED);
-    expect(actions).toContain(AuditActions.WITHDRAW_LOCK_RELEASED);
+    const refundRows = await auditRowsFor(w.id, 'WITHDRAW_REFUNDED');
+    expect(refundRows.length).toBeGreaterThanOrEqual(1);
+    const refundMeta = JSON.parse(refundRows[0].metadata ?? '{}');
+    expect(refundMeta.releasedNet).toBeTruthy();
 
     const after = await availableBalance('AED');
     expect(after.available).toBe(before.available); // fully restored — net+fee both released
