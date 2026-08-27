@@ -1,6 +1,8 @@
 // 平账·推单编排（spec §1/§2）：同步/人工两腿，同一条推进路径，差别只在证据提供者。
 // 铁律：不直写 TB/账本——只循环调 FundsOrderService.advance，由状态机事件链记账（Task 2 穿透）。
+import { randomUUID } from 'node:crypto';
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { PrismaService } from '../../../../core/prisma/prisma.service';
 import { AuditLogsService } from '../../../audit-logging/audit-logs.service';
 import {
   AuditActions,
@@ -42,6 +44,7 @@ export class PushOrderService {
     private readonly fundsOrders: FundsOrderService,
     private readonly receiptLookup: ReceiptLookupService,
     private readonly auditLogs: AuditLogsService,
+    private readonly prisma: PrismaService,
   ) {}
 
   async syncPush(fundsOrderNo: string, operatorId: string) {
@@ -55,8 +58,10 @@ export class PushOrderService {
     const fromStatus = order.status;
     const final = await this.driveToCleared(order, operatorId, receipt.effectiveDate);
     await this.recordPush(order, operatorId, {
-      action: AuditActions.RECON_PUSH_ORDER_SYNCED,
+      action: 'RECON_PUSH_ORDER',
       reason: `Push-order sync: ${fromStatus} → ${final.status} (effectiveDate=${receipt.effectiveDate})`,
+      fromStatus,
+      toStatus: final.status,
       metadata: {
         matchedLineId: receipt.lineId,
         effectiveDate: receipt.effectiveDate,
@@ -77,8 +82,10 @@ export class PushOrderService {
     const fromStatus = order.status;
     const final = await this.driveToCleared(order, operatorId, evidence.externalDate);
     await this.recordPush(order, operatorId, {
-      action: AuditActions.RECON_PUSH_ORDER_MANUAL,
+      action: 'RECON_PUSH_ORDER',
       reason: `Push-order manual: ${fromStatus} → ${final.status} (effectiveDate=${evidence.externalDate})`,
+      fromStatus,
+      toStatus: final.status,
       metadata: {
         manualConfirm: true,
         receiptRef: evidence.receiptRef,
@@ -202,20 +209,56 @@ export class PushOrderService {
   }
 
   /** 审计写入：ADMIN 触发的推单，走 recordByActor（字典常量，禁裸串）。 */
+  /**
+   * 站5-β：推单落在父单（充值/提现）的旅程里——INHERIT 父单 correlationId，
+   * OWNER=父单客户、RELATED=父业务单号；主对象类型随表更名换 FUNDS_ORDER。
+   * swap 腿被 loadPushable 挡在门外，父单只有充值/提现两种。
+   */
+  private async resolveParent(order: any): Promise<{ correlationId?: string; parentNo?: string; parentType?: string; customerNo?: string }> {
+    if (order.depositTransactionId) {
+      const dep = await this.prisma.depositTransaction.findUnique({
+        where: { id: order.depositTransactionId },
+        select: { depositNo: true, correlationId: true, customer: { select: { customerNo: true } } },
+      });
+      if (dep) return { correlationId: dep.correlationId ?? undefined, parentNo: dep.depositNo, parentType: AuditEntityTypes.DEPOSIT_TRANSACTION, customerNo: dep.customer?.customerNo };
+    }
+    if (order.withdrawTransactionId) {
+      const wd = await this.prisma.withdrawTransaction.findUnique({
+        where: { id: order.withdrawTransactionId },
+        select: { withdrawNo: true, correlationId: true, ownerNo: true },
+      });
+      if (wd) return { correlationId: wd.correlationId ?? undefined, parentNo: wd.withdrawNo, parentType: AuditEntityTypes.WITHDRAW_TRANSACTION, customerNo: wd.ownerNo ?? undefined };
+    }
+    return {};
+  }
+
   private async recordPush(
     order: any,
     operatorId: string,
-    entry: { action: string; reason: string; metadata: Record<string, unknown> },
+    entry: { action: string; reason: string; fromStatus: string; toStatus: string; metadata: Record<string, unknown> },
   ) {
+    const parent = await this.resolveParent(order);
+    const subjects: any[] = [
+      { subjectType: 'FUNDS_ORDER', subjectNo: order.fundsOrderNo, subjectRole: 'PRIMARY' },
+    ];
+    if (parent.customerNo) subjects.push({ subjectType: 'CUSTOMER', subjectNo: parent.customerNo, subjectRole: 'OWNER' });
+    if (parent.parentNo) subjects.push({ subjectType: parent.parentType, subjectNo: parent.parentNo, subjectRole: 'RELATED' });
     await this.auditLogs.recordByActor(
       {
         action: entry.action,
-        primarySubjectType: AuditEntityTypes.INTERNAL_FUND,
+        actionDomain: 'RECON',
+        primarySubjectType: 'FUNDS_ORDER',
         primarySubjectNo: order.fundsOrderNo,
+        ownerCustomerNo: parent.customerNo,
+        correlationId: parent.correlationId,
+        fromStatus: entry.fromStatus,
+        toStatus: entry.toStatus,
+        subjects,
         reason: entry.reason,
+        requestId: `RECON_PUSH_ORDER_${order.fundsOrderNo}_${randomUUID()}`,
         metadata: entry.metadata,
         sourcePlatform: 'ADMIN',
-      },
+      } as any,
       { actorType: 'ADMIN', actorNo: operatorId, actorDisplayName: operatorId, actorRolesAtTime: ['ADMIN'] },
     );
   }

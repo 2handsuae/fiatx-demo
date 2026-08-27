@@ -643,7 +643,7 @@ import { AuditCorrelationMode } from '../dto/audit-log.dto';
 /** V1 治理四域，声明与下方 assertActionSpec 的退役码放行闸共用同一份 */
 export const V1_ACTION_DOMAINS = ['IAM', 'APPROVAL', 'CONFIG', 'AUDIT'] as const;
 /** 新合同已入住的全部域——站1b-β 起交易域逐域加入（充值第一个）。机器校验的域闸读这份。 */
-export const CONTRACT_ACTION_DOMAINS = [...V1_ACTION_DOMAINS, 'DEPOSIT', 'WITHDRAW', 'SWAP'] as const;
+export const CONTRACT_ACTION_DOMAINS = [...V1_ACTION_DOMAINS, 'DEPOSIT', 'WITHDRAW', 'SWAP', 'RECON'] as const;
 
 export interface AuditActionSpec {
   /** actionDomain 列的值 */
@@ -869,6 +869,23 @@ export const V6_SWAP_AUDIT_ACTIONS: Record<string, AuditActionSpec> = {
   SWAP_DEMO_SCENARIO_RUN:    { domain: 'SWAP', correlationMode: I, requiredFields: [], requiresCausation: false },
 };
 
+/**
+ * V8 对账域名册（站5-β，2026-08-27 业主终审版）——5 旧词 → 4 码。
+ * 对账件（跑批/案件）天生无客户旅程 → NONE；唯推单落在父单（充值/提现）
+ * 的旅程里 → INHERIT。CASE_OPENED 的破口三件套（walletRef/bucket/deltaAmount）
+ * 在 metadata——机器闸只查信封顶层，真正的强制在写方法 auditCaseOpened 的
+ * TS 签名上（编译期兜底）。
+ * RUN_COMPLETED 双通道：cron 走系统通道，管理员触发走操作员通道——
+ * 同动作不因语境拆名，谁跑的落 actor 字段。
+ */
+export const V8_RECON_AUDIT_ACTIONS: Record<string, AuditActionSpec> = {
+  RECON_RUN_COMPLETED:    { domain: 'RECON', correlationMode: N, requiredFields: [], requiresCausation: false },
+  RECON_CASE_OPENED:      { domain: 'RECON', correlationMode: N, requiredFields: [], requiresCausation: false },
+  RECON_CASE_AUTO_HEALED: { domain: 'RECON', correlationMode: N, requiredFields: [], requiresCausation: false },
+  // 合并 SYNCED+MANUAL（同动作不因语境拆名；manualConfirm/证据三件套在 metadata）
+  RECON_PUSH_ORDER:       { domain: 'RECON', correlationMode: I, requiredFields: ['fromStatus', 'toStatus'], requiresCausation: false },
+};
+
 /** 动态迁移码族（<域>_<从>_TO_<到>，充值站1b-β/提现站2-β 整族废除）——机器校验按此形状拒写。 */
 export const RETIRED_DYNAMIC_TRANSITION_PATTERN = /^(DEPOSIT|WITHDRAW|SWAP)_[A-Z_]+_TO_[A-Z_]+$/;
 
@@ -894,6 +911,9 @@ export const DEPRECATED_AUDIT_ACTIONS: readonly string[] = [
   'WITHDRAW_FEE_LEG_REBUILT', 'WITHDRAW_FEE_SETTLE_STUCK',
   // ── 兑换域（站3-β，2026-08-27）──────────────────────────
   'SWAP_FAILED', 'SWAP_KYT_SUBMIT_FAILED', 'SWAP_KYT_REJECTED_DISPOSITION_FAILED',
+  // ── 对账域（站5-β，2026-08-27）──────────────────────────
+  'SYSTEM_RECON_RUN_COMPLETED', 'SYSTEM_RECON_CASE_AUTO_HEALED',
+  'RECON_PUSH_ORDER_SYNCED', 'RECON_PUSH_ORDER_MANUAL',
   'RESET_FAILED',
   'CHANGE_APPLY_FAILED',
   'ROLE_ACTIVATE_FAILED',

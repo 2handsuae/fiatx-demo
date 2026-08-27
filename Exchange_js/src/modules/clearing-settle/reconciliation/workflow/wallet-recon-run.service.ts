@@ -35,6 +35,7 @@ import {
 import { TigerBeetleService } from '../../../accounting/tigerbeetle/tigerbeetle.service';
 import { computeBucket, ReconBucket } from '../engine/v2/bucket-classifier';
 import { AuditLogsService } from '../../../audit-logging/audit-logs.service';
+import { AuditActorContext, AuditCategory, AuditSubjectRole } from '../../../audit-logging/dto/audit-log.dto';
 import {
   AuditActions,
   AuditEntityTypes,
@@ -101,13 +102,13 @@ export class WalletReconRunService {
     private readonly auditLogs: AuditLogsService,
   ) {}
 
-  async run(input: WalletReconRunInput): Promise<WalletReconRunResult> {
+  async run(input: WalletReconRunInput, actor?: AuditActorContext): Promise<WalletReconRunResult> {
     const { cutoff } = input;
     const businessDate = this.toBusinessDate(cutoff);
 
     // Stamp the run row up-front so callers always get a runId, even if
     // pre-gate trips.
-    const run = await this.createRun(businessDate, input.manifest);
+    const run = await this.createRun(businessDate, input.manifest, actor ? 'MANUAL' : 'SCHEDULED');
 
     // ── 1. Internal-identity pre-gate ──────────────────────────────────────
     const identity = await this.computeInternalIdentity(cutoff);
@@ -378,8 +379,9 @@ export class WalletReconRunService {
     });
 
     await this.auditRunCompleted({
-      runId: run.id,
+      runNo: run.runNo,
       traceId: run.traceId ?? null,
+      actor,
       status,
       walletsChecked,
       casesOpened: casesCreated,
@@ -412,7 +414,7 @@ export class WalletReconRunService {
   }
 
   // ── run row helpers ────────────────────────────────────────────────────────
-  private async createRun(businessDate: string, manifest: unknown) {
+  private async createRun(businessDate: string, manifest: unknown, triggerType: 'MANUAL' | 'SCHEDULED') {
     const prior = await (this.prisma as any).reconciliationRun.count({
       where: { businessDate, layer: RUN_LAYER },
     });
@@ -426,7 +428,7 @@ export class WalletReconRunService {
         businessDate,
         layer: RUN_LAYER,
         seq,
-        triggerType: 'MANUAL',
+        triggerType,
         mode: 'APPLY',
         status: 'RUNNING',
         traceId: randomUUID(),
@@ -902,32 +904,45 @@ export class WalletReconRunService {
   // ── Audit (DI — never `new AuditLogsService`) ─────────────────────────────
   private async auditCaseOpened(input: { traceId: string | null; walletRef: string; bucket: ReconBucket; delta: bigint; caseNo: string }): Promise<void> {
     await this.auditLogs.recordSystem({
-      action: AuditActions.RECON_CASE_OPENED,
+      action: 'RECON_CASE_OPENED',
+      actionDomain: 'RECON',
+      category: AuditCategory.BUSINESS,
       primarySubjectType: AuditEntityTypes.RECONCILIATION_CASE,
       primarySubjectNo: input.caseNo,
+      subjects: [
+        { subjectType: AuditEntityTypes.RECONCILIATION_CASE, subjectNo: input.caseNo, subjectRole: AuditSubjectRole.PRIMARY },
+      ],
       traceId: input.traceId ?? undefined,
+      requestId: `RECON_CASE_OPENED_${input.caseNo}_${randomUUID()}`,
       metadata: {
         walletRef: input.walletRef,
         bucket: input.bucket,
         deltaAmount: input.delta.toString(),
         caseNo: input.caseNo,
       },
-    });
+    } as any);
   }
 
   private async auditCaseAutoHealed(input: { traceId: string | null; walletRef: string; caseNo: string }): Promise<void> {
     await this.auditLogs.recordSystem({
-      action: AuditActions.SYSTEM_RECON_CASE_AUTO_HEALED,
+      action: 'RECON_CASE_AUTO_HEALED',
+      actionDomain: 'RECON',
+      category: AuditCategory.BUSINESS,
       primarySubjectType: AuditEntityTypes.RECONCILIATION_CASE,
       primarySubjectNo: input.caseNo,
+      subjects: [
+        { subjectType: AuditEntityTypes.RECONCILIATION_CASE, subjectNo: input.caseNo, subjectRole: AuditSubjectRole.PRIMARY },
+      ],
       traceId: input.traceId ?? undefined,
+      requestId: `RECON_CASE_AUTO_HEALED_${input.caseNo}_${randomUUID()}`,
       metadata: { walletRef: input.walletRef, caseNo: input.caseNo },
-    });
+    } as any);
   }
 
   private async auditRunCompleted(input: {
-    runId: string;
+    runNo: string;
     traceId: string | null;
+    actor?: AuditActorContext;
     status: WalletReconRunResult['status'];
     walletsChecked: number;
     casesOpened: number;
@@ -935,11 +950,20 @@ export class WalletReconRunService {
     casesAutoHealed: number;
     bucketCounts: { matched: number; inTransit: number; softFlag: number; break: number };
   }): Promise<void> {
-    await this.auditLogs.recordSystem({
-      action: AuditActions.SYSTEM_RECON_RUN_COMPLETED,
+    // 双通道（同动作不因语境拆名）：cron 走系统通道，管理员触发记他名字——
+    // 主对象号用业务跑批号 runNo，不漏内部 UUID。
+    const envelope = {
+      action: 'RECON_RUN_COMPLETED',
+      actionDomain: 'RECON',
+      category: AuditCategory.BUSINESS,
       primarySubjectType: AuditEntityTypes.RECONCILIATION_RUN_V8,
-      primarySubjectNo: input.runId,
+      primarySubjectNo: input.runNo,
+      subjects: [
+        { subjectType: AuditEntityTypes.RECONCILIATION_RUN_V8, subjectNo: input.runNo, subjectRole: AuditSubjectRole.PRIMARY },
+      ],
       traceId: input.traceId ?? undefined,
+      requestId: `RECON_RUN_COMPLETED_${input.runNo}_${randomUUID()}`,
+      sourcePlatform: input.actor ? 'ADMIN_API' : 'SYSTEM',
       metadata: {
         status: input.status,
         walletsChecked: input.walletsChecked,
@@ -951,7 +975,9 @@ export class WalletReconRunService {
         casesReObserved: input.casesReObserved,
         casesAutoHealed: input.casesAutoHealed,
       },
-    });
+    } as any;
+    if (input.actor) await this.auditLogs.recordByActor(envelope, input.actor as any);
+    else await this.auditLogs.recordSystem(envelope);
   }
 
   // ── Helpers ───────────────────────────────────────────────────────────────

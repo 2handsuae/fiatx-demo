@@ -4,6 +4,15 @@ import { FundsOrderStatus, FundsOrderAction } from '../../../funds-orders/dto/fu
 
 // Real funds-order row shape (columns per prisma schema): deposit/withdraw FK derives
 // direction, fromWalletId/toWalletId is the physical wallet, referenceNo is the external ref.
+const makePrisma = () => ({
+  depositTransaction: {
+    findUnique: jest.fn(async () => ({ depositNo: 'DEP-1', correlationId: 'corr-dep-1', customer: { customerNo: 'C-001' } })),
+  },
+  withdrawTransaction: {
+    findUnique: jest.fn(async () => ({ withdrawNo: 'WD-1', correlationId: 'corr-wd-1', ownerNo: 'C-002' })),
+  },
+}) as any;
+
 const makeOrder = (over: any = {}) => ({
   id: 'id-1',
   fundsOrderNo: 'FO-1',
@@ -57,7 +66,7 @@ function build(opts: { order?: any; lookup?: any } = {}) {
     ),
   } as any;
   const audit = { recordByActor: jest.fn(async () => ({})), recordSystem: jest.fn() } as any;
-  return { svc: new PushOrderService(fundsOrders, lookup, audit), fundsOrders, lookup, audit };
+  return { svc: new PushOrderService(fundsOrders, lookup, audit, makePrisma()), fundsOrders, lookup, audit };
 }
 
 describe('PushOrderService', () => {
@@ -116,14 +125,20 @@ describe('PushOrderService', () => {
     expect(view.walletId).toBe('wout-9');
   });
 
-  it('sync: records a RECON_PUSH_ORDER_SYNCED audit via recordByActor', async () => {
+  it('sync: records a RECON_PUSH_ORDER audit via recordByActor (inherits parent journey)', async () => {
     const { svc, audit } = build();
     await svc.syncPush('FO-1', 'admin-1');
     expect(audit.recordByActor).toHaveBeenCalledTimes(1);
     const [input, actor] = audit.recordByActor.mock.calls[0];
-    expect(input.action).toBe('RECON_PUSH_ORDER_SYNCED');
-    expect(input.primarySubjectType).toBe('INTERNAL_FUND');
+    expect(input.action).toBe('RECON_PUSH_ORDER');
+    expect(input.actionDomain).toBe('RECON');
+    expect(input.primarySubjectType).toBe('FUNDS_ORDER');
     expect(input.primarySubjectNo).toBe('FO-1');
+    expect(input.correlationId).toBe('corr-dep-1');
+    expect(input.ownerCustomerNo).toBe('C-001');
+    expect(input.fromStatus).toBe(FundsOrderStatus.CONFIRMING);
+    expect(input.toStatus).toBe(FundsOrderStatus.CONFIRMED);
+    expect(input.subjects.map((x: any) => x.subjectRole).sort()).toEqual(['OWNER', 'PRIMARY', 'RELATED']);
     expect(input.metadata.manualConfirm).toBe(false);
     expect(actor.actorNo).toBe('admin-1');
     expect(actor.actorType).toBe('ADMIN');
@@ -166,7 +181,7 @@ describe('PushOrderService', () => {
     expect(res.finalStatus).toBe(FundsOrderStatus.CONFIRMED);
     expect(fundsOrders.advance.mock.calls[0][4]).toEqual({ effectiveDate: '2026-06-30' });
     const [input] = audit.recordByActor.mock.calls[0];
-    expect(input.action).toBe('RECON_PUSH_ORDER_MANUAL');
+    expect(input.action).toBe('RECON_PUSH_ORDER');
     expect(input.metadata.manualConfirm).toBe(true);
     expect(input.metadata.receiptRef).toBe('R-1');
   });
@@ -193,7 +208,7 @@ describe('PushOrderService', () => {
       findUniqueReceipt: jest.fn(async () => ({ kind: 'HIT', lineId: 'ext-1', effectiveDate: '2026-06-30' })),
     } as any;
     const audit = { recordByActor: jest.fn(async () => ({})) } as any;
-    const svc = new PushOrderService(fundsOrders, lookup, audit);
+    const svc = new PushOrderService(fundsOrders, lookup, audit, makePrisma());
     await expect(svc.syncPush('FO-1', 'admin-1')).rejects.toThrow(NotFoundException);
   });
 
@@ -226,7 +241,7 @@ describe('PushOrderService', () => {
       findUniqueReceipt: jest.fn(async () => ({ kind: 'HIT', lineId: 'ext-1', effectiveDate: '2026-06-30' })),
     } as any;
     const audit = { recordByActor: jest.fn(async () => ({})) } as any;
-    const svc = new PushOrderService(fundsOrders, lookup, audit);
+    const svc = new PushOrderService(fundsOrders, lookup, audit, makePrisma());
 
     const res = await svc.syncPush('FO-1', 'admin-1');
     expect(res.finalStatus).toBe(FundsOrderStatus.CLEARED);

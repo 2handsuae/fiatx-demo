@@ -1,4 +1,4 @@
-import { V1_AUDIT_ACTIONS, V4_DEPOSIT_AUDIT_ACTIONS, V5_WITHDRAW_AUDIT_ACTIONS, V6_SWAP_AUDIT_ACTIONS, DEPRECATED_AUDIT_ACTIONS } from './audit-actions.constant';
+import { V1_AUDIT_ACTIONS, V4_DEPOSIT_AUDIT_ACTIONS, V5_WITHDRAW_AUDIT_ACTIONS, V6_SWAP_AUDIT_ACTIONS, V8_RECON_AUDIT_ACTIONS, DEPRECATED_AUDIT_ACTIONS } from './audit-actions.constant';
 import { AuditCorrelationMode } from '../dto/audit-log.dto';
 
 describe('第一批 · V1 词表守则', () => {
@@ -46,11 +46,12 @@ describe('第一批 · V1 词表守则', () => {
       .toHaveLength(13);
   });
 
-  it('退役码 50 个（V1 域 11 + 充值域 18 + 提现域 18 + 兑换域 3），且与四本在用名册零交集', () => {
-    expect(DEPRECATED_AUDIT_ACTIONS).toHaveLength(50);
+  it('退役码 54 个（V1 域 11 + 充值域 18 + 提现域 18 + 兑换域 3 + 对账域 4），且与五本在用名册零交集', () => {
+    expect(DEPRECATED_AUDIT_ACTIONS).toHaveLength(54);
     expect(DEPRECATED_AUDIT_ACTIONS.filter((d) => codes.includes(d))).toEqual([]);
     expect(DEPRECATED_AUDIT_ACTIONS.filter((d) => d in V4_DEPOSIT_AUDIT_ACTIONS)).toEqual([]);
     expect(DEPRECATED_AUDIT_ACTIONS.filter((d) => d in V5_WITHDRAW_AUDIT_ACTIONS)).toEqual([]);
     expect(DEPRECATED_AUDIT_ACTIONS.filter((d) => d in V6_SWAP_AUDIT_ACTIONS)).toEqual([]);
+    expect(DEPRECATED_AUDIT_ACTIONS.filter((d) => d in V8_RECON_AUDIT_ACTIONS)).toEqual([]);
   });
 });
