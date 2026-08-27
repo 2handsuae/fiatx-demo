@@ -25,6 +25,9 @@ export interface SwapSettleCtx {
   fromDecimals: number;
   toDecimals: number;
   /**
+ * ⚠️ 双胞胎引擎互认（站3-α，2026-08-27）：本引擎与 funds-orders/disposition.service.ts
+ * （充值处置动词层）是同一「按次画圈→落笔/擦圈」模式的两套实现，刻意不合并；
+ * 改任一侧的占位/编号语义时必须对照另一侧。
    * Per-leg attempt count for self-heal retries (Swap-6). Defaults to 1 when
    * absent. Callers override via `{ ...ctx, attempt: N }` to produce distinct
    * deterministic TB transfer IDs across attempts (each attempt is its own
