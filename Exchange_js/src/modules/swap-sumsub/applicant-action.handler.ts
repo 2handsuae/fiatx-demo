@@ -1,4 +1,6 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
+import { OnEvent } from '@nestjs/event-emitter';
+import { DomainEventNames } from '../../common/events/domain-events.constants';
 import { AuditLogsService } from '../audit-logging/audit-logs.service';
 import {
   AuditActions, AuditEntityTypes, AuditWorkflowTypes,
@@ -35,7 +37,26 @@ export class SwapApplicantActionHandler {
     private readonly materialRequests: MaterialRequestsService,
   ) {}
 
-  /** 由 MaterialRequestReviewService 在 GREEN 落地后回调；非兑换域的行直接返回。 */
+  /**
+   * 站3-α2：材料复核 GREEN 落地后经域事件到达。原为 MaterialRequestReviewService
+   * 直调本 handler——材料账不该知道兑换域的存在（铁律③），改听
+   * MATERIAL_REQUEST_REVIEWED；文件级装载链 customers→material-requests→swap-sumsub
+   * 就此断根。失败只记警告：一条旁路审计不该有能力阻断任何主流程（原调用方同款口径）。
+   */
+  @OnEvent(DomainEventNames.MATERIAL_REQUEST_REVIEWED, { async: true })
+  async onMaterialRequestReviewed(event: { requestNo: string; outcome: string }): Promise<void> {
+    if (event.outcome !== 'APPROVED') return;
+    try {
+      await this.noteHardLineHeld(event.requestNo);
+    } catch (e) {
+      this.logger.warn(
+        `noteHardLineHeld failed for material request ${event.requestNo} — swap hard-line audit ` +
+          `note was not recorded: ${e instanceof Error ? e.message : String(e)}`,
+      );
+    }
+  }
+
+  /** 事件入口 onMaterialRequestReviewed 调用；非兑换域的行直接返回。 */
   async noteHardLineHeld(requestNo: string): Promise<void> {
     const row = await this.materialRequests.findByNo(requestNo);
     if (!row || row.orderDomain !== 'SWAP') return;

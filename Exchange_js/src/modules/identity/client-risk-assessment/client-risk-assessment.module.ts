@@ -11,7 +11,6 @@ import { ApprovalsModule } from '../../governance/approvals/approvals.module';
 import { MaterialRefreshModule } from '../material-refresh/material-refresh.module';
 import { MaterialRefreshService } from '../material-refresh/material-refresh.service';
 import { TierUpgradeCaseModule } from '../tier-upgrade-case/tier-upgrade-case.module';
-import { SumsubIngestionModule } from '../../sumsub-ingestion/sumsub-ingestion.module';
 import { CustomersModule } from '../customers/customers.module';
 
 @Module({
@@ -23,7 +22,6 @@ import { CustomersModule } from '../customers/customers.module';
     forwardRef(() => MaterialRefreshModule),
     ApprovalsModule,
     TierUpgradeCaseModule,
-    forwardRef(() => SumsubIngestionModule),
   ],
   providers: [
     ClientRiskAssessmentService,

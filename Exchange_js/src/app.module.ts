@@ -16,6 +16,8 @@ import { WithdrawalAddressesModule } from './modules/asset-treasury/withdrawal-a
 import { DepositTransactionsModule } from './modules/trading/deposit-transactions/deposit-transactions.module';
 import { DepositDemoModule } from './modules/deposit-sumsub/deposit-demo.module';
 import { WithdrawDemoModule } from './modules/withdraw-sumsub/withdraw-demo.module';
+import { SwapDemoModule } from './modules/swap-sumsub/swap-demo.module';
+import { CraDemoModule } from './modules/identity/client-risk-assessment/cra-demo.module';
 import { TigerBeetleModule } from './modules/accounting/tigerbeetle/tigerbeetle.module';
 import { WorkflowsModule } from './orchestrators/workflows.module';
 import { TreasuryModule } from './modules/asset-treasury/treasury/treasury.module';
@@ -75,6 +77,8 @@ import { TransactionLimitsModule as TransactionLimitRulesModule } from './module
     DepositTransactionsModule,
     DepositDemoModule,
     WithdrawDemoModule,
+    SwapDemoModule,
+    CraDemoModule,
     TigerBeetleModule,
     WorkflowsModule,
     TreasuryModule,

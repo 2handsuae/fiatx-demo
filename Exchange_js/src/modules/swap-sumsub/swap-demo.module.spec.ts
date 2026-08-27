@@ -3,7 +3,7 @@ import { MODULE_METADATA } from '@nestjs/common/constants';
 /**
  * Task 9 mirror of withdraw-sumsub.module.spec.ts / deposit-sumsub.module.spec.ts
  * (deliberate fork): security gate (a) evidence — AdminSwapDemoController is
- * only registered by SwapSumsubModule when SUMSUB_MOCK_MODE=true; in
+ * only registered by SwapDemoModule when SUMSUB_MOCK_MODE=true; in
  * production the route doesn't exist at all, it isn't merely guard-blocked.
  *
  * Same caveats as the withdraw/deposit specs apply verbatim: `@Module({...})`
@@ -14,7 +14,7 @@ import { MODULE_METADATA } from '@nestjs/common/constants';
  * assign a non-'true' string instead so the key stays "present" and dotenv
  * leaves it alone.
  */
-describe('SwapSumsubModule — SUMSUB_MOCK_MODE controller gate', () => {
+describe('SwapDemoModule — SUMSUB_MOCK_MODE controller gate', () => {
   const ORIGINAL_ENV = process.env.SUMSUB_MOCK_MODE;
 
   afterEach(() => {
@@ -31,11 +31,11 @@ describe('SwapSumsubModule — SUMSUB_MOCK_MODE controller gate', () => {
   } {
     jest.resetModules();
     // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const { SwapSumsubModule } = require('./swap-sumsub.module');
+    const { SwapDemoModule } = require('./swap-demo.module');
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     const { AdminSwapDemoController } = require('./admin-swap-demo.controller');
     const controllers =
-      (Reflect.getMetadata(MODULE_METADATA.CONTROLLERS, SwapSumsubModule) as unknown[]) || [];
+      (Reflect.getMetadata(MODULE_METADATA.CONTROLLERS, SwapDemoModule) as unknown[]) || [];
     return { controllers, AdminSwapDemoController };
   }
 

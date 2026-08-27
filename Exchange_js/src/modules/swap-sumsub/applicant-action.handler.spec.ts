@@ -32,6 +32,31 @@ function build() {
   return { handler, prisma, audit, pending, requests };
 }
 
+describe('SwapApplicantActionHandler.onMaterialRequestReviewed（站3-α2 事件入口）', () => {
+  it('outcome=APPROVED → 调 noteHardLineHeld(requestNo)', async () => {
+    const { handler } = build();
+    const spy = jest.spyOn(handler, 'noteHardLineHeld').mockResolvedValue(undefined);
+    await handler.onMaterialRequestReviewed({ requestNo: 'MRQ1', outcome: 'APPROVED' });
+    expect(spy).toHaveBeenCalledWith('MRQ1');
+  });
+
+  it('outcome 非 APPROVED（RETRY/REJECTED）→ 不调', async () => {
+    const { handler } = build();
+    const spy = jest.spyOn(handler, 'noteHardLineHeld').mockResolvedValue(undefined);
+    await handler.onMaterialRequestReviewed({ requestNo: 'MRQ1', outcome: 'RETRY_REQUESTED' });
+    await handler.onMaterialRequestReviewed({ requestNo: 'MRQ1', outcome: 'REJECTED' });
+    expect(spy).not.toHaveBeenCalled();
+  });
+
+  it('noteHardLineHeld 抛错 → 监听器吞掉只记警告，不上抛（旁路审计不得拖垮事件链）', async () => {
+    const { handler } = build();
+    jest.spyOn(handler, 'noteHardLineHeld').mockRejectedValue(new Error('boom'));
+    await expect(
+      handler.onMaterialRequestReviewed({ requestNo: 'MRQ1', outcome: 'APPROVED' }),
+    ).resolves.toBeUndefined();
+  });
+});
+
 describe('SwapApplicantActionHandler.noteHardLineHeld', () => {
   it('非 SWAP 域的行直接返回，不写审计', async () => {
     const { handler, audit, requests } = build();

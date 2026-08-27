@@ -1,4 +1,4 @@
-import { Module, forwardRef } from '@nestjs/common';
+import { Module } from '@nestjs/common';
 import { WithdrawTransactionsService } from './withdraw-transactions.service';
 import { WithdrawTransactionsController } from './withdraw-transactions.controller';
 import { CustomerWithdrawController } from './customer-withdraw.controller';
@@ -24,14 +24,11 @@ import { L1GateModule } from '../shared/l1-gate/l1-gate.module';
 @Module({
   imports: [
     PrismaModule,
-    // 站2-α2 实测记录（镜像站1b DTM）：这三张 forwardRef **不是本域自己的环**——
-    // 模块图上外域无反向边，但文件级装载链 customers→material-requests→swap-sumsub→
-    // sumsub-ingestion→withdraw-sumsub→本模块 转一大圈回来（开机实证
-    // UndefinedModuleException，解包立炸）。等站3/6 拆断那条链后方可解包；本域自己
-    // 发起的令牌环（对 DepositSumsubModule）已于本站拆除。
-    forwardRef(() => OnboardingModule),
+    // 站3-α2（2026-08-27）解包完成：站2 实测钉住的装载链已在站3 拆断
+    // （swap-sumsub 直调环事件化 + CRA→ingestion 演示件独立挂载），开机考通过后平引用。
+    OnboardingModule,
     // Task 5：WithdrawWorkflowService 注入 CustomerAccessService（客户级能力闸）
-    forwardRef(() => CustomersModule),
+    CustomersModule,
     TigerBeetleModule,
     WithdrawalFeeLevelModule,
     ApprovalsModule,
@@ -43,8 +40,7 @@ import { L1GateModule } from '../shared/l1-gate/l1-gate.module';
     // 叶子模块（站1b 抽出），对 DepositSumsubModule 的 forwardRef 环就地拆除。
     SumsubTxnClientModule,
     // Task 9：WithdrawApplicantActionsService 改走材料账，需要 issuer/requests service
-    // （forwardRef 缘由同上：外域装载链转回本模块，站3/6 拆链前不可解包。）
-    forwardRef(() => MaterialRequestsModule),
+    MaterialRequestsModule,
     // B2（第四批）：WithdrawWorkflowService 注入 L1GateService（三域共用的 L1 快照求值器）。
     L1GateModule,
   ],

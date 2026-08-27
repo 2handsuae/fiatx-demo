@@ -33,14 +33,12 @@ function deps(found: any = row()) {
   const restrictionWorkflow = { autoRelease: jest.fn().mockResolvedValue(undefined) } as any;
   const eventEmitter = { emit: jest.fn() } as any;
   // Task 10: GREEN 落地后回调兑换域的「被硬线客户 GREEN 到过、限制仍被刻意
-  // 保留」审计——非 SWAP 域 / 未硬线的行内部 no-op，这里只需要一个可断言调用的桩。
-  const swapApplicantActionHandler = { noteHardLineHeld: jest.fn().mockResolvedValue(undefined) } as any;
-  return { prisma, requests, restrictions, restrictionWorkflow, eventEmitter, swapApplicantActionHandler };
+  return { prisma, requests, restrictions, restrictionWorkflow, eventEmitter };
 }
 
 const build = (d: ReturnType<typeof deps>) =>
   new MaterialRequestReviewService(
-    d.prisma, d.requests, d.restrictions, d.restrictionWorkflow, d.eventEmitter, d.swapApplicantActionHandler,
+    d.prisma, d.requests, d.restrictions, d.restrictionWorkflow, d.eventEmitter,
   );
 
 describe('MaterialRequestReviewService.applyReview', () => {
@@ -136,53 +134,8 @@ describe('MaterialRequestReviewService.applyReview', () => {
     expect(emitCallOrder).toBeGreaterThan(txCallOrder);
   });
 
-  // ── Task 10：GREEN 落地后回调兑换域，让它记「被硬线客户 GREEN 到过、限制仍
-  // ── 被刻意保留」那条审计——非兑换域 / 未硬线的行由 handler 自己 no-op，这里
-  // ── 只需要证明「GREEN 才回调，RETRY/REJECTED 不回调」这条边界。
-  it('GREEN → 回调 swapApplicantActionHandler.noteHardLineHeld(requestNo)', async () => {
-    const d = deps();
-    await build(d).applyReview({ externalActionId: 'ext-1', reviewAnswer: 'GREEN', actor: ACTOR });
-    expect(d.swapApplicantActionHandler.noteHardLineHeld).toHaveBeenCalledWith('MRQ2608170001');
-  });
-
-  it('RED（RETRY 或 FINAL）→ 不回调 noteHardLineHeld（没 GREEN 过，没什么可记的）', async () => {
-    const d = deps();
-    await build(d).applyReview({
-      externalActionId: 'ext-1', reviewAnswer: 'RED', reviewRejectType: 'RETRY', actor: ACTOR,
-    });
-    expect(d.swapApplicantActionHandler.noteHardLineHeld).not.toHaveBeenCalled();
-
-    const d2 = deps();
-    await build(d2).applyReview({
-      externalActionId: 'ext-1', reviewAnswer: 'RED', reviewRejectType: 'FINAL', actor: ACTOR,
-    });
-    expect(d2.swapApplicantActionHandler.noteHardLineHeld).not.toHaveBeenCalled();
-  });
-
-  it('回调发生在事务提交之后（noteHardLineHeld 自己另起一次非事务读写，不能塞进上面的 $transaction）', async () => {
-    const d = deps();
-    await build(d).applyReview({ externalActionId: 'ext-1', reviewAnswer: 'GREEN', actor: ACTOR });
-    const txCallOrder = d.prisma.$transaction.mock.invocationCallOrder[0];
-    const noteOrder = d.swapApplicantActionHandler.noteHardLineHeld.mock.invocationCallOrder[0];
-    expect(noteOrder).toBeGreaterThan(txCallOrder);
-  });
-
-  // 终审 Important #5：noteHardLineHeld 是一条纯审计的旁路（3 次读 + 1 次审计
-  // 写），此前裸 await、无 try/catch。它一炸，applyReview 就跟着抛，行已
-  // APPROVED、便签已 RELEASED（事务早提交了），但 MATERIAL_REQUEST_REVIEWED
-  // 永不广播——材料重检域 cycle 卡 PENDING、证件到期日不刷新、CRA 不级联，
-  // 下游全部静默失联。这条用例钉住：noteHardLineHeld reject 时 applyReview
-  // 不抛，且事件照常 emit。
-  it('noteHardLineHeld 抛错也不该阻断 applyReview 或事件广播（一条旁路审计不该有能力拖垮主流程）', async () => {
-    const d = deps();
-    d.swapApplicantActionHandler.noteHardLineHeld.mockRejectedValue(new Error('boom: swap lookup failed'));
-
-    const out = await build(d).applyReview({ externalActionId: 'ext-1', reviewAnswer: 'GREEN', actor: ACTOR });
-
-    expect(out).toEqual({ requestNo: 'MRQ2608170001', outcome: 'APPROVED' });
-    expect(d.eventEmitter.emit).toHaveBeenCalledWith(
-      'material-request.reviewed',
-      expect.objectContaining({ requestNo: 'MRQ2608170001', outcome: 'APPROVED' }),
-    );
-  });
+  // 站3-α2：原「GREEN 直调 swapApplicantActionHandler.noteHardLineHeld」已事件化，
+  // 四条钉直调行为的用例随之搬家：GREEN/RED 边界与「旁路审计失败不阻断」现由
+  // applicant-action.handler.spec.ts 的 onMaterialRequestReviewed 用例钉住；
+  // 「回调在事务后」由事件本身的广播位置（事务提交后）结构性保证，无需再钉。
 });
