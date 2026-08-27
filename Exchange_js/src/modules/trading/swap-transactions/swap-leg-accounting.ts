@@ -71,10 +71,6 @@ export class SwapLegAccounting {
     return side === 'from' ? ctx.fromCurrency : ctx.toCurrency;
   }
 
-  private legPrimaryAmountDecimal(spec: SwapLegSpec, ctx: SwapSettleCtx): Prisma.Decimal {
-    return this.amountDecimal(spec.accounting[0].amountRef, ctx);
-  }
-
   // ── Account resolution ──
 
   private async resolveAcct(

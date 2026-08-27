@@ -271,66 +271,6 @@ export class SwapTransactionsService {
     };
   }
 
-  async preview(dto: {
-    fromAssetId: string;
-    fromAmount: number;
-    toAssetId: string;
-    ownerType?: string;
-    ownerId?: string;
-  }): Promise<SwapQuoteComputationResult> {
-    const rateDetails = await this.getExecutableRate(
-      dto.fromAssetId,
-      dto.toAssetId,
-      {
-        amount: dto.fromAmount,
-        ownerType: dto.ownerType,
-        ownerId: dto.ownerId,
-      },
-    );
-    const fromAmount = new Prisma.Decimal(dto.fromAmount);
-    const executableRate = new Prisma.Decimal(rateDetails.executableRate);
-    const toAmount = new Prisma.Decimal(rateDetails.grossAmountOut);
-    const createdAt = new Date();
-    const expiresAt = new Date(
-      createdAt.getTime() + rateDetails.quoteLockSeconds * 1000,
-    );
-
-    return {
-      fromAssetId: rateDetails.fromAssetId,
-      fromAssetCurrency: rateDetails.fromAssetCurrency,
-      fromAssetDecimals: rateDetails.fromAssetDecimals,
-      fromAmount: fromAmount.toNumber(),
-      toAssetId: rateDetails.toAssetId,
-      toAssetCurrency: rateDetails.toAssetCurrency,
-      toAssetDecimals: rateDetails.toAssetDecimals,
-      toAmount: toAmount.toNumber(),
-      amountOut: toAmount.toNumber(),
-      exchangeRate: executableRate.toNumber(),
-      executableRate: executableRate.toNumber(),
-      marketRate: rateDetails.marketRate,
-      spreadPercent: rateDetails.spreadPercent,
-      spreadBps: rateDetails.spreadBps,
-      rateSource: rateDetails.rateSource,
-      fetchedAt: rateDetails.fetchedAt,
-      quoteLockSeconds: rateDetails.quoteLockSeconds,
-      pairId: rateDetails.pairId,
-      pairName: rateDetails.pairName,
-      tierId: rateDetails.tierId,
-      tierName: rateDetails.tierName,
-      matched: rateDetails.matched,
-      pricingSource: rateDetails.pricingSource,
-      feeBreakdown: rateDetails.feeBreakdown,
-      feeTotals: rateDetails.feeTotals,
-      grossAmountOut: rateDetails.grossAmountOut,
-      netAmountOut: rateDetails.netAmountOut,
-      feeTotal: rateDetails.feeTotal,
-      feeCurrency: rateDetails.feeCurrency,
-      policyRef: rateDetails.policyRef,
-      createdAt: createdAt.toISOString(),
-      expiresAt: expiresAt.toISOString(),
-    };
-  }
-
   async findAll(query: SwapTransactionQueryDto, options?: { customerScope?: boolean }) {
     const {
       skip,

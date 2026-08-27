@@ -377,26 +377,15 @@ export const AuditActions = {
   SWAP_LEG_STUCK: 'SWAP_LEG_STUCK',
   SWAP_LEG_HALTED_BY_RESTRICTION: 'SWAP_LEG_HALTED_BY_RESTRICTION',
   SWAP_LEG_RESUMED: 'SWAP_LEG_RESUMED',
-  SWAP_PRODUCT_RESTRICTED: 'SWAP_PRODUCT_RESTRICTED',
-  SWAP_BEST_EXECUTION_EVIDENCE_EXPORTED: 'SWAP_BEST_EXECUTION_EVIDENCE_EXPORTED',
   // Task 9: Demo scenario runner — mirrors DEPOSIT_DEMO_SCENARIO_RUN /
   // WITHDRAW_DEMO_SCENARIO_RUN. Feeds one simulated Sumsub verdict webhook
   // into a swap via the real ingestion pipeline (SUMSUB_MOCK_MODE only).
   SWAP_DEMO_SCENARIO_RUN: 'SWAP_DEMO_SCENARIO_RUN',
-  // Task 13: SwapApplicantActionHandler — the exemption loop promised by spec
-  // §6 that no earlier task actually built. Consumes applicantActionReviewed
-  // for a customer restricted by a prior swap KYT rejection.
-  SWAP_ACTION_CLEARED: 'SWAP_ACTION_CLEARED',
   // GREEN arrived for a customer with a sticky hard-line (sanctions) marker —
   // restrictions deliberately held, not lifted. See CustomersService /
   // handleRejectDisposition's hardLineDispositionedAt comments for why this
   // must never be bypassed.
   SWAP_ACTION_GREEN_HARDLINE_HELD: 'SWAP_ACTION_GREEN_HARDLINE_HELD',
-  // RED (or any non-GREEN answer) — restrictions stay on, escalated for
-  // manual review.
-  SWAP_ACTION_ESCALATED: 'SWAP_ACTION_ESCALATED',
-  // parity 2026-08-14：客户提交补料材料（客户级会话）
-  SWAP_ACTION_SUBMITTED: 'SWAP_ACTION_SUBMITTED',
   WITHDRAW_CREATED: 'WITHDRAW_CREATED',
   PAYOUT_CREATED: 'PAYOUT_CREATED',
   PAYOUT_PENDING_TO_CLEAR: 'PAYOUT_PENDING_TO_CLEAR',
@@ -500,7 +489,6 @@ export const AuditActions = {
   COA_CONFIG_UPDATED: 'COA_CONFIG_UPDATED',
   CUSTOMER_SWAP_RATE_UPDATED: 'CUSTOMER_SWAP_RATE_UPDATED',
   PRICING_POLICY_UPDATED: 'PRICING_POLICY_UPDATED',
-  SWAP_PRICING_SIMULATED: 'SWAP_PRICING_SIMULATED',
   USER_CREATED: 'USER_CREATED',
   ADMIN_INVITATION_CREATED: 'ADMIN_INVITATION_CREATED',
   ADMIN_INVITATION_RESENT: 'ADMIN_INVITATION_RESENT',
