@@ -143,10 +143,16 @@ export class MaterialRequestsService {
       });
     }
 
+    const issuedCtx = await this.auditContext({ customerId: input.customerId, orderDomain: input.orderDomain, orderRef: input.orderRef }, client);
     await this.auditLogsService.recordSystem({
       action: AuditActions.MATERIAL_REQUEST_ISSUED,
+      actionDomain: 'CUSTOMER',
       primarySubjectType: AuditEntityTypes.MATERIAL_REQUEST,
       primarySubjectNo: created.requestNo,
+      ownerCustomerNo: issuedCtx.customerNo,
+      correlationId: issuedCtx.correlationId,
+      subjects: this.buildSubjects(created.requestNo, issuedCtx.customerNo, input.orderRef, input.orderDomain),
+      requestId: `MATERIAL_REQUEST_ISSUED_${created.requestNo}_${randomUUID()}`,
       traceId,
       outcome: AuditOutcome.SUCCESS,
       reason: input.reason,
@@ -256,11 +262,17 @@ export class MaterialRequestsService {
     if (res.count === 0) return false;
 
     const row = await this.prisma.materialRequest.findUnique({ where: { requestNo } });
+    const submittedCtx = row ? await this.auditContext(row) : {};
     await this.auditLogsService.recordByActor(
       {
         action: AuditActions.MATERIAL_REQUEST_SUBMITTED,
+        actionDomain: 'CUSTOMER',
         primarySubjectType: AuditEntityTypes.MATERIAL_REQUEST,
         primarySubjectNo: requestNo,
+        ownerCustomerNo: (submittedCtx as any).customerNo,
+        correlationId: (submittedCtx as any).correlationId,
+        subjects: this.buildSubjects(requestNo, (submittedCtx as any).customerNo, row?.orderRef, row?.orderDomain),
+        requestId: `MATERIAL_REQUEST_SUBMITTED_${requestNo}_${randomUUID()}`,
         traceId: row?.traceId,
         outcome: AuditOutcome.SUCCESS,
         reason: 'Customer submitted requested materials',
@@ -341,10 +353,16 @@ export class MaterialRequestsService {
           ? AuditActions.MATERIAL_REQUEST_RETRY_REQUESTED
           : AuditActions.MATERIAL_REQUEST_REJECTED;
 
+    const reviewCtx = await this.auditContext(row, client);
     await this.auditLogsService.recordSystem({
       action: auditAction,
+      actionDomain: 'CUSTOMER',
       primarySubjectType: AuditEntityTypes.MATERIAL_REQUEST,
       primarySubjectNo: requestNo,
+      ownerCustomerNo: reviewCtx.customerNo,
+      correlationId: reviewCtx.correlationId,
+      subjects: this.buildSubjects(requestNo, reviewCtx.customerNo, row.orderRef, row.orderDomain),
+      requestId: `${auditAction}_${requestNo}_${randomUUID()}`,
       traceId: row.traceId,
       outcome: AuditOutcome.SUCCESS,
       reason: `Sumsub action review ${answer}${rejectType ? ` (${rejectType})` : ''}`,
@@ -365,10 +383,16 @@ export class MaterialRequestsService {
       data: { status: 'CANCELLED', cancelledAt: new Date(), cancelReason },
     });
 
+    const cancelCtx = await this.auditContext(row);
     await this.auditLogsService.recordSystem({
       action: AuditActions.MATERIAL_REQUEST_CANCELLED,
+      actionDomain: 'CUSTOMER',
       primarySubjectType: AuditEntityTypes.MATERIAL_REQUEST,
       primarySubjectNo: requestNo,
+      ownerCustomerNo: cancelCtx.customerNo,
+      correlationId: cancelCtx.correlationId,
+      subjects: this.buildSubjects(requestNo, cancelCtx.customerNo, row.orderRef, row.orderDomain),
+      requestId: `MATERIAL_REQUEST_CANCELLED_${requestNo}_${randomUUID()}`,
       traceId: row.traceId,
       outcome: AuditOutcome.SUCCESS,
       reason: cancelReason,
@@ -391,16 +415,52 @@ export class MaterialRequestsService {
       data: { orderDomain: null, orderRef: null },
     });
 
+    const unbindCtx = await this.auditContext(row);
     await this.auditLogsService.recordSystem({
       action: AuditActions.MATERIAL_REQUEST_ORDER_UNBOUND,
+      actionDomain: 'CUSTOMER',
       primarySubjectType: AuditEntityTypes.MATERIAL_REQUEST,
       primarySubjectNo: requestNo,
+      ownerCustomerNo: unbindCtx.customerNo,
+      correlationId: unbindCtx.correlationId,
+      subjects: this.buildSubjects(requestNo, unbindCtx.customerNo, row.orderRef, row.orderDomain),
+      requestId: `MATERIAL_REQUEST_ORDER_UNBOUND_${requestNo}_${randomUUID()}`,
       traceId: row.traceId,
       outcome: AuditOutcome.SUCCESS,
       reason: `Order ${row.orderDomain}/${row.orderRef} reached a terminal state; restriction-bearing request kept at customer level`,
       metadata: { unboundBy: actor.actorNo ?? actor.actorId },
       sourcePlatform: 'SYSTEM',
     });
+  }
+
+  /**
+   * 站6-β：信封增补的解析件——客户业务号（OWNER 子表行/ownerCustomerNo）与
+   * 绑单请求的父单旅程号（机会性携带：按单据查/按旅程查能看到"这单曾要补料"）。
+   */
+  private async auditContext(row: { customerId: string; orderDomain?: string | null; orderRef?: string | null }, client?: Record<string, any>): Promise<{ customerNo?: string; correlationId?: string }> {
+    const db = (client ?? this.prisma) as Record<string, any>;
+    const out: { customerNo?: string; correlationId?: string } = {};
+    const customer = await db.customerMain?.findUnique?.({ where: { id: row.customerId }, select: { customerNo: true } });
+    out.customerNo = customer?.customerNo ?? undefined;
+    if (row.orderDomain && row.orderRef) {
+      const table = row.orderDomain === 'DEPOSIT' ? 'depositTransaction' : row.orderDomain === 'WITHDRAW' ? 'withdrawTransaction' : 'swapTransaction';
+      const key = row.orderDomain === 'DEPOSIT' ? 'depositNo' : row.orderDomain === 'WITHDRAW' ? 'withdrawNo' : 'swapNo';
+      const parent = await db[table]?.findFirst?.({ where: { [key]: row.orderRef }, select: { correlationId: true } });
+      out.correlationId = parent?.correlationId ?? undefined;
+    }
+    return out;
+  }
+
+  private buildSubjects(requestNo: string, customerNo?: string, orderRef?: string | null, orderDomain?: string | null): any[] {
+    const subjects: any[] = [
+      { subjectType: AuditEntityTypes.MATERIAL_REQUEST, subjectNo: requestNo, subjectRole: 'PRIMARY' },
+    ];
+    if (customerNo) subjects.push({ subjectType: AuditEntityTypes.CUSTOMER, subjectNo: customerNo, subjectRole: 'OWNER' });
+    if (orderRef && orderDomain) {
+      const t = orderDomain === 'DEPOSIT' ? 'DEPOSIT_TRANSACTION' : orderDomain === 'WITHDRAW' ? 'WITHDRAW_TRANSACTION' : 'SWAP_TRANSACTION';
+      subjects.push({ subjectType: t, subjectNo: orderRef, subjectRole: 'RELATED' });
+    }
+    return subjects;
   }
 
   private project(row: any): MaterialRequestRow {

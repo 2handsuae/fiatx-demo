@@ -8,6 +8,7 @@ import {
 import { OnEvent } from '@nestjs/event-emitter';
 import { randomUUID } from 'crypto';
 import { AuditLogsService } from '../../audit-logging/audit-logs.service';
+import { PrismaService } from '../../../core/prisma/prisma.service';
 import {
   AuditActions,
   AuditBusinessWorkflowTypes,
@@ -52,6 +53,7 @@ export class CustomerRestrictionWorkflowService {
   private readonly logger = new Logger(CustomerRestrictionWorkflowService.name);
 
   constructor(
+    private readonly prisma: PrismaService,
     private readonly restrictions: CustomerRestrictionsService,
     private readonly approvalsService: ApprovalsService,
     private readonly auditLogsService: AuditLogsService,
@@ -351,13 +353,24 @@ export class CustomerRestrictionWorkflowService {
     },
     tx?: Record<string, any>,
   ): Promise<void> {
-    // entityNo / entityOwnerNo（customerNo）由 AuditLogsService 自行解析，
-    // 见 resolveEntityNo 的 CUSTOMER 映射 —— 本服务因此无需注入 Prisma。
+    // 站6：resolveEntityNo 机制已随审计改表退场——此前主对象号写的是 customerId
+    // (UUID)，运营贴/撕便签在审计页按客户号查不到（铁律⑥）。现由本服务解出
+    // customerNo 落业务键并落子表行。
+    const customer = await this.prisma.customerMain.findUnique({
+      where: { id: row.customerId },
+      select: { customerNo: true },
+    });
+    const customerNo = customer?.customerNo ?? row.customerId;
     await this.auditLogsService.recordByActor(
       {
         action,
+        actionDomain: 'CUSTOMER',
         primarySubjectType: AuditEntityTypes.CUSTOMER,
-        primarySubjectNo: row.customerId,
+        primarySubjectNo: customerNo,
+        ownerCustomerNo: customerNo,
+        subjects: [
+          { subjectType: AuditEntityTypes.CUSTOMER, subjectNo: customerNo, subjectRole: 'PRIMARY' as any },
+        ],
         traceId: row.traceId,
         outcome: AuditOutcome.SUCCESS,
         reason,
@@ -370,6 +383,7 @@ export class CustomerRestrictionWorkflowService {
           approvalNo: extra.approvalNo,
           releaseOrderRef: extra.releaseOrderRef,
         },
+        requestId: `${action}_${row.restrictionNo}_${randomUUID()}`,
         sourcePlatform: actor.actorType === 'SYSTEM' ? 'SYSTEM' : 'ADMIN_API',
       },
       actor,

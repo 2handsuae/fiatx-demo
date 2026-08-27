@@ -13,8 +13,6 @@ import { CustomerRestrictionsService } from './customer-restrictions.service';
 
 export type Capability = 'DEPOSIT' | 'WITHDRAW' | 'SWAP';
 
-export const ALL_CAPABILITIES: readonly Capability[] = ['DEPOSIT', 'WITHDRAW', 'SWAP'];
-
 export interface DisclosedRestrictionView {
   restrictionNo: string;
   /**
@@ -53,6 +51,8 @@ export interface CustomerAccess {
  * 全仓只此一份，提现/兑换的 L1_GATE_BLOCKED 都引用它。
  */
 export const NEUTRAL_DENIAL = 'This operation is not available for your account at the moment.';
+
+export const ALL_CAPABILITIES: readonly Capability[] = ['DEPOSIT', 'WITHDRAW', 'SWAP'];
 
 function expandScopes(scopes: RestrictionScope[]): Capability[] {
   const out: Capability[] = [];

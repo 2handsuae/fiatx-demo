@@ -17,7 +17,9 @@ describe('CustomerRestrictionWorkflowService.autoRelease', () => {
       recordByActor: jest.fn().mockResolvedValue(undefined),
     } as any;
     return {
-      wf: new CustomerRestrictionWorkflowService(restrictionsService, approvalsService, auditLogsService),
+      wf: new CustomerRestrictionWorkflowService(
+        { customerMain: { findUnique: jest.fn().mockResolvedValue({ customerNo: 'CUS-001' }) } } as any,
+        restrictionsService, approvalsService, auditLogsService),
       restrictionsService,
       approvalsService,
       auditLogsService,

@@ -92,8 +92,12 @@ export class CustomerRestrictionsService {
         );
 
     const auditShell = {
+      actionDomain: 'CUSTOMER',
       primarySubjectType: AuditEntityTypes.CUSTOMER,
       primarySubjectNo: outcome.customerNo || undefined,
+      subjects: outcome.customerNo
+        ? [{ subjectType: AuditEntityTypes.CUSTOMER, subjectNo: outcome.customerNo, subjectRole: 'PRIMARY' as any }]
+        : undefined,
       entityOwnerType: 'CUSTOMER',
       entityOwnerId: input.customerId,
       ownerCustomerNo: outcome.customerNo || undefined,
@@ -255,8 +259,12 @@ export class CustomerRestrictionsService {
 
     const first = outcome.rows[0];
     const auditShell = {
+      actionDomain: 'CUSTOMER',
       primarySubjectType: AuditEntityTypes.CUSTOMER,
       primarySubjectNo: outcome.customerNo || undefined,
+      subjects: outcome.customerNo
+        ? [{ subjectType: AuditEntityTypes.CUSTOMER, subjectNo: outcome.customerNo, subjectRole: 'PRIMARY' as any }]
+        : undefined,
       entityOwnerType: 'CUSTOMER',
       entityOwnerId: first.customerId,
       ownerCustomerNo: outcome.customerNo || undefined,

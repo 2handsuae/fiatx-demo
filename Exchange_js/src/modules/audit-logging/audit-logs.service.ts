@@ -16,7 +16,8 @@ import {
   AuditWorkflowTypes,
   V1_AUDIT_ACTIONS,
   V1_ACTION_DOMAINS, CONTRACT_ACTION_DOMAINS, V4_DEPOSIT_AUDIT_ACTIONS, V5_WITHDRAW_AUDIT_ACTIONS, V6_SWAP_AUDIT_ACTIONS,
-  V8_RECON_AUDIT_ACTIONS, RETIRED_DYNAMIC_TRANSITION_PATTERN,
+  V8_RECON_AUDIT_ACTIONS,
+  V2_CUSTOMER_AUDIT_ACTIONS, RETIRED_DYNAMIC_TRANSITION_PATTERN,
   DEPRECATED_AUDIT_ACTIONS,
 } from './constants/audit-actions.constant';
 import {
@@ -904,7 +905,8 @@ export class AuditLogsService {
       V4_DEPOSIT_AUDIT_ACTIONS[input.action] ??
       V5_WITHDRAW_AUDIT_ACTIONS[input.action] ??
       V6_SWAP_AUDIT_ACTIONS[input.action] ??
-      V8_RECON_AUDIT_ACTIONS[input.action];
+      V8_RECON_AUDIT_ACTIONS[input.action] ??
+      V2_CUSTOMER_AUDIT_ACTIONS[input.action];
     if (!spec) return;
 
     if (input.actionDomain !== spec.domain) {

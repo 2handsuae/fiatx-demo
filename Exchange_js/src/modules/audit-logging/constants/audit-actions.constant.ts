@@ -637,7 +637,7 @@ import { AuditCorrelationMode } from '../dto/audit-log.dto';
 /** V1 治理四域，声明与下方 assertActionSpec 的退役码放行闸共用同一份 */
 export const V1_ACTION_DOMAINS = ['IAM', 'APPROVAL', 'CONFIG', 'AUDIT'] as const;
 /** 新合同已入住的全部域——站1b-β 起交易域逐域加入（充值第一个）。机器校验的域闸读这份。 */
-export const CONTRACT_ACTION_DOMAINS = [...V1_ACTION_DOMAINS, 'DEPOSIT', 'WITHDRAW', 'SWAP', 'RECON'] as const;
+export const CONTRACT_ACTION_DOMAINS = [...V1_ACTION_DOMAINS, 'DEPOSIT', 'WITHDRAW', 'SWAP', 'RECON', 'CUSTOMER'] as const;
 
 export interface AuditActionSpec {
   /** actionDomain 列的值 */
@@ -878,6 +878,36 @@ export const V8_RECON_AUDIT_ACTIONS: Record<string, AuditActionSpec> = {
   RECON_CASE_AUTO_HEALED: { domain: 'RECON', correlationMode: N, requiredFields: [], requiresCausation: false },
   // 合并 SYNCED+MANUAL（同动作不因语境拆名；manualConfirm/证据三件套在 metadata）
   RECON_PUSH_ORDER:       { domain: 'RECON', correlationMode: I, requiredFields: ['fromStatus', 'toStatus'], requiresCausation: false },
+};
+
+/**
+ * V2 客户域名册（站6-β，2026-08-27 业主方案2 后的存活面）——14 现役词 + 1 新词，
+ * 现名全保守零改名。客户级件无订单旅程 → 全员 NONE；材料请求绑单时机会性携带
+ * 父单旅程号（不设 INHERIT 硬闸：请求可无单发起，码的模式是固有属性不看场景）。
+ * 便签四词双通道（系统命中 recordSystem / 运营贴撕 recordByActor）。
+ * CUSTOMER_TIER_CHANGE_SIMULATED：档位模拟端点原以一行假风评行当 trail，
+ * CRA 表随一期拆除后改由本词承担（操作员通道）。
+ */
+export const V2_CUSTOMER_AUDIT_ACTIONS: Record<string, AuditActionSpec> = {
+  // ── 客户主档（3）──────────────────────────────────────
+  CUSTOMER_CREATED:              { domain: 'CUSTOMER', correlationMode: N, requiredFields: ['ownerCustomerNo'], requiresCausation: false },
+  CUSTOMER_UPDATED:              { domain: 'CUSTOMER', correlationMode: N, requiredFields: [], requiresCausation: false },
+  CUSTOMER_DELETED:              { domain: 'CUSTOMER', correlationMode: N, requiredFields: [], requiresCausation: false },
+  // ── 限制便签（4）──────────────────────────────────────
+  CUSTOMER_RESTRICTION_ADDED:    { domain: 'CUSTOMER', correlationMode: N, requiredFields: [], requiresCausation: false },
+  CUSTOMER_RESTRICTION_CLEARED:  { domain: 'CUSTOMER', correlationMode: N, requiredFields: [], requiresCausation: false },
+  CUSTOMER_FROZEN:               { domain: 'CUSTOMER', correlationMode: N, requiredFields: [], requiresCausation: false },
+  CUSTOMER_UNFROZEN:             { domain: 'CUSTOMER', correlationMode: N, requiredFields: [], requiresCausation: false },
+  // ── 材料请求（7）──────────────────────────────────────
+  MATERIAL_REQUEST_ISSUED:       { domain: 'CUSTOMER', correlationMode: N, requiredFields: ['reason'], requiresCausation: false },
+  MATERIAL_REQUEST_SUBMITTED:    { domain: 'CUSTOMER', correlationMode: N, requiredFields: [], requiresCausation: false },
+  MATERIAL_REQUEST_APPROVED:     { domain: 'CUSTOMER', correlationMode: N, requiredFields: [], requiresCausation: false },
+  MATERIAL_REQUEST_RETRY_REQUESTED: { domain: 'CUSTOMER', correlationMode: N, requiredFields: [], requiresCausation: false },
+  MATERIAL_REQUEST_REJECTED:     { domain: 'CUSTOMER', correlationMode: N, requiredFields: [], requiresCausation: false },
+  MATERIAL_REQUEST_CANCELLED:    { domain: 'CUSTOMER', correlationMode: N, requiredFields: ['reason'], requiresCausation: false },
+  MATERIAL_REQUEST_ORDER_UNBOUND:{ domain: 'CUSTOMER', correlationMode: N, requiredFields: [], requiresCausation: false },
+  // ── 档位模拟（1，站6 新铸）────────────────────────────
+  CUSTOMER_TIER_CHANGE_SIMULATED:{ domain: 'CUSTOMER', correlationMode: N, requiredFields: ['reason'], requiresCausation: false },
 };
 
 /** 动态迁移码族（<域>_<从>_TO_<到>，充值站1b-β/提现站2-β 整族废除）——机器校验按此形状拒写。 */

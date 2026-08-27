@@ -5,6 +5,7 @@ import {
 import { AuthGuard } from '@nestjs/passport';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { PrismaService } from '../../../core/prisma/prisma.service';
+import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import { MaterialRefreshService } from './material-refresh.service';
 
 @ApiTags('Admin - Material Management')
@@ -16,6 +17,7 @@ export class AdminMaterialManagementController {
     @Inject(PrismaService)
     private readonly prisma: PrismaService & Record<string, any>,
     private readonly materialRefreshService: MaterialRefreshService,
+    private readonly auditLogsService: AuditLogsService,
   ) {}
 
   private ensureAdmin(req: any) {
@@ -331,7 +333,26 @@ export class AdminMaterialManagementController {
       targetLevel,
     );
 
-    // 站6：CRA 表随一期拆除——此处原写一行假风评当 trail；操作留痕改由审计事件承担（β 补 CUSTOMER_TIER_CHANGE_SIMULATED）。
+    // 站6：CRA 表随一期拆除——原来这里写一行假风评行当 trail。操作员动作必留痕
+    // （铁律①），改写注册词 CUSTOMER_TIER_CHANGE_SIMULATED（操作员通道）。
+    const operatorId = req.user?.userNo || req.user?.sub || 'ADMIN';
+    await this.auditLogsService.recordByActor(
+      {
+        action: 'CUSTOMER_TIER_CHANGE_SIMULATED',
+        actionDomain: 'CUSTOMER',
+        primarySubjectType: 'CUSTOMER',
+        primarySubjectNo: customer.customerNo,
+        ownerCustomerNo: customer.customerNo,
+        subjects: [
+          { subjectType: 'CUSTOMER', subjectNo: customer.customerNo, subjectRole: 'PRIMARY' },
+        ],
+        reason: `Simulated tier change ${customer.riskRating} → ${body.targetTier} (level ${targetLevel})`,
+        requestId: `CUSTOMER_TIER_CHANGE_SIMULATED_${customer.customerNo}_${Date.now()}`,
+        metadata: { previousTier: customer.riskRating, targetTier: body.targetTier, targetLevel },
+        sourcePlatform: 'ADMIN_API',
+      } as any,
+      { actorType: 'ADMIN', actorNo: operatorId, actorDisplayName: operatorId, actorRolesAtTime: ['ADMIN'] } as any,
+    );
 
     return {
       ok: true,

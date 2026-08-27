@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { Injectable } from '@nestjs/common';
 import { CustomerMain, Prisma } from '@prisma/client';
 import { PrismaService } from '../../../core/prisma/prisma.service';
@@ -51,11 +52,16 @@ export class CustomersService {
 
     await this.auditLogsService.recordSystem({
       action: AuditActions.CUSTOMER_CREATED,
+      actionDomain: 'CUSTOMER',
       primarySubjectType: AuditEntityTypes.CUSTOMER,
       primarySubjectNo: created.customerNo,
       ownerCustomerNo: created.customerNo,
+      subjects: [
+        { subjectType: AuditEntityTypes.CUSTOMER, subjectNo: created.customerNo, subjectRole: 'PRIMARY' as any },
+      ],
       outcome: AuditOutcome.SUCCESS,
       reason: 'Customer created',
+      requestId: `CUSTOMER_CREATED_${created.customerNo}_${randomUUID()}`,
       sourcePlatform: 'ADMIN_API',
     });
 
@@ -110,11 +116,16 @@ export class CustomersService {
 
     await this.auditLogsService.recordSystem({
       action: AuditActions.CUSTOMER_UPDATED,
+      actionDomain: 'CUSTOMER',
       primarySubjectType: AuditEntityTypes.CUSTOMER,
       primarySubjectNo: updated.customerNo,
       ownerCustomerNo: updated.customerNo,
+      subjects: [
+        { subjectType: AuditEntityTypes.CUSTOMER, subjectNo: updated.customerNo, subjectRole: 'PRIMARY' as any },
+      ],
       outcome: AuditOutcome.SUCCESS,
       reason: 'Customer updated',
+      requestId: `CUSTOMER_UPDATED_${updated.customerNo}_${randomUUID()}`,
       sourcePlatform: 'ADMIN_API',
     });
 
@@ -129,11 +140,16 @@ export class CustomersService {
 
     await this.auditLogsService.recordSystem({
       action: AuditActions.CUSTOMER_DELETED,
+      actionDomain: 'CUSTOMER',
       primarySubjectType: AuditEntityTypes.CUSTOMER,
       primarySubjectNo: deleted.customerNo,
       ownerCustomerNo: deleted.customerNo,
+      subjects: [
+        { subjectType: AuditEntityTypes.CUSTOMER, subjectNo: deleted.customerNo, subjectRole: 'PRIMARY' as any },
+      ],
       outcome: AuditOutcome.SUCCESS,
       reason: 'Customer deleted',
+      requestId: `CUSTOMER_DELETED_${deleted.customerNo}_${randomUUID()}`,
       sourcePlatform: 'ADMIN_API',
     });
 
