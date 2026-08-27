@@ -43,3 +43,12 @@
 - V2 客户审计主对象键改造（UUID→customerNo 全面化）——V2 站
 - 枢纽分发器的结构重构（拆 switch / 事件化）——分发器是演示件的心脏，能跑不折腾
 - 幂等/重试/兼容层——禁做清单
+
+## 竣工记（As-built，2026-08-27）
+
+- **刀A**：处决名单实测 136（盘点估 125），字面量核查赦免 8 个活词（FINAL_APPROVAL_*×6 入职终审在写、TX_*BREAK×2 risk-engine 引用），终删 **128**。顺手删了显示映射表的 10 条死词条与 INTERNAL_FUND 短名死簇（map+builder，Spec#4 遗产零调用方）。平面表 292→164。
+- **刀D**：同款三查后赦免同拼写活词（PAYIN/PAYOUT/CONFIG/COA/TRANSACTION/ONBOARDING/PERIODIC_REVIEW），终删 AuditEntityTypes −22、AuditWorkflowTypes −3。
+- **刀B**：枢纽实挂 10 张 module 边+1 张 @Inject（盘点漏数 4），全拆开机过——站3 摘演示件后环确已不存在。
+- **刀C**：SCC 实算（注释剥离建图，第一版被 imports 数组里的注释骗出两个假环）：全仓唯一真环＝身份六件套，环内 16 张原样留；环外 7 module 边+4 @Inject 拆封。l1-gate/wallets 两张是文件级装载序护身符而非环——枢纽解包拉直装载链后实测不复现，注释留了复发排查指引。
+- 判据全过：tsc×4 ｜ 全量 jest 净新 0（基线 4 套件 8 条）｜ 开机考三连（login 200）｜ demo:all 8/8 ｜ verify:coa 全恒等 ｜ verify:audit 3 红=基线成文预期（重铺后零治理动作）｜ 退役码零写入、INHERIT 无孤儿两不变量保持绿。
+- 终局记分：**全仓 forwardRef 34→16**，其中交易域 0（站3）、共享面/治理/金库 0（本站）、身份真环 16（成环成员与保留理由见刀C 提交）。
