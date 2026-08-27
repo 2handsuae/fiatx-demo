@@ -1,4 +1,4 @@
-import { forwardRef, Global, Module } from '@nestjs/common';
+import { Global, Module } from '@nestjs/common';
 import { AccessControlService } from './access-control.service';
 import { AccessControlController } from './access-control.controller';
 import { AdminPermissionGuard } from './admin-permission.guard';
@@ -10,7 +10,7 @@ import { ApprovalsModule } from '../../governance/approvals/approvals.module';
 
 @Global()
 @Module({
-  imports: [forwardRef(() => ApprovalsModule)],
+  imports: [ApprovalsModule],
   providers: [AccessControlService, AdminPermissionGuard, RoleDefinitionCreateApprovalService, RoleDefinitionCreateWorkflowService, RoleDefinitionModifyApprovalService, RoleDefinitionModifyWorkflowService],
   controllers: [AccessControlController],
   exports: [AccessControlService, AdminPermissionGuard],

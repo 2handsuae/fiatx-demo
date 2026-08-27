@@ -1,4 +1,4 @@
-import { Injectable, Inject, Logger, NotFoundException, BadRequestException, forwardRef } from '@nestjs/common';
+import { Injectable, Inject, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../core/prisma/prisma.service';
 import { PricingEngineService } from '../pricing-center/pricing-engine.service';
@@ -29,7 +29,6 @@ export class WithdrawQuoteService {
     private readonly prisma: PrismaService,
     private readonly feeLevelService: WithdrawalFeeLevelService,
     private readonly customerTagService: CustomerTagService,
-    @Inject(forwardRef(() => PricingEngineService))
     private readonly engineService: PricingEngineService,
   ) {}
 

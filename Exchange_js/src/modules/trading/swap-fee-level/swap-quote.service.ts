@@ -5,7 +5,6 @@ import {
   NotFoundException,
   BadRequestException,
   InternalServerErrorException,
-  forwardRef,
 } from '@nestjs/common';
 import { Prisma, SwapQuote } from '@prisma/client';
 import { randomUUID } from 'crypto';
@@ -52,9 +51,7 @@ export class SwapQuoteService {
     private readonly prisma: PrismaService,
     private readonly feeLevelService: SwapFeeLevelService,
     private readonly customerTagService: CustomerTagService,
-    @Inject(forwardRef(() => PricingEngineService))
     private readonly engineService: PricingEngineService,
-    @Inject(forwardRef(() => BinanceRateProvider))
     private readonly binanceRateProvider: BinanceRateProvider,
     private readonly auditLogsService: AuditLogsService,
   ) {}

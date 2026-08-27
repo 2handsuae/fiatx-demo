@@ -8,7 +8,6 @@ import {
   Post,
   Req,
   UseGuards,
-  forwardRef,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { AuthGuard } from '@nestjs/passport';
@@ -25,7 +24,6 @@ import { WithdrawQuoteService } from './withdraw-quote.service';
 @UseGuards(AuthGuard('jwt'), AdminPermissionGuard)
 export class WithdrawQuoteCustomerController {
   constructor(
-    @Inject(forwardRef(() => WithdrawQuoteService))
     private readonly withdrawQuoteService: WithdrawQuoteService,
     private readonly onboardingService: OnboardingService,
     private readonly prisma: PrismaService,
