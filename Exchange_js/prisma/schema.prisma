@@ -1388,6 +1388,7 @@ model WithdrawTransaction {
   l1Snapshot           String?
   feeSettleAttempts    Int                   @default(0)
   traceId              String?
+  correlationId        String?
   grossAedValue        Decimal?
   aedRate              Decimal?
   rateFetchedAt        DateTime?
