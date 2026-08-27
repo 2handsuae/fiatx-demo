@@ -54,10 +54,10 @@
 - 数据 `account_flows`（账本流水投影，分口径）｜ `external_balances`+`external_statement_lines`（外部归一化两表）｜ `reconciliation_run_wallets`（快照表）
 - 触发 `sweep/reconciliation-sweep.service.ts → dailyRecon()`（@Cron 迪拜 02:30）；读面 `reconciliation-query.service.ts`
 - 演示 `scripts/recon-demo.ts`（九场景 pass/break + manifest 答案键）+ `recon-rerun.ts`
+- 留痕（站5-β，V8_RECON_AUDIT_ACTIONS 4 码）：跑批完成 RECON_RUN_COMPLETED（双通道：cron 系统 / 管理员触发记名，主对象=runNo）｜ 立案 RECON_CASE_OPENED ｜ 自愈 RECON_CASE_AUTO_HEALED ｜ 推单 RECON_PUSH_ORDER（同码双证据通道，继承父单旅程号，主对象=资金单号）——对账件无客户旅程走 NONE 模式，唯推单 INHERIT
 
 ## 6. 演示缺口（BACKLOG 有账）
 
 - **案子止于 OPEN**：人工核实 / 补录 / 销案 / SLA 升级全 deferred——讲到"开案"为止，处置只有推单一个动作（七动作其余六个未做）
-- **break 答案键 9 漏 2**（批次三实测）：两类银行软标记漏检
 - **外部账单没有真实摄入管道**：演示的"银行对账单"由脚本铸造——讲清这是模拟件
 - **复核计数恒为 0**（已知实现限制，注释在案）；**SUCCESS 后退汇应归对账认领**（承接第五幕话头）未接

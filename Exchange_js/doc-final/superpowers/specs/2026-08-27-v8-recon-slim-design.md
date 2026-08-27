@@ -35,3 +35,10 @@
 ## 本站不做
 
 人工 RESOLVED/WAIVED 处置功能（缓做在案）｜ bucket 四桶语义 ｜ recon:demo:break 7/9 两 MISSED（BACKLOG 在案）｜ RECONCILIATION_RUN_V8 实体类型名（现名保守）｜ 引擎/查询/页面结构（能跑不折腾）
+
+## 竣工记（As-built，2026-08-27）
+
+- 名册 4 码照案落地；接线中多逮三处实缺一并修：**对账事件零子表行**（subjects 从没显式传过，按单据查根本查不到对账件——全部信封补 PRIMARY/OWNER/RELATED）；**跑批留痕主对象号漏内部 UUID**（run.id→runNo，铁律⑥）；**triggerType 恒写 MANUAL**（cron 也算成手动——随通道落 MANUAL|SCHEDULED）。
+- 刀1 扩大：整个常量文件删除——AMOUNT_TOLERANCE 的"1 处引用"实为 query 服务本地重定义，导出口 4 个全零引用。
+- recon:demo:break 实测 **9/9**（基线 7/9）——#5 BANK_CHARGE、#7 BANK_INTEREST 两漏检已不复现（非本站修复，系此前批次引擎演进后 BACKLOG 未回销），BACKLOG:278 已销。
+- 证据：域内 188/188 ｜ 全量 jest 净新 0 ｜ tsc×4 ｜ 开机 login 200 ｜ 重铺→coa 全过→demo:all 8/8→coa 仍全过 ｜ verify:audit 6/8（Q6/V1 基线预期红）｜ 库内 16 案 4 跑批全落新词+子表、退役码零残写。
