@@ -17,6 +17,9 @@ function build() {
     customerMain: {
       findUnique: jest.fn().mockResolvedValue({ customerNo: 'C-001' }),
     },
+    swapTransaction: {
+      findFirst: jest.fn().mockResolvedValue({ correlationId: 'corr-swap-1' }),
+    },
   };
   const audit = {
     recordSystem: jest.fn().mockResolvedValue(undefined),

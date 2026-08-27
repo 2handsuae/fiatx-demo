@@ -20,7 +20,7 @@ describe('SwapSlaService', () => {
       markStatus: markStatusSpy,
       findSlaBreachCandidates: jest.fn().mockResolvedValue([]),
     } as any;
-    workflow = { submitSumsubTxnOut: jest.fn().mockResolvedValue(undefined) } as any;
+    workflow = { submitSumsubTxnOut: jest.fn().mockResolvedValue(undefined), releaseBirthLock: jest.fn().mockResolvedValue('100') } as any;
     auditLogsService = { recordSystem: jest.fn().mockResolvedValue(undefined) } as any;
     prisma = {
       // 与 swap-workflow.service.spec.ts 同款：$transaction 直接把回调塞进同一个 tx。

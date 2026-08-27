@@ -15,7 +15,7 @@ import {
   AuditEntityTypes,
   AuditWorkflowTypes,
 } from '../audit-logging/constants/audit-actions.constant';
-import { AuditOutcome } from '../audit-logging/dto/audit-log.dto';
+import { AuditOutcome, AuditCategory, AuditSubjectRole } from '../audit-logging/dto/audit-log.dto';
 
 export interface DemoScenarioActor {
   actorId: string;
@@ -244,8 +244,16 @@ export class SwapDemoScenarioService {
     await this.auditLogsService.recordByActor(
       {
         action: AuditActions.SWAP_DEMO_SCENARIO_RUN,
+        actionDomain: 'SWAP',
+        category: AuditCategory.BUSINESS,
         primarySubjectType: AuditEntityTypes.SWAP_TRANSACTION,
         primarySubjectNo: swap.swapNo || undefined,
+        ownerCustomerNo: swap.ownerNo || undefined,
+        correlationId: swap.correlationId ?? undefined,
+        subjects: [
+          ...(swap.swapNo ? [{ subjectType: AuditEntityTypes.SWAP_TRANSACTION, subjectNo: swap.swapNo, subjectRole: AuditSubjectRole.PRIMARY }] : []),
+          ...(swap.ownerNo ? [{ subjectType: 'CUSTOMER', subjectNo: swap.ownerNo, subjectRole: AuditSubjectRole.OWNER }] : []),
+        ],
         traceId: swap.traceId || undefined,
         outcome: AuditOutcome.SUCCESS,
         reason: opts.reason,

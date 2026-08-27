@@ -5,7 +5,8 @@ import { AuditLogsService } from '../audit-logging/audit-logs.service';
 import {
   AuditActions, AuditEntityTypes, AuditWorkflowTypes,
 } from '../audit-logging/constants/audit-actions.constant';
-import { AuditOutcome } from '../audit-logging/dto/audit-log.dto';
+import { AuditOutcome, AuditCategory, AuditSubjectRole } from '../audit-logging/dto/audit-log.dto';
+import { randomUUID } from 'crypto';
 import { PrismaService } from '../../core/prisma/prisma.service';
 import { CustomersService } from '../identity/customers/customers.service';
 import { MaterialRequestsService } from '../identity/material-requests/material-requests.service';
@@ -69,17 +70,30 @@ export class SwapApplicantActionHandler {
       select: { customerNo: true },
     });
 
+    // 旅程归属：本留痕挂回引发硬线的那笔兑换的旅程（材料行的 orderRef=swapNo）。
+    const originSwap = row.orderRef
+      ? await this.prisma.swapTransaction.findFirst({ where: { swapNo: row.orderRef }, select: { correlationId: true } })
+      : null;
     await this.auditLogsService.recordSystem({
       action: AuditActions.SWAP_ACTION_GREEN_HARDLINE_HELD,
+      actionDomain: 'SWAP',
+      category: AuditCategory.BUSINESS,
       primarySubjectType: AuditEntityTypes.CUSTOMER,
       primarySubjectNo: customer?.customerNo || undefined,
+      ownerCustomerNo: customer?.customerNo || undefined,
+      correlationId: originSwap?.correlationId ?? undefined,
       outcome: AuditOutcome.SUCCESS,
+      subjects: [
+        ...(customer?.customerNo ? [{ subjectType: AuditEntityTypes.CUSTOMER, subjectNo: customer.customerNo, subjectRole: AuditSubjectRole.PRIMARY }] : []),
+        ...(row.orderRef ? [{ subjectType: AuditEntityTypes.SWAP_TRANSACTION, subjectNo: row.orderRef, subjectRole: AuditSubjectRole.RELATED }] : []),
+      ],
       reason:
         `Material request ${requestNo} reviewed GREEN, but this customer carries a sticky ` +
         'hard-line disposition — restrictions deliberately held. Recorded so an investigator ' +
         'can verify the GREEN was seen and consciously not acted on.',
       metadata: { requestNo, orderRef: row.orderRef },
+      requestId: `SWAP_ACTION_GREEN_HARDLINE_HELD_${requestNo}_${randomUUID()}`,
       sourcePlatform: 'SYSTEM',
-    });
+    } as any);
   }
 }

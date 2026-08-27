@@ -612,7 +612,7 @@ describe('SwapWorkflowService.initiateSwap — COMPLIANCE_PENDING, no legs', () 
     expect(auditArg?.traceId).toBe(TRACE);
   });
 
-  it('emits SWAP_FAILED audit when create throws, re-throws error', async () => {
+  it('emits SWAP_CREATED (outcome=FAILED) audit when create throws, re-throws error', async () => {
     const TRACE = 'QUOTE-TRACE-FAIL';
     const mocks = buildMocks(makeQuote({ traceId: TRACE } as any));
     (mocks.swapTransactionsService.create as jest.Mock).mockImplementation(() => Promise.reject(new Error('db error')));
@@ -622,8 +622,9 @@ describe('SwapWorkflowService.initiateSwap — COMPLIANCE_PENDING, no legs', () 
 
     const failAudit = (mocks.auditLogsService.recordSystem as jest.Mock).mock.calls
       .map((c: any[]) => c[0])
-      .find((a: any) => a.action === 'SWAP_FAILED');
+      .find((a: any) => a.action === 'SWAP_CREATED' && a.outcome === 'FAILED');
     expect(failAudit).toBeDefined();
+    expect(failAudit.reasonCode).toBe('EXECUTION_ERROR');
     expect(failAudit.traceId).toBe(TRACE);
 
     expect(mocks.eventEmitter.emit).not.toHaveBeenCalled();
@@ -1088,11 +1089,12 @@ describe('SwapWorkflowService.resumeLeg', () => {
     // needsReview cleared.
     expect(mocks.swapTransactionsService.setNeedsReview).toHaveBeenCalledWith('swap-1', false, expect.anything());
 
-    // SWAP_LEG_RESUMED audit.
-    const resumed = (mocks.auditLogsService.recordSystem as jest.Mock).mock.calls
-      .map((c) => c[0]).find((a) => a.action === AuditActions.SWAP_LEG_RESUMED);
-    expect(resumed).toBeDefined();
-    expect(resumed.metadata).toEqual({ legSeq: 2, resumedAttempt: 4, fromAttempt: 3 });
+    // SWAP_LEG_RESUMED audit — 管理员动作走 recordByActor 通道。
+    const resumedCall = (mocks.auditLogsService.recordByActor as jest.Mock).mock.calls
+      .find((c) => c[0].action === 'SWAP_LEG_RESUMED');
+    expect(resumedCall).toBeDefined();
+    expect(resumedCall[0].metadata).toEqual({ legSeq: 2, resumedAttempt: 4, fromAttempt: 3 });
+    expect(resumedCall[1].actorType).toBe('ADMIN');
 
     // Swap stays PROCESSING — markStatus NOT called.
     expect(mocks.swapTransactionsService.markStatus).not.toHaveBeenCalled();
@@ -2208,7 +2210,7 @@ describe('SwapWorkflowService.applyKytVerdict', () => {
     // ── (audit + needsReview) AND still propagate so the caller's retry path
     // ── (the terminal-status guard carve-out proven above) actually gets a
     // ── chance to repair the customer's state on redelivery.
-    it('处置失败：写 SWAP_KYT_REJECTED_DISPOSITION_FAILED 审计 + 打 needsReview，并把异常继续往外抛', async () => {
+    it('处置失败：写 SWAP_KYT_REJECTED_DISPOSED(FAILED) 审计 + 打 needsReview，并把异常继续往外抛', async () => {
       const mocks = buildApplyKytVerdictMocks();
       const service = makeApplyKytVerdictService(mocks);
       (mocks.customerRestrictionsService.open as jest.Mock).mockRejectedValueOnce(
@@ -2225,8 +2227,9 @@ describe('SwapWorkflowService.applyKytVerdict', () => {
       expect(mocks.swapTransactionsService.setNeedsReview).toHaveBeenCalledWith('s1', true);
       const failedAudit = (mocks.auditLogsService.recordSystem as jest.Mock).mock.calls
         .map((c) => c[0])
-        .find((a: any) => a.action === AuditActions.SWAP_KYT_REJECTED_DISPOSITION_FAILED);
+        .find((a: any) => a.action === 'SWAP_KYT_REJECTED_DISPOSED' && a.outcome === 'FAILED');
       expect(failedAudit).toBeDefined();
+      expect(failedAudit.reasonCode).toBe('DISPOSITION_ERROR');
       expect(failedAudit.reason).toBe('SQLITE_BUSY: database is locked');
       expect(failedAudit.ownerCustomerNo).toBe('C0001');
     });
