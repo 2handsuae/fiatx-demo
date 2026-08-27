@@ -950,6 +950,7 @@ export class WithdrawTransactionsService {
         slaDeadline: { lt: now },
         slaBreached: false,
       },
+      include: { customer: { select: { customerNo: true } } },
     });
   }
 

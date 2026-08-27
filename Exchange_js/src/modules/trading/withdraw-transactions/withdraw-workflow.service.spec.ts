@@ -79,6 +79,7 @@ describe('WithdrawWorkflowService — releaseLock on approval decline', () => {
     await workflow.onLargeValueApprovalDecided({
       decision: 'DECLINED',
       entityRef: declinedWithdrawal.id,
+      approvalId: 'apr-id-1',
       approvalNo: 'AP-1',
       decisionReason: 'risk',
     });
@@ -2646,6 +2647,7 @@ describe('WithdrawWorkflowService — Task 9: FROZEN execution side', () => {
       await workflow.onUnfreezeDecided({
         decision: 'APPROVED',
         entityRef: frozenWithdrawal.id,
+      approvalId: 'apr-id-1',
         approvalNo: 'AP-UNFREEZE-1',
       });
 
@@ -2674,6 +2676,7 @@ describe('WithdrawWorkflowService — Task 9: FROZEN execution side', () => {
         workflow.onUnfreezeDecided({
           decision: 'APPROVED',
           entityRef: frozenWithdrawal.id,
+      approvalId: 'apr-id-1',
           approvalNo: 'AP-UNFREEZE-2',
         }),
       ).rejects.toThrow('no APPROVED');
@@ -2689,6 +2692,7 @@ describe('WithdrawWorkflowService — Task 9: FROZEN execution side', () => {
         workflow.onUnfreezeDecided({
           decision: 'APPROVED',
           entityRef: frozenWithdrawal.id,
+      approvalId: 'apr-id-1',
           approvalNo: 'AP-UNFREEZE-3',
         }),
       ).resolves.not.toThrow();
@@ -2712,6 +2716,7 @@ describe('WithdrawWorkflowService — Task 9: FROZEN execution side', () => {
       await workflow.onUnfreezeDecided({
         decision: 'APPROVED',
         entityRef: frozenWithdrawal.id,
+      approvalId: 'apr-id-1',
         approvalNo: 'AP-UNFREEZE-4',
       });
 
@@ -2732,6 +2737,7 @@ describe('WithdrawWorkflowService — Task 9: FROZEN execution side', () => {
       await workflow.onUnfreezeDecided({
         decision: 'APPROVED',
         entityRef: frozenWithdrawal.id,
+      approvalId: 'apr-id-1',
         approvalNo: 'AP-UNFREEZE-5',
       });
 
@@ -2745,6 +2751,7 @@ describe('WithdrawWorkflowService — Task 9: FROZEN execution side', () => {
       await workflow.onUnfreezeDecided({
         decision: 'DECLINED',
         entityRef: frozenWithdrawal.id,
+      approvalId: 'apr-id-1',
         approvalNo: 'AP-UNFREEZE-6',
       });
 
@@ -2761,6 +2768,7 @@ describe('WithdrawWorkflowService — Task 9: FROZEN execution side', () => {
       await workflow.onRefundDecided({
         decision: 'APPROVED',
         entityRef: frozenWithdrawal.id,
+      approvalId: 'apr-id-1',
         approvalNo: 'AP-REFUND-1',
       });
 
@@ -2793,6 +2801,7 @@ describe('WithdrawWorkflowService — Task 9: FROZEN execution side', () => {
       await workflow.onRefundDecided({
         decision: 'APPROVED',
         entityRef: frozenWithdrawal.id,
+      approvalId: 'apr-id-1',
         approvalNo: 'AP-REFUND-2',
       });
 
@@ -2806,6 +2815,7 @@ describe('WithdrawWorkflowService — Task 9: FROZEN execution side', () => {
       await workflow.onRefundDecided({
         decision: 'CANCELLED',
         entityRef: frozenWithdrawal.id,
+      approvalId: 'apr-id-1',
         approvalNo: 'AP-REFUND-3',
       });
 
