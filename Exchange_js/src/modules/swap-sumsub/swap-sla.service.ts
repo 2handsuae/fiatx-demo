@@ -8,8 +8,9 @@ import { AuditLogsService } from '../audit-logging/audit-logs.service';
 import {
   AuditActions,
   AuditEntityTypes,
-  AuditWorkflowTypes,
 } from '../audit-logging/constants/audit-actions.constant';
+import { AuditCategory, AuditSubjectRole } from '../audit-logging/dto/audit-log.dto';
+import { randomUUID } from 'crypto';
 
 /**
  * 兑换合规超时看门狗（Task 8）—— mirror of DepositSlaService / WithdrawSlaService
@@ -69,6 +70,7 @@ export class SwapSlaService {
     let timedOut = 0;
     let resubmitted = 0;
     for (const swap of stale) {
+      let breachedNext: string | undefined;
       try {
         if (!swap.sumsubTxnIdOut) {
           // 单已存在、quote 已消费，但从未真正提交给 Sumsub —— 重试提交，
@@ -79,7 +81,7 @@ export class SwapSlaService {
         }
 
         await this.prisma.$transaction(async (tx) => {
-          await this.swapService.markStatus(
+          breachedNext = await this.swapService.markStatus(
             swap.id,
             SwapTransactionAction.SLA_BREACH,
             tx,
@@ -94,17 +96,30 @@ export class SwapSlaService {
           await this.auditLogsService.recordSystem(
             {
               action: AuditActions.SWAP_SLA_BREACHED,
+              actionDomain: 'SWAP',
+              category: AuditCategory.BUSINESS,
               primarySubjectType: AuditEntityTypes.SWAP_TRANSACTION,
               primarySubjectNo: swap.swapNo || undefined,
+              ownerCustomerNo: swap.ownerNo || undefined,
+              correlationId: swap.correlationId ?? undefined,
+              fromStatus: swap.status,
+              toStatus: breachedNext,
+              subjects: [
+                ...(swap.swapNo ? [{ subjectType: AuditEntityTypes.SWAP_TRANSACTION, subjectNo: swap.swapNo, subjectRole: AuditSubjectRole.PRIMARY }] : []),
+                ...(swap.ownerNo ? [{ subjectType: 'CUSTOMER', subjectNo: swap.ownerNo, subjectRole: AuditSubjectRole.OWNER }] : []),
+              ],
               traceId: swap.traceId || undefined,
               reason:
-                'Swap compliance SLA breached — no Sumsub verdict before timeout, order rejected (fail-closed; no customer disposition, see class comment)',
-              metadata: { sumsubTxnIdOut: swap.sumsubTxnIdOut, createdAt: swap.createdAt },
+                'Swap compliance SLA breached — no Sumsub verdict before timeout, order rejected (fail-closed; no customer disposition, see class comment); sell-side birth lock released to balance',
+              metadata: { sumsubTxnIdOut: swap.sumsubTxnIdOut, createdAt: swap.createdAt, releasedFromAmount: String(swap.fromAmount) },
+              requestId: `SWAP_SLA_BREACHED_${swap.swapNo}_${randomUUID()}`,
               sourcePlatform: 'SYSTEM',
-            },
+            } as any,
             tx,
           );
         });
+        // 出生锁擦圈：SLA 破线=fail-closed 拒单终局（站3-β 接线时逮到的漏网出口）。
+        await this.workflow.releaseBirthLock(swap, 'SLA breach reject');
         timedOut += 1;
       } catch (err) {
         this.logger.error(

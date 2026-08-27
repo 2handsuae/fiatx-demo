@@ -377,26 +377,15 @@ export const AuditActions = {
   SWAP_LEG_STUCK: 'SWAP_LEG_STUCK',
   SWAP_LEG_HALTED_BY_RESTRICTION: 'SWAP_LEG_HALTED_BY_RESTRICTION',
   SWAP_LEG_RESUMED: 'SWAP_LEG_RESUMED',
-  SWAP_PRODUCT_RESTRICTED: 'SWAP_PRODUCT_RESTRICTED',
-  SWAP_BEST_EXECUTION_EVIDENCE_EXPORTED: 'SWAP_BEST_EXECUTION_EVIDENCE_EXPORTED',
   // Task 9: Demo scenario runner — mirrors DEPOSIT_DEMO_SCENARIO_RUN /
   // WITHDRAW_DEMO_SCENARIO_RUN. Feeds one simulated Sumsub verdict webhook
   // into a swap via the real ingestion pipeline (SUMSUB_MOCK_MODE only).
   SWAP_DEMO_SCENARIO_RUN: 'SWAP_DEMO_SCENARIO_RUN',
-  // Task 13: SwapApplicantActionHandler — the exemption loop promised by spec
-  // §6 that no earlier task actually built. Consumes applicantActionReviewed
-  // for a customer restricted by a prior swap KYT rejection.
-  SWAP_ACTION_CLEARED: 'SWAP_ACTION_CLEARED',
   // GREEN arrived for a customer with a sticky hard-line (sanctions) marker —
   // restrictions deliberately held, not lifted. See CustomersService /
   // handleRejectDisposition's hardLineDispositionedAt comments for why this
   // must never be bypassed.
   SWAP_ACTION_GREEN_HARDLINE_HELD: 'SWAP_ACTION_GREEN_HARDLINE_HELD',
-  // RED (or any non-GREEN answer) — restrictions stay on, escalated for
-  // manual review.
-  SWAP_ACTION_ESCALATED: 'SWAP_ACTION_ESCALATED',
-  // parity 2026-08-14：客户提交补料材料（客户级会话）
-  SWAP_ACTION_SUBMITTED: 'SWAP_ACTION_SUBMITTED',
   WITHDRAW_CREATED: 'WITHDRAW_CREATED',
   PAYOUT_CREATED: 'PAYOUT_CREATED',
   PAYOUT_PENDING_TO_CLEAR: 'PAYOUT_PENDING_TO_CLEAR',
@@ -500,7 +489,6 @@ export const AuditActions = {
   COA_CONFIG_UPDATED: 'COA_CONFIG_UPDATED',
   CUSTOMER_SWAP_RATE_UPDATED: 'CUSTOMER_SWAP_RATE_UPDATED',
   PRICING_POLICY_UPDATED: 'PRICING_POLICY_UPDATED',
-  SWAP_PRICING_SIMULATED: 'SWAP_PRICING_SIMULATED',
   USER_CREATED: 'USER_CREATED',
   ADMIN_INVITATION_CREATED: 'ADMIN_INVITATION_CREATED',
   ADMIN_INVITATION_RESENT: 'ADMIN_INVITATION_RESENT',
@@ -848,7 +836,7 @@ import { AuditCorrelationMode } from '../dto/audit-log.dto';
 /** V1 治理四域，声明与下方 assertActionSpec 的退役码放行闸共用同一份 */
 export const V1_ACTION_DOMAINS = ['IAM', 'APPROVAL', 'CONFIG', 'AUDIT'] as const;
 /** 新合同已入住的全部域——站1b-β 起交易域逐域加入（充值第一个）。机器校验的域闸读这份。 */
-export const CONTRACT_ACTION_DOMAINS = [...V1_ACTION_DOMAINS, 'DEPOSIT', 'WITHDRAW'] as const;
+export const CONTRACT_ACTION_DOMAINS = [...V1_ACTION_DOMAINS, 'DEPOSIT', 'WITHDRAW', 'SWAP'] as const;
 
 export interface AuditActionSpec {
   /** actionDomain 列的值 */
@@ -1038,8 +1026,44 @@ export const V5_WITHDRAW_AUDIT_ACTIONS: Record<string, AuditActionSpec> = {
   WITHDRAW_DEMO_SCENARIO_RUN:     { domain: 'WITHDRAW', correlationMode: I, requiredFields: [], requiresCausation: false },
 };
 
+/**
+ * 站3-β（2026-08-27）兑换域名册——18 码，业主终审版。承接前两域全部裁定；
+ * 兑换无 maker-checker 弧故全册 requiresCausation=false。三处 *_FAILED 并入
+ * 各自动作的一码双结局；tipping-off 决策留痕（REJECTED_DISPOSED）为独立业务事件保留。
+ * 出生锁联动：CREATED 携 lockedFromAmount，REJECTED/FROZEN 携 releasedFromAmount
+ * （metadata，非机器必填）。设计稿见 doc-final/superpowers/specs/2026-08-27-swap-audit-vocab-design.md。
+ */
+export const V6_SWAP_AUDIT_ACTIONS: Record<string, AuditActionSpec> = {
+  // ── 出生（1）────────────────────────────────────────────
+  SWAP_CREATED:              { domain: 'SWAP', correlationMode: S, requiredFields: ['amount', 'currency', 'ownerCustomerNo'], requiresCausation: false },
+  // ── KYT 合规（5）────────────────────────────────────────
+  SWAP_KYT_SUBMITTED:        { domain: 'SWAP', correlationMode: I, requiredFields: [], requiresCausation: false },
+  SWAP_KYT_APPROVED:         { domain: 'SWAP', correlationMode: I, requiredFields: ['fromStatus', 'toStatus'], requiresCausation: false },
+  SWAP_KYT_REJECTED:         { domain: 'SWAP', correlationMode: I, requiredFields: ['fromStatus', 'toStatus'], requiresCausation: false },
+  SWAP_KYT_VERDICT_IGNORED:  { domain: 'SWAP', correlationMode: I, requiredFields: ['reason'], requiresCausation: false },
+  SWAP_POST_APPROVAL_VERDICT:{ domain: 'SWAP', correlationMode: I, requiredFields: ['reason'], requiresCausation: false },
+  // ── 拒绝处置与通知决策（1）──────────────────────────────
+  SWAP_KYT_REJECTED_DISPOSED:{ domain: 'SWAP', correlationMode: I, requiredFields: ['reason'], requiresCausation: false },
+  // ── 冻结（1）────────────────────────────────────────────
+  SWAP_FROZEN:               { domain: 'SWAP', correlationMode: I, requiredFields: ['fromStatus', 'toStatus'], requiresCausation: false },
+  // ── 结算四腿（5）────────────────────────────────────────
+  SWAP_LEG_POSTED:           { domain: 'SWAP', correlationMode: I, requiredFields: [], requiresCausation: false },
+  SWAP_LEG_RETRIED:          { domain: 'SWAP', correlationMode: I, requiredFields: [], requiresCausation: false },
+  SWAP_LEG_STUCK:            { domain: 'SWAP', correlationMode: I, requiredFields: [], requiresCausation: false },
+  SWAP_LEG_RESUMED:          { domain: 'SWAP', correlationMode: I, requiredFields: [], requiresCausation: false },
+  SWAP_LEG_HALTED_BY_RESTRICTION: { domain: 'SWAP', correlationMode: I, requiredFields: [], requiresCausation: false },
+  // ── 终局（1）────────────────────────────────────────────
+  SWAP_SUCCEEDED:            { domain: 'SWAP', correlationMode: I, requiredFields: ['fromStatus', 'toStatus'], requiresCausation: false },
+  // ── 客户级（1）──────────────────────────────────────────
+  SWAP_ACTION_GREEN_HARDLINE_HELD: { domain: 'SWAP', correlationMode: I, requiredFields: ['reason'], requiresCausation: false },
+  // ── SLA 与演示（3）──────────────────────────────────────
+  SWAP_SLA_BREACHED:         { domain: 'SWAP', correlationMode: I, requiredFields: ['fromStatus'], requiresCausation: false },
+  SWAP_SLA_TIMEOUT_SIMULATED:{ domain: 'SWAP', correlationMode: I, requiredFields: [], requiresCausation: false },
+  SWAP_DEMO_SCENARIO_RUN:    { domain: 'SWAP', correlationMode: I, requiredFields: [], requiresCausation: false },
+};
+
 /** 动态迁移码族（<域>_<从>_TO_<到>，充值站1b-β/提现站2-β 整族废除）——机器校验按此形状拒写。 */
-export const RETIRED_DYNAMIC_TRANSITION_PATTERN = /^(DEPOSIT|WITHDRAW)_[A-Z_]+_TO_[A-Z_]+$/;
+export const RETIRED_DYNAMIC_TRANSITION_PATTERN = /^(DEPOSIT|WITHDRAW|SWAP)_[A-Z_]+_TO_[A-Z_]+$/;
 
 export const DEPRECATED_AUDIT_ACTIONS: readonly string[] = [
   'FIRST_LOGIN_MFA_VERIFY_FAILED',
@@ -1061,6 +1085,8 @@ export const DEPRECATED_AUDIT_ACTIONS: readonly string[] = [
   'WITHDRAW_LOCK_RELEASED', 'WITHDRAW_AWAITUSER_EMPTY_ACTIONS',
   'WITHDRAW_UNFREEZE_APPROVAL_REQUESTED', 'WITHDRAW_SANCTION_REFUND_APPROVAL_REQUESTED',
   'WITHDRAW_FEE_LEG_REBUILT', 'WITHDRAW_FEE_SETTLE_STUCK',
+  // ── 兑换域（站3-β，2026-08-27）──────────────────────────
+  'SWAP_FAILED', 'SWAP_KYT_SUBMIT_FAILED', 'SWAP_KYT_REJECTED_DISPOSITION_FAILED',
   'RESET_FAILED',
   'CHANGE_APPLY_FAILED',
   'ROLE_ACTIVATE_FAILED',

@@ -1,4 +1,4 @@
-import { Module, forwardRef } from '@nestjs/common';
+import { Module } from '@nestjs/common';
 import { DepositTransactionsController } from './deposit-transactions.controller';
 import { DepositTransactionsService } from './deposit-transactions.service';
 import { InboundTransferSignalsService } from './inbound-transfer-signals.service';
@@ -23,13 +23,11 @@ import { L1GateModule } from '../shared/l1-gate/l1-gate.module';
 @Module({
   imports: [
     // Task 9：本域 workflow 注入 CustomerAccessService（客户级能力闸 + 在途单冻结订阅）。
-    // 站1b-α2 实测记录：这三张 forwardRef **不是本域自己的环**——模块图上外域无反向
-    // 边，但文件级装载链 customers→material-requests→swap-sumsub→swap-transactions→
-    // deposit-sumsub→本模块 转一大圈回来（开机实证 UndefinedModuleException），
-    // 解包立炸。等外域各站拆断那条链（站2/3/6）后方可解包；本域自己发起的两个环
-    // （与 deposit-sumsub 的令牌环、与 ingestion 的演示件环）已于本站拆除。
-    forwardRef(() => CustomersModule),
-    forwardRef(() => OnboardingModule),
+    // 站3-α2（2026-08-27）解包完成：站1b 实测钉住这三张的两条文件级装载链
+    // （identity→swap-sumsub 直调环、identity→CRA→ingestion 枢纽环）已分别以
+    // 事件化与演示件独立挂载拆断（链路图见站3 α2 提交），开机考通过后全部平引用。
+    CustomersModule,
+    OnboardingModule,
     TigerBeetleModule,
     FundsLayerModule,
     FundsOrdersModule,
@@ -40,8 +38,7 @@ import { L1GateModule } from '../shared/l1-gate/l1-gate.module';
     TransactionLimitsModule,
     ApprovalsModule,
     // Task 8：DepositApplicantActionsService 改走材料账，需要 issuer/requests service。
-    // （forwardRef 缘由同上：外域装载链转回本模块，站2/3/6 拆链前不可解包。）
-    forwardRef(() => MaterialRequestsModule),
+    MaterialRequestsModule,
     // B4（第四批）：DepositWorkflowService 的 Gate 0 注入 L1GateService（三域共用的
     // L1 快照求值器）。与提现/兑换同形状的平引用即可 —— L1GateModule 自己已用
     // forwardRef 解开与 CustomersModule 的真实 require 环。

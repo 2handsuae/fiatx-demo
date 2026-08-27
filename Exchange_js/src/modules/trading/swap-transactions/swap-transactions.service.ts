@@ -18,6 +18,7 @@ import { SwapQuoteService } from '../swap-fee-level/swap-quote.service';
 import { BinanceRateProvider } from '../pricing-center/providers/binance-rate.provider';
 import { DomainEventNames } from '../../../common/events/domain-events.constants';
 import { AuditLogsService } from '../../audit-logging/audit-logs.service';
+import { AuditCategory, AuditSubjectRole } from '../../audit-logging/dto/audit-log.dto';
 import { MATERIAL_REQUEST_LIVE_STATUSES } from '../../identity/material-requests/constants/material-request.constant';
 import {
   AuditActions,
@@ -271,66 +272,6 @@ export class SwapTransactionsService {
     };
   }
 
-  async preview(dto: {
-    fromAssetId: string;
-    fromAmount: number;
-    toAssetId: string;
-    ownerType?: string;
-    ownerId?: string;
-  }): Promise<SwapQuoteComputationResult> {
-    const rateDetails = await this.getExecutableRate(
-      dto.fromAssetId,
-      dto.toAssetId,
-      {
-        amount: dto.fromAmount,
-        ownerType: dto.ownerType,
-        ownerId: dto.ownerId,
-      },
-    );
-    const fromAmount = new Prisma.Decimal(dto.fromAmount);
-    const executableRate = new Prisma.Decimal(rateDetails.executableRate);
-    const toAmount = new Prisma.Decimal(rateDetails.grossAmountOut);
-    const createdAt = new Date();
-    const expiresAt = new Date(
-      createdAt.getTime() + rateDetails.quoteLockSeconds * 1000,
-    );
-
-    return {
-      fromAssetId: rateDetails.fromAssetId,
-      fromAssetCurrency: rateDetails.fromAssetCurrency,
-      fromAssetDecimals: rateDetails.fromAssetDecimals,
-      fromAmount: fromAmount.toNumber(),
-      toAssetId: rateDetails.toAssetId,
-      toAssetCurrency: rateDetails.toAssetCurrency,
-      toAssetDecimals: rateDetails.toAssetDecimals,
-      toAmount: toAmount.toNumber(),
-      amountOut: toAmount.toNumber(),
-      exchangeRate: executableRate.toNumber(),
-      executableRate: executableRate.toNumber(),
-      marketRate: rateDetails.marketRate,
-      spreadPercent: rateDetails.spreadPercent,
-      spreadBps: rateDetails.spreadBps,
-      rateSource: rateDetails.rateSource,
-      fetchedAt: rateDetails.fetchedAt,
-      quoteLockSeconds: rateDetails.quoteLockSeconds,
-      pairId: rateDetails.pairId,
-      pairName: rateDetails.pairName,
-      tierId: rateDetails.tierId,
-      tierName: rateDetails.tierName,
-      matched: rateDetails.matched,
-      pricingSource: rateDetails.pricingSource,
-      feeBreakdown: rateDetails.feeBreakdown,
-      feeTotals: rateDetails.feeTotals,
-      grossAmountOut: rateDetails.grossAmountOut,
-      netAmountOut: rateDetails.netAmountOut,
-      feeTotal: rateDetails.feeTotal,
-      feeCurrency: rateDetails.feeCurrency,
-      policyRef: rateDetails.policyRef,
-      createdAt: createdAt.toISOString(),
-      expiresAt: expiresAt.toISOString(),
-    };
-  }
-
   async findAll(query: SwapTransactionQueryDto, options?: { customerScope?: boolean }) {
     const {
       skip,
@@ -511,7 +452,7 @@ export class SwapTransactionsService {
   ) {
     const row = await (this.prisma as any).swapTransaction.findFirst({
       where: { swapNo },
-      select: { id: true, slaDeadline: true, ownerType: true, ownerId: true },
+      select: { id: true, slaDeadline: true, correlationId: true, ownerNo: true },
     });
     if (!row) throw new NotFoundException(`Swap not found: ${swapNo}`);
     if (row.slaDeadline === null) {
@@ -528,8 +469,16 @@ export class SwapTransactionsService {
     await this.auditLogsService.recordByActor(
       {
         action: AuditActions.SWAP_SLA_TIMEOUT_SIMULATED,
+        actionDomain: 'SWAP',
+        category: AuditCategory.BUSINESS,
         primarySubjectType: AuditEntityTypes.SWAP_TRANSACTION,
         primarySubjectNo: swapNo,
+        ownerCustomerNo: row.ownerNo ?? undefined,
+        correlationId: row.correlationId ?? undefined,
+        subjects: [
+          { subjectType: AuditEntityTypes.SWAP_TRANSACTION, subjectNo: swapNo, subjectRole: AuditSubjectRole.PRIMARY },
+          ...(row.ownerNo ? [{ subjectType: 'CUSTOMER', subjectNo: row.ownerNo, subjectRole: AuditSubjectRole.OWNER }] : []),
+        ],
         reason: 'Demo: SLA deadline moved to the past to trigger an immediate breach on the next scan',
         metadata: { previousSlaDeadline: row.slaDeadline, newSlaDeadline: slaDeadline },
         requestId: `SWAP_SLA_TIMEOUT_SIMULATED_${swapNo}_${randomUUID()}`,
@@ -909,6 +858,7 @@ export class SwapTransactionsService {
   async create(
     input: {
       swapNo: string;
+      correlationId?: string;
       quoteId: string;
       quoteNo: string | null;
       ownerType: string;
@@ -941,6 +891,7 @@ export class SwapTransactionsService {
     return tx.swapTransaction.create({
       data: {
         swapNo: input.swapNo,
+        correlationId: input.correlationId,
         quoteId: input.quoteId,
         quoteNo: input.quoteNo,
         quoteSnapshotRef: input.quoteId,
@@ -994,7 +945,9 @@ export class SwapTransactionsService {
       // ownerNo：Review Fix 4（Minor，2026-08-20）—— 监听器驱动的 SWAP_FROZEN
       // 审计要带业务键（entityOwnerNo），与本单裁决驱动那条对齐，同时满足铁律③
       // （有业务键就别只用 id）。
-      select: { id: true, swapNo: true, ownerType: true, ownerId: true, ownerNo: true, status: true, traceId: true },
+      // 站3·出生锁：+fromAmount——批量冻单的 SWAP_FROZEN 留痕要携退还金额。
+      // 站3·词表：+correlationId——SWAP_FROZEN 是 INHERIT 码，信封不带旅程号会被机器闸拒收。
+      select: { id: true, swapNo: true, ownerType: true, ownerId: true, ownerNo: true, status: true, traceId: true, fromAmount: true, correlationId: true },
     });
   }
 

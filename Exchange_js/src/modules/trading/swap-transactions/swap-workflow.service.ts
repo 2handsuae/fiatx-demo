@@ -5,12 +5,8 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../core/prisma/prisma.service';
 import { generateReferenceNo } from '../../../common/utils/no-generator.util';
 import { AuditLogsService } from '../../audit-logging/audit-logs.service';
-import {
-  AuditActions,
-  AuditEntityTypes,
-  AuditWorkflowTypes,
-} from '../../audit-logging/constants/audit-actions.constant';
-import { AuditOutcome } from '../../audit-logging/dto/audit-log.dto';
+import { AuditEntityTypes } from '../../audit-logging/constants/audit-actions.constant';
+import { AuditOutcome, AuditCategory, AuditSubjectRole, AuditSubjectInput, AuditActorContext } from '../../audit-logging/dto/audit-log.dto';
 import { OnboardingService } from '../../identity/onboarding/onboarding.service';
 import { SwapQuoteService } from '../swap-fee-level/swap-quote.service';
 import { AccountingService } from '../../accounting/tigerbeetle/accounting.service';
@@ -333,6 +329,7 @@ export class SwapWorkflowService {
 
     const now = new Date();
     const swapNo = generateReferenceNo('SWP');
+    const correlationId = randomUUID();
 
     // Lifted to outer scope so the catch block can emit SWAP_FAILED with the
     // inherited traceId. Assigned at the top of the transaction once we read
@@ -410,6 +407,7 @@ export class SwapWorkflowService {
         // applyKytVerdict / onKytApproved).
         const createdSwap = await this.swapTransactionsService.create({
           swapNo, quoteId: quote.id, quoteNo: quote.quoteNo,
+          correlationId, // 审计主线：SWAP_CREATED=START 在此铸根，此后全链 INHERIT
           ownerType: 'CUSTOMER', ownerId, ownerNo: quote.ownerNo,
           fromAssetId: quote.fromAssetId, fromAssetCode: quote.fromAssetCode, fromAmount,
           toAssetId: quote.toAssetId, toAssetCode: quote.toAssetCode, toAmount,
@@ -427,18 +425,35 @@ export class SwapWorkflowService {
 
         await this.auditLogsService.recordByActor(
           {
-            action: AuditActions.SWAP_CREATED,
+            action: 'SWAP_CREATED',
+            actionDomain: 'SWAP',
+            category: AuditCategory.BUSINESS,
             primarySubjectType: AuditEntityTypes.SWAP_TRANSACTION,
             primarySubjectNo: createdSwap.swapNo || undefined,
-            traceId,
             ownerCustomerNo: createdSwap.ownerNo || undefined,
+            correlationId,
+            amount: String(createdSwap.fromAmount),
+            currency: quote.fromAssetCode,
+            subjects: [
+              { subjectType: AuditEntityTypes.SWAP_TRANSACTION, subjectNo: createdSwap.swapNo, subjectRole: AuditSubjectRole.PRIMARY },
+              ...(createdSwap.ownerNo ? [{ subjectType: 'CUSTOMER', subjectNo: createdSwap.ownerNo, subjectRole: AuditSubjectRole.OWNER }] : []),
+            ],
+            traceId,
             reason: `Swap executed from quote ${quote.quoteNo || quote.id}`,
-            metadata: { quoteId: quote.id, quoteNo: quote.quoteNo },
+            metadata: { quoteId: quote.id, quoteNo: quote.quoteNo, lockedFromAmount: String(createdSwap.fromAmount) },
+            requestId: `SWAP_CREATED_${createdSwap.swapNo}_${randomUUID()}`,
             sourcePlatform: 'CUSTOMER_API',
-          },
+          } as any,
           { actorType: 'CUSTOMER', actorNo: quote.ownerNo || ownerId, actorDisplayName: quote.ownerNo || ownerId, actorRolesAtTime: ['CUSTOMER'] },
           tx,
         );
+
+        // 站3·出生锁（业主 2026-08-27 裁定）：下单即画圈——按腿1（卖出腿）的记账
+        // 条目、attempt=1 预占 fromAmount。结算开始时腿1不再自画（见 createLeg），
+        // 编号天然衔接 postLeg；拒绝/冻结落地擦圈退余额（终态不押钱，押人靠限制账）。
+        const birthCtx = await this.buildLegContext(createdSwap, tx);
+        const birthSpecs = buildSwapLegPlan({ fromIsFiat: birthCtx.fromIsFiat });
+        await this.swapLegAccounting.initiateLegPending({ ...birthCtx, attempt: 1 }, birthSpecs[0]!, tx);
 
         return createdSwap;
       });
@@ -446,15 +461,23 @@ export class SwapWorkflowService {
       // Best-effort terminal audit — swap row may or may not exist depending
       // on the failure stage. We carry the quote.traceId (captured at the top
       // of the transaction) and the pre-allocated swapNo for operator correlation.
+      // 站3-β：执行失败不单独起名——SWAP_CREATED 一码双结局（行可能未落库，
+      // 无旅程号可铸，S 模式对失败路不强制）。
       await this.auditLogsService
         .recordSystem({
-          action: AuditActions.SWAP_FAILED,
+          action: 'SWAP_CREATED',
+          actionDomain: 'SWAP',
+          category: AuditCategory.BUSINESS,
           primarySubjectType: AuditEntityTypes.SWAP_TRANSACTION,
           primarySubjectNo: swapNo,
+          outcome: AuditOutcome.FAILED,
+          reasonCode: 'EXECUTION_ERROR',
+          subjects: [{ subjectType: AuditEntityTypes.SWAP_TRANSACTION, subjectNo: swapNo, subjectRole: AuditSubjectRole.PRIMARY }],
           reason: error instanceof Error ? error.message : 'Swap execution failed',
+          requestId: `SWAP_CREATED_${swapNo}_${randomUUID()}`,
           sourcePlatform: 'SYSTEM',
           traceId: traceId ?? undefined,
-        })
+        } as any)
         .catch(() => undefined);
       throw error;
     }
@@ -529,11 +552,8 @@ export class SwapWorkflowService {
         },
       });
 
-      await this.auditLogsService.recordSystem({
-        action: AuditActions.SWAP_KYT_SUBMITTED,
-        primarySubjectType: AuditEntityTypes.SWAP_TRANSACTION,
-        primarySubjectNo: swap.swapNo || undefined,
-        outcome: AuditOutcome.SUCCESS,
+      await this.swapAudit(swap, {
+        action: 'SWAP_KYT_SUBMITTED',
         reason: 'Swap sell-leg submitted to Sumsub KYT',
         metadata: { sumsubTxnId: res.txnId, scoringAction: res.scoringResult?.action, direction: 'out' },
       });
@@ -541,14 +561,12 @@ export class SwapWorkflowService {
       this.logger.error(
         `submitSumsubTxnOut failed for swap ${swapId}: ${(err as Error).message} — staying in COMPLIANCE_PENDING for retry`,
       );
-      await this.auditLogsService
-        .recordSystem({
-          action: AuditActions.SWAP_KYT_SUBMIT_FAILED,
-          primarySubjectType: AuditEntityTypes.SWAP_TRANSACTION,
-          primarySubjectNo: swap?.swapNo || undefined,
-          traceId: swap?.traceId ?? undefined,
+      await this.swapAudit(swap ?? { swapNo: undefined }, {
+          action: 'SWAP_KYT_SUBMITTED',
+          outcome: AuditOutcome.FAILED,
+          reasonCode: 'SUBMIT_ERROR',
           reason: err instanceof Error ? err.message : 'Sumsub KYT submit failed',
-          sourcePlatform: 'SYSTEM',
+          metadata: { direction: 'out' },
         })
         .catch(() => undefined);
     }
@@ -680,18 +698,11 @@ export class SwapWorkflowService {
         if (input.verdict === 'rejected') {
           await this.swapTransactionsService.setNeedsReview(swap.id, true, tx);
         }
-        await this.auditLogsService.recordSystem(
-          {
-            action: AuditActions.SWAP_POST_APPROVAL_VERDICT,
-            primarySubjectType: AuditEntityTypes.SWAP_TRANSACTION,
-            primarySubjectNo: swap.swapNo || undefined,
-            traceId: swap.traceId ?? undefined,
-            reason: `KYT verdict '${input.verdict}' received after swap entered PROCESSING — no state-machine action taken`,
-            metadata: { verdict: input.verdict },
-            sourcePlatform: 'SYSTEM',
-          },
-          tx,
-        );
+        await this.swapAudit(swap, {
+          action: 'SWAP_POST_APPROVAL_VERDICT',
+          reason: `KYT verdict '${input.verdict}' received after swap entered PROCESSING — no state-machine action taken`,
+          metadata: { verdict: input.verdict },
+        }, tx);
       });
       // Review Fix 3 (Important): the swap itself correctly keeps executing
       // here (it's mid-settlement, already past the point of no return, and
@@ -711,18 +722,13 @@ export class SwapWorkflowService {
     if (input.verdict === 'approved') {
       await this.prisma.$transaction(async (tx) => {
         await this.swapTransactionsService.saveSumsubVerdict(swapId, verdictEvidence, tx);
-        await this.swapTransactionsService.markStatus(swapId, SwapTransactionAction.KYT_APPROVED, tx);
-        await this.auditLogsService.recordSystem(
-          {
-            action: AuditActions.SWAP_KYT_APPROVED,
-            primarySubjectType: AuditEntityTypes.SWAP_TRANSACTION,
-            primarySubjectNo: swap.swapNo || undefined,
-            traceId: swap.traceId ?? undefined,
-            reason: 'Swap KYT verdict approved — proceeding to settlement',
-            sourcePlatform: 'SYSTEM',
-          },
-          tx,
-        );
+        const approvedNext = await this.swapTransactionsService.markStatus(swapId, SwapTransactionAction.KYT_APPROVED, tx);
+        await this.swapAudit(swap, {
+          action: 'SWAP_KYT_APPROVED',
+          reason: 'Swap KYT verdict approved — proceeding to settlement',
+          fromStatus: swap.status,
+          toStatus: approvedNext,
+        }, tx);
         const ctx = await this.buildLegContext(swap, tx);
         const legSpecs = buildSwapLegPlan({ fromIsFiat: ctx.fromIsFiat });
         await this.createLeg(swap, legSpecs[0]!, ctx, 1, 1, swap.traceId ?? undefined, tx);
@@ -751,22 +757,19 @@ export class SwapWorkflowService {
     await this.prisma.$transaction(async (tx) => {
       await this.swapTransactionsService.saveSumsubVerdict(swapId, verdictEvidence, tx);
       if (hasSanction) return;
-      await this.swapTransactionsService.markStatus(swapId, SwapTransactionAction.KYT_REJECTED, tx, {
+      const rejectedNext = await this.swapTransactionsService.markStatus(swapId, SwapTransactionAction.KYT_REJECTED, tx, {
         rejectReason: 'KYT_REJECTED',
       });
-      await this.auditLogsService.recordSystem(
-        {
-          action: AuditActions.SWAP_KYT_REJECTED,
-          primarySubjectType: AuditEntityTypes.SWAP_TRANSACTION,
-          primarySubjectNo: swap.swapNo || undefined,
-          traceId: swap.traceId ?? undefined,
-          reason: 'Swap KYT verdict rejected — no settlement legs booked',
-          metadata: { typedTags: input.typedTags },
-          sourcePlatform: 'SYSTEM',
-        },
-        tx,
-      );
+      await this.swapAudit(swap, {
+        action: 'SWAP_KYT_REJECTED',
+        reason: 'Swap KYT verdict rejected — no settlement legs booked, sell-side birth lock released to balance',
+        fromStatus: swap.status,
+        toStatus: rejectedNext,
+        metadata: { typedTags: input.typedTags, releasedFromAmount: String(swap.fromAmount) },
+      }, tx);
     });
+    // 出生锁擦圈：拒绝=终局，卖出侧预占退还客户余额（业主裁定：终态不押钱）。
+    await this.releaseBirthLock(swap, 'KYT rejected');
     await this.handleRejectDisposition(swap, input);
   }
 
@@ -787,21 +790,14 @@ export class SwapWorkflowService {
     // swapNo 是 String?（schema），同文件所有兄弟审计一律 `|| undefined` 兜底；
     // requestId 拼同一个值，避免 swapNo 为 null 时拼出字面量 "..._null_<uuid>"。
     const entityNo = swap.swapNo || undefined;
-    await this.auditLogsService
-      .recordSystem({
-        action: AuditActions.SWAP_KYT_VERDICT_IGNORED,
-        primarySubjectType: AuditEntityTypes.SWAP_TRANSACTION,
-        primarySubjectNo: entityNo,
-        traceId: swap.traceId || undefined,
+    await this.swapAudit(swap, {
+        action: 'SWAP_KYT_VERDICT_IGNORED',
         reason: `Late KYT verdict '${input.verdict}' ignored — swap is ${status} (terminal); existing verdict/evidence left untouched`,
         metadata: {
-          swapNo: swap.swapNo,
           verdict: input.verdict,
           status,
           riskScore: input.riskScore ?? null,
         },
-        requestId: `SWAP_KYT_VERDICT_IGNORED_${entityNo}_${randomUUID()}`,
-        sourcePlatform: 'SYSTEM',
       })
       .catch((err) => {
         this.logger.error(
@@ -854,11 +850,8 @@ export class SwapWorkflowService {
         data: { sumsubTxnIdIn: res.txnId },
       });
 
-      await this.auditLogsService.recordSystem({
-        action: AuditActions.SWAP_KYT_SUBMITTED,
-        primarySubjectType: AuditEntityTypes.SWAP_TRANSACTION,
-        primarySubjectNo: swap.swapNo || undefined,
-        outcome: AuditOutcome.SUCCESS,
+      await this.swapAudit(swap, {
+        action: 'SWAP_KYT_SUBMITTED',
         reason: 'Swap buy-leg submitted to Sumsub KYT (data-only, carries no verdict)',
         metadata: { sumsubTxnId: res.txnId, direction: 'in' },
       });
@@ -868,15 +861,12 @@ export class SwapWorkflowService {
       // 画像的完整度）—— 补一条 SWAP_KYT_SUBMIT_FAILED 审计，与 submitSumsubTxnOut
       // 的失败路径对称。
       this.logger.error(`buy-leg KYT submit failed for swap ${swapId}: ${String(err)}`);
-      await this.auditLogsService
-        .recordSystem({
-          action: AuditActions.SWAP_KYT_SUBMIT_FAILED,
-          primarySubjectType: AuditEntityTypes.SWAP_TRANSACTION,
-          primarySubjectNo: swap?.swapNo || undefined,
-          traceId: swap?.traceId ?? undefined,
+      await this.swapAudit(swap ?? { swapNo: undefined }, {
+          action: 'SWAP_KYT_SUBMITTED',
+          outcome: AuditOutcome.FAILED,
+          reasonCode: 'SUBMIT_ERROR',
           reason: err instanceof Error ? err.message : 'Sumsub KYT buy-leg submit failed',
           metadata: { direction: 'in' },
-          sourcePlatform: 'SYSTEM',
         })
         .catch(() => undefined);
     }
@@ -1092,6 +1082,11 @@ export class SwapWorkflowService {
             `Swap ${swap.swapNo} already FROZEN when this disposition tried to freeze it — beaten by onCustomerRestrictionOpened broadcast (same open() call), not a real failure. Continuing to sticky mark + disposition audit.`,
           );
         }
+        let sanctionReleased: string | null = null;
+        if (frozeHere) {
+          // 出生锁擦圈（业主裁定：冻结终态不押钱——押人靠限制账，本场景人已被冻）。
+          sanctionReleased = await this.releaseBirthLock(swap, 'sanction freeze');
+        }
         // 审计调用独立 catch（与本文件 onCustomerRestrictionOpened 侧的孪生
         // SWAP_FROZEN 审计同款）：不能和上面的 markStatus 共享外层大 try —— 若
         // 共享，这里抛出会被外层 catch 当成整段处置失败重跑，把已经成功的
@@ -1101,15 +1096,12 @@ export class SwapWorkflowService {
         // frozeHere=false（良性竞态）时跳过 —— 那次 FREEZE 是 handler 侧做的,
         // SWAP_FROZEN 审计已经由 handler 自己写过一遍(:1651),这里不重复。
         if (frozeHere) {
-          await this.auditLogsService
-            .recordSystem({
-              action: AuditActions.SWAP_FROZEN,
-              primarySubjectType: AuditEntityTypes.SWAP_TRANSACTION,
-              primarySubjectNo: swap.swapNo || undefined,
-              ownerCustomerNo: swap.ownerNo || undefined,
-              traceId: swap.traceId || undefined,
-              reason: `KYT verdict rejected: SANCTION_APPLICANT hit (order frozen + customer restricted)`,
-              sourcePlatform: 'SYSTEM',
+          await this.swapAudit(swap, {
+              action: 'SWAP_FROZEN',
+              reason: `KYT verdict rejected: SANCTION_APPLICANT hit (order frozen + customer restricted) — sell-side birth lock released to balance`,
+              fromStatus: swap.status,
+              toStatus: SwapTransactionStatus.FROZEN,
+              metadata: { sceneTag: 'SANCTION_APPLICANT', releasedFromAmount: sanctionReleased ?? undefined },
             })
             .catch((err) => {
               this.logger.error(
@@ -1179,14 +1171,8 @@ export class SwapWorkflowService {
         await this.customersService.markHardLineDisposition(swap.ownerId);
       }
 
-      await this.auditLogsService.recordSystem({
-        action: AuditActions.SWAP_KYT_REJECTED_DISPOSED,
-        primarySubjectType: AuditEntityTypes.SWAP_TRANSACTION,
-        primarySubjectNo: swap.swapNo || undefined,
-        traceId: swap.traceId ?? undefined,
-        // Review Fix 4 (Minor): business key alongside the UUID — this is the
-        // record explaining a tipping-off decision to an investigator.
-        ownerCustomerNo: swap.ownerNo || undefined,
+      await this.swapAudit(swap, {
+        action: 'SWAP_KYT_REJECTED_DISPOSED',
         reason: hasSanction
           ? 'Sanction hit — customer not notified (tipping-off)'
           : alreadyHardLined
@@ -1209,7 +1195,6 @@ export class SwapWorkflowService {
           restrictionCause,
           restrictionCreated,
         },
-        sourcePlatform: 'SYSTEM',
       });
     } catch (err) {
       // Review Fix 1 (Important): make the failure visible (audit + swap
@@ -1221,15 +1206,11 @@ export class SwapWorkflowService {
       // (see that guard's comment). Best-effort: a failure in these two
       // side-writes must never mask the original error.
       await this.swapTransactionsService.setNeedsReview(swap.id, true).catch(() => undefined);
-      await this.auditLogsService
-        .recordSystem({
-          action: AuditActions.SWAP_KYT_REJECTED_DISPOSITION_FAILED,
-          primarySubjectType: AuditEntityTypes.SWAP_TRANSACTION,
-          primarySubjectNo: swap.swapNo || undefined,
-          traceId: swap.traceId ?? undefined,
-          ownerCustomerNo: swap.ownerNo || undefined,
+      await this.swapAudit(swap, {
+          action: 'SWAP_KYT_REJECTED_DISPOSED',
+          outcome: AuditOutcome.FAILED,
+          reasonCode: 'DISPOSITION_ERROR',
           reason: err instanceof Error ? err.message : 'Reject disposition failed',
-          sourcePlatform: 'SYSTEM',
         })
         .catch(() => undefined);
       throw err;
@@ -1274,6 +1255,92 @@ export class SwapWorkflowService {
    * (Task 6) calls this once the sell leg clears Sumsub KYT to reconstruct
    * the same ctx that used to be computed inline before the swap row existed.
    */
+  /**
+   * 出生锁擦圈（站3）：把下单时画的腿1/attempt=1 预占退还客户余额。
+   * best-effort——拒绝/冻结已成立后调用，失败只以 CRITICAL 现身，绝不回滚状态
+   * （镜像提现 releaseLock 的口径）；两处冻结点竞态时输家跳过（赢家已擦）。
+   */
+  async releaseBirthLock(swap: any, why: string): Promise<string | null> {
+    try {
+      // 调用方可能只持窄行（批量冻单清单）——擦圈需要资产/金额字段，自取全行；
+      // 回吐退还金额串，供落地行的 releasedFromAmount 使用。
+      const full = await this.swapTransactionsService.findByIdInternal(swap.id);
+      const ctx = await this.buildLegContext(full, this.prisma);
+      const legSpecs = buildSwapLegPlan({ fromIsFiat: ctx.fromIsFiat });
+      await this.swapLegAccounting.voidLeg({ ...ctx, attempt: 1 }, legSpecs[0]!, this.prisma);
+      return String(full.fromAmount);
+    } catch (err) {
+      this.logger.error(
+        `CRITICAL: failed to void swap birth lock for ${swap.swapNo} (${why}) — sell-side funds may stay locked: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+      return null;
+    }
+  }
+
+  /**
+   * 站3-β 统一信封：兑换域每条业务留痕的公共骨架——actionDomain/旅程号继承/
+   * subjects 角色（主体=单号/归属=客户号/牵连=资金单号）/防静默去重 requestId/
+   * 来源通道；client 透传（兑换多数留痕与状态迁移同事务）。人为动作传 actor →
+   * recordByActor。镜像 deposit/withdraw 两域助手（deliberate fork，词表独立演进）。
+   */
+  private async swapAudit(
+    swap: any,
+    patch: {
+      action: string;
+      outcome?: AuditOutcome;
+      reasonCode?: string;
+      reason?: string;
+      fromStatus?: string;
+      toStatus?: string;
+      fundsOrderNo?: string;
+      metadata?: Record<string, unknown>;
+      actor?: AuditActorContext;
+      sourcePlatform?: string;
+    },
+    client?: any,
+  ): Promise<void> {
+    const customerNo: string | null = swap.ownerNo ?? swap.customer?.customerNo ?? null;
+    const swapNo: string | undefined = swap.swapNo || undefined;
+    const subjects: AuditSubjectInput[] = [];
+    if (swapNo) {
+      subjects.push({ subjectType: AuditEntityTypes.SWAP_TRANSACTION, subjectNo: swapNo, subjectRole: AuditSubjectRole.PRIMARY });
+    }
+    if (customerNo) {
+      subjects.push({ subjectType: 'CUSTOMER', subjectNo: customerNo, subjectRole: AuditSubjectRole.OWNER });
+    }
+    if (patch.fundsOrderNo) {
+      subjects.push({ subjectType: 'FUNDS_ORDER', subjectNo: patch.fundsOrderNo, subjectRole: AuditSubjectRole.RELATED });
+    }
+    const input = {
+      action: patch.action,
+      actionDomain: 'SWAP',
+      category: AuditCategory.BUSINESS,
+      primarySubjectType: AuditEntityTypes.SWAP_TRANSACTION,
+      primarySubjectNo: swapNo,
+      ownerCustomerNo: customerNo ?? undefined,
+      correlationId: swap.correlationId ?? undefined,
+      outcome: patch.outcome ?? AuditOutcome.SUCCESS,
+      reasonCode: patch.reasonCode,
+      reason: patch.reason,
+      fromStatus: patch.fromStatus,
+      toStatus: patch.toStatus,
+      subjects,
+      traceId: swap.traceId || undefined,
+      metadata: patch.metadata,
+      requestId: `${patch.action}_${swapNo ?? swap.id}_${randomUUID()}`,
+      sourcePlatform: patch.sourcePlatform ?? 'SYSTEM',
+    };
+    if (patch.actor) {
+      if (client) await this.auditLogsService.recordByActor(input as any, patch.actor as any, client);
+      else await this.auditLogsService.recordByActor(input as any, patch.actor as any);
+    } else {
+      if (client) await this.auditLogsService.recordSystem(input as any, client);
+      else await this.auditLogsService.recordSystem(input as any);
+    }
+  }
+
   private async buildLegContext(swap: any, tx: any): Promise<SwapSettleCtx> {
     const [fromAsset, toAsset] = await Promise.all([
       tx.asset.findUnique({ where: { id: swap.fromAssetId }, select: { decimals: true, currency: true, type: true } }),
@@ -1349,8 +1416,12 @@ export class SwapWorkflowService {
     );
     // Book this attempt's pending TB entries. deterministicTransferId keys on
     // attempt so retried legs never collide with the failed attempt's pending.
+    // 出生锁例外：腿1第1次的圈在下单事务里已画（executeFromQuote），此处只铸单据——
+    // 编号同为 (SWap, swapNo, eventCode, attempt=1)，postLeg 落笔天然命中出生圈。
     const legCtx = { ...ctx, attempt };
-    await this.swapLegAccounting.initiateLegPending(legCtx, spec, tx);
+    if (!(legSeq === 1 && attempt === 1)) {
+      await this.swapLegAccounting.initiateLegPending(legCtx, spec, tx);
+    }
     await this.swapTransactionsService.recomputeProjections(
       swap.id,
       (n) => this.stageOf(n),
@@ -1490,33 +1561,22 @@ export class SwapWorkflowService {
       'SYSTEM',
       client,
     );
-    await this.auditLogsService.recordSystem(
-      {
-        action: AuditActions.SWAP_LEG_POSTED,
-        primarySubjectType: AuditEntityTypes.SWAP_TRANSACTION,
-        primarySubjectNo: swap.swapNo,
-        traceId: swap.traceId ?? swap.swapNo,
-        reason: `Swap leg ${legSeq} posted`,
-        metadata: { legSeq, attempt: event.attempt },
-        sourcePlatform: 'SYSTEM',
-      },
-      client,
-    );
+    await this.swapAudit(swap, {
+      action: 'SWAP_LEG_POSTED',
+      reason: `Swap leg ${legSeq} posted`,
+      fundsOrderNo: event.fundsOrderNo,
+      metadata: { legSeq, attempt: event.attempt },
+    }, client);
 
     const isLast = legSeq >= SwapWorkflowService.TOTAL_LEGS;
     if (isLast) {
-      await this.swapTransactionsService.markStatus(swap.id, SwapTransactionAction.SUCCESS, client);
-      await this.auditLogsService.recordSystem(
-        {
-          action: AuditActions.SWAP_SUCCEEDED,
-          primarySubjectType: AuditEntityTypes.SWAP_TRANSACTION,
-          primarySubjectNo: swap.swapNo,
-          traceId: swap.traceId ?? swap.swapNo,
-          reason: 'Swap settlement completed — all legs cleared',
-          sourcePlatform: 'SYSTEM',
-        },
-        client,
-      );
+      const succeededNext = await this.swapTransactionsService.markStatus(swap.id, SwapTransactionAction.SUCCESS, client);
+      await this.swapAudit(swap, {
+        action: 'SWAP_SUCCEEDED',
+        reason: 'Swap settlement completed — all legs cleared',
+        fromStatus: swap.status,
+        toStatus: succeededNext,
+      }, client);
       // SUCCESS: no leg created, so recompute is not covered by createLeg.
       await this.swapTransactionsService.recomputeProjections(
         swap.id,
@@ -1556,35 +1616,25 @@ export class SwapWorkflowService {
     if (failedAttempt < SwapWorkflowService.MAX_LEG_ATTEMPTS) {
       const nextAttempt = failedAttempt + 1;
       // createLeg recomputes projections internally (I2).
-      await this.createLeg(swap, spec, ctx, legSeq, nextAttempt, swap.traceId ?? undefined, client);
-      await this.auditLogsService.recordSystem(
-        {
-          action: AuditActions.SWAP_LEG_RETRIED,
-          primarySubjectType: AuditEntityTypes.SWAP_TRANSACTION,
-          primarySubjectNo: swap.swapNo,
-          traceId: swap.traceId ?? swap.swapNo,
-          reason: `Swap leg ${legSeq} failed (attempt ${failedAttempt}/${SwapWorkflowService.MAX_LEG_ATTEMPTS}); retry attempt ${nextAttempt} created`,
-          metadata: { legSeq, failedAttempt, nextAttempt, failedStatus: event.newStatus },
-          sourcePlatform: 'SYSTEM',
-        },
-        client,
-      );
+      const retryLeg = await this.createLeg(swap, spec, ctx, legSeq, nextAttempt, swap.traceId ?? undefined, client);
+      await this.swapAudit(swap, {
+        action: 'SWAP_LEG_RETRIED',
+        reason: `Swap leg ${legSeq} failed (attempt ${failedAttempt}/${SwapWorkflowService.MAX_LEG_ATTEMPTS}); retry attempt ${nextAttempt} created`,
+        fundsOrderNo: retryLeg?.fundsOrderNo,
+        metadata: { legSeq, failedAttempt, nextAttempt, failedStatus: event.newStatus },
+      }, client);
     } else {
       // attempts == MAX_LEG_ATTEMPTS → STUCK: flag the swap for manual resume.
       // The funds_order stays terminal; needsReview is tracked on the swap.
       await this.swapTransactionsService.setNeedsReview(swap.id, true, client);
-      await this.auditLogsService.recordSystem(
-        {
-          action: AuditActions.SWAP_LEG_STUCK,
-          primarySubjectType: AuditEntityTypes.SWAP_TRANSACTION,
-          primarySubjectNo: swap.swapNo,
-          traceId: swap.traceId ?? swap.swapNo,
-          reason: `Swap leg ${legSeq} stuck after ${failedAttempt} failed attempts; awaiting manual resume`,
-          metadata: { legSeq, attempts: failedAttempt, lastFailedStatus: event.newStatus },
-          sourcePlatform: 'SYSTEM',
-        },
-        client,
-      );
+      await this.swapAudit(swap, {
+        action: 'SWAP_LEG_STUCK',
+        outcome: AuditOutcome.FAILED,
+        reasonCode: 'LEG_EXHAUSTED',
+        reason: `Swap leg ${legSeq} stuck after ${failedAttempt} failed attempts; awaiting manual resume`,
+        fundsOrderNo: event.fundsOrderNo,
+        metadata: { legSeq, attempts: failedAttempt, lastFailedStatus: event.newStatus },
+      }, client);
     }
     // NOTE: do NOT markStatus FAILED — self-heal keeps swap in PROCESSING.
   }
@@ -1630,18 +1680,13 @@ export class SwapWorkflowService {
       // Clear the STUCK flag now that a fresh attempt is in flight.
       await this.swapTransactionsService.setNeedsReview(swap.id, false, client);
 
-      await this.auditLogsService.recordSystem(
-        {
-          action: AuditActions.SWAP_LEG_RESUMED,
-          primarySubjectType: AuditEntityTypes.SWAP_TRANSACTION,
-          primarySubjectNo: swap.swapNo,
-          traceId: swap.traceId ?? swap.swapNo,
-          reason: `Swap leg ${legSeq} manually resumed by ${operatorId} (attempt ${resumedAttempt})`,
-          metadata: { legSeq, resumedAttempt, fromAttempt },
-          sourcePlatform: 'SYSTEM',
-        },
-        client,
-      );
+      await this.swapAudit(swap, {
+        action: 'SWAP_LEG_RESUMED',
+        reason: `Swap leg ${legSeq} manually resumed by ${operatorId} (attempt ${resumedAttempt})`,
+        metadata: { legSeq, resumedAttempt, fromAttempt },
+        actor: { actorType: 'ADMIN', actorNo: operatorId, actorDisplayName: operatorId, actorRolesAtTime: ['ADMIN'] },
+        sourcePlatform: 'ADMIN_API',
+      }, client);
 
       return { swapId: swap.id, legSeq, resumedAttempt };
     });
@@ -1665,14 +1710,10 @@ export class SwapWorkflowService {
       `Swap capability gate FAIL at ${stage}: swap ${swap.swapNo} — SWAP blocked → halting leg progression`,
     );
     await this.swapTransactionsService.setNeedsReview(swap.id, true).catch(() => undefined);
-    await this.auditLogsService.recordSystem({
-      action: AuditActions.SWAP_LEG_HALTED_BY_RESTRICTION,
-      primarySubjectType: AuditEntityTypes.SWAP_TRANSACTION,
-      primarySubjectNo: swap.swapNo || undefined,
-      traceId: swap.traceId || undefined,
+    await this.swapAudit(swap, {
+      action: 'SWAP_LEG_HALTED_BY_RESTRICTION',
       reason: `Customer SWAP capability restricted at ${stage} — in-flight swap leg progression halted`,
-      metadata: { swapNo: swap.swapNo, stage },
-      sourcePlatform: 'SYSTEM',
+      metadata: { stage },
     });
     return false;
   }
@@ -1719,6 +1760,8 @@ export class SwapWorkflowService {
               { rejectReason: 'SANCTION_APPLICANT' },
             );
           });
+          // 出生锁擦圈（业主裁定：冻结终态不押钱——押人靠限制账，本事件正是冻人广播）。
+          await this.releaseBirthLock(sw, `customer restriction ${event.restrictionNo}`);
           // 铁律①：有持久状态、operator 可见 → 必须写审计。
           //
           // 审计调用独立 catch（与 deposit/withdraw 的 onCustomerRestrictionOpened
@@ -1726,15 +1769,12 @@ export class SwapWorkflowService {
           // 审计写入失败会被下面 catch 的自咬回读判据（"已经 FROZEN 就是良性抢跑"）
           // 误判成良性而静默，那正是本批要消灭的。审计失败与状态跃迁失败必须分开：
           // 这里失败只以 logger.error 现身，绝不让一笔已经冻结成功的单被判成失败。
-          await this.auditLogsService
-            .recordSystem({
-              action: AuditActions.SWAP_FROZEN,
-              primarySubjectType: AuditEntityTypes.SWAP_TRANSACTION,
-              primarySubjectNo: sw.swapNo || undefined,
-              ownerCustomerNo: sw.ownerNo || undefined,
-              traceId: sw.traceId || event.traceId || undefined,
-              reason: `Frozen by customer restriction ${event.restrictionNo} (${event.cause})`,
-              sourcePlatform: 'SYSTEM',
+          await this.swapAudit(sw, {
+              action: 'SWAP_FROZEN',
+              reason: `Frozen by customer restriction ${event.restrictionNo} (${event.cause}) — sell-side birth lock released to balance`,
+              fromStatus: SwapTransactionStatus.COMPLIANCE_PENDING,
+              toStatus: SwapTransactionStatus.FROZEN,
+              metadata: { restrictionNo: event.restrictionNo, cause: event.cause, releasedFromAmount: String(sw.fromAmount) },
             })
             .catch((err) => {
               this.logger.error(

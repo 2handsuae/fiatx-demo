@@ -1,9 +1,12 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
+import { OnEvent } from '@nestjs/event-emitter';
+import { DomainEventNames } from '../../common/events/domain-events.constants';
 import { AuditLogsService } from '../audit-logging/audit-logs.service';
 import {
   AuditActions, AuditEntityTypes, AuditWorkflowTypes,
 } from '../audit-logging/constants/audit-actions.constant';
-import { AuditOutcome } from '../audit-logging/dto/audit-log.dto';
+import { AuditOutcome, AuditCategory, AuditSubjectRole } from '../audit-logging/dto/audit-log.dto';
+import { randomUUID } from 'crypto';
 import { PrismaService } from '../../core/prisma/prisma.service';
 import { CustomersService } from '../identity/customers/customers.service';
 import { MaterialRequestsService } from '../identity/material-requests/material-requests.service';
@@ -35,7 +38,26 @@ export class SwapApplicantActionHandler {
     private readonly materialRequests: MaterialRequestsService,
   ) {}
 
-  /** 由 MaterialRequestReviewService 在 GREEN 落地后回调；非兑换域的行直接返回。 */
+  /**
+   * 站3-α2：材料复核 GREEN 落地后经域事件到达。原为 MaterialRequestReviewService
+   * 直调本 handler——材料账不该知道兑换域的存在（铁律③），改听
+   * MATERIAL_REQUEST_REVIEWED；文件级装载链 customers→material-requests→swap-sumsub
+   * 就此断根。失败只记警告：一条旁路审计不该有能力阻断任何主流程（原调用方同款口径）。
+   */
+  @OnEvent(DomainEventNames.MATERIAL_REQUEST_REVIEWED, { async: true })
+  async onMaterialRequestReviewed(event: { requestNo: string; outcome: string }): Promise<void> {
+    if (event.outcome !== 'APPROVED') return;
+    try {
+      await this.noteHardLineHeld(event.requestNo);
+    } catch (e) {
+      this.logger.warn(
+        `noteHardLineHeld failed for material request ${event.requestNo} — swap hard-line audit ` +
+          `note was not recorded: ${e instanceof Error ? e.message : String(e)}`,
+      );
+    }
+  }
+
+  /** 事件入口 onMaterialRequestReviewed 调用；非兑换域的行直接返回。 */
   async noteHardLineHeld(requestNo: string): Promise<void> {
     const row = await this.materialRequests.findByNo(requestNo);
     if (!row || row.orderDomain !== 'SWAP') return;
@@ -48,17 +70,30 @@ export class SwapApplicantActionHandler {
       select: { customerNo: true },
     });
 
+    // 旅程归属：本留痕挂回引发硬线的那笔兑换的旅程（材料行的 orderRef=swapNo）。
+    const originSwap = row.orderRef
+      ? await this.prisma.swapTransaction.findFirst({ where: { swapNo: row.orderRef }, select: { correlationId: true } })
+      : null;
     await this.auditLogsService.recordSystem({
       action: AuditActions.SWAP_ACTION_GREEN_HARDLINE_HELD,
+      actionDomain: 'SWAP',
+      category: AuditCategory.BUSINESS,
       primarySubjectType: AuditEntityTypes.CUSTOMER,
       primarySubjectNo: customer?.customerNo || undefined,
+      ownerCustomerNo: customer?.customerNo || undefined,
+      correlationId: originSwap?.correlationId ?? undefined,
       outcome: AuditOutcome.SUCCESS,
+      subjects: [
+        ...(customer?.customerNo ? [{ subjectType: AuditEntityTypes.CUSTOMER, subjectNo: customer.customerNo, subjectRole: AuditSubjectRole.PRIMARY }] : []),
+        ...(row.orderRef ? [{ subjectType: AuditEntityTypes.SWAP_TRANSACTION, subjectNo: row.orderRef, subjectRole: AuditSubjectRole.RELATED }] : []),
+      ],
       reason:
         `Material request ${requestNo} reviewed GREEN, but this customer carries a sticky ` +
         'hard-line disposition — restrictions deliberately held. Recorded so an investigator ' +
         'can verify the GREEN was seen and consciously not acted on.',
       metadata: { requestNo, orderRef: row.orderRef },
+      requestId: `SWAP_ACTION_GREEN_HARDLINE_HELD_${requestNo}_${randomUUID()}`,
       sourcePlatform: 'SYSTEM',
-    });
+    } as any);
   }
 }

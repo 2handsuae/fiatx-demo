@@ -1295,6 +1295,7 @@ model SwapTransaction {
   status           String
   currentStage     String?
   needsReview      Boolean          @default(false)
+  correlationId    String?
   l1Snapshot       String?
   slaDeadline      DateTime?
   slaBreached      Boolean          @default(false)

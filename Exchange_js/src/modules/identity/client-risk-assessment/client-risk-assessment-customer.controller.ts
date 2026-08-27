@@ -2,7 +2,6 @@ import { Controller, Get, Post, Req, UseGuards, BadRequestException, Inject } fr
 import { AuthGuard } from '@nestjs/passport';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import { PrismaService } from '../../../core/prisma/prisma.service';
-import { SumsubIngestionService } from '../../sumsub-ingestion/sumsub-ingestion.service';
 
 @ApiTags('Customer - Compliance')
 @Controller('compliance')
@@ -12,7 +11,6 @@ export class ClientRiskAssessmentCustomerController {
   constructor(
     @Inject(PrismaService)
     private readonly prisma: PrismaService & Record<string, any>,
-    private readonly ingestionService: SumsubIngestionService,
   ) {}
 
   @Get('me')
@@ -59,32 +57,7 @@ export class ClientRiskAssessmentCustomerController {
     };
   }
 
-  /** Mock-mode only: simulate customer completing Level 2 workflow */
-  @Post('verification/mock-complete-level2')
-  async mockCompleteLevel2(@Req() req: any) {
-    const customerId = req.user?.sub;
-    const customer = await this.prisma.customerMain.findUnique({
-      where: { id: customerId },
-      select: { sumsubApplicantId: true },
-    });
-
-    if (!customer) {
-      throw new BadRequestException('Customer not found');
-    }
-    if (!customer?.sumsubApplicantId) {
-      throw new BadRequestException('No Sumsub applicant ID');
-    }
-
-    return this.ingestionService.ingest(
-      {
-        type: 'applicantWorkflowCompleted',
-        applicantId: customer.sumsubApplicantId,
-        externalUserId: customerId,
-        levelName: 'wave3-level-2',
-        reviewResult: { reviewAnswer: 'GREEN' },
-        createdAtMs: String(Date.now()),
-      },
-      { isSimulated: true, simulatedByUserId: customerId },
-    );
-  }
+  // 站3-α2：mock-complete-level2 演示端点摘入 CraDemoController（cra-demo.module.ts，
+  // AppModule 挂载，路由原样）——它是本模块引 SumsubIngestionModule 的唯一原因，
+  // 摘走后 identity→ingestion→全交易域 的文件级装载链断根。
 }

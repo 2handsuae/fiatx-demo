@@ -339,8 +339,18 @@ describe('Swap Sumsub verdict buttons (e2e, Task 12)', () => {
   }
 
   async function auditActionsFor(entityId: string, entityType: string): Promise<string[]> {
+    // 8/25 审计改表后按业务键查（primarySubjectNo/Type）；先按类型解出对应单号。
+    let subjectNo: string | null = null;
+    if (entityType === AuditEntityTypes.SWAP_TRANSACTION) {
+      subjectNo = (await (prisma as any).swapTransaction.findUnique({ where: { id: entityId }, select: { swapNo: true } }))?.swapNo ?? null;
+    } else if (entityType === AuditEntityTypes.MATERIAL_REQUEST) {
+      subjectNo = (await (prisma as any).materialRequest.findUnique({ where: { id: entityId }, select: { requestNo: true } }))?.requestNo ?? null;
+    } else if (entityType === AuditEntityTypes.CUSTOMER) {
+      subjectNo = entityId; // V2 域未换新合同,客户限制审计仍以 UUID 为主对象号
+    }
+    if (!subjectNo) return [];
     const rows = await (prisma as any).auditLogEvent.findMany({
-      where: { entityId, entityType },
+      where: { primarySubjectNo: subjectNo, primarySubjectType: entityType },
       select: { action: true },
     });
     return rows.map((r: any) => r.action);
@@ -544,7 +554,7 @@ describe('Swap Sumsub verdict buttons (e2e, Task 12)', () => {
     expect(await materialRequests.listLiveByOrder('SWAP', v5Swap.swapNo)).toHaveLength(0);
   });
 
-  it('sticky hard-line silences a later, otherwise-soft-line verdict (V3 delivered after the V4 sanction)', async () => {
+  it('sticky hard-line silences a later, otherwise-soft-line verdict（V4 制裁后送达的 V3：单已被客户级冻结广播冻住,裁决被幂等闸吞,沉默依旧零材料请求）', async () => {
     // v3bSwap was CREATED before the sanction (customer was unrestricted at
     // the time) but the verdict is delivered here, after V4 already stamped
     // hardLineDispositionedAt — Review Fix 2's cross-order persistence: this
@@ -553,9 +563,11 @@ describe('Swap Sumsub verdict buttons (e2e, Task 12)', () => {
     // DIFFERENT swap in between.
     await deliver(v3bSwap.id, 'V3_REJECTED_ACTION');
 
-    expect(await statusOf(v3bSwap.id)).toBe(SwapTransactionStatus.REJECTED);
-    // exposeToCustomer=false（alreadyHardLined）→ 材料请求登记循环整段跳过，
-    // 即便这次裁决本身带着 action 也不登记 —— 这正是本用例要证明的持久沉默。
+    // 2026-08-20 制裁分主体批之后的现行裁定（业主 2026-08-27 复述确认：人冻了，
+    // 他的在途单全冻）：v4 的制裁开出客户限制那一刻，广播就把当时还在
+    // COMPLIANCE_PENDING 的 v3b 一并冻成 FROZEN；随后这份迟到的软线裁决撞上
+    // FROZEN 幂等闸被 IGNORE。持久沉默的性质不变——零材料请求（本用例的本体断言）。
+    expect(await statusOf(v3bSwap.id)).toBe(SwapTransactionStatus.FROZEN);
     expect(await materialRequests.listLiveByOrder('SWAP', v3bSwap.swapNo)).toHaveLength(0);
   });
 });

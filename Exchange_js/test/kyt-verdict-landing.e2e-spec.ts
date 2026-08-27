@@ -22,6 +22,7 @@ if (!process.env.DATABASE_URL?.includes('e2e-')) {
   );
 }
 
+import { randomUUID } from 'crypto';
 import { Test } from '@nestjs/testing';
 import { INestApplication } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
@@ -87,6 +88,7 @@ describe('第一批 · 合规裁决落地 (e2e)', () => {
     return prisma.depositTransaction.create({
       data: {
         depositNo: no,
+        correlationId: randomUUID(),
         ownerType: 'CUSTOMER',
         ownerId: customerId,
         assetId,
@@ -114,7 +116,7 @@ describe('第一批 · 合规裁决落地 (e2e)', () => {
     expect(after.status).toBe(DepositTransactionStatus.FROZEN);
 
     const audits = await prisma.auditLogEvent.findMany({
-      where: { primarySubjectNo: dep.id, action: AuditActions.DEPOSIT_KYT_VERDICT_IGNORED },
+      where: { primarySubjectNo: dep.depositNo, action: AuditActions.DEPOSIT_KYT_VERDICT_IGNORED },
     });
     expect(audits.length).toBeGreaterThanOrEqual(1);
   });
@@ -130,6 +132,7 @@ describe('第一批 · 合规裁决落地 (e2e)', () => {
     const wd = await prisma.withdrawTransaction.create({
       data: {
         withdrawNo: `E2E-WD-${Date.now()}`,
+        correlationId: randomUUID(),
         ownerType: 'CUSTOMER',
         ownerId: customerId,
         assetId,
@@ -145,7 +148,7 @@ describe('第一批 · 合规裁决落地 (e2e)', () => {
     }
 
     const audits = await prisma.auditLogEvent.findMany({
-      where: { primarySubjectNo: wd.id, action: AuditActions.WITHDRAW_KYT_VERDICT_IGNORED },
+      where: { primarySubjectNo: wd.withdrawNo, action: AuditActions.WITHDRAW_KYT_VERDICT_IGNORED },
     });
     expect(audits).toHaveLength(3);
   });
@@ -154,6 +157,7 @@ describe('第一批 · 合规裁决落地 (e2e)', () => {
     const swap = await prisma.swapTransaction.create({
       data: {
         swapNo: `E2E-SWP-R-${Date.now()}`,
+        correlationId: randomUUID(),
         ownerType: 'CUSTOMER',
         ownerId: customerId,
         fromAssetId: assetId,
@@ -170,7 +174,7 @@ describe('第一批 · 合规裁决落地 (e2e)', () => {
       .applyKytVerdict(swap.id, { verdict: 'rejected', typedTags: ['SANCTION'] });
 
     const ignored = await prisma.auditLogEvent.findMany({
-      where: { primarySubjectNo: swap.id, action: AuditActions.SWAP_KYT_VERDICT_IGNORED },
+      where: { primarySubjectNo: swap.swapNo, action: AuditActions.SWAP_KYT_VERDICT_IGNORED },
     });
     expect(ignored).toHaveLength(0);
   });
@@ -179,6 +183,7 @@ describe('第一批 · 合规裁决落地 (e2e)', () => {
     const swap = await prisma.swapTransaction.create({
       data: {
         swapNo: `E2E-SWP-S-${Date.now()}`,
+        correlationId: randomUUID(),
         ownerType: 'CUSTOMER',
         ownerId: customerId,
         fromAssetId: assetId,
@@ -195,7 +200,7 @@ describe('第一批 · 合规裁决落地 (e2e)', () => {
     const after = await prisma.swapTransaction.findUniqueOrThrow({ where: { id: swap.id } });
     expect(after.status).toBe(SwapTransactionStatus.SUCCESS);
     const audits = await prisma.auditLogEvent.findMany({
-      where: { primarySubjectNo: swap.id, action: AuditActions.SWAP_KYT_VERDICT_IGNORED },
+      where: { primarySubjectNo: swap.swapNo, action: AuditActions.SWAP_KYT_VERDICT_IGNORED },
     });
     expect(audits.length).toBeGreaterThanOrEqual(1);
   });

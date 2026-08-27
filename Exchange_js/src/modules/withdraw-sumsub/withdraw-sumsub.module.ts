@@ -1,4 +1,4 @@
-import { Module, forwardRef } from '@nestjs/common';
+import { Module } from '@nestjs/common';
 import { WithdrawWebhookRouter } from './withdraw-webhook.router';
 import { WithdrawKytVerdictHandler } from './withdraw-kyt-verdict.handler';
 import { WithdrawSlaService } from './withdraw-sla.service';
@@ -13,13 +13,12 @@ import { SumsubTxnClientModule } from '../deposit-sumsub/sumsub-txn-client.modul
  *    forwardRef 边拆除——两域仍共用同一套 Sumsub 凭据/开关（叶子里同一个 provider）。
  *  - 演示件（场景服务 + ⚡按钮 controller）摘入 WithdrawDemoModule（AppModule 挂载）
  *    ——本模块不再引 ingestion，提现侧的 本模块↔ingestion 环就地解开。
- *  - 对 WithdrawTransactionsModule 保留 forwardRef：文件级装载链
- *    customers→material-requests→swap-sumsub→sumsub-ingestion→本模块→WTM 转圈
- *    回来（与充值侧 DTM 同款实测缘由），站3/6 拆链前不可解包。
+ *  - 站3-α2：钉住 WTM 边的装载链已拆断（swap-sumsub 直调环事件化 +
+ *    CRA→ingestion 演示件独立挂载），对 WithdrawTransactionsModule 平引用。
  */
 @Module({
   imports: [
-    forwardRef(() => WithdrawTransactionsModule),
+    WithdrawTransactionsModule,
     SumsubTxnClientModule,
   ],
   providers: [

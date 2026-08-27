@@ -146,7 +146,6 @@ function buildHarness(cycleStatus: string) {
     { findByNo: jest.fn() } as any, // restrictionNo 为 null，applyReview 内部不会调它
     { autoRelease: jest.fn().mockResolvedValue(undefined) } as any,
     eventEmitter,
-    { noteHardLineHeld: jest.fn().mockResolvedValue(undefined) } as any,
   );
 
   return {

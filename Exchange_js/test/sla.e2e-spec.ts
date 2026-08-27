@@ -21,6 +21,7 @@ if (!process.env.DATABASE_URL?.includes('e2e-')) {
   );
 }
 
+import { randomUUID } from 'crypto';
 import { Test } from '@nestjs/testing';
 import { INestApplication } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
@@ -282,6 +283,7 @@ describe('第三批 · 三域 SLA (e2e)', () => {
       const swap = await swapService.create(
         {
           swapNo,
+          correlationId: randomUUID(),
           quoteId: null as unknown as string, // 无真实 quote；可空外键，null 对 FK 校验放行（已实测）
           quoteNo: null,
           ownerType: 'CUSTOMER',

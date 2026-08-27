@@ -1,11 +1,10 @@
-import { forwardRef, Inject, Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { PrismaService } from '../../../core/prisma/prisma.service';
 import { DomainEventNames } from '../../../common/events/domain-events.constants';
 import { MaterialRequestsService, type MaterialActor } from './material-requests.service';
 import { CustomerRestrictionsService } from '../customers/customer-restrictions.service';
 import { CustomerRestrictionWorkflowService } from '../customers/customer-restriction-workflow.service';
-import { SwapApplicantActionHandler } from '../../swap-sumsub/applicant-action.handler';
 
 export type ReviewOutcome = 'APPROVED' | 'RETRY' | 'REJECTED';
 
@@ -27,12 +26,6 @@ export class MaterialRequestReviewService {
     private readonly restrictions: CustomerRestrictionsService,
     private readonly restrictionWorkflow: CustomerRestrictionWorkflowService,
     private readonly eventEmitter: EventEmitter2,
-    // Task 10：GREEN 落地后回调兑换域，让它记一条「被硬线客户 GREEN 到过、限制
-    // 仍被刻意保留」的审计——这条判断依据（hardLineDispositionedAt）是兑换域
-    // 独有的，材料账本身不该知道。forwardRef 因为 SwapSumsubModule 也要反过来
-    // 引 MaterialRequestsModule（拿 MaterialRequestsService）。
-    @Inject(forwardRef(() => SwapApplicantActionHandler))
-    private readonly swapApplicantActionHandler: SwapApplicantActionHandler,
   ) {}
 
   async applyReview(input: {
@@ -86,30 +79,9 @@ export class MaterialRequestReviewService {
       return reviewed;
     });
 
-    // Task 10：GREEN 落地后回调兑换域，让它记一条「被硬线客户 GREEN 到过、限制
-    // 仍被刻意保留」的审计。放在事务提交之后——noteHardLineHeld 自己另起一次
-    // 读 + 写（非事务 client），塞进上面那个 $transaction 里会在 SQLite 单写者
-    // 下卡等锁（CLAUDE.md 规则 2 的反例，见 gotcha 记录）。非 SWAP 域的行 / 未
-    // 被硬线过的客户，noteHardLineHeld 内部直接 no-op 返回，这里不用先判断。
-    //
-    // 终审 Important #5：这是一条纯审计的旁路（3 次读 + 1 次审计写），此前裸
-    // await、无 try/catch。跑在事务提交后、下面事件广播之前——它抛，
-    // applyReview 就跟着抛，MATERIAL_REQUEST_REVIEWED **永不广播**：材料重检
-    // 域 cycle 卡 PENDING、证件到期日不刷新、CRA 不级联；webhook 重试时行已
-    // APPROVED，markReviewed 走非法边再抛 → DEAD。行已 APPROVED、便签已
-    // RELEASED，下游全部静默失联——正是 Task 11 花一整轮修的那类故障。一条
-    // 旁路审计不该有能力阻断域事件，失败只记警告，不能中断主流程。
-    if (outcome === 'APPROVED') {
-      try {
-        await this.swapApplicantActionHandler.noteHardLineHeld(updated.requestNo);
-      } catch (e) {
-        this.logger.warn(
-          `noteHardLineHeld failed for material request ${updated.requestNo} — swap hard-line audit ` +
-            `note was not recorded, but the review itself (and the MATERIAL_REQUEST_REVIEWED event) ` +
-            `proceeds regardless: ${e instanceof Error ? e.message : String(e)}`,
-        );
-      }
-    }
+    // 站3-α2：原「GREEN 落地后直调兑换域 noteHardLineHeld」已事件化——兑换侧
+    // 改听下方广播的 MATERIAL_REQUEST_REVIEWED（applicant-action.handler.ts），
+    // 材料账不再知道兑换域的存在；旁路审计失败不阻断主流程的口径原样保留在那侧。
 
     // 事件必须在事务提交之后才广播：事务体内部发的话，一旦回滚，下游会按一个
     // 从未真正发生过的事实动作行事。
