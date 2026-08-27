@@ -66,10 +66,17 @@ export class WalletsService {
     await this.auditLogsService.recordByActor(
       {
         action: AuditActions.WALLET_STATUS_UPDATED,
+        actionDomain: 'CONFIG',
         primarySubjectType: AuditEntityTypes.WALLET,
         primarySubjectNo: result.walletNo || undefined,
         ownerCustomerNo: before.ownerNo || undefined,
+        subjects: result.walletNo ? [
+          { subjectType: AuditEntityTypes.WALLET, subjectNo: result.walletNo, subjectRole: 'PRIMARY' as any },
+        ] : undefined,
+        requestId: `WALLET_STATUS_UPDATED_${result.walletNo}_${randomUUID()}`,
         traceId: randomUUID(),
+        fromStatus: before.status,
+        toStatus: status,
         outcome: AuditOutcome.SUCCESS,
         reason: `Wallet status changed: ${before.status} → ${status}`,
         sourcePlatform: 'ADMIN_API',

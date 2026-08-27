@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import {
   BadRequestException,
   ForbiddenException,
@@ -683,12 +684,17 @@ export class InboundTransferSignalsService {
     const { action, signal, reason, metadata, sourcePlatform } = params;
     await this.auditLogsService.recordSystem({
       action,
+      actionDomain: 'DEPOSIT',
       primarySubjectType: AuditEntityTypes.INBOUND_TRANSFER_SIGNAL,
       primarySubjectNo: signal.signalNo,
+      subjects: [
+        { subjectType: AuditEntityTypes.INBOUND_TRANSFER_SIGNAL, subjectNo: signal.signalNo, subjectRole: 'PRIMARY' },
+      ],
       reason,
+      requestId: `${action}_${signal.signalNo}_${randomUUID()}`,
       metadata,
       sourcePlatform,
-    });
+    } as any);
   }
 
   private describeError(error: unknown) {
