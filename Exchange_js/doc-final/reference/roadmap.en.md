@@ -1,5 +1,6 @@
 # Product Roadmap
 
+> ⚠️ **2026-08-27 时点注**：Phase 4 代码回收七站已全部合 main（词表封册收官）。其间**一期客户流程（入驻/风评/升级案）整体拆除待接真 Sumsub 重做**（业主方案2，BACKLOG 在案）——本文涉及这三块的实现状态行已过时，实现现状以 doc-final/CHANGELOG.md 与 modules/ 为准；本文其余部分为产品应然层，不随代码回收改写。
 Last Updated: 2026-07-06
 
 > **Translation note**: This is the English rendering of [`roadmap.md`](roadmap.md). **The Chinese version remains the single source of truth** — when the two diverge, the Chinese file wins. Regulatory clause references, code identifiers, file paths and status markers are kept verbatim.

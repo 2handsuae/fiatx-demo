@@ -1,5 +1,7 @@
 # V2 客户管理+合规底座 — 深度审计留底（Customer Compliance Gap Audit）
 
+> ⚠️ **2026-08-27 时点注**：本审计所照的 CRA / 入驻实现已于站6 整体拆除待重做（业主方案2）。文中缺口作为**应然义务**参考仍有效，作为实现现状描述已过时。
+
 Date: 2026-07-06 ｜ Status: 首次深度审计定稿（V2 此前只做过体检+truth，无 deep-research；本次为全量找漏）
 Method: workflow harness，69 agent / 6 盲区猎手（CDD 生命周期 / PEP / 依赖 Sumsub 条件 / 客户准入硬边界 / CRA 方法论 / 冻结退场）拿 roadmap+truth 当基线**只找清单外义务** + 每条候选 3 视角对抗（条款真伪 / 真未覆盖 / 归属 V2）；21 候选 → **3 P0 + 8 P1 + 1 归 V9 + 1 待核 + 6 驳回**。护栏：BD-only 铁律、Corporate 域不报（已列将来项）、BACKLOG 已知缺口不重报、核不到一手原文只能 UNCERTAIN。
 ⚠️ **运行中 fable-5 撞月度额度上限**：最后一个盲区（冻结/退场）7 个 verify agent 挂掉，其 [17] 仅 2 票、[20] 0 票（见 caveat）。

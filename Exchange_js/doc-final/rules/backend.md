@@ -7,7 +7,7 @@ Last Updated: 2026-08-26 ｜ 取代 backend-platform.md（生产宪法版）。�
 | 层 | 文件 | 管什么 | 不管什么 |
 |---|---|---|---|
 | 主体服务 | `[domain].service.ts` | 自己实体的数据 + **显式迁移表**（状态集、动作、非法跃迁拒绝） | 不写业务审计、不订事件、不含跨主体流程 |
-| 审批子流程 | `[type]-approval.service.ts` | 一种审批动作的步骤 / SoD 配置（继承 ApprovalHandlerBase；现存一个钦定例外 onboarding-final-approval） | 不执行业务动作——审批通过后的动作归 workflow |
+| 审批子流程 | `[type]-approval.service.ts` | 一种审批动作的步骤 / SoD 配置（一律继承 ApprovalHandlerBase；旧日唯一钦定例外 onboarding-final-approval 已随一期拆除，2026-08-27） | 不执行业务动作——审批通过后的动作归 workflow |
 | 工作流 | `[domain]-workflow.service.ts` | 一条业务旅程从头到尾：串主体服务、发起审批、写业务审计、订阅事件 | **不直写任何主体的表**（铁律 §5.3） |
 
 - 一个业务流程 = 一个 workflow 文件，**读起来像 PRD 步骤**；方法名用业务动词（没收、退回、放行），不是技术动词。
