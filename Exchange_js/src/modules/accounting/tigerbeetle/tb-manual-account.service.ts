@@ -156,8 +156,14 @@ export class TbManualAccountService {
     await this.auditLogsService.recordByActor(
       {
         action: AuditActions.MANUAL_TB_ACCOUNT_CREATED,
+        actionDomain: 'CONFIG',
         primarySubjectType: AuditEntityTypes.TB_ACCOUNT,
         primarySubjectNo: created?.tbAccountId,
+        subjects: created?.tbAccountId ? [
+          { subjectType: AuditEntityTypes.TB_ACCOUNT, subjectNo: created.tbAccountId, subjectRole: 'PRIMARY' as any },
+        ] : undefined,
+        requestId: `MANUAL_TB_ACCOUNT_CREATED_${created?.tbAccountId}_${randomUUID()}`,
+        reason: `Manual TB account ${input.code} (${input.accountCategory}) created`,
         traceId: randomUUID(),
         outcome: AuditOutcome.SUCCESS,
         sourcePlatform: 'ADMIN_API',

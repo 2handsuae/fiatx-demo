@@ -225,13 +225,18 @@ export class RegulatoryGatesService {
     await this.auditLogsService.recordByActor(
       {
         action: input.action,
+        actionDomain: 'CONFIG',
         primarySubjectType: AuditEntityTypes.REGULATORY_GATE_ITEM,
         primarySubjectNo: input.primarySubjectNo,
+        subjects: [
+          { subjectType: AuditEntityTypes.REGULATORY_GATE_ITEM, subjectNo: input.primarySubjectNo, subjectRole: 'PRIMARY' },
+        ],
         traceId: input.traceId || undefined,
         outcome: AuditOutcome.SUCCESS,
         reason: input.reason || undefined,
+        requestId: `${input.action}_${input.primarySubjectNo}_${randomUUID()}`,
         sourcePlatform: 'ADMIN_API',
-      },
+      } as any,
       this.toAuditActor(actor),
       db,
     );

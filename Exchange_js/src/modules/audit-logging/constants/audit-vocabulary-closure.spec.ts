@@ -1,0 +1,124 @@
+import * as fs from 'fs';
+import * as path from 'path';
+import {
+  AuditActions,
+  AuditGovernanceActions,
+  V1_AUDIT_ACTIONS,
+  V4_DEPOSIT_AUDIT_ACTIONS,
+  V5_WITHDRAW_AUDIT_ACTIONS,
+  V6_SWAP_AUDIT_ACTIONS,
+  V8_RECON_AUDIT_ACTIONS,
+  V2_CUSTOMER_AUDIT_ACTIONS,
+  DEPRECATED_AUDIT_ACTIONS,
+} from './audit-actions.constant';
+
+/**
+ * 站7 封册守则（2026-08-27，Phase 4 末站之锚）——词表从此永不再散。
+ *
+ * 三层闭合：
+ *   ① 平面表归籍：AuditActions 每个串键要么在六本名册、要么在退役闸——无籍即红；
+ *   ② 附册封存：AuditGovernanceActions（V3 财务配置域遗留词汇，嵌套组形态）按
+ *      当日实况整册冻结——多一词少一词都红。正式入册（撞名族改名+四属性）是
+ *      未来 V3 站的活（BACKLOG 在案），冻结保证在那之前没人往里塞新词；
+ *   ③ 写点闭合（源扫描）：全仓生产代码引用的每个动作词 ∈ 六册 ∪ 附册，
+ *      且绝不引用退役词。扫描是本守则的执法手段，不是功能绿灯——功能对错
+ *      由各域行为测试负责（review-rubric 的"文本扫描自证"禁令针对后者）。
+ *
+ * 新词入册流程：先在对应 V*_AUDIT_ACTIONS 名册登记四属性，再接写点——
+ * 顺序反了本守则当场红。
+ */
+const REGISTRIES: Record<string, Record<string, unknown>> = {
+  V1_AUDIT_ACTIONS,
+  V4_DEPOSIT_AUDIT_ACTIONS,
+  V5_WITHDRAW_AUDIT_ACTIONS,
+  V6_SWAP_AUDIT_ACTIONS,
+  V8_RECON_AUDIT_ACTIONS,
+  V2_CUSTOMER_AUDIT_ACTIONS,
+};
+
+const registered = new Set<string>(
+  Object.values(REGISTRIES).flatMap((r) => Object.keys(r)),
+);
+const deprecated = new Set<string>(DEPRECATED_AUDIT_ACTIONS);
+
+function annexValues(node: unknown): string[] {
+  if (typeof node === 'string') return [node];
+  if (node && typeof node === 'object') {
+    return Object.values(node as Record<string, unknown>).flatMap(annexValues);
+  }
+  return [];
+}
+const annex = new Set<string>(annexValues(AuditGovernanceActions));
+
+describe('站7 · 词表封册守则', () => {
+  it('① 平面表归籍：每个串键 ∈ 六册 ∪ 退役闸，无籍即红', () => {
+    const flatKeys = Object.entries(AuditActions)
+      .filter(([, v]) => typeof v === 'string')
+      .map(([k]) => k);
+    const stateless = flatKeys.filter((k) => !registered.has(k) && !deprecated.has(k));
+    expect(stateless).toEqual([]);
+  });
+
+  it('② 六册两两互斥，且与退役闸零交集', () => {
+    const names = Object.keys(REGISTRIES);
+    for (let i = 0; i < names.length; i += 1) {
+      for (let j = i + 1; j < names.length; j += 1) {
+        const a = new Set(Object.keys(REGISTRIES[names[i]]));
+        const overlap = Object.keys(REGISTRIES[names[j]]).filter((k) => a.has(k));
+        expect({ pair: `${names[i]}∩${names[j]}`, overlap }).toEqual({
+          pair: `${names[i]}∩${names[j]}`,
+          overlap: [],
+        });
+      }
+    }
+    expect([...registered].filter((k) => deprecated.has(k))).toEqual([]);
+  });
+
+  it('③ 附册封存：V3 配置域遗留词汇整册冻结（正式入册前只出不进）', () => {
+    expect([...annex].sort()).toMatchSnapshot('v3-config-annex');
+  });
+
+  it('④ 写点闭合：生产代码引用的动作词 ∈ 六册 ∪ 附册，退役词零引用', () => {
+    const srcRoot = path.resolve(__dirname, '../../..');
+    const files: string[] = [];
+    const walk = (dir: string) => {
+      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+        const p = path.join(dir, entry.name);
+        if (entry.isDirectory()) walk(p);
+        else if (
+          entry.name.endsWith('.ts') &&
+          !entry.name.includes('.spec.') &&
+          !p.includes('audit-actions.constant')
+        ) {
+          files.push(p);
+        }
+      }
+    };
+    walk(srcRoot);
+
+    const offenders: string[] = [];
+    for (const f of files) {
+      const src = fs.readFileSync(f, 'utf8');
+      for (const m of src.matchAll(/\bAuditActions\.([A-Z][A-Z0-9_]+)\b/g)) {
+        const w = m[1];
+        if (!registered.has(w)) offenders.push(`${path.relative(srcRoot, f)}: AuditActions.${w}`);
+      }
+      // 双段词判据：审计词全部含下划线;单段大写(如资金单状态历史的 action: 'CREATE')
+      // 是别家字段的合法值,不在本守则管辖。
+      for (const m of src.matchAll(/\baction:\s*'([A-Z][A-Z0-9]*_[A-Z0-9_]+)'/g)) {
+        const w = m[1];
+        if (!registered.has(w) && !annex.has(w)) {
+          offenders.push(`${path.relative(srcRoot, f)}: '${w}'`);
+        }
+      }
+      for (const m of src.matchAll(/\bAuditGovernanceActions\.([A-Z][A-Z0-9_]+)(?:\.([A-Z][A-Z0-9_]+))?\b/g)) {
+        const group = (AuditGovernanceActions as any)[m[1]];
+        const leaf = m[2] ? group?.[m[2]] : group;
+        if (typeof leaf !== 'string' || !annex.has(leaf)) {
+          offenders.push(`${path.relative(srcRoot, f)}: AuditGovernanceActions.${m[1]}${m[2] ? '.' + m[2] : ''}`);
+        }
+      }
+    }
+    expect(offenders).toEqual([]);
+  });
+});

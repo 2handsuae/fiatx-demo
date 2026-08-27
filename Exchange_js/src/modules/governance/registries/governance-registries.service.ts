@@ -14,7 +14,6 @@ import {
   AuditEntityTypes,
   AuditModules,
   AuditWorkflowTypes,
-  buildStateTransitionAction,
 } from '../../audit-logging/constants/audit-actions.constant';
 import {
   AuditOutcome,
@@ -138,29 +137,35 @@ export class GovernanceRegistriesService {
     };
   }
 
+  /** 站7：信封补域/子表/编号；状态变化落 fromStatus/toStatus 列（动态迁移码工厂 statusAction 同日拆除）。 */
   private async recordAudit(input: {
     action: string;
     primarySubjectType: string;
     primarySubjectNo: string;
     traceId?: string | null;
     reason?: string | null;
+    fromStatus?: string | null;
+    toStatus?: string | null;
   }, actor: ApprovalActorContext) {
     await this.auditLogsService.recordByActor(
       {
         action: input.action,
+        actionDomain: 'CONFIG',
         primarySubjectType: input.primarySubjectType,
         primarySubjectNo: input.primarySubjectNo,
+        subjects: [
+          { subjectType: input.primarySubjectType, subjectNo: input.primarySubjectNo, subjectRole: 'PRIMARY' },
+        ],
         traceId: input.traceId || undefined,
         outcome: AuditOutcome.SUCCESS,
         reason: input.reason || undefined,
+        fromStatus: input.fromStatus || undefined,
+        toStatus: input.toStatus || undefined,
+        requestId: `${input.action}_${input.primarySubjectNo}_${randomUUID()}`,
         sourcePlatform: 'ADMIN_API',
-      },
+      } as any,
       this.toAuditActor(actor),
     );
-  }
-
-  private statusAction(entity: string, before: string, after: string) {
-    return buildStateTransitionAction(entity, before, after);
   }
 
   private participantPayload(participant: ShareholdingParticipantDto, index: number) {
@@ -523,14 +528,12 @@ export class GovernanceRegistriesService {
     ) {
       await this.recordAudit(
         {
-          action: this.statusAction(
-            'SHAREHOLDING_REGISTRY',
-            outcome.superseded.status,
-            ShareholdingRegistryStatuses.SUPERSEDED,
-          ),
+          action: AuditActions.SHAREHOLDING_REGISTRY_UPDATED,
           primarySubjectType: AuditEntityTypes.SHAREHOLDING_REGISTRY_VERSION,
           primarySubjectNo: outcome.superseded.registryNo,
           traceId: outcome.superseded.traceId,
+          fromStatus: outcome.superseded.status,
+          toStatus: ShareholdingRegistryStatuses.SUPERSEDED,
           reason: `Superseded by ${outcome.created.registryNo}`,
         },
         actor,
@@ -627,17 +630,12 @@ export class GovernanceRegistriesService {
 
     await this.recordAudit(
       {
-        action:
-          outcome.current.status !== outcome.updated.status
-            ? this.statusAction(
-                'SHAREHOLDING_REGISTRY',
-                outcome.current.status,
-                outcome.updated.status,
-              )
-            : AuditActions.SHAREHOLDING_REGISTRY_UPDATED,
+        action: AuditActions.SHAREHOLDING_REGISTRY_UPDATED,
         primarySubjectType: AuditEntityTypes.SHAREHOLDING_REGISTRY_VERSION,
         primarySubjectNo: outcome.updated.registryNo,
         traceId: outcome.updated.traceId,
+        fromStatus: outcome.current.status,
+        toStatus: outcome.updated.status,
         reason: options.auditReason || undefined,
       },
       actor,
@@ -789,10 +787,9 @@ export class GovernanceRegistriesService {
 
     await this.recordAudit(
       {
-        action:
-          current.status !== updated.status
-            ? this.statusAction('APPOINTMENT_RECORD', current.status, updated.status)
-            : AuditActions.APPOINTMENT_RECORD_UPDATED,
+        action: AuditActions.APPOINTMENT_RECORD_UPDATED,
+        fromStatus: current.status,
+        toStatus: updated.status,
         primarySubjectType: AuditEntityTypes.APPOINTMENT_RECORD,
         primarySubjectNo: updated.appointmentNo,
         traceId: updated.traceId,
@@ -1007,10 +1004,9 @@ export class GovernanceRegistriesService {
 
     await this.recordAudit(
       {
-        action:
-          current.status !== updated.status
-            ? this.statusAction('TRAINING_RECORD', current.status, updated.status)
-            : AuditActions.TRAINING_RECORD_UPDATED,
+        action: AuditActions.TRAINING_RECORD_UPDATED,
+        fromStatus: current.status,
+        toStatus: updated.status,
         primarySubjectType: AuditEntityTypes.TRAINING_RECORD,
         primarySubjectNo: updated.trainingNo,
         traceId: updated.traceId,
@@ -1152,10 +1148,9 @@ export class GovernanceRegistriesService {
 
     await this.recordAudit(
       {
-        action:
-          current.status !== updated.status
-            ? this.statusAction('CONFLICT_DISCLOSURE', current.status, updated.status)
-            : AuditActions.CONFLICT_DISCLOSURE_UPDATED,
+        action: AuditActions.CONFLICT_DISCLOSURE_UPDATED,
+        fromStatus: current.status,
+        toStatus: updated.status,
         primarySubjectType: AuditEntityTypes.CONFLICT_DISCLOSURE,
         primarySubjectNo: updated.disclosureNo,
         traceId: updated.traceId,
@@ -1290,10 +1285,9 @@ export class GovernanceRegistriesService {
 
     await this.recordAudit(
       {
-        action:
-          current.status !== updated.status
-            ? this.statusAction('WIND_DOWN_MATERIAL', current.status, updated.status)
-            : AuditActions.WIND_DOWN_MATERIAL_UPDATED,
+        action: AuditActions.WIND_DOWN_MATERIAL_UPDATED,
+        fromStatus: current.status,
+        toStatus: updated.status,
         primarySubjectType: AuditEntityTypes.WIND_DOWN_MATERIAL,
         primarySubjectNo: updated.materialNo,
         traceId: updated.traceId,

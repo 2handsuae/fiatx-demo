@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import {
   Injectable,
   BadRequestException,
@@ -80,8 +81,11 @@ export class LiquidityConfigService {
     await this.auditLogsService.recordSystem({
 
       action: AuditActions.LP_CONFIG_UPDATED,
+      actionDomain: 'CONFIG',
       primarySubjectType: AuditEntityTypes.LIQUIDITY_CONFIG,
       primarySubjectNo: result.id,
+      subjects: [{ subjectType: AuditEntityTypes.LIQUIDITY_CONFIG, subjectNo: result.id, subjectRole: 'PRIMARY' as any }],
+      requestId: `LP_CONFIG_UPDATED_${result.id}_${randomUUID()}`,
       outcome: AuditOutcome.SUCCESS,
       reason: 'Liquidity config created',
       sourcePlatform: 'ADMIN_API',
@@ -171,8 +175,11 @@ export class LiquidityConfigService {
     await this.auditLogsService.recordSystem({
 
       action: AuditActions.LP_CONFIG_UPDATED,
+      actionDomain: 'CONFIG',
       primarySubjectType: AuditEntityTypes.LIQUIDITY_CONFIG,
       primarySubjectNo: result.id,
+      subjects: [{ subjectType: AuditEntityTypes.LIQUIDITY_CONFIG, subjectNo: result.id, subjectRole: 'PRIMARY' as any }],
+      requestId: `LP_CONFIG_UPDATED_${result.id}_${randomUUID()}`,
       outcome: AuditOutcome.SUCCESS,
       reason: 'Liquidity config updated',
       sourcePlatform: 'ADMIN_API',
@@ -189,8 +196,11 @@ export class LiquidityConfigService {
     await this.auditLogsService.recordSystem({
 
       action: AuditActions.LP_CONFIG_UPDATED,
+      actionDomain: 'CONFIG',
       primarySubjectType: AuditEntityTypes.LIQUIDITY_CONFIG,
       primarySubjectNo: id,
+      subjects: [{ subjectType: AuditEntityTypes.LIQUIDITY_CONFIG, subjectNo: id, subjectRole: 'PRIMARY' as any }],
+      requestId: `LP_CONFIG_UPDATED_${id}_${randomUUID()}`,
       outcome: AuditOutcome.SUCCESS,
       reason: 'Liquidity config deleted',
       sourcePlatform: 'ADMIN_API',
@@ -208,8 +218,11 @@ export class LiquidityConfigService {
     await this.auditLogsService.recordSystem({
 
       action: AuditActions.LP_CONFIG_UPDATED,
+      actionDomain: 'CONFIG',
       primarySubjectType: AuditEntityTypes.LIQUIDITY_CONFIG,
       primarySubjectNo: id,
+      subjects: [{ subjectType: AuditEntityTypes.LIQUIDITY_CONFIG, subjectNo: id, subjectRole: 'PRIMARY' as any }],
+      requestId: `LP_CONFIG_UPDATED_${id}_${randomUUID()}`,
       outcome: AuditOutcome.SUCCESS,
       reason: 'Liquidity config status changed',
       sourcePlatform: 'ADMIN_API',

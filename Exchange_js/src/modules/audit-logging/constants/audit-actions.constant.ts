@@ -160,8 +160,6 @@ export const AuditUserActions = {
   ACTIVATION_FAILED: 'ACTIVATION_FAILED',
   LOGIN_SUCCEEDED: 'LOGIN_SUCCEEDED',
   LOGIN_FAILED: 'LOGIN_FAILED',
-  ACCOUNT_LOCKED: 'ACCOUNT_LOCKED',
-  ACCOUNT_UNLOCKED: 'ACCOUNT_UNLOCKED',
   ROLE_BINDINGS_UPDATED: 'ROLE_BINDINGS_UPDATED',
   CANCELLED: 'CANCELLED',
   EXPORTED: 'EXPORTED',
@@ -173,7 +171,6 @@ export const AuditActions = {
   APPROVAL_SUBMITTED: 'APPROVAL_SUBMITTED',
   APPROVAL_CANCELLED: 'APPROVAL_CANCELLED',
   APPROVAL_EXPIRED: 'APPROVAL_EXPIRED',
-  APPROVAL_EXECUTION_FAILED: 'APPROVAL_EXECUTION_FAILED',
   APPROVAL_REQUIRED_MISSING: 'APPROVAL_REQUIRED_MISSING',
   SHAREHOLDING_REGISTRY_CREATED: 'SHAREHOLDING_REGISTRY_CREATED',
   SHAREHOLDING_REGISTRY_UPDATED: 'SHAREHOLDING_REGISTRY_UPDATED',
@@ -385,12 +382,6 @@ export const AuditActions = {
   // withdrawal through a Sumsub mock verdict fixture (SUMSUB_MOCK_MODE only —
   // endpoint doesn't exist otherwise).
   WITHDRAW_DEMO_SCENARIO_RUN: 'WITHDRAW_DEMO_SCENARIO_RUN',
-  TX_RECONCILIATION_BREAK_DETECTED: 'TX_RECONCILIATION_BREAK_DETECTED',
-  TX_SAFEGUARDING_BREAK_DETECTED: 'TX_SAFEGUARDING_BREAK_DETECTED',
-  ADMIN_LOGIN_SUCCESS: 'ADMIN_LOGIN_SUCCESS',
-  ADMIN_LOGIN_FAILED: 'ADMIN_LOGIN_FAILED',
-  ACCOUNT_LOCKED: 'ACCOUNT_LOCKED',
-  ACCOUNT_UNLOCKED: 'ACCOUNT_UNLOCKED',
   LP_CONFIG_UPDATED: 'LP_CONFIG_UPDATED',
   CUSTOMER_CREATED: 'CUSTOMER_CREATED',
   CUSTOMER_UPDATED: 'CUSTOMER_UPDATED',
@@ -430,14 +421,6 @@ export const AuditActions = {
 } as const;
 
 export const AuditGovernanceActions = {
-  // Admin Login Access
-  ADMIN_LOGIN_ACCESS: {
-    LOGIN_SUCCESS:    'ADMIN_LOGIN_SUCCESS',
-    LOGIN_FAILED:     'ADMIN_LOGIN_FAILED',
-    ACCOUNT_LOCKED:   'ACCOUNT_LOCKED',
-    ACCOUNT_UNLOCKED: 'ACCOUNT_UNLOCKED',
-  },
-
   // C1 — Admin Invite：已退役，Task 6 迁到 V1_AUDIT_ACTIONS 的
   // ADMIN_INVITE_REQUESTED/DISPATCHED/ACCEPTED/EXPIRED/CANCELLED 五码，全仓零消费方
   // （2026-08-26 grep 核实），本组已删。
@@ -595,11 +578,6 @@ export const AuditGovernanceActions = {
 // (APPROVAL_GRANTED、ADMIN_INVITE_*),其显示翻译归 V1 站。
 const AuditRawActionToUserActionMap = {
   [AuditActions.APPROVAL_SUBMITTED]: AuditUserActions.SUBMITTED,
-  [AuditActions.APPROVAL_EXECUTION_FAILED]: AuditUserActions.EXPORT_FAILED,
-  [AuditActions.ADMIN_LOGIN_SUCCESS]: AuditUserActions.LOGIN_SUCCEEDED,
-  [AuditActions.ADMIN_LOGIN_FAILED]: AuditUserActions.LOGIN_FAILED,
-  [AuditActions.ACCOUNT_LOCKED]: AuditUserActions.ACCOUNT_LOCKED,
-  [AuditActions.ACCOUNT_UNLOCKED]: AuditUserActions.ACCOUNT_UNLOCKED,
   [AuditActions.AUDIT_EVIDENCE_EXPORT_REQUESTED]:
     AuditUserActions.REQUEST_CREATED,
 } as const;
@@ -612,16 +590,8 @@ function normalizePart(value: string): string {
     .toUpperCase();
 }
 
-export function buildStateTransitionAction(
-  entity: string,
-  fromStatus: string,
-  toStatus: string,
-): string {
-  const entityPart = normalizePart(entity);
-  const fromPart = normalizePart(fromStatus);
-  const toPart = normalizePart(toStatus);
-  return `${entityPart}_${fromPart}_TO_${toPart}`;
-}
+// 站7：动态迁移码工厂 buildStateTransitionAction 拆除——最后的调用方（治理档案簿）
+// 当日改为静态词+fromStatus/toStatus 列；RETIRED_DYNAMIC_TRANSITION_PATTERN 防复发。
 
 export function mapRawAuditActionToUserAction(
   action: string,
@@ -726,6 +696,32 @@ export const V1_AUDIT_ACTIONS: Record<string, AuditActionSpec> = {
   AUDIT_EVIDENCE_EXPORT_GENERATED:  { domain: 'AUDIT', correlationMode: I, requiredFields: ['payloadDigest'], requiresCausation: true },
   AUDIT_EVIDENCE_EXPORT_DOWNLOADED: { domain: 'AUDIT', correlationMode: I, requiredFields: ['sourceIp'], requiresCausation: false },
   AUDIT_LOG_QUERIED:                { domain: 'AUDIT', correlationMode: N, requiredFields: [], requiresCausation: false },
+
+  // ── ⑫ 站7 收编：审批缺失告警 + 监管义务闸 + 五本档案簿（现名保守，全 NONE）──
+  APPROVAL_REQUIRED_MISSING:        { domain: 'APPROVAL', correlationMode: N, requiredFields: ['reason'], requiresCausation: false },
+  REGULATORY_GATE_CREATED:          { domain: 'CONFIG', correlationMode: N, requiredFields: [], requiresCausation: false },
+  REGULATORY_GATE_UPDATED:          { domain: 'CONFIG', correlationMode: N, requiredFields: [], requiresCausation: false },
+  REGULATORY_GATE_SUBMITTED:        { domain: 'CONFIG', correlationMode: N, requiredFields: [], requiresCausation: false },
+  REGULATORY_GATE_FEEDBACK_RECORDED:{ domain: 'CONFIG', correlationMode: N, requiredFields: [], requiresCausation: false },
+  REGULATORY_GATE_RECEIPT_BOUND:    { domain: 'CONFIG', correlationMode: N, requiredFields: [], requiresCausation: false },
+  REGULATORY_GATE_MARKED_EFFECTIVE: { domain: 'CONFIG', correlationMode: N, requiredFields: [], requiresCausation: false },
+  REGULATORY_GATE_REVOKED:          { domain: 'CONFIG', correlationMode: N, requiredFields: ['reason'], requiresCausation: false },
+  SHAREHOLDING_REGISTRY_CREATED:    { domain: 'CONFIG', correlationMode: N, requiredFields: [], requiresCausation: false },
+  SHAREHOLDING_REGISTRY_UPDATED:    { domain: 'CONFIG', correlationMode: N, requiredFields: [], requiresCausation: false },
+  APPOINTMENT_RECORD_CREATED:       { domain: 'CONFIG', correlationMode: N, requiredFields: [], requiresCausation: false },
+  APPOINTMENT_RECORD_UPDATED:       { domain: 'CONFIG', correlationMode: N, requiredFields: [], requiresCausation: false },
+  TRAINING_RECORD_CREATED:          { domain: 'CONFIG', correlationMode: N, requiredFields: [], requiresCausation: false },
+  TRAINING_RECORD_UPDATED:          { domain: 'CONFIG', correlationMode: N, requiredFields: [], requiresCausation: false },
+  CONFLICT_DISCLOSURE_CREATED:      { domain: 'CONFIG', correlationMode: N, requiredFields: [], requiresCausation: false },
+  CONFLICT_DISCLOSURE_UPDATED:      { domain: 'CONFIG', correlationMode: N, requiredFields: [], requiresCausation: false },
+  WIND_DOWN_MATERIAL_CREATED:       { domain: 'CONFIG', correlationMode: N, requiredFields: [], requiresCausation: false },
+  WIND_DOWN_MATERIAL_UPDATED:       { domain: 'CONFIG', correlationMode: N, requiredFields: [], requiresCausation: false },
+
+  // ── ⑬ 站7 收编：平台运营件（金库/记账/对手方/资金单模拟推进）──
+  WALLET_STATUS_UPDATED:            { domain: 'CONFIG', correlationMode: N, requiredFields: [], requiresCausation: false },
+  MANUAL_TB_ACCOUNT_CREATED:        { domain: 'CONFIG', correlationMode: N, requiredFields: ['reason'], requiresCausation: false },
+  LP_CONFIG_UPDATED:                { domain: 'CONFIG', correlationMode: N, requiredFields: [], requiresCausation: false },
+  FUNDS_ORDER_ADVANCED:             { domain: 'CONFIG', correlationMode: N, requiredFields: [], requiresCausation: false },
 };
 
 /**
@@ -781,6 +777,14 @@ export const V4_DEPOSIT_AUDIT_ACTIONS: Record<string, AuditActionSpec> = {
   DEPOSIT_SLA_BREACHED:           { domain: 'DEPOSIT', correlationMode: I, requiredFields: ['fromStatus'], requiresCausation: false },
   DEPOSIT_SLA_TIMEOUT_SIMULATED:  { domain: 'DEPOSIT', correlationMode: I, requiredFields: [], requiresCausation: false },
   DEPOSIT_DEMO_SCENARIO_RUN:      { domain: 'DEPOSIT', correlationMode: I, requiredFields: [], requiresCausation: false },
+  // ── 站7 收编：入账信号（撞库匹配在建单之前，无旅程可继承→NONE）＋充值地址供给
+  //（CREATE_FAILED 并入双结局：失败=outcome+reasonCode，旧名进退役闸）──
+  INBOUND_SIGNAL_SUBMITTED:       { domain: 'DEPOSIT', correlationMode: N, requiredFields: [], requiresCausation: false },
+  INBOUND_SIGNAL_SCANNED:         { domain: 'DEPOSIT', correlationMode: N, requiredFields: [], requiresCausation: false },
+  INBOUND_SIGNAL_MATCHED:         { domain: 'DEPOSIT', correlationMode: N, requiredFields: [], requiresCausation: false },
+  INBOUND_SIGNAL_BLOCKED:         { domain: 'DEPOSIT', correlationMode: N, requiredFields: ['reason'], requiresCausation: false },
+  INBOUND_SIGNAL_FAILED:          { domain: 'DEPOSIT', correlationMode: N, requiredFields: ['reason'], requiresCausation: false },
+  DEPOSIT_WALLET_CREATED:         { domain: 'DEPOSIT', correlationMode: N, requiredFields: [], requiresCausation: false },
 };
 
 /**
@@ -861,6 +865,10 @@ export const V6_SWAP_AUDIT_ACTIONS: Record<string, AuditActionSpec> = {
   SWAP_SLA_BREACHED:         { domain: 'SWAP', correlationMode: I, requiredFields: ['fromStatus'], requiresCausation: false },
   SWAP_SLA_TIMEOUT_SIMULATED:{ domain: 'SWAP', correlationMode: I, requiredFields: [], requiresCausation: false },
   SWAP_DEMO_SCENARIO_RUN:    { domain: 'SWAP', correlationMode: I, requiredFields: [], requiresCausation: false },
+  // ── 站7 收编：报价三码（报价先于兑换单出生，无旅程可继承→NONE）──
+  SWAP_QUOTE_CREATED:        { domain: 'SWAP', correlationMode: N, requiredFields: [], requiresCausation: false },
+  SWAP_QUOTE_USED:           { domain: 'SWAP', correlationMode: N, requiredFields: [], requiresCausation: false },
+  SWAP_QUOTE_CANCELLED:      { domain: 'SWAP', correlationMode: N, requiredFields: [], requiresCausation: false },
 };
 
 /**
@@ -910,8 +918,10 @@ export const V2_CUSTOMER_AUDIT_ACTIONS: Record<string, AuditActionSpec> = {
   CUSTOMER_TIER_CHANGE_SIMULATED:{ domain: 'CUSTOMER', correlationMode: N, requiredFields: ['reason'], requiresCausation: false },
 };
 
-/** 动态迁移码族（<域>_<从>_TO_<到>，充值站1b-β/提现站2-β 整族废除）——机器校验按此形状拒写。 */
-export const RETIRED_DYNAMIC_TRANSITION_PATTERN = /^(DEPOSIT|WITHDRAW|SWAP)_[A-Z_]+_TO_[A-Z_]+$/;
+/** 动态迁移码族（<域>_<从>_TO_<到>，充值站1b-β/提现站2-β 整族废除；站7 扩面治理五簿+监管闸——
+ * 档案簿的 statusAction 工厂当日拆除，此闸防复发）——机器校验按此形状拒写。 */
+export const RETIRED_DYNAMIC_TRANSITION_PATTERN =
+  /^(DEPOSIT|WITHDRAW|SWAP|SHAREHOLDING_REGISTRY|APPOINTMENT_RECORD|TRAINING_RECORD|CONFLICT_DISCLOSURE|WIND_DOWN_MATERIAL|REGULATORY_GATE)_[A-Z_]+_TO_[A-Z_]+$/;
 
 export const DEPRECATED_AUDIT_ACTIONS: readonly string[] = [
   'FIRST_LOGIN_MFA_VERIFY_FAILED',
@@ -938,6 +948,8 @@ export const DEPRECATED_AUDIT_ACTIONS: readonly string[] = [
   // ── 对账域（站5-β，2026-08-27）──────────────────────────
   'SYSTEM_RECON_RUN_COMPLETED', 'SYSTEM_RECON_CASE_AUTO_HEALED',
   'RECON_PUSH_ORDER_SYNCED', 'RECON_PUSH_ORDER_MANUAL',
+  // ── 站7（2026-08-27）──────────────────────────────────
+  'DEPOSIT_WALLET_CREATE_FAILED',
   'RESET_FAILED',
   'CHANGE_APPLY_FAILED',
   'ROLE_ACTIVATE_FAILED',

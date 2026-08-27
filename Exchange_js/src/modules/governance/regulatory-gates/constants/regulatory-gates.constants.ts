@@ -67,9 +67,6 @@ export const REGULATORY_GATE_AUTHORITY_VALUES = Object.values(
 export const REGULATORY_GATE_SUBJECT_TYPE_VALUES = Object.values(
   RegulatoryGateSubjectTypes,
 );
-export const REGULATORY_GATE_INTERNAL_APPROVAL_STATUS_VALUES = Object.values(
-  RegulatoryGateInternalApprovalStatuses,
-);
 export const REGULATORY_GATE_FILING_STATUS_VALUES = Object.values(
   RegulatoryGateFilingStatuses,
 );

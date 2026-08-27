@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { Injectable } from '@nestjs/common';
 import { AuditLogsService } from '../audit-logging/audit-logs.service';
 import {
@@ -16,9 +17,9 @@ import { FundsOrderService } from './funds-order.service';
  * 唯一一处 controller 直写审计的违规（AUDIT_LOG_QUERIED 是仅有的许可例外）。
  * 读前态 → 推进 → 记审计 三步在这里成为一个整体，controller 退回纯入口。
  *
- * 动作码 FUNDS_ORDER_ADVANCED 属交易域老码，不在第一批 V1 词表内 ——
- * 本次只搬位置，码与字段语义逐字保持原样（业主 2026-08-25 裁定：
- * 交易域记录内容留给各域自己的任务）。
+ * 动作码 FUNDS_ORDER_ADVANCED 站7 收编入 V1 CONFIG 域（平台运营件——
+ * ⚡模拟推进是演示工装不是交易域业务动作）；从/到落顶层列，主对象类型
+ * 随表更名换 FUNDS_ORDER。
  */
 @Injectable()
 export class FundsOrderAdvanceWorkflowService {
@@ -42,8 +43,15 @@ export class FundsOrderAdvanceWorkflowService {
     await this.auditLogs.recordByActor(
       {
         action: AuditActions.FUNDS_ORDER_ADVANCED,
-        primarySubjectType: AuditEntityTypes.INTERNAL_FUND,
+        actionDomain: 'CONFIG',
+        primarySubjectType: 'FUNDS_ORDER',
         primarySubjectNo: fundsOrderNo,
+        subjects: [
+          { subjectType: 'FUNDS_ORDER', subjectNo: fundsOrderNo, subjectRole: 'PRIMARY' },
+        ],
+        fromStatus: before.status,
+        toStatus: updated.status,
+        requestId: `FUNDS_ORDER_ADVANCED_${fundsOrderNo}_${randomUUID()}`,
         reason: `Sim advance ${action}: ${before.status} → ${updated.status}`,
         metadata: {
           fundsOrderNo,
@@ -52,7 +60,7 @@ export class FundsOrderAdvanceWorkflowService {
           toStatus: updated.status,
         },
         sourcePlatform: 'ADMIN',
-      },
+      } as any,
       actor,
     );
 

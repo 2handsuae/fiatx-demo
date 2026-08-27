@@ -159,8 +159,6 @@ export const RBAC_ROLE_DEFINITIONS: RbacRoleDefinition[] = [
   },
 ];
 
-export const ACTIVE_RBAC_ROLE_CODES = RBAC_ROLE_DEFINITIONS.map((item) => item.code);
-
 export const PRIMARY_ROLE_PRIORITY = [
   'SUPER_ADMIN',
   'CISO',
@@ -1003,6 +1001,10 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
   ],
 };
 
+export const RBAC_PERMISSION_CODE_SET = new Set(
+  RBAC_PERMISSION_DEFINITIONS.map((item) => item.code),
+);
+
 export function buildRolePermissionCodeMap(): Record<string, string[]> {
   const allPermissionCodes = RBAC_PERMISSION_DEFINITIONS.map((item) => item.code);
 
@@ -1024,6 +1026,4 @@ export function buildRolePermissionCodeMap(): Record<string, string[]> {
   return result;
 }
 
-export const RBAC_PERMISSION_CODE_SET = new Set(
-  RBAC_PERMISSION_DEFINITIONS.map((item) => item.code),
-);
+export const ACTIVE_RBAC_ROLE_CODES = RBAC_ROLE_DEFINITIONS.map((item) => item.code);

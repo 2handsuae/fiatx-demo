@@ -247,9 +247,15 @@ export class SwapQuoteService {
     await this.auditLogsService.recordByActor(
       {
         action: AuditActions.SWAP_QUOTE_CREATED,
+        actionDomain: 'SWAP',
         primarySubjectType: AuditEntityTypes.SWAP_QUOTE,
         primarySubjectNo: created.quoteNo || undefined,
         ownerCustomerNo: created.ownerNo || undefined,
+        subjects: created.quoteNo ? [
+          { subjectType: AuditEntityTypes.SWAP_QUOTE, subjectNo: created.quoteNo, subjectRole: 'PRIMARY' as any },
+          ...(created.ownerNo ? [{ subjectType: 'CUSTOMER', subjectNo: created.ownerNo, subjectRole: 'OWNER' as any }] : []),
+        ] : undefined,
+        requestId: `SWAP_QUOTE_CREATED_${created.quoteNo}_${randomUUID()}`,
         outcome: AuditOutcome.SUCCESS,
         reason: 'Swap quote created',
         sourcePlatform: platform,
@@ -314,9 +320,15 @@ export class SwapQuoteService {
     await this.auditLogsService.recordByActor(
       {
         action: AuditActions.SWAP_QUOTE_USED,
+        actionDomain: 'SWAP',
         primarySubjectType: AuditEntityTypes.SWAP_QUOTE,
         primarySubjectNo: updated.quoteNo || undefined,
         ownerCustomerNo: updated.ownerNo || undefined,
+        subjects: updated.quoteNo ? [
+          { subjectType: AuditEntityTypes.SWAP_QUOTE, subjectNo: updated.quoteNo, subjectRole: 'PRIMARY' as any },
+          ...(updated.ownerNo ? [{ subjectType: 'CUSTOMER', subjectNo: updated.ownerNo, subjectRole: 'OWNER' as any }] : []),
+        ] : undefined,
+        requestId: `SWAP_QUOTE_USED_${updated.quoteNo}_${randomUUID()}`,
         outcome: AuditOutcome.SUCCESS,
         reason: 'Swap quote consumed',
       },
@@ -356,9 +368,15 @@ export class SwapQuoteService {
     await this.auditLogsService.recordByActor(
       {
         action: AuditActions.SWAP_QUOTE_CANCELLED,
+        actionDomain: 'SWAP',
         primarySubjectType: AuditEntityTypes.SWAP_QUOTE,
         primarySubjectNo: updated.quoteNo || undefined,
         ownerCustomerNo: updated.ownerNo || undefined,
+        subjects: updated.quoteNo ? [
+          { subjectType: AuditEntityTypes.SWAP_QUOTE, subjectNo: updated.quoteNo, subjectRole: 'PRIMARY' as any },
+          ...(updated.ownerNo ? [{ subjectType: 'CUSTOMER', subjectNo: updated.ownerNo, subjectRole: 'OWNER' as any }] : []),
+        ] : undefined,
+        requestId: `SWAP_QUOTE_CANCELLED_${updated.quoteNo}_${randomUUID()}`,
         outcome: AuditOutcome.SUCCESS,
         reason: 'Swap quote cancelled',
       },

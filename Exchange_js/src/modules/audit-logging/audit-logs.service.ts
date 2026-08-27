@@ -372,16 +372,9 @@ export class AuditLogsService {
       return workflowType;
     }
 
-    const action = this.normalizeOptionalString(raw.action)?.toUpperCase() || null;
-    switch (action) {
-      case AuditActions.ADMIN_LOGIN_SUCCESS:
-      case AuditActions.ADMIN_LOGIN_FAILED:
-      case AuditActions.ACCOUNT_LOCKED:
-      case AuditActions.ACCOUNT_UNLOCKED:
-        return AuditBusinessWorkflowTypes.ADMIN_LOGIN_ACCESS;
-      default:
-        return workflowType === AuditWorkflowTypes.APPROVAL ? null : workflowType;
-    }
+    // 站7：登录四码死支路清除——登录流水地基站已裁归安全日志不做,四名死于本站
+    //（锁定阈值的业务审计走 ADMIN_ACCOUNT_LOCK_APPLIED/RELEASED,不经此表）。
+    return workflowType === AuditWorkflowTypes.APPROVAL ? null : workflowType;
   }
 
   private deriveUserAction(
@@ -391,13 +384,6 @@ export class AuditLogsService {
     const normalizedAction = this.normalizeOptionalString(action)?.toUpperCase() || null;
     if (!normalizedAction) {
       return null;
-    }
-
-    if (
-      normalizedAction === AuditActions.APPROVAL_EXECUTION_FAILED &&
-      businessWorkflow !== AuditBusinessWorkflowTypes.AUDIT_EVIDENCE_EXPORT
-    ) {
-      return normalizedAction;
     }
 
     return mapRawAuditActionToUserAction(normalizedAction) || normalizedAction;

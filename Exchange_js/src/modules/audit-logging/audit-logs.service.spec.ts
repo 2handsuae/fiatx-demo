@@ -133,8 +133,6 @@ describe('AuditLogsService', () => {
       ACTIVATION_FAILED: 'ACTIVATION_FAILED',
       LOGIN_SUCCEEDED: 'LOGIN_SUCCEEDED',
       LOGIN_FAILED: 'LOGIN_FAILED',
-      ACCOUNT_LOCKED: 'ACCOUNT_LOCKED',
-      ACCOUNT_UNLOCKED: 'ACCOUNT_UNLOCKED',
       ROLE_BINDINGS_UPDATED: 'ROLE_BINDINGS_UPDATED',
       CANCELLED: 'CANCELLED',
       EXPORTED: 'EXPORTED',
@@ -147,24 +145,9 @@ describe('AuditLogsService', () => {
     expect(mapRawAuditActionToUserAction(AuditActions.APPROVAL_SUBMITTED)).toBe(
       AuditUserActions.SUBMITTED,
     );
-    expect(mapRawAuditActionToUserAction(AuditActions.ADMIN_LOGIN_SUCCESS)).toBe(
-      AuditUserActions.LOGIN_SUCCEEDED,
-    );
-    expect(mapRawAuditActionToUserAction(AuditActions.ADMIN_LOGIN_FAILED)).toBe(
-      AuditUserActions.LOGIN_FAILED,
-    );
-    expect(mapRawAuditActionToUserAction(AuditActions.ACCOUNT_LOCKED)).toBe(
-      AuditUserActions.ACCOUNT_LOCKED,
-    );
-    expect(mapRawAuditActionToUserAction(AuditActions.ACCOUNT_UNLOCKED)).toBe(
-      AuditUserActions.ACCOUNT_UNLOCKED,
-    );
     expect(
       mapRawAuditActionToUserAction(AuditActions.AUDIT_EVIDENCE_EXPORT_REQUESTED),
     ).toBe(AuditUserActions.REQUEST_CREATED);
-    expect(mapRawAuditActionToUserAction(AuditActions.APPROVAL_EXECUTION_FAILED)).toBe(
-      AuditUserActions.EXPORT_FAILED,
-    );
     expect(mapRawAuditActionToUserAction('UNKNOWN_WAVE1_ACTION')).toBeUndefined();
   });
 
@@ -358,7 +341,7 @@ describe('AuditLogsService', () => {
   });
 
   it('should derive business workflow and user action display fields for governed and export logs', async () => {
-    prisma.auditLogEvent.count.mockResolvedValue(4);
+    prisma.auditLogEvent.count.mockResolvedValue(2);
     prisma.auditLogEvent.findMany.mockResolvedValue([
       {
         id: 'wf-ct-1',
@@ -375,23 +358,6 @@ describe('AuditLogsService', () => {
         beforeData: null,
         afterData: null,
         occurredAt: new Date('2026-04-01T10:00:00.000Z'),
-      },
-      {
-        id: 'wf-login-1',
-        auditNo: 'AUD2604010003',
-        action: AuditActions.ADMIN_LOGIN_SUCCESS,
-        entityType: AuditEntityTypes.AUTH,
-        entityId: null,
-        entityNo: null,
-        workflowType: null,
-        actorType: 'ADMIN',
-        actorId: 'admin-1',
-        actorNo: 'ADM2604010001',
-        outcome: AuditOutcome.SUCCESS,
-        metadata: null,
-        beforeData: null,
-        afterData: null,
-        occurredAt: new Date('2026-04-01T10:02:00.000Z'),
       },
       {
         id: 'wf-exp-1',
@@ -421,12 +387,6 @@ describe('AuditLogsService', () => {
       action: AuditActions.APPROVAL_SUBMITTED,
     });
     expect(result.items[1]).toMatchObject({
-      businessWorkflow: AuditBusinessWorkflowTypes.ADMIN_LOGIN_ACCESS,
-      businessWorkflowLabel: 'Admin Login Access',
-      userAction: AuditUserActions.LOGIN_SUCCEEDED,
-      userActionLabel: 'Login Succeeded',
-    });
-    expect(result.items[2]).toMatchObject({
       businessWorkflow: AuditBusinessWorkflowTypes.AUDIT_EVIDENCE_EXPORT,
       businessWorkflowLabel: 'Audit Evidence Export',
       userAction: AuditUserActions.REQUEST_CREATED,
@@ -434,36 +394,6 @@ describe('AuditLogsService', () => {
     });
   });
 
-
-  it('should not map approval execution failure to EXPORT_FAILED outside audit evidence export workflow', async () => {
-    prisma.auditLogEvent.count.mockResolvedValue(1);
-    prisma.auditLogEvent.findMany.mockResolvedValue([
-      {
-        id: 'exec-failed-1',
-        auditNo: 'AUD2604010012',
-        action: AuditActions.APPROVAL_EXECUTION_FAILED,
-        entityType: AuditEntityTypes.APPROVAL_CASE,
-        entityId: 'approval-2',
-        entityNo: 'APR2604010002',
-        workflowType: AuditBusinessWorkflowTypes.ADMIN_ROLE_BINDING_CHANGE,
-        actorType: 'ADMIN',
-        actorId: 'admin-1',
-        outcome: AuditOutcome.FAILED,
-        metadata: null,
-        beforeData: null,
-        afterData: null,
-        occurredAt: new Date('2026-04-01T11:02:00.000Z'),
-      },
-    ]);
-
-    const result = await service.findAll({ take: 20 });
-
-    expect(result.items[0]).toMatchObject({
-      businessWorkflow: AuditBusinessWorkflowTypes.ADMIN_ROLE_BINDING_CHANGE,
-      userAction: AuditActions.APPROVAL_EXECUTION_FAILED,
-      userActionLabel: 'Approval Execution Failed',
-    });
-  });
 
   it('should expose derived display fields on audit log detail while preserving raw tuple fields', async () => {
     prisma.auditLogEvent.findUnique.mockResolvedValue({
@@ -654,8 +584,9 @@ describe('AuditLogsService', () => {
     await expect(
       service.recordByActor(
         {
-          action: AuditActions.ADMIN_LOGIN_SUCCESS,
-          primarySubjectType: AuditEntityTypes.AUTH,
+          action: AuditActions.WALLET_STATUS_UPDATED,
+          actionDomain: 'CONFIG',
+          primarySubjectType: AuditEntityTypes.WALLET,
         } as any,
         {
           actorType: 'ADMIN',

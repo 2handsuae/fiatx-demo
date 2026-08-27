@@ -172,8 +172,15 @@ export class CustomerDepositWalletService {
 
       await this.auditLogsService.recordSystem({
         action: AuditActions.DEPOSIT_WALLET_CREATED,
+        actionDomain: 'DEPOSIT',
         primarySubjectType: AuditEntityTypes.WALLET,
         primarySubjectNo: walletNo,
+        ownerCustomerNo: customer.customerNo,
+        subjects: [
+          { subjectType: AuditEntityTypes.WALLET, subjectNo: walletNo, subjectRole: 'PRIMARY' },
+          { subjectType: 'CUSTOMER', subjectNo: customer.customerNo, subjectRole: 'OWNER' },
+        ],
+        requestId: `DEPOSIT_WALLET_CREATED_${walletNo}_${crypto.randomUUID()}`,
         traceId,
         outcome: AuditOutcome.SUCCESS,
         metadata: {
@@ -185,7 +192,7 @@ export class CustomerDepositWalletService {
           iban: result.iban,
         },
         sourcePlatform: 'CLIENT_API',
-      });
+      } as any);
 
       this.logger.log(`Deposit wallet ${walletNo} created for customer ${customer.customerNo}, asset ${asset.currency}`);
       return updated;
@@ -203,10 +210,19 @@ export class CustomerDepositWalletService {
         );
       }
 
+      // 站7：失败不单独起名——CREATE_FAILED 并入 CREATED 双结局（旧名进退役闸）。
       await this.auditLogsService.recordSystem({
-        action: AuditActions.DEPOSIT_WALLET_CREATE_FAILED,
+        action: AuditActions.DEPOSIT_WALLET_CREATED,
+        actionDomain: 'DEPOSIT',
         primarySubjectType: AuditEntityTypes.WALLET,
         primarySubjectNo: walletNo,
+        ownerCustomerNo: customer.customerNo,
+        subjects: [
+          { subjectType: AuditEntityTypes.WALLET, subjectNo: walletNo, subjectRole: 'PRIMARY' },
+          { subjectType: 'CUSTOMER', subjectNo: customer.customerNo, subjectRole: 'OWNER' },
+        ],
+        requestId: `DEPOSIT_WALLET_CREATED_${walletNo}_${crypto.randomUUID()}`,
+        reasonCode: 'PROVISION_ERROR',
         traceId,
         outcome: AuditOutcome.FAILED,
         metadata: {
@@ -216,7 +232,7 @@ export class CustomerDepositWalletService {
           error: err.message,
         },
         sourcePlatform: 'CLIENT_API',
-      });
+      } as any);
 
       this.logger.error(`Deposit wallet creation failed for customer ${customer.customerNo}: ${err.message}`, err.stack);
       throw new BadGatewayException({ code: 'CUSTODIAN_CREATE_FAILED', message: 'Failed to create deposit wallet' });
