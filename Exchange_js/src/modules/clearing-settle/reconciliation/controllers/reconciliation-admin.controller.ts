@@ -1,4 +1,4 @@
-import { BadRequestException, Body, Controller, Get, Param, Post, Query, UseGuards, UsePipes, ValidationPipe } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, Param, Post, Query, Req, UseGuards, UsePipes, ValidationPipe } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { AuthGuard } from '@nestjs/passport';
 import { AdminPermissionGuard } from '../../../identity/access-control/admin-permission.guard';
@@ -22,11 +22,16 @@ export class ReconciliationAdminController {
   @Post('runs/wallet')
   @ApiOperation({ summary: 'Trigger a per-wallet reconciliation run' })
   @RequirePermissions(buildPermissionCode('POST', '/admin/reconciliation/runs/wallet'))
-  async createWalletRun(@Body() dto: { cutoff: string }) {
+  async createWalletRun(@Body() dto: { cutoff: string }, @Req() req: any) {
     if (!dto?.cutoff) throw new BadRequestException('cutoff is required (ISO timestamp)');
     const cutoff = new Date(dto.cutoff);
     if (Number.isNaN(cutoff.getTime())) throw new BadRequestException('cutoff is not a valid ISO timestamp');
-    return this.walletReconRun.run({ cutoff });
+    // 铁律①：管理员手动触发跑批要记他名字（cron 路径不传 actor,走系统通道）。
+    const operatorId = req.user?.userNo || req.user?.sub || 'ADMIN';
+    return this.walletReconRun.run(
+      { cutoff },
+      { actorType: 'ADMIN', actorNo: operatorId, actorDisplayName: operatorId, actorRolesAtTime: ['ADMIN'] } as any,
+    );
   }
 
   @Get('demo/compare')
