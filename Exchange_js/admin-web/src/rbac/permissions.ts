@@ -45,6 +45,12 @@ export const PERMISSIONS = {
   RECON_CASE_DETAIL_READ: 'api.get.admin_reconciliation_cases_caseno',
   RECON_EXTERNAL_BALANCE_READ: 'api.get.admin_reconciliation_external_balances',
 
+  // Task 7（调账单 admin 前端）——三个码精确镜像 rbac.catalog.ts 里 Task 6 已登记的
+  // buildPermissionCode(method, path) 派生值，不是自造字符串。
+  RECON_ADJUSTMENT_CREATE: 'api.post.admin_reconciliation_adjustments',
+  RECON_ADJUSTMENT_SUBMIT: 'api.post.admin_reconciliation_adjustments_adjustmentno_submit',
+  RECON_ADJUSTMENT_DETAIL_READ: 'api.get.admin_reconciliation_adjustments_adjustmentno',
+
   SUMSUB_EVENTS_READ: 'api.get.admin_sumsub_events',
   RISK_DECISION_RECORD_DETAIL_READ: 'api.get.admin_risk_decision_records_id',
   AUDIT_LOGS_READ: 'api.get.admin_audit_logs',

@@ -129,6 +129,21 @@ describe('AdjustmentService.createDraft 两道闸 —— 门不可绕的落点�
       data: expect.objectContaining({ book: 'CLIENT' }),
     }));
   });
+
+  // Task 7：lineItemId 从必填改可选（控制方裁定——flowComparison 的行 id 和
+  // ReconciliationLineItem.id 不是一张表，新表单不再传它）。这条锁住「不传也能
+  // 正常开单，落库的 lineItemId 是 undefined」，防止有人把 DTO 改回必填。
+  it('lineItemId 不传（新表单的常态）：createDraft 照常建单，落库的 lineItemId 是 undefined', async () => {
+    const { svc, create } = makeSvc(openClientCase);
+    await svc.createDraft({
+      caseNo: 'CASE_GATE', reasonCode: 'DEPOSIT_DUPLICATE_REVERSAL',
+      direction: 'REDUCE', amount: '1000', effectiveDate: '2026-08-28',
+      reasonInternal: '同一笔充值入账两次', reasonCustomer: '重复入账撤销',
+    } as any, 'U_OP');
+    expect(create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ lineItemId: undefined }),
+    }));
+  });
 });
 
 describe('AdjustmentService.onRejected —— 驳回落库 + 终态闸（Task 4 补测 B）', () => {
@@ -318,5 +333,63 @@ describe('AdjustmentService.onApproved 落账', () => {
         expect.objectContaining({ subjectType: 'RECONCILIATION_CASE', subjectNo: 'RC26082800001', subjectRole: 'RELATED' }),
       ]));
     });
+  });
+});
+
+// Task 7（admin 详情页）：getAdjustment 详情读模型补两样——decimals（分→元 显示
+// 缩放，与 getCase 同款惯例）与借/贷分录预览助记码（(book,direction) 纯函数推导，
+// 复用 onApproved 落账时已经在用的同一对工具函数 resolvePostingLegs/TB_CODE_TO_COA，
+// 两处科目对不能各说各话——这条断言直接跟 onApproved 分录接线测试里的科目对呼应）。
+describe('AdjustmentService.getAdjustment —— 详情读模型（Task 7）', () => {
+  const makeSvc = (row: any, assetRow: any = { decimals: 2 }, walletRow: any = null) => {
+    const prisma: any = {
+      reconciliationAdjustment: { findUnique: jest.fn().mockResolvedValue(row) },
+      wallet: { findUnique: jest.fn().mockResolvedValue(walletRow) },
+      asset: { findUnique: jest.fn().mockResolvedValue(assetRow) },
+    };
+    return new AdjustmentService(prisma, null as any, null as any, null as any);
+  };
+
+  const baseRow = {
+    id: 'uuid-row', adjustmentNo: 'ADJ2608280002', caseNo: 'RC26082800001',
+    lineItemId: null, walletRef: 'W_CUST_1', book: 'CLIENT', direction: 'REDUCE',
+    reasonCode: 'DEPOSIT_DUPLICATE_REVERSAL', assetCode: 'AED', amount: '1500',
+    effectiveDate: '2026-08-15', reasonInternal: '同一笔充值入账两次', reasonCustomer: '重复入账撤销',
+    status: 'DRAFT', approvalCaseId: null, approvalNo: null, ownerNo: 'C0042', ownerId: 'uuid-cust',
+    traceId: null, createdByUserId: 'U_OP', decidedByUserId: null, postedAt: null, tbTransferId: null,
+  };
+
+  it('返回体不含任何 UUID（铁律⑥）：id/ownerId/approvalCaseId/lineItemId/walletRef 五个内部字段被剔除，业务号 adjustmentNo 保留', async () => {
+    const svc = makeSvc(baseRow);
+    const result: any = await svc.getAdjustment('ADJ2608280002');
+    expect(result.id).toBeUndefined();
+    expect(result.ownerId).toBeUndefined();
+    expect(result.approvalCaseId).toBeUndefined();
+    expect(result.lineItemId).toBeUndefined();
+    expect(result.walletRef).toBeUndefined();
+    expect(result.adjustmentNo).toBe('ADJ2608280002');
+  });
+
+  it('decimals 取自资产表；查不到资产行时兜底 0（不抛，与 getCase 同款兜底）', async () => {
+    const svcHit = makeSvc(baseRow, { decimals: 2 });
+    expect((await svcHit.getAdjustment('ADJ2608280002') as any).decimals).toBe(2);
+
+    const svcMiss = makeSvc(baseRow, null);
+    expect((await svcMiss.getAdjustment('ADJ2608280002') as any).decimals).toBe(0);
+  });
+
+  it('客户账簿减钱（DEPOSIT_DUPLICATE_REVERSAL/REDUCE）：分录预览是「借 L.CLIENT_PAYABLE / 贷 A.CLIENT_ASSET」', async () => {
+    const svc = makeSvc(baseRow);
+    const result: any = await svc.getAdjustment('ADJ2608280002');
+    expect(result.debitAccountCode).toBe('L.CLIENT_PAYABLE');
+    expect(result.creditAccountCode).toBe('A.CLIENT_ASSET');
+  });
+
+  it('公司账簿加钱（BANK_INTEREST/INCREASE）：分录预览是「借 A.FIRM_ASSET / 贷 E.INCOME_OTHER」——与 onApproved 分录接线测试的科目对呼应，不能两处各说各话', async () => {
+    const firmRow = { ...baseRow, book: 'FIRM', direction: 'INCREASE', reasonCode: 'BANK_INTEREST', ownerNo: null, ownerId: null };
+    const svc = makeSvc(firmRow);
+    const result: any = await svc.getAdjustment('ADJ2608280002');
+    expect(result.debitAccountCode).toBe('A.FIRM_ASSET');
+    expect(result.creditAccountCode).toBe('E.INCOME_OTHER');
   });
 });

@@ -107,6 +107,17 @@ export interface CaseObservation {
   ageDays: number | null;           // null unless status=OPEN
 }
 
+// Task 7（调账单 admin 前端）: 案件级调账单列表条目——getCase 按 caseNo 直查
+// reconciliation_adjustments 返回，独立于 lineItemId（对账每轮 delete-then-insert
+// 没有跨轮身份，lineItemId 天生悬空，见 adjustment-rules.ts 顶部注释同一背景）。
+export interface CaseAdjustmentSummary {
+  adjustmentNo: string;
+  status: string;      // DRAFT | PENDING_APPROVAL | POSTED | REJECTED
+  reasonCode: string;
+  direction: string;   // REDUCE | INCREASE
+  amount: string;       // 最小单位（分）整数字符串
+}
+
 export type FlowComparisonMatchType =
   | 'MATCHED'
   | 'ORPHAN_EXTERNAL'

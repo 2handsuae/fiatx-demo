@@ -16,9 +16,11 @@ const STATUS_PILL_MAP: Record<string, string> = {
   CLEARED: 'bg-green-100 text-green-800',
   CLEAR: 'bg-green-100 text-green-800',
   PASS: 'bg-green-100 text-green-800',
+  POSTED: 'bg-green-100 text-green-800',
   CONFIRMED: 'bg-indigo-100 text-indigo-800',
   // in-flight / pending
   CREATED: 'bg-gray-100 text-gray-800',
+  DRAFT: 'bg-gray-100 text-gray-800',
   PENDING: 'bg-blue-100 text-blue-800',
   PENDING_APPROVAL: 'bg-amber-100 text-amber-800',
   PENDING_COMPLIANCE: 'bg-purple-100 text-purple-800',

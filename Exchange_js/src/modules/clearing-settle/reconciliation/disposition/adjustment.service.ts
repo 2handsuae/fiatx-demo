@@ -146,8 +146,23 @@ export class AdjustmentService {
       ? await (this.prisma as any).wallet.findUnique({ where: { id: row.walletRef }, select: { walletNo: true } })
       : null;
 
+    // Task 7（admin 详情页）：decimals 供前端 分→元 缩放显示（T4 canon2 惯例，与
+    // getCase 同款查法，前端不得自建 code→名字映射表——见
+    // tb-account-codes.constant.ts:38）；分录预览的借/贷助记码由 (book, direction)
+    // 纯函数推导，不落库、不改行为，复用 onApproved 已经在用的同一对工具函数。
+    const assetRow = await (this.prisma as any).asset.findUnique({
+      where: { code: row.assetCode }, select: { decimals: true },
+    });
+    const legs = resolvePostingLegs(row.book as Book, row.direction as Direction);
+
     const { id: _id, ownerId: _ownerId, approvalCaseId: _approvalCaseId, lineItemId: _lineItemId, walletRef: _walletRef, ...rest } = row;
-    return { ...rest, walletNo: wallet?.walletNo ?? null };
+    return {
+      ...rest,
+      walletNo: wallet?.walletNo ?? null,
+      decimals: assetRow?.decimals ?? 0,
+      debitAccountCode: TB_CODE_TO_COA[legs.debitCode] ?? null,
+      creditAccountCode: TB_CODE_TO_COA[legs.creditCode] ?? null,
+    };
   }
 
   async onRejected(adjustmentNo: string, deciderId: string) {

@@ -8,6 +8,7 @@ import {
 import { effectiveCutoffFilter } from '../engine/v2/effective-cutoff';
 import {
   AccountStatusRow,
+  CaseAdjustmentSummary,
   CaseExplain,
   CaseObservation,
   FlowComparisonRow,
@@ -449,6 +450,19 @@ export class ReconciliationQueryService {
       adjustment: adjustmentByLineItemId.get(li.id) ?? null,
     }));
 
+    // Task 7（调账单 admin 前端 · 控制方裁定）：案件级调账单列表。上面那条按
+    // lineItemId 精确匹配的查询只服务"给 IN_TRANSIT 那类既有行加标记"这一个既有
+    // 用途，原样保留不动；这里独立按 caseNo 直查全部——不依赖 lineItems 是否为
+    // 空、不依赖某行是否曾传过 lineItemId（新表单不再传）。运营在案件页一眼看到
+    // 本案已开过哪些调账单，防重复开单的目的靠这份列表达成，不靠"整行置灰"
+    // （brief 原方案做不到——flowComparison 的行 id 和 ReconciliationLineItem.id
+    // 不是一张表，且后者每轮对账 delete-then-insert 没有跨轮身份）。
+    const caseAdjustments = (await (this.prisma as any).reconciliationAdjustment.findMany({
+      where: { caseNo: kase.caseNo },
+      select: { adjustmentNo: true, status: true, reasonCode: true, direction: true, amount: true },
+      orderBy: { createdAt: 'desc' },
+    })) as CaseAdjustmentSummary[];
+
     for (const li of inTransitLineItems) {
       const fundsOrderNo = li.internalSourceNo ?? null;
       flowComparison.push({
@@ -546,6 +560,7 @@ export class ReconciliationQueryService {
       flowSummary,
       explain,
       observation,
+      adjustments: caseAdjustments,
     };
   }
 

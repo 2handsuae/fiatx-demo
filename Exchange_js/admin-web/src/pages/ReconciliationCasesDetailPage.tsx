@@ -27,7 +27,7 @@
 // rows) is read-only this release too — no advance/sync/confirm actions.
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useParams, useNavigate } from 'react-router-dom';
-import { RefreshCw, Check, AlertTriangle, ArrowRight, ExternalLink } from 'lucide-react';
+import { RefreshCw, Check, AlertTriangle, ArrowRight, ExternalLink, Plus } from 'lucide-react';
 import {
   DetailPageHeader,
   DetailCard,
@@ -42,6 +42,13 @@ import {
   getApiErrorMessage,
 } from '../utils/adminFetch';
 import { triggerWalletReconRun } from '../utils/reconRunTrigger';
+import ReconciliationAdjustmentCreateModal, {
+  REASON_META,
+  type AdjustmentBook,
+  type AdjustmentPrefill,
+} from '../components/ReconciliationAdjustmentCreateModal';
+import { useAdminSession } from '../contexts/AdminSessionContext';
+import { PERMISSIONS } from '../rbac/permissions';
 
 /* ── Types ──────────────────────────────────────────────────── */
 
@@ -110,6 +117,17 @@ interface CaseObservation {
   ageDays: number | null;
 }
 
+// Task 7 (调账单 admin 前端) — 案件级调账单列表，getCase 按 caseNo 直查返回，
+// 独立于 lineItemId（ReconciliationLineItem 每轮对账 delete-then-insert 没有跨轮
+// 身份，lineItemId 天生悬空——见控制方裁定）。
+interface CaseAdjustmentRow {
+  adjustmentNo: string;
+  status: string;      // DRAFT | PENDING_APPROVAL | POSTED | REJECTED
+  reasonCode: string;
+  direction: string;   // REDUCE | INCREASE
+  amount: string;       // 最小单位（分）整数字符串
+}
+
 interface ReconCaseDetail {
   id: string;
   caseNo: string;
@@ -156,6 +174,8 @@ interface ReconCaseDetail {
   bucket?: ReconBucket | null;
   explain?: CaseExplain;
   observation?: CaseObservation;
+  // T7 addition — see CaseAdjustmentRow above.
+  adjustments?: CaseAdjustmentRow[];
 }
 
 /* ── Constants & helpers ────────────────────────────────────── */
@@ -214,6 +234,45 @@ const MATCH_RANK: Record<FlowMatchType, number> = {
 const rowTimestamp = (r: FlowComparisonRow): number => {
   const t = r.externalLine?.timestamp ?? r.internalFlow?.timestamp ?? null;
   return t ? new Date(t).getTime() : 0;
+};
+
+// Task 7（控制方裁定 Step 4）：开单入口挂在 flowComparison 行上，点击用该行的数据
+// 预填「能预填的字段」——金额、方向；lineItemId 不传（该行的 id 来自
+// ExternalStatementLine/AccountFlow，与 ReconciliationLineItem.id 不是一张表）。
+// 方向是猜测性默认值，表单里仍是可编辑下拉，猜错不影响正确性。推导依据：
+// deltaAmount／案件级 delta 的符号惯例统一是「外部 − 内部」（buildFlowComparison
+// 里 ext.amount.minus(intl.amount)，reconciliation-query.service.ts）：
+//   AMOUNT_MISMATCH  — 符号即答案：正→内部偏低→INCREASE，负→REDUCE
+//   ORPHAN_EXTERNAL / IN_TRANSIT — 外部有我没记，按外部方向直接入账：IN→INCREASE，OUT→REDUCE
+//   ORPHAN_INTERNAL  — 内部记了外部没有，这笔要冲销，方向与它自己相反：IN→REDUCE，OUT→INCREASE
+//   MATCHED          — 两边一致，没有「要改什么」的信号，不猜
+const rowAdjustmentPrefill = (row: FlowComparisonRow): AdjustmentPrefill => {
+  const ext = row.externalLine;
+  const intl = row.internalFlow;
+
+  if (row.matchType === 'AMOUNT_MISMATCH' && row.deltaAmount != null) {
+    return {
+      amountMinor: row.deltaAmount.replace(/^-/, ''),
+      direction: row.deltaAmount.startsWith('-') ? 'REDUCE' : 'INCREASE',
+      relatedOrderNo: '',
+    };
+  }
+  if (row.matchType === 'ORPHAN_INTERNAL' && intl) {
+    return {
+      amountMinor: intl.amount,
+      direction: intl.direction === 'IN' ? 'REDUCE' : 'INCREASE',
+      relatedOrderNo: '',
+    };
+  }
+  if ((row.matchType === 'ORPHAN_EXTERNAL' || row.matchType === 'IN_TRANSIT') && ext) {
+    return {
+      amountMinor: ext.amount,
+      direction: ext.direction === 'IN' ? 'INCREASE' : 'REDUCE',
+      relatedOrderNo: row.matchType === 'IN_TRANSIT' ? (row.fundsOrderNo ?? '') : '',
+    };
+  }
+  // MATCHED（或兜底）：只给金额，不猜方向。
+  return { amountMinor: ext?.amount ?? intl?.amount ?? '0', direction: '', relatedOrderNo: '' };
 };
 
 // adm-* tone tokens — shared shape with reconBucketMap's tone names, mirrors
@@ -286,12 +345,17 @@ const ObservationBar = ({ kase }: { kase: ReconCaseDetail }) => {
 const ReconciliationCasesDetailPage = () => {
   const { caseNo } = useParams<{ caseNo: string }>();
   const navigate = useNavigate();
+  const { hasPermission } = useAdminSession();
+  const canCreateAdjustment = hasPermission(PERMISSIONS.RECON_ADJUSTMENT_CREATE);
   const [kase, setKase] = useState<ReconCaseDetail | null>(null);
   const [loading, setLoading] = useState(true);
   // MATCHED rows are collapsed by default (layout 乙 — single mixed table,
   // not grouped sections). Toggled by the "Show matched" button below the table.
   const [showMatched, setShowMatched] = useState(false);
   const [reconciling, setReconciling] = useState(false);
+  // Task 7: 开调账单弹层——prefill 来自被点击的那一行（rowAdjustmentPrefill）。
+  // null = 弹层关闭；非 null = 弹层打开且带着这一行算出来的预填值。
+  const [createPrefill, setCreatePrefill] = useState<AdjustmentPrefill | null>(null);
 
   const tableRef = useRef<HTMLTableElement | null>(null);
 
@@ -327,6 +391,13 @@ const ReconciliationCasesDetailPage = () => {
     } finally {
       setReconciling(false);
     }
+  };
+
+  // Task 7: 创建成功 → 已在弹层内部调过 submit → 跳调账单详情页（brief §Step3）。
+  // 不停留在案件页刷新——详情页本身会展示新单的状态/成因/方向/分录预览。
+  const handleAdjustmentCreated = (adjustmentNo: string) => {
+    setCreatePrefill(null);
+    navigate(`/admin/reconciliation/adjustments/${encodeURIComponent(adjustmentNo)}`);
   };
 
   useEffect(() => {
@@ -368,6 +439,12 @@ const ReconciliationCasesDetailPage = () => {
   const accountStatementHref = kase.walletRef
     ? `/admin/ledger/flows?walletRef=${encodeURIComponent(kase.walletRef)}`
     : null;
+
+  // Task 7: 开单表单要的是 CLIENT|FIRM 二选一——与后端 createDraft 同款归一化
+  // （kase.book === 'FIRM' ? 'FIRM' : 'CLIENT'，adjustment.service.ts），legacy
+  // 非 wallet 案件 book=null 时落 CLIENT。两边归一化写法必须一致，否则表单让选的
+  // 成因，后端会用不同的账簿去校验，出现「表单选得进去，提交却 400」。
+  const adjustmentBook: AdjustmentBook = kase.book === 'FIRM' ? 'FIRM' : 'CLIENT';
 
   return (
     <div className="flex h-full flex-col">
@@ -583,12 +660,15 @@ const ReconciliationCasesDetailPage = () => {
                     <th className="px-3 py-2 font-mono text-[9px] font-semibold uppercase tracking-[0.1em] text-adm-t3">
                       时间 / Time
                     </th>
+                    <th className="px-3 py-2 font-mono text-[9px] font-semibold uppercase tracking-[0.1em] text-adm-t3">
+                      操作 / Action
+                    </th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-adm-border">
                   {sortedFlows.length === 0 ? (
                     <tr>
-                      <td colSpan={6} className="px-3 py-8 text-center font-mono text-[11px] text-adm-t3">
+                      <td colSpan={7} className="px-3 py-8 text-center font-mono text-[11px] text-adm-t3">
                         No flow rows for this case.
                       </td>
                     </tr>
@@ -664,6 +744,22 @@ const ReconciliationCasesDetailPage = () => {
                           <td className="px-3 py-3 font-mono text-[11px] text-adm-t3">
                             {timestamp ? shortTimestamp(timestamp) : '—'}
                           </td>
+                          {/* Task 7: 开调账单入口——所有 5 类行都给（控制方裁定 Step 4），
+                              不按 matchType 挑着给；用该行数据预填金额/方向。按既有
+                              约定（CustomerDetail.tsx 等）以权限门控整个按钮的显隐，
+                              不是禁用态。 */}
+                          <td className="px-3 py-3">
+                            {canCreateAdjustment && (
+                              <button
+                                type="button"
+                                onClick={() => setCreatePrefill(rowAdjustmentPrefill(row))}
+                                className="inline-flex items-center gap-1 whitespace-nowrap font-mono text-[10px] font-medium text-adm-blue hover:underline"
+                              >
+                                <Plus size={10} />
+                                开调账单
+                              </button>
+                            )}
+                          </td>
                         </tr>
                       );
                     })
@@ -679,6 +775,79 @@ const ReconciliationCasesDetailPage = () => {
               >
                 {showMatched ? `隐藏已匹配 ${matchedCount} 行 / Hide matched` : `显示已匹配 ${matchedCount} 行 / Show matched`}
               </button>
+            )}
+          </DetailCard>
+
+          {/* 本案调账单 / This Case's Adjustments（Task 7 控制方裁定）——案件级列表，
+              运营在这里一眼看到本案已经开过哪些调账单，防重复开单的目的靠它达成
+              （不靠给差异项行"整行置灰"：flowComparison 行 id 和
+              ReconciliationLineItem.id 不是一张表，做不到）。点单号进详情页。 */}
+          <DetailCard
+            title={`本案调账单 / This Case's Adjustments · ${kase.adjustments?.length ?? 0}`}
+            columns={1}
+          >
+            {!kase.adjustments || kase.adjustments.length === 0 ? (
+              <div className="py-4 text-center font-mono text-[11px] text-adm-t3">
+                尚未开过调账单 / No adjustments opened yet.
+              </div>
+            ) : (
+              <div className="overflow-x-auto rounded-lg border border-adm-border">
+                <table className="w-full text-left text-sm">
+                  <thead className="border-b border-adm-border bg-adm-bg">
+                    <tr>
+                      <th className="px-3 py-2 font-mono text-[9px] font-semibold uppercase tracking-[0.1em] text-adm-t3">
+                        调账单号 / No.
+                      </th>
+                      <th className="px-3 py-2 font-mono text-[9px] font-semibold uppercase tracking-[0.1em] text-adm-t3">
+                        状态 / Status
+                      </th>
+                      <th className="px-3 py-2 font-mono text-[9px] font-semibold uppercase tracking-[0.1em] text-adm-t3">
+                        成因 / Reason
+                      </th>
+                      <th className="px-3 py-2 font-mono text-[9px] font-semibold uppercase tracking-[0.1em] text-adm-t3">
+                        方向 / Dir
+                      </th>
+                      <th className="px-3 py-2 text-right font-mono text-[9px] font-semibold uppercase tracking-[0.1em] text-adm-t3">
+                        金额 / Amount
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-adm-border">
+                    {kase.adjustments.map((adj) => (
+                      <tr key={adj.adjustmentNo}>
+                        <td className="px-3 py-2.5">
+                          <Link
+                            to={`/admin/reconciliation/adjustments/${encodeURIComponent(adj.adjustmentNo)}`}
+                            className="font-mono text-[11px] font-semibold text-adm-amber hover:underline"
+                          >
+                            {adj.adjustmentNo}
+                          </Link>
+                        </td>
+                        <td className="px-3 py-2.5">
+                          <StatusPill value={adj.status} />
+                        </td>
+                        <td className="px-3 py-2.5 font-mono text-[11px] text-adm-t2">
+                          {REASON_META[adj.reasonCode]?.label ?? adj.reasonCode}
+                        </td>
+                        <td className="px-3 py-2.5 font-mono text-[11px]">
+                          <span
+                            className={`rounded border px-1 text-[9px] font-semibold ${
+                              adj.direction === 'INCREASE'
+                                ? 'border-adm-green/30 bg-adm-green/10 text-adm-green'
+                                : 'border-adm-red/30 bg-adm-red/10 text-adm-red'
+                            }`}
+                          >
+                            {adj.direction}
+                          </span>
+                        </td>
+                        <td className="px-3 py-2.5 text-right font-mono text-[11px] text-adm-t1">
+                          {formatAmount(adj.amount, kase.decimals)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             )}
           </DetailCard>
 
@@ -733,6 +902,21 @@ const ReconciliationCasesDetailPage = () => {
           </SidebarGroup>
         </aside>
       </div>
+
+      {/* Task 7: 开调账单弹层——挂在页面最外层而不是某一行内部，因为它是全页级的
+          浮层（fixed inset-0），弹层内部状态与"点的是哪一行"无关，只靠 prefill 值区分。 */}
+      {createPrefill && (
+        <ReconciliationAdjustmentCreateModal
+          open={!!createPrefill}
+          caseNo={kase.caseNo}
+          book={adjustmentBook}
+          assetCode={kase.assetCode}
+          decimals={kase.decimals}
+          prefill={createPrefill}
+          onClose={() => setCreatePrefill(null)}
+          onCreated={handleAdjustmentCreated}
+        />
+      )}
     </div>
   );
 };
