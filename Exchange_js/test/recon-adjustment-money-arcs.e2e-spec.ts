@@ -718,6 +718,58 @@ describe('Recon adjustment money arcs (e2e, Task 8)', () => {
     expect(leftovers).toHaveLength(0);
   });
 
+  it('7. 公司账簿·减（银行杂费）：闭环 + 分录方向为 借公司运营/贷公司资产（V2 补口——四种分录组合里此前从未真落过账的最后一种）', async () => {
+    const ledger = 1; // AED
+    const wallet = await createFirmWallet({ assetId: aedAssetId, walletRole: 'F_FEE', type: 'FIAT_BANK' });
+
+    const FUNDED = 7000n;
+    const REALLY = 5000n; // 银行扣了 2000 账管费/电汇费 —— 外部实际比我们记的少，公司承担（decisions.md 2026-08-28）
+    await fundFirmWallet({ walletId: wallet.id, ledger, currency: aedCode, amount: FUNDED, tag: 'F7' });
+    await upsertExternalBalance({ walletId: wallet.id, currency: aedCode, book: 'FIRM', closingBalance: REALLY });
+
+    expect((await walletRecon.run({ cutoff: CUTOFF })).status).toBe('BREAK');
+
+    const kase = await openCaseFor(wallet.id);
+    expect(kase).toBeTruthy();
+    expect(kase.book).toBe('FIRM');
+    expect(kase.ownerNo).toBeNull(); // 公司钱包没有客户
+    expect(String(kase.deltaAmount)).toBe('-2000'); // external(5000) − internal(7000)，负数 = 内部记多了，要减
+
+    const { adjustmentNo } = await adjustments.createDraft(
+      {
+        caseNo: kase.caseNo,
+        reasonCode: 'BANK_CHARGE',
+        direction: 'REDUCE',
+        amount: '2000',
+        effectiveDate: TODAY,
+        reasonInternal: 'e2e V2: 银行账管费/电汇费，公司承担',
+        reasonCustomer: '（公司侧，客户不可见）',
+      } as any,
+      makeActor('E2E_OPS_CREATOR_F7', 'OPS_OFFICER'),
+    );
+
+    await adjustments.submit(adjustmentNo, makeActor('E2E_OPS_CREATOR_F7', 'OPS_OFFICER'));
+    const approvalCase = await latestApprovalCase(ApprovalActionTypes.RECON_ADJUSTMENT_POST, adjustmentNo);
+    await approvalsService.approve(approvalCase.id, { reason: 'e2e approve scenario 7' }, makeActor('E2E_OPS_APPROVER_F7', 'OPS_OFFICER'));
+
+    await waitUntil(async () => (await adjustmentRow(adjustmentNo)).status === AdjustmentStatus.POSTED);
+
+    // 分录方向：公司账簿 + 减钱 → 借 公司运营权益 / 贷 公司资产（与场景 3 恰好相反）
+    const evidence = await tbEvidence.findBySource('RECON_ADJUSTMENT', adjustmentNo);
+    expect(evidence).toHaveLength(1);
+    expect(evidence[0].debitCode).toBe(TB_CODE_TO_COA[TB_ACCOUNT_CODES.FIRM_OPS]);
+    expect(evidence[0].creditCode).toBe(TB_CODE_TO_COA[TB_ACCOUNT_CODES.FIRM_ASSET]);
+
+    const postedRow = await adjustmentRow(adjustmentNo);
+    expect(postedRow.book).toBe('FIRM');
+    expect(postedRow.ownerNo).toBeNull();
+
+    await walletRecon.run({ cutoff: CUTOFF });
+    const healed = await (prisma as any).reconciliationCase.findUnique({ where: { id: kase.id } });
+    expect(healed.status).toBe('RESOLVED');
+    expect(healed.resolutionReason).toBe('AUTO_HEALED');
+  });
+
   // ── verification gaps closed at final review (V1/V2/V3) ────────────────────
 
   it('V1 · maker≡checker：同一个人开单+提交后又想批自己的单 → SoD 拒绝（Fix 2 回归锁——maker 侧的 actor 身份不能被塌缩成一个字符串，否则自审批检测悄悄失效）', async () => {
