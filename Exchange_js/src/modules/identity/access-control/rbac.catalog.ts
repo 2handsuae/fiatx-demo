@@ -52,6 +52,7 @@ export type PermissionGroup =
   | 'RECON_RUN_WRITE'
   | 'RECON_CASE_READ'
   | 'RECON_EXTERNAL_BALANCE_READ'
+  | 'RECON_ADJUSTMENT_WRITE'
   | 'SETTLEMENT_READ'
   | 'SETTLEMENT_WRITE'
   | 'CLEARING_READ'
@@ -376,6 +377,10 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
   route('GET', '/admin/reconciliation/cases/:caseNo', 'View Recon Case Detail', ['RECON_CASE_READ']),
   route('GET', '/admin/reconciliation/external-balances', 'View External Balances', ['RECON_EXTERNAL_BALANCE_READ']),
   route('GET', '/admin/reconciliation/external-balances/:walletNo', 'View External Balance Detail', ['RECON_EXTERNAL_BALANCE_READ']),
+  // Recon disposition: 调账单（Task 6）
+  route('POST', '/admin/reconciliation/adjustments', 'Create Recon Adjustment (Draft)', ['RECON_ADJUSTMENT_WRITE']),
+  route('POST', '/admin/reconciliation/adjustments/:adjustmentNo/submit', 'Submit Recon Adjustment for Approval', ['RECON_ADJUSTMENT_WRITE']),
+  route('GET', '/admin/reconciliation/adjustments/:adjustmentNo', 'View Recon Adjustment Detail', ['RECON_CASE_READ']),
 
   // TB Ledger
   route('GET', '/admin/tb/accounts', 'List TB account registry', ['LEDGER_ACCOUNT_READ']),

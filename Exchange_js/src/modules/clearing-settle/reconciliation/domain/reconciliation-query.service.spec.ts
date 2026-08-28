@@ -808,6 +808,9 @@ describe('getCase — explain / observation / bucket (T6)', () => {
       fundsOrder: { findMany: jest.fn().mockResolvedValue([]) },
       // T4/T1: asset.decimals lookup (getCase unconditional + buildFlowComparison).
       asset: { findUnique: jest.fn().mockResolvedValue({ decimals: 2 }) },
+      // Task 6: getCase batch-looks up reconciliation_adjustments by lineItemId
+      // (mkKase() has one lineItem → this always fires). No matching row here.
+      reconciliationAdjustment: { findMany: jest.fn().mockResolvedValue([]) },
     } as any;
   }
 
@@ -858,6 +861,78 @@ describe('getCase — explain / observation / bucket (T6)', () => {
     // The cutoff passed to externalStatementLine/accountFlow lookups must reflect 2026-07-03, not 2026-06-30.
     const extCall = (prisma.externalStatementLine.findMany as jest.Mock).mock.calls[0][0];
     expect(extCall.where.datetime.lte.toISOString().slice(0, 10)).toBe('2026-07-03');
+  });
+});
+
+describe('getCase — adjustment marker on line items (Task 6)', () => {
+  const run = { id: 'run-adj', runNo: 'REC-ADJ' };
+
+  function mkKase(overrides: Record<string, unknown> = {}) {
+    return {
+      id: 'case-adj-1',
+      caseNo: 'REC20260815-ADJ',
+      walletRef: 'walletAdj',
+      businessDate: '2026-08-15',
+      status: 'OPEN',
+      bucket: 'BREAK',
+      tbAmount: new Prisma.Decimal(0),
+      actualExternal: new Prisma.Decimal(0),
+      deltaAmount: new Prisma.Decimal(0),
+      firstSeenRunId: null,
+      lastObservedRunId: null,
+      lastUpdatedRunId: null,
+      openedByRunId: 'run-adj',
+      closedByRunId: null,
+      createdAt: new Date('2026-08-15T00:00:00Z'),
+      // Two line items with DIFFERENT ids and DIFFERENT outcomes — this is what
+      // makes the assertions below reject a "same result for every row" bug
+      // (e.g. always returning adjustments[0]), not just a "field exists" bug.
+      lineItems: [
+        { id: 'li-has-adj', matchStatus: 'AMOUNT_MISMATCH', foundByRunId: 'run-adj' },
+        { id: 'li-no-adj', matchStatus: 'ORPHAN_EXTERNAL', foundByRunId: 'run-adj' },
+      ],
+      ...overrides,
+    };
+  }
+
+  function mkPrismaCase(adjustmentRows: any[] = [], kaseOverrides: Record<string, unknown> = {}) {
+    return {
+      reconciliationCase: { findUnique: jest.fn().mockResolvedValue(mkKase(kaseOverrides)) },
+      wallet: { findUnique: jest.fn().mockResolvedValue(null) },
+      reconciliationRun: { findUnique: jest.fn().mockResolvedValue(run) },
+      externalBalance: { findMany: jest.fn().mockResolvedValue([]) },
+      externalStatementLine: { findMany: jest.fn().mockResolvedValue([]) },
+      accountFlow: { findMany: jest.fn().mockResolvedValue([]) },
+      fundsOrder: { findMany: jest.fn().mockResolvedValue([]) },
+      asset: { findUnique: jest.fn().mockResolvedValue({ decimals: 2 }) },
+      reconciliationAdjustment: { findMany: jest.fn().mockResolvedValue(adjustmentRows) },
+    } as any;
+  }
+
+  it('已开调账单的行返回 { adjustmentNo, status }；同案内未开单的行返回 null（按 lineItemId 精确匹配，非全案共享一个结果）', async () => {
+    const prisma = mkPrismaCase([
+      { lineItemId: 'li-has-adj', adjustmentNo: 'ADJ20260815001', status: 'PENDING_APPROVAL' },
+    ]);
+    const svc = mkSvc(prisma);
+    const result: any = await svc.getCase('REC20260815-ADJ');
+
+    const withAdj = result.lineItems.find((li: any) => li.id === 'li-has-adj');
+    const withoutAdj = result.lineItems.find((li: any) => li.id === 'li-no-adj');
+
+    expect(withAdj.adjustment).toEqual({ adjustmentNo: 'ADJ20260815001', status: 'PENDING_APPROVAL' });
+    expect(withoutAdj.adjustment).toBeNull();
+
+    // 反遮蔽：查询必须按这个案件真实的 lineItemId 集合过滤，不是任意 IN 子句
+    // 或按 caseNo 过滤（会连未开单的行一起标记，被上面的 null 断言拦住）。
+    const call = (prisma.reconciliationAdjustment.findMany as jest.Mock).mock.calls[0][0];
+    expect([...call.where.lineItemId.in].sort()).toEqual(['li-has-adj', 'li-no-adj']);
+  });
+
+  it('案件没有任何行项目时不发 IN 查询（lineItemIds 为空数组时短路，不是本任务但顺带兜住 T3/T6 已有测试的空 lineItems 场景）', async () => {
+    const prisma = mkPrismaCase([], { lineItems: [] });
+    const svc = mkSvc(prisma);
+    await svc.getCase('REC20260815-ADJ');
+    expect(prisma.reconciliationAdjustment.findMany).not.toHaveBeenCalled();
   });
 });
 

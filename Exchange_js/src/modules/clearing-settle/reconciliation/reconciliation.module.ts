@@ -23,10 +23,12 @@ import { PushOrderController } from './disposition/push-order.controller';
 // Task 4: 调账单开单/提审服务 + 接审批中心 handler（onApproved 桩，Task 5 落账）。
 import { AdjustmentService } from './disposition/adjustment.service';
 import { AdjustmentApprovalService } from './disposition/adjustment-approval.service';
+// Task 6: 调账单 admin 端点（开单/提审/详情）+ RBAC 登记。
+import { AdjustmentController } from './disposition/adjustment.controller';
 
 @Module({
   imports: [PrismaModule, AuditLogsModule, TigerBeetleModule, FundsOrdersModule, ApprovalsModule],
-  controllers: [ReconciliationAdminController, PushOrderController],
+  controllers: [ReconciliationAdminController, PushOrderController, AdjustmentController],
   providers: [
     ReconciliationQueryService,
     ReconciliationSweepService,

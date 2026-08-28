@@ -132,6 +132,24 @@ export class AdjustmentService {
     });
   }
 
+  /**
+   * Task 6: 详情读模型（GET /admin/reconciliation/adjustments/:adjustmentNo）。
+   * 铁律⑥ 对外用业务键——排除 id/ownerId/approvalCaseId/lineItemId 四个内部 UUID
+   * （ownerId 的界面禁令见 schema 字段注释），walletRef 换成 walletNo（同
+   * reconciliation-query.service.ts getCase 里 walletRow 的查法）。
+   */
+  async getAdjustment(adjustmentNo: string) {
+    const row = await (this.prisma as any).reconciliationAdjustment.findUnique({ where: { adjustmentNo } });
+    if (!row) throw new NotFoundException(`调账单不存在：${adjustmentNo}`);
+
+    const wallet = row.walletRef && !String(row.walletRef).startsWith('XREF:')
+      ? await (this.prisma as any).wallet.findUnique({ where: { id: row.walletRef }, select: { walletNo: true } })
+      : null;
+
+    const { id: _id, ownerId: _ownerId, approvalCaseId: _approvalCaseId, lineItemId: _lineItemId, walletRef: _walletRef, ...rest } = row;
+    return { ...rest, walletNo: wallet?.walletNo ?? null };
+  }
+
   async onRejected(adjustmentNo: string, deciderId: string) {
     const row = await (this.prisma as any).reconciliationAdjustment.findUnique({ where: { adjustmentNo } });
     if (!row) throw new NotFoundException(`调账单不存在：${adjustmentNo}`);

@@ -427,6 +427,28 @@ export class ReconciliationQueryService {
       for (const fo of fundsOrders) fundsOrderStatusByNo.set(fo.fundsOrderNo, fo.status);
     }
 
+    // Task 6 (调账单标记): 按 lineItemId 批量查 reconciliation_adjustments，把
+    // { adjustmentNo, status } 挂到每条差异项（kase.lineItems）上——前端据此把
+    // 已开单的行置灰。ONE batched `in` query keyed on the case's lineItem ids —
+    // 同上一段 in-transit 补单子状态的写法，no N+1。同一 lineItemId 若曾开过多张
+    // 单（如首张被 REJECTED 后重开），按 createdAt 升序覆盖，保留最新一张的状态。
+    const allLineItemIds = (kase.lineItems ?? []).map((li: any) => li.id);
+    const adjustmentByLineItemId = new Map<string, { adjustmentNo: string; status: string }>();
+    if (allLineItemIds.length > 0) {
+      const adjustments = (await (this.prisma as any).reconciliationAdjustment.findMany({
+        where: { lineItemId: { in: allLineItemIds } },
+        select: { lineItemId: true, adjustmentNo: true, status: true },
+        orderBy: { createdAt: 'asc' },
+      })) as Array<{ lineItemId: string | null; adjustmentNo: string; status: string }>;
+      for (const adj of adjustments) {
+        if (adj.lineItemId) adjustmentByLineItemId.set(adj.lineItemId, { adjustmentNo: adj.adjustmentNo, status: adj.status });
+      }
+    }
+    const decoratedLineItems = (kase.lineItems ?? []).map((li: any) => ({
+      ...li,
+      adjustment: adjustmentByLineItemId.get(li.id) ?? null,
+    }));
+
     for (const li of inTransitLineItems) {
       const fundsOrderNo = li.internalSourceNo ?? null;
       flowComparison.push({
@@ -515,6 +537,7 @@ export class ReconciliationQueryService {
 
     return {
       ...kase,
+      lineItems: decoratedLineItems,
       walletNo: walletRow?.walletNo ?? null,
       linkedRunNo: linkedRunRow?.runNo ?? null,
       decimals: assetRow?.decimals ?? 0,
