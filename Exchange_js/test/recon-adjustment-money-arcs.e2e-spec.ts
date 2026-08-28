@@ -29,6 +29,8 @@ import { TB_TRANSFER_CODES } from '../src/modules/accounting/tigerbeetle/constan
 import { ApprovalsService } from '../src/modules/governance/approvals/approvals.service';
 import { ApprovalActionTypes, ApprovalActorContext } from '../src/modules/governance/approvals/constants/approval.constants';
 import { AuditActions, AuditEntityTypes } from '../src/modules/audit-logging/constants/audit-actions.constant';
+import { generateReferenceNo } from '../src/common/utils/no-generator.util';
+import { WithdrawTransactionStatus } from '../src/modules/trading/withdraw-transactions/dto/withdraw-transaction.dto';
 
 /**
  * Task 8: recon-adjustment (调账单) e2e — proves the whole 平账一期 chain works
@@ -396,6 +398,27 @@ describe('Recon adjustment money arcs (e2e, Task 8)', () => {
     return row;
   }
 
+  /** Fixture 提现单——Fix 3（边界线守卫从"查非空"升级成"查存在"）之后，
+   *  createDraft 会真的按 relatedOrderNo 查这张表；场景 2 需要一个真实存在的
+   *  原单号才能通过闸二，不能再像 Fix 3 之前那样传一个编造的字符串。字段照抄
+   *  test/customer-restrictions.e2e-spec.ts 的 makeWithdraw 最小集。 */
+  async function createFixtureWithdraw(opts: {
+    ownerId: string; ownerNo: string; assetId: string; amount: string;
+  }): Promise<{ withdrawNo: string }> {
+    const withdrawNo = generateReferenceNo('WD');
+    await (prisma as any).withdrawTransaction.create({
+      data: {
+        withdrawNo,
+        ownerType: 'CUSTOMER', ownerId: opts.ownerId, ownerNo: opts.ownerNo,
+        status: WithdrawTransactionStatus.RETURNED, // 叙事上与"提现已撤销退回"一致；闸二只查存在性，不查 status
+        assetId: opts.assetId,
+        amount: opts.amount,
+        netAmount: opts.amount,
+      },
+    });
+    return { withdrawNo };
+  }
+
   // ── scenarios ────────────────────────────────────────────────────────────
 
   it('1. 客户账簿·减（重复入账撤销）：BREAK case → 开单 → 提交 → 真的批准 → account_flows 落账 + 审计留痕 → 重跑对账 → case AUTO_HEALED', async () => {
@@ -511,6 +534,13 @@ describe('Recon adjustment money arcs (e2e, Task 8)', () => {
     expect(kase).toBeTruthy();
     expect(String(kase.deltaAmount)).toBe('15000'); // external − internal，正数 = 内部记少了
 
+    // Fix 3：relatedOrderNo 现在真的会被查——必须是一张已存在的提现单，不能再
+    // 编一个字符串（这行改动本身就是 Fix 3 那条评审发现的实证：改之前这里写死
+    // 'WD-E2E-ADJ-C2-0001'，一张不存在的单号，createDraft 照样放行并成功过账）。
+    const originalWithdraw = await createFixtureWithdraw({
+      ownerId: daveId, ownerNo: daveNo, assetId: aedAssetId, amount: '15000',
+    });
+
     const { adjustmentNo } = await adjustments.createDraft(
       {
         caseNo: kase.caseNo,
@@ -520,7 +550,7 @@ describe('Recon adjustment money arcs (e2e, Task 8)', () => {
         effectiveDate: TODAY,
         reasonInternal: 'e2e: 提现已撤销但账没冲，钱还在钱包里',
         reasonCustomer: '提现已撤销，款项退回',
-        relatedOrderNo: 'WD-E2E-ADJ-C2-0001', // 客户账簿加钱必须指明原单（边界线守卫）
+        relatedOrderNo: originalWithdraw.withdrawNo, // 客户账簿加钱必须指明一张真实存在的原单（边界线守卫）
       } as any,
       makeActor('E2E_OPS_CREATOR_C2', 'OPS_OFFICER'),
     );

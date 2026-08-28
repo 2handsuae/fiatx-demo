@@ -94,8 +94,14 @@ describe('AdjustmentService.createDraft 两道闸 —— 门不可绕的落点�
       // 与实现的旧错法凑巧对齐，掩盖了「客户账簿开单必崩」的真 bug（见 adjustment.service.ts）。
       customerMain: { findUnique: jest.fn().mockResolvedValue({ id: 'uuid-cust' }) },
       reconciliationAdjustment: { create },
+      // Fix 3：闸二第二步要按 relatedOrderNo 查三张原单表是否真实存在。默认全部
+      // "查无此单"——只有 direction=INCREASE 且传了非空 relatedOrderNo 的用例才会
+      // 走到这三条查询，需要放行的测试自己覆盖对应表（见下面"闸二·放行"）。
+      depositTransaction: { findUnique: jest.fn().mockResolvedValue(null) },
+      withdrawTransaction: { findUnique: jest.fn().mockResolvedValue(null) },
+      swapTransaction: { findUnique: jest.fn().mockResolvedValue(null) },
     };
-    return { svc: new AdjustmentService(prisma, null as any, null as any, null as any), create };
+    return { svc: new AdjustmentService(prisma, null as any, null as any, null as any), create, prisma };
   };
 
   it('闸二·边界线：客户账簿加钱不传关联原单号 → 拒', async () => {
@@ -107,8 +113,9 @@ describe('AdjustmentService.createDraft 两道闸 —— 门不可绕的落点�
     } as any, OP)).rejects.toThrow(BadRequestException);
   });
 
-  it('闸二·放行：传了关联原单号 → 不拒，落库的 relatedOrderNo 是传进去的值', async () => {
-    const { svc, create } = makeSvc(openClientCase);
+  it('闸二·放行：传了关联原单号且原单真实存在（充值单）→ 不拒，落库的 relatedOrderNo 是传进去的值', async () => {
+    const { svc, create, prisma } = makeSvc(openClientCase);
+    prisma.depositTransaction.findUnique.mockResolvedValue({ id: 'dep-uuid' });
     await svc.createDraft({
       caseNo: 'CASE_GATE', lineItemId: 'LI_1', reasonCode: 'DEPOSIT_AMOUNT_CORRECTION',
       direction: 'INCREASE', amount: '1000', effectiveDate: '2026-08-28',
@@ -118,6 +125,40 @@ describe('AdjustmentService.createDraft 两道闸 —— 门不可绕的落点�
     expect(create).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({ relatedOrderNo: 'DEP2608280001' }),
     }));
+    // 反遮蔽：查询必须按传进来的这个单号查，不是任意通配。
+    expect(prisma.depositTransaction.findUnique).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { depositNo: 'DEP2608280001' } }),
+    );
+  });
+
+  it('闸二·放行：原单是提现单而不是充值单也认——三张表逐一查，不是只认充值表', async () => {
+    const { svc, create, prisma } = makeSvc(openClientCase);
+    prisma.withdrawTransaction.findUnique.mockResolvedValue({ id: 'wd-uuid' });
+    await svc.createDraft({
+      caseNo: 'CASE_GATE', reasonCode: 'WITHDRAW_VOID_REFUND',
+      direction: 'INCREASE', amount: '1000', effectiveDate: '2026-08-28',
+      reasonInternal: '提现已撤销但账没冲', reasonCustomer: '提现撤销退回',
+      relatedOrderNo: 'WD2608280001',
+    } as any, OP);
+    expect(create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ relatedOrderNo: 'WD2608280001' }),
+    }));
+  });
+
+  it('闸二·边界线（Fix 3）：relatedOrderNo 非空，但充值/提现/兑换三张表都查无此单 → 拒——不能靠瞎填一个单号就绕过边界线守卫', async () => {
+    const { svc, create, prisma } = makeSvc(openClientCase);
+    await expect(svc.createDraft({
+      caseNo: 'CASE_GATE', reasonCode: 'DEPOSIT_AMOUNT_CORRECTION',
+      direction: 'INCREASE', amount: '1000', effectiveDate: '2026-08-28',
+      reasonInternal: '充值金额记错，需向上更正', reasonCustomer: '充值金额更正',
+      relatedOrderNo: 'DEP_DOES_NOT_EXIST',
+    } as any, OP)).rejects.toThrow(BadRequestException);
+    // 拒得干净：没有走到落库那一步。
+    expect(create).not.toHaveBeenCalled();
+    // 反遮蔽：确实查过三张表（不是提前因为别的原因短路拒绝）。
+    expect(prisma.depositTransaction.findUnique).toHaveBeenCalled();
+    expect(prisma.withdrawTransaction.findUnique).toHaveBeenCalled();
+    expect(prisma.swapTransaction.findUnique).toHaveBeenCalled();
   });
 
   it('闸一·成因非法组合：FIRM 专属成因配到 CLIENT 账簿的 case → 拒', async () => {

@@ -57,6 +57,28 @@ export class AdjustmentService {
          + `成因：${label}；理由：${row.reasonInternal}`;
   }
 
+  /**
+   * Fix 3（末站整改，§4 边界线守卫）：relatedOrderNo 必须指向一张已存在的
+   * 充值/提现/兑换单——有原单 = KYT 已对它跑过，改金额不算绕闸；无原单 = 凭空
+   * 加钱。三张表各自查一次、命中就短路，不用 Promise.all 是为了单测里只需要
+   * mock 命中的那张表，不必给全部三张表都摆一个 mock（同案例走查也只会命中
+   * 其中一张）。
+   */
+  private async relatedOrderExists(orderNo: string): Promise<boolean> {
+    const deposit = await (this.prisma as any).depositTransaction.findUnique({
+      where: { depositNo: orderNo }, select: { id: true },
+    });
+    if (deposit) return true;
+    const withdraw = await (this.prisma as any).withdrawTransaction.findUnique({
+      where: { withdrawNo: orderNo }, select: { id: true },
+    });
+    if (withdraw) return true;
+    const swap = await (this.prisma as any).swapTransaction.findUnique({
+      where: { swapNo: orderNo }, select: { id: true },
+    });
+    return !!swap;
+  }
+
   async createDraft(dto: CreateAdjustmentDto, actor: ApprovalActorContext) {
     const kase = await (this.prisma as any).reconciliationCase.findUnique({ where: { caseNo: dto.caseNo } });
     if (!kase) throw new NotFoundException(`对账案件不存在：${dto.caseNo}`);
@@ -68,12 +90,24 @@ export class AdjustmentService {
     // 闸一：成因 × 账簿 × 方向 合法性
     assertReasonAllowed(dto.reasonCode as ReasonCode, book, direction);
 
-    // 闸二：§4 边界线——客户账簿加钱必须指向一张已存在的原单
-    if (requiresRelatedOrder(book, direction) && !dto.relatedOrderNo?.trim()) {
-      throw new BadRequestException(
-        '客户账簿加钱必须指明关联原单号——无原单即凭空给客户加钱，会绕过 KYT 与合规闸；'
-        + '若为未归属入金，请走充值域补录入站信号。',
-      );
+    // 闸二：§4 边界线——客户账簿加钱必须指向一张已存在的原单。
+    // Fix 3（末站整改）：此前只查非空，不查存在——任意非空字符串都放行，等于
+    // 边界线守卫本身可以被一个假单号绕过（本分支自己的 e2e 场景 2 就传了个
+    // 不存在的 'WD-E2E-ADJ-C2-0001' 并成功过账，是这条缺口的现成实证）。
+    if (requiresRelatedOrder(book, direction)) {
+      const relatedOrderNo = dto.relatedOrderNo?.trim();
+      if (!relatedOrderNo) {
+        throw new BadRequestException(
+          '客户账簿加钱必须指明关联原单号——无原单即凭空给客户加钱，会绕过 KYT 与合规闸；'
+          + '若为未归属入金，请走充值域补录入站信号。',
+        );
+      }
+      if (!(await this.relatedOrderExists(relatedOrderNo))) {
+        throw new BadRequestException(
+          `关联原单号不存在：${relatedOrderNo}——必须指向一张已存在的充值/提现/兑换单，`
+          + '否则等于凭空给客户加钱，绕过 KYT 与合规闸。',
+        );
+      }
     }
 
     // 落账时 resolveTbAccountId 要客户 UUID，case 上只有业务号，这里换一次。
