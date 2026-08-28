@@ -355,6 +355,11 @@ const ApprovalDetailPage = () => {
 
   const allSteps             = detail.steps || (detail.step ? [detail.step] : []);
   const hasSteps             = allSteps.length > 0;
+  // Fix 1a：后果原话——generic 落点（objectSnapshot.impact），不挂具体 actionType。
+  // 任何 handler 想让审批人读到后果本身而不是单号，往 objectSnapshot 塞一个
+  // `impact` 字符串字段就自动获得这块展示，不用改这个页面。
+  const impact =
+    typeof detail.objectSnapshot?.impact === 'string' ? (detail.objectSnapshot.impact as string) : null;
   const showActionsBlock =
     (detail.canApprove && canDecide) ||
     (detail.canReject && canDecide) ||
@@ -437,6 +442,21 @@ const ApprovalDetailPage = () => {
               </div>
             </div>
           </section>
+
+          {/* ①.5 Impact — Fix 1a：审批人唯一必须读到的一句人话，后果原话而不是
+              单号（spec §7「审批看不见后果，就是橡皮图章」）。挂在最上方、Identity
+              正下方，不塞进下面的 Technical Detail（那块折叠在 objectSnapshot 的
+              JSON dump 里，PENDING 步骤此前什么都不显示——见 Fix 1 报告）。
+              读 objectSnapshot.impact 这个 generic 字段，不认 actionType，任何
+              handler 想要这块展示只需要在自己的 objectSnapshot 里塞这一个键。 */}
+          {impact && (
+            <section className="border-y border-adm-amber/30 bg-adm-amber/5 px-6 py-5">
+              <Cap>Impact</Cap>
+              <p className="mt-2 text-[13px] font-medium leading-relaxed text-adm-t1">
+                {impact}
+              </p>
+            </section>
+          )}
 
           {/* ② Core Context */}
           <section className="px-6 py-5">

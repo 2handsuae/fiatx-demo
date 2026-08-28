@@ -43,29 +43,37 @@ describe('AdjustmentService.assertTransition', () => {
 
 describe('AdjustmentService.describeImpact —— 审批页看到的是后果，不是单号', () => {
   const svc = new AdjustmentService(null as any, null as any, null as any, null as any);
-  it('客户账簿减钱，说清是谁、少多少、为什么', () => {
+  it('客户账簿减钱，说清是谁、少多少、为什么——金额按 decimals 缩放成人看得懂的数，成因显示客户口径标签而不是原始枚举', () => {
     const text = svc.describeImpact({
       book: 'CLIENT', ownerNo: 'C0042', amount: '1500', assetCode: 'AED',
       direction: 'REDUCE', reasonCode: 'DEPOSIT_DUPLICATE_REVERSAL', reasonInternal: '同一笔充值入账两次',
-    } as any);
+    } as any, 2);
     expect(text).toContain('C0042');
     expect(text).toContain('减少');
-    expect(text).toContain('1500');
+    // Fix 1b：1500 分（最小单位）在 decimals=2 下是 15.00 AED，不是裸打印的 1500——
+    // 后者是审批人唯一读到金额的这一屏上两个数量级的错读（200.00 AED 读成 20000）。
+    expect(text).toContain('15.00');
+    expect(text).not.toContain('1500');
+    // customerLabel（"重复入账撤销"）取代原始枚举 DEPOSIT_DUPLICATE_REVERSAL。
+    expect(text).toContain('重复入账撤销');
+    expect(text).not.toContain('DEPOSIT_DUPLICATE_REVERSAL');
     expect(text).toContain('同一笔充值入账两次');
   });
   it('公司账簿：文案显示"公司自有资金"', () => {
     const text = svc.describeImpact({
       book: 'FIRM', ownerNo: null, amount: '500', assetCode: 'AED',
       direction: 'REDUCE', reasonCode: 'BANK_CHARGE', reasonInternal: '银行手续费扣款',
-    } as any);
+    } as any, 2);
     expect(text).toContain('公司自有资金');
+    expect(text).toContain('5.00'); // 500 分 → 5.00 AED
   });
   it('方向 INCREASE 时文案显示"增加"', () => {
     const text = svc.describeImpact({
       book: 'CLIENT', ownerNo: 'C0099', amount: '800', assetCode: 'USDT',
       direction: 'INCREASE', reasonCode: 'WITHDRAW_VOID_REFUND', reasonInternal: '提现被驳回退回余额',
-    } as any);
+    } as any, 6);
     expect(text).toContain('增加');
+    expect(text).toContain('0.000800'); // 800 最小单位 → 6 位 decimals 的 USDT
   });
 });
 

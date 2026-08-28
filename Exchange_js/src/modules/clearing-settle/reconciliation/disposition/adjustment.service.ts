@@ -13,6 +13,7 @@ import { TB_LEDGERS } from '../../../accounting/tigerbeetle/constants/tb-ledgers
 import { TB_TRANSFER_CODES } from '../../../accounting/tigerbeetle/constants/tb-transfer-codes.constant';
 import { ADJUSTMENT_TRANSITIONS, AdjustmentStatus } from '../constants/adjustment-transitions.constant';
 import { CreateAdjustmentDto } from '../dto/adjustment.dto';
+import { bigintToDecimal } from '../../../funds-layer/accounting/tb-amount.util';
 import {
   Book, Direction, ReasonCode, REASON_SPECS,
   assertReasonAllowed, requiresRelatedOrder, resolvePostingLegs,
@@ -34,15 +35,25 @@ export class AdjustmentService {
     }
   }
 
-  /** 审批页文案：把后果展开成一句人话。审批看不见后果就是橡皮图章。 */
+  /**
+   * 审批页文案：把后果展开成一句人话。审批看不见后果就是橡皮图章。
+   *
+   * Fix 1b（末站整改）：此前直接把 amount 当最小单位数字打印（"20000（最小单位）
+   * AED" 而不是 200.00 AED——在审批人唯一读到金额的这一屏错读两个数量级），且
+   * 直接打印 reasonCode 原始枚举而不是 REASON_SPECS 里已经算好的 customerLabel。
+   * decimals 由调用方传入（copy getAdjustment/getCase 的资产查法，见 submit()），
+   * 保持本函数本身是不做 IO 的纯函数、单测不用起 DB/mock Prisma。
+   */
   describeImpact(row: {
     book: string; ownerNo: string | null; amount: string; assetCode: string;
     direction: string; reasonCode: string; reasonInternal: string;
-  }): string {
+  }, decimals: number): string {
     const dir = row.direction === 'REDUCE' ? '减少' : '增加';
     const who = row.book === 'CLIENT' ? `客户 ${row.ownerNo ?? '(未知)'}` : '公司自有资金';
-    return `本单将使${who}余额${dir} ${row.amount}（最小单位）${row.assetCode}；`
-         + `成因：${row.reasonCode}；理由：${row.reasonInternal}`;
+    const majorAmount = bigintToDecimal(BigInt(row.amount), decimals).toFixed(decimals);
+    const label = REASON_SPECS[row.reasonCode as ReasonCode]?.customerLabel ?? row.reasonCode;
+    return `本单将使${who}余额${dir} ${majorAmount} ${row.assetCode}；`
+         + `成因：${label}；理由：${row.reasonInternal}`;
   }
 
   async createDraft(dto: CreateAdjustmentDto, operatorId: string) {
@@ -106,7 +117,12 @@ export class AdjustmentService {
     //   CreateApprovalDto = { actionType, entityRef, objectSnapshot?, traceId? }
     //   SubmitApprovalDto = { reason?, traceId? }
     //   ApprovalActorContext = { actorType: 'ADMIN', userId, userNo?, role?, roleCodes }
-    const impact = this.describeImpact(row);
+    // Fix 1b：describeImpact 要按资产 decimals 把最小单位缩放成人看得懂的金额——
+    // 查法照抄 getAdjustment()/getCase() 的资产查询（同一张 asset 表，同一个字段）。
+    const assetRow = await (this.prisma as any).asset.findUnique({
+      where: { code: row.assetCode }, select: { decimals: true },
+    });
+    const impact = this.describeImpact(row, assetRow?.decimals ?? 0);
     const approval = await this.approvals.createAndSubmit(
       {
         actionType: 'RECON_ADJUSTMENT_POST',
