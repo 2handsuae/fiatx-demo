@@ -67,6 +67,7 @@ export const AuditEntityTypes = {
   INTERNAL_TRANSFER: 'INTERNAL_TRANSFER',
   RECONCILIATION_RUN_V8: 'RECONCILIATION_RUN_V8',
   RECONCILIATION_CASE: 'RECONCILIATION_CASE',
+  RECON_ADJUSTMENT: 'RECON_ADJUSTMENT',
   CUSTOMER_TAG: 'CUSTOMER_TAG',
   MATERIAL_REQUEST: 'MATERIAL_REQUEST',
 } as const;
@@ -408,6 +409,8 @@ export const AuditActions = {
   // ── Reconciliation disposition: push-order（平账·推单）──
   RECON_PUSH_ORDER_SYNCED: 'RECON_PUSH_ORDER_SYNCED',
   RECON_PUSH_ORDER_MANUAL: 'RECON_PUSH_ORDER_MANUAL',
+  // ── Reconciliation disposition: adjustment（平账·调账单，Task 5）──
+  RECON_ADJUSTMENT_POSTED: 'RECON_ADJUSTMENT_POSTED',
   // ── Material Request Ledger（向客户要材料）──
   MATERIAL_REQUEST_ISSUED: 'MATERIAL_REQUEST_ISSUED',
   MATERIAL_REQUEST_SUBMITTED: 'MATERIAL_REQUEST_SUBMITTED',
@@ -884,6 +887,8 @@ export const V8_RECON_AUDIT_ACTIONS: Record<string, AuditActionSpec> = {
   RECON_CASE_AUTO_HEALED: { domain: 'RECON', correlationMode: N, requiredFields: [], requiresCausation: false },
   // 合并 SYNCED+MANUAL（同动作不因语境拆名；manualConfirm/证据三件套在 metadata）
   RECON_PUSH_ORDER:       { domain: 'RECON', correlationMode: I, requiredFields: ['fromStatus', 'toStatus'], requiresCausation: false },
+  // Task 5 —— 调账单落账（审批通过后一次性记账，继承案件旅程 correlationId，同 RECON_PUSH_ORDER）
+  RECON_ADJUSTMENT_POSTED: { domain: 'RECON', correlationMode: I, requiredFields: ['reasonCode', 'direction', 'amount', 'effectiveDate'], requiresCausation: false },
 };
 
 /**

@@ -53,6 +53,9 @@ export const TB_TRANSFER_CODES = {
 
   // ── Bootstrap(70)──
   CAPITAL_INJECTION: 70, // 资本注入:DR FIRM_ASSET / CR FIRM_OPS
+
+  // ── 平账·调账(80)──
+  RECON_ADJUSTMENT: 80, // 调账单落账:借贷随 book×direction 四组合(disposition/adjustment-rules.ts resolvePostingLegs)
 } as const;
 
 export type TbTransferCode = (typeof TB_TRANSFER_CODES)[keyof typeof TB_TRANSFER_CODES];

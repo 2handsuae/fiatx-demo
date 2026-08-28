@@ -2,6 +2,7 @@ import { PrismaClient } from '@prisma/client';
 import { BadRequestException } from '@nestjs/common';
 import { AdjustmentStatus } from '../constants/adjustment-transitions.constant';
 import { AdjustmentService } from './adjustment.service';
+import { TB_ACCOUNT_CODES } from '../../../accounting/tigerbeetle/constants/tb-account-codes.constant';
 
 describe('ReconciliationAdjustment schema', () => {
   const prisma = new PrismaClient();
@@ -154,5 +155,84 @@ describe('AdjustmentService.onRejected —— 驳回落库 + 终态闸（Task 4 
     const svc = new AdjustmentService(prisma, null as any, null as any, null as any);
     await expect(svc.onRejected('ADJ_R2', 'U_OPS_7')).rejects.toThrow(BadRequestException);
     expect(update).not.toHaveBeenCalled();
+  });
+});
+
+describe('AdjustmentService.onApproved 落账', () => {
+  const makeSvc = (row: any, accounting: any, update = jest.fn()) => {
+    const prisma: any = {
+      reconciliationAdjustment: { findUnique: jest.fn().mockResolvedValue(row), update },
+    };
+    return new AdjustmentService(prisma, null as any, accounting, { recordByActor: jest.fn() } as any);
+  };
+
+  const clientRow = {
+    adjustmentNo: 'ADJ2608280001', status: 'PENDING_APPROVAL', book: 'CLIENT',
+    direction: 'REDUCE', reasonCode: 'DEPOSIT_DUPLICATE_REVERSAL',
+    walletRef: 'W_CUST_1', assetCode: 'AED', amount: '1500', effectiveDate: '2026-08-15',
+    ownerNo: 'C0042', ownerId: 'uuid-cust', caseNo: 'RC26082800001',
+    reasonInternal: '同一笔充值入账两次', traceId: 'T1', relatedOrderNo: 'DP2608150042',
+  };
+
+  it('evidence 必须带该 case 的 walletRef 且 isExternalCrossing=false', async () => {
+    const executeTransfer = jest.fn().mockResolvedValue({ tbTransferId: 7n });
+    const accounting = { executeTransfer, resolveTbAccountId: jest.fn().mockResolvedValue(1n) };
+    await makeSvc(clientRow, accounting).onApproved('ADJ2608280001', 'U_OPS');
+
+    const evidence = executeTransfer.mock.calls[0][0].evidence;
+    expect(evidence.debitWalletRef).toBe('W_CUST_1');
+    expect(evidence.creditWalletRef).toBe('W_CUST_1');
+    expect(evidence.isExternalCrossing).toBe(false);
+    expect(evidence.effectiveDate).toBe('2026-08-15');
+  });
+
+  it('客户账簿减钱走「借客户应付 / 贷客户托管」', async () => {
+    const resolveTbAccountId = jest.fn().mockResolvedValue(1n);
+    const accounting = { executeTransfer: jest.fn().mockResolvedValue({ tbTransferId: 1n }), resolveTbAccountId };
+    await makeSvc(clientRow, accounting).onApproved('ADJ2608280001', 'U_OPS');
+    const codes = resolveTbAccountId.mock.calls.map((c: any[]) => c[0].code);
+    expect(codes).toEqual([TB_ACCOUNT_CODES.CLIENT_PAYABLE, TB_ACCOUNT_CODES.CLIENT_ASSET]);
+  });
+
+  it('落账后置 POSTED 并记下 tbTransferId', async () => {
+    const update = jest.fn();
+    const accounting = {
+      executeTransfer: jest.fn().mockResolvedValue({ tbTransferId: 42n }),
+      resolveTbAccountId: jest.fn().mockResolvedValue(1n),
+    };
+    await makeSvc(clientRow, accounting, update).onApproved('ADJ2608280001', 'U_OPS');
+    expect(update).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ status: 'POSTED', tbTransferId: '42', decidedByUserId: 'U_OPS' }),
+    }));
+  });
+
+  it('已 POSTED 的单再落一次被状态机拒绝，且不碰账本', async () => {
+    const executeTransfer = jest.fn();
+    const accounting = { executeTransfer, resolveTbAccountId: jest.fn() };
+    await expect(
+      makeSvc({ ...clientRow, status: 'POSTED' }, accounting).onApproved('ADJ2608280001', 'U_OPS'),
+    ).rejects.toThrow(BadRequestException);
+    expect(executeTransfer).not.toHaveBeenCalled();
+  });
+
+  // 补测（业主要求）：四种分录组合里，上面三条只端到端断言过 CLIENT 账簿一种；
+  // 公司账簿两种（BANK_CHARGE 减/BANK_INTEREST 加）在本任务完全没被覆盖，而它们正是
+  // 演示破口场景 5/7（银行杂费/银行利息）要走的路。这条覆盖 FIRM+INCREASE。
+  // 一并断言 ownerType：自审时发现公司科目（FIRM_ASSET/INCOME_OTHER）在 TbAccountRegistry
+  // 里的真实登记值是 'SYSTEM'（见 asset-provisioning.service.ts:46、
+  // tb-account-registry.service.ts resolve() 的严格 where 等值匹配），不是 'FIRM'——
+  // 若只断言 code 不断言 ownerType，这处会在 mock 测试下全绿、真实环境里
+  // resolveTbAccountId 却因查不到注册行而抛 NotFoundException。
+  it('公司账簿加钱走「借公司资产 / 贷其他收入」，且科目 ownerType 是 SYSTEM 不是 FIRM', async () => {
+    const resolveTbAccountId = jest.fn().mockResolvedValue(1n);
+    const accounting = { executeTransfer: jest.fn().mockResolvedValue({ tbTransferId: 1n }), resolveTbAccountId };
+    const firmRow = {
+      ...clientRow, book: 'FIRM', direction: 'INCREASE', reasonCode: 'BANK_INTEREST',
+      ownerNo: null, ownerId: null, walletRef: 'W_FIRM_AED',
+    };
+    await makeSvc(firmRow, accounting).onApproved('ADJ2608280001', 'U_OPS');
+    const calls = resolveTbAccountId.mock.calls.map((c: any[]) => c[0]);
+    expect(calls.map((c) => c.code)).toEqual([TB_ACCOUNT_CODES.FIRM_ASSET, TB_ACCOUNT_CODES.INCOME_OTHER]);
+    expect(calls.map((c) => c.ownerType)).toEqual(['SYSTEM', 'SYSTEM']);
   });
 });
