@@ -108,7 +108,7 @@ describe('AdjustmentService.createDraft 两道闸 —— 门不可绕的落点�
     await expect(svc.createDraft({
       caseNo: 'CASE_GATE', lineItemId: 'LI_1', reasonCode: 'BANK_INTEREST',
       direction: 'INCREASE', amount: '1000', effectiveDate: '2026-08-28',
-      reasonInternal: '银行利息', reasonCustomer: '银行利息',
+      reasonInternal: '银行利息', reasonCustomer: '银行利息', relatedOrderNo: 'X',
     } as any, 'U_OP')).rejects.toThrow(BadRequestException);
   });
 
