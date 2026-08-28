@@ -887,8 +887,10 @@ export const V8_RECON_AUDIT_ACTIONS: Record<string, AuditActionSpec> = {
   RECON_CASE_AUTO_HEALED: { domain: 'RECON', correlationMode: N, requiredFields: [], requiresCausation: false },
   // 合并 SYNCED+MANUAL（同动作不因语境拆名；manualConfirm/证据三件套在 metadata）
   RECON_PUSH_ORDER:       { domain: 'RECON', correlationMode: I, requiredFields: ['fromStatus', 'toStatus'], requiresCausation: false },
-  // Task 5 —— 调账单落账（审批通过后一次性记账，继承案件旅程 correlationId，同 RECON_PUSH_ORDER）
-  RECON_ADJUSTMENT_POSTED: { domain: 'RECON', correlationMode: I, requiredFields: ['reasonCode', 'direction', 'amount', 'effectiveDate'], requiresCausation: false },
+  // Task 5 —— 调账单落账（审批通过后一次性记账，继承案件旅程 correlationId，同 RECON_PUSH_ORDER）。
+  // requiredFields 只列 AuditLogEvent 真有的顶层列——'direction' 不是一列（评审逮到：
+  // 若把它列进来，这条要求永远满足不了，只能塞 metadata），direction 留在 metadata 里。
+  RECON_ADJUSTMENT_POSTED: { domain: 'RECON', correlationMode: I, requiredFields: ['reasonCode', 'amount', 'effectiveDate'], requiresCausation: false },
 };
 
 /**

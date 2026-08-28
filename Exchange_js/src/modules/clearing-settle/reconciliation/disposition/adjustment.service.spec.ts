@@ -3,6 +3,8 @@ import { BadRequestException } from '@nestjs/common';
 import { AdjustmentStatus } from '../constants/adjustment-transitions.constant';
 import { AdjustmentService } from './adjustment.service';
 import { TB_ACCOUNT_CODES } from '../../../accounting/tigerbeetle/constants/tb-account-codes.constant';
+import { V8_RECON_AUDIT_ACTIONS } from '../../../audit-logging/constants/audit-actions.constant';
+import { AuditLogsService } from '../../../audit-logging/audit-logs.service';
 
 describe('ReconciliationAdjustment schema', () => {
   const prisma = new PrismaClient();
@@ -159,11 +161,11 @@ describe('AdjustmentService.onRejected —— 驳回落库 + 终态闸（Task 4 
 });
 
 describe('AdjustmentService.onApproved 落账', () => {
-  const makeSvc = (row: any, accounting: any, update = jest.fn()) => {
+  const makeSvc = (row: any, accounting: any, update = jest.fn(), recordByActor = jest.fn()) => {
     const prisma: any = {
       reconciliationAdjustment: { findUnique: jest.fn().mockResolvedValue(row), update },
     };
-    return new AdjustmentService(prisma, null as any, accounting, { recordByActor: jest.fn() } as any);
+    return new AdjustmentService(prisma, null as any, accounting, { recordByActor } as any);
   };
 
   const clientRow = {
@@ -208,11 +210,14 @@ describe('AdjustmentService.onApproved 落账', () => {
 
   it('已 POSTED 的单再落一次被状态机拒绝，且不碰账本', async () => {
     const executeTransfer = jest.fn();
+    const update = jest.fn();
     const accounting = { executeTransfer, resolveTbAccountId: jest.fn() };
     await expect(
-      makeSvc({ ...clientRow, status: 'POSTED' }, accounting).onApproved('ADJ2608280001', 'U_OPS'),
+      makeSvc({ ...clientRow, status: 'POSTED' }, accounting, update).onApproved('ADJ2608280001', 'U_OPS'),
     ).rejects.toThrow(BadRequestException);
     expect(executeTransfer).not.toHaveBeenCalled();
+    // 对称补上（评审 Minor 5）：与 onRejected 的终态测试一样，闸门拒绝时不该碰任何一次写库。
+    expect(update).not.toHaveBeenCalled();
   });
 
   // 补测（业主要求）：四种分录组合里，上面三条只端到端断言过 CLIENT 账簿一种；
@@ -234,5 +239,82 @@ describe('AdjustmentService.onApproved 落账', () => {
     const calls = resolveTbAccountId.mock.calls.map((c: any[]) => c[0]);
     expect(calls.map((c) => c.code)).toEqual([TB_ACCOUNT_CODES.FIRM_ASSET, TB_ACCOUNT_CODES.INCOME_OTHER]);
     expect(calls.map((c) => c.ownerType)).toEqual(['SYSTEM', 'SYSTEM']);
+  });
+
+  // 评审 Minor 4：四组合此前只端到端断言过 CLIENT/REDUCE + FIRM/INCREASE 两种，
+  // 剩下两种（镜像方向）在接线层完全没测过。补齐后四组合两两科目对都不同
+  // （注意 CLIENT 两条码集合相同、顺序相反——toEqual 对数组顺序敏感，
+  // 硬编码答案没法同时通过这两条）。
+  it('分录接线覆盖·CLIENT/INCREASE：走「借客户托管 / 贷客户应付」（提现撤销退回场景）', async () => {
+    const resolveTbAccountId = jest.fn().mockResolvedValue(1n);
+    const accounting = { executeTransfer: jest.fn().mockResolvedValue({ tbTransferId: 1n }), resolveTbAccountId };
+    const row = { ...clientRow, direction: 'INCREASE', reasonCode: 'WITHDRAW_VOID_REFUND' };
+    await makeSvc(row, accounting).onApproved('ADJ2608280001', 'U_OPS');
+    const codes = resolveTbAccountId.mock.calls.map((c: any[]) => c[0].code);
+    expect(codes).toEqual([TB_ACCOUNT_CODES.CLIENT_ASSET, TB_ACCOUNT_CODES.CLIENT_PAYABLE]);
+  });
+
+  it('分录接线覆盖·FIRM/REDUCE：走「借公司运营 / 贷公司资产」（演示破口场景5：银行杂费）', async () => {
+    const resolveTbAccountId = jest.fn().mockResolvedValue(1n);
+    const accounting = { executeTransfer: jest.fn().mockResolvedValue({ tbTransferId: 1n }), resolveTbAccountId };
+    const row = {
+      ...clientRow, book: 'FIRM', direction: 'REDUCE', reasonCode: 'BANK_CHARGE',
+      ownerNo: null, ownerId: null, walletRef: 'W_FIRM_AED',
+    };
+    await makeSvc(row, accounting).onApproved('ADJ2608280001', 'U_OPS');
+    const codes = resolveTbAccountId.mock.calls.map((c: any[]) => c[0].code);
+    expect(codes).toEqual([TB_ACCOUNT_CODES.FIRM_OPS, TB_ACCOUNT_CODES.FIRM_ASSET]);
+  });
+
+  // ── 评审 Critical 的回归锁：audit-logs.service.ts 的 assertActionSpec 读的是
+  // input 顶层字段，不是 metadata；上一版把 reasonCode/direction/amount/effectiveDate
+  // 全塞进了 metadata，顶层一个没传，真实 AuditLogsService 会在账已过、单已 POSTED
+  // 之后拒写——而这条拒写异常在 @OnEvent handler 里被吞，运营看到成功、审计里零记录。
+  // 5 条测试全程 mock `{ recordByActor: jest.fn() }`，从未真正跑过这道校验——跟
+  // ownerType 那只 bug 是同一个根因（mock 掩盖了真契约）。这里补两层锁：
+  //   a) 动态比对合同表 requiredFields 与信封顶层字段（防未来两侧改动失步）；
+  //   b) 直接拿真实 AuditLogsService 的校验函数验一遍捕获到的信封（防「a 写的字段
+  //      清单本身抄错」这层自证风险——不是照抄合同表再断言一次，是让生产用的那个
+  //      函数亲自跑，评审就是这样抓到 bug 的）。
+  describe('审计信封契约一致性（评审 Critical 回归锁）', () => {
+    const captureEnvelope = async (row: any) => {
+      const recordByActor = jest.fn();
+      const accounting = { executeTransfer: jest.fn().mockResolvedValue({ tbTransferId: 1n }), resolveTbAccountId: jest.fn().mockResolvedValue(1n) };
+      await makeSvc(row, accounting, jest.fn(), recordByActor).onApproved('ADJ2608280001', 'U_OPS');
+      expect(recordByActor).toHaveBeenCalledTimes(1);
+      return recordByActor.mock.calls[0][0];
+    };
+
+    it('a) 信封顶层字段覆盖合同表 RECON_ADJUSTMENT_POSTED.requiredFields 里的每一项', async () => {
+      const envelope = await captureEnvelope(clientRow);
+      const required = V8_RECON_AUDIT_ACTIONS.RECON_ADJUSTMENT_POSTED.requiredFields;
+      // 合同表本身别被改空——空数组会让下面的循环啥都不测，等于测试形同虚设。
+      expect(required.length).toBeGreaterThan(0);
+      for (const field of required) {
+        expect(envelope[field as keyof typeof envelope]).not.toBeUndefined();
+        expect(envelope[field as keyof typeof envelope]).not.toBeNull();
+      }
+    });
+
+    it('b) 真实 AuditLogsService.assertActionSpec 验捕获到的信封——不抛（不依赖真库：assertActionSpec 是纯校验，不碰 prisma）', async () => {
+      const envelope = await captureEnvelope(clientRow);
+      const realAuditLogs = new AuditLogsService(null as any);
+      expect(() => (realAuditLogs as any).assertActionSpec(envelope)).not.toThrow();
+    });
+
+    it('correlationId 回落：case 没有 traceId 时不拒写（INHERIT 码空 correlationId 会被真校验拒绝），回落值与 evidence 那侧（:181 已有的 row.traceId||row.adjustmentNo）对齐', async () => {
+      const envelope = await captureEnvelope({ ...clientRow, traceId: null });
+      expect(envelope.correlationId).toBe('ADJ2608280001');
+
+      const realAuditLogs = new AuditLogsService(null as any);
+      expect(() => (realAuditLogs as any).assertActionSpec(envelope)).not.toThrow();
+    });
+
+    it('subjects 里案件用词表登记名 RECONCILIATION_CASE，不用未登记的自造词 RECON_CASE（按案件查这笔调账靠它，同模块开案审计 wallet-recon-run.service.ts 用的就是这个词）', async () => {
+      const envelope = await captureEnvelope(clientRow);
+      expect(envelope.subjects).toEqual(expect.arrayContaining([
+        expect.objectContaining({ subjectType: 'RECONCILIATION_CASE', subjectNo: 'RC26082800001', subjectRole: 'RELATED' }),
+      ]));
+    });
   });
 });

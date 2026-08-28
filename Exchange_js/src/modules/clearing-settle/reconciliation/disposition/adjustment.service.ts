@@ -205,12 +205,14 @@ export class AdjustmentService {
       },
     });
 
-    // 信封照 push-order.service.ts:235 `recordPush` 抄——对账件的现成范本
+    // 信封照 push-order.service.ts:235 `recordPush` 抄——对账件的现成范本。
+    // RECON_CASE 不是词表里的登记名（词表里案件叫 RECONCILIATION_CASE，同模块开案审计
+    // wallet-recon-run.service.ts 就是用这个词）——用错词会让「按案件查这笔调账」这条链路串不起来。
     const subjects: any[] = [
       { subjectType: 'RECON_ADJUSTMENT', subjectNo: row.adjustmentNo, subjectRole: 'PRIMARY' },
     ];
     if (row.ownerNo) subjects.push({ subjectType: 'CUSTOMER', subjectNo: row.ownerNo, subjectRole: 'OWNER' });
-    if (row.caseNo) subjects.push({ subjectType: 'RECON_CASE', subjectNo: row.caseNo, subjectRole: 'RELATED' });
+    if (row.caseNo) subjects.push({ subjectType: 'RECONCILIATION_CASE', subjectNo: row.caseNo, subjectRole: 'RELATED' });
 
     await this.auditLogs.recordByActor(
       {
@@ -219,11 +221,19 @@ export class AdjustmentService {
         primarySubjectType: 'RECON_ADJUSTMENT',
         primarySubjectNo: row.adjustmentNo,
         ownerCustomerNo: row.ownerNo,
-        correlationId: row.traceId,
+        // INHERIT 码，assertActionSpec 对空 correlationId 直接拒写——回落表达式与
+        // evidence.traceId（上面 :181）保持一致，两侧不许各写各的。
+        correlationId: row.traceId || row.adjustmentNo,
         fromStatus: AdjustmentStatus.PENDING_APPROVAL,
         toStatus: AdjustmentStatus.POSTED,
         subjects,
         reason: row.reasonInternal,
+        // requiredFields 读的是顶层字段，不是 metadata——这三个必须在这一层重复一份
+        // （即便 metadata 里也有），否则 assertActionSpec 会拒写：账已过、单已 POSTED，
+        // 这一步再拒就是「落了账却没留痕」，静默踩铁律①。
+        reasonCode: row.reasonCode,
+        amount: row.amount,
+        effectiveDate: row.effectiveDate,
         requestId: `RECON_ADJUSTMENT_POSTED_${row.adjustmentNo}_${randomUUID()}`,
         metadata: {
           reasonCode: row.reasonCode, direction: row.direction, amount: row.amount,
