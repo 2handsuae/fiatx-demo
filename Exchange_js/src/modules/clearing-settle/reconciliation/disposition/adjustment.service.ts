@@ -64,8 +64,11 @@ export class AdjustmentService {
     }
 
     // 落账时 resolveTbAccountId 要客户 UUID，case 上只有业务号，这里换一次。
+    // Task 6 修复：Prisma 模型是 CustomerMain（customerMain 委托），不是 customer——
+    // 原写法在真实 Prisma Client 上是 undefined.findUnique，单测用的 mock 按调用方
+    // 写死了 customer 键所以没测出来，任何客户账簿（ownerNo 非空）案件一开单就 500。
     const owner = kase.ownerNo
-      ? await (this.prisma as any).customer.findUnique({ where: { customerNo: kase.ownerNo }, select: { id: true } })
+      ? await (this.prisma as any).customerMain.findUnique({ where: { customerNo: kase.ownerNo }, select: { id: true } })
       : null;
 
     const row = await (this.prisma as any).reconciliationAdjustment.create({

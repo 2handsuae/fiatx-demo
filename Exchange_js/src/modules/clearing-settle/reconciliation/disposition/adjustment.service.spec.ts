@@ -78,7 +78,9 @@ describe('AdjustmentService.createDraft 两道闸 —— 门不可绕的落点�
   const makeSvc = (kase: any, create = jest.fn().mockResolvedValue({ adjustmentNo: 'ADJ_X' })) => {
     const prisma: any = {
       reconciliationCase: { findUnique: jest.fn().mockResolvedValue(kase) },
-      customer: { findUnique: jest.fn().mockResolvedValue({ id: 'uuid-cust' }) },
+      // Task 6 修复：真实 Prisma 委托是 customerMain，不是 customer——旧 mock 键写错
+      // 与实现的旧错法凑巧对齐，掩盖了「客户账簿开单必崩」的真 bug（见 adjustment.service.ts）。
+      customerMain: { findUnique: jest.fn().mockResolvedValue({ id: 'uuid-cust' }) },
       reconciliationAdjustment: { create },
     };
     return { svc: new AdjustmentService(prisma, null as any, null as any, null as any), create };
