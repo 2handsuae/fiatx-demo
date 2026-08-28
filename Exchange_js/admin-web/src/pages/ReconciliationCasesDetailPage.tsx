@@ -747,9 +747,11 @@ const ReconciliationCasesDetailPage = () => {
                           {/* Task 7: 开调账单入口——所有 5 类行都给（控制方裁定 Step 4），
                               不按 matchType 挑着给；用该行数据预填金额/方向。按既有
                               约定（CustomerDetail.tsx 等）以权限门控整个按钮的显隐，
-                              不是禁用态。 */}
+                              不是禁用态。Fix 5：案件已 RESOLVED 时同样不给入口——同左侧
+                              "已推进·待重对账"徽标（:731）一样按 kase.status 收，已解决的
+                              案件没有可再调的差异项，点了只会拿到一个 400。 */}
                           <td className="px-3 py-3">
-                            {canCreateAdjustment && (
+                            {canCreateAdjustment && kase.status === 'OPEN' && (
                               <button
                                 type="button"
                                 onClick={() => setCreatePrefill(rowAdjustmentPrefill(row))}
