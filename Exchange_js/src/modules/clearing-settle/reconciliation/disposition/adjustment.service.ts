@@ -7,6 +7,7 @@ import { PrismaService } from '../../../../core/prisma/prisma.service';
 import { ApprovalsService } from '../../../governance/approvals/approvals.service';
 import { AccountingService } from '../../../accounting/tigerbeetle/accounting.service';
 import { AuditLogsService } from '../../../audit-logging/audit-logs.service';
+import { AuditEntityTypes } from '../../../audit-logging/constants/audit-actions.constant';
 import { TB_ACCOUNT_CODES, TB_CODE_TO_COA } from '../../../accounting/tigerbeetle/constants/tb-account-codes.constant';
 import { TB_LEDGERS } from '../../../accounting/tigerbeetle/constants/tb-ledgers.constant';
 import { TB_TRANSFER_CODES } from '../../../accounting/tigerbeetle/constants/tb-transfer-codes.constant';
@@ -245,7 +246,7 @@ export class AdjustmentService {
     // RECON_CASE 不是词表里的登记名（词表里案件叫 RECONCILIATION_CASE，同模块开案审计
     // wallet-recon-run.service.ts 就是用这个词）——用错词会让「按案件查这笔调账」这条链路串不起来。
     const subjects: any[] = [
-      { subjectType: 'RECON_ADJUSTMENT', subjectNo: row.adjustmentNo, subjectRole: 'PRIMARY' },
+      { subjectType: AuditEntityTypes.RECON_ADJUSTMENT, subjectNo: row.adjustmentNo, subjectRole: 'PRIMARY' },
     ];
     if (row.ownerNo) subjects.push({ subjectType: 'CUSTOMER', subjectNo: row.ownerNo, subjectRole: 'OWNER' });
     if (row.caseNo) subjects.push({ subjectType: 'RECONCILIATION_CASE', subjectNo: row.caseNo, subjectRole: 'RELATED' });
@@ -254,7 +255,7 @@ export class AdjustmentService {
       {
         action: 'RECON_ADJUSTMENT_POSTED',
         actionDomain: 'RECON',
-        primarySubjectType: 'RECON_ADJUSTMENT',
+        primarySubjectType: AuditEntityTypes.RECON_ADJUSTMENT,
         primarySubjectNo: row.adjustmentNo,
         ownerCustomerNo: row.ownerNo,
         // INHERIT 码，assertActionSpec 对空 correlationId 直接拒写——回落表达式与
