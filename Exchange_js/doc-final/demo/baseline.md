@@ -19,6 +19,8 @@
 
 > ⚠️ **重铺前必须先 `stack.sh down <栈>` 停栈，否则 TigerBeetle 清不掉。** `reset-stack.sh` 的 `rm -f` 对运行中进程持有的文件只是 unlink，旧 tigerbeetle 仍在旧 inode 上服务 → SQLite 重铺了、TB 没有 → 客户 UUID 全新使 `CLIENT_PAYABLE` 读 0 而 SYSTEM 口径 `CLIENT_ASSET` 留旧余额（恒等式假红），多轮提现累积还会把公司 AED 打成负数（负余额假红）。2026-08-28 平账一期实测定位——正确顺序：`down` → `reset` → `up`，此后 `demo:all` 完 `verify:coa` 全绿。
 
+> 💡 **`verify:coa` 建议在 `test:e2e recon-adjustment-money-arcs` 之后再跑一次。** 调账单的四种分录组合里，`FIRM`+`REDUCE`（银行杂费）与 `FIRM`+`INCREASE`（银行利息）**只有这支 e2e 会真落账**——`demo:all` 不碰调账。在 e2e 之后跑 `verify:coa`，四种组合各自落账后的恒等式与负余额就都被覆盖了（spec §9 验收第 3 条的要求），零额外成本。2026-08-28 平账一期末站实测：e2e 后 ALL INVARIANTS PASS。
+
 ## 红名单（已知旧账，允许持续红）
 
 **jest 全量：4 套 / 8 例失败**（共 **164 套 2082 例**；另 3 skipped / 4 todo）—— 计数于 2026-08-28 平账一期刷新（+3 套 +64 例，全部来自调账单：`adjustment-rules` / `adjustment.service` / `adjustment-approval.service`；失败清单逐字未变）——
