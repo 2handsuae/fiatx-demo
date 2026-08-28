@@ -9,7 +9,7 @@ Last Updated: 2026-08-26
 
 ## 演示/测试环境卫生（2026-08-13 A1-A6 收官实跑发现，均为既存问题非本轮引入）
 
-- 公司 AED 浮存未预铺：demo:all（含法币提现）跑完后 verify:coa 负余额断言必红 2 项（A.FIRM_ASSET / E.FIRM_OPS 被提现打穿零）｜ 2026-08-26 站1b-β 收尾闸实测定位，基线绿的测点是重铺后立即 ｜ 落点：demo:setup 给公司预铺法币浮存，或负余额断言按科目性质分层
+- [~] ~~公司 AED 浮存未预铺：demo:all 跑完后 verify:coa 负余额断言必红 2 项~~ —— **2026-08-28 平账一期收尾闸实测证伪**：在**真正干净**的重铺上（先 `stack.sh down self` 停栈、再 `reset`、再 `up`），`demo:all` 跑完 `verify:coa` **全绿**（四条恒等式 + 49 科目负余额检查全过，公司 AED = +9397516 而非负）。原结论是在**脏 TigerBeetle** 上测的：`reset-stack.sh` 会 `rm -f` TB 数据文件再 format，但**栈还开着时 rm 只是 unlink**，运行中的 tigerbeetle 进程仍在旧 inode 上服务，于是 SQLite 重铺了、TB 没有 → 客户 UUID 全新导致 `CLIENT_PAYABLE` 读 0 而 SYSTEM 口径的 `CLIENT_ASSET` 留着旧余额（恒等式红），累积多轮提现又把公司 AED 打成负数（负余额红）。**真正的教训是「重铺前必须先停栈」**，不是浮存没预铺。⚠️ `doc-final/demo/baseline.md:16` 原文「重铺后与 demo:all 后均全绿」是对的，本条旧账才是错的 ｜来源: 2026-08-28 平账一期 Task 8 收尾闸
 
 > 来源统一：`superpowers/plans/2026-08-13-deposit-withdraw-a1a6-coa-cleanup.md` T11 收官验收。
 > 这批是"跑一次干净验收"路上被绊到的坑，逐个记账，免得下次再花一轮排查。

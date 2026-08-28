@@ -17,9 +17,11 @@
 | 审计 | verify:audit 恒绿七项：Q2 按单据查 ｜ Q4 按客户查 ｜ 不变量①②③（PRIMARY 至多一 / INHERIT 必有旅程号 / 退役码零写入）——三查合同七站换装后的固定资产 |
 | 封册 | audit-vocabulary-closure.spec 四条：平面表归籍 / 六册互斥 / V3 附册冻结快照 / 写点闭合退役词零引用 |
 
+> ⚠️ **重铺前必须先 `stack.sh down <栈>` 停栈，否则 TigerBeetle 清不掉。** `reset-stack.sh` 的 `rm -f` 对运行中进程持有的文件只是 unlink，旧 tigerbeetle 仍在旧 inode 上服务 → SQLite 重铺了、TB 没有 → 客户 UUID 全新使 `CLIENT_PAYABLE` 读 0 而 SYSTEM 口径 `CLIENT_ASSET` 留旧余额（恒等式假红），多轮提现累积还会把公司 AED 打成负数（负余额假红）。2026-08-28 平账一期实测定位——正确顺序：`down` → `reset` → `up`，此后 `demo:all` 完 `verify:coa` 全绿。
+
 ## 红名单（已知旧账，允许持续红）
 
-**jest 全量：4 套 / 8 例失败**（共 161 套 2018 例；另 3 skipped / 4 todo）——
+**jest 全量：4 套 / 8 例失败**（共 **164 套 2082 例**；另 3 skipped / 4 todo）—— 计数于 2026-08-28 平账一期刷新（+3 套 +64 例，全部来自调账单：`adjustment-rules` / `adjustment.service` / `adjustment-approval.service`；失败清单逐字未变）——
 
 - `src/modules/identity/access-control/role-definition-create-workflow.service.spec.ts`（crypto is not defined，环境性）
 - `src/modules/asset-treasury/wallets/system-wallet.util.spec.ts`
