@@ -506,6 +506,13 @@ describe('Recon adjustment money arcs (e2e, Task 8)', () => {
     });
     expect(auditRows).toHaveLength(1);
     expect(auditRows[0].actorNo).toBe('E2E_OPS_APPROVER_C1'); // real approver, not SYSTEM
+    // V3：reasonCode/amount/effectiveDate 是顶层列（不是塞在 metadata JSON
+    // 里）——adjustment.service.ts onApproved() 里 requiredFields 读的正是这
+    // 一层，assertActionSpec 拒写空值。此前只在代码里论证过"这三个字段会落到
+    // 真实列"，这里把它锁成断言：真的非空，而且值就是这一单开单时传的那三个。
+    expect(auditRows[0].reasonCode).toBe('DEPOSIT_DUPLICATE_REVERSAL');
+    expect(auditRows[0].amount).toBe('20000');
+    expect(auditRows[0].effectiveDate).not.toBeNull();
 
     // ── 重跑对账：内部余额已经等于外部真值 → 自愈 ──
     const run2 = await walletRecon.run({ cutoff: CUTOFF });
