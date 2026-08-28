@@ -45,6 +45,11 @@ const BUSINESS_DELEGATES_FK_SAFE: string[] = [
   'reimbursementObligation',
 
   // ── Wallet reconciliation (children before parents) ────────────────
+  // 调账单：引用 caseNo（文本列、无 FK 约束），但必须一起清——否则重铺后
+  // 旧调账单还挂在已删除案件的单号上，案件页的「本案调账单」块会长期堆
+  // 陈年残留（一期落地当天就攒了 79 行）。放在 case 之前只是与本节
+  // 「children before parents」的书写顺序保持一致。
+  'reconciliationAdjustment',
   'reconciliationLineItem',
   'reconciliationCase',
   'reconciliationRun',
