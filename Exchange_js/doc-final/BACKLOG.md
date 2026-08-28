@@ -86,6 +86,7 @@ Last Updated: 2026-08-26
 
 ## 技术债 — V8 对账
 
+- [ ] **对账案件详情页把 walletRef（内部 UUID）挂在 tooltip 上** —— `ReconciliationCasesDetailPage.tsx:620` 的 `title={kase.walletRef ?? undefined}`，鼠标悬停即露出内部 UUID，踩铁律⑥「管理台不暴露 UUID」。同页可见文本已经正确用了 `walletNo`，只有这个 tooltip 漏了。**既有问题**（平账一期 Task 7 评审用 hunk 边界分析确认非本轮引入）。修法：tooltip 改用 `walletNo`，或直接去掉——可见文本已经够用 ｜来源: 2026-08-28 平账一期 Task 7 评审顺带发现
 - [ ] 🐛 **`reObservedCount` 恒为 0**：line item 每 run delete-then-insert，`foundByRunId` distinct 恒 1 → 观察历史"复观察次数"永远 0；正确修法需 `reconciliation_cases` 加专用计数列（`upsertCaseForWallet` existing 分支 +1）；代码已加 KNOWN LIMITATION 注释（`reconciliation-query.service.ts`）｜来源: 2026-07-04 V8 体检（Round3 遗留）
 - [ ] **资本注入 evidence 待核**：CAPITAL_INJECTION seed transfer 在，FIRM_ASSET 流水是否有对应 evidence/account_flow 行待确认（roadmap 记为欠，agent 称已有——需查 seed 是否走 writeEvidence）｜来源: 2026-07-04 V8 体检
 - [ ] **canonical-minor 展示层 re-pairing 未传 decimals**：`reconciliation-query.service.ts` `buildFlowComparison()` 的 `matchFlows` 调用暂传 `decimals: 0`（identity 换算，保持 Case 详情流水比对页现状不变），TODO 标记待 Task B 补该 case 资产 `asset.decimals`｜来源: 2026-07-04 canonical-minor Task A（Task B 收口）
