@@ -461,6 +461,7 @@ export const V1_APPROVAL_ACTION_TYPES: readonly string[] = [
   ApprovalActionTypes.DEPOSIT_UNFREEZE,
   ApprovalActionTypes.WITHDRAW_UNFREEZE,
   ApprovalActionTypes.WITHDRAW_SANCTION_REFUND,
+  ApprovalActionTypes.RECON_ADJUSTMENT_POST,
 ] as const;
 
 export function isSuperAdminRoleContext(roleCodes: string[]): boolean {
