@@ -25,7 +25,11 @@
 - **改了前端必须起 preview 渲染 + 截图**，`tsc` 通过不算数
 - **审计动作码是封册的**：`src/modules/audit-logging/constants/audit-vocabulary-closure.spec.ts` + 其 `__snapshots__` 快照锁死全册。新增任何动作码必须同步更新快照，否则该 spec 必红
 - **数据随时可重铺**：schema / 状态机改动直接按目标终态做，禁止 backfill / 兼容层 / 双写过渡
-- **栈命令**：主树 `bash scripts/stack.sh up main`；跑 npm 脚本必须经包装器 `bash scripts/on-stack.sh main <script>`
+- **栈命令**：本轮在 worktree 内执行 → 一律用 **self 栈**：`bash scripts/stack.sh up`（起）/ `bash scripts/stack.sh reset self`（重铺）。
+  跑 npm 脚本必须经包装器 `bash scripts/on-stack.sh self <npm脚本名> [额外参数]`。
+  ⚠️ `on-stack.sh` 只接 **package.json 里的脚本名**，不接任意命令——跑单个 e2e 用
+  `bash scripts/on-stack.sh self test <spec路径> [-t 用例名]`（`test` = `jest`，额外参数会透传）。
+  **绝不碰 main 栈**（端口 3000-3003）——主工作树与另一个并行 session 在用。
 
 ---
 
@@ -1046,7 +1050,7 @@ listVerdictButtons(@Req() req: any) {
 `rbac.catalog.ts` 加三条 route（照现有 `run-verdict` 那三条的写法），然后：
 
 ```bash
-bash scripts/on-stack.sh main db:base:sync
+bash scripts/on-stack.sh self db:base:sync
 ```
 
 ⚠️ **必须重启后端**——SUPER_ADMIN 权限走内存 `RBAC_PERMISSION_DEFINITIONS` 不读 DB，只 seed 不重启 = 白费。
@@ -1539,7 +1543,7 @@ npx tsc --noEmit -p tsconfig.json
 - [ ] **Step 6: 全链实跑验证（不能只靠单测）**
 
 ```bash
-bash scripts/stack.sh reset main && bash scripts/stack.sh up main
+bash scripts/stack.sh reset self && bash scripts/stack.sh up
 ```
 
 然后手工走一遍并记录每步实到状态：
@@ -1801,7 +1805,7 @@ it('充值 10 笔全部落到花名册预期状态', async () => {
 - [ ] **Step 3: 跑测试确认失败**
 
 ```bash
-bash scripts/on-stack.sh main -- npx jest test/demo-roster.e2e-spec.ts
+bash scripts/on-stack.sh self test test/demo-roster.e2e-spec.ts
 ```
 
 期望：FAIL —— 现在 `runDeposits` 只造 SUCCESS，seq 4-10 全部对不上。
@@ -1824,7 +1828,7 @@ await waitFor(() => statusOf(no) === 'CONFISCATED', 15_000);
 - [ ] **Step 5: 跑测试**
 
 ```bash
-bash scripts/on-stack.sh main -- npx jest test/demo-roster.e2e-spec.ts
+bash scripts/on-stack.sh self test test/demo-roster.e2e-spec.ts
 ```
 
 期望：10 笔全对。
@@ -1872,7 +1876,7 @@ it('在途单由 runWithdraws 产出，不再需要单独跑 demo:in-transit', a
 - [ ] **Step 2: 跑测试确认失败**
 
 ```bash
-bash scripts/on-stack.sh main -- npx jest test/demo-roster.e2e-spec.ts -t '兑换 3 笔'
+bash scripts/on-stack.sh self test test/demo-roster.e2e-spec.ts -t '兑换 3 笔'
 ```
 
 - [ ] **Step 3: 改写 `runSwaps` / `runWithdraws`**
@@ -1884,7 +1888,7 @@ bash scripts/on-stack.sh main -- npx jest test/demo-roster.e2e-spec.ts -t '兑�
 - [ ] **Step 4: 跑测试并 commit**
 
 ```bash
-bash scripts/on-stack.sh main -- npx jest test/demo-roster.e2e-spec.ts
+bash scripts/on-stack.sh self test test/demo-roster.e2e-spec.ts
 git add scripts/ test/
 git commit -m "feat(demo): 兑换 3 笔 + 提现 7 笔按花名册铺，在途单并入
 
@@ -1925,7 +1929,7 @@ it('某笔单没到预期状态 → 断言失败并指名道姓', async () => {
 - [ ] **Step 2: 跑测试确认失败**
 
 ```bash
-bash scripts/on-stack.sh main -- npx jest test/demo-roster.e2e-spec.ts -t 'A5'
+bash scripts/on-stack.sh self test test/demo-roster.e2e-spec.ts -t 'A5'
 ```
 
 期望：FAIL —— 旧的全称断言「所有 demo 提现必须 SUCCESS」被在途单打挂。
@@ -1958,7 +1962,7 @@ ok('花名册逐条符合预期', pass);
 - [ ] **Step 4: 跑测试**
 
 ```bash
-bash scripts/on-stack.sh main -- npx jest test/demo-roster.e2e-spec.ts
+bash scripts/on-stack.sh self test test/demo-roster.e2e-spec.ts
 ```
 
 期望：两个新用例 PASS。
@@ -1966,11 +1970,11 @@ bash scripts/on-stack.sh main -- npx jest test/demo-roster.e2e-spec.ts
 - [ ] **Step 5: 全新库全链实跑**
 
 ```bash
-bash scripts/stack.sh reset main && bash scripts/stack.sh up main
-bash scripts/on-stack.sh main demo:all
-bash scripts/on-stack.sh main demo:in-transit
-bash scripts/on-stack.sh main demo:all          # ← 关键：这一趟必须还是全绿
-bash scripts/on-stack.sh main verify:coa
+bash scripts/stack.sh reset self && bash scripts/stack.sh up
+bash scripts/on-stack.sh self demo:all
+bash scripts/on-stack.sh self demo:in-transit
+bash scripts/on-stack.sh self demo:all          # ← 关键：这一趟必须还是全绿
+bash scripts/on-stack.sh self verify:coa
 ```
 
 把三次 `demo:all` 的答案键输出贴进 commit message。
@@ -2009,7 +2013,7 @@ demo:in-transit → 6/8（withdrawals SUCCESS 与 payout legs CLEARED 两条
 - [ ] **Step 2: 跑一次生成**
 
 ```bash
-bash scripts/on-stack.sh main demo:all
+bash scripts/on-stack.sh self demo:all
 git diff doc-final/demo/data.md
 ```
 
@@ -2022,11 +2026,11 @@ git diff doc-final/demo/data.md
 - [ ] **Step 4: 收尾闸（CLAUDE.md §7）**
 
 ```bash
-bash scripts/stack.sh reset main && bash scripts/stack.sh up main
-bash scripts/on-stack.sh main demo:all       # ⑥
-bash scripts/on-stack.sh main verify:coa     # ⑦（动过钱：三条处置弧）
-bash scripts/on-stack.sh main recon:demo:pass
-bash scripts/on-stack.sh main verify:audit
+bash scripts/stack.sh reset self && bash scripts/stack.sh up
+bash scripts/on-stack.sh self demo:all       # ⑥
+bash scripts/on-stack.sh self verify:coa     # ⑦（动过钱：三条处置弧）
+bash scripts/on-stack.sh self recon:demo:pass
+bash scripts/on-stack.sh self verify:audit
 npx jest                                      # 全量，判据：净新失败 0
 ```
 
