@@ -1854,6 +1854,40 @@ model ReconciliationLineItem {
   @@map("reconciliation_line_items")
 }
 
+model ReconciliationAdjustment {
+  id              String    @id @default(uuid())
+  adjustmentNo    String    @unique @default("TEMP")
+  caseNo          String
+  lineItemId      String?
+  walletRef       String
+  book            String    // CLIENT | FIRM —— 取自 case.book，非表单字段
+  direction       String    // REDUCE | INCREASE —— 内部余额该往哪边动
+  reasonCode      String    // spec §5 七个成因码之一
+  relatedOrderNo  String?   // 关联原单业务号；book=CLIENT 且 direction=INCREASE 时必填
+  assetCode       String
+  amount          String    // 最小单位（分）整数，存字符串避免精度损失
+  effectiveDate   String    // YYYY-MM-DD 业务生效日
+  reasonInternal  String
+  reasonCustomer  String    // 本期不展示，留给客户流水读模型任务
+  status          String    @default("DRAFT") // DRAFT | PENDING_APPROVAL | POSTED | REJECTED
+  approvalCaseId  String?
+  approvalNo      String?
+  ownerNo         String?   // 客户业务号 —— 对外用它
+  ownerId         String?   // 客户 UUID —— 仅服务端 resolveTbAccountId 用，任何界面不得展示
+  traceId         String?
+  createdByUserId String
+  decidedByUserId String?
+  postedAt        DateTime?
+  tbTransferId    String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([caseNo])
+  @@index([status])
+  @@index([lineItemId])
+  @@map("reconciliation_adjustments")
+}
+
 model ReconciliationRunWallet {
   id               String   @id @default(uuid())
   runId            String
