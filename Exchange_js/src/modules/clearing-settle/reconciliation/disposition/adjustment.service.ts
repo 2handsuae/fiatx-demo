@@ -251,7 +251,24 @@ export class AdjustmentService {
     this.assertTransition(row.status, AdjustmentStatus.POSTED);
 
     const legs = resolvePostingLegs(row.book as Book, row.direction as Direction);
-    const ledger = TB_LEDGERS[row.assetCode as keyof typeof TB_LEDGERS];
+
+    // ⚠ ledger 必须按资产的 **currency** 取，不是 assetCode。
+    // `TB_LEDGERS` 的键是币种（AED / USDT），而 `reconciliation_cases.assetCode`
+    // 存的是 `asset.code`——法币两者恰好同名（AED），加密币不同（code 'USDT-TRON'
+    // vs currency 'USDT'）。早先直接拿 assetCode 索引，法币一路绿、**所有加密币
+    // 案件必然 ledger=undefined**，resolveTbAccountId 抛 NotFoundException，
+    // 而 handler 的异常本仓库现状不外传（PRODUCTION-NOTES 2026-08-28），
+    // 于是调账单永远停在 PENDING_APPROVAL、无人被告知。走查时真踩到过。
+    // 全仓惯例见 withdraw-workflow.service.ts:471/1158/1662，都是 asset.currency。
+    const assetRow = await (this.prisma as any).asset.findUnique({
+      where: { code: row.assetCode }, select: { currency: true },
+    });
+    const ledger = TB_LEDGERS[assetRow?.currency as keyof typeof TB_LEDGERS];
+    if (!ledger) {
+      throw new NotFoundException(
+        `资产 ${row.assetCode} 解析不出账本 ledger（currency=${assetRow?.currency ?? '未找到该资产'}）`,
+      );
+    }
 
     // 科目 → TbAccountRegistry 里的真实 ownerType。客户负债类(CLIENT_PAYABLE/
     // DEPOSIT_SUSPENSE)按客户 UUID 登记；其余（聚合资产 CLIENT_ASSET/FIRM_ASSET、

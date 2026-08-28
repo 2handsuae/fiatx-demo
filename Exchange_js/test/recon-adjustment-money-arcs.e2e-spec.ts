@@ -698,6 +698,67 @@ describe('Recon adjustment money arcs (e2e, Task 8)', () => {
     expect(leftovers).toHaveLength(0);
   });
 
+  it('8. 加密币（USDT-TRON）客户账簿·减：assetCode ≠ currency 时 ledger 仍要解析得出 —— 走查实踩的静默死局回归锁', async () => {
+    // 本条锁的是一个真踩到的 Critical：`TB_LEDGERS` 的键是**币种**（AED / USDT），
+    // 而 `reconciliation_cases.assetCode` 存的是 **asset.code**。法币两者恰好同名，
+    // 加密币不同（code 'USDT-TRON' vs currency 'USDT'）——早先 onApproved 直接拿
+    // assetCode 索引 TB_LEDGERS，于是**所有加密币案件** ledger=undefined →
+    // resolveTbAccountId 抛 NotFoundException → 而 handler 异常本仓库现状不外传 →
+    // 调账单永远停在 PENDING_APPROVAL，审批显示已批准，无人被告知。
+    // 前 7 个场景全用 AED（code==currency）所以一路绿，这个盲区只有加密币能照出来。
+    const usdt = await (prisma as any).asset.findFirst({ where: { currency: 'USDT' } });
+    expect(usdt).toBeTruthy();
+    expect(usdt.code).not.toBe(usdt.currency); // 前提：这条测试的意义就建立在两者不同上
+
+    const ledger = 2;
+    const wallet = await createCustomerWallet({
+      ownerId: daveId, ownerNo: daveNo, assetId: usdt.id, walletRole: 'C_DEP', type: 'CRYPTO',
+      address: `TE2EADJ${Date.now()}`,
+    });
+
+    const X = 5_000_000n; // 5.000000 USDT（6 位精度）
+    await fundCustomerWallet({ walletId: wallet.id, ownerId: daveId, assetId: usdt.id, ledger, currency: usdt.code, amount: X * 2n, tag: 'C8' });
+    // 外部只有一半 —— 内部记多了 X
+    await upsertExternalBalance({ walletId: wallet.id, currency: usdt.code, book: 'CLIENT', closingBalance: X });
+
+    expect((await walletRecon.run({ cutoff: CUTOFF })).status).toBe('BREAK');
+    const kase = await openCaseFor(wallet.id);
+    expect(kase).toBeTruthy();
+    expect((kase as any).assetCode).toBe('USDT-TRON'); // 案件上存的确实是 code 而不是 currency
+
+    const { adjustmentNo } = await adjustments.createDraft(
+      {
+        caseNo: kase.caseNo,
+        reasonCode: 'DEPOSIT_DUPLICATE_REVERSAL',
+        direction: 'REDUCE',
+        amount: X.toString(),
+        effectiveDate: TODAY,
+        reasonInternal: 'e2e: 加密币重复入账撤销',
+        reasonCustomer: '充值重复入账已撤销',
+      } as any,
+      makeActor('E2E_OPS_CREATOR_C8', 'OPS_OFFICER'),
+    );
+    await adjustments.submit(adjustmentNo, makeActor('E2E_OPS_CREATOR_C8', 'OPS_OFFICER'));
+    const approvalCase = await latestApprovalCase(ApprovalActionTypes.RECON_ADJUSTMENT_POST, adjustmentNo);
+    await approvalsService.approve(approvalCase.id, { reason: 'e2e approve scenario 8' }, makeActor('E2E_OPS_APPROVER_C8', 'OPS_OFFICER'));
+
+    // ⚠ 核心断言：单子必须真的走到 POSTED。ledger 解析不出时它会静默卡在
+    // PENDING_APPROVAL（异常被吞），waitUntil 会超时——这正是本条要逮的形状。
+    await waitUntil(async () => (await adjustmentRow(adjustmentNo)).status === AdjustmentStatus.POSTED);
+
+    const flows = await flowsFor(adjustmentNo);
+    expect(flows).toHaveLength(2);
+    for (const f of flows) {
+      expect(f.walletRef).toBe(wallet.id);
+      expect(f.isExternalCrossing).toBe(false);
+    }
+
+    await walletRecon.run({ cutoff: CUTOFF });
+    const healed = await (prisma as any).reconciliationCase.findUnique({ where: { id: kase.id } });
+    expect(healed.status).toBe('RESOLVED');
+    expect(healed.resolutionReason).toBe('AUTO_HEALED');
+  });
+
   it('6. 成因闸：公司侧成因（银行利息）落到客户账簿的案件 → 拒', async () => {
     const wallet = await createCustomerWallet({
       ownerId: carolId, ownerNo: carolNo, assetId: aedAssetId, walletRole: 'C_VIBAN', type: 'FIAT_BANK',
