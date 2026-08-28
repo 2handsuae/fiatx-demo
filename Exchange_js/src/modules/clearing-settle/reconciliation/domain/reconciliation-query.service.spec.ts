@@ -817,8 +817,7 @@ describe('getCase — explain / observation / bucket (T6)', () => {
       fundsOrder: { findMany: jest.fn().mockResolvedValue([]) },
       // T4/T1: asset.decimals lookup (getCase unconditional + buildFlowComparison).
       asset: { findUnique: jest.fn().mockResolvedValue({ decimals: 2 }) },
-      // Task 6: getCase batch-looks up reconciliation_adjustments by lineItemId
-      // (mkKase() has one lineItem → this always fires). No matching row here.
+      // Task 7: getCase's案件级 adjustments 查询是 unconditional，总会发一次。
       reconciliationAdjustment: { findMany: jest.fn().mockResolvedValue([]) },
     } as any;
   }
@@ -873,88 +872,18 @@ describe('getCase — explain / observation / bucket (T6)', () => {
   });
 });
 
-describe('getCase — adjustment marker on line items (Task 6)', () => {
-  const run = { id: 'run-adj', runNo: 'REC-ADJ' };
-
-  function mkKase(overrides: Record<string, unknown> = {}) {
-    return {
-      id: 'case-adj-1',
-      caseNo: 'REC20260815-ADJ',
-      walletRef: 'walletAdj',
-      businessDate: '2026-08-15',
-      status: 'OPEN',
-      bucket: 'BREAK',
-      tbAmount: new Prisma.Decimal(0),
-      actualExternal: new Prisma.Decimal(0),
-      deltaAmount: new Prisma.Decimal(0),
-      firstSeenRunId: null,
-      lastObservedRunId: null,
-      lastUpdatedRunId: null,
-      openedByRunId: 'run-adj',
-      closedByRunId: null,
-      createdAt: new Date('2026-08-15T00:00:00Z'),
-      // Two line items with DIFFERENT ids and DIFFERENT outcomes — this is what
-      // makes the assertions below reject a "same result for every row" bug
-      // (e.g. always returning adjustments[0]), not just a "field exists" bug.
-      lineItems: [
-        { id: 'li-has-adj', matchStatus: 'AMOUNT_MISMATCH', foundByRunId: 'run-adj' },
-        { id: 'li-no-adj', matchStatus: 'ORPHAN_EXTERNAL', foundByRunId: 'run-adj' },
-      ],
-      ...overrides,
-    };
-  }
-
-  function mkPrismaCase(adjustmentRows: any[] = [], kaseOverrides: Record<string, unknown> = {}) {
-    return {
-      reconciliationCase: { findUnique: jest.fn().mockResolvedValue(mkKase(kaseOverrides)) },
-      wallet: { findUnique: jest.fn().mockResolvedValue(null) },
-      reconciliationRun: { findUnique: jest.fn().mockResolvedValue(run) },
-      externalBalance: { findMany: jest.fn().mockResolvedValue([]) },
-      externalStatementLine: { findMany: jest.fn().mockResolvedValue([]) },
-      accountFlow: { findMany: jest.fn().mockResolvedValue([]) },
-      fundsOrder: { findMany: jest.fn().mockResolvedValue([]) },
-      asset: { findUnique: jest.fn().mockResolvedValue({ decimals: 2 }) },
-      reconciliationAdjustment: { findMany: jest.fn().mockResolvedValue(adjustmentRows) },
-    } as any;
-  }
-
-  it('已开调账单的行返回 { adjustmentNo, status }；同案内未开单的行返回 null（按 lineItemId 精确匹配，非全案共享一个结果）', async () => {
-    const prisma = mkPrismaCase([
-      { lineItemId: 'li-has-adj', adjustmentNo: 'ADJ20260815001', status: 'PENDING_APPROVAL' },
-    ]);
-    const svc = mkSvc(prisma);
-    const result: any = await svc.getCase('REC20260815-ADJ');
-
-    const withAdj = result.lineItems.find((li: any) => li.id === 'li-has-adj');
-    const withoutAdj = result.lineItems.find((li: any) => li.id === 'li-no-adj');
-
-    expect(withAdj.adjustment).toEqual({ adjustmentNo: 'ADJ20260815001', status: 'PENDING_APPROVAL' });
-    expect(withoutAdj.adjustment).toBeNull();
-
-    // 反遮蔽：查询必须按这个案件真实的 lineItemId 集合过滤，不是任意 IN 子句
-    // 或按 caseNo 过滤（会连未开单的行一起标记，被上面的 null 断言拦住）。
-    const call = (prisma.reconciliationAdjustment.findMany as jest.Mock).mock.calls[0][0];
-    expect([...call.where.lineItemId.in].sort()).toEqual(['li-has-adj', 'li-no-adj']);
-  });
-
-  it('案件没有任何行项目时旧的 lineItemId IN 查询短路（行为不变；Task 7 之后 findMany 会因案件级 adjustments 查询而被调用一次，见下方新 describe 块，这里只锁旧查询本身不发）', async () => {
-    const prisma = mkPrismaCase([], { lineItems: [] });
-    const svc = mkSvc(prisma);
-    await svc.getCase('REC20260815-ADJ');
-    const calls = (prisma.reconciliationAdjustment.findMany as jest.Mock).mock.calls;
-    // Task 7 之前这里断言 not.toHaveBeenCalled()；现在案件级查询（按 caseNo，与
-    // lineItems 是否为空无关）总会发一次，所以改断言"唯一一次调用不是 IN 查询"。
-    expect(calls).toHaveLength(1);
-    expect(calls[0][0].where).not.toHaveProperty('lineItemId');
-  });
-});
-
-// Task 7（调账单 admin 前端 · 控制方裁定）：案件级调账单列表 adjustments——独立于
-// 上面 Task 6 那条按 lineItemId 精确匹配的查询（后者原样保留，服务 IN_TRANSIT 行标
-// 记）。这条按 caseNo 直查，不依赖 lineItems 是否为空、不依赖 lineItemId 是否非空
-// ——lineItemId 为 null（新表单开单的常态，见 adjustment-rules.ts/CreateAdjustmentDto
-// 顶部注释）的行也必须出现在这份列表里，这正是本任务要解决的问题（brief 原方案的
-// "整行置灰"做不到：flowComparison 行 id 和 ReconciliationLineItem.id 不是一张表）。
+// Task 7（调账单 admin 前端 · 控制方裁定）：案件级调账单列表 adjustments，按
+// caseNo 直查，不依赖 lineItems 是否为空、不依赖 lineItemId 是否非空——lineItemId
+// 为 null（新表单开单的常态，见 adjustment-rules.ts/CreateAdjustmentDto 顶部注释）
+// 的行也必须出现在这份列表里，这正是本任务要解决的问题（brief 原方案的"整行置灰"
+// 做不到：flowComparison 行 id 和 ReconciliationLineItem.id 不是一张表）。
+//
+// Fix 6（末站整改）：Task 6 曾在这里另建一条按 lineItemId 精确匹配的查询，把
+// { adjustmentNo, status } 挂到每条差异项上供前端"整行置灰"；Task 7 之后该用途
+// 被这条 caseNo 查询取代，且前端从未渲染过 kase.lineItems——查询与它的两条专属
+// 测试（"已开调账单的行返回..."/"案件没有任何行项目时旧的 lineItemId IN 查询短
+// 路..."）随 decoratedLineItems 一并删除；getCase 现在只发这一条
+// reconciliationAdjustment 查询，下面两个测试相应从"第 1/2 次调用"改成单次调用。
 describe('getCase — 案件级调账单列表 adjustments（Task 7）', () => {
   const run = { id: 'run-adj2', runNo: 'REC-ADJ2' };
 
@@ -993,16 +922,14 @@ describe('getCase — 案件级调账单列表 adjustments（Task 7）', () => {
     } as any;
   }
 
-  it('返回体含案件级 adjustments 数组，形状 { adjustmentNo, status, reasonCode, direction, amount }；查询按 caseNo 过滤（本案有 1 条 lineItem，两条 findMany 调用都会发生——第 1 条是 Task 6 的 lineItemId IN 查询，第 2 条才是本任务新增的）', async () => {
+  it('返回体含案件级 adjustments 数组，形状 { adjustmentNo, status, reasonCode, direction, amount }；查询按 caseNo 过滤（Fix 6 之后 getCase 只发这一条 reconciliationAdjustment 查询——Task 6 的 lineItemId IN 查询已随 decoratedLineItems 一并删除）', async () => {
     const prisma = mkPrismaBase();
     const rows = [
       { adjustmentNo: 'ADJ20260828001', status: 'POSTED', reasonCode: 'BANK_INTEREST', direction: 'INCREASE', amount: '500' },
       { adjustmentNo: 'ADJ20260828002', status: 'PENDING_APPROVAL', reasonCode: 'DEPOSIT_AMOUNT_CORRECTION', direction: 'REDUCE', amount: '1200' },
     ];
     prisma.reconciliationAdjustment = {
-      findMany: jest.fn()
-        .mockResolvedValueOnce([])   // 第 1 次调用：Task 6 的 lineItemId IN 查询（本案 li-x 未开单）
-        .mockResolvedValueOnce(rows), // 第 2 次调用：本任务新增的案件级 caseNo 查询
+      findMany: jest.fn().mockResolvedValue(rows),
     };
     const svc = mkSvc(prisma);
     const result: any = await svc.getCase('REC20260828-ADJ');
@@ -1010,7 +937,8 @@ describe('getCase — 案件级调账单列表 adjustments（Task 7）', () => {
     expect(result.adjustments).toEqual(rows);
 
     const calls = (prisma.reconciliationAdjustment.findMany as jest.Mock).mock.calls;
-    expect(calls[1][0].where).toEqual({ caseNo: 'REC20260828-ADJ' });
+    expect(calls).toHaveLength(1);
+    expect(calls[0][0].where).toEqual({ caseNo: 'REC20260828-ADJ' });
   });
 
   it('lineItemId 为 null 的行（新表单开单的常态）照样出现在 adjustments 里——这是本任务要解决的核心问题，旧的 lineItemId 标记查询做不到这一点', async () => {
@@ -1020,16 +948,14 @@ describe('getCase — 案件级调账单列表 adjustments（Task 7）', () => {
       direction: 'INCREASE', amount: '900',
     };
     prisma.reconciliationAdjustment = {
-      findMany: jest.fn()
-        .mockResolvedValueOnce([])
-        .mockResolvedValueOnce([rowWithNullLineItemId]),
+      findMany: jest.fn().mockResolvedValue([rowWithNullLineItemId]),
     };
     const svc = mkSvc(prisma);
     const result: any = await svc.getCase('REC20260828-ADJ');
     expect(result.adjustments).toEqual([rowWithNullLineItemId]);
   });
 
-  it('案件没有任何行项目时：Task 6 的 lineItemId IN 查询短路；本任务新增的案件级 caseNo 查询照常发——不依赖 lineItems 是否为空', async () => {
+  it('案件没有任何行项目时：案件级 caseNo 查询照常发——不依赖 lineItems 是否为空', async () => {
     const prisma = mkPrismaBase({ lineItems: [] });
     const rows = [
       { adjustmentNo: 'ADJ20260828003', status: 'DRAFT', reasonCode: 'BANK_CHARGE', direction: 'REDUCE', amount: '300' },
@@ -1039,7 +965,7 @@ describe('getCase — 案件级调账单列表 adjustments（Task 7）', () => {
     const svc = mkSvc(prisma);
     const result: any = await svc.getCase('REC20260828-ADJ');
 
-    expect(findMany).toHaveBeenCalledTimes(1); // 旧查询短路，只剩新查询这一次
+    expect(findMany).toHaveBeenCalledTimes(1);
     expect(findMany.mock.calls[0][0].where).toEqual({ caseNo: 'REC20260828-ADJ' });
     expect(result.adjustments).toEqual(rows);
   });

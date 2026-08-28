@@ -428,35 +428,20 @@ export class ReconciliationQueryService {
       for (const fo of fundsOrders) fundsOrderStatusByNo.set(fo.fundsOrderNo, fo.status);
     }
 
-    // Task 6 (调账单标记): 按 lineItemId 批量查 reconciliation_adjustments，把
-    // { adjustmentNo, status } 挂到每条差异项（kase.lineItems）上——前端据此把
-    // 已开单的行置灰。ONE batched `in` query keyed on the case's lineItem ids —
-    // 同上一段 in-transit 补单子状态的写法，no N+1。同一 lineItemId 若曾开过多张
-    // 单（如首张被 REJECTED 后重开），按 createdAt 升序覆盖，保留最新一张的状态。
-    const allLineItemIds = (kase.lineItems ?? []).map((li: any) => li.id);
-    const adjustmentByLineItemId = new Map<string, { adjustmentNo: string; status: string }>();
-    if (allLineItemIds.length > 0) {
-      const adjustments = (await (this.prisma as any).reconciliationAdjustment.findMany({
-        where: { lineItemId: { in: allLineItemIds } },
-        select: { lineItemId: true, adjustmentNo: true, status: true },
-        orderBy: { createdAt: 'asc' },
-      })) as Array<{ lineItemId: string | null; adjustmentNo: string; status: string }>;
-      for (const adj of adjustments) {
-        if (adj.lineItemId) adjustmentByLineItemId.set(adj.lineItemId, { adjustmentNo: adj.adjustmentNo, status: adj.status });
-      }
-    }
-    const decoratedLineItems = (kase.lineItems ?? []).map((li: any) => ({
-      ...li,
-      adjustment: adjustmentByLineItemId.get(li.id) ?? null,
-    }));
-
-    // Task 7（调账单 admin 前端 · 控制方裁定）：案件级调账单列表。上面那条按
-    // lineItemId 精确匹配的查询只服务"给 IN_TRANSIT 那类既有行加标记"这一个既有
-    // 用途，原样保留不动；这里独立按 caseNo 直查全部——不依赖 lineItems 是否为
-    // 空、不依赖某行是否曾传过 lineItemId（新表单不再传）。运营在案件页一眼看到
-    // 本案已开过哪些调账单，防重复开单的目的靠这份列表达成，不靠"整行置灰"
-    // （brief 原方案做不到——flowComparison 的行 id 和 ReconciliationLineItem.id
-    // 不是一张表，且后者每轮对账 delete-then-insert 没有跨轮身份）。
+    // Task 7（调账单 admin 前端 · 控制方裁定）：案件级调账单列表，按 caseNo 直查
+    // 全部——不依赖 lineItems 是否为空、不依赖某行是否曾传过 lineItemId（新表单
+    // 不再传）。运营在案件页一眼看到本案已开过哪些调账单，防重复开单的目的靠这份
+    // 列表达成，不靠"整行置灰"（brief 原方案做不到——flowComparison 的行 id 和
+    // ReconciliationLineItem.id 不是一张表，且后者每轮对账 delete-then-insert
+    // 没有跨轮身份）。
+    //
+    // Fix 6（末站整改）：Task 6 曾在这里按 lineItemId 批量查调账单、把
+    // { adjustmentNo, status } 挂到每条差异项上供前端"整行置灰"——该用途随 Task 7
+    // 改用上面这条 caseNo 查询后废弃：新表单不再传 lineItemId（恒空 Map），
+    // 且前端从未渲染过 kase.lineItems（管理台按 flowComparison 展示对账行，不是
+    // 原始 lineItems）。按 CLAUDE.md §3 视为本分支自产的孤儿，随 Task 6 的
+    // lineItemId 查询与 decoratedLineItems 一并删除；下方 return 里的
+    // `lineItems` 字段回落到 `...kase` 展开自带的原始值（Task 6 之前的行为）。
     const caseAdjustments = (await (this.prisma as any).reconciliationAdjustment.findMany({
       where: { caseNo: kase.caseNo },
       select: { adjustmentNo: true, status: true, reasonCode: true, direction: true, amount: true },
@@ -551,7 +536,6 @@ export class ReconciliationQueryService {
 
     return {
       ...kase,
-      lineItems: decoratedLineItems,
       walletNo: walletRow?.walletNo ?? null,
       linkedRunNo: linkedRunRow?.runNo ?? null,
       decimals: assetRow?.decimals ?? 0,
