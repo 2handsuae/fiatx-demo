@@ -7,6 +7,8 @@ import { TigerBeetleModule } from '../../accounting/tigerbeetle/tigerbeetle.modu
 // Phase B / Round 3: WalletFlowMatcherService needs FundsOrderService for
 // the in-transit third pass (orphan external line ↔ non-terminal funds order).
 import { FundsOrdersModule } from '../../funds-orders/funds-orders.module';
+// Task 4: 调账单接审批中心 — needs ApprovalsService for submit()/createAndSubmit().
+import { ApprovalsModule } from '../../governance/approvals/approvals.module';
 import { ReconciliationQueryService } from './domain/reconciliation-query.service';
 import { WalletReconRunService } from './workflow/wallet-recon-run.service';
 import { WalletBalanceCheckerService } from './engine/v2/wallet-balance-checker.service';
@@ -18,9 +20,12 @@ import { ReconciliationAdminController } from './controllers/reconciliation-admi
 import { ReceiptLookupService } from './disposition/receipt-lookup.service';
 import { PushOrderService } from './disposition/push-order.service';
 import { PushOrderController } from './disposition/push-order.controller';
+// Task 4: 调账单开单/提审服务 + 接审批中心 handler（onApproved 桩，Task 5 落账）。
+import { AdjustmentService } from './disposition/adjustment.service';
+import { AdjustmentApprovalService } from './disposition/adjustment-approval.service';
 
 @Module({
-  imports: [PrismaModule, AuditLogsModule, TigerBeetleModule, FundsOrdersModule],
+  imports: [PrismaModule, AuditLogsModule, TigerBeetleModule, FundsOrdersModule, ApprovalsModule],
   controllers: [ReconciliationAdminController, PushOrderController],
   providers: [
     ReconciliationQueryService,
@@ -29,6 +34,8 @@ import { PushOrderController } from './disposition/push-order.controller';
     WalletBalanceCheckerService, WalletFlowMatcherService, WalletReconRunService,
     // Recon disposition: push-order orchestration + receipt lookup.
     ReceiptLookupService, PushOrderService,
+    // Recon disposition: 调账单（Task 3 服务 + Task 4 审批中心 handler）。
+    AdjustmentService, AdjustmentApprovalService,
   ],
   exports: [WalletReconRunService],
 })

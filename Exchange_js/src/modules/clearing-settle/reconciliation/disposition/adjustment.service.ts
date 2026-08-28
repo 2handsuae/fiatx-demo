@@ -124,4 +124,20 @@ export class AdjustmentService {
       },
     });
   }
+
+  async onRejected(adjustmentNo: string, deciderId: string) {
+    const row = await (this.prisma as any).reconciliationAdjustment.findUnique({ where: { adjustmentNo } });
+    if (!row) throw new NotFoundException(`调账单不存在：${adjustmentNo}`);
+    this.assertTransition(row.status, AdjustmentStatus.REJECTED);
+    await (this.prisma as any).reconciliationAdjustment.update({
+      where: { adjustmentNo },
+      data: { status: AdjustmentStatus.REJECTED, decidedByUserId: deciderId },
+    });
+  }
+
+  // Task 5 落账；本任务只留桩——批准与落账之间不许加第二个人工环节，
+  // 但落账逻辑本身（记账 + 状态迁移）不属于 Task 4 范围。
+  async onApproved(adjustmentNo: string, deciderId: string): Promise<void> {
+    throw new Error('Task 5 实现');
+  }
 }

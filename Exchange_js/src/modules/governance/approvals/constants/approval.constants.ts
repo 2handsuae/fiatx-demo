@@ -84,6 +84,8 @@ export const ApprovalActionTypes = {
   // releasePolicy 分流到 MLRO / OPS 两条单步 maker-checker，复刻 WITHDRAW_UNFREEZE 形状。
   CUSTOMER_RESTRICTION_RELEASE_MLRO: 'CUSTOMER_RESTRICTION_RELEASE_MLRO',
   CUSTOMER_RESTRICTION_RELEASE_OPS: 'CUSTOMER_RESTRICTION_RELEASE_OPS',
+  // Recon Adjustment Post (Task 4, 2026-08-28) — 平账一期·调账单落账前置审批，单步 OPS_OFFICER。
+  RECON_ADJUSTMENT_POST: 'RECON_ADJUSTMENT_POST',
 } as const;
 
 export const ApprovalStatuses = {
@@ -416,6 +418,12 @@ export const DEFAULT_APPROVAL_POLICIES: Record<
     allowCancel: true,
   },
   [ApprovalActionTypes.CUSTOMER_RESTRICTION_RELEASE_OPS]: {
+    steps: [{ stepNo: 1, roles: ['OPS_OFFICER'] }],
+    timeoutHours: 48,
+    allowCancel: true,
+  },
+  // ─── Recon Adjustment Post (Task 4, 2026-08-28) ────
+  [ApprovalActionTypes.RECON_ADJUSTMENT_POST]: {
     steps: [{ stepNo: 1, roles: ['OPS_OFFICER'] }],
     timeoutHours: 48,
     allowCancel: true,

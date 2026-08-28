@@ -125,3 +125,34 @@ describe('AdjustmentService.createDraft 两道闸 —— 门不可绕的落点�
     }));
   });
 });
+
+describe('AdjustmentService.onRejected —— 驳回落库 + 终态闸（Task 4 补测 B）', () => {
+  it('PENDING_APPROVAL 单被驳回：status 变 REJECTED，decidedByUserId 是传入的人', async () => {
+    const update = jest.fn().mockResolvedValue({});
+    const prisma: any = {
+      reconciliationAdjustment: {
+        findUnique: jest.fn().mockResolvedValue({ adjustmentNo: 'ADJ_R1', status: 'PENDING_APPROVAL' }),
+        update,
+      },
+    };
+    const svc = new AdjustmentService(prisma, null as any, null as any, null as any);
+    await svc.onRejected('ADJ_R1', 'U_OPS_7');
+    expect(update).toHaveBeenCalledWith({
+      where: { adjustmentNo: 'ADJ_R1' },
+      data: { status: AdjustmentStatus.REJECTED, decidedByUserId: 'U_OPS_7' },
+    });
+  });
+
+  it('POSTED 单已是终态：onRejected 抛 BadRequestException，且不写库', async () => {
+    const update = jest.fn();
+    const prisma: any = {
+      reconciliationAdjustment: {
+        findUnique: jest.fn().mockResolvedValue({ adjustmentNo: 'ADJ_R2', status: 'POSTED' }),
+        update,
+      },
+    };
+    const svc = new AdjustmentService(prisma, null as any, null as any, null as any);
+    await expect(svc.onRejected('ADJ_R2', 'U_OPS_7')).rejects.toThrow(BadRequestException);
+    expect(update).not.toHaveBeenCalled();
+  });
+});
