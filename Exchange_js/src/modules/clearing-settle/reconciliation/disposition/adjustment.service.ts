@@ -5,6 +5,7 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { generateReferenceNo } from '../../../../common/utils/no-generator.util';
 import { PrismaService } from '../../../../core/prisma/prisma.service';
 import { ApprovalsService } from '../../../governance/approvals/approvals.service';
+import { ApprovalActorContext } from '../../../governance/approvals/constants/approval.constants';
 import { AccountingService } from '../../../accounting/tigerbeetle/accounting.service';
 import { AuditLogsService } from '../../../audit-logging/audit-logs.service';
 import { AuditEntityTypes } from '../../../audit-logging/constants/audit-actions.constant';
@@ -56,7 +57,7 @@ export class AdjustmentService {
          + `成因：${label}；理由：${row.reasonInternal}`;
   }
 
-  async createDraft(dto: CreateAdjustmentDto, operatorId: string) {
+  async createDraft(dto: CreateAdjustmentDto, actor: ApprovalActorContext) {
     const kase = await (this.prisma as any).reconciliationCase.findUnique({ where: { caseNo: dto.caseNo } });
     if (!kase) throw new NotFoundException(`对账案件不存在：${dto.caseNo}`);
     if (kase.status !== 'OPEN') throw new BadRequestException('只能对打开中的案件开调账单');
@@ -101,14 +102,17 @@ export class AdjustmentService {
         ownerNo: kase.ownerNo ?? null,
         ownerId: owner?.id ?? null,
         traceId: kase.traceId ?? null,
-        createdByUserId: operatorId,
+        // 保持原口径：优先业务号（管理台展示列、铁律⑥不许暴露 UUID），
+        // 落不到才退回 UUID——与改前 operatorId = req.user?.userNo || req.user?.sub
+        // 的取值顺序一致，这里只是不再让控制器把 actor 提前塌缩成一个字符串。
+        createdByUserId: actor.userNo ?? actor.userId,
         status: AdjustmentStatus.DRAFT,
       },
     });
     return { adjustmentNo: row.adjustmentNo };
   }
 
-  async submit(adjustmentNo: string, operatorId: string) {
+  async submit(adjustmentNo: string, actor: ApprovalActorContext) {
     const row = await (this.prisma as any).reconciliationAdjustment.findUnique({ where: { adjustmentNo } });
     if (!row) throw new NotFoundException(`调账单不存在：${adjustmentNo}`);
     this.assertTransition(row.status, AdjustmentStatus.PENDING_APPROVAL);
@@ -123,6 +127,13 @@ export class AdjustmentService {
       where: { code: row.assetCode }, select: { decimals: true },
     });
     const impact = this.describeImpact(row, assetRow?.decimals ?? 0);
+    // Fix 2（末站整改）：这里此前自己拼一个 { userId: operatorId, userNo: operatorId,
+    // roleCodes: ['ADMIN'] }——operatorId 是控制器传来的一个已经塌缩过的字符串
+    // （业务号或退回 UUID，两种都可能），roleCodes 更是纯造假。approvals.service.ts
+    // 的自审拦截比较的是 actor.userId === approval.createdByUserId，而 checker 侧
+    // （approvals.controller.ts ensureAdmin）用的 actor.userId 永远是 JWT 的真实
+    // UUID——口径不一致，同一个人开单又批自己的单永远比不上、SoD 静默失效。改成
+    // 把控制器传下来的真实 actor 原样喂给 createAndSubmit，不再现造一个。
     const approval = await this.approvals.createAndSubmit(
       {
         actionType: 'RECON_ADJUSTMENT_POST',
@@ -136,7 +147,7 @@ export class AdjustmentService {
         traceId: row.traceId ?? undefined,
       },
       { reason: impact, traceId: row.traceId ?? undefined },
-      { actorType: 'ADMIN', userId: operatorId, userNo: operatorId, roleCodes: ['ADMIN'] },
+      actor,
     );
 
     await (this.prisma as any).reconciliationAdjustment.update({

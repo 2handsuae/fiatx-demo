@@ -82,6 +82,10 @@ describe('AdjustmentService.createDraft 两道闸 —— 门不可绕的落点�
     caseNo: 'CASE_GATE', status: 'OPEN', book: 'CLIENT',
     walletRef: 'W_GATE', assetCode: 'AED', ownerNo: 'C0042', traceId: null,
   };
+  // Fix 2：createDraft 第二参数从裸字符串改 ApprovalActorContext；这里两个字段
+  // 都设成同一个值，与改前 operatorId='U_OP' 的落库结果等价（createdByUserId
+  // 取 actor.userNo ?? actor.userId，见 adjustment.service.ts）。
+  const OP = { actorType: 'ADMIN' as const, userId: 'U_OP', userNo: 'U_OP', roleCodes: ['ADMIN'] };
 
   const makeSvc = (kase: any, create = jest.fn().mockResolvedValue({ adjustmentNo: 'ADJ_X' })) => {
     const prisma: any = {
@@ -100,7 +104,7 @@ describe('AdjustmentService.createDraft 两道闸 —— 门不可绕的落点�
       caseNo: 'CASE_GATE', lineItemId: 'LI_1', reasonCode: 'DEPOSIT_AMOUNT_CORRECTION',
       direction: 'INCREASE', amount: '1000', effectiveDate: '2026-08-28',
       reasonInternal: '充值金额记错，需向上更正', reasonCustomer: '充值金额更正',
-    } as any, 'U_OP')).rejects.toThrow(BadRequestException);
+    } as any, OP)).rejects.toThrow(BadRequestException);
   });
 
   it('闸二·放行：传了关联原单号 → 不拒，落库的 relatedOrderNo 是传进去的值', async () => {
@@ -110,7 +114,7 @@ describe('AdjustmentService.createDraft 两道闸 —— 门不可绕的落点�
       direction: 'INCREASE', amount: '1000', effectiveDate: '2026-08-28',
       reasonInternal: '充值金额记错，需向上更正', reasonCustomer: '充值金额更正',
       relatedOrderNo: 'DEP2608280001',
-    } as any, 'U_OP');
+    } as any, OP);
     expect(create).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({ relatedOrderNo: 'DEP2608280001' }),
     }));
@@ -122,7 +126,7 @@ describe('AdjustmentService.createDraft 两道闸 —— 门不可绕的落点�
       caseNo: 'CASE_GATE', lineItemId: 'LI_1', reasonCode: 'BANK_INTEREST',
       direction: 'INCREASE', amount: '1000', effectiveDate: '2026-08-28',
       reasonInternal: '银行利息', reasonCustomer: '银行利息', relatedOrderNo: 'X',
-    } as any, 'U_OP')).rejects.toThrow(BadRequestException);
+    } as any, OP)).rejects.toThrow(BadRequestException);
   });
 
   it('闸一·防绕过：落库的 book 来自 case，请求里塞 book 也带不进去', async () => {
@@ -132,7 +136,7 @@ describe('AdjustmentService.createDraft 两道闸 —— 门不可绕的落点�
       direction: 'REDUCE', amount: '1000', effectiveDate: '2026-08-28',
       reasonInternal: '同一笔充值入账两次', reasonCustomer: '重复入账撤销',
       book: 'FIRM',
-    } as any, 'U_OP');
+    } as any, OP);
     expect(create).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({ book: 'CLIENT' }),
     }));
@@ -147,7 +151,7 @@ describe('AdjustmentService.createDraft 两道闸 —— 门不可绕的落点�
       caseNo: 'CASE_GATE', reasonCode: 'DEPOSIT_DUPLICATE_REVERSAL',
       direction: 'REDUCE', amount: '1000', effectiveDate: '2026-08-28',
       reasonInternal: '同一笔充值入账两次', reasonCustomer: '重复入账撤销',
-    } as any, 'U_OP');
+    } as any, OP);
     expect(create).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({ lineItemId: undefined }),
     }));

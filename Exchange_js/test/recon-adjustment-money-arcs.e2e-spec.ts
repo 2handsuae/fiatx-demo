@@ -432,12 +432,12 @@ describe('Recon adjustment money arcs (e2e, Task 8)', () => {
         reasonInternal: 'e2e: 重复入账撤销 fixture',
         reasonCustomer: '充值重复入账已撤销',
       } as any,
-      'E2E_OPS_CREATOR_C1',
+      makeActor('E2E_OPS_CREATOR_C1', 'OPS_OFFICER'),
     );
     expect(adjustmentNo).toMatch(/^ADJ/);
     expect((await adjustmentRow(adjustmentNo)).status).toBe(AdjustmentStatus.DRAFT);
 
-    await adjustments.submit(adjustmentNo, 'E2E_OPS_CREATOR_C1');
+    await adjustments.submit(adjustmentNo, makeActor('E2E_OPS_CREATOR_C1', 'OPS_OFFICER'));
     const draftRow = await adjustmentRow(adjustmentNo);
     expect(draftRow.status).toBe(AdjustmentStatus.PENDING_APPROVAL);
 
@@ -522,10 +522,10 @@ describe('Recon adjustment money arcs (e2e, Task 8)', () => {
         reasonCustomer: '提现已撤销，款项退回',
         relatedOrderNo: 'WD-E2E-ADJ-C2-0001', // 客户账簿加钱必须指明原单（边界线守卫）
       } as any,
-      'E2E_OPS_CREATOR_C2',
+      makeActor('E2E_OPS_CREATOR_C2', 'OPS_OFFICER'),
     );
 
-    await adjustments.submit(adjustmentNo, 'E2E_OPS_CREATOR_C2');
+    await adjustments.submit(adjustmentNo, makeActor('E2E_OPS_CREATOR_C2', 'OPS_OFFICER'));
     const approvalCase = await latestApprovalCase(ApprovalActionTypes.RECON_ADJUSTMENT_POST, adjustmentNo);
     await approvalsService.approve(approvalCase.id, { reason: 'e2e approve scenario 2' }, makeActor('E2E_OPS_APPROVER_C2', 'OPS_OFFICER'));
 
@@ -574,10 +574,10 @@ describe('Recon adjustment money arcs (e2e, Task 8)', () => {
         reasonInternal: 'e2e: 银行付息，我方未记',
         reasonCustomer: '（公司侧，客户不可见）',
       } as any,
-      'E2E_OPS_CREATOR_F3',
+      makeActor('E2E_OPS_CREATOR_F3', 'OPS_OFFICER'),
     );
 
-    await adjustments.submit(adjustmentNo, 'E2E_OPS_CREATOR_F3');
+    await adjustments.submit(adjustmentNo, makeActor('E2E_OPS_CREATOR_F3', 'OPS_OFFICER'));
     const approvalCase = await latestApprovalCase(ApprovalActionTypes.RECON_ADJUSTMENT_POST, adjustmentNo);
     await approvalsService.approve(approvalCase.id, { reason: 'e2e approve scenario 3' }, makeActor('E2E_OPS_APPROVER_F3', 'OPS_OFFICER'));
 
@@ -615,9 +615,9 @@ describe('Recon adjustment money arcs (e2e, Task 8)', () => {
         reasonInternal: 'e2e: 反向断言，这单不会被批',
         reasonCustomer: '（不会发生）',
       } as any,
-      'E2E_OPS_CREATOR_C4',
+      makeActor('E2E_OPS_CREATOR_C4', 'OPS_OFFICER'),
     );
-    await adjustments.submit(adjustmentNo, 'E2E_OPS_CREATOR_C4');
+    await adjustments.submit(adjustmentNo, makeActor('E2E_OPS_CREATOR_C4', 'OPS_OFFICER'));
 
     // 仅提交、未裁决 —— 账本必须一动不动
     expect(await flowsFor(adjustmentNo)).toHaveLength(0);
@@ -652,7 +652,7 @@ describe('Recon adjustment money arcs (e2e, Task 8)', () => {
           reasonCustomer: '（不会发生）',
           // relatedOrderNo 故意不传
         } as any,
-        'E2E_OPS_CREATOR_C5',
+        makeActor('E2E_OPS_CREATOR_C5', 'OPS_OFFICER'),
       ),
     ).rejects.toThrow(BadRequestException);
 
@@ -680,11 +680,60 @@ describe('Recon adjustment money arcs (e2e, Task 8)', () => {
           reasonCustomer: '（不会发生）',
           relatedOrderNo: 'WD-E2E-ADJ-C6-0001', // 带上原单，确保拒绝来自成因闸而不是边界线守卫（反遮蔽）
         } as any,
-        'E2E_OPS_CREATOR_C6',
+        makeActor('E2E_OPS_CREATOR_C6', 'OPS_OFFICER'),
       ),
     ).rejects.toThrow(BadRequestException);
 
     const leftovers = await (prisma as any).reconciliationAdjustment.findMany({ where: { caseNo: kase.caseNo } });
     expect(leftovers).toHaveLength(0);
+  });
+
+  // ── verification gaps closed at final review (V1/V2/V3) ────────────────────
+
+  it('V1 · maker≡checker：同一个人开单+提交后又想批自己的单 → SoD 拒绝（Fix 2 回归锁——maker 侧的 actor 身份不能被塌缩成一个字符串，否则自审批检测悄悄失效）', async () => {
+    const wallet = await createCustomerWallet({
+      ownerId: carolId, ownerNo: carolNo, assetId: aedAssetId, walletRole: 'C_VIBAN', type: 'FIAT_BANK',
+      iban: `AE_E2E_ADJ_V1_${Date.now()}`,
+    });
+    const kase = await createFixtureCase({ walletRef: wallet.id, book: 'CLIENT', ownerNo: carolNo });
+
+    // 刻意让 userId 与 userNo 不同（真实生产里两者本就不同：JWT 的 UUID vs
+    // 业务号）——makeActor() 把两者设成同一个字符串，若照抄它，"maker 端把
+    // actor.userId 悄悄换成 actor.userNo" 这类回归会因为两者恰好相等而测不出来
+    // （同一个反遮蔽陷阱这批已经踩过三次：断言为真的原因与被测规则无关）。
+    const soloActor: ApprovalActorContext = {
+      actorType: 'ADMIN', userId: 'e2e-uuid-solo-v1', userNo: 'OPS-SOLO-V1',
+      role: 'OPS_OFFICER', roleCodes: ['OPS_OFFICER'],
+    };
+
+    const { adjustmentNo } = await adjustments.createDraft(
+      {
+        caseNo: kase.caseNo,
+        reasonCode: 'DEPOSIT_DUPLICATE_REVERSAL',
+        direction: 'REDUCE',
+        amount: '1000',
+        effectiveDate: TODAY,
+        reasonInternal: 'e2e V1: maker==checker 必须被拒',
+        reasonCustomer: '（不会发生）',
+      } as any,
+      soloActor,
+    );
+    await adjustments.submit(adjustmentNo, soloActor);
+
+    const approvalCase = await latestApprovalCase(ApprovalActionTypes.RECON_ADJUSTMENT_POST, adjustmentNo);
+    // Fix 2 的确切落点：ApprovalCase.createdByUserId 必须落的是 actor.userId
+    // （真实 UUID 口径），不是 userNo 或别的什么塌缩值——否则下面 approve() 用
+    // 同一个 actor 去比对时永远比不上，自审批检测形同虚设（这正是 Fix 2 之前的
+    // 真实故障：submit() 曾经自己拼一个 { userId: operatorId, userNo:
+    // operatorId, roleCodes: ['ADMIN'] }）。
+    expect(approvalCase.createdByUserId).toBe('e2e-uuid-solo-v1');
+
+    await expect(
+      approvalsService.approve(approvalCase.id, { reason: 'e2e V1: 尝试自批' }, soloActor),
+    ).rejects.toThrow('Maker and checker must be different users');
+
+    // 拒得干净：账本零动静，单仍卡在 PENDING_APPROVAL（不是被批准也不是被驳回）。
+    expect(await flowsFor(adjustmentNo)).toHaveLength(0);
+    expect((await adjustmentRow(adjustmentNo)).status).toBe(AdjustmentStatus.PENDING_APPROVAL);
   });
 });
