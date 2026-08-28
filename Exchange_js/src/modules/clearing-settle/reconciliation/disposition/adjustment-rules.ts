@@ -22,15 +22,22 @@ export type ReasonCode =
  * customerLabel = 客户口径词；公司账簿成因为 null（客户看不到公司侧调账）。
  */
 export const REASON_SPECS: Record<ReasonCode, {
-  book: Book; directions: Direction[]; customerLabel: string | null;
+  book: Book; directions: Direction[];
+  /** 客户口径词——公司账簿成因为 null（客户看不到公司侧调账）。 */
+  customerLabel: string | null;
+  /** 内部口径词（审批页、管理台、审计摘要用）。**七个成因都必须有**——
+   *  末站发现审批页对公司侧两个成因回落成裸枚举「成因：BANK_CHARGE」，而客户侧
+   *  五个都是中文，同一屏半英半中。`customerLabel` 的 null 是刻意的（客户不可见），
+   *  不该被借用来当内部展示词，故另立此列。 */
+  internalLabel: string;
 }> = {
-  DEPOSIT_AMOUNT_CORRECTION:  { book: 'CLIENT', directions: ['REDUCE', 'INCREASE'], customerLabel: '充值金额更正' },
-  DEPOSIT_DUPLICATE_REVERSAL: { book: 'CLIENT', directions: ['REDUCE'],             customerLabel: '重复入账撤销' },
-  DEPOSIT_SIGNAL_VOID:        { book: 'CLIENT', directions: ['REDUCE'],             customerLabel: '充值撤销' },
-  WITHDRAW_AMOUNT_CORRECTION: { book: 'CLIENT', directions: ['INCREASE'],           customerLabel: '提现金额更正' },
-  WITHDRAW_VOID_REFUND:       { book: 'CLIENT', directions: ['INCREASE'],           customerLabel: '提现撤销退回' },
-  BANK_INTEREST:              { book: 'FIRM',   directions: ['INCREASE'],           customerLabel: null },
-  BANK_CHARGE:                { book: 'FIRM',   directions: ['REDUCE'],             customerLabel: null },
+  DEPOSIT_AMOUNT_CORRECTION:  { book: 'CLIENT', directions: ['REDUCE', 'INCREASE'], customerLabel: '充值金额更正', internalLabel: '充值金额更正' },
+  DEPOSIT_DUPLICATE_REVERSAL: { book: 'CLIENT', directions: ['REDUCE'],             customerLabel: '重复入账撤销', internalLabel: '重复入账撤销' },
+  DEPOSIT_SIGNAL_VOID:        { book: 'CLIENT', directions: ['REDUCE'],             customerLabel: '充值撤销',     internalLabel: '充值撤销' },
+  WITHDRAW_AMOUNT_CORRECTION: { book: 'CLIENT', directions: ['INCREASE'],           customerLabel: '提现金额更正', internalLabel: '提现金额更正' },
+  WITHDRAW_VOID_REFUND:       { book: 'CLIENT', directions: ['INCREASE'],           customerLabel: '提现撤销退回', internalLabel: '提现撤销退回' },
+  BANK_INTEREST:              { book: 'FIRM',   directions: ['INCREASE'],           customerLabel: null,           internalLabel: '银行利息' },
+  BANK_CHARGE:                { book: 'FIRM',   directions: ['REDUCE'],             customerLabel: null,           internalLabel: '银行杂费' },
 };
 
 export function assertReasonAllowed(reasonCode: ReasonCode, book: Book, direction: Direction): void {

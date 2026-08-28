@@ -66,6 +66,11 @@ describe('AdjustmentService.describeImpact —— 审批页看到的是后果，
     } as any, 2);
     expect(text).toContain('公司自有资金');
     expect(text).toContain('5.00'); // 500 分 → 5.00 AED
+    // 末站 Minor 1：公司侧两个成因的 customerLabel 刻意为 null（客户看不到公司侧调账），
+    // 早先借用它会让这一屏回落打印裸枚举「成因：BANK_CHARGE」——客户侧五个成因都是中文，
+    // 唯独公司侧半英半中。现在走 internalLabel。
+    expect(text).toContain('银行杂费');
+    expect(text).not.toContain('BANK_CHARGE');
   });
   it('方向 INCREASE 时文案显示"增加"', () => {
     const text = svc.describeImpact({

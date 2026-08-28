@@ -52,8 +52,10 @@ export class AdjustmentService {
     const dir = row.direction === 'REDUCE' ? '减少' : '增加';
     const who = row.book === 'CLIENT' ? `客户 ${row.ownerNo ?? '(未知)'}` : '公司自有资金';
     const majorAmount = bigintToDecimal(BigInt(row.amount), decimals).toFixed(decimals);
-    const label = REASON_SPECS[row.reasonCode as ReasonCode]?.customerLabel ?? row.reasonCode;
-    return `本单将使${who}余额${dir} ${majorAmount} ${row.assetCode}；`
+    // internalLabel 而不是 customerLabel——后者对公司侧两个成因刻意为 null，
+    // 借用它会让审批页回落打印裸枚举「成因：BANK_CHARGE」（末站评审 Minor 1）。
+    const label = REASON_SPECS[row.reasonCode as ReasonCode]?.internalLabel ?? row.reasonCode;
+    return `本单将使${who} 余额${dir} ${majorAmount} ${row.assetCode}；`
          + `成因：${label}；理由：${row.reasonInternal}`;
   }
 

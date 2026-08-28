@@ -705,6 +705,15 @@ describe('Recon adjustment money arcs (e2e, Task 8)', () => {
     });
     const kase = await createFixtureCase({ walletRef: wallet.id, book: 'CLIENT', ownerNo: carolNo });
 
+    // ⚠ 反遮蔽：必须传一张**真实存在**的原单。
+    // Fix 3 之前闸二只查非空，编造一个字符串就能绕过它、把闸一隔离出来；Fix 3 把闸二
+    // 升级成查存在性之后，假单号会被闸二一起拒 —— 那样这条测试即便闸一被删也照样绿
+    // （今天只是因为闸一先执行才碰巧还测对）。传真单号后，闸二对本输入不可能触发，
+    // 抛出的异常只可能来自闸一。本批已在 Task 3 栽过一次同形的遮蔽，不重蹈。
+    const unrelatedWithdraw = await createFixtureWithdraw({
+      ownerId: carolId, ownerNo: carolNo, assetId: aedAssetId, amount: '10',
+    });
+
     await expect(
       adjustments.createDraft(
         {
@@ -715,7 +724,7 @@ describe('Recon adjustment money arcs (e2e, Task 8)', () => {
           effectiveDate: TODAY,
           reasonInternal: 'e2e: 成因与账簿不符，应被成因闸拦下',
           reasonCustomer: '（不会发生）',
-          relatedOrderNo: 'WD-E2E-ADJ-C6-0001', // 带上原单，确保拒绝来自成因闸而不是边界线守卫（反遮蔽）
+          relatedOrderNo: unrelatedWithdraw.withdrawNo,
         } as any,
         makeActor('E2E_OPS_CREATOR_C6', 'OPS_OFFICER'),
       ),

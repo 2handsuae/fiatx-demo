@@ -86,6 +86,7 @@ Last Updated: 2026-08-26
 
 ## 技术债 — V8 对账
 
+- [ ] **调账单的边界线守卫只查原单「存在」，不查「归属」** —— `adjustment.service.ts` 的 `relatedOrderExists()` 按单号在充值/提现/兑换三表查存在性即放行，**不校验这张单是不是本案客户的**。刻意划在这儿：spec §4 立的规则是「有原单 ⇒ KYT 已对它跑过」，存在性就是这条规则的字面内容；要「引错别人的单」成为问题，前提是操作员恶意，那落在 CLAUDE.md §3「管理员都是善意的」与禁做清单「边界防御」里。存在性检查已堵死 spec 点名的「凭空造钱」，剩下的是引错凭证的数据质量问题、不是闸门被绕。**留此一行是为了日后评 PRD 时不被当成遗漏** ｜来源: 2026-08-28 平账一期末站评审（评审独立支持该边界划法）
 - [ ] **对账案件详情页把 walletRef（内部 UUID）挂在 tooltip 上** —— `ReconciliationCasesDetailPage.tsx:620` 的 `title={kase.walletRef ?? undefined}`，鼠标悬停即露出内部 UUID，踩铁律⑥「管理台不暴露 UUID」。同页可见文本已经正确用了 `walletNo`，只有这个 tooltip 漏了。**既有问题**（平账一期 Task 7 评审用 hunk 边界分析确认非本轮引入）。修法：tooltip 改用 `walletNo`，或直接去掉——可见文本已经够用 ｜来源: 2026-08-28 平账一期 Task 7 评审顺带发现
 - [ ] 🐛 **`reObservedCount` 恒为 0**：line item 每 run delete-then-insert，`foundByRunId` distinct 恒 1 → 观察历史"复观察次数"永远 0；正确修法需 `reconciliation_cases` 加专用计数列（`upsertCaseForWallet` existing 分支 +1）；代码已加 KNOWN LIMITATION 注释（`reconciliation-query.service.ts`）｜来源: 2026-07-04 V8 体检（Round3 遗留）
 - [ ] **资本注入 evidence 待核**：CAPITAL_INJECTION seed transfer 在，FIRM_ASSET 流水是否有对应 evidence/account_flow 行待确认（roadmap 记为欠，agent 称已有——需查 seed 是否走 writeEvidence）｜来源: 2026-07-04 V8 体检
