@@ -7,6 +7,10 @@
 // human clicking in admin) to produce a reproducible day of business activity for
 // the tradeable business-seed customers (Alice/Bob/Grace):
 //   setup → deposits → swaps → withdrawals.
+// A 4th persona (Frank, FROZEN_PERSONA_EMAIL) is set up and deposited-into
+// alongside them but deliberately never trades — the roster permanently
+// sanctions him (⚡⑦ FROZEN → SEIZED), which must not land on anyone who still
+// needs to swap/withdraw later in the same run. See resolveFrozenPersona.
 //
 // End-state (after runAll): all orders SUCCESS; both COA invariants (CLIENT + FIRM)
 // hold per ledger; no Outstanding or FeeAccrual rows created (real-time 1:1 model).
@@ -59,6 +63,17 @@ export const DEMO_CUSTOMER_EMAILS = [
   'demo_bob@example.com',
   'demo_grace@example.com',
 ] as const;
+
+// 4th persona (see scripts/demo-roster.ts's FRANK const for the full why):
+// the roster permanently sanctions this customer (customer-level SANCTION
+// restriction, no release path in this codebase — deposit/withdraw/swap
+// workflows only listen for CUSTOMER_RESTRICTION_OPENED). That is incompatible
+// with the trio above, which SWAP_PLAN/WITHDRAW_PLAN and
+// resolveDemoCustomers's tradeable-or-throw check require to stay tradeable
+// start-to-finish, so this identity is deliberately kept OUT of
+// DEMO_CUSTOMER_EMAILS and resolved separately via resolveFrozenPersona (no
+// tradeability assertion — becoming untradeable mid-run is the point).
+export const FROZEN_PERSONA_EMAIL = 'demo_frank@example.com';
 
 // Swap plan: deliberate 2×(USDT→AED) vs 1×(smaller AED→USDT) asymmetry guarantees
 // FIRM_OPS(AED) and FIRM_OPS(USDT) both move meaningfully — not an accidental ~0.
@@ -195,6 +210,19 @@ export async function resolveDemoCustomers(prisma: any): Promise<any[]> {
   return DEMO_CUSTOMER_EMAILS.map((e) => rows.find((r: any) => r.email === e));
 }
 
+/** The 4th persona (FROZEN_PERSONA_EMAIL above) — existence-only lookup, no
+ *  tradeability assertion. Unlike resolveDemoCustomers, this never throws on
+ *  him carrying an OPEN restriction mid-run — that's the roster's own doing
+ *  (deposit rows #7/#10), not a fixture error. */
+export async function resolveFrozenPersona(prisma: any): Promise<any> {
+  const row = await prisma.customerMain.findFirst({
+    where: { email: FROZEN_PERSONA_EMAIL },
+    select: { id: true, customerNo: true, email: true, firstName: true, lastName: true },
+  });
+  if (!row) throw new Error(`demo frozen persona missing (run business seed): ${FROZEN_PERSONA_EMAIL}`);
+  return row;
+}
+
 async function bumpFee(prisma: any, model: 'swapFeeLevel' | 'withdrawalFeeLevel', levelCode: string, itemCode: string, value: string): Promise<void> {
   const level = await prisma[model].findUnique({ where: { levelCode } });
   if (!level) throw new Error(`${model} ${levelCode} not found`);
@@ -219,12 +247,16 @@ export async function ensureSetup(ctx: DemoCtx): Promise<void> {
   }
 
   const customers = await resolveDemoCustomers(ctx.prisma);
+  const frozenPersona = await resolveFrozenPersona(ctx.prisma);
   const cmaTpl = await ctx.prisma.wallet.findFirst({
     where: { walletRole: 'C_CMA', assetId: ctx.aed.id, status: 'ACTIVE' },
     select: { bankName: true, accountName: true },
   });
 
-  for (const c of customers) {
+  // Frank (frozenPersona) needs the exact same wallets/TB accounts/withdrawal
+  // address as the trio — he deposits like they do (roster #7/#10), just never
+  // swaps/withdraws, so he's included in setup but not in DEMO_CUSTOMER_EMAILS.
+  for (const c of [...customers, frozenPersona]) {
     // customer TB accounts (CLIENT_PAYABLE + DEPOSIT_SUSPENSE) per asset
     for (const asset of [ctx.usdt, ctx.aed]) {
       const ledger = TB_LEDGERS[asset.currency as keyof typeof TB_LEDGERS];
@@ -304,7 +336,7 @@ export async function ensureSetup(ctx: DemoCtx): Promise<void> {
   }
 
   await provisionTbAccounts(ctx.prisma);
-  console.log(`  setup done: ${customers.map((c) => c.customerNo).join(', ')}`);
+  console.log(`  setup done: ${[...customers, frozenPersona].map((c) => c.customerNo).join(', ')}`);
 }
 
 // ── stage 2: deposits (10-entry roster, incl. 3 disposition arcs) ─────────────
@@ -319,12 +351,15 @@ export async function ensureSetup(ctx: DemoCtx): Promise<void> {
 //     off the SAME button table (DEPOSIT_VERDICT_BUTTONS) the panel itself uses
 //     (see verdictArgsForButton below). The full webhook-endpoint replay was
 //     tried first and abandoned: it requires the deposit's Sumsub applicant to
-//     have actually been submitted (sumsubTxnId set), which never happens for
-//     demo_grace@example.com — her seed customer row has no sumsubApplicantId
-//     at all (prisma/seed.business.ts only assigns one to Alice/Bob/Ivy), so
-//     Gate 0's submitSumsubTxns permanently skips her. Calling the workflow
-//     method directly is explicitly sanctioned by the "同一套端点/workflow 方法"
-//     replay rule and sidesteps that gap entirely — see task-C2-report.md;
+//     have actually been submitted (sumsubTxnId set), which never happened for
+//     demo_grace@example.com at the time — her seed customer row had no
+//     sumsubApplicantId at all (only Alice/Bob/Ivy had one back then), so Gate
+//     0's submitSumsubTxns permanently skipped her. She (and Frank) have one
+//     now — added in task-C2b-report.md to fix that exact absence silently
+//     breaking the REAL admin ⚡ demo panel — but this script's own choice never
+//     depended on that gap: calling the workflow method directly is explicitly
+//     sanctioned by the "同一套端点/workflow 方法" replay rule and sidesteps the
+//     Sumsub-submission dependency entirely either way — see task-C2-report.md;
 //   · the three disposition arcs (CONFISCATED/RETURNED/SEIZED) are real
 //     maker-checker: an initiate*() call opens the approval case in-process (the
 //     "maker" here is a constructed actor, same pattern DepositWorkflowService's
@@ -465,10 +500,14 @@ async function makerCheckerApprove(ctx: DemoCtx, approvalNo: string, logins: Arr
 export async function runDeposits(ctx: DemoCtx): Promise<Array<{ seq: number; orderNo: string; status: string }>> {
   console.log('═══ demo:deposit — 10 笔按花名册铺（含三条处置弧）═══');
   const customers = await resolveDemoCustomers(ctx.prisma);
-  const byEmail = new Map(customers.map((c) => [c.email, c]));
+  // roster rows #7/#10 target the frozen persona (FRANK), not the tradeable
+  // trio — resolve him too so byEmail/wallets below can find him.
+  const frozenPersona = await resolveFrozenPersona(ctx.prisma);
+  const depositCustomers = [...customers, frozenPersona];
+  const byEmail = new Map(depositCustomers.map((c) => [c.email, c]));
 
   const wallets = new Map<string, { usdt: any; aed: any }>();
-  for (const c of customers) {
+  for (const c of depositCustomers) {
     const usdtWallet = await ctx.prisma.wallet.findFirst({ where: { ownerId: c.id, walletRole: 'C_DEP', assetId: ctx.usdt.id } });
     const aedWallet = await ctx.prisma.wallet.findFirst({ where: { ownerId: c.id, walletRole: 'C_VIBAN', assetId: ctx.aed.id } });
     if (!usdtWallet || !aedWallet) throw new Error(`${c.email} missing C_DEP/C_VIBAN — run demo:setup first`);
@@ -550,8 +589,8 @@ export async function runDeposits(ctx: DemoCtx): Promise<Array<{ seq: number; or
       }
 
       case 10: {
-        // ⚡⑦ 冻结（#7 已把 BOB 判过一次 SANCTION_APPLICANT —— 这是 customerLevel 限制，
-        // 会连坐冻住 BOB 名下所有非终态单；这笔新单créé时 BOB 已被限制，Gate 0 会在
+        // ⚡⑦ 冻结（#7 已把 FRANK 判过一次 SANCTION_APPLICANT —— 这是 customerLevel 限制，
+        // 会连坐冻住 FRANK 名下所有非终态单；这笔新单créé时 FRANK 已被限制，Gate 0 会在
         // 提交 Sumsub 之前就直接把它落 FROZEN，driveVerdict 撞上非 COMPLIANCE_PENDING
         // 会自己跳过 —— 两条路径殊途同归，都是真实的处置起点）→ 运营发起上缴 →
         // 两步批（SENIOR_MANAGEMENT_OFFICER → MLRO，四眼）→ 资金单腿(legSeq 4)确认 → SEIZED。
@@ -577,16 +616,20 @@ export async function runDeposits(ctx: DemoCtx): Promise<Array<{ seq: number; or
   }
 
   // Re-read every deposit's status AFTER the whole roster has run — not the status
-  // each row settled on right when ITS OWN drive finished. A later row can move an
-  // earlier row's deposit out from under it: #7's SANCTION_APPLICANT verdict opens
-  // a customer-level restriction (scope=ALL) for BOB, and DepositWorkflowService's
-  // onCustomerRestrictionOpened sweeps EVERY non-terminal deposit BOB owns — #5
-  // (also BOB, driven to MANUAL_CHECKING earlier) gets swept straight to FROZEN by
-  // that, same as any of BOB's real in-flight orders would. Confirmed by rerunning
-  // this and re-querying #5 directly: PAYIN_PENDING→COMPLIANCE_PENDING→
-  // MANUAL_CHECKING→FROZEN. The roster's expectedStatus is a claim about the FINAL
-  // settled state, so this must report that — not a stale mid-run snapshot that
-  // would silently hide the conflict. See task-C2-report.md.
+  // each row settled on right when ITS OWN drive finished. A later row CAN move an
+  // earlier row's deposit out from under it: any SANCTION_APPLICANT verdict opens
+  // a customer-level restriction (scope=ALL) on its owner, and
+  // DepositWorkflowService's onCustomerRestrictionOpened sweeps EVERY non-terminal
+  // deposit that owner has to FROZEN. That is exactly why #7/#10 (FROZEN/SEIZED)
+  // are pinned to FRANK — a persona with no OTHER roster rows — instead of reusing
+  // a trio member: BOB used to hold both #5 (MANUAL_CHECKING) and #7, and #7's
+  // sweep silently clobbered #5 to FROZEN after the fact (PAYIN_PENDING→
+  // COMPLIANCE_PENDING→MANUAL_CHECKING→FROZEN), which also happened to be exactly
+  // the customer-level-restriction/trio-must-stay-tradeable conflict that made
+  // demo:swap FATAL further down the pipeline — see task-C2b-report.md. The
+  // roster's expectedStatus is a claim about the FINAL settled state, so this must
+  // report that — not a stale mid-run snapshot that would hide a future case of the
+  // same conflict. See task-C2-report.md / task-C2b-report.md.
   const results: Array<{ seq: number; orderNo: string; status: string }> = [];
   for (const { seq, depositId } of driven) {
     const final: any = await ctx.deposits.findOne(depositId);
