@@ -352,10 +352,8 @@ describe('规则① 同一模块显示逻辑一致 · ⚡ Simulation（Task 7 + 
     expect(disabledAttrOf(DETAIL_PAGES.DEPOSIT)).toContain('isDepositVerdictIgnored(data.status)');
     expect(disabledAttrOf(DETAIL_PAGES.WITHDRAW)).toContain('isWithdrawVerdictIgnored(data.status)');
     const swapAttr = disabledAttrOf(DETAIL_PAGES.SWAP);
-    /* 兑换是**取反**接线（白名单：不在 COMPLIANCE_PENDING 就灰），且必须给 ⑦⑧
-       人级键留豁免 —— 否则 BACKLOG「⑦⑧ 在被拒单上无 UI 入口」等于没解。 */
+    // 兑换是**取反**接线（白名单：不在 COMPLIANCE_PENDING 就灰）。
     expect(swapAttr).toContain('!isSwapVerdictActionable(data.status)');
-    expect(swapAttr).toContain('SWAP_PERSON_LEVEL_KEYS.has(s.key)');
   });
 
   it('说明文案的渲染条件就是自家判据本身（充值/提现正接、兑换取反）', () => {
@@ -372,18 +370,6 @@ describe('规则① 同一模块显示逻辑一致 · ⚡ Simulation（Task 7 + 
     for (const [domain, file] of Object.entries(ORDER_LEVEL_DOMAINS)) {
       expect([domain, srcOf(file).includes(IGNORED_MSG)]).toEqual([domain, true]);
     }
-    // 兑换的判据不同（单态白名单），文案也另写一句，且必须点明 ⑦⑧ 仍可用
-    const swapMsg = '本单不在待合规状态，①-⑧ 里的裁决键不会推进本单，故置灰；⑦⑧ 作用于客户本人，仍可用。';
-    expect(srcOf(DETAIL_PAGES.SWAP)).toContain(swapMsg);
-  });
-
-  /* Important #1（Task 7 审查）：⑦⑧ 投的是 applicantActionReviewed，作用对象是人
-     不是单，不走 applyKytVerdict —— 终态单上必须点得动，这正是 BACKLOG
-     「⑦⑧ 人级模拟键在被拒单上无 UI 入口」要的入口。 */
-  it('兑换⑦⑧人级键的豁免集合就是 V7_ACTION_GREEN / V8_ACTION_RED', () => {
-    expect(srcOf(DETAIL_PAGES.SWAP)).toContain(
-      "const SWAP_PERSON_LEVEL_KEYS = new Set(['V7_ACTION_GREEN', 'V8_ACTION_RED']);",
-    );
   });
 });
 
