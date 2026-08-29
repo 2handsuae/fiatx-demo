@@ -129,6 +129,8 @@ describe('DepositWorkflowService', () => {
     depositService = {
       updateStatus: jest.fn().mockResolvedValue({ status: DepositTransactionStatus.SUCCESS }),
       findOne: jest.fn(),
+      // A7：MATERIAL_REQUEST_REVIEWED 回炉 listener 按业务键 orderRef(=depositNo) 查单。
+      findByNo: jest.fn(),
       updateSumsubVerdict: jest.fn(),
       saveTxnDetail: jest.fn().mockResolvedValue(undefined),
       setSlaDeadline: jest.fn().mockResolvedValue(undefined),
@@ -3713,6 +3715,81 @@ describe('DepositWorkflowService', () => {
       // 不得只打 debug（良性自咬的降级路径不该被触发——updateStatus 本身没抛）。
       expect(debugSpy).not.toHaveBeenCalled();
       expect(warnSpy).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('onMaterialRequestReviewed — 材料审过后充值单回炉 (A7)', () => {
+    const actionPendingDeposit = (overrides: Record<string, unknown> = {}) => ({
+      id: 'dep-mr-1',
+      depositNo: 'DEP-MR-001',
+      status: DepositTransactionStatus.ACTION_PENDING,
+      ownerType: 'CUSTOMER',
+      ownerId: 'cust-mr-1',
+      traceId: 'trace-mr-1',
+      ...overrides,
+    });
+
+    const reviewedEvent = (overrides: Record<string, unknown> = {}) => ({
+      requestNo: 'MRQ-1',
+      customerId: 'cust-mr-1',
+      orderDomain: 'DEPOSIT',
+      orderRef: 'DEP-MR-001',
+      outcome: 'APPROVED',
+      traceId: 'trace-evt-1',
+      ...overrides,
+    });
+
+    it('GREEN + 单在 ACTION_PENDING → RESUME 回 COMPLIANCE_PENDING 并写审计留痕', async () => {
+      const dep = actionPendingDeposit();
+      depositService.findByNo.mockResolvedValue(dep);
+      depositService.updateStatus.mockResolvedValue({ status: DepositTransactionStatus.COMPLIANCE_PENDING });
+
+      await service.onMaterialRequestReviewed(reviewedEvent());
+
+      expect(depositService.findByNo).toHaveBeenCalledWith('DEP-MR-001');
+      expect(depositService.updateStatus).toHaveBeenCalledWith(
+        'dep-mr-1',
+        expect.objectContaining({ action: DepositTransactionAction.RESUME }),
+      );
+      expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: AuditActions.DEPOSIT_MATERIAL_APPROVED_RESUMED,
+          primarySubjectNo: 'DEP-MR-001',
+          fromStatus: DepositTransactionStatus.ACTION_PENDING,
+          toStatus: DepositTransactionStatus.COMPLIANCE_PENDING,
+        }),
+      );
+    });
+
+    it('不是本域的事件（orderDomain=WITHDRAW）→ 一动不动（铁律③各管各的）', async () => {
+      await service.onMaterialRequestReviewed(
+        reviewedEvent({ orderDomain: 'WITHDRAW', orderRef: 'WD-123' }),
+      );
+
+      expect(depositService.findByNo).not.toHaveBeenCalled();
+      expect(depositService.updateStatus).not.toHaveBeenCalled();
+      expect(auditLogsService.recordSystem).not.toHaveBeenCalled();
+    });
+
+    it.each(['RETRY', 'REJECTED'])(
+      '%s → 单留在 ACTION_PENDING（只有 GREEN 回炉）',
+      async (outcome) => {
+        await service.onMaterialRequestReviewed(reviewedEvent({ outcome }));
+
+        expect(depositService.findByNo).not.toHaveBeenCalled();
+        expect(depositService.updateStatus).not.toHaveBeenCalled();
+        expect(auditLogsService.recordSystem).not.toHaveBeenCalled();
+      },
+    );
+
+    it('单已不在 ACTION_PENDING（迟到的复核）→ no-op，不抛，不改状态', async () => {
+      const dep = actionPendingDeposit({ status: DepositTransactionStatus.FROZEN });
+      depositService.findByNo.mockResolvedValue(dep);
+
+      await expect(service.onMaterialRequestReviewed(reviewedEvent())).resolves.toBeUndefined();
+
+      expect(depositService.updateStatus).not.toHaveBeenCalled();
+      expect(auditLogsService.recordSystem).not.toHaveBeenCalled();
     });
   });
 });
