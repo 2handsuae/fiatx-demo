@@ -10,14 +10,16 @@
 // beforeAll below for why it isn't reused verbatim).
 //
 // Task C3 extends the same file with runSwaps()/runWithdraws() coverage
-// (SWAP/WITHDRAW roster rows). #13/#19 (FRANK, ⚡⑦) are KNOWN to stay red:
-// deposit roster row #7 permanently customer-level SANCTION-restricts FRANK
-// before swaps/withdraws ever run, and initiateSwap/createWithdrawal's
-// synchronous assertCapability gate rejects order creation outright — there is
-// no order to land FROZEN. Confirmed against the live stack; see
-// task-C3-report.md. Not a bug in runSwaps/runWithdraws, and not something
-// this test suite papers over — same "diagnose, don't hide" precedent as C2's
-// own #5/#7 finding (see that commit's message).
+// (SWAP/WITHDRAW roster rows). #13 (FRANK, ⚡⑦) is KNOWN to stay red: deposit
+// roster row #7 permanently customer-level SANCTION-restricts FRANK before
+// swaps ever run, and initiateSwap's synchronous assertCapability gate
+// rejects order creation outright — there is no order to land FROZEN.
+// Confirmed against the live stack; see task-C3-report.md. Not a bug in
+// runSwaps, and not something this test suite papers over — same "diagnose,
+// don't hide" precedent as C2's own #5/#7 finding (see that commit's
+// message). (Task C3b moved WITHDRAW row #19 off FRANK — GRACE via ⚡⑨
+// V9_REJECTED_MLRO_FREEZE now — so #19 is expected to pass; see
+// task-C3b-report.md and demo-lib.ts's runWithdraws comment block.)
 //
 // The disposition arcs also need the actual backend HTTP server of this stack
 // up and listening (this test's own app context has no HTTP listener of its

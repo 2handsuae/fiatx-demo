@@ -11,9 +11,10 @@
 // alongside them; deposit roster row #7 (⚡⑦) permanently customer-level
 // sanctions him — a restriction that must not land on anyone who still needs
 // to swap/withdraw later in the same run (see resolveFrozenPersona). His own
-// later SWAP/WITHDRAW roster rows (#13/#19, also ⚡⑦) then find order creation
-// itself blocked (CAPABILITY_RESTRICTED) rather than landing FROZEN as a real
-// order — see runSwaps/runWithdraws' catch blocks below and task-C3-report.md.
+// later SWAP roster row (#13, also ⚡⑦) then finds order creation itself
+// blocked (CAPABILITY_RESTRICTED) rather than landing FROZEN as a real order
+// — see runSwaps' catch block below and task-C3-report.md/task-C3b-report.md.
+// (WITHDRAW row #19 does NOT reuse Frank — see runWithdraws below.)
 //
 // End-state (after runAll): all orders SUCCESS; both COA invariants (CLIENT + FIRM)
 // hold per ledger; no Outstanding or FeeAccrual rows created (real-time 1:1 model).
@@ -816,12 +817,20 @@ export async function runSwaps(ctx: DemoCtx): Promise<Array<{ seq: number; order
 //     PENDING_APPROVAL before Sumsub submission — the roster wants it parked
 //     there, unapproved (see ensureSetup's BOB→PREMIUM comment above for why
 //     BOB needs that tier bump to even reach this gate).
-//   · #19 (FRANK, ⚡⑦) — same story as runSwaps' #13: deposit roster row #7 has
-//     already opened a customer-level SANCTION restriction on FRANK by the
-//     time withdrawals run, and createWithdrawal's own
-//     customerAccessService.assertCapability(userId,'WITHDRAW') call throws
-//     CAPABILITY_RESTRICTED synchronously, before any withdrawTransaction row
-//     is inserted. No order is produced; see the catch block below.
+//   · #19 (GRACE, ⚡⑨ V9_REJECTED_MLRO_FREEZE) — deliberately NOT FRANK/⚡⑦
+//     (task-C3b-report.md): a customer-level SANCTION restriction (⚡⑦) would
+//     make this row hit the exact same CAPABILITY_RESTRICTED wall as runSwaps'
+//     #13 (see that comment block) — order creation itself would be blocked,
+//     never landing FROZEN as a real order. ⚡⑨'s dispoTag=FROZEN_BY_MLRO takes
+//     a different branch in withdraw-workflow.service.ts#applyKytRejected:
+//     `if (isApplicantSanction || sceneTag === 'SANCTION_COUNTERPARTY' ||
+//     dispoTag === 'FROZEN_BY_MLRO')` freezes the order, but the
+//     customerRestrictionsService.open() call inside that block is gated on
+//     `if (isApplicantSanction)` only (sceneTag==='SANCTION_APPLICANT') — a
+//     bare dispoTag hit never opens a restriction. So this order can be
+//     created and driven through COMPLIANCE_PENDING → FROZEN like any other
+//     row, and GRACE stays fully tradeable (no other roster row depends on
+//     that, but it's true regardless).
 //   · #20 (在途单) is not created via createWithdrawal at all — it reuses
 //     demo-fixtures.ts's createStuckWithdraw fixture verbatim (task-C3
 //     background note 2): same real quote→createWithdrawal→applyKytVerdict
@@ -972,18 +981,12 @@ export async function runWithdraws(ctx: DemoCtx): Promise<Array<{ seq: number; o
       toIban = viban.iban;
     }
 
-    let wd: any;
-    try {
-      wd = await createRosterWithdraw(ctx, c, asset, entry.amount, { toIban, toAddress });
-    } catch (e: any) {
-      // FRANK (#19) — see the roster-comment block above for the full story.
-      const code = e?.response?.code ?? e?.code;
-      if (code === 'CAPABILITY_RESTRICTED' || code === 'INSUFFICIENT_BALANCE') {
-        console.log(`  #${entry.seq} ${entry.label}: 建单被拒 ${code} —— ${c.customerNo} 无法产出订单（详见任务报告）`);
-        continue;
-      }
-      throw e;
-    }
+    // No try/catch here (unlike runSwaps' #13): every WITHDRAW roster row
+    // belongs to alice/bob/grace, who resolveDemoCustomers above already
+    // guarantees are unrestricted — #19 (GRACE, ⚡⑨) is created and driven the
+    // same way as every other row, never hits CAPABILITY_RESTRICTED (see the
+    // roster-comment block above for why FRANK/⚡⑦ isn't used here).
+    const wd = await createRosterWithdraw(ctx, c, asset, entry.amount, { toIban, toAddress });
     console.log(`  #${entry.seq} ${entry.label}: ${wd.withdrawNo} ${entry.amount} ${asset.currency} (${wd.status})`);
 
     switch (entry.seq) {
@@ -1003,7 +1006,9 @@ export async function runWithdraws(ctx: DemoCtx): Promise<Array<{ seq: number; o
         await waitWithdrawStatus(ctx, wd.id, 'PENDING_APPROVAL');
         break;
       case 19:
-        await driveWithdrawVerdict(ctx, wd.id, 'V7_REJECTED_SANCTION_APPLICANT');
+        // MLRO 冻结（⚡⑨，非制裁）——只冻这一笔单，不碰 GRACE 的客户级能力，
+        // 见上方 roster-comment 块。
+        await driveWithdrawVerdict(ctx, wd.id, 'V9_REJECTED_MLRO_FREEZE');
         await waitWithdrawStatus(ctx, wd.id, 'FROZEN');
         break;
     }

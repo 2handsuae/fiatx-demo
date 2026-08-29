@@ -28,15 +28,19 @@ const GRACE = 'demo_grace@example.com';
 // FRANK plays the "永久冻结" persona for every row whose driver opens a
 // customer-level restriction (SANCTION: customerLevel=true, defaultScopes=
 // ['ALL'] — src/modules/identity/customers/constants/restriction-cause.
-// constant.ts) — #7/#10 (DEPOSIT FROZEN→SEIZED) and #13/#19 (SWAP/WITHDRAW
-// FROZEN). Nothing in this codebase releases a customer-level restriction
-// (deposit/withdraw/swap workflows only listen for CUSTOMER_RESTRICTION_OPENED,
-// never a "released" counterpart), so whoever plays this role can never trade
-// again for the rest of the run. That is incompatible with alice/bob/grace, who
-// MUST stay tradeable through swap+withdraw later in the same pipeline
-// (scripts/demo-lib.ts SWAP_PLAN/WITHDRAW_PLAN + resolveDemoCustomers's
-// tradeable-or-throw check) — so this persona is kept structurally apart: see
-// FROZEN_PERSONA_EMAIL/resolveFrozenPersona in scripts/demo-lib.ts.
+// constant.ts) — #7/#10 (DEPOSIT FROZEN→SEIZED) and #13 (SWAP FROZEN — never
+// actually created, order creation itself is blocked; see runSwaps' catch
+// block and task-C3b-report.md). Nothing in this codebase releases a
+// customer-level restriction (deposit/withdraw/swap workflows only listen for
+// CUSTOMER_RESTRICTION_OPENED, never a "released" counterpart), so whoever
+// plays this role can never trade again for the rest of the run. That is
+// incompatible with alice/bob/grace, who MUST stay tradeable through
+// swap+withdraw later in the same pipeline (scripts/demo-lib.ts WITHDRAW_PLAN
+// + resolveDemoCustomers's tradeable-or-throw check) — so this persona is kept
+// structurally apart: see FROZEN_PERSONA_EMAIL/resolveFrozenPersona in
+// scripts/demo-lib.ts. (#19 WITHDRAW FROZEN is GRACE, not FRANK — ⚡⑨
+// V9_REJECTED_MLRO_FREEZE freezes only the one order, no customer-level
+// restriction, so it doesn't need this persona — see runWithdraws below.)
 const FRANK = 'demo_frank@example.com';
 
 export const DEMO_ROSTER: RosterEntry[] = [
@@ -60,7 +64,7 @@ export const DEMO_ROSTER: RosterEntry[] = [
   { seq: 16, domain: 'WITHDRAW', label: '提现 · 法币成功（二）',     expectedStatus: 'SUCCESS',           customerEmail: GRACE, amount: '900',    currency: 'AED',  driver: '⚡①' },
   { seq: 17, domain: 'WITHDRAW', label: '提现 · 等客户补料',         expectedStatus: 'ACTION_PENDING',    customerEmail: ALICE, amount: '1800',   currency: 'AED',  driver: '⚡②' },
   { seq: 18, domain: 'WITHDRAW', label: '提现 · 大额待审批',         expectedStatus: 'PENDING_APPROVAL',  customerEmail: BOB,   amount: '250000', currency: 'AED',  driver: '超大额闸' },
-  { seq: 19, domain: 'WITHDRAW', label: '提现 · 制裁冻结',           expectedStatus: 'FROZEN',            customerEmail: FRANK, amount: '1500',   currency: 'AED',  driver: '⚡⑦' },
+  { seq: 19, domain: 'WITHDRAW', label: '提现 · MLRO 冻结',          expectedStatus: 'FROZEN',            customerEmail: GRACE, amount: '1500',   currency: 'AED',  driver: '⚡⑨' },
   { seq: 20, domain: 'WITHDRAW', label: '提现 · 卡在半路（对账用）',  expectedStatus: 'PAYOUT_PENDING',    customerEmail: ALICE, amount: '500',    currency: 'AED',  driver: 'demo:in-transit' },
 ];
 
