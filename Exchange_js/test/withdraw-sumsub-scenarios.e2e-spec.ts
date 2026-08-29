@@ -161,34 +161,51 @@ describe('Withdraw Sumsub verdict buttons (e2e, Task 12)', () => {
   });
 
   /**
-   * 2026-08-18 材料请求账迁移过程中发现的真实新行为（非本次改动引入 —— Task 9
-   * 已合入 main）：`WithdrawApplicantActionsService.syncApplicantActions` 登记新
-   * action 时走 `issuer.register({ restrict: true, ... })`，未指定 scope 就落
-   * `PENDING_DOCUMENT` 因由的默认 scopes（`['WITHDRAW','SWAP']`，见
-   * `restriction-cause.constant.ts`）——即客户一旦被下发过补料请求，WITHDRAW
-   * 能力会被客户级便签摁住，直到 Sumsub 复核 GREEN（`MaterialRequestReviewService
-   * .applyReview` → `autoRelease`）或运营人工放行才解开。旧的
-   * 旧的专属子表设计从不碰 `customer_restrictions`，这是
-   * 全新的客户级联动，牵出两个连带问题：
+   * 2026-08-29 业主口径变更（见 spec §2.6(5) / withdraw-applicant-actions.service.ts:98
+   * `const restrict = sceneTag === 'PEP_APPLICANT' || sceneTag === 'PEP_COUNTERPARTY'`）：
+   * 便签挂谁由 tag 决定，取代了 2026-08-18 材料请求账迁移时那条"只要下发过补料
+   * 就无差别锁客户"的旧行为（`issuer.register({ restrict: true, ... })` 曾经
+   * 写死）。新口径——
+   *
+   *  - 普通 SOF 补料（无 sceneTag，本文件②V2_AWAIT_USER / ⑤V5_AWAIT_USER_MULTI
+   *    两条用例恒如此）问的是"这笔钱哪来的" = 交易层的事 → `restrict=false`，
+   *    `resolveCause` 直接返回 null（material-request-issuer.service.ts:166），
+   *    `persist()` 连 `openRestriction` 都不调（同文件:138）——只挂订单，
+   *    压根不开便签，客户的 WITHDRAW/SWAP 能力不受影响。
+   *  - PEP（③V3_AWAIT_USER_PEP_APPLICANT，本文件只测这一档）问的是"这个人是不是
+   *    政治人物" = 人身层的事 → `restrict=true`，才落 `PENDING_DOCUMENT` 因由
+   *    默认 scopes `['WITHDRAW','SWAP']`（restriction-cause.constant.ts:93-100）
+   *    的客户级便签，直到 Sumsub 复核 GREEN（`MaterialRequestReviewService
+   *    .applyReview` → `autoRelease`）或运营人工放行才解开。
+   *
+   * 由此改写下面两点：
    *
    * 1) `WithdrawWorkflowService.assertCustomerComplianceOrFreeze`（"A4 客户级
-   *    合规闸"，`withdraw-workflow.service.ts:123`）在 payout-phase 会同步检查
-   *    `CustomerAccessService.resolve().blocked`，命中就把**这笔正在途中的提现
-   *    自己**冻结——包括触发这张便签的那一笔。这道闸是既有设计（此前因为读一列
-   *    已删的 `CustomerMain.complianceStatus` 而失效，后来修复改读限制账，见闸
-   *    内注释），本次是它第一次在这条 e2e 里被真正点亮。业务含义站得住：
-   *    材料没审过就不该放行付款。所以"补料完整弧"/"多条 action" 两条用例要想
-   *    走到 PAYOUT_PENDING，必须在交材料之后再补一步"Sumsub 复核 GREEN"
-   *    （`materialRequestReview.applyReview(...)`），不能止步于 markSubmitted——
-   *    这不是我方新加的步骤，是把测试流程补全到与 A4 闸真正生效后的业务事实
-   *    一致。
+   *    合规闸"，定义于 withdraw-workflow.service.ts:140，payout-phase 检查点在
+   *    :913）只看 `CustomerAccessService.resolve().blocked.has('WITHDRAW')`，
+   *    纯由 `customer_restrictions` 表驱动。"补料完整弧"/"多条 action" 两条用例
+   *    走的都是纯 SOF verdict（②/⑤），从未开过便签，这道闸在这两条用例的路径上
+   *    根本不会被触发——有没有下面的 `reviewGreen(...)`，`V1_APPROVED` 都能推进
+   *    到 PAYOUT_PENDING。两处调用仍然保留，但理由已经换了：
+   *      a) 它复刻的是 `sumsub-ingestion.service.ts` 处理真实
+   *         `applicantActionReviewed` webhook 时调的同一个方法/同一个 actor
+   *         字面量（见下面 helper 的 doc）——SOF 材料请求在生产环境里终究要被
+   *         Sumsub 给出复核结论，没有便签可撕不代表这一步不发生，删掉它会让
+   *         "补料完整弧"这个用例名不副实。
+   *      b) 验证 `applyReview` 对"零便签"材料请求的返回契约（`row.restrictionNo`
+   *         为 null 时跳过 `autoRelease` 但落章照常完成，返回
+   *         `{outcome:'APPROVED'}`）——这个分支已有更精确的 mock 单测覆盖
+   *         （material-request-review.service.spec.ts「GREEN 但这一行没挂
+   *         便签 → 不调 autoRelease」），这里是走真实 DI/事务/事件的 e2e 复核，
+   *         不是重复劳动。
    * 2) 本 domain 的 admin 模拟面板没有 V7/V8 那样的"认证复核"按钮可以喂
    *    `applicantActionReviewed` 走完解锁弧（已登记 BACKLOG）——上一条要用的
    *    `applyReview` 只能直接调 service，不经过某个 demo 按钮。
    *
    * 便签本身若不清场还会带来第三个问题：suite 本身"non-destructive by
-   * design"，共用同一个持久化客户（demo_grace）；②③两条用例只停在
-   * ACTION_PENDING、从不释放它们各自开出的便签，会挡住后面用例自己的
+   * design"，共用同一个持久化客户（demo_grace）；③（PEP）用例只停在
+   * ACTION_PENDING、从不释放自己开出的客户级便签（②⑤是 SOF，压根没开便签，
+   * 不在此列），会挡住后面用例自己的
    * `WithdrawWorkflowService.createWithdrawal()`（真实走 `CustomerAccessService
    * .assertCapability` 闸，直接 403）——这不是被测代码的 bug，是测试之间需要的
    * 隔离，与 swap-sumsub-scenarios.e2e-spec.ts 在 beforeAll 里 `deleteMany` 是
@@ -508,11 +525,12 @@ describe('Withdraw Sumsub verdict buttons (e2e, Task 12)', () => {
     expect(new Date((after as any).slaDeadline).getTime())
       .toBeGreaterThan(Date.now() + 6 * 24 * 3600 * 1000);
 
-    // 材料提交≠材料通过审核——submit 只是"客户交了"，register() 顺带开的
-    // WITHDRAW+SWAP 便签要等 Sumsub 复核 GREEN 才撕。不补这一步的话，A4 客户级
-    // 合规闸（withdraw-workflow.service.ts:854，payout-phase 检查点）会在下面
-    // V1_APPROVED 处理到"即将放款"那一刻发现客户仍被限，把这笔单自己冻结
-    // 而不是放行——见本文件 beforeEach 上方的说明注释。
+    // 材料提交≠材料通过审核——submit 只是"客户交了"。但这条用例走的是纯 SOF
+    // verdict（V2_AWAIT_USER，sceneTag 恒 undefined），2026-08-29 口径下
+    // register() 传 restrict=false，压根没开客户级便签（见本文件 beforeEach
+    // 上方说明注释）——A4 合规闸不会因为这条材料请求冻住下面的 V1_APPROVED，
+    // 有没有这步 reviewGreen 结果都一样。留着是为了复刻 Sumsub 真实复核
+    // webhook 的同一调用，并验证 applyReview 对"零便签"请求的返回契约。
     const reviewed = await reviewGreen(row!.externalActionId);
     expect(reviewed?.outcome).toBe('APPROVED');
 
@@ -575,10 +593,12 @@ describe('Withdraw Sumsub verdict buttons (e2e, Task 12)', () => {
     expect(final.every((r) => r.status === 'SUBMITTED')).toBe(true); // 三条逐条都已提交
     expect(final.filter((r) => r.status === 'PENDING_SUBMISSION')).toHaveLength(0); // 全部交齐
 
-    // 三条各自 register() 时都各开了一张便签（caseRef=各自的 requestNo，互不去重，
-    // 见 material-request-issuer.service.ts persist()）——三张都要复核 GREEN 撕掉，
-    // 少一张 access.blocked 仍含 WITHDRAW，A4 合规闸会在 V1_APPROVED 处理到
-    // payout-phase 时把单子自己冻结（同"补料完整弧"用例的注记）。
+    // V5_AWAIT_USER_MULTI 同样是纯 SOF verdict（sceneTag 恒 undefined），三条
+    // action 的 register() 都传 restrict=false，一张便签都没开——不存在"三张都
+    // 要复核 GREEN 才能撕开 access.blocked"这回事，A4 合规闸不会因为它们冻住
+    // 下面的 V1_APPROVED（同"补料完整弧"用例的注记）。三次 reviewGreen 仍然
+    // 保留，理由同上：复刻真实复核 webhook 调用 + 验证 applyReview 对"零便签"
+    // 请求的返回契约，不是为了解锁付款。
     for (const ext of live.map((r) => r.externalActionId)) {
       const reviewed = await reviewGreen(ext);
       expect(reviewed?.outcome).toBe('APPROVED');
