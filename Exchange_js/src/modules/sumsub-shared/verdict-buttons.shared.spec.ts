@@ -41,13 +41,6 @@ describe('buildOrderVerdictButtons', () => {
     expect(dep.V1_APPROVED.source).toBe('ENGINE');
   });
 
-  it('awaitUser 档按 SOF/PEP 决定挂订单还是挂客户', () => {
-    expect(dep.V2_AWAIT_USER.restrictCustomer).toBe(false);
-    expect(dep.V5_AWAIT_USER_MULTI.restrictCustomer).toBe(false);
-    expect(dep.V3_AWAIT_USER_PEP_APPLICANT.restrictCustomer).toBe(true);
-    expect(dep.V4_AWAIT_USER_PEP_COUNTERPARTY.restrictCustomer).toBe(true);
-  });
-
   it('每个 awaitUser 按钮每次读 applicantActions 都拿到新的 externalActionId', () => {
     const a = (dep.V2_AWAIT_USER.verdict as any).applicantActions[0].externalActionId;
     const b = (dep.V2_AWAIT_USER.verdict as any).applicantActions[0].externalActionId;

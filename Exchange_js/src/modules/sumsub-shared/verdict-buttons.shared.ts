@@ -11,8 +11,6 @@ export interface OrderVerdictButton {
   webhookType: string;
   /** ENGINE = Sumsub 规则引擎自动命中；OFFICER = 合规官在 Sumsub 台上手工处置。面板据此分两组。 */
   source: ButtonSource;
-  /** awaitUser 档专用：true = 开客户级便签；false = 只挂订单（提醒型材料请求）。 */
-  restrictCustomer?: boolean;
   verdict: TxnReportVerdict;
 }
 
@@ -54,7 +52,6 @@ export function buildOrderVerdictButtons(
     V2_AWAIT_USER: {
       key: 'V2_AWAIT_USER', label: '② Awaiting user',
       webhookType: 'applicantKytTxnAwaitingUser', source: 'ENGINE',
-      restrictCustomer: false,
       verdict: {
         reviewStatus: 'awaitingUser', reviewAnswer: null, action: 'awaitUser', score: 40,
         matchedRules: [RULE('KYC7', 'Source of funds unclear', 40, 'awaitUser',
@@ -66,7 +63,6 @@ export function buildOrderVerdictButtons(
     V3_AWAIT_USER_PEP_APPLICANT: {
       key: 'V3_AWAIT_USER_PEP_APPLICANT', label: '③ Awaiting user · PEP（客户本人）',
       webhookType: 'applicantKytTxnAwaitingUser', source: 'ENGINE',
-      restrictCustomer: true,
       verdict: {
         reviewStatus: 'awaitingUser', reviewAnswer: null, action: 'awaitUser', score: 62,
         matchedRules: [RULE('AML4', 'PEP match (applicant)', 62, 'awaitUser',
@@ -79,7 +75,6 @@ export function buildOrderVerdictButtons(
     V4_AWAIT_USER_PEP_COUNTERPARTY: {
       key: 'V4_AWAIT_USER_PEP_COUNTERPARTY', label: '④ Awaiting user · PEP（对手方）',
       webhookType: 'applicantKytTxnAwaitingUser', source: 'ENGINE',
-      restrictCustomer: true,
       verdict: {
         reviewStatus: 'awaitingUser', reviewAnswer: null, action: 'awaitUser', score: 58,
         matchedRules: [RULE('AML4', 'PEP match (counterparty)', 58, 'awaitUser',
@@ -92,7 +87,6 @@ export function buildOrderVerdictButtons(
     V5_AWAIT_USER_MULTI: {
       key: 'V5_AWAIT_USER_MULTI', label: '⑤ Awaiting user · 多条',
       webhookType: 'applicantKytTxnAwaitingUser', source: 'ENGINE',
-      restrictCustomer: false,
       verdict: {
         reviewStatus: 'awaitingUser', reviewAnswer: null, action: 'awaitUser', score: 45,
         matchedRules: [RULE('KYC9', 'Multiple documents required', 45, 'awaitUser',
