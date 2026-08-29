@@ -9,6 +9,16 @@
 // DemoCtx (same shape as demo-lib.ts's bootstrap(), see the comment on
 // beforeAll below for why it isn't reused verbatim).
 //
+// Task C3 extends the same file with runSwaps()/runWithdraws() coverage
+// (SWAP/WITHDRAW roster rows). #13/#19 (FRANK, ⚡⑦) are KNOWN to stay red:
+// deposit roster row #7 permanently customer-level SANCTION-restricts FRANK
+// before swaps/withdraws ever run, and initiateSwap/createWithdrawal's
+// synchronous assertCapability gate rejects order creation outright — there is
+// no order to land FROZEN. Confirmed against the live stack; see
+// task-C3-report.md. Not a bug in runSwaps/runWithdraws, and not something
+// this test suite papers over — same "diagnose, don't hide" precedent as C2's
+// own #5/#7 finding (see that commit's message).
+//
 // The disposition arcs also need the actual backend HTTP server of this stack
 // up and listening (this test's own app context has no HTTP listener of its
 // own — see ctx.apiBase in demo-lib.ts) — run this via
@@ -45,10 +55,10 @@ import { SwapWorkflowService } from '../src/modules/trading/swap-transactions/sw
 import { WithdrawQuoteService } from '../src/modules/trading/withdrawal-fee-level/withdraw-quote.service';
 import { WithdrawTransactionsService } from '../src/modules/trading/withdraw-transactions/withdraw-transactions.service';
 import { WithdrawWorkflowService } from '../src/modules/trading/withdraw-transactions/withdraw-workflow.service';
-import { ensureSetup, runDeposits, resolveApiBase, type DemoCtx } from '../scripts/demo-lib';
+import { ensureSetup, runDeposits, runSwaps, runWithdraws, resolveApiBase, type DemoCtx } from '../scripts/demo-lib';
 import { DEMO_ROSTER } from '../scripts/demo-roster';
 
-describe('Deposit roster (e2e, Task C2)', () => {
+describe('Deposit/swap/withdraw roster (e2e, Task C2 + C3)', () => {
   jest.setTimeout(180000);
 
   let ctx: DemoCtx;
@@ -105,5 +115,37 @@ describe('Deposit roster (e2e, Task C2)', () => {
       const got = results.find((x) => x.seq === r.seq);
       expect({ seq: r.seq, status: got?.status }).toEqual({ seq: r.seq, status: r.expectedStatus });
     }
+  });
+
+  // Depends on runDeposits() above having already restricted FRANK (customer-
+  // level SANCTION, scope=ALL) — jest runs `it` blocks in one file sequentially
+  // within a describe, sharing the same beforeAll ctx/DB, so this is safe.
+  //
+  // withdrawResults is captured here (not re-fetched by a second runWithdraws()
+  // call below) deliberately: runWithdraws, like runDeposits, is NOT idempotent
+  // — a second call creates a SECOND #18 (BOB, 250,000 AED) within the same
+  // calendar-day cumulative-limit window, which trips
+  // TRANSACTION_LIMIT_CUMULATIVE_EXCEEDED the second time around (confirmed
+  // against the live stack — task-C3-report.md). One call, shared results.
+  let withdrawResults: Array<{ seq: number; orderNo: string; status: string }>;
+
+  it('兑换 3 笔 + 提现 7 笔全部落到花名册预期状态', async () => {
+    // Order matters: swaps before withdraws (mirrors demo-all.ts's own
+    // setup → deposits → swaps → withdraws pipeline) — #18 (BOB, 250,000 AED
+    // withdrawal) running before #12 (BOB, sell 2,900 AED) would drain BOB's
+    // available balance first and spuriously fail #12 with
+    // INSUFFICIENT_BALANCE (confirmed against the live stack when this was
+    // briefly reversed — task-C3-report.md).
+    const swapResults = await runSwaps(ctx);
+    withdrawResults = await runWithdraws(ctx);
+    const results = [...swapResults, ...withdrawResults];
+    for (const r of DEMO_ROSTER.filter((x) => x.domain !== 'DEPOSIT')) {
+      const got = results.find((x) => x.seq === r.seq);
+      expect({ seq: r.seq, status: got?.status }).toEqual({ seq: r.seq, status: r.expectedStatus });
+    }
+  });
+
+  it('在途单由 runWithdraws 产出，不再需要单独跑 demo:in-transit', () => {
+    expect(withdrawResults.find((x) => x.seq === 20)?.status).toBe('PAYOUT_PENDING');
   });
 });
