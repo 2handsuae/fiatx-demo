@@ -14,6 +14,7 @@ import { AdminSessionError, adminFetch, getApiErrorMessage } from '../utils/admi
 import { formatAssetAmount, formatRate8 } from '../utils/number-format';
 import { formatSlaRemaining } from '../utils/slaDisplay';
 import { useSimulationMode } from '../utils/simulationMode';
+import { useVerdictButtons } from '../hooks/useVerdictButtons';
 import { getComplianceLayerStyle } from '../utils/depositActionMap';
 import L1GateCard from '../components/L1GateCard';
 import { GateTile } from '../components/compliance/GateTile';
@@ -23,24 +24,6 @@ import { NeedsReviewBanner } from '../components/compliance/NeedsReviewBanner';
 import MaterialRequestPanel from '../components/MaterialRequestPanel';
 
 /* ── Types ──────────────────────────────────────────────────── */
-
-/* 7 个单步裁决按钮,与充值/提现版镜像(deliberate fork)。key/label 必须与后端
-   src/modules/swap-sumsub/fixtures/verdict-buttons.ts 的 SWAP_VERDICT_BUTTONS
-   逐一对齐——这里没有自动化断言(admin-web 暂无测试基建),改动任一侧务必同步
-   改另一侧,否则 operator 会点不出新场景。
-   ⚠️ 没有 V4B（对手方制裁）：业主 2026-08-20 终审裁定——兑换没有第三方对手方，
-   这个场景不存在，见后端 fixture 同名注释；充值/提现两个姊妹页保留该按钮。 */
-const SWAP_VERDICT_BUTTONS: Array<{ key: string; label: string }> = [
-  { key: 'V1_APPROVED', label: '① Approved' },
-  { key: 'V2_REJECTED_HARD', label: '② Rejected · 硬线（无 action）' },
-  { key: 'V3_REJECTED_ACTION', label: '③ Rejected · 软线（下发认证）' },
-  { key: 'V4_REJECTED_SANCTION_APPLICANT', label: '④ Rejected · Sanctions（客户本人）' },
-  { key: 'V5_ONHOLD', label: '⑤ On hold（我方等同拒绝）' },
-  { key: 'V6_AWAIT_USER', label: '⑥ Awaiting user（我方等同拒绝）' },
-  { key: 'V7_ACTION_GREEN', label: '⑦ 认证通过（清限制）' },
-  { key: 'V8_ACTION_RED', label: '⑧ 认证不通过（升级）' },
-];
-
 
 /* ⑦⑧ 投的是 applicantActionReviewed —— 作用对象是**人**（客户补料的复核结果），
    不走 applyKytVerdict，与本单状态无关。终态单上它们照样有效，这正是 BACKLOG
@@ -190,6 +173,7 @@ const SwapTransactionDetail = () => {
   const [data, setData] = useState<SwapTransactionDetailData | null>(null);
   const [loading, setLoading] = useState(true);
   const { enabled: simEnabled } = useSimulationMode();
+  const { buttons: verdictButtons } = useVerdictButtons('swap');
   const [simSubmitting, setSimSubmitting] = useState<string | null>(null);
   const [simError, setSimError] = useState('');
   // 喂裁决成功后的顶部回显条（对齐充值/提现详情页的 notice 形态）。
@@ -681,7 +665,7 @@ const SwapTransactionDetail = () => {
               )}
               {simError && <p className="text-[11px] text-adm-red">{simError}</p>}
               <div className="flex flex-wrap gap-2">
-                {SWAP_VERDICT_BUTTONS.map((s) => (
+                {verdictButtons.map((s) => (
                   <button
                     key={s.key}
                     disabled={

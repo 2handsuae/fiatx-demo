@@ -1,8 +1,9 @@
-import { BadRequestException, Body, Controller, Post, Req, UseGuards } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, Post, Req, UseGuards } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { AdminPermissionGuard } from '../identity/access-control/admin-permission.guard';
 import { DepositDemoScenarioService } from './demo-scenario.service';
+import { DEPOSIT_VERDICT_BUTTONS } from './fixtures/verdict-buttons';
 
 /**
  * Task 6(计划1 甲方案)起步,Task 4(计划「充值仿真裁决按钮」)改单步:Sumsub sandbox
@@ -35,5 +36,15 @@ export class AdminDepositDemoController {
       actorRole: req.user?.role,
     };
     return this.demoScenarioService.runVerdict(body.depositId, body.verdict, actor);
+  }
+
+  @Get('verdict-buttons')
+  @ApiOperation({ summary: '列出本域可用的裁决按钮（demo only）—— 前端据此渲染 ⚡ 面板' })
+  listVerdictButtons(@Req() req: any) {
+    return {
+      buttons: Object.values(DEPOSIT_VERDICT_BUTTONS).map((b) => ({
+        key: b.key, label: b.label, source: b.source,
+      })),
+    };
   }
 }

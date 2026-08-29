@@ -34,27 +34,10 @@ import {
 } from '../utils/withdrawStatusMap';
 import { adminButtonClass } from '../components/common/adminButtonStyles';
 import { useSimulationMode } from '../utils/simulationMode';
+import { useVerdictButtons } from '../hooks/useVerdictButtons';
 import MaterialRequestPanel from '../components/MaterialRequestPanel';
 
 /* ── Types ──────────────────────────────────────────────────── */
-
-/* 10 个单步裁决按钮,与充值版镜像(去掉充值独有的 below-min)。key/label 必须与后端
-   src/modules/withdraw-sumsub/fixtures/verdict-buttons.ts 的 WITHDRAW_VERDICT_BUTTONS
-   逐一对齐 —— 这里没有自动化断言(admin-web 暂无测试基建),改动任一侧务必同步改另一侧,
-   否则 operator 会点不出新场景。 */
-const WITHDRAW_VERDICT_BUTTONS: Array<{ key: string; label: string }> = [
-  { key: 'V1_APPROVED', label: '① Approved' },
-  { key: 'V2_AWAIT_USER', label: '② Awaiting user' },
-  { key: 'V3_AWAIT_USER_PEP', label: '③ Awaiting user · PEP' },
-  { key: 'V4_REJECTED_SANCTION_APPLICANT', label: '④ Rejected · Sanctions（客户本人）' },
-  { key: 'V4B_REJECTED_SANCTION_COUNTERPARTY', label: '④B Rejected · Sanctions（对手方）' },
-  { key: 'V5_REJECTED_FROZEN_MLRO', label: '⑤ Rejected · MLRO freeze' },
-  { key: 'V6_REJECTED_REFUND_TAG', label: '⑥ Rejected · Refund tag' },
-  { key: 'V7_REJECTED_NO_TAG', label: '⑦ Rejected · no disposition tag' },
-  { key: 'V8_ONHOLD', label: '⑧ On hold' },
-  { key: 'V9_REJECTED_SLA', label: '⑨ Rejected · SLA breach' },
-  { key: 'V10_AWAIT_USER_MULTI', label: '⑩ Awaiting user · 多条' },
-];
 
 /* 硬抄件。同步源：src/modules/trading/withdraw-transactions/withdraw-workflow.service.ts
    的 WithdrawWorkflowService.KYT_VERDICT_TERMINAL_STATUSES。
@@ -191,6 +174,7 @@ const WithdrawTransactionDetail = () => {
   const [isBounceModalOpen, setIsBounceModalOpen] = useState(false);
   const [bounceReason, setBounceReason] = useState('');
   const { enabled: simEnabled } = useSimulationMode();
+  const { buttons: verdictButtons } = useVerdictButtons('withdraw');
   const [simSubmitting, setSimSubmitting] = useState<string | null>(null);
   const [simError, setSimError] = useState('');
   const [slaSubmitting, setSlaSubmitting] = useState(false);
@@ -630,10 +614,6 @@ const WithdrawTransactionDetail = () => {
               <p className="font-mono text-[11px] text-adm-amber">
                 Verdicts are atomic — chain them freely (e.g. ② then ①, or ⑦ then ⑤).
               </p>
-              <p className="font-mono text-[11px] text-adm-t3">
-                ⑨ only posts a rejected verdict tagged SLA_BREACH — it does not
-                drive the real SLA timer (WithdrawSlaService); same code path as ⑦.
-              </p>
               {isWithdrawVerdictIgnored(data.status) && (
                 <p className="font-mono text-[11px] text-adm-amber">
                   本单已进终态/处置态，投递的裁决会被后端记录但不改状态。
@@ -641,7 +621,7 @@ const WithdrawTransactionDetail = () => {
               )}
               {simError && <p className="text-[11px] text-adm-red">{simError}</p>}
               <div className="flex flex-wrap gap-2">
-                {WITHDRAW_VERDICT_BUTTONS.map((s) => (
+                {verdictButtons.map((s) => (
                   <button
                     key={s.key}
                     disabled={simSubmitting !== null || isWithdrawVerdictIgnored(data.status)}
