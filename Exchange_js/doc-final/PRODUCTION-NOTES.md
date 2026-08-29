@@ -414,3 +414,11 @@
 - [ ] **兑换 `Internal Approvals` 空态是手写 div**，充值/提现用共享 `LinkedRelationEmpty`（后者在消息上方还有一行 cap 微标签）→ 同一张卡的空态，另两域有小标题、兑换没有 ｜来源: 2026-08-23 第五批终审
 
 - [ ] **三页各手写一份逐字相同的「本单已进终态/处置态」`<p>`**（第五批 Task 7 引入，className 与文案全同）—— 同职责内联三份，正是本批立规矩要消灭的形状 ｜来源: 2026-08-23 第五批终审
+
+- [2026-08-29] **`stack.sh reset self` 在 worktree 里会造出「假的 COA 恒等式失败」，且倍数逐次累加** ｜ `scripts/stack-stop.sh` + `scripts/reset-stack.sh` ｜ 实证于 feat/demo-kit-sumsub-panel
+
+  机制：`reset-stack.sh` 会 `rm -f` TB 数据文件再 `format` 一个新的，但它先调的 `stack-stop.sh ... || true` **杀不掉 worktree 的 TigerBeetle 进程**（既有账：孤儿清理相对/绝对路径不匹配，永不命中）。老 TB 进程存活、继续占着端口、句柄指向那个已被 unlink 的旧文件——于是 **SQLite 被清空重铺（负债侧回到 1 倍），TB 余额却一路累加**。
+  症状：`demo:all` 报 `COA CLIENT(AED): CLIENT_ASSET == Σ(...)` 失败，实际值是期望值的**整数倍**，且每 reset 一次倍数 +1（实测 1→2→3→4 倍，同一 commit 零代码改动）。FIRM 侧恒对，只有 CLIENT 侧翻倍。
+  危害：**这是一个会把人送去追不存在的账本 bug 的假警报**。本轮就差点据此判定分支引入了重复记账回归——做了 commit 二分才发现倍数在累加、进而定位到孤儿进程。
+  绕法：`lsof -ti:<TB端口>` 找到进程手工 `kill`，再 `reset` + `up`，`demo:all` 即回 8/8（COA 数字与 main 逐字一致）。
+  修法（生产化时）：`stack-stop.sh` 的孤儿匹配改成按端口而非按路径；或 `reset-stack.sh` 在 `rm -f` 之前断言目标端口已空、不空则 fail-fast，而不是 `|| true` 吞掉。
