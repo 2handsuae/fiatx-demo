@@ -1,0 +1,77 @@
+/**
+ * demo:all 花名册 —— 20 笔单覆盖 20 种终态/活态。
+ *
+ * 原则：剧本演到的状态必须有现成样本，剧本没演到的不造。不按状态机穷举
+ * （兑换的 FAILED/REVERSED 是不可达死枚举，不进册）。
+ *
+ * 固定不随机：金额、笔数、目标状态全部写死。唯一会变的是单号（内嵌日期），
+ * 所以答案键运行时打印，不写死在文件里。随机金额会自己穿仓，也会让
+ * demo/data.md 的自动生成分不清「漂移」与「噪音」。
+ */
+export type RosterDomain = 'DEPOSIT' | 'SWAP' | 'WITHDRAW';
+
+export interface RosterEntry {
+  seq: number;
+  domain: RosterDomain;
+  label: string;
+  expectedStatus: string;
+  customerEmail: string;
+  amount: string;
+  currency: string;
+  /** 怎么把单驱到目标态；⚡N = 模拟面板第 N 个按钮 */
+  driver: string;
+}
+
+const ALICE = 'demo_alice@example.com';
+const BOB = 'demo_bob@example.com';
+const GRACE = 'demo_grace@example.com';
+
+export const DEMO_ROSTER: RosterEntry[] = [
+  { seq: 1,  domain: 'DEPOSIT',  label: '充值 · 正常入账 USDT',      expectedStatus: 'SUCCESS',           customerEmail: ALICE, amount: '3000',   currency: 'USDT', driver: '⚡①' },
+  { seq: 2,  domain: 'DEPOSIT',  label: '充值 · 正常入账 AED',       expectedStatus: 'SUCCESS',           customerEmail: BOB,   amount: '8000',   currency: 'AED',  driver: '⚡①' },
+  { seq: 3,  domain: 'DEPOSIT',  label: '充值 · 正常入账 AED（二）',  expectedStatus: 'SUCCESS',           customerEmail: GRACE, amount: '6500',   currency: 'AED',  driver: '⚡①' },
+  { seq: 4,  domain: 'DEPOSIT',  label: '充值 · 等客户补料',         expectedStatus: 'ACTION_PENDING',    customerEmail: ALICE, amount: '4200',   currency: 'AED',  driver: '⚡②' },
+  { seq: 5,  domain: 'DEPOSIT',  label: '充值 · 转人工复核',         expectedStatus: 'MANUAL_CHECKING',   customerEmail: BOB,   amount: '5100',   currency: 'AED',  driver: '⚡⑪' },
+  { seq: 6,  domain: 'DEPOSIT',  label: '充值 · 小额挂起',           expectedStatus: 'OPERATION_PENDING', customerEmail: GRACE, amount: '35',     currency: 'AED',  driver: '低于下限' },
+  { seq: 7,  domain: 'DEPOSIT',  label: '充值 · 制裁冻结',           expectedStatus: 'FROZEN',            customerEmail: BOB,   amount: '7300',   currency: 'AED',  driver: '⚡⑦' },
+  { seq: 8,  domain: 'DEPOSIT',  label: '充值 · 没收（钱进公司）',    expectedStatus: 'CONFISCATED',       customerEmail: GRACE, amount: '42',     currency: 'AED',  driver: '低于下限 → 没收 → MLRO 批' },
+  { seq: 9,  domain: 'DEPOSIT',  label: '充值 · 退回原发款方',       expectedStatus: 'RETURNED',          customerEmail: ALICE, amount: '2600',   currency: 'AED',  driver: '⚡⑪ → 退回 → MLRO 批' },
+  { seq: 10, domain: 'DEPOSIT',  label: '充值 · 上缴（政府移交）',    expectedStatus: 'SEIZED',            customerEmail: BOB,   amount: '9100',   currency: 'AED',  driver: '⚡⑦ → 上缴 → MLRO 批' },
+
+  { seq: 11, domain: 'SWAP',     label: '兑换 · USDT→AED 成功',      expectedStatus: 'SUCCESS',           customerEmail: ALICE, amount: '1000',   currency: 'USDT', driver: '⚡①' },
+  { seq: 12, domain: 'SWAP',     label: '兑换 · AED→USDT 成功',      expectedStatus: 'SUCCESS',           customerEmail: BOB,   amount: '2900',   currency: 'AED',  driver: '⚡①' },
+  { seq: 13, domain: 'SWAP',     label: '兑换 · 制裁冻结（零出边）',  expectedStatus: 'FROZEN',            customerEmail: GRACE, amount: '600',    currency: 'AED',  driver: '⚡⑦' },
+
+  { seq: 14, domain: 'WITHDRAW', label: '提现 · 法币成功',           expectedStatus: 'SUCCESS',           customerEmail: ALICE, amount: '1200',   currency: 'AED',  driver: '⚡①' },
+  { seq: 15, domain: 'WITHDRAW', label: '提现 · 虚拟币成功',         expectedStatus: 'SUCCESS',           customerEmail: BOB,   amount: '150',    currency: 'USDT', driver: '⚡①' },
+  { seq: 16, domain: 'WITHDRAW', label: '提现 · 法币成功（二）',     expectedStatus: 'SUCCESS',           customerEmail: GRACE, amount: '900',    currency: 'AED',  driver: '⚡①' },
+  { seq: 17, domain: 'WITHDRAW', label: '提现 · 等客户补料',         expectedStatus: 'ACTION_PENDING',    customerEmail: ALICE, amount: '1800',   currency: 'AED',  driver: '⚡②' },
+  { seq: 18, domain: 'WITHDRAW', label: '提现 · 大额待审批',         expectedStatus: 'PENDING_APPROVAL',  customerEmail: BOB,   amount: '250000', currency: 'AED',  driver: '超大额闸' },
+  { seq: 19, domain: 'WITHDRAW', label: '提现 · 制裁冻结',           expectedStatus: 'FROZEN',            customerEmail: GRACE, amount: '1500',   currency: 'AED',  driver: '⚡⑦' },
+  { seq: 20, domain: 'WITHDRAW', label: '提现 · 卡在半路（对账用）',  expectedStatus: 'PAYOUT_PENDING',    customerEmail: ALICE, amount: '500',    currency: 'AED',  driver: 'demo:in-transit' },
+];
+
+export function printAnswerKey(
+  actual: Array<{ seq: number; orderNo: string; status: string }>,
+): { pass: boolean; lines: string[] } {
+  const bySeq = new Map(actual.map((a) => [a.seq, a]));
+  const lines: string[] = [];
+  let bad = 0;
+
+  for (const domain of ['DEPOSIT', 'SWAP', 'WITHDRAW'] as const) {
+    const rows = DEMO_ROSTER.filter((r) => r.domain === domain);
+    lines.push(`\n── ${domain}（${rows.length} 笔）`);
+    for (const r of rows) {
+      const a = bySeq.get(r.seq);
+      const ok = a?.status === r.expectedStatus;
+      if (!ok) bad += 1;
+      lines.push(
+        `  ${ok ? '✓' : '✗'} #${String(r.seq).padStart(2)} ${r.label.padEnd(24)} ` +
+        `${(a?.orderNo ?? '—').padEnd(16)} 预期 ${r.expectedStatus}` +
+        (ok ? '' : ` ｜ 实到 ${a?.status ?? '（没造出来）'}`),
+      );
+    }
+  }
+  lines.push(`\n花名册：${DEMO_ROSTER.length - bad}/${DEMO_ROSTER.length} 符合预期`);
+  return { pass: bad === 0, lines };
+}
