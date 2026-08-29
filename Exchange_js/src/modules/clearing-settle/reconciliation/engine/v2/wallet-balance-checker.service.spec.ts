@@ -46,11 +46,15 @@ function makePrismaMock(opts: {
           if (where.transferType && (f.transferType ?? 'POSTED') !== where.transferType) return false;
           const eff = (x: any) => x.effectiveDate ?? x.createdAt.toISOString().slice(0, 10);
           if (where.OR) {
-            const pass = where.OR.some((cond: any) =>
-              cond.effectiveDate?.lt !== undefined
-                ? eff(f) < cond.effectiveDate.lt
-                : eff(f) === cond.effectiveDate && (!cond.createdAt?.lte || f.createdAt <= cond.createdAt.lte),
-            );
+            // 忠实复刻 effectiveCutoffFilter 的三支：更早业务日全进 / 同日按物理
+            // 时刻卡 / 同日回填（写入时刻越过该业务日日终）全进。
+            const pass = where.OR.some((cond: any) => {
+              if (cond.effectiveDate?.lt !== undefined) return eff(f) < cond.effectiveDate.lt;
+              if (eff(f) !== cond.effectiveDate) return false;
+              if (cond.createdAt?.lte) return f.createdAt <= cond.createdAt.lte;
+              if (cond.createdAt?.gt) return f.createdAt > cond.createdAt.gt;
+              return true;
+            });
             if (!pass) return false;
           }
           return true;

@@ -23,7 +23,9 @@
 
 ## 红名单（已知旧账，允许持续红）
 
-**jest 全量：4 套 / 8 例失败**（共 **164 套 2082 例**；另 3 skipped / 4 todo）—— 计数于 2026-08-28 平账一期刷新（+3 套 +64 例，全部来自调账单：`adjustment-rules` / `adjustment.service` / `adjustment-approval.service`；失败清单逐字未变）——
+**jest 全量：4 套 / 8 例失败**（共 **164 套 2092 例**；另 3 skipped / 4 todo）—— 计数于 2026-08-29 平账缺陷修复刷新（+10 例：`effective-cutoff` +5、`wallet-recon-run` 自愈 +2、`adjustment.service` +3；失败清单逐字未变）——
+
+> ⚠️ **本行的红名单只在「跑过全量」时才成立。** 2026-08-28 加密币 ledger 修复（`eaaf5eae`）给 `adjustment.service.onApproved` 加了一次 `asset.findUnique`，却没同步该 describe 的 prisma mock —— 那之后 `adjustment.service.spec.ts` 有 **11 例**一直在 `TypeError: asset.findUnique` 上红着，而当时只验了 e2e（9/9 + 变异验证）没重跑全量，红名单因此漏记了一整套。2026-08-29 已补 mock 修复。**教训：改了服务里的 prisma 调用，e2e 绿不代表单测绿——收尾必须跑一次全量对红名单。**
 
 - `src/modules/identity/access-control/role-definition-create-workflow.service.spec.ts`（crypto is not defined，环境性）
 - `src/modules/asset-treasury/wallets/system-wallet.util.spec.ts`

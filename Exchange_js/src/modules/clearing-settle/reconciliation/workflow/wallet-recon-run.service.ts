@@ -34,6 +34,12 @@ import {
 } from '../../../accounting/tigerbeetle/constants/tb-account-codes.constant';
 import { TigerBeetleService } from '../../../accounting/tigerbeetle/tigerbeetle.service';
 import { computeBucket, ReconBucket } from '../engine/v2/bucket-classifier';
+import {
+  EMPTY_EXPLAINED_INDEX,
+  ExplainedDifferenceService,
+  ExplainedIndex,
+  explainedBy,
+} from '../disposition/explained-difference.service';
 import { AuditLogsService } from '../../../audit-logging/audit-logs.service';
 import { AuditActorContext, AuditCategory, AuditSubjectRole } from '../../../audit-logging/dto/audit-log.dto';
 import {
@@ -100,6 +106,7 @@ export class WalletReconRunService {
     private readonly flowMatcher: WalletFlowMatcherService,
     private readonly tigerBeetle: TigerBeetleService,
     private readonly auditLogs: AuditLogsService,
+    private readonly explainedDifferences: ExplainedDifferenceService,
   ) {}
 
   async run(input: WalletReconRunInput, actor?: AuditActorContext): Promise<WalletReconRunResult> {
@@ -175,10 +182,16 @@ export class WalletReconRunService {
     let orphanExternal = 0;
     let mismatch = 0;
     // T2 auto-heal input: every real walletRef touched by this run as
-    // "still breaking" (includes unattributed accountRef "wallets"). After
-    // all wallets are processed, any OPEN case whose walletRef is NOT in
-    // this set is assumed to have recovered → auto-resolve.
+    // "still breaking" (includes unattributed accountRef "wallets").
     const currentBreakingWallets = new Set<string>();
+    // ③ 自愈的第二个入参：本轮**真的查过**的钱包。
+    // 2026-08-29 业主走查逮到：此前自愈只判「不在破口集合里」，没有任何条件要求
+    // 「本轮查过这个钱包」。于是外部对账单一行都取不到时（业务日没有对账单——
+    // 夜间任务跑昨天、演示数据盖今天，天天如此），破口集合是空集，`notIn []`
+    // 命中所有 OPEN 案件 → 一次查了 0 个钱包的对账把 8 个案子全关了
+    // （实测 RUN20260827-1：walletCount=0 / closedCount=8）。
+    // 业务口径：**收不到对账单本身是一类异常，永远不能当成「账平了」**。
+    const observedWallets = new Set<string>();
     // Round3: per-wallet snapshot rows — written for EVERY processed wallet
     // (all four buckets, matched included) so the run-detail page has a
     // single source of truth to render from (T6 reads this table only).
@@ -190,6 +203,8 @@ export class WalletReconRunService {
       const currency = bal.currency;
       const assetId = await this.resolveAssetId(currency);
       if (!assetId) continue;
+      // 查到这里就算「本轮真的看过这个钱包」——③ 自愈的前提。
+      observedWallets.add(walletRef);
 
       // 2a. Balance check (T6)
       const balanceCheck: WalletBalanceCheckResult = await this.balanceChecker.checkBalance({
@@ -224,7 +239,19 @@ export class WalletReconRunService {
         (s, it) => s + (it.direction === 'IN' ? BigInt(it.amount) : -BigInt(it.amount)),
         0n,
       );
-      const anomalyCount = matcherResult.orphanInternal.length + matcherResult.orphanExternal.length + matcherResult.mismatch.length;
+      // ④ 已被落账调账单解释的差异，不计入异常数。
+      // 业主 2026-08-29 裁定「甲」：调账单只改余额，造成差额的那条流水本身还在，
+      // 而桶规则是「残差=0 且 无在途 且 流水异常>0 → SOFT_FLAG」——SOFT_FLAG 不是
+      // MATCHED，钱包仍在破口集合里，于是平了账的案子永远关不掉。把已解释的差异
+      // 摘掉，案子才走得完最后一步。（差异行本身照写，只是标成 EXPLAINED，仍在
+      // 案件页上看得见——「这条已被 ADJxxx 解释」是演示可见物。）
+      const explained = await this.explainedDifferences.indexForWallet(walletRef);
+      const isUnexplained = (a: { internalFlowId?: string; externalLineId?: string }) =>
+        explainedBy(explained, a) === null;
+      const anomalyCount =
+        matcherResult.orphanInternal.filter(isUnexplained).length +
+        matcherResult.orphanExternal.filter(isUnexplained).length +
+        matcherResult.mismatch.filter(isUnexplained).length;
       const bucket = computeBucket({
         delta: balanceCheck.delta,
         inTransitSigned,
@@ -259,6 +286,7 @@ export class WalletReconRunService {
           inTransitSigned,
           bucket,
           matcherResult,
+          explained,
           caseReason,
         });
         if (created) {
@@ -301,6 +329,7 @@ export class WalletReconRunService {
       if (!assetId) continue;
       const closing = BigInt(bal.closingBalance.toString());
       const walletRef = bal.accountRef;
+      observedWallets.add(walletRef);
 
       const { created, caseNo } = await this.upsertCaseForWallet({
         runId: run.id,
@@ -317,6 +346,8 @@ export class WalletReconRunService {
         inTransitSigned: 0n,
         bucket: 'BREAK',
         matcherResult: { matched: [], orphanInternal: [], orphanExternal: [], mismatch: [], inTransit: [] },
+        // 未归属外部账户没有内部钱包、也就没有调账单挂得上去，空索引。
+        explained: EMPTY_EXPLAINED_INDEX,
         caseReason: 'unattributed_external_account',
       });
       if (created) {
@@ -354,14 +385,14 @@ export class WalletReconRunService {
       await (this.prisma as any).reconciliationRunWallet.createMany({ data: snapshotRows });
     }
 
-    // ── 4. Auto-heal: any previously OPEN case whose wallet didn't break in
-    // this run is presumed recovered → mark RESOLVED + AUTO_HEALED. Scoped to
-    // layer=WALLET so this never touches legacy V8 cases. Cross-day: no
-    // longer scoped to businessDate (T5 Step③).
+    // ── 4. Auto-heal: 本轮**查过**且**没破口**的钱包，其 OPEN 案件视为已恢复
+    // → RESOLVED + AUTO_HEALED。Scoped to layer=WALLET so this never touches
+    // legacy V8 cases.
     const closedCount = await this.autoHealCases({
       runId: run.id,
       traceId: run.traceId ?? null,
       businessDate,
+      observedWallets,
       currentBreakingWallets,
     });
 
@@ -681,6 +712,7 @@ export class WalletReconRunService {
     inTransitSigned: bigint;
     bucket: ReconBucket;
     matcherResult: Awaited<ReturnType<WalletFlowMatcherService['matchFlows']>>;
+    explained: ExplainedIndex;
     caseReason: string;
   }): Promise<{ caseId: string; caseNo: string; created: boolean }> {
     const deltaDecimal = new Prisma.Decimal(input.delta.toString());
@@ -776,7 +808,7 @@ export class WalletReconRunService {
       created = true;
     }
 
-    await this.writeLineItems(caseId, input.runId, input.walletRef, input.matcherResult);
+    await this.writeLineItems(caseId, input.runId, input.walletRef, input.matcherResult, input.explained);
     return { caseId, caseNo, created };
   }
 
@@ -785,8 +817,17 @@ export class WalletReconRunService {
     runId: string,
     walletRef: string,
     matcherResult: Awaited<ReturnType<WalletFlowMatcherService['matchFlows']>>,
+    explained: ExplainedIndex,
   ): Promise<void> {
     let lineNo = 0;
+    // ④ 已被落账调账单解释的差异行照写不误——它是案子上的证据，要给人看
+    // 「这条差异已经由 ADJxxx 解释了」；只是不再算进 anomalyCount（见 run()）。
+    const disposition = (a: { internalFlowId?: string; externalLineId?: string }) => {
+      const adjustmentNo = explainedBy(explained, a);
+      return adjustmentNo
+        ? { status: 'EXPLAINED', resolution: adjustmentNo }
+        : { status: 'OPEN', resolution: null };
+    };
     for (const oi of matcherResult.orphanInternal) {
       lineNo += 1;
       await (this.prisma as any).reconciliationLineItem.create({
@@ -800,6 +841,7 @@ export class WalletReconRunService {
           internalDirection: oi.direction,
           walletRef,
           externalRef: oi.externalRef,
+          ...disposition(oi),
         },
       });
     }
@@ -816,6 +858,7 @@ export class WalletReconRunService {
           externalDirection: oe.direction,
           walletRef,
           externalRef: oe.externalRef,
+          ...disposition(oe),
         },
       });
     }
@@ -833,6 +876,7 @@ export class WalletReconRunService {
           externalAmount: new Prisma.Decimal(m.externalAmount),
           walletRef,
           externalRef: m.ref,
+          ...disposition(m),
         },
       });
     }
@@ -858,10 +902,17 @@ export class WalletReconRunService {
   }
 
   /**
-   * T5 auto-heal (Round3 §2.5): at the end of the run, any OPEN case for this
-   * wallet — regardless of which day it was first opened on — whose walletRef
-   * is NOT in `currentBreakingWallets` is presumed to have recovered (no
-   * break detected this run on that wallet). Close it.
+   * T5 auto-heal (Round3 §2.5)：本轮**查过**（walletRef ∈ observedWallets）
+   * 且**没破口**（∉ currentBreakingWallets）的钱包，其 OPEN 案件视为已恢复，关掉。
+   *
+   * 「查过」这个前提是 2026-08-29 补上的（业主走查逮到）。此前判据只有「不在破口
+   * 集合里」，于是一轮外部对账单一行都没取到的对账——破口集合空集、`notIn []`
+   * 命中全部——把所有 OPEN 案件一次关光（实测 walletCount=0 / closedCount=8）。
+   * 业务口径：**没收到对账单是一类异常（no-feed），不是「账平了」的证据。**
+   *
+   * 跨天仍然放行（案件开在 D 日、D+1 日查过且平了 → 自愈），这是 T5 Step③ 的原意；
+   * 但只许往前走：`businessDate <= 本轮业务日`——不能拿 D−1 日的数据去关 D 日的
+   * 案子（同一次走查里，业务日 8-27 的 run 关掉了业务日 8-28 的案件，时间倒着走）。
    *
    * Scoped to layer=WALLET so we never touch legacy V8_FORMULA cases that
    * sit alongside Phase B rows.
@@ -869,16 +920,23 @@ export class WalletReconRunService {
   protected async autoHealCases(input: {
     runId: string;
     traceId: string | null;
+    observedWallets: Set<string>;
     businessDate: string;
     currentBreakingWallets: Set<string>;
   }): Promise<number> {
-    // Round3 T5 Step③: cross-day — no longer scoped to businessDate. An OPEN
-    // case from any prior day heals the moment its wallet stops breaking.
+    // 可愈合集合 = 本轮查过的钱包 − 本轮破口钱包。**不是**「所有 OPEN 案件 −
+    // 破口钱包」——差别就是那次 0 钱包关 8 案件的事故。
+    const healable = Array.from(input.observedWallets).filter(
+      (w) => !input.currentBreakingWallets.has(w),
+    );
+    if (healable.length === 0) return 0;
+
     const stale = (await (this.prisma as any).reconciliationCase.findMany({
       where: {
         status: 'OPEN',
         layer: RUN_LAYER,
-        walletRef: { notIn: Array.from(input.currentBreakingWallets) },
+        walletRef: { in: healable },
+        businessDate: { lte: input.businessDate },
       },
       select: { id: true, caseNo: true, walletRef: true },
     })) as Array<{ id: string; caseNo: string; walletRef: string }>;

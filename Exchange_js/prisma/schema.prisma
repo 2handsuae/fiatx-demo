@@ -1858,7 +1858,12 @@ model ReconciliationAdjustment {
   id              String    @id @default(uuid())
   adjustmentNo    String    @unique @default("TEMP")
   caseNo          String
-  lineItemId      String?
+  // ④ 这张单在解释哪一条差异——锚在**外部对账单行 id / 内部流水 id**上，不锚
+  // ReconciliationLineItem.id：差异行是每轮对账 delete-then-insert 重建的
+  // （wallet-recon-run.service.ts writeLineItems），锚上去下一轮就悬空。
+  // 对账引擎按这两个锚把已解释的差异从 anomalyCount 里摘掉，案子才平得下来。
+  explainedFlowId         String?   // account_flows.id
+  explainedExternalLineId String?   // external_statement_lines.id
   walletRef       String
   book            String    // CLIENT | FIRM —— 取自 case.book，非表单字段
   direction       String    // REDUCE | INCREASE —— 内部余额该往哪边动
@@ -1884,7 +1889,7 @@ model ReconciliationAdjustment {
 
   @@index([caseNo])
   @@index([status])
-  @@index([lineItemId])
+  @@index([walletRef, status])
   @@map("reconciliation_adjustments")
 }
 

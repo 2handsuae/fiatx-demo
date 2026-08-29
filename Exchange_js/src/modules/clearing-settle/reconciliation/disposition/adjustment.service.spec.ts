@@ -86,6 +86,8 @@ describe('AdjustmentService.createDraft 两道闸 —— 门不可绕的落点�
   const openClientCase = {
     caseNo: 'CASE_GATE', status: 'OPEN', book: 'CLIENT',
     walletRef: 'W_GATE', assetCode: 'AED', ownerNo: 'C0042', traceId: null,
+    // ① 生效日守卫按它比对——调账单修的是案件那一天的账。
+    businessDate: '2026-08-28',
   };
   // Fix 2：createDraft 第二参数从裸字符串改 ApprovalActorContext；这里两个字段
   // 都设成同一个值，与改前 operatorId='U_OP' 的落库结果等价（createdByUserId
@@ -188,10 +190,24 @@ describe('AdjustmentService.createDraft 两道闸 —— 门不可绕的落点�
     }));
   });
 
-  // Task 7：lineItemId 从必填改可选（控制方裁定——flowComparison 的行 id 和
-  // ReconciliationLineItem.id 不是一张表，新表单不再传它）。这条锁住「不传也能
-  // 正常开单，落库的 lineItemId 是 undefined」，防止有人把 DTO 改回必填。
-  it('lineItemId 不传（新表单的常态）：createDraft 照常建单，落库的 lineItemId 是 undefined', async () => {
+  // ④ 解释锚：这张单在解释哪一条差异，锚在真实证据 id 上（内部流水 / 外部对账单行），
+  // 不锚 ReconciliationLineItem.id（每轮对账 delete-then-insert，锚上去就悬空）。
+  // 落库必须带上，否则下一轮对账摘不掉这条差异，案子平不下来。
+  it('从差异行开单：两个解释锚原样落库', async () => {
+    const { svc, create } = makeSvc(openClientCase);
+    await svc.createDraft({
+      caseNo: 'CASE_GATE', reasonCode: 'DEPOSIT_DUPLICATE_REVERSAL',
+      direction: 'REDUCE', amount: '1000', effectiveDate: '2026-08-28',
+      reasonInternal: '同一笔充值入账两次', reasonCustomer: '重复入账撤销',
+      explainedFlowId: 'FLOW_9', explainedExternalLineId: 'EXTLINE_9',
+    } as any, OP);
+    expect(create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ explainedFlowId: 'FLOW_9', explainedExternalLineId: 'EXTLINE_9' }),
+    }));
+  });
+
+  // 案件级入口开单（纯余额差、案子上没有差异行可指）：两个锚都空，照常建单。
+  it('不带解释锚（案件级入口）：createDraft 照常建单，两个锚落 null', async () => {
     const { svc, create } = makeSvc(openClientCase);
     await svc.createDraft({
       caseNo: 'CASE_GATE', reasonCode: 'DEPOSIT_DUPLICATE_REVERSAL',
@@ -199,8 +215,32 @@ describe('AdjustmentService.createDraft 两道闸 —— 门不可绕的落点�
       reasonInternal: '同一笔充值入账两次', reasonCustomer: '重复入账撤销',
     } as any, OP);
     expect(create).toHaveBeenCalledWith(expect.objectContaining({
-      data: expect.objectContaining({ lineItemId: undefined }),
+      data: expect.objectContaining({ explainedFlowId: null, explainedExternalLineId: null }),
     }));
+  });
+
+  // ① 生效日守卫：晚于案件业务日 = 重跑该业务日的对账取不到这笔分录，差额永远
+  // 归不了零。前端默认值已改成案件业务日，这条锁后端兜底。
+  it('生效日晚于案件业务日 → 400，不建单', async () => {
+    const { svc, create } = makeSvc(openClientCase);   // openClientCase.businessDate = '2026-08-28'
+    await expect(svc.createDraft({
+      caseNo: 'CASE_GATE', reasonCode: 'DEPOSIT_DUPLICATE_REVERSAL',
+      direction: 'REDUCE', amount: '1000', effectiveDate: '2026-08-29',
+      reasonInternal: '同一笔充值入账两次', reasonCustomer: '重复入账撤销',
+    } as any, OP)).rejects.toThrow(BadRequestException);
+    expect(create).not.toHaveBeenCalled();
+  });
+
+  it('生效日等于案件业务日（正常口径）与早于案件业务日 → 都放行', async () => {
+    for (const effectiveDate of ['2026-08-28', '2026-08-01']) {
+      const { svc, create } = makeSvc(openClientCase);
+      await svc.createDraft({
+        caseNo: 'CASE_GATE', reasonCode: 'DEPOSIT_DUPLICATE_REVERSAL',
+        direction: 'REDUCE', amount: '1000', effectiveDate,
+        reasonInternal: '同一笔充值入账两次', reasonCustomer: '重复入账撤销',
+      } as any, OP);
+      expect(create).toHaveBeenCalled();
+    }
   });
 });
 
@@ -239,6 +279,16 @@ describe('AdjustmentService.onApproved 落账', () => {
   const makeSvc = (row: any, accounting: any, update = jest.fn(), recordByActor = jest.fn()) => {
     const prisma: any = {
       reconciliationAdjustment: { findUnique: jest.fn().mockResolvedValue(row), update },
+      // onApproved 按 asset.currency 取 ledger（不是 assetCode——加密币 code 是
+      // 'USDT-TRON'、currency 是 'USDT'，见 adjustment.service.ts:288 上方注释）。
+      // ⚠ 2026-08-29 补：这个委托在加 currency 解析那次（eaaf5eae）漏了，本 describe
+      // 下 11 个用例从那时起全在 asset.findUnique 上抛 TypeError——e2e 验了、单测红了
+      // 没人看。row.assetCode 同名回落，法币/加密币两种 fixture 都取得到。
+      asset: {
+        findUnique: jest.fn(async ({ where }: any) => ({
+          currency: where?.code === 'USDT-TRON' ? 'USDT' : where?.code,
+        })),
+      },
     };
     return new AdjustmentService(prisma, null as any, accounting, { recordByActor } as any);
   };
@@ -410,20 +460,21 @@ describe('AdjustmentService.getAdjustment —— 详情读模型（Task 7）', (
 
   const baseRow = {
     id: 'uuid-row', adjustmentNo: 'ADJ2608280002', caseNo: 'RC26082800001',
-    lineItemId: null, walletRef: 'W_CUST_1', book: 'CLIENT', direction: 'REDUCE',
+    explainedFlowId: null, explainedExternalLineId: null, walletRef: 'W_CUST_1', book: 'CLIENT', direction: 'REDUCE',
     reasonCode: 'DEPOSIT_DUPLICATE_REVERSAL', assetCode: 'AED', amount: '1500',
     effectiveDate: '2026-08-15', reasonInternal: '同一笔充值入账两次', reasonCustomer: '重复入账撤销',
     status: 'DRAFT', approvalCaseId: null, approvalNo: null, ownerNo: 'C0042', ownerId: 'uuid-cust',
     traceId: null, createdByUserId: 'U_OP', decidedByUserId: null, postedAt: null, tbTransferId: null,
   };
 
-  it('返回体不含任何 UUID（铁律⑥）：id/ownerId/approvalCaseId/lineItemId/walletRef 五个内部字段被剔除，业务号 adjustmentNo 保留', async () => {
+  it('返回体不含任何 UUID（铁律⑥）：id/ownerId/approvalCaseId/两个解释锚/walletRef 被剔除，业务号 adjustmentNo 保留', async () => {
     const svc = makeSvc(baseRow);
     const result: any = await svc.getAdjustment('ADJ2608280002');
     expect(result.id).toBeUndefined();
     expect(result.ownerId).toBeUndefined();
     expect(result.approvalCaseId).toBeUndefined();
-    expect(result.lineItemId).toBeUndefined();
+    expect(result.explainedFlowId).toBeUndefined();
+    expect(result.explainedExternalLineId).toBeUndefined();
     expect(result.walletRef).toBeUndefined();
     expect(result.adjustmentNo).toBe('ADJ2608280002');
   });

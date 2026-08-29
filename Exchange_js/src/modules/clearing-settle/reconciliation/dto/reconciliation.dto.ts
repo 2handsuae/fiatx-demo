@@ -154,6 +154,9 @@ export interface FlowComparisonRow {
   fundsOrderStatus?: string | null; // T4: current status of the explaining funds order
                                     // (IN_TRANSIT only) — CLEARED here + case OPEN means
                                     // "已推进·待重对账": a rerun will close the case.
+  // ④ 这条差异已被哪张已落账的调账单解释（三类异常行才有；MATCHED/IN_TRANSIT 恒 null）。
+  // 有值 = 引擎算桶时已把它从异常数里摘掉，案子可以平下去。
+  explainedByAdjustmentNo?: string | null;
 }
 
 export interface FlowComparisonSummary {

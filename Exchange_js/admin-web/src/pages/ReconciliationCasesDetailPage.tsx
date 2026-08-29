@@ -90,6 +90,7 @@ interface FlowComparisonRow {
   fundsOrderNo?: string | null;   // NEW — only for IN_TRANSIT rows
   fundsOrderStatus?: string | null; // T4 — funds order status for IN_TRANSIT rows;
                                     // CLEARED here (case still OPEN) = "已推进·待重对账"
+  explainedByAdjustmentNo?: string | null; // ④ 这条差异已被哪张已落账的调账单解释
 }
 
 interface FlowComparisonSummary {
@@ -250,11 +251,20 @@ const rowAdjustmentPrefill = (row: FlowComparisonRow): AdjustmentPrefill => {
   const ext = row.externalLine;
   const intl = row.internalFlow;
 
+  // ④ 两个解释锚一律按行原样带上——它们是这条差异的真实证据 id，后端据此在下一轮
+  // 对账里把这条差异从异常数里摘掉（没有它们，调账只补得平余额，案子仍卡在
+  // SOFT_FLAG 关不掉）。哪类行带哪个锚由行自身决定，这里不做筛选。
+  const anchors = {
+    explainedFlowId: intl?.id,
+    explainedExternalLineId: ext?.id,
+  };
+
   if (row.matchType === 'AMOUNT_MISMATCH' && row.deltaAmount != null) {
     return {
       amountMinor: row.deltaAmount.replace(/^-/, ''),
       direction: row.deltaAmount.startsWith('-') ? 'REDUCE' : 'INCREASE',
       relatedOrderNo: '',
+      ...anchors,
     };
   }
   if (row.matchType === 'ORPHAN_INTERNAL' && intl) {
@@ -262,6 +272,7 @@ const rowAdjustmentPrefill = (row: FlowComparisonRow): AdjustmentPrefill => {
       amountMinor: intl.amount,
       direction: intl.direction === 'IN' ? 'REDUCE' : 'INCREASE',
       relatedOrderNo: '',
+      ...anchors,
     };
   }
   if ((row.matchType === 'ORPHAN_EXTERNAL' || row.matchType === 'IN_TRANSIT') && ext) {
@@ -269,10 +280,11 @@ const rowAdjustmentPrefill = (row: FlowComparisonRow): AdjustmentPrefill => {
       amountMinor: ext.amount,
       direction: ext.direction === 'IN' ? 'INCREASE' : 'REDUCE',
       relatedOrderNo: row.matchType === 'IN_TRANSIT' ? (row.fundsOrderNo ?? '') : '',
+      ...anchors,
     };
   }
   // MATCHED（或兜底）：只给金额，不猜方向。
-  return { amountMinor: ext?.amount ?? intl?.amount ?? '0', direction: '', relatedOrderNo: '' };
+  return { amountMinor: ext?.amount ?? intl?.amount ?? '0', direction: '', relatedOrderNo: '', ...anchors };
 };
 
 // adm-* tone tokens — shared shape with reconBucketMap's tone names, mirrors
@@ -380,13 +392,15 @@ const ReconciliationCasesDetailPage = () => {
     }
   };
 
-  // 一键重新对账 / Re-reconcile — fire a fresh wallet run at now; on success
-  // refresh this case (a re-observation may flip it to RESOLVED if the pushed
-  // funds order now nets the delta to zero).
+  // 一键重新对账 / Re-reconcile — 对**本案件的业务日**重跑一遍，成功后刷新本页
+  // （重新观察可能把案子推到 RESOLVED：推单已把在途落地、或调账已把差额补平）。
+  // 业务日必须传：跑"现在"会去取一份当天根本不存在的外部对账单，一个钱包都查不到
+  // （见 utils/reconRunTrigger.ts 顶部注释）。
   const handleReReconcile = async () => {
+    if (!kase) return;
     setReconciling(true);
     try {
-      const ok = await triggerWalletReconRun();
+      const ok = await triggerWalletReconRun(kase.businessDate);
       if (ok) await fetchCase();
     } finally {
       setReconciling(false);
@@ -751,15 +765,26 @@ const ReconciliationCasesDetailPage = () => {
                               "已推进·待重对账"徽标（:731）一样按 kase.status 收，已解决的
                               案件没有可再调的差异项，点了只会拿到一个 400。 */}
                           <td className="px-3 py-3">
-                            {canCreateAdjustment && kase.status === 'OPEN' && (
-                              <button
-                                type="button"
-                                onClick={() => setCreatePrefill(rowAdjustmentPrefill(row))}
-                                className="inline-flex items-center gap-1 whitespace-nowrap font-mono text-[10px] font-medium text-adm-blue hover:underline"
+                            {/* ④ 这条差异已经被一张落了账的调账单解释掉——引擎算桶时已把它
+                                从异常数里摘掉，所以不再给"再开一张"的入口，改为指回那张单。 */}
+                            {row.explainedByAdjustmentNo ? (
+                              <Link
+                                to={`/admin/reconciliation/adjustments/${encodeURIComponent(row.explainedByAdjustmentNo)}`}
+                                className="inline-flex items-center gap-1 whitespace-nowrap rounded border border-adm-green/30 bg-adm-green/10 px-1.5 py-0.5 font-mono text-[10px] font-medium text-adm-green hover:underline"
                               >
-                                <Plus size={10} />
-                                开调账单
-                              </button>
+                                已解释 · {row.explainedByAdjustmentNo}
+                              </Link>
+                            ) : (
+                              canCreateAdjustment && kase.status === 'OPEN' && (
+                                <button
+                                  type="button"
+                                  onClick={() => setCreatePrefill(rowAdjustmentPrefill(row))}
+                                  className="inline-flex items-center gap-1 whitespace-nowrap font-mono text-[10px] font-medium text-adm-blue hover:underline"
+                                >
+                                  <Plus size={10} />
+                                  开调账单
+                                </button>
+                              )
                             )}
                           </td>
                         </tr>
@@ -911,6 +936,7 @@ const ReconciliationCasesDetailPage = () => {
         <ReconciliationAdjustmentCreateModal
           open={!!createPrefill}
           caseNo={kase.caseNo}
+          caseBusinessDate={kase.businessDate}
           book={adjustmentBook}
           assetCode={kase.assetCode}
           decimals={kase.decimals}

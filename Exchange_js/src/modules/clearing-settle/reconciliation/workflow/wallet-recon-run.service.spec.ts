@@ -86,17 +86,22 @@ function makeDeps(overrides: any = {}) {
   const auditLogs = {
     recordSystem: jest.fn(),
   };
+  // ④ 解释索引：默认空——这些用例里没有调账单，所有差异都算异常（改动前的口径）。
+  const explainedDifferences = {
+    indexForWallet: jest.fn().mockResolvedValue({ byFlowId: new Map(), byExternalLineId: new Map() }),
+  };
 
   Object.assign(prisma, overrides.prisma ?? {});
   if (overrides.balanceChecker) Object.assign(balanceChecker, overrides.balanceChecker);
   if (overrides.flowMatcher) Object.assign(flowMatcher, overrides.flowMatcher);
   if (overrides.tigerBeetle) Object.assign(tigerBeetle, overrides.tigerBeetle);
   if (overrides.auditLogs) Object.assign(auditLogs, overrides.auditLogs);
+  if (overrides.explainedDifferences) Object.assign(explainedDifferences, overrides.explainedDifferences);
 
   // Default identity-pre-gate: balanced (asset == liab, asset == equity).
   // Tests stub computeInternalIdentity directly on the service to bypass
   // TB lookup entirely; tigerBeetle mock is only there to satisfy DI.
-  return { prisma, balanceChecker, flowMatcher, tigerBeetle, auditLogs };
+  return { prisma, balanceChecker, flowMatcher, tigerBeetle, auditLogs, explainedDifferences };
 }
 
 describe('WalletReconRunService', () => {
@@ -109,7 +114,7 @@ describe('WalletReconRunService', () => {
     });
     deps.prisma.externalBalance.findMany.mockResolvedValue([]); // no wallets
 
-    const svc = new WalletReconRunService(deps.prisma, deps.balanceChecker as any, deps.flowMatcher as any, deps.tigerBeetle as any, deps.auditLogs as any);
+    const svc = new WalletReconRunService(deps.prisma, deps.balanceChecker as any, deps.flowMatcher as any, deps.tigerBeetle as any, deps.auditLogs as any, deps.explainedDifferences as any);
     // Stub identity pre-gate to balanced.
     (svc as any).computeInternalIdentity = jest.fn().mockResolvedValue({ balanced: true, breaks: [] });
 
@@ -131,7 +136,7 @@ describe('WalletReconRunService', () => {
       id: 'run-2', runNo: 'RUN-WALLET-2',
     });
 
-    const svc = new WalletReconRunService(deps.prisma, deps.balanceChecker as any, deps.flowMatcher as any, deps.tigerBeetle as any, deps.auditLogs as any);
+    const svc = new WalletReconRunService(deps.prisma, deps.balanceChecker as any, deps.flowMatcher as any, deps.tigerBeetle as any, deps.auditLogs as any, deps.explainedDifferences as any);
     (svc as any).computeInternalIdentity = jest.fn().mockResolvedValue({
       balanced: false,
       breaks: [{ ledger: 1, side: 'CLIENT', asset: '1000', liab: '900', delta: '100' }],
@@ -167,7 +172,7 @@ describe('WalletReconRunService', () => {
       delta: 100n,
     });
 
-    const svc = new WalletReconRunService(deps.prisma, deps.balanceChecker as any, deps.flowMatcher as any, deps.tigerBeetle as any, deps.auditLogs as any);
+    const svc = new WalletReconRunService(deps.prisma, deps.balanceChecker as any, deps.flowMatcher as any, deps.tigerBeetle as any, deps.auditLogs as any, deps.explainedDifferences as any);
     (svc as any).computeInternalIdentity = jest.fn().mockResolvedValue({ balanced: true, breaks: [] });
     (svc as any).resolveAssetId = jest.fn().mockResolvedValue('a-usdt');
 
@@ -212,7 +217,7 @@ describe('WalletReconRunService', () => {
       inTransit: [],
     });
 
-    const svc = new WalletReconRunService(deps.prisma, deps.balanceChecker as any, deps.flowMatcher as any, deps.tigerBeetle as any, deps.auditLogs as any);
+    const svc = new WalletReconRunService(deps.prisma, deps.balanceChecker as any, deps.flowMatcher as any, deps.tigerBeetle as any, deps.auditLogs as any, deps.explainedDifferences as any);
     (svc as any).computeInternalIdentity = jest.fn().mockResolvedValue({ balanced: true, breaks: [] });
     (svc as any).resolveAssetId = jest.fn().mockResolvedValue('a-usdt');
 
@@ -249,7 +254,7 @@ describe('WalletReconRunService', () => {
       });
       deps.prisma.externalBalance.findMany.mockResolvedValue([]);
 
-      const svc = new WalletReconRunService(deps.prisma, deps.balanceChecker as any, deps.flowMatcher as any, deps.tigerBeetle as any, deps.auditLogs as any);
+      const svc = new WalletReconRunService(deps.prisma, deps.balanceChecker as any, deps.flowMatcher as any, deps.tigerBeetle as any, deps.auditLogs as any, deps.explainedDifferences as any);
       (svc as any).computeInternalIdentity = jest.fn().mockResolvedValue({ balanced: true, breaks: [] });
 
       await svc.run({ cutoff });
@@ -276,7 +281,7 @@ describe('WalletReconRunService', () => {
         internal: { total: 0n }, external: 1000n, delta: 100n,
       });
 
-      const svc = new WalletReconRunService(deps.prisma, deps.balanceChecker as any, deps.flowMatcher as any, deps.tigerBeetle as any, deps.auditLogs as any);
+      const svc = new WalletReconRunService(deps.prisma, deps.balanceChecker as any, deps.flowMatcher as any, deps.tigerBeetle as any, deps.auditLogs as any, deps.explainedDifferences as any);
       (svc as any).computeInternalIdentity = jest.fn().mockResolvedValue({ balanced: true, breaks: [] });
       (svc as any).resolveAssetId = jest.fn().mockResolvedValue('a-usdt');
 
@@ -323,7 +328,7 @@ describe('WalletReconRunService', () => {
         deps.prisma.reconciliationCase.findMany.mockResolvedValue([]);
         deps.prisma.reconciliationRunWallet.createMany.mockResolvedValue({ count: 0 });
 
-        const svc = new WalletReconRunService(deps.prisma, deps.balanceChecker as any, deps.flowMatcher as any, deps.tigerBeetle as any, deps.auditLogs as any);
+        const svc = new WalletReconRunService(deps.prisma, deps.balanceChecker as any, deps.flowMatcher as any, deps.tigerBeetle as any, deps.auditLogs as any, deps.explainedDifferences as any);
         (svc as any).computeInternalIdentity = jest.fn().mockResolvedValue({ balanced: true, breaks: [] });
         (svc as any).resolveAssetId = jest.fn().mockResolvedValue('a-usdt');
         return { svc, deps };
@@ -345,7 +350,7 @@ describe('WalletReconRunService', () => {
         return row ?? { id: where.id, ...data };
       });
       // Re-create svc with the overridden mock
-      const svc2 = new WalletReconRunService(deps2.prisma, deps2.balanceChecker as any, deps2.flowMatcher as any, deps2.tigerBeetle as any, deps2.auditLogs as any);
+      const svc2 = new WalletReconRunService(deps2.prisma, deps2.balanceChecker as any, deps2.flowMatcher as any, deps2.tigerBeetle as any, deps2.auditLogs as any, deps2.explainedDifferences as any);
       (svc2 as any).computeInternalIdentity = jest.fn().mockResolvedValue({ balanced: true, breaks: [] });
       (svc2 as any).resolveAssetId = jest.fn().mockResolvedValue('a-usdt');
       await svc2.run({ cutoff });
@@ -380,7 +385,8 @@ describe('WalletReconRunService', () => {
           ownerNo?: string;
           walletKind?: 'CUSTOMER' | 'FIRM';
         };
-        // If omitted, no wallets present → run will auto-heal anything OPEN.
+        // 省略 = 本轮一个钱包都没查到（外部对账单为空）。2026-08-29 之后这种
+        // run **不再关任何案件**——见下方「查了 0 个钱包」用例。
         wallets?: Array<{ walletRef: string; assetCode: string }>;
       }) {
         runSeq += 1;
@@ -458,17 +464,18 @@ describe('WalletReconRunService', () => {
           return row ?? { id: where.id, ...data };
         });
 
-        // findMany used by auto-heal — return all OPEN cases (any businessDate,
-        // per T5 Step③) whose walletRef is NOT in the excluded list.
+        // findMany used by auto-heal — 忠实复刻 autoHealCases 的 where：
+        // walletRef ∈ 可愈合集合（本轮查过且没破口），且 businessDate ≤ 本轮业务日。
         deps.prisma.reconciliationCase.findMany.mockImplementation(async ({ where }: any) => {
-          const excluded: string[] = where.walletRef?.notIn ?? [];
+          const healable: string[] | undefined = where.walletRef?.in;
+          const maxBusinessDate: string | undefined = where.businessDate?.lte;
           const rows: any[] = [];
           for (const row of caseStore.values()) {
-            if (
-              row.status === where.status &&
-              row.layer === where.layer &&
-              !excluded.includes(row.walletRef)
-            ) rows.push(row);
+            if (row.status !== where.status) continue;
+            if (row.layer !== where.layer) continue;
+            if (healable && !healable.includes(row.walletRef)) continue;
+            if (maxBusinessDate && row.businessDate > maxBusinessDate) continue;
+            rows.push(row);
           }
           return rows;
         });
@@ -477,6 +484,7 @@ describe('WalletReconRunService', () => {
 
         const svc = new WalletReconRunService(
           deps.prisma, deps.balanceChecker as any, deps.flowMatcher as any, deps.tigerBeetle as any, deps.auditLogs as any,
+          deps.explainedDifferences as any,
         );
         (svc as any).computeInternalIdentity = jest.fn().mockResolvedValue({ balanced: true, breaks: [] });
         (svc as any).resolveAssetId = jest.fn(async (currency: string) => `a-${currency.toLowerCase()}`);
@@ -535,6 +543,50 @@ describe('WalletReconRunService', () => {
       expect(c.closedByRunId).toBe(b.runId);
       // And the run result surfaces the heal count for the cockpit summary.
       expect(bResult.casesAutoHealed).toBe(1);
+    });
+
+    it('查了 0 个钱包的 run（当天没有外部对账单）→ 一个案件都不许关', async () => {
+      // 2026-08-29 业主走查的事故复现：自愈此前只判「不在破口集合里」，破口集合
+      // 为空时 `notIn []` 命中所有 OPEN 案件 → 一轮 walletCount=0 的对账把 8 个
+      // 案子全关成 AUTO_HEALED。业务口径：**没收到对账单是一类异常（no-feed），
+      // 不是「账平了」的证据。**
+      const harness = makeRunHarness();
+      const cutoff = new Date('2026-06-26T23:59:59Z');
+
+      const a = harness.drive({ cutoff, breakingWallet: { walletRef: 'w-cust-1', assetCode: 'USDT', delta: 100n } });
+      await a.svc.run({ cutoff });
+      expect((Array.from(harness.getStore().values())[0] as any).status).toBe('OPEN');
+
+      // 同一天再跑一次，但外部对账单一行都没有 → 一个钱包都没查。
+      const b = harness.drive({ cutoff });
+      const bResult = await b.svc.run({ cutoff });
+
+      expect(bResult.walletsChecked).toBe(0);
+      expect(bResult.casesAutoHealed).toBe(0);
+      const c: any = Array.from(harness.getStore().values())[0];
+      expect(c.status).toBe('OPEN');
+      expect(c.resolutionReason).toBeUndefined();
+      expect(c.closedByRunId).toBeUndefined();
+    });
+
+    it('更早业务日的 run 不许关掉更晚业务日的案件（时间只能往前走）', async () => {
+      // 同一次走查的第二条：业务日 2026-08-27 的 run 关掉了业务日 2026-08-28 的
+      // 案件。跨天自愈（D 日破口在 D+1 日平了 → 自愈）是要保留的，但只许往前。
+      const harness = makeRunHarness();
+      const day2 = new Date('2026-06-27T23:59:59Z');
+      const day1 = new Date('2026-06-26T23:59:59Z');
+
+      // day2 开案。
+      const a = harness.drive({ cutoff: day2, breakingWallet: { walletRef: 'w-cust-1', assetCode: 'USDT', delta: 100n } });
+      await a.svc.run({ cutoff: day2 });
+
+      // day1（更早）跑一轮：钱包查到了、也确实不破口——但它证明不了 day2 的差异已消失。
+      const b = harness.drive({ cutoff: day1, wallets: [{ walletRef: 'w-cust-1', assetCode: 'USDT' }] });
+      const bResult = await b.svc.run({ cutoff: day1 });
+
+      expect(bResult.walletsChecked).toBe(1);
+      expect(bResult.casesAutoHealed).toBe(0);
+      expect((Array.from(harness.getStore().values())[0] as any).status).toBe('OPEN');
     });
 
     it('case 唯一性跨日：昨日 OPEN case（不同 businessDate）今日复观察——不新建、firstSeenRunId 不变、bucket 刷新', async () => {
@@ -614,7 +666,7 @@ describe('WalletReconRunService', () => {
         };
       });
 
-      const svc = new WalletReconRunService(deps.prisma, deps.balanceChecker as any, deps.flowMatcher as any, deps.tigerBeetle as any, deps.auditLogs as any);
+      const svc = new WalletReconRunService(deps.prisma, deps.balanceChecker as any, deps.flowMatcher as any, deps.tigerBeetle as any, deps.auditLogs as any, deps.explainedDifferences as any);
       (svc as any).computeInternalIdentity = jest.fn().mockResolvedValue({ balanced: true, breaks: [] });
       (svc as any).resolveAssetId = jest.fn().mockResolvedValue('a-usdt');
 
@@ -655,7 +707,7 @@ describe('WalletReconRunService', () => {
         return { id: 'case-unattr-1', ...data };
       });
 
-      const svc = new WalletReconRunService(deps.prisma, deps.balanceChecker as any, deps.flowMatcher as any, deps.tigerBeetle as any, deps.auditLogs as any);
+      const svc = new WalletReconRunService(deps.prisma, deps.balanceChecker as any, deps.flowMatcher as any, deps.tigerBeetle as any, deps.auditLogs as any, deps.explainedDifferences as any);
       (svc as any).computeInternalIdentity = jest.fn().mockResolvedValue({ balanced: true, breaks: [] });
       (svc as any).resolveAssetId = jest.fn().mockResolvedValue('a-aed');
 

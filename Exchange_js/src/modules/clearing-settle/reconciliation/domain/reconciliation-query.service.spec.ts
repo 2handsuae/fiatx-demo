@@ -8,14 +8,18 @@ import { pairManifest, ReconciliationQueryService } from './reconciliation-query
 // snapshot table instead), and no other method in this service used it.
 function mkSvc(
   prisma: any,
-  opts: { flowMatcher?: any } = {},
+  opts: { flowMatcher?: any; explainedDifferences?: any } = {},
 ) {
   const flowMatcher = opts.flowMatcher ?? {
     matchFlows: jest.fn().mockResolvedValue({
       matched: [], orphanInternal: [], orphanExternal: [], mismatch: [],
     }),
   };
-  return new ReconciliationQueryService(prisma, flowMatcher);
+  // ④ 解释索引：默认空——这些用例里没有调账单，差异行都不带解释标记。
+  const explainedDifferences = opts.explainedDifferences ?? {
+    indexForWallet: jest.fn().mockResolvedValue({ byFlowId: new Map(), byExternalLineId: new Map() }),
+  };
+  return new ReconciliationQueryService(prisma, flowMatcher, explainedDifferences);
 }
 
 // Helpers to build test fixtures concisely.

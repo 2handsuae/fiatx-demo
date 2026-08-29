@@ -44,8 +44,6 @@ export const REASON_META: Record<string, ReasonMeta> = {
   BANK_CHARGE: { book: 'FIRM', directions: ['REDUCE'], label: '银行杂费' },
 };
 
-const todayStr = (): string => new Date().toISOString().slice(0, 10);
-
 // 分→元 的可编辑显示值（区别于 formatAmount：那个是千分位展示用，不能拿来回填
 // input——逗号会把用户输入搅乱）。bigint-safe：只做字符串切分，不过一次浮点。
 const minorToDisplay = (raw: string, decimals: number): string => {
@@ -75,11 +73,18 @@ export interface AdjustmentPrefill {
   amountMinor: string;                       // 最小单位（分）整数字符串，来自 flowComparison 行
   direction: AdjustmentDirection | '';        // 猜测性默认值，表单里仍可改
   relatedOrderNo: string;                     // 仅 IN_TRANSIT 行有（该行的 fundsOrderNo）
+  // ④ 这张单在解释哪一条差异——锚在真实证据 id 上（内部流水 / 外部对账单行），
+  // 后端据此在下一轮对账里把这条差异从异常数里摘掉，案子才平得下来。
+  // 从案件级入口开单时两个都空：那是纯补余额，不摘任何差异行。
+  explainedFlowId?: string;
+  explainedExternalLineId?: string;
 }
 
 interface ReconciliationAdjustmentCreateModalProps {
   open: boolean;
   caseNo: string;
+  /** 案件业务日（YYYY-MM-DD）——生效日的默认值，见 effectiveDate 初值处注释。 */
+  caseBusinessDate: string;
   book: AdjustmentBook;
   assetCode: string;
   decimals: number;
@@ -91,6 +96,7 @@ interface ReconciliationAdjustmentCreateModalProps {
 const ReconciliationAdjustmentCreateModal = ({
   open,
   caseNo,
+  caseBusinessDate,
   book,
   assetCode,
   decimals,
@@ -101,7 +107,13 @@ const ReconciliationAdjustmentCreateModal = ({
   const [reasonCode, setReasonCode] = useState('');
   const [direction, setDirection] = useState<AdjustmentDirection | ''>('');
   const [amountDisplay, setAmountDisplay] = useState('');
-  const [effectiveDate, setEffectiveDate] = useState(todayStr());
+  // ⚠ 2026-08-29 修正：默认值从 todayStr() 改成案件业务日。
+  // 一张调账单修的是**案件那一天**的账，所以生效日必须落在那一天的账期里——
+  // 这正是账本 effectiveDate 字段存在的意义（effective-cutoff.ts 按生效日卡截止点）。
+  // 原来默认"今天"时：案件业务日 8-28、生效日 8-29，重跑 8-28 的对账取不到这笔
+  // 分录，调账单落了账、内部余额一分没动，差额永远归不了零（业主走查实证）。
+  // 后端 createDraft 有对应守卫：生效日晚于案件业务日直接 400。
+  const [effectiveDate, setEffectiveDate] = useState(caseBusinessDate);
   const [relatedOrderNo, setRelatedOrderNo] = useState('');
   const [reasonInternal, setReasonInternal] = useState('');
   const [reasonCustomer, setReasonCustomer] = useState('');
@@ -113,7 +125,7 @@ const ReconciliationAdjustmentCreateModal = ({
     setReasonCode('');
     setDirection('');
     setAmountDisplay(prefill.amountMinor ? minorToDisplay(prefill.amountMinor, decimals) : '');
-    setEffectiveDate(todayStr());
+    setEffectiveDate(caseBusinessDate);
     setRelatedOrderNo(prefill.relatedOrderNo ?? '');
     setReasonInternal('');
     setReasonCustomer('');
@@ -167,6 +179,8 @@ const ReconciliationAdjustmentCreateModal = ({
         reasonCustomer: reasonCustomer.trim(),
       };
       if (relatedOrderNo.trim()) body.relatedOrderNo = relatedOrderNo.trim();
+      if (prefill.explainedFlowId) body.explainedFlowId = prefill.explainedFlowId;
+      if (prefill.explainedExternalLineId) body.explainedExternalLineId = prefill.explainedExternalLineId;
 
       const createRes = await adminFetch(
         `${import.meta.env.VITE_API_URL}/admin/reconciliation/adjustments`,

@@ -26,11 +26,14 @@ function makePrismaMock(flows: any[]) {
           if (where.isExternalCrossing !== undefined && (f.isExternalCrossing ?? false) !== where.isExternalCrossing) return false;
           const eff = (x: any) => x.effectiveDate ?? x.createdAt.toISOString().slice(0, 10);
           if (where.OR) {
-            const pass = where.OR.some((cond: any) =>
-              cond.effectiveDate?.lt !== undefined
-                ? eff(f) < cond.effectiveDate.lt
-                : eff(f) === cond.effectiveDate && (!cond.createdAt?.lte || f.createdAt <= cond.createdAt.lte),
-            );
+            // 忠实复刻 effectiveCutoffFilter 的三支（同 wallet-balance-checker 那份）。
+            const pass = where.OR.some((cond: any) => {
+              if (cond.effectiveDate?.lt !== undefined) return eff(f) < cond.effectiveDate.lt;
+              if (eff(f) !== cond.effectiveDate) return false;
+              if (cond.createdAt?.lte) return f.createdAt <= cond.createdAt.lte;
+              if (cond.createdAt?.gt) return f.createdAt > cond.createdAt.gt;
+              return true;
+            });
             if (!pass) return false;
           }
           return true;

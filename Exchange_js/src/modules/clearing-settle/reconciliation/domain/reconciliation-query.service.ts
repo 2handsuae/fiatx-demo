@@ -7,6 +7,10 @@ import {
 } from '../engine/v2/wallet-flow-matcher.service';
 import { effectiveCutoffFilter } from '../engine/v2/effective-cutoff';
 import {
+  ExplainedDifferenceService,
+  explainedBy,
+} from '../disposition/explained-difference.service';
+import {
   AccountStatusRow,
   CaseAdjustmentSummary,
   CaseExplain,
@@ -129,6 +133,7 @@ export class ReconciliationQueryService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly walletFlowMatcher: WalletFlowMatcherService,
+    private readonly explainedDifferences: ExplainedDifferenceService,
   ) {}
 
   listRuns(q: { businessDate?: string; layer?: string }) {
@@ -776,6 +781,10 @@ export class ReconciliationQueryService {
       decimals: assetForDecimals?.decimals ?? 0,
     });
 
+    // ④ 案件页要看得见「这条差异已被 ADJxxx 解释」——与对账引擎算桶时用的是
+    // 同一份索引（explained-difference.service.ts），不各写一套判断。
+    const explained = await this.explainedDifferences.indexForWallet(kase.walletRef);
+
     const rows: FlowComparisonRow[] = [];
     for (const m of matcher.matched) {
       const ext = extById.get(m.externalLineId);
@@ -819,6 +828,7 @@ export class ReconciliationQueryService {
           sourceNo: intl.sourceNo,
         },
         matchType: 'ORPHAN_INTERNAL',
+        explainedByAdjustmentNo: explainedBy(explained, oi),
       });
     }
     for (const oe of matcher.orphanExternal) {
@@ -835,6 +845,7 @@ export class ReconciliationQueryService {
         },
         internalFlow: null,
         matchType: 'ORPHAN_EXTERNAL',
+        explainedByAdjustmentNo: explainedBy(explained, oe),
       });
     }
     for (const m of matcher.mismatch) {
@@ -863,6 +874,7 @@ export class ReconciliationQueryService {
         },
         matchType: 'AMOUNT_MISMATCH',
         deltaAmount: delta.toString(),
+        explainedByAdjustmentNo: explainedBy(explained, m),
       });
     }
 

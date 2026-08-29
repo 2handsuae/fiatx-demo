@@ -22,6 +22,7 @@ import { PushOrderService } from './disposition/push-order.service';
 import { PushOrderController } from './disposition/push-order.controller';
 // Task 4: 调账单开单/提审服务 + 接审批中心 handler（onApproved 桩，Task 5 落账）。
 import { AdjustmentService } from './disposition/adjustment.service';
+import { ExplainedDifferenceService } from './disposition/explained-difference.service';
 import { AdjustmentApprovalService } from './disposition/adjustment-approval.service';
 // Task 6: 调账单 admin 端点（开单/提审/详情）+ RBAC 登记。
 import { AdjustmentController } from './disposition/adjustment.controller';
@@ -38,6 +39,8 @@ import { AdjustmentController } from './disposition/adjustment.controller';
     ReceiptLookupService, PushOrderService,
     // Recon disposition: 调账单（Task 3 服务 + Task 4 审批中心 handler）。
     AdjustmentService, AdjustmentApprovalService,
+    // ④「这条差异已被哪张调账单解释」——对账引擎（算桶）与案件页（展示）共用。
+    ExplainedDifferenceService,
   ],
   exports: [WalletReconRunService],
 })

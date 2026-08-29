@@ -22,6 +22,7 @@ import { PrismaService } from '../src/core/prisma/prisma.service';
 import { AdjustmentService } from '../src/modules/clearing-settle/reconciliation/disposition/adjustment.service';
 import { AdjustmentStatus } from '../src/modules/clearing-settle/reconciliation/constants/adjustment-transitions.constant';
 import { WalletReconRunService } from '../src/modules/clearing-settle/reconciliation/workflow/wallet-recon-run.service';
+import { ReconciliationQueryService } from '../src/modules/clearing-settle/reconciliation/domain/reconciliation-query.service';
 import { AccountingService } from '../src/modules/accounting/tigerbeetle/accounting.service';
 import { TbEvidenceService } from '../src/modules/accounting/tigerbeetle/tb-evidence.service';
 import { TB_ACCOUNT_CODES, TB_CODE_TO_COA } from '../src/modules/accounting/tigerbeetle/constants/tb-account-codes.constant';
@@ -98,6 +99,7 @@ describe('Recon adjustment money arcs (e2e, Task 8)', () => {
   let prisma: PrismaService;
   let adjustments: AdjustmentService;
   let walletRecon: WalletReconRunService;
+  let reconQuery: ReconciliationQueryService;
   let accounting: AccountingService;
   let tbEvidence: TbEvidenceService;
   let approvalsService: ApprovalsService;
@@ -129,6 +131,7 @@ describe('Recon adjustment money arcs (e2e, Task 8)', () => {
     prisma = app.get(PrismaService);
     adjustments = app.get(AdjustmentService);
     walletRecon = app.get(WalletReconRunService);
+    reconQuery = app.get(ReconciliationQueryService);
     accounting = app.get(AccountingService);
     tbEvidence = app.get(TbEvidenceService);
     approvalsService = app.get(ApprovalsService);
@@ -220,7 +223,13 @@ describe('Recon adjustment money arcs (e2e, Task 8)', () => {
    *  +amount (SUSPENSE nets to 0 across the two steps; PAYABLE ends at +amount). */
   async function fundCustomerWallet(opts: {
     walletId: string; ownerId: string; assetId: string; ledger: number; currency: string; amount: bigint; tag: string;
-  }): Promise<void> {
+    /** Step 1 是否算外部穿越（默认 false，见下方长注释）。场景 9 传 true —— 那才是
+     *  deposit-workflow.service.ts 生产里的真实形状，也是 SOFT_FLAG 那条路的入口。 */
+    crossing?: boolean;
+    /** 分录的业务生效日（默认跟随写入时刻）。场景 9 需要把铺底流水放到一个**过去**的
+     *  业务日上，才能让「截止日在过去、调账单今天才写」这个真实形状跑起来。 */
+    effectiveDate?: string;
+  }): Promise<string> {
     // Random suffix (not just Date.now()) so repeated test runs never reuse a
     // prior run's (sourceType, sourceNo, eventCode) — TigerBeetle's transfer id
     // is a deterministic hash of exactly those fields and persists across runs
@@ -261,11 +270,15 @@ describe('Recon adjustment money arcs (e2e, Task 8)', () => {
         // "true" here would leave the wallet stuck at bucket=SOFT_FLAG
         // (orphan-internal > 0) forever, even after the balance delta hits
         // zero, and WalletReconRunService.autoHealCases() only heals wallets
-        // that reach bucket=MATCHED. WalletBalanceCheckerService (the delta
-        // computation this test's break/heal cycle actually exercises) sums
-        // POSTED flows regardless of this flag, so the choice has zero effect
-        // on the behavior under test.
-        isExternalCrossing: false,
+        // that reach bucket=MATCHED.
+        //
+        // ⚠ 2026-08-29：上面这段描述的正是本分支后来在走查里翻车的那个缺陷（业主
+        // 裁定「甲」已修：调账单落账时把它解释的差异从异常数里摘掉）。当时的处理是
+        // 让 fixture 绕开它——于是 1-8 号场景全绿，而「带真实流水异常的案子平账后
+        // 能不能关掉」从来没被测过。场景 9 补的就是这一格：它传 crossing:true，
+        // 走的正是这段注释描述的那条路。1-8 号维持 false（它们测的是余额弧本身）。
+        isExternalCrossing: opts.crossing ?? false,
+        ...(opts.effectiveDate ? { effectiveDate: opts.effectiveDate } : {}),
       },
     });
 
@@ -288,9 +301,13 @@ describe('Recon adjustment money arcs (e2e, Task 8)', () => {
         memo: 'e2e fixture: pre-fund customer balance for recon-adjustment money-arc tests (Step 2)',
         debitWalletRef: opts.walletId,
         creditWalletRef: opts.walletId,
+        // Step 2 是纯账面重分类，任何情况下都不是外部穿越（同生产）。
         isExternalCrossing: false,
+        ...(opts.effectiveDate ? { effectiveDate: opts.effectiveDate } : {}),
       },
     });
+
+    return sourceNo;
   }
 
   /** Give a FIRM wallet a real internal balance in the firm-equity codes
@@ -331,8 +348,10 @@ describe('Recon adjustment money arcs (e2e, Task 8)', () => {
 
   async function upsertExternalBalance(opts: {
     walletId: string; currency: string; book: 'CLIENT' | 'FIRM'; closingBalance: bigint;
+    /** 对账单所属业务日（默认 CUTOFF 那天）。场景 9 要把它放到过去的某一天。 */
+    cutoffDate?: string;
   }): Promise<void> {
-    const cutoffDate = CUTOFF.toISOString().slice(0, 10);
+    const cutoffDate = opts.cutoffDate ?? CUTOFF.toISOString().slice(0, 10);
     await (prisma as any).externalBalance.upsert({
       where: { source_accountRef_cutoffDate: { source: 'ZAND', accountRef: opts.walletId, cutoffDate } },
       create: {
@@ -894,5 +913,160 @@ describe('Recon adjustment money arcs (e2e, Task 8)', () => {
     // 拒得干净：账本零动静，单仍卡在 PENDING_APPROVAL（不是被批准也不是被驳回）。
     expect(await flowsFor(adjustmentNo)).toHaveLength(0);
     expect((await adjustmentRow(adjustmentNo)).status).toBe(AdjustmentStatus.PENDING_APPROVAL);
+  });
+
+  // ────────────────────────────────────────────────────────────────────────
+  // 场景 9：平账闭环的**真实形状**。1-8 号场景在两处刻意绕开了它，于是全绿的同时
+  // 生产里整条链是断的（2026-08-29 业主走查）。这一条把两个绕开点同时拉回来：
+  //
+  //   绕开点 A（生效日）：1-8 号把 CUTOFF 钉在**未来** 3 天，于是任何分录都满足
+  //     「生效日 < 截止业务日」，走的是 effectiveCutoffFilter 最宽松的那一支。真实
+  //     形状恰恰相反——对的是**昨天**的账，调账单是**今天**写的。此前那条同日分支
+  //     额外卡 `createdAt <= cutoff`，把所有回填挡在外面：调账单落了账、重跑对账
+  //     内部余额一分没动、差额永远归不了零。
+  //
+  //   绕开点 B（流水异常）：铺底流水写成 isExternalCrossing:false，于是钱包上根本
+  //     没有差异行，anomalyCount 恒 0，永远碰不到 SOFT_FLAG。真实案子都有差异行；
+  //     调账只补余额、不摘差异行的话，桶停在 SOFT_FLAG，案子永远关不掉。
+  //
+  // 这条用例断言的是业主真正要的那句话：**平完账，案子真的关掉了。**
+  // ────────────────────────────────────────────────────────────────────────
+  it('9. 平账闭环（真实形状）：昨天的破口 + 真实"我有外无"差异行 → 今天开单回填 → 重跑 → 差额归零、差异行标已解释、桶回 MATCHED、case 自愈', async () => {
+    // 业务日定在过去，对账单也盖在那一天——调账单会在"今天"写出来，生效日回填到那天。
+    const PAST_DATE = new Date(Date.now() - 2 * 24 * 3600 * 1000).toISOString().slice(0, 10);
+    const PAST_CUTOFF = new Date(`${PAST_DATE}T23:59:59.999Z`);
+    // 铺底流水放在**更早**一天：它们靠 effectiveCutoffFilter 最宽松的那一支进来，
+    // 两种过滤式下都成立。于是本用例里唯一依赖「回填」那一支的，就只有调账单本身
+    // ——把 fix ① 摘掉时，红的位置精确落在 internalTotal，而不是 fixture 塌掉。
+    const FUND_DATE = new Date(Date.now() - 3 * 24 * 3600 * 1000).toISOString().slice(0, 10);
+
+    const ledger = 1; // AED
+    const wallet = await createCustomerWallet({
+      ownerId: daveId, ownerNo: daveNo, assetId: aedAssetId, walletRole: 'C_VIBAN', type: 'FIAT_BANK',
+      iban: `AE_E2E_ADJ_C9_${Date.now()}`,
+    });
+
+    // 我们记了一笔 300.00 的充值（真实外部穿越），银行那边根本没这笔钱。
+    const X = 30000n;
+    await fundCustomerWallet({
+      walletId: wallet.id, ownerId: daveId, assetId: aedAssetId, ledger, currency: aedCode,
+      amount: X, tag: 'C9', crossing: true, effectiveDate: FUND_DATE,
+    });
+    // 外部对账单：0（这笔钱从没到过）。也没有任何 external_statement_line。
+    await upsertExternalBalance({
+      walletId: wallet.id, currency: aedCode, book: 'CLIENT', closingBalance: 0n, cutoffDate: PAST_DATE,
+    });
+
+    // ── 第一次对账：余额差 −X，且有一条"我有外无"的差异行 ──
+    const run1 = await walletRecon.run({ cutoff: PAST_CUTOFF });
+    expect(run1.status).toBe('BREAK');
+    expect(run1.orphanInternal).toBeGreaterThanOrEqual(1);
+
+    const kase = await openCaseFor(wallet.id);
+    expect(kase).toBeTruthy();
+    expect(String(kase.deltaAmount)).toBe(`-${X}`);
+    expect((kase as any).businessDate).toBe(PAST_DATE);
+    expect((kase as any).bucket).toBe('BREAK');
+
+    // 差异行确实在，且是 OPEN 的（还没有任何单解释它）。
+    const li0 = await (prisma as any).reconciliationLineItem.findMany({ where: { caseId: kase.id } });
+    const orphan = li0.find((l: any) => l.matchStatus === 'ORPHAN_INTERNAL');
+    expect(orphan).toBeTruthy();
+    expect(orphan.status).toBe('OPEN');
+    expect(orphan.resolution).toBeNull();
+
+    // ── 开调账单：生效日回填到案件业务日，并锚住这条差异行的内部流水 ──
+    const { adjustmentNo } = await adjustments.createDraft(
+      {
+        caseNo: kase.caseNo,
+        reasonCode: 'DEPOSIT_SIGNAL_VOID',
+        direction: 'REDUCE',
+        amount: String(X),
+        effectiveDate: PAST_DATE,               // ① 案件那天，不是今天
+        explainedFlowId: orphan.internalSourceId, // ④ 锚在真实证据上
+        reasonInternal: 'e2e 场景9：这笔充值根本没到账',
+        reasonCustomer: '充值撤销',
+      } as any,
+      makeActor('E2E_OPS_CREATOR_C9', 'OPS_OFFICER'),
+    );
+    await adjustments.submit(adjustmentNo, makeActor('E2E_OPS_CREATOR_C9', 'OPS_OFFICER'));
+    const approvalCase = await latestApprovalCase(ApprovalActionTypes.RECON_ADJUSTMENT_POST, adjustmentNo);
+    await approvalsService.approve(
+      approvalCase.id, { reason: 'e2e approve scenario 9' }, makeActor('E2E_OPS_APPROVER_C9', 'OPS_OFFICER'),
+    );
+    await waitUntil(async () => (await adjustmentRow(adjustmentNo)).status === AdjustmentStatus.POSTED);
+
+    // 调账的分录本身是回填的：生效日在过去，写入时刻是现在。
+    const adjFlows = await flowsFor(adjustmentNo);
+    expect(adjFlows).toHaveLength(2);
+    for (const f of adjFlows) {
+      expect(f.effectiveDate).toBe(PAST_DATE);
+      expect(f.createdAt.toISOString().slice(0, 10) > PAST_DATE).toBe(true); // 确实是"事后写的"
+    }
+
+    // ── 重跑同一个业务日的对账 ──
+    const run2 = await walletRecon.run({ cutoff: PAST_CUTOFF });
+
+    // 本轮这个钱包的真实读数落在 run 快照上——案件行只在「仍是破口」时才被 upsert
+    // 刷新（bucket=MATCHED 时引擎压根不碰它），所以 reCase.deltaAmount 会停在上一次
+    // 观察到的破口值，不能拿它当本轮结论。
+    const snapshot = await (prisma as any).reconciliationRunWallet.findFirst({
+      where: { runId: run2.runId, walletRef: wallet.id },
+    });
+    expect(snapshot).toBeTruthy();
+
+    // ① 回填被算进来了 → 内部余额等于外部真值。修之前死在这一行：
+    //    调账单落了账，内部余额纹丝不动，差额仍是 −X。
+    expect(String(snapshot.internalTotal)).toBe('0');
+    expect(String(snapshot.deltaAmount)).toBe('0');
+
+    // ④ 差异行还在（是证据，要给人看），但已标成被这张单解释、不再算异常
+    //    → 桶回到 MATCHED。修之前这里会停在 SOFT_FLAG，案子永远关不掉。
+    expect(snapshot.orphanInternal).toBe(1);   // 差异行本身没有消失
+    expect(snapshot.bucket).toBe('MATCHED');   // 但它已被解释，不算异常
+
+    // 案件页上这一行必须写着「已被 ADJxxx 解释」——这是操作员唯一看得到的地方。
+    // （管理台渲染的是 getCase 现算的 flowComparison，不是库里的 reconciliation_
+    // line_items；后者是"上一次仍是破口的那轮查到了什么"的快照，钱包一旦回到
+    // MATCHED 引擎就不再重写它，所以不能拿它当本轮结论——同 deltaAmount 那条。）
+    const caseView: any = await reconQuery.getCase(kase.caseNo);
+    const viewRow = caseView.flowComparison.find((r: any) => r.matchType === 'ORPHAN_INTERNAL');
+    expect(viewRow).toBeTruthy();
+    expect(viewRow.explainedByAdjustmentNo).toBe(adjustmentNo);
+
+    // ── 业主真正要的那句话：案子关掉了 ──
+    const reCase = await (prisma as any).reconciliationCase.findUnique({ where: { id: kase.id } });
+    expect(reCase.status).toBe('RESOLVED');
+    expect(reCase.resolutionReason).toBe('AUTO_HEALED');
+    expect(reCase.closedByRunId).toBe(run2.runId);
+  });
+
+  // ③ 自愈前提：这一轮"真的查过这个钱包"。0 钱包的 run 不许关任何案件。
+  // 单测已在 wallet-recon-run.service.spec.ts 锁过判据本身，这里锁真库真引擎的口径。
+  it('10. 查了 0 个钱包的对账（当天没有外部对账单）→ 不许关掉任何 OPEN 案件', async () => {
+    const ledger = 1; // AED
+    const wallet = await createCustomerWallet({
+      ownerId: carolId, ownerNo: carolNo, assetId: aedAssetId, walletRole: 'C_VIBAN', type: 'FIAT_BANK',
+      iban: `AE_E2E_ADJ_C10_${Date.now()}`,
+    });
+    await fundCustomerWallet({
+      walletId: wallet.id, ownerId: carolId, assetId: aedAssetId, ledger, currency: aedCode,
+      amount: 5000n, tag: 'C10',
+    });
+    await upsertExternalBalance({ walletId: wallet.id, currency: aedCode, book: 'CLIENT', closingBalance: 0n });
+
+    await walletRecon.run({ cutoff: CUTOFF });
+    const kase = await openCaseFor(wallet.id);
+    expect(kase).toBeTruthy();
+
+    // 换一个**没有任何对账单**的业务日再跑一次——一个钱包都查不到。
+    const EMPTY_DAY = new Date(CUTOFF.getTime() + 10 * 24 * 3600 * 1000);
+    const emptyRun = await walletRecon.run({ cutoff: EMPTY_DAY });
+    expect(emptyRun.walletsChecked).toBe(0);
+    expect(emptyRun.casesAutoHealed).toBe(0);
+
+    const still = await (prisma as any).reconciliationCase.findUnique({ where: { id: kase.id } });
+    expect(still.status).toBe('OPEN');
+    expect(still.resolutionReason).toBeNull();
   });
 });

@@ -210,14 +210,15 @@ const ReconciliationRunsDetailPage = () => {
     }
   };
 
-  // 一键重新对账 / Re-reconcile — fire a fresh wallet run at now, then navigate
-  // to the runs list (the freshest run sorts first there). This page is pinned to
-  // a stale runNo, so re-fetching it would just reload old data; the list is the
-  // right landing spot to see the run just created.
+  // 一键重新对账 / Re-reconcile — 对**这次运行的同一个业务日**重跑一遍，然后跳运行
+  // 列表（新 run 排最前）。本页钉在一个已过时的 runNo 上，原地刷新只会重载旧数据。
+  // 业务日必须传：跑"现在"会去取一份当天根本不存在的外部对账单，一个钱包都查不到
+  // （见 utils/reconRunTrigger.ts 顶部注释）。
   const handleReReconcile = async () => {
+    if (!run) return;
     setReconciling(true);
     try {
-      const ok = await triggerWalletReconRun();
+      const ok = await triggerWalletReconRun(run.businessDate);
       if (ok) navigate('/admin/reconciliation/runs');
     } finally {
       setReconciling(false);

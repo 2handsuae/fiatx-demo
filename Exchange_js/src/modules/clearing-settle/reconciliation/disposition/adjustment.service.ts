@@ -92,6 +92,21 @@ export class AdjustmentService {
     // 闸一：成因 × 账簿 × 方向 合法性
     assertReasonAllowed(dto.reasonCode as ReasonCode, book, direction);
 
+    // 闸一之二：生效日不得晚于案件业务日。
+    // 一张调账单修的是**案件那一天**的账，所以它必须落在那一天（或更早）的账期里
+    // ——这正是「生效日」这个字段存在的意义。生效日晚于案件业务日时，重跑该案件
+    // 业务日的对账取不到这笔分录（effectiveCutoffFilter 按生效日卡截止点），
+    // 差额永远归不了零，案子永远平不掉。
+    // 2026-08-29 业主走查实证：前端把生效日默认成「今天」（8-29），案件业务日是
+    // 8-28，调账单落了账、重跑对账内部余额一分没动。前端默认值已改成案件业务日，
+    // 这条守卫是后端的兜底，防止再从别的入口把日期填到未来。
+    if (dto.effectiveDate > kase.businessDate) {
+      throw new BadRequestException(
+        `生效日 ${dto.effectiveDate} 晚于案件业务日 ${kase.businessDate}——`
+        + '调账单修的是案件那一天的账，落在之后的账期里，重跑对账看不到这笔分录，差额平不了。',
+      );
+    }
+
     // 闸二：§4 边界线——客户账簿加钱必须指向一张已存在的原单。
     // Fix 3（末站整改）：此前只查非空，不查存在——任意非空字符串都放行，等于
     // 边界线守卫本身可以被一个假单号绕过（本分支自己的 e2e 场景 2 就传了个
@@ -124,7 +139,8 @@ export class AdjustmentService {
       data: {
         adjustmentNo: generateReferenceNo('ADJ'),
         caseNo: dto.caseNo,
-        lineItemId: dto.lineItemId,
+        explainedFlowId: dto.explainedFlowId ?? null,
+        explainedExternalLineId: dto.explainedExternalLineId ?? null,
         walletRef: kase.walletRef,
         book,
         direction,
@@ -198,9 +214,10 @@ export class AdjustmentService {
 
   /**
    * Task 6: 详情读模型（GET /admin/reconciliation/adjustments/:adjustmentNo）。
-   * 铁律⑥ 对外用业务键——排除 id/ownerId/approvalCaseId/lineItemId 四个内部 UUID
-   * （ownerId 的界面禁令见 schema 字段注释），walletRef 换成 walletNo（同
-   * reconciliation-query.service.ts getCase 里 walletRow 的查法）。
+   * 铁律⑥ 对外用业务键——排除 id/ownerId/approvalCaseId/walletRef 与两个解释锚
+   * （explainedFlowId / explainedExternalLineId 是 account_flows /
+   * external_statement_lines 的内部 UUID，界面不得展示）；walletRef 换成 walletNo
+   * （同 reconciliation-query.service.ts getCase 里 walletRow 的查法）。
    */
   async getAdjustment(adjustmentNo: string) {
     const row = await (this.prisma as any).reconciliationAdjustment.findUnique({ where: { adjustmentNo } });
@@ -219,7 +236,15 @@ export class AdjustmentService {
     });
     const legs = resolvePostingLegs(row.book as Book, row.direction as Direction);
 
-    const { id: _id, ownerId: _ownerId, approvalCaseId: _approvalCaseId, lineItemId: _lineItemId, walletRef: _walletRef, ...rest } = row;
+    const {
+      id: _id,
+      ownerId: _ownerId,
+      approvalCaseId: _approvalCaseId,
+      explainedFlowId: _explainedFlowId,
+      explainedExternalLineId: _explainedExternalLineId,
+      walletRef: _walletRef,
+      ...rest
+    } = row;
     return {
       ...rest,
       walletNo: wallet?.walletNo ?? null,
