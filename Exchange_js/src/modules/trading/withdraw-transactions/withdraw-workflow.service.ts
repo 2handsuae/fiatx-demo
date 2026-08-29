@@ -64,7 +64,7 @@ import {
 import {
   SUMSUB_TXN_CLIENT,
   SumsubTxnClient,
-} from '../../deposit-sumsub/sumsub-txn-client.interface';
+} from '../../sumsub-shared/sumsub-txn-client.interface';
 import { resolveKytTxnType } from '../../deposit-sumsub/kyt-txn-type.resolver';
 import { WithdrawApplicantActionsService } from './withdraw-applicant-actions.service';
 

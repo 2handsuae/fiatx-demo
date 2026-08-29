@@ -1,8 +1,8 @@
 import { WithdrawKytVerdictHandler } from './withdraw-kyt-verdict.handler';
 import { WithdrawWorkflowService } from '../trading/withdraw-transactions/withdraw-workflow.service';
 import { WithdrawTransactionsService } from '../trading/withdraw-transactions/withdraw-transactions.service';
-import { SumsubTxnClient } from '../deposit-sumsub/sumsub-txn-client.interface';
-import { SumsubTxnDetail } from '../deposit-sumsub/sumsub-txn.types';
+import { SumsubTxnClient } from '../sumsub-shared/sumsub-txn-client.interface';
+import { SumsubTxnDetail } from '../sumsub-shared/sumsub-txn.types';
 
 describe('WithdrawKytVerdictHandler', () => {
   let workflow: jest.Mocked<WithdrawWorkflowService>;

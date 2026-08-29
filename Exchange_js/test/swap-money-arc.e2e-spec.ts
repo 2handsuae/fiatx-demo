@@ -33,8 +33,8 @@ import { TB_TRANSFER_CODES } from '../src/modules/accounting/tigerbeetle/constan
 import { TB_LEDGERS } from '../src/modules/accounting/tigerbeetle/constants/tb-ledgers.constant';
 import { CustomerAccessService } from '../src/modules/identity/customers/customer-access.service';
 import { CustomerRestrictionsService } from '../src/modules/identity/customers/customer-restrictions.service';
-import { SUMSUB_TXN_CLIENT } from '../src/modules/deposit-sumsub/sumsub-txn-client.interface';
-import { MockSumsubTxnClient } from '../src/modules/deposit-sumsub/sumsub-txn-client.mock';
+import { SUMSUB_TXN_CLIENT } from '../src/modules/sumsub-shared/sumsub-txn-client.interface';
+import { MockSumsubTxnClient } from '../src/modules/sumsub-shared/sumsub-txn-client.mock';
 import { AuditActions, AuditEntityTypes } from '../src/modules/audit-logging/constants/audit-actions.constant';
 
 /**

@@ -1,9 +1,9 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { DepositWorkflowService } from '../trading/deposit-transactions/deposit-workflow.service';
 import { DepositTransactionsService } from '../trading/deposit-transactions/deposit-transactions.service';
-import { SUMSUB_TXN_CLIENT, SumsubTxnClient } from './sumsub-txn-client.interface';
-import { KytVerdict } from './sumsub-txn.types';
-import { KYT_ONHOLD_TYPE } from './kyt-webhook-types';
+import { SUMSUB_TXN_CLIENT, SumsubTxnClient } from '../sumsub-shared/sumsub-txn-client.interface';
+import { KytVerdict } from '../sumsub-shared/sumsub-txn.types';
+import { KYT_ONHOLD_TYPE } from '../sumsub-shared/kyt-webhook-types';
 
 // payload.type → 归一 verdict;'ignore' = Reviewed/Created,不推进状态机。
 const VERDICT_BY_TYPE: Record<string, KytVerdict | 'ignore'> = {

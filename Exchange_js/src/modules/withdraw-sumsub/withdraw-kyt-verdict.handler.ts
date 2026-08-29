@@ -1,9 +1,9 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { WithdrawWorkflowService } from '../trading/withdraw-transactions/withdraw-workflow.service';
 import { WithdrawTransactionsService } from '../trading/withdraw-transactions/withdraw-transactions.service';
-import { SUMSUB_TXN_CLIENT, SumsubTxnClient } from '../deposit-sumsub/sumsub-txn-client.interface';
-import { KytVerdict } from '../deposit-sumsub/sumsub-txn.types';
-import { KYT_ONHOLD_TYPE } from '../deposit-sumsub/kyt-webhook-types';
+import { SUMSUB_TXN_CLIENT, SumsubTxnClient } from '../sumsub-shared/sumsub-txn-client.interface';
+import { KytVerdict } from '../sumsub-shared/sumsub-txn.types';
+import { KYT_ONHOLD_TYPE } from '../sumsub-shared/kyt-webhook-types';
 
 // payload.type → 归一 verdict;'ignore' = Reviewed/Created,不推进状态机。
 // 与 deposit-kyt-verdict.handler.ts 的同名表逐字一致(deliberate fork,不抽公共常量)。

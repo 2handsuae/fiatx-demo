@@ -7,7 +7,7 @@ import { TigerBeetleModule } from '../../accounting/tigerbeetle/tigerbeetle.modu
 import { FundsLayerModule } from '../../funds-layer/funds-layer.module';
 import { FundsOrdersModule } from '../../funds-orders/funds-orders.module';
 import { WithdrawalAddressesModule } from '../../asset-treasury/withdrawal-addresses/withdrawal-addresses.module';
-import { SumsubTxnClientModule } from '../../deposit-sumsub/sumsub-txn-client.module';
+import { SumsubTxnClientModule } from '../../sumsub-shared/sumsub-txn-client.module';
 import { TransactionLimitsModule } from '../../asset-treasury/transaction-limits/transaction-limits.module';
 import { ApprovalsModule } from '../../governance/approvals/approvals.module';
 import { DepositConfiscationApprovalService } from './deposit-confiscation-approval.service';

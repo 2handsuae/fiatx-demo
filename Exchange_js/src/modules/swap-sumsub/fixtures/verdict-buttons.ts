@@ -1,6 +1,6 @@
 import { randomUUID } from 'crypto';
-import { KYT_ONHOLD_TYPE } from '../../deposit-sumsub/kyt-webhook-types';
-import { ApplicantAction, TypedTag } from '../../deposit-sumsub/fixtures/txn-report.builder';
+import { KYT_ONHOLD_TYPE } from '../../sumsub-shared/kyt-webhook-types';
+import { ApplicantAction, TypedTag } from '../../sumsub-shared/txn-report.builder';
 
 /**
  * 7 个**单步**裁决按钮 —— mirror of 充值/提现的 fixtures/verdict-buttons.ts

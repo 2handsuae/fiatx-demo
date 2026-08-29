@@ -4,7 +4,7 @@ import { SwapTransactionsService } from '../trading/swap-transactions/swap-trans
 import {
   SUMSUB_TXN_CLIENT,
   SumsubTxnClient,
-} from '../deposit-sumsub/sumsub-txn-client.interface';
+} from '../sumsub-shared/sumsub-txn-client.interface';
 
 // payload.type → 归一 verdict;'ignore' = Reviewed/Created,不推进状态机。
 // 与 deposit-kyt-verdict.handler.ts / withdraw-kyt-verdict.handler.ts 的同名表

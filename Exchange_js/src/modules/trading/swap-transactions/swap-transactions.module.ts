@@ -13,7 +13,7 @@ import { FundsLayerModule } from '../../funds-layer/funds-layer.module';
 import { FundsOrdersModule } from '../../funds-orders/funds-orders.module';
 import { WalletsModule } from '../../asset-treasury/wallets/wallets.module';
 import { TransactionLimitsModule } from '../../asset-treasury/transaction-limits/transaction-limits.module';
-import { SumsubTxnClientModule } from '../../deposit-sumsub/sumsub-txn-client.module';
+import { SumsubTxnClientModule } from '../../sumsub-shared/sumsub-txn-client.module';
 import { CustomersModule } from '../../identity/customers/customers.module';
 import { MaterialRequestsModule } from '../../identity/material-requests/material-requests.module';
 import { L1GateModule } from '../shared/l1-gate/l1-gate.module';

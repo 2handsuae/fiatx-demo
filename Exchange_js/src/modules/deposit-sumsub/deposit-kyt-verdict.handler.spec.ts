@@ -1,8 +1,8 @@
 import { DepositKytVerdictHandler } from './deposit-kyt-verdict.handler';
 import { DepositWorkflowService } from '../trading/deposit-transactions/deposit-workflow.service';
 import { DepositTransactionsService } from '../trading/deposit-transactions/deposit-transactions.service';
-import { SumsubTxnClient } from './sumsub-txn-client.interface';
-import { SumsubTxnDetail } from './sumsub-txn.types';
+import { SumsubTxnClient } from '../sumsub-shared/sumsub-txn-client.interface';
+import { SumsubTxnDetail } from '../sumsub-shared/sumsub-txn.types';
 
 describe('DepositKytVerdictHandler', () => {
   let workflow: jest.Mocked<DepositWorkflowService>;

@@ -3,7 +3,7 @@ import { WithdrawWebhookRouter } from './withdraw-webhook.router';
 import { WithdrawKytVerdictHandler } from './withdraw-kyt-verdict.handler';
 import { WithdrawSlaService } from './withdraw-sla.service';
 import { WithdrawTransactionsModule } from '../trading/withdraw-transactions/withdraw-transactions.module';
-import { SumsubTxnClientModule } from '../deposit-sumsub/sumsub-txn-client.module';
+import { SumsubTxnClientModule } from '../sumsub-shared/sumsub-txn-client.module';
 
 /**
  * 提现域的 Sumsub webhook 落地模块——mirror of DepositSumsubModule(deliberate fork)。

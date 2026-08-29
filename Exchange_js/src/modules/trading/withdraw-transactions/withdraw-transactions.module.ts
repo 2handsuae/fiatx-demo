@@ -16,7 +16,7 @@ import { WithdrawApplicantActionsService } from './withdraw-applicant-actions.se
 import { FundsLayerModule } from '../../funds-layer/funds-layer.module';
 import { FundsOrdersModule } from '../../funds-orders/funds-orders.module';
 import { TransactionLimitsModule } from '../../asset-treasury/transaction-limits/transaction-limits.module';
-import { SumsubTxnClientModule } from '../../deposit-sumsub/sumsub-txn-client.module';
+import { SumsubTxnClientModule } from '../../sumsub-shared/sumsub-txn-client.module';
 import { MaterialRequestsModule } from '../../identity/material-requests/material-requests.module';
 import { L1GateModule } from '../shared/l1-gate/l1-gate.module';
 

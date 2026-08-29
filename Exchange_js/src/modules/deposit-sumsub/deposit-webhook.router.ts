@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { DepositKytVerdictHandler } from './deposit-kyt-verdict.handler';
-import { KYT_VERDICT_TYPES } from './kyt-webhook-types';
+import { KYT_VERDICT_TYPES } from '../sumsub-shared/kyt-webhook-types';
 
 /**
  * 充值 Sumsub webhook 强类型路由:按 payload.type 分派到对应 handler。

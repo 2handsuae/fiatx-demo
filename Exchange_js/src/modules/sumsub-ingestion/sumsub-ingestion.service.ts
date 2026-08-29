@@ -15,7 +15,7 @@ import { WithdrawTransactionsService } from '../trading/withdraw-transactions/wi
 import { DepositWebhookRouter } from '../deposit-sumsub/deposit-webhook.router';
 import { WithdrawWebhookRouter } from '../withdraw-sumsub/withdraw-webhook.router';
 import { SwapWebhookRouter } from '../swap-sumsub/swap-webhook.router';
-import { KYT_VERDICT_TYPES } from '../deposit-sumsub/kyt-webhook-types';
+import { KYT_VERDICT_TYPES } from '../sumsub-shared/kyt-webhook-types';
 import { generateReferenceNo } from '../../common/utils/no-generator.util';
 import { SumsubWebhookEvent } from '@prisma/client';
 

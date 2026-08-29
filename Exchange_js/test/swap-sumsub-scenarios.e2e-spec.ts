@@ -39,8 +39,8 @@ import { TB_LEDGERS } from '../src/modules/accounting/tigerbeetle/constants/tb-l
 import { CustomerRestrictionsService } from '../src/modules/identity/customers/customer-restrictions.service';
 import { CustomerAccessService } from '../src/modules/identity/customers/customer-access.service';
 import { MaterialRequestsService } from '../src/modules/identity/material-requests/material-requests.service';
-import { SUMSUB_TXN_CLIENT } from '../src/modules/deposit-sumsub/sumsub-txn-client.interface';
-import { MockSumsubTxnClient } from '../src/modules/deposit-sumsub/sumsub-txn-client.mock';
+import { SUMSUB_TXN_CLIENT } from '../src/modules/sumsub-shared/sumsub-txn-client.interface';
+import { MockSumsubTxnClient } from '../src/modules/sumsub-shared/sumsub-txn-client.mock';
 import { SwapDemoScenarioService } from '../src/modules/swap-sumsub/demo-scenario.service';
 import { AuditActions, AuditEntityTypes } from '../src/modules/audit-logging/constants/audit-actions.constant';
 import { ensureTbAccountRegistry, provisionTbAccounts } from '../prisma/seed-tb.helper';

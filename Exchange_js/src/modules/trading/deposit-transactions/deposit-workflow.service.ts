@@ -31,7 +31,7 @@ import { WithdrawalAddressService } from '../../asset-treasury/withdrawal-addres
 import {
   SUMSUB_TXN_CLIENT,
   SumsubTxnClient,
-} from '../../deposit-sumsub/sumsub-txn-client.interface';
+} from '../../sumsub-shared/sumsub-txn-client.interface';
 import { resolveKytTxnType } from '../../deposit-sumsub/kyt-txn-type.resolver';
 import { ApprovalsService } from '../../governance/approvals/approvals.service';
 import { ApprovalDecidedEvent } from '../../governance/approvals/approval-handler.base';

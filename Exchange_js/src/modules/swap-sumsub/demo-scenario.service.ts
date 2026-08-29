@@ -1,12 +1,12 @@
 import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { createHash, randomUUID } from 'crypto';
 import { SwapTransactionsService } from '../trading/swap-transactions/swap-transactions.service';
-import { SUMSUB_TXN_CLIENT, SumsubTxnClient } from '../deposit-sumsub/sumsub-txn-client.interface';
-import { MockSumsubTxnClient } from '../deposit-sumsub/sumsub-txn-client.mock';
+import { SUMSUB_TXN_CLIENT, SumsubTxnClient } from '../sumsub-shared/sumsub-txn-client.interface';
+import { MockSumsubTxnClient } from '../sumsub-shared/sumsub-txn-client.mock';
 import { SWAP_VERDICT_BUTTONS, SwapVerdictButton } from './fixtures/verdict-buttons';
-import { buildTxnReport, TxnReportVerdict } from '../deposit-sumsub/fixtures/txn-report.builder';
-import { KYT_ONHOLD_TYPE } from '../deposit-sumsub/kyt-webhook-types';
-import { KytVerdict } from '../deposit-sumsub/sumsub-txn.types';
+import { buildTxnReport, TxnReportVerdict } from '../sumsub-shared/txn-report.builder';
+import { KYT_ONHOLD_TYPE } from '../sumsub-shared/kyt-webhook-types';
+import { KytVerdict } from '../sumsub-shared/sumsub-txn.types';
 import { SumsubIngestionService } from '../sumsub-ingestion/sumsub-ingestion.service';
 import { MaterialRequestsService } from '../identity/material-requests/material-requests.service';
 import { AuditLogsService } from '../audit-logging/audit-logs.service';

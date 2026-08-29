@@ -1,8 +1,8 @@
 import { SwapKytVerdictHandler } from './swap-kyt-verdict.handler';
 import { SwapWorkflowService } from '../trading/swap-transactions/swap-workflow.service';
 import { SwapTransactionsService } from '../trading/swap-transactions/swap-transactions.service';
-import { SumsubTxnClient } from '../deposit-sumsub/sumsub-txn-client.interface';
-import { SumsubTxnDetail } from '../deposit-sumsub/sumsub-txn.types';
+import { SumsubTxnClient } from '../sumsub-shared/sumsub-txn-client.interface';
+import { SumsubTxnDetail } from '../sumsub-shared/sumsub-txn.types';
 
 /**
  * Task 5: mirrors deposit-kyt-verdict.handler.spec.ts / withdraw-kyt-verdict.handler.spec.ts

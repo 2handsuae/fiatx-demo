@@ -1,11 +1,11 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { SwapKytVerdictHandler } from './swap-kyt-verdict.handler';
-import { KYT_VERDICT_TYPES } from '../deposit-sumsub/kyt-webhook-types';
+import { KYT_VERDICT_TYPES } from '../sumsub-shared/kyt-webhook-types';
 
 /**
  * 兑换 Sumsub webhook 强类型路由:与 DepositWebhookRouter / WithdrawWebhookRouter
  * 同构(deliberate fork,不是泛化抽象——三域各自演进,不共享基类)。复用同一份
- * KYT_VERDICT_TYPES 显式集合(deposit-sumsub/kyt-webhook-types.ts,含官方无 `Txn`
+ * KYT_VERDICT_TYPES 显式集合(sumsub-shared/kyt-webhook-types.ts,含官方无 `Txn`
  * 的 applicantKytOnHold 注意事项)。
  *
  * 由 SumsubIngestionService 的级联分流在 deposit → withdraw 都未命中(依次返回

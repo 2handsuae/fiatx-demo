@@ -4,7 +4,7 @@ import { AdminSwapDemoController } from './admin-swap-demo.controller';
 import { SwapTransactionsModule } from '../trading/swap-transactions/swap-transactions.module';
 import { SumsubIngestionModule } from '../sumsub-ingestion/sumsub-ingestion.module';
 import { AuditLogsModule } from '../audit-logging/audit-logs.module';
-import { SumsubTxnClientModule } from '../deposit-sumsub/sumsub-txn-client.module';
+import { SumsubTxnClientModule } from '../sumsub-shared/sumsub-txn-client.module';
 import { MaterialRequestsModule } from '../identity/material-requests/material-requests.module';
 
 // 站3-α2（2026-08-27）：演示件（场景服务 + ⚡按钮 controller）从 SwapSumsubModule

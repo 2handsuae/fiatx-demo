@@ -16,7 +16,7 @@ import { SwapLegAccounting, SwapSettleCtx } from './swap-leg-accounting';
 import {
   SUMSUB_TXN_CLIENT,
   SumsubTxnClient,
-} from '../../deposit-sumsub/sumsub-txn-client.interface';
+} from '../../sumsub-shared/sumsub-txn-client.interface';
 import {
   buildSwapLegPlan,
   SwapLegSpec,

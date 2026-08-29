@@ -1,6 +1,6 @@
 import { randomUUID } from 'crypto';
-import { KYT_ONHOLD_TYPE } from '../kyt-webhook-types';
-import { TxnReportVerdict } from './txn-report.builder';
+import { KYT_ONHOLD_TYPE } from '../../sumsub-shared/kyt-webhook-types';
+import { TxnReportVerdict } from '../../sumsub-shared/txn-report.builder';
 
 /**
  * 9 个**单步**裁决按钮,取代此前的 8 个多步场景剧本。

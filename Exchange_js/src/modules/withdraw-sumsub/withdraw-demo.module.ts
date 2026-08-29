@@ -4,7 +4,7 @@ import { AdminWithdrawDemoController } from './admin-withdraw-demo.controller';
 import { WithdrawTransactionsModule } from '../trading/withdraw-transactions/withdraw-transactions.module';
 import { SumsubIngestionModule } from '../sumsub-ingestion/sumsub-ingestion.module';
 import { AuditLogsModule } from '../audit-logging/audit-logs.module';
-import { SumsubTxnClientModule } from '../deposit-sumsub/sumsub-txn-client.module';
+import { SumsubTxnClientModule } from '../sumsub-shared/sumsub-txn-client.module';
 
 // 站2-α2（2026-08-26）：演示件（场景服务 + ⚡按钮 controller）从 WithdrawSumsubModule
 // 摘出（镜像站1b 的 DepositDemoModule）。它是该模块里唯一消费 SumsubIngestionService

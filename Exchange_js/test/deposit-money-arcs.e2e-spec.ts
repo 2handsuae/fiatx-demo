@@ -30,8 +30,8 @@ import { TB_ACCOUNT_CODES, TB_CODE_TO_COA } from '../src/modules/accounting/tige
 import { TB_TRANSFER_CODES } from '../src/modules/accounting/tigerbeetle/constants/tb-transfer-codes.constant';
 import { ApprovalsService } from '../src/modules/governance/approvals/approvals.service';
 import { ApprovalActionTypes, ApprovalActorContext } from '../src/modules/governance/approvals/constants/approval.constants';
-import { SUMSUB_TXN_CLIENT } from '../src/modules/deposit-sumsub/sumsub-txn-client.interface';
-import { MockSumsubTxnClient } from '../src/modules/deposit-sumsub/sumsub-txn-client.mock';
+import { SUMSUB_TXN_CLIENT } from '../src/modules/sumsub-shared/sumsub-txn-client.interface';
+import { MockSumsubTxnClient } from '../src/modules/sumsub-shared/sumsub-txn-client.mock';
 import { AuditActions, AuditEntityTypes } from '../src/modules/audit-logging/constants/audit-actions.constant';
 import { fakeBankRef, fakeChainTxHash } from '../src/common/utils/fake-external-refs.util';
 

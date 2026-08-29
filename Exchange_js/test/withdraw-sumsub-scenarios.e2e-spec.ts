@@ -38,8 +38,8 @@ import { AccountingService } from '../src/modules/accounting/tigerbeetle/account
 import { TB_ACCOUNT_CODES, TB_CODE_TO_COA } from '../src/modules/accounting/tigerbeetle/constants/tb-account-codes.constant';
 import { TB_TRANSFER_CODES } from '../src/modules/accounting/tigerbeetle/constants/tb-transfer-codes.constant';
 import { TB_LEDGERS } from '../src/modules/accounting/tigerbeetle/constants/tb-ledgers.constant';
-import { SUMSUB_TXN_CLIENT } from '../src/modules/deposit-sumsub/sumsub-txn-client.interface';
-import { MockSumsubTxnClient } from '../src/modules/deposit-sumsub/sumsub-txn-client.mock';
+import { SUMSUB_TXN_CLIENT } from '../src/modules/sumsub-shared/sumsub-txn-client.interface';
+import { MockSumsubTxnClient } from '../src/modules/sumsub-shared/sumsub-txn-client.mock';
 import { WithdrawDemoScenarioService } from '../src/modules/withdraw-sumsub/demo-scenario.service';
 import { MaterialRequestsService } from '../src/modules/identity/material-requests/material-requests.service';
 import { MaterialRequestReviewService } from '../src/modules/identity/material-requests/material-request-review.service';

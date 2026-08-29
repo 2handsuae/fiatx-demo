@@ -1,6 +1,6 @@
 import { randomUUID } from 'crypto';
-import { KYT_ONHOLD_TYPE } from '../../deposit-sumsub/kyt-webhook-types';
-import { TxnReportVerdict } from '../../deposit-sumsub/fixtures/txn-report.builder';
+import { KYT_ONHOLD_TYPE } from '../../sumsub-shared/kyt-webhook-types';
+import { TxnReportVerdict } from '../../sumsub-shared/txn-report.builder';
 
 /**
  * 9 个**单步**裁决按钮 —— mirror of
@@ -56,7 +56,7 @@ export const WITHDRAW_VERDICT_BUTTONS: Record<string, WithdrawVerdictButton> = {
       // (订单id, seq) 分段去重）—— 固定字面量会在两笔不同订单先后点这个按钮时
       // P2002（终审 Important #4）。getter 按调用现铸,贴近真实 Sumsub 每次建
       // action 都发新 id 的行为；同一次 buildTxnReport() 调用只读一次
-      // （见 deposit-sumsub/fixtures/txn-report.builder.ts:99）,单次投递内不会
+      // （见 sumsub-shared/txn-report.builder.ts:99）,单次投递内不会
       // 前后矛盾。
       get applicantActions() {
         return [

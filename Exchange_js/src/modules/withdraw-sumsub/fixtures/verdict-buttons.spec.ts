@@ -1,5 +1,5 @@
 import { WITHDRAW_VERDICT_BUTTONS } from './verdict-buttons';
-import { KYT_VERDICT_TYPES } from '../../deposit-sumsub/kyt-webhook-types';
+import { KYT_VERDICT_TYPES } from '../../sumsub-shared/kyt-webhook-types';
 
 describe('WITHDRAW_VERDICT_BUTTONS', () => {
   const buttons = Object.values(WITHDRAW_VERDICT_BUTTONS);

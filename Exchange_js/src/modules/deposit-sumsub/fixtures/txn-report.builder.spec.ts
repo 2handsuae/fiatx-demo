@@ -1,4 +1,4 @@
-import { buildTxnReport, TxnReportContext, TxnReportVerdict } from './txn-report.builder';
+import { buildTxnReport, TxnReportContext, TxnReportVerdict } from '../../sumsub-shared/txn-report.builder';
 
 const baseCtx: TxnReportContext = {
   txnId: '66fbab2a916881505f61fd11',

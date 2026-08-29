@@ -1,7 +1,7 @@
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { SwapDemoScenarioService } from './demo-scenario.service';
-import { MockSumsubTxnClient } from '../deposit-sumsub/sumsub-txn-client.mock';
-import { HttpSumsubTxnClient } from '../deposit-sumsub/sumsub-txn-client.http';
+import { MockSumsubTxnClient } from '../sumsub-shared/sumsub-txn-client.mock';
+import { HttpSumsubTxnClient } from '../sumsub-shared/sumsub-txn-client.http';
 import { AuditActions } from '../audit-logging/constants/audit-actions.constant';
 
 describe('SwapDemoScenarioService', () => {

@@ -9,7 +9,7 @@ import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import { AccountingService } from '../../accounting/tigerbeetle/accounting.service';
 import { TbEvidenceService } from '../../accounting/tigerbeetle/tb-evidence.service';
 import { WithdrawalAddressService } from '../../asset-treasury/withdrawal-addresses/withdrawal-address.service';
-import { SUMSUB_TXN_CLIENT } from '../../deposit-sumsub/sumsub-txn-client.interface';
+import { SUMSUB_TXN_CLIENT } from '../../sumsub-shared/sumsub-txn-client.interface';
 import { DepositStatusChangedEvent } from './events/deposit-transaction.events';
 import {
   DepositTransactionStatus,

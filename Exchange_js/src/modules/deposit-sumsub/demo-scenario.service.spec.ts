@@ -1,7 +1,7 @@
 import { BadRequestException } from '@nestjs/common';
 import { DepositDemoScenarioService } from './demo-scenario.service';
-import { MockSumsubTxnClient } from './sumsub-txn-client.mock';
-import { HttpSumsubTxnClient } from './sumsub-txn-client.http';
+import { MockSumsubTxnClient } from '../sumsub-shared/sumsub-txn-client.mock';
+import { HttpSumsubTxnClient } from '../sumsub-shared/sumsub-txn-client.http';
 import { AuditActions } from '../audit-logging/constants/audit-actions.constant';
 
 describe('DepositDemoScenarioService', () => {
