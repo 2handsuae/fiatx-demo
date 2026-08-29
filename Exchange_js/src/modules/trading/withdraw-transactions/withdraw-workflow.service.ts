@@ -2847,4 +2847,69 @@ export class WithdrawWorkflowService implements OnModuleInit {
     }
   }
 
+  /**
+   * 材料审过 → 把这笔提现推回合规重跑。
+   *
+   * modules/v4-deposit.md §状态表写的是 COMPLIANCE_PENDING ⇄ ACTION_PENDING
+   * （补齐回炉，充值域同款回边见 A7）——提现侧这条回边（RESUME）是 B1 刚补的
+   * 转移表边，此前没有任何人触发它：本域只听上面的 CUSTOMER_RESTRICTION_OPENED
+   * （便签开启），单向。便签开了接得住（冻单），便签解了不知道；材料补齐同理——
+   * 撕便签的事件本域压根没听。
+   *
+   * 「补料后重跑合规」与「运营看着办直接放行」在合规演示里是两回事：后者是
+   * approveDeposit 白名单含 ACTION_PENDING 带来的人工出路（提现侧同理），
+   * 不能当成前者。
+   *
+   * 只有 GREEN（outcome === 'APPROVED'）回炉——RETRY/FINAL 都还没审过，单子
+   * 该留在原地等（材料账 MaterialRequestReviewService 的既有口径：三条结局
+   * 共用一句原则「只有 GREEN 撕便签」，回炉同理只认 GREEN）。
+   *
+   * 失败不上抛（@OnEvent 里抛没人接），与本域其它 listener 同款口径——但只
+   * 兜"回炉这件事失败了"，域/结局判定留在 try 外面，不吞掉真正的判断错误。
+   */
+  @OnEvent(DomainEventNames.MATERIAL_REQUEST_REVIEWED, { async: true })
+  async onMaterialRequestReviewed(event: {
+    requestNo: string;
+    customerId: string;
+    orderDomain: string | null;
+    orderRef: string | null;
+    outcome: string;
+    traceId?: string;
+  }): Promise<void> {
+    // 铁律③：各管各的。别人域的材料请求与本域无关。
+    if (event.orderDomain !== 'WITHDRAW' || !event.orderRef) return;
+    // 只有 GREEN 回炉 —— RETRY/FINAL 都还没审过，单子该留在原地等。
+    if (event.outcome !== 'APPROVED') return;
+
+    try {
+      const withdraw = await this.withdrawService.findByNo(event.orderRef);
+      if (!withdraw) return;
+      if (withdraw.status !== WithdrawTransactionStatus.ACTION_PENDING) {
+        this.logger.log(
+          `Material ${event.requestNo} approved but withdraw ${event.orderRef} is ` +
+          `${withdraw.status} (not ACTION_PENDING) — late review, nothing to resume`,
+        );
+        return;
+      }
+
+      const updated = await this.withdrawService.updateStatus(withdraw.id, {
+        action: WithdrawTransactionAction.RESUME,
+        reason: `Material request ${event.requestNo} reviewed GREEN — back to compliance for re-screening`,
+      });
+
+      await this.withdrawAudit(withdraw, {
+        action: 'WITHDRAW_MATERIAL_APPROVED_RESUMED',
+        fromStatus: WithdrawTransactionStatus.ACTION_PENDING,
+        toStatus: updated.status,
+        reason: `Material request ${event.requestNo} reviewed GREEN — withdraw resumed to COMPLIANCE_PENDING for re-screening`,
+        metadata: { requestNo: event.requestNo },
+      });
+    } catch (e) {
+      this.logger.warn(
+        `onMaterialRequestReviewed failed for ${event.requestNo}: ` +
+        `${e instanceof Error ? e.message : String(e)}`,
+      );
+    }
+  }
+
 }

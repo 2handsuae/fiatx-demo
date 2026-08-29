@@ -428,6 +428,21 @@ export class WithdrawTransactionsService {
   }
 
   /**
+   * 按业务键 withdrawNo 查单（铁律⑥：跨域协作认业务号,不认内部 id）。
+   * MATERIAL_REQUEST_REVIEWED 域事件只带 orderRef(=withdrawNo)——系统内部
+   * 调用点专用,找不到返回 null（不抛），由调用方决定要不要 no-op。镜像
+   * DepositTransactionsService#findByNo。
+   */
+  async findByNo(withdrawNo: string) {
+    const row = await (this.prisma as any).withdrawTransaction.findUnique({
+      where: { withdrawNo },
+      select: { id: true },
+    });
+    if (!row) return null;
+    return this.findOne(row.id);
+  }
+
+  /**
    * Sumsub KYT webhooks carry the txn id we handed it at submission time
    * (sumsubTxnId). Not the withdrawal's own id, so this is a stable business-key
    * lookup, not an id-as-contract query. Mirrors DepositTransactionsService's

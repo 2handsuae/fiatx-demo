@@ -422,3 +422,9 @@
   危害：**这是一个会把人送去追不存在的账本 bug 的假警报**。本轮就差点据此判定分支引入了重复记账回归——做了 commit 二分才发现倍数在累加、进而定位到孤儿进程。
   绕法：`lsof -ti:<TB端口>` 找到进程手工 `kill`，再 `reset` + `up`，`demo:all` 即回 8/8（COA 数字与 main 逐字一致）。
   修法（生产化时）：`stack-stop.sh` 的孤儿匹配改成按端口而非按路径；或 `reset-stack.sh` 在 `rm -f` 之前断言目标端口已空、不空则 fail-fast，而不是 `|| true` 吞掉。
+
+- [2026-08-29] **同一根因也堵住了普通 `stack.sh up self`（不只 `reset`）——已在跑的 self 栈重新 `up` 必现"port already in use"，backend/admin/client/tb 四个进程全中招** ｜ `scripts/stack-stop.sh` 的 `stop_listener_if_managed` ｜ 实证于 feat/demo-kit-sumsub-panel（B3 任务全链实跑前置步骤）
+  机制：与上一条 TB 孤儿同根——`stop_listener_if_managed` 用 `command_line == *"${APP_DIR}"*` 判断某端口的持有进程是否"归本栈管"，但实际启动命令全是相对路径（`node dist/main`、`./node_modules/.bin/vite ...`、`tigerbeetle start ... /tmp/exchange_js_wt_<名>/0_0.tigerbeetle`），没有一条包含 `APP_DIR` 绝对路径子串，判断恒假、恒判"non-managed process, skip"。`stop_pid_file_process` 那条路径本该兜底，但本次遇到的栈是更早一次会话手工/非常规方式启动的，PID 文件与实际进程对不上，兜底路径也没接住。
+  症状：`bash scripts/stack.sh up self` 在已有栈存活时，会在 `ensure_port_free` 那步直接 `exit 1`（`set -euo pipefail` 下 `return 1` 不吞），backend 卡住后admin/tb 会依次重演同一幕（逐个补 kill 后再 up 才过下一关）。
+  绕法：`ps -p <pid> -o command` 确认确实是本 worktree 自己的进程（cwd 或数据文件路径能对上）后手工 `kill`，四个都清完再 `stack.sh up self` 一次性成功；不要连续 `up` 指望它自愈。
+  修法（生产化时）：与上一条同一处，`stop_listener_if_managed` 的匹配依据改成"端口是否由本机任意进程持有"而非路径子串匹配，或干脆用 PID 文件作为唯一真相源、把陈旧/外部持有者的情形当成需要人工介入的 fail-fast，而不是静默 skip。

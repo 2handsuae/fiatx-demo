@@ -3069,3 +3069,113 @@ describe('WithdrawWorkflowService — onCustomerRestrictionOpened 批量冻单�
     errorSpy.mockRestore();
   });
 });
+
+describe('WithdrawWorkflowService.onMaterialRequestReviewed — 材料审过后提现单回炉 (B3)', () => {
+  const actionPendingWithdraw = (overrides: Record<string, unknown> = {}) => ({
+    id: 'wd-mr-1',
+    withdrawNo: 'WD-MR-001',
+    status: WithdrawTransactionStatus.ACTION_PENDING,
+    ownerType: 'CUSTOMER',
+    ownerId: 'cust-mr-1',
+    traceId: 'trace-mr-1',
+    ...overrides,
+  });
+
+  const reviewedEvent = (overrides: Record<string, unknown> = {}) => ({
+    requestNo: 'MRQ-1',
+    customerId: 'cust-mr-1',
+    orderDomain: 'WITHDRAW',
+    orderRef: 'WD-MR-001',
+    outcome: 'APPROVED',
+    traceId: 'trace-evt-1',
+    ...overrides,
+  });
+
+  function buildWorkflow() {
+    const withdrawService = {
+      findByNo: jest.fn(),
+      updateStatus: jest.fn(),
+    };
+    const auditLogsService = { recordSystem: jest.fn().mockResolvedValue({}) };
+    const workflow = new WithdrawWorkflowService(
+      {} as any, // prisma
+      {} as any, // eventEmitter
+      withdrawService as any,
+      {} as any, // withdrawQuoteService
+      auditLogsService as any,
+      {} as any, // accountingService
+      {} as any, // fundsOrders
+      {} as any, // approvalsService
+      {} as any, // binanceRateProvider
+      {} as any, // systemWalletResolver
+      {} as any, // tbEvidenceService
+      {} as any, // limitGateService
+      {} as any, // limitRulesService
+      {} as any, // sumsubTxnClient
+      {} as any, // applicantActions
+      {} as any, // customerAccessService
+      {} as any, // customerRestrictionsService
+      {} as any, // l1Gate
+    );
+    return { workflow, withdrawService, auditLogsService };
+  }
+
+  it('GREEN + 单在 ACTION_PENDING → RESUME 回 COMPLIANCE_PENDING 并写审计留痕', async () => {
+    const { workflow, withdrawService, auditLogsService } = buildWorkflow();
+    const w = actionPendingWithdraw();
+    withdrawService.findByNo.mockResolvedValue(w);
+    withdrawService.updateStatus.mockResolvedValue({ status: WithdrawTransactionStatus.COMPLIANCE_PENDING });
+
+    await workflow.onMaterialRequestReviewed(reviewedEvent());
+
+    expect(withdrawService.findByNo).toHaveBeenCalledWith('WD-MR-001');
+    expect(withdrawService.updateStatus).toHaveBeenCalledWith(
+      'wd-mr-1',
+      expect.objectContaining({ action: WithdrawTransactionAction.RESUME }),
+    );
+    expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: AuditActions.WITHDRAW_MATERIAL_APPROVED_RESUMED,
+        primarySubjectNo: 'WD-MR-001',
+        fromStatus: WithdrawTransactionStatus.ACTION_PENDING,
+        toStatus: WithdrawTransactionStatus.COMPLIANCE_PENDING,
+      }),
+    );
+  });
+
+  it('不是本域的事件（orderDomain=DEPOSIT）→ 一动不动（铁律③各管各的）', async () => {
+    const { workflow, withdrawService, auditLogsService } = buildWorkflow();
+
+    await workflow.onMaterialRequestReviewed(
+      reviewedEvent({ orderDomain: 'DEPOSIT', orderRef: 'DEP-123' }),
+    );
+
+    expect(withdrawService.findByNo).not.toHaveBeenCalled();
+    expect(withdrawService.updateStatus).not.toHaveBeenCalled();
+    expect(auditLogsService.recordSystem).not.toHaveBeenCalled();
+  });
+
+  it.each(['RETRY', 'REJECTED'])(
+    '%s → 单留在 ACTION_PENDING（只有 GREEN 回炉）',
+    async (outcome) => {
+      const { workflow, withdrawService, auditLogsService } = buildWorkflow();
+
+      await workflow.onMaterialRequestReviewed(reviewedEvent({ outcome }));
+
+      expect(withdrawService.findByNo).not.toHaveBeenCalled();
+      expect(withdrawService.updateStatus).not.toHaveBeenCalled();
+      expect(auditLogsService.recordSystem).not.toHaveBeenCalled();
+    },
+  );
+
+  it('单已不在 ACTION_PENDING（迟到的复核）→ no-op，不抛，不改状态', async () => {
+    const { workflow, withdrawService, auditLogsService } = buildWorkflow();
+    const w = actionPendingWithdraw({ status: WithdrawTransactionStatus.PAYOUT_PENDING });
+    withdrawService.findByNo.mockResolvedValue(w);
+
+    await expect(workflow.onMaterialRequestReviewed(reviewedEvent())).resolves.toBeUndefined();
+
+    expect(withdrawService.updateStatus).not.toHaveBeenCalled();
+    expect(auditLogsService.recordSystem).not.toHaveBeenCalled();
+  });
+});
