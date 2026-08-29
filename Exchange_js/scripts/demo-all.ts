@@ -10,10 +10,10 @@ async function main() {
   try {
     await ensureSetup(ctx);
     await runFrankPreStage(ctx); // must run before runDeposits — see its header comment (demo-lib.ts)
-    await runDeposits(ctx);
-    await runSwaps(ctx);
-    await runWithdraws(ctx);
-    ok = await verifyEndState(ctx);
+    const depositResults = await runDeposits(ctx);
+    const swapResults = await runSwaps(ctx);
+    const withdrawResults = await runWithdraws(ctx);
+    ok = await verifyEndState(ctx, [...depositResults, ...swapResults, ...withdrawResults]);
   } finally {
     await ctx.app.close();
   }

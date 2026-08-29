@@ -24,11 +24,18 @@
 // ends that made the pre-stage necessary; task-C3c-report.md is the fix).
 // (WITHDRAW row #19 does NOT reuse Frank — see runWithdraws below.)
 //
-// End-state (after runAll): the tradeable trio's orders are all SUCCESS —
-// verifyEndState() scopes its per-domain SUCCESS counts to the trio only, so
-// Frank's four orders (deposit #7 FROZEN, #10 SEIZED, #21 SUCCESS, swap #13
-// FROZEN) sit outside those checks by design (see DEMO_ROSTER for the full
-// 21-row expected shape). Both COA invariants (CLIENT + FIRM) hold per ledger;
+// End-state (after runAll): every one of DEMO_ROSTER's 21 rows lands on the
+// exact status the roster names — not "all SUCCESS" (a rich demo day has
+// frozen/confiscated/returned/seized/in-flight orders on purpose: deposit #7
+// FROZEN, #10 SEIZED, swap #13 FROZEN, withdraw #20 PAYOUT_PENDING, etc — see
+// DEMO_ROSTER for the full 21-row expected shape). verifyEndState() proves
+// this by feeding runDeposits/runSwaps/runWithdraws' own returned
+// {seq,orderNo,status} results into printAnswerKey() (scripts/demo-roster.ts),
+// which compares each roster row's expectedStatus against the matching seq.
+// Anything NOT produced by one of those three roster-driven functions — e.g.
+// the two standalone stray orders demo:in-transit's own fixture creates —
+// never enters that array and is therefore silently ignored, by construction
+// (task-C4-report.md). Both COA invariants (CLIENT + FIRM) hold per ledger;
 // no Outstanding or FeeAccrual rows created (real-time 1:1 model).
 // verifyEndState() asserts this.
 
@@ -55,7 +62,7 @@ import { FundsOrderAction } from '../src/modules/funds-orders/dto/funds-order.dt
 import { DEPOSIT_VERDICT_BUTTONS } from '../src/modules/deposit-sumsub/fixtures/verdict-buttons';
 import { WITHDRAW_VERDICT_BUTTONS } from '../src/modules/withdraw-sumsub/fixtures/verdict-buttons';
 import { SCENE_TAGS, DISPO_TAGS_BY_DOMAIN, type SceneTag, type DispoTag } from '../src/modules/sumsub-shared/scene-tags';
-import { DEMO_ROSTER } from './demo-roster';
+import { DEMO_ROSTER, printAnswerKey } from './demo-roster';
 import { loginAsMlro, loginAsSmo, loginAsOpsOfficer, approveApproval } from './demo-mlro';
 import { createStuckWithdraw } from './demo-fixtures';
 
@@ -1135,10 +1142,11 @@ async function buildCoaBalanceMap(ctx: DemoCtx): Promise<Map<number, Map<number,
 }
 
 // ── verification (spec §6) ───────────────────────────────────────────────────
-export async function verifyEndState(ctx: DemoCtx): Promise<boolean> {
+export async function verifyEndState(
+  ctx: DemoCtx,
+  rosterResults: Array<{ seq: number; orderNo: string; status: string }>,
+): Promise<boolean> {
   console.log('\n═══ verify end-state (spec §6) ═══');
-  const customers = await resolveDemoCustomers(ctx.prisma);
-  const ids = customers.map((c) => c.id);
   const fails: string[] = [];
   let n = 0;
   const ok = (label: string, cond: boolean, detail = '') => {
@@ -1147,32 +1155,16 @@ export async function verifyEndState(ctx: DemoCtx): Promise<boolean> {
     else { fails.push(label); console.log(`  ✗ ${label}${detail ? ` — ${detail}` : ''}`); }
   };
 
-  // 1. orders all terminal-good (scoped to demo customers)
-  for (const [label, model, good] of [
-    ['deposits SUCCESS', 'depositTransaction', 'SUCCESS'],
-    ['swaps SUCCESS', 'swapTransaction', 'SUCCESS'],
-    ['withdrawals SUCCESS', 'withdrawTransaction', 'SUCCESS'],
-  ] as const) {
-    const total = await ctx.prisma[model].count({ where: { ownerId: { in: ids } } });
-    const bad = await ctx.prisma[model].count({ where: { ownerId: { in: ids }, status: { not: good } } });
-    ok(`all demo ${label}`, total > 0 && bad === 0, `${total - bad}/${total} ${good}`);
-  }
-
-  // Withdraw payout principal legs (funds_orders legSeq=1) all CLEARED. Payouts
-  // are no longer a separate table — the payout is the withdrawal's legSeq-1
-  // funds order, driven CREATED → CLEARED alongside the withdrawal.
-  {
-    const wdIds = (
-      await ctx.prisma.withdrawTransaction.findMany({ where: { ownerId: { in: ids } }, select: { id: true } })
-    ).map((w: any) => w.id);
-    const total = await ctx.prisma.fundsOrder.count({
-      where: { withdrawTransactionId: { in: wdIds }, legSeq: 1 },
-    });
-    const bad = await ctx.prisma.fundsOrder.count({
-      where: { withdrawTransactionId: { in: wdIds }, legSeq: 1, status: { not: 'CLEARED' } },
-    });
-    ok('all demo payout legs CLEARED', total > 0 && bad === 0, `${total - bad}/${total} CLEARED`);
-  }
+  // 1. 花名册逐条比对 —— 取代旧的「所有 demo 单必须 SUCCESS」。那条全称断言的
+  //    前提本来就是错的：一份丰富的演示数据本来就该有冻结的、没收的、退回的、
+  //    上缴的、卡在半路的，不是清一色 SUCCESS。rosterResults 只装得下
+  //    runDeposits/runSwaps/runWithdraws 各自真正驱动过的 21 笔（花名册 seq →
+  //    {orderNo,status} 的实际落点）——别的任何单（比如 demo:in-transit 命令
+  //    另造的两笔独立在途单）从不会被放进这个数组，天然不参与比对，不需要
+  //    额外的排除名单。
+  const { pass, lines } = printAnswerKey(rosterResults);
+  lines.forEach((l) => console.log(l));
+  ok('花名册 21 笔逐条符合预期', pass);
 
   // 2. COA invariants: CLIENT and FIRM balance per ledger (real-time 1:1 model proof)
   //    CLIENT: CLIENT_ASSET == Σ(CLIENT_PAYABLE + DEPOSIT_SUSPENSE) per ledger
