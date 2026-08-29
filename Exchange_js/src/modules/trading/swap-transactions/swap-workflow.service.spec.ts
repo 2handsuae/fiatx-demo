@@ -1567,7 +1567,7 @@ describe('SwapWorkflowService.applyKytVerdict', () => {
       .spyOn(service as any, 'handleRejectDisposition')
       .mockResolvedValue(undefined);
 
-    const input = { verdict: 'rejected' as const, typedTags: ['SANCTION_APPLICANT'] };
+    const input = { verdict: 'rejected' as const, sceneTag: 'SANCTION_APPLICANT' as const };
     await service.applyKytVerdict('s1', input);
 
     expect(dispositionSpy).toHaveBeenCalledTimes(1);
@@ -1613,7 +1613,7 @@ describe('SwapWorkflowService.applyKytVerdict', () => {
     const mocks = buildApplyKytVerdictMocks({ status: SwapTransactionStatus.REJECTED });
     const service = makeApplyKytVerdictService(mocks);
 
-    await service.applyKytVerdict('s1', { verdict: 'rejected', typedTags: ['SANCTION_APPLICANT'] });
+    await service.applyKytVerdict('s1', { verdict: 'rejected', sceneTag: 'SANCTION_APPLICANT' });
 
     expect(mocks.auditLogsService.recordSystem).not.toHaveBeenCalledWith(
       expect.objectContaining({ action: AuditActions.SWAP_KYT_VERDICT_IGNORED }),
@@ -1633,7 +1633,7 @@ describe('SwapWorkflowService.applyKytVerdict', () => {
       .spyOn(service as any, 'handleRejectDisposition')
       .mockResolvedValue(undefined);
 
-    const input = { verdict: 'rejected' as const, typedTags: ['SANCTION_APPLICANT'] };
+    const input = { verdict: 'rejected' as const, sceneTag: 'SANCTION_APPLICANT' as const };
     await service.applyKytVerdict('s1', input);
 
     expect(dispositionSpy).toHaveBeenCalledTimes(1);
@@ -1675,7 +1675,7 @@ describe('SwapWorkflowService.applyKytVerdict', () => {
       .spyOn(service as any, 'handleRejectDisposition')
       .mockResolvedValue(undefined);
 
-    const input = { verdict: 'rejected' as const, typedTags: ['SANCTION_APPLICANT'] };
+    const input = { verdict: 'rejected' as const, sceneTag: 'SANCTION_APPLICANT' as const };
     await service.applyKytVerdict('s1', input);
 
     expect(dispositionSpy).toHaveBeenCalledTimes(1);
@@ -1692,7 +1692,7 @@ describe('SwapWorkflowService.applyKytVerdict', () => {
     const mocks = buildApplyKytVerdictMocks({ status: SwapTransactionStatus.SUCCESS });
     const service = makeApplyKytVerdictService(mocks);
 
-    await service.applyKytVerdict('s1', { verdict: 'rejected', typedTags: ['SANCTION_APPLICANT'] });
+    await service.applyKytVerdict('s1', { verdict: 'rejected', sceneTag: 'SANCTION_APPLICANT' });
 
     expect(mocks.swapTransactionsService.markStatus).not.toHaveBeenCalled();
     expect(mocks.fundsOrders.create).not.toHaveBeenCalled();
@@ -1731,7 +1731,7 @@ describe('SwapWorkflowService.applyKytVerdict', () => {
     const createLegSpy = jest.spyOn(service as any, 'createLeg');
 
     await expect(
-      service.applyKytVerdict('s1', { verdict: 'rejected', typedTags: ['SANCTION_APPLICANT'] }),
+      service.applyKytVerdict('s1', { verdict: 'rejected', sceneTag: 'SANCTION_APPLICANT' }),
     ).resolves.toBeUndefined();
 
     expect(mocks.swapTransactionsService.markStatus).not.toHaveBeenCalled();
@@ -1758,7 +1758,7 @@ describe('SwapWorkflowService.applyKytVerdict', () => {
     const mocks = buildApplyKytVerdictMocks({ status: SwapTransactionStatus.PROCESSING });
     const service = makeApplyKytVerdictService(mocks);
 
-    await service.applyKytVerdict('s1', { verdict: 'rejected', typedTags: ['SANCTION_APPLICANT'] });
+    await service.applyKytVerdict('s1', { verdict: 'rejected', sceneTag: 'SANCTION_APPLICANT' });
 
     // Swap itself is untouched — no state transition, no unwinding.
     expect(mocks.swapTransactionsService.markStatus).not.toHaveBeenCalled();
@@ -2015,7 +2015,7 @@ describe('SwapWorkflowService.applyKytVerdict', () => {
           { applicantActionId: 'A1', externalActionId: 'EA1' },
           { applicantActionId: 'A2', externalActionId: 'EA2' },
         ],
-        typedTags: ['SANCTION_APPLICANT'],
+        sceneTag: 'SANCTION_APPLICANT',
       });
 
       expect(mocks.customerRestrictionsService.open).toHaveBeenCalled();
@@ -2054,7 +2054,7 @@ describe('SwapWorkflowService.applyKytVerdict', () => {
       await (service as any).handleRejectDisposition(swapB, {
         verdict: 'rejected' as const,
         applicantActions: [{ applicantActionId: 'A2', externalActionId: 'EA2' }],
-        typedTags: ['SANCTION_APPLICANT'],
+        sceneTag: 'SANCTION_APPLICANT',
       });
 
       expect(mocks.materialRequestIssuer.register).toHaveBeenCalledTimes(1);
@@ -2102,7 +2102,7 @@ describe('SwapWorkflowService.applyKytVerdict', () => {
       await service.applyKytVerdict('s1', {
         verdict: 'rejected',
         applicantActions: [{ applicantActionId: 'A1', externalActionId: 'EA1' }],
-        typedTags: ['SANCTION_APPLICANT'],
+        sceneTag: 'SANCTION_APPLICANT',
       });
 
       const dispositionAudit = (mocks.auditLogsService.recordSystem as jest.Mock).mock.calls
@@ -2132,7 +2132,7 @@ describe('SwapWorkflowService.applyKytVerdict', () => {
       // Swap A: hard line via SANCTION_APPLICANT tag — correctly silent.
       await (service as any).handleRejectDisposition(swapA, {
         verdict: 'rejected',
-        typedTags: ['SANCTION_APPLICANT'],
+        sceneTag: 'SANCTION_APPLICANT',
       });
       expect(mocks.materialRequestIssuer.register).not.toHaveBeenCalled();
 
@@ -2220,7 +2220,7 @@ describe('SwapWorkflowService.applyKytVerdict', () => {
       await expect(
         (service as any).handleRejectDisposition(mocks.swapRow, {
           verdict: 'rejected' as const,
-          typedTags: ['SANCTION_APPLICANT'],
+          sceneTag: 'SANCTION_APPLICANT',
         }),
       ).rejects.toThrow('SQLITE_BUSY: database is locked');
 
@@ -2236,12 +2236,15 @@ describe('SwapWorkflowService.applyKytVerdict', () => {
   });
 
   // ── 2026-08-20 制裁分主体（命门）───────────────────────────────────────
-  // handleRejectDisposition 里的 `(input.typedTags ?? []).includes('SANCTION_APPLICANT')`
-  // 吃的是已经 map 成 string[] 的 typedTags，includes 对任意字符串都合法，
-  // TypeScript 抓不到写错的标签名。写错 → hasSanction 恒 false →
-  // restrictionCause 掉进 KYT_REJECTED_SOFT → markHardLineDisposition 不盖章
-  // → 走软线开出面向客户的补料请求 → tipping-off，而构建和测试全绿、零日志。
-  // 这组测试就是为钉死这一行存在的 —— 改那一行必须回看这里。
+  // handleRejectDisposition 里的 hasApplicantSanctionHit(input.sceneTag) 判定
+  // 是否命中 SANCTION_APPLICANT。Task A6（2026-08-29）之前吃的是已经 map 成
+  // string[] 的 typedTags、靠 `.includes('SANCTION_APPLICANT')`——TypeScript
+  // 抓不到写错的标签名。写错 → hasSanction 恒 false → restrictionCause 掉进
+  // KYT_REJECTED_SOFT → markHardLineDisposition 不盖章 → 走软线开出面向客户的
+  // 补料请求 → tipping-off，而构建和测试全绿、零日志。改成读类型化的 sceneTag
+  // 之后同类型误比较（如拼错的字面量）会被 TS 挡在编译期，但这组测试钉的是
+  // *运行时*的主体区分（APPLICANT 冻、COUNTERPARTY 不冻）——依旧值得留着，
+  // 改这一判据必须回看这里。
   describe('handleRejectDisposition · 制裁主体判定（命门）', () => {
     it('SANCTION_APPLICANT → cause=SANCTION，且不暴露补料入口', async () => {
       const mocks = buildApplyKytVerdictMocks();
@@ -2249,7 +2252,7 @@ describe('SwapWorkflowService.applyKytVerdict', () => {
 
       await (service as any).handleRejectDisposition(mocks.swapRow, {
         verdict: 'rejected',
-        typedTags: ['SANCTION_APPLICANT'],
+        sceneTag: 'SANCTION_APPLICANT',
         applicantActions: [{ applicantActionId: 'a1', externalActionId: 'e1' }],
       });
 
@@ -2266,27 +2269,12 @@ describe('SwapWorkflowService.applyKytVerdict', () => {
 
       await (service as any).handleRejectDisposition(mocks.swapRow, {
         verdict: 'rejected',
-        typedTags: ['SANCTION_COUNTERPARTY'],
+        sceneTag: 'SANCTION_COUNTERPARTY',
         applicantActions: [{ applicantActionId: 'a1', externalActionId: 'e1' }],
       });
 
       expect(mocks.customerRestrictionsService.open).toHaveBeenCalledWith(
         expect.objectContaining({ cause: 'KYT_REJECTED_SOFT' }),
-      );
-    });
-
-    it('旧标签 SANCTION 已退役 —— 不得再被识别成制裁', async () => {
-      const mocks = buildApplyKytVerdictMocks();
-      const service = makeApplyKytVerdictService(mocks);
-
-      await (service as any).handleRejectDisposition(mocks.swapRow, {
-        verdict: 'rejected',
-        typedTags: ['SANCTION'],
-        applicantActions: [{ applicantActionId: 'a1', externalActionId: 'e1' }],
-      });
-
-      expect(mocks.customerRestrictionsService.open).not.toHaveBeenCalledWith(
-        expect.objectContaining({ cause: 'SANCTION' }),
       );
     });
   });
@@ -2305,7 +2293,7 @@ describe('SwapWorkflowService.applyKytVerdict', () => {
       const mocks = buildApplyKytVerdictMocks();
       const service = makeApplyKytVerdictService(mocks);
 
-      await service.applyKytVerdict('s1', { verdict: 'rejected', typedTags: ['SANCTION_APPLICANT'] });
+      await service.applyKytVerdict('s1', { verdict: 'rejected', sceneTag: 'SANCTION_APPLICANT' });
 
       expect(mocks.swapTransactionsService.markStatus).toHaveBeenCalledWith(
         's1',
@@ -2359,7 +2347,7 @@ describe('SwapWorkflowService.applyKytVerdict', () => {
       await expect(
         service.applyKytVerdict('s1', {
           verdict: 'rejected',
-          typedTags: ['SANCTION_APPLICANT'],
+          sceneTag: 'SANCTION_APPLICANT',
           applicantActions: [],
         }),
       ).resolves.toBeUndefined();
@@ -2392,7 +2380,7 @@ describe('SwapWorkflowService.applyKytVerdict', () => {
       const service = makeApplyKytVerdictService(mocks);
 
       await expect(
-        service.applyKytVerdict('s1', { verdict: 'rejected', typedTags: ['SANCTION_APPLICANT'] }),
+        service.applyKytVerdict('s1', { verdict: 'rejected', sceneTag: 'SANCTION_APPLICANT' }),
       ).resolves.toBeUndefined();
 
       expect(mocks.swapTransactionsService.markStatus).not.toHaveBeenCalled();
@@ -2420,6 +2408,121 @@ describe('SwapWorkflowService.applyKytVerdict', () => {
         .map((c) => c[0])
         .find((a: any) => a.action === AuditActions.SWAP_KYT_VERDICT_IGNORED);
       expect(ignoredAudit).toBeDefined();
+    });
+  });
+
+  // ── Task A6: 兑换域读 tag（PEP / MLRO freeze / 多条材料）──────────────────
+  // 上一个任务（A5）新增的 ③ PEP / ⑤ 多条材料 / ⑨ MLRO freeze 三个按钮，都要求
+  // workflow 真的认 sceneTag/dispoTag——此前只认 hasApplicantSanctionHit(typedTags)
+  // 里的 SANCTION_APPLICANT，dispoTag 完全不读，PEP 场景 tag 也只是被动透传。
+  describe('兑换域读 tag（Task A6）', () => {
+    it('⑨ MLRO freeze：COMPLIANCE_PENDING 单 + dispoTag=FROZEN_BY_MLRO（无 sceneTag）→ markStatus(FREEZE)，SWAP_FROZEN 审计带 dispoTag（与 ⑦ Sanctions 同一终态，不同因由）', async () => {
+      const mocks = buildApplyKytVerdictMocks();
+      const service = makeApplyKytVerdictService(mocks);
+
+      await service.applyKytVerdict('s1', { verdict: 'rejected', dispoTag: 'FROZEN_BY_MLRO' });
+
+      expect(mocks.swapTransactionsService.markStatus).toHaveBeenCalledWith(
+        's1',
+        SwapTransactionAction.FREEZE,
+        expect.anything(),
+        { rejectReason: 'FROZEN_BY_MLRO' },
+      );
+      // 与 SANCTION_APPLICANT 一样：跳过自己的 KYT_REJECTED，不是「先 REJECTED 再补冻」。
+      expect(mocks.swapTransactionsService.markStatus).not.toHaveBeenCalledWith(
+        's1',
+        SwapTransactionAction.KYT_REJECTED,
+        expect.anything(),
+        expect.anything(),
+      );
+      expect(mocks.swapTransactionsService.markStatus).toHaveBeenCalledTimes(1);
+
+      const frozenAudit = (mocks.auditLogsService.recordSystem as jest.Mock).mock.calls
+        .map((c) => c[0])
+        .find((a: any) => a.action === AuditActions.SWAP_FROZEN);
+      expect(frozenAudit).toBeDefined();
+      // 命门断言：光看状态分不清 ⑦ 制裁与 ⑨ MLRO——必须看 metadata.dispoTag。
+      // 把 Step 4 的 dispoTag 判据整个删掉，上面的状态断言仍会绿，唯独这两行会红。
+      expect(frozenAudit.metadata.dispoTag).toBe('FROZEN_BY_MLRO');
+      expect(frozenAudit.metadata.sceneTag ?? null).toBeNull();
+
+      // MLRO 冻结不是制裁：限制便签走 KYT_REJECTED_HARD（SILENT + 只锁
+      // SWAP/WITHDRAW），不是 SANCTION（SILENT + 卡全部能力）；也不盖 sticky
+      // 硬线章——那是制裁专属的永久 tipping-off 沉默，MLRO 冻结的是这一笔单
+      // 的处置，不是这个人的永久状态（sceneTag/dispoTag 概念区分见文件头）。
+      expect(mocks.customerRestrictionsService.open).toHaveBeenCalledWith(
+        expect.objectContaining({ cause: 'KYT_REJECTED_HARD' }),
+      );
+      expect(await mocks.pendingActionService.hasHardLineDisposition('cust-1')).toBe(false);
+      // 冻单终态：零材料入口。
+      expect(mocks.materialRequestIssuer.register).not.toHaveBeenCalled();
+    });
+
+    it('③ PEP 客户本人：sceneTag=PEP_APPLICANT（非 SANCTION_APPLICANT）→ 不冻单，正常软线落地：REJECTED + 下发材料，且挂在客户级便签上', async () => {
+      const mocks = buildApplyKytVerdictMocks();
+      const service = makeApplyKytVerdictService(mocks);
+
+      await service.applyKytVerdict('s1', {
+        verdict: 'rejected',
+        sceneTag: 'PEP_APPLICANT',
+        applicantActions: [{ applicantActionId: 'A1', externalActionId: 'EA1' }],
+      });
+
+      // PEP 客户本人不触发 FREEZE 判据（只有 SANCTION_APPLICANT / FROZEN_BY_MLRO
+      // 会）——落地边是普通的 KYT_REJECTED → REJECTED，兑换没有 ACTION_PENDING
+      // 这个"等"态（背景说明 #9：awaitUser 在兑换域等同拒绝，但仍下发材料）。
+      expect(mocks.swapTransactionsService.markStatus).toHaveBeenCalledWith(
+        's1',
+        SwapTransactionAction.KYT_REJECTED,
+        expect.anything(),
+        { rejectReason: 'KYT_REJECTED' },
+      );
+      expect(mocks.swapTransactionsService.markStatus).not.toHaveBeenCalledWith(
+        's1',
+        SwapTransactionAction.FREEZE,
+        expect.anything(),
+        expect.anything(),
+      );
+
+      // 下发材料 + 开客户级便签：existingRestrictionNo 等于 open() 刚开出的
+      // 那张便签号，材料请求挂在它下面（对应验收口径"req.restrictionNo 非空"）。
+      expect(mocks.customerRestrictionsService.open).toHaveBeenCalledWith(
+        expect.objectContaining({ customerId: 'cust-1', cause: 'KYT_REJECTED_SOFT' }),
+      );
+      expect(mocks.materialRequestIssuer.register).toHaveBeenCalledWith(
+        expect.objectContaining({
+          externalActionId: 'EA1',
+          orderDomain: 'SWAP',
+          orderRef: 'SWP0001',
+          existingRestrictionNo: 'RST2608160001',
+        }),
+      );
+    });
+
+    it('⑤ 多条材料（无 sceneTag/dispoTag）：3 条 applicantActions 一次性登记 3 行，不冻单', async () => {
+      const mocks = buildApplyKytVerdictMocks();
+      const service = makeApplyKytVerdictService(mocks);
+
+      await service.applyKytVerdict('s1', {
+        verdict: 'rejected',
+        applicantActions: [
+          { applicantActionId: 'aa-multi-1', externalActionId: 'EXT-MULTI-1' },
+          { applicantActionId: 'aa-multi-2', externalActionId: 'EXT-MULTI-2' },
+          { applicantActionId: 'aa-multi-3', externalActionId: 'EXT-MULTI-3' },
+        ],
+      });
+
+      expect(mocks.swapTransactionsService.markStatus).toHaveBeenCalledWith(
+        's1',
+        SwapTransactionAction.KYT_REJECTED,
+        expect.anything(),
+        { rejectReason: 'KYT_REJECTED' },
+      );
+      expect(mocks.materialRequestIssuer.register).toHaveBeenCalledTimes(3);
+      const registeredIds = (mocks.materialRequestIssuer.register as jest.Mock).mock.calls.map(
+        (c: any) => c[0].externalActionId,
+      );
+      expect(registeredIds).toEqual(['EXT-MULTI-1', 'EXT-MULTI-2', 'EXT-MULTI-3']);
     });
   });
 });

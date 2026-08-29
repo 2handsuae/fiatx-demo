@@ -91,9 +91,9 @@ describe('SwapKytVerdictHandler', () => {
     expect(arg).not.toHaveProperty('applicantActions');
   });
 
-  it('Rejected → 调 applyKytVerdict(verdict=rejected)，拉 getTxn 读 typedTags', async () => {
+  it('Rejected → 调 applyKytVerdict(verdict=rejected)，拉 getTxn 读 sceneTag（Task A6：不再原样透传 typedTags）', async () => {
     sumsubTxnClient.getTxn.mockResolvedValue(
-      txnDetail([{ label: 'SANCTION' }]),
+      txnDetail([{ label: 'SANCTION_APPLICANT' }]),
     );
 
     const hit = await handler.handle({
@@ -105,8 +105,11 @@ describe('SwapKytVerdictHandler', () => {
     expect(sumsubTxnClient.getTxn).toHaveBeenCalledWith('T1');
     expect(workflow.applyKytVerdict).toHaveBeenCalledWith(
       SWAP_ID,
-      expect.objectContaining({ verdict: 'rejected', typedTags: ['SANCTION'] }),
+      expect.objectContaining({ verdict: 'rejected', sceneTag: 'SANCTION_APPLICANT' }),
     );
+    // typedTags 不再是 applyKytVerdict 契约的一部分——分流后只传 sceneTag/dispoTag。
+    const arg = workflow.applyKytVerdict.mock.calls[0][1];
+    expect(arg).not.toHaveProperty('typedTags');
   });
 
   it('awaitingUser 一律归一为 rejected（兑换无"等客户"的语义）', async () => {
@@ -198,5 +201,67 @@ describe('SwapKytVerdictHandler', () => {
       SWAP_ID,
       expect.objectContaining({ applicantActions: actions }),
     );
+  });
+
+  // ── Task A6: 兑换 workflow 认 tag（PEP / MLRO freeze / 多条材料）─────────
+  // 此前 handler 只把 typedTags 原样往 workflow 传，不分流 sceneTag/dispoTag——
+  // 上一个任务新增的 ③ PEP / ⑤ 多条材料 / ⑨ MLRO freeze 三个按钮都要求兑换
+  // 真的读 tag 才有效果。照抄 deposit-kyt-verdict.handler.ts 的分流段。
+  describe('兑换域读 tag', () => {
+    it('⑨ MLRO freeze：getTxn 返回 FROZEN_BY_MLRO → dispoTag 透传给 workflow（不再是 typedTags）', async () => {
+      sumsubTxnClient.getTxn.mockResolvedValue(
+        txnDetail([{ label: 'FROZEN_BY_MLRO' }]),
+      );
+
+      await handler.handle({ type: 'applicantKytTxnRejected', kytTxnId: 'T1' });
+
+      expect(workflow.applyKytVerdict).toHaveBeenCalledWith(
+        SWAP_ID,
+        expect.objectContaining({ verdict: 'rejected', dispoTag: 'FROZEN_BY_MLRO' }),
+      );
+      const arg = workflow.applyKytVerdict.mock.calls[0][1];
+      expect(arg).not.toHaveProperty('sceneTag');
+    });
+
+    it('③ PEP 客户本人：awaitingUser（归一为 rejected）+ PEP_APPLICANT → sceneTag 透传给 workflow', async () => {
+      sumsubTxnClient.getTxn.mockResolvedValue(
+        txnDetail([{ label: 'PEP_APPLICANT' }]),
+      );
+
+      await handler.handle({ type: 'applicantKytTxnAwaitingUser', kytTxnId: 'T1' });
+
+      expect(workflow.applyKytVerdict).toHaveBeenCalledWith(
+        SWAP_ID,
+        expect.objectContaining({ verdict: 'rejected', sceneTag: 'PEP_APPLICANT' }),
+      );
+      const arg = workflow.applyKytVerdict.mock.calls[0][1];
+      expect(arg).not.toHaveProperty('dispoTag');
+    });
+
+    it('同时命中 SANCTION_APPLICANT 与 PEP_APPLICANT → 优先级更高的 SANCTION_APPLICANT 赢（复用 A2 的 SCENE_TAG_PRIORITY）', async () => {
+      sumsubTxnClient.getTxn.mockResolvedValue(
+        txnDetail([{ label: 'PEP_APPLICANT' }, { label: 'SANCTION_APPLICANT' }]),
+      );
+
+      await handler.handle({ type: 'applicantKytTxnRejected', kytTxnId: 'T1' });
+
+      expect(workflow.applyKytVerdict).toHaveBeenCalledWith(
+        SWAP_ID,
+        expect.objectContaining({ sceneTag: 'SANCTION_APPLICANT' }),
+      );
+    });
+
+    it('场景 tag 与处置 tag 各自独立判定，互不覆盖（PEP_APPLICANT + FROZEN_BY_MLRO 同时命中）', async () => {
+      sumsubTxnClient.getTxn.mockResolvedValue(
+        txnDetail([{ label: 'PEP_APPLICANT' }, { label: 'FROZEN_BY_MLRO' }]),
+      );
+
+      await handler.handle({ type: 'applicantKytTxnRejected', kytTxnId: 'T1' });
+
+      expect(workflow.applyKytVerdict).toHaveBeenCalledWith(
+        SWAP_ID,
+        expect.objectContaining({ sceneTag: 'PEP_APPLICANT', dispoTag: 'FROZEN_BY_MLRO' }),
+      );
+    });
   });
 });

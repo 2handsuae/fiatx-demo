@@ -17,6 +17,7 @@ import {
   SUMSUB_TXN_CLIENT,
   SumsubTxnClient,
 } from '../../sumsub-shared/sumsub-txn-client.interface';
+import { type SceneTag, type DispoTag } from '../../sumsub-shared/scene-tags';
 import {
   buildSwapLegPlan,
   SwapLegSpec,
@@ -603,9 +604,12 @@ export class SwapWorkflowService {
       verdict: 'approved' | 'rejected';
       /** scoringResult.score —— 与提现契约对齐（parity 2026-08-14），approved 也带。 */
       riskScore?: number | null;
+      /** Task A6：场景 tag（Sumsub 规则引擎自动打，说命中了什么）。 */
+      sceneTag?: SceneTag;
+      /** Task A6：处置 tag（合规官/MLRO 手工打，说该怎么办）。兑换只认 FROZEN_BY_MLRO。 */
+      dispoTag?: DispoTag;
       detailRaw?: unknown;
       applicantActions?: { applicantActionId: string; externalActionId: string }[];
-      typedTags?: string[];
     },
   ): Promise<void> {
     const swap = await this.swapTransactionsService.findByIdInternal(swapId);
@@ -742,20 +746,26 @@ export class SwapWorkflowService {
     // 会撞 `Invalid transition: REJECTED + freeze`。判据必须在这次 markStatus 之
     // 前做出，所以这里独立算一次，调用类内 hasApplicantSanctionHit（与
     // handleRejectDisposition 内 Task 3 命门测试组钉住的那一次判定共用同一个
-    // 私有谓词，同一个 input.typedTags，同一条调用链）。
+    // 私有谓词，同一个 input.sceneTag，同一条调用链）。
+    // 2026-08-29（Task A6）：MLRO 手工冻结（dispoTag=FROZEN_BY_MLRO）与制裁命中
+    // 客户本人是同一条落地边——都跳过 KYT_REJECTED，直接交给 handleRejectDisposition
+    // 里的 FREEZE 分支。willFreeze 是两者的并集；hasSanction 单独留着，因为它还要
+    // 驱动 restrictionCause='SANCTION'（SILENT/卡全部能力）与 tipping-off 判断，
+    // MLRO 冻结不共享那两条语义（详见 handleRejectDisposition 里的辨析）。
     //
-    // hasSanction 时这个 $transaction 只落证据，不碰状态机——FREEZE 的
+    // willFreeze 时这个 $transaction 只落证据，不碰状态机——FREEZE 的
     // markStatus + SWAP_FROZEN 审计交给下面的 handleRejectDisposition，那里已经
     // 是"先冻人（customerRestrictionsService.open）、再冻单（markStatus(FREEZE)）"
     // 的 fail-safe 顺序：open() 失败则 FREEZE 不会落地，单子退回原地
     // （COMPLIANCE_PENDING，因为这里跳过了自己的 markStatus）等下一次 webhook
     // 重投干净重跑；不会出现「单已经冻但人没限制」或「同一次裁决两次尝试
     // markStatus」的窗口。
-    const hasSanction = this.hasApplicantSanctionHit(input.typedTags);
+    const hasSanction = this.hasApplicantSanctionHit(input.sceneTag);
+    const willFreeze = hasSanction || input.dispoTag === 'FROZEN_BY_MLRO';
 
     await this.prisma.$transaction(async (tx) => {
       await this.swapTransactionsService.saveSumsubVerdict(swapId, verdictEvidence, tx);
-      if (hasSanction) return;
+      if (willFreeze) return;
       const rejectedNext = await this.swapTransactionsService.markStatus(swapId, SwapTransactionAction.KYT_REJECTED, tx, {
         rejectReason: 'KYT_REJECTED',
       });
@@ -764,7 +774,11 @@ export class SwapWorkflowService {
         reason: 'Swap KYT verdict rejected — no settlement legs booked, sell-side birth lock released to balance',
         fromStatus: swap.status,
         toStatus: rejectedNext,
-        metadata: { typedTags: input.typedTags, releasedFromAmount: String(swap.fromAmount) },
+        metadata: {
+          sceneTag: input.sceneTag ?? null,
+          dispoTag: input.dispoTag ?? null,
+          releasedFromAmount: String(swap.fromAmount),
+        },
       }, tx);
     });
     // 出生锁擦圈：拒绝=终局，卖出侧预占退还客户余额（业主裁定：终态不押钱）。
@@ -943,10 +957,17 @@ export class SwapWorkflowService {
   /**
    * 客户本人命中制裁（对手方命中 SANCTION_COUNTERPARTY 不算 —— 走普通软/硬线）。
    * 类内私有谓词：applyKytVerdict 和 handleRejectDisposition 两处判定读的是同一个
-   * `input.typedTags`、同一条调用链，抽出来只是去重，不是要跨这两处传参绑定。
+   * `input.sceneTag`、同一条调用链，抽出来只是去重，不是要跨这两处传参绑定。
+   *
+   * 只判 SANCTION_APPLICANT，不判 dispoTag===FROZEN_BY_MLRO ——两者虽然共享同一条
+   * FREEZE 落地边（见调用方 willFreeze），但语义不同：这个谓词的结果还驱动
+   * restrictionCause='SANCTION'（SILENT + 卡全部能力 + 只能 MLRO 解 + 客户级
+   * sticky 永久沉默）与 tipping-off 措辞——那是「这个人」的制裁调查专属语义，
+   * MLRO 手工冻结是「这一笔单」的处置决定，不共享这两条（见 handleRejectDisposition
+   * 内 willFreeze 的辨析）。
    */
-  private hasApplicantSanctionHit(typedTags?: string[]): boolean {
-    return (typedTags ?? []).includes('SANCTION_APPLICANT');
+  private hasApplicantSanctionHit(sceneTag?: SceneTag): boolean {
+    return sceneTag === 'SANCTION_APPLICANT';
   }
 
   private async handleRejectDisposition(
@@ -967,9 +988,12 @@ export class SwapWorkflowService {
       verdict: 'approved' | 'rejected';
       /** scoringResult.score —— 与提现契约对齐（parity 2026-08-14），approved 也带。 */
       riskScore?: number | null;
+      /** Task A6：场景 tag（Sumsub 规则引擎自动打，说命中了什么）。 */
+      sceneTag?: SceneTag;
+      /** Task A6：处置 tag（合规官/MLRO 手工打，说该怎么办）。兑换只认 FROZEN_BY_MLRO。 */
+      dispoTag?: DispoTag;
       detailRaw?: unknown;
       applicantActions?: { applicantActionId: string; externalActionId: string }[];
-      typedTags?: string[];
     },
   ): Promise<void> {
     try {
@@ -978,16 +1002,23 @@ export class SwapWorkflowService {
       // 2026-08-20 制裁分主体：只有「客户本人命中」才算硬线制裁。对手方命中
       // （SANCTION_COUNTERPARTY）按普通拒绝走软/硬线判定。
       //
-      // ⚠️ hasApplicantSanctionHit 内是 string[] 上的 includes，TypeScript 抓不到
-      // 写错的标签名。写错 → hasSanction 恒 false → restrictionCause 掉进
-      // KYT_REJECTED_SOFT → markHardLineDisposition 不盖章 → 走软线开出面向客户
-      // 的补料请求 → 客户被告知"请补充材料" = tipping-off，而构建和测试全绿、零
-      // 日志。swap-workflow.service.spec.ts 的「命门」用例组就是为钉死这个判据
-      // 存在的，改这里必须同步看那组测试。
-      const hasSanction = this.hasApplicantSanctionHit(input.typedTags);
+      // ⚠️ hasApplicantSanctionHit 现在读的是类型化的 sceneTag（不再是
+      // string[] 上的 .includes），写错标签名会被 TS 挡在编译期；但这条判据
+      // 依旧是命门——把它删掉或改错，同样会让 hasSanction 恒 false →
+      // restrictionCause 掉进 KYT_REJECTED_SOFT → markHardLineDisposition
+      // 不盖章 → 走软线开出面向客户的补料请求 → 客户被告知"请补充材料" =
+      // tipping-off，而构建和测试全绿、零日志。swap-workflow.service.spec.ts
+      // 的「命门」用例组就是为钉死这个判据存在的，改这里必须同步看那组测试。
+      const hasSanction = this.hasApplicantSanctionHit(input.sceneTag);
+      // Task A6：MLRO 手工冻结与制裁命中客户本人共享同一条 FREEZE 落地边——
+      // 见 applyKytVerdict 顶部同名变量的注释。冻单终态没有材料可交、也没有
+      // 补料入口，所以 willFreeze（而不是单独的 hasSanction）才是"这次裁决算
+      // 不算硬线"的正确判据：MLRO 冻结即便报文恰好带了 applicantActions，也
+      // 不能因为 actions.length>0 而被误判成软线、暴露一个即将被冻结的入口。
+      const willFreeze = hasSanction || input.dispoTag === 'FROZEN_BY_MLRO';
       const actions = input.applicantActions ?? [];
-      // 本次裁决单看自己是不是硬线：无 action 可做，或命中 SANCTION。
-      const isHardLineThisVerdict = hasSanction || actions.length === 0;
+      // 本次裁决单看自己是不是硬线：无 action 可做，或即将冻单（制裁/MLRO）。
+      const isHardLineThisVerdict = willFreeze || actions.length === 0;
 
       // Review Fix 2: 跨订单持久化 —— 查这个客户是否曾经被任意一笔 swap 硬线
       // 过。一旦命中过，永久不再暴露，不管这次裁决本身是软线还是硬线。
@@ -1026,15 +1057,17 @@ export class SwapWorkflowService {
           openedBy: 'system',
         });
 
-      // 2026-08-20（Task 9）：客户本人命中制裁 → 把这笔单打到 FROZEN。只对
-      // COMPLIANCE_PENDING 有效（迁移表的唯一入边）；单子若已在 PROCESSING
-      // （腿已开跑）或已终态，这里用 status 判据先过滤，不靠异常控流 ——
-      // PROCESSING 分支走的是另一条路径（assertSwapCustomerAccessOrHalt 停腿），
-      // REJECTED/SUCCESS carve-out 只重跑处置，不重跑状态迁移。
+      // 2026-08-20（Task 9）：客户本人命中制裁 → 把这笔单打到 FROZEN。
+      // 2026-08-29（Task A6）：MLRO 手工冻结（dispoTag=FROZEN_BY_MLRO）共享
+      // 同一条落地边——willFreeze 是两者的并集。只对 COMPLIANCE_PENDING 有效
+      // （迁移表的唯一入边）；单子若已在 PROCESSING（腿已开跑）或已终态，这里
+      // 用 status 判据先过滤，不靠异常控流 —— PROCESSING 分支走的是另一条路径
+      // （assertSwapCustomerAccessOrHalt 停腿），REJECTED/SUCCESS carve-out 只
+      // 重跑处置，不重跑状态迁移。
       // 顺序刻意在 open() 之后（先冻人、再冻单，与充值/提现一致的 fail-safe
       // 排列）：如果崩在两次写入之间，客户已经被限制、只是单子还没显示冻结，
       // 比反过来更安全。
-      if (hasSanction && swap.status === SwapTransactionStatus.COMPLIANCE_PENDING) {
+      if (willFreeze && swap.status === SwapTransactionStatus.COMPLIANCE_PENDING) {
         // 2026-08-20（Review Important Fix）：swap 是 applyKytVerdict 顶部（:501）
         // 一次性读出、随后一路传下来的陈旧快照 —— 从那一刻到这里之间，
         // onCustomerRestrictionOpened 广播 handler（由上面 open() 同步 emit 出的
@@ -1062,7 +1095,7 @@ export class SwapWorkflowService {
               swap.id,
               SwapTransactionAction.FREEZE,
               tx,
-              { rejectReason: 'SANCTION_APPLICANT' },
+              { rejectReason: hasSanction ? 'SANCTION_APPLICANT' : 'FROZEN_BY_MLRO' },
             );
           });
         } catch (freezeErr) {
@@ -1081,10 +1114,10 @@ export class SwapWorkflowService {
             `Swap ${swap.swapNo} already FROZEN when this disposition tried to freeze it — beaten by onCustomerRestrictionOpened broadcast (same open() call), not a real failure. Continuing to sticky mark + disposition audit.`,
           );
         }
-        let sanctionReleased: string | null = null;
+        let released: string | null = null;
         if (frozeHere) {
           // 出生锁擦圈（业主裁定：冻结终态不押钱——押人靠限制账，本场景人已被冻）。
-          sanctionReleased = await this.releaseBirthLock(swap, 'sanction freeze');
+          released = await this.releaseBirthLock(swap, hasSanction ? 'sanction freeze' : 'MLRO freeze');
         }
         // 审计调用独立 catch（与本文件 onCustomerRestrictionOpened 侧的孪生
         // SWAP_FROZEN 审计同款）：不能和上面的 markStatus 共享外层大 try —— 若
@@ -1097,10 +1130,18 @@ export class SwapWorkflowService {
         if (frozeHere) {
           await this.swapAudit(swap, {
               action: 'SWAP_FROZEN',
-              reason: `KYT verdict rejected: SANCTION_APPLICANT hit (order frozen + customer restricted) — sell-side birth lock released to balance`,
+              // Task A6：两条因由靠这里的 reason 文案 + metadata.sceneTag/dispoTag
+              // 分辨，不靠状态分辨——状态都是同一个 FROZEN（零出边终态）。
+              reason: hasSanction
+                ? `KYT verdict rejected: SANCTION_APPLICANT hit (order frozen + customer restricted) — sell-side birth lock released to balance`
+                : `KYT verdict rejected: FROZEN_BY_MLRO disposition (order frozen + customer restricted) — sell-side birth lock released to balance`,
               fromStatus: swap.status,
               toStatus: SwapTransactionStatus.FROZEN,
-              metadata: { sceneTag: 'SANCTION_APPLICANT', releasedFromAmount: sanctionReleased ?? undefined },
+              metadata: {
+                sceneTag: input.sceneTag ?? null,
+                dispoTag: input.dispoTag ?? null,
+                releasedFromAmount: released ?? undefined,
+              },
             })
             .catch((err) => {
               this.logger.error(

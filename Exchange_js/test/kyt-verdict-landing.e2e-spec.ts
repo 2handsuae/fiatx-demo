@@ -171,7 +171,7 @@ describe('第一批 · 合规裁决落地 (e2e)', () => {
 
     await app
       .get(SwapWorkflowService)
-      .applyKytVerdict(swap.id, { verdict: 'rejected', typedTags: ['SANCTION'] });
+      .applyKytVerdict(swap.id, { verdict: 'rejected' });
 
     const ignored = await prisma.auditLogEvent.findMany({
       where: { primarySubjectNo: swap.swapNo, action: AuditActions.SWAP_KYT_VERDICT_IGNORED },

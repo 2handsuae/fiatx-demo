@@ -34,7 +34,7 @@ export enum SwapTransactionAction {
   FREEZE = 'freeze',
 }
 
-export type SwapRejectReason = 'KYT_REJECTED' | 'TIMEOUT' | 'SANCTION_APPLICANT';
+export type SwapRejectReason = 'KYT_REJECTED' | 'TIMEOUT' | 'SANCTION_APPLICANT' | 'FROZEN_BY_MLRO';
 
 export class CreateSwapTransactionDto {
   @ApiPropertyOptional({ description: 'Business transaction number' })

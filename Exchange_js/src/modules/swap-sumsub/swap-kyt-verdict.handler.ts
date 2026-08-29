@@ -5,6 +5,18 @@ import {
   SUMSUB_TXN_CLIENT,
   SumsubTxnClient,
 } from '../sumsub-shared/sumsub-txn-client.interface';
+import {
+  SCENE_TAGS,
+  SCENE_TAG_PRIORITY,
+  type SceneTag,
+  type DispoTag,
+} from '../sumsub-shared/scene-tags';
+
+// 兑换只认一个处置 tag：FROZEN_BY_MLRO——没有 RETURN_TO_SENDER（充值退回原发
+// 款方）/ FINAL_REJECTED（提现最终拒付）那类弧，因为兑换的 FROZEN 是零出边
+// 终态（swap-transactions.service.ts 的 transitions 表 `[FROZEN]: {}`），没有
+// 没收/退回/上缴那类处置可标。
+const DISPO_TAGS = new Set<DispoTag>(['FROZEN_BY_MLRO']);
 
 // payload.type → 归一 verdict;'ignore' = Reviewed/Created,不推进状态机。
 // 与 deposit-kyt-verdict.handler.ts / withdraw-kyt-verdict.handler.ts 的同名表
@@ -69,11 +81,24 @@ export class SwapKytVerdictHandler {
     let applicantActions:
       | { applicantActionId: string; externalActionId: string }[]
       | undefined;
-    let typedTags: string[] | undefined;
+    let sceneTag: SceneTag | undefined;
+    let dispoTag: DispoTag | undefined;
     // tag/action 仍只在 rejected 消费（approved 没有处置分支要驱动）。
+    // Task A6：不再把 typedTags 原样传下去——照抄 deposit-kyt-verdict.handler.ts
+    // 的分流段，按 SCENE_TAG_PRIORITY 取优先级最高的 sceneTag（标量 max-reduce，
+    // 与报文里 tag 的先后顺序无关）、把命中 DISPO_TAGS 的记成 dispoTag。
     if (verdict === 'rejected') {
       applicantActions = detail.applicantActions;
-      typedTags = (detail.typedTags ?? []).map((t) => String(t.label ?? t));
+      for (const tag of detail.typedTags) {
+        if (tag.type !== 'userDefined') continue;
+        if (SCENE_TAGS.has(tag.label as SceneTag)) {
+          const candidate = tag.label as SceneTag;
+          if (!sceneTag || SCENE_TAG_PRIORITY[candidate] > SCENE_TAG_PRIORITY[sceneTag]) {
+            sceneTag = candidate;
+          }
+        }
+        if (DISPO_TAGS.has(tag.label as DispoTag)) dispoTag = tag.label as DispoTag;
+      }
     }
 
     await this.workflow.applyKytVerdict(swap.id, {
@@ -81,7 +106,8 @@ export class SwapKytVerdictHandler {
       riskScore,
       ...(detailRaw !== undefined && { detailRaw }),
       ...(applicantActions?.length && { applicantActions }),
-      ...(typedTags?.length && { typedTags }),
+      ...(sceneTag && { sceneTag }),
+      ...(dispoTag && { dispoTag }),
     });
     return true;
   }
