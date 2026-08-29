@@ -6,18 +6,30 @@
 // Drives the REAL domain/workflow services (no Prisma backdoors — same path as a
 // human clicking in admin) to produce a reproducible day of business activity for
 // the tradeable business-seed customers (Alice/Bob/Grace):
-//   setup → deposits → swaps → withdrawals.
-// A 4th persona (Frank, FROZEN_PERSONA_EMAIL) is set up and deposited-into
-// alongside them; deposit roster row #7 (⚡⑦) permanently customer-level
-// sanctions him — a restriction that must not land on anyone who still needs
-// to swap/withdraw later in the same run (see resolveFrozenPersona). His own
-// later SWAP roster row (#13, also ⚡⑦) then finds order creation itself
-// blocked (CAPABILITY_RESTRICTED) rather than landing FROZEN as a real order
-// — see runSwaps' catch block below and task-C3-report.md/task-C3b-report.md.
+//   setup → Frank pre-stage → deposits → swaps → withdrawals.
+// A 4th persona (Frank, FROZEN_PERSONA_EMAIL) is set up alongside them; deposit
+// roster row #7 (⚡⑦) permanently customer-level sanctions him — a restriction
+// that must not land on anyone who still needs to swap/withdraw later in the
+// same run (see resolveFrozenPersona). His own later SWAP roster row (#13,
+// expectedStatus FROZEN) is frozen by that SAME sanction's broadcast
+// (CUSTOMER_RESTRICTION_OPENED → SwapWorkflowService.onCustomerRestrictionOpened
+// sweeps his in-flight COMPLIANCE_PENDING swaps) — but only because
+// runFrankPreStage() (new pre-stage, run BEFORE runDeposits) funds him (roster
+// row #21, a plain SUCCESS deposit) and creates #13's order while he's still
+// unrestricted. Neither holds by default: initiateSwap synchronously rejects a
+// restricted customer (CAPABILITY_RESTRICTED) and separately requires sell-side
+// balance up front (INSUFFICIENT_BALANCE), and Frank has no other roster row
+// that ever credits him — see runFrankPreStage's own header comment for the
+// full mechanism (task-C3-report.md/task-C3b-report.md document the two dead
+// ends that made the pre-stage necessary; task-C3c-report.md is the fix).
 // (WITHDRAW row #19 does NOT reuse Frank — see runWithdraws below.)
 //
-// End-state (after runAll): all orders SUCCESS; both COA invariants (CLIENT + FIRM)
-// hold per ledger; no Outstanding or FeeAccrual rows created (real-time 1:1 model).
+// End-state (after runAll): the tradeable trio's orders are all SUCCESS —
+// verifyEndState() scopes its per-domain SUCCESS counts to the trio only, so
+// Frank's four orders (deposit #7 FROZEN, #10 SEIZED, #21 SUCCESS, swap #13
+// FROZEN) sit outside those checks by design (see DEMO_ROSTER for the full
+// 21-row expected shape). Both COA invariants (CLIENT + FIRM) hold per ledger;
+// no Outstanding or FeeAccrual rows created (real-time 1:1 model).
 // verifyEndState() asserts this.
 
 // Node18 polyfill: @nestjs/schedule calls crypto.randomUUID() at module-register
@@ -140,6 +152,12 @@ export type DemoCtx = {
    *  so the MLRO/SMO/OPS_OFFICER login+approve calls for the deposit disposition
    *  arcs (runDeposits) need the actual long-running stack server instead. */
   apiBase: string;
+  /** Populated by runFrankPreStage() (must run before runDeposits/runSwaps) —
+   *  see that function's header comment for why FRANK's capital deposit
+   *  (roster #21) and swap (#13) both have to be created ahead of the normal
+   *  deposit/swap stages. runDeposits()/runSwaps() read these ids back
+   *  instead of creating new orders for those two rows. */
+  frankPreStage?: { depositId: string; swapId: string };
 };
 
 // Worktree ("self") stacks auto-allocate a 4-port block persisted in
@@ -357,10 +375,78 @@ export async function ensureSetup(ctx: DemoCtx): Promise<void> {
   console.log(`  setup done: ${[...customers, frozenPersona].map((c) => c.customerNo).join(', ')}`);
 }
 
-// ── stage 2: deposits (10-entry roster, incl. 3 disposition arcs) ─────────────
+// ── stage 1.5: Frank's pre-stage capital + swap (must run BEFORE runDeposits) ─
 //
-// Roster: scripts/demo-roster.ts DEMO_ROSTER (domain === 'DEPOSIT', 10 rows) —
-// every row drives to whatever status the roster names, via the REAL service/
+// SWAP roster row #13 (FRANK, expectedStatus FROZEN) needs a real in-flight
+// COMPLIANCE_PENDING swap order sitting on the books at the exact moment
+// deposit roster row #7 opens FRANK's customer-level SANCTION restriction
+// (scope=ALL) — that broadcast (CUSTOMER_RESTRICTION_OPENED) is the ONLY way
+// #13 ever reaches FROZEN: SwapWorkflowService.onCustomerRestrictionOpened
+// sweeps every COMPLIANCE_PENDING swap belonging to the just-restricted
+// customer straight to FROZEN (swap-workflow.service.ts:1783). Two hard
+// preconditions block getting there any other way, both confirmed dead ends
+// (task-C3-report.md / task-C3b-report.md):
+//
+//   1. initiateSwap's balance pre-check (swap-workflow.service.ts:288-314)
+//      requires FRANK to already hold ≥ the sell amount in his available
+//      CLIENT_PAYABLE balance before the order can even be created — and
+//      FRANK has no OTHER roster row that ever credits him before #7/#10
+//      permanently sanction/seize him. Roster row #21 (a plain SUCCESS AED
+//      deposit) exists solely to fund him first.
+//
+//   2. initiateSwap's synchronous assertTradingEligibility gate
+//      (swap-workflow.service.ts:206) throws CAPABILITY_RESTRICTED the
+//      instant FRANK carries an OPEN restriction — so #13's order has to be
+//      CREATED strictly before #7 fires. demo:all's pipeline is staged
+//      setup → deposits → swaps → withdraws (scripts/demo-all.ts): deposit
+//      row #7 always finishes long before runSwaps() is even called, so
+//      #13's creation cannot live inside the normal SWAP stage — it has to
+//      run in its own pre-stage, ahead of runDeposits().
+//
+// So this function does both, in order, right after ensureSetup(): drives #21
+// all the way to SUCCESS (same V1_APPROVED path as roster rows #1-3), then
+// creates #13's swap (quote + initiateSwap only — no verdict; initiateSwap
+// alone books nothing beyond the COMPLIANCE_PENDING row) and hands its id
+// back via ctx.frankPreStage for runSwaps() to pick up later, once #7 (inside
+// the runDeposits() call that follows) has actually frozen it.
+export async function runFrankPreStage(ctx: DemoCtx): Promise<Array<{ seq: number; orderNo: string; status: string }>> {
+  console.log('═══ demo:frank-prestage — FRANK 本金充值 + 兑换建单（须早于 #7 制裁）═══');
+  const frank = await resolveFrozenPersona(ctx.prisma);
+
+  const depositEntry = DEMO_ROSTER.find((r) => r.seq === 21)!;
+  const aedWallet = await ctx.prisma.wallet.findFirst({
+    where: { ownerId: frank.id, walletRole: 'C_VIBAN', assetId: ctx.aed.id },
+  });
+  if (!aedWallet) throw new Error(`${frank.email} missing C_VIBAN — run demo:setup first`);
+
+  let dep = await createRosterDeposit(ctx, frank, ctx.aed, aedWallet.id, depositEntry.amount, PayinType.FIAT);
+  await driveVerdict(ctx, dep.id, 'V1_APPROVED');
+  dep = await waitDepositStatus(ctx, dep.id, 'SUCCESS');
+  console.log(`  #${depositEntry.seq} ${depositEntry.label}: ${dep.depositNo} → ${dep.status}`);
+
+  const swapEntry = DEMO_ROSTER.find((r) => r.seq === 13)!;
+  const sellUsdt = swapEntry.currency === 'USDT';
+  const from = sellUsdt ? ctx.usdt : ctx.aed;
+  const to = sellUsdt ? ctx.aed : ctx.usdt;
+  const quote: any = await ctx.swapQuote.createQuote({
+    ownerType: 'CUSTOMER', ownerId: frank.id, ownerNo: frank.customerNo,
+    fromAssetId: from.id, fromAssetCode: from.currency,
+    toAssetId: to.id, toAssetCode: to.currency,
+    amount: new Prisma.Decimal(swapEntry.amount), customerId: frank.id,
+  } as any);
+  const swap = await ctx.swapWf.initiateSwap(frank.id, quote.id);
+  ctx.frankPreStage = { depositId: dep.id, swapId: swap.id };
+  console.log(`  #${swapEntry.seq} ${swapEntry.label}: ${swap.swapNo} AED→USDT ${swapEntry.amount} (COMPLIANCE_PENDING —— 等 runDeposits 里的 #7 广播连坐冻结)`);
+
+  return [{ seq: depositEntry.seq, orderNo: dep.depositNo, status: dep.status }];
+}
+
+// ── stage 2: deposits (11-entry roster, incl. 3 disposition arcs; #21 is
+//    pre-staged by runFrankPreStage() above and just re-reported here) ───────
+//
+// Roster: scripts/demo-roster.ts DEMO_ROSTER (domain === 'DEPOSIT', 11 rows,
+// incl. #21 — see the stage banner above for how that one is handled) — every
+// row drives to whatever status the roster names, via the REAL service/
 // workflow methods a human admin would use (no direct table writes):
 //   · the ⚡ buttons drive DepositWorkflowService.applyKytVerdict directly —
 //     the same workflow method the admin demo panel's endpoint
@@ -516,7 +602,7 @@ async function makerCheckerApprove(ctx: DemoCtx, approvalNo: string, logins: Arr
 }
 
 export async function runDeposits(ctx: DemoCtx): Promise<Array<{ seq: number; orderNo: string; status: string }>> {
-  console.log('═══ demo:deposit — 10 笔按花名册铺（含三条处置弧）═══');
+  console.log('═══ demo:deposit — 11 笔按花名册铺（含三条处置弧 + FRANK 预铺本金 #21）═══');
   const customers = await resolveDemoCustomers(ctx.prisma);
   // roster rows #7/#10 target the frozen persona (FRANK), not the tradeable
   // trio — resolve him too so byEmail/wallets below can find him.
@@ -535,6 +621,16 @@ export async function runDeposits(ctx: DemoCtx): Promise<Array<{ seq: number; or
   const driven: Array<{ seq: number; depositId: string }> = [];
 
   for (const entry of DEMO_ROSTER.filter((r) => r.domain === 'DEPOSIT')) {
+    if (entry.seq === 21) {
+      // Already created + driven to SUCCESS by runFrankPreStage(), which MUST
+      // run before this function — #21 has to settle, and #13's swap has to
+      // exist, before #7 below opens FRANK's restriction (see
+      // runFrankPreStage's header comment). Nothing to drive here; just fold
+      // the already-settled result in so callers still see all 11 rows.
+      if (!ctx.frankPreStage) throw new Error('roster #21: call runFrankPreStage(ctx) before runDeposits(ctx)');
+      driven.push({ seq: 21, depositId: ctx.frankPreStage.depositId });
+      continue;
+    }
     const c = byEmail.get(entry.customerEmail);
     if (!c) throw new Error(`roster #${entry.seq}: customer ${entry.customerEmail} not resolved`);
     const w = wallets.get(entry.customerEmail)!;
@@ -639,8 +735,10 @@ export async function runDeposits(ctx: DemoCtx): Promise<Array<{ seq: number; or
   // a customer-level restriction (scope=ALL) on its owner, and
   // DepositWorkflowService's onCustomerRestrictionOpened sweeps EVERY non-terminal
   // deposit that owner has to FROZEN. That is exactly why #7/#10 (FROZEN/SEIZED)
-  // are pinned to FRANK — a persona with no OTHER roster rows — instead of reusing
-  // a trio member: BOB used to hold both #5 (MANUAL_CHECKING) and #7, and #7's
+  // are pinned to FRANK instead of reusing a trio member — FRANK's only OTHER
+  // deposit row (#21, pre-staged by runFrankPreStage()) is driven to a TERMINAL
+  // SUCCESS well before #7 ever runs, so it's immune to this sweep: BOB used to
+  // hold both #5 (MANUAL_CHECKING) and #7, and #7's
   // sweep silently clobbered #5 to FROZEN after the fact (PAYIN_PENDING→
   // COMPLIANCE_PENDING→MANUAL_CHECKING→FROZEN), which also happened to be exactly
   // the customer-level-restriction/trio-must-stay-tradeable conflict that made
@@ -722,18 +820,20 @@ async function driveSwapToSuccess(ctx: DemoCtx, swap: { id: string; swapNo: stri
 //     — initiateSwap itself books nothing (swap sits COMPLIANCE_PENDING until a
 //     KYT verdict lands); no real Sumsub webhook in demo/local, so the verdict is
 //     applied the same way createRosterDeposit/driveVerdict do for deposits.
-//   · #13 (FRANK, ⚡⑦) is the one row that does NOT reach a verdict at all: by the
-//     time swaps run, deposit roster row #7 has already opened a customer-level
-//     SANCTION restriction on FRANK (scope=ALL — restriction-cause.constant.ts),
-//     and initiateSwap's very first check (customerAccessService
-//     .assertTradingEligibility → assertCapability) throws CAPABILITY_RESTRICTED
-//     synchronously, before any swapTransaction row is inserted. Unlike DEPOSIT
-//     (whose detected() has no upfront capability gate, so a restricted
-//     customer's deposit still gets created and is pre-empted to FROZEN
-//     afterward — see runDeposits' #10 comment), SWAP has no such "create then
-//     freeze" path: there is nothing to apply ⚡⑦ to. Confirmed against the live
-//     stack (task-C3-report.md) — no order is produced for #13, so nothing is
-//     pushed to `results`; printAnswerKey already renders that as "（没造出来）".
+//   · #13 (FRANK) is the one row whose ORDER is NOT created here at all — it was
+//     already created by runFrankPreStage() (called before runDeposits(), see
+//     that function's header comment), specifically so it exists BEFORE deposit
+//     roster row #7 opens FRANK's customer-level SANCTION restriction (scope=ALL
+//     — restriction-cause.constant.ts). By the time THIS loop runs, #7 has
+//     already fired — creating the order here would hit initiateSwap's
+//     synchronous assertTradingEligibility gate and throw CAPABILITY_RESTRICTED,
+//     the exact dead end task-C3-report.md documented (an even earlier attempt,
+//     applying a rejecting ⚡⑦ verdict directly to a freshly-created order, hit
+//     the same wall — task-C3b-report.md). So this loop just waits for #7's
+//     broadcast (CUSTOMER_RESTRICTION_OPENED →
+//     SwapWorkflowService.onCustomerRestrictionOpened, fire-and-forget) to
+//     finish sweeping the pre-staged COMPLIANCE_PENDING order to FROZEN — no
+//     verdict is ever applied to it directly. See task-C3c-report.md.
 export async function runSwaps(ctx: DemoCtx): Promise<Array<{ seq: number; orderNo: string; status: string }>> {
   console.log('═══ demo:swap — 3 笔按花名册铺 ═══');
   const customers = await resolveDemoCustomers(ctx.prisma);
@@ -746,12 +846,20 @@ export async function runSwaps(ctx: DemoCtx): Promise<Array<{ seq: number; order
     const c = byEmail.get(entry.customerEmail);
     if (!c) throw new Error(`roster #${entry.seq}: customer ${entry.customerEmail} not resolved`);
 
-    const sellUsdt = entry.currency === 'USDT';
-    const from = sellUsdt ? ctx.usdt : ctx.aed;
-    const to = sellUsdt ? ctx.aed : ctx.usdt;
-
     let swap: any;
-    try {
+    if (entry.seq === 13) {
+      // Pre-staged — see the roster-comment block above.
+      if (!ctx.frankPreStage) throw new Error(`roster #${entry.seq}: call runFrankPreStage(ctx) before runSwaps(ctx)`);
+      const swapId = ctx.frankPreStage.swapId;
+      swap = await waitFor(`${entry.label} 被 #7 广播连坐冻结`, async () => {
+        const s: any = await ctx.prisma.swapTransaction.findUnique({ where: { id: swapId } });
+        return s?.status === 'FROZEN' ? s : null;
+      }, 8000);
+      console.log(`  #${entry.seq} ${entry.label}: ${swap.swapNo} → ${swap.status}（pre-stage 建单，#7 广播连坐冻结）`);
+    } else {
+      const sellUsdt = entry.currency === 'USDT';
+      const from = sellUsdt ? ctx.usdt : ctx.aed;
+      const to = sellUsdt ? ctx.aed : ctx.usdt;
       const quote: any = await ctx.swapQuote.createQuote({
         ownerType: 'CUSTOMER', ownerId: c.id, ownerNo: c.customerNo,
         fromAssetId: from.id, fromAssetCode: from.currency,
@@ -759,34 +867,12 @@ export async function runSwaps(ctx: DemoCtx): Promise<Array<{ seq: number; order
         amount: new Prisma.Decimal(entry.amount), customerId: c.id,
       } as any);
       swap = await ctx.swapWf.initiateSwap(c.id, quote.id);
-    } catch (e: any) {
-      // See the roster-comment block above (#13/FRANK). INSUFFICIENT_BALANCE is
-      // kept alongside CAPABILITY_RESTRICTED as the same family of expected
-      // creation-time rejection for this row — FRANK's only two deposits
-      // (#7 FROZEN, #10 SEIZED) never credit his available balance either.
-      const code = e?.response?.code ?? e?.code;
-      if (code === 'CAPABILITY_RESTRICTED' || code === 'INSUFFICIENT_BALANCE') {
-        console.log(`  #${entry.seq} ${entry.label}: 建单被拒 ${code} —— ${c.customerNo} 无法产出订单（详见任务报告）`);
-        continue;
-      }
-      throw e;
-    }
-    console.log(`  #${entry.seq} ${entry.label}: ${swap.swapNo} ${sellUsdt ? 'USDT→AED' : 'AED→USDT'} ${entry.amount} (COMPLIANCE_PENDING)`);
+      console.log(`  #${entry.seq} ${entry.label}: ${swap.swapNo} ${sellUsdt ? 'USDT→AED' : 'AED→USDT'} ${entry.amount} (COMPLIANCE_PENDING)`);
 
-    switch (entry.seq) {
-      case 11:
-      case 12:
-        // riskScore 5 = SWAP_VERDICT_BUTTONS.V1_APPROVED 的真实 score（不传的话
-        // sumsub_score 落 NULL，详情页 L2 副行只能显示 'Awaiting Sumsub verdict'）。
-        await ctx.swapWf.applyKytVerdict(swap.id, { verdict: 'approved', riskScore: 5 });
-        await driveSwapToSuccess(ctx, { id: swap.id, swapNo: swap.swapNo });
-        break;
-      case 13:
-        // 理论上的原生路径（若某次运行 FRANK 尚未被限制）：⚡⑦ =
-        // V7_REJECTED_SANCTION_APPLICANT（score 98）—— 兑换的 FROZEN 是零出边
-        // 终态，没有没收/退回/上缴那类处置弧。当前实测下不可达，见上方 catch。
-        await ctx.swapWf.applyKytVerdict(swap.id, { verdict: 'rejected', riskScore: 98, sceneTag: 'SANCTION_APPLICANT' });
-        break;
+      // riskScore 5 = SWAP_VERDICT_BUTTONS.V1_APPROVED 的真实 score（不传的话
+      // sumsub_score 落 NULL，详情页 L2 副行只能显示 'Awaiting Sumsub verdict'）。
+      await ctx.swapWf.applyKytVerdict(swap.id, { verdict: 'approved', riskScore: 5 });
+      await driveSwapToSuccess(ctx, { id: swap.id, swapNo: swap.swapNo });
     }
 
     const final: any = await ctx.prisma.swapTransaction.findUnique({ where: { id: swap.id } });

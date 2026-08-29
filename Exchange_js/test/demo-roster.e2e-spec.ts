@@ -1,6 +1,6 @@
 // test/demo-roster.e2e-spec.ts
 //
-// Task C2 e2e: proves runDeposits() drives all 10 DEPOSIT roster rows
+// Task C2 e2e: proves runDeposits() drives all DEPOSIT roster rows
 // (scripts/demo-roster.ts DEMO_ROSTER) to the status the roster names —
 // including the three disposition arcs (CONFISCATED/RETURNED/SEIZED), each a
 // real maker-checker with a second, really-logged-in admin identity approving
@@ -10,16 +10,19 @@
 // beforeAll below for why it isn't reused verbatim).
 //
 // Task C3 extends the same file with runSwaps()/runWithdraws() coverage
-// (SWAP/WITHDRAW roster rows). #13 (FRANK, ⚡⑦) is KNOWN to stay red: deposit
-// roster row #7 permanently customer-level SANCTION-restricts FRANK before
-// swaps ever run, and initiateSwap's synchronous assertCapability gate
-// rejects order creation outright — there is no order to land FROZEN.
-// Confirmed against the live stack; see task-C3-report.md. Not a bug in
-// runSwaps, and not something this test suite papers over — same "diagnose,
-// don't hide" precedent as C2's own #5/#7 finding (see that commit's
-// message). (Task C3b moved WITHDRAW row #19 off FRANK — GRACE via ⚡⑨
-// V9_REJECTED_MLRO_FREEZE now — so #19 is expected to pass; see
-// task-C3b-report.md and demo-lib.ts's runWithdraws comment block.)
+// (SWAP/WITHDRAW roster rows). (Task C3b moved WITHDRAW row #19 off FRANK —
+// GRACE via ⚡⑨ V9_REJECTED_MLRO_FREEZE now — see task-C3b-report.md and
+// demo-lib.ts's runWithdraws comment block.)
+//
+// Task C3c added runFrankPreStage() (called in beforeAll below, before
+// ensureSetup's ordinary deposit stage even starts) — #13 (FRANK) used to be
+// KNOWN to stay red here (deposit roster row #7 permanently customer-level
+// SANCTION-restricts FRANK before swaps ever ran, and initiateSwap's
+// synchronous assertCapability gate rejected order creation outright — see
+// task-C3-report.md/task-C3b-report.md). runFrankPreStage() creates #13's
+// order (and funds it via new roster row #21) BEFORE #7 fires, so #7's own
+// CUSTOMER_RESTRICTION_OPENED broadcast now freezes it for real — see
+// demo-lib.ts's runFrankPreStage header comment and task-C3c-report.md.
 //
 // The disposition arcs also need the actual backend HTTP server of this stack
 // up and listening (this test's own app context has no HTTP listener of its
@@ -57,7 +60,7 @@ import { SwapWorkflowService } from '../src/modules/trading/swap-transactions/sw
 import { WithdrawQuoteService } from '../src/modules/trading/withdrawal-fee-level/withdraw-quote.service';
 import { WithdrawTransactionsService } from '../src/modules/trading/withdraw-transactions/withdraw-transactions.service';
 import { WithdrawWorkflowService } from '../src/modules/trading/withdraw-transactions/withdraw-workflow.service';
-import { ensureSetup, runDeposits, runSwaps, runWithdraws, resolveApiBase, type DemoCtx } from '../scripts/demo-lib';
+import { ensureSetup, runFrankPreStage, runDeposits, runSwaps, runWithdraws, resolveApiBase, type DemoCtx } from '../scripts/demo-lib';
 import { DEMO_ROSTER } from '../scripts/demo-roster';
 
 describe('Deposit/swap/withdraw roster (e2e, Task C2 + C3)', () => {
@@ -104,13 +107,14 @@ describe('Deposit/swap/withdraw roster (e2e, Task C2 + C3)', () => {
     };
 
     await ensureSetup(ctx); // idempotent — guarantees wallets/TB accounts exist standalone
+    await runFrankPreStage(ctx); // must run before runDeposits — see its header comment (demo-lib.ts)
   });
 
   afterAll(async () => {
     if (ctx?.app) await ctx.app.close();
   });
 
-  it('充值 10 笔全部落到花名册预期状态', async () => {
+  it('充值 11 笔全部落到花名册预期状态', async () => {
     const results = await runDeposits(ctx);
     const deposits = DEMO_ROSTER.filter((r) => r.domain === 'DEPOSIT');
     for (const r of deposits) {

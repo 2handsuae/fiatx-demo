@@ -7,12 +7,12 @@
 import { DEMO_ROSTER, printAnswerKey } from '../../../scripts/demo-roster';
 
 describe('DEMO_ROSTER', () => {
-  it('20 笔单，覆盖三域', () => {
-    expect(DEMO_ROSTER).toHaveLength(20);
+  it('21 笔单，覆盖三域', () => {
+    expect(DEMO_ROSTER).toHaveLength(21);
     const byDomain = DEMO_ROSTER.reduce<Record<string, number>>((a, r) => {
       a[r.domain] = (a[r.domain] ?? 0) + 1; return a;
     }, {});
-    expect(byDomain).toEqual({ DEPOSIT: 10, SWAP: 3, WITHDRAW: 7 });
+    expect(byDomain).toEqual({ DEPOSIT: 11, SWAP: 3, WITHDRAW: 7 });
   });
 
   it('金额全部写死，没有随机', () => {

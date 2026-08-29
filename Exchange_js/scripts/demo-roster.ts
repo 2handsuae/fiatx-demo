@@ -1,5 +1,5 @@
 /**
- * demo:all 花名册 —— 20 笔单覆盖 20 种终态/活态。
+ * demo:all 花名册 —— 21 笔单覆盖 21 种终态/活态。
  *
  * 原则：剧本演到的状态必须有现成样本，剧本没演到的不造。不按状态机穷举
  * （兑换的 FAILED/REVERSED 是不可达死枚举，不进册）。
@@ -28,17 +28,28 @@ const GRACE = 'demo_grace@example.com';
 // FRANK plays the "永久冻结" persona for every row whose driver opens a
 // customer-level restriction (SANCTION: customerLevel=true, defaultScopes=
 // ['ALL'] — src/modules/identity/customers/constants/restriction-cause.
-// constant.ts) — #7/#10 (DEPOSIT FROZEN→SEIZED) and #13 (SWAP FROZEN — never
-// actually created, order creation itself is blocked; see runSwaps' catch
-// block and task-C3b-report.md). Nothing in this codebase releases a
-// customer-level restriction (deposit/withdraw/swap workflows only listen for
-// CUSTOMER_RESTRICTION_OPENED, never a "released" counterpart), so whoever
-// plays this role can never trade again for the rest of the run. That is
-// incompatible with alice/bob/grace, who MUST stay tradeable through
-// swap+withdraw later in the same pipeline (scripts/demo-lib.ts WITHDRAW_PLAN
-// + resolveDemoCustomers's tradeable-or-throw check) — so this persona is kept
-// structurally apart: see FROZEN_PERSONA_EMAIL/resolveFrozenPersona in
-// scripts/demo-lib.ts. (#19 WITHDRAW FROZEN is GRACE, not FRANK — ⚡⑨
+// constant.ts) — #7/#10 (DEPOSIT FROZEN→SEIZED) and #13 (SWAP FROZEN).
+// Nothing in this codebase releases a customer-level restriction
+// (deposit/withdraw/swap workflows only listen for CUSTOMER_RESTRICTION_
+// OPENED, never a "released" counterpart), so whoever plays this role can
+// never trade again for the rest of the run. That is incompatible with
+// alice/bob/grace, who MUST stay tradeable through swap+withdraw later in the
+// same pipeline (scripts/demo-lib.ts WITHDRAW_PLAN + resolveDemoCustomers's
+// tradeable-or-throw check) — so this persona is kept structurally apart: see
+// FROZEN_PERSONA_EMAIL/resolveFrozenPersona in scripts/demo-lib.ts.
+//
+// #13 needs a real in-flight COMPLIANCE_PENDING swap order to exist BEFORE #7
+// opens the restriction — initiateSwap rejects a restricted customer outright
+// (CAPABILITY_RESTRICTED) and separately requires sell-side balance up front
+// (INSUFFICIENT_BALANCE), and FRANK has no other roster row that ever credits
+// him before #7/#10 permanently sanction/seize him. Row #21 below (a plain
+// SUCCESS AED deposit) funds him, and scripts/demo-lib.ts's runFrankPreStage()
+// creates #13's order — both ahead of the normal deposit stage, i.e. ahead of
+// #7 — so #7's CUSTOMER_RESTRICTION_OPENED broadcast is what actually freezes
+// #13 (SwapWorkflowService.onCustomerRestrictionOpened sweeps his in-flight
+// COMPLIANCE_PENDING swaps). See runFrankPreStage's header comment for the
+// full mechanism and task-C3c-report.md (earlier dead ends: task-C3-report.md
+// / task-C3b-report.md). (#19 WITHDRAW FROZEN is GRACE, not FRANK — ⚡⑨
 // V9_REJECTED_MLRO_FREEZE freezes only the one order, no customer-level
 // restriction, so it doesn't need this persona — see runWithdraws below.)
 const FRANK = 'demo_frank@example.com';
@@ -57,7 +68,7 @@ export const DEMO_ROSTER: RosterEntry[] = [
 
   { seq: 11, domain: 'SWAP',     label: '兑换 · USDT→AED 成功',      expectedStatus: 'SUCCESS',           customerEmail: ALICE, amount: '1000',   currency: 'USDT', driver: '⚡①' },
   { seq: 12, domain: 'SWAP',     label: '兑换 · AED→USDT 成功',      expectedStatus: 'SUCCESS',           customerEmail: BOB,   amount: '2900',   currency: 'AED',  driver: '⚡①' },
-  { seq: 13, domain: 'SWAP',     label: '兑换 · 制裁冻结（零出边）',  expectedStatus: 'FROZEN',            customerEmail: FRANK, amount: '600',    currency: 'AED',  driver: '⚡⑦' },
+  { seq: 13, domain: 'SWAP',     label: '兑换 · 制裁冻结（零出边）',  expectedStatus: 'FROZEN',            customerEmail: FRANK, amount: '600',    currency: 'AED',  driver: '连坐冻结（#7 制裁广播）' },
 
   { seq: 14, domain: 'WITHDRAW', label: '提现 · 法币成功',           expectedStatus: 'SUCCESS',           customerEmail: ALICE, amount: '1200',   currency: 'AED',  driver: '⚡①' },
   { seq: 15, domain: 'WITHDRAW', label: '提现 · 虚拟币成功',         expectedStatus: 'SUCCESS',           customerEmail: BOB,   amount: '150',    currency: 'USDT', driver: '⚡①' },
@@ -66,6 +77,13 @@ export const DEMO_ROSTER: RosterEntry[] = [
   { seq: 18, domain: 'WITHDRAW', label: '提现 · 大额待审批',         expectedStatus: 'PENDING_APPROVAL',  customerEmail: BOB,   amount: '250000', currency: 'AED',  driver: '超大额闸' },
   { seq: 19, domain: 'WITHDRAW', label: '提现 · MLRO 冻结',          expectedStatus: 'FROZEN',            customerEmail: GRACE, amount: '1500',   currency: 'AED',  driver: '⚡⑨' },
   { seq: 20, domain: 'WITHDRAW', label: '提现 · 卡在半路（对账用）',  expectedStatus: 'PAYOUT_PENDING',    customerEmail: ALICE, amount: '500',    currency: 'AED',  driver: 'demo:in-transit' },
+
+  // #21 seq 排在最后，但执行顺序排在最前——不是第 4 条处置弧，是 #13 的前置
+  // 本金。domain 仍是 DEPOSIT（就是一笔普通充值），但不归 runDeposits 主循环
+  // 处理：runFrankPreStage()（scripts/demo-lib.ts）在 ensureSetup 之后、
+  // runDeposits 之前就把它驱到 SUCCESS，好让 FRANK 在 #7 制裁他之前，既有
+  // 余额、又还没被限制——见 FRANK 常量块上方注释。
+  { seq: 21, domain: 'DEPOSIT',  label: '充值 · FRANK 本金（供 #13 建单垫资）', expectedStatus: 'SUCCESS', customerEmail: FRANK, amount: '2000', currency: 'AED', driver: '⚡①（跑在充值阶段之前，见 runFrankPreStage）' },
 ];
 
 export function printAnswerKey(
