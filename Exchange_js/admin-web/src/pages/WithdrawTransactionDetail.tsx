@@ -34,7 +34,7 @@ import {
 } from '../utils/withdrawStatusMap';
 import { adminButtonClass } from '../components/common/adminButtonStyles';
 import { useSimulationMode } from '../utils/simulationMode';
-import { useVerdictButtons } from '../hooks/useVerdictButtons';
+import { SimulationPanel } from '../components/SimulationPanel';
 import MaterialRequestPanel from '../components/MaterialRequestPanel';
 
 /* ── Types ──────────────────────────────────────────────────── */
@@ -174,9 +174,6 @@ const WithdrawTransactionDetail = () => {
   const [isBounceModalOpen, setIsBounceModalOpen] = useState(false);
   const [bounceReason, setBounceReason] = useState('');
   const { enabled: simEnabled } = useSimulationMode();
-  const { buttons: verdictButtons } = useVerdictButtons('withdraw');
-  const [simSubmitting, setSimSubmitting] = useState<string | null>(null);
-  const [simError, setSimError] = useState('');
   const [slaSubmitting, setSlaSubmitting] = useState(false);
   const [slaError, setSlaError] = useState('');
 
@@ -208,39 +205,6 @@ const WithdrawTransactionDetail = () => {
     copyToClipboard(text);
     setCopiedField(field);
     setTimeout(() => setCopiedField(null), 2000);
-  };
-
-  /* ── Demo verdict handler (SUMSUB_MOCK_MODE-gated backend endpoint) ── */
-
-  const handleRunVerdict = async (verdict: string) => {
-    if (!id) return;
-    setSimSubmitting(verdict);
-    setSimError('');
-    try {
-      const response = await adminFetch(
-        `${import.meta.env.VITE_API_URL}/admin/withdraw-sumsub/demo/run-verdict`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ withdrawId: id, verdict }),
-        },
-      );
-      if (!response.ok) {
-        if (response.status === 404) {
-          setSimError('Demo endpoint unavailable — backend SUMSUB_MOCK_MODE is off.');
-        } else {
-          setSimError(await getApiErrorMessage(response, 'Verdict run failed.'));
-        }
-        return;
-      }
-      setNotice(`Verdict ${verdict} fed — withdrawal refreshed`);
-      await fetchData();
-    } catch (error) {
-      if (error instanceof AdminSessionError) return;
-      setSimError(error instanceof Error ? error.message : 'Verdict run failed.');
-    } finally {
-      setSimSubmitting(null);
-    }
   };
 
   /* ── Frozen disposition handlers (unfreeze / sanction refund — maker-checker) ── */
@@ -605,34 +569,12 @@ const WithdrawTransactionDetail = () => {
           {/* 9. Simulation (demo only — gated by the local simulation-mode
               toggle, independent of the backend SUMSUB_MOCK_MODE flag) */}
           {simEnabled && (
-            <DetailCard title="⚡ Simulation" columns={1}>
-              <p className="font-mono text-[11px] text-adm-t3">
-                Feeds ONE Sumsub KYT verdict webhook into the real ingestion
-                pipeline. The report is generated to match this withdrawal's actual
-                Sumsub txn type. Requires SUMSUB_MOCK_MODE on the backend.
-              </p>
-              <p className="font-mono text-[11px] text-adm-amber">
-                Verdicts are atomic — chain them freely (e.g. ② then ①, or ⑦ then ⑤).
-              </p>
-              {isWithdrawVerdictIgnored(data.status) && (
-                <p className="font-mono text-[11px] text-adm-amber">
-                  本单已进终态/处置态，投递的裁决会被后端记录但不改状态。
-                </p>
-              )}
-              {simError && <p className="text-[11px] text-adm-red">{simError}</p>}
-              <div className="flex flex-wrap gap-2">
-                {verdictButtons.map((s) => (
-                  <button
-                    key={s.key}
-                    disabled={simSubmitting !== null || isWithdrawVerdictIgnored(data.status)}
-                    onClick={() => handleRunVerdict(s.key)}
-                    className={adminButtonClass('simulationAction')}
-                  >
-                    {simSubmitting === s.key ? 'Running...' : s.label}
-                  </button>
-                ))}
-              </div>
-            </DetailCard>
+            <SimulationPanel
+              domain="withdraw"
+              orderId={data.id}
+              disabled={isWithdrawVerdictIgnored(data.status)}
+              onDone={() => void fetchData()}
+            />
           )}
         </div>
 

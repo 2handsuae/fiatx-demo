@@ -9,12 +9,11 @@ import {
 import { SidebarGroup, SidebarKV } from '../components/ui/SidebarPrimitives';
 import { getSwapStatusMeta, isSwapTerminalStatus } from '../utils/swapStatusMap';
 import { AdminBadge } from '../components/ui/AdminBadge';
-import { adminButtonClass } from '../components/common/adminButtonStyles';
 import { AdminSessionError, adminFetch, getApiErrorMessage } from '../utils/adminFetch';
 import { formatAssetAmount, formatRate8 } from '../utils/number-format';
 import { formatSlaRemaining } from '../utils/slaDisplay';
 import { useSimulationMode } from '../utils/simulationMode';
-import { useVerdictButtons } from '../hooks/useVerdictButtons';
+import { SimulationPanel } from '../components/SimulationPanel';
 import { getComplianceLayerStyle } from '../utils/depositActionMap';
 import L1GateCard from '../components/L1GateCard';
 import { GateTile } from '../components/compliance/GateTile';
@@ -165,9 +164,6 @@ const SwapTransactionDetail = () => {
   const [data, setData] = useState<SwapTransactionDetailData | null>(null);
   const [loading, setLoading] = useState(true);
   const { enabled: simEnabled } = useSimulationMode();
-  const { buttons: verdictButtons } = useVerdictButtons('swap');
-  const [simSubmitting, setSimSubmitting] = useState<string | null>(null);
-  const [simError, setSimError] = useState('');
   // 喂裁决成功后的顶部回显条（对齐充值/提现详情页的 notice 形态）。
   const [notice, setNotice] = useState('');
   const [slaSubmitting, setSlaSubmitting] = useState(false);
@@ -197,39 +193,6 @@ const SwapTransactionDetail = () => {
   useEffect(() => {
     if (id) void fetchData();
   }, [id]);
-
-  /* ── Demo verdict handler (SUMSUB_MOCK_MODE-gated backend endpoint) ── */
-
-  const handleRunVerdict = async (verdict: string) => {
-    if (!id) return;
-    setSimSubmitting(verdict);
-    setSimError('');
-    try {
-      const response = await adminFetch(
-        `${import.meta.env.VITE_API_URL}/admin/swap-sumsub/demo/run-verdict`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ swapId: id, verdict }),
-        },
-      );
-      if (!response.ok) {
-        if (response.status === 404) {
-          setSimError('Demo endpoint unavailable — backend SUMSUB_MOCK_MODE is off.');
-        } else {
-          setSimError(await getApiErrorMessage(response, 'Verdict run failed.'));
-        }
-        return;
-      }
-      setNotice(`Verdict ${verdict} fed — swap refreshed`);
-      await fetchData();
-    } catch (error) {
-      if (error instanceof AdminSessionError) return;
-      setSimError(error instanceof Error ? error.message : 'Verdict run failed.');
-    } finally {
-      setSimSubmitting(null);
-    }
-  };
 
   /* ── SLA (演示用「模拟超时」——不是 ⚡ Simulation 面板那个模拟 Sumsub
       webhook 的东西；见 SidebarGroup title="SLA") ── */
@@ -638,31 +601,12 @@ const SwapTransactionDetail = () => {
               「这单不适用」。改成常显 + 终态/处置态置灰 + 一句说明，把
               applyKytVerdict 的 no-op 语义如实摊在页面上。 */}
           {simEnabled && (
-            <DetailCard title="⚡ Simulation" columns={1}>
-              <p className="font-mono text-[11px] text-adm-t3">
-                Feeds ONE Sumsub verdict webhook into the real ingestion
-                pipeline for this swap's sell-leg KYT transaction. Requires
-                SUMSUB_MOCK_MODE on the backend.
-              </p>
-              {!isSwapVerdictActionable(data.status) && (
-                <p className="font-mono text-[11px] text-adm-amber">
-                  本单不在待合规状态，①-⑧ 里的裁决键不会推进本单，故置灰。
-                </p>
-              )}
-              {simError && <p className="text-[11px] text-adm-red">{simError}</p>}
-              <div className="flex flex-wrap gap-2">
-                {verdictButtons.map((s) => (
-                  <button
-                    key={s.key}
-                    disabled={simSubmitting !== null || !isSwapVerdictActionable(data.status)}
-                    onClick={() => handleRunVerdict(s.key)}
-                    className={adminButtonClass('simulationAction')}
-                  >
-                    {simSubmitting === s.key ? 'Running...' : s.label}
-                  </button>
-                ))}
-              </div>
-            </DetailCard>
+            <SimulationPanel
+              domain="swap"
+              orderId={data.id}
+              disabled={!isSwapVerdictActionable(data.status)}
+              onDone={() => void fetchData()}
+            />
           )}
         </div>
 
