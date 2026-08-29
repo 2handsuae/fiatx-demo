@@ -11,11 +11,17 @@
 |---|---|
 | 编译 | tsc 后端 ｜ tsc test 配置（tsconfig.test.json）｜ tsc 管理台 ｜ tsc 客户端 |
 | 重铺 | `stack.sh reset main`（含 TigerBeetle 清理重建，全链实跑） |
-| 演示 | demo:setup ｜ demo:deposit ｜ demo:swap ｜ demo:withdraw ｜ demo:in-transit ｜ demo:all（8 场景断言终态） |
+| 演示 | demo:setup ｜ demo:deposit ｜ demo:swap ｜ demo:withdraw ｜ demo:in-transit ｜ demo:all（**花名册 21/21 逐条符合预期 + COA 四恒等式**——演示装备一期改判据，见下方操作约束） |
 | 对账 | recon:demo:pass ｜ **recon:demo:break 9/9 全检出**（收官实测；旧基线 7/9 的两处 MISSED 已不复现，旧账已销）｜ verify:demo-data |
 | 账本 | verify:coa —— 两恒等式 + 负余额断言（49 科目全部 ≥ 0）。收官多轮实测**重铺后与 demo:all 后均全绿**；历史上个别含 break 注入的运行轮见过公司 AED 负余额（浮存时序），若复现不算净新红 |
 | 审计 | verify:audit 恒绿七项：Q2 按单据查 ｜ Q4 按客户查 ｜ 不变量①②③（PRIMARY 至多一 / INHERIT 必有旅程号 / 退役码零写入）——三查合同七站换装后的固定资产 |
 | 封册 | audit-vocabulary-closure.spec 四条：平面表归籍 / 六册互斥 / V3 附册冻结快照 / 写点闭合退役词零引用 |
+
+## demo:all 操作约束（演示装备一期，2026-08-29 起）
+
+`demo:all` 的判据从「8 场景全 SUCCESS」改成了「花名册 21 笔逐条比对预期终态 + COA 四恒等式」——一份丰富的演示数据本来就该有冻结的、没收的、退回的、上缴的、卡在半路的，不是清一色 SUCCESS（详见 `data.md`）。
+
+**由此带出一条硬约束：`demo:all` 必须在全新库上跑，不能在同一个库上连跑两次。** 花名册第 #7/#10/#13 行故意把第四人设 FRANK 造成一个**永久被制裁**的客户（customer-level ALL-scope 限制，本仓库没有任何流程会解开它——这也是刻意的，交易三人组 Alice/Bob/Grace 必须全程可交易，冻结这个不可逆动作只能落在专门"报废"的第四个人身上）。第二次在同一个库上跑 `demo:all`，Gate 0 会（正确地）拒绝 FRANK 的新充值，`runFrankPreStage` 因此卡住直到超时——**这是闸门在正确工作，不是 bug**。正确姿势：`bash scripts/stack.sh reset [main|self]` 重铺出全新库后再跑一次。
 
 ## 红名单（已知旧账，允许持续红）
 

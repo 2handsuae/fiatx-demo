@@ -1141,6 +1141,68 @@ async function buildCoaBalanceMap(ctx: DemoCtx): Promise<Map<number, Map<number,
   return byLedger;
 }
 
+// ── data.md snapshot (docs generation) ────────────────────────────────────
+// doc-final/demo/data.md:3 declares this file's generated section is written
+// by demo:all — this is that write. Only the text between the GENERATED
+// markers is touched; everything else in data.md is hand-maintained and left
+// alone. If the markers are missing (someone hand-edited them out), skip
+// silently rather than corrupting the file — data.md's own git history is
+// the recovery path, not this script.
+const DATA_MD_PATH = path.resolve(__dirname, '../doc-final/demo/data.md');
+const GENERATED_BEGIN = '<!-- GENERATED:BEGIN -->';
+const GENERATED_END = '<!-- GENERATED:END -->';
+
+function renderDataMdSnapshot(
+  rosterResults: Array<{ seq: number; orderNo: string; status: string }>,
+  coaRows: Array<{ label: string; ok: boolean; detail: string }>,
+): string {
+  const bySeq = new Map(rosterResults.map((a) => [a.seq, a]));
+  const DOMAIN_LABEL: Record<string, string> = { DEPOSIT: '充值', SWAP: '兑换', WITHDRAW: '提现' };
+  const lines: string[] = [];
+  lines.push(
+    `> 本段由 \`demo:all\` 收尾自动写入（\`scripts/demo-lib.ts → writeDataMdSnapshot\`），` +
+      `别手改——下次跑 \`demo:all\` 会整段覆盖。生成时间：${new Date().toISOString()}`,
+  );
+  let bad = 0;
+  for (const domain of ['DEPOSIT', 'SWAP', 'WITHDRAW'] as const) {
+    const rows = DEMO_ROSTER.filter((r) => r.domain === domain);
+    lines.push('', `### ${DOMAIN_LABEL[domain]}（${rows.length} 笔）`, '');
+    lines.push('| # | 场景 | 客户 | 金额 | 预期终态 | 实到单号 | 实到状态 | 结果 |');
+    lines.push('|---|---|---|---|---|---|---|---|');
+    for (const r of rows) {
+      const a = bySeq.get(r.seq);
+      const rowOk = a?.status === r.expectedStatus;
+      if (!rowOk) bad += 1;
+      lines.push(
+        `| ${r.seq} | ${r.label} | ${r.customerEmail} | ${r.amount} ${r.currency} | ${r.expectedStatus} | ` +
+          `${a?.orderNo ?? '—'} | ${a?.status ?? '（没造出来）'} | ${rowOk ? '✓' : '✗'} |`,
+      );
+    }
+  }
+  lines.push('', `**花名册：${DEMO_ROSTER.length - bad}/${DEMO_ROSTER.length} 符合预期**`);
+  lines.push('', '### 账本恒等式（COA）', '');
+  lines.push('| 恒等式 | 结果 |');
+  lines.push('|---|---|');
+  for (const row of coaRows) {
+    lines.push(`| ${row.label} | ${row.ok ? '✓' : '✗'} ${row.detail} |`);
+  }
+  return lines.join('\n');
+}
+
+function writeDataMdSnapshot(body: string): void {
+  const original = fs.readFileSync(DATA_MD_PATH, 'utf8');
+  const beginIdx = original.indexOf(GENERATED_BEGIN);
+  const endIdx = original.indexOf(GENERATED_END);
+  if (beginIdx === -1 || endIdx === -1 || endIdx < beginIdx) {
+    console.warn(`  ⚠ data.md 缺 GENERATED 标记，跳过生成区写入（${DATA_MD_PATH}）`);
+    return;
+  }
+  const before = original.slice(0, beginIdx + GENERATED_BEGIN.length);
+  const after = original.slice(endIdx);
+  fs.writeFileSync(DATA_MD_PATH, `${before}\n${body}\n${after}`, 'utf8');
+  console.log(`  ✓ data.md 生成区已更新`);
+}
+
 // ── verification (spec §6) ───────────────────────────────────────────────────
 export async function verifyEndState(
   ctx: DemoCtx,
@@ -1172,14 +1234,23 @@ export async function verifyEndState(
   //    (asset accounts are debit-normal; liabilities/equity are credit-normal)
   const coaMap = await buildCoaBalanceMap(ctx);
   const LEDGER_NAMES: Record<number, string> = { [TB_LEDGERS.AED]: 'AED', [TB_LEDGERS.USDT]: 'USDT' };
+  const coaRows: Array<{ label: string; ok: boolean; detail: string }> = [];
   for (const [ledger, m] of coaMap) {
     const name = LEDGER_NAMES[ledger] ?? `ledger${ledger}`;
     const clientAsset = m.get(TB_ACCOUNT_CODES.CLIENT_ASSET) ?? 0n;
     const clientLiab = (m.get(TB_ACCOUNT_CODES.CLIENT_PAYABLE) ?? 0n) + (m.get(TB_ACCOUNT_CODES.DEPOSIT_SUSPENSE) ?? 0n);
-    ok(`COA CLIENT(${name}): CLIENT_ASSET == Σ(CLIENT_PAYABLE+DEPOSIT_SUSPENSE)`, clientAsset === clientLiab, `${clientAsset} == ${clientLiab}`);
+    const clientLabel = `COA CLIENT(${name}): CLIENT_ASSET == Σ(CLIENT_PAYABLE+DEPOSIT_SUSPENSE)`;
+    const clientOk = clientAsset === clientLiab;
+    const clientDetail = `${clientAsset} == ${clientLiab}`;
+    ok(clientLabel, clientOk, clientDetail);
+    coaRows.push({ label: clientLabel, ok: clientOk, detail: clientDetail });
     const firmAsset = m.get(TB_ACCOUNT_CODES.FIRM_ASSET) ?? 0n;
     const firmEquity = (m.get(TB_ACCOUNT_CODES.FIRM_OPS) ?? 0n) + (m.get(TB_ACCOUNT_CODES.FIRM_SET) ?? 0n) + (m.get(TB_ACCOUNT_CODES.INCOME_SWAP_FEE) ?? 0n) + (m.get(TB_ACCOUNT_CODES.INCOME_WITHDRAW_FEE) ?? 0n) + (m.get(TB_ACCOUNT_CODES.INCOME_OTHER) ?? 0n);
-    ok(`COA FIRM(${name}): FIRM_ASSET == Σ(FIRM_OPS+FIRM_SET+INCOME_SWAP_FEE+INCOME_WITHDRAW_FEE+INCOME_OTHER)`, firmAsset === firmEquity, `${firmAsset} == ${firmEquity}`);
+    const firmLabel = `COA FIRM(${name}): FIRM_ASSET == Σ(FIRM_OPS+FIRM_SET+INCOME_SWAP_FEE+INCOME_WITHDRAW_FEE+INCOME_OTHER)`;
+    const firmOk = firmAsset === firmEquity;
+    const firmDetail = `${firmAsset} == ${firmEquity}`;
+    ok(firmLabel, firmOk, firmDetail);
+    coaRows.push({ label: firmLabel, ok: firmOk, detail: firmDetail });
   }
 
   // 3./4. (removed C5b) The Outstanding + FeeAccrual tables — which these checks
@@ -1187,6 +1258,11 @@ export async function verifyEndState(
   //    with the rest of the V7/V8 deferred-settlement residue. The "no deferred
   //    settlement rows" invariant is now structurally guaranteed by the schema
   //    (the tables no longer exist), so the runtime assertions are obsolete.
+
+  // 5. data.md:3 早已声明生成区由 demo:all 自动写入——这就是那个写入点。写在
+  //    断言判据算完、返回结果之前：不管本轮 21 笔是否全绿，data.md 都应反映
+  //    "刚刚实到的样子"（供排障时对照），而不是只在全绿时才落盘。
+  writeDataMdSnapshot(renderDataMdSnapshot(rosterResults, coaRows));
 
   console.log(`\n  asserts: ${n - fails.length}/${n} PASS`);
   if (fails.length) console.log(`  FAIL: ${fails.join('; ')}`);

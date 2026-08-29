@@ -1,6 +1,6 @@
 # 演示数据字典（data）
 
-> 现状版（2026-08-26 实测盘点后手写）。待造数脚本输出答案键清单后，本文件改为脚本自动生成（防漂移）。
+> 上半篇（管理员/客户矩阵/资产钱包/各脚本）手写，2026-08-26 实测盘点后维护。下半篇「本批数据」由 `demo:all` 收尾自动写入生成区（防漂移），别手改那一段。
 > 重铺入口：`bash scripts/stack.sh reset [main|self]`（含 TigerBeetle 清理重建）；全量造数：`bash scripts/on-stack.sh main demo:all`（worktree 内用 self）。基线见 [baseline.md](baseline.md)。
 
 ## 管理员（base seed，8 职务各一人，密码 123456）
@@ -32,7 +32,60 @@ USDT（链上，托管 HEXTRUST）＋ AED（法币，ZAND）；客户钱包按�
 | demo:setup | 基础演示位（客户便签/材料请求账等） |
 | demo:deposit / swap / withdraw | 各域多结局单（走真实流程推进） |
 | demo:in-transit | 在途单（演示"正在发生"） |
-| demo:all | 一键全量（8 场景断言终态）——开演前跑这个 |
+| demo:all | 一键全量（花名册 21 笔逐条比对预期终态 + COA 四恒等式）——开演前跑这个 |
 | recon:demo:pass / break | 对账 pass ／ 9 种破口+答案键（break 现漏检 2 种，BACKLOG 在案） |
 
 ⚠️ 造数铁律：一律走真实流程/模拟端点重放，**禁止直插表**（直插中间态 → 账本负余额 → 假破口，实证教训）。
+
+## 本批数据（`demo:all` 最近一次实到结果）
+
+<!-- GENERATED:BEGIN -->
+> 本段由 `demo:all` 收尾自动写入（`scripts/demo-lib.ts → writeDataMdSnapshot`），别手改——下次跑 `demo:all` 会整段覆盖。生成时间：2026-08-29T19:22:16.942Z
+
+### 充值（11 笔）
+
+| # | 场景 | 客户 | 金额 | 预期终态 | 实到单号 | 实到状态 | 结果 |
+|---|---|---|---|---|---|---|---|
+| 1 | 充值 · 正常入账 USDT | demo_alice@example.com | 3000 USDT | SUCCESS | DEP2608295002 | SUCCESS | ✓ |
+| 2 | 充值 · 正常入账 AED | demo_bob@example.com | 8000 AED | SUCCESS | DEP2608296400 | SUCCESS | ✓ |
+| 3 | 充值 · 正常入账 AED（二） | demo_grace@example.com | 6500 AED | SUCCESS | DEP2608298821 | SUCCESS | ✓ |
+| 4 | 充值 · 等客户补料 | demo_alice@example.com | 4200 AED | ACTION_PENDING | DEP2608298001 | ACTION_PENDING | ✓ |
+| 5 | 充值 · 转人工复核 | demo_bob@example.com | 5100 AED | MANUAL_CHECKING | DEP2608298011 | MANUAL_CHECKING | ✓ |
+| 6 | 充值 · 小额挂起 | demo_grace@example.com | 35 AED | OPERATION_PENDING | DEP2608291700 | OPERATION_PENDING | ✓ |
+| 7 | 充值 · 制裁冻结 | demo_frank@example.com | 7300 AED | FROZEN | DEP2608292314 | FROZEN | ✓ |
+| 8 | 充值 · 没收（钱进公司） | demo_grace@example.com | 42 AED | CONFISCATED | DEP2608292827 | CONFISCATED | ✓ |
+| 9 | 充值 · 退回原发款方 | demo_alice@example.com | 2600 AED | RETURNED | DEP2608296950 | RETURNED | ✓ |
+| 10 | 充值 · 上缴（政府移交） | demo_frank@example.com | 9100 AED | SEIZED | DEP2608295486 | SEIZED | ✓ |
+| 21 | 充值 · FRANK 本金（供 #13 建单垫资） | demo_frank@example.com | 2000 AED | SUCCESS | DEP2608290825 | SUCCESS | ✓ |
+
+### 兑换（3 笔）
+
+| # | 场景 | 客户 | 金额 | 预期终态 | 实到单号 | 实到状态 | 结果 |
+|---|---|---|---|---|---|---|---|
+| 11 | 兑换 · USDT→AED 成功 | demo_alice@example.com | 1000 USDT | SUCCESS | SWP2608293473 | SUCCESS | ✓ |
+| 12 | 兑换 · AED→USDT 成功 | demo_bob@example.com | 2900 AED | SUCCESS | SWP2608298336 | SUCCESS | ✓ |
+| 13 | 兑换 · 制裁冻结（零出边） | demo_frank@example.com | 600 AED | FROZEN | SWP2608294606 | FROZEN | ✓ |
+
+### 提现（7 笔）
+
+| # | 场景 | 客户 | 金额 | 预期终态 | 实到单号 | 实到状态 | 结果 |
+|---|---|---|---|---|---|---|---|
+| 14 | 提现 · 法币成功 | demo_alice@example.com | 1200 AED | SUCCESS | WD2608297543 | SUCCESS | ✓ |
+| 15 | 提现 · 虚拟币成功 | demo_bob@example.com | 150 USDT | SUCCESS | WD2608294913 | SUCCESS | ✓ |
+| 16 | 提现 · 法币成功（二） | demo_grace@example.com | 900 AED | SUCCESS | WD2608299301 | SUCCESS | ✓ |
+| 17 | 提现 · 等客户补料 | demo_alice@example.com | 1800 AED | ACTION_PENDING | WD2608295649 | ACTION_PENDING | ✓ |
+| 18 | 提现 · 大额待审批 | demo_bob@example.com | 250000 AED | PENDING_APPROVAL | WD2608296587 | PENDING_APPROVAL | ✓ |
+| 19 | 提现 · MLRO 冻结 | demo_grace@example.com | 1500 AED | FROZEN | WD2608292830 | FROZEN | ✓ |
+| 20 | 提现 · 卡在半路（对账用） | demo_alice@example.com | 500 AED | PAYOUT_PENDING | WD2608295173 | PAYOUT_PENDING | ✓ |
+
+**花名册：21/21 符合预期**
+
+### 账本恒等式（COA）
+
+| 恒等式 | 结果 |
+|---|---|
+| COA CLIENT(AED): CLIENT_ASSET == Σ(CLIENT_PAYABLE+DEPOSIT_SUSPENSE) | ✓ 3176547 == 3176547 |
+| COA FIRM(AED): FIRM_ASSET == Σ(FIRM_OPS+FIRM_SET+INCOME_SWAP_FEE+INCOME_WITHDRAW_FEE+INCOME_OTHER) | ✓ 9936353 == 9936353 |
+| COA CLIENT(USDT): CLIENT_ASSET == Σ(CLIENT_PAYABLE+DEPOSIT_SUSPENSE) | ✓ 2629914899 == 2629914899 |
+| COA FIRM(USDT): FIRM_ASSET == Σ(FIRM_OPS+FIRM_SET+INCOME_SWAP_FEE+INCOME_WITHDRAW_FEE+INCOME_OTHER) | ✓ 100226085101 == 100226085101 |
+<!-- GENERATED:END -->

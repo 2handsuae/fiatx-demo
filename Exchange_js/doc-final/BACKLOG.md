@@ -6,60 +6,17 @@
 > **分诊判据**（`rules/review-rubric.md`）——
 > 业务：显示的内容错了 ｜ 该有的信息没有 ｜ 结局不完整（某条业务出路没有）｜ 留痕缺业务动作 ｜ PRD/modules 说的和代码不一样。
 > 技术：只有攻击者 / 故障 / 并发 / 重复回调才触发 ｜ 长得不一样但内容都对 ｜ 纯内部（命名、死码、类型、schema 残列、存储单位）｜ 工具与测试基建。
-> 边界一条：挡住**开演**（铺不出数据、剧本讲错）算业务，进 A 档；挡住**开发**（端口、PATH、worktree）算技术，进 PRODUCTION-NOTES。
+> 边界一条：挡住**开演**（铺不出数据、剧本讲错）算业务，记 BACKLOG；挡住**开发**（端口、PATH、worktree）算技术，进 PRODUCTION-NOTES。
 >
-> **⭐ = 带同事走七幕时会当场看到或讲不圆的**，共 32 条（A 档 8 条已于 2026-08-28 实跑复核，6 条销账）。一行四要素：是什么 ｜ 哪来的 ｜ 落点 / 状态。做完就勾掉。
-> 分诊历史：2026-08-26 首次分流（加固类迁出）；**2026-08-28 二次分诊**——业务/技术彻底分家：8 条已完成或已作废销账、45 条迁 `PRODUCTION-NOTES`、4 条从 `PRODUCTION-NOTES` 判回业务；**同日 A 档 8 条逐条实跑复核，6 条实证已修当场销账**。分诊前全文见 git 历史（`649b4e88`）。
+> **⭐ = 带同事走七幕时会当场看到或讲不圆的**，共 31 条。一行四要素：是什么 ｜ 哪来的 ｜ 落点 / 状态。做完就勾掉。
+> 分诊历史：2026-08-26 首次分流（加固类迁出）；2026-08-28 二次分诊——业务/技术彻底分家：8 条已完成或已作废销账、45 条迁 `PRODUCTION-NOTES`、4 条从 `PRODUCTION-NOTES` 判回业务；同日「演示装备」A 档 8 条逐条实跑复核，6 条实证已修当场销账。**2026-08-29 演示装备一期收官**——A 档剩下的 2 条（造数花名册、补料回炉）做完销账，A 档 8/8 全部完成、整节退役删除（原文见「本轮销账」章节与 git 历史）；导语并入 §B。分诊前全文见 git 历史（`649b4e88`）。
 
-Last Updated: 2026-08-28
-
-
-## A. 演示装备 —— 开演前铺不出数据 / 模拟面板按了就崩
-
-> 开演前跑不出数据、或 ⚡ 模拟面板一按就 500 —— 这一档不修，第 0 步就开不了演。
-> **2026-08-28 逐条实跑复核（main 栈 `reset` 从零重铺 + 真按模拟面板）：8 条里 6 条已修、2 条仍在**，见各条 ✅/⚠ 标注。
-> **2026-08-29 更正**：剩下两条里的第二条（awaitUser）**原判有一半是错的**——材料审核入口早就存在（客户详情页 Verification Requests 区块三按钮），昨天漏掉是因为只在交易域里找。重测后本条重写为真缺口：**材料审过订单不回炉**。
-> 两条的修法已合并成一轮设计：`superpowers/specs/2026-08-29-demo-kit-sumsub-panel-and-fixture-design.md`。
-
-- [x] **全新栈跑 `demo:all` 缺提现地址前置**：`db:biz:init` 与 `demo:setup` 都不建 `withdrawal_addresses`，而 2026-07-11 上线的 trading-ready 闸要求客户有 active 法币提现地址 → 全新栈上 `demo:all` 必卡在第一笔充值（`Trading-ready gate hold`）。main 栈上那 8 条是历史手工建的。建议 `demo:setup` 补建（法币按客户 `C_VIBAN` 的 IBAN、虚拟币按 `T+sha256('DEMO'+'wd'+idx)[:33]`，即 `demo-lib.ts → runWithdraws` 实际使用的值）｜来源: 2026-08-13 T11
-
-  ✅ **2026-08-28 实测已修**：`demo-lib.ts:239-280` 现在显式建 BANK + crypto 提现地址（注释就是照本条写的）；`stack.sh reset main` 全新库 → `demo:setup` 建出 5 条 ACTIVE 地址 → `demo:all` **8/8 PASS**，不再卡 trading-ready
-
-- [x] **demo:all 充值 5/6 + `demo-lib.ts` 未建 trading-ready 法币地址**（PRE-EXISTING，非金额限额 feature 引入）：交易起始前置门落地后（61337fb2），demo 客户在充值前需先有 ACTIVE 法币提现地址，但 `scripts/demo-lib.ts` 从未跟进创建（其末次改动 4c27f1ff 早于该门）；main 栈 DB 仅因人工种过 4 个地址才过。**全新 DB 跑 demo:all，充值会挂 COMPLIANCE_PENDING**。即便种了地址，demo:all 仍稳定在 **7/8（充值 5/6）**——有一笔充值因与金额限额无关的充值流原因始终不 SUCCESS（提现 5/5 + 兑换 3/3 + COA 4/4 全过；本轮金额限额门未拒任何单）。需单独 demo-setup 修复（`demo-lib.ts` 播种 trading-ready 法币地址）+ 排查第 6 笔充值卡因 ｜来源: 2026-07-16 transaction-limits 回归跑
-
-  ✅ **2026-08-28 实测已修**：全新库 `demo:all` 充值 **6/6 SUCCESS**（本条记的「即便种了地址仍稳定 7/8、有一笔充值始终不 SUCCESS」已不复现），八项断言全过
-
-- [x] **`demo:deposit`/`demo:withdraw` 在全新 worktree 上必炸(缺提现地址种子,2026-08-04)**：`scripts/demo-lib.ts` 的 `ensureSetup()`/`demo-setup.ts` 从不注册 `withdrawalAddress` 行，但「交易起始前置门」（2026-07-11 落 main）要求 deposit 的 `assertTradingReadyOrHold` 查 `hasActiveFiatWithdrawalAddress`、withdraw 的 `createWithdrawal` 查 `withdrawalAddress`（iban/address 精确匹配）才放行——全新 worktree 跑 `db:biz:init` + `demo:setup` 后直接 `demo:deposit` 会卡在 "not trading-ready" 15s 超时，`demo:withdraw` 会直接 400 `WITHDRAWAL_ADDRESS_NOT_REGISTERED`。Task 5 验收本轮手工插入匹配 `viban.iban`/确定性 crypto 地址的 `withdrawalAddress` 行绕过（未落代码，重开 worktree 需重插）。应在 `demo-lib.ts` 的 `ensureSetup()`（或单独一步）里为每个 demo 客户注册一条 ACTIVE `BANK` 地址（iban=其 C_VIBAN 钱包 iban）+ 有 crypto 提现计划的客户注册匹配 `WITHDRAW_PLAN` 里确定性地址的 crypto 地址行 ｜来源: 2026-08-04 Task 5 (withdraw-sumsub) 验收 demo:withdraw 实跑
-
-  ✅ **2026-08-28 实测已修**：全新库上 `demo:deposit` 6/6 SUCCESS、`demo:withdraw` 5/5 SUCCESS，无 15s 超时、无 `WITHDRAWAL_ADDRESS_NOT_REGISTERED`
-
-- [x] **`scripts/verify-demo-data.ts` 已坏一个多月、且挂在 seed 的 post 钩子上会打断 `reset-main`**：`scanR1()`（第 47 行）读 `prisma.internalFund`，而 `InternalFund` 表早在 **2026-07-02 funds_orders 三合一**里就 DROP 了（全库只剩 `InternalFundAuditLog`），故必抛 `TypeError: Cannot read properties of undefined (reading 'findMany')`。它被 `db:seed:business` 的 post 钩子调用 → `reset-main.sh` 因 `set -euo pipefail` 在收尾前中断（数据其实已经铺完，只是不打印 "business reset complete"，容易被误判成重置失败）。修法二选一：把 R1 规则改读 `fundsOrder`（语义等价，父 FK 判 swap/withdraw 那段逻辑可直接沿用），或整个退役该脚本（`demo:all` 自带 end-state 断言，覆盖面更全）｜来源: 2026-08-13 main 栈重置实跑
-
-  ✅ **2026-08-28 实测已修**：`verify-demo-data.ts:126` 已改口径（注释标明 internalFund/payin/payout 三表早被 DROP）；`stack.sh reset main` 实跑打印 `verify:demo-data ALL PASS` + `business reset complete`，收尾不再中断
-
-- [ ] ⭐ **`demo:all` 提现 5/6 的另一成因＝`demo:in-transit` 故意留的在途单**（PRE-EXISTING，非回归）：`demo-in-transit.ts` 的用途就是造"真实卡在半路"的在途单（法币 AED，金额区间 `[500,999]`，止于 `PAYOUT_PENDING`），供对账演示用；一旦跑过，该单永久留库，`demo:all` 的「全部 demo 提现须 SUCCESS」断言就会稳定挂掉（main 栈现存 `WD2607221329`，AED 500，2026-07-22 创建）。这与上一条「充值 5/6」是**两个不同成因**。修法＝断言排除带 `DEMO_STUCK_WD_REF_PREFIX` 的在途单，或 demo:all 前先跑一次 `recon:demo`。**实测机制**（2026-07-28）：`recon:demo` 的 self-clean 会连带清掉该 in-transit fixture（日志 `self-clean: ... fundsOrders=1`）——同一库上 demo:all 先跑是 **7/8**（提现 5/6），跑完 recon:demo 后再跑即回 **8/8**。故 demo:all 的通过与否取决于此前有没有人跑过 demo:in-transit 而尚未跑 recon:demo，**结果不稳定、不宜直接当验收信号** ｜来源: 2026-07-28 合并 feat/transaction-limits 回归跑
-
-  ⚠ **2026-08-28 实测仍在，且比本条记的更重**：全新库 `demo:all` = **8/8** → 跑一次 `demo:in-transit` → `demo:all` 掉到 **6/8**（不是 7/8）——`all demo withdrawals SUCCESS` 与 `all demo payout legs CLEARED` **两条断言同时挂**（后者是本条登记之后才加的，也栽在同一笔在途单上）→ 跑一次 `recon:demo:pass`（日志 `self-clean: … fundsOrders=1`）→ `demo:all` 回 **8/8**。`demo-lib.ts:583/603` 两处断言均无在途单排除逻辑，修法未落。
-
-- [x] **兑换域 V7/V8 demo 按钮没有模拟"客户先交材料"前置步，真按会 500(2026-08-18)**：`SwapDemoScenarioService.runApplicantActionScenario`（`applicantActionReviewed` 分支，即 admin 面板的 ⑦认证通过/⑧认证不通过两个按钮）直接对一条仍是 `PENDING_SUBMISSION` 的材料请求投递 GREEN/RED 复核 webhook。生产流程要求客户先经客户端 `POST client/me/material-requests/:no/submit`（`markSubmitted`）把行推到 `SUBMITTED`，材料请求状态机才允许 `REVIEW_GREEN`/`REVIEW_RED_FINAL` 这两条转移边；demo 按钮跳过了这一步，`MaterialRequestsService.markReviewed` 会在 `nextMaterialRequestStatus` 里直接抛 `BadRequestException: Invalid material request action REVIEW_GREEN from PENDING_SUBMISSION`，整条 ingestion 记录进 FAILED（三次重试后 DEAD）。2026-08-18 修复 restrictionNo 卡死 bug 时在 e2e 测试里发现（`test/swap-sumsub-scenarios.e2e-spec.ts` ⑦⑧），为不越界改动生产代码，改成在测试里显式调用 `MaterialRequestsService.markSubmitted()` 模拟客户提交，绕过了这个坑，但 `demo-scenario.service.ts` 本身未修——运营真在 admin 模拟面板上单独点 ⑦/⑧（不经过客户端提交）会直接 500。修法：`runApplicantActionScenario` 在投递复核 webhook 前，对 `live[0]` 存在且仍 `PENDING_SUBMISSION` 时先调一次 `materialRequests.markSubmitted()`，模拟客户端提交 ｜来源: 2026-08-18 修复兑换域软线拒 restrictionNo 永久卡死时 e2e 验收发现
-
-  ✅ **2026-08-28 实测已修**：`demo-scenario.service.ts:197-198` 已补 —— 材料请求仍 `PENDING_SUBMISSION` 时先 `markSubmitted()` 再投复核。真按一次 ⑦：HTTP **201**，材料请求 `PENDING_SUBMISSION → APPROVED`，便签 `RST…8680` 当场 RELEASED，无 500、无 FAILED 摄取
-
-- [ ] ⭐ **充值/提现域不监听 `MATERIAL_REQUEST_REVIEWED`：材料审过、便签已撕，但订单不回炉，永久停在 `ACTION_PENDING`**（2026-08-29 重写；原标题「模拟面板没有复核按钮能撕掉它」经实跑证伪，见下）：`DepositApplicantActionsService`/`WithdrawApplicantActionsService.syncApplicantActions` 走 `issuer.register({ restrict: true, ... })` 未指定 scope，落 `PENDING_DOCUMENT` 因由的默认 scopes（`['WITHDRAW','SWAP']`，见 `restriction-cause.constant.ts`）——旧的 `deposit_applicant_actions`/`withdraw_applicant_actions` 子表设计从不碰 `customer_restrictions`，这是材料请求账带来的全新客户级联动，真实业务上说得通（材料没审过就该限制 WITHDRAW/SWAP），但有两个连带问题：① 命中既有的 `WithdrawWorkflowService.assertCustomerComplianceOrFreeze`（"A4 客户级合规闸"，`withdraw-workflow.service.ts:123`，payout-phase 检查点）——若客户在这笔提现本身还等着 Sumsub 复核期间就到了 payout-phase，会把**这笔提现自己**冻结（`test/withdraw-sumsub-scenarios.e2e-spec.ts` 的"补料完整弧"/"多条 action" 两条用例已实测复现，须在提交材料后额外调 `MaterialRequestReviewService.applyReview` 完成复核 GREEN 才能走到 PAYOUT_PENDING）；② 充值/提现两域的 admin 模拟面板都没有像 swap 域 V7_ACTION_GREEN/V8_ACTION_RED 那样的"认证复核"按钮可以喂 `applicantActionReviewed` 走完解锁弧——运营真在这两域模拟面板上单独走 awaitUser 场景，会把客户的 WITHDRAW/SWAP 能力卡死到只能手工 SQL 或等真实 Sumsub webhook 才能解开，没有 UI 入口。修法：`deposit-sumsub`/`withdraw-sumsub` 两域各补一个 V11/V12 级"认证复核 GREEN/RED"按钮（镜像 swap 域的 `verdict-buttons.ts` V7/V8 + `demo-scenario.service.ts` 的 `applicantActionReviewed` 分支）｜来源: 2026-08-18 修 deposit/withdraw sumsub e2e 编译错误时验收发现
-
-  ⚠ **2026-08-29 重测：本条原判有一半是错的，已更正。** 昨天写的「面板上没有任何按钮能撕掉这张便签」**是假的**——`POST /admin/sumsub/simulate/applicant-action-result` 早就存在（住在中立的 `sumsub-ingestion` 模块），前端在**客户详情页 Verification Requests 区块**，三个按钮 ✅ Approve / 🔄 Reject·Retry / ❌ Reject·Final，收 `requestNo` 不收订单 id，一份覆盖三域。昨天漏掉是因为只在三个 `*-sumsub` 交易模块里 grep `applicantActionReviewed`（得 0/0），而扳机根本不在交易域——业主 2026-08-29 指出的分层（交易 webhook 只管驱状态机+下发材料，材料审核是另一个 webhook）代码本来就是这么分的。
-
-  **全链实跑（2026-08-29 main 栈）**：⚡② → 材料请求 `PENDING_SUBMISSION` + 便签 `[WITHDRAW+SWAP] OPEN` → 客户端提交 → `SUBMITTED`（按钮此刻才渲染，条件 `simEnabled && status==='SUBMITTED'`）→ 管理台 ✅ Approve → 材料请求 `APPROVED`、便签 **`RELEASED`**、Alice 正常拿到报价。**闭环是通的。**
-
-  ⚠ **但同一次实跑挖出真缺口，本条据此重写**：**充值/提现两域不监听 `MATERIAL_REQUEST_REVIEWED`，材料审过后订单不回炉。**该事件全仓只有两个监听方——`swap-sumsub/applicant-action.handler.ts:47`（干的是**记一条审计**，不是回炉）与 `material-refresh-review.listener.ts:46`；充值/提现的 `@OnEvent` 清单里只有 `CUSTOMER_RESTRICTION_OPENED`（便签**开启**），**单向**——便签开了接得住（冻单），便签解了不知道。实测：便签 RELEASED、客户恢复交易后，**那笔充值单 20 秒后仍是 `ACTION_PENDING`**。而 `modules/v4-deposit.md` §状态表写的是 `COMPLIANCE_PENDING ⇄ ACTION_PENDING`（**补齐回炉**）——文档有这条回边，代码没有触发它的人（rubric #1）。不是死局（`approveDeposit` 白名单含 `ACTION_PENDING`，运营可手工批），但「补料后重跑合规」与「运营看着办直接放行」在合规演示里是两回事。**修法与整轮设计见 `superpowers/specs/2026-08-29-demo-kit-sumsub-panel-and-fixture-design.md` §3。**
-
-- [x] **材料账 `externalActionId` 全表 `@unique`，但 verdict-buttons demo fixture 对同一按钮固定复用同一个字面量，两次点击会 P2002(2026-08-18)**：`verdict-buttons.ts`（充值/提现/兑换三域）对 `V2_AWAIT_USER`/`V10_AWAIT_USER_MULTI` 等按钮写死同一个 `externalActionId` 字面量（如 `EXT-SOF-0001`、`EXT-MULTI-0001..3`），旧的 `deposit_applicant_actions`/`withdraw_applicant_actions` 子表按 `(depositTransactionId/withdrawTransactionId, seq)` 去重，互不冲突；材料账（`material_requests.externalActionId`）改成全表 `@unique`（不按客户/单号分段）之后，**任何两笔不同的订单**（不论同客户还是不同客户）只要先后点了同一个按钮，第二次 `issuer.register()` 会在 DB 唯一约束上直接 P2002，且不会被重试（`material-requests.service.ts` 的 `create()` 只重试 `requestNo` 撞号，`externalActionId` 撞号原样抛出）——这不只是 e2e 的问题，admin 的真实模拟面板上，操作员对同一客户（或不同客户）的两笔不同订单先后点"② Awaiting user"就会复现 500。`test/deposit-sumsub-verdicts.e2e-spec.ts`/`test/withdraw-sumsub-scenarios.e2e-spec.ts` 已在 `beforeEach` 里清空本 suite 自己登记的材料请求行绕过，未改生产代码。修法二选一：① fixture 改成按调用动态生成 `externalActionId`（更贴近真实 Sumsub 行为，每条 action 天生唯一）；② `syncApplicantActions`/`issue()` 遇到 P2002 时识别并转成对客户更友好的错误（治标不治本）｜来源: 2026-08-18 修 deposit/withdraw sumsub e2e 时验收发现
-
-  ✅ **2026-08-28 实测已修**：三域 fixture 均已改成 `randomUUID()` 动态生成 `externalActionId`（即本条修法①）；实测新开的材料请求拿到 `demo-ext-328c357e-…`，不再是固定字面量
+Last Updated: 2026-08-29
 
 
 ## B. 第一幕 · 开业（V1 治理底座 ｜ V3 财务配置 ｜ 账本）
 
+> （原「A. 演示装备」档——开演前铺不出数据、⚡ 模拟面板一按就 500——2026-08-29 演示装备一期收官后 8/8 全部修完，整节退役；这类"挡住开演"的问题以后按内容归进对应幕次，不再单独设档。原文见文末「本轮销账」与 git 历史。）
 > 讲「谁能做什么是拼包拼出来的、改任何配置都过审批」这一幕时会露的馅，加上账本/财务口径。
 
 - [ ] ⭐ **权限包目录三动词标准化 + 铺满 9 空域（本轮只出文档，代码待实现）**：定《权限与审计规范》以 View/Manage/Act 三动词为标准；现 `ACTION_BUCKET_CATALOG` 15 域仅 6 域有 bucket，`customer/compliance/trading/recon/pricing/config/gov_registry/counterparty/clearing` 9 域为空壳 → 自定义角色 UI 勾不到交易等能力；且缺 `funds`（资金单）域。代码活：按三动词补全各域 bucket + 新增 funds 域（含上条 FUNDS_ORDER_VIEW/ACT 拆分）+ Act 档对齐 SoD。中央规范以 `rbac.catalog.ts` 为唯一真相源、文档镜像防漂移 ｜来源: 2026-07-11 权限包集中化 brainstorm（甲·三动词，本轮文档 only）
@@ -123,6 +80,8 @@ Last Updated: 2026-08-28
 > 讲「钱进来要闯几道门、闯不过去有四种下场」这一幕的缺口。⭐ 那条是四条弧里唯一走不通的一条。
 
 - [ ] ⭐ 🔴 **行政级挂起的单没有任何入账路径，`waiveLimitHold` 承诺的「重走合规」是空的（待业主拍板）**：`holdAtGate0()` 那条分支**刻意不送 Sumsub**（注释说「与紧邻的 FROZEN 分支同形状」）。但那个类比**只对 `FROZEN` 成立**——`FROZEN` 的出口 `resume` 回 `COMPLIANCE_PENDING`，会重新武装 Gate 0；而 `OPERATION_PENDING` **没有回 `COMPLIANCE_PENDING` 的边**，`runGate0` 只在进入 `COMPLIANCE_PENDING` 时触发。于是：运营看到「Account suspended」、停用解除后点 **Release Hold** → `clearLimitHold` 跑 → `checkAutoApproval` 读到 `sumsubVerdict === null` **提前 return** → 单子停在 `OPERATION_PENDING`、无挂起、无 KYT 案；此时 waive 再点会抛（挂起已清）、`initiateConfiscation` 硬钉 `BELOW_MIN`、详情页没有 Approve 按钮（全仓唯一的 `Approve` 字串是 demo 模拟 fixture）——**实际只剩「原路退回汇款人」一条出路**，否则钱无限期压在 `DEPOSIT_SUSPENSE`、客户面看到一笔永远「处理中」的单。**三个候选解法**：①挂起分支也送 Sumsub（挂起时就起 KYT 案，waive 后自动续跑）；②补 `OPERATION_PENDING --resume--> COMPLIANCE_PENDING` 边（waive 走它，重新武装 Gate 0）；③维持现状但把文案说清。**本批不改行为**，只做了如实化：`waiveLimitHold` 的 JSDoc（此前明确承诺「re-runs checkAutoApproval so the deposit proceeds through the normal L2 compliance gates」，是假话）与 admin 详情页 Release Hold 的按钮文案 / confirm / notice / 按钮下方提示已全部订正 ｜来源: 2026-08-22 终审 Important I1
+
+- [ ] **`waiveLimitHold` 对"KYT 先批复、`BELOW_MIN` 挂起后落地"这条顺序的处理，本轮复审判定有问题、待核实**（与上一条区分：上一条讲的是 Gate 0 级挂起、`sumsubVerdict===null`，KYT 从没跑过；这一条 KYT **已经批复**）：`holdIfHeld()`（`deposit-workflow.service.ts:728`）证实 `BELOW_MIN` 挂起目前**只会**在 KYT 批复之后才落地——`approveDeposit()` 内部先过合规、再判金额是否低于下限才转 `OPERATION_PENDING`，其 JSDoc 自述"compliance approved but amount below configured minimum"；Gate 0 本身不判金额，这是**目前唯一**能走到 `BELOW_MIN` 挂起的顺序，运营正常顺序操作就会走到，不是刁钻边界或并发场景。花名册 #6/#8 两行就是这条顺序的日常样本——**#8（低于下限→没收→MLRO 批）本轮实测确实走通到 `CONFISCATED`**（`initiateConfiscation:1307`/`onConfiscationDecided:1389` 未见明显问题）；但**没有花名册样本覆盖 `waiveLimitHold`**（豁免直接入账，`:1267`）在这条顺序上的表现——本轮复审给出的判断是它"处理不了"，但本条登记时未能独立复现具体失败点（`checkAutoApproval:1051` 表面上会重查已缓存的 `sumsubVerdict`，理论上不会因为已批复而卡住）。如实登记，留给下一轮专门核实 ｜来源: 2026-08-29 演示装备一期复审，本条描述未经独立复现，见 `task-C56-report.md`
 
 - [ ] ⭐ **`linkedFundOrders` 的 `kind` 把没收/退回/上缴三条弧全部误标成同一个 `CONFISCATION`（Task 8 真机渲染发现的真 bug）**：`deposit-transactions.service.ts`（约 L201）`isConfiscation = fo.legSeq != null && fo.legSeq > 1` 只按"是否 legSeq>1"二分，把 legSeq=2（没收动腿）/legSeq=3（**计划2·A3 退回**动腿）/legSeq=4（**计划2·A4 上缴**动腿）全部归为 `kind: 'CONFISCATION'`；前端 `DepositTransactionDetail.tsx:543` 相应把三者的 "Linked Funds Orders" 卡片全部渲染成 `Fee · Confiscation`。Task 8 真机渲染验证时在一笔真实 SEIZE（政府上缴）流程里截图证实：legSeq=4 的资金单被标成"Fee · Confiscation"，对 operator 是误导性文案（这是政府移交，不是没收手续费）。**渲染层已把关的其它维度不受影响**（状态徽章/门控/Sumsub 引用区/演示面板均正确，只有这一处 kind 标签是历史遗留，早于本轮但被本轮新增的 legSeq=3/4 弧放大暴露）。修法：`LinkedFundOrder.kind` 类型 + 后端判定逻辑改按 legSeq 精确映射（2→CONFISCATION，3→RETURN，4→SEIZE），前端 `cap` 文案随之加 `RETURN`/`SEIZE` 两个新分支 ｜来源: 2026-07-29 Task 8 真机渲染验证发现，按硬约束未修（渲染暴露的真 bug，停手报告）
 
@@ -223,6 +182,8 @@ Last Updated: 2026-08-28
 
 > 三条交易流程共有的，以及客户端那几页 —— 改一处三幕同时受益。
 
+- [ ] ⭐ **客户级 ALL-scope 限制批量冻单时，`DEPOSIT_FROZEN`/`WITHDRAW_FROZEN` 审计写入 100% 失败**：`findNonTerminalByOwner()`（`deposit-transactions.service.ts:1279`、`withdraw-transactions.service.ts:1053`，同一提交 `e198d11d7` 引入）供 `onCustomerRestrictionOpened()` 批量扫描客户名下在途单用，其 `select` 只挑了 `{id, xxxNo, ownerType, ownerId, status, traceId}`——**没选 `correlationId`**。这批对象随后原样传进 `depositAudit()`/`withdrawAudit()`，两者都读 `xxx.correlationId ?? undefined`（恒 undefined）；而 `DEPOSIT_FROZEN`/`WITHDRAW_FROZEN` 在名册里都注册成 `correlationMode: I`（INHERIT，必须继承旅程号），校验命中就抛 `BadRequestException`。**本轮 `demo:all` 实跑（2026-08-29）当场复现**：花名册 #7 制裁冻结那笔（`DEP2608292314`）被 `onCustomerRestrictionOpened` 扫到时，日志原样是 `Failed to write DEPOSIT_FROZEN audit for DEP2608292314 (restriction RST2608297325): Audit action DEPOSIT_FROZEN is INHERIT and must inherit an existing correlationId`——订单本身照常冻上（FREEZE 与审计各自独立 catch，冻结动作不受影响），但**这一冻结动作在审计链上永久查不到**。`withdraw-transactions.service.ts` 的同名方法字面同一个坑（同一提交引入），只是花名册没有任何一行经 `onCustomerRestrictionOpened` 批量扫到提现单（#19 MLRO 冻结是单笔 `dispoTag` 直冻，不走这条广播），所以本轮没有实跑复现，判定为静态确认。**对照**：`swap-transactions.service.ts:942` 的同名方法 `select` 里明确带了 `correlationId`，注释直接写"SWAP_FROZEN 是 INHERIT 码，信封不带旅程号会被机器闸拒收"——三域里唯一修对的是兑换域，充值/提现两个原地留坑。**后果**：任何客户级 ALL-scope 限制（制裁、行政停用……）广播冻单时，只要 `onCustomerRestrictionOpened` 扫到非终态单去执行 FREEZE，对应的 `DEPOSIT_FROZEN`/`WITHDRAW_FROZEN` 事件就写不进审计表——踩铁律①（操作必留痕），第七幕按单号拉全链会当场露馅（这一步"谁冻的、依据什么"查不到）。修法：两处 `select` 各加一个 `correlationId: true`（对齐 swap 域已有的写法） ｜来源: 2026-08-29 演示装备一期复审 + `demo:all` 实跑复现
+
 - [ ] ⭐ **客户流水直读账本分录，缺加工层（业主 2026-08-27 要求登记）** —— `client-web/src/pages/TransactionHistory.tsx` 每一行 = 一条 journal line（四列 Date / Description / Amount / Balance），字段直取 `journal.eventCode`、`journal.sourceType`、`journal.sourceId`。**与 decisions.md [2026-07-07] 已定口径相悖**："客户看到的流水在展示层按订单聚合 ｜ 记账粒度服务对账，阅读体验交给读模型"——该决策至今未落地。两个可见症状：① 描述兜底显示的是内部事件码（`eventCode` 去掉 `EVT_` 前缀），客户看到的是系统词不是业务话；② **Ref 小字 = `sourceType` + 内部 UUID 前 8 位（如 `DEPOSIT-a1b2c3d4`），踩「对外识别一律用业务单号、不暴露 UUID」铁律⑥**。修法：建客户流水读模型（按订单聚合 + 业务单号 + 业务口径文案），客户端改读它、不再直读 journal line。⚠ **平账调账单落账后会自动出现在这一页**（因为直读账本），业主 2026-08-28 定：**调账的客户可见面并入本任务，不在一期做**——一期落地后客户流水会短暂出现天书行（描述兜底成 `RECON_ADJUSTMENT_POSTED`、Ref 是 UUID 前 8 位），已知并接受。本任务落地时的调账行设计（已定稿，直接用）：列表行沿用四列，Description 主行 `账务更正 · <成因客户词>`、副行 `<adjustmentNo> · 原单 <relatedOrderNo>`（业务单号，不用 UUID）；行可点开，详情十格 = 更正单号 / 更正类型 / 关联原单（可点进去）/ 更正原因（客户版文案）/ 更正前→更正后 / 本次调整 / 调整后余额 / 生效日期 / 入账时间 / 资产；**不显示经办人与审批人姓名**。合并加工须守 decisions.md [2026-08-28] 三原则（保净额 / 保余额 / 可追溯回分录，且不合并客户实际经历过的余额变动） ｜来源: 2026-08-27 平账调账单脑暴（查客户流水现状时发现）
 
 - [ ] ⭐ 🔴 **通知 send/retry = STUB**：`core/notifications/` 只有 WebSocket `NotificationsGateway`，无 email/webhook/失败重试实现——roadmap 标 Notification send/retry ✅ MVP 为过度声明；这是 V4-V6 各版本"通知未接"的根因（本体没做，不是没调）｜来源: 2026-07-04 V1 体检
@@ -304,3 +265,17 @@ Last Updated: 2026-08-28
 - [x] 充值域审计日志切新词表 —— 已切——V4_DEPOSIT_AUDIT_ACTIONS 31 码在册（站1b-β）
 - [x] 提现域审计日志切新词表 —— 已切——V5_WITHDRAW_AUDIT_ACTIONS 25 码在册（站2-β）
 - [x] 兑换域审计日志切新词表 —— 已切——V6_SWAP_AUDIT_ACTIONS 18 码在册（站3-β）
+
+
+## 本轮销账（2026-08-29 演示装备一期收官，A 档整节退役）
+
+> 「A. 演示装备」8 条本轮全部完成，整节删除（导语并入 §B）。前 6 条已于 2026-08-28 实跑复核销账，本轮只新做了后 2 条（造数花名册、补料回炉）；8 条一并归档于此，原文见 git 历史（本次改动前的 HEAD）。
+
+- [x] 全新栈跑 `demo:all` 缺提现地址前置 —— 已解（2026-08-28）：`demo-lib.ts` 显式建 BANK + crypto 提现地址，`demo:setup` 建出 5 条 ACTIVE 地址
+- [x] `demo:all` 充值 5/6（trading-ready 门后遗留卡单）—— 已解（2026-08-28）：全新库充值 6/6 SUCCESS
+- [x] `demo:deposit`/`demo:withdraw` 在全新 worktree 上必炸（缺提现地址种子）—— 已解（2026-08-28）：全新库 `demo:deposit` 6/6、`demo:withdraw` 5/5，无超时无 400
+- [x] `scripts/verify-demo-data.ts` 读已删的 `internalFund` 表，打断 `reset-main` —— 已解（2026-08-28）：口径已改读现存表，`reset` 收尾打印 `verify:demo-data ALL PASS` + `business reset complete`
+- [x] **A5**：`demo:all` 全 SUCCESS 断言与 `demo:in-transit` 故意留的在途单结构性冲突，结果不稳定 —— 已解（2026-08-29）：断言改花名册逐条比对预期终态（不再要求清一色 SUCCESS），在途单并入花名册第 20 行（`demo:in-transit` 是它的 driver，预期 `PAYOUT_PENDING`）；实证：本轮 `demo:all` 干净重铺后实跑 **21/21 符合预期 + COA 四恒等式全绿**（见 `data.md` 生成区）
+- [x] 兑换域 V7/V8 demo 按钮缺"先交材料"前置，真按会 500 —— 已解（2026-08-28 打过前置补丁；2026-08-29 整个按钮删除）：材料审核（原⑦⑧）移出交易面板，改走客户详情页 Verification Requests 区块的独立入口（三域共用，见 `modules/v6-swap.md` §5）
+- [x] **A7**：充值/提现域不监听 `MATERIAL_REQUEST_REVIEWED`，材料审过、便签已撕，但订单不回炉，永久停 `ACTION_PENDING` —— 已解（2026-08-29）：两域各补 `@OnEvent(MATERIAL_REQUEST_REVIEWED)` 监听器（只认 GREEN → RESUME 回 `COMPLIANCE_PENDING`）；提现转移表补齐 `ACTION_PENDING --RESUME--> COMPLIANCE_PENDING`（充值侧这条边一直有，21→22 边）；新增审计码 `DEPOSIT_MATERIAL_APPROVED_RESUMED`/`WITHDRAW_MATERIAL_APPROVED_RESUMED`；实证：单测 `deposit-workflow.service.spec.ts`「`onMaterialRequestReviewed` — 材料审过后充值单回炉 (A7)」与 `withdraw-workflow.service.spec.ts`「同 (B3)」均绿（`npx jest ... -t 回炉` 10 例通过）
+- [x] 材料账 `externalActionId` 全表 `@unique`，demo fixture 固定字面量两次点同按钮撞 P2002 —— 已解（2026-08-28）：三域 fixture 均改 `randomUUID()` 动态生成

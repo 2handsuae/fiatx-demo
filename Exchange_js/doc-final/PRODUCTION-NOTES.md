@@ -341,6 +341,7 @@
 - [ ] **慢 case 自动重算未端到端验证**：KYT-only 架构的根基假设——客户/officer 处置慢 case 后，Sumsub 自动重算并补发 `applicantKytTxn*`（S4/S7 场景据此设计：ACTION_PENDING/MANUAL_CHECKING 补料或翻案后无需专门 action handler，靠重评 webhook 自动推进）——沙盒环境逼不出真实的"慢 case 重算"时序，Task 12 e2e（`test/deposit-sumsub-scenarios.e2e-spec.ts` S4/S7）只能用 fixture 直接喂第二个 webhook 断言，不是对真实 Sumsub 异步重算的端到端验证。上线前需拿真实 applicant 走一次真慢 case 验证 ｜来源: task-13-brief
 
 - [ ] **按钮 ⑨（SLA breach）与真实 SLA 定时器取证痕迹不一致**：⑨ 只是投一份 `applicantKytTxnRejected` + `SLA_BREACH` tag（与 ⑦"无处置 tag"走同一条 `applyKytRejected` 分支，落 `MANUAL_CHECK`/`DEPOSIT_MANUAL_CHECKING`），并不真的驱动 `DepositSlaService` 的 cron 扫描/`slaDeadline` 过期判定——旧场景模型（`S9_ONHOLD_SLA`）是真拨 `slaDeadline` 到过去、再触发 `checkSlaBreaches()` 走 `DEPOSIT_SLA_BREACHED` 系统审计；新按钮模型为换取"单步即完成"的仿真简洁性，代价是 operator 点 ⑨ 看到的审计/报文痕迹与真实 SLA 超时触发的痕迹不完全一致。业主已知情，暂不处理 ｜来源: 2026-07-31 Task 4 final-review triage Minor②
+- [已解 2026-08-29] 上一条按钮已整个删除——三域按钮表统一（充值/提现 11 码、兑换 8 码）时把这个假 SLA breach 按钮连同它对不上的取证痕迹一起摘掉；三域各自本来就有真实的 `POST :no/simulate-sla-timeout` 端点，不再需要这个仿造品 ｜ `src/modules/sumsub-shared/verdict-buttons.shared.ts` ｜ 见 commit `503357e7`
 
 - [ ] **单缺 `sumsubApplicantId` 时 Gate 0 跳过提交，之后仿真按钮喂的 webhook 成静默孤儿**：`submitSumsubTxns()` 在 `customer.sumsubApplicantId` 为空时只 warn + 跳过（deposit 留 `COMPLIANCE_PENDING`，`sumsubTxnId` 恒空）；此时若 operator/demo 仍对这笔单点了仿真裁决按钮，`DepositDemoScenarioService.runVerdict()` 会现铸一个 txnId 走完整 ingest 链路，并把结果原样返回（`statusBefore`/`statusAfter` 字段齐全，HTTP 层 201 不报错）——但这次投递对生产链路而言毫无意义（这笔单从未真正提交过 Sumsub，webhook 找不到匹配的真实报送记录）。旧的 `runScenario`（已删）同样存在该缺口，非本轮新引入的回归 ｜来源: 2026-07-31 Task 4 final-review triage Minor③
 
@@ -407,6 +408,7 @@
 - [ ] **`Simulate SLA Timeout` 是六个页面里唯一绕过 `adminButtonClass` 的按钮**：三份手写、裸 Tailwind 调色板（`border-amber-300 text-amber-700 hover:bg-amber-50`）而非 `adm-*` 令牌，字号 `text-sm` 比全站按钮 `text-[11px]` 大一档、`py-2` 比 `py-1.5` 高。`adminButtonStyles.ts` 的 `repair` 变体正是为它这种琥珀警示按钮准备的 ｜来源: 2026-08-23 第五批终审
 
 - [ ] **⚡ Simulation 面板 markup 仍是三份手写**：充值/提现两份做域名归一化后 diff **只差 1 行**（按钮数组名），其余 33 行逐字重复。今天零视觉差异，但这正是 L2 闸门格子当初分叉出三套排版的前一阶段状态 ｜来源: 2026-08-23 第五批终审
+- [已解 2026-08-29] 上一条已抽成共享组件：三份手写 markup 收敛成 `admin-web/src/components/SimulationPanel.tsx` 一份，按 `source`（引擎自动命中 / 合规官手工处置）分两组渲染；按钮清单本身也不再是前端手抄数组，改从后端 `GET demo/verdict-buttons` 拉取（源头 `src/modules/sumsub-shared/verdict-buttons.shared.ts`），三域三个交易详情页共用同一份 ｜ `admin-web/src/components/SimulationPanel.tsx` ｜ 见 commit `ede9a8f0`
 
 - [ ] **列表页 error 态位置三域不同**：充值/提现是表**上方**红色通条（表格数据仍在），兑换是表**体内** `<td colSpan=11>`（**整表内容被顶掉**）｜来源: 2026-08-23 第五批终审
 
