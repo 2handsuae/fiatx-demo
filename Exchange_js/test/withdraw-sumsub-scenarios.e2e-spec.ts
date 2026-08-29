@@ -375,22 +375,22 @@ describe('Withdraw Sumsub verdict buttons (e2e, Task 12)', () => {
     expect((detail as any).sumsubDetail.applicantActionIds.length).toBeGreaterThan(0);
   });
 
-  it('③ awaiting user · PEP: ACTION_PENDING, manualReason=EDD_PEP, 报文含 PEP tag', async () => {
+  it('③ awaiting user · PEP: ACTION_PENDING, manualReason=EDD_PEP, 报文含 PEP_APPLICANT tag', async () => {
     const w = await createWithdrawal({ assetId: fiatAssetId, assetCode: fiatCode, amount: '150', toIban: registeredIban });
 
-    await deliver(w.id, 'V3_AWAIT_USER_PEP');
+    await deliver(w.id, 'V3_AWAIT_USER_PEP_APPLICANT');
 
     expect(await statusOf(w.id)).toBe(WithdrawTransactionStatus.ACTION_PENDING);
     const refreshed = await withdrawService.findOne(w.id);
     expect((refreshed as any).manualReason).toBe('EDD_PEP');
     const detail = await withdrawService.findOneForAdmin(w.id);
-    expect((detail as any).sumsubDetail.tags).toContain('PEP');
+    expect((detail as any).sumsubDetail.tags).toContain('PEP_APPLICANT');
   });
 
-  it('④ rejected · sanctions: FROZEN, 零记账', async () => {
+  it('⑧ rejected · sanctions: FROZEN, 零记账', async () => {
     const w = await createWithdrawal({ assetId: fiatAssetId, assetCode: fiatCode, amount: '250', toIban: registeredIban });
 
-    await deliver(w.id, 'V4B_REJECTED_SANCTION_COUNTERPARTY');
+    await deliver(w.id, 'V8_REJECTED_SANCTION_COUNTERPARTY');
 
     expect(await statusOf(w.id)).toBe(WithdrawTransactionStatus.FROZEN);
     const actions = await auditActionsFor(w.id);
@@ -400,26 +400,26 @@ describe('Withdraw Sumsub verdict buttons (e2e, Task 12)', () => {
     expect(legs).toHaveLength(0);
   });
 
-  it('⑤ rejected · MLRO freeze: FROZEN', async () => {
+  it('⑨ rejected · MLRO freeze: FROZEN', async () => {
     const w = await createWithdrawal({ assetId: fiatAssetId, assetCode: fiatCode, amount: '300', toIban: registeredIban });
 
-    await deliver(w.id, 'V5_REJECTED_FROZEN_MLRO');
+    await deliver(w.id, 'V9_REJECTED_MLRO_FREEZE');
 
     expect(await statusOf(w.id)).toBe(WithdrawTransactionStatus.FROZEN);
     const actions = await auditActionsFor(w.id);
     expect(actions).toContain(AuditActions.WITHDRAW_FROZEN);
   });
 
-  it('⑦ then ⑥ rejected · refund tag: MANUAL_CHECKING → REJECTED + locks released (refund tag only executes from MANUAL_CHECKING)', async () => {
+  it('⑪ then ⑩ rejected · dispoTag=FINAL_REJECTED: MANUAL_CHECKING → REJECTED + locks released (disposition tag only executes from MANUAL_CHECKING)', async () => {
     const amount = '350';
     const before = await accounting.getCustomerAvailableBalance(customerId, 'AED');
 
     const w = await createWithdrawal({ assetId: fiatAssetId, assetCode: fiatCode, amount, toIban: registeredIban });
 
-    await deliver(w.id, 'V7_REJECTED_NO_TAG');
+    await deliver(w.id, 'V11_REJECTED_NO_TAG');
     expect(await statusOf(w.id)).toBe(WithdrawTransactionStatus.MANUAL_CHECKING);
 
-    await deliver(w.id, 'V6_REJECTED_REFUND_TAG');
+    await deliver(w.id, 'V10_REJECTED_DISPOSITION');
     expect(await statusOf(w.id)).toBe(WithdrawTransactionStatus.REJECTED);
 
     const actions = await auditActionsFor(w.id);
@@ -429,39 +429,26 @@ describe('Withdraw Sumsub verdict buttons (e2e, Task 12)', () => {
     expect(after.available).toBe(before.available); // fully restored
   });
 
-  it('⑦ rejected · no disposition tag: MANUAL_CHECKING', async () => {
+  it('⑪ rejected · no disposition tag: MANUAL_CHECKING', async () => {
     const w = await createWithdrawal({ assetId: fiatAssetId, assetCode: fiatCode, amount: '220', toIban: registeredIban });
 
-    await deliver(w.id, 'V7_REJECTED_NO_TAG');
+    await deliver(w.id, 'V11_REJECTED_NO_TAG');
 
     expect(await statusOf(w.id)).toBe(WithdrawTransactionStatus.MANUAL_CHECKING);
     const actions = await auditActionsFor(w.id);
     expect(actions).not.toContain(AuditActions.WITHDRAW_FROZEN);
   });
 
-  it('⑧ on hold: 状态不变 (COMPLIANCE_PENDING) + slaDeadline set', async () => {
+  it('⑥ on hold: 状态不变 (COMPLIANCE_PENDING) + slaDeadline set', async () => {
     const w = await createWithdrawal({ assetId: fiatAssetId, assetCode: fiatCode, amount: '90', toIban: registeredIban });
 
-    await deliver(w.id, 'V8_ONHOLD');
+    await deliver(w.id, 'V6_ONHOLD');
 
     expect(await statusOf(w.id)).toBe(WithdrawTransactionStatus.COMPLIANCE_PENDING);
     const refreshed = await withdrawService.findOne(w.id);
     expect((refreshed as any).slaDeadline).toBeTruthy();
     const actions = await auditActionsFor(w.id);
     expect(actions).toContain(AuditActions.WITHDRAW_ONHOLD);
-  });
-
-  it('⑧ then ⑨ SLA breach: MANUAL_CHECKING + 报文含 SLA_BREACH tag', async () => {
-    const w = await createWithdrawal({ assetId: fiatAssetId, assetCode: fiatCode, amount: '95', toIban: registeredIban });
-
-    await deliver(w.id, 'V8_ONHOLD');
-    expect(await statusOf(w.id)).toBe(WithdrawTransactionStatus.COMPLIANCE_PENDING);
-
-    await deliver(w.id, 'V9_REJECTED_SLA');
-
-    expect(await statusOf(w.id)).toBe(WithdrawTransactionStatus.MANUAL_CHECKING);
-    const detail = await withdrawService.findOneForAdmin(w.id);
-    expect((detail as any).sumsubDetail.tags).toContain('SLA_BREACH');
   });
 
   // ── Task 6 → 2026-08-18 材料请求账迁移：补料 embed 弧 + 接口层不可区分 + 多条 action
@@ -544,7 +531,7 @@ describe('Withdraw Sumsub verdict buttons (e2e, Task 12)', () => {
 
     const before = await getSessionView(requestNo);
 
-    await deliver(w.id, 'V4B_REJECTED_SANCTION_COUNTERPARTY');
+    await deliver(w.id, 'V8_REJECTED_SANCTION_COUNTERPARTY');
     expect(await statusOf(w.id)).toBe(WithdrawTransactionStatus.FROZEN);
 
     const after = await getSessionView(requestNo);
@@ -556,7 +543,7 @@ describe('Withdraw Sumsub verdict buttons (e2e, Task 12)', () => {
   it('多条 action：交完前两条仍 ACTION_PENDING，交完第三条才算全部交齐', async () => {
     const w = await createWithdrawal({ assetId: fiatAssetId, assetCode: fiatCode, amount: '170', toIban: registeredIban });
 
-    await deliver(w.id, 'V10_AWAIT_USER_MULTI');
+    await deliver(w.id, 'V5_AWAIT_USER_MULTI');
     expect(await statusOf(w.id)).toBe(WithdrawTransactionStatus.ACTION_PENDING);
 
     // 2026-08-18 迁移注记：旧断言读 findOneForCustomerByWithdrawNo(...).actions
@@ -565,7 +552,7 @@ describe('Withdraw Sumsub verdict buttons (e2e, Task 12)', () => {
     // 数组——不是本次要修的范围（withdraw-transactions.service.ts 未改动），但
     // 断言必须换成真实数据源：材料账按 externalActionId 定位同一批 action。
     //
-    // 终审 Important #4（2026-08-18 二次修订）：V10_AWAIT_USER_MULTI fixture 的
+    // 终审 Important #4（2026-08-18 二次修订）：V5_AWAIT_USER_MULTI fixture 的
     // 三个 externalActionId 此前是固定字面量 EXT-MULTI-000{1,2,3}，已改成按
     // 调用现铸（见 src/modules/withdraw-sumsub/fixtures/verdict-buttons.ts），
     // 断言相应从"是这三个字面量"改成"有三条互不相同的活行"，用真实返回值
@@ -604,7 +591,7 @@ describe('Withdraw Sumsub verdict buttons (e2e, Task 12)', () => {
   it('逐条不可区分：同一条 action 在 ACTION_PENDING 与 FROZEN 下会话响应体全等', async () => {
     const w = await createWithdrawal({ assetId: fiatAssetId, assetCode: fiatCode, amount: '175', toIban: registeredIban });
 
-    await deliver(w.id, 'V10_AWAIT_USER_MULTI');
+    await deliver(w.id, 'V5_AWAIT_USER_MULTI');
     const live = await materialRequests.listLiveByOrder('WITHDRAW', w.withdrawNo);
     // 终审 Important #4：externalActionId 现铸不再是固定字面量，任取一条即可——
     // 这条用例只关心"同一条 action 前后两次会话响应体相等"，不关心是哪一条。
@@ -613,7 +600,7 @@ describe('Withdraw Sumsub verdict buttons (e2e, Task 12)', () => {
 
     const before = await getSessionView(requestNo);
 
-    await deliver(w.id, 'V4B_REJECTED_SANCTION_COUNTERPARTY');
+    await deliver(w.id, 'V8_REJECTED_SANCTION_COUNTERPARTY');
     expect(await statusOf(w.id)).toBe(WithdrawTransactionStatus.FROZEN);
 
     const after = await getSessionView(requestNo);

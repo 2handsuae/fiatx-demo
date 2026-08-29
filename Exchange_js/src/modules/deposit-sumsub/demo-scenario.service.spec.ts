@@ -125,7 +125,7 @@ describe('DepositDemoScenarioService', () => {
     const service = buildService();
     const primeSubmitSpy = jest.spyOn(mockClient, 'primeSubmit');
 
-    await service.runVerdict('deposit-1', 'V4B_REJECTED_SANCTION_COUNTERPARTY', actor);
+    await service.runVerdict('deposit-1', 'V8_REJECTED_SANCTION_COUNTERPARTY', actor);
 
     expect(primeSubmitSpy).not.toHaveBeenCalled();
     expect(ingestionService.ingest).toHaveBeenNthCalledWith(
@@ -135,10 +135,10 @@ describe('DepositDemoScenarioService', () => {
     );
   });
 
-  it('V8_ONHOLD: webhookType 是 applicantKytOnHold(官方无 Txn 命名)', async () => {
+  it('V6_ONHOLD: webhookType 是 applicantKytOnHold(官方无 Txn 命名)', async () => {
     const service = buildService();
 
-    await service.runVerdict('deposit-1', 'V8_ONHOLD', actor);
+    await service.runVerdict('deposit-1', 'V6_ONHOLD', actor);
 
     expect(ingestionService.ingest).toHaveBeenCalledWith(
       expect.objectContaining({ type: 'applicantKytOnHold' }),
@@ -150,14 +150,14 @@ describe('DepositDemoScenarioService', () => {
     const service = buildService();
     const primeSubmitSpy = jest.spyOn(mockClient, 'primeSubmit');
 
-    await service.runVerdict('deposit-1', 'V4B_REJECTED_SANCTION_COUNTERPARTY', actor);
+    await service.runVerdict('deposit-1', 'V8_REJECTED_SANCTION_COUNTERPARTY', actor);
 
     depositService.findOne.mockResolvedValue({
       ...deposit,
       id: 'deposit-2',
       depositNo: 'DEPT2',
     });
-    await service.runVerdict('deposit-2', 'V4B_REJECTED_SANCTION_COUNTERPARTY', actor);
+    await service.runVerdict('deposit-2', 'V8_REJECTED_SANCTION_COUNTERPARTY', actor);
 
     const [firstId, secondId] = primeSubmitSpy.mock.calls.map((c) => c[1]);
     expect(firstId).toMatch(OBJECT_ID);
@@ -169,8 +169,8 @@ describe('DepositDemoScenarioService', () => {
     const service = buildService();
     const primeSubmitSpy = jest.spyOn(mockClient, 'primeSubmit');
 
-    await service.runVerdict('deposit-1', 'V4B_REJECTED_SANCTION_COUNTERPARTY', actor);
-    await service.runVerdict('deposit-1', 'V4B_REJECTED_SANCTION_COUNTERPARTY', actor);
+    await service.runVerdict('deposit-1', 'V8_REJECTED_SANCTION_COUNTERPARTY', actor);
+    await service.runVerdict('deposit-1', 'V8_REJECTED_SANCTION_COUNTERPARTY', actor);
 
     const [firstId, secondId] = primeSubmitSpy.mock.calls.map((c) => c[1]);
     expect(firstId).toBe(secondId);

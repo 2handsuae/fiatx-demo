@@ -19,6 +19,7 @@ import {
   WithdrawTransactionStatus,
 } from './dto/withdraw-transaction.dto';
 import type { SceneTag } from '../../withdraw-sumsub/withdraw-kyt-verdict.handler';
+import type { DispoTag } from '../../sumsub-shared/scene-tags';
 import { CustomerAccessService, NEUTRAL_DENIAL } from '../../identity/customers/customer-access.service';
 import { CustomerRestrictionsService } from '../../identity/customers/customer-restrictions.service';
 import { L1GateService } from '../shared/l1-gate/l1-gate.service';
@@ -1944,7 +1945,7 @@ export class WithdrawWorkflowService implements OnModuleInit {
   /**
    * SANCTION REFUND disposition (initiate side, Task 8): ops proposes refunding a
    * FROZEN withdrawal back to its sender under a sanctions disposition (the
-   * REJECT_REFUND tag arriving while a withdrawal was already FROZEN is ignored —
+   * FINAL_REJECTED tag arriving while a withdrawal was already FROZEN is ignored —
    * see applyKytRejected's WITHDRAW_REFUND_TAG_ON_FROZEN_IGNORED guard — so this is
    * the only legal path to that exit). Routed through V1 maker-checker approval
    * (single-step MLRO). Only opens the approval case + audits the request; the
@@ -2340,7 +2341,7 @@ export class WithdrawWorkflowService implements OnModuleInit {
       verdict: 'approved' | 'rejected' | 'awaitUser' | 'onHold';
       riskScore?: number | null;
       sceneTag?: SceneTag;
-      dispoTag?: 'FROZEN_BY_MLRO' | 'REJECT_REFUND';
+      dispoTag?: DispoTag;
       detailRaw?: unknown;
       applicantActions?: { applicantActionId: string; externalActionId: string }[];
     },
@@ -2483,7 +2484,7 @@ export class WithdrawWorkflowService implements OnModuleInit {
    */
   private async recordVerdictIgnored(
     w: any,
-    input: { verdict: string; riskScore?: number | null; sceneTag?: SceneTag; dispoTag?: 'FROZEN_BY_MLRO' | 'REJECT_REFUND' },
+    input: { verdict: string; riskScore?: number | null; sceneTag?: SceneTag; dispoTag?: DispoTag },
     status: WithdrawTransactionStatus,
   ): Promise<void> {
     await this.withdrawAudit(w, {
@@ -2585,7 +2586,8 @@ export class WithdrawWorkflowService implements OnModuleInit {
       return;
     }
 
-    const manualReason = sceneTag === 'PEP' ? 'EDD_PEP' : 'CLIENT_ACTION';
+    const manualReason =
+      sceneTag === 'PEP_APPLICANT' || sceneTag === 'PEP_COUNTERPARTY' ? 'EDD_PEP' : 'CLIENT_ACTION';
     // slaDeadline/slaBreached 不在这里写:进入 ACTION_PENDING 由 updateStatus
     // 内部的 resolveSlaFields 统一算,这里再传会覆盖收口处刚算好的值。
     const actionRow = await this.withdrawService.updateStatus(
@@ -2636,14 +2638,14 @@ export class WithdrawWorkflowService implements OnModuleInit {
   /**
    * rejected: tag 三分支(spec §3)。
    *   SANCTION_APPLICANT(场景·客户本人) → 冻人 + FREEZE；SANCTION_COUNTERPARTY(场景·对手方) / FROZEN_BY_MLRO(处置) → 仅 FREEZE（免审批,收紧方向）
-   *   REJECT_REFUND(处置)                  → REJECT_REFUND → REJECTED + releaseLock
+   *   FINAL_REJECTED(处置)                 → REJECT_REFUND → REJECTED + releaseLock
    *   无 tag                                → KYT_REJECTED → MANUAL_CHECKING
    * All three idempotent when already in the target state (repeat webhook).
    */
   private async applyKytRejected(
     w: any,
     sceneTag?: SceneTag,
-    dispoTag?: 'FROZEN_BY_MLRO' | 'REJECT_REFUND',
+    dispoTag?: DispoTag,
   ): Promise<void> {
     const isApplicantSanction = sceneTag === 'SANCTION_APPLICANT';
     if (isApplicantSanction || sceneTag === 'SANCTION_COUNTERPARTY' || dispoTag === 'FROZEN_BY_MLRO') {
@@ -2695,7 +2697,7 @@ export class WithdrawWorkflowService implements OnModuleInit {
       return;
     }
 
-    if (dispoTag === 'REJECT_REFUND') {
+    if (dispoTag === 'FINAL_REJECTED') {
       // Sanctioned free-of-approval path: an officer already tagged this case for
       // refund during manual compliance review — MANUAL_CHECKING carries the
       // REJECT_REFUND edge (Task 1's transitions table) for exactly this.
@@ -2708,7 +2710,7 @@ export class WithdrawWorkflowService implements OnModuleInit {
         await this.releaseLock(w, 'Officer refund tag');
         await this.withdrawAudit(w, {
           action: 'WITHDRAW_REFUNDED',
-          reason: 'KYT verdict rejected: officer REJECT_REFUND tag — void pending locks, refund to available balance',
+          reason: 'KYT verdict rejected: officer FINAL_REJECTED tag — void pending locks, refund to available balance',
           fromStatus: WithdrawTransactionStatus.MANUAL_CHECKING,
           toStatus: tagRefundRow.status,
           metadata: { trigger: 'OFFICER_TAG', releasedNet: String(w.netAmount), releasedFee: String(w.feeAmount) },
@@ -2730,7 +2732,7 @@ export class WithdrawWorkflowService implements OnModuleInit {
           action: 'WITHDRAW_REFUNDED',
           outcome: AuditOutcome.DENIED,
           reasonCode: 'FROZEN_REQUIRES_APPROVAL',
-          reason: 'KYT verdict rejected: officer REJECT_REFUND tag ignored — withdrawal is FROZEN, exits only via WITHDRAW_UNFREEZE / WITHDRAW_SANCTION_REFUND maker-checker approvals',
+          reason: 'KYT verdict rejected: officer FINAL_REJECTED tag ignored — withdrawal is FROZEN, exits only via WITHDRAW_UNFREEZE / WITHDRAW_SANCTION_REFUND maker-checker approvals',
           metadata: { trigger: 'OFFICER_TAG' },
         });
         return;
@@ -2754,7 +2756,7 @@ export class WithdrawWorkflowService implements OnModuleInit {
         reason: `KYT verdict: rejected, officer refund tag arrived early — landed in manual review for re-drive`,
         fromStatus: w.status,
         toStatus: earlyTagRow.status,
-        metadata: { dispoTag: 'REJECT_REFUND' },
+        metadata: { dispoTag: 'FINAL_REJECTED' },
       });
       return;
     }

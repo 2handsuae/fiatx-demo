@@ -2426,38 +2426,44 @@ describe('DepositWorkflowService', () => {
       );
     });
 
-    it('awaitUser + PEP → ACTION_PENDING with manualReason=EDD_PEP', async () => {
-      const deposit = {
-        id: 'dep-3',
-        depositNo: 'DEP003',
-        status: DepositTransactionStatus.COMPLIANCE_PENDING,
-        ownerType: 'CUSTOMER',
-        ownerId: 'cust-1',
-        traceId: 'trace-3',
-      };
-      depositService.findOne.mockResolvedValue(deposit);
-      depositService.updateStatus.mockResolvedValue({
-        ...deposit,
-        status: DepositTransactionStatus.ACTION_PENDING,
-      });
-      actionsService.hasOutstanding.mockResolvedValue(true); // 同步后仍有未提交行,正常推进(I1 guard)
+    // 2026-08-29：PEP 分主体（PEP_APPLICANT 客户本人 / PEP_COUNTERPARTY 对手方），
+    // 两个新按钮都必须落 EDD_PEP —— 此前 handler 本地词表只认裸 'PEP'，A2 拆分后
+    // 两个新值都不在词表里，manualReason 恒判 CLIENT_ACTION（真实演错行为，A3 修复）。
+    it.each(['PEP_APPLICANT', 'PEP_COUNTERPARTY'] as const)(
+      'awaitUser + sceneTag=%s → ACTION_PENDING with manualReason=EDD_PEP',
+      async (sceneTag) => {
+        const deposit = {
+          id: 'dep-3',
+          depositNo: 'DEP003',
+          status: DepositTransactionStatus.COMPLIANCE_PENDING,
+          ownerType: 'CUSTOMER',
+          ownerId: 'cust-1',
+          traceId: 'trace-3',
+        };
+        depositService.findOne.mockResolvedValue(deposit);
+        depositService.updateStatus.mockResolvedValue({
+          ...deposit,
+          status: DepositTransactionStatus.ACTION_PENDING,
+        });
+        actionsService.hasOutstanding.mockResolvedValue(true); // 同步后仍有未提交行,正常推进(I1 guard)
 
-      await service.applyKytVerdict('dep-3', { verdict: 'awaitUser', sceneTag: 'PEP' });
+        await service.applyKytVerdict('dep-3', { verdict: 'awaitUser', sceneTag });
 
-      // 2026-08-21 第三批：slaDeadline/slaBreached 不再由这里的 extraData 传——
-      // 进入 ACTION_PENDING 时由 updateStatus 内部的 resolveSlaFields 统一算
-      // (收口处),extraData 只带 manualReason + actionSubmittedAt 的清空。
-      expect(depositService.updateStatus).toHaveBeenCalledWith(
-        'dep-3',
-        expect.objectContaining({ action: DepositTransactionAction.ACTION_PENDING }),
-        expect.objectContaining({
-          extraData: {
-            manualReason: 'EDD_PEP',
-          },
-        }),
-      );
-      expect(depositService.setSlaDeadline).not.toHaveBeenCalled();
-    });
+        // 2026-08-21 第三批：slaDeadline/slaBreached 不再由这里的 extraData 传——
+        // 进入 ACTION_PENDING 时由 updateStatus 内部的 resolveSlaFields 统一算
+        // (收口处),extraData 只带 manualReason + actionSubmittedAt 的清空。
+        expect(depositService.updateStatus).toHaveBeenCalledWith(
+          'dep-3',
+          expect.objectContaining({ action: DepositTransactionAction.ACTION_PENDING }),
+          expect.objectContaining({
+            extraData: {
+              manualReason: 'EDD_PEP',
+            },
+          }),
+        );
+        expect(depositService.setSlaDeadline).not.toHaveBeenCalled();
+      },
+    );
 
     it('awaitUser without PEP → manualReason=CLIENT_ACTION', async () => {
       const deposit = {
@@ -2908,7 +2914,7 @@ describe('DepositWorkflowService', () => {
       });
       actionsService.hasOutstanding.mockResolvedValue(true); // 客户仍有未提交行,不是 I1 那种死角
 
-      await service.applyKytVerdict('dep-11', { verdict: 'awaitUser', sceneTag: 'PEP' });
+      await service.applyKytVerdict('dep-11', { verdict: 'awaitUser', sceneTag: 'PEP_APPLICANT' });
 
       expect(depositService.updateStatus).not.toHaveBeenCalled();
       expect(auditLogsService.recordSystem).not.toHaveBeenCalled();

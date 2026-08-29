@@ -9,6 +9,7 @@ import {
 } from './dto/deposit-transaction.dto';
 import { DepositStatusChangedEvent } from './events/deposit-transaction.events';
 import type { SceneTag } from '../../deposit-sumsub/deposit-kyt-verdict.handler';
+import type { DispoTag } from '../../sumsub-shared/scene-tags';
 import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import { CustomerAccessService } from '../../identity/customers/customer-access.service';
 import {
@@ -512,7 +513,7 @@ export class DepositWorkflowService implements OnModuleInit {
       verdict: 'approved' | 'rejected' | 'awaitUser' | 'onHold';
       riskScore?: number | null;
       sceneTag?: SceneTag;
-      dispoTag?: 'FROZEN_BY_MLRO' | 'RETURN_TO_SENDER';
+      dispoTag?: DispoTag;
       detailRaw?: unknown;
       applicantActions?: { applicantActionId: string; externalActionId: string }[];
     },
@@ -644,7 +645,7 @@ export class DepositWorkflowService implements OnModuleInit {
    */
   private async recordVerdictIgnored(
     deposit: any,
-    v: { verdict: string; riskScore?: number | null; sceneTag?: SceneTag; dispoTag?: 'FROZEN_BY_MLRO' | 'RETURN_TO_SENDER' },
+    v: { verdict: string; riskScore?: number | null; sceneTag?: SceneTag; dispoTag?: DispoTag },
     status: DepositTransactionStatus,
   ): Promise<void> {
     await this.depositAudit(deposit, {
@@ -846,7 +847,8 @@ export class DepositWorkflowService implements OnModuleInit {
       return;
     }
 
-    const manualReason = sceneTag === 'PEP' ? 'EDD_PEP' : 'CLIENT_ACTION';
+    const manualReason =
+      sceneTag === 'PEP_APPLICANT' || sceneTag === 'PEP_COUNTERPARTY' ? 'EDD_PEP' : 'CLIENT_ACTION';
     const oldStatus = deposit.status;
     // slaDeadline/slaBreached 不在这里写:进入 ACTION_PENDING 由 updateStatus
     // 内部的 resolveSlaFields 统一算,这里再传会覆盖收口处刚算好的值。
@@ -904,7 +906,7 @@ export class DepositWorkflowService implements OnModuleInit {
   private async applyKytRejected(
     deposit: any,
     sceneTag?: SceneTag,
-    dispoTag?: 'FROZEN_BY_MLRO' | 'RETURN_TO_SENDER',
+    dispoTag?: DispoTag,
   ) {
     const isApplicantSanction = sceneTag === 'SANCTION_APPLICANT';
     if (
