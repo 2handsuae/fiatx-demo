@@ -2,6 +2,7 @@ import { Inject, Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../../core/prisma/prisma.service';
 import { MaterialRequestsService, type MaterialActor } from '../../identity/material-requests/material-requests.service';
 import { MaterialRequestIssuerService } from '../../identity/material-requests/material-request-issuer.service';
+import type { SceneTag } from '../../sumsub-shared/scene-tags';
 
 export interface IncomingApplicantAction {
   applicantActionId: string;
@@ -54,6 +55,7 @@ export class DepositApplicantActionsService {
   async syncApplicantActions(
     depositId: string,
     incoming: IncomingApplicantAction[],
+    sceneTag?: SceneTag,
   ): Promise<{ added: number; retired: number }> {
     const deposit = await this.prisma.depositTransaction.findUnique({
       where: { id: depositId },
@@ -88,6 +90,13 @@ export class DepositApplicantActionsService {
     const liveByExternal = new Map(live.map((r) => [r.externalActionId, r]));
     const incomingIds = new Set(valid.map((a) => a.externalActionId));
 
+    // 便签挂谁由 tag 决定（业主 2026-08-29 口径，见 spec §2.6(5)）：
+    // 普通 SOF 补料（无 sceneTag）问的是「这笔钱哪来的」= 交易层的事 → 只挂订单，
+    // 成提醒型材料请求；PEP 问的是「这个人是不是政治人物」= 人身层的事 → 才配
+    // 开客户级便签，锁住提现/兑换。PENDING_DOCUMENT 是唯一 scopeSelectable 的
+    // 因由，defaultScopes 已是 ['WITHDRAW','SWAP']，这里不必再指定 restrictScopes。
+    const restrict = sceneTag === 'PEP_APPLICANT' || sceneTag === 'PEP_COUNTERPARTY';
+
     let added = 0;
     for (const action of valid) {
       if (liveByExternal.has(action.externalActionId)) continue; // 幂等：重复 webhook 不造第二行
@@ -107,7 +116,7 @@ export class DepositApplicantActionsService {
         origin: 'SUMSUB_PUSHED',
         reason: `KYT review on deposit ${deposit.depositNo} requires additional materials`,
         issuedBy: 'SYSTEM',
-        restrict: true,
+        restrict,
         actor: { actorType: 'SYSTEM', userId: 'SYSTEM', userNo: 'SYSTEM', role: 'SYSTEM', roleCodes: ['SYSTEM'] } as any,
       });
       added += 1;

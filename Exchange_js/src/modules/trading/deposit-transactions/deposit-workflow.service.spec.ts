@@ -3567,7 +3567,9 @@ describe('DepositWorkflowService', () => {
 
       await (service as any).applyKytAwaitUser(dep, undefined, ACTIONS);
 
-      expect(actionsService.syncApplicantActions).toHaveBeenCalledWith('d-1', ACTIONS);
+      // 2026-08-29 Task A4：sceneTag 现在原样透传给 syncApplicantActions（第三参），
+      // 便签挂谁由 tag 决定——本用例的 sceneTag 是 undefined，故这里也传 undefined。
+      expect(actionsService.syncApplicantActions).toHaveBeenCalledWith('d-1', ACTIONS, undefined);
       expect(depositService.updateStatus).toHaveBeenCalled();
       const [, , opts] = depositService.updateStatus.mock.calls[0];
       // 2026-08-21 第三批：extraData 不再带 slaDeadline/slaBreached —— 由

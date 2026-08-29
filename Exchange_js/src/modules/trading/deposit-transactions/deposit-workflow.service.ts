@@ -804,6 +804,7 @@ export class DepositWorkflowService implements OnModuleInit {
     const { added, retired } = await this.applicantActions.syncApplicantActions(
       deposit.id,
       incoming,
+      sceneTag,
     );
 
     // I1 修复(反直觉,细说原因):两个 Sumsub client 在

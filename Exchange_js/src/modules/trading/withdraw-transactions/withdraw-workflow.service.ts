@@ -2538,6 +2538,7 @@ export class WithdrawWorkflowService implements OnModuleInit {
     const { added, retired } = await this.applicantActions.syncApplicantActions(
       w.id,
       incoming,
+      sceneTag,
     );
 
     // I1(mirrors deposit):判据必须是"同步后是否还有未提交行"(hasOutstanding),

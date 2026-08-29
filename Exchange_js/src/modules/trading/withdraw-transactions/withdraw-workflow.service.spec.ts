@@ -1477,7 +1477,9 @@ describe('WithdrawWorkflowService.applyKytVerdict (Task 5: verdict-driven state 
 
       await (workflow as any).applyKytAwaitUser(w, undefined, ACTIONS);
 
-      expect(applicantActions.syncApplicantActions).toHaveBeenCalledWith(w.id, ACTIONS);
+      // 2026-08-29 Task A4：sceneTag 现在原样透传给 syncApplicantActions（第三参），
+      // 便签挂谁由 tag 决定——本用例的 sceneTag 是 undefined，故这里也传 undefined。
+      expect(applicantActions.syncApplicantActions).toHaveBeenCalledWith(w.id, ACTIONS, undefined);
       expect(withdrawService.updateStatus).toHaveBeenCalledTimes(1);
       const [, dto, ctx] = withdrawService.updateStatus.mock.calls[0];
       expect(dto.action).toBe(WithdrawTransactionAction.ACTION_PENDING);
@@ -1555,7 +1557,9 @@ describe('WithdrawWorkflowService.applyKytVerdict (Task 5: verdict-driven state 
 
       await (workflow as any).applyKytAwaitUser(w, undefined, ACTIONS);
 
-      expect(applicantActions.syncApplicantActions).toHaveBeenCalledWith(w.id, ACTIONS);
+      // 2026-08-29 Task A4：sceneTag 现在原样透传给 syncApplicantActions（第三参），
+      // 便签挂谁由 tag 决定——本用例的 sceneTag 是 undefined，故这里也传 undefined。
+      expect(applicantActions.syncApplicantActions).toHaveBeenCalledWith(w.id, ACTIONS, undefined);
       expect(withdrawService.updateStatus).not.toHaveBeenCalled();
     });
   });
