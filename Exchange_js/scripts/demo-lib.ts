@@ -849,7 +849,10 @@ export async function runSwaps(ctx: DemoCtx): Promise<Array<{ seq: number; order
     let swap: any;
     if (entry.seq === 13) {
       // Pre-staged — see the roster-comment block above.
-      if (!ctx.frankPreStage) throw new Error(`roster #${entry.seq}: call runFrankPreStage(ctx) before runSwaps(ctx)`);
+      if (!ctx.frankPreStage) {
+        console.log(`  #${entry.seq} ${entry.label}: ⊘ 跳过（需经 demo:deposit/demo:all 预铺 FRANK 前置阶段——demo:swap 单独跑无此上文）`);
+        continue;
+      }
       const swapId = ctx.frankPreStage.swapId;
       swap = await waitFor(`${entry.label} 被 #7 广播连坐冻结`, async () => {
         const s: any = await ctx.prisma.swapTransaction.findUnique({ where: { id: swapId } });
