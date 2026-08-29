@@ -17,6 +17,8 @@
 import { webcrypto, createHash } from 'node:crypto';
 if (!(globalThis as any).crypto) (globalThis as any).crypto = webcrypto;
 
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import type { INestApplicationContext } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { Prisma } from '@prisma/client';
@@ -30,6 +32,10 @@ import { DepositTransactionsService } from '../src/modules/trading/deposit-trans
 import { DepositWorkflowService } from '../src/modules/trading/deposit-transactions/deposit-workflow.service';
 import { FundsOrderService } from '../src/modules/funds-orders/funds-order.service';
 import { FundsOrderAction } from '../src/modules/funds-orders/dto/funds-order.dto';
+import { DEPOSIT_VERDICT_BUTTONS } from '../src/modules/deposit-sumsub/fixtures/verdict-buttons';
+import { SCENE_TAGS, DISPO_TAGS_BY_DOMAIN, type SceneTag, type DispoTag } from '../src/modules/sumsub-shared/scene-tags';
+import { DEMO_ROSTER } from './demo-roster';
+import { loginAsMlro, loginAsSmo, loginAsOpsOfficer, approveApproval } from './demo-mlro';
 
 // Deposit channel discriminator (crypto vs fiat) — the legacy PayinType enum is gone;
 // the funds_order path only needs this literal to pick refs + the crypto drive.
@@ -53,10 +59,6 @@ export const DEMO_CUSTOMER_EMAILS = [
   'demo_bob@example.com',
   'demo_grace@example.com',
 ] as const;
-
-// Fixed (non-random) amounts → reproducible run.
-export const DEP_USDT = '3000';
-export const DEP_AED = '8000';
 
 // Swap plan: deliberate 2×(USDT→AED) vs 1×(smaller AED→USDT) asymmetry guarantees
 // FIRM_OPS(AED) and FIRM_OPS(USDT) both move meaningfully — not an accidental ~0.
@@ -118,7 +120,27 @@ export type DemoCtx = {
   withdrawWf: WithdrawWorkflowService;
   usdt: any;
   aed: any;
+  /** Real running backend's HTTP origin — this script's own app context (below)
+   *  has no HTTP listener of its own (createApplicationContext binds no routes),
+   *  so the MLRO/SMO/OPS_OFFICER login+approve calls for the deposit disposition
+   *  arcs (runDeposits) need the actual long-running stack server instead. */
+  apiBase: string;
 };
+
+// Worktree ("self") stacks auto-allocate a 4-port block persisted in
+// <worktree-root>/.stackports (scripts/stack-common.sh#allocate_worktree_ports) —
+// the backend HTTP port is that base value. The main stack has no such file and
+// always uses the fixed port 3000 (scripts/stack-common.sh#load_stack_config).
+export function resolveApiBase(): string {
+  const stackportsPath = path.resolve(__dirname, '../../.stackports');
+  try {
+    const base = parseInt(fs.readFileSync(stackportsPath, 'utf8').trim(), 10);
+    if (Number.isFinite(base)) return `http://localhost:${base}`;
+  } catch {
+    // no .stackports here — not a worktree stack, fall through to main's fixed port.
+  }
+  return 'http://localhost:3000';
+}
 
 export async function bootstrap(): Promise<DemoCtx> {
   const app = await NestFactory.createApplicationContext(AppModule, { logger: ['error', 'warn'] });
@@ -141,6 +163,7 @@ export async function bootstrap(): Promise<DemoCtx> {
     withdrawWf: app.get(WithdrawWorkflowService),
     usdt,
     aed,
+    apiBase: resolveApiBase(),
   };
 }
 
@@ -284,20 +307,82 @@ export async function ensureSetup(ctx: DemoCtx): Promise<void> {
   console.log(`  setup done: ${customers.map((c) => c.customerNo).join(', ')}`);
 }
 
-// ── stage 2: deposits ────────────────────────────────────────────────────────
-async function driveDeposit(ctx: DemoCtx, c: any, asset: any, walletId: string, amount: string, type: PayinType): Promise<any> {
-  // idempotent: skip if this wallet already has a CLEARED payin funds_order
-  const existingFo = await ctx.prisma.fundsOrder.findFirst({
-    where: { toWalletId: walletId, depositTransactionId: { not: null }, status: 'CLEARED' },
-  });
-  if (existingFo) {
-    return ctx.deposits.findOne(existingFo.depositTransactionId);
+// ── stage 2: deposits (10-entry roster, incl. 3 disposition arcs) ─────────────
+//
+// Roster: scripts/demo-roster.ts DEMO_ROSTER (domain === 'DEPOSIT', 10 rows) —
+// every row drives to whatever status the roster names, via the REAL service/
+// workflow methods a human admin would use (no direct table writes):
+//   · the ⚡ buttons drive DepositWorkflowService.applyKytVerdict directly —
+//     the same workflow method the admin demo panel's endpoint
+//     (AdminDepositDemoController → DepositDemoScenarioService.runVerdict) calls
+//     downstream of its webhook-shaped replay, with the verdict arguments read
+//     off the SAME button table (DEPOSIT_VERDICT_BUTTONS) the panel itself uses
+//     (see verdictArgsForButton below). The full webhook-endpoint replay was
+//     tried first and abandoned: it requires the deposit's Sumsub applicant to
+//     have actually been submitted (sumsubTxnId set), which never happens for
+//     demo_grace@example.com — her seed customer row has no sumsubApplicantId
+//     at all (prisma/seed.business.ts only assigns one to Alice/Bob/Ivy), so
+//     Gate 0's submitSumsubTxns permanently skips her. Calling the workflow
+//     method directly is explicitly sanctioned by the "同一套端点/workflow 方法"
+//     replay rule and sidesteps that gap entirely — see task-C2-report.md;
+//   · the three disposition arcs (CONFISCATED/RETURNED/SEIZED) are real
+//     maker-checker: an initiate*() call opens the approval case in-process (the
+//     "maker" here is a constructed actor, same pattern DepositWorkflowService's
+//     own KYT_VERDICT_ACTOR uses for system-initiated actions), then a SECOND,
+//     really-logged-in admin identity (scripts/demo-mlro.ts) hits the real
+//     approve endpoint on the actually-running stack server.
+
+const DEMO_ACTOR = (userId: string, role: string) => ({
+  actorType: 'ADMIN' as const, userId, userNo: userId, role, roleCodes: [role],
+});
+
+const DEPOSIT_DISPO_TAGS = DISPO_TAGS_BY_DOMAIN.DEPOSIT;
+const VERDICT_BY_WEBHOOK_TYPE: Record<string, 'approved' | 'rejected' | 'awaitUser' | 'onHold'> = {
+  applicantKytTxnApproved: 'approved',
+  applicantKytTxnRejected: 'rejected',
+  applicantKytTxnAwaitingUser: 'awaitUser',
+};
+
+/** Reads one ⚡ button's real definition (DEPOSIT_VERDICT_BUTTONS, the same table
+ *  the admin demo panel renders its buttons from) and derives the
+ *  applyKytVerdict() call args a real Sumsub webhook for that button would have
+ *  produced — same derivation DepositKytVerdictHandler does off a real webhook's
+ *  typedTags/applicantActions. */
+function verdictArgsForButton(buttonKey: string) {
+  const button = DEPOSIT_VERDICT_BUTTONS[buttonKey];
+  if (!button) throw new Error(`unknown deposit verdict button: ${buttonKey}`);
+  const verdict = VERDICT_BY_WEBHOOK_TYPE[button.webhookType];
+  if (!verdict) throw new Error(`button ${buttonKey} has no approved/rejected/awaitUser mapping (webhookType=${button.webhookType})`);
+
+  let sceneTag: SceneTag | undefined;
+  let dispoTag: DispoTag | undefined;
+  for (const tag of button.verdict.typedTags ?? []) {
+    if (tag.type !== 'userDefined') continue;
+    if (SCENE_TAGS.has(tag.label as SceneTag)) sceneTag = tag.label as SceneTag;
+    if (DEPOSIT_DISPO_TAGS.has(tag.label as DispoTag)) dispoTag = tag.label as DispoTag;
   }
 
+  return {
+    verdict,
+    riskScore: button.verdict.score,
+    ...(sceneTag && { sceneTag }),
+    ...(dispoTag && { dispoTag }),
+    ...(button.verdict.applicantActions?.length && { applicantActions: button.verdict.applicantActions }),
+  };
+}
+
+/** Creates one deposit + drives its payin funds order (legSeq 1) to CLEARED, then
+ *  waits for it to leave PAYIN_PENDING — either COMPLIANCE_PENDING (Gate 0 ran
+ *  and passed) or somewhere Gate 0 routed it to on its own (e.g. straight to
+ *  FROZEN, when an earlier roster row already sanctioned this same customer —
+ *  see #10 below). Gate 0 runs off a fire-and-forget `emit()` (not `emitAsync` —
+ *  see test/deposit-money-arcs.e2e-spec.ts's header comment for the same race on
+ *  funds-order events), so this has to poll rather than trust the immediate
+ *  post-CONFIRM state. */
+async function createRosterDeposit(
+  ctx: DemoCtx, c: any, asset: any, walletId: string, amount: string, type: PayinType,
+): Promise<any> {
   const idx = customerIdx(c.email);
-  // detected() creates the deposit + its payin funds_order (crypto → SUBMITTED,
-  // fiat → CONFIRMED). The CONFIRMED-at-birth event auto-drives onPayinConfirmed
-  // for fiat, so only crypto needs the OBSERVE_CONFIRMING → CONFIRM advance.
   const { deposit: dep, fundsOrder: fo }: any = await ctx.deposits.detected({
     assetId: asset.id, toWalletId: walletId, amount,
     txHash: type === PayinType.CRYPTO ? fakeChainTxHash(walletId) : undefined,
@@ -314,31 +399,200 @@ async function driveDeposit(ctx: DemoCtx, c: any, asset: any, walletId: string, 
     const f: any = await ctx.prisma.fundsOrder.findUnique({ where: { id: fo.id } });
     return f?.status === 'CLEARED' ? f : null;
   });
-  await waitFor(`deposit ${dep.depositNo} COMPLIANCE_PENDING`, async () => {
+
+  return waitFor(`deposit ${dep.depositNo} past PAYIN_PENDING`, async () => {
     const d: any = await ctx.deposits.findOne(dep.id);
-    return d.status === 'COMPLIANCE_PENDING' ? d : null;
+    return d.status !== 'PAYIN_PENDING' ? d : null;
   });
-  await ctx.depositWf.applyKytVerdict(dep.id, { verdict: 'approved', riskScore: 5 });
-  await waitFor(`deposit ${dep.depositNo} SUCCESS`, async () => {
-    const d: any = await ctx.deposits.findOne(dep.id);
-    if (d.status === 'SUCCESS') return d;
-    if (['FROZEN', 'REJECTED', 'FAILED'].includes(d.status)) throw new Error(`deposit ${dep.depositNo} terminal ${d.status}`);
-    return null;
-  });
-  return dep;
 }
 
-export async function runDeposits(ctx: DemoCtx): Promise<void> {
-  console.log('═══ demo:deposit — USDT + AED per customer → SUCCESS ═══');
-  const customers = await resolveDemoCustomers(ctx.prisma);
-  for (const c of customers) {
-    const cDep = await ctx.prisma.wallet.findFirst({ where: { ownerId: c.id, walletRole: 'C_DEP', assetId: ctx.usdt.id } });
-    const cViban = await ctx.prisma.wallet.findFirst({ where: { ownerId: c.id, walletRole: 'C_VIBAN', assetId: ctx.aed.id } });
-    if (!cDep || !cViban) throw new Error(`${c.email} missing C_DEP/C_VIBAN — run demo:setup first`);
-    await driveDeposit(ctx, c, ctx.usdt, cDep.id, DEP_USDT, PayinType.CRYPTO);
-    await driveDeposit(ctx, c, ctx.aed, cViban.id, DEP_AED, PayinType.FIAT);
-    console.log(`  ${c.customerNo} ${c.firstName}: USDT ${DEP_USDT} + AED ${DEP_AED} deposits SUCCESS`);
+/** Feeds one ⚡ verdict button into a COMPLIANCE_PENDING deposit via the real
+ *  DepositWorkflowService.applyKytVerdict — see verdictArgsForButton above for why
+ *  this calls the workflow method rather than replaying the webhook endpoint.
+ *  No-ops (just logs) if Gate 0 already moved the deposit elsewhere. */
+async function driveVerdict(ctx: DemoCtx, depositId: string, buttonKey: string): Promise<any> {
+  const current: any = await ctx.deposits.findOne(depositId);
+  if (current.status !== 'COMPLIANCE_PENDING') {
+    console.log(`    ⚡${buttonKey} skipped — ${current.depositNo} already ${current.status} (Gate 0 pre-empted)`);
+    return current;
   }
+  await ctx.depositWf.applyKytVerdict(depositId, verdictArgsForButton(buttonKey));
+  return ctx.deposits.findOne(depositId);
+}
+
+async function waitDepositStatus(ctx: DemoCtx, depositId: string, status: string, timeoutMs = 15000): Promise<any> {
+  return waitFor(`deposit reaches ${status}`, async () => {
+    const d: any = await ctx.deposits.findOne(depositId);
+    return d.status === status ? d : null;
+  }, timeoutMs);
+}
+
+/** Drives a disposition leg (legSeq 2 confiscation / 3 return / 4 seize) CREATED →
+ *  CONFIRMED — the same generic funds_order state machine driveWithdraw below uses
+ *  for its own legs. CONFIRMED is what DepositWorkflowService's
+ *  handleFundsOrderChanged routes to settleConfiscation/settleReturn/settleSeize
+ *  (posts the pending TB legs, flips the deposit to its terminal disposition
+ *  status). */
+async function driveDispositionLeg(ctx: DemoCtx, depositId: string, legSeq: number): Promise<void> {
+  const leg: any = await waitFor(`disposition leg ${legSeq} materialised`, async () => {
+    const [l] = await ctx.fundsOrders.findByParent({ depositTransactionId: depositId }, { legSeq });
+    return l ?? null;
+  });
+  const legIsCrypto = (leg.asset?.type || '').toUpperCase() !== 'FIAT';
+  const seq = legIsCrypto
+    ? [FundsOrderAction.SUBMIT, FundsOrderAction.OBSERVE_CONFIRMING, FundsOrderAction.CONFIRM]
+    : [FundsOrderAction.SUBMIT, FundsOrderAction.CONFIRM];
+  for (const action of seq) {
+    await ctx.fundsOrders.advance(leg.id, action, SIM);
+    await sleep(60);
+  }
+}
+
+/** Checker step(s) of a maker-checker disposition: looks up the approval case's
+ *  internal id from its approvalNo (the real approve endpoint takes the id, not
+ *  the business-facing approvalNo — see scripts/demo-mlro.ts), then logs in for
+ *  real + approves once per required step, in order (SEIZE needs two distinct
+ *  real logins — SENIOR_MANAGEMENT_OFFICER then MLRO, four-eyes). */
+async function makerCheckerApprove(ctx: DemoCtx, approvalNo: string, logins: Array<() => Promise<string>>): Promise<void> {
+  const kase = await ctx.prisma.approvalCase.findUnique({ where: { approvalNo } });
+  if (!kase) throw new Error(`approval case ${approvalNo} not found`);
+  for (const login of logins) {
+    const token = await login();
+    await approveApproval(ctx.apiBase, token, kase.id);
+  }
+}
+
+export async function runDeposits(ctx: DemoCtx): Promise<Array<{ seq: number; orderNo: string; status: string }>> {
+  console.log('═══ demo:deposit — 10 笔按花名册铺（含三条处置弧）═══');
+  const customers = await resolveDemoCustomers(ctx.prisma);
+  const byEmail = new Map(customers.map((c) => [c.email, c]));
+
+  const wallets = new Map<string, { usdt: any; aed: any }>();
+  for (const c of customers) {
+    const usdtWallet = await ctx.prisma.wallet.findFirst({ where: { ownerId: c.id, walletRole: 'C_DEP', assetId: ctx.usdt.id } });
+    const aedWallet = await ctx.prisma.wallet.findFirst({ where: { ownerId: c.id, walletRole: 'C_VIBAN', assetId: ctx.aed.id } });
+    if (!usdtWallet || !aedWallet) throw new Error(`${c.email} missing C_DEP/C_VIBAN — run demo:setup first`);
+    wallets.set(c.email, { usdt: usdtWallet, aed: aedWallet });
+  }
+
+  const driven: Array<{ seq: number; depositId: string }> = [];
+
+  for (const entry of DEMO_ROSTER.filter((r) => r.domain === 'DEPOSIT')) {
+    const c = byEmail.get(entry.customerEmail);
+    if (!c) throw new Error(`roster #${entry.seq}: customer ${entry.customerEmail} not resolved`);
+    const w = wallets.get(entry.customerEmail)!;
+    const isUsdt = entry.currency === 'USDT';
+    const asset = isUsdt ? ctx.usdt : ctx.aed;
+    const walletId = (isUsdt ? w.usdt : w.aed).id;
+    const type = isUsdt ? PayinType.CRYPTO : PayinType.FIAT;
+
+    let dep = await createRosterDeposit(ctx, c, asset, walletId, entry.amount, type);
+
+    switch (entry.seq) {
+      case 1: case 2: case 3:
+        await driveVerdict(ctx, dep.id, 'V1_APPROVED');
+        dep = await waitDepositStatus(ctx, dep.id, 'SUCCESS');
+        break;
+
+      case 4:
+        await driveVerdict(ctx, dep.id, 'V2_AWAIT_USER');
+        dep = await waitDepositStatus(ctx, dep.id, 'ACTION_PENDING');
+        break;
+
+      case 5:
+        await driveVerdict(ctx, dep.id, 'V11_REJECTED_NO_TAG');
+        dep = await waitDepositStatus(ctx, dep.id, 'MANUAL_CHECKING');
+        break;
+
+      case 6:
+        // 低于下限（amount < DEPOSIT 单笔下限，transaction_limit_rules 种子 minAmount=100）：
+        // approved 判决抵达 DepositWorkflowService.approveDeposit 的挂起闸(holdIfHeld)，
+        // 钱留在 DEPOSIT_SUSPENSE 不过账 → OPERATION_PENDING。
+        await driveVerdict(ctx, dep.id, 'V1_APPROVED');
+        dep = await waitDepositStatus(ctx, dep.id, 'OPERATION_PENDING');
+        break;
+
+      case 7:
+        await driveVerdict(ctx, dep.id, 'V7_REJECTED_SANCTION_APPLICANT');
+        dep = await waitDepositStatus(ctx, dep.id, 'FROZEN');
+        break;
+
+      case 8: {
+        // 低于下限挂起 → 运营发起没收 → OPS_OFFICER 换人批（approval.constants.ts 里
+        // DEPOSIT_CONFISCATION 就是单步 OPS_OFFICER，不是 MLRO）→ 资金单腿(legSeq 2)
+        // 确认 → CONFISCATED。
+        await driveVerdict(ctx, dep.id, 'V1_APPROVED');
+        dep = await waitDepositStatus(ctx, dep.id, 'OPERATION_PENDING');
+        const conf = await ctx.depositWf.initiateConfiscation(
+          dep.id,
+          { reason: 'Below-min deposit — T&C handling fee (demo fixture)' },
+          DEMO_ACTOR('DEMO_OPS_MAKER_8', 'OPS_OFFICER'),
+        );
+        await makerCheckerApprove(ctx, conf.approvalNo, [() => loginAsOpsOfficer(ctx.apiBase)]);
+        await driveDispositionLeg(ctx, dep.id, 2);
+        dep = await waitDepositStatus(ctx, dep.id, 'CONFISCATED');
+        break;
+      }
+
+      case 9: {
+        // ⚡⑪ 转人工 → 运营发起退回 → MLRO 换人批 → 资金单腿(legSeq 3)确认 → RETURNED。
+        await driveVerdict(ctx, dep.id, 'V11_REJECTED_NO_TAG');
+        dep = await waitDepositStatus(ctx, dep.id, 'MANUAL_CHECKING');
+        const ret = await ctx.depositWf.initiateReturn(
+          dep.id,
+          { reason: 'Officer disposition — return funds to the originating account (demo fixture)' },
+          DEMO_ACTOR('DEMO_OPS_MAKER_9', 'OPS_OFFICER'),
+        );
+        await makerCheckerApprove(ctx, ret.approvalNo, [() => loginAsMlro(ctx.apiBase)]);
+        await driveDispositionLeg(ctx, dep.id, 3);
+        dep = await waitDepositStatus(ctx, dep.id, 'RETURNED');
+        break;
+      }
+
+      case 10: {
+        // ⚡⑦ 冻结（#7 已把 BOB 判过一次 SANCTION_APPLICANT —— 这是 customerLevel 限制，
+        // 会连坐冻住 BOB 名下所有非终态单；这笔新单créé时 BOB 已被限制，Gate 0 会在
+        // 提交 Sumsub 之前就直接把它落 FROZEN，driveVerdict 撞上非 COMPLIANCE_PENDING
+        // 会自己跳过 —— 两条路径殊途同归，都是真实的处置起点）→ 运营发起上缴 →
+        // 两步批（SENIOR_MANAGEMENT_OFFICER → MLRO，四眼）→ 资金单腿(legSeq 4)确认 → SEIZED。
+        await driveVerdict(ctx, dep.id, 'V7_REJECTED_SANCTION_APPLICANT');
+        dep = await waitDepositStatus(ctx, dep.id, 'FROZEN');
+        const seize = await ctx.depositWf.initiateSeize(
+          dep.id,
+          { reason: 'Government seizure order (demo fixture)', orderRef: `GOV-ORDER-DEMO-${dep.depositNo}` },
+          DEMO_ACTOR('DEMO_OPS_MAKER_10', 'OPS_OFFICER'),
+        );
+        await makerCheckerApprove(ctx, seize.approvalNo, [
+          () => loginAsSmo(ctx.apiBase),
+          () => loginAsMlro(ctx.apiBase),
+        ]);
+        await driveDispositionLeg(ctx, dep.id, 4);
+        dep = await waitDepositStatus(ctx, dep.id, 'SEIZED');
+        break;
+      }
+    }
+
+    driven.push({ seq: entry.seq, depositId: dep.id });
+    console.log(`  #${entry.seq} ${entry.label}: ${dep.depositNo} → ${dep.status}`);
+  }
+
+  // Re-read every deposit's status AFTER the whole roster has run — not the status
+  // each row settled on right when ITS OWN drive finished. A later row can move an
+  // earlier row's deposit out from under it: #7's SANCTION_APPLICANT verdict opens
+  // a customer-level restriction (scope=ALL) for BOB, and DepositWorkflowService's
+  // onCustomerRestrictionOpened sweeps EVERY non-terminal deposit BOB owns — #5
+  // (also BOB, driven to MANUAL_CHECKING earlier) gets swept straight to FROZEN by
+  // that, same as any of BOB's real in-flight orders would. Confirmed by rerunning
+  // this and re-querying #5 directly: PAYIN_PENDING→COMPLIANCE_PENDING→
+  // MANUAL_CHECKING→FROZEN. The roster's expectedStatus is a claim about the FINAL
+  // settled state, so this must report that — not a stale mid-run snapshot that
+  // would silently hide the conflict. See task-C2-report.md.
+  const results: Array<{ seq: number; orderNo: string; status: string }> = [];
+  for (const { seq, depositId } of driven) {
+    const final: any = await ctx.deposits.findOne(depositId);
+    results.push({ seq, orderNo: final.depositNo, status: final.status });
+  }
+  return results;
 }
 
 // ── stage 3: swaps (4-leg two-phase orchestration; auto-advance to SUCCESS) ──
@@ -438,8 +692,8 @@ export async function runSwaps(ctx: DemoCtx): Promise<void> {
     } as any);
     // initiateSwap (Task 4) books nothing — swap sits COMPLIANCE_PENDING until a
     // Sumsub KYT verdict lands (Task 6). No real Sumsub webhook in demo/local, so
-    // the approving verdict is applied directly, mirroring driveDeposit/driveWithdraw's
-    // own applyKytVerdict calls above.
+    // the approving verdict is applied directly, mirroring driveWithdraw's own
+    // applyKytVerdict call below (and createRosterDeposit/driveVerdict above).
     const swap: any = await ctx.swapWf.initiateSwap(c.id, quote.id);
     console.log(`  ${c.customerNo} ${c.firstName}: ${swap.swapNo} ${usdtToAed ? 'USDT→AED' : 'AED→USDT'} ${plan.amount} → ${swap.netToAmount ?? swap.toAmount} ${to.currency} (COMPLIANCE_PENDING)`);
     // riskScore 与充值/提现的 demo 调用对齐（各自 riskScore: 5）—— 不传的话
@@ -480,9 +734,9 @@ async function driveWithdraw(ctx: DemoCtx, c: any, asset: any, amount: number, t
     const w: any = await ctx.prisma.withdrawTransaction.findUnique({ where: { id: wd.id } });
     return w.status === 'COMPLIANCE_PENDING' ? w : null;
   });
-  // Real Sumsub KYT verdict application (Task 5) — mirrors driveDeposit's
-  // applyKytVerdict call. There is no real Sumsub webhook in the demo/local
-  // environment, so the verdict is applied directly.
+  // Real Sumsub KYT verdict application (Task 5) — mirrors runDeposits' own
+  // KYT-verdict drives above (createRosterDeposit/driveVerdict). There is no real
+  // Sumsub webhook in the demo/local environment, so the verdict is applied directly.
   await ctx.withdrawWf.applyKytVerdict(wd.id, { verdict: 'approved', riskScore: 5 });
 
   // At PAYOUT_PENDING the workflow has materialised the payout principal funds
