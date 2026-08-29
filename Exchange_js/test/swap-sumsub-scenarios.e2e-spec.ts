@@ -78,11 +78,22 @@ import { buildDeterministicNo } from '../src/common/utils/no-generator.util';
  *   restricted, but delivering a verdict (`SwapKytVerdictHandler` →
  *   `applyKytVerdict`) never re-checks eligibility, only the swap's own
  *   status. Creating them lazily mid-suite would deadlock the moment the
- *   first rejection lands (V7's "restored capability" check aside, which
- *   intentionally creates its own swap live, after clearing restrictions).
- *   Delivery ORDER (not creation order) is what makes the restriction/
- *   sticky-hard-line state machine exercised below meaningful — see each
- *   `it()`'s comment for why it must run where it does.
+ *   first rejection lands. Delivery ORDER (not creation order) is what makes
+ *   the restriction/sticky-hard-line state machine exercised below
+ *   meaningful — see each `it()`'s comment for why it must run where it does.
+ * - 2026-08-29 (Task A5): the old V7/V8 buttons (webhookType
+ *   `applicantActionReviewed`, cleared/escalated the soft-line restriction
+ *   opened below) were deleted from the swap panel — material review is a
+ *   person-level webhook, not a transaction-layer one; its real demo entry
+ *   point is the customer detail page's Verification Requests panel
+ *   (`POST /admin/sumsub/simulate/applicant-action-result`), not this swap
+ *   panel. Both remaining "soft-line" scenarios below (v3aSwap, v6Swap) now
+ *   deliver the SAME button, `V2_AWAIT_USER` (both ② — the old fixture had
+ *   two near-duplicate soft-line buttons, V3/V6, that the unified table
+ *   correctly collapsed into one). v3aSwap's restriction is reset directly
+ *   via Prisma at the end of its own `it()` (same test-hygiene idiom
+ *   `beforeAll` already uses, since no swap-panel button clears it anymore)
+ *   so the v6Swap scenario still observes a clean starting state.
  */
 describe('Swap Sumsub verdict buttons (e2e, Task 12)', () => {
   jest.setTimeout(60000);
@@ -109,7 +120,7 @@ describe('Swap Sumsub verdict buttons (e2e, Task 12)', () => {
   // Pre-created (beforeAll) COMPLIANCE_PENDING swaps, one per scenario.
   let v1Swap: any;
   let v2Swap: any;
-  let v3aSwap: any; // soft-line, cleared by V7
+  let v3aSwap: any; // soft-line — restriction reset via Prisma at the end of its own test (V7 that used to clear it is gone, see class comment)
   let v3bSwap: any; // soft-line again, but delivered AFTER sticky hard-line — proves persistence
   let v4Swap: any;
   let v5Swap: any;
@@ -378,8 +389,8 @@ describe('Swap Sumsub verdict buttons (e2e, Task 12)', () => {
     expect(actions).toContain(AuditActions.SWAP_KYT_APPROVED);
   });
 
-  it('③ rejected · 软线（下发认证）: REJECTED, zero legs, restrictions SWAP+WITHDRAW, material request issued with restrictionNo attached', async () => {
-    await deliver(v3aSwap.id, 'V3_REJECTED_ACTION');
+  it('② awaiting user（下发认证）: REJECTED, zero legs, restrictions SWAP+WITHDRAW, material request issued with restrictionNo attached', async () => {
+    await deliver(v3aSwap.id, 'V2_AWAIT_USER');
 
     expect(await statusOf(v3aSwap.id)).toBe(SwapTransactionStatus.REJECTED);
     const legs = await fundsOrders.findByParent({ swapTransactionId: v3aSwap.id }, {});
@@ -410,53 +421,24 @@ describe('Swap Sumsub verdict buttons (e2e, Task 12)', () => {
 
     const actions = await auditActionsFor(v3aSwap.id, AuditEntityTypes.SWAP_TRANSACTION);
     expect(actions).toContain(AuditActions.SWAP_KYT_REJECTED_DISPOSED);
+
+    // 2026-08-29 (Task A5)：旧 ⑦（webhookType applicantActionReviewed，GREEN）
+    // 曾在这里投一次复核，把上面刚开的软线便签撕掉，让下一个场景（v6Swap 那条
+    // ②）从干净状态开始。⑦ 已从 swap 面板删除——材料复核作用于人，是另一个
+    // webhook，真实入口在客户详情页 Verification Requests 面板
+    // （POST /admin/sumsub/simulate/applicant-action-result），这个 demo
+    // service 不再提供任何清便签的路径。这里直接绕过面板用 Prisma 清场，与
+    // beforeAll 已经在用的测试卫生手法同款，只是为了不让下一条继承这张便签。
+    await prisma.customerRestriction.deleteMany({ where: { customerId } });
   });
 
-  it('⑦ 认证通过（清限制）: restrictions cleared, material request approved, swap capability restored', async () => {
-    // 真实客户流程：交材料（客户端 POST .../submit → markSubmitted）发生在
-    // Sumsub 复核之前——V7 按钮只模拟"Sumsub 把复核结果推回来"这一步，不模拟
-    // 客户在 WebSDK 里交材料的动作。这里替客户走一次提交，真实地把这行材料
-    // 请求推到 SUBMITTED，否则 applyReview 会因为这一行还停在
-    // PENDING_SUBMISSION 而抛 BadRequestException（真实客户不可能在没交材料
-    // 的情况下先收到复核结果，这一步不能省）。
-    const live = await materialRequests.listLiveByOrder('SWAP', v3aSwap.swapNo);
-    expect(live).toHaveLength(1);
-    await materialRequests.markSubmitted(live[0].requestNo, {
-      actorType: 'CUSTOMER', actorId: customerId, actorRole: 'CUSTOMER',
-    });
-
-    await deliver(v3aSwap.id, 'V7_ACTION_GREEN');
-
-    // 2026-08-18 修复验收：GREEN 落地后 autoRelease 真的读到了 existingRestrictionNo
-    // 接进来的那个 restrictionNo，便签被真正撕掉——此前 register() 没有任何字段
-    // 能把 open() 已经开好的便签接进材料请求行，restrictionNo 恒为 null，这条
-    // 断言此前恒红（客户交齐材料、GREEN 到，限制原地不动、永久卡死，即本次要修
-    // 的 Critical）。
-    expect(await openScopes(customerId)).toEqual([]);
-
-    const row = await materialRequests.findByNo(live[0].requestNo);
-    expect(row?.status).toBe('APPROVED');
-    expect(row?.reviewAnswer).toBe('GREEN');
-
-    // SWAP_ACTION_CLEARED 是 Task 10 之前的旧写法留下的死常量——撕便签的落点
-    // 已经统一搬到 CustomerRestrictionWorkflowService
-    // .autoRelease()，它写的是 CUSTOMER_RESTRICTION_CLEARED，不是
-    // SWAP_ACTION_CLEARED（全仓已无任何写入方）。
-    const customerAudit = await auditActionsFor(customerId, AuditEntityTypes.CUSTOMER);
-    expect(customerAudit).toContain(AuditActions.CUSTOMER_RESTRICTION_CLEARED);
-
-    // Capability genuinely restored — a brand new swap can be initiated now.
-    const restoredSwap = await createSwap('20');
-    expect(restoredSwap.status).toBe(SwapTransactionStatus.COMPLIANCE_PENDING);
-  });
-
-  it('⑥ awaiting user（我方等同拒绝）: REJECTED, restrictions re-added, material request issued (ext-3) with restrictionNo attached', async () => {
-    await deliver(v6Swap.id, 'V6_AWAIT_USER');
+  it('② awaiting user（我方等同拒绝）: REJECTED, restrictions re-added, material request issued (ext-3) with restrictionNo attached', async () => {
+    await deliver(v6Swap.id, 'V2_AWAIT_USER');
 
     expect(await statusOf(v6Swap.id)).toBe(SwapTransactionStatus.REJECTED);
     expect(await openScopes(customerId)).toEqual(['SWAP', 'WITHDRAW']);
 
-    // 同③：软线暴露的事实只活在材料账里，旧单指针列已随 Task 12 物理删除。
+    // 同上一条 ②：软线暴露的事实只活在材料账里，旧单指针列已随 Task 12 物理删除。
     const live = await materialRequests.listLiveByOrder('SWAP', v6Swap.swapNo);
     expect(live).toHaveLength(1);
     // 终审 Important #4：externalActionId 现铸（randomUUID），不再是固定字面量
@@ -464,36 +446,15 @@ describe('Swap Sumsub verdict buttons (e2e, Task 12)', () => {
     expect(live[0].externalActionId).toBeTruthy();
     expect(live[0].status).toBe('PENDING_SUBMISSION');
     expect(live[0].restrictionNo).not.toBeNull();
+
+    // 2026-08-29 (Task A5)：旧 ⑧（applicantActionReviewed RED）曾在这里投一次
+    // 复核升级、断言这张便签不被撕掉。⑧ 与 ⑦ 一起从 swap 面板整体删除（同一个
+    // 已搬走的 webhook），这条单的便签本就不会被任何东西自动清掉（下一条 ⑪ 用
+    // 的是另一笔单 v2Swap），不需要额外动作来保持这个事实。
   });
 
-  it('⑧ 认证不通过（升级）: restrictions remain, material request rejected, no auto-release', async () => {
-    // 同⑦：先替客户走一次提交，让 RED 复核真的落得到地。
-    const live = await materialRequests.listLiveByOrder('SWAP', v6Swap.swapNo);
-    expect(live).toHaveLength(1);
-    await materialRequests.markSubmitted(live[0].requestNo, {
-      actorType: 'CUSTOMER', actorId: customerId, actorRole: 'CUSTOMER',
-    });
-
-    await deliver(v6Swap.id, 'V8_ACTION_RED');
-
-    // RED（FINAL）不撕便签——MaterialRequestReviewService.applyReview 只在
-    // outcome==='APPROVED' 才调 autoRelease，REJECTED 原地不动。
-    expect(await openScopes(customerId)).toEqual(['SWAP', 'WITHDRAW']);
-
-    const row = await materialRequests.findByNo(live[0].requestNo);
-    expect(row?.status).toBe('REJECTED');
-    expect(row?.reviewAnswer).toBe('RED');
-    expect(row?.reviewRejectType).toBe('FINAL');
-
-    // SWAP_ACTION_ESCALATED 同⑦：Task 10 之前的旧写法留下的死常量，全仓已无
-    // 任何写入方——真实的裁决痕迹落在材料请求自己的审计上
-    // （MATERIAL_REQUEST_REJECTED）。
-    const requestAudit = await materialRequestAuditActionsFor(live[0].requestNo);
-    expect(requestAudit).toContain(AuditActions.MATERIAL_REQUEST_REJECTED);
-  });
-
-  it('② rejected · 硬线（无 action）: REJECTED, no material request issued, no sticky hard-line', async () => {
-    await deliver(v2Swap.id, 'V2_REJECTED_HARD');
+  it('⑪ rejected · no disposition tag: REJECTED, no material request issued, no sticky hard-line', async () => {
+    await deliver(v2Swap.id, 'V11_REJECTED_NO_TAG');
 
     expect(await statusOf(v2Swap.id)).toBe(SwapTransactionStatus.REJECTED);
     // 硬线（无 action）：一条材料请求都不登记，客户端结构上没有入口（见
@@ -504,7 +465,7 @@ describe('Swap Sumsub verdict buttons (e2e, Task 12)', () => {
     expect(customer!.hardLineDispositionedAt).toBeNull(); // no-actions hard line is per-verdict, not sticky
   });
 
-  it('④ rejected · Sanctions: FROZEN, sticky hard-line set, no material request issued (tipping-off)', async () => {
+  it('⑦ rejected · Sanctions: FROZEN, sticky hard-line set, no material request issued (tipping-off)', async () => {
     // 2026-08-20 (Task 3)：本用例断言的是「客户本人命中制裁 → 硬线/sticky/静默」——
     // 这只在 SANCTION_APPLICANT 下成立。V4B_REJECTED_SANCTION_COUNTERPARTY
     // （对手方地址命中 OFAC）是 Task 2 批量拆按钮时按 deposit/withdraw 的语义
@@ -526,10 +487,10 @@ describe('Swap Sumsub verdict buttons (e2e, Task 12)', () => {
     // 跳过 KYT_REJECTED，直接让 handleRejectDisposition 里的 FREEZE 分支落地）。
     // 下面其余断言（材料请求为空/sticky 硬线章/限制便签/能力封禁集合）与
     // FROZEN 无关，原样保留。
-    await deliver(v4Swap.id, 'V4_REJECTED_SANCTION_APPLICANT');
+    await deliver(v4Swap.id, 'V7_REJECTED_SANCTION_APPLICANT');
 
     expect(await statusOf(v4Swap.id)).toBe(SwapTransactionStatus.FROZEN);
-    // 制裁命中：同②，一条材料请求都不登记 —— 不给客户任何可探测的痕迹。
+    // 制裁命中：同⑪，一条材料请求都不登记 —— 不给客户任何可探测的痕迹。
     expect(await materialRequests.listLiveByOrder('SWAP', v4Swap.swapNo)).toHaveLength(0);
 
     const customer = await prisma.customerMain.findUnique({ where: { id: customerId }, select: { hardLineDispositionedAt: true } });
@@ -538,8 +499,10 @@ describe('Swap Sumsub verdict buttons (e2e, Task 12)', () => {
     // 三轴收敛前这里断言的是 ['SWAP','WITHDRAW'] —— 那是单列 restrictions 的语义：
     // 制裁裁决到来会把前面软线留下的那份**覆盖**掉，客户身上永远只有一份限制。
     // 限制账是一因一张、互不覆盖，所以这单制裁落下来之后，本 suite 前序用例
-    // （③/⑥/⑧）留下的软线便签仍然在，制裁自己另起一张 scope=ALL。
-    // 这正是这次改造要的行为，断言随之改成「制裁那张在 + 前序那些没被抹掉」。
+    // 留下的软线便签仍然在（v3aSwap 那张已在自己测试收尾时用 Prisma 清场——
+    // 见 Task A5 的类注释；v6Swap 那张没有任何东西清它，⑧被删也不影响这一点，
+    // RED 复核本来就不撕便签），制裁自己另起一张 scope=ALL。这正是这次改造要
+    // 的行为，断言随之改成「制裁那张在 + 前序那些没被抹掉」。
     const openRows = await restrictionsService.listOpen(customerId);
     expect(openRows.some((r) => r.cause === 'SANCTION' && r.scopes.includes('ALL'))).toBe(true);
     expect(openRows.some((r) => r.cause === 'KYT_REJECTED_SOFT')).toBe(true);
@@ -548,21 +511,21 @@ describe('Swap Sumsub verdict buttons (e2e, Task 12)', () => {
     expect([...access.blocked].sort()).toEqual(['DEPOSIT', 'SWAP', 'WITHDRAW']);
   });
 
-  it('⑤ on hold（我方等同拒绝）: REJECTED, no material request issued', async () => {
-    await deliver(v5Swap.id, 'V5_ONHOLD');
+  it('⑥ on hold（我方等同拒绝）: REJECTED, no material request issued', async () => {
+    await deliver(v5Swap.id, 'V6_ONHOLD');
 
     expect(await statusOf(v5Swap.id)).toBe(SwapTransactionStatus.REJECTED);
     expect(await materialRequests.listLiveByOrder('SWAP', v5Swap.swapNo)).toHaveLength(0);
   });
 
-  it('sticky hard-line silences a later, otherwise-soft-line verdict（V4 制裁后送达的 V3：单已被客户级冻结广播冻住,裁决被幂等闸吞,沉默依旧零材料请求）', async () => {
+  it('sticky hard-line silences a later, otherwise-soft-line verdict（V7 制裁后送达的 V2：单已被客户级冻结广播冻住,裁决被幂等闸吞,沉默依旧零材料请求）', async () => {
     // v3bSwap was CREATED before the sanction (customer was unrestricted at
-    // the time) but the verdict is delivered here, after V4 already stamped
+    // the time) but the verdict is delivered here, after V7 already stamped
     // hardLineDispositionedAt — Review Fix 2's cross-order persistence: this
     // verdict alone has an attached action (would normally expose ext-1
     // again) but must stay silenced because the customer was sanctioned by a
     // DIFFERENT swap in between.
-    await deliver(v3bSwap.id, 'V3_REJECTED_ACTION');
+    await deliver(v3bSwap.id, 'V2_AWAIT_USER');
 
     // 2026-08-20 制裁分主体批之后的现行裁定（业主 2026-08-27 复述确认：人冻了，
     // 他的在途单全冻）：v4 的制裁开出客户限制那一刻，广播就把当时还在

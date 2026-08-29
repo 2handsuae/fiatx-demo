@@ -408,7 +408,7 @@ describe('Swap money arcs (e2e, Task 12)', () => {
     expect(swap.status).toBe(SwapTransactionStatus.COMPLIANCE_PENDING);
 
     // Hard-line rejection with no attached remediation action — same shape as
-    // the demo's V2_REJECTED_HARD button (fixtures/verdict-buttons.ts).
+    // the demo's V11_REJECTED_NO_TAG button (fixtures/verdict-buttons.ts).
     await workflow.applyKytVerdict(swap.id, { verdict: 'rejected', applicantActions: [] });
 
     const after = await swapService.findByIdInternal(swap.id);
