@@ -365,13 +365,39 @@ describe('规则① 同一模块显示逻辑一致 · ⚡ Simulation（Task 7 + 
     expect(disabledPropOf(DETAIL_PAGES.SWAP)).toBe('!isSwapVerdictActionable(data.status)');
   });
 
+  /* Important（2026-08-29 抽组件审查）：上一条只钉住"页面传给 SimulationPanel 的
+     disabled 表达式对不对"，没人测过"SimulationPanel 收到 props.disabled 后是否
+     真接到了 <button> 的 disabled 属性上"——抽组件前测试直接从页面 JSX 抓按钮的
+     disabled 属性，一次性验证了判据→实际按钮整条链路；抽组件把这条链路拆成了
+     两截，中间这一截漏了。已变异实测：把 SimulationPanel.tsx 里
+     `disabled={props.disabled || busy !== null}` 改成 `disabled={busy !== null}`
+     （丢掉 props.disabled），tsc 和上面这条断言照样全绿，实际后果是终态订单的
+     按钮变成真能点。这条钉住按钮的 disabled 表达式本身包含 props.disabled。 */
+  it('SimulationPanel 内 <button> 的 disabled 表达式真的接了 props.disabled（不是只剩 busy）', () => {
+    const src = srcOf('../components/SimulationPanel.tsx');
+    const m = src.match(/<button[\s\S]*?disabled=\{([^}]*)\}/);
+    if (!m) throw new Error('SimulationPanel.tsx: 找不到 <button ... disabled={...}>');
+    expect(m[1]).toContain('props.disabled');
+  });
+
   it('置灰说明文案的渲染条件是 SimulationPanel 唯一的 props.disabled（三域共用一条接线，结构上不会分叉）', () => {
     expect(srcOf('../components/SimulationPanel.tsx')).toMatch(/\{props\.disabled && \(/);
   });
 
-  it('置灰说明文案内容没被删、没被改字（随抽组件原样搬进 SimulationPanel）', () => {
+  /* Minor（2026-08-29 抽组件审查）：抽组件前分别检查充值页、提现页两个文件各自
+     含 IGNORED_MSG；抽组件后两域文案合并进 SimulationPanel.tsx 的同一个
+     DISABLED_REASON 记录（deposit / withdraw 两个 key 恰好同值）。已变异实测：
+     把 DISABLED_REASON.withdraw 单独改成另一段完全不同的话（deposit 不动），
+     若只查 IGNORED_MSG 是否在文件里"出现过"，deposit 那份还在、字符串仍找得到，
+     测不出来。这条改成逐 key 校验，deposit / withdraw 各自必须等于 IGNORED_MSG。 */
+  it('置灰说明文案内容按域各自校验，没被删、没被单独改字（随抽组件原样搬进 SimulationPanel）', () => {
     const IGNORED_MSG = '本单已进终态/处置态，投递的裁决会被后端记录但不改状态。';
-    expect(srcOf('../components/SimulationPanel.tsx').includes(IGNORED_MSG)).toBe(true);
+    const src = srcOf('../components/SimulationPanel.tsx');
+    const body = src.match(/const DISABLED_REASON: Record<Domain, string> = \{([\s\S]*?)\};/)?.[1] ?? '';
+    if (!body) throw new Error('SimulationPanel.tsx: 找不到 DISABLED_REASON');
+    const valueOf = (key: string) => body.match(new RegExp(`${key}:\\s*'([^']*)'`))?.[1];
+    expect(valueOf('deposit')).toBe(IGNORED_MSG);
+    expect(valueOf('withdraw')).toBe(IGNORED_MSG);
   });
 });
 
