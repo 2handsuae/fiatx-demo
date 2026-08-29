@@ -1,33 +1,30 @@
 import { SWAP_VERDICT_BUTTONS } from './verdict-buttons';
+import { buildOrderVerdictButtons } from '../../sumsub-shared/verdict-buttons.shared';
 
-/**
- * 终审 Important #4：externalActionId 是材料请求账全表 @unique（不像旧子表
- * 按 (订单id, seq) 分段去重）—— fixture 若把它写成固定字面量，两笔不同的
- * swap 单先后点同一个按钮就会在 issuer.register() 时撞唯一约束（P2002），
- * 第二次 500。V3/V4/V6 的 applicantActions 已改成按调用现铸（getter），这里
- * 钉住"连续两次读取不同"，防止有人图省事把 getter 改回静态数组。
- *
- * deposit-sumsub / withdraw-sumsub 两个姊妹域已有同款 fixtures/verdict-buttons.spec.ts，
- * 本文件是兑换域缺的那一份（此前不存在）。
- */
 describe('SWAP_VERDICT_BUTTONS', () => {
-  it('③④⑥ 带 applicantActions —— 否则详情页 Applicant Action IDs 永远空', () => {
-    expect(SWAP_VERDICT_BUTTONS.V3_REJECTED_ACTION.verdict.applicantActions?.length).toBeGreaterThan(0);
-    expect(SWAP_VERDICT_BUTTONS.V4_REJECTED_SANCTION_APPLICANT.verdict.applicantActions?.length).toBeGreaterThan(0);
-    expect(SWAP_VERDICT_BUTTONS.V6_AWAIT_USER.verdict.applicantActions?.length).toBeGreaterThan(0);
+  it('8 个按钮，键是充值域的子集（同码同义）', () => {
+    const keys = Object.keys(SWAP_VERDICT_BUTTONS);
+    expect(keys).toHaveLength(8);
+    const depKeys = new Set(Object.keys(buildOrderVerdictButtons('DEPOSIT')));
+    for (const k of keys) expect(depKeys.has(k)).toBe(true);
   });
 
-  it('③④⑥ 的 applicantActions 每次读都现铸，连续两次访问 externalActionId 不同', () => {
-    for (const key of ['V3_REJECTED_ACTION', 'V4_REJECTED_SANCTION_APPLICANT', 'V6_AWAIT_USER'] as const) {
-      const first = SWAP_VERDICT_BUTTONS[key].verdict.applicantActions;
-      const second = SWAP_VERDICT_BUTTONS[key].verdict.applicantActions;
-      expect(first?.[0].externalActionId).toBeTruthy();
-      expect(first?.[0].externalActionId).not.toBe(second?.[0].externalActionId);
-      expect(first?.[0].applicantActionId).not.toBe(second?.[0].applicantActionId);
+  it('缺的三个各有真实理由：兑换无对手方、无处置弧', () => {
+    expect(SWAP_VERDICT_BUTTONS.V4_AWAIT_USER_PEP_COUNTERPARTY).toBeUndefined();
+    expect(SWAP_VERDICT_BUTTONS.V8_REJECTED_SANCTION_COUNTERPARTY).toBeUndefined();
+    expect(SWAP_VERDICT_BUTTONS.V10_REJECTED_DISPOSITION).toBeUndefined();
+  });
+
+  it('认证复核按钮已删（材料审核不属交易层）', () => {
+    const types = Object.values(SWAP_VERDICT_BUTTONS).map((b: any) => b.webhookType);
+    expect(types).not.toContain('applicantActionReviewed');
+  });
+
+  it('报文形状与充值域一致：四个字段都在', () => {
+    const dep = buildOrderVerdictButtons('DEPOSIT');
+    for (const [key, b] of Object.entries(SWAP_VERDICT_BUTTONS) as [string, any][]) {
+      const ref = (dep as any)[key];
+      expect(Object.keys(b.verdict).sort()).toEqual(Object.keys(ref.verdict).sort());
     }
-  });
-
-  it('② 硬线场景保持零 action（无认证入口可下发）', () => {
-    expect(SWAP_VERDICT_BUTTONS.V2_REJECTED_HARD.verdict.applicantActions).toEqual([]);
   });
 });

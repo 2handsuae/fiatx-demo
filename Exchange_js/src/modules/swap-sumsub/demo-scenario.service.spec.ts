@@ -8,7 +8,6 @@ describe('SwapDemoScenarioService', () => {
   let swapService: { findByIdInternal: jest.Mock };
   let ingestionService: { ingest: jest.Mock };
   let auditLogsService: { recordByActor: jest.Mock };
-  let materialRequests: { listLiveByOrder: jest.Mock; markSubmitted: jest.Mock };
   let mockClient: MockSumsubTxnClient;
 
   const swap = {
@@ -39,12 +38,6 @@ describe('SwapDemoScenarioService', () => {
     };
     ingestionService = { ingest: jest.fn().mockResolvedValue({ event: {} }) };
     auditLogsService = { recordByActor: jest.fn().mockResolvedValue(undefined) };
-    // Task 10: 材料请求账取代客户级单指针（该列已随 Task 12 物理删除）——默认
-    // 没有活着的材料请求,V7/V8 分支落到 mintTxnId 的确定性占位符。
-    materialRequests = {
-      listLiveByOrder: jest.fn().mockResolvedValue([]),
-      markSubmitted: jest.fn().mockResolvedValue(true),
-    };
     mockClient = new MockSumsubTxnClient();
   });
 
@@ -54,7 +47,6 @@ describe('SwapDemoScenarioService', () => {
       ingestionService as any,
       auditLogsService as any,
       client as any,
-      materialRequests as any,
     );
   }
 
@@ -79,13 +71,13 @@ describe('SwapDemoScenarioService', () => {
     );
   });
 
-  it('V2_REJECTED_HARD: feeds applicantKytTxnRejected with zero applicantActions and audits the run', async () => {
+  it('V11_REJECTED_NO_TAG: feeds applicantKytTxnRejected with no disposition tag and audits the run', async () => {
     swapService.findByIdInternal
       .mockResolvedValueOnce(swap)
       .mockResolvedValueOnce({ ...swap, status: 'REJECTED' });
     const service = buildService();
 
-    const result = await service.runVerdict('swap-1', 'V2_REJECTED_HARD', actor);
+    const result = await service.runVerdict('swap-1', 'V11_REJECTED_NO_TAG', actor);
 
     expect(ingestionService.ingest).toHaveBeenCalledTimes(1);
     expect(ingestionService.ingest).toHaveBeenCalledWith(
@@ -102,7 +94,7 @@ describe('SwapDemoScenarioService', () => {
     expect(eventArg.action).toBe(AuditActions.SWAP_DEMO_SCENARIO_RUN);
     expect(eventArg.primarySubjectNo).toBe('SWP001');
     expect(eventArg.metadata).toMatchObject({
-      verdict: 'V2_REJECTED_HARD',
+      verdict: 'V11_REJECTED_NO_TAG',
       webhookType: 'applicantKytTxnRejected',
       statusBefore: 'COMPLIANCE_PENDING',
       statusAfter: 'REJECTED',
@@ -110,7 +102,7 @@ describe('SwapDemoScenarioService', () => {
     expect(actorArg).toMatchObject({ actorType: 'ADMIN', actorNo: 'AD1' });
 
     expect(result).toEqual({
-      verdict: 'V2_REJECTED_HARD',
+      verdict: 'V11_REJECTED_NO_TAG',
       label: expect.any(String),
       swapId: 'swap-1',
       swapNo: 'SWP001',
@@ -143,7 +135,7 @@ describe('SwapDemoScenarioService', () => {
     const primeSubmitSpy = jest.spyOn(mockClient, 'primeSubmit');
     const service = buildService();
 
-    await service.runVerdict('swap-1', 'V4_REJECTED_SANCTION_APPLICANT', actor);
+    await service.runVerdict('swap-1', 'V7_REJECTED_SANCTION_APPLICANT', actor);
 
     expect(primeSubmitSpy).toHaveBeenCalledWith('SWP001-OUT', expect.stringMatching(OBJECT_ID));
     const mintedTxnId = primeSubmitSpy.mock.calls[0][1];
@@ -153,10 +145,10 @@ describe('SwapDemoScenarioService', () => {
     );
   });
 
-  it('V5_ONHOLD: webhookType 是 applicantKytOnHold(官方无 Txn 命名)', async () => {
+  it('V6_ONHOLD: webhookType 是 applicantKytOnHold(官方无 Txn 命名)', async () => {
     const service = buildService();
 
-    await service.runVerdict('swap-1', 'V5_ONHOLD', actor);
+    await service.runVerdict('swap-1', 'V6_ONHOLD', actor);
 
     expect(ingestionService.ingest).toHaveBeenCalledWith(
       expect.objectContaining({ type: 'applicantKytOnHold' }),
@@ -164,10 +156,10 @@ describe('SwapDemoScenarioService', () => {
     );
   });
 
-  it('V6_AWAIT_USER: webhookType 是 applicantKytTxnAwaitingUser', async () => {
+  it('V2_AWAIT_USER: webhookType 是 applicantKytTxnAwaitingUser', async () => {
     const service = buildService();
 
-    await service.runVerdict('swap-1', 'V6_AWAIT_USER', actor);
+    await service.runVerdict('swap-1', 'V2_AWAIT_USER', actor);
 
     expect(ingestionService.ingest).toHaveBeenCalledWith(
       expect.objectContaining({ type: 'applicantKytTxnAwaitingUser' }),
@@ -179,10 +171,10 @@ describe('SwapDemoScenarioService', () => {
     const primeSubmitSpy = jest.spyOn(mockClient, 'primeSubmit');
     const service = buildService();
 
-    await service.runVerdict('swap-1', 'V4_REJECTED_SANCTION_APPLICANT', actor);
+    await service.runVerdict('swap-1', 'V7_REJECTED_SANCTION_APPLICANT', actor);
 
     swapService.findByIdInternal.mockResolvedValue({ ...swap, id: 'swap-2', swapNo: 'SWP002' });
-    await service.runVerdict('swap-2', 'V4_REJECTED_SANCTION_APPLICANT', actor);
+    await service.runVerdict('swap-2', 'V7_REJECTED_SANCTION_APPLICANT', actor);
 
     const [firstId, secondId] = primeSubmitSpy.mock.calls.map((c) => c[1]);
     expect(firstId).toMatch(OBJECT_ID);
@@ -194,105 +186,10 @@ describe('SwapDemoScenarioService', () => {
     const primeSubmitSpy = jest.spyOn(mockClient, 'primeSubmit');
     const service = buildService();
 
-    await service.runVerdict('swap-1', 'V4_REJECTED_SANCTION_APPLICANT', actor);
-    await service.runVerdict('swap-1', 'V4_REJECTED_SANCTION_APPLICANT', actor);
+    await service.runVerdict('swap-1', 'V7_REJECTED_SANCTION_APPLICANT', actor);
+    await service.runVerdict('swap-1', 'V7_REJECTED_SANCTION_APPLICANT', actor);
 
     const [firstId, secondId] = primeSubmitSpy.mock.calls.map((c) => c[1]);
     expect(firstId).toBe(secondId);
-  });
-
-  describe('V7/V8: applicantActionReviewed (person-level — closes the loop as of Task 13)', () => {
-    it('V7_ACTION_GREEN: feeds applicantActionReviewed for real via ingest(), does NOT prime any KYT txn, and swap status is untouched (this event acts on the customer, not the swap)', async () => {
-      const primeTxnSpy = jest.spyOn(mockClient, 'primeTxn');
-      const primeSubmitSpy = jest.spyOn(mockClient, 'primeSubmit');
-      // swap 已终态(REJECTED)——applicantActionReviewed 作用于人,不作用于这笔单。
-      swapService.findByIdInternal.mockResolvedValue({ ...swap, status: 'REJECTED' });
-      const service = buildService();
-
-      const result = await service.runVerdict('swap-1', 'V7_ACTION_GREEN', actor);
-
-      expect(primeTxnSpy).not.toHaveBeenCalled();
-      expect(primeSubmitSpy).not.toHaveBeenCalled();
-      expect(ingestionService.ingest).toHaveBeenCalledWith(
-        expect.objectContaining({
-          type: 'applicantActionReviewed',
-          applicantId: '68a1f3c47b2e9d0154cc81ab',
-          reviewResult: { reviewAnswer: 'GREEN' },
-        }),
-        { isSimulated: true },
-      );
-      // applicantActionReviewed 清的是客户的 restrictions,不是这笔 swap 单的
-      // 状态 —— statusBefore===statusAfter 是这条链路的正确行为,不是缺口。
-      // (真正的"清限制生效"由 applicant-action.handler.spec.ts 覆盖,这里的
-      // ingestionService 是 mock,不走真实的 SwapApplicantActionHandler。)
-      expect(result.statusBefore).toBe('REJECTED');
-      expect(result.statusAfter).toBe('REJECTED');
-    });
-
-    it('V8_ACTION_RED: reviewResult carries RED', async () => {
-      swapService.findByIdInternal.mockResolvedValue({ ...swap, status: 'REJECTED' });
-      const service = buildService();
-
-      await service.runVerdict('swap-1', 'V8_ACTION_RED', actor);
-
-      expect(ingestionService.ingest).toHaveBeenCalledWith(
-        expect.objectContaining({ type: 'applicantActionReviewed', reviewResult: { reviewAnswer: 'RED' } }),
-        { isSimulated: true },
-      );
-    });
-
-    it('uses the swap\'s live material request externalActionId when one is on file (left by an earlier soft-line rejection) — the field MaterialRequestReviewService claims by', async () => {
-      swapService.findByIdInternal.mockResolvedValue({ ...swap, status: 'REJECTED' });
-      materialRequests.listLiveByOrder.mockResolvedValue([
-        { requestNo: 'MRQ1', externalActionId: 'demo-ext-1' },
-      ]);
-      const service = buildService();
-
-      await service.runVerdict('swap-1', 'V7_ACTION_GREEN', actor);
-
-      expect(materialRequests.listLiveByOrder).toHaveBeenCalledWith('SWAP', 'SWP001');
-      expect(ingestionService.ingest).toHaveBeenCalledWith(
-        expect.objectContaining({ externalActionId: 'demo-ext-1' }),
-        { isSimulated: true },
-      );
-    });
-
-    // 终审 Important #3：运营在真实客户没走客户端提交的情况下点 ⑦/⑧ 是常态
-    // （demo 场景本就是运营单方面驱动），材料请求行这时还停在 PENDING_SUBMISSION。
-    // 旧版本这里直接投 applicantActionReviewed，真实 MaterialRequestReviewService
-    // .applyReview 会因为 nextMaterialRequestStatus 不认 PENDING_SUBMISSION → RED/GREEN
-    // 这条边而抛 BadRequestException，经 ingestion 重试三次 DEAD、接口 500——
-    // 本用例钉住"先补 markSubmitted 再投递,不抛"。
-    it('PENDING_SUBMISSION 状态下点 ⑦：先补一次 markSubmitted 模拟客户提交，再投递，不抛', async () => {
-      swapService.findByIdInternal.mockResolvedValue({ ...swap, status: 'REJECTED' });
-      materialRequests.listLiveByOrder.mockResolvedValue([
-        { requestNo: 'MRQ1', externalActionId: 'demo-ext-1', status: 'PENDING_SUBMISSION' },
-      ]);
-      const service = buildService();
-
-      await expect(service.runVerdict('swap-1', 'V7_ACTION_GREEN', actor)).resolves.toBeDefined();
-
-      expect(materialRequests.markSubmitted).toHaveBeenCalledWith('MRQ1', {
-        actorType: 'CUSTOMER',
-        actorId: swap.ownerId,
-        actorRole: 'CUSTOMER',
-      });
-      // markSubmitted 必须先于 ingest（裁决）——顺序颠倒会让这一修复失去意义
-      const markSubmittedOrder = materialRequests.markSubmitted.mock.invocationCallOrder[0];
-      const ingestOrder = ingestionService.ingest.mock.invocationCallOrder[0];
-      expect(markSubmittedOrder).toBeLessThan(ingestOrder);
-    });
-
-    it('已经是 SUBMITTED（或其它非 PENDING_SUBMISSION）状态时不重复补交', async () => {
-      swapService.findByIdInternal.mockResolvedValue({ ...swap, status: 'REJECTED' });
-      materialRequests.listLiveByOrder.mockResolvedValue([
-        { requestNo: 'MRQ1', externalActionId: 'demo-ext-1', status: 'SUBMITTED' },
-      ]);
-      const service = buildService();
-
-      await service.runVerdict('swap-1', 'V7_ACTION_GREEN', actor);
-
-      expect(materialRequests.markSubmitted).not.toHaveBeenCalled();
-    });
   });
 });
