@@ -1242,13 +1242,13 @@ export async function verifyEndState(
   // 1. 花名册逐条比对 —— 取代旧的「所有 demo 单必须 SUCCESS」。那条全称断言的
   //    前提本来就是错的：一份丰富的演示数据本来就该有冻结的、没收的、退回的、
   //    上缴的、卡在半路的，不是清一色 SUCCESS。rosterResults 只装得下
-  //    runDeposits/runSwaps/runWithdraws 各自真正驱动过的 21 笔（花名册 seq →
+  //    runDeposits/runSwaps/runWithdraws 各自真正驱动过的花名册各笔（seq →
   //    {orderNo,status} 的实际落点）——别的任何单（比如 demo:in-transit 命令
   //    另造的两笔独立在途单）从不会被放进这个数组，天然不参与比对，不需要
   //    额外的排除名单。
   const { pass, lines } = printAnswerKey(rosterResults);
   lines.forEach((l) => console.log(l));
-  ok('花名册 21 笔逐条符合预期', pass);
+  ok(`花名册 ${DEMO_ROSTER.length} 笔逐条符合预期`, pass);
 
   // 2. COA invariants: CLIENT and FIRM balance per ledger (real-time 1:1 model proof)
   //    CLIENT: CLIENT_ASSET == Σ(CLIENT_PAYABLE + DEPOSIT_SUSPENSE) per ledger

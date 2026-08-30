@@ -53,6 +53,8 @@
 
 ## 幂等 · 去重 · 回放
 
+- [2026-08-30] `generateReferenceNo` 单号后缀是同日 4 位随机数（万分之一命中空间），同日单量一高就会撞；`createRosterWithdraw` 已知这个坑并在 demo 脚本里加了重试，`createRosterDeposit` 没有——本轮花名册充值行数从 11 加到 18 后实测命中一次（`depositTransaction.depositNo` P2002），reset 重跑即过 ｜ `src/common/utils/no-generator.util.ts` + `scripts/demo-lib.ts createRosterDeposit` ｜ 对账破口场景铺全 Task 1 实跑 `demo:all` 命中
+
 ## 并发与竞态
 
 ## 迁移与兼容
