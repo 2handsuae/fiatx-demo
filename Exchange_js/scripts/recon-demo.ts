@@ -35,8 +35,9 @@
 //
 // Anchor-free: every walletRef / asset / amount comes from the *current*
 // account_flows snapshot. The script will work on any seeded dataset; the
-// only requirement is ≥6 distinct CUSTOMER wallets + ≥1 FIRM wallet with
-// isExternalCrossing flows so each scenario can land on its own wallet.
+// only requirement is ≥1 FIRM wallet + enough CUSTOMER wallets with
+// isExternalCrossing flows to host the injected scenarios (一个钱包可以挂多条，
+// 具体分配见 Task 4 起改用的按人设显式指定)。
 //
 // Run:
 //   npx ts-node -r tsconfig-paths/register scripts/recon-demo.ts --mode=pass
@@ -581,9 +582,8 @@ async function writeMirror(
 
 // ── Phase 3 (break only): inject 9 scenarios — one MVP root cause each ──
 //
-// Each scenario lands on its own wallet (scenario 5+7 deliberately share one
-// FIRM wallet — see below) so cases stay disjoint and per-scenario checks
-// are independent.
+// 场景与钱包**不再一一对应**：一个钱包可以挂多条场景（2026-08-30 起）。
+// 因此桶是钱包的属性、不是场景的属性，答案键分两级——见 ManifestV3 的类型注释。
 //
 // Scenario 1 (canon2 T5) no longer synthesises a shell funds_order — it drives
 // a REAL stuck withdraw via the shared `createStuckWithdraw` fixture (same path
@@ -677,10 +677,15 @@ async function injectScenarios(
   // SOFT_FLAG bucket — but a wallet that already carries a real non-terminal
   // funds order also produces an IN_TRANSIT line, and the engine correctly
   // reclassifies "orphan + in-transit on the same wallet" as BREAK. That
-  // silently fails #5/#7 without the engine being wrong — it breaks the
-  // disjoint-wallet premise this whole generator depends on (see file-header
-  // comment). Same TERMINAL_STATUSES the engine's own Pass 3 (in-transit
-  // matching) treats as "still open".
+  // 排除已带非终态资金单的 FIRM 钱包。理由**不是**"场景之间要互不重叠"
+  // （那个 disjoint 前提已于 2026-08-30 废除，一个钱包现在可以挂多条场景），
+  // 而是另一条独立的轴：**业务数据污染场景**。
+  // 场景 5+7 只注入对冲的幽灵 ORPHAN_EXTERNAL 行、期望落在 SOFT_FLAG；但一个
+  // 已经挂着真实非终态资金单的钱包会**额外**产生一条 IN_TRANSIT 行，引擎于是
+  // （正确地）把"孤儿 + 在途同处一个钱包"重判成 BREAK —— 答案键期望 SOFT_FLAG，
+  // 于是 #5/#7 双双 MISSED，而引擎一点没错。
+  // 这件事与一个钱包上挂几条场景无关：就算一钱包只挂一条，它照样会咬人。
+  // 用的是引擎自己 Pass 3（在途匹配）判"还没了结"的同一套 TERMINAL_STATUSES。
   const firmCandidatesAll = [...plans]
     .filter((p) => p.walletKind === 'FIRM')
     .sort((a, b) => a.walletRef.localeCompare(b.walletRef));
