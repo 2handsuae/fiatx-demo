@@ -17,6 +17,10 @@ import {
 import { AuditOutcome } from '../../audit-logging/dto/audit-log.dto';
 import { CUSTODIAN_ADAPTER, CustodianAdapter } from './custodian-adapter.interface';
 import { WalletRole, WalletStatus } from './dto/wallet.dto';
+import {
+  CUSTOMER_VIBAN_ACCOUNT_NAME,
+  CUSTOMER_VIBAN_BANK_NAME,
+} from './customer-viban-bank.constant';
 import { WalletsService } from './wallets.service';
 import { CustomerAccessService } from '../../identity/customers/customer-access.service';
 import * as crypto from 'crypto';
@@ -98,22 +102,15 @@ export class CustomerDepositWalletService {
         return { kind: 'existing' as const, wallet: existing };
       }
 
-      // Inherit bankName/accountName from CMA for FIAT vIBAN
+      // 客户 VIBAN 的收款行信息取自常量 —— 2026-08-30 之前是从 C_CMA 钱包上读的，
+      // 那个钱包已退役（见 system-wallet.util.ts）。当时只改了 demo 造数路径，
+      // 这条真实开户 API 漏了：C_CMA 查不到时 `if (cma)` 静默跳过，新开的 VIBAN
+      // 银行名与户名会是空的，客户在客户端看自己的虚拟账号就是两栏白的。
       let bankName: string | undefined;
       let accountName: string | undefined;
       if (walletRole === WalletRole.C_VIBAN) {
-        const cma = await tx.wallet.findFirst({
-          where: {
-            walletRole: WalletRole.C_CMA,
-            assetId,
-            status: WalletStatus.ACTIVE,
-          },
-          select: { bankName: true, accountName: true },
-        });
-        if (cma) {
-          bankName = cma.bankName ?? undefined;
-          accountName = cma.accountName ?? undefined;
-        }
+        bankName = CUSTOMER_VIBAN_BANK_NAME;
+        accountName = CUSTOMER_VIBAN_ACCOUNT_NAME;
       }
 
       // H4: Use WalletsService domain method instead of direct prisma.wallet.create
