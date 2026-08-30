@@ -39,7 +39,6 @@ export type PermissionGroup =
   | 'LEDGER_ACCOUNT_READ'
   | 'LEDGER_EVIDENCE_READ'
   | 'LEDGER_FLOW_READ'
-  | 'LEDGER_ACCOUNT_WRITE'
   | 'ASSET_CONFIG_READ'
   | 'ASSET_CONFIG_WRITE'
   | 'AUDIT_READ'
@@ -354,10 +353,6 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
   // TB Ledger
   route('GET', '/admin/tb/accounts', 'List TB account registry', ['LEDGER_ACCOUNT_READ']),
   route('GET', '/admin/tb/accounts/:tbAccountId', 'Get TB account detail', ['LEDGER_ACCOUNT_READ']),
-  // Task 4 (D8) planned retiring LEDGER_ACCOUNT_WRITE as a zero-consumer group — grep-before-delete
-  // found otherwise: admin-web/src/pages/LedgerAccountList.tsx has a full "Create Account" modal
-  // (category/asset/code/customerNo form) POSTing here. Kept as-is; see task-4-report.md.
-  route('POST', '/admin/tb/accounts', 'Create manual TB account', ['LEDGER_ACCOUNT_WRITE']),
   route('GET', '/admin/tb/transfers', 'List TB transfer evidence', ['LEDGER_EVIDENCE_READ']),
   route('GET', '/admin/tb/transfers/:tbTransferId', 'Get TB transfer evidence detail', ['LEDGER_EVIDENCE_READ']),
   route('GET', '/admin/tb/account-flows', 'List account flows', ['LEDGER_FLOW_READ']),
@@ -642,7 +637,6 @@ export const ACTION_BUCKET_CATALOG: ActionDomain[] = [
       { key: 'ledger.view_accounts', label: 'View ledger accounts', description: 'Browse TB account registry', groups: ['LEDGER_ACCOUNT_READ'] },
       { key: 'ledger.view_evidence', label: 'View transfer evidence', description: 'Browse TB transfer evidence', groups: ['LEDGER_EVIDENCE_READ'] },
       { key: 'ledger.view_flows', label: 'View account flows', description: 'Browse per-account flow rows', groups: ['LEDGER_FLOW_READ'] },
-      { key: 'ledger.manage_accounts', label: 'Create TB accounts', description: 'Manually create TB accounts', groups: ['LEDGER_ACCOUNT_WRITE'] },
     ],
   },
   {
@@ -753,7 +747,6 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
     'LEDGER_ACCOUNT_READ',
     'LEDGER_EVIDENCE_READ',
     'LEDGER_FLOW_READ',
-    'LEDGER_ACCOUNT_WRITE',
     'WALLET_READ',
     'WALLET_WRITE',
     'WITHDRAWAL_ADDRESS_READ',

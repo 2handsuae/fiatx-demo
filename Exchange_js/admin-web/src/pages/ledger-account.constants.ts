@@ -39,14 +39,6 @@ export const TB_CODE_OPTIONS = [
   ...ACTIVE_CODES.map((c) => ({ value: String(c), label: labelOf(c) })),
 ];
 
-/** SYSTEM-owner codes (1/ledger). */
-export const SYSTEM_TB_CODES = [1, 50, 200, 201, 210, 211, 212];
-/** Per-customer codes. */
-export const CUSTOMER_TB_CODES = [100, 101];
-
-export const SYSTEM_CODE_OPTIONS = SYSTEM_TB_CODES.map((c) => ({ value: c, label: labelOf(c) }));
-export const CUSTOMER_CODE_OPTIONS = CUSTOMER_TB_CODES.map((c) => ({ value: c, label: labelOf(c) }));
-
 const CLASS_PREFIX: Record<number, string> = {
   1: 'A', 50: 'A', 100: 'L', 101: 'L',
   200: 'E', 201: 'E', 210: 'E', 211: 'E', 212: 'E',
