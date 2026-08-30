@@ -17,6 +17,18 @@
 - **两条自洽式一行都不许改**：`walletCount == matched+inTransit+softFlag+break` 与 `opened+reObserved == inTransit+softFlag+break`。它们场景无关（`wallet-recon-run.service.ts:402` 的 `walletsChecked = walletRefs.length + unattributedBalances.length`，两侧同增同减）。**任何"要改它才成立"的时刻本身就是警报。**
 - 注入前置闸必须 **fail-closed**：条件不满足直接抛错，**不许静默降级**。
 - 测试的绿必须来自行为。**禁止**扫源码文本型断言。
+- 🔴 **每个任务提交前必须跑一次 `npx jest --silent`**（不是只在 Task 9 收尾时跑）。判据：失败**恰好 4 套 8 例**，
+  套名逐字是 `role-definition-create-workflow` / `system-wallet.util` / `wallets.service` /
+  `client-web restrictedCapabilities`；不在这四个里的任何红都是事故。
+  **本条是执行期补的**：计划初稿只在 Task 9 排了 jest，结果 Task 1 改了 `scripts/demo-roster.ts` 而
+  `src/common/utils/demo-roster.spec.ts` 里写死 `toHaveLength(21)` 当场变红，没人在任务内发现，
+  要等收尾闸才撞见——那时排查成本已经转嫁给后面的任务了。
+  ⚠️ 注意 `scripts/` 下的 `*.spec.ts` **不会被 jest 扫到**（`jest.config.js` 的 roots 只覆盖
+  `src/`、`admin-web/src/`、`client-web/src/`），所以改 `scripts/` 下的文件时更容易漏——
+  它的测试往往住在 `src/common/utils/` 下。
+- **不许用写死的行数/条数当断言或当屏幕文案。** 一律从数据现算（`DEMO_ROSTER.length`、
+  `DEMO_ROSTER.filter(...).length`）。写死的数字每次加行都要有人记得回来改，而忘了改的表现是
+  "本来该绿的东西变红"或"演示屏幕上印错数字"——本批 Task 1 两样都撞上了。
 - 栈命令一律走包装器：`bash scripts/on-stack.sh self <npm-script>`。本工作树端口 3110–3113，DB `/tmp/exchange_js_wt_recon_adj1/dev.db`。
 - ⚠️ **`demo:all` 不能在同一个库上连跑两次**（花名册第 #7/#10/#13 行把 FRANK 造成永久被制裁，第二次跑 Gate 0 会正确拒绝他的新充值）。每次验证都要先 `stack.sh down` → `reset self` → kill 掉 reset 拉起的 TigerBeetle → `up self`。
 
