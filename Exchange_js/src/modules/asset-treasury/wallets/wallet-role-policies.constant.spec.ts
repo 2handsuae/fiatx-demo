@@ -12,10 +12,10 @@ describe('fiat settlement wallet roles', () => {
     }
   });
 
-  it('fiat system wallet role set includes C_CMA, F_SET, F_FEE, F_OPS, F_LIQ', () => {
+  it('fiat system wallet role set includes F_SET, F_FEE, F_OPS, F_LIQ', () => {
     expect(FIAT_SYSTEM_WALLET_ROLES).toEqual(
       expect.arrayContaining([
-        WalletRole.C_CMA, WalletRole.F_SET, WalletRole.F_FEE,
+        WalletRole.F_SET, WalletRole.F_FEE,
         WalletRole.F_OPS, WalletRole.F_LIQ,
       ]),
     );

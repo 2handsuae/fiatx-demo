@@ -18,14 +18,14 @@ describe('system-wallet.util', () => {
 
     it('FIAT_SYSTEM_WALLET_ROLES contains correct roles', () => {
       expect(FIAT_SYSTEM_WALLET_ROLES).toEqual([
-        WalletRole.C_CMA, WalletRole.F_SET, WalletRole.F_FEE, WalletRole.F_OPS, WalletRole.F_LIQ,
+        WalletRole.F_SET, WalletRole.F_FEE, WalletRole.F_OPS, WalletRole.F_LIQ,
       ]);
     });
 
     it('PROTECTED_SYSTEM_WALLET_ROLES is union of both', () => {
       expect(PROTECTED_SYSTEM_WALLET_ROLES).toContain(WalletRole.C_MAIN);
       expect(PROTECTED_SYSTEM_WALLET_ROLES).toContain(WalletRole.C_OUT);
-      expect(PROTECTED_SYSTEM_WALLET_ROLES).toContain(WalletRole.C_CMA);
+      expect(PROTECTED_SYSTEM_WALLET_ROLES).not.toContain(WalletRole.C_CMA);
       expect(PROTECTED_SYSTEM_WALLET_ROLES).toContain(WalletRole.F_LIQ);
       expect(PROTECTED_SYSTEM_WALLET_ROLES).toContain(WalletRole.F_OPS);
     });

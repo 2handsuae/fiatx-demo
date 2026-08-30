@@ -9,8 +9,14 @@ export const CRYPTO_SYSTEM_WALLET_ROLES: WalletRole[] = [
   WalletRole.F_LIQ, WalletRole.F_OPS, WalletRole.F_FEE,
 ];
 
+// C_CMA (Client Money Account) has no ledger position of its own —
+// wallet-query.service.ts#resolveDisplayBalance resolves it as a read-time
+// aggregate of every customer C_VIBAN for the same asset (Σ VIBAN), and
+// reconciliation doesn't cover it (recon-demo.ts plans only wallets with a
+// real balance). It is no longer provisioned. The enum entry (C_CMA in
+// WalletRole) stays defined so dead-code references compile.
 export const FIAT_SYSTEM_WALLET_ROLES: WalletRole[] = [
-  WalletRole.C_CMA, WalletRole.F_SET, WalletRole.F_FEE, WalletRole.F_OPS, WalletRole.F_LIQ,
+  WalletRole.F_SET, WalletRole.F_FEE, WalletRole.F_OPS, WalletRole.F_LIQ,
 ];
 
 export const PROTECTED_SYSTEM_WALLET_ROLES: ReadonlySet<string> = new Set([

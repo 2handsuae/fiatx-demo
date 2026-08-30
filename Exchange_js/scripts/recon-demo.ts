@@ -361,10 +361,6 @@ async function planWallets(
   for (const w of allActiveWallets) {
     const currency = w.asset?.code ?? w.asset?.currency ?? null;
     if (!currency) continue;
-    // C_CMA is a platform fiat pool needed by demo:withdraw as the source
-    // wallet, but the user wants it hidden from External Balances UI. The
-    // wallet still exists in DB; we just don't mirror it into external_*.
-    if (w.walletRole === 'C_CMA') continue;
     const isFirm = w.ownerType !== 'CUSTOMER';
     const ownedCodes = isFirm ? FIRM_CODES : CUSTOMER_CODES;
 
