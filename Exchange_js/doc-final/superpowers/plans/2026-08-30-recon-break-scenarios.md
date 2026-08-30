@@ -38,8 +38,14 @@
 
 **Files:**
 - Modify: `prisma/seed.business.ts`（`DEMO_CUSTOMERS` 数组）
-- Modify: `scripts/demo-lib.ts`（`DEMO_CUSTOMER_EMAILS`）
+- Modify: `scripts/demo-lib.ts`（`DEMO_CUSTOMER_EMAILS` **与 `runDeposits` 的驱动 switch**）
 - Modify: `scripts/demo-roster.ts`（`DEMO_ROSTER`）
+
+⚠️ **2026-08-30 执行期补正**：`runDeposits` 里的 `switch (entry.seq)` 只有 `case 1-10`、**没有 `default`**
+（seq 21 在 switch 之前就 `continue` 掉了）。新加的 7 行充值素材单不匹配任何 case，会一路 fall through、
+**永远停在 `COMPLIANCE_PENDING`**，而且不报任何错——要等花名册答案键比对时才以"状态不符"的面目出现。
+本计划初稿漏了这一层。修法见 Step 3.5。兑换那侧是 `if (seq===13) else {通用路径}`，seq 23 本来就走得通；
+1096 行那个 switch 是提现，本任务不加提现行，不动。
 
 **Interfaces:**
 - Consumes: 无
@@ -116,6 +122,35 @@ const KATE = 'demo_kate@example.com';
   { seq: 28, domain: 'DEPOSIT', label: '充值 · 素材（Kate AED 小额）',  expectedStatus: 'SUCCESS', customerEmail: KATE,  amount: '1200', currency: 'AED',  driver: '⚡①' },
   { seq: 29, domain: 'DEPOSIT', label: '充值 · 素材（Kate USDT）',     expectedStatus: 'SUCCESS', customerEmail: KATE,  amount: '350',  currency: 'USDT', driver: '⚡①' },
 ```
+
+- [ ] **Step 3.5: 给充值驱动补路径 + fail-closed 兜底**
+
+`scripts/demo-lib.ts` 的 `runDeposits` 里，把成功组扩到新 seq：
+
+```ts
+      // seq 22/24-29 是对账素材单（2026-08-30 加）：跟 1/2/3 一样是普通成功充值，
+      // 走同一条 V1_APPROVED → SUCCESS 的路。
+      case 1: case 2: case 3:
+      case 22: case 24: case 25: case 26: case 27: case 28: case 29:
+        await driveVerdict(ctx, dep.id, 'V1_APPROVED');
+        dep = await waitDepositStatus(ctx, dep.id, 'SUCCESS');
+        break;
+```
+
+并在同一个 switch 末尾补 `default`，让这个坑不能再犯：
+
+```ts
+      default:
+        // fail-closed：花名册加了一行、却忘了在这里给它一条驱动路径时，当场炸，
+        // 而不是让那一行悄悄停在 COMPLIANCE_PENDING 里。
+        // 2026-08-30 实证：本批加 7 行素材单时踩的正是这个缺口。
+        throw new Error(
+          `花名册 #${entry.seq}（${entry.label}）在 runDeposits 里没有对应的驱动分支 —— ` +
+          '加了花名册行就必须同时在这里给它一条路，否则它会停在 COMPLIANCE_PENDING。',
+        );
+```
+
+本批 Global Constraints 明写「fail-closed，不许静默降级」，而这个 switch 现在的行为正是静默降级。
 
 - [ ] **Step 4: 从零重铺并跑 demo:all**
 
