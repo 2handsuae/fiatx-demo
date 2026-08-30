@@ -637,6 +637,25 @@ const DEMO_CUSTOMERS: DemoCustomer[] = [
       },
     ],
   },
+  // 2× 对账素材人设（Jack/Kate）—— 普通活跃客户，没有任何合规特征。
+  // 存在的理由：对账破口场景要落在钱包上，而现有 8 个客户钱包不够分
+  // （见 specs/2026-08-30-recon-break-scenarios-design.md §4）。
+  // 他们同时提供**有流水的干净钱包**——MATCHED 桶必须有实打实的代表，
+  // 0 流水 0 余额的钱包匹配上是"平凡地平"，证明不了引擎在干活。
+  {
+    email: 'demo_jack@example.com', phone: '+15552000010',
+    firstName: 'Jack', lastName: 'Trader', customerType: 'INDIVIDUAL',
+    lifecycle: 'ACTIVE',
+    riskRating: 'LOW', tradingTier: 'BASIC', eddRequired: false,
+    sumsubApplicantId: mockSumsubApplicantId('demo_jack@example.com'),
+  },
+  {
+    email: 'demo_kate@example.com', phone: '+15552000011',
+    firstName: 'Kate', lastName: 'Trader', customerType: 'INDIVIDUAL',
+    lifecycle: 'ACTIVE',
+    riskRating: 'LOW', tradingTier: 'BASIC', eddRequired: false,
+    sumsubApplicantId: mockSumsubApplicantId('demo_kate@example.com'),
+  },
 ];
 
 /** 演示客户的 mock Sumsub applicant id——纯 email 确定性哈希，不是真沙盒 applicant。 */

@@ -95,6 +95,11 @@ export const DEMO_CUSTOMER_EMAILS = [
   'demo_alice@example.com',
   'demo_bob@example.com',
   'demo_grace@example.com',
+  // 对账素材人设——进这个名单就自动拿到 C_VIBAN/C_DEP 两个钱包、客户级 TB 科目、
+  // 以及法币提现地址（2026-07-11 上线的交易前置闸要求客户有 active 法币提现地址，
+  // 否则第一笔充值就会被 hold 住）。
+  'demo_jack@example.com',
+  'demo_kate@example.com',
 ] as const;
 
 // 4th persona (see scripts/demo-roster.ts's FRANK const for the full why):
@@ -652,7 +657,10 @@ export async function runDeposits(ctx: DemoCtx): Promise<Array<{ seq: number; or
     let dep = await createRosterDeposit(ctx, c, asset, walletId, entry.amount, type);
 
     switch (entry.seq) {
+      // seq 22/24-29 是对账素材单（2026-08-30 加）：跟 1/2/3 一样是普通成功充值，
+      // 走同一条 V1_APPROVED → SUCCESS 的路。
       case 1: case 2: case 3:
+      case 22: case 24: case 25: case 26: case 27: case 28: case 29:
         await driveVerdict(ctx, dep.id, 'V1_APPROVED');
         dep = await waitDepositStatus(ctx, dep.id, 'SUCCESS');
         break;
@@ -733,6 +741,17 @@ export async function runDeposits(ctx: DemoCtx): Promise<Array<{ seq: number; or
         dep = await waitDepositStatus(ctx, dep.id, 'SEIZED');
         break;
       }
+
+      default:
+        // fail-closed：花名册加了一行、却忘了在这里给它一条驱动路径时，当场炸，
+        // 而不是让那一行悄悄停在 COMPLIANCE_PENDING 里。
+        // 2026-08-30 实证：本批加 7 行素材单时踩的正是这个缺口——switch 只有
+        // case 1-10、没有 default，新行一路 fall through、永远到不了 SUCCESS，
+        // 而且不报任何错，要等花名册答案键比对时才以"状态不符"的面目出现。
+        throw new Error(
+          `花名册 #${entry.seq}（${entry.label}）在 runDeposits 里没有对应的驱动分支 —— ` +
+          '加了花名册行就必须同时在这里给它一条路，否则它会停在 COMPLIANCE_PENDING。',
+        );
     }
 
     driven.push({ seq: entry.seq, depositId: dep.id });

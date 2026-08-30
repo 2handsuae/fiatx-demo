@@ -25,6 +25,8 @@ export interface RosterEntry {
 const ALICE = 'demo_alice@example.com';
 const BOB = 'demo_bob@example.com';
 const GRACE = 'demo_grace@example.com';
+const JACK = 'demo_jack@example.com';
+const KATE = 'demo_kate@example.com';
 // FRANK plays the "永久冻结" persona for every row whose driver opens a
 // customer-level restriction (SANCTION: customerLevel=true, defaultScopes=
 // ['ALL'] — src/modules/identity/customers/constants/restriction-cause.
@@ -84,6 +86,21 @@ export const DEMO_ROSTER: RosterEntry[] = [
   // runDeposits 之前就把它驱到 SUCCESS，好让 FRANK 在 #7 制裁他之前，既有
   // 余额、又还没被限制——见 FRANK 常量块上方注释。
   { seq: 21, domain: 'DEPOSIT',  label: '充值 · FRANK 本金（供 #13 建单垫资）', expectedStatus: 'SUCCESS', customerEmail: FRANK, amount: '2000', currency: 'AED', driver: '⚡①（跑在充值阶段之前，见 runFrankPreStage）' },
+
+  // ── 对账素材单（seq 22-29）─────────────────────────────────────────────
+  // 花名册的原则是「剧本演到的状态必须有现成样本」——那是**覆盖下限**，不是
+  // "每种状态只能一条"。下面这几行不为新终态而生，是为对账破口场景供料：
+  // 场景要删/改/挪外部对账单行，钱包上就得先有行。
+  // ⚠️ 一律不加提现：提现会留下手续费腿，没走到终态就让那个钱包带上非终态
+  // 资金单，在途识别会去认领它、把场景的期望桶打乱（cfec505f 修的就是这个坑）。
+  { seq: 22, domain: 'DEPOSIT', label: '充值 · 素材（Grace USDT）',   expectedStatus: 'SUCCESS', customerEmail: GRACE, amount: '1200', currency: 'USDT', driver: '⚡①' },
+  { seq: 23, domain: 'SWAP',    label: '兑换 · 素材（Grace AED→USDT）', expectedStatus: 'SUCCESS', customerEmail: GRACE, amount: '800',  currency: 'AED',  driver: '⚡①' },
+  { seq: 24, domain: 'DEPOSIT', label: '充值 · 素材（Jack AED 大额）',  expectedStatus: 'SUCCESS', customerEmail: JACK,  amount: '5000', currency: 'AED',  driver: '⚡①' },
+  { seq: 25, domain: 'DEPOSIT', label: '充值 · 素材（Jack AED 小额）',  expectedStatus: 'SUCCESS', customerEmail: JACK,  amount: '1500', currency: 'AED',  driver: '⚡①' },
+  { seq: 26, domain: 'DEPOSIT', label: '充值 · 素材（Jack USDT）',     expectedStatus: 'SUCCESS', customerEmail: JACK,  amount: '400',  currency: 'USDT', driver: '⚡①' },
+  { seq: 27, domain: 'DEPOSIT', label: '充值 · 素材（Kate AED 大额）',  expectedStatus: 'SUCCESS', customerEmail: KATE,  amount: '4000', currency: 'AED',  driver: '⚡①' },
+  { seq: 28, domain: 'DEPOSIT', label: '充值 · 素材（Kate AED 小额）',  expectedStatus: 'SUCCESS', customerEmail: KATE,  amount: '1200', currency: 'AED',  driver: '⚡①' },
+  { seq: 29, domain: 'DEPOSIT', label: '充值 · 素材（Kate USDT）',     expectedStatus: 'SUCCESS', customerEmail: KATE,  amount: '350',  currency: 'USDT', driver: '⚡①' },
 ];
 
 export function printAnswerKey(
