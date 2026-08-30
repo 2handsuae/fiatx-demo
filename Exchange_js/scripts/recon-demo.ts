@@ -25,9 +25,9 @@
 //                    7. BANK_INTEREST         — ORPHAN_EXTERNAL (SOFT_FLAG, paired w/ 5)
 //                    8. BANK_RETURN           — ORPHAN_EXTERNAL (BREAK)
 //                    9. ORPHAN_DEPOSIT        — ORPHAN_EXTERNAL (BREAK, unattributed head)
-//                  Each scenario targets its own wallet (5+7 deliberately
-//                  share one FIRM wallet — a hedged pair) so cases stay
-//                  disjoint and per-scenario checks are independent.
+//                  ⚠️ 场景与钱包**不再一一对应**：一个钱包可以挂多条场景
+//                  （2026-08-30 起）。旧的 disjoint-wallet 前提已显式废除，
+//                  连带后果与答案键的两级拆分见下方 ManifestV3 的类型注释。
 //
 //   --mode=reset   Delete WALLET_V1 runs/cases + all ExternalBalance /
 //                  ExternalStatementLine rows + demo-tagged FundsOrder rows.
