@@ -4,8 +4,9 @@ import { AuditCorrelationMode } from '../dto/audit-log.dto';
 describe('第一批 · V1 词表守则', () => {
   const codes = Object.keys(V1_AUDIT_ACTIONS);
 
-  it('恰好 67 个码（首铸 45 + 站7 收编 22：治理 18 + 平台运营 4）', () => {
-    expect(codes).toHaveLength(67);
+  it('恰好 48 个码（首铸 45 + 站7 收编 22：治理 18 + 平台运营 4 − Task5(2026-08-30/31)退役 19：'
+    + '监管闸门7+五本档案簿10+LP配置1+手工建户1，剩 APPROVAL_REQUIRED_MISSING/WALLET_STATUS_UPDATED/FUNDS_ORDER_ADVANCED）', () => {
+    expect(codes).toHaveLength(48);
   });
 
   it('全部全局唯一（键即字面量，无重复）', () => {
@@ -36,7 +37,8 @@ describe('第一批 · V1 词表守则', () => {
       'ADMIN_MFA_RESET_': 3, 'ADMIN_ACCOUNT_LOCK_': 2,
       'ROLE_DEFINITION_CREATE_': 3, 'ROLE_DEFINITION_MODIFY_': 3,
       'APPROVAL_POLICY_CHANGE_': 2, 'AUDIT_EVIDENCE_EXPORT_': 3,
-      'REGULATORY_GATE_': 7,
+      // REGULATORY_GATE_ 曾 7 码，Task 5(2026-08-30) 随监管闸门整块退役，
+      // 该前缀组已从 V1_AUDIT_ACTIONS 移除（见 DEPRECATED_AUDIT_ACTIONS），故此处不再断言。
     };
     for (const [p, n] of Object.entries(expectCount)) {
       expect(codes.filter((c) => c.startsWith(p))).toHaveLength(n);
@@ -48,8 +50,9 @@ describe('第一批 · V1 词表守则', () => {
       .toHaveLength(13);
   });
 
-  it('退役码 55 个（V1 域 11 + 充值域 18+1 + 提现域 18 + 兑换域 3 + 对账域 4），且与五本在用名册零交集', () => {
-    expect(DEPRECATED_AUDIT_ACTIONS).toHaveLength(55);
+  it('退役码 74 个（V1 域 11 + 充值域 18+1 + 提现域 18 + 兑换域 3 + 对账域 4 + Task5扩面 19：'
+    + '监管闸门7+五本档案簿10+LP配置1+手工建户1），且与五本在用名册零交集', () => {
+    expect(DEPRECATED_AUDIT_ACTIONS).toHaveLength(74);
     expect(DEPRECATED_AUDIT_ACTIONS.filter((d) => codes.includes(d))).toEqual([]);
     expect(DEPRECATED_AUDIT_ACTIONS.filter((d) => d in V4_DEPOSIT_AUDIT_ACTIONS)).toEqual([]);
     expect(DEPRECATED_AUDIT_ACTIONS.filter((d) => d in V5_WITHDRAW_AUDIT_ACTIONS)).toEqual([]);
