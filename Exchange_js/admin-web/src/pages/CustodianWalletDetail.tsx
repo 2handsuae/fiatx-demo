@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Repeat, RotateCcw } from 'lucide-react';
+import { RotateCcw } from 'lucide-react';
 import { copyToClipboard } from '../utils/clipboard';
 import { formatAssetAmount } from '../utils/number-format';
 import { AdminSessionError, adminFetch, getApiErrorMessage } from '../utils/adminFetch';
@@ -51,15 +51,6 @@ interface WalletDetailData {
     network: string | null;
     decimals?: number;
   };
-}
-
-interface CollectionActionResult {
-  action?: string;
-  reason?: string;
-  internalTransactionId?: string;
-  internalFundId?: string;
-  existingPendingAmount?: string;
-  expectedCollectionAmount?: string;
 }
 
 /* ── Helpers ─────────────────────────────────────────────────── */
@@ -122,8 +113,6 @@ export default function CustodianWalletDetail() {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [copiedField, setCopiedField] = useState<string | null>(null);
-  const [collectionSubmitting, setCollectionSubmitting] = useState(false);
-  const [collectionResult, setCollectionResult] = useState<CollectionActionResult | null>(null);
 
   const fetchWallet = async () => {
     if (!id) return;
@@ -179,7 +168,6 @@ export default function CustodianWalletDetail() {
   const isCrypto = wallet.type === 'CRYPTO_ADDRESS';
   const isFiat = wallet.type === 'FIAT_BANK';
   const isDepositWallet = wallet.walletRole === 'C_DEP';
-  const canCreateCollection = hasAnyPermission([PERMISSIONS.INTERNAL_COLLECTIONS_RECONCILE]);
   const canRetry = hasAnyPermission([PERMISSIONS.CUSTODIAN_WALLET_RETRY]);
 
   /* ── Status toggle ── */
@@ -207,39 +195,6 @@ export default function CustodianWalletDetail() {
     }
   };
 
-  /* ── Collection action ── */
-
-  const handleCreateCollection = async () => {
-    setCollectionSubmitting(true);
-    setCollectionResult(null);
-    try {
-      const res = await adminFetch(
-        `${import.meta.env.VITE_API_URL}/admin/internal-transactions/collection-wallets/${wallet.id}/reconcile`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ dryRun: false }),
-        },
-      );
-      if (!res.ok) {
-        setError(await getApiErrorMessage(res, 'Failed to create wallet-driven collection.'));
-        return;
-      }
-      const payload = (await res.json()) as CollectionActionResult;
-      setCollectionResult(payload);
-      if (payload.internalTransactionId && (payload.action === 'CREATED' || payload.action === 'IDEMPOTENT')) {
-        navigate('/admin/funds/transfers');
-        return;
-      }
-      setNotice(payload.reason || payload.action || 'Collection request completed.');
-    } catch (err) {
-      if (err instanceof AdminSessionError) return;
-      setError(err instanceof Error ? err.message : 'Failed to create collection.');
-    } finally {
-      setCollectionSubmitting(false);
-    }
-  };
-
   const handleRetryCreation = async () => {
     if (!wallet.walletNo || !window.confirm(`Retry vault creation for wallet ${wallet.walletNo}?`)) return;
     try {
@@ -263,7 +218,7 @@ export default function CustodianWalletDetail() {
 
   const canToggleStatus = wallet.status !== 'FROZEN';
   const isFailed = wallet.status === 'FAILED';
-  const showActions = canToggleStatus || isFailed || (isDepositWallet && canCreateCollection);
+  const showActions = canToggleStatus || isFailed;
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
@@ -400,22 +355,6 @@ export default function CustodianWalletDetail() {
                   value="Create full-balance DEPOSIT_COLLECTION when triggered"
                 />
               </div>
-              {collectionResult && (
-                <div className="mt-3 rounded border border-adm-amber/30 bg-adm-amber/10 px-4 py-3 font-mono text-[11px] text-adm-amber">
-                  <div className="font-semibold">Collection result: {collectionResult.action || 'UNKNOWN'}</div>
-                  <div className="mt-1">{collectionResult.reason || 'Collection request completed.'}</div>
-                  {collectionResult.expectedCollectionAmount && (
-                    <div className="mt-1 text-[10px]">
-                      Expected: {collectionResult.expectedCollectionAmount} {wallet.asset.currency}
-                    </div>
-                  )}
-                  {collectionResult.internalTransactionId && (
-                    <div className="mt-1 text-[10px]">
-                      Transaction: {collectionResult.internalTransactionId}
-                    </div>
-                  )}
-                </div>
-              )}
             </section>
           )}
 
@@ -461,16 +400,6 @@ export default function CustodianWalletDetail() {
                     className={adminButtonClass('workflowPrimary')}
                   >
                     Enable Wallet
-                  </button>
-                )}
-                {isDepositWallet && canCreateCollection && (
-                  <button
-                    onClick={() => void handleCreateCollection()}
-                    disabled={collectionSubmitting}
-                    className={adminButtonClass('workflowPrimary')}
-                  >
-                    <Repeat size={13} />
-                    {collectionSubmitting ? 'Creating…' : 'Create Collection'}
                   </button>
                 )}
               </div>

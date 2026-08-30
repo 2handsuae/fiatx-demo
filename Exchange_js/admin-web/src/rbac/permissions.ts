@@ -77,9 +77,6 @@ export const PERMISSIONS = {
   WALLETS_READ: 'api.get.wallets',
   WALLET_DETAIL_READ: 'api.get.wallets_id',
   // PAYINS_* / PAYOUTS_* / INTERNAL_FUNDS_* removed in Round 2 (C6) — merged into FUNDS_ORDERS_*.
-  REIMBURSEMENT_OBLIGATIONS_READ: 'api.get.admin_reimbursement_obligations',
-  INTERNAL_COLLECTIONS_RECONCILE:
-    'api.post.admin_internal_transactions_collection_wallets_walletid_reconcile',
 
   ASSETS_READ: 'api.get.assets',
   ASSETS_CREATE: 'api.post.assets',

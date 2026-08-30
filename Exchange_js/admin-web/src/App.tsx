@@ -41,7 +41,7 @@ const EvidenceExportsPage = lazy(() => import('./pages/EvidenceExportsPage'));
 const EvidenceExportDetailPage = lazy(() => import('./pages/EvidenceExportDetailPage'));
 const ApprovalsPage = lazy(() => import('./pages/ApprovalsPage'));
 const ApprovalDetailPage = lazy(() => import('./pages/ApprovalDetailPage'));
-const Wave8OpsDashboardPage = lazy(() => import('./pages/Wave8OpsDashboardPage'));
+const AdminHomePlaceholder = lazy(() => import('./pages/AdminHomePlaceholder'));
 const RoleChangeRequestsPage = lazy(() => import('./pages/RoleChangeRequestsPage'));
 const RoleChangeRequestDetailPage = lazy(() => import('./pages/RoleChangeRequestDetailPage'));
 const RolesPage = lazy(() => import('./pages/RolesPage'));
@@ -181,7 +181,7 @@ function App() {
           <Route path="/dashboard">
             <Route
               index
-              element={withPermission(<Wave8OpsDashboardPage />, [PERMISSIONS.BASE_ACCESS])}
+              element={withPermission(<AdminHomePlaceholder />, [PERMISSIONS.BASE_ACCESS])}
             />
             <Route
               path="members"
@@ -409,7 +409,7 @@ function App() {
 
           {/* ─── NEW unified /admin domain tree (IA redesign 2026-06-17) ─── */}
           <Route path="/admin">
-            <Route index element={withPermission(<Wave8OpsDashboardPage />, [PERMISSIONS.BASE_ACCESS])} />
+            <Route index element={withPermission(<AdminHomePlaceholder />, [PERMISSIONS.BASE_ACCESS])} />
 
             {/* iam */}
             <Route path="iam/members" element={withPermission(<PlatformMembers />, [PERMISSIONS.USERS_READ])} />
