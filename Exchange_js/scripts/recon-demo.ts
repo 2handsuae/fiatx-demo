@@ -712,7 +712,7 @@ async function injectScenarios(
   const slotMisroutedFrom = planByOwnerAsset(JACK_NO,  'AED');        // ⑬ 记错钱包 · 发出端
   const slotMisroutedTo   = planByOwnerAsset(KATE_NO,  'AED');        // ⑬ 记错钱包 · 接收端
 
-  // ── FIRM wallet pick (scenarios 5+7 — shared wallet, hedged pair) ──────
+  // ── FIRM wallet pick (scenarios ⑭⑮ — shared wallet, hedged pair) ──────
   // Exclude any FIRM wallet that is already the from/to side of a non-terminal
   // funds_order. This always includes scenario 1's OWN stuck withdraw created
   // just above: createStuckWithdraw drives a REAL 2-leg withdrawal, and leg 2
@@ -720,17 +720,17 @@ async function injectScenarios(
   // non-terminal right alongside the stuck main leg, every single break run.
   // A pre-existing non-terminal withdrawal seeded by the business roster
   // (e.g. #20, "卡在半路（对账用）") trips the same check the same way.
-  // Scenarios 5+7 only inject ghost ORPHAN_EXTERNAL lines expecting a
+  // Scenarios ⑭⑮ only inject ghost ORPHAN_EXTERNAL lines expecting a
   // SOFT_FLAG bucket — but a wallet that already carries a real non-terminal
   // funds order also produces an IN_TRANSIT line, and the engine correctly
   // reclassifies "orphan + in-transit on the same wallet" as BREAK. That
   // 排除已带非终态资金单的 FIRM 钱包。理由**不是**"场景之间要互不重叠"
   // （那个 disjoint 前提已于 2026-08-30 废除，一个钱包现在可以挂多条场景），
   // 而是另一条独立的轴：**业务数据污染场景**。
-  // 场景 5+7 只注入对冲的幽灵 ORPHAN_EXTERNAL 行、期望落在 SOFT_FLAG；但一个
+  // 场景 ⑭⑮ 只注入对冲的幽灵 ORPHAN_EXTERNAL 行、期望落在 SOFT_FLAG；但一个
   // 已经挂着真实非终态资金单的钱包会**额外**产生一条 IN_TRANSIT 行，引擎于是
   // （正确地）把"孤儿 + 在途同处一个钱包"重判成 BREAK —— 答案键期望 SOFT_FLAG，
-  // 于是 #5/#7 双双 MISSED，而引擎一点没错。
+  // 于是 #⑭/#⑮ 双双 MISSED，而引擎一点没错。
   // 这件事与一个钱包上挂几条场景无关：就算一钱包只挂一条，它照样会咬人。
   // 用的是引擎自己 Pass 3（在途匹配）判"还没了结"的同一套 TERMINAL_STATUSES。
   const firmCandidatesAll = [...plans]
@@ -756,14 +756,14 @@ async function injectScenarios(
   if (firmCandidates.length === 0) {
     throw new Error(
       firmCandidatesAll.length === 0
-        ? 'Need ≥1 FIRM wallet for scenarios 5+7 — seed firm-side activity.'
+        ? 'Need ≥1 FIRM wallet for scenarios ⑭⑮ — seed firm-side activity.'
         : `All ${firmCandidatesAll.length} FIRM wallet(s) already carry a non-terminal funds order ` +
-          `(e.g. an in-transit withdraw fee leg) — none left clean for scenarios 5+7. Refusing to ` +
-          `silently reuse a dirty wallet (it would mask #5/#7 as BREAK instead of SOFT_FLAG). Seed a ` +
+          `(e.g. an in-transit withdraw fee leg) — none left clean for scenarios ⑭⑮. Refusing to ` +
+          `silently reuse a dirty wallet (it would mask #⑭/#⑮ as BREAK instead of SOFT_FLAG). Seed a ` +
           `FIRM wallet with crossing flows but no open funds_orders, or clear the stray non-terminal order.`,
     );
   }
-  const s5s7Plan = firmCandidates[0];
+  const firmHedgedPlan = firmCandidates[0];
 
   // 前置闸：目标钱包不得带非终态资金单（在途场景那个除外——它就是靠真卡单的）。
   await assertTargetWalletsClean(prisma, [
@@ -776,7 +776,7 @@ async function injectScenarios(
     { walletRef: slotCutoff.walletRef,        allowNonTerminal: false },
     { walletRef: slotMisroutedFrom.walletRef, allowNonTerminal: false },
     { walletRef: slotMisroutedTo.walletRef,   allowNonTerminal: false },
-    { walletRef: s5s7Plan.walletRef,          allowNonTerminal: false },
+    { walletRef: firmHedgedPlan.walletRef,    allowNonTerminal: false },
   ]);
 
   const scenarios: ScenarioExpectation[] = [];
@@ -996,39 +996,39 @@ async function injectScenarios(
   // moves down. Scenario 15 inserts an equal-amount IN (bank interest) that
   // exactly cancels this on closing, so the wallet's net delta stays 0
   // (SOFT_FLAG) while both lines individually show up as orphanExternal.
-  const s5s7Amount = D('200');
+  const firmHedgedAmount = D('200');
   {
-    const fakeRef = refFor(s5s7Plan.currency, 'CHARGE');
+    const fakeRef = refFor(firmHedgedPlan.currency, 'CHARGE');
     const created = await (prisma as any).externalStatementLine.create({
       data: {
-        source: sourceFor(s5s7Plan.currency),
-        accountRef: s5s7Plan.walletRef,
-        subAccount: s5s7Plan.walletRef,
-        book: s5s7Plan.book,
-        currency: s5s7Plan.currency,
+        source: sourceFor(firmHedgedPlan.currency),
+        accountRef: firmHedgedPlan.walletRef,
+        subAccount: firmHedgedPlan.walletRef,
+        book: firmHedgedPlan.book,
+        currency: firmHedgedPlan.currency,
         direction: 'OUT',
-        amount: s5s7Amount,
+        amount: firmHedgedAmount,
         externalRef: fakeRef,
         datetime: cutoff,
         description: 'Demo bank charge (ghost OUT, hedged by scenario 15 bank interest)',
-        dedupKey: `DEMO-INJ-${cutoffDate}-${s5s7Plan.walletRef}-s5-bank-charge`,
+        dedupKey: `DEMO-INJ-${cutoffDate}-${firmHedgedPlan.walletRef}-s5-bank-charge`,
       },
     });
-    const prevClose = await bumpClosing(s5s7Plan, s5s7Amount.negated());
+    const prevClose = await bumpClosing(firmHedgedPlan, firmHedgedAmount.negated());
     scenarios.push({
       scenarioId: 14,
       rootCause: 'BANK_CHARGE',
       expectedLines: [{
-        walletRef: s5s7Plan.walletRef,
+        walletRef: firmHedgedPlan.walletRef,
         lineType: 'ORPHAN_EXTERNAL',
-        amount: s5s7Amount.toString(),
+        amount: firmHedgedAmount.toString(),
         externalRef: fakeRef,
       }],
       detail: {
         insertedExternalLineId: created.id,
         direction: 'OUT',
         prevClosingBalance: prevClose,
-        closingBalanceDelta: s5s7Amount.negated().toString(),
+        closingBalanceDelta: firmHedgedAmount.negated().toString(),
         pairedWithScenario: 15,
       },
     });
@@ -1088,42 +1088,42 @@ async function injectScenarios(
   // Nets scenario 14's OUT to a 0 closing delta ⇒ same wallet, same case,
   // bucket=SOFT_FLAG (balance ties, but 2 orphaned lines expose the wash).
   {
-    const fakeRef = refFor(s5s7Plan.currency, 'INTEREST');
+    const fakeRef = refFor(firmHedgedPlan.currency, 'INTEREST');
     const created = await (prisma as any).externalStatementLine.create({
       data: {
-        source: sourceFor(s5s7Plan.currency),
-        accountRef: s5s7Plan.walletRef,
-        subAccount: s5s7Plan.walletRef,
-        book: s5s7Plan.book,
-        currency: s5s7Plan.currency,
+        source: sourceFor(firmHedgedPlan.currency),
+        accountRef: firmHedgedPlan.walletRef,
+        subAccount: firmHedgedPlan.walletRef,
+        book: firmHedgedPlan.book,
+        currency: firmHedgedPlan.currency,
         direction: 'IN',
-        amount: s5s7Amount,
+        amount: firmHedgedAmount,
         externalRef: fakeRef,
         datetime: cutoff,
         description: 'Demo bank interest (ghost IN, hedges scenario 14 bank charge)',
-        dedupKey: `DEMO-INJ-${cutoffDate}-${s5s7Plan.walletRef}-s7-bank-interest`,
+        dedupKey: `DEMO-INJ-${cutoffDate}-${firmHedgedPlan.walletRef}-s7-bank-interest`,
       },
     });
-    const prevClose = await bumpClosing(s5s7Plan, s5s7Amount);
+    const prevClose = await bumpClosing(firmHedgedPlan, firmHedgedAmount);
     scenarios.push({
       scenarioId: 15,
       rootCause: 'BANK_INTEREST',
       expectedLines: [{
-        walletRef: s5s7Plan.walletRef,
+        walletRef: firmHedgedPlan.walletRef,
         lineType: 'ORPHAN_EXTERNAL',
-        amount: s5s7Amount.toString(),
+        amount: firmHedgedAmount.toString(),
         externalRef: fakeRef,
       }],
       detail: {
         insertedExternalLineId: created.id,
         direction: 'IN',
         prevClosingBalance: prevClose,
-        closingBalanceDelta: s5s7Amount.toString(),
+        closingBalanceDelta: firmHedgedAmount.toString(),
         pairedWithScenario: 14,
       },
     });
     wallets.push({
-      walletRef: s5s7Plan.walletRef,
+      walletRef: firmHedgedPlan.walletRef,
       scenarioIds: [14, 15],
       expectedBucket: 'SOFT_FLAG',
       bucketRationale: '杂费 −X 与利息 +X 金额相等方向相反 → 残差 = 0；两条孤儿外部行 → 异常数 2 > 0 → SOFT_FLAG',
