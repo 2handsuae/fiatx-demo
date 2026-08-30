@@ -7,12 +7,22 @@
 import { DEMO_ROSTER, printAnswerKey } from '../../../scripts/demo-roster';
 
 describe('DEMO_ROSTER', () => {
-  it('21 笔单，覆盖三域', () => {
-    expect(DEMO_ROSTER).toHaveLength(21);
+  it('三域全覆盖、seq 唯一且连续', () => {
+    // ⚠️ 这条**刻意不断言"共几笔"**。原来写死 `toHaveLength(21)`，2026-08-30 花名册
+    // 加 8 行素材单时它当场变红——而加行是正常演进，不是缺陷。写死行数等于每次
+    // 加行都要有人记得回来改这里，跟 runDeposits 那个缺 default 的 switch 是同一类陷阱。
+    //
+    // 换成结构不变量之后，它反而**更强**：seq 重复或中间缺号会被抓到（原来那条抓不到），
+    // 而加/减行不再误报。至于"承诺的终态都有样本"，由下面三条（处置弧 / 在途单）覆盖。
     const byDomain = DEMO_ROSTER.reduce<Record<string, number>>((a, r) => {
       a[r.domain] = (a[r.domain] ?? 0) + 1; return a;
     }, {});
-    expect(byDomain).toEqual({ DEPOSIT: 11, SWAP: 3, WITHDRAW: 7 });
+    expect(Object.keys(byDomain).sort()).toEqual(['DEPOSIT', 'SWAP', 'WITHDRAW']);
+
+    const seqs = DEMO_ROSTER.map((r) => r.seq).sort((a, b) => a - b);
+    expect(new Set(seqs).size).toBe(seqs.length);        // 无重复
+    expect(seqs[0]).toBe(1);                              // 从 1 起
+    expect(seqs[seqs.length - 1]).toBe(seqs.length);      // 无空洞
   });
 
   it('金额全部写死，没有随机', () => {

@@ -62,7 +62,7 @@ import { FundsOrderAction } from '../src/modules/funds-orders/dto/funds-order.dt
 import { DEPOSIT_VERDICT_BUTTONS } from '../src/modules/deposit-sumsub/fixtures/verdict-buttons';
 import { WITHDRAW_VERDICT_BUTTONS } from '../src/modules/withdraw-sumsub/fixtures/verdict-buttons';
 import { SCENE_TAGS, DISPO_TAGS_BY_DOMAIN, type SceneTag, type DispoTag } from '../src/modules/sumsub-shared/scene-tags';
-import { DEMO_ROSTER, printAnswerKey } from './demo-roster';
+import { DEMO_ROSTER, printAnswerKey, RosterDomain } from './demo-roster';
 import { loginAsMlro, loginAsSmo, loginAsOpsOfficer, approveApproval } from './demo-mlro';
 import { createStuckWithdraw } from './demo-fixtures';
 
@@ -149,6 +149,15 @@ export async function waitFor<T>(
 
 function customerIdx(email: string): number {
   return (DEMO_CUSTOMER_EMAILS as readonly string[]).indexOf(email) + 1;
+}
+
+/** Roster row count for one domain, read live off DEMO_ROSTER — the three
+ *  demo:deposit/demo:swap/demo:withdraw banners below print this instead of a
+ *  hardcoded number so adding/removing roster rows can't leave a stale count
+ *  on screen (2026-08-30: caught printing "11 笔"/"3 笔" after the roster grew
+ *  to 18/4 — same class of trap as the runDeposits switch missing a default). */
+function nOf(d: RosterDomain): number {
+  return DEMO_ROSTER.filter((r) => r.domain === d).length;
 }
 
 // ── context ──────────────────────────────────────────────────────────────────
@@ -456,10 +465,10 @@ export async function runFrankPreStage(ctx: DemoCtx): Promise<Array<{ seq: numbe
   return [{ seq: depositEntry.seq, orderNo: dep.depositNo, status: dep.status }];
 }
 
-// ── stage 2: deposits (11-entry roster, incl. 3 disposition arcs; #21 is
+// ── stage 2: deposits (18-entry roster, incl. 3 disposition arcs; #21 is
 //    pre-staged by runFrankPreStage() above and just re-reported here) ───────
 //
-// Roster: scripts/demo-roster.ts DEMO_ROSTER (domain === 'DEPOSIT', 11 rows,
+// Roster: scripts/demo-roster.ts DEMO_ROSTER (domain === 'DEPOSIT', 18 rows,
 // incl. #21 — see the stage banner above for how that one is handled) — every
 // row drives to whatever status the roster names, via the REAL service/
 // workflow methods a human admin would use (no direct table writes):
@@ -617,7 +626,7 @@ async function makerCheckerApprove(ctx: DemoCtx, approvalNo: string, logins: Arr
 }
 
 export async function runDeposits(ctx: DemoCtx): Promise<Array<{ seq: number; orderNo: string; status: string }>> {
-  console.log('═══ demo:deposit — 11 笔按花名册铺（含三条处置弧 + FRANK 预铺本金 #21）═══');
+  console.log(`═══ demo:deposit — ${nOf('DEPOSIT')} 笔按花名册铺（含三条处置弧 + FRANK 预铺本金 #21）═══`);
   const customers = await resolveDemoCustomers(ctx.prisma);
   // roster rows #7/#10 target the frozen persona (FRANK), not the tradeable
   // trio — resolve him too so byEmail/wallets below can find him.
@@ -641,7 +650,7 @@ export async function runDeposits(ctx: DemoCtx): Promise<Array<{ seq: number; or
       // run before this function — #21 has to settle, and #13's swap has to
       // exist, before #7 below opens FRANK's restriction (see
       // runFrankPreStage's header comment). Nothing to drive here; just fold
-      // the already-settled result in so callers still see all 11 rows.
+      // the already-settled result in so callers still see all 18 rows.
       if (!ctx.frankPreStage) throw new Error('roster #21: call runFrankPreStage(ctx) before runDeposits(ctx)');
       driven.push({ seq: 21, depositId: ctx.frankPreStage.depositId });
       continue;
@@ -783,7 +792,7 @@ export async function runDeposits(ctx: DemoCtx): Promise<Array<{ seq: number; or
   return results;
 }
 
-// ── stage 3: swaps (3-entry roster; 4-leg two-phase orchestration to SUCCESS) ──
+// ── stage 3: swaps (4-entry roster; 4-leg two-phase orchestration to SUCCESS) ──
 
 /** Drive ONE swap leg from its current state to CLEARED by repeatedly advancing
  *  the leg's funds_order through the per-asset-type state machine (spec §5.3).
@@ -843,7 +852,7 @@ async function driveSwapToSuccess(ctx: DemoCtx, swap: { id: string; swapNo: stri
   }, 8000);
 }
 
-// Roster: scripts/demo-roster.ts DEMO_ROSTER (domain === 'SWAP', 3 rows) — same
+// Roster: scripts/demo-roster.ts DEMO_ROSTER (domain === 'SWAP', 4 rows) — same
 // "real service/workflow methods only" contract as runDeposits above.
 //   · ⚡① drives SwapWorkflowService.applyKytVerdict({verdict:'approved'}) directly
 //     — initiateSwap itself books nothing (swap sits COMPLIANCE_PENDING until a
@@ -864,7 +873,7 @@ async function driveSwapToSuccess(ctx: DemoCtx, swap: { id: string; swapNo: stri
 //     finish sweeping the pre-staged COMPLIANCE_PENDING order to FROZEN — no
 //     verdict is ever applied to it directly. See task-C3c-report.md.
 export async function runSwaps(ctx: DemoCtx): Promise<Array<{ seq: number; orderNo: string; status: string }>> {
-  console.log('═══ demo:swap — 3 笔按花名册铺 ═══');
+  console.log(`═══ demo:swap — ${nOf('SWAP')} 笔按花名册铺 ═══`);
   const customers = await resolveDemoCustomers(ctx.prisma);
   const frozenPersona = await resolveFrozenPersona(ctx.prisma);
   const byEmail = new Map([...customers, frozenPersona].map((c) => [c.email, c]));
@@ -1066,7 +1075,7 @@ async function driveWithdrawLegsToSuccess(ctx: DemoCtx, withdrawId: string, with
 }
 
 export async function runWithdraws(ctx: DemoCtx): Promise<Array<{ seq: number; orderNo: string; status: string }>> {
-  console.log('═══ demo:withdraw — 7 笔按花名册铺(含大额闸 + 在途单) ═══');
+  console.log(`═══ demo:withdraw — ${nOf('WITHDRAW')} 笔按花名册铺(含大额闸 + 在途单) ═══`);
   const customers = await resolveDemoCustomers(ctx.prisma);
   const frozenPersona = await resolveFrozenPersona(ctx.prisma);
   const byEmail = new Map([...customers, frozenPersona].map((c) => [c.email, c]));
@@ -1282,7 +1291,7 @@ export async function verifyEndState(
   //    (the tables no longer exist), so the runtime assertions are obsolete.
 
   // 5. data.md:3 早已声明生成区由 demo:all 自动写入——这就是那个写入点。写在
-  //    断言判据算完、返回结果之前：不管本轮 21 笔是否全绿，data.md 都应反映
+  //    断言判据算完、返回结果之前：不管本轮 29 笔是否全绿，data.md 都应反映
   //    "刚刚实到的样子"（供排障时对照），而不是只在全绿时才落盘。
   writeDataMdSnapshot(renderDataMdSnapshot(rosterResults, coaRows));
 
