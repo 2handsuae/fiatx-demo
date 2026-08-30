@@ -17,6 +17,12 @@
 - **两条自洽式一行都不许改**：`walletCount == matched+inTransit+softFlag+break` 与 `opened+reObserved == inTransit+softFlag+break`。它们场景无关（`wallet-recon-run.service.ts:402` 的 `walletsChecked = walletRefs.length + unattributedBalances.length`，两侧同增同减）。**任何"要改它才成立"的时刻本身就是警报。**
 - 注入前置闸必须 **fail-closed**：条件不满足直接抛错，**不许静默降级**。
 - 测试的绿必须来自行为。**禁止**扫源码文本型断言。
+- 🔴 **`npx tsc --noEmit -p tsconfig.json` 对 `scripts/` 是结构性失明的** —— `tsconfig.json` 的
+  `include` 是 `["src/**/*"]`，**从来不看 `scripts/recon-demo.ts`**，而这批任务每一个都在改那个文件。
+  它绿只说明 `src/` 没坏，对本批的主战场**不构成任何证据**。
+  **这个文件的类型检查 = 能不能被 `ts-node` 跑起来**（ts-node 加载时做类型检查，类型错以 `TSError`
+  直接崩在启动阶段），也就是 `recon:demo:reset` / `recon:demo:break` 能不能启动。
+  **本条是执行期发现的**：Task 2 的实现方撞上一个 `RootCause` 联合类型错——tsc 全绿、ts-node 直接崩。
 - 🔴 **每个任务提交前必须跑一次 `npx jest --silent`**（不是只在 Task 9 收尾时跑）。判据：失败**恰好 4 套 8 例**，
   套名逐字是 `role-definition-create-workflow` / `system-wallet.util` / `wallets.service` /
   `client-web restrictedCapabilities`；不在这四个里的任何红都是事故。
@@ -268,7 +274,10 @@ type RootCause =
   | 'COUNTERPARTY_AMOUNT_ERROR'
   | 'ROUNDING_DIFF'
   | 'CUTOFF_STRADDLE'
-  | 'MISROUTED_CREDIT';
+  | 'MISROUTED_CREDIT'
+  // ⚠️ 场景 9（未归属外部账户）本轮**保留**，Task 4 才退役它——届时连同这一行一起删。
+  // 计划初稿把 Task 4 的终态提前塞进了这里，导致 Step 3 的场景 9 迁移编译不过。
+  | 'ORPHAN_DEPOSIT';
 
 type LineType = 'IN_TRANSIT' | 'AMOUNT_MISMATCH' | 'ORPHAN_INTERNAL' | 'ORPHAN_EXTERNAL';
 type Bucket = 'IN_TRANSIT' | 'SOFT_FLAG' | 'BREAK';
@@ -481,14 +490,17 @@ async function verifyManifest(
       [`wallets ${v.walletsOk}/${manifest.wallets.length}`, v.walletsOk === manifest.wallets.length],
       ['identities OK', idn.ok],
     ];
+    // ⚠️ 循环变量必须叫 `pass`、不能叫 `ok` —— 外层有个 `let ok = true`，收尾的
+    // `process.exit(ok ? 0 : 1)` 读的就是它；用 `ok` 当循环变量会把它遮蔽掉，断言失败传不出去。
+    // pass 分支早就是这么避开的，照抄它。同理**不要用 `process.exitCode = 1`**——
+    // 收尾那句显式 `process.exit(0)` 会覆盖它，失败照样退 0。
     console.log(`\n──── break-mode asserts ────`);
-    let bad = 0;
-    for (const [label, ok] of asserts) {
-      console.log(`  ${ok ? 'OK ' : 'BAD'} ${label}`);
-      if (!ok) bad += 1;
+    for (const [label, pass] of asserts) {
+      console.log(`  ${pass ? 'OK ' : 'BAD'} ${label}`);
+      if (!pass) ok = false;
     }
-    if (bad > 0) { console.error(`\n${bad} ASSERT(S) FAILED`); process.exitCode = 1; }
-    else console.log(`\nALL ${manifest.scenarios.length} SCENARIOS DETECTED PER MANIFEST`);
+    if (ok) console.log(`\nALL ${manifest.scenarios.length} SCENARIOS DETECTED PER MANIFEST`);
+    else console.error('\nASSERT(S) FAILED');
 ```
 
 ⚠️ 旧代码里有一句 `manifest.injections.length === 9` 的硬编码，**必须删掉**——本轮场景数会变，写死 9 会在 Task 5 之后变成假红。
@@ -499,7 +511,8 @@ async function verifyManifest(
 npx tsc --noEmit -p tsconfig.json
 ```
 
-Expected: 无输出。
+Expected: 无输出。⚠️ **但这条对 `scripts/recon-demo.ts` 不构成证据**（`include` 只有 `src/**/*`）——
+那个文件的类型检查靠下一步 `recon:demo:*` 能不能被 ts-node 启动起来。
 
 ```bash
 bash scripts/on-stack.sh self recon:demo:reset
@@ -822,7 +835,8 @@ git commit -m "feat(demo): 注入前置闸——目标钱包不得带非终态�
 npx tsc --noEmit -p tsconfig.json
 ```
 
-Expected: 无输出。
+Expected: 无输出。⚠️ **但这条对 `scripts/recon-demo.ts` 不构成证据**（`include` 只有 `src/**/*`）——
+那个文件的类型检查靠下一步 `recon:demo:*` 能不能被 ts-node 启动起来。
 
 ```bash
 bash scripts/on-stack.sh self recon:demo:reset
