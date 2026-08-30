@@ -431,3 +431,9 @@
   症状：`bash scripts/stack.sh up self` 在已有栈存活时，会在 `ensure_port_free` 那步直接 `exit 1`（`set -euo pipefail` 下 `return 1` 不吞），backend 卡住后admin/tb 会依次重演同一幕（逐个补 kill 后再 up 才过下一关）。
   绕法：`ps -p <pid> -o command` 确认确实是本 worktree 自己的进程（cwd 或数据文件路径能对上）后手工 `kill`，四个都清完再 `stack.sh up self` 一次性成功；不要连续 `up` 指望它自愈。
   修法（生产化时）：与上一条同一处，`stop_listener_if_managed` 的匹配依据改成"端口是否由本机任意进程持有"而非路径子串匹配，或干脆用 PID 文件作为唯一真相源、把陈旧/外部持有者的情形当成需要人工介入的 fail-fast，而不是静默 skip。
+
+- [2026-08-30] **`data.md` 生成区每跑一次 `demo:all` 必变，「防漂移」承诺不成立** ｜ `scripts/demo-lib.ts → writeDataMdSnapshot` + `doc-final/demo/data.md` ｜ 演示装备一期合并后走查发现
+
+  生成区的表里带**单号列**（`DEP2608301739` 这种），单号内嵌日期+随机后缀，所以**每次 `demo:all` 都是一整表变化**，跟行为改没改无关。演示装备一期的 spec/plan 写的「`git diff data.md` 有变化 = 代码真的改了行为」因此不成立——合并当天就实测到：同一份代码跑两次，22 行全变。
+  连带后果：跑完 `demo:all` 工作树必脏一个文件，`git worktree remove` 会被拦。
+  修法（生产化时选一）：① 生成区不吐单号列，只留「序号 / 标签 / 客户 / 金额 / 预期态 / 实到态 / ✓」——那几列才是真正该防漂移的；② 单号另起一节、明确标注「每次跑都变，不参与 diff 判据」。
