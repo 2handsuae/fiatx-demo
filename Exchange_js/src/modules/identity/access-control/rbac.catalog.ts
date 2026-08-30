@@ -8,10 +8,8 @@ export interface RbacRoleDefinition {
 
 export type PermissionGroup =
   | 'BASE_ACCESS'
-  | 'IAM_READ'
   | 'IAM_MEMBER_READ'
   | 'IAM_ROLE_READ'
-  | 'IAM_ASSIGN'
   | 'IAM_MEMBER_MANAGE'
   | 'IAM_ROLE_ASSIGN'
   | 'IAM_CREDENTIAL_RESET'
@@ -23,58 +21,31 @@ export type PermissionGroup =
   | 'CUSTOMER_RESTRICTION_READ'
   | 'CUSTOMER_RESTRICTION_WRITE'
   | 'CUSTOMER_RESTRICTION_RELEASE'
-  | 'CUSTOMER_RATE_READ'
-  | 'CUSTOMER_RATE_WRITE'
-  | 'ONBOARDING_READ'
-  | 'CDD_REVIEW_WRITE'
-  | 'MLRO_REVIEW_WRITE'
-  | 'INVESTOR_OVERRIDE_WRITE'
   | 'SIMULATE_EXPIRED_WRITE'
   | 'RISK_DECISION_RECORD_READ'
-  | 'RISK_DECISION_RECORD_WRITE'
-  | 'TX_COMPLIANCE_READ'
-  | 'TX_COMPLIANCE_WRITE'
   | 'TRADING_DEPOSIT_READ'
   | 'TRADING_DEPOSIT_WRITE'
   | 'TRADING_WITHDRAW_READ'
   | 'TRADING_WITHDRAW_WRITE'
   | 'TRADING_SWAP_READ'
   | 'TRADING_SWAP_WRITE'
-  | 'PAYIN_READ'
-  | 'PAYIN_WRITE'
-  | 'PAYOUT_READ'
-  | 'PAYOUT_WRITE'
   | 'WALLET_READ'
   | 'WALLET_WRITE'
   | 'INTERNAL_FUND_READ'
-  | 'RECON_OUTSTANDING_READ'
   | 'RECON_RUN_READ'
   | 'RECON_RUN_WRITE'
   | 'RECON_CASE_READ'
   | 'RECON_EXTERNAL_BALANCE_READ'
-  | 'SETTLEMENT_READ'
-  | 'SETTLEMENT_WRITE'
-  | 'CLEARING_READ'
-  | 'CLEARING_WRITE'
-  | 'JOURNAL_READ'
   | 'LEDGER_ACCOUNT_READ'
   | 'LEDGER_EVIDENCE_READ'
   | 'LEDGER_FLOW_READ'
   | 'LEDGER_ACCOUNT_WRITE'
   | 'ASSET_CONFIG_READ'
   | 'ASSET_CONFIG_WRITE'
-  | 'COUNTERPARTY_READ'
-  | 'COUNTERPARTY_WRITE'
   | 'AUDIT_READ'
   | 'AUDIT_EXPORT_CREATE'
   | 'AUDIT_EXPORT_READ'
   | 'GOV_APPROVAL_READ'
-  | 'GOV_APPROVAL_WRITE'
-  | 'GOV_APPROVAL_DECIDE'
-  | 'GOV_REGISTRY_READ'
-  | 'GOV_REGISTRY_WRITE'
-  | 'GOV_REGULATORY_GATE_READ'
-  | 'GOV_REGULATORY_GATE_WRITE'
   | 'GOV_APPROVAL_POLICY_READ'
   | 'GOV_APPROVAL_POLICY_WRITE'
   | 'TRANSACTION_LIMIT_READ'
@@ -86,9 +57,7 @@ export type PermissionGroup =
   | 'SWAP_FEE_LEVEL_READ'
   | 'SWAP_FEE_LEVEL_WRITE'
   | 'INTERNAL_TRANSFER_READ'
-  | 'INTERNAL_TRANSFER_WRITE'
-  | 'SETTLEMENT_READ'
-  | 'SETTLEMENT_WRITE';
+  | 'INTERNAL_TRANSFER_WRITE';
 
 export interface RbacPermissionDefinition {
   code: string;
@@ -199,26 +168,26 @@ export const SOFT_WARNING_ROLE_GROUPS: Array<{ codes: string[]; message: string 
 export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
   // Session / IAM
   route('GET', '/auth/me', 'Get current admin session', ['BASE_ACCESS']),
-  route('GET', '/users', 'List users', ['IAM_READ', 'IAM_MEMBER_READ']),
-  route('POST', '/users', 'Create admin user', ['IAM_ASSIGN', 'IAM_MEMBER_MANAGE']),
-  route('POST', '/users/:id/invitations/resend', 'Resend admin invitation', ['IAM_ASSIGN', 'IAM_MEMBER_MANAGE']),
-  route('POST', '/users/:id/suspend', 'Suspend admin user (C4)', ['IAM_ASSIGN', 'IAM_MEMBER_MANAGE']),
-  route('POST', '/users/:id/reactivate', 'Reactivate admin user (C4b)', ['IAM_ASSIGN', 'IAM_MEMBER_MANAGE']),
-  route('GET', '/admin/iam/roles', 'List role catalog', ['IAM_READ', 'IAM_ROLE_READ']),
-  route('GET', '/admin/iam/permissions', 'List permission catalog', ['IAM_READ', 'IAM_ROLE_READ']),
-  route('GET', '/admin/iam/users/:id/roles', 'Get user roles', ['IAM_READ', 'IAM_MEMBER_READ']),
-  route('PUT', '/admin/iam/users/:id/roles', 'Replace user roles', ['IAM_ASSIGN', 'IAM_ROLE_ASSIGN']),
-  route('POST', '/admin/iam/role-change-requests', 'Create role binding change request', ['IAM_ASSIGN', 'IAM_ROLE_ASSIGN']),
-  route('GET', '/admin/iam/role-change-requests', 'List role binding change requests', ['IAM_READ', 'IAM_ROLE_READ']),
-  route('GET', '/admin/iam/role-change-requests/:id', 'Get role binding change request', ['IAM_READ', 'IAM_ROLE_READ']),
+  route('GET', '/users', 'List users', ['IAM_MEMBER_READ']),
+  route('POST', '/users', 'Create admin user', ['IAM_MEMBER_MANAGE']),
+  route('POST', '/users/:id/invitations/resend', 'Resend admin invitation', ['IAM_MEMBER_MANAGE']),
+  route('POST', '/users/:id/suspend', 'Suspend admin user (C4)', ['IAM_MEMBER_MANAGE']),
+  route('POST', '/users/:id/reactivate', 'Reactivate admin user (C4b)', ['IAM_MEMBER_MANAGE']),
+  route('GET', '/admin/iam/roles', 'List role catalog', ['IAM_ROLE_READ']),
+  route('GET', '/admin/iam/permissions', 'List permission catalog', ['IAM_ROLE_READ']),
+  route('GET', '/admin/iam/users/:id/roles', 'Get user roles', ['IAM_MEMBER_READ']),
+  route('PUT', '/admin/iam/users/:id/roles', 'Replace user roles', ['IAM_ROLE_ASSIGN']),
+  route('POST', '/admin/iam/role-change-requests', 'Create role binding change request', ['IAM_ROLE_ASSIGN']),
+  route('GET', '/admin/iam/role-change-requests', 'List role binding change requests', ['IAM_ROLE_READ']),
+  route('GET', '/admin/iam/role-change-requests/:id', 'Get role binding change request', ['IAM_ROLE_READ']),
   route('POST', '/admin/iam/users/:id/reset-mfa', 'Reset admin MFA binding', ['IAM_CREDENTIAL_RESET']),
   route('POST', '/users/:id/reset-password', 'Reset admin password (C5)', ['IAM_CREDENTIAL_RESET']),
   route('POST', '/admin/iam/role-definitions', 'Create role definition request', ['IAM_ROLE_DEFINE']),
   route('GET', '/admin/iam/role-definitions/permission-groups', 'List available permission groups', ['IAM_ROLE_DEFINE']),
   route('POST', '/admin/iam/role-definitions/:roleId/modify', 'Submit role definition modify request', ['IAM_ROLE_DEFINE']),
-  route('GET', '/admin/iam/role-definition-modify-requests', 'List role definition modify requests', ['IAM_READ', 'IAM_ROLE_READ']),
-  route('GET', '/admin/iam/role-definition-modify-requests/:id', 'Get role definition modify request detail', ['IAM_READ', 'IAM_ROLE_READ']),
-  route('GET', '/admin/iam/action-buckets', 'List action bucket catalog', ['IAM_READ', 'IAM_ROLE_READ']),
+  route('GET', '/admin/iam/role-definition-modify-requests', 'List role definition modify requests', ['IAM_ROLE_READ']),
+  route('GET', '/admin/iam/role-definition-modify-requests/:id', 'Get role definition modify request detail', ['IAM_ROLE_READ']),
+  route('GET', '/admin/iam/action-buckets', 'List action bucket catalog', ['IAM_ROLE_READ']),
 
   // Customer domain
   route('POST', '/customers', 'Create customer', ['CUSTOMER_WRITE']),
@@ -249,27 +218,13 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
   route('GET', '/admin/material-requests/by-order/:orderDomain/:orderRef', 'List order material requests', ['CUSTOMER_RESTRICTION_READ']),
 
   // Pricing center
-  route('GET', '/admin/pricing/policies', 'List pricing policies', ['CUSTOMER_RATE_READ']),
-  route('GET', '/admin/pricing/policies/swap', 'Get swap pricing policy', ['CUSTOMER_RATE_READ']),
-  route('GET', '/admin/pricing/policies/withdrawal', 'Get withdrawal pricing policy', ['CUSTOMER_RATE_READ']),
-  route(
-    'GET',
-    '/admin/pricing/policies/swap/pairs/:pairId/market-source',
-    'Get swap pair market source',
-    ['CUSTOMER_RATE_READ'],
-  ),
-  route('POST', '/admin/pricing/simulator/swap', 'Simulate swap pricing', ['CUSTOMER_RATE_READ']),
   route('POST', '/withdraw-transactions/quotes', 'Create withdrawal pricing quote', ['TRADING_WITHDRAW_WRITE']),
 
   // Onboarding compliance
   route('POST', '/admin/compliance/customers/:id/simulate-expired', 'Simulate customer expired', ['SIMULATE_EXPIRED_WRITE']),
-  route('PATCH', '/admin/compliance/customers/:id/investor-classification', 'Override investor classification', ['INVESTOR_OVERRIDE_WRITE']),
 
   // Sumsub events
   route('GET', '/admin/sumsub-events', 'List Sumsub webhook events', ['RISK_DECISION_RECORD_READ']),
-  route('GET', '/admin/sumsub-events/:id', 'Get Sumsub event detail', ['RISK_DECISION_RECORD_READ']),
-  route('POST', '/admin/sumsub-events/simulate', 'Simulate Sumsub event', ['RISK_DECISION_RECORD_WRITE']),
-  route('POST', '/admin/sumsub-events/:id/replay', 'Replay Sumsub event', ['RISK_DECISION_RECORD_WRITE']),
 
   // Risk assessments
 
@@ -294,7 +249,6 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
     'Scan customer inbound transfer signals',
     ['TRADING_DEPOSIT_WRITE'],
   ),
-  route('PATCH', '/deposit-transactions/:id/status', 'Update deposit transaction status', ['TRADING_DEPOSIT_WRITE']),
   route('POST', '/deposit-transactions/:id/waive-limit', 'Waive deposit below-minimum amount hold', ['TRADING_DEPOSIT_WRITE']),
   route('POST', '/deposit-transactions/:id/confiscate', 'Confiscate deposit below-minimum amount as fee', ['TRADING_DEPOSIT_WRITE']),
   route('POST', '/deposit-transactions/:id/return', 'Open a return-to-sender approval for a deposit', ['TRADING_DEPOSIT_WRITE']),
@@ -351,7 +305,6 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
   route('GET', '/admin/swap-transactions/quotes', 'List swap quotes', ['TRADING_SWAP_READ']),
   route('GET', '/admin/swap-transactions/quotes/:id', 'Get swap quote detail', ['TRADING_SWAP_READ']),
   route('GET', '/admin/swap-transactions/:id', 'Get swap transaction detail', ['TRADING_SWAP_READ']),
-  route('PATCH', '/admin/swap-transactions/:id/status', 'Update swap transaction status', ['TRADING_SWAP_WRITE']),
   route('POST', '/admin/swap-transactions/:swapNo/legs/:legSeq/advance', 'Advance swap settlement leg', ['TRADING_SWAP_WRITE']),
   route('POST', '/admin/swap-transactions/:swapNo/legs/:legSeq/resume', 'Resume a stuck swap leg', ['TRADING_SWAP_WRITE']),
   // Task 6 (SLA 批次)：管理台「模拟超时」按钮 —— 演示用,把 slaDeadline 拨到过去
@@ -401,6 +354,9 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
   // TB Ledger
   route('GET', '/admin/tb/accounts', 'List TB account registry', ['LEDGER_ACCOUNT_READ']),
   route('GET', '/admin/tb/accounts/:tbAccountId', 'Get TB account detail', ['LEDGER_ACCOUNT_READ']),
+  // Task 4 (D8) planned retiring LEDGER_ACCOUNT_WRITE as a zero-consumer group — grep-before-delete
+  // found otherwise: admin-web/src/pages/LedgerAccountList.tsx has a full "Create Account" modal
+  // (category/asset/code/customerNo form) POSTing here. Kept as-is; see task-4-report.md.
   route('POST', '/admin/tb/accounts', 'Create manual TB account', ['LEDGER_ACCOUNT_WRITE']),
   route('GET', '/admin/tb/transfers', 'List TB transfer evidence', ['LEDGER_EVIDENCE_READ']),
   route('GET', '/admin/tb/transfers/:tbTransferId', 'Get TB transfer evidence detail', ['LEDGER_EVIDENCE_READ']),
@@ -417,21 +373,6 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
   route('POST', '/admin/assets/:assetNo/activate', 'Activate asset', ['ASSET_CONFIG_WRITE']),
   route('POST', '/admin/assets/:assetNo/suspend', 'Suspend asset', ['ASSET_CONFIG_WRITE']),
   route('POST', '/admin/assets/:assetNo/reactivate', 'Reactivate asset', ['ASSET_CONFIG_WRITE']),
-
-  // Counterparty
-  route('POST', '/liquidity-providers', 'Create liquidity provider', ['COUNTERPARTY_WRITE']),
-  route('GET', '/liquidity-providers', 'List liquidity providers', ['COUNTERPARTY_READ']),
-  route('GET', '/liquidity-providers/:id', 'Get liquidity provider detail', ['COUNTERPARTY_READ']),
-  route('PATCH', '/liquidity-providers/:id/status', 'Update liquidity provider status', ['COUNTERPARTY_WRITE']),
-
-  route('POST', '/liquidity-configurations', 'Create liquidity configuration', ['COUNTERPARTY_WRITE']),
-  route('GET', '/liquidity-configurations', 'List liquidity configurations', ['COUNTERPARTY_READ']),
-  route('GET', '/liquidity-configurations/available', 'List available liquidity configurations', ['COUNTERPARTY_READ']),
-  route('GET', '/liquidity-configurations/lp/:lpId', 'List liquidity configurations by LP', ['COUNTERPARTY_READ']),
-  route('GET', '/liquidity-configurations/:id', 'Get liquidity configuration detail', ['COUNTERPARTY_READ']),
-  route('PUT', '/liquidity-configurations/:id', 'Update liquidity configuration', ['COUNTERPARTY_WRITE']),
-  route('DELETE', '/liquidity-configurations/:id', 'Delete liquidity configuration', ['COUNTERPARTY_WRITE']),
-  route('PATCH', '/liquidity-configurations/:id/status', 'Update liquidity configuration status', ['COUNTERPARTY_WRITE']),
 
   // Audit logs
   route('GET', '/admin/audit-logs', 'List audit logs', ['AUDIT_READ']),
@@ -450,111 +391,19 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
   ]),
 
   // Governance approvals
-  route('POST', '/admin/control-gates/approvals', 'Create approval case', ['GOV_APPROVAL_WRITE']),
-  route('POST', '/admin/control-gates/approvals/:id/submit', 'Submit approval case', ['GOV_APPROVAL_WRITE']),
-  route('POST', '/admin/control-gates/approvals/:id/approve', 'Approve approval case', ['GOV_APPROVAL_DECIDE']),
-  route('POST', '/admin/control-gates/approvals/:id/reject', 'Reject approval case', ['GOV_APPROVAL_DECIDE']),
-  route('POST', '/admin/control-gates/approvals/:id/cancel', 'Cancel approval case', ['GOV_APPROVAL_WRITE']),
+  // create/submit retired with GOV_APPROVAL_WRITE (D7) — zero HTTP callers (no admin-web
+  // consumer builds a bare create or :id/submit request; every internal workflow module
+  // opens cases via ApprovalsService.createAndSubmit(), not through this HTTP surface).
+  // approve/reject/cancel stay: decision authority now lives in the approval policy's
+  // checkerRole mechanism (service layer), so the RBAC group only needs to gate "can see
+  // approvals" — downgraded from GOV_APPROVAL_DECIDE/WRITE to GOV_APPROVAL_READ.
+  // cancel specifically was found to have a live consumer (ApprovalDetailPage.tsx's Cancel
+  // button, same submitDecision() flow as approve/reject) — see task-4-report.md.
+  route('POST', '/admin/control-gates/approvals/:id/approve', 'Approve approval case', ['GOV_APPROVAL_READ']),
+  route('POST', '/admin/control-gates/approvals/:id/reject', 'Reject approval case', ['GOV_APPROVAL_READ']),
+  route('POST', '/admin/control-gates/approvals/:id/cancel', 'Cancel approval case', ['GOV_APPROVAL_READ']),
   route('GET', '/admin/control-gates/approvals/:id', 'Get approval case detail', ['GOV_APPROVAL_READ']),
   route('GET', '/admin/control-gates/approvals', 'List approval cases', ['GOV_APPROVAL_READ']),
-
-  // Governance registries
-  route('GET', '/admin/governance/registries/shareholding-versions', 'List shareholding registry versions', [
-    'GOV_REGISTRY_READ',
-  ]),
-  route('GET', '/admin/governance/registries/shareholding-versions/:id', 'Get shareholding registry version detail', [
-    'GOV_REGISTRY_READ',
-  ]),
-  route('POST', '/admin/governance/registries/shareholding-versions', 'Create shareholding registry version', [
-    'GOV_REGISTRY_WRITE',
-  ]),
-  route('PATCH', '/admin/governance/registries/shareholding-versions/:id', 'Update shareholding registry version', [
-    'GOV_REGISTRY_WRITE',
-  ]),
-  route('GET', '/admin/governance/registries/appointments', 'List appointment records', [
-    'GOV_REGISTRY_READ',
-  ]),
-  route('GET', '/admin/governance/registries/appointments/:id', 'Get appointment record detail', [
-    'GOV_REGISTRY_READ',
-  ]),
-  route('POST', '/admin/governance/registries/appointments', 'Create appointment record', [
-    'GOV_REGISTRY_WRITE',
-  ]),
-  route('PATCH', '/admin/governance/registries/appointments/:id', 'Update appointment record', [
-    'GOV_REGISTRY_WRITE',
-  ]),
-  route('GET', '/admin/governance/registries/trainings', 'List training records', [
-    'GOV_REGISTRY_READ',
-  ]),
-  route('GET', '/admin/governance/registries/trainings/:id', 'Get training record detail', [
-    'GOV_REGISTRY_READ',
-  ]),
-  route('POST', '/admin/governance/registries/trainings', 'Create training record', [
-    'GOV_REGISTRY_WRITE',
-  ]),
-  route('PATCH', '/admin/governance/registries/trainings/:id', 'Update training record', [
-    'GOV_REGISTRY_WRITE',
-  ]),
-  route('GET', '/admin/governance/registries/conflicts', 'List conflict disclosures', [
-    'GOV_REGISTRY_READ',
-  ]),
-  route('GET', '/admin/governance/registries/conflicts/:id', 'Get conflict disclosure detail', [
-    'GOV_REGISTRY_READ',
-  ]),
-  route('POST', '/admin/governance/registries/conflicts', 'Create conflict disclosure', [
-    'GOV_REGISTRY_WRITE',
-  ]),
-  route('PATCH', '/admin/governance/registries/conflicts/:id', 'Update conflict disclosure', [
-    'GOV_REGISTRY_WRITE',
-  ]),
-  route('GET', '/admin/governance/registries/wind-down-materials', 'List wind-down material records', [
-    'GOV_REGISTRY_READ',
-  ]),
-  route('GET', '/admin/governance/registries/wind-down-materials/:id', 'Get wind-down material record detail', [
-    'GOV_REGISTRY_READ',
-  ]),
-  route('POST', '/admin/governance/registries/wind-down-materials', 'Create wind-down material record', [
-    'GOV_REGISTRY_WRITE',
-  ]),
-  route('PATCH', '/admin/governance/registries/wind-down-materials/:id', 'Update wind-down material record', [
-    'GOV_REGISTRY_WRITE',
-  ]),
-  route('GET', '/admin/governance/regulatory-gates', 'List regulatory gate items', [
-    'GOV_REGULATORY_GATE_READ',
-  ]),
-  route('GET', '/admin/governance/regulatory-gates/:id', 'Get regulatory gate detail', [
-    'GOV_REGULATORY_GATE_READ',
-  ]),
-  route('POST', '/admin/governance/regulatory-gates', 'Create regulatory gate item', [
-    'GOV_REGULATORY_GATE_WRITE',
-  ]),
-  route('PATCH', '/admin/governance/regulatory-gates/:id', 'Update regulatory gate item', [
-    'GOV_REGULATORY_GATE_WRITE',
-  ]),
-  route('POST', '/admin/governance/regulatory-gates/:id/submit', 'Submit regulatory gate filing', [
-    'GOV_REGULATORY_GATE_WRITE',
-  ]),
-  route(
-    'POST',
-    '/admin/governance/regulatory-gates/:id/record-feedback',
-    'Record regulatory gate filing feedback',
-    ['GOV_REGULATORY_GATE_WRITE'],
-  ),
-  route(
-    'POST',
-    '/admin/governance/regulatory-gates/:id/bind-receipt',
-    'Bind regulatory gate receipt',
-    ['GOV_REGULATORY_GATE_WRITE'],
-  ),
-  route(
-    'POST',
-    '/admin/governance/regulatory-gates/:id/mark-effective',
-    'Mark regulatory gate effective',
-    ['GOV_REGULATORY_GATE_WRITE'],
-  ),
-  route('POST', '/admin/governance/regulatory-gates/:id/revoke', 'Revoke regulatory gate', [
-    'GOV_REGULATORY_GATE_WRITE',
-  ]),
 
   // Approval Policy Management
   route('GET', '/admin/governance/approval-policies', 'List approval policies', [
@@ -876,13 +725,9 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
   SUPER_ADMIN: [],
   SENIOR_MANAGEMENT_OFFICER: [
     'BASE_ACCESS',
-    'IAM_READ',
     'AUDIT_READ',
     'RISK_DECISION_RECORD_READ',
     'GOV_APPROVAL_READ',
-    'GOV_APPROVAL_DECIDE',
-    'GOV_REGISTRY_READ',
-    'GOV_REGULATORY_GATE_READ',
     'GOV_APPROVAL_POLICY_READ',
     'TRANSACTION_LIMIT_READ',
     'ASSET_CONFIG_READ',
@@ -893,20 +738,12 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
   ],
   TECH_OFFICER: [
     'BASE_ACCESS',
-    'IAM_READ',
-    'IAM_ASSIGN',
     'IAM_CREDENTIAL_RESET',
     'IAM_ROLE_DEFINE',
     'AUDIT_READ',
     'AUDIT_EXPORT_READ',
     'RISK_DECISION_RECORD_READ',
-    'RISK_DECISION_RECORD_WRITE',
     'GOV_APPROVAL_READ',
-    'GOV_APPROVAL_DECIDE',
-    'GOV_REGISTRY_READ',
-    'GOV_REGISTRY_WRITE',
-    'GOV_REGULATORY_GATE_READ',
-    'GOV_REGULATORY_GATE_WRITE',
     'GOV_APPROVAL_POLICY_READ',
     'GOV_APPROVAL_POLICY_WRITE',
     'TRANSACTION_LIMIT_READ',
@@ -924,12 +761,8 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
   ],
   OPS_OFFICER: [
     'BASE_ACCESS',
-    'IAM_READ',
     'AUDIT_READ',
     'GOV_APPROVAL_READ',
-    'GOV_APPROVAL_DECIDE',
-    'GOV_REGISTRY_READ',
-    'GOV_REGULATORY_GATE_READ',
     'ASSET_CONFIG_READ',
     'WALLET_READ',
     'WALLET_WRITE',
@@ -946,18 +779,11 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
   ],
   COMPLIANCE_OFFICER: [
     'BASE_ACCESS',
-    'IAM_READ',
     'AUDIT_READ',
     'AUDIT_EXPORT_CREATE',
     'AUDIT_EXPORT_READ',
     'RISK_DECISION_RECORD_READ',
-    'RISK_DECISION_RECORD_WRITE',
     'GOV_APPROVAL_READ',
-    'GOV_APPROVAL_WRITE',
-    'GOV_REGISTRY_READ',
-    'GOV_REGISTRY_WRITE',
-    'GOV_REGULATORY_GATE_READ',
-    'GOV_REGULATORY_GATE_WRITE',
     'GOV_APPROVAL_POLICY_READ',
     'GOV_APPROVAL_POLICY_WRITE',
     'TRANSACTION_LIMIT_READ',
@@ -968,57 +794,34 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
   ],
   MLRO: [
     'BASE_ACCESS',
-    'IAM_READ',
     'AUDIT_READ',
     'AUDIT_EXPORT_CREATE',
     'AUDIT_EXPORT_READ',
     'RISK_DECISION_RECORD_READ',
-    'RISK_DECISION_RECORD_WRITE',
-    'MLRO_REVIEW_WRITE',
     'GOV_APPROVAL_READ',
-    'GOV_APPROVAL_WRITE',
-    'GOV_APPROVAL_DECIDE',
-    'GOV_REGISTRY_READ',
     'GOV_APPROVAL_POLICY_READ',
     'TRANSACTION_LIMIT_READ',
     'TRANSACTION_LIMIT_WRITE',
-
   ],
   DPO: [
     'BASE_ACCESS',
-    'IAM_READ',
     'AUDIT_READ',
     'AUDIT_EXPORT_CREATE',
     'AUDIT_EXPORT_READ',
     'GOV_APPROVAL_READ',
-    'GOV_APPROVAL_WRITE',
-    'GOV_APPROVAL_DECIDE',
-    'GOV_REGISTRY_READ',
-    'GOV_REGISTRY_WRITE',
-    'GOV_REGULATORY_GATE_READ',
-    'GOV_REGULATORY_GATE_WRITE',
     'GOV_APPROVAL_POLICY_READ',
     'GOV_APPROVAL_POLICY_WRITE',
-
   ],
   CISO: [
     'BASE_ACCESS',
-    'IAM_READ',
-    'IAM_ASSIGN',
     'IAM_CREDENTIAL_RESET',
     'IAM_ROLE_DEFINE',
     'AUDIT_READ',
     'RISK_DECISION_RECORD_READ',
     'GOV_APPROVAL_READ',
-    'GOV_APPROVAL_DECIDE',
-    'GOV_REGISTRY_READ',
-    'GOV_REGISTRY_WRITE',
-    'GOV_REGULATORY_GATE_READ',
-    'GOV_REGULATORY_GATE_WRITE',
     'GOV_APPROVAL_POLICY_READ',
     'GOV_APPROVAL_POLICY_WRITE',
     'TRANSACTION_LIMIT_READ',
-
   ],
 };
 

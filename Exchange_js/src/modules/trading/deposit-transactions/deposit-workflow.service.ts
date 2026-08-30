@@ -1196,39 +1196,11 @@ export class DepositWorkflowService implements OnModuleInit {
     this.logger.log(`Deposit ${depositId} approved and credited.`);
   }
 
-  async adminFreeze(
-    depositId: string,
-    reason: string | undefined,
-    actor: { actorId: string; actorRole?: string },
-  ) {
-    const deposit = await this.depositService.findOne(depositId);
-    const updated = await this.depositService.updateStatus(
-      depositId,
-      { action: DepositTransactionAction.FREEZE, reason },
-      {
-        actor: {
-          actorType: 'ADMIN',
-          actorId: actor.actorId,
-          actorRole: actor.actorRole,
-        },
-        sourcePlatform: 'ADMIN_API',
-      },
-    );
-    await this.depositAudit(deposit, {
-      action: 'DEPOSIT_FROZEN',
-      fromStatus: deposit.status,
-      toStatus: updated.status,
-      reason: reason || 'Admin freeze',
-      actor: {
-        actorType: 'ADMIN',
-        actorNo: actor.actorId,
-        actorDisplayName: actor.actorId,
-        actorRolesAtTime: [actor.actorRole || 'UNKNOWN'],
-      },
-      sourcePlatform: 'ADMIN_API',
-    });
-    return updated;
-  }
+  // adminFreeze() retired (Task 4) — its only caller was the controller's PATCH
+  // :id/status FREEZE branch, which had zero real callers and was removed alongside
+  // the rbac.catalog.ts route. Automated FREEZE transitions (e.g. KYT-rejected
+  // auto-freeze) go straight through depositService.updateStatus() elsewhere in this
+  // file and are unaffected.
 
   /**
    * PASS (release) disposition: ops 解除这一笔单的挂起。

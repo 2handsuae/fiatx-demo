@@ -4,8 +4,6 @@ import {
   Controller,
   ForbiddenException,
   Get,
-  Param,
-  Post,
   Query,
   Req,
   UseGuards,
@@ -47,17 +45,8 @@ export class SumsubIngestionAdminController {
     });
   }
 
-  @Get(':id')
-  @ApiOperation({ summary: 'Get Sumsub webhook event detail' })
-  findOne(@Req() req: any, @Param('id') id: string) {
-    this.requireAdmin(req);
-    return this.ingestionService.findOne(id);
-  }
-
-  @Post(':id/replay')
-  @ApiOperation({ summary: 'Replay a DEAD Sumsub webhook event' })
-  replay(@Req() req: any, @Param('id') id: string) {
-    this.requireAdmin(req);
-    return this.ingestionService.replay(id);
-  }
+  // findOne()/replay() HTTP handlers retired (Task 4) — zero admin-web consumers (the
+  // Sumsub Events page only ever listed events; the Replay button removed in this same
+  // task was its one caller). Underlying SumsubIngestionService.findOne()/replay() had
+  // no other callers either, so both were deleted too.
 }

@@ -51,6 +51,12 @@
 
 - [ ] **泄露 dev `.env` 仍在 git 历史**：`.env` 已 `git rm --cached`（合 c80ce5e）+ 本地换新 MFA key 作废旧值；旧值仍留在历史（用户选不重写历史，属 demo key）。若确认该 key 曾用于任何真实用途，需重评是否 filter-repo 抹历史 ｜来源: 2026-07-04 一级审计
 
+- [2026-08-30] Task 4 权限组清理有 2 条路由按计划该退役，grep-before-delete 实测出活消费方，改判保留 ｜ `rbac.catalog.ts` ｜ Task 4 执行
+
+  `POST /admin/control-gates/approvals/:id/cancel`（原判随 `GOV_APPROVAL_WRITE` 整组退役）：命中 `admin-web/src/pages/ApprovalDetailPage.tsx` 的 Cancel 决策按钮——与 approve/reject 走同一个 `submitDecision()` 流程、同一套弹窗，不是脚手架残留。保留路由，权限组从 `GOV_APPROVAL_WRITE` 改成 `GOV_APPROVAL_READ`（与 brief 原定给 approve/reject 的处理手法一致：裁决权已交还审批策略的 checkerRole 机制，RBAC 组只把关到"能看"这一层）。
+  `POST /admin/tb/accounts`（原判 D8 随 `LEDGER_ACCOUNT_WRITE` 整组退役）：命中 `admin-web/src/pages/LedgerAccountList.tsx` 的完整 "Create Account" 表单（accountCategory/assetCode/code/customerNo）。路由与权限组均原样保留、未改动。
+  两条均已排查确认无其他副作用（create/submit 两条兄弟路由确认零消费方、按计划照删）；完整证据链见 `.superpowers/sdd/task-4-report.md`。附带一提：本节 2026-07-16/2026-08-05 两条 `PATCH /deposit-transactions/:id/status` 缺 `assertAdmin` 的既存条目，因该路由本轮确认零消费方已整条删除，现已随之作废（未回改旧条目，本文件只许追加）。
+
 ## 幂等 · 去重 · 回放
 
 ## 并发与竞态

@@ -4,20 +4,16 @@ import {
   Body,
   Param,
   Query,
-  Patch,
   Post,
   UsePipes,
   ValidationPipe,
   UseGuards,
   Req,
   ForbiddenException,
-  BadRequestException,
 } from '@nestjs/common';
 import { DepositTransactionsService } from './deposit-transactions.service';
 import {
   DepositTransactionQueryDto,
-  UpdateDepositTransactionStatusDto,
-  DepositTransactionAction,
   InitiateDepositReturnDto,
 } from './dto/deposit-transaction.dto';
 import { DepositWorkflowService } from './deposit-workflow.service';
@@ -122,54 +118,13 @@ export class DepositTransactionsController {
     return this.service.findOneForCustomer(id, req.user?.userId);
   }
 
-  // Fix 3 (final review): workflow-only actions carry funds/approval semantics that a
-  // raw admin PATCH must never reach directly. `resume` would bypass the A2 MLRO
-  // unfreeze approval; `seized_done`/`returned_done`/`confiscate_settle` would jump
-  // straight to a terminal status with no ledger legs ever posted, stranding the
-  // pending lock forever. Mirrors the existing ACCOUNTING_TERMINALS +
-  // DEPOSIT_APPROVE_WORKFLOW_ONLY guard style in deposit-transactions.service.ts.
-  private static readonly PATCH_STATUS_WORKFLOW_ONLY_ACTIONS = new Set<DepositTransactionAction>([
-    DepositTransactionAction.RESUME,
-    DepositTransactionAction.RETURN,
-    DepositTransactionAction.SEIZED_DONE,
-    DepositTransactionAction.RETURNED_DONE,
-    DepositTransactionAction.CONFISCATE_SETTLE,
-  ]);
-
-  @Patch(':id/status')
-  @ApiOperation({ summary: 'Update deposit transaction status' })
-  updateStatus(
-    @Param('id') id: string,
-    @Body() dto: UpdateDepositTransactionStatusDto,
-    @Req() req: any,
-  ) {
-    const actor = {
-      actorId: req.user?.userId,
-      actorRole: req.user?.role,
-    };
-    switch (dto.action) {
-      case DepositTransactionAction.APPROVE:
-        return this.workflow.approveDeposit(id);
-      case DepositTransactionAction.FREEZE:
-        return this.workflow.adminFreeze(id, dto.reason, actor);
-      default:
-        if (DepositTransactionsController.PATCH_STATUS_WORKFLOW_ONLY_ACTIONS.has(dto.action)) {
-          throw new BadRequestException({
-            code: 'DEPOSIT_ACTION_WORKFLOW_ONLY',
-            message: `Action '${dto.action}' must go through its workflow endpoint/approval, not a direct status patch.`,
-            details: { action: dto.action },
-          });
-        }
-        return this.service.updateStatus(id, dto, {
-          sourcePlatform: 'ADMIN_API',
-          actor: {
-            actorType: 'ADMIN',
-            actorId: req.user?.userId,
-            actorRole: req.user?.role,
-          },
-        });
-    }
-  }
+  // PATCH :id/status retired (Task 4) — grep across admin-web/scripts/test found zero
+  // real callers (the only repo hit was a JSDoc comment in deposit-workflow.service.ts
+  // documenting this as one of three historical paths into approveDeposit()). The
+  // workflow-only-actions guard existed solely to protect this endpoint, so it goes
+  // too; adminFreeze() (deposit-workflow.service.ts) had no other caller and was
+  // removed alongside it. service.updateStatus() stays — still the direct call target
+  // for every other internal FREEZE/status transition (KYT-rejected auto-freeze etc).
 
   @Post(':id/waive-limit')
   @ApiOperation({ summary: 'Waive below-minimum amount hold (PASS disposition)' })

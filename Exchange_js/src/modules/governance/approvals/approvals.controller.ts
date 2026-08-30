@@ -20,9 +20,7 @@ import {
 import {
   ApprovalQueryDto,
   CancelApprovalDto,
-  CreateApprovalDto,
   DecisionApprovalDto,
-  SubmitApprovalDto,
 } from './dto/approval.dto';
 
 @ApiTags('Admin - Governance Approvals')
@@ -46,24 +44,11 @@ export class ApprovalsController {
     };
   }
 
-  @Post()
-  @ApiOperation({ summary: 'Create an approval case' })
-  create(
-    @Req() req: any,
-    @Body(new ValidationPipe({ transform: true })) body: CreateApprovalDto,
-  ) {
-    return this.approvalsService.create(body, this.ensureAdmin(req));
-  }
-
-  @Post(':id/submit')
-  @ApiOperation({ summary: 'Submit an approval case' })
-  submit(
-    @Req() req: any,
-    @Param('id') id: string,
-    @Body(new ValidationPipe({ transform: true })) body: SubmitApprovalDto,
-  ) {
-    return this.approvalsService.submit(id, body, this.ensureAdmin(req));
-  }
+  // create()/submit() HTTP handlers retired (Task 4, D7) — zero HTTP callers found;
+  // every internal workflow opens/submits cases via ApprovalsService.createAndSubmit()
+  // directly (service-to-service), not through this controller. The underlying
+  // ApprovalsService.create()/submit() methods are left as-is (out of this task's
+  // scope — see task-4-report.md).
 
   @Post(':id/approve')
   @ApiOperation({ summary: 'Approve an approval case' })

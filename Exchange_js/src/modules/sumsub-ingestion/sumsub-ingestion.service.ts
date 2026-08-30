@@ -1,9 +1,7 @@
 // src/modules/sumsub-ingestion/sumsub-ingestion.service.ts
 import {
-  BadRequestException,
   Injectable,
   Logger,
-  NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '../../core/prisma/prisma.service';
 import { CustomerRestrictionsService } from '../identity/customers/customer-restrictions.service';
@@ -313,26 +311,9 @@ export class SumsubIngestionService {
     return { total, skip, take, items };
   }
 
-  async findOne(id: string) {
-    const event = await this.prisma.sumsubWebhookEvent.findUnique({ where: { id } });
-    if (!event) throw new NotFoundException(`Sumsub event ${id} not found`);
-    return event;
-  }
-
-  async replay(id: string): Promise<{ event: SumsubWebhookEvent }> {
-    const event = await this.findOne(id);
-    if (event.status !== 'DEAD') {
-      throw new BadRequestException(`Only DEAD events can be replayed (current status: ${event.status})`);
-    }
-    // Reset retryCount to 0: admin explicitly chose to replay this event.
-    // The event can reach DEAD again if dispatch continues to fail.
-    const reset = await this.prisma.sumsubWebhookEvent.update({
-      where: { id },
-      data: { status: 'FAILED', retryCount: 0, lastErrorMessage: null },
-    });
-    await this.dispatch(reset);
-    return { event: await this.refresh(id) };
-  }
+  // findOne()/replay() retired (Task 4) — both were only reachable via the admin
+  // controller's :id detail GET and :id/replay POST, which had zero admin-web
+  // consumers (the Sumsub Events page only ever listed events). Removed together.
 
   // ─── Helpers ─────────────────────────────────────────────────────────────
 
