@@ -622,21 +622,6 @@ model ApprovalPolicyChangeRequest {
   @@map("approval_policy_change_requests")
 }
 
-model LiquidityProvider {
-  id             String                   @id
-  name           String
-  email          String?                  @unique
-  phone          String?
-  status         String                   @default("INACTIVE")
-  createdAt      DateTime                 @default(now()) @map("created_at")
-  updatedAt      DateTime                 @updatedAt @map("updated_at")
-  configurations LiquidityConfiguration[]
-
-  @@index([name])
-  @@index([status])
-  @@map("liquidity_provider")
-}
-
 model Asset {
   id                             String                          @id @default(uuid())
   assetNo                        String?                         @unique
@@ -664,9 +649,6 @@ model Asset {
   createdAt                      DateTime                        @default(now())
   updatedAt                      DateTime                        @updatedAt
   depositTransactions            DepositTransaction[]
-  fromConfigs                    LiquidityConfiguration[]        @relation("FromAsset")
-  toConfigs                      LiquidityConfiguration[]        @relation("ToAsset")
-  feeConfigs                     LiquidityConfiguration[]        @relation("FeeAsset")
   inboundTransferSignals         InboundTransferSignal[]
   swapFromTransactions           SwapTransaction[]               @relation("SwapFromAsset")
   swapToTransactions             SwapTransaction[]               @relation("SwapToAsset")
@@ -684,32 +666,6 @@ model Asset {
 
   @@unique([type, currency, network])
   @@map("assets")
-}
-
-model LiquidityConfiguration {
-  id             String            @id @default(uuid())
-  lpId           String
-  fromAssetId    String
-  toAssetId      String
-  rateSourceType String
-  spreadPercent  Decimal           @default(0)
-  feePercent     Decimal           @default(0)
-  feeFixedAmount Decimal           @default(0)
-  feeAssetId     String?
-  minFromAmount  Decimal?
-  maxFromAmount  Decimal?
-  status         String            @default("ACTIVE")
-  createdAt      DateTime          @default(now()) @map("created_at")
-  updatedAt      DateTime          @updatedAt @map("updated_at")
-  lp             LiquidityProvider @relation(fields: [lpId], references: [id])
-  fromAsset      Asset             @relation("FromAsset", fields: [fromAssetId], references: [id])
-  toAsset        Asset             @relation("ToAsset", fields: [toAssetId], references: [id])
-  feeAsset       Asset?            @relation("FeeAsset", fields: [feeAssetId], references: [id])
-
-  @@index([lpId])
-  @@index([fromAssetId, toAssetId])
-  @@index([status])
-  @@map("liquidity_configurations")
 }
 
 model WithdrawPricingQuote {

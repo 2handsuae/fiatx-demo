@@ -81,11 +81,6 @@ export const PERMISSIONS = {
   INTERNAL_COLLECTIONS_RECONCILE:
     'api.post.admin_internal_transactions_collection_wallets_walletid_reconcile',
 
-  LIQUIDITY_PROVIDERS_READ: 'api.get.liquidity_providers',
-  LIQUIDITY_PROVIDERS_CREATE: 'api.post.liquidity_providers',
-  LIQUIDITY_CONFIG_READ: 'api.get.liquidity_configurations',
-  LIQUIDITY_CONFIG_CREATE: 'api.post.liquidity_configurations',
-  LIQUIDITY_CONFIG_UPDATE: 'api.put.liquidity_configurations_id',
   ASSETS_READ: 'api.get.assets',
   ASSETS_CREATE: 'api.post.assets',
   CUSTODIAN_WALLET_CREATE: 'api.post.admin_custodian_wallets',

@@ -349,26 +349,6 @@ const DashboardLayout = () => {
         },
       ],
     },
-    // ─── Counterparty ─────────────────────────────────────────────
-    // Hidden from sidebar 2026-07-02 (routes stay live for direct links)
-    // {
-    //   label: 'Counterparty',
-    //   icon: <Handshake size={12} />,
-    //   children: [
-    //     {
-    //       path: '/admin/counterparty/liquidity-providers',
-    //       label: 'Liquidity Providers',
-    //       icon: <Building2 size={13} />,
-    //       requiredPermissions: [PERMISSIONS.LIQUIDITY_PROVIDERS_READ],
-    //     },
-    //     {
-    //       path: '/admin/counterparty/liquidity-config',
-    //       label: 'LP Liquidity Config',
-    //       icon: <ShieldCheck size={13} />,
-    //       requiredPermissions: [PERMISSIONS.LIQUIDITY_CONFIG_READ],
-    //     },
-    //   ],
-    // },
   ];
 
   const visibleMenuItems = useMemo(() => {

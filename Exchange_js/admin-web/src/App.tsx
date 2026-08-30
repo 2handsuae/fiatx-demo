@@ -20,11 +20,6 @@ const ReconciliationCasesDetailPage = lazy(() => import('./pages/ReconciliationC
 const ReconciliationExternalBalancesPage = lazy(() => import('./pages/ReconciliationExternalBalancesPage'));
 const ReconciliationDemoComparePage = lazy(() => import('./pages/ReconciliationDemoComparePage'));
 const CustomerDetail = lazy(() => import('./pages/CustomerDetail'));
-const LiquidityProviderList = lazy(() => import('./pages/LiquidityProviderList'));
-const LiquidityProviderCreate = lazy(() => import('./pages/LiquidityProviderCreate'));
-const LiquidityConfigList = lazy(() => import('./pages/LiquidityConfigList'));
-const LiquidityConfigCreate = lazy(() => import('./pages/LiquidityConfigCreate'));
-const LiquidityConfigEdit = lazy(() => import('./pages/LiquidityConfigEdit'));
 const CustodianWalletList = lazy(() => import('./pages/CustodianWalletList'));
 const CustodianWalletDetail = lazy(() => import('./pages/CustodianWalletDetail'));
 const FundsOrderList = lazy(() => import('./pages/FundsOrderList'));
@@ -361,26 +356,6 @@ function App() {
               element={withPermission(<CustodianWalletDetail />, [PERMISSIONS.WALLET_DETAIL_READ])}
             />
             <Route
-              path="system/liquidity-providers"
-              element={withPermission(<LiquidityProviderList />, [PERMISSIONS.LIQUIDITY_PROVIDERS_READ])}
-            />
-            <Route
-              path="system/liquidity-providers/create"
-              element={withPermission(<LiquidityProviderCreate />, [PERMISSIONS.LIQUIDITY_PROVIDERS_CREATE])}
-            />
-            <Route
-              path="system/liquidity-config"
-              element={withPermission(<LiquidityConfigList />, [PERMISSIONS.LIQUIDITY_CONFIG_READ])}
-            />
-            <Route
-              path="system/liquidity-config/create"
-              element={withPermission(<LiquidityConfigCreate />, [PERMISSIONS.LIQUIDITY_CONFIG_CREATE])}
-            />
-            <Route
-              path="system/liquidity-config/edit/:id"
-              element={withPermission(<LiquidityConfigEdit />, [PERMISSIONS.LIQUIDITY_CONFIG_UPDATE])}
-            />
-            <Route
               path="system/assets"
               element={withPermission(<AssetList />, [PERMISSIONS.ASSETS_READ])}
             />
@@ -515,13 +490,6 @@ function App() {
             <Route path="audit/logs/:id" element={withPermission(<AuditLogDetailPage />, [PERMISSIONS.AUDIT_LOGS_READ])} />
             <Route path="audit/evidence-packages" element={withPermission(<EvidenceExportsPage />, [PERMISSIONS.AUDIT_EVIDENCE_EXPORTS_READ])} />
             <Route path="audit/evidence-packages/:id" element={withPermission(<EvidenceExportDetailPage />, [PERMISSIONS.AUDIT_EVIDENCE_EXPORTS_READ])} />
-
-            {/* counterparty (route-align only, content unchanged) */}
-            <Route path="counterparty/liquidity-providers" element={withPermission(<LiquidityProviderList />, [PERMISSIONS.LIQUIDITY_PROVIDERS_READ])} />
-            <Route path="counterparty/liquidity-providers/create" element={withPermission(<LiquidityProviderCreate />, [PERMISSIONS.LIQUIDITY_PROVIDERS_CREATE])} />
-            <Route path="counterparty/liquidity-config" element={withPermission(<LiquidityConfigList />, [PERMISSIONS.LIQUIDITY_CONFIG_READ])} />
-            <Route path="counterparty/liquidity-config/create" element={withPermission(<LiquidityConfigCreate />, [PERMISSIONS.LIQUIDITY_CONFIG_CREATE])} />
-            <Route path="counterparty/liquidity-config/edit/:id" element={withPermission(<LiquidityConfigEdit />, [PERMISSIONS.LIQUIDITY_CONFIG_UPDATE])} />
           </Route>
 
         </Route>
