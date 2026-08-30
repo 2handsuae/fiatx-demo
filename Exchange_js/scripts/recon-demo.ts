@@ -991,9 +991,9 @@ async function injectScenarios(
     });
   }
 
-  // ── Scenario 5 — 银行杂费 (SOFT_FLAG, paired with scenario 7) ───────────
+  // ── 场景 ⑭ — 银行杂费 (SOFT_FLAG，与场景 ⑮ 银行利息对冲，共用同一个公司钱包) ───
   // Insert a ghost OUT line (bank charge) on the shared FIRM wallet, closing
-  // moves down. Scenario 7 inserts an equal-amount IN (bank interest) that
+  // moves down. Scenario 15 inserts an equal-amount IN (bank interest) that
   // exactly cancels this on closing, so the wallet's net delta stays 0
   // (SOFT_FLAG) while both lines individually show up as orphanExternal.
   const s5s7Amount = D('200');
@@ -1010,7 +1010,7 @@ async function injectScenarios(
         amount: s5s7Amount,
         externalRef: fakeRef,
         datetime: cutoff,
-        description: 'Demo bank charge (ghost OUT, hedged by scenario 7 bank interest)',
+        description: 'Demo bank charge (ghost OUT, hedged by scenario 15 bank interest)',
         dedupKey: `DEMO-INJ-${cutoffDate}-${s5s7Plan.walletRef}-s5-bank-charge`,
       },
     });
@@ -1032,10 +1032,10 @@ async function injectScenarios(
         pairedWithScenario: 15,
       },
     });
-    // 场景 5+7 共用一个 FIRM 钱包（对冲对）——桶断言只在场景 7 那段推一次，见下方。
+    // 场景 14+15 共用一个 FIRM 钱包（对冲对）——桶断言只在场景 15 那段推一次，见下方。
   }
 
-  // ── Scenario 6 — 充值漏监听 (BREAK / ORPHAN_EXTERNAL) ───────────────────
+  // ── 场景 ⑤ — 充值漏监听 (BREAK / ORPHAN_EXTERNAL) ───────────────────────
   // Bank sees a customer deposit our listener never picked up. Insert a
   // ghost IN line, bump closing up — no in-transit order explains it, so
   // it's a hard break.
@@ -1083,9 +1083,9 @@ async function injectScenarios(
     });
   }
 
-  // ── Scenario 7 — 银行利息 (SOFT_FLAG, paired with scenario 5) ───────────
-  // Same FIRM wallet as scenario 5, same amount, opposite direction (IN).
-  // Nets scenario 5's OUT to a 0 closing delta ⇒ same wallet, same case,
+  // ── 场景 ⑮ — 银行利息 (SOFT_FLAG，与场景 ⑭ 银行杂费对冲，共用同一个公司钱包) ───
+  // Same FIRM wallet as scenario 14, same amount, opposite direction (IN).
+  // Nets scenario 14's OUT to a 0 closing delta ⇒ same wallet, same case,
   // bucket=SOFT_FLAG (balance ties, but 2 orphaned lines expose the wash).
   {
     const fakeRef = refFor(s5s7Plan.currency, 'INTEREST');
@@ -1100,7 +1100,7 @@ async function injectScenarios(
         amount: s5s7Amount,
         externalRef: fakeRef,
         datetime: cutoff,
-        description: 'Demo bank interest (ghost IN, hedges scenario 5 bank charge)',
+        description: 'Demo bank interest (ghost IN, hedges scenario 14 bank charge)',
         dedupKey: `DEMO-INJ-${cutoffDate}-${s5s7Plan.walletRef}-s7-bank-interest`,
       },
     });
