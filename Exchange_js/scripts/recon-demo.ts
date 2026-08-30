@@ -102,41 +102,74 @@ function parseArgs(argv: string[]): { mode: Mode; cutoffIso: string | null } {
   return { mode, cutoffIso };
 }
 
-// ── Manifest v2 types ────────────────────────────────────────────────────
-// 9-scenario model: each scenario reproduces one MVP root cause of a wallet
-// reconciliation break, mapped onto the engine's three buckets
-// (IN_TRANSIT / SOFT_FLAG / BREAK — MATCHED is never injected). See Task 10
-// spec table for the full scenario → injection → expected-bucket mapping.
-interface InjectionV2 {
-  scenarioId: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9;
-  rootCause:
-    | 'IN_TRANSIT_TIMING'
-    | 'FEE_NETTED'
-    | 'STATEMENT_MISSING_LINE'
-    | 'SCALE_ERROR'
-    | 'BANK_CHARGE'
-    | 'MISSED_DEPOSIT'
-    | 'BANK_INTEREST'
-    | 'BANK_RETURN'
-    | 'ORPHAN_DEPOSIT';
-  walletRef: string;            // scenario 9 uses the accountRef value as a stand-in
-  expectedBucket: 'IN_TRANSIT' | 'SOFT_FLAG' | 'BREAK';
-  // null only for scenario 9: T5's unattributedBalances branch (walletRef
-  // in ExternalBalance is null) deliberately skips both engines — see
-  // wallet-recon-run.service.ts §2c ("no internal face to compare against,
-  // so neither engine runs") — so no line item is ever produced for an
-  // orphan head. The case (bucket=BREAK, deltaAmount=closing) is the only
-  // signal; verifyManifest checks the case alone for this scenario.
-  expectedLineType: 'IN_TRANSIT' | 'AMOUNT_MISMATCH' | 'ORPHAN_INTERNAL' | 'ORPHAN_EXTERNAL' | null;
-  amount: string;
-  externalRef: string | null;
-  fundsOrderNo?: string;        // scenario 1 only
+// 15-scenario model（2026-08-30 重做）：每个场景重现一个**成因**，成因按
+// 「谁错了」分三真相（我方错 / 对方错 / 都没错）——见
+// specs/2026-08-30-recon-break-scenarios-design.md §3。
+//
+// ⚠️ **本轮显式废除了旧的 disjoint-wallet 前提**（旧文件头写着"Each scenario
+// targets its own wallet … so cases stay disjoint"）。一个钱包现在可以挂多条
+// 场景——现实本来如此，而且"同一个形状三条差异、三种相反处置摆在一屏"是整套
+// 演示最值钱的一屏。代价是：**桶是钱包的属性，不再是场景的属性**，故答案键
+// 拆成两级。
+type RootCause =
+  | 'IN_TRANSIT_TIMING'
+  | 'FEE_NETTED'
+  | 'STATEMENT_MISSING_LINE'
+  | 'SCALE_ERROR'
+  | 'BANK_CHARGE'
+  | 'MISSED_DEPOSIT'
+  | 'BANK_INTEREST'
+  | 'BANK_RETURN'
+  | 'DUPLICATE_DEPOSIT'
+  | 'VOIDED_SIGNAL'
+  | 'STATEMENT_DUPLICATE_LINE'
+  | 'COUNTERPARTY_AMOUNT_ERROR'
+  | 'ROUNDING_DIFF'
+  | 'CUTOFF_STRADDLE'
+  | 'MISROUTED_CREDIT'
+  // ⚠️ 场景 9（未归属外部账户）本轮保留，Task 4 才退役它。届时连同这一行一起删。
+  | 'ORPHAN_DEPOSIT';
+
+type LineType = 'IN_TRANSIT' | 'AMOUNT_MISMATCH' | 'ORPHAN_INTERNAL' | 'ORPHAN_EXTERNAL';
+type Bucket = 'IN_TRANSIT' | 'SOFT_FLAG' | 'BREAK';
+
+/** 每个场景断言：我造出了哪些差异行。 */
+interface ScenarioExpectation {
+  scenarioId: number;
+  rootCause: RootCause;
+  /** 绝大多数场景只产生一条；MISROUTED_CREDIT（记错钱包）跨两个钱包，故是数组。 */
+  expectedLines: Array<{
+    walletRef: string;
+    lineType: LineType;
+    amount: string;
+    externalRef: string | null;
+  }>;
+  fundsOrderNo?: string;        // IN_TRANSIT_TIMING only
   detail: Record<string, unknown>;
 }
 
-interface ManifestV2 {
+/** 每个被注入的钱包断言：它最终落在哪个桶。 */
+interface WalletExpectation {
+  walletRef: string;
+  scenarioIds: number[];
+  expectedBucket: Bucket;
+  /**
+   * 桶是怎么推出来的，供审的人核。**多场景钱包必填且必须写清算式** ——
+   * 这个值是人手算的，算错了答案键就是错的，而答案键错的表现是
+   * "测试绿着但证明了错的东西"。单场景钱包写一句话即可。
+   */
+  bucketRationale: string;
+  /**
+   * 这个钱包上有没有 demo:all 留下的非终态资金单。只有在途场景那个钱包
+   * 允许为 true——见 Task 3 的前置闸。
+   */
+  hasNonTerminalFundsOrder: boolean;
+}
+
+interface ManifestV3 {
   cutoff: string;
-  injections: InjectionV2[];
+  scenarios: ScenarioExpectation[];
+  wallets: WalletExpectation[];
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────────
@@ -563,7 +596,7 @@ async function injectScenarios(
   plans: WalletPlan[],
   cutoff: Date,
   ctx: StuckFixtureCtx,
-): Promise<ManifestV2> {
+): Promise<ManifestV3> {
   if (plans.length === 0) throw new Error('No eligible wallets — seed business data first');
   const cutoffDate = ymd(cutoff);
 
@@ -680,7 +713,8 @@ async function injectScenarios(
   }
   const s5s7Plan = firmCandidates[0];
 
-  const injections: InjectionV2[] = [];
+  const scenarios: ScenarioExpectation[] = [];
+  const wallets: WalletExpectation[] = [];
 
   // Build a deterministic but realistic external ref (e.g. BANK-PO-… for
   // fiat, 0x… for crypto). Seq incl. inj index so multiple ghosts don't
@@ -737,14 +771,15 @@ async function injectScenarios(
     // wrong both in scale and value vs the NET minor (49800) we need here.
     if (!line) throw new Error(`scenario 1: fixture external line missing for ${stuck.withdrawNo}`);
     const inTransitMinor = line.amount.toString(); // 分（net × 10^decimals）
-    injections.push({
+    scenarios.push({
       scenarioId: 1,
       rootCause: 'IN_TRANSIT_TIMING',
-      walletRef: stuck.walletRef,
-      expectedBucket: 'IN_TRANSIT',
-      expectedLineType: 'IN_TRANSIT',
-      amount: inTransitMinor,
-      externalRef: stuck.externalRef,
+      expectedLines: [{
+        walletRef: stuck.walletRef,
+        lineType: 'IN_TRANSIT',
+        amount: inTransitMinor,
+        externalRef: stuck.externalRef,
+      }],
       fundsOrderNo: stuck.fundsOrderNo,
       detail: {
         withdrawNo: stuck.withdrawNo,
@@ -752,6 +787,13 @@ async function injectScenarios(
         fundsOrderNo: stuck.fundsOrderNo,
         note: 'real non-terminal payout leg (SUBMITTED) — external −分 OUT line claimed in-transit by Pass3',
       },
+    });
+    wallets.push({
+      walletRef: stuck.walletRef,
+      scenarioIds: [1],
+      expectedBucket: 'IN_TRANSIT',
+      bucketRationale: '唯一差异是这条被 Pass3 判定为在途的外部行，其余流水与收盘全部对齐 → 无残差、无孤儿行 → IN_TRANSIT；这张非终态资金单本身就是本场景的设计前提（花名册 #20）',
+      hasNonTerminalFundsOrder: true,
     });
   }
 
@@ -773,14 +815,15 @@ async function injectScenarios(
     });
     const signedDelta = candidate.direction === 'IN' ? fee.negated() : fee;
     const prevClose = await bumpClosing(s2Plan, signedDelta);
-    injections.push({
+    scenarios.push({
       scenarioId: 2,
       rootCause: 'FEE_NETTED',
-      walletRef: s2Plan.walletRef,
-      expectedBucket: 'BREAK',
-      expectedLineType: 'AMOUNT_MISMATCH',
-      amount: fee.toString(),
-      externalRef: candidate.externalRef,
+      expectedLines: [{
+        walletRef: s2Plan.walletRef,
+        lineType: 'AMOUNT_MISMATCH',
+        amount: fee.toString(),
+        externalRef: candidate.externalRef,
+      }],
       detail: {
         externalLineId: candidate.id,
         internalAmount: candidate.amount.toString(),
@@ -789,6 +832,13 @@ async function injectScenarios(
         prevClosingBalance: prevClose,
         closingBalanceDelta: signedDelta.toString(),
       },
+    });
+    wallets.push({
+      walletRef: s2Plan.walletRef,
+      scenarioIds: [2],
+      expectedBucket: 'BREAK',
+      bucketRationale: '银行扣费后才入账 → 外部金额 = 内部金额 − 手续费，收盘同步压低同额 → 残差 = 手续费 ≠ 0 → BREAK',
+      hasNonTerminalFundsOrder: false,
     });
   }
 
@@ -806,20 +856,28 @@ async function injectScenarios(
       ? candidate.amount.negated()
       : candidate.amount;
     const prevClose = await bumpClosing(s3Plan, signedDelta);
-    injections.push({
+    scenarios.push({
       scenarioId: 3,
       rootCause: 'STATEMENT_MISSING_LINE',
-      walletRef: s3Plan.walletRef,
-      expectedBucket: 'BREAK',
-      expectedLineType: 'ORPHAN_INTERNAL',
-      amount: candidate.amount.toString(),
-      externalRef: candidate.externalRef,
+      expectedLines: [{
+        walletRef: s3Plan.walletRef,
+        lineType: 'ORPHAN_INTERNAL',
+        amount: candidate.amount.toString(),
+        externalRef: candidate.externalRef,
+      }],
       detail: {
         deletedExternalLineId: candidate.id,
         direction: candidate.direction,
         prevClosingBalance: prevClose,
         closingBalanceDelta: signedDelta.toString(),
       },
+    });
+    wallets.push({
+      walletRef: s3Plan.walletRef,
+      scenarioIds: [3],
+      expectedBucket: 'BREAK',
+      bucketRationale: '删一条外部行并压低同额收盘 → 残差 = 该行金额 ≠ 0 → BREAK',
+      hasNonTerminalFundsOrder: false,
     });
   }
 
@@ -840,14 +898,15 @@ async function injectScenarios(
     });
     const signedDelta = candidate.direction === 'IN' ? scaleDelta : scaleDelta.negated();
     const prevClose = await bumpClosing(s4Plan, signedDelta);
-    injections.push({
+    scenarios.push({
       scenarioId: 4,
       rootCause: 'SCALE_ERROR',
-      walletRef: s4Plan.walletRef,
-      expectedBucket: 'BREAK',
-      expectedLineType: 'AMOUNT_MISMATCH',
-      amount: scaleDelta.toString(),
-      externalRef: candidate.externalRef,
+      expectedLines: [{
+        walletRef: s4Plan.walletRef,
+        lineType: 'AMOUNT_MISMATCH',
+        amount: scaleDelta.toString(),
+        externalRef: candidate.externalRef,
+      }],
       detail: {
         externalLineId: candidate.id,
         internalAmount: candidate.amount.toString(),
@@ -856,6 +915,13 @@ async function injectScenarios(
         prevClosingBalance: prevClose,
         closingBalanceDelta: signedDelta.toString(),
       },
+    });
+    wallets.push({
+      walletRef: s4Plan.walletRef,
+      scenarioIds: [4],
+      expectedBucket: 'BREAK',
+      bucketRationale: '银行按 ×100 记错精度/单位 → 外部金额比内部金额多出 scaleDelta，收盘同步偏移同额 → 残差 = scaleDelta ≠ 0 → BREAK',
+      hasNonTerminalFundsOrder: false,
     });
   }
 
@@ -883,14 +949,15 @@ async function injectScenarios(
       },
     });
     const prevClose = await bumpClosing(s5s7Plan, s5s7Amount.negated());
-    injections.push({
+    scenarios.push({
       scenarioId: 5,
       rootCause: 'BANK_CHARGE',
-      walletRef: s5s7Plan.walletRef,
-      expectedBucket: 'SOFT_FLAG',
-      expectedLineType: 'ORPHAN_EXTERNAL',
-      amount: s5s7Amount.toString(),
-      externalRef: fakeRef,
+      expectedLines: [{
+        walletRef: s5s7Plan.walletRef,
+        lineType: 'ORPHAN_EXTERNAL',
+        amount: s5s7Amount.toString(),
+        externalRef: fakeRef,
+      }],
       detail: {
         insertedExternalLineId: created.id,
         direction: 'OUT',
@@ -899,6 +966,7 @@ async function injectScenarios(
         pairedWithScenario: 7,
       },
     });
+    // 场景 5+7 共用一个 FIRM 钱包（对冲对）——桶断言只在场景 7 那段推一次，见下方。
   }
 
   // ── Scenario 6 — 充值漏监听 (BREAK / ORPHAN_EXTERNAL) ───────────────────
@@ -924,20 +992,28 @@ async function injectScenarios(
       },
     });
     const prevClose = await bumpClosing(s6Plan, s6Amount);
-    injections.push({
+    scenarios.push({
       scenarioId: 6,
       rootCause: 'MISSED_DEPOSIT',
-      walletRef: s6Plan.walletRef,
-      expectedBucket: 'BREAK',
-      expectedLineType: 'ORPHAN_EXTERNAL',
-      amount: s6Amount.toString(),
-      externalRef: fakeRef,
+      expectedLines: [{
+        walletRef: s6Plan.walletRef,
+        lineType: 'ORPHAN_EXTERNAL',
+        amount: s6Amount.toString(),
+        externalRef: fakeRef,
+      }],
       detail: {
         insertedExternalLineId: created.id,
         direction: 'IN',
         prevClosingBalance: prevClose,
         closingBalanceDelta: s6Amount.toString(),
       },
+    });
+    wallets.push({
+      walletRef: s6Plan.walletRef,
+      scenarioIds: [6],
+      expectedBucket: 'BREAK',
+      bucketRationale: '银行侧有一笔我方监听漏收的入账 → 插入一条无内部对应的孤儿外部 IN 行，收盘同步调高同额、无人对冲 → 残差 ≠ 0 → BREAK',
+      hasNonTerminalFundsOrder: false,
     });
   }
 
@@ -963,14 +1039,15 @@ async function injectScenarios(
       },
     });
     const prevClose = await bumpClosing(s5s7Plan, s5s7Amount);
-    injections.push({
+    scenarios.push({
       scenarioId: 7,
       rootCause: 'BANK_INTEREST',
-      walletRef: s5s7Plan.walletRef,
-      expectedBucket: 'SOFT_FLAG',
-      expectedLineType: 'ORPHAN_EXTERNAL',
-      amount: s5s7Amount.toString(),
-      externalRef: fakeRef,
+      expectedLines: [{
+        walletRef: s5s7Plan.walletRef,
+        lineType: 'ORPHAN_EXTERNAL',
+        amount: s5s7Amount.toString(),
+        externalRef: fakeRef,
+      }],
       detail: {
         insertedExternalLineId: created.id,
         direction: 'IN',
@@ -978,6 +1055,13 @@ async function injectScenarios(
         closingBalanceDelta: s5s7Amount.toString(),
         pairedWithScenario: 5,
       },
+    });
+    wallets.push({
+      walletRef: s5s7Plan.walletRef,
+      scenarioIds: [5, 7],
+      expectedBucket: 'SOFT_FLAG',
+      bucketRationale: '杂费 −X 与利息 +X 金额相等方向相反 → 残差 = 0；两条孤儿外部行 → 异常数 2 > 0 → SOFT_FLAG',
+      hasNonTerminalFundsOrder: false,
     });
   }
 
@@ -1025,14 +1109,15 @@ async function injectScenarios(
       },
     });
     const prevClose = await bumpClosing(s8Plan, s8Amount.negated());
-    injections.push({
+    scenarios.push({
       scenarioId: 8,
       rootCause: 'BANK_RETURN',
-      walletRef: s8Plan.walletRef,
-      expectedBucket: 'BREAK',
-      expectedLineType: 'ORPHAN_EXTERNAL',
-      amount: s8Amount.toString(),
-      externalRef: outRef,
+      expectedLines: [{
+        walletRef: s8Plan.walletRef,
+        lineType: 'ORPHAN_EXTERNAL',
+        amount: s8Amount.toString(),
+        externalRef: outRef,
+      }],
       detail: {
         channelRef,
         insertedInLineId: inLine.id,
@@ -1042,6 +1127,13 @@ async function injectScenarios(
         prevClosingBalance: prevClose,
         closingBalanceDelta: s8Amount.negated().toString(),
       },
+    });
+    wallets.push({
+      walletRef: s8Plan.walletRef,
+      scenarioIds: [8],
+      expectedBucket: 'BREAK',
+      bucketRationale: '银行退汇：等额一进一出插入两条全新孤儿行，但收盘只按清回的那笔 OUT 变动 → 残差 = 退汇金额 ≠ 0，且有孤儿外部行佐证 → BREAK',
+      hasNonTerminalFundsOrder: false,
     });
   }
 
@@ -1089,22 +1181,22 @@ async function injectScenarios(
         dedupKey: `DEMO-INJ-${cutoffDate}-${DEMO_ORPHAN_ACCOUNT_REF}-s9-orphan-deposit`,
       },
     });
-    injections.push({
+    scenarios.push({
       scenarioId: 9,
       rootCause: 'ORPHAN_DEPOSIT',
+      expectedLines: [],   // 未归属头：引擎故意不跑流水匹配，只有 case 级信号
+      detail: { accountRef: DEMO_ORPHAN_ACCOUNT_REF, closingBalance: s9Amount.toString() },
+    });
+    wallets.push({
       walletRef: DEMO_ORPHAN_ACCOUNT_REF,
+      scenarioIds: [9],
       expectedBucket: 'BREAK',
-      expectedLineType: null,
-      amount: s9Amount.toString(),
-      externalRef: fakeRef,
-      detail: {
-        accountRef: DEMO_ORPHAN_ACCOUNT_REF,
-        closingBalance: s9Amount.toString(),
-      },
+      bucketRationale: '未归属外部账户：无内部面可比，引擎直接开 BREAK case',
+      hasNonTerminalFundsOrder: false,
     });
   }
 
-  return { cutoff: cutoff.toISOString(), injections };
+  return { cutoff: cutoff.toISOString(), scenarios, wallets };
 }
 
 // ── Phase 3.5: populate balanceAfter on every line via running-balance pass.
@@ -1149,69 +1241,76 @@ async function populateBalanceAfter(prisma: PrismaService, cutoff: Date): Promis
   return updated;
 }
 
-// ── Phase 4: read back the run + match each manifest injection against
-// the recorded reconciliation_line_items / case row ─────────────────────
+// ── Phase 4: 两级校验 ────────────────────────────────────────────────────
+//   按场景 —— 每条场景的每一条 expectedLine 都要在本轮 line items 里找得到
+//   按钱包 —— 每个被注入的钱包，其 case 的 bucket 要等于期望值
 async function verifyManifest(
   prisma: PrismaService,
   runId: string,
-  manifest: ManifestV2,
-): Promise<{ detected: number; missed: string[] }> {
+  manifest: ManifestV3,
+): Promise<{
+  scenariosDetected: number;
+  scenariosMissed: string[];
+  walletsOk: number;
+  walletsMismatched: string[];
+}> {
   const lineItems = (await (prisma as any).reconciliationLineItem.findMany({
     where: { foundByRunId: runId },
     select: {
       matchStatus: true,
       walletRef: true,
       externalRef: true,
-      internalAmount: true,
-      externalAmount: true,
       internalSourceNo: true,
     },
   })) as Array<{
     matchStatus: string;
     walletRef: string | null;
     externalRef: string | null;
-    internalAmount: Prisma.Decimal | null;
-    externalAmount: Prisma.Decimal | null;
     internalSourceNo: string | null;
   }>;
+
   const cases = (await (prisma as any).reconciliationCase.findMany({
     where: { openedByRunId: runId },
-    select: { caseNo: true, walletRef: true, deltaAmount: true, bucket: true, book: true, assetCode: true },
-  })) as Array<{ caseNo: string; walletRef: string | null; deltaAmount: Prisma.Decimal; bucket: string | null; book: string | null; assetCode: string }>;
+    select: { caseNo: true, walletRef: true, bucket: true },
+  })) as Array<{ caseNo: string; walletRef: string | null; bucket: string | null }>;
 
-  const missed: string[] = [];
-  let detected = 0;
-
-  for (const inj of manifest.injections) {
-    const walletCase = cases.find((c) => c.walletRef === inj.walletRef);
-    const bucketOk = !!walletCase && walletCase.bucket === inj.expectedBucket;
-    // expectedLineType===null (scenario 9 only): T5 deliberately skips the
-    // flow matcher for unattributed heads, so the case-level bucket check
-    // alone is the expected signal — see InjectionV2.expectedLineType doc.
-    const lineHit = inj.expectedLineType === null
-      ? true
-      : lineItems.some(
-          (l) => l.matchStatus === inj.expectedLineType
-            && l.walletRef === inj.walletRef
-            && (inj.externalRef ? l.externalRef === inj.externalRef : true),
-        );
-    let hit = bucketOk && lineHit;
-
-    // Scenario 1 — extra assertion: the matched IN_TRANSIT line item must
-    // carry internalSourceNo == the funds order we created.
-    if (inj.scenarioId === 1 && hit) {
-      const s1Hit = lineItems.some(
-        (l) => l.matchStatus === 'IN_TRANSIT'
-          && l.walletRef === inj.walletRef
-          && l.internalSourceNo === inj.fundsOrderNo,
-      );
-      hit = hit && s1Hit;
-    }
-
-    if (hit) detected += 1;
-    else missed.push(`scenario#${inj.scenarioId}(${inj.rootCause})`);
+  // ── 按场景 ──
+  const scenariosMissed: string[] = [];
+  let scenariosDetected = 0;
+  for (const sc of manifest.scenarios) {
+    const allLinesHit = sc.expectedLines.every((exp) =>
+      lineItems.some(
+        (l) => l.matchStatus === exp.lineType
+          && l.walletRef === exp.walletRef
+          && (exp.externalRef ? l.externalRef === exp.externalRef : true),
+      ),
+    );
+    // 在途场景额外断言：那条 IN_TRANSIT 行必须指向我们造的那张资金单，
+    // 否则"认领到了某张在途单"这个绿灯可能来自别的单。
+    const fundsOrderHit = sc.fundsOrderNo
+      ? lineItems.some(
+          (l) => l.matchStatus === 'IN_TRANSIT'
+            && l.internalSourceNo === sc.fundsOrderNo,
+        )
+      : true;
+    if (allLinesHit && fundsOrderHit) scenariosDetected += 1;
+    else scenariosMissed.push(`scenario#${sc.scenarioId}(${sc.rootCause})`);
   }
-  return { detected, missed };
+
+  // ── 按钱包 ──
+  const walletsMismatched: string[] = [];
+  let walletsOk = 0;
+  for (const w of manifest.wallets) {
+    const c = cases.find((x) => x.walletRef === w.walletRef);
+    if (c && c.bucket === w.expectedBucket) walletsOk += 1;
+    else {
+      walletsMismatched.push(
+        `${w.walletRef} expect=${w.expectedBucket} actual=${c?.bucket ?? '(无 case)'} [${w.bucketRationale}]`,
+      );
+    }
+  }
+
+  return { scenariosDetected, scenariosMissed, walletsOk, walletsMismatched };
 }
 
 // ── Phase 5 (break only): identity self-check ────────────────────────────
@@ -1300,7 +1399,7 @@ async function main() {
   // This mirrors demo:in-transit + recon:rerun, where the recon cutoff is always
   // captured later than the fixture.
   let engineCutoff = cutoff;
-  let manifest: ManifestV2 | null = null;
+  let manifest: ManifestV3 | null = null;
   if (mode === 'break') {
     const ctx: StuckFixtureCtx = {
       app,
@@ -1313,9 +1412,10 @@ async function main() {
     manifest = await injectScenarios(prisma, plans, cutoff, ctx);
     engineCutoff = new Date(); // ≥ every fixture line's datetime (see above)
     writeFileSync(MANIFEST_PATH, JSON.stringify(manifest, null, 2));
-    console.log(`manifest written to ${MANIFEST_PATH}  (${manifest.injections.length} scenarios)`);
-    for (const inj of manifest.injections) {
-      console.log(`  [#${inj.scenarioId} ${inj.rootCause}] walletRef=${inj.walletRef}  bucket=${inj.expectedBucket}  amount=${inj.amount}`);
+    console.log(`manifest written to ${MANIFEST_PATH}  (${manifest.scenarios.length} scenarios, ${manifest.wallets.length} wallets)`);
+    for (const sc of manifest.scenarios) {
+      const wallets = Array.from(new Set(sc.expectedLines.map((l) => l.walletRef))).join(',') || '(case-only)';
+      console.log(`  [#${sc.scenarioId} ${sc.rootCause}] wallet=${wallets}`);
     }
   }
 
@@ -1351,36 +1451,34 @@ async function main() {
       if (!pass) ok = false;
     }
   } else if (mode === 'break' && manifest) {
-    const { detected, missed } = await verifyManifest(prisma, result.runId, manifest);
-    const identities = await assertIdentities(prisma, result.runId);
-
-    console.log(`\n──── 9-scenario scorecard ────`);
-    for (const inj of manifest.injections) {
-      const isMissed = missed.includes(`scenario#${inj.scenarioId}(${inj.rootCause})`);
-      console.log(`  #${inj.scenarioId}  ${inj.rootCause.padEnd(24)} wallet=${inj.walletRef}  expect=${inj.expectedBucket}/${inj.expectedLineType}  ${isMissed ? 'MISSED' : 'DETECTED'}`);
+    const v = await verifyManifest(prisma, result.runId, manifest);
+    console.log(`\n──── manifest verification ────`);
+    for (const sc of manifest.scenarios) {
+      const missed = v.scenariosMissed.some((m) => m.startsWith(`scenario#${sc.scenarioId}(`));
+      const wallets = Array.from(new Set(sc.expectedLines.map((l) => l.walletRef.slice(0, 8)))).join(',') || '(case-only)';
+      console.log(`  #${String(sc.scenarioId).padStart(2)}  ${sc.rootCause.padEnd(26)} wallet=${wallets}  ${missed ? 'MISSED' : 'DETECTED'}`);
     }
-    console.log(`  score: ${detected}/${manifest.injections.length} DETECTED`);
+    console.log(`  scenarios: ${v.scenariosDetected}/${manifest.scenarios.length} DETECTED`);
+    console.log(`  wallets:   ${v.walletsOk}/${manifest.wallets.length} bucket OK`);
+    for (const m of v.walletsMismatched) console.log(`    ✗ ${m}`);
 
+    const idn = await assertIdentities(prisma, result.runId);
     console.log(`\n──── identity self-check ────`);
-    for (const [label, pass] of identities.checks) {
-      console.log(`  ${pass ? 'OK' : 'FAIL'}  ${label}`);
-    }
+    for (const [label, ok] of idn.checks) console.log(`  ${ok ? 'OK ' : 'BAD'} ${label}`);
 
-    const checks = [
+    const asserts: Array<[string, boolean]> = [
       ['status==BREAK', result.status === 'BREAK'],
-      [`manifest detected ${detected}/${manifest.injections.length} (9/9)`, detected === manifest.injections.length && manifest.injections.length === 9],
-      ['identities OK', identities.ok],
-    ] as const;
+      [`scenarios ${v.scenariosDetected}/${manifest.scenarios.length}`, v.scenariosDetected === manifest.scenarios.length],
+      [`wallets ${v.walletsOk}/${manifest.wallets.length}`, v.walletsOk === manifest.wallets.length],
+      ['identities OK', idn.ok],
+    ];
     console.log(`\n──── break-mode asserts ────`);
-    for (const [label, pass] of checks) {
-      console.log(`  ${pass ? 'OK' : 'FAIL'}  ${label}`);
+    for (const [label, pass] of asserts) {
+      console.log(`  ${pass ? 'OK ' : 'BAD'} ${label}`);
       if (!pass) ok = false;
     }
-    if (missed.length === 0) {
-      console.log(`ALL ${manifest.injections.length} SCENARIOS DETECTED PER MANIFEST`);
-    } else {
-      console.log(`MISSED: ${missed.join(', ')}`);
-    }
+    if (ok) console.log(`\nALL ${manifest.scenarios.length} SCENARIOS DETECTED PER MANIFEST`);
+    else console.error('\nASSERT(S) FAILED');
   }
 
   console.log(`\n════════ recon:demo ${mode} DONE — ${ok ? 'OK' : 'FAILED'} ════════`);
