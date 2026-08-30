@@ -81,6 +81,13 @@ import { buildDeterministicNo } from '../src/common/utils/no-generator.util';
 // ── constants ────────────────────────────────────────────────────────────────
 export const SIM = 'DEMO'; // deterministic-no tag + operatorId for driven legs
 
+// Collection-bank details shown on every customer's C_VIBAN (their AED virtual
+// account) — all customer VIBANs share one bank/account name because the money
+// physically sits in the same segregated client account. No longer sourced from
+// a C_CMA wallet (retired — see system-wallet.util.ts).
+export const CUSTOMER_VIBAN_BANK_NAME = 'Zand Bank PJSC';
+export const CUSTOMER_VIBAN_ACCOUNT_NAME = 'FiatX Ltd';
+
 // Tradeable business-seed customers (onboarding APPROVED + compliance CLEAR).
 // Order matters: index → deterministic refs/addresses.
 export const DEMO_CUSTOMER_EMAILS = [
@@ -291,11 +298,6 @@ export async function ensureSetup(ctx: DemoCtx): Promise<void> {
     data: { tradingTier: 'PREMIUM' },
   });
 
-  const cmaTpl = await ctx.prisma.wallet.findFirst({
-    where: { walletRole: 'C_CMA', assetId: ctx.aed.id, status: 'ACTIVE' },
-    select: { bankName: true, accountName: true },
-  });
-
   // Frank (frozenPersona) needs the exact same wallets/TB accounts/withdrawal
   // address as the trio — he deposits like they do (roster #7/#10), just never
   // swaps/withdraws, so he's included in setup but not in DEMO_CUSTOMER_EMAILS.
@@ -330,7 +332,7 @@ export async function ensureSetup(ctx: DemoCtx): Promise<void> {
       create: {
         walletNo: vibanNo, ownerType: 'CUSTOMER', ownerId: c.id, ownerNo: c.customerNo,
         type: 'FIAT_BANK', walletRole: 'C_VIBAN', assetId: ctx.aed.id, iban: vibanIban,
-        bankName: cmaTpl?.bankName ?? 'Zand Bank PJSC', accountName: cmaTpl?.accountName ?? 'FiatX Ltd', status: 'ACTIVE',
+        bankName: CUSTOMER_VIBAN_BANK_NAME, accountName: CUSTOMER_VIBAN_ACCOUNT_NAME, status: 'ACTIVE',
       },
     });
 

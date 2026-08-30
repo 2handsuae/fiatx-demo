@@ -45,6 +45,8 @@ Last Updated: 2026-08-29
 
 - [ ] **effectiveDate 语义待核**：应 date(价值日) + 独立 createdAt(datetime) 两字段两用途；需核 `effectiveDate` 是否 date-only、截止边界卡点是否用 createdAt ｜来源: spec §2.4
 
+- [ ] **CLIENT_BANK_ACCOUNT_ENABLEMENT 监管闸门失去合法建闸目标**：`regulatory-gates.service.ts:435` 硬性要求闸门绑定的 `walletId` 指向一个 `walletRole=C_CMA` 的钱包；本轮 C_CMA 钱包从种子退役（不再 provision，`system-wallet.util.ts` 的 `FIAT_SYSTEM_WALLET_ROLES` 已移除），这道闸从此建不出来。判为可接受：闸门本就停摆——侧栏入口早已注释掉（`DashboardLayout.tsx:389`）、库里这类闸门 0 行、`doc-final/` 里除 `archive/` 外未再提及。要恢复：先经 `custodian-wallet-create-workflow.service.ts` 的 admin 创建通路手工建一个 `walletRole=C_CMA` 的钱包（该创建路径未随退役而关闭），或改这道闸的判据 ｜来源: 2026-08-30 C_CMA 钱包退役
+
 
 ## C. 第二幕 · 迎客（V2 客户与合规）
 
