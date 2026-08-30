@@ -36,7 +36,9 @@ const Wave8OpsDashboardPage = () => {
   const canReadObligations = hasAnyPermission([
     PERMISSIONS.REIMBURSEMENT_OBLIGATIONS_READ,
   ]);
-  const canReadGates = hasAnyPermission([PERMISSIONS.GOV_REGULATORY_GATES_READ]);
+  // Regulatory gates module retired 2026-08-30 (Task 1 of 第一幕职权重划) — this panel
+  // is disabled pending Task 3's full page retirement; see task-1-brief.md.
+  const canReadGates = false;
 
   const baseCards = useMemo<DashboardCard[]>(
     () => [

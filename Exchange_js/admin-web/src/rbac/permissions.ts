@@ -60,49 +60,6 @@ export const PERMISSIONS = {
   GOV_APPROVAL_APPROVE: 'api.post.admin_control_gates_approvals_id_approve',
   GOV_APPROVAL_REJECT: 'api.post.admin_control_gates_approvals_id_reject',
   GOV_APPROVAL_CANCEL: 'api.post.admin_control_gates_approvals_id_cancel',
-  GOV_SHAREHOLDING_REGISTRY_READ:
-    'api.get.admin_governance_registries_shareholding_versions',
-  GOV_SHAREHOLDING_REGISTRY_DETAIL_READ:
-    'api.get.admin_governance_registries_shareholding_versions_id',
-  GOV_SHAREHOLDING_REGISTRY_CREATE:
-    'api.post.admin_governance_registries_shareholding_versions',
-  GOV_SHAREHOLDING_REGISTRY_UPDATE:
-    'api.patch.admin_governance_registries_shareholding_versions_id',
-  GOV_APPOINTMENTS_READ: 'api.get.admin_governance_registries_appointments',
-  GOV_APPOINTMENT_DETAIL_READ:
-    'api.get.admin_governance_registries_appointments_id',
-  GOV_APPOINTMENT_CREATE: 'api.post.admin_governance_registries_appointments',
-  GOV_APPOINTMENT_UPDATE: 'api.patch.admin_governance_registries_appointments_id',
-  GOV_TRAININGS_READ: 'api.get.admin_governance_registries_trainings',
-  GOV_TRAINING_DETAIL_READ: 'api.get.admin_governance_registries_trainings_id',
-  GOV_TRAINING_CREATE: 'api.post.admin_governance_registries_trainings',
-  GOV_TRAINING_UPDATE: 'api.patch.admin_governance_registries_trainings_id',
-  GOV_CONFLICTS_READ: 'api.get.admin_governance_registries_conflicts',
-  GOV_CONFLICT_DETAIL_READ: 'api.get.admin_governance_registries_conflicts_id',
-  GOV_CONFLICT_CREATE: 'api.post.admin_governance_registries_conflicts',
-  GOV_CONFLICT_UPDATE: 'api.patch.admin_governance_registries_conflicts_id',
-  GOV_WIND_DOWN_MATERIALS_READ:
-    'api.get.admin_governance_registries_wind_down_materials',
-  GOV_WIND_DOWN_MATERIAL_DETAIL_READ:
-    'api.get.admin_governance_registries_wind_down_materials_id',
-  GOV_WIND_DOWN_MATERIAL_CREATE:
-    'api.post.admin_governance_registries_wind_down_materials',
-  GOV_WIND_DOWN_MATERIAL_UPDATE:
-    'api.patch.admin_governance_registries_wind_down_materials_id',
-  GOV_REGULATORY_GATES_READ: 'api.get.admin_governance_regulatory_gates',
-  GOV_REGULATORY_GATE_DETAIL_READ:
-    'api.get.admin_governance_regulatory_gates_id',
-  GOV_REGULATORY_GATE_CREATE: 'api.post.admin_governance_regulatory_gates',
-  GOV_REGULATORY_GATE_SUBMIT:
-    'api.post.admin_governance_regulatory_gates_id_submit',
-  GOV_REGULATORY_GATE_RECORD_FEEDBACK:
-    'api.post.admin_governance_regulatory_gates_id_record_feedback',
-  GOV_REGULATORY_GATE_BIND_RECEIPT:
-    'api.post.admin_governance_regulatory_gates_id_bind_receipt',
-  GOV_REGULATORY_GATE_MARK_EFFECTIVE:
-    'api.post.admin_governance_regulatory_gates_id_mark_effective',
-  GOV_REGULATORY_GATE_REVOKE:
-    'api.post.admin_governance_regulatory_gates_id_revoke',
 
   IAM_ROLE_DEFINITIONS_CREATE: 'api.post.admin_iam_role_definitions',
   IAM_ROLE_DEFINITIONS_PERMISSION_GROUPS: 'api.get.admin_iam_role_definitions_permission_groups',
