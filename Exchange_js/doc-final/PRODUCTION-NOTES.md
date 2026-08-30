@@ -437,3 +437,7 @@
   生成区的表里带**单号列**（`DEP2608301739` 这种），单号内嵌日期+随机后缀，所以**每次 `demo:all` 都是一整表变化**，跟行为改没改无关。演示装备一期的 spec/plan 写的「`git diff data.md` 有变化 = 代码真的改了行为」因此不成立——合并当天就实测到：同一份代码跑两次，22 行全变。
   连带后果：跑完 `demo:all` 工作树必脏一个文件，`git worktree remove` 会被拦。
   修法（生产化时选一）：① 生成区不吐单号列，只留「序号 / 标签 / 客户 / 金额 / 预期态 / 实到态 / ✓」——那几列才是真正该防漂移的；② 单号另起一节、明确标注「每次跑都变，不参与 diff 判据」。
+
+- [2026-08-30] **`regulatory_gate_items.walletId` 列退役后成死列** ｜ `prisma/schema.prisma` `RegulatoryGateItem.walletId` ｜ CLIENT_BANK_ACCOUNT_ENABLEMENT 监管闸门退役
+
+  唯一写入方 `CLIENT_BANK_ACCOUNT_ENABLEMENT` 闸门类型已退役（该闸硬要求绑定的 `walletRole=C_CMA` 钱包上一轮已从种子退役，闸门本就建不出来，业主拍板整型退役）；列本身可空、退役前这类闸门在库里就是 0 行，不为此单独加迁移重铺。值得清的时机：下次再动 `regulatory_gate_items` 表 schema 时顺手带走——该列、其 `wallet` 外键关系，以及 `regulatory-gates.service.ts` 里仍保留的 `wallet` include/序列化字段（`mapGate()` 的 `walletId`/`wallet` 投影、`getGateRowOrThrow`/`create`/`update`/`submit`/`recordFeedback`/`bindReceipt`/`markEffective`/`revoke` 里逐处 `include: { wallet: true }`）与 DTO 的 `walletId?: string` 输入字段——这些目前留着是因为只服务这一个已退役列，删不删不影响另外两种闸门。

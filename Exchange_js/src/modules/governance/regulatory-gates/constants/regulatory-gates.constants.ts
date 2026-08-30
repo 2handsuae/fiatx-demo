@@ -1,7 +1,6 @@
 export const RegulatoryGateTypes = {
   CONTROL_CHANGE: 'CONTROL_CHANGE',
   REGULATED_APPOINTMENT_CHANGE: 'REGULATED_APPOINTMENT_CHANGE',
-  CLIENT_BANK_ACCOUNT_ENABLEMENT: 'CLIENT_BANK_ACCOUNT_ENABLEMENT',
 } as const;
 
 export const RegulatoryGateAuthorities = {
@@ -11,7 +10,6 @@ export const RegulatoryGateAuthorities = {
 export const RegulatoryGateSubjectTypes = {
   SHAREHOLDING_REGISTRY_VERSION: 'SHAREHOLDING_REGISTRY_VERSION',
   APPOINTMENT_RECORD: 'APPOINTMENT_RECORD',
-  WALLET: 'WALLET',
 } as const;
 
 export const RegulatoryGateInternalApprovalStatuses = {

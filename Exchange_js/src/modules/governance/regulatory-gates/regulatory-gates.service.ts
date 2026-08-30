@@ -48,7 +48,6 @@ import {
   RegulatoryGateSubjectTypes,
   RegulatoryGateTypes,
 } from './constants/regulatory-gates.constants';
-import { WalletRole } from '../../asset-treasury/wallets/dto/wallet.dto';
 
 type RegulatoryGateWriteClient = any;
 
@@ -421,28 +420,6 @@ export class RegulatoryGatesService {
         subjectNo: appointment.appointmentNo,
         shareholdingRegistryVersionId: null,
         appointmentRecordId: appointment.id,        walletId: null,
-      };
-    }
-
-    if (dto.gateType === RegulatoryGateTypes.CLIENT_BANK_ACCOUNT_ENABLEMENT) {
-      const walletId = this.requiredString(dto.walletId, 'walletId');
-      const wallet = await db.wallet.findUnique({
-        where: { id: walletId },
-      });
-      if (!wallet) {
-        throw new NotFoundException(`Wallet not found: ${walletId}`);
-      }
-      if (wallet.walletRole !== WalletRole.C_CMA) {
-        throw new BadRequestException(
-          'CLIENT_BANK_ACCOUNT_ENABLEMENT requires C_CMA wallet',
-        );
-      }
-      return {
-        subjectType: RegulatoryGateSubjectTypes.WALLET,
-        subjectId: wallet.id,
-        subjectNo: wallet.walletNo || wallet.id,
-        shareholdingRegistryVersionId: null,
-        appointmentRecordId: null,        walletId: wallet.id,
       };
     }
 
