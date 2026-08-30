@@ -1488,6 +1488,16 @@ Expected: 失败套数与红名单**逐字一致**（`role-definition-create-wor
 - 「演示」行的花名册数字 21 → **29**
 - 「对账」行改为：`recon:demo:pass ｜ recon:demo:break 15/15 场景 + 10/10 钱包桶（2026-08-30 按成因铺全，答案键拆两级）｜ verify:demo-data`
 - jest 例数按 Step 2 实测刷新
+- **追加一句关于 COA 四个数值的说明**（来源：main 上的并行 session claude-43，2026-08-30）：
+
+```markdown
+> 💡 **`demo:all` 打印的那四个 COA 恒等数值会随花名册变化，数字变了不等于账错了。**
+> `verify:coa` 与 `demo:all` 验的都是**等式两边相等**，不验具体数值——所以花名册加了行、
+> 客户多了两个之后，这四个数必然变，这是正常的。
+> ⚠️ 它们会落在 `doc-final/demo/data.md` 的 `<!-- GENERATED:BEGIN -->` 区块里，
+> **那段是 `demo:all` 收尾自己写的，不要手改**——手改会被下一次 `demo:all` 整段覆盖，白费。
+```
+
 - 追加一行操作约束：
 
 ```markdown
