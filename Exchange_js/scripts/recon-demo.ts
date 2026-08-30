@@ -947,47 +947,69 @@ async function injectScenarios(
     });
   }
 
-  // ── Scenario 4 — 精度/单位错 (BREAK / AMOUNT_MISMATCH) ──────────────────
-  // Bank posts the line with a scale error (×100 — e.g. cents-vs-units bug).
-  // Bump closing by the same delta so the balance check breaks too.
+  // ── 展示位甲 · 同样是「金额不对」，三种相反的真相 ───────────────────────
+  // ④ 我方小数点错位   → 我方错   → 冲正（改我方的账）
+  // ⑩ 对方金额记错     → 对方错   → 不该动账（该找银行）
+  // ⑪ 舍入精度差       → 都没错   → 不该动账（该豁免，豁免没做故今天无出口）
+  // 三条形状完全相同、处置完全不同——这一屏是整套演示最值钱的地方之一。
   {
-    const candidate = await (prisma as any).externalStatementLine.findFirst({
-      where: { subAccount: slotShowcaseA.walletRef, externalRef: { not: null } },
+    const lines = (await (prisma as any).externalStatementLine.findMany({
+      where: { subAccount: slotShowcaseA.walletRef },
       orderBy: { datetime: 'asc' },
-    });
-    if (!candidate) throw new Error(`No external line with externalRef on ${slotShowcaseA.walletRef}`);
-    const newAmount = candidate.amount.times(100);
-    const scaleDelta = newAmount.minus(candidate.amount);
-    await (prisma as any).externalStatementLine.update({
-      where: { id: candidate.id },
-      data: { amount: newAmount },
-    });
-    const signedDelta = candidate.direction === 'IN' ? scaleDelta : scaleDelta.negated();
-    const prevClose = await bumpClosing(slotShowcaseA, signedDelta);
+      take: 3,
+    })) as Array<{ id: string; direction: string; amount: Prisma.Decimal; externalRef: string | null }>;
+    if (lines.length < 3) {
+      throw new Error(
+        `展示位甲需要 ≥3 条外部行，实际 ${lines.length} 条（钱包 ${slotShowcaseA.walletRef}）—— ` +
+        '花名册给 Grace 的 AED 单是否被改少了？',
+      );
+    }
+
+    // ④ 小数点错位：我方把金额记成了 1/100（外部才是对的）→ 外部 − 内部 = +99×内部
+    const [l4, l10, l11] = lines;
+    const s4New = l4.amount.mul(100);
+    await (prisma as any).externalStatementLine.update({ where: { id: l4.id }, data: { amount: s4New } });
+    const s4Delta = s4New.minus(l4.amount);
+    const s4Prev = await bumpClosing(slotShowcaseA, l4.direction === 'IN' ? s4Delta : s4Delta.negated());
+
+    // ⑩ 对方金额记错：银行把金额打错了，我方账是对的 → 差一个固定小额
+    const s10Delta = D('333');
+    const s10New = l10.amount.plus(s10Delta);
+    await (prisma as any).externalStatementLine.update({ where: { id: l10.id }, data: { amount: s10New } });
+    const s10Prev = await bumpClosing(slotShowcaseA, l10.direction === 'IN' ? s10Delta : s10Delta.negated());
+
+    // ⑪ 舍入精度差：双方舍入规则不同造成的固定尾差，谁都没错
+    const s11Delta = D('2');
+    const s11New = l11.amount.plus(s11Delta);
+    await (prisma as any).externalStatementLine.update({ where: { id: l11.id }, data: { amount: s11New } });
+    const s11Prev = await bumpClosing(slotShowcaseA, l11.direction === 'IN' ? s11Delta : s11Delta.negated());
+
     scenarios.push({
       scenarioId: 4,
       rootCause: 'SCALE_ERROR',
-      expectedLines: [{
-        walletRef: slotShowcaseA.walletRef,
-        lineType: 'AMOUNT_MISMATCH',
-        amount: scaleDelta.toString(),
-        externalRef: candidate.externalRef,
-      }],
-      detail: {
-        externalLineId: candidate.id,
-        internalAmount: candidate.amount.toString(),
-        externalAmount: newAmount.toString(),
-        direction: candidate.direction,
-        prevClosingBalance: prevClose,
-        closingBalanceDelta: signedDelta.toString(),
-      },
+      expectedLines: [{ walletRef: slotShowcaseA.walletRef, lineType: 'AMOUNT_MISMATCH', amount: s4New.toString(), externalRef: l4.externalRef }],
+      detail: { lineId: l4.id, internalAmount: l4.amount.toString(), externalAmount: s4New.toString(), prevClosingBalance: s4Prev },
+    });
+    scenarios.push({
+      scenarioId: 10,
+      rootCause: 'COUNTERPARTY_AMOUNT_ERROR',
+      expectedLines: [{ walletRef: slotShowcaseA.walletRef, lineType: 'AMOUNT_MISMATCH', amount: s10New.toString(), externalRef: l10.externalRef }],
+      detail: { lineId: l10.id, internalAmount: l10.amount.toString(), externalAmount: s10New.toString(), prevClosingBalance: s10Prev },
+    });
+    scenarios.push({
+      scenarioId: 11,
+      rootCause: 'ROUNDING_DIFF',
+      expectedLines: [{ walletRef: slotShowcaseA.walletRef, lineType: 'AMOUNT_MISMATCH', amount: s11New.toString(), externalRef: l11.externalRef }],
+      detail: { lineId: l11.id, internalAmount: l11.amount.toString(), externalAmount: s11New.toString(), prevClosingBalance: s11Prev },
     });
     wallets.push({
       walletRef: slotShowcaseA.walletRef,
-      scenarioIds: [4],
+      scenarioIds: [4, 10, 11],
       expectedBucket: 'BREAK',
-      bucketRationale: '银行按 ×100 记错精度/单位 → 外部金额比内部金额多出 scaleDelta，收盘同步偏移同额 → 残差 = scaleDelta ≠ 0 → BREAK',
-      hasNonTerminalFundsOrder: false,
+      bucketRationale:
+        '三条金额差同时存在：④ 外部−内部 = 99×原额、⑩ +333、⑪ +2（方向按各自行的 IN/OUT 计入收盘）。' +
+        '三者之和恒 ≠ 0（④ 一项就远大于其余两项之和），且无在途 → 残差 ≠ 0 → BREAK。',
+    hasNonTerminalFundsOrder: false,
     });
   }
 
