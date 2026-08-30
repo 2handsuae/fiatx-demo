@@ -441,3 +441,11 @@
 - [2026-08-30] **`regulatory_gate_items.walletId` 列退役后成死列** ｜ `prisma/schema.prisma` `RegulatoryGateItem.walletId` ｜ CLIENT_BANK_ACCOUNT_ENABLEMENT 监管闸门退役
 
   唯一写入方 `CLIENT_BANK_ACCOUNT_ENABLEMENT` 闸门类型已退役（该闸硬要求绑定的 `walletRole=C_CMA` 钱包上一轮已从种子退役，闸门本就建不出来，业主拍板整型退役）；列本身可空、退役前这类闸门在库里就是 0 行，不为此单独加迁移重铺。值得清的时机：下次再动 `regulatory_gate_items` 表 schema 时顺手带走——该列、其 `wallet` 外键关系，以及 `regulatory-gates.service.ts` 里仍保留的 `wallet` include/序列化字段（`mapGate()` 的 `walletId`/`wallet` 投影、`getGateRowOrThrow`/`create`/`update`/`submit`/`recordFeedback`/`bindReceipt`/`markEffective`/`revoke` 里逐处 `include: { wallet: true }`）与 DTO 的 `walletId?: string` 输入字段——这些目前留着是因为只服务这一个已退役列，删不删不影响另外两种闸门。
+
+- [2026-08-30] **`stack.sh reset` 在全新 worktree 首跑会静默跳过 TigerBeetle 建户与资本注入** ｜ `scripts/reset-stack.sh:63-88` ｜ 第一幕职权重划开工时实测
+
+  `reset-stack.sh` 自己起了 TigerBeetle（`:49`），但下面 `apply-local-migrations` / `db:base:sync` / `db:biz:reset` / `db:seed:business` 四个子进程只传 `DATABASE_URL=`、**不传 `TB_ADDRESS`**；老路径 `reset-main-biz.sh:74` 是传了的，两条路径不一致。平时不发作是因为 `TB_ADDRESS` 在 `.env` 里，而 `.env` 由 `stack.sh up` 生成——**全新 worktree 若先 `reset` 后 `up`，`.env` 尚不存在**，`prisma/seed-tb.helper.ts:79` 于是打两条 `⚠ TB_ADDRESS not set, skipping ...` 就跳过，退出码仍是 0。后果：库建好了但 TB 账户是空的，`verify:coa` 与 `demo:all` 的 COA 断言会在后面莫名其妙地失败，而失败点离根因很远。规避：新 worktree 先 `stack.sh up self` 让 `.env` 落地，再 `reset`；或给那四个子进程补上 `TB_ADDRESS="${TB_ADDRESS}"`。
+
+- [2026-08-30] **`stack.sh up` 撞自家 reset 留下的 TigerBeetle 时提前退出，三个应用服务一个不起** ｜ `scripts/stack-up.sh:88` `ensure_port_free "${TB_PORT}" "tb"` ｜ 同上
+
+  `reset` 会把 TigerBeetle 拉起来并留着（seed 要连它），紧接着跑 `up` 时 `ensure_port_free` 判定 TB 端口被占、走"already in use"分支退出——**退出码是 0**，看起来像成功，实际 backend / admin / client 三个服务一个都没启。规避：`lsof -ti:<TB端口>` 杀掉自家那个 TB 进程再 `up`（数据文件已存在，不会被重新 format，数据不丢）。
