@@ -609,8 +609,23 @@ async function assertTargetWalletsClean(
 
   if (open.length === 0) return;
 
+  // 把内部 UUID 换成人能直接认出来的业务键——这道闸的价值全在"炸得响、能直接定位"，
+  // 抛一串 UUID 等于让撞上的人再查一次库。
+  const walletIds = Array.from(new Set(
+    open.flatMap((o) => [o.fromWalletId, o.toWalletId]).filter((id): id is string => !!id),
+  ));
+  const walletRows = (await (prisma as any).wallet.findMany({
+    where: { id: { in: walletIds } },
+    select: { id: true, walletNo: true, ownerNo: true, walletRole: true },
+  })) as Array<{ id: string; walletNo: string; ownerNo: string | null; walletRole: string | null }>;
+  const nameOf = (id: string | null): string => {
+    if (!id) return '-';
+    const w = walletRows.find((x) => x.id === id);
+    return w ? `${w.walletNo}(${w.ownerNo ?? 'PLATFORM'}/${w.walletRole ?? '?'})` : id;
+  };
+
   const detail = open
-    .map((o) => `${o.fundsOrderNo}(${o.status}) from=${o.fromWalletId ?? '-'} to=${o.toWalletId ?? '-'}`)
+    .map((o) => `${o.fundsOrderNo}(${o.status}) from=${nameOf(o.fromWalletId)} to=${nameOf(o.toWalletId)}`)
     .join('; ');
   throw new Error(
     `注入前置闸：${open.length} 笔非终态资金单落在本不该有在途的目标钱包上 —— ${detail}\n` +
