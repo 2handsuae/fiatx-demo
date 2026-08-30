@@ -162,8 +162,7 @@ export class ApprovalsService {
   }
 
   /**
-   * APPROVAL_SUBMITTED 的唯一写入点，供 emitSubmittedSideEffects（submit() 路径）与
-   * createAndSubmit（~30 处工作流一步到位路径）共用，避免同一形状抄两遍。
+   * APPROVAL_SUBMITTED 的唯一写入点，供 createAndSubmit（~30 处工作流一步到位路径）使用。
    */
   private async recordSubmitted(
     approval: ApprovalCaseRow,
@@ -634,17 +633,6 @@ export class ApprovalsService {
     return next as ApprovalCaseRow;
   }
 
-  async emitSubmittedSideEffects(
-    approvalId: string,
-    actor: ApprovalActorContext,
-    reason?: string | null,
-  ) {
-    const approval = await this.findCaseOrThrow(approvalId);
-    await this.recordSubmitted(approval, actor, reason);
-    await this.emitApprovalEvent(ApprovalEvents.SUBMITTED, this.buildEventPayload(approval));
-    return this.mapApproval(approval, actor);
-  }
-
   async createAndSubmit(
     createDto: CreateApprovalDto,
     submitDto: SubmitApprovalDto,
@@ -664,19 +652,6 @@ export class ApprovalsService {
     }
 
     return this.mapApproval(submitted, actor);
-  }
-
-  async create(dto: CreateApprovalDto, actor: ApprovalActorContext) {
-    const created = await this.createDraftCase(dto, actor);
-    return this.mapApproval(created as ApprovalCaseRow, actor);
-  }
-
-  async submit(id: string, dto: SubmitApprovalDto, actor: ApprovalActorContext) {
-    const updated = await this.prisma.$transaction((tx: any) =>
-      this.submitCase(id, dto, actor, tx),
-    );
-    await this.emitSubmittedSideEffects(updated.id, actor, dto.reason);
-    return this.mapApproval(updated, actor);
   }
 
   async approve(id: string, dto: DecisionApprovalDto, actor: ApprovalActorContext) {

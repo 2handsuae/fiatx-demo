@@ -1,4 +1,4 @@
-import { BadRequestException, ForbiddenException } from '@nestjs/common';
+import { ForbiddenException } from '@nestjs/common';
 import { ApprovalsService } from './approvals.service';
 import {
   ApprovalActionTypes,
@@ -142,74 +142,6 @@ describe('ApprovalsService', () => {
       approvalPolicyService as any,
       eventEmitter as any,
     );
-  });
-
-  it('returns existing pending approval for the same action and entity', async () => {
-    prisma.approvalCase.findFirst.mockResolvedValue(
-      buildApproval({ status: ApprovalStatuses.PENDING }),
-    );
-
-    const result = await service.create(
-      {
-        actionType: ApprovalActionTypes.AUDIT_EVIDENCE_EXPORT_APPROVAL,
-        entityRef: 'pkg-1',
-      },
-      actor,
-    );
-
-    expect(result.status).toBe(ApprovalStatuses.PENDING);
-    expect(prisma.approvalCase.create).not.toHaveBeenCalled();
-  });
-
-  it('creates approval with generated approvalNo', async () => {
-    prisma.approvalCase.findFirst.mockResolvedValue(null);
-    prisma.approvalCase.create.mockResolvedValue(buildApproval());
-
-    const result = await service.create(
-      {
-        actionType: ApprovalActionTypes.AUDIT_EVIDENCE_EXPORT_APPROVAL,
-        entityRef: 'pkg-1',
-      },
-      actor,
-    );
-
-    expect(result.approvalNo).toBe('APR2603140001');
-    expect(prisma.approvalCase.create).toHaveBeenCalledWith(
-      expect.objectContaining({
-        data: expect.objectContaining({
-          approvalNo: expect.stringMatching(/^APR\d{10}$/),
-          createdByUserNo: actor.userNo,
-          steps: {
-            create: expect.arrayContaining([
-              expect.objectContaining({
-                stepNo: 1,
-                status: 'PENDING',
-                checkerRoleCandidates: 'DPO,MLRO',
-              }),
-            ]),
-          },
-        }),
-      }),
-    );
-  });
-
-  it('allows submit only from DRAFT', async () => {
-    prisma.approvalCase.findUnique.mockResolvedValue(
-      buildApproval({ status: ApprovalStatuses.APPROVED }),
-    );
-
-    await expect(
-      service.submit(
-        'approval-1',
-        {
-          reason: 'submit',
-        },
-        {
-          ...actor,
-          userId: 'maker-1',
-        },
-      ),
-    ).rejects.toBeInstanceOf(BadRequestException);
   });
 
   it('blocks maker and checker from being the same user', async () => {
@@ -835,35 +767,6 @@ describe('ApprovalsService', () => {
         },
       ],
       ...overrides,
-    });
-
-    it('提交审批写 APPROVAL_SUBMITTED，PRIMARY 是审批单、业务对象是 RELATED', async () => {
-      const draft = buildApproval({
-        status: ApprovalStatuses.DRAFT,
-        createdByUserId: actor.userId,
-      });
-      prisma.approvalCase.findUnique.mockResolvedValue(draft);
-      prisma.approvalCase.update.mockResolvedValue(
-        buildApproval({ status: ApprovalStatuses.PENDING, createdByUserId: actor.userId }),
-      );
-
-      await service.submit('approval-1', { reason: 'please review' }, actor);
-
-      const call = auditLogsService.recordByActor.mock.calls.find(
-        (c: any[]) => c[0].action === 'APPROVAL_SUBMITTED',
-      );
-      expect(call).toBeDefined();
-      expect(call[0].actionDomain).toBe('APPROVAL');
-      expect(call[0].primarySubjectNo).toBe(draft.approvalNo);
-      expect(call[0].subjects).toEqual(
-        expect.arrayContaining([
-          expect.objectContaining({ subjectRole: 'PRIMARY', subjectNo: draft.approvalNo }),
-          expect.objectContaining({ subjectRole: 'RELATED' }),
-        ]),
-      );
-      expect(
-        call[0].subjects.filter((s: any) => s.subjectRole === 'PRIMARY'),
-      ).toHaveLength(1);
     });
 
     it('中间票的 fromStatus/toStatus 留空——审批单状态未变', async () => {

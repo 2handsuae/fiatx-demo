@@ -47,8 +47,8 @@ export class ApprovalsController {
   // create()/submit() HTTP handlers retired (Task 4, D7) — zero HTTP callers found;
   // every internal workflow opens/submits cases via ApprovalsService.createAndSubmit()
   // directly (service-to-service), not through this controller. The underlying
-  // ApprovalsService.create()/submit() methods are left as-is (out of this task's
-  // scope — see task-4-report.md).
+  // ApprovalsService.create()/submit() methods had no other callers either and have
+  // since been removed too (see task-4-report.md).
 
   @Post(':id/approve')
   @ApiOperation({ summary: 'Approve an approval case' })
