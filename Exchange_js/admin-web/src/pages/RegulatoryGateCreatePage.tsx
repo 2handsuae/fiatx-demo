@@ -7,12 +7,10 @@ import { getRegistryDetailPath } from './governanceRegistryConfig';
 
 type GateType =
   | 'CONTROL_CHANGE'
-  | 'REGULATED_APPOINTMENT_CHANGE'
-  | 'CLIENT_BANK_ACCOUNT_ENABLEMENT';
+  | 'REGULATED_APPOINTMENT_CHANGE';
 type SubjectType =
   | 'SHAREHOLDING_REGISTRY_VERSION'
-  | 'APPOINTMENT_RECORD'
-  | 'WALLET';
+  | 'APPOINTMENT_RECORD';
 
 type SubjectOption = {
   id: string;
@@ -23,7 +21,6 @@ type SubjectOption = {
 const GATE_TYPE_OPTIONS: GateType[] = [
   'CONTROL_CHANGE',
   'REGULATED_APPOINTMENT_CHANGE',
-  'CLIENT_BANK_ACCOUNT_ENABLEMENT',
 ];
 
 const parseMetadataJson = (value: string) => {
@@ -46,7 +43,6 @@ const parseMetadataJson = (value: string) => {
 const deriveGateType = (subjectType: string | null): GateType | '' => {
   if (subjectType === 'SHAREHOLDING_REGISTRY_VERSION') return 'CONTROL_CHANGE';
   if (subjectType === 'APPOINTMENT_RECORD') return 'REGULATED_APPOINTMENT_CHANGE';
-  if (subjectType === 'WALLET') return 'CLIENT_BANK_ACCOUNT_ENABLEMENT';
   return '';
 };
 
@@ -62,8 +58,7 @@ const RegulatoryGateCreatePage = () => {
   const lockedSubject =
     Boolean(prefilledSubjectId) &&
     (prefilledSubjectType === 'SHAREHOLDING_REGISTRY_VERSION' ||
-      prefilledSubjectType === 'APPOINTMENT_RECORD' ||
-      prefilledSubjectType === 'WALLET');
+      prefilledSubjectType === 'APPOINTMENT_RECORD');
 
   const [formData, setFormData] = useState({
     gateType: GATE_TYPE_OPTIONS.includes(prefilledGateType as GateType)
@@ -93,9 +88,7 @@ const RegulatoryGateCreatePage = () => {
   const activeSubjectType: SubjectType =
     formData.gateType === 'CONTROL_CHANGE'
       ? 'SHAREHOLDING_REGISTRY_VERSION'
-      : formData.gateType === 'REGULATED_APPOINTMENT_CHANGE'
-        ? 'APPOINTMENT_RECORD'
-        : 'WALLET';
+      : 'APPOINTMENT_RECORD';
 
   const backPath = useMemo(() => {
     if (lockedSubject && prefilledSubjectId && prefilledSubjectType === 'SHAREHOLDING_REGISTRY_VERSION') {
@@ -103,9 +96,6 @@ const RegulatoryGateCreatePage = () => {
     }
     if (lockedSubject && prefilledSubjectId && prefilledSubjectType === 'APPOINTMENT_RECORD') {
       return getRegistryDetailPath('appointments', prefilledSubjectId);
-    }
-    if (lockedSubject && prefilledSubjectId && prefilledSubjectType === 'WALLET') {
-      return `/dashboard/treasury/wallets/${prefilledSubjectId}`;
     }
     return '/admin/registries/regulatory-gates';
   }, [lockedSubject, prefilledSubjectId, prefilledSubjectType]);
@@ -122,9 +112,7 @@ const RegulatoryGateCreatePage = () => {
         const endpoint =
           formData.gateType === 'CONTROL_CHANGE'
             ? `${import.meta.env.VITE_API_URL}/admin/governance/registries/shareholding-versions?take=200`
-            : formData.gateType === 'REGULATED_APPOINTMENT_CHANGE'
-              ? `${import.meta.env.VITE_API_URL}/admin/governance/registries/appointments?take=200`
-              : `${import.meta.env.VITE_API_URL}/wallets?take=200&walletRole=CUST_BANK`;
+            : `${import.meta.env.VITE_API_URL}/admin/governance/registries/appointments?take=200`;
         const response = await adminFetch(endpoint);
         if (!response.ok) {
           throw new Error(await getApiErrorMessage(response, 'Failed to load registry candidates.'));
@@ -139,19 +127,13 @@ const RegulatoryGateCreatePage = () => {
                 subjectNo: String(item.registryNo || item.subjectNo || item.id),
                 summary: `${String(item.versionLabel || 'Unlabeled version')} · ${String(item.status || '-')}`,
               }))
-            : formData.gateType === 'REGULATED_APPOINTMENT_CHANGE'
-              ? items
-                  .filter((item) => Boolean(item.regulatedFlag))
-                  .map((item) => ({
-                    id: String(item.id),
-                    subjectNo: String(item.appointmentNo || item.subjectNo || item.id),
-                    summary: `${String(item.roleType || 'Role')} · ${String(item.personName || 'Unknown person')}`,
-                  }))
-                : items.map((item) => ({
-                    id: String(item.id),
-                    subjectNo: String(item.walletNo || item.subjectNo || item.id),
-                    summary: `${String(item.walletRole || 'Wallet')} · ${String(((item.asset as { code?: string } | undefined)?.code) || item.assetId || '-')}`,
-                  }));
+            : items
+                .filter((item) => Boolean(item.regulatedFlag))
+                .map((item) => ({
+                  id: String(item.id),
+                  subjectNo: String(item.appointmentNo || item.subjectNo || item.id),
+                  summary: `${String(item.roleType || 'Role')} · ${String(item.personName || 'Unknown person')}`,
+                }));
         setSubjectOptions(nextOptions);
         setFormData((prev) => ({
           ...prev,
@@ -204,10 +186,8 @@ const RegulatoryGateCreatePage = () => {
 
       if (formData.gateType === 'CONTROL_CHANGE') {
         payload.shareholdingRegistryVersionId = formData.subjectId;
-      } else if (formData.gateType === 'REGULATED_APPOINTMENT_CHANGE') {
-        payload.appointmentRecordId = formData.subjectId;
       } else {
-        payload.walletId = formData.subjectId;
+        payload.appointmentRecordId = formData.subjectId;
       }
 
       const response = await adminFetch(

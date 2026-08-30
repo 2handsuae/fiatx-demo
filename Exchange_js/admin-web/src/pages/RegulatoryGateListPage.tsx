@@ -161,7 +161,6 @@ const RegulatoryGateListPage = () => {
             <option value="">All Gate Types</option>
             <option value="CONTROL_CHANGE">CONTROL_CHANGE</option>
             <option value="REGULATED_APPOINTMENT_CHANGE">REGULATED_APPOINTMENT_CHANGE</option>
-            <option value="CLIENT_BANK_ACCOUNT_ENABLEMENT">CLIENT_BANK_ACCOUNT_ENABLEMENT</option>
           </select>
           <select
             value={filters.subjectType}
@@ -171,7 +170,6 @@ const RegulatoryGateListPage = () => {
             <option value="">All Subject Types</option>
             <option value="SHAREHOLDING_REGISTRY_VERSION">SHAREHOLDING_REGISTRY_VERSION</option>
             <option value="APPOINTMENT_RECORD">APPOINTMENT_RECORD</option>
-            <option value="WALLET">WALLET</option>
           </select>
           <input
             value={filters.subjectNo}
