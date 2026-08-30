@@ -68,16 +68,15 @@
 - KYT 类型判定 `kyt-txn-type.resolver.ts → resolveKytTxnType()`（crypto ∧ VASP ∧ 金额≥阈值 → travelRule；阈值写死：AED 3500 / USDT 1000，边界取 ≥）
 - SLA `deposit-sla.service.ts`（按"进入状态"计时；COMPLIANCE_PENDING 5 分钟硬线 / ACTION_PENDING 7 天）
 - 补料 `material_requests` 材料账驱动（下发/提交/裁决闭环，见 V2 篇）；客户端独立补料页内嵌 Sumsub SDK
-- Sumsub 接入 `sumsub-ingestion/ → ingest()/dispatch()`（webhook 统一入口按事件×域路由）；演示裁决 `SUMSUB_MOCK_MODE=true` 时注册的 verdict runner（⚡10 按钮）
+- Sumsub 接入 `sumsub-ingestion/ → ingest()/dispatch()`（webhook 统一入口按事件×域路由）；演示裁决 `SUMSUB_MOCK_MODE=true` 时注册的 verdict runner（⚡11 按钮，三域同源共享表 `sumsub-shared/verdict-buttons.shared.ts`）
 - 资金单镜像与逐腿记账机制 → 见 funds-orders 篇 / accounting-coa 篇
 
 ## 6. 演示缺口（BACKLOG 有账，挑演示可见的）
 
 - **技术性失败（FAILED）无反向分录**——好在 FAILED 只收"钱没到"的单，账本无余额可退；讲清语义即可
 - **法币两分支没做**：汇款人名义不符、银行退汇（bounce）都无入口——法币异常只能讲链上的
-- **挂起单不会自动复活**：客户解限后单子不自己动，需运营手动处置
 - **小额的计次自动冻结、自动没收 cron 未做**——现在都是手动处置
 - **CONFISCATING 重试耗尽后无手动重触发出口**——红旗standing但只能等 Phase 4 补口子
 - **三条弧在客户流水里都误标成"没收"**（kind 字段未分弧）——演示退回/上缴时别开客户流水页对照
-- **仿真按钮⑨（SLA 超时）与真 SLA 痕迹不一致**；翻案后原命中证据被覆写无历史留档
+- **翻案后原命中证据被覆写无历史留档**（原命中即拒的按钮不再单独占一格——⚡ 面板已统一成三域同码同义的 11 键表，见 `modules/v6-swap.md` 与 `PRODUCTION-NOTES.md`）
 - **行政级挂起的"重走合规"承诺是空的**（waive 后不会真回炉）——待业主拍板

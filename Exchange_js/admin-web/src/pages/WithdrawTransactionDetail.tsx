@@ -34,27 +34,10 @@ import {
 } from '../utils/withdrawStatusMap';
 import { adminButtonClass } from '../components/common/adminButtonStyles';
 import { useSimulationMode } from '../utils/simulationMode';
+import { SimulationPanel } from '../components/SimulationPanel';
 import MaterialRequestPanel from '../components/MaterialRequestPanel';
 
 /* ── Types ──────────────────────────────────────────────────── */
-
-/* 10 个单步裁决按钮,与充值版镜像(去掉充值独有的 below-min)。key/label 必须与后端
-   src/modules/withdraw-sumsub/fixtures/verdict-buttons.ts 的 WITHDRAW_VERDICT_BUTTONS
-   逐一对齐 —— 这里没有自动化断言(admin-web 暂无测试基建),改动任一侧务必同步改另一侧,
-   否则 operator 会点不出新场景。 */
-const WITHDRAW_VERDICT_BUTTONS: Array<{ key: string; label: string }> = [
-  { key: 'V1_APPROVED', label: '① Approved' },
-  { key: 'V2_AWAIT_USER', label: '② Awaiting user' },
-  { key: 'V3_AWAIT_USER_PEP', label: '③ Awaiting user · PEP' },
-  { key: 'V4_REJECTED_SANCTION_APPLICANT', label: '④ Rejected · Sanctions（客户本人）' },
-  { key: 'V4B_REJECTED_SANCTION_COUNTERPARTY', label: '④B Rejected · Sanctions（对手方）' },
-  { key: 'V5_REJECTED_FROZEN_MLRO', label: '⑤ Rejected · MLRO freeze' },
-  { key: 'V6_REJECTED_REFUND_TAG', label: '⑥ Rejected · Refund tag' },
-  { key: 'V7_REJECTED_NO_TAG', label: '⑦ Rejected · no disposition tag' },
-  { key: 'V8_ONHOLD', label: '⑧ On hold' },
-  { key: 'V9_REJECTED_SLA', label: '⑨ Rejected · SLA breach' },
-  { key: 'V10_AWAIT_USER_MULTI', label: '⑩ Awaiting user · 多条' },
-];
 
 /* 硬抄件。同步源：src/modules/trading/withdraw-transactions/withdraw-workflow.service.ts
    的 WithdrawWorkflowService.KYT_VERDICT_TERMINAL_STATUSES。
@@ -191,8 +174,6 @@ const WithdrawTransactionDetail = () => {
   const [isBounceModalOpen, setIsBounceModalOpen] = useState(false);
   const [bounceReason, setBounceReason] = useState('');
   const { enabled: simEnabled } = useSimulationMode();
-  const [simSubmitting, setSimSubmitting] = useState<string | null>(null);
-  const [simError, setSimError] = useState('');
   const [slaSubmitting, setSlaSubmitting] = useState(false);
   const [slaError, setSlaError] = useState('');
 
@@ -224,39 +205,6 @@ const WithdrawTransactionDetail = () => {
     copyToClipboard(text);
     setCopiedField(field);
     setTimeout(() => setCopiedField(null), 2000);
-  };
-
-  /* ── Demo verdict handler (SUMSUB_MOCK_MODE-gated backend endpoint) ── */
-
-  const handleRunVerdict = async (verdict: string) => {
-    if (!id) return;
-    setSimSubmitting(verdict);
-    setSimError('');
-    try {
-      const response = await adminFetch(
-        `${import.meta.env.VITE_API_URL}/admin/withdraw-sumsub/demo/run-verdict`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ withdrawId: id, verdict }),
-        },
-      );
-      if (!response.ok) {
-        if (response.status === 404) {
-          setSimError('Demo endpoint unavailable — backend SUMSUB_MOCK_MODE is off.');
-        } else {
-          setSimError(await getApiErrorMessage(response, 'Verdict run failed.'));
-        }
-        return;
-      }
-      setNotice(`Verdict ${verdict} fed — withdrawal refreshed`);
-      await fetchData();
-    } catch (error) {
-      if (error instanceof AdminSessionError) return;
-      setSimError(error instanceof Error ? error.message : 'Verdict run failed.');
-    } finally {
-      setSimSubmitting(null);
-    }
   };
 
   /* ── Frozen disposition handlers (unfreeze / sanction refund — maker-checker) ── */
@@ -621,38 +569,12 @@ const WithdrawTransactionDetail = () => {
           {/* 9. Simulation (demo only — gated by the local simulation-mode
               toggle, independent of the backend SUMSUB_MOCK_MODE flag) */}
           {simEnabled && (
-            <DetailCard title="⚡ Simulation" columns={1}>
-              <p className="font-mono text-[11px] text-adm-t3">
-                Feeds ONE Sumsub KYT verdict webhook into the real ingestion
-                pipeline. The report is generated to match this withdrawal's actual
-                Sumsub txn type. Requires SUMSUB_MOCK_MODE on the backend.
-              </p>
-              <p className="font-mono text-[11px] text-adm-amber">
-                Verdicts are atomic — chain them freely (e.g. ② then ①, or ⑦ then ⑤).
-              </p>
-              <p className="font-mono text-[11px] text-adm-t3">
-                ⑨ only posts a rejected verdict tagged SLA_BREACH — it does not
-                drive the real SLA timer (WithdrawSlaService); same code path as ⑦.
-              </p>
-              {isWithdrawVerdictIgnored(data.status) && (
-                <p className="font-mono text-[11px] text-adm-amber">
-                  本单已进终态/处置态，投递的裁决会被后端记录但不改状态。
-                </p>
-              )}
-              {simError && <p className="text-[11px] text-adm-red">{simError}</p>}
-              <div className="flex flex-wrap gap-2">
-                {WITHDRAW_VERDICT_BUTTONS.map((s) => (
-                  <button
-                    key={s.key}
-                    disabled={simSubmitting !== null || isWithdrawVerdictIgnored(data.status)}
-                    onClick={() => handleRunVerdict(s.key)}
-                    className={adminButtonClass('simulationAction')}
-                  >
-                    {simSubmitting === s.key ? 'Running...' : s.label}
-                  </button>
-                ))}
-              </div>
-            </DetailCard>
+            <SimulationPanel
+              domain="withdraw"
+              orderId={data.id}
+              disabled={isWithdrawVerdictIgnored(data.status)}
+              onDone={() => void fetchData()}
+            />
           )}
         </div>
 

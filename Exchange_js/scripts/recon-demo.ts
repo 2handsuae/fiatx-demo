@@ -58,6 +58,7 @@ import { WalletReconRunService } from '../src/modules/clearing-settle/reconcilia
 import { WalletBalanceCheckerService } from '../src/modules/clearing-settle/reconciliation/engine/v2/wallet-balance-checker.service';
 import { TbEvidenceService } from '../src/modules/accounting/tigerbeetle/tb-evidence.service';
 import { FundsOrderService } from '../src/modules/funds-orders/funds-order.service';
+import { TERMINAL_STATUSES } from '../src/modules/funds-orders/constants/funds-order-transitions.constant';
 import { WithdrawQuoteService } from '../src/modules/trading/withdrawal-fee-level/withdraw-quote.service';
 import { WithdrawTransactionsService } from '../src/modules/trading/withdraw-transactions/withdraw-transactions.service';
 import { WithdrawWorkflowService } from '../src/modules/trading/withdraw-transactions/withdraw-workflow.service';
@@ -636,11 +637,50 @@ async function injectScenarios(
   const [s2Plan, s3Plan, s4Plan, s6Plan, s8Plan] = picks;
 
   // ── FIRM wallet pick (scenarios 5+7 — shared wallet, hedged pair) ──────
-  const firmCandidates = [...plans]
+  // Exclude any FIRM wallet that is already the from/to side of a non-terminal
+  // funds_order. This always includes scenario 1's OWN stuck withdraw created
+  // just above: createStuckWithdraw drives a REAL 2-leg withdrawal, and leg 2
+  // (the fee) lands on a FIRM wallet — e.g. E.INCOME_OTHER — and stays
+  // non-terminal right alongside the stuck main leg, every single break run.
+  // A pre-existing non-terminal withdrawal seeded by the business roster
+  // (e.g. #20, "卡在半路（对账用）") trips the same check the same way.
+  // Scenarios 5+7 only inject ghost ORPHAN_EXTERNAL lines expecting a
+  // SOFT_FLAG bucket — but a wallet that already carries a real non-terminal
+  // funds order also produces an IN_TRANSIT line, and the engine correctly
+  // reclassifies "orphan + in-transit on the same wallet" as BREAK. That
+  // silently fails #5/#7 without the engine being wrong — it breaks the
+  // disjoint-wallet premise this whole generator depends on (see file-header
+  // comment). Same TERMINAL_STATUSES the engine's own Pass 3 (in-transit
+  // matching) treats as "still open".
+  const firmCandidatesAll = [...plans]
     .filter((p) => p.walletKind === 'FIRM')
     .sort((a, b) => a.walletRef.localeCompare(b.walletRef));
+  const firmWalletIds = firmCandidatesAll.map((p) => p.walletRef);
+  const openFundsOrders = firmWalletIds.length
+    ? ((await (prisma as any).fundsOrder.findMany({
+        where: {
+          status: { notIn: Array.from(TERMINAL_STATUSES) },
+          OR: [
+            { fromWalletId: { in: firmWalletIds } },
+            { toWalletId: { in: firmWalletIds } },
+          ],
+        },
+        select: { fromWalletId: true, toWalletId: true },
+      })) as Array<{ fromWalletId: string | null; toWalletId: string | null }>)
+    : [];
+  const dirtyFirmWalletIds = new Set(
+    openFundsOrders.flatMap((r) => [r.fromWalletId, r.toWalletId]).filter((id): id is string => !!id),
+  );
+  const firmCandidates = firmCandidatesAll.filter((p) => !dirtyFirmWalletIds.has(p.walletRef));
   if (firmCandidates.length === 0) {
-    throw new Error('Need ≥1 FIRM wallet for scenarios 5+7 — seed firm-side activity.');
+    throw new Error(
+      firmCandidatesAll.length === 0
+        ? 'Need ≥1 FIRM wallet for scenarios 5+7 — seed firm-side activity.'
+        : `All ${firmCandidatesAll.length} FIRM wallet(s) already carry a non-terminal funds order ` +
+          `(e.g. an in-transit withdraw fee leg) — none left clean for scenarios 5+7. Refusing to ` +
+          `silently reuse a dirty wallet (it would mask #5/#7 as BREAK instead of SOFT_FLAG). Seed a ` +
+          `FIRM wallet with crossing flows but no open funds_orders, or clear the stray non-terminal order.`,
+    );
   }
   const s5s7Plan = firmCandidates[0];
 

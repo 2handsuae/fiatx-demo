@@ -4,7 +4,7 @@ import { SwapKytVerdictHandler } from './swap-kyt-verdict.handler';
 import { SwapApplicantActionHandler } from './applicant-action.handler';
 import { SwapSlaService } from './swap-sla.service';
 import { SwapTransactionsModule } from '../trading/swap-transactions/swap-transactions.module';
-import { SumsubTxnClientModule } from '../deposit-sumsub/sumsub-txn-client.module';
+import { SumsubTxnClientModule } from '../sumsub-shared/sumsub-txn-client.module';
 import { CustomersModule } from '../identity/customers/customers.module';
 import { MaterialRequestsModule } from '../identity/material-requests/material-requests.module';
 

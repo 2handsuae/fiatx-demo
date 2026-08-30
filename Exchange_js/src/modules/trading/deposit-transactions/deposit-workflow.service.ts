@@ -9,6 +9,7 @@ import {
 } from './dto/deposit-transaction.dto';
 import { DepositStatusChangedEvent } from './events/deposit-transaction.events';
 import type { SceneTag } from '../../deposit-sumsub/deposit-kyt-verdict.handler';
+import type { DispoTag } from '../../sumsub-shared/scene-tags';
 import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import { CustomerAccessService } from '../../identity/customers/customer-access.service';
 import {
@@ -31,7 +32,7 @@ import { WithdrawalAddressService } from '../../asset-treasury/withdrawal-addres
 import {
   SUMSUB_TXN_CLIENT,
   SumsubTxnClient,
-} from '../../deposit-sumsub/sumsub-txn-client.interface';
+} from '../../sumsub-shared/sumsub-txn-client.interface';
 import { resolveKytTxnType } from '../../deposit-sumsub/kyt-txn-type.resolver';
 import { ApprovalsService } from '../../governance/approvals/approvals.service';
 import { ApprovalDecidedEvent } from '../../governance/approvals/approval-handler.base';
@@ -512,7 +513,7 @@ export class DepositWorkflowService implements OnModuleInit {
       verdict: 'approved' | 'rejected' | 'awaitUser' | 'onHold';
       riskScore?: number | null;
       sceneTag?: SceneTag;
-      dispoTag?: 'FROZEN_BY_MLRO' | 'RETURN_TO_SENDER';
+      dispoTag?: DispoTag;
       detailRaw?: unknown;
       applicantActions?: { applicantActionId: string; externalActionId: string }[];
     },
@@ -644,7 +645,7 @@ export class DepositWorkflowService implements OnModuleInit {
    */
   private async recordVerdictIgnored(
     deposit: any,
-    v: { verdict: string; riskScore?: number | null; sceneTag?: SceneTag; dispoTag?: 'FROZEN_BY_MLRO' | 'RETURN_TO_SENDER' },
+    v: { verdict: string; riskScore?: number | null; sceneTag?: SceneTag; dispoTag?: DispoTag },
     status: DepositTransactionStatus,
   ): Promise<void> {
     await this.depositAudit(deposit, {
@@ -803,6 +804,7 @@ export class DepositWorkflowService implements OnModuleInit {
     const { added, retired } = await this.applicantActions.syncApplicantActions(
       deposit.id,
       incoming,
+      sceneTag,
     );
 
     // I1 修复(反直觉,细说原因):两个 Sumsub client 在
@@ -846,7 +848,8 @@ export class DepositWorkflowService implements OnModuleInit {
       return;
     }
 
-    const manualReason = sceneTag === 'PEP' ? 'EDD_PEP' : 'CLIENT_ACTION';
+    const manualReason =
+      sceneTag === 'PEP_APPLICANT' || sceneTag === 'PEP_COUNTERPARTY' ? 'EDD_PEP' : 'CLIENT_ACTION';
     const oldStatus = deposit.status;
     // slaDeadline/slaBreached 不在这里写:进入 ACTION_PENDING 由 updateStatus
     // 内部的 resolveSlaFields 统一算,这里再传会覆盖收口处刚算好的值。
@@ -904,7 +907,7 @@ export class DepositWorkflowService implements OnModuleInit {
   private async applyKytRejected(
     deposit: any,
     sceneTag?: SceneTag,
-    dispoTag?: 'FROZEN_BY_MLRO' | 'RETURN_TO_SENDER',
+    dispoTag?: DispoTag,
   ) {
     const isApplicantSanction = sceneTag === 'SANCTION_APPLICANT';
     if (
@@ -2904,6 +2907,70 @@ export class DepositWorkflowService implements OnModuleInit {
           );
         }
       }
+    }
+  }
+
+  /**
+   * 材料审过 → 把这笔充值推回合规重跑。
+   *
+   * modules/v4-deposit.md §状态表写的是 COMPLIANCE_PENDING ⇄ ACTION_PENDING
+   * （补齐回炉）——这条回边转移表里一直有（RESUME），但 2026-08-29 之前没有
+   * 任何人触发它：本域只听上面的 CUSTOMER_RESTRICTION_OPENED（便签开启），
+   * 单向。便签开了接得住（冻单），便签解了不知道；材料补齐同理——撕便签的
+   * 事件本域压根没听。
+   *
+   * 「补料后重跑合规」与「运营看着办直接放行」在合规演示里是两回事：后者是
+   * approveDeposit 白名单含 ACTION_PENDING 带来的人工出路，不能当成前者。
+   *
+   * 只有 GREEN（outcome === 'APPROVED'）回炉——RETRY/FINAL 都还没审过，单子
+   * 该留在原地等（材料账 MaterialRequestReviewService 的既有口径：三条结局
+   * 共用一句原则「只有 GREEN 撕便签」，回炉同理只认 GREEN）。
+   *
+   * 失败不上抛（@OnEvent 里抛没人接），与本域其它 listener 同款口径——但只
+   * 兜"回炉这件事失败了"，域/结局判定留在 try 外面，不吞掉真正的判断错误。
+   */
+  @OnEvent(DomainEventNames.MATERIAL_REQUEST_REVIEWED, { async: true })
+  async onMaterialRequestReviewed(event: {
+    requestNo: string;
+    customerId: string;
+    orderDomain: string | null;
+    orderRef: string | null;
+    outcome: string;
+    traceId?: string;
+  }): Promise<void> {
+    // 铁律③：各管各的。别人域的材料请求与本域无关。
+    if (event.orderDomain !== 'DEPOSIT' || !event.orderRef) return;
+    // 只有 GREEN 回炉 —— RETRY/FINAL 都还没审过，单子该留在原地等。
+    if (event.outcome !== 'APPROVED') return;
+
+    try {
+      const deposit = await this.depositService.findByNo(event.orderRef);
+      if (!deposit) return;
+      if (deposit.status !== DepositTransactionStatus.ACTION_PENDING) {
+        this.logger.log(
+          `Material ${event.requestNo} approved but deposit ${event.orderRef} is ` +
+          `${deposit.status} (not ACTION_PENDING) — late review, nothing to resume`,
+        );
+        return;
+      }
+
+      const updated = await this.depositService.updateStatus(deposit.id, {
+        action: DepositTransactionAction.RESUME,
+        reason: `Material request ${event.requestNo} reviewed GREEN — back to compliance for re-screening`,
+      });
+
+      await this.depositAudit(deposit, {
+        action: 'DEPOSIT_MATERIAL_APPROVED_RESUMED',
+        fromStatus: DepositTransactionStatus.ACTION_PENDING,
+        toStatus: updated.status,
+        reason: `Material request ${event.requestNo} reviewed GREEN — deposit resumed to COMPLIANCE_PENDING for re-screening`,
+        metadata: { requestNo: event.requestNo },
+      });
+    } catch (e) {
+      this.logger.warn(
+        `onMaterialRequestReviewed failed for ${event.requestNo}: ` +
+        `${e instanceof Error ? e.message : String(e)}`,
+      );
     }
   }
 

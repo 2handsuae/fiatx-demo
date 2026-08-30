@@ -1015,24 +1015,30 @@ describe('WithdrawWorkflowService.applyKytVerdict (Task 5: verdict-driven state 
   });
 
   describe('awaitUser branch — atomic extraData (manualReason only; SLA 由收口处的 resolveSlaFields 统一算)', () => {
-    it('sceneTag=PEP → manualReason=EDD_PEP, single atomic updateStatus call, extraData 不带 slaDeadline/slaBreached', async () => {
-      const { workflow, withdrawService } = buildFullWorkflow();
-      withdrawService.findOneInternal.mockResolvedValue(
-        baseWithdrawRow({ status: WithdrawTransactionStatus.COMPLIANCE_PENDING }),
-      );
+    // 2026-08-29：PEP 分主体（PEP_APPLICANT 客户本人 / PEP_COUNTERPARTY 对手方），
+    // 两个新按钮都必须落 EDD_PEP —— 此前 handler 本地词表只认裸 'PEP'，A2 拆分后
+    // 两个新值都不在词表里，manualReason 恒判 CLIENT_ACTION（真实演错行为，A3 修复）。
+    it.each(['PEP_APPLICANT', 'PEP_COUNTERPARTY'] as const)(
+      'sceneTag=%s → manualReason=EDD_PEP, single atomic updateStatus call, extraData 不带 slaDeadline/slaBreached',
+      async (sceneTag) => {
+        const { workflow, withdrawService } = buildFullWorkflow();
+        withdrawService.findOneInternal.mockResolvedValue(
+          baseWithdrawRow({ status: WithdrawTransactionStatus.COMPLIANCE_PENDING }),
+        );
 
-      await workflow.applyKytVerdict('wd-sumsub-1', { verdict: 'awaitUser', sceneTag: 'PEP' });
+        await workflow.applyKytVerdict('wd-sumsub-1', { verdict: 'awaitUser', sceneTag });
 
-      expect(withdrawService.updateStatus).toHaveBeenCalledTimes(1);
-      const [, dto, ctx] = withdrawService.updateStatus.mock.calls[0];
-      expect(dto.action).toBe(WithdrawTransactionAction.ACTION_PENDING);
-      expect((ctx as any).extraData.manualReason).toBe('EDD_PEP');
-      // 2026-08-21 第三批：进入 ACTION_PENDING 的 slaDeadline/slaBreached 由
-      // updateStatus 内部的 resolveSlaFields(收口处)统一算,extraData 不再带这两个 key
-      // ——否则会覆盖收口处刚算好的值。
-      expect((ctx as any).extraData).not.toHaveProperty('slaDeadline');
-      expect((ctx as any).extraData).not.toHaveProperty('slaBreached');
-    });
+        expect(withdrawService.updateStatus).toHaveBeenCalledTimes(1);
+        const [, dto, ctx] = withdrawService.updateStatus.mock.calls[0];
+        expect(dto.action).toBe(WithdrawTransactionAction.ACTION_PENDING);
+        expect((ctx as any).extraData.manualReason).toBe('EDD_PEP');
+        // 2026-08-21 第三批：进入 ACTION_PENDING 的 slaDeadline/slaBreached 由
+        // updateStatus 内部的 resolveSlaFields(收口处)统一算,extraData 不再带这两个 key
+        // ——否则会覆盖收口处刚算好的值。
+        expect((ctx as any).extraData).not.toHaveProperty('slaDeadline');
+        expect((ctx as any).extraData).not.toHaveProperty('slaBreached');
+      },
+    );
 
     it('no sceneTag (general) → manualReason=CLIENT_ACTION', async () => {
       const { workflow, withdrawService } = buildFullWorkflow();
@@ -1109,7 +1115,7 @@ describe('WithdrawWorkflowService.applyKytVerdict (Task 5: verdict-driven state 
     });
   });
 
-  describe('rejected branch — tag three-way (SANCTION_COUNTERPARTY/FROZEN_BY_MLRO → FREEZE; REJECT_REFUND → REJECTED+releaseLock; no tag → MANUAL_CHECKING)', () => {
+  describe('rejected branch — tag three-way (SANCTION_COUNTERPARTY/FROZEN_BY_MLRO → FREEZE; FINAL_REJECTED → REJECTED+releaseLock; no tag → MANUAL_CHECKING)', () => {
     it('sceneTag=SANCTION_COUNTERPARTY from COMPLIANCE_PENDING → FREEZE + audits WITHDRAW_FROZEN', async () => {
       const { workflow, withdrawService, auditLogsService, customerRestrictionsService } = buildFullWorkflow();
       withdrawService.findOneInternal.mockResolvedValue(
@@ -1306,7 +1312,7 @@ describe('WithdrawWorkflowService.applyKytVerdict (Task 5: verdict-driven state 
       );
     });
 
-    it('dispoTag=REJECT_REFUND from MANUAL_CHECKING → REJECT_REFUND action + releaseLock (void both pending) + REFUNDED 落地行(标签路,携解锁事实)', async () => {
+    it('dispoTag=FINAL_REJECTED from MANUAL_CHECKING → REJECT_REFUND action + releaseLock (void both pending) + REFUNDED 落地行(标签路,携解锁事实)', async () => {
       const { workflow, withdrawService, auditLogsService, accountingService } = buildFullWorkflow();
       withdrawService.findOneInternal.mockResolvedValue(
         baseWithdrawRow({
@@ -1316,7 +1322,7 @@ describe('WithdrawWorkflowService.applyKytVerdict (Task 5: verdict-driven state 
         }),
       );
 
-      await workflow.applyKytVerdict('wd-sumsub-1', { verdict: 'rejected', dispoTag: 'REJECT_REFUND' });
+      await workflow.applyKytVerdict('wd-sumsub-1', { verdict: 'rejected', dispoTag: 'FINAL_REJECTED' });
 
       expect(withdrawService.updateStatus).toHaveBeenCalledWith(
         'wd-sumsub-1',
@@ -1335,7 +1341,7 @@ describe('WithdrawWorkflowService.applyKytVerdict (Task 5: verdict-driven state 
     });
 
     // Review Fix 1 (Critical): REJECT_REFUND must not bypass the FROZEN maker-checker.
-    it('dispoTag=REJECT_REFUND from FROZEN → full no-op (no status change, no releaseLock) + WITHDRAW_KYT_VERDICT_IGNORED audit', async () => {
+    it('dispoTag=FINAL_REJECTED from FROZEN → full no-op (no status change, no releaseLock) + WITHDRAW_KYT_VERDICT_IGNORED audit', async () => {
       const { workflow, withdrawService, auditLogsService, accountingService } = buildFullWorkflow();
       withdrawService.findOneInternal.mockResolvedValue(
         baseWithdrawRow({
@@ -1345,7 +1351,7 @@ describe('WithdrawWorkflowService.applyKytVerdict (Task 5: verdict-driven state 
         }),
       );
 
-      await workflow.applyKytVerdict('wd-sumsub-1', { verdict: 'rejected', dispoTag: 'REJECT_REFUND' });
+      await workflow.applyKytVerdict('wd-sumsub-1', { verdict: 'rejected', dispoTag: 'FINAL_REJECTED' });
 
       expect(withdrawService.updateStatus).not.toHaveBeenCalled();
       expect(accountingService.voidPendingTransferBestEffort).not.toHaveBeenCalled();
@@ -1366,13 +1372,13 @@ describe('WithdrawWorkflowService.applyKytVerdict (Task 5: verdict-driven state 
 
     // Review Fix 1: REJECT_REFUND has no transition edge from COMPLIANCE_PENDING/
     // ACTION_PENDING — land on KYT_REJECTED (→ MANUAL_CHECKING) instead of throwing.
-    it('dispoTag=REJECT_REFUND from COMPLIANCE_PENDING → lands KYT_REJECTED (MANUAL_CHECKING), no releaseLock', async () => {
+    it('dispoTag=FINAL_REJECTED from COMPLIANCE_PENDING → lands KYT_REJECTED (MANUAL_CHECKING), no releaseLock', async () => {
       const { workflow, withdrawService, accountingService } = buildFullWorkflow();
       withdrawService.findOneInternal.mockResolvedValue(
         baseWithdrawRow({ status: WithdrawTransactionStatus.COMPLIANCE_PENDING }),
       );
 
-      await workflow.applyKytVerdict('wd-sumsub-1', { verdict: 'rejected', dispoTag: 'REJECT_REFUND' });
+      await workflow.applyKytVerdict('wd-sumsub-1', { verdict: 'rejected', dispoTag: 'FINAL_REJECTED' });
 
       expect(withdrawService.updateStatus).toHaveBeenCalledWith(
         'wd-sumsub-1',
@@ -1441,7 +1447,7 @@ describe('WithdrawWorkflowService.applyKytVerdict (Task 5: verdict-driven state 
       );
 
       await expect(
-        workflow.applyKytVerdict('wd-sumsub-1', { verdict: 'awaitUser', sceneTag: 'PEP' }),
+        workflow.applyKytVerdict('wd-sumsub-1', { verdict: 'awaitUser', sceneTag: 'PEP_APPLICANT' }),
       ).resolves.toBeUndefined();
 
       expect(withdrawService.updateStatus).not.toHaveBeenCalled();
@@ -1471,7 +1477,9 @@ describe('WithdrawWorkflowService.applyKytVerdict (Task 5: verdict-driven state 
 
       await (workflow as any).applyKytAwaitUser(w, undefined, ACTIONS);
 
-      expect(applicantActions.syncApplicantActions).toHaveBeenCalledWith(w.id, ACTIONS);
+      // 2026-08-29 Task A4：sceneTag 现在原样透传给 syncApplicantActions（第三参），
+      // 便签挂谁由 tag 决定——本用例的 sceneTag 是 undefined，故这里也传 undefined。
+      expect(applicantActions.syncApplicantActions).toHaveBeenCalledWith(w.id, ACTIONS, undefined);
       expect(withdrawService.updateStatus).toHaveBeenCalledTimes(1);
       const [, dto, ctx] = withdrawService.updateStatus.mock.calls[0];
       expect(dto.action).toBe(WithdrawTransactionAction.ACTION_PENDING);
@@ -1521,23 +1529,26 @@ describe('WithdrawWorkflowService.applyKytVerdict (Task 5: verdict-driven state 
       expect(auditLogsService.recordSystem).not.toHaveBeenCalled();
     });
 
-    it('MANUAL_CHECKING → ACTION_PENDING 跨状态弧:extraData 只携人工复核原因(slaDeadline/slaBreached 由收口处的 resolveSlaFields 统一算)', async () => {
-      const { workflow, withdrawService, applicantActions } = buildFullWorkflow();
-      const w = baseWithdrawRow({ status: WithdrawTransactionStatus.MANUAL_CHECKING });
-      applicantActions.syncApplicantActions.mockResolvedValue({ added: [1], retired: [] });
-      applicantActions.hasOutstanding.mockResolvedValue(true);
+    it.each(['PEP_APPLICANT', 'PEP_COUNTERPARTY'] as const)(
+      'MANUAL_CHECKING → ACTION_PENDING 跨状态弧,sceneTag=%s:extraData 只携人工复核原因(slaDeadline/slaBreached 由收口处的 resolveSlaFields 统一算)',
+      async (sceneTag) => {
+        const { workflow, withdrawService, applicantActions } = buildFullWorkflow();
+        const w = baseWithdrawRow({ status: WithdrawTransactionStatus.MANUAL_CHECKING });
+        applicantActions.syncApplicantActions.mockResolvedValue({ added: [1], retired: [] });
+        applicantActions.hasOutstanding.mockResolvedValue(true);
 
-      await (workflow as any).applyKytAwaitUser(w, 'PEP', ACTIONS);
+        await (workflow as any).applyKytAwaitUser(w, sceneTag, ACTIONS);
 
-      expect(withdrawService.updateStatus).toHaveBeenCalledTimes(1);
-      const [, dto, ctx] = withdrawService.updateStatus.mock.calls[0];
-      expect(dto.action).toBe(WithdrawTransactionAction.ACTION_PENDING);
-      expect((ctx as any).extraData).toEqual(
-        expect.objectContaining({ manualReason: 'EDD_PEP' }),
-      );
-      expect((ctx as any).extraData).not.toHaveProperty('slaDeadline');
-      expect((ctx as any).extraData).not.toHaveProperty('slaBreached');
-    });
+        expect(withdrawService.updateStatus).toHaveBeenCalledTimes(1);
+        const [, dto, ctx] = withdrawService.updateStatus.mock.calls[0];
+        expect(dto.action).toBe(WithdrawTransactionAction.ACTION_PENDING);
+        expect((ctx as any).extraData).toEqual(
+          expect.objectContaining({ manualReason: 'EDD_PEP' }),
+        );
+        expect((ctx as any).extraData).not.toHaveProperty('slaDeadline');
+        expect((ctx as any).extraData).not.toHaveProperty('slaBreached');
+      },
+    );
 
     it('FROZEN:子表仍同步,但不推进状态(no ACTION_PENDING edge)', async () => {
       const { workflow, withdrawService, applicantActions } = buildFullWorkflow();
@@ -1546,7 +1557,9 @@ describe('WithdrawWorkflowService.applyKytVerdict (Task 5: verdict-driven state 
 
       await (workflow as any).applyKytAwaitUser(w, undefined, ACTIONS);
 
-      expect(applicantActions.syncApplicantActions).toHaveBeenCalledWith(w.id, ACTIONS);
+      // 2026-08-29 Task A4：sceneTag 现在原样透传给 syncApplicantActions（第三参），
+      // 便签挂谁由 tag 决定——本用例的 sceneTag 是 undefined，故这里也传 undefined。
+      expect(applicantActions.syncApplicantActions).toHaveBeenCalledWith(w.id, ACTIONS, undefined);
       expect(withdrawService.updateStatus).not.toHaveBeenCalled();
     });
   });
@@ -3054,5 +3067,115 @@ describe('WithdrawWorkflowService — onCustomerRestrictionOpened 批量冻单�
     warnSpy.mockRestore();
     debugSpy.mockRestore();
     errorSpy.mockRestore();
+  });
+});
+
+describe('WithdrawWorkflowService.onMaterialRequestReviewed — 材料审过后提现单回炉 (B3)', () => {
+  const actionPendingWithdraw = (overrides: Record<string, unknown> = {}) => ({
+    id: 'wd-mr-1',
+    withdrawNo: 'WD-MR-001',
+    status: WithdrawTransactionStatus.ACTION_PENDING,
+    ownerType: 'CUSTOMER',
+    ownerId: 'cust-mr-1',
+    traceId: 'trace-mr-1',
+    ...overrides,
+  });
+
+  const reviewedEvent = (overrides: Record<string, unknown> = {}) => ({
+    requestNo: 'MRQ-1',
+    customerId: 'cust-mr-1',
+    orderDomain: 'WITHDRAW',
+    orderRef: 'WD-MR-001',
+    outcome: 'APPROVED',
+    traceId: 'trace-evt-1',
+    ...overrides,
+  });
+
+  function buildWorkflow() {
+    const withdrawService = {
+      findByNo: jest.fn(),
+      updateStatus: jest.fn(),
+    };
+    const auditLogsService = { recordSystem: jest.fn().mockResolvedValue({}) };
+    const workflow = new WithdrawWorkflowService(
+      {} as any, // prisma
+      {} as any, // eventEmitter
+      withdrawService as any,
+      {} as any, // withdrawQuoteService
+      auditLogsService as any,
+      {} as any, // accountingService
+      {} as any, // fundsOrders
+      {} as any, // approvalsService
+      {} as any, // binanceRateProvider
+      {} as any, // systemWalletResolver
+      {} as any, // tbEvidenceService
+      {} as any, // limitGateService
+      {} as any, // limitRulesService
+      {} as any, // sumsubTxnClient
+      {} as any, // applicantActions
+      {} as any, // customerAccessService
+      {} as any, // customerRestrictionsService
+      {} as any, // l1Gate
+    );
+    return { workflow, withdrawService, auditLogsService };
+  }
+
+  it('GREEN + 单在 ACTION_PENDING → RESUME 回 COMPLIANCE_PENDING 并写审计留痕', async () => {
+    const { workflow, withdrawService, auditLogsService } = buildWorkflow();
+    const w = actionPendingWithdraw();
+    withdrawService.findByNo.mockResolvedValue(w);
+    withdrawService.updateStatus.mockResolvedValue({ status: WithdrawTransactionStatus.COMPLIANCE_PENDING });
+
+    await workflow.onMaterialRequestReviewed(reviewedEvent());
+
+    expect(withdrawService.findByNo).toHaveBeenCalledWith('WD-MR-001');
+    expect(withdrawService.updateStatus).toHaveBeenCalledWith(
+      'wd-mr-1',
+      expect.objectContaining({ action: WithdrawTransactionAction.RESUME }),
+    );
+    expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: AuditActions.WITHDRAW_MATERIAL_APPROVED_RESUMED,
+        primarySubjectNo: 'WD-MR-001',
+        fromStatus: WithdrawTransactionStatus.ACTION_PENDING,
+        toStatus: WithdrawTransactionStatus.COMPLIANCE_PENDING,
+      }),
+    );
+  });
+
+  it('不是本域的事件（orderDomain=DEPOSIT）→ 一动不动（铁律③各管各的）', async () => {
+    const { workflow, withdrawService, auditLogsService } = buildWorkflow();
+
+    await workflow.onMaterialRequestReviewed(
+      reviewedEvent({ orderDomain: 'DEPOSIT', orderRef: 'DEP-123' }),
+    );
+
+    expect(withdrawService.findByNo).not.toHaveBeenCalled();
+    expect(withdrawService.updateStatus).not.toHaveBeenCalled();
+    expect(auditLogsService.recordSystem).not.toHaveBeenCalled();
+  });
+
+  it.each(['RETRY', 'REJECTED'])(
+    '%s → 单留在 ACTION_PENDING（只有 GREEN 回炉）',
+    async (outcome) => {
+      const { workflow, withdrawService, auditLogsService } = buildWorkflow();
+
+      await workflow.onMaterialRequestReviewed(reviewedEvent({ outcome }));
+
+      expect(withdrawService.findByNo).not.toHaveBeenCalled();
+      expect(withdrawService.updateStatus).not.toHaveBeenCalled();
+      expect(auditLogsService.recordSystem).not.toHaveBeenCalled();
+    },
+  );
+
+  it('单已不在 ACTION_PENDING（迟到的复核）→ no-op，不抛，不改状态', async () => {
+    const { workflow, withdrawService, auditLogsService } = buildWorkflow();
+    const w = actionPendingWithdraw({ status: WithdrawTransactionStatus.PAYOUT_PENDING });
+    withdrawService.findByNo.mockResolvedValue(w);
+
+    await expect(workflow.onMaterialRequestReviewed(reviewedEvent())).resolves.toBeUndefined();
+
+    expect(withdrawService.updateStatus).not.toHaveBeenCalled();
+    expect(auditLogsService.recordSystem).not.toHaveBeenCalled();
   });
 });

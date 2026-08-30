@@ -1,8 +1,9 @@
-import { BadRequestException, Body, Controller, Post, Req, UseGuards } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, Post, Req, UseGuards } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { AdminPermissionGuard } from '../identity/access-control/admin-permission.guard';
 import { SwapDemoScenarioService } from './demo-scenario.service';
+import { SWAP_VERDICT_BUTTONS } from './fixtures/verdict-buttons';
 
 /**
  * Task 9, mirror of AdminDepositDemoController / AdminWithdrawDemoController
@@ -36,5 +37,15 @@ export class AdminSwapDemoController {
       actorRole: req.user?.role,
     };
     return this.demoScenarioService.runVerdict(body.swapId, body.verdict, actor);
+  }
+
+  @Get('verdict-buttons')
+  @ApiOperation({ summary: '列出本域可用的裁决按钮（demo only）—— 前端据此渲染 ⚡ 面板' })
+  listVerdictButtons(@Req() req: any) {
+    return {
+      buttons: Object.values(SWAP_VERDICT_BUTTONS).map((b) => ({
+        key: b.key, label: b.label, source: b.source,
+      })),
+    };
   }
 }

@@ -1,8 +1,8 @@
 import { DepositKytVerdictHandler } from './deposit-kyt-verdict.handler';
 import { DepositWorkflowService } from '../trading/deposit-transactions/deposit-workflow.service';
 import { DepositTransactionsService } from '../trading/deposit-transactions/deposit-transactions.service';
-import { SumsubTxnClient } from './sumsub-txn-client.interface';
-import { SumsubTxnDetail } from './sumsub-txn.types';
+import { SumsubTxnClient } from '../sumsub-shared/sumsub-txn-client.interface';
+import { SumsubTxnDetail } from '../sumsub-shared/sumsub-txn.types';
 
 describe('DepositKytVerdictHandler', () => {
   let workflow: jest.Mocked<DepositWorkflowService>;
@@ -93,8 +93,8 @@ describe('DepositKytVerdictHandler', () => {
     });
   });
 
-  it('AwaitingUser + getTxn returns [PEP] → verdict=awaitUser, sceneTag=PEP, detailRaw 透传', async () => {
-    const detail = txnDetail([{ label: 'PEP' }]);
+  it('AwaitingUser + getTxn returns [PEP_APPLICANT] → verdict=awaitUser, sceneTag=PEP_APPLICANT, detailRaw 透传', async () => {
+    const detail = txnDetail([{ label: 'PEP_APPLICANT' }]);
     sumsubTxnClient.getTxn.mockResolvedValue(detail);
 
     await handler.handle({ type: 'applicantKytTxnAwaitingUser', kytTxnId: 'T1' });
@@ -103,14 +103,14 @@ describe('DepositKytVerdictHandler', () => {
     expect(workflow.applyKytVerdict).toHaveBeenCalledWith(DEPOSIT_ID, {
       verdict: 'awaitUser',
       riskScore: 87,
-      sceneTag: 'PEP',
+      sceneTag: 'PEP_APPLICANT',
       detailRaw: detail.raw,
     });
   });
 
   it('AwaitingUser + getTxn returns applicantActions → 透传进 applyKytVerdict 第二参数(此前误删两行测不出来)', async () => {
     const actions = [{ applicantActionId: 'aa-1', externalActionId: 'EXT-1' }];
-    const detail = txnDetail([{ label: 'PEP' }], 87, actions);
+    const detail = txnDetail([{ label: 'PEP_APPLICANT' }], 87, actions);
     sumsubTxnClient.getTxn.mockResolvedValue(detail);
 
     await handler.handle({ type: 'applicantKytTxnAwaitingUser', kytTxnId: 'T1' });
@@ -118,7 +118,7 @@ describe('DepositKytVerdictHandler', () => {
     expect(workflow.applyKytVerdict).toHaveBeenCalledWith(DEPOSIT_ID, {
       verdict: 'awaitUser',
       riskScore: 87,
-      sceneTag: 'PEP',
+      sceneTag: 'PEP_APPLICANT',
       detailRaw: detail.raw,
       applicantActions: actions,
     });
@@ -216,10 +216,10 @@ describe('DepositKytVerdictHandler', () => {
     );
   });
 
-  it('COUNTERPARTY 与 PEP 同时命中时 COUNTERPARTY 优先（不受报文顺序影响）', async () => {
+  it('COUNTERPARTY 与 PEP_APPLICANT 同时命中时 COUNTERPARTY 优先（不受报文顺序影响）', async () => {
     for (const order of [
-      ['SANCTION_COUNTERPARTY', 'PEP'],
-      ['PEP', 'SANCTION_COUNTERPARTY'],
+      ['SANCTION_COUNTERPARTY', 'PEP_APPLICANT'],
+      ['PEP_APPLICANT', 'SANCTION_COUNTERPARTY'],
     ]) {
       sumsubTxnClient.getTxn.mockResolvedValue(txnDetail(order.map((label) => ({ label }))));
       await handler.handle({ type: 'applicantKytTxnRejected', kytTxnId: 'T1' });
@@ -228,5 +228,29 @@ describe('DepositKytVerdictHandler', () => {
         expect.objectContaining({ sceneTag: 'SANCTION_COUNTERPARTY' }),
       );
     }
+  });
+
+  describe('SceneTag 优先级（四档，收紧优先）', () => {
+    const cases: Array<[string[], string]> = [
+      [['PEP_COUNTERPARTY', 'PEP_APPLICANT'], 'PEP_APPLICANT'],
+      [['PEP_APPLICANT', 'SANCTION_COUNTERPARTY'], 'SANCTION_COUNTERPARTY'],
+      [['SANCTION_COUNTERPARTY', 'SANCTION_APPLICANT'], 'SANCTION_APPLICANT'],
+      [['SANCTION_APPLICANT', 'PEP_COUNTERPARTY'], 'SANCTION_APPLICANT'],
+    ];
+
+    it.each(cases)('typedTags=%j → sceneTag=%s（与报文顺序无关）', async (tags, expected) => {
+      sumsubTxnClient.getTxn.mockResolvedValue(txnDetail(tags.map((label) => ({ label }))));
+      await handler.handle({ type: 'applicantKytTxnRejected', kytTxnId: 'T1' });
+      const forward = workflow.applyKytVerdict.mock.calls[0][1] as { sceneTag?: string };
+
+      sumsubTxnClient.getTxn.mockResolvedValue(
+        txnDetail([...tags].reverse().map((label) => ({ label }))),
+      );
+      await handler.handle({ type: 'applicantKytTxnRejected', kytTxnId: 'T1' });
+      const reversed = workflow.applyKytVerdict.mock.calls[1][1] as { sceneTag?: string };
+
+      expect(forward.sceneTag).toBe(expected);
+      expect(reversed.sceneTag).toBe(expected);
+    });
   });
 });

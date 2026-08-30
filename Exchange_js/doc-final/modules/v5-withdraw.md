@@ -23,21 +23,21 @@
 
 **SLA 四格，两硬两软。** 等 Sumsub 裁决 5 分钟、等客户补料 7 天——到点硬转人工复核；人工复核 3 天、大额待审批 1 天——**到点只标红不推状态**："等自己人"的单不该被系统自动毙掉，红标是给运营看的催办信号。
 
-## 2. 状态机（10 状态 / 13 动作 / 21 边，4 个零出边终态）
+## 2. 状态机（10 状态 / 13 动作 / 22 边，4 个零出边终态）
 
 ```
 （大额）→ PENDING_APPROVAL ──批准──→ COMPLIANCE_PENDING（普通单出生态）
                 └─拒绝→ REJECTED            ├─ 通过 → PAYOUT_PENDING ──两腿清算──→ SUCCESS
                                             │            ├─ 本金失败 → FAILED（全额解锁）
                                             │            └─ 退汇 bounce → RETURNED（反向分录）
-                                            ├─ 补料 ⇄ ACTION_PENDING
+                                            ├─ 补料 ⇄ ACTION_PENDING（材料审过 GREEN 自动回炉，2026-08-29 补边）
                                             ├─ 拒绝无标签 / SLA 超时 → MANUAL_CHECKING（翻案/转补料/退款/冻结四出口）
                                             └─ 制裁 / MLRO → FROZEN ──解冻→ 回炉 ｜ ──退款→ REJECTED
 ```
 
 - `PAYOUT_PENDING` **刻意没有冻结入边**：指令已广播，冻不回来——迟到裁决只留证据与红旗
 - 大额单的出生落点是一条**钦定的"出生路由"写**，不在迁移表内——铁律"状态只能沿边走"的已知豁免之一，Phase 4 补边转正或点名豁免
-- 迁移表逐边穷举 + 守则单测锁边数（21），漂移当场被抓
+- 迁移表逐边穷举 + 守则单测锁边数（22，2026-08-29 补 `ACTION_PENDING --RESUME--> COMPLIANCE_PENDING` 一条前是 21——充值侧这条回炉边一直有，提现侧此前缺），漂移当场被抓
 
 ## 3. 决策点与角色
 
@@ -64,7 +64,7 @@
 ## 5. 关键技术节点（≤30 行）
 
 - 工作流 `trading/withdraw-transactions/withdraw-workflow.service.ts`：`initiatePayoutPhase()`（两腿创建：本金 legSeq=1 / 费 legSeq=2）｜ `decideVerdictLanding()` 三档（IGNORE / EVIDENCE_ONLY / DISPATCH——FROZEN 一律 IGNORE 保护制裁证据；PAYOUT_PENDING 只留证据）｜ `initiateUnfreeze()/initiateRefund()`（双弧开案）+ `on*Approved()`（执行）｜ `onBounce()`（退汇，先账后状态）｜ `assertCustomerComplianceOrFreeze()`（客户级合规闸，三处接入）｜ `withdrawAudit()`（站2-β 统一留痕信封：25 码名册见 audit-actions.constant V5 表）
-- 状态机 `withdraw-transactions.service.ts → transitions`（21 边 + 守则单测）；大额出生路由是表外钦定写（注释成文）
+- 状态机 `withdraw-transactions.service.ts → transitions`（22 边 + 守则单测）；大额出生路由是表外钦定写（注释成文）
 - 解锁原语 `releaseLock()`（净额+费两笔 pending 一起 void——"拒绝即解锁"的物理形态，提现/退款/失败三处共用）
 - 客户面防线 `getWithdrawStatusView()`（FROZEN/MANUAL_CHECKING/PENDING_APPROVAL 逐字段收敛成 PROCESSING）+ `toCustomerWithdrawView()`（调查性字段白名单裁剪）+ 违禁词单测全态零命中
 - SLA `WITHDRAW_SLA_MINUTES_BY_STATUS` 四格（5 分钟/7 天硬；3 天/1 天软）｜ `withdraw-sumsub/withdraw-sla.service.ts`

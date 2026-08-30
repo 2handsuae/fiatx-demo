@@ -337,53 +337,67 @@ describe('规则① 同一模块显示逻辑一致 · ⚡ Simulation（Task 7 + 
     expect(w.match(/_VERDICT_TERMINAL_STATUSES = new Set\(\[([^\]]*)\]/)?.[1]).not.toContain('PAYOUT_PENDING');
   });
 
-  /* Important #3（Task 7 审查）：以上几条只查判据的静态定义，从没验证过 JSX 里的
-     disabled 属性、说明文案的渲染条件真的接到这些判据上 —— 审查跑了 7 个变异实测：
-     三域各自把 disabled 里的谓词去掉、参数换成写死的 ''、删整段文案、改文案字、
-     条件取反，以上断言全绿。下面三条把"接线"本身钉死。 */
-  it('Simulation 按钮的 disabled 真的接到自家判据上（不是被摘掉/参数被换掉）', () => {
-    const disabledAttrOf = (file: string): string => {
-      /* 用 `simSubmitting !== null` 定位 —— 这行文本在各文件里只在 Simulation
-         按钮的 disabled 上出现一次，其余 disabled 都不含它，不会认错目标。 */
-      const m = srcOf(file).match(/disabled=\{\s*simSubmitting !== null[^}]*\}/);
-      if (!m) throw new Error(`${file}: 找不到 Simulation 按钮的 disabled 属性`);
-      return m[0];
+  /* Important #3（Task 7 审查）：以上几条只查判据的静态定义，从没验证过 disabled
+     属性、说明文案的渲染条件真的接到这些判据上 —— 审查跑了 7 个变异实测：三域各自
+     把 disabled 里的谓词去掉、参数换成写死的 ''、删整段文案、改文案字、条件取反，
+     以上断言全绿。下面把“接线”本身钉死。
+
+     2026-08-29 三域面板抽成共享组件 SimulationPanel（Task 8）后，三份重复的按钮
+     JSX 没了，下面两条跟着改形：
+       · disabled 的判据接线——原来读按钮 disabled 属性，现在读 `<SimulationPanel
+         ... disabled={...} />` 调用处传的是哪个表达式，逐域校验没被摘掉/换掉。
+       · 说明文案的渲染条件——原来要三域各查一遍「文案条件 == 判据本身」，现在
+         按钮置灰与说明文案共用 SimulationPanel 内部唯一一处 `props.disabled &&`
+         接线，三域结构上不可能分叉，故只需校验 SimulationPanel 自身这一处即可，
+         不必再逐页重复钉；判据是否传对了由上一条测试负责。
+     文案内容本身（IGNORED_MSG）原样搬进了 SimulationPanel，没删没改字，仍然钉。 */
+  it('SimulationPanel 的 disabled prop 真的接到自家判据上（不是被摘掉/参数被换掉）', () => {
+    const disabledPropOf = (file: string): string => {
+      const tag = srcOf(file).match(/<SimulationPanel[\s\S]*?\/>/)?.[0];
+      if (!tag) throw new Error(`${file}: 找不到 <SimulationPanel ... />`);
+      const m = tag.match(/disabled=\{([^}]*)\}/);
+      if (!m) throw new Error(`${file}: SimulationPanel 调用处缺 disabled 属性`);
+      return m[1];
     };
-    expect(disabledAttrOf(DETAIL_PAGES.DEPOSIT)).toContain('isDepositVerdictIgnored(data.status)');
-    expect(disabledAttrOf(DETAIL_PAGES.WITHDRAW)).toContain('isWithdrawVerdictIgnored(data.status)');
-    const swapAttr = disabledAttrOf(DETAIL_PAGES.SWAP);
-    /* 兑换是**取反**接线（白名单：不在 COMPLIANCE_PENDING 就灰），且必须给 ⑦⑧
-       人级键留豁免 —— 否则 BACKLOG「⑦⑧ 在被拒单上无 UI 入口」等于没解。 */
-    expect(swapAttr).toContain('!isSwapVerdictActionable(data.status)');
-    expect(swapAttr).toContain('SWAP_PERSON_LEVEL_KEYS.has(s.key)');
+    expect(disabledPropOf(DETAIL_PAGES.DEPOSIT)).toBe('isDepositVerdictIgnored(data.status)');
+    expect(disabledPropOf(DETAIL_PAGES.WITHDRAW)).toBe('isWithdrawVerdictIgnored(data.status)');
+    // 兑换是**取反**接线（白名单：不在 COMPLIANCE_PENDING 就灰）。
+    expect(disabledPropOf(DETAIL_PAGES.SWAP)).toBe('!isSwapVerdictActionable(data.status)');
   });
 
-  it('说明文案的渲染条件就是自家判据本身（充值/提现正接、兑换取反）', () => {
-    expect(srcOf(DETAIL_PAGES.DEPOSIT)).toMatch(/\{isDepositVerdictIgnored\(data\.status\) && \(/);
-    expect(srcOf(DETAIL_PAGES.DEPOSIT)).not.toMatch(/\{!isDepositVerdictIgnored/);
-    expect(srcOf(DETAIL_PAGES.WITHDRAW)).toMatch(/\{isWithdrawVerdictIgnored\(data\.status\) && \(/);
-    expect(srcOf(DETAIL_PAGES.WITHDRAW)).not.toMatch(/\{!isWithdrawVerdictIgnored/);
-    // 兑换是白名单，所以文案挂在**取反**上；正接会把话说反（可投时反而提示不可投）
-    expect(srcOf(DETAIL_PAGES.SWAP)).toMatch(/\{!isSwapVerdictActionable\(data\.status\) && \(/);
+  /* Important（2026-08-29 抽组件审查）：上一条只钉住"页面传给 SimulationPanel 的
+     disabled 表达式对不对"，没人测过"SimulationPanel 收到 props.disabled 后是否
+     真接到了 <button> 的 disabled 属性上"——抽组件前测试直接从页面 JSX 抓按钮的
+     disabled 属性，一次性验证了判据→实际按钮整条链路；抽组件把这条链路拆成了
+     两截，中间这一截漏了。已变异实测：把 SimulationPanel.tsx 里
+     `disabled={props.disabled || busy !== null}` 改成 `disabled={busy !== null}`
+     （丢掉 props.disabled），tsc 和上面这条断言照样全绿，实际后果是终态订单的
+     按钮变成真能点。这条钉住按钮的 disabled 表达式本身包含 props.disabled。 */
+  it('SimulationPanel 内 <button> 的 disabled 表达式真的接了 props.disabled（不是只剩 busy）', () => {
+    const src = srcOf('../components/SimulationPanel.tsx');
+    const m = src.match(/<button[\s\S]*?disabled=\{([^}]*)\}/);
+    if (!m) throw new Error('SimulationPanel.tsx: 找不到 <button ... disabled={...}>');
+    expect(m[1]).toContain('props.disabled');
   });
 
-  it('说明文案内容没被删、没被改字', () => {
+  it('置灰说明文案的渲染条件是 SimulationPanel 唯一的 props.disabled（三域共用一条接线，结构上不会分叉）', () => {
+    expect(srcOf('../components/SimulationPanel.tsx')).toMatch(/\{props\.disabled && \(/);
+  });
+
+  /* Minor（2026-08-29 抽组件审查）：抽组件前分别检查充值页、提现页两个文件各自
+     含 IGNORED_MSG；抽组件后两域文案合并进 SimulationPanel.tsx 的同一个
+     DISABLED_REASON 记录（deposit / withdraw 两个 key 恰好同值）。已变异实测：
+     把 DISABLED_REASON.withdraw 单独改成另一段完全不同的话（deposit 不动），
+     若只查 IGNORED_MSG 是否在文件里"出现过"，deposit 那份还在、字符串仍找得到，
+     测不出来。这条改成逐 key 校验，deposit / withdraw 各自必须等于 IGNORED_MSG。 */
+  it('置灰说明文案内容按域各自校验，没被删、没被单独改字（随抽组件原样搬进 SimulationPanel）', () => {
     const IGNORED_MSG = '本单已进终态/处置态，投递的裁决会被后端记录但不改状态。';
-    for (const [domain, file] of Object.entries(ORDER_LEVEL_DOMAINS)) {
-      expect([domain, srcOf(file).includes(IGNORED_MSG)]).toEqual([domain, true]);
-    }
-    // 兑换的判据不同（单态白名单），文案也另写一句，且必须点明 ⑦⑧ 仍可用
-    const swapMsg = '本单不在待合规状态，①-⑧ 里的裁决键不会推进本单，故置灰；⑦⑧ 作用于客户本人，仍可用。';
-    expect(srcOf(DETAIL_PAGES.SWAP)).toContain(swapMsg);
-  });
-
-  /* Important #1（Task 7 审查）：⑦⑧ 投的是 applicantActionReviewed，作用对象是人
-     不是单，不走 applyKytVerdict —— 终态单上必须点得动，这正是 BACKLOG
-     「⑦⑧ 人级模拟键在被拒单上无 UI 入口」要的入口。 */
-  it('兑换⑦⑧人级键的豁免集合就是 V7_ACTION_GREEN / V8_ACTION_RED', () => {
-    expect(srcOf(DETAIL_PAGES.SWAP)).toContain(
-      "const SWAP_PERSON_LEVEL_KEYS = new Set(['V7_ACTION_GREEN', 'V8_ACTION_RED']);",
-    );
+    const src = srcOf('../components/SimulationPanel.tsx');
+    const body = src.match(/const DISABLED_REASON: Record<Domain, string> = \{([\s\S]*?)\};/)?.[1] ?? '';
+    if (!body) throw new Error('SimulationPanel.tsx: 找不到 DISABLED_REASON');
+    const valueOf = (key: string) => body.match(new RegExp(`${key}:\\s*'([^']*)'`))?.[1];
+    expect(valueOf('deposit')).toBe(IGNORED_MSG);
+    expect(valueOf('withdraw')).toBe(IGNORED_MSG);
   });
 });
 

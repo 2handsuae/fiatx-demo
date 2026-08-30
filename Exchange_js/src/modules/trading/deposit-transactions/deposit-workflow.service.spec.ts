@@ -9,7 +9,7 @@ import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import { AccountingService } from '../../accounting/tigerbeetle/accounting.service';
 import { TbEvidenceService } from '../../accounting/tigerbeetle/tb-evidence.service';
 import { WithdrawalAddressService } from '../../asset-treasury/withdrawal-addresses/withdrawal-address.service';
-import { SUMSUB_TXN_CLIENT } from '../../deposit-sumsub/sumsub-txn-client.interface';
+import { SUMSUB_TXN_CLIENT } from '../../sumsub-shared/sumsub-txn-client.interface';
 import { DepositStatusChangedEvent } from './events/deposit-transaction.events';
 import {
   DepositTransactionStatus,
@@ -129,6 +129,8 @@ describe('DepositWorkflowService', () => {
     depositService = {
       updateStatus: jest.fn().mockResolvedValue({ status: DepositTransactionStatus.SUCCESS }),
       findOne: jest.fn(),
+      // A7：MATERIAL_REQUEST_REVIEWED 回炉 listener 按业务键 orderRef(=depositNo) 查单。
+      findByNo: jest.fn(),
       updateSumsubVerdict: jest.fn(),
       saveTxnDetail: jest.fn().mockResolvedValue(undefined),
       setSlaDeadline: jest.fn().mockResolvedValue(undefined),
@@ -2426,38 +2428,44 @@ describe('DepositWorkflowService', () => {
       );
     });
 
-    it('awaitUser + PEP → ACTION_PENDING with manualReason=EDD_PEP', async () => {
-      const deposit = {
-        id: 'dep-3',
-        depositNo: 'DEP003',
-        status: DepositTransactionStatus.COMPLIANCE_PENDING,
-        ownerType: 'CUSTOMER',
-        ownerId: 'cust-1',
-        traceId: 'trace-3',
-      };
-      depositService.findOne.mockResolvedValue(deposit);
-      depositService.updateStatus.mockResolvedValue({
-        ...deposit,
-        status: DepositTransactionStatus.ACTION_PENDING,
-      });
-      actionsService.hasOutstanding.mockResolvedValue(true); // 同步后仍有未提交行,正常推进(I1 guard)
+    // 2026-08-29：PEP 分主体（PEP_APPLICANT 客户本人 / PEP_COUNTERPARTY 对手方），
+    // 两个新按钮都必须落 EDD_PEP —— 此前 handler 本地词表只认裸 'PEP'，A2 拆分后
+    // 两个新值都不在词表里，manualReason 恒判 CLIENT_ACTION（真实演错行为，A3 修复）。
+    it.each(['PEP_APPLICANT', 'PEP_COUNTERPARTY'] as const)(
+      'awaitUser + sceneTag=%s → ACTION_PENDING with manualReason=EDD_PEP',
+      async (sceneTag) => {
+        const deposit = {
+          id: 'dep-3',
+          depositNo: 'DEP003',
+          status: DepositTransactionStatus.COMPLIANCE_PENDING,
+          ownerType: 'CUSTOMER',
+          ownerId: 'cust-1',
+          traceId: 'trace-3',
+        };
+        depositService.findOne.mockResolvedValue(deposit);
+        depositService.updateStatus.mockResolvedValue({
+          ...deposit,
+          status: DepositTransactionStatus.ACTION_PENDING,
+        });
+        actionsService.hasOutstanding.mockResolvedValue(true); // 同步后仍有未提交行,正常推进(I1 guard)
 
-      await service.applyKytVerdict('dep-3', { verdict: 'awaitUser', sceneTag: 'PEP' });
+        await service.applyKytVerdict('dep-3', { verdict: 'awaitUser', sceneTag });
 
-      // 2026-08-21 第三批：slaDeadline/slaBreached 不再由这里的 extraData 传——
-      // 进入 ACTION_PENDING 时由 updateStatus 内部的 resolveSlaFields 统一算
-      // (收口处),extraData 只带 manualReason + actionSubmittedAt 的清空。
-      expect(depositService.updateStatus).toHaveBeenCalledWith(
-        'dep-3',
-        expect.objectContaining({ action: DepositTransactionAction.ACTION_PENDING }),
-        expect.objectContaining({
-          extraData: {
-            manualReason: 'EDD_PEP',
-          },
-        }),
-      );
-      expect(depositService.setSlaDeadline).not.toHaveBeenCalled();
-    });
+        // 2026-08-21 第三批：slaDeadline/slaBreached 不再由这里的 extraData 传——
+        // 进入 ACTION_PENDING 时由 updateStatus 内部的 resolveSlaFields 统一算
+        // (收口处),extraData 只带 manualReason + actionSubmittedAt 的清空。
+        expect(depositService.updateStatus).toHaveBeenCalledWith(
+          'dep-3',
+          expect.objectContaining({ action: DepositTransactionAction.ACTION_PENDING }),
+          expect.objectContaining({
+            extraData: {
+              manualReason: 'EDD_PEP',
+            },
+          }),
+        );
+        expect(depositService.setSlaDeadline).not.toHaveBeenCalled();
+      },
+    );
 
     it('awaitUser without PEP → manualReason=CLIENT_ACTION', async () => {
       const deposit = {
@@ -2908,7 +2916,7 @@ describe('DepositWorkflowService', () => {
       });
       actionsService.hasOutstanding.mockResolvedValue(true); // 客户仍有未提交行,不是 I1 那种死角
 
-      await service.applyKytVerdict('dep-11', { verdict: 'awaitUser', sceneTag: 'PEP' });
+      await service.applyKytVerdict('dep-11', { verdict: 'awaitUser', sceneTag: 'PEP_APPLICANT' });
 
       expect(depositService.updateStatus).not.toHaveBeenCalled();
       expect(auditLogsService.recordSystem).not.toHaveBeenCalled();
@@ -3561,7 +3569,9 @@ describe('DepositWorkflowService', () => {
 
       await (service as any).applyKytAwaitUser(dep, undefined, ACTIONS);
 
-      expect(actionsService.syncApplicantActions).toHaveBeenCalledWith('d-1', ACTIONS);
+      // 2026-08-29 Task A4：sceneTag 现在原样透传给 syncApplicantActions（第三参），
+      // 便签挂谁由 tag 决定——本用例的 sceneTag 是 undefined，故这里也传 undefined。
+      expect(actionsService.syncApplicantActions).toHaveBeenCalledWith('d-1', ACTIONS, undefined);
       expect(depositService.updateStatus).toHaveBeenCalled();
       const [, , opts] = depositService.updateStatus.mock.calls[0];
       // 2026-08-21 第三批：extraData 不再带 slaDeadline/slaBreached —— 由
@@ -3705,6 +3715,81 @@ describe('DepositWorkflowService', () => {
       // 不得只打 debug（良性自咬的降级路径不该被触发——updateStatus 本身没抛）。
       expect(debugSpy).not.toHaveBeenCalled();
       expect(warnSpy).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('onMaterialRequestReviewed — 材料审过后充值单回炉 (A7)', () => {
+    const actionPendingDeposit = (overrides: Record<string, unknown> = {}) => ({
+      id: 'dep-mr-1',
+      depositNo: 'DEP-MR-001',
+      status: DepositTransactionStatus.ACTION_PENDING,
+      ownerType: 'CUSTOMER',
+      ownerId: 'cust-mr-1',
+      traceId: 'trace-mr-1',
+      ...overrides,
+    });
+
+    const reviewedEvent = (overrides: Record<string, unknown> = {}) => ({
+      requestNo: 'MRQ-1',
+      customerId: 'cust-mr-1',
+      orderDomain: 'DEPOSIT',
+      orderRef: 'DEP-MR-001',
+      outcome: 'APPROVED',
+      traceId: 'trace-evt-1',
+      ...overrides,
+    });
+
+    it('GREEN + 单在 ACTION_PENDING → RESUME 回 COMPLIANCE_PENDING 并写审计留痕', async () => {
+      const dep = actionPendingDeposit();
+      depositService.findByNo.mockResolvedValue(dep);
+      depositService.updateStatus.mockResolvedValue({ status: DepositTransactionStatus.COMPLIANCE_PENDING });
+
+      await service.onMaterialRequestReviewed(reviewedEvent());
+
+      expect(depositService.findByNo).toHaveBeenCalledWith('DEP-MR-001');
+      expect(depositService.updateStatus).toHaveBeenCalledWith(
+        'dep-mr-1',
+        expect.objectContaining({ action: DepositTransactionAction.RESUME }),
+      );
+      expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: AuditActions.DEPOSIT_MATERIAL_APPROVED_RESUMED,
+          primarySubjectNo: 'DEP-MR-001',
+          fromStatus: DepositTransactionStatus.ACTION_PENDING,
+          toStatus: DepositTransactionStatus.COMPLIANCE_PENDING,
+        }),
+      );
+    });
+
+    it('不是本域的事件（orderDomain=WITHDRAW）→ 一动不动（铁律③各管各的）', async () => {
+      await service.onMaterialRequestReviewed(
+        reviewedEvent({ orderDomain: 'WITHDRAW', orderRef: 'WD-123' }),
+      );
+
+      expect(depositService.findByNo).not.toHaveBeenCalled();
+      expect(depositService.updateStatus).not.toHaveBeenCalled();
+      expect(auditLogsService.recordSystem).not.toHaveBeenCalled();
+    });
+
+    it.each(['RETRY', 'REJECTED'])(
+      '%s → 单留在 ACTION_PENDING（只有 GREEN 回炉）',
+      async (outcome) => {
+        await service.onMaterialRequestReviewed(reviewedEvent({ outcome }));
+
+        expect(depositService.findByNo).not.toHaveBeenCalled();
+        expect(depositService.updateStatus).not.toHaveBeenCalled();
+        expect(auditLogsService.recordSystem).not.toHaveBeenCalled();
+      },
+    );
+
+    it('单已不在 ACTION_PENDING（迟到的复核）→ no-op，不抛，不改状态', async () => {
+      const dep = actionPendingDeposit({ status: DepositTransactionStatus.FROZEN });
+      depositService.findByNo.mockResolvedValue(dep);
+
+      await expect(service.onMaterialRequestReviewed(reviewedEvent())).resolves.toBeUndefined();
+
+      expect(depositService.updateStatus).not.toHaveBeenCalled();
+      expect(auditLogsService.recordSystem).not.toHaveBeenCalled();
     });
   });
 });

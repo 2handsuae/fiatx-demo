@@ -34,27 +34,10 @@ import { NeedsReviewBanner } from '../components/compliance/NeedsReviewBanner';
 import { getDepositStatusMeta } from '../utils/depositStatusMap';
 import { adminButtonClass } from '../components/common/adminButtonStyles';
 import { useSimulationMode } from '../utils/simulationMode';
+import { SimulationPanel } from '../components/SimulationPanel';
 import MaterialRequestPanel from '../components/MaterialRequestPanel';
 
 /* ── Types ──────────────────────────────────────────────────── */
-
-/* 10 个单步裁决按钮(取代旧的 8 个多步剧本)。key/label 必须与后端
-   src/modules/deposit-sumsub/fixtures/verdict-buttons.ts 的 DEPOSIT_VERDICT_BUTTONS
-   逐一对齐 —— 这里没有自动化断言(admin-web 暂无测试基建),改动任一侧务必同步改另一侧,
-   否则 operator 会点不出新场景。 */
-const DEPOSIT_VERDICT_BUTTONS: Array<{ key: string; label: string }> = [
-  { key: 'V1_APPROVED', label: '① Approved' },
-  { key: 'V2_AWAIT_USER', label: '② Awaiting user' },
-  { key: 'V3_AWAIT_USER_PEP', label: '③ Awaiting user · PEP' },
-  { key: 'V4_REJECTED_SANCTION_APPLICANT', label: '④ Rejected · Sanctions（客户本人）' },
-  { key: 'V4B_REJECTED_SANCTION_COUNTERPARTY', label: '④B Rejected · Sanctions（对手方）' },
-  { key: 'V5_REJECTED_FROZEN_MLRO', label: '⑤ Rejected · MLRO freeze' },
-  { key: 'V6_REJECTED_RETURN', label: '⑥ Rejected · MLRO return' },
-  { key: 'V7_REJECTED_NO_TAG', label: '⑦ Rejected · no disposition tag' },
-  { key: 'V8_ONHOLD', label: '⑧ On hold' },
-  { key: 'V9_REJECTED_SLA', label: '⑨ Rejected · SLA breach' },
-  { key: 'V10_AWAIT_USER_MULTI', label: '⑩ Awaiting user · 多条' },
-];
 
 /* 硬抄件（admin-web 有独立 tsconfig，后端那份是 private static，import 不过来）。
    同步源：src/modules/trading/deposit-transactions/deposit-workflow.service.ts
@@ -221,8 +204,6 @@ const DepositTransactionDetail = () => {
   const [unfreezeReason, setUnfreezeReason] = useState('');
   const [unfreezeOrderRef, setUnfreezeOrderRef] = useState('');
   const { enabled: simEnabled } = useSimulationMode();
-  const [simSubmitting, setSimSubmitting] = useState<string | null>(null);
-  const [simError, setSimError] = useState('');
   const [slaSubmitting, setSlaSubmitting] = useState(false);
   const [slaError, setSlaError] = useState('');
 
@@ -254,39 +235,6 @@ const DepositTransactionDetail = () => {
     copyToClipboard(text);
     setCopiedField(field);
     setTimeout(() => setCopiedField(null), 2000);
-  };
-
-  /* ── Demo verdict handler (SUMSUB_MOCK_MODE-gated backend endpoint) ── */
-
-  const handleRunVerdict = async (verdict: string) => {
-    if (!id) return;
-    setSimSubmitting(verdict);
-    setSimError('');
-    try {
-      const response = await adminFetch(
-        `${import.meta.env.VITE_API_URL}/admin/deposit-sumsub/demo/run-verdict`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ depositId: id, verdict }),
-        },
-      );
-      if (!response.ok) {
-        if (response.status === 404) {
-          setSimError('Demo endpoint unavailable — backend SUMSUB_MOCK_MODE is off.');
-        } else {
-          setSimError(await getApiErrorMessage(response, 'Verdict run failed.'));
-        }
-        return;
-      }
-      setNotice(`Verdict ${verdict} fed — deposit refreshed`);
-      await fetchData();
-    } catch (error) {
-      if (error instanceof AdminSessionError) return;
-      setSimError(error instanceof Error ? error.message : 'Verdict run failed.');
-    } finally {
-      setSimSubmitting(null);
-    }
   };
 
   /* ── Below-min disposition handlers ── */
@@ -771,38 +719,12 @@ const DepositTransactionDetail = () => {
           {/* 10. Simulation (demo only — gated by the local simulation-mode
               toggle, independent of the backend SUMSUB_MOCK_MODE flag) */}
           {simEnabled && (
-            <DetailCard title="⚡ Simulation" columns={1}>
-              <p className="font-mono text-[11px] text-adm-t3">
-                Feeds ONE Sumsub KYT verdict webhook into the real ingestion
-                pipeline. The report is generated to match this deposit's actual
-                Sumsub txn type. Requires SUMSUB_MOCK_MODE on the backend.
-              </p>
-              <p className="font-mono text-[11px] text-adm-amber">
-                Verdicts are atomic — chain them freely (e.g. ② then ①, or ⑦ then ⑤).
-              </p>
-              <p className="font-mono text-[11px] text-adm-t3">
-                ⑨ only posts a rejected verdict tagged SLA_BREACH — it does not
-                drive the real SLA timer (DepositSlaService); same code path as ⑦.
-              </p>
-              {isDepositVerdictIgnored(data.status) && (
-                <p className="font-mono text-[11px] text-adm-amber">
-                  本单已进终态/处置态，投递的裁决会被后端记录但不改状态。
-                </p>
-              )}
-              {simError && <p className="text-[11px] text-adm-red">{simError}</p>}
-              <div className="flex flex-wrap gap-2">
-                {DEPOSIT_VERDICT_BUTTONS.map((s) => (
-                  <button
-                    key={s.key}
-                    disabled={simSubmitting !== null || isDepositVerdictIgnored(data.status)}
-                    onClick={() => handleRunVerdict(s.key)}
-                    className={adminButtonClass('simulationAction')}
-                  >
-                    {simSubmitting === s.key ? 'Running...' : s.label}
-                  </button>
-                ))}
-              </div>
-            </DetailCard>
+            <SimulationPanel
+              domain="deposit"
+              orderId={data.id}
+              disabled={isDepositVerdictIgnored(data.status)}
+              onDone={() => void fetchData()}
+            />
           )}
         </div>
 

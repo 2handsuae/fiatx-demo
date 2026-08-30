@@ -11,19 +11,25 @@
 |---|---|
 | 编译 | tsc 后端 ｜ tsc test 配置（tsconfig.test.json）｜ tsc 管理台 ｜ tsc 客户端 |
 | 重铺 | `stack.sh reset main`（含 TigerBeetle 清理重建，全链实跑） |
-| 演示 | demo:setup ｜ demo:deposit ｜ demo:swap ｜ demo:withdraw ｜ demo:in-transit ｜ demo:all（8 场景断言终态） |
-| 对账 | recon:demo:pass ｜ **recon:demo:break 9/9 或 7/9 —— 不稳定，两者都算正常**（2026-08-29 修正：9/9 只在 `demo:all` 没留下卡住的提现费腿时出现；留下了，那条非终态费腿会被在途识别认领掉场景 5/7 的一条对冲幽灵行，两条同时报 MISSED。**不是引擎漏检**，机制与落点见 BACKLOG 同日条目）｜ verify:demo-data |
+| 演示 | demo:setup ｜ demo:deposit ｜ demo:swap ｜ demo:withdraw ｜ demo:in-transit ｜ demo:all（**花名册 21/21 逐条符合预期 + COA 四恒等式**——演示装备一期改判据，见下方操作约束） |
+| 对账 | recon:demo:pass ｜ **recon:demo:break 9/9 全检出**（收官实测；旧基线 7/9 的两处 MISSED 已不复现，旧账已销）｜ verify:demo-data |
 | 账本 | verify:coa —— 两恒等式 + 负余额断言（49 科目全部 ≥ 0）。收官多轮实测**重铺后与 demo:all 后均全绿**；历史上个别含 break 注入的运行轮见过公司 AED 负余额（浮存时序），若复现不算净新红 |
 | 审计 | verify:audit 恒绿七项：Q2 按单据查 ｜ Q4 按客户查 ｜ 不变量①②③（PRIMARY 至多一 / INHERIT 必有旅程号 / 退役码零写入）——三查合同七站换装后的固定资产 |
 | 封册 | audit-vocabulary-closure.spec 四条：平面表归籍 / 六册互斥 / V3 附册冻结快照 / 写点闭合退役词零引用 |
 
-> ⚠️ **重铺前必须先 `stack.sh down <栈>` 停栈，否则 TigerBeetle 清不掉。** `reset-stack.sh` 的 `rm -f` 对运行中进程持有的文件只是 unlink，旧 tigerbeetle 仍在旧 inode 上服务 → SQLite 重铺了、TB 没有 → 客户 UUID 全新使 `CLIENT_PAYABLE` 读 0 而 SYSTEM 口径 `CLIENT_ASSET` 留旧余额（恒等式假红），多轮提现累积还会把公司 AED 打成负数（负余额假红）。2026-08-28 平账一期实测定位——正确顺序：`down` → `reset` → `up`，此后 `demo:all` 完 `verify:coa` 全绿。
+> ⚠️ **重铺前必须先 `stack.sh down <栈>` 停栈，否则 TigerBeetle 清不掉。** `reset-stack.sh` 的 `rm -f` 对运行中进程持有的文件只是 unlink，旧 tigerbeetle 仍在旧 inode 上服务 → SQLite 重铺了、TB 没有 → 客户 UUID 全新使 `CLIENT_PAYABLE` 读 0 而 SYSTEM 口径 `CLIENT_ASSET` 留旧余额（恒等式假红），多轮提现累积还会把公司 AED 打成负数（负余额假红）。2026-08-28 平账一期实测定位——正确顺序：`down` → `reset` → `up`。⚠️ `stack.sh reset` 自己会拉起 TigerBeetle，`up` 之前要先把它 kill 掉，否则 `up` 在 TB 端口上撞车。
 
-> 💡 **`verify:coa` 建议在 `test:e2e recon-adjustment-money-arcs` 之后再跑一次。** 调账单的四种分录组合里，`FIRM`+`REDUCE`（银行杂费）与 `FIRM`+`INCREASE`（银行利息）**只有这支 e2e 会真落账**——`demo:all` 不碰调账。在 e2e 之后跑 `verify:coa`，四种组合各自落账后的恒等式与负余额就都被覆盖了（spec §9 验收第 3 条的要求），零额外成本。2026-08-28 平账一期末站实测：e2e 后 ALL INVARIANTS PASS。
+> 💡 **`verify:coa` 建议在 `test:e2e recon-adjustment-money-arcs` 之后再跑一次。** 调账单的四种分录组合里，`FIRM`+`REDUCE`（银行杂费）与 `FIRM`+`INCREASE`（银行利息）**只有这支 e2e 会真落账**——`demo:all` 不碰调账。在 e2e 之后跑 `verify:coa`，四种组合各自落账后的恒等式与负余额就都被覆盖了。2026-08-28 实测：e2e 后 ALL INVARIANTS PASS。
+
+## demo:all 操作约束（演示装备一期，2026-08-29 起）
+
+`demo:all` 的判据从「8 场景全 SUCCESS」改成了「花名册 21 笔逐条比对预期终态 + COA 四恒等式」——一份丰富的演示数据本来就该有冻结的、没收的、退回的、上缴的、卡在半路的，不是清一色 SUCCESS（详见 `data.md`）。
+
+**由此带出一条硬约束：`demo:all` 必须在全新库上跑，不能在同一个库上连跑两次。** 花名册第 #7/#10/#13 行故意把第四人设 FRANK 造成一个**永久被制裁**的客户（customer-level ALL-scope 限制，本仓库没有任何流程会解开它——这也是刻意的，交易三人组 Alice/Bob/Grace 必须全程可交易，冻结这个不可逆动作只能落在专门"报废"的第四个人身上）。第二次在同一个库上跑 `demo:all`，Gate 0 会（正确地）拒绝 FRANK 的新充值，`runFrankPreStage` 因此卡住直到超时——**这是闸门在正确工作，不是 bug**。正确姿势：`bash scripts/stack.sh reset [main|self]` 重铺出全新库后再跑一次。
 
 ## 红名单（已知旧账，允许持续红）
 
-**jest 全量：4 套 / 8 例失败**（共 **164 套 2092 例**；另 3 skipped / 4 todo）—— 计数于 2026-08-29 平账缺陷修复刷新（+10 例：`effective-cutoff` +5、`wallet-recon-run` 自愈 +2、`adjustment.service` +3；失败清单逐字未变）——
+**jest 全量：4 套 / 8 例失败**（共 **169 套 2139 例**；另 3 skipped / 4 todo）—— 计数于 2026-08-30 平账一期合流后实测刷新（失败清单逐字未变）——
 
 > ⚠️ **本行的红名单只在「跑过全量」时才成立。** 2026-08-28 加密币 ledger 修复（`eaaf5eae`）给 `adjustment.service.onApproved` 加了一次 `asset.findUnique`，却没同步该 describe 的 prisma mock —— 那之后 `adjustment.service.spec.ts` 有 **11 例**一直在 `TypeError: asset.findUnique` 上红着，而当时只验了 e2e（9/9 + 变异验证）没重跑全量，红名单因此漏记了一整套。2026-08-29 已补 mock 修复。**教训：改了服务里的 prisma 调用，e2e 绿不代表单测绿——收尾必须跑一次全量对红名单。**
 

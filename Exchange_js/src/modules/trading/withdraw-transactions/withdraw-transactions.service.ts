@@ -92,8 +92,9 @@ export class WithdrawTransactionsService {
     return String(assetType || '').toUpperCase() === 'FIAT' ? 'fiat' : 'crypto';
   }
 
-  // 状态机收窄(10 状态/13 动作/21 边,定稿于 .superpowers/sdd/task-1-brief.md Step 1;
-  // 2026-08-13 补 PENDING_APPROVAL --freeze--> FROZEN 一条,20→21)。
+  // 状态机收窄(10 状态/13 动作/22 边,定稿于 .superpowers/sdd/task-1-brief.md Step 1;
+  // 2026-08-13 补 PENDING_APPROVAL --freeze--> FROZEN 一条,20→21;2026-08-29 补
+  // ACTION_PENDING --resume--> COMPLIANCE_PENDING 一条(补料回炉),21→22)。
   // 终态集合 TERMINAL = SUCCESS/REJECTED/FAILED/RETURNED,零出边——不再有 SUCCESS→
   // RETURNED 或终态自环(旧表里"for logging"的边全删)。守则性测试见
   // withdraw-transactions.service.spec.ts 的「state machine integrity guard」。
@@ -119,6 +120,10 @@ export class WithdrawTransactionsService {
       [WithdrawTransactionAction.KYT_REJECTED]: WithdrawTransactionStatus.MANUAL_CHECKING,
       [WithdrawTransactionAction.FREEZE]: WithdrawTransactionStatus.FROZEN,
       [WithdrawTransactionAction.SLA_BREACH]: WithdrawTransactionStatus.MANUAL_CHECKING,
+      // 2026-08-29 补料回炉：材料审过（GREEN）→ 回合规重跑一次筛查，而不是让运营
+      // 看着办直接放行。充值侧这条边一直存在（RESUME → COMPLIANCE_PENDING），
+      // 提现侧此前缺，导致 ACTION_PENDING 的提现单在材料审过后永远停在原地。
+      [WithdrawTransactionAction.RESUME]: WithdrawTransactionStatus.COMPLIANCE_PENDING,
     },
     [WithdrawTransactionStatus.MANUAL_CHECKING]: {
       [WithdrawTransactionAction.APPROVE]: WithdrawTransactionStatus.PAYOUT_PENDING,
@@ -420,6 +425,21 @@ export class WithdrawTransactionsService {
     });
     if (!row) throw new NotFoundException('Withdraw transaction not found');
     return this.findOneForCustomer(row.id, customerId);
+  }
+
+  /**
+   * 按业务键 withdrawNo 查单（铁律⑥：跨域协作认业务号,不认内部 id）。
+   * MATERIAL_REQUEST_REVIEWED 域事件只带 orderRef(=withdrawNo)——系统内部
+   * 调用点专用,找不到返回 null（不抛），由调用方决定要不要 no-op。镜像
+   * DepositTransactionsService#findByNo。
+   */
+  async findByNo(withdrawNo: string) {
+    const row = await (this.prisma as any).withdrawTransaction.findUnique({
+      where: { withdrawNo },
+      select: { id: true },
+    });
+    if (!row) return null;
+    return this.findOne(row.id);
   }
 
   /**

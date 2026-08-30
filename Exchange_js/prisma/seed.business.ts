@@ -589,19 +589,26 @@ const DEMO_CUSTOMERS: DemoCustomer[] = [
     lifecycle: 'PROSPECT',
     riskRating: 'LOW', tradingTier: 'BASIC', eddRequired: false,
   },
-  // 1× HIGH risk
+  // 1× HIGH risk —— 也是 demo-roster.ts 花名册的第四人设（FRANK）：花名册故意把他
+  // 驱向永久 SANCTION 冻结（#7/#10/#13/#19），需要 sumsubApplicantId 才能被管理台
+  // 真实 ⚡ 演示按钮驱动，否则会在 Gate 0 的 submitSumsubTxns 处静默跳过（同下面
+  // grace 的缺口一样）——纯确定性 mock id，不打真 Sumsub。
   {
     email: 'demo_frank@example.com', phone: '+15552000006',
     firstName: 'Frank', lastName: 'HighRisk', customerType: 'INDIVIDUAL',
     lifecycle: 'ACTIVE',
     riskRating: 'HIGH', tradingTier: 'BASIC', eddRequired: true,
+    sumsubApplicantId: mockSumsubApplicantId('demo_frank@example.com'),
   },
-  // 1× PREMIUM trading tier
+  // 1× PREMIUM trading tier —— 缺 sumsubApplicantId 时，管理台真实的 ⚡ 演示按钮
+  // 对她会静默失效（Gate 0 warn 后跳过提交，裁决永远匹配不到单据）；补上（纯确定性
+  // mock id，不打真 Sumsub，同 bob/ivy 的做法）。
   {
     email: 'demo_grace@example.com', phone: '+15552000007',
     firstName: 'Grace', lastName: 'Premium', customerType: 'INDIVIDUAL',
     lifecycle: 'ACTIVE',
     riskRating: 'LOW', tradingTier: 'PREMIUM', eddRequired: false,
+    sumsubApplicantId: mockSumsubApplicantId('demo_grace@example.com'),
   },
   // 1× CORPORATE
   {

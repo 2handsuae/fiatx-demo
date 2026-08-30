@@ -71,8 +71,8 @@ import { DepositWorkflowService } from '../src/modules/trading/deposit-transacti
 import { DepositTransactionsService } from '../src/modules/trading/deposit-transactions/deposit-transactions.service';
 import { DepositStatusChangedEvent } from '../src/modules/trading/deposit-transactions/events/deposit-transaction.events';
 import { DepositTransactionStatus } from '../src/modules/trading/deposit-transactions/dto/deposit-transaction.dto';
-import { SUMSUB_TXN_CLIENT } from '../src/modules/deposit-sumsub/sumsub-txn-client.interface';
-import { MockSumsubTxnClient } from '../src/modules/deposit-sumsub/sumsub-txn-client.mock';
+import { SUMSUB_TXN_CLIENT } from '../src/modules/sumsub-shared/sumsub-txn-client.interface';
+import { MockSumsubTxnClient } from '../src/modules/sumsub-shared/sumsub-txn-client.mock';
 import { DepositDemoScenarioService } from '../src/modules/deposit-sumsub/demo-scenario.service';
 import { MaterialRequestsService } from '../src/modules/identity/material-requests/material-requests.service';
 import { AccountingService } from '../src/modules/accounting/tigerbeetle/accounting.service';
@@ -243,9 +243,9 @@ describe('Deposit Sumsub verdict buttons (e2e, Task 9)', () => {
    * 2026-08-18 材料请求账迁移发现：`material_requests.externalActionId` 是
    * **全表** `@unique`（不按客户/单号分段），而 `verdict-buttons.ts` fixture 曾对
    * 同一按钮固定复用同一个字面量（`V2_AWAIT_USER`→`EXT-SOF-0001`、
-   * `V10_AWAIT_USER_MULTI`→`EXT-MULTI-0001..3`）。本 suite 里"补料后通过"
+   * `V5_AWAIT_USER_MULTI`→`EXT-MULTI-0001..3`）。本 suite 里"补料后通过"
    * （原有用例）与"补料完整弧"/"接口不可区分"三条独立用例都会触发
-   * V2_AWAIT_USER，"多条 action"/"逐条不可区分" 都会触发 V10_AWAIT_USER_MULTI——
+   * V2_AWAIT_USER，"多条 action"/"逐条不可区分" 都会触发 V5_AWAIT_USER_MULTI——
    * 旧的专属子表按 `(depositTransactionId, seq)` 去重，
    * 互不冲突；材料账的去重键是全表 `externalActionId`，第二条用例登记同一个
    * 字面量会在 DB 唯一约束上直接 P2002（且不会被重试，`material-requests
@@ -476,20 +476,20 @@ describe('Deposit Sumsub verdict buttons (e2e, Task 9)', () => {
     expect(await statusOf(deposit.id)).toBe(DepositTransactionStatus.SUCCESS);
   });
 
-  it('PEP 补料: ③ → ACTION_PENDING + 报文含 PEP tag', async () => {
+  it('PEP 补料: ③ → ACTION_PENDING + 报文含 PEP_APPLICANT tag', async () => {
     const deposit = await createDeposit({ isCrypto: false, amount: '150.00' });
 
-    await deliver(deposit.id, 'V3_AWAIT_USER_PEP');
+    await deliver(deposit.id, 'V3_AWAIT_USER_PEP_APPLICANT');
 
     expect(await statusOf(deposit.id)).toBe(DepositTransactionStatus.ACTION_PENDING);
     const detail = await depositService.findOneForAdmin(deposit.id);
-    expect((detail as any).sumsubDetail.tags).toContain('PEP');
+    expect((detail as any).sumsubDetail.tags).toContain('PEP_APPLICANT');
   });
 
-  it('制裁: ④ → FROZEN + 零记账', async () => {
+  it('制裁: ⑧ → FROZEN + 零记账', async () => {
     const deposit = await createDeposit({ isCrypto: false, amount: '200.00' });
 
-    await deliver(deposit.id, 'V4B_REJECTED_SANCTION_COUNTERPARTY');
+    await deliver(deposit.id, 'V8_REJECTED_SANCTION_COUNTERPARTY');
 
     expect(await statusOf(deposit.id)).toBe(DepositTransactionStatus.FROZEN);
     const actions = await auditActionsFor(deposit.id);
@@ -497,23 +497,23 @@ describe('Deposit Sumsub verdict buttons (e2e, Task 9)', () => {
     expect(actions).not.toContain('DEPOSIT_APPROVED');
   });
 
-  it('MLRO 冻结: ⑦ → ⑤ → MANUAL_CHECKING → FROZEN', async () => {
+  it('MLRO 冻结: ⑪ → ⑨ → MANUAL_CHECKING → FROZEN', async () => {
     const deposit = await createDeposit({ isCrypto: false, amount: '300.00' });
 
-    await deliver(deposit.id, 'V7_REJECTED_NO_TAG');
+    await deliver(deposit.id, 'V11_REJECTED_NO_TAG');
     expect(await statusOf(deposit.id)).toBe(DepositTransactionStatus.MANUAL_CHECKING);
 
-    await deliver(deposit.id, 'V5_REJECTED_FROZEN_MLRO');
+    await deliver(deposit.id, 'V9_REJECTED_MLRO_FREEZE');
     expect(await statusOf(deposit.id)).toBe(DepositTransactionStatus.FROZEN);
   });
 
-  it('MLRO 退回: ⑦ → ⑥ → 开 DEPOSIT_RETURN 审批, 留 MANUAL_CHECKING', async () => {
+  it('MLRO 退回: ⑪ → ⑩ → 开 DEPOSIT_RETURN 审批, 留 MANUAL_CHECKING', async () => {
     const deposit = await createDeposit({ isCrypto: false, amount: '250.00' });
 
-    await deliver(deposit.id, 'V7_REJECTED_NO_TAG');
+    await deliver(deposit.id, 'V11_REJECTED_NO_TAG');
     expect(await statusOf(deposit.id)).toBe(DepositTransactionStatus.MANUAL_CHECKING);
 
-    await deliver(deposit.id, 'V6_REJECTED_RETURN');
+    await deliver(deposit.id, 'V10_REJECTED_DISPOSITION');
 
     // A2: RETURN_TO_SENDER opens a maker-checker approval instead of a direct
     // status transition — deposit stays MANUAL_CHECKING.
@@ -528,28 +528,15 @@ describe('Deposit Sumsub verdict buttons (e2e, Task 9)', () => {
     expect(returnApproval?.status).toBe('PENDING');
   });
 
-  it('挂起有证据: ⑧ → 状态不变(COMPLIANCE_PENDING) + sumsubScore=55 + 报文非空', async () => {
+  it('挂起有证据: ⑥ → 状态不变(COMPLIANCE_PENDING) + sumsubScore=55 + 报文非空', async () => {
     const deposit = await createDeposit({ isCrypto: false, amount: '80.00' });
 
-    await deliver(deposit.id, 'V8_ONHOLD');
+    await deliver(deposit.id, 'V6_ONHOLD');
 
     expect(await statusOf(deposit.id)).toBe(DepositTransactionStatus.COMPLIANCE_PENDING);
     const refreshed = await depositService.findOne(deposit.id);
     expect((refreshed as any).sumsubScore).toBe(55);
     expect((refreshed as any).sumsubTxnDetailJson).toBeTruthy();
-  });
-
-  it('SLA: ⑧ → ⑨ → MANUAL_CHECKING + 报文含 SLA_BREACH tag', async () => {
-    const deposit = await createDeposit({ isCrypto: false, amount: '80.00' });
-
-    await deliver(deposit.id, 'V8_ONHOLD');
-    expect(await statusOf(deposit.id)).toBe(DepositTransactionStatus.COMPLIANCE_PENDING);
-
-    await deliver(deposit.id, 'V9_REJECTED_SLA');
-
-    expect(await statusOf(deposit.id)).toBe(DepositTransactionStatus.MANUAL_CHECKING);
-    const detail = await depositService.findOneForAdmin(deposit.id);
-    expect((detail as any).sumsubDetail.tags).toContain('SLA_BREACH');
   });
 
   it('travelRule 分型: VASP + 3000 USDT 单投 ① → 报文 data.type===travelRule 且 travelRuleInfo 存在', async () => {
@@ -682,7 +669,7 @@ describe('Deposit Sumsub verdict buttons (e2e, Task 9)', () => {
   it('多条 action：交完前两条仍 ACTION REQUIRED，交完第三条才算全部交齐', async () => {
     const deposit = await createDeposit({ isCrypto: false, amount: '170.00' });
 
-    await deliver(deposit.id, 'V10_AWAIT_USER_MULTI');
+    await deliver(deposit.id, 'V5_AWAIT_USER_MULTI');
     expect(await statusOf(deposit.id)).toBe(DepositTransactionStatus.ACTION_PENDING);
 
     // 2026-08-18 迁移注记：旧断言读 findOneForCustomerByDepositNo(...).actions
@@ -691,7 +678,7 @@ describe('Deposit Sumsub verdict buttons (e2e, Task 9)', () => {
     // 数组——不是本次要修的范围（deposit-transactions.service.ts 未改动），但
     // 断言必须换成真实数据源：材料账按 externalActionId 定位同一批 action。
     //
-    // 终审 Important #4（2026-08-18 二次修订）：V10_AWAIT_USER_MULTI fixture
+    // 终审 Important #4（2026-08-18 二次修订）：V5_AWAIT_USER_MULTI fixture
     // 的三个 externalActionId 此前是固定字面量 EXT-MULTI-000{1,2,3}，会在两笔
     // 不同订单先后点这个按钮时撞材料请求账的全表 @unique 约束（P2002）。已改成
     // 按调用现铸（见 src/modules/deposit-sumsub/fixtures/verdict-buttons.ts），
@@ -722,7 +709,7 @@ describe('Deposit Sumsub verdict buttons (e2e, Task 9)', () => {
   it('逐条不可区分：同一条 action 在 ACTION_PENDING 与 FROZEN 下会话响应体全等', async () => {
     const deposit = await createDeposit({ isCrypto: false, amount: '175.00' });
 
-    await deliver(deposit.id, 'V10_AWAIT_USER_MULTI');
+    await deliver(deposit.id, 'V5_AWAIT_USER_MULTI');
     const live = await materialRequests.listLiveByOrder('DEPOSIT', deposit.depositNo);
     // 终审 Important #4：externalActionId 现铸不再是固定字面量，任取一条即可——
     // 这条用例只关心"同一条 action 前后两次会话响应体相等"，不关心是哪一条。

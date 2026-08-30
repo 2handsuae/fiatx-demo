@@ -9,11 +9,11 @@ import {
 import { SidebarGroup, SidebarKV } from '../components/ui/SidebarPrimitives';
 import { getSwapStatusMeta, isSwapTerminalStatus } from '../utils/swapStatusMap';
 import { AdminBadge } from '../components/ui/AdminBadge';
-import { adminButtonClass } from '../components/common/adminButtonStyles';
 import { AdminSessionError, adminFetch, getApiErrorMessage } from '../utils/adminFetch';
 import { formatAssetAmount, formatRate8 } from '../utils/number-format';
 import { formatSlaRemaining } from '../utils/slaDisplay';
 import { useSimulationMode } from '../utils/simulationMode';
+import { SimulationPanel } from '../components/SimulationPanel';
 import { getComplianceLayerStyle } from '../utils/depositActionMap';
 import L1GateCard from '../components/L1GateCard';
 import { GateTile } from '../components/compliance/GateTile';
@@ -24,39 +24,13 @@ import MaterialRequestPanel from '../components/MaterialRequestPanel';
 
 /* ── Types ──────────────────────────────────────────────────── */
 
-/* 7 个单步裁决按钮,与充值/提现版镜像(deliberate fork)。key/label 必须与后端
-   src/modules/swap-sumsub/fixtures/verdict-buttons.ts 的 SWAP_VERDICT_BUTTONS
-   逐一对齐——这里没有自动化断言(admin-web 暂无测试基建),改动任一侧务必同步
-   改另一侧,否则 operator 会点不出新场景。
-   ⚠️ 没有 V4B（对手方制裁）：业主 2026-08-20 终审裁定——兑换没有第三方对手方，
-   这个场景不存在，见后端 fixture 同名注释；充值/提现两个姊妹页保留该按钮。 */
-const SWAP_VERDICT_BUTTONS: Array<{ key: string; label: string }> = [
-  { key: 'V1_APPROVED', label: '① Approved' },
-  { key: 'V2_REJECTED_HARD', label: '② Rejected · 硬线（无 action）' },
-  { key: 'V3_REJECTED_ACTION', label: '③ Rejected · 软线（下发认证）' },
-  { key: 'V4_REJECTED_SANCTION_APPLICANT', label: '④ Rejected · Sanctions（客户本人）' },
-  { key: 'V5_ONHOLD', label: '⑤ On hold（我方等同拒绝）' },
-  { key: 'V6_AWAIT_USER', label: '⑥ Awaiting user（我方等同拒绝）' },
-  { key: 'V7_ACTION_GREEN', label: '⑦ 认证通过（清限制）' },
-  { key: 'V8_ACTION_RED', label: '⑧ 认证不通过（升级）' },
-];
-
-
-/* ⑦⑧ 投的是 applicantActionReviewed —— 作用对象是**人**（客户补料的复核结果），
-   不走 applyKytVerdict，与本单状态无关。终态单上它们照样有效，这正是 BACKLOG
-   「⑦⑧ 人级模拟键在被拒单上无 UI 入口」要的入口，不能跟着裁决键一起灰。
-   同步源：src/modules/swap-sumsub/demo-scenario.service.ts 的类注释（那两个键
-   的 webhookType 见 fixtures/verdict-buttons.ts）。 */
-const SWAP_PERSON_LEVEL_KEYS = new Set(['V7_ACTION_GREEN', 'V8_ACTION_RED']);
-
 /* 业主 2026-08-24 裁定：兑换的裁决键**只在 COMPLIANCE_PENDING 高亮，其余一律置灰**
    （与充值/提现同样是「置灰而不是整块消失」，但判据比那两域更严——兑换的状态机里
    只有 COMPLIANCE_PENDING 这一个态投裁决能真正推进本单）。
    这条取代了此前按后端 KYT_VERDICT_TERMINAL_STATUSES 反推的两档谓词：
      · PROCESSING 后端虽落证据+打 needsReview（非 no-op），但推不动本单 → 按业主口径灰
      · SUCCESS/REJECTED 后端有 carve-out 会重跑客户级处置，灰掉之后运营点不到，
-       那条风险随之消失（原先专门为它写的第二句提示因此也不再需要）
-   ⚠️ 不含 ⑦⑧ —— 见下方 SWAP_PERSON_LEVEL_KEYS。 */
+       那条风险随之消失（原先专门为它写的第二句提示因此也不再需要） */
 const isSwapVerdictActionable = (status: string): boolean => status === 'COMPLIANCE_PENDING';
 
 /** Matched-rule entry inside the Sumsub compliance detail. */
@@ -190,8 +164,6 @@ const SwapTransactionDetail = () => {
   const [data, setData] = useState<SwapTransactionDetailData | null>(null);
   const [loading, setLoading] = useState(true);
   const { enabled: simEnabled } = useSimulationMode();
-  const [simSubmitting, setSimSubmitting] = useState<string | null>(null);
-  const [simError, setSimError] = useState('');
   // 喂裁决成功后的顶部回显条（对齐充值/提现详情页的 notice 形态）。
   const [notice, setNotice] = useState('');
   const [slaSubmitting, setSlaSubmitting] = useState(false);
@@ -221,39 +193,6 @@ const SwapTransactionDetail = () => {
   useEffect(() => {
     if (id) void fetchData();
   }, [id]);
-
-  /* ── Demo verdict handler (SUMSUB_MOCK_MODE-gated backend endpoint) ── */
-
-  const handleRunVerdict = async (verdict: string) => {
-    if (!id) return;
-    setSimSubmitting(verdict);
-    setSimError('');
-    try {
-      const response = await adminFetch(
-        `${import.meta.env.VITE_API_URL}/admin/swap-sumsub/demo/run-verdict`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ swapId: id, verdict }),
-        },
-      );
-      if (!response.ok) {
-        if (response.status === 404) {
-          setSimError('Demo endpoint unavailable — backend SUMSUB_MOCK_MODE is off.');
-        } else {
-          setSimError(await getApiErrorMessage(response, 'Verdict run failed.'));
-        }
-        return;
-      }
-      setNotice(`Verdict ${verdict} fed — swap refreshed`);
-      await fetchData();
-    } catch (error) {
-      if (error instanceof AdminSessionError) return;
-      setSimError(error instanceof Error ? error.message : 'Verdict run failed.');
-    } finally {
-      setSimSubmitting(null);
-    }
-  };
 
   /* ── SLA (演示用「模拟超时」——不是 ⚡ Simulation 面板那个模拟 Sumsub
       webhook 的东西；见 SidebarGroup title="SLA") ── */
@@ -662,41 +601,12 @@ const SwapTransactionDetail = () => {
               「这单不适用」。改成常显 + 终态/处置态置灰 + 一句说明，把
               applyKytVerdict 的 no-op 语义如实摊在页面上。 */}
           {simEnabled && (
-            <DetailCard title="⚡ Simulation" columns={1}>
-              <p className="font-mono text-[11px] text-adm-t3">
-                Feeds ONE Sumsub verdict webhook into the real ingestion
-                pipeline for this swap's sell-leg KYT transaction. Requires
-                SUMSUB_MOCK_MODE on the backend.
-              </p>
-              <p className="font-mono text-[11px] text-adm-amber">
-                ⑦/⑧ act on the customer (applicantActionReviewed), not on this
-                order — this swap's own status will not change, and they stay
-                enabled on a terminal order on purpose (that's the whole point
-                of this being the only entry point for them).
-              </p>
-              {!isSwapVerdictActionable(data.status) && (
-                <p className="font-mono text-[11px] text-adm-amber">
-                  本单不在待合规状态，①-⑧ 里的裁决键不会推进本单，故置灰；⑦⑧ 作用于客户本人，仍可用。
-                </p>
-              )}
-              {simError && <p className="text-[11px] text-adm-red">{simError}</p>}
-              <div className="flex flex-wrap gap-2">
-                {SWAP_VERDICT_BUTTONS.map((s) => (
-                  <button
-                    key={s.key}
-                    disabled={
-                      simSubmitting !== null ||
-                      (!SWAP_PERSON_LEVEL_KEYS.has(s.key) &&
-                        !isSwapVerdictActionable(data.status))
-                    }
-                    onClick={() => handleRunVerdict(s.key)}
-                    className={adminButtonClass('simulationAction')}
-                  >
-                    {simSubmitting === s.key ? 'Running...' : s.label}
-                  </button>
-                ))}
-              </div>
-            </DetailCard>
+            <SimulationPanel
+              domain="swap"
+              orderId={data.id}
+              disabled={!isSwapVerdictActionable(data.status)}
+              onDone={() => void fetchData()}
+            />
           )}
         </div>
 

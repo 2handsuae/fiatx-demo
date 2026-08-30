@@ -28,8 +28,8 @@ import { INestApplication } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { AppModule } from '../src/app.module';
 import { PrismaService } from '../src/core/prisma/prisma.service';
-import { SUMSUB_TXN_CLIENT } from '../src/modules/deposit-sumsub/sumsub-txn-client.interface';
-import { MockSumsubTxnClient } from '../src/modules/deposit-sumsub/sumsub-txn-client.mock';
+import { SUMSUB_TXN_CLIENT } from '../src/modules/sumsub-shared/sumsub-txn-client.interface';
+import { MockSumsubTxnClient } from '../src/modules/sumsub-shared/sumsub-txn-client.mock';
 import { DepositWorkflowService } from '../src/modules/trading/deposit-transactions/deposit-workflow.service';
 import { WithdrawWorkflowService } from '../src/modules/trading/withdraw-transactions/withdraw-workflow.service';
 import { SwapWorkflowService } from '../src/modules/trading/swap-transactions/swap-workflow.service';
@@ -171,7 +171,7 @@ describe('第一批 · 合规裁决落地 (e2e)', () => {
 
     await app
       .get(SwapWorkflowService)
-      .applyKytVerdict(swap.id, { verdict: 'rejected', typedTags: ['SANCTION'] });
+      .applyKytVerdict(swap.id, { verdict: 'rejected' });
 
     const ignored = await prisma.auditLogEvent.findMany({
       where: { primarySubjectNo: swap.swapNo, action: AuditActions.SWAP_KYT_VERDICT_IGNORED },

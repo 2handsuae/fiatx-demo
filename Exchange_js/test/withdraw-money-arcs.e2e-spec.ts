@@ -35,8 +35,8 @@ import { TB_LEDGERS } from '../src/modules/accounting/tigerbeetle/constants/tb-l
 import { hexToBigint } from '../src/modules/accounting/tigerbeetle/utils/tb-id.util';
 import { ApprovalsService } from '../src/modules/governance/approvals/approvals.service';
 import { ApprovalActionTypes, ApprovalActorContext } from '../src/modules/governance/approvals/constants/approval.constants';
-import { SUMSUB_TXN_CLIENT } from '../src/modules/deposit-sumsub/sumsub-txn-client.interface';
-import { MockSumsubTxnClient } from '../src/modules/deposit-sumsub/sumsub-txn-client.mock';
+import { SUMSUB_TXN_CLIENT } from '../src/modules/sumsub-shared/sumsub-txn-client.interface';
+import { MockSumsubTxnClient } from '../src/modules/sumsub-shared/sumsub-txn-client.mock';
 import { AuditActions, AuditEntityTypes } from '../src/modules/audit-logging/constants/audit-actions.constant';
 import { fakeBankRef, fakeChainTxHash } from '../src/common/utils/fake-external-refs.util';
 

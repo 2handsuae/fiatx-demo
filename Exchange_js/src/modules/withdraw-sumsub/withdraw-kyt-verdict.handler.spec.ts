@@ -1,8 +1,8 @@
 import { WithdrawKytVerdictHandler } from './withdraw-kyt-verdict.handler';
 import { WithdrawWorkflowService } from '../trading/withdraw-transactions/withdraw-workflow.service';
 import { WithdrawTransactionsService } from '../trading/withdraw-transactions/withdraw-transactions.service';
-import { SumsubTxnClient } from '../deposit-sumsub/sumsub-txn-client.interface';
-import { SumsubTxnDetail } from '../deposit-sumsub/sumsub-txn.types';
+import { SumsubTxnClient } from '../sumsub-shared/sumsub-txn-client.interface';
+import { SumsubTxnDetail } from '../sumsub-shared/sumsub-txn.types';
 
 describe('WithdrawKytVerdictHandler', () => {
   let workflow: jest.Mocked<WithdrawWorkflowService>;
@@ -154,8 +154,8 @@ describe('WithdrawKytVerdictHandler', () => {
     });
   });
 
-  it('AwaitingUser + getTxn returns [PEP] → sceneTag=PEP', async () => {
-    const detail = txnDetail([{ label: 'PEP' }]);
+  it('AwaitingUser + getTxn returns [PEP_APPLICANT] → sceneTag=PEP_APPLICANT', async () => {
+    const detail = txnDetail([{ label: 'PEP_APPLICANT' }]);
     sumsubTxnClient.getTxn.mockResolvedValue(detail);
 
     await handler.handle({ type: 'applicantKytTxnAwaitingUser', kytTxnId: 'T1' });
@@ -163,7 +163,7 @@ describe('WithdrawKytVerdictHandler', () => {
     expect(workflow.applyKytVerdict).toHaveBeenCalledWith(WITHDRAW_ID, {
       verdict: 'awaitUser',
       riskScore: 87,
-      sceneTag: 'PEP',
+      sceneTag: 'PEP_APPLICANT',
       detailRaw: detail.raw,
     });
   });
@@ -201,8 +201,8 @@ describe('WithdrawKytVerdictHandler', () => {
     });
   });
 
-  it('Rejected + getTxn returns [REJECT_REFUND] → dispoTag=REJECT_REFUND (withdraw-specific, not deposit RETURN_TO_SENDER)', async () => {
-    const detail = txnDetail([{ label: 'REJECT_REFUND' }]);
+  it('Rejected + getTxn returns [FINAL_REJECTED] → dispoTag=FINAL_REJECTED (withdraw-specific, not deposit RETURN_TO_SENDER)', async () => {
+    const detail = txnDetail([{ label: 'FINAL_REJECTED' }]);
     sumsubTxnClient.getTxn.mockResolvedValue(detail);
 
     await handler.handle({ type: 'applicantKytTxnRejected', kytTxnId: 'T1' });
@@ -210,7 +210,7 @@ describe('WithdrawKytVerdictHandler', () => {
     expect(workflow.applyKytVerdict).toHaveBeenCalledWith(WITHDRAW_ID, {
       verdict: 'rejected',
       riskScore: 87,
-      dispoTag: 'REJECT_REFUND',
+      dispoTag: 'FINAL_REJECTED',
       detailRaw: detail.raw,
     });
   });
@@ -288,10 +288,10 @@ describe('WithdrawKytVerdictHandler', () => {
     );
   });
 
-  it('COUNTERPARTY 与 PEP 同时命中时 COUNTERPARTY 优先（不受报文顺序影响）', async () => {
+  it('COUNTERPARTY 与 PEP_APPLICANT 同时命中时 COUNTERPARTY 优先（不受报文顺序影响）', async () => {
     for (const order of [
-      ['SANCTION_COUNTERPARTY', 'PEP'],
-      ['PEP', 'SANCTION_COUNTERPARTY'],
+      ['SANCTION_COUNTERPARTY', 'PEP_APPLICANT'],
+      ['PEP_APPLICANT', 'SANCTION_COUNTERPARTY'],
     ]) {
       sumsubTxnClient.getTxn.mockResolvedValue(txnDetail(order.map((label) => ({ label }))));
       await handler.handle({ type: 'applicantKytTxnRejected', kytTxnId: 'T1' });
@@ -300,5 +300,29 @@ describe('WithdrawKytVerdictHandler', () => {
         expect.objectContaining({ sceneTag: 'SANCTION_COUNTERPARTY' }),
       );
     }
+  });
+
+  describe('SceneTag 优先级（四档，收紧优先）', () => {
+    const cases: Array<[string[], string]> = [
+      [['PEP_COUNTERPARTY', 'PEP_APPLICANT'], 'PEP_APPLICANT'],
+      [['PEP_APPLICANT', 'SANCTION_COUNTERPARTY'], 'SANCTION_COUNTERPARTY'],
+      [['SANCTION_COUNTERPARTY', 'SANCTION_APPLICANT'], 'SANCTION_APPLICANT'],
+      [['SANCTION_APPLICANT', 'PEP_COUNTERPARTY'], 'SANCTION_APPLICANT'],
+    ];
+
+    it.each(cases)('typedTags=%j → sceneTag=%s（与报文顺序无关）', async (tags, expected) => {
+      sumsubTxnClient.getTxn.mockResolvedValue(txnDetail(tags.map((label) => ({ label }))));
+      await handler.handle({ type: 'applicantKytTxnRejected', kytTxnId: 'T1' });
+      const forward = workflow.applyKytVerdict.mock.calls[0][1] as { sceneTag?: string };
+
+      sumsubTxnClient.getTxn.mockResolvedValue(
+        txnDetail([...tags].reverse().map((label) => ({ label }))),
+      );
+      await handler.handle({ type: 'applicantKytTxnRejected', kytTxnId: 'T1' });
+      const reversed = workflow.applyKytVerdict.mock.calls[1][1] as { sceneTag?: string };
+
+      expect(forward.sceneTag).toBe(expected);
+      expect(reversed.sceneTag).toBe(expected);
+    });
   });
 });

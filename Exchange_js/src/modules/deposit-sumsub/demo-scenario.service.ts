@@ -1,12 +1,12 @@
 import { BadRequestException, Inject, Injectable } from '@nestjs/common';
 import { createHash, randomUUID } from 'crypto';
 import { DepositTransactionsService } from '../trading/deposit-transactions/deposit-transactions.service';
-import { SUMSUB_TXN_CLIENT, SumsubTxnClient } from './sumsub-txn-client.interface';
-import { MockSumsubTxnClient } from './sumsub-txn-client.mock';
+import { SUMSUB_TXN_CLIENT, SumsubTxnClient } from '../sumsub-shared/sumsub-txn-client.interface';
+import { MockSumsubTxnClient } from '../sumsub-shared/sumsub-txn-client.mock';
 import { DEPOSIT_VERDICT_BUTTONS, DepositVerdictButton } from './fixtures/verdict-buttons';
-import { buildTxnReport } from './fixtures/txn-report.builder';
-import { KYT_ONHOLD_TYPE } from './kyt-webhook-types';
-import { KytVerdict } from './sumsub-txn.types';
+import { buildTxnReport } from '../sumsub-shared/txn-report.builder';
+import { KYT_ONHOLD_TYPE } from '../sumsub-shared/kyt-webhook-types';
+import { KytVerdict } from '../sumsub-shared/sumsub-txn.types';
 import { SumsubIngestionService } from '../sumsub-ingestion/sumsub-ingestion.service';
 import { AuditLogsService } from '../audit-logging/audit-logs.service';
 import { AuditActions, AuditEntityTypes } from '../audit-logging/constants/audit-actions.constant';

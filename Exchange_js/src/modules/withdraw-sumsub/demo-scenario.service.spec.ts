@@ -1,7 +1,7 @@
 import { BadRequestException } from '@nestjs/common';
 import { WithdrawDemoScenarioService } from './demo-scenario.service';
-import { MockSumsubTxnClient } from '../deposit-sumsub/sumsub-txn-client.mock';
-import { HttpSumsubTxnClient } from '../deposit-sumsub/sumsub-txn-client.http';
+import { MockSumsubTxnClient } from '../sumsub-shared/sumsub-txn-client.mock';
+import { HttpSumsubTxnClient } from '../sumsub-shared/sumsub-txn-client.http';
 import { AuditActions } from '../audit-logging/constants/audit-actions.constant';
 
 describe('WithdrawDemoScenarioService', () => {
@@ -125,7 +125,7 @@ describe('WithdrawDemoScenarioService', () => {
     const service = buildService();
     const primeSubmitSpy = jest.spyOn(mockClient, 'primeSubmit');
 
-    await service.runVerdict('withdraw-1', 'V4B_REJECTED_SANCTION_COUNTERPARTY', actor);
+    await service.runVerdict('withdraw-1', 'V8_REJECTED_SANCTION_COUNTERPARTY', actor);
 
     expect(primeSubmitSpy).not.toHaveBeenCalled();
     expect(ingestionService.ingest).toHaveBeenNthCalledWith(
@@ -135,10 +135,10 @@ describe('WithdrawDemoScenarioService', () => {
     );
   });
 
-  it('V6_REJECTED_REFUND_TAG: 处置 tag 是 REJECT_REFUND(提现独有,非充值的 RETURN_TO_SENDER)', async () => {
+  it('V10_REJECTED_DISPOSITION: 处置 tag 是 FINAL_REJECTED(提现独有,非充值的 RETURN_TO_SENDER)', async () => {
     const service = buildService();
 
-    await service.runVerdict('withdraw-1', 'V6_REJECTED_REFUND_TAG', actor);
+    await service.runVerdict('withdraw-1', 'V10_REJECTED_DISPOSITION', actor);
 
     expect(ingestionService.ingest).toHaveBeenCalledWith(
       expect.objectContaining({ type: 'applicantKytTxnRejected' }),
@@ -146,10 +146,10 @@ describe('WithdrawDemoScenarioService', () => {
     );
   });
 
-  it('V8_ONHOLD: webhookType 是 applicantKytOnHold(官方无 Txn 命名)', async () => {
+  it('V6_ONHOLD: webhookType 是 applicantKytOnHold(官方无 Txn 命名)', async () => {
     const service = buildService();
 
-    await service.runVerdict('withdraw-1', 'V8_ONHOLD', actor);
+    await service.runVerdict('withdraw-1', 'V6_ONHOLD', actor);
 
     expect(ingestionService.ingest).toHaveBeenCalledWith(
       expect.objectContaining({ type: 'applicantKytOnHold' }),
@@ -161,14 +161,14 @@ describe('WithdrawDemoScenarioService', () => {
     const service = buildService();
     const primeSubmitSpy = jest.spyOn(mockClient, 'primeSubmit');
 
-    await service.runVerdict('withdraw-1', 'V4B_REJECTED_SANCTION_COUNTERPARTY', actor);
+    await service.runVerdict('withdraw-1', 'V8_REJECTED_SANCTION_COUNTERPARTY', actor);
 
     withdrawService.findOneInternal.mockResolvedValue({
       ...withdraw,
       id: 'withdraw-2',
       withdrawNo: 'WD002',
     });
-    await service.runVerdict('withdraw-2', 'V4B_REJECTED_SANCTION_COUNTERPARTY', actor);
+    await service.runVerdict('withdraw-2', 'V8_REJECTED_SANCTION_COUNTERPARTY', actor);
 
     const [firstId, secondId] = primeSubmitSpy.mock.calls.map((c) => c[1]);
     expect(firstId).toMatch(OBJECT_ID);
@@ -180,8 +180,8 @@ describe('WithdrawDemoScenarioService', () => {
     const service = buildService();
     const primeSubmitSpy = jest.spyOn(mockClient, 'primeSubmit');
 
-    await service.runVerdict('withdraw-1', 'V4B_REJECTED_SANCTION_COUNTERPARTY', actor);
-    await service.runVerdict('withdraw-1', 'V4B_REJECTED_SANCTION_COUNTERPARTY', actor);
+    await service.runVerdict('withdraw-1', 'V8_REJECTED_SANCTION_COUNTERPARTY', actor);
+    await service.runVerdict('withdraw-1', 'V8_REJECTED_SANCTION_COUNTERPARTY', actor);
 
     const [firstId, secondId] = primeSubmitSpy.mock.calls.map((c) => c[1]);
     expect(firstId).toBe(secondId);

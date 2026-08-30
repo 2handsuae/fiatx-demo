@@ -6,7 +6,7 @@
 //   source /tmp/sumsub-sandbox.env
 //   npx ts-node scripts/sumsub-deposit-smoke.ts
 
-import { HttpSumsubTxnClient } from '../src/modules/deposit-sumsub/sumsub-txn-client.http';
+import { HttpSumsubTxnClient } from '../src/modules/sumsub-shared/sumsub-txn-client.http';
 
 const APPLICANT_ID = '6a5dd88f07d9bbd981a22fc9'; // sandbox 真 applicant:Alice(CU2601019430)
 const POLL_INTERVAL_MS = 2000;

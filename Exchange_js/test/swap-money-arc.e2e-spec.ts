@@ -33,8 +33,8 @@ import { TB_TRANSFER_CODES } from '../src/modules/accounting/tigerbeetle/constan
 import { TB_LEDGERS } from '../src/modules/accounting/tigerbeetle/constants/tb-ledgers.constant';
 import { CustomerAccessService } from '../src/modules/identity/customers/customer-access.service';
 import { CustomerRestrictionsService } from '../src/modules/identity/customers/customer-restrictions.service';
-import { SUMSUB_TXN_CLIENT } from '../src/modules/deposit-sumsub/sumsub-txn-client.interface';
-import { MockSumsubTxnClient } from '../src/modules/deposit-sumsub/sumsub-txn-client.mock';
+import { SUMSUB_TXN_CLIENT } from '../src/modules/sumsub-shared/sumsub-txn-client.interface';
+import { MockSumsubTxnClient } from '../src/modules/sumsub-shared/sumsub-txn-client.mock';
 import { AuditActions, AuditEntityTypes } from '../src/modules/audit-logging/constants/audit-actions.constant';
 
 /**
@@ -408,7 +408,7 @@ describe('Swap money arcs (e2e, Task 12)', () => {
     expect(swap.status).toBe(SwapTransactionStatus.COMPLIANCE_PENDING);
 
     // Hard-line rejection with no attached remediation action — same shape as
-    // the demo's V2_REJECTED_HARD button (fixtures/verdict-buttons.ts).
+    // the demo's V11_REJECTED_NO_TAG button (fixtures/verdict-buttons.ts).
     await workflow.applyKytVerdict(swap.id, { verdict: 'rejected', applicantActions: [] });
 
     const after = await swapService.findByIdInternal(swap.id);

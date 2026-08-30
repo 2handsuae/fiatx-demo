@@ -263,6 +263,10 @@ export const AuditActions = {
   // Demo scenario runner (Task 6, 计划1·甲方案) — feeds a deposit through a Sumsub mock
   // scenario fixture (SUMSUB_MOCK_MODE only; endpoint doesn't exist otherwise)
   DEPOSIT_DEMO_SCENARIO_RUN: 'DEPOSIT_DEMO_SCENARIO_RUN',
+  // A7(2026-08-29):材料审过(GREEN)后把 ACTION_PENDING 充值单推回 COMPLIANCE_PENDING
+  // 重跑合规——转移表的 RESUME 边一直在,此前没有 listener 触发它(见 deposit-workflow
+  // .service.ts 的 onMaterialRequestReviewed)。
+  DEPOSIT_MATERIAL_APPROVED_RESUMED: 'DEPOSIT_MATERIAL_APPROVED_RESUMED',
   INBOUND_SIGNAL_SUBMITTED: 'INBOUND_SIGNAL_SUBMITTED',
   INBOUND_SIGNAL_SCANNED: 'INBOUND_SIGNAL_SCANNED',
   INBOUND_SIGNAL_MATCHED: 'INBOUND_SIGNAL_MATCHED',
@@ -381,6 +385,10 @@ export const AuditActions = {
   // withdrawal through a Sumsub mock verdict fixture (SUMSUB_MOCK_MODE only —
   // endpoint doesn't exist otherwise).
   WITHDRAW_DEMO_SCENARIO_RUN: 'WITHDRAW_DEMO_SCENARIO_RUN',
+  // B3(2026-08-29):材料审过(GREEN)后把 ACTION_PENDING 提现单推回 COMPLIANCE_PENDING
+  // 重跑合规——镜像充值域 A7 的 DEPOSIT_MATERIAL_APPROVED_RESUMED（见 withdraw-workflow
+  // .service.ts 的 onMaterialRequestReviewed）。
+  WITHDRAW_MATERIAL_APPROVED_RESUMED: 'WITHDRAW_MATERIAL_APPROVED_RESUMED',
   LP_CONFIG_UPDATED: 'LP_CONFIG_UPDATED',
   CUSTOMER_CREATED: 'CUSTOMER_CREATED',
   CUSTOMER_UPDATED: 'CUSTOMER_UPDATED',
@@ -755,6 +763,10 @@ export const V4_DEPOSIT_AUDIT_ACTIONS: Record<string, AuditActionSpec> = {
   DEPOSIT_MANUAL_CHECKING:{ domain: 'DEPOSIT', correlationMode: I, requiredFields: ['reasonCode'], requiresCausation: false },
   DEPOSIT_FROZEN:         { domain: 'DEPOSIT', correlationMode: I, requiredFields: ['fromStatus', 'toStatus'], requiresCausation: false },
   DEPOSIT_ACTION_REQUIRED:{ domain: 'DEPOSIT', correlationMode: I, requiredFields: ['fromStatus', 'toStatus'], requiresCausation: false },
+  // A7:DEPOSIT_ACTION_REQUIRED 的回边——材料补齐、合规重筛。requiredFields 只列
+  // fromStatus/toStatus(与其对偶动作同款):depositAudit() 的 input 构造里没有裸
+  // requestNo 顶层字段,它进 metadata,不进 requiredFields 校验的字段集。
+  DEPOSIT_MATERIAL_APPROVED_RESUMED: { domain: 'DEPOSIT', correlationMode: I, requiredFields: ['fromStatus', 'toStatus'], requiresCausation: false },
   DEPOSIT_KYT_VERDICT_IGNORED: { domain: 'DEPOSIT', correlationMode: I, requiredFields: ['reason'], requiresCausation: false },
   // ── 处置四弧（17）────────────────────────────────────────
   DEPOSIT_CONFISCATION_REQUESTED: { domain: 'DEPOSIT', correlationMode: I, requiredFields: [], requiresCausation: false },
@@ -807,6 +819,10 @@ export const V5_WITHDRAW_AUDIT_ACTIONS: Record<string, AuditActionSpec> = {
   WITHDRAW_ONHOLD:                { domain: 'WITHDRAW', correlationMode: I, requiredFields: [], requiresCausation: false },
   WITHDRAW_MANUAL_CHECKING:       { domain: 'WITHDRAW', correlationMode: I, requiredFields: ['fromStatus', 'toStatus'], requiresCausation: false },
   WITHDRAW_ACTION_REQUIRED:       { domain: 'WITHDRAW', correlationMode: I, requiredFields: ['fromStatus', 'toStatus'], requiresCausation: false },
+  // B3:WITHDRAW_ACTION_REQUIRED 的回边——材料补齐、合规重筛。requiredFields 只列
+  // fromStatus/toStatus(与其对偶动作同款):withdrawAudit() 的 input 构造里没有裸
+  // requestNo 顶层字段,它进 metadata,不进 requiredFields 校验的字段集。
+  WITHDRAW_MATERIAL_APPROVED_RESUMED: { domain: 'WITHDRAW', correlationMode: I, requiredFields: ['fromStatus', 'toStatus'], requiresCausation: false },
   WITHDRAW_FROZEN:                { domain: 'WITHDRAW', correlationMode: I, requiredFields: ['fromStatus', 'toStatus'], requiresCausation: false },
   WITHDRAW_KYT_VERDICT_IGNORED:   { domain: 'WITHDRAW', correlationMode: I, requiredFields: ['reason'], requiresCausation: false },
   WITHDRAW_POST_BROADCAST_VERDICT:{ domain: 'WITHDRAW', correlationMode: I, requiredFields: ['reason'], requiresCausation: false },

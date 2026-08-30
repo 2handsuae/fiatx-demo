@@ -312,6 +312,13 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
     'Feed one Sumsub KYT verdict webhook into a deposit (demo only)',
     ['TRADING_DEPOSIT_WRITE'],
   ),
+  // Task A7: 按钮清单出端点 — 前端 ⚡ 面板据此渲染，不再手抄
+  route(
+    'GET',
+    '/admin/deposit-sumsub/demo/verdict-buttons',
+    'List available verdict buttons for the deposit demo panel (demo only)',
+    ['TRADING_DEPOSIT_READ'],
+  ),
 
   // Withdraw
   route('GET', '/withdraw-transactions', 'List withdraw transactions', ['TRADING_WITHDRAW_READ']),
@@ -330,6 +337,13 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
     '/admin/withdraw-sumsub/demo/run-verdict',
     'Feed one Sumsub KYT verdict webhook into a withdrawal (demo only)',
     ['TRADING_WITHDRAW_WRITE'],
+  ),
+  // Task A7: 按钮清单出端点 — 前端 ⚡ 面板据此渲染，不再手抄
+  route(
+    'GET',
+    '/admin/withdraw-sumsub/demo/verdict-buttons',
+    'List available verdict buttons for the withdraw demo panel (demo only)',
+    ['TRADING_WITHDRAW_READ'],
   ),
 
   // Swap admin
@@ -350,6 +364,13 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
     '/admin/swap-sumsub/demo/run-verdict',
     'Feed one Sumsub KYT verdict webhook into a swap (demo only)',
     ['TRADING_SWAP_WRITE'],
+  ),
+  // Task A7: 按钮清单出端点 — 前端 ⚡ 面板据此渲染，不再手抄
+  route(
+    'GET',
+    '/admin/swap-sumsub/demo/verdict-buttons',
+    'List available verdict buttons for the swap demo panel (demo only)',
+    ['TRADING_SWAP_READ'],
   ),
 
   // Payins / Payouts routes removed in Round 2 (C3) — the payin/payout

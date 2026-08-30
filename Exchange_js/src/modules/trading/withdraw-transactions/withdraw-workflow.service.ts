@@ -19,6 +19,7 @@ import {
   WithdrawTransactionStatus,
 } from './dto/withdraw-transaction.dto';
 import type { SceneTag } from '../../withdraw-sumsub/withdraw-kyt-verdict.handler';
+import type { DispoTag } from '../../sumsub-shared/scene-tags';
 import { CustomerAccessService, NEUTRAL_DENIAL } from '../../identity/customers/customer-access.service';
 import { CustomerRestrictionsService } from '../../identity/customers/customer-restrictions.service';
 import { L1GateService } from '../shared/l1-gate/l1-gate.service';
@@ -64,7 +65,7 @@ import {
 import {
   SUMSUB_TXN_CLIENT,
   SumsubTxnClient,
-} from '../../deposit-sumsub/sumsub-txn-client.interface';
+} from '../../sumsub-shared/sumsub-txn-client.interface';
 import { resolveKytTxnType } from '../../deposit-sumsub/kyt-txn-type.resolver';
 import { WithdrawApplicantActionsService } from './withdraw-applicant-actions.service';
 
@@ -1944,7 +1945,7 @@ export class WithdrawWorkflowService implements OnModuleInit {
   /**
    * SANCTION REFUND disposition (initiate side, Task 8): ops proposes refunding a
    * FROZEN withdrawal back to its sender under a sanctions disposition (the
-   * REJECT_REFUND tag arriving while a withdrawal was already FROZEN is ignored —
+   * FINAL_REJECTED tag arriving while a withdrawal was already FROZEN is ignored —
    * see applyKytRejected's WITHDRAW_REFUND_TAG_ON_FROZEN_IGNORED guard — so this is
    * the only legal path to that exit). Routed through V1 maker-checker approval
    * (single-step MLRO). Only opens the approval case + audits the request; the
@@ -2340,7 +2341,7 @@ export class WithdrawWorkflowService implements OnModuleInit {
       verdict: 'approved' | 'rejected' | 'awaitUser' | 'onHold';
       riskScore?: number | null;
       sceneTag?: SceneTag;
-      dispoTag?: 'FROZEN_BY_MLRO' | 'REJECT_REFUND';
+      dispoTag?: DispoTag;
       detailRaw?: unknown;
       applicantActions?: { applicantActionId: string; externalActionId: string }[];
     },
@@ -2483,7 +2484,7 @@ export class WithdrawWorkflowService implements OnModuleInit {
    */
   private async recordVerdictIgnored(
     w: any,
-    input: { verdict: string; riskScore?: number | null; sceneTag?: SceneTag; dispoTag?: 'FROZEN_BY_MLRO' | 'REJECT_REFUND' },
+    input: { verdict: string; riskScore?: number | null; sceneTag?: SceneTag; dispoTag?: DispoTag },
     status: WithdrawTransactionStatus,
   ): Promise<void> {
     await this.withdrawAudit(w, {
@@ -2537,6 +2538,7 @@ export class WithdrawWorkflowService implements OnModuleInit {
     const { added, retired } = await this.applicantActions.syncApplicantActions(
       w.id,
       incoming,
+      sceneTag,
     );
 
     // I1(mirrors deposit):判据必须是"同步后是否还有未提交行"(hasOutstanding),
@@ -2585,7 +2587,8 @@ export class WithdrawWorkflowService implements OnModuleInit {
       return;
     }
 
-    const manualReason = sceneTag === 'PEP' ? 'EDD_PEP' : 'CLIENT_ACTION';
+    const manualReason =
+      sceneTag === 'PEP_APPLICANT' || sceneTag === 'PEP_COUNTERPARTY' ? 'EDD_PEP' : 'CLIENT_ACTION';
     // slaDeadline/slaBreached 不在这里写:进入 ACTION_PENDING 由 updateStatus
     // 内部的 resolveSlaFields 统一算,这里再传会覆盖收口处刚算好的值。
     const actionRow = await this.withdrawService.updateStatus(
@@ -2636,14 +2639,14 @@ export class WithdrawWorkflowService implements OnModuleInit {
   /**
    * rejected: tag 三分支(spec §3)。
    *   SANCTION_APPLICANT(场景·客户本人) → 冻人 + FREEZE；SANCTION_COUNTERPARTY(场景·对手方) / FROZEN_BY_MLRO(处置) → 仅 FREEZE（免审批,收紧方向）
-   *   REJECT_REFUND(处置)                  → REJECT_REFUND → REJECTED + releaseLock
+   *   FINAL_REJECTED(处置)                 → REJECT_REFUND → REJECTED + releaseLock
    *   无 tag                                → KYT_REJECTED → MANUAL_CHECKING
    * All three idempotent when already in the target state (repeat webhook).
    */
   private async applyKytRejected(
     w: any,
     sceneTag?: SceneTag,
-    dispoTag?: 'FROZEN_BY_MLRO' | 'REJECT_REFUND',
+    dispoTag?: DispoTag,
   ): Promise<void> {
     const isApplicantSanction = sceneTag === 'SANCTION_APPLICANT';
     if (isApplicantSanction || sceneTag === 'SANCTION_COUNTERPARTY' || dispoTag === 'FROZEN_BY_MLRO') {
@@ -2695,7 +2698,7 @@ export class WithdrawWorkflowService implements OnModuleInit {
       return;
     }
 
-    if (dispoTag === 'REJECT_REFUND') {
+    if (dispoTag === 'FINAL_REJECTED') {
       // Sanctioned free-of-approval path: an officer already tagged this case for
       // refund during manual compliance review — MANUAL_CHECKING carries the
       // REJECT_REFUND edge (Task 1's transitions table) for exactly this.
@@ -2708,7 +2711,7 @@ export class WithdrawWorkflowService implements OnModuleInit {
         await this.releaseLock(w, 'Officer refund tag');
         await this.withdrawAudit(w, {
           action: 'WITHDRAW_REFUNDED',
-          reason: 'KYT verdict rejected: officer REJECT_REFUND tag — void pending locks, refund to available balance',
+          reason: 'KYT verdict rejected: officer FINAL_REJECTED tag — void pending locks, refund to available balance',
           fromStatus: WithdrawTransactionStatus.MANUAL_CHECKING,
           toStatus: tagRefundRow.status,
           metadata: { trigger: 'OFFICER_TAG', releasedNet: String(w.netAmount), releasedFee: String(w.feeAmount) },
@@ -2730,7 +2733,7 @@ export class WithdrawWorkflowService implements OnModuleInit {
           action: 'WITHDRAW_REFUNDED',
           outcome: AuditOutcome.DENIED,
           reasonCode: 'FROZEN_REQUIRES_APPROVAL',
-          reason: 'KYT verdict rejected: officer REJECT_REFUND tag ignored — withdrawal is FROZEN, exits only via WITHDRAW_UNFREEZE / WITHDRAW_SANCTION_REFUND maker-checker approvals',
+          reason: 'KYT verdict rejected: officer FINAL_REJECTED tag ignored — withdrawal is FROZEN, exits only via WITHDRAW_UNFREEZE / WITHDRAW_SANCTION_REFUND maker-checker approvals',
           metadata: { trigger: 'OFFICER_TAG' },
         });
         return;
@@ -2754,7 +2757,7 @@ export class WithdrawWorkflowService implements OnModuleInit {
         reason: `KYT verdict: rejected, officer refund tag arrived early — landed in manual review for re-drive`,
         fromStatus: w.status,
         toStatus: earlyTagRow.status,
-        metadata: { dispoTag: 'REJECT_REFUND' },
+        metadata: { dispoTag: 'FINAL_REJECTED' },
       });
       return;
     }
@@ -2841,6 +2844,71 @@ export class WithdrawWorkflowService implements OnModuleInit {
           );
         }
       }
+    }
+  }
+
+  /**
+   * 材料审过 → 把这笔提现推回合规重跑。
+   *
+   * modules/v4-deposit.md §状态表写的是 COMPLIANCE_PENDING ⇄ ACTION_PENDING
+   * （补齐回炉，充值域同款回边见 A7）——提现侧这条回边（RESUME）是 B1 刚补的
+   * 转移表边，此前没有任何人触发它：本域只听上面的 CUSTOMER_RESTRICTION_OPENED
+   * （便签开启），单向。便签开了接得住（冻单），便签解了不知道；材料补齐同理——
+   * 撕便签的事件本域压根没听。
+   *
+   * 「补料后重跑合规」与「运营看着办直接放行」在合规演示里是两回事：后者是
+   * approveDeposit 白名单含 ACTION_PENDING 带来的人工出路（提现侧同理），
+   * 不能当成前者。
+   *
+   * 只有 GREEN（outcome === 'APPROVED'）回炉——RETRY/FINAL 都还没审过，单子
+   * 该留在原地等（材料账 MaterialRequestReviewService 的既有口径：三条结局
+   * 共用一句原则「只有 GREEN 撕便签」，回炉同理只认 GREEN）。
+   *
+   * 失败不上抛（@OnEvent 里抛没人接），与本域其它 listener 同款口径——但只
+   * 兜"回炉这件事失败了"，域/结局判定留在 try 外面，不吞掉真正的判断错误。
+   */
+  @OnEvent(DomainEventNames.MATERIAL_REQUEST_REVIEWED, { async: true })
+  async onMaterialRequestReviewed(event: {
+    requestNo: string;
+    customerId: string;
+    orderDomain: string | null;
+    orderRef: string | null;
+    outcome: string;
+    traceId?: string;
+  }): Promise<void> {
+    // 铁律③：各管各的。别人域的材料请求与本域无关。
+    if (event.orderDomain !== 'WITHDRAW' || !event.orderRef) return;
+    // 只有 GREEN 回炉 —— RETRY/FINAL 都还没审过，单子该留在原地等。
+    if (event.outcome !== 'APPROVED') return;
+
+    try {
+      const withdraw = await this.withdrawService.findByNo(event.orderRef);
+      if (!withdraw) return;
+      if (withdraw.status !== WithdrawTransactionStatus.ACTION_PENDING) {
+        this.logger.log(
+          `Material ${event.requestNo} approved but withdraw ${event.orderRef} is ` +
+          `${withdraw.status} (not ACTION_PENDING) — late review, nothing to resume`,
+        );
+        return;
+      }
+
+      const updated = await this.withdrawService.updateStatus(withdraw.id, {
+        action: WithdrawTransactionAction.RESUME,
+        reason: `Material request ${event.requestNo} reviewed GREEN — back to compliance for re-screening`,
+      });
+
+      await this.withdrawAudit(withdraw, {
+        action: 'WITHDRAW_MATERIAL_APPROVED_RESUMED',
+        fromStatus: WithdrawTransactionStatus.ACTION_PENDING,
+        toStatus: updated.status,
+        reason: `Material request ${event.requestNo} reviewed GREEN — withdraw resumed to COMPLIANCE_PENDING for re-screening`,
+        metadata: { requestNo: event.requestNo },
+      });
+    } catch (e) {
+      this.logger.warn(
+        `onMaterialRequestReviewed failed for ${event.requestNo}: ` +
+        `${e instanceof Error ? e.message : String(e)}`,
+      );
     }
   }
 

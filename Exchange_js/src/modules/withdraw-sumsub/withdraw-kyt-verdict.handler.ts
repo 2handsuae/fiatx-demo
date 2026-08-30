@@ -1,9 +1,16 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { WithdrawWorkflowService } from '../trading/withdraw-transactions/withdraw-workflow.service';
 import { WithdrawTransactionsService } from '../trading/withdraw-transactions/withdraw-transactions.service';
-import { SUMSUB_TXN_CLIENT, SumsubTxnClient } from '../deposit-sumsub/sumsub-txn-client.interface';
-import { KytVerdict } from '../deposit-sumsub/sumsub-txn.types';
-import { KYT_ONHOLD_TYPE } from '../deposit-sumsub/kyt-webhook-types';
+import { SUMSUB_TXN_CLIENT, SumsubTxnClient } from '../sumsub-shared/sumsub-txn-client.interface';
+import { KytVerdict } from '../sumsub-shared/sumsub-txn.types';
+import { KYT_ONHOLD_TYPE } from '../sumsub-shared/kyt-webhook-types';
+import {
+  SCENE_TAGS,
+  SCENE_TAG_PRIORITY,
+  DISPO_TAGS_BY_DOMAIN,
+  type SceneTag,
+  type DispoTag,
+} from '../sumsub-shared/scene-tags';
 
 // payload.type → 归一 verdict;'ignore' = Reviewed/Created,不推进状态机。
 // 与 deposit-kyt-verdict.handler.ts 的同名表逐字一致(deliberate fork,不抽公共常量)。
@@ -23,21 +30,12 @@ const TAG_LOOKUP_VERDICTS = new Set<KytVerdict>(['rejected', 'awaitUser']);
 
 // 2026-08-20 制裁分主体：与 deposit-kyt-verdict.handler.ts 同构（deliberate
 // fork，不抽公共常量）。SANCTION 拆成 APPLICANT / COUNTERPARTY，旧标签退役。
-export type SceneTag = 'SANCTION_APPLICANT' | 'SANCTION_COUNTERPARTY' | 'PEP';
-const SCENE_TAGS = new Set<SceneTag>(['SANCTION_APPLICANT', 'SANCTION_COUNTERPARTY', 'PEP']);
-// 显式优先序：APPLICANT > COUNTERPARTY > PEP。
-// sceneTag 是标量、循环里后写覆盖先写，不定优先级的话哪个生效取决于
-// Sumsub 报文里 typedTags 的先后顺序 —— 同一笔"对手方受制裁 + 客户是 PEP"
-// 的交易会时而冻单时而落人工复核，且无任何日志。收紧方向优先：
-// 漏冻的代价远大于多冻一次。
-const SCENE_TAG_PRIORITY: Record<SceneTag, number> = {
-  SANCTION_APPLICANT: 3,
-  SANCTION_COUNTERPARTY: 2,
-  PEP: 1,
-};
-// 提现处置 tag 集合与充值不同:REJECT_REFUND(不是 RETURN_TO_SENDER——提现没有
-// "退回发件人"语义,拒绝后走退款处置)。见 task-4-brief.md。
-const DISPO_TAGS = new Set(['FROZEN_BY_MLRO', 'REJECT_REFUND']);
+// 2026-08-29：PEP 也分主体，SceneTag/SCENE_TAGS/SCENE_TAG_PRIORITY 上收到
+// sumsub-shared/scene-tags（四档优先级），不再本地定义。
+export type { SceneTag };
+// 提现处置 tag 集合与充值不同:FINAL_REJECTED(不是 RETURN_TO_SENDER——提现没有
+// "退回发件人"语义,拒绝后走最终拒付处置)。见 task-4-brief.md / task-A2-report.md。
+const DISPO_TAGS = DISPO_TAGS_BY_DOMAIN.WITHDRAW;
 
 /**
  * 提现域 KYT 裁决落地 handler——mirror of DepositKytVerdictHandler(deliberate
@@ -77,7 +75,7 @@ export class WithdrawKytVerdictHandler {
     }
 
     let sceneTag: SceneTag | undefined;
-    let dispoTag: 'FROZEN_BY_MLRO' | 'REJECT_REFUND' | undefined;
+    let dispoTag: DispoTag | undefined;
     // 风险分只有在已经拉了 txn 详情时才拿得到;approved 路径不额外多打一次 API
     // 换一个展示数字(留 null,前端显示 —)。
     let riskScore: number | null = null;
@@ -98,7 +96,7 @@ export class WithdrawKytVerdictHandler {
               sceneTag = candidate;
             }
           }
-          if (DISPO_TAGS.has(tag.label)) dispoTag = tag.label as 'FROZEN_BY_MLRO' | 'REJECT_REFUND';
+          if (DISPO_TAGS.has(tag.label as DispoTag)) dispoTag = tag.label as DispoTag;
         }
       }
     }

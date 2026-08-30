@@ -613,6 +613,20 @@ export class DepositTransactionsService {
   }
 
   /**
+   * 按业务键 depositNo 查单（铁律⑥：跨域协作认业务号,不认内部 id）。
+   * MATERIAL_REQUEST_REVIEWED 域事件只带 orderRef(=depositNo)——系统内部
+   * 调用点专用,找不到返回 null（不抛），由调用方决定要不要 no-op。
+   */
+  async findByNo(depositNo: string) {
+    const row = await (this.prisma as any).depositTransaction.findUnique({
+      where: { depositNo },
+      select: { id: true },
+    });
+    if (!row) return null;
+    return this.findOne(row.id);
+  }
+
+  /**
    * 进入 nextStatus 时该带的 SLA 字段。有配置就起新计时，没配置就清空。
    * slaBreached 一律归 false —— 换了状态就是换了等待对象，旧的破线记录不该跟过来。
    *

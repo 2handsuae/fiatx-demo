@@ -3,7 +3,7 @@ import { DepositWebhookRouter } from './deposit-webhook.router';
 import { DepositKytVerdictHandler } from './deposit-kyt-verdict.handler';
 import { DepositSlaService } from './deposit-sla.service';
 import { DepositTransactionsModule } from '../trading/deposit-transactions/deposit-transactions.module';
-import { SumsubTxnClientModule } from './sumsub-txn-client.module';
+import { SumsubTxnClientModule } from '../sumsub-shared/sumsub-txn-client.module';
 
 // 站1b-α2（2026-08-26）解环备忘：
 //  - SUMSUB_TXN_CLIENT 抽入 SumsubTxnClientModule（叶子）；本模块**原位再导出**，

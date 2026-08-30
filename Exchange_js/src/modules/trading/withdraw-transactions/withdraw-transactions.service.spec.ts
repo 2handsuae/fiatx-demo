@@ -1361,10 +1361,11 @@ describe('WithdrawTransactionsService', () => {
   });
 
   // 守则性测试(防转移表再次漂移):brief `.superpowers/sdd/task-1-brief.md` Step 1 定稿的
-  // 21 条边逐条列出(20 + 2026-08-13 新增 PENDING_APPROVAL --freeze--> FROZEN)——多一条、少一条、边指向变了,这里都会红。同时用穷举(10 状态 ×
-  // 13 动作)反向断言:凡不在这 20 条边名单里的组合,一律必须抛 Invalid action(即没有
-  // 偷偷长出的第 22 条边)。照抄充值 deposit-transactions.service.spec.ts 的写法。
-  describe('state machine integrity guard (21-edge spec)', () => {
+  // 21 条边,2026-08-29 task-B1 补 ACTION_PENDING --resume--> COMPLIANCE_PENDING(补料
+  // 回炉)一条,21→22——逐条列出,多一条、少一条、边指向变了,这里都会红。同时用穷举
+  // (10 状态 × 13 动作)反向断言:凡不在这 22 条边名单里的组合,一律必须抛 Invalid
+  // action(即没有偷偷长出的第 23 条边)。照抄充值 deposit-transactions.service.spec.ts 的写法。
+  describe('state machine integrity guard (22-edge spec)', () => {
     const mockId = 'wd-edge-1';
 
     function setupMock(status: WithdrawTransactionStatus) {
@@ -1404,6 +1405,8 @@ describe('WithdrawTransactionsService', () => {
       [WithdrawTransactionStatus.ACTION_PENDING, WithdrawTransactionAction.KYT_REJECTED, WithdrawTransactionStatus.MANUAL_CHECKING],
       [WithdrawTransactionStatus.ACTION_PENDING, WithdrawTransactionAction.FREEZE, WithdrawTransactionStatus.FROZEN],
       [WithdrawTransactionStatus.ACTION_PENDING, WithdrawTransactionAction.SLA_BREACH, WithdrawTransactionStatus.MANUAL_CHECKING],
+      // 2026-08-29 task-B1 新增:补料审过(GREEN)回合规重跑筛查,充值侧一直有、提现侧此前缺。
+      [WithdrawTransactionStatus.ACTION_PENDING, WithdrawTransactionAction.RESUME, WithdrawTransactionStatus.COMPLIANCE_PENDING],
 
       [WithdrawTransactionStatus.MANUAL_CHECKING, WithdrawTransactionAction.APPROVE, WithdrawTransactionStatus.PAYOUT_PENDING],
       [WithdrawTransactionStatus.MANUAL_CHECKING, WithdrawTransactionAction.ACTION_PENDING, WithdrawTransactionStatus.ACTION_PENDING],
@@ -1418,8 +1421,8 @@ describe('WithdrawTransactionsService', () => {
       [WithdrawTransactionStatus.PAYOUT_PENDING, WithdrawTransactionAction.RETURN, WithdrawTransactionStatus.RETURNED],
     ];
 
-    it('brief lists exactly the 21 spec edges', () => {
-      expect(EDGES).toHaveLength(21);
+    it('brief lists exactly the 22 spec edges', () => {
+      expect(EDGES).toHaveLength(22);
     });
 
     it.each(
@@ -1430,7 +1433,7 @@ describe('WithdrawTransactionsService', () => {
       expect(result.status).toBe(to);
     });
 
-    it('rejects every (status,action) pair NOT in the 21-edge list (no undocumented edge exists)', async () => {
+    it('rejects every (status,action) pair NOT in the 22-edge list (no undocumented edge exists)', async () => {
       const edgeKeys = new Set(EDGES.map(([from, action]) => `${from}::${action}`));
       const allStatuses = Object.values(WithdrawTransactionStatus);
       const allActions = Object.values(WithdrawTransactionAction);
@@ -1444,6 +1447,28 @@ describe('WithdrawTransactionsService', () => {
           ).rejects.toThrow(BadRequestException);
         }
       }
+    });
+
+    // task-B1(.superpowers/sdd/task-B1-brief.md Step 1)：上面的矩阵测的是「转移表形状
+    // 对不对」，这两条测的是「补料回炉」这句业务话对不对——单独具名，方便走查时讲清楚
+    // 这条边解决的是什么问题，而不是淹没在穷举列表里。
+    it('ACTION_PENDING --RESUME--> COMPLIANCE_PENDING（补料回炉）', async () => {
+      setupMock(WithdrawTransactionStatus.ACTION_PENDING);
+      const result = await service.updateStatus(mockId, {
+        action: WithdrawTransactionAction.RESUME,
+        reason: 'material approved — back to compliance',
+      });
+      expect(result.status).toBe(WithdrawTransactionStatus.COMPLIANCE_PENDING);
+    });
+
+    it('非法跃迁仍被显式拒绝：ACTION_PENDING 不能直接 SUCCESS', async () => {
+      setupMock(WithdrawTransactionStatus.ACTION_PENDING);
+      await expect(
+        service.updateStatus(mockId, {
+          action: WithdrawTransactionAction.SUCCESS,
+          reason: 'x',
+        }),
+      ).rejects.toThrow(/Invalid action/i);
     });
   });
 

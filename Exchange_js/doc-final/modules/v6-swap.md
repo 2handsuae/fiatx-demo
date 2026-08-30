@@ -15,7 +15,7 @@
 
 **四道门都在建单前。** 资格门（客户能力没被摁住）→ 限额门（单笔 + 周期累计，AED 口径）→ 余额门（卖出侧够不够——这道是后补的：早先要等合规通过、建腿时才发现钱不够，单子会永久卡死在中途）→ 双边收款账户门（买卖两侧都得有收款账户，缺哪侧提示先去开）。四道全过才建单、才耗报价。
 
-**裁决三分支。** 通过 → 四腿记账 → 成功；拒绝 → 终态，顺带按处置标签给**客户**开便签（限制的是人，不是单）；**客户本人**命中制裁 → 冻结（零出边终态）——注意判据只认"申请人命中"：兑换是平台内交换，没有真正的对手方，对手方命中不冻单。
+**裁决三分支。** 通过 → 四腿记账 → 成功；拒绝 → 终态，顺带按处置标签给**客户**开便签（限制的是人，不是单）；**客户本人命中制裁 / MLRO 手工冻结**（合规官在 Sumsub 台上手工判定，不依赖自动命中）→ 冻结（零出边终态）——注意判据只认"申请人命中"：兑换是平台内交换，没有真正的对手方，对手方命中不冻单。
 
 **冻结对客户必须零痕迹。** 客户端把冻结显示成一次普通的"未成功"，与 KYT 拒绝的响应**逐字相同**；连筛选器都按"客户看到的值"展开查询——客户拿 `?status=FROZEN` 探测不到自己被冻（tipping-off 三层防线）。
 
@@ -30,7 +30,7 @@ COMPLIANCE_PENDING（出生态，零记账）
   ├─ 裁决通过 ──→ PROCESSING ──四腿全清──→ SUCCESS
   │                └─ 腿失败 → 自愈重试 → 耗尽 = 红旗留 PROCESSING（人工 resume）
   ├─ 裁决拒绝 / SLA 超时 ──→ REJECTED（终态，零记账）
-  └─ 客户本人命中制裁 ──→ FROZEN（终态，零出边，零记账）
+  └─ 客户本人命中制裁 / MLRO 手工冻结 ──→ FROZEN（终态，零出边，零记账）
 ```
 
 - `PROCESSING` **刻意没有冻结入边**：钱已经在动，中途冻结会造半截账。冻人广播碰到在途单只落旗与审计，不打断结算
@@ -61,6 +61,7 @@ COMPLIANCE_PENDING（出生态，零记账）
 - 工作流 `trading/swap-transactions/swap-workflow.service.ts`：`initiateSwap()`（四道门 → 耗报价 → 建单**同事务画出生圈**（腿1/attempt1 预占卖出全额）→ 同步铸 Sumsub 出账交易号；旅程号 correlationId 在此铸造全链继承）｜`swapAudit()`（域信封助手：PRIMARY=兑换单号/OWNER=客户号/RELATED=资金单号，18 码名册见 audit-actions.constant.ts V6 段）｜`releaseBirthLock()`（擦圈四出口：KYT 拒绝/制裁冻单/批量冻单/SLA 破线拒单）｜ `applyKytVerdict()`（三分支落地；顶部终态守卫，兑换**没有** decideVerdictLanding，勿照抄充值写法）｜ `handleRejectDisposition()`（拒绝→客户便签）
 - 状态机 `swap-transactions.service.ts → transitions`（5 边穷举）；四个 FROZEN 判据常量**答案刻意不同**：终态集合不含 FROZEN（防撕材料卡片=tipping-off）、冻结扫描排除含 FROZEN（不重复冻）、客户面白名单不含 FROZEN（收敛成 REJECTED）——同一问题四处四答，是本域最易做错处
 - 客户面防线 `toCustomerSwapStatus()` 白名单收敛 + 筛选按收敛值反向展开（派生自收敛函数，无平行表）
+- ⚡ 模拟裁决按钮：三域共享表 `sumsub-shared/verdict-buttons.shared.ts`（11 键）的 8 键子集（`swap-sumsub/fixtures/verdict-buttons.ts`）；缺的三键各有真实理由——④/⑧ PEP·Sanctions 对手方（兑换是账内换币，没有对手方）、⑩ 处置标签（FROZEN 是零出边终态，没有没收/退回弧可挂）。**材料审核（认证复核 GREEN/RED）不在这张表里**：那是另一个 webhook（`applicantActionReviewed`），入口在客户详情页 Verification Requests 区块，收 `requestNo` 不收订单 id，三域共用同一入口，不属交易面板——2026-08-29 前兑换域曾在这张表里另开⑦⑧两键直接投材料复核（缺"先交材料"前置，真按会 500），本轮已删
 - 记账 `swap-leg-accounting.ts`（四腿实时逐腿 post）；腿=挂 swapTransactionId 的资金单（见 funds-orders 篇）；腿 1 特殊：圈在下单时已画（createLeg 对 legSeq=1&attempt=1 跳过画圈只落笔），重试 attempt≥2 恢复按次画圈
 - 报价 `swap-fee-level/swap-quote.service.ts`（TTL 30s 懒过期）+ `pricing-center/pricing-engine.service.ts` + Binance 价源（3s 缓存，AED 钉 3.6725）+ `fee-audience.util.ts → resolveBestLevel()`
 - SLA `swap-sumsub/swap-sla.service.ts → sweep()`（30s cron；超时推 REJECTED、不做客户处置；txnId 为空的单是漏提交，重提不判死）
@@ -71,6 +72,5 @@ COMPLIANCE_PENDING（出生态，零记账）
 - **KYT 规则自动裁决未真机验证**（命门）：无人工介入时 Sumsub 会不会自动发裁决 webhook 未实测——不发则真集成下每笔兑换都会超时死
 - **成功通知未接**：换完客户收不到通知，演示别承诺
 - **运营分不出"技术卡单"与"人被冻结"**：两种情况共用同一面红旗
-- **兑换 demo 按钮缺"先交材料"前置**：部分场景按钮直接按会 500——演示按剧本顺序走
 - **报价过期无定时清扫**（只懒过期）：列表里可能躺着过期报价，讲解时说明
 - 命名债：代码里 swap 腿仍用旧名 InternalFund*（不影响演示，Phase 4 清）

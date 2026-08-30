@@ -29,8 +29,8 @@ import { Prisma } from '@prisma/client';
 
 import { AppModule } from '../src/app.module';
 import { PrismaService } from '../src/core/prisma/prisma.service';
-import { SUMSUB_TXN_CLIENT } from '../src/modules/deposit-sumsub/sumsub-txn-client.interface';
-import { MockSumsubTxnClient } from '../src/modules/deposit-sumsub/sumsub-txn-client.mock';
+import { SUMSUB_TXN_CLIENT } from '../src/modules/sumsub-shared/sumsub-txn-client.interface';
+import { MockSumsubTxnClient } from '../src/modules/sumsub-shared/sumsub-txn-client.mock';
 import { DepositWorkflowService } from '../src/modules/trading/deposit-transactions/deposit-workflow.service';
 import { WithdrawWorkflowService } from '../src/modules/trading/withdraw-transactions/withdraw-workflow.service';
 import { SwapWorkflowService } from '../src/modules/trading/swap-transactions/swap-workflow.service';
@@ -392,7 +392,7 @@ describe('第二批 · 制裁命中分主体 (e2e)', () => {
     // 一笔普通硬线拒绝（无 action，非制裁）留在 REJECTED，作为「筛 REJECTED 时
     // 普通拒绝单也在」的对照组。
     const swPlain = await makeSwap(c, '400');
-    await swapWorkflow.applyKytVerdict(swPlain.id, { verdict: 'rejected', typedTags: [] });
+    await swapWorkflow.applyKytVerdict(swPlain.id, { verdict: 'rejected' });
     expect(
       (await prisma.swapTransaction.findUnique({ where: { id: swPlain.id } }))!.status,
     ).toBe(SwapTransactionStatus.REJECTED);
@@ -401,7 +401,7 @@ describe('第二批 · 制裁命中分主体 (e2e)', () => {
     const sw = await makeSwap(c, '900');
     await swapWorkflow.applyKytVerdict(sw.id, {
       verdict: 'rejected',
-      typedTags: ['SANCTION_APPLICANT'],
+      sceneTag: 'SANCTION_APPLICANT',
     });
     expect(
       (await prisma.swapTransaction.findUnique({ where: { id: sw.id } }))!.status,
@@ -446,13 +446,13 @@ describe('第二批 · 制裁命中分主体 (e2e)', () => {
   it('⑤ FROZEN 兑换单再收裁决 → 写 IGNORED 审计、不推状态、不抛异常（防死信）', async () => {
     const c = await makeCustomer('swap-late');
     const sw = await makeSwap(c, '900');
-    await swapWorkflow.applyKytVerdict(sw.id, { verdict: 'rejected', typedTags: ['SANCTION_APPLICANT'] });
+    await swapWorkflow.applyKytVerdict(sw.id, { verdict: 'rejected', sceneTag: 'SANCTION_APPLICANT' });
     expect(
       (await prisma.swapTransaction.findUnique({ where: { id: sw.id } }))!.status,
     ).toBe(SwapTransactionStatus.FROZEN);
 
     await expect(
-      swapWorkflow.applyKytVerdict(sw.id, { verdict: 'rejected', typedTags: ['SANCTION_APPLICANT'] }),
+      swapWorkflow.applyKytVerdict(sw.id, { verdict: 'rejected', sceneTag: 'SANCTION_APPLICANT' }),
     ).resolves.not.toThrow();
 
     expect(

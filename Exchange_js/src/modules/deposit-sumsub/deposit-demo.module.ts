@@ -4,7 +4,7 @@ import { AdminDepositDemoController } from './admin-deposit-demo.controller';
 import { DepositTransactionsModule } from '../trading/deposit-transactions/deposit-transactions.module';
 import { SumsubIngestionModule } from '../sumsub-ingestion/sumsub-ingestion.module';
 import { AuditLogsModule } from '../audit-logging/audit-logs.module';
-import { SumsubTxnClientModule } from './sumsub-txn-client.module';
+import { SumsubTxnClientModule } from '../sumsub-shared/sumsub-txn-client.module';
 
 // 站1b-α2（2026-08-26）：演示件（场景服务 + ⚡按钮 controller）从 DepositSumsubModule
 // 摘出。它是 DSM 里唯一消费 SumsubIngestionService 的住户——搬走后 DSM 不再引
