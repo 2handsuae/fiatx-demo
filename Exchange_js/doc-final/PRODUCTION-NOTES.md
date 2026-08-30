@@ -444,3 +444,7 @@
 - [2026-08-30] **`regulatory_gate_items.walletId` 列退役后成死列** ｜ `prisma/schema.prisma` `RegulatoryGateItem.walletId` ｜ CLIENT_BANK_ACCOUNT_ENABLEMENT 监管闸门退役
 
   唯一写入方 `CLIENT_BANK_ACCOUNT_ENABLEMENT` 闸门类型已退役（该闸硬要求绑定的 `walletRole=C_CMA` 钱包上一轮已从种子退役，闸门本就建不出来，业主拍板整型退役）；列本身可空、退役前这类闸门在库里就是 0 行，不为此单独加迁移重铺。值得清的时机：下次再动 `regulatory_gate_items` 表 schema 时顺手带走——该列、其 `wallet` 外键关系，以及 `regulatory-gates.service.ts` 里仍保留的 `wallet` include/序列化字段（`mapGate()` 的 `walletId`/`wallet` 投影、`getGateRowOrThrow`/`create`/`update`/`submit`/`recordFeedback`/`bindReceipt`/`markEffective`/`revoke` 里逐处 `include: { wallet: true }`）与 DTO 的 `walletId?: string` 输入字段——这些目前留着是因为只服务这一个已退役列，删不删不影响另外两种闸门。
+
+- [2026-08-30] **`stack.sh reset/up` 会声称重启、实际没停旧进程** ｜ `scripts/stack-common.sh` `stop_pid_file_process()` ｜ 开发工具链，非产品代码
+
+  该函数在 pid 文件不存在时直接 `return 0`——不回落到"按端口找活进程"。pid 文件一旦丢失（清理、异常退出、换方式启动），`reset self` / `up self` 打印的重启日志照常，**但旧后端还在服务旧代码**。危害不在服务本身，在**它伪装成别的 bug**：2026-08-30 破口场景 Task 5 被咬，`demo:all` 报了 `DEPOSIT_FROZEN` 的 correlationId 异常和 `waitFor(CONFISCATED)` 超时——两个都跟当次改动毫无关系，实施者花了大量时间去查一个不存在的缺陷。规避零成本：`reset` 前按 `.stackports` 里的端口 `lsof` 自查一遍，有残留先手动 kill。按禁做清单（边界防御 / 补偿修复）不修。
