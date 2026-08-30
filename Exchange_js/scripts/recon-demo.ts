@@ -580,6 +580,45 @@ async function writeMirror(
   return { balances, lines };
 }
 
+/**
+ * 注入前置闸（fail-closed）。除了明确允许的钱包（在途场景那个），其余目标钱包
+ * 必须没有非终态资金单——有就直接抛错，**不许静默降级**。
+ *
+ * 为什么必须炸而不是跳过：这类问题最难查的不是它本身，是它静默。demo:all 全绿、
+ * recon 报少几个 DETECTED，中间没有任何东西说"我挑钱包时妥协了"。
+ * 出处：cfec505f（FIRM 钱包挑选补排除条件）把同一条道理用在了挑钱包上，
+ * 这里把它推广成所有目标钱包的前置断言。
+ */
+async function assertTargetWalletsClean(
+  prisma: PrismaService,
+  targets: Array<{ walletRef: string; allowNonTerminal: boolean }>,
+): Promise<void> {
+  const mustBeClean = targets.filter((t) => !t.allowNonTerminal).map((t) => t.walletRef);
+  if (mustBeClean.length === 0) return;
+
+  const open = (await (prisma as any).fundsOrder.findMany({
+    where: {
+      status: { notIn: Array.from(TERMINAL_STATUSES) },
+      OR: [
+        { fromWalletId: { in: mustBeClean } },
+        { toWalletId: { in: mustBeClean } },
+      ],
+    },
+    select: { fundsOrderNo: true, status: true, fromWalletId: true, toWalletId: true },
+  })) as Array<{ fundsOrderNo: string; status: string; fromWalletId: string | null; toWalletId: string | null }>;
+
+  if (open.length === 0) return;
+
+  const detail = open
+    .map((o) => `${o.fundsOrderNo}(${o.status}) from=${o.fromWalletId ?? '-'} to=${o.toWalletId ?? '-'}`)
+    .join('; ');
+  throw new Error(
+    `注入前置闸：${open.length} 笔非终态资金单落在本不该有在途的目标钱包上 —— ${detail}\n` +
+    '在途识别会认领它们并把这些钱包的桶重判成 BREAK，答案键就不再成立。\n' +
+    '处理：要么把该场景挪到别的钱包，要么在 WalletExpectation 里把 hasNonTerminalFundsOrder 设为 true 并相应改期望桶。',
+  );
+}
+
 // ── Phase 3 (break only): inject 9 scenarios — one MVP root cause each ──
 //
 // 场景与钱包**不再一一对应**：一个钱包可以挂多条场景（2026-08-30 起）。
@@ -717,6 +756,17 @@ async function injectScenarios(
     );
   }
   const s5s7Plan = firmCandidates[0];
+
+  // 前置闸：目标钱包不得带非终态资金单（在途场景那个除外——它就是靠真卡单的）。
+  await assertTargetWalletsClean(prisma, [
+    { walletRef: stuck.walletRef,     allowNonTerminal: true  },   // 在途场景，卡单是它的设计前提
+    { walletRef: s2Plan.walletRef,    allowNonTerminal: false },
+    { walletRef: s3Plan.walletRef,    allowNonTerminal: false },
+    { walletRef: s4Plan.walletRef,    allowNonTerminal: false },
+    { walletRef: s6Plan.walletRef,    allowNonTerminal: false },
+    { walletRef: s8Plan.walletRef,    allowNonTerminal: false },
+    { walletRef: s5s7Plan.walletRef,  allowNonTerminal: false },
+  ]);
 
   const scenarios: ScenarioExpectation[] = [];
   const wallets: WalletExpectation[] = [];
