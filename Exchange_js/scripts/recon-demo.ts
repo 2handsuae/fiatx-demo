@@ -10,24 +10,22 @@
 //                  external closing balance == internal balance.
 //                  Expected: status=PASS, casesOpened=0, orphan/mismatch=0.
 //
-//   --mode=break   Pass-mode setup, then inject 9 scenarios (one MVP root
-//                  cause each — see Task 10 spec) and write `manifest.json`
-//                  (the answer key). The engine should classify every
-//                  scenario's wallet into its expected bucket
-//                  (IN_TRANSIT / SOFT_FLAG / BREAK) and produce a matching
-//                  line item of the expected matchStatus.
-//                    1. IN_TRANSIT_TIMING     — real non-terminal FundsOrder
-//                    2. FEE_NETTED            — AMOUNT_MISMATCH (BREAK)
-//                    3. STATEMENT_MISSING_LINE— ORPHAN_INTERNAL (BREAK)
-//                    4. SCALE_ERROR           — AMOUNT_MISMATCH (BREAK)
-//                    5. BANK_CHARGE           — ORPHAN_EXTERNAL (SOFT_FLAG, paired w/ 7)
-//                    6. MISSED_DEPOSIT        — ORPHAN_EXTERNAL (BREAK)
-//                    7. BANK_INTEREST         — ORPHAN_EXTERNAL (SOFT_FLAG, paired w/ 5)
-//                    8. BANK_RETURN           — ORPHAN_EXTERNAL (BREAK)
-//                    9. ORPHAN_DEPOSIT        — ORPHAN_EXTERNAL (BREAK, unattributed head)
-//                  ⚠️ 场景与钱包**不再一一对应**：一个钱包可以挂多条场景
-//                  （2026-08-30 起）。旧的 disjoint-wallet 前提已显式废除，
-//                  连带后果与答案键的两级拆分见下方 ManifestV3 的类型注释。
+//   --mode=break   Pass-mode setup, then inject 15 scenarios covering the
+//                  root-cause matrix (see specs/2026-08-30-recon-break-
+//                  scenarios-design.md §3) and write `manifest.json`.
+//                  成因按「谁错了」分三真相：
+//                    金额不对   ④我方小数点错 ⑩对方记错 ⑪舍入精度
+//                    我有外无   ⑦我方重复入账 ⑧假信号 ③银行漏报 ⑫跨日切
+//                    外有我无   ⑤漏监听充值 ⑨对账单重复行 ⑥退汇
+//                    在途       ①在途时序差
+//                    公司补记   ⑭银行杂费 ⑮银行利息
+//                    跨钱包     ⑬记错钱包
+//                    净额口径   ②手续费轧差
+//
+//                  ⚠️ **旧的 disjoint-wallet 前提已于 2026-08-30 显式废除。**
+//                  一个钱包现在可以挂多条场景（三个展示位就是靠这个：同一个
+//                  形状三条差异、三种相反处置摆在一屏）。因此**桶是钱包的属性、
+//                  不是场景的属性**，答案键拆两级——场景断言差异行，钱包断言桶。
 //
 //   --mode=reset   Delete WALLET_V1 runs/cases + all ExternalBalance /
 //                  ExternalStatementLine rows + demo-tagged FundsOrder rows.
@@ -127,9 +125,7 @@ type RootCause =
   | 'COUNTERPARTY_AMOUNT_ERROR'
   | 'ROUNDING_DIFF'
   | 'CUTOFF_STRADDLE'
-  | 'MISROUTED_CREDIT'
-  // ⚠️ 场景 9（未归属外部账户）本轮保留，Task 4 才退役它。届时连同这一行一起删。
-  | 'ORPHAN_DEPOSIT';
+  | 'MISROUTED_CREDIT';
 
 type LineType = 'IN_TRANSIT' | 'AMOUNT_MISMATCH' | 'ORPHAN_INTERNAL' | 'ORPHAN_EXTERNAL';
 type Bucket = 'IN_TRANSIT' | 'SOFT_FLAG' | 'BREAK';
@@ -197,8 +193,6 @@ function sourceFor(assetCode: string): 'HEXTRUST' | 'ZAND' {
 // pre-T5 shell. (The real stuck withdraw's funds_order + withdraw txn ARE
 // cleaned on reset via clearStuckFixtureWithdraws → reset && break is idempotent.)
 const DEMO_IN_TRANSIT_REF_PREFIX = 'DEMO-IT-';
-// Scenario 9's orphan external head/line use this fixed accountRef.
-const DEMO_ORPHAN_ACCOUNT_REF = 'DEMO-ORPHAN-ADDR';
 
 /**
  * Delete the demo-fixture stuck WITHDRAWS scenario 1 leaves behind, so
@@ -634,7 +628,8 @@ async function assertTargetWalletsClean(
   );
 }
 
-// ── Phase 3 (break only): inject 9 scenarios — one MVP root cause each ──
+// ── Phase 3 (break only): inject 8 scenarios (ids 1/2/3/4/5/6/14/15 — the
+// rest of the 15-scenario matrix lands in Task 5-8) ──
 //
 // 场景与钱包**不再一一对应**：一个钱包可以挂多条场景（2026-08-30 起）。
 // 因此桶是钱包的属性、不是场景的属性，答案键分两级——见 ManifestV3 的类型注释。
@@ -642,9 +637,10 @@ async function assertTargetWalletsClean(
 // Scenario 1 (canon2 T5) no longer synthesises a shell funds_order — it drives
 // a REAL stuck withdraw via the shared `createStuckWithdraw` fixture (same path
 // as demo:in-transit), which lands on a demo customer's C_VIBAN. That wallet is
-// determined by the fixture (not the round-robin), so we run it FIRST, then
-// exclude its walletRef from the CUSTOMER pool and round-robin the remaining
-// 5 wallets across scenarios 2/3/4/6/8. FIRM wallet (scenarios 5+7) unchanged.
+// determined by the fixture (not by owner), so we run it FIRST, then recover
+// `slotInTransit` by reverse-looking-up `stuck.walletRef` in `plans` (see the
+// explicit per-persona slot assignment below, 2026-08-30) rather than picking
+// it like the other slots.
 async function injectScenarios(
   prisma: PrismaService,
   plans: WalletPlan[],
@@ -655,8 +651,10 @@ async function injectScenarios(
   const cutoffDate = ymd(cutoff);
 
   // ── Scenario 1 FIRST — real stuck withdraw on a demo customer's C_VIBAN ──
-  // Runs before the round-robin so its (fixture-chosen) wallet can be excluded
-  // from the scenarios-2/3/4/6/8 pool. Uses the AED (fiat) leg, which parks at
+  // Runs FIRST, before the explicit per-persona slot lookups below, because its
+  // (fixture-chosen) wallet is recovered from `stuck.walletRef` afterwards
+  // (see `slotInTransit`, 2026-08-30) rather than looked up by owner+asset like
+  // the other slots. Uses the AED (fiat) leg, which parks at
   // SUBMITTED (non-terminal, POST未做) → the customer C_VIBAN carries a −分
   // external OUT line the matcher's Pass3 claims as in-transit. (writeMirror has
   // already written this wallet's ExternalBalance closing=internalTotal + coaCode;
@@ -677,47 +675,42 @@ async function injectScenarios(
     cutoff,
   });
 
-  // ── CUSTOMER wallet picks (scenarios 2/3/4/6/8) — exclude scenario 1's ──
-  const candidateWallets: WalletPlan[] = [];
-  for (const p of [...plans].sort((a, b) => a.walletRef.localeCompare(b.walletRef))) {
-    if (p.walletKind !== 'CUSTOMER') continue;
-    if (p.lines.length === 0) continue;
-    if (p.walletRef === stuck.walletRef) continue; // reserved for scenario 1
-    candidateWallets.push(p);
-  }
-  if (candidateWallets.length < 5) {
-    throw new Error(
-      `Need ≥5 customer wallets (besides scenario 1's) with crossing flows for ` +
-      `scenarios 2/3/4/6/8; got ${candidateWallets.length}. Seed more deposit/withdraw activity.`,
-    );
-  }
-  // Round-robin across (currency, ownerNo) tuples so picks are maximally
-  // diverse — avoids stacking multiple scenarios on the same wallet.
-  const buckets = new Map<string, WalletPlan[]>();
-  for (const p of candidateWallets) {
-    const key = `${p.currency}|${p.ownerNo}`;
-    (buckets.get(key) ?? buckets.set(key, []).get(key)!).push(p);
-  }
-  const bucketKeys = Array.from(buckets.keys()).sort();
-  const picks: WalletPlan[] = [];
-  let cursor = 0;
-  while (picks.length < 5) {
-    let advanced = false;
-    for (let i = 0; i < bucketKeys.length && picks.length < 5; i++) {
-      const key = bucketKeys[(cursor + i) % bucketKeys.length];
-      const arr = buckets.get(key)!;
-      if (arr.length > 0) {
-        picks.push(arr.shift()!);
-        advanced = true;
-      }
-    }
-    cursor += 1;
-    if (!advanced) break;
-  }
-  if (picks.length < 5) {
-    throw new Error(`Could only pick ${picks.length}/5 distinct customer wallets (besides scenario 1's)`);
-  }
-  const [s2Plan, s3Plan, s4Plan, s6Plan, s8Plan] = picks;
+  // 钱包分配按 specs/2026-08-30-recon-break-scenarios-design.md §4.2 显式指定。
+  // 不再用轮转挑选：一个钱包挂哪些场景是设计决策，让遍历顺序决定它，等于
+  // 演示内容随数据顺序漂移，而且展示位（同形不同真相摆一屏）根本没法安排。
+  const planByOwnerAsset = (ownerNo: string, assetCode: string): WalletPlan => {
+    const p = plans.find((x) => x.ownerNo === ownerNo && x.currency === assetCode && x.walletKind === 'CUSTOMER');
+    if (!p) throw new Error(`找不到 ${ownerNo} 的 ${assetCode} 客户钱包 —— demo:all 是否跑过？花名册是否含该客户的素材单？`);
+    return p;
+  };
+  const emailToNo = async (email: string): Promise<string> => {
+    const c = await (prisma as any).customerMain.findUnique({ where: { email }, select: { customerNo: true } });
+    if (!c) throw new Error(`客户不存在：${email}`);
+    return c.customerNo;
+  };
+
+  const ALICE_NO = await emailToNo('demo_alice@example.com');
+  const BOB_NO   = await emailToNo('demo_bob@example.com');
+  const GRACE_NO = await emailToNo('demo_grace@example.com');
+  const FRANK_NO = await emailToNo('demo_frank@example.com');
+  const JACK_NO  = await emailToNo('demo_jack@example.com');
+  const KATE_NO  = await emailToNo('demo_kate@example.com');
+
+  // ⚠️ 在途那个钱包**必须从卡单 fixture 推出来，不能按 owner 猜**：场景 ① 用的是
+  // createStuckWithdraw 造的那笔真卡单（变量 `stuck`），它挂在哪个钱包由花名册
+  // #20 决定。按 owner 硬猜今天恰好一致，但花名册一改就会**静默分叉**——场景 ①
+  // 指着 A 钱包、前置闸放行的是 B 钱包。
+  const slotInTransit = plans.find((p) => p.walletRef === stuck.walletRef);
+  if (!slotInTransit) throw new Error(`在途场景的钱包不在 plans 里：${stuck.walletRef}`);
+
+  const slotShowcaseA     = planByOwnerAsset(GRACE_NO, 'AED');        // 展示位甲：金额不对三真相 ④⑩⑪
+  const slotShowcaseB     = planByOwnerAsset(FRANK_NO, 'AED');        // 展示位乙：我有外无三真相 ③⑦⑧
+  const slotShowcaseC     = planByOwnerAsset(BOB_NO,   'USDT-TRON');  // 展示位丙：外有我无两真相 ⑤⑨
+  const slotFeeNetted     = planByOwnerAsset(BOB_NO,   'AED');        // ② 手续费轧差
+  const slotReturn        = planByOwnerAsset(ALICE_NO, 'USDT-TRON');  // ⑥ 退汇
+  const slotCutoff        = planByOwnerAsset(GRACE_NO, 'USDT-TRON');  // ⑫ 跨日切
+  const slotMisroutedFrom = planByOwnerAsset(JACK_NO,  'AED');        // ⑬ 记错钱包 · 发出端
+  const slotMisroutedTo   = planByOwnerAsset(KATE_NO,  'AED');        // ⑬ 记错钱包 · 接收端
 
   // ── FIRM wallet pick (scenarios 5+7 — shared wallet, hedged pair) ──────
   // Exclude any FIRM wallet that is already the from/to side of a non-terminal
@@ -774,13 +767,16 @@ async function injectScenarios(
 
   // 前置闸：目标钱包不得带非终态资金单（在途场景那个除外——它就是靠真卡单的）。
   await assertTargetWalletsClean(prisma, [
-    { walletRef: stuck.walletRef,     allowNonTerminal: true  },   // 在途场景，卡单是它的设计前提
-    { walletRef: s2Plan.walletRef,    allowNonTerminal: false },
-    { walletRef: s3Plan.walletRef,    allowNonTerminal: false },
-    { walletRef: s4Plan.walletRef,    allowNonTerminal: false },
-    { walletRef: s6Plan.walletRef,    allowNonTerminal: false },
-    { walletRef: s8Plan.walletRef,    allowNonTerminal: false },
-    { walletRef: s5s7Plan.walletRef,  allowNonTerminal: false },
+    { walletRef: slotInTransit.walletRef,     allowNonTerminal: true  },
+    { walletRef: slotShowcaseA.walletRef,     allowNonTerminal: false },
+    { walletRef: slotShowcaseB.walletRef,     allowNonTerminal: false },
+    { walletRef: slotShowcaseC.walletRef,     allowNonTerminal: false },
+    { walletRef: slotFeeNetted.walletRef,     allowNonTerminal: false },
+    { walletRef: slotReturn.walletRef,        allowNonTerminal: false },
+    { walletRef: slotCutoff.walletRef,        allowNonTerminal: false },
+    { walletRef: slotMisroutedFrom.walletRef, allowNonTerminal: false },
+    { walletRef: slotMisroutedTo.walletRef,   allowNonTerminal: false },
+    { walletRef: s5s7Plan.walletRef,          allowNonTerminal: false },
   ]);
 
   const scenarios: ScenarioExpectation[] = [];
@@ -819,7 +815,7 @@ async function injectScenarios(
   }
 
   // ── Scenario 1 — 在途时序差 (IN_TRANSIT) — REAL stuck withdraw ───────────
-  // The withdraw was already created above (before the round-robin) via the
+  // The withdraw was already created above (before the explicit slot lookups) via the
   // shared `createStuckWithdraw` fixture — a real withdraw driven through the
   // workflow to a non-terminal payout leg (fiat SUBMITTED, POST未做). The
   // fixture also wrote the −分 external OUT line + upsert-updated the wallet's
@@ -873,10 +869,10 @@ async function injectScenarios(
   // wallet's balance check also breaks (not just the line item).
   {
     const candidate = await (prisma as any).externalStatementLine.findFirst({
-      where: { subAccount: s2Plan.walletRef, externalRef: { not: null } },
+      where: { subAccount: slotFeeNetted.walletRef, externalRef: { not: null } },
       orderBy: { datetime: 'asc' },
     });
-    if (!candidate) throw new Error(`No external line with externalRef on ${s2Plan.walletRef}`);
+    if (!candidate) throw new Error(`No external line with externalRef on ${slotFeeNetted.walletRef}`);
     const fee = D('97');
     const newAmount = candidate.amount.minus(fee);
     await (prisma as any).externalStatementLine.update({
@@ -884,12 +880,12 @@ async function injectScenarios(
       data: { amount: newAmount },
     });
     const signedDelta = candidate.direction === 'IN' ? fee.negated() : fee;
-    const prevClose = await bumpClosing(s2Plan, signedDelta);
+    const prevClose = await bumpClosing(slotFeeNetted, signedDelta);
     scenarios.push({
       scenarioId: 2,
       rootCause: 'FEE_NETTED',
       expectedLines: [{
-        walletRef: s2Plan.walletRef,
+        walletRef: slotFeeNetted.walletRef,
         lineType: 'AMOUNT_MISMATCH',
         amount: fee.toString(),
         externalRef: candidate.externalRef,
@@ -904,7 +900,7 @@ async function injectScenarios(
       },
     });
     wallets.push({
-      walletRef: s2Plan.walletRef,
+      walletRef: slotFeeNetted.walletRef,
       scenarioIds: [2],
       expectedBucket: 'BREAK',
       bucketRationale: '银行扣费后才入账 → 外部金额 = 内部金额 − 手续费，收盘同步压低同额 → 残差 = 手续费 ≠ 0 → BREAK',
@@ -917,20 +913,20 @@ async function injectScenarios(
   // shrink external closingBalance by that line's amount.
   {
     const candidate = await (prisma as any).externalStatementLine.findFirst({
-      where: { subAccount: s3Plan.walletRef },
+      where: { subAccount: slotShowcaseB.walletRef },
       orderBy: { datetime: 'asc' },
     });
-    if (!candidate) throw new Error(`No external line to delete on ${s3Plan.walletRef}`);
+    if (!candidate) throw new Error(`No external line to delete on ${slotShowcaseB.walletRef}`);
     await (prisma as any).externalStatementLine.delete({ where: { id: candidate.id } });
     const signedDelta = candidate.direction === 'IN'
       ? candidate.amount.negated()
       : candidate.amount;
-    const prevClose = await bumpClosing(s3Plan, signedDelta);
+    const prevClose = await bumpClosing(slotShowcaseB, signedDelta);
     scenarios.push({
       scenarioId: 3,
       rootCause: 'STATEMENT_MISSING_LINE',
       expectedLines: [{
-        walletRef: s3Plan.walletRef,
+        walletRef: slotShowcaseB.walletRef,
         lineType: 'ORPHAN_INTERNAL',
         amount: candidate.amount.toString(),
         externalRef: candidate.externalRef,
@@ -943,7 +939,7 @@ async function injectScenarios(
       },
     });
     wallets.push({
-      walletRef: s3Plan.walletRef,
+      walletRef: slotShowcaseB.walletRef,
       scenarioIds: [3],
       expectedBucket: 'BREAK',
       bucketRationale: '删一条外部行并压低同额收盘 → 残差 = 该行金额 ≠ 0 → BREAK',
@@ -956,10 +952,10 @@ async function injectScenarios(
   // Bump closing by the same delta so the balance check breaks too.
   {
     const candidate = await (prisma as any).externalStatementLine.findFirst({
-      where: { subAccount: s4Plan.walletRef, externalRef: { not: null } },
+      where: { subAccount: slotShowcaseA.walletRef, externalRef: { not: null } },
       orderBy: { datetime: 'asc' },
     });
-    if (!candidate) throw new Error(`No external line with externalRef on ${s4Plan.walletRef}`);
+    if (!candidate) throw new Error(`No external line with externalRef on ${slotShowcaseA.walletRef}`);
     const newAmount = candidate.amount.times(100);
     const scaleDelta = newAmount.minus(candidate.amount);
     await (prisma as any).externalStatementLine.update({
@@ -967,12 +963,12 @@ async function injectScenarios(
       data: { amount: newAmount },
     });
     const signedDelta = candidate.direction === 'IN' ? scaleDelta : scaleDelta.negated();
-    const prevClose = await bumpClosing(s4Plan, signedDelta);
+    const prevClose = await bumpClosing(slotShowcaseA, signedDelta);
     scenarios.push({
       scenarioId: 4,
       rootCause: 'SCALE_ERROR',
       expectedLines: [{
-        walletRef: s4Plan.walletRef,
+        walletRef: slotShowcaseA.walletRef,
         lineType: 'AMOUNT_MISMATCH',
         amount: scaleDelta.toString(),
         externalRef: candidate.externalRef,
@@ -987,7 +983,7 @@ async function injectScenarios(
       },
     });
     wallets.push({
-      walletRef: s4Plan.walletRef,
+      walletRef: slotShowcaseA.walletRef,
       scenarioIds: [4],
       expectedBucket: 'BREAK',
       bucketRationale: '银行按 ×100 记错精度/单位 → 外部金额比内部金额多出 scaleDelta，收盘同步偏移同额 → 残差 = scaleDelta ≠ 0 → BREAK',
@@ -1020,7 +1016,7 @@ async function injectScenarios(
     });
     const prevClose = await bumpClosing(s5s7Plan, s5s7Amount.negated());
     scenarios.push({
-      scenarioId: 5,
+      scenarioId: 14,
       rootCause: 'BANK_CHARGE',
       expectedLines: [{
         walletRef: s5s7Plan.walletRef,
@@ -1033,7 +1029,7 @@ async function injectScenarios(
         direction: 'OUT',
         prevClosingBalance: prevClose,
         closingBalanceDelta: s5s7Amount.negated().toString(),
-        pairedWithScenario: 7,
+        pairedWithScenario: 15,
       },
     });
     // 场景 5+7 共用一个 FIRM 钱包（对冲对）——桶断言只在场景 7 那段推一次，见下方。
@@ -1045,28 +1041,28 @@ async function injectScenarios(
   // it's a hard break.
   {
     const s6Amount = D('61');
-    const fakeRef = refFor(s6Plan.currency, 'MISSEDDEP');
+    const fakeRef = refFor(slotShowcaseC.currency, 'MISSEDDEP');
     const created = await (prisma as any).externalStatementLine.create({
       data: {
-        source: sourceFor(s6Plan.currency),
-        accountRef: s6Plan.walletRef,
-        subAccount: s6Plan.walletRef,
-        book: s6Plan.book,
-        currency: s6Plan.currency,
+        source: sourceFor(slotShowcaseC.currency),
+        accountRef: slotShowcaseC.walletRef,
+        subAccount: slotShowcaseC.walletRef,
+        book: slotShowcaseC.book,
+        currency: slotShowcaseC.currency,
         direction: 'IN',
         amount: s6Amount,
         externalRef: fakeRef,
         datetime: cutoff,
         description: 'Demo missed-deposit-listener credit (bank saw it, we never ingested it)',
-        dedupKey: `DEMO-INJ-${cutoffDate}-${s6Plan.walletRef}-s6-missed-deposit`,
+        dedupKey: `DEMO-INJ-${cutoffDate}-${slotShowcaseC.walletRef}-s6-missed-deposit`,
       },
     });
-    const prevClose = await bumpClosing(s6Plan, s6Amount);
+    const prevClose = await bumpClosing(slotShowcaseC, s6Amount);
     scenarios.push({
-      scenarioId: 6,
+      scenarioId: 5,
       rootCause: 'MISSED_DEPOSIT',
       expectedLines: [{
-        walletRef: s6Plan.walletRef,
+        walletRef: slotShowcaseC.walletRef,
         lineType: 'ORPHAN_EXTERNAL',
         amount: s6Amount.toString(),
         externalRef: fakeRef,
@@ -1079,8 +1075,8 @@ async function injectScenarios(
       },
     });
     wallets.push({
-      walletRef: s6Plan.walletRef,
-      scenarioIds: [6],
+      walletRef: slotShowcaseC.walletRef,
+      scenarioIds: [5],
       expectedBucket: 'BREAK',
       bucketRationale: '银行侧有一笔我方监听漏收的入账 → 插入一条无内部对应的孤儿外部 IN 行，收盘同步调高同额、无人对冲 → 残差 ≠ 0 → BREAK',
       hasNonTerminalFundsOrder: false,
@@ -1110,7 +1106,7 @@ async function injectScenarios(
     });
     const prevClose = await bumpClosing(s5s7Plan, s5s7Amount);
     scenarios.push({
-      scenarioId: 7,
+      scenarioId: 15,
       rootCause: 'BANK_INTEREST',
       expectedLines: [{
         walletRef: s5s7Plan.walletRef,
@@ -1123,145 +1119,62 @@ async function injectScenarios(
         direction: 'IN',
         prevClosingBalance: prevClose,
         closingBalanceDelta: s5s7Amount.toString(),
-        pairedWithScenario: 5,
+        pairedWithScenario: 14,
       },
     });
     wallets.push({
       walletRef: s5s7Plan.walletRef,
-      scenarioIds: [5, 7],
+      scenarioIds: [14, 15],
       expectedBucket: 'SOFT_FLAG',
       bucketRationale: '杂费 −X 与利息 +X 金额相等方向相反 → 残差 = 0；两条孤儿外部行 → 异常数 2 > 0 → SOFT_FLAG',
       hasNonTerminalFundsOrder: false,
     });
   }
 
-  // ── Scenario 8 — 银行退汇 (BREAK / ORPHAN_EXTERNAL) ─────────────────────
-  // Insert an IN + a return OUT (same channelRef, equal amount) — both are
-  // brand-new external lines with no internal counterpart at all. Per spec,
-  // the closing net change must be −amount (not 0): only the return OUT's
-  // effect is applied to closing, modelling "internal already carries one
-  // IN that this injection doesn't touch, and the bank now claws it back."
+  // ── 场景 ⑥ — 退汇 (BREAK / ORPHAN_EXTERNAL / 客户账簿) ──────────────────
+  // 一笔已经入过账的钱被银行退了回去：银行对账单上多出一条 OUT，我方账上
+  // 还留着那笔入账。→ 外有我无 + 余额差。
+  // ⚠️ 2026-08-30 重写：旧版造了一进一出净额为零的两条行，又单独把收盘压低
+  // 同额——现实里没有哪个事件同时产生这两样（旧 spec §8 短板 1 已登记）。
   {
-    const s8Amount = D('47');
-    const channelRef = refFor(s8Plan.currency, 'RETURNCH');
-    const inRef = refFor(s8Plan.currency, 'RETURNIN');
-    const outRef = refFor(s8Plan.currency, 'RETURNOUT');
-    const inLine = await (prisma as any).externalStatementLine.create({
+    const s6Amount = D('4700');   // 分 —— USDT 0.004700
+    const outRef = refFor(slotReturn.currency, 'RETURNOUT');
+    const created = await (prisma as any).externalStatementLine.create({
       data: {
-        source: sourceFor(s8Plan.currency),
-        accountRef: s8Plan.walletRef,
-        subAccount: s8Plan.walletRef,
-        book: s8Plan.book,
-        currency: s8Plan.currency,
-        direction: 'IN',
-        amount: s8Amount,
-        externalRef: inRef,
-        channelRef,
-        datetime: cutoff,
-        description: 'Demo bank return — original IN leg',
-        dedupKey: `DEMO-INJ-${cutoffDate}-${s8Plan.walletRef}-s8-return-in`,
-      },
-    });
-    const outLine = await (prisma as any).externalStatementLine.create({
-      data: {
-        source: sourceFor(s8Plan.currency),
-        accountRef: s8Plan.walletRef,
-        subAccount: s8Plan.walletRef,
-        book: s8Plan.book,
-        currency: s8Plan.currency,
+        source: sourceFor(slotReturn.currency),
+        accountRef: slotReturn.walletRef,
+        subAccount: slotReturn.walletRef,
+        book: slotReturn.book,
+        currency: slotReturn.currency,
         direction: 'OUT',
-        amount: s8Amount,
+        amount: s6Amount,
         externalRef: outRef,
-        channelRef,
         datetime: cutoff,
-        description: 'Demo bank return — clawback OUT leg (same channelRef as IN)',
-        dedupKey: `DEMO-INJ-${cutoffDate}-${s8Plan.walletRef}-s8-return-out`,
+        description: 'Demo bank return — a previously credited deposit was clawed back',
+        dedupKey: `DEMO-INJ-${cutoffDate}-${slotReturn.walletRef}-s6-bank-return`,
       },
     });
-    const prevClose = await bumpClosing(s8Plan, s8Amount.negated());
+    const prevClose = await bumpClosing(slotReturn, s6Amount.negated());
     scenarios.push({
-      scenarioId: 8,
+      scenarioId: 6,
       rootCause: 'BANK_RETURN',
       expectedLines: [{
-        walletRef: s8Plan.walletRef,
+        walletRef: slotReturn.walletRef,
         lineType: 'ORPHAN_EXTERNAL',
-        amount: s8Amount.toString(),
+        amount: s6Amount.toString(),
         externalRef: outRef,
       }],
       detail: {
-        channelRef,
-        insertedInLineId: inLine.id,
-        insertedOutLineId: outLine.id,
-        inExternalRef: inRef,
-        outExternalRef: outRef,
+        insertedExternalLineId: created.id,
         prevClosingBalance: prevClose,
-        closingBalanceDelta: s8Amount.negated().toString(),
+        closingBalanceDelta: s6Amount.negated().toString(),
       },
     });
     wallets.push({
-      walletRef: s8Plan.walletRef,
-      scenarioIds: [8],
+      walletRef: slotReturn.walletRef,
+      scenarioIds: [6],
       expectedBucket: 'BREAK',
-      bucketRationale: '银行退汇：等额一进一出插入两条全新孤儿行，但收盘只按清回的那笔 OUT 变动 → 残差 = 退汇金额 ≠ 0，且有孤儿外部行佐证 → BREAK',
-      hasNonTerminalFundsOrder: false,
-    });
-  }
-
-  // ── Scenario 9 — 孤儿充值 (BREAK, unattributed head, no line item) ──────
-  // No internal wallet claims this external account at all — walletRef is
-  // null on the ExternalBalance head. This exercises T5's
-  // unattributedBalances branch (no silent skip; must surface as BREAK).
-  // The statement line is still written (a real orphan head would have
-  // statement detail behind it), but T5 intentionally does not run the
-  // flow matcher for unattributed heads, so no ORPHAN_EXTERNAL line item
-  // is produced — only the case-level BREAK signal is expected here.
-  {
-    const s9Amount = D('53');
-    const s9Currency = 'AED';
-    const s9Book = 'FIRM';
-    const s9Source = sourceFor(s9Currency);
-    await (prisma as any).externalBalance.create({
-      data: {
-        source: s9Source,
-        accountRef: DEMO_ORPHAN_ACCOUNT_REF,
-        currency: s9Currency,
-        book: s9Book,
-        cutoffDate,
-        closingBalance: s9Amount,
-        openingBalance: D(0),
-        asOfAt: cutoff,
-        status: 'INGESTED',
-        walletRef: null,
-        lineCount: 1,
-      },
-    });
-    const fakeRef = refFor(s9Currency, 'ORPHANDEP');
-    await (prisma as any).externalStatementLine.create({
-      data: {
-        source: s9Source,
-        accountRef: DEMO_ORPHAN_ACCOUNT_REF,
-        subAccount: null,
-        book: s9Book,
-        currency: s9Currency,
-        direction: 'IN',
-        amount: s9Amount,
-        externalRef: fakeRef,
-        datetime: cutoff,
-        description: 'Demo orphan deposit — no internal wallet claims this external account',
-        dedupKey: `DEMO-INJ-${cutoffDate}-${DEMO_ORPHAN_ACCOUNT_REF}-s9-orphan-deposit`,
-      },
-    });
-    scenarios.push({
-      scenarioId: 9,
-      rootCause: 'ORPHAN_DEPOSIT',
-      expectedLines: [],   // 未归属头：引擎故意不跑流水匹配，只有 case 级信号
-      detail: { accountRef: DEMO_ORPHAN_ACCOUNT_REF, closingBalance: s9Amount.toString() },
-    });
-    wallets.push({
-      walletRef: DEMO_ORPHAN_ACCOUNT_REF,
-      scenarioIds: [9],
-      expectedBucket: 'BREAK',
-      bucketRationale: '未归属外部账户：无内部面可比，引擎直接开 BREAK case',
+      bucketRationale: '加一条 OUT 幽灵行并压低同额收盘 → 残差 = −该行金额 ≠ 0 → BREAK',
       hasNonTerminalFundsOrder: false,
     });
   }
@@ -1457,7 +1370,7 @@ async function main() {
   const written = await writeMirror(prisma, plans, cutoff);
   console.log(`mirror written: external_balances=${written.balances}  external_statement_lines=${written.lines}`);
 
-  // Phase 3 (break only) — inject 9 scenarios + write manifest.
+  // Phase 3 (break only) — inject 8 scenarios + write manifest.
   //
   // Scenario 1 now drives a REAL stuck withdraw whose external OUT line is
   // stamped `datetime = leg.createdAt` — created *inside* injectScenarios, i.e.
