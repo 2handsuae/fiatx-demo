@@ -37,8 +37,11 @@ describe('第一批 · V1 词表守则', () => {
       'ADMIN_MFA_RESET_': 3, 'ADMIN_ACCOUNT_LOCK_': 2,
       'ROLE_DEFINITION_CREATE_': 3, 'ROLE_DEFINITION_MODIFY_': 3,
       'APPROVAL_POLICY_CHANGE_': 2, 'AUDIT_EVIDENCE_EXPORT_': 3,
-      // REGULATORY_GATE_ 曾 7 码，Task 5(2026-08-30) 随监管闸门整块退役，
-      // 该前缀组已从 V1_AUDIT_ACTIONS 移除（见 DEPRECATED_AUDIT_ACTIONS），故此处不再断言。
+      // REGULATORY_GATE_ 曾 7 码，Task 5(2026-08-30) 随监管闸门整块退役。
+      // 断言 0 而不是删掉这一行：只有显式钉住「live 表里该前缀一个都没有」，才能挡住
+      // 「新铸一个从未出现过的 REGULATORY_GATE_* 码进 live 表、同时别处删一个键把总数
+      // 维持在 48」这条绕过路径——它躲得过总数断言，也躲得过退役名册零交集断言。
+      'REGULATORY_GATE_': 0,
     };
     for (const [p, n] of Object.entries(expectCount)) {
       expect(codes.filter((c) => c.startsWith(p))).toHaveLength(n);
