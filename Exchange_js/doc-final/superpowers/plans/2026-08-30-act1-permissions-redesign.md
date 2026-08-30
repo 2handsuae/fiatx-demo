@@ -95,7 +95,7 @@ rm -f GovernanceRegistryListPage.tsx GovernanceRegistryDetailPage.tsx \
       RegulatoryGateListPage.tsx RegulatoryGateDetailPage.tsx RegulatoryGateCreatePage.tsx
 ```
 
-- [ ] **Step 5：`App.tsx` 删 7 行 lazy import 与 24 条路由**
+- [ ] **Step 5：`App.tsx` 删 7 行 lazy import 与 46 条路由**（两块区域各 23 条）
 
 删除 `:49-55` 的 7 个 `const GovernanceRegistry*Page = lazy(...)` / `const RegulatoryGate*Page = lazy(...)`；删除 `:343-494` 与 `:685-707` 区间内所有 `registries/...` 与 `registries/regulatory-gates...` 的 `<Route>`。**保留** `:196` 与 `:602` 的 Wave8 index 路由（Task 3 处理）。
 
