@@ -56,6 +56,10 @@ import { PrismaService } from '../src/core/prisma/prisma.service';
 import { WalletReconRunService } from '../src/modules/clearing-settle/reconciliation/workflow/wallet-recon-run.service';
 import { WalletBalanceCheckerService } from '../src/modules/clearing-settle/reconciliation/engine/v2/wallet-balance-checker.service';
 import { TbEvidenceService } from '../src/modules/accounting/tigerbeetle/tb-evidence.service';
+import { AccountingService } from '../src/modules/accounting/tigerbeetle/accounting.service';
+import { TB_ACCOUNT_CODES, TB_CODE_TO_COA } from '../src/modules/accounting/tigerbeetle/constants/tb-account-codes.constant';
+import { TB_LEDGERS } from '../src/modules/accounting/tigerbeetle/constants/tb-ledgers.constant';
+import { TB_TRANSFER_CODES } from '../src/modules/accounting/tigerbeetle/constants/tb-transfer-codes.constant';
 import { FundsOrderService } from '../src/modules/funds-orders/funds-order.service';
 import { TERMINAL_STATUSES } from '../src/modules/funds-orders/constants/funds-order-transitions.constant';
 import { WithdrawQuoteService } from '../src/modules/trading/withdrawal-fee-level/withdraw-quote.service';
@@ -665,6 +669,7 @@ async function injectScenarios(
   plans: WalletPlan[],
   cutoff: Date,
   ctx: StuckFixtureCtx,
+  accounting: AccountingService,
 ): Promise<ManifestV3> {
   if (plans.length === 0) throw new Error('No eligible wallets — seed business data first');
   const cutoffDate = ymd(cutoff);
@@ -927,41 +932,172 @@ async function injectScenarios(
     });
   }
 
-  // ── Scenario 3 — 对账单缺行 (BREAK / ORPHAN_INTERNAL) ───────────────────
-  // Bank never reported one credit/debit. Delete the mirrored line AND
-  // shrink external closingBalance by that line's amount.
+  // ── 展示位乙 · 同样是「我有外无」，三种相反的真相 ───────────────────────
+  // ③ 银行漏报明细   → 对方错 → 不该动账（我方账是对的）
+  // ⑦ 我方重复入账   → 我方错 → 冲销
+  // ⑧ 假信号入账     → 我方错 → 冲销
+  // ⑦ 的可辨识证据：它的孤儿行在**已匹配列表里有个同 ref 同额的双胞胎**
+  // （银行报一笔、我方入两笔），③⑧ 的孤儿没有。这是整套演示最值钱的对照。
   {
-    const candidate = await (prisma as any).externalStatementLine.findFirst({
+    const lines = (await (prisma as any).externalStatementLine.findMany({
       where: { subAccount: slotShowcaseB.walletRef },
       orderBy: { datetime: 'asc' },
+      take: 3,
+    })) as Array<{ id: string; direction: string; amount: Prisma.Decimal; externalRef: string | null }>;
+    if (lines.length < 3) {
+      throw new Error(`展示位乙需要 ≥3 条外部行，实际 ${lines.length} 条（钱包 ${slotShowcaseB.walletRef}）`);
+    }
+    const [l3, lDup, l8] = lines;
+
+    // ③ 银行漏报明细：删掉一条外部行 + 压低同额收盘（我方账是对的）
+    await (prisma as any).externalStatementLine.delete({ where: { id: l3.id } });
+    const s3Signed = l3.direction === 'IN' ? l3.amount.negated() : l3.amount;
+    const s3Prev = await bumpClosing(slotShowcaseB, s3Signed);
+
+    // ⑧ 假信号入账：我方收到一个假的入账信号并入了账，银行那边根本没这笔
+    await (prisma as any).externalStatementLine.delete({ where: { id: l8.id } });
+    const s8Signed = l8.direction === 'IN' ? l8.amount.negated() : l8.amount;
+    const s8Prev = await bumpClosing(slotShowcaseB, s8Signed);
+
+    // ⑦ 我方重复入账：银行报了一笔（lDup 保留不动），我方账上再入一笔同 ref 的。
+    // ⚠️ 固定 sourceNo 保证可重跑：TB 的 transfer id 是 (sourceType, sourceNo,
+    // eventCode) 的确定性哈希，重跑时判为已存在直接跳过，不会二次入账。
+    // ⚠️ recon:demo:reset **不回滚账本**（它只清外部数据与 WALLET_V1 的 run/case），
+    // 彻底归零要走 stack.sh reset self（会重建 TigerBeetle）。
+    const dupLedger = TB_LEDGERS[slotShowcaseB.currency === 'AED' ? 'AED' : 'USDT'];
+    const owner = await (prisma as any).customerMain.findUnique({
+      where: { customerNo: slotShowcaseB.ownerNo! }, select: { id: true },
     });
-    if (!candidate) throw new Error(`No external line to delete on ${slotShowcaseB.walletRef}`);
-    await (prisma as any).externalStatementLine.delete({ where: { id: candidate.id } });
-    const signedDelta = candidate.direction === 'IN'
-      ? candidate.amount.negated()
-      : candidate.amount;
-    const prevClose = await bumpClosing(slotShowcaseB, signedDelta);
-    scenarios.push({
-      scenarioId: 3,
-      rootCause: 'STATEMENT_MISSING_LINE',
-      expectedLines: [{
-        walletRef: slotShowcaseB.walletRef,
-        lineType: 'ORPHAN_INTERNAL',
-        amount: candidate.amount.toString(),
-        externalRef: candidate.externalRef,
-      }],
-      detail: {
-        deletedExternalLineId: candidate.id,
-        direction: candidate.direction,
-        prevClosingBalance: prevClose,
-        closingBalanceDelta: signedDelta.toString(),
+    if (!owner) throw new Error(`找不到展示位乙钱包的客户：${slotShowcaseB.ownerNo}`);
+    const clientAssetId = await accounting.resolveTbAccountId({ code: TB_ACCOUNT_CODES.CLIENT_ASSET, ledger: dupLedger, ownerType: 'SYSTEM' });
+    const suspenseId    = await accounting.resolveTbAccountId({ code: TB_ACCOUNT_CODES.DEPOSIT_SUSPENSE, ledger: dupLedger, ownerType: 'CUSTOMER', ownerUuid: owner.id });
+    const payableId     = await accounting.resolveTbAccountId({ code: TB_ACCOUNT_CODES.CLIENT_PAYABLE, ledger: dupLedger, ownerType: 'CUSTOMER', ownerUuid: owner.id });
+    const dupSourceNo = `DEMO-DUP-${cutoffDate}-${slotShowcaseB.walletRef.slice(0, 8)}`;
+    const dupAmount = BigInt(lDup.amount.toFixed(0));
+
+    await accounting.executeTransfer({
+      debitAccountId: clientAssetId, creditAccountId: suspenseId, amount: dupAmount, ledger: dupLedger,
+      code: TB_TRANSFER_CODES.DEPOSIT_ASSET_TO_SUSPENSE,
+      evidence: {
+        sourceType: 'DEPOSIT', sourceNo: dupSourceNo, eventCode: 'DEPOSIT_ASSET_TO_SUSPENSE',
+        debitCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.CLIENT_ASSET],
+        creditCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.DEPOSIT_SUSPENSE],
+        assetCurrency: slotShowcaseB.currency, traceId: dupSourceNo,
+        actorType: 'SYSTEM', actorId: 'RECON_DEMO',
+        memo: 'Demo duplicate deposit — bank reported ONE credit, our books took it twice',
+        debitWalletRef: slotShowcaseB.walletRef, creditWalletRef: slotShowcaseB.walletRef,
+        isExternalCrossing: true,           // 这一腿要参与流水匹配
+        externalRef: lDup.externalRef,      // 与银行那条同 ref → 一笔匹配、一笔成孤儿
+        effectiveDate: cutoffDate,
       },
+    });
+    await accounting.executeTransfer({
+      debitAccountId: suspenseId, creditAccountId: payableId, amount: dupAmount, ledger: dupLedger,
+      code: TB_TRANSFER_CODES.DEPOSIT_SUSPENSE_TO_PAYABLE,
+      evidence: {
+        sourceType: 'DEPOSIT', sourceNo: dupSourceNo, eventCode: 'DEPOSIT_SUSPENSE_TO_PAYABLE',
+        debitCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.DEPOSIT_SUSPENSE],
+        creditCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.CLIENT_PAYABLE],
+        assetCurrency: slotShowcaseB.currency, traceId: dupSourceNo,
+        actorType: 'SYSTEM', actorId: 'RECON_DEMO',
+        memo: 'Demo duplicate deposit (reclass)',
+        debitWalletRef: slotShowcaseB.walletRef, creditWalletRef: slotShowcaseB.walletRef,
+        isExternalCrossing: false,          // 纯账面重分类，不参与匹配
+        effectiveDate: cutoffDate,
+      },
+    });
+
+    // ⚠️⚠️ 排他钉行键——**不加这个，本任务交付的那一刻就把 Task 5 刚堵上的洞
+    // 在 Frank 的钱包上原样重挖一遍**（2026-08-30 复审拿真实库数据实测：Frank
+    // 的 AED 钱包三笔充值共用同一个 `externalRef = ZB20260830275C7FCE5B`，
+    // 与 Grace 钱包完全相同的撞号前提）。③⑦⑧ 三条的 (matchStatus, walletRef,
+    // externalRef) 三元组字面全同，不钉行就会退化成"同一句话问三遍"：谁的注入
+    // 被写坏都不会被发现，只要另外两条还活着，脚本照样全绿退出 0。
+    // 见 Global Constraints 里那条 🔴，以及 Task 5 的 ④⑩⑪ 写法。
+    //
+    // ③⑧ 的键是确定的：它们把自己的外部行删了，对应的内部流水直接变孤儿，
+    // 取 planWallets 排出的同位置 sourceFlowId 即可（与上面 [l3,lDup,l8] 同序）。
+    const [plB3, , plB8] = slotShowcaseB.lines;
+    //
+    // ⑦ 不一样，**它是本批唯一一个键要反查的**：lDup 的外部行没删，而内部侧
+    // 现在有两笔同 ref 的流水（原始那笔 + 我们刚造的这笔）。匹配器会配走一笔、
+    // 剩一笔成孤儿——**成孤儿的应当是后造的这笔**（原始那笔 createdAt 更早）。
+    // 所以键要按 dupSourceNo 把刚造的 account_flow 反查回来：
+    //
+    // ⚠️ 本地订正 #1：需求书原文这里写的是 `walletId: slotShowcaseB.walletRef`，
+    // 但 AccountFlow 模型（prisma/schema.prisma）没有 walletId 字段，只有
+    // walletRef（本文件 421 行、wallet-flow-matcher.service.ts 176 行等处的
+    // accountFlow 查询全都用 walletRef）——按原文写会在这一行直接抛
+    // PrismaClientValidationError，已改成 walletRef。
+    //
+    // ⚠️ 本地订正 #2（实跑发现，比订正 #1 更隐蔽）：光改 walletRef 还不够。
+    // 上面两次 executeTransfer（STEP_1 ASSET_TO_SUSPENSE / STEP_2
+    // SUSPENSE_TO_PAYABLE）用的是**同一个** sourceNo=dupSourceNo，且都把
+    // debitWalletRef/creditWalletRef 设成了同一个 Frank 钱包——AccountFlowProjectorService
+    // 每次 executeTransfer 落两行（借/贷各一行，walletRef 相同）。所以
+    // `{ sourceNo: dupSourceNo, walletRef }` 这一查询条件其实会命中 **4 行**：
+    // STEP_1 借（CLIENT_ASSET 聚合户,OUT,crossing=true）/ STEP_1 贷
+    // （DEPOSIT_SUSPENSE,IN,crossing=true——这行才是我们要的)/ STEP_2 借
+    // （DEPOSIT_SUSPENSE,OUT,crossing=false）/ STEP_2 贷（CLIENT_PAYABLE,IN,
+    // crossing=false)。`orderBy: createdAt desc` 挑的是**最晚**写入的一行——
+    // 而 STEP_2 在 STEP_1 之后落库，於是挑中的是 STEP_2 的某一行（crossing=
+    // false）。匹配器的候选集固定过滤 isExternalCrossing=true（wallet-flow-
+    // matcher.service.ts 176 行），STEP_2 两行永远不会出现在
+    // reconciliation_line_items 里——钉的键指向一个匹配器压根看不见的流水，
+    // ⑦ 因此**必定** MISSED，与"谁跟谁配对"的匹配器行为完全无关（实跑核对：
+    // account_flows 里 sourceNo LIKE 'DEMO-DUP-%' 的 4 行，isExternalCrossing=1
+    // 的只有 STEP_1 那两行；不加 isExternalCrossing/direction 过滤，findFirst
+    // 在这 4 行里挑到的确实是 STEP_2 的一行）。加 isExternalCrossing:true 还不够
+    // 唯一（STEP_1 的借贷两行都是 crossing=true，createdAt 相同，谁在前不确定），
+    // 需要再加 direction:'IN' 精确锁定 STEP_1 的贷方（DEPOSIT_SUSPENSE）那一行——
+    // 即真正会被 planWallets/matcher 视为"这笔充值的内部证据"的那一行。
+    const dupFlow = (await (prisma as any).accountFlow.findFirst({
+      where: {
+        sourceNo: dupSourceNo, walletRef: slotShowcaseB.walletRef,
+        isExternalCrossing: true, direction: 'IN',
+      },
+      select: { id: true },
+      orderBy: { createdAt: 'desc' },
+    })) as { id: string } | null;
+    if (!dupFlow) throw new Error(`⑦ 反查不到刚造的重复入账流水：sourceNo=${dupSourceNo}`);
+    // ⚠️ 如果 ⑦ 判了 MISSED 而 ③⑧ 正常，**先别怀疑注入写坏了**——那说明匹配器
+    // 把原始那笔当成了孤儿、把重复那笔配走了，即"谁跟外部行配对"和这里的假设
+    // 相反。那是关于匹配器行为的真实发现，报上来，不要改成"两个 id 试一个"糊过去。
+
+    scenarios.push({
+      scenarioId: 3, rootCause: 'STATEMENT_MISSING_LINE',
+      expectedLines: [{
+        walletRef: slotShowcaseB.walletRef, lineType: 'ORPHAN_INTERNAL',
+        amount: l3.amount.toString(), externalRef: l3.externalRef,
+        internalSourceId: plB3.sourceFlowId,
+      }],
+      detail: { deletedExternalLineId: l3.id, prevClosingBalance: s3Prev },
+    });
+    scenarios.push({
+      scenarioId: 7, rootCause: 'DUPLICATE_DEPOSIT',
+      expectedLines: [{
+        walletRef: slotShowcaseB.walletRef, lineType: 'ORPHAN_INTERNAL',
+        amount: lDup.amount.toString(), externalRef: lDup.externalRef,
+        internalSourceId: dupFlow.id,
+      }],
+      detail: { dupSourceNo, bankReportedTimes: 1, bookedTimes: 2, sharedExternalRef: lDup.externalRef },
+    });
+    scenarios.push({
+      scenarioId: 8, rootCause: 'VOIDED_SIGNAL',
+      expectedLines: [{
+        walletRef: slotShowcaseB.walletRef, lineType: 'ORPHAN_INTERNAL',
+        amount: l8.amount.toString(), externalRef: l8.externalRef,
+        internalSourceId: plB8.sourceFlowId,
+      }],
+      detail: { deletedExternalLineId: l8.id, prevClosingBalance: s8Prev },
     });
     wallets.push({
       walletRef: slotShowcaseB.walletRef,
-      scenarioIds: [3],
+      scenarioIds: [3, 7, 8],
       expectedBucket: 'BREAK',
-      bucketRationale: '删一条外部行并压低同额收盘 → 残差 = 该行金额 ≠ 0 → BREAK',
+      bucketRationale:
+        '③⑧ 各删一条外部行并压低同额收盘（外部少了两条的金额）；⑦ 内部多入一笔而外部不变（内部多了一笔）。' +
+        '三者都把「外部 − 内部」推向负，和恒 ≠ 0，且无在途 → 残差 ≠ 0 → BREAK。',
       hasNonTerminalFundsOrder: false,
     });
   }
@@ -1487,7 +1623,7 @@ async function main() {
       withdraws: app.get(WithdrawTransactionsService),
       withdrawWf: app.get(WithdrawWorkflowService),
     };
-    manifest = await injectScenarios(prisma, plans, cutoff, ctx);
+    manifest = await injectScenarios(prisma, plans, cutoff, ctx, app.get(AccountingService));
     engineCutoff = new Date(); // ≥ every fixture line's datetime (see above)
     writeFileSync(MANIFEST_PATH, JSON.stringify(manifest, null, 2));
     console.log(`manifest written to ${MANIFEST_PATH}  (${manifest.scenarios.length} scenarios, ${manifest.wallets.length} wallets)`);
