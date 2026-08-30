@@ -46,6 +46,14 @@ Last Updated: 2026-08-29
 - [ ] **effectiveDate 语义待核**：应 date(价值日) + 独立 createdAt(datetime) 两字段两用途；需核 `effectiveDate` 是否 date-only、截止边界卡点是否用 createdAt ｜来源: spec §2.4
 
 
+- [ ] 🔴 **`demo:all` 偶发客户侧记账失衡（约 1/13，触碰铁律⑤「钱动必过账」）**：全新库上跑 `reset self` → `demo:all`，29 笔订单全部走到预期终态、**花名册断言全绿**，但 COA 客户侧两条恒等式静默不平——实测 `CLIENT_ASSET(AED) 12346594 ≠ CLIENT_PAYABLE+DEPOSIT_SUSPENSE 4266547`（差 80,800.47 AED），`USDT` 同向差 8,992.57 USDT，**两个币种资产 side 均约为负债 side 的 2.88 倍**；公司侧两条恒等式同时全绿。**非确定性**：同一提交同一命令连跑 13 次，12 次干净、1 次失衡。已用实证排除"本批引入"——在 `git merge-base main HEAD`、在新增客户提交的前一刻、在该提交本身、在 HEAD 上分别跑过，且逐提交核对确认 `demo:all` 实际执行到的 `demo-lib.ts`/`demo-roster.ts` 在这些提交间**逐字节相同**。花名册从 21 行加到 29 行只是把单次记账笔数从 ~14 提到 ~21，**提高了撞上的概率、不是原因**。
+
+  **头号怀疑（未坐实，把握中等偏低）**：`src/modules/trading/swap-transactions/swap-workflow.service.ts:1529` 的 `handleFundsOrderChanged()` 在腿失败/超时时走 `:1636` 的 `onLegFailedSelfHeal`——void 当前 attempt、重建 attempt+1。而 `swap-leg-accounting.ts` 的 `deterministicTransferId(..., attempt)` 把 attempt 编进转账 ID，**TigerBeetle 的 ID 去重因此只挡得住同一 attempt 内的重复，挡不住"这一 attempt 其实已经落账成功却被误判 FAILED/TIMEOUT"**；且 `postLeg`/`advance`/`createLeg` 整套包在 SQL `$transaction` 里，**TigerBeetle 的落账不受该事务回滚保护**。已排查并排除：充值 SUCCESS 路径（成对转账，重复调用不破坏恒等式）、几个 SLA 类 `@Cron`（阈值 30 秒~5 分钟，远长于 demo:all 实测 ~18 秒全程）。
+
+  **下次取证的正确姿势（关键，别错过现场）**：判红后**先别 reset**，在失衡的库上按 `sourceType/sourceNo` 分组，数 `account_flows` 里每个 `swapNo`/`depositNo` 名下 `CLIENT_ASSET` 方向的转账笔数是否 >1（正常恒为 1）——比继续读代码猜更快锁到是哪类单、第几次 attempt。
+
+  ⚠️ **归 BACKLOG 不归 PRODUCTION-NOTES**：它动的是「钱动必过账」这条不可违反规则，一旦坐实会动摇账本可信度，不是纯技术兜底 ｜来源: 2026-08-30 破口场景批次 Task 5 收尾时撞见，专项调查报告见 `.superpowers/sdd/coa-imbalance-report.md`
+
 ## C. 第二幕 · 迎客（V2 客户与合规）
 
 > 讲「客户是谁、能不能交易由合规说了算」这一幕的缺口。最大一件是开户流程重做（站6 整体拆除后待接真 Sumsub 申请人侧）。

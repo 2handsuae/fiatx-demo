@@ -36,6 +36,27 @@
   `DEMO_ROSTER.filter(...).length`）。写死的数字每次加行都要有人记得回来改，而忘了改的表现是
   "本来该绿的东西变红"或"演示屏幕上印错数字"——本批 Task 1 两样都撞上了。
 - 栈命令一律走包装器：`bash scripts/on-stack.sh self <npm-script>`。本工作树端口 3110–3113，DB `/tmp/exchange_js_wt_recon_adj1/dev.db`。
+- 🔴 **同一个钱包上挂多条期望时，`expectedLines[]` 必须带 `internalSourceId` 钉行**（Task 5 评审实证后加）。
+  原因：`fakeBankRef` 的种子是「钱包 + 当天日期」，**同钱包同日的每笔充值必然拿到同一个回执号**。
+  而 `verifyManifest` 的谓词只有 `(matchStatus, walletRef, externalRef)`——三者全同的多条期望，
+  在非排他匹配下**退化成同一句话问三遍**：谁的注入被弄坏都不会被发现，只要同组还有一条活着，
+  脚本照样打印全绿、退出 0。**这正是答案键最不能出的那种错（自证型绿灯）。**
+  修复已落地（Task 5 修复轮）：`ScenarioExpectation.expectedLines[]` 多了可选 `internalSourceId`，
+  `verifyManifest` 改成排他 `claim()`。**展示位乙（Task 6）、展示位丙（Task 7）同样是一钱包多期望，
+  必须照 Task 5 的写法把 `internalSourceId: <plan>.lines[i].sourceFlowId` 填上。**
+  ⚠️ **不是 `internalSourceNo`**——那一列只有 `IN_TRANSIT` 行才写（见 `wallet-recon-run.service.ts`
+  的 `writeLineItems()`），`AMOUNT_MISMATCH` / `ORPHAN_INTERNAL` / `ORPHAN_EXTERNAL` 三类行上恒为 null。
+  同时按「对外用业务键」把人读的 `DEP…` 号填进该场景的 `detail`（UUID 给机器、单号给人）。
+  **验证方式必须是变异测试**：故意弄坏其中一条注入 → 脚本必须变红**且点名是那一条** → 再改回去确认恢复。
+  只跑一遍绿不算证明——它本来就是绿的。
+- 🔴 **跑 break 的正确顺序**（控制方踩过，且一度把错的写进了需求书）：
+  - **轻**（推荐）：`recon:demo:reset` → `recon:demo:break`。前者只回滚注入的扭曲（含 `bumpClosing`
+    的相对调整），不动演示数据，快得多。
+  - **重**（只在动了 schema / seed 时）：`stack.sh reset self` → **`demo:all`** → `recon:demo:break`。
+  ⚠️ **`stack.sh reset self` 是整库重铺，会把演示数据一起清掉**。漏掉中间的 `demo:all` 直接跑 break，
+  症状是：只规划出 7 个 PLATFORM 钱包（`internal=0 lines=0`）、`external_statement_lines=0`，
+  然后在造在途单时炸 `IllegalSourceWalletError: ... has no active C_VIBAN wallet`——
+  **报错栈指向提现工作流的 R4 校验，看着像业务代码坏了，实际是数据没铺。**
 - ⚠️ **`demo:all` 不能在同一个库上连跑两次**（花名册第 #7/#10/#13 行把 FRANK 造成永久被制裁，第二次跑 Gate 0 会正确拒绝他的新充值）。每次验证都要先 `stack.sh down` → `reset self` → kill 掉 reset 拉起的 TigerBeetle → `up self`。
 
 ---
