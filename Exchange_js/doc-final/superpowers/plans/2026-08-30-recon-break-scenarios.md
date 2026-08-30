@@ -49,6 +49,7 @@
 | `scripts/demo-roster.ts` | `DEMO_ROSTER` 花名册 | 改（+8 行） |
 | `scripts/recon-demo.ts` | 答案键类型 + 15 个场景注入 + 校验 + 前置闸 | 改（本轮主体） |
 | `doc-final/demo/baseline.md` | 基线数字与判据 | 改 |
+| `doc-final/demo/script.md` | 走查剧本（对账那一幕） | 改 |
 
 ---
 
@@ -660,7 +661,7 @@ git commit -m "feat(demo): 注入前置闸——目标钱包不得带非终态�
 
 **Interfaces:**
 - Consumes: Task 1 的 Jack/Kate 钱包、Task 2 的 `ManifestV3`、Task 3 的前置闸
-- Produces: 按 spec §4.2 分配的钱包句柄，供 Task 5-8 使用：`slotAlice AED`（在途）、`slotShowcaseA`（Grace AED）、`slotShowcaseB`（Frank AED）、`slotShowcaseC`（Bob USDT）、`slotFeeNetted`（Bob AED）、`slotReturn`（Alice USDT）、`slotCutoff`（Grace USDT）、`slotMisroutedFrom`（Jack AED）、`slotMisroutedTo`（Kate AED）
+- Produces: 按 spec §4.2 分配的钱包句柄，供 Task 5-8 使用：`slotInTransit`（在途；⚠️ 真实变量名是这个，**不要写成 `slotAlice`**——它从 `stuck.walletRef` 反查）、`slotShowcaseA`（Grace AED）、`slotShowcaseB`（Frank AED）、`slotShowcaseC`（Bob USDT）、`slotFeeNetted`（Bob AED）、`slotReturn`（Alice USDT）、`slotCutoff`（Grace USDT）、`slotMisroutedFrom`（Jack AED）、`slotMisroutedTo`（Kate AED）
 
 - [ ] **Step 1: 按 owner + 资产显式挑钱包，取代轮转分配**
 
@@ -1414,6 +1415,7 @@ git commit -m "feat(demo): 记错钱包——唯一跨两个钱包的成因，�
 
 **Files:**
 - Modify: `doc-final/demo/baseline.md`
+- Modify: `doc-final/demo/script.md`
 
 - [ ] **Step 1: 从零重铺跑全链**
 
@@ -1507,7 +1509,24 @@ Expected: 失败套数与红名单**逐字一致**（`role-definition-create-wor
 - [ ] **Step 4: 提交**
 
 ```bash
-git add doc-final/demo/baseline.md
+`doc-final/demo/script.md`（**走查剧本，业主演示时照着念**，四处已作废）：
+
+- `:49` 「break 场景 `recon:demo:break`（**9 种破口**）」→ 15 种
+- `:50` 走查步骤列举的破口类型里含「**孤儿存款**」——那正是本批退役的归属场景，**必须删**，
+  否则演示者会去找一个不存在的案子；同时按三个展示位改写讲法：
+  「逐破口对着答案键讲」→「**三个展示位各讲一屏**：同一形状、三种相反的真相」
+- `:52` 「**9/9 全检出**」→ 15/15；「调账单正在做」→ 已落地；并补一条本批新增的已知缺口：
+
+```markdown
+**已知缺口**：破口已按成因铺全（15/15）。但**处置这一侧还差豁免与挂起**，
+因此「不该动账」那几条今天在界面上会**显示一个对它们而言错误的按钮**
+（⑩⑪ 显示冲正、③⑫ 显示冲销），点下去会把本来正确的账改错——而且差额归零、
+案子关闭、报表干净，**没人会发现**。
+⚠️ **走查时这 4 条的正确演法是「指出来、不点」**：它们恰恰是"同一个形状两种相反真相、
+系统分不出、必须人去查"的活教材。另有 3 条（⑤⑨⑥）显示"无处置动作"，那是安全的。
+```
+
+git add doc-final/demo/baseline.md doc-final/demo/script.md
 git commit -m "docs(demo): 基线刷新——花名册 29 行、破口 15 场景 10 钱包"
 ```
 
