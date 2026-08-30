@@ -89,7 +89,23 @@ async function scanR4(prisma: PrismaClient): Promise<void> {
     select: { id: true, ownerType: true, ownerNo: true, walletRole: true },
   });
   const wMap = new Map(wallets.map((w) => [w.id, w]));
+
+  /* 2026-08-30：R4 只查**已进放款阶段**的提现。
+     `fromWalletId` 由 withdraw-workflow 在 initiatePayoutPhase 里绑定
+     （见该文件 918-919 行的注释："binding here makes the workflow the single
+     owner and guarantees fromWalletId is populated"）——走不到放款的单，这一列
+     本来就该是 NULL，不是脏数据。
+
+     此前 R4 无条件扫全表，是因为旧 demo 数据里每笔提现都跑到 SUCCESS。
+     演示装备一期的花名册故意造了三种停在放款之前的提现（#17 等补料 /
+     #18 大额待审批 / #19 MLRO 冻结），规则的旧前提就此不成立。 */
+  const PRE_PAYOUT_STATUSES = new Set([
+    'PENDING_APPROVAL', 'COMPLIANCE_PENDING', 'ACTION_PENDING',
+    'MANUAL_CHECKING', 'FROZEN', 'REJECTED',
+  ]);
+
   for (const wt of withdraws) {
+    if (PRE_PAYOUT_STATUSES.has(wt.status)) continue;
     if (!wt.fromWalletId) {
       violations.push({
         rule: 'R4',
