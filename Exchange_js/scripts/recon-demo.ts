@@ -140,6 +140,20 @@ interface ScenarioExpectation {
     lineType: LineType;
     amount: string;
     externalRef: string | null;
+    /**
+     * 排他匹配键（可选，仅在同一钱包上多条期望可能共享同一
+     * (matchStatus, walletRef, externalRef) 三元组时才需要真正钉行——
+     * 展示位甲 ④⑩⑪ 就是这种情况：同一钱包同一天的 fakeBankRef 撞号，
+     * 三条期望字面三元组完全相同，非排他匹配下会退化成同一句话问三遍
+     * （2026-08-30 评审实证）。
+     *
+     * 取值 = reconciliationLineItem.internalSourceId（= account_flows.id）。
+     * ⚠️ 不是 internalSourceNo——那一列**只有 IN_TRANSIT 行**才写
+     * （wallet-recon-run.service.ts writeLineItems() 的 inTransit 循环），
+     * AMOUNT_MISMATCH / ORPHAN_INTERNAL / ORPHAN_EXTERNAL 三类行恒为 null。
+     * 已实跑核对：internalSourceId 在这三类行上确有写入且逐行不同。
+     */
+    internalSourceId?: string;
   }>;
   fundsOrderNo?: string;        // IN_TRANSIT_TIMING only
   detail: Record<string, unknown>;
@@ -967,6 +981,25 @@ async function injectScenarios(
 
     // ④ 小数点错位：我方把金额记成了 1/100（外部才是对的）→ 外部 − 内部 = +99×内部
     const [l4, l10, l11] = lines;
+
+    // 排他匹配键（answer key 给机器用）+ 人读业务号（answer key 给人用）——
+    // 「对外用业务键」是本项目不可违反规则之一，manifest.json 是业务同事对着
+    // 屏幕核对的答案键，不能只挂 UUID。
+    // slotShowcaseA.lines 是 planWallets 按 createdAt asc 排出的原始流水
+    // （与上面按 datetime asc 取的三条外部行一一对应——writeMirror 逐条镜像、
+    // 顺序不变），取其 sourceFlowId（= account_flows.id）作为排他匹配键；
+    // 再查一次 account_flows.sourceNo 拿真实 DEP 号填进 detail。
+    const [pl4, pl10, pl11] = slotShowcaseA.lines;
+    const showcaseAFlows = (await (prisma as any).accountFlow.findMany({
+      where: { id: { in: [pl4.sourceFlowId, pl10.sourceFlowId, pl11.sourceFlowId] } },
+      select: { id: true, sourceNo: true },
+    })) as Array<{ id: string; sourceNo: string }>;
+    const depositNoOf = (flowId: string): string => {
+      const f = showcaseAFlows.find((x) => x.id === flowId);
+      if (!f) throw new Error(`展示位甲：account_flows 找不到 ${flowId} —— sourceFlowId 与外部行的顺序假设对不上`);
+      return f.sourceNo;
+    };
+
     const s4New = l4.amount.mul(100);
     await (prisma as any).externalStatementLine.update({ where: { id: l4.id }, data: { amount: s4New } });
     const s4Delta = s4New.minus(l4.amount);
@@ -987,20 +1020,38 @@ async function injectScenarios(
     scenarios.push({
       scenarioId: 4,
       rootCause: 'SCALE_ERROR',
-      expectedLines: [{ walletRef: slotShowcaseA.walletRef, lineType: 'AMOUNT_MISMATCH', amount: s4New.toString(), externalRef: l4.externalRef }],
-      detail: { lineId: l4.id, internalAmount: l4.amount.toString(), externalAmount: s4New.toString(), prevClosingBalance: s4Prev },
+      expectedLines: [{
+        walletRef: slotShowcaseA.walletRef, lineType: 'AMOUNT_MISMATCH', amount: s4New.toString(),
+        externalRef: l4.externalRef, internalSourceId: pl4.sourceFlowId,
+      }],
+      detail: {
+        lineId: l4.id, internalAmount: l4.amount.toString(), externalAmount: s4New.toString(),
+        prevClosingBalance: s4Prev, depositNo: depositNoOf(pl4.sourceFlowId),
+      },
     });
     scenarios.push({
       scenarioId: 10,
       rootCause: 'COUNTERPARTY_AMOUNT_ERROR',
-      expectedLines: [{ walletRef: slotShowcaseA.walletRef, lineType: 'AMOUNT_MISMATCH', amount: s10New.toString(), externalRef: l10.externalRef }],
-      detail: { lineId: l10.id, internalAmount: l10.amount.toString(), externalAmount: s10New.toString(), prevClosingBalance: s10Prev },
+      expectedLines: [{
+        walletRef: slotShowcaseA.walletRef, lineType: 'AMOUNT_MISMATCH', amount: s10New.toString(),
+        externalRef: l10.externalRef, internalSourceId: pl10.sourceFlowId,
+      }],
+      detail: {
+        lineId: l10.id, internalAmount: l10.amount.toString(), externalAmount: s10New.toString(),
+        prevClosingBalance: s10Prev, depositNo: depositNoOf(pl10.sourceFlowId),
+      },
     });
     scenarios.push({
       scenarioId: 11,
       rootCause: 'ROUNDING_DIFF',
-      expectedLines: [{ walletRef: slotShowcaseA.walletRef, lineType: 'AMOUNT_MISMATCH', amount: s11New.toString(), externalRef: l11.externalRef }],
-      detail: { lineId: l11.id, internalAmount: l11.amount.toString(), externalAmount: s11New.toString(), prevClosingBalance: s11Prev },
+      expectedLines: [{
+        walletRef: slotShowcaseA.walletRef, lineType: 'AMOUNT_MISMATCH', amount: s11New.toString(),
+        externalRef: l11.externalRef, internalSourceId: pl11.sourceFlowId,
+      }],
+      detail: {
+        lineId: l11.id, internalAmount: l11.amount.toString(), externalAmount: s11New.toString(),
+        prevClosingBalance: s11Prev, depositNo: depositNoOf(pl11.sourceFlowId),
+      },
     });
     wallets.push({
       walletRef: slotShowcaseA.walletRef,
@@ -1266,12 +1317,14 @@ async function verifyManifest(
       walletRef: true,
       externalRef: true,
       internalSourceNo: true,
+      internalSourceId: true,
     },
   })) as Array<{
     matchStatus: string;
     walletRef: string | null;
     externalRef: string | null;
     internalSourceNo: string | null;
+    internalSourceId: string | null;
   }>;
 
   const cases = (await (prisma as any).reconciliationCase.findMany({
@@ -1280,16 +1333,31 @@ async function verifyManifest(
   })) as Array<{ caseNo: string; walletRef: string | null; bucket: string | null }>;
 
   // ── 按场景 ──
+  // 排他匹配：同一条 lineItem 不能同时为两条期望作证。用一个可变副本，命中
+  // 即从池子里摘除，保证每条真实行只用一次——2026-08-30 评审实证：展示位甲
+  // ④⑩⑪ 三条期望的 (matchStatus, walletRef, externalRef) 三元组字面完全相同
+  // （同一钱包同一天的 fakeBankRef 撞号），非排他匹配下三条断言在数学上退化
+  // 成同一句话问三遍——谁的注入被弄坏都不会被发现，只要另外两条还活着。
+  // internalSourceId 可选谓词是钉行的关键（见 ScenarioExpectation 类型注释）：
+  // 三条的三元组虽然相同，但各自的 internalSourceId 不同，谁的行被破坏，
+  // claim() 就会精确地在那一条上落空，而不是三条里随便哪条落空。
+  const unclaimed = [...lineItems];
+  const claim = (exp: ScenarioExpectation['expectedLines'][number]): boolean => {
+    const idx = unclaimed.findIndex(
+      (l) => l.matchStatus === exp.lineType
+        && l.walletRef === exp.walletRef
+        && (exp.externalRef ? l.externalRef === exp.externalRef : true)
+        && (exp.internalSourceId ? l.internalSourceId === exp.internalSourceId : true),
+    );
+    if (idx === -1) return false;
+    unclaimed.splice(idx, 1);
+    return true;
+  };
+
   const scenariosMissed: string[] = [];
   let scenariosDetected = 0;
   for (const sc of manifest.scenarios) {
-    const allLinesHit = sc.expectedLines.every((exp) =>
-      lineItems.some(
-        (l) => l.matchStatus === exp.lineType
-          && l.walletRef === exp.walletRef
-          && (exp.externalRef ? l.externalRef === exp.externalRef : true),
-      ),
-    );
+    const allLinesHit = sc.expectedLines.every((exp) => claim(exp));
     // 在途场景额外断言：那条 IN_TRANSIT 行必须指向我们造的那张资金单，
     // 否则"认领到了某张在途单"这个绿灯可能来自别的单。
     const fundsOrderHit = sc.fundsOrderNo
