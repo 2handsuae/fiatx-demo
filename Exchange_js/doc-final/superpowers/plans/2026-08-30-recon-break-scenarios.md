@@ -1097,19 +1097,57 @@ import { TB_TRANSFER_CODES } from '../src/modules/accounting/tigerbeetle/constan
       },
     });
 
+    // ⚠️⚠️ 排他钉行键——**不加这个，本任务交付的那一刻就把 Task 5 刚堵上的洞
+    // 在 Frank 的钱包上原样重挖一遍**（2026-08-30 复审拿真实库数据实测：Frank
+    // 的 AED 钱包三笔充值共用同一个 `externalRef = ZB20260830275C7FCE5B`，
+    // 与 Grace 钱包完全相同的撞号前提）。③⑦⑧ 三条的 (matchStatus, walletRef,
+    // externalRef) 三元组字面全同，不钉行就会退化成"同一句话问三遍"：谁的注入
+    // 被写坏都不会被发现，只要另外两条还活着，脚本照样全绿退出 0。
+    // 见 Global Constraints 里那条 🔴，以及 Task 5 的 ④⑩⑪ 写法。
+    //
+    // ③⑧ 的键是确定的：它们把自己的外部行删了，对应的内部流水直接变孤儿，
+    // 取 planWallets 排出的同位置 sourceFlowId 即可（与上面 [l3,lDup,l8] 同序）。
+    const [plB3, , plB8] = slotShowcaseB.lines;
+    //
+    // ⑦ 不一样，**它是本批唯一一个键要反查的**：lDup 的外部行没删，而内部侧
+    // 现在有两笔同 ref 的流水（原始那笔 + 我们刚造的这笔）。匹配器会配走一笔、
+    // 剩一笔成孤儿——**成孤儿的应当是后造的这笔**（原始那笔 createdAt 更早）。
+    // 所以键要按 dupSourceNo 把刚造的 account_flow 反查回来：
+    const dupFlow = (await (prisma as any).accountFlow.findFirst({
+      where: { sourceNo: dupSourceNo, walletId: slotShowcaseB.walletRef },
+      select: { id: true },
+      orderBy: { createdAt: 'desc' },
+    })) as { id: string } | null;
+    if (!dupFlow) throw new Error(`⑦ 反查不到刚造的重复入账流水：sourceNo=${dupSourceNo}`);
+    // ⚠️ 如果 ⑦ 判了 MISSED 而 ③⑧ 正常，**先别怀疑注入写坏了**——那说明匹配器
+    // 把原始那笔当成了孤儿、把重复那笔配走了，即"谁跟外部行配对"和这里的假设
+    // 相反。那是关于匹配器行为的真实发现，报上来，不要改成"两个 id 试一个"糊过去。
+
     scenarios.push({
       scenarioId: 3, rootCause: 'STATEMENT_MISSING_LINE',
-      expectedLines: [{ walletRef: slotShowcaseB.walletRef, lineType: 'ORPHAN_INTERNAL', amount: l3.amount.toString(), externalRef: l3.externalRef }],
+      expectedLines: [{
+        walletRef: slotShowcaseB.walletRef, lineType: 'ORPHAN_INTERNAL',
+        amount: l3.amount.toString(), externalRef: l3.externalRef,
+        internalSourceId: plB3.sourceFlowId,
+      }],
       detail: { deletedExternalLineId: l3.id, prevClosingBalance: s3Prev },
     });
     scenarios.push({
       scenarioId: 7, rootCause: 'DUPLICATE_DEPOSIT',
-      expectedLines: [{ walletRef: slotShowcaseB.walletRef, lineType: 'ORPHAN_INTERNAL', amount: lDup.amount.toString(), externalRef: lDup.externalRef }],
+      expectedLines: [{
+        walletRef: slotShowcaseB.walletRef, lineType: 'ORPHAN_INTERNAL',
+        amount: lDup.amount.toString(), externalRef: lDup.externalRef,
+        internalSourceId: dupFlow.id,
+      }],
       detail: { dupSourceNo, bankReportedTimes: 1, bookedTimes: 2, sharedExternalRef: lDup.externalRef },
     });
     scenarios.push({
       scenarioId: 8, rootCause: 'VOIDED_SIGNAL',
-      expectedLines: [{ walletRef: slotShowcaseB.walletRef, lineType: 'ORPHAN_INTERNAL', amount: l8.amount.toString(), externalRef: l8.externalRef }],
+      expectedLines: [{
+        walletRef: slotShowcaseB.walletRef, lineType: 'ORPHAN_INTERNAL',
+        amount: l8.amount.toString(), externalRef: l8.externalRef,
+        internalSourceId: plB8.sourceFlowId,
+      }],
       detail: { deletedExternalLineId: l8.id, prevClosingBalance: s8Prev },
     });
     wallets.push({

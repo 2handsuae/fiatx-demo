@@ -151,7 +151,12 @@ interface ScenarioExpectation {
      * ⚠️ 不是 internalSourceNo——那一列**只有 IN_TRANSIT 行**才写
      * （wallet-recon-run.service.ts writeLineItems() 的 inTransit 循环），
      * AMOUNT_MISMATCH / ORPHAN_INTERNAL / ORPHAN_EXTERNAL 三类行恒为 null。
-     * 已实跑核对：internalSourceId 在这三类行上确有写入且逐行不同。
+     *
+     * ⚠️ 但 internalSourceId **只在 AMOUNT_MISMATCH / ORPHAN_INTERNAL 两类行上有值**
+     * （已实跑核对：这两类逐行不同，可用作钉行键）。**ORPHAN_EXTERNAL 上它恒为 null**
+     * ——writeLineItems() 的 orphanExternal 循环压根不写这个字段，结构上也说得通：
+     * 外部孤儿按定义没有对应的内部流水，没有 id 可写。
+     * **所以外部孤儿要钉行得用 externalTxId**（那个循环写的是它），别照抄这里。
      */
     internalSourceId?: string;
   }>;
