@@ -1,6 +1,9 @@
 {
   "name": "exchange_js",
   "version": "1.0.0",
+  "engines": {
+    "node": ">=20"
+  },
   "description": "",
   "main": "dist/main",
   "scripts": {

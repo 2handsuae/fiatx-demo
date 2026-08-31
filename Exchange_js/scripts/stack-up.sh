@@ -7,21 +7,9 @@ source "${SCRIPT_DIR}/stack-common.sh"
 # shellcheck source=./db-env.sh
 source "${SCRIPT_DIR}/db-env.sh"
 
-# Ensure Node.js >= 20 is on PATH (required by Vite 7).
-# If the current node is < 20, try to find a compatible version via nvm.
-_node_major="$(node --version 2>/dev/null | sed 's/v//' | cut -d. -f1)"
-if [[ -z "${_node_major}" || "${_node_major}" -lt 20 ]]; then
-  _nvm_dir="${NVM_DIR:-${HOME}/.nvm}"
-  _node20="$(ls -d "${_nvm_dir}/versions/node"/v20.*/bin/node 2>/dev/null | sort -V | tail -1 || true)"
-  _node22="$(ls -d "${_nvm_dir}/versions/node"/v22.*/bin/node 2>/dev/null | sort -V | tail -1 || true)"
-  _best_node="${_node22:-${_node20}}"
-  if [[ -n "${_best_node}" ]]; then
-    export PATH="$(dirname "${_best_node}"):${PATH}"
-    echo "[stack] Node $(node --version) loaded from nvm (Vite requires >=20)"
-  else
-    echo "[stack] WARNING: Node.js >=20 not found; Vite may fail to start" >&2
-  fi
-fi
+# shellcheck source=./node-env.sh
+source "${SCRIPT_DIR}/node-env.sh"
+ensure_node20
 
 if [[ $# -ne 1 ]]; then
   usage_stack_name

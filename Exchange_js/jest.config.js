@@ -21,6 +21,7 @@ module.exports = {
   collectCoverageFrom: ['**/*.(t|j)s'],
   coverageDirectory: './coverage',
   testEnvironment: 'node',
+  setupFiles: ['<rootDir>/scripts/require-node.js'],
   roots: ['<rootDir>/src', '<rootDir>/admin-web/src', '<rootDir>/client-web/src'],
   moduleNameMapper: {
     '^src/(.*)$': '<rootDir>/src/$1',
