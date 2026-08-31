@@ -96,17 +96,10 @@ load_stack_config() {
   case "$stack" in
     main)
       STACK="main"
-      # main 栈的运行态（RUNTIME_DIR / PID 文件 / DB / TB）是全局唯一的，只按栈名分、
-      # 不按工作树分。从 worktree 操作 main 栈，会让 stack-up.sh:82 的 stack-stop
-      # 读到 /tmp/exchange_js_runtime_main/*.pid 并杀掉主工作树正在跑的服务。
-      # CLAUDE.md §10 已有铁律"绝不在主工作树切分支跑服务"，这里补上反向的一半。
-      if [[ "${CURRENT_WT_DIR}" != "${ROOT_DIR}" ]]; then
-        echo "[stack] 拒绝：不能从 worktree 操作 main 栈。" >&2
-        echo "[stack]   当前工作树: ${CURRENT_WT_DIR}" >&2
-        echo "[stack]   主工作树:   ${ROOT_DIR}" >&2
-        echo "[stack]   要起本树的栈用 'self'；要动 main 栈请到主工作树执行。" >&2
-        return 1
-      fi
+      # 这里只解析 main 栈的配置（路径/端口），不判断"是否允许动它"——那是
+      # assert_stack_is_local() 的职责，由会动运行态的调用方在 load_stack_config
+      # 之后显式调用。只读调用方（如 runtime-diagnose.sh）不调用它，因此可以从
+      # 任意 worktree 解析 main 的配置，用于只读查询 main 栈的状态。
       WT_DIR="${ROOT_DIR}"
       APP_DIR="${ROOT_DIR}/Exchange_js"
       BRANCH_RULE="main"
@@ -158,6 +151,24 @@ load_stack_config() {
   ADMIN_PID_FILE="${RUNTIME_DIR}/admin.pid"
   CLIENT_PID_FILE="${RUNTIME_DIR}/client.pid"
   TB_PID_FILE="${RUNTIME_DIR}/tb.pid"
+}
+
+# 会动目标栈"运行态"（起停进程、清库、重铺 TB）的调用方，必须在 load_stack_config
+# 之后显式调用本函数。main 栈的运行态（RUNTIME_DIR / PID 文件 / DB / TB）是全局
+# 唯一的，只按栈名分、不按工作树分。从 worktree 操作 main 栈，会让 stack-up.sh
+# 里的 stack-stop 调用读到 /tmp/exchange_js_runtime_main/*.pid 并杀掉主工作树
+# 正在跑的服务。CLAUDE.md §10 已有铁律"绝不在主工作树切分支跑服务"，这里补上
+# 反向的一半。只读调用方（如 runtime-diagnose.sh）以及显式指定目标栈的正规
+# 入口（on-stack.sh）不调用本函数——它们不动运行态，从 worktree 查 main 栈的
+# 状态是正当用法。
+assert_stack_is_local() {
+  if [[ "${STACK}" == "main" && "${CURRENT_WT_DIR}" != "${ROOT_DIR}" ]]; then
+    echo "[stack] 拒绝：不能从 worktree 操作 main 栈。" >&2
+    echo "[stack]   当前工作树: ${CURRENT_WT_DIR}" >&2
+    echo "[stack]   主工作树:   ${ROOT_DIR}" >&2
+    echo "[stack]   要起本树的栈用 'self'；要动 main 栈请到主工作树执行。" >&2
+    return 1
+  fi
 }
 
 require_commands() {
@@ -384,6 +395,10 @@ ensure_port_free() {
 
   local pid command_line
   pid="$(lsof -tiTCP:"${port}" -sTCP:LISTEN | head -n 1 || true)"
+  # 本仓库路径含中文（"重做版"）。macOS 默认 locale 下 `ps -o command=` 会把
+  # 命令行里的非 ASCII 字节 vis-转义成 `M-iM^GM^M...` 形态，导致下面按 marker
+  # （APP_DIR/TB_DATA_FILE）做子串匹配恒为假。LC_ALL=C.UTF-8 让 ps 原样吐出
+  # UTF-8 字节，不做转义——别当冗余删掉。
   command_line="$(LC_ALL=C.UTF-8 ps -p "${pid}" -o command= 2>/dev/null || true)"
 
   if [[ -n "${command_line}" && "${command_line}" == *"${marker}"* ]]; then

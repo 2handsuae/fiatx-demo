@@ -17,6 +17,7 @@ if [[ $# -ne 1 ]]; then
 fi
 
 load_stack_config "$1"
+assert_stack_is_local
 
 require_commands node npm lsof sqlite3 git python3 tigerbeetle
 assert_stack_paths

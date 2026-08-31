@@ -20,6 +20,7 @@ require_commands sqlite3 npm find git
 
 STACK_NAME="$1"
 load_stack_config "${STACK_NAME}"
+assert_stack_is_local
 assert_stack_paths
 assert_branch_rule
 
