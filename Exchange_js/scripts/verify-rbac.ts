@@ -205,6 +205,71 @@ function runStaticChecks(): void {
       ? `${totalPolicies} 条策略全部点名真实职务代码`
       : `以下策略点名了不存在的职务代码: ${badPolicyRoles.join(', ')}`,
   );
+
+  // ── S5：自批死锁闸门 ────────────────────────────────────────────────
+  //
+  // 本轮的头条业务成果是「解开三处自批死锁」——审批策略的裁决人恰好是唯一可能的
+  // 提单人，提完只能自己批，`approvals.service.ts` 的 SoD 当场拒绝，那条业务出路
+  // 就此走不通（第一幕走查②在改造前就是这么跑不通的）。
+  //
+  // 判据：对每条「maker 权限组唯一确定」的审批策略，
+  //        持有该 maker 组的角色集合  ∩  该策略任一步骤的裁决人集合  必须为空。
+  //
+  // 交集非空 = 存在某个角色既能提又能批 = 该业务出路可能变回死锁（若他恰好是唯一
+  // 提单人）或破坏 maker≠checker。终审判定：不补这条判据，未来有人改
+  // `approval.constants.ts` 就会把死锁悄悄改回来且无人发现。
+  //
+  // ⚠️ 这张表是**人工维护**的 policy→maker 组映射——代码里没有可推导的关联
+  // （谁能提某个审批，取决于哪个端点会建这张单，那是 workflow 的事）。新增
+  // maker-checker 型审批策略时**必须往这里加一行**，否则新策略不受本闸门保护。
+  const MAKER_GROUP_BY_POLICY: Record<string, string> = {
+    DEPOSIT_CONFISCATION: 'DEPOSIT_CONFISCATE_WRITE',
+    DEPOSIT_RETURN: 'DEPOSIT_RETURN_WRITE',
+    DEPOSIT_SEIZE: 'DEPOSIT_SEIZE_WRITE',
+    DEPOSIT_UNFREEZE: 'DEPOSIT_UNFREEZE_WRITE',
+    WITHDRAW_UNFREEZE: 'WITHDRAW_UNFREEZE_WRITE',
+    WITHDRAW_SANCTION_REFUND: 'WITHDRAW_REFUND_WRITE',
+    TRANSACTION_LIMIT_CREATION: 'TRANSACTION_LIMIT_WRITE',
+    TRANSACTION_LIMIT_CHANGE: 'TRANSACTION_LIMIT_WRITE',
+    SWAP_FEE_LEVEL_CREATION: 'SWAP_FEE_LEVEL_WRITE',
+    SWAP_FEE_LEVEL_CHANGE: 'SWAP_FEE_LEVEL_WRITE',
+    WITHDRAWAL_FEE_LEVEL_CREATION: 'WITHDRAWAL_FEE_LEVEL_WRITE',
+    WITHDRAWAL_FEE_LEVEL_CHANGE: 'WITHDRAWAL_FEE_LEVEL_WRITE',
+  };
+
+  const holdersOf = (group: string): string[] =>
+    Object.entries(RBAC_ROLE_GROUP_BINDINGS)
+      .filter(([role, groups]) => role !== 'SUPER_ADMIN' && (groups as string[]).includes(group))
+      .map(([role]) => role);
+
+  const deadlocks: string[] = [];
+  const missingFromTable: string[] = [];
+  let gatedPolicies = 0;
+
+  for (const [actionType, makerGroup] of Object.entries(MAKER_GROUP_BY_POLICY)) {
+    const policy = (DEFAULT_APPROVAL_POLICIES as Record<string, any>)[actionType];
+    if (!policy) {
+      missingFromTable.push(`${actionType}（表里有、策略里没有——策略被删或改名了？）`);
+      continue;
+    }
+    gatedPolicies += 1;
+    const makers = new Set(holdersOf(makerGroup));
+    const checkers = new Set<string>(policy.steps.flatMap((st: any) => st.roles as string[]));
+    const both = [...makers].filter((r) => checkers.has(r));
+    if (both.length > 0) {
+      deadlocks.push(
+        `${actionType}: ${both.join('/')} 既持 ${makerGroup}（能提）又在裁决人集合 {${[...checkers].join(',')}} 里（能批）`,
+      );
+    }
+  }
+
+  check(
+    'S5 自批死锁闸门（裁决人 ∩ 提单权限持有者 = 空）',
+    deadlocks.length === 0 && missingFromTable.length === 0,
+    deadlocks.length === 0 && missingFromTable.length === 0
+      ? `${gatedPolicies} 条 maker-checker 策略逐条验过，无任何角色同时具备提单与裁决资格`
+      : [...deadlocks, ...missingFromTable].join(' ｜ '),
+  );
 }
 
 // ══════════════════════ 路径存在性预检 ══════════════════════
