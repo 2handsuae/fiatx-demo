@@ -5,7 +5,7 @@
     "useDefineForClassFields": true,
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "module": "ESNext",
-    "types": ["vite/client"],
+    "types": ["vite/client", "node", "jest"],
     "skipLibCheck": true,
 
     /* Bundler mode */
@@ -25,5 +25,5 @@
     "noUncheckedSideEffectImports": true
   },
   "include": ["src"],
-  "exclude": ["src/**/*.spec.ts", "src/**/*.spec.tsx"]
+  "exclude": ["src/**/*.spec.tsx"]
 }

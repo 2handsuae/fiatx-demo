@@ -48,8 +48,8 @@ NestJS + Prisma + SQLite 后端 ｜ React 管理台 ｜ React 客户端 ｜ 会�
 **随手闸——每次改完代码就跑**
 
 ```bash
-npx tsc --noEmit -p tsconfig.json               # ① 后端
-cd admin-web  && npx tsc -b --noEmit && cd ..    # ② 管理台（.tsx 只有②③编译得到）
+npx tsc --noEmit -p tsconfig.json               # ① 后端（含 src / test / scripts / prisma）
+cd admin-web  && npx tsc -b --noEmit && cd ..    # ② 管理台（.tsx 与 .spec.ts 只有②③编译得到）
 cd client-web && npx tsc -b --noEmit && cd ..    # ③ 客户端
 ```
 

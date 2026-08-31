@@ -9,7 +9,7 @@
 
 | 类 | 项 |
 |---|---|
-| 编译 | tsc 后端 ｜ tsc test 配置（tsconfig.test.json）｜ tsc 管理台 ｜ tsc 客户端 |
+| 编译 | tsc 后端（src / test / scripts / prisma 四目录）｜ tsc 管理台（含 .spec.ts）｜ tsc 客户端 |
 | 重铺 | `stack.sh reset main`（含 TigerBeetle 清理重建，全链实跑） |
 | 演示 | demo:setup ｜ demo:deposit ｜ demo:swap ｜ demo:withdraw ｜ demo:in-transit ｜ demo:all（**花名册 21/21 逐条符合预期 + COA 四恒等式**——演示装备一期改判据，见下方操作约束） |
 | 对账 | recon:demo:pass ｜ **recon:demo:break 9/9 全检出**（收官实测；旧基线 7/9 的两处 MISSED 已不复现，旧账已销）｜ verify:demo-data |
