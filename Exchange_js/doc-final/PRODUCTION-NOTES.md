@@ -475,7 +475,7 @@
 
   `reset` 会把 TigerBeetle 拉起来并留着（seed 要连它），紧接着跑 `up` 时 `ensure_port_free` 判定 TB 端口被占、走"already in use"分支退出——**退出码是 0**，看起来像成功，实际 backend / admin / client 三个服务一个都没启。规避：`lsof -ti:<TB端口>` 杀掉自家那个 TB 进程再 `up`（数据文件已存在，不会被重新 format，数据不丢）。
 
-- [2026-08-31] **随手闸的三道 tsc 照不到 `test/`，退役类改动会在 e2e 里留下哑弹** ｜ CLAUDE.md §7 随手闸①②③ ｜ 第一幕职权重划实测
+- [x] ~~[2026-08-31] **随手闸的三道 tsc 照不到 `test/`，退役类改动会在 e2e 里留下哑弹** ｜ CLAUDE.md §7 随手闸①②③ ｜ 第一幕职权重划实测~~ → **2026-08-31 环境收口 Task 2（`fdf8d55e`）已使本条失效**：闸① 的 `tsconfig.json` 现在 `include` 四目录（`src`/`test`/`scripts`/`prisma`），`test/` 已在闸门内；`tsconfig.test.json` 随之删除，所以条目里"另跑 `npx tsc --noEmit -p tsconfig.test.json`"的指示现在会直接报文件不存在。本轮划掉一批条目时漏了这条，终审 Minor④ 逮到
 
   §7 的随手闸是后端 `tsconfig.json` + 管理台 + 客户端三条，**都不覆盖 `test/` 目录**（该目录另有 `tsconfig.test.json`，不在闸门里）。本轮实测后果：Task 4 把 `DepositWorkflowService.adminFreeze()` 作为孤儿方法退役（其唯一 HTTP 调用方已删），三道闸全绿、评审也过，但 `test/deposit-sumsub-verdicts.e2e-spec.ts` 仍在两处调它——**要等到跑 e2e 才炸，而 e2e 不在随手闸里**。同一轮 Task 11 改 `DEPOSIT_CONFISCATION` 裁决人时，同一文件里的 `OPS_CHECKER` 也是同款哑弹。两处均已修（`c92df6cf`），但根因是闸门覆盖面：**凡退役 service 方法 / 改审批策略角色，必须额外跑一次 `npx tsc --noEmit -p tsconfig.test.json`**。值得把它加进 §7 随手闸第 ④ 条。（记忆里 2026-08-20 制裁分主体那轮已踩过一次同款坑，当时建了 `tsconfig.test.json` 但没进闸门。）
 

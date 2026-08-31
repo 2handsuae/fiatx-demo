@@ -70,7 +70,10 @@ ensure_dependencies "client" "${APP_DIR}/client-web"
 bootstrap_database_if_needed
 DB_URL="$(read_database_url "${APP_DIR}" "${STACK}")"
 
-bash "${SCRIPT_DIR}/stack-stop.sh" "${STACK}" >/dev/null 2>&1 || true
+# 同 reset-stack.sh:必须传原始入参,不是解析后的 ${STACK}(self 栈会变成 wt_<名>,
+# stack-stop.sh 认不得、落进 usage 分支,整个停止链一行不跑)。
+# 这条此前被 ensure_port_free 的自愈分支完全掩盖,无可观察故障,故一度只登记未修。
+bash "${SCRIPT_DIR}/stack-stop.sh" "$1" >/dev/null 2>&1 || true
 rm -f "${BACKEND_PID_FILE}" "${ADMIN_PID_FILE}" "${CLIENT_PID_FILE}" "${TB_PID_FILE}"
 
 ensure_port_free "${BACKEND_PORT}" "backend"
