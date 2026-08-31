@@ -1,6 +1,6 @@
 # 系统一页纸（overview）
 
-> 对应 PRD：待写 ｜ 技术节点 Last Verified：2026-08-26 ｜ agent 首读文档
+> 对应 PRD：待写 ｜ 技术节点 Last Verified：2026-08-31（第一幕职权重划 Task 15 复核 §4 权限包表）｜ agent 首读文档
 
 ## 0. 这是什么系统
 

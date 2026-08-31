@@ -54,7 +54,7 @@
 - 审批引擎 `governance/approvals/`：`approval-handler.base.ts → ApprovalHandlerBase`（30 个审批子流程的统一基类，1 个钦定例外 onboarding 终审）｜ `approvals.service.ts → approve()/reject()`（SoD same-user deny + 跨步骤已审校验）｜ `approval-policy.service.ts → getPolicy()`（stepsConfig 回退链 + 自审防篡改）
 - 管理员生命周期 `identity/users/`：`admin-invite-workflow.service.ts` ｜ `mfa-binding-workflow.service.ts → verifyMfaBind()`（首登四步）｜ `admin-{suspension,reactivation,password-reset}-workflow.service.ts` ｜ `jwt.strategy.ts`（SUSPENDED 拦截，下次请求生效）
 - 权限 `identity/access-control/`：`rbac.catalog.ts`（146 条路由×权限组登记、**12 域 50 桶**目录、3 对硬互斥、11 职务 60 个权限组——2026-08-31 第一幕职权重划实测数字）｜ `admin-permission.guard.ts`（每 API 运行时校验）｜ `access-control.service.ts → validateHardMutex()`
-- 审计 `audit-logging/`：`audit-logs.service.ts → recordByActor()/recordSystem()/assertActionSpec()`（写入前机器校验）/`persistSubjects()`（五角色子表）｜ `constants/audit-actions.constant.ts`（V1 词表 45 live + 11 退役拒写）｜ `audit-evidence-export-workflow.service.ts`（审批背书导出）｜ 校验器 `npm run verify:audit`
+- 审计 `audit-logging/`：`audit-logs.service.ts → recordByActor()/recordSystem()/assertActionSpec()`（写入前机器校验）/`persistSubjects()`（五角色子表）｜ `constants/audit-actions.constant.ts`（V1 词表 **48 live + 30 退役拒写**——2026-08-31 实测；其中 19 条系本轮五本档案簿/监管闸门/对手方/手工建户四块退役时迁入退役名册，键仍在册、只出不进）｜ `audit-evidence-export-workflow.service.ts`（审批背书导出）｜ 校验器 `npm run verify:audit`
 - 通知 `core/notifications/`：仅 WebSocket 推送，email/webhook/retry 为空壳（见 §6）
 
 ## 6. 演示缺口（均在 BACKLOG 有账）
