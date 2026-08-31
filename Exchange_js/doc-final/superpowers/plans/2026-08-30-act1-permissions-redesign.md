@@ -530,7 +530,7 @@ git commit -m "docs(CHANGELOG): 第一幕退役段收尾"
 
 # 段二 · 权限重建
 
-## Task 7：新增 12 个权限组并按动作改挂路由
+## Task 7：新增权限组并按动作改挂路由（11 新增 + 2 改名 − 1 退役 → 60 组）
 
 **Files:**
 - Modify: `src/modules/identity/access-control/rbac.catalog.ts`
