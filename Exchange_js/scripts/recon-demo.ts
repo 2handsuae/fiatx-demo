@@ -43,6 +43,15 @@
 //   npx ts-node -r tsconfig-paths/register scripts/recon-demo.ts --mode=break
 //   npx ts-node -r tsconfig-paths/register scripts/recon-demo.ts --mode=reset
 
+// 栈环境守卫必须排在所有 import 之前。本文件 import 了 AppModule 及一串 Nest
+// provider（第 50 行起），守卫此前只经 './demo-lib'（第 63 行）传递引入，排在它们之后。
+// 今天不出事是因为 TigerBeetle 客户端建在 onModuleInit 里、晚于 import 完成——
+// 那是巧合不是保证：这条传递引入链上任何文件将来加了模块级副作用，
+// recon:demo* 就会在连上账本之后才报错，而那时已经写进别人的账本了。
+// 2026-08-31 Task 7 评审 Medium 提出，比照 recon-rerun.ts 的做法直接前置。
+import { requireStackEnv } from './require-stack-env';
+requireStackEnv({ requireTb: true });
+
 import { writeFileSync } from 'node:fs';
 import { NestFactory } from '@nestjs/core';
 import { Prisma } from '@prisma/client';
