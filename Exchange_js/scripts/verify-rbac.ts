@@ -209,12 +209,21 @@ function runStaticChecks(): void {
 
 // ══════════════════════ 路径存在性预检 ══════════════════════
 
-async function fetchLiveRoutes(adminToken: string): Promise<Set<string>> {
-  const { status, json } = await call('GET', '/admin/iam/permissions', adminToken);
-  if (status !== 200 || !Array.isArray(json)) {
-    throw new Error(`GET /admin/iam/permissions 拉真实路由清单失败: status=${status}`);
-  }
-  return new Set(json.map((r: any) => `${String(r.method).toUpperCase()} ${r.path}`));
+/**
+ * 路由真相源 = `RBAC_PERMISSION_DEFINITIONS`（源码常量），**不是** `GET /admin/iam/permissions`。
+ *
+ * 2026-08-31 评审逮到：那个端点读的是 DB 的 permissions 表，而 `seed.base.ts` 只
+ * `upsert` 从不删除 —— 它是**只增不减的历史超集**（实测 201 行 vs 源码当时 146 条
+ * `route()`，含 55 条已退役的老端点）。用它当真相源会留一个窄口子：探针若误用了某条
+ * 「退役但历史上真实存在过」的路径，预检会放行，随后打到死端点拿 404，而 ALLOW 分支
+ * 判据是「非 403」—— 404 照单全收，**正是本预检要防的那个假绿**。
+ *
+ * 改用源码常量后，真相源与守卫实际加载的路由表同源，且省掉一次 HTTP 往返。
+ */
+function collectLiveRoutes(): Set<string> {
+  return new Set(
+    RBAC_PERMISSION_DEFINITIONS.map((d) => `${String(d.method).toUpperCase()} ${d.path}`),
+  );
 }
 
 interface RouteUsage {
@@ -656,7 +665,7 @@ async function main(): Promise<void> {
   }
 
   console.log('── 路径存在性预检（跑任何探针前，先核对真实路由清单）──');
-  const liveRoutes = await fetchLiveRoutes(tokens.admin);
+  const liveRoutes = collectLiveRoutes();
   const usages: RouteUsage[] = [
     ...PROBES.map((p) => ({ section: p.section, name: p.name, method: p.method, routePattern: p.routePattern })),
     { section: '支撑调用', name: '角色列表', method: 'GET', routePattern: '/admin/iam/roles' },
