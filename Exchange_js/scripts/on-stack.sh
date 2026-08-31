@@ -16,6 +16,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 APP_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 # shellcheck source=./stack-common.sh
 source "${SCRIPT_DIR}/stack-common.sh"   # provides load_stack_config + default_database_url
+# shellcheck source=./node-env.sh
+source "${SCRIPT_DIR}/node-env.sh"
+ensure_node20
 
 if [[ $# -lt 2 ]]; then
   echo "Usage: on-stack.sh <main|self> <npm-script> [args...]" >&2

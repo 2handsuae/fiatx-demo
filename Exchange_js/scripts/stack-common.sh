@@ -96,15 +96,13 @@ load_stack_config() {
   case "$stack" in
     main)
       STACK="main"
-      if [[ "${CURRENT_WT_DIR}" == "${ROOT_DIR}" ]]; then
-        WT_DIR="${ROOT_DIR}"
-        APP_DIR="${ROOT_DIR}/Exchange_js"
-        BRANCH_RULE="main"
-      else
-        WT_DIR="${CURRENT_WT_DIR}"
-        APP_DIR="${WT_DIR}/Exchange_js"
-        BRANCH_RULE="${current_branch}"
-      fi
+      # 这里只解析 main 栈的配置（路径/端口），不判断"是否允许动它"——那是
+      # assert_stack_is_local() 的职责，由会动运行态的调用方在 load_stack_config
+      # 之后显式调用。只读调用方（如 runtime-diagnose.sh）不调用它，因此可以从
+      # 任意 worktree 解析 main 的配置，用于只读查询 main 栈的状态。
+      WT_DIR="${ROOT_DIR}"
+      APP_DIR="${ROOT_DIR}/Exchange_js"
+      BRANCH_RULE="main"
       BACKEND_PORT="3000"
       ADMIN_PORT="3001"
       CLIENT_PORT="3002"
@@ -153,6 +151,24 @@ load_stack_config() {
   ADMIN_PID_FILE="${RUNTIME_DIR}/admin.pid"
   CLIENT_PID_FILE="${RUNTIME_DIR}/client.pid"
   TB_PID_FILE="${RUNTIME_DIR}/tb.pid"
+}
+
+# 会动目标栈"运行态"（起停进程、清库、重铺 TB）的调用方，必须在 load_stack_config
+# 之后显式调用本函数。main 栈的运行态（RUNTIME_DIR / PID 文件 / DB / TB）是全局
+# 唯一的，只按栈名分、不按工作树分。从 worktree 操作 main 栈，会让 stack-up.sh
+# 里的 stack-stop 调用读到 /tmp/exchange_js_runtime_main/*.pid 并杀掉主工作树
+# 正在跑的服务。CLAUDE.md §10 已有铁律"绝不在主工作树切分支跑服务"，这里补上
+# 反向的一半。只读调用方（如 runtime-diagnose.sh）以及显式指定目标栈的正规
+# 入口（on-stack.sh）不调用本函数——它们不动运行态，从 worktree 查 main 栈的
+# 状态是正当用法。
+assert_stack_is_local() {
+  if [[ "${STACK}" == "main" && "${CURRENT_WT_DIR}" != "${ROOT_DIR}" ]]; then
+    echo "[stack] 拒绝：不能从 worktree 操作 main 栈。" >&2
+    echo "[stack]   当前工作树: ${CURRENT_WT_DIR}" >&2
+    echo "[stack]   主工作树:   ${ROOT_DIR}" >&2
+    echo "[stack]   要起本树的栈用 'self'；要动 main 栈请到主工作树执行。" >&2
+    return 1
+  fi
 }
 
 require_commands() {
@@ -357,21 +373,49 @@ bootstrap_database_if_needed() {
   fi
 }
 
+# 端口被占时：占用者是本栈自己的残留（命令行含 APP_DIR）→ 杀掉继续；
+# 是别人的 → 打印占用者并返回非零（调用方在 set -e 下会中止，这是对的：
+# 跨栈误杀会毁掉并行会话的验收库）。
+#
+# 此前无条件返回非零，于是 admin/client 端口被上次会话遗留的 vite 占着时，
+# 整个 up 中止、后续服务全不起，且看着不像出错（PRODUCTION-NOTES:382，
+# 登记 50 天，两个实施者各撞一次）。
 ensure_port_free() {
   local port="$1"
   local name="$2"
+  # marker：判断"占用者是不是本栈自己"的字符串锚点。backend/admin/client 三个
+  # 服务的命令行里都带 APP_DIR（默认值），但 tigerbeetle 的命令行里没有
+  # APP_DIR、只有数据文件路径（与 stop_tb_if_managed 的判据同源），所以
+  # tb 调用方要显式传第三个参数覆盖默认值,见 stack-up.sh 里 tb 的调用点。
+  local marker="${3:-${APP_DIR}}"
 
-  if lsof -nP -iTCP:"${port}" -sTCP:LISTEN >/dev/null 2>&1; then
-    local pid
-    local command_line
-    pid="$(lsof -tiTCP:"${port}" -sTCP:LISTEN | head -n 1 || true)"
-    command_line="$(ps -p "${pid}" -o command= 2>/dev/null || true)"
-    echo "[${STACK}/${name}] port ${port} is already in use by pid ${pid}" >&2
-    if [[ -n "${command_line}" ]]; then
-      echo "[${STACK}/${name}] command: ${command_line}" >&2
-    fi
+  if ! lsof -nP -iTCP:"${port}" -sTCP:LISTEN >/dev/null 2>&1; then
+    return 0
+  fi
+
+  local pid command_line
+  pid="$(lsof -tiTCP:"${port}" -sTCP:LISTEN | head -n 1 || true)"
+  # 本仓库路径含中文（"重做版"）。macOS 默认 locale 下 `ps -o command=` 会把
+  # 命令行里的非 ASCII 字节 vis-转义成 `M-iM^GM^M...` 形态，导致下面按 marker
+  # （APP_DIR/TB_DATA_FILE）做子串匹配恒为假。LC_ALL=C.UTF-8 让 ps 原样吐出
+  # UTF-8 字节，不做转义——别当冗余删掉。
+  command_line="$(LC_ALL=C.UTF-8 ps -p "${pid}" -o command= 2>/dev/null || true)"
+
+  if [[ -n "${command_line}" && "${command_line}" == *"${marker}"* ]]; then
+    echo "[${STACK}/${name}] port ${port} 被本栈残留占用 (pid ${pid})，清理后继续"
+    terminate_pid "${name}" "${pid}"
+    for _ in {1..20}; do
+      lsof -nP -iTCP:"${port}" -sTCP:LISTEN >/dev/null 2>&1 || return 0
+      sleep 0.2
+    done
+    echo "[${STACK}/${name}] port ${port} 清理后仍被占用，放弃" >&2
     return 1
   fi
+
+  echo "[${STACK}/${name}] port ${port} 被非本栈进程占用 (pid ${pid})，拒绝启动" >&2
+  [[ -n "${command_line}" ]] && echo "[${STACK}/${name}] command: ${command_line}" >&2
+  echo "[${STACK}/${name}] 本栈 APP_DIR=${APP_DIR}；跨栈杀进程会毁掉并行会话的库，故不自动清理" >&2
+  return 1
 }
 
 capture_listener_pid() {

@@ -2,12 +2,6 @@ import { randomUUID } from 'crypto';
 import * as path from 'path';
 import * as dotenv from 'dotenv';
 
-// Same Node 18 polyfill as src/main.ts (@nestjs/schedule needs globalThis.crypto,
-// stable only in Node 19+) — main.ts isn't loaded in this e2e harness, so it has
-// to be repeated here before AppModule (and therefore ScheduleModule) is imported.
-// eslint-disable-next-line @typescript-eslint/no-var-requires
-if (!globalThis.crypto) { (globalThis as any).crypto = require('crypto').webcrypto; }
-
 // Loaded before any other import so PrismaService / TigerBeetleService see the
 // worktree's own DATABASE_URL / TB_ADDRESS regardless of ConfigModule's internal
 // load timing (belt-and-braces — mirrors deposit-sumsub-scenarios.e2e-spec.ts).

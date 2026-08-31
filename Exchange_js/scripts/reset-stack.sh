@@ -20,6 +20,7 @@ require_commands sqlite3 npm find git
 
 STACK_NAME="$1"
 load_stack_config "${STACK_NAME}"
+assert_stack_is_local
 assert_stack_paths
 assert_branch_rule
 
@@ -27,7 +28,17 @@ db_url="$(read_database_url "${APP_DIR}" "${STACK}")"
 db_file="$(resolve_db_file)"
 
 echo "[${STACK}] stopping services before business reset"
-bash "${SCRIPT_DIR}/stack-stop.sh" "${STACK}" >/dev/null 2>&1 || true
+# 必须传**原始入参**(main/self),不是 load_stack_config 解析后的 ${STACK}
+# ——self 栈解析后是 wt_<worktree名>,而 stack-stop.sh 的 case 只认 main|self,
+# 落进 usage 分支直接非零退出,外层 || true 把失败吞得干干净净。
+# 后果:整个停止链(stop_pid_file_process ×4 / stop_listener_if_managed ×3 /
+# stop_tb_if_managed / cleanup_orphans_by_pattern ×4)一行都没跑到,而本脚本
+# 又没有 ensure_port_free 兜底(stack-up.sh 有)——旧 TB 活着占端口,下面 :39 的
+# unlink 只是解链接、:48 format 出的新文件没人用、:51 起的新 TB 绑不上端口,
+# 而 :55 的就绪循环看到的是**旧 TB**,照样宣布 ready。seed 于是写进带着上一轮
+# 全部转账的旧账本 —— 这就是「重铺后余额累加、倍数 1→2→3→4」那个假警报。
+# 2026-08-31 环境收口终审逮到:Task 8 修了 stop_tb_if_managed,却没接到这条路径上。
+bash "${SCRIPT_DIR}/stack-stop.sh" "${STACK_NAME}" >/dev/null 2>&1 || true
 
 # Wipe TigerBeetle data file alongside the SQLite reset (ported from
 # reset-main.sh 2026-08-26 — this block was the missing piece that made
@@ -51,7 +62,7 @@ if [ -n "${TB_DATA_FILE:-}" ] && [ -n "${TB_ADDRESS:-}" ]; then
     > "${TB_LOG:-/tmp/tb-reset-${STACK}.log}" 2>&1 &
   echo $! > "${TB_PID_FILE:-/tmp/tb-reset-${STACK}.pid}"
   for i in 1 2 3 4 5 6 7 8 9 10; do
-    if lsof -ti:"${TB_PORT:-3003}" >/dev/null 2>&1; then
+    if lsof -ti:"${TB_PORT}" >/dev/null 2>&1; then
       echo "[${STACK}] TigerBeetle ready on ${TB_ADDRESS}"
       break
     fi

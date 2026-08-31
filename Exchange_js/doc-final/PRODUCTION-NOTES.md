@@ -5,6 +5,11 @@
 
 格式：`- [日期] 一句话缺口 ｜ 位置（模块/文件） ｜ 来源（会话/审查）`
 
+> **2026-08-31 分流**：工具 / 环境 / 闸门类条目已迁往 `TOOLING-DEBT.md`（那个文件**要读要清**）。
+> 本文件此后只装技术兜底——幂等 / 去重 / 重试回放 / 补偿 repair / 并发锁 / 攻击面 / 故障恢复，
+> 规矩不变：**只许追加，不许读它来找活干**。
+> 本轮销账 9 条（已随环境收口修掉）、删除 5 条陈账（早修好没划掉）、迁出 6 条。
+
 ## 安全与权限
 
 > 2026-08-26 BACKLOG 分流迁入（原文照搬，上下文见 git 历史 db01f280）。另补 2026-08-15 逐条实证过的既有安全洞：
@@ -68,9 +73,9 @@
 **原 BACKLOG §演示/测试环境卫生（2026-08-13 A1-A6 收官实跑发现，均为既存问题非本轮引入）**
 
 - [ ] **money-arcs 两个 e2e spec 会把 worktree 常驻栈的验收库搞脏**：`test/deposit-money-arcs.e2e-spec.ts` / `withdraw-money-arcs.e2e-spec.ts` 直接在 `MANUAL_CHECKING`/`FROZEN` 等态建 fixture 单**不跑 STEP_1**，随后走退回/上缴弧 post `DEPOSIT_SUSPENSE→CLIENT_ASSET`，把从未入账的科目扣成负数。实测跑完 4 个 e2e suite 后 `verify:coa` 报 5 处负余额（`CLIENT_ASSET` −118000 / 某客户 `DEPOSIT_SUSPENSE` −1e12 等），而**两条恒等式照常全绿**（两边同减正负相消）——正是本轮新增负余额断言首次逮到的实例。对照：`deposit-sumsub-verdicts.e2e-spec.ts` 有物理拦截、跑在专用 `e2e-` 库上。建议这两个 spec 同样切专用库 ｜来源: 2026-08-13 T11
-- [ ] **`deposit-sumsub-verdicts.e2e-spec.ts` 把 DB 路径硬编码成一个早已删除的 worktree 目录**：`process.env.DATABASE_URL = 'file:/tmp/exchange_js_wt_deposit_arcs/e2e-deposit-verdicts.db'`（第 17 行）。任何新 worktree 首跑必挂 `Error code 14: Unable to open the database file`，且需要手动 `mkdir` + `migrate deploy` + `db:base:sync` + `db:biz:init` 才能起。隔离意图正确（防止误清常驻栈，第 22 行还有二道保险），但路径应改成按当前 worktree 派生 ｜来源: 2026-08-13 T11
+- [x] ~~**`deposit-sumsub-verdicts.e2e-spec.ts` 把 DB 路径硬编码成一个早已删除的 worktree 目录**~~ → **2026-08-31 核实：已不复现，第六条陈账**。该 spec 现在用 `resolveE2eDatabaseUrl('e2e-deposit-verdicts.db')`（跟着当前 worktree 的栈目录走，见 `test/e2e-db.ts`），硬编码路径早已移除；文件里仅存的两处 `exchange_js_wt_deposit_arcs` 字样，一处是描述旧状态的注释、一处是错误提示里的举例。
 
-**原 BACKLOG §技术债 — 充值状态机·计划1 引擎（deposit-sumsub，2026-07-28）**
+  **过程留痕（值得记）**：Task 10 评审提 Minor② 说它与 `recon-demo.ts` 的 MANIFEST_PATH 同类、应一并迁入新桶；控制方据此动手迁移，`grep exchange_js_wt_deposit_arcs` 命中两处便认定"仍成立"——**没读命中的是什么**。读了才发现两处都不是活代码。**这正是本仓库最高频的失误形态**（拿字符串命中当行为证据），而且发生在正在建立"进来必须写清怎么复现"那条规矩的人身上。已撤回误迁，改为销账。
 
 - [ ] **payin→COMPLIANCE_PENDING 管道（STEP_1/funds_order 级联）无 e2e 覆盖**：Task 12 e2e 为避开 `detected()→funds_order→事件级联`（fire-and-forget `emit`，测试里会竞态），改为直接 Prisma 建一条 `status=COMPLIANCE_PENDING` 的 deposit + 手动调 `handleDepositStatusChanged()`，绕过了 PAYIN_PENDING→COMPLIANCE_PENDING 这段（payin 检测 + TB Step1 记账）。该段仍缺 e2e 直接覆盖 ｜来源: `test/deposit-sumsub-scenarios.e2e-spec.ts` 文件头注释 + task-13-brief
 
@@ -93,18 +98,16 @@
 
 **原 BACKLOG §真欠账**
 
-- [ ] **`client-web` 的 vitest 测试在 jest 闸门里零执行**：`client-web/src/utils/*StatusView.spec.ts`（deposit/withdraw/swap 三份）+ `restrictedCapabilities.spec.ts` 用 vitest 写；`jest.config.js` 的 `roots` 含 `client-web/src`、`testRegex` 也匹配 `.spec.ts`，于是 jest 会**捡起它们并当场失败**（`Vitest cannot be imported in a CommonJS module using require()`）——这正是常年挂在 jest 基线里那条红。真正跑它们的是根 `package.json` 的 `test:client`（`npm test --prefix client-web` → `vitest run`），**而那条命令不在任何闸门清单里**。修法二选一：把 `client-web/src` 从 jest `roots` 摘掉并把 `test:client` 加进闸门；或统一测试框架 ｜来源: 2026-08-22 第四批 D3/D4
-- [ ] 🔴 **`test/swap-sumsub-scenarios.e2e-spec.ts` 整个 suite 常年 9/9 全红，此前全仓零登记**：成因是**第二批「制裁命中分主体」（2026-08-20）给兑换加了 `FROZEN` 态，e2e 的期望没跟着更新** —— 那批把 `REJECTED · Sanctions` 改判成 `FROZEN`（零出边终态），而这份 e2e 的 9 条用例仍按旧口径断言，典型失败形态是 `Expected: "REJECTED" / Received: "FROZEN"`。**既存破损，非第四批引入**：控制方已在 merge-base 的独立工作树、用同样的干净库复跑确认 **9/9 与分支上逐字相同**。⚠️ 它**不在全量 `npx jest` 的数字里**（`jest.config.js` 的 `roots` 不含 `test/`），只有 `npx jest --config test/jest-e2e.json` 才跑得到——所以两批都没人注意到。**修法**：按第二批的 `FROZEN` 终态口径逐条更新 9 条用例的期望（重点是 ④ Sanctions 那条与 sticky hard-line 那条），不是删测试。**一个没人记录的常年红 suite，是下次真回归被挥手放行的方式** ｜来源: 2026-08-22 终审 Minor #14
-- [ ] **`admin-web` 零组件测试基建**：`jest.config.js` 的 `testRegex: '.*\\.spec\\.ts$'` 只匹配 `.spec.ts`，`.spec.tsx` **永不执行**。本批建过一个 `L1GateCard.spec.tsx`、发现跑不起来后删掉（`5e943691`），并把 `admin-web/tsconfig.app.json` 的 `exclude` 补上 `src/**/*.spec.tsx` 免得空跑 build 时报错。admin 前端组件目前只能靠渲染截图验证 ｜来源: 2026-08-22 第四批 B5
-- [ ] **`jest.config.js` 的 `roots` 同样不含 `scripts/`——把 spec 建在 `scripts/` 下会被 `npx jest` 静默 0 匹配（"No tests found"，不是红也不是绿，就是不存在）**：与本节上一条 `test/` 目录同根因（第 91 行），只是换了目录。Task C1（造数花名册）实测撞上：任务书原定文件是 `scripts/demo-roster.spec.ts`，跑 `npx jest scripts/demo-roster.spec.ts` 得 `roots: .../src, .../admin-web/src, .../client-web/src - 564 matches` / `Pattern: scripts/demo-roster.spec.ts - 0 matches`。已绕过——spec 改放 `src/common/utils/demo-roster.spec.ts`（该目录本已收纳面向 demo 的确定性纯函数测试，如 `fake-external-refs.util.spec.ts`），import 反向指回 `scripts/demo-roster.ts`；未改 jest 配置。后续任何要给 `scripts/` 下文件写 spec 的任务会重复撞上同一个坑 ｜来源: 2026-08-29 Task C1
+- [x] ~~**`client-web` 的 vitest 测试在 jest 闸门里零执行**：`client-web/src/utils/*StatusView.spec.ts`（deposit/withdraw/swap 三份）+ `restrictedCapabilities.spec.ts` 用 vitest 写；`jest.config.js` 的 `roots` 含 `client-web/src`、`testRegex` 也匹配 `.spec.ts`，于是 jest 会**捡起它们并当场失败**（`Vitest cannot be imported in a CommonJS module using require()`）——这正是常年挂在 jest 基线里那条红。真正跑它们的是根 `package.json` 的 `test:client`（`npm test --prefix client-web` → `vitest run`），**而那条命令不在任何闸门清单里**。修法二选一：把 `client-web/src` 从 jest `roots` 摘掉并把 `test:client` 加进闸门；或统一测试框架 ｜来源: 2026-08-22 第四批 D3/D4~~ → **2026-08-31 环境收口 Task 5 销账**（`3908d9b2`）：`jest.config.js` 的 `roots` 现只剩 `<rootDir>/src`、`<rootDir>/admin-web/src`，不再含 `client-web/src`；`test:client` 已写进 CLAUDE.md §7 闸门④（"改了 client-web 另跑 `npm run test:client`（vitest）"）。两处均已核实
+- [x] ~~**`admin-web` 零组件测试基建**：`jest.config.js` 的 `testRegex: '.*\\.spec\\.ts$'` 只匹配 `.spec.ts`，`.spec.tsx` **永不执行**。本批建过一个 `L1GateCard.spec.tsx`、发现跑不起来后删掉（`5e943691`），并把 `admin-web/tsconfig.app.json` 的 `exclude` 补上 `src/**/*.spec.tsx` 免得空跑 build 时报错。admin 前端组件目前只能靠渲染截图验证 ｜来源: 2026-08-22 第四批 B5~~ → **2026-08-31 环境收口 Task 10 核实：仍在，已迁入 `TOOLING-DEBT.md`**（jest `testRegex`/`moduleFileExtensions` 均未变，且始终未装 `jest-environment-jsdom`/`@testing-library`；本轮 Task 2 只修了 tsc 类型检查覆盖，没修 jest 执行覆盖，两回事）
+- [x] ~~**`jest.config.js` 的 `roots` 同样不含 `scripts/`——把 spec 建在 `scripts/` 下会被 `npx jest` 静默 0 匹配（"No tests found"，不是红也不是绿，就是不存在）**：与 `test/` 目录同根因——`roots` 里同样没有它，只是换了目录（`test/` 那条旧账——`swap-sumsub-scenarios.e2e-spec.ts` 常年 9/9 全红——2026-08-31 环境收口实测已不复现，见文末销账记录）。Task C1（造数花名册）实测撞上：任务书原定文件是 `scripts/demo-roster.spec.ts`，跑 `npx jest scripts/demo-roster.spec.ts` 得 `roots: .../src, .../admin-web/src, .../client-web/src - 564 matches` / `Pattern: scripts/demo-roster.spec.ts - 0 matches`。已绕过——spec 改放 `src/common/utils/demo-roster.spec.ts`（该目录本已收纳面向 demo 的确定性纯函数测试，如 `fake-external-refs.util.spec.ts`），import 反向指回 `scripts/demo-roster.ts`；未改 jest 配置。后续任何要给 `scripts/` 下文件写 spec 的任务会重复撞上同一个坑 ｜来源: 2026-08-29 Task C1~~ → **2026-08-31 环境收口 Task 10 核实：仍在（未被本轮任何任务触碰），已迁入 `TOOLING-DEBT.md`**。当前 `roots` 只有 `<rootDir>/src`、`<rootDir>/admin-web/src`（`client-web/src` 已被 Task 5 摘除，见上条），`scripts/` 从未被任何一次改动加进去——Task C1 当时的绕过（挪去 `src/common/utils/`）依旧是绕过，不是修复
 
 **Gate 0 / 退回弧**
 
 
 **原 BACKLOG §对账应然设计 gap（2026-07-12 target design）**
 
-- [ ] **`scripts/e2e-confiscation-async.ts` 的修复未实跑验证(2026-07-31 终审必修项 Important 3)**:该脚本是没收两阶段(CONFISCATING/CONFISCATED 两态各跑一次 `verify:coa`)唯一的活体 money-path 验收脚本。终审发现它 `waitFor(COMPLIANCE_PENDING+BELOW_MIN)` 后直接调 `initiateConfiscation`,但新前置是 `status===OPERATION_PENDING`,必抛 `Deposit has no BELOW_MIN hold to confiscate`。已修复(`makeBelowMinDeposit` 补一次 `ctx.depositWf.applyKytVerdict(..., {verdict:'approved'})` 把单驱到 `OPERATION_PENDING` 再没收,及配套断言标签)。**但本次未实跑**——脚本 bootstrap 一个真实 Nest app 跑真实记账(TigerBeetle post),而本 worktree `.env` 的 `DATABASE_URL` 指向的正是该 worktree**当前正被业主验收的常驻栈库**(`/tmp/exchange_js_wt_deposit_arcs/dev.db`),与本轮"不要动数据库"的硬约束冲突,故只改代码、未执行验证。需要:找一个隔离 DB+TigerBeetle 实例(或专用 e2e 库,参照上面 `deposit-sumsub-verdicts.e2e-spec.ts` 的物理护栏模式)把这个脚本真跑一次,确认 CONFISCATING/CONFISCATED 两态 `verify:coa` 仍 PASS ｜来源: 2026-07-31 终审必修项 Important 3
-- [ ] **`admin-web` 的 `.spec.ts` 不在任何 tsc 闸门内**（`tsconfig.app.json` 的 `exclude` 含 `src/**/*.spec.ts`，后端两个 tsconfig 也照不到 admin-web），类型错只有 `npx jest` 跑到才暴露。本批新建的 `module-parity.spec.ts` 即受此影响 ｜来源: 2026-08-23 第五批
+- [x] ~~**`admin-web` 的 `.spec.ts` 不在任何 tsc 闸门内**（`tsconfig.app.json` 的 `exclude` 含 `src/**/*.spec.ts`，后端两个 tsconfig 也照不到 admin-web），类型错只有 `npx jest` 跑到才暴露。本批新建的 `module-parity.spec.ts` 即受此影响 ｜来源: 2026-08-23 第五批~~ → **2026-08-31 环境收口 Task 2 销账**（`48c1f7b7`）：新增独立 `admin-web/tsconfig.spec.json`（`include`: `src/**/*.spec.ts` + `src/**/*.spec.tsx`），根 `admin-web/tsconfig.json` 通过 `references` 把它纳入 `npx tsc -b --noEmit`——闸②现在真的会查 `.spec.ts` 的类型（注意：只是类型检查覆盖，jest **执行**覆盖是另一个未修的洞，见下方「admin-web 零组件测试基建」条已迁 `TOOLING-DEBT.md`）
 
 ## 性能
 
@@ -136,7 +139,7 @@
 
 - [ ] **`sumsub-txn-client.http.ts` 三处 minor**：① `resolveVerdict()` 在 `review.reviewResult` 和 `scoringResult.action` 都缺失时返回 `undefined`（无兜底/无告警，边缘场景）；② `submitTxn()` 的 counterparty 只设 `paymentMethod.accountId`，未设 `paymentMethod.type`（生产 crypto travelRule 场景需要补，当前沙盒未触发校验）；③ `deposit-kyt-verdict.handler.ts` 的 `SCENE_TAGS`/`DISPO_TAGS` 字面量集合与 `deposit-workflow.service.ts → applyKytVerdict()` 参数上手写的 `sceneTag`/`dispoTag` 联合类型两处手工同步，未共享一个类型/常量源 ｜来源: 2026-07-28 Task 13 code 走查
 - [ ] **`prisma/schema.prisma` 新增字段列未对齐**：`DepositTransaction` 新增的 `sumsubFinanceTxnId`/`sumsubTravelRuleTxnId`/`manualReason`/`slaDeadline`/`slaBreached` 5 列缩进与同 model 其它列的列对齐格式不一致（`prisma format` 未跑），纯格式债 ｜来源: 2026-07-28 Task 13 code 走查
-- [ ] **`scripts/stack-stop.sh` 孤儿进程清理相对/绝对路径不匹配，永不命中**：`cleanup_orphans_by_pattern "backend-orphan" "${APP_DIR}/dist/main"` 用绝对路径 pattern 做 `pgrep -f`，但 `stack-up.sh:114` 实际以相对路径 `["node","dist/main"]` 启动后端进程，命令行里不含 `${APP_DIR}` 前缀 → 该 orphan 清理分支永远 0 命中，无法杀残留 backend 进程。建议 `stack-up.sh` 改绝对路径启动，或 `stack-stop.sh` 的 pattern 改成只匹配 `dist/main`（相对）｜来源: 2026-07-28 Task 13 走查
+- [x] ~~**`scripts/stack-stop.sh` 孤儿进程清理相对/绝对路径不匹配，永不命中**：`cleanup_orphans_by_pattern "backend-orphan" "${APP_DIR}/dist/main"` 用绝对路径 pattern 做 `pgrep -f`，但 `stack-up.sh:114` 实际以相对路径 `["node","dist/main"]` 启动后端进程，命令行里不含 `${APP_DIR}` 前缀 → 该 orphan 清理分支永远 0 命中，无法杀残留 backend 进程。建议 `stack-up.sh` 改绝对路径启动，或 `stack-stop.sh` 的 pattern 改成只匹配 `dist/main`（相对）｜来源: 2026-07-28 Task 13 走查~~ → **2026-08-31 环境收口 Task 8 销账**（`ead30e5c`）：`stack-up.sh` 的 backend 启动命令已改绝对路径 `["node","${APP_DIR}/dist/main"]`，与 `stack-stop.sh` 的 pattern 一致，orphan 清理分支现在真能命中（同一改动顺带修好了 admin/client 两个 vite 进程的同款相对路径问题，见下方 stack.sh up self 那条）
 - [ ] **must-fix-before-applicant-registration-go-live：trading-ready 闸已两路统一，上线前需回归验证**：终审 I1 发现 `applyKytVerdict()`（新 KYT-only approve 路径）直接调 `approveDeposit()`，绕过了 `checkAutoApproval()`（老 mock kyt-check/tr-check 路径）唯一的 trading-ready（法币提现地址）闸——客户没设法币提现地址也能经 KYT approve 通过充值，违背 2026-07-11 上线的"未 trading-ready 就 hold"不变量。本次已修：抽共享私有 helper `assertTradingReadyOrHold()`（`deposit-workflow.service.ts`），`checkAutoApproval()` 与 `applyKytApproved()` 都先过这道闸，不通过则原地 hold（不改状态）+ 记 `DEPOSIT_HELD_NOT_TRADING_READY` 审计，消除两路门禁漂移。**applicant-registration 正式接真实 Sumsub webhook 上线前，需对这条闸单独做一次回归验证**（未设法币提现地址的客户，真实 approve webhook 打过来时仍应被 hold 在 COMPLIANCE_PENDING，不应被放过）｜来源: 2026-07-28 终审 I1，已修，见 `deposit-workflow.service.spec.ts` "I1: approved but customer has no active fiat withdrawal address" 用例
 - [ ] **`findBySumsubTxnId` 查询列缺 DB unique index**：`deposit-transactions.service.ts → findBySumsubTxnId()` 用 `OR[{sumsubFinanceTxnId},{sumsubTravelRuleTxnId}]` 做 `findFirst()` 按 Sumsub txnId 反查 deposit，业务上靠"Sumsub txnId 全局唯一"这一假设撑着，但 `prisma/schema.prisma` 里这两列只是普通可空 `String?`，DB 层无 unique 约束硬化——一旦假设被打破（重复值/竞态写入），`findFirst` 可能悄悄解析到错误的 deposit，webhook 状态机会被错误驱动。建议补唯一索引（两列各自 `@@unique`，注意都可空，SQLite/大多数 DB 唯一索引允许多行 NULL 共存，不影响未提交场景）｜来源: 2026-07-28 终审
 - [ ] **充值动钱弧 start 阶段缺事务包裹**：`onReturnApproved`（返回弧）与没收的 `startConfiscation` 都把「建资金单 + TB pending 锁 + updateStatus」三步裸序执行，无 `prisma.$transaction`、无失败补偿——对比 `withdraw-workflow.service.ts → createWithdrawal()` 用 `$transaction` 包资金单/记录创建 + TB pending 调用，失败时在 catch 里对已落地的 TB pending 做 `voidPendingTransferBestEffort` 补偿。若 pending 锁在建单后抛错，会留下孤儿 CREATED 资金单，且 `@OnEvent` 监听器无重试队列、无自动自愈路径（`onReturnApproved` 的"pending transfer throws→rethrows"单测只验证了 deposit 状态未跳、STARTED 审计未记，未验证资金单是否已孤儿落地）。应开专门任务统一治理（同时覆盖退回与没收两条弧），避免单点偏离造成不一致；关联现有条目「CONFISCATING 结算耗尽重试后无手动重触发出口」（同一 start 阶段裸序问题的下游症状）｜来源: 2026-07-28 A3 Minor review
@@ -223,11 +226,10 @@
 **原 BACKLOG §技术债 — 制裁命中分主体（sanction-subject-split，2026-08-20 落地）**
 
 - [ ] **兑换 `FROZEN` 幂等闸让制裁处置不可重入，与 `REJECTED` carve-out 不对称**：`REJECTED`/`SUCCESS` 终态有 carve-out 允许 webhook 重投时重跑 `handleRejectDisposition()`（"单已终态≠处置已落地"）；`FROZEN` 没有——已冻结的单再收裁决在 `applyKytVerdict()` 顶部就被幂等闸拦下（写 `SWAP_KYT_VERDICT_IGNORED`），到不了处置逻辑。本批裁定**不改**：改它会偏离第一批（合规裁决落地）立的跨域幂等契约；且冻单排在冻人之后，能走到 `FROZEN` 就意味着人已经被限制，不存在"单冻了、处置没跟上"的风险窗口。**补充（2026-08-20 终审）**：上面"能走到 FROZEN 就意味着人已经被限制"这条论断只对**限制**成立，不覆盖 `markHardLineDisposition` 这个 sticky 标记——若客户是在**别的域**（如充值）命中 `SANCTION_APPLICANT` 触发跨域广播冻单，本单在收到自己的裁决前就已被那次广播冻成 `FROZEN`，随后自己到达的裁决撞上这道幂等闸提前 return，`handleRejectDisposition()`（连同其内的 sticky 章）从未跑到；MLRO 解除限制后，该客户下一笔软线兑换拒绝重新算出 `alreadyHardLined=false`，补料请求重新暴露 ｜来源: 2026-08-20 制裁分主体批次
-- [ ] **`scripts/backfill-internal-fund-keys.ts` 是死码**：引用已 DROP 的 `internalFund` 表（`prisma.internalFund.findMany/update`），且硬编码了已废弃的 `/tmp/exchange_js_branch` 路径。因此 `tsconfig.test.json` 刻意不含 `scripts/`，避免这份死码把"改了跨 src/test 边界类型后做一次全覆盖检查"这道闸拖成非二元结果 ｜来源: 2026-08-20 制裁分主体批次
 - ~~**兑换域缺 `SANCTION_COUNTERPARTY` 的 e2e 覆盖**~~ —— **已删除（2026-08-20 终审收口，业主裁定）**：兑换是平台内 crypto↔fiat 余额交换，没有第三方对手方，Sumsub 不可能对一笔 swap 回传"对手方被制裁"，这个场景本身不存在——测不了也不该测。原条目登记的补测任务连同其依据的 demo fixture 按钮 `V4B_REJECTED_SANCTION_COUNTERPARTY` 已随本次收口一并物理删除（`hasApplicantSanctionHit()` 只认 `SANCTION_APPLICANT` 保留为防御性写法，不代表该分支被期待触达）；`SANCTION_COUNTERPARTY` 在充值/提现两域仍有真实外部对手方场景，覆盖不受影响 ｜来源: 2026-08-20 制裁分主体批次登记 → 同日终审收口判定为不适用、删除
 - [ ] **双裁决毫秒级并发可开出两张同因由便签**：两笔不同订单（如同一客户的一笔充值 + 一笔提现）的 KYT rejected webhook 若在毫秒级窗口内并发到达，各自独立调用 `CustomerRestrictionsService.open({cause:'SANCTION'})`，`openWithin()` 的"查重复→插入"不是跨请求原子的，理论上可能各自查到"无重复"后都插入，开出两张同因由的 OPEN 便签。窗口极窄、后果轻（MLRO 需要多签一次撕两张而非一张）；要根治需要加客户级锁，成本收益不划算，暂不做 ｜来源: 2026-08-20 制裁分主体批次
-- 🟡 **`scripts/reset-business-data.ts` 的删除清单缺 `materialRequest`** —— 该表对 `CustomerMain` 有必填 FK，库里若有历史材料请求行，`npm run db:biz:reset` 会撞 FK 违例中止。本批在 worktree 栈重铺时实际撞上，手工清阻塞数据后才跑通（未改该脚本，非本批范围）｜来源: 2026-08-20 制裁分主体批次 Task 12 重铺实测
-- 🟡 **`scripts/verify-demo-data.ts` 的 `scanR1()` 引用已 DROP 的 `internalFund` 表**（`:47` `prisma.internalFund.findMany()`）—— `schema.prisma` 里只剩 `InternalFundAuditLog`，`InternalFund` 模型已在 funds_orders 重构中删除。后果：`npm run db:seed:business` 末尾内建的 `verify:demo-data` 校验步骤**必炸**（业务数据本身在此之前已成功落库，不影响 seed 结果，但开发者会看到一次失败）。与本节 `backfill-internal-fund-keys.ts` 那条同根因、不同文件｜来源: 2026-08-20 制裁分主体批次 Task 12 重铺实测
+- [x] ~~🟡 **`scripts/reset-business-data.ts` 的删除清单缺 `materialRequest`** —— 该表对 `CustomerMain` 有必填 FK，库里若有历史材料请求行，`npm run db:biz:reset` 会撞 FK 违例中止。本批在 worktree 栈重铺时实际撞上，手工清阻塞数据后才跑通（未改该脚本，非本批范围）｜来源: 2026-08-20 制裁分主体批次 Task 12 重铺实测~~ → **2026-08-31 环境收口核实：陈账，早已修好**（`068b0a52`，`main` 上已有，与本轮任务无关）：`materialRequest`/`customerExplicitTag` 已补进删除清单（`scripts/reset-business-data.ts:115`），注释原话"以后加任何 FK → customer_main 的表，必须回来加一行"
+- [x] ~~**`scripts/verify-demo-data.ts` 的 `scanR1()` 引用已 DROP 的 `internalFund` 表**（`:47` `prisma.internalFund.findMany()`）—— `schema.prisma` 里只剩 `InternalFundAuditLog`，`InternalFund` 模型已在 funds_orders 重构中删除。后果：`npm run db:seed:business` 末尾内建的 `verify:demo-data` 校验步骤**必炸**（业务数据本身在此之前已成功落库，不影响 seed 结果，但开发者会看到一次失败）。与本节 `backfill-internal-fund-keys.ts` 那条同根因、不同文件｜来源: 2026-08-20 制裁分主体批次 Task 12 重铺实测~~ → **2026-08-31 环境收口核实：已不复现**，`verify-demo-data.ts` 里已无 `prisma.internalFund` 调用（只剩 `:142` 一句说明注释）。本轮把 `scripts/**` 纳入 tsc 后 20/20 全覆盖、0 错——若该调用还在，必然报错。本条是陈账
 - ~~**【需业主裁定】`SANCTION_COUNTERPARTY` 在兑换 vs 充值/提现的客户面结果相反**~~ —— **已关闭（2026-08-20 终审收口，业主裁定：该场景不存在）**：终审提这条时的前提是"兑换域会收到 `SANCTION_COUNTERPARTY`"，而业主指出**兑换是平台内 crypto↔fiat 余额交换、没有第三方对手方**（truth `v6-swap.md` §概述/§L1 两处早有成文表述："无第三方对手方"，那正是兑换不做 Travel Rule、不做大额审批门的原因）。Sumsub 不可能对一笔 swap 回传"对手方被制裁"，所以"兑换披露 vs 充值提现静默"这个跨域不一致**不会发生**。铸出该形状的 demo fixture `V4B_REJECTED_SANCTION_COUNTERPARTY`（兑换域那份）已随收口物理删除；`hasApplicantSanctionHit()` 只认 `SANCTION_APPLICANT` 保留为防御性写法。充值/提现两域有真实外部对手方，其 `SANCTION_COUNTERPARTY` 行为不受影响 ｜来源: 2026-08-20 制裁分主体批次终审登记 → 同日业主裁定关闭
 - ~~**【小】兑换域的 `SANCTION_COUNTERPARTY` 审计与普通软线拒绝同形**~~ —— **已关闭（2026-08-20 终审收口，业主裁定：该场景不存在）**：与上一条同根因、同依据 —— 兑换域无第三方对手方，`SANCTION_COUNTERPARTY` 不会到达该域，故不存在"审计分不出对手方制裁命中"的问题。充值/提现两域已把 `sceneTag` 标签名写进各自审计文案，覆盖充分 ｜来源: 2026-08-20 制裁分主体批次终审登记 → 同日业主裁定关闭
 
@@ -289,7 +291,7 @@
 - [已迁出 2026-08-28] ~~五桶命名 SOFT_FLAG→COMPENSATING 代码改名~~ → **判为业务缺口，移入 `BACKLOG.md`**（显示的内容错 / 该有的信息没有，非攻击-故障-并发触发）。原文见 git 历史 `649b4e88`
 - [ ] **Run 结果字段枚举待重命名**：`reconciliation_runs.invariantStatus`（PASS/FAIL）语义像生命周期状态、且外部 break 也写 FAIL（与"内部恒等"名不符）；PRD 拟结论字段用 `RECONCILED / EXCEPTIONS_FOUND`（对平 / 有差异）。代码字段名+值待随之调（与 `status` RUNNING/COMPLETED/FAILED 两轴分清）｜来源: 2026-07-12 PRD 重写 Q5
 - [ ] **`SUMSUB_SINGLE_TXN_SUBMIT` 开关翻开前置清单(2026-07-31)**:该开关默认 `false`(恒报 `finance`)**——但 `SUMSUB_MOCK_MODE=true` 时隐含开启**(2026-07-31 修:该阀门守的是真实租户规则作用域的筛查真空,mock 下没有真实规则引擎、风险结构性不存在;此前它把演示/Docker 交付一并锁死,验收实测 3000 USDT+VASP 恒落 `finance`,判定器全程等于死码)。下方前置清单只约束**真实 Sumsub** 环境翻 `true`,须依次满足:①**合规书面确认** Sumsub 筛查规则作用域已含 `types:["finance","travelRule"]`——否则 travelRule 单不进规则=筛查真空,而 TR 单按定义正是「≥阈值+对手方 VASP」的最大额那批;②补一条 `SUMSUB_SINGLE_TXN_SUBMIT=true` + 超阈值的 e2e(当前 S2 场景金额 10.5 USDT 远低于 1000,travelRule 提交链路从未在真实 ingestion 里跑过);③翻开后删除该开关与 `finance` 强制分支 ｜来源: 2026-07-31 单笔提交改造终审
-- [ ] **`scripts/**` 不在 tsc 覆盖范围(防复发闸,2026-07-31)**:`tsconfig.json` 的 include 只有 `src/**/*`,且 `DemoCtx.depositWf` 声明为 `any` —— 双层盲区,导致本轮删方法后 `scripts/demo-lib.ts` 的残留调用直到终审才被发现(`demo:all` 运行时必炸,而 Docker 启动脚本就跑它)。建议:把 `scripts/**` 纳入一个单独的 `tsc --noEmit` 检查,并把 `DemoCtx` 的 `any` 换成真类型 ｜来源: 2026-07-31 终审 Recommendation 2
+- [x] ~~**`scripts/**` 不在 tsc 覆盖范围(防复发闸,2026-07-31)**:`tsconfig.json` 的 include 只有 `src/**/*`,且 `DemoCtx.depositWf` 声明为 `any` —— 双层盲区,导致本轮删方法后 `scripts/demo-lib.ts` 的残留调用直到终审才被发现(`demo:all` 运行时必炸,而 Docker 启动脚本就跑它)。建议:把 `scripts/**` 纳入一个单独的 `tsc --noEmit` 检查,并把 `DemoCtx` 的 `any` 换成真类型 ｜来源: 2026-07-31 终审 Recommendation 2~~ → **2026-08-31 环境收口核实：双层盲区只堵了一层**。第①层（`scripts/**` 不在 tsc include）已由 Task 2（`fdf8d55e`）销账：`tsconfig.json` 的 `include` 现含 `scripts/**/*`，`scripts/` 覆盖从 1/29 到 20/20。第②层（`DemoCtx` 的 `any` 字段）本轮未动，`prisma`/`depositWf`/`swapWf`/`usdt`/`aed` 五个字段依旧是 `any`——即便 scripts/ 已入 tsc，经这几个字段调用的方法改名/删除仍不受类型检查，2026-07-31 那次事故的复发路径没有真正堵死。已迁入 `TOOLING-DEBT.md`
 - [ ] **判定器对 NaN 金额 fail-open 到 travelRule(Minor,2026-07-31)**:`kyt-txn-type.resolver.ts` 的 `amount < threshold` 对 `NaN` 恒 false → 落 `travelRule`。上游是 `Number(Prisma Decimal)` 实际拿不到 NaN,但开关翻开后这是个隐含的 fail-open 方向。加一行 `if (!Number.isFinite(input.amount))` 显式兜底 ｜来源: 2026-07-31 终审 Minor 6
 - [ ] **signal dedupe 命中时静默丢弃 `counterpartyIsVasp`(Minor,2026-07-31)**:`inbound-transfer-signals.service.ts` dedupe 命中直接 `return existing`,新提交的 `counterpartyIsVasp` 被丢。这是既有 dedupe 语义,但现在被丢的字段喂的是监管判定 —— 同 txHash 重提改对手方类型不会生效 ｜来源: 2026-07-31 终审 Minor 7
 - [ ] **两处注释过时/字面矛盾(Minor,2026-07-31)**:`deposit-workflow.service.ts:364` 仍称 `checkAutoApproval` 为「老 kyt/tr mock 路径」(该路径本轮已退役,现为 `waiveLimitHold` 的事后重评入口);`:356` 注释「仅供 L2 显示,不作决策依据」与 `:623` 读该列做判断字面打架(实质无冲突:一个是 webhook 同步路径、一个是豁免后异步重评,但缺例外说明,易被误判为违规而"修坏")｜来源: 2026-07-31 终审 Minor 4/5
@@ -306,7 +308,7 @@
 - [ ] **后端兑换详情接口是否还在吐 `restrictionRows`/`hardLineDispositionedAt`**：前端已零消费（第五批删了那个侧栏组），若后端 `include` 是专为这块加的即为死重 ｜来源: 2026-08-23 第五批 Task 4 审查
 - [ ] **兑换详情页卡片编号注释重复**：现读作 `1,2,4,7,4,5,6,7,8,6,11`（4/7/6 各重复、缺 3/9/10），充值是干净的 1–10、提现 1–9。基线 `6236d9b9` 就已经坏 ｜来源: 2026-08-23 第五批终审
 - [ ] **兑换详情页注释写「7 个单步裁决按钮」实为 8 个**（V1–V8，后端 fixture 也是 8）；三页都还写着「admin-web 暂无测试基建」，而第五批已建 `module-parity.spec.ts`（40 条断言，jest 真跑）｜来源: 2026-08-23 第五批终审
-- [2026-08-27] `scripts/verify-swap-self-heal.ts` 失修：查询用已删除的 audit 列 entityNo（8/25 审计改表遗留），且其「第 2+ 次重试审计被吞」断言描述的旧行为已被站3-β2 修复（requestId 全携 randomUUID）——两点都过期，脚本当前跑不了也不再反映现实
+- [x] ~~[2026-08-27] `scripts/verify-swap-self-heal.ts` 失修：查询用已删除的 audit 列 entityNo，且其「第 2+ 次重试审计被吞」断言描述的旧行为已被站3-β2 修复——两点都过期，脚本当前跑不了也不再反映现实~~ → **2026-08-31 环境收口 Task A1 直接删除该脚本销账**（兑换自愈现有 2 个 e2e + 4 个单测覆盖）
 
 
 
@@ -385,13 +387,13 @@
 
 ### 开发工具与测试基建（挡开发，不挡开演）
 
-- [ ] **`scripts/stack.sh up`(self) 端口连锁失败**：admin/client 端口被上次会话遗留 vite 占着时，`ensure_port_free` 在 `set -euo pipefail` 下返回非零 → **整脚本中止、永不走到重建/重启 backend**（即便 backend 端口本身空闲）；与 CLAUDE.md「每次 up 自愈 .env / 重建后端」描述不符，导致实现者被迫手起 `node dist/main`。规避：`lsof -ti:<端口段>|xargs kill` 释放残留再 up。修法：`ensure_port_free` 命中占用改为 kill 残留后继续、或各服务独立处理不整体 `set -e` 退出 ｜来源: 2026-07-12 费率受众 worktree 执行（C + 验收两轮实现者各撞一次）
+- [x] ~~**`scripts/stack.sh up`(self) 端口连锁失败**：admin/client 端口被上次会话遗留 vite 占着时，`ensure_port_free` 在 `set -euo pipefail` 下返回非零 → **整脚本中止、永不走到重建/重启 backend**（即便 backend 端口本身空闲）；与 CLAUDE.md「每次 up 自愈 .env / 重建后端」描述不符，导致实现者被迫手起 `node dist/main`。规避：`lsof -ti:<端口段>|xargs kill` 释放残留再 up。修法：`ensure_port_free` 命中占用改为 kill 残留后继续、或各服务独立处理不整体 `set -e` 退出 ｜来源: 2026-07-12 费率受众 worktree 执行（C + 验收两轮实现者各撞一次）~~ → **2026-08-31 环境收口 Task 8 销账**（`ead30e5c`/`a32b8a35`）：`ensure_port_free` 现在会判断占用者是不是本栈自己残留（按 `APP_DIR`/`TB_DATA_FILE` marker），是则 `terminate_pid` 后继续、不再整脚本中止；只有非本栈的占用者才拒绝启动（避免跨栈误杀并行会话）
 
-- [ ] **`scripts/on-stack.sh self <script>` 跑 `ts-node` 脚本时 `node_modules/.bin` 不在 PATH → `ts-node: command not found`**：经包装器跑 ts-node 类脚本（如 demo-lib/单脚本）时报错。规避 = 直接 `DATABASE_URL=... TB_ADDRESS=... npx ts-node -r tsconfig-paths/register scripts/<x>.ts`。修法：包装器把 `node_modules/.bin` 前置进 PATH（或统一用 `npx`）｜来源: 2026-07-16 transaction-limits（费率受众 worktree 亦曾遇，与本节上一条 stack.sh self 同源工具债）
+- [x] ~~**`scripts/on-stack.sh self <script>` 跑 `ts-node` 脚本时 `node_modules/.bin` 不在 PATH → `ts-node: command not found`**：经包装器跑 ts-node 类脚本（如 demo-lib/单脚本）时报错。规避 = 直接 `DATABASE_URL=... TB_ADDRESS=... npx ts-node -r tsconfig-paths/register scripts/<x>.ts`。修法：包装器把 `node_modules/.bin` 前置进 PATH（或统一用 `npx`）｜来源: 2026-07-16 transaction-limits（费率受众 worktree 亦曾遇，与本节上一条 stack.sh self 同源工具债）~~ → **2026-08-31 环境收口核实：陈账，早已修好**（`291de5b8`，`main` 上已有，与本轮任务无关）：`on-stack.sh` 现在 `exec env PATH="${APP_DIR}/node_modules/.bin:${PATH}" ...`，注释原话"npm run 注入 node_modules/.bin 到 PATH；我们绕过 npm 自己跑脚本体，所以必须也注入它——否则每个 ts-node 脚本都会死于 command not found"
 
-- [ ] **`recon-demo.ts` MANIFEST_PATH 写死 main tmp**：默认 `/tmp/exchange_js_main/recon-demo-manifest.json`（可 `RECON_DEMO_MANIFEST_PATH` 覆盖）；self 栈跑 `recon:demo:break` 时 manifest 落 main 栈 tmp、非本 worktree tmp。不影响评分（verifyManifest 读内存 manifest 对象、不回读文件），仅文件落点跨栈。修法：默认按 `DATABASE_URL` 派生 tmp 目录，或 on-stack 包装器注入 `RECON_DEMO_MANIFEST_PATH` ｜来源: 2026-07-04 canon2 T5 code-review（M2）
+- [x] ~~**`recon-demo.ts` MANIFEST_PATH 写死 main tmp**：默认 `/tmp/exchange_js_main/recon-demo-manifest.json`（可 `RECON_DEMO_MANIFEST_PATH` 覆盖）；self 栈跑 `recon:demo:break` 时 manifest 落 main 栈 tmp、非本 worktree tmp。不影响评分（verifyManifest 读内存 manifest 对象、不回读文件），仅文件落点跨栈。修法：默认按 `DATABASE_URL` 派生 tmp 目录，或 on-stack 包装器注入 `RECON_DEMO_MANIFEST_PATH` ｜来源: 2026-07-04 canon2 T5 code-review（M2）~~ → **2026-08-31 环境收口 Task 10 核实：仍在，已迁入 `TOOLING-DEBT.md`**（Task 7 清的 23 处内联默认值明确只覆盖 `TB_ADDRESS`/`DATABASE_URL` 两类，两个 commit 的 diff 都不含 `recon-demo.ts` 这两行，`MANIFEST_PATH` 从未在范围内）
 
-- [ ] 🔴 **`scripts/stack.sh` 从不跑迁移 —— 每次改 schema，跑着的栈都会悄悄留在旧库上**：`grep -c 'migrate\|prisma' scripts/stack.sh` = **0**。`stack.sh up` 会自愈 `.env`、切 node20、重建后端，但**不迁移**。2026-08-24 实测后果：main 栈的库停在 `20260817020000_drop_legacy_action_stores`，第四批的 `20260822010000_batch4_needs_review_and_l1` 从没应用过 → `l1Snapshot` / `needsReview` 列根本不存在，业主在 admin 上看不到 L1 闸门，误以为"第四批没合进 main"（代码其实早在 main 上，merge `6236d9b9`）。**这是个会反复咬人的坑**：只要有人改 schema 又没手动 `prisma migrate deploy`，跑着的栈就与代码脱节，且没有任何报错提示。修法二选一：① `stack.sh up` 里加一步 `prisma migrate deploy`（幂等，已应用的迁移不会重跑）；② 加一步 `prisma migrate status` 检查，有待应用迁移就 fail-closed 并打印提示。⚠️ 顺带：`npm run runtime:diagnose` 号称"诊断迁移漂移"，但它不在 `stack.sh` 的路径上，没人会主动跑 ｜来源: 2026-08-24 业主问"为什么 gate1 那些没有在 main"时查出
+- [x] ~~🔴 **`scripts/stack.sh` 从不跑迁移 —— 每次改 schema，跑着的栈都会悄悄留在旧库上**：`grep -c 'migrate\|prisma' scripts/stack.sh` = **0**。`stack.sh up` 会自愈 `.env`、切 node20、重建后端，但**不迁移**。2026-08-24 实测后果：main 栈的库停在 `20260817020000_drop_legacy_action_stores`，第四批的 `20260822010000_batch4_needs_review_and_l1` 从没应用过 → `l1Snapshot` / `needsReview` 列根本不存在，业主在 admin 上看不到 L1 闸门，误以为"第四批没合进 main"（代码其实早在 main 上，merge `6236d9b9`）。**这是个会反复咬人的坑**：只要有人改 schema 又没手动 `prisma migrate deploy`，跑着的栈就与代码脱节，且没有任何报错提示。修法二选一：① `stack.sh up` 里加一步 `prisma migrate deploy`（幂等，已应用的迁移不会重跑）；② 加一步 `prisma migrate status` 检查，有待应用迁移就 fail-closed 并打印提示。⚠️ 顺带：`npm run runtime:diagnose` 号称"诊断迁移漂移"，但它不在 `stack.sh` 的路径上，没人会主动跑 ｜来源: 2026-08-24 业主问"为什么 gate1 那些没有在 main"时查出~~ → **2026-08-31 环境收口核实：陈账，早已修好，与本轮任务无关**：`stack.sh up` 经 `stack-up.sh → bootstrap_database_if_needed()` 无条件调用 `scripts/apply-local-migrations.sh`（日志原话"applying pending Prisma migrations to ${db_file}"），且该函数体在 `main` 上早于本轮环境收口分支就已存在（非本轮 9 个任务引入）。字面查证方式（`grep 'migrate\|prisma' scripts/stack.sh`）从一开始就问错了文件——迁移调用在被 `stack-up.sh` source 的 `stack-common.sh` 里，不在 `stack.sh` 本身
 
 ### 前端观感与代码重复
 
@@ -424,39 +426,56 @@
 
 - [ ] **三页各手写一份逐字相同的「本单已进终态/处置态」`<p>`**（第五批 Task 7 引入，className 与文案全同）—— 同职责内联三份，正是本批立规矩要消灭的形状 ｜来源: 2026-08-23 第五批终审
 
-- [2026-08-29] **`stack.sh reset self` 在 worktree 里会造出「假的 COA 恒等式失败」，且倍数逐次累加** ｜ `scripts/stack-stop.sh` + `scripts/reset-stack.sh` ｜ 实证于 feat/demo-kit-sumsub-panel
+- [x] ~~**`stack.sh reset self` 在 worktree 里会造出「假的 COA 恒等式失败」，且倍数逐次累加**~~ → **2026-08-31 环境收口 Task 8 销账**（`ead30e5c`）：新增 `stop_tb_if_managed()`，专按 `TB_DATA_FILE`（而非 `APP_DIR`）匹配 TB 进程命令行——TB 启动命令里从不含 `APP_DIR`，只有数据文件路径，这正是本条机制段说的"孤儿清理路径不匹配"同一根因在 TB 上的翻版。`stack-stop.sh` 现在会先杀掉残留 TB 再放行 `reset`，commit message 原话点名"这正是 2026-08-30『重铺后余额累加、倍数 1→2→3→4』那次假警报的成因" ｜ `scripts/stack-stop.sh` + `scripts/reset-stack.sh` ｜ 实证于 feat/demo-kit-sumsub-panel
 
-  机制：`reset-stack.sh` 会 `rm -f` TB 数据文件再 `format` 一个新的，但它先调的 `stack-stop.sh ... || true` **杀不掉 worktree 的 TigerBeetle 进程**（既有账：孤儿清理相对/绝对路径不匹配，永不命中）。老 TB 进程存活、继续占着端口、句柄指向那个已被 unlink 的旧文件——于是 **SQLite 被清空重铺（负债侧回到 1 倍），TB 余额却一路累加**。
+  机制（历史记录，问题已修复）：`reset-stack.sh` 会 `rm -f` TB 数据文件再 `format` 一个新的，但它先调的 `stack-stop.sh ... || true` **杀不掉 worktree 的 TigerBeetle 进程**（既有账：孤儿清理相对/绝对路径不匹配，永不命中）。老 TB 进程存活、继续占着端口、句柄指向那个已被 unlink 的旧文件——于是 **SQLite 被清空重铺（负债侧回到 1 倍），TB 余额却一路累加**。
   症状：`demo:all` 报 `COA CLIENT(AED): CLIENT_ASSET == Σ(...)` 失败，实际值是期望值的**整数倍**，且每 reset 一次倍数 +1（实测 1→2→3→4 倍，同一 commit 零代码改动）。FIRM 侧恒对，只有 CLIENT 侧翻倍。
   危害：**这是一个会把人送去追不存在的账本 bug 的假警报**。本轮就差点据此判定分支引入了重复记账回归——做了 commit 二分才发现倍数在累加、进而定位到孤儿进程。
-  绕法：`lsof -ti:<TB端口>` 找到进程手工 `kill`，再 `reset` + `up`，`demo:all` 即回 8/8（COA 数字与 main 逐字一致）。
-  修法（生产化时）：`stack-stop.sh` 的孤儿匹配改成按端口而非按路径；或 `reset-stack.sh` 在 `rm -f` 之前断言目标端口已空、不空则 fail-fast，而不是 `|| true` 吞掉。
+  绕法（修复前）：`lsof -ti:<TB端口>` 找到进程手工 `kill`，再 `reset` + `up`，`demo:all` 即回 8/8（COA 数字与 main 逐字一致）。
 
-- [2026-08-29] **同一根因也堵住了普通 `stack.sh up self`（不只 `reset`）——已在跑的 self 栈重新 `up` 必现"port already in use"，backend/admin/client/tb 四个进程全中招** ｜ `scripts/stack-stop.sh` 的 `stop_listener_if_managed` ｜ 实证于 feat/demo-kit-sumsub-panel（B3 任务全链实跑前置步骤）
-  机制：与上一条 TB 孤儿同根——`stop_listener_if_managed` 用 `command_line == *"${APP_DIR}"*` 判断某端口的持有进程是否"归本栈管"，但实际启动命令全是相对路径（`node dist/main`、`./node_modules/.bin/vite ...`、`tigerbeetle start ... /tmp/exchange_js_wt_<名>/0_0.tigerbeetle`），没有一条包含 `APP_DIR` 绝对路径子串，判断恒假、恒判"non-managed process, skip"。`stop_pid_file_process` 那条路径本该兜底，但本次遇到的栈是更早一次会话手工/非常规方式启动的，PID 文件与实际进程对不上，兜底路径也没接住。
+- [x] ~~**同一根因也堵住了普通 `stack.sh up self`（不只 `reset`）——已在跑的 self 栈重新 `up` 必现"port already in use"，backend/admin/client/tb 四个进程全中招**~~ → **2026-08-31 环境收口 Task 8 销账**（`ead30e5c`）：修的是启动端不是匹配端——`stack-up.sh` 的 backend/admin/client 启动命令全部改绝对路径（含 `${APP_DIR}` 前缀），`stop_listener_if_managed` 的 `*"${APP_DIR}"*` 子串匹配现在对三者都能命中；`ensure_port_free` 同时改成"是本栈残留就清掉继续"（见上方"端口连锁失败"条），两处叠加后 commit message 记录"实测：backend/admin/client/tb 四个端口被自家残留占用时全部'清理后继续'、up 全程不中止" ｜ `scripts/stack-stop.sh` 的 `stop_listener_if_managed` ｜ 实证于 feat/demo-kit-sumsub-panel（B3 任务全链实跑前置步骤）
+
+  机制（历史记录，问题已修复）：与上一条 TB 孤儿同根——`stop_listener_if_managed` 用 `command_line == *"${APP_DIR}"*` 判断某端口的持有进程是否"归本栈管"，但实际启动命令全是相对路径（`node dist/main`、`./node_modules/.bin/vite ...`、`tigerbeetle start ... /tmp/exchange_js_wt_<名>/0_0.tigerbeetle`），没有一条包含 `APP_DIR` 绝对路径子串，判断恒假、恒判"non-managed process, skip"。`stop_pid_file_process` 那条路径本该兜底，但本次遇到的栈是更早一次会话手工/非常规方式启动的，PID 文件与实际进程对不上，兜底路径也没接住。
   症状：`bash scripts/stack.sh up self` 在已有栈存活时，会在 `ensure_port_free` 那步直接 `exit 1`（`set -euo pipefail` 下 `return 1` 不吞），backend 卡住后admin/tb 会依次重演同一幕（逐个补 kill 后再 up 才过下一关）。
-  绕法：`ps -p <pid> -o command` 确认确实是本 worktree 自己的进程（cwd 或数据文件路径能对上）后手工 `kill`，四个都清完再 `stack.sh up self` 一次性成功；不要连续 `up` 指望它自愈。
-  修法（生产化时）：与上一条同一处，`stop_listener_if_managed` 的匹配依据改成"端口是否由本机任意进程持有"而非路径子串匹配，或干脆用 PID 文件作为唯一真相源、把陈旧/外部持有者的情形当成需要人工介入的 fail-fast，而不是静默 skip。
+  绕法（修复前）：`ps -p <pid> -o command` 确认确实是本 worktree 自己的进程（cwd 或数据文件路径能对上）后手工 `kill`，四个都清完再 `stack.sh up self` 一次性成功；不要连续 `up` 指望它自愈。
 
-- [2026-08-30] **`data.md` 生成区每跑一次 `demo:all` 必变，「防漂移」承诺不成立** ｜ `scripts/demo-lib.ts → writeDataMdSnapshot` + `doc-final/demo/data.md` ｜ 演示装备一期合并后走查发现
+- [x] ~~**`data.md` 生成区每跑一次 `demo:all` 必变，「防漂移」承诺不成立**~~ → **2026-08-31 环境收口 Task 10 核实：仍在（未被本轮任何任务触碰），已迁入 `TOOLING-DEBT.md`**（本任务自己的工作树此刻就是活证据：`git status --porcelain doc-final/demo/data.md` 恒为 `M`） ｜ `scripts/demo-lib.ts → writeDataMdSnapshot` + `doc-final/demo/data.md` ｜ 演示装备一期合并后走查发现
 
   生成区的表里带**单号列**（`DEP2608301739` 这种），单号内嵌日期+随机后缀，所以**每次 `demo:all` 都是一整表变化**，跟行为改没改无关。演示装备一期的 spec/plan 写的「`git diff data.md` 有变化 = 代码真的改了行为」因此不成立——合并当天就实测到：同一份代码跑两次，22 行全变。
   连带后果：跑完 `demo:all` 工作树必脏一个文件，`git worktree remove` 会被拦。
-  修法（生产化时选一）：① 生成区不吐单号列，只留「序号 / 标签 / 客户 / 金额 / 预期态 / 实到态 / ✓」——那几列才是真正该防漂移的；② 单号另起一节、明确标注「每次跑都变，不参与 diff 判据」。
 
 - [2026-08-30] **`regulatory_gate_items.walletId` 列退役后成死列** ｜ `prisma/schema.prisma` `RegulatoryGateItem.walletId` ｜ CLIENT_BANK_ACCOUNT_ENABLEMENT 监管闸门退役
 
   唯一写入方 `CLIENT_BANK_ACCOUNT_ENABLEMENT` 闸门类型已退役（该闸硬要求绑定的 `walletRole=C_CMA` 钱包上一轮已从种子退役，闸门本就建不出来，业主拍板整型退役）；列本身可空、退役前这类闸门在库里就是 0 行，不为此单独加迁移重铺。值得清的时机：下次再动 `regulatory_gate_items` 表 schema 时顺手带走——该列、其 `wallet` 外键关系，以及 `regulatory-gates.service.ts` 里仍保留的 `wallet` include/序列化字段（`mapGate()` 的 `walletId`/`wallet` 投影、`getGateRowOrThrow`/`create`/`update`/`submit`/`recordFeedback`/`bindReceipt`/`markEffective`/`revoke` 里逐处 `include: { wallet: true }`）与 DTO 的 `walletId?: string` 输入字段——这些目前留着是因为只服务这一个已退役列，删不删不影响另外两种闸门。
+- [x] ~~上述 2 条随 `scripts/` 死码清理一并销账（2026-08-31 环境收口 Task A1）：`e2e-confiscation-async.ts` 的没收覆盖已由 3 个 e2e + 7 个单测承接；`backfill-internal-fund-keys.ts` 引用的 `InternalFund` 表早已 DROP~~
 
-- [2026-08-30] **`stack.sh reset` 在全新 worktree 首跑会静默跳过 TigerBeetle 建户与资本注入** ｜ `scripts/reset-stack.sh:63-88` ｜ 第一幕职权重划开工时实测
+- [x] ~~**`stack-up.sh` 内嵌的预清理调用参数对不上，self 栈的"先 stop 再 up"从未真正执行过**~~ → **2026-08-31 环境收口 Task 10 核实：仍在（明确不修），已迁入 `TOOLING-DEBT.md`**（行号已更正为当前的 `:73`——Task 9 加 `check-stack-residue.sh` 巡检后原记录的 `:70` 漂移了 3 行；复现步骤原样带过去） | `scripts/stack-up.sh:70` | Task 8 [D2] 栈脚本四个洞，修 `ensure_port_free` 自愈时顺带发现
+
+  机制：`bash "${SCRIPT_DIR}/stack-stop.sh" "${STACK}" >/dev/null 2>&1 || true` 传的是 `load_stack_config` 解析后的栈名（self 栈是 `wt_<worktree名>`，如 `wt_env_debt`），而 `stack-stop.sh` 期望收到的是原始参数 `main`/`self`（它自己会再调一次 `load_stack_config "$1"`）。解析后的名字落进 `case` 的 `*) usage_stack_name; return 1 ;;` 分支，直接返回非零，`set -euo pipefail` 下子进程当场退出——`stop_pid_file_process`/`stop_listener_if_managed`/`stop_tb_if_managed` 一行都没跑到。外层 `|| true` 把这个失败吞得干干净净，`up` 看起来若无其事地继续。main 栈不受影响（`STACK="main"`，传回去精确匹配 `main)` 分支）。实测：`bash scripts/stack-stop.sh wt_env_debt` → `Usage: ... <main|self>`，exit=1。
+  症状：仅从现象看不出来——因为 `ensure_port_free` 的自愈分支（本文件同批修复）已经能独立兜住四个端口被自家残留占用的情形，这个预清理调用的失效被完全盖住、不产生可观察的故障。是对照直接跑 `stack-stop.sh self` 和内嵌调用的行为差异时才看出来的。
+
+- [x] ~~[2026-08-31] `runtime-diagnose.sh` 在 sqlite3 全量失败场景下退出码是 1、测试期望 0~~ → **误判，已撤回**：Task 7 实施者拿 `ead30e5c`（Task 8 自己的提交）当"干净基线"对照，那里面已经带着这个 bug 了。控制方用外科式 A/B（只把 `scripts/stack-common.sh` 回退到 Task 5 的 `3908d9b2`）判定：**这是 Task 8 引入的净新失败**——它把"不能从 worktree 操作 main 栈"的守卫放进了 `load_stack_config()`，误伤了只读的 `runtime-diagnose.sh`。已在 `a32b8a35` 修复（守卫提成独立的 `assert_stack_is_local()`，只由五个会动运行态的脚本调用）。**这条也正好证明本轮把判据从「净新失败 0」改成「全绿」是对的：只跟上一个提交比，这类回归会被放过去。**
+
+- [x] ~~`swap-sumsub-scenarios.e2e-spec.ts` 常年 9/9 全红~~ → **2026-08-31 环境收口实跑核实：已不复现**
+  （`bash scripts/on-stack.sh self test:e2e --runInBand test/swap-sumsub-scenarios.e2e-spec.ts` → **PASS 7/7 exit=0**）。
+  **原条目讲的成因与 git 历史不符**（Task 6 评审追出）：它说"第二批把 REJECTED 改判 FROZEN、e2e 期望没跟上"，
+  但 `757bf925`（2026-08-20，正是落地 FROZEN 的那个提交）**在同一个提交里就改了该断言**
+  （该文件 +9/-2），根本不存在"代码已 FROZEN 而测试仍等 REJECTED"的窗口。
+  用例数 9→7 的真因也与本条无关：`954dc012`（2026-08-29 Task A5）删掉了两条**无关**用例
+  （⑦⑧ 材料复核按钮从兑换面板移除，那两个按钮本就不该在交易面板上）。
+  **教训**：销账时如果查不清成因，就只写"实测已不复现 + 当时的命令与输出"，
+  **不要把猜测写进永久记录**——那正是制造下一条陈账的方式。
+- [x] ~~[2026-08-30] **`stack.sh reset` 在全新 worktree 首跑会静默跳过 TigerBeetle 建户与资本注入**~~ → **2026-08-31 已迁入 `TOOLING-DEBT.md`**（工具/环境类，仍成立、本轮不修；原文与复现步骤见新桶）。原文如下备查 ｜ `scripts/reset-stack.sh:63-88` ｜ 第一幕职权重划开工时实测
 
   `reset-stack.sh` 自己起了 TigerBeetle（`:49`），但下面 `apply-local-migrations` / `db:base:sync` / `db:biz:reset` / `db:seed:business` 四个子进程只传 `DATABASE_URL=`、**不传 `TB_ADDRESS`**；老路径 `reset-main-biz.sh:74` 是传了的，两条路径不一致。平时不发作是因为 `TB_ADDRESS` 在 `.env` 里，而 `.env` 由 `stack.sh up` 生成——**全新 worktree 若先 `reset` 后 `up`，`.env` 尚不存在**，`prisma/seed-tb.helper.ts:79` 于是打两条 `⚠ TB_ADDRESS not set, skipping ...` 就跳过，退出码仍是 0。后果：库建好了但 TB 账户是空的，`verify:coa` 与 `demo:all` 的 COA 断言会在后面莫名其妙地失败，而失败点离根因很远。规避：新 worktree 先 `stack.sh up self` 让 `.env` 落地，再 `reset`；或给那四个子进程补上 `TB_ADDRESS="${TB_ADDRESS}"`。
 
-- [2026-08-30] **`stack.sh up` 撞自家 reset 留下的 TigerBeetle 时提前退出，三个应用服务一个不起** ｜ `scripts/stack-up.sh:88` `ensure_port_free "${TB_PORT}" "tb"` ｜ 同上
+- [x] ~~[2026-08-30] **`stack.sh up` 撞自家 reset 留下的 TigerBeetle 时提前退出，三个应用服务一个不起**~~ → **2026-08-31 环境收口 Task 8 已修**（`ead30e5c`）：`ensure_port_free` 改为——占用者命令行含本栈 `APP_DIR`/`TB_DATA_FILE` 即视为自家残留，杀掉后继续；是别人的才打印占用者并退出。并行会话与本轮各自独立撞到同一堵墙、一个记录一个修复，合并时对上账。原条目正文保留在下方备查。
+
+  ~~原文~~：**`stack.sh up` 撞自家 reset 留下的 TigerBeetle 时提前退出** ｜ `scripts/stack-up.sh:88` `ensure_port_free "${TB_PORT}" "tb"` ｜ 同上
 
   `reset` 会把 TigerBeetle 拉起来并留着（seed 要连它），紧接着跑 `up` 时 `ensure_port_free` 判定 TB 端口被占、走"already in use"分支退出——**退出码是 0**，看起来像成功，实际 backend / admin / client 三个服务一个都没启。规避：`lsof -ti:<TB端口>` 杀掉自家那个 TB 进程再 `up`（数据文件已存在，不会被重新 format，数据不丢）。
 
-- [2026-08-31] **随手闸的三道 tsc 照不到 `test/`，退役类改动会在 e2e 里留下哑弹** ｜ CLAUDE.md §7 随手闸①②③ ｜ 第一幕职权重划实测
+- [x] ~~[2026-08-31] **随手闸的三道 tsc 照不到 `test/`，退役类改动会在 e2e 里留下哑弹** ｜ CLAUDE.md §7 随手闸①②③ ｜ 第一幕职权重划实测~~ → **2026-08-31 环境收口 Task 2（`fdf8d55e`）已使本条失效**：闸① 的 `tsconfig.json` 现在 `include` 四目录（`src`/`test`/`scripts`/`prisma`），`test/` 已在闸门内；`tsconfig.test.json` 随之删除，所以条目里"另跑 `npx tsc --noEmit -p tsconfig.test.json`"的指示现在会直接报文件不存在。本轮划掉一批条目时漏了这条，终审 Minor④ 逮到
 
   §7 的随手闸是后端 `tsconfig.json` + 管理台 + 客户端三条，**都不覆盖 `test/` 目录**（该目录另有 `tsconfig.test.json`，不在闸门里）。本轮实测后果：Task 4 把 `DepositWorkflowService.adminFreeze()` 作为孤儿方法退役（其唯一 HTTP 调用方已删），三道闸全绿、评审也过，但 `test/deposit-sumsub-verdicts.e2e-spec.ts` 仍在两处调它——**要等到跑 e2e 才炸，而 e2e 不在随手闸里**。同一轮 Task 11 改 `DEPOSIT_CONFISCATION` 裁决人时，同一文件里的 `OPS_CHECKER` 也是同款哑弹。两处均已修（`c92df6cf`），但根因是闸门覆盖面：**凡退役 service 方法 / 改审批策略角色，必须额外跑一次 `npx tsc --noEmit -p tsconfig.test.json`**。值得把它加进 §7 随手闸第 ④ 条。（记忆里 2026-08-20 制裁分主体那轮已踩过一次同款坑，当时建了 `tsconfig.test.json` 但没进闸门。）
 

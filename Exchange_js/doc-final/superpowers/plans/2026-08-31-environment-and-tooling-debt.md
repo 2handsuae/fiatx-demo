@@ -81,20 +81,21 @@ doc-final/PRODUCTION-NOTES.md      迁出 24 条工具类
 ## 任务依赖
 
 ```
-A1 删死码 ──┬─> A2 检查覆盖补齐
-            │
-B1 Node三入口 ─> B2 清 18 个垫片
-            │
-            └─> C1 红名单前三条 ─> C2 判据改全绿
-D1 默认值   （独立）
-D2 栈脚本四洞 ─> D3 残留检查 + 闸门补两条
-E1 TOOLING-DEBT（独立）
-                            全部完成 ─> E2 收尾验收
+Task 1 [A1] 删死码 ──> Task 2 [A2] 检查覆盖补齐
+
+Task 3 [B1] Node三入口 ──┬─> Task 4  [B2] 清 18 个垫片
+                          └─> Task 5  [C1] 红名单前三条 ──> Task 6 [C2] 判据改全绿
+
+Task 7  [D1] 默认值        （独立）
+Task 8  [D2] 栈脚本四洞 ──> Task 9 [D3] 残留检查 + 闸门补两条
+Task 10 [E1] TOOLING-DEBT （独立，但需 1-9 的结果来判哪些条目销账）
+
+                        全部完成 ──> Task 11 [E2] 收尾验收
 ```
 
 ---
 
-### Task A1: 删死码（10 个文件，1310 行）
+### Task 1: [A1] 删死码（10 个文件，1310 行）
 
 **本任务做：** 删除 10 个已证死的脚本文件，并清掉文档里对它们的引用。
 **本任务不做：** 不删 `stack-env.test.sh` 和 `sumsub-deposit-smoke.ts`（这两个是活的，D3 会给它们入口）；不动 `tsconfig`（A2 做）；不清其它"未被调用但能跑"的脚本。
@@ -195,7 +196,7 @@ jest 数字删前删后逐字相同。"
 
 ---
 
-### Task A2: 检查覆盖补齐（scripts 1/29 → 20/20）
+### Task 2: [A2] 检查覆盖补齐（scripts 1/29 → 20/20）
 
 **本任务做：** 把 `test/` `scripts/` `prisma/` 纳入后端 tsc；删冗余的 `tsconfig.test.json`；把 admin-web 的 `.spec.ts` 纳入前端 tsc；同步 `CLAUDE.md §7` 与 `baseline.md` 绿名单。
 **本任务不做：** 不改任何被新纳入文件的实现（若报错说明有真问题，停下报告）；不加 `.spec.tsx` 支持；不动 jest 配置（C1 做）。
@@ -321,7 +322,7 @@ admin-web 的 .spec.ts 纳入 tsc,并同步 CLAUDE.md §7 与 baseline 绿名单
 
 ---
 
-### Task B1: Node 20 归一 —— 三个入口各堵一处
+### Task 3: [B1] Node 20 归一 —— 三个入口各堵一处
 
 **本任务做：** 加 `engines` + `.npmrc`；把 `stack-up.sh` 里的 nvm 垫片提取为唯一副本 `scripts/node-env.sh` 并让 `on-stack.sh` 也用；给 jest 加版本断言。
 **本任务不做：** 不清 webcrypto 垫片（B2 做）；不改 Dockerfile（本来就是 node:20）；不动 `.nvmrc`（本来就是 20）。
@@ -509,7 +510,7 @@ git commit -m "build(node): Node 20 归一——三个入口各堵一处
 
 ---
 
-### Task B2: 清 18 个 webcrypto 垫片
+### Task 4: [B2] 清 18 个 webcrypto 垫片
 
 **本任务做：** 删掉 18 个文件里手写的 `globalThis.crypto = webcrypto` 垫片及其 import。
 **本任务不做：** 不改这些文件的任何其它行为；不动 `src/main.ts` 之外的启动顺序；不删 `node:crypto` 里**真正被用到**的其它导入（如 `createHash`）。
@@ -603,7 +604,7 @@ B1 已把三个入口都堵成 >=20,故全部退役。
 
 ---
 
-### Task C1: 红名单剩余三条清零
+### Task 5: [C1] 红名单剩余三条清零
 
 **本任务做：** 更新两个钱包 spec 的陈旧断言；把 `client-web/src` 从 jest 的 `roots` 里摘掉。
 **本任务不做：** **不改任何生产代码**（这三条全是测试侧问题，代码是对的）；不给 admin-web 引入 vitest；不改 `baseline.md` 判据（C2 做）。
@@ -769,7 +770,7 @@ git commit -m "test: 红名单剩余三条清零——两处陈旧断言 + 一�
 
 ---
 
-### Task C2: 判据从「净新失败 0」改成「全绿」
+### Task 6: [C2] 判据从「净新失败 0」改成「全绿」
 
 **本任务做：** 改 `baseline.md` 判据、退役红名单整节、把 `test:client` 与 e2e 口径写清；核实 `swap-sumsub-scenarios.e2e-spec.ts` 到底红不红；同步 `CLAUDE.md §7` 的 ④。
 **本任务不做：** 不改任何代码；**不修 e2e**（若核实确红，登记后另开一轮）；不动 e2e 的判据。
@@ -882,7 +883,7 @@ git commit -m "docs(baseline): 判据从'净新失败 0'升级为'全绿',红名
 
 ---
 
-### Task D1: 默认值不再偷偷指向主账本
+### Task 7: [D1] 默认值不再偷偷指向主账本
 
 **本任务做：** 剥掉 12 个 npm 脚本里的 23 处内联默认值；加 fail-fast 守卫；删 `reset-stack.sh` 的 `${TB_PORT:-3003}`。
 **本任务不做：** 不改 `on-stack.sh` 的剥离逻辑（它本来就剥）；不给守卫加"自动推断该用哪个栈"的智能（那是猜，猜错更糟）。
@@ -1052,7 +1053,7 @@ reset-stack.sh 的 \${TB_PORT:-3003} 同族默认一并删。"
 
 ---
 
-### Task D2: 栈脚本四个洞
+### Task 8: [D2] 栈脚本四个洞
 
 > **超出设计稿一处**：写计划时复核 `stack-up.sh:82` 的调用链，发现**第四个洞**——`RUNTIME_DIR` 只按栈名分，从 worktree 跑 `stack.sh up main` 会杀掉主工作树正在跑的服务（Step 4b 有活体复现）。与 D1 的跨栈默认值同一家族，同批修掉。
 
@@ -1319,7 +1320,7 @@ git commit -m "fix(stack): 补上四个洞——孤儿清理失效 / 端口连�
 
 ---
 
-### Task D3: 残留检查挂到 `stack.sh up` + 闸门补两条
+### Task 9: [D3] 残留检查挂到 `stack.sh up` + 闸门补两条
 
 **本任务做：** 新建残留检查脚本（只报告不删）并挂到 `stack.sh up` 开头；把 `stack-env.test.sh` 与 `sumsub-deposit-smoke.ts` 接进正式入口。
 **本任务不做：** **不自动删除任何进程或目录**；不改端口分配；不给 sumsub 冒烟脚本配凭据。
@@ -1512,7 +1513,7 @@ runtime-diagnose.sh 写得没问题,而 PRODUCTION-NOTES:394 自己写着
 
 ---
 
-### Task E1: 建 `TOOLING-DEBT.md` 并从 PRODUCTION-NOTES 迁账
+### Task 10: [E1] 建 `TOOLING-DEBT.md` 并从 PRODUCTION-NOTES 迁账
 
 **本任务做：** 新建第三个桶；把 `PRODUCTION-NOTES.md` 里的工具/环境类条目**逐条核实**后迁入，陈的直接删；改 `CLAUDE.md §4` 的分流规则。
 **本任务不做：** 不修迁过来的任何条目（这轮只搬家 + 核实）；不动兜底类条目（它们留在 PRODUCTION-NOTES，规矩不变）。
@@ -1640,7 +1641,7 @@ PRODUCTION-NOTES 没这条,抽查 9 条命中 2 条陈账(22%),
 
 ---
 
-### Task E2: 收尾——清残留 + 全量验收
+### Task 11: [E2] 收尾——清残留 + 全量验收
 
 **本任务做：** 手工清掉现存的三处残留；跑完 11 条验收判据（含 3 条反向验证）；更新 `baseline.md` 重钉记录。
 **本任务不做：** 不删任何**对应工作树还在**的目录；不碰 main 栈与另外两个并行会话的端口段。

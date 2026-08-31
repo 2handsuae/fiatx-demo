@@ -2,6 +2,10 @@
 //
 // 沙盒冒烟(手动跑,不进 CI):真 submit 一笔 finance 交易 → 轮询 getTxn 直到出现 verdict → 打印结果。
 //
+// ⚠️ 非死码，勿清。它没有被任何脚本/测试调用，看着像死码，但这是**唯一**
+//    打真 Sumsub 沙盒的工具（其余全在 SUMSUB_MOCK_MODE=true 下跑）。
+//    2026-08-31 环境收口清 scripts/ 死码时特意留下，并加了 npm run sumsub:smoke 入口。
+//
 // 用法:
 //   source /tmp/sumsub-sandbox.env
 //   npx ts-node scripts/sumsub-deposit-smoke.ts

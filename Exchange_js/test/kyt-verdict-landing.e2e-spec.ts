@@ -2,11 +2,6 @@ import { resolveE2eDatabaseUrl } from './e2e-db';
 import * as path from 'path';
 import * as dotenv from 'dotenv';
 
-// Node 18 polyfill：@nestjs/schedule 需要 globalThis.crypto（Node 19+ 才稳定），
-// 本 harness 不加载 src/main.ts，所以要在 AppModule 之前自己补。
-// eslint-disable-next-line @typescript-eslint/no-var-requires
-if (!globalThis.crypto) { (globalThis as any).crypto = require('crypto').webcrypto; }
-
 // 必须在任何读 DATABASE_URL 的 import 之前执行。
 process.env.DATABASE_URL = resolveE2eDatabaseUrl('e2e-kyt-verdict-landing.db');
 process.env.SUMSUB_MOCK_MODE = 'true';

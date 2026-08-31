@@ -38,6 +38,7 @@ source "${SCRIPT_DIR}/db-env.sh"
 require_commands tigerbeetle npm npx lsof
 
 load_stack_config main
+assert_stack_is_local
 assert_stack_paths
 assert_branch_rule
 
