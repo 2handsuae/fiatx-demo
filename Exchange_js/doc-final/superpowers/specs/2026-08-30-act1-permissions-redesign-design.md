@@ -143,7 +143,7 @@
 
 ## 3. B 部分 · 权限域重划
 
-**终盘：12 域 / 50 包 / 权限组 80 → 61**（退 30、新增 11、改名 2——`RISK_DECISION_RECORD_READ` → `SUMSUB_EVENT_VIEW`，`SIMULATE_EXPIRED_WRITE` → `DEMO_CLOCK_WRITE`）。
+**终盘：12 域 / 50 包 / 权限组 80 → 60**（退 30、新增 11、改名 2——`RISK_DECISION_RECORD_READ` → `SUMSUB_EVENT_VIEW`，`SIMULATE_EXPIRED_WRITE` → `DEMO_CLOCK_WRITE`；再退 1——`INTERNAL_FUND_READ` 被 `FUNDS_ORDER_VIEW/ACT` 完全取代后成孤儿，实施期发现并补退，见执行台账 [R3]）。
 
 ### 3.1 域与桶
 
