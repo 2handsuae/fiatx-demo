@@ -133,7 +133,11 @@ export const RBAC_ROLE_DEFINITIONS: RbacRoleDefinition[] = [
   {
     code: 'OPS_OFFICER',
     name: 'Operations Officer',
-    description: 'Treasury operations, settlement, reconciliation, and accounting oversight.',
+    // 2026-08-31：原文写 'Treasury operations, ...'，但金库（钱包/收款账户/提现地址）
+    // 已划归 TREASURY_OFFICER 独有，这句话在第一幕职权重划后变成了假话——描述是演示
+    // 观众会读到的人话，不能和绑定表打架。
+    description:
+      'Day-to-day money movement: releases below-minimum holds, raises deposit and withdrawal dispositions, pushes funds orders, runs reconciliation. Never unfreezes — that sits with compliance.',
   },
   {
     code: 'INTERNAL_AUDITOR',
@@ -917,6 +921,8 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
     'RECON_RUN_READ', 'RECON_CASE_READ', 'RECON_EXTERNAL_BALANCE_READ',
   ],
 
+  // 定价的主人：费率两族的写权限全仓仅此一处（提由他提，运营复核）。
+  // 其余全是读——账本、对账、资金单、三域单据，够他看清钱的来龙去脉。
   CFO: [
     'BASE_ACCESS',
     'IAM_MEMBER_READ', 'IAM_ROLE_READ',
@@ -931,6 +937,8 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
     'WITHDRAWAL_FEE_LEVEL_WRITE', 'SWAP_FEE_LEVEL_WRITE',
   ],
 
+  // 钱放在哪归他：托管钱包与提现地址的写权限全仓仅此一处。
+  // 与技术官的分界是「容器 vs 配置」——资产怎么配是技术官，钱装在哪个容器里是他。
   TREASURY_OFFICER: [
     'BASE_ACCESS',
     'IAM_MEMBER_READ', 'IAM_ROLE_READ',
