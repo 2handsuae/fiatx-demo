@@ -21,9 +21,16 @@ NestJS + Prisma + SQLite 后端 ｜ React 管理台 ｜ React 客户端 ｜ 会�
 
 单人顺序操作；外部系统（Sumsub / 链上 / 银行，均为模拟）总是准时回调且只回一次；管理员都是善意的；数据随时可重铺——schema / 状态机改动直接按目标终态做，**禁止**为旧数据写 backfill / 兼容层 / 双写过渡（迁移文件照常新增以保证空库能建起，内容不必兼容已有行；改完 = reset 重铺）。
 
-## 4. 出口
+## 4. 出口（债往哪放）
 
-发现兜底类缺口 → `doc-final/PRODUCTION-NOTES.md` **追加一行，然后放下**：不修、不讨论、不进 plan。该文件只许追加，不许读它来找活干。
+| 发现什么 | 放哪 | 规矩 |
+|---|---|---|
+| 业务缺口 | `doc-final/BACKLOG.md` | 正常待办 |
+| **技术兜底**（幂等 / 去重 / 重试回放 / 补偿 repair / 并发锁 / 攻击面 / 故障恢复） | `doc-final/PRODUCTION-NOTES.md` | **追加一行，然后放下**：不修、不讨论、不进 plan。只许追加，不许读它来找活干 |
+| **工具 / 环境 / 闸门** | `doc-final/TOOLING-DEBT.md` | **要读要清**。进来写清怎么复现，修好回来划掉 |
+
+第三类是 2026-08-31 拆出来的：此前它跟技术兜底同桶，于是也变成按设计不可读——
+`scripts/**` 不在 tsc 覆盖那条 2026-07-31 就登记了、还自称"防复发闸"，31 天后原样复发一次。
 
 ## 5. 不可违反规则（6 条，宗旨级；落地写法见 `doc-final/rules/`）
 
@@ -74,7 +81,7 @@ cd client-web && npx tsc -b --noEmit && cd ..    # ③ 客户端
 | 写后端 / 前端代码 | `rules/backend.md` ｜ `rules/frontend-admin.md` / `rules/frontend-client.md`（UI 契约见 `ui-contract/`） |
 | 改页面 / 种子数据 | 同步 `demo/data.md`、`demo/script.md` 对应步骤 |
 | 验收 / 写用例 | `test-cases/` |
-| 说"以后做" | 业务缺口记 `BACKLOG.md`；技术兜底记 `PRODUCTION-NOTES.md` |
+| 说"以后做" | 业务缺口记 `BACKLOG.md`；技术兜底记 `PRODUCTION-NOTES.md`；工具/环境记 `TOOLING-DEBT.md` |
 
 **不读** `archive/`（历史存档）。rules 与本文件冲突时以本文件为准——Phase 1 拆规范完成前，`rules/backend-platform.md` 里幂等 / 去重 / 回放 / 迁移安全 / 签收清单类要求**一律视为已废止**。
 
