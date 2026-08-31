@@ -24,10 +24,12 @@ import { ApprovalsService } from '../src/modules/governance/approvals/approvals.
 
 const BELOW_MIN_AMOUNT = '5'; // < DEPOSIT SINGLE min (100 AED) → BELOW_MIN hold
 
-// Two distinct actors — maker ≠ checker (SoD: DENY_SAME_USER_MAKER_CHECKER defaults enabled),
-// both OPS_OFFICER (the DEPOSIT_CONFISCATION policy's single-step checker role).
+// Two distinct actors — maker ≠ checker (SoD: DENY_SAME_USER_MAKER_CHECKER defaults enabled).
+// Maker is OPS_OFFICER (the only role holding DEPOSIT_CONFISCATE_WRITE). Checker is CFO
+// (2026-08-30: DEPOSIT_CONFISCATION policy's single-step checker role changed OPS_OFFICER
+// → CFO — confiscation turns customer money into firm revenue, a finance-review matter).
 const MAKER = { actorType: 'ADMIN' as const, userId: 'e2e-confisc-maker', userNo: 'E2E-MAKER', role: 'OPS_OFFICER', roleCodes: ['OPS_OFFICER'] };
-const CHECKER = { actorType: 'ADMIN' as const, userId: 'e2e-confisc-checker', userNo: 'E2E-CHECKER', role: 'OPS_OFFICER', roleCodes: ['OPS_OFFICER'] };
+const CHECKER = { actorType: 'ADMIN' as const, userId: 'e2e-confisc-checker', userNo: 'E2E-CHECKER', role: 'CFO', roleCodes: ['CFO'] };
 
 // ── assertion accumulator ──────────────────────────────────────────────────────
 const results: Array<{ label: string; pass: boolean; detail: string }> = [];
