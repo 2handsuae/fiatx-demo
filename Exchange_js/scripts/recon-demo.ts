@@ -1288,11 +1288,91 @@ async function injectScenarios(
         closingBalanceDelta: s6Amount.toString(),
       },
     });
+    // ⑨ 对账单重复行：银行把同一笔报了两次，我方账是对的 → 复制一条现有行 + 抬高同额收盘
+    const dupSrc = (await (prisma as any).externalStatementLine.findFirst({
+      where: { subAccount: slotShowcaseC.walletRef, direction: 'IN' },
+      orderBy: { datetime: 'asc' },
+    })) as { id: string; amount: Prisma.Decimal; externalRef: string | null; direction: string; datetime: Date; description: string | null } | null;
+    if (!dupSrc) throw new Error(`展示位丙需要 ≥1 条 IN 方向外部行（钱包 ${slotShowcaseC.walletRef}）`);
+    const s9Ref = refFor(slotShowcaseC.currency, 'DUPLINE');
+    const s9Created = await (prisma as any).externalStatementLine.create({
+      data: {
+        source: sourceFor(slotShowcaseC.currency),
+        accountRef: slotShowcaseC.walletRef,
+        subAccount: slotShowcaseC.walletRef,
+        book: slotShowcaseC.book,
+        currency: slotShowcaseC.currency,
+        direction: 'IN',
+        amount: dupSrc.amount,
+        externalRef: s9Ref,
+        datetime: cutoff,
+        description: 'Demo statement duplicate — bank reported the same credit twice',
+        dedupKey: `DEMO-INJ-${cutoffDate}-${slotShowcaseC.walletRef}-s9-duplicate-line`,
+      },
+    });
+    const s9Prev = await bumpClosing(slotShowcaseC, dupSrc.amount);
+    scenarios.push({
+      scenarioId: 9,
+      rootCause: 'STATEMENT_DUPLICATE_LINE',
+      expectedLines: [{ walletRef: slotShowcaseC.walletRef, lineType: 'ORPHAN_EXTERNAL', amount: dupSrc.amount.toString(), externalRef: s9Ref }],
+      detail: { copiedFromLineId: dupSrc.id, insertedExternalLineId: s9Created.id, prevClosingBalance: s9Prev },
+    });
     wallets.push({
       walletRef: slotShowcaseC.walletRef,
-      scenarioIds: [5],
+      scenarioIds: [5, 9],
       expectedBucket: 'BREAK',
-      bucketRationale: '银行侧有一笔我方监听漏收的入账 → 插入一条无内部对应的孤儿外部 IN 行，收盘同步调高同额、无人对冲 → 残差 ≠ 0 → BREAK',
+      bucketRationale:
+        '⑤ 加一条幽灵 IN 行并抬高同额收盘、⑨ 复制一条 IN 行并抬高同额收盘 —— 两者都把「外部 − 内部」推向正，' +
+        '和恒 ≠ 0，且无在途 → 残差 ≠ 0 → BREAK。',
+      hasNonTerminalFundsOrder: false,
+    });
+  }
+
+  // ── ⑫ 跨日切 (SOFT_FLAG / ORPHAN_INTERNAL / 客户账簿) ────────────────────
+  // 对方按它的营业日切账、我方按 UTC：一笔真实发生的流水落在了对方的下一个
+  // 营业日，本期对账单上没有它。→ 我方有、外部本期没有。
+  //
+  // ⚠️ **这是唯一不碰收盘的场景**：收盘是对方给的一个数、本来就含这笔；
+  // 变的只是这笔出现在哪一期的明细里。于是 **余额分毫不差、流水配不上**
+  // → 残差 0 + 异常 1 + 无在途 → SOFT_FLAG。
+  // 这一条是"只看余额会漏掉什么"的活教材：只对余额的话，这个钱包会被判成
+  // 完全正常，而实际上有一笔流水两边对不上。
+  //
+  // 杠杆：把该行的 datetime 挪到截止点之后。引擎取外部行的条件是
+  // `datetime <= cutoff`（wallet-recon-run.service.ts fetchExternalLinesForWallet），
+  // 故这条行本期不参与匹配；externalBalance 按 cutoffDate 取，不受影响。
+  {
+    const straddle = (await (prisma as any).externalStatementLine.findFirst({
+      where: { subAccount: slotCutoff.walletRef },
+      orderBy: { datetime: 'asc' },
+    })) as { id: string; amount: Prisma.Decimal; externalRef: string | null } | null;
+    if (!straddle) {
+      throw new Error(
+        `⑫ 跨日切需要 ≥1 条外部行（钱包 ${slotCutoff.walletRef}）—— ` +
+        '花名册给 Grace 的 USDT 素材单（seq 22/23）是否还在？',
+      );
+    }
+    const shifted = new Date(cutoff.getTime() + 6 * 60 * 60 * 1000);   // 截止点之后 6 小时
+    await (prisma as any).externalStatementLine.update({
+      where: { id: straddle.id },
+      data: {
+        datetime: shifted,
+        description: 'Demo cutoff straddle — landed in the counterparty\'s NEXT business day',
+      },
+    });
+    scenarios.push({
+      scenarioId: 12,
+      rootCause: 'CUTOFF_STRADDLE',
+      expectedLines: [{ walletRef: slotCutoff.walletRef, lineType: 'ORPHAN_INTERNAL', amount: straddle.amount.toString(), externalRef: straddle.externalRef }],
+      detail: { shiftedLineId: straddle.id, shiftedTo: shifted.toISOString(), closingBalanceUntouched: true },
+    });
+    wallets.push({
+      walletRef: slotCutoff.walletRef,
+      scenarioIds: [12],
+      expectedBucket: 'SOFT_FLAG',
+      bucketRationale:
+        '只挪了一条外部行的时间、**收盘一分没动** → 余额差 = 0；该行本期不参与匹配 → 它的内部对手成孤儿 → 异常数 1；' +
+        '无在途 → 命中「残差 0 且无在途 且 流水异常 > 0 → SOFT_FLAG」。',
       hasNonTerminalFundsOrder: false,
     });
   }
