@@ -39,10 +39,7 @@
 // no Outstanding or FeeAccrual rows created (real-time 1:1 model).
 // verifyEndState() asserts this.
 
-// Node18 polyfill: @nestjs/schedule calls crypto.randomUUID() at module-register
-// time. Must run before any import that pulls AppModule.
-import { webcrypto, createHash } from 'node:crypto';
-if (!(globalThis as any).crypto) (globalThis as any).crypto = webcrypto;
+import { createHash } from 'node:crypto';
 
 import * as fs from 'node:fs';
 import * as path from 'node:path';

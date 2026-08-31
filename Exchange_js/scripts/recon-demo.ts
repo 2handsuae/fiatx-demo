@@ -43,11 +43,6 @@
 //   npx ts-node -r tsconfig-paths/register scripts/recon-demo.ts --mode=break
 //   npx ts-node -r tsconfig-paths/register scripts/recon-demo.ts --mode=reset
 
-// Node 18 polyfill: @nestjs/schedule calls crypto.randomUUID() at module
-// load. Must precede every other import.
-import { webcrypto } from 'node:crypto';
-if (!(globalThis as any).crypto) (globalThis as any).crypto = webcrypto;
-
 import { writeFileSync } from 'node:fs';
 import { NestFactory } from '@nestjs/core';
 import { Prisma } from '@prisma/client';

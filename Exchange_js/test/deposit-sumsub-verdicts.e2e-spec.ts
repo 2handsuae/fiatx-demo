@@ -3,12 +3,6 @@ import * as path from 'path';
 import * as dotenv from 'dotenv';
 import { createHash, randomUUID } from 'crypto';
 
-// Same Node 18 polyfill as src/main.ts (@nestjs/schedule needs globalThis.crypto,
-// stable only in Node 19+) — main.ts isn't loaded in this e2e harness, so it has
-// to be repeated here before AppModule (and therefore ScheduleModule) is imported.
-// eslint-disable-next-line @typescript-eslint/no-var-requires
-if (!globalThis.crypto) { (globalThis as any).crypto = require('crypto').webcrypto; }
-
 // Must run BEFORE any import that reads DATABASE_URL. This suite's beforeAll
 // deletes every deposit_transaction + wallet row and re-seeds a fixed set of
 // fixtures — pointed at the worktree's shared stack DB (the one being used for

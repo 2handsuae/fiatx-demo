@@ -2,10 +2,6 @@
 // 用途：平账回填后重跑验证；e2e 闭环。
 // Run: npm run recon:rerun    （或加 --cutoff=2026-07-03T12:00:00Z）
 //
-// Node 18 polyfill: @nestjs/schedule calls crypto.randomUUID() at module
-// load. Must precede every other import.
-import { webcrypto } from 'node:crypto';
-if (!(globalThis as any).crypto) (globalThis as any).crypto = webcrypto;
 
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from '../src/app.module';
