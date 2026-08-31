@@ -810,6 +810,7 @@ export const ACTION_BUCKET_CATALOG: ActionDomain[] = [
     buckets: [
       { key: 'recon.view', label: 'View runs, cases & balances', description: 'Browse reconciliation runs, cases and external balances', groups: ['RECON_RUN_READ', 'RECON_CASE_READ', 'RECON_EXTERNAL_BALANCE_READ'] },
       { key: 'recon.act_run', label: 'Trigger reconciliation runs', description: 'Kick off a per-wallet reconciliation run', groups: ['RECON_RUN_WRITE'] },
+      { key: 'recon.act_adjust', label: 'Open ledger adjustments', description: 'Open and submit a ledger-correction adjustment against a reconciliation break', groups: ['RECON_ADJUSTMENT_WRITE'] },
     ],
   },
   // ─── Domain: Pricing ─────────────────────────────────
@@ -954,6 +955,10 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
     'WALLET_READ', 'WALLET_WRITE',
     'WITHDRAWAL_ADDRESS_READ', 'WITHDRAWAL_ADDRESS_WRITE',
     'FUNDS_ORDER_VIEW',
+    // 调账单：金库开单，运营复核（业主 2026-09-01 定）——审批人是 OPS_OFFICER，
+    // 开单人若也是他就成自批死锁（verify:rbac S5 守着这条）。RECON_CASE_READ 是
+    // 走到入口的必需品：侧栏 Cases 与调账单详情路由都要它。
+    'RECON_CASE_READ', 'RECON_ADJUSTMENT_WRITE',
   ],
 
   TECH_OFFICER: [
