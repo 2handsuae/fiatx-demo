@@ -55,6 +55,10 @@ stop_tb_if_managed() {
   local pid command_line
   pid="$(lsof -tiTCP:"${TB_PORT}" -sTCP:LISTEN | head -n 1 || true)"
   [[ -z "${pid}" ]] && return 0
+  # 这里刻意不加 LC_ALL=C.UTF-8（另两处 ps 调用有）：TB_DATA_FILE 恒为
+  # /tmp/exchange_js_<sanitize_db_scope 的结果>/0_0.tigerbeetle，而该函数把所有
+  # 非字母数字字符换成 _，所以这个路径永远是纯 ASCII，踩不到 macOS ps 的
+  # 非 ASCII vis-转义问题。另两处比的是含中文的 APP_DIR，才必须加。
   command_line="$(ps -p "${pid}" -o command= 2>/dev/null || true)"
   if [[ "${command_line}" == *"${TB_DATA_FILE}"* ]]; then
     terminate_pid "tb" "${pid}"

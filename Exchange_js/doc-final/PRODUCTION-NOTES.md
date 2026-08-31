@@ -446,3 +446,6 @@
   机制：`bash "${SCRIPT_DIR}/stack-stop.sh" "${STACK}" >/dev/null 2>&1 || true` 传的是 `load_stack_config` 解析后的栈名（self 栈是 `wt_<worktree名>`，如 `wt_env_debt`），而 `stack-stop.sh` 期望收到的是原始参数 `main`/`self`（它自己会再调一次 `load_stack_config "$1"`）。解析后的名字落进 `case` 的 `*) usage_stack_name; return 1 ;;` 分支，直接返回非零，`set -euo pipefail` 下子进程当场退出——`stop_pid_file_process`/`stop_listener_if_managed`/`stop_tb_if_managed` 一行都没跑到。外层 `|| true` 把这个失败吞得干干净净，`up` 看起来若无其事地继续。main 栈不受影响（`STACK="main"`，传回去精确匹配 `main)` 分支）。实测：`bash scripts/stack-stop.sh wt_env_debt` → `Usage: ... <main|self>`，exit=1。
   症状：仅从现象看不出来——因为 `ensure_port_free` 的自愈分支（本文件同批修复）已经能独立兜住四个端口被自家残留占用的情形，这个预清理调用的失效被完全盖住、不产生可观察的故障。是对照直接跑 `stack-stop.sh self` 和内嵌调用的行为差异时才看出来的。
   修法（生产化时）：`stack-up.sh:70` 改传原始入参 `"$1"`（调用 `stack.sh up self` 时的那个字面量），不要传解析后的 `${STACK}`。
+
+- [x] ~~[2026-08-31] `runtime-diagnose.sh` 在 sqlite3 全量失败场景下退出码是 1、测试期望 0~~ → **误判，已撤回**：Task 7 实施者拿 `ead30e5c`（Task 8 自己的提交）当"干净基线"对照，那里面已经带着这个 bug 了。控制方用外科式 A/B（只把 `scripts/stack-common.sh` 回退到 Task 5 的 `3908d9b2`）判定：**这是 Task 8 引入的净新失败**——它把"不能从 worktree 操作 main 栈"的守卫放进了 `load_stack_config()`，误伤了只读的 `runtime-diagnose.sh`。已在 `a32b8a35` 修复（守卫提成独立的 `assert_stack_is_local()`，只由五个会动运行态的脚本调用）。**这条也正好证明本轮把判据从「净新失败 0」改成「全绿」是对的：只跟上一个提交比，这类回归会被放过去。**
+
