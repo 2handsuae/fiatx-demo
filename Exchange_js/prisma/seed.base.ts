@@ -33,6 +33,11 @@ const ROLE_SEED_ACCOUNTS: RoleSeedAccount[] = [
   { roleCode: 'COMPLIANCE_OFFICER', email: 'compliance_lead@fiatx.com', userNo: 'ADM2501010006' },
   { roleCode: 'TECH_OFFICER', email: 'tech_admin@fiatx.com', userNo: 'ADM2501010007' },
   { roleCode: 'OPS_OFFICER', email: 'ops_officer@fiatx.com', userNo: 'ADM2501010008' },
+  // 2026-08-31 第一幕职权重划新增三职务：内审（全域只读，监管上门给这个账号）、
+  // 财务负责人（唯一持费率写权限，且裁决充值没收）、金库专员（钱放在哪归他）。
+  { roleCode: 'INTERNAL_AUDITOR', email: 'auditor@fiatx.com', userNo: 'ADM2501010009' },
+  { roleCode: 'CFO', email: 'cfo@fiatx.com', userNo: 'ADM2501010010' },
+  { roleCode: 'TREASURY_OFFICER', email: 'treasury@fiatx.com', userNo: 'ADM2501010011' },
 ];
 
 export async function seedBase(prisma: PrismaClient): Promise<void> {
