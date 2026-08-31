@@ -546,7 +546,6 @@ model ApprovalCase {
   steps                          ApprovalStep[]
   evidencePackage                AuditEvidencePackage?          @relation("AuditEvidencePackageApprovalCase")
   latestForCustomerRiskApproval  CustomerMain?                  @relation("CustomerLatestRiskApproval")
-  linkedRegulatoryGates          RegulatoryGateItem[]           @relation("RegulatoryGateLinkedApproval")
 
   @@index([actionType, entityRef, status])
   @@index([status, timeoutAt])
@@ -623,222 +622,6 @@ model ApprovalPolicyChangeRequest {
   @@map("approval_policy_change_requests")
 }
 
-model ShareholdingRegistryVersion {
-  id                   String                            @id @default(uuid())
-  registryNo           String                            @unique @default("TEMP")
-  status               String                            @default("DRAFT")
-  versionLabel         String?
-  effectiveFrom        DateTime?
-  effectiveTo          DateTime?
-  supersededById       String?
-  latestApprovalId     String?
-  latestApprovalStatus String?
-  docRef               String?
-  evidenceRef          String?
-  metadataJson         String                            @default("{}")
-  traceId              String
-  createdByUserId      String
-  updatedByUserId      String?
-  createdAt            DateTime                          @default(now())
-  updatedAt            DateTime                          @updatedAt
-  participants         ShareholdingRegistryParticipant[]
-  regulatoryGates      RegulatoryGateItem[]              @relation("RegulatoryGateShareholdingVersion")
-
-  @@index([status, createdAt])
-  @@index([registryNo, createdAt])
-  @@index([traceId, createdAt])
-  @@index([latestApprovalStatus, createdAt])
-  @@map("shareholding_registry_versions")
-}
-
-model ShareholdingRegistryParticipant {
-  id               String                      @id @default(uuid())
-  versionId        String
-  participantType  String
-  participantName  String
-  ownershipPercent Decimal?
-  controlSummary   String?
-  evidenceRef      String?
-  metadataJson     String                      @default("{}")
-  sortOrder        Int                         @default(0)
-  createdAt        DateTime                    @default(now())
-  updatedAt        DateTime                    @updatedAt
-  version          ShareholdingRegistryVersion @relation(fields: [versionId], references: [id], onDelete: Cascade)
-
-  @@index([versionId, sortOrder])
-  @@index([participantType, createdAt])
-  @@map("shareholding_registry_participants")
-}
-
-model AppointmentRecord {
-  id                   String               @id @default(uuid())
-  appointmentNo        String               @unique @default("TEMP")
-  status               String               @default("PLANNED")
-  roleType             String
-  personName           String
-  regulatedFlag        Boolean              @default(false)
-  proposedEffectiveAt  DateTime?
-  effectiveAt          DateTime?
-  endedAt              DateTime?
-  latestApprovalId     String?
-  latestApprovalStatus String?
-  docRef               String?
-  evidenceRef          String?
-  metadataJson         String               @default("{}")
-  traceId              String
-  createdByUserId      String
-  updatedByUserId      String?
-  createdAt            DateTime             @default(now())
-  updatedAt            DateTime             @updatedAt
-  regulatoryGates      RegulatoryGateItem[] @relation("RegulatoryGateAppointmentRecord")
-
-  @@index([status, createdAt])
-  @@index([appointmentNo, createdAt])
-  @@index([traceId, createdAt])
-  @@index([latestApprovalStatus, createdAt])
-  @@map("appointment_records")
-}
-
-model TrainingRecord {
-  id              String    @id @default(uuid())
-  trainingNo      String    @unique @default("TEMP")
-  status          String    @default("ASSIGNED")
-  assignee        String
-  trainingType    String
-  dueAt           DateTime?
-  completedAt     DateTime?
-  waiverReason    String?
-  evidenceRef     String?
-  metadataJson    String    @default("{}")
-  traceId         String
-  createdByUserId String
-  updatedByUserId String?
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
-
-  @@index([status, createdAt])
-  @@index([trainingNo, createdAt])
-  @@index([dueAt, status])
-  @@index([traceId, createdAt])
-  @@map("training_records")
-}
-
-model ConflictDisclosure {
-  id                String    @id @default(uuid())
-  disclosureNo      String    @unique @default("TEMP")
-  status            String    @default("OPEN")
-  disclosureType    String
-  disclosedByName   String
-  disclosedAt       DateTime
-  reviewDueAt       DateTime?
-  mitigationSummary String?
-  closedAt          DateTime?
-  evidenceRef       String?
-  metadataJson      String    @default("{}")
-  traceId           String
-  createdByUserId   String
-  updatedByUserId   String?
-  createdAt         DateTime  @default(now())
-  updatedAt         DateTime  @updatedAt
-
-  @@index([status, createdAt])
-  @@index([disclosureNo, createdAt])
-  @@index([reviewDueAt, status])
-  @@index([traceId, createdAt])
-  @@map("conflict_disclosures")
-}
-
-model WindDownMaterialRecord {
-  id              String    @id @default(uuid())
-  materialNo      String    @unique @default("TEMP")
-  status          String    @default("ACTIVE")
-  materialType    String
-  versionLabel    String
-  effectiveAt     DateTime?
-  reviewDueAt     DateTime?
-  supersededAt    DateTime?
-  supersededById  String?
-  evidenceRef     String?
-  metadataJson    String    @default("{}")
-  traceId         String
-  createdByUserId String
-  updatedByUserId String?
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
-
-  @@index([status, createdAt])
-  @@index([materialNo, createdAt])
-  @@index([reviewDueAt, status])
-  @@index([traceId, createdAt])
-  @@map("wind_down_material_records")
-}
-
-model RegulatoryGateItem {
-  id                            String                       @id @default(uuid())
-  gateNo                        String                       @unique @default("TEMP")
-  gateType                      String
-  authority                     String                       @default("VARA")
-  subjectType                   String
-  subjectId                     String
-  subjectNo                     String
-  scopeSummary                  String?
-  shareholdingRegistryVersionId String?
-  appointmentRecordId           String?
-  walletId                      String?
-  linkedApprovalId              String?
-  internalApprovalStatus        String                       @default("NOT_REQUIRED")
-  filingStatus                  String                       @default("REQUIRED")
-  receiptStatus                 String                       @default("PENDING")
-  effectivenessStatus           String                       @default("BLOCKED")
-  gateResult                    String                       @default("BLOCKED")
-  filingRefNo                   String?
-  filingSubmittedAt             DateTime?
-  latestFeedback                String?
-  latestFeedbackAt              DateTime?
-  receiptType                   String?
-  receiptRefNo                  String?
-  receiptBoundAt                DateTime?
-  proposedEffectiveAt           DateTime?
-  effectiveAt                   DateTime?
-  revokedAt                     DateTime?
-  metadataJson                  String                       @default("{}")
-  traceId                       String
-  activeKey                     String?                      @unique
-  createdByUserId               String
-  updatedByUserId               String?
-  createdAt                     DateTime                     @default(now())
-  updatedAt                     DateTime                     @updatedAt
-  shareholdingRegistryVersion   ShareholdingRegistryVersion? @relation("RegulatoryGateShareholdingVersion", fields: [shareholdingRegistryVersionId], references: [id], onDelete: SetNull)
-  appointmentRecord             AppointmentRecord?           @relation("RegulatoryGateAppointmentRecord", fields: [appointmentRecordId], references: [id], onDelete: SetNull)
-  wallet                        Wallet?                      @relation("RegulatoryGateWallet", fields: [walletId], references: [id], onDelete: SetNull)
-  linkedApproval                ApprovalCase?                @relation("RegulatoryGateLinkedApproval", fields: [linkedApprovalId], references: [id], onDelete: SetNull)
-
-  @@index([gateType, createdAt])
-  @@index([subjectType, subjectId, createdAt])
-  @@index([subjectType, subjectNo, createdAt])
-  @@index([gateResult, createdAt])
-  @@index([filingStatus, receiptStatus, effectivenessStatus])
-  @@index([traceId, createdAt])
-  @@map("regulatory_gate_items")
-}
-
-
-
-model LiquidityProvider {
-  id             String                   @id
-  name           String
-  email          String?                  @unique
-  phone          String?
-  status         String                   @default("INACTIVE")
-  createdAt      DateTime                 @default(now()) @map("created_at")
-  updatedAt      DateTime                 @updatedAt @map("updated_at")
-  configurations LiquidityConfiguration[]
-
-  @@index([name])
-  @@index([status])
-  @@map("liquidity_provider")
-}
-
 model Asset {
   id                             String                          @id @default(uuid())
   assetNo                        String?                         @unique
@@ -866,9 +649,6 @@ model Asset {
   createdAt                      DateTime                        @default(now())
   updatedAt                      DateTime                        @updatedAt
   depositTransactions            DepositTransaction[]
-  fromConfigs                    LiquidityConfiguration[]        @relation("FromAsset")
-  toConfigs                      LiquidityConfiguration[]        @relation("ToAsset")
-  feeConfigs                     LiquidityConfiguration[]        @relation("FeeAsset")
   inboundTransferSignals         InboundTransferSignal[]
   swapFromTransactions           SwapTransaction[]               @relation("SwapFromAsset")
   swapToTransactions             SwapTransaction[]               @relation("SwapToAsset")
@@ -886,32 +666,6 @@ model Asset {
 
   @@unique([type, currency, network])
   @@map("assets")
-}
-
-model LiquidityConfiguration {
-  id             String            @id @default(uuid())
-  lpId           String
-  fromAssetId    String
-  toAssetId      String
-  rateSourceType String
-  spreadPercent  Decimal           @default(0)
-  feePercent     Decimal           @default(0)
-  feeFixedAmount Decimal           @default(0)
-  feeAssetId     String?
-  minFromAmount  Decimal?
-  maxFromAmount  Decimal?
-  status         String            @default("ACTIVE")
-  createdAt      DateTime          @default(now()) @map("created_at")
-  updatedAt      DateTime          @updatedAt @map("updated_at")
-  lp             LiquidityProvider @relation(fields: [lpId], references: [id])
-  fromAsset      Asset             @relation("FromAsset", fields: [fromAssetId], references: [id])
-  toAsset        Asset             @relation("ToAsset", fields: [toAssetId], references: [id])
-  feeAsset       Asset?            @relation("FeeAsset", fields: [feeAssetId], references: [id])
-
-  @@index([lpId])
-  @@index([fromAssetId, toAssetId])
-  @@index([status])
-  @@map("liquidity_configurations")
 }
 
 model WithdrawPricingQuote {
@@ -970,7 +724,6 @@ model Wallet {
   depositTransactionsFrom                  DepositTransaction[]            @relation("DepositFromWallet")
   fundsOrdersFrom                          FundsOrder[]                    @relation("FundsOrderFromWallet")
   fundsOrdersTo                            FundsOrder[]                    @relation("FundsOrderToWallet")
-  regulatoryGateItems                      RegulatoryGateItem[]            @relation("RegulatoryGateWallet")
   asset                                    Asset                           @relation(fields: [assetId], references: [id])
   inboundTransferSignals                   InboundTransferSignal[]
 

@@ -1,6 +1,6 @@
 // admin-web/src/pages/SumsubEventsPage.tsx
 import { useEffect, useState } from 'react';
-import { RefreshCw, Search, X } from 'lucide-react';
+import { RefreshCw, Search } from 'lucide-react';
 import Pagination from '../components/common/Pagination';
 import {
   adminButtonClass,
@@ -67,7 +67,6 @@ export default function SumsubEventsPage() {
   const [filters, setFilters] = useState<FilterState>(DEFAULT_FILTERS);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [message, setMessage] = useState<string | null>(null);
 
   // Simulation modal state
 
@@ -110,22 +109,6 @@ export default function SumsubEventsPage() {
   const handleReset = () => {
     setFilters(DEFAULT_FILTERS);
     void fetchEvents(1, DEFAULT_FILTERS);
-  };
-
-  const handleReplay = async (id: string) => {
-    try {
-      const response = await adminFetch(
-        `${import.meta.env.VITE_API_URL}/admin/sumsub-events/${id}/replay`,
-        { method: 'POST' },
-      );
-      if (!response.ok) {
-        throw new Error(await getApiErrorMessage(response, 'Replay failed.'));
-      }
-      setMessage('Event replayed successfully.');
-      void fetchEvents(currentPage, filters);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Replay failed.');
-    }
   };
 
   const fi =
@@ -192,14 +175,6 @@ export default function SumsubEventsPage() {
       </div>
 
       {/* Banners */}
-      {message && (
-        <div className="shrink-0 border-b border-adm-green/20 bg-adm-green/6 px-5 py-2.5 font-mono text-[11px] text-adm-green flex items-center justify-between">
-          {message}
-          <button onClick={() => setMessage(null)} className="ml-3 text-adm-t3 hover:text-adm-t1">
-            <X size={12} />
-          </button>
-        </div>
-      )}
       {error && (
         <div className="shrink-0 border-b border-adm-red/20 bg-adm-red/6 px-5 py-2.5 font-mono text-[11px] text-adm-red">
           {error}
@@ -211,7 +186,7 @@ export default function SumsubEventsPage() {
         <table className="w-full border-collapse text-sm">
           <thead>
             <tr>
-              {(['Event No', 'Received', 'Type', 'Customer', 'Context', 'Status', 'Retries', ''] as string[]).map(
+              {(['Event No', 'Received', 'Type', 'Customer', 'Context', 'Status', 'Retries'] as string[]).map(
                 (h) => (
                   <th
                     key={h}
@@ -273,16 +248,6 @@ export default function SumsubEventsPage() {
                   </td>
                   <td className="px-3 py-2.5 font-mono text-[11px] text-adm-t3">
                     {item.retryCount}
-                  </td>
-                  <td className="px-3 py-2.5">
-                    {item.status === 'DEAD' && (
-                      <button
-                        onClick={() => void handleReplay(item.id)}
-                        className={adminButtonClass('repair')}
-                      >
-                        Replay
-                      </button>
-                    )}
                   </td>
                 </tr>
               ))}

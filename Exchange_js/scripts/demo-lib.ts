@@ -63,7 +63,7 @@ import { DEPOSIT_VERDICT_BUTTONS } from '../src/modules/deposit-sumsub/fixtures/
 import { WITHDRAW_VERDICT_BUTTONS } from '../src/modules/withdraw-sumsub/fixtures/verdict-buttons';
 import { SCENE_TAGS, DISPO_TAGS_BY_DOMAIN, type SceneTag, type DispoTag } from '../src/modules/sumsub-shared/scene-tags';
 import { DEMO_ROSTER, printAnswerKey } from './demo-roster';
-import { loginAsMlro, loginAsSmo, loginAsOpsOfficer, approveApproval } from './demo-mlro';
+import { loginAsMlro, loginAsSmo, loginAsCfo, approveApproval } from './demo-mlro';
 import { createStuckWithdraw } from './demo-fixtures';
 
 // Deposit channel discriminator (crypto vs fiat) — the legacy PayinType enum is gone;
@@ -681,9 +681,9 @@ export async function runDeposits(ctx: DemoCtx): Promise<Array<{ seq: number; or
         break;
 
       case 8: {
-        // 低于下限挂起 → 运营发起没收 → OPS_OFFICER 换人批（approval.constants.ts 里
-        // DEPOSIT_CONFISCATION 就是单步 OPS_OFFICER，不是 MLRO）→ 资金单腿(legSeq 2)
-        // 确认 → CONFISCATED。
+        // 低于下限挂起 → 运营发起没收 → CFO 换人批（2026-08-30 起 approval.constants.ts 里
+        // DEPOSIT_CONFISCATION 单步裁决人改 CFO——没收是客户的钱变公司收入，属财务事项）
+        // → 资金单腿(legSeq 2)确认 → CONFISCATED。
         await driveVerdict(ctx, dep.id, 'V1_APPROVED');
         dep = await waitDepositStatus(ctx, dep.id, 'OPERATION_PENDING');
         const conf = await ctx.depositWf.initiateConfiscation(
@@ -691,7 +691,7 @@ export async function runDeposits(ctx: DemoCtx): Promise<Array<{ seq: number; or
           { reason: 'Below-min deposit — T&C handling fee (demo fixture)' },
           DEMO_ACTOR('DEMO_OPS_MAKER_8', 'OPS_OFFICER'),
         );
-        await makerCheckerApprove(ctx, conf.approvalNo, [() => loginAsOpsOfficer(ctx.apiBase)]);
+        await makerCheckerApprove(ctx, conf.approvalNo, [() => loginAsCfo(ctx.apiBase)]);
         await driveDispositionLeg(ctx, dep.id, 2);
         dep = await waitDepositStatus(ctx, dep.id, 'CONFISCATED');
         break;

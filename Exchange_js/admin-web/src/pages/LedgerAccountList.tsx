@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Plus, RefreshCw, X, Copy } from 'lucide-react';
+import { RefreshCw, Copy } from 'lucide-react';
 import {
   adminButtonClass,
   adminIconButtonClass,
@@ -13,12 +13,7 @@ import {
   adminFetch,
   getApiErrorMessage,
 } from '../utils/adminFetch';
-import {
-  withAssetSuffix,
-  TB_CODE_OPTIONS,
-  SYSTEM_CODE_OPTIONS,
-  CUSTOMER_CODE_OPTIONS,
-} from './ledger-account.constants';
+import { withAssetSuffix, TB_CODE_OPTIONS } from './ledger-account.constants';
 
 /* ── Interfaces ──────────────────────────────────────────────── */
 
@@ -46,14 +41,6 @@ interface FilterState {
   code: string;
 }
 
-interface CreateForm {
-  accountCategory: 'SYSTEM' | 'CUSTOMER';
-  assetCode: string;
-  code: number | '';
-  customerNo: string;
-  description: string;
-}
-
 interface AssetOption {
   code: string;
   type: string;
@@ -61,13 +48,6 @@ interface AssetOption {
 
 /* ── Constants ───────────────────────────────────────────────── */
 
-const EMPTY_FORM: CreateForm = {
-  accountCategory: 'SYSTEM',
-  assetCode: '',
-  code: '',
-  customerNo: '',
-  description: '',
-};
 
 const DEFAULT_FILTERS: FilterState = { q: '', assetCode: '', ownerType: '', code: '' };
 const PAGE_SIZE = 50;
@@ -110,12 +90,8 @@ const LedgerAccountList = () => {
   const [filters, setFilters] = useState<FilterState>(DEFAULT_FILTERS);
   const requestSeqRef = useRef(0);
 
-  const [showCreate, setShowCreate] = useState(false);
-  const [form, setForm] = useState<CreateForm>(EMPTY_FORM);
   const [assets, setAssets] = useState<AssetOption[]>([]);
   const [decimalsMap, setDecimalsMap] = useState<Record<string, number>>({});
-  const [creating, setCreating] = useState(false);
-  const [createError, setCreateError] = useState<string | null>(null);
 
   /* ── Data fetching ── */
 
@@ -184,68 +160,6 @@ const LedgerAccountList = () => {
     }
   };
 
-  /* ── Create modal ── */
-
-  const openCreate = () => {
-    setForm(EMPTY_FORM);
-    setCreateError(null);
-    void fetchAssets();
-    setShowCreate(true);
-  };
-
-  const closeCreate = () => {
-    setShowCreate(false);
-    setCreateError(null);
-  };
-
-  const handleCategoryChange = (cat: 'SYSTEM' | 'CUSTOMER') => {
-    setForm((prev) => ({ ...prev, accountCategory: cat, code: '', customerNo: '' }));
-  };
-
-  const canSubmit =
-    form.assetCode !== '' &&
-    form.code !== '' &&
-    (form.accountCategory === 'SYSTEM' || form.customerNo.trim() !== '');
-
-  const handleCreate = async () => {
-    if (!canSubmit) return;
-    setCreating(true);
-    setCreateError(null);
-    try {
-      const res = await adminFetch(
-        `${import.meta.env.VITE_API_URL}/admin/tb/accounts`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            accountCategory: form.accountCategory,
-            assetCurrency: form.assetCode,
-            code: Number(form.code),
-            customerNo:
-              form.accountCategory === 'CUSTOMER'
-                ? form.customerNo.trim()
-                : undefined,
-            description: form.description.trim() || undefined,
-          }),
-        },
-      );
-      if (!res.ok) {
-        const msg = await getApiErrorMessage(res, 'Failed to create ledger account.');
-        setCreateError(msg);
-        return;
-      }
-      closeCreate();
-      void fetchData();
-    } catch (err) {
-      if (err instanceof AdminSessionError) return;
-      setCreateError(
-        err instanceof Error ? err.message : 'Failed to create ledger account.',
-      );
-    } finally {
-      setCreating(false);
-    }
-  };
-
   /* ── Filter actions ── */
 
   const handleSearch = () => {
@@ -277,11 +191,7 @@ const LedgerAccountList = () => {
       <PageTitleBar
         title="Ledger Accounts"
         subtitle={`${total} accounts · Account Registry`}
-      >
-        <button onClick={openCreate} className={adminButtonClass('listPrimary')}>
-          <Plus size={13} /> New Account
-        </button>
-      </PageTitleBar>
+      />
 
       {/* ─── Error banner ─── */}
       {error && (
@@ -483,157 +393,6 @@ const LedgerAccountList = () => {
         />
       </div>
 
-      {/* ─── Create Ledger Account Modal ─── */}
-      {showCreate && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-          <div className="w-[480px] rounded-lg border border-adm-border bg-adm-bg shadow-xl">
-            {/* Header */}
-            <div className="flex items-center justify-between border-b border-adm-border px-5 py-3">
-              <h3 className="font-mono text-sm font-semibold text-adm-t1">
-                New Ledger Account
-              </h3>
-              <button
-                onClick={closeCreate}
-                className="text-adm-t3 transition-colors hover:text-adm-t1"
-              >
-                <X size={16} />
-              </button>
-            </div>
-
-            {/* Body */}
-            <div className="space-y-4 px-5 py-4">
-              {/* Account Category */}
-              <div>
-                <label className="mb-1.5 block font-mono text-[10px] font-semibold uppercase tracking-wider text-adm-t3">
-                  Account Category
-                </label>
-                <div className="flex gap-3">
-                  {(['SYSTEM', 'CUSTOMER'] as const).map((cat) => (
-                    <label
-                      key={cat}
-                      className="flex cursor-pointer items-center gap-1.5 font-mono text-[11px] text-adm-t1"
-                    >
-                      <input
-                        type="radio"
-                        name="accountCategory"
-                        checked={form.accountCategory === cat}
-                        onChange={() => handleCategoryChange(cat)}
-                        className="accent-adm-amber"
-                      />
-                      {cat === 'SYSTEM' ? 'System Account' : 'Customer Account'}
-                    </label>
-                  ))}
-                </div>
-              </div>
-
-              {/* Asset */}
-              <div>
-                <label className="mb-1.5 block font-mono text-[10px] font-semibold uppercase tracking-wider text-adm-t3">
-                  Asset
-                </label>
-                <select
-                  value={form.assetCode}
-                  onChange={(e) =>
-                    setForm((p) => ({ ...p, assetCode: e.target.value }))
-                  }
-                  className={`${fi} w-full`}
-                >
-                  <option value="">Select asset…</option>
-                  {assets.map((a) => (
-                    <option key={a.code} value={a.code}>
-                      {a.code} ({a.type})
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              {/* Account Type */}
-              <div>
-                <label className="mb-1.5 block font-mono text-[10px] font-semibold uppercase tracking-wider text-adm-t3">
-                  Account Type
-                </label>
-                <select
-                  value={form.code}
-                  onChange={(e) =>
-                    setForm((p) => ({
-                      ...p,
-                      code: e.target.value ? Number(e.target.value) : '',
-                    }))
-                  }
-                  className={`${fi} w-full`}
-                >
-                  <option value="">Select type…</option>
-                  {(form.accountCategory === 'SYSTEM'
-                    ? SYSTEM_CODE_OPTIONS
-                    : CUSTOMER_CODE_OPTIONS
-                  ).map((o) => (
-                    <option key={o.value} value={o.value}>
-                      {o.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              {/* Customer No (only for CUSTOMER) */}
-              {form.accountCategory === 'CUSTOMER' && (
-                <div>
-                  <label className="mb-1.5 block font-mono text-[10px] font-semibold uppercase tracking-wider text-adm-t3">
-                    Customer No
-                  </label>
-                  <input
-                    value={form.customerNo}
-                    onChange={(e) =>
-                      setForm((p) => ({ ...p, customerNo: e.target.value }))
-                    }
-                    placeholder="e.g. CU2605140001"
-                    className={`${fi} w-full`}
-                  />
-                </div>
-              )}
-
-              {/* Description */}
-              <div>
-                <label className="mb-1.5 block font-mono text-[10px] font-semibold uppercase tracking-wider text-adm-t3">
-                  Description{' '}
-                  <span className="font-normal text-adm-t3">(optional)</span>
-                </label>
-                <input
-                  value={form.description}
-                  onChange={(e) =>
-                    setForm((p) => ({ ...p, description: e.target.value }))
-                  }
-                  placeholder="Optional note…"
-                  className={`${fi} w-full`}
-                />
-              </div>
-
-              {/* Error */}
-              {createError && (
-                <div className="rounded border border-adm-red/20 bg-adm-red/6 px-3 py-2 font-mono text-[11px] text-adm-red">
-                  {createError}
-                </div>
-              )}
-            </div>
-
-            {/* Footer */}
-            <div className="flex items-center justify-end gap-2 border-t border-adm-border px-5 py-3">
-              <button
-                onClick={closeCreate}
-                className={adminButtonClass('listSecondary')}
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleCreate}
-                disabled={!canSubmit || creating}
-                className={adminButtonClass('listPrimary')}
-              >
-                {creating ? 'Creating…' : 'Create Account'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 };

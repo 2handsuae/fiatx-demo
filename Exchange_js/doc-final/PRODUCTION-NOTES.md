@@ -56,6 +56,12 @@
 
 - [ ] **泄露 dev `.env` 仍在 git 历史**：`.env` 已 `git rm --cached`（合 c80ce5e）+ 本地换新 MFA key 作废旧值；旧值仍留在历史（用户选不重写历史，属 demo key）。若确认该 key 曾用于任何真实用途，需重评是否 filter-repo 抹历史 ｜来源: 2026-07-04 一级审计
 
+- [2026-08-30] Task 4 权限组清理有 2 条路由按计划该退役，grep-before-delete 实测出活消费方，改判保留 ｜ `rbac.catalog.ts` ｜ Task 4 执行
+
+  `POST /admin/control-gates/approvals/:id/cancel`（原判随 `GOV_APPROVAL_WRITE` 整组退役）：命中 `admin-web/src/pages/ApprovalDetailPage.tsx` 的 Cancel 决策按钮——与 approve/reject 走同一个 `submitDecision()` 流程、同一套弹窗，不是脚手架残留。保留路由，权限组从 `GOV_APPROVAL_WRITE` 改成 `GOV_APPROVAL_READ`（与 brief 原定给 approve/reject 的处理手法一致：裁决权已交还审批策略的 checkerRole 机制，RBAC 组只把关到"能看"这一层）。
+  `POST /admin/tb/accounts`（原判 D8 随 `LEDGER_ACCOUNT_WRITE` 整组退役）：命中 `admin-web/src/pages/LedgerAccountList.tsx` 的完整 "Create Account" 表单（accountCategory/assetCode/code/customerNo）。路由与权限组均原样保留、未改动。
+  两条均已排查确认无其他副作用（create/submit 两条兄弟路由确认零消费方、按计划照删）；完整证据链见 `.superpowers/sdd/task-4-report.md`。附带一提：本节 2026-07-16/2026-08-05 两条 `PATCH /deposit-transactions/:id/status` 缺 `assertAdmin` 的既存条目，因该路由本轮确认零消费方已整条删除，现已随之作废（未回改旧条目，本文件只许追加）。
+
 ## 幂等 · 去重 · 回放
 
 ## 并发与竞态
@@ -172,7 +178,7 @@
 
 **原 BACKLOG §技术债 — V5 提现**
 
-- [ ] TB 记账失败 repair surface 偏薄：靠 `assertWithdrawSettled()` fail-closed 卡在 PAYOUT_PENDING 等人工，无专用修复 UI/端点；**费腿两种三级梯（FAILED 重建 / TB settle 瞬时故障）耗尽后同样无专用 repair 端点**，仅 `needsReview`+审计留痕，见 truth/v5-withdraw.md §5/§9 ｜来源: 2026-07-03 V5 体检 → 2026-08-04 Task 12 e2e 补充
+- [ ] TB 记账失败 repair surface 偏薄：靠 `assertWithdrawSettled()` fail-closed 卡在 PAYOUT_PENDING 等人工，无专用修复 UI/端点；**费腿两种三级梯（FAILED 重建 / TB settle 瞬时故障）耗尽后同样无专用 repair 端点**，仅 `needsReview`+审计留痕，见 modules/v5-withdraw.md §5/§9 ｜来源: 2026-07-03 V5 体检 → 2026-08-04 Task 12 e2e 补充
 - [ ] 在途提现守卫（deactivate 的 `ADDRESS_HAS_INFLIGHT_WITHDRAWAL`）靠 `toIban/toAddress` 字符串匹配，`Withdraw.tsx` 手输地址模式下会漏配（无 addressNo FK 关联提现与地址）→ 假阴性可绕过守卫；正解需给 WithdrawTransaction 加 addressNo/addressId FK ｜来源: 2026-07-11 Task 6 spec 审
 - [ ] **旧 "L3: Post-Tx Archive" 命名与交易风控 L3 撞名**：`withdraw-workflow.service.ts → archivePostKyt()` 注释标 `// L3: Post-Tx Archive`；交易风控 spec（2026-07-12）把 **L3 定义为「行为监测」**，此 txHash 归档实为 L3 的数据上游（喂 Sumsub TM），落地时改名（如 "Post-Tx txHash 归档"），勿再叫 L3 ｜来源: 2026-07-12 交易风控三闸门 spec §1
 - [ ] **`require_approval` 死枚举待清**：`WithdrawTransactionAction.REQUIRE_APPROVAL` 转移表零引用、代码零调用点（Task 1 状态机重写遗留），应删 ｜来源: 2026-08-04 Task 12 e2e 排查
@@ -232,11 +238,11 @@
 **原 BACKLOG §技术债 — 第三批 SLA（三域，2026-08-21 落地）**
 
 - [ ] **`markSlaBreached()` 无条件写、不校验 `slaBreached` 仍为 `false`——结论：现状正确，多实例部署时再回来看**：三域的 `markSlaBreached(id)` 都是裸 `update({data:{slaBreached:true}})`，没有 `where: {slaBreached: false}` 这层条件写保护。单实例 cron 下不可达：`findSlaBreachCandidates()` 的 `where` 里已经带了 `slaBreached: false`，能被扫到的单必然还没被标过。加条件写属于对"将来可能多实例部署、两个 cron 同时扫到同一单"的投机加固（YAGNI），且真到那天该修的是加分布式锁而不是这一行。**这不是待办**——真上多实例部署时回来看这条 ｜来源: 2026-08-21 SLA 批次
-- [ ] **硬破线的 `provider re-review` 理由现在永不可达 + 提现侧写死另一条理由（`actionSubmittedAt` 死列的下游后果）**：`deposit-sla.service.ts:96` 按 `deposit.actionSubmittedAt` 在两条 reason 之间选（交了→`'SLA breached: provider re-review exceeded deadline after customer submission'`／没交→`'SLA breached: no compliance action before deadline'`，metadata 的 `waitingOn` 跟着分 `PROVIDER`/`CUSTOMER`），但全仓再无任何地方把 `actionSubmittedAt` 写成非 null（`grep "actionSubmittedAt:" src/ | grep -v null` 零命中，2026-08-17 材料请求账迁移 `20260817020000_drop_legacy_action_stores` 之后的遗留；列本身仍在 `prisma/schema.prisma:1070`/`:1319`，见 truth/v4-deposit.md §4.6 订正段与本文件既有的「充值/提现域"全部交齐"缓存……已是死列」条），所以 `provider re-review` 那条分支**永远走不到**。`withdraw-sla.service.ts:98` 则直接写死了"未在期限内响应"这一条、连分支都没有——因为 `submitted` 恒为 `false`，**两域当前运行时输出其实完全一致**，不存在活的分歧；但一旦哪天 `actionSubmittedAt` 恢复写入（或改读材料账），同一个问题就会有两个答案：一个已配合交了材料的客户在提现侧仍会被以"未响应"的名义记进永久审计，充值侧不会。修这条死列时两域要一起改 ｜来源: 2026-08-21 SLA 批次
+- [ ] **硬破线的 `provider re-review` 理由现在永不可达 + 提现侧写死另一条理由（`actionSubmittedAt` 死列的下游后果）**：`deposit-sla.service.ts:96` 按 `deposit.actionSubmittedAt` 在两条 reason 之间选（交了→`'SLA breached: provider re-review exceeded deadline after customer submission'`／没交→`'SLA breached: no compliance action before deadline'`，metadata 的 `waitingOn` 跟着分 `PROVIDER`/`CUSTOMER`），但全仓再无任何地方把 `actionSubmittedAt` 写成非 null（`grep "actionSubmittedAt:" src/ | grep -v null` 零命中，2026-08-17 材料请求账迁移 `20260817020000_drop_legacy_action_stores` 之后的遗留；列本身仍在 `prisma/schema.prisma:1070`/`:1319`，见 modules/v4-deposit.md §4.6 订正段与本文件既有的「充值/提现域"全部交齐"缓存……已是死列」条），所以 `provider re-review` 那条分支**永远走不到**。`withdraw-sla.service.ts:98` 则直接写死了"未在期限内响应"这一条、连分支都没有——因为 `submitted` 恒为 `false`，**两域当前运行时输出其实完全一致**，不存在活的分歧；但一旦哪天 `actionSubmittedAt` 恢复写入（或改读材料账），同一个问题就会有两个答案：一个已配合交了材料的客户在提现侧仍会被以"未响应"的名义记进永久审计，充值侧不会。修这条死列时两域要一起改 ｜来源: 2026-08-21 SLA 批次
 
 **原 BACKLOG §真欠账**
 
-- [ ] **`clearLimitHold` 失败时单子仍会 `RETURNING`→`RETURNED` 且对客户永久不可见**：`onReturnApproved()` 里 `updateStatus(RETURN)` 与 `clearAdministrativeHoldOnReturn()` 是**两个没有事务包着的写**，且刻意「先翻后清」（理由见 `truth/v4-deposit.md` §4.8：先清后翻会新增一个「本该藏着的挂起单被永久曝光」的失败模式）。代价是 clear 失败时残局 = 修复前的既有行为——钱退回去了，客户面零记录。正解是把两个写包进同一个事务 ｜来源: 2026-08-22 第四批 C1 复审
+- [ ] **`clearLimitHold` 失败时单子仍会 `RETURNING`→`RETURNED` 且对客户永久不可见**：`onReturnApproved()` 里 `updateStatus(RETURN)` 与 `clearAdministrativeHoldOnReturn()` 是**两个没有事务包着的写**，且刻意「先翻后清」（理由见 `modules/v4-deposit.md` §4.8：先清后翻会新增一个「本该藏着的挂起单被永久曝光」的失败模式）。代价是 clear 失败时残局 = 修复前的既有行为——钱退回去了，客户面零记录。正解是把两个写包进同一个事务 ｜来源: 2026-08-22 第四批 C1 复审
 - [ ] **`DepositTransactionsService.clearNeedsReview()` 零生产调用方**：`markNeedsReview()` 有六处调用（三条处置弧 × 正常耗尽 + catch 崩溃），`clearNeedsReview()` 全仓 grep **只有单测在调**——充值的红标一旦立起来就没有任何代码路径能放下（提现域有：`onLegCleared` 在 SUCCESS 结算时清）。运营手工处置完那笔腿之后，列表上那面旗会一直挂着 ｜来源: 2026-08-22 第四批 A2/E1
 - [ ] **`DEPOSIT_CONFISCATION_LEG_FAILED` 成死常量**：`audit-actions.constant.ts:275` 仍在，但随 A3 退役 `confiscate_failed` 边后**已无写入方**（新的两条是 `DEPOSIT_CONFISCATION_RETRIED`/`DEPOSIT_CONFISCATION_STUCK`）。本批不做审计专项，交由那一轮统一清 ｜来源: 2026-08-22 第四批 A3
 
@@ -247,7 +253,7 @@
 
 **兑换域**
 
-- [ ] 🔴 **兑换建单余额校验不锁额，并发下仍会卡死 `PROCESSING`**：`swap-workflow.service.ts` 的建单前余额校验（第四批新补）读 `getCustomerAvailableBalance` 比一下就完了，**不像提现那样在建单时压 TB pending 锁额**（`available = creditsPosted − debitsPosted − debitsPending`，而兑换要等 KYT 通过建腿才写 pending）。失败剧本：客户 100 USDT，提交兑换 A 用 60 → 校验通过 → `COMPLIANCE_PENDING`；A 裁决未回，再提交 B 用 60 → **校验又通过**（仍读到 100，什么都没锁）；两笔都 `kyt_approved` → `PROCESSING`；A 的腿抽干余额，B 的第一条腿失败，而 `PROCESSING` 唯一出边是 `success→SUCCESS` → **B 永久卡在 `PROCESSING` + `needsReview`**，正是这道校验想防的那个洞。**这是残留不是回归**——第四批严格改善了单笔场景。**真正的修法**：建单即压 TB pending、与提现同形状（建单事务内对卖出侧起 pending transfer，KYT 通过时 post、拒绝/SLA 破线时 void）。已同步订正 `truth/v6-swap.md` §3.9 与代码注释里「堵住」那句过头的措辞 ｜来源: 2026-08-22 终审 Important I2
+- [ ] 🔴 **兑换建单余额校验不锁额，并发下仍会卡死 `PROCESSING`**：`swap-workflow.service.ts` 的建单前余额校验（第四批新补）读 `getCustomerAvailableBalance` 比一下就完了，**不像提现那样在建单时压 TB pending 锁额**（`available = creditsPosted − debitsPosted − debitsPending`，而兑换要等 KYT 通过建腿才写 pending）。失败剧本：客户 100 USDT，提交兑换 A 用 60 → 校验通过 → `COMPLIANCE_PENDING`；A 裁决未回，再提交 B 用 60 → **校验又通过**（仍读到 100，什么都没锁）；两笔都 `kyt_approved` → `PROCESSING`；A 的腿抽干余额，B 的第一条腿失败，而 `PROCESSING` 唯一出边是 `success→SUCCESS` → **B 永久卡在 `PROCESSING` + `needsReview`**，正是这道校验想防的那个洞。**这是残留不是回归**——第四批严格改善了单笔场景。**真正的修法**：建单即压 TB pending、与提现同形状（建单事务内对卖出侧起 pending transfer，KYT 通过时 post、拒绝/SLA 破线时 void）。已同步订正 `modules/v6-swap.md` §3.9 与代码注释里「堵住」那句过头的措辞 ｜来源: 2026-08-22 终审 Important I2
 - [ ] **`FAILED` / `REVERSED` 两个不可达死枚举未删**：转移表零入边、全仓无 `markStatus` 写入方、无 reverse 端点；只作为「排除项」出现在三处集合里（`SWAP_TERMINAL_STATUSES`、`swap-workflow` 终态集、累计额度用量排除列表）。本批新建的 `admin-web/src/utils/swapStatusMap.ts` 也为它们保留了条目（若复活，fallback 会渲染成 WARNING 黄误导运营）。**与上方「技术债 — V6 兑换」节的同名条是同一件事**，此处只记「第四批仍未删」｜来源: 2026-08-22 第四批 D1
 - [ ] **`admin-web/src/components/L1GateCard.tsx` 头部注释已过期**：注释写「与页面上既有的 `L1 · Eligibility` 格子是两回事：那个读的是客户级 `complianceStatus`」——同一批次后面的 commit（`339195e4`）已把三域那一格改读 `customer.lifecycle`（`complianceStatus` 是被 drop 的列）。注释里的列名是死的，一行字的事 ｜来源: 2026-08-22 第四批 E1 自查
 
@@ -459,3 +465,32 @@
   （⑦⑧ 材料复核按钮从兑换面板移除，那两个按钮本就不该在交易面板上）。
   **教训**：销账时如果查不清成因，就只写"实测已不复现 + 当时的命令与输出"，
   **不要把猜测写进永久记录**——那正是制造下一条陈账的方式。
+- [x] ~~[2026-08-30] **`stack.sh reset` 在全新 worktree 首跑会静默跳过 TigerBeetle 建户与资本注入**~~ → **2026-08-31 已迁入 `TOOLING-DEBT.md`**（工具/环境类，仍成立、本轮不修；原文与复现步骤见新桶）。原文如下备查 ｜ `scripts/reset-stack.sh:63-88` ｜ 第一幕职权重划开工时实测
+
+  `reset-stack.sh` 自己起了 TigerBeetle（`:49`），但下面 `apply-local-migrations` / `db:base:sync` / `db:biz:reset` / `db:seed:business` 四个子进程只传 `DATABASE_URL=`、**不传 `TB_ADDRESS`**；老路径 `reset-main-biz.sh:74` 是传了的，两条路径不一致。平时不发作是因为 `TB_ADDRESS` 在 `.env` 里，而 `.env` 由 `stack.sh up` 生成——**全新 worktree 若先 `reset` 后 `up`，`.env` 尚不存在**，`prisma/seed-tb.helper.ts:79` 于是打两条 `⚠ TB_ADDRESS not set, skipping ...` 就跳过，退出码仍是 0。后果：库建好了但 TB 账户是空的，`verify:coa` 与 `demo:all` 的 COA 断言会在后面莫名其妙地失败，而失败点离根因很远。规避：新 worktree 先 `stack.sh up self` 让 `.env` 落地，再 `reset`；或给那四个子进程补上 `TB_ADDRESS="${TB_ADDRESS}"`。
+
+- [x] ~~[2026-08-30] **`stack.sh up` 撞自家 reset 留下的 TigerBeetle 时提前退出，三个应用服务一个不起**~~ → **2026-08-31 环境收口 Task 8 已修**（`ead30e5c`）：`ensure_port_free` 改为——占用者命令行含本栈 `APP_DIR`/`TB_DATA_FILE` 即视为自家残留，杀掉后继续；是别人的才打印占用者并退出。并行会话与本轮各自独立撞到同一堵墙、一个记录一个修复，合并时对上账。原条目正文保留在下方备查。
+
+  ~~原文~~：**`stack.sh up` 撞自家 reset 留下的 TigerBeetle 时提前退出** ｜ `scripts/stack-up.sh:88` `ensure_port_free "${TB_PORT}" "tb"` ｜ 同上
+
+  `reset` 会把 TigerBeetle 拉起来并留着（seed 要连它），紧接着跑 `up` 时 `ensure_port_free` 判定 TB 端口被占、走"already in use"分支退出——**退出码是 0**，看起来像成功，实际 backend / admin / client 三个服务一个都没启。规避：`lsof -ti:<TB端口>` 杀掉自家那个 TB 进程再 `up`（数据文件已存在，不会被重新 format，数据不丢）。
+
+- [2026-08-31] **随手闸的三道 tsc 照不到 `test/`，退役类改动会在 e2e 里留下哑弹** ｜ CLAUDE.md §7 随手闸①②③ ｜ 第一幕职权重划实测
+
+  §7 的随手闸是后端 `tsconfig.json` + 管理台 + 客户端三条，**都不覆盖 `test/` 目录**（该目录另有 `tsconfig.test.json`，不在闸门里）。本轮实测后果：Task 4 把 `DepositWorkflowService.adminFreeze()` 作为孤儿方法退役（其唯一 HTTP 调用方已删），三道闸全绿、评审也过，但 `test/deposit-sumsub-verdicts.e2e-spec.ts` 仍在两处调它——**要等到跑 e2e 才炸，而 e2e 不在随手闸里**。同一轮 Task 11 改 `DEPOSIT_CONFISCATION` 裁决人时，同一文件里的 `OPS_CHECKER` 也是同款哑弹。两处均已修（`c92df6cf`），但根因是闸门覆盖面：**凡退役 service 方法 / 改审批策略角色，必须额外跑一次 `npx tsc --noEmit -p tsconfig.test.json`**。值得把它加进 §7 随手闸第 ④ 条。（记忆里 2026-08-20 制裁分主体那轮已踩过一次同款坑，当时建了 `tsconfig.test.json` 但没进闸门。）
+
+- [2026-08-31] **客户端 `/my/inbound-signals` 两条 URL 挂的是管理端权限组，语义错配** ｜ `src/modules/identity/access-control/rbac.catalog.ts:263-284` ｜ 第一幕职权重划盘点权限包目录时发现
+
+  `GET/POST /deposit-transactions/my/inbound-signals` 与 `POST .../my/inbound-signals/scan` 是**客户端**信号入口（`client-web/src/pages/Deposit.tsx:406,449` 真实调用，非管理台能力），但注册时挂的是 `TRADING_DEPOSIT_READ`/`TRADING_DEPOSIT_WRITE`——两个语义上属于「管理台充值域」的权限组。源码注释已自述这是刻意的历史遗留（"客户端信号入口（非管理端能力）——Task 7 充值动作域拆分不含这两条，继续挂 TRADING_DEPOSIT_WRITE；不进桶目录、不进角色 bindings，勿被后人误清或误并入下方新组"），第一幕权限包重划（Task 7/8）按边界未碰它。后果：这两条路由不出现在任何角色的权限包勾选界面里（不进桶目录），但实际由客户 JWT（非 admin 角色）调用，管理端 RBAC 语义在这里名不副实——只是巧合地不构成安全问题（客户端调用走的是客户身份鉴权，不经 admin-permission.guard 的角色包校验）。修法（生产化时）：改用客户端专属的权限标记，或至少改名去掉 `TRADING_DEPOSIT_*` 前缀避免与管理端充值域权限组混淆。
+
+- [2026-08-31] **`INTERNAL_TRANSFER_READ`/`INTERNAL_TRANSFER_WRITE` 是零角色持有的孤儿权限组，只有超管调得动** ｜ `src/modules/identity/access-control/rbac.catalog.ts`（`/admin/funds-layer/transfers*` 4 条路由）｜ 第一幕职权重划 Task 8 权限包目录重划时发现，Task 15 文档同步复核仍成立
+
+  这两个组挂着 V7 财资遗留的 4 条后端路由（`GET .../transfers`、`GET .../transfers/:id`、`POST .../transfers/:id/simulate`、`POST .../fund-return`），`App.tsx:408` 明写前端已迁走、零消费方；`simulate` 自称 DEV 用途，`fund-return` 触发的是 repair 面（属 CLAUDE.md §2 禁做清单）。Task 8 铺满 12 域 50 桶时判定「有路由无桶」的三个刻意例外之一（另两个是上一条的客户端信号入口、以及已在桶目录内但需要留意的项），未进 `ACTION_BUCKET_CATALOG`、也没有任何职务的 `RBAC_ROLE_GROUP_BINDINGS` 持有它——11 个职务里没有人能调，只有 `SUPER_ADMIN`（经 `buildRolePermissionCodeMap()` 特判全量放行）能碰到。不影响「每个存活组都真守着至少一条端点」这条不变量（它们确实各自守着真实路由），但会让「按 12 域 50 桶枚举 = 系统全部能力」这个心智模型出现 2 个组的盲区。修法（生产化时）：要么随 V7 财资死码一并整体退役这 4 条路由，要么补一个 `funds.manage_internal_transfer` 类的桶并绑给合适职务（如财务或金库专员）——按现状两条路都行，只是本轮边界内不做。
+
+- [2026-08-31] **V5「三处自批死锁已解」目前只有 1/3 有自动化闸门覆盖** ｜ `scripts/verify-rbac.ts` V5 判据 ｜ Task 13 评审发现、Task 15 文档同步复核仍成立
+
+  本轮把充值没收（`DEPOSIT_CONFISCATION`）、限额规则创建/变更（`TRANSACTION_LIMIT_CREATION`/`CHANGE`）两条审批策略的裁决人分别改成 CFO、`SENIOR_MANAGEMENT_OFFICER`，连同费率审批（提单人从运营改财务）一起解开了三处「同一角色既提单又裁决」的自批死锁。但 `scripts/verify-rbac.ts` 只对费率那条（提单财务→裁决运营，随 V3 夹具附带跑到）有真实的端到端行为闸门；「运营提没收→财务批」由 `demo:all` 花名册 #8 真实跑通（`DepositWorkflowService.initiateConfiscation` → CFO 登录批准 → CONFISCATED），但**这不是 `verify-rbac.ts` 自身的判据**；「运营提限额→高管批」「合规官提解冻→MLRO 批」这两条**目前没有任何自动化闸门**（无论是 `verify:rbac` 还是 `demo:all`）验证过完整的提交→审批往返。这三处死锁在源码层面（`approval.constants.ts` 的 `steps` 配置 + `RBAC_ROLE_GROUP_BINDINGS` 的持有者）确凿已解，但缺自动化回归意味着未来若有人改动 `approval.constants.ts` 把裁决人悄悄改回运营，只有没收那一条会被 `demo:all` catch 住，另外两条不会有任何测试变红。
+
+- [2026-08-31] **`verify:rbac` 的 V3 夹具会被上一轮残留的 PENDING 审批单干扰（偶发首跑假红）** ｜ `scripts/verify-rbac.ts` V3 段 ｜ 第一幕职权重划实测
+
+  实测现象：跑完一轮**失败的**校验（S5 变异测试）后紧接着复跑，首跑报 1 条 FAIL，随后连续三跑全绿。判断是上一轮留下的 `SWAP_FEE_LEVEL_CREATION` PENDING 审批单被下一轮的 V3 夹具捡到造成的状态串扰。**不修**——修法要么给夹具加清理逻辑（等于给受治理对象造删除端点，属扩范围），要么让夹具挑更精确的单（等于加去重，禁做清单）。已知规避：按 `demo/baseline.md` 钉的顺序 `verify:rbac → stack.sh reset → demo:all` 跑，重铺把残留一并冲掉；若确需连跑两轮，第二轮出现单条 FAIL 时先重铺再复判，不要直接当真红。

@@ -80,12 +80,13 @@ cd client-web && npx tsc -b --noEmit && cd ..    # ③ 客户端
 | 动任何设计决定前 | `decisions.md` —— 已否决的方案不翻案 |
 | 写后端 / 前端代码 | `rules/backend.md` ｜ `rules/frontend-admin.md` / `rules/frontend-client.md`（UI 契约见 `ui-contract/`） |
 | 改页面 / 种子数据 | 同步 `demo/data.md`、`demo/script.md` 对应步骤 |
-| 验收 / 写用例 | `test-cases/` |
+| 验收 / 走查 | `demo/script.md`（七幕主线）+ `modules/<篇>` §4 演示脚本 |
 | 说"以后做" | 业务缺口记 `BACKLOG.md`；技术兜底记 `PRODUCTION-NOTES.md`；工具/环境记 `TOOLING-DEBT.md` |
 
 **不读** `archive/`（历史存档）。rules 与本文件冲突时以本文件为准——Phase 1 拆规范完成前，`rules/backend-platform.md` 里幂等 / 去重 / 回放 / 迁移安全 / 签收清单类要求**一律视为已废止**。
 
-三层关系：**`prd/` = 应然 ｜ `modules/` = 实然 ｜ `test-cases/` = 验收**；三者不一致就是待办，登记 BACKLOG，不改 PRD 迁就代码。
+两层关系：**`modules/` = 现状唯一真相 ｜ `demo/script.md` + `modules/<篇>` §4 = 验收（演得出来就算过）**；两者不一致就是待办，登记 BACKLOG。
+（`prd/` 应然层未建、PRD 在飞书；旧 `test-cases/` 271 条用例 2026-08-31 整体封箱，理由见 `archive/test-cases/README.md`。）
 
 ## 9. Thread 完成规则
 

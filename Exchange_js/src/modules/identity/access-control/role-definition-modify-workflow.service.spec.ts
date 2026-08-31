@@ -47,7 +47,7 @@ describe('RoleDefinitionModifyWorkflowService', () => {
     currentPermissionGroups: JSON.stringify(['BASE_ACCESS']),
     proposedName: 'Ops Viewer',
     proposedDescription: 'new desc',
-    proposedPermissionGroups: JSON.stringify(['BASE_ACCESS', 'IAM_READ']),
+    proposedPermissionGroups: JSON.stringify(['BASE_ACCESS', 'IAM_MEMBER_READ']),
     status: 'PENDING_APPROVAL',
     approvalCaseNo: 'APR2608260002',
     ...overrides,
@@ -93,7 +93,7 @@ describe('RoleDefinitionModifyWorkflowService', () => {
         {
           proposedName: 'Ops Viewer',
           proposedDescription: 'new desc',
-          proposedPermissionGroups: ['BASE_ACCESS', 'IAM_READ'],
+          proposedPermissionGroups: ['BASE_ACCESS', 'IAM_MEMBER_READ'],
           changeReason: 'grant read access',
         },
         actor,
@@ -112,7 +112,7 @@ describe('RoleDefinitionModifyWorkflowService', () => {
       expect(call[0].afterData.description).toBe('new desc');
       // permissionGroups 变了
       expect(call[0].beforeData.permissionGroups).toEqual(['BASE_ACCESS']);
-      expect(call[0].afterData.permissionGroups).toEqual(['BASE_ACCESS', 'IAM_READ']);
+      expect(call[0].afterData.permissionGroups).toEqual(['BASE_ACCESS', 'IAM_MEMBER_READ']);
       expect(Object.keys(call[0].afterData)).not.toContain('updatedAt');
       expect(Object.keys(call[0].afterData)).not.toContain('status');
       expect(call[0].correlationId).toEqual(expect.any(String));
@@ -138,7 +138,7 @@ describe('RoleDefinitionModifyWorkflowService', () => {
       expect(call[0].beforeData.description).toBe('old desc');
       expect(call[0].afterData.description).toBe('new desc');
       expect(call[0].beforeData.permissionGroups).toEqual(['BASE_ACCESS']);
-      expect(call[0].afterData.permissionGroups).toEqual(['BASE_ACCESS', 'IAM_READ']);
+      expect(call[0].afterData.permissionGroups).toEqual(['BASE_ACCESS', 'IAM_MEMBER_READ']);
     });
 
     it('冲突（角色已非 ACTIVE）时仍写同一个 APPLIED(outcome=FAILED)，不是退役码 ROLE_MODIFY_FAILED', async () => {
@@ -156,7 +156,7 @@ describe('RoleDefinitionModifyWorkflowService', () => {
       expect(applied[0][0].causationId).toBe('apr-1');
       expect(applied[0][0].correlationId).toBe('trace-42');
       expect(applied[0][0].beforeData.permissionGroups).toEqual(['BASE_ACCESS']);
-      expect(applied[0][0].afterData.permissionGroups).toEqual(['BASE_ACCESS', 'IAM_READ']);
+      expect(applied[0][0].afterData.permissionGroups).toEqual(['BASE_ACCESS', 'IAM_MEMBER_READ']);
       expect(applied[0][0].approvalNo).toBe('APR2608260002');
 
       // 只断言"退役码不再被当作 action 值写入"，不是整份源码都不能出现这个词——
