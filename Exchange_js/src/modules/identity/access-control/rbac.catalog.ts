@@ -638,7 +638,11 @@ export const ACTION_BUCKET_CATALOG: ActionDomain[] = [
       },
     ],
   },
-  // ─── Placeholder Domains (no buckets yet) ────────────
+  // 2026-08-31：本目录**不再有占位域**——每个域都至少一个桶（原「Placeholder
+  // Domains (no buckets yet)」注释随第一幕职权重划作废）。空域是致命的：前端
+  // RoleDetailPage 只渲染有桶的域，空壳域在自定义角色界面上根本不出现，
+  // 等于「有权限但没入口」。两条机器判据看着这件事：
+  //   ① 有绑定无桶为空  ② 有桶无组为空（防反向的「有入口没权限」）
   {
     id: 'accounting',
     label: 'Accounting',
