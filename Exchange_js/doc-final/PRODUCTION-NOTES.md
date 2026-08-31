@@ -471,3 +471,7 @@
 - [2026-08-31] **V5「三处自批死锁已解」目前只有 1/3 有自动化闸门覆盖** ｜ `scripts/verify-rbac.ts` V5 判据 ｜ Task 13 评审发现、Task 15 文档同步复核仍成立
 
   本轮把充值没收（`DEPOSIT_CONFISCATION`）、限额规则创建/变更（`TRANSACTION_LIMIT_CREATION`/`CHANGE`）两条审批策略的裁决人分别改成 CFO、`SENIOR_MANAGEMENT_OFFICER`，连同费率审批（提单人从运营改财务）一起解开了三处「同一角色既提单又裁决」的自批死锁。但 `scripts/verify-rbac.ts` 只对费率那条（提单财务→裁决运营，随 V3 夹具附带跑到）有真实的端到端行为闸门；「运营提没收→财务批」由 `demo:all` 花名册 #8 真实跑通（`DepositWorkflowService.initiateConfiscation` → CFO 登录批准 → CONFISCATED），但**这不是 `verify-rbac.ts` 自身的判据**；「运营提限额→高管批」「合规官提解冻→MLRO 批」这两条**目前没有任何自动化闸门**（无论是 `verify:rbac` 还是 `demo:all`）验证过完整的提交→审批往返。这三处死锁在源码层面（`approval.constants.ts` 的 `steps` 配置 + `RBAC_ROLE_GROUP_BINDINGS` 的持有者）确凿已解，但缺自动化回归意味着未来若有人改动 `approval.constants.ts` 把裁决人悄悄改回运营，只有没收那一条会被 `demo:all` catch 住，另外两条不会有任何测试变红。
+
+- [2026-08-31] **`verify:rbac` 的 V3 夹具会被上一轮残留的 PENDING 审批单干扰（偶发首跑假红）** ｜ `scripts/verify-rbac.ts` V3 段 ｜ 第一幕职权重划实测
+
+  实测现象：跑完一轮**失败的**校验（S5 变异测试）后紧接着复跑，首跑报 1 条 FAIL，随后连续三跑全绿。判断是上一轮留下的 `SWAP_FEE_LEVEL_CREATION` PENDING 审批单被下一轮的 V3 夹具捡到造成的状态串扰。**不修**——修法要么给夹具加清理逻辑（等于给受治理对象造删除端点，属扩范围），要么让夹具挑更精确的单（等于加去重，禁做清单）。已知规避：按 `demo/baseline.md` 钉的顺序 `verify:rbac → stack.sh reset → demo:all` 跑，重铺把残留一并冲掉；若确需连跑两轮，第二轮出现单条 FAIL 时先重铺再复判，不要直接当真红。
