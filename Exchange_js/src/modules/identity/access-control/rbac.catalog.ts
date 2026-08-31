@@ -639,9 +639,6 @@ export const ACTION_BUCKET_CATALOG: ActionDomain[] = [
     ],
   },
   // ─── Placeholder Domains (no buckets yet) ────────────
-  { id: 'customer', label: 'Customer Management', icon: '👥', buckets: [] },
-  { id: 'compliance', label: 'Compliance', icon: '🛡️', buckets: [] },
-  { id: 'trading', label: 'Trading', icon: '📊', buckets: [] },
   {
     id: 'accounting',
     label: 'Accounting',
@@ -707,12 +704,105 @@ export const ACTION_BUCKET_CATALOG: ActionDomain[] = [
       },
     ],
   },
-  { id: 'recon', label: 'Reconciliation', icon: '🔍', buckets: [] },
-  { id: 'pricing', label: 'Pricing', icon: '💰', buckets: [] },
-  { id: 'config', label: 'Configuration', icon: '⚙️', buckets: [] },
-  { id: 'gov_registry', label: 'Governance Registries', icon: '🏛️', buckets: [] },
-  { id: 'counterparty', label: 'Counterparty', icon: '🤝', buckets: [] },
-  { id: 'clearing', label: 'Clearing', icon: '📋', buckets: [] },
+  // ─── Domain: Customer ────────────────────────────────
+  {
+    id: 'customer',
+    label: 'Customer Management',
+    icon: '👥',
+    buckets: [
+      {
+        key: 'customer.view',
+        label: 'View customers',
+        description: 'Browse customer list, detail, tags and restrictions',
+        groups: ['CUSTOMER_READ', 'CUSTOMER_RESTRICTION_READ', 'CUSTOMER_TAG_VIEW'],
+      },
+      {
+        key: 'customer.manage_profile',
+        label: 'Manage profile & tags',
+        description: 'Edit customer profile fields, attach and detach tags',
+        groups: ['CUSTOMER_WRITE', 'CUSTOMER_TAG_MANAGE'],
+      },
+      {
+        key: 'customer.act_restrict',
+        label: 'Open restrictions',
+        description: 'Place a restriction on a customer (sanction, administrative)',
+        groups: ['CUSTOMER_RESTRICTION_WRITE'],
+      },
+      {
+        key: 'customer.act_release',
+        label: 'Release restrictions',
+        description: 'Request release of an existing restriction — deliberately split from opening one',
+        groups: ['CUSTOMER_RESTRICTION_RELEASE'],
+      },
+    ],
+  },
+  // ─── Domain: Trading (split per concrete action) ──────
+  // 拆到具体动作，不用笼统的「处置」：提上缴和提没收不是同一件事，
+  // 解冻更不该和放行同属一个包（业主 2026-08-30 定）。
+  {
+    id: 'trading',
+    label: 'Trading',
+    icon: '📊',
+    buckets: [
+      { key: 'trading.view_deposit', label: 'View deposits', description: 'Browse deposit orders and detail', groups: ['TRADING_DEPOSIT_READ'] },
+      { key: 'trading.view_withdraw', label: 'View withdrawals', description: 'Browse withdrawal orders and detail', groups: ['TRADING_WITHDRAW_READ'] },
+      { key: 'trading.view_swap', label: 'View swaps', description: 'Browse swap orders, quotes and detail', groups: ['TRADING_SWAP_READ'] },
+      { key: 'trading.view_sumsub_events', label: 'View Sumsub callbacks', description: 'Browse the inbound Sumsub webhook event log and where each was dispatched', groups: ['SUMSUB_EVENT_VIEW'] },
+      { key: 'trading.act_deposit_waive', label: 'Release below-minimum holds', description: 'Waive a below-minimum deposit hold — executes immediately, no approval', groups: ['DEPOSIT_WAIVE_WRITE'] },
+      { key: 'trading.act_deposit_confiscate', label: 'Request deposit confiscation', description: 'Open a confiscation approval — the money becomes firm revenue', groups: ['DEPOSIT_CONFISCATE_WRITE'] },
+      { key: 'trading.act_deposit_return', label: 'Request return to sender', description: 'Open a return-to-sender approval', groups: ['DEPOSIT_RETURN_WRITE'] },
+      { key: 'trading.act_deposit_seize', label: 'Request seizure', description: 'Open a seizure approval under government order', groups: ['DEPOSIT_SEIZE_WRITE'] },
+      { key: 'trading.act_deposit_unfreeze', label: 'Request deposit unfreeze', description: 'Open an unfreeze approval — compliance line only, never operations', groups: ['DEPOSIT_UNFREEZE_WRITE'] },
+      { key: 'trading.act_withdraw_create', label: 'Create withdrawals & quotes', description: 'Raise withdrawal orders and pricing quotes', groups: ['TRADING_WITHDRAW_WRITE'] },
+      { key: 'trading.act_withdraw_bounce', label: 'Bounce payouts', description: 'Mark a payout as returned by the bank — executes immediately', groups: ['WITHDRAW_BOUNCE_WRITE'] },
+      { key: 'trading.act_withdraw_refund', label: 'Request sanction refund', description: 'Open a sanction-refund approval on a frozen withdrawal', groups: ['WITHDRAW_REFUND_WRITE'] },
+      { key: 'trading.act_withdraw_unfreeze', label: 'Request withdrawal unfreeze', description: 'Open an unfreeze approval — compliance line only, never operations', groups: ['WITHDRAW_UNFREEZE_WRITE'] },
+      { key: 'trading.act_swap', label: 'Handle swaps', description: 'Raise and progress swap orders', groups: ['TRADING_SWAP_WRITE'] },
+    ],
+  },
+  // ─── Domain: Funds Orders ────────────────────────────
+  // 看得到资金单 != 推得动资金单 —— 这条 SoD 靠 VIEW/ACT 分家才成立。
+  {
+    id: 'funds',
+    label: 'Funds Orders',
+    icon: '🚚',
+    buckets: [
+      { key: 'funds.view', label: 'View funds orders', description: 'Browse the physical transfer mirror of every order', groups: ['FUNDS_ORDER_VIEW'] },
+      { key: 'funds.act_push', label: 'Push funds orders', description: 'Advance or push a funds order leg — seeing one is not moving one', groups: ['FUNDS_ORDER_ACT'] },
+    ],
+  },
+  // ─── Domain: Reconciliation ──────────────────────────
+  {
+    id: 'recon',
+    label: 'Reconciliation',
+    icon: '🔍',
+    buckets: [
+      { key: 'recon.view', label: 'View runs, cases & balances', description: 'Browse reconciliation runs, cases and external balances', groups: ['RECON_RUN_READ', 'RECON_CASE_READ', 'RECON_EXTERNAL_BALANCE_READ'] },
+      { key: 'recon.act_run', label: 'Trigger reconciliation runs', description: 'Kick off a per-wallet reconciliation run', groups: ['RECON_RUN_WRITE'] },
+    ],
+  },
+  // ─── Domain: Pricing ─────────────────────────────────
+  {
+    id: 'pricing',
+    label: 'Pricing',
+    icon: '💰',
+    buckets: [
+      { key: 'pricing.view', label: 'View fee levels', description: 'Browse withdrawal and swap fee levels', groups: ['WITHDRAWAL_FEE_LEVEL_READ', 'SWAP_FEE_LEVEL_READ'] },
+      { key: 'pricing.manage', label: 'Manage fee levels', description: 'Raise fee level creation and change requests — operations signs them off', groups: ['WITHDRAWAL_FEE_LEVEL_WRITE', 'SWAP_FEE_LEVEL_WRITE'] },
+    ],
+  },
+  // ─── Domain: Demo Instruments ────────────────────────
+  // ⚡ 面板模拟的是 Sumsub 那一侧，不是我方后台的职务能力 —— 单列成域，
+  // 才能让「谁能按 ⚡」和「谁能处置单据」在矩阵上是两行。
+  {
+    id: 'demo',
+    label: 'Demo Instruments',
+    icon: '⚡',
+    buckets: [
+      { key: 'demo.act_verdict', label: 'Feed compliance verdicts', description: 'Stand in for the Sumsub console — the only way a compliance officer moves an order', groups: ['DEMO_VERDICT_WRITE'] },
+      { key: 'demo.act_clock', label: 'Fast-forward clocks', description: 'Trip SLA timers and material expiry for demonstration', groups: ['DEMO_CLOCK_WRITE'] },
+    ],
+  },
 ];
 
 /**
