@@ -50,6 +50,8 @@ Last Updated: 2026-08-29
 
   **头号怀疑（未坐实，把握中等偏低）**：`src/modules/trading/swap-transactions/swap-workflow.service.ts:1529` 的 `handleFundsOrderChanged()` 在腿失败/超时时走 `:1636` 的 `onLegFailedSelfHeal`——void 当前 attempt、重建 attempt+1。而 `swap-leg-accounting.ts` 的 `deterministicTransferId(..., attempt)` 把 attempt 编进转账 ID，**TigerBeetle 的 ID 去重因此只挡得住同一 attempt 内的重复，挡不住"这一 attempt 其实已经落账成功却被误判 FAILED/TIMEOUT"**；且 `postLeg`/`advance`/`createLeg` 整套包在 SQL `$transaction` 里，**TigerBeetle 的落账不受该事务回滚保护**。已排查并排除：充值 SUCCESS 路径（成对转账，重复调用不破坏恒等式）、几个 SLA 类 `@Cron`（阈值 30 秒~5 分钟，远长于 demo:all 实测 ~18 秒全程）。
 
+  **另一个可观测症状（2026-08-31 破口场景 Task 8 评审实证）**：失衡命中时，**单个客户钱包的净额会整个变 0**——同一套种子、花名册同样全绿，Kate 的 AED 钱包在一次干净重铺后 `account_flows` 有 8 行真实分录合计 520000，在另一次之后同一查询读出 0。这个症状比 COA 总额差更容易在界面上看见（钱包流水空了），撞上时可作为同一缺陷的旁证。
+
   **下次取证的正确姿势（关键，别错过现场）**：判红后**先别 reset**，在失衡的库上按 `sourceType/sourceNo` 分组，数 `account_flows` 里每个 `swapNo`/`depositNo` 名下 `CLIENT_ASSET` 方向的转账笔数是否 >1（正常恒为 1）——比继续读代码猜更快锁到是哪类单、第几次 attempt。
 
   ⚠️ **归 BACKLOG 不归 PRODUCTION-NOTES**：它动的是「钱动必过账」这条不可违反规则，一旦坐实会动摇账本可信度，不是纯技术兜底 ｜来源: 2026-08-30 破口场景批次 Task 5 收尾时撞见，专项调查报告见 `.superpowers/sdd/coa-imbalance-report.md`
