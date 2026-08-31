@@ -39,7 +39,16 @@ export class AdjustmentApprovalService extends ApprovalHandlerBase {
   @OnEvent(ApprovalEvents.APPROVED, { async: true })
   async handleApproved(event: ApprovalDecisionEvent) {
     if (event.actionType !== this.actionType) return;
-    await this.adjustments.onApproved(event.entityRef, event.decisionByUserId ?? 'SYSTEM');
+    // 铁律⑥ 回归修复：此前只取 decisionByUserId（JWT payload.sub，管理员表
+    // UUID），把同一个事件里现成的 decisionByUserNo / decisionByRole 丢在原地
+    // 没用——详情页 "Decided By"、审计 actorNo/actorDisplayName 于是显示裸 UUID，
+    // 与同屏 "Created By"（走 actor.userNo ?? actor.userId）并排对不上。
+    await this.adjustments.onApproved(
+      event.entityRef,
+      event.decisionByUserId ?? 'SYSTEM',
+      event.decisionByUserNo ?? null,
+      event.decisionByRole ?? null,
+    );
   }
 
   @OnEvent(ApprovalEvents.REJECTED, { async: true })
@@ -60,6 +69,10 @@ export class AdjustmentApprovalService extends ApprovalHandlerBase {
 
   private async routeToRejected(event: ApprovalDecisionEvent) {
     if (event.actionType !== this.actionType) return;
-    await this.adjustments.onRejected(event.entityRef, event.decisionByUserId ?? 'SYSTEM');
+    await this.adjustments.onRejected(
+      event.entityRef,
+      event.decisionByUserId ?? 'SYSTEM',
+      event.decisionByUserNo ?? null,
+    );
   }
 }

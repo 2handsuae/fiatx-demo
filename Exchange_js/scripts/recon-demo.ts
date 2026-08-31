@@ -51,6 +51,7 @@ import { writeFileSync } from 'node:fs';
 import { NestFactory } from '@nestjs/core';
 import { Prisma } from '@prisma/client';
 import { fakeChainTxHash, fakeBankRef } from '../src/common/utils/fake-external-refs.util';
+import { buildDeterministicNo } from '../src/common/utils/no-generator.util';
 import { AppModule } from '../src/app.module';
 import { PrismaService } from '../src/core/prisma/prisma.service';
 import { WalletReconRunService } from '../src/modules/clearing-settle/reconciliation/workflow/wallet-recon-run.service';
@@ -214,13 +215,22 @@ function sourceFor(assetCode: string): 'HEXTRUST' | 'ZAND' {
 // withdraw (via createStuckWithdraw) instead of a synthetic FundsOrder, so no
 // new DEMO-IT- rows are created — this prefix now only cleans rows left by the
 // pre-T5 shell. (The real stuck withdraw's funds_order + withdraw txn ARE
-// cleaned on reset via clearStuckFixtureWithdraws → reset && break is idempotent.)
+// cleaned on reset via clearStuckFixtureWithdraws, so this fixture alone never
+// accumulates leg residue across reruns — that does NOT extend to the whole
+// script: scenario ⑦'s duplicate-deposit injection below writes real TB
+// ledger transfers that this lightweight reset does not undo, see that
+// block's comment for why a full db reset is required after it has run.)
 const DEMO_IN_TRANSIT_REF_PREFIX = 'DEMO-IT-';
 
 /**
- * Delete the demo-fixture stuck WITHDRAWS scenario 1 leaves behind, so
- * `recon:demo:reset && recon:demo:break` is idempotent (no accumulation of
- * non-terminal payout legs → no Pass3 mis-claim → stable 9/9).
+ * Delete the demo-fixture stuck WITHDRAWS scenario 1 leaves behind, so this
+ * fixture alone never accumulates non-terminal payout legs across reruns
+ * (→ no Pass3 mis-claim). Scoped to scenario 1's withdraw fixture only — it
+ * does NOT make `recon:demo:reset && recon:demo:break` idempotent overall:
+ * scenario ⑦'s duplicate-deposit injection (below, in the showcase-B block)
+ * writes real TB ledger transfers that this lightweight reset never undoes.
+ * After ⑦ has run once, a green rerun needs a full db reset
+ * (`stack.sh reset`), not just `recon:demo:reset`.
  *
  * Identification (union of two demo-only signals, run BEFORE the external-line
  * blanket-delete so the tag path still has rows to read):
@@ -243,7 +253,7 @@ const DEMO_IN_TRANSIT_REF_PREFIX = 'DEMO-IT-';
  * creates them) have legs 1/2 already CLEARED (real TB postings + account_flows),
  * so a correct teardown must reverse TB too → that belongs to a full
  * db:reset:business, not this scoped demo reset. They don't affect recon:demo's
- * 9/9 (leg3 has no external line post-reset, so Pass3 can't claim it).
+ * scenario count (leg3 has no external line post-reset, so Pass3 can't claim it).
  */
 async function clearStuckFixtureWithdraws(prisma: PrismaService): Promise<number> {
   const TERMINAL = ['CLEARED', 'FAILED', 'TIMEOUT'];
@@ -305,8 +315,11 @@ async function clearWalletDemo(prisma: PrismaService): Promise<{
     : 0;
   // Delete the fixture stuck withdraws (+ CASCADE their non-terminal legs)
   // BEFORE the external-line blanket-delete, so the tag reverse-lookup still
-  // has its DEMO-STUCK-WD- external rows to read. This is what keeps
-  // reset && break idempotent (no leg accumulation → stable 9/9).
+  // has its DEMO-STUCK-WD- external rows to read. This is what keeps THIS
+  // fixture's legs from accumulating across reruns — it does not by itself
+  // make reset && break idempotent overall; see clearStuckFixtureWithdraws'
+  // docblock above for the ⑦ duplicate-deposit exception (real TB ledger
+  // writes that a lightweight recon:demo:reset never undoes).
   const deletedStuck = await clearStuckFixtureWithdraws(prisma);
   // externalStatementLine/externalBalance blanket-deletes already cover
   // scenario 9's orphan head (accountRef=DEMO-ORPHAN-ADDR) — no separate
@@ -971,7 +984,14 @@ async function injectScenarios(
     const clientAssetId = await accounting.resolveTbAccountId({ code: TB_ACCOUNT_CODES.CLIENT_ASSET, ledger: dupLedger, ownerType: 'SYSTEM' });
     const suspenseId    = await accounting.resolveTbAccountId({ code: TB_ACCOUNT_CODES.DEPOSIT_SUSPENSE, ledger: dupLedger, ownerType: 'CUSTOMER', ownerUuid: owner.id });
     const payableId     = await accounting.resolveTbAccountId({ code: TB_ACCOUNT_CODES.CLIENT_PAYABLE, ledger: dupLedger, ownerType: 'CUSTOMER', ownerUuid: owner.id });
-    const dupSourceNo = `DEMO-DUP-${cutoffDate}-${slotShowcaseB.walletRef.slice(0, 8)}`;
+    // 铁律⑥：展示位乙这一屏，③⑧ 两行的 sourceNo 是真实 DEP 号（原单据自带）；
+    // ⑦ 是这里现造的，必须造成同样的 DEP 号形状，否则演示者要点开去开调账单
+    // 的那一行会显示一个内嵌钱包 UUID 前缀的编造单号，与旁边两行对不上。
+    // buildDeterministicNo 给的是确定性哈希（同一批 cutoffDate+walletRef 永远
+    // 得到同一个号），满足上面 ⚠️ 的可重跑要求；日期段固定 260101，与
+    // generateReferenceNo('DEP') 的真实调用日期（本仓库当下业务日在 2026-08
+    // 之后）不会撞号。
+    const dupSourceNo = buildDeterministicNo('DEP', cutoffDate, slotShowcaseB.walletRef);
     const dupAmount = BigInt(lDup.amount.toFixed(0));
 
     await accounting.executeTransfer({
@@ -1044,7 +1064,7 @@ async function injectScenarios(
     // matcher.service.ts 176 行），STEP_2 两行永远不会出现在
     // reconciliation_line_items 里——钉的键指向一个匹配器压根看不见的流水，
     // ⑦ 因此**必定** MISSED，与"谁跟谁配对"的匹配器行为完全无关（实跑核对：
-    // account_flows 里 sourceNo LIKE 'DEMO-DUP-%' 的 4 行，isExternalCrossing=1
+    // account_flows 里 sourceNo=dupSourceNo 的 4 行，isExternalCrossing=1
     // 的只有 STEP_1 那两行；不加 isExternalCrossing/direction 过滤，findFirst
     // 在这 4 行里挑到的确实是 STEP_2 的一行）。加 isExternalCrossing:true 还不够
     // 唯一（STEP_1 的借贷两行都是 crossing=true，createdAt 相同，谁在前不确定），
@@ -1760,7 +1780,8 @@ async function main() {
   // filters `datetime <= cutoff`, so we must run the engine on a cutoff that is
   // ≥ every fixture line's timestamp. Re-capture `engineCutoff` right after
   // injection (same business day → ExternalBalance cutoffDate still matches;
-  // scenario 2-9 lines are stamped at the earlier cutoff, still ≤ engineCutoff).
+  // every scenario other than #1 has its lines stamped at the earlier cutoff,
+  // still ≤ engineCutoff — don't hardcode the scenario count here, it grows).
   // This mirrors demo:in-transit + recon:rerun, where the recon cutoff is always
   // captured later than the fixture.
   let engineCutoff = cutoff;
@@ -1835,6 +1856,11 @@ async function main() {
       ['status==BREAK', result.status === 'BREAK'],
       [`scenarios ${v.scenariosDetected}/${manifest.scenarios.length}`, v.scenariosDetected === manifest.scenarios.length],
       [`wallets ${v.walletsOk}/${manifest.wallets.length}`, v.walletsOk === manifest.wallets.length],
+      // 堵"多报"：wallets 断言只查每个被注入钱包的桶对不对，从不检查引擎有没有
+      // 在**没被注入**的干净钱包上凭空开案——那种案子不属于任何 manifest 条目，
+      // 不会出现在 walletsMismatched 里，今天零覆盖。casesOpened 是本轮开的案件
+      // 总数，必须恰好等于被注入钱包数：多了就是有干净钱包被错误地判成了 BREAK。
+      [`casesOpened ${result.casesOpened}/${manifest.wallets.length}`, result.casesOpened === manifest.wallets.length],
       ['identities OK', idn.ok],
     ];
     // ⚠️ 循环变量必须叫 `pass`、不能叫 `ok` —— 外层有个 `let ok = true`，收尾的

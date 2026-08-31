@@ -16,24 +16,28 @@ describe('AdjustmentApprovalService', () => {
     expect(svc.workflowType).toBe('RECON');
   });
 
-  it('批准事件转调 onApproved（单号取自 entityRef）', async () => {
+  it('批准事件转调 onApproved（单号取自 entityRef，裁决人业务号/角色取自事件）', async () => {
     const adjustments = { onApproved: jest.fn(), onRejected: jest.fn() };
     const svc = new AdjustmentApprovalService(adjustments as any, null as any);
     await svc.handleApproved({
       // 真实字段名是 decisionByUserId（ApprovalDecisionEvent，approval.constants.ts:135），
       // 不是 decidedByUserId——brief 草稿这里手误，已按真实源码订正，否则生产环境永远落 'SYSTEM'。
+      // 末站整改：handler 现在还要把同一事件里的 decisionByUserNo/decisionByRole
+      // 转发给 onApproved（铁律⑥ 回归修复，见 adjustment.service.ts）。
       actionType: 'RECON_ADJUSTMENT_POST', entityRef: 'ADJ2608280001', decisionByUserId: 'U_OPS',
+      decisionByUserNo: 'OPS-001', decisionByRole: 'OPS_OFFICER',
     } as any);
-    expect(adjustments.onApproved).toHaveBeenCalledWith('ADJ2608280001', 'U_OPS');
+    expect(adjustments.onApproved).toHaveBeenCalledWith('ADJ2608280001', 'U_OPS', 'OPS-001', 'OPS_OFFICER');
   });
 
-  it('驳回事件转调 onRejected', async () => {
+  it('驳回事件转调 onRejected（裁决人业务号取自事件）', async () => {
     const adjustments = { onApproved: jest.fn(), onRejected: jest.fn() };
     const svc = new AdjustmentApprovalService(adjustments as any, null as any);
     await svc.handleRejected({
       actionType: 'RECON_ADJUSTMENT_POST', entityRef: 'ADJ2608280001', decisionByUserId: 'U_OPS',
+      decisionByUserNo: 'OPS-001',
     } as any);
-    expect(adjustments.onRejected).toHaveBeenCalledWith('ADJ2608280001', 'U_OPS');
+    expect(adjustments.onRejected).toHaveBeenCalledWith('ADJ2608280001', 'U_OPS', 'OPS-001');
   });
 
   it('不是自己的 actionType 就不动手', async () => {
@@ -65,8 +69,9 @@ describe('AdjustmentApprovalService —— 取消/超时同归 onRejected（Impo
     const svc = new AdjustmentApprovalService(adjustments as any, null as any);
     await svc.handleCancelled({
       actionType: 'RECON_ADJUSTMENT_POST', entityRef: 'ADJ2608280002', decisionByUserId: 'U_OPS_2',
+      // 事件没带 decisionByUserNo —— handler 回落 null，不是自己现造一个值。
     } as any);
-    expect(adjustments.onRejected).toHaveBeenCalledWith('ADJ2608280002', 'U_OPS_2');
+    expect(adjustments.onRejected).toHaveBeenCalledWith('ADJ2608280002', 'U_OPS_2', null);
   });
 
   it('不是自己的 actionType 就不动手（handleCancelled）', async () => {
@@ -83,7 +88,7 @@ describe('AdjustmentApprovalService —— 取消/超时同归 onRejected（Impo
       actionType: 'RECON_ADJUSTMENT_POST', entityRef: 'ADJ2608280003',
       // 故意不给 decisionByUserId —— 真实超时事件里就没有这个字段。
     } as any);
-    expect(adjustments.onRejected).toHaveBeenCalledWith('ADJ2608280003', 'SYSTEM');
+    expect(adjustments.onRejected).toHaveBeenCalledWith('ADJ2608280003', 'SYSTEM', null);
   });
 
   it('不是自己的 actionType 就不动手（handleExpired）', async () => {
@@ -118,6 +123,8 @@ describe('AdjustmentApprovalService —— 真实事件系统接线（Important 
     traceId: 'TRACE_WIRE_1',
     status: 'APPROVED',
     decisionByUserId: 'U_OPS_WIRE',
+    decisionByUserNo: 'OPS-WIRE-1',
+    decisionByRole: 'OPS_OFFICER',
     ...overrides,
   });
 
@@ -154,7 +161,14 @@ describe('AdjustmentApprovalService —— 真实事件系统接线（Important 
       await new Promise((resolve) => setImmediate(resolve));
 
       const mocks = { onApproved, onRejected };
-      expect(mocks[hookName]).toHaveBeenCalledWith('ADJ2608280009', 'U_OPS_WIRE');
+      // onApproved 收 4 参（含 decisionByRole，铁律⑥ 回归修复要用它取代硬编码
+      // ['ADMIN']）；onRejected 只收 3 参——它不写审计，没有 role 的落点
+      // （见 adjustment.service.ts onRejected 头注释）。
+      if (hookName === 'onApproved') {
+        expect(mocks[hookName]).toHaveBeenCalledWith('ADJ2608280009', 'U_OPS_WIRE', 'OPS-WIRE-1', 'OPS_OFFICER');
+      } else {
+        expect(mocks[hookName]).toHaveBeenCalledWith('ADJ2608280009', 'U_OPS_WIRE', 'OPS-WIRE-1');
+      }
     } finally {
       await moduleRef.close();
     }

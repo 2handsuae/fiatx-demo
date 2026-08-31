@@ -190,8 +190,12 @@ export class AdjustmentService {
       {
         actionType: 'RECON_ADJUSTMENT_POST',
         entityRef: adjustmentNo,          // handler 靠它回查，不另造 payload
+        // 铁律⑥：不放 walletRef——它就是 Wallet.id（内部 UUID），ApprovalDetailPage
+        // 的 Technical Detail 用 JsonBlock 把整个 objectSnapshot 原样渲染成不折叠
+        // 的 <pre>，会把 UUID 直接摆上审批页。案件已经用业务键 caseNo 标识，
+        // impact 已经把后果说成人话，approver 不需要内部钱包引用。
         objectSnapshot: {
-          adjustmentNo, caseNo: row.caseNo, walletRef: row.walletRef, book: row.book,
+          adjustmentNo, caseNo: row.caseNo, book: row.book,
           direction: row.direction, reasonCode: row.reasonCode,
           customerLabel: REASON_SPECS[row.reasonCode as ReasonCode]?.customerLabel ?? null,
           amount: row.amount, assetCode: row.assetCode, ownerNo: row.ownerNo, impact,
@@ -254,13 +258,18 @@ export class AdjustmentService {
     };
   }
 
-  async onRejected(adjustmentNo: string, deciderId: string) {
+  // deciderNo：事件里现成的业务号（handler 侧改取 decisionByUserNo 后新增，
+  // 见 adjustment-approval.service.ts）。铁律⑥ 与 createdByUserId 同一惯例——
+  // 优先业务号，落不到才退回 deciderId（EXPIRED 路径没有裁决人，deciderId
+  // 本身就是 'SYSTEM' 兜底）。不收 deciderRole——本方法不写审计，没有落点，
+  // 收了也是死参数。
+  async onRejected(adjustmentNo: string, deciderId: string, deciderNo?: string | null) {
     const row = await (this.prisma as any).reconciliationAdjustment.findUnique({ where: { adjustmentNo } });
     if (!row) throw new NotFoundException(`调账单不存在：${adjustmentNo}`);
     this.assertTransition(row.status, AdjustmentStatus.REJECTED);
     await (this.prisma as any).reconciliationAdjustment.update({
       where: { adjustmentNo },
-      data: { status: AdjustmentStatus.REJECTED, decidedByUserId: deciderId },
+      data: { status: AdjustmentStatus.REJECTED, decidedByUserId: deciderNo ?? deciderId },
     });
   }
 
@@ -269,11 +278,23 @@ export class AdjustmentService {
    * ⚠ 落在 @OnEvent handler 里跑（AdjustmentApprovalService.handleApproved）——
    * 审批端点会先返回 APPROVED，这里才异步执行；handler 抛出的异常本仓库
    * 现状不外传（见 PRODUCTION-NOTES 2026-08-28），如实描述，不在此处补 try/catch。
+   *
+   * deciderNo/deciderRole：事件里现成的业务号/角色，handler 侧改取
+   * decisionByUserNo/decisionByRole 后新增（见 adjustment-approval.service.ts）。
+   * 铁律⑥：evidence.actorId、decidedByUserId、审计 actorNo/actorDisplayName
+   * 三个落点都优先业务号（与 createdByUserId 同一惯例），落不到才退回
+   * deciderId；actorRolesAtTime 用真实角色取代硬编码 ['ADMIN']——RECON_
+   * ADJUSTMENT_POST 是单步 OPS_OFFICER 策略，审计快照此前记的是一个与
+   * 事实不符的角色。
    */
-  async onApproved(adjustmentNo: string, deciderId: string): Promise<void> {
+  async onApproved(adjustmentNo: string, deciderId: string, deciderNo?: string | null, deciderRole?: string | null): Promise<void> {
     const row = await (this.prisma as any).reconciliationAdjustment.findUnique({ where: { adjustmentNo } });
     if (!row) throw new NotFoundException(`调账单不存在：${adjustmentNo}`);
     this.assertTransition(row.status, AdjustmentStatus.POSTED);
+
+    // 铁律⑥：对人可见的三个落点（evidence.actorId / decidedByUserId / 审计
+    // actorNo·actorDisplayName）一律用它，不直接用 deciderId（JWT UUID）。
+    const deciderDisplay = deciderNo ?? deciderId;
 
     const legs = resolvePostingLegs(row.book as Book, row.direction as Direction);
 
@@ -323,9 +344,14 @@ export class AdjustmentService {
         traceId: row.traceId || row.adjustmentNo,
         debitCode: TB_CODE_TO_COA[legs.debitCode],
         creditCode: TB_CODE_TO_COA[legs.creditCode],
-        assetCurrency: row.assetCode,
+        // ⚠ assetCurrency 必须是 asset.currency，不是 assetCode——同一个 code≠
+        // currency 的坑上面 :296-303 刚论证过（USDT-TRON vs USDT）。这里落到
+        // account_flows.assetCode / tb_transfer_evidence.assetCode，前端筛选
+        // 用的是 asset.currency：传错的话，加密币调账分录在按币种筛选时会从
+        // 列表里消失（本仓库已为同一类错误付过一次学费，见 commit eaaf5eae）。
+        assetCurrency: assetRow?.currency ?? row.assetCode,
         actorType: 'ADMIN',
-        actorId: deciderId,
+        actorId: deciderDisplay,
         memo: row.reasonInternal,
         // ⚠ 必须落到出问题的那个钱包，否则 delta 不归零、case 无法自愈
         debitWalletRef: row.walletRef,
@@ -341,7 +367,7 @@ export class AdjustmentService {
       where: { adjustmentNo },
       data: {
         status: AdjustmentStatus.POSTED,
-        decidedByUserId: deciderId,
+        decidedByUserId: deciderDisplay,
         postedAt: new Date(),
         tbTransferId: tbTransferId.toString(),
       },
@@ -383,7 +409,14 @@ export class AdjustmentService {
         },
         sourcePlatform: 'ADMIN',
       } as any,
-      { actorType: 'ADMIN', actorNo: deciderId, actorDisplayName: deciderId, actorRolesAtTime: ['ADMIN'] },
+      {
+        actorType: 'ADMIN', actorNo: deciderDisplay, actorDisplayName: deciderDisplay,
+        // 真实审批角色取代硬编码 ['ADMIN']——RECON_ADJUSTMENT_POST 是单步
+        // OPS_OFFICER 策略，硬编码会让审计记下一个与事实不符的角色快照。
+        // 兜底 'ADMIN' 只在旧签名两参调用（deciderRole 缺省）时触发，与此前
+        // 行为等价，不影响既有单测。
+        actorRolesAtTime: [deciderRole ?? 'ADMIN'],
+      },
     );
   }
 }

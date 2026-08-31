@@ -166,8 +166,16 @@ describe('Recon adjustment money arcs (e2e, Task 8)', () => {
 
   // ── helpers ──────────────────────────────────────────────────────────────
 
-  function makeActor(userId: string, role: string): ApprovalActorContext {
-    return { actorType: 'ADMIN', userId, userNo: userId, role, roleCodes: [role] };
+  // 末站整改回归锁（Fix ①）：userId 必须 ≠ userNo（同 V1 用例已经写明的道理，
+  // 见下方 soloActor 的同款注释）。此前两者设成同一个字符串，"Decided By" /
+  // 审计 actorNo 到底取的是 decisionByUserId 还是 decisionByUserNo，取哪个都
+  // 显示同一个值，断言测不出差别——这正是 AdjustmentApprovalService 的
+  // handleApproved/routeToRejected 曾经悄悄取错字段（只取 decisionByUserId，
+  // 丢了同一事件里现成的 decisionByUserNo/decisionByRole）却全程照不到的原因。
+  // 传入的字符串代表业务号（call site 用的都是 'E2E_OPS_APPROVER_C1' 这类可读
+  // 业务标识），userId 另配一个明显不同的 UUID 形状的值。
+  function makeActor(userNo: string, role: string): ApprovalActorContext {
+    return { actorType: 'ADMIN', userId: `uuid-${userNo}`, userNo, role, roleCodes: [role] };
   }
 
   async function waitUntil(predicate: () => Promise<boolean>, timeoutMs = 5000, intervalMs = 50): Promise<void> {
@@ -515,6 +523,7 @@ describe('Recon adjustment money arcs (e2e, Task 8)', () => {
 
     const evidence = await tbEvidence.findBySource('RECON_ADJUSTMENT', adjustmentNo);
     expect(evidence.map((e: any) => e.eventCode)).toContain('RECON_ADJUSTMENT_POSTED');
+    expect(evidence[0].actorId).toBe('E2E_OPS_APPROVER_C1'); // 铁律⑥ 回归锁：evidence.actorId 也是三个落点之一
 
     const auditRows = await (prisma as any).auditLogEvent.findMany({
       where: {
@@ -525,6 +534,11 @@ describe('Recon adjustment money arcs (e2e, Task 8)', () => {
     });
     expect(auditRows).toHaveLength(1);
     expect(auditRows[0].actorNo).toBe('E2E_OPS_APPROVER_C1'); // real approver, not SYSTEM
+    // 第三个落点：actorRolesAtTime 此前硬编码 ['ADMIN']——RECON_ADJUSTMENT_POST
+    // 是单步 OPS_OFFICER 策略，真实角色取代硬编码后审计快照才对得上事实。
+    // actorRolesAtTime 落库是 JSON 字符串（schema: String @default("[]")），
+    // 这里直接查真实 Prisma 行，要手动 parse 才能比较。
+    expect(JSON.parse(auditRows[0].actorRolesAtTime)).toEqual(['OPS_OFFICER']);
     // V3：reasonCode/amount/effectiveDate 是顶层列（不是塞在 metadata JSON
     // 里）——adjustment.service.ts onApproved() 里 requiredFields 读的正是这
     // 一层，assertActionSpec 拒写空值。此前只在代码里论证过"这三个字段会落到
@@ -770,6 +784,14 @@ describe('Recon adjustment money arcs (e2e, Task 8)', () => {
     for (const f of flows) {
       expect(f.walletRef).toBe(wallet.id);
       expect(f.isExternalCrossing).toBe(false);
+      // 末站整改回归锁：account_flows.assetCode 必须落 asset.currency（'USDT'），
+      // 不是 row.assetCode（'USDT-TRON'）——admin 按资产筛选（TransferEvidenceList
+      // / AccountFlowList）发的就是 currency，传错的话这笔调账分录会在按 USDT
+      // 筛选时从列表里消失。usdt.code !== usdt.currency 这条前提已经在本条最上面
+      // 断言过，这里两条断言二选一都通过不了才是真绿——本仓库已为同一类错误
+      // （commit eaaf5eae）付过一次学费。
+      expect(f.assetCode).toBe(usdt.currency);
+      expect(f.assetCode).not.toBe(usdt.code);
     }
 
     await walletRecon.run({ cutoff: CUTOFF });
