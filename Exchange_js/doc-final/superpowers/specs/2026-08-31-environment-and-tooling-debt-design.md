@@ -206,13 +206,14 @@ stack-stop.sh:44  查找: pgrep -f "${APP_DIR}/dist/main" ← 绝对
 - 加守卫：`DATABASE_URL` 或 `TB_ADDRESS` 缺失时**立即报错**并指出解法（`bash scripts/on-stack.sh <main|self> <script>`），而非静默连主账本
 - `scripts/reset-stack.sh:54` 的 `${TB_PORT:-3003}` 一并删
 
-### 2.6 栈脚本三个洞
+### 2.6 栈脚本四个洞（第四个于 2026-08-31 写计划时发现）
 
 | 洞 | 修法 |
 |---|---|
 | 孤儿 backend 找不到 | `stack-up.sh:114` 改用绝对路径启动 —— **一处改动同时修好 `stack-stop.sh:44` 的查找端** |
 | 端口被占整个 `up` 中止 | `ensure_port_free` 命中占用时：占用者命令行含本栈 `APP_DIR` → 视为自家残留，杀掉继续；否则打印占用者并退出。**判据沿用 `stop_listener_if_managed` 现成那套**，不新造 |
-| tb 停止缺兜底 | `stack-stop.sh` 补 `stop_listener_if_managed "tb" "${TB_PORT}"`，与 backend/admin/client 对齐 |
+| tb 停止缺兜底 | `stack-stop.sh` 补一个 tb 专用兜底（判据是命令行含 `TB_DATA_FILE`，不是 `APP_DIR`），与 backend/admin/client 对齐 |
+| **（写计划时新发现）从 worktree 跑 `up main` 会杀掉 main 的服务** | `stack-common.sh:147` 的 `RUNTIME_DIR` 只按栈名分、不按工作树分，于是 `stack-up.sh:82` 的 `stack-stop main` 会读到 `/tmp/exchange_js_runtime_main/*.pid`（主工作树正在跑的服务）并杀掉；`assert_branch_rule` 在这条路径上会把 `BRANCH_RULE` 设成当前分支因而放行。修法：`load_stack_config` 的 `main)` 分支在非主工作树时直接拒绝。**与 §2.5 的跨栈默认值同一家族**，同批修掉 |
 
 ### 2.7 运行时状态检查挂到 `stack.sh up`
 
