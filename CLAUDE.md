@@ -53,7 +53,7 @@ cd admin-web  && npx tsc -b --noEmit && cd ..    # ② 管理台（.tsx 与 .spe
 cd client-web && npx tsc -b --noEmit && cd ..    # ③ 客户端
 ```
 
-- ④ jest 只跑本任务相关目录，判据 = **净新失败 0**；测试框架本身的问题不修，记 PRODUCTION-NOTES
+- ④ jest 只跑本任务相关目录，判据 = **全绿**（红名单 2026-08-31 已清零退役）；改了 client-web 另跑 `npm run test:client`（vitest）；改了栈脚本另跑 `bash scripts/stack-env.test.sh`
 - ⑤ 改了前端 → 必须起 preview 渲染 + 截图验证，tsc 通过不算数
 
 **收尾闸——任务收尾 / 合并前，按条件叠加**
