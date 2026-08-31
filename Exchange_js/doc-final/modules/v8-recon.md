@@ -56,7 +56,7 @@
 - 处置·调账（一期，2026-08-28）：`disposition/adjustment-rules.ts`（纯函数：四种分录组合由「账簿 × 方向」定，成因不参与计算；成因闸 `assertReasonAllowed`；边界线守卫 `requiresRelatedOrder`）｜ `disposition/adjustment.service.ts → createDraft()/submit()/onApproved()/onRejected()`（不直写 TB，只调 `AccountingService.executeTransfer`，evidence 必带 `walletRef` + `isExternalCrossing:false`）｜ `disposition/adjustment-approval.service.ts`（四钩子全覆盖，`@OnEvent` 必须显式重标——子类覆盖拿不到基类元数据）｜ `disposition/adjustment.controller.ts`（3 端点）｜ 表 `reconciliation_adjustments`
 - 数据 `account_flows`（账本流水投影，分口径）｜ `external_balances`+`external_statement_lines`（外部归一化两表）｜ `reconciliation_run_wallets`（快照表）
 - 触发 `sweep/reconciliation-sweep.service.ts → dailyRecon()`（@Cron 迪拜 02:30）；读面 `reconciliation-query.service.ts`
-- 演示 `scripts/recon-demo.ts`（九场景 pass/break + manifest 答案键）+ `recon-rerun.ts`
+- 演示 `scripts/recon-demo.ts`（pass/break 两模式，break 按成因铺满全部破口 + manifest 答案键）+ `recon-rerun.ts`
 - 留痕（站5-β，V8_RECON_AUDIT_ACTIONS 4 码）：跑批完成 RECON_RUN_COMPLETED（双通道：cron 系统 / 管理员触发记名，主对象=runNo）｜ 立案 RECON_CASE_OPENED ｜ 自愈 RECON_CASE_AUTO_HEALED ｜ 推单 RECON_PUSH_ORDER（同码双证据通道，继承父单旅程号，主对象=资金单号）——对账件无客户旅程走 NONE 模式，唯推单 INHERIT
 
 ## 6. 演示缺口（BACKLOG 有账）

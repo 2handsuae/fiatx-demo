@@ -144,7 +144,7 @@ Last Updated: 2026-08-29
 
 > 讲「对不上的怎么处置」这一幕的缺口。一期调账单（spec + 8 任务计划已定稿）落地后回来更新前三条。
 
-- [ ] ⭐ **真差异(BREAK)处置闭环未做**：7 平账动作只做推单，补单/冲正/冲销/豁免/偿付 deferred；SOFT_FLAG 里"真两侧对冲错"的调账同 deferred(matcher 调优部分不算)；Finance 人工核实→结案 deferred ｜来源: spec §9
+- [ ] ⭐ **真差异(BREAK)处置闭环未做**：7 平账动作原只做推单；**冲正 / 冲销 / 补记三族已于 2026-08-31 交付**（调账单：选成因 → 填两版理由 → maker-checker 审批 → 落账 → 重对账自愈）；**余下豁免 / 偿付仍 deferred**——因此「不该动账」那几条今天在界面上会显示一个对它们而言错误的按钮，走查时的正确演法是「指出来、不点」（见 `demo/script.md` 第六幕）；SOFT_FLAG 里"真两侧对冲错"的调账同 deferred(matcher 调优部分不算)；Finance 人工核实→结案 deferred ｜来源: spec §9
 
 - [ ] ⭐ **对账复核签核未做**：应干净 run 自动认证 + 人工平账动作走复核签核(maker-checker 推≠批，可按 severity 分级)；复核挂"人工干预动作"、非挂"run 变 pass"。与「平账处置」推单读权限门控债协同(那条=权限粒度、本条=两人复核)｜来源: spec §6
 
@@ -177,6 +177,18 @@ Last Updated: 2026-08-29
 - [ ] **调账单的边界线守卫只查原单「存在」，不查「归属」** —— `adjustment.service.ts` 的 `relatedOrderExists()` 按单号在充值/提现/兑换三表查存在性即放行，**不校验这张单是不是本案客户的**。刻意划在这儿：spec §4 立的规则是「有原单 ⇒ KYT 已对它跑过」，存在性就是这条规则的字面内容；要「引错别人的单」成为问题，前提是操作员恶意，那落在 CLAUDE.md §3「管理员都是善意的」与禁做清单「边界防御」里。存在性检查已堵死 spec 点名的「凭空造钱」，剩下的是引错凭证的数据质量问题、不是闸门被绕。**留此一行是为了日后评 PRD 时不被当成遗漏** ｜来源: 2026-08-28 平账一期末站评审
 - [ ] **对账案件详情页把 walletRef（内部 UUID）挂在 tooltip 上** —— `ReconciliationCasesDetailPage.tsx` 的 `title={kase.walletRef ?? undefined}`，鼠标悬停即露出内部 UUID，踩铁律⑥「管理台不暴露 UUID」。同页可见文本已经正确用了 `walletNo`，只有这个 tooltip 漏了。**既有问题**（平账一期 Task 7 评审用 hunk 边界分析确认非本轮引入）。修法：tooltip 改用 `walletNo`，或直接去掉——可见文本已经够用 ｜来源: 2026-08-28 平账一期 Task 7 评审顺带发现
 
+
+- [ ] **开调账单（DRAFT）这一步零审计**（2026-08-31 终审）：`adjustment.service.ts` 的 `createDraft` 全程没有 `recordByActor`，整个文件只有落账那一处有。运营开一张带金额、成因、关联原单的单，**只要不提审，审计就查不到**。设计稿说"提交/批准/驳回由审批中心留痕"——**唯独没说开单**，而 DRAFT 阶段根本没有审批件。参照兄弟件 `push-order.service.ts`：每个动作都有审计。爆炸半径有限（DRAFT 动不了钱），但铁律①说的是"每个持久化动作" ｜来源: 2026-08-31 整支终审
+
+- [ ] **管理台 Demo Compare 页读到的期望破口恒为空**（既有孤儿，非本批引入）：`reconciliation-query.service.ts:640-641` 解析 `demoManifest` 时取 `.breaks`，而写方从来没写过这个键——旧 `ManifestV2` 写 `injections`，现 `ManifestV3` 写 `scenarios`/`wallets`（终审 checkout 到分支起点核对过）。于是 `?? []` 恒生效，页面把**所有**检出都渲染成 "extra"，且因为 `hasDemoManifest === true` 连"无答案键"的提示都不显示。应是 `recon:gen` 退役时留下的孤儿。`demo/script.md` 没提这个页面 → **要么修、要么直接删页，业主定** ｜来源: 2026-08-31 整支终审
+
+- [ ] **答案键的 `expectedLines[].amount` 是装饰性的、没人读**（2026-08-31 终审）：`verifyManifest` 的 select 和匹配谓词都不碰它，且语义在场景间不统一（有的存注入后的新值、有的存差额）。升级方向是把它变成载荷（谓词里断言外部金额），这样"注入跑了但 delta 算错"也能被抓到——现在的钉行只能抓"整条没了"。⚠️ 终审的判断是**这条优先级低于已完成的完整性断言**（`casesOpened == manifest.wallets.length`，已于 `2e74d6d4` 落地）：金额算错已被 `bumpClosing` 连到桶断言上，而"多报破口"那一侧才是当时完全没人看的 ｜来源: 2026-08-31 整支终审
+
+- [ ] **`recon-demo.ts` 三处 `dedupKey` 里的场景号是旧的**（2026-08-31 终审）：`:1227` 的 `-s5-bank-charge` 实为 ⑭、`:1270` 的 `-s6-missed-deposit` 实为 ⑤、`:1469` 的 `-s7-bank-interest` 实为 ⑮；另外四个是对的，正因如此这三个更误导。**功能无影响**（键含 walletRef 不会撞）。⚠️ **刻意没在本批改**：`dedupKey` 有 `@@unique` 且是 upsert 的 `where`，是机器身份键——改身份键会造成真实的重复行事故。要改只能在一次整库重铺的同时改 ｜来源: 2026-08-31 整支终审
+
+- [ ] **`recon-demo.ts` 报错文案里的钱包 UUID 至少 5 处**（`:727/831/898/947/1295` + ⑫⑬ 两处同形）：commit `7aeeec7d` 专门为前置闸做过"报错改用钱包号 + 客户号"的清扫，同形的兄弟没跟上。**开发者面报错、不是管理台，不破铁律⑥**，纯可读性 ｜来源: 2026-08-31 整支终审
+
+- [ ] **几处注释与实现对不上**（2026-08-31 终审，同属"脚本不消费、没有机制会发现它错"那一类）：① `wallet-recon-run.service.ts:824-826` 称已解释差异行"标成 EXPLAINED，仍在案件页上看得见"——**案件页读的是 `flowComparison[].explainedByAdjustmentNo`，全仓没有任何一处读 `ReconciliationLineItem.status === 'EXPLAINED'`**（除 e2e 断言外无消费者），注释把展示来源说反了；② `adjustment.service.ts:368` 注释错引行号（说 `:181`，实为 `:323`），单测用例名抄了同一个错；③ `adjustment.service.spec.ts:46/57` 说走 `customerLabel`、实现走 `internalLabel`（对该成因恰好同值，所以断言绿着、描述是错的）；④ `adjustment-approval.service.ts:2` 与 `reconciliation.module.ts:23,26` 还写着"onApproved 本任务只留桩"，早已落地 ｜来源: 2026-08-31 整支终审
 
 ## H. 第七幕 · 事后说得清（审计追溯）
 
