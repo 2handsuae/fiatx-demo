@@ -628,7 +628,7 @@ export const ACTION_BUCKET_CATALOG: ActionDomain[] = [
       {
         key: 'gov_approval_policies.manage',
         label: 'Manage approval policies',
-        description: 'Submit approval policy change requests — CISO only',
+        description: 'Submit approval policy change requests — held by senior management and the CISO; SM proposes, CISO decides',
         groups: ['GOV_APPROVAL_POLICY_WRITE'],
         restricted: true,
       },

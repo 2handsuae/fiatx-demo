@@ -49,6 +49,8 @@ USDT（链上，托管 HEXTRUST）＋ AED（法币，ZAND）；客户钱包按�
 | demo:deposit / swap / withdraw | 各域多结局单（走真实流程推进） |
 | demo:in-transit | 在途单（演示"正在发生"） |
 | demo:all | 一键全量（花名册 21 笔逐条比对预期终态 + COA 四恒等式）——开演前跑这个 |
+
+⚠️ **Sumsub 事件页在造数后是空的，这不是坏了。** `demo:all` 的 `driveVerdict()` 直调 `applyKytVerdict()`，**绕过 `sumsub-ingestion` 的 `ingest()`**，所以不写 `sumsub_webhook_events` 表（2026-08-31 实测：造数后 11 笔充值单在、事件表 0 行）。而 ⚡ 模拟面板走的是 `demo-scenario.service.ts → ingest()` 的真实链路——**演示者每按一次 ⚡，这页就多一行**，`dispatchedTo` 显示这条回调被分给了哪个域。第三/四/五幕讲「外面回调了什么进来」时按此口径演：先按 ⚡，再切这页看。
 | recon:demo:pass / break | 对账 pass ／ 9 种破口+答案键（break 现漏检 2 种，BACKLOG 在案） |
 
 ⚠️ 造数铁律：一律走真实流程/模拟端点重放，**禁止直插表**（直插中间态 → 账本负余额 → 假破口，实证教训）。

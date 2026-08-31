@@ -18,7 +18,6 @@ export const PERMISSIONS = {
 
   CUSTOMERS_READ: 'api.get.customers',
   CUSTOMERS_DETAIL_READ: 'api.get.customers_id',
-  PRICING_SWAP_CONFIG_READ: 'api.get.admin_pricing_policies_swap',
 
   CUSTOMER_TAGS_CATALOG_READ: 'api.get.admin_customer_tags_catalog',
   CUSTOMER_TAGS_READ: 'api.get.admin_customers_customerno_effective_tags',
@@ -54,8 +53,6 @@ export const PERMISSIONS = {
     'api.get.admin_audit_evidence_packages_id_download',
   GOV_APPROVALS_READ: 'api.get.admin_control_gates_approvals',
   GOV_APPROVAL_DETAIL_READ: 'api.get.admin_control_gates_approvals_id',
-  GOV_APPROVAL_CREATE: 'api.post.admin_control_gates_approvals',
-  GOV_APPROVAL_SUBMIT: 'api.post.admin_control_gates_approvals_id_submit',
   GOV_APPROVAL_APPROVE: 'api.post.admin_control_gates_approvals_id_approve',
   GOV_APPROVAL_REJECT: 'api.post.admin_control_gates_approvals_id_reject',
   GOV_APPROVAL_CANCEL: 'api.post.admin_control_gates_approvals_id_cancel',

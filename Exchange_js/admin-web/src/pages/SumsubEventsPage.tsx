@@ -186,7 +186,7 @@ export default function SumsubEventsPage() {
         <table className="w-full border-collapse text-sm">
           <thead>
             <tr>
-              {(['Event No', 'Received', 'Type', 'Customer', 'Context', 'Status', 'Retries', ''] as string[]).map(
+              {(['Event No', 'Received', 'Type', 'Customer', 'Context', 'Status', 'Retries'] as string[]).map(
                 (h) => (
                   <th
                     key={h}
@@ -249,7 +249,6 @@ export default function SumsubEventsPage() {
                   <td className="px-3 py-2.5 font-mono text-[11px] text-adm-t3">
                     {item.retryCount}
                   </td>
-                  <td className="px-3 py-2.5" />
                 </tr>
               ))}
           </tbody>

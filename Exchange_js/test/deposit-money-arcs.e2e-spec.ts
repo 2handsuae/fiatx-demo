@@ -473,7 +473,9 @@ describe('Deposit money arcs (e2e, Task A6)', () => {
     await workflow.initiateUnfreeze(
       deposit.id,
       { reason: 'e2e unfreeze', orderRef },
-      makeActor('E2E_UNFREEZE_MAKER_1', 'OPS_OFFICER'),
+      // 2026-08-31：解冻提单人 OPS_OFFICER → COMPLIANCE_OFFICER —— 第一幕职权重划后
+      // DEPOSIT_UNFREEZE_WRITE 全系统只在合规官手里，运营已无此权限（裁决人仍是 MLRO）。
+      makeActor('E2E_UNFREEZE_MAKER_1', 'COMPLIANCE_OFFICER'),
     );
 
     const approvalCase = await latestApprovalCase(ApprovalActionTypes.DEPOSIT_UNFREEZE, deposit.id);

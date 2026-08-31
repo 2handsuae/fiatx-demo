@@ -567,7 +567,7 @@ describe('Withdraw money arcs (e2e, Task 12)', () => {
     expect(actions).toContain(AuditActions.WITHDRAW_FROZEN);
 
     const orderRef = `UNFREEZE-ORDER-${Date.now()}`;
-    await workflow.initiateUnfreeze(w.id, { orderRef, reason: 'e2e unfreeze' }, makeActor('E2E_UNFREEZE_MAKER_WD1', 'OPS_OFFICER'));
+    await workflow.initiateUnfreeze(w.id, { orderRef, reason: 'e2e unfreeze' }, makeActor('E2E_UNFREEZE_MAKER_WD1', 'COMPLIANCE_OFFICER'));
 
     const approvalCase = await latestApprovalCase(ApprovalActionTypes.WITHDRAW_UNFREEZE, w.id);
     expect(approvalCase).toBeTruthy();
