@@ -448,4 +448,12 @@
 
 - [x] ~~[2026-08-31] `runtime-diagnose.sh` 在 sqlite3 全量失败场景下退出码是 1、测试期望 0~~ → **误判，已撤回**：Task 7 实施者拿 `ead30e5c`（Task 8 自己的提交）当"干净基线"对照，那里面已经带着这个 bug 了。控制方用外科式 A/B（只把 `scripts/stack-common.sh` 回退到 Task 5 的 `3908d9b2`）判定：**这是 Task 8 引入的净新失败**——它把"不能从 worktree 操作 main 栈"的守卫放进了 `load_stack_config()`，误伤了只读的 `runtime-diagnose.sh`。已在 `a32b8a35` 修复（守卫提成独立的 `assert_stack_is_local()`，只由五个会动运行态的脚本调用）。**这条也正好证明本轮把判据从「净新失败 0」改成「全绿」是对的：只跟上一个提交比，这类回归会被放过去。**
 
-- [x] ~~`swap-sumsub-scenarios.e2e-spec.ts` 常年 9/9 全红——2026-08-31 环境收口实跑核实**已不复现**（`bash scripts/on-stack.sh self test:e2e --runInBand test/swap-sumsub-scenarios.e2e-spec.ts`，PASS，exit=0；应是第二批 FROZEN 口径落地后被某轮顺带修好，条目未回收）。**如实记一处出入**：实测是 7/7，不是原条目写的 9/9——用例数从 9 变成 7 的原因未深究（没找到相关改动记录，不猜测成因），但与「该 suite 现在全绿」这一核心结论无关。此为本轮核实出的第三处陈账~~
+- [x] ~~`swap-sumsub-scenarios.e2e-spec.ts` 常年 9/9 全红~~ → **2026-08-31 环境收口实跑核实：已不复现**
+  （`bash scripts/on-stack.sh self test:e2e --runInBand test/swap-sumsub-scenarios.e2e-spec.ts` → **PASS 7/7 exit=0**）。
+  **原条目讲的成因与 git 历史不符**（Task 6 评审追出）：它说"第二批把 REJECTED 改判 FROZEN、e2e 期望没跟上"，
+  但 `757bf925`（2026-08-20，正是落地 FROZEN 的那个提交）**在同一个提交里就改了该断言**
+  （该文件 +9/-2），根本不存在"代码已 FROZEN 而测试仍等 REJECTED"的窗口。
+  用例数 9→7 的真因也与本条无关：`954dc012`（2026-08-29 Task A5）删掉了两条**无关**用例
+  （⑦⑧ 材料复核按钮从兑换面板移除，那两个按钮本就不该在交易面板上）。
+  **教训**：销账时如果查不清成因，就只写"实测已不复现 + 当时的命令与输出"，
+  **不要把猜测写进永久记录**——那正是制造下一条陈账的方式。

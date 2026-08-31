@@ -60,7 +60,7 @@ cd client-web && npx tsc -b --noEmit && cd ..    # ③ 客户端
 
 - ⑥ `bash scripts/on-stack.sh main demo:all` 走通并断言终态（worktree 内用 self；`demo/script.md` 就位后升级为按剧本走查）
 - ⑦ 动过钱（记账 / 资金单 / 科目）→ `bash scripts/on-stack.sh main verify:coa`（恒等式 + 负余额）
-- ⑧ 动过 schema / seed / 迁移 → 重铺闸：`bash scripts/stack.sh reset [main|self]` 从零建库重铺（含 TigerBeetle 清理重建，main/self 通用），再跑 ⑥；判据对照 `doc-final/demo/baseline.md`，净新失败 = 0
+- ⑧ 动过 schema / seed / 迁移 → 重铺闸：`bash scripts/stack.sh reset [main|self]` 从零建库重铺（含 TigerBeetle 清理重建，main/self 通用），再跑 ⑥；判据对照 `doc-final/demo/baseline.md`，**全绿**
 
 测试的绿必须来自行为；禁止写「扫源码文本」型断言。
 
