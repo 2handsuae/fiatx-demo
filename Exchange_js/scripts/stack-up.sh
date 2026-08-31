@@ -25,6 +25,8 @@ assert_branch_rule
 
 mkdir -p "${RUNTIME_DIR}"
 
+bash "${SCRIPT_DIR}/check-stack-residue.sh" || true
+
 launch_detached_service() {
   local workdir="$1"
   local logfile="$2"
