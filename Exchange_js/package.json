@@ -56,6 +56,7 @@
     "verify:coa": "ts-node -r tsconfig-paths/register scripts/verify-realtime-coa.ts",
     "verify:audit": "ts-node -r tsconfig-paths/register scripts/verify-audit.ts",
     "verify:demo-data": "DATABASE_URL=\"${DATABASE_URL:-file:./dev.db}\" ts-node -r tsconfig-paths/register scripts/verify-demo-data.ts",
+    "verify:rbac": "ts-node -r tsconfig-paths/register scripts/verify-rbac.ts",
     "prestart:debug": "npm run prisma:generate",
     "start:debug": "nest start --debug --watch",
     "start:prod": "node dist/main",
