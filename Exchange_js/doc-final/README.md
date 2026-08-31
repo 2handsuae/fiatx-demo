@@ -1,15 +1,16 @@
 # doc-final — 读法地图
 
-本目录是**唯一**的项目文档根，禁止在别处另立文档目录。三层关系：**`prd/` = 应然（业主写）｜ `modules/` = 实然（agent 维护）｜ `test-cases/` = 验收**。三者不一致 = 待办，登记 BACKLOG，不改 PRD 迁就代码。
+本目录是**唯一**的项目文档根，禁止在别处另立文档目录。两层关系：**`modules/` = 现状唯一真相（agent 维护）｜ `demo/script.md` + `modules/<篇>` §4 = 验收（演得出来就算过）**。两者不一致 = 待办，登记 BACKLOG。
+
+> `prd/`（应然层）2026-08-26 规划、至今未建，PRD 仍在飞书；旧 `test-cases/`（271 条用例）2026-08-31 整体封箱进 `archive/`——它锚的是飞书 7-14 版 PRD，且不覆盖 8 月建成的异常分支，理由见 [`archive/test-cases/README.md`](archive/test-cases/README.md)。
 
 | 位置 | 是什么 | 谁维护 | 什么时候读 |
 |---|---|---|---|
 | `modules/` | 各模块业务说明 + 关键技术节点（overview + 9 篇，2026-08-26 起为现状唯一真相；旧 reference/truth/ 已整体退役） | agent | 每次任务 |
 | `prd/` | 需求原文（重新撰写中，篇目另定）（待建） | 业主 | 改对应模块前 |
-| `demo/` | 演示剧本（七幕）/ 数据字典 / 模拟说明 | 主线业主定，其余 agent | 演示前；改页面/种子时同步 |
+| `demo/` | 演示剧本（七幕）/ 数据字典 / 跑分基线 / 模拟说明 ｜ **七幕主线即验收口径** | 主线业主定，其余 agent | 演示前；改页面/种子时同步；**验收时** |
 | `decisions.md` | 业务决策记录，只追加 | 业主 | **动任何设计前** |
 | `rules/` | 写法约束 + `review-rubric.md` 评审表 | 业主 | 写码 / 评审时 |
-| `test-cases/` | 验收用例（按 PRD 应然写，不按代码现值写） | agent | 验收 / 写用例时 |
 | `superpowers/{specs,plans}/` | **活层**：进行中任务的 spec / plan（格式由 superpowers 技能自治）；任务合并后移入 `archive/` | agent | 执行任务时 |
 | `glossary/` ｜ `ui-contract/` | 术语表 ｜ 前端 UI 契约 | 业主 | 需要时 |
 | `reference/roadmap.md` | 版本规划（V1–V9；`roadmap.en.md` 为英文渲染，中文版为唯一真相） | 业主 | 排期时 |
