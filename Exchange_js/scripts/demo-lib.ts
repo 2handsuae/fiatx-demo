@@ -443,7 +443,7 @@ export async function runFrankPreStage(ctx: DemoCtx): Promise<Array<{ seq: numbe
   });
   if (!aedWallet) throw new Error(`${frank.email} missing C_VIBAN — run demo:setup first`);
 
-  let dep = await createRosterDeposit(ctx, frank, ctx.aed, aedWallet.id, depositEntry.amount, PayinType.FIAT);
+  let dep = await createRosterDeposit(ctx, frank, ctx.aed, aedWallet.id, depositEntry.amount, PayinType.FIAT, depositEntry.seq);
   await driveVerdict(ctx, dep.id, 'V1_APPROVED');
   dep = await waitDepositStatus(ctx, dep.id, 'SUCCESS');
   console.log(`  #${depositEntry.seq} ${depositEntry.label}: ${dep.depositNo} → ${dep.status}`);
@@ -543,15 +543,20 @@ function verdictArgsForButton(buttonKey: string) {
  *  funds-order events), so this has to poll rather than trust the immediate
  *  post-CONFIRM state. */
 async function createRosterDeposit(
-  ctx: DemoCtx, c: any, asset: any, walletId: string, amount: string, type: PayinType,
+  ctx: DemoCtx, c: any, asset: any, walletId: string, amount: string, type: PayinType, seq: number,
 ): Promise<any> {
   const idx = customerIdx(c.email);
+  // 种子必须按 seq（花名册行号，全表 1-29 唯一）取，不能按 walletId 取——同一钱包在
+  // 同一天入好几笔是常态（如 #24/#25 同为 JACK 的 AED 钱包），按 walletId 取会让
+  // 这几笔的 txHash/referenceNo 完全撞号；生产路径按 fundsOrderNo 取正是同一个
+  // 唯一性要求（funds-order.service.ts buildExternalRefPatch），这里的 funds order
+  // 此刻还没建出来（正是 detected() 要建的），拿不到号，用 seq 顶上。
   const { deposit: dep, fundsOrder: fo }: any = await ctx.deposits.detected({
     assetId: asset.id, toWalletId: walletId, amount,
-    txHash: type === PayinType.CRYPTO ? fakeChainTxHash(walletId) : undefined,
+    txHash: type === PayinType.CRYPTO ? fakeChainTxHash(`DEP${seq}`) : undefined,
     fromAddress: type === PayinType.CRYPTO ? `Tsender${idx}` : undefined,
     fromIban: type === PayinType.FIAT ? `AE00SENDER${idx}` : undefined,
-    referenceNo: fakeBankRef(walletId, new Date()),
+    referenceNo: fakeBankRef(`DEP${seq}`, new Date()),
   });
 
   if (type === PayinType.CRYPTO) {
@@ -663,7 +668,7 @@ export async function runDeposits(ctx: DemoCtx): Promise<Array<{ seq: number; or
     const walletId = (isUsdt ? w.usdt : w.aed).id;
     const type = isUsdt ? PayinType.CRYPTO : PayinType.FIAT;
 
-    let dep = await createRosterDeposit(ctx, c, asset, walletId, entry.amount, type);
+    let dep = await createRosterDeposit(ctx, c, asset, walletId, entry.amount, type, entry.seq);
 
     switch (entry.seq) {
       // seq 22/24-29 是对账素材单（2026-08-30 加）：跟 1/2/3 一样是普通成功充值，
