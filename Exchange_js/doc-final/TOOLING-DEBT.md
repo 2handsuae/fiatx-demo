@@ -12,12 +12,16 @@
 - 业务缺口 → `BACKLOG.md`
 - 技术兜底（幂等 / 并发 / 攻击面 / 故障恢复）→ `PRODUCTION-NOTES.md`（只写不读，规矩不变）
 
+**分类看缺陷本质，不看它从哪个渠道被撞见。** 一个兜底类缺口偶尔以"测试闪红"的形式冒出来，
+它仍然是兜底类，不因此升格进本文件——否则任何偶发红都会被顺势搬进来，
+本文件就会重蹈 `PRODUCTION-NOTES.md` 过载不可读的覆辙。（2026-08-31 Task 10 评审建议）
+
 ## 两条规矩
 
 1. **进来时必须写清怎么复现** —— 一条能跑的命令 + 期望看到什么。写不出复现步骤的，说明还没查清楚，先查。
 2. **修好必须回来划掉** —— 用 `- [x] ~~原文~~` 划掉并注明修它的 commit。
 
-第 2 条是这个文件存在的理由。`PRODUCTION-NOTES.md` 没有这条规矩，于是本轮（2026-08-31 环境收口）核实出**五条陈账**——`on-stack.sh` 缺 PATH、`stack.sh` 从不跑迁移、`verify-swap-self-heal.ts` 失修、`verify-demo-data.ts` 引用已 DROP 的表、`swap-sumsub-scenarios` e2e 常年全红——全部早已修好或已不复现，只是没人回去划掉——**一个不回收的清单，读它的人是在读已经解决的问题**。
+第 2 条是这个文件存在的理由。`PRODUCTION-NOTES.md` 没有这条规矩，于是本轮（2026-08-31 环境收口）核实出**五条陈账**——`on-stack.sh` 缺 PATH、`stack.sh` 从不跑迁移、`verify-demo-data.ts` 引用已 DROP 的表、`swap-sumsub-scenarios` e2e 常年全红、`reset-business-data.ts` 缺 `materialRequest`——全部早已修好或已不复现，只是没人回去划掉——**一个不回收的清单，读它的人是在读已经解决的问题**。
 
 ## 债
 

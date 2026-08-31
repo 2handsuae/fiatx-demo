@@ -73,9 +73,9 @@
 **原 BACKLOG §演示/测试环境卫生（2026-08-13 A1-A6 收官实跑发现，均为既存问题非本轮引入）**
 
 - [ ] **money-arcs 两个 e2e spec 会把 worktree 常驻栈的验收库搞脏**：`test/deposit-money-arcs.e2e-spec.ts` / `withdraw-money-arcs.e2e-spec.ts` 直接在 `MANUAL_CHECKING`/`FROZEN` 等态建 fixture 单**不跑 STEP_1**，随后走退回/上缴弧 post `DEPOSIT_SUSPENSE→CLIENT_ASSET`，把从未入账的科目扣成负数。实测跑完 4 个 e2e suite 后 `verify:coa` 报 5 处负余额（`CLIENT_ASSET` −118000 / 某客户 `DEPOSIT_SUSPENSE` −1e12 等），而**两条恒等式照常全绿**（两边同减正负相消）——正是本轮新增负余额断言首次逮到的实例。对照：`deposit-sumsub-verdicts.e2e-spec.ts` 有物理拦截、跑在专用 `e2e-` 库上。建议这两个 spec 同样切专用库 ｜来源: 2026-08-13 T11
-- [ ] **`deposit-sumsub-verdicts.e2e-spec.ts` 把 DB 路径硬编码成一个早已删除的 worktree 目录**：`process.env.DATABASE_URL = 'file:/tmp/exchange_js_wt_deposit_arcs/e2e-deposit-verdicts.db'`（第 17 行）。任何新 worktree 首跑必挂 `Error code 14: Unable to open the database file`，且需要手动 `mkdir` + `migrate deploy` + `db:base:sync` + `db:biz:init` 才能起。隔离意图正确（防止误清常驻栈，第 22 行还有二道保险），但路径应改成按当前 worktree 派生 ｜来源: 2026-08-13 T11
+- [x] ~~**`deposit-sumsub-verdicts.e2e-spec.ts` 把 DB 路径硬编码成一个早已删除的 worktree 目录**~~ → **2026-08-31 核实：已不复现，第六条陈账**。该 spec 现在用 `resolveE2eDatabaseUrl('e2e-deposit-verdicts.db')`（跟着当前 worktree 的栈目录走，见 `test/e2e-db.ts`），硬编码路径早已移除；文件里仅存的两处 `exchange_js_wt_deposit_arcs` 字样，一处是描述旧状态的注释、一处是错误提示里的举例。
 
-**原 BACKLOG §技术债 — 充值状态机·计划1 引擎（deposit-sumsub，2026-07-28）**
+  **过程留痕（值得记）**：Task 10 评审提 Minor② 说它与 `recon-demo.ts` 的 MANIFEST_PATH 同类、应一并迁入新桶；控制方据此动手迁移，`grep exchange_js_wt_deposit_arcs` 命中两处便认定"仍成立"——**没读命中的是什么**。读了才发现两处都不是活代码。**这正是本仓库最高频的失误形态**（拿字符串命中当行为证据），而且发生在正在建立"进来必须写清怎么复现"那条规矩的人身上。已撤回误迁，改为销账。
 
 - [ ] **payin→COMPLIANCE_PENDING 管道（STEP_1/funds_order 级联）无 e2e 覆盖**：Task 12 e2e 为避开 `detected()→funds_order→事件级联`（fire-and-forget `emit`，测试里会竞态），改为直接 Prisma 建一条 `status=COMPLIANCE_PENDING` 的 deposit + 手动调 `handleDepositStatusChanged()`，绕过了 PAYIN_PENDING→COMPLIANCE_PENDING 这段（payin 检测 + TB Step1 记账）。该段仍缺 e2e 直接覆盖 ｜来源: `test/deposit-sumsub-scenarios.e2e-spec.ts` 文件头注释 + task-13-brief
 
