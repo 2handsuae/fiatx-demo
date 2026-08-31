@@ -29,7 +29,7 @@ stop_listener_if_managed() {
     return 0
   fi
 
-  command_line="$(ps -p "${pid}" -o command= 2>/dev/null || true)"
+  command_line="$(LC_ALL=C.UTF-8 ps -p "${pid}" -o command= 2>/dev/null || true)"
   if [[ "${command_line}" == *"${APP_DIR}"* ]]; then
     terminate_pid "${name}" "${pid}"
   else
@@ -40,6 +40,24 @@ stop_listener_if_managed() {
 stop_listener_if_managed "backend" "${BACKEND_PORT}"
 stop_listener_if_managed "admin" "${ADMIN_PORT}"
 stop_listener_if_managed "client" "${CLIENT_PORT}"
+
+# tb 的判据与另外三个不同：tigerbeetle 的命令行里没有 APP_DIR，有的是数据文件路径。
+# 此前 tb 只靠 PID 文件 + pattern 两条路，PID 文件一旦丢失（例如 reset-stack.sh
+# 在自己的 shell 里 & 起 TB、脚本退出后 PID 文件被下一轮覆盖），旧 TB 就会活着
+# 继续占端口，新 TB 起不来，应用连上的是**带着上一轮全部转账的旧账本**——
+# 这正是 2026-08-30「重铺后余额累加、倍数 1→2→3→4」那次假警报的成因。
+stop_tb_if_managed() {
+  local pid command_line
+  pid="$(lsof -tiTCP:"${TB_PORT}" -sTCP:LISTEN | head -n 1 || true)"
+  [[ -z "${pid}" ]] && return 0
+  command_line="$(ps -p "${pid}" -o command= 2>/dev/null || true)"
+  if [[ "${command_line}" == *"${TB_DATA_FILE}"* ]]; then
+    terminate_pid "tb" "${pid}"
+  else
+    echo "[${STACK}/tb] port ${TB_PORT} owned by non-managed process pid ${pid}, skip"
+  fi
+}
+stop_tb_if_managed
 
 cleanup_orphans_by_pattern "backend-orphan" "${APP_DIR}/dist/main"
 cleanup_orphans_by_pattern "admin-orphan" "${APP_DIR}/admin-web/node_modules/.bin/vite --host 0.0.0.0 --port ${ADMIN_PORT}"

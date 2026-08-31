@@ -73,7 +73,7 @@ rm -f "${BACKEND_PID_FILE}" "${ADMIN_PID_FILE}" "${CLIENT_PID_FILE}" "${TB_PID_F
 ensure_port_free "${BACKEND_PORT}" "backend"
 ensure_port_free "${ADMIN_PORT}" "admin"
 ensure_port_free "${CLIENT_PORT}" "client"
-ensure_port_free "${TB_PORT}" "tb"
+ensure_port_free "${TB_PORT}" "tb" "${TB_DATA_FILE}"
 
 echo "[${STACK}] starting TigerBeetle at ${TB_ADDRESS}"
 mkdir -p "$(dirname "${TB_DATA_FILE}")"
@@ -99,7 +99,7 @@ echo "[${STACK}] starting backend on ${BACKEND_PORT}"
 launch_detached_service \
   "${APP_DIR}" \
   "${BACKEND_LOG}" \
-  "[\"node\",\"dist/main\"]" \
+  "[\"node\",\"${APP_DIR}/dist/main\"]" \
   "{\"API_PORT\":\"${BACKEND_PORT}\",\"ADMIN_URL\":\"${ADMIN_URL}\",\"CLIENT_URL\":\"${CLIENT_URL}\",\"DATABASE_URL\":\"${DB_URL}\",\"TB_ADDRESS\":\"${TB_ADDRESS}\"}" \
   >/dev/null
 
@@ -107,7 +107,7 @@ echo "[${STACK}] starting admin on ${ADMIN_PORT}"
 launch_detached_service \
   "${APP_DIR}/admin-web" \
   "${ADMIN_LOG}" \
-  "[\"./node_modules/.bin/vite\",\"--host\",\"0.0.0.0\",\"--port\",\"${ADMIN_PORT}\"]" \
+  "[\"${APP_DIR}/admin-web/node_modules/.bin/vite\",\"--host\",\"0.0.0.0\",\"--port\",\"${ADMIN_PORT}\"]" \
   "{\"VITE_API_URL\":\"${BACKEND_URL}\"}" \
   >/dev/null
 
@@ -115,7 +115,7 @@ echo "[${STACK}] starting client on ${CLIENT_PORT}"
 launch_detached_service \
   "${APP_DIR}/client-web" \
   "${CLIENT_LOG}" \
-  "[\"./node_modules/.bin/vite\",\"--host\",\"0.0.0.0\",\"--port\",\"${CLIENT_PORT}\"]" \
+  "[\"${APP_DIR}/client-web/node_modules/.bin/vite\",\"--host\",\"0.0.0.0\",\"--port\",\"${CLIENT_PORT}\"]" \
   "{\"VITE_API_URL\":\"${BACKEND_URL}\"}" \
   >/dev/null
 

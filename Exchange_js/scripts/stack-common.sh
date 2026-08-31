@@ -96,15 +96,20 @@ load_stack_config() {
   case "$stack" in
     main)
       STACK="main"
-      if [[ "${CURRENT_WT_DIR}" == "${ROOT_DIR}" ]]; then
-        WT_DIR="${ROOT_DIR}"
-        APP_DIR="${ROOT_DIR}/Exchange_js"
-        BRANCH_RULE="main"
-      else
-        WT_DIR="${CURRENT_WT_DIR}"
-        APP_DIR="${WT_DIR}/Exchange_js"
-        BRANCH_RULE="${current_branch}"
+      # main 栈的运行态（RUNTIME_DIR / PID 文件 / DB / TB）是全局唯一的，只按栈名分、
+      # 不按工作树分。从 worktree 操作 main 栈，会让 stack-up.sh:82 的 stack-stop
+      # 读到 /tmp/exchange_js_runtime_main/*.pid 并杀掉主工作树正在跑的服务。
+      # CLAUDE.md §10 已有铁律"绝不在主工作树切分支跑服务"，这里补上反向的一半。
+      if [[ "${CURRENT_WT_DIR}" != "${ROOT_DIR}" ]]; then
+        echo "[stack] 拒绝：不能从 worktree 操作 main 栈。" >&2
+        echo "[stack]   当前工作树: ${CURRENT_WT_DIR}" >&2
+        echo "[stack]   主工作树:   ${ROOT_DIR}" >&2
+        echo "[stack]   要起本树的栈用 'self'；要动 main 栈请到主工作树执行。" >&2
+        return 1
       fi
+      WT_DIR="${ROOT_DIR}"
+      APP_DIR="${ROOT_DIR}/Exchange_js"
+      BRANCH_RULE="main"
       BACKEND_PORT="3000"
       ADMIN_PORT="3001"
       CLIENT_PORT="3002"
@@ -357,21 +362,45 @@ bootstrap_database_if_needed() {
   fi
 }
 
+# 端口被占时：占用者是本栈自己的残留（命令行含 APP_DIR）→ 杀掉继续；
+# 是别人的 → 打印占用者并返回非零（调用方在 set -e 下会中止，这是对的：
+# 跨栈误杀会毁掉并行会话的验收库）。
+#
+# 此前无条件返回非零，于是 admin/client 端口被上次会话遗留的 vite 占着时，
+# 整个 up 中止、后续服务全不起，且看着不像出错（PRODUCTION-NOTES:382，
+# 登记 50 天，两个实施者各撞一次）。
 ensure_port_free() {
   local port="$1"
   local name="$2"
+  # marker：判断"占用者是不是本栈自己"的字符串锚点。backend/admin/client 三个
+  # 服务的命令行里都带 APP_DIR（默认值），但 tigerbeetle 的命令行里没有
+  # APP_DIR、只有数据文件路径（与 stop_tb_if_managed 的判据同源），所以
+  # tb 调用方要显式传第三个参数覆盖默认值,见 stack-up.sh 里 tb 的调用点。
+  local marker="${3:-${APP_DIR}}"
 
-  if lsof -nP -iTCP:"${port}" -sTCP:LISTEN >/dev/null 2>&1; then
-    local pid
-    local command_line
-    pid="$(lsof -tiTCP:"${port}" -sTCP:LISTEN | head -n 1 || true)"
-    command_line="$(ps -p "${pid}" -o command= 2>/dev/null || true)"
-    echo "[${STACK}/${name}] port ${port} is already in use by pid ${pid}" >&2
-    if [[ -n "${command_line}" ]]; then
-      echo "[${STACK}/${name}] command: ${command_line}" >&2
-    fi
+  if ! lsof -nP -iTCP:"${port}" -sTCP:LISTEN >/dev/null 2>&1; then
+    return 0
+  fi
+
+  local pid command_line
+  pid="$(lsof -tiTCP:"${port}" -sTCP:LISTEN | head -n 1 || true)"
+  command_line="$(LC_ALL=C.UTF-8 ps -p "${pid}" -o command= 2>/dev/null || true)"
+
+  if [[ -n "${command_line}" && "${command_line}" == *"${marker}"* ]]; then
+    echo "[${STACK}/${name}] port ${port} 被本栈残留占用 (pid ${pid})，清理后继续"
+    terminate_pid "${name}" "${pid}"
+    for _ in {1..20}; do
+      lsof -nP -iTCP:"${port}" -sTCP:LISTEN >/dev/null 2>&1 || return 0
+      sleep 0.2
+    done
+    echo "[${STACK}/${name}] port ${port} 清理后仍被占用，放弃" >&2
     return 1
   fi
+
+  echo "[${STACK}/${name}] port ${port} 被非本栈进程占用 (pid ${pid})，拒绝启动" >&2
+  [[ -n "${command_line}" ]] && echo "[${STACK}/${name}] command: ${command_line}" >&2
+  echo "[${STACK}/${name}] 本栈 APP_DIR=${APP_DIR}；跨栈杀进程会毁掉并行会话的库，故不自动清理" >&2
+  return 1
 }
 
 capture_listener_pid() {

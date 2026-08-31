@@ -440,3 +440,9 @@
 
   唯一写入方 `CLIENT_BANK_ACCOUNT_ENABLEMENT` 闸门类型已退役（该闸硬要求绑定的 `walletRole=C_CMA` 钱包上一轮已从种子退役，闸门本就建不出来，业主拍板整型退役）；列本身可空、退役前这类闸门在库里就是 0 行，不为此单独加迁移重铺。值得清的时机：下次再动 `regulatory_gate_items` 表 schema 时顺手带走——该列、其 `wallet` 外键关系，以及 `regulatory-gates.service.ts` 里仍保留的 `wallet` include/序列化字段（`mapGate()` 的 `walletId`/`wallet` 投影、`getGateRowOrThrow`/`create`/`update`/`submit`/`recordFeedback`/`bindReceipt`/`markEffective`/`revoke` 里逐处 `include: { wallet: true }`）与 DTO 的 `walletId?: string` 输入字段——这些目前留着是因为只服务这一个已退役列，删不删不影响另外两种闸门。
 - [x] ~~上述 2 条随 `scripts/` 死码清理一并销账（2026-08-31 环境收口 Task A1）：`e2e-confiscation-async.ts` 的没收覆盖已由 3 个 e2e + 7 个单测承接；`backfill-internal-fund-keys.ts` 引用的 `InternalFund` 表早已 DROP~~
+
+- [2026-08-31] **`stack-up.sh` 内嵌的预清理调用参数对不上，self 栈的"先 stop 再 up"从未真正执行过** | `scripts/stack-up.sh:70` | Task 8 [D2] 栈脚本四个洞，修 `ensure_port_free` 自愈时顺带发现
+
+  机制：`bash "${SCRIPT_DIR}/stack-stop.sh" "${STACK}" >/dev/null 2>&1 || true` 传的是 `load_stack_config` 解析后的栈名（self 栈是 `wt_<worktree名>`，如 `wt_env_debt`），而 `stack-stop.sh` 期望收到的是原始参数 `main`/`self`（它自己会再调一次 `load_stack_config "$1"`）。解析后的名字落进 `case` 的 `*) usage_stack_name; return 1 ;;` 分支，直接返回非零，`set -euo pipefail` 下子进程当场退出——`stop_pid_file_process`/`stop_listener_if_managed`/`stop_tb_if_managed` 一行都没跑到。外层 `|| true` 把这个失败吞得干干净净，`up` 看起来若无其事地继续。main 栈不受影响（`STACK="main"`，传回去精确匹配 `main)` 分支）。实测：`bash scripts/stack-stop.sh wt_env_debt` → `Usage: ... <main|self>`，exit=1。
+  症状：仅从现象看不出来——因为 `ensure_port_free` 的自愈分支（本文件同批修复）已经能独立兜住四个端口被自家残留占用的情形，这个预清理调用的失效被完全盖住、不产生可观察的故障。是对照直接跑 `stack-stop.sh self` 和内嵌调用的行为差异时才看出来的。
+  修法（生产化时）：`stack-up.sh:70` 改传原始入参 `"$1"`（调用 `stack.sh up self` 时的那个字面量），不要传解析后的 `${STACK}`。
