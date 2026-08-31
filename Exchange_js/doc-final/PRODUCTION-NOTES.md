@@ -97,7 +97,6 @@
 
 **原 BACKLOG §对账应然设计 gap（2026-07-12 target design）**
 
-- [ ] **`scripts/e2e-confiscation-async.ts` 的修复未实跑验证(2026-07-31 终审必修项 Important 3)**:该脚本是没收两阶段(CONFISCATING/CONFISCATED 两态各跑一次 `verify:coa`)唯一的活体 money-path 验收脚本。终审发现它 `waitFor(COMPLIANCE_PENDING+BELOW_MIN)` 后直接调 `initiateConfiscation`,但新前置是 `status===OPERATION_PENDING`,必抛 `Deposit has no BELOW_MIN hold to confiscate`。已修复(`makeBelowMinDeposit` 补一次 `ctx.depositWf.applyKytVerdict(..., {verdict:'approved'})` 把单驱到 `OPERATION_PENDING` 再没收,及配套断言标签)。**但本次未实跑**——脚本 bootstrap 一个真实 Nest app 跑真实记账(TigerBeetle post),而本 worktree `.env` 的 `DATABASE_URL` 指向的正是该 worktree**当前正被业主验收的常驻栈库**(`/tmp/exchange_js_wt_deposit_arcs/dev.db`),与本轮"不要动数据库"的硬约束冲突,故只改代码、未执行验证。需要:找一个隔离 DB+TigerBeetle 实例(或专用 e2e 库,参照上面 `deposit-sumsub-verdicts.e2e-spec.ts` 的物理护栏模式)把这个脚本真跑一次,确认 CONFISCATING/CONFISCATED 两态 `verify:coa` 仍 PASS ｜来源: 2026-07-31 终审必修项 Important 3
 - [ ] **`admin-web` 的 `.spec.ts` 不在任何 tsc 闸门内**（`tsconfig.app.json` 的 `exclude` 含 `src/**/*.spec.ts`，后端两个 tsconfig 也照不到 admin-web），类型错只有 `npx jest` 跑到才暴露。本批新建的 `module-parity.spec.ts` 即受此影响 ｜来源: 2026-08-23 第五批
 
 ## 性能
@@ -217,7 +216,6 @@
 **原 BACKLOG §技术债 — 制裁命中分主体（sanction-subject-split，2026-08-20 落地）**
 
 - [ ] **兑换 `FROZEN` 幂等闸让制裁处置不可重入，与 `REJECTED` carve-out 不对称**：`REJECTED`/`SUCCESS` 终态有 carve-out 允许 webhook 重投时重跑 `handleRejectDisposition()`（"单已终态≠处置已落地"）；`FROZEN` 没有——已冻结的单再收裁决在 `applyKytVerdict()` 顶部就被幂等闸拦下（写 `SWAP_KYT_VERDICT_IGNORED`），到不了处置逻辑。本批裁定**不改**：改它会偏离第一批（合规裁决落地）立的跨域幂等契约；且冻单排在冻人之后，能走到 `FROZEN` 就意味着人已经被限制，不存在"单冻了、处置没跟上"的风险窗口。**补充（2026-08-20 终审）**：上面"能走到 FROZEN 就意味着人已经被限制"这条论断只对**限制**成立，不覆盖 `markHardLineDisposition` 这个 sticky 标记——若客户是在**别的域**（如充值）命中 `SANCTION_APPLICANT` 触发跨域广播冻单，本单在收到自己的裁决前就已被那次广播冻成 `FROZEN`，随后自己到达的裁决撞上这道幂等闸提前 return，`handleRejectDisposition()`（连同其内的 sticky 章）从未跑到；MLRO 解除限制后，该客户下一笔软线兑换拒绝重新算出 `alreadyHardLined=false`，补料请求重新暴露 ｜来源: 2026-08-20 制裁分主体批次
-- [ ] **`scripts/backfill-internal-fund-keys.ts` 是死码**：引用已 DROP 的 `internalFund` 表（`prisma.internalFund.findMany/update`），且硬编码了已废弃的 `/tmp/exchange_js_branch` 路径。因此 `tsconfig.test.json` 刻意不含 `scripts/`，避免这份死码把"改了跨 src/test 边界类型后做一次全覆盖检查"这道闸拖成非二元结果 ｜来源: 2026-08-20 制裁分主体批次
 - ~~**兑换域缺 `SANCTION_COUNTERPARTY` 的 e2e 覆盖**~~ —— **已删除（2026-08-20 终审收口，业主裁定）**：兑换是平台内 crypto↔fiat 余额交换，没有第三方对手方，Sumsub 不可能对一笔 swap 回传"对手方被制裁"，这个场景本身不存在——测不了也不该测。原条目登记的补测任务连同其依据的 demo fixture 按钮 `V4B_REJECTED_SANCTION_COUNTERPARTY` 已随本次收口一并物理删除（`hasApplicantSanctionHit()` 只认 `SANCTION_APPLICANT` 保留为防御性写法，不代表该分支被期待触达）；`SANCTION_COUNTERPARTY` 在充值/提现两域仍有真实外部对手方场景，覆盖不受影响 ｜来源: 2026-08-20 制裁分主体批次登记 → 同日终审收口判定为不适用、删除
 - [ ] **双裁决毫秒级并发可开出两张同因由便签**：两笔不同订单（如同一客户的一笔充值 + 一笔提现）的 KYT rejected webhook 若在毫秒级窗口内并发到达，各自独立调用 `CustomerRestrictionsService.open({cause:'SANCTION'})`，`openWithin()` 的"查重复→插入"不是跨请求原子的，理论上可能各自查到"无重复"后都插入，开出两张同因由的 OPEN 便签。窗口极窄、后果轻（MLRO 需要多签一次撕两张而非一张）；要根治需要加客户级锁，成本收益不划算，暂不做 ｜来源: 2026-08-20 制裁分主体批次
 - 🟡 **`scripts/reset-business-data.ts` 的删除清单缺 `materialRequest`** —— 该表对 `CustomerMain` 有必填 FK，库里若有历史材料请求行，`npm run db:biz:reset` 会撞 FK 违例中止。本批在 worktree 栈重铺时实际撞上，手工清阻塞数据后才跑通（未改该脚本，非本批范围）｜来源: 2026-08-20 制裁分主体批次 Task 12 重铺实测
@@ -441,3 +439,4 @@
 - [2026-08-30] **`regulatory_gate_items.walletId` 列退役后成死列** ｜ `prisma/schema.prisma` `RegulatoryGateItem.walletId` ｜ CLIENT_BANK_ACCOUNT_ENABLEMENT 监管闸门退役
 
   唯一写入方 `CLIENT_BANK_ACCOUNT_ENABLEMENT` 闸门类型已退役（该闸硬要求绑定的 `walletRole=C_CMA` 钱包上一轮已从种子退役，闸门本就建不出来，业主拍板整型退役）；列本身可空、退役前这类闸门在库里就是 0 行，不为此单独加迁移重铺。值得清的时机：下次再动 `regulatory_gate_items` 表 schema 时顺手带走——该列、其 `wallet` 外键关系，以及 `regulatory-gates.service.ts` 里仍保留的 `wallet` include/序列化字段（`mapGate()` 的 `walletId`/`wallet` 投影、`getGateRowOrThrow`/`create`/`update`/`submit`/`recordFeedback`/`bindReceipt`/`markEffective`/`revoke` 里逐处 `include: { wallet: true }`）与 DTO 的 `walletId?: string` 输入字段——这些目前留着是因为只服务这一个已退役列，删不删不影响另外两种闸门。
+- [x] ~~上述 2 条随 `scripts/` 死码清理一并销账（2026-08-31 环境收口 Task A1）：`e2e-confiscation-async.ts` 的没收覆盖已由 3 个 e2e + 7 个单测承接；`backfill-internal-fund-keys.ts` 引用的 `InternalFund` 表早已 DROP~~
