@@ -57,7 +57,7 @@ describe('WalletsService', () => {
       (prisma as any).wallet.findUnique.mockResolvedValue({
         id: 'wallet-protected',
         walletNo: 'WA-SYS-001',
-        walletRole: WalletRole.C_MAIN,
+        walletRole: WalletRole.F_LIQ,
         ownerType: OwnerType.PLATFORM,
         ownerId: null,
         ownerNo: null,
@@ -67,7 +67,7 @@ describe('WalletsService', () => {
       await expect(
         service.changeStatus('wallet-protected', WalletStatus.DISABLED, mockActor),
       ).rejects.toThrow(
-        'C_MAIN wallets are system-provisioned and cannot be manually disabled',
+        'F_LIQ wallets are system-provisioned and cannot be manually disabled',
       );
       expect((prisma as any).wallet.update).not.toHaveBeenCalled();
     });
