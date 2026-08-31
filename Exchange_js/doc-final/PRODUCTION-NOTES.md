@@ -219,7 +219,7 @@
 - ~~**兑换域缺 `SANCTION_COUNTERPARTY` 的 e2e 覆盖**~~ —— **已删除（2026-08-20 终审收口，业主裁定）**：兑换是平台内 crypto↔fiat 余额交换，没有第三方对手方，Sumsub 不可能对一笔 swap 回传"对手方被制裁"，这个场景本身不存在——测不了也不该测。原条目登记的补测任务连同其依据的 demo fixture 按钮 `V4B_REJECTED_SANCTION_COUNTERPARTY` 已随本次收口一并物理删除（`hasApplicantSanctionHit()` 只认 `SANCTION_APPLICANT` 保留为防御性写法，不代表该分支被期待触达）；`SANCTION_COUNTERPARTY` 在充值/提现两域仍有真实外部对手方场景，覆盖不受影响 ｜来源: 2026-08-20 制裁分主体批次登记 → 同日终审收口判定为不适用、删除
 - [ ] **双裁决毫秒级并发可开出两张同因由便签**：两笔不同订单（如同一客户的一笔充值 + 一笔提现）的 KYT rejected webhook 若在毫秒级窗口内并发到达，各自独立调用 `CustomerRestrictionsService.open({cause:'SANCTION'})`，`openWithin()` 的"查重复→插入"不是跨请求原子的，理论上可能各自查到"无重复"后都插入，开出两张同因由的 OPEN 便签。窗口极窄、后果轻（MLRO 需要多签一次撕两张而非一张）；要根治需要加客户级锁，成本收益不划算，暂不做 ｜来源: 2026-08-20 制裁分主体批次
 - 🟡 **`scripts/reset-business-data.ts` 的删除清单缺 `materialRequest`** —— 该表对 `CustomerMain` 有必填 FK，库里若有历史材料请求行，`npm run db:biz:reset` 会撞 FK 违例中止。本批在 worktree 栈重铺时实际撞上，手工清阻塞数据后才跑通（未改该脚本，非本批范围）｜来源: 2026-08-20 制裁分主体批次 Task 12 重铺实测
-- 🟡 **`scripts/verify-demo-data.ts` 的 `scanR1()` 引用已 DROP 的 `internalFund` 表**（`:47` `prisma.internalFund.findMany()`）—— `schema.prisma` 里只剩 `InternalFundAuditLog`，`InternalFund` 模型已在 funds_orders 重构中删除。后果：`npm run db:seed:business` 末尾内建的 `verify:demo-data` 校验步骤**必炸**（业务数据本身在此之前已成功落库，不影响 seed 结果，但开发者会看到一次失败）。与本节 `backfill-internal-fund-keys.ts` 那条同根因、不同文件｜来源: 2026-08-20 制裁分主体批次 Task 12 重铺实测
+- [x] ~~**`scripts/verify-demo-data.ts` 的 `scanR1()` 引用已 DROP 的 `internalFund` 表**（`:47` `prisma.internalFund.findMany()`）—— `schema.prisma` 里只剩 `InternalFundAuditLog`，`InternalFund` 模型已在 funds_orders 重构中删除。后果：`npm run db:seed:business` 末尾内建的 `verify:demo-data` 校验步骤**必炸**（业务数据本身在此之前已成功落库，不影响 seed 结果，但开发者会看到一次失败）。与本节 `backfill-internal-fund-keys.ts` 那条同根因、不同文件｜来源: 2026-08-20 制裁分主体批次 Task 12 重铺实测~~ → **2026-08-31 环境收口核实：已不复现**，`verify-demo-data.ts` 里已无 `prisma.internalFund` 调用（只剩 `:142` 一句说明注释）。本轮把 `scripts/**` 纳入 tsc 后 20/20 全覆盖、0 错——若该调用还在，必然报错。本条是陈账
 - ~~**【需业主裁定】`SANCTION_COUNTERPARTY` 在兑换 vs 充值/提现的客户面结果相反**~~ —— **已关闭（2026-08-20 终审收口，业主裁定：该场景不存在）**：终审提这条时的前提是"兑换域会收到 `SANCTION_COUNTERPARTY`"，而业主指出**兑换是平台内 crypto↔fiat 余额交换、没有第三方对手方**（truth `v6-swap.md` §概述/§L1 两处早有成文表述："无第三方对手方"，那正是兑换不做 Travel Rule、不做大额审批门的原因）。Sumsub 不可能对一笔 swap 回传"对手方被制裁"，所以"兑换披露 vs 充值提现静默"这个跨域不一致**不会发生**。铸出该形状的 demo fixture `V4B_REJECTED_SANCTION_COUNTERPARTY`（兑换域那份）已随收口物理删除；`hasApplicantSanctionHit()` 只认 `SANCTION_APPLICANT` 保留为防御性写法。充值/提现两域有真实外部对手方，其 `SANCTION_COUNTERPARTY` 行为不受影响 ｜来源: 2026-08-20 制裁分主体批次终审登记 → 同日业主裁定关闭
 - ~~**【小】兑换域的 `SANCTION_COUNTERPARTY` 审计与普通软线拒绝同形**~~ —— **已关闭（2026-08-20 终审收口，业主裁定：该场景不存在）**：与上一条同根因、同依据 —— 兑换域无第三方对手方，`SANCTION_COUNTERPARTY` 不会到达该域，故不存在"审计分不出对手方制裁命中"的问题。充值/提现两域已把 `sceneTag` 标签名写进各自审计文案，覆盖充分 ｜来源: 2026-08-20 制裁分主体批次终审登记 → 同日业主裁定关闭
 
@@ -298,7 +298,7 @@
 - [ ] **后端兑换详情接口是否还在吐 `restrictionRows`/`hardLineDispositionedAt`**：前端已零消费（第五批删了那个侧栏组），若后端 `include` 是专为这块加的即为死重 ｜来源: 2026-08-23 第五批 Task 4 审查
 - [ ] **兑换详情页卡片编号注释重复**：现读作 `1,2,4,7,4,5,6,7,8,6,11`（4/7/6 各重复、缺 3/9/10），充值是干净的 1–10、提现 1–9。基线 `6236d9b9` 就已经坏 ｜来源: 2026-08-23 第五批终审
 - [ ] **兑换详情页注释写「7 个单步裁决按钮」实为 8 个**（V1–V8，后端 fixture 也是 8）；三页都还写着「admin-web 暂无测试基建」，而第五批已建 `module-parity.spec.ts`（40 条断言，jest 真跑）｜来源: 2026-08-23 第五批终审
-- [2026-08-27] `scripts/verify-swap-self-heal.ts` 失修：查询用已删除的 audit 列 entityNo（8/25 审计改表遗留），且其「第 2+ 次重试审计被吞」断言描述的旧行为已被站3-β2 修复（requestId 全携 randomUUID）——两点都过期，脚本当前跑不了也不再反映现实
+- [x] ~~[2026-08-27] `scripts/verify-swap-self-heal.ts` 失修：查询用已删除的 audit 列 entityNo，且其「第 2+ 次重试审计被吞」断言描述的旧行为已被站3-β2 修复——两点都过期，脚本当前跑不了也不再反映现实~~ → **2026-08-31 环境收口 Task A1 直接删除该脚本销账**（兑换自愈现有 2 个 e2e + 4 个单测覆盖）
 
 
 
