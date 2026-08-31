@@ -1473,6 +1473,7 @@ git commit -m "feat(demo): 记错钱包——唯一跨两个钱包的成因，�
 ### Task 9: 收尾——闸门、文档、基线
 
 **Files:**
+- Modify: `scripts/recon-demo.ts`（三处过期的场景数注释）
 - Modify: `doc-final/demo/baseline.md`
 - Modify: `doc-final/demo/script.md`
 
@@ -1568,6 +1569,17 @@ Expected: 失败套数与红名单**逐字一致**（`role-definition-create-wor
 - [ ] **Step 4: 提交**
 
 ```bash
+`scripts/recon-demo.ts` —— **三处过期的人看字符串**（Task 7 评审逮到；它们不被脚本消费，
+**没有任何机制会发现它们是错的**，只能靠人清点）：
+
+- `:654-655` 「inject 8 scenarios (ids 1/2/3/4/5/6/14/15 — the rest of the 15-scenario
+  matrix lands in Task 5-8)」→ 现在是 15 条全在本文件里，Task 5-8 已完成，这句整个作废
+- `:1684` 「inject 8 scenarios + write manifest」→ 15
+
+⚠️ **别顺手把数字改成写死的 15 就完事**——本批已因写死数字栽过（Task 1 的 `toHaveLength(21)`）。
+这里是注释不是断言，写 15 可以，但要写成"当前 15 条"这种会随下次扩充而显然过期的说法，
+或者干脆不写数字、只说"注入全部场景"。
+
 `doc-final/demo/script.md`（**走查剧本，业主演示时照着念**，四处已作废）：
 
 - `:49` 「break 场景 `recon:demo:break`（**9 种破口**）」→ 15 种
@@ -1585,7 +1597,7 @@ Expected: 失败套数与红名单**逐字一致**（`role-definition-create-wor
 系统分不出、必须人去查"的活教材。另有 3 条（⑤⑨⑥）显示"无处置动作"，那是安全的。
 ```
 
-git add doc-final/demo/baseline.md doc-final/demo/script.md
+git add scripts/recon-demo.ts doc-final/demo/baseline.md doc-final/demo/script.md
 git commit -m "docs(demo): 基线刷新——花名册 29 行、破口 15 场景 10 钱包"
 ```
 
