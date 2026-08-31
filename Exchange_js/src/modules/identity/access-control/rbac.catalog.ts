@@ -719,6 +719,8 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
   SUPER_ADMIN: [],
   SENIOR_MANAGEMENT_OFFICER: [
     'BASE_ACCESS',
+    'IAM_MEMBER_READ',
+    'IAM_ROLE_READ',
     'AUDIT_READ',
     'RISK_DECISION_RECORD_READ',
     'GOV_APPROVAL_READ',
@@ -732,6 +734,10 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
   ],
   TECH_OFFICER: [
     'BASE_ACCESS',
+    'IAM_MEMBER_READ',
+    'IAM_ROLE_READ',
+    'IAM_MEMBER_MANAGE',
+    'IAM_ROLE_ASSIGN',
     'IAM_CREDENTIAL_RESET',
     'IAM_ROLE_DEFINE',
     'AUDIT_READ',
@@ -754,6 +760,8 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
   ],
   OPS_OFFICER: [
     'BASE_ACCESS',
+    'IAM_MEMBER_READ',
+    'IAM_ROLE_READ',
     'AUDIT_READ',
     'GOV_APPROVAL_READ',
     'ASSET_CONFIG_READ',
@@ -772,6 +780,8 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
   ],
   COMPLIANCE_OFFICER: [
     'BASE_ACCESS',
+    'IAM_MEMBER_READ',
+    'IAM_ROLE_READ',
     'AUDIT_READ',
     'AUDIT_EXPORT_CREATE',
     'AUDIT_EXPORT_READ',
@@ -787,6 +797,8 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
   ],
   MLRO: [
     'BASE_ACCESS',
+    'IAM_MEMBER_READ',
+    'IAM_ROLE_READ',
     'AUDIT_READ',
     'AUDIT_EXPORT_CREATE',
     'AUDIT_EXPORT_READ',
@@ -798,6 +810,8 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
   ],
   DPO: [
     'BASE_ACCESS',
+    'IAM_MEMBER_READ',
+    'IAM_ROLE_READ',
     'AUDIT_READ',
     'AUDIT_EXPORT_CREATE',
     'AUDIT_EXPORT_READ',
@@ -807,6 +821,10 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
   ],
   CISO: [
     'BASE_ACCESS',
+    'IAM_MEMBER_READ',
+    'IAM_ROLE_READ',
+    'IAM_MEMBER_MANAGE',
+    'IAM_ROLE_ASSIGN',
     'IAM_CREDENTIAL_RESET',
     'IAM_ROLE_DEFINE',
     'AUDIT_READ',
