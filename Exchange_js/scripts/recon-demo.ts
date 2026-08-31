@@ -651,8 +651,7 @@ async function assertTargetWalletsClean(
   );
 }
 
-// ── Phase 3 (break only): inject 8 scenarios (ids 1/2/3/4/5/6/14/15 — the
-// rest of the 15-scenario matrix lands in Task 5-8) ──
+// ── Phase 3 (break only): inject the full break-scenario matrix ────────
 //
 // 场景与钱包**不再一一对应**：一个钱包可以挂多条场景（2026-08-30 起）。
 // 因此桶是钱包的属性、不是场景的属性，答案键分两级——见 ManifestV3 的类型注释。
@@ -1753,7 +1752,7 @@ async function main() {
   const written = await writeMirror(prisma, plans, cutoff);
   console.log(`mirror written: external_balances=${written.balances}  external_statement_lines=${written.lines}`);
 
-  // Phase 3 (break only) — inject 8 scenarios + write manifest.
+  // Phase 3 (break only) — inject the full break-scenario matrix + write manifest.
   //
   // Scenario 1 now drives a REAL stuck withdraw whose external OUT line is
   // stamped `datetime = leg.createdAt` — created *inside* injectScenarios, i.e.
@@ -1838,6 +1837,10 @@ async function main() {
       [`wallets ${v.walletsOk}/${manifest.wallets.length}`, v.walletsOk === manifest.wallets.length],
       ['identities OK', idn.ok],
     ];
+    // ⚠️ 循环变量必须叫 `pass`、不能叫 `ok` —— 外层有个 `let ok = true`，收尾的
+    // `process.exit(ok ? 0 : 1)` 读的就是它；用 `ok` 当循环变量会把它遮蔽掉，断言失败传不出去。
+    // pass 分支早就是这么避开的，照抄它。同理**不要用 `process.exitCode = 1`**——
+    // 收尾那句显式 `process.exit(0)` 会覆盖它，失败照样退 0。
     console.log(`\n──── break-mode asserts ────`);
     for (const [label, pass] of asserts) {
       console.log(`  ${pass ? 'OK ' : 'BAD'} ${label}`);

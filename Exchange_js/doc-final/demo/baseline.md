@@ -11,8 +11,8 @@
 |---|---|
 | 编译 | tsc 后端 ｜ tsc test 配置（tsconfig.test.json）｜ tsc 管理台 ｜ tsc 客户端 |
 | 重铺 | `stack.sh reset main`（含 TigerBeetle 清理重建，全链实跑） |
-| 演示 | demo:setup ｜ demo:deposit ｜ demo:swap ｜ demo:withdraw ｜ demo:in-transit ｜ demo:all（**花名册 21/21 逐条符合预期 + COA 四恒等式**——演示装备一期改判据，见下方操作约束） |
-| 对账 | recon:demo:pass ｜ **recon:demo:break 9/9 全检出**（收官实测；旧基线 7/9 的两处 MISSED 已不复现，旧账已销）｜ verify:demo-data |
+| 演示 | demo:setup ｜ demo:deposit ｜ demo:swap ｜ demo:withdraw ｜ demo:in-transit ｜ demo:all（**花名册 29/29 逐条符合预期 + COA 四恒等式**——演示装备一期改判据，见下方操作约束） |
+| 对账 | recon:demo:pass ｜ recon:demo:break 15/15 场景 + 10/10 钱包桶（2026-08-30 按成因铺全，答案键拆两级）｜ verify:demo-data |
 | 账本 | verify:coa —— 两恒等式 + 负余额断言（49 科目全部 ≥ 0）。收官多轮实测**重铺后与 demo:all 后均全绿**；历史上个别含 break 注入的运行轮见过公司 AED 负余额（浮存时序），若复现不算净新红 |
 | 审计 | verify:audit 恒绿七项：Q2 按单据查 ｜ Q4 按客户查 ｜ 不变量①②③（PRIMARY 至多一 / INHERIT 必有旅程号 / 退役码零写入）——三查合同七站换装后的固定资产 |
 | 封册 | audit-vocabulary-closure.spec 四条：平面表归籍 / 六册互斥 / V3 附册冻结快照 / 写点闭合退役词零引用 |
@@ -23,13 +23,21 @@
 
 ## demo:all 操作约束（演示装备一期，2026-08-29 起）
 
-`demo:all` 的判据从「8 场景全 SUCCESS」改成了「花名册 21 笔逐条比对预期终态 + COA 四恒等式」——一份丰富的演示数据本来就该有冻结的、没收的、退回的、上缴的、卡在半路的，不是清一色 SUCCESS（详见 `data.md`）。
+`demo:all` 的判据从「8 场景全 SUCCESS」改成了「花名册 29 笔逐条比对预期终态 + COA 四恒等式」——一份丰富的演示数据本来就该有冻结的、没收的、退回的、上缴的、卡在半路的，不是清一色 SUCCESS（详见 `data.md`）。
 
 **由此带出一条硬约束：`demo:all` 必须在全新库上跑，不能在同一个库上连跑两次。** 花名册第 #7/#10/#13 行故意把第四人设 FRANK 造成一个**永久被制裁**的客户（customer-level ALL-scope 限制，本仓库没有任何流程会解开它——这也是刻意的，交易三人组 Alice/Bob/Grace 必须全程可交易，冻结这个不可逆动作只能落在专门"报废"的第四个人身上）。第二次在同一个库上跑 `demo:all`，Gate 0 会（正确地）拒绝 FRANK 的新充值，`runFrankPreStage` 因此卡住直到超时——**这是闸门在正确工作，不是 bug**。正确姿势：`bash scripts/stack.sh reset [main|self]` 重铺出全新库后再跑一次。
 
+> 💡 **`demo:all` 打印的那四个 COA 恒等数值会随花名册变化，数字变了不等于账错了。**
+> `verify:coa` 与 `demo:all` 验的都是**等式两边相等**，不验具体数值——所以花名册加了行、
+> 客户多了两个之后，这四个数必然变，这是正常的。
+> ⚠️ 它们会落在 `doc-final/demo/data.md` 的 `<!-- GENERATED:BEGIN -->` 区块里，
+> **那段是 `demo:all` 收尾自己写的，不要手改**——手改会被下一次 `demo:all` 整段覆盖，白费。
+
+> ⚠️ **`recon:demo:break` 的场景 ⑦（重复入账）会写账本**，是 15 条里唯一一条。它用固定 sourceNo 保证重跑幂等（TB 判为已存在直接跳过），但 **`recon:demo:reset` 不回滚账本**——它只清外部数据与 WALLET_V1 的 run/case。要把账本也归零，走 `stack.sh reset self`（含 TigerBeetle 重建）。
+
 ## 红名单（已知旧账，允许持续红）
 
-**jest 全量：4 套 / 8 例失败**（共 **169 套 2139 例**；另 3 skipped / 4 todo）—— 计数于 2026-08-30 平账一期合流后实测刷新（失败清单逐字未变）——
+**jest 全量：4 套 / 8 例失败**（共 **169 套 2137 例**；另 2 skipped / 4 todo）—— 计数于 2026-08-31 Task 9 收尾重铺后实测刷新（失败清单逐字未变）——
 
 > ⚠️ **本行的红名单只在「跑过全量」时才成立。** 2026-08-28 加密币 ledger 修复（`eaaf5eae`）给 `adjustment.service.onApproved` 加了一次 `asset.findUnique`，却没同步该 describe 的 prisma mock —— 那之后 `adjustment.service.spec.ts` 有 **11 例**一直在 `TypeError: asset.findUnique` 上红着，而当时只验了 e2e（9/9 + 变异验证）没重跑全量，红名单因此漏记了一整套。2026-08-29 已补 mock 修复。**教训：改了服务里的 prisma 调用，e2e 绿不代表单测绿——收尾必须跑一次全量对红名单。**
 
