@@ -1377,6 +1377,78 @@ async function injectScenarios(
     });
   }
 
+  // ── ⑬ 记错钱包 (BREAK ×2 / 跨两个钱包) ──────────────────────────────────
+  // 一笔本该记到 Jack 账上的钱，被记到了 Kate 账上。
+  //   发出端（Jack）：我方账上有、对账单上没有 → 我有外无
+  //   接收端（Kate）：对账单上有、我方账上没有 → 外有我无
+  // 一个成因、两个案子——这是 15 条里唯一跨钱包的，答案键里两条 expectedLines
+  // 指向不同的 walletRef，但共用同一个 scenarioId。
+  {
+    const moved = (await (prisma as any).externalStatementLine.findFirst({
+      where: { subAccount: slotMisroutedFrom.walletRef, direction: 'IN' },
+      orderBy: { datetime: 'asc' },
+    })) as { id: string; amount: Prisma.Decimal; externalRef: string | null } | null;
+    if (!moved) {
+      throw new Error(
+        `⑬ 记错钱包需要发出端有 ≥1 条 IN 方向外部行（钱包 ${slotMisroutedFrom.walletRef}）—— ` +
+        '花名册给 Jack 的 AED 素材单（seq 24/25）是否还在？',
+      );
+    }
+
+    // 发出端：删掉那条行 + 压低同额收盘
+    await (prisma as any).externalStatementLine.delete({ where: { id: moved.id } });
+    const fromPrev = await bumpClosing(slotMisroutedFrom, moved.amount.negated());
+
+    // 接收端：同一笔钱出现在别的客户账上 + 抬高同额收盘
+    const toRef = refFor(slotMisroutedTo.currency, 'MISROUTED');
+    const toCreated = await (prisma as any).externalStatementLine.create({
+      data: {
+        source: sourceFor(slotMisroutedTo.currency),
+        accountRef: slotMisroutedTo.walletRef,
+        subAccount: slotMisroutedTo.walletRef,
+        book: slotMisroutedTo.book,
+        currency: slotMisroutedTo.currency,
+        direction: 'IN',
+        amount: moved.amount,
+        externalRef: toRef,
+        datetime: cutoff,
+        description: 'Demo misrouted credit — this belongs to another customer',
+        dedupKey: `DEMO-INJ-${cutoffDate}-${slotMisroutedTo.walletRef}-s13-misrouted`,
+      },
+    });
+    const toPrev = await bumpClosing(slotMisroutedTo, moved.amount);
+
+    scenarios.push({
+      scenarioId: 13,
+      rootCause: 'MISROUTED_CREDIT',
+      expectedLines: [
+        { walletRef: slotMisroutedFrom.walletRef, lineType: 'ORPHAN_INTERNAL', amount: moved.amount.toString(), externalRef: moved.externalRef },
+        { walletRef: slotMisroutedTo.walletRef,   lineType: 'ORPHAN_EXTERNAL', amount: moved.amount.toString(), externalRef: toRef },
+      ],
+      detail: {
+        deletedFromLineId: moved.id,
+        insertedToLineId: toCreated.id,
+        fromPrevClosingBalance: fromPrev,
+        toPrevClosingBalance: toPrev,
+        note: '一个成因两个案子：发出端我有外无、接收端外有我无',
+      },
+    });
+    wallets.push({
+      walletRef: slotMisroutedFrom.walletRef,
+      scenarioIds: [13],
+      expectedBucket: 'BREAK',
+      bucketRationale: '发出端：删掉一条 IN 行并压低同额收盘 → 残差 = −该行金额 ≠ 0 → BREAK',
+      hasNonTerminalFundsOrder: false,
+    });
+    wallets.push({
+      walletRef: slotMisroutedTo.walletRef,
+      scenarioIds: [13],
+      expectedBucket: 'BREAK',
+      bucketRationale: '接收端：加一条 IN 幽灵行并抬高同额收盘 → 残差 = +该行金额 ≠ 0 → BREAK',
+      hasNonTerminalFundsOrder: false,
+    });
+  }
+
   // ── 场景 ⑮ — 银行利息 (SOFT_FLAG，与场景 ⑭ 银行杂费对冲，共用同一个公司钱包) ───
   // Same FIRM wallet as scenario 14, same amount, opposite direction (IN).
   // Nets scenario 14's OUT to a 0 closing delta ⇒ same wallet, same case,
