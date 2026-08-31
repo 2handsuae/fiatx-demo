@@ -19,8 +19,8 @@
 | TC-WAL-006 | AC-1.4 / FR-2 | 反例 | P0 | 客户未 APPROVED 拒绝创建 | 客户 onboarding ≠ APPROVED | ① 请求创建收款账户 | 拒绝，不建任何记录（fail-closed） | — |
 | TC-WAL-007 | AC-1.4 / FR-2 | 反例 | P0 | 客户账户非 ACTIVE 拒绝创建 | adminStatus ≠ ACTIVE（如 SUSPENDED） | ① 请求创建收款账户 | 拒绝，不建记录 | — |
 | TC-WAL-008 | AC-1.4 / FR-2 | 反例 | P0 | 资产非 ACTIVE 拒绝创建 | 目标资产处于 PROVISIONING / SUSPENDED | ① 请求创建收款账户 | 拒绝，不建记录 | 双侧守卫 |
-| TC-WAL-009 | AC-1.5 / A-T5·T6 | 正例 | P1 | 金库专员停用/恢复客户收款账户 | 存在 ACTIVE 客户收款账户 | ① 金库专员停用 ② 金库专员恢复 | ① `ACTIVE → DISABLED`；② `DISABLED → ACTIVE`；两次均审计 `WALLET_STATUS_UPDATED`（含 before→after） | DISABLED 可逆；执行者 2026-08-30 起由运营改金库专员（`WALLET_WRITE` 归金库专员独有） |
-| TC-WAL-010 | AC-1.5 / FR-6 | 反例 | P0 | 系统钱包不可手动停用 | 存在 F_OPS / F_SET / F_FEE / F_LIQ 等系统钱包（`C_CMA` 已于 2026-08-30 起不再 provision，不在此列） | ① 金库专员尝试停用其中任一 | 被拒（受保护角色）；状态不变 | 客户地址与系统钱包分治；执行者 2026-08-30 起由运营改金库专员 |
+| TC-WAL-009 | AC-1.5 / A-T5·T6 | 正例 | P1 | 运营停用/恢复客户收款账户 | 存在 ACTIVE 客户收款账户 | ① 运营停用 ② 运营恢复 | ① `ACTIVE → DISABLED`；② `DISABLED → ACTIVE`；两次均审计 `WALLET_STATUS_UPDATED`（含 before→after） | DISABLED 可逆 |
+| TC-WAL-010 | AC-1.5 / FR-6 | 反例 | P0 | 系统钱包不可手动停用 | 存在 F_OPS / F_SET / F_FEE / F_LIQ / C_CMA 等系统钱包 | ① 运营尝试停用其中任一 | 被拒（受保护角色）；状态不变 | 客户地址与系统钱包分治 |
 | TC-WAL-011 | FR-1 | 正例 | P2 | 托管钱包与提现地址物理分离 | — | ① 查收款账户列表 ② 查提现地址列表 | 两者为**独立实体、独立业务键**（walletNo / addressNo），互不混列 | 本期分离需求 |
 
 ## 2. 提现地址登记与冷却（FR-7/8/10 · B-T1~T4 · AC-2.x）
@@ -35,7 +35,7 @@
 | TC-WAL-017 | AC-2.4 / B-T3 / FR-10 | 正例 | P1 | 冷却到期自动激活（定时扫描） | 存在 activatesAt 已到期的地址 | ① 等待/触发 5 分钟扫描 | 地址转 `ACTIVE`；审计 `ADDRESS_ACTIVATED`，activatedBy=`CRON` | — |
 | TC-WAL-018 | AC-2.4 / B-T3 / FR-10 | 正例 | P1 | 冷却到期懒激活（查询时） | 同上，且未等到扫描 | ① 客户查询地址列表 | 查询即激活，返回 `ACTIVE`；审计 activatedBy=`LAZY` | 双机制 |
 | TC-WAL-019 | B-T3 约束 | 边界 | P0 | 未到期不得激活 | activatesAt 尚在未来（如剩 1 分钟） | ① 触发扫描 ② 客户查询 | 地址**仍 PENDING_ACTIVATION**；无激活审计 | 恰差一分钟 |
-| TC-WAL-020 | B-T4 / FR-10 | 正例 | P1 | 金库专员跳过冷却 | 存在 PENDING_ACTIVATION 地址 | ① 金库专员执行跳冷却 | 地址转 `ACTIVE`；审计 `MANUAL_COOLING_SKIP`（含操作人） | 带审计的后门；执行者 2026-08-30 起由运营改金库专员（`WITHDRAWAL_ADDRESS_WRITE` 归金库专员独有） |
+| TC-WAL-020 | B-T4 / FR-10 | 正例 | P1 | 运营跳过冷却 | 存在 PENDING_ACTIVATION 地址 | ① 运营执行跳冷却 | 地址转 `ACTIVE`；审计 `MANUAL_COOLING_SKIP`（含操作人） | 带审计的后门 |
 | TC-WAL-021 | AC-2.5 / B-T5 | 正例 | P1 | 冷却期内客户可取消 | 存在 PENDING_ACTIVATION 地址 | ① 客户取消该地址 | 状态 `CANCELLED`；审计 `ADDRESS_CANCELLED` | 非终态 |
 | TC-WAL-022 | B-T5 约束 | 反例 | P1 | 取消仅限冷却中地址 | 地址已 ACTIVE | ① 客户尝试取消 | 被拒（取消只对 PENDING_ACTIVATION 开放） | — |
 | TC-WAL-023 | FR-9 | 正例 | P2 | 登记虚拟币地址时做归因打标 | — | ① 登记虚拟币地址 ② 查地址属性 | `addressType` ∈ {VASP, SELF_CUSTODY}；`ownershipProofType = DECLARATION`；命中 VASP 时记 counterpartyVaspName | 声明级，真实验证属 G6 |
@@ -44,7 +44,7 @@
 
 | ID | 锚点 | 类型 | P | 标题 | 前置 | 步骤 | 预期 | 备注 |
 |---|---|---|---|---|---|---|---|---|
-| TC-WAL-024 | AC-2.6 / B-T7 / FR-12 | 正例 | P1 | 金库专员可停用 ACTIVE 地址（含末位法币） | 客户仅剩 1 个 ACTIVE 法币地址 | ① 金库专员带原因停用该地址 | 停用成功（金库专员 override）；状态落停用终态；审计 `ADDRESS_SUSPENDED`（含 reason / 操作人） | 与客户侧守卫不同；执行者 2026-08-30 起由运营改金库专员 |
+| TC-WAL-024 | AC-2.6 / B-T7 / FR-12 | 正例 | P1 | 运营可停用 ACTIVE 地址（含末位法币） | 客户仅剩 1 个 ACTIVE 法币地址 | ① 运营带原因停用该地址 | 停用成功（运营 override）；状态落停用终态；审计 `ADDRESS_SUSPENDED`（含 reason / 操作人） | 与客户侧守卫不同 |
 | TC-WAL-025 | AC-2.7 / FR-12 | 反例 | P0 | 客户不可软停用末位 ACTIVE 法币地址 | 客户仅剩 1 个 ACTIVE 法币地址 | ① 客户自助停用该地址 | 拒绝，错误 `LAST_ACTIVE_FIAT_ADDRESS`；状态不变 | 防自锁死 |
 | TC-WAL-026 | AC-2.8 / FR-12 | 反例 | P0 | 客户不可软停用有在途提现的地址 | 该地址存在未终态的提现单 | ① 客户自助停用该地址 | 拒绝，错误 `ADDRESS_HAS_INFLIGHT_WITHDRAWAL` | 与在途互斥 |
 | TC-WAL-027 | B-T7 / FR-11 | 正例 | P1 | 客户软停用非末位地址成功 | 客户有 ≥2 个 ACTIVE 法币地址、无在途 | ① 客户停用其中一个 | 成功；审计 `ADDRESS_DEACTIVATED`（含操作人） | — |
