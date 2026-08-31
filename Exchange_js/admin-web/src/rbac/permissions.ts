@@ -18,7 +18,6 @@ export const PERMISSIONS = {
 
   CUSTOMERS_READ: 'api.get.customers',
   CUSTOMERS_DETAIL_READ: 'api.get.customers_id',
-  PRICING_SWAP_CONFIG_READ: 'api.get.admin_pricing_policies_swap',
 
   CUSTOMER_TAGS_CATALOG_READ: 'api.get.admin_customer_tags_catalog',
   CUSTOMER_TAGS_READ: 'api.get.admin_customers_customerno_effective_tags',
@@ -52,7 +51,6 @@ export const PERMISSIONS = {
   RECON_ADJUSTMENT_DETAIL_READ: 'api.get.admin_reconciliation_adjustments_adjustmentno',
 
   SUMSUB_EVENTS_READ: 'api.get.admin_sumsub_events',
-  RISK_DECISION_RECORD_DETAIL_READ: 'api.get.admin_risk_decision_records_id',
   AUDIT_LOGS_READ: 'api.get.admin_audit_logs',
   AUDIT_EXPORT_CREATE: 'api.post.admin_audit_evidence_packages',
   AUDIT_EVIDENCE_EXPORTS_READ: 'api.get.admin_audit_evidence_packages',
@@ -61,54 +59,9 @@ export const PERMISSIONS = {
     'api.get.admin_audit_evidence_packages_id_download',
   GOV_APPROVALS_READ: 'api.get.admin_control_gates_approvals',
   GOV_APPROVAL_DETAIL_READ: 'api.get.admin_control_gates_approvals_id',
-  GOV_APPROVAL_CREATE: 'api.post.admin_control_gates_approvals',
-  GOV_APPROVAL_SUBMIT: 'api.post.admin_control_gates_approvals_id_submit',
   GOV_APPROVAL_APPROVE: 'api.post.admin_control_gates_approvals_id_approve',
   GOV_APPROVAL_REJECT: 'api.post.admin_control_gates_approvals_id_reject',
   GOV_APPROVAL_CANCEL: 'api.post.admin_control_gates_approvals_id_cancel',
-  GOV_SHAREHOLDING_REGISTRY_READ:
-    'api.get.admin_governance_registries_shareholding_versions',
-  GOV_SHAREHOLDING_REGISTRY_DETAIL_READ:
-    'api.get.admin_governance_registries_shareholding_versions_id',
-  GOV_SHAREHOLDING_REGISTRY_CREATE:
-    'api.post.admin_governance_registries_shareholding_versions',
-  GOV_SHAREHOLDING_REGISTRY_UPDATE:
-    'api.patch.admin_governance_registries_shareholding_versions_id',
-  GOV_APPOINTMENTS_READ: 'api.get.admin_governance_registries_appointments',
-  GOV_APPOINTMENT_DETAIL_READ:
-    'api.get.admin_governance_registries_appointments_id',
-  GOV_APPOINTMENT_CREATE: 'api.post.admin_governance_registries_appointments',
-  GOV_APPOINTMENT_UPDATE: 'api.patch.admin_governance_registries_appointments_id',
-  GOV_TRAININGS_READ: 'api.get.admin_governance_registries_trainings',
-  GOV_TRAINING_DETAIL_READ: 'api.get.admin_governance_registries_trainings_id',
-  GOV_TRAINING_CREATE: 'api.post.admin_governance_registries_trainings',
-  GOV_TRAINING_UPDATE: 'api.patch.admin_governance_registries_trainings_id',
-  GOV_CONFLICTS_READ: 'api.get.admin_governance_registries_conflicts',
-  GOV_CONFLICT_DETAIL_READ: 'api.get.admin_governance_registries_conflicts_id',
-  GOV_CONFLICT_CREATE: 'api.post.admin_governance_registries_conflicts',
-  GOV_CONFLICT_UPDATE: 'api.patch.admin_governance_registries_conflicts_id',
-  GOV_WIND_DOWN_MATERIALS_READ:
-    'api.get.admin_governance_registries_wind_down_materials',
-  GOV_WIND_DOWN_MATERIAL_DETAIL_READ:
-    'api.get.admin_governance_registries_wind_down_materials_id',
-  GOV_WIND_DOWN_MATERIAL_CREATE:
-    'api.post.admin_governance_registries_wind_down_materials',
-  GOV_WIND_DOWN_MATERIAL_UPDATE:
-    'api.patch.admin_governance_registries_wind_down_materials_id',
-  GOV_REGULATORY_GATES_READ: 'api.get.admin_governance_regulatory_gates',
-  GOV_REGULATORY_GATE_DETAIL_READ:
-    'api.get.admin_governance_regulatory_gates_id',
-  GOV_REGULATORY_GATE_CREATE: 'api.post.admin_governance_regulatory_gates',
-  GOV_REGULATORY_GATE_SUBMIT:
-    'api.post.admin_governance_regulatory_gates_id_submit',
-  GOV_REGULATORY_GATE_RECORD_FEEDBACK:
-    'api.post.admin_governance_regulatory_gates_id_record_feedback',
-  GOV_REGULATORY_GATE_BIND_RECEIPT:
-    'api.post.admin_governance_regulatory_gates_id_bind_receipt',
-  GOV_REGULATORY_GATE_MARK_EFFECTIVE:
-    'api.post.admin_governance_regulatory_gates_id_mark_effective',
-  GOV_REGULATORY_GATE_REVOKE:
-    'api.post.admin_governance_regulatory_gates_id_revoke',
 
   IAM_ROLE_DEFINITIONS_CREATE: 'api.post.admin_iam_role_definitions',
   IAM_ROLE_DEFINITIONS_PERMISSION_GROUPS: 'api.get.admin_iam_role_definitions_permission_groups',
@@ -126,15 +79,7 @@ export const PERMISSIONS = {
   WALLETS_READ: 'api.get.wallets',
   WALLET_DETAIL_READ: 'api.get.wallets_id',
   // PAYINS_* / PAYOUTS_* / INTERNAL_FUNDS_* removed in Round 2 (C6) — merged into FUNDS_ORDERS_*.
-  REIMBURSEMENT_OBLIGATIONS_READ: 'api.get.admin_reimbursement_obligations',
-  INTERNAL_COLLECTIONS_RECONCILE:
-    'api.post.admin_internal_transactions_collection_wallets_walletid_reconcile',
 
-  LIQUIDITY_PROVIDERS_READ: 'api.get.liquidity_providers',
-  LIQUIDITY_PROVIDERS_CREATE: 'api.post.liquidity_providers',
-  LIQUIDITY_CONFIG_READ: 'api.get.liquidity_configurations',
-  LIQUIDITY_CONFIG_CREATE: 'api.post.liquidity_configurations',
-  LIQUIDITY_CONFIG_UPDATE: 'api.put.liquidity_configurations_id',
   ASSETS_READ: 'api.get.assets',
   ASSETS_CREATE: 'api.post.assets',
   CUSTODIAN_WALLET_CREATE: 'api.post.admin_custodian_wallets',

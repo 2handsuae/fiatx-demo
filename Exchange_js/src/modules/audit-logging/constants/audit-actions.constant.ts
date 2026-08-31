@@ -706,30 +706,27 @@ export const V1_AUDIT_ACTIONS: Record<string, AuditActionSpec> = {
   AUDIT_EVIDENCE_EXPORT_DOWNLOADED: { domain: 'AUDIT', correlationMode: I, requiredFields: ['sourceIp'], requiresCausation: false },
   AUDIT_LOG_QUERIED:                { domain: 'AUDIT', correlationMode: N, requiredFields: [], requiresCausation: false },
 
-  // ── ⑫ 站7 收编：审批缺失告警 + 监管义务闸 + 五本档案簿（现名保守，全 NONE）──
+  // ── ⑫ 站7 收编：审批缺失告警（监管义务闸 + 五本档案簿已整块退役，见下方注释）──
   APPROVAL_REQUIRED_MISSING:        { domain: 'APPROVAL', correlationMode: N, requiredFields: ['reason'], requiresCausation: false },
-  REGULATORY_GATE_CREATED:          { domain: 'CONFIG', correlationMode: N, requiredFields: [], requiresCausation: false },
-  REGULATORY_GATE_UPDATED:          { domain: 'CONFIG', correlationMode: N, requiredFields: [], requiresCausation: false },
-  REGULATORY_GATE_SUBMITTED:        { domain: 'CONFIG', correlationMode: N, requiredFields: [], requiresCausation: false },
-  REGULATORY_GATE_FEEDBACK_RECORDED:{ domain: 'CONFIG', correlationMode: N, requiredFields: [], requiresCausation: false },
-  REGULATORY_GATE_RECEIPT_BOUND:    { domain: 'CONFIG', correlationMode: N, requiredFields: [], requiresCausation: false },
-  REGULATORY_GATE_MARKED_EFFECTIVE: { domain: 'CONFIG', correlationMode: N, requiredFields: [], requiresCausation: false },
-  REGULATORY_GATE_REVOKED:          { domain: 'CONFIG', correlationMode: N, requiredFields: ['reason'], requiresCausation: false },
-  SHAREHOLDING_REGISTRY_CREATED:    { domain: 'CONFIG', correlationMode: N, requiredFields: [], requiresCausation: false },
-  SHAREHOLDING_REGISTRY_UPDATED:    { domain: 'CONFIG', correlationMode: N, requiredFields: [], requiresCausation: false },
-  APPOINTMENT_RECORD_CREATED:       { domain: 'CONFIG', correlationMode: N, requiredFields: [], requiresCausation: false },
-  APPOINTMENT_RECORD_UPDATED:       { domain: 'CONFIG', correlationMode: N, requiredFields: [], requiresCausation: false },
-  TRAINING_RECORD_CREATED:          { domain: 'CONFIG', correlationMode: N, requiredFields: [], requiresCausation: false },
-  TRAINING_RECORD_UPDATED:          { domain: 'CONFIG', correlationMode: N, requiredFields: [], requiresCausation: false },
-  CONFLICT_DISCLOSURE_CREATED:      { domain: 'CONFIG', correlationMode: N, requiredFields: [], requiresCausation: false },
-  CONFLICT_DISCLOSURE_UPDATED:      { domain: 'CONFIG', correlationMode: N, requiredFields: [], requiresCausation: false },
-  WIND_DOWN_MATERIAL_CREATED:       { domain: 'CONFIG', correlationMode: N, requiredFields: [], requiresCausation: false },
-  WIND_DOWN_MATERIAL_UPDATED:       { domain: 'CONFIG', correlationMode: N, requiredFields: [], requiresCausation: false },
+  // REGULATORY_GATE_CREATED/UPDATED/SUBMITTED/FEEDBACK_RECORDED/RECEIPT_BOUND/
+  // MARKED_EFFECTIVE/REVOKED（7 码）、SHAREHOLDING_REGISTRY_CREATED/UPDATED、
+  // APPOINTMENT_RECORD_CREATED/UPDATED、TRAINING_RECORD_CREATED/UPDATED、
+  // CONFLICT_DISCLOSURE_CREATED/UPDATED、WIND_DOWN_MATERIAL_CREATED/UPDATED
+  // （五本档案簿各 2 码，合 10 码）：2026-08-30 随监管闸门与五本档案簿整块退役
+  // （第一幕职权重划，业主定「演示不讲」），写点 regulatory-gates.service.ts /
+  // governance-registries.service.ts 均已整文件删除（commit 36c944ce），全仓
+  // 零消费方（2026-08-31 grep 核实），迁入 DEPRECATED_AUDIT_ACTIONS，本组已删。
 
-  // ── ⑬ 站7 收编：平台运营件（金库/记账/对手方/资金单模拟推进）──
+  // ── ⑬ 站7 收编：平台运营件（金库/资金单模拟推进；手工建户与对手方已退役见下方注释）──
   WALLET_STATUS_UPDATED:            { domain: 'CONFIG', correlationMode: N, requiredFields: [], requiresCausation: false },
-  MANUAL_TB_ACCOUNT_CREATED:        { domain: 'CONFIG', correlationMode: N, requiredFields: ['reason'], requiresCausation: false },
-  LP_CONFIG_UPDATED:                { domain: 'CONFIG', correlationMode: N, requiredFields: [], requiresCausation: false },
+  // MANUAL_TB_ACCOUNT_CREATED：2026-08-31 随手工开账本科目退役（业主定「账本
+  // 没有手动配置这回事」），写点 TbManualAccountService（tb-manual-account.
+  // service.ts）已整文件删除（commit 3ed5a10f），全仓零消费方（2026-08-31 grep
+  // 核实），迁入 DEPRECATED_AUDIT_ACTIONS，已删。
+  // LP_CONFIG_UPDATED：2026-08-30 随流动性提供商与报价配置整块退役（第一幕职权
+  // 重划，保留交易域 KYT 对手方概念），写点 liquidity-config.service.ts 已整
+  // 文件删除（commit 2f0e7c3f），全仓零消费方（2026-08-31 grep 核实），迁入
+  // DEPRECATED_AUDIT_ACTIONS，已删。
   FUNDS_ORDER_ADVANCED:             { domain: 'CONFIG', correlationMode: N, requiredFields: [], requiresCausation: false },
 };
 
@@ -981,4 +978,17 @@ export const DEPRECATED_AUDIT_ACTIONS: readonly string[] = [
   'ADMIN_LOGIN_FAILED',
   'MFA_LOGIN_VERIFIED',
   'MFA_LOGIN_VERIFY_FAILED',
+  // ── 第一幕职权重划（Task 5）──────────────────────────────
+  // 2026-08-30：随五本档案簿 / 监管闸门 / 对手方整块退役（第一幕职权重划），写点已删
+  'REGULATORY_GATE_CREATED', 'REGULATORY_GATE_UPDATED', 'REGULATORY_GATE_SUBMITTED',
+  'REGULATORY_GATE_FEEDBACK_RECORDED', 'REGULATORY_GATE_RECEIPT_BOUND',
+  'REGULATORY_GATE_MARKED_EFFECTIVE', 'REGULATORY_GATE_REVOKED',
+  'SHAREHOLDING_REGISTRY_CREATED', 'SHAREHOLDING_REGISTRY_UPDATED',
+  'APPOINTMENT_RECORD_CREATED', 'APPOINTMENT_RECORD_UPDATED',
+  'TRAINING_RECORD_CREATED', 'TRAINING_RECORD_UPDATED',
+  'CONFLICT_DISCLOSURE_CREATED', 'CONFLICT_DISCLOSURE_UPDATED',
+  'WIND_DOWN_MATERIAL_CREATED', 'WIND_DOWN_MATERIAL_UPDATED',
+  'LP_CONFIG_UPDATED',
+  // 2026-08-31：随手工开账本科目退役（业主定「账本没有手动配置这回事」），写点已删
+  'MANUAL_TB_ACCOUNT_CREATED',
 ] as const;

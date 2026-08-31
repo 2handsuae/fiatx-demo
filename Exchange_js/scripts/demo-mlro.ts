@@ -4,9 +4,9 @@
 // 脚本因此需要持有额外的身份 —— base seed 的职务账号（doc-final/demo/data.md
 // 「管理员」节，8 职务各一人，密码统一 123456）：
 //
-//   DEPOSIT_CONFISCATION 单步 OPS_OFFICER  （approval.constants.ts 就是这么配的 ——
-//                        与本任务需求书通篇"MLRO 换人批准"的表述不同；没收是运营
-//                        内部互审，不是 MLRO 级，按代码实际配置为准，见 task-C2-report.md）
+//   DEPOSIT_CONFISCATION 单步 CFO （2026-08-30 由 OPS_OFFICER 改财务裁决——没收是客户
+//                        的钱变公司收入，属财务事项；且发起人只能是运营，原配置构成
+//                        自批死锁，见 approval.constants.ts）
 //   DEPOSIT_RETURN       单步 MLRO
 //   DEPOSIT_SEIZE        两步 SENIOR_MANAGEMENT_OFFICER → MLRO（四眼）
 //
@@ -31,6 +31,7 @@ export async function loginAs(apiBase: string, email: string, password = '123456
 export const loginAsMlro = (apiBase: string) => loginAs(apiBase, 'mlro@fiatx.com');
 export const loginAsSmo = (apiBase: string) => loginAs(apiBase, 'sm@fiatx.com');
 export const loginAsOpsOfficer = (apiBase: string) => loginAs(apiBase, 'ops_officer@fiatx.com');
+export const loginAsCfo = (apiBase: string) => loginAs(apiBase, 'cfo@fiatx.com');
 
 /**
  * approvalCaseId = ApprovalCase 内部 id（UUID），**不是**对外展示的 approvalNo。

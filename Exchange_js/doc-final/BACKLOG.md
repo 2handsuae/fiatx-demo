@@ -11,7 +11,7 @@
 > **⭐ = 带同事走七幕时会当场看到或讲不圆的**，共 31 条。一行四要素：是什么 ｜ 哪来的 ｜ 落点 / 状态。做完就勾掉。
 > 分诊历史：2026-08-26 首次分流（加固类迁出）；2026-08-28 二次分诊——业务/技术彻底分家：8 条已完成或已作废销账、45 条迁 `PRODUCTION-NOTES`、4 条从 `PRODUCTION-NOTES` 判回业务；同日「演示装备」A 档 8 条逐条实跑复核，6 条实证已修当场销账。**2026-08-29 演示装备一期收官**——A 档剩下的 2 条（造数花名册、补料回炉）做完销账，A 档 8/8 全部完成、整节退役删除（原文见「本轮销账」章节与 git 历史）；导语并入 §B。分诊前全文见 git 历史（`649b4e88`）。
 
-Last Updated: 2026-08-29
+Last Updated: 2026-08-31
 
 
 ## B. 第一幕 · 开业（V1 治理底座 ｜ V3 财务配置 ｜ 账本）
@@ -19,17 +19,17 @@ Last Updated: 2026-08-29
 > （原「A. 演示装备」档——开演前铺不出数据、⚡ 模拟面板一按就 500——2026-08-29 演示装备一期收官后 8/8 全部修完，整节退役；这类"挡住开演"的问题以后按内容归进对应幕次，不再单独设档。原文见文末「本轮销账」与 git 历史。）
 > 讲「谁能做什么是拼包拼出来的、改任何配置都过审批」这一幕时会露的馅，加上账本/财务口径。
 
-- [ ] ⭐ **权限包目录三动词标准化 + 铺满 9 空域（本轮只出文档，代码待实现）**：定《权限与审计规范》以 View/Manage/Act 三动词为标准；现 `ACTION_BUCKET_CATALOG` 15 域仅 6 域有 bucket，`customer/compliance/trading/recon/pricing/config/gov_registry/counterparty/clearing` 9 域为空壳 → 自定义角色 UI 勾不到交易等能力；且缺 `funds`（资金单）域。代码活：按三动词补全各域 bucket + 新增 funds 域（含上条 FUNDS_ORDER_VIEW/ACT 拆分）+ Act 档对齐 SoD。中央规范以 `rbac.catalog.ts` 为唯一真相源、文档镜像防漂移 ｜来源: 2026-07-11 权限包集中化 brainstorm（甲·三动词，本轮文档 only）
+- [x] **权限包目录三动词标准化 + 铺满 9 空域** —— 已解（2026-08-31，第一幕职权重划 Task 8）：`ACTION_BUCKET_CATALOG` 收敛为 **12 域 50 桶，零空域**（原 15 域 9 空壳全部铺满或整域退役）；桶命名统一 view_/manage_/act_ 三动词前缀；新增 `funds` 域（`FUNDS_ORDER_VIEW`/`FUNDS_ORDER_ACT` 拆分入桶）。管理台改角色弹窗实测 50 个复选框、12 域全在场 ｜来源: 2026-07-11 权限包集中化 brainstorm（甲·三动词）
 
 - [ ] ⭐ **Q3 `expirePendingApprovals()` 全仓无 @Cron 调用方，`timeoutHours` 是展示字段**：两个新增审批策略照现有范式写了 `timeoutHours: 48`，但平台层压根没人扫超时，48h 到点不会发生任何事。平台级缺陷，不限于本模块（`WITHDRAW_UNFREEZE` 等既有策略同病）｜来源: 2026-08-15 设计稿 §8 Q3
 
-- [ ] ⭐ `CustodianWalletDetail.tsx:182` 用 `INTERNAL_COLLECTIONS_RECONCILE` 权限控制按钮，指向已删端点 ｜来源: 2026-07-03 死码体检
+- [x] `CustodianWalletDetail.tsx:182` 用 `INTERNAL_COLLECTIONS_RECONCILE` 权限控制按钮，指向已删端点 —— 已解（第一幕退役段 Task 3）：整段幽灵按钮连带 `handleCreateCollection`/两对 useState/`CollectionActionResult`/结果展示块一并拆除，实测全仓零残余引用 ｜来源: 2026-07-03 死码体检
 
-- [~] ⭐ Wave8OpsDashboardPage 首页调已删 `/admin/reimbursement-obligations`（404 空转）｜已生成修复卡片 task_c9112015
+- [x] Wave8OpsDashboardPage 首页调已删 `/admin/reimbursement-obligations`（404 空转）—— 已解（第一幕退役段 Task 3）：整页退役为 `AdminHomePlaceholder`（纯静态占位，零 fetch）；浏览器实测登录后 31 条请求全部 200/204、零 404
 
-- [ ] ⭐ **`/admin/pricing/policies*` 幽灵路由 + `CUSTOMER_RATE_READ/WRITE` 死权限组**：`rbac.catalog.ts` 注册 4 条 `/admin/pricing/policies*` + `/admin/pricing/simulator/swap`（挂 `CUSTOMER_RATE_READ`），但 pricing-center 模块只剩 engine——路由指向不存在的端点，权限组在自定义角色 UI 上勾得到、勾了什么也不会发生 ｜来源: 2026-08-26 分流迁入 PRODUCTION-NOTES，2026-08-28 判为业务缺口迁回（与「幽灵按钮」同族：演示时点得到、点了没反应）
+- [x] **`/admin/pricing/policies*` 幽灵路由 + `CUSTOMER_RATE_READ/WRITE` 死权限组** —— 已解（第一幕退役段 Task 4）：4 条 `/admin/pricing/policies*` + `/admin/pricing/simulator/swap` 路由与 `CUSTOMER_RATE_READ/WRITE` 权限组一并退役；实测 `rbac.catalog.ts`/`admin-web` 全仓零命中 ｜来源: 2026-08-26 分流迁入 PRODUCTION-NOTES，2026-08-28 判为业务缺口迁回
 
-- [ ] **新增 CFO 角色**：PRD 加 `CFO`（财务负责人，差异升级 / 财务终审接收方，相关处置动作多为后续）；可经自定义角色造，代码 `rbac.catalog.ts` `RBAC_ROLE_DEFINITIONS` 待注册 ｜来源: 2026-07-12 PRD 重写 Q2
+- [x] **新增 CFO 角色** —— 已解（第一幕职权重划 Task 9/10）：`RBAC_ROLE_DEFINITIONS` 注册 `CFO`（财务负责人），种子账号 `cfo@fiatx.com`；现为费率写权限（提现/兑换两族）与充值没收审批的唯一持有者 ｜来源: 2026-07-12 PRD 重写 Q2
 
 - [ ] **报价落"资格快照"**：现 quote 仅存 `policyRef=LEVEL:code`；V3 要求成交时落 命中集合 + 选中级 + 选中理由(最低费) + 客户此刻标签快照（可解释/可申诉）｜来源: 2026-07-11 费率 V3 §4.4/§5.5
 
@@ -78,7 +78,7 @@ Last Updated: 2026-08-29
 
 - [ ] **Q1 制裁客户的订单级折叠未做**：本轮贴 `scope=ALL` 便签只把在途单打成 `FROZEN`，客户面靠服务端脱敏白名单收敛成 `COMPLIANCE_PENDING`；设计稿讨论过的「收单后一律挂 `PROCESSING`、连状态变化都不产生」的订单级折叠没做。与「提现域 tipping-off 未对齐」同源，一并排期 ｜来源: 2026-08-15 设计稿 §8 Q1
 
-- [ ] **`CAPABILITY_RESTRICTED` 挂起原因区分不出 SANCTION 与 ADMIN_SUSPENSION，客户面一律藏**：`holdReasonOf()` 只按**哪一格 FAIL** 映射原因，拿不到便签的 `cause`；而客户面的可见性判据是「`limitHoldReason` 非空即整单不可见」，于是行政级挂起在**挂着的时候**对客户是零记录（退回落地才清、才可见，见 `truth/v4-deposit.md` §4.8）。保守是刻意的——tipping-off 的代价不对称（藏错了客户少看见一条记录，露错了是刑事风险）。要精确区分需让 `holdReasonOf()` 带上 `cause`，并给客户面定一套「哪些 cause 可见」的白名单 ｜来源: 2026-08-22 第四批 B4
+- [ ] **`CAPABILITY_RESTRICTED` 挂起原因区分不出 SANCTION 与 ADMIN_SUSPENSION，客户面一律藏**：`holdReasonOf()` 只按**哪一格 FAIL** 映射原因，拿不到便签的 `cause`；而客户面的可见性判据是「`limitHoldReason` 非空即整单不可见」，于是行政级挂起在**挂着的时候**对客户是零记录（退回落地才清、才可见，见 `modules/v4-deposit.md` §4.8）。保守是刻意的——tipping-off 的代价不对称（藏错了客户少看见一条记录，露错了是刑事风险）。要精确区分需让 `holdReasonOf()` 带上 `cause`，并给客户面定一套「哪些 cause 可见」的白名单 ｜来源: 2026-08-22 第四批 B4
 
 - [ ] **Swap/Withdraw 页 `PendingActionBanner` 与 `RestrictionBanner` 对同一条挂限制的材料请求各显示一张卡，重复(2026-08-18 Task 14 真机截图发现)**：`PendingActionBanner.tsx`（本轮改读 `/client/me/material-requests`，按 G6 显示「挂了限制的」∪「没绑单的」）与 `RestrictionBanner.tsx`（读 `/client/me/restrictions`，显示所有 `visibility=DISCLOSED` 的 OPEN 限制便签，含 `PENDING_DOCUMENT`/`MATERIAL_EXPIRED` 因由）两个组件都挂在 Swap.tsx/Withdraw.tsx 顶部，对**同一张**挂了限制的材料请求各自渲染一张卡（真机截图实测：demo_alice 挂 `Source of Wealth`/`Liveness` 两条 BLOCKING 材料请求时，Withdraw 页顶部先出现 PendingActionBanner 的两张卡，紧接着 RestrictionBanner 又各出一张「DOCUMENT REQUIRED」卡，共四张卡描述两件事）。CustomerProfile.tsx 一侧的同类重复（`ProfileBannerStack` vs 旧 `PendingActionBanner`）已在本轮直接摘掉 Profile 页的 `<PendingActionBanner />`（该页material request 覆盖已在 Task 11 并入 `ProfileBannerStack`）；但 Swap/Withdraw 页没有 `ProfileBannerStack`，`PendingActionBanner` 仍是这两页材料请求的唯一入口，不能照样摘掉。`RestrictionBanner.tsx` 文件头注释明确写着"本组件只做一件事……禁止在这里补任何……推导逻辑"，本轮未touch该文件。修法待定，需要业主拍板：①`RestrictionBanner` 增加"跳过 cause∈{PENDING_DOCUMENT,MATERIAL_EXPIRED} 且已被材料请求覆盖"的过滤（对称于 Task 11 给 `profile-banners.service.ts` 加的 `claimedRestrictionNos` 去重，但这次要挪到 client 组件或后端 `/client/me/restrictions` 端点)；②或反过来让 `PendingActionBanner` 只处理未绑限制的提醒行，把"挂了限制"的展示职责完全交给 `RestrictionBanner` ｜来源: 2026-08-18 材料请求账 Task 14 真机截图验收发现
 
@@ -137,7 +137,7 @@ Last Updated: 2026-08-29
 
 > 讲「出金门最多、客户永远看不到调查原因」这一幕的缺口。⭐ 那条正是这一幕的卖点本身在提现域没落实。
 
-- [ ] ⭐ **规则 A（tipping-off 防线）只在充值域落实，提现域有一模一样的洞未堵**：`withdraw-transactions.service.ts → toCustomerWithdrawView()`（约 L357-380）原样返回 `status: item.status`/`completedAt: item.completedAt`——一笔被 `adminFreeze` 打成 `FROZEN` 的提现，客户端 DevTools → Network 面板可直接读到裸 `'FROZEN'` 字符串（对照充值域 `deposit-transactions.service.ts → toCustomerDepositView()` 已有的 `CUSTOMER_STATUS_PASSTHROUGH` 白名单收敛 + `CUSTOMER_COMPLETED_STATUSES` completedAt 独立白名单，见 truth/v4-deposit.md §4.6）；`findAllForCustomer()`（约 L333-339）把客户传入的 `query.status` 直接转发进 `findAll()` 的 where 条件，无 customerScope 收窄——`GET /client/withdraw-transactions?status=FROZEN` 本身就是一个可用的冻结预言机（对照充值域 `findAll()` 在 `customerScope` 下已静默忽略原始 `status` 参数）；前端 `client-web/src/pages/Withdraw.tsx → HISTORY_STATUS_FILTERS`（约 L105-115）仍是裸 status 列表式筛选（`statuses: ['PENDING_APPROVAL','COMPLIANCE_PENDING','MANUAL_CHECKING','FROZEN','PAYOUT_PENDING']`），未跟进充值域已切换的 `bucket` 补集式设计（§4.6）。本条不是回归——提现域这套字段白名单本就早于充值域上线（Task 11 只做了字段裁剪，未含 status/completedAt 收敛），deposit-action-embed 分支只是把充值域这道防线补完，两域因此出现不对称：truth/v4-deposit.md 与代码注释里写的"规则 A"读起来像平台级不变量，实际只在充值域落实。仅登记，本分支未改提现代码 ｜来源: 2026-08-05 deposit-action-embed 分支终审 Important 3
+- [ ] ⭐ **规则 A（tipping-off 防线）只在充值域落实，提现域有一模一样的洞未堵**：`withdraw-transactions.service.ts → toCustomerWithdrawView()`（约 L357-380）原样返回 `status: item.status`/`completedAt: item.completedAt`——一笔被 `adminFreeze` 打成 `FROZEN` 的提现，客户端 DevTools → Network 面板可直接读到裸 `'FROZEN'` 字符串（对照充值域 `deposit-transactions.service.ts → toCustomerDepositView()` 已有的 `CUSTOMER_STATUS_PASSTHROUGH` 白名单收敛 + `CUSTOMER_COMPLETED_STATUSES` completedAt 独立白名单，见 modules/v4-deposit.md §4.6）；`findAllForCustomer()`（约 L333-339）把客户传入的 `query.status` 直接转发进 `findAll()` 的 where 条件，无 customerScope 收窄——`GET /client/withdraw-transactions?status=FROZEN` 本身就是一个可用的冻结预言机（对照充值域 `findAll()` 在 `customerScope` 下已静默忽略原始 `status` 参数）；前端 `client-web/src/pages/Withdraw.tsx → HISTORY_STATUS_FILTERS`（约 L105-115）仍是裸 status 列表式筛选（`statuses: ['PENDING_APPROVAL','COMPLIANCE_PENDING','MANUAL_CHECKING','FROZEN','PAYOUT_PENDING']`），未跟进充值域已切换的 `bucket` 补集式设计（§4.6）。本条不是回归——提现域这套字段白名单本就早于充值域上线（Task 11 只做了字段裁剪，未含 status/completedAt 收敛），deposit-action-embed 分支只是把充值域这道防线补完，两域因此出现不对称：modules/v4-deposit.md 与代码注释里写的"规则 A"读起来像平台级不变量，实际只在充值域落实。仅登记，本分支未改提现代码 ｜来源: 2026-08-05 deposit-action-embed 分支终审 Important 3
 
 - [ ] **提现报价审计未落地**：报价流程（`WithdrawQuoteService.createQuote/consumeQuote/cancelQuote`）零打点——常量 `WITHDRAW_PRICING_QUOTE_CREATED/_USED/_CANCELLED`（entityType `WITHDRAW_PRICING_QUOTE`）已定义但 `withdraw-quote.service.ts` 从不调用（grep 实证 0 命中，该文件无任何 audit 引用）；对比兑换 `SWAP_QUOTE_CREATED/USED/CANCELLED` 已在 `swap-quote.service.ts:249/319/364` 落地。应补打 QUOTE_CREATED/USED/CANCELLED（workflowType `WITHDRAW_QUOTE`），与兑换对齐 ｜来源: 2026-07-11 提现报价单文档 v2 §4.1.3
 
@@ -173,6 +173,7 @@ Last Updated: 2026-08-29
 - [ ] **五桶命名 `SOFT_FLAG`→`COMPENSATING` 代码改名**：PRD 已改用专业名 `COMPENSATING`（抵销错误）；代码仍 `SOFT_FLAG`（`engine/v2/bucket-classifier.ts` 的 `ReconBucket`、`dto/reconciliation.dto.ts` 的 `ReconWalletBucket` + `ReconCaseQuery`），第六幕记分牌上观众看到的桶名与 PRD 对不上 ｜来源: 2026-08-26 分流迁入 PRODUCTION-NOTES，2026-08-28 判为业务缺口迁回（rubric #1 业务逻辑不符：PRD 说应该这样，页面不是这样）
 
 - [ ] 🎯 **二期 · 内部划转单（第四类订单）** —— 公司池的资金移动今天完全没有建模（V7 瘦身时 `InternalTransferWorkflowService` 已删）。两个用例合用一条通道、开两个入口：① **公司池内部调度**（`F_SET`→`F_OPS` 归集、给兑换对手盘补头寸、冷热钱包调拨——财资日常，今天一笔都没有）② **公司补款给客户**（C3 认损后的赔付；客户钱包与公司钱包是两组物理钱包，没有账面捷径，见 decisions.md 2026-08-28）。**必须是订单，不能只有资金单**：调拨要审批，审批期间钱还没动、按系统规矩此时不该有资金单（提现 `withdraw-workflow.service.ts:938` 注释：资金单在 PAYOUT_PENDING 才诞生，合规/审批被拒的单从不产生资金单），故「待审批」只能挂订单层；且 `FundsOrderService.create` 硬要求资金单必须挂父单。状态机与提现同构（草稿→待审批→已批准→执行中→完成/失败，执行中罩住资金单生命周期）。**在途必须有资金单**否则调拨在途期间转出钱包已少、转入钱包未多，对账两边各爆一个假 BREAK（在途识别正是靠翻非终态资金单认领）。⚠ **前置地基**：`F_LIQ` 流动性钱包的科目 `E.FIRM_LIQ` 已退役、账上期望恒 0（`wallet-recon-run.service.ts:631` 注释），真做调度时它没有落脚点，须先定 F_LIQ 在 COA 里怎么安置（注意 decisions.md [2026-08-13] COA 终盘 9 码、不预留号段） ｜来源: 2026-08-28 平账三期切分脑暴
+  ⤷ 落地时同批加 `recon.act_adjust` 权限包（2026-08-30 第一幕职权重划时预留，当时代码尚不存在故未建组）
 
 - [ ] 🎯 **三期 · 事故登记** —— C3（未授权转出：钥匙泄露 / 内部人作案 / 银行误划）业主定性为**事故**，不是普通差异。补款只是善后，事故本身要：登记、定性、升级（MLRO / 管理层）、通报监管（VARA 重大差异通报，roadmap ⚖️ ADVANCED 在案）。一期二期做完后 C3 能走到「认损 → case 关掉 → 赔付到账」，但**事故这一层仍是空的**。⚠ **抽不抽成独立模块，三期到了再定，现在不预设**：今天只有两个用例（C3 + INTERNAL_BREAK 恒等破裂），且都还在纸上，形状没长出来，按「不为单次使用建抽象」先别抽。**若要建，必须先在 decisions.md 写清它跟已删的 `incidents` 的区别**——decisions.md [合规承接] 明确「不重建内部合规信号管道（compliance-alerts / incidents 已删）」；区别在于被删的是**合规筛查信号**（那活归 Sumsub），而这里是**运营/安全事件**（Sumsub 管不着），但这个区分不写进 decisions 就不算数 ｜来源: 2026-08-28 平账三期切分脑暴（业主提出抽模块的可能，我方建议缓到三期再定）
 
@@ -250,7 +251,7 @@ Last Updated: 2026-08-29
 
 - [ ] **待决策：cheapest 只减免不加价**：命中集合取最低费 → 更贵的级永不胜出；若将来要"VIP 必走 VIP（即便更贵）"或高风险客户加附加费，须改**优先级选级引擎**（V3 明确不做，留此账）｜来源: 2026-07-11 费率 V3 §5.5
 
-- [ ] **翻案（MANUAL_CHECKING→approved）/below-min 放行（waive）后，原命中证据被最新报文覆写，无历史留档**：`sumsubTxnDetailJson`/`sumsubVerdict`/`sumsubScore` 是单列"最新一次"存证（乙口径，后盖前，见 `truth/v4-deposit.md` §4.4 历史记录），一笔曾被 `rejected`（如命中 PEP/制裁 tag）过、后来翻案/补料通过的单，一旦收到新的 `approved` 裁决，旧的命中证据（`matchedRules`/`typedTags`/`score`）整份被覆盖——仅从当前状态/报文看不出这笔单历史上曾命中过什么规则，对事后合规复盘/审计取证不利。业主未给口径（要不要留历史版本、还是只留最新一份即可），暂不处理 ｜来源: 2026-07-31 Task 4/Task 9 code 走查
+- [ ] **翻案（MANUAL_CHECKING→approved）/below-min 放行（waive）后，原命中证据被最新报文覆写，无历史留档**：`sumsubTxnDetailJson`/`sumsubVerdict`/`sumsubScore` 是单列"最新一次"存证（乙口径，后盖前，见 `modules/v4-deposit.md` §4.4 历史记录），一笔曾被 `rejected`（如命中 PEP/制裁 tag）过、后来翻案/补料通过的单，一旦收到新的 `approved` 裁决，旧的命中证据（`matchedRules`/`typedTags`/`score`）整份被覆盖——仅从当前状态/报文看不出这笔单历史上曾命中过什么规则，对事后合规复盘/审计取证不利。业主未给口径（要不要留历史版本、还是只留最新一份即可），暂不处理 ｜来源: 2026-07-31 Task 4/Task 9 code 走查
 
 - [ ] **对手方恰好是我的客户（交叉场景）——本批不考虑**：一笔交易的对手方地址如果恰好也是本平台的客户，`SANCTION_COUNTERPARTY` 命中理论上应该同时触发对该"对手方客户"的复核，当前实现只处置发起方，不追溯对手方身份 ｜来源: 2026-08-20 制裁分主体批次
 
@@ -269,9 +270,9 @@ Last Updated: 2026-08-29
 
 > 文档与验收依据。前两条是第一幕/第二幕的验收没有依据。
 
-- [ ] ⭐ **审批流与审计检索无专属验收用例**：test-cases 里 V1 只有 TC-09（RBAC），maker/checker 审批链、SoD 拒绝、审计按单号/旅程检索均无用例——第一幕/第七幕的验收没有依据 ｜ 2026-08-26 V1 模块文档改写时发现 ｜ 待补 TC-10（审批+审计）
+- [x] ~~审批流与审计检索无专属验收用例（待补 TC-10）~~ **2026-08-31 销账**：验收口径改为七幕走查（业主裁定走乙、`test-cases/` 整体封箱），第一幕与第七幕在 `demo/script.md` 均有剧本，本条前提不再成立
 
-- [ ] ⭐ **客户与合规无专属验收用例**：TC-01~09 无客户/开户/限制/持续尽调篇——第二幕验收没有依据 ｜ 2026-08-26 V2 模块文档改写时发现 ｜ 待补 TC-11（客户）
+- [x] ~~客户与合规无专属验收用例（待补 TC-11）~~ **2026-08-31 销账**：同上——第二幕在 `demo/script.md` 有剧本，验收依据成立
 
 - [ ] **Material Refresh 状态名不符**：代码 NUDGE_ONLY/CLEARED vs roadmap NUDGE/RESOLVED（文档订正即可）｜来源: 2026-07-04 V2 体检
 

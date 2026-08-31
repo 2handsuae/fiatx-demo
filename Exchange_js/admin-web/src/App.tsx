@@ -21,11 +21,6 @@ const ReconciliationExternalBalancesPage = lazy(() => import('./pages/Reconcilia
 const ReconciliationDemoComparePage = lazy(() => import('./pages/ReconciliationDemoComparePage'));
 const ReconciliationAdjustmentDetailPage = lazy(() => import('./pages/ReconciliationAdjustmentDetailPage'));
 const CustomerDetail = lazy(() => import('./pages/CustomerDetail'));
-const LiquidityProviderList = lazy(() => import('./pages/LiquidityProviderList'));
-const LiquidityProviderCreate = lazy(() => import('./pages/LiquidityProviderCreate'));
-const LiquidityConfigList = lazy(() => import('./pages/LiquidityConfigList'));
-const LiquidityConfigCreate = lazy(() => import('./pages/LiquidityConfigCreate'));
-const LiquidityConfigEdit = lazy(() => import('./pages/LiquidityConfigEdit'));
 const CustodianWalletList = lazy(() => import('./pages/CustodianWalletList'));
 const CustodianWalletDetail = lazy(() => import('./pages/CustodianWalletDetail'));
 const FundsOrderList = lazy(() => import('./pages/FundsOrderList'));
@@ -47,14 +42,7 @@ const EvidenceExportsPage = lazy(() => import('./pages/EvidenceExportsPage'));
 const EvidenceExportDetailPage = lazy(() => import('./pages/EvidenceExportDetailPage'));
 const ApprovalsPage = lazy(() => import('./pages/ApprovalsPage'));
 const ApprovalDetailPage = lazy(() => import('./pages/ApprovalDetailPage'));
-const GovernanceRegistryListPage = lazy(() => import('./pages/GovernanceRegistryListPage'));
-const GovernanceRegistryDetailPage = lazy(() => import('./pages/GovernanceRegistryDetailPage'));
-const GovernanceRegistryCreatePage = lazy(() => import('./pages/GovernanceRegistryCreatePage'));
-const GovernanceRegistryEditPage = lazy(() => import('./pages/GovernanceRegistryEditPage'));
-const RegulatoryGateListPage = lazy(() => import('./pages/RegulatoryGateListPage'));
-const RegulatoryGateDetailPage = lazy(() => import('./pages/RegulatoryGateDetailPage'));
-const RegulatoryGateCreatePage = lazy(() => import('./pages/RegulatoryGateCreatePage'));
-const Wave8OpsDashboardPage = lazy(() => import('./pages/Wave8OpsDashboardPage'));
+const AdminHomePlaceholder = lazy(() => import('./pages/AdminHomePlaceholder'));
 const RoleChangeRequestsPage = lazy(() => import('./pages/RoleChangeRequestsPage'));
 const RoleChangeRequestDetailPage = lazy(() => import('./pages/RoleChangeRequestDetailPage'));
 const RolesPage = lazy(() => import('./pages/RolesPage'));
@@ -194,7 +182,7 @@ function App() {
           <Route path="/dashboard">
             <Route
               index
-              element={withPermission(<Wave8OpsDashboardPage />, [PERMISSIONS.BASE_ACCESS])}
+              element={withPermission(<AdminHomePlaceholder />, [PERMISSIONS.BASE_ACCESS])}
             />
             <Route
               path="members"
@@ -345,164 +333,6 @@ function App() {
             />
 
             <Route
-              path="governance/registries/shareholding-versions"
-              element={withPermission(
-                <GovernanceRegistryListPage registryType="shareholding-versions" />,
-                [PERMISSIONS.GOV_SHAREHOLDING_REGISTRY_READ],
-              )}
-            />
-            <Route
-              path="governance/registries/shareholding-versions/create"
-              element={withPermission(
-                <GovernanceRegistryCreatePage registryType="shareholding-versions" />,
-                [PERMISSIONS.GOV_SHAREHOLDING_REGISTRY_CREATE],
-              )}
-            />
-            <Route
-              path="governance/registries/shareholding-versions/edit/:id"
-              element={withPermission(
-                <GovernanceRegistryEditPage registryType="shareholding-versions" />,
-                [PERMISSIONS.GOV_SHAREHOLDING_REGISTRY_UPDATE],
-              )}
-            />
-            <Route
-              path="governance/registries/shareholding-versions/:id"
-              element={withPermission(
-                <GovernanceRegistryDetailPage registryType="shareholding-versions" />,
-                [PERMISSIONS.GOV_SHAREHOLDING_REGISTRY_DETAIL_READ],
-              )}
-            />
-            <Route
-              path="governance/registries/appointments"
-              element={withPermission(
-                <GovernanceRegistryListPage registryType="appointments" />,
-                [PERMISSIONS.GOV_APPOINTMENTS_READ],
-              )}
-            />
-            <Route
-              path="governance/registries/appointments/create"
-              element={withPermission(
-                <GovernanceRegistryCreatePage registryType="appointments" />,
-                [PERMISSIONS.GOV_APPOINTMENT_CREATE],
-              )}
-            />
-            <Route
-              path="governance/registries/appointments/edit/:id"
-              element={withPermission(
-                <GovernanceRegistryEditPage registryType="appointments" />,
-                [PERMISSIONS.GOV_APPOINTMENT_UPDATE],
-              )}
-            />
-            <Route
-              path="governance/registries/appointments/:id"
-              element={withPermission(
-                <GovernanceRegistryDetailPage registryType="appointments" />,
-                [PERMISSIONS.GOV_APPOINTMENT_DETAIL_READ],
-              )}
-            />
-            <Route
-              path="governance/registries/trainings"
-              element={withPermission(
-                <GovernanceRegistryListPage registryType="trainings" />,
-                [PERMISSIONS.GOV_TRAININGS_READ],
-              )}
-            />
-            <Route
-              path="governance/registries/trainings/create"
-              element={withPermission(
-                <GovernanceRegistryCreatePage registryType="trainings" />,
-                [PERMISSIONS.GOV_TRAINING_CREATE],
-              )}
-            />
-            <Route
-              path="governance/registries/trainings/edit/:id"
-              element={withPermission(
-                <GovernanceRegistryEditPage registryType="trainings" />,
-                [PERMISSIONS.GOV_TRAINING_UPDATE],
-              )}
-            />
-            <Route
-              path="governance/registries/trainings/:id"
-              element={withPermission(
-                <GovernanceRegistryDetailPage registryType="trainings" />,
-                [PERMISSIONS.GOV_TRAINING_DETAIL_READ],
-              )}
-            />
-            <Route
-              path="governance/registries/conflicts"
-              element={withPermission(
-                <GovernanceRegistryListPage registryType="conflicts" />,
-                [PERMISSIONS.GOV_CONFLICTS_READ],
-              )}
-            />
-            <Route
-              path="governance/registries/conflicts/create"
-              element={withPermission(
-                <GovernanceRegistryCreatePage registryType="conflicts" />,
-                [PERMISSIONS.GOV_CONFLICT_CREATE],
-              )}
-            />
-            <Route
-              path="governance/registries/conflicts/edit/:id"
-              element={withPermission(
-                <GovernanceRegistryEditPage registryType="conflicts" />,
-                [PERMISSIONS.GOV_CONFLICT_UPDATE],
-              )}
-            />
-            <Route
-              path="governance/registries/conflicts/:id"
-              element={withPermission(
-                <GovernanceRegistryDetailPage registryType="conflicts" />,
-                [PERMISSIONS.GOV_CONFLICT_DETAIL_READ],
-              )}
-            />
-            <Route
-              path="governance/registries/wind-down-materials"
-              element={withPermission(
-                <GovernanceRegistryListPage registryType="wind-down-materials" />,
-                [PERMISSIONS.GOV_WIND_DOWN_MATERIALS_READ],
-              )}
-            />
-            <Route
-              path="governance/registries/wind-down-materials/create"
-              element={withPermission(
-                <GovernanceRegistryCreatePage registryType="wind-down-materials" />,
-                [PERMISSIONS.GOV_WIND_DOWN_MATERIAL_CREATE],
-              )}
-            />
-            <Route
-              path="governance/registries/wind-down-materials/edit/:id"
-              element={withPermission(
-                <GovernanceRegistryEditPage registryType="wind-down-materials" />,
-                [PERMISSIONS.GOV_WIND_DOWN_MATERIAL_UPDATE],
-              )}
-            />
-            <Route
-              path="governance/registries/wind-down-materials/:id"
-              element={withPermission(
-                <GovernanceRegistryDetailPage registryType="wind-down-materials" />,
-                [PERMISSIONS.GOV_WIND_DOWN_MATERIAL_DETAIL_READ],
-              )}
-            />
-            <Route
-              path="governance/regulatory-gates"
-              element={withPermission(<RegulatoryGateListPage />, [
-                PERMISSIONS.GOV_REGULATORY_GATES_READ,
-              ])}
-            />
-            <Route
-              path="governance/regulatory-gates/create"
-              element={withPermission(<RegulatoryGateCreatePage />, [
-                PERMISSIONS.GOV_REGULATORY_GATE_CREATE,
-              ])}
-            />
-            <Route
-              path="governance/regulatory-gates/:id"
-              element={withPermission(<RegulatoryGateDetailPage />, [
-                PERMISSIONS.GOV_REGULATORY_GATE_DETAIL_READ,
-              ])}
-            />
-            <Route
               path="governance/approval-policies"
               element={withPermission(<ApprovalPoliciesPage />, [
                 PERMISSIONS.GOV_APPROVAL_POLICIES_READ,
@@ -531,26 +361,6 @@ function App() {
             <Route
               path="treasury/custodian-wallets/:id"
               element={withPermission(<CustodianWalletDetail />, [PERMISSIONS.WALLET_DETAIL_READ])}
-            />
-            <Route
-              path="system/liquidity-providers"
-              element={withPermission(<LiquidityProviderList />, [PERMISSIONS.LIQUIDITY_PROVIDERS_READ])}
-            />
-            <Route
-              path="system/liquidity-providers/create"
-              element={withPermission(<LiquidityProviderCreate />, [PERMISSIONS.LIQUIDITY_PROVIDERS_CREATE])}
-            />
-            <Route
-              path="system/liquidity-config"
-              element={withPermission(<LiquidityConfigList />, [PERMISSIONS.LIQUIDITY_CONFIG_READ])}
-            />
-            <Route
-              path="system/liquidity-config/create"
-              element={withPermission(<LiquidityConfigCreate />, [PERMISSIONS.LIQUIDITY_CONFIG_CREATE])}
-            />
-            <Route
-              path="system/liquidity-config/edit/:id"
-              element={withPermission(<LiquidityConfigEdit />, [PERMISSIONS.LIQUIDITY_CONFIG_UPDATE])}
             />
             <Route
               path="system/assets"
@@ -606,7 +416,7 @@ function App() {
 
           {/* ─── NEW unified /admin domain tree (IA redesign 2026-06-17) ─── */}
           <Route path="/admin">
-            <Route index element={withPermission(<Wave8OpsDashboardPage />, [PERMISSIONS.BASE_ACCESS])} />
+            <Route index element={withPermission(<AdminHomePlaceholder />, [PERMISSIONS.BASE_ACCESS])} />
 
             {/* iam */}
             <Route path="iam/members" element={withPermission(<PlatformMembers />, [PERMISSIONS.USERS_READ])} />
@@ -688,38 +498,6 @@ function App() {
             <Route path="audit/logs/:id" element={withPermission(<AuditLogDetailPage />, [PERMISSIONS.AUDIT_LOGS_READ])} />
             <Route path="audit/evidence-packages" element={withPermission(<EvidenceExportsPage />, [PERMISSIONS.AUDIT_EVIDENCE_EXPORTS_READ])} />
             <Route path="audit/evidence-packages/:id" element={withPermission(<EvidenceExportDetailPage />, [PERMISSIONS.AUDIT_EVIDENCE_EXPORTS_READ])} />
-
-            {/* registries (route-align only, content unchanged) */}
-            <Route path="registries/shareholding-versions" element={withPermission(<GovernanceRegistryListPage registryType="shareholding-versions" />, [PERMISSIONS.GOV_SHAREHOLDING_REGISTRY_READ])} />
-            <Route path="registries/shareholding-versions/create" element={withPermission(<GovernanceRegistryCreatePage registryType="shareholding-versions" />, [PERMISSIONS.GOV_SHAREHOLDING_REGISTRY_CREATE])} />
-            <Route path="registries/shareholding-versions/edit/:id" element={withPermission(<GovernanceRegistryEditPage registryType="shareholding-versions" />, [PERMISSIONS.GOV_SHAREHOLDING_REGISTRY_UPDATE])} />
-            <Route path="registries/shareholding-versions/:id" element={withPermission(<GovernanceRegistryDetailPage registryType="shareholding-versions" />, [PERMISSIONS.GOV_SHAREHOLDING_REGISTRY_DETAIL_READ])} />
-            <Route path="registries/appointments" element={withPermission(<GovernanceRegistryListPage registryType="appointments" />, [PERMISSIONS.GOV_APPOINTMENTS_READ])} />
-            <Route path="registries/appointments/create" element={withPermission(<GovernanceRegistryCreatePage registryType="appointments" />, [PERMISSIONS.GOV_APPOINTMENT_CREATE])} />
-            <Route path="registries/appointments/edit/:id" element={withPermission(<GovernanceRegistryEditPage registryType="appointments" />, [PERMISSIONS.GOV_APPOINTMENT_UPDATE])} />
-            <Route path="registries/appointments/:id" element={withPermission(<GovernanceRegistryDetailPage registryType="appointments" />, [PERMISSIONS.GOV_APPOINTMENT_DETAIL_READ])} />
-            <Route path="registries/trainings" element={withPermission(<GovernanceRegistryListPage registryType="trainings" />, [PERMISSIONS.GOV_TRAININGS_READ])} />
-            <Route path="registries/trainings/create" element={withPermission(<GovernanceRegistryCreatePage registryType="trainings" />, [PERMISSIONS.GOV_TRAINING_CREATE])} />
-            <Route path="registries/trainings/edit/:id" element={withPermission(<GovernanceRegistryEditPage registryType="trainings" />, [PERMISSIONS.GOV_TRAINING_UPDATE])} />
-            <Route path="registries/trainings/:id" element={withPermission(<GovernanceRegistryDetailPage registryType="trainings" />, [PERMISSIONS.GOV_TRAINING_DETAIL_READ])} />
-            <Route path="registries/conflicts" element={withPermission(<GovernanceRegistryListPage registryType="conflicts" />, [PERMISSIONS.GOV_CONFLICTS_READ])} />
-            <Route path="registries/conflicts/create" element={withPermission(<GovernanceRegistryCreatePage registryType="conflicts" />, [PERMISSIONS.GOV_CONFLICT_CREATE])} />
-            <Route path="registries/conflicts/edit/:id" element={withPermission(<GovernanceRegistryEditPage registryType="conflicts" />, [PERMISSIONS.GOV_CONFLICT_UPDATE])} />
-            <Route path="registries/conflicts/:id" element={withPermission(<GovernanceRegistryDetailPage registryType="conflicts" />, [PERMISSIONS.GOV_CONFLICT_DETAIL_READ])} />
-            <Route path="registries/wind-down-materials" element={withPermission(<GovernanceRegistryListPage registryType="wind-down-materials" />, [PERMISSIONS.GOV_WIND_DOWN_MATERIALS_READ])} />
-            <Route path="registries/wind-down-materials/create" element={withPermission(<GovernanceRegistryCreatePage registryType="wind-down-materials" />, [PERMISSIONS.GOV_WIND_DOWN_MATERIAL_CREATE])} />
-            <Route path="registries/wind-down-materials/edit/:id" element={withPermission(<GovernanceRegistryEditPage registryType="wind-down-materials" />, [PERMISSIONS.GOV_WIND_DOWN_MATERIAL_UPDATE])} />
-            <Route path="registries/wind-down-materials/:id" element={withPermission(<GovernanceRegistryDetailPage registryType="wind-down-materials" />, [PERMISSIONS.GOV_WIND_DOWN_MATERIAL_DETAIL_READ])} />
-            <Route path="registries/regulatory-gates" element={withPermission(<RegulatoryGateListPage />, [PERMISSIONS.GOV_REGULATORY_GATES_READ])} />
-            <Route path="registries/regulatory-gates/create" element={withPermission(<RegulatoryGateCreatePage />, [PERMISSIONS.GOV_REGULATORY_GATE_CREATE])} />
-            <Route path="registries/regulatory-gates/:id" element={withPermission(<RegulatoryGateDetailPage />, [PERMISSIONS.GOV_REGULATORY_GATE_DETAIL_READ])} />
-
-            {/* counterparty (route-align only, content unchanged) */}
-            <Route path="counterparty/liquidity-providers" element={withPermission(<LiquidityProviderList />, [PERMISSIONS.LIQUIDITY_PROVIDERS_READ])} />
-            <Route path="counterparty/liquidity-providers/create" element={withPermission(<LiquidityProviderCreate />, [PERMISSIONS.LIQUIDITY_PROVIDERS_CREATE])} />
-            <Route path="counterparty/liquidity-config" element={withPermission(<LiquidityConfigList />, [PERMISSIONS.LIQUIDITY_CONFIG_READ])} />
-            <Route path="counterparty/liquidity-config/create" element={withPermission(<LiquidityConfigCreate />, [PERMISSIONS.LIQUIDITY_CONFIG_CREATE])} />
-            <Route path="counterparty/liquidity-config/edit/:id" element={withPermission(<LiquidityConfigEdit />, [PERMISSIONS.LIQUIDITY_CONFIG_UPDATE])} />
           </Route>
 
         </Route>

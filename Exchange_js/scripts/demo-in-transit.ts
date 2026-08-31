@@ -12,8 +12,6 @@
 //   bash scripts/on-stack.sh self demo:in-transit            # 造两笔在途单
 //   bash scripts/on-stack.sh self demo:in-transit --verify   # 造 + 自检（见下方 runVerify）
 //
-// bootstrap() 在 demo-lib 模块顶部已做 webcrypto polyfill（先于 AppModule import），故此处
-// 不重复——与 demo-swap.ts / demo-deposit.ts 一致。
 
 import { Prisma } from '@prisma/client';
 import { bootstrap, ensureSetup, resolveDemoCustomers, waitFor, DemoCtx } from './demo-lib';

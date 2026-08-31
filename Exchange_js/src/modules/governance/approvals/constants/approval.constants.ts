@@ -340,13 +340,17 @@ export const DEFAULT_APPROVAL_POLICIES: Record<
   },
   // ─── Transaction Limit Change ────
   [ApprovalActionTypes.TRANSACTION_LIMIT_CHANGE]: {
-    steps: [{ stepNo: 1, roles: ['OPS_OFFICER'] }],
+    // 2026-08-30：裁决人 OPS_OFFICER → SENIOR_MANAGEMENT_OFFICER。限额归运营改（业主定），
+    // 高管签字：定阈值与放超额单归同一人（大额提现本就是高管批）。
+    steps: [{ stepNo: 1, roles: ['SENIOR_MANAGEMENT_OFFICER'] }],
     timeoutHours: 48,
     allowCancel: true,
   },
   // ─── Transaction Limit Creation ────
   [ApprovalActionTypes.TRANSACTION_LIMIT_CREATION]: {
-    steps: [{ stepNo: 1, roles: ['OPS_OFFICER'] }],
+    // 2026-08-30：裁决人 OPS_OFFICER → SENIOR_MANAGEMENT_OFFICER。限额归运营改（业主定），
+    // 高管签字：定阈值与放超额单归同一人（大额提现本就是高管批）。
+    steps: [{ stepNo: 1, roles: ['SENIOR_MANAGEMENT_OFFICER'] }],
     timeoutHours: 48,
     allowCancel: true,
   },
@@ -380,7 +384,9 @@ export const DEFAULT_APPROVAL_POLICIES: Record<
   },
   // ─── Deposit Below-Min Confiscation (2026-07-16) ────
   [ApprovalActionTypes.DEPOSIT_CONFISCATION]: {
-    steps: [{ stepNo: 1, roles: ['OPS_OFFICER'] }],
+    // 2026-08-30：裁决人 OPS_OFFICER → CFO。没收 = 客户的钱变公司收入，属财务事项；
+    // 且发起人只能是运营（唯一持 DEPOSIT_CONFISCATE_WRITE 者），原配置构成自批死锁。
+    steps: [{ stepNo: 1, roles: ['CFO'] }],
     timeoutHours: 48,
     allowCancel: true,
   },

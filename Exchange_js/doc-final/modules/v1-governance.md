@@ -1,7 +1,7 @@
 # V1 · 治理底座（审批 / 审计 / 权限 / 管理员生命周期）
 
-> 对应 PRD：待写 ｜ 技术节点 Last Verified：2026-08-26（底稿 truth 2026-08-25 端到端验收 + 批次二核查员复核审计锚点）
-> 演示幕次：第一幕「开业」+ 第七幕「事后说得清」 ｜ 验收用例：TC-09（RBAC）
+> 对应 PRD：待写 ｜ 技术节点 Last Verified：2026-08-31（第一幕职权重划 Task 15 复核；底稿 truth 2026-08-25 端到端验收 + 批次二核查员复核审计锚点）
+> 演示幕次：第一幕「开业」+ 第七幕「事后说得清」 ｜ 验收：第一幕 + 第七幕走查（`demo/script.md`）+ 本篇 §4
 
 ## 0. 一句话定位
 
@@ -36,36 +36,32 @@
 | 角色定义创建 / 修改 | 持「角色定义」包 | 审批链 | 建角色时硬互斥当场校验 |
 | 角色绑定变更 | 持「角色授予」包 | 审批链 | 给人换权力也要过门 |
 | 审批策略变更 | 持「审批策略」包 | 审批链 | **自我保护**：改"谁能批"本身要批 |
-| 凭证重置（密码 / MFA） | CISO / 技术官 | 直接执行（凭证包） | 安全 Act 与动钱 Act 不同持 |
+| 凭证重置（密码 / MFA） | CISO / 技术官 | 审批链，SENIOR_MANAGEMENT_OFFICER 单步（`ADMIN_PASSWORD_RESET`/`ADMIN_MFA_RESET`，非直接执行——2026-08-31 核对代码更正） | 安全 Act 与动钱 Act 不同持 |
 | 审计证据包导出 | 持「创建证据包」包 | 审批背书 | 导出失败也留痕 |
 
 通用规则两条：**能看审批列表 ≠ 能批**（全员可见审批中心，能不能批由策略的步骤配置决定）；SUPER_ADMIN 有全权 bypass——**演示用便利，生产必须移除**（PRODUCTION-NOTES 口径，演 SoD 拒绝时换非超管账号）。
 
 ## 4. 演示脚本（第一幕 · 开业 ｜ 第七幕 · 追溯）
 
-**第一幕**（管理台 3001，8 职务账号见 demo/data.md）：
-1. IAM 页看成员与角色 → 点开一个角色看它由哪些**权限包**拼成（对应 TC-RBA-012/019）
-2. 现场走一笔 maker/checker：ops_officer 提一条费率变更 → 审批中心出现待办 → **换 checker 账号**登录批准 → 生效
-3. 演 SoD 拒绝：用同一账号自批 → 当场被拒（对应 TC-RBA-006；注意用非超管账号）
-4. 演硬互斥：给已持 CISO 的成员加 MLRO → 拒绝（TC-RBA-015~017）
-5. 演权限边界：仅持 View 包的角色调写接口 → 403（TC-RBA-002/007）
+**第一幕**（管理台 3001，11 职务账号见 demo/data.md ｜ 完整 5 站剧本见 `demo/script.md`）：本模块对应**站 1「谁能动手」**与**站 3「门自己也要过门」**，此处只补 script.md 未展开的技术细节，不重复整段走查：
+- 站 1：`tech_admin@`（技术官）提交角色定义修改（给运营加一个它没有的包）→ `ciso@` 批准 → 生效（角色详情页可见 12 域 50 桶全在场）；`auditor@`（内审）调业务写接口（如跑对账批次 `POST /admin/reconciliation/runs/wallet`）→ 403。⚠️ 内审**并非零写**：它持 `AUDIT_EXPORT_CREATE`（建证据包），那是刻意给的——监管上门他得能打包，且导出仍要 MLRO 背书。演示别拿证据包接口当 403 的例子
+- 站 3：`sm@` 提交审批策略变更 → `ciso@` 批准，生效；再用 `ciso@` 自己提、自己批 → 当场被拒（同一账号不能既提又批）；给已持 CISO 的成员加 MLRO → 拒绝（三对硬互斥本轮未动）
 
-**第七幕**：审计日志页 → 按单号（primarySubjectNo）查第 3 步那条 SoD 拒绝与第 2 步那笔变更 → 全链拉出（谁、何时、结果、依据）；按 correlationId 看"一次邀请"的完整旅程。⚠️ 重铺后先在第一幕做一笔治理动作垫场，否则新词表下无记录（BACKLOG 在案）。
+**第七幕**：审计日志页 → 按单号（primarySubjectNo）查站 3 那条 SoD 拒绝与站 1 那笔角色定义修改 → 全链拉出（谁、何时、结果、依据）；按 correlationId 看"一次邀请"的完整旅程。⚠️ 重铺后先在第一幕做一笔治理动作垫场，否则新词表下无记录（BACKLOG 在案）。
 
 ## 5. 关键技术节点（≤30 行）
 
 - 审批引擎 `governance/approvals/`：`approval-handler.base.ts → ApprovalHandlerBase`（30 个审批子流程的统一基类，1 个钦定例外 onboarding 终审）｜ `approvals.service.ts → approve()/reject()`（SoD same-user deny + 跨步骤已审校验）｜ `approval-policy.service.ts → getPolicy()`（stepsConfig 回退链 + 自审防篡改）
 - 管理员生命周期 `identity/users/`：`admin-invite-workflow.service.ts` ｜ `mfa-binding-workflow.service.ts → verifyMfaBind()`（首登四步）｜ `admin-{suspension,reactivation,password-reset}-workflow.service.ts` ｜ `jwt.strategy.ts`（SUSPENDED 拦截，下次请求生效）
-- 权限 `identity/access-control/`：`rbac.catalog.ts`（150+ 路由×权限包登记、9 域 23 桶目录、3 对硬互斥）｜ `admin-permission.guard.ts`（每 API 运行时校验）｜ `access-control.service.ts → validateHardMutex()`
-- 审计 `audit-logging/`：`audit-logs.service.ts → recordByActor()/recordSystem()/assertActionSpec()`（写入前机器校验）/`persistSubjects()`（五角色子表）｜ `constants/audit-actions.constant.ts`（V1 词表 45 live + 11 退役拒写）｜ `audit-evidence-export-workflow.service.ts`（审批背书导出）｜ 校验器 `npm run verify:audit`
+- 权限 `identity/access-control/`：`rbac.catalog.ts`（146 条路由×权限组登记、**12 域 50 桶**目录、3 对硬互斥、11 职务 60 个权限组——2026-08-31 第一幕职权重划实测数字）｜ `admin-permission.guard.ts`（每 API 运行时校验）｜ `access-control.service.ts → validateHardMutex()`
+- 审计 `audit-logging/`：`audit-logs.service.ts → recordByActor()/recordSystem()/assertActionSpec()`（写入前机器校验）/`persistSubjects()`（五角色子表）｜ `constants/audit-actions.constant.ts`（V1 词表 **48 live + 30 退役拒写**——2026-08-31 实测；其中 19 条系本轮五本档案簿/监管闸门/对手方/手工建户四块退役时迁入退役名册，键仍在册、只出不进）｜ `audit-evidence-export-workflow.service.ts`（审批背书导出）｜ 校验器 `npm run verify:audit`
 - 通知 `core/notifications/`：仅 WebSocket 推送，email/webhook/retry 为空壳（见 §6）
 
 ## 6. 演示缺口（均在 BACKLOG 有账）
 
 - **通知是空壳**：邀请邮件、审批通知不会真发——演示靠页面自查待办，别承诺"你会收到邮件"
-- **按业务号经子表检索只覆盖 7/45 码**：其余 38 码要用 primarySubjectNo 精确过滤才查得到——第七幕检索按此口径演
+- **按业务号经子表检索只覆盖 7/48 码**：其余 41 码要用 primarySubjectNo 精确过滤才查得到——第七幕检索按此口径演。（分母随 2026-08-31 词表 45→48 更新；分子 7 未变——BACKLOG §H 记的那 7 码是 6 个 `APPROVAL_*` 加 `AUDIT_LOG_QUERIED`，本轮退役的 19 码无一在内）
 - **重铺后新词表零写入**：demo 造数不含治理动作，第七幕开演前先垫一笔（批次三实测）
-- **三域交易日志仍旧合同**：跨域旅程链断在交易域，完整追溯待审计第二批
+- **V3 财务配置域词汇未入册**：限额/费率/资产/托管钱包/提现地址/客户标签约 60 个写点尚未进新审计合同（三域交易日志早于本轮换装完毕，此条此前误记为"三域仍旧合同"，2026-08-31 核对 `script.md`/`BACKLOG.md` §H 后订正）——第一幕改的费率/限额那笔配置变更，在追溯里目前还是裸词；本轮明确不做（BACKLOG H 档在案）
 - **停用非即时**：下次请求才失效——演示时刷一下页面再看效果
-- **审批与审计没有专属验收用例**：test-cases 里 V1 只有 TC-09（RBAC）一份，审批流/审计检索的用例缺位（2026-08-26 新发现，已登记 BACKLOG）
 - ADVANCED 8 项未做（Break-Glass、定期权限复审、审批超时预警等），演示不承诺

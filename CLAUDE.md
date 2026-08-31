@@ -21,9 +21,16 @@ NestJS + Prisma + SQLite 后端 ｜ React 管理台 ｜ React 客户端 ｜ 会�
 
 单人顺序操作；外部系统（Sumsub / 链上 / 银行，均为模拟）总是准时回调且只回一次；管理员都是善意的；数据随时可重铺——schema / 状态机改动直接按目标终态做，**禁止**为旧数据写 backfill / 兼容层 / 双写过渡（迁移文件照常新增以保证空库能建起，内容不必兼容已有行；改完 = reset 重铺）。
 
-## 4. 出口
+## 4. 出口（债往哪放）
 
-发现兜底类缺口 → `doc-final/PRODUCTION-NOTES.md` **追加一行，然后放下**：不修、不讨论、不进 plan。该文件只许追加，不许读它来找活干。
+| 发现什么 | 放哪 | 规矩 |
+|---|---|---|
+| 业务缺口 | `doc-final/BACKLOG.md` | 正常待办 |
+| **技术兜底**（幂等 / 去重 / 重试回放 / 补偿 repair / 并发锁 / 攻击面 / 故障恢复） | `doc-final/PRODUCTION-NOTES.md` | **追加一行，然后放下**：不修、不讨论、不进 plan。只许追加，不许读它来找活干 |
+| **工具 / 环境 / 闸门** | `doc-final/TOOLING-DEBT.md` | **要读要清**。进来写清怎么复现，修好回来划掉 |
+
+第三类是 2026-08-31 拆出来的：此前它跟技术兜底同桶，于是也变成按设计不可读——
+`scripts/**` 不在 tsc 覆盖那条 2026-07-31 就登记了、还自称"防复发闸"，31 天后原样复发一次。
 
 ## 5. 不可违反规则（6 条，宗旨级；落地写法见 `doc-final/rules/`）
 
@@ -48,19 +55,19 @@ NestJS + Prisma + SQLite 后端 ｜ React 管理台 ｜ React 客户端 ｜ 会�
 **随手闸——每次改完代码就跑**
 
 ```bash
-npx tsc --noEmit -p tsconfig.json               # ① 后端
-cd admin-web  && npx tsc -b --noEmit && cd ..    # ② 管理台（.tsx 只有②③编译得到）
+npx tsc --noEmit -p tsconfig.json               # ① 后端（含 src / test / scripts / prisma）
+cd admin-web  && npx tsc -b --noEmit && cd ..    # ② 管理台（.tsx 与 .spec.ts 只有②③编译得到）
 cd client-web && npx tsc -b --noEmit && cd ..    # ③ 客户端
 ```
 
-- ④ jest 只跑本任务相关目录，判据 = **净新失败 0**；测试框架本身的问题不修，记 PRODUCTION-NOTES
+- ④ jest 只跑本任务相关目录，判据 = **全绿**（红名单 2026-08-31 已清零退役）；改了 client-web 另跑 `npm run test:client`（vitest）；改了栈脚本另跑 `bash scripts/stack-env.test.sh`
 - ⑤ 改了前端 → 必须起 preview 渲染 + 截图验证，tsc 通过不算数
 
 **收尾闸——任务收尾 / 合并前，按条件叠加**
 
 - ⑥ `bash scripts/on-stack.sh main demo:all` 走通并断言终态（worktree 内用 self；`demo/script.md` 就位后升级为按剧本走查）
 - ⑦ 动过钱（记账 / 资金单 / 科目）→ `bash scripts/on-stack.sh main verify:coa`（恒等式 + 负余额）
-- ⑧ 动过 schema / seed / 迁移 → 重铺闸：`bash scripts/stack.sh reset [main|self]` 从零建库重铺（含 TigerBeetle 清理重建，main/self 通用），再跑 ⑥；判据对照 `doc-final/demo/baseline.md`，净新失败 = 0
+- ⑧ 动过 schema / seed / 迁移 → 重铺闸：`bash scripts/stack.sh reset [main|self]` 从零建库重铺（含 TigerBeetle 清理重建，main/self 通用），再跑 ⑥；判据对照 `doc-final/demo/baseline.md`，**全绿**
 
 测试的绿必须来自行为；禁止写「扫源码文本」型断言。
 
@@ -73,12 +80,13 @@ cd client-web && npx tsc -b --noEmit && cd ..    # ③ 客户端
 | 动任何设计决定前 | `decisions.md` —— 已否决的方案不翻案 |
 | 写后端 / 前端代码 | `rules/backend.md` ｜ `rules/frontend-admin.md` / `rules/frontend-client.md`（UI 契约见 `ui-contract/`） |
 | 改页面 / 种子数据 | 同步 `demo/data.md`、`demo/script.md` 对应步骤 |
-| 验收 / 写用例 | `test-cases/` |
-| 说"以后做" | 业务缺口记 `BACKLOG.md`；技术兜底记 `PRODUCTION-NOTES.md` |
+| 验收 / 走查 | `demo/script.md`（七幕主线）+ `modules/<篇>` §4 演示脚本 |
+| 说"以后做" | 业务缺口记 `BACKLOG.md`；技术兜底记 `PRODUCTION-NOTES.md`；工具/环境记 `TOOLING-DEBT.md` |
 
 **不读** `archive/`（历史存档）。rules 与本文件冲突时以本文件为准——Phase 1 拆规范完成前，`rules/backend-platform.md` 里幂等 / 去重 / 回放 / 迁移安全 / 签收清单类要求**一律视为已废止**。
 
-三层关系：**`prd/` = 应然 ｜ `modules/` = 实然 ｜ `test-cases/` = 验收**；三者不一致就是待办，登记 BACKLOG，不改 PRD 迁就代码。
+两层关系：**`modules/` = 现状唯一真相 ｜ `demo/script.md` + `modules/<篇>` §4 = 验收（演得出来就算过）**；两者不一致就是待办，登记 BACKLOG。
+（`prd/` 应然层未建、PRD 在飞书；旧 `test-cases/` 271 条用例 2026-08-31 整体封箱，理由见 `archive/test-cases/README.md`。）
 
 ## 9. Thread 完成规则
 
@@ -96,5 +104,5 @@ bash scripts/stack.sh status       # 看各栈端口与状态
 ```
 
 - 端口隔离铁律：每个栈只碰自己的端口段和 DB，禁止跨栈访问；起服务前 `lsof -ti:<端口段>` 确认无残留
-- ⚠️ `recon:demo` / `demo:*` 等 npm 脚本硬编码了已废弃 DB 路径，必须经包装器：主树 `bash scripts/on-stack.sh main <script>`，worktree 内 `bash scripts/on-stack.sh self <script>`
+- ⚠️ `recon:demo` / `demo:*` / `verify:demo-data` 等 12 个 npm 脚本**必须经包装器**：主树 `bash scripts/on-stack.sh main <script>`，worktree 内 `bash scripts/on-stack.sh self <script>`。2026-08-31 起它们的内联默认值已全部剥除（此前 11 处默认连 **main 的 TigerBeetle**，漏套包装器 = 读自己的空库、写 main 的账本且不报错），改为缺 `DATABASE_URL`/`TB_ADDRESS` 时**当场 fail-fast 并提示正确用法**
 - **并行任务一律 worktree 隔离**：一会话 = 一 worktree（统一放 `.claude/worktrees/<名>/`）= 一分支 = 一套自动分的栈；要为某分支起服务只在它的 worktree 里 `stack.sh up`，绝不在主工作树切分支跑服务；合并后清 worktree + 分支

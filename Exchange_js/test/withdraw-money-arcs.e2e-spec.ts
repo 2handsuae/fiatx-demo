@@ -1,12 +1,6 @@
 import * as path from 'path';
 import * as dotenv from 'dotenv';
 
-// Same Node 18 polyfill as src/main.ts (@nestjs/schedule needs globalThis.crypto,
-// stable only in Node 19+) — main.ts isn't loaded in this e2e harness, so it has
-// to be repeated here before AppModule (and therefore ScheduleModule) is imported.
-// eslint-disable-next-line @typescript-eslint/no-var-requires
-if (!globalThis.crypto) { (globalThis as any).crypto = require('crypto').webcrypto; }
-
 // Loaded before any other import so PrismaService / TigerBeetleService see the
 // worktree's own DATABASE_URL / TB_ADDRESS regardless of ConfigModule's internal
 // load timing (belt-and-braces — mirrors deposit-money-arcs.e2e-spec.ts, Task 12's
@@ -567,7 +561,7 @@ describe('Withdraw money arcs (e2e, Task 12)', () => {
     expect(actions).toContain(AuditActions.WITHDRAW_FROZEN);
 
     const orderRef = `UNFREEZE-ORDER-${Date.now()}`;
-    await workflow.initiateUnfreeze(w.id, { orderRef, reason: 'e2e unfreeze' }, makeActor('E2E_UNFREEZE_MAKER_WD1', 'OPS_OFFICER'));
+    await workflow.initiateUnfreeze(w.id, { orderRef, reason: 'e2e unfreeze' }, makeActor('E2E_UNFREEZE_MAKER_WD1', 'COMPLIANCE_OFFICER'));
 
     const approvalCase = await latestApprovalCase(ApprovalActionTypes.WITHDRAW_UNFREEZE, w.id);
     expect(approvalCase).toBeTruthy();

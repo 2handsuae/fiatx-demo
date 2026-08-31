@@ -11,8 +11,10 @@ import { WalletRole } from './dto/wallet.dto';
 describe('system-wallet.util', () => {
   describe('role constants', () => {
     it('CRYPTO_SYSTEM_WALLET_ROLES contains correct roles', () => {
+      // C_MAIN / C_OUT 是 V7 延迟结算时代的平台归集池，realtime 1:1 改造后
+      // 加密提现直接从客户自己的 C_DEP 出金，两者已于 790a6685 退役。
       expect(CRYPTO_SYSTEM_WALLET_ROLES).toEqual([
-        WalletRole.C_MAIN, WalletRole.C_OUT, WalletRole.F_LIQ, WalletRole.F_OPS, WalletRole.F_FEE,
+        WalletRole.F_LIQ, WalletRole.F_OPS, WalletRole.F_FEE,
       ]);
     });
 
@@ -23,18 +25,27 @@ describe('system-wallet.util', () => {
     });
 
     it('PROTECTED_SYSTEM_WALLET_ROLES is union of both', () => {
-      expect(PROTECTED_SYSTEM_WALLET_ROLES).toContain(WalletRole.C_MAIN);
-      expect(PROTECTED_SYSTEM_WALLET_ROLES).toContain(WalletRole.C_OUT);
+      // 三个已退役的池角色都不该在保护集里：C_MAIN/C_OUT(790a6685)、C_CMA(b7b67405)
+      expect(PROTECTED_SYSTEM_WALLET_ROLES).not.toContain(WalletRole.C_MAIN);
+      expect(PROTECTED_SYSTEM_WALLET_ROLES).not.toContain(WalletRole.C_OUT);
       expect(PROTECTED_SYSTEM_WALLET_ROLES).not.toContain(WalletRole.C_CMA);
       expect(PROTECTED_SYSTEM_WALLET_ROLES).toContain(WalletRole.F_LIQ);
       expect(PROTECTED_SYSTEM_WALLET_ROLES).toContain(WalletRole.F_OPS);
+      expect(PROTECTED_SYSTEM_WALLET_ROLES).toContain(WalletRole.F_SET);
+      expect(PROTECTED_SYSTEM_WALLET_ROLES).toContain(WalletRole.F_FEE);
     });
   });
 
   describe('isProtectedSystemWalletRole', () => {
     it('returns true for system roles', () => {
-      expect(isProtectedSystemWalletRole(WalletRole.C_MAIN)).toBe(true);
       expect(isProtectedSystemWalletRole(WalletRole.F_LIQ)).toBe(true);
+      expect(isProtectedSystemWalletRole(WalletRole.F_SET)).toBe(true);
+    });
+
+    it('returns false for retired pool roles', () => {
+      expect(isProtectedSystemWalletRole(WalletRole.C_MAIN)).toBe(false);
+      expect(isProtectedSystemWalletRole(WalletRole.C_OUT)).toBe(false);
+      expect(isProtectedSystemWalletRole(WalletRole.C_CMA)).toBe(false);
     });
 
     it('returns false for customer roles', () => {

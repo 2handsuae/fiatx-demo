@@ -64,7 +64,7 @@ export const DEMO_ROSTER: RosterEntry[] = [
   { seq: 5,  domain: 'DEPOSIT',  label: '充值 · 转人工复核',         expectedStatus: 'MANUAL_CHECKING',   customerEmail: BOB,   amount: '5100',   currency: 'AED',  driver: '⚡⑪' },
   { seq: 6,  domain: 'DEPOSIT',  label: '充值 · 小额挂起',           expectedStatus: 'OPERATION_PENDING', customerEmail: GRACE, amount: '35',     currency: 'AED',  driver: '低于下限' },
   { seq: 7,  domain: 'DEPOSIT',  label: '充值 · 制裁冻结',           expectedStatus: 'FROZEN',            customerEmail: FRANK, amount: '7300',   currency: 'AED',  driver: '⚡⑦' },
-  { seq: 8,  domain: 'DEPOSIT',  label: '充值 · 没收（钱进公司）',    expectedStatus: 'CONFISCATED',       customerEmail: GRACE, amount: '42',     currency: 'AED',  driver: '低于下限 → 没收 → MLRO 批' },
+  { seq: 8,  domain: 'DEPOSIT',  label: '充值 · 没收（钱进公司）',    expectedStatus: 'CONFISCATED',       customerEmail: GRACE, amount: '42',     currency: 'AED',  driver: '低于下限 → 没收 → 财务批' },
   { seq: 9,  domain: 'DEPOSIT',  label: '充值 · 退回原发款方',       expectedStatus: 'RETURNED',          customerEmail: ALICE, amount: '2600',   currency: 'AED',  driver: '⚡⑪ → 退回 → MLRO 批' },
   { seq: 10, domain: 'DEPOSIT',  label: '充值 · 上缴（政府移交）',    expectedStatus: 'SEIZED',            customerEmail: FRANK, amount: '9100',   currency: 'AED',  driver: '⚡⑦ → 上缴 → MLRO 批' },
 

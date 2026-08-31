@@ -8,9 +8,7 @@ import { AuthModule } from './modules/identity/auth/auth.module';
 import { AccessControlModule } from './modules/identity/access-control/access-control.module';
 import { CustomersModule } from './modules/identity/customers/customers.module';
 import { NotificationsModule } from './core/notifications/notifications.module';
-import { LiquidityProvidersModule } from './modules/counterparty/liquidity-providers/liquidity-providers.module';
 import { AssetsModule } from './modules/asset-treasury/assets/assets.module';
-import { LiquidityConfigModule } from './modules/counterparty/liquidity-config/liquidity-config.module';
 import { WalletsModule } from './modules/asset-treasury/wallets/wallets.module';
 import { WithdrawalAddressesModule } from './modules/asset-treasury/withdrawal-addresses/withdrawal-addresses.module';
 import { DepositTransactionsModule } from './modules/trading/deposit-transactions/deposit-transactions.module';
@@ -66,9 +64,7 @@ import { TransactionLimitsModule as TransactionLimitRulesModule } from './module
     AccessControlModule,
     CustomersModule,
     NotificationsModule,
-    LiquidityProvidersModule,
     AssetsModule,
-    LiquidityConfigModule,
     WalletsModule,
     WithdrawalAddressesModule,
     DepositTransactionsModule,

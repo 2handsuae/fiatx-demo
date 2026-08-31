@@ -3,12 +3,6 @@ import * as path from 'path';
 import * as dotenv from 'dotenv';
 import { createHash, randomUUID } from 'crypto';
 
-// Same Node 18 polyfill as src/main.ts (@nestjs/schedule needs globalThis.crypto,
-// stable only in Node 19+) — main.ts isn't loaded in this e2e harness, so it has
-// to be repeated here before AppModule (and therefore ScheduleModule) is imported.
-// eslint-disable-next-line @typescript-eslint/no-var-requires
-if (!globalThis.crypto) { (globalThis as any).crypto = require('crypto').webcrypto; }
-
 // Must run BEFORE any import that reads DATABASE_URL. This suite's beforeAll
 // deletes every deposit_transaction + wallet row and re-seeds a fixed set of
 // fixtures — pointed at the worktree's shared stack DB (the one being used for
@@ -70,7 +64,7 @@ import { PrismaService } from '../src/core/prisma/prisma.service';
 import { DepositWorkflowService } from '../src/modules/trading/deposit-transactions/deposit-workflow.service';
 import { DepositTransactionsService } from '../src/modules/trading/deposit-transactions/deposit-transactions.service';
 import { DepositStatusChangedEvent } from '../src/modules/trading/deposit-transactions/events/deposit-transaction.events';
-import { DepositTransactionStatus } from '../src/modules/trading/deposit-transactions/dto/deposit-transaction.dto';
+import { DepositTransactionStatus, DepositTransactionAction } from '../src/modules/trading/deposit-transactions/dto/deposit-transaction.dto';
 import { SUMSUB_TXN_CLIENT } from '../src/modules/sumsub-shared/sumsub-txn-client.interface';
 import { MockSumsubTxnClient } from '../src/modules/sumsub-shared/sumsub-txn-client.mock';
 import { DepositDemoScenarioService } from '../src/modules/deposit-sumsub/demo-scenario.service';
@@ -128,6 +122,25 @@ describe('Deposit Sumsub verdict buttons (e2e, Task 9)', () => {
   let depositNoSeq = 0;
 
   const HARNESS_ACTOR = { actorId: 'E2E_HARNESS', actorRole: 'OPS_OFFICER' };
+
+  // 2026-08-31：原先调 workflow.adminFreeze()，该方法随 PATCH /deposit-transactions/:id/status
+  // 路由退役（Task 4）—— 它唯一的调用方就是那条零消费方的 controller 分支。这里改直调
+  // depositService.updateStatus()，与仍然活着的两条自动 FREEZE 路径（Gate 0 执法级限制、
+  // KYT rejected）走同一个原语；本用例只关心「冻上之后客户端会话视图逐字不变」，
+  // 不断言审计，故不复刻 adminFreeze 附带的那次 depositAudit。
+  const freezeDeposit = (depositId: string, reason: string) =>
+    depositService.updateStatus(
+      depositId,
+      { action: DepositTransactionAction.FREEZE, reason },
+      {
+        actor: {
+          actorType: 'ADMIN',
+          actorId: HARNESS_ACTOR.actorId,
+          actorRole: HARNESS_ACTOR.actorRole,
+        },
+        sourcePlatform: 'ADMIN_API',
+      },
+    );
   // Maker-checker: ApprovalsService.approve() rejects same-user maker+checker, so
   // initiateConfiscation (maker) and approve (checker) must use distinct actors.
   const OPS_MAKER: ApprovalActorContext = {
@@ -137,12 +150,15 @@ describe('Deposit Sumsub verdict buttons (e2e, Task 9)', () => {
     role: 'OPS_OFFICER',
     roleCodes: ['OPS_OFFICER'],
   };
-  const OPS_CHECKER: ApprovalActorContext = {
+  // 2026-08-31：DEPOSIT_CONFISCATION 的单步裁决人由 OPS_OFFICER 改为 CFO
+  // （没收 = 客户的钱变公司收入，属财务事项；原配置里提单人与裁决人同为运营，
+  //  构成自批死锁）。maker 仍是运营 —— 发起没收是运营的动作，不变。
+  const CFO_CHECKER: ApprovalActorContext = {
     actorType: 'ADMIN',
-    userId: 'E2E_OPS_CHECKER',
-    userNo: 'E2E_OPS_CHECKER',
-    role: 'OPS_OFFICER',
-    roleCodes: ['OPS_OFFICER'],
+    userId: 'E2E_CFO_CHECKER',
+    userNo: 'E2E_CFO_CHECKER',
+    role: 'CFO',
+    roleCodes: ['CFO'],
   };
 
   beforeAll(async () => {
@@ -453,7 +469,7 @@ describe('Deposit Sumsub verdict buttons (e2e, Task 9)', () => {
     });
     expect(approvalCase).toBeTruthy();
 
-    await approvalsService.approve(approvalCase.id, { reason: 'E2E approve' }, OPS_CHECKER);
+    await approvalsService.approve(approvalCase.id, { reason: 'E2E approve' }, CFO_CHECKER);
 
     // See waitForStatus's doc comment: onConfiscationDecided runs off a fire-and-forget
     // `{ async: true }` event listener, so the CONFISCATING flip lands slightly after
@@ -593,8 +609,9 @@ describe('Deposit Sumsub verdict buttons (e2e, Task 9)', () => {
   // `material-requests.client.controller.ts` 的 `getSession`/`submit` 端点背后
   // 同一对方法：`mintSessionToken`/`markSubmitted`），下面两个 helper 原样复刻
   // 控制器的响应体映射，保持断言可读性。
-  // `DepositWorkflowService.adminFreeze()` 不受影响（`PATCH :id/status
-  // {action:'freeze'}` 背后同一个方法，见 controller.ts:153）。
+  // （2026-08-31 更新：原文这里说「DepositWorkflowService.adminFreeze() 不受影响」——
+  //  该方法与它背后的 `PATCH :id/status` 路由已随 Task 4 一并退役，本文件改用
+  //  上方的 freezeDeposit() helper 直调 updateStatus。）
 
   /** 复刻 MaterialRequestsClientController.getSession 的响应体映射 */
   async function getSessionView(requestNo: string): Promise<{ submitted: boolean; sdkToken: string | null }> {
@@ -657,7 +674,7 @@ describe('Deposit Sumsub verdict buttons (e2e, Task 9)', () => {
 
     const before = await getSessionView(requestNo);
 
-    await workflow.adminFreeze(deposit.id, 'E2E: tipping-off equality check', HARNESS_ACTOR);
+    await freezeDeposit(deposit.id, 'E2E: tipping-off equality check');
     expect(await statusOf(deposit.id)).toBe(DepositTransactionStatus.FROZEN);
 
     const after = await getSessionView(requestNo);
@@ -718,7 +735,7 @@ describe('Deposit Sumsub verdict buttons (e2e, Task 9)', () => {
 
     const before = await getSessionView(requestNo);
 
-    await workflow.adminFreeze(deposit.id, 'E2E: multi-action tipping-off equality check', HARNESS_ACTOR);
+    await freezeDeposit(deposit.id, 'E2E: multi-action tipping-off equality check');
     expect(await statusOf(deposit.id)).toBe(DepositTransactionStatus.FROZEN);
 
     const after = await getSessionView(requestNo);

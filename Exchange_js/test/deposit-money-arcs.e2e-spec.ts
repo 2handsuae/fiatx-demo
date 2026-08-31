@@ -2,12 +2,6 @@ import { randomUUID } from 'crypto';
 import * as path from 'path';
 import * as dotenv from 'dotenv';
 
-// Same Node 18 polyfill as src/main.ts (@nestjs/schedule needs globalThis.crypto,
-// stable only in Node 19+) — main.ts isn't loaded in this e2e harness, so it has
-// to be repeated here before AppModule (and therefore ScheduleModule) is imported.
-// eslint-disable-next-line @typescript-eslint/no-var-requires
-if (!globalThis.crypto) { (globalThis as any).crypto = require('crypto').webcrypto; }
-
 // Loaded before any other import so PrismaService / TigerBeetleService see the
 // worktree's own DATABASE_URL / TB_ADDRESS regardless of ConfigModule's internal
 // load timing (belt-and-braces — mirrors deposit-sumsub-scenarios.e2e-spec.ts).
@@ -473,7 +467,9 @@ describe('Deposit money arcs (e2e, Task A6)', () => {
     await workflow.initiateUnfreeze(
       deposit.id,
       { reason: 'e2e unfreeze', orderRef },
-      makeActor('E2E_UNFREEZE_MAKER_1', 'OPS_OFFICER'),
+      // 2026-08-31：解冻提单人 OPS_OFFICER → COMPLIANCE_OFFICER —— 第一幕职权重划后
+      // DEPOSIT_UNFREEZE_WRITE 全系统只在合规官手里，运营已无此权限（裁决人仍是 MLRO）。
+      makeActor('E2E_UNFREEZE_MAKER_1', 'COMPLIANCE_OFFICER'),
     );
 
     const approvalCase = await latestApprovalCase(ApprovalActionTypes.DEPOSIT_UNFREEZE, deposit.id);

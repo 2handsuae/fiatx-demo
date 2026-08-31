@@ -19,6 +19,6 @@
     "noFallthroughCasesInSwitch": true,
     "strict": true
   },
-  "include": ["src/**/*"],
+  "include": ["src/**/*", "test/**/*", "scripts/**/*", "prisma/**/*"],
   "exclude": ["node_modules", "dist", "client-web", "admin-web", "frontend"]
 }

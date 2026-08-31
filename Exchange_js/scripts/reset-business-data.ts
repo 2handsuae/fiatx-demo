@@ -102,10 +102,6 @@ const BUSINESS_DELEGATES_FK_SAFE: string[] = [
   'materialRefreshCycle',
   'sumsubWebhookEvent',
 
-  // ── Liquidity ──────────────────────────────────────────────────────
-  'liquidityConfiguration',
-  'liquidityProvider',
-
   // ── Customers / assets / wallets / TB registry ─────────────────────
   // tb_account_registry references customer/asset by business key, not FK,
   // but clear it before customers/assets for cleanliness.

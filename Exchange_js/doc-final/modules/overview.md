@@ -1,6 +1,6 @@
 # 系统一页纸（overview）
 
-> 对应 PRD：待写 ｜ 技术节点 Last Verified：2026-08-26 ｜ agent 首读文档
+> 对应 PRD：待写 ｜ 技术节点 Last Verified：2026-08-31（第一幕职权重划 Task 15 复核 §4 权限包表）｜ agent 首读文档
 
 ## 0. 这是什么系统
 
@@ -46,30 +46,46 @@
 
 铁律：对外识别一律用业务键，不用内部 id；管理台不暴露 UUID。
 
-## 4. 各模块权限包拆分
+## 4. 权限包拆分（12 域 50 桶）
 
-角色可随时在管理台创建，所以**不做角色矩阵**；稳定的是**权限包**（PermissionGroup）——角色由包组合出来，SoD（职责分离）靠包的边界演示。按模块列包：
+角色可随时在管理台创建，所以**不做角色矩阵**；稳定的是**权限包**（PermissionGroup）——角色由包组合出来，SoD（职责分离）靠包的边界演示。2026-08-31 第一幕职权重划后，权限包目录按**域**（Domain）组织，**12 域、50 桶、零空域**（每个域至少一个桶——此前 15 域仅 6 域有桶，9 个空壳域已铺满或整域退役）：
 
-| 模块 | 权限包 | 说明 |
+| 域 | 桶 | 说明 |
 |---|---|---|
-| 通用 | BASE_ACCESS | 登录管理台的底权 |
-| V1 · IAM | IAM_MEMBER_READ / IAM_MEMBER_MANAGE ｜ IAM_ROLE_READ / IAM_ROLE_ASSIGN / IAM_ROLE_DEFINE ｜ IAM_CREDENTIAL_RESET | 成员查/管、角色查/授/定义、凭据重置 |
-| V1 · 审批 | GOV_APPROVAL_READ / WRITE / DECIDE ｜ GOV_APPROVAL_POLICY_READ / WRITE ｜ GOV_REGULATORY_GATE_WRITE | 看单、提单、裁决分离；审批策略与监管闸门 |
-| V1 · 审计 | AUDIT_READ ｜ AUDIT_EXPORT_READ / CREATE | 看日志与证据包导出分离 |
-| V2 · 客户 | CUSTOMER_READ / WRITE ｜ CUSTOMER_TAG_VIEW / MANAGE ｜ CUSTOMER_RESTRICTION_READ / WRITE / RELEASE ｜ RISK_DECISION_RECORD_READ / WRITE | 档案、标签、限制（开/解分离）、风险决策记录 |
-| V3 · 财务配置 | ASSET_CONFIG_READ / WRITE ｜ WALLET_READ / WRITE ｜ WITHDRAWAL_ADDRESS_READ / WRITE ｜ TRANSACTION_LIMIT_READ / WRITE ｜ CUSTOMER_RATE_READ | 资产、钱包、提现地址、限额、费率 |
-| V4 充值 | TRADING_DEPOSIT_READ / WRITE | 看单与操作分离（放行/冻结/处置归 WRITE） |
-| V5 提现 | TRADING_WITHDRAW_READ / WRITE | 同上 |
-| V6 兑换 | TRADING_SWAP_READ / WRITE | 同上 |
-| V7 财资 | INTERNAL_TRANSFER_READ / WRITE ｜ INTERNAL_FUND_READ | 公司自有资金 |
-| V8 对账 | RECON_RUN_READ / WRITE ｜ RECON_CASE_READ ｜ RECON_EXTERNAL_BALANCE_READ | 跑批、案件、外部余额 |
-| 账本 | LEDGER_ACCOUNT_READ / WRITE ｜ LEDGER_EVIDENCE_READ ｜ LEDGER_FLOW_READ | 科目、凭证、流水 |
-| 对手方 | COUNTERPARTY_READ / WRITE | VASP 对手方档案 |
-| 演示专用 | SIMULATE_EXPIRED_WRITE 等 | ⚡模拟按钮（拨 SLA、喂裁决），仅演示模式注册 |
+| Auth | Base Access（强制开，不可关） | 登录管理台的底权，1 桶 |
+| Identity & Access（IAM） | 查成员 / 查角色与目录 / 管成员 / 授角色 / 管凭据 / 定义角色 | 6 桶；「授角色」全系统唯 CISO 持有 |
+| Approval Center | 查审批 / 查审批策略 / 改审批策略 | 3 桶；「改审批策略」标 `restricted`，**高管与 CISO 两人持有**（`GOV_APPROVAL_POLICY_WRITE`）——高管提、CISO 批，两人分立才有 maker≠checker |
+| Audit Center | 查日志 / 查证据包 / 建证据包 | 3 桶 |
+| Accounting | 查科目 / 查凭证 / 查流水 | 3 桶，全只读；手工开账本科目已退役（业主定「账本没有手动配置这回事」），开户走资产上架自动路径 |
+| Treasury | 查/管资产 ｜ 查/管钱包 ｜ 查/管提现地址 ｜ 查/管限额 | 8 桶；「管资产」独属技术官，「管钱包」「管提现地址」独属金库专员 |
+| Customer Management | 查客户 / 改档案与标签 / 开限制 / 解限制 | 4 桶；开/解限制故意分离两个包 |
+| Trading | 查充值/提现/兑换/Sumsub 回调（4）｜ 充值：放行低于下限/提没收/提退回/提上缴/提解冻（5）｜ 提现：建单与报价/退票/提裁决退款/提解冻（4）｜ 兑换：处理兑换（1） | 14 桶，按具体动作拆到底，不用笼统的"处置"——提没收与提解冻不是同一件事，更不该同属一包 |
+| Funds Orders | 看资金单 / 推资金单 | 2 桶；看得到 ≠ 推得动，这条 SoD 靠 VIEW/ACT 分家 |
+| Reconciliation | 看跑批/案件/外部余额 / 触发跑批 | 2 桶 |
+| Pricing | 查费率 / 改费率 | 2 桶；「改费率」现独属财务负责人（原运营持有，2026-08-30 起改判防自批死锁） |
+| Demo Instruments | 喂裁决 ⚡ / 拨钟 ⚡ | 2 桶；站在 Sumsub 那一侧的模拟能力，不是我方职务的业务能力，单独成域 |
 
-另有**职务谓词**（少数端点直接点名职务当硬门）：MLRO、CISO、OPS_OFFICER、INVESTOR_OVERRIDE——"职务即权限"，用于合规处置这类必须指名到人的动作。
+**例外（有路由、不进桶目录）**：`TRADING_DEPOSIT_WRITE` 挂在客户端 `/deposit-transactions/my/inbound-signals*` 两个 URL 上（客户信号入口，非管理端能力，故意不进目录、不绑任何角色）；`INTERNAL_TRANSFER_READ/WRITE`（V7 财资遗留 4 条后端路由，前端零消费方）同样零桶零绑定——两组均只有 SUPER_ADMIN 能调，细节见 `PRODUCTION-NOTES.md`。
 
-> 包的权威清单在代码 `src/modules/identity/access-control/rbac.catalog.ts`（含端点登记与 action-bucket 目录）；本节是其业务口径快照，权限点变动时由 agent 同步。
+### 十一个职务与其独有动作
+
+| 职务 | 独有动作（该桶所需权限组全系统仅此职务持有）|
+|---|---|
+| SUPER_ADMIN（超管） | 全部——应急账号，不用于日常演示 |
+| SENIOR_MANAGEMENT_OFFICER（高管） | 无独有权限包——身份体现在**裁决人**位：限额规则创建/变更、大额提现放行、管理员停用/恢复、上缴第一步。⚠️ 审批策略变更他是**提单人**（持 `GOV_APPROVAL_POLICY_WRITE`），裁决人是 CISO |
+| CISO | 授角色（`iam.assign_roles`，全系统唯一）；另是角色定义创建/修改、成员邀请、资产上架/暂停/恢复、托管钱包创建、**审批策略变更**的裁决人。⚠️ 管理员停用/恢复的裁决人是**高管**，不是 CISO |
+| MLRO | 无独有权限包——身份体现在充值/提现解冻、部分限制解除的**裁决人**位 |
+| DPO | 无独有权限包——数据保护监督，读权限与内审/合规重叠 |
+| INTERNAL_AUDITOR（内审） | 无独有权限包——**28 组里零 Manage、零业务 Act**；唯一的写是「建证据包」（`AUDIT_EXPORT_CREATE`，监管上门他得能打包），且导出仍要 MLRO 背书。独有性正是"不能动手" |
+| COMPLIANCE_OFFICER（合规官） | 改客户档案与标签、提充值解冻、提提现解冻、⚡ 喂裁决（4 项）——管理台里推不动任何交易单，但持 ⚡ |
+| CFO（财务负责人） | 改费率（提现/兑换两族费率写权限，全系统唯一）；充值没收的裁决人 |
+| TREASURY_OFFICER（金库专员） | 管钱包（托管钱包创建、状态）、管提现地址（2 项）——钱放在哪归他 |
+| TECH_OFFICER（技术官） | 管资产生命周期（1 项）——与金库专员的分界是"容器 vs 配置" |
+| OPS_OFFICER（运营） | 管限额、放行/没收/退回/上缴充值、建提现单与退票/裁决退款、处理兑换、推资金单、跑对账批次、⚡ 拨钟（12 项）——日常动钱的手，唯独没有任何 `*_UNFREEZE_WRITE` |
+
+矩阵头条（机器验证 + 行为探针双证，见 `test-cases/TC-09-rbac.md`）：解冻只在合规官提、**MLRO 裁决**（与财务无关；财务的裁决位是充值没收） ｜ 费率改动只在财务 ｜ 钱包与提现地址只在金库专员 ｜ 授予角色只在 CISO ｜ 内审 28 组零 Manage、零业务 Act（唯一的写是建证据包）｜ 合规官推不动任何交易单但持 ⚡ ｜ 运营持推资金单与跑对账批次。
+
+> 包与桶的权威清单在代码 `src/modules/identity/access-control/rbac.catalog.ts`（`PermissionGroup` 类型 60 个、`ACTION_BUCKET_CATALOG` 12 域 50 桶、`RBAC_ROLE_GROUP_BINDINGS` 11 职务）；本节是其业务口径快照，权限点变动时由 agent 同步。
 
 ## 5. 关键技术节点（overview 级）
 

@@ -8,10 +8,8 @@ export interface RbacRoleDefinition {
 
 export type PermissionGroup =
   | 'BASE_ACCESS'
-  | 'IAM_READ'
   | 'IAM_MEMBER_READ'
   | 'IAM_ROLE_READ'
-  | 'IAM_ASSIGN'
   | 'IAM_MEMBER_MANAGE'
   | 'IAM_ROLE_ASSIGN'
   | 'IAM_CREDENTIAL_RESET'
@@ -23,59 +21,41 @@ export type PermissionGroup =
   | 'CUSTOMER_RESTRICTION_READ'
   | 'CUSTOMER_RESTRICTION_WRITE'
   | 'CUSTOMER_RESTRICTION_RELEASE'
-  | 'CUSTOMER_RATE_READ'
-  | 'CUSTOMER_RATE_WRITE'
-  | 'ONBOARDING_READ'
-  | 'CDD_REVIEW_WRITE'
-  | 'MLRO_REVIEW_WRITE'
-  | 'INVESTOR_OVERRIDE_WRITE'
-  | 'SIMULATE_EXPIRED_WRITE'
-  | 'RISK_DECISION_RECORD_READ'
-  | 'RISK_DECISION_RECORD_WRITE'
-  | 'TX_COMPLIANCE_READ'
-  | 'TX_COMPLIANCE_WRITE'
+  | 'DEMO_CLOCK_WRITE'
+  | 'DEMO_VERDICT_WRITE'
+  | 'SUMSUB_EVENT_VIEW'
   | 'TRADING_DEPOSIT_READ'
   | 'TRADING_DEPOSIT_WRITE'
+  | 'DEPOSIT_WAIVE_WRITE'
+  | 'DEPOSIT_CONFISCATE_WRITE'
+  | 'DEPOSIT_RETURN_WRITE'
+  | 'DEPOSIT_SEIZE_WRITE'
+  | 'DEPOSIT_UNFREEZE_WRITE'
   | 'TRADING_WITHDRAW_READ'
   | 'TRADING_WITHDRAW_WRITE'
+  | 'WITHDRAW_BOUNCE_WRITE'
+  | 'WITHDRAW_REFUND_WRITE'
+  | 'WITHDRAW_UNFREEZE_WRITE'
   | 'TRADING_SWAP_READ'
   | 'TRADING_SWAP_WRITE'
-  | 'PAYIN_READ'
-  | 'PAYIN_WRITE'
-  | 'PAYOUT_READ'
-  | 'PAYOUT_WRITE'
   | 'WALLET_READ'
   | 'WALLET_WRITE'
-  | 'INTERNAL_FUND_READ'
-  | 'RECON_OUTSTANDING_READ'
+  | 'FUNDS_ORDER_VIEW'
+  | 'FUNDS_ORDER_ACT'
   | 'RECON_RUN_READ'
   | 'RECON_RUN_WRITE'
   | 'RECON_CASE_READ'
   | 'RECON_EXTERNAL_BALANCE_READ'
   | 'RECON_ADJUSTMENT_WRITE'
-  | 'SETTLEMENT_READ'
-  | 'SETTLEMENT_WRITE'
-  | 'CLEARING_READ'
-  | 'CLEARING_WRITE'
-  | 'JOURNAL_READ'
   | 'LEDGER_ACCOUNT_READ'
   | 'LEDGER_EVIDENCE_READ'
   | 'LEDGER_FLOW_READ'
-  | 'LEDGER_ACCOUNT_WRITE'
   | 'ASSET_CONFIG_READ'
   | 'ASSET_CONFIG_WRITE'
-  | 'COUNTERPARTY_READ'
-  | 'COUNTERPARTY_WRITE'
   | 'AUDIT_READ'
   | 'AUDIT_EXPORT_CREATE'
   | 'AUDIT_EXPORT_READ'
   | 'GOV_APPROVAL_READ'
-  | 'GOV_APPROVAL_WRITE'
-  | 'GOV_APPROVAL_DECIDE'
-  | 'GOV_REGISTRY_READ'
-  | 'GOV_REGISTRY_WRITE'
-  | 'GOV_REGULATORY_GATE_READ'
-  | 'GOV_REGULATORY_GATE_WRITE'
   | 'GOV_APPROVAL_POLICY_READ'
   | 'GOV_APPROVAL_POLICY_WRITE'
   | 'TRANSACTION_LIMIT_READ'
@@ -87,9 +67,7 @@ export type PermissionGroup =
   | 'SWAP_FEE_LEVEL_READ'
   | 'SWAP_FEE_LEVEL_WRITE'
   | 'INTERNAL_TRANSFER_READ'
-  | 'INTERNAL_TRANSFER_WRITE'
-  | 'SETTLEMENT_READ'
-  | 'SETTLEMENT_WRITE';
+  | 'INTERNAL_TRANSFER_WRITE';
 
 export interface RbacPermissionDefinition {
   code: string;
@@ -156,7 +134,26 @@ export const RBAC_ROLE_DEFINITIONS: RbacRoleDefinition[] = [
   {
     code: 'OPS_OFFICER',
     name: 'Operations Officer',
-    description: 'Treasury operations, settlement, reconciliation, and accounting oversight.',
+    // 2026-08-31：原文写 'Treasury operations, ...'，但金库（钱包/收款账户/提现地址）
+    // 已划归 TREASURY_OFFICER 独有，这句话在第一幕职权重划后变成了假话——描述是演示
+    // 观众会读到的人话，不能和绑定表打架。
+    description:
+      'Day-to-day money movement: releases below-minimum holds, raises deposit and withdrawal dispositions, pushes funds orders, runs reconciliation. Never unfreezes — that sits with compliance.',
+  },
+  {
+    code: 'INTERNAL_AUDITOR',
+    name: 'Internal Auditor',
+    description: 'Independent read-only oversight across every domain. Holds no manage or act capability by design.',
+  },
+  {
+    code: 'CFO',
+    name: 'Chief Financial Officer',
+    description: 'Owns pricing, reads the ledger and reconciliation, signs off on deposit confiscation.',
+  },
+  {
+    code: 'TREASURY_OFFICER',
+    name: 'Treasury Officer',
+    description: 'Owns where the money sits: custodian wallets, customer receiving accounts and withdrawal addresses.',
   },
 ];
 
@@ -165,9 +162,12 @@ export const PRIMARY_ROLE_PRIORITY = [
   'CISO',
   'DPO',
   'MLRO',
+  'INTERNAL_AUDITOR',
   'COMPLIANCE_OFFICER',
   'SENIOR_MANAGEMENT_OFFICER',
+  'CFO',
   'TECH_OFFICER',
+  'TREASURY_OFFICER',
   'OPS_OFFICER',
 ] as const;
 
@@ -200,26 +200,26 @@ export const SOFT_WARNING_ROLE_GROUPS: Array<{ codes: string[]; message: string 
 export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
   // Session / IAM
   route('GET', '/auth/me', 'Get current admin session', ['BASE_ACCESS']),
-  route('GET', '/users', 'List users', ['IAM_READ', 'IAM_MEMBER_READ']),
-  route('POST', '/users', 'Create admin user', ['IAM_ASSIGN', 'IAM_MEMBER_MANAGE']),
-  route('POST', '/users/:id/invitations/resend', 'Resend admin invitation', ['IAM_ASSIGN', 'IAM_MEMBER_MANAGE']),
-  route('POST', '/users/:id/suspend', 'Suspend admin user (C4)', ['IAM_ASSIGN', 'IAM_MEMBER_MANAGE']),
-  route('POST', '/users/:id/reactivate', 'Reactivate admin user (C4b)', ['IAM_ASSIGN', 'IAM_MEMBER_MANAGE']),
-  route('GET', '/admin/iam/roles', 'List role catalog', ['IAM_READ', 'IAM_ROLE_READ']),
-  route('GET', '/admin/iam/permissions', 'List permission catalog', ['IAM_READ', 'IAM_ROLE_READ']),
-  route('GET', '/admin/iam/users/:id/roles', 'Get user roles', ['IAM_READ', 'IAM_MEMBER_READ']),
-  route('PUT', '/admin/iam/users/:id/roles', 'Replace user roles', ['IAM_ASSIGN', 'IAM_ROLE_ASSIGN']),
-  route('POST', '/admin/iam/role-change-requests', 'Create role binding change request', ['IAM_ASSIGN', 'IAM_ROLE_ASSIGN']),
-  route('GET', '/admin/iam/role-change-requests', 'List role binding change requests', ['IAM_READ', 'IAM_ROLE_READ']),
-  route('GET', '/admin/iam/role-change-requests/:id', 'Get role binding change request', ['IAM_READ', 'IAM_ROLE_READ']),
+  route('GET', '/users', 'List users', ['IAM_MEMBER_READ']),
+  route('POST', '/users', 'Create admin user', ['IAM_MEMBER_MANAGE']),
+  route('POST', '/users/:id/invitations/resend', 'Resend admin invitation', ['IAM_MEMBER_MANAGE']),
+  route('POST', '/users/:id/suspend', 'Suspend admin user (C4)', ['IAM_MEMBER_MANAGE']),
+  route('POST', '/users/:id/reactivate', 'Reactivate admin user (C4b)', ['IAM_MEMBER_MANAGE']),
+  route('GET', '/admin/iam/roles', 'List role catalog', ['IAM_ROLE_READ']),
+  route('GET', '/admin/iam/permissions', 'List permission catalog', ['IAM_ROLE_READ']),
+  route('GET', '/admin/iam/users/:id/roles', 'Get user roles', ['IAM_MEMBER_READ']),
+  route('PUT', '/admin/iam/users/:id/roles', 'Replace user roles', ['IAM_ROLE_ASSIGN']),
+  route('POST', '/admin/iam/role-change-requests', 'Create role binding change request', ['IAM_ROLE_ASSIGN']),
+  route('GET', '/admin/iam/role-change-requests', 'List role binding change requests', ['IAM_ROLE_READ']),
+  route('GET', '/admin/iam/role-change-requests/:id', 'Get role binding change request', ['IAM_ROLE_READ']),
   route('POST', '/admin/iam/users/:id/reset-mfa', 'Reset admin MFA binding', ['IAM_CREDENTIAL_RESET']),
   route('POST', '/users/:id/reset-password', 'Reset admin password (C5)', ['IAM_CREDENTIAL_RESET']),
   route('POST', '/admin/iam/role-definitions', 'Create role definition request', ['IAM_ROLE_DEFINE']),
   route('GET', '/admin/iam/role-definitions/permission-groups', 'List available permission groups', ['IAM_ROLE_DEFINE']),
   route('POST', '/admin/iam/role-definitions/:roleId/modify', 'Submit role definition modify request', ['IAM_ROLE_DEFINE']),
-  route('GET', '/admin/iam/role-definition-modify-requests', 'List role definition modify requests', ['IAM_READ', 'IAM_ROLE_READ']),
-  route('GET', '/admin/iam/role-definition-modify-requests/:id', 'Get role definition modify request detail', ['IAM_READ', 'IAM_ROLE_READ']),
-  route('GET', '/admin/iam/action-buckets', 'List action bucket catalog', ['IAM_READ', 'IAM_ROLE_READ']),
+  route('GET', '/admin/iam/role-definition-modify-requests', 'List role definition modify requests', ['IAM_ROLE_READ']),
+  route('GET', '/admin/iam/role-definition-modify-requests/:id', 'Get role definition modify request detail', ['IAM_ROLE_READ']),
+  route('GET', '/admin/iam/action-buckets', 'List action bucket catalog', ['IAM_ROLE_READ']),
 
   // Customer domain
   route('POST', '/customers', 'Create customer', ['CUSTOMER_WRITE']),
@@ -250,27 +250,13 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
   route('GET', '/admin/material-requests/by-order/:orderDomain/:orderRef', 'List order material requests', ['CUSTOMER_RESTRICTION_READ']),
 
   // Pricing center
-  route('GET', '/admin/pricing/policies', 'List pricing policies', ['CUSTOMER_RATE_READ']),
-  route('GET', '/admin/pricing/policies/swap', 'Get swap pricing policy', ['CUSTOMER_RATE_READ']),
-  route('GET', '/admin/pricing/policies/withdrawal', 'Get withdrawal pricing policy', ['CUSTOMER_RATE_READ']),
-  route(
-    'GET',
-    '/admin/pricing/policies/swap/pairs/:pairId/market-source',
-    'Get swap pair market source',
-    ['CUSTOMER_RATE_READ'],
-  ),
-  route('POST', '/admin/pricing/simulator/swap', 'Simulate swap pricing', ['CUSTOMER_RATE_READ']),
   route('POST', '/withdraw-transactions/quotes', 'Create withdrawal pricing quote', ['TRADING_WITHDRAW_WRITE']),
 
   // Onboarding compliance
-  route('POST', '/admin/compliance/customers/:id/simulate-expired', 'Simulate customer expired', ['SIMULATE_EXPIRED_WRITE']),
-  route('PATCH', '/admin/compliance/customers/:id/investor-classification', 'Override investor classification', ['INVESTOR_OVERRIDE_WRITE']),
+  route('POST', '/admin/compliance/customers/:id/simulate-expired', 'Simulate customer expired', ['DEMO_CLOCK_WRITE']),
 
   // Sumsub events
-  route('GET', '/admin/sumsub-events', 'List Sumsub webhook events', ['RISK_DECISION_RECORD_READ']),
-  route('GET', '/admin/sumsub-events/:id', 'Get Sumsub event detail', ['RISK_DECISION_RECORD_READ']),
-  route('POST', '/admin/sumsub-events/simulate', 'Simulate Sumsub event', ['RISK_DECISION_RECORD_WRITE']),
-  route('POST', '/admin/sumsub-events/:id/replay', 'Replay Sumsub event', ['RISK_DECISION_RECORD_WRITE']),
+  route('GET', '/admin/sumsub-events', 'List Sumsub webhook events', ['SUMSUB_EVENT_VIEW']),
 
   // Risk assessments
 
@@ -283,6 +269,8 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
     'List customer inbound transfer signals',
     ['TRADING_DEPOSIT_READ'],
   ),
+  // 客户端信号入口（非管理端能力）——Task 7 充值动作域拆分不含这两条，继续挂
+  // TRADING_DEPOSIT_WRITE；不进桶目录、不进角色 bindings，勿被后人误清或误并入下方新组
   route(
     'POST',
     '/deposit-transactions/my/inbound-signals',
@@ -295,14 +283,13 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
     'Scan customer inbound transfer signals',
     ['TRADING_DEPOSIT_WRITE'],
   ),
-  route('PATCH', '/deposit-transactions/:id/status', 'Update deposit transaction status', ['TRADING_DEPOSIT_WRITE']),
-  route('POST', '/deposit-transactions/:id/waive-limit', 'Waive deposit below-minimum amount hold', ['TRADING_DEPOSIT_WRITE']),
-  route('POST', '/deposit-transactions/:id/confiscate', 'Confiscate deposit below-minimum amount as fee', ['TRADING_DEPOSIT_WRITE']),
-  route('POST', '/deposit-transactions/:id/return', 'Open a return-to-sender approval for a deposit', ['TRADING_DEPOSIT_WRITE']),
-  route('POST', '/deposit-transactions/:id/seize', 'Seize a frozen deposit under government order', ['TRADING_DEPOSIT_WRITE']),
-  route('POST', '/deposit-transactions/:id/unfreeze', 'Unfreeze a frozen deposit', ['TRADING_DEPOSIT_WRITE']),
+  route('POST', '/deposit-transactions/:id/waive-limit', 'Waive deposit below-minimum amount hold', ['DEPOSIT_WAIVE_WRITE']),
+  route('POST', '/deposit-transactions/:id/confiscate', 'Confiscate deposit below-minimum amount as fee', ['DEPOSIT_CONFISCATE_WRITE']),
+  route('POST', '/deposit-transactions/:id/return', 'Open a return-to-sender approval for a deposit', ['DEPOSIT_RETURN_WRITE']),
+  route('POST', '/deposit-transactions/:id/seize', 'Seize a frozen deposit under government order', ['DEPOSIT_SEIZE_WRITE']),
+  route('POST', '/deposit-transactions/:id/unfreeze', 'Unfreeze a frozen deposit', ['DEPOSIT_UNFREEZE_WRITE']),
   // Task 6 (SLA 批次)：管理台「模拟超时」按钮 —— 演示用,把 slaDeadline 拨到过去
-  route('POST', '/deposit-transactions/:depositNo/simulate-sla-timeout', 'Simulate SLA timeout for a deposit (demo only)', ['TRADING_DEPOSIT_WRITE']),
+  route('POST', '/deposit-transactions/:depositNo/simulate-sla-timeout', 'Simulate SLA timeout for a deposit (demo only)', ['DEMO_CLOCK_WRITE']),
   route('GET', '/deposit-transactions/export', 'Export deposit transactions', ['TRADING_DEPOSIT_READ']),
   // Demo verdict runner (Task 6 计划1·甲方案 起步, Task 4 计划「充值仿真裁决按钮」改单步) —
   // controller only registered when SUMSUB_MOCK_MODE=true
@@ -310,7 +297,7 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
     'POST',
     '/admin/deposit-sumsub/demo/run-verdict',
     'Feed one Sumsub KYT verdict webhook into a deposit (demo only)',
-    ['TRADING_DEPOSIT_WRITE'],
+    ['DEMO_VERDICT_WRITE'],
   ),
   // Task A7: 按钮清单出端点 — 前端 ⚡ 面板据此渲染，不再手抄
   route(
@@ -325,18 +312,18 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
   route('GET', '/withdraw-transactions/:id', 'Get withdraw transaction detail', ['TRADING_WITHDRAW_READ']),
   route('POST', '/withdraw-transactions', 'Create withdraw transaction', ['TRADING_WITHDRAW_WRITE']),
   route('POST', '/withdraw-transactions/mock', 'Mock withdraw transaction', ['TRADING_WITHDRAW_WRITE']),
-  route('POST', '/withdraw-transactions/:id/bounce', 'Bounce (return) withdraw transaction payout', ['TRADING_WITHDRAW_WRITE']),
-  route('POST', '/withdraw-transactions/:id/unfreeze', 'Unfreeze a FROZEN withdraw transaction', ['TRADING_WITHDRAW_WRITE']),
-  route('POST', '/withdraw-transactions/:id/refund', 'Sanction-refund a FROZEN withdraw transaction', ['TRADING_WITHDRAW_WRITE']),
+  route('POST', '/withdraw-transactions/:id/bounce', 'Bounce (return) withdraw transaction payout', ['WITHDRAW_BOUNCE_WRITE']),
+  route('POST', '/withdraw-transactions/:id/unfreeze', 'Unfreeze a FROZEN withdraw transaction', ['WITHDRAW_UNFREEZE_WRITE']),
+  route('POST', '/withdraw-transactions/:id/refund', 'Sanction-refund a FROZEN withdraw transaction', ['WITHDRAW_REFUND_WRITE']),
   // Task 6 (SLA 批次)：管理台「模拟超时」按钮 —— 演示用,把 slaDeadline 拨到过去
-  route('POST', '/withdraw-transactions/:withdrawNo/simulate-sla-timeout', 'Simulate SLA timeout for a withdraw transaction (demo only)', ['TRADING_WITHDRAW_WRITE']),
+  route('POST', '/withdraw-transactions/:withdrawNo/simulate-sla-timeout', 'Simulate SLA timeout for a withdraw transaction (demo only)', ['DEMO_CLOCK_WRITE']),
   // Demo verdict runner (Task 10, mirror of deposit's demo twin) — controller
   // only registered when SUMSUB_MOCK_MODE=true
   route(
     'POST',
     '/admin/withdraw-sumsub/demo/run-verdict',
     'Feed one Sumsub KYT verdict webhook into a withdrawal (demo only)',
-    ['TRADING_WITHDRAW_WRITE'],
+    ['DEMO_VERDICT_WRITE'],
   ),
   // Task A7: 按钮清单出端点 — 前端 ⚡ 面板据此渲染，不再手抄
   route(
@@ -352,18 +339,17 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
   route('GET', '/admin/swap-transactions/quotes', 'List swap quotes', ['TRADING_SWAP_READ']),
   route('GET', '/admin/swap-transactions/quotes/:id', 'Get swap quote detail', ['TRADING_SWAP_READ']),
   route('GET', '/admin/swap-transactions/:id', 'Get swap transaction detail', ['TRADING_SWAP_READ']),
-  route('PATCH', '/admin/swap-transactions/:id/status', 'Update swap transaction status', ['TRADING_SWAP_WRITE']),
   route('POST', '/admin/swap-transactions/:swapNo/legs/:legSeq/advance', 'Advance swap settlement leg', ['TRADING_SWAP_WRITE']),
   route('POST', '/admin/swap-transactions/:swapNo/legs/:legSeq/resume', 'Resume a stuck swap leg', ['TRADING_SWAP_WRITE']),
   // Task 6 (SLA 批次)：管理台「模拟超时」按钮 —— 演示用,把 slaDeadline 拨到过去
-  route('POST', '/admin/swap-transactions/:swapNo/simulate-sla-timeout', 'Simulate SLA timeout for a swap transaction (demo only)', ['TRADING_SWAP_WRITE']),
+  route('POST', '/admin/swap-transactions/:swapNo/simulate-sla-timeout', 'Simulate SLA timeout for a swap transaction (demo only)', ['DEMO_CLOCK_WRITE']),
   // Demo verdict runner (Task 9, mirror of deposit/withdraw's demo twins) —
   // controller only registered when SUMSUB_MOCK_MODE=true
   route(
     'POST',
     '/admin/swap-sumsub/demo/run-verdict',
     'Feed one Sumsub KYT verdict webhook into a swap (demo only)',
-    ['TRADING_SWAP_WRITE'],
+    ['DEMO_VERDICT_WRITE'],
   ),
   // Task A7: 按钮清单出端点 — 前端 ⚡ 面板据此渲染，不再手抄
   route(
@@ -406,7 +392,6 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
   // TB Ledger
   route('GET', '/admin/tb/accounts', 'List TB account registry', ['LEDGER_ACCOUNT_READ']),
   route('GET', '/admin/tb/accounts/:tbAccountId', 'Get TB account detail', ['LEDGER_ACCOUNT_READ']),
-  route('POST', '/admin/tb/accounts', 'Create manual TB account', ['LEDGER_ACCOUNT_WRITE']),
   route('GET', '/admin/tb/transfers', 'List TB transfer evidence', ['LEDGER_EVIDENCE_READ']),
   route('GET', '/admin/tb/transfers/:tbTransferId', 'Get TB transfer evidence detail', ['LEDGER_EVIDENCE_READ']),
   route('GET', '/admin/tb/account-flows', 'List account flows', ['LEDGER_FLOW_READ']),
@@ -422,21 +407,6 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
   route('POST', '/admin/assets/:assetNo/activate', 'Activate asset', ['ASSET_CONFIG_WRITE']),
   route('POST', '/admin/assets/:assetNo/suspend', 'Suspend asset', ['ASSET_CONFIG_WRITE']),
   route('POST', '/admin/assets/:assetNo/reactivate', 'Reactivate asset', ['ASSET_CONFIG_WRITE']),
-
-  // Counterparty
-  route('POST', '/liquidity-providers', 'Create liquidity provider', ['COUNTERPARTY_WRITE']),
-  route('GET', '/liquidity-providers', 'List liquidity providers', ['COUNTERPARTY_READ']),
-  route('GET', '/liquidity-providers/:id', 'Get liquidity provider detail', ['COUNTERPARTY_READ']),
-  route('PATCH', '/liquidity-providers/:id/status', 'Update liquidity provider status', ['COUNTERPARTY_WRITE']),
-
-  route('POST', '/liquidity-configurations', 'Create liquidity configuration', ['COUNTERPARTY_WRITE']),
-  route('GET', '/liquidity-configurations', 'List liquidity configurations', ['COUNTERPARTY_READ']),
-  route('GET', '/liquidity-configurations/available', 'List available liquidity configurations', ['COUNTERPARTY_READ']),
-  route('GET', '/liquidity-configurations/lp/:lpId', 'List liquidity configurations by LP', ['COUNTERPARTY_READ']),
-  route('GET', '/liquidity-configurations/:id', 'Get liquidity configuration detail', ['COUNTERPARTY_READ']),
-  route('PUT', '/liquidity-configurations/:id', 'Update liquidity configuration', ['COUNTERPARTY_WRITE']),
-  route('DELETE', '/liquidity-configurations/:id', 'Delete liquidity configuration', ['COUNTERPARTY_WRITE']),
-  route('PATCH', '/liquidity-configurations/:id/status', 'Update liquidity configuration status', ['COUNTERPARTY_WRITE']),
 
   // Audit logs
   route('GET', '/admin/audit-logs', 'List audit logs', ['AUDIT_READ']),
@@ -455,111 +425,19 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
   ]),
 
   // Governance approvals
-  route('POST', '/admin/control-gates/approvals', 'Create approval case', ['GOV_APPROVAL_WRITE']),
-  route('POST', '/admin/control-gates/approvals/:id/submit', 'Submit approval case', ['GOV_APPROVAL_WRITE']),
-  route('POST', '/admin/control-gates/approvals/:id/approve', 'Approve approval case', ['GOV_APPROVAL_DECIDE']),
-  route('POST', '/admin/control-gates/approvals/:id/reject', 'Reject approval case', ['GOV_APPROVAL_DECIDE']),
-  route('POST', '/admin/control-gates/approvals/:id/cancel', 'Cancel approval case', ['GOV_APPROVAL_WRITE']),
+  // create/submit retired with GOV_APPROVAL_WRITE (D7) — zero HTTP callers (no admin-web
+  // consumer builds a bare create or :id/submit request; every internal workflow module
+  // opens cases via ApprovalsService.createAndSubmit(), not through this HTTP surface).
+  // approve/reject/cancel stay: decision authority now lives in the approval policy's
+  // checkerRole mechanism (service layer), so the RBAC group only needs to gate "can see
+  // approvals" — downgraded from GOV_APPROVAL_DECIDE/WRITE to GOV_APPROVAL_READ.
+  // cancel specifically was found to have a live consumer (ApprovalDetailPage.tsx's Cancel
+  // button, same submitDecision() flow as approve/reject) — see task-4-report.md.
+  route('POST', '/admin/control-gates/approvals/:id/approve', 'Approve approval case', ['GOV_APPROVAL_READ']),
+  route('POST', '/admin/control-gates/approvals/:id/reject', 'Reject approval case', ['GOV_APPROVAL_READ']),
+  route('POST', '/admin/control-gates/approvals/:id/cancel', 'Cancel approval case', ['GOV_APPROVAL_READ']),
   route('GET', '/admin/control-gates/approvals/:id', 'Get approval case detail', ['GOV_APPROVAL_READ']),
   route('GET', '/admin/control-gates/approvals', 'List approval cases', ['GOV_APPROVAL_READ']),
-
-  // Governance registries
-  route('GET', '/admin/governance/registries/shareholding-versions', 'List shareholding registry versions', [
-    'GOV_REGISTRY_READ',
-  ]),
-  route('GET', '/admin/governance/registries/shareholding-versions/:id', 'Get shareholding registry version detail', [
-    'GOV_REGISTRY_READ',
-  ]),
-  route('POST', '/admin/governance/registries/shareholding-versions', 'Create shareholding registry version', [
-    'GOV_REGISTRY_WRITE',
-  ]),
-  route('PATCH', '/admin/governance/registries/shareholding-versions/:id', 'Update shareholding registry version', [
-    'GOV_REGISTRY_WRITE',
-  ]),
-  route('GET', '/admin/governance/registries/appointments', 'List appointment records', [
-    'GOV_REGISTRY_READ',
-  ]),
-  route('GET', '/admin/governance/registries/appointments/:id', 'Get appointment record detail', [
-    'GOV_REGISTRY_READ',
-  ]),
-  route('POST', '/admin/governance/registries/appointments', 'Create appointment record', [
-    'GOV_REGISTRY_WRITE',
-  ]),
-  route('PATCH', '/admin/governance/registries/appointments/:id', 'Update appointment record', [
-    'GOV_REGISTRY_WRITE',
-  ]),
-  route('GET', '/admin/governance/registries/trainings', 'List training records', [
-    'GOV_REGISTRY_READ',
-  ]),
-  route('GET', '/admin/governance/registries/trainings/:id', 'Get training record detail', [
-    'GOV_REGISTRY_READ',
-  ]),
-  route('POST', '/admin/governance/registries/trainings', 'Create training record', [
-    'GOV_REGISTRY_WRITE',
-  ]),
-  route('PATCH', '/admin/governance/registries/trainings/:id', 'Update training record', [
-    'GOV_REGISTRY_WRITE',
-  ]),
-  route('GET', '/admin/governance/registries/conflicts', 'List conflict disclosures', [
-    'GOV_REGISTRY_READ',
-  ]),
-  route('GET', '/admin/governance/registries/conflicts/:id', 'Get conflict disclosure detail', [
-    'GOV_REGISTRY_READ',
-  ]),
-  route('POST', '/admin/governance/registries/conflicts', 'Create conflict disclosure', [
-    'GOV_REGISTRY_WRITE',
-  ]),
-  route('PATCH', '/admin/governance/registries/conflicts/:id', 'Update conflict disclosure', [
-    'GOV_REGISTRY_WRITE',
-  ]),
-  route('GET', '/admin/governance/registries/wind-down-materials', 'List wind-down material records', [
-    'GOV_REGISTRY_READ',
-  ]),
-  route('GET', '/admin/governance/registries/wind-down-materials/:id', 'Get wind-down material record detail', [
-    'GOV_REGISTRY_READ',
-  ]),
-  route('POST', '/admin/governance/registries/wind-down-materials', 'Create wind-down material record', [
-    'GOV_REGISTRY_WRITE',
-  ]),
-  route('PATCH', '/admin/governance/registries/wind-down-materials/:id', 'Update wind-down material record', [
-    'GOV_REGISTRY_WRITE',
-  ]),
-  route('GET', '/admin/governance/regulatory-gates', 'List regulatory gate items', [
-    'GOV_REGULATORY_GATE_READ',
-  ]),
-  route('GET', '/admin/governance/regulatory-gates/:id', 'Get regulatory gate detail', [
-    'GOV_REGULATORY_GATE_READ',
-  ]),
-  route('POST', '/admin/governance/regulatory-gates', 'Create regulatory gate item', [
-    'GOV_REGULATORY_GATE_WRITE',
-  ]),
-  route('PATCH', '/admin/governance/regulatory-gates/:id', 'Update regulatory gate item', [
-    'GOV_REGULATORY_GATE_WRITE',
-  ]),
-  route('POST', '/admin/governance/regulatory-gates/:id/submit', 'Submit regulatory gate filing', [
-    'GOV_REGULATORY_GATE_WRITE',
-  ]),
-  route(
-    'POST',
-    '/admin/governance/regulatory-gates/:id/record-feedback',
-    'Record regulatory gate filing feedback',
-    ['GOV_REGULATORY_GATE_WRITE'],
-  ),
-  route(
-    'POST',
-    '/admin/governance/regulatory-gates/:id/bind-receipt',
-    'Bind regulatory gate receipt',
-    ['GOV_REGULATORY_GATE_WRITE'],
-  ),
-  route(
-    'POST',
-    '/admin/governance/regulatory-gates/:id/mark-effective',
-    'Mark regulatory gate effective',
-    ['GOV_REGULATORY_GATE_WRITE'],
-  ),
-  route('POST', '/admin/governance/regulatory-gates/:id/revoke', 'Revoke regulatory gate', [
-    'GOV_REGULATORY_GATE_WRITE',
-  ]),
 
   // Approval Policy Management
   route('GET', '/admin/governance/approval-policies', 'List approval policies', [
@@ -641,12 +519,13 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
   // moved to the unified /admin/funds-orders controller below.
 
   // Funds Orders (Round 2 — unified deposit/withdraw/swap funds read surface)
-  route('GET', '/admin/funds-orders', 'List funds orders', ['INTERNAL_FUND_READ']),
-  route('GET', '/admin/funds-orders/:fundsOrderNo', 'Get funds order detail', ['INTERNAL_FUND_READ']),
-  route('POST', '/admin/funds-orders/:fundsOrderNo/advance', 'Advance funds order (sim/ops)', ['INTERNAL_FUND_READ']),
+  // Task 7 (B3)：看/推拆开 — list/detail 挂 FUNDS_ORDER_VIEW，advance/push 挂 FUNDS_ORDER_ACT
+  route('GET', '/admin/funds-orders', 'List funds orders', ['FUNDS_ORDER_VIEW']),
+  route('GET', '/admin/funds-orders/:fundsOrderNo', 'Get funds order detail', ['FUNDS_ORDER_VIEW']),
+  route('POST', '/admin/funds-orders/:fundsOrderNo/advance', 'Advance funds order (sim/ops)', ['FUNDS_ORDER_ACT']),
   // Recon disposition (平账·推单) — sync from external receipt / manual confirm with evidence.
-  route('POST', '/admin/funds-orders/:fundsOrderNo/push/sync', 'Push order — sync from external receipt (recon disposition)', ['INTERNAL_FUND_READ']),
-  route('POST', '/admin/funds-orders/:fundsOrderNo/push/manual', 'Push order — manual confirm with evidence (recon disposition)', ['INTERNAL_FUND_READ']),
+  route('POST', '/admin/funds-orders/:fundsOrderNo/push/sync', 'Push order — sync from external receipt (recon disposition)', ['FUNDS_ORDER_ACT']),
+  route('POST', '/admin/funds-orders/:fundsOrderNo/push/manual', 'Push order — manual confirm with evidence (recon disposition)', ['FUNDS_ORDER_ACT']),
 
 ];
 
@@ -754,7 +633,7 @@ export const ACTION_BUCKET_CATALOG: ActionDomain[] = [
       {
         key: 'gov_approval_policies.manage',
         label: 'Manage approval policies',
-        description: 'Submit approval policy change requests — CISO only',
+        description: 'Submit approval policy change requests — held by senior management and the CISO; SM proposes, CISO decides',
         groups: ['GOV_APPROVAL_POLICY_WRITE'],
         restricted: true,
       },
@@ -786,10 +665,11 @@ export const ACTION_BUCKET_CATALOG: ActionDomain[] = [
       },
     ],
   },
-  // ─── Placeholder Domains (no buckets yet) ────────────
-  { id: 'customer', label: 'Customer Management', icon: '👥', buckets: [] },
-  { id: 'compliance', label: 'Compliance', icon: '🛡️', buckets: [] },
-  { id: 'trading', label: 'Trading', icon: '📊', buckets: [] },
+  // 2026-08-31：本目录**不再有占位域**——每个域都至少一个桶（原「Placeholder
+  // Domains (no buckets yet)」注释随第一幕职权重划作废）。空域是致命的：前端
+  // RoleDetailPage 只渲染有桶的域，空壳域在自定义角色界面上根本不出现，
+  // 等于「有权限但没入口」。两条机器判据看着这件事：
+  //   ① 有绑定无桶为空  ② 有桶无组为空（防反向的「有入口没权限」）
   {
     id: 'accounting',
     label: 'Accounting',
@@ -798,7 +678,6 @@ export const ACTION_BUCKET_CATALOG: ActionDomain[] = [
       { key: 'ledger.view_accounts', label: 'View ledger accounts', description: 'Browse TB account registry', groups: ['LEDGER_ACCOUNT_READ'] },
       { key: 'ledger.view_evidence', label: 'View transfer evidence', description: 'Browse TB transfer evidence', groups: ['LEDGER_EVIDENCE_READ'] },
       { key: 'ledger.view_flows', label: 'View account flows', description: 'Browse per-account flow rows', groups: ['LEDGER_FLOW_READ'] },
-      { key: 'ledger.manage_accounts', label: 'Create TB accounts', description: 'Manually create TB accounts', groups: ['LEDGER_ACCOUNT_WRITE'] },
     ],
   },
   {
@@ -856,12 +735,105 @@ export const ACTION_BUCKET_CATALOG: ActionDomain[] = [
       },
     ],
   },
-  { id: 'recon', label: 'Reconciliation', icon: '🔍', buckets: [] },
-  { id: 'pricing', label: 'Pricing', icon: '💰', buckets: [] },
-  { id: 'config', label: 'Configuration', icon: '⚙️', buckets: [] },
-  { id: 'gov_registry', label: 'Governance Registries', icon: '🏛️', buckets: [] },
-  { id: 'counterparty', label: 'Counterparty', icon: '🤝', buckets: [] },
-  { id: 'clearing', label: 'Clearing', icon: '📋', buckets: [] },
+  // ─── Domain: Customer ────────────────────────────────
+  {
+    id: 'customer',
+    label: 'Customer Management',
+    icon: '👥',
+    buckets: [
+      {
+        key: 'customer.view',
+        label: 'View customers',
+        description: 'Browse customer list, detail, tags and restrictions',
+        groups: ['CUSTOMER_READ', 'CUSTOMER_RESTRICTION_READ', 'CUSTOMER_TAG_VIEW'],
+      },
+      {
+        key: 'customer.manage_profile',
+        label: 'Manage profile & tags',
+        description: 'Edit customer profile fields, attach and detach tags',
+        groups: ['CUSTOMER_WRITE', 'CUSTOMER_TAG_MANAGE'],
+      },
+      {
+        key: 'customer.act_restrict',
+        label: 'Open restrictions',
+        description: 'Place a restriction on a customer (sanction, administrative)',
+        groups: ['CUSTOMER_RESTRICTION_WRITE'],
+      },
+      {
+        key: 'customer.act_release',
+        label: 'Release restrictions',
+        description: 'Request release of an existing restriction — deliberately split from opening one',
+        groups: ['CUSTOMER_RESTRICTION_RELEASE'],
+      },
+    ],
+  },
+  // ─── Domain: Trading (split per concrete action) ──────
+  // 拆到具体动作，不用笼统的「处置」：提上缴和提没收不是同一件事，
+  // 解冻更不该和放行同属一个包（业主 2026-08-30 定）。
+  {
+    id: 'trading',
+    label: 'Trading',
+    icon: '📊',
+    buckets: [
+      { key: 'trading.view_deposit', label: 'View deposits', description: 'Browse deposit orders and detail', groups: ['TRADING_DEPOSIT_READ'] },
+      { key: 'trading.view_withdraw', label: 'View withdrawals', description: 'Browse withdrawal orders and detail', groups: ['TRADING_WITHDRAW_READ'] },
+      { key: 'trading.view_swap', label: 'View swaps', description: 'Browse swap orders, quotes and detail', groups: ['TRADING_SWAP_READ'] },
+      { key: 'trading.view_sumsub_events', label: 'View Sumsub callbacks', description: 'Browse the inbound Sumsub webhook event log and where each was dispatched', groups: ['SUMSUB_EVENT_VIEW'] },
+      { key: 'trading.act_deposit_waive', label: 'Release below-minimum holds', description: 'Waive a below-minimum deposit hold — executes immediately, no approval', groups: ['DEPOSIT_WAIVE_WRITE'] },
+      { key: 'trading.act_deposit_confiscate', label: 'Request deposit confiscation', description: 'Open a confiscation approval — the money becomes firm revenue', groups: ['DEPOSIT_CONFISCATE_WRITE'] },
+      { key: 'trading.act_deposit_return', label: 'Request return to sender', description: 'Open a return-to-sender approval', groups: ['DEPOSIT_RETURN_WRITE'] },
+      { key: 'trading.act_deposit_seize', label: 'Request seizure', description: 'Open a seizure approval under government order', groups: ['DEPOSIT_SEIZE_WRITE'] },
+      { key: 'trading.act_deposit_unfreeze', label: 'Request deposit unfreeze', description: 'Open an unfreeze approval — compliance line only, never operations', groups: ['DEPOSIT_UNFREEZE_WRITE'] },
+      { key: 'trading.act_withdraw_create', label: 'Create withdrawals & quotes', description: 'Raise withdrawal orders and pricing quotes', groups: ['TRADING_WITHDRAW_WRITE'] },
+      { key: 'trading.act_withdraw_bounce', label: 'Bounce payouts', description: 'Mark a payout as returned by the bank — executes immediately', groups: ['WITHDRAW_BOUNCE_WRITE'] },
+      { key: 'trading.act_withdraw_refund', label: 'Request sanction refund', description: 'Open a sanction-refund approval on a frozen withdrawal', groups: ['WITHDRAW_REFUND_WRITE'] },
+      { key: 'trading.act_withdraw_unfreeze', label: 'Request withdrawal unfreeze', description: 'Open an unfreeze approval — compliance line only, never operations', groups: ['WITHDRAW_UNFREEZE_WRITE'] },
+      { key: 'trading.act_swap', label: 'Handle swaps', description: 'Raise and progress swap orders', groups: ['TRADING_SWAP_WRITE'] },
+    ],
+  },
+  // ─── Domain: Funds Orders ────────────────────────────
+  // 看得到资金单 != 推得动资金单 —— 这条 SoD 靠 VIEW/ACT 分家才成立。
+  {
+    id: 'funds',
+    label: 'Funds Orders',
+    icon: '🚚',
+    buckets: [
+      { key: 'funds.view', label: 'View funds orders', description: 'Browse the physical transfer mirror of every order', groups: ['FUNDS_ORDER_VIEW'] },
+      { key: 'funds.act_push', label: 'Push funds orders', description: 'Advance or push a funds order leg — seeing one is not moving one', groups: ['FUNDS_ORDER_ACT'] },
+    ],
+  },
+  // ─── Domain: Reconciliation ──────────────────────────
+  {
+    id: 'recon',
+    label: 'Reconciliation',
+    icon: '🔍',
+    buckets: [
+      { key: 'recon.view', label: 'View runs, cases & balances', description: 'Browse reconciliation runs, cases and external balances', groups: ['RECON_RUN_READ', 'RECON_CASE_READ', 'RECON_EXTERNAL_BALANCE_READ'] },
+      { key: 'recon.act_run', label: 'Trigger reconciliation runs', description: 'Kick off a per-wallet reconciliation run', groups: ['RECON_RUN_WRITE'] },
+    ],
+  },
+  // ─── Domain: Pricing ─────────────────────────────────
+  {
+    id: 'pricing',
+    label: 'Pricing',
+    icon: '💰',
+    buckets: [
+      { key: 'pricing.view', label: 'View fee levels', description: 'Browse withdrawal and swap fee levels', groups: ['WITHDRAWAL_FEE_LEVEL_READ', 'SWAP_FEE_LEVEL_READ'] },
+      { key: 'pricing.manage', label: 'Manage fee levels', description: 'Raise fee level creation and change requests — operations signs them off', groups: ['WITHDRAWAL_FEE_LEVEL_WRITE', 'SWAP_FEE_LEVEL_WRITE'] },
+    ],
+  },
+  // ─── Domain: Demo Instruments ────────────────────────
+  // ⚡ 面板模拟的是 Sumsub 那一侧，不是我方后台的职务能力 —— 单列成域，
+  // 才能让「谁能按 ⚡」和「谁能处置单据」在矩阵上是两行。
+  {
+    id: 'demo',
+    label: 'Demo Instruments',
+    icon: '⚡',
+    buckets: [
+      { key: 'demo.act_verdict', label: 'Feed compliance verdicts', description: 'Stand in for the Sumsub console — the only way a compliance officer moves an order', groups: ['DEMO_VERDICT_WRITE'] },
+      { key: 'demo.act_clock', label: 'Fast-forward clocks', description: 'Trip SLA timers and material expiry for demonstration', groups: ['DEMO_CLOCK_WRITE'] },
+    ],
+  },
 ];
 
 /**
@@ -879,151 +851,144 @@ export function buildPermCodeToGroups(): Record<string, string[]> {
 
 export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
   SUPER_ADMIN: [],
+
   SENIOR_MANAGEMENT_OFFICER: [
     'BASE_ACCESS',
-    'IAM_READ',
-    'AUDIT_READ',
-    'RISK_DECISION_RECORD_READ',
-    'GOV_APPROVAL_READ',
-    'GOV_APPROVAL_DECIDE',
-    'GOV_REGISTRY_READ',
-    'GOV_REGULATORY_GATE_READ',
-    'GOV_APPROVAL_POLICY_READ',
-    'TRANSACTION_LIMIT_READ',
-    'ASSET_CONFIG_READ',
-    'WALLET_READ',
-    'LEDGER_ACCOUNT_READ',
-    'LEDGER_EVIDENCE_READ',
-    'LEDGER_FLOW_READ',
+    'IAM_MEMBER_READ', 'IAM_ROLE_READ',
+    'GOV_APPROVAL_READ', 'GOV_APPROVAL_POLICY_READ', 'GOV_APPROVAL_POLICY_WRITE',
+    'AUDIT_READ', 'AUDIT_EXPORT_READ',
+    'LEDGER_ACCOUNT_READ', 'LEDGER_EVIDENCE_READ', 'LEDGER_FLOW_READ',
+    'ASSET_CONFIG_READ', 'WALLET_READ', 'WITHDRAWAL_ADDRESS_READ', 'TRANSACTION_LIMIT_READ',
+    'CUSTOMER_READ', 'CUSTOMER_RESTRICTION_READ', 'CUSTOMER_TAG_VIEW',
+    'TRADING_DEPOSIT_READ', 'TRADING_WITHDRAW_READ', 'TRADING_SWAP_READ', 'SUMSUB_EVENT_VIEW',
+    'FUNDS_ORDER_VIEW',
+    'RECON_RUN_READ', 'RECON_CASE_READ', 'RECON_EXTERNAL_BALANCE_READ',
+    'WITHDRAWAL_FEE_LEVEL_READ', 'SWAP_FEE_LEVEL_READ',
   ],
-  TECH_OFFICER: [
-    'BASE_ACCESS',
-    'IAM_READ',
-    'IAM_ASSIGN',
-    'IAM_CREDENTIAL_RESET',
-    'IAM_ROLE_DEFINE',
-    'AUDIT_READ',
-    'AUDIT_EXPORT_READ',
-    'RISK_DECISION_RECORD_READ',
-    'RISK_DECISION_RECORD_WRITE',
-    'GOV_APPROVAL_READ',
-    'GOV_APPROVAL_DECIDE',
-    'GOV_REGISTRY_READ',
-    'GOV_REGISTRY_WRITE',
-    'GOV_REGULATORY_GATE_READ',
-    'GOV_REGULATORY_GATE_WRITE',
-    'GOV_APPROVAL_POLICY_READ',
-    'GOV_APPROVAL_POLICY_WRITE',
-    'TRANSACTION_LIMIT_READ',
-    'TRANSACTION_LIMIT_WRITE',
-    'ASSET_CONFIG_READ',
-    'ASSET_CONFIG_WRITE',
-    'LEDGER_ACCOUNT_READ',
-    'LEDGER_EVIDENCE_READ',
-    'LEDGER_FLOW_READ',
-    'LEDGER_ACCOUNT_WRITE',
-    'WALLET_READ',
-    'WALLET_WRITE',
-    'WITHDRAWAL_ADDRESS_READ',
-    'WITHDRAWAL_ADDRESS_WRITE',
-  ],
-  OPS_OFFICER: [
-    'BASE_ACCESS',
-    'IAM_READ',
-    'AUDIT_READ',
-    'GOV_APPROVAL_READ',
-    'GOV_APPROVAL_DECIDE',
-    'GOV_REGISTRY_READ',
-    'GOV_REGULATORY_GATE_READ',
-    'ASSET_CONFIG_READ',
-    'WALLET_READ',
-    'WALLET_WRITE',
-    'LEDGER_ACCOUNT_READ',
-    'LEDGER_EVIDENCE_READ',
-    'LEDGER_FLOW_READ',
-    'TRANSACTION_LIMIT_READ',
-    'TRANSACTION_LIMIT_WRITE',
-    'WITHDRAWAL_FEE_LEVEL_READ',
-    'WITHDRAWAL_FEE_LEVEL_WRITE',
-    'SWAP_FEE_LEVEL_READ',
-    'SWAP_FEE_LEVEL_WRITE',
-    'WITHDRAWAL_ADDRESS_READ',
-  ],
-  COMPLIANCE_OFFICER: [
-    'BASE_ACCESS',
-    'IAM_READ',
-    'AUDIT_READ',
-    'AUDIT_EXPORT_CREATE',
-    'AUDIT_EXPORT_READ',
-    'RISK_DECISION_RECORD_READ',
-    'RISK_DECISION_RECORD_WRITE',
-    'GOV_APPROVAL_READ',
-    'GOV_APPROVAL_WRITE',
-    'GOV_REGISTRY_READ',
-    'GOV_REGISTRY_WRITE',
-    'GOV_REGULATORY_GATE_READ',
-    'GOV_REGULATORY_GATE_WRITE',
-    'GOV_APPROVAL_POLICY_READ',
-    'GOV_APPROVAL_POLICY_WRITE',
-    'TRANSACTION_LIMIT_READ',
-    'TRANSACTION_LIMIT_WRITE',
-    'ASSET_CONFIG_READ',
-    'WALLET_READ',
-    'WITHDRAWAL_ADDRESS_READ',
-  ],
-  MLRO: [
-    'BASE_ACCESS',
-    'IAM_READ',
-    'AUDIT_READ',
-    'AUDIT_EXPORT_CREATE',
-    'AUDIT_EXPORT_READ',
-    'RISK_DECISION_RECORD_READ',
-    'RISK_DECISION_RECORD_WRITE',
-    'MLRO_REVIEW_WRITE',
-    'GOV_APPROVAL_READ',
-    'GOV_APPROVAL_WRITE',
-    'GOV_APPROVAL_DECIDE',
-    'GOV_REGISTRY_READ',
-    'GOV_APPROVAL_POLICY_READ',
-    'TRANSACTION_LIMIT_READ',
-    'TRANSACTION_LIMIT_WRITE',
 
-  ],
-  DPO: [
-    'BASE_ACCESS',
-    'IAM_READ',
-    'AUDIT_READ',
-    'AUDIT_EXPORT_CREATE',
-    'AUDIT_EXPORT_READ',
-    'GOV_APPROVAL_READ',
-    'GOV_APPROVAL_WRITE',
-    'GOV_APPROVAL_DECIDE',
-    'GOV_REGISTRY_READ',
-    'GOV_REGISTRY_WRITE',
-    'GOV_REGULATORY_GATE_READ',
-    'GOV_REGULATORY_GATE_WRITE',
-    'GOV_APPROVAL_POLICY_READ',
-    'GOV_APPROVAL_POLICY_WRITE',
-
-  ],
   CISO: [
     'BASE_ACCESS',
-    'IAM_READ',
-    'IAM_ASSIGN',
-    'IAM_CREDENTIAL_RESET',
-    'IAM_ROLE_DEFINE',
-    'AUDIT_READ',
-    'RISK_DECISION_RECORD_READ',
-    'GOV_APPROVAL_READ',
-    'GOV_APPROVAL_DECIDE',
-    'GOV_REGISTRY_READ',
-    'GOV_REGISTRY_WRITE',
-    'GOV_REGULATORY_GATE_READ',
-    'GOV_REGULATORY_GATE_WRITE',
-    'GOV_APPROVAL_POLICY_READ',
-    'GOV_APPROVAL_POLICY_WRITE',
-    'TRANSACTION_LIMIT_READ',
+    'IAM_MEMBER_READ', 'IAM_ROLE_READ', 'IAM_MEMBER_MANAGE', 'IAM_ROLE_ASSIGN',
+    'IAM_ROLE_DEFINE', 'IAM_CREDENTIAL_RESET',
+    'GOV_APPROVAL_READ', 'GOV_APPROVAL_POLICY_READ', 'GOV_APPROVAL_POLICY_WRITE',
+    'AUDIT_READ', 'AUDIT_EXPORT_READ',
+    'ASSET_CONFIG_READ', 'TRANSACTION_LIMIT_READ',
+  ],
 
+  MLRO: [
+    'BASE_ACCESS',
+    'IAM_MEMBER_READ', 'IAM_ROLE_READ',
+    'GOV_APPROVAL_READ', 'GOV_APPROVAL_POLICY_READ',
+    'AUDIT_READ', 'AUDIT_EXPORT_READ',
+    'CUSTOMER_READ', 'CUSTOMER_RESTRICTION_READ', 'CUSTOMER_TAG_VIEW',
+    'CUSTOMER_RESTRICTION_WRITE', 'CUSTOMER_RESTRICTION_RELEASE',
+    'TRADING_DEPOSIT_READ', 'TRADING_WITHDRAW_READ', 'TRADING_SWAP_READ', 'SUMSUB_EVENT_VIEW',
+    'FUNDS_ORDER_VIEW',
+    'TRANSACTION_LIMIT_READ',
+  ],
+
+  DPO: [
+    'BASE_ACCESS',
+    'IAM_MEMBER_READ', 'IAM_ROLE_READ',
+    'GOV_APPROVAL_READ', 'GOV_APPROVAL_POLICY_READ',
+    'AUDIT_READ', 'AUDIT_EXPORT_READ', 'AUDIT_EXPORT_CREATE',
+    'CUSTOMER_READ', 'CUSTOMER_RESTRICTION_READ', 'CUSTOMER_TAG_VIEW',
+  ],
+
+  // 全域只读 + 建证据包；一个 manage / act 包都不给 —— 这是本职务的全部意义
+  INTERNAL_AUDITOR: [
+    'BASE_ACCESS',
+    'IAM_MEMBER_READ', 'IAM_ROLE_READ',
+    'GOV_APPROVAL_READ', 'GOV_APPROVAL_POLICY_READ',
+    'AUDIT_READ', 'AUDIT_EXPORT_READ', 'AUDIT_EXPORT_CREATE',
+    'LEDGER_ACCOUNT_READ', 'LEDGER_EVIDENCE_READ', 'LEDGER_FLOW_READ',
+    'ASSET_CONFIG_READ', 'WALLET_READ', 'WITHDRAWAL_ADDRESS_READ', 'TRANSACTION_LIMIT_READ',
+    'CUSTOMER_READ', 'CUSTOMER_RESTRICTION_READ', 'CUSTOMER_TAG_VIEW',
+    'TRADING_DEPOSIT_READ', 'TRADING_WITHDRAW_READ', 'TRADING_SWAP_READ', 'SUMSUB_EVENT_VIEW',
+    'FUNDS_ORDER_VIEW',
+    'RECON_RUN_READ', 'RECON_CASE_READ', 'RECON_EXTERNAL_BALANCE_READ',
+    'WITHDRAWAL_FEE_LEVEL_READ', 'SWAP_FEE_LEVEL_READ',
+  ],
+
+  // 拦的手：开/解限制、贴撕标签、提解冻；管理台里推不动任何交易单据（D-不翻案）
+  COMPLIANCE_OFFICER: [
+    'BASE_ACCESS',
+    'IAM_MEMBER_READ', 'IAM_ROLE_READ',
+    'GOV_APPROVAL_READ',
+    'AUDIT_READ', 'AUDIT_EXPORT_READ', 'AUDIT_EXPORT_CREATE',
+    'CUSTOMER_READ', 'CUSTOMER_RESTRICTION_READ', 'CUSTOMER_TAG_VIEW',
+    'CUSTOMER_WRITE', 'CUSTOMER_TAG_MANAGE',
+    'CUSTOMER_RESTRICTION_WRITE', 'CUSTOMER_RESTRICTION_RELEASE',
+    'TRADING_DEPOSIT_READ', 'TRADING_WITHDRAW_READ', 'TRADING_SWAP_READ', 'SUMSUB_EVENT_VIEW',
+    'DEPOSIT_UNFREEZE_WRITE', 'WITHDRAW_UNFREEZE_WRITE',
+    'DEMO_VERDICT_WRITE',
+    'ASSET_CONFIG_READ', 'WITHDRAWAL_ADDRESS_READ', 'TRANSACTION_LIMIT_READ',
+    'RECON_RUN_READ', 'RECON_CASE_READ', 'RECON_EXTERNAL_BALANCE_READ',
+  ],
+
+  // 定价的主人：费率两族的写权限全仓仅此一处（提由他提，运营复核）。
+  // 其余全是读——账本、对账、资金单、三域单据，够他看清钱的来龙去脉。
+  CFO: [
+    'BASE_ACCESS',
+    'IAM_MEMBER_READ', 'IAM_ROLE_READ',
+    'GOV_APPROVAL_READ',
+    'AUDIT_READ',
+    'LEDGER_ACCOUNT_READ', 'LEDGER_EVIDENCE_READ', 'LEDGER_FLOW_READ',
+    'ASSET_CONFIG_READ', 'WALLET_READ', 'TRANSACTION_LIMIT_READ',
+    'TRADING_DEPOSIT_READ', 'TRADING_WITHDRAW_READ', 'TRADING_SWAP_READ',
+    'FUNDS_ORDER_VIEW',
+    'RECON_RUN_READ', 'RECON_CASE_READ', 'RECON_EXTERNAL_BALANCE_READ',
+    'WITHDRAWAL_FEE_LEVEL_READ', 'SWAP_FEE_LEVEL_READ',
+    'WITHDRAWAL_FEE_LEVEL_WRITE', 'SWAP_FEE_LEVEL_WRITE',
+  ],
+
+  // 钱放在哪归他：托管钱包与提现地址的写权限全仓仅此一处。
+  // 与技术官的分界是「容器 vs 配置」——资产怎么配是技术官，钱装在哪个容器里是他。
+  TREASURY_OFFICER: [
+    'BASE_ACCESS',
+    'IAM_MEMBER_READ', 'IAM_ROLE_READ',
+    'GOV_APPROVAL_READ',
+    'AUDIT_READ',
+    'LEDGER_ACCOUNT_READ', 'LEDGER_EVIDENCE_READ', 'LEDGER_FLOW_READ',
+    'ASSET_CONFIG_READ',
+    'WALLET_READ', 'WALLET_WRITE',
+    'WITHDRAWAL_ADDRESS_READ', 'WITHDRAWAL_ADDRESS_WRITE',
+    'FUNDS_ORDER_VIEW',
+  ],
+
+  TECH_OFFICER: [
+    'BASE_ACCESS',
+    'IAM_MEMBER_READ', 'IAM_ROLE_READ', 'IAM_MEMBER_MANAGE',
+    'IAM_ROLE_DEFINE', 'IAM_CREDENTIAL_RESET',
+    'GOV_APPROVAL_READ', 'GOV_APPROVAL_POLICY_READ',
+    'AUDIT_READ', 'AUDIT_EXPORT_READ',
+    'LEDGER_ACCOUNT_READ', 'LEDGER_EVIDENCE_READ', 'LEDGER_FLOW_READ',
+    'ASSET_CONFIG_READ', 'ASSET_CONFIG_WRITE',
+    'WALLET_READ', 'WITHDRAWAL_ADDRESS_READ', 'TRANSACTION_LIMIT_READ',
+    'SUMSUB_EVENT_VIEW',
+    'FUNDS_ORDER_VIEW',
+    'RECON_RUN_READ', 'RECON_CASE_READ', 'RECON_EXTERNAL_BALANCE_READ',
+    'WITHDRAWAL_FEE_LEVEL_READ', 'SWAP_FEE_LEVEL_READ',
+  ],
+
+  // 动钱的手 —— 唯独没有任何 *_UNFREEZE_WRITE（业主 2026-08-30 定）
+  OPS_OFFICER: [
+    'BASE_ACCESS',
+    'IAM_MEMBER_READ', 'IAM_ROLE_READ',
+    'GOV_APPROVAL_READ',
+    'AUDIT_READ',
+    'LEDGER_ACCOUNT_READ', 'LEDGER_EVIDENCE_READ', 'LEDGER_FLOW_READ',
+    'ASSET_CONFIG_READ', 'WALLET_READ', 'WITHDRAWAL_ADDRESS_READ',
+    'TRANSACTION_LIMIT_READ', 'TRANSACTION_LIMIT_WRITE',
+    'CUSTOMER_READ', 'CUSTOMER_RESTRICTION_READ', 'CUSTOMER_TAG_VIEW',
+    'TRADING_DEPOSIT_READ', 'TRADING_WITHDRAW_READ', 'TRADING_SWAP_READ', 'SUMSUB_EVENT_VIEW',
+    'DEPOSIT_WAIVE_WRITE', 'DEPOSIT_CONFISCATE_WRITE', 'DEPOSIT_RETURN_WRITE', 'DEPOSIT_SEIZE_WRITE',
+    'TRADING_WITHDRAW_WRITE', 'WITHDRAW_BOUNCE_WRITE', 'WITHDRAW_REFUND_WRITE',
+    'TRADING_SWAP_WRITE',
+    'FUNDS_ORDER_VIEW', 'FUNDS_ORDER_ACT',
+    'RECON_RUN_READ', 'RECON_CASE_READ', 'RECON_EXTERNAL_BALANCE_READ', 'RECON_RUN_WRITE',
+    'WITHDRAWAL_FEE_LEVEL_READ', 'SWAP_FEE_LEVEL_READ',
+    'DEMO_CLOCK_WRITE',
   ],
 };
 

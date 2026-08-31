@@ -581,10 +581,13 @@ const RoleDetailPage = () => {
                         </p>
                         <div className="space-y-1">
                           {domain.buckets.map((bucket) => (
+                            /* 2026-08-31：title 原先对任何 restricted 桶都硬编码 'CISO only'——
+                               既无视具体是哪个桶，内容也是假的（改审批策略实为高管+CISO 两人
+                               持有）。改回落到桶自己的 description，真相源只留 rbac.catalog.ts 一处。 */
                             <label
                               key={bucket.key}
                               className={`flex gap-3 rounded border border-adm-border bg-adm-bg p-3 ${bucket.forcedOn || bucket.restricted ? 'cursor-not-allowed opacity-70' : 'cursor-pointer hover:bg-adm-card'}`}
-                              title={bucket.restricted ? 'Restricted — CISO only' : bucket.forcedOn ? 'Required — cannot be disabled' : bucket.description}
+                              title={bucket.restricted ? `Restricted — ${bucket.description}` : bucket.forcedOn ? 'Required — cannot be disabled' : bucket.description}
                             >
                               <input
                                 type="checkbox"

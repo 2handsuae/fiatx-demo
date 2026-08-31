@@ -2,11 +2,6 @@ import { resolveE2eDatabaseUrl } from './e2e-db';
 import * as path from 'path';
 import * as dotenv from 'dotenv';
 
-// Node 18 polyfill —— @nestjs/schedule 需要 globalThis.crypto，本 harness 不加载
-// main.ts，所以在 AppModule（→ ScheduleModule）之前重复一遍。
-// eslint-disable-next-line @typescript-eslint/no-var-requires
-if (!globalThis.crypto) { (globalThis as any).crypto = require('crypto').webcrypto; }
-
 // ── 破坏性护栏 ①（必须在任何读 DATABASE_URL 的 import 之前）──────────────
 // 本 suite 会 deleteMany fixture 客户及其便签/三域订单/钱包。指向常驻栈的验收库
 // 会毁真数据（2026-07-31 已两次实证，见 BACKLOG「演示/测试环境卫生」）。

@@ -8,7 +8,7 @@ Scope: 平台内 crypto↔fiat 兑换执行流 + 合规控制（AML 交易监控
 
 ## 核心结论（代码验证）
 
-**设计前提「资金不出境 → 免 L2 合规」对了一块、错了两块。** 一手核实（truth/v6-swap.md §0/§11/§47）：现有兑换合规**仅 L1 同步资格门**（`assertTradingEligibility('SWAP')`），无 L2 KYT、无交易监控、无最优执行控制、无本金披露。
+**设计前提「资金不出境 → 免 L2 合规」对了一块、错了两块。** 一手核实（modules/v6-swap.md §0/§11/§47）：现有兑换合规**仅 L1 同步资格门**（`assertTradingEligibility('SWAP')`），无 L2 KYT、无交易监控、无最优执行控制、无本金披露。
 
 - ✅ **对的一块**：Travel Rule（跨境转账报文）确实可豁免——V6 是同一客户账本内余额交换，无 VA 对外转移、无第二对手方，CRM III.G 构成要件不满足。
 - ❌ **错的两块**：把「免 Travel Rule」错误泛化成「免整个交易层合规」，漏掉两根与「钱出不出平台」**根本无关**的牌照级支柱：
@@ -81,7 +81,7 @@ Scope: 平台内 crypto↔fiat 兑换执行流 + 合规控制（AML 交易监控
 | 最优执行 + 披露（BD II.A/I.B）| 以本金对客户成交 | ❌ 不能 |
 | EDD / 风险分级（III.E.10/III.D）| 客户风险 | ❌ 不能 |
 
-**根因**：设计者把只对 Travel Rule 成立的豁免逻辑，无声外推到了 TM/best-ex/EDD 三项无跨境前提的义务。truth/v6-swap.md §11/§47「合规仅 L1=设计决策非遗漏」**部分错误且危险**，待更新为「TR 可豁免 / TM·best-ex·EDD 不可豁免」两半（后续 truth+BACKLOG 任务）。
+**根因**：设计者把只对 Travel Rule 成立的豁免逻辑，无声外推到了 TM/best-ex/EDD 三项无跨境前提的义务。modules/v6-swap.md §11/§47「合规仅 L1=设计决策非遗漏」**部分错误且危险**，待更新为「TR 可豁免 / TM·best-ex·EDD 不可豁免」两半（后续 truth+BACKLOG 任务）。
 
 ---
 

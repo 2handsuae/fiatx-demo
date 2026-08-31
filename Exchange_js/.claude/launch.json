@@ -4,20 +4,10 @@
     {
       "name": "admin-main",
       "runtimeExecutable": "echo",
-      "runtimeArgs": ["admin already running on 3001"],
+      "runtimeArgs": [
+        "admin already running on 3001"
+      ],
       "port": 3001
-    },
-    {
-      "name": "admin-branch",
-      "runtimeExecutable": "bash",
-      "runtimeArgs": ["scripts/dev-start-all.sh"],
-      "port": 3501
-    },
-    {
-      "name": "client-branch",
-      "runtimeExecutable": "echo",
-      "runtimeArgs": ["client already running"],
-      "port": 3502
     }
   ]
 }
