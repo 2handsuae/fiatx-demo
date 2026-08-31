@@ -1,5 +1,9 @@
 # 文档演示化改造路线图
 
+> **进度（2026-08-31 更新）**：Phase 0–3 已完成，Phase 4「代码回收」Step 0 已完成、主体待业主逐模块下令。
+> **读法提醒**：本文写于改造之前，正文里的 `reference/truth/`、`rules/backend-platform.md`、`superpowers/product-docs/` 等路径**都是改造前的旧名，现已不存在**——保留原文是为了读懂改造过程，不要照着它去找文件。当前有效的读法地图见 [`README.md`](README.md)。
+> 本文 2026-08-31 从仓库根迁入 `doc-final/` 并入版本控制（原名《文档演示化改造路线图-20260826.md》）。
+
 日期：2026-08-26 ｜ 范围：只动 `CLAUDE.md` 与 `Exchange_js/doc-final/`，**不动代码** ｜ 依据：读完 CLAUDE.md、doc-final 各层索引与规则、BACKLOG、SDD 进度、近期 plan 与审查报告后的判断
 
 > **修订 v3（2026-08-26）**：① PRD 全部重新撰写、不从 Lark 迁移，篇目与时间另定；② overview 不做角色权限矩阵（角色可随时创建），改做**各模块权限包拆分**；③ 路由表扩站（prd / decisions / demo 进路由）；④ 不可违反规则恢复业务键一条；⑤ plan 初写位置定为 `doc-final/plans/`，合并后移入 archive；⑥ modules 未覆盖的模块过渡期暂读 truth；另修 §8 小节编号。

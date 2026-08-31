@@ -11,7 +11,7 @@ Last Updated: 2026-07-06
 - **OPTIMIZED** — Not mandated by VARA; most of the industry does it anyway; future optimization
 
 **Every entry carries**: `Source:` (leadership / VARA clause / industry) | `Pairs with:` (forward and reverse operations cross-linked, so the reverse is never forgotten) | status `[x]` delivered `[~]` partial `[ ]` to do + date.
-**Implementation detail and current truth** → `reference/truth/` (sync there when you change code, not here) | **Tech debt / dead code / open decisions** → `../BACKLOG.md`.
+**Implementation detail and current truth** → `modules/` (sync there when you change code, not here) | **Tech debt / dead code / open decisions** → `../BACKLOG.md`.
 > ⚠️ The three-tier classification + externalised truth has been applied to **V1–V6**; the deep-research-grade P0/P1/P2 plus the `⚖️P0` re-ranking and the `superpowers/specs/` research records now cover **all nine versions V1–V9** (closed out 2026-07-06; per-version specs in `superpowers/specs/2026-07-0*-v*-research.md`).
 
 ---
@@ -36,7 +36,7 @@ V7 (treasury ops) has detached from the transaction chain — the old EOD settle
 ## V1 — Audit foundation (approvals / audit / RBAC / admin lifecycle)
 
 > Platform governance foundation: approval engine + audit log + RBAC + admin lifecycle + credential security. The trustworthiness of every later version's operations depends on it.
-> 📖 **Implementation truth** → [`reference/truth/v1-governance-audit.md`](truth/v1-governance-audit.md)
+> 📖 **Implementation truth** → [`modules/v1-governance.md`](../modules/v1-governance.md)
 > ⚠️ SUPER_ADMIN is a demo role (hardcoded bypass); it must be removed before go-live.
 
 ### MVP (leadership-defined baselines — all 10 workflows ✅)
@@ -88,13 +88,13 @@ V7 (treasury ops) has detached from the transaction chain — the old EOD settle
 - ⚠️ **Notification send/retry** — the roadmap originally marked this ✅; it is in fact a **STUB** (WebSocket gateway only, no email/webhook/retry). It is the shared prerequisite of three P0/P1 items ("real-time alerting", "lifecycle notifications", "timeout warnings"); see truth + BACKLOG
 - **Approval delegation / Login anomaly detection** — ADVANCED, not built
 
-> Current state and anchors: [truth/v1-governance-audit.md](truth/v1-governance-audit.md); tech debt (notification stub / subjectNos drift / retention script / SUPER_ADMIN bypass): [BACKLOG.md](../BACKLOG.md).
+> Current state and anchors: [modules/v1-governance.md](../modules/v1-governance.md); tech debt (notification stub / subjectNos drift / retention script / SUPER_ADMIN bypass): [BACKLOG.md](../BACKLOG.md).
 
 ## V2 — Customer management + compliance foundation
 
 > Customer admission + compliance management: Onboarding + CRA + material freshness + tier upgrade + freeze. The core is the **three-axis state model** on the customer master table; `assertTradingEligibility` is the trading gate for V4–V6. **MVP covers Individual only; Corporate is explicitly disabled.**
 > **Depends on**: V1 (approval engine) | **Depended on by**: the V4–V6 trading gate.
-> 📖 **Implementation truth** → [`reference/truth/v2-customer-compliance.md`](truth/v2-customer-compliance.md)
+> 📖 **Implementation truth** → [`modules/v2-customer-compliance.md`](../modules/v2-customer-compliance.md)
 > 📖 **Research record** → `superpowers/specs/2026-07-06-v2-customer-compliance-research.md` (first deep audit of V2)
 > ⚠️ Three-axis state model ✅2026-05-09 (onboardingStatus / adminStatus / complianceStatus + restrictions JSON + investorTier / tradingTier / riskRating).
 
@@ -143,13 +143,13 @@ V7 (treasury ops) has detached from the transaction chain — the old EOD settle
 **Institutional (7 workflows once institutional clients are onboarded; Corporate is currently disabled):**
 - [ ] Corporate onboarding/KYB | UBO management | Authorised representative management | Corporate structure change | Multi-user enterprise access | Corporate CRA | Re-KYB — all VARA CRM II.B/III; the CorporateProfile / UboProfile tables are stubbed
 
-> Current state and anchors: [truth/v2-customer-compliance.md](truth/v2-customer-compliance.md); tech debt (no unified freeze workflow / tier UI / Corporate stub): [BACKLOG.md](../BACKLOG.md).
+> Current state and anchors: [modules/v2-customer-compliance.md](../modules/v2-customer-compliance.md); tech debt (no unified freeze workflow / tier UI / Corporate stub): [BACKLOG.md](../BACKLOG.md).
 
 ## V3 — Financial configuration
 
 > The foundation trading sits on: three primitives (asset / wallet / ledger account) + withdrawal addresses + amount gates.
 > **Depends on**: V1 (approval engine) | **Depended on by**: all V4–V7 accounting.
-> 📖 **Implementation truth** → [`reference/truth/v3-financial-config.md`](truth/v3-financial-config.md)
+> 📖 **Implementation truth** → [`modules/v3-financial-config.md`](../modules/v3-financial-config.md)
 > 📖 **Research record** → `superpowers/specs/2026-07-06-v3-financial-config-research.md` (first gap audit)
 
 ### MVP (leadership-defined baselines)
@@ -197,7 +197,7 @@ V7 (treasury ops) has detached from the transaction chain — the old EOD settle
 - [ ] Triple review matrix for asset listing — independent legal characterisation / compliance risk / technical security review slots | Source: industry (Coinbase Listing Framework)
 - [ ] Jurisdiction × currency allowlist matrix — enable once there are multiple jurisdictions / fiat currencies | Source: industry + FATF
 
-> **Supporting items** (TB account type definitions / wallet model V3 adaptation / asset state guards / code→currency rename / frontend cleanup) are all delivered; current state in [truth/v3-financial-config.md](truth/v3-financial-config.md). **Tech debt** (no backlog retry on TB account creation failure, contractAddress leftovers, etc.) in [BACKLOG.md](../BACKLOG.md).
+> **Supporting items** (TB account type definitions / wallet model V3 adaptation / asset state guards / code→currency rename / frontend cleanup) are all delivered; current state in [modules/v3-financial-config.md](../modules/v3-financial-config.md). **Tech debt** (no backlog retry on TB account creation failure, contractAddress leftovers, etc.) in [BACKLOG.md](../BACKLOG.md).
 
 ---
 
@@ -205,7 +205,7 @@ V7 (treasury ops) has detached from the transaction chain — the old EOD settle
 
 > On-chain / bank funds arrive → deposit order → two-step suspense accounting → L1 eligibility + L2 compliance screening → credit.
 > **Depends on**: V2 (customer compliance eligibility) + V3 (account model).
-> 📖 **Implementation truth** → [`reference/truth/v4-deposit.md`](truth/v4-deposit.md) (dual-track state machine, current state of the exception branches, half-built-bridge risk)
+> 📖 **Implementation truth** → [`modules/v4-deposit.md`](../modules/v4-deposit.md) (dual-track state machine, current state of the exception branches, half-built-bridge risk)
 > 📖 **Research record** → `superpowers/specs/2026-07-06-v4-deposit-research.md` (first gap audit, from the beneficiary's perspective)
 
 ### MVP (leadership-defined baselines)
@@ -252,14 +252,14 @@ V7 (treasury ops) has detached from the transaction chain — the old EOD settle
 
 - [ ] Deposit success notification — push to the customer on arrival, reusing V1 Notification | Source: industry (UX)
 
-> **Supporting items** (event-driven orchestration / KYT-TR simulation endpoints / admin deposit page / client three tabs / tipping-off mapping / overview reads TB) are all delivered; current state in [truth/v4-deposit.md](truth/v4-deposit.md). **Tech debt** (txHash dedup, repair surface, emit vs emitAsync, PATCH bypass, etc.) in [BACKLOG.md](../BACKLOG.md). **TransactionComplianceService is retired** — confirmed 0 references repo-wide (fully deleted).
+> **Supporting items** (event-driven orchestration / KYT-TR simulation endpoints / admin deposit page / client three tabs / tipping-off mapping / overview reads TB) are all delivered; current state in [modules/v4-deposit.md](../modules/v4-deposit.md). **Tech debt** (txHash dedup, repair surface, emit vs emitAsync, PATCH bypass, etc.) in [BACKLOG.md](../BACKLOG.md). **TransactionComplianceService is retired** — confirmed 0 references repo-wide (fully deleted).
 
 ---
 ## V5 — Withdrawal flow
 
 > Withdrawal request → L1 eligibility → large-value approval gate → L2 compliance screening (Pre-KYT + TR) → payout → on-chain / bank confirmation → accounting. Crypto and fiat share one workflow.
 > **Depends on**: V2 + V3 + V4 (balances come from deposits).
-> 📖 **Implementation truth** → [`reference/truth/v5-withdraw.md`](truth/v5-withdraw.md) (state machine / three compliance layers / large-value gate / fee governance / 2-leg funds_order)
+> 📖 **Implementation truth** → [`modules/v5-withdraw.md`](../modules/v5-withdraw.md) (state machine / three compliance layers / large-value gate / fee governance / 2-leg funds_order)
 
 ### MVP (leadership-defined baselines)
 
@@ -308,7 +308,7 @@ V7 (treasury ops) has detached from the transaction chain — the old EOD settle
 
 - [ ] Withdrawal success notification — push to the customer on SUCCESS, reusing V1 Notification (infrastructure exists, not wired) | Source: industry (UX)
 
-> **Supporting items** (event-driven orchestration / TB pending-post-void accounting / simulation endpoints / admin + client pages / tipping-off mapping / WithdrawQuote picks the best / fee seed) are all delivered; current state in [truth/v5-withdraw.md](truth/v5-withdraw.md). **Tech debt** (real Sumsub integration / hot-wallet balance check / notifications / repair surface) in [BACKLOG.md](../BACKLOG.md).
+> **Supporting items** (event-driven orchestration / TB pending-post-void accounting / simulation endpoints / admin + client pages / tipping-off mapping / WithdrawQuote picks the best / fee seed) are all delivered; current state in [modules/v5-withdraw.md](../modules/v5-withdraw.md). **Tech debt** (real Sumsub integration / hot-wallet balance check / notifications / repair surface) in [BACKLOG.md](../BACKLOG.md).
 > ⚠️ **Wording corrections (2026-07-03 health check)**: fee approval was simplified from MLRO+SMO to a single OPS_OFFICER step (2026-06-01); void-unlock on REJECTED / large-value rejection **is implemented** (the exception branches are not entirely empty); a withdrawal funds order = a 2-leg funds_order (payout + fee); FUND_OUT pre-sweeping is retired.
 
 ---
@@ -317,7 +317,7 @@ V7 (treasury ops) has detached from the transaction chain — the old EOD settle
 
 > In-platform exchange (crypto ↔ fiat balance swap; **funds never leave, no external counterparty**): quote → L1 eligibility → consume quote → 4-leg real-time accounting → SUCCESS. Currently **only the synchronous L1 gate** — ⚠️ per the 2026-07-04 research, "no L2 because funds never leave" is **over-generalised**: only the Travel Rule can be waived; the two P0 pillars of **AML transaction monitoring + best execution** cannot (see ADVANCED).
 > **Depends on**: V2 + V3.
-> 📖 **Implementation truth** → [`reference/truth/v6-swap.md`](truth/v6-swap.md) (4-leg accounts / dead FAILED-REVERSED enums / fee governance)
+> 📖 **Implementation truth** → [`modules/v6-swap.md`](../modules/v6-swap.md) (4-leg accounts / dead FAILED-REVERSED enums / fee governance)
 
 ### MVP (leadership-defined baselines)
 
@@ -369,18 +369,18 @@ V7 (treasury ops) has detached from the transaction chain — the old EOD settle
 - [ ] Quote TTL cron sweep — expired quotes automatically marked EXPIRED (today expiry is lazy only) | Source: industry
 - [ ] Swap success notification — push to the customer on SUCCESS, reusing V1 Notification | Source: industry (UX)
 
-> **Supporting items** (SwapQuoteService split out / PricingCenterService deleted, −3500 lines / declarative 4-leg accounting / client swap page / Swap Quotes admin page / approval policies simplified to 6 types under OPS_OFFICER / legacy swap config removed) are all delivered; current state in [truth/v6-swap.md](truth/v6-swap.md). **Tech debt** (Sumsub TM / repair surface / InternalFund naming debt) in [BACKLOG.md](../BACKLOG.md).
+> **Supporting items** (SwapQuoteService split out / PricingCenterService deleted, −3500 lines / declarative 4-leg accounting / client swap page / Swap Quotes admin page / approval policies simplified to 6 types under OPS_OFFICER / legacy swap config removed) are all delivered; current state in [modules/v6-swap.md](../modules/v6-swap.md). **Tech debt** (Sumsub TM / repair surface / InternalFund naming debt) in [BACKLOG.md](../BACKLOG.md).
 > ⚠️ **Wording corrections (2026-07-04 health check)**: ① full-order reversal / REVERSED / FAILED are in fact **dead enums with no reverse endpoint** (the 2026-06-26 ✅ was over-claimed; downgraded to ADVANCED, still to do); ② the orchestration classes are actually `SwapWorkflowService` + `SwapLegAccounting`, **there is no `SwapSettlementService`**; ③ a swap leg = a funds_order (the code still uses the old InternalFund name — naming debt).
-> ⚠️ **Compliance boundary correction (2026-07-04 research)**: truth/v6-swap.md §11/§47's "compliance is L1 only = a design decision, not an omission" is **partly wrong** — only the Travel Rule should be waived; AML monitoring / best execution / EDD should not (see spec §4). truth + BACKLOG still to be synced (this round only touched roadmap + spec).
+> ⚠️ **Compliance boundary correction (2026-07-04 research)**: modules/v6-swap.md §11/§47's "compliance is L1 only = a design decision, not an omission" is **partly wrong** — only the Travel Rule should be waived; AML monitoring / best execution / EDD should not (see spec §4). truth + BACKLOG still to be synced (this round only touched roadmap + spec).
 
 ---
 
 ## V7 — Treasury Ops
 
 > Manages **the firm's own funds and liquidity** (customer money is managed by V4–V6 under real-time 1:1 safeguarding).
-> ⚠️ **The old V7 "internal transfers / deferred settlement" machinery is entirely retired**: with the real-time 1:1 refactor, the generic internal transfer workflow / EOD netting settlement / deposit sweeping cron / fee sweeping / fiat delivery / Outstanding / SettlementBatch / FeeAccrual / allowlists were all deleted (C5b). Every transaction now **books in place** (V4 two steps / V5 payout + fee / V6 four legs). The funds order (funds_orders) is a **cross-version shared primitive** (in use since V4) and belongs to `truth/funds-orders.md`, not to this version.
+> ⚠️ **The old V7 "internal transfers / deferred settlement" machinery is entirely retired**: with the real-time 1:1 refactor, the generic internal transfer workflow / EOD netting settlement / deposit sweeping cron / fee sweeping / fiat delivery / Outstanding / SettlementBatch / FeeAccrual / allowlists were all deleted (C5b). Every transaction now **books in place** (V4 two steps / V5 payout + fee / V6 four legs). The funds order (funds_orders) is a **cross-version shared primitive** (in use since V4) and belongs to `modules/funds-orders.md`, not to this version.
 > **Depends on**: V3 (account model).
-> 📖 No dedicated truth doc (no live V7 business); the shared funds primitive is in `truth/funds-orders.md`. The old "internal transfer / deferred settlement" design is deleted and survives only in historical specs (`superpowers/specs/2026-06-*-v7-*`, read-only history — do not treat as current).
+> 📖 No dedicated truth doc (no live V7 business); the shared funds primitive is in `modules/funds-orders.md`. The old "internal transfer / deferred settlement" design is deleted and survives only in historical specs (`superpowers/specs/2026-06-*-v7-*`, read-only history — do not treat as current).
 > 📖 **Research record** → `superpowers/specs/2026-07-06-v7-treasury-research.md` (first gap audit — completing the statutory constraints on the deferred list)
 
 ### MVP
@@ -419,7 +419,7 @@ V7 (treasury ops) has detached from the transaction chain — the old EOD settle
 
 > Customer / firm asset reconciliation: internal ledger (TB / AccountFlow projection) vs external data (bank / HexTrust / chain), **compared 1:1 per physical wallet** + differences classified into five buckets + break resolution.
 > **Depends on**: V3–V6 (needs complete transaction and position data).
-> 📖 **Implementation truth** → [`reference/truth/v8-recon.md`](truth/v8-recon.md) (Phase B engine / five buckets / Run-Case cockpit / effectiveDate / push disposition)
+> 📖 **Implementation truth** → [`modules/v8-recon.md`](../modules/v8-recon.md) (Phase B engine / five buckets / Run-Case cockpit / effectiveDate / push disposition)
 > 📖 **Research record** → `superpowers/specs/2026-07-06-v8-reconciliation-research.md` (first gap audit)
 > ⚠️ History: three refactors — I1-I5 → credit-net five formulas → Phase B; the old credit-net five-formula engine was **physically deleted in Phase C** (11 files). Design archives in `superpowers/specs/2026-06-20 ~ 2026-07-03-*` (read-only history, do not treat as current).
 
