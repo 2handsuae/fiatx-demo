@@ -40,7 +40,6 @@ export type PermissionGroup =
   | 'TRADING_SWAP_WRITE'
   | 'WALLET_READ'
   | 'WALLET_WRITE'
-  | 'INTERNAL_FUND_READ'
   | 'FUNDS_ORDER_VIEW'
   | 'FUNDS_ORDER_ACT'
   | 'RECON_RUN_READ'
