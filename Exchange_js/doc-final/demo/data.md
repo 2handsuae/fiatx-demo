@@ -40,51 +40,51 @@ USDT（链上，托管 HEXTRUST）＋ AED（法币，ZAND）；客户钱包按�
 ## 本批数据（`demo:all` 最近一次实到结果）
 
 <!-- GENERATED:BEGIN -->
-> 本段由 `demo:all` 收尾自动写入（`scripts/demo-lib.ts → writeDataMdSnapshot`），别手改——下次跑 `demo:all` 会整段覆盖。生成时间：2026-08-31T16:41:46.377Z
+> 本段由 `demo:all` 收尾自动写入（`scripts/demo-lib.ts → writeDataMdSnapshot`），别手改——下次跑 `demo:all` 会整段覆盖。生成时间：2026-08-31T20:46:00.407Z
 
 ### 充值（18 笔）
 
 | # | 场景 | 客户 | 金额 | 预期终态 | 实到单号 | 实到状态 | 结果 |
 |---|---|---|---|---|---|---|---|
-| 1 | 充值 · 正常入账 USDT | demo_alice@example.com | 3000 USDT | SUCCESS | DEP2608317567 | SUCCESS | ✓ |
-| 2 | 充值 · 正常入账 AED | demo_bob@example.com | 8000 AED | SUCCESS | DEP2608313166 | SUCCESS | ✓ |
-| 3 | 充值 · 正常入账 AED（二） | demo_grace@example.com | 6500 AED | SUCCESS | DEP2608319061 | SUCCESS | ✓ |
-| 4 | 充值 · 等客户补料 | demo_alice@example.com | 4200 AED | ACTION_PENDING | DEP2608311374 | ACTION_PENDING | ✓ |
-| 5 | 充值 · 转人工复核 | demo_bob@example.com | 5100 AED | MANUAL_CHECKING | DEP2608318137 | MANUAL_CHECKING | ✓ |
-| 6 | 充值 · 小额挂起 | demo_grace@example.com | 35 AED | OPERATION_PENDING | DEP2608316917 | OPERATION_PENDING | ✓ |
-| 7 | 充值 · 制裁冻结 | demo_frank@example.com | 7300 AED | FROZEN | DEP2608310567 | FROZEN | ✓ |
-| 8 | 充值 · 没收（钱进公司） | demo_grace@example.com | 42 AED | CONFISCATED | DEP2608313098 | CONFISCATED | ✓ |
-| 9 | 充值 · 退回原发款方 | demo_alice@example.com | 2600 AED | RETURNED | DEP2608314565 | RETURNED | ✓ |
-| 10 | 充值 · 上缴（政府移交） | demo_frank@example.com | 9100 AED | SEIZED | DEP2608312290 | SEIZED | ✓ |
-| 21 | 充值 · FRANK 本金（供 #13 建单垫资） | demo_frank@example.com | 2000 AED | SUCCESS | DEP2608318220 | SUCCESS | ✓ |
-| 22 | 充值 · 素材（Grace USDT） | demo_grace@example.com | 1200 USDT | SUCCESS | DEP2608318282 | SUCCESS | ✓ |
-| 24 | 充值 · 素材（Jack AED 大额） | demo_jack@example.com | 5000 AED | SUCCESS | DEP2608316360 | SUCCESS | ✓ |
-| 25 | 充值 · 素材（Jack AED 小额） | demo_jack@example.com | 1500 AED | SUCCESS | DEP2608317866 | SUCCESS | ✓ |
-| 26 | 充值 · 素材（Jack USDT） | demo_jack@example.com | 400 USDT | SUCCESS | DEP2608315283 | SUCCESS | ✓ |
-| 27 | 充值 · 素材（Kate AED 大额） | demo_kate@example.com | 4000 AED | SUCCESS | DEP2608316105 | SUCCESS | ✓ |
-| 28 | 充值 · 素材（Kate AED 小额） | demo_kate@example.com | 1200 AED | SUCCESS | DEP2608311278 | SUCCESS | ✓ |
-| 29 | 充值 · 素材（Kate USDT） | demo_kate@example.com | 350 USDT | SUCCESS | DEP2608311141 | SUCCESS | ✓ |
+| 1 | 充值 · 正常入账 USDT | demo_alice@example.com | 3000 USDT | SUCCESS | DEP2609013009 | SUCCESS | ✓ |
+| 2 | 充值 · 正常入账 AED | demo_bob@example.com | 8000 AED | SUCCESS | DEP2609017631 | SUCCESS | ✓ |
+| 3 | 充值 · 正常入账 AED（二） | demo_grace@example.com | 6500 AED | SUCCESS | DEP2609017230 | SUCCESS | ✓ |
+| 4 | 充值 · 等客户补料 | demo_alice@example.com | 4200 AED | ACTION_PENDING | DEP2609011899 | ACTION_PENDING | ✓ |
+| 5 | 充值 · 转人工复核 | demo_bob@example.com | 5100 AED | MANUAL_CHECKING | DEP2609014173 | MANUAL_CHECKING | ✓ |
+| 6 | 充值 · 小额挂起 | demo_grace@example.com | 35 AED | OPERATION_PENDING | DEP2609018274 | OPERATION_PENDING | ✓ |
+| 7 | 充值 · 制裁冻结 | demo_frank@example.com | 7300 AED | FROZEN | DEP2609014211 | FROZEN | ✓ |
+| 8 | 充值 · 没收（钱进公司） | demo_grace@example.com | 42 AED | CONFISCATED | DEP2609012507 | CONFISCATED | ✓ |
+| 9 | 充值 · 退回原发款方 | demo_alice@example.com | 2600 AED | RETURNED | DEP2609018394 | RETURNED | ✓ |
+| 10 | 充值 · 上缴（政府移交） | demo_frank@example.com | 9100 AED | SEIZED | DEP2609010264 | SEIZED | ✓ |
+| 21 | 充值 · FRANK 本金（供 #13 建单垫资） | demo_frank@example.com | 2000 AED | SUCCESS | DEP2609015705 | SUCCESS | ✓ |
+| 22 | 充值 · 素材（Grace USDT） | demo_grace@example.com | 1200 USDT | SUCCESS | DEP2609010883 | SUCCESS | ✓ |
+| 24 | 充值 · 素材（Jack AED 大额） | demo_jack@example.com | 5000 AED | SUCCESS | DEP2609012200 | SUCCESS | ✓ |
+| 25 | 充值 · 素材（Jack AED 小额） | demo_jack@example.com | 1500 AED | SUCCESS | DEP2609018466 | SUCCESS | ✓ |
+| 26 | 充值 · 素材（Jack USDT） | demo_jack@example.com | 400 USDT | SUCCESS | DEP2609013191 | SUCCESS | ✓ |
+| 27 | 充值 · 素材（Kate AED 大额） | demo_kate@example.com | 4000 AED | SUCCESS | DEP2609014978 | SUCCESS | ✓ |
+| 28 | 充值 · 素材（Kate AED 小额） | demo_kate@example.com | 1200 AED | SUCCESS | DEP2609013757 | SUCCESS | ✓ |
+| 29 | 充值 · 素材（Kate USDT） | demo_kate@example.com | 350 USDT | SUCCESS | DEP2609019939 | SUCCESS | ✓ |
 
 ### 兑换（4 笔）
 
 | # | 场景 | 客户 | 金额 | 预期终态 | 实到单号 | 实到状态 | 结果 |
 |---|---|---|---|---|---|---|---|
-| 11 | 兑换 · USDT→AED 成功 | demo_alice@example.com | 1000 USDT | SUCCESS | SWP2608318357 | SUCCESS | ✓ |
-| 12 | 兑换 · AED→USDT 成功 | demo_bob@example.com | 2900 AED | SUCCESS | SWP2608311608 | SUCCESS | ✓ |
-| 13 | 兑换 · 制裁冻结（零出边） | demo_frank@example.com | 600 AED | FROZEN | SWP2608314187 | FROZEN | ✓ |
-| 23 | 兑换 · 素材（Grace AED→USDT） | demo_grace@example.com | 800 AED | SUCCESS | SWP2608318024 | SUCCESS | ✓ |
+| 11 | 兑换 · USDT→AED 成功 | demo_alice@example.com | 1000 USDT | SUCCESS | SWP2609013110 | SUCCESS | ✓ |
+| 12 | 兑换 · AED→USDT 成功 | demo_bob@example.com | 2900 AED | SUCCESS | SWP2609013823 | SUCCESS | ✓ |
+| 13 | 兑换 · 制裁冻结（零出边） | demo_frank@example.com | 600 AED | FROZEN | SWP2609012582 | FROZEN | ✓ |
+| 23 | 兑换 · 素材（Grace AED→USDT） | demo_grace@example.com | 800 AED | SUCCESS | SWP2609016523 | SUCCESS | ✓ |
 
 ### 提现（7 笔）
 
 | # | 场景 | 客户 | 金额 | 预期终态 | 实到单号 | 实到状态 | 结果 |
 |---|---|---|---|---|---|---|---|
-| 14 | 提现 · 法币成功 | demo_alice@example.com | 1200 AED | SUCCESS | WD2608310901 | SUCCESS | ✓ |
-| 15 | 提现 · 虚拟币成功 | demo_bob@example.com | 150 USDT | SUCCESS | WD2608319867 | SUCCESS | ✓ |
-| 16 | 提现 · 法币成功（二） | demo_grace@example.com | 900 AED | SUCCESS | WD2608317337 | SUCCESS | ✓ |
-| 17 | 提现 · 等客户补料 | demo_alice@example.com | 1800 AED | ACTION_PENDING | WD2608318842 | ACTION_PENDING | ✓ |
-| 18 | 提现 · 大额待审批 | demo_bob@example.com | 250000 AED | PENDING_APPROVAL | WD2608319650 | PENDING_APPROVAL | ✓ |
-| 19 | 提现 · MLRO 冻结 | demo_grace@example.com | 1500 AED | FROZEN | WD2608315986 | FROZEN | ✓ |
-| 20 | 提现 · 卡在半路（对账用） | demo_alice@example.com | 500 AED | PAYOUT_PENDING | WD2608310071 | PAYOUT_PENDING | ✓ |
+| 14 | 提现 · 法币成功 | demo_alice@example.com | 1200 AED | SUCCESS | WD2609014287 | SUCCESS | ✓ |
+| 15 | 提现 · 虚拟币成功 | demo_bob@example.com | 150 USDT | SUCCESS | WD2609015322 | SUCCESS | ✓ |
+| 16 | 提现 · 法币成功（二） | demo_grace@example.com | 900 AED | SUCCESS | WD2609017559 | SUCCESS | ✓ |
+| 17 | 提现 · 等客户补料 | demo_alice@example.com | 1800 AED | ACTION_PENDING | WD2609010493 | ACTION_PENDING | ✓ |
+| 18 | 提现 · 大额待审批 | demo_bob@example.com | 250000 AED | PENDING_APPROVAL | WD2609017665 | PENDING_APPROVAL | ✓ |
+| 19 | 提现 · MLRO 冻结 | demo_grace@example.com | 1500 AED | FROZEN | WD2609019077 | FROZEN | ✓ |
+| 20 | 提现 · 卡在半路（对账用） | demo_alice@example.com | 500 AED | PAYOUT_PENDING | WD2609013406 | PAYOUT_PENDING | ✓ |
 
 **花名册：29/29 符合预期**
 
