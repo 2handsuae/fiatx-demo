@@ -540,7 +540,8 @@ git commit -m "docs(CHANGELOG): 第一幕退役段收尾"
 - Produces: `PermissionGroup` 联合类型**新增 11 个**成员，供 Task 8 的桶目录与 Task 9 的角色绑定引用：
   `FUNDS_ORDER_VIEW` `FUNDS_ORDER_ACT` `DEMO_VERDICT_WRITE` `DEPOSIT_WAIVE_WRITE` `DEPOSIT_CONFISCATE_WRITE` `DEPOSIT_RETURN_WRITE` `DEPOSIT_SEIZE_WRITE` `DEPOSIT_UNFREEZE_WRITE` `WITHDRAW_BOUNCE_WRITE` `WITHDRAW_REFUND_WRITE` `WITHDRAW_UNFREEZE_WRITE`
   **改名 2 个**：`RISK_DECISION_RECORD_READ` → `SUMSUB_EVENT_VIEW`，`SIMULATE_EXPIRED_WRITE` → `DEMO_CLOCK_WRITE`
-  终盘 50 + 11 = **61 个组**
+  ⚠️ 订正（2026-08-31 实施时发现）：`INTERNAL_FUND_READ` 被 `FUNDS_ORDER_VIEW`/`FUNDS_ORDER_ACT` **完全取代**，须一并退役。
+  终盘 50 + 11 − 1 = **60 个组**（原写 61 是漏算了这次替换）
 
 - [ ] **Step 1：联合类型加 11 个新成员 + 改名 2 个**
 
@@ -550,7 +551,7 @@ git commit -m "docs(CHANGELOG): 第一幕退役段收尾"
 awk '/^export type PermissionGroup/,/;/' src/modules/identity/access-control/rbac.catalog.ts \
   | grep -oE "'[A-Z_]+'" | tr -d "'" | sort -u | wc -l
 ```
-预期：`61`
+预期：`60`
 
 - [ ] **Step 2：资金单五条路由按看/推拆开（解 B3）**
 
