@@ -50,7 +50,9 @@ Last Updated: 2026-08-29
 
   **头号怀疑（未坐实，把握中等偏低）**：`src/modules/trading/swap-transactions/swap-workflow.service.ts:1529` 的 `handleFundsOrderChanged()` 在腿失败/超时时走 `:1636` 的 `onLegFailedSelfHeal`——void 当前 attempt、重建 attempt+1。而 `swap-leg-accounting.ts` 的 `deterministicTransferId(..., attempt)` 把 attempt 编进转账 ID，**TigerBeetle 的 ID 去重因此只挡得住同一 attempt 内的重复，挡不住"这一 attempt 其实已经落账成功却被误判 FAILED/TIMEOUT"**；且 `postLeg`/`advance`/`createLeg` 整套包在 SQL `$transaction` 里，**TigerBeetle 的落账不受该事务回滚保护**。已排查并排除：充值 SUCCESS 路径（成对转账，重复调用不破坏恒等式）、几个 SLA 类 `@Cron`（阈值 30 秒~5 分钟，远长于 demo:all 实测 ~18 秒全程）。
 
-  **另一个可观测症状（2026-08-31 破口场景 Task 8 评审实证）**：失衡命中时，**单个客户钱包的净额会整个变 0**——同一套种子、花名册同样全绿，Kate 的 AED 钱包在一次干净重铺后 `account_flows` 有 8 行真实分录合计 520000，在另一次之后同一查询读出 0。这个症状比 COA 总额差更容易在界面上看见（钱包流水空了），撞上时可作为同一缺陷的旁证。
+  🔴 **2026-08-31 订正：此前把"单个客户钱包净额变 0"记成本条的第二个症状，是并错了。** 那个现象读的是另一条代码路径（对账引擎的 `WalletBalanceCheckerService`），而本条 COA 断言走的是 `demo-lib.ts` 的 `buildCoaBalanceMap`（遍历注册表 → `lookupBalance`），两者不共享出错点。**"钱包净额变 0"已另有更好的解释**：`PRODUCTION-NOTES.md` 那条「`WalletBalanceCheckerService` 查注册表未套用十六进制补零，随机丢一笔分录」——概率约 1/16、症状正是"少算一整条 PAYABLE 分录"、且一旦命中会在该 reset 周期内**稳定**复现。
+
+  ⚠️ **但这条 COA 失衡本身仍未销账**，而且新线索提高了它的嫌疑度：那个补零缺陷丢的是**负债侧**分录，方向与本条实测的"资产 side 约为负债 side 的 2.88 倍"**一致**。下次取证时值得先排除它——如果 `buildCoaBalanceMap` 那条路上也有类似的 id 匹配（而不是纯 registry 遍历），两条可能就是同一个根因。
 
   **下次取证的正确姿势（关键，别错过现场）**：判红后**先别 reset**，在失衡的库上按 `sourceType/sourceNo` 分组，数 `account_flows` 里每个 `swapNo`/`depositNo` 名下 `CLIENT_ASSET` 方向的转账笔数是否 >1（正常恒为 1）——比继续读代码猜更快锁到是哪类单、第几次 attempt。
 
