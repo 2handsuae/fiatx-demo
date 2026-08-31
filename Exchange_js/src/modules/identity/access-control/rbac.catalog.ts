@@ -21,17 +21,28 @@ export type PermissionGroup =
   | 'CUSTOMER_RESTRICTION_READ'
   | 'CUSTOMER_RESTRICTION_WRITE'
   | 'CUSTOMER_RESTRICTION_RELEASE'
-  | 'SIMULATE_EXPIRED_WRITE'
-  | 'RISK_DECISION_RECORD_READ'
+  | 'DEMO_CLOCK_WRITE'
+  | 'DEMO_VERDICT_WRITE'
+  | 'SUMSUB_EVENT_VIEW'
   | 'TRADING_DEPOSIT_READ'
   | 'TRADING_DEPOSIT_WRITE'
+  | 'DEPOSIT_WAIVE_WRITE'
+  | 'DEPOSIT_CONFISCATE_WRITE'
+  | 'DEPOSIT_RETURN_WRITE'
+  | 'DEPOSIT_SEIZE_WRITE'
+  | 'DEPOSIT_UNFREEZE_WRITE'
   | 'TRADING_WITHDRAW_READ'
   | 'TRADING_WITHDRAW_WRITE'
+  | 'WITHDRAW_BOUNCE_WRITE'
+  | 'WITHDRAW_REFUND_WRITE'
+  | 'WITHDRAW_UNFREEZE_WRITE'
   | 'TRADING_SWAP_READ'
   | 'TRADING_SWAP_WRITE'
   | 'WALLET_READ'
   | 'WALLET_WRITE'
   | 'INTERNAL_FUND_READ'
+  | 'FUNDS_ORDER_VIEW'
+  | 'FUNDS_ORDER_ACT'
   | 'RECON_RUN_READ'
   | 'RECON_RUN_WRITE'
   | 'RECON_CASE_READ'
@@ -220,10 +231,10 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
   route('POST', '/withdraw-transactions/quotes', 'Create withdrawal pricing quote', ['TRADING_WITHDRAW_WRITE']),
 
   // Onboarding compliance
-  route('POST', '/admin/compliance/customers/:id/simulate-expired', 'Simulate customer expired', ['SIMULATE_EXPIRED_WRITE']),
+  route('POST', '/admin/compliance/customers/:id/simulate-expired', 'Simulate customer expired', ['DEMO_CLOCK_WRITE']),
 
   // Sumsub events
-  route('GET', '/admin/sumsub-events', 'List Sumsub webhook events', ['RISK_DECISION_RECORD_READ']),
+  route('GET', '/admin/sumsub-events', 'List Sumsub webhook events', ['SUMSUB_EVENT_VIEW']),
 
   // Risk assessments
 
@@ -236,6 +247,8 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
     'List customer inbound transfer signals',
     ['TRADING_DEPOSIT_READ'],
   ),
+  // 客户端信号入口（非管理端能力）——Task 7 充值动作域拆分不含这两条，继续挂
+  // TRADING_DEPOSIT_WRITE；不进桶目录、不进角色 bindings，勿被后人误清或误并入下方新组
   route(
     'POST',
     '/deposit-transactions/my/inbound-signals',
@@ -248,13 +261,13 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
     'Scan customer inbound transfer signals',
     ['TRADING_DEPOSIT_WRITE'],
   ),
-  route('POST', '/deposit-transactions/:id/waive-limit', 'Waive deposit below-minimum amount hold', ['TRADING_DEPOSIT_WRITE']),
-  route('POST', '/deposit-transactions/:id/confiscate', 'Confiscate deposit below-minimum amount as fee', ['TRADING_DEPOSIT_WRITE']),
-  route('POST', '/deposit-transactions/:id/return', 'Open a return-to-sender approval for a deposit', ['TRADING_DEPOSIT_WRITE']),
-  route('POST', '/deposit-transactions/:id/seize', 'Seize a frozen deposit under government order', ['TRADING_DEPOSIT_WRITE']),
-  route('POST', '/deposit-transactions/:id/unfreeze', 'Unfreeze a frozen deposit', ['TRADING_DEPOSIT_WRITE']),
+  route('POST', '/deposit-transactions/:id/waive-limit', 'Waive deposit below-minimum amount hold', ['DEPOSIT_WAIVE_WRITE']),
+  route('POST', '/deposit-transactions/:id/confiscate', 'Confiscate deposit below-minimum amount as fee', ['DEPOSIT_CONFISCATE_WRITE']),
+  route('POST', '/deposit-transactions/:id/return', 'Open a return-to-sender approval for a deposit', ['DEPOSIT_RETURN_WRITE']),
+  route('POST', '/deposit-transactions/:id/seize', 'Seize a frozen deposit under government order', ['DEPOSIT_SEIZE_WRITE']),
+  route('POST', '/deposit-transactions/:id/unfreeze', 'Unfreeze a frozen deposit', ['DEPOSIT_UNFREEZE_WRITE']),
   // Task 6 (SLA 批次)：管理台「模拟超时」按钮 —— 演示用,把 slaDeadline 拨到过去
-  route('POST', '/deposit-transactions/:depositNo/simulate-sla-timeout', 'Simulate SLA timeout for a deposit (demo only)', ['TRADING_DEPOSIT_WRITE']),
+  route('POST', '/deposit-transactions/:depositNo/simulate-sla-timeout', 'Simulate SLA timeout for a deposit (demo only)', ['DEMO_CLOCK_WRITE']),
   route('GET', '/deposit-transactions/export', 'Export deposit transactions', ['TRADING_DEPOSIT_READ']),
   // Demo verdict runner (Task 6 计划1·甲方案 起步, Task 4 计划「充值仿真裁决按钮」改单步) —
   // controller only registered when SUMSUB_MOCK_MODE=true
@@ -262,7 +275,7 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
     'POST',
     '/admin/deposit-sumsub/demo/run-verdict',
     'Feed one Sumsub KYT verdict webhook into a deposit (demo only)',
-    ['TRADING_DEPOSIT_WRITE'],
+    ['DEMO_VERDICT_WRITE'],
   ),
   // Task A7: 按钮清单出端点 — 前端 ⚡ 面板据此渲染，不再手抄
   route(
@@ -277,18 +290,18 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
   route('GET', '/withdraw-transactions/:id', 'Get withdraw transaction detail', ['TRADING_WITHDRAW_READ']),
   route('POST', '/withdraw-transactions', 'Create withdraw transaction', ['TRADING_WITHDRAW_WRITE']),
   route('POST', '/withdraw-transactions/mock', 'Mock withdraw transaction', ['TRADING_WITHDRAW_WRITE']),
-  route('POST', '/withdraw-transactions/:id/bounce', 'Bounce (return) withdraw transaction payout', ['TRADING_WITHDRAW_WRITE']),
-  route('POST', '/withdraw-transactions/:id/unfreeze', 'Unfreeze a FROZEN withdraw transaction', ['TRADING_WITHDRAW_WRITE']),
-  route('POST', '/withdraw-transactions/:id/refund', 'Sanction-refund a FROZEN withdraw transaction', ['TRADING_WITHDRAW_WRITE']),
+  route('POST', '/withdraw-transactions/:id/bounce', 'Bounce (return) withdraw transaction payout', ['WITHDRAW_BOUNCE_WRITE']),
+  route('POST', '/withdraw-transactions/:id/unfreeze', 'Unfreeze a FROZEN withdraw transaction', ['WITHDRAW_UNFREEZE_WRITE']),
+  route('POST', '/withdraw-transactions/:id/refund', 'Sanction-refund a FROZEN withdraw transaction', ['WITHDRAW_REFUND_WRITE']),
   // Task 6 (SLA 批次)：管理台「模拟超时」按钮 —— 演示用,把 slaDeadline 拨到过去
-  route('POST', '/withdraw-transactions/:withdrawNo/simulate-sla-timeout', 'Simulate SLA timeout for a withdraw transaction (demo only)', ['TRADING_WITHDRAW_WRITE']),
+  route('POST', '/withdraw-transactions/:withdrawNo/simulate-sla-timeout', 'Simulate SLA timeout for a withdraw transaction (demo only)', ['DEMO_CLOCK_WRITE']),
   // Demo verdict runner (Task 10, mirror of deposit's demo twin) — controller
   // only registered when SUMSUB_MOCK_MODE=true
   route(
     'POST',
     '/admin/withdraw-sumsub/demo/run-verdict',
     'Feed one Sumsub KYT verdict webhook into a withdrawal (demo only)',
-    ['TRADING_WITHDRAW_WRITE'],
+    ['DEMO_VERDICT_WRITE'],
   ),
   // Task A7: 按钮清单出端点 — 前端 ⚡ 面板据此渲染，不再手抄
   route(
@@ -307,14 +320,14 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
   route('POST', '/admin/swap-transactions/:swapNo/legs/:legSeq/advance', 'Advance swap settlement leg', ['TRADING_SWAP_WRITE']),
   route('POST', '/admin/swap-transactions/:swapNo/legs/:legSeq/resume', 'Resume a stuck swap leg', ['TRADING_SWAP_WRITE']),
   // Task 6 (SLA 批次)：管理台「模拟超时」按钮 —— 演示用,把 slaDeadline 拨到过去
-  route('POST', '/admin/swap-transactions/:swapNo/simulate-sla-timeout', 'Simulate SLA timeout for a swap transaction (demo only)', ['TRADING_SWAP_WRITE']),
+  route('POST', '/admin/swap-transactions/:swapNo/simulate-sla-timeout', 'Simulate SLA timeout for a swap transaction (demo only)', ['DEMO_CLOCK_WRITE']),
   // Demo verdict runner (Task 9, mirror of deposit/withdraw's demo twins) —
   // controller only registered when SUMSUB_MOCK_MODE=true
   route(
     'POST',
     '/admin/swap-sumsub/demo/run-verdict',
     'Feed one Sumsub KYT verdict webhook into a swap (demo only)',
-    ['TRADING_SWAP_WRITE'],
+    ['DEMO_VERDICT_WRITE'],
   ),
   // Task A7: 按钮清单出端点 — 前端 ⚡ 面板据此渲染，不再手抄
   route(
@@ -480,12 +493,13 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
   // moved to the unified /admin/funds-orders controller below.
 
   // Funds Orders (Round 2 — unified deposit/withdraw/swap funds read surface)
-  route('GET', '/admin/funds-orders', 'List funds orders', ['INTERNAL_FUND_READ']),
-  route('GET', '/admin/funds-orders/:fundsOrderNo', 'Get funds order detail', ['INTERNAL_FUND_READ']),
-  route('POST', '/admin/funds-orders/:fundsOrderNo/advance', 'Advance funds order (sim/ops)', ['INTERNAL_FUND_READ']),
+  // Task 7 (B3)：看/推拆开 — list/detail 挂 FUNDS_ORDER_VIEW，advance/push 挂 FUNDS_ORDER_ACT
+  route('GET', '/admin/funds-orders', 'List funds orders', ['FUNDS_ORDER_VIEW']),
+  route('GET', '/admin/funds-orders/:fundsOrderNo', 'Get funds order detail', ['FUNDS_ORDER_VIEW']),
+  route('POST', '/admin/funds-orders/:fundsOrderNo/advance', 'Advance funds order (sim/ops)', ['FUNDS_ORDER_ACT']),
   // Recon disposition (平账·推单) — sync from external receipt / manual confirm with evidence.
-  route('POST', '/admin/funds-orders/:fundsOrderNo/push/sync', 'Push order — sync from external receipt (recon disposition)', ['INTERNAL_FUND_READ']),
-  route('POST', '/admin/funds-orders/:fundsOrderNo/push/manual', 'Push order — manual confirm with evidence (recon disposition)', ['INTERNAL_FUND_READ']),
+  route('POST', '/admin/funds-orders/:fundsOrderNo/push/sync', 'Push order — sync from external receipt (recon disposition)', ['FUNDS_ORDER_ACT']),
+  route('POST', '/admin/funds-orders/:fundsOrderNo/push/manual', 'Push order — manual confirm with evidence (recon disposition)', ['FUNDS_ORDER_ACT']),
 
 ];
 
@@ -722,7 +736,7 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
     'IAM_MEMBER_READ',
     'IAM_ROLE_READ',
     'AUDIT_READ',
-    'RISK_DECISION_RECORD_READ',
+    'SUMSUB_EVENT_VIEW',
     'GOV_APPROVAL_READ',
     'GOV_APPROVAL_POLICY_READ',
     'TRANSACTION_LIMIT_READ',
@@ -742,7 +756,7 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
     'IAM_ROLE_DEFINE',
     'AUDIT_READ',
     'AUDIT_EXPORT_READ',
-    'RISK_DECISION_RECORD_READ',
+    'SUMSUB_EVENT_VIEW',
     'GOV_APPROVAL_READ',
     'GOV_APPROVAL_POLICY_READ',
     'GOV_APPROVAL_POLICY_WRITE',
@@ -785,7 +799,7 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
     'AUDIT_READ',
     'AUDIT_EXPORT_CREATE',
     'AUDIT_EXPORT_READ',
-    'RISK_DECISION_RECORD_READ',
+    'SUMSUB_EVENT_VIEW',
     'GOV_APPROVAL_READ',
     'GOV_APPROVAL_POLICY_READ',
     'GOV_APPROVAL_POLICY_WRITE',
@@ -802,7 +816,7 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
     'AUDIT_READ',
     'AUDIT_EXPORT_CREATE',
     'AUDIT_EXPORT_READ',
-    'RISK_DECISION_RECORD_READ',
+    'SUMSUB_EVENT_VIEW',
     'GOV_APPROVAL_READ',
     'GOV_APPROVAL_POLICY_READ',
     'TRANSACTION_LIMIT_READ',
@@ -828,7 +842,7 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
     'IAM_CREDENTIAL_RESET',
     'IAM_ROLE_DEFINE',
     'AUDIT_READ',
-    'RISK_DECISION_RECORD_READ',
+    'SUMSUB_EVENT_VIEW',
     'GOV_APPROVAL_READ',
     'GOV_APPROVAL_POLICY_READ',
     'GOV_APPROVAL_POLICY_WRITE',
