@@ -20,6 +20,9 @@
 //
 // Exit codes: 0 = ALL PASS, 1 = violations found, 2 = scanner error.
 
+import { requireStackEnv } from './require-stack-env';
+requireStackEnv({ requireTb: false });
+
 import { PrismaClient } from '@prisma/client';
 
 interface Violation {

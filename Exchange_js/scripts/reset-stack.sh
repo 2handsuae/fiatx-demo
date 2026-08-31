@@ -51,7 +51,7 @@ if [ -n "${TB_DATA_FILE:-}" ] && [ -n "${TB_ADDRESS:-}" ]; then
     > "${TB_LOG:-/tmp/tb-reset-${STACK}.log}" 2>&1 &
   echo $! > "${TB_PID_FILE:-/tmp/tb-reset-${STACK}.pid}"
   for i in 1 2 3 4 5 6 7 8 9 10; do
-    if lsof -ti:"${TB_PORT:-3003}" >/dev/null 2>&1; then
+    if lsof -ti:"${TB_PORT}" >/dev/null 2>&1; then
       echo "[${STACK}] TigerBeetle ready on ${TB_ADDRESS}"
       break
     fi

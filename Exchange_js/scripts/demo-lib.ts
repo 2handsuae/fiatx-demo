@@ -39,6 +39,9 @@
 // no Outstanding or FeeAccrual rows created (real-time 1:1 model).
 // verifyEndState() asserts this.
 
+import { requireStackEnv } from './require-stack-env';
+requireStackEnv({ requireTb: true });
+
 import { createHash } from 'node:crypto';
 
 import * as fs from 'node:fs';

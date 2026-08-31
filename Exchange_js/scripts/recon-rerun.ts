@@ -3,6 +3,9 @@
 // Run: npm run recon:rerun    （或加 --cutoff=2026-07-03T12:00:00Z）
 //
 
+import { requireStackEnv } from './require-stack-env';
+requireStackEnv({ requireTb: true });
+
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from '../src/app.module';
 import { WalletReconRunService } from '../src/modules/clearing-settle/reconciliation/workflow/wallet-recon-run.service';
