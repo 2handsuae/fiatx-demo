@@ -6,9 +6,34 @@
 > `npx jest` 退出码 0）。**任何红都是事故**，没有"这条是旧账"的退路；真有一时修不了的，
 > 须当场决定修或由业主正式豁免并记入 `TOOLING-DEBT.md`，不得默留。
 > 重钉纪律：只在业主批准的行为变化后重钉；每次重钉记 CHANGELOG 一行。
-> 重钉历史：2026-08-26 Step 0 首钉（7c53afd4）→ **2026-08-27 收官重钉（本版）**。
+> 重钉历史：2026-08-26 Step 0 首钉（7c53afd4）→ **2026-08-27 收官重钉（本版仍是当前生效基线）**。
+> 2026-08-31 `chore/env-and-tooling-debt` 分支收尾验收跑过一次 11 条判据，10/11 过、`verify:coa` 报新红
+> 未消化——按判据铁律不满足"全绿"，**这次不算重钉**，详见下方"未决"节。
 
-## 绿名单（当前全绿）
+## 未决：`verify:coa` 负余额新红（2026-08-31 环境收口验收发现，待业主裁定）
+
+`chore/env-and-tooling-debt` 分支收尾验收（Task 11）按下方"`verify:rbac` 操作约束"节的顺序跑完 11 条判据，
+10 条过，1 条不过：`verify:coa` 的负余额断言在**全新库跑完 `demo:all`（未注入任何 break）后**报 2 处 FAIL——
+AED 账本上 `FIRM_ASSET` 与 `FIRM_OPS` 均为负（`-63647` / `-75047`，两轮独立 `reset→up→demo:all→verify:coa`
+复现数字完全一致，确定性、非偶发）。**这条红反驳了下方绿名单"verify:coa……重铺后与 demo:all 后均全绿"
+那句既有断言**——已知的历史豁免（"含 break 注入的运行轮见过公司 AED 负余额"）明确限定在 break 注入场景，
+本次没有注入任何 break。
+
+核实结论（细节见 `.superpowers/sdd/task-11-report.md` Step 4）：
+- 确定性可复现，非并发/时序 flake；
+- 与 `chore/env-and-tooling-debt` 分支自身改动（Node 版本 / tsc 覆盖 / 测试红名单 / 内联默认值 / 栈脚本 /
+  残留巡检）无关——分支自己的改动零一处碰记账/资金腿代码；
+- 在"并入 main（并行会话的权限重建 + test-cases 封箱，39 个提交，合并提交 `7f7aa84d`）"之后才出现——
+  同一花名册、同一 `verify:coa` 脚本，该分支更早的 Task 7 报告显示 49 科目全部 ≥ 0、`FIRM(AED)` 为正；
+- 已排查 39 个提交里两处最贴近花名册处置弧的改动（没收裁决人 `OPS_OFFICER→CFO`、`adminFreeze()` 死代码退役），
+  逐行核实均只碰审批角色/已死路径，不碰记账逻辑——**未能在本任务授权范围内定位到真正根因**。
+
+**处置：不算环境/工具债（不登记 `TOOLING-DEBT.md`）；是"业务缺口"还是"记账 bug"分类未定
+（未登记 `BACKLOG.md` / `PRODUCTION-NOTES.md`——错误分类比不分类更误导人）。按判据铁律不得默留，
+需要业主或更熟悉这段账本引擎 / 那 39 个提交的人接手判定去处；判定前 `verify:coa` 不算全绿，本节不应被
+误读为"已解决"或"已豁免"。**
+
+## 绿名单（除 `verify:coa` 见上方"未决"节外，其余全绿）
 
 | 类 | 项 |
 |---|---|
@@ -16,10 +41,10 @@
 | 重铺 | `stack.sh reset main`（含 TigerBeetle 清理重建，全链实跑） |
 | 演示 | demo:setup ｜ demo:deposit ｜ demo:swap ｜ demo:withdraw ｜ demo:in-transit ｜ demo:all（**花名册 21/21 逐条符合预期 + COA 四恒等式**——演示装备一期改判据，见下方操作约束） |
 | 对账 | recon:demo:pass ｜ **recon:demo:break 9/9 全检出**（收官实测；旧基线 7/9 的两处 MISSED 已不复现，旧账已销）｜ verify:demo-data |
-| 账本 | verify:coa —— 两恒等式 + 负余额断言（49 科目全部 ≥ 0）。收官多轮实测**重铺后与 demo:all 后均全绿**；历史上个别含 break 注入的运行轮见过公司 AED 负余额（浮存时序），若复现不算净新红 |
+| 账本 | verify:coa —— 两恒等式 + 负余额断言（49 科目全部 ≥ 0）。收官多轮实测重铺后与 demo:all 后均全绿；历史上个别含 break 注入的运行轮见过公司 AED 负余额（浮存时序），若复现不算净新红。**⚠️ 2026-08-31 环境收口验收发现新红——无 break 注入也复现，见上方"未决"节，当前不算全绿** |
 | 审计 | verify:audit 恒绿七项：Q2 按单据查 ｜ Q4 按客户查 ｜ 不变量①②③（PRIMARY 至多一 / INHERIT 必有旅程号 / 退役码零写入）——三查合同七站换装后的固定资产 |
 | 封册 | audit-vocabulary-closure.spec 四条：平面表归籍 / 六册互斥 / V3 附册冻结快照 / 写点闭合退役词零引用 |
-| 单测 | `npx jest` **全绿**（162 套，退出码 0）｜ `npm run test:client`（vitest 4 套 83 例） |
+| 单测 | `npx jest` **全绿**（156 套，退出码 0——2026-08-31 环境收口验收实测；此前"162 套"是 test-cases 封箱前的旧值，套件数下降是封箱导致、非回归）｜ `npm run test:client`（vitest 4 套 83 例） |
 | 栈 | `bash scripts/stack-env.test.sh`（`ensure_env_files` 权威重写的 11 项断言） |
 
 ## demo:all 操作约束（演示装备一期，2026-08-29 起）
