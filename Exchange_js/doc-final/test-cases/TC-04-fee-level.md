@@ -20,10 +20,10 @@
 | TC-FEE-006 | AC-1.2 / FR-2 | 边界 | P0 | requiredTags 至多 1 个 | — | ① 提交 1 个标签 ② 提交 2 个标签 | ① 通过；② 拒绝 | 恰差一个 |
 | TC-FEE-007 | AC-1.2 / FR-2 | 反例 | P0 | 未注册标签被拒 | — | ① requiredTags 填注册表外的标签码 | 拒绝 | 固定注册表 |
 | TC-FEE-008 | FR-2 | 边界 | P1 | 时间窗须 validFrom ≤ validTo | — | ① 提交 validFrom > validTo ② 提交二者相等 | ① 拒绝；② 通过 | 边界 |
-| TC-FEE-009 | AC-1.3 / LT2 | 正例 | P1 | 审批通过转 ACTIVE | 存在 PENDING_APPROVAL 等级 | ① OPS_OFFICER 批准 | 等级 `ACTIVE`；审批句柄清空；审计 `CREATION_APPLIED` | — |
-| TC-FEE-010 | AC-1.3 / LT3 | 反例 | P1 | 审批否决则删除该 PENDING 等级 | 同上 | ① OPS_OFFICER 否决 | 该 PENDING 等级**被删除**（非置废）；审计 `CREATION_CANCELLED` | 与变更请求处理不同 |
-| TC-FEE-011 | FR-3 / 4.4 SoD | 反例 | P0 | 发起人不可自批 | 由 A 提交创建请求 | ① A 本人审批该请求 | 拒绝（maker ≠ checker） | SoD |
-| TC-FEE-012 | FR-3 | 边界 | P2 | 审批 48h 时限与可取消 | 存在 PENDING 审批 | ① 查审批时限 ② 发起方取消 | 时限 48h；取消后请求终结、等级不生效 | 单步 OPS_OFFICER |
+| TC-FEE-009 | AC-1.3 / LT2 | 正例 | P1 | 审批通过转 ACTIVE | 存在 CFO 提交的 PENDING_APPROVAL 等级 | ① OPS_OFFICER 批准 | 等级 `ACTIVE`；审批句柄清空；审计 `CREATION_APPLIED` | 裁决人 OPS_OFFICER 未变；提单人 2026-08-30 起由运营改财务负责人 |
+| TC-FEE-010 | AC-1.3 / LT3 | 反例 | P1 | 审批否决则删除该 PENDING 等级 | 存在 CFO 提交的 PENDING_APPROVAL 等级 | ① OPS_OFFICER 否决 | 该 PENDING 等级**被删除**（非置废）；审计 `CREATION_CANCELLED` | 与变更请求处理不同 |
+| TC-FEE-011 | FR-3 / 4.4 SoD | 反例 | P0 | 发起人不可自批 | 由财务负责人 A 提交创建请求 | ① A 本人尝试审批该请求 | 拒绝——A 的角色（CFO）不在审批人白名单（仅 OPS_OFFICER）内，天然不可能自批；若 A 身兼 OPS_OFFICER 角色，则触发同用户 SoD 拦截（maker≠checker） | 2026-08-30 起提单角色（CFO）与裁决角色（OPS_OFFICER）分属两个不相交角色，自批门槛从"同用户拦截"加固为"角色本不相交" |
+| TC-FEE-012 | FR-3 | 边界 | P2 | 审批 48h 时限与可取消 | 存在 CFO 提交的 PENDING 审批 | ① 查审批时限 ② 发起方（CFO）取消 | 时限 48h；取消后请求终结、等级不生效 | 裁决人单步 OPS_OFFICER，未变 |
 
 ## 2. 变更费率 · configHash 冲突守卫（FR-4/5/6 · CR1~CR5 · AC-2.x）
 
@@ -32,7 +32,7 @@
 | TC-FEE-013 | AC-2.1 / FR-4 / CR1 | 正例 | P1 | 对 ACTIVE 等级建变更请求 | 等级 ACTIVE、无在途请求 | ① 提交新 tiersJson + 变更原因 | 请求 `PENDING_APPROVAL`，生成 requestNo（提现族 `WFLC-NNN`）；快照 currentTiersJson + currentConfigHash；审计 `CHANGE_REQUESTED` | 双族 |
 | TC-FEE-014 | FR-4 | 反例 | P1 | 非 ACTIVE 等级不可提变更 | 等级仍 PENDING_APPROVAL | ① 提交变更请求 | 拒绝 | — |
 | TC-FEE-015 | AC-2.2 / FR-4 | 反例 | P0 | 同一等级仅允许 1 个在途请求 | 该等级已有 PENDING 请求 | ① 再提一个变更请求 | 拒绝 | 防并发打架 |
-| TC-FEE-016 | AC-2.3 / FR-5 / CR2 / 判定 2 | 正例 | P0 | 审批通过且 configHash 未变则生效 | 期间无其他变更 | ① OPS_OFFICER 批准 | 等级 tiersJson 更新为 proposed，configHash 重算；请求 `APPROVED`；审计 `CHANGE_APPLIED`；后续报价按新费率 | — |
+| TC-FEE-016 | AC-2.3 / FR-5 / CR2 / 判定 2 | 正例 | P0 | 审批通过且 configHash 未变则生效 | 存在 CFO 提交的变更请求，期间无其他变更 | ① OPS_OFFICER 批准 | 等级 tiersJson 更新为 proposed，configHash 重算；请求 `APPROVED`；审计 `CHANGE_APPLIED`；后续报价按新费率 | 裁决人 OPS_OFFICER 未变 |
 | TC-FEE-017 | AC-2.4 / FR-5 / CR3 / 判定 2 | 反例 | P0 | configHash 冲突则拒绝执行、原值不动 | 请求 A 在途期间，等级已被另一路径改过 | ① 批准请求 A | 请求 `FAILED` + failureReason；**等级现值分毫不改**；审计 `CHANGE_APPLY_FAILED` | 核心守卫，重心用例 |
 | TC-FEE-018 | 判定 2 | 反例 | P0 | 执行时等级已非 ACTIVE 则失败 | 审批期间等级被停用 | ① 批准请求 | 请求 `FAILED`，等级不变 | 判定 2 第 3 行 |
 | TC-FEE-019 | AC-2.5 / CR4 | 反例 | P1 | 审批否决则请求 REJECTED | 存在 PENDING 请求 | ① 否决 | 请求 `REJECTED`；等级不变 | — |

@@ -459,3 +459,15 @@
 - [2026-08-31] **随手闸的三道 tsc 照不到 `test/`，退役类改动会在 e2e 里留下哑弹** ｜ CLAUDE.md §7 随手闸①②③ ｜ 第一幕职权重划实测
 
   §7 的随手闸是后端 `tsconfig.json` + 管理台 + 客户端三条，**都不覆盖 `test/` 目录**（该目录另有 `tsconfig.test.json`，不在闸门里）。本轮实测后果：Task 4 把 `DepositWorkflowService.adminFreeze()` 作为孤儿方法退役（其唯一 HTTP 调用方已删），三道闸全绿、评审也过，但 `test/deposit-sumsub-verdicts.e2e-spec.ts` 仍在两处调它——**要等到跑 e2e 才炸，而 e2e 不在随手闸里**。同一轮 Task 11 改 `DEPOSIT_CONFISCATION` 裁决人时，同一文件里的 `OPS_CHECKER` 也是同款哑弹。两处均已修（`c92df6cf`），但根因是闸门覆盖面：**凡退役 service 方法 / 改审批策略角色，必须额外跑一次 `npx tsc --noEmit -p tsconfig.test.json`**。值得把它加进 §7 随手闸第 ④ 条。（记忆里 2026-08-20 制裁分主体那轮已踩过一次同款坑，当时建了 `tsconfig.test.json` 但没进闸门。）
+
+- [2026-08-31] **客户端 `/my/inbound-signals` 两条 URL 挂的是管理端权限组，语义错配** ｜ `src/modules/identity/access-control/rbac.catalog.ts:263-284` ｜ 第一幕职权重划盘点权限包目录时发现
+
+  `GET/POST /deposit-transactions/my/inbound-signals` 与 `POST .../my/inbound-signals/scan` 是**客户端**信号入口（`client-web/src/pages/Deposit.tsx:406,449` 真实调用，非管理台能力），但注册时挂的是 `TRADING_DEPOSIT_READ`/`TRADING_DEPOSIT_WRITE`——两个语义上属于「管理台充值域」的权限组。源码注释已自述这是刻意的历史遗留（"客户端信号入口（非管理端能力）——Task 7 充值动作域拆分不含这两条，继续挂 TRADING_DEPOSIT_WRITE；不进桶目录、不进角色 bindings，勿被后人误清或误并入下方新组"），第一幕权限包重划（Task 7/8）按边界未碰它。后果：这两条路由不出现在任何角色的权限包勾选界面里（不进桶目录），但实际由客户 JWT（非 admin 角色）调用，管理端 RBAC 语义在这里名不副实——只是巧合地不构成安全问题（客户端调用走的是客户身份鉴权，不经 admin-permission.guard 的角色包校验）。修法（生产化时）：改用客户端专属的权限标记，或至少改名去掉 `TRADING_DEPOSIT_*` 前缀避免与管理端充值域权限组混淆。
+
+- [2026-08-31] **`INTERNAL_TRANSFER_READ`/`INTERNAL_TRANSFER_WRITE` 是零角色持有的孤儿权限组，只有超管调得动** ｜ `src/modules/identity/access-control/rbac.catalog.ts`（`/admin/funds-layer/transfers*` 4 条路由）｜ 第一幕职权重划 Task 8 权限包目录重划时发现，Task 15 文档同步复核仍成立
+
+  这两个组挂着 V7 财资遗留的 4 条后端路由（`GET .../transfers`、`GET .../transfers/:id`、`POST .../transfers/:id/simulate`、`POST .../fund-return`），`App.tsx:408` 明写前端已迁走、零消费方；`simulate` 自称 DEV 用途，`fund-return` 触发的是 repair 面（属 CLAUDE.md §2 禁做清单）。Task 8 铺满 12 域 50 桶时判定「有路由无桶」的三个刻意例外之一（另两个是上一条的客户端信号入口、以及已在桶目录内但需要留意的项），未进 `ACTION_BUCKET_CATALOG`、也没有任何职务的 `RBAC_ROLE_GROUP_BINDINGS` 持有它——11 个职务里没有人能调，只有 `SUPER_ADMIN`（经 `buildRolePermissionCodeMap()` 特判全量放行）能碰到。不影响「每个存活组都真守着至少一条端点」这条不变量（它们确实各自守着真实路由），但会让「按 12 域 50 桶枚举 = 系统全部能力」这个心智模型出现 2 个组的盲区。修法（生产化时）：要么随 V7 财资死码一并整体退役这 4 条路由，要么补一个 `funds.manage_internal_transfer` 类的桶并绑给合适职务（如财务或金库专员）——按现状两条路都行，只是本轮边界内不做。
+
+- [2026-08-31] **V5「三处自批死锁已解」目前只有 1/3 有自动化闸门覆盖** ｜ `scripts/verify-rbac.ts` V5 判据 ｜ Task 13 评审发现、Task 15 文档同步复核仍成立
+
+  本轮把充值没收（`DEPOSIT_CONFISCATION`）、限额规则创建/变更（`TRANSACTION_LIMIT_CREATION`/`CHANGE`）两条审批策略的裁决人分别改成 CFO、`SENIOR_MANAGEMENT_OFFICER`，连同费率审批（提单人从运营改财务）一起解开了三处「同一角色既提单又裁决」的自批死锁。但 `scripts/verify-rbac.ts` 只对费率那条（提单财务→裁决运营，随 V3 夹具附带跑到）有真实的端到端行为闸门；「运营提没收→财务批」由 `demo:all` 花名册 #8 真实跑通（`DepositWorkflowService.initiateConfiscation` → CFO 登录批准 → CONFISCATED），但**这不是 `verify-rbac.ts` 自身的判据**；「运营提限额→高管批」「合规官提解冻→MLRO 批」这两条**目前没有任何自动化闸门**（无论是 `verify:rbac` 还是 `demo:all`）验证过完整的提交→审批往返。这三处死锁在源码层面（`approval.constants.ts` 的 `steps` 配置 + `RBAC_ROLE_GROUP_BINDINGS` 的持有者）确凿已解，但缺自动化回归意味着未来若有人改动 `approval.constants.ts` 把裁决人悄悄改回运营，只有没收那一条会被 `demo:all` catch 住，另外两条不会有任何测试变红。

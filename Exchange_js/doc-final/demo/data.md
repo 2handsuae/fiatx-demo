@@ -3,9 +3,25 @@
 > 上半篇（管理员/客户矩阵/资产钱包/各脚本）手写，2026-08-26 实测盘点后维护。下半篇「本批数据」由 `demo:all` 收尾自动写入生成区（防漂移），别手改那一段。
 > 重铺入口：`bash scripts/stack.sh reset [main|self]`（含 TigerBeetle 清理重建）；全量造数：`bash scripts/on-stack.sh main demo:all`（worktree 内用 self）。基线见 [baseline.md](baseline.md)。
 
-## 管理员（base seed，8 职务各一人，密码 123456）
+## 管理员（base seed，11 职务各一人，密码 123456）
 
-admin@fiatx.com 超管 ｜ sm@ 高管(SMO) ｜ ciso@ ｜ mlro@ ｜ dpo@ ｜ compliance_lead@ ｜ tech_admin@ ｜ ops_officer@ —— 一人一角色，SoD 演示直接换人登录。
+2026-08-31 第一幕职权重划新增内审 / 财务负责人 / 金库专员三个职务（8 → 11）。第一幕 5 站剧本见 [script.md](script.md)，下表标注每个账号在第一幕哪一站登场（maker=提单、checker=批准）：
+
+| 账号 | 职务 | 第一幕出场 |
+|---|---|---|
+| admin@fiatx.com | 超管 | 不出场——应急账号，不用于日常操作 |
+| sm@fiatx.com | 高管 | 站 3（maker：提审批策略变更）｜ 站 5（checker：批限额规则） |
+| ciso@fiatx.com | CISO | 站 1（checker：批角色定义修改）｜ 站 3（checker：批策略变更；自批被拒；硬互斥靶子）｜ 站 4（checker：批托管钱包创建、批资产激活，两次） |
+| mlro@fiatx.com | MLRO | 不出场第一幕——第三/五幕充值·提现解冻的裁决人 |
+| dpo@fiatx.com | DPO | 不出场第一幕——第七幕审计证据包相关 |
+| auditor@fiatx.com | 内审 | 站 1（仅持 View 包，调写接口 → 403，演示 28 组零 Act） |
+| compliance_lead@fiatx.com | 合规官 | 不出场第一幕——第二/三/五幕限制、解冻、⚡ 裁决 |
+| cfo@fiatx.com | 财务负责人 | 站 2（maker：提兑换费率变更） |
+| treasury@fiatx.com | 金库专员 | 站 4（maker：提托管钱包创建） |
+| tech_admin@fiatx.com | 技术官 | 站 1（maker：提角色定义修改）｜ 站 4（maker：建资产、点激活两次） |
+| ops_officer@fiatx.com | 运营 | 站 2（checker：批费率变更）｜ 站 5（maker：提限额规则变更） |
+
+一人一角色，SoD 演示直接换人登录。
 
 ## 客户矩阵（business seed，9 位，覆盖 8 种状态位）
 
