@@ -648,6 +648,9 @@ export const V1_AUDIT_ACTIONS: Record<string, AuditActionSpec> = {
   APPROVAL_SOD_DENIED: { domain: 'APPROVAL', correlationMode: I, requiredFields: ['reasonCode'], requiresCausation: false },
   APPROVAL_TIMEOUT_SIMULATED: { domain: 'APPROVAL', correlationMode: I, requiredFields: ['approvalNo'], requiresCausation: false },
 
+  // ── 权限守卫拒绝（2026-09-01 法一纪律4：被拒绝的动作同样留痕）──────
+  ADMIN_ACCESS_DENIED: { domain: 'IAM', correlationMode: N, requiredFields: [], requiresCausation: false },
+
   // ── ① 入职邀请 ──────────────────────────────────────────
   ADMIN_INVITE_REQUESTED:  { domain: 'IAM', correlationMode: S, requiredFields: ['afterData'], requiresCausation: false },
   ADMIN_INVITE_DISPATCHED: { domain: 'IAM', correlationMode: I, requiredFields: [], requiresCausation: false },
