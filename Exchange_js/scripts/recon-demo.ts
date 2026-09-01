@@ -10,21 +10,34 @@
 //                  external closing balance == internal balance.
 //                  Expected: status=PASS, casesOpened=0, orphan/mismatch=0.
 //
-//   --mode=break   Pass-mode setup, then inject 15 scenarios covering the
-//                  root-cause matrix (see specs/2026-08-30-recon-break-
-//                  scenarios-design.md §3) and write `manifest.json`.
-//                  成因按「谁错了」分三真相：
-//                    金额不对   ④我方小数点错 ⑩对方记错 ⑪舍入精度
-//                    我有外无   ⑦我方重复入账 ⑧假信号 ③银行漏报 ⑫跨日切
-//                    外有我无   ⑤漏监听充值 ⑨对账单重复行 ⑥退汇
-//                    在途       ①在途时序差
-//                    公司补记   ⑭银行杂费 ⑮银行利息
-//                    跨钱包     ⑬记错钱包
-//                    净额口径   ②手续费轧差
+//   --mode=break   Pass-mode setup, then inject 14 scenarios covering the
+//                  disposition matrix and write `manifest.json`.
+//                  按处置分组（spec 2026-09-01-recon-disposition-conclusion-
+//                  design.md §5，= 走查顺序），14 行 = 14 场景：
+//                    ① 在途时序差   推单
+//                    ② 小数点错位   冲正
+//                    ③ 我方少记     冲正
+//                    ④ 舍入精度差   冲正
+//                    ⑤ 手续费轧差   冲正
+//                    ⑥ 重复入账     冲销（机器佐证）
+//                    ⑦ 假信号入账   冲销（纯人判）
+//                    ⑧ 记错客户     改记（一场景两案，BREAK ×2）
+//                    ⑨ 跨日切       挂起·等下期
+//                    ⑩ 查无果       挂起·调查中
+//                    ⑪ 银行杂费     补记（与⑫对冲）
+//                    ⑫ 银行利息     补记（与⑪对冲）
+//                    ⑬ 漏监听充值   留档·补单（下一轮）
+//                    ⑭ 退汇         留档·补单（下一轮）
+//                  公理：外部资料是权威——不平只能是三种性质之一：我方账错了 /
+//                  我方账缺了 / 时机没到，没有第四档"外部数据本身可以商榷"。
+//                  旧版两条场景（银行漏报明细、对账单重复行）已删：两者都靠
+//                  直接改外部收盘余额让场景成立——这就是把外部数据当成可以由
+//                  我们改动/商榷的东西，与"外部资料是权威"自相矛盾，故删。
 //
 //                  ⚠️ **旧的 disjoint-wallet 前提已于 2026-08-30 显式废除。**
-//                  一个钱包现在可以挂多条场景（三个展示位就是靠这个：同一个
-//                  形状三条差异、三种相反处置摆在一屏）。因此**桶是钱包的属性、
+//                  一个钱包现在可以挂多条场景（展示位就是靠这个：同一个钱包
+//                  上摆多条差异，讲清楚"形状相同、处置未必相同"或"形状相同、
+//                  处置反而相同"两种教训）。因此**桶是钱包的属性、
 //                  不是场景的属性**，答案键拆两级——场景断言差异行，钱包断言桶。
 //
 //   --mode=reset   Delete WALLET_V1 runs/cases + all ExternalBalance /
@@ -74,6 +87,9 @@ import { WithdrawWorkflowService } from '../src/modules/trading/withdraw-transac
 // 金闸门的「在途检测」从此跑在真非终态资金单 + 分外部行上，与 demo:in-transit 同源。
 import { createStuckWithdraw, DEMO_STUCK_WD_REF_PREFIX } from './demo-fixtures';
 import { resolveDemoCustomers } from './demo-lib';
+// T11 同词原则：种子答案键的成因码直接取注册表类型，编译期与 T1 的
+// CAUSE_REGISTRY 同源——种子改错码、加错码、漏改码都会在这里炸编译。
+import type { CauseCode } from '../src/modules/clearing-settle/reconciliation/disposition/cause-registry';
 
 type Mode = 'pass' | 'break' | 'reset';
 
@@ -110,31 +126,18 @@ function parseArgs(argv: string[]): { mode: Mode; cutoffIso: string | null } {
   return { mode, cutoffIso };
 }
 
-// 15-scenario model（2026-08-30 重做）：每个场景重现一个**成因**，成因按
-// 「谁错了」分三真相（我方错 / 对方错 / 都没错）——见
-// specs/2026-08-30-recon-break-scenarios-design.md §3。
+// 14-scenario model（2026-09-01 平账一期半重排，分组表见文件头）：每个场景
+// 重现一个**成因**，成因码 = disposition/cause-registry.ts 的注册表码——
+// 种子答案键与注册表**编译期同源**，改错码、漏改码这里直接编译不过。
 //
 // ⚠️ **本轮显式废除了旧的 disjoint-wallet 前提**（旧文件头写着"Each scenario
 // targets its own wallet … so cases stay disjoint"）。一个钱包现在可以挂多条
-// 场景——现实本来如此，而且"同一个形状三条差异、三种相反处置摆在一屏"是整套
-// 演示最值钱的一屏。代价是：**桶是钱包的属性，不再是场景的属性**，故答案键
+// 场景——现实本来如此。代价是：**桶是钱包的属性，不再是场景的属性**，故答案键
 // 拆成两级。
-type RootCause =
-  | 'IN_TRANSIT_TIMING'
-  | 'FEE_NETTED'
-  | 'STATEMENT_MISSING_LINE'
-  | 'SCALE_ERROR'
-  | 'BANK_CHARGE'
-  | 'MISSED_DEPOSIT'
-  | 'BANK_INTEREST'
-  | 'BANK_RETURN'
-  | 'DUPLICATE_DEPOSIT'
-  | 'VOIDED_SIGNAL'
-  | 'STATEMENT_DUPLICATE_LINE'
-  | 'COUNTERPARTY_AMOUNT_ERROR'
-  | 'ROUNDING_DIFF'
-  | 'CUTOFF_STRADDLE'
-  | 'MISROUTED_CREDIT';
+//
+// 唯一游离于注册表之外的是场景 ①：在途不是差异、不走定性菜单，成因表里没有
+// 它的条目，保留种子专用字面量 `IN_TRANSIT_TIMING`。
+type RootCause = CauseCode | 'IN_TRANSIT_TIMING';
 
 type LineType = 'IN_TRANSIT' | 'AMOUNT_MISMATCH' | 'ORPHAN_INTERNAL' | 'ORPHAN_EXTERNAL';
 type Bucket = 'IN_TRANSIT' | 'SOFT_FLAG' | 'BREAK';
@@ -143,7 +146,7 @@ type Bucket = 'IN_TRANSIT' | 'SOFT_FLAG' | 'BREAK';
 interface ScenarioExpectation {
   scenarioId: number;
   rootCause: RootCause;
-  /** 绝大多数场景只产生一条；MISROUTED_CREDIT（记错钱包）跨两个钱包，故是数组。 */
+  /** 绝大多数场景只产生一条；MISATTRIBUTED_FROM（记错客户）跨两个钱包，故是数组。 */
   expectedLines: Array<{
     walletRef: string;
     lineType: LineType;
@@ -152,7 +155,7 @@ interface ScenarioExpectation {
     /**
      * 排他匹配键（可选，仅在同一钱包上多条期望可能共享同一
      * (matchStatus, walletRef, externalRef) 三元组时才需要真正钉行——
-     * 展示位甲 ④⑩⑪ 就是这种情况：同一钱包同一天的 fakeBankRef 撞号，
+     * 展示位甲 ②③④ 就是这种情况：同一钱包同一天的 fakeBankRef 撞号，
      * 三条期望字面三元组完全相同，非排他匹配下会退化成同一句话问三遍
      * （2026-08-30 评审实证）。
      *
@@ -221,7 +224,7 @@ function sourceFor(assetCode: string): 'HEXTRUST' | 'ZAND' {
 // pre-T5 shell. (The real stuck withdraw's funds_order + withdraw txn ARE
 // cleaned on reset via clearStuckFixtureWithdraws, so this fixture alone never
 // accumulates leg residue across reruns — that does NOT extend to the whole
-// script: scenario ⑦'s duplicate-deposit injection below writes real TB
+// script: scenario ⑥'s duplicate-deposit injection below writes real TB
 // ledger transfers that this lightweight reset does not undo, see that
 // block's comment for why a full db reset is required after it has run.)
 const DEMO_IN_TRANSIT_REF_PREFIX = 'DEMO-IT-';
@@ -231,9 +234,9 @@ const DEMO_IN_TRANSIT_REF_PREFIX = 'DEMO-IT-';
  * fixture alone never accumulates non-terminal payout legs across reruns
  * (→ no Pass3 mis-claim). Scoped to scenario 1's withdraw fixture only — it
  * does NOT make `recon:demo:reset && recon:demo:break` idempotent overall:
- * scenario ⑦'s duplicate-deposit injection (below, in the showcase-B block)
+ * scenario ⑥'s duplicate-deposit injection (below, in the showcase-B block)
  * writes real TB ledger transfers that this lightweight reset never undoes.
- * After ⑦ has run once, a green rerun needs a full db reset
+ * After ⑥ has run once, a green rerun needs a full db reset
  * (`stack.sh reset`), not just `recon:demo:reset`.
  *
  * Identification (union of two demo-only signals, run BEFORE the external-line
@@ -322,7 +325,7 @@ async function clearWalletDemo(prisma: PrismaService): Promise<{
   // has its DEMO-STUCK-WD- external rows to read. This is what keeps THIS
   // fixture's legs from accumulating across reruns — it does not by itself
   // make reset && break idempotent overall; see clearStuckFixtureWithdraws'
-  // docblock above for the ⑦ duplicate-deposit exception (real TB ledger
+  // docblock above for the ⑥ duplicate-deposit exception (real TB ledger
   // writes that a lightweight recon:demo:reset never undoes).
   const deletedStuck = await clearStuckFixtureWithdraws(prisma);
   // externalStatementLine/externalBalance blanket-deletes already cover
@@ -743,16 +746,16 @@ async function injectScenarios(
   const slotInTransit = plans.find((p) => p.walletRef === stuck.walletRef);
   if (!slotInTransit) throw new Error(`在途场景的钱包不在 plans 里：${stuck.walletRef}`);
 
-  const slotShowcaseA     = planByOwnerAsset(GRACE_NO, 'AED');        // 展示位甲：金额不对三真相 ④⑩⑪
-  const slotShowcaseB     = planByOwnerAsset(FRANK_NO, 'AED');        // 展示位乙：我有外无三真相 ③⑦⑧
-  const slotShowcaseC     = planByOwnerAsset(BOB_NO,   'USDT-TRON');  // 展示位丙：外有我无两真相 ⑤⑨
-  const slotFeeNetted     = planByOwnerAsset(BOB_NO,   'AED');        // ② 手续费轧差
-  const slotReturn        = planByOwnerAsset(ALICE_NO, 'USDT-TRON');  // ⑥ 退汇
-  const slotCutoff        = planByOwnerAsset(GRACE_NO, 'USDT-TRON');  // ⑫ 跨日切
-  const slotMisroutedFrom = planByOwnerAsset(JACK_NO,  'AED');        // ⑬ 记错钱包 · 发出端
-  const slotMisroutedTo   = planByOwnerAsset(KATE_NO,  'AED');        // ⑬ 记错钱包 · 接收端
+  const slotShowcaseA     = planByOwnerAsset(GRACE_NO, 'AED');        // 展示位甲：金额不对 ②③④（三种成因，同一处置）
+  const slotShowcaseB     = planByOwnerAsset(FRANK_NO, 'AED');        // 展示位乙：我有外无 ⑥⑦（机器佐证 vs 纯人判）
+  const slotShowcaseC     = planByOwnerAsset(BOB_NO,   'USDT-TRON');  // ⑬ 漏监听充值（原展示位丙，⑨已删只剩单场景）
+  const slotFeeNetted     = planByOwnerAsset(BOB_NO,   'AED');        // ⑤ 手续费轧差
+  const slotReturn        = planByOwnerAsset(ALICE_NO, 'USDT-TRON');  // ⑭ 退汇
+  const slotCutoff        = planByOwnerAsset(GRACE_NO, 'USDT-TRON');  // ⑨ 跨日切
+  const slotMisroutedFrom = planByOwnerAsset(JACK_NO,  'AED');        // ⑧ 记错客户 · 发出端
+  const slotMisroutedTo   = planByOwnerAsset(KATE_NO,  'AED');        // ⑧ 记错客户 · 接收端
 
-  // ── FIRM wallet pick (scenarios ⑭⑮ — shared wallet, hedged pair) ──────
+  // ── FIRM wallet pick (scenarios ⑪⑫ — shared wallet, hedged pair) ──────
   // Exclude any FIRM wallet that is already the from/to side of a non-terminal
   // funds_order. This always includes scenario 1's OWN stuck withdraw created
   // just above: createStuckWithdraw drives a REAL 2-leg withdrawal, and leg 2
@@ -760,17 +763,17 @@ async function injectScenarios(
   // non-terminal right alongside the stuck main leg, every single break run.
   // A pre-existing non-terminal withdrawal seeded by the business roster
   // (e.g. #20, "卡在半路（对账用）") trips the same check the same way.
-  // Scenarios ⑭⑮ only inject ghost ORPHAN_EXTERNAL lines expecting a
+  // Scenarios ⑪⑫ only inject ghost ORPHAN_EXTERNAL lines expecting a
   // SOFT_FLAG bucket — but a wallet that already carries a real non-terminal
   // funds order also produces an IN_TRANSIT line, and the engine correctly
   // reclassifies "orphan + in-transit on the same wallet" as BREAK. That
   // 排除已带非终态资金单的 FIRM 钱包。理由**不是**"场景之间要互不重叠"
   // （那个 disjoint 前提已于 2026-08-30 废除，一个钱包现在可以挂多条场景），
   // 而是另一条独立的轴：**业务数据污染场景**。
-  // 场景 ⑭⑮ 只注入对冲的幽灵 ORPHAN_EXTERNAL 行、期望落在 SOFT_FLAG；但一个
+  // 场景 ⑪⑫ 只注入对冲的幽灵 ORPHAN_EXTERNAL 行、期望落在 SOFT_FLAG；但一个
   // 已经挂着真实非终态资金单的钱包会**额外**产生一条 IN_TRANSIT 行，引擎于是
   // （正确地）把"孤儿 + 在途同处一个钱包"重判成 BREAK —— 答案键期望 SOFT_FLAG，
-  // 于是 #⑭/#⑮ 双双 MISSED，而引擎一点没错。
+  // 于是 #⑪/#⑫ 双双 MISSED，而引擎一点没错。
   // 这件事与一个钱包上挂几条场景无关：就算一钱包只挂一条，它照样会咬人。
   // 用的是引擎自己 Pass 3（在途匹配）判"还没了结"的同一套 TERMINAL_STATUSES。
   const firmCandidatesAll = [...plans]
@@ -796,14 +799,24 @@ async function injectScenarios(
   if (firmCandidates.length === 0) {
     throw new Error(
       firmCandidatesAll.length === 0
-        ? 'Need ≥1 FIRM wallet for scenarios ⑭⑮ — seed firm-side activity.'
+        ? 'Need ≥1 FIRM wallet for scenarios ⑪⑫ — seed firm-side activity.'
         : `All ${firmCandidatesAll.length} FIRM wallet(s) already carry a non-terminal funds order ` +
-          `(e.g. an in-transit withdraw fee leg) — none left clean for scenarios ⑭⑮. Refusing to ` +
-          `silently reuse a dirty wallet (it would mask #⑭/#⑮ as BREAK instead of SOFT_FLAG). Seed a ` +
+          `(e.g. an in-transit withdraw fee leg) — none left clean for scenarios ⑪⑫. Refusing to ` +
+          `silently reuse a dirty wallet (it would mask #⑪/#⑫ as BREAK instead of SOFT_FLAG). Seed a ` +
           `FIRM wallet with crossing flows but no open funds_orders, or clear the stray non-terminal order.`,
     );
   }
   const firmHedgedPlan = firmCandidates[0];
+
+  // 场景 ⑩ · 查无果（spec §5）：公司池一条外部行金额改 7 分 + 同步压收盘——
+  // 「翻遍凭证也对不上」的小额差，答案键成因就是 UNEXPLAINED。放公司池是刻意的：
+  // 下一轮核销上线时公司池核销 = 一笔分录进损益即结案，这条素材直接复用。
+  const firmUnexplainedPlan = firmCandidates.find(
+    (p) => p.walletRef !== firmHedgedPlan.walletRef && p.lines.length > 0,
+  );
+  if (!firmUnexplainedPlan) {
+    throw new Error('场景 ⑩ 需要第二个带外部行的干净公司钱包——现有公司钱包要么被 ⑪⑫ 占用要么无流水。');
+  }
 
   // 前置闸：目标钱包不得带非终态资金单（在途场景那个除外——它就是靠真卡单的）。
   await assertTargetWalletsClean(prisma, [
@@ -817,6 +830,7 @@ async function injectScenarios(
     { walletRef: slotMisroutedFrom.walletRef, allowNonTerminal: false },
     { walletRef: slotMisroutedTo.walletRef,   allowNonTerminal: false },
     { walletRef: firmHedgedPlan.walletRef,    allowNonTerminal: false },
+    { walletRef: firmUnexplainedPlan.walletRef, allowNonTerminal: false },
   ]);
 
   const scenarios: ScenarioExpectation[] = [];
@@ -903,7 +917,7 @@ async function injectScenarios(
     });
   }
 
-  // ── Scenario 2 — 手续费差额 (BREAK / AMOUNT_MISMATCH) ───────────────────
+  // ── Scenario 5 — 手续费轧差 (BREAK / AMOUNT_MISMATCH) ───────────────────
   // Bank nets a fee out of the deposit before crediting — same externalRef,
   // amount = internal − fee. Bump closing by the same negative delta so the
   // wallet's balance check also breaks (not just the line item).
@@ -922,8 +936,8 @@ async function injectScenarios(
     const signedDelta = candidate.direction === 'IN' ? fee.negated() : fee;
     const prevClose = await bumpClosing(slotFeeNetted, signedDelta);
     scenarios.push({
-      scenarioId: 2,
-      rootCause: 'FEE_NETTED',
+      scenarioId: 5,
+      rootCause: 'AMT_FEE_NETTED',
       expectedLines: [{
         walletRef: slotFeeNetted.walletRef,
         lineType: 'AMOUNT_MISMATCH',
@@ -941,41 +955,38 @@ async function injectScenarios(
     });
     wallets.push({
       walletRef: slotFeeNetted.walletRef,
-      scenarioIds: [2],
+      scenarioIds: [5],
       expectedBucket: 'BREAK',
       bucketRationale: '银行扣费后才入账 → 外部金额 = 内部金额 − 手续费，收盘同步压低同额 → 残差 = 手续费 ≠ 0 → BREAK',
       hasNonTerminalFundsOrder: false,
     });
   }
 
-  // ── 展示位乙 · 同样是「我有外无」，三种相反的真相 ───────────────────────
-  // ③ 银行漏报明细   → 对方错 → 不该动账（我方账是对的）
-  // ⑦ 我方重复入账   → 我方错 → 冲销
-  // ⑧ 假信号入账     → 我方错 → 冲销
-  // ⑦ 的可辨识证据：它的孤儿行在**已匹配列表里有个同 ref 同额的双胞胎**
-  // （银行报一笔、我方入两笔），③⑧ 的孤儿没有。这是整套演示最值钱的对照。
+  // ── 展示位乙 · 同样是「我有外无」，两种成因、一贵一贱的证据 ─────────────
+  // ⑥ 重复入账     → 我方错 → 冲销（机器佐证：有据可查）
+  // ⑦ 假信号入账   → 我方错 → 冲销（纯人判：无据可查）
+  // ⑥ 的可辨识证据：它的孤儿行在**已匹配列表里有个同 ref 同额的双胞胎**
+  // （银行报一笔、我方入两笔），⑦ 的孤儿没有。这是这一屏最值钱的对照。
+  // 旧版这里还有第三条「银行漏报明细」——公理 1 下已删：它靠直接改外部收盘
+  // 余额让场景成立，等于把外部数据当成可以由我们商榷/改动的东西，与
+  // "外部资料是权威"矛盾。
   {
     const lines = (await (prisma as any).externalStatementLine.findMany({
       where: { subAccount: slotShowcaseB.walletRef },
       orderBy: { datetime: 'asc' },
-      take: 3,
+      take: 2,
     })) as Array<{ id: string; direction: string; amount: Prisma.Decimal; externalRef: string | null }>;
-    if (lines.length < 3) {
-      throw new Error(`展示位乙需要 ≥3 条外部行，实际 ${lines.length} 条（钱包 ${slotShowcaseB.walletRef}）`);
+    if (lines.length < 2) {
+      throw new Error(`展示位乙需要 ≥2 条外部行，实际 ${lines.length} 条（钱包 ${slotShowcaseB.walletRef}）`);
     }
-    const [l3, lDup, l8] = lines;
+    const [lDup, l8] = lines;
 
-    // ③ 银行漏报明细：删掉一条外部行 + 压低同额收盘（我方账是对的）
-    await (prisma as any).externalStatementLine.delete({ where: { id: l3.id } });
-    const s3Signed = l3.direction === 'IN' ? l3.amount.negated() : l3.amount;
-    const s3Prev = await bumpClosing(slotShowcaseB, s3Signed);
-
-    // ⑧ 假信号入账：我方收到一个假的入账信号并入了账，银行那边根本没这笔
+    // ⑦ 假信号入账：我方收到一个假的入账信号并入了账，银行那边根本没这笔
     await (prisma as any).externalStatementLine.delete({ where: { id: l8.id } });
     const s8Signed = l8.direction === 'IN' ? l8.amount.negated() : l8.amount;
     const s8Prev = await bumpClosing(slotShowcaseB, s8Signed);
 
-    // ⑦ 我方重复入账：银行报了一笔（lDup 保留不动），我方账上再入一笔同 ref 的。
+    // ⑥ 我方重复入账：银行报了一笔（lDup 保留不动），我方账上再入一笔同 ref 的。
     // ⚠️ 固定 sourceNo 保证可重跑：TB 的 transfer id 是 (sourceType, sourceNo,
     // eventCode) 的确定性哈希，重跑时判为已存在直接跳过，不会二次入账。
     // ⚠️ recon:demo:reset **不回滚账本**（它只清外部数据与 WALLET_V1 的 run/case），
@@ -988,9 +999,9 @@ async function injectScenarios(
     const clientAssetId = await accounting.resolveTbAccountId({ code: TB_ACCOUNT_CODES.CLIENT_ASSET, ledger: dupLedger, ownerType: 'SYSTEM' });
     const suspenseId    = await accounting.resolveTbAccountId({ code: TB_ACCOUNT_CODES.DEPOSIT_SUSPENSE, ledger: dupLedger, ownerType: 'CUSTOMER', ownerUuid: owner.id });
     const payableId     = await accounting.resolveTbAccountId({ code: TB_ACCOUNT_CODES.CLIENT_PAYABLE, ledger: dupLedger, ownerType: 'CUSTOMER', ownerUuid: owner.id });
-    // 铁律⑥：展示位乙这一屏，③⑧ 两行的 sourceNo 是真实 DEP 号（原单据自带）；
-    // ⑦ 是这里现造的，必须造成同样的 DEP 号形状，否则演示者要点开去开调账单
-    // 的那一行会显示一个内嵌钱包 UUID 前缀的编造单号，与旁边两行对不上。
+    // 铁律⑥：展示位乙这一屏，⑦ 那一行的 sourceNo 是真实 DEP 号（原单据自带）；
+    // ⑥ 是这里现造的，必须造成同样的 DEP 号形状，否则演示者要点开去开调账单
+    // 的那一行会显示一个内嵌钱包 UUID 前缀的编造单号，与旁边那行对不上。
     // buildDeterministicNo 给的是确定性哈希（同一批 cutoffDate+walletRef 永远
     // 得到同一个号），满足上面 ⚠️ 的可重跑要求；日期段固定 260101，与
     // generateReferenceNo('DEP') 的真实调用日期（本仓库当下业务日在 2026-08
@@ -1033,16 +1044,16 @@ async function injectScenarios(
     // ⚠️⚠️ 排他钉行键——**不加这个，本任务交付的那一刻就把 Task 5 刚堵上的洞
     // 在 Frank 的钱包上原样重挖一遍**（2026-08-30 复审拿真实库数据实测：Frank
     // 的 AED 钱包三笔充值共用同一个 `externalRef = ZB20260830275C7FCE5B`，
-    // 与 Grace 钱包完全相同的撞号前提）。③⑦⑧ 三条的 (matchStatus, walletRef,
-    // externalRef) 三元组字面全同，不钉行就会退化成"同一句话问三遍"：谁的注入
-    // 被写坏都不会被发现，只要另外两条还活着，脚本照样全绿退出 0。
-    // 见 Global Constraints 里那条 🔴，以及 Task 5 的 ④⑩⑪ 写法。
+    // 与 Grace 钱包完全相同的撞号前提）。⑥⑦ 两条的 (matchStatus, walletRef,
+    // externalRef) 三元组字面相同，不钉行就会退化成"同一句话问两遍"：谁的注入
+    // 被写坏都不会被发现，只要另外一条还活着，脚本照样全绿退出 0。
+    // 见 Global Constraints 里那条 🔴，以及展示位甲 ②③④ 的写法。
     //
-    // ③⑧ 的键是确定的：它们把自己的外部行删了，对应的内部流水直接变孤儿，
-    // 取 planWallets 排出的同位置 sourceFlowId 即可（与上面 [l3,lDup,l8] 同序）。
-    const [plB3, , plB8] = slotShowcaseB.lines;
+    // ⑦ 的键是确定的：它把自己的外部行删了，对应的内部流水直接变孤儿，
+    // 取 planWallets 排出的同位置 sourceFlowId 即可（与上面 [lDup, l8] 同序）。
+    const [, plB8] = slotShowcaseB.lines;
     //
-    // ⑦ 不一样，**它是本批唯一一个键要反查的**：lDup 的外部行没删，而内部侧
+    // ⑥ 不一样，**它是本批唯一一个键要反查的**：lDup 的外部行没删，而内部侧
     // 现在有两笔同 ref 的流水（原始那笔 + 我们刚造的这笔）。匹配器会配走一笔、
     // 剩一笔成孤儿——**成孤儿的应当是后造的这笔**（原始那笔 createdAt 更早）。
     // 所以键要按 dupSourceNo 把刚造的 account_flow 反查回来：
@@ -1067,7 +1078,7 @@ async function injectScenarios(
     // false）。匹配器的候选集固定过滤 isExternalCrossing=true（wallet-flow-
     // matcher.service.ts 176 行），STEP_2 两行永远不会出现在
     // reconciliation_line_items 里——钉的键指向一个匹配器压根看不见的流水，
-    // ⑦ 因此**必定** MISSED，与"谁跟谁配对"的匹配器行为完全无关（实跑核对：
+    // ⑥ 因此**必定** MISSED，与"谁跟谁配对"的匹配器行为完全无关（实跑核对：
     // account_flows 里 sourceNo=dupSourceNo 的 4 行，isExternalCrossing=1
     // 的只有 STEP_1 那两行；不加 isExternalCrossing/direction 过滤，findFirst
     // 在这 4 行里挑到的确实是 STEP_2 的一行）。加 isExternalCrossing:true 还不够
@@ -1082,22 +1093,13 @@ async function injectScenarios(
       select: { id: true },
       orderBy: { createdAt: 'desc' },
     })) as { id: string } | null;
-    if (!dupFlow) throw new Error(`⑦ 反查不到刚造的重复入账流水：sourceNo=${dupSourceNo}`);
-    // ⚠️ 如果 ⑦ 判了 MISSED 而 ③⑧ 正常，**先别怀疑注入写坏了**——那说明匹配器
+    if (!dupFlow) throw new Error(`⑥ 反查不到刚造的重复入账流水：sourceNo=${dupSourceNo}`);
+    // ⚠️ 如果 ⑥ 判了 MISSED 而 ⑦ 正常，**先别怀疑注入写坏了**——那说明匹配器
     // 把原始那笔当成了孤儿、把重复那笔配走了，即"谁跟外部行配对"和这里的假设
     // 相反。那是关于匹配器行为的真实发现，报上来，不要改成"两个 id 试一个"糊过去。
 
     scenarios.push({
-      scenarioId: 3, rootCause: 'STATEMENT_MISSING_LINE',
-      expectedLines: [{
-        walletRef: slotShowcaseB.walletRef, lineType: 'ORPHAN_INTERNAL',
-        amount: l3.amount.toString(), externalRef: l3.externalRef,
-        internalSourceId: plB3.sourceFlowId,
-      }],
-      detail: { deletedExternalLineId: l3.id, prevClosingBalance: s3Prev },
-    });
-    scenarios.push({
-      scenarioId: 7, rootCause: 'DUPLICATE_DEPOSIT',
+      scenarioId: 6, rootCause: 'DUP_BOOKING',
       expectedLines: [{
         walletRef: slotShowcaseB.walletRef, lineType: 'ORPHAN_INTERNAL',
         amount: lDup.amount.toString(), externalRef: lDup.externalRef,
@@ -1106,7 +1108,7 @@ async function injectScenarios(
       detail: { dupSourceNo, bankReportedTimes: 1, bookedTimes: 2, sharedExternalRef: lDup.externalRef },
     });
     scenarios.push({
-      scenarioId: 8, rootCause: 'VOIDED_SIGNAL',
+      scenarioId: 7, rootCause: 'PHANTOM_BOOKING',
       expectedLines: [{
         walletRef: slotShowcaseB.walletRef, lineType: 'ORPHAN_INTERNAL',
         amount: l8.amount.toString(), externalRef: l8.externalRef,
@@ -1116,20 +1118,23 @@ async function injectScenarios(
     });
     wallets.push({
       walletRef: slotShowcaseB.walletRef,
-      scenarioIds: [3, 7, 8],
+      scenarioIds: [6, 7],
       expectedBucket: 'BREAK',
       bucketRationale:
-        '③⑧ 各删一条外部行并压低同额收盘（外部少了两条的金额）；⑦ 内部多入一笔而外部不变（内部多了一笔）。' +
-        '三者都把「外部 − 内部」推向负，和恒 ≠ 0，且无在途 → 残差 ≠ 0 → BREAK。',
+        '⑧(新7) 删一条外部行并压低同额收盘（外部少一笔）；⑦(新6) 内部多入一笔而外部不变。' +
+        '两者都把「外部 − 内部」推向负 → 残差 ≠ 0 → BREAK。',
       hasNonTerminalFundsOrder: false,
     });
   }
 
-  // ── 展示位甲 · 同样是「金额不对」，三种相反的真相 ───────────────────────
-  // ④ 我方小数点错位   → 我方错   → 冲正（改我方的账）
-  // ⑩ 对方金额记错     → 对方错   → 不该动账（该找银行）
-  // ⑪ 舍入精度差       → 都没错   → 不该动账（该豁免，豁免没做故今天无出口）
-  // 三条形状完全相同、处置完全不同——这一屏是整套演示最值钱的地方之一。
+  // ── 展示位甲 · 三条金额差，同一种处置 ───────────────────────────────────
+  // ② 小数点错位   我方把金额录错了 100 倍
+  // ③ 我方少记     外部金额比我方记的多一个固定小额——注入杠杆与旧版相同，
+  //                成因码统一收口为 AMT_MISBOOKED（旧版曾单独挂一个成因标签，
+  //                本轮起并入「我方账错了」这一档，不再单独区分）
+  // ④ 舍入精度差   双方计价精度不同造成的固定尾差
+  // 三条构造杠杆各异，但公理 1 之下去处完全相同——外部资料是权威，我方账对不上
+  // 就冲正，不需要先争「是谁的错」。这一点本身就是这一屏最想讲清楚的道理。
   {
     const lines = (await (prisma as any).externalStatementLine.findMany({
       where: { subAccount: slotShowcaseA.walletRef },
@@ -1143,7 +1148,7 @@ async function injectScenarios(
       );
     }
 
-    // ④ 小数点错位：我方把金额记成了 1/100（外部才是对的）→ 外部 − 内部 = +99×内部
+    // ② 小数点错位：我方把金额记成了 1/100（外部才是对的）→ 外部 − 内部 = +99×内部
     const [l4, l10, l11] = lines;
 
     // 排他匹配键（answer key 给机器用）+ 人读业务号（answer key 给人用）——
@@ -1169,21 +1174,21 @@ async function injectScenarios(
     const s4Delta = s4New.minus(l4.amount);
     const s4Prev = await bumpClosing(slotShowcaseA, l4.direction === 'IN' ? s4Delta : s4Delta.negated());
 
-    // ⑩ 对方金额记错：银行把金额打错了，我方账是对的 → 差一个固定小额
+    // ③ 我方少记：外部金额比我方记的多一个固定小额，我方账错了 → 冲正补齐
     const s10Delta = D('333');
     const s10New = l10.amount.plus(s10Delta);
     await (prisma as any).externalStatementLine.update({ where: { id: l10.id }, data: { amount: s10New } });
     const s10Prev = await bumpClosing(slotShowcaseA, l10.direction === 'IN' ? s10Delta : s10Delta.negated());
 
-    // ⑪ 舍入精度差：双方舍入规则不同造成的固定尾差，谁都没错
+    // ④ 舍入精度差：双方舍入规则不同造成的固定尾差——精度虽小，公理 1 下仍需冲正
     const s11Delta = D('2');
     const s11New = l11.amount.plus(s11Delta);
     await (prisma as any).externalStatementLine.update({ where: { id: l11.id }, data: { amount: s11New } });
     const s11Prev = await bumpClosing(slotShowcaseA, l11.direction === 'IN' ? s11Delta : s11Delta.negated());
 
     scenarios.push({
-      scenarioId: 4,
-      rootCause: 'SCALE_ERROR',
+      scenarioId: 2,
+      rootCause: 'AMT_MISBOOKED',
       expectedLines: [{
         walletRef: slotShowcaseA.walletRef, lineType: 'AMOUNT_MISMATCH', amount: s4New.toString(),
         externalRef: l4.externalRef, internalSourceId: pl4.sourceFlowId,
@@ -1194,8 +1199,8 @@ async function injectScenarios(
       },
     });
     scenarios.push({
-      scenarioId: 10,
-      rootCause: 'COUNTERPARTY_AMOUNT_ERROR',
+      scenarioId: 3,
+      rootCause: 'AMT_MISBOOKED',
       expectedLines: [{
         walletRef: slotShowcaseA.walletRef, lineType: 'AMOUNT_MISMATCH', amount: s10New.toString(),
         externalRef: l10.externalRef, internalSourceId: pl10.sourceFlowId,
@@ -1206,8 +1211,8 @@ async function injectScenarios(
       },
     });
     scenarios.push({
-      scenarioId: 11,
-      rootCause: 'ROUNDING_DIFF',
+      scenarioId: 4,
+      rootCause: 'AMT_ROUNDING',
       expectedLines: [{
         walletRef: slotShowcaseA.walletRef, lineType: 'AMOUNT_MISMATCH', amount: s11New.toString(),
         externalRef: l11.externalRef, internalSourceId: pl11.sourceFlowId,
@@ -1219,18 +1224,45 @@ async function injectScenarios(
     });
     wallets.push({
       walletRef: slotShowcaseA.walletRef,
-      scenarioIds: [4, 10, 11],
+      scenarioIds: [2, 3, 4],
       expectedBucket: 'BREAK',
       bucketRationale:
-        '三条金额差同时存在：④ 外部−内部 = 99×原额、⑩ +333、⑪ +2（方向按各自行的 IN/OUT 计入收盘）。' +
-        '三者之和恒 ≠ 0（④ 一项就远大于其余两项之和），且无在途 → 残差 ≠ 0 → BREAK。',
+        '三条金额差同时存在：② 外部−内部 = 99×原额、③ +333、④ +2（方向按各自行的 IN/OUT 计入收盘）。' +
+        '三者之和恒 ≠ 0（② 一项就远大于其余两项之和），且无在途 → 残差 ≠ 0 → BREAK。',
     hasNonTerminalFundsOrder: false,
     });
   }
 
-  // ── 场景 ⑭ — 银行杂费 (SOFT_FLAG，与场景 ⑮ 银行利息对冲，共用同一个公司钱包) ───
+  // ── Scenario 10 — 查无果 (BREAK / AMOUNT_MISMATCH / 公司池) ─────────────
+  {
+    const line = (await (prisma as any).externalStatementLine.findFirst({
+      where: { subAccount: firmUnexplainedPlan.walletRef, amount: { gt: 7 } },
+      orderBy: { datetime: 'asc' },
+    })) as { id: string; amount: Prisma.Decimal; direction: string; externalRef: string | null } | null;
+    if (!line) throw new Error(`场景 10 需要钱包 ${firmUnexplainedPlan.walletRef} 至少一条金额 > 7 分的外部行`);
+    const s10Delta = D('-7'); // 外部比内部少 7 分——差额无规律、查无可查
+    const newAmount = line.amount.plus(s10Delta);
+    await (prisma as any).externalStatementLine.update({ where: { id: line.id }, data: { amount: newAmount } });
+    const signed = line.direction === 'IN' ? s10Delta : s10Delta.negated();
+    const prevClose = await bumpClosing(firmUnexplainedPlan, signed);
+    scenarios.push({
+      scenarioId: 10, rootCause: 'UNEXPLAINED',
+      expectedLines: [{
+        walletRef: firmUnexplainedPlan.walletRef, lineType: 'AMOUNT_MISMATCH',
+        amount: newAmount.toString(), externalRef: line.externalRef,
+      }],
+      detail: { lineId: line.id, internalAmount: line.amount.toString(), externalAmount: newAmount.toString(), prevClosingBalance: prevClose },
+    });
+    wallets.push({
+      walletRef: firmUnexplainedPlan.walletRef, scenarioIds: [10], expectedBucket: 'BREAK',
+      bucketRationale: '一条外部行金额 −7 分并压低同额收盘 → 残差 = −7 ≠ 0 → BREAK。成因查无果，处置 = 挂起·调查中（核销的前半段素材）。',
+      hasNonTerminalFundsOrder: false,
+    });
+  }
+
+  // ── 场景 ⑪ — 银行杂费 (SOFT_FLAG，与场景 ⑫ 银行利息对冲，共用同一个公司钱包) ───
   // Insert a ghost OUT line (bank charge) on the shared FIRM wallet, closing
-  // moves down. Scenario 15 inserts an equal-amount IN (bank interest) that
+  // moves down. Scenario 12 inserts an equal-amount IN (bank interest) that
   // exactly cancels this on closing, so the wallet's net delta stays 0
   // (SOFT_FLAG) while both lines individually show up as orphanExternal.
   const firmHedgedAmount = D('200');
@@ -1247,14 +1279,14 @@ async function injectScenarios(
         amount: firmHedgedAmount,
         externalRef: fakeRef,
         datetime: cutoff,
-        description: 'Demo bank charge (ghost OUT, hedged by scenario 15 bank interest)',
-        dedupKey: `DEMO-INJ-${cutoffDate}-${firmHedgedPlan.walletRef}-s5-bank-charge`,
+        description: 'Demo bank charge (ghost OUT, hedged by scenario 12 bank interest)',
+        dedupKey: `DEMO-INJ-${cutoffDate}-${firmHedgedPlan.walletRef}-s11-bank-charge`,
       },
     });
     const prevClose = await bumpClosing(firmHedgedPlan, firmHedgedAmount.negated());
     scenarios.push({
-      scenarioId: 14,
-      rootCause: 'BANK_CHARGE',
+      scenarioId: 11,
+      rootCause: 'BANK_CHARGE_UNBOOKED',
       expectedLines: [{
         walletRef: firmHedgedPlan.walletRef,
         lineType: 'ORPHAN_EXTERNAL',
@@ -1266,13 +1298,13 @@ async function injectScenarios(
         direction: 'OUT',
         prevClosingBalance: prevClose,
         closingBalanceDelta: firmHedgedAmount.negated().toString(),
-        pairedWithScenario: 15,
+        pairedWithScenario: 12,
       },
     });
-    // 场景 14+15 共用一个 FIRM 钱包（对冲对）——桶断言只在场景 15 那段推一次，见下方。
+    // 场景 11+12 共用一个 FIRM 钱包（对冲对）——桶断言只在场景 12 那段推一次，见下方。
   }
 
-  // ── 场景 ⑤ — 充值漏监听 (BREAK / ORPHAN_EXTERNAL) ───────────────────────
+  // ── 场景 ⑬ — 充值漏监听 (BREAK / ORPHAN_EXTERNAL) ───────────────────────
   // Bank sees a customer deposit our listener never picked up. Insert a
   // ghost IN line, bump closing up — no in-transit order explains it, so
   // it's a hard break.
@@ -1291,12 +1323,12 @@ async function injectScenarios(
         externalRef: fakeRef,
         datetime: cutoff,
         description: 'Demo missed-deposit-listener credit (bank saw it, we never ingested it)',
-        dedupKey: `DEMO-INJ-${cutoffDate}-${slotShowcaseC.walletRef}-s6-missed-deposit`,
+        dedupKey: `DEMO-INJ-${cutoffDate}-${slotShowcaseC.walletRef}-s13-missed-deposit`,
       },
     });
     const prevClose = await bumpClosing(slotShowcaseC, s6Amount);
     scenarios.push({
-      scenarioId: 5,
+      scenarioId: 13,
       rootCause: 'MISSED_DEPOSIT',
       expectedLines: [{
         walletRef: slotShowcaseC.walletRef,
@@ -1311,47 +1343,16 @@ async function injectScenarios(
         closingBalanceDelta: s6Amount.toString(),
       },
     });
-    // ⑨ 对账单重复行：银行把同一笔报了两次，我方账是对的 → 复制一条现有行 + 抬高同额收盘
-    const dupSrc = (await (prisma as any).externalStatementLine.findFirst({
-      where: { subAccount: slotShowcaseC.walletRef, direction: 'IN' },
-      orderBy: { datetime: 'asc' },
-    })) as { id: string; amount: Prisma.Decimal; externalRef: string | null; direction: string; datetime: Date; description: string | null } | null;
-    if (!dupSrc) throw new Error(`展示位丙需要 ≥1 条 IN 方向外部行（钱包 ${slotShowcaseC.walletRef}）`);
-    const s9Ref = refFor(slotShowcaseC.currency, 'DUPLINE');
-    const s9Created = await (prisma as any).externalStatementLine.create({
-      data: {
-        source: sourceFor(slotShowcaseC.currency),
-        accountRef: slotShowcaseC.walletRef,
-        subAccount: slotShowcaseC.walletRef,
-        book: slotShowcaseC.book,
-        currency: slotShowcaseC.currency,
-        direction: 'IN',
-        amount: dupSrc.amount,
-        externalRef: s9Ref,
-        datetime: cutoff,
-        description: 'Demo statement duplicate — bank reported the same credit twice',
-        dedupKey: `DEMO-INJ-${cutoffDate}-${slotShowcaseC.walletRef}-s9-duplicate-line`,
-      },
-    });
-    const s9Prev = await bumpClosing(slotShowcaseC, dupSrc.amount);
-    scenarios.push({
-      scenarioId: 9,
-      rootCause: 'STATEMENT_DUPLICATE_LINE',
-      expectedLines: [{ walletRef: slotShowcaseC.walletRef, lineType: 'ORPHAN_EXTERNAL', amount: dupSrc.amount.toString(), externalRef: s9Ref }],
-      detail: { copiedFromLineId: dupSrc.id, insertedExternalLineId: s9Created.id, prevClosingBalance: s9Prev },
-    });
     wallets.push({
       walletRef: slotShowcaseC.walletRef,
-      scenarioIds: [5, 9],
+      scenarioIds: [13],
       expectedBucket: 'BREAK',
-      bucketRationale:
-        '⑤ 加一条幽灵 IN 行并抬高同额收盘、⑨ 复制一条 IN 行并抬高同额收盘 —— 两者都把「外部 − 内部」推向正，' +
-        '和恒 ≠ 0，且无在途 → 残差 ≠ 0 → BREAK。',
+      bucketRationale: '加一条幽灵 IN 行并抬高同额收盘 → 残差 = +该行金额 ≠ 0 → BREAK',
       hasNonTerminalFundsOrder: false,
     });
   }
 
-  // ── ⑫ 跨日切 (SOFT_FLAG / ORPHAN_INTERNAL / 客户账簿) ────────────────────
+  // ── ⑨ 跨日切 (SOFT_FLAG / ORPHAN_INTERNAL / 客户账簿) ────────────────────
   // 对方按它的营业日切账、我方按 UTC：一笔真实发生的流水落在了对方的下一个
   // 营业日，本期对账单上没有它。→ 我方有、外部本期没有。
   //
@@ -1371,7 +1372,7 @@ async function injectScenarios(
     })) as { id: string; amount: Prisma.Decimal; externalRef: string | null } | null;
     if (!straddle) {
       throw new Error(
-        `⑫ 跨日切需要 ≥1 条外部行（钱包 ${slotCutoff.walletRef}）—— ` +
+        `⑨ 跨日切需要 ≥1 条外部行（钱包 ${slotCutoff.walletRef}）—— ` +
         '花名册给 Grace 的 USDT 素材单（seq 22/23）是否还在？',
       );
     }
@@ -1384,14 +1385,14 @@ async function injectScenarios(
       },
     });
     scenarios.push({
-      scenarioId: 12,
+      scenarioId: 9,
       rootCause: 'CUTOFF_STRADDLE',
       expectedLines: [{ walletRef: slotCutoff.walletRef, lineType: 'ORPHAN_INTERNAL', amount: straddle.amount.toString(), externalRef: straddle.externalRef }],
       detail: { shiftedLineId: straddle.id, shiftedTo: shifted.toISOString(), closingBalanceUntouched: true },
     });
     wallets.push({
       walletRef: slotCutoff.walletRef,
-      scenarioIds: [12],
+      scenarioIds: [9],
       expectedBucket: 'SOFT_FLAG',
       bucketRationale:
         '只挪了一条外部行的时间、**收盘一分没动** → 余额差 = 0；该行本期不参与匹配 → 它的内部对手成孤儿 → 异常数 1；' +
@@ -1400,11 +1401,11 @@ async function injectScenarios(
     });
   }
 
-  // ── ⑬ 记错钱包 (BREAK ×2 / 跨两个钱包) ──────────────────────────────────
+  // ── ⑧ 记错客户 (BREAK ×2 / 跨两个钱包) ──────────────────────────────────
   // 一笔本该记到 Jack 账上的钱，被记到了 Kate 账上。
   //   发出端（Jack）：我方账上有、对账单上没有 → 我有外无
   //   接收端（Kate）：对账单上有、我方账上没有 → 外有我无
-  // 一个成因、两个案子——这是 15 条里唯一跨钱包的，答案键里两条 expectedLines
+  // 一个成因、两个案子——这是 14 条里唯一跨钱包的，答案键里两条 expectedLines
   // 指向不同的 walletRef，但共用同一个 scenarioId。
   {
     const moved = (await (prisma as any).externalStatementLine.findFirst({
@@ -1413,7 +1414,7 @@ async function injectScenarios(
     })) as { id: string; amount: Prisma.Decimal; externalRef: string | null } | null;
     if (!moved) {
       throw new Error(
-        `⑬ 记错钱包需要发出端有 ≥1 条 IN 方向外部行（钱包 ${slotMisroutedFrom.walletRef}）—— ` +
+        `⑧ 记错客户需要发出端有 ≥1 条 IN 方向外部行（钱包 ${slotMisroutedFrom.walletRef}）—— ` +
         '花名册给 Jack 的 AED 素材单（seq 24/25）是否还在？',
       );
     }
@@ -1436,14 +1437,14 @@ async function injectScenarios(
         externalRef: toRef,
         datetime: cutoff,
         description: 'Demo misrouted credit — this belongs to another customer',
-        dedupKey: `DEMO-INJ-${cutoffDate}-${slotMisroutedTo.walletRef}-s13-misrouted`,
+        dedupKey: `DEMO-INJ-${cutoffDate}-${slotMisroutedTo.walletRef}-s8-misattributed`,
       },
     });
     const toPrev = await bumpClosing(slotMisroutedTo, moved.amount);
 
     scenarios.push({
-      scenarioId: 13,
-      rootCause: 'MISROUTED_CREDIT',
+      scenarioId: 8,
+      rootCause: 'MISATTRIBUTED_FROM',
       expectedLines: [
         { walletRef: slotMisroutedFrom.walletRef, lineType: 'ORPHAN_INTERNAL', amount: moved.amount.toString(), externalRef: moved.externalRef },
         { walletRef: slotMisroutedTo.walletRef,   lineType: 'ORPHAN_EXTERNAL', amount: moved.amount.toString(), externalRef: toRef },
@@ -1453,28 +1454,28 @@ async function injectScenarios(
         insertedToLineId: toCreated.id,
         fromPrevClosingBalance: fromPrev,
         toPrevClosingBalance: toPrev,
-        note: '一个成因两个案子：发出端我有外无、接收端外有我无',
+        note: '一个成因两个案子：发出端我有外无（MISATTRIBUTED_FROM）、接收端外有我无（对端成因是 MISATTRIBUTED_TO）',
       },
     });
     wallets.push({
       walletRef: slotMisroutedFrom.walletRef,
-      scenarioIds: [13],
+      scenarioIds: [8],
       expectedBucket: 'BREAK',
       bucketRationale: '发出端：删掉一条 IN 行并压低同额收盘 → 残差 = −该行金额 ≠ 0 → BREAK',
       hasNonTerminalFundsOrder: false,
     });
     wallets.push({
       walletRef: slotMisroutedTo.walletRef,
-      scenarioIds: [13],
+      scenarioIds: [8],
       expectedBucket: 'BREAK',
       bucketRationale: '接收端：加一条 IN 幽灵行并抬高同额收盘 → 残差 = +该行金额 ≠ 0 → BREAK',
       hasNonTerminalFundsOrder: false,
     });
   }
 
-  // ── 场景 ⑮ — 银行利息 (SOFT_FLAG，与场景 ⑭ 银行杂费对冲，共用同一个公司钱包) ───
-  // Same FIRM wallet as scenario 14, same amount, opposite direction (IN).
-  // Nets scenario 14's OUT to a 0 closing delta ⇒ same wallet, same case,
+  // ── 场景 ⑫ — 银行利息 (SOFT_FLAG，与场景 ⑪ 银行杂费对冲，共用同一个公司钱包) ───
+  // Same FIRM wallet as scenario 11, same amount, opposite direction (IN).
+  // Nets scenario 11's OUT to a 0 closing delta ⇒ same wallet, same case,
   // bucket=SOFT_FLAG (balance ties, but 2 orphaned lines expose the wash).
   {
     const fakeRef = refFor(firmHedgedPlan.currency, 'INTEREST');
@@ -1489,14 +1490,14 @@ async function injectScenarios(
         amount: firmHedgedAmount,
         externalRef: fakeRef,
         datetime: cutoff,
-        description: 'Demo bank interest (ghost IN, hedges scenario 14 bank charge)',
-        dedupKey: `DEMO-INJ-${cutoffDate}-${firmHedgedPlan.walletRef}-s7-bank-interest`,
+        description: 'Demo bank interest (ghost IN, hedges scenario 11 bank charge)',
+        dedupKey: `DEMO-INJ-${cutoffDate}-${firmHedgedPlan.walletRef}-s12-bank-interest`,
       },
     });
     const prevClose = await bumpClosing(firmHedgedPlan, firmHedgedAmount);
     scenarios.push({
-      scenarioId: 15,
-      rootCause: 'BANK_INTEREST',
+      scenarioId: 12,
+      rootCause: 'BANK_INTEREST_UNBOOKED',
       expectedLines: [{
         walletRef: firmHedgedPlan.walletRef,
         lineType: 'ORPHAN_EXTERNAL',
@@ -1508,19 +1509,19 @@ async function injectScenarios(
         direction: 'IN',
         prevClosingBalance: prevClose,
         closingBalanceDelta: firmHedgedAmount.toString(),
-        pairedWithScenario: 14,
+        pairedWithScenario: 11,
       },
     });
     wallets.push({
       walletRef: firmHedgedPlan.walletRef,
-      scenarioIds: [14, 15],
+      scenarioIds: [11, 12],
       expectedBucket: 'SOFT_FLAG',
       bucketRationale: '杂费 −X 与利息 +X 金额相等方向相反 → 残差 = 0；两条孤儿外部行 → 异常数 2 > 0 → SOFT_FLAG',
       hasNonTerminalFundsOrder: false,
     });
   }
 
-  // ── 场景 ⑥ — 退汇 (BREAK / ORPHAN_EXTERNAL / 客户账簿) ──────────────────
+  // ── 场景 ⑭ — 退汇 (BREAK / ORPHAN_EXTERNAL / 客户账簿) ──────────────────
   // 一笔已经入过账的钱被银行退了回去：银行对账单上多出一条 OUT，我方账上
   // 还留着那笔入账。→ 外有我无 + 余额差。
   // ⚠️ 2026-08-30 重写：旧版造了一进一出净额为零的两条行，又单独把收盘压低
@@ -1540,13 +1541,13 @@ async function injectScenarios(
         externalRef: outRef,
         datetime: cutoff,
         description: 'Demo bank return — a previously credited deposit was clawed back',
-        dedupKey: `DEMO-INJ-${cutoffDate}-${slotReturn.walletRef}-s6-bank-return`,
+        dedupKey: `DEMO-INJ-${cutoffDate}-${slotReturn.walletRef}-s14-bounced`,
       },
     });
     const prevClose = await bumpClosing(slotReturn, s6Amount.negated());
     scenarios.push({
-      scenarioId: 6,
-      rootCause: 'BANK_RETURN',
+      scenarioId: 14,
+      rootCause: 'BOUNCED_FUNDS',
       expectedLines: [{
         walletRef: slotReturn.walletRef,
         lineType: 'ORPHAN_EXTERNAL',
@@ -1561,7 +1562,7 @@ async function injectScenarios(
     });
     wallets.push({
       walletRef: slotReturn.walletRef,
-      scenarioIds: [6],
+      scenarioIds: [14],
       expectedBucket: 'BREAK',
       bucketRationale: '加一条 OUT 幽灵行并压低同额收盘 → 残差 = −该行金额 ≠ 0 → BREAK',
       hasNonTerminalFundsOrder: false,
@@ -1651,7 +1652,7 @@ async function verifyManifest(
   // ── 按场景 ──
   // 排他匹配：同一条 lineItem 不能同时为两条期望作证。用一个可变副本，命中
   // 即从池子里摘除，保证每条真实行只用一次——2026-08-30 评审实证：展示位甲
-  // ④⑩⑪ 三条期望的 (matchStatus, walletRef, externalRef) 三元组字面完全相同
+  // ②③④ 三条期望的 (matchStatus, walletRef, externalRef) 三元组字面完全相同
   // （同一钱包同一天的 fakeBankRef 撞号），非排他匹配下三条断言在数学上退化
   // 成同一句话问三遍——谁的注入被弄坏都不会被发现，只要另外两条还活着。
   // internalSourceId 可选谓词是钉行的关键（见 ScenarioExpectation 类型注释）：
