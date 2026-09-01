@@ -1,5 +1,5 @@
 import { PrismaClient } from '@prisma/client';
-import { BadRequestException } from '@nestjs/common';
+import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { AdjustmentStatus } from '../constants/adjustment-transitions.constant';
 import { AdjustmentService } from './adjustment.service';
 import { TB_ACCOUNT_CODES } from '../../../accounting/tigerbeetle/constants/tb-account-codes.constant';
@@ -672,5 +672,211 @@ describe('createDraft 第四族（改记，spec §6）+ 定性联动 + DRAFTED �
     expect(envelope.amount).toBe('1000');
     // 漏了显式 requestId 会被静默去重、审计直接消失（本仓踩过）。
     expect(envelope.requestId).toMatch(/^RECON_ADJUSTMENT_DRAFTED_ADJ/);
+  });
+});
+
+// 平账一期半 T6：第四族落账（改记）。这是本批唯一真动账本的一段，
+// 会计正确性是核心——四条断言各自锁住一处「mock 下会全绿、真环境里会炸/会算错」
+// 的坑（ledger 取 currency、CLIENT_PAYABLE 的 ownerType、evidence.assetCurrency、
+// 两腿钱包各落各的）。
+describe('AdjustmentService.onApproved 第四族落账（改记，spec §6）', () => {
+  const makeSvc = (row: any, accounting: any, update = jest.fn(), recordByActor = jest.fn()) => {
+    const prisma: any = {
+      reconciliationAdjustment: { findUnique: jest.fn().mockResolvedValue(row), update },
+      asset: {
+        findUnique: jest.fn(async ({ where }: any) => ({
+          currency: where?.code === 'USDT-TRON' ? 'USDT' : where?.code,
+        })),
+      },
+      // 正主方只有业务号（toOwnerNo），落账要 UUID 才能定位它的客户负债户——
+      // 这一次查询就是「负债换主人」的机制本身。
+      customerMain: {
+        findUnique: jest.fn(async ({ where }: any) => (where?.customerNo === 'CU-TO' ? { id: 'uuid-to' } : null)),
+      },
+    };
+    return new AdjustmentService(prisma, null as any, accounting, { recordByActor } as any, null as any);
+  };
+
+  const reattrRow = {
+    adjustmentNo: 'ADJ2609010001', status: 'PENDING_APPROVAL', book: 'CLIENT',
+    direction: 'REATTRIBUTE', reasonCode: 'CUSTOMER_REATTRIBUTION',
+    walletRef: 'wallet-from', toWalletRef: 'wallet-to',
+    assetCode: 'AED', amount: '730000', effectiveDate: '2026-09-01',
+    ownerNo: 'CU-FROM', ownerId: 'uuid-from', toOwnerNo: 'CU-TO',
+    caseNo: 'RC26090100001', reasonInternal: '记错客户', traceId: 'T-REATTR',
+    relatedOrderNo: 'DP2609010001',
+  };
+
+  it('借 from 应付 / 贷 to 应付：两腿同科目 CLIENT_PAYABLE、ownerType 都是 CUSTOMER、ownerUuid 各自的；客户资产腿一次都不出现', async () => {
+    const resolveTbAccountId = jest.fn().mockResolvedValue(1n);
+    const accounting = { executeTransfer: jest.fn().mockResolvedValue({ tbTransferId: 9n }), resolveTbAccountId };
+    await makeSvc(reattrRow, accounting).onApproved('ADJ2609010001', 'U_OPS');
+
+    const calls = resolveTbAccountId.mock.calls.map((c: any[]) => c[0]);
+    expect(calls).toHaveLength(2);
+    expect(calls.map((c) => c.code)).toEqual([TB_ACCOUNT_CODES.CLIENT_PAYABLE, TB_ACCOUNT_CODES.CLIENT_PAYABLE]);
+    // CLIENT_PAYABLE 在 TbAccountRegistry 里按客户 UUID 登记——传 'SYSTEM' 会查不到
+    // 注册行而抛 NotFoundException（只断言 code 不断言 ownerType 时，这类错在 mock 下全绿）。
+    expect(calls.map((c) => c.ownerType)).toEqual(['CUSTOMER', 'CUSTOMER']);
+    // 同科目、不同 ownerUuid —— 这正是「把负债换个主人」的机制。
+    expect(calls.map((c) => c.ownerUuid)).toEqual(['uuid-from', 'uuid-to']);
+    // 钱在托管里一分没动：客户资产腿绝不许出现在改记分录里。
+    expect(calls.map((c) => c.code)).not.toContain(TB_ACCOUNT_CODES.CLIENT_ASSET);
+  });
+
+  it('evidence 两腿各落各的钱包（错记方降/正主方升），isExternalCrossing=false，生效日随单', async () => {
+    const executeTransfer = jest.fn().mockResolvedValue({ tbTransferId: 9n });
+    const accounting = { executeTransfer, resolveTbAccountId: jest.fn().mockResolvedValue(1n) };
+    await makeSvc(reattrRow, accounting).onApproved('ADJ2609010001', 'U_OPS');
+
+    const params = executeTransfer.mock.calls[0][0];
+    expect(params.amount).toBe(730000n);
+    const evidence = params.evidence;
+    // 两腿钱包写反或写成同一个，两案的差额就不会各自归零，重对账时案子无法自愈。
+    expect(evidence.debitWalletRef).toBe('wallet-from');
+    expect(evidence.creditWalletRef).toBe('wallet-to');
+    expect(evidence.isExternalCrossing).toBe(false);
+    expect(evidence.effectiveDate).toBe('2026-09-01');
+    expect(evidence.debitCode).toBe('L.CLIENT_PAYABLE');
+    expect(evidence.creditCode).toBe('L.CLIENT_PAYABLE');
+  });
+
+  it('加密币改记：ledger 与 evidence.assetCurrency 都按 asset.currency 取（USDT-TRON → USDT），不是 assetCode', async () => {
+    const executeTransfer = jest.fn().mockResolvedValue({ tbTransferId: 9n });
+    const accounting = { executeTransfer, resolveTbAccountId: jest.fn().mockResolvedValue(1n) };
+    await makeSvc({ ...reattrRow, assetCode: 'USDT-TRON' }, accounting).onApproved('ADJ2609010001', 'U_OPS');
+
+    const params = executeTransfer.mock.calls[0][0];
+    // 拿 assetCode 索引 TB_LEDGERS 会得到 undefined → 抛 NotFoundException，
+    // 而 handler 的异常本仓现状不外传：所有加密币改记单会永远停在 PENDING_APPROVAL。
+    expect(params.ledger).toBe(2);
+    // 传错 assetCurrency 会让这笔分录在管理台按币种筛选时消失（本仓已付过一次学费）。
+    expect(params.evidence.assetCurrency).toBe('USDT');
+  });
+
+  it('落账后置 POSTED、记下 tbTransferId，裁决人落业务号（铁律⑥）', async () => {
+    const update = jest.fn();
+    const accounting = {
+      executeTransfer: jest.fn().mockResolvedValue({ tbTransferId: 88n }),
+      resolveTbAccountId: jest.fn().mockResolvedValue(1n),
+    };
+    await makeSvc(reattrRow, accounting, update).onApproved('ADJ2609010001', 'U_OPS_UUID', 'OPS-001', 'OPS_OFFICER');
+    expect(update).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ status: 'POSTED', tbTransferId: '88', decidedByUserId: 'OPS-001' }),
+    }));
+  });
+
+  it('已 POSTED 的改记单再落一次被状态机拒绝（铁律④），且不碰账本、不写库', async () => {
+    const executeTransfer = jest.fn();
+    const update = jest.fn();
+    const accounting = { executeTransfer, resolveTbAccountId: jest.fn() };
+    await expect(
+      makeSvc({ ...reattrRow, status: 'POSTED' }, accounting, update).onApproved('ADJ2609010001', 'U_OPS'),
+    ).rejects.toThrow(BadRequestException);
+    expect(executeTransfer).not.toHaveBeenCalled();
+    expect(update).not.toHaveBeenCalled();
+  });
+
+  it('正主方客户解析不到 → 抛 NotFoundException，账本一动不动（宁可不落账，也不能把负债贷给一个解析不出的户）', async () => {
+    const executeTransfer = jest.fn();
+    const accounting = { executeTransfer, resolveTbAccountId: jest.fn().mockResolvedValue(1n) };
+    await expect(
+      makeSvc({ ...reattrRow, toOwnerNo: 'CU-NOBODY' }, accounting).onApproved('ADJ2609010001', 'U_OPS'),
+    ).rejects.toThrow(NotFoundException);
+    expect(executeTransfer).not.toHaveBeenCalled();
+  });
+
+  it('审计信封与主路径同构：RECON_ADJUSTMENT_POSTED、requiredFields 在顶层、requestId 显式、真实 assertActionSpec 不拒写；metadata 多带正主方线索', async () => {
+    const recordByActor = jest.fn();
+    const accounting = {
+      executeTransfer: jest.fn().mockResolvedValue({ tbTransferId: 9n }),
+      resolveTbAccountId: jest.fn().mockResolvedValue(1n),
+    };
+    await makeSvc(reattrRow, accounting, jest.fn(), recordByActor).onApproved('ADJ2609010001', 'U_OPS');
+
+    expect(recordByActor).toHaveBeenCalledTimes(1);
+    const envelope = recordByActor.mock.calls[0][0];
+    expect(envelope.action).toBe('RECON_ADJUSTMENT_POSTED');
+    // 顶层缺字段会被 assertActionSpec 拒写：账已过、单已 POSTED，这一步再拒
+    // 就是「落了账却没留痕」，静默踩铁律①。
+    for (const field of V8_RECON_AUDIT_ACTIONS.RECON_ADJUSTMENT_POSTED.requiredFields) {
+      expect(envelope[field as keyof typeof envelope]).not.toBeUndefined();
+      expect(envelope[field as keyof typeof envelope]).not.toBeNull();
+    }
+    // 让生产用的那个校验函数亲自跑一遍——不是照抄合同表再断言一次。
+    const realAuditLogs = new AuditLogsService(null as any);
+    expect(() => (realAuditLogs as any).assertActionSpec(envelope)).not.toThrow();
+    // 漏了显式 requestId 会被静默去重、审计直接消失（本仓踩过）。
+    expect(envelope.requestId).toMatch(/^RECON_ADJUSTMENT_POSTED_ADJ2609010001_/);
+    // 改记单只从错记方名下看得出「少了一笔」，钱去了哪必须在留痕里查得到。
+    expect(envelope.metadata.toOwnerNo).toBe('CU-TO');
+    expect(envelope.subjects).toEqual(expect.arrayContaining([
+      expect.objectContaining({ subjectType: 'CUSTOMER', subjectNo: 'CU-FROM', subjectRole: 'OWNER' }),
+      expect.objectContaining({ subjectType: 'RECONCILIATION_CASE', subjectNo: 'RC26090100001', subjectRole: 'RELATED' }),
+    ]));
+  });
+});
+
+describe('AdjustmentService.describeImpact 第四族 —— 审批人要看见钱从谁名下去了谁名下', () => {
+  const svc = new AdjustmentService(null as any, null as any, null as any, null as any, null as any);
+
+  it('输出「从 A 名下改记到 B 名下；客户资产总额不变」', () => {
+    const text = svc.describeImpact({
+      book: 'CLIENT', ownerNo: 'CU-FROM', amount: '730000', assetCode: 'AED',
+      direction: 'REATTRIBUTE', reasonCode: 'CUSTOMER_REATTRIBUTION',
+      reasonInternal: '记错客户', toOwnerNo: 'CU-TO',
+    } as any, 2);
+    expect(text).toContain('CU-FROM');
+    expect(text).toContain('CU-TO');
+    expect(text).toContain('7300.00');
+    // 托管里的钱没动 —— 这句是审批人判断「该不该批」的关键事实。
+    expect(text).toContain('客户资产总额不变');
+    // 三族的「余额增加/减少」话术套在改记上是错的：钱没增没减，只是换了主人。
+    expect(text).not.toContain('余额增加');
+    expect(text).not.toContain('余额减少');
+  });
+});
+
+// 顺手收口（前序评审）：Task 5 让 toWalletRef 真正落库之后，详情接口的解构
+// 排除清单只剔了 walletRef —— 改记单一被查询就把正主方钱包的内部 UUID 吐出去，
+// 踩铁律⑥「管理台不暴露 UUID」。
+describe('AdjustmentService.getAdjustment 第四族 —— 正主方钱包也只给业务号', () => {
+  const reattrRow = {
+    id: 'uuid-row', adjustmentNo: 'ADJ2609010002', caseNo: 'RC26090100001',
+    explainedFlowId: 'flow-from', explainedExternalLineId: 'ext-to',
+    walletRef: 'wallet-from', toWalletRef: 'wallet-to', toOwnerNo: 'CU-TO',
+    book: 'CLIENT', direction: 'REATTRIBUTE', reasonCode: 'CUSTOMER_REATTRIBUTION',
+    assetCode: 'AED', amount: '730000', effectiveDate: '2026-09-01',
+    reasonInternal: '记错客户', reasonCustomer: '账户更正划转',
+    status: 'DRAFT', approvalCaseId: null, approvalNo: null,
+    ownerNo: 'CU-FROM', ownerId: 'uuid-from', traceId: null,
+    createdByUserId: 'U_OP', decidedByUserId: null, postedAt: null, tbTransferId: null,
+  };
+  const makeSvc = () => {
+    const prisma: any = {
+      reconciliationAdjustment: { findUnique: jest.fn().mockResolvedValue(reattrRow) },
+      wallet: {
+        findUnique: jest.fn(async ({ where }: any) => ({
+          walletNo: where?.id === 'wallet-from' ? 'WAL-FROM' : 'WAL-TO',
+        })),
+      },
+      asset: { findUnique: jest.fn().mockResolvedValue({ decimals: 2 }) },
+    };
+    return new AdjustmentService(prisma, null as any, null as any, null as any, null as any);
+  };
+
+  it('toWalletRef 不出现在返回体里，换成业务号 toWalletNo；正主方客户号照常给', async () => {
+    const result: any = await makeSvc().getAdjustment('ADJ2609010002');
+    expect(result.toWalletRef).toBeUndefined();
+    expect(result.walletRef).toBeUndefined();
+    expect(result.toWalletNo).toBe('WAL-TO');
+    expect(result.walletNo).toBe('WAL-FROM');
+    expect(result.toOwnerNo).toBe('CU-TO');
+  });
+
+  it('分录预览走第五种组合：借/贷都是 L.CLIENT_PAYABLE——不能落回 (book,direction) 四组合（那会显示成「借客户托管」，与真实落账相反）', async () => {
+    const result: any = await makeSvc().getAdjustment('ADJ2609010002');
+    expect(result.debitAccountCode).toBe('L.CLIENT_PAYABLE');
+    expect(result.creditAccountCode).toBe('L.CLIENT_PAYABLE');
   });
 });

@@ -17,7 +17,7 @@ import { CreateAdjustmentDto } from '../dto/adjustment.dto';
 import { bigintToDecimal } from '../../../funds-layer/accounting/tb-amount.util';
 import {
   Book, Direction, ReasonCode, REASON_SPECS,
-  assertReasonAllowed, requiresRelatedOrder, resolvePostingLegs,
+  assertReasonAllowed, requiresRelatedOrder, resolvePostingLegs, resolveReattributionLegs,
 } from './adjustment-rules';
 import { DispositionService } from './disposition.service';
 
@@ -50,7 +50,16 @@ export class AdjustmentService {
   describeImpact(row: {
     book: string; ownerNo: string | null; amount: string; assetCode: string;
     direction: string; reasonCode: string; reasonInternal: string;
+    toOwnerNo?: string | null;
   }, decimals: number): string {
+    // 第四族改记（spec §6）：三族的「余额增加/减少」话术套上来是错的——钱在托管里
+    // 一分没动，只是主人记错了。审批人要读到的是「从谁名下去了谁名下」，
+    // 以及「客户资产总额不变」这个判断该不该批的关键事实。
+    if (row.direction === 'REATTRIBUTE') {
+      const majorAmount = bigintToDecimal(BigInt(row.amount), decimals).toFixed(decimals);
+      return `本单将把 ${majorAmount} ${row.assetCode} 从客户 ${row.ownerNo ?? '(未知)'} 名下改记到客户 ${row.toOwnerNo ?? '(未知)'} 名下；`
+           + `客户资产总额不变；理由：${row.reasonInternal}`;
+    }
     const dir = row.direction === 'REDUCE' ? '减少' : '增加';
     const who = row.book === 'CLIENT' ? `客户 ${row.ownerNo ?? '(未知)'}` : '公司自有资金';
     const majorAmount = bigintToDecimal(BigInt(row.amount), decimals).toFixed(decimals);
@@ -311,18 +320,24 @@ export class AdjustmentService {
 
   /**
    * Task 6: 详情读模型（GET /admin/reconciliation/adjustments/:adjustmentNo）。
-   * 铁律⑥ 对外用业务键——排除 id/ownerId/approvalCaseId/walletRef 与两个解释锚
-   * （explainedFlowId / explainedExternalLineId 是 account_flows /
-   * external_statement_lines 的内部 UUID，界面不得展示）；walletRef 换成 walletNo
-   * （同 reconciliation-query.service.ts getCase 里 walletRow 的查法）。
+   * 铁律⑥ 对外用业务键——排除 id/ownerId/approvalCaseId/walletRef/toWalletRef 与
+   * 两个解释锚（explainedFlowId / explainedExternalLineId 是 account_flows /
+   * external_statement_lines 的内部 UUID，界面不得展示）；两个 walletRef 各换成
+   * walletNo / toWalletNo（同 reconciliation-query.service.ts getCase 里 walletRow 的查法）。
+   *
+   * ⚠ toWalletRef 是 T6 顺手收的口：Task 5 让它真正落库之后，排除清单还只剔
+   * walletRef——改记单一被查询，正主方钱包的内部 UUID 就随返回体吐出去了。
    */
   async getAdjustment(adjustmentNo: string) {
     const row = await (this.prisma as any).reconciliationAdjustment.findUnique({ where: { adjustmentNo } });
     if (!row) throw new NotFoundException(`调账单不存在：${adjustmentNo}`);
 
-    const wallet = row.walletRef && !String(row.walletRef).startsWith('XREF:')
-      ? await (this.prisma as any).wallet.findUnique({ where: { id: row.walletRef }, select: { walletNo: true } })
-      : null;
+    // 两侧钱包同一个查法（跨钱包合成案件的 'XREF:' 前缀不是真 Wallet.id，查了必空）。
+    const walletNoOf = async (ref: string | null | undefined): Promise<string | null> => {
+      if (!ref || String(ref).startsWith('XREF:')) return null;
+      const wallet = await (this.prisma as any).wallet.findUnique({ where: { id: ref }, select: { walletNo: true } });
+      return wallet?.walletNo ?? null;
+    };
 
     // Task 7（admin 详情页）：decimals 供前端 分→元 缩放显示（T4 canon2 惯例，与
     // getCase 同款查法，前端不得自建 code→名字映射表——见
@@ -331,7 +346,12 @@ export class AdjustmentService {
     const assetRow = await (this.prisma as any).asset.findUnique({
       where: { code: row.assetCode }, select: { decimals: true },
     });
-    const legs = resolvePostingLegs(row.book as Book, row.direction as Direction);
+    // 第四族走第五种组合。落回 resolvePostingLegs 会把 REATTRIBUTE 当成非 REDUCE
+    // 的「增加」，预览显示成「借客户托管 / 贷客户应付」——与真实落账的两腿正相反，
+    // 详情页与账本各说各话。
+    const legs = row.direction === 'REATTRIBUTE'
+      ? resolveReattributionLegs()
+      : resolvePostingLegs(row.book as Book, row.direction as Direction);
 
     const {
       id: _id,
@@ -340,11 +360,13 @@ export class AdjustmentService {
       explainedFlowId: _explainedFlowId,
       explainedExternalLineId: _explainedExternalLineId,
       walletRef: _walletRef,
+      toWalletRef: _toWalletRef,
       ...rest
     } = row;
     return {
       ...rest,
-      walletNo: wallet?.walletNo ?? null,
+      walletNo: await walletNoOf(row.walletRef),
+      toWalletNo: await walletNoOf(row.toWalletRef),
       decimals: assetRow?.decimals ?? 0,
       debitAccountCode: TB_CODE_TO_COA[legs.debitCode] ?? null,
       creditAccountCode: TB_CODE_TO_COA[legs.creditCode] ?? null,
@@ -383,6 +405,13 @@ export class AdjustmentService {
   async onApproved(adjustmentNo: string, deciderId: string, deciderNo?: string | null, deciderRole?: string | null): Promise<void> {
     const row = await (this.prisma as any).reconciliationAdjustment.findUnique({ where: { adjustmentNo } });
     if (!row) throw new NotFoundException(`调账单不存在：${adjustmentNo}`);
+
+    // 第四族改记（spec §6）：分录不由 book × direction 推导，两腿是同一个科目、
+    // 不同 ownerUuid。分流在状态闸之前——改记路径自带同一道闸，不重复走。
+    if (row.direction === 'REATTRIBUTE') {
+      return this.postReattribution(row, deciderId, deciderNo, deciderRole);
+    }
+
     this.assertTransition(row.status, AdjustmentStatus.POSTED);
 
     // 铁律⑥：对人可见的三个落点（evidence.actorId / decidedByUserId / 审计
@@ -508,6 +537,132 @@ export class AdjustmentService {
         // OPS_OFFICER 策略，硬编码会让审计记下一个与事实不符的角色快照。
         // 兜底 'ADMIN' 只在旧签名两参调用（deciderRole 缺省）时触发，与此前
         // 行为等价，不影响既有单测。
+        actorRolesAtTime: [deciderRole ?? 'ADMIN'],
+      },
+    );
+  }
+
+  /**
+   * 第四族落账（spec §6）：借 错记方应付 / 贷 正主方应付。
+   *
+   * 客户资产腿（CLIENT_ASSET）刻意不出现——托管里的钱一分没动，动的只是
+   * 「这笔钱是谁的」。两腿是**同一个科目 CLIENT_PAYABLE、不同 ownerUuid**，
+   * 这就是负债换主人的全部机制；写成资产腿参与的组合等于凭空搬动托管余额。
+   *
+   * 落账路径上的坑与 onApproved 主路径同源（那边的行内注释逐条论证过成因与
+   * 事故现场，这里不重复誊，只标出四个必须照办的点）：
+   *   ① ledger 按 asset.**currency** 取，不是 assetCode（USDT-TRON vs USDT）；
+   *   ② CLIENT_PAYABLE 在 TbAccountRegistry 里按客户 UUID 登记 → ownerType 必须
+   *      是 'CUSTOMER' 并带 ownerUuid；
+   *   ③ evidence.assetCurrency 同样是 currency，传 code 会让加密币分录在按币种
+   *      筛选时从列表里消失；
+   *   ④ evidence 两腿钱包**各落各的**——错记方降、正主方升，两案的差额才各自
+   *      归零，重对账时两个案子一起自愈（这一条是第四族独有的，主路径两腿同钱包）。
+   */
+  private async postReattribution(row: any, deciderId: string, deciderNo?: string | null, deciderRole?: string | null): Promise<void> {
+    this.assertTransition(row.status, AdjustmentStatus.POSTED);
+    const deciderDisplay = deciderNo ?? deciderId;
+
+    const assetRow = await (this.prisma as any).asset.findUnique({
+      where: { code: row.assetCode }, select: { currency: true },
+    });
+    const ledger = TB_LEDGERS[assetRow?.currency as keyof typeof TB_LEDGERS];
+    if (!ledger) {
+      throw new NotFoundException(
+        `资产 ${row.assetCode} 解析不出账本 ledger（currency=${assetRow?.currency ?? '未找到该资产'}）`,
+      );
+    }
+
+    // 正主方单上只有业务号（铁律⑥ 落库口径），落账要 UUID 才定位得到它的负债户。
+    const toOwner = row.toOwnerNo
+      ? await (this.prisma as any).customerMain.findUnique({ where: { customerNo: row.toOwnerNo }, select: { id: true } })
+      : null;
+    if (!row.ownerId || !toOwner?.id) {
+      throw new NotFoundException(
+        `改记两端客户解析失败（错记方 ownerId=${row.ownerId ?? '空'}、正主方 toOwnerNo=${row.toOwnerNo ?? '空'}）`,
+      );
+    }
+
+    const legs = resolveReattributionLegs();
+    const debitAccountId = await this.accounting.resolveTbAccountId({ code: legs.debitCode, ledger, ownerType: 'CUSTOMER', ownerUuid: row.ownerId } as any);
+    const creditAccountId = await this.accounting.resolveTbAccountId({ code: legs.creditCode, ledger, ownerType: 'CUSTOMER', ownerUuid: toOwner.id } as any);
+
+    const { tbTransferId } = await this.accounting.executeTransfer({
+      debitAccountId,
+      creditAccountId,
+      amount: BigInt(row.amount),
+      ledger,
+      code: TB_TRANSFER_CODES.RECON_ADJUSTMENT,
+      evidence: {
+        sourceType: 'RECON_ADJUSTMENT',
+        sourceNo: row.adjustmentNo,
+        eventCode: 'RECON_ADJUSTMENT_POSTED',
+        traceId: row.traceId || row.adjustmentNo,
+        debitCode: TB_CODE_TO_COA[legs.debitCode],
+        creditCode: TB_CODE_TO_COA[legs.creditCode],
+        assetCurrency: assetRow?.currency ?? row.assetCode,
+        actorType: 'ADMIN',
+        actorId: deciderDisplay,
+        memo: row.reasonInternal,
+        // 两腿各落各的钱包：错记方余额降、正主方余额升，两案各自的 delta 才归零。
+        debitWalletRef: row.walletRef,
+        creditWalletRef: row.toWalletRef,
+        // 纯账面重分类，不出现在任何外部账单上——置 false 才不会被
+        // wallet-flow-matcher 当成「内部有外部无」的孤儿行。
+        isExternalCrossing: false,
+        effectiveDate: row.effectiveDate,
+      },
+    });
+
+    await (this.prisma as any).reconciliationAdjustment.update({
+      where: { adjustmentNo: row.adjustmentNo },
+      data: {
+        status: AdjustmentStatus.POSTED,
+        decidedByUserId: deciderDisplay,
+        postedAt: new Date(),
+        tbTransferId: tbTransferId.toString(),
+      },
+    });
+
+    // 审计信封与主路径同构（同一个码、同一份 requiredFields 合同），差异只在
+    // metadata 多一条正主方线索：改记单挂在错记方名下，不带 toOwnerNo 的话
+    // 留痕里只看得出「错记方少了一笔」，钱去了哪查不到。
+    const subjects: any[] = [
+      { subjectType: AuditEntityTypes.RECON_ADJUSTMENT, subjectNo: row.adjustmentNo, subjectRole: 'PRIMARY' },
+    ];
+    if (row.ownerNo) subjects.push({ subjectType: 'CUSTOMER', subjectNo: row.ownerNo, subjectRole: 'OWNER' });
+    if (row.caseNo) subjects.push({ subjectType: 'RECONCILIATION_CASE', subjectNo: row.caseNo, subjectRole: 'RELATED' });
+
+    await this.auditLogs.recordByActor(
+      {
+        action: 'RECON_ADJUSTMENT_POSTED',
+        actionDomain: 'RECON',
+        primarySubjectType: AuditEntityTypes.RECON_ADJUSTMENT,
+        primarySubjectNo: row.adjustmentNo,
+        ownerCustomerNo: row.ownerNo,
+        // INHERIT 码，assertActionSpec 对空 correlationId 直接拒写——回落表达式与
+        // evidence.traceId 保持一致，两侧不许各写各的。
+        correlationId: row.traceId || row.adjustmentNo,
+        fromStatus: AdjustmentStatus.PENDING_APPROVAL,
+        toStatus: AdjustmentStatus.POSTED,
+        subjects,
+        reason: row.reasonInternal,
+        // requiredFields 读的是顶层字段，不是 metadata——这三个必须在这一层重复一份，
+        // 否则 assertActionSpec 会拒写：账已过、单已 POSTED，这一步再拒就是
+        // 「落了账却没留痕」，静默踩铁律①。
+        reasonCode: row.reasonCode,
+        amount: row.amount,
+        effectiveDate: row.effectiveDate,
+        requestId: `RECON_ADJUSTMENT_POSTED_${row.adjustmentNo}_${randomUUID()}`,
+        metadata: {
+          reasonCode: row.reasonCode, direction: row.direction, amount: row.amount,
+          effectiveDate: row.effectiveDate, relatedOrderNo: row.relatedOrderNo, book: row.book,
+          toOwnerNo: row.toOwnerNo ?? null,
+        },
+        sourcePlatform: 'ADMIN',
+      } as any,
+      {
+        actorType: 'ADMIN', actorNo: deciderDisplay, actorDisplayName: deciderDisplay,
         actorRolesAtTime: [deciderRole ?? 'ADMIN'],
       },
     );

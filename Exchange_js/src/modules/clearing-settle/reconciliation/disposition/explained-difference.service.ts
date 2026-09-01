@@ -56,10 +56,17 @@ export function explainedBy(
 export class ExplainedDifferenceService {
   constructor(private readonly prisma: PrismaService) {}
 
-  /** 该钱包上所有已落账调账单的解释锚点。 */
+  /**
+   * 该钱包上所有已落账调账单的解释锚点。
+   *
+   * 两个 walletRef 都要认（T6）：改记单（第四族）挂在**错记方**名下
+   * （walletRef = 错记方钱包），锚的却是**正主方**的外部对账单行——按单一
+   * walletRef 圈定时，跑到正主方那个钱包的这一轮查不到这张单，正主方那条
+   * 「外有我无」永远算不上已解释，双案同愈就断掉一半。
+   */
   async indexForWallet(walletRef: string): Promise<ExplainedIndex> {
     const rows = (await (this.prisma as any).reconciliationAdjustment.findMany({
-      where: { walletRef, status: AdjustmentStatus.POSTED },
+      where: { OR: [{ walletRef }, { toWalletRef: walletRef }], status: AdjustmentStatus.POSTED },
       select: { adjustmentNo: true, explainedFlowId: true, explainedExternalLineId: true },
     })) as Array<{
       adjustmentNo: string;
