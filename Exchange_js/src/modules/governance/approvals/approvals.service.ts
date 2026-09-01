@@ -242,6 +242,7 @@ export class ApprovalsService {
         reason: 'Maker cannot approve own request (SoD)',
         ruleCode: ApprovalSoDRuleCodes.DENY_SAME_USER_MAKER_CHECKER,
         subjects: this.approvalSubjects(approval),
+        requestId: `APPROVAL_SOD_DENIED_${approval.approvalNo}_${randomUUID()}`,
         sourcePlatform: 'ADMIN_API',
       },
       this.toAuditActor(actor),
@@ -755,6 +756,7 @@ export class ApprovalsService {
           ? { fromStatus: ApprovalStatuses.PENDING, toStatus: ApprovalStatuses.APPROVED }
           : {}),
         subjects: this.approvalSubjects(updated),
+        requestId: `APPROVAL_GRANTED_${updated.approvalNo}_${randomUUID()}`,
         sourcePlatform: 'ADMIN_API',
         metadata:
           this.isSuperAdmin(actor) && actor.userId === updated.createdByUserId
@@ -860,6 +862,7 @@ export class ApprovalsService {
         fromStatus: ApprovalStatuses.PENDING,
         toStatus: ApprovalStatuses.REJECTED,
         subjects: this.approvalSubjects(updated),
+        requestId: `APPROVAL_DECLINED_${updated.approvalNo}_${randomUUID()}`,
         sourcePlatform: 'ADMIN_API',
         metadata:
           this.isSuperAdmin(actor) && actor.userId === updated.createdByUserId
@@ -969,7 +972,7 @@ export class ApprovalsService {
             primarySubjectNo: input.entityRef,
             outcome: AuditOutcome.DENIED,
             reason: `Approval is required for ${input.actionType}:${input.entityRef}`,
-            requestId: `APPROVAL_REQUIRED_${input.actionType}_${input.entityRef}`,
+            requestId: `APPROVAL_REQUIRED_MISSING_${input.entityRef}_${randomUUID()}`,
             sourcePlatform: 'ADMIN_API',
           },
           this.toAuditActor(input.actor),
