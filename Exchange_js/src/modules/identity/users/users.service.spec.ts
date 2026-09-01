@@ -1,7 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { UsersService } from './users.service';
 import { PrismaService } from '../../../core/prisma/prisma.service';
-import { NotFoundException } from '@nestjs/common';
+import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { AdminInvitationsService } from './admin-invitations.service';
 import { ConfigService } from '@nestjs/config';
 
@@ -263,5 +263,22 @@ describe('UsersService', () => {
       },
     });
     expect(result).toBeNull();
+  });
+
+  it('Task 9：update() 拒绝直写 status——必须经 UsersDomainService.applyUserTransition 走迁移表', async () => {
+    await expect(
+      service.update({ where: { id: 'user-1' }, data: { status: 'ACTIVE' } }),
+    ).rejects.toThrow(BadRequestException);
+    expect(prisma.user.update).not.toHaveBeenCalled();
+  });
+
+  it('update() 放行不含 status 的字段更新', async () => {
+    prisma.user.update.mockResolvedValue({ id: 'user-1', failedLoginAttempts: 1 });
+    const result = await service.update({ where: { id: 'user-1' }, data: { failedLoginAttempts: 1 } });
+    expect(result).toEqual({ id: 'user-1', failedLoginAttempts: 1 });
+    expect(prisma.user.update).toHaveBeenCalledWith({
+      data: { failedLoginAttempts: 1 },
+      where: { id: 'user-1' },
+    });
   });
 });

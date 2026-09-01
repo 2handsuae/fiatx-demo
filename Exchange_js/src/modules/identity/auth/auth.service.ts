@@ -1,5 +1,6 @@
 import { Injectable, ForbiddenException, Optional } from '@nestjs/common';
 import { UsersService } from '../users/users.service';
+import { UsersDomainService } from '../users/users.domain.service';
 import { AdminInvitationsService } from '../users/admin-invitations.service';
 import { AdminInviteWorkflowService } from '../users/admin-invite-workflow.service';
 import { JwtService } from '@nestjs/jwt';
@@ -9,6 +10,7 @@ import { EventEmitter2 } from '@nestjs/event-emitter';
 import { DomainEventNames } from '../../../common/events/domain-events.constants';
 import { AccessControlService } from '../access-control/access-control.service';
 import { getPrimaryRoleCode } from '../access-control/rbac.catalog';
+import { UserStatusAction } from '../users/constants/user-status-transitions.constant';
 
 interface AuthRequestContext {
   requestId?: string;
@@ -20,6 +22,7 @@ interface AuthRequestContext {
 export class AuthService {
   constructor(
     private usersService: UsersService,
+    private usersDomainService: UsersDomainService,
     private adminInvitationsService: AdminInvitationsService,
     private adminInviteWorkflowService: AdminInviteWorkflowService,
     private jwtService: JwtService,
@@ -62,10 +65,10 @@ export class AuthService {
       user.lockedUntil &&
       user.lockedUntil <= new Date()
     ) {
-      // Unlock automatically
-      await this.usersService.update({
-        where: { id: user.id },
-        data: { status: 'ACTIVE', failedLoginAttempts: 0, lockedUntil: null },
+      // Unlock automatically — status 只经迁移表走（铁律④，Task 9）。
+      await this.usersDomainService.applyUserTransition(user.id, UserStatusAction.UNLOCK, {
+        failedLoginAttempts: 0,
+        lockedUntil: null,
       });
       // 解锁这侧同样改变了访问能力，按与 ADMIN_LOGIN_CONSECUTIVE_FAILURE 相同的既有
       // 分工上收为业务审计（ADMIN_ACCOUNT_LOCK_RELEASED）：判定留在这里（只有这里知道
@@ -93,17 +96,19 @@ export class AuthService {
     } else {
       // Increment failed attempts
       const attempts = user.failedLoginAttempts + 1;
-      const updateData: any = { failedLoginAttempts: attempts };
 
       if (attempts >= 5) {
-        updateData.status = 'LOCKED';
-        updateData.lockedUntil = new Date(Date.now() + 30 * 60 * 1000); // 30 min lock
+        // status 只经迁移表走（铁律④，Task 9）——锁定改变访问能力，不再走 usersService.update。
+        await this.usersDomainService.applyUserTransition(user.id, UserStatusAction.LOCK, {
+          failedLoginAttempts: attempts,
+          lockedUntil: new Date(Date.now() + 30 * 60 * 1000), // 30 min lock
+        });
+      } else {
+        await this.usersService.update({
+          where: { id: user.id },
+          data: { failedLoginAttempts: attempts },
+        });
       }
-
-      await this.usersService.update({
-        where: { id: user.id },
-        data: updateData,
-      });
 
       // Task 9：连续失败达阈值的锁定改变了访问能力，业主裁定按业务审计保留
       // （与限额自动拦截同性质）——但审计写入不留在这个领域服务层，emit 领域事件，

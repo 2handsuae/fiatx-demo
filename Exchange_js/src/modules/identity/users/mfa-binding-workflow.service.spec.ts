@@ -31,7 +31,6 @@ describe('MfaBindingWorkflowService', () => {
       storeMfaSecret: jest.fn().mockResolvedValue(undefined),
       completeMfaBinding: jest.fn().mockResolvedValue(undefined),
       incrementMfaVerifyFail: jest.fn(),
-      completeFirstLogin: jest.fn().mockResolvedValue(undefined),
       clearMfaVerifyFail: jest.fn().mockResolvedValue(undefined),
     };
     auditLogsService = {

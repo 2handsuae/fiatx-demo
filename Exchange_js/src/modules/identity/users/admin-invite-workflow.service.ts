@@ -22,6 +22,7 @@ import {
 import { AccessControlService } from '../access-control/access-control.service';
 import { AdminInvitationsService } from './admin-invitations.service';
 import { UsersDomainService } from './users.domain.service';
+import { UserStatusAction } from './constants/user-status-transitions.constant';
 
 const SECONDARY_EVENT = 'workflow.admin-invite.decided';
 
@@ -204,7 +205,7 @@ export class AdminInviteWorkflowService {
     if (!user) return;
 
     try {
-      await this.usersDomainService.updateStatus(user.id, 'INVITE_SENT');
+      await this.usersDomainService.applyUserTransition(user.id, UserStatusAction.INVITE_APPROVE);
 
       const invitation = await this.adminInvitationsService.createInvitationForUser({
         userId: user.id,

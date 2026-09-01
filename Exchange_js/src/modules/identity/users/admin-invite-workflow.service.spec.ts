@@ -1,6 +1,7 @@
 import { BadRequestException } from '@nestjs/common';
 import { AdminInviteWorkflowService } from './admin-invite-workflow.service';
 import { ApprovalDecidedEvent } from '../../governance/approvals/approval-handler.base';
+import { UserStatusAction } from './constants/user-status-transitions.constant';
 
 describe('AdminInviteWorkflowService', () => {
   let prisma: any;
@@ -32,7 +33,7 @@ describe('AdminInviteWorkflowService', () => {
       createProvisionalUser: jest.fn(),
       findById: jest.fn(),
       physicalDelete: jest.fn().mockResolvedValue(undefined),
-      updateStatus: jest.fn().mockResolvedValue(undefined),
+      applyUserTransition: jest.fn().mockResolvedValue(undefined),
     };
     accessControlService = {
       replaceUserRoles: jest.fn().mockResolvedValue(undefined),
@@ -154,7 +155,7 @@ describe('AdminInviteWorkflowService', () => {
 
       await service.handleApprovalDecided(event);
 
-      expect(usersDomainService.updateStatus).toHaveBeenCalledWith('user-1', 'INVITE_SENT');
+      expect(usersDomainService.applyUserTransition).toHaveBeenCalledWith('user-1', UserStatusAction.INVITE_APPROVE);
       expect(adminInvitationsService.createInvitationForUser).toHaveBeenCalledWith(
         expect.objectContaining({
           auditContext: expect.objectContaining({ traceId: 'trace-invite-1' }),

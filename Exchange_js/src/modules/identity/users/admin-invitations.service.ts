@@ -8,6 +8,8 @@ import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../../core/prisma/prisma.service';
 import * as bcrypt from 'bcrypt';
 import { createHash, randomBytes } from 'crypto';
+import { UsersDomainService } from './users.domain.service';
+import { UserStatusAction } from './constants/user-status-transitions.constant';
 
 const INVITATION_TTL_MS = 24 * 60 * 60 * 1000;
 const MAX_TOKEN_GENERATION_RETRIES = 5;
@@ -34,6 +36,7 @@ export class AdminInvitationsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly configService: ConfigService,
+    private readonly usersDomainService: UsersDomainService,
   ) {}
 
   private normalizeToken(token: string): string {
@@ -415,12 +418,20 @@ export class AdminInvitationsService {
       // NULL，原样交给调用方，不在这里兜底铸造。
       invitationTraceId = invitation.traceId ?? null;
 
+      // status 只经迁移表走（铁律④）：本次事务内先转 ACTIVE，密码等其余字段紧接着
+      // 在同一个 tx 里另写，读回时 select.status 已是转移后的新值。
+      await this.usersDomainService.applyUserTransition(
+        invitation.user.id,
+        UserStatusAction.ACCEPT,
+        {},
+        tx,
+      );
+
       const passwordHash = await bcrypt.hash(password, 10);
       const updatedUser = await tx.user.update({
         where: { id: invitation.user.id },
         data: {
           password: passwordHash,
-          status: 'ACTIVE',
           failedLoginAttempts: 0,
           lockedUntil: null,
         },

@@ -1,6 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { AuthService } from './auth.service';
 import { UsersService } from '../users/users.service';
+import { UsersDomainService } from '../users/users.domain.service';
 import { AdminInvitationsService } from '../users/admin-invitations.service';
 import { AdminInviteWorkflowService } from '../users/admin-invite-workflow.service';
 import { JwtService } from '@nestjs/jwt';
@@ -8,10 +9,12 @@ import { EventEmitter2 } from '@nestjs/event-emitter';
 import { ForbiddenException } from '@nestjs/common';
 import { AccessControlService } from '../access-control/access-control.service';
 import { DomainEventNames } from '../../../common/events/domain-events.constants';
+import { UserStatusAction } from '../users/constants/user-status-transitions.constant';
 
 describe('AuthService', () => {
   let service: AuthService;
   let usersService: any;
+  let usersDomainService: any;
   let eventEmitter: any;
   let accessControlService: any;
 
@@ -21,6 +24,10 @@ describe('AuthService', () => {
       findByIdentifier: jest.fn(),
       findById: jest.fn(),
       update: jest.fn(),
+    };
+
+    usersDomainService = {
+      applyUserTransition: jest.fn().mockResolvedValue(undefined),
     };
 
     eventEmitter = {
@@ -38,6 +45,10 @@ describe('AuthService', () => {
         {
           provide: UsersService,
           useValue: usersService,
+        },
+        {
+          provide: UsersDomainService,
+          useValue: usersDomainService,
         },
         {
           provide: AdminInvitationsService,
@@ -126,11 +137,13 @@ describe('AuthService', () => {
     const result = await service.validateUser('ciso@fiatx.com', 'wrong-password');
 
     expect(result).toBeNull();
-    expect(usersService.update).toHaveBeenCalledWith(
-      expect.objectContaining({
-        data: expect.objectContaining({ status: 'LOCKED', failedLoginAttempts: 5 }),
-      }),
+    // Task 9：锁定改变了 status，只经迁移表走——不再走 usersService.update。
+    expect(usersDomainService.applyUserTransition).toHaveBeenCalledWith(
+      'user-1',
+      UserStatusAction.LOCK,
+      expect.objectContaining({ failedLoginAttempts: 5, lockedUntil: expect.any(Date) }),
     );
+    expect(usersService.update).not.toHaveBeenCalled();
     expect(eventEmitter.emit).toHaveBeenCalledWith(
       DomainEventNames.ADMIN_LOGIN_CONSECUTIVE_FAILURE,
       expect.objectContaining({
@@ -159,11 +172,11 @@ describe('AuthService', () => {
 
     await service.validateUser('ciso@fiatx.com', '123456');
 
-    expect(usersService.update).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: { id: 'user-1' },
-        data: { status: 'ACTIVE', failedLoginAttempts: 0, lockedUntil: null },
-      }),
+    // Task 9：自动解锁改变了 status，只经迁移表走——不再走 usersService.update。
+    expect(usersDomainService.applyUserTransition).toHaveBeenCalledWith(
+      'user-1',
+      UserStatusAction.UNLOCK,
+      { failedLoginAttempts: 0, lockedUntil: null },
     );
     expect(eventEmitter.emit).toHaveBeenCalledWith(
       DomainEventNames.ADMIN_LOGIN_AUTO_UNLOCKED,
