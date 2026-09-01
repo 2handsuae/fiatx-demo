@@ -229,10 +229,13 @@ export class AdminRoleBindingChangeWorkflowService {
 
       // from 过滤：终态不被二次事件覆写——只有仍处于 PENDING_APPROVAL 的申请单才允许
       // 落 APPROVED，count=0 说明该单已被另一次事件推走，放弃后续写入。
+      // 断言的 from 绑定本函数开头 findFirst 读到的真实 request.status（校验"从读到的
+      // 来源态出发这条边合法"）；updateMany 的 where.status 过滤保证"落库那刻行仍在该
+      // 态"——两层各管各的，不许用字面量把断言架空。
       const { count } = await (this.prisma as any).adminRoleChangeRequest.updateMany({
         where: { id: request.id, status: 'PENDING_APPROVAL' },
         data: {
-          status: assertRoleRequestTransition('PENDING_APPROVAL', RoleRequestAction.APPROVE),
+          status: assertRoleRequestTransition(request.status, RoleRequestAction.APPROVE),
           executedAt: new Date(),
         },
       });
@@ -277,13 +280,19 @@ export class AdminRoleBindingChangeWorkflowService {
       const failureReason =
         error instanceof Error ? error.message : 'Unknown execution error';
 
-      await (this.prisma as any).adminRoleChangeRequest.update({
-        where: { id: request.id },
+      // from 过滤：同成功路径同款处理——断言咬 request.status 真实读值，updateMany
+      // 的 where.status 过滤防落库竞态，count=0 说明该单已被另一次事件推走。
+      const { count } = await (this.prisma as any).adminRoleChangeRequest.updateMany({
+        where: { id: request.id, status: 'PENDING_APPROVAL' },
         data: {
-          status: assertRoleRequestTransition('PENDING_APPROVAL', RoleRequestAction.FAIL),
+          status: assertRoleRequestTransition(request.status, RoleRequestAction.FAIL),
           failureReason,
         },
       });
+      if (count === 0) {
+        this.logger.warn(`[executeRoleChange] Request ${request.id} not PENDING_APPROVAL, skip FAILED write`);
+        return;
+      }
 
       // 退役码 CHANGE_APPLY_FAILED 收编进来——同一动作码 ADMIN_ROLE_CHANGE_APPLIED，
       // 靠 outcome=FAILED 区分，不另起一个 _FAILED 后缀码（该退役词还被三个非 V1 域复用，
@@ -331,9 +340,10 @@ export class AdminRoleBindingChangeWorkflowService {
     });
     if (!request) return;
 
-    const status = assertRoleRequestTransition('PENDING_APPROVAL', action);
+    const status = assertRoleRequestTransition(request.status, action);
 
-    // from 过滤：终态不被二次事件覆写——同 executeRoleChange 同款处理。
+    // from 过滤：终态不被二次事件覆写——同 executeRoleChange 同款处理（断言咬
+    // request.status 真实读值，updateMany 的 where.status 过滤防落库竞态）。
     const { count } = await (this.prisma as any).adminRoleChangeRequest.updateMany({
       where: { id: request.id, status: 'PENDING_APPROVAL' },
       data: { status },

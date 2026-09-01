@@ -226,8 +226,11 @@ describe('AdminRoleBindingChangeWorkflowService', () => {
 
       await service.handleApprovalDecided(event);
 
-      expect(prisma.adminRoleChangeRequest.update).toHaveBeenCalledWith(
+      // 法二·from 过滤：catch 块的 FAILED 写入也改用 updateMany + where.status，
+      // 与成功路径同款处理（不再是裸 update 无 from 过滤）。
+      expect(prisma.adminRoleChangeRequest.updateMany).toHaveBeenCalledWith(
         expect.objectContaining({
+          where: expect.objectContaining({ id: 'req-1', status: 'PENDING_APPROVAL' }),
           data: expect.objectContaining({
             status: 'FAILED',
             failureReason: expect.stringContaining('cannot be assigned'),
@@ -294,6 +297,35 @@ describe('AdminRoleBindingChangeWorkflowService', () => {
       expect(call[0].subjects).toEqual([
         { subjectType: 'ACCESS_CONTROL', subjectNo: 'MLRO', subjectRole: 'RELATED' },
       ]);
+    });
+
+    it('request.status 非 PENDING_APPROVAL 时抛 Invalid transition（断言 from 绑定真实读值，不是字面量）', async () => {
+      const event: ApprovalDecidedEvent = {
+        decision: 'DECLINED',
+        actionType: 'ADMIN_ROLE_BINDING_CHANGE_APPROVAL',
+        entityRef: 'req-1',
+        approvalId: 'apr-1',
+        approvalNo: 'APR-1',
+        traceId: 'trace-1',
+        workflowType: 'ADMIN_ROLE_BINDING_CHANGE',
+        decisionReason: 'Scope too broad',
+        metadata: {},
+      };
+
+      // 单已经是 APPROVED（例如已被另一次事件先推走）——若断言的 from 仍是硬编码
+      // 'PENDING_APPROVAL' 字面量，这里会误判合法而放行；断言绑定真实读值才会拦下来。
+      prisma.adminRoleChangeRequest.findFirst.mockResolvedValue({
+        id: 'req-1',
+        requestNo: 'RCR-1',
+        status: 'APPROVED',
+        proposedRoleCodes: '["MLRO"]',
+      });
+
+      await expect(service.handleApprovalDecided(event)).rejects.toThrow(
+        'Invalid transition',
+      );
+
+      expect(prisma.adminRoleChangeRequest.updateMany).not.toHaveBeenCalled();
     });
   });
 
