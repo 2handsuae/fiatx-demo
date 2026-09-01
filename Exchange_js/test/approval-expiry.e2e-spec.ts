@@ -66,8 +66,12 @@ describe('审批超时门（⑥ 门不可绕）', () => {
 
     const auditRow = await prisma.auditLogEvent.findFirst({
       where: { action: 'APPROVAL_TIMEOUT_SIMULATED', primarySubjectNo: c.approvalNo },
+      include: { subjects: true },
     });
     expect(auditRow).not.toBeNull();
+    // subjects 子表非空：必须存在 PRIMARY=该 approvalNo 的行（approvalSubjects 兄弟码同款）。
+    const primarySubject = auditRow!.subjects.find((s) => s.subjectRole === 'PRIMARY');
+    expect(primarySubject?.subjectNo).toBe(c.approvalNo);
 
     await expiry.sweep();
     const after = await prisma.approvalCase.findUniqueOrThrow({ where: { id: c.id } });
