@@ -121,7 +121,8 @@ Q6 谁查过审计日志：重铺后恒红，管理员真查一次审计页当�
 2. **串行跑**：`bash scripts/on-stack.sh main test:e2e --runInBand <11 个文件>`（**不要**在文件列表前多写 `--`，会被 jest 当路径模式吞掉 runInBand）；并行会互踩栈库出假红；
 3. **干净态起跑**：栈库残留多轮数据会触发日累计限额假红；`reset` + 重铺私库后一次跑完。
 
-已知偶发：funds_orderNo 时间戳撞号极低概率 flake（生成器熵，非行为红），重跑即绿。
+**已知 flake：`fundsOrderNo` 撞号（P2002）——2026-09-01 实测发现「极低概率」是错的说法，需要业主分诊。**
+根因不是时间戳，是熵不够：`src/common/utils/no-generator.util.ts → generateReferenceNo()` = 前缀 + `YYMMDD` + `Math.floor(Math.random()*10000)`，**同一天同一前缀只有 10,000 个坑**。一次 `demo:all` 造几十张资金单，按生日问题约 **7–20%** 会撞（当天连撞两次实测）。重铺确实清空 `funds_orders`（38→0 已验），所以不是残留累积，是单次运行内部就会撞。重跑即绿，但它挡的是 `demo:all` 本身——按 `BACKLOG` 的分诊判据「挡住**开演**算业务」该进 BACKLOG；而 `rules/review-rubric.md` 的判定表把「单号随机位不足偶发唯一约束冲突」列为技术兜底、不做。**两条规矩在这条上打架，留待业主裁定去处**（修法很小：随机位 4 → 6，或改用 `randomUUID` 取 6 位）。
 
 ## 2026-08-31 环境收口验收 —— 终审后复测：11/11 全过
 
