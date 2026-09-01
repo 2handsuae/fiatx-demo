@@ -2,12 +2,12 @@ import {
   Injectable,
   NotFoundException,
   ConflictException,
-  BadRequestException,
   Logger,
 } from '@nestjs/common';
 import { PrismaService } from '../../../core/prisma/prisma.service';
 import { Prisma } from '@prisma/client';
 import { generateReferenceNo } from '../../../common/utils/no-generator.util';
+import { assertAssetTransition, AssetAction } from './constants/asset-transitions.constant';
 
 @Injectable()
 export class AssetsService {
@@ -75,16 +75,12 @@ export class AssetsService {
       return { id: asset.id, assetNo: asset.assetNo, status: asset.status };
     }
 
-    if (asset.status !== 'ACTIVE') {
-      throw new BadRequestException(
-        `Cannot suspend asset in status: ${asset.status}`,
-      );
-    }
+    const to = assertAssetTransition(asset.status, AssetAction.SUSPEND);
 
     const updated = await (client as any).asset.update({
       where: { id: assetId },
       data: {
-        status: 'SUSPENDED',
+        status: to,
         suspendedAt: new Date(),
         suspendReason: reason,
         preSuspendDepositEnabled: asset.depositEnabled,
@@ -115,16 +111,12 @@ export class AssetsService {
     });
     if (!asset) throw new NotFoundException('Asset not found');
 
-    if (asset.status !== 'SUSPENDED') {
-      throw new BadRequestException(
-        `Cannot reactivate asset in status: ${asset.status}`,
-      );
-    }
+    const to = assertAssetTransition(asset.status, AssetAction.REACTIVATE);
 
     const updated = await (client as any).asset.update({
       where: { id: assetId },
       data: {
-        status: 'ACTIVE',
+        status: to,
         suspendedAt: null,
         suspendReason: null,
         depositEnabled: asset.preSuspendDepositEnabled ?? true,
@@ -154,12 +146,8 @@ export class AssetsService {
     const db = tx ?? this.prisma;
     const asset = await db.asset.findFirst({ where: { assetNo } });
     if (!asset) throw new NotFoundException(`Asset ${assetNo} not found`);
-    if (asset.status !== 'PROVISIONING') {
-      throw new ConflictException(
-        `Cannot activate asset ${assetNo}: current status is ${asset.status}, expected PROVISIONING`,
-      );
-    }
-    return db.asset.update({ where: { id: asset.id }, data: { status: 'ACTIVE' } });
+    const to = assertAssetTransition(asset.status, AssetAction.ACTIVATE);
+    return db.asset.update({ where: { id: asset.id }, data: { status: to } });
   }
 
   async linkApprovalCase(assetNo: string, approvalCaseId: string, approvalCaseNo: string, tx?: Prisma.TransactionClient): Promise<void> {
