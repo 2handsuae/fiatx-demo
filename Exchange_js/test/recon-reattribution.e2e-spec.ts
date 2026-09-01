@@ -44,6 +44,16 @@ import { generateReferenceNo } from '../src/common/utils/no-generator.util';
  * recon-adjustment-money-arcs.e2e-spec.ts —— 那份文件已实证过
  * 「真 TB 转账 → 真 recon rerun → 案件自愈」这条链，是本仓库现成的范本。
  *
+ * ⚠ 本文件必须与其他 e2e **串行**跑（test/jest-e2e.json 的 `maxWorkers: 1`，
+ *   完整原委写在那里）：它与 money-arcs 都调**全局**的
+ *   WalletReconRunService.run()，并行时谁先落地谁就把对方的案子先自愈掉。
+ *   要动那个开关，先读那段注释。
+ *
+ * ⚠ 夹具会往库里留真数据：createFixtureDeposit() 每跑一次给错记方客户
+ *   （demo_carol）落一张 SUCCESS 充值单，客户端充值列表会逐次堆积这些假单。
+ *   范本的 createFixtureWithdraw 是同款先例（不是本文件新引入的债）；嫌脏就
+ *   `bash scripts/stack.sh reset <main|self>` 重铺。
+ *
  * ── 场景 A 要证的业务事实 ──────────────────────────────────────────────
  * 一笔钱记错了客户：**钱在托管方那里一分没动，只是我方把主人记错了**。
  * 所以分录是两个客户的应付对转：
@@ -566,7 +576,7 @@ describe('Recon reattribution + disposition behaviour (e2e, Task 12)', () => {
       expect(f.sourceNo).toBe(adjustmentNo);
       // 纯账面重分类，不出现在任何外部账单上——置 true 会被匹配器当成新的孤儿行。
       expect(f.isExternalCrossing).toBe(false);
-      expect(f.assetCode).toBe('AED');
+      expect(f.assetCode).toBe(aedCode);
       expect(f.effectiveDate).toBe(TODAY);
     }
 

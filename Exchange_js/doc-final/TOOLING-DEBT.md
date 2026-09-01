@@ -65,3 +65,10 @@
 
 - [ ] **`check-stack-residue.sh` 把工作树名里的下划线误当成分隔符**：残留目录名反解成工作树名时用 `tr '_' '-'`，所以 `/tmp/exchange_js_wt_a_b` 会被反推成工作树名 `a-b`——名字里本来就带下划线的工作树会被误报成残留。只报不删、恒 exit 0，无实际损害，但会让人白查一次 ｜ **复现**：`mkdir -p /tmp/exchange_js_wt_a_b && bash scripts/check-stack-residue.sh` → 该目录被列进残留（即便存在名为 `a_b` 的工作树）；查完记得 `rmdir` ｜来源: 2026-08-31 环境收口终审 Minor⑤
 
+
+- [ ] **e2e 之间共享同一个库，并行跑时彼此夹具互踩——`test:e2e` 全套并行 14 个套件 9 红**：`test/*.e2e-spec.ts` 全部经 `scripts/on-stack.sh` 注入同一个 `DATABASE_URL` + `TB_ADDRESS`，各文件不是各跑各的沙箱；jest 默认按 CPU 数派并行 worker，于是 A 文件的种子/清理会踩到 B 文件正在断言的数据。**2026-09-02 平账一期半 Task 12 实测**：`--maxWorkers=4` 跑全套 → `Test Suites: 9 failed, 5 passed, 14 total` / `Tests: 59 failed, 38 passed, 97 total`（红的有 withdraw-money-arcs、material-requests、demo-roster、deposit-sumsub-verdicts、sla、customer-restrictions、sanction-subject-split、kyt-verdict-landing 等，**与 recon 无关，是既有问题**）。本轮已给 `test/jest-e2e.json` 加 `maxWorkers: 1`（那里写了完整原委），把这类互踩整体压住——但那只是"串行声明"，**根因没解**：真正的修法是让每份 e2e 拿到自己的库（每文件一个 SQLite 文件 + 一个 TB ledger 段），或统一一套 setup/teardown 契约。在根因解掉之前，谁把 `maxWorkers` 调大谁就会重新撞上 ｜ **复现**（注意 `on-stack.sh` 的 `--` 会把参数变成位置匹配，要覆盖 workers 数必须直接调 jest）：
+  ```bash
+  export DATABASE_URL="file:/tmp/exchange_js_wt_<名>/dev.db" TB_ADDRESS="127.0.0.1:<TB端口>"
+  npx jest --config ./test/jest-e2e.json --maxWorkers=4
+  ```
+  ｜来源: 2026-09-02 平账一期半 Task 12 评审（新增第二份调全局 `walletRecon.run()` 的 spec 后，`--testPathPattern 'test/recon-'` 4/4 红当场暴露）+ 同任务自测全套并行读数
