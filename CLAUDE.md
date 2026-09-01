@@ -50,6 +50,7 @@ NestJS + Prisma + SQLite 后端 ｜ React 管理台 ｜ React 客户端 ｜ 会�
 - 任务收尾对照 `doc-final/rules/delivery-checklist.md`——按触发条件列出必须交付的东西；plan 引用它，不重抄
 - 评审按 `doc-final/rules/review-rubric.md`，只判三件事，其余不算缺陷
 - 派 subagent 时，任务 prompt 必须带上本文件 §0–§5 的要点
+- 派 subagent 的模型分层（判断密度高且一次性的不降档，重复且有终审兜底的降档）：任务执行 / 任务级 code review / 走查截图 / 文档收口 → `sonnet`；纯批量机械活（导表 / 批量扫描 / 重命名）→ `haiku`；spec 评审、终审、变异测试 → `fable` 不降档；plan 给动钱 / 动状态机的高危任务点名升档评审 → `opus`。闸门红了诊断不动 → 回主会话，不让便宜模型死磕
 
 ## 7. 闸门（分两档）
 
