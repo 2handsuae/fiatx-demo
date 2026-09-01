@@ -121,8 +121,9 @@ Q6 谁查过审计日志：重铺后恒红，管理员真查一次审计页当�
 2. **串行跑**：`bash scripts/on-stack.sh main test:e2e --runInBand <11 个文件>`（**不要**在文件列表前多写 `--`，会被 jest 当路径模式吞掉 runInBand）；并行会互踩栈库出假红；
 3. **干净态起跑**：栈库残留多轮数据会触发日累计限额假红；`reset` + 重铺私库后一次跑完。
 
-**已知 flake：`fundsOrderNo` 撞号（P2002）——2026-09-01 实测发现「极低概率」是错的说法，需要业主分诊。**
-根因不是时间戳，是熵不够：`src/common/utils/no-generator.util.ts → generateReferenceNo()` = 前缀 + `YYMMDD` + `Math.floor(Math.random()*10000)`，**同一天同一前缀只有 10,000 个坑**。一次 `demo:all` 造几十张资金单，按生日问题约 **7–20%** 会撞（当天连撞两次实测）。重铺确实清空 `funds_orders`（38→0 已验），所以不是残留累积，是单次运行内部就会撞。重跑即绿，但它挡的是 `demo:all` 本身——按 `BACKLOG` 的分诊判据「挡住**开演**算业务」该进 BACKLOG；而 `rules/review-rubric.md` 的判定表把「单号随机位不足偶发唯一约束冲突」列为技术兜底、不做。**两条规矩在这条上打架，留待业主裁定去处**（修法很小：随机位 4 → 6，或改用 `randomUUID` 取 6 位）。
+~~已知 flake：`fundsOrderNo` 撞号（P2002）~~ → **2026-09-01 已修，本条销账**：
+根因是熵不够——`generateReferenceNo()` 原为 前缀+`YYMMDD`+`Math.random()*10000`，同一天同一前缀只有 1 万个坑，一次 `demo:all` 造几十张资金单按生日问题约 **7–20%** 撞（当天连撞两次实测）。
+业主 2026-09-01 定：改用 `randomUUID` 取 **6 位**（100 万个坑，同量级撞号率降到约 0.2%）。加守则性单测 `no-generator.util.spec.ts` 锁住位宽（含「1000 次不撞号」一条，4 位下这个量级必红）。实测：修复后连续 2 轮重铺 + `demo:all` 全过。`buildDeterministicNo`（种子幂等靠它）刻意不动。
 
 ## 2026-08-31 环境收口验收 —— 终审后复测：11/11 全过
 
