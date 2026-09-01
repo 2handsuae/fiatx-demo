@@ -1072,14 +1072,18 @@ describe('getCase 行注解（spec §3/§8）', () => {
   it('ORPHAN_INTERNAL 行：已匹配里有同 ref 同额行 → duplicateTwinRef 命中；其余为 null', async () => {
     // 银行只报一次「REF-DUP / 100」；我方入了两次——一次被匹配器认领配对
     // （int-dup-matched），一次没有对应外部行、成了孤儿（int-dup-orphan）。
-    // 第三条 int-other-orphan 的 (ref, amount) 跟已匹配池毫无交集，是「假信号」
-    // 对照组：不该被误标成双胞胎线索。
+    // int-dup-diffamt 同参考号「REF-DUP」但金额是 50——单独验证复合键里「金额也要
+    // 比」这一半（评审 Important：此前唯一的反例 int-other-orphan 连参考号都跟
+    // 已匹配池不一样，key 弱化成只比参考号也测不出来，42 个用例全绿一条没红）。
+    // int-other-orphan 的 (ref, amount) 跟已匹配池毫无交集，是「假信号」对照组：
+    // 不该被误标成双胞胎线索。
     const externalLines = [
       { id: 'ext-dup', direction: 'IN', amount: new Prisma.Decimal(100), externalRef: 'REF-DUP', datetime: new Date('2026-06-27T10:00:00Z'), description: null },
     ];
     const internalFlows = [
       { id: 'int-dup-matched', direction: 'IN', amount: new Prisma.Decimal(100), externalRef: 'REF-DUP', eventCode: 'DEPOSIT_IN', sourceType: 'PAYIN', sourceNo: 'PAY-DUP-1', createdAt: new Date('2026-06-27T10:00:05Z') },
       { id: 'int-dup-orphan', direction: 'IN', amount: new Prisma.Decimal(100), externalRef: 'REF-DUP', eventCode: 'DEPOSIT_IN', sourceType: 'PAYIN', sourceNo: 'PAY-DUP-2', createdAt: new Date('2026-06-27T10:05:00Z') },
+      { id: 'int-dup-diffamt', direction: 'IN', amount: new Prisma.Decimal(50), externalRef: 'REF-DUP', eventCode: 'DEPOSIT_IN', sourceType: 'PAYIN', sourceNo: 'PAY-DUP-3', createdAt: new Date('2026-06-27T10:10:00Z') },
       { id: 'int-other-orphan', direction: 'OUT', amount: new Prisma.Decimal(999), externalRef: 'REF-OTHER', eventCode: 'WITHDRAW_OUT', sourceType: 'WITHDRAW', sourceNo: 'WD-OTHER', createdAt: new Date('2026-06-27T11:00:00Z') },
     ];
     const prisma = mkBasePrisma({
@@ -1092,6 +1096,7 @@ describe('getCase 行注解（spec §3/§8）', () => {
         matched: [{ internalFlowId: 'int-dup-matched', externalLineId: 'ext-dup' }],
         orphanInternal: [
           { internalFlowId: 'int-dup-orphan' },
+          { internalFlowId: 'int-dup-diffamt' },
           { internalFlowId: 'int-other-orphan' },
         ],
         orphanExternal: [],
@@ -1104,6 +1109,11 @@ describe('getCase 行注解（spec §3/§8）', () => {
     const dupOrphan = result.flowComparison.find((r: any) => r.internalFlow?.id === 'int-dup-orphan');
     expect(dupOrphan.matchType).toBe('ORPHAN_INTERNAL');
     expect(dupOrphan.duplicateTwinRef).toBe('REF-DUP');
+
+    // 同参考号、金额不同——复合键必须把这行判定为不命中，否则「金额也要比」这条
+    // 规则形同虚设（只比参考号也会让这行显示出线索，但它其实不是同一笔银行来账）。
+    const diffAmtOrphan = result.flowComparison.find((r: any) => r.internalFlow?.id === 'int-dup-diffamt');
+    expect(diffAmtOrphan.duplicateTwinRef).toBeNull();
 
     const otherOrphan = result.flowComparison.find((r: any) => r.internalFlow?.id === 'int-other-orphan');
     expect(otherOrphan.duplicateTwinRef).toBeNull();
