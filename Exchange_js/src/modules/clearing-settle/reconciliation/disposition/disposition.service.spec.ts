@@ -23,6 +23,16 @@ function build(overrides: any = {}) {
   return { svc: new DispositionService(prisma, audit), prisma, audit };
 }
 
+// 极简 Prisma where 求值器：OR 取任一子条件命中，其余键值要求逐一相等。
+// 只有当 service 传来的 where 语义正确时，下面回归测试里的 existing 才会被
+// 找到——如果 service 退回成把两个锚 AND 进同一层 where，这里会判不中。
+function whereMatches(row: any, where: any): boolean {
+  return Object.entries(where).every(([key, value]) => {
+    if (key === 'OR') return (value as any[]).some((cond) => whereMatches(row, cond));
+    return row[key] === value;
+  });
+}
+
 describe('DispositionService.record（spec §3.2/§7）', () => {
   it('挂起：落定性记录 + 审计带显式 requestId，不碰账', async () => {
     const { svc, prisma, audit } = build();
@@ -67,6 +77,33 @@ describe('DispositionService.record（spec §3.2/§7）', () => {
       matchType: 'ORPHAN_INTERNAL', explainedFlowId: 'f1',
       causeCode: 'DUP_BOOKING', findingNote: 'x', internalDirection: 'IN',
     } as any, ACTOR)).rejects.toThrow(BadRequestException);
+  });
+  it('同锚查找按 OR 而非 AND——锚集跨轮次漂移仍需命中既有记录、维持挂单锁（回归：曾经的 AND 写法会漏网）', async () => {
+    // 场景还原评审逮到的缺陷：这条证据第一次定性时是 ORPHAN_INTERNAL，
+    // 库里只留了 explainedFlowId，explainedExternalLineId 是 null；下一轮
+    // 对账把它重分类成 AMOUNT_MISMATCH，新请求两个锚都带上了。
+    const existing = {
+      caseNo: 'REC-1', dispositionNo: 'RCD000', explainedFlowId: 'f1', explainedExternalLineId: null, adjustmentNo: 'ADJ001',
+    };
+    const findFirstMock = jest.fn().mockImplementation(({ where }: any) =>
+      Promise.resolve(whereMatches(existing, where) ? existing : null));
+    const { svc, prisma } = build({
+      reconciliationDisposition: { findFirst: findFirstMock, update: jest.fn(), create: jest.fn() },
+    });
+
+    await expect(svc.record('REC-1', {
+      matchType: 'AMOUNT_MISMATCH', explainedFlowId: 'f1', explainedExternalLineId: 'x-new',
+      causeCode: 'AMT_MISBOOKED', findingNote: '重分类后两个锚都带', deltaSign: 1, internalSourceType: 'DEPOSIT',
+    } as any, ACTOR)).rejects.toThrow(/ADJ001/); // 命中 existing 才会报出它挂的单号
+
+    // 断言调用参数：必须按字段独立 OR，不能把两个锚 AND 进同一层 where
+    // ——否则新请求的 explainedExternalLineId='x-new' 永远碰不上库里的 null。
+    const calledWhere = findFirstMock.mock.calls[0][0].where;
+    expect(calledWhere.OR).toEqual(expect.arrayContaining([
+      { explainedFlowId: 'f1' },
+      { explainedExternalLineId: 'x-new' },
+    ]));
+    expect(prisma.reconciliationDisposition.create).not.toHaveBeenCalled();
   });
   it('两个锚都缺 → 400；案件非 OPEN → 400', async () => {
     const { svc } = build();
