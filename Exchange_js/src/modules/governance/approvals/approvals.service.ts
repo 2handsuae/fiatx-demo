@@ -1130,15 +1130,41 @@ export class ApprovalsService {
    * 演示用：把该单超时时间拨到过去，下一轮 @Cron 扫描即过期。与三域
    * simulate-sla-timeout 同款。只拨时间、不直改状态：过期这条边必须由
    * 扫描器走，否则演的是假门。
+   *
+   * operator 点按钮触发、改了持久字段（timeoutAt）→ 必须留痕（规则①），
+   * 照抄三域 setSlaDeadlineByNo 的先例写 recordByActor。requestId 每次
+   * 现生成一个新的 UUID：同一单允许被反复按 ⚡，每次都要落一行，不能被
+   * 幂等键悄悄去重成一行。
    */
-  async simulateTimeoutByNo(approvalNo: string) {
-    const approval = await this.prisma.approvalCase.findUnique({ where: { approvalNo } });
+  async simulateTimeoutByNo(approvalNo: string, actor: ApprovalActorContext) {
+    const approval = (await this.prisma.approvalCase.findUnique({
+      where: { approvalNo },
+      include: this.approvalInclude(),
+    })) as ApprovalCaseRow | null;
     if (!approval) throw new NotFoundException(`Approval ${approvalNo} not found`);
     if (approval.status !== ApprovalStatuses.PENDING) {
       throw new BadRequestException(`Approval ${approvalNo} is ${approval.status}, only PENDING can be fast-forwarded`);
     }
     const timeoutAt = new Date(Date.now() - 1000);
     await this.prisma.approvalCase.update({ where: { id: approval.id }, data: { timeoutAt } });
+
+    await this.auditLogsService.recordByActor(
+      {
+        action: 'APPROVAL_TIMEOUT_SIMULATED',
+        actionDomain: 'APPROVAL',
+        category: AuditCategory.GOVERNANCE,
+        primarySubjectType: AuditEntityTypes.APPROVAL_CASE,
+        primarySubjectNo: approvalNo,
+        correlationId: this.inheritedCorrelationId(approval),
+        outcome: AuditOutcome.SUCCESS,
+        reason: 'Demo: timeout fast-forwarded',
+        approvalNo,
+        requestId: randomUUID(),
+        sourcePlatform: 'ADMIN_API',
+      },
+      this.toAuditActor(actor),
+    );
+
     return { approvalNo, timeoutAt };
   }
 }

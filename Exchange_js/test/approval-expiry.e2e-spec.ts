@@ -5,7 +5,10 @@ import { AppModule } from '../src/app.module';
 import { PrismaService } from '../src/core/prisma/prisma.service';
 import { ApprovalExpiryService } from '../src/modules/governance/approvals/approval-expiry.service';
 import { ApprovalsService } from '../src/modules/governance/approvals/approvals.service';
-import { ApprovalStatuses } from '../src/modules/governance/approvals/constants/approval.constants';
+import {
+  ApprovalActorContext,
+  ApprovalStatuses,
+} from '../src/modules/governance/approvals/constants/approval.constants';
 
 describe('审批超时门（⑥ 门不可绕）', () => {
   let app: INestApplication;
@@ -48,10 +51,24 @@ describe('审批超时门（⑥ 门不可绕）', () => {
     expect(after.status).toBe(ApprovalStatuses.PENDING);
   });
 
-  it('⚡ 拨到过去后，下一轮扫描该单即过期', async () => {
+  it('⚡ 拨到过去后，下一轮扫描该单即过期，且留痕 APPROVAL_TIMEOUT_SIMULATED', async () => {
     const approvalsService = app.get(ApprovalsService);
     const c = await mk('SIM', new Date(Date.now() + 48 * 3_600_000));
-    await approvalsService.simulateTimeoutByNo(c.approvalNo);
+    // operator 触发的持久化动作必须留痕（铁律①）——形状照 toAuditActor 的消费。
+    const actor: ApprovalActorContext = {
+      actorType: 'ADMIN',
+      userId: 'test-admin-user',
+      userNo: 'ADM-TEST',
+      role: 'SUPER_ADMIN',
+      roleCodes: ['SUPER_ADMIN'],
+    };
+    await approvalsService.simulateTimeoutByNo(c.approvalNo, actor);
+
+    const auditRow = await prisma.auditLogEvent.findFirst({
+      where: { action: 'APPROVAL_TIMEOUT_SIMULATED', primarySubjectNo: c.approvalNo },
+    });
+    expect(auditRow).not.toBeNull();
+
     await expiry.sweep();
     const after = await prisma.approvalCase.findUniqueOrThrow({ where: { id: c.id } });
     expect(after.status).toBe(ApprovalStatuses.EXPIRED);

@@ -646,6 +646,7 @@ export const V1_AUDIT_ACTIONS: Record<string, AuditActionSpec> = {
   APPROVAL_CANCELLED:  { domain: 'APPROVAL', correlationMode: I, requiredFields: ['approvalNo', 'reason'], requiresCausation: false },
   APPROVAL_EXPIRED:    { domain: 'APPROVAL', correlationMode: I, requiredFields: ['approvalNo'], requiresCausation: false },
   APPROVAL_SOD_DENIED: { domain: 'APPROVAL', correlationMode: I, requiredFields: ['reasonCode'], requiresCausation: false },
+  APPROVAL_TIMEOUT_SIMULATED: { domain: 'APPROVAL', correlationMode: I, requiredFields: ['approvalNo'], requiresCausation: false },
 
   // ── ① 入职邀请 ──────────────────────────────────────────
   ADMIN_INVITE_REQUESTED:  { domain: 'IAM', correlationMode: S, requiredFields: ['afterData'], requiresCausation: false },

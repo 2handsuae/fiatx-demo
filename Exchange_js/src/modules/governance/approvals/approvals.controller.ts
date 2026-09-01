@@ -85,8 +85,8 @@ export class ApprovalsController {
   @Post(':approvalNo/simulate-timeout')
   @ApiOperation({ summary: '演示用：把该审批单的超时时间拨到过去，下轮扫描即过期' })
   @RequirePermissions(buildPermissionCode('POST', '/admin/control-gates/approvals/:approvalNo/simulate-timeout'))
-  simulateTimeout(@Param('approvalNo') approvalNo: string) {
-    return this.approvalsService.simulateTimeoutByNo(approvalNo);
+  simulateTimeout(@Req() req: any, @Param('approvalNo') approvalNo: string) {
+    return this.approvalsService.simulateTimeoutByNo(approvalNo, this.ensureAdmin(req));
   }
 
   @Get(':id')
