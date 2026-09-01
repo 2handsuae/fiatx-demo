@@ -47,6 +47,7 @@ NestJS + Prisma + SQLite 后端 ｜ React 管理台 ｜ React 客户端 ｜ 会�
 
 - spec / plan 由 superpowers 技能产出，格式技能自治；写入 `doc-final/superpowers/{specs,plans}/`，任务合并后移入 `doc-final/archive/`
 - 任务标题用业务语言；任务开场必须列「本任务做 / 不做」，"不做"项对照 §2
+- 任务收尾对照 `doc-final/rules/delivery-checklist.md`——按触发条件列出必须交付的东西；plan 引用它，不重抄
 - 评审按 `doc-final/rules/review-rubric.md`，只判三件事，其余不算缺陷
 - 派 subagent 时，任务 prompt 必须带上本文件 §0–§5 的要点
 

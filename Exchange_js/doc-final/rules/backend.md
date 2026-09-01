@@ -1,5 +1,7 @@
 # 后端写法（backend）
 
+> **开工前先过一遍 [`delivery-checklist.md`](delivery-checklist.md)** —— 按触发条件列出这个任务必须交付的东西（留痕 / 权限 / 状态 / 记账 / 前端入口 / 三域对称 …）。
+
 Last Updated: 2026-08-26 ｜ 取代 backend-platform.md（生产宪法版）。本文件只有一个目的：**让业务逻辑好读**。兜底类要求已随演示化治理废止（判断标准见 CLAUDE.md §1–§2）；历史设计决策见 `../decisions.md`。
 
 ## 三层结构（推荐结构，不是审批门）

@@ -10,7 +10,7 @@
 | `prd/` | 需求原文（重新撰写中，篇目另定）（待建） | 业主 | 改对应模块前 |
 | `demo/` | 演示剧本（七幕）/ 数据字典 / 跑分基线 / 模拟说明 ｜ **七幕主线即验收口径** | 主线业主定，其余 agent | 演示前；改页面/种子时同步；**验收时** |
 | `decisions.md` | 业务决策记录，只追加 | 业主 | **动任何设计前** |
-| `rules/` | 写法约束 + `review-rubric.md` 评审表 | 业主 | 写码 / 评审时 |
+| `rules/` | 写法约束 + `delivery-checklist.md` 交付清单 + `review-rubric.md` 评审表 | 业主 | 写码 / 评审时 |
 | `superpowers/{specs,plans}/` | **活层**：进行中任务的 spec / plan（格式由 superpowers 技能自治）；任务合并后移入 `archive/` | agent | 执行任务时 |
 | `glossary/` ｜ `ui-contract/` | 术语表 ｜ 前端 UI 契约 | 业主 | 需要时 |
 | `reference/roadmap.md` | 版本规划（V1–V9；`roadmap.en.md` 为英文渲染，中文版为唯一真相） | 业主 | 排期时 |

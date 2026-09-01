@@ -1,4 +1,6 @@
 # Frontend: Client UI Rules
+
+> **开工前先过一遍 [`delivery-checklist.md`](delivery-checklist.md)** —— 按触发条件列出这个任务必须交付的东西（留痕 / 权限 / 状态 / 记账 / 前端入口 / 三域对称 …）。
 Last Updated: 2026-04-21 | Scope: Wave 1–4 | Source: docs/constraints/frontend-client-ui-constraints.md, frontend-platform-constraints.md
 
 ---
