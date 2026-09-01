@@ -531,20 +531,16 @@ export class AdminPasswordResetWorkflowService {
     }
     if (tokenRecord.expiresAt <= new Date()) {
       // 找得到 tokenRecord 就能定位是哪次旅程被拒——按 requestSource 分流记一条
-      // DENIED，不让这次真实发生过的尝试从审计里静默消失。整段（含 findById 查
-      // primarySubjectNo）包在 try/catch 里：审计侧任何问题都不能替换掉即将抛出的
-      // "令牌过期"这个真实原因。
-      try {
-        const subjectUser = await this.usersDomainService.findById(tokenRecord.userId);
-        await this.recordConsumeOutcome(
-          tokenRecord,
-          subjectUser?.userNo ?? tokenRecord.userId,
-          AuditOutcome.DENIED,
-          'TOKEN_EXPIRED',
-        );
-      } catch {
-        // best-effort，见上方注释。
-      }
+      // DENIED，不让这次真实发生过的尝试从审计里静默消失。留痕失败即流程失败，
+      // 对齐记账铁律（2026-09-01 法一纪律3）：findById/recordConsumeOutcome 失败
+      // 会和"令牌过期"一起自然向上抛，不再用 try/catch 吞错。
+      const subjectUser = await this.usersDomainService.findById(tokenRecord.userId);
+      await this.recordConsumeOutcome(
+        tokenRecord,
+        subjectUser?.userNo ?? tokenRecord.userId,
+        AuditOutcome.DENIED,
+        'TOKEN_EXPIRED',
+      );
       throw new BadRequestException({
         code: 'INVALID_OR_EXPIRED_TOKEN',
         message: 'Invalid or expired reset token',
