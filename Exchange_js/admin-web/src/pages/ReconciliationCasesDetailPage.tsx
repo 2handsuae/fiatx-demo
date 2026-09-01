@@ -747,7 +747,7 @@ const ReconciliationCasesDetailPage = () => {
               below, and those timestamps duplicate the sidebar Created/Updated fields. */}
           <DetailCard title="账户身份 / Account Identity" columns={1}>
             <div className="flex flex-wrap gap-x-8 gap-y-2 font-mono text-[12px]">
-              <span><span className="text-adm-t3">钱包 </span><span className="text-adm-t1" title={kase.walletRef ?? undefined}>{kase.walletNo ?? (kase.walletRef ? kase.walletRef.slice(0, 12) : '—')}</span></span>
+              <span><span className="text-adm-t3">钱包 </span><span className="text-adm-t1">{kase.walletNo ?? (kase.walletRef ? kase.walletRef.slice(0, 12) : '—')}</span></span>
               <span><span className="text-adm-t3">客户 </span><span className="text-adm-t1">{kase.ownerNo ?? '—'}</span></span>
               <span><span className="text-adm-t3">科目 </span><span className="text-adm-t1">{kase.coaCode ?? '—'}</span></span>
               <span><span className="text-adm-t3">币种 </span><span className="text-adm-t1">{kase.assetCode}{kase.book ? ` · ${kase.book}` : ''}</span></span>

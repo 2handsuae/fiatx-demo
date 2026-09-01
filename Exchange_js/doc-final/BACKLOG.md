@@ -11,7 +11,7 @@
 > **⭐ = 带同事走七幕时会当场看到或讲不圆的**，共 31 条。一行四要素：是什么 ｜ 哪来的 ｜ 落点 / 状态。做完就勾掉。
 > 分诊历史：2026-08-26 首次分流（加固类迁出）；2026-08-28 二次分诊——业务/技术彻底分家：8 条已完成或已作废销账、45 条迁 `PRODUCTION-NOTES`、4 条从 `PRODUCTION-NOTES` 判回业务；同日「演示装备」A 档 8 条逐条实跑复核，6 条实证已修当场销账。**2026-08-29 演示装备一期收官**——A 档剩下的 2 条（造数花名册、补料回炉）做完销账，A 档 8/8 全部完成、整节退役删除（原文见「本轮销账」章节与 git 历史）；导语并入 §B。分诊前全文见 git 历史（`649b4e88`）。
 
-Last Updated: 2026-08-31
+Last Updated: 2026-09-02
 
 
 ## B. 第一幕 · 开业（V1 治理底座 ｜ V3 财务配置 ｜ 账本）
@@ -160,7 +160,7 @@ Last Updated: 2026-08-31
 
 - [ ] **流水 match tag 结转未做**：行项每 run delete-then-insert 全量重配、无持久行状态；应 Reconciled 冻结踢出、只对未决+新增。上文「reObservedCount 恒为 0」是无持久行状态的同源症状。⚠ **落地时字段名用 `reconciliationStatus`（Reconciliation Status，业主定名），枚举 `Open / Reconciled / In-transit / Exception`**（PRD §5.2 已定，勿再叫 tag / UNRECONCILED / OPEN_EXCEPTION）｜来源: spec §0.5/§3.2 + 2026-07-13 PRD 命名
 
-- [ ] ⭐ **对账 Cases 列表页 Δ 显示的是原始「分」整数、未按 decimals 分→元**：`ReconciliationCasesListPage.tsx:297` 直接 `{kase.deltaAmount}` 渲染（仅用 `Number()` 判正负/零），USDT case 会把 3000000 分显示成 "3000000"。修法需后端 `listCases` 返回 `decimals`（同 getCase：按 assetCode 查 asset 表）+ 前端列表按行 `formatAmount(delta, decimals)`。同族的 DemoCompare 页 `AmountCell`（manifest 口径答案键，属另一比对面，暂不动）｜来源: 2026-07-04 canon2 T4 冰山排查（T4 只改两详情页，列表页超范围）
+- [x] ⭐ ~~对账 Cases 列表页 Δ 显示的是原始「分」整数、未按 decimals 分→元~~ —— 已解（2026-09-02，平账一期半 Task 10）：后端 `listCases` 已在 Task 7 随行下发 `decimals`；列表页改用 `ReconciliationCasesDetailPage.tsx` 既有导出的 `formatAmount`（Task 8 导出，带千分位的展示格式化）按行缩放，不新增第三个金额格式化函数。同族的 DemoCompare 页 `AmountCell`（manifest 口径答案键，属另一比对面）仍未动 ｜来源: 2026-07-04 canon2 T4 冰山排查（T4 只改两详情页，列表页超范围）
 
 - [ ] **canonical-minor 展示层 re-pairing 未传 decimals**：`reconciliation-query.service.ts` `buildFlowComparison()` 的 `matchFlows` 调用暂传 `decimals: 0`（identity 换算，保持 Case 详情流水比对页现状不变），TODO 标记待 Task B 补该 case 资产 `asset.decimals`｜来源: 2026-07-04 canonical-minor Task A（Task B 收口）
 
@@ -178,8 +178,9 @@ Last Updated: 2026-08-31
 - [ ] 🎯 **三期 · 事故登记** —— C3（未授权转出：钥匙泄露 / 内部人作案 / 银行误划）业主定性为**事故**，不是普通差异。补款只是善后，事故本身要：登记、定性、升级（MLRO / 管理层）、通报监管（VARA 重大差异通报，roadmap ⚖️ ADVANCED 在案）。一期二期做完后 C3 能走到「认损 → case 关掉 → 赔付到账」，但**事故这一层仍是空的**。⚠ **抽不抽成独立模块，三期到了再定，现在不预设**：今天只有两个用例（C3 + INTERNAL_BREAK 恒等破裂），且都还在纸上，形状没长出来，按「不为单次使用建抽象」先别抽。**若要建，必须先在 decisions.md 写清它跟已删的 `incidents` 的区别**——decisions.md [合规承接] 明确「不重建内部合规信号管道（compliance-alerts / incidents 已删）」；区别在于被删的是**合规筛查信号**（那活归 Sumsub），而这里是**运营/安全事件**（Sumsub 管不着），但这个区分不写进 decisions 就不算数 ｜来源: 2026-08-28 平账三期切分脑暴（业主提出抽模块的可能，我方建议缓到三期再定）
 
 - [ ] **调账单的边界线守卫只查原单「存在」，不查「归属」** —— `adjustment.service.ts` 的 `relatedOrderExists()` 按单号在充值/提现/兑换三表查存在性即放行，**不校验这张单是不是本案客户的**。刻意划在这儿：spec §4 立的规则是「有原单 ⇒ KYT 已对它跑过」，存在性就是这条规则的字面内容；要「引错别人的单」成为问题，前提是操作员恶意，那落在 CLAUDE.md §3「管理员都是善意的」与禁做清单「边界防御」里。存在性检查已堵死 spec 点名的「凭空造钱」，剩下的是引错凭证的数据质量问题、不是闸门被绕。**留此一行是为了日后评 PRD 时不被当成遗漏** ｜来源: 2026-08-28 平账一期末站评审
-- [ ] **对账案件详情页把 walletRef（内部 UUID）挂在 tooltip 上** —— `ReconciliationCasesDetailPage.tsx` 的 `title={kase.walletRef ?? undefined}`，鼠标悬停即露出内部 UUID，踩铁律⑥「管理台不暴露 UUID」。同页可见文本已经正确用了 `walletNo`，只有这个 tooltip 漏了。**既有问题**（平账一期 Task 7 评审用 hunk 边界分析确认非本轮引入）。修法：tooltip 改用 `walletNo`，或直接去掉——可见文本已经够用 ｜来源: 2026-08-28 平账一期 Task 7 评审顺带发现
+- [x] ~~对账案件详情页把 walletRef（内部 UUID）挂在 tooltip 上~~ —— 已解（2026-09-02，平账一期半 Task 10）：直接删除该 `title` 属性，可见文本本就正确用了 `walletNo` ｜来源: 2026-08-28 平账一期 Task 7 评审顺带发现
 
+- [ ] **对账运行详情页也把 walletRef（内部 UUID）挂在 tooltip 上** —— `ReconciliationRunsDetailPage.tsx:592` 的 `title={row.walletRef}`（连 `?? undefined` 兜底都没有，恒渲染完整 UUID），可见文本 `displayWallet`（`:568`）已经优先用 `row.walletNo`，只有这个 tooltip 漏了——与刚修好的 Cases 详情页同一个坑，同踩铁律⑥。修法同款：删 tooltip 或换成 walletNo ｜来源: 2026-09-02 平账一期半 Task 10 顺带发现（超出本任务范围，未修）
 
 - [ ] **开调账单（DRAFT）这一步零审计**（2026-08-31 终审）：`adjustment.service.ts` 的 `createDraft` 全程没有 `recordByActor`，整个文件只有落账那一处有。运营开一张带金额、成因、关联原单的单，**只要不提审，审计就查不到**。设计稿说"提交/批准/驳回由审批中心留痕"——**唯独没说开单**，而 DRAFT 阶段根本没有审批件。参照兄弟件 `push-order.service.ts`：每个动作都有审计。爆炸半径有限（DRAFT 动不了钱），但铁律①说的是"每个持久化动作" ｜来源: 2026-08-31 整支终审
 

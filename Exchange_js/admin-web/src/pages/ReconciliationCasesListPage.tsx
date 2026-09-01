@@ -2,8 +2,10 @@
 //
 // T6 — Cases list = tracking view.
 //   - Default URL: ?status=OPEN&sort=aging.desc (server already sorts aging desc per T3).
-//   - Columns: Case ID | Wallet | COA | Owner | Asset | Aging | Δ | First Run | Last Run | Status.
+//   - Columns: Case ID | Wallet | COA | Owner | Asset | Aging | Δ | First Run | Last Run | 定性进度 | Status.
 //     (Wallet + COA were previously a single stacked "Account" column — split for clarity.)
+//   - 定性进度 (disposition progress) = dispositionCount/anomalyLineCount, i.e. how many
+//     of the case's flagged lines already have a recorded finding vs. still untriaged.
 //   - Aging tiers visualise triage urgency (0-3 muted, 4-7 amber, 8+ red).
 //   - Row click → /admin/reconciliation/cases/{caseNo}.
 //   - V8 columns (book/layer/business-date) removed; per-wallet model surfaces wallet+coa+owner instead.
@@ -17,6 +19,10 @@ import {
 } from '../utils/adminFetch';
 import { PageTitleBar } from '../components/ui/PageTitleBar';
 import Pagination from '../components/common/Pagination';
+// 分→元展示格式化：复用详情页既有的 formatAmount（带千分位，展示专用），
+// 不再造第三个同类工具（同类先例：ReconciliationAdjustmentCreateModal /
+// ReconciliationDispositionModal 都已这样引用）。
+import { formatAmount } from './ReconciliationCasesDetailPage';
 
 /* ── Interfaces ──────────────────────────────────────────────── */
 
@@ -35,6 +41,9 @@ interface ReconCase {
   firstSeenRunNo: string | null;    // business No (e.g. "RUN-0042")
   lastUpdatedRunNo: string | null;  // business No
   walletNo: string | null;  // business key resolved server-side
+  dispositionCount: number;   // T7: rows in reconciliation_dispositions for this case
+  anomalyLineCount: number;   // T7: case's flagged line items (mismatch/orphan)
+  decimals: number;           // T7: asset decimals — scales deltaAmount (分→元)
 }
 
 /* ── Constants ───────────────────────────────────────────────── */
@@ -198,6 +207,7 @@ const ReconciliationCasesListPage = () => {
                   ['Δ', '120px', 'right'],
                   ['First Run', '100px', 'left'],
                   ['Last Run', '100px', 'left'],
+                  ['定性进度', '90px', 'left'],
                   ['Status', '100px', 'left'],
                 ] as [string, string, string][]
               ).map(([label, w, align]) => (
@@ -214,14 +224,14 @@ const ReconciliationCasesListPage = () => {
           <tbody>
             {loading && (
               <tr>
-                <td colSpan={10} className="px-4 py-10 text-center font-mono text-[11px] text-adm-t3">
+                <td colSpan={11} className="px-4 py-10 text-center font-mono text-[11px] text-adm-t3">
                   Loading…
                 </td>
               </tr>
             )}
             {!loading && cases.length === 0 && (
               <tr>
-                <td colSpan={10} className="px-4 py-10 text-center font-mono text-[11px] text-adm-t3">
+                <td colSpan={11} className="px-4 py-10 text-center font-mono text-[11px] text-adm-t3">
                   No {statusFromUrl === 'ALL' ? '' : statusLabel(statusFromUrl).toLowerCase() + ' '}
                   reconciliation cases found.
                 </td>
@@ -294,7 +304,7 @@ const ReconciliationCasesListPage = () => {
                       {hasDelta ? (
                         <span className="font-mono text-[11px] font-semibold text-adm-amber">
                           {deltaSign}
-                          {kase.deltaAmount}
+                          {formatAmount(kase.deltaAmount, kase.decimals)}
                         </span>
                       ) : (
                         <span className="font-mono text-[10px] italic text-adm-t3">balanced</span>
@@ -319,6 +329,12 @@ const ReconciliationCasesListPage = () => {
                           {kase.lastUpdatedRunNo}
                         </span>
                       )}
+                    </td>
+
+                    {/* 定性进度 — dispositionCount/anomalyLineCount; '—' when the case has
+                        no flagged lines to triage (nothing to qualify). */}
+                    <td className="px-3 py-3 font-mono text-[11px] text-adm-t3">
+                      {kase.anomalyLineCount > 0 ? `${kase.dispositionCount}/${kase.anomalyLineCount}` : '—'}
                     </td>
 
                     {/* Status badge */}
