@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { OnEvent } from '@nestjs/event-emitter';
@@ -23,6 +24,8 @@ const SECONDARY_EVENT = 'workflow.admin-role-binding-change.decided';
 
 @Injectable()
 export class AdminRoleBindingChangeWorkflowService {
+  private readonly logger = new Logger(AdminRoleBindingChangeWorkflowService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly accessControlService: AccessControlService,
@@ -223,10 +226,16 @@ export class AdminRoleBindingChangeWorkflowService {
         systemActor,
       );
 
-      await (this.prisma as any).adminRoleChangeRequest.update({
-        where: { id: request.id },
+      // from 过滤：终态不被二次事件覆写——只有仍处于 PENDING_APPROVAL 的申请单才允许
+      // 落 APPROVED，count=0 说明该单已被另一次事件推走，放弃后续写入。
+      const { count } = await (this.prisma as any).adminRoleChangeRequest.updateMany({
+        where: { id: request.id, status: 'PENDING_APPROVAL' },
         data: { status: 'APPROVED', executedAt: new Date() },
       });
+      if (count === 0) {
+        this.logger.warn(`[executeRoleChange] Request ${request.id} not PENDING_APPROVAL, skip`);
+        return;
+      }
 
       await this.auditLogsService.recordByActor(
         {
@@ -315,10 +324,15 @@ export class AdminRoleBindingChangeWorkflowService {
     });
     if (!request) return;
 
-    await (this.prisma as any).adminRoleChangeRequest.update({
-      where: { id: request.id },
+    // from 过滤：终态不被二次事件覆写——同 executeRoleChange 同款处理。
+    const { count } = await (this.prisma as any).adminRoleChangeRequest.updateMany({
+      where: { id: request.id, status: 'PENDING_APPROVAL' },
       data: { status },
     });
+    if (count === 0) {
+      this.logger.warn(`[executeTermination] Request ${request.id} not PENDING_APPROVAL, skip`);
+      return;
+    }
 
     // ADMIN_ROLE_CHANGE_CANCELLED：本轮新增码，之前这条路径（驳回/撤销/超时）完全没有
     // 审计留痕。三种终止原因合成一条码，用 reason/metadata.decision 区分是哪一种——

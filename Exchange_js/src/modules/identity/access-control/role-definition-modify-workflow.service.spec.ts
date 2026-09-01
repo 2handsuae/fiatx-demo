@@ -220,5 +220,43 @@ describe('RoleDefinitionModifyWorkflowService', () => {
         { subjectType: 'ACCESS_CONTROL', subjectNo: 'OPS_VIEWER', subjectRole: 'RELATED' },
       ]);
     });
+
+    it('驳回一张修改申请后，单据状态是 REJECTED 而不是 CANCELLED（法二·修边）', async () => {
+      const request = buildRequestRow({ role: { code: 'OPS_VIEWER' } });
+      prisma.roleDefinitionModifyRequest.findUnique.mockResolvedValue(request);
+
+      await service.onDecided(buildDecidedEvent('DECLINED', 'trace-88', 'checker rejected'));
+
+      // 审批 handler 发的驳回信号是 'DECLINED'（approval-handler.base.ts），此前这里
+      // 恒比对永不出现的 'REJECTED' 字面量，三种终止原因全落 CANCELLED——REJECTED
+      // 态从建成起不可达。经迁移表显式映射后，DECLINED 必须落 REJECTED。
+      expect(prisma.roleDefinitionModifyRequest.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 'req-1' },
+          data: expect.objectContaining({ status: 'REJECTED' }),
+        }),
+      );
+    });
+
+    it('落地失败的修改申请状态是 FAILED，不再是 APPROVED+failureReason（法二·拆态）', async () => {
+      const request = buildRequestRow();
+      prisma.roleDefinitionModifyRequest.findUnique.mockResolvedValue(request);
+      // role 本身非 ACTIVE——命中"角色未激活"分支，驱动 failRequest 路径。
+      prisma.role.findUnique.mockResolvedValue({ ...activeRole, status: 'PENDING_APPROVAL' });
+
+      await service.onDecided(buildDecidedEvent('APPROVED', 'trace-42'));
+
+      // 落地失败此前把 status 写成 'APPROVED'（借 failureReason 字段表达"其实失败了"），
+      // 与真正审批通过的终态无法区分。经迁移表 FAIL 动作后必须落独立的 FAILED 态。
+      expect(prisma.roleDefinitionModifyRequest.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 'req-1' },
+          data: expect.objectContaining({
+            status: 'FAILED',
+            failureReason: expect.any(String),
+          }),
+        }),
+      );
+    });
   });
 });

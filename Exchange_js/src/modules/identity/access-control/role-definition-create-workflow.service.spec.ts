@@ -138,7 +138,12 @@ describe('RoleDefinitionCreateWorkflowService', () => {
     });
 
     it('驳回/取消/超时写 CANCELLED(INHERIT+因果，新增码)', async () => {
-      prisma.role.findUnique.mockResolvedValue({ id: 'role-1', code: 'OPS_VIEWER' });
+      // status: 'PENDING_APPROVAL' —— 还在等审批的创建申请，取消守卫放行。
+      prisma.role.findUnique.mockResolvedValue({
+        id: 'role-1',
+        code: 'OPS_VIEWER',
+        status: 'PENDING_APPROVAL',
+      });
 
       await service.onDecided(buildDecidedEvent('DECLINED', 'trace-77'));
 
@@ -149,6 +154,23 @@ describe('RoleDefinitionCreateWorkflowService', () => {
       expect(call[0].correlationId).toBe('trace-77');
       expect(call[0].causationId).toBe('apr-1');
       expect(call[0].reason).toBeTruthy();
+    });
+
+    it('已终态的创建申请不能再取消（裸 delete 有守卫，法二·取消守卫）', async () => {
+      // role 已经是 ACTIVE（早被另一条路径激活）——取消守卫必须拦下，不许裸 delete。
+      prisma.role.findUnique.mockResolvedValue({
+        id: 'role-1',
+        code: 'OPS_VIEWER',
+        status: 'ACTIVE',
+      });
+
+      await service.onDecided(buildDecidedEvent('DECLINED', 'trace-77'));
+
+      expect(prisma.role.delete).not.toHaveBeenCalled();
+      const call = auditLogsService.recordSystem.mock.calls.find(
+        (c: any[]) => c[0].action === 'ROLE_DEFINITION_CREATE_CANCELLED',
+      );
+      expect(call).toBeUndefined();
     });
   });
 });

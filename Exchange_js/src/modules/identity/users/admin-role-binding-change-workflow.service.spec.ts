@@ -25,6 +25,7 @@ describe('AdminRoleBindingChangeWorkflowService', () => {
       adminRoleChangeRequest: {
         create: jest.fn(),
         update: jest.fn(),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
         findFirst: jest.fn(),
         findMany: jest.fn(),
         count: jest.fn(),
@@ -172,8 +173,11 @@ describe('AdminRoleBindingChangeWorkflowService', () => {
         ['MLRO'],
         expect.objectContaining({ actorId: 'SYSTEM' }),
       );
-      expect(prisma.adminRoleChangeRequest.update).toHaveBeenCalledWith(
+      // 法二·from 过滤：终态不被二次事件覆写，write 改用 updateMany + where.status
+      // 显式限定来源态，count 检查放在 executeRoleChange 内部（source 已改，此处验证调用形状）。
+      expect(prisma.adminRoleChangeRequest.updateMany).toHaveBeenCalledWith(
         expect.objectContaining({
+          where: expect.objectContaining({ id: 'req-1', status: 'PENDING_APPROVAL' }),
           data: expect.objectContaining({ status: 'APPROVED' }),
         }),
       );
@@ -272,8 +276,10 @@ describe('AdminRoleBindingChangeWorkflowService', () => {
 
       await service.handleApprovalDecided(event);
 
-      expect(prisma.adminRoleChangeRequest.update).toHaveBeenCalledWith(
+      // 法二·from 过滤：executeTermination 的 write 也改用 updateMany + where.status。
+      expect(prisma.adminRoleChangeRequest.updateMany).toHaveBeenCalledWith(
         expect.objectContaining({
+          where: expect.objectContaining({ id: 'req-1', status: 'PENDING_APPROVAL' }),
           data: expect.objectContaining({ status: 'REJECTED' }),
         }),
       );
@@ -314,8 +320,9 @@ describe('AdminRoleBindingChangeWorkflowService', () => {
 
       await service.handleApprovalDecided(event);
 
-      expect(prisma.adminRoleChangeRequest.update).toHaveBeenCalledWith(
+      expect(prisma.adminRoleChangeRequest.updateMany).toHaveBeenCalledWith(
         expect.objectContaining({
+          where: expect.objectContaining({ id: 'req-1', status: 'PENDING_APPROVAL' }),
           data: expect.objectContaining({ status: 'CANCELLED' }),
         }),
       );
@@ -352,8 +359,9 @@ describe('AdminRoleBindingChangeWorkflowService', () => {
 
       await service.handleApprovalDecided(event);
 
-      expect(prisma.adminRoleChangeRequest.update).toHaveBeenCalledWith(
+      expect(prisma.adminRoleChangeRequest.updateMany).toHaveBeenCalledWith(
         expect.objectContaining({
+          where: expect.objectContaining({ id: 'req-1', status: 'PENDING_APPROVAL' }),
           data: expect.objectContaining({ status: 'EXPIRED' }),
         }),
       );

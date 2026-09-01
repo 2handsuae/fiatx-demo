@@ -15,6 +15,7 @@ import {
 import { AuditCategory, AuditOutcome, AuditSubjectInput, AuditSubjectRole } from '../../audit-logging/dto/audit-log.dto';
 import { RBAC_PERMISSION_DEFINITIONS, type PermissionGroup } from './rbac.catalog';
 import { generateReferenceNo } from '../../../common/utils/no-generator.util';
+import { RoleRequestAction, assertRoleRequestTransition } from './constants/role-request-transitions.constant';
 
 const VALID_PERMISSION_GROUPS = new Set<string>(
   RBAC_PERMISSION_DEFINITIONS.flatMap((p) => p.groups),
@@ -389,7 +390,7 @@ export class RoleDefinitionModifyWorkflowService {
       await tx.roleDefinitionModifyRequest.update({
         where: { id: request.id },
         data: {
-          status: 'APPROVED',
+          status: assertRoleRequestTransition(request.status, RoleRequestAction.APPROVE),
           executedAt: new Date(),
         },
       });
@@ -435,7 +436,11 @@ export class RoleDefinitionModifyWorkflowService {
   ) {
     await this.prisma.roleDefinitionModifyRequest.update({
       where: { id: request.id },
-      data: { status: 'APPROVED', failureReason: reason, executedAt: new Date() },
+      data: {
+        status: assertRoleRequestTransition(request.status, RoleRequestAction.FAIL),
+        failureReason: reason,
+        executedAt: new Date(),
+      },
     });
 
     const { beforeData, afterData } = this.buildModifyDiffFromRequest(request);
@@ -490,7 +495,14 @@ export class RoleDefinitionModifyWorkflowService {
       return;
     }
 
-    const newStatus = decision === 'REJECTED' ? 'REJECTED' : 'CANCELLED';
+    // 修边：审批 handler(approval-handler.base.ts)发的驳回信号是 'DECLINED'，
+    // 从不是 'REJECTED'——此前这里比对 'REJECTED' 恒假，三种终止原因(驳回/取消/超时)
+    // 全落 CANCELLED 一个桶，REJECTED 态从建成起不可达。经迁移表显式映射，非法来源态拒绝。
+    const action =
+      decision === 'DECLINED' ? RoleRequestAction.REJECT
+      : decision === 'EXPIRED' ? RoleRequestAction.EXPIRE
+      : RoleRequestAction.CANCEL;
+    const newStatus = assertRoleRequestTransition(request.status, action);
 
     await this.prisma.roleDefinitionModifyRequest.update({
       where: { id: request.id },

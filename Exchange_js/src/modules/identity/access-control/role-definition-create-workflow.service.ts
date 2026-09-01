@@ -287,6 +287,13 @@ export class RoleDefinitionCreateWorkflowService {
         this.logger.warn(`Role ${roleId} not found for cancellation`);
         return;
       }
+      // 取消守卫：裸 delete 此前不查状态——已终态(如另一条路径已把角色激活为 ACTIVE)
+      // 的创建申请仍可能被一次迟到/重复的取消事件删掉。只有还在 PENDING_APPROVAL 的
+      // 提案才允许被取消删除。
+      if (role.status !== 'PENDING_APPROVAL') {
+        this.logger.warn(`Role ${roleId} not in PENDING_APPROVAL status (status=${role.status}), skip cancellation`);
+        return;
+      }
 
       await this.prisma.role.delete({ where: { id: role.id } });
 
