@@ -180,7 +180,11 @@ Last Updated: 2026-09-02
 - [ ] **调账单的边界线守卫只查原单「存在」，不查「归属」** —— `adjustment.service.ts` 的 `relatedOrderExists()` 按单号在充值/提现/兑换三表查存在性即放行，**不校验这张单是不是本案客户的**。刻意划在这儿：spec §4 立的规则是「有原单 ⇒ KYT 已对它跑过」，存在性就是这条规则的字面内容；要「引错别人的单」成为问题，前提是操作员恶意，那落在 CLAUDE.md §3「管理员都是善意的」与禁做清单「边界防御」里。存在性检查已堵死 spec 点名的「凭空造钱」，剩下的是引错凭证的数据质量问题、不是闸门被绕。**留此一行是为了日后评 PRD 时不被当成遗漏** ｜来源: 2026-08-28 平账一期末站评审
 - [x] ~~对账案件详情页把 walletRef（内部 UUID）挂在 tooltip 上~~ —— 已解（2026-09-02，平账一期半 Task 10）：直接删除该 `title` 属性，可见文本本就正确用了 `walletNo` ｜来源: 2026-08-28 平账一期 Task 7 评审顺带发现
 
-- [ ] **对账运行详情页也把 walletRef（内部 UUID）挂在 tooltip 上** —— `ReconciliationRunsDetailPage.tsx:592` 的 `title={row.walletRef}`（连 `?? undefined` 兜底都没有，恒渲染完整 UUID），可见文本 `displayWallet`（`:568`）已经优先用 `row.walletNo`，只有这个 tooltip 漏了——与刚修好的 Cases 详情页同一个坑，同踩铁律⑥。修法同款：删 tooltip 或换成 walletNo ｜来源: 2026-09-02 平账一期半 Task 10 顺带发现（超出本任务范围，未修）
+- [ ] **对账模块还有 3 处同型 tooltip 漏 UUID**（铁律⑥）——Task 10 只修了 brief 圈定的那一处，同一类还剩三处，都是「可见文本已正确用业务键、只有 `title` 漏了」：
+  - `ReconciliationRunsDetailPage.tsx:592` `title={row.walletRef}` —— **连 `?? undefined` 兜底都没有**，恒渲染完整钱包 UUID；可见文本 `displayWallet`（`:568`）已优先用 `row.walletNo`
+  - `ReconciliationCasesListPage.tsx:316` `title={kase.firstSeenRunId ?? undefined}` —— 悬停露 run UUID（实测形如 `ebbbe729-abc8-476d-9b5e-5f6d4d799df6`），可见文本已是 `runNo`
+  - `ReconciliationCasesListPage.tsx:328` `title={kase.lastUpdatedRunId ?? undefined}` —— 同上
+  修法同款：删 `title` 属性（可见文本已经够用）。**三处宜一次清完**，否则下次又只修被点名的那一处 ｜来源: 2026-09-02 平账一期半 Task 10 实现者 + 评审各发现一半（均超出该任务范围，未修）
 
 - [ ] **开调账单（DRAFT）这一步零审计**（2026-08-31 终审）：`adjustment.service.ts` 的 `createDraft` 全程没有 `recordByActor`，整个文件只有落账那一处有。运营开一张带金额、成因、关联原单的单，**只要不提审，审计就查不到**。设计稿说"提交/批准/驳回由审批中心留痕"——**唯独没说开单**，而 DRAFT 阶段根本没有审批件。参照兄弟件 `push-order.service.ts`：每个动作都有审计。爆炸半径有限（DRAFT 动不了钱），但铁律①说的是"每个持久化动作" ｜来源: 2026-08-31 整支终审
 
