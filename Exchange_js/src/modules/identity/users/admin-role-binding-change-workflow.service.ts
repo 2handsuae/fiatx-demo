@@ -18,6 +18,7 @@ import {
   ApprovalActorContext,
 } from '../../governance/approvals/constants/approval.constants';
 import { AccessControlService } from '../access-control/access-control.service';
+import { RoleRequestAction, assertRoleRequestTransition } from '../access-control/constants/role-request-transitions.constant';
 import { CreateRoleChangeRequestDto, RoleChangeRequestQueryDto } from './dto/create-role-change-request.dto';
 
 const SECONDARY_EVENT = 'workflow.admin-role-binding-change.decided';
@@ -190,11 +191,11 @@ export class AdminRoleBindingChangeWorkflowService {
       case 'APPROVED':
         return this.executeRoleChange(event);
       case 'DECLINED':
-        return this.executeTermination(event, 'REJECTED');
+        return this.executeTermination(event, RoleRequestAction.REJECT);
       case 'CANCELLED':
-        return this.executeTermination(event, 'CANCELLED');
+        return this.executeTermination(event, RoleRequestAction.CANCEL);
       case 'EXPIRED':
-        return this.executeTermination(event, 'EXPIRED');
+        return this.executeTermination(event, RoleRequestAction.EXPIRE);
     }
   }
 
@@ -230,7 +231,10 @@ export class AdminRoleBindingChangeWorkflowService {
       // 落 APPROVED，count=0 说明该单已被另一次事件推走，放弃后续写入。
       const { count } = await (this.prisma as any).adminRoleChangeRequest.updateMany({
         where: { id: request.id, status: 'PENDING_APPROVAL' },
-        data: { status: 'APPROVED', executedAt: new Date() },
+        data: {
+          status: assertRoleRequestTransition('PENDING_APPROVAL', RoleRequestAction.APPROVE),
+          executedAt: new Date(),
+        },
       });
       if (count === 0) {
         this.logger.warn(`[executeRoleChange] Request ${request.id} not PENDING_APPROVAL, skip`);
@@ -275,7 +279,10 @@ export class AdminRoleBindingChangeWorkflowService {
 
       await (this.prisma as any).adminRoleChangeRequest.update({
         where: { id: request.id },
-        data: { status: 'FAILED', failureReason },
+        data: {
+          status: assertRoleRequestTransition('PENDING_APPROVAL', RoleRequestAction.FAIL),
+          failureReason,
+        },
       });
 
       // 退役码 CHANGE_APPLY_FAILED 收编进来——同一动作码 ADMIN_ROLE_CHANGE_APPLIED，
@@ -317,12 +324,14 @@ export class AdminRoleBindingChangeWorkflowService {
 
   private async executeTermination(
     event: ApprovalDecidedEvent,
-    status: 'REJECTED' | 'CANCELLED' | 'EXPIRED',
+    action: RoleRequestAction,
   ) {
     const request = await (this.prisma as any).adminRoleChangeRequest.findFirst({
       where: { id: event.entityRef },
     });
     if (!request) return;
+
+    const status = assertRoleRequestTransition('PENDING_APPROVAL', action);
 
     // from 过滤：终态不被二次事件覆写——同 executeRoleChange 同款处理。
     const { count } = await (this.prisma as any).adminRoleChangeRequest.updateMany({
