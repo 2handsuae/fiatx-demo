@@ -201,7 +201,7 @@ interface ReconCaseDetail {
 // case asset's real decimals (getCase returns `decimals` from the asset table).
 // bigint-safe string padding — no float, so USDT (6dp) shows every digit right.
 // decimals=0 (asset lookup miss / integer asset) degrades to no fraction part.
-const formatAmount = (raw: string | null | undefined, decimals: number): string => {
+export const formatAmount = (raw: string | null | undefined, decimals: number): string => {
   const s = String(raw ?? '0');
   let neg = false;
   let body = s;
@@ -322,7 +322,7 @@ const MATCH_TONE: Record<FlowMatchType, string> = {
   AMOUNT_MISMATCH: `${TONE_CLASSES.red.border} ${TONE_CLASSES.red.bg} ${TONE_CLASSES.red.text}`,
 };
 
-const MATCH_LABEL: Record<FlowMatchType, string> = {
+export const MATCH_LABEL: Record<FlowMatchType, string> = {
   MATCHED:         'Matched / 已匹配',
   IN_TRANSIT:      'In-transit / 在途',
   ORPHAN_INTERNAL: 'Internal only / 我有外无',
@@ -828,9 +828,10 @@ const ReconciliationCasesDetailPage = () => {
                                 <span
                                   title={row.disposition.findingNote}
                                   className={[
-                                    'inline-flex items-center gap-1 whitespace-nowrap rounded border px-1.5 py-0.5 font-mono text-[10px] text-adm-t2',
+                                    'inline-flex items-center gap-1 whitespace-nowrap rounded border px-1.5 py-0.5 font-mono text-[10px]',
                                     TONE_CLASSES[OUTLET_TONE[row.disposition.outlet]].border,
                                     TONE_CLASSES[OUTLET_TONE[row.disposition.outlet]].bg,
+                                    TONE_CLASSES[OUTLET_TONE[row.disposition.outlet]].text,
                                   ].join(' ')}
                                 >
                                   已定性 · {row.disposition.causeLabel} → {row.disposition.outletLabel} · {row.disposition.createdBy} {row.disposition.createdAt.slice(5, 10)}
@@ -1027,6 +1028,7 @@ const ReconciliationCasesDetailPage = () => {
         caseNo={kase.caseNo}
         row={dispositionRow}
         caseStatus={kase.status}
+        decimals={kase.decimals}
         onClose={() => setDispositionRow(null)}
         onRecorded={fetchCase}
         onProceedToAdjust={handleAdjustHandoff}

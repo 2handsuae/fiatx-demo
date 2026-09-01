@@ -11,7 +11,7 @@ import { useEffect, useState } from 'react';
 import { adminButtonClass } from './common/adminButtonStyles';
 import { AdminSessionError, adminFetch, getApiErrorMessage } from '../utils/adminFetch';
 import { rowFacts, directionNoteFor } from '../utils/causeRegistry';
-import type { FlowComparisonRow } from '../pages/ReconciliationCasesDetailPage';
+import { MATCH_LABEL, formatAmount, type FlowComparisonRow } from '../pages/ReconciliationCasesDetailPage';
 
 // ADJUST 类出口判完后交回父组件的 handoff——父组件据此打开调账弹层。Task 9 会用
 // family/reasonCode/direction/directionNote 补一个锁定视图；本任务只负责把它们
@@ -42,6 +42,7 @@ interface ReconciliationDispositionModalProps {
   caseNo: string;
   row: FlowComparisonRow | null;
   caseStatus: string;
+  decimals: number;
   onClose: () => void;
   onRecorded: () => void;
   onProceedToAdjust: (handoff: AdjustHandoff) => void;
@@ -52,6 +53,7 @@ const ReconciliationDispositionModal = ({
   caseNo,
   row,
   caseStatus,
+  decimals,
   onClose,
   onRecorded,
   onProceedToAdjust,
@@ -125,7 +127,8 @@ const ReconciliationDispositionModal = ({
           <>
             <h3 className="mb-1 text-sm font-semibold text-adm-t1">处置 · 这条差异查下来的成因是？</h3>
             <p className="mb-3 font-mono text-[11px] text-adm-t3">
-              {caseNo} · {caseStatus} · {row.matchType} · {(row.externalLine ?? row.internalFlow)?.amount} · ref{' '}
+              {caseNo} · {caseStatus} · {MATCH_LABEL[row.matchType]} ·{' '}
+              {formatAmount((row.externalLine ?? row.internalFlow)?.amount, decimals)} · ref{' '}
               {(row.externalLine?.externalRef ?? row.internalFlow?.externalRef) ?? '—'}
             </p>
             <div className="space-y-1.5">
