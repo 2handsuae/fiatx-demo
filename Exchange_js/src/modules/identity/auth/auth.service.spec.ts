@@ -108,6 +108,50 @@ describe('AuthService', () => {
     ).rejects.toBeInstanceOf(ForbiddenException);
   });
 
+  it.each(['INVITE_SENT', 'PENDING_INVITE_APPROVAL'])(
+    '%s 账号（受邀未接受/待审批）任意密码登录一律 ForbiddenException，不进失败计数',
+    async (status) => {
+      usersService.findByIdentifier.mockResolvedValue({
+        id: 'user-1',
+        userNo: 'ADM-001',
+        role: 'CISO',
+        email: 'ciso@fiatx.com',
+        password: '$2b$10$abc',
+        status,
+        failedLoginAttempts: 0,
+        lockedUntil: null,
+      });
+
+      await expect(
+        service.validateUser('ciso@fiatx.com', 'any-password'),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+
+      expect(usersService.update).not.toHaveBeenCalled();
+      expect(usersDomainService.applyUserTransition).not.toHaveBeenCalled();
+    },
+  );
+
+  it('INVITE_SENT 账号连打 5 次也不会命中 LOCK 分支：迁移表这两态没有 LOCK 边，前置守卫必须先拦住', async () => {
+    usersService.findByIdentifier.mockResolvedValue({
+      id: 'user-1',
+      userNo: 'ADM-001',
+      role: 'CISO',
+      email: 'ciso@fiatx.com',
+      password: '$2b$10$abc',
+      status: 'INVITE_SENT',
+      failedLoginAttempts: 4,
+      lockedUntil: null,
+    });
+
+    for (let i = 0; i < 5; i++) {
+      await expect(
+        service.validateUser('ciso@fiatx.com', 'wrong-password'),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+    }
+
+    expect(usersDomainService.applyUserTransition).not.toHaveBeenCalled();
+  });
+
   it('should reject deleted admin login through active-user lookup filtering', async () => {
     usersService.findByIdentifier.mockResolvedValue(null);
 

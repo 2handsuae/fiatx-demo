@@ -227,7 +227,6 @@ export class UsersDomainService {
 
   async setFirstLoginStatus(
     userId: string,
-    status: string,
     tx?: Prisma.TransactionClient,
     traceId?: string,
   ): Promise<void> {
@@ -237,11 +236,11 @@ export class UsersDomainService {
       select: { id: true, firstLoginStatus: true },
     });
     if (!user) throw new NotFoundException('User not found');
-    assertFirstLoginTransition(user.firstLoginStatus, FirstLoginAction.CONFIRM);
+    const to = assertFirstLoginTransition(user.firstLoginStatus, FirstLoginAction.CONFIRM);
     await client.user.update({
       where: { id: userId },
       data: {
-        firstLoginStatus: status,
+        firstLoginStatus: to,
         ...(traceId ? { firstLoginTraceId: traceId } : {}),
       },
     });

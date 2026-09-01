@@ -54,6 +54,14 @@ export class AuthService {
       throw new ForbiddenException('Account has been suspended');
     }
 
+    if (user.status === 'INVITE_SENT' || user.status === 'PENDING_INVITE_APPROVAL') {
+      // 未激活账号（受邀未接受 / 待审批）本就不该走密码登录——显式拒绝在密码比对与
+      // 失败计数之前返回，LOCK 分支从此只会在 ACTIVE 起始态触达，迁移表自然成立
+      // （否则连错 5 次会落到 applyUserTransition(LOCK)，迁移表里这两态没有 LOCK 边，
+      // 未捕获 ConflictException 裸传导成 /auth/login 409）。
+      throw new ForbiddenException('Account not activated yet');
+    }
+
     if (
       user.status === 'LOCKED' &&
       user.lockedUntil &&

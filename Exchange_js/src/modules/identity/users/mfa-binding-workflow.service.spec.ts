@@ -59,7 +59,6 @@ describe('MfaBindingWorkflowService', () => {
       await service.confirmIdentity('u1');
       expect(usersDomainService.setFirstLoginStatus).toHaveBeenCalledWith(
         'u1',
-        'MFA_BINDING',
         undefined,
         expect.any(String),
       );
@@ -75,7 +74,6 @@ describe('MfaBindingWorkflowService', () => {
 
       expect(usersDomainService.setFirstLoginStatus).toHaveBeenCalledWith(
         'u1',
-        'MFA_BINDING',
         undefined,
         traceId,
       );

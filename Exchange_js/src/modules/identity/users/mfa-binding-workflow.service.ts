@@ -160,7 +160,7 @@ export class MfaBindingWorkflowService {
     // START：该行政员这次首登旅程的 correlationId。firstLoginTraceId 是 User 表上现成的
     // 承载列（专为首登流程起的名字），同一次 update 里跟状态一起写回，供后续三步 INHERIT 读回。
     const correlationId = randomUUID();
-    await this.usersDomainService.setFirstLoginStatus(userId, 'MFA_BINDING', undefined, correlationId);
+    await this.usersDomainService.setFirstLoginStatus(userId, undefined, correlationId);
 
     await this.auditLogsService.recordByActor(
       {

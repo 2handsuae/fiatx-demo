@@ -29,16 +29,22 @@ describe('UsersDomainService — mfa-binding methods', () => {
   describe('setFirstLoginStatus', () => {
     it('throws NotFoundException when user not found', async () => {
       prisma.user.findFirst.mockResolvedValue(null);
-      await expect(service.setFirstLoginStatus('u1', 'MFA_BINDING')).rejects.toThrow(NotFoundException);
+      await expect(service.setFirstLoginStatus('u1')).rejects.toThrow(NotFoundException);
     });
 
-    it('updates status when user exists', async () => {
+    it('写入值取迁移表返回值（PENDING_IDENTITY_CONFIRM --CONFIRM--> MFA_BINDING），不是裸参数', async () => {
       prisma.user.findFirst.mockResolvedValue(baseUser);
       prisma.user.update.mockResolvedValue({ ...baseUser, firstLoginStatus: 'MFA_BINDING' });
-      await service.setFirstLoginStatus('u1', 'MFA_BINDING');
+      await service.setFirstLoginStatus('u1');
       expect(prisma.user.update).toHaveBeenCalledWith(
         expect.objectContaining({ data: expect.objectContaining({ firstLoginStatus: 'MFA_BINDING' }) }),
       );
+    });
+
+    it('非法跃迁被表挡下：非 PENDING_IDENTITY_CONFIRM 不能 CONFIRM，且不写库', async () => {
+      prisma.user.findFirst.mockResolvedValue({ ...baseUser, firstLoginStatus: 'MFA_BINDING' });
+      await expect(service.setFirstLoginStatus('u1')).rejects.toThrow(ConflictException);
+      expect(prisma.user.update).not.toHaveBeenCalled();
     });
   });
 
