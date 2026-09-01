@@ -516,23 +516,19 @@ export const AuditGovernanceActions = {
   // ASSET_ACTIVATION_FAILED 三码（ASSET_ACTIVATED 码值不变只进合同，ACTIVATION_REQUESTED/
   // ACTIVATION_FAILED 改前缀唯一），全仓零消费方，本组已删。
 
-  // Transaction Limit Change (2026-05-16)
-  TRANSACTION_LIMIT_CHANGE: {
-    CHANGE_REQUESTED:      'CHANGE_REQUESTED',
-    CHANGE_APPLIED:        'CHANGE_APPLIED',
-    CHANGE_APPLY_FAILED:   'CHANGE_APPLY_FAILED',
-    CHANGE_CANCELLED:      'CHANGE_CANCELLED',
-  },
+  // Transaction Limit Change (2026-05-16)：已退役，Task 14 迁到 V1_AUDIT_ACTIONS 的
+  // TRANSACTION_LIMIT_CHANGE_REQUESTED/APPLIED/APPLY_FAILED/CANCELLED 四码（前缀唯一），
+  // 全仓零消费方（2026-09-02 grep 核实），本组已删。
 
-  // Transaction Limit Creation (2026-05-16)
-  TRANSACTION_LIMIT_CREATION: {
-    CREATION_REQUESTED:     'CREATION_REQUESTED',
-    CREATION_APPLIED:       'CREATION_APPLIED',
-    CREATION_APPLY_FAILED:  'CREATION_APPLY_FAILED',
-    CREATION_CANCELLED:     'CREATION_CANCELLED',
-  },
+  // Transaction Limit Creation (2026-05-16)：已退役，Task 14 迁到 V1_AUDIT_ACTIONS 的
+  // TRANSACTION_LIMIT_CREATION_REQUESTED/APPLIED/APPLY_FAILED/CANCELLED 四码，
+  // 全仓零消费方，本组已删。两族共用的 8 个裸名（CREATION_/CHANGE_ 各 REQUESTED/
+  // APPLIED/APPLY_FAILED/CANCELLED）随本批一并登 DEPRECATED_AUDIT_ACTIONS——Task 12
+  // 迁走费率域时特意留白的「未登」警告到此解除（'CHANGE_APPLY_FAILED' 早前已在
+  // 站7批次登过，不重复登记）。
 
-  // Transaction Limit runtime enforcement (2026-07-16)
+  // Transaction Limit runtime enforcement (2026-07-16)：非本批裸名（不跨族复用），
+  // Task 14 顺带补登 V1_AUDIT_ACTIONS 合同（见上方限额两族附近），本行/call site 不变。
   TRANSACTION_LIMIT_REJECTED: 'TRANSACTION_LIMIT_REJECTED',   // L1 金额限额拦截(A/B) — used by Task 4 engine
 
   // Withdrawal Fee Level Creation/Change、Swap Fee Level Creation/Change：
@@ -540,18 +536,9 @@ export const AuditGovernanceActions = {
   // WITHDRAWAL_FEE_LEVEL_CHANGE_*／SWAP_FEE_LEVEL_CREATION_*／SWAP_FEE_LEVEL_CHANGE_*
   // 十六码（前缀唯一，解 CREATION_REQUESTED 等裸名跨族撞车），四本子组写点已清零
   // （2026-09-01 grep 核实），本组已删。
-  // ⚠️ 未登 DEPRECATED_AUDIT_ACTIONS：CREATION_REQUESTED/CREATION_APPLIED/
-  // CREATION_APPLY_FAILED/CREATION_CANCELLED/CHANGE_REQUESTED/CHANGE_APPLIED/
-  // CHANGE_APPLY_FAILED/CHANGE_CANCELLED 这 8 个裸名此刻仍被下面保留的
-  // TRANSACTION_LIMIT_CREATION／TRANSACTION_LIMIT_CHANGE 两族真实写入——现在登
-  // 退役会让限额族的写入被 assertActionSpec 当场拒收。退役登记留给 Task 14（限额
-  // 两族迁完、裸名再无消费方时）一并做。
 
-  // Customer Tags (2026-07-13)
-  CUSTOMER_TAG: {
-    TAG_ASSIGNED: 'TAG_ASSIGNED',
-    TAG_REVOKED:  'TAG_REVOKED',
-  },
+  // Customer Tags (2026-07-13)：已退役，Task 14 迁到 V1_AUDIT_ACTIONS 的
+  // CUSTOMER_TAG_ASSIGNED/CUSTOMER_TAG_REVOKED 两码，全仓零消费方，本组已删。
 } as const;
 
 // 站4 清扫:十条死词映射(APPROVAL_APPROVED/EXECUTED、ADMIN_INVITATION_*、USER_*、
@@ -713,6 +700,30 @@ export const V1_AUDIT_ACTIONS: Record<string, AuditActionSpec> = {
   ASSET_REACTIVATED:             { domain: 'CONFIG', correlationMode: I, requiredFields: ['approvalNo'], requiresCausation: true },
   ASSET_REACTIVATION_FAILED:     { domain: 'CONFIG', correlationMode: I, requiredFields: [], requiresCausation: true },
 
+  // ── 交易限额规则（2026-09-02 换名册·批三）：CREATION_/CHANGE_ 两族裸名跨族撞车
+  // （同 8 个裸词也被费率两域用过，Task 12 已把费率四族迁走），本批改前缀唯一新码，
+  // 8 个裸名同批登退役（见下方 DEPRECATED_AUDIT_ACTIONS；'CHANGE_APPLY_FAILED' 早前
+  // 已在站7批次登过，不重复登记）。
+  TRANSACTION_LIMIT_CREATION_REQUESTED:    { domain: 'CONFIG', correlationMode: S, requiredFields: ['afterData'], requiresCausation: false },
+  TRANSACTION_LIMIT_CREATION_APPLIED:      { domain: 'CONFIG', correlationMode: I, requiredFields: ['afterData', 'approvalNo'], requiresCausation: true },
+  TRANSACTION_LIMIT_CREATION_APPLY_FAILED: { domain: 'CONFIG', correlationMode: I, requiredFields: [], requiresCausation: true },
+  TRANSACTION_LIMIT_CREATION_CANCELLED:    { domain: 'CONFIG', correlationMode: I, requiredFields: ['reason'], requiresCausation: true },
+  TRANSACTION_LIMIT_CHANGE_REQUESTED:      { domain: 'CONFIG', correlationMode: S, requiredFields: ['beforeData', 'afterData'], requiresCausation: false },
+  TRANSACTION_LIMIT_CHANGE_APPLIED:        { domain: 'CONFIG', correlationMode: I, requiredFields: ['beforeData', 'afterData', 'approvalNo'], requiresCausation: true },
+  TRANSACTION_LIMIT_CHANGE_APPLY_FAILED:   { domain: 'CONFIG', correlationMode: I, requiredFields: [], requiresCausation: true },
+  TRANSACTION_LIMIT_CHANGE_CANCELLED:      { domain: 'CONFIG', correlationMode: I, requiredFields: ['reason'], requiresCausation: true },
+  // L1 金额限额拦截运行时事件——发生在客户的提现/兑换单据出生之前（gate 挡在订单
+  // persist 之前，见 withdraw-workflow.service.ts:327 / swap-workflow.service.ts:220
+  // 调用点），此刻没有旅程可继承，correlationMode 定 NONE——同 ADMIN_ACCESS_DENIED
+  // 一样，守卫拒绝发生在任何旅程开始之前，没有 correlationId 可读。
+  TRANSACTION_LIMIT_REJECTED: { domain: 'CONFIG', correlationMode: N, requiredFields: ['reasonCode'], requiresCausation: false },
+
+  // ── 客户标签（2026-09-02 换名册·批三）：assign/revoke 都是单步动作，不经
+  // createAndSubmit 审批旅程，没有 START 步铸的 correlationId 可继承，correlationMode
+  // 定 NONE（同 V2_CUSTOMER_AUDIT_ACTIONS 整册客户级动作一样，客户级件无订单旅程）。
+  CUSTOMER_TAG_ASSIGNED: { domain: 'CONFIG', correlationMode: N, requiredFields: ['afterData'], requiresCausation: false },
+  CUSTOMER_TAG_REVOKED:  { domain: 'CONFIG', correlationMode: N, requiredFields: ['beforeData', 'reason'], requiresCausation: false },
+
   // ── ⑪ 审计日志自身的操作 ────────────────────────────────
   AUDIT_EVIDENCE_EXPORT_REQUESTED:  { domain: 'AUDIT', correlationMode: S, requiredFields: [], requiresCausation: false },
   AUDIT_EVIDENCE_EXPORT_GENERATED:  { domain: 'AUDIT', correlationMode: I, requiredFields: ['payloadDigest'], requiresCausation: true },
@@ -747,11 +758,12 @@ export const V1_AUDIT_ACTIONS: Record<string, AuditActionSpec> = {
  * 退役码：标记 deprecated、不再允许新写入、历史仍可读。不是删除。
  * 7 个 *_FAILED 收编进 outcome=FAILED + reasonCode；4 个登录码归安全日志（③）。
  *
- * ⚠️ 这些都是老命名法裸词，不是扁平全局唯一——'CHANGE_APPLY_FAILED' 同时还被
- * TRANSACTION_LIMIT_CHANGE 这个保留（非 V1）域复用（SWAP_FEE_LEVEL_CHANGE /
- * WITHDRAWAL_FEE_LEVEL_CHANGE 两个原复用方已在 Task 12 迁走，改写前缀唯一新码，
- * 不再触碰这个裸词），且全部 11 个码此刻仍有真实调用方在写（迁移是 Task 5-9 的事）。
- * 因此 assertActionSpec 里对这份名单的拦截刻意加了 actionDomain 网关，见该方法注释。
+ * ⚠️ 这些都是老命名法裸词，不是扁平全局唯一——'CHANGE_APPLY_FAILED' 此前同时被
+ * TRANSACTION_LIMIT_CHANGE / SWAP_FEE_LEVEL_CHANGE / WITHDRAWAL_FEE_LEVEL_CHANGE
+ * 三个保留（非 V1）域复用；三个原复用方已分别在 Task 12（费率两域）/ Task 14（限额）
+ * 迁走，改写前缀唯一新码，不再触碰这个裸词。名单里其余码此刻仍可能有真实调用方在写
+ * （迁移是 Task 5-9 的事），因此 assertActionSpec 里对这份名单的拦截刻意加了
+ * actionDomain 网关，见该方法注释。
  */
 /**
  * 充值域名册（站1b-β，2026-08-26，业主终审版 31 码）。
@@ -1009,4 +1021,9 @@ export const DEPRECATED_AUDIT_ACTIONS: readonly string[] = [
   'SUSPENSION_REQUESTED', 'SUSPENSION_EXECUTION_FAILED',
   'REACTIVATION_REQUESTED', 'REACTIVATION_EXECUTION_FAILED',
   'ACTIVATION_REQUESTED', 'ACTIVATION_FAILED',
+  // 2026-09-02 换名册 · 限额两族 + 客户标签共用裸名退役（Task 14）——
+  // 'CHANGE_APPLY_FAILED' 已在上面「站7」批次登记过，此处不重复登记。
+  'CREATION_REQUESTED', 'CREATION_APPLIED', 'CREATION_APPLY_FAILED', 'CREATION_CANCELLED',
+  'CHANGE_REQUESTED', 'CHANGE_APPLIED', 'CHANGE_CANCELLED',
+  'TAG_ASSIGNED', 'TAG_REVOKED',
 ] as const;

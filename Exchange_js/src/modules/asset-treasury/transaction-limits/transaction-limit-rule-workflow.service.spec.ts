@@ -3,8 +3,8 @@ import { Prisma } from '@prisma/client';
 import { TransactionLimitRuleWorkflowService } from './transaction-limit-rule-workflow.service';
 import { AuditOutcome } from '../../audit-logging/dto/audit-log.dto';
 
-const CHANGE_APPLIED = 'CHANGE_APPLIED';
-const CHANGE_APPLY_FAILED = 'CHANGE_APPLY_FAILED';
+const CHANGE_APPLIED = 'TRANSACTION_LIMIT_CHANGE_APPLIED';
+const CHANGE_APPLY_FAILED = 'TRANSACTION_LIMIT_CHANGE_APPLY_FAILED';
 
 describe('TransactionLimitRuleWorkflowService', () => {
   let svc: TransactionLimitRuleWorkflowService;

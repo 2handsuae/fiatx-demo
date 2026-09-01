@@ -262,6 +262,8 @@ const CustomerDetail = () => {
   const [tagBusyCode, setTagBusyCode] = useState<string | null>(null);
   const [tagAddValue, setTagAddValue] = useState('');
   const [tagError, setTagError] = useState<string | null>(null);
+  const [removeTagTarget, setRemoveTagTarget] = useState<string | null>(null);
+  const [removeTagReason, setRemoveTagReason] = useState('');
 
   /* ── Material holdings state ── */
   const [holdings, setHoldings] = useState<MaterialHoldingSummary[]>([]);
@@ -398,16 +400,22 @@ const CustomerDetail = () => {
     }
   };
 
-  const handleRemoveTag = async (tagCode: string) => {
-    if (!detail) return;
+  const handleRemoveTag = async () => {
+    if (!detail || !removeTagTarget || !removeTagReason.trim()) return;
+    const tagCode = removeTagTarget;
     setTagBusyCode(tagCode);
     setTagError(null);
     try {
       const res = await adminFetch(
         `${import.meta.env.VITE_API_URL}/admin/customers/${detail.customerNo}/tags/${tagCode}`,
-        { method: 'DELETE' },
+        {
+          method: 'DELETE',
+          body: JSON.stringify({ reason: removeTagReason.trim() }),
+        },
       );
       if (!res.ok) throw new Error(await getApiErrorMessage(res, 'Failed to remove tag.'));
+      setRemoveTagTarget(null);
+      setRemoveTagReason('');
       fetchTags(detail.customerNo);
     } catch (e: unknown) {
       if (e instanceof AdminPermissionError) {
@@ -596,7 +604,7 @@ const CustomerDetail = () => {
                         {label}
                         {canManageTags && (
                           <button
-                            onClick={() => void handleRemoveTag(tagCode)}
+                            onClick={() => { setRemoveTagTarget(tagCode); setRemoveTagReason(''); setTagError(null); }}
                             disabled={tagBusyCode === tagCode}
                             aria-label={`Remove ${label}`}
                             className="text-adm-blue/70 hover:text-adm-red disabled:opacity-40"
@@ -1217,6 +1225,46 @@ const CustomerDetail = () => {
           setMaterialRequestsRefreshKey((k) => k + 1);
         }}
       />
+
+      {/* ── Remove tag modal ── */}
+      {removeTagTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="w-full max-w-md rounded-xl border border-adm-border bg-adm-panel shadow-xl">
+            <div className="border-b border-adm-border px-6 py-4">
+              <h2 className="text-base font-semibold text-adm-t1">Remove Tag</h2>
+              <p className="mt-1 text-xs text-adm-t3">
+                Remove {tagCatalog.find((t) => t.tagCode === removeTagTarget)?.displayName ?? removeTagTarget} from this customer.
+              </p>
+            </div>
+            <div className="px-6 py-4">
+              <label className="block font-mono text-[9px] font-semibold uppercase tracking-[0.12em] text-adm-t3 mb-1.5">
+                Reason
+              </label>
+              <textarea
+                value={removeTagReason}
+                onChange={(e) => setRemoveTagReason(e.target.value)}
+                placeholder="e.g. Pilot program ended"
+                className="w-full rounded border border-adm-border bg-adm-bg px-2.5 py-2 text-xs text-adm-t1 placeholder:text-adm-t3 outline-none focus:border-adm-amber h-20 resize-none"
+              />
+            </div>
+            <div className="flex justify-end gap-3 border-t border-adm-border px-6 py-4">
+              <button
+                onClick={() => { setRemoveTagTarget(null); setRemoveTagReason(''); }}
+                className={adminButtonClass('modalCancel')}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => void handleRemoveTag()}
+                disabled={!removeTagReason.trim() || tagBusyCode === removeTagTarget}
+                className={adminButtonClass('modalConfirm')}
+              >
+                Remove
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

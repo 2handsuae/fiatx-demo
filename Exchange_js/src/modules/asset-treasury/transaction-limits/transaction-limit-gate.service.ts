@@ -4,6 +4,7 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../core/prisma/prisma.service';
 import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import { AuditGovernanceActions, AuditEntityTypes, AuditBusinessWorkflowTypes } from '../../audit-logging/constants/audit-actions.constant';
+import { AuditOutcome } from '../../audit-logging/dto/audit-log.dto';
 import { BinanceRateProvider } from '../../trading/pricing-center/providers/binance-rate.provider';
 import { TransactionLimitRulesService } from './transaction-limit-rules.service';
 import { dubaiWindowStart } from './dubai-window.util';
@@ -107,8 +108,13 @@ export class TransactionLimitGateService {
   private async reject(input: GateInput, ruleNo: string, code: string, context: Record<string, string | undefined>): Promise<never> {
     await this.auditLogsService.recordSystem({
       action: AuditGovernanceActions.TRANSACTION_LIMIT_REJECTED,
+      actionDomain: 'CONFIG',
       primarySubjectType: AuditEntityTypes.TRANSACTION_LIMIT_POLICY,
       primarySubjectNo: ruleNo,
+      // 守卫在订单落库前拦下——outcome 记「系统主动挡住，动作压根没执行成」，
+      // 而不是「审计动作本身失败」。
+      outcome: AuditOutcome.DENIED,
+      reasonCode: code,
       // Per-attempt-unique requestId → distinct idempotency key so every rejection is
       // audited (default NO_REQUEST_ID fallback would dedup all breaches of one rule).
       requestId: `TRANSACTION_LIMIT_REJECTED_${ruleNo}_${input.customerId}_${randomUUID()}`,

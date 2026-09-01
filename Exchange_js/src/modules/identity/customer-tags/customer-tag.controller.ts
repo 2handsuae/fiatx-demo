@@ -94,9 +94,10 @@ export class CustomerTagController {
     @Req() req: any,
     @Param('customerNo') customerNo: string,
     @Param('tagCode') tagCode: string,
+    @Body() body: { reason: string },
   ) {
     this.ensureAdmin(req);
     const customerId = await this.resolveCustomerId(customerNo);
-    return this.customerTagService.revoke(customerId, tagCode, this.buildAdminActor(req));
+    return this.customerTagService.revoke(customerId, tagCode, body?.reason, this.buildAdminActor(req));
   }
 }
