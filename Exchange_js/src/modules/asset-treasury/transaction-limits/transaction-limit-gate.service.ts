@@ -3,7 +3,7 @@ import { randomUUID } from 'crypto';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../core/prisma/prisma.service';
 import { AuditLogsService } from '../../audit-logging/audit-logs.service';
-import { AuditGovernanceActions, AuditEntityTypes, AuditBusinessWorkflowTypes } from '../../audit-logging/constants/audit-actions.constant';
+import { AuditEntityTypes, AuditBusinessWorkflowTypes } from '../../audit-logging/constants/audit-actions.constant';
 import { AuditOutcome } from '../../audit-logging/dto/audit-log.dto';
 import { BinanceRateProvider } from '../../trading/pricing-center/providers/binance-rate.provider';
 import { TransactionLimitRulesService } from './transaction-limit-rules.service';
@@ -107,7 +107,7 @@ export class TransactionLimitGateService {
 
   private async reject(input: GateInput, ruleNo: string, code: string, context: Record<string, string | undefined>): Promise<never> {
     await this.auditLogsService.recordSystem({
-      action: AuditGovernanceActions.TRANSACTION_LIMIT_REJECTED,
+      action: 'TRANSACTION_LIMIT_REJECTED',
       actionDomain: 'CONFIG',
       primarySubjectType: AuditEntityTypes.TRANSACTION_LIMIT_POLICY,
       primarySubjectNo: ruleNo,

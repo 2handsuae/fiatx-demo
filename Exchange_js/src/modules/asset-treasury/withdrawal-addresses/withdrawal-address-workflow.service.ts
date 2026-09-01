@@ -4,7 +4,6 @@ import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import {
   AuditBusinessWorkflowTypes,
   AuditEntityTypes,
-  AuditGovernanceActions,
 } from '../../audit-logging/constants/audit-actions.constant';
 import { AuditOutcome } from '../../audit-logging/dto/audit-log.dto';
 import { WithdrawalAddressService } from './withdrawal-address.service';
@@ -74,12 +73,13 @@ export class WithdrawalAddressWorkflowService {
     });
 
     await this.auditLogsService.recordSystem({
-      action: AuditGovernanceActions.WITHDRAWAL_ADDRESS_REGISTRATION.ADDRESS_REGISTERED,
+      action: 'WITHDRAWAL_ADDRESS_REGISTERED',
+      actionDomain: 'CONFIG',
       primarySubjectType: AuditEntityTypes.WITHDRAWAL_ADDRESS,
       primarySubjectNo: address.addressNo,
-      traceId,
+      correlationId: traceId,
       outcome: AuditOutcome.SUCCESS,
-      metadata: { addressType, address: dto.address, network: asset.network, assetCurrency: asset.currency, counterpartyVaspName: attribution.vaspName, label: dto.label },
+      afterData: { addressType, address: dto.address, network: asset.network, assetCurrency: asset.currency, counterpartyVaspName: attribution.vaspName, label: dto.label },
       sourcePlatform: 'CLIENT_API',
       ownerCustomerNo: customerNo,
     });
@@ -129,12 +129,13 @@ export class WithdrawalAddressWorkflowService {
       : cleanIban;
 
     await this.auditLogsService.recordSystem({
-      action: AuditGovernanceActions.WITHDRAWAL_ADDRESS_REGISTRATION.ADDRESS_REGISTERED,
+      action: 'WITHDRAWAL_ADDRESS_REGISTERED',
+      actionDomain: 'CONFIG',
       primarySubjectType: AuditEntityTypes.WITHDRAWAL_ADDRESS,
       primarySubjectNo: address.addressNo,
-      traceId,
+      correlationId: traceId,
       outcome: AuditOutcome.SUCCESS,
-      metadata: { addressType: 'BANK', iban: maskedIban, bankName: dto.bankName, assetCurrency: asset.currency, skipCooling: address.status === 'ACTIVE' },
+      afterData: { addressType: 'BANK', iban: maskedIban, bankName: dto.bankName, assetCurrency: asset.currency, skipCooling: address.status === 'ACTIVE' },
       sourcePlatform: 'CLIENT_API',
       ownerCustomerNo: customerNo,
     });
@@ -143,18 +144,21 @@ export class WithdrawalAddressWorkflowService {
     return address;
   }
 
-  async cancelAddress(addressNo: string, customerId: string, customerNo: string) {
+  async cancelAddress(addressNo: string, customerId: string, customerNo: string, reason: string) {
+    if (!reason?.trim()) throw new BadRequestException('reason is required');
     const existing = await this.addressService.findByNo(addressNo);
     if (!existing) throw new NotFoundException({ code: 'ADDRESS_NOT_FOUND', message: `Address ${addressNo} not found` });
 
     const result = await this.addressService.cancel(addressNo, customerId);
 
     await this.auditLogsService.recordSystem({
-      action: AuditGovernanceActions.WITHDRAWAL_ADDRESS_REGISTRATION.ADDRESS_CANCELLED,
+      action: 'WITHDRAWAL_ADDRESS_CANCELLED',
+      actionDomain: 'CONFIG',
       primarySubjectType: AuditEntityTypes.WITHDRAWAL_ADDRESS,
       primarySubjectNo: addressNo,
-      traceId: existing.traceId,
+      correlationId: existing.traceId,
       outcome: AuditOutcome.SUCCESS,
+      reason,
       metadata: { cancelledByCustomerNo: customerNo },
       sourcePlatform: 'CLIENT_API',
       ownerCustomerNo: customerNo,
@@ -163,18 +167,21 @@ export class WithdrawalAddressWorkflowService {
     return result;
   }
 
-  async deactivateAddress(addressNo: string, customerId: string, customerNo: string) {
+  async deactivateAddress(addressNo: string, customerId: string, customerNo: string, reason: string) {
+    if (!reason?.trim()) throw new BadRequestException('reason is required');
     const existing = await this.addressService.findByNo(addressNo);
     if (!existing) throw new NotFoundException({ code: 'ADDRESS_NOT_FOUND', message: `Address ${addressNo} not found` });
 
     const result = await this.addressService.deactivate(addressNo, customerId);
 
     await this.auditLogsService.recordSystem({
-      action: AuditGovernanceActions.WITHDRAWAL_ADDRESS_REGISTRATION.ADDRESS_DEACTIVATED,
+      action: 'WITHDRAWAL_ADDRESS_DEACTIVATED',
+      actionDomain: 'CONFIG',
       primarySubjectType: AuditEntityTypes.WITHDRAWAL_ADDRESS,
       primarySubjectNo: addressNo,
-      traceId: existing.traceId,
+      correlationId: existing.traceId,
       outcome: AuditOutcome.SUCCESS,
+      reason,
       metadata: { deactivatedByCustomerNo: customerNo },
       sourcePlatform: 'CLIENT_API',
       ownerCustomerNo: customerNo,
@@ -191,10 +198,11 @@ export class WithdrawalAddressWorkflowService {
 
     if (result.status === 'ACTIVE' && existing.status === 'PENDING_ACTIVATION') {
       await this.auditLogsService.recordSystem({
-        action: AuditGovernanceActions.WITHDRAWAL_ADDRESS_REGISTRATION.ADDRESS_ACTIVATED,
+        action: 'WITHDRAWAL_ADDRESS_ACTIVATED',
+        actionDomain: 'CONFIG',
         primarySubjectType: AuditEntityTypes.WITHDRAWAL_ADDRESS,
         primarySubjectNo: addressNo,
-        traceId: existing.traceId,
+        correlationId: existing.traceId,
         outcome: AuditOutcome.SUCCESS,
         metadata: { activatedBy },
         sourcePlatform: 'SYSTEM',
@@ -213,12 +221,14 @@ export class WithdrawalAddressWorkflowService {
 
     await this.auditLogsService.recordByActor(
       {
-        action: AuditGovernanceActions.WITHDRAWAL_ADDRESS_REGISTRATION.ADDRESS_SUSPENDED,
+        action: 'WITHDRAWAL_ADDRESS_SUSPENDED',
+        actionDomain: 'CONFIG',
         primarySubjectType: AuditEntityTypes.WITHDRAWAL_ADDRESS,
         primarySubjectNo: addressNo,
-        traceId: existing.traceId,
+        correlationId: existing.traceId,
         outcome: AuditOutcome.SUCCESS,
-        metadata: { reason, suspendedBy: actor.userNo },
+        reason,
+        metadata: { suspendedBy: actor.userNo },
         sourcePlatform: 'ADMIN_API',
         ownerCustomerNo: existing.customerNo,
       },
@@ -245,7 +255,8 @@ export class WithdrawalAddressWorkflowService {
     }
   }
 
-  async skipCoolingPeriod(addressNo: string, actor: { userId: string; userNo: string; role: string }) {
+  async skipCoolingPeriod(addressNo: string, actor: { userId: string; userNo: string; role: string }, reason: string) {
+    if (!reason?.trim()) throw new BadRequestException('reason is required');
     const existing = await this.addressService.findByNo(addressNo);
     if (!existing) throw new NotFoundException({ code: 'ADDRESS_NOT_FOUND', message: `Address ${addressNo} not found` });
 
@@ -253,11 +264,13 @@ export class WithdrawalAddressWorkflowService {
 
     await this.auditLogsService.recordByActor(
       {
-        action: AuditGovernanceActions.WITHDRAWAL_ADDRESS_REGISTRATION.MANUAL_COOLING_SKIP,
+        action: 'WITHDRAWAL_ADDRESS_COOLING_SKIPPED',
+        actionDomain: 'CONFIG',
         primarySubjectType: AuditEntityTypes.WITHDRAWAL_ADDRESS,
         primarySubjectNo: addressNo,
-        traceId: existing.traceId,
+        correlationId: existing.traceId,
         outcome: AuditOutcome.SUCCESS,
+        reason,
         metadata: { skippedBy: actor.userNo },
         sourcePlatform: 'ADMIN_API',
         ownerCustomerNo: existing.customerNo,

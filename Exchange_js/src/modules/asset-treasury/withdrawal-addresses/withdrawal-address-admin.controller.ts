@@ -49,8 +49,8 @@ export class WithdrawalAddressAdminController {
 
   @Post(':addressNo/skip-cooling')
   @ApiOperation({ summary: 'Skip cooling period (simulation)' })
-  async skipCooling(@Request() req: any, @Param('addressNo') addressNo: string) {
+  async skipCooling(@Request() req: any, @Param('addressNo') addressNo: string, @Body() body: { reason: string }) {
     const actor = this.extractAdmin(req);
-    return this.workflowService.skipCoolingPeriod(addressNo, actor);
+    return this.workflowService.skipCoolingPeriod(addressNo, actor, body?.reason);
   }
 }

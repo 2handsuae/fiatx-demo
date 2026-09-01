@@ -10,7 +10,6 @@ import {
 import {
   AuditBusinessWorkflowTypes,
   AuditEntityTypes,
-  AuditGovernanceActions,
 } from '../../audit-logging/constants/audit-actions.constant';
 import { AuditOutcome } from '../../audit-logging/dto/audit-log.dto';
 import { WalletRole } from './dto/wallet.dto';
@@ -193,17 +192,20 @@ export class CustodianWalletCreateWorkflowService {
 
     await this.auditLogsService.recordByActor(
       {
-        action: AuditGovernanceActions.CUSTODIAN_WALLET_CREATE.CREATE_REQUESTED,
+        action: 'CUSTODIAN_WALLET_CREATE_REQUESTED',
+        actionDomain: 'CONFIG',
         primarySubjectType: AuditEntityTypes.WALLET,
         primarySubjectNo: walletNo,
-        traceId,
+        correlationId: traceId,
         outcome: AuditOutcome.SUCCESS,
-        metadata: {
+        afterData: {
           assetNo: dto.assetNo,
-          assetCurrency: asset.currency,
           role: dto.role,
           ownerType,
           customerNo: dto.customerNo || null,
+        },
+        metadata: {
+          assetCurrency: asset.currency,
           approvalNo: approvalCase.approvalNo,
         },
         sourcePlatform: 'ADMIN_API',
@@ -224,7 +226,9 @@ export class CustodianWalletCreateWorkflowService {
     const decision = payload?.decision;
     const entityRef = payload?.entityRef;
     const approvalId = payload?.approvalId;
+    const approvalNo = payload?.approvalNo;
     const traceId = payload?.traceId;
+    const decisionReason = payload?.decisionReason;
 
     if (!approvalId || !entityRef) {
       this.logger.warn('Custodian wallet create decided event missing approvalId or entityRef');
@@ -232,13 +236,13 @@ export class CustodianWalletCreateWorkflowService {
     }
 
     if (decision === 'APPROVED') {
-      await this.executeCreation(entityRef, approvalId, traceId);
+      await this.executeCreation(entityRef, approvalId, traceId, approvalNo);
     } else {
-      await this.executeCancellation(entityRef, traceId, decision);
+      await this.executeCancellation(entityRef, traceId, decision, approvalId, decisionReason);
     }
   }
 
-  private async executeCreation(walletId: string, approvalId: string, traceId?: string): Promise<void> {
+  private async executeCreation(walletId: string, approvalId: string, traceId?: string, approvalNo?: string): Promise<void> {
     const wallet = await this.prisma.wallet.findUnique({
       where: { id: walletId },
       include: { asset: true },
@@ -253,12 +257,15 @@ export class CustodianWalletCreateWorkflowService {
       await this.walletsService.transitionStatus(wallet.walletNo!, 'PENDING_APPROVAL', 'ACTIVE', { iban: wallet.iban });
 
       await this.auditLogsService.recordSystem({
-        action: AuditGovernanceActions.CUSTODIAN_WALLET_CREATE.WALLET_CREATED,
+        action: 'CUSTODIAN_WALLET_CREATED',
+        actionDomain: 'CONFIG',
         primarySubjectType: AuditEntityTypes.WALLET,
         primarySubjectNo: wallet.walletNo ?? undefined,
-        traceId,
+        correlationId: traceId,
+        causationId: approvalId,
         outcome: AuditOutcome.SUCCESS,
-        metadata: { iban: wallet.iban, skipAdapter: true },
+        approvalNo,
+        afterData: { iban: wallet.iban, skipAdapter: true },
         sourcePlatform: 'SYSTEM',
       });
 
@@ -283,12 +290,15 @@ export class CustodianWalletCreateWorkflowService {
       });
 
       await this.auditLogsService.recordSystem({
-        action: AuditGovernanceActions.CUSTODIAN_WALLET_CREATE.WALLET_CREATED,
+        action: 'CUSTODIAN_WALLET_CREATED',
+        actionDomain: 'CONFIG',
         primarySubjectType: AuditEntityTypes.WALLET,
         primarySubjectNo: wallet.walletNo ?? undefined,
-        traceId,
+        correlationId: traceId,
+        causationId: approvalId,
         outcome: AuditOutcome.SUCCESS,
-        metadata: { vaultId: result.vaultId, address: result.address, iban: result.iban },
+        approvalNo,
+        afterData: { vaultId: result.vaultId, address: result.address, iban: result.iban },
         sourcePlatform: 'SYSTEM',
       });
 
@@ -299,29 +309,36 @@ export class CustodianWalletCreateWorkflowService {
       await this.walletsService.transitionStatus(wallet.walletNo!, 'CREATING', 'FAILED');
 
       await this.auditLogsService.recordSystem({
-        action: AuditGovernanceActions.CUSTODIAN_WALLET_CREATE.WALLET_CREATE_FAILED,
+        action: 'CUSTODIAN_WALLET_CREATE_FAILED',
+        actionDomain: 'CONFIG',
         primarySubjectType: AuditEntityTypes.WALLET,
         primarySubjectNo: wallet.walletNo ?? undefined,
-        traceId,
+        correlationId: traceId,
+        causationId: approvalId,
         outcome: AuditOutcome.FAILED,
+        reasonCode: 'EXECUTION_FAILED',
+        reason: err.message,
         metadata: { error: err.message },
         sourcePlatform: 'SYSTEM',
       });
     }
   }
 
-  private async executeCancellation(walletId: string, traceId?: string, decision?: string): Promise<void> {
+  private async executeCancellation(walletId: string, traceId?: string, decision?: string, approvalId?: string, decisionReason?: string | null): Promise<void> {
     const wallet = await this.prisma.wallet.findUnique({ where: { id: walletId } });
     if (!wallet) return;
 
     await this.walletsService.deleteWallet(wallet.walletNo!);
 
     await this.auditLogsService.recordSystem({
-      action: AuditGovernanceActions.CUSTODIAN_WALLET_CREATE.CREATE_CANCELLED,
+      action: 'CUSTODIAN_WALLET_CREATE_CANCELLED',
+      actionDomain: 'CONFIG',
       primarySubjectType: AuditEntityTypes.WALLET,
       primarySubjectNo: wallet.walletNo ?? undefined,
-      traceId,
+      correlationId: traceId,
+      causationId: approvalId,
       outcome: AuditOutcome.SUCCESS,
+      reason: decisionReason || decision || 'Approval declined',
       metadata: { decision },
       sourcePlatform: 'SYSTEM',
     });
@@ -344,7 +361,13 @@ export class CustodianWalletCreateWorkflowService {
       });
     }
 
-    const traceId = crypto.randomUUID();
+    // 重试沿用原创建审批那趟旅程（INHERIT 读回同一 correlationId/approvalId）——
+    // 这次重试没有新的 maker-checker 审批，不是重开一段新旅程。
+    const approvalCase = await this.prisma.approvalCase.findFirst({
+      where: { actionType: ApprovalActionTypes.CUSTODIAN_WALLET_CREATE, entityRef: wallet.id },
+    });
+    const traceId = approvalCase!.traceId;
+
     await this.walletsService.transitionStatus(wallet.walletNo!, 'FAILED', 'CREATING');
 
     try {
@@ -363,12 +386,16 @@ export class CustodianWalletCreateWorkflowService {
 
       await this.auditLogsService.recordByActor(
         {
-          action: AuditGovernanceActions.CUSTODIAN_WALLET_CREATE.WALLET_CREATED,
+          action: 'CUSTODIAN_WALLET_CREATED',
+          actionDomain: 'CONFIG',
           primarySubjectType: AuditEntityTypes.WALLET,
           primarySubjectNo: walletNo,
-          traceId,
+          correlationId: traceId,
+          causationId: approvalCase!.id,
           outcome: AuditOutcome.SUCCESS,
-          metadata: { vaultId: result.vaultId, retried: true },
+          approvalNo: approvalCase!.approvalNo,
+          afterData: { vaultId: result.vaultId, address: result.address, iban: result.iban },
+          metadata: { retried: true },
           sourcePlatform: 'ADMIN_API',
         },
         {
@@ -385,11 +412,15 @@ export class CustodianWalletCreateWorkflowService {
 
       await this.auditLogsService.recordByActor(
         {
-          action: AuditGovernanceActions.CUSTODIAN_WALLET_CREATE.WALLET_CREATE_FAILED,
+          action: 'CUSTODIAN_WALLET_CREATE_FAILED',
+          actionDomain: 'CONFIG',
           primarySubjectType: AuditEntityTypes.WALLET,
           primarySubjectNo: walletNo,
-          traceId,
+          correlationId: traceId,
+          causationId: approvalCase!.id,
           outcome: AuditOutcome.FAILED,
+          reasonCode: 'EXECUTION_FAILED',
+          reason: err.message,
           metadata: { error: err.message, retried: true },
           sourcePlatform: 'ADMIN_API',
         },

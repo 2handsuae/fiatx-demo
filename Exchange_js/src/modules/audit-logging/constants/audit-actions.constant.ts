@@ -478,23 +478,15 @@ export const AuditGovernanceActions = {
   // Role Definition Modify (2026-05-08)：已退役，Task 8 迁到 V1_AUDIT_ACTIONS 的
   // ROLE_DEFINITION_MODIFY_REQUESTED/APPLIED/CANCELLED 三码，全仓零消费方，本组已删。
 
-  // Custodian Wallet Create (2026-05-13)
-  CUSTODIAN_WALLET_CREATE: {
-    CREATE_REQUESTED:      'CREATE_REQUESTED',
-    WALLET_CREATED:        'WALLET_CREATED',
-    WALLET_CREATE_FAILED:  'WALLET_CREATE_FAILED',
-    CREATE_CANCELLED:      'CREATE_CANCELLED',
-  },
+  // Custodian Wallet Create (2026-05-13)：已退役，Task 15 迁到 V1_AUDIT_ACTIONS 的
+  // CUSTODIAN_WALLET_CREATE_REQUESTED/CUSTODIAN_WALLET_CREATED/CUSTODIAN_WALLET_CREATE_FAILED/
+  // CUSTODIAN_WALLET_CREATE_CANCELLED 四码（前缀唯一），全仓零消费方（2026-09-02
+  // grep 核实），本组已删。
 
-  // Withdrawal Address Registration (2026-05-13)
-  WITHDRAWAL_ADDRESS_REGISTRATION: {
-    ADDRESS_REGISTERED:   'ADDRESS_REGISTERED',
-    ADDRESS_ACTIVATED:    'ADDRESS_ACTIVATED',
-    ADDRESS_CANCELLED:    'ADDRESS_CANCELLED',
-    ADDRESS_SUSPENDED:    'ADDRESS_SUSPENDED',
-    ADDRESS_DEACTIVATED:  'ADDRESS_DEACTIVATED',
-    MANUAL_COOLING_SKIP:  'MANUAL_COOLING_SKIP',
-  },
+  // Withdrawal Address Registration (2026-05-13)：已退役，Task 15 迁到 V1_AUDIT_ACTIONS 的
+  // WITHDRAWAL_ADDRESS_REGISTERED/ACTIVATED/CANCELLED/SUSPENDED/DEACTIVATED/COOLING_SKIPPED
+  // 六码（前缀唯一，MANUAL_COOLING_SKIP 改名 WITHDRAWAL_ADDRESS_COOLING_SKIPPED），
+  // 全仓零消费方，本组已删。
 
   // Asset Suspension (2026-05-14)：已退役，Task 13 迁到 V1_AUDIT_ACTIONS 的
   // ASSET_SUSPENSION_REQUESTED/ASSET_SUSPENDED/ASSET_SUSPENSION_FAILED 三码
@@ -527,9 +519,10 @@ export const AuditGovernanceActions = {
   // 迁走费率域时特意留白的「未登」警告到此解除（'CHANGE_APPLY_FAILED' 早前已在
   // 站7批次登过，不重复登记）。
 
-  // Transaction Limit runtime enforcement (2026-07-16)：非本批裸名（不跨族复用），
-  // Task 14 顺带补登 V1_AUDIT_ACTIONS 合同（见上方限额两族附近），本行/call site 不变。
-  TRANSACTION_LIMIT_REJECTED: 'TRANSACTION_LIMIT_REJECTED',   // L1 金额限额拦截(A/B) — used by Task 4 engine
+  // Transaction Limit runtime enforcement (2026-07-16)：已退役，Task 15 把调用点
+  // （transaction-limit-gate.service.ts）改直接引用字面量 'TRANSACTION_LIMIT_REJECTED'
+  // ——码值不变，早在 Task 14 就已进 V1_AUDIT_ACTIONS 合同，本行只是删掉这份冗余附册
+  // 引用，全仓零消费方，本组已删。
 
   // Withdrawal Fee Level Creation/Change、Swap Fee Level Creation/Change：
   // 已退役，Task 12 迁到 V1_AUDIT_ACTIONS 的 WITHDRAWAL_FEE_LEVEL_CREATION_*／
@@ -723,6 +716,39 @@ export const V1_AUDIT_ACTIONS: Record<string, AuditActionSpec> = {
   // 定 NONE（同 V2_CUSTOMER_AUDIT_ACTIONS 整册客户级动作一样，客户级件无订单旅程）。
   CUSTOMER_TAG_ASSIGNED: { domain: 'CONFIG', correlationMode: N, requiredFields: ['afterData'], requiresCausation: false },
   CUSTOMER_TAG_REVOKED:  { domain: 'CONFIG', correlationMode: N, requiredFields: ['beforeData', 'reason'], requiresCausation: false },
+
+  // ── 托管钱包创建（2026-09-02 换名册·批四）：REQUESTED 是 createAndSubmit 铸的
+  // correlationId 起点（S）；CREATED/FAILED/CANCELLED 都经审批决定事件 INHERIT 回同
+  // 一个 correlationId，且都是被「审批已决定」这个异步事件驱动（causationId=approvalId）。
+  // 连带修：executeCreation 已有 approvalId 参数直接用；executeCancellation 原来
+  // 不传 approvalId/decisionReason，Task 15 补了两个参数（decisionReason 来自
+  // ApprovalDecidedEvent，即被拒时审批人填的理由，喂 reason）；retryCreate 是直接
+  // 管理员单步重试、没有新审批，原来现铸一个孤立 traceId——若照 INHERIT 硬填会让
+  // correlationId/causationId 语义落空，Task 15 改查回原 ApprovalCase（entityRef=
+  // walletId, actionType=CUSTODIAN_WALLET_CREATE）取其 traceId/id，真正接续同一趟
+  // 创建旅程而不是编一个假值。
+  CUSTODIAN_WALLET_CREATE_REQUESTED:  { domain: 'CONFIG', correlationMode: S, requiredFields: ['afterData'], requiresCausation: false },
+  CUSTODIAN_WALLET_CREATED:           { domain: 'CONFIG', correlationMode: I, requiredFields: ['afterData', 'approvalNo'], requiresCausation: true },
+  CUSTODIAN_WALLET_CREATE_FAILED:     { domain: 'CONFIG', correlationMode: I, requiredFields: [], requiresCausation: true },
+  CUSTODIAN_WALLET_CREATE_CANCELLED:  { domain: 'CONFIG', correlationMode: I, requiredFields: ['reason'], requiresCausation: true },
+
+  // ── 客户提现地址·24h 冷却闸（2026-09-02 换名册·批四）：REGISTERED 是地址自己的
+  // traceId 起点（S，创建时铸号存 WithdrawalAddress.traceId 列）；后续五码都是单步
+  // 管理/客户操作、无审批引擎，INHERIT 回读同一枚persisted traceId，故 requiresCausation
+  // 全 false（不是被某个异步事件驱动，是直接动作，同 asset-suspension 判例的 REQUESTED
+  // 反过来——这里连 REQUESTED 都没有，是直接执行）。SUSPENDED 已有 reason 参数只是没提
+  // 到顶层；CANCELLED/DEACTIVATED/COOLING_SKIPPED 三个调用点原来完全没有 reason——
+  // Task 15 连带给 cancelAddress/deactivateAddress/skipCoolingPeriod 三个 service 方法
+  // 加 reason 必填参数 + controller 加 @Body + client-web 的 deactivate 弹窗、admin-web
+  // 的 skip-cooling 弹窗补理由输入框（cancelAddress 当下无任何前端/脚本调用方，只补
+  // 后端能力）。MANUAL_COOLING_SKIP 改名 WITHDRAWAL_ADDRESS_COOLING_SKIPPED——后门
+  // 端点强制留痕理由，是这条码要讲的演示点。
+  WITHDRAWAL_ADDRESS_REGISTERED:      { domain: 'CONFIG', correlationMode: S, requiredFields: ['afterData'], requiresCausation: false },
+  WITHDRAWAL_ADDRESS_ACTIVATED:       { domain: 'CONFIG', correlationMode: I, requiredFields: [], requiresCausation: false },
+  WITHDRAWAL_ADDRESS_CANCELLED:       { domain: 'CONFIG', correlationMode: I, requiredFields: ['reason'], requiresCausation: false },
+  WITHDRAWAL_ADDRESS_SUSPENDED:       { domain: 'CONFIG', correlationMode: I, requiredFields: ['reason'], requiresCausation: false },
+  WITHDRAWAL_ADDRESS_DEACTIVATED:     { domain: 'CONFIG', correlationMode: I, requiredFields: ['reason'], requiresCausation: false },
+  WITHDRAWAL_ADDRESS_COOLING_SKIPPED: { domain: 'CONFIG', correlationMode: I, requiredFields: ['reason'], requiresCausation: false },
 
   // ── ⑪ 审计日志自身的操作 ────────────────────────────────
   AUDIT_EVIDENCE_EXPORT_REQUESTED:  { domain: 'AUDIT', correlationMode: S, requiredFields: [], requiresCausation: false },
@@ -1026,4 +1052,10 @@ export const DEPRECATED_AUDIT_ACTIONS: readonly string[] = [
   'CREATION_REQUESTED', 'CREATION_APPLIED', 'CREATION_APPLY_FAILED', 'CREATION_CANCELLED',
   'CHANGE_REQUESTED', 'CHANGE_APPLIED', 'CHANGE_CANCELLED',
   'TAG_ASSIGNED', 'TAG_REVOKED',
+  // 2026-09-02 换名册 · 批四（Task 15）：托管钱包创建 + 提现地址登记两族裸名退役——
+  // 不跨族复用，直接登记。TRANSACTION_LIMIT_REJECTED 码值不变、只是删掉 AuditGovernanceActions
+  // 里的冗余附册引用，不是改名，不登这份退役名单。
+  'CREATE_REQUESTED', 'WALLET_CREATED', 'WALLET_CREATE_FAILED', 'CREATE_CANCELLED',
+  'ADDRESS_REGISTERED', 'ADDRESS_ACTIVATED', 'ADDRESS_CANCELLED', 'ADDRESS_SUSPENDED',
+  'ADDRESS_DEACTIVATED', 'MANUAL_COOLING_SKIP',
 ] as const;

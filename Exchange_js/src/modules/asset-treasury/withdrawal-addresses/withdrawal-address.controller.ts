@@ -60,15 +60,15 @@ export class WithdrawalAddressController {
 
   @Delete(':addressNo')
   @ApiOperation({ summary: 'Cancel a withdrawal address during cooling period' })
-  async cancel(@Request() req: any, @Param('addressNo') addressNo: string) {
+  async cancel(@Request() req: any, @Param('addressNo') addressNo: string, @Body() body: { reason: string }) {
     const { customerId, customerNo } = this.extractCustomer(req);
-    return this.workflowService.cancelAddress(addressNo, customerId, customerNo);
+    return this.workflowService.cancelAddress(addressNo, customerId, customerNo, body?.reason);
   }
 
   @Post(':addressNo/deactivate')
   @ApiOperation({ summary: 'Deactivate an active withdrawal address' })
-  async deactivate(@Request() req: any, @Param('addressNo') addressNo: string) {
+  async deactivate(@Request() req: any, @Param('addressNo') addressNo: string, @Body() body: { reason: string }) {
     const { customerId, customerNo } = this.extractCustomer(req);
-    return this.workflowService.deactivateAddress(addressNo, customerId, customerNo);
+    return this.workflowService.deactivateAddress(addressNo, customerId, customerNo, body?.reason);
   }
 }

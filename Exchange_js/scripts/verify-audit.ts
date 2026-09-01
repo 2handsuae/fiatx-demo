@@ -72,12 +72,17 @@ async function main() {
   // 2026-09-02（Task 14）补入限额两族 + 客户标签共用裸名——换名册后这条判据
   // 第一次真正约束这 8 个裸名（此前它们被 TRANSACTION_LIMIT_CREATION/CHANGE
   // 两族实际写入，不能提前登记，见 audit-actions.constant.ts 的迁移注释）。
+  // 2026-09-02（Task 15）补入托管钱包创建 + 提现地址登记两族共用裸名——同理，
+  // 此前是 CUSTODIAN_WALLET_CREATE/WITHDRAWAL_ADDRESS_REGISTRATION 实际写入。
   const deprecated = await prisma.auditLogEvent.count({
     where: { action: { in: [
       'ADMIN_LOGIN_SUCCESS', 'RESET_FAILED', 'MFA_LOGIN_VERIFIED',
       'CREATION_REQUESTED', 'CREATION_APPLIED', 'CREATION_APPLY_FAILED', 'CREATION_CANCELLED',
       'CHANGE_REQUESTED', 'CHANGE_APPLIED', 'CHANGE_APPLY_FAILED', 'CHANGE_CANCELLED',
       'TAG_ASSIGNED', 'TAG_REVOKED',
+      'CREATE_REQUESTED', 'WALLET_CREATED', 'WALLET_CREATE_FAILED', 'CREATE_CANCELLED',
+      'ADDRESS_REGISTERED', 'ADDRESS_ACTIVATED', 'ADDRESS_CANCELLED', 'ADDRESS_SUSPENDED',
+      'ADDRESS_DEACTIVATED', 'MANUAL_COOLING_SKIP',
     ] } },
   });
   check('不变量③ 退役码零写入', deprecated === 0, `${deprecated} 条退役码记录`);

@@ -126,6 +126,8 @@ export default function WithdrawalAddressDetail() {
   const [actionLoading, setActionLoading] = useState(false);
   const [showSuspendModal, setShowSuspendModal] = useState(false);
   const [suspendReason, setSuspendReason] = useState('');
+  const [showSkipCoolingModal, setShowSkipCoolingModal] = useState(false);
+  const [skipCoolingReason, setSkipCoolingReason] = useState('');
 
   const fetchData = async () => {
     if (!addressNo) return;
@@ -148,18 +150,24 @@ export default function WithdrawalAddressDetail() {
   /* ── Actions ── */
 
   const handleSkipCooling = async () => {
-    if (!window.confirm('Skip the cooling period and immediately activate this address?')) return;
+    if (!skipCoolingReason.trim()) return;
     setActionLoading(true);
     setError(null);
     try {
       const res = await adminFetch(
         `${import.meta.env.VITE_API_URL}/admin/withdrawal-addresses/${addressNo}/skip-cooling`,
-        { method: 'POST' },
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ reason: skipCoolingReason }),
+        },
       );
       if (!res.ok) {
         setError(await getApiErrorMessage(res, 'Failed to skip cooling'));
         return;
       }
+      setShowSkipCoolingModal(false);
+      setSkipCoolingReason('');
       setNotice('Cooling period skipped — address activated.');
       void fetchData();
     } catch (err) {
@@ -417,7 +425,7 @@ export default function WithdrawalAddressDetail() {
               <div className="mt-2.5 flex flex-col gap-2">
                 {isPending && (
                   <button
-                    onClick={() => void handleSkipCooling()}
+                    onClick={() => setShowSkipCoolingModal(true)}
                     disabled={actionLoading}
                     className={adminButtonClass('workflowPrimary')}
                   >
@@ -488,6 +496,44 @@ export default function WithdrawalAddressDetail() {
                 className={adminButtonClass('workflowNegative')}
               >
                 Suspend
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Skip Cooling Modal ── */}
+      {showSkipCoolingModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="w-full max-w-md rounded-xl border border-adm-border bg-adm-panel shadow-xl">
+            <div className="border-b border-adm-border px-6 py-4">
+              <h2 className="text-base font-semibold text-adm-t1">Skip Cooling Period</h2>
+              <p className="mt-1 text-xs text-adm-t3">This immediately activates the address, bypassing the 24h cooling window.</p>
+            </div>
+            <div className="px-6 py-4">
+              <label className="block font-mono text-[9px] font-semibold uppercase tracking-[0.12em] text-adm-t3 mb-1.5">
+                Reason
+              </label>
+              <textarea
+                value={skipCoolingReason}
+                onChange={(e) => setSkipCoolingReason(e.target.value)}
+                placeholder="e.g. Verified customer identity by phone, urgent withdrawal request"
+                className="w-full rounded border border-adm-border bg-adm-bg px-2.5 py-2 text-xs text-adm-t1 placeholder:text-adm-t3 outline-none focus:border-adm-amber h-20 resize-none"
+              />
+            </div>
+            <div className="flex justify-end gap-3 border-t border-adm-border px-6 py-4">
+              <button
+                onClick={() => { setShowSkipCoolingModal(false); setSkipCoolingReason(''); }}
+                className={adminButtonClass('modalCancel')}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => void handleSkipCooling()}
+                disabled={!skipCoolingReason.trim() || actionLoading}
+                className={adminButtonClass('workflowPrimary')}
+              >
+                Skip Cooling
               </button>
             </div>
           </div>
