@@ -47,8 +47,12 @@ import ReconciliationAdjustmentCreateModal, {
   type AdjustmentBook,
   type AdjustmentPrefill,
 } from '../components/ReconciliationAdjustmentCreateModal';
+import ReconciliationDispositionModal, {
+  type AdjustHandoff,
+} from '../components/ReconciliationDispositionModal';
 import { useAdminSession } from '../contexts/AdminSessionContext';
 import { PERMISSIONS } from '../rbac/permissions';
+import { OUTLET_TONE } from '../utils/causeRegistry';
 
 /* ── Types ──────────────────────────────────────────────────── */
 
@@ -82,7 +86,9 @@ interface FlowInternalSide {
   sourceNo: string;
 }
 
-interface FlowComparisonRow {
+// Exported — T8 (平账一期半) 前端复用件（causeRegistry.ts / ReconciliationDispositionModal.tsx）
+// 从这里 import type，而不是另建一份镜像类型（页面现状即唯一真相的最小改法，见 T8 brief）。
+export interface FlowComparisonRow {
   externalLine: FlowExternalSide | null;
   internalFlow: FlowInternalSide | null;
   matchType: FlowMatchType;
@@ -91,6 +97,16 @@ interface FlowComparisonRow {
   fundsOrderStatus?: string | null; // T4 — funds order status for IN_TRANSIT rows;
                                     // CLEARED here (case still OPEN) = "已推进·待重对账"
   explainedByAdjustmentNo?: string | null; // ④ 这条差异已被哪张已落账的调账单解释
+  // T8：以下三个注解同样只在三类异常行（AMOUNT_MISMATCH/ORPHAN_INTERNAL/
+  // ORPHAN_EXTERNAL）上出现，MATCHED/IN_TRANSIT 恒 undefined——它们不是差异、没有
+  // 可处置的东西。唯一真相在后端 reconciliation-query.service.ts。
+  disposition?: {
+    dispositionNo: string; causeCode: string; causeLabel: string;
+    outlet: string; outletLabel: string; findingNote: string;
+    adjustmentNo: string | null; createdBy: string; createdAt: string;
+  } | null;
+  duplicateTwinRef?: string | null;
+  menu?: Array<{ code: string; label: string; clue: string; outletLabel: string }>;
 }
 
 interface FlowComparisonSummary {
@@ -359,6 +375,8 @@ const ReconciliationCasesDetailPage = () => {
   const navigate = useNavigate();
   const { hasPermission } = useAdminSession();
   const canCreateAdjustment = hasPermission(PERMISSIONS.RECON_ADJUSTMENT_CREATE);
+  // T8（平账一期半）：动作列六态里「未定性」状态的处置按钮门控。
+  const canRecordDisposition = hasPermission(PERMISSIONS.RECON_DISPOSITION_CREATE);
   const [kase, setKase] = useState<ReconCaseDetail | null>(null);
   const [loading, setLoading] = useState(true);
   // MATCHED rows are collapsed by default (layout 乙 — single mixed table,
@@ -368,6 +386,8 @@ const ReconciliationCasesDetailPage = () => {
   // Task 7: 开调账单弹层——prefill 来自被点击的那一行（rowAdjustmentPrefill）。
   // null = 弹层关闭；非 null = 弹层打开且带着这一行算出来的预填值。
   const [createPrefill, setCreatePrefill] = useState<AdjustmentPrefill | null>(null);
+  // T8: 处置弹层——null = 关闭；非 null = 打开且带着被点击的那一行。
+  const [dispositionRow, setDispositionRow] = useState<FlowComparisonRow | null>(null);
 
   const tableRef = useRef<HTMLTableElement | null>(null);
 
@@ -412,6 +432,21 @@ const ReconciliationCasesDetailPage = () => {
   const handleAdjustmentCreated = (adjustmentNo: string) => {
     setCreatePrefill(null);
     navigate(`/admin/reconciliation/adjustments/${encodeURIComponent(adjustmentNo)}`);
+  };
+
+  // T8：已定性、出口是 ADJUST 但还没挂调账单的行——「开单」按钮直接复用既有调账
+  // 弹层（未锁定，仍是 rowAdjustmentPrefill 的猜测值；这一行读面上的 disposition
+  // 不带 family/reasonCode/direction，锁定视图留给 Task 9）。
+  const openAdjustFromDisposition = (row: FlowComparisonRow) => {
+    setCreatePrefill(rowAdjustmentPrefill(row));
+  };
+
+  // T8：处置弹层交回的 ADJUST 类结论——最小实现：关掉处置弹层，复用既有调账弹层
+  // （Task 9 完成锁定视图前，这是已知中间态：弹层仍按 rowAdjustmentPrefill 猜测
+  // 方向，不读 handoff.family/reasonCode/direction）。
+  const handleAdjustHandoff = (handoff: AdjustHandoff) => {
+    setDispositionRow(null);
+    setCreatePrefill(rowAdjustmentPrefill(handoff.row));
   };
 
   useEffect(() => {
@@ -758,31 +793,70 @@ const ReconciliationCasesDetailPage = () => {
                           <td className="px-3 py-3 font-mono text-[11px] text-adm-t3">
                             {timestamp ? shortTimestamp(timestamp) : '—'}
                           </td>
-                          {/* Task 7: 开调账单入口——所有 5 类行都给（控制方裁定 Step 4），
-                              不按 matchType 挑着给；用该行数据预填金额/方向。按既有
-                              约定（CustomerDetail.tsx 等）以权限门控整个按钮的显隐，
-                              不是禁用态。Fix 5：案件已 RESOLVED 时同样不给入口——同左侧
-                              "已推进·待重对账"徽标（:731）一样按 kase.status 收，已解决的
-                              案件没有可再调的差异项，点了只会拿到一个 400。 */}
+                          {/* 平账一期半（spec §3.1）：动作列六态。同形状同按钮——
+                              给不同按钮就是假装机器知道它不知道的东西；差异化发生在
+                              定性弹层里人选完成因之后。 */}
                           <td className="px-3 py-3">
-                            {/* ④ 这条差异已经被一张落了账的调账单解释掉——引擎算桶时已把它
-                                从异常数里摘掉，所以不再给"再开一张"的入口，改为指回那张单。 */}
                             {row.explainedByAdjustmentNo ? (
+                              // ① 已解释——这条差异已经被一张落了账的调账单解释掉，
+                              // 引擎算桶时已把它从异常数里摘掉，改为指回那张单。
                               <Link
                                 to={`/admin/reconciliation/adjustments/${encodeURIComponent(row.explainedByAdjustmentNo)}`}
                                 className="inline-flex items-center gap-1 whitespace-nowrap rounded border border-adm-green/30 bg-adm-green/10 px-1.5 py-0.5 font-mono text-[10px] font-medium text-adm-green hover:underline"
                               >
                                 已解释 · {row.explainedByAdjustmentNo}
                               </Link>
+                            ) : row.matchType === 'MATCHED' ? (
+                              // ② 已匹配——两边一致，没有可处置的东西。
+                              null
+                            ) : row.matchType === 'IN_TRANSIT' ? (
+                              // ③ 在途——差异会随资金单落地自然消失，动作是推单不是处置。
+                              row.fundsOrderNo ? (
+                                <Link
+                                  to={`/admin/funds-orders/${encodeURIComponent(row.fundsOrderNo)}`}
+                                  className="whitespace-nowrap font-mono text-[10px] font-medium text-adm-blue hover:underline"
+                                >
+                                  去推单 →
+                                </Link>
+                              ) : (
+                                <span className="text-[10px] text-adm-t3">在途 · 无资金单号</span>
+                              )
+                            ) : row.disposition ? (
+                              // ④ 已定性——查证结论已经落库；出口是 ADJUST 且还没挂单时，
+                              // 额外给「开单」入口（同样按权限 + 案件 OPEN 门控整个按钮）。
+                              <div className="flex flex-col gap-1">
+                                <span
+                                  title={row.disposition.findingNote}
+                                  className={[
+                                    'inline-flex items-center gap-1 whitespace-nowrap rounded border px-1.5 py-0.5 font-mono text-[10px] text-adm-t2',
+                                    TONE_CLASSES[OUTLET_TONE[row.disposition.outlet]].border,
+                                    TONE_CLASSES[OUTLET_TONE[row.disposition.outlet]].bg,
+                                  ].join(' ')}
+                                >
+                                  已定性 · {row.disposition.causeLabel} → {row.disposition.outletLabel} · {row.disposition.createdBy} {row.disposition.createdAt.slice(5, 10)}
+                                </span>
+                                {row.disposition.outlet.startsWith('ADJUST') && !row.disposition.adjustmentNo
+                                  && canCreateAdjustment && kase.status === 'OPEN' && (
+                                  <button
+                                    type="button"
+                                    onClick={() => openAdjustFromDisposition(row)}
+                                    className="inline-flex items-center gap-1 whitespace-nowrap font-mono text-[10px] font-medium text-adm-blue hover:underline"
+                                  >
+                                    <Plus size={10} /> 开单
+                                  </button>
+                                )}
+                              </div>
                             ) : (
-                              canCreateAdjustment && kase.status === 'OPEN' && (
+                              // ⑤/⑥ 未定性——这条差异还没人查过，给处置入口（按既有约定
+                              // 以权限门控整个按钮的显隐，不是禁用态；案件已 RESOLVED 时
+                              // 同样不给入口）。
+                              canRecordDisposition && kase.status === 'OPEN' && (
                                 <button
                                   type="button"
-                                  onClick={() => setCreatePrefill(rowAdjustmentPrefill(row))}
+                                  onClick={() => setDispositionRow(row)}
                                   className="inline-flex items-center gap-1 whitespace-nowrap font-mono text-[10px] font-medium text-adm-blue hover:underline"
                                 >
-                                  <Plus size={10} />
-                                  开调账单
+                                  处置
                                 </button>
                               )
                             )}
@@ -945,6 +1019,18 @@ const ReconciliationCasesDetailPage = () => {
           onCreated={handleAdjustmentCreated}
         />
       )}
+
+      {/* T8：处置弹层——同样挂在页面最外层，内部状态只靠 row 区分。caseNo 取
+          kase.caseNo（非路由参数 caseNo，后者类型是 string | undefined）。 */}
+      <ReconciliationDispositionModal
+        open={!!dispositionRow}
+        caseNo={kase.caseNo}
+        row={dispositionRow}
+        caseStatus={kase.status}
+        onClose={() => setDispositionRow(null)}
+        onRecorded={fetchCase}
+        onProceedToAdjust={handleAdjustHandoff}
+      />
     </div>
   );
 };
