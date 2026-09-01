@@ -4,9 +4,11 @@ import { AuditCorrelationMode } from '../dto/audit-log.dto';
 describe('第一批 · V1 词表守则', () => {
   const codes = Object.keys(V1_AUDIT_ACTIONS);
 
-  it('恰好 48 个码（首铸 45 + 站7 收编 22：治理 18 + 平台运营 4 − Task5(2026-08-30/31)退役 19：'
-    + '监管闸门7+五本档案簿10+LP配置1+手工建户1，剩 APPROVAL_REQUIRED_MISSING/WALLET_STATUS_UPDATED/FUNDS_ORDER_ADVANCED）', () => {
-    expect(codes).toHaveLength(48);
+  it('恰好 66 个码（首铸 45 + 站7 收编 22：治理 18 + 平台运营 4 − Task5(2026-08-30/31)退役 19：'
+    + '监管闸门7+五本档案簿10+LP配置1+手工建户1，剩 APPROVAL_REQUIRED_MISSING/WALLET_STATUS_UPDATED/FUNDS_ORDER_ADVANCED，得 48；'
+    + '+ 2 ADMIN_ACCESS_DENIED/APPROVAL_TIMEOUT_SIMULATED（此前未同步本断言的历史遗漏）；'
+    + '+ 16 Task12(2026-09-01) SWAP/WITHDRAWAL_FEE_LEVEL_CREATION/CHANGE 四族裸名换前缀唯一新码，得 66）', () => {
+    expect(codes).toHaveLength(66);
   });
 
   it('全部全局唯一（键即字面量，无重复）', () => {
@@ -15,7 +17,9 @@ describe('第一批 · V1 词表守则', () => {
 
   it('六个后缀语义封闭，无例外', () => {
     // 站7 收编追加：MISSING/CREATED/UPDATED/RECORDED/EFFECTIVE/REVOKED/ADVANCED（现名保守，收编不改名）
-    const ok = /_(REQUESTED|APPLIED|COMPLETED|CANCELLED|EXPIRED|DENIED|GRANTED|SUBMITTED|DECLINED|DISPATCHED|ACCEPTED|INITIATED|BOUND|CONFIRMED|ISSUED|GENERATED|DOWNLOADED|QUERIED|RELEASED|MISSING|CREATED|UPDATED|RECORDED|EFFECTIVE|REVOKED|ADVANCED)$/;
+    // SIMULATED：ADMIN_ACCESS_DENIED 之外另一处历史遗漏（APPROVAL_TIMEOUT_SIMULATED，此前未同步本断言）
+    // APPLY_FAILED：Task12(2026-09-01) 费率两域专设失败码——不复用「APPLIED + outcome=FAILED」老套路
+    const ok = /_(REQUESTED|APPLIED|COMPLETED|CANCELLED|EXPIRED|DENIED|GRANTED|SUBMITTED|DECLINED|DISPATCHED|ACCEPTED|INITIATED|BOUND|CONFIRMED|ISSUED|GENERATED|DOWNLOADED|QUERIED|RELEASED|MISSING|CREATED|UPDATED|RECORDED|EFFECTIVE|REVOKED|ADVANCED|SIMULATED|APPLY_FAILED)$/;
     const bad = codes.filter((c) => !ok.test(c));
     expect(bad).toEqual([]);
   });
@@ -37,6 +41,9 @@ describe('第一批 · V1 词表守则', () => {
       'ADMIN_MFA_RESET_': 3, 'ADMIN_ACCOUNT_LOCK_': 2,
       'ROLE_DEFINITION_CREATE_': 3, 'ROLE_DEFINITION_MODIFY_': 3,
       'APPROVAL_POLICY_CHANGE_': 2, 'AUDIT_EVIDENCE_EXPORT_': 3,
+      // Task12(2026-09-01)：费率两域裸名换前缀唯一新码，四族各 4 码
+      'SWAP_FEE_LEVEL_CREATION_': 4, 'SWAP_FEE_LEVEL_CHANGE_': 4,
+      'WITHDRAWAL_FEE_LEVEL_CREATION_': 4, 'WITHDRAWAL_FEE_LEVEL_CHANGE_': 4,
       // REGULATORY_GATE_ 曾 7 码，Task 5(2026-08-30) 随监管闸门整块退役。
       // 断言 0 而不是删掉这一行：只有显式钉住「live 表里该前缀一个都没有」，才能挡住
       // 「新铸一个从未出现过的 REGULATORY_GATE_* 码进 live 表、同时别处删一个键把总数
@@ -48,9 +55,9 @@ describe('第一批 · V1 词表守则', () => {
     }
   });
 
-  it('恰好 13 个 START', () => {
+  it('恰好 17 个 START（13 + Task12 四个 REQUESTED 各起一段新旅程）', () => {
     expect(codes.filter((c) => V1_AUDIT_ACTIONS[c].correlationMode === AuditCorrelationMode.START))
-      .toHaveLength(13);
+      .toHaveLength(17);
   });
 
   it('退役码 74 个（V1 域 11 + 充值域 18+1 + 提现域 18 + 兑换域 3 + 对账域 4 + Task5扩面 19：'

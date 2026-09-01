@@ -543,37 +543,17 @@ export const AuditGovernanceActions = {
   // Transaction Limit runtime enforcement (2026-07-16)
   TRANSACTION_LIMIT_REJECTED: 'TRANSACTION_LIMIT_REJECTED',   // L1 金额限额拦截(A/B) — used by Task 4 engine
 
-  // Withdrawal Fee Level Creation (2026-05-30)
-  WITHDRAWAL_FEE_LEVEL_CREATION: {
-    CREATION_REQUESTED:    'CREATION_REQUESTED',
-    CREATION_APPLIED:      'CREATION_APPLIED',
-    CREATION_APPLY_FAILED: 'CREATION_APPLY_FAILED',
-    CREATION_CANCELLED:    'CREATION_CANCELLED',
-  },
-
-  // Withdrawal Fee Level Change (2026-05-30)
-  WITHDRAWAL_FEE_LEVEL_CHANGE: {
-    CHANGE_REQUESTED:    'CHANGE_REQUESTED',
-    CHANGE_APPLIED:      'CHANGE_APPLIED',
-    CHANGE_APPLY_FAILED: 'CHANGE_APPLY_FAILED',
-    CHANGE_CANCELLED:    'CHANGE_CANCELLED',
-  },
-
-  // Swap Fee Level Creation (2026-05-31)
-  SWAP_FEE_LEVEL_CREATION: {
-    CREATION_REQUESTED:    'CREATION_REQUESTED',
-    CREATION_APPLIED:      'CREATION_APPLIED',
-    CREATION_APPLY_FAILED: 'CREATION_APPLY_FAILED',
-    CREATION_CANCELLED:    'CREATION_CANCELLED',
-  },
-
-  // Swap Fee Level Change (2026-05-31)
-  SWAP_FEE_LEVEL_CHANGE: {
-    CHANGE_REQUESTED:    'CHANGE_REQUESTED',
-    CHANGE_APPLIED:      'CHANGE_APPLIED',
-    CHANGE_APPLY_FAILED: 'CHANGE_APPLY_FAILED',
-    CHANGE_CANCELLED:    'CHANGE_CANCELLED',
-  },
+  // Withdrawal Fee Level Creation/Change、Swap Fee Level Creation/Change：
+  // 已退役，Task 12 迁到 V1_AUDIT_ACTIONS 的 WITHDRAWAL_FEE_LEVEL_CREATION_*／
+  // WITHDRAWAL_FEE_LEVEL_CHANGE_*／SWAP_FEE_LEVEL_CREATION_*／SWAP_FEE_LEVEL_CHANGE_*
+  // 十六码（前缀唯一，解 CREATION_REQUESTED 等裸名跨族撞车），四本子组写点已清零
+  // （2026-09-01 grep 核实），本组已删。
+  // ⚠️ 未登 DEPRECATED_AUDIT_ACTIONS：CREATION_REQUESTED/CREATION_APPLIED/
+  // CREATION_APPLY_FAILED/CREATION_CANCELLED/CHANGE_REQUESTED/CHANGE_APPLIED/
+  // CHANGE_APPLY_FAILED/CHANGE_CANCELLED 这 8 个裸名此刻仍被下面保留的
+  // TRANSACTION_LIMIT_CREATION／TRANSACTION_LIMIT_CHANGE 两族真实写入——现在登
+  // 退役会让限额族的写入被 assertActionSpec 当场拒收。退役登记留给 Task 14（限额
+  // 两族迁完、裸名再无消费方时）一并做。
 
   // Customer Tags (2026-07-13)
   CUSTOMER_TAG: {
@@ -704,6 +684,25 @@ export const V1_AUDIT_ACTIONS: Record<string, AuditActionSpec> = {
   APPROVAL_POLICY_CHANGE_REQUESTED: { domain: 'CONFIG', correlationMode: S, requiredFields: ['beforeData', 'afterData'], requiresCausation: false },
   APPROVAL_POLICY_CHANGE_APPLIED:   { domain: 'CONFIG', correlationMode: I, requiredFields: ['beforeData', 'afterData', 'policyVersion', 'approvalNo'], requiresCausation: true },
 
+  // ── 兑换费率等级（2026-09-01 换名册：裸名跨族撞车 → 前缀唯一）────
+  SWAP_FEE_LEVEL_CREATION_REQUESTED:     { domain: 'CONFIG', correlationMode: S, requiredFields: ['afterData'], requiresCausation: false },
+  SWAP_FEE_LEVEL_CREATION_APPLIED:       { domain: 'CONFIG', correlationMode: I, requiredFields: ['afterData', 'approvalNo'], requiresCausation: true },
+  SWAP_FEE_LEVEL_CREATION_APPLY_FAILED:  { domain: 'CONFIG', correlationMode: I, requiredFields: [], requiresCausation: true },
+  SWAP_FEE_LEVEL_CREATION_CANCELLED:     { domain: 'CONFIG', correlationMode: I, requiredFields: ['reason'], requiresCausation: true },
+  SWAP_FEE_LEVEL_CHANGE_REQUESTED:       { domain: 'CONFIG', correlationMode: S, requiredFields: ['beforeData', 'afterData'], requiresCausation: false },
+  SWAP_FEE_LEVEL_CHANGE_APPLIED:         { domain: 'CONFIG', correlationMode: I, requiredFields: ['beforeData', 'afterData', 'approvalNo'], requiresCausation: true },
+  SWAP_FEE_LEVEL_CHANGE_APPLY_FAILED:    { domain: 'CONFIG', correlationMode: I, requiredFields: [], requiresCausation: true },
+  SWAP_FEE_LEVEL_CHANGE_CANCELLED:       { domain: 'CONFIG', correlationMode: I, requiredFields: ['reason'], requiresCausation: true },
+  // ── 提现费率等级 ────────────────────────────────────────
+  WITHDRAWAL_FEE_LEVEL_CREATION_REQUESTED:    { domain: 'CONFIG', correlationMode: S, requiredFields: ['afterData'], requiresCausation: false },
+  WITHDRAWAL_FEE_LEVEL_CREATION_APPLIED:      { domain: 'CONFIG', correlationMode: I, requiredFields: ['afterData', 'approvalNo'], requiresCausation: true },
+  WITHDRAWAL_FEE_LEVEL_CREATION_APPLY_FAILED: { domain: 'CONFIG', correlationMode: I, requiredFields: [], requiresCausation: true },
+  WITHDRAWAL_FEE_LEVEL_CREATION_CANCELLED:    { domain: 'CONFIG', correlationMode: I, requiredFields: ['reason'], requiresCausation: true },
+  WITHDRAWAL_FEE_LEVEL_CHANGE_REQUESTED:      { domain: 'CONFIG', correlationMode: S, requiredFields: ['beforeData', 'afterData'], requiresCausation: false },
+  WITHDRAWAL_FEE_LEVEL_CHANGE_APPLIED:        { domain: 'CONFIG', correlationMode: I, requiredFields: ['beforeData', 'afterData', 'approvalNo'], requiresCausation: true },
+  WITHDRAWAL_FEE_LEVEL_CHANGE_APPLY_FAILED:   { domain: 'CONFIG', correlationMode: I, requiredFields: [], requiresCausation: true },
+  WITHDRAWAL_FEE_LEVEL_CHANGE_CANCELLED:      { domain: 'CONFIG', correlationMode: I, requiredFields: ['reason'], requiresCausation: true },
+
   // ── ⑪ 审计日志自身的操作 ────────────────────────────────
   AUDIT_EVIDENCE_EXPORT_REQUESTED:  { domain: 'AUDIT', correlationMode: S, requiredFields: [], requiresCausation: false },
   AUDIT_EVIDENCE_EXPORT_GENERATED:  { domain: 'AUDIT', correlationMode: I, requiredFields: ['payloadDigest'], requiresCausation: true },
@@ -739,8 +738,9 @@ export const V1_AUDIT_ACTIONS: Record<string, AuditActionSpec> = {
  * 7 个 *_FAILED 收编进 outcome=FAILED + reasonCode；4 个登录码归安全日志（③）。
  *
  * ⚠️ 这些都是老命名法裸词，不是扁平全局唯一——'CHANGE_APPLY_FAILED' 同时还被
- * TRANSACTION_LIMIT_CHANGE / SWAP_FEE_LEVEL_CHANGE / WITHDRAWAL_FEE_LEVEL_CHANGE
- * 三个保留（非 V1）域复用，且全部 11 个码此刻仍有真实调用方在写（迁移是 Task 5-9 的事）。
+ * TRANSACTION_LIMIT_CHANGE 这个保留（非 V1）域复用（SWAP_FEE_LEVEL_CHANGE /
+ * WITHDRAWAL_FEE_LEVEL_CHANGE 两个原复用方已在 Task 12 迁走，改写前缀唯一新码，
+ * 不再触碰这个裸词），且全部 11 个码此刻仍有真实调用方在写（迁移是 Task 5-9 的事）。
  * 因此 assertActionSpec 里对这份名单的拦截刻意加了 actionDomain 网关，见该方法注释。
  */
 /**

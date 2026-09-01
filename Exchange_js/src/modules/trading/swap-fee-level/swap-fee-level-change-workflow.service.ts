@@ -11,7 +11,6 @@ import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import {
   AuditBusinessWorkflowTypes,
   AuditEntityTypes,
-  AuditGovernanceActions,
 } from '../../audit-logging/constants/audit-actions.constant';
 import { AuditOutcome } from '../../audit-logging/dto/audit-log.dto';
 import { ApprovalsService } from '../../governance/approvals/approvals.service';
@@ -75,14 +74,17 @@ export class SwapFeeLevelChangeWorkflowService {
     const requestNo = request.requestNo;
 
     // 4. Create approval case (entityRef = request.id)
-    const traceId = crypto.randomUUID();
+    // START：本次变更旅程的 correlationId，同一个值同事务写进 ApprovalCase.traceId
+    // （经 createAndSubmit 的 traceId 入参），供下游 executeChange/cancelChange 经
+    // ApprovalDecidedEvent.traceId INHERIT 读回。
+    const correlationId = crypto.randomUUID();
     let approvalCase: any;
     try {
       approvalCase = await this.approvalsService.createAndSubmit(
         {
           actionType: ApprovalActionTypes.SWAP_FEE_LEVEL_CHANGE,
           entityRef: request.id,
-          traceId,
+          traceId: correlationId,
           objectSnapshot: {
             requestId: request.id,
             requestNo,
@@ -95,7 +97,7 @@ export class SwapFeeLevelChangeWorkflowService {
         },
         {
           reason: changeReason.trim(),
-          traceId,
+          traceId: correlationId,
         },
         actor,
       );
@@ -111,17 +113,18 @@ export class SwapFeeLevelChangeWorkflowService {
     // 6. Audit CHANGE_REQUESTED
     await this.auditLogsService.recordByActor(
       {
-        action: AuditGovernanceActions.SWAP_FEE_LEVEL_CHANGE.CHANGE_REQUESTED,
+        action: 'SWAP_FEE_LEVEL_CHANGE_REQUESTED',
+        actionDomain: 'CONFIG',
         primarySubjectType: AuditEntityTypes.SWAP_FEE_LEVEL,
         primarySubjectNo: requestNo,
-        traceId,
+        correlationId,
         outcome: AuditOutcome.SUCCESS,
+        reason: changeReason.trim(),
+        beforeData: { tiersJson: level.tiersJson },
+        afterData: { tiersJson: proposedTiersJson },
         metadata: {
           levelId: level.id,
           levelCode: level.levelCode,
-          currentTiersJson: level.tiersJson,
-          proposedTiersJson,
-          changeReason: changeReason.trim(),
           approvalNo: approvalCase.approvalNo,
         },
         requestId: `SWAP_FEE_LEVEL_CHANGE_REQUESTED_${requestNo}`,
@@ -176,11 +179,14 @@ export class SwapFeeLevelChangeWorkflowService {
           const reason = err.message;
           await this.feeLevelService.markRequestExecutionFailed(request.requestNo, reason);
           await this.auditLogsService.recordSystem({
-            action: AuditGovernanceActions.SWAP_FEE_LEVEL_CHANGE.CHANGE_APPLY_FAILED,
+            action: 'SWAP_FEE_LEVEL_CHANGE_APPLY_FAILED',
+            actionDomain: 'CONFIG',
             primarySubjectType: AuditEntityTypes.SWAP_FEE_LEVEL,
             primarySubjectNo: request.requestNo,
-            traceId: event?.traceId,
+            correlationId: event?.traceId,
+            causationId: approvalId,
             outcome: AuditOutcome.FAILED,
+            reasonCode: 'CONFLICT',
             reason,
             metadata: { levelId: request.levelId, levelCode: request.levelCode },
             requestId: `SWAP_FEE_LEVEL_CHANGE_APPLY_FAILED_${request.requestNo}`,
@@ -194,19 +200,17 @@ export class SwapFeeLevelChangeWorkflowService {
 
       // 5. Audit CHANGE_APPLIED
       await this.auditLogsService.recordSystem({
-        action: AuditGovernanceActions.SWAP_FEE_LEVEL_CHANGE.CHANGE_APPLIED,
+        action: 'SWAP_FEE_LEVEL_CHANGE_APPLIED',
+        actionDomain: 'CONFIG',
         primarySubjectType: AuditEntityTypes.SWAP_FEE_LEVEL,
         primarySubjectNo: request.requestNo,
-        traceId: event?.traceId,
+        correlationId: event?.traceId,
+        causationId: approvalId,
         outcome: AuditOutcome.SUCCESS,
-        metadata: {
-          levelId: request.levelId,
-          levelCode: request.levelCode,
-          currentTiersJson: request.currentTiersJson,
-          proposedTiersJson: request.proposedTiersJson,
-          approvalId,
-          approvalNo: event?.approvalNo,
-        },
+        beforeData: { tiersJson: request.currentTiersJson },
+        afterData: { tiersJson: request.proposedTiersJson },
+        approvalNo: event?.approvalNo,
+        metadata: { levelId: request.levelId, levelCode: request.levelCode },
         requestId: `SWAP_FEE_LEVEL_CHANGE_APPLIED_${request.requestNo}`,
         sourcePlatform: 'SYSTEM',
       });
@@ -223,13 +227,15 @@ export class SwapFeeLevelChangeWorkflowService {
       }
 
       await this.auditLogsService.recordSystem({
-        action: AuditGovernanceActions.SWAP_FEE_LEVEL_CHANGE.CHANGE_APPLY_FAILED,
+        action: 'SWAP_FEE_LEVEL_CHANGE_APPLY_FAILED',
+        actionDomain: 'CONFIG',
         primarySubjectType: AuditEntityTypes.SWAP_FEE_LEVEL,
         primarySubjectNo: request?.requestNo,
-        traceId: event?.traceId,
+        correlationId: event?.traceId,
+        causationId: approvalId,
         outcome: AuditOutcome.FAILED,
+        reasonCode: 'EXECUTION_FAILED',
         reason: err.message,
-        metadata: { approvalId },
         requestId: `SWAP_FEE_LEVEL_CHANGE_APPLY_FAILED_${requestId}`,
         sourcePlatform: 'SYSTEM',
       });
@@ -260,16 +266,18 @@ export class SwapFeeLevelChangeWorkflowService {
 
       // Audit
       await this.auditLogsService.recordSystem({
-        action: AuditGovernanceActions.SWAP_FEE_LEVEL_CHANGE.CHANGE_CANCELLED,
+        action: 'SWAP_FEE_LEVEL_CHANGE_CANCELLED',
+        actionDomain: 'CONFIG',
         primarySubjectType: AuditEntityTypes.SWAP_FEE_LEVEL,
         primarySubjectNo: request.requestNo,
-        traceId: event?.traceId,
+        correlationId: event?.traceId,
+        causationId: approvalId,
         outcome: AuditOutcome.SUCCESS,
+        reason: event?.decisionReason || `Swap fee level change request ${String(decision).toLowerCase()}`,
         metadata: {
           decision,
           levelId: request.levelId,
           levelCode: request.levelCode,
-          approvalId,
           approvalNo: event?.approvalNo,
         },
         requestId: `SWAP_FEE_LEVEL_CHANGE_CANCELLED_${request.requestNo}`,

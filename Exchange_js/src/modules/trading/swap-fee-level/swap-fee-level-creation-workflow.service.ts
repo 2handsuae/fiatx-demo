@@ -5,7 +5,6 @@ import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import {
   AuditBusinessWorkflowTypes,
   AuditEntityTypes,
-  AuditGovernanceActions,
 } from '../../audit-logging/constants/audit-actions.constant';
 import { AuditOutcome } from '../../audit-logging/dto/audit-log.dto';
 import { ApprovalsService } from '../../governance/approvals/approvals.service';
@@ -64,14 +63,17 @@ export class SwapFeeLevelCreationWorkflowService {
     });
 
     // Create approval case
-    const traceId = crypto.randomUUID();
+    // START：本次创建旅程的 correlationId，同一个值同事务写进 ApprovalCase.traceId
+    // （经 createAndSubmit 的 traceId 入参），供下游 executeActivation/executeCancellation
+    // 经 ApprovalDecidedEvent.traceId INHERIT 读回——与角色定义创建工作流同款模式。
+    const correlationId = crypto.randomUUID();
     let approvalCase: any;
     try {
       approvalCase = await this.approvalsService.createAndSubmit(
         {
           actionType: ApprovalActionTypes.SWAP_FEE_LEVEL_CREATION,
           entityRef: level.id,
-          traceId,
+          traceId: correlationId,
           objectSnapshot: {
             levelId: level.id,
             levelCode,
@@ -86,7 +88,7 @@ export class SwapFeeLevelCreationWorkflowService {
             validTo: validTo ?? null,
           },
         },
-        { reason, traceId },
+        { reason, traceId: correlationId },
         actor,
       );
     } catch (err) {
@@ -98,21 +100,31 @@ export class SwapFeeLevelCreationWorkflowService {
     // Link approval case to level
     await this.feeLevelService.linkApprovalCase(levelCode, approvalCase.id, approvalCase.approvalNo);
 
+    // afterData：CREATE 没有「前」态，只存提案身份本身——不存 status/id/createdAt 等机械字段。
+    const afterData = {
+      levelCode,
+      name,
+      fromAssetId,
+      toAssetId,
+      isDefault,
+      tiersJson,
+      requiredTags: requiredTags ?? [],
+      validFrom: validFrom ?? null,
+      validTo: validTo ?? null,
+    };
+
     // Audit
     await this.auditLogsService.recordByActor(
       {
-        action: AuditGovernanceActions.SWAP_FEE_LEVEL_CREATION.CREATION_REQUESTED,
+        action: 'SWAP_FEE_LEVEL_CREATION_REQUESTED',
+        actionDomain: 'CONFIG',
         primarySubjectType: AuditEntityTypes.SWAP_FEE_LEVEL,
         primarySubjectNo: level.levelCode,
-        traceId,
+        correlationId,
         outcome: AuditOutcome.SUCCESS,
+        reason,
+        afterData,
         metadata: {
-          levelCode,
-          name,
-          fromAssetId,
-          toAssetId,
-          isDefault,
-          reason,
           approvalNo: approvalCase.approvalNo,
         },
         requestId: `SWAP_FEE_LEVEL_CREATION_REQUESTED_${level.levelCode}`,
@@ -165,18 +177,25 @@ export class SwapFeeLevelCreationWorkflowService {
       await this.feeLevelService.activateLevel(level.levelCode);
 
       await this.auditLogsService.recordSystem({
-        action: AuditGovernanceActions.SWAP_FEE_LEVEL_CREATION.CREATION_APPLIED,
+        action: 'SWAP_FEE_LEVEL_CREATION_APPLIED',
+        actionDomain: 'CONFIG',
         primarySubjectType: AuditEntityTypes.SWAP_FEE_LEVEL,
         primarySubjectNo: level.levelCode,
-        traceId: event?.traceId,
+        // INHERIT：读 ApprovalDecidedEvent.traceId——它就是 initiateCreate 铸造的
+        // correlationId 原样传播过来的（经 ApprovalCase.traceId）。
+        correlationId: event?.traceId,
+        // 异步驱动：这条记录是被"审批已批准"这个决定触发的。
+        causationId: approvalId,
         outcome: AuditOutcome.SUCCESS,
-        metadata: {
+        afterData: {
           levelCode: level.levelCode,
           name: level.name,
           fromAssetId: level.fromAssetId,
           toAssetId: level.toAssetId,
           isDefault: level.isDefault,
+          tiersJson: level.tiersJson,
         },
+        approvalNo: event?.approvalNo,
         requestId: `SWAP_FEE_LEVEL_CREATION_APPLIED_${level.levelCode}`,
         sourcePlatform: 'SYSTEM',
       });
@@ -186,12 +205,15 @@ export class SwapFeeLevelCreationWorkflowService {
       this.logger.error(`Failed to activate level ${levelId}: ${err.message}`);
 
       await this.auditLogsService.recordSystem({
-        action: AuditGovernanceActions.SWAP_FEE_LEVEL_CREATION.CREATION_APPLY_FAILED,
+        action: 'SWAP_FEE_LEVEL_CREATION_APPLY_FAILED',
+        actionDomain: 'CONFIG',
         primarySubjectType: AuditEntityTypes.SWAP_FEE_LEVEL,
         primarySubjectNo: level?.levelCode,
-        traceId: event?.traceId,
+        correlationId: event?.traceId,
+        causationId: approvalId,
         outcome: AuditOutcome.FAILED,
-        metadata: { error: err.message },
+        reasonCode: 'EXECUTION_FAILED',
+        reason: err.message,
         requestId: `SWAP_FEE_LEVEL_CREATION_APPLY_FAILED_${levelId}`,
         sourcePlatform: 'SYSTEM',
       });
@@ -216,11 +238,14 @@ export class SwapFeeLevelCreationWorkflowService {
       await this.feeLevelService.deleteRejectedLevel(level.levelCode);
 
       await this.auditLogsService.recordSystem({
-        action: AuditGovernanceActions.SWAP_FEE_LEVEL_CREATION.CREATION_CANCELLED,
+        action: 'SWAP_FEE_LEVEL_CREATION_CANCELLED',
+        actionDomain: 'CONFIG',
         primarySubjectType: AuditEntityTypes.SWAP_FEE_LEVEL,
         primarySubjectNo: level.levelCode,
-        traceId: event?.traceId,
+        correlationId: event?.traceId,
+        causationId: approvalId,
         outcome: AuditOutcome.SUCCESS,
+        reason: event?.decisionReason || `Swap fee level creation request ${String(decision).toLowerCase()}`,
         metadata: { decision },
         requestId: `SWAP_FEE_LEVEL_CREATION_CANCELLED_${level.levelCode}`,
         sourcePlatform: 'SYSTEM',
