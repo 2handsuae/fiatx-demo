@@ -68,6 +68,7 @@ export const AuditEntityTypes = {
   RECONCILIATION_RUN_V8: 'RECONCILIATION_RUN_V8',
   RECONCILIATION_CASE: 'RECONCILIATION_CASE',
   RECON_ADJUSTMENT: 'RECON_ADJUSTMENT',
+  RECON_DISPOSITION: 'RECON_DISPOSITION',
   CUSTOMER_TAG: 'CUSTOMER_TAG',
   MATERIAL_REQUEST: 'MATERIAL_REQUEST',
 } as const;
@@ -419,6 +420,8 @@ export const AuditActions = {
   RECON_PUSH_ORDER_MANUAL: 'RECON_PUSH_ORDER_MANUAL',
   // ── Reconciliation disposition: adjustment（平账·调账单，Task 5）──
   RECON_ADJUSTMENT_POSTED: 'RECON_ADJUSTMENT_POSTED',
+  RECON_ADJUSTMENT_DRAFTED: 'RECON_ADJUSTMENT_DRAFTED',
+  RECON_DISPOSITION_RECORDED: 'RECON_DISPOSITION_RECORDED',
   // ── Material Request Ledger（向客户要材料）──
   MATERIAL_REQUEST_ISSUED: 'MATERIAL_REQUEST_ISSUED',
   MATERIAL_REQUEST_SUBMITTED: 'MATERIAL_REQUEST_SUBMITTED',
@@ -904,6 +907,10 @@ export const V8_RECON_AUDIT_ACTIONS: Record<string, AuditActionSpec> = {
   // requiredFields 只列 AuditLogEvent 真有的顶层列——'direction' 不是一列（评审逮到：
   // 若把它列进来，这条要求永远满足不了，只能塞 metadata），direction 留在 metadata 里。
   RECON_ADJUSTMENT_POSTED: { domain: 'RECON', correlationMode: I, requiredFields: ['reasonCode', 'amount', 'effectiveDate'], requiresCausation: false },
+  // 开单（四族通用，DRAFT 阶段无审批件，铁律①要求每个持久化动作留痕——销 BACKLOG「createDraft 零审计」）
+  RECON_ADJUSTMENT_DRAFTED: { domain: 'RECON', correlationMode: N, requiredFields: ['reasonCode', 'amount'], requiresCausation: false },
+  // 定性 / 覆盖重定（spec §3.2）——对账件无客户旅程，N 模式同 RECON_CASE_OPENED
+  RECON_DISPOSITION_RECORDED: { domain: 'RECON', correlationMode: N, requiredFields: ['causeCode', 'outlet'], requiresCausation: false },
 };
 
 /**
