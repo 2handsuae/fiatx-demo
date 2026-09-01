@@ -1753,7 +1753,9 @@ git add -A admin-web/src
 git commit -m "fix(admin-recon): 列表定性进度列 + Δ 分→元 + 删 walletRef tooltip（T10，销两条 BACKLOG）"
 ```
 
----### Task 11: 种子重编号 14 条 + 场景 10 查无果
+---
+
+### Task 11: 种子重编号 14 条 + 场景 10 查无果
 
 **Files:**
 - Modify: `scripts/recon-demo.ts`
