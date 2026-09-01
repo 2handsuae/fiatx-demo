@@ -184,6 +184,7 @@ const ApprovalDetailPage = () => {
   const [loading, setLoading] = useState(true);
   const [error,   setError]   = useState('');
   const [notice,  setNotice]  = useState<string | null>(null);
+  const [simulatingTimeout, setSimulatingTimeout] = useState(false);
 
   /* Decision modal */
   const [decisionAction, setDecisionAction] = useState<DecisionAction | null>(null);
@@ -295,6 +296,29 @@ const ApprovalDetailPage = () => {
       }
     } finally {
       setSubmittingAction(null);
+    }
+  };
+
+  /* ── ⚡ Demo: fast-forward timeout ──
+     只拨 timeoutAt，不直接改 status——过期这条边仍必须由后台扫描器
+     （ApprovalExpiryService.sweep()，每分钟一次）走。按钮用
+     detail.approvalNo，不依赖路由参数 id。 */
+
+  const simulateTimeout = async () => {
+    if (!detail) return;
+    setSimulatingTimeout(true);
+    try {
+      await fetchJson(
+        `${import.meta.env.VITE_API_URL}/admin/control-gates/approvals/${detail.approvalNo}/simulate-timeout`,
+        { method: 'POST' },
+      );
+      setNotice('已把超时时间拨到过去，一分钟内该单将自动过期');
+      await fetchDetail();
+    } catch (e: unknown) {
+      if (e instanceof AdminSessionError) return;
+      setError(e instanceof Error ? e.message : 'Failed to simulate timeout.');
+    } finally {
+      setSimulatingTimeout(false);
     }
   };
 
@@ -569,6 +593,22 @@ const ApprovalDetailPage = () => {
                 )}
               </div>
             </div>
+          )}
+
+          {/* ⚡ Demo: 拨超时——与 canApprove/canReject/canCancel 那组
+              RBAC 判断无关（权限走 DEMO_CLOCK_WRITE），所以不挂在
+              showActionsBlock 下面，独立按 PENDING 状态显示。同款见
+              SwapTransactionDetail.tsx「Simulate SLA Timeout」。 */}
+          {detail.status === 'PENDING' && (
+            <SidebarGroup title="Demo">
+              <button
+                onClick={() => void simulateTimeout()}
+                disabled={simulatingTimeout}
+                className={adminButtonClass('simulationAction')}
+              >
+                {simulatingTimeout ? 'Working…' : '⚡ 模拟超时'}
+              </button>
+            </SidebarGroup>
           )}
 
           {/* Identity Summary */}

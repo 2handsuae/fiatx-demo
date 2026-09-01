@@ -1125,4 +1125,20 @@ export class ApprovalsService {
       expiredIds,
     };
   }
+
+  /**
+   * 演示用：把该单超时时间拨到过去，下一轮 @Cron 扫描即过期。与三域
+   * simulate-sla-timeout 同款。只拨时间、不直改状态：过期这条边必须由
+   * 扫描器走，否则演的是假门。
+   */
+  async simulateTimeoutByNo(approvalNo: string) {
+    const approval = await this.prisma.approvalCase.findUnique({ where: { approvalNo } });
+    if (!approval) throw new NotFoundException(`Approval ${approvalNo} not found`);
+    if (approval.status !== ApprovalStatuses.PENDING) {
+      throw new BadRequestException(`Approval ${approvalNo} is ${approval.status}, only PENDING can be fast-forwarded`);
+    }
+    const timeoutAt = new Date(Date.now() - 1000);
+    await this.prisma.approvalCase.update({ where: { id: approval.id }, data: { timeoutAt } });
+    return { approvalNo, timeoutAt };
+  }
 }

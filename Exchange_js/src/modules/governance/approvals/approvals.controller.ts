@@ -13,6 +13,8 @@ import {
 import { AuthGuard } from '@nestjs/passport';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { AdminPermissionGuard } from '../../identity/access-control/admin-permission.guard';
+import { RequirePermissions } from '../../identity/access-control/require-permissions.decorator';
+import { buildPermissionCode } from '../../identity/access-control/permission-code.util';
 import { ApprovalsService } from './approvals.service';
 import {
   ApprovalActorContext,
@@ -78,6 +80,13 @@ export class ApprovalsController {
     @Body(new ValidationPipe({ transform: true })) body: CancelApprovalDto,
   ) {
     return this.approvalsService.cancel(id, body, this.ensureAdmin(req));
+  }
+
+  @Post(':approvalNo/simulate-timeout')
+  @ApiOperation({ summary: '演示用：把该审批单的超时时间拨到过去，下轮扫描即过期' })
+  @RequirePermissions(buildPermissionCode('POST', '/admin/control-gates/approvals/:approvalNo/simulate-timeout'))
+  simulateTimeout(@Param('approvalNo') approvalNo: string) {
+    return this.approvalsService.simulateTimeoutByNo(approvalNo);
   }
 
   @Get(':id')

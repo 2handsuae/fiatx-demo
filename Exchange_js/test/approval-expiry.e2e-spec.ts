@@ -4,6 +4,7 @@ import { EventEmitter2 } from '@nestjs/event-emitter';
 import { AppModule } from '../src/app.module';
 import { PrismaService } from '../src/core/prisma/prisma.service';
 import { ApprovalExpiryService } from '../src/modules/governance/approvals/approval-expiry.service';
+import { ApprovalsService } from '../src/modules/governance/approvals/approvals.service';
 import { ApprovalStatuses } from '../src/modules/governance/approvals/constants/approval.constants';
 
 describe('审批超时门（⑥ 门不可绕）', () => {
@@ -45,5 +46,14 @@ describe('审批超时门（⑥ 门不可绕）', () => {
     await expiry.sweep();
     const after = await prisma.approvalCase.findUniqueOrThrow({ where: { id: c.id } });
     expect(after.status).toBe(ApprovalStatuses.PENDING);
+  });
+
+  it('⚡ 拨到过去后，下一轮扫描该单即过期', async () => {
+    const approvalsService = app.get(ApprovalsService);
+    const c = await mk('SIM', new Date(Date.now() + 48 * 3_600_000));
+    await approvalsService.simulateTimeoutByNo(c.approvalNo);
+    await expiry.sweep();
+    const after = await prisma.approvalCase.findUniqueOrThrow({ where: { id: c.id } });
+    expect(after.status).toBe(ApprovalStatuses.EXPIRED);
   });
 });
