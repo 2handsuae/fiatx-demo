@@ -815,6 +815,26 @@ describe('AdjustmentService.onApproved 第四族落账（改记，spec §6）', 
       expect.objectContaining({ subjectType: 'RECONCILIATION_CASE', subjectNo: 'RC26090100001', subjectRole: 'RELATED' }),
     ]));
   });
+
+  // 评审 Important：改记贷记的是**正主方**的客户负债，B 的余额真的变了。审计子表
+  // 按 subjects 建索引、metadata 不进索引——正主方只写进 metadata 的话，「按客户号
+  // 查审计」查 B 时这条事件根本不出现，等于「改了 B 的钱、按 B 查不到」，踩铁律①。
+  // 这是本仓第一个双 OWNER 事件，所以断言两个 OWNER **同时存在**，不断言数组长度
+  // （长度断言会在未来往 subjects 里加任何一条无关主体时误红，也测不出少的是哪一个）。
+  it('两侧客户都进 subjects：错记方与正主方各一条 CUSTOMER/OWNER（按正主方客户号也要查得到这笔改记）', async () => {
+    const recordByActor = jest.fn();
+    const accounting = {
+      executeTransfer: jest.fn().mockResolvedValue({ tbTransferId: 9n }),
+      resolveTbAccountId: jest.fn().mockResolvedValue(1n),
+    };
+    await makeSvc(reattrRow, accounting, jest.fn(), recordByActor).onApproved('ADJ2609010001', 'U_OPS');
+
+    const subjects = recordByActor.mock.calls[0][0].subjects;
+    const owners = subjects.filter((s: any) => s.subjectType === 'CUSTOMER' && s.subjectRole === 'OWNER');
+    expect(owners.map((s: any) => s.subjectNo).sort()).toEqual(['CU-FROM', 'CU-TO']);
+    // PRIMARY 仍只有一个——persistSubjects 对多于一个 PRIMARY 是直接抛错的。
+    expect(subjects.filter((s: any) => s.subjectRole === 'PRIMARY')).toHaveLength(1);
+  });
 });
 
 describe('AdjustmentService.describeImpact 第四族 —— 审批人要看见钱从谁名下去了谁名下', () => {

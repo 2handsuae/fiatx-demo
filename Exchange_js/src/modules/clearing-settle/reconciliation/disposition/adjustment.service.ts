@@ -624,13 +624,20 @@ export class AdjustmentService {
       },
     });
 
-    // 审计信封与主路径同构（同一个码、同一份 requiredFields 合同），差异只在
-    // metadata 多一条正主方线索：改记单挂在错记方名下，不带 toOwnerNo 的话
-    // 留痕里只看得出「错记方少了一笔」，钱去了哪查不到。
+    // 审计信封与主路径同构（同一个码、同一份 requiredFields 合同），差异有两处：
+    // metadata 多一条正主方线索，subjects 多一个正主方 OWNER。
     const subjects: any[] = [
       { subjectType: AuditEntityTypes.RECON_ADJUSTMENT, subjectNo: row.adjustmentNo, subjectRole: 'PRIMARY' },
     ];
     if (row.ownerNo) subjects.push({ subjectType: 'CUSTOMER', subjectNo: row.ownerNo, subjectRole: 'OWNER' });
+    // ⚠ 本仓**第一个双 OWNER 事件**（此前每条审计事件至多一个 OWNER 主体，全是
+    // 单客户事件）。改记贷记的是正主方的客户负债——**B 的余额真的变了**，不是
+    // 旁观者；而审计子表按 subjects 建索引、metadata 不进索引，只把 toOwnerNo
+    // 塞进 metadata 等于「改了 B 的钱、按 B 查不到」，铁律① 在这条路径上不成立。
+    // 角色取 OWNER 不取 COUNTERPARTY：后者的定义是「外部 VASP / 收款人 / 汇款人」
+    // （audit-log.dto.ts AuditSubjectRole），内部客户不贴合。
+    // persistSubjects 只约束 PRIMARY 至多一个，不拒第二个 OWNER。
+    if (row.toOwnerNo) subjects.push({ subjectType: 'CUSTOMER', subjectNo: row.toOwnerNo, subjectRole: 'OWNER' });
     if (row.caseNo) subjects.push({ subjectType: 'RECONCILIATION_CASE', subjectNo: row.caseNo, subjectRole: 'RELATED' });
 
     await this.auditLogs.recordByActor(
