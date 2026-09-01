@@ -11,7 +11,6 @@ import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import {
   AuditBusinessWorkflowTypes,
   AuditEntityTypes,
-  AuditGovernanceActions,
 } from '../../audit-logging/constants/audit-actions.constant';
 import { AuditOutcome } from '../../audit-logging/dto/audit-log.dto';
 import { ApprovalsService } from '../../governance/approvals/approvals.service';
@@ -47,7 +46,10 @@ export class AssetActivationWorkflowService {
   }
 
   async requestActivation(assetNo: string, actor: ApprovalActorContext) {
-    const traceId = randomUUID();
+    // START：本次激活旅程的 correlationId，同一个值同事务写进 ApprovalCase.traceId
+    // （经 createAndSubmit 的 traceId 入参），供下游 executeActivation 经
+    // ApprovalDecidedEvent.traceId INHERIT 读回。
+    const correlationId = randomUUID();
 
     // 1. Find asset, verify PROVISIONING
     const asset = await this.prisma.asset.findFirst({ where: { assetNo } });
@@ -83,7 +85,7 @@ export class AssetActivationWorkflowService {
       {
         actionType: ApprovalActionTypes.ASSET_ACTIVATION,
         entityRef: asset.id,
-        traceId,
+        traceId: correlationId,
         objectSnapshot: {
           assetId: asset.id,
           assetNo,
@@ -95,21 +97,30 @@ export class AssetActivationWorkflowService {
       },
       {
         reason: `Activate asset: ${asset.currency} (${asset.type})`,
-        traceId,
+        traceId: correlationId,
       },
       actor,
     );
 
+    // beforeData：请求发起时资产的状态快照（激活只会改 status，其余字段留作上下文）。
+    const beforeData = {
+      status: asset.status,
+      currency: asset.currency,
+      type: asset.type,
+      network: asset.network,
+    };
+
     // 5. Record audit
     await this.auditLogsService.recordByActor(
       {
-        action: AuditGovernanceActions.ASSET_ACTIVATION.ACTIVATION_REQUESTED,
+        action: 'ASSET_ACTIVATION_REQUESTED',
+        actionDomain: 'CONFIG',
         primarySubjectType: AuditEntityTypes.ASSET,
         primarySubjectNo: assetNo,
-        traceId,
+        correlationId,
         outcome: AuditOutcome.SUCCESS,
+        beforeData,
         metadata: {
-          assetCurrency: asset.currency,
           approvalNo: approvalCase.approvalNo,
         },
         requestId: `ASSET_ACTIVATION_REQUESTED_${assetNo}`,
@@ -120,7 +131,7 @@ export class AssetActivationWorkflowService {
 
     return {
       approvalNo: approvalCase.approvalNo,
-      traceId,
+      traceId: correlationId,
       assetNo,
       status: 'PENDING',
     };
@@ -180,14 +191,18 @@ export class AssetActivationWorkflowService {
       const updated = await this.assetsService.activateAsset(assetRecord.assetNo);
 
       await this.auditLogsService.recordSystem({
-        action: AuditGovernanceActions.ASSET_ACTIVATION.ASSET_ACTIVATED,
+        action: 'ASSET_ACTIVATED',
+        actionDomain: 'CONFIG',
         primarySubjectType: AuditEntityTypes.ASSET,
         primarySubjectNo: updated.assetNo ?? undefined,
-        traceId: event.traceId,
+        // INHERIT：读 ApprovalDecidedEvent.traceId——它就是 requestActivation 铸造的
+        // correlationId 原样传播过来的（经 ApprovalCase.traceId）。
+        correlationId: event.traceId,
+        // 异步驱动：这条记录是被「审批已批准」这个决定触发的。
+        causationId: event.approvalId,
         outcome: AuditOutcome.SUCCESS,
+        approvalNo: event.approvalNo,
         metadata: {
-          approvalId: event.approvalId,
-          approvalNo: event.approvalNo,
           activatedByUserId: event.decisionByUserId,
           activatedByUserNo: event.decisionByUserNo,
         },
@@ -197,11 +212,14 @@ export class AssetActivationWorkflowService {
 
     } catch (error) {
       await this.auditLogsService.recordSystem({
-        action: AuditGovernanceActions.ASSET_ACTIVATION.ACTIVATION_FAILED,
+        action: 'ASSET_ACTIVATION_FAILED',
+        actionDomain: 'CONFIG',
         primarySubjectType: AuditEntityTypes.ASSET,
         primarySubjectNo: event.entityRef,
-        traceId: event.traceId,
+        correlationId: event.traceId,
+        causationId: event.approvalId,
         outcome: AuditOutcome.FAILED,
+        reasonCode: 'EXECUTION_FAILED',
         reason: error instanceof Error ? error.message : 'Activation execution failed',
         metadata: { approvalId: event.approvalId },
         requestId: `ASSET_ACTIVATION_EXEC_FAILED_${event.entityRef}`,

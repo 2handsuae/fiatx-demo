@@ -496,33 +496,25 @@ export const AuditGovernanceActions = {
     MANUAL_COOLING_SKIP:  'MANUAL_COOLING_SKIP',
   },
 
-  // Asset Suspension (2026-05-14)
-  ASSET_SUSPENSION: {
-    SUSPENSION_REQUESTED:          'SUSPENSION_REQUESTED',
-    ASSET_SUSPENDED:               'ASSET_SUSPENDED',
-    SUSPENSION_EXECUTION_FAILED:   'SUSPENSION_EXECUTION_FAILED',
-  },
+  // Asset Suspension (2026-05-14)：已退役，Task 13 迁到 V1_AUDIT_ACTIONS 的
+  // ASSET_SUSPENSION_REQUESTED/ASSET_SUSPENDED/ASSET_SUSPENSION_FAILED 三码
+  // （后两码值不变只进合同，SUSPENSION_EXECUTION_FAILED 改名 ASSET_SUSPENSION_FAILED），
+  // 全仓零消费方（2026-09-01 grep 核实），本组已删。
 
-  // Asset Reactivation (2026-05-14)
-  ASSET_REACTIVATION: {
-    REACTIVATION_REQUESTED:          'REACTIVATION_REQUESTED',
-    ASSET_REACTIVATED:               'ASSET_REACTIVATED',
-    REACTIVATION_EXECUTION_FAILED:   'REACTIVATION_EXECUTION_FAILED',
-  },
+  // Asset Reactivation (2026-05-14)：已退役，Task 13 迁到 V1_AUDIT_ACTIONS 的
+  // ASSET_REACTIVATION_REQUESTED/ASSET_REACTIVATED/ASSET_REACTIVATION_FAILED 三码
+  // （后两码值不变只进合同，REACTIVATION_EXECUTION_FAILED 改名 ASSET_REACTIVATION_FAILED），
+  // 全仓零消费方，本组已删。
 
-  // Asset Creation (2026-05-14) — no approval, direct create+provision
-  ASSET_CREATION: {
-    ASSET_CREATED_AND_PROVISIONED: 'ASSET_CREATED_AND_PROVISIONED',
-    ASSET_CREATION_FAILED:         'ASSET_CREATION_FAILED',
-    ASSET_PROVISIONING_UPDATED:    'ASSET_PROVISIONING_UPDATED',
-  },
+  // Asset Creation (2026-05-14) — no approval, direct create+provision：已退役，
+  // Task 13 迁到 V1_AUDIT_ACTIONS 的 ASSET_CREATED_AND_PROVISIONED/ASSET_CREATION_FAILED/
+  // ASSET_PROVISIONING_UPDATED 三码（三码值本就前缀唯一，不改名只进合同），
+  // 全仓零消费方，本组已删。
 
-  // Asset Activation (2026-05-14) — replaces ASSET_LISTING activation
-  ASSET_ACTIVATION: {
-    ACTIVATION_REQUESTED:  'ACTIVATION_REQUESTED',
-    ASSET_ACTIVATED:       'ASSET_ACTIVATED',
-    ACTIVATION_FAILED:     'ACTIVATION_FAILED',
-  },
+  // Asset Activation (2026-05-14) — replaces ASSET_LISTING activation：已退役，
+  // Task 13 迁到 V1_AUDIT_ACTIONS 的 ASSET_ACTIVATION_REQUESTED/ASSET_ACTIVATED/
+  // ASSET_ACTIVATION_FAILED 三码（ASSET_ACTIVATED 码值不变只进合同，ACTIVATION_REQUESTED/
+  // ACTIVATION_FAILED 改前缀唯一），全仓零消费方，本组已删。
 
   // Transaction Limit Change (2026-05-16)
   TRANSACTION_LIMIT_CHANGE: {
@@ -702,6 +694,24 @@ export const V1_AUDIT_ACTIONS: Record<string, AuditActionSpec> = {
   WITHDRAWAL_FEE_LEVEL_CHANGE_APPLIED:        { domain: 'CONFIG', correlationMode: I, requiredFields: ['beforeData', 'afterData', 'approvalNo'], requiresCausation: true },
   WITHDRAWAL_FEE_LEVEL_CHANGE_APPLY_FAILED:   { domain: 'CONFIG', correlationMode: I, requiredFields: [], requiresCausation: true },
   WITHDRAWAL_FEE_LEVEL_CHANGE_CANCELLED:      { domain: 'CONFIG', correlationMode: I, requiredFields: ['reason'], requiresCausation: true },
+
+  // ── 资产四族（2026-09-01 换名册·批二）：ASSET_CREATED_AND_PROVISIONED/
+  // ASSET_CREATION_FAILED/ASSET_PROVISIONING_UPDATED/ASSET_ACTIVATED/ASSET_SUSPENDED/
+  // ASSET_REACTIVATED 六码本就前缀唯一，码值不变只进合同；另六个裸名
+  // （SUSPENSION_/REACTIVATION_/ACTIVATION_ 各 REQUESTED+FAILED）改前缀唯一新码，
+  // 无跨族复用，裸名直接登退役闸（见下方 DEPRECATED_AUDIT_ACTIONS）。
+  ASSET_CREATED_AND_PROVISIONED: { domain: 'CONFIG', correlationMode: S, requiredFields: ['afterData'], requiresCausation: false },
+  ASSET_CREATION_FAILED:         { domain: 'CONFIG', correlationMode: S, requiredFields: [], requiresCausation: false },
+  ASSET_PROVISIONING_UPDATED:    { domain: 'CONFIG', correlationMode: I, requiredFields: ['afterData'], requiresCausation: false },
+  ASSET_ACTIVATION_REQUESTED:    { domain: 'CONFIG', correlationMode: S, requiredFields: ['beforeData'], requiresCausation: false },
+  ASSET_ACTIVATED:               { domain: 'CONFIG', correlationMode: I, requiredFields: ['approvalNo'], requiresCausation: true },
+  ASSET_ACTIVATION_FAILED:       { domain: 'CONFIG', correlationMode: I, requiredFields: [], requiresCausation: true },
+  ASSET_SUSPENSION_REQUESTED:    { domain: 'CONFIG', correlationMode: S, requiredFields: ['beforeData'], requiresCausation: false },
+  ASSET_SUSPENDED:               { domain: 'CONFIG', correlationMode: I, requiredFields: ['approvalNo'], requiresCausation: true },
+  ASSET_SUSPENSION_FAILED:       { domain: 'CONFIG', correlationMode: I, requiredFields: [], requiresCausation: true },
+  ASSET_REACTIVATION_REQUESTED:  { domain: 'CONFIG', correlationMode: S, requiredFields: ['beforeData'], requiresCausation: false },
+  ASSET_REACTIVATED:             { domain: 'CONFIG', correlationMode: I, requiredFields: ['approvalNo'], requiresCausation: true },
+  ASSET_REACTIVATION_FAILED:     { domain: 'CONFIG', correlationMode: I, requiredFields: [], requiresCausation: true },
 
   // ── ⑪ 审计日志自身的操作 ────────────────────────────────
   AUDIT_EVIDENCE_EXPORT_REQUESTED:  { domain: 'AUDIT', correlationMode: S, requiredFields: [], requiresCausation: false },
@@ -995,4 +1005,8 @@ export const DEPRECATED_AUDIT_ACTIONS: readonly string[] = [
   'LP_CONFIG_UPDATED',
   // 2026-08-31：随手工开账本科目退役（业主定「账本没有手动配置这回事」），写点已删
   'MANUAL_TB_ACCOUNT_CREATED',
+  // 2026-09-01 换名册 · 资产四族裸名退役（Task 13）——不跨族复用，直接登记
+  'SUSPENSION_REQUESTED', 'SUSPENSION_EXECUTION_FAILED',
+  'REACTIVATION_REQUESTED', 'REACTIVATION_EXECUTION_FAILED',
+  'ACTIVATION_REQUESTED', 'ACTIVATION_FAILED',
 ] as const;
