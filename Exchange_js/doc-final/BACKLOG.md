@@ -192,9 +192,11 @@ Last Updated: 2026-09-02
 
 - [ ] **答案键的 `expectedLines[].amount` 是装饰性的、没人读**（2026-08-31 终审）：`verifyManifest` 的 select 和匹配谓词都不碰它，且语义在场景间不统一（有的存注入后的新值、有的存差额）。升级方向是把它变成载荷（谓词里断言外部金额），这样"注入跑了但 delta 算错"也能被抓到——现在的钉行只能抓"整条没了"。⚠️ 终审的判断是**这条优先级低于已完成的完整性断言**（`casesOpened == manifest.wallets.length`，已于 `2e74d6d4` 落地）：金额算错已被 `bumpClosing` 连到桶断言上，而"多报破口"那一侧才是当时完全没人看的 ｜来源: 2026-08-31 整支终审
 
-- [ ] **`recon-demo.ts` 三处 `dedupKey` 里的场景号是旧的**（2026-08-31 终审）：`:1227` 的 `-s5-bank-charge` 实为 ⑭、`:1270` 的 `-s6-missed-deposit` 实为 ⑤、`:1469` 的 `-s7-bank-interest` 实为 ⑮；另外四个是对的，正因如此这三个更误导。**功能无影响**（键含 walletRef 不会撞）。⚠️ **刻意没在本批改**：`dedupKey` 有 `@@unique` 且是 upsert 的 `where`，是机器身份键——改身份键会造成真实的重复行事故。要改只能在一次整库重铺的同时改 ｜来源: 2026-08-31 整支终审
+- [x] ~~`recon-demo.ts` 三处 `dedupKey` 里的场景号是旧的~~ —— 已解（2026-09-02，平账一期半 Task 11）：14 场景整体重编号本身就要求一次整库重铺（场景 6 真写 TB 账本，验证只能靠重铺），拿到了这条债一直在等的窗口——`dedupKey` 全部 `-sN-` 段随新 scenarioId 重写（原文点名的三处 `-s5-bank-charge`→`-s11-bank-charge`、`-s6-missed-deposit`→`-s13-missed-deposit`、`-s7-bank-interest`→`-s12-bank-interest`，连同其余各处一并核对，现在每个 `-sN-` 都等于其 scenarioId）｜来源: 2026-08-31 整支终审
 
 - [ ] **`recon-demo.ts` 报错文案里的钱包 UUID 至少 5 处**（`:727/831/898/947/1295` + ⑫⑬ 两处同形）：commit `7aeeec7d` 专门为前置闸做过"报错改用钱包号 + 客户号"的清扫，同形的兄弟没跟上。**开发者面报错、不是管理台，不破铁律⑥**，纯可读性 ｜来源: 2026-08-31 整支终审
+
+- [ ] **`recon-demo.ts` 报错文案里的钱包 UUID：根治办法是给 `WalletPlan` 加 `walletNo` 字段**（Task 11 评审顺带发现）：上一条「至少 5 处」逐处手改治标不治本——`WalletPlan`（本文件 `planWallets` 的返回类型）从来没有 `walletNo` 这个字段，只有内部 `walletRef`（UUID），所以每处新写的报错都只能选 UUID 或者改用 `currency`/`coaCode` 之类的替代信息绕开（T11 场景 10 的报错就是这么绕的）。根治：`planWallets` 查询 `wallet` 表时顺手 `select` 上 `walletNo`（真实值例如公司运营户 `WA2601017168`），`WalletPlan` 接口加一个 `walletNo: string` 字段，那样「至少 5 处」+ 本轮新绕开的这处能一次性全部改成 `${plan.walletNo}`，之后也不会再有人被迫在两个坏选项（UUID / 绕着说）里选 ｜来源: 2026-09-02 平账一期半 Task 11 评审顺带发现
 
 - [ ] **几处注释与实现对不上**（2026-08-31 终审，同属"脚本不消费、没有机制会发现它错"那一类）：① `wallet-recon-run.service.ts:824-826` 称已解释差异行"标成 EXPLAINED，仍在案件页上看得见"——**案件页读的是 `flowComparison[].explainedByAdjustmentNo`，全仓没有任何一处读 `ReconciliationLineItem.status === 'EXPLAINED'`**（除 e2e 断言外无消费者），注释把展示来源说反了；② `adjustment.service.ts:368` 注释错引行号（说 `:181`，实为 `:323`），单测用例名抄了同一个错；③ `adjustment.service.spec.ts:46/57` 说走 `customerLabel`、实现走 `internalLabel`（对该成因恰好同值，所以断言绿着、描述是错的）；④ `adjustment-approval.service.ts:2` 与 `reconciliation.module.ts:23,26` 还写着"onApproved 本任务只留桩"，早已落地 ｜来源: 2026-08-31 整支终审
 

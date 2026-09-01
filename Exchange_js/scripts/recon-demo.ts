@@ -328,9 +328,6 @@ async function clearWalletDemo(prisma: PrismaService): Promise<{
   // docblock above for the ⑥ duplicate-deposit exception (real TB ledger
   // writes that a lightweight recon:demo:reset never undoes).
   const deletedStuck = await clearStuckFixtureWithdraws(prisma);
-  // externalStatementLine/externalBalance blanket-deletes already cover
-  // scenario 9's orphan head (accountRef=DEMO-ORPHAN-ADDR) — no separate
-  // filter needed, both tables are demo-only footprint.
   const deletedLines = (await (prisma as any).externalStatementLine.deleteMany({})).count;
   const deletedBalances = (await (prisma as any).externalBalance.deleteMany({})).count;
   // Legacy pre-T5 scenario-1 shell cleanup: delete any DEMO-IT--tagged funds
@@ -718,9 +715,9 @@ async function injectScenarios(
     cutoff,
   });
 
-  // 钱包分配按 specs/2026-08-30-recon-break-scenarios-design.md §4.2 显式指定。
+  // 钱包分配按 specs/2026-09-01-recon-disposition-conclusion-design.md §5 显式指定。
   // 不再用轮转挑选：一个钱包挂哪些场景是设计决策，让遍历顺序决定它，等于
-  // 演示内容随数据顺序漂移，而且展示位（同形不同真相摆一屏）根本没法安排。
+  // 演示内容随数据顺序漂移，而且展示位（同一钱包摆多条差异）根本没法安排。
   const planByOwnerAsset = (ownerNo: string, assetCode: string): WalletPlan => {
     const p = plans.find((x) => x.ownerNo === ownerNo && x.currency === assetCode && x.walletKind === 'CUSTOMER');
     if (!p) throw new Error(`找不到 ${ownerNo} 的 ${assetCode} 客户钱包 —— demo:all 是否跑过？花名册是否含该客户的素材单？`);
@@ -1121,7 +1118,7 @@ async function injectScenarios(
       scenarioIds: [6, 7],
       expectedBucket: 'BREAK',
       bucketRationale:
-        '⑧(新7) 删一条外部行并压低同额收盘（外部少一笔）；⑦(新6) 内部多入一笔而外部不变。' +
+        '⑦ 删一条外部行并压低同额收盘（外部少一笔）；⑥ 内部多入一笔而外部不变。' +
         '两者都把「外部 − 内部」推向负 → 残差 ≠ 0 → BREAK。',
       hasNonTerminalFundsOrder: false,
     });
@@ -1149,7 +1146,7 @@ async function injectScenarios(
     }
 
     // ② 小数点错位：我方把金额记成了 1/100（外部才是对的）→ 外部 − 内部 = +99×内部
-    const [l4, l10, l11] = lines;
+    const [l2, l3, l4] = lines;
 
     // 排他匹配键（answer key 给机器用）+ 人读业务号（answer key 给人用）——
     // 「对外用业务键」是本项目不可违反规则之一，manifest.json 是业务同事对着
@@ -1158,9 +1155,9 @@ async function injectScenarios(
     // （与上面按 datetime asc 取的三条外部行一一对应——writeMirror 逐条镜像、
     // 顺序不变），取其 sourceFlowId（= account_flows.id）作为排他匹配键；
     // 再查一次 account_flows.sourceNo 拿真实 DEP 号填进 detail。
-    const [pl4, pl10, pl11] = slotShowcaseA.lines;
+    const [pl2, pl3, pl4] = slotShowcaseA.lines;
     const showcaseAFlows = (await (prisma as any).accountFlow.findMany({
-      where: { id: { in: [pl4.sourceFlowId, pl10.sourceFlowId, pl11.sourceFlowId] } },
+      where: { id: { in: [pl2.sourceFlowId, pl3.sourceFlowId, pl4.sourceFlowId] } },
       select: { id: true, sourceNo: true },
     })) as Array<{ id: string; sourceNo: string }>;
     const depositNoOf = (flowId: string): string => {
@@ -1169,26 +1166,50 @@ async function injectScenarios(
       return f.sourceNo;
     };
 
-    const s4New = l4.amount.mul(100);
-    await (prisma as any).externalStatementLine.update({ where: { id: l4.id }, data: { amount: s4New } });
-    const s4Delta = s4New.minus(l4.amount);
-    const s4Prev = await bumpClosing(slotShowcaseA, l4.direction === 'IN' ? s4Delta : s4Delta.negated());
+    const s2New = l2.amount.mul(100);
+    await (prisma as any).externalStatementLine.update({ where: { id: l2.id }, data: { amount: s2New } });
+    const s2Delta = s2New.minus(l2.amount);
+    const s2Prev = await bumpClosing(slotShowcaseA, l2.direction === 'IN' ? s2Delta : s2Delta.negated());
 
     // ③ 我方少记：外部金额比我方记的多一个固定小额，我方账错了 → 冲正补齐
-    const s10Delta = D('333');
-    const s10New = l10.amount.plus(s10Delta);
-    await (prisma as any).externalStatementLine.update({ where: { id: l10.id }, data: { amount: s10New } });
-    const s10Prev = await bumpClosing(slotShowcaseA, l10.direction === 'IN' ? s10Delta : s10Delta.negated());
+    const s3Delta = D('333');
+    const s3New = l3.amount.plus(s3Delta);
+    await (prisma as any).externalStatementLine.update({ where: { id: l3.id }, data: { amount: s3New } });
+    const s3Prev = await bumpClosing(slotShowcaseA, l3.direction === 'IN' ? s3Delta : s3Delta.negated());
 
     // ④ 舍入精度差：双方舍入规则不同造成的固定尾差——精度虽小，公理 1 下仍需冲正
-    const s11Delta = D('2');
-    const s11New = l11.amount.plus(s11Delta);
-    await (prisma as any).externalStatementLine.update({ where: { id: l11.id }, data: { amount: s11New } });
-    const s11Prev = await bumpClosing(slotShowcaseA, l11.direction === 'IN' ? s11Delta : s11Delta.negated());
+    const s4Delta = D('2');
+    const s4New = l4.amount.plus(s4Delta);
+    await (prisma as any).externalStatementLine.update({ where: { id: l4.id }, data: { amount: s4New } });
+    const s4Prev = await bumpClosing(slotShowcaseA, l4.direction === 'IN' ? s4Delta : s4Delta.negated());
 
     scenarios.push({
       scenarioId: 2,
       rootCause: 'AMT_MISBOOKED',
+      expectedLines: [{
+        walletRef: slotShowcaseA.walletRef, lineType: 'AMOUNT_MISMATCH', amount: s2New.toString(),
+        externalRef: l2.externalRef, internalSourceId: pl2.sourceFlowId,
+      }],
+      detail: {
+        lineId: l2.id, internalAmount: l2.amount.toString(), externalAmount: s2New.toString(),
+        prevClosingBalance: s2Prev, depositNo: depositNoOf(pl2.sourceFlowId),
+      },
+    });
+    scenarios.push({
+      scenarioId: 3,
+      rootCause: 'AMT_MISBOOKED',
+      expectedLines: [{
+        walletRef: slotShowcaseA.walletRef, lineType: 'AMOUNT_MISMATCH', amount: s3New.toString(),
+        externalRef: l3.externalRef, internalSourceId: pl3.sourceFlowId,
+      }],
+      detail: {
+        lineId: l3.id, internalAmount: l3.amount.toString(), externalAmount: s3New.toString(),
+        prevClosingBalance: s3Prev, depositNo: depositNoOf(pl3.sourceFlowId),
+      },
+    });
+    scenarios.push({
+      scenarioId: 4,
+      rootCause: 'AMT_ROUNDING',
       expectedLines: [{
         walletRef: slotShowcaseA.walletRef, lineType: 'AMOUNT_MISMATCH', amount: s4New.toString(),
         externalRef: l4.externalRef, internalSourceId: pl4.sourceFlowId,
@@ -1196,30 +1217,6 @@ async function injectScenarios(
       detail: {
         lineId: l4.id, internalAmount: l4.amount.toString(), externalAmount: s4New.toString(),
         prevClosingBalance: s4Prev, depositNo: depositNoOf(pl4.sourceFlowId),
-      },
-    });
-    scenarios.push({
-      scenarioId: 3,
-      rootCause: 'AMT_MISBOOKED',
-      expectedLines: [{
-        walletRef: slotShowcaseA.walletRef, lineType: 'AMOUNT_MISMATCH', amount: s10New.toString(),
-        externalRef: l10.externalRef, internalSourceId: pl10.sourceFlowId,
-      }],
-      detail: {
-        lineId: l10.id, internalAmount: l10.amount.toString(), externalAmount: s10New.toString(),
-        prevClosingBalance: s10Prev, depositNo: depositNoOf(pl10.sourceFlowId),
-      },
-    });
-    scenarios.push({
-      scenarioId: 4,
-      rootCause: 'AMT_ROUNDING',
-      expectedLines: [{
-        walletRef: slotShowcaseA.walletRef, lineType: 'AMOUNT_MISMATCH', amount: s11New.toString(),
-        externalRef: l11.externalRef, internalSourceId: pl11.sourceFlowId,
-      }],
-      detail: {
-        lineId: l11.id, internalAmount: l11.amount.toString(), externalAmount: s11New.toString(),
-        prevClosingBalance: s11Prev, depositNo: depositNoOf(pl11.sourceFlowId),
       },
     });
     wallets.push({
@@ -1239,7 +1236,7 @@ async function injectScenarios(
       where: { subAccount: firmUnexplainedPlan.walletRef, amount: { gt: 7 } },
       orderBy: { datetime: 'asc' },
     })) as { id: string; amount: Prisma.Decimal; direction: string; externalRef: string | null } | null;
-    if (!line) throw new Error(`场景 10 需要钱包 ${firmUnexplainedPlan.walletRef} 至少一条金额 > 7 分的外部行`);
+    if (!line) throw new Error(`场景 10 需要钱包 ${firmUnexplainedPlan.currency}/coa=${firmUnexplainedPlan.coaCode} 至少一条金额 > 7 分的外部行`);
     const s10Delta = D('-7'); // 外部比内部少 7 分——差额无规律、查无可查
     const newAmount = line.amount.plus(s10Delta);
     await (prisma as any).externalStatementLine.update({ where: { id: line.id }, data: { amount: newAmount } });
