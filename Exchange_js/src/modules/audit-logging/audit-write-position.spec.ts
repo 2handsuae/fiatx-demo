@@ -42,8 +42,10 @@ describe('第一批 · 打点位置守则', () => {
 
   it('V1 治理域的领域服务零审计调用（只有编排层写审计）', () => {
     const v1Modules = '| grep -E "src/modules/identity/(users|access-control)/|src/modules/governance/approvals/"';
+    // admin-permission.guard.ts 定向豁免：2026-09-01 法一纪律4——守卫 403 拒绝必须留痕
+    // （ADMIN_ACCESS_DENIED），业主裁决3。仅豁免这一个文件，其余 V1 领域服务仍受本条约束。
     const allowed =
-      /(workflow\.service\.ts|approvals\.service\.ts|audit-logs\.service\.ts|sla\.service\.ts|\.handler\.ts|audit-actions\.constant\.ts)$/;
+      /(workflow\.service\.ts|approvals\.service\.ts|audit-logs\.service\.ts|sla\.service\.ts|\.handler\.ts|audit-actions\.constant\.ts|admin-permission\.guard\.ts)$/;
 
     const violators = filesWithRealAuditCall(v1Modules).filter((f) => !allowed.test(f));
     expect(violators).toEqual([]);
