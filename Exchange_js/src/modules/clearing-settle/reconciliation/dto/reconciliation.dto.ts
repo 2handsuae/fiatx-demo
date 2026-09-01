@@ -157,6 +157,15 @@ export interface FlowComparisonRow {
   // ④ 这条差异已被哪张已落账的调账单解释（三类异常行才有；MATCHED/IN_TRANSIT 恒 null）。
   // 有值 = 引擎算桶时已把它从异常数里摘掉，案子可以平下去。
   explainedByAdjustmentNo?: string | null;
+  // 平账一期半（spec §3/§8）案件读面——以下三个注解同样只在三类异常行上出现，
+  // MATCHED/IN_TRANSIT 恒 undefined（它们不是差异、没有可处置的东西）。
+  // 定性结论：这条差异如果已经被查过定过性，把结论贴回来（成因/出口/谁/何时）。
+  disposition?: { dispositionNo: string; causeCode: string; causeLabel: string; outlet: string; outletLabel: string; findingNote: string; adjustmentNo: string | null; createdBy: string; createdAt: string } | null;
+  // 15 个成因里唯一机器认得出的证据（spec §0.3）：本行与已匹配池里某行同参考号同
+  // 金额——只对 ORPHAN_INTERNAL 生效，查证池只认「已匹配」。
+  duplicateTwinRef?: string | null;
+  // 该格（matchType × book）在成因注册表里的候选成因清单，供运营从中选出定性结论。
+  menu?: Array<{ code: string; label: string; clue: string; outletLabel: string }>;
 }
 
 export interface FlowComparisonSummary {
