@@ -67,3 +67,4 @@
 
 - [ ] **`check-stack-residue.sh` 把工作树名里的下划线误当成分隔符**：残留目录名反解成工作树名时用 `tr '_' '-'`，所以 `/tmp/exchange_js_wt_a_b` 会被反推成工作树名 `a-b`——名字里本来就带下划线的工作树会被误报成残留。只报不删、恒 exit 0，无实际损害，但会让人白查一次 ｜ **复现**：`mkdir -p /tmp/exchange_js_wt_a_b && bash scripts/check-stack-residue.sh` → 该目录被列进残留（即便存在名为 `a_b` 的工作树）；查完记得 `rmdir` ｜来源: 2026-08-31 环境收口终审 Minor⑤
 
+- [ ] **AuditLogsModule 自身缺 ApprovalsModule import，窄模块单测拼不起来** —— 手拼 `Test.createTestingModule({ imports: [UsersModule] })` 类窄集合在 compile() 阶段 DI 失败，只能整 AppModule 起（慢）。复现：造任何只 import UsersModule 的 spec。修好后单测可回窄组合 ｜来源: 四模块治愈 Task 3（2026-09-01）
