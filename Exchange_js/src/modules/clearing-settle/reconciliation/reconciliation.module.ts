@@ -26,10 +26,13 @@ import { ExplainedDifferenceService } from './disposition/explained-difference.s
 import { AdjustmentApprovalService } from './disposition/adjustment-approval.service';
 // Task 6: 调账单 admin 端点（开单/提审/详情）+ RBAC 登记。
 import { AdjustmentController } from './disposition/adjustment.controller';
+// 平账一期半 T4: 定性落库（record/linkAdjustment/改记候选）+ RECON_DISPOSITION_RECORDED 审计。
+import { DispositionService } from './disposition/disposition.service';
+import { DispositionController } from './disposition/disposition.controller';
 
 @Module({
   imports: [PrismaModule, AuditLogsModule, TigerBeetleModule, FundsOrdersModule, ApprovalsModule],
-  controllers: [ReconciliationAdminController, PushOrderController, AdjustmentController],
+  controllers: [ReconciliationAdminController, PushOrderController, AdjustmentController, DispositionController],
   providers: [
     ReconciliationQueryService,
     ReconciliationSweepService,
@@ -41,6 +44,8 @@ import { AdjustmentController } from './disposition/adjustment.controller';
     AdjustmentService, AdjustmentApprovalService,
     // ④「这条差异已被哪张调账单解释」——对账引擎（算桶）与案件页（展示）共用。
     ExplainedDifferenceService,
+    // 平账一期半 T4: 定性落库服务。
+    DispositionService,
   ],
   exports: [WalletReconRunService],
 })
