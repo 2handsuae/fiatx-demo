@@ -14,7 +14,8 @@ export type ReasonCode =
   | 'WITHDRAW_AMOUNT_CORRECTION'
   | 'WITHDRAW_VOID_REFUND'
   | 'BANK_INTEREST'
-  | 'BANK_CHARGE';
+  | 'BANK_CHARGE'
+  | 'CUSTOMER_REATTRIBUTION';
 
 /**
  * 成因清单（业主 2026-08-28 确认）。**无兜底档**——兜底档一开，说不清的全往里塞，
@@ -25,19 +26,26 @@ export const REASON_SPECS: Record<ReasonCode, {
   book: Book; directions: Direction[];
   /** 客户口径词——公司账簿成因为 null（客户看不到公司侧调账）。 */
   customerLabel: string | null;
-  /** 内部口径词（审批页、管理台、审计摘要用）。**七个成因都必须有**——
+  /** 内部口径词（审批页、管理台、审计摘要用）。**八个成因都必须有**——
    *  末站发现审批页对公司侧两个成因回落成裸枚举「成因：BANK_CHARGE」，而客户侧
    *  五个都是中文，同一屏半英半中。`customerLabel` 的 null 是刻意的（客户不可见），
    *  不该被借用来当内部展示词，故另立此列。 */
   internalLabel: string;
+  /** 族（cause-registry.ts AdjustFamily 同名同值，两处必须对得上）——
+   *  只用于留痕/统计分组，不参与 assertReasonAllowed 的合法性判定。 */
+  family: 'CORRECT' | 'REVERSE' | 'RECORD' | 'REATTRIBUTE';
 }> = {
-  DEPOSIT_AMOUNT_CORRECTION:  { book: 'CLIENT', directions: ['REDUCE', 'INCREASE'], customerLabel: '充值金额更正', internalLabel: '充值金额更正' },
-  DEPOSIT_DUPLICATE_REVERSAL: { book: 'CLIENT', directions: ['REDUCE'],             customerLabel: '重复入账撤销', internalLabel: '重复入账撤销' },
-  DEPOSIT_SIGNAL_VOID:        { book: 'CLIENT', directions: ['REDUCE'],             customerLabel: '充值撤销',     internalLabel: '充值撤销' },
-  WITHDRAW_AMOUNT_CORRECTION: { book: 'CLIENT', directions: ['INCREASE'],           customerLabel: '提现金额更正', internalLabel: '提现金额更正' },
-  WITHDRAW_VOID_REFUND:       { book: 'CLIENT', directions: ['INCREASE'],           customerLabel: '提现撤销退回', internalLabel: '提现撤销退回' },
-  BANK_INTEREST:              { book: 'FIRM',   directions: ['INCREASE'],           customerLabel: null,           internalLabel: '银行利息' },
-  BANK_CHARGE:                { book: 'FIRM',   directions: ['REDUCE'],             customerLabel: null,           internalLabel: '银行杂费' },
+  DEPOSIT_AMOUNT_CORRECTION:  { book: 'CLIENT', directions: ['REDUCE', 'INCREASE'], customerLabel: '充值金额更正', internalLabel: '充值金额更正', family: 'CORRECT' },
+  DEPOSIT_DUPLICATE_REVERSAL: { book: 'CLIENT', directions: ['REDUCE'],             customerLabel: '重复入账撤销', internalLabel: '重复入账撤销', family: 'REVERSE' },
+  DEPOSIT_SIGNAL_VOID:        { book: 'CLIENT', directions: ['REDUCE'],             customerLabel: '充值撤销',     internalLabel: '充值撤销',     family: 'REVERSE' },
+  WITHDRAW_AMOUNT_CORRECTION: { book: 'CLIENT', directions: ['INCREASE'],           customerLabel: '提现金额更正', internalLabel: '提现金额更正', family: 'CORRECT' },
+  WITHDRAW_VOID_REFUND:       { book: 'CLIENT', directions: ['INCREASE'],           customerLabel: '提现撤销退回', internalLabel: '提现撤销退回', family: 'REVERSE' },
+  BANK_INTEREST:              { book: 'FIRM',   directions: ['INCREASE'],           customerLabel: null,           internalLabel: '银行利息',     family: 'RECORD' },
+  BANK_CHARGE:                { book: 'FIRM',   directions: ['REDUCE'],             customerLabel: null,           internalLabel: '银行杂费',     family: 'RECORD' },
+  // 第四族（spec §6）：钱在托管里一分没动，主人记错了。不走 book×direction
+  // 语义（directions 空 = assertReasonAllowed 对它恒拒），分录由
+  // resolveReattributionLegs 直接定；两个客户的应付对转，资产腿不动。
+  CUSTOMER_REATTRIBUTION:     { book: 'CLIENT', directions: [],                     customerLabel: '账户更正划转', internalLabel: '记错客户更正（改记）', family: 'REATTRIBUTE' },
 };
 
 export function assertReasonAllowed(reasonCode: ReasonCode, book: Book, direction: Direction): void {
@@ -68,4 +76,11 @@ export function resolvePostingLegs(book: Book, direction: Direction): { debitCod
  */
 export function requiresRelatedOrder(book: Book, direction: Direction): boolean {
   return book === 'CLIENT' && direction === 'INCREASE';
+}
+
+/** 第五种分录组合（spec §6）：借 错记方 CLIENT_PAYABLE / 贷 正主方 CLIENT_PAYABLE。
+ *  同码不同 ownerUuid——resolveTbAccountId 按 (code, ledger, ownerUuid) 落到两个
+ *  不同的客户负债户上。客户资产腿（CLIENT_ASSET）刻意不动：托管里的钱没动。 */
+export function resolveReattributionLegs(): { debitCode: number; creditCode: number } {
+  return { debitCode: TB_ACCOUNT_CODES.CLIENT_PAYABLE, creditCode: TB_ACCOUNT_CODES.CLIENT_PAYABLE };
 }
