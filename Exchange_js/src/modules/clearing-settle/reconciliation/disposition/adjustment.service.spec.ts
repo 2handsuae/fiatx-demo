@@ -28,7 +28,9 @@ describe('ReconciliationAdjustment schema', () => {
 });
 
 describe('AdjustmentService.assertTransition', () => {
-  const svc = new AdjustmentService(null as any, null as any, null as any, null as any);
+  // T5：构造器新增第 5 个依赖 DispositionService（改记开单收尾要用）——
+  // 本 describe 只测纯同步方法，不碰任何依赖，占位 null 即可。
+  const svc = new AdjustmentService(null as any, null as any, null as any, null as any, null as any);
 
   it('DRAFT → PENDING_APPROVAL 放行', () => {
     expect(() => svc.assertTransition(AdjustmentStatus.DRAFT, AdjustmentStatus.PENDING_APPROVAL)).not.toThrow();
@@ -42,7 +44,7 @@ describe('AdjustmentService.assertTransition', () => {
 });
 
 describe('AdjustmentService.describeImpact —— 审批页看到的是后果，不是单号', () => {
-  const svc = new AdjustmentService(null as any, null as any, null as any, null as any);
+  const svc = new AdjustmentService(null as any, null as any, null as any, null as any, null as any);
   it('客户账簿减钱，说清是谁、少多少、为什么——金额按 decimals 缩放成人看得懂的数，成因显示客户口径标签而不是原始枚举', () => {
     const text = svc.describeImpact({
       book: 'CLIENT', ownerNo: 'C0042', amount: '1500', assetCode: 'AED',
@@ -108,7 +110,14 @@ describe('AdjustmentService.createDraft 两道闸 —— 门不可绕的落点�
       withdrawTransaction: { findUnique: jest.fn().mockResolvedValue(null) },
       swapTransaction: { findUnique: jest.fn().mockResolvedValue(null) },
     };
-    return { svc: new AdjustmentService(prisma, null as any, null as any, null as any), create, prisma };
+    // T5：createDraft 成功路径新增 afterDraftCreated 收尾，会调 auditLogs.recordByActor——
+    // 旧版这里传 null 是因为旧版 createDraft 从不碰它；不换成能接住调用的桩，本
+    // describe 里"放行"类用例会在这一步 TypeError 而不是走到下面的断言。
+    return {
+      svc: new AdjustmentService(prisma, null as any, null as any, { recordByActor: jest.fn() } as any, null as any),
+      create,
+      prisma,
+    };
   };
 
   it('闸二·边界线：客户账簿加钱不传关联原单号 → 拒', async () => {
@@ -253,7 +262,7 @@ describe('AdjustmentService.onRejected —— 驳回落库 + 终态闸（Task 4 
         update,
       },
     };
-    const svc = new AdjustmentService(prisma, null as any, null as any, null as any);
+    const svc = new AdjustmentService(prisma, null as any, null as any, null as any, null as any);
     await svc.onRejected('ADJ_R1', 'U_OPS_7');
     expect(update).toHaveBeenCalledWith({
       where: { adjustmentNo: 'ADJ_R1' },
@@ -269,7 +278,7 @@ describe('AdjustmentService.onRejected —— 驳回落库 + 终态闸（Task 4 
         update,
       },
     };
-    const svc = new AdjustmentService(prisma, null as any, null as any, null as any);
+    const svc = new AdjustmentService(prisma, null as any, null as any, null as any, null as any);
     await expect(svc.onRejected('ADJ_R2', 'U_OPS_7')).rejects.toThrow(BadRequestException);
     expect(update).not.toHaveBeenCalled();
   });
@@ -290,7 +299,7 @@ describe('AdjustmentService.onApproved 落账', () => {
         })),
       },
     };
-    return new AdjustmentService(prisma, null as any, accounting, { recordByActor } as any);
+    return new AdjustmentService(prisma, null as any, accounting, { recordByActor } as any, null as any);
   };
 
   const clientRow = {
@@ -455,7 +464,7 @@ describe('AdjustmentService.getAdjustment —— 详情读模型（Task 7）', (
       wallet: { findUnique: jest.fn().mockResolvedValue(walletRow) },
       asset: { findUnique: jest.fn().mockResolvedValue(assetRow) },
     };
-    return new AdjustmentService(prisma, null as any, null as any, null as any);
+    return new AdjustmentService(prisma, null as any, null as any, null as any, null as any);
   };
 
   const baseRow = {
@@ -500,5 +509,168 @@ describe('AdjustmentService.getAdjustment —— 详情读模型（Task 7）', (
     const result: any = await svc.getAdjustment('ADJ2608280002');
     expect(result.debitAccountCode).toBe('A.FIRM_ASSET');
     expect(result.creditAccountCode).toBe('E.INCOME_OTHER');
+  });
+});
+
+// 平账一期半 T5：第四族改记开单 + 定性联动 + DRAFTED 审计。
+// ⚠ afterDraftCreated（四族通用收尾）现在会在 createDraft 成功路径上调
+// auditLogs.recordByActor——别的 describe 的 makeSvc 已经在各自的 4/5 号参数位
+// 补上了能接住调用的桩（见"两道闸"describe 的改动）；这里自己起一套 mock
+// 台架，不跨 describe 复用私有 makeSvc（block 作用域出不去）。
+describe('createDraft 第四族（改记，spec §6）+ 定性联动 + DRAFTED 审计', () => {
+  // 与"两道闸" describe 的 OP 同一惯例：userId/userNo 同值，createdByUserId 落业务号。
+  const ACTOR = { actorType: 'ADMIN' as const, userId: 'U_OP', userNo: 'U_OP', roleCodes: ['ADMIN'] };
+
+  it('改记：两案同业务日校验、正主方必填原单、direction 落 REATTRIBUTE、toWalletRef/toOwnerNo 落库', async () => {
+    // fromCase = 错记方（我有外无，dto.caseNo 传的是它）；
+    // toCase   = 正主方（外有我无，dto.toCaseNo 传的是它）。
+    const fromCase = {
+      caseNo: 'REC-FROM', status: 'OPEN', book: 'CLIENT',
+      walletRef: 'wallet-from-uuid', assetCode: 'AED', ownerNo: 'CU-FROM', traceId: null,
+      businessDate: '2026-09-01',
+    };
+    const toCase = {
+      caseNo: 'REC-TO', status: 'OPEN', book: 'CLIENT',
+      walletRef: 'wallet-to-uuid', assetCode: 'AED', ownerNo: 'CU-TO', traceId: null,
+      businessDate: '2026-09-01',
+    };
+    const dispositionMock = { linkAdjustment: jest.fn() };
+    const prismaMock: any = {
+      // 按 caseNo 分流：createDraft 先查 dto.caseNo 拿 fromCase，
+      // createReattributionDraft 再查 dto.toCaseNo 拿 toCase。
+      reconciliationCase: {
+        findUnique: jest.fn(({ where }: any) => Promise.resolve(
+          where.caseNo === 'REC-FROM' ? fromCase : where.caseNo === 'REC-TO' ? toCase : null,
+        )),
+      },
+      // owner 只查 fromCase 那一侧的客户——toOwnerNo 直接取 toCase.ownerNo，不必再查一次。
+      customerMain: { findUnique: jest.fn().mockResolvedValue({ id: 'uuid-from-cust' }) },
+      // 原单守卫命中充值表——正主方是"加钱"，必须指向一张已存在的原单（KYT 已对它跑过）。
+      depositTransaction: { findUnique: jest.fn().mockResolvedValue({ id: 'dep-uuid' }) },
+      withdrawTransaction: { findUnique: jest.fn().mockResolvedValue(null) },
+      swapTransaction: { findUnique: jest.fn().mockResolvedValue(null) },
+      reconciliationAdjustment: { create: jest.fn().mockResolvedValue({ adjustmentNo: 'ADJ_REATTR_1' }) },
+    };
+    const service = new AdjustmentService(
+      prismaMock, null as any, null as any, { recordByActor: jest.fn() } as any, dispositionMock as any,
+    );
+
+    const r = await service.createDraft({
+      caseNo: 'REC-FROM', toCaseNo: 'REC-TO',
+      reasonCode: 'CUSTOMER_REATTRIBUTION', direction: 'REDUCE',   // direction 入参被忽略
+      amount: '730000', effectiveDate: '2026-09-01',
+      explainedFlowId: 'flow-from', explainedExternalLineId: 'ext-to',
+      relatedOrderNo: 'DEP001', reasonInternal: 'x', reasonCustomer: 'y',
+      dispositionNo: 'RCD001',
+    } as any, ACTOR);
+
+    const created = prismaMock.reconciliationAdjustment.create.mock.calls[0][0].data;
+    expect(created.direction).toBe('REATTRIBUTE');
+    expect(created.toWalletRef).toBe('wallet-to-uuid');
+    expect(created.toOwnerNo).toBe('CU-TO');
+    expect(dispositionMock.linkAdjustment).toHaveBeenCalledWith('RCD001', r.adjustmentNo);
+  });
+
+  it('改记两案业务日不同 → 400（本轮不做跨日改记）', async () => {
+    const fromCase = {
+      caseNo: 'REC-FROM', status: 'OPEN', book: 'CLIENT', businessDate: '2026-09-01',
+      assetCode: 'AED', walletRef: 'wallet-from-uuid', ownerNo: 'CU-FROM', traceId: null,
+    };
+    // 只让 businessDate 不同——其余维度（book/assetCode/status）都对齐，确保
+    // 测试卡在"业务日不同"这一条守卫上，不是被前面别的守卫提前拦下。
+    const toCase = { ...fromCase, caseNo: 'REC-TO', businessDate: '2026-08-31' };
+    const prismaMock: any = {
+      reconciliationCase: {
+        findUnique: jest.fn(({ where }: any) => Promise.resolve(
+          where.caseNo === 'REC-FROM' ? fromCase : where.caseNo === 'REC-TO' ? toCase : null,
+        )),
+      },
+    };
+    const service = new AdjustmentService(
+      prismaMock, null as any, null as any, { recordByActor: jest.fn() } as any, { linkAdjustment: jest.fn() } as any,
+    );
+    await expect(service.createDraft({
+      caseNo: 'REC-FROM', toCaseNo: 'REC-TO',
+      reasonCode: 'CUSTOMER_REATTRIBUTION', direction: 'REDUCE',
+      amount: '1000', effectiveDate: '2026-08-31',
+      reasonInternal: 'x', reasonCustomer: 'y',
+    } as any, ACTOR)).rejects.toThrow(/业务日/);
+  });
+
+  it('改记缺 toCaseNo / 缺 relatedOrderNo → 各 400', async () => {
+    const fromCase = {
+      caseNo: 'REC-FROM', status: 'OPEN', book: 'CLIENT', businessDate: '2026-09-01',
+      assetCode: 'AED', walletRef: 'wallet-from-uuid', ownerNo: 'CU-FROM', traceId: null,
+    };
+    const toCase = { ...fromCase, caseNo: 'REC-TO', walletRef: 'wallet-to-uuid', ownerNo: 'CU-TO' };
+    const makeService = () => {
+      const prismaMock: any = {
+        reconciliationCase: {
+          findUnique: jest.fn(({ where }: any) => Promise.resolve(
+            where.caseNo === 'REC-FROM' ? fromCase : where.caseNo === 'REC-TO' ? toCase : null,
+          )),
+        },
+      };
+      return new AdjustmentService(
+        prismaMock, null as any, null as any, { recordByActor: jest.fn() } as any, { linkAdjustment: jest.fn() } as any,
+      );
+    };
+
+    // 断言一：不传 toCaseNo——正主方是谁都不知道，压根不该建单。
+    await expect(makeService().createDraft({
+      caseNo: 'REC-FROM',
+      reasonCode: 'CUSTOMER_REATTRIBUTION', direction: 'REDUCE',
+      amount: '1000', effectiveDate: '2026-09-01',
+      reasonInternal: 'x', reasonCustomer: 'y',
+    } as any, ACTOR)).rejects.toThrow(/toCaseNo|正主方案件号/);
+
+    // 断言二：toCaseNo 给了，但没给 relatedOrderNo——正主方是"加钱"，没原单等于凭空加钱。
+    await expect(makeService().createDraft({
+      caseNo: 'REC-FROM', toCaseNo: 'REC-TO',
+      reasonCode: 'CUSTOMER_REATTRIBUTION', direction: 'REDUCE',
+      amount: '1000', effectiveDate: '2026-09-01',
+      reasonInternal: 'x', reasonCustomer: 'y',
+    } as any, ACTOR)).rejects.toThrow(/原单/);
+  });
+
+  // afterDraftCreated 是四族通用的收尾——用既有三族里最简单的一条路径（客户账簿
+  // 减钱、不触发原单守卫）验证它接上了，不必借第四族才能测到这条通用行为。
+  it('每次 createDraft（四族通用）记 RECON_ADJUSTMENT_DRAFTED，requestId 显式', async () => {
+    const openCase = {
+      caseNo: 'CASE_DRAFTED_1', status: 'OPEN', book: 'CLIENT',
+      walletRef: 'W_DRAFTED', assetCode: 'AED', ownerNo: 'C0042', traceId: null,
+      businessDate: '2026-08-28',
+    };
+    const recordByActor = jest.fn();
+    // afterDraftCreated 读的是 create() 落库后拿回的 row，不是 dto——
+    // mock 只需给出审计信封会用到的那几列。
+    const createdRow = {
+      adjustmentNo: 'ADJ2608280099', reasonCode: 'DEPOSIT_DUPLICATE_REVERSAL', amount: '1000',
+      ownerNo: 'C0042', caseNo: 'CASE_DRAFTED_1', direction: 'REDUCE', book: 'CLIENT',
+      reasonInternal: '同一笔充值入账两次',
+    };
+    const prismaMock: any = {
+      reconciliationCase: { findUnique: jest.fn().mockResolvedValue(openCase) },
+      customerMain: { findUnique: jest.fn().mockResolvedValue({ id: 'uuid-cust' }) },
+      reconciliationAdjustment: { create: jest.fn().mockResolvedValue(createdRow) },
+    };
+    const service = new AdjustmentService(
+      prismaMock, null as any, null as any, { recordByActor } as any, { linkAdjustment: jest.fn() } as any,
+    );
+
+    await service.createDraft({
+      caseNo: 'CASE_DRAFTED_1', reasonCode: 'DEPOSIT_DUPLICATE_REVERSAL',
+      direction: 'REDUCE', amount: '1000', effectiveDate: '2026-08-28',
+      reasonInternal: '同一笔充值入账两次', reasonCustomer: '重复入账撤销',
+    } as any, ACTOR);
+
+    expect(recordByActor).toHaveBeenCalledTimes(1);
+    const envelope = recordByActor.mock.calls[0][0];
+    expect(envelope.action).toBe('RECON_ADJUSTMENT_DRAFTED');
+    // requiredFields 顶层——assertActionSpec 读的是信封顶层字段，不是 metadata。
+    expect(envelope.reasonCode).toBe('DEPOSIT_DUPLICATE_REVERSAL');
+    expect(envelope.amount).toBe('1000');
+    // 漏了显式 requestId 会被静默去重、审计直接消失（本仓踩过）。
+    expect(envelope.requestId).toMatch(/^RECON_ADJUSTMENT_DRAFTED_ADJ/);
   });
 });

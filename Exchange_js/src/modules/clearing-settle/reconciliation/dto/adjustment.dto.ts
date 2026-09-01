@@ -18,4 +18,8 @@ export class CreateAdjustmentDto {
   @IsString() @IsNotEmpty() reasonInternal!: string;
   @IsString() @IsNotEmpty() reasonCustomer!: string;
   @IsOptional() @IsString() relatedOrderNo?: string;
+  // 定性联动（spec §3.3）：带上则开单成功后回填 disposition.adjustmentNo 并锁定该定性
+  @IsOptional() @IsString() dispositionNo?: string;
+  // 第四族改记：正主方案件号（caseNo = 错记方案件）
+  @IsOptional() @IsString() toCaseNo?: string;
 }

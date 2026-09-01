@@ -19,6 +19,7 @@ import {
   Book, Direction, ReasonCode, REASON_SPECS,
   assertReasonAllowed, requiresRelatedOrder, resolvePostingLegs,
 } from './adjustment-rules';
+import { DispositionService } from './disposition.service';
 
 @Injectable()
 export class AdjustmentService {
@@ -27,6 +28,7 @@ export class AdjustmentService {
     private readonly approvals: ApprovalsService,
     private readonly accounting: AccountingService,
     private readonly auditLogs: AuditLogsService,
+    private readonly dispositions: DispositionService,
   ) {}
 
   assertTransition(from: string, to: string): void {
@@ -88,6 +90,12 @@ export class AdjustmentService {
 
     const book: Book = kase.book === 'FIRM' ? 'FIRM' : 'CLIENT';
     const direction = dto.direction as Direction;
+
+    // 第四族改记：不走 book×direction 语义（CUSTOMER_REATTRIBUTION 的 directions
+    // 是空数组，assertReasonAllowed 对它任何方向都拒）——必须在那道闸之前分流出去。
+    if (dto.reasonCode === 'CUSTOMER_REATTRIBUTION') {
+      return this.createReattributionDraft(dto, kase, actor);
+    }
 
     // 闸一：成因 × 账簿 × 方向 合法性
     assertReasonAllowed(dto.reasonCode as ReasonCode, book, direction);
@@ -161,7 +169,90 @@ export class AdjustmentService {
         status: AdjustmentStatus.DRAFT,
       },
     });
+    await this.afterDraftCreated(row, dto, actor);
     return { adjustmentNo: row.adjustmentNo };
+  }
+
+  /**
+   * 第四族改记开单（spec §6）：caseNo = 错记方案件，toCaseNo = 正主方案件。
+   * 两案必须同业务日（跨日改记本轮不做）、同资产、都在 CUSTOMER 账簿、都 OPEN。
+   * 正主方是加钱 → 原单守卫沿用（原单 = 记在错记方名下的那张真实充值单，
+   * KYT 对这笔钱跑过——放行依据与一期边界线同源；换主后合规复核登记 BACKLOG）。
+   * direction 落 'REATTRIBUTE'——它不参与 book×direction 语义，分录由族定。
+   */
+  private async createReattributionDraft(dto: CreateAdjustmentDto, fromCase: any, actor: ApprovalActorContext) {
+    if (!dto.toCaseNo) throw new BadRequestException('改记必须指明正主方案件号（toCaseNo）');
+    const toCase = await (this.prisma as any).reconciliationCase.findUnique({ where: { caseNo: dto.toCaseNo } });
+    if (!toCase) throw new NotFoundException(`正主方案件不存在：${dto.toCaseNo}`);
+    if (toCase.status !== 'OPEN') throw new BadRequestException('正主方案件不是打开状态');
+    if (fromCase.book === 'FIRM' || toCase.book === 'FIRM') throw new BadRequestException('改记只发生在客户账簿之间');
+    if (fromCase.businessDate !== toCase.businessDate) {
+      throw new BadRequestException(`两案业务日不同（${fromCase.businessDate} vs ${toCase.businessDate}）——跨日改记本轮不做`);
+    }
+    if (fromCase.assetCode !== toCase.assetCode) throw new BadRequestException('两案资产不同，改记说不通');
+    if (dto.effectiveDate > fromCase.businessDate) {
+      throw new BadRequestException(`生效日 ${dto.effectiveDate} 晚于案件业务日 ${fromCase.businessDate}`);
+    }
+    const relatedOrderNo = dto.relatedOrderNo?.trim();
+    if (!relatedOrderNo || !(await this.relatedOrderExists(relatedOrderNo))) {
+      throw new BadRequestException('改记必须指向一张已存在的原单（记在错记方名下的那笔真实充值/提现）——KYT 对这笔钱跑过才放行');
+    }
+    const owner = fromCase.ownerNo
+      ? await (this.prisma as any).customerMain.findUnique({ where: { customerNo: fromCase.ownerNo }, select: { id: true } })
+      : null;
+    const row = await (this.prisma as any).reconciliationAdjustment.create({
+      data: {
+        adjustmentNo: generateReferenceNo('ADJ'),
+        caseNo: dto.caseNo,
+        explainedFlowId: dto.explainedFlowId ?? null,           // 错记方内部流水锚
+        explainedExternalLineId: dto.explainedExternalLineId ?? null, // 正主方外部行锚
+        walletRef: fromCase.walletRef,
+        toWalletRef: toCase.walletRef,
+        toOwnerNo: toCase.ownerNo ?? null,
+        book: 'CLIENT',
+        direction: 'REATTRIBUTE',
+        reasonCode: dto.reasonCode,
+        relatedOrderNo,
+        assetCode: fromCase.assetCode,
+        amount: dto.amount,
+        effectiveDate: dto.effectiveDate,
+        reasonInternal: dto.reasonInternal,
+        reasonCustomer: dto.reasonCustomer,
+        ownerNo: fromCase.ownerNo ?? null,
+        ownerId: owner?.id ?? null,
+        traceId: fromCase.traceId ?? null,
+        createdByUserId: actor.userNo ?? actor.userId,
+        status: AdjustmentStatus.DRAFT,
+      },
+    });
+    await this.afterDraftCreated(row, dto, actor);
+    return { adjustmentNo: row.adjustmentNo };
+  }
+
+  /** 开单收尾（四族通用）：DRAFTED 审计（铁律①，销 BACKLOG「createDraft 零审计」）+ 定性联动。 */
+  private async afterDraftCreated(row: any, dto: CreateAdjustmentDto, actor: ApprovalActorContext): Promise<void> {
+    const actorDisplay = actor.userNo ?? actor.userId;
+    await this.auditLogs.recordByActor(
+      {
+        action: 'RECON_ADJUSTMENT_DRAFTED',
+        actionDomain: 'RECON',
+        primarySubjectType: AuditEntityTypes.RECON_ADJUSTMENT,
+        primarySubjectNo: row.adjustmentNo,
+        ownerCustomerNo: row.ownerNo ?? undefined,
+        reasonCode: row.reasonCode,        // requiredFields 顶层
+        amount: row.amount,
+        subjects: [
+          { subjectType: AuditEntityTypes.RECON_ADJUSTMENT, subjectNo: row.adjustmentNo, subjectRole: 'PRIMARY' },
+          { subjectType: 'RECONCILIATION_CASE', subjectNo: row.caseNo, subjectRole: 'RELATED' },
+        ],
+        reason: row.reasonInternal,
+        requestId: `RECON_ADJUSTMENT_DRAFTED_${row.adjustmentNo}_${randomUUID()}`,
+        metadata: { reasonCode: row.reasonCode, direction: row.direction, amount: row.amount, book: row.book, toOwnerNo: row.toOwnerNo ?? null },
+        sourcePlatform: 'ADMIN',
+      } as any,
+      { actorType: 'ADMIN', actorNo: actorDisplay, actorDisplayName: actorDisplay, actorRolesAtTime: actor.roleCodes ?? [] },
+    );
+    if (dto.dispositionNo) await this.dispositions.linkAdjustment(dto.dispositionNo, row.adjustmentNo);
   }
 
   async submit(adjustmentNo: string, actor: ApprovalActorContext) {
@@ -199,6 +290,8 @@ export class AdjustmentService {
           direction: row.direction, reasonCode: row.reasonCode,
           customerLabel: REASON_SPECS[row.reasonCode as ReasonCode]?.customerLabel ?? null,
           amount: row.amount, assetCode: row.assetCode, ownerNo: row.ownerNo, impact,
+          // 第四族改记：审批页要看见正主是谁，否则审批人只看到"错记方少了一笔"，看不到钱去了哪。
+          toOwnerNo: row.toOwnerNo ?? null,
         },
         traceId: row.traceId ?? undefined,
       },
