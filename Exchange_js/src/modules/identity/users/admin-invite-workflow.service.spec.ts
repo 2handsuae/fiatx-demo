@@ -300,7 +300,7 @@ describe('AdminInviteWorkflowService', () => {
       expect(call[1]).toEqual(expect.objectContaining({ actorNo: 'UNKNOWN' }));
     });
 
-    it('审计写入本身失败不吞掉原始拒绝原因——仍以域服务的异常为准向上抛', async () => {
+    it('留痕失败即流程失败（2026-09-01 法一纪律3）：即使域服务已先抛出拒绝原因，审计写入失败仍会盖过它向上抛', async () => {
       const { NotFoundException } = require('@nestjs/common');
       adminInvitationsService.acceptInvitation.mockRejectedValue(
         new NotFoundException({ message: 'Invitation not found', reasonCode: 'INVITATION_NOT_FOUND' }),
@@ -309,7 +309,7 @@ describe('AdminInviteWorkflowService', () => {
 
       await expect(
         service.acceptInvitation('bogus-token', '123456'),
-      ).rejects.toThrow('Invitation not found');
+      ).rejects.toThrow('audit db down');
     });
   });
 });

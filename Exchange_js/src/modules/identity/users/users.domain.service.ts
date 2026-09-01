@@ -110,7 +110,9 @@ export class UsersDomainService {
 
   async physicalDelete(userId: string, tx?: Prisma.TransactionClient): Promise<void> {
     const client = tx || this.prisma;
-    await client.user.delete({ where: { id: userId } }).catch(() => undefined);
+    // 删除失败必须响：静默吞掉会残留 PENDING_INVITE_APPROVAL 幽灵账号，
+    // 该 email 从此永远发不出第二张邀请（createProvisionalUser 撞唯一键恒抛）。
+    await client.user.delete({ where: { id: userId } });
   }
 
   async findById(userId: string): Promise<ProvisionalUser | null> {

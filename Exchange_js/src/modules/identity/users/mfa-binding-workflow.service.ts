@@ -303,7 +303,7 @@ export class MfaBindingWorkflowService {
           sourcePlatform: 'ADMIN_API',
         },
         this.buildActor(user),
-      ).catch(() => undefined);
+      );
     }
 
     if (user.mfaVerifyLockedUntil && user.mfaVerifyLockedUntil > new Date()) {
@@ -346,7 +346,7 @@ export class MfaBindingWorkflowService {
         // 本次失败尝试本身已由上面那条 MFA_BOUND(FAILED) 记录，这条只记"锁定被施加"这件事。
         // START：这次封锁是独立事件的起点，现铸新 UUID（不复用 firstLoginTraceId——
         // 那条线是首登旅程本身的，被锁定不等于首登旅程结束，两者语义不同一件事）。
-        // .catch() 兜底：审计侧问题不能盖过即将抛出的 429，锁定本身必须照常生效。
+        // 留痕失败即流程失败，对齐记账铁律（2026-09-01 法一纪律3）：审计写入不再吞错。
         await this.auditLogsService.recordByActor(
           {
             action: 'ADMIN_ACCOUNT_LOCK_APPLIED',
@@ -363,7 +363,7 @@ export class MfaBindingWorkflowService {
             sourcePlatform: 'ADMIN_API',
           },
           this.buildActor(user, 'TOTP'),
-        ).catch(() => undefined);
+        );
 
         throw new TooManyRequestsException({
           message: 'MFA verification locked due to too many failed attempts',
@@ -537,6 +537,7 @@ export class MfaBindingWorkflowService {
   async handleConsecutiveAuthFailure(
     event: AdminLoginConsecutiveFailureEvent,
   ): Promise<void> {
+    // 留痕失败即流程失败，对齐记账铁律（2026-09-01 法一纪律3）：审计写入不再吞错。
     await this.auditLogsService
       .recordSystem({
         action: 'ADMIN_ACCOUNT_LOCK_APPLIED',
@@ -551,8 +552,6 @@ export class MfaBindingWorkflowService {
         metadata: { failedLoginAttempts: event.failedLoginAttempts },
         requestId: randomUUID(),
         sourcePlatform: 'ADMIN_AUTH_API',
-      })
-      // 审计侧问题不能拖累锁定本身已经生效这件事——同文件里其余系统写入点一致的兜底。
-      .catch(() => undefined);
+      });
   }
 }

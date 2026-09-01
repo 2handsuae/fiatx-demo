@@ -173,7 +173,8 @@ describe('MfaBindingWorkflowService', () => {
     // 墙（见上方"第一批 · 首次登录 4 码"块顶部注释），本 jest 配置下不可执行到。已按同一
     // 模板人工复核：actionDomain/category 与紧邻的 MFA_BOUND(FAILED) 一致、reasonCode/
     // fromStatus/toStatus 三个必填字段全给、START 现铸 correlationId（不复用
-    // firstLoginTraceId——封锁是独立事件，不是首登旅程本身）、.catch() 兜底不挡 429。
+    // firstLoginTraceId——封锁是独立事件，不是首登旅程本身）；.catch() 兜底已拆除
+    // （2026-09-01 法一纪律3），审计写入失败会和 429 一起变成审计错误向上抛。
     it.todo('ADMIN_ACCOUNT_LOCK_APPLIED — 阻于 getOtp() 动态 import，本 jest 配置下不可测（见上方注释）');
   });
 
@@ -197,7 +198,7 @@ describe('MfaBindingWorkflowService', () => {
       expect(call[0].correlationId).toBeTruthy();
     });
 
-    it('审计写入失败不冒泡——锁定判定本身不依赖审计成功', async () => {
+    it('留痕失败即流程失败（2026-09-01 法一纪律3）：审计写入失败会向上抛，不再静默吞掉', async () => {
       auditLogsService.recordSystem.mockRejectedValueOnce(new Error('db down'));
 
       await expect(
@@ -206,7 +207,7 @@ describe('MfaBindingWorkflowService', () => {
           userNo: 'ADM-001',
           failedLoginAttempts: 5,
         }),
-      ).resolves.toBeUndefined();
+      ).rejects.toThrow('db down');
     });
   });
 });

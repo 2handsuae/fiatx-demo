@@ -432,7 +432,7 @@ export class AdminPasswordResetWorkflowService {
             actorDisplayName: userNo,
             actorRolesAtTime: ['SELF'],
           },
-        ).catch(() => undefined);
+        );
       }
       throw new TooManyRequestsException(
         'A password reset was already requested recently. Please wait before trying again.',

@@ -284,8 +284,7 @@ export class AdminInviteWorkflowService {
           actorDisplayName: event.decisionByUserNo || 'UNKNOWN',
           actorRolesAtTime: [event.decisionByRole || 'SYSTEM'],
         },
-      )
-      .catch(() => undefined);
+      );
   }
 
   async resendInvitation(userId: string, actor: ApprovalActorContext) {
@@ -395,8 +394,7 @@ export class AdminInviteWorkflowService {
             actorDisplayName: 'UNKNOWN',
             actorRolesAtTime: ['UNKNOWN'],
           },
-        )
-        .catch(() => undefined);
+        );
       throw error;
     }
   }

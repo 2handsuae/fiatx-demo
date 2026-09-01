@@ -334,7 +334,6 @@ export class AdminRoleBindingChangeWorkflowService {
           actorDisplayName: event.decisionByUserNo || 'UNKNOWN',
           actorRolesAtTime: [event.decisionByRole || 'SYSTEM'],
         },
-      )
-      .catch(() => undefined);
+      );
   }
 }
