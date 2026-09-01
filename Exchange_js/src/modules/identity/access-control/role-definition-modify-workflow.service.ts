@@ -305,7 +305,7 @@ export class RoleDefinitionModifyWorkflowService {
     });
     if (!role || role.status !== 'ACTIVE') {
       const reason = !role ? 'Role not found' : `Role status is ${role.status}`;
-      await this.failRequest(request, approvalId, reason, correlationId);
+      await this.failRequest(request, approvalId, reason, correlationId, 'EXECUTION_FAILED');
       return;
     }
 
@@ -323,7 +323,7 @@ export class RoleDefinitionModifyWorkflowService {
 
     if (JSON.stringify(actualGroups) !== JSON.stringify(snapshotGroups)) {
       const reason = `Conflict: role permissions changed since request was submitted. Expected groups: ${JSON.stringify(snapshotGroups)}, actual: ${JSON.stringify(actualGroups)}`;
-      await this.failRequest(request, approvalId, reason, correlationId);
+      await this.failRequest(request, approvalId, reason, correlationId, 'ROLE_CONFLICT');
       return;
     }
 
@@ -410,7 +410,13 @@ export class RoleDefinitionModifyWorkflowService {
 
   /* ── Fail request (conflict or missing role) ── */
 
-  private async failRequest(request: any, approvalId: string, reason: string, correlationId: string | undefined) {
+  private async failRequest(
+    request: any,
+    approvalId: string,
+    reason: string,
+    correlationId: string | undefined,
+    reasonCode: string,
+  ) {
     await this.prisma.roleDefinitionModifyRequest.update({
       where: { id: request.id },
       data: { status: 'APPROVED', failureReason: reason, executedAt: new Date() },
@@ -432,6 +438,10 @@ export class RoleDefinitionModifyWorkflowService {
       correlationId,
       causationId: approvalId,
       outcome: AuditOutcome.FAILED,
+      // 合同闸(assertActionSpec)对非成功记录强制要求 reasonCode——两个调用方传入的值
+      // 按各自真实成因区分：角色不存在/未激活用通用 EXECUTION_FAILED，权限快照与当前
+      // 值不一致（审批在途时角色被改）用更具体的 ROLE_CONFLICT。
+      reasonCode,
       reason,
       beforeData,
       afterData,

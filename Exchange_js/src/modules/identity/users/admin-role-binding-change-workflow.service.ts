@@ -266,6 +266,7 @@ export class AdminRoleBindingChangeWorkflowService {
           correlationId: event.traceId,
           causationId: event.approvalId,
           outcome: AuditOutcome.FAILED,
+          reasonCode: 'EXECUTION_FAILED',
           reason: failureReason,
           beforeData,
           afterData,

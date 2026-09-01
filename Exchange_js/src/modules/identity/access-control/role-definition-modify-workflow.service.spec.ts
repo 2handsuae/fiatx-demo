@@ -158,6 +158,9 @@ describe('RoleDefinitionModifyWorkflowService', () => {
       expect(applied[0][0].beforeData.permissionGroups).toEqual(['BASE_ACCESS']);
       expect(applied[0][0].afterData.permissionGroups).toEqual(['BASE_ACCESS', 'IAM_MEMBER_READ']);
       expect(applied[0][0].approvalNo).toBe('APR2608260002');
+      // 铁律1·操作必留痕：非成功记录被合同闸(assertActionSpec)强制要求 reasonCode，
+      // 漏带就会在运行时被拒收——状态已变但审计零留痕。角色未激活分支用通用码。
+      expect(applied[0][0].reasonCode).toBe('EXECUTION_FAILED');
 
       // 只断言"退役码不再被当作 action 值写入"，不是整份源码都不能出现这个词——
       // 迁移注释里如实提到旧码名是刻意保留的历史留痕（同 Task 5-7 的注释惯例）。
@@ -166,6 +169,24 @@ describe('RoleDefinitionModifyWorkflowService', () => {
         'utf8',
       );
       expect(src).not.toMatch(/action:\s*['"]ROLE_MODIFY_FAILED['"]/);
+    });
+
+    it('冲突（权限已变更）时同样写 APPLIED(outcome=FAILED)，reasonCode=ROLE_CONFLICT 与角色未激活分支区分', async () => {
+      const request = buildRequestRow();
+      prisma.roleDefinitionModifyRequest.findUnique.mockResolvedValue(request);
+      // role 本身是 ACTIVE（不落入"未激活"分支），但当前权限（空）与请求发起时的快照
+      // (['BASE_ACCESS']) 不一致 —— 命中互斥冲突检测分支，不是同一条判定路径。
+      prisma.role.findUnique.mockResolvedValue({ ...activeRole, rolePermissions: [] });
+
+      await service.onDecided(buildDecidedEvent('APPROVED', 'trace-42'));
+
+      const applied = auditLogsService.recordSystem.mock.calls.filter(
+        (c: any[]) => c[0].action === 'ROLE_DEFINITION_MODIFY_APPLIED',
+      );
+      expect(applied).toHaveLength(1);
+      expect(applied[0][0].outcome).toBe('FAILED');
+      expect(applied[0][0].reason).toMatch(/^Conflict:/);
+      expect(applied[0][0].reasonCode).toBe('ROLE_CONFLICT');
     });
 
     it('驳回/取消/超时写 CANCELLED(INHERIT+因果)', async () => {

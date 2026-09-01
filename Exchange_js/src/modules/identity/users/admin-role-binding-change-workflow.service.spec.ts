@@ -231,6 +231,9 @@ describe('AdminRoleBindingChangeWorkflowService', () => {
       expect(call[0].afterData).toBeDefined();
       expect(call[0].approvalNo).toBe('APR-1');
       expect(call[0].causationId).toBe('apr-1');
+      // 铁律1·操作必留痕：非成功记录被合同闸(assertActionSpec)强制要求 reasonCode，
+      // 漏带就会在运行时被拒收——状态已变但审计零留痕。这里断言调用入参真的带上了。
+      expect(call[0].reasonCode).toBe('EXECUTION_FAILED');
     });
   });
 

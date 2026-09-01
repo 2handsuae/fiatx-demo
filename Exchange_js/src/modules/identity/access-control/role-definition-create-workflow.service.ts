@@ -269,6 +269,7 @@ export class RoleDefinitionCreateWorkflowService {
         correlationId: event?.traceId,
         causationId: approvalId,
         outcome: AuditOutcome.FAILED,
+        reasonCode: 'EXECUTION_FAILED',
         reason: err.message,
         afterData,
         approvalNo: event?.approvalNo,
