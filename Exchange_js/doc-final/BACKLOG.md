@@ -21,7 +21,7 @@ Last Updated: 2026-08-31
 
 - [x] **权限包目录三动词标准化 + 铺满 9 空域** —— 已解（2026-08-31，第一幕职权重划 Task 8）：`ACTION_BUCKET_CATALOG` 收敛为 **12 域 50 桶，零空域**（原 15 域 9 空壳全部铺满或整域退役）；桶命名统一 view_/manage_/act_ 三动词前缀；新增 `funds` 域（`FUNDS_ORDER_VIEW`/`FUNDS_ORDER_ACT` 拆分入桶）。管理台改角色弹窗实测 50 个复选框、12 域全在场 ｜来源: 2026-07-11 权限包集中化 brainstorm（甲·三动词）
 
-- [ ] ⭐ **Q3 `expirePendingApprovals()` 全仓无 @Cron 调用方，`timeoutHours` 是展示字段**：两个新增审批策略照现有范式写了 `timeoutHours: 48`，但平台层压根没人扫超时，48h 到点不会发生任何事。平台级缺陷，不限于本模块（`WITHDRAW_UNFREEZE` 等既有策略同病）｜来源: 2026-08-15 设计稿 §8 Q3
+- [x] **Q3 `expirePendingApprovals()` 全仓无 @Cron 调用方，`timeoutHours` 是展示字段** —— 已解（2026-09-01，四模块治愈 Task 1）：新增 `ApprovalExpiryService`（`governance/approvals/approval-expiry.service.ts`），`@Cron('*/1 * * * *', { timeZone: 'Asia/Dubai' })` 接 `handleCron()` → `sweep()` → 既有的 `ApprovalsService.expirePendingApprovals()`（状态机/审计/事件均已完整，本次只补调用方），注入 `ApprovalsModule` providers。e2e 实测：`timeoutAt` 已过的 PENDING 单扫一轮变 EXPIRED，未到期单不受影响 ｜来源: 2026-08-15 设计稿 §8 Q3
 
 - [x] `CustodianWalletDetail.tsx:182` 用 `INTERNAL_COLLECTIONS_RECONCILE` 权限控制按钮，指向已删端点 —— 已解（第一幕退役段 Task 3）：整段幽灵按钮连带 `handleCreateCollection`/两对 useState/`CollectionActionResult`/结果展示块一并拆除，实测全仓零残余引用 ｜来源: 2026-07-03 死码体检
 
