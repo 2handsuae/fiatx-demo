@@ -116,6 +116,11 @@ describe('RoleDefinitionModifyWorkflowService', () => {
       expect(Object.keys(call[0].afterData)).not.toContain('updatedAt');
       expect(Object.keys(call[0].afterData)).not.toContain('status');
       expect(call[0].correlationId).toEqual(expect.any(String));
+      // 主体号同轴：PRIMARY 是 requestNo（已在 primarySubjectNo 上），被修改的角色本身
+      // 补一行 RELATED——不重复传 PRIMARY。
+      expect(call[0].subjects).toEqual([
+        { subjectType: 'ACCESS_CONTROL', subjectNo: 'OPS_VIEWER', subjectRole: 'RELATED' },
+      ]);
     });
 
     it('审批通过后写 APPLIED(INHERIT+因果)，beforeData/afterData 与 REQUESTED 口径一致', async () => {
@@ -139,6 +144,9 @@ describe('RoleDefinitionModifyWorkflowService', () => {
       expect(call[0].afterData.description).toBe('new desc');
       expect(call[0].beforeData.permissionGroups).toEqual(['BASE_ACCESS']);
       expect(call[0].afterData.permissionGroups).toEqual(['BASE_ACCESS', 'IAM_MEMBER_READ']);
+      expect(call[0].subjects).toEqual([
+        { subjectType: 'ACCESS_CONTROL', subjectNo: 'OPS_VIEWER', subjectRole: 'RELATED' },
+      ]);
     });
 
     it('冲突（角色已非 ACTIVE）时仍写同一个 APPLIED(outcome=FAILED)，不是退役码 ROLE_MODIFY_FAILED', async () => {
@@ -161,6 +169,9 @@ describe('RoleDefinitionModifyWorkflowService', () => {
       // 铁律1·操作必留痕：非成功记录被合同闸(assertActionSpec)强制要求 reasonCode，
       // 漏带就会在运行时被拒收——状态已变但审计零留痕。角色未激活分支用通用码。
       expect(applied[0][0].reasonCode).toBe('EXECUTION_FAILED');
+      expect(applied[0][0].subjects).toEqual([
+        { subjectType: 'ACCESS_CONTROL', subjectNo: 'OPS_VIEWER', subjectRole: 'RELATED' },
+      ]);
 
       // 只断言"退役码不再被当作 action 值写入"，不是整份源码都不能出现这个词——
       // 迁移注释里如实提到旧码名是刻意保留的历史留痕（同 Task 5-7 的注释惯例）。
@@ -187,10 +198,13 @@ describe('RoleDefinitionModifyWorkflowService', () => {
       expect(applied[0][0].outcome).toBe('FAILED');
       expect(applied[0][0].reason).toMatch(/^Conflict:/);
       expect(applied[0][0].reasonCode).toBe('ROLE_CONFLICT');
+      expect(applied[0][0].subjects).toEqual([
+        { subjectType: 'ACCESS_CONTROL', subjectNo: 'OPS_VIEWER', subjectRole: 'RELATED' },
+      ]);
     });
 
     it('驳回/取消/超时写 CANCELLED(INHERIT+因果)', async () => {
-      const request = buildRequestRow();
+      const request = buildRequestRow({ role: { code: 'OPS_VIEWER' } });
       prisma.roleDefinitionModifyRequest.findUnique.mockResolvedValue(request);
 
       await service.onDecided(buildDecidedEvent('DECLINED', 'trace-88', 'checker rejected'));
@@ -202,6 +216,9 @@ describe('RoleDefinitionModifyWorkflowService', () => {
       expect(call[0].correlationId).toBe('trace-88');
       expect(call[0].causationId).toBe('apr-1');
       expect(call[0].reason).toBe('checker rejected');
+      expect(call[0].subjects).toEqual([
+        { subjectType: 'ACCESS_CONTROL', subjectNo: 'OPS_VIEWER', subjectRole: 'RELATED' },
+      ]);
     });
   });
 });

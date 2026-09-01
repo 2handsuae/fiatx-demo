@@ -114,6 +114,11 @@ describe('AdminRoleBindingChangeWorkflowService', () => {
       expect(call[0].actionDomain).toBe('IAM');
       expect(call[0].primarySubjectType).toBe('ACCESS_CONTROL');
       expect(call[0].correlationId).toBeTruthy();
+      // 主体号同轴：PRIMARY 是 requestNo（已在 primarySubjectNo 上），本次绑定变更
+      // 牵连的每个角色码补一行 RELATED——不重复传 PRIMARY。
+      expect(call[0].subjects).toEqual([
+        { subjectType: 'ACCESS_CONTROL', subjectNo: 'MLRO', subjectRole: 'RELATED' },
+      ]);
 
       // START：铸造的 correlationId 同一份传给了 approvalsService.createAndSubmit
       // 的 traceId（ApprovalCase.traceId 是过渡期承载列），供 APPLIED/CANCELLED 读回。
@@ -184,6 +189,9 @@ describe('AdminRoleBindingChangeWorkflowService', () => {
       // INHERIT + 异步驱动：correlationId 原样继承事件的 traceId，causationId 指向触发它的审批单。
       expect(call[0].correlationId).toBe('trace-1');
       expect(call[0].causationId).toBe('apr-1');
+      expect(call[0].subjects).toEqual([
+        { subjectType: 'ACCESS_CONTROL', subjectNo: 'MLRO', subjectRole: 'RELATED' },
+      ]);
     });
 
     it('marks FAILED 且 ADMIN_ROLE_CHANGE_APPLIED 改用 outcome=FAILED 记录（退役码 CHANGE_APPLY_FAILED 收编）', async () => {
@@ -234,6 +242,10 @@ describe('AdminRoleBindingChangeWorkflowService', () => {
       // 铁律1·操作必留痕：非成功记录被合同闸(assertActionSpec)强制要求 reasonCode，
       // 漏带就会在运行时被拒收——状态已变但审计零留痕。这里断言调用入参真的带上了。
       expect(call[0].reasonCode).toBe('EXECUTION_FAILED');
+      expect(call[0].subjects).toEqual([
+        { subjectType: 'ACCESS_CONTROL', subjectNo: 'MLRO', subjectRole: 'RELATED' },
+        { subjectType: 'ACCESS_CONTROL', subjectNo: 'CISO', subjectRole: 'RELATED' },
+      ]);
     });
   });
 
@@ -255,6 +267,7 @@ describe('AdminRoleBindingChangeWorkflowService', () => {
         id: 'req-1',
         requestNo: 'RCR-1',
         status: 'PENDING_APPROVAL',
+        proposedRoleCodes: '["MLRO"]',
       });
 
       await service.handleApprovalDecided(event);
@@ -272,6 +285,9 @@ describe('AdminRoleBindingChangeWorkflowService', () => {
       expect(call[0].reason).toBeTruthy();
       expect(call[0].correlationId).toBe('trace-1');
       expect(call[0].causationId).toBe('apr-1');
+      expect(call[0].subjects).toEqual([
+        { subjectType: 'ACCESS_CONTROL', subjectNo: 'MLRO', subjectRole: 'RELATED' },
+      ]);
     });
   });
 
@@ -293,6 +309,7 @@ describe('AdminRoleBindingChangeWorkflowService', () => {
         id: 'req-1',
         requestNo: 'RCR-1',
         status: 'PENDING_APPROVAL',
+        proposedRoleCodes: '["MLRO"]',
       });
 
       await service.handleApprovalDecided(event);
@@ -330,6 +347,7 @@ describe('AdminRoleBindingChangeWorkflowService', () => {
         id: 'req-1',
         requestNo: 'RCR-1',
         status: 'PENDING_APPROVAL',
+        proposedRoleCodes: '["MLRO"]',
       });
 
       await service.handleApprovalDecided(event);

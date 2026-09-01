@@ -67,14 +67,15 @@ export class AuthService {
         where: { id: user.id },
         data: { status: 'ACTIVE', failedLoginAttempts: 0, lockedUntil: null },
       });
-      // Task 9：解锁这侧"改变了访问能力"，本该同锁定一样上收为业务审计
-      // （ADMIN_ACCOUNT_LOCK_RELEASED，correlationMode=INHERIT）。但 User 表没有为
-      // 这套"连续密码失败锁"留任何可读的 correlationId 载体——不同于 MFA 校验锁定复用
-      // firstLoginTraceId 的写法（mfa-binding-workflow.service.ts），这里读不到任何
-      // 实体列可以 INHERIT。铁律是读不到就让它响、绝不 ?? randomUUID() 兜底冒充
-      // INHERIT，本任务范围内又不铺迁移，故本次只把「锁定」侧上收（见下方
-      // ADMIN_LOGIN_CONSECUTIVE_FAILURE emit），「解锁」侧的审计留空，需加列才能补，
-      // 记 BACKLOG。
+      // 解锁这侧同样改变了访问能力，按与 ADMIN_LOGIN_CONSECUTIVE_FAILURE 相同的既有
+      // 分工上收为业务审计（ADMIN_ACCOUNT_LOCK_RELEASED）：判定留在这里（只有这里知道
+      // 锁是否已到期），emit 领域事件，由 MfaBindingWorkflowService（已经接住同一把锁
+      // 的 APPLIED 事件）接住写——INHERIT 靠回查该 userNo 最近一条 APPLIED 事件本身的
+      // correlationId，不是靠 User 表某一列（法一附属修缮，2026-09-01）。
+      this.eventEmitter.emit(DomainEventNames.ADMIN_LOGIN_AUTO_UNLOCKED, {
+        userId: user.id,
+        userNo: user.userNo,
+      });
     }
 
     const isMatch = await bcrypt.compare(pass, user.password);

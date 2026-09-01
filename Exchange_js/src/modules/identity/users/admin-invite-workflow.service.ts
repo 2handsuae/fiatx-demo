@@ -5,7 +5,7 @@ import {
   InternalServerErrorException,
 } from '@nestjs/common';
 import { OnEvent } from '@nestjs/event-emitter';
-import { randomUUID } from 'crypto';
+import { createHash, randomUUID } from 'crypto';
 import { PrismaService } from '../../../core/prisma/prisma.service';
 import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import {
@@ -64,6 +64,26 @@ export class AdminInviteWorkflowService {
       typeof (error as Error).message === 'string' &&
       (error as Error).message.includes('cannot be assigned to one user')
     );
+  }
+
+  /**
+   * 接受邀请失败时定位主体号：不依赖 AdminInvitationsService.acceptInvitation
+   * 内部的校验顺序（PASSWORD_TOO_SHORT 在查邀请行之前就先抛了）——独立按 token
+   * 哈希回查邀请行本身，只看行是否存在，不复核 revoked/consumed/expired 等状态
+   * （那是域服务自己的事）。查到就是「token 能解析出邀请行」，用目标 userNo；
+   * token 为空或压根没有匹配行（TOKEN_REQUIRED/INVITATION_NOT_FOUND）时确实无法
+   * 识别身份，回落 undefined 交给调用方处理——不编造一个 userNo。
+   */
+  private async resolveAcceptInvitationTargetUserNo(token: string): Promise<string | undefined> {
+    const normalizedToken = String(token || '').trim();
+    if (!normalizedToken) return undefined;
+
+    const tokenHash = createHash('sha256').update(normalizedToken).digest('hex');
+    const invitation = await (this.prisma as any).adminUserInvitation.findUnique({
+      where: { tokenHash },
+      include: { user: { select: { userNo: true } } },
+    });
+    return invitation?.user?.userNo ?? undefined;
   }
 
   async initiateInvite(dto: InitiateAdminInviteDto, actor: ApprovalActorContext) {
@@ -287,6 +307,22 @@ export class AdminInviteWorkflowService {
       );
   }
 
+  /**
+   * 同 AdminInvitationsService.findLatestInvitationAuditContext 的「回查最近一条
+   * 邀请记录取 traceId」模式——该方法私有，不跨服务边界拿，这里按同款查询独立
+   * 实现一份。resendInvitationForUser 内部（issueInvitation）没收到 auditContext，
+   * 会自己从这个用户最近一条邀请记录里把 traceId 继承写进新建的邀请行；调用完成
+   * 后回查同一个 userId 的最新一条，取回的就是同一段旅程的 correlationId。
+   */
+  private async findLatestInvitationCorrelationId(userId: string): Promise<string | undefined> {
+    const latest = await (this.prisma as any).adminUserInvitation.findFirst({
+      where: { userId, traceId: { not: null } },
+      orderBy: [{ createdAt: 'desc' }],
+      select: { traceId: true },
+    });
+    return latest?.traceId ?? undefined;
+  }
+
   async resendInvitation(userId: string, actor: ApprovalActorContext) {
     const user = await this.usersDomainService.findById(userId);
     if (!user) throw new InternalServerErrorException('User not found');
@@ -297,7 +333,7 @@ export class AdminInviteWorkflowService {
     // findLatestInvitationAuditContext），导致新发的邀请记录 traceId 列写成 NULL，
     // 断了 ADMIN_INVITE_EXPIRED 之后 INHERIT 读 correlationId 的链路。留空交给该方法
     // 自己从这个用户最近一条邀请记录里把 workflowType+traceId 一起找回来。
-    return this.adminInvitationsService.resendInvitationForUser({
+    const result = await this.adminInvitationsService.resendInvitationForUser({
       userId: user.id,
       actor: {
         actorId: actor.userId,
@@ -305,6 +341,32 @@ export class AdminInviteWorkflowService {
         actorNo: actor.userNo,
       },
     });
+
+    // 重发邀请此前从未真正留痕（issueInvitation 上收审计后，resendInvitation 这侧
+    // 一直没有等价补写——见 admin-invitations.service.ts issueInvitation 顶部注释）。
+    // INHERIT：读刚继承写入的同一段旅程 correlationId，不是另起一段。
+    const correlationId = await this.findLatestInvitationCorrelationId(user.id);
+
+    await this.auditLogsService.recordByActor(
+      {
+        action: 'ADMIN_INVITE_DISPATCHED',
+        actionDomain: 'IAM',
+        category: AuditCategory.GOVERNANCE,
+        primarySubjectType: AuditEntityTypes.ACCESS_CONTROL,
+        primarySubjectNo: user.userNo,
+        correlationId,
+        outcome: AuditOutcome.SUCCESS,
+        metadata: {
+          inviteExpiresAt: result.inviteExpiresAt,
+          resend: true,
+        },
+        requestId: `ADMIN_INVITE_DISPATCHED_${user.userNo}_${randomUUID()}`,
+        sourcePlatform: 'ADMIN_API',
+      },
+      this.toAuditActor(actor),
+    );
+
+    return result;
   }
 
   /**
@@ -374,6 +436,10 @@ export class AdminInviteWorkflowService {
         status: accepted.status,
       };
     } catch (error) {
+      // token 能查到邀请行就用目标 userNo 顶上 PRIMARY 主体号；查不到（token 为空/
+      // 无匹配行）才回落 UNKNOWN——不再对所有失败分支一律写死。actorNo 同源：失败时
+      // 唯一能自证身份的就是这个被操作的账号本身，与 PRIMARY 用同一个值。
+      const targetUserNo = await this.resolveAcceptInvitationTargetUserNo(token);
       await this.auditLogsService
         .recordByActor(
           {
@@ -381,6 +447,7 @@ export class AdminInviteWorkflowService {
             actionDomain: 'IAM',
             category: AuditCategory.GOVERNANCE,
             primarySubjectType: AuditEntityTypes.ACCESS_CONTROL,
+            primarySubjectNo: targetUserNo || 'UNKNOWN',
             outcome: AuditOutcome.DENIED,
             reasonCode: this.extractReasonCode(error),
             reason: error instanceof Error ? error.message : 'Admin invitation accept failed',
@@ -390,8 +457,8 @@ export class AdminInviteWorkflowService {
           },
           {
             actorType: 'ADMIN',
-            actorNo: 'UNKNOWN',
-            actorDisplayName: 'UNKNOWN',
+            actorNo: targetUserNo || 'UNKNOWN',
+            actorDisplayName: targetUserNo || 'UNKNOWN',
             actorRolesAtTime: ['UNKNOWN'],
           },
         );

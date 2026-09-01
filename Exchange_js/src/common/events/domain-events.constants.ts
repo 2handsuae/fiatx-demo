@@ -78,6 +78,16 @@ export const DOMAIN_EVENTS = {
     subscribers: ['MfaBindingWorkflowService'],
     payload: '{ userId: string, userNo: string, failedLoginAttempts: number }',
   },
+
+  // auth.service.ts#validateUser 在本地判定"锁定已到期"后 emit，同 CONSECUTIVE_FAILURE
+  // 一样不直接写审计——由 MfaBindingWorkflowService（已经接住同一把锁的 APPLIED 事件）
+  // 接住写 ADMIN_ACCOUNT_LOCK_RELEASED（法一附属修缮，2026-09-01）。
+  ADMIN_LOGIN_AUTO_UNLOCKED: {
+    name: 'admin.login.auto_unlocked',
+    emitter: 'AuthService',
+    subscribers: ['MfaBindingWorkflowService'],
+    payload: '{ userId: string, userNo: string }',
+  },
 } as const;
 
 /** Type-safe event name accessor */
@@ -97,4 +107,5 @@ export const DomainEventNames = {
   SWAP_STATUS_CHANGED: DOMAIN_EVENTS.SWAP_STATUS_CHANGED.name,
   // Admin Login Lockout
   ADMIN_LOGIN_CONSECUTIVE_FAILURE: DOMAIN_EVENTS.ADMIN_LOGIN_CONSECUTIVE_FAILURE.name,
+  ADMIN_LOGIN_AUTO_UNLOCKED: DOMAIN_EVENTS.ADMIN_LOGIN_AUTO_UNLOCKED.name,
 } as const;

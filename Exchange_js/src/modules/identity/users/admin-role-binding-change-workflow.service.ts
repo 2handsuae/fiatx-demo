@@ -9,7 +9,7 @@ import { generateReferenceNo } from '../../../common/utils/no-generator.util';
 import { PrismaService } from '../../../core/prisma/prisma.service';
 import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import { AuditEntityTypes } from '../../audit-logging/constants/audit-actions.constant';
-import { AuditCategory, AuditOutcome } from '../../audit-logging/dto/audit-log.dto';
+import { AuditCategory, AuditOutcome, AuditSubjectInput, AuditSubjectRole } from '../../audit-logging/dto/audit-log.dto';
 import { ApprovalsService } from '../../governance/approvals/approvals.service';
 import { ApprovalDecidedEvent } from '../../governance/approvals/approval-handler.base';
 import {
@@ -38,6 +38,20 @@ export class AdminRoleBindingChangeWorkflowService {
       actorDisplayName: actor.userNo || 'UNKNOWN',
       actorRolesAtTime: [actor.role || actor.roleCodes[0] || 'UNKNOWN'],
     };
+  }
+
+  /**
+   * 本流程 PRIMARY 主体是 requestNo（申请单号），被这次绑定变更牵连的每个角色码
+   * 都降级为 RELATED——一次绑定变更可能同时涉及多个角色，逐个落一行，同
+   * approvalSubjects 的形状（PRIMARY 已经在主表 primarySubjectType/No 两列上，
+   * 这里只补 RELATED 行，不重复传 PRIMARY）。
+   */
+  private roleRelatedSubjects(roleCodes: string[]): AuditSubjectInput[] {
+    return roleCodes.map((code) => ({
+      subjectType: AuditEntityTypes.ACCESS_CONTROL,
+      subjectNo: code,
+      subjectRole: AuditSubjectRole.RELATED,
+    }));
   }
 
   async createRoleChangeRequest(
@@ -118,6 +132,7 @@ export class AdminRoleBindingChangeWorkflowService {
         primarySubjectNo: requestNo,
         correlationId,
         outcome: AuditOutcome.SUCCESS,
+        subjects: this.roleRelatedSubjects(dto.roleCodes),
         metadata: {
           targetUserId: targetUser.id,
           targetUserNo: targetUser.userNo,
@@ -228,6 +243,7 @@ export class AdminRoleBindingChangeWorkflowService {
           outcome: AuditOutcome.SUCCESS,
           beforeData,
           afterData,
+          subjects: this.roleRelatedSubjects(proposedRoleCodes),
           approvalNo: event.approvalNo,
           metadata: {
             targetUserId: targetUser.id,
@@ -270,6 +286,7 @@ export class AdminRoleBindingChangeWorkflowService {
           reason: failureReason,
           beforeData,
           afterData,
+          subjects: this.roleRelatedSubjects(proposedRoleCodes),
           approvalNo: event.approvalNo,
           metadata: {
             targetUserId: request.targetUserId,
@@ -319,6 +336,7 @@ export class AdminRoleBindingChangeWorkflowService {
           outcome: AuditOutcome.SUCCESS,
           reason:
             event.decisionReason || `Role change request ${status.toLowerCase()}`,
+          subjects: this.roleRelatedSubjects(JSON.parse(request.proposedRoleCodes)),
           metadata: {
             approvalId: event.approvalId,
             approvalNo: event.approvalNo,

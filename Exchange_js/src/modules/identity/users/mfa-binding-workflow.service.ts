@@ -9,6 +9,7 @@ import { JwtService } from '@nestjs/jwt';
 import { OnEvent } from '@nestjs/event-emitter';
 import { randomUUID } from 'crypto';
 import * as QRCode from 'qrcode';
+import { PrismaService } from '../../../core/prisma/prisma.service';
 import { DomainEventNames } from '../../../common/events/domain-events.constants';
 import { decryptMfaSecret, encryptMfaSecret } from '../../../common/utils/mfa-crypto.util';
 
@@ -69,6 +70,15 @@ export interface AdminLoginConsecutiveFailureEvent {
   failedLoginAttempts: number;
 }
 
+/**
+ * DOMAIN_EVENTS.ADMIN_LOGIN_AUTO_UNLOCKED 的 payload 形状——
+ * auth.service.ts#validateUser 判定"锁定已到期"后 emit，本文件接住写审计。
+ */
+export interface AdminLoginAutoUnlockedEvent {
+  userId: string;
+  userNo: string;
+}
+
 interface MfaBindingUserState {
   id: string;
   userNo: string;
@@ -89,6 +99,7 @@ export class MfaBindingWorkflowService {
     private readonly usersDomainService: UsersDomainService,
     private readonly auditLogsService: AuditLogsService,
     private readonly jwtService: JwtService,
+    private readonly prisma: PrismaService,
   ) {}
 
   private async loadUser(userId: string): Promise<MfaBindingUserState> {
@@ -553,5 +564,52 @@ export class MfaBindingWorkflowService {
         requestId: randomUUID(),
         sourcePlatform: 'ADMIN_AUTH_API',
       });
+  }
+
+  /**
+   * 同 AdminInvitationsService.findLatestInvitationAuditContext 的「回查最近审计
+   * 事件取 correlationId」模式：常规密码连续失败锁（User.lockedUntil）没有专属的
+   * correlationId 承载列，回查该 userNo 最近一条 ADMIN_ACCOUNT_LOCK_APPLIED 事件
+   * 本身的 correlationId——applied/released 配对共享同一段"锁定事件"旅程。查不到
+   * 就原样回落 undefined，交给 assertActionSpec 在写入时报错，不 ?? randomUUID()
+   * 冒充 INHERIT（同 verifyMfaBind 里那处一致的铁律）。
+   */
+  private async findLatestLockAppliedCorrelationId(userNo: string): Promise<string | undefined> {
+    const latest = await (this.prisma as any).auditLogEvent.findFirst({
+      where: { action: 'ADMIN_ACCOUNT_LOCK_APPLIED', primarySubjectNo: userNo },
+      orderBy: [{ occurredAt: 'desc' }, { recordedAt: 'desc' }],
+      select: { correlationId: true },
+    });
+    return latest?.correlationId ?? undefined;
+  }
+
+  /**
+   * ADMIN_ACCOUNT_LOCK_RELEASED —— 常规密码登录连续失败锁定（User.lockedUntil）
+   * 到期后的自动解锁，区别于本文件 verifyMfaBind() 里处理的 MFA 校验锁定 RELEASED
+   * （那条走 firstLoginTraceId INHERIT）。触发判定留在 auth.service.ts#validateUser
+   * （域服务层，只有它知道锁是否已到期）；audit 写入上收到这里（编排层）——同
+   * handleConsecutiveAuthFailure 的既有分工（Task 9）。
+   *
+   * recordSystem：同 handleConsecutiveAuthFailure，脱离了触发那次登录请求的 actor
+   * 上下文，自动解锁是系统对到期状态的自动反应，同 CRON 定期任务一样按 SYSTEM 记。
+   */
+  @OnEvent(DomainEventNames.ADMIN_LOGIN_AUTO_UNLOCKED, { async: true })
+  async handleAutoUnlock(event: AdminLoginAutoUnlockedEvent): Promise<void> {
+    const correlationId = await this.findLatestLockAppliedCorrelationId(event.userNo);
+
+    // 留痕失败即流程失败，对齐记账铁律（2026-09-01 法一纪律3）：审计写入不再吞错。
+    await this.auditLogsService.recordSystem({
+      action: 'ADMIN_ACCOUNT_LOCK_RELEASED',
+      actionDomain: 'IAM',
+      category: AuditCategory.GOVERNANCE,
+      primarySubjectType: AuditEntityTypes.ADMIN_USER,
+      primarySubjectNo: event.userNo,
+      correlationId,
+      fromStatus: 'LOCKED',
+      toStatus: 'ACTIVE',
+      reason: 'Consecutive auth failure lockout expired',
+      requestId: `ADMIN_ACCOUNT_LOCK_RELEASED_${event.userNo}_${randomUUID()}`,
+      sourcePlatform: 'ADMIN_AUTH_API',
+    });
   }
 }

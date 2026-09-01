@@ -12,7 +12,7 @@ import {
   AuditBusinessWorkflowTypes,
   AuditEntityTypes,
 } from '../../audit-logging/constants/audit-actions.constant';
-import { AuditCategory, AuditOutcome } from '../../audit-logging/dto/audit-log.dto';
+import { AuditCategory, AuditOutcome, AuditSubjectInput, AuditSubjectRole } from '../../audit-logging/dto/audit-log.dto';
 import { RBAC_PERMISSION_DEFINITIONS, type PermissionGroup } from './rbac.catalog';
 import { generateReferenceNo } from '../../../common/utils/no-generator.util';
 
@@ -53,6 +53,17 @@ export class RoleDefinitionModifyWorkflowService {
     private readonly approvalsService: ApprovalsService,
     private readonly auditLogsService: AuditLogsService,
   ) {}
+
+  /**
+   * 本流程 PRIMARY 主体是 requestNo（申请单号），被修改的角色本身降级为 RELATED——
+   * 同 approvalSubjects 的形状（PRIMARY 已经在主表 primarySubjectType/No 两列上，
+   * 这里只补 RELATED 行，不重复传 PRIMARY）。
+   */
+  private roleRelatedSubject(roleCode: string): AuditSubjectInput[] {
+    return [
+      { subjectType: AuditEntityTypes.ACCESS_CONTROL, subjectNo: roleCode, subjectRole: AuditSubjectRole.RELATED },
+    ];
+  }
 
   /**
    * beforeData/afterData 只存变更项——三个可改字段（name/description/permissionGroups）
@@ -240,6 +251,7 @@ export class RoleDefinitionModifyWorkflowService {
         reason: changeReason.trim(),
         beforeData,
         afterData,
+        subjects: this.roleRelatedSubject(role.code),
         metadata: {
           roleCode: role.code,
           approvalNo: approvalCase.approvalNo,
@@ -305,7 +317,9 @@ export class RoleDefinitionModifyWorkflowService {
     });
     if (!role || role.status !== 'ACTIVE') {
       const reason = !role ? 'Role not found' : `Role status is ${role.status}`;
-      await this.failRequest(request, approvalId, reason, correlationId, 'EXECUTION_FAILED');
+      // role 可能压根不存在（角色被删）——这种情况下没有 roleCode 可用，RELATED 行
+      // 随之省略，不编造一个值。
+      await this.failRequest(request, approvalId, reason, correlationId, 'EXECUTION_FAILED', role?.code);
       return;
     }
 
@@ -323,7 +337,7 @@ export class RoleDefinitionModifyWorkflowService {
 
     if (JSON.stringify(actualGroups) !== JSON.stringify(snapshotGroups)) {
       const reason = `Conflict: role permissions changed since request was submitted. Expected groups: ${JSON.stringify(snapshotGroups)}, actual: ${JSON.stringify(actualGroups)}`;
-      await this.failRequest(request, approvalId, reason, correlationId, 'ROLE_CONFLICT');
+      await this.failRequest(request, approvalId, reason, correlationId, 'ROLE_CONFLICT', role.code);
       return;
     }
 
@@ -396,6 +410,7 @@ export class RoleDefinitionModifyWorkflowService {
       outcome: AuditOutcome.SUCCESS,
       beforeData,
       afterData,
+      subjects: this.roleRelatedSubject(role.code),
       approvalNo: payload?.approvalNo,
       metadata: {
         roleCode: role.code,
@@ -416,6 +431,7 @@ export class RoleDefinitionModifyWorkflowService {
     reason: string,
     correlationId: string | undefined,
     reasonCode: string,
+    roleCode?: string,
   ) {
     await this.prisma.roleDefinitionModifyRequest.update({
       where: { id: request.id },
@@ -445,6 +461,7 @@ export class RoleDefinitionModifyWorkflowService {
       reason,
       beforeData,
       afterData,
+      subjects: roleCode ? this.roleRelatedSubject(roleCode) : undefined,
       approvalNo: request.approvalCaseNo || undefined,
       metadata: { failureReason: reason },
       requestId: randomUUID(),
@@ -466,6 +483,7 @@ export class RoleDefinitionModifyWorkflowService {
 
     const request = await this.prisma.roleDefinitionModifyRequest.findUnique({
       where: { id: requestId },
+      include: { role: { select: { code: true } } },
     });
     if (!request || request.status !== 'PENDING_APPROVAL') {
       this.logger.warn(`[executeCancellation] Request ${requestId} not PENDING_APPROVAL`);
@@ -488,6 +506,7 @@ export class RoleDefinitionModifyWorkflowService {
       correlationId,
       causationId: approvalId,
       outcome: AuditOutcome.SUCCESS,
+      subjects: (request as any).role?.code ? this.roleRelatedSubject((request as any).role.code) : undefined,
       reason: payload?.decisionReason || `Role definition modify request ${String(decision).toLowerCase()}`,
       metadata: { decision },
       requestId: randomUUID(),

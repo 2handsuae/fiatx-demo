@@ -657,6 +657,10 @@ export class ApprovalsService {
 
   async approve(id: string, dto: DecisionApprovalDto, actor: ApprovalActorContext) {
     let updated: ApprovalCaseRow;
+    // 超管代行标要报的"候选角色集"——resolveDecisionRole 内部同名局部变量
+    // （allowedRoles = stepCandidateRoles || []），事务回调作用域里算出来，
+    // 事务外的审计写入用得到，故镜像一份到外层，同 updated 本身的捕获方式一致。
+    let allowedRoles: string[] = [];
     try {
       updated = await this.prisma.$transaction(async (tx: any) => {
         const approval = await this.findCaseOrThrow(id, tx);
@@ -684,6 +688,7 @@ export class ApprovalsService {
         const currentStep = firstPendingStep;
 
         const stepCandidateRoles = splitRoleCsv(currentStep.checkerRoleCandidates);
+        allowedRoles = stepCandidateRoles;
         const decisionRole = await this.resolveDecisionRole(approval, actor, dto.checkerRole, stepCandidateRoles);
         const now = new Date();
 
@@ -758,10 +763,12 @@ export class ApprovalsService {
         subjects: this.approvalSubjects(updated),
         requestId: `APPROVAL_GRANTED_${updated.approvalNo}_${randomUUID()}`,
         sourcePlatform: 'ADMIN_API',
-        metadata:
-          this.isSuperAdmin(actor) && actor.userId === updated.createdByUserId
-            ? { superAdminBypass: true }
-            : undefined,
+        // 超管代行标：不再局限于"自批"这一种越权场景——超管越过 checkerRoleCandidates
+        // 本身（不持有候选角色也能签）同样是代行，两种越权都该留痕，条件放宽为
+        // 只要这次是超管做的决定就标注，并带上当时的候选角色集，说明"代的是哪些角色"。
+        metadata: this.isSuperAdmin(actor)
+          ? { superAdminBypass: true, actedAsRoles: allowedRoles }
+          : undefined,
       },
       this.toAuditActor(actor),
     );
@@ -774,6 +781,8 @@ export class ApprovalsService {
 
   async reject(id: string, dto: DecisionApprovalDto, actor: ApprovalActorContext) {
     let updated: ApprovalCaseRow;
+    // 超管代行标要报的"候选角色集"——同 approve() 里一致的镜像手法。
+    let allowedRoles: string[] = [];
     try {
       updated = await this.prisma.$transaction(async (tx: any) => {
         const approval = await this.findCaseOrThrow(id, tx);
@@ -801,6 +810,7 @@ export class ApprovalsService {
         const currentStep = firstPendingStep;
 
         const stepCandidateRoles = splitRoleCsv(currentStep.checkerRoleCandidates);
+        allowedRoles = stepCandidateRoles;
         const decisionRole = await this.resolveDecisionRole(approval, actor, dto.checkerRole, stepCandidateRoles);
         const now = new Date();
 
@@ -864,10 +874,11 @@ export class ApprovalsService {
         subjects: this.approvalSubjects(updated),
         requestId: `APPROVAL_DECLINED_${updated.approvalNo}_${randomUUID()}`,
         sourcePlatform: 'ADMIN_API',
-        metadata:
-          this.isSuperAdmin(actor) && actor.userId === updated.createdByUserId
-            ? { superAdminBypass: true }
-            : undefined,
+        // 超管代行标：同 approve() 一致的放宽——只要这次是超管做的决定就标注，不再
+        // 局限于"自批"这一种越权场景，并带上当时的候选角色集。
+        metadata: this.isSuperAdmin(actor)
+          ? { superAdminBypass: true, actedAsRoles: allowedRoles }
+          : undefined,
       },
       this.toAuditActor(actor),
     );

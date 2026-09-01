@@ -260,6 +260,76 @@ describe('ApprovalsService', () => {
     );
   });
 
+  it('records superAdminBypass metadata even when the super admin is deciding someone else\'s approval (not self-approval)', async () => {
+    const superAdminActor = {
+      actorType: 'ADMIN' as const,
+      userId: 'super-999',
+      userNo: 'ADMIN-999',
+      role: 'SUPER_ADMIN',
+      roleCodes: ['SUPER_ADMIN'],
+    };
+
+    prisma.approvalCase.findUnique.mockResolvedValue(
+      buildApproval({
+        status: ApprovalStatuses.PENDING,
+        createdByUserId: 'maker-1',
+      }),
+    );
+    prisma.approvalCase.update.mockResolvedValue(
+      buildApproval({
+        status: ApprovalStatuses.APPROVED,
+        createdByUserId: 'maker-1',
+        decisionByUserId: 'super-999',
+        decisionByRole: 'DPO',
+      }),
+    );
+
+    const result = await service.approve(
+      'approval-1',
+      { checkerRole: 'DPO', reason: 'covering for an absent checker' },
+      superAdminActor,
+    );
+
+    expect(result.status).toBe(ApprovalStatuses.APPROVED);
+    // 放宽前：条件是 isSuperAdmin && 自批，这里 createdByUserId('maker-1') !==
+    // actor.userId('super-999')，不是自批场景，旧逻辑不会写 metadata。放宽后只要是
+    // 超管做的决定就标注，并带上当时的候选角色集（说明"代的是哪些角色"）。
+    expect(auditLogsService.recordByActor).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'APPROVAL_GRANTED',
+        metadata: expect.objectContaining({
+          superAdminBypass: true,
+          actedAsRoles: expect.arrayContaining(['DPO', 'MLRO']),
+        }),
+      }),
+      expect.anything(),
+    );
+  });
+
+  it('non-super-admin checker deciding a peer\'s approval still gets no superAdminBypass metadata', async () => {
+    prisma.approvalCase.findUnique.mockResolvedValue(
+      buildApproval({
+        status: ApprovalStatuses.PENDING,
+        createdByUserId: 'maker-1',
+      }),
+    );
+    prisma.approvalCase.update.mockResolvedValue(
+      buildApproval({
+        status: ApprovalStatuses.APPROVED,
+        createdByUserId: 'maker-1',
+        decisionByUserId: actor.userId,
+        decisionByRole: 'DPO',
+      }),
+    );
+
+    await service.approve('approval-1', { reason: 'looks good' }, actor);
+
+    expect(auditLogsService.recordByActor).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'APPROVAL_GRANTED', metadata: undefined }),
+      expect.anything(),
+    );
+  });
+
   it.each([
     ApprovalStatuses.PENDING,
     ApprovalStatuses.REJECTED,

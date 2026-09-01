@@ -141,6 +141,59 @@ describe('AuthService', () => {
     );
   });
 
+  it('锁定到期后首次登录自动解锁：emit ADMIN_LOGIN_AUTO_UNLOCKED，交由 workflow 层写 ADMIN_ACCOUNT_LOCK_RELEASED', async () => {
+    usersService.findByIdentifier.mockResolvedValue({
+      id: 'user-1',
+      userNo: 'ADM-001',
+      role: 'CISO',
+      email: 'ciso@fiatx.com',
+      password: '$2b$10$abc',
+      status: 'LOCKED',
+      failedLoginAttempts: 5,
+      lockedUntil: new Date(Date.now() - 1000),
+    });
+    usersService.update.mockResolvedValue(undefined);
+
+    const bcrypt = require('bcrypt');
+    jest.spyOn(bcrypt, 'compare').mockResolvedValue(true);
+
+    await service.validateUser('ciso@fiatx.com', '123456');
+
+    expect(usersService.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'user-1' },
+        data: { status: 'ACTIVE', failedLoginAttempts: 0, lockedUntil: null },
+      }),
+    );
+    expect(eventEmitter.emit).toHaveBeenCalledWith(
+      DomainEventNames.ADMIN_LOGIN_AUTO_UNLOCKED,
+      expect.objectContaining({ userId: 'user-1', userNo: 'ADM-001' }),
+    );
+  });
+
+  it('锁定仍未到期时不自动解锁、不 emit 解锁事件', async () => {
+    usersService.findByIdentifier.mockResolvedValue({
+      id: 'user-1',
+      userNo: 'ADM-001',
+      role: 'CISO',
+      email: 'ciso@fiatx.com',
+      password: '$2b$10$abc',
+      status: 'LOCKED',
+      failedLoginAttempts: 5,
+      lockedUntil: new Date(Date.now() + 60000),
+    });
+
+    await expect(
+      service.validateUser('ciso@fiatx.com', '123456'),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+
+    expect(usersService.update).not.toHaveBeenCalled();
+    expect(eventEmitter.emit).not.toHaveBeenCalledWith(
+      DomainEventNames.ADMIN_LOGIN_AUTO_UNLOCKED,
+      expect.anything(),
+    );
+  });
+
   it('未达阈值的失败登录不 emit 锁定事件', async () => {
     usersService.findByIdentifier.mockResolvedValue({
       id: 'user-1',
