@@ -872,8 +872,14 @@ const SEED_FIRM_CAPITAL: Record<string, string> = {
 async function seedCapitalInjection(prisma: PrismaClient): Promise<void> {
   const tbAddress = process.env.TB_ADDRESS;
   if (!tbAddress) {
-    console.log('  ⚠ TB_ADDRESS not set, skipping capital injection');
-    return;
+    // 同 provisionTbAccounts：不 graceful skip。少了这笔注资，公司户从 0 起步，
+    // 付完款即为负——而四条 COA 恒等式对「差额」依然成立，所以只有负余额断言会红，
+    // 且红在很远的下游。2026-08-31 的假红事故就是这么来的。
+    throw new Error(
+      'TB_ADDRESS 未设置，无法做资本注入。seed 不做 graceful skip——' +
+        '缺这笔注资会让公司户从 0 起步、后续 verify:coa 负余额断言在很远处才报错。' +
+        '修法：确认调用方显式传 TB_ADDRESS（见 scripts/reset-stack.sh），或先 `stack.sh up` 让 .env 落地。',
+    );
   }
 
   let client: ReturnType<typeof tbCreateClient>;

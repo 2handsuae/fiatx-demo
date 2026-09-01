@@ -1196,22 +1196,26 @@ function renderDataMdSnapshot(
   const DOMAIN_LABEL: Record<string, string> = { DEPOSIT: '充值', SWAP: '兑换', WITHDRAW: '提现' };
   const lines: string[] = [];
   lines.push(
-    `> 本段由 \`demo:all\` 收尾自动写入（\`scripts/demo-lib.ts → writeDataMdSnapshot\`），` +
-      `别手改——下次跑 \`demo:all\` 会整段覆盖。生成时间：${new Date().toISOString()}`,
+    `> 本段由 \`demo:all\` 收尾自动写入（\`scripts/demo-lib.ts → renderDataMdSnapshot\`），别手改——下次跑会整段覆盖。`,
+  );
+  lines.push(
+    `> **只收录跨重铺稳定的列**：单号（\`DEP…\`/\`SWP…\`/\`WD…\`）内嵌日期+随机后缀、每次跑都变，` +
+      `收录进来会让 \`git diff data.md\` 永远有噪音、失去"行为有没有变"的判据作用（也让工作树无故变脏）。` +
+      `**要当次的真实单号，看 \`demo:all\` 运行时打印的花名册**——那份是当场的、准的。`,
   );
   let bad = 0;
   for (const domain of ['DEPOSIT', 'SWAP', 'WITHDRAW'] as const) {
     const rows = DEMO_ROSTER.filter((r) => r.domain === domain);
     lines.push('', `### ${DOMAIN_LABEL[domain]}（${rows.length} 笔）`, '');
-    lines.push('| # | 场景 | 客户 | 金额 | 预期终态 | 实到单号 | 实到状态 | 结果 |');
-    lines.push('|---|---|---|---|---|---|---|---|');
+    lines.push('| # | 场景 | 客户 | 金额 | 预期终态 | 实到状态 | 结果 |');
+    lines.push('|---|---|---|---|---|---|---|');
     for (const r of rows) {
       const a = bySeq.get(r.seq);
       const rowOk = a?.status === r.expectedStatus;
       if (!rowOk) bad += 1;
       lines.push(
         `| ${r.seq} | ${r.label} | ${r.customerEmail} | ${r.amount} ${r.currency} | ${r.expectedStatus} | ` +
-          `${a?.orderNo ?? '—'} | ${a?.status ?? '（没造出来）'} | ${rowOk ? '✓' : '✗'} |`,
+          `${a?.status ?? '（没造出来）'} | ${rowOk ? '✓' : '✗'} |`,
       );
     }
   }

@@ -76,8 +76,14 @@ export async function ensureTbAccountRegistry(
 export async function provisionTbAccounts(prisma: PrismaClient): Promise<void> {
   const tbAddress = process.env.TB_ADDRESS;
   if (!tbAddress) {
-    console.log('  ⚠ TB_ADDRESS not set, skipping TigerBeetle account provisioning');
-    return;
+    // 不再 graceful skip：本函数只被业务 seed 调用，而业务 seed 永远需要 TigerBeetle，
+    // 没有任何"这次不需要 TB"的合法场景。跳过却 exit 0 会建出一个"库是满的、账本是空的"
+    // 数据库，故障点离根因很远（2026-08-31 那次 verify:coa 负余额查了一整轮没定位到）。
+    throw new Error(
+      'TB_ADDRESS 未设置，无法建 TigerBeetle 账户。seed 不做 graceful skip——' +
+        '跳过会建出账本为空的库，失败点离根因很远。' +
+        '修法：确认调用方显式传 TB_ADDRESS（见 scripts/reset-stack.sh），或先 `stack.sh up` 让 .env 落地。',
+    );
   }
 
   let client: ReturnType<typeof tbCreateClient>;

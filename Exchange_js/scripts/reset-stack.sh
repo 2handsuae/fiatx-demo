@@ -93,7 +93,11 @@ echo "[${STACK}] clearing business data"
 echo "[${STACK}] re-seeding business demo"
 (
   cd "${APP_DIR}"
-  DATABASE_URL="${db_url}" npm run db:seed:business
+  # TB_ADDRESS 必须显式传：它是 load_stack_config 算出来的 shell 变量、从未 export，
+  # 子进程平时能拿到全靠 Prisma 导入时自己加载 .env——而 .env 由 `stack.sh up` 生成。
+  # 新 worktree 若先 reset 后 up，.env 尚不存在，seed 会静默跳过 TB 建户与资本注入
+  # （退出码仍 0），后果是账本空着、verify:coa 负余额在很远的地方才炸。见 TOOLING-DEBT。
+  DATABASE_URL="${db_url}" TB_ADDRESS="${TB_ADDRESS}" npm run db:seed:business
 )
 
 echo ""
