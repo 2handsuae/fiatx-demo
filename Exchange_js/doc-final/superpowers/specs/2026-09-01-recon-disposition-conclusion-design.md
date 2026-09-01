@@ -261,8 +261,10 @@
 - **模型**：`ReconciliationAdjustment` 加 `toWalletRef` / `toOwnerNo`（仅第四族使用）；`book` 恒 CLIENT
 - **守卫**：正主方是加钱 → **必填关联原单号**（记在错记方名下的那张真实充值单——KYT 对这笔钱跑过，放行依据与一期边界线同源）；两侧差异行**业务日必须相同**，不同则 400（跨日改记本轮不做）；生效日 = 该业务日
 - **合规口径**（业主拍板）：换主靠「原单 KYT 已跑」放行，本轮不重跑 KYT；「换主后对正主的合规复核」登记 BACKLOG 一行
-- **审批**：与三族相同（金库开单、运营复核）；审批页人话后果：「本单将把 7,300.00 AED 从客户 CUxxxx 名下改记到客户 CUyyyy 名下；客户资产总额不变」
+- **审批**：与三族相同（金库开单、运营复核）；审批页人话后果：「本单将把 7,300.00 AED 从客户 CUxxxx 名下改记到客户 CUyyyy 名下；客户资产总额不变」。走 `ApprovalsService` 正门、**复用既有 `RECON_ADJUSTMENT_POST` 策略不新增策略**——故 `verify-rbac` 的 `MAKER_GROUP_BY_POLICY` 表不加行（checklist「新增审批策略」未触发，显式记一笔免评审再查）
+- **记账路径**：落账同步直调 `AccountingService.executeTransfer`（禁挂事件，失败即流程失败、状态不得推进）；两腿都是既有科目 `CLIENT_PAYABLE`，**不新增科目**；无资金单（纯纠错，无在途要追）
 - **审计**：落账复用 `RECON_ADJUSTMENT_POSTED`（reasonCode = `CUSTOMER_REATTRIBUTION`）
+- 对端候选清单与确认视图展示 `walletNo` / `customerNo`，不露 UUID（铁律⑥）
 - **客户可见面**：错记方余额下降必须对其可见（客户流水三原则），随「客户流水读模型」任务做，本轮不动客户端
 
 ---
@@ -298,6 +300,8 @@ model ReconciliationDisposition {
 
 同一条差异行（同锚）至多一条有效定性，重定 = 覆盖 + 各记一条审计；`adjustmentNo` 非空后拒绝覆盖（400）。
 
+定性记录**没有状态机**（刻意）：覆盖式记录，唯一的锁就是 `adjustmentNo` 非空，不建迁移表。checklist「新状态要不要计时」显式回答：**本轮不计时**——查无果的账龄计时是核销的前置，归下一轮 aging（§0.1）。
+
 ---
 
 ## §8 落点（文件清单）
@@ -310,9 +314,12 @@ model ReconciliationDisposition {
 - 改 `disposition/adjustment.service.ts`：第四族 createDraft 分支（对端、双锚、同业务日校验、原单守卫）；**顺带补 createDraft 审计**（BACKLOG 在案的铁律①缺口，新码 `RECON_ADJUSTMENT_DRAFTED`）
 - 改 `disposition/adjustment-approval.service.ts`：第四族落账（`executeTransfer` 错记方应付 → 正主方应付）+ 审批人话文案
 - 改 `domain/reconciliation-query.service.ts`：行附 `menu`（该格成因清单）、`disposition`（定性状态）、`duplicateTwinRef`（双胞胎线索）；改记候选对端查询；核实已解释摘除的锚匹配范围（§6 ⚠️）
-- prisma：`ReconciliationDisposition` 新表；`ReconciliationAdjustment` + `toWalletRef` / `toOwnerNo`
-- `rbac.catalog.ts`：新组 `RECON_DISPOSITION_WRITE` → 新桶 `recon.act_dispose` → 绑 `OPS_OFFICER`；新路由登记 → `db:base:sync` → **重启后端**
-- 审计常量：`RECON_DISPOSITION_RECORDED`（domain RECON、correlationMode N、requiredFields `['causeCode','outlet']`，主对象 = dispositionNo，子主体带 caseNo + walletNo）+ `RECON_ADJUSTMENT_DRAFTED` 入 `V8_RECON_AUDIT_ACTIONS` 与封册名册
+- prisma：`ReconciliationDisposition` 新表；`ReconciliationAdjustment` + `toWalletRef` / `toOwnerNo`——新增迁移文件保证空库能建起，**不写 backfill / 兼容层**，改完 = reset 重铺（CLAUDE.md §3）
+- `rbac.catalog.ts`：新组 `RECON_DISPOSITION_WRITE` **四处齐**——`PermissionGroup` 联合类型 ｜ 新端点 `route()` 登记 ｜ 新桶 `recon.act_dispose` ｜ `OPS_OFFICER` 持有（调账单当初只齐两处：没人能开单、自定义角色 UI 勾不到，checklist 在案）；顺手核 OPS 已持 `RECON_CASE_READ`（有权限须有入口）；`db:base:sync` → **重启后端**
+- 审计常量（**出生即冻结四属性**，两码均入 `V8_RECON_AUDIT_ACTIONS` 与封册名册）：
+  - `RECON_DISPOSITION_RECORDED`——定性/覆盖重定；domain RECON ｜ correlationMode N ｜ requiredFields `['causeCode','outlet']` ｜ 主对象 = dispositionNo，子主体带 caseNo + walletNo
+  - `RECON_ADJUSTMENT_DRAFTED`——开单（四族通用）；domain RECON ｜ correlationMode N ｜ requiredFields `['reasonCode','amount']` ｜ 主对象 = adjustmentNo（销 BACKLOG「createDraft 零审计」铁律①缺口）
+  - 两码的每次写入都带**显式 `requestId`**——漏了会被静默去重，这条日志直接消失（checklist 第一行）
 
 **前端**
 
@@ -324,7 +331,7 @@ model ReconciliationDisposition {
 
 **种子**：`scripts/recon-demo.ts` 按 §5 重做（删 2 / 改标签 1 / 新增 1 / 全量重编号含 dedupKey / rootCause 换成因码 / 头注释矩阵重写）
 
-**文档**：`doc-final/reference/recon-cause-handbook.md`（新，§10）｜ `modules/v8-recon.md` §2/§3/§4/§5/§6 ｜ `demo/script.md` 第六幕按新号重写 ｜ `demo/data.md` ｜ `demo/baseline.md`（14/14 + 11/11）｜ `BACKLOG.md`（销 dedupKey 陈账 + G 节前三条更新 + 新增改记合规复核缺口）｜ `CHANGELOG.md` ｜ decisions 追加稿（§13）
+**文档**：`doc-final/reference/recon-cause-handbook.md`（新，§10）｜ `modules/v8-recon.md` §2/§3/§4/§5/§6 ｜ `demo/script.md` 第六幕按新号重写 ｜ `demo/data.md` ｜ `demo/baseline.md`（14/14 + 11/11）｜ `BACKLOG.md`（销 dedupKey 陈账 + 销 createDraft 零审计 + G 节前三条更新 + 新增改记合规复核缺口 + 客户流水读模型条目补「改记行」两侧可见面设计——错记方减一行、正主方加一行，均须可追溯）｜ `CHANGELOG.md` ｜ decisions 追加稿（§13）
 
 收尾对照 `doc-final/rules/delivery-checklist.md`，plan 里引用不重抄。
 
