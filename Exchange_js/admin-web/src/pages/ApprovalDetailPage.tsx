@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams } from 'react-router-dom';
 import { RefreshCw, X } from 'lucide-react';
 import {
   AdminPermissionError,
@@ -23,7 +23,6 @@ interface ApprovalDetail {
   approvalNo: string;
   actionType: string;
   entityRef: string;
-  createdByUserId: string;
   createdByUserNo?: string | null;
   status: string;
   allowCancel: boolean;
@@ -82,6 +81,51 @@ const fmt = (v?: string | null): string => {
 const joinOrDash = (arr?: string[] | null): string =>
   arr && arr.length > 0 ? arr.join(', ') : '—';
 
+/* ── Entity Ref回链 ──────────────────────────────────────────────
+   按 actionType 把 entityRef（业务号，Task 19-21 后全域已切换）映射到对应
+   详情/列表路由。逐条核对现状路由参数得出（App.tsx + 各消费端 controller/
+   service 实证，非直接照抄 brief 草案）：
+   - 资产/限额/费率创建：详情路由已按业务号收参（assetNo/ruleNo/levelCode）。
+   - 交易域（deposit/withdraw）详情路由仍是内部 id，用列表页 + keyword 定位；
+     当前 3 张列表页尚未消费该 query 参数（未读 location.search），故此链接
+     落地到正确页面但不会自动预填筛选框——超出本任务声明的文件范围，未跟着改。
+   - 治理域 4 类（角色绑定变更/角色修改/审批策略变更/证据包导出）entityRef
+     虽已是业务号（requestNo/packageNo），但其唯一详情端点仍按内部 UUID
+     查询（ParseUUIDPipe 或 where:{id}），映射会 404——不硬造，留纯文本。
+   - 费率变更（*_FEE_LEVEL_CHANGE）entityRef 是变更请求 requestNo 而非
+     levelCode，无可寻址详情页——同样留纯文本。
+   映射缺席 = Field 保持纯文本展示（原状）。 */
+const ENTITY_ROUTE_BY_ACTION: Record<string, (ref: string) => string | null> = {
+  // 交易域——详情路由参数以现状为准（内部 id），列表页 + keyword 定位已足够演示
+  WITHDRAW_LARGE_VALUE_APPROVAL: (r) => `/admin/trading/withdrawals?keyword=${r}`,
+  WITHDRAW_UNFREEZE: (r) => `/admin/trading/withdrawals?keyword=${r}`,
+  WITHDRAW_SANCTION_REFUND: (r) => `/admin/trading/withdrawals?keyword=${r}`,
+  DEPOSIT_CONFISCATION: (r) => `/admin/trading/deposits?keyword=${r}`,
+  DEPOSIT_RETURN: (r) => `/admin/trading/deposits?keyword=${r}`,
+  DEPOSIT_SEIZE: (r) => `/admin/trading/deposits?keyword=${r}`,
+  DEPOSIT_UNFREEZE: (r) => `/admin/trading/deposits?keyword=${r}`,
+  // 资产域（entityRef = assetNo / ruleNo）
+  ASSET_ACTIVATION: (r) => `/admin/assets/${r}`,
+  ASSET_SUSPENSION: (r) => `/admin/assets/${r}`,
+  ASSET_REACTIVATION: (r) => `/admin/assets/${r}`,
+  TRANSACTION_LIMIT_CREATION: (r) => `/admin/assets/transaction-limits/${r}`,
+  TRANSACTION_LIMIT_CHANGE: (r) => `/admin/assets/transaction-limits/${r}`,
+  // 托管钱包（entityRef = walletNo）
+  CUSTODIAN_WALLET_CREATE: (r) => `/admin/custody/wallets/${r}`,
+  // 定价域——仅创建流 entityRef 是 levelCode；变更流是变更请求 requestNo，不映射
+  SWAP_FEE_LEVEL_CREATION: (r) => `/admin/pricing/swap-fee-levels/${r}`,
+  WITHDRAWAL_FEE_LEVEL_CREATION: (r) => `/admin/pricing/withdrawal-fee-levels/${r}`,
+  // 治理域（entityRef = userNo / role.code，Task 19-21 后新增业务号）
+  ADMIN_INVITE_APPROVAL: (r) => `/admin/iam/members/${r}`,
+  ADMIN_SUSPENSION_APPROVAL: (r) => `/admin/iam/members/${r}`,
+  ADMIN_REACTIVATION_APPROVAL: (r) => `/admin/iam/members/${r}`,
+  ADMIN_PASSWORD_RESET: (r) => `/admin/iam/members/${r}`,
+  ADMIN_MFA_RESET: (r) => `/admin/iam/members/${r}`,
+  ROLE_DEFINITION_CREATE: (r) => `/admin/iam/roles/${r}`,
+  // 对账域（entityRef = adjustmentNo）
+  RECON_ADJUSTMENT_POST: (r) => `/admin/reconciliation/adjustments/${r}`,
+};
+
 /* ── Shared layout primitives ────────────────────────────────── */
 
 const Cap = ({ children }: { children: ReactNode }) => (
@@ -107,28 +151,41 @@ const Field = ({
   mono = false,
   amber = false,
   full = false,
+  href,
 }: {
   label: string;
   value?: string | null;
   mono?: boolean;
   amber?: boolean;
   full?: boolean;
+  /** 有值时把 value 渲染成回链——用于 entityRef 这类可回查其它主体的业务号。 */
+  href?: string | null;
 }) => {
   if (!value) return null;
+  const sizeClass = mono ? 'font-mono text-[10px]' : 'text-[11px]';
   return (
     <div className={full ? 'col-span-2' : ''}>
       <p className="mb-1 font-mono text-[8.5px] uppercase tracking-[0.14em] text-adm-t3">
         {label}
       </p>
-      <p
-        className={[
-          'break-all leading-relaxed',
-          mono ? 'font-mono text-[10px]' : 'text-[11px]',
-          amber ? 'font-semibold text-adm-amber' : 'text-adm-t2',
-        ].join(' ')}
-      >
-        {value}
-      </p>
+      {href ? (
+        <Link
+          to={href}
+          className={['break-all leading-relaxed text-adm-blue hover:underline', sizeClass].join(' ')}
+        >
+          {value}
+        </Link>
+      ) : (
+        <p
+          className={[
+            'break-all leading-relaxed',
+            sizeClass,
+            amber ? 'font-semibold text-adm-amber' : 'text-adm-t2',
+          ].join(' ')}
+        >
+          {value}
+        </p>
+      )}
     </div>
   );
 };
@@ -487,7 +544,13 @@ const ApprovalDetailPage = () => {
             <Cap>Core Context</Cap>
             <div className="mt-3">
               <FieldGrid>
-                <Field label="Entity Ref"            value={detail.entityRef}           mono full />
+                <Field
+                  label="Entity Ref"
+                  value={detail.entityRef}
+                  mono
+                  full
+                  href={ENTITY_ROUTE_BY_ACTION[detail.actionType]?.(detail.entityRef)}
+                />
               </FieldGrid>
             </div>
           </section>

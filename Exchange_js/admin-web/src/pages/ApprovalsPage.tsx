@@ -31,7 +31,6 @@ interface ApprovalItem {
   approvalNo: string;
   actionType: string;
   entityRef: string;
-  createdByUserId: string;
   createdByUserNo?: string | null;
   status: string;
   traceId?: string | null;
@@ -324,7 +323,7 @@ const ApprovalsPage = () => {
 
                 {/* Maker */}
                 <td className="px-4 py-2.5 font-mono text-[11px] text-adm-t2 whitespace-nowrap">
-                  {item.createdByUserNo ?? item.createdByUserId}
+                  {item.createdByUserNo ?? '—'}
                 </td>
 
                 {/* Checker */}
