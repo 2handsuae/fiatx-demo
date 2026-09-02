@@ -277,9 +277,9 @@ export default function CustodianWalletDetail() {
               <div className="min-w-0">
                 <div className="font-mono text-[9px] uppercase tracking-[0.1em] text-adm-t3">Owner No</div>
                 <div className="mt-1 text-[13px]">
-                  {wallet.ownerType === 'CUSTOMER' && wallet.ownerNo && wallet.ownerId ? (
+                  {wallet.ownerType === 'CUSTOMER' && wallet.ownerNo ? (
                     <button
-                      onClick={() => navigate(`/admin/customers/${wallet.ownerId}`)}
+                      onClick={() => navigate(`/admin/customers/${wallet.ownerNo}`)}
                       className="text-adm-amber hover:underline font-mono text-[11px]"
                       title="Open customer"
                     >

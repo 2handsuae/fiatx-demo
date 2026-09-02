@@ -353,7 +353,7 @@ function App() {
               ])}
             />
             <Route
-              path="customer/:id"
+              path="customer/:customerNo"
               element={withPermission(<CustomerDetail />, [PERMISSIONS.CUSTOMERS_DETAIL_READ])}
             />
             <Route
@@ -432,7 +432,7 @@ function App() {
 
             {/* customers */}
             <Route path="customers" element={withPermission(<CustomerManagement />, [PERMISSIONS.CUSTOMERS_READ])} />
-            <Route path="customers/:id" element={withPermission(<CustomerDetail />, [PERMISSIONS.CUSTOMERS_DETAIL_READ])} />
+            <Route path="customers/:customerNo" element={withPermission(<CustomerDetail />, [PERMISSIONS.CUSTOMERS_DETAIL_READ])} />
             <Route path="customers/material-holdings" element={withPermission(<MaterialManagementPage />, [PERMISSIONS.CUSTOMERS_READ])} />
             <Route path="customers/material-holdings/:holdingId" element={withPermission(<MaterialHoldingDetailPage />, [PERMISSIONS.CUSTOMERS_READ])} />
             <Route path="customers/refresh-cycles" element={withPermission(<RefreshCyclesPage />, [PERMISSIONS.CUSTOMERS_READ])} />

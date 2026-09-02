@@ -38,26 +38,32 @@ describe('CustomersService', () => {
     expect(service).toBeDefined();
   });
 
-  it('findOne should query supported relations without wallets include', async () => {
+  it('findOne queries the plain row without relation includes', async () => {
+    // 2026-09-03 客户域业务号化：latestRiskApproval include 随死 UI 段退役摘除，
+    // 详情就是主档一行。
     mockPrismaService.customerMain.findUnique.mockResolvedValue({
       id: 'c1',
     });
 
     const customer = await service.findOne('c1');
 
-    expect(mockPrismaService.customerMain.findUnique).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: { id: 'c1' },
-        include: expect.objectContaining({
-          latestRiskApproval: expect.any(Object),
-        }),
-      }),
-    );
+    expect(mockPrismaService.customerMain.findUnique).toHaveBeenCalledWith({
+      where: { id: 'c1' },
+    });
+    expect((customer as any)?.id).toBe('c1');
+  });
 
-    const query = mockPrismaService.customerMain.findUnique.mock.calls[0][0];
-    expect(query.include.wallets).toBeUndefined();
-    expect(query.include.onboardingAuditLogs).toBeUndefined();
-    expect(query.include.cddResponses).toBeUndefined();
+  it('findByCustomerNo resolves by the business key (铁律⑥ controller 换号入口)', async () => {
+    mockPrismaService.customerMain.findUnique.mockResolvedValue({
+      id: 'c1',
+      customerNo: 'CUS-0001',
+    });
+
+    const customer = await service.findByCustomerNo('CUS-0001');
+
+    expect(mockPrismaService.customerMain.findUnique).toHaveBeenCalledWith({
+      where: { customerNo: 'CUS-0001' },
+    });
     expect((customer as any)?.id).toBe('c1');
   });
 });

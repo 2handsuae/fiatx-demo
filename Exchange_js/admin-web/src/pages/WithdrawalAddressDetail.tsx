@@ -306,9 +306,9 @@ export default function WithdrawalAddressDetail() {
               <div className="min-w-0">
                 <div className="font-mono text-[9px] uppercase tracking-[0.1em] text-adm-t3">Customer No</div>
                 <div className="mt-1 text-[13px]">
-                  {data.customerNo && data.customerId ? (
+                  {data.customerNo ? (
                     <button
-                      onClick={() => navigate(`/admin/customers/${data.customerId}`)}
+                      onClick={() => navigate(`/admin/customers/${data.customerNo}`)}
                       className="text-adm-amber hover:underline font-mono text-[11px]"
                       title="Open customer"
                     >
