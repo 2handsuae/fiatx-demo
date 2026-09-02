@@ -47,6 +47,7 @@ export type PermissionGroup =
   | 'RECON_CASE_READ'
   | 'RECON_EXTERNAL_BALANCE_READ'
   | 'RECON_ADJUSTMENT_WRITE'
+  | 'RECON_DISPOSITION_WRITE'
   | 'LEDGER_ACCOUNT_READ'
   | 'LEDGER_EVIDENCE_READ'
   | 'LEDGER_FLOW_READ'
@@ -387,6 +388,8 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
   route('POST', '/admin/reconciliation/adjustments', 'Create Recon Adjustment (Draft)', ['RECON_ADJUSTMENT_WRITE']),
   route('POST', '/admin/reconciliation/adjustments/:adjustmentNo/submit', 'Submit Recon Adjustment for Approval', ['RECON_ADJUSTMENT_WRITE']),
   route('GET', '/admin/reconciliation/adjustments/:adjustmentNo', 'View Recon Adjustment Detail', ['RECON_CASE_READ']),
+  route('POST', '/admin/reconciliation/cases/:caseNo/dispositions', 'Record disposition conclusion on a reconciliation diff row', ['RECON_DISPOSITION_WRITE']),
+  route('GET', '/admin/reconciliation/cases/:caseNo/reattribution-candidates', 'List counterpart candidates for a reattribution', ['RECON_CASE_READ']),
 
   // TB Ledger
   route('GET', '/admin/tb/accounts', 'List TB account registry', ['LEDGER_ACCOUNT_READ']),
@@ -804,6 +807,7 @@ export const ACTION_BUCKET_CATALOG: ActionDomain[] = [
       { key: 'recon.view', label: 'View runs, cases & balances', description: 'Browse reconciliation runs, cases and external balances', groups: ['RECON_RUN_READ', 'RECON_CASE_READ', 'RECON_EXTERNAL_BALANCE_READ'] },
       { key: 'recon.act_run', label: 'Trigger reconciliation runs', description: 'Kick off a per-wallet reconciliation run', groups: ['RECON_RUN_WRITE'] },
       { key: 'recon.act_adjust', label: 'Open ledger adjustments', description: 'Open and submit a ledger-correction adjustment against a reconciliation break', groups: ['RECON_ADJUSTMENT_WRITE'] },
+      { key: 'recon.act_dispose', label: 'Record disposition conclusions', description: 'Record the investigated cause and outlet on a reconciliation diff row (hold / route / precede an adjustment)', groups: ['RECON_DISPOSITION_WRITE'] },
     ],
   },
   // ─── Domain: Pricing ─────────────────────────────────
@@ -984,7 +988,7 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
     'TRADING_WITHDRAW_WRITE', 'WITHDRAW_BOUNCE_WRITE', 'WITHDRAW_REFUND_WRITE',
     'TRADING_SWAP_WRITE',
     'FUNDS_ORDER_VIEW', 'FUNDS_ORDER_ACT',
-    'RECON_RUN_READ', 'RECON_CASE_READ', 'RECON_EXTERNAL_BALANCE_READ', 'RECON_RUN_WRITE',
+    'RECON_RUN_READ', 'RECON_CASE_READ', 'RECON_EXTERNAL_BALANCE_READ', 'RECON_RUN_WRITE', 'RECON_DISPOSITION_WRITE',
     'WITHDRAWAL_FEE_LEVEL_READ', 'SWAP_FEE_LEVEL_READ',
     'DEMO_CLOCK_WRITE',
   ],

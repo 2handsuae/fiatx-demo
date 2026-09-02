@@ -38,13 +38,14 @@ describe('generateReferenceNo —— 单号随机位宽（业主 2026-09-01 定�
     expect([...lengths]).toEqual([6]);
   });
 
-  it('1000 次生成几乎不撞号（4 位位宽下这个量级必撞）', () => {
-    // 6 位随机=100 万个坑，1000 次抽样按生日悖论期望碰撞数≈0.5——
-    // 断言"恰好 0 次"本身就不成立（本条约 39% 概率误红，实测已撞过），
-    // 门槛放到 990（容忍至多 10 次撞号）：4 位位宽下期望撞号约 48 次，仍必被抓住；
-    // 6 位位宽下撞到 10 次以上的概率 <0.02%，不再是会自己变红的断言。
-    const seen = new Set(Array.from({ length: 1000 }, () => generateReferenceNo('FO')));
-    expect(seen.size).toBeGreaterThanOrEqual(990);
+  it('1000 次生成撞号 ≤ 5 次（6 位位宽期望 0.5 次；4 位位宽期望约 50 次，必超）', () => {
+    // 同一天同前缀的号池是 10^6：抽 1000 个按生日问题约 39% 概率至少撞一次，
+    // 断言「零撞号」本身每三轮就假红一轮（2026-09-02 十连跑实测 2 红）。
+    // 阈值 5 两边都远离期望：6 位下 P(撞>5)≈2×10⁻⁵，4 位下 P(撞≤5)≈10⁻¹⁵——
+    // 抓「改窄位宽」的判别力不变，假红率降到可忽略。
+    const nos = Array.from({ length: 1000 }, () => generateReferenceNo('FO'));
+    const collisions = nos.length - new Set(nos).size;
+    expect(collisions).toBeLessThanOrEqual(5);
   });
 });
 

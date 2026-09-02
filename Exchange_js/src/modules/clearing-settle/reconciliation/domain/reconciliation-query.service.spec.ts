@@ -1,5 +1,6 @@
 import { Prisma } from '@prisma/client';
 import { pairManifest, ReconciliationQueryService } from './reconciliation-query.service';
+import { CAUSE_REGISTRY, menuFor, staticOutletLabel } from '../disposition/cause-registry';
 
 // Helper: build the query service with a mock for the flow-matcher dependency
 // the constructor requires (T3). Tests can override it by passing their own.
@@ -223,6 +224,8 @@ describe('getCase — flowComparison (T3)', () => {
       // Task 7: getCase's案件级 adjustments 查询也是 unconditional（不依赖
       // lineItems，见 reconciliation-query.service.ts getCase 里的新增块）。
       reconciliationAdjustment: { findMany: jest.fn().mockResolvedValue([]) },
+      // 平账一期半（T7 案件读面）：getCase 的行注解块同样 unconditional 发一次。
+      reconciliationDisposition: { findMany: jest.fn().mockResolvedValue([]) },
     };
     const flowMatcher = {
       matchFlows: jest.fn().mockResolvedValue({
@@ -278,6 +281,8 @@ describe('getCase — flowComparison (T3)', () => {
       asset: { findUnique: jest.fn().mockResolvedValue({ decimals: 2 }) },
       // Task 7: 案件级 adjustments 查询同样 unconditional，XREF case 也要发。
       reconciliationAdjustment: { findMany: jest.fn().mockResolvedValue([]) },
+      // 平账一期半（T7 案件读面）：getCase 的行注解块同样 unconditional 发一次。
+      reconciliationDisposition: { findMany: jest.fn().mockResolvedValue([]) },
     };
     const flowMatcher = { matchFlows: jest.fn() };
     const svc = mkSvc(prisma, { flowMatcher });
@@ -393,6 +398,8 @@ describe('getCase — walletNo / linkedRunNo / slaDeadline / book', () => {
       asset: { findUnique: jest.fn().mockResolvedValue({ decimals: 2 }) },
       // Task 7: 案件级 adjustments 查询同样 unconditional。
       reconciliationAdjustment: { findMany: jest.fn().mockResolvedValue([]) },
+      // 平账一期半（T7 案件读面）：getCase 的行注解块同样 unconditional 发一次。
+      reconciliationDisposition: { findMany: jest.fn().mockResolvedValue([]) },
     } as any;
   }
 
@@ -424,6 +431,8 @@ describe('getCase — walletNo / linkedRunNo / slaDeadline / book', () => {
       asset: { findUnique: jest.fn().mockResolvedValue({ decimals: 2 }) },
       // Task 7: 案件级 adjustments 查询同样 unconditional，XREF case 也要发。
       reconciliationAdjustment: { findMany: jest.fn().mockResolvedValue([]) },
+      // 平账一期半（T7 案件读面）：getCase 的行注解块同样 unconditional 发一次。
+      reconciliationDisposition: { findMany: jest.fn().mockResolvedValue([]) },
     } as any;
     const svc = mkSvc(prisma);
     const result: any = await svc.getCase('CASE-XREF');
@@ -440,7 +449,14 @@ describe('listCases — T3 default OPEN + aging desc', () => {
   const nu  = { id: 'c-new', caseNo: 'NEW', status: 'OPEN', firstSeenRunId: 'r5', lastUpdatedRunId: 'r5', createdAt: new Date(Date.now() - 0 * 86_400_000) };
 
   // Shared reconciliationRun mock for tests that don't assert on runNo resolution.
-  const noRunLookup = { reconciliationRun: { findMany: jest.fn().mockResolvedValue([]) } };
+  const noRunLookup = {
+    reconciliationRun: { findMany: jest.fn().mockResolvedValue([]) },
+    // 平账一期半（T7 案件读面）：listCases 新增 dispositionCount/anomalyLineCount/
+    // decimals 三个 groupBy/findMany 查询，非空行 fixture 都会触发。
+    reconciliationDisposition: { groupBy: jest.fn().mockResolvedValue([]) },
+    reconciliationLineItem: { groupBy: jest.fn().mockResolvedValue([]) },
+    asset: { findMany: jest.fn().mockResolvedValue([]) },
+  };
 
   it('defaults to status=OPEN when status omitted', async () => {
     const findMany = jest.fn().mockResolvedValue([old, mid, nu]);
@@ -502,6 +518,10 @@ describe('listCases — T3 default OPEN + aging desc', () => {
           { id: 'rb', runNo: 'REC-B' },
         ]),
       },
+      // 平账一期半（T7 案件读面）：同上，非空行会触发新增的 groupBy/findMany。
+      reconciliationDisposition: { groupBy: jest.fn().mockResolvedValue([]) },
+      reconciliationLineItem: { groupBy: jest.fn().mockResolvedValue([]) },
+      asset: { findMany: jest.fn().mockResolvedValue([]) },
     };
     const svc = mkSvc(prisma);
     const result = await svc.listCases({});
@@ -660,6 +680,11 @@ describe('listCases with runNo filter', () => {
           runRow ? [runRow] : [],
         ),
       },
+      // 平账一期半（T7 案件读面）：过滤后仍有 2 行，会触发新增的 groupBy/findMany
+      // （另一条 runNo 不存在的用例在到达这里之前就已经 return [] 短路）。
+      reconciliationDisposition: { groupBy: jest.fn().mockResolvedValue([]) },
+      reconciliationLineItem: { groupBy: jest.fn().mockResolvedValue([]) },
+      asset: { findMany: jest.fn().mockResolvedValue([]) },
     } as any;
   }
 
@@ -823,6 +848,8 @@ describe('getCase — explain / observation / bucket (T6)', () => {
       asset: { findUnique: jest.fn().mockResolvedValue({ decimals: 2 }) },
       // Task 7: getCase's案件级 adjustments 查询是 unconditional，总会发一次。
       reconciliationAdjustment: { findMany: jest.fn().mockResolvedValue([]) },
+      // 平账一期半（T7 案件读面）：getCase 的行注解块同样 unconditional 发一次。
+      reconciliationDisposition: { findMany: jest.fn().mockResolvedValue([]) },
     } as any;
   }
 
@@ -923,6 +950,8 @@ describe('getCase — 案件级调账单列表 adjustments（Task 7）', () => {
       accountFlow: { findMany: jest.fn().mockResolvedValue([]) },
       fundsOrder: { findMany: jest.fn().mockResolvedValue([]) },
       asset: { findUnique: jest.fn().mockResolvedValue({ decimals: 2 }) },
+      // 平账一期半（T7 案件读面）：getCase 的行注解块同样 unconditional 发一次。
+      reconciliationDisposition: { findMany: jest.fn().mockResolvedValue([]) },
     } as any;
   }
 
@@ -994,5 +1023,265 @@ describe('listCases — bucket filter (T6)', () => {
     expect(findMany).toHaveBeenCalledWith(expect.objectContaining({
       where: expect.objectContaining({ bucket: undefined }),
     }));
+  });
+});
+
+// ─── 平账一期半 T7（案件读面）──────────────────────────────────────────────
+// 行注解三件套（disposition / duplicateTwinRef / menu）+ 列表进度计数 + decimals。
+// 与「getCase — 案件级调账单列表 adjustments（Task 7）」是两个不同批次的 Task 7
+// （旧编号撞车，见该 describe 块上方注释）——这里的 T7 特指 2026-09-01 平账一期半
+// 计划的第 7 个任务。
+
+describe('getCase 行注解（spec §3/§8）', () => {
+  const baseKase = {
+    id: 'case-anno-1',
+    caseNo: 'REC-ANNO-001',
+    walletRef: 'walletAnno',
+    businessDate: '2026-06-27',
+    lineItems: [] as any[],
+    openedByRunId: 'run-anno',
+    lastUpdatedRunId: null,
+    slaDeadline: null,
+    book: 'CLIENT',
+    status: 'OPEN',
+    bucket: 'BREAK',
+    createdAt: new Date('2026-06-27T00:00:00Z'),
+    tbAmount: new Prisma.Decimal(0),
+    actualExternal: new Prisma.Decimal(0),
+    deltaAmount: new Prisma.Decimal(0),
+    firstSeenRunId: null,
+    lastObservedRunId: null,
+    closedByRunId: null,
+  };
+
+  // Common plumbing every getCase() call touches regardless of scenario —
+  // mirrors the "getCase — flowComparison (T3)" fixtures' mock shape.
+  function mkBasePrisma(overrides: Record<string, any> = {}) {
+    return {
+      reconciliationCase: { findUnique: jest.fn().mockResolvedValue(baseKase) },
+      wallet: { findUnique: jest.fn().mockResolvedValue(null) },
+      reconciliationRun: { findUnique: jest.fn().mockResolvedValue({ id: 'run-anno', runNo: 'REC-ANNO-RUN' }) },
+      asset: { findUnique: jest.fn().mockResolvedValue({ decimals: 2 }) },
+      reconciliationAdjustment: { findMany: jest.fn().mockResolvedValue([]) },
+      reconciliationDisposition: { findMany: jest.fn().mockResolvedValue([]) },
+      fundsOrder: { findMany: jest.fn().mockResolvedValue([]) },
+      ...overrides,
+    } as any;
+  }
+
+  it('ORPHAN_INTERNAL 行：已匹配里有同 ref 同额行 → duplicateTwinRef 命中；其余为 null', async () => {
+    // 银行只报一次「REF-DUP / 100」；我方入了两次——一次被匹配器认领配对
+    // （int-dup-matched），一次没有对应外部行、成了孤儿（int-dup-orphan）。
+    // int-dup-diffamt 同参考号「REF-DUP」但金额是 50——单独验证复合键里「金额也要
+    // 比」这一半（评审 Important：此前唯一的反例 int-other-orphan 连参考号都跟
+    // 已匹配池不一样，key 弱化成只比参考号也测不出来，42 个用例全绿一条没红）。
+    // int-other-orphan 的 (ref, amount) 跟已匹配池毫无交集，是「假信号」对照组：
+    // 不该被误标成双胞胎线索。
+    const externalLines = [
+      { id: 'ext-dup', direction: 'IN', amount: new Prisma.Decimal(100), externalRef: 'REF-DUP', datetime: new Date('2026-06-27T10:00:00Z'), description: null },
+    ];
+    const internalFlows = [
+      { id: 'int-dup-matched', direction: 'IN', amount: new Prisma.Decimal(100), externalRef: 'REF-DUP', eventCode: 'DEPOSIT_IN', sourceType: 'PAYIN', sourceNo: 'PAY-DUP-1', createdAt: new Date('2026-06-27T10:00:05Z') },
+      { id: 'int-dup-orphan', direction: 'IN', amount: new Prisma.Decimal(100), externalRef: 'REF-DUP', eventCode: 'DEPOSIT_IN', sourceType: 'PAYIN', sourceNo: 'PAY-DUP-2', createdAt: new Date('2026-06-27T10:05:00Z') },
+      { id: 'int-dup-diffamt', direction: 'IN', amount: new Prisma.Decimal(50), externalRef: 'REF-DUP', eventCode: 'DEPOSIT_IN', sourceType: 'PAYIN', sourceNo: 'PAY-DUP-3', createdAt: new Date('2026-06-27T10:10:00Z') },
+      { id: 'int-other-orphan', direction: 'OUT', amount: new Prisma.Decimal(999), externalRef: 'REF-OTHER', eventCode: 'WITHDRAW_OUT', sourceType: 'WITHDRAW', sourceNo: 'WD-OTHER', createdAt: new Date('2026-06-27T11:00:00Z') },
+    ];
+    const prisma = mkBasePrisma({
+      externalBalance: { findMany: jest.fn().mockResolvedValue([{ accountRef: 'ACC-ANNO' }]) },
+      externalStatementLine: { findMany: jest.fn().mockResolvedValue(externalLines) },
+      accountFlow: { findMany: jest.fn().mockResolvedValue(internalFlows) },
+    });
+    const flowMatcher = {
+      matchFlows: jest.fn().mockResolvedValue({
+        matched: [{ internalFlowId: 'int-dup-matched', externalLineId: 'ext-dup' }],
+        orphanInternal: [
+          { internalFlowId: 'int-dup-orphan' },
+          { internalFlowId: 'int-dup-diffamt' },
+          { internalFlowId: 'int-other-orphan' },
+        ],
+        orphanExternal: [],
+        mismatch: [],
+      }),
+    };
+    const svc = mkSvc(prisma, { flowMatcher });
+    const result: any = await svc.getCase(baseKase.caseNo);
+
+    const dupOrphan = result.flowComparison.find((r: any) => r.internalFlow?.id === 'int-dup-orphan');
+    expect(dupOrphan.matchType).toBe('ORPHAN_INTERNAL');
+    expect(dupOrphan.duplicateTwinRef).toBe('REF-DUP');
+
+    // 同参考号、金额不同——复合键必须把这行判定为不命中，否则「金额也要比」这条
+    // 规则形同虚设（只比参考号也会让这行显示出线索，但它其实不是同一笔银行来账）。
+    const diffAmtOrphan = result.flowComparison.find((r: any) => r.internalFlow?.id === 'int-dup-diffamt');
+    expect(diffAmtOrphan.duplicateTwinRef).toBeNull();
+
+    const otherOrphan = result.flowComparison.find((r: any) => r.internalFlow?.id === 'int-other-orphan');
+    expect(otherOrphan.duplicateTwinRef).toBeNull();
+
+    // MATCHED 行整体跳过注解循环（continue）——三个注解字段都不应该被赋值。
+    const matchedRow = result.flowComparison.find((r: any) => r.matchType === 'MATCHED');
+    expect(matchedRow.duplicateTwinRef).toBeUndefined();
+  });
+
+  it('三类差异行带 menu（该格成因清单）；MATCHED/IN_TRANSIT 不带', async () => {
+    const externalLines = [
+      { id: 'ext-m',  direction: 'IN', amount: new Prisma.Decimal(400), externalRef: 'REF-M',  datetime: new Date('2026-06-27T09:00:00Z'), description: null },
+      { id: 'ext-oe', direction: 'IN', amount: new Prisma.Decimal(150), externalRef: 'REF-OE', datetime: new Date('2026-06-27T09:30:00Z'), description: null },
+      { id: 'ext-mm', direction: 'IN', amount: new Prisma.Decimal(300), externalRef: 'REF-MM', datetime: new Date('2026-06-27T10:00:00Z'), description: null },
+    ];
+    const internalFlows = [
+      { id: 'int-m',  direction: 'IN',  amount: new Prisma.Decimal(400), externalRef: 'REF-M',  eventCode: 'DEPOSIT_IN',   sourceType: 'PAYIN',    sourceNo: 'PAY-M',  createdAt: new Date('2026-06-27T09:00:05Z') },
+      { id: 'int-oi', direction: 'OUT', amount: new Prisma.Decimal(77),  externalRef: 'REF-OI', eventCode: 'WITHDRAW_OUT', sourceType: 'WITHDRAW', sourceNo: 'WD-OI',  createdAt: new Date('2026-06-27T09:45:00Z') },
+      { id: 'int-mm', direction: 'IN',  amount: new Prisma.Decimal(310), externalRef: 'REF-MM', eventCode: 'DEPOSIT_IN',   sourceType: 'PAYIN',    sourceNo: 'PAY-MM', createdAt: new Date('2026-06-27T10:00:05Z') },
+    ];
+    const prisma = mkBasePrisma({
+      externalBalance: { findMany: jest.fn().mockResolvedValue([{ accountRef: 'ACC-ANNO' }]) },
+      externalStatementLine: { findMany: jest.fn().mockResolvedValue(externalLines) },
+      accountFlow: { findMany: jest.fn().mockResolvedValue(internalFlows) },
+      // 案件带一条 IN_TRANSIT line item——追加段生成的行必须也验一遍不带 menu。
+      reconciliationCase: {
+        findUnique: jest.fn().mockResolvedValue({
+          ...baseKase,
+          lineItems: [{
+            id: 'li-it', matchStatus: 'IN_TRANSIT', externalDirection: 'IN',
+            externalAmount: new Prisma.Decimal(50), internalSourceNo: 'FO-MENU-1',
+            foundByRunId: 'run-anno',
+          }],
+        }),
+      },
+    });
+    const flowMatcher = {
+      matchFlows: jest.fn().mockResolvedValue({
+        matched: [{ internalFlowId: 'int-m', externalLineId: 'ext-m' }],
+        orphanInternal: [{ internalFlowId: 'int-oi' }],
+        orphanExternal: [{ externalLineId: 'ext-oe' }],
+        mismatch: [{ internalFlowId: 'int-mm', externalLineId: 'ext-mm' }],
+      }),
+    };
+    const svc = mkSvc(prisma, { flowMatcher });
+    const result: any = await svc.getCase(baseKase.caseNo);
+
+    // book='CLIENT'（baseKase 显式设置）——三格菜单跟 Task 1 注册表按格现算的结果逐字相等。
+    const orphanInt = result.flowComparison.find((r: any) => r.matchType === 'ORPHAN_INTERNAL');
+    expect(orphanInt.menu).toEqual(menuFor('ORPHAN_INTERNAL', 'CLIENT'));
+    expect(orphanInt.menu[0].code).toBe('DUP_BOOKING'); // 手册顺序第一位
+
+    const orphanExt = result.flowComparison.find((r: any) => r.matchType === 'ORPHAN_EXTERNAL');
+    expect(orphanExt.menu).toEqual(menuFor('ORPHAN_EXTERNAL', 'CLIENT'));
+
+    const mismatch = result.flowComparison.find((r: any) => r.matchType === 'AMOUNT_MISMATCH');
+    expect(mismatch.menu).toEqual(menuFor('AMOUNT_MISMATCH', 'CLIENT'));
+
+    const matchedRow = result.flowComparison.find((r: any) => r.matchType === 'MATCHED');
+    expect(matchedRow.menu).toBeUndefined();
+
+    const inTransitRow = result.flowComparison.find((r: any) => r.matchType === 'IN_TRANSIT');
+    expect(inTransitRow).toBeDefined();
+    expect(inTransitRow.menu).toBeUndefined();
+  });
+
+  it('行有定性记录 → disposition 注解（含 causeLabel/outletLabel/createdBy + 出口的族/reason/方向）', async () => {
+    const externalLines: any[] = [];
+    const internalFlows = [
+      { id: 'int-anchor', direction: 'OUT', amount: new Prisma.Decimal(60), externalRef: 'REF-ANCHOR', eventCode: 'WITHDRAW_OUT', sourceType: 'WITHDRAW', sourceNo: 'WD-ANCHOR', createdAt: new Date('2026-06-27T12:00:00Z') },
+    ];
+    const dispositionRow = {
+      dispositionNo: 'DISP-2026-000001',
+      caseNo: baseKase.caseNo,
+      explainedFlowId: 'int-anchor',   // 锚：内部流水 id
+      explainedExternalLineId: null,
+      matchType: 'ORPHAN_INTERNAL',
+      book: 'CLIENT',
+      causeCode: 'PHANTOM_BOOKING',
+      outlet: 'ADJUST_REVERSE',
+      deferredTarget: null,
+      findingNote: '银行/链上查无此笔，客户确认未收到通知',
+      adjustmentNo: null,               // 刚定性、还没联到调账单（Task 5 linkAdjustment 之后才会有值）
+      createdByUserId: 'user-ops-1',
+      createdAt: new Date('2026-06-27T12:30:00Z'),
+      updatedAt: new Date('2026-06-27T13:00:00Z'), // 比 createdAt 晚——用来验证「取 updatedAt 优先」
+    };
+    const prisma = mkBasePrisma({
+      externalBalance: { findMany: jest.fn().mockResolvedValue([]) },
+      externalStatementLine: { findMany: jest.fn().mockResolvedValue(externalLines) },
+      accountFlow: { findMany: jest.fn().mockResolvedValue(internalFlows) },
+      reconciliationDisposition: { findMany: jest.fn().mockResolvedValue([dispositionRow]) },
+    });
+    const flowMatcher = {
+      matchFlows: jest.fn().mockResolvedValue({
+        matched: [], orphanInternal: [{ internalFlowId: 'int-anchor' }], orphanExternal: [], mismatch: [],
+      }),
+    };
+    const svc = mkSvc(prisma, { flowMatcher });
+    const result: any = await svc.getCase(baseKase.caseNo);
+
+    const row = result.flowComparison.find((r: any) => r.internalFlow?.id === 'int-anchor');
+    expect(row.disposition).toEqual({
+      dispositionNo: 'DISP-2026-000001',
+      causeCode: 'PHANTOM_BOOKING',
+      causeLabel: CAUSE_REGISTRY.PHANTOM_BOOKING.label,
+      outlet: 'ADJUST_REVERSE',
+      outletLabel: staticOutletLabel('PHANTOM_BOOKING'),
+      // 出口的可执行三件（读面现算，金库据此开单，不必先重发一次定性）：
+      // 冲销族；假信号入账的 reason 是充值撤销；方向 = 内部流水方向取反（OUT→加）。
+      family: 'REVERSE',
+      reasonCode: 'DEPOSIT_SIGNAL_VOID',
+      direction: 'INCREASE',
+      findingNote: '银行/链上查无此笔，客户确认未收到通知',
+      adjustmentNo: null,
+      createdBy: 'user-ops-1',
+      createdAt: dispositionRow.updatedAt.toISOString(), // 优先 updatedAt，不是 createdAt
+    });
+
+    // 反证：reconciliationDisposition.findMany 确实按 caseNo 过滤查询（① 的锚点）。
+    expect((prisma.reconciliationDisposition.findMany as jest.Mock).mock.calls[0][0]).toEqual({
+      where: { caseNo: baseKase.caseNo },
+    });
+  });
+});
+
+describe('listCases 进度与 decimals', () => {
+  it('每行带 dispositionCount / anomalyLineCount / decimals', async () => {
+    const caseRow = { id: 'case-prog-1', caseNo: 'REC-PROG-001', status: 'OPEN', assetCode: 'AED', createdAt: new Date() };
+    const prisma = {
+      reconciliationCase: { findMany: jest.fn().mockResolvedValue([caseRow]) },
+      reconciliationRun: { findMany: jest.fn().mockResolvedValue([]) },
+      reconciliationDisposition: {
+        groupBy: jest.fn().mockResolvedValue([{ caseNo: 'REC-PROG-001', _count: { _all: 3 } }]),
+      },
+      reconciliationLineItem: {
+        groupBy: jest.fn().mockResolvedValue([{ caseId: 'case-prog-1', _count: { _all: 5 } }]),
+      },
+      asset: { findMany: jest.fn().mockResolvedValue([{ code: 'AED', decimals: 2 }]) },
+    };
+    const svc = mkSvc(prisma);
+    const rows = await svc.listCases({});
+    expect(rows[0].dispositionCount).toBe(3);
+    expect(rows[0].anomalyLineCount).toBe(5);
+    expect(rows[0].decimals).toBe(2);
+
+    // 反证：三条查询确实按这批案子的 caseNo/id/assetCode 过滤，不是全表扫描。
+    expect((prisma.reconciliationDisposition.groupBy as jest.Mock).mock.calls[0][0].where).toEqual({ caseNo: { in: ['REC-PROG-001'] } });
+    expect((prisma.reconciliationLineItem.groupBy as jest.Mock).mock.calls[0][0].where).toEqual({
+      caseId: { in: ['case-prog-1'] },
+      matchStatus: { in: ['AMOUNT_MISMATCH', 'ORPHAN_INTERNAL', 'ORPHAN_EXTERNAL'] },
+    });
+    expect((prisma.asset.findMany as jest.Mock).mock.calls[0][0].where).toEqual({ code: { in: ['AED'] } });
+  });
+
+  it('没有定性记录 / 查不到资产时三个字段回落到 0', async () => {
+    const caseRow = { id: 'case-prog-2', caseNo: 'REC-PROG-002', status: 'OPEN', assetCode: 'ZZZ', createdAt: new Date() };
+    const prisma = {
+      reconciliationCase: { findMany: jest.fn().mockResolvedValue([caseRow]) },
+      reconciliationRun: { findMany: jest.fn().mockResolvedValue([]) },
+      reconciliationDisposition: { groupBy: jest.fn().mockResolvedValue([]) },
+      reconciliationLineItem: { groupBy: jest.fn().mockResolvedValue([]) },
+      asset: { findMany: jest.fn().mockResolvedValue([]) },
+    };
+    const svc = mkSvc(prisma);
+    const rows = await svc.listCases({});
+    expect(rows[0].dispositionCount).toBe(0);
+    expect(rows[0].anomalyLineCount).toBe(0);
+    expect(rows[0].decimals).toBe(0);
   });
 });

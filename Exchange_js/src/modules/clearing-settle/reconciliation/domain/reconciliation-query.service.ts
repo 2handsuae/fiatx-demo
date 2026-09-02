@@ -11,6 +11,13 @@ import {
   explainedBy,
 } from '../disposition/explained-difference.service';
 import {
+  CAUSE_REGISTRY,
+  CauseCode,
+  menuFor,
+  resolveOutlet,
+  staticOutletLabel,
+} from '../disposition/cause-registry';
+import {
   AccountStatusRow,
   CaseAdjustmentSummary,
   CaseExplain,
@@ -300,6 +307,31 @@ export class ReconciliationQueryService {
       orderBy: { createdAt: 'asc' }, // oldest first = highest aging; re-sorted below for resilience
     });
 
+    // 平账一期半（spec §3/§8）：列表页要看到处置进度——不开详情页就知道这批案子
+    // 有几条已经定过性、还剩几条异常行没人看过。
+    const caseNos = rows.map((r: any) => r.caseNo);
+    const dispositionCounts = caseNos.length
+      ? await (this.prisma as any).reconciliationDisposition.groupBy({
+          by: ['caseNo'], where: { caseNo: { in: caseNos } }, _count: { _all: true },
+        })
+      : [];
+    const dispCountByCase = new Map<string, number>(dispositionCounts.map((g: any) => [g.caseNo, g._count._all]));
+    const caseIds = rows.map((r: any) => r.id);
+    const anomalyCounts = caseIds.length
+      ? await (this.prisma as any).reconciliationLineItem.groupBy({
+          by: ['caseId'],
+          where: { caseId: { in: caseIds }, matchStatus: { in: ['AMOUNT_MISMATCH', 'ORPHAN_INTERNAL', 'ORPHAN_EXTERNAL'] } },
+          _count: { _all: true },
+        })
+      : [];
+    const anomalyByCaseId = new Map<string, number>(anomalyCounts.map((g: any) => [g.caseId, g._count._all]));
+    // Δ 分→元（BACKLOG 在案）：decimals 随行下发，前端按行缩放
+    const assetCodes = Array.from(new Set(rows.map((r: any) => r.assetCode)));
+    const assets = assetCodes.length
+      ? ((await (this.prisma as any).asset.findMany({ where: { code: { in: assetCodes } }, select: { code: true, decimals: true } })) as Array<{ code: string; decimals: number }>)
+      : [];
+    const decimalsByCode = new Map(assets.map((a) => [a.code, a.decimals]));
+
     // Resolve walletRef (UUID) → walletNo (business key) so the cockpit
     // never exposes raw IDs. Legacy XREF synthetic walletRefs (start with
     // 'XREF:') from rows produced before the cross-wallet feature was
@@ -341,6 +373,9 @@ export class ReconciliationQueryService {
         firstSeenRunNo: r.firstSeenRunId ? (runNoById.get(r.firstSeenRunId) ?? null) : null,
         lastUpdatedRunNo: r.lastUpdatedRunId ? (runNoById.get(r.lastUpdatedRunId) ?? null) : null,
         walletNo: walletNoById.get(r.walletRef) ?? null,
+        dispositionCount: dispCountByCase.get(r.caseNo) ?? 0,
+        anomalyLineCount: anomalyByCaseId.get(r.id) ?? 0,
+        decimals: decimalsByCode.get(r.assetCode) ?? 0,
       };
     });
     decorated.sort((a, b) => b.aging - a.aging);
@@ -406,6 +441,57 @@ export class ReconciliationQueryService {
       const built = await this.buildFlowComparison({ walletRef: kase.walletRef, businessDate: cutoffBusinessDate, assetCode: kase.assetCode });
       flowComparison = built.rows;
       flowSummary = built.summary;
+    }
+
+    // ── 平账一期半（spec §3/§8）：行注解——定性回贴 / 双胞胎线索 / 成因菜单 ──
+    // 跑在 IN_TRANSIT 追加段之前：此刻 flowComparison 只有 built.rows 的四类
+    // 行，IN_TRANSIT 行还没生成，天然不会被这段行注解处理（它们不是差异）。
+    // ① 定性记录：按锚（flowId / externalLineId）回贴到行上。
+    const dispositions = (await (this.prisma as any).reconciliationDisposition.findMany({
+      where: { caseNo },
+    })) as any[];
+    const dByFlow = new Map<string, any>();
+    const dByExt = new Map<string, any>();
+    for (const d of dispositions) {
+      if (d.explainedFlowId) dByFlow.set(d.explainedFlowId, d);
+      if (d.explainedExternalLineId) dByExt.set(d.explainedExternalLineId, d);
+    }
+    // ② 双胞胎线索（15 个成因里唯一机器认得出的证据，spec §0.3）：
+    //    已匹配行的 (externalRef, amount) 集合——ORPHAN_INTERNAL 行命中即标。
+    const matchedKeys = new Set(
+      flowComparison
+        .filter((r) => r.matchType === 'MATCHED' && r.externalLine?.externalRef)
+        .map((r) => `${r.externalLine!.externalRef}|${r.externalLine!.amount}`),
+    );
+    const caseBook = kase.book === 'FIRM' ? 'FIRM' : 'CLIENT';
+    for (const r of flowComparison) {
+      if (r.matchType === 'MATCHED' || r.matchType === 'IN_TRANSIT') continue;
+      const d = (r.internalFlow && dByFlow.get(r.internalFlow.id!)) || (r.externalLine && dByExt.get(r.externalLine.id!)) || null;
+      // 出口的三个可执行字段（族 / 调账 reason / 方向）随读面下发：金库拿它们
+      // 直接开调账单，不必先替运营重发一次定性——「开单」是只读动作，让它去打
+      // 写端点会跨角色边界（定性写权归运营、调账写权归金库，没有角色两者兼有），
+      // 也会把徽标里「查证是谁做的」改成写单人。判定仍只有 resolveOutlet 一处。
+      // 格（matchType × book）取定性当时存下来的那一对：成因是在那一格里选的，
+      // 用行的当前格重判，跨轮次重分类的行会抛「成因不属于该格」把读面打挂。
+      const resolved = d ? resolveOutlet(d.causeCode as CauseCode, {
+        matchType: d.matchType, book: d.book === 'FIRM' ? 'FIRM' : 'CLIENT',
+        deltaSign: r.deltaAmount != null ? ((r.deltaAmount.startsWith('-') ? -1 : 1) as 1 | -1) : undefined,
+        internalDirection: r.internalFlow?.direction,
+        internalSourceType: r.internalFlow?.sourceType,
+        externalDirection: r.externalLine?.direction,
+      }) : null;
+      r.disposition = d ? {
+        dispositionNo: d.dispositionNo, causeCode: d.causeCode,
+        causeLabel: CAUSE_REGISTRY[d.causeCode as CauseCode]?.label ?? d.causeCode,
+        outlet: d.outlet, outletLabel: staticOutletLabel(d.causeCode as CauseCode),
+        family: resolved!.family, reasonCode: resolved!.reasonCode, direction: resolved!.direction,
+        findingNote: d.findingNote, adjustmentNo: d.adjustmentNo ?? null,
+        createdBy: d.createdByUserId, createdAt: (d.updatedAt ?? d.createdAt).toISOString(),
+      } : null;
+      r.duplicateTwinRef = (r.matchType === 'ORPHAN_INTERNAL' && r.internalFlow?.externalRef
+        && matchedKeys.has(`${r.internalFlow.externalRef}|${r.internalFlow.amount}`))
+        ? r.internalFlow.externalRef : null;
+      r.menu = menuFor(r.matchType as any, caseBook);
     }
 
     // T6: append persisted IN_TRANSIT line items — these aren't reconstructed

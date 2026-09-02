@@ -6,7 +6,7 @@
 > `npx jest` 退出码 0）。**任何红都是事故**，没有"这条是旧账"的退路；真有一时修不了的，
 > 须当场决定修或由业主正式豁免并记入 `TOOLING-DEBT.md`，不得默留。
 > 重钉纪律：只在业主批准的行为变化后重钉；每次重钉记 CHANGELOG 一行。
-> 重钉历史：2026-08-26 Step 0 首钉（7c53afd4）→ 2026-08-27 Phase 4 收官重钉（45a4f1a8）→ **2026-09-01 三支合流重钉（本版）**。
+> 重钉历史：2026-08-26 Step 0 首钉（7c53afd4）→ 2026-08-27 Phase 4 收官重钉（45a4f1a8）→ 2026-09-01 三支合流重钉 → **2026-09-02 平账一期半重钉（本版：对账行 15/15→14/14 + 10/10→11/11）**。
 > **2026-09-01 三支合流后重钉（本版为当前生效基线）**：第一幕职权重划 + 环境与工具债收口 + 平账
 > （调账单 / 处置动作 / 破口按成因铺全）三个分支全部并入 main，在 main 栈从零重铺后按新判据「全绿」
 > 实跑通过。env-debt 于 2026-08-31 报的 `verify:coa` 负余额已定位为资本注入被静默跳过造成的假红，
@@ -54,11 +54,11 @@
 | 编译 | tsc 后端（src / test / scripts / prisma 四目录）｜ tsc 管理台（含 .spec.ts）｜ tsc 客户端 |
 | 重铺 | `stack.sh reset main`（含 TigerBeetle 清理重建，全链实跑） |
 | 演示 | demo:setup ｜ demo:deposit ｜ demo:swap ｜ demo:withdraw ｜ demo:in-transit ｜ demo:all（**花名册 29/29 逐条符合预期 + COA 四恒等式**——演示装备一期改判据，见下方操作约束） |
-| 对账 | recon:demo:pass ｜ **recon:demo:break 15/15 场景 + 10/10 钱包桶 + `casesOpened` 完整性断言**（2026-08-30 按成因铺全，答案键拆两级）｜ verify:demo-data。⚠️ **必须走整库重铺验证**：场景 ⑦ 真写账本、`recon:demo:reset` 不回滚账本，轻量重跑会让 ⑦ 假性 MISSED |
+| 对账 | recon:demo:pass ｜ **recon:demo:break 14/14 场景 + 11/11 钱包桶 + `casesOpened` 完整性断言**（2026-09-02 平账一期半重编号后实测：`scenarios 14/14 DETECTED` / `wallets 11/11 bucket OK` / `casesOpened 11/11`，答案键 `rootCause` 已换成注册表成因码）｜ verify:demo-data。⚠️ **必须走整库重铺验证**：**场景 6（重复入账）真写账本**、`recon:demo:reset` 不回滚账本，轻量重跑会让场景 6 假性 MISSED（显示 13/14）|
 | 账本 | verify:coa —— 两恒等式 + 负余额断言（49 科目全部 ≥ 0）。收官多轮实测重铺后与 demo:all 后均全绿；历史上个别含 break 注入的运行轮见过公司 AED 负余额（浮存时序）。**2026-09-01 三支合流后在 main 栈两轮独立实测：57 科目全部 ≥ 0，全绿**（此前 08-31 的负余额红已定位为资本注入被跳过的假红，见上方\"已结\"节）|
 | 审计 | verify:audit 恒绿七项：Q2 按单据查 ｜ Q4 按客户查 ｜ 不变量①②③（PRIMARY 至多一 / INHERIT 必有旅程号 / 退役码零写入）——三查合同七站换装后的固定资产 |
 | 封册 | audit-vocabulary-closure.spec 四条：平面表归籍 / 六册互斥 / V3 附册冻结快照 / 写点闭合退役词零引用 |
-| 单测 | `npx jest` **全绿**（156 套，退出码 0——2026-08-31 环境收口验收实测；此前"162 套"是 test-cases 封箱前的旧值，套件数下降是封箱导致、非回归）｜ `npm run test:client`（vitest 4 套 83 例） |
+| 单测 | `npx jest` **全绿**（**163 套 / 2067 例通过 + 2 skipped + 4 todo，退出码 0——2026-09-02 平账一期半 Task 12 实测**。⚠️ 此前记的"156 套 / 2026-08-31 实测"在 2026-09-01 之后有一段时间是**过期依据**：`c7bc7e3f` 改了单号随机位宽（4→6 位）但只跑了工具自己的新 spec，`no-generator.util.spec.ts` 那条「1000 次不撞号」按生日问题约 39% 必红，另有两处 `\d{10}` 位宽断言没跟着改——三处已于 2026-09-02 修好，本行数字即当次实测）｜ `npm run test:client`（vitest 4 套 83 例） |
 | 栈 | `bash scripts/stack-env.test.sh`（`ensure_env_files` 权威重写的 11 项断言） |
 
 > ⚠️ **重铺前必须先 `stack.sh down <栈>` 停栈，否则 TigerBeetle 清不掉。** `reset-stack.sh` 的 `rm -f` 对运行中进程持有的文件只是 unlink，旧 tigerbeetle 仍在旧 inode 上服务 → SQLite 重铺了、TB 没有 → 客户 UUID 全新使 `CLIENT_PAYABLE` 读 0 而 SYSTEM 口径 `CLIENT_ASSET` 留旧余额（恒等式假红），多轮提现累积还会把公司 AED 打成负数（负余额假红）。2026-08-28 平账一期实测定位——正确顺序：`down` → `reset` → `up`。⚠️ `stack.sh reset` 自己会拉起 TigerBeetle，`up` 之前要先把它 kill 掉，否则 `up` 在 TB 端口上撞车。
@@ -77,7 +77,7 @@
 > ⚠️ 它们会落在 `doc-final/demo/data.md` 的 `<!-- GENERATED:BEGIN -->` 区块里，
 > **那段是 `demo:all` 收尾自己写的，不要手改**——手改会被下一次 `demo:all` 整段覆盖，白费。
 
-> ⚠️ **`recon:demo:break` 的场景 ⑦（重复入账）会写账本**，是 15 条里唯一一条。它用固定 sourceNo 保证重跑幂等（TB 判为已存在直接跳过），但 **`recon:demo:reset` 不回滚账本**——它只清外部数据与 WALLET_V1 的 run/case。要把账本也归零，走 `stack.sh reset self`（含 TigerBeetle 重建）。
+> ⚠️ **`recon:demo:break` 的场景 6（重复入账）会写账本**，是 14 条里唯一一条（重编号前是 ⑦）。它用固定 sourceNo 保证重跑幂等（TB 判为已存在直接跳过），但 **`recon:demo:reset` 不回滚账本**——它只清外部数据与 WALLET_V1 的 run/case。要把账本也归零，走 `stack.sh reset [main|self]`（含 TigerBeetle 重建）。
 
 ## verify:rbac 操作约束（第一幕职权重划，2026-08-30 起）
 
@@ -140,7 +140,7 @@ Q6 谁查过审计日志：重铺后恒红，管理员真查一次审计页当�
 
 ~~已知 flake：`fundsOrderNo` 撞号（P2002）~~ → **2026-09-01 已修，本条销账**：
 根因是熵不够——`generateReferenceNo()` 原为 前缀+`YYMMDD`+`Math.random()*10000`，同一天同一前缀只有 1 万个坑，一次 `demo:all` 造几十张资金单按生日问题约 **7–20%** 撞（当天连撞两次实测）。
-业主 2026-09-01 定：改用 `randomUUID` 取 **6 位**（100 万个坑，同量级撞号率降到约 0.2%）。加守则性单测 `no-generator.util.spec.ts` 锁住位宽（含「1000 次不撞号」一条，4 位下这个量级必红）。实测：修复后连续 2 轮重铺 + `demo:all` 全过。`buildDeterministicNo`（种子幂等靠它）刻意不动。
+业主 2026-09-01 定：改用 `randomUUID` 取 **6 位**（100 万个坑，同量级撞号率降到约 0.2%）。加守则性单测 `no-generator.util.spec.ts` 锁住位宽。⚠️ 其中「1000 次不撞号」那条原写 `expect(seen.size).toBe(1000)`，**本身是自相矛盾的**——6 位随机抽 1000 次，按生日问题碰撞期望 λ≈0.5，「一次不撞」概率仅 e^(−0.5)≈61%，即约 39% 会随机变红。2026-09-02（Task 12，业主裁定「改断言」）改为对碰撞数设上界 ≤8：6 位下假阳性率约 6×10⁻⁸，4 位下碰撞约 48 必然超界——判别力不变、不再 flaky。实测 200 轮：6 位均值 0.42/最大 3，4 位均值 49.19/200 轮全部超界；该 spec 连跑 5 次全绿。实测：修复后连续 2 轮重铺 + `demo:all` 全过。`buildDeterministicNo`（种子幂等靠它）刻意不动。
 
 ## 2026-08-31 环境收口验收 —— 终审后复测：11/11 全过
 

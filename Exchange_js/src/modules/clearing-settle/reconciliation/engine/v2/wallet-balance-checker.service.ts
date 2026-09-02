@@ -107,7 +107,26 @@ export class WalletBalanceCheckerService {
     })) as FlowRow[];
 
     // 2. Resolve tbAccountIds via registry.
-    const accountIds = Array.from(new Set(flows.map((f) => f.tbAccountId)));
+    //
+    // ⚠ 两张表的 tbAccountId 格式不同，必须补零后再 join：
+    //   `account_flows.tbAccountId` 来自上游 `bigint.toString(16)`，**没有**
+    //   `padStart(32,'0')`，首个十六进制位是 0 的账户会少一位（31 字符）；
+    //   `tb_account_registry.tbAccountId` 恒为 32 位补零形式。
+    //   不补零就 join 落空，下面 `if (!reg) continue` 会把这笔分录**从余额里
+    //   静默丢掉**——不报错、不留痕，该钱包的 internal.total 直接少一整条
+    //   PAYABLE（客户户常常只有这一条，于是余额算成 0），delta 变成外部收盘
+    //   全额：凭空造出破口，或反过来把真破口抹平。命中率约 1/16（首位随机），
+    //   且账户号是每次 `stack.sh reset` 重铺时新生成的，所以它表现为「按种子
+    //   随机发作」——同一份代码这次绿下次红，最容易被误判成测试脆弱。
+    //   属于铁律⑤「账实一致」的静默破口，不是边界防御。
+    //
+    //   同款工作区兄弟件已有：`wallet-flow-matcher.service.ts:203` 的 padTbId
+    //   （它的注释原话："Without this ... flows silently drop and surface as
+    //   bogus orphan"），以及 `tb-evidence.service.ts:369/372/429/545`。
+    //   本文件这一半 2026-09-02 才补上——在此之前 matcher 补零、checker 不补，
+    //   同一个引擎的两半用着不同的连接键。
+    const padTbId = (id: string) => (id.length < 32 ? id.padStart(32, '0') : id);
+    const accountIds = Array.from(new Set(flows.map((f) => padTbId(f.tbAccountId))));
     const registries: RegistryRow[] = accountIds.length
       ? await (this.prisma as any).tbAccountRegistry.findMany({
           where: { tbAccountId: { in: accountIds } },
@@ -115,7 +134,7 @@ export class WalletBalanceCheckerService {
         })
       : [];
     const regById = new Map<string, RegistryRow>(
-      registries.map((r) => [r.tbAccountId, r]),
+      registries.map((r) => [padTbId(r.tbAccountId), r]),
     );
 
     // 3. Per-account balance accumulator (only for non-aggregate accounts).
@@ -127,7 +146,7 @@ export class WalletBalanceCheckerService {
     let ownerType: string | null = null;
 
     for (const f of flows) {
-      const reg = regById.get(f.tbAccountId);
+      const reg = regById.get(padTbId(f.tbAccountId));
       if (!reg) continue;                           // unknown account — skip defensively
       if (AGGREGATE_CODES.has(reg.code)) continue;  // aggregate leg — not this wallet's
       seenCodes.add(reg.code);
@@ -136,9 +155,11 @@ export class WalletBalanceCheckerService {
 
       const amt = BigInt(f.amount.toString());
       const signed = f.direction === 'IN' ? amt : -amt;
+      // 键也走补零：下面 §4 按 `regById.get(accId)` 回查这个 Map 的键，
+      // 两处键格式必须一致，否则补零只补了一半、回查照样落空。
       balanceByAccount.set(
-        f.tbAccountId,
-        (balanceByAccount.get(f.tbAccountId) ?? 0n) + signed,
+        padTbId(f.tbAccountId),
+        (balanceByAccount.get(padTbId(f.tbAccountId)) ?? 0n) + signed,
       );
     }
 

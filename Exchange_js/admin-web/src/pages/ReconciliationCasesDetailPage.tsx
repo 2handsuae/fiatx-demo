@@ -46,9 +46,14 @@ import ReconciliationAdjustmentCreateModal, {
   REASON_META,
   type AdjustmentBook,
   type AdjustmentPrefill,
+  type AdjustmentLocked,
 } from '../components/ReconciliationAdjustmentCreateModal';
+import ReconciliationDispositionModal, {
+  type AdjustHandoff,
+} from '../components/ReconciliationDispositionModal';
 import { useAdminSession } from '../contexts/AdminSessionContext';
 import { PERMISSIONS } from '../rbac/permissions';
+import { OUTLET_TONE, directionNoteFor } from '../utils/causeRegistry';
 
 /* ── Types ──────────────────────────────────────────────────── */
 
@@ -82,7 +87,9 @@ interface FlowInternalSide {
   sourceNo: string;
 }
 
-interface FlowComparisonRow {
+// Exported — T8 (平账一期半) 前端复用件（causeRegistry.ts / ReconciliationDispositionModal.tsx）
+// 从这里 import type，而不是另建一份镜像类型（页面现状即唯一真相的最小改法，见 T8 brief）。
+export interface FlowComparisonRow {
   externalLine: FlowExternalSide | null;
   internalFlow: FlowInternalSide | null;
   matchType: FlowMatchType;
@@ -91,6 +98,21 @@ interface FlowComparisonRow {
   fundsOrderStatus?: string | null; // T4 — funds order status for IN_TRANSIT rows;
                                     // CLEARED here (case still OPEN) = "已推进·待重对账"
   explainedByAdjustmentNo?: string | null; // ④ 这条差异已被哪张已落账的调账单解释
+  // T8：以下三个注解同样只在三类异常行（AMOUNT_MISMATCH/ORPHAN_INTERNAL/
+  // ORPHAN_EXTERNAL）上出现，MATCHED/IN_TRANSIT 恒 undefined——它们不是差异、没有
+  // 可处置的东西。唯一真相在后端 reconciliation-query.service.ts。
+  disposition?: {
+    dispositionNo: string; causeCode: string; causeLabel: string;
+    outlet: string; outletLabel: string;
+    // 出口的可执行部分（后端 resolveOutlet 算好随行下发）——「开单」直接用，
+    // 前端不反推；非 ADJUST 类出口不落分录，三个都没有值。
+    family?: 'CORRECT' | 'REVERSE' | 'RECORD' | 'REATTRIBUTE';
+    reasonCode?: string; direction?: 'REDUCE' | 'INCREASE';
+    findingNote: string;
+    adjustmentNo: string | null; createdBy: string; createdAt: string;
+  } | null;
+  duplicateTwinRef?: string | null;
+  menu?: Array<{ code: string; label: string; clue: string; outletLabel: string }>;
 }
 
 interface FlowComparisonSummary {
@@ -185,7 +207,7 @@ interface ReconCaseDetail {
 // case asset's real decimals (getCase returns `decimals` from the asset table).
 // bigint-safe string padding — no float, so USDT (6dp) shows every digit right.
 // decimals=0 (asset lookup miss / integer asset) degrades to no fraction part.
-const formatAmount = (raw: string | null | undefined, decimals: number): string => {
+export const formatAmount = (raw: string | null | undefined, decimals: number): string => {
   const s = String(raw ?? '0');
   let neg = false;
   let body = s;
@@ -287,6 +309,27 @@ const rowAdjustmentPrefill = (row: FlowComparisonRow): AdjustmentPrefill => {
   return { amountMinor: ext?.amount ?? intl?.amount ?? '0', direction: '', relatedOrderNo: '', ...anchors };
 };
 
+// T9：处置弹层交回（或「开单」按钮重放定性后）的 ADJUST 结论 → 调账弹层的锁定态。
+// 改记族（REATTRIBUTE）额外拼一个候选查询路径——side 由行的 matchType 决定
+// （ORPHAN_INTERNAL=我有外无=错记方=FROM，其余=正主方=TO，与
+// disposition.service.ts listReattributionCandidates 的约定同源）；amount 用同一份
+// rowAdjustmentPrefill 算出的金额——与调账弹层最终提交给后端的金额同一个数，
+// 避免「查候选用一个数、开单用另一个数」两处各算一遍出现分歧。
+const buildAdjustLocked = (handoff: AdjustHandoff, currentCaseNo: string): AdjustmentLocked => {
+  const side = handoff.row.matchType === 'ORPHAN_INTERNAL' ? 'FROM' : 'TO';
+  const amountMinor = rowAdjustmentPrefill(handoff.row).amountMinor;
+  return {
+    dispositionNo: handoff.dispositionNo,
+    family: handoff.family,
+    reasonCode: handoff.reasonCode,
+    direction: handoff.direction,
+    directionNote: handoff.directionNote,
+    toCandidatesUrl: handoff.family === 'REATTRIBUTE'
+      ? `/admin/reconciliation/cases/${encodeURIComponent(currentCaseNo)}/reattribution-candidates?side=${side}&amount=${amountMinor}`
+      : undefined,
+  };
+};
+
 // adm-* tone tokens — shared shape with reconBucketMap's tone names, mirrors
 // ReconciliationRunsDetailPage's local TONE_CLASSES (not exported from the
 // shared util) so the two cockpit pages stay visually consistent.
@@ -306,7 +349,7 @@ const MATCH_TONE: Record<FlowMatchType, string> = {
   AMOUNT_MISMATCH: `${TONE_CLASSES.red.border} ${TONE_CLASSES.red.bg} ${TONE_CLASSES.red.text}`,
 };
 
-const MATCH_LABEL: Record<FlowMatchType, string> = {
+export const MATCH_LABEL: Record<FlowMatchType, string> = {
   MATCHED:         'Matched / 已匹配',
   IN_TRANSIT:      'In-transit / 在途',
   ORPHAN_INTERNAL: 'Internal only / 我有外无',
@@ -359,6 +402,8 @@ const ReconciliationCasesDetailPage = () => {
   const navigate = useNavigate();
   const { hasPermission } = useAdminSession();
   const canCreateAdjustment = hasPermission(PERMISSIONS.RECON_ADJUSTMENT_CREATE);
+  // T8（平账一期半）：动作列六态里「未定性」状态的处置按钮门控。
+  const canRecordDisposition = hasPermission(PERMISSIONS.RECON_DISPOSITION_CREATE);
   const [kase, setKase] = useState<ReconCaseDetail | null>(null);
   const [loading, setLoading] = useState(true);
   // MATCHED rows are collapsed by default (layout 乙 — single mixed table,
@@ -368,6 +413,12 @@ const ReconciliationCasesDetailPage = () => {
   // Task 7: 开调账单弹层——prefill 来自被点击的那一行（rowAdjustmentPrefill）。
   // null = 弹层关闭；非 null = 弹层打开且带着这一行算出来的预填值。
   const [createPrefill, setCreatePrefill] = useState<AdjustmentPrefill | null>(null);
+  // T9：调账弹层的锁定态——非 null 时弹层渲染锁定视图（成因/方向只读，改记额外
+  // 换对端确认屏）；与 createPrefill 成对开关（弹层用哪套字段預填不受它是否为
+  // null 影响，锁定态只决定「能不能改」）。
+  const [adjustLocked, setAdjustLocked] = useState<AdjustmentLocked | null>(null);
+  // T8: 处置弹层——null = 关闭；非 null = 打开且带着被点击的那一行。
+  const [dispositionRow, setDispositionRow] = useState<FlowComparisonRow | null>(null);
 
   const tableRef = useRef<HTMLTableElement | null>(null);
 
@@ -411,7 +462,40 @@ const ReconciliationCasesDetailPage = () => {
   // 不停留在案件页刷新——详情页本身会展示新单的状态/成因/方向/分录预览。
   const handleAdjustmentCreated = (adjustmentNo: string) => {
     setCreatePrefill(null);
+    setAdjustLocked(null);
     navigate(`/admin/reconciliation/adjustments/${encodeURIComponent(adjustmentNo)}`);
+  };
+
+  // T9：已定性、出口是 ADJUST 但还没挂调账单的行——「开单」直接用读面随行下发的
+  // family/reasonCode/direction 组锁定态，不发任何请求。
+  //
+  // 为什么不重放一次 POST /dispositions 换回这三个字段（初版就是那么写的）：
+  // 那个端点要 RECON_DISPOSITION_WRITE（定性写权，归运营），而「开单」是金库的
+  // 动作、只有 RECON_ADJUSTMENT_WRITE——本仓没有任何角色两者兼有，金库点必 403，
+  // 两人制在这一步就断了。而且重放会把一个只读动作变成写动作：upsert 会重记一条
+  // RECON_DISPOSITION_RECORDED 审计。判定逻辑仍只有后端 cause-registry.ts 一处，
+  // 前端不反推——三个字段是后端 resolveOutlet 算好随 disposition 注解发下来的。
+  const openAdjustFromDisposition = (row: FlowComparisonRow) => {
+    if (!row.disposition || !kase) return;
+    setCreatePrefill(rowAdjustmentPrefill(row));
+    setAdjustLocked(buildAdjustLocked(
+      {
+        dispositionNo: row.disposition.dispositionNo,
+        family: row.disposition.family!, // ADJUST_* 出口的 family 由后端 resolveOutlet 保证必有
+        reasonCode: row.disposition.reasonCode,
+        direction: row.disposition.direction,
+        directionNote: directionNoteFor(row.matchType), row,
+      },
+      kase.caseNo,
+    ));
+  };
+
+  // T9：处置弹层交回的 ADJUST 类结论——关掉处置弹层，带着锁定态打开调账弹层。
+  const handleAdjustHandoff = (handoff: AdjustHandoff) => {
+    if (!kase) return;
+    setDispositionRow(null);
+    setCreatePrefill(rowAdjustmentPrefill(handoff.row));
+    setAdjustLocked(buildAdjustLocked(handoff, kase.caseNo));
   };
 
   useEffect(() => {
@@ -631,7 +715,7 @@ const ReconciliationCasesDetailPage = () => {
               below, and those timestamps duplicate the sidebar Created/Updated fields. */}
           <DetailCard title="账户身份 / Account Identity" columns={1}>
             <div className="flex flex-wrap gap-x-8 gap-y-2 font-mono text-[12px]">
-              <span><span className="text-adm-t3">钱包 </span><span className="text-adm-t1" title={kase.walletRef ?? undefined}>{kase.walletNo ?? (kase.walletRef ? kase.walletRef.slice(0, 12) : '—')}</span></span>
+              <span><span className="text-adm-t3">钱包 </span><span className="text-adm-t1">{kase.walletNo ?? (kase.walletRef ? kase.walletRef.slice(0, 12) : '—')}</span></span>
               <span><span className="text-adm-t3">客户 </span><span className="text-adm-t1">{kase.ownerNo ?? '—'}</span></span>
               <span><span className="text-adm-t3">科目 </span><span className="text-adm-t1">{kase.coaCode ?? '—'}</span></span>
               <span><span className="text-adm-t3">币种 </span><span className="text-adm-t1">{kase.assetCode}{kase.book ? ` · ${kase.book}` : ''}</span></span>
@@ -758,31 +842,72 @@ const ReconciliationCasesDetailPage = () => {
                           <td className="px-3 py-3 font-mono text-[11px] text-adm-t3">
                             {timestamp ? shortTimestamp(timestamp) : '—'}
                           </td>
-                          {/* Task 7: 开调账单入口——所有 5 类行都给（控制方裁定 Step 4），
-                              不按 matchType 挑着给；用该行数据预填金额/方向。按既有
-                              约定（CustomerDetail.tsx 等）以权限门控整个按钮的显隐，
-                              不是禁用态。Fix 5：案件已 RESOLVED 时同样不给入口——同左侧
-                              "已推进·待重对账"徽标（:731）一样按 kase.status 收，已解决的
-                              案件没有可再调的差异项，点了只会拿到一个 400。 */}
+                          {/* 平账一期半（spec §3.1）：动作列六态。同形状同按钮——
+                              给不同按钮就是假装机器知道它不知道的东西；差异化发生在
+                              定性弹层里人选完成因之后。 */}
                           <td className="px-3 py-3">
-                            {/* ④ 这条差异已经被一张落了账的调账单解释掉——引擎算桶时已把它
-                                从异常数里摘掉，所以不再给"再开一张"的入口，改为指回那张单。 */}
                             {row.explainedByAdjustmentNo ? (
+                              // ① 已解释——这条差异已经被一张落了账的调账单解释掉，
+                              // 引擎算桶时已把它从异常数里摘掉，改为指回那张单。
                               <Link
                                 to={`/admin/reconciliation/adjustments/${encodeURIComponent(row.explainedByAdjustmentNo)}`}
                                 className="inline-flex items-center gap-1 whitespace-nowrap rounded border border-adm-green/30 bg-adm-green/10 px-1.5 py-0.5 font-mono text-[10px] font-medium text-adm-green hover:underline"
                               >
                                 已解释 · {row.explainedByAdjustmentNo}
                               </Link>
+                            ) : row.matchType === 'MATCHED' ? (
+                              // ② 已匹配——两边一致，没有可处置的东西。
+                              null
+                            ) : row.matchType === 'IN_TRANSIT' ? (
+                              // ③ 在途——差异会随资金单落地自然消失，动作是推单不是处置。
+                              row.fundsOrderNo ? (
+                                <Link
+                                  to={`/admin/funds-orders/${encodeURIComponent(row.fundsOrderNo)}`}
+                                  className="whitespace-nowrap font-mono text-[10px] font-medium text-adm-blue hover:underline"
+                                >
+                                  去推单 →
+                                </Link>
+                              ) : (
+                                <span className="text-[10px] text-adm-t3">在途 · 无资金单号</span>
+                              )
+                            ) : row.disposition ? (
+                              // ④ 已定性——查证结论已经落库；出口是 ADJUST 且还没挂单时，
+                              // 额外给「开单」入口（同样按权限 + 案件 OPEN 门控整个按钮）。
+                              <div className="flex flex-col gap-1">
+                                <span
+                                  title={row.disposition.findingNote}
+                                  className={[
+                                    'inline-flex items-center gap-1 whitespace-nowrap rounded border px-1.5 py-0.5 font-mono text-[10px]',
+                                    TONE_CLASSES[OUTLET_TONE[row.disposition.outlet]].border,
+                                    TONE_CLASSES[OUTLET_TONE[row.disposition.outlet]].bg,
+                                    TONE_CLASSES[OUTLET_TONE[row.disposition.outlet]].text,
+                                  ].join(' ')}
+                                >
+                                  已定性 · {row.disposition.causeLabel} → {row.disposition.outletLabel} · {row.disposition.createdBy} {row.disposition.createdAt.slice(5, 10)}
+                                </span>
+                                {row.disposition.outlet.startsWith('ADJUST') && !row.disposition.adjustmentNo
+                                  && canCreateAdjustment && kase.status === 'OPEN' && (
+                                  <button
+                                    type="button"
+                                    onClick={() => openAdjustFromDisposition(row)}
+                                    className="inline-flex items-center gap-1 whitespace-nowrap font-mono text-[10px] font-medium text-adm-blue hover:underline"
+                                  >
+                                    <Plus size={10} />
+                                    开单
+                                  </button>
+                                )}
+                              </div>
                             ) : (
-                              canCreateAdjustment && kase.status === 'OPEN' && (
+                              // ⑤/⑥ 未定性——这条差异还没人查过，给处置入口（按既有约定
+                              // 以权限门控整个按钮的显隐，不是禁用态；案件已 RESOLVED 时
+                              // 同样不给入口）。
+                              canRecordDisposition && kase.status === 'OPEN' && (
                                 <button
                                   type="button"
-                                  onClick={() => setCreatePrefill(rowAdjustmentPrefill(row))}
+                                  onClick={() => setDispositionRow(row)}
                                   className="inline-flex items-center gap-1 whitespace-nowrap font-mono text-[10px] font-medium text-adm-blue hover:underline"
                                 >
-                                  <Plus size={10} />
-                                  开调账单
+                                  处置
                                 </button>
                               )
                             )}
@@ -940,11 +1065,27 @@ const ReconciliationCasesDetailPage = () => {
           book={adjustmentBook}
           assetCode={kase.assetCode}
           decimals={kase.decimals}
+          ownerNo={kase.ownerNo}
+          walletNo={kase.walletNo}
           prefill={createPrefill}
-          onClose={() => setCreatePrefill(null)}
+          locked={adjustLocked ?? undefined}
+          onClose={() => { setCreatePrefill(null); setAdjustLocked(null); }}
           onCreated={handleAdjustmentCreated}
         />
       )}
+
+      {/* T8：处置弹层——同样挂在页面最外层，内部状态只靠 row 区分。caseNo 取
+          kase.caseNo（非路由参数 caseNo，后者类型是 string | undefined）。 */}
+      <ReconciliationDispositionModal
+        open={!!dispositionRow}
+        caseNo={kase.caseNo}
+        row={dispositionRow}
+        caseStatus={kase.status}
+        decimals={kase.decimals}
+        onClose={() => setDispositionRow(null)}
+        onRecorded={fetchCase}
+        onProceedToAdjust={handleAdjustHandoff}
+      />
     </div>
   );
 };

@@ -54,6 +54,8 @@ export const PERMISSIONS = {
   RECON_ADJUSTMENT_CREATE: 'api.post.admin_reconciliation_adjustments',
   RECON_ADJUSTMENT_SUBMIT: 'api.post.admin_reconciliation_adjustments_adjustmentno_submit',
   RECON_ADJUSTMENT_DETAIL_READ: 'api.get.admin_reconciliation_adjustments_adjustmentno',
+  RECON_DISPOSITION_CREATE: 'api.post.admin_reconciliation_cases_caseno_dispositions',
+  RECON_REATTRIBUTION_CANDIDATES_READ: 'api.get.admin_reconciliation_cases_caseno_reattribution_candidates',
 
   SUMSUB_EVENTS_READ: 'api.get.admin_sumsub_events',
   AUDIT_LOGS_READ: 'api.get.admin_audit_logs',

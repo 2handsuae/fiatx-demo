@@ -1619,9 +1619,12 @@ model ReconciliationAdjustment {
   explainedFlowId         String?   // account_flows.id
   explainedExternalLineId String?   // external_statement_lines.id
   walletRef       String
+  // 第四族改记（spec §6）：正主方。仅 reasonCode=CUSTOMER_REATTRIBUTION 使用。
+  toWalletRef     String?
+  toOwnerNo       String?
   book            String    // CLIENT | FIRM —— 取自 case.book，非表单字段
-  direction       String    // REDUCE | INCREASE —— 内部余额该往哪边动
-  reasonCode      String    // spec §5 七个成因码之一
+  direction       String    // REDUCE | INCREASE —— 内部余额该往哪边动；第四族改记落 'REATTRIBUTE'（不走 book × direction 语义）
+  reasonCode      String    // adjustment-rules.ts REASON_SPECS 八个成因码之一
   relatedOrderNo  String?   // 关联原单业务号；book=CLIENT 且 direction=INCREASE 时必填
   assetCode       String
   amount          String    // 最小单位（分）整数，存字符串避免精度损失
@@ -1645,6 +1648,31 @@ model ReconciliationAdjustment {
   @@index([status])
   @@index([walletRef, status])
   @@map("reconciliation_adjustments")
+}
+
+model ReconciliationDisposition {
+  id                      String    @id @default(uuid())
+  dispositionNo           String    @unique @default("TEMP")
+  caseNo                  String
+  walletRef               String
+  businessDate            String
+  // 锚：与调账单同款，锚真实证据 id，跨轮稳定；不锚每轮重建的 ReconciliationLineItem.id
+  explainedFlowId         String?
+  explainedExternalLineId String?
+  matchType               String
+  book                    String
+  causeCode               String
+  outlet                  String
+  deferredTarget          String?
+  findingNote             String
+  adjustmentNo            String?
+  createdByUserId         String
+  createdAt               DateTime  @default(now())
+  updatedAt               DateTime  @updatedAt
+
+  @@index([caseNo])
+  @@index([walletRef, businessDate])
+  @@map("reconciliation_dispositions")
 }
 
 model ReconciliationRunWallet {

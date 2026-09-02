@@ -55,7 +55,10 @@ export const TB_TRANSFER_CODES = {
   CAPITAL_INJECTION: 70, // 资本注入:DR FIRM_ASSET / CR FIRM_OPS
 
   // ── 平账·调账(80)──
-  RECON_ADJUSTMENT: 80, // 调账单落账:借贷随 book×direction 四组合(disposition/adjustment-rules.ts resolvePostingLegs)
+  // 五种分录组合共用这一个码:前四种随 book×direction 推导(resolvePostingLegs);
+  // 第五种是改记(direction='REATTRIBUTE',成因 CUSTOMER_REATTRIBUTION)——两腿都是
+  // CLIENT_PAYABLE、只换 ownerUuid,不由 book×direction 决定(resolveReattributionLegs)。
+  RECON_ADJUSTMENT: 80, // 调账单落账(disposition/adjustment-rules.ts)
 } as const;
 
 export type TbTransferCode = (typeof TB_TRANSFER_CODES)[keyof typeof TB_TRANSFER_CODES];

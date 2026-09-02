@@ -68,7 +68,17 @@ function makePrismaMock(opts: {
     tbAccountRegistry: {
       findMany: jest.fn(async ({ where }: any) => {
         const ids: string[] = where.tbAccountId?.in ?? [];
-        return ids.map((id) => opts.registry[id]).filter(Boolean);
+        // 保真：真实 `tb_account_registry.tbAccountId` **恒为 32 位**补零十六进制，
+        // 而上面这些可读假名（'acct-pay' 等）只有几个字符。服务层查进来的是补零
+        // 后的键，所以这里也按补零后的形式建索引——否则 mock 与真库的连接键格式
+        // 不一致，测试会为一个真实世界不存在的形状红/绿。
+        // （2026-09-02：这份 mock 此前直接按假名索引，于是「未补零 join 落空」这个
+        //  真实缺陷在单测里根本无从复现——8 条用例全绿了几个月，bug 一直在。）
+        const byPadded: Record<string, any> = {};
+        for (const r of Object.values(opts.registry) as any[]) {
+          byPadded[r.tbAccountId.length < 32 ? r.tbAccountId.padStart(32, '0') : r.tbAccountId] = r;
+        }
+        return ids.map((id) => byPadded[id]).filter(Boolean);
       }),
     },
   };
@@ -251,5 +261,40 @@ describe('WalletBalanceCheckerService', () => {
     const result = await svc.checkBalance({ walletRef: 'c-vault-1', externalClosing: 800n, cutoff });
     expect(result.pass).toBe(true);
     expect(result.internal.payable).toBe(800n);
+  });
+
+  // 2026-09-02 回归锁（Task 12）：账户号首位为 0 时，两张表的 tbAccountId 差一位。
+  //   `account_flows.tbAccountId` 来自上游 `bigint.toString(16)`（**未** padStart），
+  //   `tb_account_registry.tbAccountId` 恒 32 位。不补零 join 就落空，服务里那句
+  //   `if (!reg) continue` 会把这笔分录**从余额里静默丢掉**——客户户往往只有这一条
+  //   PAYABLE，于是内部余额算成 0、差额变成外部收盘全额：凭空造破口。
+  //   命中率约 1/16，且账户号每次重铺重生成，所以它表现为「按种子随机发作」。
+  //   实测过的真实形状：2026-09-02 重铺后 demo_carol 的 AED 客户应付户就是
+  //   `0d1f22c2...`，两份 recon e2e 当场各红一条。
+  const PAY_32 = '0d1f22c2b330c2b293bf95ca6a7f2339';  // 注册表里的样子（32 位）
+  const PAY_31 = PAY_32.slice(1);                      // account_flows 里的样子（31 位，前导零被吃掉）
+
+  it('前导零账户号：account_flows 存 31 位、注册表存 32 位 → 该分录必须仍被算进余额（不许静默丢弃）', async () => {
+    expect(PAY_32).toHaveLength(32);
+    expect(PAY_31).toHaveLength(31);   // 前提：两侧确实不同，否则这条测试测的是空气
+
+    const prisma = makePrismaMock({
+      flows: [
+        { tbAccountId: PAY_31, direction: 'IN', amount: 87500, walletRef: 'c-vault-9', createdAt: new Date('2026-06-26T01:00:00Z') },
+      ],
+      registry: {
+        [PAY_32]: { tbAccountId: PAY_32, code: 100, ownerType: 'CUSTOMER', ownerNo: 'c-009', assetCode: 'AED' },
+      },
+    });
+    const svc = new WalletBalanceCheckerService(prisma as any);
+    const result = await svc.checkBalance({ walletRef: 'c-vault-9', externalClosing: 87500n, cutoff });
+
+    // 修之前这三条全错：分录被丢 → kind=UNKNOWN、payable=0、delta=87500（凭空的破口）。
+    expect(result.walletKind).toBe('CUSTOMER');
+    expect(result.internal.payable).toBe(87500n);
+    expect(result.internal.total).toBe(87500n);
+    expect(result.delta).toBe(0n);
+    expect(result.pass).toBe(true);
+    expect(result.ownerNo).toBe('c-009');
   });
 });

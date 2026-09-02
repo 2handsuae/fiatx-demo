@@ -1,7 +1,7 @@
 import { BadRequestException } from '@nestjs/common';
 import { TB_ACCOUNT_CODES } from '../../../accounting/tigerbeetle/constants/tb-account-codes.constant';
 import {
-  REASON_SPECS, assertReasonAllowed, resolvePostingLegs, requiresRelatedOrder,
+  REASON_SPECS, assertReasonAllowed, resolvePostingLegs, requiresRelatedOrder, resolveReattributionLegs,
 } from './adjustment-rules';
 
 describe('resolvePostingLegs —— 四种组合，成因不参与计算', () => {
@@ -88,10 +88,11 @@ describe('assertReasonAllowed —— 成因 × 账簿 × 方向 合法组合写�
     expect(() => assertReasonAllowed('WITHDRAW_VOID_REFUND', 'FIRM', 'INCREASE')).toThrow(BadRequestException);
   });
 
-  it('成因清单恰好七个，且无兜底档', () => {
+  it('成因清单恰好八个（含第四族改记），且无兜底档', () => {
     const codes = Object.keys(REASON_SPECS).sort();
     expect(codes).toEqual([
       'BANK_CHARGE', 'BANK_INTEREST',
+      'CUSTOMER_REATTRIBUTION',
       'DEPOSIT_AMOUNT_CORRECTION', 'DEPOSIT_DUPLICATE_REVERSAL', 'DEPOSIT_SIGNAL_VOID',
       'WITHDRAW_AMOUNT_CORRECTION', 'WITHDRAW_VOID_REFUND',
     ]);
@@ -101,5 +102,27 @@ describe('assertReasonAllowed —— 成因 × 账簿 × 方向 合法组合写�
     expect(REASON_SPECS.BANK_INTEREST.customerLabel).toBeNull();
     expect(REASON_SPECS.BANK_CHARGE.customerLabel).toBeNull();
     expect(REASON_SPECS.DEPOSIT_DUPLICATE_REVERSAL.customerLabel).toBe('重复入账撤销');
+  });
+});
+
+describe('第四族 REATTRIBUTE（spec §6）', () => {
+  it('族划分覆盖全部 8 码、无遗漏无重叠', () => {
+    const byFamily: Record<string, string[]> = {};
+    for (const [code, spec] of Object.entries(REASON_SPECS)) {
+      (byFamily[(spec as any).family] ??= []).push(code);
+    }
+    expect(byFamily.CORRECT!.sort()).toEqual(['DEPOSIT_AMOUNT_CORRECTION', 'WITHDRAW_AMOUNT_CORRECTION']);
+    expect(byFamily.REVERSE!.sort()).toEqual(['DEPOSIT_DUPLICATE_REVERSAL', 'DEPOSIT_SIGNAL_VOID', 'WITHDRAW_VOID_REFUND']);
+    expect(byFamily.RECORD!.sort()).toEqual(['BANK_CHARGE', 'BANK_INTEREST']);
+    expect(byFamily.REATTRIBUTE).toEqual(['CUSTOMER_REATTRIBUTION']);
+  });
+  it('改记分录：借错记方应付 / 贷正主方应付——资产腿不动（第五种组合）', () => {
+    expect(resolveReattributionLegs()).toEqual({
+      debitCode: TB_ACCOUNT_CODES.CLIENT_PAYABLE,
+      creditCode: TB_ACCOUNT_CODES.CLIENT_PAYABLE,
+    });
+  });
+  it('改记不走 book×direction 语义：assertReasonAllowed 对它任何方向都拒', () => {
+    expect(() => assertReasonAllowed('CUSTOMER_REATTRIBUTION' as any, 'CLIENT', 'REDUCE')).toThrow();
   });
 });

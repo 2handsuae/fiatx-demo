@@ -37,7 +37,7 @@ USDT（链上，托管 HEXTRUST）＋ AED（法币，ZAND）；客户钱包按�
 | demo:deposit / swap / withdraw | 各域多结局单（走真实流程推进） |
 | demo:in-transit | 在途单（演示"正在发生"） |
 | demo:all | 一键全量（花名册 29 笔逐条比对预期终态 + COA 四恒等式）——开演前跑这个 |
-| recon:demo:pass / break | 对账 pass ／ 9 种破口+答案键（break 现漏检 2 种，BACKLOG 在案） |
+| recon:demo:pass / break | 对账 pass ／ **14 个破口场景 / 11 张案子** + 答案键（按处置家族排号 1→14 = 第六幕走查顺序；`rootCause` 用成因注册表的码，与财务手册、界面菜单、审计四处同词。**14/14 全检出**）|
 
 ⚠️ 造数铁律：一律走真实流程/模拟端点重放，**禁止直插表**（直插中间态 → 账本负余额 → 假破口，实证教训）。
 

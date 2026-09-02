@@ -1,4 +1,22 @@
 {
+  // maxWorkers: 1 —— 这些 e2e **共享同一个 SQLite 库 + 同一个 TigerBeetle 实例**
+  // （self / main 栈各一套，由 scripts/on-stack.sh 注入 DATABASE_URL / TB_ADDRESS）。
+  // 它们不是各跑各的沙箱，串行是对这个事实的如实声明，不是给测试打的补丁。
+  //
+  // 具体踩到的形状（2026-09-02，Task 12 引入第二份调全局对账的 spec 后当场复现）：
+  //   recon-adjustment-money-arcs 与 recon-reattribution 都调**全局**的
+  //   WalletReconRunService.run()——它按截止业务日扫全库的 external_balances，
+  //   把「本轮查过且没破口」的钱包上的 OPEN 案件一律自愈。两个文件被派到并行
+  //   worker 时，谁先落地谁就把对方的案子先关了，于是后到的那个
+  //   `expect(run2.casesAutoHealed).toBeGreaterThanOrEqual(1)` 收到 0。
+  //   复现：`bash scripts/on-stack.sh self test:e2e -- --testPathPattern 'test/recon-'`
+  //   （改本行之前 4/4 红，单跑任一份都绿）。
+  //
+  // ⚠ 这条**不许**被当成「对账引擎缺并发处理」的证据去给引擎加锁/加幂等——
+  //   演示系统按单人顺序操作立论（CLAUDE.md §2/§3），并发只存在于测试进程编排层。
+  //   全套 e2e 并行跑还有一批与 recon 无关的互踩（见 doc-final/TOOLING-DEBT.md），
+  //   本行顺带治住，但根因是「多份 e2e 共享一个库、彼此夹具互相踩」。
+  "maxWorkers": 1,
   "moduleFileExtensions": [
     "js",
     "json",
