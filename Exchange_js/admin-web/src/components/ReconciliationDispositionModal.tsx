@@ -18,7 +18,7 @@ import { MATCH_LABEL, formatAmount, type FlowComparisonRow } from '../pages/Reco
 // 从这里原样递出去。
 export interface AdjustHandoff {
   dispositionNo: string;
-  family: 'CORRECT' | 'REVERSE' | 'RECORD' | 'REATTRIBUTE';
+  family: 'CORRECT' | 'REVERSE' | 'RECORD' | 'REATTRIBUTE' | 'WRITE_OFF';
   reasonCode?: string;
   direction?: 'REDUCE' | 'INCREASE';
   directionNote: string;
@@ -31,7 +31,7 @@ interface DispositionResult {
   dispositionNo: string;
   outlet: string;
   outletLabel: string;
-  family?: 'CORRECT' | 'REVERSE' | 'RECORD' | 'REATTRIBUTE';
+  family?: 'CORRECT' | 'REVERSE' | 'RECORD' | 'REATTRIBUTE' | 'WRITE_OFF';
   reasonCode?: string;
   direction?: 'REDUCE' | 'INCREASE';
   deferredTarget?: string;
@@ -188,7 +188,7 @@ const ReconciliationDispositionModal = ({
             <h3 className="mb-2 text-sm font-semibold text-adm-t1">已定性 · {result.outletLabel}</h3>
             <p className="text-xs text-adm-t2">
               {result.outlet === 'HOLD_NEXT_PERIOD' && '不落任何分录。案子保持现状，下期对账自然配平后自动销案。'}
-              {result.outlet === 'HOLD_INVESTIGATING' && '不落任何分录。案子保持破口，标注「已定性 · 调查中」——查证记录已留档，账龄与核销归下一轮。'}
+              {result.outlet === 'HOLD_INVESTIGATING' && '不落任何分录。案子保持破口，标注「已定性 · 调查中」——查证记录已留档。账龄到线（3 天）后：公司池小额可核销、大额升级事故（三期）、客户池待二期划转。'}
               {result.outlet === 'DEFERRED' && `不落任何分录。该差异的正确出口（${result.outletLabel.replace('留档·', '')}）本期未开放，结论已留档，案子继续挂。`}
             </p>
             <p className="mt-2 font-mono text-[11px] text-adm-t3">{result.dispositionNo}</p>

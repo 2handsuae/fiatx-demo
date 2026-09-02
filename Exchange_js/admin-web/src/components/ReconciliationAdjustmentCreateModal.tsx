@@ -53,12 +53,21 @@ export const REASON_META: Record<string, ReasonMeta> = {
   WITHDRAW_VOID_REFUND: { book: 'CLIENT', directions: ['INCREASE'], label: '提现撤销退回' },
   BANK_INTEREST: { book: 'FIRM', directions: ['INCREASE'], label: '银行利息' },
   BANK_CHARGE: { book: 'FIRM', directions: ['REDUCE'], label: '银行杂费' },
+  FIRM_ENTRY_REVERSAL: { book: 'FIRM', directions: ['REDUCE', 'INCREASE'], label: '公司账簿冲销' },
+};
+
+// 展示用成因词表（超集）：详情页 / 本案调账单列表 / 锁定视图回显用。
+// 改记与核销刻意不在 REASON_META（下拉数据源）里：前者只走「先定性再开单」，后者只由账龄解锁。
+export const REASON_LABEL: Record<string, string> = {
+  ...Object.fromEntries(Object.entries(REASON_META).map(([code, meta]) => [code, meta.label])),
+  CUSTOMER_REATTRIBUTION: '记错客户更正（改记）',
+  UNEXPLAINED_WRITE_OFF: '查无果核销',
 };
 
 // T9：族的中文词——本文件内常量，不是共享注册表（唯一真相仍在后端
 // cause-registry.ts AdjustFamily；这里只是锁定视图要拼一句回显文案）。
 const FAMILY_WORD: Record<string, string> = {
-  CORRECT: '冲正', REVERSE: '冲销', RECORD: '补记', REATTRIBUTE: '改记',
+  CORRECT: '冲正', REVERSE: '冲销', RECORD: '补记', REATTRIBUTE: '改记', WRITE_OFF: '核销',
 };
 
 // T9：锁定视图的弹层标题——每族一句白话，说清这张单要干什么（不是简单复述族名）。
@@ -67,6 +76,7 @@ const LOCKED_TITLE: Record<string, string> = {
   REVERSE: '冲销 · 撤销这笔入账',
   RECORD: '补记 · 记一笔公司自己的收支',
   REATTRIBUTE: '改记 · 把钱改记到正主名下',
+  WRITE_OFF: '核销 · 查不出，公司认下来',
 };
 
 // T9：处置弹层（Task 8）交回来的锁定态——成因/方向已由后端判死，这里只回显。
@@ -81,6 +91,8 @@ export interface AdjustmentLocked {
   direction?: AdjustmentDirection;
   directionNote: string;
   toCandidatesUrl?: string;
+  /** 平账 A 批：核销锁定视图——金额 / 生效日只读，说明预填查证结论。 */
+  writeOff?: { findingNote: string };
 }
 
 // 改记对端候选——GET reattribution-candidates 的返回行（disposition.service.ts
@@ -188,6 +200,7 @@ const ReconciliationAdjustmentCreateModal = ({
   const [selectedCandidateIdx, setSelectedCandidateIdx] = useState<number | null>(null);
 
   const isReattribute = locked?.family === 'REATTRIBUTE';
+  const isWriteOff = locked?.family === 'WRITE_OFF';
   // 哪一行是「本行」在改记里决定了提交体怎么拼：ORPHAN_INTERNAL（我有外无=错记方）
   // 只带 explainedFlowId，ORPHAN_EXTERNAL（外有我无=正主方）只带
   // explainedExternalLineId（reconciliation-query.service.ts 对两类行的构造保证
@@ -202,8 +215,8 @@ const ReconciliationAdjustmentCreateModal = ({
     setAmountDisplay(prefill.amountMinor ? minorToDisplay(prefill.amountMinor, decimals) : '');
     setEffectiveDate(caseBusinessDate);
     setRelatedOrderNo(prefill.relatedOrderNo ?? '');
-    setReasonInternal('');
-    setReasonCustomer('');
+    setReasonInternal(locked?.writeOff ? `查无果核销：${locked.writeOff.findingNote}` : '');
+    setReasonCustomer(locked?.writeOff ? '（公司侧核销，客户不可见）' : '');
     setError('');
     setCandidates([]);
     setCandidatesError('');
@@ -302,7 +315,7 @@ const ReconciliationAdjustmentCreateModal = ({
         // adjustment.service.ts:101-107/222）。DTO 校验仍要求 REDUCE|INCREASE 之一，
         // 随手给个合法值让它过闸，后端不会读它。
         direction: isReattribute ? 'REDUCE' : direction,
-        amount: isReattribute ? prefill.amountMinor : amountMinor,
+        amount: (isReattribute || isWriteOff) ? prefill.amountMinor : amountMinor,
         effectiveDate,
         reasonInternal: reasonInternal.trim(),
         reasonCustomer: reasonCustomer.trim(),
@@ -389,7 +402,7 @@ const ReconciliationAdjustmentCreateModal = ({
             // T9 锁定视图：成因由上一屏（处置弹层）判死，这里只回显——不给下拉。
             // 唯一真相在后端 cause-registry.ts，前端不猜、不改。
             <div className="mb-4 rounded border border-adm-border bg-adm-bg px-2.5 py-2 font-mono text-[11px] text-adm-t1">
-              【{FAMILY_WORD[locked.family] ?? locked.family}】{REASON_META[locked.reasonCode ?? '']?.label ?? '记错客户更正'}
+              【{FAMILY_WORD[locked.family] ?? locked.family}】{REASON_LABEL[locked.reasonCode ?? ''] ?? locked.reasonCode}
             </div>
           ) : (
             <select
@@ -490,7 +503,7 @@ const ReconciliationAdjustmentCreateModal = ({
           )}
 
           <label className={labelCls}>金额 / Amount（{assetCode}）</label>
-          {isReattribute ? (
+          {(isReattribute || isWriteOff) ? (
             // 改记金额只读——它就是这一行的金额，不是运营能改的数（改的是「谁的」，不是「多少」）。
             <div className="mb-4 w-full rounded border border-adm-border bg-adm-bg px-2.5 py-2 font-mono text-[11px] text-adm-t1">
               {formatAmount(prefill.amountMinor, decimals)}
@@ -518,9 +531,10 @@ const ReconciliationAdjustmentCreateModal = ({
             type="date"
             value={effectiveDate}
             onChange={(e) => setEffectiveDate(e.target.value)}
-            disabled={submitting}
+            disabled={submitting || isWriteOff}
             className="mb-4 w-full rounded border border-adm-border bg-adm-bg px-2.5 py-2 font-mono text-[11px] text-adm-t1 outline-none transition-colors focus:border-adm-amber"
           />
+          {isWriteOff && <p className="-mt-3 mb-4 font-mono text-[9px] text-adm-t3">核销修的是案件那一天的账，生效日 = 案件业务日，不可改。</p>}
 
           <label className={labelCls}>
             关联原单号 / Related Order No{needsRelatedOrder ? '（必填）' : '（可选）'}

@@ -15,7 +15,7 @@ import {
 } from '../components/compliance/DetailPageComponents';
 import { SidebarGroup, SidebarKV } from '../components/ui/SidebarPrimitives';
 import { StatusPill } from '../components/ui/StatusPill';
-import { REASON_META } from '../components/ReconciliationAdjustmentCreateModal';
+import { REASON_LABEL } from '../components/ReconciliationAdjustmentCreateModal';
 import {
   AdminSessionError,
   adminFetch,
@@ -145,7 +145,7 @@ const ReconciliationAdjustmentDetailPage = () => {
 
   if (!detail) return null;
 
-  const reasonMeta = REASON_META[detail.reasonCode];
+  const reasonLabel = REASON_LABEL[detail.reasonCode];
   const bookLabel = detail.book === 'CLIENT' ? '客户账簿 / Client' : '公司账簿 / Firm';
   const directionLabel = detail.direction === 'INCREASE' ? '增加 INCREASE' : '减少 REDUCE';
 
@@ -180,7 +180,7 @@ const ReconciliationAdjustmentDetailPage = () => {
 
           {/* 调账信息 / Adjustment Info */}
           <DetailCard title="调账信息 / Adjustment Info" columns={3}>
-            <InfoField label="成因 / Reason" value={reasonMeta ? `${reasonMeta.label} · ${detail.reasonCode}` : detail.reasonCode} />
+            <InfoField label="成因 / Reason" value={reasonLabel ? `${reasonLabel} · ${detail.reasonCode}` : detail.reasonCode} />
             <InfoField label="方向 / Direction" value={directionLabel} mono />
             <InfoField label="金额 / Amount" value={`${formatAmount(detail.amount, detail.decimals)} ${detail.assetCode}`} accent />
             <InfoField label="生效日期 / Effective Date" value={detail.effectiveDate} mono />

@@ -44,7 +44,7 @@ import {
 import { triggerWalletReconRun } from '../utils/reconRunTrigger';
 import { useSimulationMode } from '../utils/simulationMode';
 import ReconciliationAdjustmentCreateModal, {
-  REASON_META,
+  REASON_LABEL,
   type AdjustmentBook,
   type AdjustmentPrefill,
   type AdjustmentLocked,
@@ -107,13 +107,18 @@ export interface FlowComparisonRow {
     outlet: string; outletLabel: string;
     // 出口的可执行部分（后端 resolveOutlet 算好随行下发）——「开单」直接用，
     // 前端不反推；非 ADJUST 类出口不落分录，三个都没有值。
-    family?: 'CORRECT' | 'REVERSE' | 'RECORD' | 'REATTRIBUTE';
+    family?: 'CORRECT' | 'REVERSE' | 'RECORD' | 'REATTRIBUTE' | 'WRITE_OFF';
     reasonCode?: string; direction?: 'REDUCE' | 'INCREASE';
     findingNote: string;
     adjustmentNo: string | null; createdBy: string; createdAt: string;
   } | null;
   duplicateTwinRef?: string | null;
   menu?: Array<{ code: string; label: string; clue: string; outletLabel: string }>;
+  // 平账 A 批（spec §2.6）：超期后的下一步（服务端判）
+  nextStep?: {
+    kind: 'WRITE_OFF' | 'INCIDENT_DEFERRED' | 'TRANSFER_DEFERRED';
+    reasonCode?: 'UNEXPLAINED_WRITE_OFF'; direction?: 'REDUCE' | 'INCREASE'; amount?: string; effectiveDate?: string;
+  };
 }
 
 interface FlowComparisonSummary {
@@ -527,6 +532,22 @@ const ReconciliationCasesDetailPage = () => {
     setAdjustLocked(buildAdjustLocked(handoff, kase.caseNo));
   };
 
+  // 平账 A 批：核销——用读面算好的 nextStep 四项预填，锁定视图（成因固定、方向 / 金额 / 生效日只读）。
+  const openWriteOff = (row: FlowComparisonRow) => {
+    if (!kase || !row.disposition || row.nextStep?.kind !== 'WRITE_OFF') return;
+    const ns = row.nextStep;
+    setCreatePrefill({
+      amountMinor: ns.amount ?? '0', direction: ns.direction ?? '', relatedOrderNo: '',
+      explainedFlowId: row.internalFlow?.id, explainedExternalLineId: row.externalLine?.id,
+    });
+    setAdjustLocked({
+      dispositionNo: row.disposition.dispositionNo,
+      family: 'WRITE_OFF', reasonCode: ns.reasonCode, direction: ns.direction,
+      directionNote: `方向 = 让内部等于外部：${directionNoteFor(row.matchType)}`,
+      writeOff: { findingNote: row.disposition.findingNote },
+    });
+  };
+
   useEffect(() => {
     if (caseNo) void fetchCase();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -931,6 +952,26 @@ const ReconciliationCasesDetailPage = () => {
                                     开单
                                   </button>
                                 )}
+                                {row.nextStep?.kind === 'WRITE_OFF' && kase.status === 'OPEN' && (
+                                  canCreateAdjustment ? (
+                                    <button
+                                      type="button"
+                                      onClick={() => openWriteOff(row)}
+                                      className="inline-flex items-center gap-1 whitespace-nowrap font-mono text-[10px] font-medium text-adm-red hover:underline"
+                                    >
+                                      <Plus size={10} />
+                                      核销
+                                    </button>
+                                  ) : (
+                                    <span className="whitespace-nowrap font-mono text-[10px] text-adm-red">超期 · 可核销</span>
+                                  )
+                                )}
+                                {row.nextStep?.kind === 'INCIDENT_DEFERRED' && (
+                                  <span className="whitespace-nowrap font-mono text-[10px] text-adm-red">超期 · 待升级事故（三期）</span>
+                                )}
+                                {row.nextStep?.kind === 'TRANSFER_DEFERRED' && (
+                                  <span className="whitespace-nowrap font-mono text-[10px] text-adm-amber">超期 · 待二期划转</span>
+                                )}
                               </div>
                             ) : (
                               // ⑤/⑥ 未定性——这条差异还没人查过，给处置入口（按既有约定
@@ -1014,7 +1055,7 @@ const ReconciliationCasesDetailPage = () => {
                           <StatusPill value={adj.status} />
                         </td>
                         <td className="px-3 py-2.5 font-mono text-[11px] text-adm-t2">
-                          {REASON_META[adj.reasonCode]?.label ?? adj.reasonCode}
+                          {REASON_LABEL[adj.reasonCode] ?? adj.reasonCode}
                         </td>
                         <td className="px-3 py-2.5 font-mono text-[11px]">
                           <span
