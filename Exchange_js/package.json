@@ -60,6 +60,7 @@
     "verify:audit": "ts-node -r tsconfig-paths/register scripts/verify-audit.ts",
     "verify:demo-data": "ts-node -r tsconfig-paths/register scripts/verify-demo-data.ts",
     "verify:rbac": "ts-node -r tsconfig-paths/register scripts/verify-rbac.ts",
+    "verify:act1": "ts-node -r tsconfig-paths/register scripts/verify-act1.ts",
     "prestart:debug": "npm run prisma:generate",
     "start:debug": "nest start --debug --watch",
     "start:prod": "node dist/main",
