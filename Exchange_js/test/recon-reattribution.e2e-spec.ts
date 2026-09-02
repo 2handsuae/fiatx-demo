@@ -37,7 +37,7 @@ import { generateReferenceNo } from '../src/common/utils/no-generator.util';
  * 平账一期半 e2e（Task 12）：**改记一单双案同愈** + **挂起不许让案子变绿**。
  *
  * 全链真跑，零 mock：真 TigerBeetle 转账 → 真审批中心（RECON_ADJUSTMENT_POST，
- * 单步 OPS_OFFICER）→ 真 @OnEvent(APPROVED) handler → AdjustmentService
+ * 单步 CFO）→ 真 @OnEvent(APPROVED) handler → AdjustmentService
  * .onApproved → postReattribution → AccountFlowProjectorService 真投影进
  * account_flows → WalletReconRunService.run() 真重对账。夹具搭法（fresh wallet、
  * 铺底两跳、外部对账单、waitUntil 轮询）逐段照抄同目录的
@@ -551,7 +551,7 @@ describe('Recon reattribution + disposition behaviour (e2e, Task 12)', () => {
     expect(JSON.parse(approvalCase.objectSnapshot).toOwnerNo).toBe(daveNo);
 
     await approvalsService.approve(
-      approvalCase.id, { reason: 'e2e approve reattribution' }, makeActor('E2E_OPS_APPROVER_A', 'OPS_OFFICER'),
+      approvalCase.id, { reason: 'e2e approve reattribution' }, makeActor('E2E_OPS_APPROVER_A', 'CFO'),
     );
 
     // ⚠ 落账在 @OnEvent(APPROVED) handler 里异步跑，handler 抛的异常本仓库现状

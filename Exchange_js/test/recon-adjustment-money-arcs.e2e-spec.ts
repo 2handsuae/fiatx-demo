@@ -36,7 +36,7 @@ import { WithdrawTransactionStatus } from '../src/modules/trading/withdraw-trans
 /**
  * Task 8: recon-adjustment (调账单) e2e — proves the whole 平账一期 chain works
  * end to end against a real AppModule: 开单 → 提交 → 审批中心
- * （RECON_ADJUSTMENT_POST，单步 OPS_OFFICER）→ 真的批准 → AdjustmentApprovalService's
+ * （RECON_ADJUSTMENT_POST，单步 CFO）→ 真的批准 → AdjustmentApprovalService's
  * real @OnEvent(APPROVED) handler → AdjustmentService.onApproved →
  * AccountingService.executeTransfer (real TigerBeetle transfer) →
  * AccountFlowProjectorService projects into account_flows (real DI, not mocked) →
@@ -503,7 +503,7 @@ describe('Recon adjustment money arcs (e2e, Task 8)', () => {
     const submitSubjectRows = await (prisma as any).auditLogSubject.findMany({ where: { subjectNo: adjustmentNo } });
     expect(submitSubjectRows.length).toBeGreaterThanOrEqual(1);
 
-    const approverActor = makeActor('E2E_OPS_APPROVER_C1', 'OPS_OFFICER');
+    const approverActor = makeActor('E2E_OPS_APPROVER_C1', 'CFO');
     await approvalsService.approve(approvalCase.id, { reason: 'e2e approve scenario 1' }, approverActor);
 
     await waitUntil(async () => (await adjustmentRow(adjustmentNo)).status === AdjustmentStatus.POSTED);
@@ -535,10 +535,10 @@ describe('Recon adjustment money arcs (e2e, Task 8)', () => {
     expect(auditRows).toHaveLength(1);
     expect(auditRows[0].actorNo).toBe('E2E_OPS_APPROVER_C1'); // real approver, not SYSTEM
     // 第三个落点：actorRolesAtTime 此前硬编码 ['ADMIN']——RECON_ADJUSTMENT_POST
-    // 是单步 OPS_OFFICER 策略，真实角色取代硬编码后审计快照才对得上事实。
+    // 是单步 CFO 策略（平账 A 批），真实角色取代硬编码后审计快照才对得上事实。
     // actorRolesAtTime 落库是 JSON 字符串（schema: String @default("[]")），
     // 这里直接查真实 Prisma 行，要手动 parse 才能比较。
-    expect(JSON.parse(auditRows[0].actorRolesAtTime)).toEqual(['OPS_OFFICER']);
+    expect(JSON.parse(auditRows[0].actorRolesAtTime)).toEqual(['CFO']);
     // V3：reasonCode/amount/effectiveDate 是顶层列（不是塞在 metadata JSON
     // 里）——adjustment.service.ts onApproved() 里 requiredFields 读的正是这
     // 一层，assertActionSpec 拒写空值。此前只在代码里论证过"这三个字段会落到
@@ -597,7 +597,7 @@ describe('Recon adjustment money arcs (e2e, Task 8)', () => {
 
     await adjustments.submit(adjustmentNo, makeActor('E2E_OPS_CREATOR_C2', 'OPS_OFFICER'));
     const approvalCase = await latestApprovalCase(ApprovalActionTypes.RECON_ADJUSTMENT_POST, adjustmentNo);
-    await approvalsService.approve(approvalCase.id, { reason: 'e2e approve scenario 2' }, makeActor('E2E_OPS_APPROVER_C2', 'OPS_OFFICER'));
+    await approvalsService.approve(approvalCase.id, { reason: 'e2e approve scenario 2' }, makeActor('E2E_OPS_APPROVER_C2', 'CFO'));
 
     await waitUntil(async () => (await adjustmentRow(adjustmentNo)).status === AdjustmentStatus.POSTED);
 
@@ -649,7 +649,7 @@ describe('Recon adjustment money arcs (e2e, Task 8)', () => {
 
     await adjustments.submit(adjustmentNo, makeActor('E2E_OPS_CREATOR_F3', 'OPS_OFFICER'));
     const approvalCase = await latestApprovalCase(ApprovalActionTypes.RECON_ADJUSTMENT_POST, adjustmentNo);
-    await approvalsService.approve(approvalCase.id, { reason: 'e2e approve scenario 3' }, makeActor('E2E_OPS_APPROVER_F3', 'OPS_OFFICER'));
+    await approvalsService.approve(approvalCase.id, { reason: 'e2e approve scenario 3' }, makeActor('E2E_OPS_APPROVER_F3', 'CFO'));
 
     await waitUntil(async () => (await adjustmentRow(adjustmentNo)).status === AdjustmentStatus.POSTED);
 
@@ -696,7 +696,7 @@ describe('Recon adjustment money arcs (e2e, Task 8)', () => {
 
     // 驳回 —— 落终态，账本依然零动静
     const approvalCase = await latestApprovalCase(ApprovalActionTypes.RECON_ADJUSTMENT_POST, adjustmentNo);
-    await approvalsService.reject(approvalCase.id, { reason: 'e2e reject scenario 4' }, makeActor('E2E_OPS_APPROVER_C4', 'OPS_OFFICER'));
+    await approvalsService.reject(approvalCase.id, { reason: 'e2e reject scenario 4' }, makeActor('E2E_OPS_APPROVER_C4', 'CFO'));
 
     await waitUntil(async () => (await adjustmentRow(adjustmentNo)).status === AdjustmentStatus.REJECTED);
     expect(await flowsFor(adjustmentNo)).toHaveLength(0);
@@ -773,7 +773,7 @@ describe('Recon adjustment money arcs (e2e, Task 8)', () => {
     );
     await adjustments.submit(adjustmentNo, makeActor('E2E_OPS_CREATOR_C8', 'OPS_OFFICER'));
     const approvalCase = await latestApprovalCase(ApprovalActionTypes.RECON_ADJUSTMENT_POST, adjustmentNo);
-    await approvalsService.approve(approvalCase.id, { reason: 'e2e approve scenario 8' }, makeActor('E2E_OPS_APPROVER_C8', 'OPS_OFFICER'));
+    await approvalsService.approve(approvalCase.id, { reason: 'e2e approve scenario 8' }, makeActor('E2E_OPS_APPROVER_C8', 'CFO'));
 
     // ⚠ 核心断言：单子必须真的走到 POSTED。ledger 解析不出时它会静默卡在
     // PENDING_APPROVAL（异常被吞），waitUntil 会超时——这正是本条要逮的形状。
@@ -868,7 +868,7 @@ describe('Recon adjustment money arcs (e2e, Task 8)', () => {
 
     await adjustments.submit(adjustmentNo, makeActor('E2E_OPS_CREATOR_F7', 'OPS_OFFICER'));
     const approvalCase = await latestApprovalCase(ApprovalActionTypes.RECON_ADJUSTMENT_POST, adjustmentNo);
-    await approvalsService.approve(approvalCase.id, { reason: 'e2e approve scenario 7' }, makeActor('E2E_OPS_APPROVER_F7', 'OPS_OFFICER'));
+    await approvalsService.approve(approvalCase.id, { reason: 'e2e approve scenario 7' }, makeActor('E2E_OPS_APPROVER_F7', 'CFO'));
 
     await waitUntil(async () => (await adjustmentRow(adjustmentNo)).status === AdjustmentStatus.POSTED);
 
@@ -903,7 +903,7 @@ describe('Recon adjustment money arcs (e2e, Task 8)', () => {
     // （同一个反遮蔽陷阱这批已经踩过三次：断言为真的原因与被测规则无关）。
     const soloActor: ApprovalActorContext = {
       actorType: 'ADMIN', userId: 'e2e-uuid-solo-v1', userNo: 'OPS-SOLO-V1',
-      role: 'OPS_OFFICER', roleCodes: ['OPS_OFFICER'],
+      role: 'CFO', roleCodes: ['CFO'],
     };
 
     const { adjustmentNo } = await adjustments.createDraft(
@@ -1014,7 +1014,7 @@ describe('Recon adjustment money arcs (e2e, Task 8)', () => {
     await adjustments.submit(adjustmentNo, makeActor('E2E_OPS_CREATOR_C9', 'OPS_OFFICER'));
     const approvalCase = await latestApprovalCase(ApprovalActionTypes.RECON_ADJUSTMENT_POST, adjustmentNo);
     await approvalsService.approve(
-      approvalCase.id, { reason: 'e2e approve scenario 9' }, makeActor('E2E_OPS_APPROVER_C9', 'OPS_OFFICER'),
+      approvalCase.id, { reason: 'e2e approve scenario 9' }, makeActor('E2E_OPS_APPROVER_C9', 'CFO'),
     );
     await waitUntil(async () => (await adjustmentRow(adjustmentNo)).status === AdjustmentStatus.POSTED);
 
