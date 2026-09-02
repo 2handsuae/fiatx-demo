@@ -65,9 +65,7 @@ export type PermissionGroup =
   | 'WITHDRAWAL_FEE_LEVEL_READ'
   | 'WITHDRAWAL_FEE_LEVEL_WRITE'
   | 'SWAP_FEE_LEVEL_READ'
-  | 'SWAP_FEE_LEVEL_WRITE'
-  | 'INTERNAL_TRANSFER_READ'
-  | 'INTERNAL_TRANSFER_WRITE';
+  | 'SWAP_FEE_LEVEL_WRITE';
 
 export interface RbacPermissionDefinition {
   code: string;
@@ -208,7 +206,6 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
   route('GET', '/admin/iam/roles', 'List role catalog', ['IAM_ROLE_READ']),
   route('GET', '/admin/iam/permissions', 'List permission catalog', ['IAM_ROLE_READ']),
   route('GET', '/admin/iam/users/:id/roles', 'Get user roles', ['IAM_MEMBER_READ']),
-  route('PUT', '/admin/iam/users/:id/roles', 'Replace user roles', ['IAM_ROLE_ASSIGN']),
   route('POST', '/admin/iam/role-change-requests', 'Create role binding change request', ['IAM_ROLE_ASSIGN']),
   route('GET', '/admin/iam/role-change-requests', 'List role binding change requests', ['IAM_ROLE_READ']),
   route('GET', '/admin/iam/role-change-requests/:requestNo', 'Get role binding change request', ['IAM_ROLE_READ']),
@@ -218,7 +215,7 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
   route('GET', '/admin/iam/role-definitions/permission-groups', 'List available permission groups', ['IAM_ROLE_DEFINE']),
   route('POST', '/admin/iam/role-definitions/:roleId/modify', 'Submit role definition modify request', ['IAM_ROLE_DEFINE']),
   route('GET', '/admin/iam/role-definition-modify-requests', 'List role definition modify requests', ['IAM_ROLE_READ']),
-  route('GET', '/admin/iam/role-definition-modify-requests/:id', 'Get role definition modify request detail', ['IAM_ROLE_READ']),
+  route('GET', '/admin/iam/role-definition-modify-requests/:requestNo', 'Get role definition modify request detail', ['IAM_ROLE_READ']),
   route('GET', '/admin/iam/action-buckets', 'List action bucket catalog', ['IAM_ROLE_READ']),
 
   // Customer domain
@@ -251,9 +248,6 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
 
   // Pricing center
   route('POST', '/withdraw-transactions/quotes', 'Create withdrawal pricing quote', ['TRADING_WITHDRAW_WRITE']),
-
-  // Onboarding compliance
-  route('POST', '/admin/compliance/customers/:id/simulate-expired', 'Simulate customer expired', ['DEMO_CLOCK_WRITE']),
 
   // Sumsub events
   route('GET', '/admin/sumsub-events', 'List Sumsub webhook events', ['SUMSUB_EVENT_VIEW']),
@@ -321,8 +315,6 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
   // Withdraw
   route('GET', '/withdraw-transactions', 'List withdraw transactions', ['TRADING_WITHDRAW_READ']),
   route('GET', '/withdraw-transactions/:id', 'Get withdraw transaction detail', ['TRADING_WITHDRAW_READ']),
-  route('POST', '/withdraw-transactions', 'Create withdraw transaction', ['TRADING_WITHDRAW_WRITE']),
-  route('POST', '/withdraw-transactions/mock', 'Mock withdraw transaction', ['TRADING_WITHDRAW_WRITE']),
   route('POST', '/withdraw-transactions/:id/bounce', 'Bounce (return) withdraw transaction payout', ['WITHDRAW_BOUNCE_WRITE']),
   route('POST', '/withdraw-transactions/:id/unfreeze', 'Unfreeze a FROZEN withdraw transaction', ['WITHDRAW_UNFREEZE_WRITE']),
   route('POST', '/withdraw-transactions/:id/refund', 'Sanction-refund a FROZEN withdraw transaction', ['WITHDRAW_REFUND_WRITE']),
@@ -375,12 +367,10 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
   // funds-orders read surface (see "Funds Orders" below).
 
   // Wallet / treasury
-  route('POST', '/wallets', 'Create wallet', ['WALLET_WRITE']),
   route('GET', '/wallets', 'List wallets', ['WALLET_READ']),
   route('GET', '/wallets/:walletNo', 'Get wallet detail', ['WALLET_READ']),
   route('GET', '/wallets/:walletNo/balance', 'Get wallet balance', ['WALLET_READ']),
   route('PATCH', '/wallets/:walletNo/status', 'Update wallet status', ['WALLET_WRITE']),
-  route('GET', '/treasury/customer/:customerId/assets', 'Get customer treasury assets', ['WALLET_READ']),
 
   // Custodian wallet workflow
   route('POST', '/admin/custodian-wallets', 'Create custodian wallet (approval workflow)', ['WALLET_WRITE']),
@@ -409,10 +399,8 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
   route('GET', '/admin/tb/wallets', 'List distinct wallets from account flows', ['LEDGER_FLOW_READ']),
 
   // Assets
-  route('POST', '/assets', 'Create asset', ['ASSET_CONFIG_WRITE']),
   route('GET', '/assets', 'List assets', ['ASSET_CONFIG_READ']),
   route('GET', '/assets/:id', 'Get asset detail', ['ASSET_CONFIG_READ']),
-  route('PATCH', '/assets/:id/status', 'Update asset status', ['ASSET_CONFIG_WRITE']),
   route('POST', '/admin/assets/listing', 'Submit asset listing request', ['ASSET_CONFIG_WRITE']),
   route('PATCH', '/admin/assets/:assetNo', 'Update asset metadata', ['ASSET_CONFIG_WRITE']),
   route('POST', '/admin/assets/:assetNo/activate', 'Activate asset', ['ASSET_CONFIG_WRITE']),
@@ -521,11 +509,6 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
     'WITHDRAWAL_FEE_LEVEL_READ',
   ]),
 
-  // Funds Layer (V7)
-  route('GET', '/admin/funds-layer/transfers', 'List internal transfers', ['INTERNAL_TRANSFER_READ']),
-  route('GET', '/admin/funds-layer/transfers/:internalTxNo', 'Get internal transfer detail', ['INTERNAL_TRANSFER_READ']),
-  route('POST', '/admin/funds-layer/transfers/:internalTxNo/simulate', 'Simulate funds flow step (DEV)', ['INTERNAL_TRANSFER_WRITE']),
-  route('POST', '/admin/funds-layer/fund-return', 'Trigger FUND_RETURN repair', ['INTERNAL_TRANSFER_WRITE']),
   // Settlement + legacy funds-layer/funds routes removed in Round 2 (C5/C6):
   // the delayed-settlement machinery was dropped and the funds read surface
   // moved to the unified /admin/funds-orders controller below.

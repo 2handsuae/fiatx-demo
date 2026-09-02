@@ -321,26 +321,11 @@ function runS6FrontendBackendCodeDiff(): void {
 // 拼接算法的手工镜像，后者若以后改了拼接规则，这里要跟着改，否则会静默漂移——这点
 // 已知且接受（brief 原话「执行者二选一，判据语义相同」）。
 //
-// ⚠️ 死行现状 = 12 行（逐行核实：8 行是旧版直连端点被后续 admin 专用/审批流端点
-// 取代，4 行是 V7 funds-layer 遗留，rbac.catalog.ts 511 行附近注释已明写
-// "legacy"）。Task 26 负责把这 12 行从 catalog.ts 删掉；在那之前 S7 用显式白名单
-// S7_PENDING_DEAD_ROWS 放过它们，白名单外任何新死行一律红。白名单允许过期——
-// Task 26 删完后，其中的 code 就不再出现在 catalog 里，S7 不会因为「白名单条目
-// catalog 里已经没有了」而报错，届时把这份白名单清空即可（不必逐行注销）。
-const S7_PENDING_DEAD_ROWS = new Set<string>([
-  'api.put.admin_iam_users_id_roles', // 旧版直改角色 PUT，已被 role-change-request 审批流取代
-  'api.post.admin_compliance_customers_id_simulate_expired', // 旧 compliance 模块遗留，域已废
-  'api.post.withdraw_transactions', // 旧版直建提现单，已被 workflow 内部建单取代，无对外端点
-  'api.post.withdraw_transactions_mock', // 同上，mock 建单端点已废
-  'api.post.wallets', // 旧版直建钱包，已被托管钱包创建流程取代
-  'api.get.treasury_customer_customerid_assets', // 客户资产改走 /client/portfolio，旧径已废
-  'api.post.assets', // 旧版直建资产，已被 /admin/assets/listing 取代
-  'api.patch.assets_id_status', // 同上，旧状态更新端点已废
-  'api.get.admin_funds_layer_transfers', // V7 funds-layer 遗留，catalog 注释已明写 legacy
-  'api.get.admin_funds_layer_transfers_internaltxno', // 同上
-  'api.post.admin_funds_layer_transfers_internaltxno_simulate', // 同上
-  'api.post.admin_funds_layer_fund_return', // 同上
-]);
+// 已清零，新死行=红。Task 26 把 12 行死行（8 行旧版直连端点 + 4 行 V7
+// funds-layer 遗留）连同 PermissionGroup 联合类型里的 INTERNAL_TRANSFER_READ/
+// WRITE 孤儿组一并从 catalog.ts 删掉——白名单不再放过任何 code，S7 从本轮起
+// 正式上岗：catalog 里出现的每一行都必须对应一个真实端点，否则当场报红。
+const S7_PENDING_DEAD_ROWS = new Set<string>([]);
 
 /** 镜像 admin-permission.guard.ts#buildRequestPermissionCode 的拼接算法——不是重新
  *  发明；两处若不一致，S7 会跟着不准，见上方大注释的已知取舍。 */
@@ -403,7 +388,7 @@ function runS7CatalogDeadRows(): void {
     'S7 catalog 字典真实性（死行仅限 S7_PENDING_DEAD_ROWS 白名单）',
     unexpectedDeadRows.length === 0,
     unexpectedDeadRows.length === 0
-      ? `catalog ${RBAC_PERMISSION_DEFINITIONS.length} 行中死行 ${deadRows.length} 个，全部落在白名单（Task 26 待删）`
+      ? `catalog ${RBAC_PERMISSION_DEFINITIONS.length} 行中死行 ${deadRows.length} 个（白名单已清零，字典 100% 对应真实端点）`
       : `以下 catalog 行找不到对应的真实 controller 端点，且不在白名单内: ${unexpectedDeadRows.map((d) => d.code).join(', ')}`,
   );
 }

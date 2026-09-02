@@ -45,6 +45,8 @@ const ApprovalDetailPage = lazy(() => import('./pages/ApprovalDetailPage'));
 const AdminHomePlaceholder = lazy(() => import('./pages/AdminHomePlaceholder'));
 const RoleChangeRequestsPage = lazy(() => import('./pages/RoleChangeRequestsPage'));
 const RoleChangeRequestDetailPage = lazy(() => import('./pages/RoleChangeRequestDetailPage'));
+const RoleDefinitionModifyRequestsPage = lazy(() => import('./pages/RoleDefinitionModifyRequestsPage'));
+const RoleDefinitionModifyRequestDetailPage = lazy(() => import('./pages/RoleDefinitionModifyRequestDetailPage'));
 const RolesPage = lazy(() => import('./pages/RolesPage'));
 const RoleDetailPage = lazy(() => import('./pages/RoleDetailPage'));
 const MaterialManagementPage = lazy(() => import('./pages/MaterialManagementPage'));
@@ -425,6 +427,8 @@ function App() {
             <Route path="iam/roles/:code" element={withPermission(<RoleDetailPage />, [PERMISSIONS.IAM_ROLES_READ])} />
             <Route path="iam/role-change-requests" element={withPermission(<RoleChangeRequestsPage />, [PERMISSIONS.IAM_ROLES_READ])} />
             <Route path="iam/role-change-requests/:requestNo" element={withPermission(<RoleChangeRequestDetailPage />, [PERMISSIONS.IAM_ROLES_READ])} />
+            <Route path="iam/role-definition-modify-requests" element={withPermission(<RoleDefinitionModifyRequestsPage />, [PERMISSIONS.IAM_ROLE_DEFINITION_MODIFY_REQUESTS_READ])} />
+            <Route path="iam/role-definition-modify-requests/:requestNo" element={withPermission(<RoleDefinitionModifyRequestDetailPage />, [PERMISSIONS.IAM_ROLE_DEFINITION_MODIFY_REQUEST_DETAIL_READ])} />
 
             {/* customers */}
             <Route path="customers" element={withPermission(<CustomerManagement />, [PERMISSIONS.CUSTOMERS_READ])} />

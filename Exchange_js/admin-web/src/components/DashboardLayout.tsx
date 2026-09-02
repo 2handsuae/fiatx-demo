@@ -47,12 +47,24 @@ interface MenuGroup {
 
 type MenuItem = MenuLink | MenuGroup;
 
+// Task 26：Role Requests 单个侧栏项底下挂两条真实路由（Binding Changes /
+// Definition Changes 两个 tab，见 RoleRequestTabs），二者都要让同一个侧栏项亮起。
+const ROLE_DEFINITION_MODIFY_REQUESTS_PATH = '/admin/iam/role-definition-modify-requests';
+
 const isPathActive = (pathname: string, targetPath: string) => {
   if (targetPath === '/admin') {
     return pathname === '/admin' || pathname === '/admin/';
   }
   if (targetPath === '/admin/iam/members') {
     return pathname === targetPath;
+  }
+  if (targetPath === '/admin/iam/role-change-requests') {
+    return (
+      pathname === targetPath ||
+      pathname.startsWith(`${targetPath}/`) ||
+      pathname === ROLE_DEFINITION_MODIFY_REQUESTS_PATH ||
+      pathname.startsWith(`${ROLE_DEFINITION_MODIFY_REQUESTS_PATH}/`)
+    );
   }
   return pathname === targetPath || pathname.startsWith(`${targetPath}/`);
 };
@@ -119,7 +131,7 @@ const DashboardLayout = () => {
         },
         {
           path: '/admin/iam/role-change-requests',
-          label: 'Role Change Requests',
+          label: 'Role Requests',
           icon: <ClipboardList size={13} />,
           requiredPermissions: [PERMISSIONS.IAM_ROLES_READ],
         },
