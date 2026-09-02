@@ -1285,3 +1285,43 @@ describe('listCases 进度与 decimals', () => {
     expect(rows[0].decimals).toBe(0);
   });
 });
+
+describe('平账 A 批：案件页按跑批截止时刻重建差异行（spec §6.1）', () => {
+  function prismaForCase(cutoffAt: Date | null) {
+    const kase = {
+      id: 'c1', caseNo: 'REC20260902-007', businessDate: '2026-09-02', assetCode: 'USDT-TRON', walletRef: 'w-1', status: 'OPEN',
+      book: 'CLIENT', lastObservedRunId: 'run-x', firstSeenRunId: 'run-x', closedByRunId: null, openedByRunId: 'run-x',
+      tbAmount: new Prisma.Decimal(0), actualExternal: new Prisma.Decimal(0), deltaAmount: new Prisma.Decimal(0),
+      createdAt: new Date(), lineItems: [],
+    };
+    return {
+      reconciliationCase: { findUnique: jest.fn().mockResolvedValue(kase) },
+      reconciliationRun: { findUnique: jest.fn().mockResolvedValue({ runNo: 'RUN20260902-1', businessDate: '2026-09-02', cutoffAt, startedAt: new Date(), completedAt: new Date() }) },
+      reconciliationDisposition: { findMany: jest.fn().mockResolvedValue([]) },
+      reconciliationAdjustment: { findMany: jest.fn().mockResolvedValue([]) },
+      externalBalance: { findMany: jest.fn().mockResolvedValue([]) },
+      externalStatementLine: { findMany: jest.fn().mockResolvedValue([]) },
+      accountFlow: { findMany: jest.fn().mockResolvedValue([]) },
+      asset: { findUnique: jest.fn().mockResolvedValue({ decimals: 6, currency: 'USDT' }) },
+      wallet: { findUnique: jest.fn().mockResolvedValue({ walletNo: 'WA1' }) },
+      fundsOrder: { findMany: jest.fn().mockResolvedValue([]) },
+    };
+  }
+  it('run 记了 cutoffAt → 外部行与内部流水都按它截止', async () => {
+    const cutoffAt = new Date('2026-09-02T10:00:00Z');
+    const prisma: any = prismaForCase(cutoffAt);
+    const flowMatcher = { matchFlows: jest.fn().mockResolvedValue({ matched: [], orphanInternal: [], orphanExternal: [], mismatch: [] }) };
+    await mkSvc(prisma, { flowMatcher }).getCase('REC20260902-007');
+    expect(prisma.externalStatementLine.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ datetime: { lte: cutoffAt } }),
+    }));
+    expect(flowMatcher.matchFlows).toHaveBeenCalledWith(expect.objectContaining({ cutoff: cutoffAt }));
+  });
+  it('历史 run 没记 cutoffAt → 回落当天日终', async () => {
+    const prisma: any = prismaForCase(null);
+    await mkSvc(prisma).getCase('REC20260902-007');
+    expect(prisma.externalStatementLine.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ datetime: { lte: new Date('2026-09-02T23:59:59.999Z') } }),
+    }));
+  });
+});

@@ -125,7 +125,7 @@ describe('WalletReconRunService', () => {
     expect(result.casesOpened).toBe(0);
     expect(deps.prisma.reconciliationRun.create).toHaveBeenCalledWith(
       expect.objectContaining({
-        data: expect.objectContaining({ layer: 'WALLET' }),
+        data: expect.objectContaining({ layer: 'WALLET', cutoffAt: cutoff }),
       }),
     );
   });
@@ -783,5 +783,19 @@ describe('平账 A 批：开案设账龄截止（spec §2.1）', () => {
     expect(deps.prisma.reconciliationCase.create).not.toHaveBeenCalled();
     const updateData = deps.prisma.reconciliationCase.update.mock.calls[0][0].data;
     expect(updateData).not.toHaveProperty('slaDeadline');
+  });
+});
+
+describe('平账 A 批：跑批完成审计带截止时刻（spec §6.1 / §2.8）', () => {
+  it('RECON_RUN_COMPLETED metadata.cutoffAt = 本轮截止', async () => {
+    const deps = makeDeps();
+    deps.prisma.reconciliationRun.create.mockResolvedValue({ id: 'run-c', runNo: 'RUN20260901-2', traceId: 't' });
+    deps.prisma.externalBalance.findMany.mockResolvedValue([]);
+    const svc = new WalletReconRunService(deps.prisma, deps.balanceChecker as any, deps.flowMatcher as any, deps.tigerBeetle as any, deps.auditLogs as any, deps.explainedDifferences as any);
+    (svc as any).computeInternalIdentity = jest.fn().mockResolvedValue({ balanced: true, breaks: [] });
+    const cutoff = new Date('2026-09-01T10:00:00Z');
+    await svc.run({ cutoff });
+    const done = deps.auditLogs.recordSystem.mock.calls.find((c: any[]) => c[0].action === 'RECON_RUN_COMPLETED')![0];
+    expect(done.metadata.cutoffAt).toBe('2026-09-01T10:00:00.000Z');
   });
 });

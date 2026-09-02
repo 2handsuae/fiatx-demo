@@ -118,7 +118,7 @@ export class WalletReconRunService {
 
     // Stamp the run row up-front so callers always get a runId, even if
     // pre-gate trips.
-    const run = await this.createRun(businessDate, input.manifest, actor ? 'MANUAL' : 'SCHEDULED');
+    const run = await this.createRun(businessDate, input.manifest, actor ? 'MANUAL' : 'SCHEDULED', cutoff);
 
     // ── 1. Internal-identity pre-gate ──────────────────────────────────────
     const identity = await this.computeInternalIdentity(cutoff);
@@ -424,6 +424,7 @@ export class WalletReconRunService {
       casesReObserved: casesUpdated,
       casesAutoHealed: closedCount,
       bucketCounts,
+      cutoffAt: cutoff,
     });
 
     return {
@@ -450,7 +451,7 @@ export class WalletReconRunService {
   }
 
   // ── run row helpers ────────────────────────────────────────────────────────
-  private async createRun(businessDate: string, manifest: unknown, triggerType: 'MANUAL' | 'SCHEDULED') {
+  private async createRun(businessDate: string, manifest: unknown, triggerType: 'MANUAL' | 'SCHEDULED', cutoff: Date) {
     const prior = await (this.prisma as any).reconciliationRun.count({
       where: { businessDate, layer: RUN_LAYER },
     });
@@ -469,6 +470,7 @@ export class WalletReconRunService {
         status: 'RUNNING',
         traceId: randomUUID(),
         demoManifest: manifest ? JSON.stringify(manifest) : null,
+        cutoffAt: cutoff,
       },
     });
   }
@@ -1017,6 +1019,7 @@ export class WalletReconRunService {
     casesReObserved: number;
     casesAutoHealed: number;
     bucketCounts: { matched: number; inTransit: number; softFlag: number; break: number };
+    cutoffAt: Date;
   }): Promise<void> {
     // 双通道（同动作不因语境拆名）：cron 走系统通道，管理员触发记他名字——
     // 主对象号用业务跑批号 runNo，不漏内部 UUID。
@@ -1042,6 +1045,7 @@ export class WalletReconRunService {
         casesOpened: input.casesOpened,
         casesReObserved: input.casesReObserved,
         casesAutoHealed: input.casesAutoHealed,
+        cutoffAt: input.cutoffAt.toISOString(),
       },
     } as any;
     if (input.actor) await this.auditLogs.recordByActor(envelope, input.actor as any);

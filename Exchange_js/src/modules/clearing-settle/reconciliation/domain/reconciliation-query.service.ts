@@ -421,7 +421,7 @@ export class ReconciliationQueryService {
       kase.lastObservedRunId
         ? this.prisma.reconciliationRun.findUnique({
             where: { id: kase.lastObservedRunId },
-            select: { runNo: true, businessDate: true, completedAt: true },
+            select: { runNo: true, businessDate: true, completedAt: true, cutoffAt: true },
           })
         : Promise.resolve(null),
       kase.status === 'RESOLVED' && kase.closedByRunId
@@ -435,10 +435,13 @@ export class ReconciliationQueryService {
     let flowComparison: FlowComparisonRow[] = [];
     let flowSummary: FlowComparisonSummary = { matched: 0, orphanInternal: 0, orphanExternal: 0, mismatch: 0 };
     if (kase.walletRef && !kase.walletRef.startsWith('XREF:')) {
-      // Cutoff = the businessDate of the run that most recently observed this
-      // case, not kase.businessDate (frozen at first-seen under cross-day reuse).
+      // 平账 A 批（spec §6.1）：截止 = 最近一次观察它的那轮跑批**实际用的截止时刻**，
+      // 不再是当天 23:59:59——跑批用精确时刻（演示传的 cutoff / 手动触发的 ISO），
+      // 页面按日终重建会把「截止点后 6 小时」的跨日切外部行落回窗内，孤儿消失、无行可处置。
+      // 历史 run 没记 cutoffAt 时回落日终（改动前的行为）。
       const cutoffBusinessDate = lastObservedRun?.businessDate ?? kase.businessDate;
-      const built = await this.buildFlowComparison({ walletRef: kase.walletRef, businessDate: cutoffBusinessDate, assetCode: kase.assetCode });
+      const cutoff: Date = lastObservedRun?.cutoffAt ?? new Date(`${cutoffBusinessDate}T23:59:59.999Z`);
+      const built = await this.buildFlowComparison({ walletRef: kase.walletRef, cutoff, businessDate: cutoffBusinessDate, assetCode: kase.assetCode });
       flowComparison = built.rows;
       flowSummary = built.summary;
     }
@@ -771,15 +774,10 @@ export class ReconciliationQueryService {
    * populated; orphan rows have one side null.
    */
   private async buildFlowComparison(
-    kase: { walletRef: string; businessDate: string; assetCode: string },
+    kase: { walletRef: string; cutoff: Date; businessDate: string; assetCode: string },
   ): Promise<{ rows: FlowComparisonRow[]; summary: FlowComparisonSummary }> {
-    // T6: cutoff comes from kase.businessDate here, but the CALLER (getCase)
-    // now passes the businessDate of the case's lastObservedRunId run — not
-    // the case's own frozen businessDate (which stays pinned to the
-    // first-seen day under cross-day case reuse, T5 §2.5). Using the stale
-    // first-seen day here would compare against day-old external/internal
-    // data after a case has been re-observed on a later day.
-    const cutoff = new Date(`${kase.businessDate}T23:59:59.999Z`);
+    // cutoff 由 getCase 决定（run.cutoffAt 优先，历史行回落日终），本函数不再自算。
+    const cutoff = kase.cutoff;
 
     // 1. Source datasets.
     const accountRefs = (await (this.prisma as any).externalBalance.findMany({
