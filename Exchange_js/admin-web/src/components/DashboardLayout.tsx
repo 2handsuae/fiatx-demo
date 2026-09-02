@@ -117,6 +117,12 @@ const DashboardLayout = () => {
           icon: <ShieldCheck size={13} />,
           requiredPermissions: [PERMISSIONS.IAM_ROLES_READ],
         },
+        {
+          path: '/admin/iam/role-change-requests',
+          label: 'Role Change Requests',
+          icon: <ClipboardList size={13} />,
+          requiredPermissions: [PERMISSIONS.IAM_ROLES_READ],
+        },
       ],
     },
     // ─── Customers ────────────────────────────────────────────────

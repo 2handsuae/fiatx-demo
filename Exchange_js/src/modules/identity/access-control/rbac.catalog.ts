@@ -211,7 +211,7 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
   route('PUT', '/admin/iam/users/:id/roles', 'Replace user roles', ['IAM_ROLE_ASSIGN']),
   route('POST', '/admin/iam/role-change-requests', 'Create role binding change request', ['IAM_ROLE_ASSIGN']),
   route('GET', '/admin/iam/role-change-requests', 'List role binding change requests', ['IAM_ROLE_READ']),
-  route('GET', '/admin/iam/role-change-requests/:id', 'Get role binding change request', ['IAM_ROLE_READ']),
+  route('GET', '/admin/iam/role-change-requests/:requestNo', 'Get role binding change request', ['IAM_ROLE_READ']),
   route('POST', '/admin/iam/users/:userNo/reset-mfa', 'Reset admin MFA binding', ['IAM_CREDENTIAL_RESET']),
   route('POST', '/users/:userNo/reset-password', 'Reset admin password (C5)', ['IAM_CREDENTIAL_RESET']),
   route('POST', '/admin/iam/role-definitions', 'Create role definition request', ['IAM_ROLE_DEFINE']),

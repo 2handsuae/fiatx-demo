@@ -12,7 +12,9 @@ export const PERMISSIONS = {
   IAM_USER_ROLES_WRITE: 'api.put.admin_iam_users_id_roles',
   IAM_ROLE_CHANGE_REQUESTS_CREATE: 'api.post.admin_iam_role_change_requests',
   IAM_ROLE_CHANGE_REQUESTS_READ: 'api.get.admin_iam_role_change_requests',
-  IAM_ROLE_CHANGE_REQUEST_DETAIL_READ: 'api.get.admin_iam_role_change_requests_id',
+  // Task 25：详情端点改按 requestNo 查询后，rbac.catalog.ts 的 :id → :requestNo 一起漂——
+  // 同 6-7 行 Task 18 那条镜像约定。
+  IAM_ROLE_CHANGE_REQUEST_DETAIL_READ: 'api.get.admin_iam_role_change_requests_requestno',
   USERS_SUSPEND: 'api.post.users_userno_suspend',
   USERS_REACTIVATE: 'api.post.users_userno_reactivate',
   USERS_RESET_MFA: 'api.post.admin_iam_users_userno_reset_mfa',

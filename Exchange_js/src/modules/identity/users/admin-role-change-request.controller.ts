@@ -4,7 +4,6 @@ import {
   ForbiddenException,
   Get,
   Param,
-  ParseUUIDPipe,
   Post,
   Query,
   Req,
@@ -68,16 +67,16 @@ export class AdminRoleChangeRequestController {
     return this.workflowService.findRoleChangeRequests(query);
   }
 
-  @Get(':id')
-  @RequirePermissions(buildPermissionCode('GET', '/admin/iam/role-change-requests/:id'))
+  @Get(':requestNo')
+  @RequirePermissions(buildPermissionCode('GET', '/admin/iam/role-change-requests/:requestNo'))
   @ApiOperation({ summary: 'Get admin role binding change request detail' })
   findRoleChangeRequest(
     @Req() req: any,
-    @Param('id', new ParseUUIDPipe()) id: string,
+    @Param('requestNo') requestNo: string,
   ) {
     if (req.user?.type !== 'ADMIN') {
       throw new ForbiddenException('Admin token required');
     }
-    return this.workflowService.findRoleChangeRequest(id);
+    return this.workflowService.findRoleChangeRequest(requestNo);
   }
 }

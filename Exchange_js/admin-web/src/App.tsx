@@ -423,6 +423,8 @@ function App() {
             <Route path="iam/members/:userNo" element={withPermission(<PlatformMemberDetailPage />, [PERMISSIONS.USERS_READ])} />
             <Route path="iam/roles" element={withPermission(<RolesPage />, [PERMISSIONS.IAM_ROLES_READ])} />
             <Route path="iam/roles/:code" element={withPermission(<RoleDetailPage />, [PERMISSIONS.IAM_ROLES_READ])} />
+            <Route path="iam/role-change-requests" element={withPermission(<RoleChangeRequestsPage />, [PERMISSIONS.IAM_ROLES_READ])} />
+            <Route path="iam/role-change-requests/:requestNo" element={withPermission(<RoleChangeRequestDetailPage />, [PERMISSIONS.IAM_ROLES_READ])} />
 
             {/* customers */}
             <Route path="customers" element={withPermission(<CustomerManagement />, [PERMISSIONS.CUSTOMERS_READ])} />

@@ -43,19 +43,19 @@ const parseRoles = (json: string): string[] => {
 };
 
 export default function RoleChangeRequestDetailPage() {
-  const { id } = useParams<{ id: string }>();
+  const { requestNo } = useParams<{ requestNo: string }>();
   const navigate = useNavigate();
   const [data, setData] = useState<RoleChangeRequest | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const fetchDetail = async () => {
-    if (!id) { setError('ID required.'); setLoading(false); return; }
+    if (!requestNo) { setError('Request No required.'); setLoading(false); return; }
     setLoading(true);
     setError(null);
     try {
       const res = await adminFetch(
-        `${import.meta.env.VITE_API_URL}/admin/iam/role-change-requests/${id}`,
+        `${import.meta.env.VITE_API_URL}/admin/iam/role-change-requests/${requestNo}`,
       );
       if (!res.ok) throw new Error(await getApiErrorMessage(res, 'Failed to load request.'));
       setData((await res.json()) as RoleChangeRequest);
@@ -71,7 +71,7 @@ export default function RoleChangeRequestDetailPage() {
     }
   };
 
-  useEffect(() => { void fetchDetail(); }, [id]);
+  useEffect(() => { void fetchDetail(); }, [requestNo]);
 
   if (loading) {
     return (
@@ -87,7 +87,7 @@ export default function RoleChangeRequestDetailPage() {
       <div className="flex h-full flex-col overflow-hidden">
         <div className="shrink-0 border-b border-adm-border bg-adm-panel px-6 py-4 flex items-center gap-2">
           <button
-            onClick={() => navigate('/dashboard/members/role-change-requests')}
+            onClick={() => navigate('/admin/iam/role-change-requests')}
             className={adminButtonClass('detailUtility')}
           >
             ← Back
@@ -114,7 +114,7 @@ export default function RoleChangeRequestDetailPage() {
     <div className="flex h-full flex-col overflow-hidden">
       <DetailPageHeader
         title="Role Change Request"
-        onBack={() => navigate('/dashboard/members/role-change-requests')}
+        onBack={() => navigate('/admin/iam/role-change-requests')}
         onRefresh={() => void fetchDetail()}
         refreshing={loading}
         backLabel="Role Change Requests"
@@ -147,7 +147,7 @@ export default function RoleChangeRequestDetailPage() {
             <div>
               <p className="mb-1 font-mono text-[8.5px] uppercase tracking-[0.14em] text-adm-t3">Target User</p>
               <p className="font-mono text-[11px] text-adm-t2">
-                {data.targetUser?.userNo || data.targetUserId.slice(0, 8)}
+                {data.targetUser?.userNo ?? '—'}
               </p>
               {data.targetUser?.email && (
                 <p className="mt-0.5 font-mono text-[9px] text-adm-t3">{data.targetUser.email}</p>

@@ -34,7 +34,7 @@ export class CreateRoleChangeRequestDto {
 export class RoleChangeRequestQueryDto {
   @IsOptional()
   @IsString()
-  targetUserId?: string;
+  targetUserNo?: string;
 
   @IsOptional()
   @IsString()

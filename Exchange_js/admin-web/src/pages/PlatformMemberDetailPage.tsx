@@ -213,8 +213,9 @@ export default function PlatformMemberDetailPage() {
         },
       );
       if (!res.ok) throw new Error(await getApiErrorMessage(res, 'Failed to submit role change request'));
+      const created = (await res.json()) as { requestNo: string };
       setShowRoleChangeModal(false);
-      setNotice('Role change request submitted for approval.');
+      navigate(`/admin/iam/role-change-requests/${created.requestNo}`);
     } catch (err: unknown) {
       if (err instanceof AdminSessionError) return;
       setError(err instanceof Error ? err.message : 'Failed to submit role change request.');

@@ -157,7 +157,7 @@ export class AdminRoleBindingChangeWorkflowService {
     const page = query.page || 1;
     const limit = query.limit || 20;
     const where: any = { deletedAt: null };
-    if (query.targetUserId) where.targetUserId = query.targetUserId;
+    if (query.targetUserNo) where.targetUser = { userNo: query.targetUserNo };
     if (query.status) where.status = query.status;
 
     const [items, total] = await Promise.all([
@@ -174,9 +174,9 @@ export class AdminRoleBindingChangeWorkflowService {
     return { items, total, page, limit };
   }
 
-  async findRoleChangeRequest(id: string) {
+  async findRoleChangeRequest(requestNo: string) {
     const request = await (this.prisma as any).adminRoleChangeRequest.findFirst({
-      where: { id, deletedAt: null },
+      where: { requestNo, deletedAt: null },
       include: { targetUser: { select: { id: true, userNo: true, email: true } } },
     });
     if (!request) {

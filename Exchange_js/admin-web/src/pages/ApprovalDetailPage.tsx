@@ -89,9 +89,10 @@ const joinOrDash = (arr?: string[] | null): string =>
    - 交易域（deposit/withdraw）详情路由仍是内部 id，用列表页 + keyword 定位；
      当前 3 张列表页尚未消费该 query 参数（未读 location.search），故此链接
      落地到正确页面但不会自动预填筛选框——超出本任务声明的文件范围，未跟着改。
-   - 治理域 4 类（角色绑定变更/角色修改/审批策略变更/证据包导出）entityRef
-     虽已是业务号（requestNo/packageNo），但其唯一详情端点仍按内部 UUID
-     查询（ParseUUIDPipe 或 where:{id}），映射会 404——不硬造，留纯文本。
+   - 治理域仍有 3 类（角色修改/审批策略变更/证据包导出）entityRef 虽已是
+     业务号（requestNo/packageNo），但其唯一详情端点仍按内部 UUID 查询
+     （ParseUUIDPipe 或 where:{id}），映射会 404——不硬造，留纯文本。角色
+     绑定变更详情端点已在 Task 25 改按 requestNo 查询，映射已补（见下）。
    - 费率变更（*_FEE_LEVEL_CHANGE）entityRef 是变更请求 requestNo 而非
      levelCode，无可寻址详情页——同样留纯文本。
    映射缺席 = Field 保持纯文本展示（原状）。 */
@@ -122,6 +123,7 @@ const ENTITY_ROUTE_BY_ACTION: Record<string, (ref: string) => string | null> = {
   ADMIN_PASSWORD_RESET: (r) => `/admin/iam/members/${r}`,
   ADMIN_MFA_RESET: (r) => `/admin/iam/members/${r}`,
   ROLE_DEFINITION_CREATE: (r) => `/admin/iam/roles/${r}`,
+  ADMIN_ROLE_BINDING_CHANGE_APPROVAL: (r) => `/admin/iam/role-change-requests/${r}`,
   // 对账域（entityRef = adjustmentNo）
   RECON_ADJUSTMENT_POST: (r) => `/admin/reconciliation/adjustments/${r}`,
 };
