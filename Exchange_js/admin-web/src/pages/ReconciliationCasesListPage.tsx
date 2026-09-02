@@ -36,6 +36,7 @@ interface ReconCase {
   deltaAmount: string;
   status: string;
   aging: number;
+  slaBreached: boolean;   // 平账 A 批：账龄到线标记
   firstSeenRunId: string | null;
   lastUpdatedRunId: string | null;
   firstSeenRunNo: string | null;    // business No (e.g. "RUN-0042")
@@ -292,11 +293,16 @@ const ReconciliationCasesListPage = () => {
                       </span>
                     </td>
 
-                    {/* Aging — tier-coloured days since first seen */}
+                    {/* Aging — tier-coloured days since first seen；到线加「超期」红标（平账 A 批） */}
                     <td className="px-4 py-2.5 text-right">
                       <span className={`font-mono text-[11px] ${agingClass(kase.aging)}`}>
                         {kase.aging}d
                       </span>
+                      {kase.slaBreached && (
+                        <span className="ml-1 rounded border border-adm-red/30 bg-adm-red/10 px-1 py-0.5 font-mono text-[9px] font-semibold text-adm-red">
+                          超期
+                        </span>
+                      )}
                     </td>
 
                     {/* Δ — bold+signed when non-zero; muted "balanced" when zero */}
@@ -313,7 +319,7 @@ const ReconciliationCasesListPage = () => {
 
                     {/* First Run */}
                     <td className="px-4 py-2.5 font-mono text-[10px] text-adm-t2">
-                      <span title={kase.firstSeenRunId ?? undefined}>
+                      <span>
                         {kase.firstSeenRunNo ?? '—'}
                       </span>
                     </td>
@@ -325,7 +331,7 @@ const ReconciliationCasesListPage = () => {
                       ) : sameRun ? (
                         <span className="italic text-adm-t3">(same)</span>
                       ) : (
-                        <span className="text-adm-t2" title={kase.lastUpdatedRunId ?? undefined}>
+                        <span className="text-adm-t2">
                           {kase.lastUpdatedRunNo}
                         </span>
                       )}

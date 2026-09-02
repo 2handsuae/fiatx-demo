@@ -42,6 +42,7 @@ import {
   getApiErrorMessage,
 } from '../utils/adminFetch';
 import { triggerWalletReconRun } from '../utils/reconRunTrigger';
+import { useSimulationMode } from '../utils/simulationMode';
 import ReconciliationAdjustmentCreateModal, {
   REASON_META,
   type AdjustmentBook,
@@ -186,6 +187,7 @@ interface ReconCaseDetail {
   closedByRunId: string | null;
   lastObservedRunId: string | null;
   slaDeadline: string | null;         // NEW — ISO timestamp or null
+  slaBreached: boolean;
   traceId: string | null;
   createdAt: string;
   updatedAt: string;
@@ -419,6 +421,10 @@ const ReconciliationCasesDetailPage = () => {
   const [adjustLocked, setAdjustLocked] = useState<AdjustmentLocked | null>(null);
   // T8: 处置弹层——null = 关闭；非 null = 打开且带着被点击的那一行。
   const [dispositionRow, setDispositionRow] = useState<FlowComparisonRow | null>(null);
+  // 平账 A 批（spec §2.4）：⚡拨钟——只在模拟模式下出现；已超期 / 已结案就不再需要它。
+  const { enabled: simEnabled } = useSimulationMode();
+  const [agingSubmitting, setAgingSubmitting] = useState(false);
+  const [agingNotice, setAgingNotice] = useState('');
 
   const tableRef = useRef<HTMLTableElement | null>(null);
 
@@ -455,6 +461,29 @@ const ReconciliationCasesDetailPage = () => {
       if (ok) await fetchCase();
     } finally {
       setReconciling(false);
+    }
+  };
+
+  const handleSimulateAging = async () => {
+    if (!kase) return;
+    setAgingSubmitting(true);
+    setAgingNotice('');
+    try {
+      const res = await adminFetch(
+        `${import.meta.env.VITE_API_URL}/admin/reconciliation/cases/${encodeURIComponent(kase.caseNo)}/simulate-aging-timeout`,
+        { method: 'POST' },
+      );
+      if (!res.ok) {
+        setAgingNotice(await getApiErrorMessage(res, 'Failed to fast-forward aging.'));
+        return;
+      }
+      setAgingNotice('截止已拨到过去，下一分钟扫描即超期 / Deadline moved to the past — next scan will breach it');
+      await fetchCase();
+    } catch (error) {
+      if (error instanceof AdminSessionError) return;
+      setAgingNotice('Failed to fast-forward aging.');
+    } finally {
+      setAgingSubmitting(false);
     }
   };
 
@@ -585,6 +614,12 @@ const ReconciliationCasesDetailPage = () => {
                   ].join(' ')}
                 >
                   {kase.severity}
+                </span>
+              )}
+              {kase.slaBreached && kase.slaDeadline && (
+                <span className="inline-flex items-center gap-1 rounded border border-adm-red/30 bg-adm-red/10 px-2 py-0.5 font-mono text-[10px] font-semibold uppercase tracking-wider text-adm-red">
+                  <AlertTriangle size={10} />
+                  超期 {Math.max(1, Math.floor((Date.now() - new Date(kase.slaDeadline).getTime()) / 86_400_000))} 天
                 </span>
               )}
               <StatusPill value={kase.status} size="md" />
@@ -1038,6 +1073,17 @@ const ReconciliationCasesDetailPage = () => {
               <RefreshCw size={12} className={reconciling ? 'animate-spin' : ''} />
               重新对账 / Re-reconcile
             </button>
+            {simEnabled && kase.status === 'OPEN' && kase.slaDeadline && !kase.slaBreached && (
+              <button
+                type="button"
+                disabled={agingSubmitting}
+                onClick={() => void handleSimulateAging()}
+                className="mt-2 flex w-full items-center justify-center gap-1.5 rounded border border-amber-300 px-3 py-2 font-mono text-[12px] text-amber-700 hover:bg-amber-50 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                ⚡ 拨到超期 / Fast-forward aging
+              </button>
+            )}
+            {agingNotice && <p className="mt-2 font-mono text-[10px] text-adm-t3">{agingNotice}</p>}
           </SidebarGroup>
 
           <SidebarGroup title="Identity Summary">

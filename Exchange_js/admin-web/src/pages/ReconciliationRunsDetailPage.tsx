@@ -587,10 +587,7 @@ const ReconciliationRunsDetailPage = () => {
                                 <div className="font-mono text-[11px] font-semibold text-adm-t1">
                                   {row.walletRole ?? '(unknown)'}
                                 </div>
-                                <div
-                                  className="font-mono text-[10px] text-adm-t3"
-                                  title={row.walletRef}
-                                >
+                                <div className="font-mono text-[10px] text-adm-t3">
                                   {displayWallet}
                                 </div>
                               </td>
