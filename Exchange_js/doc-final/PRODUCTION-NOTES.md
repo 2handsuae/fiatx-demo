@@ -506,3 +506,4 @@
 - [2026-08-31] **`verify:rbac` 的 V3 夹具会被上一轮残留的 PENDING 审批单干扰（偶发首跑假红）** ｜ `scripts/verify-rbac.ts` V3 段 ｜ 第一幕职权重划实测
 
   实测现象：跑完一轮**失败的**校验（S5 变异测试）后紧接着复跑，首跑报 1 条 FAIL，随后连续三跑全绿。判断是上一轮留下的 `SWAP_FEE_LEVEL_CREATION` PENDING 审批单被下一轮的 V3 夹具捡到造成的状态串扰。**不修**——修法要么给夹具加清理逻辑（等于给受治理对象造删除端点，属扩范围），要么让夹具挑更精确的单（等于加去重，禁做清单）。已知规避：按 `demo/baseline.md` 钉的顺序 `verify:rbac → stack.sh reset → demo:all` 跑，重铺把残留一并冲掉；若确需连跑两轮，第二轮出现单条 FAIL 时先重铺再复判，不要直接当真红。
+- [2026-09-02] **retryCreate 的 `approvalCase!.traceId` 假设单一创建来源** ｜ `custodian-wallet-create-workflow.service.ts:369`：客户自助 C_DEP/C_VIBAN 钱包（`customer-deposit-wallet.service.ts`）失败也落 FAILED 但无 ApprovalCase，通用 Retry 入口不分来源——真打到会 TypeError。现不可达（mock 适配器永不抛、种子无 FAILED 钱包），故障场景按 rubric 归兜底桶（四模块治愈 Task 15 审查发现）
