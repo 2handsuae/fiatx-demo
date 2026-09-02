@@ -395,6 +395,15 @@ describe('Recon case aging → write-off e2e (平账 A 批, Task 12)', () => {
   // ── scenarios ────────────────────────────────────────────────────────────
 
   it('主链路：查无果 → 拨钟 → 扫描超期（留痕）→ 金库开核销单 → CFO 批 → 落账（借运营/贷公司资产 7）→ 重对账 RESOLVED', async () => {
+    // 同日 reset self 重跑会复用同一个 caseNo（reconciliation_cases 被清空重铺，
+    // audit_log_events 不会）——按 caseNo 查审计会连上一轮session 遗留的历史行
+    // 一起捞出来。AuditLogEvent 没有 createdAt 列（组 B 时间只有 occurredAt /
+    // recordedAt / effectiveDate，见 prisma/schema.prisma 的 model 定义）；
+    // recordedAt 由 AuditLogsService 在写入路径无条件盖成 `new Date()`（不像
+    // occurredAt 可以被调用方传入的业务时间覆盖，audit-logs.service.ts:1027-1028），
+    // 是「这行到底是不是本次跑写的」唯一靠得住的时间锚，故拿它给下面的账龄审计
+    // 查询圈定下限，不削断言本身。
+    const testStartedAt = new Date();
     const ledger = 1; // AED
     const wallet = await createFirmWallet({ assetId: aedAssetId, walletRole: 'F_FEE', type: 'FIAT_BANK' });
     const REF = `E2E-WO-${randomUUID().slice(0, 8)}`;
@@ -435,7 +444,7 @@ describe('Recon case aging → write-off e2e (平账 A 批, Task 12)', () => {
     const breached = await (prisma as any).reconciliationCase.findUnique({ where: { id: kase.id } });
     expect(breached.slaBreached).toBe(true);
     expect(breached.status).toBe('OPEN');
-    const agingAudits = await (prisma as any).auditLogEvent.findMany({ where: { primarySubjectNo: kase.caseNo, action: { in: ['RECON_AGING_TIMEOUT_SIMULATED', 'RECON_CASE_AGING_BREACHED'] } } });
+    const agingAudits = await (prisma as any).auditLogEvent.findMany({ where: { primarySubjectNo: kase.caseNo, recordedAt: { gte: testStartedAt }, action: { in: ['RECON_AGING_TIMEOUT_SIMULATED', 'RECON_CASE_AGING_BREACHED'] } } });
     expect(agingAudits.map((a: any) => a.action).sort()).toEqual(['RECON_AGING_TIMEOUT_SIMULATED', 'RECON_CASE_AGING_BREACHED']);
 
     // 读面解锁：nextStep = WRITE_OFF 四项
