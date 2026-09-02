@@ -551,7 +551,7 @@ describe('Recon reattribution + disposition behaviour (e2e, Task 12)', () => {
     expect(JSON.parse(approvalCase.objectSnapshot).toOwnerNo).toBe(daveNo);
 
     await approvalsService.approve(
-      approvalCase.id, { reason: 'e2e approve reattribution' }, makeActor('E2E_OPS_APPROVER_A', 'CFO'),
+      approvalCase.approvalNo, { reason: 'e2e approve reattribution' }, makeActor('E2E_OPS_APPROVER_A', 'CFO'),
     );
 
     // ⚠ 落账在 @OnEvent(APPROVED) handler 里异步跑，handler 抛的异常本仓库现状
