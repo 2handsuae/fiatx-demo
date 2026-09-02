@@ -88,12 +88,14 @@ describe('assertReasonAllowed —— 成因 × 账簿 × 方向 合法组合写�
     expect(() => assertReasonAllowed('WITHDRAW_VOID_REFUND', 'FIRM', 'INCREASE')).toThrow(BadRequestException);
   });
 
-  it('成因清单恰好八个（含第四族改记），且无兜底档', () => {
+  it('成因清单恰好十个（含第四族改记 + 平账 A 批两码），且无兜底档', () => {
     const codes = Object.keys(REASON_SPECS).sort();
     expect(codes).toEqual([
       'BANK_CHARGE', 'BANK_INTEREST',
       'CUSTOMER_REATTRIBUTION',
       'DEPOSIT_AMOUNT_CORRECTION', 'DEPOSIT_DUPLICATE_REVERSAL', 'DEPOSIT_SIGNAL_VOID',
+      'FIRM_ENTRY_REVERSAL',
+      'UNEXPLAINED_WRITE_OFF',
       'WITHDRAW_AMOUNT_CORRECTION', 'WITHDRAW_VOID_REFUND',
     ]);
   });
@@ -106,13 +108,13 @@ describe('assertReasonAllowed —— 成因 × 账簿 × 方向 合法组合写�
 });
 
 describe('第四族 REATTRIBUTE（spec §6）', () => {
-  it('族划分覆盖全部 8 码、无遗漏无重叠', () => {
+  it('族划分覆盖既有四族、无遗漏无重叠（第五族 WRITE_OFF 见 cause-registry.spec 的 resolveWriteOff 用例）', () => {
     const byFamily: Record<string, string[]> = {};
     for (const [code, spec] of Object.entries(REASON_SPECS)) {
       (byFamily[(spec as any).family] ??= []).push(code);
     }
     expect(byFamily.CORRECT!.sort()).toEqual(['DEPOSIT_AMOUNT_CORRECTION', 'WITHDRAW_AMOUNT_CORRECTION']);
-    expect(byFamily.REVERSE!.sort()).toEqual(['DEPOSIT_DUPLICATE_REVERSAL', 'DEPOSIT_SIGNAL_VOID', 'WITHDRAW_VOID_REFUND']);
+    expect(byFamily.REVERSE!.sort()).toEqual(['DEPOSIT_DUPLICATE_REVERSAL', 'DEPOSIT_SIGNAL_VOID', 'FIRM_ENTRY_REVERSAL', 'WITHDRAW_VOID_REFUND']);
     expect(byFamily.RECORD!.sort()).toEqual(['BANK_CHARGE', 'BANK_INTEREST']);
     expect(byFamily.REATTRIBUTE).toEqual(['CUSTOMER_REATTRIBUTION']);
   });
@@ -124,5 +126,25 @@ describe('第四族 REATTRIBUTE（spec §6）', () => {
   });
   it('改记不走 book×direction 语义：assertReasonAllowed 对它任何方向都拒', () => {
     expect(() => assertReasonAllowed('CUSTOMER_REATTRIBUTION' as any, 'CLIENT', 'REDUCE')).toThrow();
+  });
+});
+
+describe('平账 A 批：两个新成因码（spec §3.1 / §5）', () => {
+  it('FIRM_ENTRY_REVERSAL：公司账簿、两向、冲销族', () => {
+    expect(REASON_SPECS.FIRM_ENTRY_REVERSAL).toEqual({
+      book: 'FIRM', directions: ['REDUCE', 'INCREASE'], customerLabel: null, internalLabel: '公司账簿冲销', family: 'REVERSE',
+    });
+    expect(() => assertReasonAllowed('FIRM_ENTRY_REVERSAL', 'FIRM', 'REDUCE')).not.toThrow();
+    expect(() => assertReasonAllowed('FIRM_ENTRY_REVERSAL', 'CLIENT', 'REDUCE')).toThrow(BadRequestException);
+  });
+  it('UNEXPLAINED_WRITE_OFF：公司账簿、两向、核销族；客户账簿恒拒', () => {
+    expect(REASON_SPECS.UNEXPLAINED_WRITE_OFF).toEqual({
+      book: 'FIRM', directions: ['REDUCE', 'INCREASE'], customerLabel: null, internalLabel: '查无果核销', family: 'WRITE_OFF',
+    });
+    expect(() => assertReasonAllowed('UNEXPLAINED_WRITE_OFF', 'CLIENT', 'INCREASE')).toThrow(BadRequestException);
+  });
+  it('核销分录腿与补记同一对：少了 借运营/贷公司资产，多了 借公司资产/贷其他收入', () => {
+    expect(resolvePostingLegs('FIRM', 'REDUCE')).toEqual({ debitCode: TB_ACCOUNT_CODES.FIRM_OPS, creditCode: TB_ACCOUNT_CODES.FIRM_ASSET });
+    expect(resolvePostingLegs('FIRM', 'INCREASE')).toEqual({ debitCode: TB_ACCOUNT_CODES.FIRM_ASSET, creditCode: TB_ACCOUNT_CODES.INCOME_OTHER });
   });
 });

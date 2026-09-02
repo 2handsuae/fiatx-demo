@@ -2,26 +2,25 @@
 // 四处同码，改这里必同步 doc-final/reference/recon-cause-handbook.md。
 // 公理（spec §0）：外部资料是权威，没有「对方错」档——一切成因都是
 // 我方账错了 / 我方账缺了 / 时机没到 三种性质之一。
+// 平账 A 批（2026-09-02）：删「精度尘埃差」（豁免不做，本系统精度与服务商一致）；公司两成因定码冲销；核销不是成因、是账龄的后续（resolveWriteOff）。
 // 纯常量 + 纯函数，无 IO；BadRequestException 是唯一的 Nest 依赖。
 import { BadRequestException } from '@nestjs/common';
 
 export type CauseMatchType = 'AMOUNT_MISMATCH' | 'ORPHAN_INTERNAL' | 'ORPHAN_EXTERNAL';
 export type CauseBook = 'CLIENT' | 'FIRM';
-export type AdjustFamily = 'CORRECT' | 'REVERSE' | 'RECORD' | 'REATTRIBUTE';
+export type AdjustFamily = 'CORRECT' | 'REVERSE' | 'RECORD' | 'REATTRIBUTE' | 'WRITE_OFF';
 export type StoredOutlet =
   | 'ADJUST_CORRECT' | 'ADJUST_REVERSE' | 'ADJUST_RECORD' | 'ADJUST_REATTRIBUTE'
   | 'HOLD_NEXT_PERIOD' | 'HOLD_INVESTIGATING' | 'DEFERRED';
 export type DeferredTarget =
-  | 'SUPPLEMENT_DEPOSIT'   // 补单 → 充值域补录（下一轮）
-  | 'SUPPLEMENT_BOUNCE'    // 补单 → 退汇认领（下一轮）
-  | 'FIRM_REVERSAL'        // 公司账簿冲销无码（下一轮随核销补）
+  | 'SUPPLEMENT_DEPOSIT'   // 补单 → 充值域补录（后半批）
+  | 'SUPPLEMENT_BOUNCE'    // 补单 → 退汇认领（后半批）
   | 'INTERNAL_TRANSFER'    // 二期内部划转
   | 'INCIDENT'             // 三期事故升级
-  | 'WAIVER'               // 豁免（下一轮，与容差同批）
   | 'NO_REASON_CODE';      // 冲正类成因遇 SWAP 流水，无对应 reason 码（spec §11-6）
 
 export type CauseCode =
-  | 'AMT_MISBOOKED' | 'AMT_FEE_NETTED' | 'AMT_ROUNDING' | 'PRECISION_DUST'
+  | 'AMT_MISBOOKED' | 'AMT_FEE_NETTED' | 'AMT_ROUNDING'
   | 'FIRM_AMT_UNDERBOOKED' | 'FIRM_AMT_OVERBOOKED'
   | 'DUP_BOOKING' | 'PHANTOM_BOOKING' | 'PAYOUT_NOT_EXECUTED' | 'MISATTRIBUTED_FROM' | 'CUTOFF_STRADDLE'
   | 'FIRM_MISBOOKED' | 'FIRM_TRANSFER_UNTRACKED'
@@ -56,9 +55,7 @@ export const CAUSE_REGISTRY: Record<CauseCode, CauseSpec> = {
   AMT_ROUNDING:    { cells: [C('AMOUNT_MISMATCH', 'CLIENT')], label: '舍入精度差（钱已到位）', clue: '差额在最小精度量级', kind: 'ADJUST', family: 'CORRECT' },
   // ── 金额不对 × 公司 ──
   FIRM_AMT_UNDERBOOKED: { cells: [C('AMOUNT_MISMATCH', 'FIRM')], label: '公司收支记少（实扣/实收 > 所记）', clue: '银行回单 vs 我方记账', kind: 'ADJUST', family: 'RECORD' },
-  FIRM_AMT_OVERBOOKED:  { cells: [C('AMOUNT_MISMATCH', 'FIRM')], label: '公司收支记多', clue: '银行回单 vs 我方记账', kind: 'DEFERRED', deferredTarget: 'FIRM_REVERSAL', deferredLabel: '公司冲销（无码，下一轮）' },
-  // ── 金额不对 × 客户/公司通用（跨格，菜单里排在两侧具体成因之后——同 UNEXPLAINED 收尾的道理）──
-  PRECISION_DUST:  { cells: [C('AMOUNT_MISMATCH', 'CLIENT'), C('AMOUNT_MISMATCH', 'FIRM')], label: '精度不可表示的尘埃差', clue: '差额低于我方最小记账单位', kind: 'DEFERRED', deferredTarget: 'WAIVER', deferredLabel: '豁免（下一轮）' },
+  FIRM_AMT_OVERBOOKED:  { cells: [C('AMOUNT_MISMATCH', 'FIRM')], label: '公司收支记多', clue: '银行回单 vs 我方记账', kind: 'ADJUST', family: 'REVERSE' },
   // ── 我有外无 × 客户 ──
   DUP_BOOKING:         { cells: [C('ORPHAN_INTERNAL', 'CLIENT')], label: '重复入账——同一笔入了两次', clue: '已匹配列表里有同参考号同金额的双胞胎', kind: 'ADJUST', family: 'REVERSE' },
   PHANTOM_BOOKING:     { cells: [C('ORPHAN_INTERNAL', 'CLIENT')], label: '假信号入账——外部凭证不存在', clue: '银行/链上查无此笔', kind: 'ADJUST', family: 'REVERSE' },
@@ -66,7 +63,7 @@ export const CAUSE_REGISTRY: Record<CauseCode, CauseSpec> = {
   MISATTRIBUTED_FROM:  { cells: [C('ORPHAN_INTERNAL', 'CLIENT')], label: '记错客户——这笔钱是别人的', clue: '对端钱包同日同额「外有我无」成对', kind: 'ADJUST', family: 'REATTRIBUTE' },
   CUTOFF_STRADDLE:     { cells: [C('ORPHAN_INTERNAL', 'CLIENT')], label: '跨账期——下期自平', clue: '外部行时间戳落下一账期，余额并不差', kind: 'HOLD_NEXT_PERIOD' },
   // ── 我有外无 × 公司 ──
-  FIRM_MISBOOKED:          { cells: [C('ORPHAN_INTERNAL', 'FIRM')], label: '公司收支误记/重复记', clue: '银行单查无', kind: 'DEFERRED', deferredTarget: 'FIRM_REVERSAL', deferredLabel: '公司冲销（无码，下一轮）' },
+  FIRM_MISBOOKED:          { cells: [C('ORPHAN_INTERNAL', 'FIRM')], label: '公司收支误记/重复记', clue: '银行单查无', kind: 'ADJUST', family: 'REVERSE' },
   FIRM_TRANSFER_UNTRACKED: { cells: [C('ORPHAN_INTERNAL', 'FIRM')], label: '公司调拨已记账、无资金单跟踪', clue: '本不该发生——公司资金移动应有内部划转单', kind: 'DEFERRED', deferredTarget: 'INTERNAL_TRANSFER', deferredLabel: '二期内部划转' },
   // ── 外有我无 × 客户 ──
   MISSED_DEPOSIT:       { cells: [C('ORPHAN_EXTERNAL', 'CLIENT')], label: '漏记客户入金', clue: '外部行带客户归属（VIBAN/链上地址）', kind: 'DEFERRED', deferredTarget: 'SUPPLEMENT_DEPOSIT', deferredLabel: '补单→充值域补录（下一轮）' },
@@ -82,7 +79,7 @@ export const CAUSE_REGISTRY: Record<CauseCode, CauseSpec> = {
 };
 
 export const FAMILY_LABEL: Record<AdjustFamily, string> = {
-  CORRECT: '冲正', REVERSE: '冲销', RECORD: '补记', REATTRIBUTE: '改记',
+  CORRECT: '冲正', REVERSE: '冲销', RECORD: '补记', REATTRIBUTE: '改记', WRITE_OFF: '核销',
 };
 
 export function staticOutletLabel(code: CauseCode): string {
@@ -161,6 +158,13 @@ export function resolveOutlet(code: CauseCode, facts: RowFacts): ResolvedOutlet 
     return { outlet: 'ADJUST_CORRECT', outletLabel: '冲正', family, reasonCode, direction };
   }
   if (family === 'REVERSE') {
+    // 公司账簿两成因（A 批定码）：金额不对按差额符号（出账翻符号，同冲正）；孤儿按内部方向取反。
+    if (code === 'FIRM_AMT_OVERBOOKED' || code === 'FIRM_MISBOOKED') {
+      const direction: 'REDUCE' | 'INCREASE' = facts.matchType === 'AMOUNT_MISMATCH'
+        ? (signedDeltaSign(facts) === -1 ? 'REDUCE' : 'INCREASE')
+        : (facts.internalDirection === 'OUT' ? 'INCREASE' : 'REDUCE');
+      return { outlet: 'ADJUST_REVERSE', outletLabel: '冲销', family, reasonCode: 'FIRM_ENTRY_REVERSAL', direction };
+    }
     const direction: 'REDUCE' | 'INCREASE' = facts.internalDirection === 'OUT' ? 'INCREASE' : 'REDUCE';
     const reasonCode = code === 'DUP_BOOKING' ? 'DEPOSIT_DUPLICATE_REVERSAL'
       : code === 'PHANTOM_BOOKING' ? 'DEPOSIT_SIGNAL_VOID' : 'WITHDRAW_VOID_REFUND';
@@ -173,4 +177,31 @@ export function resolveOutlet(code: CauseCode, facts: RowFacts): ResolvedOutlet 
     reasonCode: positive ? 'BANK_INTEREST' : 'BANK_CHARGE',
     direction: positive ? 'INCREASE' : 'REDUCE',
   };
+}
+
+export interface WriteOffFacts extends RowFacts {
+  internalAmount?: string;   // ORPHAN_INTERNAL：内部行金额（最小单位）
+  externalAmount?: string;   // ORPHAN_EXTERNAL：外部行金额（最小单位）
+  deltaAmount?: string;      // AMOUNT_MISMATCH：外部 − 内部（最小单位，带符号）
+}
+
+/**
+ * 核销判定（spec §3.3）——不是成因出口，是账龄到线后「挂起·调查中」行的后续处置。
+ * 一句原则：让内部等于外部。金额不对按差额符号（出账翻符号，同冲正）；我有外无
+ * 取内部方向的反向（同冲销）；外有我无照外部方向（同补记孤儿）。
+ */
+export function resolveWriteOff(facts: WriteOffFacts): {
+  reasonCode: 'UNEXPLAINED_WRITE_OFF'; family: 'WRITE_OFF'; direction: 'REDUCE' | 'INCREASE'; amountMinor: string;
+} {
+  const abs = (s: string | undefined) => (s ?? '0').replace(/^-/, '');
+  if (facts.matchType === 'AMOUNT_MISMATCH') {
+    const direction: 'REDUCE' | 'INCREASE' = signedDeltaSign(facts) === -1 ? 'REDUCE' : 'INCREASE';
+    return { reasonCode: 'UNEXPLAINED_WRITE_OFF', family: 'WRITE_OFF', direction, amountMinor: abs(facts.deltaAmount) };
+  }
+  if (facts.matchType === 'ORPHAN_INTERNAL') {
+    const direction: 'REDUCE' | 'INCREASE' = facts.internalDirection === 'OUT' ? 'INCREASE' : 'REDUCE';
+    return { reasonCode: 'UNEXPLAINED_WRITE_OFF', family: 'WRITE_OFF', direction, amountMinor: abs(facts.internalAmount) };
+  }
+  const direction: 'REDUCE' | 'INCREASE' = facts.externalDirection === 'IN' ? 'INCREASE' : 'REDUCE';
+  return { reasonCode: 'UNEXPLAINED_WRITE_OFF', family: 'WRITE_OFF', direction, amountMinor: abs(facts.externalAmount) };
 }

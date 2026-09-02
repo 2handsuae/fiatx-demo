@@ -16,7 +16,9 @@ export type ReasonCode =
   | 'WITHDRAW_VOID_REFUND'
   | 'BANK_INTEREST'
   | 'BANK_CHARGE'
-  | 'CUSTOMER_REATTRIBUTION';
+  | 'CUSTOMER_REATTRIBUTION'
+  | 'FIRM_ENTRY_REVERSAL'
+  | 'UNEXPLAINED_WRITE_OFF';
 
 /**
  * 成因清单（业主 2026-08-28 确认）。**无兜底档**——兜底档一开，说不清的全往里塞，
@@ -48,6 +50,11 @@ export const REASON_SPECS: Record<ReasonCode, {
   // 语义（directions 空 = assertReasonAllowed 对它恒拒），分录由
   // resolveReattributionLegs 直接定；两个客户的应付对转，资产腿不动。
   CUSTOMER_REATTRIBUTION:     { book: 'CLIENT', directions: [],                     customerLabel: '账户更正划转', internalLabel: '记错客户更正（改记）', family: 'REATTRIBUTE' },
+  // 平账 A 批（spec §5）：公司账簿冲销定码——一期半留档的「公司收支记多 / 误记」有了码。
+  FIRM_ENTRY_REVERSAL:        { book: 'FIRM',   directions: ['REDUCE', 'INCREASE'], customerLabel: null, internalLabel: '公司账簿冲销', family: 'REVERSE' },
+  // 平账 A 批（spec §3）：第五族核销——查无果 + 账龄到线 + 小额，公司认下来。
+  // 不是成因表里的成因：触发它的是账龄，开单守卫在 adjustment.service.assertWriteOffAllowed。
+  UNEXPLAINED_WRITE_OFF:      { book: 'FIRM',   directions: ['REDUCE', 'INCREASE'], customerLabel: null, internalLabel: '查无果核销', family: 'WRITE_OFF' },
 };
 
 export function assertReasonAllowed(reasonCode: ReasonCode, book: Book, direction: Direction): void {

@@ -165,7 +165,7 @@ export interface FlowComparisonRow {
   disposition?: {
     dispositionNo: string; causeCode: string; causeLabel: string;
     outlet: string; outletLabel: string;
-    family?: 'CORRECT' | 'REVERSE' | 'RECORD' | 'REATTRIBUTE';
+    family?: 'CORRECT' | 'REVERSE' | 'RECORD' | 'REATTRIBUTE' | 'WRITE_OFF';
     reasonCode?: string; direction?: 'REDUCE' | 'INCREASE';
     findingNote: string; adjustmentNo: string | null; createdBy: string; createdAt: string;
   } | null;
