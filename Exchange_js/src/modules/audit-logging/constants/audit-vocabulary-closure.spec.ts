@@ -102,4 +102,12 @@ describe('站7 · 词表封册守则', () => {
     }
     expect(offenders).toEqual([]);
   });
+
+  it('④ 审计码全局唯一且禁裸名——不许再出现跨族撞车', () => {
+    const contracted = Object.values(REGISTRIES).flatMap((r) => Object.keys(r));
+    expect(new Set(contracted).size).toBe(contracted.length);
+    const BARE = ['CREATION_REQUESTED', 'CREATION_APPLIED', 'CHANGE_REQUESTED', 'CHANGE_APPLIED',
+                  'ACTIVATION_REQUESTED', 'TAG_ASSIGNED', 'CREATE_REQUESTED', 'ADDRESS_REGISTERED'];
+    expect(contracted.filter((c) => BARE.includes(c))).toEqual([]);
+  });
 });
