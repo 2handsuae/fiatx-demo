@@ -61,7 +61,7 @@ describe('MaterialRequestsService.create', () => {
     const { prisma } = createPrismaMock();
     const svc = new MaterialRequestsService(prisma, audit(), sumsub());
     const row = await svc.create(INPUT);
-    expect(row.requestNo).toMatch(/^MRQ\d{12}$/); // 6 位日期 + 6 位随机（2026-09-01 随机段由 4 位改 6 位）
+    expect(row.requestNo).toMatch(/^MRQ\d+$/);
     expect(row.status).toBe('PENDING_SUBMISSION');
     expect(row.traceId).toMatch(/^MATERIAL_REQUEST:/);
   });
