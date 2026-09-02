@@ -38,9 +38,13 @@ describe('generateReferenceNo —— 单号随机位宽（业主 2026-09-01 定�
     expect([...lengths]).toEqual([6]);
   });
 
-  it('1000 次生成不撞号（4 位位宽下这个量级必撞）', () => {
+  it('1000 次生成几乎不撞号（4 位位宽下这个量级必撞）', () => {
+    // 6 位随机=100 万个坑，1000 次抽样按生日悖论期望碰撞数≈0.5——
+    // 断言"恰好 0 次"本身就不成立（本条约 39% 概率误红，实测已撞过），
+    // 门槛放到 990（容忍至多 10 次撞号）：4 位位宽下期望撞号约 48 次，仍必被抓住；
+    // 6 位位宽下撞到 10 次以上的概率 <0.02%，不再是会自己变红的断言。
     const seen = new Set(Array.from({ length: 1000 }, () => generateReferenceNo('FO')));
-    expect(seen.size).toBe(1000);
+    expect(seen.size).toBeGreaterThanOrEqual(990);
   });
 });
 

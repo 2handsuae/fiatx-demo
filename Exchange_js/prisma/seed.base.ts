@@ -42,10 +42,30 @@ const ROLE_SEED_ACCOUNTS: RoleSeedAccount[] = [
 
 export async function seedBase(prisma: PrismaClient): Promise<void> {
   console.log('--- Seeding Base Configuration ---');
+  await deleteObsoleteRoleAdminAccounts(prisma);
   await seedAdmin(prisma);
   await seedRbac(prisma);
   await seedGovernanceApprovalBaseline(prisma);
   console.log('✅ Base configuration seeded.');
+}
+
+// admin_role_change_requests.targetUserId → User 是无 onDelete 的必填外键（默认 RESTRICT）。
+// 除固定 11 人名册外，管理员账号只应该由「进人」业务流程（站 0 邀请）在演示中现造，
+// reset 本该把它们（连同各类 e2e/verify 探针账号：verify:act1 的 ADM-ACT1-*、审计披露
+// key 轮换的 ADM-KEY-*、邀请过期 e2e 的 ADM-INVEXP-*……)一并冲掉，回到纯 11 人基线——
+// 但此前从没人补过这一步，本 worktree 实测积了 79 个账号（68 个非法定角色探针，从未被
+// 任何一次 reset 清理过，因为压根没有对应的删除逻辑）。这里镜像 deleteObsoleteRoles()
+// 的写法：先删指向它们的绑定变更申请单，再删账号本身。只在显式 reset/首建库时跑
+// （db:base:sync 只被 reset-stack.sh / reset-main.sh / db-setup.sh 调用，不在后端启动
+// 路径上），不会误删演示进行中现邀请的新成员。
+async function deleteObsoleteRoleAdminAccounts(prisma: PrismaClient): Promise<void> {
+  const activeUserNos = ROLE_SEED_ACCOUNTS.map((item) => item.userNo);
+  await (prisma as any).adminRoleChangeRequest.deleteMany({
+    where: { targetUser: { userNo: { notIn: activeUserNos } } },
+  });
+  await prisma.user.deleteMany({
+    where: { userNo: { notIn: activeUserNos } },
+  });
 }
 
 export async function ensureBaseSeeded(prisma: PrismaClient): Promise<void> {
@@ -81,6 +101,13 @@ async function seedAdmin(prisma: PrismaClient): Promise<void> {
 }
 
 async function deleteObsoleteRoles(prisma: PrismaClient): Promise<void> {
+  // role_definition_modify_requests.roleId → Role 是无 onDelete 的必填外键（默认 RESTRICT）。
+  // verify:act1 每轮都会给探针角色留一张已 REJECTED 的定义修改申请单，且没有任何重铺步骤
+  // 清理这张表——直接删角色会撞 FK P2003，把整个 reset 卡死。先清掉这些孤儿角色自己的
+  // 申请单（跟角色一起是探针数据，没有独立保留价值），再删角色本身。
+  await (prisma as any).roleDefinitionModifyRequest.deleteMany({
+    where: { role: { code: { notIn: ACTIVE_RBAC_ROLE_CODES } } },
+  });
   await (prisma as any).role.deleteMany({
     where: { code: { notIn: ACTIVE_RBAC_ROLE_CODES } },
   });

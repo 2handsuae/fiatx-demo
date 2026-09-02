@@ -61,7 +61,7 @@ describe('MaterialRequestsService.create', () => {
     const { prisma } = createPrismaMock();
     const svc = new MaterialRequestsService(prisma, audit(), sumsub());
     const row = await svc.create(INPUT);
-    expect(row.requestNo).toMatch(/^MRQ\d{10}$/);
+    expect(row.requestNo).toMatch(/^MRQ\d{12}$/);
     expect(row.status).toBe('PENDING_SUBMISSION');
     expect(row.traceId).toMatch(/^MATERIAL_REQUEST:/);
   });

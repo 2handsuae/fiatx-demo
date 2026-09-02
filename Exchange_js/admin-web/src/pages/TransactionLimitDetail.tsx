@@ -374,7 +374,7 @@ export default function TransactionLimitDetail() {
                   Change Amounts
                 </button>
                 <p className="text-center font-mono text-[10px] text-adm-t3">
-                  Requires OPS_OFFICER approval
+                  Requires SENIOR_MANAGEMENT_OFFICER approval
                 </p>
               </div>
             </div>
@@ -437,7 +437,7 @@ export default function TransactionLimitDetail() {
 
             <div className="px-5 py-4 space-y-3">
               <div className="rounded border border-adm-amber/30 bg-adm-amber/10 px-3 py-2.5 font-mono text-[10px] text-adm-amber leading-relaxed">
-                This submits an amount change for OPS_OFFICER approval. The current rule
+                This submits an amount change for SENIOR_MANAGEMENT_OFFICER approval. The current rule
                 remains in effect until the change is approved.
               </div>
 
