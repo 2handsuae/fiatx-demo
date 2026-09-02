@@ -44,17 +44,57 @@ describe('cause-registry —— 六格成因菜单（spec §4，注册表单一�
 describe('resolveOutlet —— 出口与 reason 派生（spec §4）', () => {
   it('冲正：reason 按内部流水 sourceType 派生，方向按差额符号', () => {
     expect(resolveOutlet('AMT_MISBOOKED', {
-      matchType: 'AMOUNT_MISMATCH', book: 'CLIENT', deltaSign: 1, internalSourceType: 'DEPOSIT',
+      matchType: 'AMOUNT_MISMATCH', book: 'CLIENT', deltaSign: 1,
+      internalDirection: 'IN', internalSourceType: 'DEPOSIT',
     })).toEqual({
       outlet: 'ADJUST_CORRECT', outletLabel: '冲正', family: 'CORRECT',
       reasonCode: 'DEPOSIT_AMOUNT_CORRECTION', direction: 'INCREASE',
     });
     expect(resolveOutlet('AMT_MISBOOKED', {
-      matchType: 'AMOUNT_MISMATCH', book: 'CLIENT', deltaSign: -1, internalSourceType: 'WITHDRAW',
-    }).reasonCode).toBe('WITHDRAW_AMOUNT_CORRECTION');
-    expect(resolveOutlet('AMT_MISBOOKED', {
-      matchType: 'AMOUNT_MISMATCH', book: 'CLIENT', deltaSign: -1, internalSourceType: 'WITHDRAW',
+      matchType: 'AMOUNT_MISMATCH', book: 'CLIENT', deltaSign: -1,
+      internalDirection: 'IN', internalSourceType: 'DEPOSIT',
     }).direction).toBe('REDUCE');
+    expect(resolveOutlet('AMT_MISBOOKED', {
+      matchType: 'AMOUNT_MISMATCH', book: 'CLIENT', deltaSign: -1,
+      internalDirection: 'OUT', internalSourceType: 'WITHDRAW',
+    }).reasonCode).toBe('WITHDRAW_AMOUNT_CORRECTION');
+  });
+  // 出账流水（提现、公司支出）：deltaSign 是原始金额差，钱的方向是反的——
+  // 这一组四个用例就是「翻符号」那一行的行为证据，改回不翻会当场变红。
+  it('冲正 · 客户提现（OUT）：银行多扣要减、少扣要加，不是照原始差额符号', () => {
+    // 我方记 90、银行实扣 100 → 原始差 +10，但客户余额是**多**出来的 10 → 减
+    expect(resolveOutlet('AMT_MISBOOKED', {
+      matchType: 'AMOUNT_MISMATCH', book: 'CLIENT', deltaSign: 1,
+      internalDirection: 'OUT', internalSourceType: 'WITHDRAW',
+    })).toEqual({
+      outlet: 'ADJUST_CORRECT', outletLabel: '冲正', family: 'CORRECT',
+      reasonCode: 'WITHDRAW_AMOUNT_CORRECTION', direction: 'REDUCE',
+    });
+    // 我方记 90、银行实扣 80 → 原始差 −10，客户被多扣了 10 → 退还，加
+    expect(resolveOutlet('AMT_MISBOOKED', {
+      matchType: 'AMOUNT_MISMATCH', book: 'CLIENT', deltaSign: -1,
+      internalDirection: 'OUT', internalSourceType: 'WITHDRAW',
+    })).toEqual({
+      outlet: 'ADJUST_CORRECT', outletLabel: '冲正', family: 'CORRECT',
+      reasonCode: 'WITHDRAW_AMOUNT_CORRECTION', direction: 'INCREASE',
+    });
+  });
+  it('补记 · 公司支出（OUT）记少 = 银行杂费，不是银行利息（手册「支出差补记为银行杂费」）', () => {
+    // 公司账户实扣 100 > 所记 90 → 原始差 +10，这是笔没入账的银行扣费 → 杂费、减
+    expect(resolveOutlet('FIRM_AMT_UNDERBOOKED', {
+      matchType: 'AMOUNT_MISMATCH', book: 'FIRM', deltaSign: 1, internalDirection: 'OUT',
+    })).toEqual(expect.objectContaining({
+      outlet: 'ADJUST_RECORD', family: 'RECORD', reasonCode: 'BANK_CHARGE', direction: 'REDUCE',
+    }));
+    // 对照组：公司收入（IN）记少 → 利息、加（手册「收入差补记为银行利息」）
+    expect(resolveOutlet('FIRM_AMT_UNDERBOOKED', {
+      matchType: 'AMOUNT_MISMATCH', book: 'FIRM', deltaSign: 1, internalDirection: 'IN',
+    })).toEqual(expect.objectContaining({ reasonCode: 'BANK_INTEREST', direction: 'INCREASE' }));
+  });
+  it('公司支出记多：不归补记管，走 FIRM_AMT_OVERBOOKED 留档（本轮无冲销码）', () => {
+    expect(resolveOutlet('FIRM_AMT_OVERBOOKED', {
+      matchType: 'AMOUNT_MISMATCH', book: 'FIRM', deltaSign: -1, internalDirection: 'OUT',
+    })).toEqual(expect.objectContaining({ outlet: 'DEFERRED', deferredTarget: 'FIRM_REVERSAL' }));
   });
   it('冲正遇 SWAP 流水：本轮无码 → 留档（spec §11-6）', () => {
     const r = resolveOutlet('AMT_MISBOOKED', {

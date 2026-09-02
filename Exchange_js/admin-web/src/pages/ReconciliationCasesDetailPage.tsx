@@ -53,7 +53,7 @@ import ReconciliationDispositionModal, {
 } from '../components/ReconciliationDispositionModal';
 import { useAdminSession } from '../contexts/AdminSessionContext';
 import { PERMISSIONS } from '../rbac/permissions';
-import { OUTLET_TONE, rowFacts, directionNoteFor } from '../utils/causeRegistry';
+import { OUTLET_TONE, directionNoteFor } from '../utils/causeRegistry';
 
 /* ── Types ──────────────────────────────────────────────────── */
 
@@ -103,7 +103,12 @@ export interface FlowComparisonRow {
   // 可处置的东西。唯一真相在后端 reconciliation-query.service.ts。
   disposition?: {
     dispositionNo: string; causeCode: string; causeLabel: string;
-    outlet: string; outletLabel: string; findingNote: string;
+    outlet: string; outletLabel: string;
+    // 出口的可执行部分（后端 resolveOutlet 算好随行下发）——「开单」直接用，
+    // 前端不反推；非 ADJUST 类出口不落分录，三个都没有值。
+    family?: 'CORRECT' | 'REVERSE' | 'RECORD' | 'REATTRIBUTE';
+    reasonCode?: string; direction?: 'REDUCE' | 'INCREASE';
+    findingNote: string;
     adjustmentNo: string | null; createdBy: string; createdAt: string;
   } | null;
   duplicateTwinRef?: string | null;
@@ -414,9 +419,6 @@ const ReconciliationCasesDetailPage = () => {
   const [adjustLocked, setAdjustLocked] = useState<AdjustmentLocked | null>(null);
   // T8: 处置弹层——null = 关闭；非 null = 打开且带着被点击的那一行。
   const [dispositionRow, setDispositionRow] = useState<FlowComparisonRow | null>(null);
-  // T9：「开单」按钮重放定性请求进行中的 dispositionNo——防止重复点击（不是并发
-  // 锁，纯粹是单人操作下按钮该有的 loading 态）。
-  const [openingAdjustFor, setOpeningAdjustFor] = useState<string | null>(null);
 
   const tableRef = useRef<HTMLTableElement | null>(null);
 
@@ -464,62 +466,28 @@ const ReconciliationCasesDetailPage = () => {
     navigate(`/admin/reconciliation/adjustments/${encodeURIComponent(adjustmentNo)}`);
   };
 
-  // T9：已定性、出口是 ADJUST 但还没挂调账单的行——「开单」按钮点击时前端重放
-  // 一次 POST /dispositions（同 causeCode、同 findingNote；disposition.service.ts
-  // record() 是 upsert 覆盖语义，同锚命中已有记录就地 update，不会另开一条），
-  // 换回完整的 { dispositionNo, family, reasonCode, direction }，再进锁定视图。
+  // T9：已定性、出口是 ADJUST 但还没挂调账单的行——「开单」直接用读面随行下发的
+  // family/reasonCode/direction 组锁定态，不发任何请求。
   //
-  // 为什么不在前端直接拿 row.disposition.outlet 反查 family/reasonCode/direction：
-  // disposition 表只存了 outlet（如 'ADJUST_CORRECT'），没存后两个——按 outlet 在
-  // 前端还原 family 容易（outlet 去掉 'ADJUST_' 前缀），但 reasonCode/direction
-  // 依赖行事实（差额符号 / 内外部流水方向 / sourceType），要在前端重新实现一遍
-  // resolveOutlet 的判定逻辑，等于给后端 cause-registry.ts 立一个第二真相源——
-  // 两边判定逻辑一旦某天改动不同步，「已定性」徽标和「开单」弹层就会说出两个不
-  // 同的结论。用一次网络往返换回后端刚算好的同一份结果，比在前端重算更小的
-  // 改动半径，也保证唯一真相不分叉。
-  const openAdjustFromDisposition = async (row: FlowComparisonRow) => {
+  // 为什么不重放一次 POST /dispositions 换回这三个字段（初版就是那么写的）：
+  // 那个端点要 RECON_DISPOSITION_WRITE（定性写权，归运营），而「开单」是金库的
+  // 动作、只有 RECON_ADJUSTMENT_WRITE——本仓没有任何角色两者兼有，金库点必 403，
+  // 两人制在这一步就断了。而且重放会把一个只读动作变成写动作：upsert 会重记一条
+  // RECON_DISPOSITION_RECORDED 审计。判定逻辑仍只有后端 cause-registry.ts 一处，
+  // 前端不反推——三个字段是后端 resolveOutlet 算好随 disposition 注解发下来的。
+  const openAdjustFromDisposition = (row: FlowComparisonRow) => {
     if (!row.disposition || !kase) return;
-    setOpeningAdjustFor(row.disposition.dispositionNo);
-    try {
-      const res = await adminFetch(
-        `${import.meta.env.VITE_API_URL}/admin/reconciliation/cases/${encodeURIComponent(kase.caseNo)}/dispositions`,
-        {
-          method: 'POST',
-          body: JSON.stringify({
-            matchType: row.matchType,
-            explainedFlowId: row.internalFlow?.id,
-            explainedExternalLineId: row.externalLine?.id,
-            causeCode: row.disposition.causeCode,
-            findingNote: row.disposition.findingNote,
-            ...rowFacts(row),
-          }),
-        },
-      );
-      if (!res.ok) {
-        alert(await getApiErrorMessage(res, 'Failed to reopen disposition for adjustment.'));
-        return;
-      }
-      const r = (await res.json()) as {
-        dispositionNo: string;
-        family: 'CORRECT' | 'REVERSE' | 'RECORD' | 'REATTRIBUTE';
-        reasonCode?: string;
-        direction?: 'REDUCE' | 'INCREASE';
-      };
-      setCreatePrefill(rowAdjustmentPrefill(row));
-      setAdjustLocked(buildAdjustLocked(
-        {
-          dispositionNo: r.dispositionNo, family: r.family,
-          reasonCode: r.reasonCode, direction: r.direction,
-          directionNote: directionNoteFor(row.matchType), row,
-        },
-        kase.caseNo,
-      ));
-    } catch (error) {
-      if (error instanceof AdminSessionError) return;
-      console.error('Failed to reopen disposition for adjustment', error);
-    } finally {
-      setOpeningAdjustFor(null);
-    }
+    setCreatePrefill(rowAdjustmentPrefill(row));
+    setAdjustLocked(buildAdjustLocked(
+      {
+        dispositionNo: row.disposition.dispositionNo,
+        family: row.disposition.family!, // ADJUST_* 出口的 family 由后端 resolveOutlet 保证必有
+        reasonCode: row.disposition.reasonCode,
+        direction: row.disposition.direction,
+        directionNote: directionNoteFor(row.matchType), row,
+      },
+      kase.caseNo,
+    ));
   };
 
   // T9：处置弹层交回的 ADJUST 类结论——关掉处置弹层，带着锁定态打开调账弹层。
@@ -921,12 +889,11 @@ const ReconciliationCasesDetailPage = () => {
                                   && canCreateAdjustment && kase.status === 'OPEN' && (
                                   <button
                                     type="button"
-                                    onClick={() => void openAdjustFromDisposition(row)}
-                                    disabled={openingAdjustFor === row.disposition.dispositionNo}
-                                    className="inline-flex items-center gap-1 whitespace-nowrap font-mono text-[10px] font-medium text-adm-blue hover:underline disabled:opacity-50"
+                                    onClick={() => openAdjustFromDisposition(row)}
+                                    className="inline-flex items-center gap-1 whitespace-nowrap font-mono text-[10px] font-medium text-adm-blue hover:underline"
                                   >
                                     <Plus size={10} />
-                                    {openingAdjustFor === row.disposition.dispositionNo ? '打开中…' : '开单'}
+                                    开单
                                   </button>
                                 )}
                               </div>

@@ -67,11 +67,14 @@ export class DispositionService {
       causeCode: dto.causeCode, outlet: resolved.outlet,
       deferredTarget: resolved.deferredTarget ?? null,
       findingNote: dto.findingNote,
-      createdByUserId: actor.userNo ?? actor.userId,
     };
+    // createdByUserId 只在建档时写：这条记录的价值之一就是「这次查证是谁做的」，
+    // 后来改口径的人可以改成因和说明，但不能把首查人换成自己。
     const row = existing
       ? await (this.prisma as any).reconciliationDisposition.update({ where: { dispositionNo: existing.dispositionNo }, data })
-      : await (this.prisma as any).reconciliationDisposition.create({ data: { ...data, dispositionNo: generateReferenceNo('RCD') } });
+      : await (this.prisma as any).reconciliationDisposition.create({
+          data: { ...data, dispositionNo: generateReferenceNo('RCD'), createdByUserId: actor.userNo ?? actor.userId },
+        });
     const dispositionNo = existing?.dispositionNo ?? row.dispositionNo;
 
     // 铁律①：定性是持久化动作。子主体带案件 + 钱包（业务键，spec §8）。

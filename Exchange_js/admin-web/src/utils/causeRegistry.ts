@@ -20,6 +20,6 @@ export const rowFacts = (row: FlowComparisonRow) => ({
 
 /** 方向只读时的推导依据一句话（spec §3.3 表）。 */
 export const directionNoteFor = (matchType: string): string =>
-  matchType === 'AMOUNT_MISMATCH' ? '方向由差额符号推出（外部−内部：正→加，负→减），不可改'
+  matchType === 'AMOUNT_MISMATCH' ? '方向由差额符号推出（外部−内部；出账流水按钱的方向翻过来算），不可改'
   : matchType === 'ORPHAN_INTERNAL' ? '方向 = 内部流水方向取反（IN→减，OUT→加），不可改'
   : '方向 = 外部流水方向照搬（IN→加，OUT→减），不可改';

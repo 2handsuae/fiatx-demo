@@ -3,6 +3,7 @@
 // 留痕、客户文案、闸门。故没有 shape/bearer 这类字段（初稿有，已删，见 spec §0）。
 import { BadRequestException } from '@nestjs/common';
 import { TB_ACCOUNT_CODES } from '../../../accounting/tigerbeetle/constants/tb-account-codes.constant';
+import type { AdjustFamily } from './cause-registry';
 
 export type Book = 'CLIENT' | 'FIRM';
 export type Direction = 'REDUCE' | 'INCREASE';
@@ -31,9 +32,10 @@ export const REASON_SPECS: Record<ReasonCode, {
    *  五个都是中文，同一屏半英半中。`customerLabel` 的 null 是刻意的（客户不可见），
    *  不该被借用来当内部展示词，故另立此列。 */
   internalLabel: string;
-  /** 族（cause-registry.ts AdjustFamily 同名同值，两处必须对得上）——
+  /** 族——直接用 cause-registry.ts 的 AdjustFamily，不另抄一份字面量联合：
+   *  抄一份的话，注册表加/改族这里不会报错，只会静默漂移。
    *  只用于留痕/统计分组，不参与 assertReasonAllowed 的合法性判定。 */
-  family: 'CORRECT' | 'REVERSE' | 'RECORD' | 'REATTRIBUTE';
+  family: AdjustFamily;
 }> = {
   DEPOSIT_AMOUNT_CORRECTION:  { book: 'CLIENT', directions: ['REDUCE', 'INCREASE'], customerLabel: '充值金额更正', internalLabel: '充值金额更正', family: 'CORRECT' },
   DEPOSIT_DUPLICATE_REVERSAL: { book: 'CLIENT', directions: ['REDUCE'],             customerLabel: '重复入账撤销', internalLabel: '重复入账撤销', family: 'REVERSE' },

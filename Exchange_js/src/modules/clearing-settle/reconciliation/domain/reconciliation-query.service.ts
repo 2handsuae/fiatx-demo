@@ -14,6 +14,7 @@ import {
   CAUSE_REGISTRY,
   CauseCode,
   menuFor,
+  resolveOutlet,
   staticOutletLabel,
 } from '../disposition/cause-registry';
 import {
@@ -466,10 +467,24 @@ export class ReconciliationQueryService {
     for (const r of flowComparison) {
       if (r.matchType === 'MATCHED' || r.matchType === 'IN_TRANSIT') continue;
       const d = (r.internalFlow && dByFlow.get(r.internalFlow.id!)) || (r.externalLine && dByExt.get(r.externalLine.id!)) || null;
+      // 出口的三个可执行字段（族 / 调账 reason / 方向）随读面下发：金库拿它们
+      // 直接开调账单，不必先替运营重发一次定性——「开单」是只读动作，让它去打
+      // 写端点会跨角色边界（定性写权归运营、调账写权归金库，没有角色两者兼有），
+      // 也会把徽标里「查证是谁做的」改成写单人。判定仍只有 resolveOutlet 一处。
+      // 格（matchType × book）取定性当时存下来的那一对：成因是在那一格里选的，
+      // 用行的当前格重判，跨轮次重分类的行会抛「成因不属于该格」把读面打挂。
+      const resolved = d ? resolveOutlet(d.causeCode as CauseCode, {
+        matchType: d.matchType, book: d.book === 'FIRM' ? 'FIRM' : 'CLIENT',
+        deltaSign: r.deltaAmount != null ? ((r.deltaAmount.startsWith('-') ? -1 : 1) as 1 | -1) : undefined,
+        internalDirection: r.internalFlow?.direction,
+        internalSourceType: r.internalFlow?.sourceType,
+        externalDirection: r.externalLine?.direction,
+      }) : null;
       r.disposition = d ? {
         dispositionNo: d.dispositionNo, causeCode: d.causeCode,
         causeLabel: CAUSE_REGISTRY[d.causeCode as CauseCode]?.label ?? d.causeCode,
         outlet: d.outlet, outletLabel: staticOutletLabel(d.causeCode as CauseCode),
+        family: resolved!.family, reasonCode: resolved!.reasonCode, direction: resolved!.direction,
         findingNote: d.findingNote, adjustmentNo: d.adjustmentNo ?? null,
         createdBy: d.createdByUserId, createdAt: (d.updatedAt ?? d.createdAt).toISOString(),
       } : null;

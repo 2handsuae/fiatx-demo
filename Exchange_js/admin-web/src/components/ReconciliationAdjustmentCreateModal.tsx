@@ -37,10 +37,13 @@ interface ReasonMeta {
 }
 
 // 前端镜像 backend REASON_SPECS（src/modules/clearing-settle/reconciliation/
-// disposition/adjustment-rules.ts）。无兜底档——七个成因码是全集，新增成因需要
-// 两边同时改。customerLabel 与 backend 一致（5 个客户侧成因原样照抄）；FIRM 两个
-// backend 没有 customerLabel（客户看不到公司侧调账），这里的 label 只是运营选择
-// 用的中文名，不是客户文案。
+// disposition/adjustment-rules.ts）的**前七码**，是「运营自己选成因」那条老通道的
+// 下拉数据源。⚠ 第 8 码 CUSTOMER_REATTRIBUTION（改记）**刻意不在这里**：它只走
+// 「先定性、再开单」的锁定视图，成因由后端 resolveOutlet 定死、不给下拉。把它补
+// 进这张表 = 它会出现在非锁定态的成因下拉里，运营能凭空手选改记——那是回归，别补。
+// customerLabel 与 backend 一致（5 个客户侧成因原样照抄）；FIRM 两个 backend 没有
+// customerLabel（客户看不到公司侧调账），这里的 label 只是运营选择用的中文名，
+// 不是客户文案。
 // 导出给案件详情页复用（本案调账单列表要显示成因中文名），避免同一张表两处各抄一份。
 export const REASON_META: Record<string, ReasonMeta> = {
   DEPOSIT_AMOUNT_CORRECTION: { book: 'CLIENT', directions: ['REDUCE', 'INCREASE'], label: '充值金额更正' },

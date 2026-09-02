@@ -1180,7 +1180,7 @@ describe('getCase 行注解（spec §3/§8）', () => {
     expect(inTransitRow.menu).toBeUndefined();
   });
 
-  it('行有定性记录 → disposition 注解（含 causeLabel/outletLabel/createdBy）', async () => {
+  it('行有定性记录 → disposition 注解（含 causeLabel/outletLabel/createdBy + 出口的族/reason/方向）', async () => {
     const externalLines: any[] = [];
     const internalFlows = [
       { id: 'int-anchor', direction: 'OUT', amount: new Prisma.Decimal(60), externalRef: 'REF-ANCHOR', eventCode: 'WITHDRAW_OUT', sourceType: 'WITHDRAW', sourceNo: 'WD-ANCHOR', createdAt: new Date('2026-06-27T12:00:00Z') },
@@ -1222,6 +1222,11 @@ describe('getCase 行注解（spec §3/§8）', () => {
       causeLabel: CAUSE_REGISTRY.PHANTOM_BOOKING.label,
       outlet: 'ADJUST_REVERSE',
       outletLabel: staticOutletLabel('PHANTOM_BOOKING'),
+      // 出口的可执行三件（读面现算，金库据此开单，不必先重发一次定性）：
+      // 冲销族；假信号入账的 reason 是充值撤销；方向 = 内部流水方向取反（OUT→加）。
+      family: 'REVERSE',
+      reasonCode: 'DEPOSIT_SIGNAL_VOID',
+      direction: 'INCREASE',
       findingNote: '银行/链上查无此笔，客户确认未收到通知',
       adjustmentNo: null,
       createdBy: 'user-ops-1',

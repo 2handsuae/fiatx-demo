@@ -101,10 +101,25 @@ export function menuFor(matchType: CauseMatchType, book: CauseBook) {
 
 export interface RowFacts {
   matchType: CauseMatchType; book: CauseBook;
-  deltaSign?: 1 | -1;                       // AMOUNT_MISMATCH：sign(外部 − 内部)
-  internalDirection?: 'IN' | 'OUT';        // ORPHAN_INTERNAL
+  deltaSign?: 1 | -1;                       // AMOUNT_MISMATCH：sign(外部 − 内部)，两边都是原始金额（不带方向）
+  internalDirection?: 'IN' | 'OUT';        // ORPHAN_INTERNAL；AMOUNT_MISMATCH 也要——见 signedDeltaSign
   internalSourceType?: string;             // AMOUNT_MISMATCH：内部流水 sourceType
   externalDirection?: 'IN' | 'OUT';        // ORPHAN_EXTERNAL
+}
+
+/**
+ * 金额不对：差额对余额的方向。
+ *
+ * deltaSign 是**原始金额**差 sign(外部 − 内部)，不带流水方向；但余额是带方向的钱
+ * （wallet-balance-checker.service.ts 的口径 signed = IN ? +amt : −amt）。所以出账
+ * 流水要把符号翻过来：提现内部记 90、银行实扣 100，原始差是 +10，可这 10 块是客户
+ * 余额**多出来**的，得减；若不翻，会判成「加」，且 WITHDRAW_AMOUNT_CORRECTION 只
+ * 许 INCREASE，反方向那半边会在开单时恒 400。公司侧同理：支出记少 = 未入账的银行
+ * 杂费（BANK_CHARGE），照原始符号会记成利息收入。
+ */
+function signedDeltaSign(facts: RowFacts): 1 | -1 {
+  const raw: 1 | -1 = facts.deltaSign === -1 ? -1 : 1;
+  return facts.internalDirection === 'OUT' ? (raw === 1 ? -1 : 1) : raw;
 }
 
 export interface ResolvedOutlet {
@@ -115,8 +130,9 @@ export interface ResolvedOutlet {
 
 /**
  * 出口判定（spec §4）：成因 + 行事实 → 出口/族/调账 reason/方向 全部机器可判。
- * 方向统一口径「差额 = 外部 − 内部」：金额不对按差额符号；我有外无按内部方向
- * 取反；外有我无按外部方向照搬。reason 派生规则见 spec §4「调账 reason 派生」。
+ * 方向统一口径「差额 = 外部 − 内部」：金额不对按差额符号（出账流水翻符号，见
+ * signedDeltaSign）；我有外无按内部方向取反；外有我无按外部方向照搬。
+ * reason 派生规则见 spec §4「调账 reason 派生」。
  */
 export function resolveOutlet(code: CauseCode, facts: RowFacts): ResolvedOutlet {
   const spec = CAUSE_REGISTRY[code];
@@ -135,7 +151,7 @@ export function resolveOutlet(code: CauseCode, facts: RowFacts): ResolvedOutlet 
     return { outlet: 'ADJUST_REATTRIBUTE', outletLabel: '改记', family, reasonCode: 'CUSTOMER_REATTRIBUTION' };
   }
   if (family === 'CORRECT') {
-    const direction: 'REDUCE' | 'INCREASE' = facts.deltaSign === -1 ? 'REDUCE' : 'INCREASE';
+    const direction: 'REDUCE' | 'INCREASE' = signedDeltaSign(facts) === -1 ? 'REDUCE' : 'INCREASE';
     const reasonCode = facts.internalSourceType === 'DEPOSIT' ? 'DEPOSIT_AMOUNT_CORRECTION'
       : facts.internalSourceType === 'WITHDRAW' ? 'WITHDRAW_AMOUNT_CORRECTION' : null;
     if (!reasonCode) {
@@ -150,8 +166,8 @@ export function resolveOutlet(code: CauseCode, facts: RowFacts): ResolvedOutlet 
       : code === 'PHANTOM_BOOKING' ? 'DEPOSIT_SIGNAL_VOID' : 'WITHDRAW_VOID_REFUND';
     return { outlet: 'ADJUST_REVERSE', outletLabel: '冲销', family, reasonCode, direction };
   }
-  // RECORD（公司补记）：金额差按差额符号，公司孤儿按外部方向
-  const positive = facts.matchType === 'AMOUNT_MISMATCH' ? facts.deltaSign !== -1 : facts.externalDirection === 'IN';
+  // RECORD（公司补记）：金额差按差额符号（出账翻符号），公司孤儿按外部方向
+  const positive = facts.matchType === 'AMOUNT_MISMATCH' ? signedDeltaSign(facts) === 1 : facts.externalDirection === 'IN';
   return {
     outlet: 'ADJUST_RECORD', outletLabel: '补记', family,
     reasonCode: positive ? 'BANK_INTEREST' : 'BANK_CHARGE',

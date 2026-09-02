@@ -94,7 +94,7 @@
 - 触发 `sweep/reconciliation-sweep.service.ts → dailyRecon()`（@Cron 迪拜 02:30）；读面 `reconciliation-query.service.ts`（差异行随行下发 `menu` 该格成因清单、`disposition` 定性状态、`duplicateTwinRef` 双胞胎线索、`decimals`；列表下发定性进度）
 - 权限 `rbac.catalog.ts`：新组 `RECON_DISPOSITION_WRITE` **四处齐**（`PermissionGroup` 联合类型 / 端点 `route()` / 权限桶 `recon.act_dispose` / `OPS_OFFICER` 持有）——一期调账单当初只齐两处，结果是「没人能开单、自定义角色 UI 勾不到」。改完必须 `db:base:sync` **并重启后端**（`VALID_PERMISSION_GROUPS` 是进程启动时读进内存的）
 - 演示 `scripts/recon-demo.ts`（pass/break 两模式，break 按成因铺满全部破口 + manifest 答案键）+ `recon-rerun.ts`
-- 留痕（站5-β + 一期半，`V8_RECON_AUDIT_ACTIONS` 6 码）：跑批完成 RECON_RUN_COMPLETED（双通道：cron 系统 / 管理员触发记名，主对象=runNo）｜ 立案 RECON_CASE_OPENED ｜ 自愈 RECON_CASE_AUTO_HEALED ｜ 推单 RECON_PUSH_ORDER（同码双证据通道，继承父单旅程号，主对象=资金单号）｜ **定性 RECON_DISPOSITION_RECORDED**（requiredFields `causeCode`+`outlet`，主对象=dispositionNo，子主体带 caseNo + walletNo）｜ **开单 RECON_ADJUSTMENT_DRAFTED**（四族通用，requiredFields `reasonCode`+`amount`，主对象=adjustmentNo；销掉「开调账单零审计」那条铁律①缺口）——对账件无客户旅程走 NONE 模式，唯推单 INHERIT
+- 留痕（站5-β + 一期半，`V8_RECON_AUDIT_ACTIONS` 7 码）：跑批完成 RECON_RUN_COMPLETED（双通道：cron 系统 / 管理员触发记名，主对象=runNo）｜ 立案 RECON_CASE_OPENED ｜ 自愈 RECON_CASE_AUTO_HEALED ｜ 推单 RECON_PUSH_ORDER（同码双证据通道，继承父单旅程号，主对象=资金单号）｜ **定性 RECON_DISPOSITION_RECORDED**（requiredFields `causeCode`+`outlet`，主对象=dispositionNo，子主体带 caseNo + walletNo）｜ **开单 RECON_ADJUSTMENT_DRAFTED**（四族通用，requiredFields `reasonCode`+`amount`，主对象=adjustmentNo；销掉「开调账单零审计」那条铁律①缺口）｜ **落账 RECON_ADJUSTMENT_POSTED**（审批通过后一次性记账，requiredFields `reasonCode`+`amount`+`effectiveDate`，主对象=adjustmentNo——本模块唯一记录「钱真的过账了」的一码，继承案件旅程走 I 模式）——对账件无客户旅程走 NONE 模式，唯推单与落账 INHERIT
 
 ## 6. 演示缺口（BACKLOG 有账）
 

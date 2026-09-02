@@ -160,7 +160,15 @@ export interface FlowComparisonRow {
   // 平账一期半（spec §3/§8）案件读面——以下三个注解同样只在三类异常行上出现，
   // MATCHED/IN_TRANSIT 恒 undefined（它们不是差异、没有可处置的东西）。
   // 定性结论：这条差异如果已经被查过定过性，把结论贴回来（成因/出口/谁/何时）。
-  disposition?: { dispositionNo: string; causeCode: string; causeLabel: string; outlet: string; outletLabel: string; findingNote: string; adjustmentNo: string | null; createdBy: string; createdAt: string } | null;
+  // family/reasonCode/direction = 出口的可执行部分，随行下发给「开单」用；非
+  // ADJUST 类出口（挂起/留档）不落分录，三个都没有值。
+  disposition?: {
+    dispositionNo: string; causeCode: string; causeLabel: string;
+    outlet: string; outletLabel: string;
+    family?: 'CORRECT' | 'REVERSE' | 'RECORD' | 'REATTRIBUTE';
+    reasonCode?: string; direction?: 'REDUCE' | 'INCREASE';
+    findingNote: string; adjustmentNo: string | null; createdBy: string; createdAt: string;
+  } | null;
   // 15 个成因里唯一机器认得出的证据（spec §0.3）：本行与已匹配池里某行同参考号同
   // 金额——只对 ORPHAN_INTERNAL 生效，查证池只认「已匹配」。
   duplicateTwinRef?: string | null;
