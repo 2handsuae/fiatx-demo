@@ -1078,7 +1078,7 @@ const ReconciliationCasesDetailPage = () => {
                 type="button"
                 disabled={agingSubmitting}
                 onClick={() => void handleSimulateAging()}
-                className="mt-2 flex w-full items-center justify-center gap-1.5 rounded border border-amber-300 px-3 py-2 font-mono text-[12px] text-amber-700 hover:bg-amber-50 disabled:cursor-not-allowed disabled:opacity-50"
+                className="mt-2 flex w-full items-center justify-center gap-1.5 rounded border border-adm-amber/40 bg-adm-amber/10 px-3 py-2 font-mono text-[12px] font-semibold text-adm-amber transition-colors hover:bg-adm-amber/20 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 ⚡ 拨到超期 / Fast-forward aging
               </button>

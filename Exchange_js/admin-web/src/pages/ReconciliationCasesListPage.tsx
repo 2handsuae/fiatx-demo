@@ -299,7 +299,7 @@ const ReconciliationCasesListPage = () => {
                         {kase.aging}d
                       </span>
                       {kase.slaBreached && (
-                        <span className="ml-1 rounded border border-adm-red/30 bg-adm-red/10 px-1 py-0.5 font-mono text-[9px] font-semibold text-adm-red">
+                        <span className="ml-1 whitespace-nowrap rounded border border-adm-red/30 bg-adm-red/10 px-1 py-0.5 font-mono text-[9px] font-semibold text-adm-red">
                           超期
                         </span>
                       )}
