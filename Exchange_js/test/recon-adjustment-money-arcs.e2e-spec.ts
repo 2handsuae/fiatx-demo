@@ -504,7 +504,7 @@ describe('Recon adjustment money arcs (e2e, Task 8)', () => {
     expect(submitSubjectRows.length).toBeGreaterThanOrEqual(1);
 
     const approverActor = makeActor('E2E_OPS_APPROVER_C1', 'OPS_OFFICER');
-    await approvalsService.approve(approvalCase.id, { reason: 'e2e approve scenario 1' }, approverActor);
+    await approvalsService.approve(approvalCase.approvalNo, { reason: 'e2e approve scenario 1' }, approverActor);
 
     await waitUntil(async () => (await adjustmentRow(adjustmentNo)).status === AdjustmentStatus.POSTED);
     const postedRow = await adjustmentRow(adjustmentNo);
@@ -597,7 +597,7 @@ describe('Recon adjustment money arcs (e2e, Task 8)', () => {
 
     await adjustments.submit(adjustmentNo, makeActor('E2E_OPS_CREATOR_C2', 'OPS_OFFICER'));
     const approvalCase = await latestApprovalCase(ApprovalActionTypes.RECON_ADJUSTMENT_POST, adjustmentNo);
-    await approvalsService.approve(approvalCase.id, { reason: 'e2e approve scenario 2' }, makeActor('E2E_OPS_APPROVER_C2', 'OPS_OFFICER'));
+    await approvalsService.approve(approvalCase.approvalNo, { reason: 'e2e approve scenario 2' }, makeActor('E2E_OPS_APPROVER_C2', 'OPS_OFFICER'));
 
     await waitUntil(async () => (await adjustmentRow(adjustmentNo)).status === AdjustmentStatus.POSTED);
 
@@ -649,7 +649,7 @@ describe('Recon adjustment money arcs (e2e, Task 8)', () => {
 
     await adjustments.submit(adjustmentNo, makeActor('E2E_OPS_CREATOR_F3', 'OPS_OFFICER'));
     const approvalCase = await latestApprovalCase(ApprovalActionTypes.RECON_ADJUSTMENT_POST, adjustmentNo);
-    await approvalsService.approve(approvalCase.id, { reason: 'e2e approve scenario 3' }, makeActor('E2E_OPS_APPROVER_F3', 'OPS_OFFICER'));
+    await approvalsService.approve(approvalCase.approvalNo, { reason: 'e2e approve scenario 3' }, makeActor('E2E_OPS_APPROVER_F3', 'OPS_OFFICER'));
 
     await waitUntil(async () => (await adjustmentRow(adjustmentNo)).status === AdjustmentStatus.POSTED);
 
@@ -696,7 +696,7 @@ describe('Recon adjustment money arcs (e2e, Task 8)', () => {
 
     // 驳回 —— 落终态，账本依然零动静
     const approvalCase = await latestApprovalCase(ApprovalActionTypes.RECON_ADJUSTMENT_POST, adjustmentNo);
-    await approvalsService.reject(approvalCase.id, { reason: 'e2e reject scenario 4' }, makeActor('E2E_OPS_APPROVER_C4', 'OPS_OFFICER'));
+    await approvalsService.reject(approvalCase.approvalNo, { reason: 'e2e reject scenario 4' }, makeActor('E2E_OPS_APPROVER_C4', 'OPS_OFFICER'));
 
     await waitUntil(async () => (await adjustmentRow(adjustmentNo)).status === AdjustmentStatus.REJECTED);
     expect(await flowsFor(adjustmentNo)).toHaveLength(0);
@@ -773,7 +773,7 @@ describe('Recon adjustment money arcs (e2e, Task 8)', () => {
     );
     await adjustments.submit(adjustmentNo, makeActor('E2E_OPS_CREATOR_C8', 'OPS_OFFICER'));
     const approvalCase = await latestApprovalCase(ApprovalActionTypes.RECON_ADJUSTMENT_POST, adjustmentNo);
-    await approvalsService.approve(approvalCase.id, { reason: 'e2e approve scenario 8' }, makeActor('E2E_OPS_APPROVER_C8', 'OPS_OFFICER'));
+    await approvalsService.approve(approvalCase.approvalNo, { reason: 'e2e approve scenario 8' }, makeActor('E2E_OPS_APPROVER_C8', 'OPS_OFFICER'));
 
     // ⚠ 核心断言：单子必须真的走到 POSTED。ledger 解析不出时它会静默卡在
     // PENDING_APPROVAL（异常被吞），waitUntil 会超时——这正是本条要逮的形状。
@@ -868,7 +868,7 @@ describe('Recon adjustment money arcs (e2e, Task 8)', () => {
 
     await adjustments.submit(adjustmentNo, makeActor('E2E_OPS_CREATOR_F7', 'OPS_OFFICER'));
     const approvalCase = await latestApprovalCase(ApprovalActionTypes.RECON_ADJUSTMENT_POST, adjustmentNo);
-    await approvalsService.approve(approvalCase.id, { reason: 'e2e approve scenario 7' }, makeActor('E2E_OPS_APPROVER_F7', 'OPS_OFFICER'));
+    await approvalsService.approve(approvalCase.approvalNo, { reason: 'e2e approve scenario 7' }, makeActor('E2E_OPS_APPROVER_F7', 'OPS_OFFICER'));
 
     await waitUntil(async () => (await adjustmentRow(adjustmentNo)).status === AdjustmentStatus.POSTED);
 
@@ -929,7 +929,7 @@ describe('Recon adjustment money arcs (e2e, Task 8)', () => {
     expect(approvalCase.createdByUserId).toBe('e2e-uuid-solo-v1');
 
     await expect(
-      approvalsService.approve(approvalCase.id, { reason: 'e2e V1: 尝试自批' }, soloActor),
+      approvalsService.approve(approvalCase.approvalNo, { reason: 'e2e V1: 尝试自批' }, soloActor),
     ).rejects.toThrow('Maker and checker must be different users');
 
     // 拒得干净：账本零动静，单仍卡在 PENDING_APPROVAL（不是被批准也不是被驳回）。
@@ -1014,7 +1014,7 @@ describe('Recon adjustment money arcs (e2e, Task 8)', () => {
     await adjustments.submit(adjustmentNo, makeActor('E2E_OPS_CREATOR_C9', 'OPS_OFFICER'));
     const approvalCase = await latestApprovalCase(ApprovalActionTypes.RECON_ADJUSTMENT_POST, adjustmentNo);
     await approvalsService.approve(
-      approvalCase.id, { reason: 'e2e approve scenario 9' }, makeActor('E2E_OPS_APPROVER_C9', 'OPS_OFFICER'),
+      approvalCase.approvalNo, { reason: 'e2e approve scenario 9' }, makeActor('E2E_OPS_APPROVER_C9', 'OPS_OFFICER'),
     );
     await waitUntil(async () => (await adjustmentRow(adjustmentNo)).status === AdjustmentStatus.POSTED);
 

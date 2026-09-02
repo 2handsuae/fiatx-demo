@@ -469,7 +469,7 @@ describe('Deposit Sumsub verdict buttons (e2e, Task 9)', () => {
     });
     expect(approvalCase).toBeTruthy();
 
-    await approvalsService.approve(approvalCase.id, { reason: 'E2E approve' }, CFO_CHECKER);
+    await approvalsService.approve(approvalCase.approvalNo, { reason: 'E2E approve' }, CFO_CHECKER);
 
     // See waitForStatus's doc comment: onConfiscationDecided runs off a fire-and-forget
     // `{ async: true }` event listener, so the CONFISCATING flip lands slightly after

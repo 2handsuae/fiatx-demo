@@ -84,12 +84,12 @@ describe('审批裁决审计留痕纪律（铁律① 操作必留痕）', () => 
     const actorMlro = await actorFor('mlro@fiatx.com', 'MLRO');
 
     // 第一票：SMO 签第一步，案子仍 PENDING（还有第二步待签）。
-    await approvalsService.approve(created.id, { reason: 'SMO first vote' }, actorSm);
+    await approvalsService.approve(created.approvalNo, { reason: 'SMO first vote' }, actorSm);
     // 第二票：MLRO 签第二步（末票），案子推 APPROVED。此案 actionType=DEPOSIT_SEIZE，
     // 批准后会发 workflow.deposit-seize.decided 事件；entityRef 不对应真实存款单，
     // deposit-workflow 的 handler 会 findOne 抛 NotFoundException 并静默吞掉（容错
     // 分支，见 deposit-workflow.service.ts onSeizeDecided），不影响这里的断言。
-    await approvalsService.approve(created.id, { reason: 'MLRO final vote' }, actorMlro);
+    await approvalsService.approve(created.approvalNo, { reason: 'MLRO final vote' }, actorMlro);
 
     const grantedRows = await prisma.auditLogEvent.findMany({
       where: { action: 'APPROVAL_GRANTED', primarySubjectNo: approvalNo },
@@ -145,5 +145,55 @@ describe('权限守卫拒绝留痕纪律（法一纪律4 ADMIN_ACCESS_DENIED）'
     expect(row).not.toBeNull();
     expect(row?.actorNo).toBe(auditor.userNo);
     expect(row?.reasonCode).toBe('MISSING_PERMISSION');
+  });
+});
+
+/**
+ * 铁律⑥ 对外用业务键：审批详情端点已从 `:id`（内部 UUID）改为 `:approvalNo`
+ * （业务号，Task 17）——approve/reject/cancel/getById 四个对外方法同批切换，
+ * 这里挑最容易走查的 GET 详情端点做行为断言：拿业务号打得通，拿内部 UUID
+ * 打不通（404），不是「顺便也认」的兼容读法。
+ */
+describe('审批端点对外识别（铁律⑥ 对外用业务键）', () => {
+  let app: INestApplication;
+  let prisma: PrismaService;
+
+  beforeAll(async () => {
+    const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
+    app = moduleRef.createNestApplication();
+    app.get(EventEmitter2).setMaxListeners(50);
+    await app.init();
+    prisma = app.get(PrismaService);
+  });
+  afterAll(async () => { await app.close(); });
+
+  async function loginAs(email: string): Promise<string> {
+    const res = await request(app.getHttpServer())
+      .post('/auth/login')
+      .send({ email, password: '123456' });
+    expect(res.status).toBe(200);
+    return res.body?.access_token;
+  }
+
+  async function req(path: string, token: string) {
+    return request(app.getHttpServer())
+      .get(path)
+      .set('Authorization', `Bearer ${token}`);
+  }
+
+  it('审批端点收业务号；拿 UUID 打 → 404', async () => {
+    const c = await prisma.approvalCase.create({
+      data: {
+        approvalNo: `APR-KEY-${Date.now()}`,
+        actionType: 'SWAP_FEE_LEVEL_CHANGE',
+        entityRef: 'E',
+        createdByUserId: 'u',
+        status: 'PENDING',
+        traceId: `t-${Date.now()}`,
+      },
+    });
+    const token = await loginAs('ciso@fiatx.com');
+    expect((await req(`/admin/control-gates/approvals/${c.approvalNo}`, token)).status).toBe(200);
+    expect((await req(`/admin/control-gates/approvals/${c.id}`, token)).status).toBe(404);
   });
 });

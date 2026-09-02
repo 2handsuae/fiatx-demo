@@ -216,7 +216,7 @@ export class ApprovalsService {
    * 就拿不到了，重读的代价（一次 SELECT）远小于在开着的事务里嵌查询的代价。
    */
   private async recordSoDDenied(
-    id: string,
+    approvalNo: string,
     actor: ApprovalActorContext,
     error: unknown,
   ): Promise<void> {
@@ -227,7 +227,7 @@ export class ApprovalsService {
       return;
     }
 
-    const approval = await this.findCaseOrThrow(id);
+    const approval = await this.findCaseByNoOrThrow(approvalNo);
     await this.auditLogsService.recordByActor(
       {
         action: 'APPROVAL_SOD_DENIED',
@@ -318,6 +318,19 @@ export class ApprovalsService {
     }
 
     return found as ApprovalCaseRow;
+  }
+
+  private async findCaseByNoOrThrow(
+    approvalNo: string,
+    tx?: ApprovalWriteClient,
+  ): Promise<ApprovalCaseRow> {
+    const client = tx ?? this.prisma;
+    const approval = await client.approvalCase.findUnique({
+      where: { approvalNo },
+      include: this.approvalInclude(),
+    });
+    if (!approval) throw new NotFoundException(`Approval ${approvalNo} not found`);
+    return approval as ApprovalCaseRow;
   }
 
   private isUniqueConflict(error: unknown, field: string): boolean {
@@ -655,7 +668,7 @@ export class ApprovalsService {
     return this.mapApproval(submitted, actor);
   }
 
-  async approve(id: string, dto: DecisionApprovalDto, actor: ApprovalActorContext) {
+  async approve(approvalNo: string, dto: DecisionApprovalDto, actor: ApprovalActorContext) {
     let updated: ApprovalCaseRow;
     // 超管代行标要报的"候选角色集"——resolveDecisionRole 内部同名局部变量
     // （allowedRoles = stepCandidateRoles || []），事务回调作用域里算出来，
@@ -663,7 +676,7 @@ export class ApprovalsService {
     let allowedRoles: string[] = [];
     try {
       updated = await this.prisma.$transaction(async (tx: any) => {
-        const approval = await this.findCaseOrThrow(id, tx);
+        const approval = await this.findCaseByNoOrThrow(approvalNo, tx);
         if (approval.status !== ApprovalStatuses.PENDING) {
           throw new BadRequestException('Only PENDING approvals can be approved');
         }
@@ -738,7 +751,7 @@ export class ApprovalsService {
       // resolveDecisionRole 处注释：事务已经 settle/rejected，此刻查询/写入
       // 不会再跟这个已经在回滚的 tx 顶牛）。非 SoD 原因的失败原样透传，
       // recordSoDDenied 内部会判断、不是 SoD 就直接 no-op。
-      await this.recordSoDDenied(id, actor, error);
+      await this.recordSoDDenied(approvalNo, actor, error);
       throw error;
     }
 
@@ -779,13 +792,13 @@ export class ApprovalsService {
     return this.mapApproval(updated, actor);
   }
 
-  async reject(id: string, dto: DecisionApprovalDto, actor: ApprovalActorContext) {
+  async reject(approvalNo: string, dto: DecisionApprovalDto, actor: ApprovalActorContext) {
     let updated: ApprovalCaseRow;
     // 超管代行标要报的"候选角色集"——同 approve() 里一致的镜像手法。
     let allowedRoles: string[] = [];
     try {
       updated = await this.prisma.$transaction(async (tx: any) => {
-        const approval = await this.findCaseOrThrow(id, tx);
+        const approval = await this.findCaseByNoOrThrow(approvalNo, tx);
         if (approval.status !== ApprovalStatuses.PENDING) {
           throw new BadRequestException('Only PENDING approvals can be rejected');
         }
@@ -851,7 +864,7 @@ export class ApprovalsService {
         }) as Promise<ApprovalCaseRow>;
       });
     } catch (error) {
-      await this.recordSoDDenied(id, actor, error);
+      await this.recordSoDDenied(approvalNo, actor, error);
       throw error;
     }
 
@@ -887,10 +900,10 @@ export class ApprovalsService {
     return this.mapApproval(updated, actor);
   }
 
-  async cancel(id: string, dto: CancelApprovalDto, actor: ApprovalActorContext) {
+  async cancel(approvalNo: string, dto: CancelApprovalDto, actor: ApprovalActorContext) {
     let previousStatus: string = ApprovalStatuses.DRAFT;
     const updated = await this.prisma.$transaction(async (tx: any) => {
-      const approval = await this.findCaseOrThrow(id, tx);
+      const approval = await this.findCaseByNoOrThrow(approvalNo, tx);
       if (approval.createdByUserId !== actor.userId && !this.isSuperAdmin(actor)) {
         throw new ForbiddenException('Only the maker can cancel this approval');
       }
@@ -1007,8 +1020,8 @@ export class ApprovalsService {
     return this.mapApproval(approval, input.actor);
   }
 
-  async getById(id: string, actor?: ApprovalActorContext) {
-    const approval = await this.findCaseOrThrow(id);
+  async getById(approvalNo: string, actor?: ApprovalActorContext) {
+    const approval = await this.findCaseByNoOrThrow(approvalNo);
     const [mapped] = await this.mapApprovalsForReadModel([approval], actor);
     return mapped;
   }

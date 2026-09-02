@@ -433,11 +433,11 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
   // approvals" — downgraded from GOV_APPROVAL_DECIDE/WRITE to GOV_APPROVAL_READ.
   // cancel specifically was found to have a live consumer (ApprovalDetailPage.tsx's Cancel
   // button, same submitDecision() flow as approve/reject) — see task-4-report.md.
-  route('POST', '/admin/control-gates/approvals/:id/approve', 'Approve approval case', ['GOV_APPROVAL_READ']),
-  route('POST', '/admin/control-gates/approvals/:id/reject', 'Reject approval case', ['GOV_APPROVAL_READ']),
-  route('POST', '/admin/control-gates/approvals/:id/cancel', 'Cancel approval case', ['GOV_APPROVAL_READ']),
+  route('POST', '/admin/control-gates/approvals/:approvalNo/approve', 'Approve approval case', ['GOV_APPROVAL_READ']),
+  route('POST', '/admin/control-gates/approvals/:approvalNo/reject', 'Reject approval case', ['GOV_APPROVAL_READ']),
+  route('POST', '/admin/control-gates/approvals/:approvalNo/cancel', 'Cancel approval case', ['GOV_APPROVAL_READ']),
   route('POST', '/admin/control-gates/approvals/:approvalNo/simulate-timeout', 'Fast-forward approval timeout (demo only)', ['DEMO_CLOCK_WRITE']),
-  route('GET', '/admin/control-gates/approvals/:id', 'Get approval case detail', ['GOV_APPROVAL_READ']),
+  route('GET', '/admin/control-gates/approvals/:approvalNo', 'Get approval case detail', ['GOV_APPROVAL_READ']),
   route('GET', '/admin/control-gates/approvals', 'List approval cases', ['GOV_APPROVAL_READ']),
 
   // Approval Policy Management

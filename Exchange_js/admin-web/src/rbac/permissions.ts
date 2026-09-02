@@ -58,10 +58,12 @@ export const PERMISSIONS = {
   AUDIT_EVIDENCE_EXPORT_DOWNLOAD:
     'api.get.admin_audit_evidence_packages_id_download',
   GOV_APPROVALS_READ: 'api.get.admin_control_gates_approvals',
-  GOV_APPROVAL_DETAIL_READ: 'api.get.admin_control_gates_approvals_id',
-  GOV_APPROVAL_APPROVE: 'api.post.admin_control_gates_approvals_id_approve',
-  GOV_APPROVAL_REJECT: 'api.post.admin_control_gates_approvals_id_reject',
-  GOV_APPROVAL_CANCEL: 'api.post.admin_control_gates_approvals_id_cancel',
+  // Task 17：对外识别改 approvalNo 后，四码随 rbac.catalog.ts 的 :id → :approvalNo
+  // 一起漂——buildPermissionCode(method, path) 派生值，同 47 行注释的镜像约定。
+  GOV_APPROVAL_DETAIL_READ: 'api.get.admin_control_gates_approvals_approvalno',
+  GOV_APPROVAL_APPROVE: 'api.post.admin_control_gates_approvals_approvalno_approve',
+  GOV_APPROVAL_REJECT: 'api.post.admin_control_gates_approvals_approvalno_reject',
+  GOV_APPROVAL_CANCEL: 'api.post.admin_control_gates_approvals_approvalno_cancel',
 
   IAM_ROLE_DEFINITIONS_CREATE: 'api.post.admin_iam_role_definitions',
   IAM_ROLE_DEFINITIONS_PERMISSION_GROUPS: 'api.get.admin_iam_role_definitions_permission_groups',

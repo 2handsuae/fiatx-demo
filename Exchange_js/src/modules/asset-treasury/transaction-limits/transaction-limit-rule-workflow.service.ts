@@ -398,7 +398,7 @@ export class TransactionLimitRuleWorkflowService {
 
     if (decision === 'APPROVED') {
       try {
-        const approval: any = await this.approvalsService.getById(approvalId);
+        const approval: any = await this.approvalsService.getById(event?.approvalNo);
         const before = approval?.objectSnapshot?.before;
         const after = approval?.objectSnapshot?.after;
         if (!after || typeof after !== 'object' || !before || typeof before !== 'object') {

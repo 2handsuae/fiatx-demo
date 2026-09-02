@@ -567,7 +567,7 @@ describe('Withdraw money arcs (e2e, Task 12)', () => {
     expect(approvalCase).toBeTruthy();
     expect(approvalCase!.status).toBe('PENDING');
 
-    await approvalsService.approve(approvalCase!.id, { reason: 'e2e approve' }, makeActor('E2E_MLRO_UNFREEZE_WD1', 'MLRO'));
+    await approvalsService.approve(approvalCase!.approvalNo, { reason: 'e2e approve' }, makeActor('E2E_MLRO_UNFREEZE_WD1', 'MLRO'));
     await waitUntil(async () => (await statusOf(w.id)) === WithdrawTransactionStatus.COMPLIANCE_PENDING);
 
     actions = await auditActionsFor(w.id);
@@ -600,7 +600,7 @@ describe('Withdraw money arcs (e2e, Task 12)', () => {
     expect(approvalCase).toBeTruthy();
     expect(approvalCase!.status).toBe('PENDING');
 
-    await approvalsService.approve(approvalCase!.id, { reason: 'e2e approve' }, makeActor('E2E_MLRO_REFUND_WD1', 'MLRO'));
+    await approvalsService.approve(approvalCase!.approvalNo, { reason: 'e2e approve' }, makeActor('E2E_MLRO_REFUND_WD1', 'MLRO'));
     await waitUntil(async () => (await statusOf(w.id)) === WithdrawTransactionStatus.REJECTED);
 
     const refundRows = await auditRowsFor(w.id, 'WITHDRAW_REFUNDED');

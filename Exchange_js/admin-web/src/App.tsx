@@ -326,7 +326,7 @@ function App() {
               )}
             />
             <Route
-              path="control-gates/approvals/:id"
+              path="control-gates/approvals/:approvalNo"
               element={withPermission(<ApprovalDetailPage />, [
                 PERMISSIONS.GOV_APPROVAL_DETAIL_READ,
               ])}
@@ -490,7 +490,7 @@ function App() {
 
             {/* governance */}
             <Route path="governance/approvals" element={withPermission(<ApprovalsPage />, [PERMISSIONS.GOV_APPROVALS_READ])} />
-            <Route path="governance/approvals/:id" element={withPermission(<ApprovalDetailPage />, [PERMISSIONS.GOV_APPROVAL_DETAIL_READ])} />
+            <Route path="governance/approvals/:approvalNo" element={withPermission(<ApprovalDetailPage />, [PERMISSIONS.GOV_APPROVAL_DETAIL_READ])} />
             <Route path="governance/approval-policies" element={withPermission(<ApprovalPoliciesPage />, [PERMISSIONS.GOV_APPROVAL_POLICIES_READ])} />
 
             {/* audit */}

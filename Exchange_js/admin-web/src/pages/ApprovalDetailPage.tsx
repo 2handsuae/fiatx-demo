@@ -170,7 +170,7 @@ const SidebarKV = ({
 /* ─────────────────────────────────────────────────────────────── */
 
 const ApprovalDetailPage = () => {
-  const { id } = useParams<{ id: string }>();
+  const { approvalNo } = useParams<{ approvalNo: string }>();
   const navigate = useNavigate();
   const { hasAnyPermission } = useAdminSession();
 
@@ -204,11 +204,11 @@ const ApprovalDetailPage = () => {
   };
 
   const fetchDetail = async () => {
-    if (!id) { setError('Approval id is required.'); setLoading(false); return; }
+    if (!approvalNo) { setError('Approval no is required.'); setLoading(false); return; }
     setLoading(true); setError('');
     try {
       const payload = await fetchJson<ApprovalDetail>(
-        `${import.meta.env.VITE_API_URL}/admin/control-gates/approvals/${id}`,
+        `${import.meta.env.VITE_API_URL}/admin/control-gates/approvals/${approvalNo}`,
       );
       setDetail(payload);
       setDecisionRole(
@@ -226,7 +226,7 @@ const ApprovalDetailPage = () => {
     }
   };
 
-  useEffect(() => { void fetchDetail(); }, [id]);
+  useEffect(() => { void fetchDetail(); }, [approvalNo]);
 
   /* Auto-dismiss notice */
   useEffect(() => {
@@ -258,7 +258,7 @@ const ApprovalDetailPage = () => {
   };
 
   const submitDecision = async () => {
-    if (!id || !decisionAction) return;
+    if (!approvalNo || !decisionAction) return;
     const action = decisionAction;
     setSubmittingAction(action);
     setDecisionError(null);
@@ -268,7 +268,7 @@ const ApprovalDetailPage = () => {
       if (action !== 'cancel' && decisionRole) payload.checkerRole = decisionRole;
 
       const response = await adminFetch(
-        `${import.meta.env.VITE_API_URL}/admin/control-gates/approvals/${id}/${action}`,
+        `${import.meta.env.VITE_API_URL}/admin/control-gates/approvals/${approvalNo}/${action}`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -282,10 +282,10 @@ const ApprovalDetailPage = () => {
       closeDecisionModal();
       setNotice(
         action === 'approve'
-          ? `Approval ${detail?.approvalNo ?? id} approved.`
+          ? `Approval ${detail?.approvalNo ?? approvalNo} approved.`
           : action === 'reject'
-            ? `Approval ${detail?.approvalNo ?? id} rejected.`
-            : `Approval ${detail?.approvalNo ?? id} cancelled.`,
+            ? `Approval ${detail?.approvalNo ?? approvalNo} rejected.`
+            : `Approval ${detail?.approvalNo ?? approvalNo} cancelled.`,
       );
       await fetchDetail();
     } catch (e: unknown) {
@@ -302,7 +302,7 @@ const ApprovalDetailPage = () => {
   /* ── ⚡ Demo: fast-forward timeout ──
      只拨 timeoutAt，不直接改 status——过期这条边仍必须由后台扫描器
      （ApprovalExpiryService.sweep()，每分钟一次）走。按钮用
-     detail.approvalNo，不依赖路由参数 id。 */
+     detail.approvalNo，不依赖路由参数。 */
 
   const simulateTimeout = async () => {
     if (!detail) return;

@@ -108,13 +108,6 @@ async function call(
   return { status: res.status, json, text };
 }
 
-async function findApprovalIdByNo(token: string, approvalNo: string): Promise<string | null> {
-  const { status, json } = await call('GET', `/admin/control-gates/approvals?approvalNo=${encodeURIComponent(approvalNo)}`, token);
-  if (status !== 200) return null;
-  const items = json?.items ?? [];
-  return items[0]?.id ?? null;
-}
-
 async function fetchIamRoles(token: string): Promise<any[]> {
   const { status, json } = await call('GET', '/admin/iam/roles', token);
   if (status !== 200) throw new Error(`GET /admin/iam/roles failed: ${status}`);
@@ -594,13 +587,12 @@ async function verifyRoleModifyNoLoss(techToken: string, cisoToken: string, role
   }
 
   const approvalNo = submitBody?.approvalNo;
-  const caseId = approvalNo ? await findApprovalIdByNo(cisoToken, approvalNo) : null;
-  if (!caseId) {
-    check(label, false, `approvalNo=${approvalNo} 查不到内部 id（GET /admin/control-gates/approvals?approvalNo=...）`);
+  if (!approvalNo) {
+    check(label, false, 'POST /admin/iam/role-definitions/:roleId/modify 响应体缺 approvalNo');
     return;
   }
 
-  const { status: approveStatus, json: approveBody } = await call('POST', `/admin/control-gates/approvals/${caseId}/approve`, cisoToken, {
+  const { status: approveStatus, json: approveBody } = await call('POST', `/admin/control-gates/approvals/${approvalNo}/approve`, cisoToken, {
     reason: 'verify:rbac V2 probe approval',
   });
   if (approveStatus < 200 || approveStatus >= 300) {
@@ -677,13 +669,12 @@ async function verifyPricingCfoAndPolicySoD(tokens: Record<string, string>): Pro
   }
 
   const approvalNo = createBodyResp?.approvalNo;
-  const caseId = approvalNo ? await findApprovalIdByNo(tokens.cfo, approvalNo) : null;
-  if (!caseId) {
-    check('V3 裁决只认审批策略', false, `approvalNo=${approvalNo} 查不到内部 id`);
+  if (!approvalNo) {
+    check('V3 裁决只认审批策略', false, 'POST /admin/swap-fee-levels 响应体缺 approvalNo');
     return;
   }
 
-  const { status: denyStatus } = await call('POST', `/admin/control-gates/approvals/${caseId}/approve`, tokens.treasury, {
+  const { status: denyStatus } = await call('POST', `/admin/control-gates/approvals/${approvalNo}/approve`, tokens.treasury, {
     reason: 'verify:rbac V3 probe — non-checker role, expect denied',
   });
   check(
@@ -692,7 +683,7 @@ async function verifyPricingCfoAndPolicySoD(tokens: Record<string, string>): Pro
     `POST approve as treasury@ → ${denyStatus}（期望 403）`,
   );
 
-  const { status: allowStatus, json: allowBody } = await call('POST', `/admin/control-gates/approvals/${caseId}/approve`, tokens.ops_officer, {
+  const { status: allowStatus, json: allowBody } = await call('POST', `/admin/control-gates/approvals/${approvalNo}/approve`, tokens.ops_officer, {
     reason: 'verify:rbac V3 probe — the policy-named checkerRole, expect allowed',
   });
   check(
@@ -736,8 +727,7 @@ async function main(): Promise<void> {
     ...PROBES.map((p) => ({ section: p.section, name: p.name, method: p.method, routePattern: p.routePattern })),
     { section: '支撑调用', name: '角色列表', method: 'GET', routePattern: '/admin/iam/roles' },
     { section: '支撑调用', name: '提交改角色请求', method: 'POST', routePattern: '/admin/iam/role-definitions/:roleId/modify' },
-    { section: '支撑调用', name: '按单号查审批案', method: 'GET', routePattern: '/admin/control-gates/approvals' },
-    { section: '支撑调用', name: '批准审批案', method: 'POST', routePattern: '/admin/control-gates/approvals/:id/approve' },
+    { section: '支撑调用', name: '批准审批案', method: 'POST', routePattern: '/admin/control-gates/approvals/:approvalNo/approve' },
     { section: '支撑调用', name: '资产列表', method: 'GET', routePattern: '/assets' },
   ];
   const missing = findUnregisteredRoutes(liveRoutes, usages);
