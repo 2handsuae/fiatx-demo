@@ -158,7 +158,7 @@ When a new entity detail page is added, its sidebar field selection MUST be reco
 | **InternalTransfer** | `internalTxNo`, `pathLabel`, `status` badge, `asset.code` | `createdAt`, `completedAt`, `updatedAt` |
 | **SettlementBatch** | `batchNo`, `status` badge, `settlementType` | `createdAt`, `cutoffAt`, `completedAt` |
 | **ReconciliationRun** | `runNo`, `status` badge, `layer`, `triggerType` | `startedAt`, `completedAt`, `createdAt` |
-| **ReconciliationCase** | `caseNo`, `status` badge, `bucket` badge, `deltaAmount` | `slaDeadline`, `createdAt`, `updatedAt` |
+| **ReconciliationCase** | `caseNo`, `status` badge, `bucket` badge, `deltaAmount`、`slaBreached` → 超期徽标（列表 Aging 列 + 详情 hero「超期 N 天」） | `slaDeadline`, `createdAt`, `updatedAt` |
 | **ReconciliationExternalStatement** | `statementNo`, `source`, `currency`, `closingBalance` | `businessDate`, `fetchedAt`, `createdAt` |
 | **CustomerRestriction** | `restrictionNo`, `status` badge, `cause`, `scopes`, `visibility`(🔇 for SILENT), `customerNo` | `openedAt`, `releasedAt` |
 
