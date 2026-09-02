@@ -137,7 +137,7 @@ export class TransactionLimitRuleWorkflowService {
       throw err;
     }
 
-    await this.rulesService.attachApprovalCase(ruleNo, approvalCase.id);
+    await this.rulesService.attachApprovalCase(ruleNo, approvalCase.id, approvalCase.approvalNo);
 
     // afterData：CREATE 没有「前」态，只存提案身份本身。
     const afterData = {

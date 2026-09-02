@@ -24,7 +24,7 @@ interface RuleDetail {
   cap: string | null;
   threshold: string | null;
   status: string;
-  approvalCaseId: string | null;
+  approvalCaseNo: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -118,7 +118,6 @@ export default function TransactionLimitDetail() {
   const [notice, setNotice] = useState<string | null>(null);
 
   const [assetCode, setAssetCode] = useState<string | null>(null);
-  const [approvalNo, setApprovalNo] = useState<string | null>(null);
 
   /* ── Change modal state ── */
   const [showChangeModal, setShowChangeModal] = useState(false);
@@ -156,23 +155,6 @@ export default function TransactionLimitDetail() {
         }
       } else {
         setAssetCode(null);
-      }
-
-      // Resolve approval business key (approvalNo) for a non-UUID link.
-      if (data.approvalCaseId) {
-        try {
-          const apRes = await adminFetch(
-            `${import.meta.env.VITE_API_URL}/admin/control-gates/approvals/${data.approvalCaseId}`,
-          );
-          if (apRes.ok) {
-            const ap = (await apRes.json()) as { approvalNo?: string };
-            setApprovalNo(ap.approvalNo ?? null);
-          }
-        } catch {
-          /* ignore — link hidden if approvalNo unresolved */
-        }
-      } else {
-        setApprovalNo(null);
       }
     } catch (err) {
       if (err instanceof AdminSessionError) return;
@@ -410,14 +392,14 @@ export default function TransactionLimitDetail() {
             <SidebarKV
               label="Approval"
               value={
-                approvalNo ? (
+                rule.approvalCaseNo ? (
                   <button
                     onClick={() =>
-                      navigate(`/admin/governance/approvals/${rule.approvalCaseId}`)
+                      navigate(`/admin/governance/approvals/${rule.approvalCaseNo}`)
                     }
                     className="font-mono text-[10px] text-adm-amber hover:underline"
                   >
-                    {approvalNo}
+                    {rule.approvalCaseNo}
                   </button>
                 ) : (
                   '—'

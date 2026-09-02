@@ -924,10 +924,13 @@ const CustomerDetail = () => {
                 Latest onboarding risk approval workflow
               </p>
               <button
-                onClick={() =>
-                  navigate(`/admin/governance/approvals/${detail.latestRiskApprovalId}`)
-                }
-                className="flex w-full items-center justify-between gap-3 rounded border border-adm-border bg-adm-bg px-4 py-2.5 text-left transition-colors hover:border-adm-bhi hover:bg-adm-hover"
+                onClick={() => {
+                  if (detail.latestRiskApproval?.approvalNo) {
+                    navigate(`/admin/governance/approvals/${detail.latestRiskApproval.approvalNo}`);
+                  }
+                }}
+                disabled={!detail.latestRiskApproval?.approvalNo}
+                className="flex w-full items-center justify-between gap-3 rounded border border-adm-border bg-adm-bg px-4 py-2.5 text-left transition-colors hover:border-adm-bhi hover:bg-adm-hover disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:border-adm-border disabled:hover:bg-adm-bg"
               >
                 <div className="flex min-w-0 flex-col gap-0.5">
                   <span className="font-mono text-[8.5px] uppercase tracking-[0.14em] text-adm-t3">
