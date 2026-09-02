@@ -86,6 +86,8 @@
 
 **已知口径**：`recon:demo:break` **14/14 场景 + 11/11 钱包桶全检出**。14 条里我方本轮能自己平掉 **11** 条（按场景数：推单 1 / 冲正 4 / 冲销 2 / 改记 1 / 补记 2 / **核销 1**——改记那 1 条场景牵 2 张案子同愈，补记那 2 条场景其实挤在同 1 张案子里），余 **3** 条（场景 **9/13/14**）要么等外部下一期、要么等下一轮的补单入口，案子长红且**不许粉饰**。
 
+**走查截图（2026-09-02 平账 A 批）**：`../superpowers/plans/artifacts/2026-09-02-A-cases-list-breached.png`（列表超期红标）｜ `../superpowers/plans/artifacts/2026-09-02-A-case-detail-breached.png`（详情超期徽标）｜ `../superpowers/plans/artifacts/2026-09-02-A-case-detail-fastforward-button.png`（⚡按钮可见态）｜ `../superpowers/plans/artifacts/2026-09-02-A-writeoff-locked-view.png`（核销锁定视图）｜ `../superpowers/plans/artifacts/2026-09-02-A-approval-impact.png`（审批页后果原话）｜ `../superpowers/plans/artifacts/2026-09-02-A-case-resolved.png`（案子自愈已解释）｜ `../superpowers/plans/artifacts/2026-09-02-A-scenario9-clickable.png`（场景 9 可点处置）
+
 ## 5. 关键技术节点（≤30 行）
 
 - 编排 `clearing-settle/reconciliation/workflow/wallet-recon-run.service.ts → run()`（预门→逐钱包→分桶→开案→快照→自动复核）/`computeInternalIdentity()`（内部恒等预门，与 verify:coa 同式）
@@ -100,7 +102,7 @@
 - 触发 `sweep/reconciliation-sweep.service.ts → dailyRecon()`（@Cron 迪拜 02:30）；读面 `reconciliation-query.service.ts`（差异行随行下发 `menu` 该格成因清单、`disposition` 定性状态、`duplicateTwinRef` 双胞胎线索、`decimals`；列表下发定性进度）
 - 权限 `rbac.catalog.ts`：新组 `RECON_DISPOSITION_WRITE` **四处齐**（`PermissionGroup` 联合类型 / 端点 `route()` / 权限桶 `recon.act_dispose` / `OPS_OFFICER` 持有）——一期调账单当初只齐两处，结果是「没人能开单、自定义角色 UI 勾不到」。改完必须 `db:base:sync` **并重启后端**（`VALID_PERMISSION_GROUPS` 是进程启动时读进内存的）
 - 演示 `scripts/recon-demo.ts`（pass/break 两模式，break 按成因铺满全部破口 + manifest 答案键）+ `recon-rerun.ts`
-- 留痕（站5-β + 一期半，`V8_RECON_AUDIT_ACTIONS` 7 码）：跑批完成 RECON_RUN_COMPLETED（双通道：cron 系统 / 管理员触发记名，主对象=runNo）｜ 立案 RECON_CASE_OPENED ｜ 自愈 RECON_CASE_AUTO_HEALED ｜ 推单 RECON_PUSH_ORDER（同码双证据通道，继承父单旅程号，主对象=资金单号）｜ **定性 RECON_DISPOSITION_RECORDED**（requiredFields `causeCode`+`outlet`，主对象=dispositionNo，子主体带 caseNo + walletNo）｜ **开单 RECON_ADJUSTMENT_DRAFTED**（四族通用，requiredFields `reasonCode`+`amount`，主对象=adjustmentNo；销掉「开调账单零审计」那条铁律①缺口）｜ **落账 RECON_ADJUSTMENT_POSTED**（审批通过后一次性记账，requiredFields `reasonCode`+`amount`+`effectiveDate`，主对象=adjustmentNo——本模块唯一记录「钱真的过账了」的一码，继承案件旅程走 I 模式）——对账件无客户旅程走 NONE 模式，唯推单与落账 INHERIT
+- 留痕（站5-β + 一期半 + A 批，`V8_RECON_AUDIT_ACTIONS` 9 码）：跑批完成 RECON_RUN_COMPLETED（双通道：cron 系统 / 管理员触发记名，主对象=runNo）｜ 立案 RECON_CASE_OPENED ｜ 自愈 RECON_CASE_AUTO_HEALED ｜ 推单 RECON_PUSH_ORDER（同码双证据通道，继承父单旅程号，主对象=资金单号）｜ **定性 RECON_DISPOSITION_RECORDED**（requiredFields `causeCode`+`outlet`，主对象=dispositionNo，子主体带 caseNo + walletNo）｜ **开单 RECON_ADJUSTMENT_DRAFTED**（四族通用，requiredFields `reasonCode`+`amount`，主对象=adjustmentNo；销掉「开调账单零审计」那条铁律①缺口）｜ **落账 RECON_ADJUSTMENT_POSTED**（审批通过后一次性记账，requiredFields `reasonCode`+`amount`+`effectiveDate`，主对象=adjustmentNo——本模块唯一记录「钱真的过账了」的一码，继承案件旅程走 I 模式）｜ **`RECON_CASE_AGING_BREACHED`**（系统通道，actor AGING_TIMER，主对象 = caseNo，子主体钱包用 walletNo；metadata `slaDeadline / ageDays / bucket / book / severity`；NONE 模式）｜ **`RECON_AGING_TIMEOUT_SIMULATED`**（操作员通道，⚡拨钟，主对象 = caseNo；metadata previous/new deadline；NONE 模式）——对账件无客户旅程走 NONE 模式，唯推单与落账 INHERIT
 
 ## 6. 演示缺口（BACKLOG 有账）
 
