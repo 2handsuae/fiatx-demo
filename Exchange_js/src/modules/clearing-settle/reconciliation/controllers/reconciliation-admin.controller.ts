@@ -4,9 +4,11 @@ import { AuthGuard } from '@nestjs/passport';
 import { AdminPermissionGuard } from '../../../identity/access-control/admin-permission.guard';
 import { RequirePermissions } from '../../../identity/access-control/require-permissions.decorator';
 import { buildPermissionCode } from '../../../identity/access-control/permission-code.util';
+import { ApprovalActorContext } from '../../../governance/approvals/constants/approval.constants';
 import { ReconciliationQueryService } from '../domain/reconciliation-query.service';
 import { ReconRunQueryDto, ReconCaseQueryDto, ReconExternalBalanceQueryDto } from '../dto/reconciliation.dto';
 import { WalletReconRunService } from '../workflow/wallet-recon-run.service';
+import { CaseAgingService } from '../workflow/case-aging.service';
 
 @ApiTags('Admin - Reconciliation (V8)')
 @ApiBearerAuth()
@@ -17,6 +19,7 @@ export class ReconciliationAdminController {
   constructor(
     private readonly query: ReconciliationQueryService,
     private readonly walletReconRun: WalletReconRunService,
+    private readonly caseAging: CaseAgingService,
   ) {}
 
   @Post('runs/wallet')
@@ -60,6 +63,21 @@ export class ReconciliationAdminController {
   @ApiOperation({ summary: 'Reconciliation case detail (with line items)' })
   @RequirePermissions(buildPermissionCode('GET', '/admin/reconciliation/cases/:caseNo'))
   getCase(@Param('caseNo') caseNo: string) { return this.query.getCase(caseNo); }
+
+  @Post('cases/:caseNo/simulate-aging-timeout')
+  @ApiOperation({ summary: '演示用：把该案件的账龄截止拨到过去，下一分钟扫描即超期' })
+  @RequirePermissions(buildPermissionCode('POST', '/admin/reconciliation/cases/:caseNo/simulate-aging-timeout'))
+  simulateAgingTimeout(@Param('caseNo') caseNo: string, @Req() req: any) {
+    const user = req.user;
+    const actor: ApprovalActorContext = {
+      actorType: 'ADMIN',
+      userId: user.userId || user.sub,
+      userNo: user.userNo,
+      role: user.role,
+      roleCodes: user.roleCodes || (user.role ? [user.role] : []),
+    };
+    return this.caseAging.simulateTimeout(caseNo, actor);
+  }
 
   @Get('external-balances')
   @ApiOperation({ summary: 'List external account balances (per source/account/cutoff, grouped by book)' })
