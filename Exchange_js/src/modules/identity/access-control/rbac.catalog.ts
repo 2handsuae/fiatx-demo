@@ -220,9 +220,9 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
   // Customer domain
   route('POST', '/customers', 'Create customer', ['CUSTOMER_WRITE']),
   route('GET', '/customers', 'List customers', ['CUSTOMER_READ']),
-  route('GET', '/customers/:id', 'Get customer detail', ['CUSTOMER_READ']),
-  route('PATCH', '/customers/:id', 'Update customer', ['CUSTOMER_WRITE']),
-  route('DELETE', '/customers/:id', 'Delete customer', ['CUSTOMER_WRITE']),
+  route('GET', '/customers/:customerNo', 'Get customer detail', ['CUSTOMER_READ']),
+  route('PATCH', '/customers/:customerNo', 'Update customer', ['CUSTOMER_WRITE']),
+  route('DELETE', '/customers/:customerNo', 'Delete customer', ['CUSTOMER_WRITE']),
 
   // Customer tags
   route('GET', '/admin/customer-tags/catalog', 'List customer tag registry', ['CUSTOMER_TAG_VIEW']),

@@ -413,9 +413,9 @@ const AccountFlowList = () => {
                   {accountName(row.accountName, row.assetCode)}
                 </td>
                 <td className="px-3 py-2 font-mono text-[11px]">
-                  {row.ownerNo && row.ownerUuid ? (
+                  {row.ownerNo ? (
                     <button
-                      onClick={(e) => { e.stopPropagation(); navigate(`/admin/customers/${row.ownerUuid}`); }}
+                      onClick={(e) => { e.stopPropagation(); navigate(`/admin/customers/${row.ownerNo}`); }}
                       className="text-adm-amber hover:underline"
                       title="Open customer"
                     >

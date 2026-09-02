@@ -405,7 +405,7 @@ const WithdrawTransactionDetail = () => {
                 <div>
                   <span className="block font-mono text-[9px] uppercase tracking-wider text-adm-t3">Owner</span>
                   <button
-                    onClick={() => navigate(`/customers/${data.ownerId}`)}
+                    onClick={() => navigate(`/admin/customers/${data.ownerNo || data.customer?.customerNo}`)}
                     className="text-adm-blue hover:underline"
                   >
                     {data.ownerNo || data.customer?.customerNo}
@@ -677,7 +677,7 @@ const WithdrawTransactionDetail = () => {
               value={
                 (data.ownerNo || data.customer?.customerNo) ? (
                   <button
-                    onClick={() => navigate(`/customers/${data.ownerId}`)}
+                    onClick={() => navigate(`/admin/customers/${data.ownerNo || data.customer?.customerNo}`)}
                     className="text-adm-blue hover:underline"
                   >
                     {data.ownerNo || data.customer?.customerNo}

@@ -367,7 +367,7 @@ const CustomerManagement = () => {
               <tr
                 key={customer.id}
                 className="cursor-pointer border-b border-adm-border transition-colors hover:bg-adm-hover"
-                onClick={() => navigate(`/admin/customers/${customer.id}`)}
+                onClick={() => navigate(`/admin/customers/${customer.customerNo}`)}
               >
                 {/* Customer No */}
                 <td className="px-4 py-2.5">

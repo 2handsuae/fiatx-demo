@@ -320,9 +320,9 @@ const CustodianWalletList = () => {
 
                   {/* Owner No */}
                   <td className="px-3 py-2 font-mono text-[11px]">
-                    {w.ownerType === 'CUSTOMER' && w.ownerNo && w.ownerId ? (
+                    {w.ownerType === 'CUSTOMER' && w.ownerNo ? (
                       <button
-                        onClick={(e) => { e.stopPropagation(); navigate(`/admin/customers/${w.ownerId}`); }}
+                        onClick={(e) => { e.stopPropagation(); navigate(`/admin/customers/${w.ownerNo}`); }}
                         className="text-adm-amber hover:underline"
                         title="Open customer"
                       >

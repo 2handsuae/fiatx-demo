@@ -551,7 +551,7 @@ const DepositTransactionDetail = () => {
                 <div>
                   <span className="block font-mono text-[9px] uppercase tracking-wider text-adm-t3">Owner</span>
                   <button
-                    onClick={() => navigate(`/customers/${data.ownerId}`)}
+                    onClick={() => navigate(`/admin/customers/${data.ownerNo}`)}
                     className="text-adm-blue hover:underline"
                   >
                     {data.ownerNo}
@@ -874,7 +874,7 @@ const DepositTransactionDetail = () => {
               value={
                 data.ownerNo ? (
                   <button
-                    onClick={() => navigate(`/customers/${data.ownerId}`)}
+                    onClick={() => navigate(`/admin/customers/${data.ownerNo}`)}
                     className="text-adm-blue hover:underline"
                   >
                     {data.ownerNo}

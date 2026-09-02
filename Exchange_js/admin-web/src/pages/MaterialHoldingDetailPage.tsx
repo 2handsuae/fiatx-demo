@@ -347,7 +347,7 @@ const MaterialHoldingDetailPage = () => {
             <button
               className={adminButtonClass('rowLink')}
               onClick={() =>
-                navigate(`/admin/customers/${detail.customer.id}`)
+                navigate(`/admin/customers/${detail.customer.customerNo}`)
               }
             >
               {detail.customer.customerNo} ({detail.customer.email})

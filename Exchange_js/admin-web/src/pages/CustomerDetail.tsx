@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { Link2, RefreshCw } from 'lucide-react';
+import { RefreshCw } from 'lucide-react';
 import RestrictionOpenModal from '../components/RestrictionOpenModal';
 import RestrictionReleaseModal from '../components/RestrictionReleaseModal';
 import MaterialRequestPanel from '../components/MaterialRequestPanel';
@@ -35,14 +35,6 @@ interface PeriodicReviewCycleSummary {
   resolutionReason?: string | null;
 }
 
-interface RiskApprovalSummary {
-  id: string;
-  approvalNo: string;
-  status: string;
-  decidedAt?: string | null;
-  decisionByRole?: string | null;
-}
-
 interface CustomerDetailData {
   id: string;
   customerNo: string;
@@ -57,9 +49,6 @@ interface CustomerDetailData {
   riskRating?: string | null;
   eddRequired?: boolean;
   cddDocumentExpiresAt?: string | null;
-  latestRiskApprovalId?: string | null;
-  latestRiskApprovalStatus?: string | null;
-  latestRiskApproval?: RiskApprovalSummary | null;
   nextReviewAt?: string | null;
   activePeriodicReviewCycleId?: string | null;
   activePeriodicReviewCycle?: PeriodicReviewCycleSummary | null;
@@ -232,7 +221,7 @@ const DaysLeftCell = ({ days }: { days?: number | null }) => {
 /* ─────────────────────────────────────────────────────────────── */
 
 const CustomerDetail = () => {
-  const { id } = useParams<{ id: string }>();
+  const { customerNo } = useParams<{ customerNo: string }>();
   const navigate = useNavigate();
   const { hasPermission } = useAdminSession();
 
@@ -274,15 +263,15 @@ const CustomerDetail = () => {
   /* ── Fetching ── */
 
   const fetchDetail = async () => {
-    if (!id) {
-      setError('Customer id is required.');
+    if (!customerNo) {
+      setError('Customer number is required.');
       setLoading(false);
       return;
     }
     setLoading(true);
     setError('');
     try {
-      const res = await adminFetch(`${import.meta.env.VITE_API_URL}/customers/${id}`);
+      const res = await adminFetch(`${import.meta.env.VITE_API_URL}/customers/${customerNo}`);
       if (!res.ok) throw new Error(await getApiErrorMessage(res, 'Failed to load customer.'));
       setDetail((await res.json()) as CustomerDetailData);
     } catch (e: unknown) {
@@ -300,7 +289,7 @@ const CustomerDetail = () => {
   useEffect(() => {
     void fetchDetail();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id]);
+  }, [customerNo]);
 
   /* Auto-dismiss notice */
   useEffect(() => {
@@ -436,10 +425,6 @@ const CustomerDetail = () => {
       !!detail?.activePeriodicReviewCycleId,
     [detail],
   );
-  const hasRiskApproval = useMemo(
-    () => !!detail?.latestRiskApprovalId || !!detail?.latestRiskApproval,
-    [detail],
-  );
   const hasVerification = useMemo(
     () =>
       !!detail?.verificationSubstatus ||
@@ -502,8 +487,6 @@ const CustomerDetail = () => {
 
   const name = displayName(detail);
   const isCorporate = detail.customerType === 'CORPORATE';
-  const riskApprovalStatus =
-    detail.latestRiskApprovalStatus || detail.latestRiskApproval?.status || null;
   const openRestrictions = restrictions.filter((r) => r.status === 'OPEN');
   const releasedRestrictions = restrictions.filter((r) => r.status === 'RELEASED');
 
@@ -559,7 +542,6 @@ const CustomerDetail = () => {
             </div>
             <div className="mt-4 border-t border-adm-border pt-4">
               <p className="font-mono text-[11px] text-adm-t2">{name}</p>
-              <p className="mt-1.5 break-all font-mono text-[9px] text-adm-t3">{detail.id}</p>
             </div>
           </section>
 
@@ -916,54 +898,6 @@ const CustomerDetail = () => {
             />
           </section>
 
-          {/* ⑦ Risk Approval (as linked card) */}
-          {hasRiskApproval && (
-            <section className="px-6 py-5">
-              <Cap>Risk Approval</Cap>
-              <p className="mt-1 mb-4 font-mono text-[9px] text-adm-t3">
-                Latest onboarding risk approval workflow
-              </p>
-              <button
-                onClick={() => {
-                  if (detail.latestRiskApproval?.approvalNo) {
-                    navigate(`/admin/governance/approvals/${detail.latestRiskApproval.approvalNo}`);
-                  }
-                }}
-                disabled={!detail.latestRiskApproval?.approvalNo}
-                className="flex w-full items-center justify-between gap-3 rounded border border-adm-border bg-adm-bg px-4 py-2.5 text-left transition-colors hover:border-adm-bhi hover:bg-adm-hover disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:border-adm-border disabled:hover:bg-adm-bg"
-              >
-                <div className="flex min-w-0 flex-col gap-0.5">
-                  <span className="font-mono text-[8.5px] uppercase tracking-[0.14em] text-adm-t3">
-                    Onboarding Risk Approval
-                  </span>
-                  <span className="truncate font-mono text-[11px] font-semibold text-adm-amber">
-                    {detail.latestRiskApproval?.approvalNo || detail.latestRiskApprovalId}
-                  </span>
-                </div>
-                <div className="flex shrink-0 items-center gap-2">
-                  {riskApprovalStatus && <AdminBadge value={riskApprovalStatus} />}
-                  <Link2 size={13} className="text-adm-t3" />
-                </div>
-              </button>
-              {(detail.latestRiskApproval?.decidedAt ||
-                detail.latestRiskApproval?.decisionByRole) && (
-                <div className="mt-3">
-                  <FieldGrid>
-                    <Field
-                      label="Decided At"
-                      value={fmt(detail.latestRiskApproval?.decidedAt)}
-                      mono
-                    />
-                    <Field
-                      label="Decided By Role"
-                      value={detail.latestRiskApproval?.decisionByRole ?? undefined}
-                    />
-                  </FieldGrid>
-                </div>
-              )}
-            </section>
-          )}
-
           {/* ⑧ Periodic Review */}
           {hasPeriodicReview && (
             <section className="px-6 py-5">
@@ -1123,7 +1057,6 @@ const CustomerDetail = () => {
           {/* Identity */}
           <SidebarGroup title="Identity">
             <SidebarKV label="Customer No" value={detail.customerNo} mono />
-            <SidebarKV label="Customer ID" value={detail.id} mono />
             <SidebarKV label="Type" value={detail.customerType} />
             <SidebarKV label="Email" value={detail.email} mono />
             <SidebarKV label="Phone" value={detail.phone} mono />
