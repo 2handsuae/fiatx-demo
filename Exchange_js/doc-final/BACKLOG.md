@@ -146,19 +146,20 @@ Last Updated: 2026-09-02
 
 > 讲「对不上的怎么处置」这一幕的缺口。一期调账单（spec + 8 任务计划已定稿）落地后回来更新前三条。
 
-- [ ] ⭐ **真差异(BREAK)处置闭环：十件处置已交付六件，余四件按轮排**（2026-09-02 平账一期半后更新）
-  - **已交付**：推单 ｜ 冲正 ｜ 冲销 ｜ 补记（一期，2026-08-31）｜ **改记**（第四族，借错记方应付 / 贷正主方应付、资产腿不动、一单双案同愈）｜ **挂起**（等下期 / 调查中，零账务，案子仍红）。入口统一为「先定性（从该格成因菜单选查证结论）→ 注册表判出口」，**「不该动账的行显示错误按钮」那个缺陷随之消失**——2026-08-31 记的「指出来、不点」演法已作废
-  - **下一轮**：补单两入口（外面真有钱进出、我方没记的，回业务域把流程补跑一遍——进 → 充值域补录、出 → 退汇认领；**不许用调账凭空给客户加钱**，decisions.md 2026-08-28）｜ **核销**（查不出 + 挂太久 + 金额小 → 差额进损益结案）｜ **豁免**（查明了但永远修不了，挂永久调节项、不动账）｜ **容差**（豁免的事前自动版）｜ **aging/SLA**。⚠️ **核销必须与 aging 同批**：核销挂在账龄这个触发时机上，先做核销按钮 = 抹差异的后门。演示场景 10（查无果，铺在公司池）就是为核销首演预埋的素材
+- [ ] ⭐ **真差异(BREAK)处置闭环：十件处置已交付七件，余三件按轮排**（2026-09-02 平账 A 批后更新）
+  - **已交付**：推单 ｜ 冲正 ｜ 冲销 ｜ 补记（一期，2026-08-31）｜ 改记（第四族，借错记方应付 / 贷正主方应付、资产腿不动、一单双案同愈）｜ 挂起（等下期 / 调查中，零账务，案子仍红）｜ **核销**（公司池；四前提 + CFO）。入口统一为「先定性（从该格成因菜单选查证结论）→ 注册表判出口」，**「不该动账的行显示错误按钮」那个缺陷随之消失**——2026-08-31 记的「指出来、不点」演法已作废
+  - **后半批**：补单两入口（外面真有钱进出、我方没记的，回业务域把流程补跑一遍——进 → 充值域补录、出 → 退汇认领；**不许用调账凭空给客户加钱**，decisions.md 2026-08-28）
+  - 豁免 / 容差 **不做**（decisions 2026-09-02，精度一致）；aging 已做（3 天，标记 + 审计 + 解锁）
   - **三期**：事故升级（`UNAUTHORIZED_OUTFLOW` 本轮只能留档）
   - **仍 deferred**：SOFT_FLAG 里"真两侧对冲错"的调账（matcher 调优部分不算）；Finance 人工核实 → 结案 ｜来源: spec §9，2026-09-02 平账一期半收尾更新
 
 - [ ] **改记换主后，对正主方没有合规复核**（2026-09-02 平账一期半新增）：改记（`CUSTOMER_REATTRIBUTION`）把一笔钱从错记方名下改到正主方名下，**放行依据是「记在错记方名下的那张原始充值单 KYT 已经跑过」**（与一期调账单边界线同源——有原单 ⇒ KYT 对这笔钱跑过），本轮**不重跑 KYT**。但那次 KYT 跑的是**错记方的身份**：真正持有这笔钱的正主方，从来没有被就这笔资金筛查过。业主 2026-09-01 拍板本轮这么放行、缺口登记在案。修法方向（下一轮/合规域定）：换主落账后对正主方补一次 KYT/制裁筛查，或至少在正主方的合规档上留一条「因改记获得资金 X，原单 KYT 结论沿用自客户 Y」的可追溯记录 ｜来源: 2026-09-01 平账一期半 spec §6 合规口径
 
-- [ ] **跨日切场景在案件页无可处置行**（2026-09-02 平账一期半收尾发现）：案件详情页用 `buildFlowComparison` 按案件业务日**现场重建**差异行，而不读跑批持久化的 `reconciliation_line_items`。跨日切（`CUTOFF_STRADDLE`）那条外部行被挪到下一业务日：跑批当天它在窗口外、内部对手成孤儿（桶判 SOFT_FLAG 正确），但重建时它落回窗口内、配对成功，孤儿消失 → 案件页 3 条全 MATCHED、`orphanInternal: 0`，**「处置」按钮无处可挂**，`CUTOFF_STRADDLE → 挂起·等下期` 这条出口界面上走不到。实证：案件 `REC20260902-007` 持久化 1 条 ORPHAN_INTERNAL、重建 0 条。**既有设计**（一期即如此），非平账一期半引入；但本轮新做的「挂起·等下期」因此在唯一演示场景上演不出来。修法方向：案件页差异行改读持久化的 line items，或让重建复用跑批当时的截止时点 ｜来源: 2026-09-02 平账一期半 Task 14 收尾走查实证
+- [x] ~~跨日切场景在案件页无可处置行~~ —— 已解（2026-09-02 平账 A 批 Task 6）：run 记 cutoffAt，案件页按它重建 ｜来源: 2026-09-02 平账一期半 Task 14 收尾走查实证
 
 - [ ] ⭐ **对账复核签核未做**：应干净 run 自动认证 + 人工平账动作走复核签核(maker-checker 推≠批，可按 severity 分级)；复核挂"人工干预动作"、非挂"run 变 pass"。与「平账处置」推单读权限门控债协同(那条=权限粒度、本条=两人复核)｜来源: spec §6
 
-- [ ] ⭐ **aging + SLA + 超期升级未做**：Case 止于 OPEN 仅自愈；应按账龄计时、超 SLA 升级 MLRO/CFO。in-transit 若结算信号永久丢失(webhook 漏)且无人推则**永不自愈=死结**，aging 是防死结的闸 ｜来源: spec §5/§6
+- [x] ⭐ ~~aging + SLA + 超期升级未做~~ —— 已解（2026-09-02 平账 A 批 Task 4/5/8）：账龄 3 天、到线标记 + 审计、⚡拨钟、按状态解锁；**升级 MLRO/CFO 通知不做**（无通知中心，业主定）；in-transit 死结由超期标记兜住 ｜来源: spec §5/§6
 
 - [ ] ⭐ **INTERNAL_BREAK run 详情误显示空表**：预门破时 `walletCount=0`/空表 → UI 显示成空/像干净(危险)；应专门呈现恒等破裂明细(按币种 资产合计/负债合计/差额) + "逐钱包未执行"提示；数据已被预门 breaks[] + 审计捕获，缺前端呈现 ｜来源: spec §1.4
 
@@ -188,11 +189,7 @@ Last Updated: 2026-09-02
 - [ ] **调账单的边界线守卫只查原单「存在」，不查「归属」** —— `adjustment.service.ts` 的 `relatedOrderExists()` 按单号在充值/提现/兑换三表查存在性即放行，**不校验这张单是不是本案客户的**。刻意划在这儿：spec §4 立的规则是「有原单 ⇒ KYT 已对它跑过」，存在性就是这条规则的字面内容；要「引错别人的单」成为问题，前提是操作员恶意，那落在 CLAUDE.md §3「管理员都是善意的」与禁做清单「边界防御」里。存在性检查已堵死 spec 点名的「凭空造钱」，剩下的是引错凭证的数据质量问题、不是闸门被绕。**留此一行是为了日后评 PRD 时不被当成遗漏** ｜来源: 2026-08-28 平账一期末站评审
 - [x] ~~对账案件详情页把 walletRef（内部 UUID）挂在 tooltip 上~~ —— 已解（2026-09-02，平账一期半 Task 10）：直接删除该 `title` 属性，可见文本本就正确用了 `walletNo` ｜来源: 2026-08-28 平账一期 Task 7 评审顺带发现
 
-- [ ] **对账模块还有 3 处同型 tooltip 漏 UUID**（铁律⑥）——Task 10 只修了 brief 圈定的那一处，同一类还剩三处，都是「可见文本已正确用业务键、只有 `title` 漏了」：
-  - `ReconciliationRunsDetailPage.tsx:592` `title={row.walletRef}` —— **连 `?? undefined` 兜底都没有**，恒渲染完整钱包 UUID；可见文本 `displayWallet`（`:568`）已优先用 `row.walletNo`
-  - `ReconciliationCasesListPage.tsx:316` `title={kase.firstSeenRunId ?? undefined}` —— 悬停露 run UUID（实测形如 `ebbbe729-abc8-476d-9b5e-5f6d4d799df6`），可见文本已是 `runNo`
-  - `ReconciliationCasesListPage.tsx:328` `title={kase.lastUpdatedRunId ?? undefined}` —— 同上
-  修法同款：删 `title` 属性（可见文本已经够用）。**三处宜一次清完**，否则下次又只修被点名的那一处 ｜来源: 2026-09-02 平账一期半 Task 10 实现者 + 评审各发现一半（均超出该任务范围，未修）
+- [x] ~~对账模块还有 3 处同型 tooltip 漏 UUID~~ —— 已解（2026-09-02 平账 A 批 Task 10）：三处 title 一并删 ｜来源: 2026-09-02 平账一期半 Task 10 实现者 + 评审各发现一半（均超出该任务范围，未修）
 
 - [x] ~~**开调账单（DRAFT）这一步零审计**（2026-08-31 终审）：`adjustment.service.ts` 的 `createDraft` 全程没有 `recordByActor`，整个文件只有落账那一处有。运营开一张带金额、成因、关联原单的单，**只要不提审，审计就查不到**~~ —— **已解**（2026-09-02，平账一期半 Task 5）：新铸审计码 `RECON_ADJUSTMENT_DRAFTED`（**四族通用**，domain RECON ｜ correlationMode NONE ｜ requiredFields `reasonCode`+`amount` ｜ 主对象 = adjustmentNo），在 `createDraft` 落库后 `recordByActor`（`adjustment.service.ts:244`），并带**显式 `requestId`**——漏了会被静默去重、这条日志直接消失。两个新码（连同定性的 `RECON_DISPOSITION_RECORDED`）均已入 `V8_RECON_AUDIT_ACTIONS` 与封册名册 ｜来源: 2026-08-31 整支终审
 
@@ -209,6 +206,8 @@ Last Updated: 2026-09-02
 - [ ] **几处注释与实现对不上**（2026-08-31 终审，同属"脚本不消费、没有机制会发现它错"那一类）：① `wallet-recon-run.service.ts:824-826` 称已解释差异行"标成 EXPLAINED，仍在案件页上看得见"——**案件页读的是 `flowComparison[].explainedByAdjustmentNo`，全仓没有任何一处读 `ReconciliationLineItem.status === 'EXPLAINED'`**（除 e2e 断言外无消费者），注释把展示来源说反了；② `adjustment.service.ts:368` 注释错引行号（说 `:181`，实为 `:323`），单测用例名抄了同一个错；③ `adjustment.service.spec.ts:46/57` 说走 `customerLabel`、实现走 `internalLabel`（对该成因恰好同值，所以断言绿着、描述是错的）；④ `adjustment-approval.service.ts:2` 与 `reconciliation.module.ts:23,26` 还写着"onApproved 本任务只留桩"，早已落地 ｜来源: 2026-08-31 整支终审
 
 - [x] ⭐ **对账余额校验器按未补零的 tbAccountId 连注册表，命中首位为 0 的账户就把该户流水整体丢掉、内部余额算成 0**：`engine/v2/wallet-balance-checker.service.ts` 用 `regById.get(f.tbAccountId)` 直接连 `tb_account_registry`，`!reg` 就 `continue`；但 `tb_account_registry.tbAccountId` 存的是 32 位补零形式，`account_flows.tbAccountId` 存的是 TB u128 的十六进制**未补零**形式——账户号首位是 0 时两边差一位，join 落空，那个账户的全部流水被静默跳过。同目录的 `wallet-flow-matcher.service.ts` 早就发现过这件事并加了 `padTbId`（它的注释原话就是"Without this ... flows silently drop and surface as bogus orphan"），**校验器这一半没跟上**。后果不是"少算一点"，而是该钱包内部余额直接变 0 → 差额 = 外部收盘全额 → 凭空造出破口，或反过来把真破口抹平；对账是演示的收口环节，这里算错等于整幕结论不可信。命中率 ≈ 1/16（十六进制首位随机），**取决于每次 `stack.sh reset` 重铺时随机生成的账户号，所以它是"按种子随机发作"的**——2026-09-02 重铺后 57 个账户里 5 个首位为 0，`demo_carol` 的 AED 客户应付户 `0d1f22c2...` 正在其中，两份 recon e2e 当场各红一条（`money-arcs` 场景 1 期望 delta `-20000` 得到 `20000`、场景 10 案件为 null；`recon-reattribution` 场景 A 期望 `-87500` 得到 `0`），重铺前同样的代码全绿。**修法**（4 处，与 matcher 同款）：`const padTbId = (id) => id.length < 32 ? id.padStart(32,'0') : id`，然后 `accountIds` 映射、`regById` 建键、`regById.get()`、`balanceByAccount` 建键四处一律走补零 ｜ **复现**：`bash scripts/stack.sh reset self` 后跑 `node -e` 比对两表 id 长度（重铺后 132 条 `account_flows` 里 12 条不补零查不到、补零后 0 条），或直接 `bash scripts/on-stack.sh self test:e2e -- --testPathPattern 'test/recon-'`；打上补零补丁后同一命令 13/13 全绿（Task 12 已实验证实，补丁未提交——该任务明令零引擎改动）｜**2026-09-02 已解**（Task 12 Commit 1）：四处连接键（`accountIds` 映射 / `regById` 建键 / `regById.get()` / `balanceByAccount` 建键）统一走 `padTbId`，写法照兄弟件 `wallet-flow-matcher.service.ts:203`。**改判依据**：此前 `PRODUCTION-NOTES.md` 把它归为「边界防御」故不修——业主 2026-09-02 裁定那个归类是错的，它不防畸形/恶意输入，是连接键写错，正常路径正常数据即发作，按 CLAUDE.md §1 判据不占技术兜底任何一条，且登记原文自己就写着「属于铁律⑤『账实一致』的静默破口」。实证：修前 `--testPathPattern 'test/recon-'` 3 红，修后 13/13 全绿 ｜来源: 2026-09-02 平账一期半 Task 12 评审收口时实测发现
+
+- [ ] **严重度分级跨资产不可比**（2026-09-02 平账 A 批发现）：`wallet-recon-run.service.ts` `computeSeverity` 用「最小单位 1 万」一个数——AED 是 100 元、USDT 是 0.01 元。本批「金额小」另立小额线（`recon-thresholds.constant.ts` 按币种），未借用严重度；修法：severity 阈值按币种进同一张常量表 ｜来源: 2026-09-02 平账 A 批 spec §0-12
 
 ## H. 第七幕 · 事后说得清（审计追溯）
 

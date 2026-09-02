@@ -72,3 +72,9 @@
   npx jest --config ./test/jest-e2e.json --maxWorkers=4
   ```
   ｜来源: 2026-09-02 平账一期半 Task 12 评审（新增第二份调全局 `walletRecon.run()` 的 spec 后，`--testPathPattern 'test/recon-'` 4/4 红当场暴露）+ 同任务自测全套并行读数
+
+- [ ] **`bash scripts/on-stack.sh self test -- <path> -t "<模式>"` 会跑全仓而不是只跑目标文件**：带 `-t` 过滤模式时，jest 仍先发现并加载全部 suites、再按 `-t` 的模式过滤要跑的用例，并不会只加载目标文件 ｜ **复现**：在任意 worktree 跑 `bash scripts/on-stack.sh self test -- src/modules/clearing-settle/reconciliation/workflow/wallet-recon-run.service.spec.ts -t "账龄"` → 观察 jest 跑了全部 suites，不是只跑目标文件 ｜ **规避**：不带 `-t`，跑整个 spec 文件 ｜来源: 2026-09-02 平账 A 批
+
+- [ ] **`stack.sh reset self` 清业务表但不清 `audit_log_events`，案件号 `REC{业务日}-{序号}` 同日 reset 重跑会复用 → 按案件号查审计的 e2e 撞历史行**：审计表不在 `reset` 的清空范围内，同一天多次 reset+重铺，案件号序列从头再来，若某条 e2e 按「案件号」查审计而不圈定时间窗，会连带查到上一轮同案件号残留的历史审计行 ｜ **复现**：同一天 `reset self` → `demo:all` → `test:e2e --testPathPattern recon-aging-write-off` 两次，第二次若审计查询未按时间圈定即红 ｜ **规避 / 根治**：本批 e2e 已按 `recordedAt >= 测试起点` 圈定查询窗口规避；根治要么 reset 时把审计表也清掉、要么案件号加随机位 ｜来源: 2026-09-02 平账 A 批
+
+- [ ] **`verify:audit` 的 Q6（谁查过审计日志）在重铺后的空库上恒红，需先用管理员 token 调一次 `GET /admin/audit-logs`**：这条不是缺陷，是 Q6 判据本身要求「有人查过审计日志」这个动作发生过；`demo/baseline.md` 已记它为「已知波动」（演示剧本第七幕自然会触发这一步），但单独跑 `verify:audit`（不经过完整剧本）时会先看到红 ｜ **复现**：reset 后直接跑 `on-stack.sh self verify:audit` ｜来源: 2026-09-02 平账 A 批
