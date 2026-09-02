@@ -193,8 +193,6 @@ export const HARD_MUTEX_ROLE_PAIRS: Array<[string, string]> = [
   ['CISO', 'OPS_OFFICER'],
 ];
 
-export const SOFT_WARNING_ROLE_GROUPS: Array<{ codes: string[]; message: string }> = [];
-
 export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
   // Session / IAM
   route('GET', '/auth/me', 'Get current admin session', ['BASE_ACCESS']),

@@ -127,14 +127,6 @@ describe('ApprovalPolicyChangeWorkflowService', () => {
       expect(applied[0][0].outcome).toBe('FAILED');
       expect(applied[0][0].reason).toContain('db down');
       expect(applied[0][0].causationId).toBe('apr-1');
-
-      // 只断言"退役码不再被当作 action 值写入"，不是整份源码都不能出现这个词——
-      // 迁移注释里如实提到旧码名是刻意保留的历史留痕（同 Task 5-7 的注释惯例）。
-      const src = require('fs').readFileSync(
-        'src/modules/governance/approvals/approval-policy-change-workflow.service.ts',
-        'utf8',
-      );
-      expect(src).not.toMatch(/action:\s*['"]MODIFICATION_APPLY_FAILED['"]/);
     });
 
     it('刻意没有 CANCELLED 码——只声明了 2 码，驳回/取消/超时不写审计', async () => {

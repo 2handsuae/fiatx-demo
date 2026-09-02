@@ -6,7 +6,6 @@ import {
   HARD_MUTEX_ROLE_PAIRS,
   RBAC_PERMISSION_CODE_SET,
   RBAC_PERMISSION_DEFINITIONS,
-  SOFT_WARNING_ROLE_GROUPS,
   buildPermCodeToGroups,
   getPrimaryRoleCode,
 } from './rbac.catalog';
@@ -41,16 +40,6 @@ export class AccessControlService {
         throw new BadRequestException(`Role ${left} and ${right} cannot be assigned to one user.`);
       }
     }
-  }
-
-  private buildSoftWarnings(roleCodes: string[]): string[] {
-    if (roleCodes.includes('SUPER_ADMIN')) {
-      return [];
-    }
-    const set = new Set(roleCodes);
-    return SOFT_WARNING_ROLE_GROUPS.filter((rule) =>
-      rule.codes.every((code) => set.has(code)),
-    ).map((rule) => rule.message);
   }
 
   async listRoles() {
@@ -294,7 +283,6 @@ export class AccessControlService {
     });
 
     const afterRoleCodes = await this.getUserRoleCodes(userId);
-    const warnings = this.buildSoftWarnings(afterRoleCodes);
 
     // Task 9：审计上收——本方法只返回结果，不再自己写审计。这条自身写入在删除前
     // 已实证是死分支：本方法仅有的两个真实调用方（admin-invite-workflow.service.ts
@@ -307,7 +295,6 @@ export class AccessControlService {
       userId: user.id,
       userNo: user.userNo,
       roles: afterRoleCodes,
-      warnings,
     };
   }
 

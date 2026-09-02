@@ -261,7 +261,6 @@ const RolesPage = () => {
         >
           <option value="">All Status</option>
           <option value="ACTIVE">ACTIVE</option>
-          <option value="INACTIVE">INACTIVE</option>
           <option value="PENDING_APPROVAL">PENDING_APPROVAL</option>
         </select>
         <button

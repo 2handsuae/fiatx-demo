@@ -120,11 +120,9 @@ async function fetchIamRoles(token: string): Promise<any[]> {
 // 直接 import rbac.catalog.ts 的常量再做集合运算 —— 不是 grep 源码，是解析已经被
 // TypeScript 解析过一次的真实数据结构。
 
-// ① 每个有路由的组至少一个角色持有；未持有者必须落在白名单 3 个已知例外内。
+// ① 每个有路由的组至少一个角色持有；未持有者必须落在白名单 1 个已知例外内。
 const ROUTE_ORPHAN_WHITELIST: Record<string, string> = {
   TRADING_DEPOSIT_WRITE: '客户侧 /deposit-transactions/my/inbound-signals 入口，非管理端能力（T7 Step 6 已定）',
-  INTERNAL_TRANSFER_READ: 'V7 遗留后端路由，App.tsx 明写前端已迁走，零消费方',
-  INTERNAL_TRANSFER_WRITE: '同上',
 };
 
 // ② 审批策略里出现过、但本轮矩阵刻意没有对应「谁能碰哪个端点」判据的职务代码，
@@ -142,7 +140,7 @@ function runStaticChecks(): void {
   const orphans = [...routedGroups].filter((g) => !heldGroups.has(g));
   const unexpectedOrphans = orphans.filter((g) => !(g in ROUTE_ORPHAN_WHITELIST));
   check(
-    'S1 有路由无人持有的组仅限白名单 3 例外',
+    'S1 有路由无人持有的组仅限白名单 1 例外',
     unexpectedOrphans.length === 0,
     unexpectedOrphans.length === 0
       ? `孤儿组 ${orphans.length} 个，全部落在白名单（${orphans.join(', ') || '无孤儿'}）`
@@ -156,7 +154,7 @@ function runStaticChecks(): void {
     'S1b 白名单例外条目名副其实（确认零角色持有）',
     staleExceptions.length === 0,
     staleExceptions.length === 0
-      ? '3 个例外全部确认零角色持有'
+      ? '1 个例外全部确认零角色持有'
       : `以下例外已被角色持有，应从白名单移除: ${staleExceptions.join(', ')}`,
   );
 

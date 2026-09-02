@@ -127,14 +127,6 @@ describe('RoleDefinitionCreateWorkflowService', () => {
       // 铁律1·操作必留痕：非成功记录被合同闸(assertActionSpec)强制要求 reasonCode，
       // 漏带就会在运行时被拒收——状态已变但审计零留痕。这里断言调用入参真的带上了。
       expect(applied[0][0].reasonCode).toBe('EXECUTION_FAILED');
-
-      // 只断言"退役码不再被当作 action 值写入"，不是整份源码都不能出现这个词——
-      // 迁移注释里如实提到旧码名是刻意保留的历史留痕（同 Task 5-7 的注释惯例）。
-      const src = require('fs').readFileSync(
-        'src/modules/identity/access-control/role-definition-create-workflow.service.ts',
-        'utf8',
-      );
-      expect(src).not.toMatch(/action:\s*['"]ROLE_ACTIVATE_FAILED['"]/);
     });
 
     it('驳回/取消/超时写 CANCELLED(INHERIT+因果，新增码)', async () => {

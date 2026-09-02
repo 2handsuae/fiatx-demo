@@ -52,20 +52,6 @@ interface ApprovalStepItem {
   decidedAt?: string | null;
   createdAt: string;
   updatedAt: string;
-  evidencePackage?: {
-    id: string;
-    packageNo: string;
-    status: string;
-  } | null;
-  caseEvidencePackage?: {
-    id: string;
-    packageNo: string;
-    status: string;
-  } | null;
-  availableDecisionRoles: string[];
-  canApprove: boolean;
-  canReject: boolean;
-  canCancel: boolean;
 }
 
 type DecisionAction = 'approve' | 'reject' | 'cancel';

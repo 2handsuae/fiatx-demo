@@ -9,11 +9,10 @@ import {
   ApprovalActorContext,
 } from '../../governance/approvals/constants/approval.constants';
 import {
-  AuditBusinessWorkflowTypes,
   AuditEntityTypes,
 } from '../../audit-logging/constants/audit-actions.constant';
 import { AuditCategory, AuditOutcome, AuditSubjectInput, AuditSubjectRole } from '../../audit-logging/dto/audit-log.dto';
-import { RBAC_PERMISSION_DEFINITIONS, type PermissionGroup } from './rbac.catalog';
+import { RBAC_PERMISSION_DEFINITIONS } from './rbac.catalog';
 import { generateReferenceNo } from '../../../common/utils/no-generator.util';
 import { RoleRequestAction, assertRoleRequestTransition } from './constants/role-request-transitions.constant';
 
@@ -35,14 +34,6 @@ interface RoleDefinitionSnapshot {
 }
 
 const SECONDARY_EVENT = 'workflow.role-definition-modify.decided';
-
-const SYSTEM_ACTOR: ApprovalActorContext = {
-  actorType: 'ADMIN',
-  userId: 'SYSTEM',
-  userNo: 'SYSTEM',
-  role: 'SYSTEM',
-  roleCodes: ['SYSTEM'],
-};
 
 @Injectable()
 export class RoleDefinitionModifyWorkflowService {

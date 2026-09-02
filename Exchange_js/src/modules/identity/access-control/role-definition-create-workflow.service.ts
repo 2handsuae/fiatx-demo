@@ -8,11 +8,10 @@ import {
   ApprovalActorContext,
 } from '../../governance/approvals/constants/approval.constants';
 import {
-  AuditBusinessWorkflowTypes,
   AuditEntityTypes,
 } from '../../audit-logging/constants/audit-actions.constant';
 import { AuditCategory, AuditOutcome } from '../../audit-logging/dto/audit-log.dto';
-import { RBAC_PERMISSION_DEFINITIONS, type PermissionGroup } from './rbac.catalog';
+import { RBAC_PERMISSION_DEFINITIONS } from './rbac.catalog';
 
 const ROLE_CODE_REGEX = /^[A-Z][A-Z0-9_]{1,48}$/;
 
@@ -29,14 +28,6 @@ interface CreateRoleDefinitionDto {
 }
 
 const SECONDARY_EVENT = 'workflow.role-definition-create.decided';
-
-const SYSTEM_ACTOR: ApprovalActorContext = {
-  actorType: 'ADMIN',
-  userId: 'SYSTEM',
-  userNo: 'SYSTEM',
-  role: 'SYSTEM',
-  roleCodes: ['SYSTEM'],
-};
 
 @Injectable()
 export class RoleDefinitionCreateWorkflowService {
