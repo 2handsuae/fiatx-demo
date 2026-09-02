@@ -168,7 +168,7 @@ export class CustodianWalletCreateWorkflowService {
       approvalCase = await this.approvalsService.createAndSubmit(
         {
           actionType: ApprovalActionTypes.CUSTODIAN_WALLET_CREATE,
-          entityRef: wallet.id,
+          entityRef: walletNo,
           traceId,
           objectSnapshot: {
             assetNo: dto.assetNo,
@@ -242,13 +242,15 @@ export class CustodianWalletCreateWorkflowService {
     }
   }
 
-  private async executeCreation(walletId: string, approvalId: string, traceId?: string, approvalNo?: string): Promise<void> {
-    const wallet = await this.prisma.wallet.findUnique({
-      where: { id: walletId },
-      include: { asset: true },
-    });
+  private async executeCreation(walletNo: string, approvalId: string, traceId?: string, approvalNo?: string): Promise<void> {
+    const wallet = await this.walletsService.findByWalletNo(walletNo);
     if (!wallet || wallet.status !== 'PENDING_APPROVAL') {
-      this.logger.warn(`Wallet ${walletId} not found or not in PENDING_APPROVAL status`);
+      this.logger.warn(`Wallet ${walletNo} not found or not in PENDING_APPROVAL status`);
+      return;
+    }
+    const asset = await this.prisma.asset.findUnique({ where: { id: wallet.assetId } });
+    if (!asset) {
+      this.logger.warn(`Wallet ${walletNo} references missing asset ${wallet.assetId}`);
       return;
     }
 
@@ -277,8 +279,8 @@ export class CustodianWalletCreateWorkflowService {
 
     try {
       const result = await this.custodianAdapter.createVault({
-        assetCurrency: wallet.asset.currency,
-        network: wallet.asset.network ?? undefined,
+        assetCurrency: asset.currency,
+        network: asset.network ?? undefined,
         role: wallet.walletRole as WalletRole,
         vaultId: wallet.vaultId ?? undefined,
       });
@@ -304,7 +306,7 @@ export class CustodianWalletCreateWorkflowService {
 
       this.logger.log(`Wallet ${wallet.walletNo} created successfully, vaultId=${result.vaultId}`);
     } catch (err: any) {
-      this.logger.error(`Custodian vault creation failed for wallet ${walletId}: ${err.message}`, err.stack);
+      this.logger.error(`Custodian vault creation failed for wallet ${walletNo}: ${err.message}`, err.stack);
 
       await this.walletsService.transitionStatus(wallet.walletNo!, 'CREATING', 'FAILED');
 
@@ -324,8 +326,8 @@ export class CustodianWalletCreateWorkflowService {
     }
   }
 
-  private async executeCancellation(walletId: string, traceId?: string, decision?: string, approvalId?: string, decisionReason?: string | null): Promise<void> {
-    const wallet = await this.prisma.wallet.findUnique({ where: { id: walletId } });
+  private async executeCancellation(walletNo: string, traceId?: string, decision?: string, approvalId?: string, decisionReason?: string | null): Promise<void> {
+    const wallet = await this.walletsService.findByWalletNo(walletNo);
     if (!wallet) return;
 
     await this.walletsService.deleteWallet(wallet.walletNo!);
@@ -364,7 +366,7 @@ export class CustodianWalletCreateWorkflowService {
     // 重试沿用原创建审批那趟旅程（INHERIT 读回同一 correlationId/approvalId）——
     // 这次重试没有新的 maker-checker 审批，不是重开一段新旅程。
     const approvalCase = await this.prisma.approvalCase.findFirst({
-      where: { actionType: ApprovalActionTypes.CUSTODIAN_WALLET_CREATE, entityRef: wallet.id },
+      where: { actionType: ApprovalActionTypes.CUSTODIAN_WALLET_CREATE, entityRef: walletNo },
     });
     const traceId = approvalCase!.traceId;
 

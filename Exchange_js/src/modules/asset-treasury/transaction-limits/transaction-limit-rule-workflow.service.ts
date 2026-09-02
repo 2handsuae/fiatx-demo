@@ -115,7 +115,7 @@ export class TransactionLimitRuleWorkflowService {
       approvalCase = await this.approvalsService.createAndSubmit(
         {
           actionType: ApprovalActionTypes.TRANSACTION_LIMIT_CREATION,
-          entityRef: rule.id,
+          entityRef: rule.ruleNo,
           traceId: correlationId,
           objectSnapshot: {
             ruleNo,
@@ -185,8 +185,8 @@ export class TransactionLimitRuleWorkflowService {
       return;
     }
 
-    // entityRef 可能属于旧 governance policy 流(非本表 id)→ findUnique 返回 null,安全退出
-    const rule = await this.prisma.transactionLimitRule.findUnique({ where: { id: entityRef } });
+    // entityRef 可能属于旧 governance policy 流(非本表 ruleNo)→ findUnique 返回 null,安全退出
+    const rule = await this.prisma.transactionLimitRule.findUnique({ where: { ruleNo: entityRef } });
     if (!rule) return;
 
     if (decision === 'APPROVED') {
@@ -280,7 +280,7 @@ export class TransactionLimitRuleWorkflowService {
     // 早拒(FIX-1b):同一规则已有 OPEN 的变更审批 → 不许再提第二单(否则两单先后落地,后者绝对值快照会覆盖前者)
     const openChanges = await this.approvalsService.list({
       actionType: ApprovalActionTypes.TRANSACTION_LIMIT_CHANGE,
-      entityRef: rule.id,
+      entityRef: rule.ruleNo,
       status: ApprovalStatuses.PENDING,
       take: 1,
     });
@@ -338,7 +338,7 @@ export class TransactionLimitRuleWorkflowService {
     const approvalCase = await this.approvalsService.createAndSubmit(
       {
         actionType: ApprovalActionTypes.TRANSACTION_LIMIT_CHANGE,
-        entityRef: rule.id,
+        entityRef: rule.ruleNo,
         traceId: correlationId,
         objectSnapshot: {
           ruleNo: rule.ruleNo,
@@ -392,8 +392,8 @@ export class TransactionLimitRuleWorkflowService {
       return;
     }
 
-    // entityRef 可能属于旧 governance change-request 流(非本表 id)→ null,安全退出
-    const rule = await this.prisma.transactionLimitRule.findUnique({ where: { id: entityRef } });
+    // entityRef 可能属于旧 governance change-request 流(非本表 ruleNo)→ null,安全退出
+    const rule = await this.prisma.transactionLimitRule.findUnique({ where: { ruleNo: entityRef } });
     if (!rule) return;
 
     if (decision === 'APPROVED') {

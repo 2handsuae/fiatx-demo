@@ -72,7 +72,7 @@ export class SwapFeeLevelCreationWorkflowService {
       approvalCase = await this.approvalsService.createAndSubmit(
         {
           actionType: ApprovalActionTypes.SWAP_FEE_LEVEL_CREATION,
-          entityRef: level.id,
+          entityRef: level.levelCode,
           traceId: correlationId,
           objectSnapshot: {
             levelId: level.id,
@@ -163,14 +163,14 @@ export class SwapFeeLevelCreationWorkflowService {
     }
   }
 
-  private async executeActivation(approvalId: string, levelId: string, event: any) {
+  private async executeActivation(approvalId: string, levelCode: string, event: any) {
     let level: any;
     try {
       level = await this.prisma.swapFeeLevel.findUnique({
-        where: { id: levelId },
+        where: { levelCode },
       });
       if (!level || level.status !== 'PENDING_APPROVAL') {
-        this.logger.warn(`Level ${levelId} not found or not in PENDING_APPROVAL status`);
+        this.logger.warn(`Level ${levelCode} not found or not in PENDING_APPROVAL status`);
         return;
       }
 
@@ -202,7 +202,7 @@ export class SwapFeeLevelCreationWorkflowService {
 
       this.logger.log(`Level ${level.levelCode} activated`);
     } catch (err: any) {
-      this.logger.error(`Failed to activate level ${levelId}: ${err.message}`);
+      this.logger.error(`Failed to activate level ${levelCode}: ${err.message}`);
 
       await this.auditLogsService.recordSystem({
         action: 'SWAP_FEE_LEVEL_CREATION_APPLY_FAILED',
@@ -214,7 +214,7 @@ export class SwapFeeLevelCreationWorkflowService {
         outcome: AuditOutcome.FAILED,
         reasonCode: 'EXECUTION_FAILED',
         reason: err.message,
-        requestId: `SWAP_FEE_LEVEL_CREATION_APPLY_FAILED_${levelId}`,
+        requestId: `SWAP_FEE_LEVEL_CREATION_APPLY_FAILED_${levelCode}`,
         sourcePlatform: 'SYSTEM',
       });
     }
@@ -222,16 +222,16 @@ export class SwapFeeLevelCreationWorkflowService {
 
   private async executeCancellation(
     approvalId: string,
-    levelId: string,
+    levelCode: string,
     decision: string,
     event: any,
   ) {
     try {
       const level = await this.prisma.swapFeeLevel.findUnique({
-        where: { id: levelId },
+        where: { levelCode },
       });
       if (!level) {
-        this.logger.warn(`Level ${levelId} not found for cancellation`);
+        this.logger.warn(`Level ${levelCode} not found for cancellation`);
         return;
       }
 
@@ -253,7 +253,7 @@ export class SwapFeeLevelCreationWorkflowService {
 
       this.logger.log(`Level ${level.levelCode} creation cancelled (${decision}), row deleted`);
     } catch (err: any) {
-      this.logger.error(`Failed to cancel level creation ${levelId}: ${err.message}`);
+      this.logger.error(`Failed to cancel level creation ${levelCode}: ${err.message}`);
     }
   }
 }

@@ -73,7 +73,7 @@ export class SwapFeeLevelChangeWorkflowService {
     });
     const requestNo = request.requestNo;
 
-    // 4. Create approval case (entityRef = request.id)
+    // 4. Create approval case (entityRef = request.requestNo，铁律⑥ 对外用业务键)
     // START：本次变更旅程的 correlationId，同一个值同事务写进 ApprovalCase.traceId
     // （经 createAndSubmit 的 traceId 入参），供下游 executeChange/cancelChange 经
     // ApprovalDecidedEvent.traceId INHERIT 读回。
@@ -83,7 +83,7 @@ export class SwapFeeLevelChangeWorkflowService {
       approvalCase = await this.approvalsService.createAndSubmit(
         {
           actionType: ApprovalActionTypes.SWAP_FEE_LEVEL_CHANGE,
-          entityRef: request.id,
+          entityRef: request.requestNo,
           traceId: correlationId,
           objectSnapshot: {
             requestId: request.id,
@@ -159,15 +159,15 @@ export class SwapFeeLevelChangeWorkflowService {
     }
   }
 
-  private async executeChange(approvalId: string, requestId: string, event: any) {
+  private async executeChange(approvalId: string, requestNo: string, event: any) {
     let request: Awaited<ReturnType<typeof this.prisma.swapFeeLevelChangeRequest.findUnique>> | null = null;
     try {
       // 1. Load request, verify PENDING_APPROVAL
       request = await this.prisma.swapFeeLevelChangeRequest.findUnique({
-        where: { id: requestId },
+        where: { requestNo },
       });
       if (!request || request.status !== 'PENDING_APPROVAL') {
-        this.logger.warn(`Change request ${requestId} not found or not PENDING_APPROVAL`);
+        this.logger.warn(`Change request ${requestNo} not found or not PENDING_APPROVAL`);
         return;
       }
 
@@ -217,7 +217,7 @@ export class SwapFeeLevelChangeWorkflowService {
 
       this.logger.log(`Change request ${request.requestNo} executed: ${request.levelCode} tiers updated`);
     } catch (err: any) {
-      this.logger.error(`Failed to execute change request ${requestId}: ${err.message}`);
+      this.logger.error(`Failed to execute change request ${requestNo}: ${err.message}`);
 
       // Try to mark as failed
       if (request) {
@@ -236,7 +236,7 @@ export class SwapFeeLevelChangeWorkflowService {
         outcome: AuditOutcome.FAILED,
         reasonCode: 'EXECUTION_FAILED',
         reason: err.message,
-        requestId: `SWAP_FEE_LEVEL_CHANGE_APPLY_FAILED_${requestId}`,
+        requestId: `SWAP_FEE_LEVEL_CHANGE_APPLY_FAILED_${requestNo}`,
         sourcePlatform: 'SYSTEM',
       });
     }
@@ -244,21 +244,21 @@ export class SwapFeeLevelChangeWorkflowService {
 
   private async cancelChange(
     approvalId: string,
-    requestId: string,
+    requestNo: string,
     decision: string,
     event: any,
   ) {
     try {
       const request = await this.prisma.swapFeeLevelChangeRequest.findUnique({
-        where: { id: requestId },
+        where: { requestNo },
       });
       if (!request) {
-        this.logger.warn(`Change request ${requestId} not found for cancellation`);
+        this.logger.warn(`Change request ${requestNo} not found for cancellation`);
         return;
       }
 
       // Update request status
-      if (decision === 'REJECTED') {
+      if (decision === 'DECLINED') {
         await this.feeLevelService.rejectChangeRequest(request.requestNo);
       } else {
         await this.feeLevelService.cancelChangeRequest(request.requestNo);
@@ -286,7 +286,7 @@ export class SwapFeeLevelChangeWorkflowService {
 
       this.logger.log(`Change request ${request.requestNo} cancelled (${decision})`);
     } catch (err: any) {
-      this.logger.error(`Failed to cancel change request ${requestId}: ${err.message}`);
+      this.logger.error(`Failed to cancel change request ${requestNo}: ${err.message}`);
     }
   }
 }

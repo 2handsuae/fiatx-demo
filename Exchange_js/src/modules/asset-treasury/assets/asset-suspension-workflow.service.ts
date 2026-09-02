@@ -61,7 +61,7 @@ export class AssetSuspensionWorkflowService {
     const existingPending = await this.prisma.approvalCase.findFirst({
       where: {
         actionType: ApprovalActionTypes.ASSET_SUSPENSION,
-        entityRef: asset.id,
+        entityRef: assetNo,
         status: 'PENDING',
       },
     });
@@ -74,7 +74,7 @@ export class AssetSuspensionWorkflowService {
     const approvalCase = await this.approvalsService.createAndSubmit(
       {
         actionType: ApprovalActionTypes.ASSET_SUSPENSION,
-        entityRef: asset.id,
+        entityRef: assetNo,
         traceId: correlationId,
         objectSnapshot: {
           assetId: asset.id,
@@ -139,8 +139,13 @@ export class AssetSuspensionWorkflowService {
 
   private async executeSuspension(event: ApprovalDecidedEvent) {
     try {
+      const assetRecord = await this.prisma.asset.findFirst({ where: { assetNo: event.entityRef } });
+      if (!assetRecord) {
+        throw new ConflictException(`Asset ${event.entityRef} not found`);
+      }
+
       const result = await this.assetsService.suspendAsset(
-        event.entityRef,
+        assetRecord.id,
         event.metadata?.reason || 'Approved suspension',
       );
 

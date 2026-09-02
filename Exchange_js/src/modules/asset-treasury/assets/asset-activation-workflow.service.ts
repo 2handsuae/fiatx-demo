@@ -67,7 +67,7 @@ export class AssetActivationWorkflowService {
     const existingPending = await this.prisma.approvalCase.findFirst({
       where: {
         actionType: ApprovalActionTypes.ASSET_ACTIVATION,
-        entityRef: asset.id,
+        entityRef: assetNo,
         status: 'PENDING',
       },
     });
@@ -84,7 +84,7 @@ export class AssetActivationWorkflowService {
     const approvalCase = await this.approvalsService.createAndSubmit(
       {
         actionType: ApprovalActionTypes.ASSET_ACTIVATION,
-        entityRef: asset.id,
+        entityRef: assetNo,
         traceId: correlationId,
         objectSnapshot: {
           assetId: asset.id,
@@ -183,7 +183,7 @@ export class AssetActivationWorkflowService {
 
   private async executeActivation(event: ApprovalDecidedEvent) {
     try {
-      const assetRecord = await this.prisma.asset.findUnique({ where: { id: event.entityRef } });
+      const assetRecord = await this.prisma.asset.findFirst({ where: { assetNo: event.entityRef } });
       if (!assetRecord || !assetRecord.assetNo) {
         throw new ConflictException(`Asset ${event.entityRef} not found`);
       }

@@ -61,7 +61,7 @@ export class AssetReactivationWorkflowService {
     const existingPending = await this.prisma.approvalCase.findFirst({
       where: {
         actionType: ApprovalActionTypes.ASSET_REACTIVATION,
-        entityRef: asset.id,
+        entityRef: assetNo,
         status: 'PENDING',
       },
     });
@@ -74,7 +74,7 @@ export class AssetReactivationWorkflowService {
     const approvalCase = await this.approvalsService.createAndSubmit(
       {
         actionType: ApprovalActionTypes.ASSET_REACTIVATION,
-        entityRef: asset.id,
+        entityRef: assetNo,
         traceId: correlationId,
         objectSnapshot: {
           assetId: asset.id,
@@ -137,7 +137,12 @@ export class AssetReactivationWorkflowService {
 
   private async executeReactivation(event: ApprovalDecidedEvent) {
     try {
-      const result = await this.assetsService.reactivateAsset(event.entityRef);
+      const assetRecord = await this.prisma.asset.findFirst({ where: { assetNo: event.entityRef } });
+      if (!assetRecord) {
+        throw new ConflictException(`Asset ${event.entityRef} not found`);
+      }
+
+      const result = await this.assetsService.reactivateAsset(assetRecord.id);
 
       await this.auditLogsService.recordSystem({
         action: 'ASSET_REACTIVATED',

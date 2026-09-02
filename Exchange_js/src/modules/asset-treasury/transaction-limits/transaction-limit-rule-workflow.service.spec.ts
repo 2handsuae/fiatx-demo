@@ -85,7 +85,7 @@ describe('TransactionLimitRuleWorkflowService', () => {
     expect(rulesService.assertUnique).toHaveBeenCalled();
     expect(rulesService.createPending).toHaveBeenCalled();
     expect(approvalsService.createAndSubmit).toHaveBeenCalledWith(
-      expect.objectContaining({ actionType: 'TRANSACTION_LIMIT_CREATION', entityRef: 'r1' }),
+      expect.objectContaining({ actionType: 'TRANSACTION_LIMIT_CREATION', entityRef: 'TLR-x' }),
       expect.anything(),
       actor,
     );
@@ -101,7 +101,7 @@ describe('TransactionLimitRuleWorkflowService', () => {
 
     await svc.onCreationDecided({
       decision: 'APPROVED',
-      entityRef: 'r1',
+      entityRef: 'TLR-1',
       approvalId: 'ap1',
       approvalNo: 'AP-1',
       traceId: 't',
@@ -119,7 +119,7 @@ describe('TransactionLimitRuleWorkflowService', () => {
 
     await svc.onCreationDecided({
       decision: 'DECLINED',
-      entityRef: 'r1',
+      entityRef: 'TLR-1',
       approvalId: 'ap1',
     } as any);
 
@@ -140,7 +140,7 @@ describe('TransactionLimitRuleWorkflowService', () => {
 
     await svc.onChangeDecided({
       decision: 'APPROVED',
-      entityRef: 'r1',
+      entityRef: 'TLR-1',
       approvalId: 'ap1',
       approvalNo: 'AP-1',
     } as any);
@@ -167,7 +167,7 @@ describe('TransactionLimitRuleWorkflowService', () => {
 
     await svc.onChangeDecided({
       decision: 'APPROVED',
-      entityRef: 'r1',
+      entityRef: 'TLR-1',
       approvalId: 'ap1',
       approvalNo: 'AP-1',
     } as any);
@@ -186,7 +186,7 @@ describe('TransactionLimitRuleWorkflowService', () => {
 
     await svc.onChangeDecided({
       decision: 'APPROVED',
-      entityRef: 'r1',
+      entityRef: 'TLR-1',
       approvalId: 'ap1',
     } as any);
 
