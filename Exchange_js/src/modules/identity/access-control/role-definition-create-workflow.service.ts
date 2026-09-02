@@ -102,7 +102,7 @@ export class RoleDefinitionCreateWorkflowService {
       approvalCase = await this.approvalsService.createAndSubmit(
         {
           actionType: ApprovalActionTypes.ROLE_DEFINITION_CREATE,
-          entityRef: role.id,
+          entityRef: role.code,
           traceId: correlationId,
           objectSnapshot: {
             roleCode,
@@ -185,10 +185,12 @@ export class RoleDefinitionCreateWorkflowService {
     }
   }
 
-  private async executeActivation(approvalId: string, roleId: string, event: any) {
-    const role = await this.prisma.role.findUnique({ where: { id: roleId } });
+  private async executeActivation(approvalId: string, roleCode: string, event: any) {
+    // entityRef 现在存 role.code（铁律⑥），按码回查——role.id 只在下方内部写入
+    // （rolePermission/role.update）继续使用。
+    const role = await this.prisma.role.findUnique({ where: { code: roleCode } });
     if (!role || role.status !== 'PENDING_APPROVAL') {
-      this.logger.warn(`Role ${roleId} not found or not in PENDING_APPROVAL status`);
+      this.logger.warn(`Role ${roleCode} not found or not in PENDING_APPROVAL status`);
       return;
     }
 
@@ -256,7 +258,7 @@ export class RoleDefinitionCreateWorkflowService {
 
       this.logger.log(`Role ${role.code} activated with ${uniqueCodes.length} permissions`);
     } catch (err: any) {
-      this.logger.error(`Failed to activate role ${roleId}: ${err.message}`);
+      this.logger.error(`Failed to activate role ${roleCode}: ${err.message}`);
 
       // 退役码 ROLE_ACTIVATE_FAILED 收编进来——同一动作码 ROLE_DEFINITION_CREATE_APPLIED，
       // 靠 outcome=FAILED 区分，不另起一个 _FAILED 后缀码（词表未给这一步单独开码）。
@@ -280,18 +282,18 @@ export class RoleDefinitionCreateWorkflowService {
     }
   }
 
-  private async executeCancellation(approvalId: string, roleId: string, decision: string, event: any) {
+  private async executeCancellation(approvalId: string, roleCode: string, decision: string, event: any) {
     try {
-      const role = await this.prisma.role.findUnique({ where: { id: roleId } });
+      const role = await this.prisma.role.findUnique({ where: { code: roleCode } });
       if (!role) {
-        this.logger.warn(`Role ${roleId} not found for cancellation`);
+        this.logger.warn(`Role ${roleCode} not found for cancellation`);
         return;
       }
       // 取消守卫：裸 delete 此前不查状态——已终态(如另一条路径已把角色激活为 ACTIVE)
       // 的创建申请仍可能被一次迟到/重复的取消事件删掉。只有还在 PENDING_APPROVAL 的
       // 提案才允许被取消删除。
       if (role.status !== 'PENDING_APPROVAL') {
-        this.logger.warn(`Role ${roleId} not in PENDING_APPROVAL status (status=${role.status}), skip cancellation`);
+        this.logger.warn(`Role ${roleCode} not in PENDING_APPROVAL status (status=${role.status}), skip cancellation`);
         return;
       }
 
@@ -314,7 +316,7 @@ export class RoleDefinitionCreateWorkflowService {
 
       this.logger.log(`Role ${role.code} creation cancelled (${decision}), row deleted`);
     } catch (err: any) {
-      this.logger.error(`Failed to cancel role creation ${roleId}: ${err.message}`);
+      this.logger.error(`Failed to cancel role creation ${roleCode}: ${err.message}`);
     }
   }
 }

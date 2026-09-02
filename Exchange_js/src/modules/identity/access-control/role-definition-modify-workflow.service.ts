@@ -200,7 +200,7 @@ export class RoleDefinitionModifyWorkflowService {
       approvalCase = await this.approvalsService.createAndSubmit(
         {
           actionType: ApprovalActionTypes.ROLE_DEFINITION_MODIFY,
-          entityRef: request.id,
+          entityRef: request.requestNo,
           traceId: correlationId,
           objectSnapshot: {
             roleCode: role.code,
@@ -298,17 +298,18 @@ export class RoleDefinitionModifyWorkflowService {
 
   /* ── Execute modification (on APPROVED) ── */
 
-  private async executeModification(approvalId: string, requestId: string, payload: any) {
+  private async executeModification(approvalId: string, requestNo: string, payload: any) {
     // INHERIT：读 ApprovalDecidedEvent.traceId——它就是 initiateModify 铸造的 correlationId
     // 原样传播过来的（经 ApprovalCase.traceId）。读不到就让 assertActionSpec 在写入时报错，
-    // 不再用 `rdm-exec-${requestId}` 这类兜底字符串掩盖断链。
+    // 不再用 `rdm-exec-${requestNo}` 这类兜底字符串掩盖断链。
     const correlationId = payload?.traceId;
 
+    // entityRef 现在存 requestNo（铁律⑥），按号回查。
     const request = await this.prisma.roleDefinitionModifyRequest.findUnique({
-      where: { id: requestId },
+      where: { requestNo },
     });
     if (!request || request.status !== 'PENDING_APPROVAL') {
-      this.logger.warn(`[executeModification] Request ${requestId} not found or not PENDING_APPROVAL`);
+      this.logger.warn(`[executeModification] Request ${requestNo} not found or not PENDING_APPROVAL`);
       return;
     }
 
@@ -480,18 +481,19 @@ export class RoleDefinitionModifyWorkflowService {
 
   private async executeCancellation(
     approvalId: string,
-    requestId: string,
+    requestNo: string,
     decision: string,
     payload: any,
   ) {
     const correlationId = payload?.traceId;
 
+    // entityRef 现在存 requestNo（铁律⑥），按号回查。
     const request = await this.prisma.roleDefinitionModifyRequest.findUnique({
-      where: { id: requestId },
+      where: { requestNo },
       include: { role: { select: { code: true } } },
     });
     if (!request || request.status !== 'PENDING_APPROVAL') {
-      this.logger.warn(`[executeCancellation] Request ${requestId} not PENDING_APPROVAL`);
+      this.logger.warn(`[executeCancellation] Request ${requestNo} not PENDING_APPROVAL`);
       return;
     }
 

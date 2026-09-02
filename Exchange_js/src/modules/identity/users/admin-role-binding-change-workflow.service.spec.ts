@@ -126,7 +126,7 @@ describe('AdminRoleBindingChangeWorkflowService', () => {
       expect(approvalsService.createAndSubmit).toHaveBeenCalledWith(
         expect.objectContaining({
           actionType: 'ADMIN_ROLE_BINDING_CHANGE_APPROVAL',
-          entityRef: 'req-1',
+          entityRef: 'RCR-2605050001',
           traceId: call[0].correlationId,
         }),
         expect.objectContaining({ reason: 'promotion', traceId: call[0].correlationId }),

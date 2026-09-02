@@ -76,7 +76,7 @@ export class AdminReactivationWorkflowService {
     const existingPending = await this.prisma.approvalCase.findFirst({
       where: {
         actionType: ApprovalActionTypes.ADMIN_REACTIVATION_APPROVAL,
-        entityRef: dto.targetUserId,
+        entityRef: targetUser.userNo,
         status: 'PENDING',
       },
     });
@@ -89,7 +89,7 @@ export class AdminReactivationWorkflowService {
     const approvalCase = await this.approvalsService.createAndSubmit(
       {
         actionType: ApprovalActionTypes.ADMIN_REACTIVATION_APPROVAL,
-        entityRef: dto.targetUserId,
+        entityRef: targetUser.userNo,
         traceId: correlationId,
         objectSnapshot: {
           targetUserId: dto.targetUserId,
@@ -143,10 +143,11 @@ export class AdminReactivationWorkflowService {
 
   private async executeReactivation(event: ApprovalDecidedEvent) {
     // fromStatus 需要执行前的真实状态快照——reactivateUser 只回传执行后的最终状态。
-    const before = await this.usersDomainService.findById(event.entityRef);
+    // entityRef 现在存 userNo（铁律⑥），先按号查出内部 id 再喂给 reactivateUser（签名不动）。
+    const before = await this.usersDomainService.findByUserNo(event.entityRef);
 
     try {
-      const result = await this.usersDomainService.reactivateUser(event.entityRef);
+      const result = await this.usersDomainService.reactivateUser(before?.id ?? event.entityRef);
 
       await this.auditLogsService.recordSystem({
         action: 'ADMIN_REACTIVATION_APPLIED',

@@ -46,6 +46,7 @@ describe('AdminSuspensionWorkflowService', () => {
     };
     usersDomainService = {
       findById: jest.fn().mockResolvedValue(targetUser),
+      findByUserNo: jest.fn().mockResolvedValue(targetUser),
       suspendUser: jest.fn(),
     };
     approvalsService = {

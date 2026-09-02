@@ -119,7 +119,7 @@ export class AdminInviteWorkflowService {
       approvalCase = await this.approvalsService.createAndSubmit(
         {
           actionType: ApprovalActionTypes.ADMIN_INVITE_APPROVAL,
-          entityRef: user.id,
+          entityRef: user.userNo,
           traceId: correlationId,
           objectSnapshot: { ...afterData },
         },
@@ -201,7 +201,7 @@ export class AdminInviteWorkflowService {
   }
 
   private async executeInviteDispatch(event: ApprovalDecidedEvent) {
-    const user = await this.usersDomainService.findById(event.entityRef);
+    const user = await this.usersDomainService.findByUserNo(event.entityRef);
     if (!user) return;
 
     try {
@@ -275,7 +275,7 @@ export class AdminInviteWorkflowService {
   }
 
   private async executeInviteCancellation(event: ApprovalDecidedEvent) {
-    const user = await this.usersDomainService.findById(event.entityRef);
+    const user = await this.usersDomainService.findByUserNo(event.entityRef);
     if (!user) return;
 
     await this.usersDomainService.physicalDelete(user.id);

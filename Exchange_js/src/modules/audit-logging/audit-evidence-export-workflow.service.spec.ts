@@ -73,7 +73,7 @@ describe('AuditEvidenceExportWorkflowService', () => {
       expect(approvalsService.createAndSubmit).toHaveBeenCalledWith(
         expect.objectContaining({
           actionType: 'AUDIT_EVIDENCE_EXPORT_APPROVAL',
-          entityRef: 'pkg-1',
+          entityRef: 'EVP-1',
           // AUDIT_EVIDENCE_EXPORT_REQUESTED 是 START 码——按设计铸新 correlationId
           // （本表用 traceId 列承载），不再沿用调用方传入的值。
           traceId: expect.any(String),
@@ -105,7 +105,7 @@ describe('AuditEvidenceExportWorkflowService', () => {
       const result = await service.downloadEvidencePackage('pkg-1', actor);
 
       expect(approvalsService.requireApproved).toHaveBeenCalledWith(
-        expect.objectContaining({ approvalCaseId: 'approval-1', entityRef: 'pkg-1' }),
+        expect.objectContaining({ approvalCaseId: 'approval-1', entityRef: 'EVP-1' }),
       );
       expect(auditLogsService.recordByActor).toHaveBeenCalledWith(
         expect.objectContaining({ action: 'AUDIT_EVIDENCE_EXPORT_DOWNLOADED' }),

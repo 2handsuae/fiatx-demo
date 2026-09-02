@@ -232,7 +232,7 @@ export class AdminPasswordResetWorkflowService {
     const existingPending = await this.prisma.approvalCase.findFirst({
       where: {
         actionType: ApprovalActionTypes.ADMIN_PASSWORD_RESET,
-        entityRef: targetUserId,
+        entityRef: target.userNo,
         status: 'PENDING',
       },
     });
@@ -245,7 +245,7 @@ export class AdminPasswordResetWorkflowService {
     const approvalCase = await this.approvalsService.createAndSubmit(
       {
         actionType: ApprovalActionTypes.ADMIN_PASSWORD_RESET,
-        entityRef: targetUserId,
+        entityRef: target.userNo,
         traceId: correlationId,
         objectSnapshot: {
           targetUserId,
@@ -316,8 +316,9 @@ export class AdminPasswordResetWorkflowService {
   }
 
   private async executeAdminReset(event: ApprovalDecidedEvent) {
+    // entityRef 现在存 userNo（铁律⑥）。
     const target = await this.prisma.user.findFirst({
-      where: { id: event.entityRef, deletedAt: null },
+      where: { userNo: event.entityRef, deletedAt: null },
       select: { id: true, userNo: true, email: true, status: true },
     });
 
@@ -369,7 +370,7 @@ export class AdminPasswordResetWorkflowService {
   }
 
   private async recordCancellation(event: ApprovalDecidedEvent) {
-    const target = await this.usersDomainService.findById(event.entityRef);
+    const target = await this.usersDomainService.findByUserNo(event.entityRef);
 
     await this.auditLogsService.recordSystem({
       action: 'ADMIN_PASSWORD_RESET_CANCELLED',

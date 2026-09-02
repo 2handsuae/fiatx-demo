@@ -101,7 +101,7 @@ export class AdminRoleBindingChangeWorkflowService {
     const approvalCase = await this.approvalsService.createAndSubmit(
       {
         actionType: ApprovalActionTypes.ADMIN_ROLE_BINDING_CHANGE_APPROVAL,
-        entityRef: request.id,
+        entityRef: request.requestNo,
         traceId: correlationId,
         objectSnapshot: {
           requestNo: request.requestNo,
@@ -200,8 +200,9 @@ export class AdminRoleBindingChangeWorkflowService {
   }
 
   private async executeRoleChange(event: ApprovalDecidedEvent) {
+    // entityRef 现在存 requestNo（铁律⑥），按号回查；下游写入继续用 request.id（内部 PK）。
     const request = await (this.prisma as any).adminRoleChangeRequest.findFirst({
-      where: { id: event.entityRef },
+      where: { requestNo: event.entityRef },
     });
     if (!request) return;
 
@@ -335,8 +336,9 @@ export class AdminRoleBindingChangeWorkflowService {
     event: ApprovalDecidedEvent,
     action: RoleRequestAction,
   ) {
+    // entityRef 现在存 requestNo（铁律⑥），按号回查。
     const request = await (this.prisma as any).adminRoleChangeRequest.findFirst({
-      where: { id: event.entityRef },
+      where: { requestNo: event.entityRef },
     });
     if (!request) return;
 

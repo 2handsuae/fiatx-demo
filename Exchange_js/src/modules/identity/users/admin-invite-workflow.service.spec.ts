@@ -32,6 +32,7 @@ describe('AdminInviteWorkflowService', () => {
     usersDomainService = {
       createProvisionalUser: jest.fn(),
       findById: jest.fn(),
+      findByUserNo: jest.fn(),
       physicalDelete: jest.fn().mockResolvedValue(undefined),
       applyUserTransition: jest.fn().mockResolvedValue(undefined),
     };
@@ -132,7 +133,7 @@ describe('AdminInviteWorkflowService', () => {
     });
 
     it('批准后派发邀请，写 ADMIN_INVITE_DISPATCHED 并 INHERIT 审批单的 correlationId', async () => {
-      usersDomainService.findById.mockResolvedValue({
+      usersDomainService.findByUserNo.mockResolvedValue({
         id: 'user-1',
         userNo: 'ADM-001',
         email: 'new@fiatx.com',
@@ -172,7 +173,7 @@ describe('AdminInviteWorkflowService', () => {
     });
 
     it('审批被驳回/取消/超时都物理删除 provisional user 并写 ADMIN_INVITE_CANCELLED + reason', async () => {
-      usersDomainService.findById.mockResolvedValue({
+      usersDomainService.findByUserNo.mockResolvedValue({
         id: 'user-1',
         userNo: 'ADM-001',
         email: 'new@fiatx.com',

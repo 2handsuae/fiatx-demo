@@ -2327,7 +2327,8 @@ export class AuditLogsService {
     const db = this.getDb() as any;
     if (!this.canOperateAuditEvidencePackage(db)) return null;
     const orClauses: any[] = [{ approvalCaseId: approvalId }];
-    if (entityRef) orClauses.push({ id: entityRef });
+    // entityRef 现在存 packageNo（铁律⑥，见 audit-evidence-export-workflow.service.ts）。
+    if (entityRef) orClauses.push({ packageNo: entityRef });
     return db.auditEvidencePackage.findFirst({ where: { deletedAt: null, OR: orClauses } });
   }
 
@@ -2374,7 +2375,8 @@ export class AuditLogsService {
     const db = this.getDb() as any;
     if (!this.canOperateAuditEvidencePackage(db)) return;
     const orClauses: any[] = [{ approvalCaseId: approvalId }];
-    if (entityRef) orClauses.push({ id: entityRef });
+    // entityRef 现在存 packageNo（铁律⑥，见 audit-evidence-export-workflow.service.ts）。
+    if (entityRef) orClauses.push({ packageNo: entityRef });
     await db.auditEvidencePackage.updateMany({
       where: { deletedAt: null, OR: orClauses },
       data: { status },
