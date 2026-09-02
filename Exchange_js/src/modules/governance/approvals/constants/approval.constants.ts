@@ -84,7 +84,7 @@ export const ApprovalActionTypes = {
   // releasePolicy 分流到 MLRO / OPS 两条单步 maker-checker，复刻 WITHDRAW_UNFREEZE 形状。
   CUSTOMER_RESTRICTION_RELEASE_MLRO: 'CUSTOMER_RESTRICTION_RELEASE_MLRO',
   CUSTOMER_RESTRICTION_RELEASE_OPS: 'CUSTOMER_RESTRICTION_RELEASE_OPS',
-  // Recon Adjustment Post (Task 4, 2026-08-28) — 平账一期·调账单落账前置审批，单步 OPS_OFFICER。
+  // Recon Adjustment Post (Task 4, 2026-08-28) — 平账一期·调账单落账前置审批，单步 CFO（平账 A 批 2026-09-02，原 OPS_OFFICER）。
   RECON_ADJUSTMENT_POST: 'RECON_ADJUSTMENT_POST',
 } as const;
 

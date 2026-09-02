@@ -231,7 +231,8 @@ export class AdjustmentService {
         status: AdjustmentStatus.DRAFT,
       },
     });
-    await this.afterDraftCreated(row, { ...dto, dispositionNo: dto.dispositionNo ?? heldDispositionNo ?? undefined }, actor);
+    // 核销：优先挂守卫刚验过的那条定性，不信客户端传来的号（Task 7 评审）
+    await this.afterDraftCreated(row, { ...dto, dispositionNo: heldDispositionNo ?? dto.dispositionNo ?? undefined }, actor);
     return { adjustmentNo: row.adjustmentNo };
   }
 
@@ -466,7 +467,7 @@ export class AdjustmentService {
    * 铁律⑥：evidence.actorId、decidedByUserId、审计 actorNo/actorDisplayName
    * 三个落点都优先业务号（与 createdByUserId 同一惯例），落不到才退回
    * deciderId；actorRolesAtTime 用真实角色取代硬编码 ['ADMIN']——RECON_
-   * ADJUSTMENT_POST 是单步 OPS_OFFICER 策略，审计快照此前记的是一个与
+   * ADJUSTMENT_POST 是单步 CFO 策略（平账 A 批起），审计快照此前记的是一个与
    * 事实不符的角色。
    */
   async onApproved(adjustmentNo: string, deciderId: string, deciderNo?: string | null, deciderRole?: string | null): Promise<void> {
@@ -601,7 +602,7 @@ export class AdjustmentService {
       {
         actorType: 'ADMIN', actorNo: deciderDisplay, actorDisplayName: deciderDisplay,
         // 真实审批角色取代硬编码 ['ADMIN']——RECON_ADJUSTMENT_POST 是单步
-        // OPS_OFFICER 策略，硬编码会让审计记下一个与事实不符的角色快照。
+        // CFO 策略（平账 A 批起），硬编码会让审计记下一个与事实不符的角色快照。
         // 兜底 'ADMIN' 只在旧签名两参调用（deciderRole 缺省）时触发，与此前
         // 行为等价，不影响既有单测。
         actorRolesAtTime: [deciderRole ?? 'ADMIN'],

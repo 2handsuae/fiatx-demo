@@ -594,6 +594,9 @@ const ReconciliationCasesDetailPage = () => {
   // 成因，后端会用不同的账簿去校验，出现「表单选得进去，提交却 400」。
   const adjustmentBook: AdjustmentBook = kase.book === 'FIRM' ? 'FIRM' : 'CLIENT';
 
+  // Minor #5（终审）：结案后的超期天数要在结案那一刻冻结，不能继续跟着 Date.now() 涨。
+  const agingReferenceMs = kase.status === 'RESOLVED' && kase.resolvedAt ? new Date(kase.resolvedAt).getTime() : Date.now();
+
   return (
     <div className="flex h-full flex-col">
       {/* ── Nav Header (back + refresh only) ── */}
@@ -640,7 +643,7 @@ const ReconciliationCasesDetailPage = () => {
               {kase.slaBreached && kase.slaDeadline && (
                 <span className="inline-flex items-center gap-1 rounded border border-adm-red/30 bg-adm-red/10 px-2 py-0.5 font-mono text-[10px] font-semibold uppercase tracking-wider text-adm-red">
                   <AlertTriangle size={10} />
-                  超期 {Math.max(1, Math.floor((Date.now() - new Date(kase.slaDeadline).getTime()) / 86_400_000))} 天
+                  超期 {Math.max(1, Math.floor((agingReferenceMs - new Date(kase.slaDeadline).getTime()) / 86_400_000))} 天
                 </span>
               )}
               <StatusPill value={kase.status} size="md" />

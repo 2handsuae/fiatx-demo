@@ -14,7 +14,7 @@ dotenv.config({ path: path.resolve(__dirname, '../.env') });
 
 import { randomUUID } from 'node:crypto';
 import { Test } from '@nestjs/testing';
-import { INestApplication, BadRequestException } from '@nestjs/common';
+import { INestApplication } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 
 import { AppModule } from '../src/app.module';
@@ -435,7 +435,7 @@ describe('Recon case aging → write-off e2e (平账 A 批, Task 12)', () => {
       explainedFlowId: row0.internalFlow!.id, explainedExternalLineId: row0.externalLine!.id,
       reasonInternal: 'e2e 核销', reasonCustomer: '（公司侧，客户不可见）', dispositionNo: disp.dispositionNo,
     };
-    await expect(adjustments.createDraft(woDto as any, treasury)).rejects.toThrow(BadRequestException);
+    await expect(adjustments.createDraft(woDto as any, treasury)).rejects.toThrow(/账龄/);
     expect((await reconQuery.getCase(kase.caseNo)).flowComparison.find((r: any) => r.matchType === 'AMOUNT_MISMATCH')!.nextStep).toBeUndefined();
 
     // ⚡拨钟 + 扫描 → 超期 + 两条审计
@@ -477,6 +477,7 @@ describe('Recon case aging → write-off e2e (平账 A 批, Task 12)', () => {
     expect(evidence).toHaveLength(1);
     expect(evidence[0].debitCode).toBe(TB_CODE_TO_COA[TB_ACCOUNT_CODES.FIRM_OPS]);
     expect(evidence[0].creditCode).toBe(TB_CODE_TO_COA[TB_ACCOUNT_CODES.FIRM_ASSET]);
+    expect(String(evidence[0].amount)).toBe('7');
     const posted = await (prisma as any).auditLogEvent.findFirst({ where: { action: 'RECON_ADJUSTMENT_POSTED', primarySubjectNo: adjustmentNo } });
     expect(posted.reasonCode).toBe('UNEXPLAINED_WRITE_OFF');
     expect(JSON.parse(posted.actorRolesAtTime)).toEqual(['CFO']);
