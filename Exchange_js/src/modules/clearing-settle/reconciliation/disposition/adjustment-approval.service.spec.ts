@@ -102,10 +102,10 @@ describe('AdjustmentApprovalService —— 取消/超时同归 onRejected（Impo
 // 补测 A —— 铁律②「门不可绕」的落点：默认策略被删掉、被改成两步、或角色被换掉，
 // 必须有测试当场变红；运行时不报错要等到真提交审批才会炸（"No steps configured"），那是事故现场。
 describe('RECON_ADJUSTMENT_POST 默认审批策略', () => {
-  it('单步、角色恰好是 OPS_OFFICER', () => {
+  it('单步、角色恰好是 CFO（平账 A 批 2026-09-02：裁决人 OPS_OFFICER → CFO）', () => {
     const policy = DEFAULT_APPROVAL_POLICIES[ApprovalActionTypes.RECON_ADJUSTMENT_POST];
     expect(policy).toBeDefined();
-    expect(policy.steps).toEqual([{ stepNo: 1, roles: ['OPS_OFFICER'] }]);
+    expect(policy.steps).toEqual([{ stepNo: 1, roles: ['CFO'] }]);
   });
 });
 
