@@ -15,8 +15,10 @@ import {
   CauseCode,
   menuFor,
   resolveOutlet,
+  resolveWriteOff,
   staticOutletLabel,
 } from '../disposition/cause-registry';
+import { isSmallAmount } from '../disposition/recon-thresholds.constant';
 import {
   AccountStatusRow,
   CaseAdjustmentSummary,
@@ -467,6 +469,15 @@ export class ReconciliationQueryService {
         .map((r) => `${r.externalLine!.externalRef}|${r.externalLine!.amount}`),
     );
     const caseBook = kase.book === 'FIRM' ? 'FIRM' : 'CLIENT';
+    // T4 (canon2): the display layer scales every amount by 10^decimals to turn
+    // integer base units (分) back into 元. Same source as listExternalBalances
+    // and buildFlowComparison — asset table by currency code, never hardcoded.
+    // 平账 A 批：也是 nextStep 判小额线要用的币种（按 currency，不按 code）——提前
+    // 到这里查一次，下文用同一个变量，不查两次。
+    const assetRow = (await (this.prisma as any).asset.findUnique({
+      where: { code: kase.assetCode }, select: { decimals: true, currency: true },
+    })) as { decimals: number; currency: string } | null;
+    const caseCurrency = assetRow?.currency ?? kase.assetCode;
     for (const r of flowComparison) {
       if (r.matchType === 'MATCHED' || r.matchType === 'IN_TRANSIT') continue;
       const d = (r.internalFlow && dByFlow.get(r.internalFlow.id!)) || (r.externalLine && dByExt.get(r.externalLine.id!)) || null;
@@ -495,6 +506,22 @@ export class ReconciliationQueryService {
         && matchedKeys.has(`${r.internalFlow.externalRef}|${r.internalFlow.amount}`))
         ? r.internalFlow.externalRef : null;
       r.menu = menuFor(r.matchType as any, caseBook);
+      // 平账 A 批（spec §2.6）：超期解锁——判据全在服务端。
+      if (kase.status === 'OPEN' && kase.slaBreached && d && d.outlet === 'HOLD_INVESTIGATING' && !d.adjustmentNo) {
+        if (caseBook !== 'FIRM') {
+          r.nextStep = { kind: 'TRANSFER_DEFERRED' };
+        } else {
+          const wo = resolveWriteOff({
+            matchType: r.matchType as any, book: 'FIRM',
+            deltaSign: r.deltaAmount != null ? ((r.deltaAmount.startsWith('-') ? -1 : 1) as 1 | -1) : undefined,
+            internalDirection: r.internalFlow?.direction, externalDirection: r.externalLine?.direction,
+            internalAmount: r.internalFlow?.amount, externalAmount: r.externalLine?.amount, deltaAmount: r.deltaAmount,
+          });
+          r.nextStep = isSmallAmount(caseCurrency, BigInt(wo.amountMinor))
+            ? { kind: 'WRITE_OFF', reasonCode: wo.reasonCode, direction: wo.direction, amount: wo.amountMinor, effectiveDate: kase.businessDate }
+            : { kind: 'INCIDENT_DEFERRED' };
+        }
+      }
     }
 
     // T6: append persisted IN_TRANSIT line items — these aren't reconstructed
@@ -566,14 +593,6 @@ export class ReconciliationQueryService {
           select: { walletNo: true },
         })
       : null;
-
-    // T4 (canon2): the display layer scales every amount by 10^decimals to turn
-    // integer base units (分) back into 元. Same source as listExternalBalances
-    // and buildFlowComparison — asset table by currency code, never hardcoded.
-    const assetRow = (await (this.prisma as any).asset.findUnique({
-      where: { code: kase.assetCode },
-      select: { decimals: true },
-    })) as { decimals: number } | null;
 
     const linkedRunId = kase.lastUpdatedRunId ?? kase.openedByRunId ?? null;
     const linkedRunRow = linkedRunId

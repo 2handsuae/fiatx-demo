@@ -174,6 +174,14 @@ export interface FlowComparisonRow {
   duplicateTwinRef?: string | null;
   // 该格（matchType × book）在成因注册表里的候选成因清单，供运营从中选出定性结论。
   menu?: Array<{ code: string; label: string; clue: string; outletLabel: string }>;
+  // 平账 A 批（spec §2.6）：超期后的下一步——只在「案件超期 + 该行已定性为挂起·调查中 + 未挂单」时出现。
+  // 服务端算（前端不自己拼真相）：WRITE_OFF 带开单预填四项；另外两种只是只读标签。
+  nextStep?: {
+    kind: 'WRITE_OFF' | 'INCIDENT_DEFERRED' | 'TRANSFER_DEFERRED';
+    reasonCode?: 'UNEXPLAINED_WRITE_OFF'; direction?: 'REDUCE' | 'INCREASE';
+    amount?: string;          // 最小单位整数字符串
+    effectiveDate?: string;   // = 案件业务日
+  };
 }
 
 export interface FlowComparisonSummary {

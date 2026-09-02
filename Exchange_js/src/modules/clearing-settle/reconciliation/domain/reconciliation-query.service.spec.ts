@@ -1325,3 +1325,53 @@ describe('平账 A 批：案件页按跑批截止时刻重建差异行（spec §
     }));
   });
 });
+
+describe('平账 A 批：超期后的下一步 nextStep（spec §2.6）', () => {
+  const flowId = 'flow-1'; const extId = 'ext-1';
+  function prismaFor(opts: { book: 'CLIENT' | 'FIRM'; slaBreached: boolean; disposition: any | null; currency?: string; decimals?: number }) {
+    const kase = {
+      id: 'c1', caseNo: 'REC-A', businessDate: '2026-09-02', assetCode: opts.currency === 'USDT' ? 'USDT-TRON' : 'AED', walletRef: 'w-1', status: 'OPEN',
+      book: opts.book, slaBreached: opts.slaBreached, lastObservedRunId: 'run-x', firstSeenRunId: 'run-x', closedByRunId: null, openedByRunId: 'run-x',
+      tbAmount: new Prisma.Decimal(0), actualExternal: new Prisma.Decimal(0), deltaAmount: new Prisma.Decimal(-7), createdAt: new Date(), lineItems: [],
+    };
+    return {
+      reconciliationCase: { findUnique: jest.fn().mockResolvedValue(kase) },
+      reconciliationRun: { findUnique: jest.fn().mockResolvedValue({ runNo: 'RUN-1', businessDate: '2026-09-02', cutoffAt: new Date('2026-09-02T10:00:00Z'), startedAt: new Date(), completedAt: new Date() }) },
+      reconciliationDisposition: { findMany: jest.fn().mockResolvedValue(opts.disposition ? [opts.disposition] : []) },
+      reconciliationAdjustment: { findMany: jest.fn().mockResolvedValue([]) },
+      externalBalance: { findMany: jest.fn().mockResolvedValue([]) },
+      externalStatementLine: { findMany: jest.fn().mockResolvedValue([{ id: extId, direction: 'IN', amount: new Prisma.Decimal(4993), externalRef: 'R1', datetime: new Date('2026-09-02T09:00:00Z'), description: null }]) },
+      accountFlow: { findMany: jest.fn().mockResolvedValue([{ id: flowId, direction: 'IN', amount: new Prisma.Decimal(5000), externalRef: 'R1', eventCode: 'E2E', sourceType: 'DEPOSIT', sourceNo: 'S1', createdAt: new Date('2026-09-02T09:00:00Z') }]) },
+      asset: { findUnique: jest.fn().mockResolvedValue({ decimals: opts.decimals ?? 2, currency: opts.currency ?? 'AED' }) },
+      wallet: { findUnique: jest.fn().mockResolvedValue({ walletNo: 'WA1' }) },
+      fundsOrder: { findMany: jest.fn().mockResolvedValue([]) },
+    };
+  }
+  const mismatchMatcher = { matchFlows: jest.fn().mockResolvedValue({ matched: [], orphanInternal: [], orphanExternal: [], mismatch: [{ internalFlowId: flowId, externalLineId: extId }] }) };
+  const held = { dispositionNo: 'RCD1', explainedFlowId: flowId, explainedExternalLineId: extId, matchType: 'AMOUNT_MISMATCH', book: 'FIRM', causeCode: 'UNEXPLAINED', outlet: 'HOLD_INVESTIGATING', findingNote: 'n', adjustmentNo: null, createdByUserId: 'ADM', createdAt: new Date(), updatedAt: new Date() };
+
+  it('公司池 + 超期 + 调查中 + 小额 → WRITE_OFF，四项预填齐（金额最小单位、生效日 = 案件业务日）', async () => {
+    const res = await mkSvc(prismaFor({ book: 'FIRM', slaBreached: true, disposition: held }), { flowMatcher: mismatchMatcher }).getCase('REC-A');
+    const row = res.flowComparison.find((r: any) => r.matchType === 'AMOUNT_MISMATCH')!;
+    expect(row.nextStep).toEqual({ kind: 'WRITE_OFF', reasonCode: 'UNEXPLAINED_WRITE_OFF', direction: 'REDUCE', amount: '7', effectiveDate: '2026-09-02' });
+  });
+  it('公司池 + 超期 + 调查中 + 大额 → INCIDENT_DEFERRED', async () => {
+    const prisma = prismaFor({ book: 'FIRM', slaBreached: true, disposition: held });
+    prisma.externalStatementLine.findMany.mockResolvedValue([{ id: extId, direction: 'IN', amount: new Prisma.Decimal(0), externalRef: 'R1', datetime: new Date(), description: null }]);
+    prisma.accountFlow.findMany.mockResolvedValue([{ id: flowId, direction: 'IN', amount: new Prisma.Decimal(20_000), externalRef: 'R1', eventCode: 'E', sourceType: 'DEPOSIT', sourceNo: 'S', createdAt: new Date() }]);
+    const res = await mkSvc(prisma, { flowMatcher: mismatchMatcher }).getCase('REC-A');
+    expect(res.flowComparison.find((r: any) => r.matchType === 'AMOUNT_MISMATCH')!.nextStep).toEqual({ kind: 'INCIDENT_DEFERRED' });
+  });
+  it('客户池 + 超期 + 调查中 → TRANSFER_DEFERRED', async () => {
+    const res = await mkSvc(prismaFor({ book: 'CLIENT', slaBreached: true, disposition: { ...held, book: 'CLIENT' } }), { flowMatcher: mismatchMatcher }).getCase('REC-A');
+    expect(res.flowComparison.find((r: any) => r.matchType === 'AMOUNT_MISMATCH')!.nextStep).toEqual({ kind: 'TRANSFER_DEFERRED' });
+  });
+  it('未超期 / 未定性 / 结论不是调查中 / 已挂单 → 没有 nextStep', async () => {
+    const notBreached = await mkSvc(prismaFor({ book: 'FIRM', slaBreached: false, disposition: held }), { flowMatcher: mismatchMatcher }).getCase('REC-A');
+    expect(notBreached.flowComparison.find((r: any) => r.matchType === 'AMOUNT_MISMATCH')!.nextStep).toBeUndefined();
+    const noDisp = await mkSvc(prismaFor({ book: 'FIRM', slaBreached: true, disposition: null }), { flowMatcher: mismatchMatcher }).getCase('REC-A');
+    expect(noDisp.flowComparison.find((r: any) => r.matchType === 'AMOUNT_MISMATCH')!.nextStep).toBeUndefined();
+    const linked = await mkSvc(prismaFor({ book: 'FIRM', slaBreached: true, disposition: { ...held, adjustmentNo: 'ADJ1' } }), { flowMatcher: mismatchMatcher }).getCase('REC-A');
+    expect(linked.flowComparison.find((r: any) => r.matchType === 'AMOUNT_MISMATCH')!.nextStep).toBeUndefined();
+  });
+});
