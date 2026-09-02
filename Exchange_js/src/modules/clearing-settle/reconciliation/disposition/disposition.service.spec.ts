@@ -139,3 +139,26 @@ describe('DispositionService.linkAdjustment', () => {
     await expect(held.svc.linkAdjustment('RCD002', 'ADJ001')).rejects.toThrow(BadRequestException);
   });
 });
+
+describe('平账 A 批：定性联动放行组合（spec §3.6）', () => {
+  const held = { dispositionNo: 'RCD001', outlet: 'HOLD_INVESTIGATING', adjustmentNo: null };
+  const buildLink = (row: any) => {
+    const prisma: any = {
+      reconciliationDisposition: {
+        findUnique: jest.fn().mockResolvedValue(row),
+        update: jest.fn().mockResolvedValue({ ...row, adjustmentNo: 'ADJ_WO' }),
+      },
+    };
+    return { svc: new DispositionService(prisma, { recordByActor: jest.fn() } as any), prisma };
+  };
+  it('挂起·调查中 + 核销族 → 放行挂单', async () => {
+    const { svc, prisma } = buildLink(held);
+    await svc.linkAdjustment('RCD001', 'ADJ_WO', { family: 'WRITE_OFF' });
+    expect(prisma.reconciliationDisposition.update).toHaveBeenCalledWith({ where: { dispositionNo: 'RCD001' }, data: { adjustmentNo: 'ADJ_WO' } });
+  });
+  it('挂起·调查中 + 其他族 → 仍拒（"不落调账单"）', async () => {
+    const { svc } = buildLink(held);
+    await expect(svc.linkAdjustment('RCD001', 'ADJ_X', { family: 'CORRECT' })).rejects.toThrow(BadRequestException);
+    await expect(svc.linkAdjustment('RCD001', 'ADJ_X')).rejects.toThrow(BadRequestException);
+  });
+});

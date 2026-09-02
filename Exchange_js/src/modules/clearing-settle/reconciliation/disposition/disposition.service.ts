@@ -8,7 +8,7 @@ import { AuditLogsService } from '../../../audit-logging/audit-logs.service';
 import { AuditEntityTypes } from '../../../audit-logging/constants/audit-actions.constant';
 import { ApprovalActorContext } from '../../../governance/approvals/constants/approval.constants';
 import { RecordDispositionDto } from '../dto/disposition.dto';
-import { CAUSE_REGISTRY, CauseBook, resolveOutlet } from './cause-registry';
+import { AdjustFamily, CAUSE_REGISTRY, CauseBook, resolveOutlet } from './cause-registry';
 
 export interface ReattributionCandidate {
   caseNo: string; walletNo: string | null; ownerNo: string | null;
@@ -111,17 +111,20 @@ export class DispositionService {
     return { dispositionNo, ...resolved };
   }
 
-  /** Task 5 联动：调账单开出后回填，之后该定性锁死不可覆盖。 */
-  async linkAdjustment(dispositionNo: string, adjustmentNo: string): Promise<void> {
+  /**
+   * Task 5 联动：调账单开出后回填，之后该定性锁死不可覆盖。
+   * 平账 A 批（spec §3.6）：放行一种组合——出口是「挂起·调查中」且调账单族是核销。
+   * 「查不出」仍是查证结论的真相，核销是它在账龄到线后的后续处置，不改写 outlet。
+   */
+  async linkAdjustment(dispositionNo: string, adjustmentNo: string, opts?: { family?: AdjustFamily }): Promise<void> {
     const row = await (this.prisma as any).reconciliationDisposition.findUnique({ where: { dispositionNo } });
     if (!row) throw new NotFoundException(`定性记录不存在：${dispositionNo}`);
-    if (!String(row.outlet).startsWith('ADJUST')) {
+    const writeOffOnHeld = row.outlet === 'HOLD_INVESTIGATING' && opts?.family === 'WRITE_OFF';
+    if (!String(row.outlet).startsWith('ADJUST') && !writeOffOnHeld) {
       throw new BadRequestException(`定性 ${dispositionNo} 的出口是 ${row.outlet}，不落调账单`);
     }
     if (row.adjustmentNo) throw new BadRequestException(`定性 ${dispositionNo} 已挂调账单 ${row.adjustmentNo}`);
-    await (this.prisma as any).reconciliationDisposition.update({
-      where: { dispositionNo }, data: { adjustmentNo },
-    });
+    await (this.prisma as any).reconciliationDisposition.update({ where: { dispositionNo }, data: { adjustmentNo } });
   }
 
   /**

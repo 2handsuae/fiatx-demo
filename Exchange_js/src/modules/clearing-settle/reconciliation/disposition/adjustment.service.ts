@@ -19,6 +19,8 @@ import {
   Book, Direction, ReasonCode, REASON_SPECS,
   assertReasonAllowed, requiresRelatedOrder, resolvePostingLegs, resolveReattributionLegs,
 } from './adjustment-rules';
+import { AdjustFamily, CauseCode, staticOutletLabel } from './cause-registry';
+import { isSmallAmount, SMALL_AMOUNT_LINE_MINOR } from './recon-thresholds.constant';
 import { DispositionService } from './disposition.service';
 
 @Injectable()
@@ -50,8 +52,8 @@ export class AdjustmentService {
   describeImpact(row: {
     book: string; ownerNo: string | null; amount: string; assetCode: string;
     direction: string; reasonCode: string; reasonInternal: string;
-    toOwnerNo?: string | null;
-  }, decimals: number): string {
+    toOwnerNo?: string | null; caseNo?: string | null;
+  }, decimals: number, extra?: { walletNo?: string | null; agedDays?: number | null; findingNote?: string | null }): string {
     // 第四族改记（spec §6）：三族的「余额增加/减少」话术套上来是错的——钱在托管里
     // 一分没动，只是主人记错了。审批人要读到的是「从谁名下去了谁名下」，
     // 以及「客户资产总额不变」这个判断该不该批的关键事实。
@@ -59,6 +61,13 @@ export class AdjustmentService {
       const majorAmount = bigintToDecimal(BigInt(row.amount), decimals).toFixed(decimals);
       return `本单将把 ${majorAmount} ${row.assetCode} 从客户 ${row.ownerNo ?? '(未知)'} 名下改记到客户 ${row.toOwnerNo ?? '(未知)'} 名下；`
            + `客户资产总额不变；理由：${row.reasonInternal}`;
+    }
+    // 第五族核销（spec §3.7）：审批人要读到的是「哪个池子、哪个钱包、差额往哪去、悬了多久、查过什么」。
+    if (row.reasonCode === 'UNEXPLAINED_WRITE_OFF') {
+      const majorAmount = bigintToDecimal(BigInt(row.amount), decimals).toFixed(decimals);
+      const outlet = row.direction === 'REDUCE' ? '认损进运营资金' : '计入其他收入';
+      return `公司池查无果核销：钱包 ${extra?.walletNo ?? '(未知)'} ${row.assetCode} 差额 ${majorAmount} ${outlet}；`
+           + `案件 ${row.caseNo ?? '(未知)'} 已超期 ${extra?.agedDays ?? '?'} 天；查证结论：${extra?.findingNote ?? row.reasonInternal}`;
     }
     const dir = row.direction === 'REDUCE' ? '减少' : '增加';
     const who = row.book === 'CLIENT' ? `客户 ${row.ownerNo ?? '(未知)'}` : '公司自有资金';
@@ -92,6 +101,44 @@ export class AdjustmentService {
     return !!swap;
   }
 
+  /**
+   * 核销四前提（spec §3.2）——全部 400、人话文案：
+   *   ① 案子已超期  ② 锚的那行已定性且出口 = 挂起·调查中、未挂单
+   *   ③ 案件账簿 = 公司  ④ 金额 ≤ 该币种小额线
+   * 返回命中的定性行（afterDraftCreated 据此挂单号锁定）。
+   */
+  private async assertWriteOffAllowed(dto: CreateAdjustmentDto, kase: any, book: Book): Promise<{ dispositionNo: string }> {
+    if (!kase.slaBreached) {
+      throw new BadRequestException('案子还没到账龄线，查无果的差异先挂着，到线再谈核销');
+    }
+    const anchors = [
+      dto.explainedFlowId ? { explainedFlowId: dto.explainedFlowId } : null,
+      dto.explainedExternalLineId ? { explainedExternalLineId: dto.explainedExternalLineId } : null,
+    ].filter(Boolean);
+    if (anchors.length === 0) {
+      throw new BadRequestException('核销必须锚在一条已定性为「挂起·调查中」的差异行上');
+    }
+    const held = await (this.prisma as any).reconciliationDisposition.findFirst({ where: { caseNo: dto.caseNo, OR: anchors } });
+    if (!held || held.outlet !== 'HOLD_INVESTIGATING') {
+      const conclusion = held ? staticOutletLabel(held.causeCode as CauseCode) : '尚未定性';
+      throw new BadRequestException(`核销只对已定性为「挂起·调查中」的差异行；这行的结论是 ${conclusion}`);
+    }
+    if (held.adjustmentNo) {
+      throw new BadRequestException(`该行定性已挂调账单 ${held.adjustmentNo}，不可再开核销单`);
+    }
+    if (book !== 'FIRM') {
+      throw new BadRequestException('客户池的查无果差异不能一笔核销：托管里真少了钱，要先认损再由公司补款（二期划转）');
+    }
+    const asset = await (this.prisma as any).asset.findUnique({ where: { code: kase.assetCode }, select: { currency: true, decimals: true } });
+    const currency: string = asset?.currency ?? kase.assetCode;
+    if (!isSmallAmount(currency, BigInt(dto.amount))) {
+      const line = bigintToDecimal(SMALL_AMOUNT_LINE_MINOR[currency], asset?.decimals ?? 0).toFixed(asset?.decimals ?? 0);
+      const amt = bigintToDecimal(BigInt(dto.amount), asset?.decimals ?? 0).toFixed(asset?.decimals ?? 0);
+      throw new BadRequestException(`差额 ${amt} ${currency} 超过小额线 ${line} ${currency}，查无果的大额差异不许核销，走事故登记（三期）`);
+    }
+    return { dispositionNo: held.dispositionNo };
+  }
+
   async createDraft(dto: CreateAdjustmentDto, actor: ApprovalActorContext) {
     const kase = await (this.prisma as any).reconciliationCase.findUnique({ where: { caseNo: dto.caseNo } });
     if (!kase) throw new NotFoundException(`对账案件不存在：${dto.caseNo}`);
@@ -104,6 +151,12 @@ export class AdjustmentService {
     // 是空数组，assertReasonAllowed 对它任何方向都拒）——必须在那道闸之前分流出去。
     if (dto.reasonCode === 'CUSTOMER_REATTRIBUTION') {
       return this.createReattributionDraft(dto, kase, actor);
+    }
+
+    // 第五族核销（spec §3.2）：四道前提，少一道就是抹差异的后门。守卫顺序 = spec 表序。
+    let heldDispositionNo: string | null = null;
+    if (dto.reasonCode === 'UNEXPLAINED_WRITE_OFF') {
+      heldDispositionNo = (await this.assertWriteOffAllowed(dto, kase, book)).dispositionNo;
     }
 
     // 闸一：成因 × 账簿 × 方向 合法性
@@ -178,7 +231,7 @@ export class AdjustmentService {
         status: AdjustmentStatus.DRAFT,
       },
     });
-    await this.afterDraftCreated(row, dto, actor);
+    await this.afterDraftCreated(row, { ...dto, dispositionNo: dto.dispositionNo ?? heldDispositionNo ?? undefined }, actor);
     return { adjustmentNo: row.adjustmentNo };
   }
 
@@ -261,7 +314,10 @@ export class AdjustmentService {
       } as any,
       { actorType: 'ADMIN', actorNo: actorDisplay, actorDisplayName: actorDisplay, actorRolesAtTime: actor.roleCodes ?? [] },
     );
-    if (dto.dispositionNo) await this.dispositions.linkAdjustment(dto.dispositionNo, row.adjustmentNo);
+    if (dto.dispositionNo) {
+      const family = REASON_SPECS[row.reasonCode as ReasonCode]?.family as AdjustFamily | undefined;
+      await this.dispositions.linkAdjustment(dto.dispositionNo, row.adjustmentNo, { family });
+    }
   }
 
   async submit(adjustmentNo: string, actor: ApprovalActorContext) {
@@ -278,7 +334,18 @@ export class AdjustmentService {
     const assetRow = await (this.prisma as any).asset.findUnique({
       where: { code: row.assetCode }, select: { decimals: true },
     });
-    const impact = this.describeImpact(row, assetRow?.decimals ?? 0);
+    // 第五族核销：后果原话要带钱包号 / 超期天数 / 查证结论（spec §3.7），三样都不在单上，现查。
+    let extra: { walletNo?: string | null; agedDays?: number | null; findingNote?: string | null } | undefined;
+    if (row.reasonCode === 'UNEXPLAINED_WRITE_OFF') {
+      const kase = await (this.prisma as any).reconciliationCase.findUnique({ where: { caseNo: row.caseNo }, select: { slaDeadline: true } });
+      const wallet = row.walletRef && !String(row.walletRef).startsWith('XREF:')
+        ? await (this.prisma as any).wallet.findUnique({ where: { id: row.walletRef }, select: { walletNo: true } })
+        : null;
+      const held = await (this.prisma as any).reconciliationDisposition.findFirst({ where: { adjustmentNo }, select: { findingNote: true } });
+      const agedDays = kase?.slaDeadline ? Math.max(1, Math.floor((Date.now() - new Date(kase.slaDeadline).getTime()) / 86_400_000)) : null;
+      extra = { walletNo: wallet?.walletNo ?? null, agedDays, findingNote: held?.findingNote ?? null };
+    }
+    const impact = this.describeImpact(row, assetRow?.decimals ?? 0, extra);
     // Fix 2（末站整改）：这里此前自己拼一个 { userId: operatorId, userNo: operatorId,
     // roleCodes: ['ADMIN'] }——operatorId 是控制器传来的一个已经塌缩过的字符串
     // （业务号或退回 UUID，两种都可能），roleCodes 更是纯造假。approvals.service.ts

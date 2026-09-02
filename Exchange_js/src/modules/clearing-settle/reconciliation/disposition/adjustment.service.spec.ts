@@ -568,7 +568,10 @@ describe('createDraft 第四族（改记，spec §6）+ 定性联动 + DRAFTED �
     expect(created.direction).toBe('REATTRIBUTE');
     expect(created.toWalletRef).toBe('wallet-to-uuid');
     expect(created.toOwnerNo).toBe('CU-TO');
-    expect(dispositionMock.linkAdjustment).toHaveBeenCalledWith('RCD001', r.adjustmentNo);
+    // 平账 A 批：afterDraftCreated 现在四族通用地带第三参 { family }——这条走的是
+    // 第四族改记，本用例的 create() mock 没回填 reasonCode，family 求不出来不是
+    // 本用例要锁的行为，用 objectContaining 只认「带了第三个参数」。
+    expect(dispositionMock.linkAdjustment).toHaveBeenCalledWith('RCD001', r.adjustmentNo, expect.objectContaining({}));
   });
 
   it('改记两案业务日不同 → 400（本轮不做跨日改记）', async () => {
@@ -898,5 +901,86 @@ describe('AdjustmentService.getAdjustment 第四族 —— 正主方钱包也只
     const result: any = await makeSvc().getAdjustment('ADJ2609010002');
     expect(result.debitAccountCode).toBe('L.CLIENT_PAYABLE');
     expect(result.creditAccountCode).toBe('L.CLIENT_PAYABLE');
+  });
+});
+
+describe('平账 A 批：核销四前提（spec §3.2）——少一道就是抹差异的后门', () => {
+  const firmCase = {
+    caseNo: 'CASE_WO', status: 'OPEN', book: 'FIRM', walletRef: 'W_FIRM', assetCode: 'AED', ownerNo: null, traceId: null,
+    businessDate: '2026-09-02', slaBreached: true,
+  };
+  const heldDisposition = { dispositionNo: 'RCD001', outlet: 'HOLD_INVESTIGATING', causeCode: 'UNEXPLAINED', adjustmentNo: null };
+  const OP = { actorType: 'ADMIN' as const, userId: 'U_TR', userNo: 'U_TR', roleCodes: ['TREASURY_OFFICER'] };
+  const dto = {
+    caseNo: 'CASE_WO', reasonCode: 'UNEXPLAINED_WRITE_OFF', direction: 'REDUCE', amount: '7', effectiveDate: '2026-09-02',
+    explainedFlowId: 'flow-1', explainedExternalLineId: 'ext-1',
+    reasonInternal: '查无果核销', reasonCustomer: '（公司侧，客户不可见）',
+  };
+  const makeSvc = (kase: any, disposition: any) => {
+    const create = jest.fn().mockResolvedValue({ adjustmentNo: 'ADJ_WO', reasonCode: 'UNEXPLAINED_WRITE_OFF', caseNo: 'CASE_WO', amount: '7', direction: 'REDUCE', book: 'FIRM' });
+    const prisma: any = {
+      reconciliationCase: { findUnique: jest.fn().mockResolvedValue(kase) },
+      reconciliationDisposition: { findFirst: jest.fn().mockResolvedValue(disposition) },
+      asset: { findUnique: jest.fn().mockResolvedValue({ currency: 'AED', decimals: 2 }) },
+      customerMain: { findUnique: jest.fn().mockResolvedValue(null) },
+      reconciliationAdjustment: { create },
+      depositTransaction: { findUnique: jest.fn().mockResolvedValue(null) },
+      withdrawTransaction: { findUnique: jest.fn().mockResolvedValue(null) },
+      swapTransaction: { findUnique: jest.fn().mockResolvedValue(null) },
+    };
+    const dispositions = { linkAdjustment: jest.fn().mockResolvedValue(undefined) };
+    const svc = new AdjustmentService(prisma, null as any, null as any, { recordByActor: jest.fn() } as any, dispositions as any);
+    return { svc, prisma, create, dispositions };
+  };
+
+  it('前提 1：案子未超期 → 400，文案说清"到线再谈核销"', async () => {
+    const { svc } = makeSvc({ ...firmCase, slaBreached: false }, heldDisposition);
+    await expect(svc.createDraft(dto as any, OP)).rejects.toThrow(/账龄线/);
+  });
+  it('前提 2：锚的那行没定性、或结论不是「挂起·调查中」→ 400', async () => {
+    await expect(makeSvc(firmCase, null).svc.createDraft(dto as any, OP)).rejects.toThrow(/挂起·调查中/);
+    await expect(makeSvc(firmCase, { ...heldDisposition, outlet: 'HOLD_NEXT_PERIOD', causeCode: 'CUTOFF_STRADDLE' }).svc.createDraft(dto as any, OP))
+      .rejects.toThrow(/挂起·等下期/);
+  });
+  it('前提 2b：定性已挂单 → 400', async () => {
+    await expect(makeSvc(firmCase, { ...heldDisposition, adjustmentNo: 'ADJ_OLD' }).svc.createDraft(dto as any, OP)).rejects.toThrow(/ADJ_OLD/);
+  });
+  it('前提 3：客户池 → 400，文案指向二期划转', async () => {
+    const { svc } = makeSvc({ ...firmCase, book: 'CLIENT', ownerNo: 'C0042' }, heldDisposition);
+    await expect(svc.createDraft(dto as any, OP)).rejects.toThrow(/二期/);
+  });
+  it('前提 4：金额超小额线 → 400，文案指向事故登记', async () => {
+    const { svc } = makeSvc(firmCase, heldDisposition);
+    await expect(svc.createDraft({ ...dto, amount: '10001' } as any, OP)).rejects.toThrow(/小额线/);
+  });
+  it('四前提齐 → 落 DRAFT，定性挂上单号（联动带族 WRITE_OFF）', async () => {
+    const { svc, create, dispositions } = makeSvc(firmCase, heldDisposition);
+    const r = await svc.createDraft(dto as any, OP);
+    expect(r.adjustmentNo).toBe('ADJ_WO');
+    expect(create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ reasonCode: 'UNEXPLAINED_WRITE_OFF', book: 'FIRM', direction: 'REDUCE', amount: '7' }) }));
+    expect(dispositions.linkAdjustment).toHaveBeenCalledWith('RCD001', 'ADJ_WO', { family: 'WRITE_OFF' });
+  });
+});
+
+describe('平账 A 批：审批页后果原话——核销一族（spec §3.7）', () => {
+  const svc = new AdjustmentService(null as any, null as any, null as any, null as any, null as any);
+  it('说清池子、钱包、差额去向、超期天数、查证结论', () => {
+    const text = svc.describeImpact({
+      book: 'FIRM', ownerNo: null, amount: '7', assetCode: 'AED', direction: 'REDUCE',
+      reasonCode: 'UNEXPLAINED_WRITE_OFF', reasonInternal: '查无果核销', caseNo: 'REC20260902-010',
+    } as any, 2, { walletNo: 'WA2601017168', agedDays: 3, findingNote: '对了三天回单，差额无规律' });
+    expect(text).toContain('公司池查无果核销');
+    expect(text).toContain('WA2601017168');
+    expect(text).toContain('0.07');
+    expect(text).toContain('认损进运营资金');
+    expect(text).toContain('超期 3 天');
+    expect(text).toContain('对了三天回单');
+  });
+  it('多了的方向写"计入其他收入"', () => {
+    const text = svc.describeImpact({
+      book: 'FIRM', ownerNo: null, amount: '7', assetCode: 'AED', direction: 'INCREASE',
+      reasonCode: 'UNEXPLAINED_WRITE_OFF', reasonInternal: 'x', caseNo: 'REC-1',
+    } as any, 2, { walletNo: 'WA1', agedDays: 4, findingNote: 'y' });
+    expect(text).toContain('计入其他收入');
   });
 });
