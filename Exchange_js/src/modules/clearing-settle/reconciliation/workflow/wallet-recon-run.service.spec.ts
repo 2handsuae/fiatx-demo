@@ -762,4 +762,26 @@ describe('平账 A 批：开案设账龄截止（spec §2.1）', () => {
     const opened = deps.auditLogs.recordSystem.mock.calls.find((c: any[]) => c[0].action === 'RECON_CASE_OPENED')![0];
     expect(opened.metadata.slaDeadline).toBe('2026-09-04T23:59:59.999Z');
   });
+  it('既有 OPEN 案件被复观察——update 的 data 不带 slaDeadline、也不新建 case（spec §2.1 复观察不重置）', async () => {
+    const deps = makeDeps();
+    deps.prisma.reconciliationRun.create.mockResolvedValue({ id: 'run-a', runNo: 'RUN20260901-1', traceId: 't' });
+    deps.prisma.reconciliationCase.findFirst.mockResolvedValue({ id: 'case-existing', caseNo: 'REC20260901-001' });
+    deps.prisma.externalBalance.findMany.mockResolvedValue([
+      { walletRef: 'w-1', closingBalance: new Prisma.Decimal(500), book: 'CLIENT', currency: 'AED', accountRef: 'acc-1' },
+    ]);
+    deps.prisma.asset.findFirst.mockResolvedValue({ id: 'asset-aed' });
+    deps.balanceChecker.checkBalance.mockResolvedValue({
+      pass: false, walletRef: 'w-1', walletKind: 'CUSTOMER', coaCode: 'L.CLIENT_PAYABLE+L.DEPOSIT_SUSPENSE', ownerNo: 'CU1',
+      internal: { payable: 0n, suspense: 0n, total: 0n }, external: 500n, delta: 500n,
+    });
+    const svc = new WalletReconRunService(deps.prisma, deps.balanceChecker as any, deps.flowMatcher as any, deps.tigerBeetle as any, deps.auditLogs as any, deps.explainedDifferences as any);
+    (svc as any).computeInternalIdentity = jest.fn().mockResolvedValue({ balanced: true, breaks: [] });
+    (svc as any).fetchExternalLinesForWallet = jest.fn().mockResolvedValue([]);
+
+    await svc.run({ cutoff: new Date('2026-09-01T10:00:00Z') });
+
+    expect(deps.prisma.reconciliationCase.create).not.toHaveBeenCalled();
+    const updateData = deps.prisma.reconciliationCase.update.mock.calls[0][0].data;
+    expect(updateData).not.toHaveProperty('slaDeadline');
+  });
 });
