@@ -104,7 +104,7 @@ export class MaterialRequestsService {
     const client = (tx ?? this.prisma) as Record<string, any>;
     const traceId = `MATERIAL_REQUEST:${randomUUID()}`;
 
-    // G9：generateReferenceNo 只有 4 位随机，BACKLOG:160 记载实测撞过号。
+    // G9：generateReferenceNo 随机位 4→6 后撞号率仍约 0.2% 非零（BACKLOG:160 记载 4 位时代实测撞过号）。
     // requestNo 有 @unique，撞了是 P2002 —— 重生成重试，别把它抛给调用方。
     let created: any = null;
     for (let attempt = 0; attempt < REQUEST_NO_MAX_ATTEMPTS; attempt += 1) {

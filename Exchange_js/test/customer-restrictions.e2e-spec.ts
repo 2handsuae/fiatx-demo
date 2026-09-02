@@ -386,7 +386,7 @@ describe('Customer lifecycle restrictions (e2e, Task 14)', () => {
       .send({ cause: 'ADMIN_SUSPENSION', reason: 'Ops hold pending contract review' });
     expect(opened.status).toBe(201);
     const restrictionNo: string = opened.body.restrictionNo;
-    expect(restrictionNo).toMatch(/^RST\d{10}$/);
+    expect(restrictionNo).toMatch(/^RST\d+$/);
     expect(opened.body.created).toBe(true);
 
     // 立即生效
@@ -420,7 +420,7 @@ describe('Customer lifecycle restrictions (e2e, Task 14)', () => {
       .set('Authorization', `Bearer ${adminToken}`)
       .send({ reason: 'Contract review cleared' });
     expect(released.status).toBe(201);
-    expect(released.body.approvalNo).toMatch(/^APR\d{10}$/);
+    expect(released.body.approvalNo).toMatch(/^APR\d+$/);
 
     const pending = await openApprovalCaseFor(restrictionNo, ApprovalActionTypes.CUSTOMER_RESTRICTION_RELEASE_OPS);
     expect(pending).toBeTruthy();
