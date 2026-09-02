@@ -429,111 +429,6 @@ export const AuditActions = {
   MATERIAL_REQUEST_ORDER_UNBOUND: 'MATERIAL_REQUEST_ORDER_UNBOUND',
 } as const;
 
-export const AuditGovernanceActions = {
-  // C1 — Admin Invite：已退役，Task 6 迁到 V1_AUDIT_ACTIONS 的
-  // ADMIN_INVITE_REQUESTED/DISPATCHED/ACCEPTED/EXPIRED/CANCELLED 五码，全仓零消费方
-  // （2026-08-26 grep 核实），本组已删。
-
-  // C2 — Admin Role Binding Change：已退役，Task 6 迁到 V1_AUDIT_ACTIONS 的
-  // ADMIN_ROLE_CHANGE_REQUESTED/APPLIED/CANCELLED 三码（新增 CANCELLED），
-  // 全仓零消费方，本组已删。
-
-  // C3a — Admin Suspension：已退役，Task 7 迁到 V1_AUDIT_ACTIONS 的
-  // ADMIN_SUSPENSION_REQUESTED/APPLIED 两码，全仓零消费方，本组已删。
-
-  // C3b — Admin Reactivation：已退役，Task 7 迁到 V1_AUDIT_ACTIONS 的
-  // ADMIN_REACTIVATION_REQUESTED/APPLIED 两码，全仓零消费方，本组已删。
-
-  // C4b — Approval Policy Modification：已退役，Task 8 迁到 V1_AUDIT_ACTIONS 的
-  // APPROVAL_POLICY_CHANGE_REQUESTED/APPLIED 两码（不复用 APPROVAL_SUBMITTED——拆条判据乙
-  // "PRIMARY 不同必须拆"），全仓零消费方，本组已删。
-
-  // C5 — Audit Evidence Export：已退役，Task 8 迁到 V1_AUDIT_ACTIONS 的
-  // AUDIT_EVIDENCE_EXPORT_REQUESTED/GENERATED/DOWNLOADED 三码 + 新增 AUDIT_LOG_QUERIED，
-  // 全仓零消费方，本组已删。GENERATION_FAILED 未被收编（见 audit-evidence-export-
-  // workflow.service.ts 对应分支注释——payloadDigest 必填，失败时无产物可摘要）。
-
-  // Credential Reset Governance (2026-05-10)：已退役，Task 7 迁到 V1_AUDIT_ACTIONS 的
-  // ADMIN_PASSWORD_RESET_SELF_REQUESTED/SELF_TOKEN_ISSUED/SELF_COMPLETED/
-  // OFFICER_REQUESTED/OFFICER_APPLIED/CANCELLED 六码，全仓零消费方，本组已删。
-
-  // ADMIN_MFA_RESET：已退役，Task 7 迁到 V1_AUDIT_ACTIONS 的
-  // ADMIN_MFA_RESET_REQUESTED/APPLIED/CANCELLED 三码，全仓零消费方，本组已删。
-
-  // C3c — Admin First Login：首登五步（IDENTITY_CONFIRMED/MFA_BINDING_INITIATED/
-  // MFA_VERIFY_FAILED/MFA_BINDING_COMPLETED/FIRST_LOGIN_COMPLETED）+ MFA_VERIFY_LOCKED
-  // 已退役，Task 6 迁到 V1_AUDIT_ACTIONS 的 ADMIN_FIRST_LOGIN_IDENTITY_CONFIRMED/
-  // MFA_INITIATED/MFA_BOUND（收编 FAILED，LOCKED 分支留 TODO 指向 Task 7 的
-  // ADMIN_ACCOUNT_LOCK_APPLIED）/COMPLETED 四码。
-  // 下面两个 MFA_LOGIN_* 是常规（非首登）登录的 MFA 校验，不在本批 12 码范围内，
-  // mfa-binding-workflow.service.ts 的 verifyMfaLogin() 仍在用，原样保留。
-  ADMIN_FIRST_LOGIN: {
-    MFA_LOGIN_VERIFIED:       'MFA_LOGIN_VERIFIED',
-    MFA_LOGIN_VERIFY_FAILED:  'MFA_LOGIN_VERIFY_FAILED',
-  },
-
-  // Role Definition Create (2026-05-08)：已退役，Task 8 迁到 V1_AUDIT_ACTIONS 的
-  // ROLE_DEFINITION_CREATE_REQUESTED/APPLIED/CANCELLED 三码，全仓零消费方，本组已删。
-
-  // Role Definition Modify (2026-05-08)：已退役，Task 8 迁到 V1_AUDIT_ACTIONS 的
-  // ROLE_DEFINITION_MODIFY_REQUESTED/APPLIED/CANCELLED 三码，全仓零消费方，本组已删。
-
-  // Custodian Wallet Create (2026-05-13)：已退役，Task 15 迁到 V1_AUDIT_ACTIONS 的
-  // CUSTODIAN_WALLET_CREATE_REQUESTED/CUSTODIAN_WALLET_CREATED/CUSTODIAN_WALLET_CREATE_FAILED/
-  // CUSTODIAN_WALLET_CREATE_CANCELLED 四码（前缀唯一），全仓零消费方（2026-09-02
-  // grep 核实），本组已删。
-
-  // Withdrawal Address Registration (2026-05-13)：已退役，Task 15 迁到 V1_AUDIT_ACTIONS 的
-  // WITHDRAWAL_ADDRESS_REGISTERED/ACTIVATED/CANCELLED/SUSPENDED/DEACTIVATED/COOLING_SKIPPED
-  // 六码（前缀唯一，MANUAL_COOLING_SKIP 改名 WITHDRAWAL_ADDRESS_COOLING_SKIPPED），
-  // 全仓零消费方，本组已删。
-
-  // Asset Suspension (2026-05-14)：已退役，Task 13 迁到 V1_AUDIT_ACTIONS 的
-  // ASSET_SUSPENSION_REQUESTED/ASSET_SUSPENDED/ASSET_SUSPENSION_FAILED 三码
-  // （后两码值不变只进合同，SUSPENSION_EXECUTION_FAILED 改名 ASSET_SUSPENSION_FAILED），
-  // 全仓零消费方（2026-09-01 grep 核实），本组已删。
-
-  // Asset Reactivation (2026-05-14)：已退役，Task 13 迁到 V1_AUDIT_ACTIONS 的
-  // ASSET_REACTIVATION_REQUESTED/ASSET_REACTIVATED/ASSET_REACTIVATION_FAILED 三码
-  // （后两码值不变只进合同，REACTIVATION_EXECUTION_FAILED 改名 ASSET_REACTIVATION_FAILED），
-  // 全仓零消费方，本组已删。
-
-  // Asset Creation (2026-05-14) — no approval, direct create+provision：已退役，
-  // Task 13 迁到 V1_AUDIT_ACTIONS 的 ASSET_CREATED_AND_PROVISIONED/ASSET_CREATION_FAILED/
-  // ASSET_PROVISIONING_UPDATED 三码（三码值本就前缀唯一，不改名只进合同），
-  // 全仓零消费方，本组已删。
-
-  // Asset Activation (2026-05-14) — replaces ASSET_LISTING activation：已退役，
-  // Task 13 迁到 V1_AUDIT_ACTIONS 的 ASSET_ACTIVATION_REQUESTED/ASSET_ACTIVATED/
-  // ASSET_ACTIVATION_FAILED 三码（ASSET_ACTIVATED 码值不变只进合同，ACTIVATION_REQUESTED/
-  // ACTIVATION_FAILED 改前缀唯一），全仓零消费方，本组已删。
-
-  // Transaction Limit Change (2026-05-16)：已退役，Task 14 迁到 V1_AUDIT_ACTIONS 的
-  // TRANSACTION_LIMIT_CHANGE_REQUESTED/APPLIED/APPLY_FAILED/CANCELLED 四码（前缀唯一），
-  // 全仓零消费方（2026-09-02 grep 核实），本组已删。
-
-  // Transaction Limit Creation (2026-05-16)：已退役，Task 14 迁到 V1_AUDIT_ACTIONS 的
-  // TRANSACTION_LIMIT_CREATION_REQUESTED/APPLIED/APPLY_FAILED/CANCELLED 四码，
-  // 全仓零消费方，本组已删。两族共用的 8 个裸名（CREATION_/CHANGE_ 各 REQUESTED/
-  // APPLIED/APPLY_FAILED/CANCELLED）随本批一并登 DEPRECATED_AUDIT_ACTIONS——Task 12
-  // 迁走费率域时特意留白的「未登」警告到此解除（'CHANGE_APPLY_FAILED' 早前已在
-  // 站7批次登过，不重复登记）。
-
-  // Transaction Limit runtime enforcement (2026-07-16)：已退役，Task 15 把调用点
-  // （transaction-limit-gate.service.ts）改直接引用字面量 'TRANSACTION_LIMIT_REJECTED'
-  // ——码值不变，早在 Task 14 就已进 V1_AUDIT_ACTIONS 合同，本行只是删掉这份冗余附册
-  // 引用，全仓零消费方，本组已删。
-
-  // Withdrawal Fee Level Creation/Change、Swap Fee Level Creation/Change：
-  // 已退役，Task 12 迁到 V1_AUDIT_ACTIONS 的 WITHDRAWAL_FEE_LEVEL_CREATION_*／
-  // WITHDRAWAL_FEE_LEVEL_CHANGE_*／SWAP_FEE_LEVEL_CREATION_*／SWAP_FEE_LEVEL_CHANGE_*
-  // 十六码（前缀唯一，解 CREATION_REQUESTED 等裸名跨族撞车），四本子组写点已清零
-  // （2026-09-01 grep 核实），本组已删。
-
-  // Customer Tags (2026-07-13)：已退役，Task 14 迁到 V1_AUDIT_ACTIONS 的
-  // CUSTOMER_TAG_ASSIGNED/CUSTOMER_TAG_REVOKED 两码，全仓零消费方，本组已删。
-} as const;
-
 // 站4 清扫:十条死词映射(APPROVAL_APPROVED/EXECUTED、ADMIN_INVITATION_*、USER_*、
 // AUDIT_EVIDENCE_PACKAGE_*)随词删除——那些词零写入,现役审批/邀请写的是 V1 名册
 // (APPROVAL_GRANTED、ADMIN_INVITE_*),其显示翻译归 V1 站。
@@ -602,6 +497,18 @@ export const V1_AUDIT_ACTIONS: Record<string, AuditActionSpec> = {
 
   // ── 权限守卫拒绝（2026-09-01 法一纪律4：被拒绝的动作同样留痕）──────
   ADMIN_ACCESS_DENIED: { domain: 'IAM', correlationMode: N, requiredFields: [], requiresCausation: false },
+
+  // ── 常规登录 · MFA 二次校验（2026-09-02 Task 15 收尾）：区别于下方 ② 首次登录四步链——
+  // 这是已绑定 MFA 的老用户每次登录都要走的校验，mfa-binding-workflow.service.ts 的
+  // verifyMfaLogin() 单步独立写，前面没有 REQUESTED/IDENTITY_CONFIRMED 之类的 START 步
+  // 铸 correlationId。auth.service.ts:39-41 显式注释 authTraceId（此处的 loginTraceId）
+  // 只用来把 mfa_session token 与本次 login() 调用串起来，「与审计无关」——不是持久化的
+  // 旅程标识，不能拿来硬凑 INHERIT，同 ADMIN_ACCESS_DENIED 一样判 NONE。原附册（已删除
+  // 的旧治理常量）ADMIN_FIRST_LOGIN 分组下两码，码值不变，本行只是进合同。
+  MFA_LOGIN_VERIFIED:      { domain: 'IAM', correlationMode: N, requiredFields: ['authnMethod'], requiresCausation: false },
+  // 系统主动挡（TOTP 码核验不过，动作压根没执行成）——同令牌失效判 DENIED 而非「试了
+  // 但技术上没成」的 FAILED；locked 与否只是同一原因下的细节，落 metadata 不拆码。
+  MFA_LOGIN_VERIFY_FAILED: { domain: 'IAM', correlationMode: N, requiredFields: ['reasonCode'], requiresCausation: false },
 
   // ── ① 入职邀请 ──────────────────────────────────────────
   ADMIN_INVITE_REQUESTED:  { domain: 'IAM', correlationMode: S, requiredFields: ['afterData'], requiresCausation: false },
@@ -1028,8 +935,11 @@ export const DEPRECATED_AUDIT_ACTIONS: readonly string[] = [
   'GENERATION_FAILED',
   'ADMIN_LOGIN_SUCCESS',
   'ADMIN_LOGIN_FAILED',
-  'MFA_LOGIN_VERIFIED',
-  'MFA_LOGIN_VERIFY_FAILED',
+  // MFA_LOGIN_VERIFIED/MFA_LOGIN_VERIFY_FAILED 曾在站7首铸（9aac76e4）时预登记于此——
+  // 当时假设它们会像 ADMIN_LOGIN_* 一样改名退役，但 mfa-binding-workflow.service.ts
+  // 的 verifyMfaLogin() 一直原样在用。Task 15 收尾核实：码值不变，只是从旧附册搬进
+  // V1_AUDIT_ACTIONS 合同（同 TRANSACTION_LIMIT_REJECTED 判例），故移出本闸——
+  // 留在这里会与「六册两两互斥，且与退役闸零交集」自相矛盾（closure spec ②）。
   // ── 第一幕职权重划（Task 5）──────────────────────────────
   // 2026-08-30：随五本档案簿 / 监管闸门 / 对手方整块退役（第一幕职权重划），写点已删
   'REGULATORY_GATE_CREATED', 'REGULATORY_GATE_UPDATED', 'REGULATORY_GATE_SUBMITTED',
@@ -1053,8 +963,8 @@ export const DEPRECATED_AUDIT_ACTIONS: readonly string[] = [
   'CHANGE_REQUESTED', 'CHANGE_APPLIED', 'CHANGE_CANCELLED',
   'TAG_ASSIGNED', 'TAG_REVOKED',
   // 2026-09-02 换名册 · 批四（Task 15）：托管钱包创建 + 提现地址登记两族裸名退役——
-  // 不跨族复用，直接登记。TRANSACTION_LIMIT_REJECTED 码值不变、只是删掉 AuditGovernanceActions
-  // 里的冗余附册引用，不是改名，不登这份退役名单。
+  // 不跨族复用，直接登记。TRANSACTION_LIMIT_REJECTED 码值不变、只是删掉旧附册里的
+  // 冗余引用，不是改名，不登这份退役名单。
   'CREATE_REQUESTED', 'WALLET_CREATED', 'WALLET_CREATE_FAILED', 'CREATE_CANCELLED',
   'ADDRESS_REGISTERED', 'ADDRESS_ACTIVATED', 'ADDRESS_CANCELLED', 'ADDRESS_SUSPENDED',
   'ADDRESS_DEACTIVATED', 'MANUAL_COOLING_SKIP',

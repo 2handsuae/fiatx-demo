@@ -44,7 +44,6 @@ import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import {
   AuditBusinessWorkflowTypes,
   AuditEntityTypes,
-  AuditGovernanceActions,
 } from '../../audit-logging/constants/audit-actions.constant';
 import { AuditCategory, AuditOutcome } from '../../audit-logging/dto/audit-log.dto';
 import { UsersDomainService } from './users.domain.service';
@@ -477,11 +476,17 @@ export class MfaBindingWorkflowService {
 
       await this.auditLogsService.recordByActor(
         {
-          action: AuditGovernanceActions.ADMIN_FIRST_LOGIN.MFA_LOGIN_VERIFY_FAILED,
+          action: 'MFA_LOGIN_VERIFY_FAILED',
+          actionDomain: 'IAM',
+          category: AuditCategory.GOVERNANCE,
           primarySubjectType: AuditEntityTypes.ADMIN_USER,
           primarySubjectNo: user.userNo,
           traceId: loginTraceId,
-          outcome: AuditOutcome.FAILED,
+          outcome: AuditOutcome.DENIED,
+          // 系统主动挡（TOTP 码核验不过，动作压根没执行成）——同令牌失效判 DENIED，
+          // 不是「试了但技术上没成」的 FAILED；locked 与否只是同一原因下的细节，
+          // 落 metadata 不拆码（见 audit-actions.constant.ts 的 MFA_LOGIN_VERIFY_FAILED 声明）。
+          reasonCode: 'INVALID_MFA_CODE',
           metadata: { failCount: newCount, locked },
           requestId: ctx.requestId,
           sourceIp: ctx.sourceIp,
@@ -507,17 +512,20 @@ export class MfaBindingWorkflowService {
 
     await this.auditLogsService.recordByActor(
       {
-        action: AuditGovernanceActions.ADMIN_FIRST_LOGIN.MFA_LOGIN_VERIFIED,
+        action: 'MFA_LOGIN_VERIFIED',
+        actionDomain: 'IAM',
+        category: AuditCategory.GOVERNANCE,
         primarySubjectType: AuditEntityTypes.ADMIN_USER,
         primarySubjectNo: user.userNo,
         traceId: loginTraceId,
+        authnMethod: 'TOTP',
         outcome: AuditOutcome.SUCCESS,
         metadata: { userNo },
         requestId: ctx.requestId,
         sourceIp: ctx.sourceIp,
         sourcePlatform: 'ADMIN_API',
       },
-      this.buildActor(user),
+      this.buildActor(user, 'TOTP'),
     );
 
     const accessToken = this.jwtService.sign({
