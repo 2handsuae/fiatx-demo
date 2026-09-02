@@ -1252,7 +1252,7 @@ async function injectScenarios(
     });
     wallets.push({
       walletRef: firmUnexplainedPlan.walletRef, scenarioIds: [10], expectedBucket: 'BREAK',
-      bucketRationale: '一条外部行金额 −7 分并压低同额收盘 → 残差 = −7 ≠ 0 → BREAK。成因查无果，处置 = 挂起·调查中（核销的前半段素材）。',
+      bucketRationale: '一条外部行金额 −7 分并压低同额收盘 → 残差 = −7 ≠ 0 → BREAK。成因查无果，处置 = 挂起·调查中 → 账龄到线（⚡拨钟）→ 公司池小额核销（金库开单、CFO 批）→ 重对账自愈。',
       hasNonTerminalFundsOrder: false,
     });
   }
