@@ -5,10 +5,13 @@ import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { SumsubIngestionService } from './sumsub-ingestion.service';
 import { PrismaService } from '../../core/prisma/prisma.service';
 import { MaterialRequestsService } from '../identity/material-requests/material-requests.service';
+import { AdminPermissionGuard } from '../identity/access-control/admin-permission.guard';
+import { RequirePermissions } from '../identity/access-control/require-permissions.decorator';
+import { buildPermissionCode } from '../identity/access-control/permission-code.util';
 
 @ApiTags('Admin - Sumsub Simulation')
 @Controller('admin/sumsub/simulate')
-@UseGuards(AuthGuard('jwt'))
+@UseGuards(AuthGuard('jwt'), AdminPermissionGuard)
 @ApiBearerAuth()
 export class AdminSumsubSimulationController {
   constructor(
@@ -26,6 +29,7 @@ export class AdminSumsubSimulationController {
 
   @Post('applicant-action-result')
   @ApiOperation({ summary: '模拟 applicantActionReviewed —— 后台三个裁决按钮打这里' })
+  @RequirePermissions(buildPermissionCode('POST', '/admin/sumsub/simulate/applicant-action-result'))
   async simulateApplicantActionResult(
     @Req() req: any,
     @Body() body: {
@@ -68,6 +72,7 @@ export class AdminSumsubSimulationController {
 
   @Post('ongoing-doc-monitoring-fire')
   @ApiOperation({ summary: 'Simulate Sumsub Ongoing Document Monitoring fire' })
+  @RequirePermissions(buildPermissionCode('POST', '/admin/sumsub/simulate/ongoing-doc-monitoring-fire'))
   async simulateOngoingDocMonitoring(
     @Req() req: any,
     @Body() body: { customerId: string },

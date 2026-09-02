@@ -5,11 +5,14 @@ import {
 import { AuthGuard } from '@nestjs/passport';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { PrismaService } from '../../../core/prisma/prisma.service';
+import { AdminPermissionGuard } from '../access-control/admin-permission.guard';
+import { RequirePermissions } from '../access-control/require-permissions.decorator';
+import { buildPermissionCode } from '../access-control/permission-code.util';
 import { MaterialRefreshService } from './material-refresh.service';
 
 @ApiTags('Admin - Material Management')
 @Controller('admin/material-management')
-@UseGuards(AuthGuard('jwt'))
+@UseGuards(AuthGuard('jwt'), AdminPermissionGuard)
 @ApiBearerAuth()
 export class AdminMaterialManagementController {
   constructor(
@@ -26,6 +29,7 @@ export class AdminMaterialManagementController {
 
   @Get('cycles')
   @ApiOperation({ summary: 'List all material refresh cycles across customers' })
+  @RequirePermissions(buildPermissionCode('GET', '/admin/material-management/cycles'))
   async listCycles(
     @Req() req: any,
     @Query('customerId') customerId?: string,
@@ -66,6 +70,7 @@ export class AdminMaterialManagementController {
 
   @Get('cycles/:id')
   @ApiOperation({ summary: 'Get refresh cycle detail' })
+  @RequirePermissions(buildPermissionCode('GET', '/admin/material-management/cycles/:id'))
   async getCycleDetail(@Req() req: any, @Param('id') id: string) {
     this.ensureAdmin(req);
 
@@ -102,6 +107,7 @@ export class AdminMaterialManagementController {
 
   @Get('holdings')
   @ApiOperation({ summary: 'List all material holdings across customers' })
+  @RequirePermissions(buildPermissionCode('GET', '/admin/material-management/holdings'))
   async listHoldings(
     @Req() req: any,
     @Query('customerId') customerId?: string,
@@ -159,6 +165,7 @@ export class AdminMaterialManagementController {
 
   @Get('holdings/:id')
   @ApiOperation({ summary: 'Get material holding detail with refresh cycle history' })
+  @RequirePermissions(buildPermissionCode('GET', '/admin/material-management/holdings/:id'))
   async getHoldingDetail(@Req() req: any, @Param('id') id: string) {
     this.ensureAdmin(req);
 
@@ -197,6 +204,7 @@ export class AdminMaterialManagementController {
   @ApiOperation({
     summary: 'Simulate stage transition by adjusting expiresAt/graceExpiresAt and running the stage handler',
   })
+  @RequirePermissions(buildPermissionCode('POST', '/admin/material-management/holdings/:id/simulate-stage'))
   async simulateStage(
     @Req() req: any,
     @Param('id') holdingId: string,
@@ -289,6 +297,7 @@ export class AdminMaterialManagementController {
 
   @Post('customers/:customerId/simulate-tier-change')
   @ApiOperation({ summary: 'Directly set customer risk tier for demo (shortcut)' })
+  @RequirePermissions(buildPermissionCode('POST', '/admin/material-management/customers/:customerId/simulate-tier-change'))
   async simulateTierChange(
     @Req() req: any,
     @Param('customerId') customerId: string,

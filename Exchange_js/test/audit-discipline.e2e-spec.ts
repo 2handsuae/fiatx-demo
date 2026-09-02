@@ -263,3 +263,64 @@ describe('成员 / 钱包端点对外识别（铁律⑥ 对外用业务键）', 
     expect((await req(`/wallets/${wallet.id}`, token)).status).toBe(404);
   });
 });
+
+/**
+ * 业主裁决5：材料管理 6 端点 / Sumsub 模拟 2 端点 / Sumsub 事件页 1 端点此前只查
+ * `req.user?.type==='ADMIN'`，没挂 AdminPermissionGuard —— 内审（也是 ADMIN token）
+ * 能按材料页的 ⚡ 模拟钮，「内审零 Act」这句台词在这 9 个端点上是假的。Task 24 收编：
+ * 三个 controller 类级挂 AdminPermissionGuard，端点级挂 RequirePermissions。
+ */
+describe('游离端点收编纪律（业主裁决5：内审零 Act 补全）', () => {
+  let app: INestApplication;
+  let prisma: PrismaService;
+
+  beforeAll(async () => {
+    const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
+    app = moduleRef.createNestApplication();
+    app.get(EventEmitter2).setMaxListeners(50);
+    await app.init();
+    prisma = app.get(PrismaService);
+  });
+  afterAll(async () => { await app.close(); });
+
+  async function loginAs(email: string): Promise<string> {
+    const res = await request(app.getHttpServer())
+      .post('/auth/login')
+      .send({ email, password: '123456' });
+    expect(res.status).toBe(200);
+    return res.body?.access_token;
+  }
+
+  it('auditor@（INTERNAL_AUDITOR，无 DEMO_CLOCK_WRITE）打 POST 材料 simulate-stage → 403 且留一行 ADMIN_ACCESS_DENIED（收编前是 200——本条即收编的行为证明）', async () => {
+    const token = await loginAs('auditor@fiatx.com');
+    const auditor = await prisma.user.findFirstOrThrow({ where: { email: 'auditor@fiatx.com' } });
+
+    const before = new Date();
+    const res = await request(app.getHttpServer())
+      .post('/admin/material-management/holdings/RBAC-PROBE-404/simulate-stage')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ targetStage: 'T_MINUS_30' });
+    expect(res.status).toBe(403);
+
+    // Task 7 的 403 留痕（法一纪律4）叠加在本次收编上：三断言同 108 行那组用例。
+    const row = await prisma.auditLogEvent.findFirst({
+      where: { action: 'ADMIN_ACCESS_DENIED', actorNo: auditor.userNo, recordedAt: { gte: before } },
+      orderBy: { recordedAt: 'desc' },
+    });
+    expect(row).not.toBeNull();
+    expect(row?.actorNo).toBe(auditor.userNo);
+    expect(row?.reasonCode).toBe('MISSING_PERMISSION');
+  });
+
+  it('compliance_lead@（COMPLIANCE_OFFICER，持 DEMO_VERDICT_WRITE）打 POST Sumsub 模拟裁决 → 非 403（收编没有误伤真持有该组的职务）', async () => {
+    const token = await loginAs('compliance_lead@fiatx.com');
+
+    const res = await request(app.getHttpServer())
+      .post('/admin/sumsub/simulate/applicant-action-result')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ requestNo: 'RBAC-PROBE-404', reviewAnswer: 'GREEN' });
+    // 守卫放行后落到业务层：requestNo 是占位号，查不到材料请求 → 404
+    // （NotFoundException），不是 403 —— 判据只验权限闸，不验业务。
+    expect(res.status).not.toBe(403);
+  });
+});
