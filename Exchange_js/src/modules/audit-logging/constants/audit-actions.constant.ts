@@ -422,6 +422,9 @@ export const AuditActions = {
   RECON_ADJUSTMENT_POSTED: 'RECON_ADJUSTMENT_POSTED',
   RECON_ADJUSTMENT_DRAFTED: 'RECON_ADJUSTMENT_DRAFTED',
   RECON_DISPOSITION_RECORDED: 'RECON_DISPOSITION_RECORDED',
+  // ── 平账 A 批：账龄（spec §2.8）──
+  RECON_CASE_AGING_BREACHED: 'RECON_CASE_AGING_BREACHED',
+  RECON_AGING_TIMEOUT_SIMULATED: 'RECON_AGING_TIMEOUT_SIMULATED',
   // ── Material Request Ledger（向客户要材料）──
   MATERIAL_REQUEST_ISSUED: 'MATERIAL_REQUEST_ISSUED',
   MATERIAL_REQUEST_SUBMITTED: 'MATERIAL_REQUEST_SUBMITTED',
@@ -911,6 +914,12 @@ export const V8_RECON_AUDIT_ACTIONS: Record<string, AuditActionSpec> = {
   RECON_ADJUSTMENT_DRAFTED: { domain: 'RECON', correlationMode: N, requiredFields: ['reasonCode', 'amount'], requiresCausation: false },
   // 定性 / 覆盖重定（spec §3.2）——对账件无客户旅程，N 模式同 RECON_CASE_OPENED
   RECON_DISPOSITION_RECORDED: { domain: 'RECON', correlationMode: N, requiredFields: ['causeCode', 'outlet'], requiresCausation: false },
+  // 平账 A 批（spec §2.8）——账龄到线（系统通道，actor AGING_TIMER；主对象 caseNo，
+  // slaDeadline / ageDays / bucket / book / severity 落 metadata）。软破线：状态不动。
+  RECON_CASE_AGING_BREACHED: { domain: 'RECON', correlationMode: N, requiredFields: [], requiresCausation: false },
+  // ⚡拨钟（操作员通道）——演示者把账龄截止拨到过去；镜像 DEPOSIT_SLA_TIMEOUT_SIMULATED。
+  // 拨钟一条、到线一条，两条审计各说各的事。
+  RECON_AGING_TIMEOUT_SIMULATED: { domain: 'RECON', correlationMode: N, requiredFields: [], requiresCausation: false },
 };
 
 /**
