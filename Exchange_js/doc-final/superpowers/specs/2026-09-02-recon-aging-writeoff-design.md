@@ -58,6 +58,7 @@
 | 到线 | 扫描发现 `slaDeadline < now` 且 `slaBreached=false` → 置 `slaBreached=true` + 一条系统审计；**状态不动**（软破线，同三域「等自己人」态） |
 | 一次性 | 置过标记不再扫（`slaBreached=false` 是扫描条件） |
 | 结案 | 案件 RESOLVED 后标记随行保留（历史可查），不清 |
+| 状态机 | **不加边**：超期是标记不是状态，案件仍只有 `OPEN → RESOLVED`；「要不要计时」的回答是要，3 天，钟挂在 OPEN 上 |
 
 「到线」的业务含义按案子当时在等什么而定，本批只做标记与解锁，不推状态：
 
@@ -88,7 +89,7 @@
 
 - 端点：`POST /admin/reconciliation/cases/:caseNo/simulate-aging-timeout`，权限组 **`DEMO_CLOCK_WRITE`**（现有组，`rbac.catalog.ts` 加一条 `route()`；桶 `demo.act_clock` 描述已涵盖「SLA timers」，不改桶）
 - 语义与三域一致：把截止拨到过去，**下一分钟扫描即超期**；端点本身**不置标记**（标记只由扫描置，「到线」事件只有一处来源）
-- 拨钟是 operator 的持久化动作（铁律①）：端点记一条操作员通道审计 `RECON_AGING_TIMEOUT_SIMULATED`，镜像充值域 `DEPOSIT_SLA_TIMEOUT_SIMULATED`（`deposit-transactions.service.ts setSlaDeadlineByNo`）——拨钟一条、到线一条，两条审计各说各的事
+- 拨钟是 operator 的持久化动作（铁律①）：端点记一条操作员通道审计 `RECON_AGING_TIMEOUT_SIMULATED`，镜像充值域 `DEPOSIT_SLA_TIMEOUT_SIMULATED`（`deposit-transactions.service.ts setSlaDeadlineByNo`）——拨钟一条、到线一条，两条审计各说各的事；两条都带**显式 `requestId`**（漏了会被静默去重）
 - 前端：案件详情页 ACTIONS 块，`useSimulationMode` 门控，按钮文案「⚡ 拨到超期」；成功提示「截止已拨到过去，下一分钟扫描即超期」
 
 ### 2.5 看得见
@@ -119,6 +120,7 @@ nextStep?: {
   amount?: string; effectiveDate?: string;
 }
 ```
+`amount` 是**最小单位整数字符串**（与调账单 `amount` 同款），前端按行下发的 `decimals` 换算展示（复用 Cases 页 `formatAmount`），不新增第三个金额格式化函数。
 
 ### 2.7 常量表 `disposition/recon-thresholds.constant.ts`
 
@@ -142,7 +144,9 @@ isSmallAmount(assetCode, minor: bigint): boolean   // 未登记资产 → throw�
 - `actionDomain: RECON`；`correlationMode: N`；`requiredFields: []`（原截止 / 新截止落 metadata）
 - 通道：**操作员**（`recordByActor`）；主对象 = caseNo；`sourcePlatform: 'ADMIN'`
 
-两码均入 `V8_RECON_AUDIT_ACTIONS`（7 → 9 码）与词表封册。
+两码均入 `V8_RECON_AUDIT_ACTIONS`（7 → 9 码）与词表封册（`audit-logging/constants/audit-vocabulary-closure.spec.ts`，封册红了不许改测试，只许补册）。
+
+顺带两处**只补 metadata、不改四属性**：开案审计 `RECON_CASE_OPENED` metadata 加 `slaDeadline`（钟从哪天起算要查得到）；跑批完成审计 `RECON_RUN_COMPLETED` metadata 加 `cutoffAt`（§6.1 新列）。
 
 ---
 
@@ -150,7 +154,7 @@ isSmallAmount(assetCode, minor: bigint): boolean   // 未登记资产 → throw�
 
 ### 3.1 形态
 
-- 调账单**第五族** `WRITE_OFF`；`FAMILY_LABEL.WRITE_OFF = '核销'`
+- 调账单**第五族** `WRITE_OFF`；`FAMILY_LABEL.WRITE_OFF = '核销'`；调账单四态状态机**不加边**（`DRAFT → PENDING_APPROVAL → POSTED / REJECTED` 原样沿用，`adjustment-transitions.constant.ts` 不动）
 - 新成因码（`adjustment-rules.ts` `REASON_SPECS`）：
   ```
   UNEXPLAINED_WRITE_OFF: { book: 'FIRM', directions: ['REDUCE','INCREASE'],
@@ -186,7 +190,7 @@ isSmallAmount(assetCode, minor: bigint): boolean   // 未登记资产 → throw�
 与补记**同一对腿**——借贷科目只由（账簿 × 方向）决定，`resolvePostingLegs('FIRM', direction)` 不改：
 - 少了（REDUCE）：借 `E.FIRM_OPS` 运营资金 / 贷 `A.FIRM_ASSET` 公司资产——公司认损
 - 多了（INCREASE）：借 `A.FIRM_ASSET` / 贷 `E.INCOME_OTHER` 其他收入——公司意外之财
-不增科目（`decisions.md` 2026-08-13 九码终盘）。
+不增科目（`decisions.md` 2026-08-13 九码终盘）。**无资金单、无在途**：核销是账本层纠错，与其他四族同款（`decisions.md` 2026-08-28「调账不是订单」「资金单的判据是有没有在途要追」），不建资金单。
 
 ### 3.5 全路径
 
@@ -241,6 +245,7 @@ isSmallAmount(assetCode, minor: bigint): boolean   // 未登记资产 → throw�
 - `resolveOutlet` REVERSE 分支：这两条成因 → `reasonCode='FIRM_ENTRY_REVERSAL'`；方向：我有外无按内部方向取反（既有），**金额不对按 `signedDeltaSign`**（REVERSE 分支原先只处理孤儿，补这一支）
 - `DeferredTarget` 删 `'FIRM_REVERSAL'`
 - 不铺新场景（2026-09-01「按处置铺不按成因铺」：冲销已有场景 6/7）；手册两条改「处置 = 冲销 · 已开放」
+- **前端入口**：两条成因走既有 ADJUST 路径——运营定性后行状态「已定性 · 待开单」，金库看到「开单」进锁定视图（成因回显「公司账簿冲销」、方向只读附推导依据）；调账单弹层 / 详情页 / 审批后果原话若有按成因码硬编码的文案表，加 `FIRM_ENTRY_REVERSAL` 一行（首选读服务端 `internalLabel`，不另建映射）
 
 ---
 
@@ -266,6 +271,7 @@ isSmallAmount(assetCode, minor: bigint): boolean   // 未登记资产 → throw�
 - `AdjustFamily` 加 `'WRITE_OFF'`；`FAMILY_LABEL` 加 `核销`
 - 新纯函数 `resolveWriteOff`（§3.3）
 - 六格菜单变化：金额不对 × 客户 少一项（尘埃）；金额不对 × 公司 少一项（尘埃）、「记多」出口变冲销；我有外无 × 公司 「误记」出口变冲销。**菜单顺序 = 声明顺序**，截图验收按新菜单对
+- **退役动作前端入口同步删**：菜单由服务端 `menuFor` 下发，前端无需改菜单；但定性弹层 / 案件页若对 `deferredTarget` 的 `WAIVER` / `FIRM_REVERSAL` 有硬编码文案或色调映射，随删，不留幽灵分支
 
 **`reference/recon-cause-handbook.md`**
 - §一 三结局：豁免那一支标注「本系统当前无此条件、不建入口」；「三条补充」重写——① 账龄已上线（3 天、到线动作、解锁规则）② 核销两个池子做法（公司池已开放 / 客户池待二期）③ 容差不建（一分也追）
@@ -297,16 +303,16 @@ isSmallAmount(assetCode, minor: bigint): boolean   // 未登记资产 → throw�
 | 期望 | 14 条平 10 条、长红 4 条（9/10/13/14） | 14 条平 **11** 条、长红 **3** 条（9/13/14） |
 | 开场 | 两句公理 | 加第三句：**查的人、开单的人、批的人是三个人** |
 
-`demo/data.md` 对账行同步：账龄线 3 天、小额线两资产数值、场景 10 处置改核销。
+`demo/data.md` 对账行同步：账龄线 3 天、小额线两资产数值、场景 10 处置改核销。`scripts/recon-demo.ts` 场景 10 的 `bucketRationale` 文案由「核销的前半段素材」改为「挂起·调查中 → 超期 → 核销」；答案键、钱包、金额、`dedupKey` 一律不动。
 
 ---
 
 ## 10. 验收标准（实现期展开为 plan 硬闸）
 
 1. **随手闸**：tsc 三处零错；jest `src/modules/clearing-settle/reconciliation` 全绿；`bash scripts/stack-env.test.sh` 若碰栈脚本
-2. **重铺闸**（改了 schema）：`stack.sh reset self` → `on-stack.sh self demo:all` 终态全绿 → `recon:demo:break` **14/14 场景 + 11/11 钱包桶**全检出
+2. **重铺闸**（改了 schema）：`stack.sh reset self` → `on-stack.sh self demo:all` 终态全绿 → `recon:demo:break` **14/14 场景 + 11/11 钱包桶**全检出；判据对照 `demo/baseline.md`，**全绿**
 3. **动钱闸**：核销落账后 `verify:coa` 两恒等式 + 负余额断言全绿
-4. **权限闸**：`verify:rbac` 全绿（含 S5 自批死锁：`RECON_ADJUSTMENT_POST` maker 金库 / checker CFO）
+4. **权限与审计闸**：`verify:rbac` 全绿（含 S5 自批死锁：`RECON_ADJUSTMENT_POST` maker 金库 / checker CFO）；`verify:audit` 全绿（新审计码按案件号 / 钱包号可查全）；封册 spec 全绿
 5. **e2e** `test/recon-aging-write-off.e2e-spec.ts`（照 `recon-adjustment-money-arcs` 的三要素跑法）：
    - 正路径：场景 10 定性 UNEXPLAINED → 拨钟 → `checkAgingBreaches` → `slaBreached=true` + 审计 `RECON_CASE_AGING_BREACHED` 可查 → 开核销单（DRAFT，审计 DRAFTED）→ submit → CFO 批准 → POSTED（审计 POSTED，`reasonCode=UNEXPLAINED_WRITE_OFF`）→ TB 分录 = 借 FIRM_OPS / 贷 FIRM_ASSET，金额 7 → 定性挂单号 → rerun → 案子 RESOLVED / AUTO_HEALED
    - 反例 ①：未超期开核销单 → 400（前提 1）
