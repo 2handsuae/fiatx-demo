@@ -168,7 +168,7 @@ describe('CustomerRestrictionsService.open', () => {
         expect(row.status).toBe('OPEN');
         expect(row.customerId).toBe('c1');
         expect(row.openedBy).toBe('ops@fiatx.com');
-        expect(row.restrictionNo).toMatch(/^RST\d{10}$/);
+        expect(row.restrictionNo).toMatch(/^RST\d{12}$/); // 6 位日期 + 6 位随机（2026-09-01 随机段由 4 位改 6 位）
       }
     }
   });
