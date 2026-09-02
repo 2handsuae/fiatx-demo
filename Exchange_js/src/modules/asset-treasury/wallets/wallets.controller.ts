@@ -2,6 +2,7 @@ import {
   Controller,
   Get,
   Body,
+  NotFoundException,
   Patch,
   Param,
   Query,
@@ -48,6 +49,14 @@ export class WalletsController {
     if (req.user?.type !== 'ADMIN') {
       throw new ForbiddenException('Admin token required');
     }
+  }
+
+  /** 铁律⑥ 对外用业务键：三端点的路由参数是 walletNo，换成内部 id 再传给
+   *  queryService/service（它们的签名不动，继续按 id 工作）。 */
+  private async resolveWalletId(walletNo: string): Promise<string> {
+    const wallet = await this.service.findByWalletNo(walletNo);
+    if (!wallet) throw new NotFoundException('Wallet not found');
+    return wallet.id;
   }
 
   @Get()
@@ -119,11 +128,12 @@ export class WalletsController {
     });
   }
 
-  @Get(':id')
-  @ApiOperation({ summary: 'Get a wallet by ID' })
-  async findOne(@Request() req: any, @Param('id') id: string) {
+  @Get(':walletNo')
+  @ApiOperation({ summary: 'Get a wallet by wallet number' })
+  async findOne(@Request() req: any, @Param('walletNo') walletNo: string) {
     this.ensureSupportedToken(req);
 
+    const id = await this.resolveWalletId(walletNo);
     const wallet = await this.queryService.findOne(id);
     if (
       req.user.type === 'CUSTOMER' &&
@@ -135,11 +145,12 @@ export class WalletsController {
     return wallet;
   }
 
-  @Get(':id/balance')
+  @Get(':walletNo/balance')
   @ApiOperation({ summary: 'Get wallet projected balance summary' })
-  async findBalance(@Request() req: any, @Param('id') id: string) {
+  async findBalance(@Request() req: any, @Param('walletNo') walletNo: string) {
     this.ensureSupportedToken(req);
 
+    const id = await this.resolveWalletId(walletNo);
     const wallet = await this.queryService.findOne(id);
     if (
       req.user.type === 'CUSTOMER' &&
@@ -151,18 +162,20 @@ export class WalletsController {
     return this.queryService.findBalance(id);
   }
 
-  @Patch(':id/status')
+  @Patch(':walletNo/status')
   @ApiOperation({ summary: 'Change wallet status' })
   changeStatus(
     @Request() req: any,
-    @Param('id') id: string,
+    @Param('walletNo') walletNo: string,
     @Body() dto: UpdateWalletStatusDto,
   ) {
     this.ensureAdmin(req);
-    return this.service.changeStatus(id, dto.status, {
-      actorId: req.user.userId,
-      actorNo: req.user.adminNo,
-      actorRole: req.user.role,
-    });
+    return this.resolveWalletId(walletNo).then((id) =>
+      this.service.changeStatus(id, dto.status, {
+        actorId: req.user.userId,
+        actorNo: req.user.adminNo,
+        actorRole: req.user.role,
+      }),
+    );
   }
 }

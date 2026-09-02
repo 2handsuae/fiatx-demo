@@ -135,6 +135,13 @@ export class UsersDomainService {
     };
   }
 
+  /** 铁律⑥ 对外用业务键：controller 层拿 userNo 换内部 id 用（`users.controller.ts`
+   *  五端点 + `admin-credential-mgmt.controller.ts` 的 reset-mfa 端点），workflow 内部
+   *  调用链继续走 id，不受影响。 */
+  async findByUserNo(userNo: string) {
+    return this.prisma.user.findFirst({ where: { userNo, deletedAt: null } });
+  }
+
   async suspendUser(
     userId: string,
     tx?: Prisma.TransactionClient,

@@ -104,7 +104,7 @@ const SidebarKV = ({
 /* ── Main Component ──────────────────────────────────────────── */
 
 export default function CustodianWalletDetail() {
-  const { id } = useParams<{ id: string }>();
+  const { walletNo } = useParams<{ walletNo: string }>();
   const navigate = useNavigate();
   const { hasAnyPermission } = useAdminSession();
 
@@ -115,11 +115,11 @@ export default function CustodianWalletDetail() {
   const [copiedField, setCopiedField] = useState<string | null>(null);
 
   const fetchWallet = async () => {
-    if (!id) return;
+    if (!walletNo) return;
     setLoading(true);
     setError(null);
     try {
-      const res = await adminFetch(`${import.meta.env.VITE_API_URL}/wallets/${id}`);
+      const res = await adminFetch(`${import.meta.env.VITE_API_URL}/wallets/${walletNo}`);
       if (!res.ok) throw new Error(await getApiErrorMessage(res, 'Failed to fetch wallet details.'));
       setWallet(await res.json());
     } catch (err) {
@@ -130,7 +130,7 @@ export default function CustodianWalletDetail() {
     }
   };
 
-  useEffect(() => { void fetchWallet(); }, [id]);
+  useEffect(() => { void fetchWallet(); }, [walletNo]);
 
   const handleCopy = (text: string, field: string) => {
     copyToClipboard(text);
@@ -176,7 +176,7 @@ export default function CustodianWalletDetail() {
     if (!window.confirm(`${newStatus === 'DISABLED' ? 'Disable' : 'Enable'} wallet ${wallet.walletNo}?`)) return;
     try {
       const res = await adminFetch(
-        `${import.meta.env.VITE_API_URL}/wallets/${wallet.id}/status`,
+        `${import.meta.env.VITE_API_URL}/wallets/${wallet.walletNo}/status`,
         {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },

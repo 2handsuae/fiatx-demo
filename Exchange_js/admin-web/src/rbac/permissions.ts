@@ -3,7 +3,9 @@ export const PERMISSIONS = {
 
   USERS_READ: 'api.get.users',
   USERS_CREATE: 'api.post.users',
-  USERS_INVITATION_RESEND: 'api.post.users_id_invitations_resend',
+  // Task 18：对外识别改 userNo 后，五码随 rbac.catalog.ts 的 :id → :userNo 一起漂——
+  // buildPermissionCode(method, path) 派生值，同 47 行注释的镜像约定。
+  USERS_INVITATION_RESEND: 'api.post.users_userno_invitations_resend',
   IAM_ROLES_READ: 'api.get.admin_iam_roles',
   IAM_PERMISSIONS_READ: 'api.get.admin_iam_permissions',
   IAM_USER_ROLES_READ: 'api.get.admin_iam_users_id_roles',
@@ -11,10 +13,10 @@ export const PERMISSIONS = {
   IAM_ROLE_CHANGE_REQUESTS_CREATE: 'api.post.admin_iam_role_change_requests',
   IAM_ROLE_CHANGE_REQUESTS_READ: 'api.get.admin_iam_role_change_requests',
   IAM_ROLE_CHANGE_REQUEST_DETAIL_READ: 'api.get.admin_iam_role_change_requests_id',
-  USERS_SUSPEND: 'api.post.users_id_suspend',
-  USERS_REACTIVATE: 'api.post.users_id_reactivate',
-  USERS_RESET_MFA: 'api.post.admin_iam_users_id_reset_mfa',
-  USERS_RESET_PASSWORD: 'api.post.users_id_reset_password',
+  USERS_SUSPEND: 'api.post.users_userno_suspend',
+  USERS_REACTIVATE: 'api.post.users_userno_reactivate',
+  USERS_RESET_MFA: 'api.post.admin_iam_users_userno_reset_mfa',
+  USERS_RESET_PASSWORD: 'api.post.users_userno_reset_password',
 
   CUSTOMERS_READ: 'api.get.customers',
   CUSTOMERS_DETAIL_READ: 'api.get.customers_id',
@@ -79,7 +81,8 @@ export const PERMISSIONS = {
   GOV_APPROVAL_POLICY_CHANGE_REQUEST_DETAIL_READ: 'api.get.admin_governance_approval_policies_change_requests_id',
 
   WALLETS_READ: 'api.get.wallets',
-  WALLET_DETAIL_READ: 'api.get.wallets_id',
+  // Task 18：同上，钱包详情随 :id → :walletNo 一起漂。
+  WALLET_DETAIL_READ: 'api.get.wallets_walletno',
   // PAYINS_* / PAYOUTS_* / INTERNAL_FUNDS_* removed in Round 2 (C6) — merged into FUNDS_ORDERS_*.
 
   ASSETS_READ: 'api.get.assets',

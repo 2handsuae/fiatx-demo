@@ -12,6 +12,9 @@ describe('WalletsController', () => {
   let controller: WalletsController;
   const serviceMock = {
     changeStatus: jest.fn(),
+    // Task 18：三端点改按 walletNo 收参，落地前先经 findByWalletNo 换回内部
+    // id——镜像 walletNo 本身即 id，下游断言不必再区分两者。
+    findByWalletNo: jest.fn(),
   };
   const queryServiceMock = {
     findAll: jest.fn(),
@@ -33,6 +36,7 @@ describe('WalletsController', () => {
 
     controller = module.get<WalletsController>(WalletsController);
     jest.clearAllMocks();
+    serviceMock.findByWalletNo.mockImplementation(async (walletNo: string) => ({ id: walletNo }));
   });
 
   it('should force CUSTOMER list query to self owner', async () => {

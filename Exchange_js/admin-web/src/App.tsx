@@ -420,7 +420,7 @@ function App() {
 
             {/* iam */}
             <Route path="iam/members" element={withPermission(<PlatformMembers />, [PERMISSIONS.USERS_READ])} />
-            <Route path="iam/members/:id" element={withPermission(<PlatformMemberDetailPage />, [PERMISSIONS.USERS_READ])} />
+            <Route path="iam/members/:userNo" element={withPermission(<PlatformMemberDetailPage />, [PERMISSIONS.USERS_READ])} />
             <Route path="iam/roles" element={withPermission(<RolesPage />, [PERMISSIONS.IAM_ROLES_READ])} />
             <Route path="iam/roles/:code" element={withPermission(<RoleDetailPage />, [PERMISSIONS.IAM_ROLES_READ])} />
 
@@ -454,7 +454,7 @@ function App() {
 
             {/* custody */}
             <Route path="custody/wallets" element={withPermission(<CustodianWalletList />, [PERMISSIONS.WALLETS_READ])} />
-            <Route path="custody/wallets/:id" element={withPermission(<CustodianWalletDetail />, [PERMISSIONS.WALLET_DETAIL_READ])} />
+            <Route path="custody/wallets/:walletNo" element={withPermission(<CustodianWalletDetail />, [PERMISSIONS.WALLET_DETAIL_READ])} />
             <Route path="custody/withdrawal-addresses" element={withPermission(<WithdrawalAddressList />, [PERMISSIONS.WITHDRAWAL_ADDRESSES_READ])} />
             <Route path="custody/withdrawal-addresses/:addressNo" element={withPermission(<WithdrawalAddressDetail />, [PERMISSIONS.WITHDRAWAL_ADDRESS_DETAIL_READ])} />
 

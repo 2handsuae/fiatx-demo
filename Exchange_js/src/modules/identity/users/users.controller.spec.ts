@@ -1,6 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { UsersController } from './users.controller';
 import { UsersService } from './users.service';
+import { UsersDomainService } from './users.domain.service';
 import { ForbiddenException } from '@nestjs/common';
 import { AdminInviteWorkflowService } from './admin-invite-workflow.service';
 import { AdminSuspensionWorkflowService } from './admin-suspension-workflow.service';
@@ -15,6 +16,12 @@ describe('UsersController', () => {
     findAll: jest.fn(),
     getMemberDetail: jest.fn(),
     resendAdminInvitation: jest.fn(),
+  };
+
+  // Task 18：控制器改按 userNo 收参，落地前先经 UsersDomainService.findByUserNo
+  // 换回内部 id——镜像 userNo 本身即 id，下游断言不必再区分两者。
+  const mockUsersDomainService = {
+    findByUserNo: jest.fn(async (userNo: string) => ({ id: userNo, userNo })),
   };
 
   const mockAdminInviteWorkflow = {
@@ -40,6 +47,10 @@ describe('UsersController', () => {
         {
           provide: UsersService,
           useValue: mockUsersService,
+        },
+        {
+          provide: UsersDomainService,
+          useValue: mockUsersDomainService,
         },
         {
           provide: AdminInviteWorkflowService,
@@ -110,7 +121,7 @@ describe('UsersController', () => {
     ).rejects.toBeInstanceOf(ForbiddenException);
   });
 
-  it('delegates GET /users/:id to getMemberDetail', async () => {
+  it('delegates GET /users/:userNo to getMemberDetail (resolved to internal id)', async () => {
     mockUsersService.getMemberDetail.mockResolvedValue({
       id: 'user-1',
       userNo: 'ADM2602190001',
@@ -140,6 +151,7 @@ describe('UsersController', () => {
         inviteExpiresAt: '2026-02-20T00:00:00.000Z',
       },
     });
+    expect(mockUsersDomainService.findByUserNo).toHaveBeenCalledWith('user-1');
     expect(mockUsersService.getMemberDetail).toHaveBeenCalledWith('user-1');
   });
 });

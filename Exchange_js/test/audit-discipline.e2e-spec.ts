@@ -197,3 +197,68 @@ describe('审批端点对外识别（铁律⑥ 对外用业务键）', () => {
     expect((await req(`/admin/control-gates/approvals/${c.id}`, token)).status).toBe(404);
   });
 });
+
+/**
+ * 铁律⑥ 对外用业务键：成员详情端点已从 `:id`（内部 UUID）改为 `:userNo`，
+ * 钱包详情端点已从 `:id` 改为 `:walletNo`（业务号，Task 18）——同 Task 17 审批
+ * 端点的验证方式：拿业务号打得通，拿内部 UUID 打不通（404）。treasury@ 是唯一
+ * 同时持有 IAM_MEMBER_READ 与 WALLET_READ 的职务（rbac.catalog.ts
+ * TREASURY_OFFICER 绑定），两条断言共用一次登录。
+ */
+describe('成员 / 钱包端点对外识别（铁律⑥ 对外用业务键）', () => {
+  let app: INestApplication;
+  let prisma: PrismaService;
+
+  beforeAll(async () => {
+    const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
+    app = moduleRef.createNestApplication();
+    app.get(EventEmitter2).setMaxListeners(50);
+    await app.init();
+    prisma = app.get(PrismaService);
+  });
+  afterAll(async () => { await app.close(); });
+
+  async function loginAs(email: string): Promise<string> {
+    const res = await request(app.getHttpServer())
+      .post('/auth/login')
+      .send({ email, password: '123456' });
+    expect(res.status).toBe(200);
+    return res.body?.access_token;
+  }
+
+  async function req(path: string, token: string) {
+    return request(app.getHttpServer())
+      .get(path)
+      .set('Authorization', `Bearer ${token}`);
+  }
+
+  it('成员详情端点收 userNo；拿 UUID 打 → 404', async () => {
+    const member = await prisma.user.create({
+      data: {
+        userNo: `ADM-KEY-${Date.now()}`,
+        email: `audit-disc-key-${Date.now()}@fiatx.com`,
+        password: 'not-a-real-hash',
+        role: 'CISO',
+        status: 'ACTIVE',
+      },
+    });
+    const token = await loginAs('treasury@fiatx.com');
+    expect((await req(`/users/${member.userNo}`, token)).status).toBe(200);
+    expect((await req(`/users/${member.id}`, token)).status).toBe(404);
+  });
+
+  it('钱包详情端点收 walletNo；拿 UUID 打 → 404', async () => {
+    const asset = await prisma.asset.findFirstOrThrow();
+    const wallet = await prisma.wallet.create({
+      data: {
+        walletNo: `WA-KEY-${Date.now()}`,
+        ownerType: 'PLATFORM',
+        type: 'FIAT_BANK',
+        assetId: asset.id,
+      },
+    });
+    const token = await loginAs('treasury@fiatx.com');
+    expect((await req(`/wallets/${wallet.walletNo}`, token)).status).toBe(200);
+    expect((await req(`/wallets/${wallet.id}`, token)).status).toBe(404);
+  });
+});
