@@ -27,6 +27,7 @@ import {
   RBAC_ROLE_DEFINITIONS,
 } from '../src/modules/identity/access-control/rbac.catalog';
 import { DEFAULT_APPROVAL_POLICIES } from '../src/modules/governance/approvals/constants/approval.constants';
+import { buildPermissionCode } from '../src/modules/identity/access-control/permission-code.util';
 
 // ══════════════════════ API base ══════════════════════
 //
@@ -263,6 +264,147 @@ function runStaticChecks(): void {
     deadlocks.length === 0 && missingFromTable.length === 0
       ? `${gatedPolicies} 条 maker-checker 策略逐条验过，无任何角色同时具备提单与裁决资格`
       : [...deadlocks, ...missingFromTable].join(' ｜ '),
+  );
+}
+
+// ══════════════════════ S6：前后端权限码表差集 ══════════════════════
+//
+// admin-web/src/rbac/permissions.ts 是前端手工维护的权限码常量表——不是从后端
+// catalog 自动生成。Task 17/18 改 rbac.catalog.ts 的路径参数名（:id → :userNo /
+// :approvalNo）时前端漏改过两回，Task 23 又抓到一次纯抄串（WITHDRAW_QUOTES_* 抄了
+// swap 的码）——同一类漂移已复发三次。S6 用集合运算挡住它：前端引用的每个
+// 'api.xxx' 字面量都必须能在后端 RBAC_PERMISSION_DEFINITIONS 的 code 集合里找到。
+//
+// permissions.ts 是前端项目（独立 tsconfig / Vite 模块系统）里的文件，没法安全
+// import 进本脚本的 ts-node 执行上下文，只能读文本正则抽取字面量——但抽的是「这个
+// as const 对象字面量里硬编码了哪些字符串」，是对数据结构本体的机械抽取，判据仍是
+// 集合运算（前端集合 ∖ 后端集合 = 空），不是靠字符串匹配给业务行为投绿灯，跟
+// S1–S5 同型（不是文件头红线警告的那种「grep 源码文本代替行为验证」）。
+function runS6FrontendBackendCodeDiff(): void {
+  const permissionsPath = path.resolve(__dirname, '../admin-web/src/rbac/permissions.ts');
+  const text = fs.readFileSync(permissionsPath, 'utf8');
+  const frontendCodes = new Set<string>();
+  const re = /'(api\.[a-z]+\.[a-z0-9_]+)'/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(text)) !== null) {
+    frontendCodes.add(m[1]);
+  }
+  const backendCodes = new Set(RBAC_PERMISSION_DEFINITIONS.map((d) => d.code));
+  const missing = [...frontendCodes].filter((c) => !backendCodes.has(c));
+  check(
+    'S6 前后端权限码表差集（前端引用 ∖ 后端 catalog = 空）',
+    missing.length === 0,
+    missing.length === 0
+      ? `前端 permissions.ts ${frontendCodes.size} 个权限码字面量，全部能在后端 catalog（${backendCodes.size} 条）里找到`
+      : `前端引用了后端 catalog 里不存在的权限码（抄串/漂移）: ${missing.join(', ')}`,
+  );
+}
+
+// ══════════════════════ S7：catalog 字典真实性（死行侦测）══════════════════════
+//
+// RBAC_PERMISSION_DEFINITIONS 每一行声称「这个 method+path 有一个真实端点」，但
+// route() 只增不减——某条路由被控制器删除/改名后，没人回来删 catalog.ts 里对应的
+// 那行，它会作为「可分配权限」继续留在角色配置界面里，指向一个已经不存在的端点
+// （死行）。S7 验证 catalog 每一行都对得上一个真实的 controller 端点。
+//
+// 「真实端点」的权限码由 AdminPermissionGuard.buildRequestPermissionCode()
+// （admin-permission.guard.ts）在运行时推导：@Controller() 基础路径 + 方法级
+// @Get/@Post/@Patch/@Put/@Delete 子路径拼接后过 buildPermissionCode()；仅当某端点
+// 显式挂 @RequirePermissions(buildPermissionCode(method, path)) 时才以挂的值覆盖
+// 推导结果（例如路径参数改名后，实际子路径与 catalog canonical 路径对不上的场景）。
+//
+// 判据实现二选一（brief Step 4），本次选**静态正则抽取**而非运行时启动第二个
+// AppModule 实例枚举路由栈：本脚本一贯只对已运行的服务器发真实 HTTP（见文件头），
+// 从不在本进程内二次装配 Nest（上面「不 import demo-lib.ts 本体」那条注释是同一条
+// 设计取舍的先例）——不为读一份路由表去背负第二次 Prisma / TigerBeetle 客户端连接
+// 的重量与不确定性。代价：joinControllerPath() 是对 admin-permission.guard.ts 同名
+// 拼接算法的手工镜像，后者若以后改了拼接规则，这里要跟着改，否则会静默漂移——这点
+// 已知且接受（brief 原话「执行者二选一，判据语义相同」）。
+//
+// ⚠️ 死行现状 = 12 行（逐行核实：8 行是旧版直连端点被后续 admin 专用/审批流端点
+// 取代，4 行是 V7 funds-layer 遗留，rbac.catalog.ts 511 行附近注释已明写
+// "legacy"）。Task 26 负责把这 12 行从 catalog.ts 删掉；在那之前 S7 用显式白名单
+// S7_PENDING_DEAD_ROWS 放过它们，白名单外任何新死行一律红。白名单允许过期——
+// Task 26 删完后，其中的 code 就不再出现在 catalog 里，S7 不会因为「白名单条目
+// catalog 里已经没有了」而报错，届时把这份白名单清空即可（不必逐行注销）。
+const S7_PENDING_DEAD_ROWS = new Set<string>([
+  'api.put.admin_iam_users_id_roles', // 旧版直改角色 PUT，已被 role-change-request 审批流取代
+  'api.post.admin_compliance_customers_id_simulate_expired', // 旧 compliance 模块遗留，域已废
+  'api.post.withdraw_transactions', // 旧版直建提现单，已被 workflow 内部建单取代，无对外端点
+  'api.post.withdraw_transactions_mock', // 同上，mock 建单端点已废
+  'api.post.wallets', // 旧版直建钱包，已被托管钱包创建流程取代
+  'api.get.treasury_customer_customerid_assets', // 客户资产改走 /client/portfolio，旧径已废
+  'api.post.assets', // 旧版直建资产，已被 /admin/assets/listing 取代
+  'api.patch.assets_id_status', // 同上，旧状态更新端点已废
+  'api.get.admin_funds_layer_transfers', // V7 funds-layer 遗留，catalog 注释已明写 legacy
+  'api.get.admin_funds_layer_transfers_internaltxno', // 同上
+  'api.post.admin_funds_layer_transfers_internaltxno_simulate', // 同上
+  'api.post.admin_funds_layer_fund_return', // 同上
+]);
+
+/** 镜像 admin-permission.guard.ts#buildRequestPermissionCode 的拼接算法——不是重新
+ *  发明；两处若不一致，S7 会跟着不准，见上方大注释的已知取舍。 */
+function joinControllerPath(controllerPath: string, methodPath: string): string {
+  const parts = [controllerPath, methodPath]
+    .map((part) => String(part || '').trim())
+    .filter(Boolean)
+    .map((part) => part.replace(/^\/+|\/+$/g, ''));
+  return `/${parts.join('/')}`.replace(/\/+/g, '/');
+}
+
+/** 每个 *.controller.ts 恰好一个 @Controller('...')（已核实）：基础路径 + 每个
+ *  HTTP 动词方法的子路径推导一个码；文件内任意 buildPermissionCode('M','p') 字面量
+ *  再并入（显式 @RequirePermissions 覆盖值）。两者并集即「真实存在的端点码」。 */
+function collectRealControllerCodes(): Set<string> {
+  const controllerFiles: string[] = [];
+  const srcRoot = path.resolve(__dirname, '../src');
+  const walk = (dir: string) => {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) walk(full);
+      else if (entry.isFile() && entry.name.endsWith('.controller.ts')) controllerFiles.push(full);
+    }
+  };
+  walk(srcRoot);
+
+  const codes = new Set<string>();
+  const controllerRe = /@Controller\(\s*'([^']*)'\s*\)/;
+  const verbRe = /@(Get|Post|Put|Patch|Delete)\(\s*(?:'([^']*)')?\s*\)/g;
+  const literalRe = /buildPermissionCode\(\s*'([A-Z]+)'\s*,\s*'([^']+)'\s*\)/g;
+
+  for (const full of controllerFiles) {
+    const text = fs.readFileSync(full, 'utf8');
+
+    const controllerMatch = controllerRe.exec(text);
+    if (controllerMatch) {
+      const controllerPath = controllerMatch[1];
+      let vm: RegExpExecArray | null;
+      verbRe.lastIndex = 0;
+      while ((vm = verbRe.exec(text)) !== null) {
+        const joined = joinControllerPath(controllerPath, vm[2] ?? '');
+        codes.add(buildPermissionCode(vm[1].toUpperCase(), joined));
+      }
+    }
+
+    let lm: RegExpExecArray | null;
+    literalRe.lastIndex = 0;
+    while ((lm = literalRe.exec(text)) !== null) {
+      codes.add(buildPermissionCode(lm[1], lm[2]));
+    }
+  }
+  return codes;
+}
+
+function runS7CatalogDeadRows(): void {
+  const realCodes = collectRealControllerCodes();
+  const deadRows = RBAC_PERMISSION_DEFINITIONS.filter((d) => !realCodes.has(d.code));
+  const unexpectedDeadRows = deadRows.filter((d) => !S7_PENDING_DEAD_ROWS.has(d.code));
+  check(
+    'S7 catalog 字典真实性（死行仅限 S7_PENDING_DEAD_ROWS 白名单）',
+    unexpectedDeadRows.length === 0,
+    unexpectedDeadRows.length === 0
+      ? `catalog ${RBAC_PERMISSION_DEFINITIONS.length} 行中死行 ${deadRows.length} 个，全部落在白名单（Task 26 待删）`
+      : `以下 catalog 行找不到对应的真实 controller 端点，且不在白名单内: ${unexpectedDeadRows.map((d) => d.code).join(', ')}`,
   );
 }
 
@@ -701,6 +843,8 @@ async function main(): Promise<void> {
 
   console.log('── 静态部分（读结构）──');
   runStaticChecks();
+  runS6FrontendBackendCodeDiff();
+  runS7CatalogDeadRows();
   console.log('');
 
   console.log('── 登录可达性：11 个职务账号全部能登录 ──');

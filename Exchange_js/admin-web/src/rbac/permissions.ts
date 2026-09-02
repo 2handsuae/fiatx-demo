@@ -113,8 +113,8 @@ export const PERMISSIONS = {
   WITHDRAWAL_ADDRESS_SKIP_COOLING: 'api.post.admin_withdrawal_addresses_addressno_skip_cooling',
   WITHDRAWAL_FEE_LEVELS_READ: 'api.get.admin_withdrawal_fee_levels',
   SWAP_FEE_LEVELS_READ: 'api.get.admin_swap_fee_levels',
-  WITHDRAW_QUOTES_READ: 'api.get.admin_swap_transactions_quotes',
-  WITHDRAW_QUOTES_DETAIL_READ: 'api.get.admin_swap_transactions_quotes_id',
+  WITHDRAW_QUOTES_READ: 'api.get.admin_withdrawal_fee_levels_quotes',
+  WITHDRAW_QUOTES_DETAIL_READ: 'api.get.admin_withdrawal_fee_levels_quotes_id',
 } as const;
 
 export type PermissionCode = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];
