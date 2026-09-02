@@ -29,6 +29,9 @@ import { AdjustmentController } from './disposition/adjustment.controller';
 // 平账一期半 T4: 定性落库（record/linkAdjustment/改记候选）+ RECON_DISPOSITION_RECORDED 审计。
 import { DispositionService } from './disposition/disposition.service';
 import { DispositionController } from './disposition/disposition.controller';
+// 平账 A 批：案件账龄主体（算截止 / 找候选 / 置标记 / ⚡拨钟）+ 每分钟扫描。
+import { CaseAgingService } from './workflow/case-aging.service';
+import { CaseAgingSweepService } from './sweep/case-aging-sweep.service';
 
 @Module({
   imports: [PrismaModule, AuditLogsModule, TigerBeetleModule, FundsOrdersModule, ApprovalsModule],
@@ -46,7 +49,9 @@ import { DispositionController } from './disposition/disposition.controller';
     ExplainedDifferenceService,
     // 平账一期半 T4: 定性落库服务。
     DispositionService,
+    // 平账 A 批：案件账龄主体 + 每分钟扫描。
+    CaseAgingService, CaseAgingSweepService,
   ],
-  exports: [WalletReconRunService],
+  exports: [WalletReconRunService, CaseAgingService],
 })
 export class ReconciliationModule {}

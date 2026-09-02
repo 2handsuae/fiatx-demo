@@ -40,6 +40,7 @@ import {
   ExplainedIndex,
   explainedBy,
 } from '../disposition/explained-difference.service';
+import { computeAgingDeadline } from '../disposition/recon-thresholds.constant';
 import { AuditLogsService } from '../../../audit-logging/audit-logs.service';
 import { AuditActorContext, AuditCategory, AuditSubjectRole } from '../../../audit-logging/dto/audit-log.dto';
 import {
@@ -112,6 +113,8 @@ export class WalletReconRunService {
   async run(input: WalletReconRunInput, actor?: AuditActorContext): Promise<WalletReconRunResult> {
     const { cutoff } = input;
     const businessDate = this.toBusinessDate(cutoff);
+    // 平账 A 批（spec §2.1）：本轮新开的案子一律以本轮业务日起算账龄——同一轮同一只钟。
+    const slaDeadline = computeAgingDeadline(businessDate);
 
     // Stamp the run row up-front so callers always get a runId, even if
     // pre-gate trips.
@@ -288,10 +291,11 @@ export class WalletReconRunService {
           matcherResult,
           explained,
           caseReason,
+          slaDeadline,
         });
         if (created) {
           casesCreated += 1;
-          await this.auditCaseOpened({ traceId: run.traceId ?? null, walletRef, bucket, delta: balanceCheck.delta, caseNo: openedCaseNo });
+          await this.auditCaseOpened({ traceId: run.traceId ?? null, walletRef, bucket, delta: balanceCheck.delta, caseNo: openedCaseNo, slaDeadline });
         } else {
           casesUpdated += 1;
         }
@@ -349,10 +353,11 @@ export class WalletReconRunService {
         // 未归属外部账户没有内部钱包、也就没有调账单挂得上去，空索引。
         explained: EMPTY_EXPLAINED_INDEX,
         caseReason: 'unattributed_external_account',
+        slaDeadline,
       });
       if (created) {
         casesCreated += 1;
-        await this.auditCaseOpened({ traceId: run.traceId ?? null, walletRef, bucket: 'BREAK', delta: closing, caseNo });
+        await this.auditCaseOpened({ traceId: run.traceId ?? null, walletRef, bucket: 'BREAK', delta: closing, caseNo, slaDeadline });
       } else {
         casesUpdated += 1;
       }
@@ -714,6 +719,7 @@ export class WalletReconRunService {
     matcherResult: Awaited<ReturnType<WalletFlowMatcherService['matchFlows']>>;
     explained: ExplainedIndex;
     caseReason: string;
+    slaDeadline: Date;
   }): Promise<{ caseId: string; caseNo: string; created: boolean }> {
     const deltaDecimal = new Prisma.Decimal(input.delta.toString());
     const tbDecimal = new Prisma.Decimal(input.tbAmount.toString());
@@ -801,6 +807,9 @@ export class WalletReconRunService {
           walletRef: input.walletRef,
           coaCode: input.coaCode,
           ownerNo: input.ownerNo,
+          // 平账 A 批（spec §2.1）：账龄起算只在开案这一刻——复观察（上面 existing 分支）
+          // 不重置，故 slaDeadline 只在这个 create 分支写。
+          slaDeadline: input.slaDeadline,
         },
       });
       caseId = createdRow.id;
@@ -960,7 +969,7 @@ export class WalletReconRunService {
   }
 
   // ── Audit (DI — never `new AuditLogsService`) ─────────────────────────────
-  private async auditCaseOpened(input: { traceId: string | null; walletRef: string; bucket: ReconBucket; delta: bigint; caseNo: string }): Promise<void> {
+  private async auditCaseOpened(input: { traceId: string | null; walletRef: string; bucket: ReconBucket; delta: bigint; caseNo: string; slaDeadline: Date }): Promise<void> {
     await this.auditLogs.recordSystem({
       action: 'RECON_CASE_OPENED',
       actionDomain: 'RECON',
@@ -977,6 +986,7 @@ export class WalletReconRunService {
         bucket: input.bucket,
         deltaAmount: input.delta.toString(),
         caseNo: input.caseNo,
+        slaDeadline: input.slaDeadline.toISOString(),
       },
     } as any);
   }
