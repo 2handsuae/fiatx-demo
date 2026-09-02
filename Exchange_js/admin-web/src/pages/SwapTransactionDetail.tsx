@@ -241,7 +241,7 @@ const SwapTransactionDetail = () => {
 
   const ownerLink = ownerNo ? (
     <button
-      onClick={() => navigate(`/customers/${data.ownerId}`)}
+      onClick={() => navigate(`/admin/customers/${ownerNo}`)}
       className="text-adm-blue hover:underline"
     >
       {ownerNo}

@@ -10,34 +10,6 @@ import {
 } from '../../audit-logging/constants/audit-actions.constant';
 import { AuditOutcome } from '../../audit-logging/dto/audit-log.dto';
 
-const riskApprovalSummarySelect = {
-  id: true,
-  approvalNo: true,
-  status: true,
-} satisfies Prisma.ApprovalCaseSelect;
-
-const customerListInclude = {
-  latestRiskApproval: {
-    select: riskApprovalSummarySelect,
-  },
-} satisfies Prisma.CustomerMainInclude;
-
-const customerDetailInclude = {
-  latestRiskApproval: {
-    select: riskApprovalSummarySelect,
-  },
-} satisfies Prisma.CustomerMainInclude;
-
-type CustomerListPayload = Prisma.CustomerMainGetPayload<{
-  include: typeof customerListInclude;
-}>;
-
-type CustomerDetailPayload = Prisma.CustomerMainGetPayload<{
-  include: typeof customerDetailInclude;
-}>;
-
-type CustomerDetailView = CustomerDetailPayload;
-
 @Injectable()
 export class CustomersService {
   constructor(
@@ -74,7 +46,7 @@ export class CustomersService {
     cursor?: Prisma.CustomerMainWhereUniqueInput;
     where?: Prisma.CustomerMainWhereInput;
     orderBy?: Prisma.CustomerMainOrderByWithRelationInput;
-  }): Promise<{ data: CustomerListPayload[]; total: number }> {
+  }): Promise<{ data: CustomerMain[]; total: number }> {
     const { skip, take, cursor, where, orderBy } = params;
     const [data, total] = await this.prisma.$transaction([
       this.prisma.customerMain.findMany({
@@ -83,24 +55,23 @@ export class CustomersService {
         cursor,
         where,
         orderBy,
-        include: customerListInclude,
       }),
       this.prisma.customerMain.count({ where }),
     ]);
     return { data, total };
   }
 
-  async findOne(id: string): Promise<CustomerDetailView | null> {
-    const customer = await this.prisma.customerMain.findUnique({
+  async findOne(id: string): Promise<CustomerMain | null> {
+    return this.prisma.customerMain.findUnique({
       where: { id },
-      include: customerDetailInclude,
     });
+  }
 
-    if (!customer) {
-      return null;
-    }
-
-    return customer;
+  /** 铁律⑥ 对外用业务键：controller 用它把路由上的 customerNo 换回内部 id。 */
+  async findByCustomerNo(customerNo: string): Promise<CustomerMain | null> {
+    return this.prisma.customerMain.findUnique({
+      where: { customerNo },
+    });
   }
 
   async update(params: {

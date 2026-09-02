@@ -254,9 +254,9 @@ export default function LedgerAccountDetail() {
                   <div className="min-w-0">
                     <div className="font-mono text-[9px] uppercase tracking-[0.1em] text-adm-t3">Customer No</div>
                     <div className="mt-1 text-[13px]">
-                      {detail.ownerNo && detail.ownerUuid ? (
+                      {detail.ownerNo ? (
                         <button
-                          onClick={() => navigate(`/admin/customers/${detail.ownerUuid}`)}
+                          onClick={() => navigate(`/admin/customers/${detail.ownerNo}`)}
                           className="text-adm-amber hover:underline font-mono text-[11px]"
                           title="Open customer"
                         >

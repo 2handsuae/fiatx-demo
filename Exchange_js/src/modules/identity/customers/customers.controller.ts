@@ -10,7 +10,7 @@ import {
   UseGuards,
   Request,
   ForbiddenException,
-  ParseUUIDPipe,
+  NotFoundException,
 } from '@nestjs/common';
 import { CustomersService } from './customers.service';
 import { Prisma } from '@prisma/client';
@@ -43,6 +43,14 @@ export class CustomersController {
     if (req.user?.type !== 'ADMIN') {
       throw new ForbiddenException('Admin token required');
     }
+  }
+
+  /** 铁律⑥ 对外用业务键：三个详情端点的路由参数都是 customerNo，这里换成内部 id
+   *  再传给 service（同 users.controller.ts resolveUserId 的镜像约定）。 */
+  private async resolveCustomerId(customerNo: string): Promise<string> {
+    const customer = await this.customersService.findByCustomerNo(customerNo);
+    if (!customer) throw new NotFoundException('Customer not found');
+    return customer.id;
   }
 
   @Post()
@@ -118,31 +126,34 @@ export class CustomersController {
     });
   }
 
-  @Get(':id')
-  @ApiOperation({ summary: 'Get a customer by ID' })
-  findOne(@Request() req: any, @Param('id', new ParseUUIDPipe()) id: string) {
+  @Get(':customerNo')
+  @ApiOperation({ summary: 'Get a customer by customer number' })
+  async findOne(@Request() req: any, @Param('customerNo') customerNo: string) {
     this.ensureAdmin(req);
+    const id = await this.resolveCustomerId(customerNo);
     return this.customersService.findOne(id);
   }
 
-  @Patch(':id')
+  @Patch(':customerNo')
   @ApiOperation({ summary: 'Update a customer' })
-  update(
+  async update(
     @Request() req: any,
-    @Param('id', new ParseUUIDPipe()) id: string,
+    @Param('customerNo') customerNo: string,
     @Body() updateCustomerDto: Prisma.CustomerMainUpdateInput,
   ) {
     this.ensureAdmin(req);
+    const id = await this.resolveCustomerId(customerNo);
     return this.customersService.update({
       where: { id },
       data: updateCustomerDto,
     });
   }
 
-  @Delete(':id')
+  @Delete(':customerNo')
   @ApiOperation({ summary: 'Delete a customer' })
-  remove(@Request() req: any, @Param('id', new ParseUUIDPipe()) id: string) {
+  async remove(@Request() req: any, @Param('customerNo') customerNo: string) {
     this.ensureAdmin(req);
+    const id = await this.resolveCustomerId(customerNo);
     return this.customersService.remove({ id });
   }
 }

@@ -22,7 +22,9 @@ export const PERMISSIONS = {
   USERS_RESET_PASSWORD: 'api.post.users_userno_reset_password',
 
   CUSTOMERS_READ: 'api.get.customers',
-  CUSTOMERS_DETAIL_READ: 'api.get.customers_id',
+  // 客户域业务号化（2026-09-03）：对外识别改 customerNo 后，此码随 rbac.catalog.ts
+  // 的 :id → :customerNo 一起漂——同 6-7 行 Task 18 那条镜像约定。
+  CUSTOMERS_DETAIL_READ: 'api.get.customers_customerno',
 
   CUSTOMER_TAGS_CATALOG_READ: 'api.get.admin_customer_tags_catalog',
   CUSTOMER_TAGS_READ: 'api.get.admin_customers_customerno_effective_tags',

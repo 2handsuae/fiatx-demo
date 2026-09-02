@@ -66,6 +66,8 @@ Last Updated: 2026-09-02
 
 - [ ] **一期客户流程重做（接真 Sumsub 申请人侧）**：入驻流程 / 定期风评（CRA）/ 高风险升级案已于站6 整体拆除（业主 2026-08-27 方案2：演示零损失、免去"翻新旧的再推倒"双份工）。重做落点：申请人侧 Sumsub 集成（建充值地址时同步注册 applicant 绑定已是既定集成点）、开户 happy path、AML 命中走限制账、EDD 走审批。重建时直接在新审计合同上出生（词表/子表/旅程号第一天就对）；摄取分发器的 unrouted 警告处即重新开路的位置 ｜ 来源: 站6 业主拍板
 
+- [ ] **若做 onboarding 风险审批展示，先接 `latestRiskApprovalId` 写入方**：该列全仓零生产写入方（2026-09-02 实证），CustomerDetail 靠它渲染的「Risk Approval」区块从来出不来，2026-09-03 客户域业务号化轮已把该死 UI 段退役（业主拍板：不在演示故事里）。回接位置就在上一条「一期客户流程重做」的 MLRO 终审落列处——先有写入方，再回接展示 ｜ 来源: 2026-09-03 客户域业务键收口
+
 - [ ] **Tier Upgrade ⛔ 缺客户端 UI**：后端全建（createFromCra→Level2→MLRO+SMO 审批），缺客户材料提交前端（真实卡点，roadmap 已标 BLOCKED）｜来源: 2026-07-04 V2 体检
 
 - [ ] **Corporate/机构客户 stub**：CorporateProfile/UboProfile 表+关系连但无业务逻辑，onboarding 两处显式 disabled；机构客户全 ADVANCED ｜来源: 2026-07-04 V2 体检
