@@ -3,9 +3,9 @@
 > 上半篇（管理员/客户矩阵/资产钱包/各脚本）手写，2026-08-26 实测盘点后维护。下半篇「本批数据」由 `demo:all` 收尾自动写入生成区（防漂移），别手改那一段。
 > 重铺入口：`bash scripts/stack.sh reset [main|self]`（含 TigerBeetle 清理重建）；全量造数：`bash scripts/on-stack.sh main demo:all`（worktree 内用 self）。基线见 [baseline.md](baseline.md)。
 
-## 管理员（base seed，8 职务各一人，密码 123456）
+## 管理员（base seed，11 职务各一人，密码 123456）
 
-admin@fiatx.com 超管 ｜ sm@ 高管(SMO) ｜ ciso@ ｜ mlro@ ｜ dpo@ ｜ compliance_lead@ ｜ tech_admin@ ｜ ops_officer@ —— 一人一角色，SoD 演示直接换人登录。
+admin@fiatx.com 超管 ｜ sm@ 高管(SMO) ｜ ciso@ ｜ mlro@ ｜ dpo@ ｜ compliance_lead@ ｜ tech_admin@ ｜ ops_officer@ ｜ auditor@ 内审 ｜ cfo@ 财务负责人 ｜ treasury@ 金库专员 —— 一人一角色，SoD 演示直接换人登录。
 
 ## 站 0 演示装置（进人）
 

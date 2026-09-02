@@ -1,6 +1,6 @@
 # V1 · 治理底座（审批 / 审计 / 权限 / 管理员生命周期）
 
-> 对应 PRD：待写 ｜ 技术节点 Last Verified：2026-08-31（第一幕职权重划 Task 15 复核；底稿 truth 2026-08-25 端到端验收 + 批次二核查员复核审计锚点）
+> 对应 PRD：待写 ｜ 技术节点 Last Verified：2026-09-02（四模块治愈 第一幕六站真人走查复核；底稿 truth 2026-08-25 端到端验收 + 批次二核查员复核审计锚点）
 > 演示幕次：第一幕「开业」+ 第七幕「事后说得清」 ｜ 验收：第一幕 + 第七幕走查（`demo/script.md`）+ 本篇 §4
 
 ## 0. 一句话定位
@@ -43,25 +43,24 @@
 
 ## 4. 演示脚本（第一幕 · 开业 ｜ 第七幕 · 追溯）
 
-**第一幕**（管理台 3001，11 职务账号见 demo/data.md ｜ 完整 5 站剧本见 `demo/script.md`）：本模块对应**站 1「谁能动手」**与**站 3「门自己也要过门」**，此处只补 script.md 未展开的技术细节，不重复整段走查：
-- 站 1：`tech_admin@`（技术官）提交角色定义修改（给运营加一个它没有的包）→ `ciso@` 批准 → 生效（角色详情页可见 12 域 50 桶全在场）；`auditor@`（内审）调业务写接口（如跑对账批次 `POST /admin/reconciliation/runs/wallet`）→ 403。⚠️ 内审**并非零写**：它持 `AUDIT_EXPORT_CREATE`（建证据包），那是刻意给的——监管上门他得能打包，且导出仍要 MLRO 背书。演示别拿证据包接口当 403 的例子
-- 站 3：`sm@` 提交审批策略变更 → `ciso@` 批准，生效；再用 `ciso@` 自己提、自己批 → 当场被拒（同一账号不能既提又批）；给已持 CISO 的成员加 MLRO → 拒绝（三对硬互斥本轮未动）
+**第一幕**（管理台 3001，11 职务账号见 demo/data.md ｜ 完整 6 站剧本见 `demo/script.md`）：本模块对应**站 0「进人」**、**站 1「谁能动手」**与**站 3「门自己也要过门」**，此处只补 script.md 未展开的技术细节，不重复整段走查：
+- 站 0：`tech_admin@`（技术官，maker）邀请新成员 → `ciso@`（checker）批准 → 新人隐身窗完成身份确认 + 绑 TOTP，首登上岗；停用/恢复换另一对——`ciso@`（maker）提停用/恢复 → `sm@`（checker）批准，停用后新人下次请求即被登出。五步全程没人自批自己那单，第一幕开场即产生第一批审计记录（此前"重铺后需垫一笔治理动作"的缺口自此已解）
+- 站 1：`tech_admin@`（技术官）提交角色定义修改（给运营加一个它没有的包）→ `ciso@` 批准 → 生效（角色详情页可见 12 域 51 桶全在场）；`auditor@`（内审）调业务写接口（如跑对账批次 `POST /admin/reconciliation/runs/wallet`）→ 403。⚠️ 内审**并非零写**：它持 `AUDIT_EXPORT_CREATE`（建证据包），那是刻意给的——监管上门他得能打包，且导出仍要 MLRO 背书。演示别拿证据包接口当 403 的例子
+- 站 3：`sm@` 提交审批策略变更 → `ciso@` 批准，生效；再用 `ciso@` 自己提、自己批 → 当场被拒（同一账号不能既提又批）；给已持 CISO 的成员加 MLRO → 拒绝（三对硬互斥本轮未动）；`sm@` 再提一张策略变更，换 `ops_officer@`（11 职务里唯一持 `DEMO_CLOCK_WRITE` 的账号）点 ⚡ 模拟超时 → 一分钟内刷新，状态转 EXPIRED，审计按单号查得到 `APPROVAL_EXPIRED`——批准 / 当场拒绝 / 超时作废三种结局站 3 一次演全
 
-**第七幕**：审计日志页 → 按单号（primarySubjectNo）查站 3 那条 SoD 拒绝与站 1 那笔角色定义修改 → 全链拉出（谁、何时、结果、依据）；按 correlationId 看"一次邀请"的完整旅程。⚠️ 重铺后先在第一幕做一笔治理动作垫场，否则新词表下无记录（BACKLOG 在案）。
+**第七幕**：审计日志页 → 按单号（primarySubjectNo）查站 3 那条 SoD 拒绝与站 1 那笔角色定义修改 → 全链拉出（谁、何时、结果、依据）；按 correlationId 看"一次邀请"的完整旅程。
 
 ## 5. 关键技术节点（≤30 行）
 
 - 审批引擎 `governance/approvals/`：`approval-handler.base.ts → ApprovalHandlerBase`（30 个审批子流程的统一基类，1 个钦定例外 onboarding 终审）｜ `approvals.service.ts → approve()/reject()`（SoD same-user deny + 跨步骤已审校验）｜ `approval-policy.service.ts → getPolicy()`（stepsConfig 回退链 + 自审防篡改）
 - 管理员生命周期 `identity/users/`：`admin-invite-workflow.service.ts` ｜ `mfa-binding-workflow.service.ts → verifyMfaBind()`（首登四步）｜ `admin-{suspension,reactivation,password-reset}-workflow.service.ts` ｜ `jwt.strategy.ts`（SUSPENDED 拦截，下次请求生效）
-- 权限 `identity/access-control/`：`rbac.catalog.ts`（146 条路由×权限组登记、**12 域 50 桶**目录、3 对硬互斥、11 职务 60 个权限组——2026-08-31 第一幕职权重划实测数字）｜ `admin-permission.guard.ts`（每 API 运行时校验）｜ `access-control.service.ts → validateHardMutex()`
-- 审计 `audit-logging/`：`audit-logs.service.ts → recordByActor()/recordSystem()/assertActionSpec()`（写入前机器校验）/`persistSubjects()`（五角色子表）｜ `constants/audit-actions.constant.ts`（V1 词表 **48 live + 30 退役拒写**——2026-08-31 实测；其中 19 条系本轮五本档案簿/监管闸门/对手方/手工建户四块退役时迁入退役名册，键仍在册、只出不进）｜ `audit-evidence-export-workflow.service.ts`（审批背书导出）｜ 校验器 `npm run verify:audit`
+- 权限 `identity/access-control/`：`rbac.catalog.ts`（146 条路由×权限组登记、**12 域 51 桶**目录、3 对硬互斥、**59 个权限组**——2026-09-02 四模块治愈实测数字；较 08-31 首落地的 50 桶/60 组，中间新增 `recon.act_adjust` 1 桶、本轮退役孤儿组 `INTERNAL_TRANSFER_READ/WRITE`）｜ `admin-permission.guard.ts`（每 API 运行时校验）｜ `access-control.service.ts → validateHardMutex()`
+- 审计 `audit-logging/`：`audit-logs.service.ts → recordByActor()/recordSystem()/assertActionSpec()`（写入前机器校验）/`persistSubjects()`（五角色子表）｜ `constants/audit-actions.constant.ts`（V1 合同 **101 码**（S26 起始/I65 继承/N10 独立），含 V3 财务配置域限额/费率/资产/托管钱包/提现地址/客户标签约 60 写点——随本轮换名册四批一并入册，此前"未入册"缺口已解；退役 **97 码**进拒写闸——2026-09-02 收官实测；原撞名嵌套结构 `AuditGovernanceActions` 已全部拆平退役）｜ `audit-evidence-export-workflow.service.ts`（审批背书导出）｜ 校验器 `npm run verify:audit`
 - 通知 `core/notifications/`：仅 WebSocket 推送，email/webhook/retry 为空壳（见 §6）
 
 ## 6. 演示缺口（均在 BACKLOG 有账）
 
 - **通知是空壳**：邀请邮件、审批通知不会真发——演示靠页面自查待办，别承诺"你会收到邮件"
-- **按业务号经子表检索只覆盖 7/48 码**：其余 41 码要用 primarySubjectNo 精确过滤才查得到——第七幕检索按此口径演。（分母随 2026-08-31 词表 45→48 更新；分子 7 未变——BACKLOG §H 记的那 7 码是 6 个 `APPROVAL_*` 加 `AUDIT_LOG_QUERIED`，本轮退役的 19 码无一在内）
-- **重铺后新词表零写入**：demo 造数不含治理动作，第七幕开演前先垫一笔（批次三实测）
-- **V3 财务配置域词汇未入册**：限额/费率/资产/托管钱包/提现地址/客户标签约 60 个写点尚未进新审计合同（三域交易日志早于本轮换装完毕，此条此前误记为"三域仍旧合同"，2026-08-31 核对 `script.md`/`BACKLOG.md` §H 后订正）——第一幕改的费率/限额那笔配置变更，在追溯里目前还是裸词；本轮明确不做（BACKLOG H 档在案）
+- **按业务号经子表检索只覆盖 7/101 码**：其余 94 码要用 primarySubjectNo 精确过滤才查得到——第七幕检索按此口径演。（分母随 2026-09-02 换名册四批收官从 48→101 更新；分子 7 未变——BACKLOG §H 记的那 7 码是 6 个 `APPROVAL_*` 加 `AUDIT_LOG_QUERIED`，退役码不计入分母）
 - **停用非即时**：下次请求才失效——演示时刷一下页面再看效果
 - ADVANCED 8 项未做（Break-Glass、定期权限复审、审批超时预警等），演示不承诺

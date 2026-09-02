@@ -1,6 +1,6 @@
 # V3 · 财务配置（资产 / 钱包 / 提现地址 / 费率 / 限额 / 定价）
 
-> 对应 PRD：待写 ｜ 技术节点 Last Verified：2026-08-31（第一幕职权重划 Task 15 复核；底稿 truth 2026-08-13 + 旧 test-cases TC-03/04〔已封箱〕+ 费率定价锚点本轮补核）
+> 对应 PRD：待写 ｜ 技术节点 Last Verified：2026-09-02（四模块治愈 第一幕六站真人走查复核；底稿 truth 2026-08-13 + 旧 test-cases TC-03/04〔已封箱〕+ 费率定价锚点本轮补核）
 > 演示幕次：第一幕「开业」后半 ｜ 验收：第一幕后半走查（`demo/script.md`）+ 本篇 §4
 > 注：费率与定价两节为**首次成文**——旧 truth 无此两篇，底稿取自验收用例与代码。
 
@@ -46,7 +46,7 @@
 
 ## 4. 演示脚本（第一幕 · 后半）
 
-管理台 3001，11 职务账号见 `demo/data.md` ｜ 完整 5 站剧本见 `demo/script.md`。本模块对应**站 2「一笔配置要过门」**、**站 4「货架」**、**站 5「三种门与容器」**，此处只补 script.md 未展开的技术细节，不重复整段走查：
+管理台 3001，11 职务账号见 `demo/data.md` ｜ 完整 6 站剧本见 `demo/script.md`。本模块对应**站 2「一笔配置要过门」**、**站 4「货架」**、**站 5「三种门与容器」**，此处只补 script.md 未展开的技术细节，不重复整段走查：
 
 1. **站 2 · 费率页**：`cfo@`（财务负责人）给兑换费改一档提交 → `ops_officer@`（运营）批准 → 切客户端拿报价，**费率立刻变**（这条线直通第四幕钱换）
 2. **站 4 · 资产页**：看 USDT / AED 的状态与身世 → `tech_admin@` 现场新建一个资产 → 停在 `PROVISIONING`，点激活 → 就绪检查报"缺钱包"——**上架是有门槛的，不是填个表**；换 `treasury@`（金库专员）建一个托管钱包 → 提交审批 → `ciso@` 批准，钱包转 `ACTIVE` → 回资产页再次激活，`ciso@` 批准，资产转 `ACTIVE`
@@ -63,6 +63,7 @@
 - 费率（两族同构）`trading/{swap,withdrawal}-fee-level/`：`*-fee-level.service.ts` ｜ `*-creation-workflow` / `*-change-workflow`（+配对 approval 发射器）｜ 受众判定 `trading/shared/fee-audience.util.ts`（effectiveTags 求值 + resolveBestLevel 最便宜档）｜ 报价 `swap-quote.service.ts` / `withdraw-quote.service.ts`
 - 定价 `trading/pricing-center/`：`pricing-engine.service.ts`（报价价源）
 - 前端引导 `client-web`：`AuthGuard.tsx`（就绪门渲染 `TradingStartGuide.tsx`；路径匹配须段边界，防 `/withdraw` 误吞 `/withdrawal-addresses` 白屏）｜ `WithdrawalAddresses.tsx`（锁 Crypto tab 强制先加法币）
+- 审计留痕：本域全部写点（资产/钱包/提现地址/限额/费率/客户标签，约 60 个写点）已随 V1 换名册四批入 `audit-actions.constant.ts` 合同（`domain: 'CONFIG'`，四属性齐备）——第一幕改的费率/限额那笔配置变更，第七幕按单号能查到；此前"V3 词汇未入册"的缺口已解，详见 `v1-governance.md` §5
 
 ## 6. 演示缺口（BACKLOG 有账）
 

@@ -205,7 +205,7 @@ Last Updated: 2026-09-02
 
 - [ ] **Q4"按客户查全部"目前唯一的数据来源是查询动作自证**：`verify:audit` 的 Q4 判据（`M>0`）能通过，靠的是 `GET /admin/audit-logs?ownerCustomerNo=X` 这个查询动作自己把 `AUDIT_LOG_QUERIED` 记成 `OWNER=CUSTOMER`，即"查询这个动作本身构成了它所验证的证据"。这不是 `verify-audit.ts` 脚本的缺陷（脚本按 brief 逐字实现，且经变异测试证明能正确识别数据缺陷），而是**V1 治理域现实中没有任何其它场景会把 CUSTOMER 设为某条治理事件的 OWNER**（V1 域本身不直接操作客户实体，客户只会通过"查询时按客户号过滤"这一条路径进子表）。换言之，Q4 目前只证明了"查询行为自身可追溯"，不能证明"客户被牵连在其他 V1 治理动作里时可追溯"——因为 V1 域里后一种场景目前不存在，等三个交易域（充值/提现/兑换，这些才会有 `ownerCustomerNo` 意义下的客户关联事件）接入 `subjects` 后，Q4 式的验证才有更丰富的场景可测｜Task 11 端到端验收实测新发现，无历史来源
 
-- [ ] ⭐ **V3 财务配置域词汇正式入册（撞名族改名）**：AuditGovernanceActions 嵌套组（限额/费率/资产/托管钱包/提现地址/客户标签，约 60 写点）是最后一块未入新审计合同的词汇。值为跨族撞名裸词（CREATION_REQUESTED/CHANGE_APPLIED 等三族共用、MFA_LOGIN_VERIFY_FAILED 失败单独起名）——入册须按既有裁决改名＋四属性＋子表。站7 已将整册快照冻结（audit-vocabulary-closure.spec 附册条,只出不进），入册前无人能塞新词 ｜ 来源: 站7 封册 census
+- [x] ~~⭐ **V3 财务配置域词汇正式入册（撞名族改名）**：AuditGovernanceActions 嵌套组（限额/费率/资产/托管钱包/提现地址/客户标签，约 60 写点）是最后一块未入新审计合同的词汇。值为跨族撞名裸词（CREATION_REQUESTED/CHANGE_APPLIED 等三族共用、MFA_LOGIN_VERIFY_FAILED 失败单独起名）——入册须按既有裁决改名＋四属性＋子表。站7 已将整册快照冻结（audit-vocabulary-closure.spec 附册条,只出不进），入册前无人能塞新词 ｜ 来源: 站7 封册 census~~ → **已解（2026-09-02，四模块治愈 换名册四批）**：撞名裸词按域分批改名入 `V1_AUDIT_ACTIONS` 合同（`domain: 'CONFIG'`，四属性齐备）——`ASSET_*`/`CUSTODIAN_WALLET_*`/`WITHDRAWAL_ADDRESS_*`/`TRANSACTION_LIMIT_*`/`SWAP_FEE_LEVEL_*`/`WITHDRAWAL_FEE_LEVEL_*`/`CUSTOMER_TAG_*` 全部改用不撞名的专属前缀；原撞名嵌套结构 `AuditGovernanceActions` 已全仓清零（grep 0 命中）；V1 合同终盘 101 码、退役 97 码进拒写闸。子表覆盖面仍是独立缺口，未随本条销账（见本节上方「`audit_log_subjects` 子表覆盖面远小于设计前提」）
 
 - [ ] **`InternalFundAuditLog` 有读无写 → 资金单详情页审计列表永远空**：Round 2 后零写入方，读取链还在——运营点开任何一张资金单，审计栏都是空的（踩铁律①「操作必留痕」的可见面）。补写状态变更 or 改读中央审计日志 ｜来源: 2026-07-03 死码 D6 改判（勿删表，有活读取链）；2026-08-26 分流迁入 PRODUCTION-NOTES，2026-08-28 判为业务缺口迁回
 
