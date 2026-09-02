@@ -278,10 +278,6 @@ export class ApprovalsService {
     this.eventEmitter.emit(eventName, payload);
   }
 
-  private async projectGovernanceApprovalDecision(_approval: ApprovalCaseRow) {
-    // No-op: CT removed. Future workflow projections go here.
-  }
-
   private assertTraceConsistency(
     existingTraceId: string,
     incomingTraceId?: string | null,
@@ -786,7 +782,6 @@ export class ApprovalsService {
       this.toAuditActor(actor),
     );
     if (isFinalVote) {
-      await this.projectGovernanceApprovalDecision(updated);
       await this.emitApprovalEvent(ApprovalEvents.APPROVED, this.buildEventPayload(updated));
     }
     return this.mapApproval(updated, actor);
@@ -895,7 +890,6 @@ export class ApprovalsService {
       },
       this.toAuditActor(actor),
     );
-    await this.projectGovernanceApprovalDecision(updated);
     await this.emitApprovalEvent(ApprovalEvents.REJECTED, this.buildEventPayload(updated));
     return this.mapApproval(updated, actor);
   }
@@ -970,7 +964,6 @@ export class ApprovalsService {
       },
       this.toAuditActor(actor),
     );
-    await this.projectGovernanceApprovalDecision(updated);
     await this.emitApprovalEvent(ApprovalEvents.CANCELLED, this.buildEventPayload(updated));
     return this.mapApproval(updated, actor);
   }
@@ -1120,7 +1113,6 @@ export class ApprovalsService {
       subjects: this.approvalSubjects(updated),
       sourcePlatform: 'CRON',
     });
-    await this.projectGovernanceApprovalDecision(updated);
     await this.emitApprovalEvent(ApprovalEvents.EXPIRED, this.buildEventPayload(updated));
     return this.mapApproval(updated, this.systemActor());
   }

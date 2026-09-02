@@ -65,6 +65,7 @@
 ## 幂等 · 去重 · 回放
 
 - [2026-08-30] `generateReferenceNo` 单号后缀是同日 4 位随机数（万分之一命中空间），同日单量一高就会撞；`createRosterWithdraw` 已知这个坑并在 demo 脚本里加了重试，`createRosterDeposit` 没有——本轮花名册充值行数从 11 加到 18 后实测命中一次（`depositTransaction.depositNo` P2002），reset 重跑即过 ｜ `src/common/utils/no-generator.util.ts` + `scripts/demo-lib.ts createRosterDeposit` ｜ 对账破口场景铺全 Task 1 实跑 `demo:all` 命中
+- [2026-09-02] `approval_action_policies.allowRetry` 列写而不读：seed 恒写 `true` 且拿它核验基线完整性（`seed.base.ts` upsert + 校验），但 `ResolvedApprovalPolicy`（`approval-policy.service.ts`）从未把它读出来，审批服务/策略 API/前端全链路零消费方——重试机制本身未实现，列是纯遗留 ｜ `prisma/schema.prisma:583` + `src/modules/governance/approvals/approval-policy.service.ts` ｜ Task 27 审批单周边五件
 
 ## 并发与竞态
 

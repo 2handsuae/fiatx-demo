@@ -2,41 +2,15 @@ import { BadRequestException } from '@nestjs/common';
 
 /**
  * WAVE 1 STABLE CONTRACT
- * The following three action types are Wave 1 governed flows.
- * Their state machine, SoD rules, timeout policies, and execution
- * dispatch are stable public API — do not change their behavior
+ * The following action type is a Wave 1 governed flow.
+ * Its state machine, SoD rules, timeout policies, and execution
+ * dispatch are stable public API — do not change its behavior
  * without a Wave 1 regression pass.
  *
  *   AUDIT_EVIDENCE_EXPORT_APPROVAL  — audit evidence package export gate
- *
- * WAVE 2-3 PRE-REGISTERED
- * These types are registered for schema continuity before full feature impl:
- *   CASE_EVIDENCE_EXPORT_APPROVAL        — Wave 2-3
- *   ONBOARDING_FINAL_APPROVAL            — Wave 2 (kept until Phase 5 migration)
- *   POOL_SETTLEMENT_BATCH_APPROVAL       — Wave 5+
- *   TREASURY_CROSS_POOL_TRANSFER_APPROVAL — Wave 5+
- *
- * WAVE 3 (2026-04-09) ADDITIONS
- * Three new action types for firm-driven customer review redesign:
- *   RISK_RATING_MEDIUM_APPROVAL      — medium risk threshold signoff
- *   RISK_RATING_HIGH_APPROVAL        — high risk threshold signoff
- *   PEP_RELATIONSHIP_APPROVAL        — politically exposed person link signoff
  */
 export const ApprovalActionTypes = {
   AUDIT_EVIDENCE_EXPORT_APPROVAL: 'AUDIT_EVIDENCE_EXPORT_APPROVAL',
-  CASE_EVIDENCE_EXPORT_APPROVAL: 'CASE_EVIDENCE_EXPORT_APPROVAL',
-  ONBOARDING_FINAL_APPROVAL: 'ONBOARDING_FINAL_APPROVAL',
-  POOL_SETTLEMENT_BATCH_APPROVAL: 'POOL_SETTLEMENT_BATCH_APPROVAL',
-  TREASURY_CROSS_POOL_TRANSFER_APPROVAL: 'TREASURY_CROSS_POOL_TRANSFER_APPROVAL',
-  // ─── Wave 3 (2026-04-09) ─────────────────────
-  RISK_RATING_MEDIUM_APPROVAL: 'RISK_RATING_MEDIUM_APPROVAL',
-  RISK_RATING_HIGH_APPROVAL: 'RISK_RATING_HIGH_APPROVAL',
-  RISK_RATING_UPGRADE_PHASE1: 'RISK_RATING_UPGRADE_PHASE1',
-  RISK_RATING_MAINTENANCE_APPROVAL: 'RISK_RATING_MAINTENANCE_APPROVAL',
-  PEP_RELATIONSHIP_APPROVAL: 'PEP_RELATIONSHIP_APPROVAL',
-  // ─── Wave 3 Tier Upgrade (2026-04-13) ────────
-  RISK_RATING_MLRO_REVIEW: 'RISK_RATING_MLRO_REVIEW',
-  RISK_RATING_TIER_UPGRADE_APPROVAL: 'RISK_RATING_TIER_UPGRADE_APPROVAL',
   // ─── Wave 1 Governance Redesign (2026-04-30) ─
   ADMIN_INVITE_APPROVAL: 'ADMIN_INVITE_APPROVAL',
   ADMIN_ROLE_BINDING_CHANGE_APPROVAL: 'ADMIN_ROLE_BINDING_CHANGE_APPROVAL',
@@ -50,8 +24,6 @@ export const ApprovalActionTypes = {
   // ─── Credential Reset Governance (2026-05-10) ────
   ADMIN_PASSWORD_RESET: 'ADMIN_PASSWORD_RESET',
   ADMIN_MFA_RESET: 'ADMIN_MFA_RESET',
-  // ─── Asset Listing (2026-05-11) ────
-  ASSET_LISTING: 'ASSET_LISTING',
   // ─── Custodian Wallet Create (2026-05-13) ────
   CUSTODIAN_WALLET_CREATE: 'CUSTODIAN_WALLET_CREATE',
   // ─── Asset Suspension (2026-05-14) ────
@@ -203,62 +175,6 @@ export const DEFAULT_APPROVAL_POLICIES: Record<
     timeoutHours: 24,
     allowCancel: true,
   },
-  [ApprovalActionTypes.CASE_EVIDENCE_EXPORT_APPROVAL]: {
-    steps: [{ stepNo: 1, roles: ['DPO'] }, { stepNo: 2, roles: ['MLRO'] }],
-    timeoutHours: 24,
-    allowCancel: true,
-  },
-  [ApprovalActionTypes.ONBOARDING_FINAL_APPROVAL]: {
-    steps: [{ stepNo: 1, roles: ['MLRO'] }, { stepNo: 2, roles: ['SENIOR_MANAGEMENT_OFFICER'] }],
-    timeoutHours: 240,
-    allowCancel: true,
-  },
-  [ApprovalActionTypes.POOL_SETTLEMENT_BATCH_APPROVAL]: {
-    steps: [{ stepNo: 1, roles: ['SENIOR_MANAGEMENT_OFFICER'] }, { stepNo: 2, roles: ['TECH_OFFICER'] }],
-    timeoutHours: 24,
-    allowCancel: true,
-  },
-  [ApprovalActionTypes.TREASURY_CROSS_POOL_TRANSFER_APPROVAL]: {
-    steps: [{ stepNo: 1, roles: ['SENIOR_MANAGEMENT_OFFICER'] }, { stepNo: 2, roles: ['TECH_OFFICER'] }],
-    timeoutHours: 24,
-    allowCancel: true,
-  },
-  // ─── Wave 3 (2026-04-09) ─────────────────────
-  [ApprovalActionTypes.RISK_RATING_MEDIUM_APPROVAL]: {
-    steps: [{ stepNo: 1, roles: ['COMPLIANCE_OFFICER'] }],
-    timeoutHours: 168,
-    allowCancel: true,
-  },
-  [ApprovalActionTypes.RISK_RATING_HIGH_APPROVAL]: {
-    steps: [{ stepNo: 1, roles: ['MLRO'] }, { stepNo: 2, roles: ['SENIOR_MANAGEMENT_OFFICER'] }],
-    timeoutHours: 240,
-    allowCancel: true,
-  },
-  [ApprovalActionTypes.RISK_RATING_UPGRADE_PHASE1]: {
-    steps: [{ stepNo: 1, roles: ['MLRO'] }],
-    timeoutHours: 168,
-    allowCancel: true,
-  },
-  [ApprovalActionTypes.RISK_RATING_MAINTENANCE_APPROVAL]: {
-    steps: [{ stepNo: 1, roles: ['MLRO'] }],
-    timeoutHours: 168,
-    allowCancel: true,
-  },
-  [ApprovalActionTypes.PEP_RELATIONSHIP_APPROVAL]: {
-    steps: [{ stepNo: 1, roles: ['MLRO'] }, { stepNo: 2, roles: ['SENIOR_MANAGEMENT_OFFICER'] }],
-    timeoutHours: 240,
-    allowCancel: true,
-  },
-  [ApprovalActionTypes.RISK_RATING_MLRO_REVIEW]: {
-    steps: [{ stepNo: 1, roles: ['MLRO'] }],
-    timeoutHours: 168,
-    allowCancel: true,
-  },
-  [ApprovalActionTypes.RISK_RATING_TIER_UPGRADE_APPROVAL]: {
-    steps: [{ stepNo: 1, roles: ['MLRO'] }, { stepNo: 2, roles: ['SENIOR_MANAGEMENT_OFFICER'] }],
-    timeoutHours: 240,
-    allowCancel: true,
-  },
   // ─── Wave 1 Governance Redesign (2026-04-30) ─
   [ApprovalActionTypes.ADMIN_INVITE_APPROVAL]: {
     steps: [{ stepNo: 1, roles: ['CISO'] }],
@@ -306,12 +222,6 @@ export const DEFAULT_APPROVAL_POLICIES: Record<
   },
   [ApprovalActionTypes.ADMIN_MFA_RESET]: {
     steps: [{ stepNo: 1, roles: ['SENIOR_MANAGEMENT_OFFICER'] }],
-    timeoutHours: 48,
-    allowCancel: true,
-  },
-  // ─── Asset Listing (2026-05-11) ────
-  [ApprovalActionTypes.ASSET_LISTING]: {
-    steps: [{ stepNo: 1, roles: ['CISO'] }],
     timeoutHours: 48,
     allowCancel: true,
   },

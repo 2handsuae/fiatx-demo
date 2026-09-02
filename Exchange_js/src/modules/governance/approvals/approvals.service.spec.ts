@@ -225,14 +225,14 @@ describe('ApprovalsService', () => {
 
     prisma.approvalCase.findUnique.mockResolvedValue(
       buildApproval({
-        actionType: ApprovalActionTypes.RISK_RATING_HIGH_APPROVAL,
+        actionType: ApprovalActionTypes.DEPOSIT_SEIZE,
         status: ApprovalStatuses.PENDING,
         createdByUserId: 'maker-1',
       }),
     );
     prisma.approvalCase.update.mockResolvedValue(
       buildApproval({
-        actionType: ApprovalActionTypes.RISK_RATING_HIGH_APPROVAL,
+        actionType: ApprovalActionTypes.DEPOSIT_SEIZE,
         status: ApprovalStatuses.APPROVED,
         createdByUserId: 'maker-1',
         decisionByUserId: 'maker-1',
@@ -515,7 +515,7 @@ describe('ApprovalsService', () => {
       let caseRecord: any = {
         id: 'approval-ms-1',
         approvalNo: 'APR2603140002',
-        actionType: ApprovalActionTypes.RISK_RATING_HIGH_APPROVAL,
+        actionType: ApprovalActionTypes.DEPOSIT_SEIZE,
         entityRef: 'customer-ms-1',
         createdByUserId: 'maker-ms-1',
         createdByUserNo: 'USR-MAKER-MS-001',
@@ -573,7 +573,7 @@ describe('ApprovalsService', () => {
 
       // Mock policy for dual-role
       approvalPolicyService.getPolicy.mockResolvedValue({
-        actionType: ApprovalActionTypes.RISK_RATING_HIGH_APPROVAL,
+        actionType: ApprovalActionTypes.DEPOSIT_SEIZE,
         riskLevel: 'HIGH',
         checkerRoles: ['MLRO', 'SENIOR_MANAGEMENT_OFFICER'],
         timeoutHours: 168,
@@ -647,7 +647,7 @@ describe('ApprovalsService', () => {
       let caseRecord: any = {
         id: 'approval-ms-2',
         approvalNo: 'APR2603140003',
-        actionType: ApprovalActionTypes.PEP_RELATIONSHIP_APPROVAL,
+        actionType: ApprovalActionTypes.DEPOSIT_SEIZE,
         entityRef: 'customer-ms-2',
         createdByUserId: 'maker-ms-2',
         createdByUserNo: 'USR-MAKER-MS-002',
@@ -705,7 +705,7 @@ describe('ApprovalsService', () => {
 
       // Mock policy for PEP dual-role
       approvalPolicyService.getPolicy.mockResolvedValue({
-        actionType: ApprovalActionTypes.PEP_RELATIONSHIP_APPROVAL,
+        actionType: ApprovalActionTypes.DEPOSIT_SEIZE,
         riskLevel: 'HIGH',
         checkerRoles: ['MLRO', 'SENIOR_MANAGEMENT_OFFICER'],
         timeoutHours: 240,
@@ -784,7 +784,7 @@ describe('ApprovalsService', () => {
     const buildTwoStepCase = (overrides: Record<string, unknown> = {}) => ({
       id: 'approval-2step',
       approvalNo: 'APR2603140020',
-      actionType: ApprovalActionTypes.RISK_RATING_HIGH_APPROVAL,
+      actionType: ApprovalActionTypes.DEPOSIT_SEIZE,
       entityRef: 'customer-2step',
       createdByUserId: 'maker-2step',
       createdByUserNo: 'USR-MAKER-2STEP',
