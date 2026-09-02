@@ -46,6 +46,7 @@ describe('AdminReactivationWorkflowService', () => {
     };
     usersDomainService = {
       findById: jest.fn().mockResolvedValue(targetUser),
+      findByUserNo: jest.fn().mockResolvedValue(targetUser),
       reactivateUser: jest.fn(),
     };
     approvalsService = {

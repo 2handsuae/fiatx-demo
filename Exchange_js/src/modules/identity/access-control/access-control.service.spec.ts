@@ -32,9 +32,19 @@ describe('AccessControlService', () => {
     service = new AccessControlService(prisma as PrismaService);
   });
 
-  it('第一批 · V1 域打点上收：access-control.service.ts 不再直接写审计', () => {
-    const src = require('fs').readFileSync(`${__dirname}/access-control.service.ts`, 'utf8');
-    expect(src).not.toMatch(/recordByActor|recordSystem/);
+  it('第一批 · V1 域打点上收：replaceUserRoles 成功路径不触碰审计协作者（构造函数只收 prisma 一个依赖——若源码里偷偷调用 this.xxx.recordByActor/recordSystem，这里会因 undefined 属性访问直接抛错）', async () => {
+    prisma.user.findFirst.mockResolvedValue({ id: 'user-1', userNo: 'ADM2501010099', email: 'ops@fiatx.com' });
+    prisma.role.findMany.mockResolvedValue([{ id: 'role-1', code: 'OPS_VIEWER' }]);
+    prisma.userRole.findMany.mockResolvedValue([{ role: { code: 'OPS_VIEWER' } }]);
+
+    const result = await service.replaceUserRoles(
+      'user-1',
+      ['OPS_VIEWER'],
+      { actorId: 'admin-1', actorRole: 'SUPER_ADMIN', actorNo: 'ADMIN-001' },
+    );
+
+    expect(result).toEqual({ userId: 'user-1', userNo: 'ADM2501010099', roles: ['OPS_VIEWER'] });
+    expect(prisma.$transaction).toHaveBeenCalled();
   });
 
   it('rejects role replacement for deleted admin users', async () => {

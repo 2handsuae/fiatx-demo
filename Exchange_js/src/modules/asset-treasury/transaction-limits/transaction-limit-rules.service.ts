@@ -126,10 +126,10 @@ export class TransactionLimitRulesService {
     });
   }
 
-  attachApprovalCase(ruleNo: string, approvalCaseId: string) {
+  attachApprovalCase(ruleNo: string, approvalCaseId: string, approvalCaseNo: string) {
     return this.prisma.transactionLimitRule.update({
       where: { ruleNo },
-      data: { approvalCaseId },
+      data: { approvalCaseId, approvalCaseNo },
     });
   }
 

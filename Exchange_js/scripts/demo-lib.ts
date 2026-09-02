@@ -616,17 +616,14 @@ async function driveDispositionLeg(ctx: DemoCtx, depositId: string, legSeq: numb
   }
 }
 
-/** Checker step(s) of a maker-checker disposition: looks up the approval case's
- *  internal id from its approvalNo (the real approve endpoint takes the id, not
- *  the business-facing approvalNo — see scripts/demo-mlro.ts), then logs in for
- *  real + approves once per required step, in order (SEIZE needs two distinct
- *  real logins — SENIOR_MANAGEMENT_OFFICER then MLRO, four-eyes). */
+/** Checker step(s) of a maker-checker disposition: logs in for real + approves
+ *  once per required step, in order (SEIZE needs two distinct real logins —
+ *  SENIOR_MANAGEMENT_OFFICER then MLRO, four-eyes). The approve endpoint takes
+ *  approvalNo directly (Task 17) — no internal-id lookup needed. */
 async function makerCheckerApprove(ctx: DemoCtx, approvalNo: string, logins: Array<() => Promise<string>>): Promise<void> {
-  const kase = await ctx.prisma.approvalCase.findUnique({ where: { approvalNo } });
-  if (!kase) throw new Error(`approval case ${approvalNo} not found`);
   for (const login of logins) {
     const token = await login();
-    await approveApproval(ctx.apiBase, token, kase.id);
+    await approveApproval(ctx.apiBase, token, approvalNo);
   }
 }
 

@@ -14,6 +14,7 @@ import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { AdminPermissionGuard } from '../../identity/access-control/admin-permission.guard';
 import { RequirePermissions } from '../../identity/access-control/require-permissions.decorator';
 import { buildPermissionCode } from '../../identity/access-control/permission-code.util';
+import { RBAC_ROLE_DEFINITIONS } from '../../identity/access-control/rbac.catalog';
 import { ApprovalActorContext, PolicyStepConfig } from './constants/approval.constants';
 import { ApprovalPolicyService } from './approval-policy.service';
 import { ApprovalPolicyChangeWorkflowService } from './approval-policy-change-workflow.service';
@@ -43,11 +44,16 @@ export class ApprovalPolicyController {
   @Get()
   @RequirePermissions(buildPermissionCode('GET', '/admin/governance/approval-policies'))
   @ApiOperation({ summary: 'List all V1 approval policies (merged defaults + DB overrides)' })
-  listPolicies(@Req() req: any) {
+  async listPolicies(@Req() req: any) {
     if (req.user?.type !== 'ADMIN') {
       throw new ForbiddenException('Admin token required');
     }
-    return this.policyService.listV1Policies();
+    const policies = await this.policyService.listV1Policies();
+    const availableRoles = RBAC_ROLE_DEFINITIONS.filter((r) => r.code !== 'SUPER_ADMIN').map((r) => ({
+      code: r.code,
+      name: r.name,
+    }));
+    return { policies, availableRoles };
   }
 
   // ─── Change Request Operations ────────────────────

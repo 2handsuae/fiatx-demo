@@ -25,6 +25,7 @@ describe('AdminRoleBindingChangeWorkflowService', () => {
       adminRoleChangeRequest: {
         create: jest.fn(),
         update: jest.fn(),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
         findFirst: jest.fn(),
         findMany: jest.fn(),
         count: jest.fn(),
@@ -114,13 +115,18 @@ describe('AdminRoleBindingChangeWorkflowService', () => {
       expect(call[0].actionDomain).toBe('IAM');
       expect(call[0].primarySubjectType).toBe('ACCESS_CONTROL');
       expect(call[0].correlationId).toBeTruthy();
+      // 主体号同轴：PRIMARY 是 requestNo（已在 primarySubjectNo 上），本次绑定变更
+      // 牵连的每个角色码补一行 RELATED——不重复传 PRIMARY。
+      expect(call[0].subjects).toEqual([
+        { subjectType: 'ACCESS_CONTROL', subjectNo: 'MLRO', subjectRole: 'RELATED' },
+      ]);
 
       // START：铸造的 correlationId 同一份传给了 approvalsService.createAndSubmit
       // 的 traceId（ApprovalCase.traceId 是过渡期承载列），供 APPLIED/CANCELLED 读回。
       expect(approvalsService.createAndSubmit).toHaveBeenCalledWith(
         expect.objectContaining({
           actionType: 'ADMIN_ROLE_BINDING_CHANGE_APPROVAL',
-          entityRef: 'req-1',
+          entityRef: 'RCR-2605050001',
           traceId: call[0].correlationId,
         }),
         expect.objectContaining({ reason: 'promotion', traceId: call[0].correlationId }),
@@ -167,8 +173,11 @@ describe('AdminRoleBindingChangeWorkflowService', () => {
         ['MLRO'],
         expect.objectContaining({ actorId: 'SYSTEM' }),
       );
-      expect(prisma.adminRoleChangeRequest.update).toHaveBeenCalledWith(
+      // 法二·from 过滤：终态不被二次事件覆写，write 改用 updateMany + where.status
+      // 显式限定来源态，count 检查放在 executeRoleChange 内部（source 已改，此处验证调用形状）。
+      expect(prisma.adminRoleChangeRequest.updateMany).toHaveBeenCalledWith(
         expect.objectContaining({
+          where: expect.objectContaining({ id: 'req-1', status: 'PENDING_APPROVAL' }),
           data: expect.objectContaining({ status: 'APPROVED' }),
         }),
       );
@@ -184,6 +193,9 @@ describe('AdminRoleBindingChangeWorkflowService', () => {
       // INHERIT + 异步驱动：correlationId 原样继承事件的 traceId，causationId 指向触发它的审批单。
       expect(call[0].correlationId).toBe('trace-1');
       expect(call[0].causationId).toBe('apr-1');
+      expect(call[0].subjects).toEqual([
+        { subjectType: 'ACCESS_CONTROL', subjectNo: 'MLRO', subjectRole: 'RELATED' },
+      ]);
     });
 
     it('marks FAILED 且 ADMIN_ROLE_CHANGE_APPLIED 改用 outcome=FAILED 记录（退役码 CHANGE_APPLY_FAILED 收编）', async () => {
@@ -214,8 +226,11 @@ describe('AdminRoleBindingChangeWorkflowService', () => {
 
       await service.handleApprovalDecided(event);
 
-      expect(prisma.adminRoleChangeRequest.update).toHaveBeenCalledWith(
+      // 法二·from 过滤：catch 块的 FAILED 写入也改用 updateMany + where.status，
+      // 与成功路径同款处理（不再是裸 update 无 from 过滤）。
+      expect(prisma.adminRoleChangeRequest.updateMany).toHaveBeenCalledWith(
         expect.objectContaining({
+          where: expect.objectContaining({ id: 'req-1', status: 'PENDING_APPROVAL' }),
           data: expect.objectContaining({
             status: 'FAILED',
             failureReason: expect.stringContaining('cannot be assigned'),
@@ -231,6 +246,13 @@ describe('AdminRoleBindingChangeWorkflowService', () => {
       expect(call[0].afterData).toBeDefined();
       expect(call[0].approvalNo).toBe('APR-1');
       expect(call[0].causationId).toBe('apr-1');
+      // 铁律1·操作必留痕：非成功记录被合同闸(assertActionSpec)强制要求 reasonCode，
+      // 漏带就会在运行时被拒收——状态已变但审计零留痕。这里断言调用入参真的带上了。
+      expect(call[0].reasonCode).toBe('EXECUTION_FAILED');
+      expect(call[0].subjects).toEqual([
+        { subjectType: 'ACCESS_CONTROL', subjectNo: 'MLRO', subjectRole: 'RELATED' },
+        { subjectType: 'ACCESS_CONTROL', subjectNo: 'CISO', subjectRole: 'RELATED' },
+      ]);
     });
   });
 
@@ -252,12 +274,15 @@ describe('AdminRoleBindingChangeWorkflowService', () => {
         id: 'req-1',
         requestNo: 'RCR-1',
         status: 'PENDING_APPROVAL',
+        proposedRoleCodes: '["MLRO"]',
       });
 
       await service.handleApprovalDecided(event);
 
-      expect(prisma.adminRoleChangeRequest.update).toHaveBeenCalledWith(
+      // 法二·from 过滤：executeTermination 的 write 也改用 updateMany + where.status。
+      expect(prisma.adminRoleChangeRequest.updateMany).toHaveBeenCalledWith(
         expect.objectContaining({
+          where: expect.objectContaining({ id: 'req-1', status: 'PENDING_APPROVAL' }),
           data: expect.objectContaining({ status: 'REJECTED' }),
         }),
       );
@@ -269,6 +294,38 @@ describe('AdminRoleBindingChangeWorkflowService', () => {
       expect(call[0].reason).toBeTruthy();
       expect(call[0].correlationId).toBe('trace-1');
       expect(call[0].causationId).toBe('apr-1');
+      expect(call[0].subjects).toEqual([
+        { subjectType: 'ACCESS_CONTROL', subjectNo: 'MLRO', subjectRole: 'RELATED' },
+      ]);
+    });
+
+    it('request.status 非 PENDING_APPROVAL 时抛 Invalid transition（断言 from 绑定真实读值，不是字面量）', async () => {
+      const event: ApprovalDecidedEvent = {
+        decision: 'DECLINED',
+        actionType: 'ADMIN_ROLE_BINDING_CHANGE_APPROVAL',
+        entityRef: 'req-1',
+        approvalId: 'apr-1',
+        approvalNo: 'APR-1',
+        traceId: 'trace-1',
+        workflowType: 'ADMIN_ROLE_BINDING_CHANGE',
+        decisionReason: 'Scope too broad',
+        metadata: {},
+      };
+
+      // 单已经是 APPROVED（例如已被另一次事件先推走）——若断言的 from 仍是硬编码
+      // 'PENDING_APPROVAL' 字面量，这里会误判合法而放行；断言绑定真实读值才会拦下来。
+      prisma.adminRoleChangeRequest.findFirst.mockResolvedValue({
+        id: 'req-1',
+        requestNo: 'RCR-1',
+        status: 'APPROVED',
+        proposedRoleCodes: '["MLRO"]',
+      });
+
+      await expect(service.handleApprovalDecided(event)).rejects.toThrow(
+        'Invalid transition',
+      );
+
+      expect(prisma.adminRoleChangeRequest.updateMany).not.toHaveBeenCalled();
     });
   });
 
@@ -290,12 +347,14 @@ describe('AdminRoleBindingChangeWorkflowService', () => {
         id: 'req-1',
         requestNo: 'RCR-1',
         status: 'PENDING_APPROVAL',
+        proposedRoleCodes: '["MLRO"]',
       });
 
       await service.handleApprovalDecided(event);
 
-      expect(prisma.adminRoleChangeRequest.update).toHaveBeenCalledWith(
+      expect(prisma.adminRoleChangeRequest.updateMany).toHaveBeenCalledWith(
         expect.objectContaining({
+          where: expect.objectContaining({ id: 'req-1', status: 'PENDING_APPROVAL' }),
           data: expect.objectContaining({ status: 'CANCELLED' }),
         }),
       );
@@ -327,12 +386,14 @@ describe('AdminRoleBindingChangeWorkflowService', () => {
         id: 'req-1',
         requestNo: 'RCR-1',
         status: 'PENDING_APPROVAL',
+        proposedRoleCodes: '["MLRO"]',
       });
 
       await service.handleApprovalDecided(event);
 
-      expect(prisma.adminRoleChangeRequest.update).toHaveBeenCalledWith(
+      expect(prisma.adminRoleChangeRequest.updateMany).toHaveBeenCalledWith(
         expect.objectContaining({
+          where: expect.objectContaining({ id: 'req-1', status: 'PENDING_APPROVAL' }),
           data: expect.objectContaining({ status: 'EXPIRED' }),
         }),
       );

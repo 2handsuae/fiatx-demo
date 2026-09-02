@@ -2,6 +2,7 @@ import { BadRequestException, HttpException, NotFoundException } from '@nestjs/c
 import { ConfigService } from '@nestjs/config';
 import { AdminInvitationsService } from './admin-invitations.service';
 import { PrismaService } from '../../../core/prisma/prisma.service';
+import { UserStatusAction } from './constants/user-status-transitions.constant';
 
 describe('AdminInvitationsService', () => {
   let service: AdminInvitationsService;
@@ -11,6 +12,7 @@ describe('AdminInvitationsService', () => {
   let txAdminInvitationUpdate: jest.Mock;
   let txUserFindUnique: jest.Mock;
   let txUserUpdate: jest.Mock;
+  let usersDomainService: any;
 
   beforeEach(() => {
     txAdminInvitationCreate = jest.fn();
@@ -45,9 +47,19 @@ describe('AdminInvitationsService', () => {
       ),
     };
 
-    service = new AdminInvitationsService(prisma as PrismaService, {
-      get: jest.fn().mockReturnValue('http://localhost:3001'),
-    } as unknown as ConfigService);
+    // UsersDomainService 是协作者，非本套件的被测对象——它自己的迁移表校验逻辑
+    // 由 users.domain.service.spec.ts 覆盖，这里只 mock 掉、断言调用参数。
+    usersDomainService = {
+      applyUserTransition: jest.fn().mockResolvedValue({ fromStatus: 'INVITE_SENT', toStatus: 'ACTIVE' }),
+    };
+
+    service = new AdminInvitationsService(
+      prisma as PrismaService,
+      {
+        get: jest.fn().mockReturnValue('http://localhost:3001'),
+      } as unknown as ConfigService,
+      usersDomainService,
+    );
   });
 
   it('第一批 · V1 域打点上收：admin-invitations.service.ts 不再直接写审计', () => {
@@ -256,6 +268,18 @@ describe('AdminInvitationsService', () => {
         data: expect.objectContaining({ consumedAt: expect.any(Date) }),
       }),
     );
+    // Task 9：status 只经迁移表走——本方法自己不再直写 status。
+    expect(usersDomainService.applyUserTransition).toHaveBeenCalledWith(
+      'user-1',
+      UserStatusAction.ACCEPT,
+      {},
+      expect.anything(),
+    );
+    expect(txUserUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.not.objectContaining({ status: expect.anything() }),
+      }),
+    );
   });
 
   it('邀请记录本身没有 traceId 时 correlationId 原样为 undefined（不 ?? randomUUID() 兜底冒充 INHERIT）', async () => {
@@ -270,7 +294,10 @@ describe('AdminInvitationsService', () => {
         userNo: 'ADM2603220001',
         email: 'inactive-admin@fiatx.com',
         role: 'OPS',
-        status: 'INACTIVE',
+        // Task 9：acceptInvitation 事务内改经 applyUserTransition 迁移表走 status——
+        // 唯一真实可达的 fromStatus 是 INVITE_SENT（executeInviteDispatch 派发邀请前
+        // 已把 user 转到这一态），INACTIVE 不在表内、不是这条路径的真实前置状态。
+        status: 'INVITE_SENT',
         deletedAt: null,
       },
     });

@@ -32,6 +32,10 @@ interface AssetData {
   decimals: number;
   description: string | null;
   status: string;
+  minDepositAmount: number | null;
+  maxDepositAmount: number | null;
+  minWithdrawAmount: number | null;
+  maxWithdrawAmount: number | null;
   depositEnabled: boolean;
   withdrawalEnabled: boolean;
 }
@@ -56,6 +60,10 @@ const AssetEdit = () => {
   /* Editable fields */
   const [formData, setFormData] = useState({
     description: '',
+    minDepositAmount: '' as number | string,
+    maxDepositAmount: '' as number | string,
+    minWithdrawAmount: '' as number | string,
+    maxWithdrawAmount: '' as number | string,
     depositEnabled: true,
     withdrawalEnabled: true,
   });
@@ -88,6 +96,10 @@ const AssetEdit = () => {
 
         setFormData({
           description: data.description || '',
+          minDepositAmount: data.minDepositAmount ?? '',
+          maxDepositAmount: data.maxDepositAmount ?? '',
+          minWithdrawAmount: data.minWithdrawAmount ?? '',
+          maxWithdrawAmount: data.maxWithdrawAmount ?? '',
           depositEnabled: data.depositEnabled ?? true,
           withdrawalEnabled: data.withdrawalEnabled ?? true,
         });
@@ -125,6 +137,10 @@ const AssetEdit = () => {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             description: formData.description || undefined,
+            minDepositAmount: formData.minDepositAmount === '' ? undefined : formData.minDepositAmount,
+            maxDepositAmount: formData.maxDepositAmount === '' ? undefined : formData.maxDepositAmount,
+            minWithdrawAmount: formData.minWithdrawAmount === '' ? undefined : formData.minWithdrawAmount,
+            maxWithdrawAmount: formData.maxWithdrawAmount === '' ? undefined : formData.maxWithdrawAmount,
             depositEnabled: formData.depositEnabled,
             withdrawalEnabled: formData.withdrawalEnabled,
           }),
@@ -236,7 +252,32 @@ const AssetEdit = () => {
             </div>
           </fieldset>
 
-          {/* ③ Toggles */}
+          {/* ③ Trading Limits */}
+          <fieldset className="space-y-4">
+            <p className="font-mono text-[8.5px] font-semibold uppercase tracking-[0.16em] text-adm-t3 border-b border-adm-border pb-2">
+              Trading Limits
+            </p>
+            <div className="grid grid-cols-2 gap-x-6 gap-y-4">
+              <div>
+                <Label>Min Deposit Amount</Label>
+                <input type="number" name="minDepositAmount" value={formData.minDepositAmount} onChange={handleChange} min={0} step="any" className={fi} />
+              </div>
+              <div>
+                <Label>Max Deposit Amount</Label>
+                <input type="number" name="maxDepositAmount" value={formData.maxDepositAmount} onChange={handleChange} min={0} step="any" className={fi} />
+              </div>
+              <div>
+                <Label>Min Withdraw Amount</Label>
+                <input type="number" name="minWithdrawAmount" value={formData.minWithdrawAmount} onChange={handleChange} min={0} step="any" className={fi} />
+              </div>
+              <div>
+                <Label>Max Withdraw Amount</Label>
+                <input type="number" name="maxWithdrawAmount" value={formData.maxWithdrawAmount} onChange={handleChange} min={0} step="any" className={fi} />
+              </div>
+            </div>
+          </fieldset>
+
+          {/* ④ Toggles */}
           <fieldset className="space-y-4">
             <p className="font-mono text-[8.5px] font-semibold uppercase tracking-[0.16em] text-adm-t3 border-b border-adm-border pb-2">
               Feature Flags
@@ -253,7 +294,7 @@ const AssetEdit = () => {
             </div>
           </fieldset>
 
-          {/* ④ Submit */}
+          {/* ⑤ Submit */}
           <div className="flex justify-end gap-3 border-t border-adm-border pt-4">
             <button type="button" onClick={() => navigate(`/admin/assets/${assetNoParam}`)} className={adminButtonClass('modalCancel')}>
               Cancel

@@ -353,11 +353,11 @@ describe('Deposit money arcs (e2e, Task A6)', () => {
     let actions = await auditActionsFor(deposit.id);
     expect(actions).toContain('DEPOSIT_RETURN_REQUESTED');
 
-    const approvalCase = await latestApprovalCase(ApprovalActionTypes.DEPOSIT_RETURN, deposit.id);
+    const approvalCase = await latestApprovalCase(ApprovalActionTypes.DEPOSIT_RETURN, deposit.depositNo);
     expect(approvalCase).toBeTruthy();
     expect(approvalCase!.status).toBe('PENDING');
 
-    await approvalsService.approve(approvalCase!.id, { reason: 'e2e approve' }, makeActor('E2E_MLRO_RETURN_1', 'MLRO'));
+    await approvalsService.approve(approvalCase!.approvalNo, { reason: 'e2e approve' }, makeActor('E2E_MLRO_RETURN_1', 'MLRO'));
     await waitUntil(async () => (await finalStatusOf(deposit.id)) === DepositTransactionStatus.RETURNING);
 
     expect(await finalStatusOf(deposit.id)).toBe(DepositTransactionStatus.RETURNING);
@@ -396,14 +396,14 @@ describe('Deposit money arcs (e2e, Task A6)', () => {
       makeActor('E2E_SEIZE_MAKER_1', 'OPS_OFFICER'),
     );
 
-    const approvalCase = await latestApprovalCase(ApprovalActionTypes.DEPOSIT_SEIZE, deposit.id);
+    const approvalCase = await latestApprovalCase(ApprovalActionTypes.DEPOSIT_SEIZE, deposit.depositNo);
     expect(approvalCase).toBeTruthy();
     expect(approvalCase!.status).toBe('PENDING');
     expect(approvalCase!.steps).toHaveLength(2);
 
     // Step 1: SENIOR_MANAGEMENT_OFFICER — SoD requires a DIFFERENT actor from step 2.
     await approvalsService.approve(
-      approvalCase!.id,
+      approvalCase!.approvalNo,
       { reason: 'e2e step1' },
       makeActor('E2E_SMO_1', 'SENIOR_MANAGEMENT_OFFICER'),
     );
@@ -414,7 +414,7 @@ describe('Deposit money arcs (e2e, Task A6)', () => {
 
     // Step 2: MLRO — distinct actor from step 1.
     await approvalsService.approve(
-      approvalCase!.id,
+      approvalCase!.approvalNo,
       { reason: 'e2e step2' },
       makeActor('E2E_MLRO_SEIZE_1', 'MLRO'),
     );
@@ -472,12 +472,12 @@ describe('Deposit money arcs (e2e, Task A6)', () => {
       makeActor('E2E_UNFREEZE_MAKER_1', 'COMPLIANCE_OFFICER'),
     );
 
-    const approvalCase = await latestApprovalCase(ApprovalActionTypes.DEPOSIT_UNFREEZE, deposit.id);
+    const approvalCase = await latestApprovalCase(ApprovalActionTypes.DEPOSIT_UNFREEZE, deposit.depositNo);
     expect(approvalCase).toBeTruthy();
     expect(approvalCase!.status).toBe('PENDING');
 
     await approvalsService.approve(
-      approvalCase!.id,
+      approvalCase!.approvalNo,
       { reason: 'e2e approve' },
       makeActor('E2E_MLRO_UNFREEZE_1', 'MLRO'),
     );
@@ -505,11 +505,11 @@ describe('Deposit money arcs (e2e, Task A6)', () => {
     const before = await suspenseTotal();
 
     await workflow.applyKytVerdict(deposit.id, { verdict: 'rejected', dispoTag: 'RETURN_TO_SENDER' });
-    const approvalCase = await latestApprovalCase(ApprovalActionTypes.DEPOSIT_RETURN, deposit.id);
+    const approvalCase = await latestApprovalCase(ApprovalActionTypes.DEPOSIT_RETURN, deposit.depositNo);
     expect(approvalCase).toBeTruthy();
     expect(approvalCase!.status).toBe('PENDING');
 
-    await approvalsService.reject(approvalCase!.id, { reason: 'e2e reject' }, makeActor('E2E_MLRO_REJECT_1', 'MLRO'));
+    await approvalsService.reject(approvalCase!.approvalNo, { reason: 'e2e reject' }, makeActor('E2E_MLRO_REJECT_1', 'MLRO'));
 
     expect(await finalStatusOf(deposit.id)).toBe(DepositTransactionStatus.MANUAL_CHECKING);
     const actions = await auditActionsFor(deposit.id);
@@ -534,8 +534,8 @@ describe('Deposit money arcs (e2e, Task A6)', () => {
     await preBookSuspense(deposit, amountBigint);
 
     await workflow.applyKytVerdict(deposit.id, { verdict: 'rejected', dispoTag: 'RETURN_TO_SENDER' });
-    const approvalCase = await latestApprovalCase(ApprovalActionTypes.DEPOSIT_RETURN, deposit.id);
-    await approvalsService.approve(approvalCase!.id, { reason: 'e2e approve' }, makeActor('E2E_MLRO_RETRY_1', 'MLRO'));
+    const approvalCase = await latestApprovalCase(ApprovalActionTypes.DEPOSIT_RETURN, deposit.depositNo);
+    await approvalsService.approve(approvalCase!.approvalNo, { reason: 'e2e approve' }, makeActor('E2E_MLRO_RETRY_1', 'MLRO'));
     await waitUntil(async () => (await finalStatusOf(deposit.id)) === DepositTransactionStatus.RETURNING);
     expect(await finalStatusOf(deposit.id)).toBe(DepositTransactionStatus.RETURNING);
 

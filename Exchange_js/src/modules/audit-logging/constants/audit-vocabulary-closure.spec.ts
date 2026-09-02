@@ -2,7 +2,6 @@ import * as fs from 'fs';
 import * as path from 'path';
 import {
   AuditActions,
-  AuditGovernanceActions,
   V1_AUDIT_ACTIONS,
   V4_DEPOSIT_AUDIT_ACTIONS,
   V5_WITHDRAW_AUDIT_ACTIONS,
@@ -15,17 +14,19 @@ import {
 /**
  * 站7 封册守则（2026-08-27，Phase 4 末站之锚）——词表从此永不再散。
  *
- * 三层闭合：
+ * 两层闭合：
  *   ① 平面表归籍：AuditActions 每个串键要么在六本名册、要么在退役闸——无籍即红；
- *   ② 附册封存：AuditGovernanceActions（V3 财务配置域遗留词汇，嵌套组形态）按
- *      当日实况整册冻结——多一词少一词都红。正式入册（撞名族改名+四属性）是
- *      未来 V3 站的活（BACKLOG 在案），冻结保证在那之前没人往里塞新词；
- *   ③ 写点闭合（源扫描）：全仓生产代码引用的每个动作词 ∈ 六册 ∪ 附册，
- *      且绝不引用退役词。扫描是本守则的执法手段，不是功能绿灯——功能对错
- *      由各域行为测试负责（review-rubric 的"文本扫描自证"禁令针对后者）。
+ *   ② 写点闭合（源扫描）：全仓生产代码引用的每个动作词 ∈ 六册，且绝不引用退役词。
+ *      扫描是本守则的执法手段，不是功能绿灯——功能对错由各域行为测试负责
+ *      （review-rubric 的"文本扫描自证"禁令针对后者）。
  *
  * 新词入册流程：先在对应 V*_AUDIT_ACTIONS 名册登记四属性，再接写点——
  * 顺序反了本守则当场红。
+ *
+ * 曾有第三层「附册封存」：一个 V3 财务配置域遗留词汇的嵌套组常量，按当日实况整册
+ * 冻结（多一词少一词都红），保证正式入册前没人往里塞新词。2026-09-02（Task 15
+ * 收尾）随最后两个活词（常规登录 MFA 二次校验）迁入 V1_AUDIT_ACTIONS 合同，附册
+ * 本体已删除——三层闭合收窄为两层，不再需要单独测试一个不存在的常量。
  */
 const REGISTRIES: Record<string, Record<string, unknown>> = {
   V1_AUDIT_ACTIONS,
@@ -40,15 +41,6 @@ const registered = new Set<string>(
   Object.values(REGISTRIES).flatMap((r) => Object.keys(r)),
 );
 const deprecated = new Set<string>(DEPRECATED_AUDIT_ACTIONS);
-
-function annexValues(node: unknown): string[] {
-  if (typeof node === 'string') return [node];
-  if (node && typeof node === 'object') {
-    return Object.values(node as Record<string, unknown>).flatMap(annexValues);
-  }
-  return [];
-}
-const annex = new Set<string>(annexValues(AuditGovernanceActions));
 
 describe('站7 · 词表封册守则', () => {
   it('① 平面表归籍：每个串键 ∈ 六册 ∪ 退役闸，无籍即红', () => {
@@ -74,11 +66,7 @@ describe('站7 · 词表封册守则', () => {
     expect([...registered].filter((k) => deprecated.has(k))).toEqual([]);
   });
 
-  it('③ 附册封存：V3 配置域遗留词汇整册冻结（正式入册前只出不进）', () => {
-    expect([...annex].sort()).toMatchSnapshot('v3-config-annex');
-  });
-
-  it('④ 写点闭合：生产代码引用的动作词 ∈ 六册 ∪ 附册，退役词零引用', () => {
+  it('③ 写点闭合：生产代码引用的动作词 ∈ 六册，退役词零引用', () => {
     const srcRoot = path.resolve(__dirname, '../../..');
     const files: string[] = [];
     const walk = (dir: string) => {
@@ -107,18 +95,19 @@ describe('站7 · 词表封册守则', () => {
       // 是别家字段的合法值,不在本守则管辖。
       for (const m of src.matchAll(/\baction:\s*'([A-Z][A-Z0-9]*_[A-Z0-9_]+)'/g)) {
         const w = m[1];
-        if (!registered.has(w) && !annex.has(w)) {
+        if (!registered.has(w)) {
           offenders.push(`${path.relative(srcRoot, f)}: '${w}'`);
-        }
-      }
-      for (const m of src.matchAll(/\bAuditGovernanceActions\.([A-Z][A-Z0-9_]+)(?:\.([A-Z][A-Z0-9_]+))?\b/g)) {
-        const group = (AuditGovernanceActions as any)[m[1]];
-        const leaf = m[2] ? group?.[m[2]] : group;
-        if (typeof leaf !== 'string' || !annex.has(leaf)) {
-          offenders.push(`${path.relative(srcRoot, f)}: AuditGovernanceActions.${m[1]}${m[2] ? '.' + m[2] : ''}`);
         }
       }
     }
     expect(offenders).toEqual([]);
+  });
+
+  it('④ 审计码全局唯一且禁裸名——不许再出现跨族撞车', () => {
+    const contracted = Object.values(REGISTRIES).flatMap((r) => Object.keys(r));
+    expect(new Set(contracted).size).toBe(contracted.length);
+    const BARE = ['CREATION_REQUESTED', 'CREATION_APPLIED', 'CHANGE_REQUESTED', 'CHANGE_APPLIED',
+                  'ACTIVATION_REQUESTED', 'TAG_ASSIGNED', 'CREATE_REQUESTED', 'ADDRESS_REGISTERED'];
+    expect(contracted.filter((c) => BARE.includes(c))).toEqual([]);
   });
 });

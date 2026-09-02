@@ -27,6 +27,13 @@ interface PolicyView {
   editable: boolean;
 }
 
+interface RoleOption {
+  code: string;
+  name: string;
+}
+
+// 覆盖全部现役 V1 策略键（approval.constants.ts V1_APPROVAL_ACTION_TYPES，12 死策略已退役）。
+// 缺席回退原键名，见 label()。
 const ACTION_TYPE_LABELS: Record<string, string> = {
   ADMIN_INVITE_APPROVAL: 'Admin Invite',
   ADMIN_ROLE_BINDING_CHANGE_APPROVAL: 'Role Binding Change',
@@ -34,21 +41,34 @@ const ACTION_TYPE_LABELS: Record<string, string> = {
   ADMIN_REACTIVATION_APPROVAL: 'Account Reactivation',
   AUDIT_EVIDENCE_EXPORT_APPROVAL: 'Evidence Export',
   APPROVAL_POLICY_CHANGE: 'Approval Policy Change',
+  ROLE_DEFINITION_CREATE: 'Role Definition Create',
+  ROLE_DEFINITION_MODIFY: 'Role Definition Modify',
+  ADMIN_PASSWORD_RESET: 'Password Reset',
+  ADMIN_MFA_RESET: 'MFA Reset',
+  ASSET_ACTIVATION: 'Asset Activation',
+  CUSTODIAN_WALLET_CREATE: 'Custodian Wallet Create',
+  ASSET_SUSPENSION: 'Asset Suspension',
+  ASSET_REACTIVATION: 'Asset Reactivation',
+  TRANSACTION_LIMIT_CHANGE: 'Transaction Limit Change',
+  TRANSACTION_LIMIT_CREATION: 'Transaction Limit Creation',
+  WITHDRAWAL_FEE_LEVEL_CREATION: 'Withdrawal Fee Level Creation',
+  WITHDRAWAL_FEE_LEVEL_CHANGE: 'Withdrawal Fee Level Change',
+  SWAP_FEE_LEVEL_CREATION: 'Swap Fee Level Creation',
+  SWAP_FEE_LEVEL_CHANGE: 'Swap Fee Level Change',
+  DEPOSIT_CONFISCATION: 'Deposit Confiscation',
+  DEPOSIT_RETURN: 'Deposit Return',
+  DEPOSIT_SEIZE: 'Deposit Seize',
+  DEPOSIT_UNFREEZE: 'Deposit Unfreeze',
+  WITHDRAW_UNFREEZE: 'Withdraw Unfreeze',
+  WITHDRAW_SANCTION_REFUND: 'Withdraw Sanction Refund',
+  RECON_ADJUSTMENT_POST: 'Recon Adjustment Post',
 };
-
-const AVAILABLE_ROLES = [
-  'CISO',
-  'MLRO',
-  'SENIOR_MANAGEMENT_OFFICER',
-  'TECH_OFFICER',
-  'COMPLIANCE_OFFICER',
-  'DPO',
-];
 
 export default function ApprovalPoliciesPage() {
   const navigate = useNavigate();
   const { hasAnyPermission } = useAdminSession();
   const [policies, setPolicies] = useState<PolicyView[]>([]);
+  const [availableRoles, setAvailableRoles] = useState<RoleOption[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -67,7 +87,9 @@ export default function ApprovalPoliciesPage() {
     try {
       const res = await adminFetch(`${import.meta.env.VITE_API_URL}/admin/governance/approval-policies`);
       if (!res.ok) throw new Error(await getApiErrorMessage(res, 'Failed to load policies.'));
-      setPolicies(await res.json());
+      const data = await res.json();
+      setPolicies(data.policies);
+      setAvailableRoles(data.availableRoles);
     } catch (err) {
       if (err instanceof AdminSessionError) return;
       if (err instanceof AdminPermissionError) {
@@ -330,17 +352,17 @@ export default function ApprovalPoliciesPage() {
                         )}
                       </div>
                       <div className="flex flex-wrap gap-2">
-                        {AVAILABLE_ROLES.map((role) => (
+                        {availableRoles.map((role) => (
                           <button
-                            key={role}
-                            onClick={() => toggleStepRole(stepIdx, role)}
+                            key={role.code}
+                            onClick={() => toggleStepRole(stepIdx, role.code)}
                             className={`rounded border px-3 py-1.5 font-mono text-[10px] transition-colors ${
-                              step.roles.includes(role)
+                              step.roles.includes(role.code)
                                 ? 'border-adm-amber/50 bg-adm-amber/20 text-adm-amber'
                                 : 'border-adm-border bg-adm-bg text-adm-t3 hover:border-adm-t3'
                             }`}
                           >
-                            {role}
+                            {role.code}
                           </button>
                         ))}
                       </div>

@@ -42,6 +42,7 @@ const mockUsersService = {
 const mockUsersDomainService = {
   resetPassword: jest.fn(),
   findById: jest.fn().mockResolvedValue(null),
+  findByUserNo: jest.fn().mockResolvedValue(null),
 };
 
 const mockJwtService = {

@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams } from 'react-router-dom';
 import { RefreshCw, X } from 'lucide-react';
 import {
   AdminPermissionError,
@@ -23,7 +23,6 @@ interface ApprovalDetail {
   approvalNo: string;
   actionType: string;
   entityRef: string;
-  createdByUserId: string;
   createdByUserNo?: string | null;
   status: string;
   allowCancel: boolean;
@@ -53,20 +52,6 @@ interface ApprovalStepItem {
   decidedAt?: string | null;
   createdAt: string;
   updatedAt: string;
-  evidencePackage?: {
-    id: string;
-    packageNo: string;
-    status: string;
-  } | null;
-  caseEvidencePackage?: {
-    id: string;
-    packageNo: string;
-    status: string;
-  } | null;
-  availableDecisionRoles: string[];
-  canApprove: boolean;
-  canReject: boolean;
-  canCancel: boolean;
 }
 
 type DecisionAction = 'approve' | 'reject' | 'cancel';
@@ -81,6 +66,55 @@ const fmt = (v?: string | null): string => {
 
 const joinOrDash = (arr?: string[] | null): string =>
   arr && arr.length > 0 ? arr.join(', ') : '—';
+
+/* ── Entity Ref回链 ──────────────────────────────────────────────
+   按 actionType 把 entityRef（业务号，Task 19-21 后全域已切换）映射到对应
+   详情/列表路由。逐条核对现状路由参数得出（App.tsx + 各消费端 controller/
+   service 实证，非直接照抄 brief 草案）：
+   - 资产/限额/费率创建：详情路由已按业务号收参（assetNo/ruleNo/levelCode）。
+   - 交易域（deposit/withdraw）详情路由仍是内部 id，用列表页 + keyword 定位；
+     当前 3 张列表页尚未消费该 query 参数（未读 location.search），故此链接
+     落地到正确页面但不会自动预填筛选框——超出本任务声明的文件范围，未跟着改。
+   - 治理域仍有 2 类（审批策略变更/证据包导出）entityRef 虽已是业务号
+     （requestNo/packageNo），但其唯一详情端点仍按内部 UUID 查询
+     （ParseUUIDPipe 或 where:{id}），映射会 404——不硬造，留纯文本。角色
+     绑定变更详情端点已在 Task 25 改按 requestNo 查询，角色定义修改详情端点
+     已在 Task 26 同样改按 requestNo 查询，映射均已补（见下）。
+   - 费率变更（*_FEE_LEVEL_CHANGE）entityRef 是变更请求 requestNo 而非
+     levelCode，无可寻址详情页——同样留纯文本。
+   映射缺席 = Field 保持纯文本展示（原状）。 */
+const ENTITY_ROUTE_BY_ACTION: Record<string, (ref: string) => string | null> = {
+  // 交易域——详情路由参数以现状为准（内部 id），列表页 + keyword 定位已足够演示
+  WITHDRAW_LARGE_VALUE_APPROVAL: (r) => `/admin/trading/withdrawals?keyword=${r}`,
+  WITHDRAW_UNFREEZE: (r) => `/admin/trading/withdrawals?keyword=${r}`,
+  WITHDRAW_SANCTION_REFUND: (r) => `/admin/trading/withdrawals?keyword=${r}`,
+  DEPOSIT_CONFISCATION: (r) => `/admin/trading/deposits?keyword=${r}`,
+  DEPOSIT_RETURN: (r) => `/admin/trading/deposits?keyword=${r}`,
+  DEPOSIT_SEIZE: (r) => `/admin/trading/deposits?keyword=${r}`,
+  DEPOSIT_UNFREEZE: (r) => `/admin/trading/deposits?keyword=${r}`,
+  // 资产域（entityRef = assetNo / ruleNo）
+  ASSET_ACTIVATION: (r) => `/admin/assets/${r}`,
+  ASSET_SUSPENSION: (r) => `/admin/assets/${r}`,
+  ASSET_REACTIVATION: (r) => `/admin/assets/${r}`,
+  TRANSACTION_LIMIT_CREATION: (r) => `/admin/assets/transaction-limits/${r}`,
+  TRANSACTION_LIMIT_CHANGE: (r) => `/admin/assets/transaction-limits/${r}`,
+  // 托管钱包（entityRef = walletNo）
+  CUSTODIAN_WALLET_CREATE: (r) => `/admin/custody/wallets/${r}`,
+  // 定价域——仅创建流 entityRef 是 levelCode；变更流是变更请求 requestNo，不映射
+  SWAP_FEE_LEVEL_CREATION: (r) => `/admin/pricing/swap-fee-levels/${r}`,
+  WITHDRAWAL_FEE_LEVEL_CREATION: (r) => `/admin/pricing/withdrawal-fee-levels/${r}`,
+  // 治理域（entityRef = userNo / role.code，Task 19-21 后新增业务号）
+  ADMIN_INVITE_APPROVAL: (r) => `/admin/iam/members/${r}`,
+  ADMIN_SUSPENSION_APPROVAL: (r) => `/admin/iam/members/${r}`,
+  ADMIN_REACTIVATION_APPROVAL: (r) => `/admin/iam/members/${r}`,
+  ADMIN_PASSWORD_RESET: (r) => `/admin/iam/members/${r}`,
+  ADMIN_MFA_RESET: (r) => `/admin/iam/members/${r}`,
+  ROLE_DEFINITION_CREATE: (r) => `/admin/iam/roles/${r}`,
+  ADMIN_ROLE_BINDING_CHANGE_APPROVAL: (r) => `/admin/iam/role-change-requests/${r}`,
+  ROLE_DEFINITION_MODIFY: (r) => `/admin/iam/role-definition-modify-requests/${r}`,
+  // 对账域（entityRef = adjustmentNo）
+  RECON_ADJUSTMENT_POST: (r) => `/admin/reconciliation/adjustments/${r}`,
+};
 
 /* ── Shared layout primitives ────────────────────────────────── */
 
@@ -107,28 +141,41 @@ const Field = ({
   mono = false,
   amber = false,
   full = false,
+  href,
 }: {
   label: string;
   value?: string | null;
   mono?: boolean;
   amber?: boolean;
   full?: boolean;
+  /** 有值时把 value 渲染成回链——用于 entityRef 这类可回查其它主体的业务号。 */
+  href?: string | null;
 }) => {
   if (!value) return null;
+  const sizeClass = mono ? 'font-mono text-[10px]' : 'text-[11px]';
   return (
     <div className={full ? 'col-span-2' : ''}>
       <p className="mb-1 font-mono text-[8.5px] uppercase tracking-[0.14em] text-adm-t3">
         {label}
       </p>
-      <p
-        className={[
-          'break-all leading-relaxed',
-          mono ? 'font-mono text-[10px]' : 'text-[11px]',
-          amber ? 'font-semibold text-adm-amber' : 'text-adm-t2',
-        ].join(' ')}
-      >
-        {value}
-      </p>
+      {href ? (
+        <Link
+          to={href}
+          className={['break-all leading-relaxed text-adm-blue hover:underline', sizeClass].join(' ')}
+        >
+          {value}
+        </Link>
+      ) : (
+        <p
+          className={[
+            'break-all leading-relaxed',
+            sizeClass,
+            amber ? 'font-semibold text-adm-amber' : 'text-adm-t2',
+          ].join(' ')}
+        >
+          {value}
+        </p>
+      )}
     </div>
   );
 };
@@ -170,7 +217,7 @@ const SidebarKV = ({
 /* ─────────────────────────────────────────────────────────────── */
 
 const ApprovalDetailPage = () => {
-  const { id } = useParams<{ id: string }>();
+  const { approvalNo } = useParams<{ approvalNo: string }>();
   const navigate = useNavigate();
   const { hasAnyPermission } = useAdminSession();
 
@@ -184,6 +231,7 @@ const ApprovalDetailPage = () => {
   const [loading, setLoading] = useState(true);
   const [error,   setError]   = useState('');
   const [notice,  setNotice]  = useState<string | null>(null);
+  const [simulatingTimeout, setSimulatingTimeout] = useState(false);
 
   /* Decision modal */
   const [decisionAction, setDecisionAction] = useState<DecisionAction | null>(null);
@@ -203,11 +251,11 @@ const ApprovalDetailPage = () => {
   };
 
   const fetchDetail = async () => {
-    if (!id) { setError('Approval id is required.'); setLoading(false); return; }
+    if (!approvalNo) { setError('Approval no is required.'); setLoading(false); return; }
     setLoading(true); setError('');
     try {
       const payload = await fetchJson<ApprovalDetail>(
-        `${import.meta.env.VITE_API_URL}/admin/control-gates/approvals/${id}`,
+        `${import.meta.env.VITE_API_URL}/admin/control-gates/approvals/${approvalNo}`,
       );
       setDetail(payload);
       setDecisionRole(
@@ -225,7 +273,7 @@ const ApprovalDetailPage = () => {
     }
   };
 
-  useEffect(() => { void fetchDetail(); }, [id]);
+  useEffect(() => { void fetchDetail(); }, [approvalNo]);
 
   /* Auto-dismiss notice */
   useEffect(() => {
@@ -257,7 +305,7 @@ const ApprovalDetailPage = () => {
   };
 
   const submitDecision = async () => {
-    if (!id || !decisionAction) return;
+    if (!approvalNo || !decisionAction) return;
     const action = decisionAction;
     setSubmittingAction(action);
     setDecisionError(null);
@@ -267,7 +315,7 @@ const ApprovalDetailPage = () => {
       if (action !== 'cancel' && decisionRole) payload.checkerRole = decisionRole;
 
       const response = await adminFetch(
-        `${import.meta.env.VITE_API_URL}/admin/control-gates/approvals/${id}/${action}`,
+        `${import.meta.env.VITE_API_URL}/admin/control-gates/approvals/${approvalNo}/${action}`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -281,10 +329,10 @@ const ApprovalDetailPage = () => {
       closeDecisionModal();
       setNotice(
         action === 'approve'
-          ? `Approval ${detail?.approvalNo ?? id} approved.`
+          ? `Approval ${detail?.approvalNo ?? approvalNo} approved.`
           : action === 'reject'
-            ? `Approval ${detail?.approvalNo ?? id} rejected.`
-            : `Approval ${detail?.approvalNo ?? id} cancelled.`,
+            ? `Approval ${detail?.approvalNo ?? approvalNo} rejected.`
+            : `Approval ${detail?.approvalNo ?? approvalNo} cancelled.`,
       );
       await fetchDetail();
     } catch (e: unknown) {
@@ -295,6 +343,29 @@ const ApprovalDetailPage = () => {
       }
     } finally {
       setSubmittingAction(null);
+    }
+  };
+
+  /* ── ⚡ Demo: fast-forward timeout ──
+     只拨 timeoutAt，不直接改 status——过期这条边仍必须由后台扫描器
+     （ApprovalExpiryService.sweep()，每分钟一次）走。按钮用
+     detail.approvalNo，不依赖路由参数。 */
+
+  const simulateTimeout = async () => {
+    if (!detail) return;
+    setSimulatingTimeout(true);
+    try {
+      await fetchJson(
+        `${import.meta.env.VITE_API_URL}/admin/control-gates/approvals/${detail.approvalNo}/simulate-timeout`,
+        { method: 'POST' },
+      );
+      setNotice('已把超时时间拨到过去，一分钟内该单将自动过期');
+      await fetchDetail();
+    } catch (e: unknown) {
+      if (e instanceof AdminSessionError) return;
+      setError(e instanceof Error ? e.message : 'Failed to simulate timeout.');
+    } finally {
+      setSimulatingTimeout(false);
     }
   };
 
@@ -463,7 +534,13 @@ const ApprovalDetailPage = () => {
             <Cap>Core Context</Cap>
             <div className="mt-3">
               <FieldGrid>
-                <Field label="Entity Ref"            value={detail.entityRef}           mono full />
+                <Field
+                  label="Entity Ref"
+                  value={detail.entityRef}
+                  mono
+                  full
+                  href={ENTITY_ROUTE_BY_ACTION[detail.actionType]?.(detail.entityRef)}
+                />
               </FieldGrid>
             </div>
           </section>
@@ -569,6 +646,22 @@ const ApprovalDetailPage = () => {
                 )}
               </div>
             </div>
+          )}
+
+          {/* ⚡ Demo: 拨超时——与 canApprove/canReject/canCancel 那组
+              RBAC 判断无关（权限走 DEMO_CLOCK_WRITE），所以不挂在
+              showActionsBlock 下面，独立按 PENDING 状态显示。同款见
+              SwapTransactionDetail.tsx「Simulate SLA Timeout」。 */}
+          {detail.status === 'PENDING' && (
+            <SidebarGroup title="Demo">
+              <button
+                onClick={() => void simulateTimeout()}
+                disabled={simulatingTimeout}
+                className={adminButtonClass('simulationAction')}
+              >
+                {simulatingTimeout ? 'Working…' : '⚡ 模拟超时'}
+              </button>
+            </SidebarGroup>
           )}
 
           {/* Identity Summary */}

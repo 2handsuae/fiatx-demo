@@ -6,7 +6,6 @@ import {
   HARD_MUTEX_ROLE_PAIRS,
   RBAC_PERMISSION_CODE_SET,
   RBAC_PERMISSION_DEFINITIONS,
-  SOFT_WARNING_ROLE_GROUPS,
   buildPermCodeToGroups,
   getPrimaryRoleCode,
 } from './rbac.catalog';
@@ -41,16 +40,6 @@ export class AccessControlService {
         throw new BadRequestException(`Role ${left} and ${right} cannot be assigned to one user.`);
       }
     }
-  }
-
-  private buildSoftWarnings(roleCodes: string[]): string[] {
-    if (roleCodes.includes('SUPER_ADMIN')) {
-      return [];
-    }
-    const set = new Set(roleCodes);
-    return SOFT_WARNING_ROLE_GROUPS.filter((rule) =>
-      rule.codes.every((code) => set.has(code)),
-    ).map((rule) => rule.message);
   }
 
   async listRoles() {
@@ -294,7 +283,6 @@ export class AccessControlService {
     });
 
     const afterRoleCodes = await this.getUserRoleCodes(userId);
-    const warnings = this.buildSoftWarnings(afterRoleCodes);
 
     // Task 9：审计上收——本方法只返回结果，不再自己写审计。这条自身写入在删除前
     // 已实证是死分支：本方法仅有的两个真实调用方（admin-invite-workflow.service.ts
@@ -307,7 +295,6 @@ export class AccessControlService {
       userId: user.id,
       userNo: user.userNo,
       roles: afterRoleCodes,
-      warnings,
     };
   }
 
@@ -327,23 +314,44 @@ export class AccessControlService {
       (this.prisma as any).roleDefinitionModifyRequest.findMany({
         where,
         orderBy: { createdAt: 'desc' },
-        take: query.take || 50,
-        skip: query.skip || 0,
+        // @Query() 无 DTO，query.take/skip 经真实 HTTP 到手时是字符串——显式转数字，
+        // 否则字符串直传 Prisma 的 take/skip 会被拒绝（此前零前端消费，这条从未被
+        // 真实探测过）。
+        take: Number(query.take) || 50,
+        skip: Number(query.skip) || 0,
         include: { role: { select: { code: true, name: true } } },
       }),
       (this.prisma as any).roleDefinitionModifyRequest.count({ where }),
     ]);
 
-    return { items, total };
+    // 提交人对外识别用业务键（铁律⑥）：requestedByUserId 是裸 User.id，无 Prisma 关系
+    // 可 include（对照 AdminRoleChangeRequest.targetUserId 有 @relation，这张表当初没建），
+    // 手动查一次批量解析成 userNo，不新增 schema 关系。
+    const requestedByIds: string[] = [
+      ...new Set<string>(items.map((i: any) => i.requestedByUserId).filter(Boolean)),
+    ];
+    const requestedByUsers = requestedByIds.length
+      ? await this.prisma.user.findMany({
+          where: { id: { in: requestedByIds } },
+          select: { id: true, userNo: true, email: true },
+        })
+      : [];
+    const requestedByMap = new Map(requestedByUsers.map((u) => [u.id, u]));
+    const itemsWithSubmitter = items.map((i: any) => ({
+      ...i,
+      requestedBy: requestedByMap.get(i.requestedByUserId) ?? null,
+    }));
+
+    return { items: itemsWithSubmitter, total };
   }
 
-  async getRoleDefinitionModifyRequest(id: string) {
+  async getRoleDefinitionModifyRequest(requestNo: string) {
     const request = await (this.prisma as any).roleDefinitionModifyRequest.findUnique({
-      where: { id },
+      where: { requestNo },
       include: { role: { select: { code: true, name: true, status: true } } },
     });
     if (!request) {
-      throw new NotFoundException(`Role definition modify request not found: ${id}`);
+      throw new NotFoundException(`Role definition modify request not found: ${requestNo}`);
     }
     return request;
   }

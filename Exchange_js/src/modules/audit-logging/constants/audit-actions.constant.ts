@@ -149,22 +149,12 @@ export const AuditBusinessWorkflowTypes = {
   MATERIAL_REQUEST: 'MATERIAL_REQUEST',
 } as const;
 
+// Task 28：退役清单扫尾——原 15 键仅 2 键（REQUEST_CREATED/SUBMITTED）经
+// AuditRawActionToUserActionMap 真正产出，其余 13 键是站4清扫十条死词映射时
+// 遗留的孤儿目标值（映射源已删，目标值没跟着删），零产出零消费，随本次退役一并删除。
 export const AuditUserActions = {
   REQUEST_CREATED: 'REQUEST_CREATED',
   SUBMITTED: 'SUBMITTED',
-  APPROVED_FOR_EXECUTION: 'APPROVED_FOR_EXECUTION',
-  EXECUTED: 'EXECUTED',
-  INVITATION_ISSUED: 'INVITATION_ISSUED',
-  INVITATION_RESENT: 'INVITATION_RESENT',
-  ACTIVATED: 'ACTIVATED',
-  ACTIVATION_FAILED: 'ACTIVATION_FAILED',
-  LOGIN_SUCCEEDED: 'LOGIN_SUCCEEDED',
-  LOGIN_FAILED: 'LOGIN_FAILED',
-  ROLE_BINDINGS_UPDATED: 'ROLE_BINDINGS_UPDATED',
-  CANCELLED: 'CANCELLED',
-  EXPORTED: 'EXPORTED',
-  EXPORT_FAILED: 'EXPORT_FAILED',
-  DOWNLOADED: 'DOWNLOADED',
 } as const;
 
 export const AuditActions = {
@@ -435,159 +425,6 @@ export const AuditActions = {
   MATERIAL_REQUEST_ORDER_UNBOUND: 'MATERIAL_REQUEST_ORDER_UNBOUND',
 } as const;
 
-export const AuditGovernanceActions = {
-  // C1 — Admin Invite：已退役，Task 6 迁到 V1_AUDIT_ACTIONS 的
-  // ADMIN_INVITE_REQUESTED/DISPATCHED/ACCEPTED/EXPIRED/CANCELLED 五码，全仓零消费方
-  // （2026-08-26 grep 核实），本组已删。
-
-  // C2 — Admin Role Binding Change：已退役，Task 6 迁到 V1_AUDIT_ACTIONS 的
-  // ADMIN_ROLE_CHANGE_REQUESTED/APPLIED/CANCELLED 三码（新增 CANCELLED），
-  // 全仓零消费方，本组已删。
-
-  // C3a — Admin Suspension：已退役，Task 7 迁到 V1_AUDIT_ACTIONS 的
-  // ADMIN_SUSPENSION_REQUESTED/APPLIED 两码，全仓零消费方，本组已删。
-
-  // C3b — Admin Reactivation：已退役，Task 7 迁到 V1_AUDIT_ACTIONS 的
-  // ADMIN_REACTIVATION_REQUESTED/APPLIED 两码，全仓零消费方，本组已删。
-
-  // C4b — Approval Policy Modification：已退役，Task 8 迁到 V1_AUDIT_ACTIONS 的
-  // APPROVAL_POLICY_CHANGE_REQUESTED/APPLIED 两码（不复用 APPROVAL_SUBMITTED——拆条判据乙
-  // "PRIMARY 不同必须拆"），全仓零消费方，本组已删。
-
-  // C5 — Audit Evidence Export：已退役，Task 8 迁到 V1_AUDIT_ACTIONS 的
-  // AUDIT_EVIDENCE_EXPORT_REQUESTED/GENERATED/DOWNLOADED 三码 + 新增 AUDIT_LOG_QUERIED，
-  // 全仓零消费方，本组已删。GENERATION_FAILED 未被收编（见 audit-evidence-export-
-  // workflow.service.ts 对应分支注释——payloadDigest 必填，失败时无产物可摘要）。
-
-  // Credential Reset Governance (2026-05-10)：已退役，Task 7 迁到 V1_AUDIT_ACTIONS 的
-  // ADMIN_PASSWORD_RESET_SELF_REQUESTED/SELF_TOKEN_ISSUED/SELF_COMPLETED/
-  // OFFICER_REQUESTED/OFFICER_APPLIED/CANCELLED 六码，全仓零消费方，本组已删。
-
-  // ADMIN_MFA_RESET：已退役，Task 7 迁到 V1_AUDIT_ACTIONS 的
-  // ADMIN_MFA_RESET_REQUESTED/APPLIED/CANCELLED 三码，全仓零消费方，本组已删。
-
-  // C3c — Admin First Login：首登五步（IDENTITY_CONFIRMED/MFA_BINDING_INITIATED/
-  // MFA_VERIFY_FAILED/MFA_BINDING_COMPLETED/FIRST_LOGIN_COMPLETED）+ MFA_VERIFY_LOCKED
-  // 已退役，Task 6 迁到 V1_AUDIT_ACTIONS 的 ADMIN_FIRST_LOGIN_IDENTITY_CONFIRMED/
-  // MFA_INITIATED/MFA_BOUND（收编 FAILED，LOCKED 分支留 TODO 指向 Task 7 的
-  // ADMIN_ACCOUNT_LOCK_APPLIED）/COMPLETED 四码。
-  // 下面两个 MFA_LOGIN_* 是常规（非首登）登录的 MFA 校验，不在本批 12 码范围内，
-  // mfa-binding-workflow.service.ts 的 verifyMfaLogin() 仍在用，原样保留。
-  ADMIN_FIRST_LOGIN: {
-    MFA_LOGIN_VERIFIED:       'MFA_LOGIN_VERIFIED',
-    MFA_LOGIN_VERIFY_FAILED:  'MFA_LOGIN_VERIFY_FAILED',
-  },
-
-  // Role Definition Create (2026-05-08)：已退役，Task 8 迁到 V1_AUDIT_ACTIONS 的
-  // ROLE_DEFINITION_CREATE_REQUESTED/APPLIED/CANCELLED 三码，全仓零消费方，本组已删。
-
-  // Role Definition Modify (2026-05-08)：已退役，Task 8 迁到 V1_AUDIT_ACTIONS 的
-  // ROLE_DEFINITION_MODIFY_REQUESTED/APPLIED/CANCELLED 三码，全仓零消费方，本组已删。
-
-  // Custodian Wallet Create (2026-05-13)
-  CUSTODIAN_WALLET_CREATE: {
-    CREATE_REQUESTED:      'CREATE_REQUESTED',
-    WALLET_CREATED:        'WALLET_CREATED',
-    WALLET_CREATE_FAILED:  'WALLET_CREATE_FAILED',
-    CREATE_CANCELLED:      'CREATE_CANCELLED',
-  },
-
-  // Withdrawal Address Registration (2026-05-13)
-  WITHDRAWAL_ADDRESS_REGISTRATION: {
-    ADDRESS_REGISTERED:   'ADDRESS_REGISTERED',
-    ADDRESS_ACTIVATED:    'ADDRESS_ACTIVATED',
-    ADDRESS_CANCELLED:    'ADDRESS_CANCELLED',
-    ADDRESS_SUSPENDED:    'ADDRESS_SUSPENDED',
-    ADDRESS_DEACTIVATED:  'ADDRESS_DEACTIVATED',
-    MANUAL_COOLING_SKIP:  'MANUAL_COOLING_SKIP',
-  },
-
-  // Asset Suspension (2026-05-14)
-  ASSET_SUSPENSION: {
-    SUSPENSION_REQUESTED:          'SUSPENSION_REQUESTED',
-    ASSET_SUSPENDED:               'ASSET_SUSPENDED',
-    SUSPENSION_EXECUTION_FAILED:   'SUSPENSION_EXECUTION_FAILED',
-  },
-
-  // Asset Reactivation (2026-05-14)
-  ASSET_REACTIVATION: {
-    REACTIVATION_REQUESTED:          'REACTIVATION_REQUESTED',
-    ASSET_REACTIVATED:               'ASSET_REACTIVATED',
-    REACTIVATION_EXECUTION_FAILED:   'REACTIVATION_EXECUTION_FAILED',
-  },
-
-  // Asset Creation (2026-05-14) — no approval, direct create+provision
-  ASSET_CREATION: {
-    ASSET_CREATED_AND_PROVISIONED: 'ASSET_CREATED_AND_PROVISIONED',
-    ASSET_CREATION_FAILED:         'ASSET_CREATION_FAILED',
-    ASSET_PROVISIONING_UPDATED:    'ASSET_PROVISIONING_UPDATED',
-  },
-
-  // Asset Activation (2026-05-14) — replaces ASSET_LISTING activation
-  ASSET_ACTIVATION: {
-    ACTIVATION_REQUESTED:  'ACTIVATION_REQUESTED',
-    ASSET_ACTIVATED:       'ASSET_ACTIVATED',
-    ACTIVATION_FAILED:     'ACTIVATION_FAILED',
-  },
-
-  // Transaction Limit Change (2026-05-16)
-  TRANSACTION_LIMIT_CHANGE: {
-    CHANGE_REQUESTED:      'CHANGE_REQUESTED',
-    CHANGE_APPLIED:        'CHANGE_APPLIED',
-    CHANGE_APPLY_FAILED:   'CHANGE_APPLY_FAILED',
-    CHANGE_CANCELLED:      'CHANGE_CANCELLED',
-  },
-
-  // Transaction Limit Creation (2026-05-16)
-  TRANSACTION_LIMIT_CREATION: {
-    CREATION_REQUESTED:     'CREATION_REQUESTED',
-    CREATION_APPLIED:       'CREATION_APPLIED',
-    CREATION_APPLY_FAILED:  'CREATION_APPLY_FAILED',
-    CREATION_CANCELLED:     'CREATION_CANCELLED',
-  },
-
-  // Transaction Limit runtime enforcement (2026-07-16)
-  TRANSACTION_LIMIT_REJECTED: 'TRANSACTION_LIMIT_REJECTED',   // L1 金额限额拦截(A/B) — used by Task 4 engine
-
-  // Withdrawal Fee Level Creation (2026-05-30)
-  WITHDRAWAL_FEE_LEVEL_CREATION: {
-    CREATION_REQUESTED:    'CREATION_REQUESTED',
-    CREATION_APPLIED:      'CREATION_APPLIED',
-    CREATION_APPLY_FAILED: 'CREATION_APPLY_FAILED',
-    CREATION_CANCELLED:    'CREATION_CANCELLED',
-  },
-
-  // Withdrawal Fee Level Change (2026-05-30)
-  WITHDRAWAL_FEE_LEVEL_CHANGE: {
-    CHANGE_REQUESTED:    'CHANGE_REQUESTED',
-    CHANGE_APPLIED:      'CHANGE_APPLIED',
-    CHANGE_APPLY_FAILED: 'CHANGE_APPLY_FAILED',
-    CHANGE_CANCELLED:    'CHANGE_CANCELLED',
-  },
-
-  // Swap Fee Level Creation (2026-05-31)
-  SWAP_FEE_LEVEL_CREATION: {
-    CREATION_REQUESTED:    'CREATION_REQUESTED',
-    CREATION_APPLIED:      'CREATION_APPLIED',
-    CREATION_APPLY_FAILED: 'CREATION_APPLY_FAILED',
-    CREATION_CANCELLED:    'CREATION_CANCELLED',
-  },
-
-  // Swap Fee Level Change (2026-05-31)
-  SWAP_FEE_LEVEL_CHANGE: {
-    CHANGE_REQUESTED:    'CHANGE_REQUESTED',
-    CHANGE_APPLIED:      'CHANGE_APPLIED',
-    CHANGE_APPLY_FAILED: 'CHANGE_APPLY_FAILED',
-    CHANGE_CANCELLED:    'CHANGE_CANCELLED',
-  },
-
-  // Customer Tags (2026-07-13)
-  CUSTOMER_TAG: {
-    TAG_ASSIGNED: 'TAG_ASSIGNED',
-    TAG_REVOKED:  'TAG_REVOKED',
-  },
-} as const;
-
 // 站4 清扫:十条死词映射(APPROVAL_APPROVED/EXECUTED、ADMIN_INVITATION_*、USER_*、
 // AUDIT_EVIDENCE_PACKAGE_*)随词删除——那些词零写入,现役审批/邀请写的是 V1 名册
 // (APPROVAL_GRANTED、ADMIN_INVITE_*),其显示翻译归 V1 站。
@@ -652,6 +489,22 @@ export const V1_AUDIT_ACTIONS: Record<string, AuditActionSpec> = {
   APPROVAL_CANCELLED:  { domain: 'APPROVAL', correlationMode: I, requiredFields: ['approvalNo', 'reason'], requiresCausation: false },
   APPROVAL_EXPIRED:    { domain: 'APPROVAL', correlationMode: I, requiredFields: ['approvalNo'], requiresCausation: false },
   APPROVAL_SOD_DENIED: { domain: 'APPROVAL', correlationMode: I, requiredFields: ['reasonCode'], requiresCausation: false },
+  APPROVAL_TIMEOUT_SIMULATED: { domain: 'APPROVAL', correlationMode: I, requiredFields: ['approvalNo'], requiresCausation: false },
+
+  // ── 权限守卫拒绝（2026-09-01 法一纪律4：被拒绝的动作同样留痕）──────
+  ADMIN_ACCESS_DENIED: { domain: 'IAM', correlationMode: N, requiredFields: [], requiresCausation: false },
+
+  // ── 常规登录 · MFA 二次校验（2026-09-02 Task 15 收尾）：区别于下方 ② 首次登录四步链——
+  // 这是已绑定 MFA 的老用户每次登录都要走的校验，mfa-binding-workflow.service.ts 的
+  // verifyMfaLogin() 单步独立写，前面没有 REQUESTED/IDENTITY_CONFIRMED 之类的 START 步
+  // 铸 correlationId。auth.service.ts:39-41 显式注释 authTraceId（此处的 loginTraceId）
+  // 只用来把 mfa_session token 与本次 login() 调用串起来，「与审计无关」——不是持久化的
+  // 旅程标识，不能拿来硬凑 INHERIT，同 ADMIN_ACCESS_DENIED 一样判 NONE。原附册（已删除
+  // 的旧治理常量）ADMIN_FIRST_LOGIN 分组下两码，码值不变，本行只是进合同。
+  MFA_LOGIN_VERIFIED:      { domain: 'IAM', correlationMode: N, requiredFields: ['authnMethod'], requiresCausation: false },
+  // 系统主动挡（TOTP 码核验不过，动作压根没执行成）——同令牌失效判 DENIED 而非「试了
+  // 但技术上没成」的 FAILED；locked 与否只是同一原因下的细节，落 metadata 不拆码。
+  MFA_LOGIN_VERIFY_FAILED: { domain: 'IAM', correlationMode: N, requiredFields: ['reasonCode'], requiresCausation: false },
 
   // ── ① 入职邀请 ──────────────────────────────────────────
   ADMIN_INVITE_REQUESTED:  { domain: 'IAM', correlationMode: S, requiredFields: ['afterData'], requiresCausation: false },
@@ -706,6 +559,100 @@ export const V1_AUDIT_ACTIONS: Record<string, AuditActionSpec> = {
   APPROVAL_POLICY_CHANGE_REQUESTED: { domain: 'CONFIG', correlationMode: S, requiredFields: ['beforeData', 'afterData'], requiresCausation: false },
   APPROVAL_POLICY_CHANGE_APPLIED:   { domain: 'CONFIG', correlationMode: I, requiredFields: ['beforeData', 'afterData', 'policyVersion', 'approvalNo'], requiresCausation: true },
 
+  // ── 兑换费率等级（2026-09-01 换名册：裸名跨族撞车 → 前缀唯一）────
+  SWAP_FEE_LEVEL_CREATION_REQUESTED:     { domain: 'CONFIG', correlationMode: S, requiredFields: ['afterData'], requiresCausation: false },
+  SWAP_FEE_LEVEL_CREATION_APPLIED:       { domain: 'CONFIG', correlationMode: I, requiredFields: ['afterData', 'approvalNo'], requiresCausation: true },
+  SWAP_FEE_LEVEL_CREATION_APPLY_FAILED:  { domain: 'CONFIG', correlationMode: I, requiredFields: [], requiresCausation: true },
+  SWAP_FEE_LEVEL_CREATION_CANCELLED:     { domain: 'CONFIG', correlationMode: I, requiredFields: ['reason'], requiresCausation: true },
+  SWAP_FEE_LEVEL_CHANGE_REQUESTED:       { domain: 'CONFIG', correlationMode: S, requiredFields: ['beforeData', 'afterData'], requiresCausation: false },
+  SWAP_FEE_LEVEL_CHANGE_APPLIED:         { domain: 'CONFIG', correlationMode: I, requiredFields: ['beforeData', 'afterData', 'approvalNo'], requiresCausation: true },
+  SWAP_FEE_LEVEL_CHANGE_APPLY_FAILED:    { domain: 'CONFIG', correlationMode: I, requiredFields: [], requiresCausation: true },
+  SWAP_FEE_LEVEL_CHANGE_CANCELLED:       { domain: 'CONFIG', correlationMode: I, requiredFields: ['reason'], requiresCausation: true },
+  // ── 提现费率等级 ────────────────────────────────────────
+  WITHDRAWAL_FEE_LEVEL_CREATION_REQUESTED:    { domain: 'CONFIG', correlationMode: S, requiredFields: ['afterData'], requiresCausation: false },
+  WITHDRAWAL_FEE_LEVEL_CREATION_APPLIED:      { domain: 'CONFIG', correlationMode: I, requiredFields: ['afterData', 'approvalNo'], requiresCausation: true },
+  WITHDRAWAL_FEE_LEVEL_CREATION_APPLY_FAILED: { domain: 'CONFIG', correlationMode: I, requiredFields: [], requiresCausation: true },
+  WITHDRAWAL_FEE_LEVEL_CREATION_CANCELLED:    { domain: 'CONFIG', correlationMode: I, requiredFields: ['reason'], requiresCausation: true },
+  WITHDRAWAL_FEE_LEVEL_CHANGE_REQUESTED:      { domain: 'CONFIG', correlationMode: S, requiredFields: ['beforeData', 'afterData'], requiresCausation: false },
+  WITHDRAWAL_FEE_LEVEL_CHANGE_APPLIED:        { domain: 'CONFIG', correlationMode: I, requiredFields: ['beforeData', 'afterData', 'approvalNo'], requiresCausation: true },
+  WITHDRAWAL_FEE_LEVEL_CHANGE_APPLY_FAILED:   { domain: 'CONFIG', correlationMode: I, requiredFields: [], requiresCausation: true },
+  WITHDRAWAL_FEE_LEVEL_CHANGE_CANCELLED:      { domain: 'CONFIG', correlationMode: I, requiredFields: ['reason'], requiresCausation: true },
+
+  // ── 资产四族（2026-09-01 换名册·批二）：ASSET_CREATED_AND_PROVISIONED/
+  // ASSET_CREATION_FAILED/ASSET_PROVISIONING_UPDATED/ASSET_ACTIVATED/ASSET_SUSPENDED/
+  // ASSET_REACTIVATED 六码本就前缀唯一，码值不变只进合同；另六个裸名
+  // （SUSPENSION_/REACTIVATION_/ACTIVATION_ 各 REQUESTED+FAILED）改前缀唯一新码，
+  // 无跨族复用，裸名直接登退役闸（见下方 DEPRECATED_AUDIT_ACTIONS）。
+  ASSET_CREATED_AND_PROVISIONED: { domain: 'CONFIG', correlationMode: S, requiredFields: ['afterData'], requiresCausation: false },
+  ASSET_CREATION_FAILED:         { domain: 'CONFIG', correlationMode: S, requiredFields: [], requiresCausation: false },
+  ASSET_PROVISIONING_UPDATED:    { domain: 'CONFIG', correlationMode: I, requiredFields: ['afterData'], requiresCausation: false },
+  ASSET_ACTIVATION_REQUESTED:    { domain: 'CONFIG', correlationMode: S, requiredFields: ['beforeData'], requiresCausation: false },
+  ASSET_ACTIVATED:               { domain: 'CONFIG', correlationMode: I, requiredFields: ['approvalNo'], requiresCausation: true },
+  ASSET_ACTIVATION_FAILED:       { domain: 'CONFIG', correlationMode: I, requiredFields: [], requiresCausation: true },
+  ASSET_SUSPENSION_REQUESTED:    { domain: 'CONFIG', correlationMode: S, requiredFields: ['beforeData'], requiresCausation: false },
+  ASSET_SUSPENDED:               { domain: 'CONFIG', correlationMode: I, requiredFields: ['approvalNo'], requiresCausation: true },
+  ASSET_SUSPENSION_FAILED:       { domain: 'CONFIG', correlationMode: I, requiredFields: [], requiresCausation: true },
+  ASSET_REACTIVATION_REQUESTED:  { domain: 'CONFIG', correlationMode: S, requiredFields: ['beforeData'], requiresCausation: false },
+  ASSET_REACTIVATED:             { domain: 'CONFIG', correlationMode: I, requiredFields: ['approvalNo'], requiresCausation: true },
+  ASSET_REACTIVATION_FAILED:     { domain: 'CONFIG', correlationMode: I, requiredFields: [], requiresCausation: true },
+
+  // ── 交易限额规则（2026-09-02 换名册·批三）：CREATION_/CHANGE_ 两族裸名跨族撞车
+  // （同 8 个裸词也被费率两域用过，Task 12 已把费率四族迁走），本批改前缀唯一新码，
+  // 8 个裸名同批登退役（见下方 DEPRECATED_AUDIT_ACTIONS；'CHANGE_APPLY_FAILED' 早前
+  // 已在站7批次登过，不重复登记）。
+  TRANSACTION_LIMIT_CREATION_REQUESTED:    { domain: 'CONFIG', correlationMode: S, requiredFields: ['afterData'], requiresCausation: false },
+  TRANSACTION_LIMIT_CREATION_APPLIED:      { domain: 'CONFIG', correlationMode: I, requiredFields: ['afterData', 'approvalNo'], requiresCausation: true },
+  TRANSACTION_LIMIT_CREATION_APPLY_FAILED: { domain: 'CONFIG', correlationMode: I, requiredFields: [], requiresCausation: true },
+  TRANSACTION_LIMIT_CREATION_CANCELLED:    { domain: 'CONFIG', correlationMode: I, requiredFields: ['reason'], requiresCausation: true },
+  TRANSACTION_LIMIT_CHANGE_REQUESTED:      { domain: 'CONFIG', correlationMode: S, requiredFields: ['beforeData', 'afterData'], requiresCausation: false },
+  TRANSACTION_LIMIT_CHANGE_APPLIED:        { domain: 'CONFIG', correlationMode: I, requiredFields: ['beforeData', 'afterData', 'approvalNo'], requiresCausation: true },
+  TRANSACTION_LIMIT_CHANGE_APPLY_FAILED:   { domain: 'CONFIG', correlationMode: I, requiredFields: [], requiresCausation: true },
+  TRANSACTION_LIMIT_CHANGE_CANCELLED:      { domain: 'CONFIG', correlationMode: I, requiredFields: ['reason'], requiresCausation: true },
+  // L1 金额限额拦截运行时事件——发生在客户的提现/兑换单据出生之前（gate 挡在订单
+  // persist 之前，见 withdraw-workflow.service.ts:327 / swap-workflow.service.ts:220
+  // 调用点），此刻没有旅程可继承，correlationMode 定 NONE——同 ADMIN_ACCESS_DENIED
+  // 一样，守卫拒绝发生在任何旅程开始之前，没有 correlationId 可读。
+  TRANSACTION_LIMIT_REJECTED: { domain: 'CONFIG', correlationMode: N, requiredFields: ['reasonCode'], requiresCausation: false },
+
+  // ── 客户标签（2026-09-02 换名册·批三）：assign/revoke 都是单步动作，不经
+  // createAndSubmit 审批旅程，没有 START 步铸的 correlationId 可继承，correlationMode
+  // 定 NONE（同 V2_CUSTOMER_AUDIT_ACTIONS 整册客户级动作一样，客户级件无订单旅程）。
+  CUSTOMER_TAG_ASSIGNED: { domain: 'CONFIG', correlationMode: N, requiredFields: ['afterData'], requiresCausation: false },
+  CUSTOMER_TAG_REVOKED:  { domain: 'CONFIG', correlationMode: N, requiredFields: ['beforeData', 'reason'], requiresCausation: false },
+
+  // ── 托管钱包创建（2026-09-02 换名册·批四）：REQUESTED 是 createAndSubmit 铸的
+  // correlationId 起点（S）；CREATED/FAILED/CANCELLED 都经审批决定事件 INHERIT 回同
+  // 一个 correlationId，且都是被「审批已决定」这个异步事件驱动（causationId=approvalId）。
+  // 连带修：executeCreation 已有 approvalId 参数直接用；executeCancellation 原来
+  // 不传 approvalId/decisionReason，Task 15 补了两个参数（decisionReason 来自
+  // ApprovalDecidedEvent，即被拒时审批人填的理由，喂 reason）；retryCreate 是直接
+  // 管理员单步重试、没有新审批，原来现铸一个孤立 traceId——若照 INHERIT 硬填会让
+  // correlationId/causationId 语义落空，Task 15 改查回原 ApprovalCase（entityRef=
+  // walletId, actionType=CUSTODIAN_WALLET_CREATE）取其 traceId/id，真正接续同一趟
+  // 创建旅程而不是编一个假值。
+  CUSTODIAN_WALLET_CREATE_REQUESTED:  { domain: 'CONFIG', correlationMode: S, requiredFields: ['afterData'], requiresCausation: false },
+  CUSTODIAN_WALLET_CREATED:           { domain: 'CONFIG', correlationMode: I, requiredFields: ['afterData', 'approvalNo'], requiresCausation: true },
+  CUSTODIAN_WALLET_CREATE_FAILED:     { domain: 'CONFIG', correlationMode: I, requiredFields: [], requiresCausation: true },
+  CUSTODIAN_WALLET_CREATE_CANCELLED:  { domain: 'CONFIG', correlationMode: I, requiredFields: ['reason'], requiresCausation: true },
+
+  // ── 客户提现地址·24h 冷却闸（2026-09-02 换名册·批四）：REGISTERED 是地址自己的
+  // traceId 起点（S，创建时铸号存 WithdrawalAddress.traceId 列）；后续五码都是单步
+  // 管理/客户操作、无审批引擎，INHERIT 回读同一枚persisted traceId，故 requiresCausation
+  // 全 false（不是被某个异步事件驱动，是直接动作，同 asset-suspension 判例的 REQUESTED
+  // 反过来——这里连 REQUESTED 都没有，是直接执行）。SUSPENDED 已有 reason 参数只是没提
+  // 到顶层；CANCELLED/DEACTIVATED/COOLING_SKIPPED 三个调用点原来完全没有 reason——
+  // Task 15 连带给 cancelAddress/deactivateAddress/skipCoolingPeriod 三个 service 方法
+  // 加 reason 必填参数 + controller 加 @Body + client-web 的 deactivate 弹窗、admin-web
+  // 的 skip-cooling 弹窗补理由输入框（cancelAddress 当下无任何前端/脚本调用方，只补
+  // 后端能力）。MANUAL_COOLING_SKIP 改名 WITHDRAWAL_ADDRESS_COOLING_SKIPPED——后门
+  // 端点强制留痕理由，是这条码要讲的演示点。
+  WITHDRAWAL_ADDRESS_REGISTERED:      { domain: 'CONFIG', correlationMode: S, requiredFields: ['afterData'], requiresCausation: false },
+  WITHDRAWAL_ADDRESS_ACTIVATED:       { domain: 'CONFIG', correlationMode: I, requiredFields: [], requiresCausation: false },
+  WITHDRAWAL_ADDRESS_CANCELLED:       { domain: 'CONFIG', correlationMode: I, requiredFields: ['reason'], requiresCausation: false },
+  WITHDRAWAL_ADDRESS_SUSPENDED:       { domain: 'CONFIG', correlationMode: I, requiredFields: ['reason'], requiresCausation: false },
+  WITHDRAWAL_ADDRESS_DEACTIVATED:     { domain: 'CONFIG', correlationMode: I, requiredFields: ['reason'], requiresCausation: false },
+  WITHDRAWAL_ADDRESS_COOLING_SKIPPED: { domain: 'CONFIG', correlationMode: I, requiredFields: ['reason'], requiresCausation: false },
+
   // ── ⑪ 审计日志自身的操作 ────────────────────────────────
   AUDIT_EVIDENCE_EXPORT_REQUESTED:  { domain: 'AUDIT', correlationMode: S, requiredFields: [], requiresCausation: false },
   AUDIT_EVIDENCE_EXPORT_GENERATED:  { domain: 'AUDIT', correlationMode: I, requiredFields: ['payloadDigest'], requiresCausation: true },
@@ -740,10 +687,12 @@ export const V1_AUDIT_ACTIONS: Record<string, AuditActionSpec> = {
  * 退役码：标记 deprecated、不再允许新写入、历史仍可读。不是删除。
  * 7 个 *_FAILED 收编进 outcome=FAILED + reasonCode；4 个登录码归安全日志（③）。
  *
- * ⚠️ 这些都是老命名法裸词，不是扁平全局唯一——'CHANGE_APPLY_FAILED' 同时还被
+ * ⚠️ 这些都是老命名法裸词，不是扁平全局唯一——'CHANGE_APPLY_FAILED' 此前同时被
  * TRANSACTION_LIMIT_CHANGE / SWAP_FEE_LEVEL_CHANGE / WITHDRAWAL_FEE_LEVEL_CHANGE
- * 三个保留（非 V1）域复用，且全部 11 个码此刻仍有真实调用方在写（迁移是 Task 5-9 的事）。
- * 因此 assertActionSpec 里对这份名单的拦截刻意加了 actionDomain 网关，见该方法注释。
+ * 三个保留（非 V1）域复用；三个原复用方已分别在 Task 12（费率两域）/ Task 14（限额）
+ * 迁走，改写前缀唯一新码，不再触碰这个裸词。名单里其余码此刻仍可能有真实调用方在写
+ * （迁移是 Task 5-9 的事），因此 assertActionSpec 里对这份名单的拦截刻意加了
+ * actionDomain 网关，见该方法注释。
  */
 /**
  * 充值域名册（站1b-β，2026-08-26，业主终审版 31 码）。
@@ -992,8 +941,11 @@ export const DEPRECATED_AUDIT_ACTIONS: readonly string[] = [
   'GENERATION_FAILED',
   'ADMIN_LOGIN_SUCCESS',
   'ADMIN_LOGIN_FAILED',
-  'MFA_LOGIN_VERIFIED',
-  'MFA_LOGIN_VERIFY_FAILED',
+  // MFA_LOGIN_VERIFIED/MFA_LOGIN_VERIFY_FAILED 曾在站7首铸（9aac76e4）时预登记于此——
+  // 当时假设它们会像 ADMIN_LOGIN_* 一样改名退役，但 mfa-binding-workflow.service.ts
+  // 的 verifyMfaLogin() 一直原样在用。Task 15 收尾核实：码值不变，只是从旧附册搬进
+  // V1_AUDIT_ACTIONS 合同（同 TRANSACTION_LIMIT_REJECTED 判例），故移出本闸——
+  // 留在这里会与「六册两两互斥，且与退役闸零交集」自相矛盾（closure spec ②）。
   // ── 第一幕职权重划（Task 5）──────────────────────────────
   // 2026-08-30：随五本档案簿 / 监管闸门 / 对手方整块退役（第一幕职权重划），写点已删
   'REGULATORY_GATE_CREATED', 'REGULATORY_GATE_UPDATED', 'REGULATORY_GATE_SUBMITTED',
@@ -1007,4 +959,19 @@ export const DEPRECATED_AUDIT_ACTIONS: readonly string[] = [
   'LP_CONFIG_UPDATED',
   // 2026-08-31：随手工开账本科目退役（业主定「账本没有手动配置这回事」），写点已删
   'MANUAL_TB_ACCOUNT_CREATED',
+  // 2026-09-01 换名册 · 资产四族裸名退役（Task 13）——不跨族复用，直接登记
+  'SUSPENSION_REQUESTED', 'SUSPENSION_EXECUTION_FAILED',
+  'REACTIVATION_REQUESTED', 'REACTIVATION_EXECUTION_FAILED',
+  'ACTIVATION_REQUESTED', 'ACTIVATION_FAILED',
+  // 2026-09-02 换名册 · 限额两族 + 客户标签共用裸名退役（Task 14）——
+  // 'CHANGE_APPLY_FAILED' 已在上面「站7」批次登记过，此处不重复登记。
+  'CREATION_REQUESTED', 'CREATION_APPLIED', 'CREATION_APPLY_FAILED', 'CREATION_CANCELLED',
+  'CHANGE_REQUESTED', 'CHANGE_APPLIED', 'CHANGE_CANCELLED',
+  'TAG_ASSIGNED', 'TAG_REVOKED',
+  // 2026-09-02 换名册 · 批四（Task 15）：托管钱包创建 + 提现地址登记两族裸名退役——
+  // 不跨族复用，直接登记。TRANSACTION_LIMIT_REJECTED 码值不变、只是删掉旧附册里的
+  // 冗余引用，不是改名，不登这份退役名单。
+  'CREATE_REQUESTED', 'WALLET_CREATED', 'WALLET_CREATE_FAILED', 'CREATE_CANCELLED',
+  'ADDRESS_REGISTERED', 'ADDRESS_ACTIVATED', 'ADDRESS_CANCELLED', 'ADDRESS_SUSPENDED',
+  'ADDRESS_DEACTIVATED', 'MANUAL_COOLING_SKIP',
 ] as const;

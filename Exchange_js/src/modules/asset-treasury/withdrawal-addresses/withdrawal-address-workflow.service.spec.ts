@@ -1,5 +1,4 @@
 import { WithdrawalAddressWorkflowService } from './withdrawal-address-workflow.service';
-import { AuditGovernanceActions } from '../../audit-logging/constants/audit-actions.constant';
 
 describe('WithdrawalAddressWorkflowService — deactivateAddress', () => {
   let workflow: WithdrawalAddressWorkflowService;
@@ -38,13 +37,15 @@ describe('WithdrawalAddressWorkflowService — deactivateAddress', () => {
   });
 
   it('calls addressService.deactivate and writes ADDRESS_DEACTIVATED audit', async () => {
-    const result = await workflow.deactivateAddress('WAD1001', 'cust-1', 'CUST0001');
+    const result = await workflow.deactivateAddress('WAD1001', 'cust-1', 'CUST0001', 'Customer requested deactivation');
 
     expect(addressService.deactivate).toHaveBeenCalledWith('WAD1001', 'cust-1');
     expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
       expect.objectContaining({
-        action: AuditGovernanceActions.WITHDRAWAL_ADDRESS_REGISTRATION.ADDRESS_DEACTIVATED,
+        action: 'WITHDRAWAL_ADDRESS_DEACTIVATED',
+        actionDomain: 'CONFIG',
         primarySubjectNo: 'WAD1001',
+        reason: 'Customer requested deactivation',
         sourcePlatform: 'CLIENT_API',
         ownerCustomerNo: 'CUST0001',
       }),
@@ -56,7 +57,7 @@ describe('WithdrawalAddressWorkflowService — deactivateAddress', () => {
     addressService.findByNo.mockResolvedValue(null);
 
     await expect(
-      workflow.deactivateAddress('WAD9999', 'cust-1', 'CUST0001'),
+      workflow.deactivateAddress('WAD9999', 'cust-1', 'CUST0001', 'Customer requested deactivation'),
     ).rejects.toMatchObject({ response: { code: 'ADDRESS_NOT_FOUND' } });
 
     expect(addressService.deactivate).not.toHaveBeenCalled();

@@ -13,6 +13,8 @@ import {
 import { AuthGuard } from '@nestjs/passport';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { AdminPermissionGuard } from '../../identity/access-control/admin-permission.guard';
+import { RequirePermissions } from '../../identity/access-control/require-permissions.decorator';
+import { buildPermissionCode } from '../../identity/access-control/permission-code.util';
 import { ApprovalsService } from './approvals.service';
 import {
   ApprovalActorContext,
@@ -50,40 +52,47 @@ export class ApprovalsController {
   // ApprovalsService.create()/submit() methods had no other callers either and have
   // since been removed too (see task-4-report.md).
 
-  @Post(':id/approve')
+  @Post(':approvalNo/approve')
   @ApiOperation({ summary: 'Approve an approval case' })
   approve(
     @Req() req: any,
-    @Param('id') id: string,
+    @Param('approvalNo') approvalNo: string,
     @Body(new ValidationPipe({ transform: true })) body: DecisionApprovalDto,
   ) {
-    return this.approvalsService.approve(id, body, this.ensureAdmin(req));
+    return this.approvalsService.approve(approvalNo, body, this.ensureAdmin(req));
   }
 
-  @Post(':id/reject')
+  @Post(':approvalNo/reject')
   @ApiOperation({ summary: 'Reject an approval case' })
   reject(
     @Req() req: any,
-    @Param('id') id: string,
+    @Param('approvalNo') approvalNo: string,
     @Body(new ValidationPipe({ transform: true })) body: DecisionApprovalDto,
   ) {
-    return this.approvalsService.reject(id, body, this.ensureAdmin(req));
+    return this.approvalsService.reject(approvalNo, body, this.ensureAdmin(req));
   }
 
-  @Post(':id/cancel')
+  @Post(':approvalNo/cancel')
   @ApiOperation({ summary: 'Cancel an approval case' })
   cancel(
     @Req() req: any,
-    @Param('id') id: string,
+    @Param('approvalNo') approvalNo: string,
     @Body(new ValidationPipe({ transform: true })) body: CancelApprovalDto,
   ) {
-    return this.approvalsService.cancel(id, body, this.ensureAdmin(req));
+    return this.approvalsService.cancel(approvalNo, body, this.ensureAdmin(req));
   }
 
-  @Get(':id')
+  @Post(':approvalNo/simulate-timeout')
+  @ApiOperation({ summary: '演示用：把该审批单的超时时间拨到过去，下轮扫描即过期' })
+  @RequirePermissions(buildPermissionCode('POST', '/admin/control-gates/approvals/:approvalNo/simulate-timeout'))
+  simulateTimeout(@Req() req: any, @Param('approvalNo') approvalNo: string) {
+    return this.approvalsService.simulateTimeoutByNo(approvalNo, this.ensureAdmin(req));
+  }
+
+  @Get(':approvalNo')
   @ApiOperation({ summary: 'Get approval case detail' })
-  getById(@Req() req: any, @Param('id') id: string) {
-    return this.approvalsService.getById(id, this.ensureAdmin(req));
+  getById(@Req() req: any, @Param('approvalNo') approvalNo: string) {
+    return this.approvalsService.getById(approvalNo, this.ensureAdmin(req));
   }
 
   @Get()

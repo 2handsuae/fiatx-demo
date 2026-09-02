@@ -1,5 +1,6 @@
 import { Injectable, ForbiddenException, Optional } from '@nestjs/common';
 import { UsersService } from '../users/users.service';
+import { UsersDomainService } from '../users/users.domain.service';
 import { AdminInvitationsService } from '../users/admin-invitations.service';
 import { AdminInviteWorkflowService } from '../users/admin-invite-workflow.service';
 import { JwtService } from '@nestjs/jwt';
@@ -9,6 +10,7 @@ import { EventEmitter2 } from '@nestjs/event-emitter';
 import { DomainEventNames } from '../../../common/events/domain-events.constants';
 import { AccessControlService } from '../access-control/access-control.service';
 import { getPrimaryRoleCode } from '../access-control/rbac.catalog';
+import { UserStatusAction } from '../users/constants/user-status-transitions.constant';
 
 interface AuthRequestContext {
   requestId?: string;
@@ -20,6 +22,7 @@ interface AuthRequestContext {
 export class AuthService {
   constructor(
     private usersService: UsersService,
+    private usersDomainService: UsersDomainService,
     private adminInvitationsService: AdminInvitationsService,
     private adminInviteWorkflowService: AdminInviteWorkflowService,
     private jwtService: JwtService,
@@ -51,6 +54,14 @@ export class AuthService {
       throw new ForbiddenException('Account has been suspended');
     }
 
+    if (user.status === 'INVITE_SENT' || user.status === 'PENDING_INVITE_APPROVAL') {
+      // 未激活账号（受邀未接受 / 待审批）本就不该走密码登录——显式拒绝在密码比对与
+      // 失败计数之前返回，LOCK 分支从此只会在 ACTIVE 起始态触达，迁移表自然成立
+      // （否则连错 5 次会落到 applyUserTransition(LOCK)，迁移表里这两态没有 LOCK 边，
+      // 未捕获 ConflictException 裸传导成 /auth/login 409）。
+      throw new ForbiddenException('Account not activated yet');
+    }
+
     if (
       user.status === 'LOCKED' &&
       user.lockedUntil &&
@@ -62,19 +73,20 @@ export class AuthService {
       user.lockedUntil &&
       user.lockedUntil <= new Date()
     ) {
-      // Unlock automatically
-      await this.usersService.update({
-        where: { id: user.id },
-        data: { status: 'ACTIVE', failedLoginAttempts: 0, lockedUntil: null },
+      // Unlock automatically — status 只经迁移表走（铁律④，Task 9）。
+      await this.usersDomainService.applyUserTransition(user.id, UserStatusAction.UNLOCK, {
+        failedLoginAttempts: 0,
+        lockedUntil: null,
       });
-      // Task 9：解锁这侧"改变了访问能力"，本该同锁定一样上收为业务审计
-      // （ADMIN_ACCOUNT_LOCK_RELEASED，correlationMode=INHERIT）。但 User 表没有为
-      // 这套"连续密码失败锁"留任何可读的 correlationId 载体——不同于 MFA 校验锁定复用
-      // firstLoginTraceId 的写法（mfa-binding-workflow.service.ts），这里读不到任何
-      // 实体列可以 INHERIT。铁律是读不到就让它响、绝不 ?? randomUUID() 兜底冒充
-      // INHERIT，本任务范围内又不铺迁移，故本次只把「锁定」侧上收（见下方
-      // ADMIN_LOGIN_CONSECUTIVE_FAILURE emit），「解锁」侧的审计留空，需加列才能补，
-      // 记 BACKLOG。
+      // 解锁这侧同样改变了访问能力，按与 ADMIN_LOGIN_CONSECUTIVE_FAILURE 相同的既有
+      // 分工上收为业务审计（ADMIN_ACCOUNT_LOCK_RELEASED）：判定留在这里（只有这里知道
+      // 锁是否已到期），emit 领域事件，由 MfaBindingWorkflowService（已经接住同一把锁
+      // 的 APPLIED 事件）接住写——INHERIT 靠回查该 userNo 最近一条 APPLIED 事件本身的
+      // correlationId，不是靠 User 表某一列（法一附属修缮，2026-09-01）。
+      this.eventEmitter.emit(DomainEventNames.ADMIN_LOGIN_AUTO_UNLOCKED, {
+        userId: user.id,
+        userNo: user.userNo,
+      });
     }
 
     const isMatch = await bcrypt.compare(pass, user.password);
@@ -92,17 +104,19 @@ export class AuthService {
     } else {
       // Increment failed attempts
       const attempts = user.failedLoginAttempts + 1;
-      const updateData: any = { failedLoginAttempts: attempts };
 
       if (attempts >= 5) {
-        updateData.status = 'LOCKED';
-        updateData.lockedUntil = new Date(Date.now() + 30 * 60 * 1000); // 30 min lock
+        // status 只经迁移表走（铁律④，Task 9）——锁定改变访问能力，不再走 usersService.update。
+        await this.usersDomainService.applyUserTransition(user.id, UserStatusAction.LOCK, {
+          failedLoginAttempts: attempts,
+          lockedUntil: new Date(Date.now() + 30 * 60 * 1000), // 30 min lock
+        });
+      } else {
+        await this.usersService.update({
+          where: { id: user.id },
+          data: { failedLoginAttempts: attempts },
+        });
       }
-
-      await this.usersService.update({
-        where: { id: user.id },
-        data: updateData,
-      });
 
       // Task 9：连续失败达阈值的锁定改变了访问能力，业主裁定按业务审计保留
       // （与限额自动拦截同性质）——但审计写入不留在这个领域服务层，emit 领域事件，

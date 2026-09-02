@@ -13,10 +13,13 @@ import { AuthGuard } from '@nestjs/passport';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { SumsubIngestionService } from './sumsub-ingestion.service';
 import { ListSumsubEventsQueryDto } from './dto/sumsub-ingestion.dto';
+import { AdminPermissionGuard } from '../identity/access-control/admin-permission.guard';
+import { RequirePermissions } from '../identity/access-control/require-permissions.decorator';
+import { buildPermissionCode } from '../identity/access-control/permission-code.util';
 
 @ApiTags('Admin - Sumsub Events')
 @Controller('admin/sumsub-events')
-@UseGuards(AuthGuard('jwt'))
+@UseGuards(AuthGuard('jwt'), AdminPermissionGuard)
 @ApiBearerAuth()
 export class SumsubIngestionAdminController {
   constructor(private readonly ingestionService: SumsubIngestionService) {}
@@ -30,6 +33,7 @@ export class SumsubIngestionAdminController {
 
   @Get()
   @ApiOperation({ summary: 'List Sumsub webhook events' })
+  @RequirePermissions(buildPermissionCode('GET', '/admin/sumsub-events'))
   list(
     @Req() req: any,
     @Query(new ValidationPipe({ transform: true })) query: ListSumsubEventsQueryDto,

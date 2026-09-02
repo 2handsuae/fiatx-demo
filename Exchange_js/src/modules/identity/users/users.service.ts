@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Inject,
   Injectable,
   NotFoundException,
@@ -268,6 +269,10 @@ export class UsersService {
     data: any;
   }): Promise<UserRow> {
     const { where, data } = params;
+    if (data && Object.prototype.hasOwnProperty.call(data, 'status')) {
+      // status 只能经 UsersDomainService.applyUserTransition 走迁移表（铁律④）。
+      throw new BadRequestException('status must go through applyUserTransition');
+    }
     return this.prisma.user.update({
       data,
       where,

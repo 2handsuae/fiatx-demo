@@ -9,6 +9,7 @@ describe('MfaBindingWorkflowService', () => {
   let usersDomainService: any;
   let auditLogsService: any;
   let jwtService: any;
+  let prisma: any;
 
   const baseState = {
     id: 'u1',
@@ -30,7 +31,6 @@ describe('MfaBindingWorkflowService', () => {
       storeMfaSecret: jest.fn().mockResolvedValue(undefined),
       completeMfaBinding: jest.fn().mockResolvedValue(undefined),
       incrementMfaVerifyFail: jest.fn(),
-      completeFirstLogin: jest.fn().mockResolvedValue(undefined),
       clearMfaVerifyFail: jest.fn().mockResolvedValue(undefined),
     };
     auditLogsService = {
@@ -40,7 +40,12 @@ describe('MfaBindingWorkflowService', () => {
     jwtService = {
       sign: jest.fn().mockReturnValue('full-access-token'),
     };
-    service = new MfaBindingWorkflowService(usersDomainService, auditLogsService, jwtService);
+    prisma = {
+      auditLogEvent: {
+        findFirst: jest.fn().mockResolvedValue(null),
+      },
+    };
+    service = new MfaBindingWorkflowService(usersDomainService, auditLogsService, jwtService, prisma);
   });
 
   describe('confirmIdentity', () => {
@@ -54,7 +59,6 @@ describe('MfaBindingWorkflowService', () => {
       await service.confirmIdentity('u1');
       expect(usersDomainService.setFirstLoginStatus).toHaveBeenCalledWith(
         'u1',
-        'MFA_BINDING',
         undefined,
         expect.any(String),
       );
@@ -70,7 +74,6 @@ describe('MfaBindingWorkflowService', () => {
 
       expect(usersDomainService.setFirstLoginStatus).toHaveBeenCalledWith(
         'u1',
-        'MFA_BINDING',
         undefined,
         traceId,
       );
@@ -173,7 +176,8 @@ describe('MfaBindingWorkflowService', () => {
     // 墙（见上方"第一批 · 首次登录 4 码"块顶部注释），本 jest 配置下不可执行到。已按同一
     // 模板人工复核：actionDomain/category 与紧邻的 MFA_BOUND(FAILED) 一致、reasonCode/
     // fromStatus/toStatus 三个必填字段全给、START 现铸 correlationId（不复用
-    // firstLoginTraceId——封锁是独立事件，不是首登旅程本身）、.catch() 兜底不挡 429。
+    // firstLoginTraceId——封锁是独立事件，不是首登旅程本身）；.catch() 兜底已拆除
+    // （2026-09-01 法一纪律3），审计写入失败会和 429 一起变成审计错误向上抛。
     it.todo('ADMIN_ACCOUNT_LOCK_APPLIED — 阻于 getOtp() 动态 import，本 jest 配置下不可测（见上方注释）');
   });
 
@@ -197,7 +201,7 @@ describe('MfaBindingWorkflowService', () => {
       expect(call[0].correlationId).toBeTruthy();
     });
 
-    it('审计写入失败不冒泡——锁定判定本身不依赖审计成功', async () => {
+    it('留痕失败即流程失败（2026-09-01 法一纪律3）：审计写入失败会向上抛，不再静默吞掉', async () => {
       auditLogsService.recordSystem.mockRejectedValueOnce(new Error('db down'));
 
       await expect(
@@ -206,7 +210,51 @@ describe('MfaBindingWorkflowService', () => {
           userNo: 'ADM-001',
           failedLoginAttempts: 5,
         }),
-      ).resolves.toBeUndefined();
+      ).rejects.toThrow('db down');
+    });
+  });
+
+  describe('法一附属修缮 · 自动解锁留痕（auth.service.ts → workflow）', () => {
+    it('handleAutoUnlock 写 ADMIN_ACCOUNT_LOCK_RELEASED：recordSystem + fromStatus/toStatus，correlationId 回查该 userNo 最近一条 ADMIN_ACCOUNT_LOCK_APPLIED 事件本身', async () => {
+      prisma.auditLogEvent.findFirst.mockResolvedValue({ correlationId: 'trace-lock-applied-1' });
+
+      await service.handleAutoUnlock({ userId: 'u1', userNo: 'ADM-001' });
+
+      expect(prisma.auditLogEvent.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { action: 'ADMIN_ACCOUNT_LOCK_APPLIED', primarySubjectNo: 'ADM-001' },
+        }),
+      );
+
+      const call = auditLogsService.recordSystem.mock.calls.find(
+        (c: any[]) => c[0].action === 'ADMIN_ACCOUNT_LOCK_RELEASED',
+      );
+      expect(call).toBeDefined();
+      expect(call[0].primarySubjectNo).toBe('ADM-001');
+      expect(call[0].correlationId).toBe('trace-lock-applied-1');
+      expect(call[0].fromStatus).toBe('LOCKED');
+      expect(call[0].toStatus).toBe('ACTIVE');
+    });
+
+    it('回查不到 ADMIN_ACCOUNT_LOCK_APPLIED 事件时 correlationId 原样传 undefined——不 ?? randomUUID() 冒充 INHERIT', async () => {
+      prisma.auditLogEvent.findFirst.mockResolvedValue(null);
+
+      await service.handleAutoUnlock({ userId: 'u1', userNo: 'ADM-001' });
+
+      const call = auditLogsService.recordSystem.mock.calls.find(
+        (c: any[]) => c[0].action === 'ADMIN_ACCOUNT_LOCK_RELEASED',
+      );
+      expect(call).toBeDefined();
+      expect(call[0].correlationId).toBeUndefined();
+    });
+
+    it('留痕失败即流程失败（2026-09-01 法一纪律3）：审计写入失败会向上抛，不再静默吞掉', async () => {
+      prisma.auditLogEvent.findFirst.mockResolvedValue({ correlationId: 'trace-lock-applied-1' });
+      auditLogsService.recordSystem.mockRejectedValueOnce(new Error('db down'));
+
+      await expect(
+        service.handleAutoUnlock({ userId: 'u1', userNo: 'ADM-001' }),
+      ).rejects.toThrow('db down');
     });
   });
 });

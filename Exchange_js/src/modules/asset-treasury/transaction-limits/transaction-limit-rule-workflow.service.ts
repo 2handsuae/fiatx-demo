@@ -13,7 +13,6 @@ import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import {
   AuditBusinessWorkflowTypes,
   AuditEntityTypes,
-  AuditGovernanceActions,
 } from '../../audit-logging/constants/audit-actions.constant';
 import { AuditOutcome } from '../../audit-logging/dto/audit-log.dto';
 import { ApprovalsService } from '../../governance/approvals/approvals.service';
@@ -107,14 +106,17 @@ export class TransactionLimitRuleWorkflowService {
     const ruleNo = generateReferenceNo('TLR');
     const rule = await this.rulesService.createPending({ ...input, ruleNo });
 
-    const traceId = randomUUID();
+    // START：本次创建旅程的 correlationId，同一个值同事务写进 ApprovalCase.traceId
+    // （经 createAndSubmit 的 traceId 入参），供下游 onCreationDecided 经
+    // ApprovalDecidedEvent.traceId INHERIT 读回。
+    const correlationId = randomUUID();
     let approvalCase: any;
     try {
       approvalCase = await this.approvalsService.createAndSubmit(
         {
           actionType: ApprovalActionTypes.TRANSACTION_LIMIT_CREATION,
-          entityRef: rule.id,
-          traceId,
+          entityRef: rule.ruleNo,
+          traceId: correlationId,
           objectSnapshot: {
             ruleNo,
             gateType: input.gateType,
@@ -126,7 +128,7 @@ export class TransactionLimitRuleWorkflowService {
             reason: dto.reason,
           },
         },
-        { reason: dto.reason, traceId },
+        { reason: dto.reason, traceId: correlationId },
         actor,
       );
     } catch (err) {
@@ -135,23 +137,29 @@ export class TransactionLimitRuleWorkflowService {
       throw err;
     }
 
-    await this.rulesService.attachApprovalCase(ruleNo, approvalCase.id);
+    await this.rulesService.attachApprovalCase(ruleNo, approvalCase.id, approvalCase.approvalNo);
+
+    // afterData：CREATE 没有「前」态，只存提案身份本身。
+    const afterData = {
+      gateType: input.gateType,
+      operationType: input.operationType,
+      assetId: input.assetId,
+      tradingTier: input.tradingTier,
+      period: input.period,
+      ...this.amountSnapshot(input.gateType as GateType, input),
+    };
 
     await this.auditLogsService.recordByActor(
       {
-        action: AuditGovernanceActions.TRANSACTION_LIMIT_CREATION.CREATION_REQUESTED,
+        action: 'TRANSACTION_LIMIT_CREATION_REQUESTED',
+        actionDomain: 'CONFIG',
         primarySubjectType: AuditEntityTypes.TRANSACTION_LIMIT_POLICY,
         primarySubjectNo: ruleNo,
-        traceId,
+        correlationId,
         outcome: AuditOutcome.SUCCESS,
+        reason: dto.reason,
+        afterData,
         metadata: {
-          gateType: input.gateType,
-          operationType: input.operationType,
-          assetId: input.assetId,
-          tradingTier: input.tradingTier,
-          period: input.period,
-          ...this.amountSnapshot(input.gateType as GateType, input),
-          reason: dto.reason,
           approvalNo: approvalCase.approvalNo,
         },
         requestId: `TRANSACTION_LIMIT_CREATION_REQUESTED_${ruleNo}`,
@@ -177,8 +185,8 @@ export class TransactionLimitRuleWorkflowService {
       return;
     }
 
-    // entityRef 可能属于旧 governance policy 流(非本表 id)→ findUnique 返回 null,安全退出
-    const rule = await this.prisma.transactionLimitRule.findUnique({ where: { id: entityRef } });
+    // entityRef 可能属于旧 governance policy 流(非本表 ruleNo)→ findUnique 返回 null,安全退出
+    const rule = await this.prisma.transactionLimitRule.findUnique({ where: { ruleNo: entityRef } });
     if (!rule) return;
 
     if (decision === 'APPROVED') {
@@ -189,12 +197,25 @@ export class TransactionLimitRuleWorkflowService {
       try {
         await this.rulesService.activate(rule.ruleNo);
         await this.auditLogsService.recordSystem({
-          action: AuditGovernanceActions.TRANSACTION_LIMIT_CREATION.CREATION_APPLIED,
+          action: 'TRANSACTION_LIMIT_CREATION_APPLIED',
+          actionDomain: 'CONFIG',
           primarySubjectType: AuditEntityTypes.TRANSACTION_LIMIT_POLICY,
           primarySubjectNo: rule.ruleNo,
-          traceId: event?.traceId,
+          // INHERIT：读 ApprovalDecidedEvent.traceId——它就是 initiateCreate 铸造的
+          // correlationId 原样传播过来的（经 ApprovalCase.traceId）。
+          correlationId: event?.traceId,
+          // 异步驱动：这条记录是被「审批已批准」这个决定触发的。
+          causationId: approvalId,
           outcome: AuditOutcome.SUCCESS,
-          metadata: { gateType: rule.gateType, operationType: rule.operationType },
+          afterData: {
+            gateType: rule.gateType,
+            operationType: rule.operationType,
+            assetId: rule.assetId,
+            tradingTier: rule.tradingTier,
+            period: rule.period,
+            ...this.currentAmounts(rule),
+          },
+          approvalNo: event?.approvalNo,
           requestId: `TRANSACTION_LIMIT_CREATION_APPLIED_${rule.ruleNo}`,
           sourcePlatform: 'SYSTEM',
         });
@@ -202,13 +223,15 @@ export class TransactionLimitRuleWorkflowService {
       } catch (err: any) {
         this.logger.error(`Failed to activate rule ${rule.ruleNo}: ${err.message}`);
         await this.auditLogsService.recordSystem({
-          action: AuditGovernanceActions.TRANSACTION_LIMIT_CREATION.CREATION_APPLY_FAILED,
+          action: 'TRANSACTION_LIMIT_CREATION_APPLY_FAILED',
+          actionDomain: 'CONFIG',
           primarySubjectType: AuditEntityTypes.TRANSACTION_LIMIT_POLICY,
           primarySubjectNo: rule.ruleNo,
-          traceId: event?.traceId,
+          correlationId: event?.traceId,
+          causationId: approvalId,
           outcome: AuditOutcome.FAILED,
+          reasonCode: 'EXECUTION_FAILED',
           reason: err.message,
-          metadata: { error: err.message },
           requestId: `TRANSACTION_LIMIT_CREATION_APPLY_FAILED_${rule.ruleNo}`,
           sourcePlatform: 'SYSTEM',
         });
@@ -224,11 +247,14 @@ export class TransactionLimitRuleWorkflowService {
     try {
       await this.rulesService.deletePending(rule.ruleNo);
       await this.auditLogsService.recordSystem({
-        action: AuditGovernanceActions.TRANSACTION_LIMIT_CREATION.CREATION_CANCELLED,
+        action: 'TRANSACTION_LIMIT_CREATION_CANCELLED',
+        actionDomain: 'CONFIG',
         primarySubjectType: AuditEntityTypes.TRANSACTION_LIMIT_POLICY,
         primarySubjectNo: rule.ruleNo,
-        traceId: event?.traceId,
+        correlationId: event?.traceId,
+        causationId: approvalId,
         outcome: AuditOutcome.SUCCESS,
+        reason: event?.decisionReason || `Transaction limit rule creation request ${String(decision).toLowerCase()}`,
         metadata: { decision },
         requestId: `TRANSACTION_LIMIT_CREATION_CANCELLED_${rule.ruleNo}`,
         sourcePlatform: 'SYSTEM',
@@ -254,7 +280,7 @@ export class TransactionLimitRuleWorkflowService {
     // 早拒(FIX-1b):同一规则已有 OPEN 的变更审批 → 不许再提第二单(否则两单先后落地,后者绝对值快照会覆盖前者)
     const openChanges = await this.approvalsService.list({
       actionType: ApprovalActionTypes.TRANSACTION_LIMIT_CHANGE,
-      entityRef: rule.id,
+      entityRef: rule.ruleNo,
       status: ApprovalStatuses.PENDING,
       take: 1,
     });
@@ -305,12 +331,15 @@ export class TransactionLimitRuleWorkflowService {
       throw new BadRequestException('No amount field changed');
     }
 
-    const traceId = randomUUID();
+    // START：本次变更旅程的 correlationId，同一个值同事务写进 ApprovalCase.traceId
+    // （经 createAndSubmit 的 traceId 入参），供下游 onChangeDecided 经
+    // ApprovalDecidedEvent.traceId INHERIT 读回。
+    const correlationId = randomUUID();
     const approvalCase = await this.approvalsService.createAndSubmit(
       {
         actionType: ApprovalActionTypes.TRANSACTION_LIMIT_CHANGE,
-        entityRef: rule.id,
-        traceId,
+        entityRef: rule.ruleNo,
+        traceId: correlationId,
         objectSnapshot: {
           ruleNo: rule.ruleNo,
           gateType: rule.gateType,
@@ -320,23 +349,24 @@ export class TransactionLimitRuleWorkflowService {
           reason: dto.reason,
         },
       },
-      { reason: dto.reason, traceId },
+      { reason: dto.reason, traceId: correlationId },
       actor,
     );
 
     await this.auditLogsService.recordByActor(
       {
-        action: AuditGovernanceActions.TRANSACTION_LIMIT_CHANGE.CHANGE_REQUESTED,
+        action: 'TRANSACTION_LIMIT_CHANGE_REQUESTED',
+        actionDomain: 'CONFIG',
         primarySubjectType: AuditEntityTypes.TRANSACTION_LIMIT_POLICY,
         primarySubjectNo: rule.ruleNo,
-        traceId,
+        correlationId,
         outcome: AuditOutcome.SUCCESS,
+        reason: dto.reason,
+        beforeData: before,
+        afterData: after,
         metadata: {
           gateType: rule.gateType,
           operationType: rule.operationType,
-          before,
-          after,
-          reason: dto.reason,
           approvalNo: approvalCase.approvalNo,
         },
         requestId: `TRANSACTION_LIMIT_CHANGE_REQUESTED_${rule.ruleNo}`,
@@ -362,13 +392,13 @@ export class TransactionLimitRuleWorkflowService {
       return;
     }
 
-    // entityRef 可能属于旧 governance change-request 流(非本表 id)→ null,安全退出
-    const rule = await this.prisma.transactionLimitRule.findUnique({ where: { id: entityRef } });
+    // entityRef 可能属于旧 governance change-request 流(非本表 ruleNo)→ null,安全退出
+    const rule = await this.prisma.transactionLimitRule.findUnique({ where: { ruleNo: entityRef } });
     if (!rule) return;
 
     if (decision === 'APPROVED') {
       try {
-        const approval: any = await this.approvalsService.getById(approvalId);
+        const approval: any = await this.approvalsService.getById(event?.approvalNo);
         const before = approval?.objectSnapshot?.before;
         const after = approval?.objectSnapshot?.after;
         if (!after || typeof after !== 'object' || !before || typeof before !== 'object') {
@@ -379,11 +409,14 @@ export class TransactionLimitRuleWorkflowService {
         // 拒绝用旧绝对值快照覆盖(否则静默回退他人已批变更),转为可见的 FAILURE 审计。
         if (!this.beforeMatchesCurrent(before as Record<string, unknown>, rule)) {
           await this.auditLogsService.recordSystem({
-            action: AuditGovernanceActions.TRANSACTION_LIMIT_CHANGE.CHANGE_APPLY_FAILED,
+            action: 'TRANSACTION_LIMIT_CHANGE_APPLY_FAILED',
+            actionDomain: 'CONFIG',
             primarySubjectType: AuditEntityTypes.TRANSACTION_LIMIT_POLICY,
             primarySubjectNo: rule.ruleNo,
-            traceId: event?.traceId,
+            correlationId: event?.traceId,
+            causationId: approvalId,
             outcome: AuditOutcome.FAILED,
+            reasonCode: 'CONFLICT',
             reason: 'Concurrent change detected: rule amounts drifted from approval snapshot; apply skipped',
             metadata: {
               before,
@@ -402,12 +435,16 @@ export class TransactionLimitRuleWorkflowService {
 
         await this.rulesService.applyAmountChange(rule.ruleNo, after);
         await this.auditLogsService.recordSystem({
-          action: AuditGovernanceActions.TRANSACTION_LIMIT_CHANGE.CHANGE_APPLIED,
+          action: 'TRANSACTION_LIMIT_CHANGE_APPLIED',
+          actionDomain: 'CONFIG',
           primarySubjectType: AuditEntityTypes.TRANSACTION_LIMIT_POLICY,
           primarySubjectNo: rule.ruleNo,
-          traceId: event?.traceId,
+          correlationId: event?.traceId,
+          causationId: approvalId,
           outcome: AuditOutcome.SUCCESS,
-          metadata: { after, approvalNo: event?.approvalNo },
+          beforeData: before,
+          afterData: after,
+          approvalNo: event?.approvalNo,
           requestId: `TRANSACTION_LIMIT_CHANGE_APPLIED_${rule.ruleNo}`,
           sourcePlatform: 'SYSTEM',
         });
@@ -415,13 +452,16 @@ export class TransactionLimitRuleWorkflowService {
       } catch (err: any) {
         this.logger.error(`Failed to apply change to rule ${rule.ruleNo}: ${err.message}`);
         await this.auditLogsService.recordSystem({
-          action: AuditGovernanceActions.TRANSACTION_LIMIT_CHANGE.CHANGE_APPLY_FAILED,
+          action: 'TRANSACTION_LIMIT_CHANGE_APPLY_FAILED',
+          actionDomain: 'CONFIG',
           primarySubjectType: AuditEntityTypes.TRANSACTION_LIMIT_POLICY,
           primarySubjectNo: rule.ruleNo,
-          traceId: event?.traceId,
+          correlationId: event?.traceId,
+          causationId: approvalId,
           outcome: AuditOutcome.FAILED,
+          reasonCode: 'EXECUTION_FAILED',
           reason: err.message,
-          metadata: { error: err.message, approvalNo: event?.approvalNo },
+          metadata: { approvalNo: event?.approvalNo },
           requestId: `TRANSACTION_LIMIT_CHANGE_APPLY_FAILED_${rule.ruleNo}`,
           sourcePlatform: 'SYSTEM',
         });
@@ -431,11 +471,14 @@ export class TransactionLimitRuleWorkflowService {
 
     // 否决/取消/超时 → 无副作用(规则保持原值),仅留痕
     await this.auditLogsService.recordSystem({
-      action: AuditGovernanceActions.TRANSACTION_LIMIT_CHANGE.CHANGE_CANCELLED,
+      action: 'TRANSACTION_LIMIT_CHANGE_CANCELLED',
+      actionDomain: 'CONFIG',
       primarySubjectType: AuditEntityTypes.TRANSACTION_LIMIT_POLICY,
       primarySubjectNo: rule.ruleNo,
-      traceId: event?.traceId,
+      correlationId: event?.traceId,
+      causationId: approvalId,
       outcome: AuditOutcome.SUCCESS,
+      reason: event?.decisionReason || `Transaction limit rule change request ${String(decision).toLowerCase()}`,
       metadata: { decision, approvalNo: event?.approvalNo },
       requestId: `TRANSACTION_LIMIT_CHANGE_CANCELLED_${rule.ruleNo}`,
       sourcePlatform: 'SYSTEM',

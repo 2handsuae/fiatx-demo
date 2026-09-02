@@ -87,9 +87,26 @@
 
 **裁决**：不给脚本加清理逻辑（费率等级是受治理对象、本无删除端点，造一个属扩范围）。改为**钉死运行顺序**——
 
-`verify:rbac` → `stack.sh reset [main|self]` → `demo:all`
+`verify:rbac` → `verify:act1` → `stack.sh reset [main|self]` → `demo:all`
 
-重铺会把探针痕迹一并冲掉：实测重铺后费率等级从 8 条回落到 **2 条**。**`verify:rbac` 绝不能在演示前跑**，必须排在重铺之前；`demo:all` 的收尾闸判据（花名册 21/21 + COA 四恒等式）与本条对同一份"全新库"负责，两条约束并列、不可颠倒顺序。
+重铺会把探针痕迹一并冲掉：实测重铺后费率等级从 8 条回落到 **2 条**。**`verify:rbac` / `verify:act1` 绝不能在演示前跑**，必须排在重铺之前；`demo:all` 的收尾闸判据（花名册 21/21 + COA 四恒等式）与本条对同一份"全新库"负责，三条约束并列、不可颠倒顺序。
+
+## verify:act1 操作约束（四模块治愈 · 判据收口，2026-09-02 起）
+
+`npm run verify:act1`（15 条行为判据 B0–B14，见 `scripts/verify-act1.ts`）**会写数据**——每轮实测留下：
+
+- 3 张 `VERIFY_ACT1_TIMEOUT_PROBE` / `VERIFY_ACT1_KEY_PROBE` 探针审批单（B0–B5 夹具，其中一张真被 cron 判 `EXPIRED`，其余永久停在 `PENDING`——没有对应正门能推它们往前走，纯探针留档）
+- 1 个 `ADM-ACT1-B6-*` 探针成员 + 1 个 `WA-ACT1-B6-*` 探针钱包（B6，静态数据，无副作用）
+- 1 张 `DEPOSIT_SEIZE` 形状的两步审批单（B9/B14 共用夹具，`entityRef` 是占位字符串、不对应真实存款单，两票 `APPROVAL_GRANTED` 留痕后案子 `APPROVED`，`workflow.deposit-seize.decided` 的下游被 `deposit-workflow.service.ts#onSeizeDecided` 的 `NotFoundException` 分支静默吞掉，不触发任何资金动作）
+- 1 个 `VERIFY_ACT1_ROLE_*` 探针角色 + 1 张已 `REJECTED` 的角色定义修改申请单（B10）
+- 1 个 `ADM-ACT1-B12-*` 探针成员（B12，全程 `ACTIVE`，reactivate 被拒不改变状态）
+- 若干条 `ADMIN_ACCESS_DENIED` 审计行（B11 打 `/admin/reconciliation/runs/wallet`、B13 打材料 `simulate-stage`，actorNo 均为 `auditor@` 的 ADM 号）
+
+以上记录均带 `verify-act1` / `ACT1-*` 前缀或探针专属 actionType，不进任何真实报价/风控/推单路径，**但会在角色页、审批中心列表里以探针行形式可见**——同 `verify:rbac` 的风险，一并交给同一条重铺约束收口，不单独加清理逻辑。
+
+**B13 判据依赖库里存在至少一条真实 `CustomerMaterialHolding`**（材料生命周期记录，不是纯治理夹具，`verify:act1` 按 brief 明确指示**不伪造**）——全新重铺的库在 `demo:all` 跑过一次客户 KYC 全流程之前通常是空的，此时 B13 判据自动 **SKIP**（打印原因，不计入失败，`n/15 PASS + 1 SKIP` 仍算通过）；库里一旦有真实 holding（无论是 `demo:all` 走出来的还是运维手工补的），B13 就会正常跑判据，不再 SKIP。2026-09-02 首次实测：全新 worktree 自动分栈的库尚无客户走过材料生命周期，手工补种 1 条 holding 后 B13 转为真实通过，**15/15 PASS**。
+
+**裁决**：与 `verify:rbac` 同一条运行顺序——`verify:rbac` → `verify:act1` → `stack.sh reset [main|self]` → `demo:all`，重铺把探针痕迹与手工补种的 holding 一并冲掉。
 
 ## 红名单 —— 已于 2026-08-31 清零并退役
 

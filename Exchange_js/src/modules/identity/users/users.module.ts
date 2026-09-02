@@ -8,6 +8,7 @@ import { UsersDomainService } from './users.domain.service';
 import { AdminInvitationsService } from './admin-invitations.service';
 import { AdminInviteApprovalService } from './admin-invite-approval.service';
 import { AdminInviteWorkflowService } from './admin-invite-workflow.service';
+import { InviteExpiryService } from './invite-expiry.service';
 import { AdminRoleBindingChangeApprovalService } from './admin-role-binding-change-approval.service';
 import { AdminRoleBindingChangeWorkflowService } from './admin-role-binding-change-workflow.service';
 import { AdminRoleChangeRequestController } from './admin-role-change-request.controller';
@@ -38,6 +39,7 @@ import { UsersController } from './users.controller';
     AdminInvitationsService,
     AdminInviteApprovalService,
     AdminInviteWorkflowService,
+    InviteExpiryService,
     AdminRoleBindingChangeApprovalService,
     AdminRoleBindingChangeWorkflowService,
     AdminSuspensionApprovalService,

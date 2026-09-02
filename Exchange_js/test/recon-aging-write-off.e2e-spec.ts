@@ -470,7 +470,7 @@ describe('Recon case aging → write-off e2e (平账 A 批, Task 12)', () => {
     // recon-reattribution.e2e-spec.ts:551 已经是读 objectSnapshot 的既有先例，
     // 这里照它改读那里（唯一偏离 brief 原文的一行，报告里也记了）。
     expect(JSON.parse(approvalCase.objectSnapshot).impact).toContain('公司池查无果核销');
-    await approvalsService.approve(approvalCase.id, { reason: 'e2e CFO approve write-off' }, makeActor('E2E_CFO_APPROVER', 'CFO'));
+    await approvalsService.approve(approvalCase.approvalNo, { reason: 'e2e CFO approve write-off' }, makeActor('E2E_CFO_APPROVER', 'CFO'));
     await waitUntil(async () => (await adjustmentRow(adjustmentNo)).status === AdjustmentStatus.POSTED);
 
     const evidence = await tbEvidence.findBySource('RECON_ADJUSTMENT', adjustmentNo);

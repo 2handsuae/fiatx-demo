@@ -4,7 +4,6 @@ import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import {
   AuditBusinessWorkflowTypes,
   AuditEntityTypes,
-  AuditGovernanceActions,
 } from '../../audit-logging/constants/audit-actions.constant';
 import { AuditOutcome } from '../../audit-logging/dto/audit-log.dto';
 import { ApprovalActorContext } from '../../governance/approvals/constants/approval.constants';
@@ -52,10 +51,12 @@ export class CustomerTagService {
 
     await this.audit.recordByActor(
       {
-        action: AuditGovernanceActions.CUSTOMER_TAG.TAG_ASSIGNED,
+        action: 'CUSTOMER_TAG_ASSIGNED',
+        actionDomain: 'CONFIG',
         primarySubjectType: AuditEntityTypes.CUSTOMER_TAG,
         primarySubjectNo: `${customer.customerNo}:${tagCode}`,
         outcome: AuditOutcome.SUCCESS,
+        afterData: { tagCode },
         metadata: { customerId, tagCode },
         sourcePlatform: 'ADMIN_API',
       },
@@ -65,8 +66,9 @@ export class CustomerTagService {
     return row;
   }
 
-  async revoke(customerId: string, tagCode: string, actor: ApprovalActorContext) {
+  async revoke(customerId: string, tagCode: string, reason: string, actor: ApprovalActorContext) {
     this.assertStaticTag(tagCode);
+    if (!reason?.trim()) throw new BadRequestException('reason is required');
     const customer = await this.prisma.customerMain.findUnique({
       where: { id: customerId },
       select: { customerNo: true },
@@ -79,10 +81,13 @@ export class CustomerTagService {
 
     await this.audit.recordByActor(
       {
-        action: AuditGovernanceActions.CUSTOMER_TAG.TAG_REVOKED,
+        action: 'CUSTOMER_TAG_REVOKED',
+        actionDomain: 'CONFIG',
         primarySubjectType: AuditEntityTypes.CUSTOMER_TAG,
         primarySubjectNo: `${customer.customerNo}:${tagCode}`,
         outcome: AuditOutcome.SUCCESS,
+        reason,
+        beforeData: { tagCode },
         metadata: { customerId, tagCode },
         sourcePlatform: 'ADMIN_API',
       },

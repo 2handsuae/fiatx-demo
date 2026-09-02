@@ -98,7 +98,7 @@ export class AuditEvidenceExportWorkflowService {
     const submitted = await this.approvalsService.createAndSubmit(
       {
         actionType: ApprovalActionTypes.AUDIT_EVIDENCE_EXPORT_APPROVAL,
-        entityRef: evidencePackage.id,
+        entityRef: evidencePackage.packageNo,
         objectSnapshot: {
           packageNo: evidencePackage.packageNo,
           exportMode: evidencePackage.exportMode,
@@ -153,7 +153,7 @@ export class AuditEvidenceExportWorkflowService {
 
     await this.approvalsService.requireApproved({
       actionType: ApprovalActionTypes.AUDIT_EVIDENCE_EXPORT_APPROVAL,
-      entityRef: id,
+      entityRef: found.packageNo,
       approvalCaseId: found.approvalCaseId,
       actor,
       traceId: this.normalizeOptionalString(found.approvalCase?.traceId),
@@ -202,6 +202,8 @@ export class AuditEvidenceExportWorkflowService {
   }
 
   private async executePackageGeneration(event: ApprovalDecidedEvent) {
+    // entityRef 现在存 packageNo（铁律⑥）；findEvidencePackageForApproval 内部的
+    // OR 分支已同步改按 packageNo 回查（audit-logs.service.ts）。
     const evidencePackage = await this.auditLogsService.findEvidencePackageForApproval(
       event.approvalId,
       event.entityRef,
@@ -309,6 +311,8 @@ export class AuditEvidenceExportWorkflowService {
       EXPIRED: AuditEvidencePackageStatus.EXPIRED,
     };
     const status = statusMap[event.decision] || AuditEvidencePackageStatus.CANCELLED;
+    // entityRef 现在存 packageNo（铁律⑥）；bulkMarkEvidencePackagesStatus 内部的
+    // OR 分支已同步改按 packageNo 回查（audit-logs.service.ts）。
     await this.auditLogsService.bulkMarkEvidencePackagesStatus(event.approvalId, event.entityRef, status);
   }
 }

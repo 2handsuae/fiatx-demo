@@ -11,7 +11,6 @@ import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import {
   AuditBusinessWorkflowTypes,
   AuditEntityTypes,
-  AuditGovernanceActions,
 } from '../../audit-logging/constants/audit-actions.constant';
 import { AuditOutcome } from '../../audit-logging/dto/audit-log.dto';
 import { ApprovalsService } from '../../governance/approvals/approvals.service';
@@ -23,6 +22,7 @@ import {
 import { TbAccountRegistryService } from '../../accounting/tigerbeetle/tb-account-registry.service';
 import { TB_ACCOUNT_CODES } from '../../accounting/tigerbeetle/constants/tb-account-codes.constant';
 import { AssetsService } from './assets.service';
+import { assertAssetTransition, AssetAction } from './constants/asset-transitions.constant';
 
 const SECONDARY_EVENT = 'workflow.asset-activation.decided';
 
@@ -47,25 +47,28 @@ export class AssetActivationWorkflowService {
   }
 
   async requestActivation(assetNo: string, actor: ApprovalActorContext) {
-    const traceId = randomUUID();
+    // START：本次激活旅程的 correlationId，同一个值同事务写进 ApprovalCase.traceId
+    // （经 createAndSubmit 的 traceId 入参），供下游 executeActivation 经
+    // ApprovalDecidedEvent.traceId INHERIT 读回。
+    const correlationId = randomUUID();
 
-    // 1. Find asset, verify PROVISIONING
+    // 1. Find asset, verify PROVISIONING —— 迁移表单一真相源（铁律④）。此前这里
+    // 独立维护一份 400 判断，从未触达 assertAssetTransition：Task 29 B7 判据实测
+    // 逮到，对 ACTIVE 资产再打本端点拿 400 INVALID_ASSET_STATUS，而不是 409
+    // "Invalid transition"——请求层这道守卫绕过了迁移表本身。改走表，非法来源态
+    // 由表统一拒绝（409），与 assets.service.ts 三方法、users.domain.service.ts
+    // reactivateUser() 同款。
     const asset = await this.prisma.asset.findFirst({ where: { assetNo } });
     if (!asset) {
       throw new NotFoundException(`Asset ${assetNo} not found`);
     }
-    if (asset.status !== 'PROVISIONING') {
-      throw new BadRequestException({
-        code: 'INVALID_ASSET_STATUS',
-        message: `Asset must be in PROVISIONING status to activate (current: ${asset.status})`,
-      });
-    }
+    assertAssetTransition(asset.status, AssetAction.ACTIVATE);
 
     // 2. Check no pending activation approval
     const existingPending = await this.prisma.approvalCase.findFirst({
       where: {
         actionType: ApprovalActionTypes.ASSET_ACTIVATION,
-        entityRef: asset.id,
+        entityRef: assetNo,
         status: 'PENDING',
       },
     });
@@ -82,8 +85,8 @@ export class AssetActivationWorkflowService {
     const approvalCase = await this.approvalsService.createAndSubmit(
       {
         actionType: ApprovalActionTypes.ASSET_ACTIVATION,
-        entityRef: asset.id,
-        traceId,
+        entityRef: assetNo,
+        traceId: correlationId,
         objectSnapshot: {
           assetId: asset.id,
           assetNo,
@@ -95,21 +98,30 @@ export class AssetActivationWorkflowService {
       },
       {
         reason: `Activate asset: ${asset.currency} (${asset.type})`,
-        traceId,
+        traceId: correlationId,
       },
       actor,
     );
 
+    // beforeData：请求发起时资产的状态快照（激活只会改 status，其余字段留作上下文）。
+    const beforeData = {
+      status: asset.status,
+      currency: asset.currency,
+      type: asset.type,
+      network: asset.network,
+    };
+
     // 5. Record audit
     await this.auditLogsService.recordByActor(
       {
-        action: AuditGovernanceActions.ASSET_ACTIVATION.ACTIVATION_REQUESTED,
+        action: 'ASSET_ACTIVATION_REQUESTED',
+        actionDomain: 'CONFIG',
         primarySubjectType: AuditEntityTypes.ASSET,
         primarySubjectNo: assetNo,
-        traceId,
+        correlationId,
         outcome: AuditOutcome.SUCCESS,
+        beforeData,
         metadata: {
-          assetCurrency: asset.currency,
           approvalNo: approvalCase.approvalNo,
         },
         requestId: `ASSET_ACTIVATION_REQUESTED_${assetNo}`,
@@ -120,7 +132,7 @@ export class AssetActivationWorkflowService {
 
     return {
       approvalNo: approvalCase.approvalNo,
-      traceId,
+      traceId: correlationId,
       assetNo,
       status: 'PENDING',
     };
@@ -172,7 +184,7 @@ export class AssetActivationWorkflowService {
 
   private async executeActivation(event: ApprovalDecidedEvent) {
     try {
-      const assetRecord = await this.prisma.asset.findUnique({ where: { id: event.entityRef } });
+      const assetRecord = await this.prisma.asset.findFirst({ where: { assetNo: event.entityRef } });
       if (!assetRecord || !assetRecord.assetNo) {
         throw new ConflictException(`Asset ${event.entityRef} not found`);
       }
@@ -180,14 +192,18 @@ export class AssetActivationWorkflowService {
       const updated = await this.assetsService.activateAsset(assetRecord.assetNo);
 
       await this.auditLogsService.recordSystem({
-        action: AuditGovernanceActions.ASSET_ACTIVATION.ASSET_ACTIVATED,
+        action: 'ASSET_ACTIVATED',
+        actionDomain: 'CONFIG',
         primarySubjectType: AuditEntityTypes.ASSET,
         primarySubjectNo: updated.assetNo ?? undefined,
-        traceId: event.traceId,
+        // INHERIT：读 ApprovalDecidedEvent.traceId——它就是 requestActivation 铸造的
+        // correlationId 原样传播过来的（经 ApprovalCase.traceId）。
+        correlationId: event.traceId,
+        // 异步驱动：这条记录是被「审批已批准」这个决定触发的。
+        causationId: event.approvalId,
         outcome: AuditOutcome.SUCCESS,
+        approvalNo: event.approvalNo,
         metadata: {
-          approvalId: event.approvalId,
-          approvalNo: event.approvalNo,
           activatedByUserId: event.decisionByUserId,
           activatedByUserNo: event.decisionByUserNo,
         },
@@ -197,11 +213,14 @@ export class AssetActivationWorkflowService {
 
     } catch (error) {
       await this.auditLogsService.recordSystem({
-        action: AuditGovernanceActions.ASSET_ACTIVATION.ACTIVATION_FAILED,
+        action: 'ASSET_ACTIVATION_FAILED',
+        actionDomain: 'CONFIG',
         primarySubjectType: AuditEntityTypes.ASSET,
         primarySubjectNo: event.entityRef,
-        traceId: event.traceId,
+        correlationId: event.traceId,
+        causationId: event.approvalId,
         outcome: AuditOutcome.FAILED,
+        reasonCode: 'EXECUTION_FAILED',
         reason: error instanceof Error ? error.message : 'Activation execution failed',
         metadata: { approvalId: event.approvalId },
         requestId: `ASSET_ACTIVATION_EXEC_FAILED_${event.entityRef}`,

@@ -131,7 +131,7 @@ export class ApprovalPolicyChangeWorkflowService {
     const approvalCase = await this.approvalsService.createAndSubmit(
       {
         actionType: ApprovalActionTypes.APPROVAL_POLICY_CHANGE,
-        entityRef: request.id,
+        entityRef: request.requestNo,
         traceId: correlationId,
         objectSnapshot: {
           requestNo: request.requestNo,
@@ -215,8 +215,9 @@ export class ApprovalPolicyChangeWorkflowService {
   // ─── Execute Policy Change (on APPROVED) ──────────
 
   private async executePolicyChange(event: ApprovalDecidedEvent): Promise<void> {
+    // entityRef 现在存 requestNo（铁律⑥），按号回查。
     const request = await this.prisma.approvalPolicyChangeRequest.findFirst({
-      where: { id: event.entityRef },
+      where: { requestNo: event.entityRef },
     });
     if (!request) return;
 
@@ -329,8 +330,9 @@ export class ApprovalPolicyChangeWorkflowService {
     event: ApprovalDecidedEvent,
     status: 'REJECTED' | 'CANCELLED' | 'EXPIRED',
   ): Promise<void> {
+    // entityRef 现在存 requestNo（铁律⑥），按号回查。
     const request = await this.prisma.approvalPolicyChangeRequest.findFirst({
-      where: { id: event.entityRef },
+      where: { requestNo: event.entityRef },
     });
     if (!request) return;
 

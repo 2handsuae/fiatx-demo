@@ -261,7 +261,6 @@ const RolesPage = () => {
         >
           <option value="">All Status</option>
           <option value="ACTIVE">ACTIVE</option>
-          <option value="INACTIVE">INACTIVE</option>
           <option value="PENDING_APPROVAL">PENDING_APPROVAL</option>
         </select>
         <button
@@ -467,7 +466,7 @@ const RolesPage = () => {
                           <label
                             key={bucket.key}
                             className={`flex gap-3 rounded border border-adm-border bg-adm-bg p-3 ${bucket.forcedOn || bucket.restricted ? 'cursor-not-allowed opacity-70' : 'cursor-pointer hover:bg-adm-card'}`}
-                            title={bucket.restricted ? 'Restricted — CISO only' : bucket.forcedOn ? 'Required — cannot be disabled' : bucket.description}
+                            title={bucket.restricted ? `Restricted — ${bucket.description}` : bucket.forcedOn ? 'Required — cannot be disabled' : bucket.description}
                           >
                             <input
                               type="checkbox"

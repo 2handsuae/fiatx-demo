@@ -34,27 +34,24 @@ export const loginAsOpsOfficer = (apiBase: string) => loginAs(apiBase, 'ops_offi
 export const loginAsCfo = (apiBase: string) => loginAs(apiBase, 'cfo@fiatx.com');
 
 /**
- * approvalCaseId = ApprovalCase 内部 id（UUID），**不是**对外展示的 approvalNo。
- *
- * ⚠️ ApprovalsService.approve()/findCaseOrThrow() 全程 `where: { id }` 精确匹配
- * 内部 id，不认 approvalNo —— approvalNo 只能靠调用方自己先按 approvalNo 查一次
- * `approvalCase.id` 再传进来（demo-lib.ts 的 makerCheckerApprove 就是这么做的）。
+ * approvalNo = ApprovalCase 对外识别号（业务键），不是内部 id（UUID）——
+ * ApprovalsService.approve() 端点已改为 `:approvalNo` 精确匹配（Task 17）。
  */
 export async function approveApproval(
   apiBase: string,
   token: string,
-  approvalCaseId: string,
+  approvalNo: string,
   reason = 'demo fixture — approval',
 ): Promise<void> {
-  const res = await fetch(`${apiBase}/admin/control-gates/approvals/${approvalCaseId}/approve`, {
+  const res = await fetch(`${apiBase}/admin/control-gates/approvals/${approvalNo}/approve`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
     body: JSON.stringify({ reason }),
   });
-  if (!res.ok) throw new Error(`approve ${approvalCaseId} failed: ${res.status} ${await res.text()}`);
+  if (!res.ok) throw new Error(`approve ${approvalNo} failed: ${res.status} ${await res.text()}`);
 }
 
 /** 语义等价 approveApproval，专供 MLRO 这一步调用（RETURN 单步 / SEIZE 第二步）。 */
-export async function approveAsMlro(apiBase: string, token: string, approvalCaseId: string): Promise<void> {
-  await approveApproval(apiBase, token, approvalCaseId);
+export async function approveAsMlro(apiBase: string, token: string, approvalNo: string): Promise<void> {
+  await approveApproval(apiBase, token, approvalNo);
 }

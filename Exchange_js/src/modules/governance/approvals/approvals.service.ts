@@ -216,7 +216,7 @@ export class ApprovalsService {
    * 就拿不到了，重读的代价（一次 SELECT）远小于在开着的事务里嵌查询的代价。
    */
   private async recordSoDDenied(
-    id: string,
+    approvalNo: string,
     actor: ApprovalActorContext,
     error: unknown,
   ): Promise<void> {
@@ -227,7 +227,7 @@ export class ApprovalsService {
       return;
     }
 
-    const approval = await this.findCaseOrThrow(id);
+    const approval = await this.findCaseByNoOrThrow(approvalNo);
     await this.auditLogsService.recordByActor(
       {
         action: 'APPROVAL_SOD_DENIED',
@@ -242,6 +242,7 @@ export class ApprovalsService {
         reason: 'Maker cannot approve own request (SoD)',
         ruleCode: ApprovalSoDRuleCodes.DENY_SAME_USER_MAKER_CHECKER,
         subjects: this.approvalSubjects(approval),
+        requestId: `APPROVAL_SOD_DENIED_${approval.approvalNo}_${randomUUID()}`,
         sourcePlatform: 'ADMIN_API',
       },
       this.toAuditActor(actor),
@@ -251,7 +252,7 @@ export class ApprovalsService {
   private buildEventPayload(approval: ApprovalCaseRow): ApprovalDecisionEvent {
     const decidedStep = [...(approval.steps || [])]
       .sort((a: any, b: any) => b.stepNo - a.stepNo)
-      .find((s: any) => s.status !== ApprovalStepStatuses.PENDING);
+      .find((s: any) => s.status !== ApprovalStepStatuses.PENDING && s.decidedByUserId);
 
     return {
       approvalId: approval.id,
@@ -275,10 +276,6 @@ export class ApprovalsService {
     }
 
     this.eventEmitter.emit(eventName, payload);
-  }
-
-  private async projectGovernanceApprovalDecision(_approval: ApprovalCaseRow) {
-    // No-op: CT removed. Future workflow projections go here.
   }
 
   private assertTraceConsistency(
@@ -317,6 +314,19 @@ export class ApprovalsService {
     }
 
     return found as ApprovalCaseRow;
+  }
+
+  private async findCaseByNoOrThrow(
+    approvalNo: string,
+    tx?: ApprovalWriteClient,
+  ): Promise<ApprovalCaseRow> {
+    const client = tx ?? this.prisma;
+    const approval = await client.approvalCase.findUnique({
+      where: { approvalNo },
+      include: this.approvalInclude(),
+    });
+    if (!approval) throw new NotFoundException(`Approval ${approvalNo} not found`);
+    return approval as ApprovalCaseRow;
   }
 
   private isUniqueConflict(error: unknown, field: string): boolean {
@@ -654,11 +664,15 @@ export class ApprovalsService {
     return this.mapApproval(submitted, actor);
   }
 
-  async approve(id: string, dto: DecisionApprovalDto, actor: ApprovalActorContext) {
+  async approve(approvalNo: string, dto: DecisionApprovalDto, actor: ApprovalActorContext) {
     let updated: ApprovalCaseRow;
+    // 超管代行标要报的"候选角色集"——resolveDecisionRole 内部同名局部变量
+    // （allowedRoles = stepCandidateRoles || []），事务回调作用域里算出来，
+    // 事务外的审计写入用得到，故镜像一份到外层，同 updated 本身的捕获方式一致。
+    let allowedRoles: string[] = [];
     try {
       updated = await this.prisma.$transaction(async (tx: any) => {
-        const approval = await this.findCaseOrThrow(id, tx);
+        const approval = await this.findCaseByNoOrThrow(approvalNo, tx);
         if (approval.status !== ApprovalStatuses.PENDING) {
           throw new BadRequestException('Only PENDING approvals can be approved');
         }
@@ -683,6 +697,7 @@ export class ApprovalsService {
         const currentStep = firstPendingStep;
 
         const stepCandidateRoles = splitRoleCsv(currentStep.checkerRoleCandidates);
+        allowedRoles = stepCandidateRoles;
         const decisionRole = await this.resolveDecisionRole(approval, actor, dto.checkerRole, stepCandidateRoles);
         const now = new Date();
 
@@ -732,7 +747,7 @@ export class ApprovalsService {
       // resolveDecisionRole 处注释：事务已经 settle/rejected，此刻查询/写入
       // 不会再跟这个已经在回滚的 tx 顶牛）。非 SoD 原因的失败原样透传，
       // recordSoDDenied 内部会判断、不是 SoD 就直接 no-op。
-      await this.recordSoDDenied(id, actor, error);
+      await this.recordSoDDenied(approvalNo, actor, error);
       throw error;
     }
 
@@ -755,26 +770,30 @@ export class ApprovalsService {
           ? { fromStatus: ApprovalStatuses.PENDING, toStatus: ApprovalStatuses.APPROVED }
           : {}),
         subjects: this.approvalSubjects(updated),
+        requestId: `APPROVAL_GRANTED_${updated.approvalNo}_${randomUUID()}`,
         sourcePlatform: 'ADMIN_API',
-        metadata:
-          this.isSuperAdmin(actor) && actor.userId === updated.createdByUserId
-            ? { superAdminBypass: true }
-            : undefined,
+        // 超管代行标：不再局限于"自批"这一种越权场景——超管越过 checkerRoleCandidates
+        // 本身（不持有候选角色也能签）同样是代行，两种越权都该留痕，条件放宽为
+        // 只要这次是超管做的决定就标注，并带上当时的候选角色集，说明"代的是哪些角色"。
+        metadata: this.isSuperAdmin(actor)
+          ? { superAdminBypass: true, actedAsRoles: allowedRoles }
+          : undefined,
       },
       this.toAuditActor(actor),
     );
     if (isFinalVote) {
-      await this.projectGovernanceApprovalDecision(updated);
       await this.emitApprovalEvent(ApprovalEvents.APPROVED, this.buildEventPayload(updated));
     }
     return this.mapApproval(updated, actor);
   }
 
-  async reject(id: string, dto: DecisionApprovalDto, actor: ApprovalActorContext) {
+  async reject(approvalNo: string, dto: DecisionApprovalDto, actor: ApprovalActorContext) {
     let updated: ApprovalCaseRow;
+    // 超管代行标要报的"候选角色集"——同 approve() 里一致的镜像手法。
+    let allowedRoles: string[] = [];
     try {
       updated = await this.prisma.$transaction(async (tx: any) => {
-        const approval = await this.findCaseOrThrow(id, tx);
+        const approval = await this.findCaseByNoOrThrow(approvalNo, tx);
         if (approval.status !== ApprovalStatuses.PENDING) {
           throw new BadRequestException('Only PENDING approvals can be rejected');
         }
@@ -799,6 +818,7 @@ export class ApprovalsService {
         const currentStep = firstPendingStep;
 
         const stepCandidateRoles = splitRoleCsv(currentStep.checkerRoleCandidates);
+        allowedRoles = stepCandidateRoles;
         const decisionRole = await this.resolveDecisionRole(approval, actor, dto.checkerRole, stepCandidateRoles);
         const now = new Date();
 
@@ -839,7 +859,7 @@ export class ApprovalsService {
         }) as Promise<ApprovalCaseRow>;
       });
     } catch (error) {
-      await this.recordSoDDenied(id, actor, error);
+      await this.recordSoDDenied(approvalNo, actor, error);
       throw error;
     }
 
@@ -860,23 +880,24 @@ export class ApprovalsService {
         fromStatus: ApprovalStatuses.PENDING,
         toStatus: ApprovalStatuses.REJECTED,
         subjects: this.approvalSubjects(updated),
+        requestId: `APPROVAL_DECLINED_${updated.approvalNo}_${randomUUID()}`,
         sourcePlatform: 'ADMIN_API',
-        metadata:
-          this.isSuperAdmin(actor) && actor.userId === updated.createdByUserId
-            ? { superAdminBypass: true }
-            : undefined,
+        // 超管代行标：同 approve() 一致的放宽——只要这次是超管做的决定就标注，不再
+        // 局限于"自批"这一种越权场景，并带上当时的候选角色集。
+        metadata: this.isSuperAdmin(actor)
+          ? { superAdminBypass: true, actedAsRoles: allowedRoles }
+          : undefined,
       },
       this.toAuditActor(actor),
     );
-    await this.projectGovernanceApprovalDecision(updated);
     await this.emitApprovalEvent(ApprovalEvents.REJECTED, this.buildEventPayload(updated));
     return this.mapApproval(updated, actor);
   }
 
-  async cancel(id: string, dto: CancelApprovalDto, actor: ApprovalActorContext) {
+  async cancel(approvalNo: string, dto: CancelApprovalDto, actor: ApprovalActorContext) {
     let previousStatus: string = ApprovalStatuses.DRAFT;
     const updated = await this.prisma.$transaction(async (tx: any) => {
-      const approval = await this.findCaseOrThrow(id, tx);
+      const approval = await this.findCaseByNoOrThrow(approvalNo, tx);
       if (approval.createdByUserId !== actor.userId && !this.isSuperAdmin(actor)) {
         throw new ForbiddenException('Only the maker can cancel this approval');
       }
@@ -943,7 +964,6 @@ export class ApprovalsService {
       },
       this.toAuditActor(actor),
     );
-    await this.projectGovernanceApprovalDecision(updated);
     await this.emitApprovalEvent(ApprovalEvents.CANCELLED, this.buildEventPayload(updated));
     return this.mapApproval(updated, actor);
   }
@@ -969,7 +989,7 @@ export class ApprovalsService {
             primarySubjectNo: input.entityRef,
             outcome: AuditOutcome.DENIED,
             reason: `Approval is required for ${input.actionType}:${input.entityRef}`,
-            requestId: `APPROVAL_REQUIRED_${input.actionType}_${input.entityRef}`,
+            requestId: `APPROVAL_REQUIRED_MISSING_${input.entityRef}_${randomUUID()}`,
             sourcePlatform: 'ADMIN_API',
           },
           this.toAuditActor(input.actor),
@@ -993,8 +1013,8 @@ export class ApprovalsService {
     return this.mapApproval(approval, input.actor);
   }
 
-  async getById(id: string, actor?: ApprovalActorContext) {
-    const approval = await this.findCaseOrThrow(id);
+  async getById(approvalNo: string, actor?: ApprovalActorContext) {
+    const approval = await this.findCaseByNoOrThrow(approvalNo);
     const [mapped] = await this.mapApprovalsForReadModel([approval], actor);
     return mapped;
   }
@@ -1093,7 +1113,6 @@ export class ApprovalsService {
       subjects: this.approvalSubjects(updated),
       sourcePlatform: 'CRON',
     });
-    await this.projectGovernanceApprovalDecision(updated);
     await this.emitApprovalEvent(ApprovalEvents.EXPIRED, this.buildEventPayload(updated));
     return this.mapApproval(updated, this.systemActor());
   }
@@ -1124,5 +1143,48 @@ export class ApprovalsService {
       expiredCount: expiredIds.length,
       expiredIds,
     };
+  }
+
+  /**
+   * 演示用：把该单超时时间拨到过去，下一轮 @Cron 扫描即过期。与三域
+   * simulate-sla-timeout 同款。只拨时间、不直改状态：过期这条边必须由
+   * 扫描器走，否则演的是假门。
+   *
+   * operator 点按钮触发、改了持久字段（timeoutAt）→ 必须留痕（规则①），
+   * 照抄三域 setSlaDeadlineByNo 的先例写 recordByActor。requestId 每次
+   * 现生成一个新的 UUID：同一单允许被反复按 ⚡，每次都要落一行，不能被
+   * 幂等键悄悄去重成一行。
+   */
+  async simulateTimeoutByNo(approvalNo: string, actor: ApprovalActorContext) {
+    const approval = (await this.prisma.approvalCase.findUnique({
+      where: { approvalNo },
+      include: this.approvalInclude(),
+    })) as ApprovalCaseRow | null;
+    if (!approval) throw new NotFoundException(`Approval ${approvalNo} not found`);
+    if (approval.status !== ApprovalStatuses.PENDING) {
+      throw new BadRequestException(`Approval ${approvalNo} is ${approval.status}, only PENDING can be fast-forwarded`);
+    }
+    const timeoutAt = new Date(Date.now() - 1000);
+    await this.prisma.approvalCase.update({ where: { id: approval.id }, data: { timeoutAt } });
+
+    await this.auditLogsService.recordByActor(
+      {
+        action: 'APPROVAL_TIMEOUT_SIMULATED',
+        actionDomain: 'APPROVAL',
+        category: AuditCategory.GOVERNANCE,
+        primarySubjectType: AuditEntityTypes.APPROVAL_CASE,
+        primarySubjectNo: approvalNo,
+        correlationId: this.inheritedCorrelationId(approval),
+        outcome: AuditOutcome.SUCCESS,
+        reason: 'Demo: timeout fast-forwarded',
+        approvalNo,
+        subjects: this.approvalSubjects(approval),
+        requestId: `APPROVAL_TIMEOUT_SIMULATED_${approvalNo}_${randomUUID()}`,
+        sourcePlatform: 'ADMIN_API',
+      },
+      this.toAuditActor(actor),
+    );
+
+    return { approvalNo, timeoutAt };
   }
 }

@@ -454,7 +454,7 @@ export default function WithdrawalFeeLevelDetail() {
                   Edit Tiers
                 </button>
                 <p className="text-center font-mono text-[10px] text-adm-t3">
-                  Edit Tiers requires MLRO → SMO approval
+                  Edit Tiers requires CFO → Ops Officer approval
                 </p>
               </div>
             </div>
@@ -526,7 +526,7 @@ export default function WithdrawalFeeLevelDetail() {
             {/* Body */}
             <div className="px-5 py-4 space-y-3">
               <div className="rounded border border-adm-amber/30 bg-adm-amber/10 px-3 py-2.5 font-mono text-[10px] text-adm-amber leading-relaxed">
-                This will submit a tier change request for MLRO → SMO approval. The current
+                This will submit a tier change request for CFO → Ops Officer approval. The current
                 configuration remains in effect until the change is approved.
               </div>
 

@@ -129,6 +129,8 @@ describe('DepositWorkflowService', () => {
     depositService = {
       updateStatus: jest.fn().mockResolvedValue({ status: DepositTransactionStatus.SUCCESS }),
       findOne: jest.fn(),
+      // A2 四个 disposition decided handler 按业务键 entityRef(=depositNo) 回查（铁律⑥）。
+      findOneByNo: jest.fn(),
       // A7：MATERIAL_REQUEST_REVIEWED 回炉 listener 按业务键 orderRef(=depositNo) 查单。
       findByNo: jest.fn(),
       updateSumsubVerdict: jest.fn(),
@@ -1542,7 +1544,7 @@ describe('DepositWorkflowService', () => {
       const res = await service.initiateReturn('dep-r1', { reason: 'dirty money' }, adminActor);
 
       expect(approvalsService.createAndSubmit).toHaveBeenCalledWith(
-        expect.objectContaining({ actionType: 'DEPOSIT_RETURN', entityRef: 'dep-r1' }),
+        expect.objectContaining({ actionType: 'DEPOSIT_RETURN', entityRef: 'DEPR001' }),
         expect.anything(),
         expect.anything(),
       );
@@ -1628,7 +1630,7 @@ describe('DepositWorkflowService', () => {
       ).resolves.toBeDefined();
 
       expect(approvalsService.createAndSubmit).toHaveBeenCalledWith(
-        expect.objectContaining({ actionType: 'DEPOSIT_RETURN', entityRef: 'd1' }),
+        expect.objectContaining({ actionType: 'DEPOSIT_RETURN', entityRef: 'DEP001' }),
         expect.anything(),
         expect.anything(),
       );
@@ -1691,7 +1693,7 @@ describe('DepositWorkflowService', () => {
       expect(approvalsService.createAndSubmit).toHaveBeenCalledWith(
         expect.objectContaining({
           actionType: 'DEPOSIT_SEIZE',
-          entityRef: 'dep-s1',
+          entityRef: 'DEPS001',
           objectSnapshot: expect.objectContaining({ orderRef: 'ORD-123' }),
         }),
         expect.anything(),
@@ -1774,7 +1776,7 @@ describe('DepositWorkflowService', () => {
       expect(approvalsService.createAndSubmit).toHaveBeenCalledWith(
         expect.objectContaining({
           actionType: 'DEPOSIT_UNFREEZE',
-          entityRef: 'dep-u1',
+          entityRef: 'DEPU001',
           objectSnapshot: expect.objectContaining({ orderRef: 'ORD-U-1' }),
         }),
         expect.anything(),
@@ -1825,7 +1827,7 @@ describe('DepositWorkflowService', () => {
 
     it('onReturnDecided: APPROVED → calls the onReturnApproved stub, does not throw, does not touch deposit status', async () => {
       const deposit = { id: 'dep-x1', depositNo: 'DEP-X1', status: DepositTransactionStatus.MANUAL_CHECKING };
-      depositService.findOne.mockResolvedValue(deposit);
+      depositService.findOneByNo.mockResolvedValue(deposit);
       const stub = jest.spyOn(service as any, 'onReturnApproved').mockResolvedValue(undefined);
 
       await expect(service.onReturnDecided(decidedEvent())).resolves.toBeUndefined();
@@ -1836,7 +1838,7 @@ describe('DepositWorkflowService', () => {
 
     it('onReturnDecided: DECLINED → no-op (stub not called, deposit untouched)', async () => {
       const deposit = { id: 'dep-x1', depositNo: 'DEP-X1', status: DepositTransactionStatus.MANUAL_CHECKING };
-      depositService.findOne.mockResolvedValue(deposit);
+      depositService.findOneByNo.mockResolvedValue(deposit);
       const stub = jest.spyOn(service as any, 'onReturnApproved').mockResolvedValue(undefined);
 
       await service.onReturnDecided(decidedEvent({ decision: 'DECLINED' }));
@@ -1846,13 +1848,13 @@ describe('DepositWorkflowService', () => {
     });
 
     it('onReturnDecided: foreign entityRef (deposit not found) → graceful no-op', async () => {
-      depositService.findOne.mockRejectedValue(new NotFoundException('not found'));
+      depositService.findOneByNo.mockRejectedValue(new NotFoundException('not found'));
       await expect(service.onReturnDecided(decidedEvent())).resolves.toBeUndefined();
     });
 
     it('onSeizeDecided: APPROVED → calls the onSeizeApproved stub, does not throw', async () => {
       const deposit = { id: 'dep-x2', depositNo: 'DEP-X2', status: DepositTransactionStatus.FROZEN };
-      depositService.findOne.mockResolvedValue(deposit);
+      depositService.findOneByNo.mockResolvedValue(deposit);
       const stub = jest.spyOn(service as any, 'onSeizeApproved').mockResolvedValue(undefined);
 
       await expect(
@@ -1865,7 +1867,7 @@ describe('DepositWorkflowService', () => {
 
     it('onSeizeDecided: CANCELLED → no-op', async () => {
       const deposit = { id: 'dep-x2', depositNo: 'DEP-X2', status: DepositTransactionStatus.FROZEN };
-      depositService.findOne.mockResolvedValue(deposit);
+      depositService.findOneByNo.mockResolvedValue(deposit);
       const stub = jest.spyOn(service as any, 'onSeizeApproved').mockResolvedValue(undefined);
 
       await service.onSeizeDecided(
@@ -1877,7 +1879,7 @@ describe('DepositWorkflowService', () => {
 
     it('onUnfreezeDecided: APPROVED → calls the onUnfreezeApproved stub, does not throw', async () => {
       const deposit = { id: 'dep-x3', depositNo: 'DEP-X3', status: DepositTransactionStatus.FROZEN };
-      depositService.findOne.mockResolvedValue(deposit);
+      depositService.findOneByNo.mockResolvedValue(deposit);
       const stub = jest.spyOn(service as any, 'onUnfreezeApproved').mockResolvedValue(undefined);
 
       await expect(
@@ -1890,7 +1892,7 @@ describe('DepositWorkflowService', () => {
 
     it('onUnfreezeDecided: EXPIRED → no-op', async () => {
       const deposit = { id: 'dep-x3', depositNo: 'DEP-X3', status: DepositTransactionStatus.FROZEN };
-      depositService.findOne.mockResolvedValue(deposit);
+      depositService.findOneByNo.mockResolvedValue(deposit);
       const stub = jest.spyOn(service as any, 'onUnfreezeApproved').mockResolvedValue(undefined);
 
       await service.onUnfreezeDecided(
@@ -2720,7 +2722,7 @@ describe('DepositWorkflowService', () => {
 
       expect(depositService.updateStatus).not.toHaveBeenCalled();
       expect(approvalsService.createAndSubmit).toHaveBeenCalledWith(
-        expect.objectContaining({ actionType: 'DEPOSIT_RETURN', entityRef: 'dep-8' }),
+        expect.objectContaining({ actionType: 'DEPOSIT_RETURN', entityRef: 'DEP008' }),
         expect.anything(),
         expect.anything(),
       );
@@ -3384,7 +3386,7 @@ describe('DepositWorkflowService', () => {
       await (service as any).onUnfreezeApproved(dep);
 
       expect(approvalsService.list).toHaveBeenCalledWith(
-        expect.objectContaining({ actionType: 'DEPOSIT_UNFREEZE', entityRef: 'dep-uf-1', status: 'APPROVED' }),
+        expect.objectContaining({ actionType: 'DEPOSIT_UNFREEZE', entityRef: 'DEP-UF-001', status: 'APPROVED' }),
       );
       expect(depositService.updateStatus).toHaveBeenCalledWith('dep-uf-1',
         expect.objectContaining({ action: DepositTransactionAction.RESUME }),

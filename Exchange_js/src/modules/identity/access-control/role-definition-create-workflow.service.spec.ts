@@ -124,18 +124,18 @@ describe('RoleDefinitionCreateWorkflowService', () => {
       expect(applied[0][0].outcome).toBe('FAILED');
       expect(applied[0][0].causationId).toBe('apr-1');
       expect(applied[0][0].afterData).toEqual({ permissionGroupCodes: ['BASE_ACCESS'] });
-
-      // 只断言"退役码不再被当作 action 值写入"，不是整份源码都不能出现这个词——
-      // 迁移注释里如实提到旧码名是刻意保留的历史留痕（同 Task 5-7 的注释惯例）。
-      const src = require('fs').readFileSync(
-        'src/modules/identity/access-control/role-definition-create-workflow.service.ts',
-        'utf8',
-      );
-      expect(src).not.toMatch(/action:\s*['"]ROLE_ACTIVATE_FAILED['"]/);
+      // 铁律1·操作必留痕：非成功记录被合同闸(assertActionSpec)强制要求 reasonCode，
+      // 漏带就会在运行时被拒收——状态已变但审计零留痕。这里断言调用入参真的带上了。
+      expect(applied[0][0].reasonCode).toBe('EXECUTION_FAILED');
     });
 
     it('驳回/取消/超时写 CANCELLED(INHERIT+因果，新增码)', async () => {
-      prisma.role.findUnique.mockResolvedValue({ id: 'role-1', code: 'OPS_VIEWER' });
+      // status: 'PENDING_APPROVAL' —— 还在等审批的创建申请，取消守卫放行。
+      prisma.role.findUnique.mockResolvedValue({
+        id: 'role-1',
+        code: 'OPS_VIEWER',
+        status: 'PENDING_APPROVAL',
+      });
 
       await service.onDecided(buildDecidedEvent('DECLINED', 'trace-77'));
 
@@ -146,6 +146,23 @@ describe('RoleDefinitionCreateWorkflowService', () => {
       expect(call[0].correlationId).toBe('trace-77');
       expect(call[0].causationId).toBe('apr-1');
       expect(call[0].reason).toBeTruthy();
+    });
+
+    it('已终态的创建申请不能再取消（裸 delete 有守卫，法二·取消守卫）', async () => {
+      // role 已经是 ACTIVE（早被另一条路径激活）——取消守卫必须拦下，不许裸 delete。
+      prisma.role.findUnique.mockResolvedValue({
+        id: 'role-1',
+        code: 'OPS_VIEWER',
+        status: 'ACTIVE',
+      });
+
+      await service.onDecided(buildDecidedEvent('DECLINED', 'trace-77'));
+
+      expect(prisma.role.delete).not.toHaveBeenCalled();
+      const call = auditLogsService.recordSystem.mock.calls.find(
+        (c: any[]) => c[0].action === 'ROLE_DEFINITION_CREATE_CANCELLED',
+      );
+      expect(call).toBeUndefined();
     });
   });
 });

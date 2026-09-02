@@ -3,18 +3,23 @@ export const PERMISSIONS = {
 
   USERS_READ: 'api.get.users',
   USERS_CREATE: 'api.post.users',
-  USERS_INVITATION_RESEND: 'api.post.users_id_invitations_resend',
+  // Task 18：对外识别改 userNo 后，五码随 rbac.catalog.ts 的 :id → :userNo 一起漂——
+  // buildPermissionCode(method, path) 派生值，同 47 行注释的镜像约定。
+  USERS_INVITATION_RESEND: 'api.post.users_userno_invitations_resend',
   IAM_ROLES_READ: 'api.get.admin_iam_roles',
   IAM_PERMISSIONS_READ: 'api.get.admin_iam_permissions',
   IAM_USER_ROLES_READ: 'api.get.admin_iam_users_id_roles',
-  IAM_USER_ROLES_WRITE: 'api.put.admin_iam_users_id_roles',
+  // Task 26：IAM_USER_ROLES_WRITE（旧版直改角色 PUT，零前端消费方）随 rbac.catalog.ts
+  // 12 死行清零一起删——role-change-request 审批流早已取代它。
   IAM_ROLE_CHANGE_REQUESTS_CREATE: 'api.post.admin_iam_role_change_requests',
   IAM_ROLE_CHANGE_REQUESTS_READ: 'api.get.admin_iam_role_change_requests',
-  IAM_ROLE_CHANGE_REQUEST_DETAIL_READ: 'api.get.admin_iam_role_change_requests_id',
-  USERS_SUSPEND: 'api.post.users_id_suspend',
-  USERS_REACTIVATE: 'api.post.users_id_reactivate',
-  USERS_RESET_MFA: 'api.post.admin_iam_users_id_reset_mfa',
-  USERS_RESET_PASSWORD: 'api.post.users_id_reset_password',
+  // Task 25：详情端点改按 requestNo 查询后，rbac.catalog.ts 的 :id → :requestNo 一起漂——
+  // 同 6-7 行 Task 18 那条镜像约定。
+  IAM_ROLE_CHANGE_REQUEST_DETAIL_READ: 'api.get.admin_iam_role_change_requests_requestno',
+  USERS_SUSPEND: 'api.post.users_userno_suspend',
+  USERS_REACTIVATE: 'api.post.users_userno_reactivate',
+  USERS_RESET_MFA: 'api.post.admin_iam_users_userno_reset_mfa',
+  USERS_RESET_PASSWORD: 'api.post.users_userno_reset_password',
 
   CUSTOMERS_READ: 'api.get.customers',
   CUSTOMERS_DETAIL_READ: 'api.get.customers_id',
@@ -60,16 +65,20 @@ export const PERMISSIONS = {
   AUDIT_EVIDENCE_EXPORT_DOWNLOAD:
     'api.get.admin_audit_evidence_packages_id_download',
   GOV_APPROVALS_READ: 'api.get.admin_control_gates_approvals',
-  GOV_APPROVAL_DETAIL_READ: 'api.get.admin_control_gates_approvals_id',
-  GOV_APPROVAL_APPROVE: 'api.post.admin_control_gates_approvals_id_approve',
-  GOV_APPROVAL_REJECT: 'api.post.admin_control_gates_approvals_id_reject',
-  GOV_APPROVAL_CANCEL: 'api.post.admin_control_gates_approvals_id_cancel',
+  // Task 17：对外识别改 approvalNo 后，四码随 rbac.catalog.ts 的 :id → :approvalNo
+  // 一起漂——buildPermissionCode(method, path) 派生值，同 47 行注释的镜像约定。
+  GOV_APPROVAL_DETAIL_READ: 'api.get.admin_control_gates_approvals_approvalno',
+  GOV_APPROVAL_APPROVE: 'api.post.admin_control_gates_approvals_approvalno_approve',
+  GOV_APPROVAL_REJECT: 'api.post.admin_control_gates_approvals_approvalno_reject',
+  GOV_APPROVAL_CANCEL: 'api.post.admin_control_gates_approvals_approvalno_cancel',
 
   IAM_ROLE_DEFINITIONS_CREATE: 'api.post.admin_iam_role_definitions',
   IAM_ROLE_DEFINITIONS_PERMISSION_GROUPS: 'api.get.admin_iam_role_definitions_permission_groups',
   IAM_ROLE_DEFINITIONS_MODIFY: 'api.post.admin_iam_role_definitions_roleid_modify',
   IAM_ROLE_DEFINITION_MODIFY_REQUESTS_READ: 'api.get.admin_iam_role_definition_modify_requests',
-  IAM_ROLE_DEFINITION_MODIFY_REQUEST_DETAIL_READ: 'api.get.admin_iam_role_definition_modify_requests_id',
+  // Task 26：详情端点改按 requestNo 查询后，rbac.catalog.ts 的 :id → :requestNo 一起漂——
+  // 同 15-16 行 Task 25 那条镜像约定。
+  IAM_ROLE_DEFINITION_MODIFY_REQUEST_DETAIL_READ: 'api.get.admin_iam_role_definition_modify_requests_requestno',
   IAM_ACTION_BUCKETS_READ: 'api.get.admin_iam_action_buckets',
 
   // Approval Policy Management
@@ -79,11 +88,18 @@ export const PERMISSIONS = {
   GOV_APPROVAL_POLICY_CHANGE_REQUEST_DETAIL_READ: 'api.get.admin_governance_approval_policies_change_requests_id',
 
   WALLETS_READ: 'api.get.wallets',
-  WALLET_DETAIL_READ: 'api.get.wallets_id',
+  // Task 18：同上，钱包详情随 :id → :walletNo 一起漂。
+  WALLET_DETAIL_READ: 'api.get.wallets_walletno',
   // PAYINS_* / PAYOUTS_* / INTERNAL_FUNDS_* removed in Round 2 (C6) — merged into FUNDS_ORDERS_*.
 
   ASSETS_READ: 'api.get.assets',
-  ASSETS_CREATE: 'api.post.assets',
+  // Task 26 发现并订正：旧值对应的 POST /assets 端点早已被 /admin/assets/listing
+  // 取代（AssetCreate.tsx 实际调用的就是后者），但两者共用 ASSET_CONFIG_WRITE 组，
+  // 此前持组角色恰好也捎带持有旧码，抄串一直被意外掩盖——直到 rbac.catalog.ts
+  // 12 死行清零把旧码从 catalog 里删掉，S6 才当场揪出（此后旧码在任何角色的
+  // 持有集合里都不会再出现，前端闸门若不修会变成对所有人恒拒）。改指向
+  // AssetCreate.tsx 真实调用的活端点。
+  ASSETS_CREATE: 'api.post.admin_assets_listing',
   CUSTODIAN_WALLET_CREATE: 'api.post.admin_custodian_wallets',
   CUSTODIAN_WALLET_RETRY: 'api.post.admin_custodian_wallets_walletno_retry',
   DEPOSIT_TRANSACTIONS_READ: 'api.get.deposit_transactions',
@@ -110,8 +126,8 @@ export const PERMISSIONS = {
   WITHDRAWAL_ADDRESS_SKIP_COOLING: 'api.post.admin_withdrawal_addresses_addressno_skip_cooling',
   WITHDRAWAL_FEE_LEVELS_READ: 'api.get.admin_withdrawal_fee_levels',
   SWAP_FEE_LEVELS_READ: 'api.get.admin_swap_fee_levels',
-  WITHDRAW_QUOTES_READ: 'api.get.admin_swap_transactions_quotes',
-  WITHDRAW_QUOTES_DETAIL_READ: 'api.get.admin_swap_transactions_quotes_id',
+  WITHDRAW_QUOTES_READ: 'api.get.admin_withdrawal_fee_levels_quotes',
+  WITHDRAW_QUOTES_DETAIL_READ: 'api.get.admin_withdrawal_fee_levels_quotes_id',
 } as const;
 
 export type PermissionCode = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];

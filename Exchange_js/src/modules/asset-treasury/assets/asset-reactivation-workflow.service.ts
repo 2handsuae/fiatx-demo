@@ -10,7 +10,6 @@ import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import {
   AuditBusinessWorkflowTypes,
   AuditEntityTypes,
-  AuditGovernanceActions,
 } from '../../audit-logging/constants/audit-actions.constant';
 import { AuditOutcome } from '../../audit-logging/dto/audit-log.dto';
 import { ApprovalsService } from '../../governance/approvals/approvals.service';
@@ -43,7 +42,10 @@ export class AssetReactivationWorkflowService {
   }
 
   async requestReactivation(assetNo: string, actor: ApprovalActorContext) {
-    const traceId = randomUUID();
+    // START：本次复牌旅程的 correlationId，同一个值同事务写进 ApprovalCase.traceId
+    // （经 createAndSubmit 的 traceId 入参），供下游 executeReactivation 经
+    // ApprovalDecidedEvent.traceId INHERIT 读回。
+    const correlationId = randomUUID();
 
     const asset = await this.prisma.asset.findFirst({ where: { assetNo } });
     if (!asset) {
@@ -59,7 +61,7 @@ export class AssetReactivationWorkflowService {
     const existingPending = await this.prisma.approvalCase.findFirst({
       where: {
         actionType: ApprovalActionTypes.ASSET_REACTIVATION,
-        entityRef: asset.id,
+        entityRef: assetNo,
         status: 'PENDING',
       },
     });
@@ -72,8 +74,8 @@ export class AssetReactivationWorkflowService {
     const approvalCase = await this.approvalsService.createAndSubmit(
       {
         actionType: ApprovalActionTypes.ASSET_REACTIVATION,
-        entityRef: asset.id,
-        traceId,
+        entityRef: assetNo,
+        traceId: correlationId,
         objectSnapshot: {
           assetId: asset.id,
           assetNo,
@@ -87,21 +89,29 @@ export class AssetReactivationWorkflowService {
       },
       {
         reason: `Reactivate suspended asset: ${asset.currency}`,
-        traceId,
+        traceId: correlationId,
       },
       actor,
     );
 
+    // beforeData：请求发起时资产的停牌状态快照（reactivateAsset 会清空这两个字段并复原开关）。
+    const beforeData = {
+      status: asset.status,
+      suspendedAt: asset.suspendedAt,
+      suspendReason: asset.suspendReason,
+    };
+
     await this.auditLogsService.recordByActor(
       {
-        action: AuditGovernanceActions.ASSET_REACTIVATION.REACTIVATION_REQUESTED,
+        action: 'ASSET_REACTIVATION_REQUESTED',
+        actionDomain: 'CONFIG',
         primarySubjectType: AuditEntityTypes.ASSET,
         primarySubjectNo: assetNo,
-        traceId,
+        correlationId,
         outcome: AuditOutcome.SUCCESS,
+        beforeData,
         metadata: {
           assetCurrency: asset.currency,
-          suspendReason: asset.suspendReason,
           approvalNo: approvalCase.approvalNo,
         },
         requestId: `ASSET_REACTIVATION_REQUESTED_${assetNo}`,
@@ -112,7 +122,7 @@ export class AssetReactivationWorkflowService {
 
     return {
       approvalNo: approvalCase.approvalNo,
-      traceId,
+      traceId: correlationId,
       assetNo,
       status: 'PENDING',
     };
@@ -127,17 +137,26 @@ export class AssetReactivationWorkflowService {
 
   private async executeReactivation(event: ApprovalDecidedEvent) {
     try {
-      const result = await this.assetsService.reactivateAsset(event.entityRef);
+      const assetRecord = await this.prisma.asset.findFirst({ where: { assetNo: event.entityRef } });
+      if (!assetRecord) {
+        throw new ConflictException(`Asset ${event.entityRef} not found`);
+      }
+
+      const result = await this.assetsService.reactivateAsset(assetRecord.id);
 
       await this.auditLogsService.recordSystem({
-        action: AuditGovernanceActions.ASSET_REACTIVATION.ASSET_REACTIVATED,
+        action: 'ASSET_REACTIVATED',
+        actionDomain: 'CONFIG',
         primarySubjectType: AuditEntityTypes.ASSET,
         primarySubjectNo: result.assetNo ?? undefined,
-        traceId: event.traceId,
+        // INHERIT：读 ApprovalDecidedEvent.traceId——它就是 requestReactivation 铸造的
+        // correlationId 原样传播过来的（经 ApprovalCase.traceId）。
+        correlationId: event.traceId,
+        // 异步驱动：这条记录是被「审批已批准」这个决定触发的。
+        causationId: event.approvalId,
         outcome: AuditOutcome.SUCCESS,
+        approvalNo: event.approvalNo,
         metadata: {
-          approvalId: event.approvalId,
-          approvalNo: event.approvalNo,
           reactivatedByUserId: event.decisionByUserId,
           reactivatedByUserNo: event.decisionByUserNo,
         },
@@ -147,11 +166,14 @@ export class AssetReactivationWorkflowService {
 
     } catch (error) {
       await this.auditLogsService.recordSystem({
-        action: AuditGovernanceActions.ASSET_REACTIVATION.REACTIVATION_EXECUTION_FAILED,
+        action: 'ASSET_REACTIVATION_FAILED',
+        actionDomain: 'CONFIG',
         primarySubjectType: AuditEntityTypes.ASSET,
         primarySubjectNo: event.entityRef,
-        traceId: event.traceId,
+        correlationId: event.traceId,
+        causationId: event.approvalId,
         outcome: AuditOutcome.FAILED,
+        reasonCode: 'EXECUTION_FAILED',
         reason: error instanceof Error ? error.message : 'Reactivation execution failed',
         metadata: { approvalId: event.approvalId },
         requestId: `ASSET_REACTIVATION_EXEC_FAILED_${event.entityRef}`,

@@ -78,7 +78,6 @@ const ReconciliationAdjustmentDetailPage = () => {
   const navigate = useNavigate();
   const [detail, setDetail] = useState<AdjustmentDetail | null>(null);
   const [loading, setLoading] = useState(true);
-  const [resolvingApproval, setResolvingApproval] = useState(false);
 
   const fetchDetail = async () => {
     if (!adjustmentNo) return;
@@ -106,32 +105,9 @@ const ReconciliationAdjustmentDetailPage = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [adjustmentNo]);
 
-  // 深链审批中心：界面只有 approvalNo（业务号），审批详情页的路由参数却是内部
-  // UUID（approvals.service.ts findCaseOrThrow 按 id 主键查，没有按 approvalNo
-  // 查的旁路）——铁律⑥不许把那个 UUID 塞进本页任何字段。所以不是静态拼链接，
-  // 是点击时现查一次列表接口（同 ApprovalsPage 按 approvalNo 搜索那条路），
-  // 拿到 id 就跳、界面全程不展示这个 id。
-  const openApprovalCenter = async () => {
+  const openApprovalCenter = () => {
     if (!detail?.approvalNo) return;
-    setResolvingApproval(true);
-    try {
-      const res = await adminFetch(
-        `${import.meta.env.VITE_API_URL}/admin/control-gates/approvals?approvalNo=${encodeURIComponent(detail.approvalNo)}&take=1`,
-      );
-      if (res.ok) {
-        const data = (await res.json()) as { items: Array<{ id: string }> };
-        if (data.items?.[0]?.id) {
-          navigate(`/admin/governance/approvals/${data.items[0].id}`);
-          return;
-        }
-      }
-      alert(`未能定位审批单 ${detail.approvalNo}，请到审批中心手动搜索。`);
-    } catch (e) {
-      if (e instanceof AdminSessionError) return;
-      alert('查找审批单失败，请到审批中心手动搜索。');
-    } finally {
-      setResolvingApproval(false);
-    }
+    navigate(`/admin/governance/approvals/${detail.approvalNo}`);
   };
 
   if (loading && !detail) {
@@ -249,14 +225,13 @@ const ReconciliationAdjustmentDetailPage = () => {
             {detail.approvalNo ? (
               <button
                 type="button"
-                disabled={resolvingApproval}
-                onClick={() => void openApprovalCenter()}
-                className="inline-flex items-center gap-1.5 rounded border border-adm-blue/30 bg-adm-blue/5 px-3 py-1.5 font-mono text-[11px] text-adm-blue transition-colors hover:bg-adm-blue/10 disabled:opacity-50"
+                onClick={openApprovalCenter}
+                className="inline-flex items-center gap-1.5 rounded border border-adm-blue/30 bg-adm-blue/5 px-3 py-1.5 font-mono text-[11px] text-adm-blue transition-colors hover:bg-adm-blue/10"
               >
                 <ExternalLink size={12} />
                 {detail.approvalNo}
                 <ArrowRight size={11} />
-                {resolvingApproval ? '定位中…' : '审批中心'}
+                审批中心
               </button>
             ) : (
               <div className="font-mono text-[11px] text-adm-t3">

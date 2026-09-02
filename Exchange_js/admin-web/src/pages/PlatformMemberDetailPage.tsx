@@ -93,7 +93,7 @@ const SidebarKV = ({
 /* ── Main Component ──────────────────────────────────────────── */
 
 export default function PlatformMemberDetailPage() {
-  const { id } = useParams<{ id: string }>();
+  const { userNo } = useParams<{ userNo: string }>();
   const navigate = useNavigate();
   const { hasAnyPermission } = useAdminSession();
 
@@ -126,11 +126,11 @@ export default function PlatformMemberDetailPage() {
   /* ── Fetching ── */
 
   const fetchDetail = async () => {
-    if (!id) { setError('Member id is required.'); setLoading(false); return; }
+    if (!userNo) { setError('Member no is required.'); setLoading(false); return; }
     setLoading(true);
     setError(null);
     try {
-      const res = await adminFetch(`${import.meta.env.VITE_API_URL}/users/${id}`);
+      const res = await adminFetch(`${import.meta.env.VITE_API_URL}/users/${userNo}`);
       if (!res.ok) throw new Error(await getApiErrorMessage(res, 'Failed to load member'));
       setMember((await res.json()) as MemberDetail);
     } catch (err: unknown) {
@@ -145,7 +145,7 @@ export default function PlatformMemberDetailPage() {
     }
   };
 
-  useEffect(() => { void fetchDetail(); }, [id]);
+  useEffect(() => { void fetchDetail(); }, [userNo]);
 
   useEffect(() => {
     if (!notice) return undefined;
@@ -160,7 +160,7 @@ export default function PlatformMemberDetailPage() {
     setResending(true);
     try {
       const res = await adminFetch(
-        `${import.meta.env.VITE_API_URL}/users/${id}/invitations/resend`,
+        `${import.meta.env.VITE_API_URL}/users/${userNo}/invitations/resend`,
         { method: 'POST' },
       );
       if (!res.ok) throw new Error(await getApiErrorMessage(res, 'Failed to resend invitation'));
@@ -213,8 +213,9 @@ export default function PlatformMemberDetailPage() {
         },
       );
       if (!res.ok) throw new Error(await getApiErrorMessage(res, 'Failed to submit role change request'));
+      const created = (await res.json()) as { requestNo: string };
       setShowRoleChangeModal(false);
-      setNotice('Role change request submitted for approval.');
+      navigate(`/admin/iam/role-change-requests/${created.requestNo}`);
     } catch (err: unknown) {
       if (err instanceof AdminSessionError) return;
       setError(err instanceof Error ? err.message : 'Failed to submit role change request.');
@@ -230,7 +231,7 @@ export default function PlatformMemberDetailPage() {
     setSubmittingSuspend(true);
     try {
       const res = await adminFetch(
-        `${import.meta.env.VITE_API_URL}/users/${id}/suspend`,
+        `${import.meta.env.VITE_API_URL}/users/${userNo}/suspend`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -258,7 +259,7 @@ export default function PlatformMemberDetailPage() {
     setSubmittingReactivate(true);
     try {
       const res = await adminFetch(
-        `${import.meta.env.VITE_API_URL}/users/${id}/reactivate`,
+        `${import.meta.env.VITE_API_URL}/users/${userNo}/reactivate`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -286,7 +287,7 @@ export default function PlatformMemberDetailPage() {
     setSubmittingMfaReset(true);
     try {
       const res = await adminFetch(
-        `${import.meta.env.VITE_API_URL}/admin/iam/users/${id}/reset-mfa`,
+        `${import.meta.env.VITE_API_URL}/admin/iam/users/${userNo}/reset-mfa`,
         { method: 'POST' },
       );
       if (!res.ok) throw new Error(await getApiErrorMessage(res, 'Failed to reset MFA'));
@@ -308,7 +309,7 @@ export default function PlatformMemberDetailPage() {
     setSubmittingPasswordReset(true);
     try {
       const res = await adminFetch(
-        `${import.meta.env.VITE_API_URL}/users/${id}/reset-password`,
+        `${import.meta.env.VITE_API_URL}/users/${userNo}/reset-password`,
         { method: 'POST' },
       );
       if (!res.ok) throw new Error(await getApiErrorMessage(res, 'Failed to reset password'));

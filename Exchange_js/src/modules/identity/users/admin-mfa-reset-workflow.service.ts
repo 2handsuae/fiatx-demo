@@ -83,7 +83,7 @@ export class AdminMfaResetWorkflowService {
     const existingPending = await this.prisma.approvalCase.findFirst({
       where: {
         actionType: ApprovalActionTypes.ADMIN_MFA_RESET,
-        entityRef: targetUserId,
+        entityRef: targetUser.userNo,
         status: 'PENDING',
       },
     });
@@ -96,7 +96,7 @@ export class AdminMfaResetWorkflowService {
     const approvalCase = await this.approvalsService.createAndSubmit(
       {
         actionType: ApprovalActionTypes.ADMIN_MFA_RESET,
-        entityRef: targetUserId,
+        entityRef: targetUser.userNo,
         traceId: correlationId,
         objectSnapshot: {
           targetUserId,
@@ -155,10 +155,14 @@ export class AdminMfaResetWorkflowService {
   private async executeReset(event: ApprovalDecidedEvent) {
     // fromStatus 取的是 firstLoginStatus（不是 user.status——MFA 重置不改那一列）：
     // resetMfa 把它拨回 PENDING_IDENTITY_CONFIRM，逼这个 admin 重走一遍首登绑定。
-    const before = await this.usersDomainService.findFirstLoginState(event.entityRef);
+    // entityRef 现在存 userNo（铁律⑥），先按号查出内部 id 再喂给域方法（签名不动）。
+    const target = await this.usersDomainService.findByUserNo(event.entityRef);
+    const before = target
+      ? await this.usersDomainService.findFirstLoginState(target.id)
+      : null;
 
     try {
-      const result = await this.usersDomainService.resetMfa(event.entityRef);
+      const result = await this.usersDomainService.resetMfa(target?.id ?? event.entityRef);
 
       await this.auditLogsService.recordSystem({
         action: 'ADMIN_MFA_RESET_APPLIED',
@@ -210,7 +214,7 @@ export class AdminMfaResetWorkflowService {
   }
 
   private async recordCancellation(event: ApprovalDecidedEvent) {
-    const target = await this.usersDomainService.findById(event.entityRef);
+    const target = await this.usersDomainService.findByUserNo(event.entityRef);
 
     await this.auditLogsService.recordSystem({
       action: 'ADMIN_MFA_RESET_CANCELLED',

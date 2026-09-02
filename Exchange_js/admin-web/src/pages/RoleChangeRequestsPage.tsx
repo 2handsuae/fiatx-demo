@@ -14,6 +14,7 @@ import {
 } from '../utils/adminFetch';
 import { AdminBadge } from '../components/ui/AdminBadge';
 import { PageTitleBar } from '../components/ui/PageTitleBar';
+import { RoleRequestTabs } from '../components/ui/RoleRequestTabs';
 
 interface RoleChangeRequestItem {
   id: string;
@@ -39,7 +40,7 @@ interface ListResponse {
 
 interface FilterState {
   status: string;
-  targetUserId: string;
+  targetUserNo: string;
 }
 
 const fmt = (v?: string | null): string => {
@@ -58,7 +59,7 @@ const parseRoles = (json: string): string[] => {
 
 const PAGE_SIZE = 20;
 
-const DEFAULT_FILTERS: FilterState = { status: '', targetUserId: '' };
+const DEFAULT_FILTERS: FilterState = { status: '', targetUserNo: '' };
 
 export default function RoleChangeRequestsPage() {
   const navigate = useNavigate();
@@ -78,7 +79,7 @@ export default function RoleChangeRequestsPage() {
       params.set('page', String(page));
       params.set('limit', String(PAGE_SIZE));
       if (next.status.trim()) params.set('status', next.status.trim());
-      if (next.targetUserId.trim()) params.set('targetUserId', next.targetUserId.trim());
+      if (next.targetUserNo.trim()) params.set('targetUserNo', next.targetUserNo.trim());
 
       const res = await adminFetch(
         `${import.meta.env.VITE_API_URL}/admin/iam/role-change-requests?${params.toString()}`,
@@ -106,7 +107,7 @@ export default function RoleChangeRequestsPage() {
   const fi =
     'h-[30px] rounded border border-adm-border bg-adm-bg px-2.5 font-mono text-[11px] text-adm-t1 placeholder:text-adm-t3 outline-none focus:border-adm-amber transition-colors';
 
-  const hasFilter = !!filters.status || !!filters.targetUserId;
+  const hasFilter = !!filters.status || !!filters.targetUserNo;
 
   const updateFilter = (key: keyof FilterState, value: string) =>
     setFilters((prev) => ({ ...prev, [key]: value }));
@@ -117,7 +118,7 @@ export default function RoleChangeRequestsPage() {
   return (
     <div className="flex h-full flex-col overflow-hidden">
       <PageTitleBar
-        title="Role Change Requests"
+        title="Role Requests"
         meta={`${total} request${total === 1 ? '' : 's'} · Identity & Access`}
       >
         <button
@@ -128,6 +129,8 @@ export default function RoleChangeRequestsPage() {
           <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
         </button>
       </PageTitleBar>
+
+      <RoleRequestTabs active="binding" />
 
       <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-adm-border bg-adm-panel px-5 py-2">
         <select
@@ -144,10 +147,10 @@ export default function RoleChangeRequestsPage() {
           <option value="FAILED">FAILED</option>
         </select>
         <input
-          value={filters.targetUserId}
-          onChange={(e) => updateFilter('targetUserId', e.target.value)}
+          value={filters.targetUserNo}
+          onChange={(e) => updateFilter('targetUserNo', e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
-          placeholder="Target User ID"
+          placeholder="Target User No"
           className={`${fi} w-56`}
         />
         <button onClick={handleSearch} className={adminButtonClass('listPrimary')}>
@@ -214,7 +217,7 @@ export default function RoleChangeRequestsPage() {
               <tr
                 key={item.id}
                 className="cursor-pointer border-b border-adm-border transition-colors hover:bg-adm-hover"
-                onClick={() => navigate(`/dashboard/members/role-change-requests/${item.id}`)}
+                onClick={() => navigate(`/admin/iam/role-change-requests/${item.requestNo}`)}
               >
                 <td className="px-4 py-2.5">
                   <span className="font-mono text-[11px] font-semibold text-adm-amber">
@@ -222,7 +225,7 @@ export default function RoleChangeRequestsPage() {
                   </span>
                 </td>
                 <td className="px-4 py-2.5 font-mono text-[11px] text-adm-t2 whitespace-nowrap">
-                  {item.targetUser?.userNo || item.targetUserId.slice(0, 8)}
+                  {item.targetUser?.userNo ?? '—'}
                 </td>
                 <td className="px-4 py-2.5">
                   <div className="flex flex-wrap gap-1">

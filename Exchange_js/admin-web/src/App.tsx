@@ -45,6 +45,8 @@ const ApprovalDetailPage = lazy(() => import('./pages/ApprovalDetailPage'));
 const AdminHomePlaceholder = lazy(() => import('./pages/AdminHomePlaceholder'));
 const RoleChangeRequestsPage = lazy(() => import('./pages/RoleChangeRequestsPage'));
 const RoleChangeRequestDetailPage = lazy(() => import('./pages/RoleChangeRequestDetailPage'));
+const RoleDefinitionModifyRequestsPage = lazy(() => import('./pages/RoleDefinitionModifyRequestsPage'));
+const RoleDefinitionModifyRequestDetailPage = lazy(() => import('./pages/RoleDefinitionModifyRequestDetailPage'));
 const RolesPage = lazy(() => import('./pages/RolesPage'));
 const RoleDetailPage = lazy(() => import('./pages/RoleDetailPage'));
 const MaterialManagementPage = lazy(() => import('./pages/MaterialManagementPage'));
@@ -326,7 +328,7 @@ function App() {
               )}
             />
             <Route
-              path="control-gates/approvals/:id"
+              path="control-gates/approvals/:approvalNo"
               element={withPermission(<ApprovalDetailPage />, [
                 PERMISSIONS.GOV_APPROVAL_DETAIL_READ,
               ])}
@@ -420,9 +422,13 @@ function App() {
 
             {/* iam */}
             <Route path="iam/members" element={withPermission(<PlatformMembers />, [PERMISSIONS.USERS_READ])} />
-            <Route path="iam/members/:id" element={withPermission(<PlatformMemberDetailPage />, [PERMISSIONS.USERS_READ])} />
+            <Route path="iam/members/:userNo" element={withPermission(<PlatformMemberDetailPage />, [PERMISSIONS.USERS_READ])} />
             <Route path="iam/roles" element={withPermission(<RolesPage />, [PERMISSIONS.IAM_ROLES_READ])} />
             <Route path="iam/roles/:code" element={withPermission(<RoleDetailPage />, [PERMISSIONS.IAM_ROLES_READ])} />
+            <Route path="iam/role-change-requests" element={withPermission(<RoleChangeRequestsPage />, [PERMISSIONS.IAM_ROLES_READ])} />
+            <Route path="iam/role-change-requests/:requestNo" element={withPermission(<RoleChangeRequestDetailPage />, [PERMISSIONS.IAM_ROLES_READ])} />
+            <Route path="iam/role-definition-modify-requests" element={withPermission(<RoleDefinitionModifyRequestsPage />, [PERMISSIONS.IAM_ROLE_DEFINITION_MODIFY_REQUESTS_READ])} />
+            <Route path="iam/role-definition-modify-requests/:requestNo" element={withPermission(<RoleDefinitionModifyRequestDetailPage />, [PERMISSIONS.IAM_ROLE_DEFINITION_MODIFY_REQUEST_DETAIL_READ])} />
 
             {/* customers */}
             <Route path="customers" element={withPermission(<CustomerManagement />, [PERMISSIONS.CUSTOMERS_READ])} />
@@ -454,7 +460,7 @@ function App() {
 
             {/* custody */}
             <Route path="custody/wallets" element={withPermission(<CustodianWalletList />, [PERMISSIONS.WALLETS_READ])} />
-            <Route path="custody/wallets/:id" element={withPermission(<CustodianWalletDetail />, [PERMISSIONS.WALLET_DETAIL_READ])} />
+            <Route path="custody/wallets/:walletNo" element={withPermission(<CustodianWalletDetail />, [PERMISSIONS.WALLET_DETAIL_READ])} />
             <Route path="custody/withdrawal-addresses" element={withPermission(<WithdrawalAddressList />, [PERMISSIONS.WITHDRAWAL_ADDRESSES_READ])} />
             <Route path="custody/withdrawal-addresses/:addressNo" element={withPermission(<WithdrawalAddressDetail />, [PERMISSIONS.WITHDRAWAL_ADDRESS_DETAIL_READ])} />
 
@@ -490,7 +496,7 @@ function App() {
 
             {/* governance */}
             <Route path="governance/approvals" element={withPermission(<ApprovalsPage />, [PERMISSIONS.GOV_APPROVALS_READ])} />
-            <Route path="governance/approvals/:id" element={withPermission(<ApprovalDetailPage />, [PERMISSIONS.GOV_APPROVAL_DETAIL_READ])} />
+            <Route path="governance/approvals/:approvalNo" element={withPermission(<ApprovalDetailPage />, [PERMISSIONS.GOV_APPROVAL_DETAIL_READ])} />
             <Route path="governance/approval-policies" element={withPermission(<ApprovalPoliciesPage />, [PERMISSIONS.GOV_APPROVAL_POLICIES_READ])} />
 
             {/* audit */}

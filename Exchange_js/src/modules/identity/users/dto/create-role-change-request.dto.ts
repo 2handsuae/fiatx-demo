@@ -25,16 +25,12 @@ export class CreateRoleChangeRequestDto {
   @IsString()
   @IsNotEmpty()
   changeReason!: string;
-
-  @IsOptional()
-  @IsString()
-  traceId?: string;
 }
 
 export class RoleChangeRequestQueryDto {
   @IsOptional()
   @IsString()
-  targetUserId?: string;
+  targetUserNo?: string;
 
   @IsOptional()
   @IsString()

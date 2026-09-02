@@ -19,9 +19,11 @@ Last Updated: 2026-09-02
 > （原「A. 演示装备」档——开演前铺不出数据、⚡ 模拟面板一按就 500——2026-08-29 演示装备一期收官后 8/8 全部修完，整节退役；这类"挡住开演"的问题以后按内容归进对应幕次，不再单独设档。原文见文末「本轮销账」与 git 历史。）
 > 讲「谁能做什么是拼包拼出来的、改任何配置都过审批」这一幕时会露的馅，加上账本/财务口径。
 
+- [x] **管理台「新建资产」表单完全打不通——四个必填金额字段全仓没有任何输入框** —— 已解（2026-09-02，四模块治愈 走查修复）：`AssetCreate.tsx` 补 `minDepositAmount`/`maxDepositAmount`/`minWithdrawAmount`/`maxWithdrawAmount` 四个数值输入（新增 Trading Limits 分组，required，无预填默认值，演示者现填）；`AssetEdit.tsx` 同补（编辑回显现值，非必填，对齐 `update-asset.dto.ts` 中同名字段的 optional 语义）；两处提交 payload 补齐四字段，数值转换沿用既有 `parseFloat` 逻辑，未改后端。真机验证（tech_admin@ 登录）：Assets → New Asset → 填 ETH/ERC20 + 四限额（0.01/100/0.01/50）→ `POST /admin/assets/listing` 201，资产落 `PROVISIONING`（`ETH-ERC20` / `AS260902664545`）；打开 Edit 页正常回显四值不炸，改 Max Deposit Amount→150 后 `PATCH` 200 且持久化 ｜来源: 2026-09-02 Task 31 站 4 真机走查
+
 - [x] **权限包目录三动词标准化 + 铺满 9 空域** —— 已解（2026-08-31，第一幕职权重划 Task 8）：`ACTION_BUCKET_CATALOG` 收敛为 **12 域 50 桶，零空域**（原 15 域 9 空壳全部铺满或整域退役）；桶命名统一 view_/manage_/act_ 三动词前缀；新增 `funds` 域（`FUNDS_ORDER_VIEW`/`FUNDS_ORDER_ACT` 拆分入桶）。管理台改角色弹窗实测 50 个复选框、12 域全在场 ｜来源: 2026-07-11 权限包集中化 brainstorm（甲·三动词）
 
-- [ ] ⭐ **Q3 `expirePendingApprovals()` 全仓无 @Cron 调用方，`timeoutHours` 是展示字段**：两个新增审批策略照现有范式写了 `timeoutHours: 48`，但平台层压根没人扫超时，48h 到点不会发生任何事。平台级缺陷，不限于本模块（`WITHDRAW_UNFREEZE` 等既有策略同病）｜来源: 2026-08-15 设计稿 §8 Q3
+- [x] **Q3 `expirePendingApprovals()` 全仓无 @Cron 调用方，`timeoutHours` 是展示字段** —— 已解（2026-09-01，四模块治愈 Task 1）：新增 `ApprovalExpiryService`（`governance/approvals/approval-expiry.service.ts`），`@Cron('*/1 * * * *', { timeZone: 'Asia/Dubai' })` 接 `handleCron()` → `sweep()` → 既有的 `ApprovalsService.expirePendingApprovals()`（状态机/审计/事件均已完整，本次只补调用方），注入 `ApprovalsModule` providers。e2e 实测：`timeoutAt` 已过的 PENDING 单扫一轮变 EXPIRED，未到期单不受影响 ｜来源: 2026-08-15 设计稿 §8 Q3
 
 - [x] `CustodianWalletDetail.tsx:182` 用 `INTERNAL_COLLECTIONS_RECONCILE` 权限控制按钮，指向已删端点 —— 已解（第一幕退役段 Task 3）：整段幽灵按钮连带 `handleCreateCollection`/两对 useState/`CollectionActionResult`/结果展示块一并拆除，实测全仓零残余引用 ｜来源: 2026-07-03 死码体检
 
@@ -102,6 +104,8 @@ Last Updated: 2026-09-02
 - [ ] ⭐ **`runGate0` 冻单零审计**：`deposit-workflow.service.ts → runGate0()` 命中限制账（`customerAccessService.resolve().blocked.has('DEPOSIT')`）直接 `updateStatus(FREEZE)`，只有 `logger.warn`，全程无 `auditLogsService` 调用——无论是否存在并发竞态都不写。与同一文件的 `onCustomerRestrictionOpened()`（批量冻单广播，本批已补审计）和提现域对应的 `assertCustomerComplianceOrFreeze()`（三处调用点均写 `WITHDRAW_FROZEN`）不对称，是充值域独有的缺口。**非本批引入**，实证发现于本批 ｜来源: 2026-08-20 制裁分主体批次
 
 - [ ] ⭐ **Gate 0 的 `FROZEN` 分支不写审计，与本批新增的挂起分支不对称**：`runGate0()` 的执法级分支（`releasePolicy === 'MLRO_APPROVAL'`）只有 `logger.warn` + `updateStatus(FREEZE)`，无 `auditLogsService` 调用；而本批新增的 `holdAtGate0()` 走 `recordStateTransitionAudit()`、放行分支写 `DEPOSIT_GATE0_PASSED`——三条分支里**只有冻结这条没有审计**。**非本批引入**（既有缺口已登记在上方「制裁命中分主体」节的「`runGate0` 冻单零审计」条），但本批把不对称放得更明显了，一并在此交叉引用，归审计专项那一轮统一清 ｜来源: 2026-08-22 第四批 B4
+
+- [ ] **上面两条记的是「压根没调审计」，这条是「调了但静默写失败」——同样查不到，根因不同**：`onCustomerRestrictionOpened()`（`deposit-workflow.service.ts:2812`，批量冻单广播）**确实**调用了 `depositAudit({action:'DEPOSIT_FROZEN', ...})`（:2841），但那次调用被自己的 `.catch()`（:2848-2854）单独包住，失败只打 `logger.error`、不抛出、不影响主流程——2026-08-20 的记录把这条算作"本批已补审计"，实际只是"补了调用点"，**没有验证过这次调用真的成功落库**。2026-09-02 `demo:all` 花名册 #7（充值·制裁冻结）真机实测复现：backend 日志一条 `ERROR [DepositWorkflowService] Failed to write DEPOSIT_FROZEN audit for DEP...: Audit action DEPOSIT_FROZEN is INHERIT and must inherit an existing correlationId`——`depositAudit()`（:1889）把 `correlationId` 直接读自传入的 deposit 行对象 `deposit.correlationId`，这次为空，撞上 `audit-logs.service.ts:933-937` 的 INHERIT 校验直接 400，被外层 `.catch` 吞掉。后果：这笔冻结审计页按单号查不到 `DEPOSIT_FROZEN` 记录（状态确实是 FROZEN，只是留痕断了）。**复现**：`bash scripts/on-stack.sh self demo:all` 后 grep 后端日志 `Failed to write DEPOSIT_FROZEN audit`，或按 `depositNo` 查审计页确认该记录缺失 ｜来源: 2026-09-02 Task 31 收尾闸/走查前置的 `demo:all` 基线跑批实测
 
 - [ ] ⭐ **充值详情页通用 Actions 组在终态仍全显（pre-existing）**：`DepositTransactionDetail.tsx` 的通用 Approve/Freeze/Resume/Expire/Reject/Confiscate 组当前仅对 below-min 挂起 + 没收生命周期(CONFISCATING/CONFISCATED)隐藏；**SUCCESS/FROZEN/REJECTED 等其它终态仍全显 6 个按钮且可点**（点了会被后端状态机/治理守卫拒，非资金安全问题，纯 UX 误导）。根因=该组无"终态即隐藏"门控（D8 只加了 `!isBelowMinPending`，2026-07-17 没收轮补了 `!isConfiscationLifecycle`）。彻底修=按 deposit 是否终态统一门控通用组 ｜来源: 2026-07-17 没收异步 C5 实景截图发现（pre-existing，早于本分支）
 
@@ -218,7 +222,7 @@ Last Updated: 2026-09-02
 
 - [ ] **Q4"按客户查全部"目前唯一的数据来源是查询动作自证**：`verify:audit` 的 Q4 判据（`M>0`）能通过，靠的是 `GET /admin/audit-logs?ownerCustomerNo=X` 这个查询动作自己把 `AUDIT_LOG_QUERIED` 记成 `OWNER=CUSTOMER`，即"查询这个动作本身构成了它所验证的证据"。这不是 `verify-audit.ts` 脚本的缺陷（脚本按 brief 逐字实现，且经变异测试证明能正确识别数据缺陷），而是**V1 治理域现实中没有任何其它场景会把 CUSTOMER 设为某条治理事件的 OWNER**（V1 域本身不直接操作客户实体，客户只会通过"查询时按客户号过滤"这一条路径进子表）。换言之，Q4 目前只证明了"查询行为自身可追溯"，不能证明"客户被牵连在其他 V1 治理动作里时可追溯"——因为 V1 域里后一种场景目前不存在，等三个交易域（充值/提现/兑换，这些才会有 `ownerCustomerNo` 意义下的客户关联事件）接入 `subjects` 后，Q4 式的验证才有更丰富的场景可测｜Task 11 端到端验收实测新发现，无历史来源
 
-- [ ] ⭐ **V3 财务配置域词汇正式入册（撞名族改名）**：AuditGovernanceActions 嵌套组（限额/费率/资产/托管钱包/提现地址/客户标签，约 60 写点）是最后一块未入新审计合同的词汇。值为跨族撞名裸词（CREATION_REQUESTED/CHANGE_APPLIED 等三族共用、MFA_LOGIN_VERIFY_FAILED 失败单独起名）——入册须按既有裁决改名＋四属性＋子表。站7 已将整册快照冻结（audit-vocabulary-closure.spec 附册条,只出不进），入册前无人能塞新词 ｜ 来源: 站7 封册 census
+- [x] ~~⭐ **V3 财务配置域词汇正式入册（撞名族改名）**：AuditGovernanceActions 嵌套组（限额/费率/资产/托管钱包/提现地址/客户标签，约 60 写点）是最后一块未入新审计合同的词汇。值为跨族撞名裸词（CREATION_REQUESTED/CHANGE_APPLIED 等三族共用、MFA_LOGIN_VERIFY_FAILED 失败单独起名）——入册须按既有裁决改名＋四属性＋子表。站7 已将整册快照冻结（audit-vocabulary-closure.spec 附册条,只出不进），入册前无人能塞新词 ｜ 来源: 站7 封册 census~~ → **已解（2026-09-02，四模块治愈 换名册四批）**：撞名裸词按域分批改名入 `V1_AUDIT_ACTIONS` 合同（`domain: 'CONFIG'`，四属性齐备）——`ASSET_*`/`CUSTODIAN_WALLET_*`/`WITHDRAWAL_ADDRESS_*`/`TRANSACTION_LIMIT_*`/`SWAP_FEE_LEVEL_*`/`WITHDRAWAL_FEE_LEVEL_*`/`CUSTOMER_TAG_*` 全部改用不撞名的专属前缀；原撞名嵌套结构 `AuditGovernanceActions` 已全仓清零（grep 0 命中）；V1 合同终盘 101 码、退役 97 码进拒写闸。子表覆盖面仍是独立缺口，未随本条销账（见本节上方「`audit_log_subjects` 子表覆盖面远小于设计前提」）
 
 - [ ] **`InternalFundAuditLog` 有读无写 → 资金单详情页审计列表永远空**：Round 2 后零写入方，读取链还在——运营点开任何一张资金单，审计栏都是空的（踩铁律①「操作必留痕」的可见面）。补写状态变更 or 改读中央审计日志 ｜来源: 2026-07-03 死码 D6 改判（勿删表，有活读取链）；2026-08-26 分流迁入 PRODUCTION-NOTES，2026-08-28 判为业务缺口迁回
 
@@ -324,3 +328,4 @@ Last Updated: 2026-09-02
 - [x] 兑换域 V7/V8 demo 按钮缺"先交材料"前置，真按会 500 —— 已解（2026-08-28 打过前置补丁；2026-08-29 整个按钮删除）：材料审核（原⑦⑧）移出交易面板，改走客户详情页 Verification Requests 区块的独立入口（三域共用，见 `modules/v6-swap.md` §5）
 - [x] **A7**：充值/提现域不监听 `MATERIAL_REQUEST_REVIEWED`，材料审过、便签已撕，但订单不回炉，永久停 `ACTION_PENDING` —— 已解（2026-08-29）：两域各补 `@OnEvent(MATERIAL_REQUEST_REVIEWED)` 监听器（只认 GREEN → RESUME 回 `COMPLIANCE_PENDING`）；提现转移表补齐 `ACTION_PENDING --RESUME--> COMPLIANCE_PENDING`（充值侧这条边一直有，21→22 边）；新增审计码 `DEPOSIT_MATERIAL_APPROVED_RESUMED`/`WITHDRAW_MATERIAL_APPROVED_RESUMED`；实证：单测 `deposit-workflow.service.spec.ts`「`onMaterialRequestReviewed` — 材料审过后充值单回炉 (A7)」与 `withdraw-workflow.service.spec.ts`「同 (B3)」均绿（`npx jest ... -t 回炉` 10 例通过）
 - [x] 材料账 `externalActionId` 全表 `@unique`，demo fixture 固定字面量两次点同按钮撞 P2002 —— 已解（2026-08-28）：三域 fixture 均改 `randomUUID()` 动态生成
+- [ ] **邀请自然过期与管理员撤销共用 revokedAt 列，管理台把超时邀请显示成 REVOKED** —— `sweepExpiredInvites()` 打 `revokedAt`（既有设计），`UsersService.mapInvitationStatus()` 先查 revokedAt 后查 expiresAt，语义撞车。2026-09-01 邀请清扫接上 @Cron 后此现象从理论变每小时真发生。修法方向：sweep 不写 revokedAt（展示层本可从 expiresAt 派生 EXPIRED），或状态派生改判定序 ｜来源: 四模块治愈 Task 3 实施发现

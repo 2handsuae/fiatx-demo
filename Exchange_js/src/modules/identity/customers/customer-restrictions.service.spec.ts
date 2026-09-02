@@ -168,7 +168,7 @@ describe('CustomerRestrictionsService.open', () => {
         expect(row.status).toBe('OPEN');
         expect(row.customerId).toBe('c1');
         expect(row.openedBy).toBe('ops@fiatx.com');
-        expect(row.restrictionNo).toMatch(/^RST\d+$/);
+        expect(row.restrictionNo).toMatch(/^RST\d{12}$/);
       }
     }
   });

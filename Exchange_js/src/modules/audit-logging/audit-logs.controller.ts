@@ -64,7 +64,7 @@ export class AuditLogsController {
     // AUDIT_LOG_QUERIED 写入被幂等键静默去重——查询审计实质上只会落一条。
     //
     // .catch() 兜底：审计侧问题不能把一个本该 200 的只读列表查询变成 500
-    // （同 c2774347 账号锁定两处写入的兜底原则）。
+    // 只读列表查询的留痕不是 operator 持久化动作（铁律①管不到它），查询主流程不因审计写入失败而失败——此为本文件自立理据（2026-09-02 终审更正：原援引的账号锁定兜底先例已按法一纪律3拆除）。
     await this.auditLogsService
       .recordByActor(
         {

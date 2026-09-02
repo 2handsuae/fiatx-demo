@@ -62,9 +62,12 @@
   `POST /admin/tb/accounts`（原判 D8 随 `LEDGER_ACCOUNT_WRITE` 整组退役）：命中 `admin-web/src/pages/LedgerAccountList.tsx` 的完整 "Create Account" 表单（accountCategory/assetCode/code/customerNo）。路由与权限组均原样保留、未改动。
   两条均已排查确认无其他副作用（create/submit 两条兄弟路由确认零消费方、按计划照删）；完整证据链见 `.superpowers/sdd/task-4-report.md`。附带一提：本节 2026-07-16/2026-08-05 两条 `PATCH /deposit-transactions/:id/status` 缺 `assertAdmin` 的既存条目，因该路由本轮确认零消费方已整条删除，现已随之作废（未回改旧条目，本文件只许追加）。
 
+- [2026-09-02] **收编 9 端点（Task 24）未收窄既有守卫弱点面**：`AdminPermissionGuard.canActivate` 对非 ADMIN token 的 fail-open（`user.type !== 'ADMIN'` 直接 `return true`，见本节上方 08-15 G1 条）本轮实测仍在——除本节已单独登记的 `DepositTransactionsController`（4 路由）/`SwapTransactionsController`（2 路由）外，全仓另有约 10 条 admin 路由同样只挂 `@RequirePermissions` 装饰器、没有各自的 `assertAdmin()`/`ensureAdmin()` 调用兜底，结构上与已收编的 9 端点属同一薄弱面。Task 24 收编时按总纲 §2「管理 API 权限加固不做」原样保留了目标 3 个 controller 既有的内联判据、未去补其它 controller 的缺口，本条按既有口径挂账，非本轮引入、本轮也未修 ｜ 多个 admin controller ｜ 四模块治愈 Task 24 审查 + Task 32 收尾核实
+
 ## 幂等 · 去重 · 回放
 
 - [2026-08-30] `generateReferenceNo` 单号后缀是同日 4 位随机数（万分之一命中空间），同日单量一高就会撞；`createRosterWithdraw` 已知这个坑并在 demo 脚本里加了重试，`createRosterDeposit` 没有——本轮花名册充值行数从 11 加到 18 后实测命中一次（`depositTransaction.depositNo` P2002），reset 重跑即过 ｜ `src/common/utils/no-generator.util.ts` + `scripts/demo-lib.ts createRosterDeposit` ｜ 对账破口场景铺全 Task 1 实跑 `demo:all` 命中
+- [2026-09-02] `approval_action_policies.allowRetry` 列写而不读：seed 恒写 `true` 且拿它核验基线完整性（`seed.base.ts` upsert + 校验），但 `ResolvedApprovalPolicy`（`approval-policy.service.ts`）从未把它读出来，审批服务/策略 API/前端全链路零消费方——重试机制本身未实现，列是纯遗留 ｜ `prisma/schema.prisma:583` + `src/modules/governance/approvals/approval-policy.service.ts` ｜ Task 27 审批单周边五件
 
 ## 并发与竞态
 
@@ -506,3 +509,5 @@
 - [2026-08-31] **`verify:rbac` 的 V3 夹具会被上一轮残留的 PENDING 审批单干扰（偶发首跑假红）** ｜ `scripts/verify-rbac.ts` V3 段 ｜ 第一幕职权重划实测
 
   实测现象：跑完一轮**失败的**校验（S5 变异测试）后紧接着复跑，首跑报 1 条 FAIL，随后连续三跑全绿。判断是上一轮留下的 `SWAP_FEE_LEVEL_CREATION` PENDING 审批单被下一轮的 V3 夹具捡到造成的状态串扰。**不修**——修法要么给夹具加清理逻辑（等于给受治理对象造删除端点，属扩范围），要么让夹具挑更精确的单（等于加去重，禁做清单）。已知规避：按 `demo/baseline.md` 钉的顺序 `verify:rbac → stack.sh reset → demo:all` 跑，重铺把残留一并冲掉；若确需连跑两轮，第二轮出现单条 FAIL 时先重铺再复判，不要直接当真红。
+- [2026-09-02] **retryCreate 的 `approvalCase!.traceId` 假设单一创建来源** ｜ `custodian-wallet-create-workflow.service.ts:369`：客户自助 C_DEP/C_VIBAN 钱包（`customer-deposit-wallet.service.ts`）失败也落 FAILED 但无 ApprovalCase，通用 Retry 入口不分来源——真打到会 TypeError。现不可达（mock 适配器永不抛、种子无 FAILED 钱包），故障场景按 rubric 归兜底桶（四模块治愈 Task 15 审查发现）
+- [2026-09-02] **审批超时扫描按 timeoutAt asc 逐行处理，某行确定性抛错会卡住其后所有行** ｜ `approvals.service.ts expirePendingApprovals`：瞬时错 60s 下轮自愈；毒行（确定性错）会持续挡队尾。逐行 try/catch 属故障恢复（禁做清单），演示不可见且 reset 可愈——落户即止（四模块治愈终审 Issue 6）

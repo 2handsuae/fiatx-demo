@@ -50,6 +50,7 @@ interface EvidencePackageExportResponse {
 interface FilterState {
   keyword: string;
   primarySubjectNo: string;
+  subjectNo: string;
   actorNo: string;
   ownerCustomerNo: string;
   traceId: string;
@@ -62,6 +63,7 @@ interface FilterState {
 const DEFAULT_FILTERS: FilterState = {
   keyword: '',
   primarySubjectNo: '',
+  subjectNo: '',
   actorNo: '',
   ownerCustomerNo: '',
   traceId: '',
@@ -109,6 +111,7 @@ const AuditLogsPage = () => {
     if (activeFilters.primarySubjectNo.trim()) {
       params.set('primarySubjectNo', activeFilters.primarySubjectNo.trim());
     }
+    if (activeFilters.subjectNo.trim()) params.set('subjectNo', activeFilters.subjectNo.trim());
     if (activeFilters.actorNo.trim()) params.set('actorNo', activeFilters.actorNo.trim());
     if (activeFilters.ownerCustomerNo.trim()) {
       params.set('ownerCustomerNo', activeFilters.ownerCustomerNo.trim());
@@ -322,6 +325,12 @@ const AuditLogsPage = () => {
             value={filters.primarySubjectNo}
             onChange={(e) => setFilters((p) => ({ ...p, primarySubjectNo: e.target.value }))}
             placeholder="Entity No"
+            className={`${fi} w-36`}
+          />
+          <input
+            value={filters.subjectNo}
+            onChange={(e) => setFilters((p) => ({ ...p, subjectNo: e.target.value }))}
+            placeholder="Related No"
             className={`${fi} w-36`}
           />
           <input

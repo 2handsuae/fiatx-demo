@@ -77,7 +77,7 @@ export class AdminSuspensionWorkflowService {
     const existingPending = await this.prisma.approvalCase.findFirst({
       where: {
         actionType: ApprovalActionTypes.ADMIN_SUSPENSION_APPROVAL,
-        entityRef: dto.targetUserId,
+        entityRef: targetUser.userNo,
         status: 'PENDING',
       },
     });
@@ -90,7 +90,7 @@ export class AdminSuspensionWorkflowService {
     const approvalCase = await this.approvalsService.createAndSubmit(
       {
         actionType: ApprovalActionTypes.ADMIN_SUSPENSION_APPROVAL,
-        entityRef: dto.targetUserId,
+        entityRef: targetUser.userNo,
         traceId: correlationId,
         objectSnapshot: {
           targetUserId: dto.targetUserId,
@@ -144,11 +144,12 @@ export class AdminSuspensionWorkflowService {
 
   private async executeSuspension(event: ApprovalDecidedEvent) {
     // fromStatus 需要执行前的真实状态快照——suspendUser 只回传执行后的最终状态。
-    // findById 是只读方法，符合"workflow 只能通过 domain service 方法接触 Prisma 表"的铁律。
-    const before = await this.usersDomainService.findById(event.entityRef);
+    // entityRef 现在存 userNo（铁律⑥），先按号查出内部 id 再喂给 suspendUser（签名不动）；
+    // findByUserNo 是只读方法，符合"workflow 只能通过 domain service 方法接触 Prisma 表"的铁律。
+    const before = await this.usersDomainService.findByUserNo(event.entityRef);
 
     try {
-      const result = await this.usersDomainService.suspendUser(event.entityRef);
+      const result = await this.usersDomainService.suspendUser(before?.id ?? event.entityRef);
 
       await this.auditLogsService.recordSystem({
         action: 'ADMIN_SUSPENSION_APPLIED',

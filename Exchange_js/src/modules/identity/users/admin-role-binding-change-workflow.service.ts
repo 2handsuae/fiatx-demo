@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { OnEvent } from '@nestjs/event-emitter';
@@ -9,7 +10,7 @@ import { generateReferenceNo } from '../../../common/utils/no-generator.util';
 import { PrismaService } from '../../../core/prisma/prisma.service';
 import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import { AuditEntityTypes } from '../../audit-logging/constants/audit-actions.constant';
-import { AuditCategory, AuditOutcome } from '../../audit-logging/dto/audit-log.dto';
+import { AuditCategory, AuditOutcome, AuditSubjectInput, AuditSubjectRole } from '../../audit-logging/dto/audit-log.dto';
 import { ApprovalsService } from '../../governance/approvals/approvals.service';
 import { ApprovalDecidedEvent } from '../../governance/approvals/approval-handler.base';
 import {
@@ -17,12 +18,15 @@ import {
   ApprovalActorContext,
 } from '../../governance/approvals/constants/approval.constants';
 import { AccessControlService } from '../access-control/access-control.service';
+import { RoleRequestAction, assertRoleRequestTransition } from '../access-control/constants/role-request-transitions.constant';
 import { CreateRoleChangeRequestDto, RoleChangeRequestQueryDto } from './dto/create-role-change-request.dto';
 
 const SECONDARY_EVENT = 'workflow.admin-role-binding-change.decided';
 
 @Injectable()
 export class AdminRoleBindingChangeWorkflowService {
+  private readonly logger = new Logger(AdminRoleBindingChangeWorkflowService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly accessControlService: AccessControlService,
@@ -38,6 +42,20 @@ export class AdminRoleBindingChangeWorkflowService {
       actorDisplayName: actor.userNo || 'UNKNOWN',
       actorRolesAtTime: [actor.role || actor.roleCodes[0] || 'UNKNOWN'],
     };
+  }
+
+  /**
+   * 本流程 PRIMARY 主体是 requestNo（申请单号），被这次绑定变更牵连的每个角色码
+   * 都降级为 RELATED——一次绑定变更可能同时涉及多个角色，逐个落一行，同
+   * approvalSubjects 的形状（PRIMARY 已经在主表 primarySubjectType/No 两列上，
+   * 这里只补 RELATED 行，不重复传 PRIMARY）。
+   */
+  private roleRelatedSubjects(roleCodes: string[]): AuditSubjectInput[] {
+    return roleCodes.map((code) => ({
+      subjectType: AuditEntityTypes.ACCESS_CONTROL,
+      subjectNo: code,
+      subjectRole: AuditSubjectRole.RELATED,
+    }));
   }
 
   async createRoleChangeRequest(
@@ -83,7 +101,7 @@ export class AdminRoleBindingChangeWorkflowService {
     const approvalCase = await this.approvalsService.createAndSubmit(
       {
         actionType: ApprovalActionTypes.ADMIN_ROLE_BINDING_CHANGE_APPROVAL,
-        entityRef: request.id,
+        entityRef: request.requestNo,
         traceId: correlationId,
         objectSnapshot: {
           requestNo: request.requestNo,
@@ -118,6 +136,7 @@ export class AdminRoleBindingChangeWorkflowService {
         primarySubjectNo: requestNo,
         correlationId,
         outcome: AuditOutcome.SUCCESS,
+        subjects: this.roleRelatedSubjects(dto.roleCodes),
         metadata: {
           targetUserId: targetUser.id,
           targetUserNo: targetUser.userNo,
@@ -138,7 +157,7 @@ export class AdminRoleBindingChangeWorkflowService {
     const page = query.page || 1;
     const limit = query.limit || 20;
     const where: any = { deletedAt: null };
-    if (query.targetUserId) where.targetUserId = query.targetUserId;
+    if (query.targetUserNo) where.targetUser = { userNo: query.targetUserNo };
     if (query.status) where.status = query.status;
 
     const [items, total] = await Promise.all([
@@ -155,9 +174,9 @@ export class AdminRoleBindingChangeWorkflowService {
     return { items, total, page, limit };
   }
 
-  async findRoleChangeRequest(id: string) {
+  async findRoleChangeRequest(requestNo: string) {
     const request = await (this.prisma as any).adminRoleChangeRequest.findFirst({
-      where: { id, deletedAt: null },
+      where: { requestNo, deletedAt: null },
       include: { targetUser: { select: { id: true, userNo: true, email: true } } },
     });
     if (!request) {
@@ -172,17 +191,18 @@ export class AdminRoleBindingChangeWorkflowService {
       case 'APPROVED':
         return this.executeRoleChange(event);
       case 'DECLINED':
-        return this.executeTermination(event, 'REJECTED');
+        return this.executeTermination(event, RoleRequestAction.REJECT);
       case 'CANCELLED':
-        return this.executeTermination(event, 'CANCELLED');
+        return this.executeTermination(event, RoleRequestAction.CANCEL);
       case 'EXPIRED':
-        return this.executeTermination(event, 'EXPIRED');
+        return this.executeTermination(event, RoleRequestAction.EXPIRE);
     }
   }
 
   private async executeRoleChange(event: ApprovalDecidedEvent) {
+    // entityRef 现在存 requestNo（铁律⑥），按号回查；下游写入继续用 request.id（内部 PK）。
     const request = await (this.prisma as any).adminRoleChangeRequest.findFirst({
-      where: { id: event.entityRef },
+      where: { requestNo: event.entityRef },
     });
     if (!request) return;
 
@@ -208,10 +228,22 @@ export class AdminRoleBindingChangeWorkflowService {
         systemActor,
       );
 
-      await (this.prisma as any).adminRoleChangeRequest.update({
-        where: { id: request.id },
-        data: { status: 'APPROVED', executedAt: new Date() },
+      // from 过滤：终态不被二次事件覆写——只有仍处于 PENDING_APPROVAL 的申请单才允许
+      // 落 APPROVED，count=0 说明该单已被另一次事件推走，放弃后续写入。
+      // 断言的 from 绑定本函数开头 findFirst 读到的真实 request.status（校验"从读到的
+      // 来源态出发这条边合法"）；updateMany 的 where.status 过滤保证"落库那刻行仍在该
+      // 态"——两层各管各的，不许用字面量把断言架空。
+      const { count } = await (this.prisma as any).adminRoleChangeRequest.updateMany({
+        where: { id: request.id, status: 'PENDING_APPROVAL' },
+        data: {
+          status: assertRoleRequestTransition(request.status, RoleRequestAction.APPROVE),
+          executedAt: new Date(),
+        },
       });
+      if (count === 0) {
+        this.logger.warn(`[executeRoleChange] Request ${request.id} not PENDING_APPROVAL, skip`);
+        return;
+      }
 
       await this.auditLogsService.recordByActor(
         {
@@ -228,6 +260,7 @@ export class AdminRoleBindingChangeWorkflowService {
           outcome: AuditOutcome.SUCCESS,
           beforeData,
           afterData,
+          subjects: this.roleRelatedSubjects(proposedRoleCodes),
           approvalNo: event.approvalNo,
           metadata: {
             targetUserId: targetUser.id,
@@ -248,10 +281,19 @@ export class AdminRoleBindingChangeWorkflowService {
       const failureReason =
         error instanceof Error ? error.message : 'Unknown execution error';
 
-      await (this.prisma as any).adminRoleChangeRequest.update({
-        where: { id: request.id },
-        data: { status: 'FAILED', failureReason },
+      // from 过滤：同成功路径同款处理——断言咬 request.status 真实读值，updateMany
+      // 的 where.status 过滤防落库竞态，count=0 说明该单已被另一次事件推走。
+      const { count } = await (this.prisma as any).adminRoleChangeRequest.updateMany({
+        where: { id: request.id, status: 'PENDING_APPROVAL' },
+        data: {
+          status: assertRoleRequestTransition(request.status, RoleRequestAction.FAIL),
+          failureReason,
+        },
       });
+      if (count === 0) {
+        this.logger.warn(`[executeRoleChange] Request ${request.id} not PENDING_APPROVAL, skip FAILED write`);
+        return;
+      }
 
       // 退役码 CHANGE_APPLY_FAILED 收编进来——同一动作码 ADMIN_ROLE_CHANGE_APPLIED，
       // 靠 outcome=FAILED 区分，不另起一个 _FAILED 后缀码（该退役词还被三个非 V1 域复用，
@@ -266,9 +308,11 @@ export class AdminRoleBindingChangeWorkflowService {
           correlationId: event.traceId,
           causationId: event.approvalId,
           outcome: AuditOutcome.FAILED,
+          reasonCode: 'EXECUTION_FAILED',
           reason: failureReason,
           beforeData,
           afterData,
+          subjects: this.roleRelatedSubjects(proposedRoleCodes),
           approvalNo: event.approvalNo,
           metadata: {
             targetUserId: request.targetUserId,
@@ -290,17 +334,26 @@ export class AdminRoleBindingChangeWorkflowService {
 
   private async executeTermination(
     event: ApprovalDecidedEvent,
-    status: 'REJECTED' | 'CANCELLED' | 'EXPIRED',
+    action: RoleRequestAction,
   ) {
+    // entityRef 现在存 requestNo（铁律⑥），按号回查。
     const request = await (this.prisma as any).adminRoleChangeRequest.findFirst({
-      where: { id: event.entityRef },
+      where: { requestNo: event.entityRef },
     });
     if (!request) return;
 
-    await (this.prisma as any).adminRoleChangeRequest.update({
-      where: { id: request.id },
+    const status = assertRoleRequestTransition(request.status, action);
+
+    // from 过滤：终态不被二次事件覆写——同 executeRoleChange 同款处理（断言咬
+    // request.status 真实读值，updateMany 的 where.status 过滤防落库竞态）。
+    const { count } = await (this.prisma as any).adminRoleChangeRequest.updateMany({
+      where: { id: request.id, status: 'PENDING_APPROVAL' },
       data: { status },
     });
+    if (count === 0) {
+      this.logger.warn(`[executeTermination] Request ${request.id} not PENDING_APPROVAL, skip`);
+      return;
+    }
 
     // ADMIN_ROLE_CHANGE_CANCELLED：本轮新增码，之前这条路径（驳回/撤销/超时）完全没有
     // 审计留痕。三种终止原因合成一条码，用 reason/metadata.decision 区分是哪一种——
@@ -318,6 +371,7 @@ export class AdminRoleBindingChangeWorkflowService {
           outcome: AuditOutcome.SUCCESS,
           reason:
             event.decisionReason || `Role change request ${status.toLowerCase()}`,
+          subjects: this.roleRelatedSubjects(JSON.parse(request.proposedRoleCodes)),
           metadata: {
             approvalId: event.approvalId,
             approvalNo: event.approvalNo,
@@ -333,7 +387,6 @@ export class AdminRoleBindingChangeWorkflowService {
           actorDisplayName: event.decisionByUserNo || 'UNKNOWN',
           actorRolesAtTime: [event.decisionByRole || 'SYSTEM'],
         },
-      )
-      .catch(() => undefined);
+      );
   }
 }

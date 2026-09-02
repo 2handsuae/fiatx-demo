@@ -27,6 +27,7 @@ import {
   RBAC_ROLE_DEFINITIONS,
 } from '../src/modules/identity/access-control/rbac.catalog';
 import { DEFAULT_APPROVAL_POLICIES } from '../src/modules/governance/approvals/constants/approval.constants';
+import { buildPermissionCode } from '../src/modules/identity/access-control/permission-code.util';
 
 // ══════════════════════ API base ══════════════════════
 //
@@ -108,13 +109,6 @@ async function call(
   return { status: res.status, json, text };
 }
 
-async function findApprovalIdByNo(token: string, approvalNo: string): Promise<string | null> {
-  const { status, json } = await call('GET', `/admin/control-gates/approvals?approvalNo=${encodeURIComponent(approvalNo)}`, token);
-  if (status !== 200) return null;
-  const items = json?.items ?? [];
-  return items[0]?.id ?? null;
-}
-
 async function fetchIamRoles(token: string): Promise<any[]> {
   const { status, json } = await call('GET', '/admin/iam/roles', token);
   if (status !== 200) throw new Error(`GET /admin/iam/roles failed: ${status}`);
@@ -126,11 +120,9 @@ async function fetchIamRoles(token: string): Promise<any[]> {
 // 直接 import rbac.catalog.ts 的常量再做集合运算 —— 不是 grep 源码，是解析已经被
 // TypeScript 解析过一次的真实数据结构。
 
-// ① 每个有路由的组至少一个角色持有；未持有者必须落在白名单 3 个已知例外内。
+// ① 每个有路由的组至少一个角色持有；未持有者必须落在白名单 1 个已知例外内。
 const ROUTE_ORPHAN_WHITELIST: Record<string, string> = {
   TRADING_DEPOSIT_WRITE: '客户侧 /deposit-transactions/my/inbound-signals 入口，非管理端能力（T7 Step 6 已定）',
-  INTERNAL_TRANSFER_READ: 'V7 遗留后端路由，App.tsx 明写前端已迁走，零消费方',
-  INTERNAL_TRANSFER_WRITE: '同上',
 };
 
 // ② 审批策略里出现过、但本轮矩阵刻意没有对应「谁能碰哪个端点」判据的职务代码，
@@ -148,7 +140,7 @@ function runStaticChecks(): void {
   const orphans = [...routedGroups].filter((g) => !heldGroups.has(g));
   const unexpectedOrphans = orphans.filter((g) => !(g in ROUTE_ORPHAN_WHITELIST));
   check(
-    'S1 有路由无人持有的组仅限白名单 3 例外',
+    'S1 有路由无人持有的组仅限白名单 1 例外',
     unexpectedOrphans.length === 0,
     unexpectedOrphans.length === 0
       ? `孤儿组 ${orphans.length} 个，全部落在白名单（${orphans.join(', ') || '无孤儿'}）`
@@ -162,7 +154,7 @@ function runStaticChecks(): void {
     'S1b 白名单例外条目名副其实（确认零角色持有）',
     staleExceptions.length === 0,
     staleExceptions.length === 0
-      ? '3 个例外全部确认零角色持有'
+      ? '1 个例外全部确认零角色持有'
       : `以下例外已被角色持有，应从白名单移除: ${staleExceptions.join(', ')}`,
   );
 
@@ -270,6 +262,132 @@ function runStaticChecks(): void {
     deadlocks.length === 0 && missingFromTable.length === 0
       ? `${gatedPolicies} 条 maker-checker 策略逐条验过，无任何角色同时具备提单与裁决资格`
       : [...deadlocks, ...missingFromTable].join(' ｜ '),
+  );
+}
+
+// ══════════════════════ S6：前后端权限码表差集 ══════════════════════
+//
+// admin-web/src/rbac/permissions.ts 是前端手工维护的权限码常量表——不是从后端
+// catalog 自动生成。Task 17/18 改 rbac.catalog.ts 的路径参数名（:id → :userNo /
+// :approvalNo）时前端漏改过两回，Task 23 又抓到一次纯抄串（WITHDRAW_QUOTES_* 抄了
+// swap 的码）——同一类漂移已复发三次。S6 用集合运算挡住它：前端引用的每个
+// 'api.xxx' 字面量都必须能在后端 RBAC_PERMISSION_DEFINITIONS 的 code 集合里找到。
+//
+// permissions.ts 是前端项目（独立 tsconfig / Vite 模块系统）里的文件，没法安全
+// import 进本脚本的 ts-node 执行上下文，只能读文本正则抽取字面量——但抽的是「这个
+// as const 对象字面量里硬编码了哪些字符串」，是对数据结构本体的机械抽取，判据仍是
+// 集合运算（前端集合 ∖ 后端集合 = 空），不是靠字符串匹配给业务行为投绿灯，跟
+// S1–S5 同型（不是文件头红线警告的那种「grep 源码文本代替行为验证」）。
+function runS6FrontendBackendCodeDiff(): void {
+  const permissionsPath = path.resolve(__dirname, '../admin-web/src/rbac/permissions.ts');
+  const text = fs.readFileSync(permissionsPath, 'utf8');
+  const frontendCodes = new Set<string>();
+  const re = /'(api\.[a-z]+\.[a-z0-9_]+)'/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(text)) !== null) {
+    frontendCodes.add(m[1]);
+  }
+  const backendCodes = new Set(RBAC_PERMISSION_DEFINITIONS.map((d) => d.code));
+  const missing = [...frontendCodes].filter((c) => !backendCodes.has(c));
+  check(
+    'S6 前后端权限码表差集（前端引用 ∖ 后端 catalog = 空）',
+    missing.length === 0,
+    missing.length === 0
+      ? `前端 permissions.ts ${frontendCodes.size} 个权限码字面量，全部能在后端 catalog（${backendCodes.size} 条）里找到`
+      : `前端引用了后端 catalog 里不存在的权限码（抄串/漂移）: ${missing.join(', ')}`,
+  );
+}
+
+// ══════════════════════ S7：catalog 字典真实性（死行侦测）══════════════════════
+//
+// RBAC_PERMISSION_DEFINITIONS 每一行声称「这个 method+path 有一个真实端点」，但
+// route() 只增不减——某条路由被控制器删除/改名后，没人回来删 catalog.ts 里对应的
+// 那行，它会作为「可分配权限」继续留在角色配置界面里，指向一个已经不存在的端点
+// （死行）。S7 验证 catalog 每一行都对得上一个真实的 controller 端点。
+//
+// 「真实端点」的权限码由 AdminPermissionGuard.buildRequestPermissionCode()
+// （admin-permission.guard.ts）在运行时推导：@Controller() 基础路径 + 方法级
+// @Get/@Post/@Patch/@Put/@Delete 子路径拼接后过 buildPermissionCode()；仅当某端点
+// 显式挂 @RequirePermissions(buildPermissionCode(method, path)) 时才以挂的值覆盖
+// 推导结果（例如路径参数改名后，实际子路径与 catalog canonical 路径对不上的场景）。
+//
+// 判据实现二选一（brief Step 4），本次选**静态正则抽取**而非运行时启动第二个
+// AppModule 实例枚举路由栈：本脚本一贯只对已运行的服务器发真实 HTTP（见文件头），
+// 从不在本进程内二次装配 Nest（上面「不 import demo-lib.ts 本体」那条注释是同一条
+// 设计取舍的先例）——不为读一份路由表去背负第二次 Prisma / TigerBeetle 客户端连接
+// 的重量与不确定性。代价：joinControllerPath() 是对 admin-permission.guard.ts 同名
+// 拼接算法的手工镜像，后者若以后改了拼接规则，这里要跟着改，否则会静默漂移——这点
+// 已知且接受（brief 原话「执行者二选一，判据语义相同」）。
+//
+// 已清零，新死行=红。Task 26 把 12 行死行（8 行旧版直连端点 + 4 行 V7
+// funds-layer 遗留）连同 PermissionGroup 联合类型里的 INTERNAL_TRANSFER_READ/
+// WRITE 孤儿组一并从 catalog.ts 删掉——白名单不再放过任何 code，S7 从本轮起
+// 正式上岗：catalog 里出现的每一行都必须对应一个真实端点，否则当场报红。
+const S7_PENDING_DEAD_ROWS = new Set<string>([]);
+
+/** 镜像 admin-permission.guard.ts#buildRequestPermissionCode 的拼接算法——不是重新
+ *  发明；两处若不一致，S7 会跟着不准，见上方大注释的已知取舍。 */
+function joinControllerPath(controllerPath: string, methodPath: string): string {
+  const parts = [controllerPath, methodPath]
+    .map((part) => String(part || '').trim())
+    .filter(Boolean)
+    .map((part) => part.replace(/^\/+|\/+$/g, ''));
+  return `/${parts.join('/')}`.replace(/\/+/g, '/');
+}
+
+/** 每个 *.controller.ts 恰好一个 @Controller('...')（已核实）：基础路径 + 每个
+ *  HTTP 动词方法的子路径推导一个码；文件内任意 buildPermissionCode('M','p') 字面量
+ *  再并入（显式 @RequirePermissions 覆盖值）。两者并集即「真实存在的端点码」。 */
+function collectRealControllerCodes(): Set<string> {
+  const controllerFiles: string[] = [];
+  const srcRoot = path.resolve(__dirname, '../src');
+  const walk = (dir: string) => {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) walk(full);
+      else if (entry.isFile() && entry.name.endsWith('.controller.ts')) controllerFiles.push(full);
+    }
+  };
+  walk(srcRoot);
+
+  const codes = new Set<string>();
+  const controllerRe = /@Controller\(\s*'([^']*)'\s*\)/;
+  const verbRe = /@(Get|Post|Put|Patch|Delete)\(\s*(?:'([^']*)')?\s*\)/g;
+  const literalRe = /buildPermissionCode\(\s*'([A-Z]+)'\s*,\s*'([^']+)'\s*\)/g;
+
+  for (const full of controllerFiles) {
+    const text = fs.readFileSync(full, 'utf8');
+
+    const controllerMatch = controllerRe.exec(text);
+    if (controllerMatch) {
+      const controllerPath = controllerMatch[1];
+      let vm: RegExpExecArray | null;
+      verbRe.lastIndex = 0;
+      while ((vm = verbRe.exec(text)) !== null) {
+        const joined = joinControllerPath(controllerPath, vm[2] ?? '');
+        codes.add(buildPermissionCode(vm[1].toUpperCase(), joined));
+      }
+    }
+
+    let lm: RegExpExecArray | null;
+    literalRe.lastIndex = 0;
+    while ((lm = literalRe.exec(text)) !== null) {
+      codes.add(buildPermissionCode(lm[1], lm[2]));
+    }
+  }
+  return codes;
+}
+
+function runS7CatalogDeadRows(): void {
+  const realCodes = collectRealControllerCodes();
+  const deadRows = RBAC_PERMISSION_DEFINITIONS.filter((d) => !realCodes.has(d.code));
+  const unexpectedDeadRows = deadRows.filter((d) => !S7_PENDING_DEAD_ROWS.has(d.code));
+  check(
+    'S7 catalog 字典真实性（死行仅限 S7_PENDING_DEAD_ROWS 白名单）',
+    unexpectedDeadRows.length === 0,
+    unexpectedDeadRows.length === 0
+      ? `catalog ${RBAC_PERMISSION_DEFINITIONS.length} 行中死行 ${deadRows.length} 个（白名单已清零，字典 100% 对应真实端点）`
+      : `以下 catalog 行找不到对应的真实 controller 端点，且不在白名单内: ${unexpectedDeadRows.map((d) => d.code).join(', ')}`,
   );
 }
 
@@ -594,13 +712,12 @@ async function verifyRoleModifyNoLoss(techToken: string, cisoToken: string, role
   }
 
   const approvalNo = submitBody?.approvalNo;
-  const caseId = approvalNo ? await findApprovalIdByNo(cisoToken, approvalNo) : null;
-  if (!caseId) {
-    check(label, false, `approvalNo=${approvalNo} 查不到内部 id（GET /admin/control-gates/approvals?approvalNo=...）`);
+  if (!approvalNo) {
+    check(label, false, 'POST /admin/iam/role-definitions/:roleId/modify 响应体缺 approvalNo');
     return;
   }
 
-  const { status: approveStatus, json: approveBody } = await call('POST', `/admin/control-gates/approvals/${caseId}/approve`, cisoToken, {
+  const { status: approveStatus, json: approveBody } = await call('POST', `/admin/control-gates/approvals/${approvalNo}/approve`, cisoToken, {
     reason: 'verify:rbac V2 probe approval',
   });
   if (approveStatus < 200 || approveStatus >= 300) {
@@ -677,13 +794,12 @@ async function verifyPricingCfoAndPolicySoD(tokens: Record<string, string>): Pro
   }
 
   const approvalNo = createBodyResp?.approvalNo;
-  const caseId = approvalNo ? await findApprovalIdByNo(tokens.cfo, approvalNo) : null;
-  if (!caseId) {
-    check('V3 裁决只认审批策略', false, `approvalNo=${approvalNo} 查不到内部 id`);
+  if (!approvalNo) {
+    check('V3 裁决只认审批策略', false, 'POST /admin/swap-fee-levels 响应体缺 approvalNo');
     return;
   }
 
-  const { status: denyStatus } = await call('POST', `/admin/control-gates/approvals/${caseId}/approve`, tokens.treasury, {
+  const { status: denyStatus } = await call('POST', `/admin/control-gates/approvals/${approvalNo}/approve`, tokens.treasury, {
     reason: 'verify:rbac V3 probe — non-checker role, expect denied',
   });
   check(
@@ -692,7 +808,7 @@ async function verifyPricingCfoAndPolicySoD(tokens: Record<string, string>): Pro
     `POST approve as treasury@ → ${denyStatus}（期望 403）`,
   );
 
-  const { status: allowStatus, json: allowBody } = await call('POST', `/admin/control-gates/approvals/${caseId}/approve`, tokens.ops_officer, {
+  const { status: allowStatus, json: allowBody } = await call('POST', `/admin/control-gates/approvals/${approvalNo}/approve`, tokens.ops_officer, {
     reason: 'verify:rbac V3 probe — the policy-named checkerRole, expect allowed',
   });
   check(
@@ -710,6 +826,8 @@ async function main(): Promise<void> {
 
   console.log('── 静态部分（读结构）──');
   runStaticChecks();
+  runS6FrontendBackendCodeDiff();
+  runS7CatalogDeadRows();
   console.log('');
 
   console.log('── 登录可达性：11 个职务账号全部能登录 ──');
@@ -736,8 +854,7 @@ async function main(): Promise<void> {
     ...PROBES.map((p) => ({ section: p.section, name: p.name, method: p.method, routePattern: p.routePattern })),
     { section: '支撑调用', name: '角色列表', method: 'GET', routePattern: '/admin/iam/roles' },
     { section: '支撑调用', name: '提交改角色请求', method: 'POST', routePattern: '/admin/iam/role-definitions/:roleId/modify' },
-    { section: '支撑调用', name: '按单号查审批案', method: 'GET', routePattern: '/admin/control-gates/approvals' },
-    { section: '支撑调用', name: '批准审批案', method: 'POST', routePattern: '/admin/control-gates/approvals/:id/approve' },
+    { section: '支撑调用', name: '批准审批案', method: 'POST', routePattern: '/admin/control-gates/approvals/:approvalNo/approve' },
     { section: '支撑调用', name: '资产列表', method: 'GET', routePattern: '/assets' },
   ];
   const missing = findUnregisteredRoutes(liveRoutes, usages);

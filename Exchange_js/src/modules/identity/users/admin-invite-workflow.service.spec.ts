@@ -1,6 +1,7 @@
 import { BadRequestException } from '@nestjs/common';
 import { AdminInviteWorkflowService } from './admin-invite-workflow.service';
 import { ApprovalDecidedEvent } from '../../governance/approvals/approval-handler.base';
+import { UserStatusAction } from './constants/user-status-transitions.constant';
 
 describe('AdminInviteWorkflowService', () => {
   let prisma: any;
@@ -23,14 +24,17 @@ describe('AdminInviteWorkflowService', () => {
     prisma = {
       adminUserInvitation: {
         findMany: jest.fn(),
+        findFirst: jest.fn().mockResolvedValue(null),
+        findUnique: jest.fn().mockResolvedValue(null),
         update: jest.fn().mockResolvedValue(undefined),
       },
     };
     usersDomainService = {
       createProvisionalUser: jest.fn(),
       findById: jest.fn(),
+      findByUserNo: jest.fn(),
       physicalDelete: jest.fn().mockResolvedValue(undefined),
-      updateStatus: jest.fn().mockResolvedValue(undefined),
+      applyUserTransition: jest.fn().mockResolvedValue(undefined),
     };
     accessControlService = {
       replaceUserRoles: jest.fn().mockResolvedValue(undefined),
@@ -129,7 +133,7 @@ describe('AdminInviteWorkflowService', () => {
     });
 
     it('批准后派发邀请，写 ADMIN_INVITE_DISPATCHED 并 INHERIT 审批单的 correlationId', async () => {
-      usersDomainService.findById.mockResolvedValue({
+      usersDomainService.findByUserNo.mockResolvedValue({
         id: 'user-1',
         userNo: 'ADM-001',
         email: 'new@fiatx.com',
@@ -152,7 +156,7 @@ describe('AdminInviteWorkflowService', () => {
 
       await service.handleApprovalDecided(event);
 
-      expect(usersDomainService.updateStatus).toHaveBeenCalledWith('user-1', 'INVITE_SENT');
+      expect(usersDomainService.applyUserTransition).toHaveBeenCalledWith('user-1', UserStatusAction.INVITE_APPROVE);
       expect(adminInvitationsService.createInvitationForUser).toHaveBeenCalledWith(
         expect.objectContaining({
           auditContext: expect.objectContaining({ traceId: 'trace-invite-1' }),
@@ -169,7 +173,7 @@ describe('AdminInviteWorkflowService', () => {
     });
 
     it('审批被驳回/取消/超时都物理删除 provisional user 并写 ADMIN_INVITE_CANCELLED + reason', async () => {
-      usersDomainService.findById.mockResolvedValue({
+      usersDomainService.findByUserNo.mockResolvedValue({
         id: 'user-1',
         userNo: 'ADM-001',
         email: 'new@fiatx.com',
@@ -238,6 +242,27 @@ describe('AdminInviteWorkflowService', () => {
       const call = adminInvitationsService.resendInvitationForUser.mock.calls[0][0];
       expect(call.auditContext).toBeUndefined();
     });
+
+    it('成功路径补写 ADMIN_INVITE_DISPATCHED：INHERIT 回查同一用户最近一条邀请记录的 traceId', async () => {
+      usersDomainService.findById.mockResolvedValue({ id: 'user-1', userNo: 'ADM-001' });
+      adminInvitationsService.resendInvitationForUser.mockResolvedValue({
+        inviteStatus: 'PENDING',
+        inviteExpiresAt: '2026-09-02T00:00:00.000Z',
+      });
+      prisma.adminUserInvitation.findFirst.mockResolvedValue({ traceId: 'trace-invite-1' });
+
+      await service.resendInvitation('user-1', actor);
+
+      const call = auditLogsService.recordByActor.mock.calls.find(
+        (c: any[]) => c[0].action === 'ADMIN_INVITE_DISPATCHED',
+      );
+      expect(call).toBeDefined();
+      expect(call[0].actionDomain).toBe('IAM');
+      expect(call[0].primarySubjectNo).toBe('ADM-001');
+      expect(call[0].correlationId).toBe('trace-invite-1');
+      expect(call[0].outcome).toBe('SUCCESS');
+      expect(call[0].requestId).toEqual(expect.stringContaining('ADMIN_INVITE_DISPATCHED_ADM-001_'));
+    });
   });
 
   describe('第一批 · V1 域打点上收 · acceptInvitation（admin-invitations.service.ts → workflow）', () => {
@@ -279,7 +304,7 @@ describe('AdminInviteWorkflowService', () => {
       );
     });
 
-    it('域服务抛带 reasonCode 的结构化异常时写 ADMIN_INVITE_ACCEPTED：outcome=DENIED + 原样透传 reasonCode，且把原异常继续抛给调用方', async () => {
+    it('域服务抛带 reasonCode 的结构化异常时写 ADMIN_INVITE_ACCEPTED：outcome=DENIED + 原样透传 reasonCode，且把原异常继续抛给调用方；token 能查到邀请行时 primarySubjectNo/actorNo 用目标 userNo，不再写死 UNKNOWN', async () => {
       const { BadRequestException } = require('@nestjs/common');
       adminInvitationsService.acceptInvitation.mockRejectedValue(
         new BadRequestException({
@@ -287,6 +312,10 @@ describe('AdminInviteWorkflowService', () => {
           reasonCode: 'INVITATION_EXPIRED',
         }),
       );
+      // 域服务虽然拒绝了（链接已过期），但 token 本身能查到邀请行——目标账号是已知的。
+      prisma.adminUserInvitation.findUnique.mockResolvedValue({
+        user: { userNo: 'ADM-002' },
+      });
 
       await expect(
         service.acceptInvitation('token-1', '123456'),
@@ -297,10 +326,30 @@ describe('AdminInviteWorkflowService', () => {
       );
       expect(call).toBeDefined();
       expect(call[0].reasonCode).toBe('INVITATION_EXPIRED');
+      expect(call[0].primarySubjectNo).toBe('ADM-002');
+      expect(call[1]).toEqual(expect.objectContaining({ actorNo: 'ADM-002' }));
+    });
+
+    it('token 为空/查不到匹配邀请行时（真正无法识别身份）primarySubjectNo/actorNo 仍回落 UNKNOWN', async () => {
+      const { NotFoundException } = require('@nestjs/common');
+      adminInvitationsService.acceptInvitation.mockRejectedValue(
+        new NotFoundException({ message: 'Invitation not found', reasonCode: 'INVITATION_NOT_FOUND' }),
+      );
+      prisma.adminUserInvitation.findUnique.mockResolvedValue(null);
+
+      await expect(
+        service.acceptInvitation('bogus-token', '123456'),
+      ).rejects.toThrow('Invitation not found');
+
+      const call = auditLogsService.recordByActor.mock.calls.find(
+        (c: any[]) => c[0].action === 'ADMIN_INVITE_ACCEPTED' && c[0].outcome === 'DENIED',
+      );
+      expect(call).toBeDefined();
+      expect(call[0].primarySubjectNo).toBe('UNKNOWN');
       expect(call[1]).toEqual(expect.objectContaining({ actorNo: 'UNKNOWN' }));
     });
 
-    it('审计写入本身失败不吞掉原始拒绝原因——仍以域服务的异常为准向上抛', async () => {
+    it('留痕失败即流程失败（2026-09-01 法一纪律3）：即使域服务已先抛出拒绝原因，审计写入失败仍会盖过它向上抛', async () => {
       const { NotFoundException } = require('@nestjs/common');
       adminInvitationsService.acceptInvitation.mockRejectedValue(
         new NotFoundException({ message: 'Invitation not found', reasonCode: 'INVITATION_NOT_FOUND' }),
@@ -309,7 +358,7 @@ describe('AdminInviteWorkflowService', () => {
 
       await expect(
         service.acceptInvitation('bogus-token', '123456'),
-      ).rejects.toThrow('Invitation not found');
+      ).rejects.toThrow('audit db down');
     });
   });
 });

@@ -905,7 +905,7 @@ describe('WithdrawTransactionsService', () => {
       const result: any = await service.findOneForAdmin('wd-1');
 
       expect(approvalsService.list).toHaveBeenCalledWith(
-        expect.objectContaining({ entityRef: 'wd-1' }),
+        expect.objectContaining({ entityRef: 'WD001' }),
       );
       expect(result.approvals).toEqual([
         {

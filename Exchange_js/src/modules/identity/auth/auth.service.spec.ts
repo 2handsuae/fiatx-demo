@@ -1,6 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { AuthService } from './auth.service';
 import { UsersService } from '../users/users.service';
+import { UsersDomainService } from '../users/users.domain.service';
 import { AdminInvitationsService } from '../users/admin-invitations.service';
 import { AdminInviteWorkflowService } from '../users/admin-invite-workflow.service';
 import { JwtService } from '@nestjs/jwt';
@@ -8,10 +9,12 @@ import { EventEmitter2 } from '@nestjs/event-emitter';
 import { ForbiddenException } from '@nestjs/common';
 import { AccessControlService } from '../access-control/access-control.service';
 import { DomainEventNames } from '../../../common/events/domain-events.constants';
+import { UserStatusAction } from '../users/constants/user-status-transitions.constant';
 
 describe('AuthService', () => {
   let service: AuthService;
   let usersService: any;
+  let usersDomainService: any;
   let eventEmitter: any;
   let accessControlService: any;
 
@@ -21,6 +24,10 @@ describe('AuthService', () => {
       findByIdentifier: jest.fn(),
       findById: jest.fn(),
       update: jest.fn(),
+    };
+
+    usersDomainService = {
+      applyUserTransition: jest.fn().mockResolvedValue(undefined),
     };
 
     eventEmitter = {
@@ -38,6 +45,10 @@ describe('AuthService', () => {
         {
           provide: UsersService,
           useValue: usersService,
+        },
+        {
+          provide: UsersDomainService,
+          useValue: usersDomainService,
         },
         {
           provide: AdminInvitationsService,
@@ -97,6 +108,50 @@ describe('AuthService', () => {
     ).rejects.toBeInstanceOf(ForbiddenException);
   });
 
+  it.each(['INVITE_SENT', 'PENDING_INVITE_APPROVAL'])(
+    '%s 账号（受邀未接受/待审批）任意密码登录一律 ForbiddenException，不进失败计数',
+    async (status) => {
+      usersService.findByIdentifier.mockResolvedValue({
+        id: 'user-1',
+        userNo: 'ADM-001',
+        role: 'CISO',
+        email: 'ciso@fiatx.com',
+        password: '$2b$10$abc',
+        status,
+        failedLoginAttempts: 0,
+        lockedUntil: null,
+      });
+
+      await expect(
+        service.validateUser('ciso@fiatx.com', 'any-password'),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+
+      expect(usersService.update).not.toHaveBeenCalled();
+      expect(usersDomainService.applyUserTransition).not.toHaveBeenCalled();
+    },
+  );
+
+  it('INVITE_SENT 账号连打 5 次也不会命中 LOCK 分支：迁移表这两态没有 LOCK 边，前置守卫必须先拦住', async () => {
+    usersService.findByIdentifier.mockResolvedValue({
+      id: 'user-1',
+      userNo: 'ADM-001',
+      role: 'CISO',
+      email: 'ciso@fiatx.com',
+      password: '$2b$10$abc',
+      status: 'INVITE_SENT',
+      failedLoginAttempts: 4,
+      lockedUntil: null,
+    });
+
+    for (let i = 0; i < 5; i++) {
+      await expect(
+        service.validateUser('ciso@fiatx.com', 'wrong-password'),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+    }
+
+    expect(usersDomainService.applyUserTransition).not.toHaveBeenCalled();
+  });
+
   it('should reject deleted admin login through active-user lookup filtering', async () => {
     usersService.findByIdentifier.mockResolvedValue(null);
 
@@ -126,11 +181,13 @@ describe('AuthService', () => {
     const result = await service.validateUser('ciso@fiatx.com', 'wrong-password');
 
     expect(result).toBeNull();
-    expect(usersService.update).toHaveBeenCalledWith(
-      expect.objectContaining({
-        data: expect.objectContaining({ status: 'LOCKED', failedLoginAttempts: 5 }),
-      }),
+    // Task 9：锁定改变了 status，只经迁移表走——不再走 usersService.update。
+    expect(usersDomainService.applyUserTransition).toHaveBeenCalledWith(
+      'user-1',
+      UserStatusAction.LOCK,
+      expect.objectContaining({ failedLoginAttempts: 5, lockedUntil: expect.any(Date) }),
     );
+    expect(usersService.update).not.toHaveBeenCalled();
     expect(eventEmitter.emit).toHaveBeenCalledWith(
       DomainEventNames.ADMIN_LOGIN_CONSECUTIVE_FAILURE,
       expect.objectContaining({
@@ -138,6 +195,59 @@ describe('AuthService', () => {
         userNo: 'ADM-001',
         failedLoginAttempts: 5,
       }),
+    );
+  });
+
+  it('锁定到期后首次登录自动解锁：emit ADMIN_LOGIN_AUTO_UNLOCKED，交由 workflow 层写 ADMIN_ACCOUNT_LOCK_RELEASED', async () => {
+    usersService.findByIdentifier.mockResolvedValue({
+      id: 'user-1',
+      userNo: 'ADM-001',
+      role: 'CISO',
+      email: 'ciso@fiatx.com',
+      password: '$2b$10$abc',
+      status: 'LOCKED',
+      failedLoginAttempts: 5,
+      lockedUntil: new Date(Date.now() - 1000),
+    });
+    usersService.update.mockResolvedValue(undefined);
+
+    const bcrypt = require('bcrypt');
+    jest.spyOn(bcrypt, 'compare').mockResolvedValue(true);
+
+    await service.validateUser('ciso@fiatx.com', '123456');
+
+    // Task 9：自动解锁改变了 status，只经迁移表走——不再走 usersService.update。
+    expect(usersDomainService.applyUserTransition).toHaveBeenCalledWith(
+      'user-1',
+      UserStatusAction.UNLOCK,
+      { failedLoginAttempts: 0, lockedUntil: null },
+    );
+    expect(eventEmitter.emit).toHaveBeenCalledWith(
+      DomainEventNames.ADMIN_LOGIN_AUTO_UNLOCKED,
+      expect.objectContaining({ userId: 'user-1', userNo: 'ADM-001' }),
+    );
+  });
+
+  it('锁定仍未到期时不自动解锁、不 emit 解锁事件', async () => {
+    usersService.findByIdentifier.mockResolvedValue({
+      id: 'user-1',
+      userNo: 'ADM-001',
+      role: 'CISO',
+      email: 'ciso@fiatx.com',
+      password: '$2b$10$abc',
+      status: 'LOCKED',
+      failedLoginAttempts: 5,
+      lockedUntil: new Date(Date.now() + 60000),
+    });
+
+    await expect(
+      service.validateUser('ciso@fiatx.com', '123456'),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+
+    expect(usersService.update).not.toHaveBeenCalled();
+    expect(eventEmitter.emit).not.toHaveBeenCalledWith(
+      DomainEventNames.ADMIN_LOGIN_AUTO_UNLOCKED,
+      expect.anything(),
     );
   });
 

@@ -354,7 +354,7 @@ const PlatformMembers = () => {
                   <tr
                     key={member.id}
                     className="cursor-pointer border-b border-adm-border transition-colors hover:bg-adm-hover"
-                    onClick={() => navigate(`/admin/iam/members/${member.id}`)}
+                    onClick={() => navigate(`/admin/iam/members/${member.userNo}`)}
                   >
                     {/* User No */}
                     <td className="px-4 py-2.5">

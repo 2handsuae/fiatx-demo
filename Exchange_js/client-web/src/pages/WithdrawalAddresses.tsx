@@ -164,6 +164,7 @@ export default function WithdrawalAddresses() {
   const [confirmDeactivate, setConfirmDeactivate] = useState(false);
   const [deactivating, setDeactivating] = useState(false);
   const [deactivateError, setDeactivateError] = useState('');
+  const [deactivateReason, setDeactivateReason] = useState('');
 
   /* ─── Load assets ────────────────────────────────────────── */
   useEffect(() => {
@@ -341,13 +342,15 @@ export default function WithdrawalAddresses() {
   /* ─── Deactivate ─────────────────────────────────────────── */
   const handleDeactivate = async () => {
     const addr = detailAddr || bankDetailAddr;
-    if (!addr) return;
+    if (!addr || !deactivateReason.trim()) return;
 
     setDeactivateError('');
     setDeactivating(true);
     try {
       const res = await customerFetch(`${API}/client/withdrawal-addresses/${addr.addressNo}/deactivate`, {
         method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reason: deactivateReason }),
       });
 
       if (!res.ok) {
@@ -366,6 +369,7 @@ export default function WithdrawalAddresses() {
 
       // success — close modal(s), reset state, reload list
       setConfirmDeactivate(false);
+      setDeactivateReason('');
       setDetailAddr(null);
       setBankDetailAddr(null);
       await fetchAddresses();
@@ -380,6 +384,7 @@ export default function WithdrawalAddresses() {
   const resetDeactivateState = () => {
     setConfirmDeactivate(false);
     setDeactivateError('');
+    setDeactivateReason('');
   };
 
   const closeDetail = () => {
@@ -922,9 +927,18 @@ export default function WithdrawalAddresses() {
                   <p className="text-xs text-fx-dust text-center">
                     Deactivate this address? You can't use it for withdrawals afterward.
                   </p>
+                  <div>
+                    <label className="text-xs text-fx-dust font-medium block mb-1">Reason</label>
+                    <textarea
+                      value={deactivateReason}
+                      onChange={e => setDeactivateReason(e.target.value)}
+                      placeholder="Why are you deactivating this address?"
+                      className="w-full px-3 py-2.5 border border-fx-rule rounded-xl bg-fx-charcoal text-fx-sand text-sm placeholder:text-fx-dust/50 focus:outline-none focus:border-fx-brass h-16 resize-none"
+                    />
+                  </div>
                   <div className="flex gap-3">
                     <button
-                      onClick={() => setConfirmDeactivate(false)}
+                      onClick={resetDeactivateState}
                       disabled={deactivating}
                       className="flex-1 py-3 bg-fx-ink border border-fx-rule text-fx-dune font-semibold rounded-xl hover:bg-fx-charcoal transition-colors disabled:opacity-60"
                     >
@@ -932,7 +946,7 @@ export default function WithdrawalAddresses() {
                     </button>
                     <button
                       onClick={handleDeactivate}
-                      disabled={deactivating}
+                      disabled={deactivating || !deactivateReason.trim()}
                       className="flex-1 py-3 bg-rose-500/90 text-white font-bold rounded-xl hover:bg-rose-500 transition-colors disabled:opacity-40 flex items-center justify-center gap-2"
                     >
                       {deactivating && <RefreshCw size={16} className="animate-spin" />}
@@ -1224,9 +1238,18 @@ export default function WithdrawalAddresses() {
                   <p className="text-xs text-fx-dust text-center">
                     Deactivate this account? You can't use it for withdrawals afterward.
                   </p>
+                  <div>
+                    <label className="text-xs text-fx-dust font-medium block mb-1">Reason</label>
+                    <textarea
+                      value={deactivateReason}
+                      onChange={e => setDeactivateReason(e.target.value)}
+                      placeholder="Why are you deactivating this account?"
+                      className="w-full px-3 py-2.5 border border-fx-rule rounded-xl bg-fx-charcoal text-fx-sand text-sm placeholder:text-fx-dust/50 focus:outline-none focus:border-fx-brass h-16 resize-none"
+                    />
+                  </div>
                   <div className="flex gap-3">
                     <button
-                      onClick={() => setConfirmDeactivate(false)}
+                      onClick={resetDeactivateState}
                       disabled={deactivating}
                       className="flex-1 py-3 bg-fx-ink border border-fx-rule text-fx-dune font-semibold rounded-xl hover:bg-fx-charcoal transition-colors disabled:opacity-60"
                     >
@@ -1234,7 +1257,7 @@ export default function WithdrawalAddresses() {
                     </button>
                     <button
                       onClick={handleDeactivate}
-                      disabled={deactivating}
+                      disabled={deactivating || !deactivateReason.trim()}
                       className="flex-1 py-3 bg-rose-500/90 text-white font-bold rounded-xl hover:bg-rose-500 transition-colors disabled:opacity-40 flex items-center justify-center gap-2"
                     >
                       {deactivating && <RefreshCw size={16} className="animate-spin" />}

@@ -24,7 +24,7 @@ interface RuleDetail {
   cap: string | null;
   threshold: string | null;
   status: string;
-  approvalCaseId: string | null;
+  approvalCaseNo: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -118,7 +118,6 @@ export default function TransactionLimitDetail() {
   const [notice, setNotice] = useState<string | null>(null);
 
   const [assetCode, setAssetCode] = useState<string | null>(null);
-  const [approvalNo, setApprovalNo] = useState<string | null>(null);
 
   /* ── Change modal state ── */
   const [showChangeModal, setShowChangeModal] = useState(false);
@@ -156,23 +155,6 @@ export default function TransactionLimitDetail() {
         }
       } else {
         setAssetCode(null);
-      }
-
-      // Resolve approval business key (approvalNo) for a non-UUID link.
-      if (data.approvalCaseId) {
-        try {
-          const apRes = await adminFetch(
-            `${import.meta.env.VITE_API_URL}/admin/control-gates/approvals/${data.approvalCaseId}`,
-          );
-          if (apRes.ok) {
-            const ap = (await apRes.json()) as { approvalNo?: string };
-            setApprovalNo(ap.approvalNo ?? null);
-          }
-        } catch {
-          /* ignore — link hidden if approvalNo unresolved */
-        }
-      } else {
-        setApprovalNo(null);
       }
     } catch (err) {
       if (err instanceof AdminSessionError) return;
@@ -392,7 +374,7 @@ export default function TransactionLimitDetail() {
                   Change Amounts
                 </button>
                 <p className="text-center font-mono text-[10px] text-adm-t3">
-                  Requires OPS_OFFICER approval
+                  Requires SENIOR_MANAGEMENT_OFFICER approval
                 </p>
               </div>
             </div>
@@ -410,14 +392,14 @@ export default function TransactionLimitDetail() {
             <SidebarKV
               label="Approval"
               value={
-                approvalNo ? (
+                rule.approvalCaseNo ? (
                   <button
                     onClick={() =>
-                      navigate(`/admin/governance/approvals/${rule.approvalCaseId}`)
+                      navigate(`/admin/governance/approvals/${rule.approvalCaseNo}`)
                     }
                     className="font-mono text-[10px] text-adm-amber hover:underline"
                   >
-                    {approvalNo}
+                    {rule.approvalCaseNo}
                   </button>
                 ) : (
                   '—'
@@ -455,7 +437,7 @@ export default function TransactionLimitDetail() {
 
             <div className="px-5 py-4 space-y-3">
               <div className="rounded border border-adm-amber/30 bg-adm-amber/10 px-3 py-2.5 font-mono text-[10px] text-adm-amber leading-relaxed">
-                This submits an amount change for OPS_OFFICER approval. The current rule
+                This submits an amount change for SENIOR_MANAGEMENT_OFFICER approval. The current rule
                 remains in effect until the change is approved.
               </div>
 

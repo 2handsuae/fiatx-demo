@@ -76,12 +76,12 @@ export class AccessControlController {
     return this.accessControlService.listRoleDefinitionModifyRequests(query);
   }
 
-  @Get('role-definition-modify-requests/:id')
-  @RequirePermissions(buildPermissionCode('GET', '/admin/iam/role-definition-modify-requests/:id'))
+  @Get('role-definition-modify-requests/:requestNo')
+  @RequirePermissions(buildPermissionCode('GET', '/admin/iam/role-definition-modify-requests/:requestNo'))
   @ApiOperation({ summary: 'Get role definition modify request detail' })
-  async getRoleDefinitionModifyRequest(@Param('id') id: string, @Req() req: any) {
+  async getRoleDefinitionModifyRequest(@Param('requestNo') requestNo: string, @Req() req: any) {
     this.ensureAdmin(req);
-    return this.accessControlService.getRoleDefinitionModifyRequest(id);
+    return this.accessControlService.getRoleDefinitionModifyRequest(requestNo);
   }
 
   @Get('role-definitions/permission-groups')

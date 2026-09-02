@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { PrismaModule } from '../../../core/prisma/prisma.module';
+import { ApprovalExpiryService } from './approval-expiry.service';
 import { ApprovalPolicyService } from './approval-policy.service';
 import { ApprovalPolicyChangeApprovalService } from './approval-policy-change-approval.service';
 import { ApprovalPolicyChangeWorkflowService } from './approval-policy-change-workflow.service';
@@ -17,6 +18,7 @@ import { ApprovalsService } from './approvals.service';
     ApprovalPolicyService,
     ApprovalPolicyChangeApprovalService,
     ApprovalPolicyChangeWorkflowService,
+    ApprovalExpiryService,
   ],
   exports: [ApprovalsService],
 })

@@ -120,7 +120,7 @@ const WalletField = ({
       <div className="mt-1 flex items-center gap-2 break-all font-mono text-[11px]">
         {wallet?.walletNo ? (
           <button
-            onClick={() => navigate(`/admin/custody/wallets/${wallet.id}`)}
+            onClick={() => navigate(`/admin/custody/wallets/${wallet.walletNo}`)}
             className="text-adm-amber hover:underline"
             title="Open wallet"
           >

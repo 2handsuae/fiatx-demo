@@ -48,6 +48,7 @@ describe('AdminMfaResetWorkflowService', () => {
     };
     usersDomainService = {
       findById: jest.fn().mockResolvedValue(targetUser),
+      findByUserNo: jest.fn().mockResolvedValue(targetUser),
       findFirstLoginState: jest.fn().mockResolvedValue({ ...targetUser, firstLoginStatus: 'COMPLETED' }),
       resetMfa: jest.fn(),
     };

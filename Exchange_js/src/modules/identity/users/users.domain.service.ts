@@ -10,6 +10,12 @@ import { randomBytes } from 'crypto';
 import { PrismaService } from '../../../core/prisma/prisma.service';
 import { generateReferenceNo } from '../../../common/utils/no-generator.util';
 import { getPrimaryRoleCode } from '../access-control/rbac.catalog';
+import {
+  assertFirstLoginTransition,
+  assertUserTransition,
+  FirstLoginAction,
+  UserStatusAction,
+} from './constants/user-status-transitions.constant';
 
 const MAX_USER_NO_RETRIES = 10;
 
@@ -90,27 +96,28 @@ export class UsersDomainService {
     );
   }
 
-  async updateStatus(
+  async applyUserTransition(
     userId: string,
-    newStatus: string,
+    action: UserStatusAction,
+    extra: Record<string, any> = {},
     tx?: Prisma.TransactionClient,
-  ): Promise<void> {
+  ): Promise<{ fromStatus: string; toStatus: string }> {
     const client = tx || this.prisma;
     const user = await client.user.findFirst({
       where: { id: userId, deletedAt: null },
       select: { id: true, status: true },
     });
     if (!user) throw new NotFoundException('User not found');
-
-    await client.user.update({
-      where: { id: userId },
-      data: { status: newStatus },
-    });
+    const toStatus = assertUserTransition(user.status, action);
+    await client.user.update({ where: { id: userId }, data: { status: toStatus, ...extra } });
+    return { fromStatus: user.status, toStatus };
   }
 
   async physicalDelete(userId: string, tx?: Prisma.TransactionClient): Promise<void> {
     const client = tx || this.prisma;
-    await client.user.delete({ where: { id: userId } }).catch(() => undefined);
+    // 删除失败必须响：静默吞掉会残留 PENDING_INVITE_APPROVAL 幽灵账号，
+    // 该 email 从此永远发不出第二张邀请（createProvisionalUser 撞唯一键恒抛）。
+    await client.user.delete({ where: { id: userId } });
   }
 
   async findById(userId: string): Promise<ProvisionalUser | null> {
@@ -126,6 +133,13 @@ export class UsersDomainService {
       status: user.status,
       role: user.role,
     };
+  }
+
+  /** 铁律⑥ 对外用业务键：controller 层拿 userNo 换内部 id 用（`users.controller.ts`
+   *  五端点 + `admin-credential-mgmt.controller.ts` 的 reset-mfa 端点），workflow 内部
+   *  调用链继续走 id，不受影响。 */
+  async findByUserNo(userNo: string) {
+    return this.prisma.user.findFirst({ where: { userNo, deletedAt: null } });
   }
 
   async suspendUser(
@@ -148,13 +162,11 @@ export class UsersDomainService {
       return { id: user.id, userNo: user.userNo, status: user.status };
     }
 
-    if (user.status !== 'ACTIVE' && user.status !== 'INACTIVE' && user.status !== 'INVITE_SENT' && user.status !== 'PENDING_INVITE_APPROVAL') {
-      throw new ConflictException(`Cannot suspend user in status: ${user.status}`);
-    }
+    const toStatus = assertUserTransition(user.status, UserStatusAction.SUSPEND);
 
     const updated = await client.user.update({
       where: { id: userId },
-      data: { status: 'SUSPENDED', suspendedAt: new Date() },
+      data: { status: toStatus, suspendedAt: new Date() },
       select: { id: true, userNo: true, status: true },
     });
 
@@ -177,13 +189,11 @@ export class UsersDomainService {
       throw new ConflictException('SUPER_ADMIN account cannot be reactivated via this workflow');
     }
 
-    if (user.status !== 'SUSPENDED') {
-      throw new ConflictException(`Cannot reactivate user in status: ${user.status}`);
-    }
+    const toStatus = assertUserTransition(user.status, UserStatusAction.REACTIVATE);
 
     const updated = await client.user.update({
       where: { id: userId },
-      data: { status: 'ACTIVE', suspendedAt: null },
+      data: { status: toStatus, suspendedAt: null },
       select: { id: true, userNo: true, status: true },
     });
 
@@ -224,20 +234,20 @@ export class UsersDomainService {
 
   async setFirstLoginStatus(
     userId: string,
-    status: string,
     tx?: Prisma.TransactionClient,
     traceId?: string,
   ): Promise<void> {
     const client = tx || this.prisma;
     const user = await client.user.findFirst({
       where: { id: userId, deletedAt: null },
-      select: { id: true },
+      select: { id: true, firstLoginStatus: true },
     });
     if (!user) throw new NotFoundException('User not found');
+    const to = assertFirstLoginTransition(user.firstLoginStatus, FirstLoginAction.CONFIRM);
     await client.user.update({
       where: { id: userId },
       data: {
-        firstLoginStatus: status,
+        firstLoginStatus: to,
         ...(traceId ? { firstLoginTraceId: traceId } : {}),
       },
     });
@@ -261,6 +271,12 @@ export class UsersDomainService {
     tx?: Prisma.TransactionClient,
   ): Promise<void> {
     const client = tx || this.prisma;
+    const user = await client.user.findFirst({
+      where: { id: userId, deletedAt: null },
+      select: { id: true, firstLoginStatus: true },
+    });
+    if (!user) throw new NotFoundException('User not found');
+    assertFirstLoginTransition(user.firstLoginStatus, FirstLoginAction.BIND);
     await client.user.update({
       where: { id: userId },
       data: {
@@ -296,22 +312,6 @@ export class UsersDomainService {
     return { newCount, locked };
   }
 
-  async completeFirstLogin(
-    userId: string,
-    tx?: Prisma.TransactionClient,
-  ): Promise<void> {
-    const client = tx || this.prisma;
-    await client.user.update({
-      where: { id: userId },
-      data: {
-        firstLoginStatus: 'COMPLETED',
-        securityAckAt: new Date(),
-        mfaVerifyFailCount: 0,
-        mfaVerifyLockedUntil: null,
-      },
-    });
-  }
-
   async clearMfaVerifyFail(
     userId: string,
     tx?: Prisma.TransactionClient,
@@ -330,7 +330,7 @@ export class UsersDomainService {
     const client = tx || this.prisma;
     const user = await client.user.findFirst({
       where: { id: userId, deletedAt: null },
-      select: { id: true, userNo: true, email: true, role: true, status: true, mfaEnabledAt: true, mfaSecret: true },
+      select: { id: true, userNo: true, email: true, role: true, status: true, firstLoginStatus: true, mfaEnabledAt: true, mfaSecret: true },
     });
     if (!user) throw new NotFoundException('User not found');
     if (user.status !== 'ACTIVE') {
@@ -339,6 +339,7 @@ export class UsersDomainService {
     if (!user.mfaEnabledAt && !user.mfaSecret) {
       throw new ConflictException('User has no MFA binding to reset');
     }
+    assertFirstLoginTransition(user.firstLoginStatus, FirstLoginAction.RESET);
 
     await client.user.update({
       where: { id: userId },

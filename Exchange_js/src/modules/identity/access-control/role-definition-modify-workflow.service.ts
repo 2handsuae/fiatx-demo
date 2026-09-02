@@ -9,12 +9,12 @@ import {
   ApprovalActorContext,
 } from '../../governance/approvals/constants/approval.constants';
 import {
-  AuditBusinessWorkflowTypes,
   AuditEntityTypes,
 } from '../../audit-logging/constants/audit-actions.constant';
-import { AuditCategory, AuditOutcome } from '../../audit-logging/dto/audit-log.dto';
-import { RBAC_PERMISSION_DEFINITIONS, type PermissionGroup } from './rbac.catalog';
+import { AuditCategory, AuditOutcome, AuditSubjectInput, AuditSubjectRole } from '../../audit-logging/dto/audit-log.dto';
+import { RBAC_PERMISSION_DEFINITIONS } from './rbac.catalog';
 import { generateReferenceNo } from '../../../common/utils/no-generator.util';
+import { RoleRequestAction, assertRoleRequestTransition } from './constants/role-request-transitions.constant';
 
 const VALID_PERMISSION_GROUPS = new Set<string>(
   RBAC_PERMISSION_DEFINITIONS.flatMap((p) => p.groups),
@@ -35,14 +35,6 @@ interface RoleDefinitionSnapshot {
 
 const SECONDARY_EVENT = 'workflow.role-definition-modify.decided';
 
-const SYSTEM_ACTOR: ApprovalActorContext = {
-  actorType: 'ADMIN',
-  userId: 'SYSTEM',
-  userNo: 'SYSTEM',
-  role: 'SYSTEM',
-  roleCodes: ['SYSTEM'],
-};
-
 @Injectable()
 export class RoleDefinitionModifyWorkflowService {
   private readonly logger = new Logger(RoleDefinitionModifyWorkflowService.name);
@@ -53,6 +45,17 @@ export class RoleDefinitionModifyWorkflowService {
     private readonly approvalsService: ApprovalsService,
     private readonly auditLogsService: AuditLogsService,
   ) {}
+
+  /**
+   * 本流程 PRIMARY 主体是 requestNo（申请单号），被修改的角色本身降级为 RELATED——
+   * 同 approvalSubjects 的形状（PRIMARY 已经在主表 primarySubjectType/No 两列上，
+   * 这里只补 RELATED 行，不重复传 PRIMARY）。
+   */
+  private roleRelatedSubject(roleCode: string): AuditSubjectInput[] {
+    return [
+      { subjectType: AuditEntityTypes.ACCESS_CONTROL, subjectNo: roleCode, subjectRole: AuditSubjectRole.RELATED },
+    ];
+  }
 
   /**
    * beforeData/afterData 只存变更项——三个可改字段（name/description/permissionGroups）
@@ -188,7 +191,7 @@ export class RoleDefinitionModifyWorkflowService {
       approvalCase = await this.approvalsService.createAndSubmit(
         {
           actionType: ApprovalActionTypes.ROLE_DEFINITION_MODIFY,
-          entityRef: request.id,
+          entityRef: request.requestNo,
           traceId: correlationId,
           objectSnapshot: {
             roleCode: role.code,
@@ -240,6 +243,7 @@ export class RoleDefinitionModifyWorkflowService {
         reason: changeReason.trim(),
         beforeData,
         afterData,
+        subjects: this.roleRelatedSubject(role.code),
         metadata: {
           roleCode: role.code,
           approvalNo: approvalCase.approvalNo,
@@ -285,17 +289,18 @@ export class RoleDefinitionModifyWorkflowService {
 
   /* ── Execute modification (on APPROVED) ── */
 
-  private async executeModification(approvalId: string, requestId: string, payload: any) {
+  private async executeModification(approvalId: string, requestNo: string, payload: any) {
     // INHERIT：读 ApprovalDecidedEvent.traceId——它就是 initiateModify 铸造的 correlationId
     // 原样传播过来的（经 ApprovalCase.traceId）。读不到就让 assertActionSpec 在写入时报错，
-    // 不再用 `rdm-exec-${requestId}` 这类兜底字符串掩盖断链。
+    // 不再用 `rdm-exec-${requestNo}` 这类兜底字符串掩盖断链。
     const correlationId = payload?.traceId;
 
+    // entityRef 现在存 requestNo（铁律⑥），按号回查。
     const request = await this.prisma.roleDefinitionModifyRequest.findUnique({
-      where: { id: requestId },
+      where: { requestNo },
     });
     if (!request || request.status !== 'PENDING_APPROVAL') {
-      this.logger.warn(`[executeModification] Request ${requestId} not found or not PENDING_APPROVAL`);
+      this.logger.warn(`[executeModification] Request ${requestNo} not found or not PENDING_APPROVAL`);
       return;
     }
 
@@ -305,7 +310,9 @@ export class RoleDefinitionModifyWorkflowService {
     });
     if (!role || role.status !== 'ACTIVE') {
       const reason = !role ? 'Role not found' : `Role status is ${role.status}`;
-      await this.failRequest(request, approvalId, reason, correlationId);
+      // role 可能压根不存在（角色被删）——这种情况下没有 roleCode 可用，RELATED 行
+      // 随之省略，不编造一个值。
+      await this.failRequest(request, approvalId, reason, correlationId, 'EXECUTION_FAILED', role?.code);
       return;
     }
 
@@ -323,7 +330,7 @@ export class RoleDefinitionModifyWorkflowService {
 
     if (JSON.stringify(actualGroups) !== JSON.stringify(snapshotGroups)) {
       const reason = `Conflict: role permissions changed since request was submitted. Expected groups: ${JSON.stringify(snapshotGroups)}, actual: ${JSON.stringify(actualGroups)}`;
-      await this.failRequest(request, approvalId, reason, correlationId);
+      await this.failRequest(request, approvalId, reason, correlationId, 'ROLE_CONFLICT', role.code);
       return;
     }
 
@@ -375,7 +382,7 @@ export class RoleDefinitionModifyWorkflowService {
       await tx.roleDefinitionModifyRequest.update({
         where: { id: request.id },
         data: {
-          status: 'APPROVED',
+          status: assertRoleRequestTransition(request.status, RoleRequestAction.APPROVE),
           executedAt: new Date(),
         },
       });
@@ -396,6 +403,7 @@ export class RoleDefinitionModifyWorkflowService {
       outcome: AuditOutcome.SUCCESS,
       beforeData,
       afterData,
+      subjects: this.roleRelatedSubject(role.code),
       approvalNo: payload?.approvalNo,
       metadata: {
         roleCode: role.code,
@@ -410,10 +418,21 @@ export class RoleDefinitionModifyWorkflowService {
 
   /* ── Fail request (conflict or missing role) ── */
 
-  private async failRequest(request: any, approvalId: string, reason: string, correlationId: string | undefined) {
+  private async failRequest(
+    request: any,
+    approvalId: string,
+    reason: string,
+    correlationId: string | undefined,
+    reasonCode: string,
+    roleCode?: string,
+  ) {
     await this.prisma.roleDefinitionModifyRequest.update({
       where: { id: request.id },
-      data: { status: 'APPROVED', failureReason: reason, executedAt: new Date() },
+      data: {
+        status: assertRoleRequestTransition(request.status, RoleRequestAction.FAIL),
+        failureReason: reason,
+        executedAt: new Date(),
+      },
     });
 
     const { beforeData, afterData } = this.buildModifyDiffFromRequest(request);
@@ -432,9 +451,14 @@ export class RoleDefinitionModifyWorkflowService {
       correlationId,
       causationId: approvalId,
       outcome: AuditOutcome.FAILED,
+      // 合同闸(assertActionSpec)对非成功记录强制要求 reasonCode——两个调用方传入的值
+      // 按各自真实成因区分：角色不存在/未激活用通用 EXECUTION_FAILED，权限快照与当前
+      // 值不一致（审批在途时角色被改）用更具体的 ROLE_CONFLICT。
+      reasonCode,
       reason,
       beforeData,
       afterData,
+      subjects: roleCode ? this.roleRelatedSubject(roleCode) : undefined,
       approvalNo: request.approvalCaseNo || undefined,
       metadata: { failureReason: reason },
       requestId: randomUUID(),
@@ -448,21 +472,30 @@ export class RoleDefinitionModifyWorkflowService {
 
   private async executeCancellation(
     approvalId: string,
-    requestId: string,
+    requestNo: string,
     decision: string,
     payload: any,
   ) {
     const correlationId = payload?.traceId;
 
+    // entityRef 现在存 requestNo（铁律⑥），按号回查。
     const request = await this.prisma.roleDefinitionModifyRequest.findUnique({
-      where: { id: requestId },
+      where: { requestNo },
+      include: { role: { select: { code: true } } },
     });
     if (!request || request.status !== 'PENDING_APPROVAL') {
-      this.logger.warn(`[executeCancellation] Request ${requestId} not PENDING_APPROVAL`);
+      this.logger.warn(`[executeCancellation] Request ${requestNo} not PENDING_APPROVAL`);
       return;
     }
 
-    const newStatus = decision === 'REJECTED' ? 'REJECTED' : 'CANCELLED';
+    // 修边：审批 handler(approval-handler.base.ts)发的驳回信号是 'DECLINED'，
+    // 从不是 'REJECTED'——此前这里比对 'REJECTED' 恒假，三种终止原因(驳回/取消/超时)
+    // 全落 CANCELLED 一个桶，REJECTED 态从建成起不可达。经迁移表显式映射，非法来源态拒绝。
+    const action =
+      decision === 'DECLINED' ? RoleRequestAction.REJECT
+      : decision === 'EXPIRED' ? RoleRequestAction.EXPIRE
+      : RoleRequestAction.CANCEL;
+    const newStatus = assertRoleRequestTransition(request.status, action);
 
     await this.prisma.roleDefinitionModifyRequest.update({
       where: { id: request.id },
@@ -478,6 +511,7 @@ export class RoleDefinitionModifyWorkflowService {
       correlationId,
       causationId: approvalId,
       outcome: AuditOutcome.SUCCESS,
+      subjects: (request as any).role?.code ? this.roleRelatedSubject((request as any).role.code) : undefined,
       reason: payload?.decisionReason || `Role definition modify request ${String(decision).toLowerCase()}`,
       metadata: { decision },
       requestId: randomUUID(),
