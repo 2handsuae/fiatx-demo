@@ -353,7 +353,7 @@ describe('Deposit money arcs (e2e, Task A6)', () => {
     let actions = await auditActionsFor(deposit.id);
     expect(actions).toContain('DEPOSIT_RETURN_REQUESTED');
 
-    const approvalCase = await latestApprovalCase(ApprovalActionTypes.DEPOSIT_RETURN, deposit.id);
+    const approvalCase = await latestApprovalCase(ApprovalActionTypes.DEPOSIT_RETURN, deposit.depositNo);
     expect(approvalCase).toBeTruthy();
     expect(approvalCase!.status).toBe('PENDING');
 
@@ -396,7 +396,7 @@ describe('Deposit money arcs (e2e, Task A6)', () => {
       makeActor('E2E_SEIZE_MAKER_1', 'OPS_OFFICER'),
     );
 
-    const approvalCase = await latestApprovalCase(ApprovalActionTypes.DEPOSIT_SEIZE, deposit.id);
+    const approvalCase = await latestApprovalCase(ApprovalActionTypes.DEPOSIT_SEIZE, deposit.depositNo);
     expect(approvalCase).toBeTruthy();
     expect(approvalCase!.status).toBe('PENDING');
     expect(approvalCase!.steps).toHaveLength(2);
@@ -472,7 +472,7 @@ describe('Deposit money arcs (e2e, Task A6)', () => {
       makeActor('E2E_UNFREEZE_MAKER_1', 'COMPLIANCE_OFFICER'),
     );
 
-    const approvalCase = await latestApprovalCase(ApprovalActionTypes.DEPOSIT_UNFREEZE, deposit.id);
+    const approvalCase = await latestApprovalCase(ApprovalActionTypes.DEPOSIT_UNFREEZE, deposit.depositNo);
     expect(approvalCase).toBeTruthy();
     expect(approvalCase!.status).toBe('PENDING');
 
@@ -505,7 +505,7 @@ describe('Deposit money arcs (e2e, Task A6)', () => {
     const before = await suspenseTotal();
 
     await workflow.applyKytVerdict(deposit.id, { verdict: 'rejected', dispoTag: 'RETURN_TO_SENDER' });
-    const approvalCase = await latestApprovalCase(ApprovalActionTypes.DEPOSIT_RETURN, deposit.id);
+    const approvalCase = await latestApprovalCase(ApprovalActionTypes.DEPOSIT_RETURN, deposit.depositNo);
     expect(approvalCase).toBeTruthy();
     expect(approvalCase!.status).toBe('PENDING');
 
@@ -534,7 +534,7 @@ describe('Deposit money arcs (e2e, Task A6)', () => {
     await preBookSuspense(deposit, amountBigint);
 
     await workflow.applyKytVerdict(deposit.id, { verdict: 'rejected', dispoTag: 'RETURN_TO_SENDER' });
-    const approvalCase = await latestApprovalCase(ApprovalActionTypes.DEPOSIT_RETURN, deposit.id);
+    const approvalCase = await latestApprovalCase(ApprovalActionTypes.DEPOSIT_RETURN, deposit.depositNo);
     await approvalsService.approve(approvalCase!.approvalNo, { reason: 'e2e approve' }, makeActor('E2E_MLRO_RETRY_1', 'MLRO'));
     await waitUntil(async () => (await finalStatusOf(deposit.id)) === DepositTransactionStatus.RETURNING);
     expect(await finalStatusOf(deposit.id)).toBe(DepositTransactionStatus.RETURNING);

@@ -720,7 +720,7 @@ export class WithdrawWorkflowService implements OnModuleInit {
       const approval = await this.approvalsService.createAndSubmit(
         {
           actionType: ApprovalActionTypes.WITHDRAW_LARGE_VALUE_APPROVAL,
-          entityRef: w.id,
+          entityRef: w.withdrawNo,
           traceId: w.traceId || undefined,
           objectSnapshot: {
             withdrawNo: w.withdrawNo,
@@ -766,7 +766,7 @@ export class WithdrawWorkflowService implements OnModuleInit {
     approvalNo: string;
     decisionReason?: string | null;
   }) {
-    const w = await this.withdrawService.findOneInternal(payload.entityRef);
+    const w = await this.withdrawService.findOneInternalByNo(payload.entityRef);
     if (w.status !== WithdrawTransactionStatus.PENDING_APPROVAL) {
       this.logger.debug(`Skip decided: withdrawal ${payload.entityRef} is ${w.status}, not PENDING_APPROVAL`);
       return;
@@ -1898,7 +1898,7 @@ export class WithdrawWorkflowService implements OnModuleInit {
     // Anti-dup: a withdrawal must not accrue two open unfreeze approvals.
     const openUnfreezes = await this.approvalsService.list({
       actionType: ApprovalActionTypes.WITHDRAW_UNFREEZE,
-      entityRef: w.id,
+      entityRef: w.withdrawNo,
       status: ApprovalStatuses.PENDING,
       take: 1,
     });
@@ -1912,7 +1912,7 @@ export class WithdrawWorkflowService implements OnModuleInit {
     const approvalCase = await this.approvalsService.createAndSubmit(
       {
         actionType: ApprovalActionTypes.WITHDRAW_UNFREEZE,
-        entityRef: w.id,
+        entityRef: w.withdrawNo,
         traceId,
         objectSnapshot: {
           withdrawNo: w.withdrawNo,
@@ -1968,7 +1968,7 @@ export class WithdrawWorkflowService implements OnModuleInit {
     // Anti-dup: a withdrawal must not accrue two open sanction-refund approvals.
     const openRefunds = await this.approvalsService.list({
       actionType: ApprovalActionTypes.WITHDRAW_SANCTION_REFUND,
-      entityRef: w.id,
+      entityRef: w.withdrawNo,
       status: ApprovalStatuses.PENDING,
       take: 1,
     });
@@ -1982,7 +1982,7 @@ export class WithdrawWorkflowService implements OnModuleInit {
     const approvalCase = await this.approvalsService.createAndSubmit(
       {
         actionType: ApprovalActionTypes.WITHDRAW_SANCTION_REFUND,
-        entityRef: w.id,
+        entityRef: w.withdrawNo,
         traceId,
         objectSnapshot: {
           withdrawNo: w.withdrawNo,
@@ -2054,10 +2054,10 @@ export class WithdrawWorkflowService implements OnModuleInit {
    * this fetch runs BEFORE any state mutation (guard-before-mutate ordering),
    * so a throw here leaves the withdrawal untouched (still FROZEN).
    */
-  private async fetchApprovedOrderRef(withdrawId: string, actionType: string): Promise<string> {
+  private async fetchApprovedOrderRef(withdrawNo: string, actionType: string): Promise<string> {
     const { items } = await this.approvalsService.list({
       actionType,
-      entityRef: withdrawId,
+      entityRef: withdrawNo,
       status: ApprovalStatuses.APPROVED,
       take: 1,
     });
@@ -2065,7 +2065,7 @@ export class WithdrawWorkflowService implements OnModuleInit {
     const orderRef = snapshot?.orderRef;
     if (!orderRef) {
       throw new Error(
-        `Withdrawal ${withdrawId}: no APPROVED ${actionType} case with an orderRef found in objectSnapshot`,
+        `Withdrawal ${withdrawNo}: no APPROVED ${actionType} case with an orderRef found in objectSnapshot`,
       );
     }
     return orderRef;
@@ -2116,16 +2116,16 @@ export class WithdrawWorkflowService implements OnModuleInit {
    *   5. Best-effort Sumsub rescore (triggerUnfreezeRescore) — never crashes.
    * ZERO accounting calls — money stays locked exactly as it was.
    */
-  private async onUnfreezeApproved(withdrawId: string, approvalNo?: string, causationId?: string) {
-    const w = await this.withdrawService.findOneInternal(withdrawId);
+  private async onUnfreezeApproved(withdrawNo: string, approvalNo?: string, causationId?: string) {
+    const w = await this.withdrawService.findOneInternalByNo(withdrawNo);
     if (w.status !== WithdrawTransactionStatus.FROZEN) {
       this.logger.warn(
-        `onUnfreezeApproved no-op: withdrawal ${withdrawId} not in FROZEN (status=${w.status})`,
+        `onUnfreezeApproved no-op: withdrawal ${withdrawNo} not in FROZEN (status=${w.status})`,
       );
       return;
     }
 
-    const orderRef = await this.fetchApprovedOrderRef(w.id, ApprovalActionTypes.WITHDRAW_UNFREEZE);
+    const orderRef = await this.fetchApprovedOrderRef(w.withdrawNo, ApprovalActionTypes.WITHDRAW_UNFREEZE);
 
     const resumedRow = await this.withdrawService.updateStatus(
       w.id,
@@ -2182,11 +2182,11 @@ export class WithdrawWorkflowService implements OnModuleInit {
    * 可能是材料/行政等任意一种，与制裁无关。
    * 是否升级到客户级由合规官另行判断 —— 本方法不做，也不断言。
    */
-  private async onRefundApproved(withdrawId: string, approvalNo?: string, causationId?: string) {
-    const w = await this.withdrawService.findOneInternal(withdrawId);
+  private async onRefundApproved(withdrawNo: string, approvalNo?: string, causationId?: string) {
+    const w = await this.withdrawService.findOneInternalByNo(withdrawNo);
     if (w.status !== WithdrawTransactionStatus.FROZEN) {
       this.logger.warn(
-        `onRefundApproved no-op: withdrawal ${withdrawId} not in FROZEN (status=${w.status})`,
+        `onRefundApproved no-op: withdrawal ${withdrawNo} not in FROZEN (status=${w.status})`,
       );
       return;
     }

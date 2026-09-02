@@ -1298,7 +1298,7 @@ export class DepositWorkflowService implements OnModuleInit {
     // Anti-dup: a deposit must not accrue two open confiscation approvals.
     const openConfiscations = await this.approvalsService.list({
       actionType: ApprovalActionTypes.DEPOSIT_CONFISCATION,
-      entityRef: deposit.id,
+      entityRef: deposit.depositNo,
       status: ApprovalStatuses.PENDING,
       take: 1,
     });
@@ -1316,7 +1316,7 @@ export class DepositWorkflowService implements OnModuleInit {
     const approvalCase = await this.approvalsService.createAndSubmit(
       {
         actionType: ApprovalActionTypes.DEPOSIT_CONFISCATION,
-        entityRef: deposit.id,
+        entityRef: deposit.depositNo,
         traceId,
         objectSnapshot: {
           depositNo: deposit.depositNo,
@@ -1353,9 +1353,9 @@ export class DepositWorkflowService implements OnModuleInit {
    * OPERATION_PENDING with its BELOW_MIN hold intact — the approvals engine owns the
    * rejection/cancel/expire audit trail, so this is a clean no-op (idempotent).
    *
-   * entityRef is the deposit id. A foreign entityRef (some other workflow's) makes
-   * findOne throw NotFound → graceful no-op. An already-CONFISCATED deposit (replayed
-   * decided event) → no-op.
+   * entityRef is the deposit's business number (depositNo, 铁律⑥). A foreign entityRef
+   * (some other workflow's) makes findOneByNo throw NotFound → graceful no-op. An
+   * already-CONFISCATED deposit (replayed decided event) → no-op.
    */
   @OnEvent('workflow.deposit-confiscation.decided', { async: true })
   async onConfiscationDecided(event: ApprovalDecidedEvent) {
@@ -1367,7 +1367,7 @@ export class DepositWorkflowService implements OnModuleInit {
 
     let deposit: any;
     try {
-      deposit = await this.depositService.findOne(entityRef);
+      deposit = await this.depositService.findOneByNo(entityRef);
     } catch (err) {
       if (err instanceof NotFoundException) {
         // entityRef belongs to another workflow's entity — not ours, ignore.
@@ -1955,7 +1955,7 @@ export class DepositWorkflowService implements OnModuleInit {
     // Anti-dup: a deposit must not accrue two open return approvals.
     const openReturns = await this.approvalsService.list({
       actionType: ApprovalActionTypes.DEPOSIT_RETURN,
-      entityRef: deposit.id,
+      entityRef: deposit.depositNo,
       status: ApprovalStatuses.PENDING,
       take: 1,
     });
@@ -1969,7 +1969,7 @@ export class DepositWorkflowService implements OnModuleInit {
     const approvalCase = await this.approvalsService.createAndSubmit(
       {
         actionType: ApprovalActionTypes.DEPOSIT_RETURN,
-        entityRef: deposit.id,
+        entityRef: deposit.depositNo,
         traceId,
         objectSnapshot: {
           depositNo: deposit.depositNo,
@@ -2025,7 +2025,7 @@ export class DepositWorkflowService implements OnModuleInit {
     // Anti-dup: a deposit must not accrue two open seize approvals.
     const openSeizures = await this.approvalsService.list({
       actionType: ApprovalActionTypes.DEPOSIT_SEIZE,
-      entityRef: deposit.id,
+      entityRef: deposit.depositNo,
       status: ApprovalStatuses.PENDING,
       take: 1,
     });
@@ -2039,7 +2039,7 @@ export class DepositWorkflowService implements OnModuleInit {
     const approvalCase = await this.approvalsService.createAndSubmit(
       {
         actionType: ApprovalActionTypes.DEPOSIT_SEIZE,
-        entityRef: deposit.id,
+        entityRef: deposit.depositNo,
         traceId,
         objectSnapshot: {
           depositNo: deposit.depositNo,
@@ -2095,7 +2095,7 @@ export class DepositWorkflowService implements OnModuleInit {
     // Anti-dup: a deposit must not accrue two open unfreeze approvals.
     const openUnfreezes = await this.approvalsService.list({
       actionType: ApprovalActionTypes.DEPOSIT_UNFREEZE,
-      entityRef: deposit.id,
+      entityRef: deposit.depositNo,
       status: ApprovalStatuses.PENDING,
       take: 1,
     });
@@ -2109,7 +2109,7 @@ export class DepositWorkflowService implements OnModuleInit {
     const approvalCase = await this.approvalsService.createAndSubmit(
       {
         actionType: ApprovalActionTypes.DEPOSIT_UNFREEZE,
-        entityRef: deposit.id,
+        entityRef: deposit.depositNo,
         traceId,
         objectSnapshot: {
           depositNo: deposit.depositNo,
@@ -2154,7 +2154,7 @@ export class DepositWorkflowService implements OnModuleInit {
 
     let deposit: any;
     try {
-      deposit = await this.depositService.findOne(entityRef);
+      deposit = await this.depositService.findOneByNo(entityRef);
     } catch (err) {
       if (err instanceof NotFoundException) {
         // entityRef belongs to another workflow's entity — not ours, ignore.
@@ -2423,7 +2423,7 @@ export class DepositWorkflowService implements OnModuleInit {
 
     let deposit: any;
     try {
-      deposit = await this.depositService.findOne(entityRef);
+      deposit = await this.depositService.findOneByNo(entityRef);
     } catch (err) {
       if (err instanceof NotFoundException) {
         return;
@@ -2463,10 +2463,10 @@ export class DepositWorkflowService implements OnModuleInit {
    * condition that should never happen given initiateSeize enforces orderRef
    * non-empty at approval-open time.
    */
-  private async fetchSeizeOrderRef(depositId: string): Promise<string> {
+  private async fetchSeizeOrderRef(depositNo: string): Promise<string> {
     const { items } = await this.approvalsService.list({
       actionType: ApprovalActionTypes.DEPOSIT_SEIZE,
-      entityRef: depositId,
+      entityRef: depositNo,
       status: ApprovalStatuses.APPROVED,
       take: 1,
     });
@@ -2474,7 +2474,7 @@ export class DepositWorkflowService implements OnModuleInit {
     const orderRef = snapshot?.orderRef;
     if (!orderRef) {
       throw new Error(
-        `Deposit ${depositId}: no APPROVED DEPOSIT_SEIZE case with an orderRef found in objectSnapshot`,
+        `Deposit ${depositNo}: no APPROVED DEPOSIT_SEIZE case with an orderRef found in objectSnapshot`,
       );
     }
     return orderRef;
@@ -2544,7 +2544,7 @@ export class DepositWorkflowService implements OnModuleInit {
 
     // 上缴目的账户刻意留空:线下法务/财务专用通道移交政府,系统不建模政府收款账;
     // orderRef(政府令文书号)是 8 年留档的唯一追溯锚点(业主口径 2026-07-28)。
-    const orderRef = await this.fetchSeizeOrderRef(deposit.id);
+    const orderRef = await this.fetchSeizeOrderRef(deposit.depositNo);
 
     const seizeLeg = await this.disposition.initiate(this.seizeSpec(deposit, orderRef));
 
@@ -2624,7 +2624,7 @@ export class DepositWorkflowService implements OnModuleInit {
       const MAX = 3;
       if (attempt < MAX) {
         const nextAttempt = attempt + 1;
-        const orderRef = await this.fetchSeizeOrderRef(deposit.id);
+        const orderRef = await this.fetchSeizeOrderRef(deposit.depositNo);
         const { fundsOrderNo } = await this.disposition.rebuild(this.seizeSpec(deposit, orderRef), nextAttempt);
 
         await this.depositAudit(deposit, {
@@ -2680,7 +2680,7 @@ export class DepositWorkflowService implements OnModuleInit {
 
     let deposit: any;
     try {
-      deposit = await this.depositService.findOne(entityRef);
+      deposit = await this.depositService.findOneByNo(entityRef);
     } catch (err) {
       if (err instanceof NotFoundException) {
         return;
@@ -2709,10 +2709,10 @@ export class DepositWorkflowService implements OnModuleInit {
    * BEFORE any state mutation, so a throw here leaves the deposit untouched (still
    * FROZEN), mirroring onSeizeApproved's guard-before-mutate ordering.
    */
-  private async fetchUnfreezeOrderRef(depositId: string): Promise<string> {
+  private async fetchUnfreezeOrderRef(depositNo: string): Promise<string> {
     const { items } = await this.approvalsService.list({
       actionType: ApprovalActionTypes.DEPOSIT_UNFREEZE,
-      entityRef: depositId,
+      entityRef: depositNo,
       status: ApprovalStatuses.APPROVED,
       take: 1,
     });
@@ -2720,7 +2720,7 @@ export class DepositWorkflowService implements OnModuleInit {
     const orderRef = snapshot?.orderRef;
     if (!orderRef) {
       throw new Error(
-        `Deposit ${depositId}: no APPROVED DEPOSIT_UNFREEZE case with an orderRef found in objectSnapshot`,
+        `Deposit ${depositNo}: no APPROVED DEPOSIT_UNFREEZE case with an orderRef found in objectSnapshot`,
       );
     }
     return orderRef;
@@ -2784,7 +2784,7 @@ export class DepositWorkflowService implements OnModuleInit {
       return;
     }
 
-    const orderRef = await this.fetchUnfreezeOrderRef(deposit.id);
+    const orderRef = await this.fetchUnfreezeOrderRef(deposit.depositNo);
 
     const resumedRow = await this.depositService.updateStatus(deposit.id, {
       action: DepositTransactionAction.RESUME,

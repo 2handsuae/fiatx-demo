@@ -563,7 +563,7 @@ describe('Withdraw money arcs (e2e, Task 12)', () => {
     const orderRef = `UNFREEZE-ORDER-${Date.now()}`;
     await workflow.initiateUnfreeze(w.id, { orderRef, reason: 'e2e unfreeze' }, makeActor('E2E_UNFREEZE_MAKER_WD1', 'COMPLIANCE_OFFICER'));
 
-    const approvalCase = await latestApprovalCase(ApprovalActionTypes.WITHDRAW_UNFREEZE, w.id);
+    const approvalCase = await latestApprovalCase(ApprovalActionTypes.WITHDRAW_UNFREEZE, w.withdrawNo);
     expect(approvalCase).toBeTruthy();
     expect(approvalCase!.status).toBe('PENDING');
 
@@ -596,7 +596,7 @@ describe('Withdraw money arcs (e2e, Task 12)', () => {
 
     await workflow.initiateRefund(w.id, { reason: 'e2e sanction refund' }, makeActor('E2E_REFUND_MAKER_WD1', 'OPS_OFFICER'));
 
-    const approvalCase = await latestApprovalCase(ApprovalActionTypes.WITHDRAW_SANCTION_REFUND, w.id);
+    const approvalCase = await latestApprovalCase(ApprovalActionTypes.WITHDRAW_SANCTION_REFUND, w.withdrawNo);
     expect(approvalCase).toBeTruthy();
     expect(approvalCase!.status).toBe('PENDING');
 

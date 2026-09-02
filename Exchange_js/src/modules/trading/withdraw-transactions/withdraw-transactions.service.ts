@@ -398,6 +398,24 @@ export class WithdrawTransactionsService {
   }
 
   /**
+   * 按业务键 withdrawNo 查单，找不到抛 NotFoundException（镜像 findOneInternal
+   * 的语义，同 include）——供 Task 9 三个 disposition decided handler（大额闸/
+   * 解冻/制裁退款）按 entityRef 回查（铁律⑥：workflow 跨域协作认业务号,不认
+   * 内部 id）。
+   */
+  async findOneInternalByNo(withdrawNo: string) {
+    const item = await (this.prisma as any).withdrawTransaction.findUnique({
+      where: { withdrawNo },
+      include: {
+        asset: true,
+        customer: true,
+      },
+    });
+    if (!item) throw new NotFoundException('Withdraw transaction not found');
+    return item;
+  }
+
+  /**
    * Customer-facing single-fetch (IDOR guard + tipping-off whitelist).
    * Mirrors DepositTransactionsService#findOneForCustomer's shape; keeps the
    * existing ForbiddenException semantics the controller previously enforced
@@ -601,8 +619,8 @@ export class WithdrawTransactionsService {
     const sumsubDetail = parseDetail(item.sumsubTxnDetailJson);
 
     // 内部审批单反查(仅单头,不含 step/steps)——withdraw 的三种审批(大额闸/解冻/
-    // 制裁退款)发起时 entityRef 全部落 withdraw.id。
-    const approvalPage = await this.approvalsService.list({ entityRef: item.id } as any);
+    // 制裁退款)发起时 entityRef 全部落 withdraw.withdrawNo(铁律⑥)。
+    const approvalPage = await this.approvalsService.list({ entityRef: item.withdrawNo } as any);
     const approvals = (approvalPage.items ?? []).map((a: any) => ({
       approvalNo: a.approvalNo,
       actionType: a.actionType,

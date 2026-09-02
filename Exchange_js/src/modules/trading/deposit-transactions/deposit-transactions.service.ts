@@ -488,6 +488,24 @@ export class DepositTransactionsService {
   }
 
   /**
+   * 按业务键 depositNo 查单，找不到抛 NotFoundException（铁律⑥：workflow
+   * 跨域协作认业务号，不认内部 id）——供 A2 四个 disposition decided handler
+   * （没收/退回/上缴/解冻）按 entityRef 回查。与只读一个 id 字段就返回 null
+   * 的 `findByNo`（A7 MATERIAL_REQUEST_REVIEWED 专用）不同：这里要 findOne
+   * 的完整增强形状（ownerNo/linkedFundOrders 等，disposition spec 会用到
+   * asset/toWalletId 等派生不到的字段），所以先查 id 再委托给 findOne——同
+   * `findOneForCustomerByDepositNo` 的委托写法，避免另抄一份会漂移的增强逻辑。
+   */
+  async findOneByNo(depositNo: string) {
+    const row = await (this.prisma as any).depositTransaction.findUnique({
+      where: { depositNo },
+      select: { id: true },
+    });
+    if (!row) throw new NotFoundException('Deposit transaction not found');
+    return this.findOne(row.id);
+  }
+
+  /**
    * Admin detail fetch = findOne + 该单最近一次 Sumsub webhook。
    *
    * 为什么单开一个方法而不是塞进 `findOne`:`findOne` 在状态机热路径里被反复调用
@@ -544,8 +562,9 @@ export class DepositTransactionsService {
     const sumsubDetail = parseDetail(item.sumsubTxnDetailJson);
 
     // 内部审批单反查(仅单头,业主定:不含 step/steps)。四种充值审批发起时
-    // entityRef 全部落 deposit.id,ApprovalsService.list 已支持 entityRef 过滤。
-    const approvalPage = await this.approvalsService.list({ entityRef: item.id } as any);
+    // entityRef 全部落 deposit.depositNo(铁律⑥),ApprovalsService.list 已支持
+    // entityRef 过滤。
+    const approvalPage = await this.approvalsService.list({ entityRef: item.depositNo } as any);
     const approvals = (approvalPage.items ?? []).map((a: any) => ({
       approvalNo: a.approvalNo,
       actionType: a.actionType,

@@ -1797,7 +1797,7 @@ describe('DepositTransactionsService', () => {
       const result: any = await service.findOneForAdmin('dep-1');
 
       expect(approvalsService.list).toHaveBeenCalledWith(
-        expect.objectContaining({ entityRef: 'dep-1' }),
+        expect.objectContaining({ entityRef: 'DP001' }),
       );
       expect(result.approvals).toEqual([
         {

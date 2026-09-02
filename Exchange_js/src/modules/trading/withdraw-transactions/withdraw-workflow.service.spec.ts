@@ -35,7 +35,7 @@ describe('WithdrawWorkflowService — releaseLock on approval decline', () => {
 
   beforeEach(() => {
     withdrawService = {
-      findOneInternal: jest.fn().mockResolvedValue(declinedWithdrawal),
+      findOneInternalByNo: jest.fn().mockResolvedValue(declinedWithdrawal),
       getOwnerComplianceStatus: jest.fn().mockResolvedValue('ACTIVE'),
       updateStatus: jest.fn().mockResolvedValue({ status: 'MOCKED' }),
     };
@@ -78,7 +78,7 @@ describe('WithdrawWorkflowService — releaseLock on approval decline', () => {
   it('releases both pending locks — 解锁事实并入 REJECTED 落地行(独立 LOCK_RELEASED 痕已废)', async () => {
     await workflow.onLargeValueApprovalDecided({
       decision: 'DECLINED',
-      entityRef: declinedWithdrawal.id,
+      entityRef: declinedWithdrawal.withdrawNo,
       approvalId: 'apr-id-1',
       approvalNo: 'AP-1',
       decisionReason: 'risk',
@@ -2461,7 +2461,7 @@ describe('WithdrawWorkflowService.initiateUnfreeze / initiateRefund (Task 8)', (
       expect(approvalsService.list).toHaveBeenCalledWith(
         expect.objectContaining({
           actionType: ApprovalActionTypes.WITHDRAW_UNFREEZE,
-          entityRef: 'wd-frozen-1',
+          entityRef: 'WD-FROZEN-1',
           status: ApprovalStatuses.PENDING,
         }),
       );
@@ -2480,7 +2480,7 @@ describe('WithdrawWorkflowService.initiateUnfreeze / initiateRefund (Task 8)', (
       expect(approvalsService.createAndSubmit).toHaveBeenCalledWith(
         expect.objectContaining({
           actionType: ApprovalActionTypes.WITHDRAW_UNFREEZE,
-          entityRef: 'wd-frozen-1',
+          entityRef: 'WD-FROZEN-1',
           objectSnapshot: expect.objectContaining({
             withdrawNo: 'WD-FROZEN-1',
             ownerType: 'CUSTOMER',
@@ -2537,7 +2537,7 @@ describe('WithdrawWorkflowService.initiateUnfreeze / initiateRefund (Task 8)', (
       expect(approvalsService.list).toHaveBeenCalledWith(
         expect.objectContaining({
           actionType: ApprovalActionTypes.WITHDRAW_SANCTION_REFUND,
-          entityRef: 'wd-frozen-1',
+          entityRef: 'WD-FROZEN-1',
           status: ApprovalStatuses.PENDING,
         }),
       );
@@ -2556,7 +2556,7 @@ describe('WithdrawWorkflowService.initiateUnfreeze / initiateRefund (Task 8)', (
       expect(approvalsService.createAndSubmit).toHaveBeenCalledWith(
         expect.objectContaining({
           actionType: ApprovalActionTypes.WITHDRAW_SANCTION_REFUND,
-          entityRef: 'wd-frozen-1',
+          entityRef: 'WD-FROZEN-1',
           objectSnapshot: expect.objectContaining({
             withdrawNo: 'WD-FROZEN-1',
             ownerType: 'CUSTOMER',
@@ -2607,7 +2607,7 @@ describe('WithdrawWorkflowService — Task 9: FROZEN execution side', () => {
     sumsubTxnClient?: Partial<Record<string, jest.Mock>>;
   } = {}) {
     const withdrawService = {
-      findOneInternal: jest.fn().mockResolvedValue(frozenWithdrawal),
+      findOneInternalByNo: jest.fn().mockResolvedValue(frozenWithdrawal),
       getOwnerComplianceStatus: jest.fn().mockResolvedValue('ACTIVE'),
       updateStatus: jest.fn().mockResolvedValue({ status: 'MOCKED' }),
       ...overrides.withdrawService,
@@ -2659,7 +2659,7 @@ describe('WithdrawWorkflowService — Task 9: FROZEN execution side', () => {
 
       await workflow.onUnfreezeDecided({
         decision: 'APPROVED',
-        entityRef: frozenWithdrawal.id,
+        entityRef: frozenWithdrawal.withdrawNo,
       approvalId: 'apr-id-1',
         approvalNo: 'AP-UNFREEZE-1',
       });
@@ -2688,7 +2688,7 @@ describe('WithdrawWorkflowService — Task 9: FROZEN execution side', () => {
       await expect(
         workflow.onUnfreezeDecided({
           decision: 'APPROVED',
-          entityRef: frozenWithdrawal.id,
+          entityRef: frozenWithdrawal.withdrawNo,
       approvalId: 'apr-id-1',
           approvalNo: 'AP-UNFREEZE-2',
         }),
@@ -2704,7 +2704,7 @@ describe('WithdrawWorkflowService — Task 9: FROZEN execution side', () => {
       await expect(
         workflow.onUnfreezeDecided({
           decision: 'APPROVED',
-          entityRef: frozenWithdrawal.id,
+          entityRef: frozenWithdrawal.withdrawNo,
       approvalId: 'apr-id-1',
           approvalNo: 'AP-UNFREEZE-3',
         }),
@@ -2720,7 +2720,7 @@ describe('WithdrawWorkflowService — Task 9: FROZEN execution side', () => {
     it('empty sumsubTxnId → rescore skipped', async () => {
       const { workflow, sumsubTxnClient } = buildWorkflow({
         withdrawService: {
-          findOneInternal: jest.fn().mockResolvedValue({ ...frozenWithdrawal, sumsubTxnId: null }),
+          findOneInternalByNo: jest.fn().mockResolvedValue({ ...frozenWithdrawal, sumsubTxnId: null }),
           getOwnerComplianceStatus: jest.fn().mockResolvedValue('ACTIVE'),
           updateStatus: jest.fn().mockResolvedValue({ status: 'MOCKED' }),
         },
@@ -2728,7 +2728,7 @@ describe('WithdrawWorkflowService — Task 9: FROZEN execution side', () => {
 
       await workflow.onUnfreezeDecided({
         decision: 'APPROVED',
-        entityRef: frozenWithdrawal.id,
+        entityRef: frozenWithdrawal.withdrawNo,
       approvalId: 'apr-id-1',
         approvalNo: 'AP-UNFREEZE-4',
       });
@@ -2739,7 +2739,7 @@ describe('WithdrawWorkflowService — Task 9: FROZEN execution side', () => {
     it('non-FROZEN withdrawal → no-op (updateStatus not called, orderRef never fetched)', async () => {
       const { workflow, withdrawService, approvalsService } = buildWorkflow({
         withdrawService: {
-          findOneInternal: jest.fn().mockResolvedValue({
+          findOneInternalByNo: jest.fn().mockResolvedValue({
             ...frozenWithdrawal,
             status: WithdrawTransactionStatus.COMPLIANCE_PENDING,
           }),
@@ -2749,7 +2749,7 @@ describe('WithdrawWorkflowService — Task 9: FROZEN execution side', () => {
 
       await workflow.onUnfreezeDecided({
         decision: 'APPROVED',
-        entityRef: frozenWithdrawal.id,
+        entityRef: frozenWithdrawal.withdrawNo,
       approvalId: 'apr-id-1',
         approvalNo: 'AP-UNFREEZE-5',
       });
@@ -2763,12 +2763,12 @@ describe('WithdrawWorkflowService — Task 9: FROZEN execution side', () => {
 
       await workflow.onUnfreezeDecided({
         decision: 'DECLINED',
-        entityRef: frozenWithdrawal.id,
+        entityRef: frozenWithdrawal.withdrawNo,
       approvalId: 'apr-id-1',
         approvalNo: 'AP-UNFREEZE-6',
       });
 
-      expect(withdrawService.findOneInternal).not.toHaveBeenCalled();
+      expect(withdrawService.findOneInternalByNo).not.toHaveBeenCalled();
       expect(withdrawService.updateStatus).not.toHaveBeenCalled();
       expect(approvalsService.list).not.toHaveBeenCalled();
     });
@@ -2780,7 +2780,7 @@ describe('WithdrawWorkflowService — Task 9: FROZEN execution side', () => {
 
       await workflow.onRefundDecided({
         decision: 'APPROVED',
-        entityRef: frozenWithdrawal.id,
+        entityRef: frozenWithdrawal.withdrawNo,
       approvalId: 'apr-id-1',
         approvalNo: 'AP-REFUND-1',
       });
@@ -2805,7 +2805,7 @@ describe('WithdrawWorkflowService — Task 9: FROZEN execution side', () => {
     it('non-FROZEN withdrawal → no-op, no releaseLock', async () => {
       const { workflow, withdrawService, accountingService } = buildWorkflow({
         withdrawService: {
-          findOneInternal: jest.fn().mockResolvedValue({
+          findOneInternalByNo: jest.fn().mockResolvedValue({
             ...frozenWithdrawal,
             status: WithdrawTransactionStatus.MANUAL_CHECKING,
           }),
@@ -2815,7 +2815,7 @@ describe('WithdrawWorkflowService — Task 9: FROZEN execution side', () => {
 
       await workflow.onRefundDecided({
         decision: 'APPROVED',
-        entityRef: frozenWithdrawal.id,
+        entityRef: frozenWithdrawal.withdrawNo,
       approvalId: 'apr-id-1',
         approvalNo: 'AP-REFUND-2',
       });
@@ -2829,12 +2829,12 @@ describe('WithdrawWorkflowService — Task 9: FROZEN execution side', () => {
 
       await workflow.onRefundDecided({
         decision: 'CANCELLED',
-        entityRef: frozenWithdrawal.id,
+        entityRef: frozenWithdrawal.withdrawNo,
       approvalId: 'apr-id-1',
         approvalNo: 'AP-REFUND-3',
       });
 
-      expect(withdrawService.findOneInternal).not.toHaveBeenCalled();
+      expect(withdrawService.findOneInternalByNo).not.toHaveBeenCalled();
       expect(withdrawService.updateStatus).not.toHaveBeenCalled();
     });
   });

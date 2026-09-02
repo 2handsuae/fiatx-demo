@@ -465,7 +465,7 @@ describe('Deposit Sumsub verdict buttons (e2e, Task 9)', () => {
     );
 
     const approvalCase = await (prisma as any).approvalCase.findFirst({
-      where: { actionType: 'DEPOSIT_CONFISCATION', entityRef: deposit.id, status: 'PENDING' },
+      where: { actionType: 'DEPOSIT_CONFISCATION', entityRef: deposit.depositNo, status: 'PENDING' },
     });
     expect(approvalCase).toBeTruthy();
 
@@ -538,7 +538,7 @@ describe('Deposit Sumsub verdict buttons (e2e, Task 9)', () => {
     expect(actions).toContain('DEPOSIT_RETURN_REQUESTED');
 
     const returnApproval = await (prisma as any).approvalCase.findFirst({
-      where: { actionType: 'DEPOSIT_RETURN', entityRef: deposit.id },
+      where: { actionType: 'DEPOSIT_RETURN', entityRef: deposit.depositNo },
     });
     expect(returnApproval).toBeTruthy();
     expect(returnApproval?.status).toBe('PENDING');

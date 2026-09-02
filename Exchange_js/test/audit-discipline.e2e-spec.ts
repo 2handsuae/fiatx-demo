@@ -86,9 +86,10 @@ describe('审批裁决审计留痕纪律（铁律① 操作必留痕）', () => 
     // 第一票：SMO 签第一步，案子仍 PENDING（还有第二步待签）。
     await approvalsService.approve(created.approvalNo, { reason: 'SMO first vote' }, actorSm);
     // 第二票：MLRO 签第二步（末票），案子推 APPROVED。此案 actionType=DEPOSIT_SEIZE，
-    // 批准后会发 workflow.deposit-seize.decided 事件；entityRef 不对应真实存款单，
-    // deposit-workflow 的 handler 会 findOne 抛 NotFoundException 并静默吞掉（容错
-    // 分支，见 deposit-workflow.service.ts onSeizeDecided），不影响这里的断言。
+    // 批准后会发 workflow.deposit-seize.decided 事件；entityRef 不对应真实存款单
+    // （既不是 id 也不是 depositNo），deposit-workflow 的 handler 会 findOneByNo
+    // 抛 NotFoundException 并静默吞掉（容错分支，见 deposit-workflow.service.ts
+    // onSeizeDecided），不影响这里的断言。
     await approvalsService.approve(created.approvalNo, { reason: 'MLRO final vote' }, actorMlro);
 
     const grantedRows = await prisma.auditLogEvent.findMany({
