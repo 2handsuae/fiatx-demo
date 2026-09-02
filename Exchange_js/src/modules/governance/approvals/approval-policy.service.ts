@@ -20,6 +20,13 @@ export interface ResolvedApprovalPolicy {
   allowCancel: boolean;
 }
 
+/** Deep-compare two step arrays: each step's roles sorted before stringify, so role order doesn't matter. */
+function stepsEqual(a: PolicyStepConfig[], b: PolicyStepConfig[]): boolean {
+  const normalize = (steps: PolicyStepConfig[]) =>
+    JSON.stringify(steps.map((s) => ({ stepNo: s.stepNo, roles: [...s.roles].sort() })));
+  return normalize(a) === normalize(b);
+}
+
 @Injectable()
 export class ApprovalPolicyService {
   constructor(private readonly prisma: PrismaService) {}
@@ -68,7 +75,6 @@ export class ApprovalPolicyService {
       if (!defaultPolicy) {
         throw new Error(`V1 whitelist references unknown actionType: ${actionType}`);
       }
-      const hasOverride = !!dbRow;
 
       let steps: PolicyStepConfig[];
       if (dbRow?.stepsConfig) {
@@ -79,13 +85,25 @@ export class ApprovalPolicyService {
         steps = defaultPolicy.steps;
       }
 
+      const timeoutHours = dbRow?.timeoutHours ?? defaultPolicy.timeoutHours;
+      const allowCancel = dbRow?.allowCancel ?? defaultPolicy.allowCancel;
+      // Source is a content diff, not a "has a DB row" flag: seed upserts a row for
+      // every policy (checkerRoles CSV, no stepsConfig) so dbRow is truthy even with
+      // zero real customization — that used to mark all 27 V1 policies CUSTOMIZED
+      // right after a reset. Compare the resolved content against the code default
+      // instead; only an actual change (via upsertStepsConfig) should read CUSTOMIZED.
+      const isDefault =
+        stepsEqual(steps, defaultPolicy.steps) &&
+        timeoutHours === defaultPolicy.timeoutHours &&
+        allowCancel === defaultPolicy.allowCancel;
+
       return {
         actionType,
         steps,
         checkerRoles: deriveCheckerRoles(steps),
-        timeoutHours: dbRow?.timeoutHours ?? defaultPolicy.timeoutHours,
-        allowCancel: dbRow?.allowCancel ?? defaultPolicy.allowCancel,
-        source: hasOverride ? ('CUSTOMIZED' as const) : ('DEFAULT' as const),
+        timeoutHours,
+        allowCancel,
+        source: isDefault ? ('DEFAULT' as const) : ('CUSTOMIZED' as const),
         editable: actionType !== ApprovalActionTypes.APPROVAL_POLICY_CHANGE,
       };
     });

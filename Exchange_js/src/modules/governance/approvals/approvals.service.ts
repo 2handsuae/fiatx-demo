@@ -252,7 +252,7 @@ export class ApprovalsService {
   private buildEventPayload(approval: ApprovalCaseRow): ApprovalDecisionEvent {
     const decidedStep = [...(approval.steps || [])]
       .sort((a: any, b: any) => b.stepNo - a.stepNo)
-      .find((s: any) => s.status !== ApprovalStepStatuses.PENDING);
+      .find((s: any) => s.status !== ApprovalStepStatuses.PENDING && s.decidedByUserId);
 
     return {
       approvalId: approval.id,
