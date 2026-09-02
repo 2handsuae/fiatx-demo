@@ -316,4 +316,4 @@
 
 ---
 
-本手册内容来源：`doc-final/superpowers/specs/2026-09-01-recon-disposition-conclusion-design.md` §0.1（三结局模型）/ §2（处置全集）/ §4（成因注册表）/ §5（场景重编号）；`doc-final/superpowers/specs/2026-09-02-recon-aging-writeoff-design.md`（账龄规则 / 核销四前提 / 审批人改 CFO / 豁免容差不做）；成因码、菜单文案、查证线索、出口判定的单一来源是 `src/modules/clearing-settle/reconciliation/disposition/cause-registry.ts`；调账分录的借贷方向另核对 `src/modules/clearing-settle/reconciliation/disposition/adjustment-rules.ts`。
+本手册内容来源：`doc-final/archive/specs/2026-09-01-recon-disposition-conclusion-design.md` §0.1（三结局模型）/ §2（处置全集）/ §4（成因注册表）/ §5（场景重编号）；`doc-final/archive/specs/2026-09-02-recon-aging-writeoff-design.md`（账龄规则 / 核销四前提 / 审批人改 CFO / 豁免容差不做）；成因码、菜单文案、查证线索、出口判定的单一来源是 `src/modules/clearing-settle/reconciliation/disposition/cause-registry.ts`；调账分录的借贷方向另核对 `src/modules/clearing-settle/reconciliation/disposition/adjustment-rules.ts`。
