@@ -1510,6 +1510,9 @@ model ReconciliationRun {
   softFlagCount   Int      @default(0) // 五桶：钱包数
   breakCount      Int      @default(0) // 五桶：钱包数
   demoManifest    String?  // demo-only: JSON answer-key of injected breaks (null for real/pass runs)
+  // 平账 A 批（spec §6.1）：本轮引擎实际用的截止时刻——案件页重建差异行按它取数，
+  // 不再用当天 23:59:59（跨日切那条被挪到「截止点后 6 小时」的外部行才不会在页面上落回窗内）。
+  cutoffAt        DateTime?
   cases           ReconciliationCase[] @relation("CaseOpenedByRun")
   lineItems       ReconciliationLineItem[]
   runWallets      ReconciliationRunWallet[]
@@ -1535,6 +1538,9 @@ model ReconciliationCase {
   closedByRunId             String?
   lastObservedRunId         String?
   slaDeadline               DateTime?
+  // 平账 A 批（spec §2.2）：账龄到线标记。slaDeadline 复用既有列（开案时填 = 业务日日终 + 3 天）；
+  // 到线由 case-aging-sweep 置 true，状态不动（软破线）。结案后标记随行保留。
+  slaBreached               Boolean  @default(false)
   traceId                   String?
   reimbursementObligationId String?
   // Phase B locator — pinpoints which physical wallet / COA bucket / owner this case belongs to
