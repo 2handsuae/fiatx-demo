@@ -269,20 +269,38 @@ export class InboundTransferSignalsService {
     if (!line.externalRef) throw new BadRequestException('该账单行没有参考号，补录后对账配不回去——先在账单侧补参考号');
     const channelType = isCrypto ? InboundTransferChannelType.CRYPTO : InboundTransferChannelType.FIAT;
     const dedupeKey = this.buildDedupeKey({ channelType, walletId: line.walletId, assetId: line.assetId, txHash: isCrypto ? line.externalRef : undefined, referenceNo: isCrypto ? undefined : line.externalRef });
-    const created = await (this.prisma as any).inboundTransferSignal.create({
-      data: {
-        signalNo: generateReferenceNo('SIG'),
-        ownerId: line.ownerId, walletId: line.walletId, assetId: line.assetId, channelType,
-        amount: new Prisma.Decimal(line.amountMajor),
-        txHash: isCrypto ? line.externalRef : null, referenceNo: isCrypto ? null : line.externalRef,
-        fromAddress: dto.fromAddress ?? null, fromIban: dto.fromIban ?? null,
-        counterpartyIsVasp: isCrypto ? false : null,
-        status: InboundTransferSignalStatus.SUPPLEMENT_PENDING, dedupeKey, submittedAt: new Date(),
-        supplementOfExternalLineId: line.externalLineId, supplementReconCaseNo: line.caseNo,
-        supplementDispositionNo: line.dispositionNo, supplementEffectiveDate: line.businessDate,
-        supplementRequestedByUserId: actor.userId ?? null,
-      },
-    });
+    // spec §2.2：拒绝 / 超时 / 撤回后可再次发起——supplementOfExternalLineId 是
+    // @unique 且从不清空（见 SupplementEvidenceService#assertUnclaimed 的同款注释），
+    // 上面 assertClaimable 已经过 assertUnclaimed 放行，能走到这里、又查到一条已存在
+    // 的信号，那条信号必然是 SUPPLEMENT_REJECTED（其余状态 assertUnclaimed 会先拒）。
+    // 复用同一行而不是新建：新建会同时撞 supplementOfExternalLineId 与 dedupeKey 两个
+    // @unique 列，后者会抛裸 P2002 变 500；复用也是语义正确的——这条信号本来就是
+    // "这次补录申请"的记录本身，被拒后重提是同一次申请的再提交，不是幂等/去重机制。
+    const existing = await (this.prisma as any).inboundTransferSignal.findFirst({ where: { supplementOfExternalLineId: line.externalLineId } });
+    const created = existing
+      ? await (this.prisma as any).inboundTransferSignal.update({
+          where: { id: existing.id },
+          data: {
+            status: InboundTransferSignalStatus.SUPPLEMENT_PENDING,
+            fromAddress: dto.fromAddress ?? null, fromIban: dto.fromIban ?? null,
+            supplementReconCaseNo: line.caseNo, supplementDispositionNo: line.dispositionNo,
+            supplementEffectiveDate: line.businessDate, supplementRequestedByUserId: actor.userId ?? null,
+          },
+        })
+      : await (this.prisma as any).inboundTransferSignal.create({
+          data: {
+            signalNo: generateReferenceNo('SIG'),
+            ownerId: line.ownerId, walletId: line.walletId, assetId: line.assetId, channelType,
+            amount: new Prisma.Decimal(line.amountMajor),
+            txHash: isCrypto ? line.externalRef : null, referenceNo: isCrypto ? null : line.externalRef,
+            fromAddress: dto.fromAddress ?? null, fromIban: dto.fromIban ?? null,
+            counterpartyIsVasp: isCrypto ? false : null,
+            status: InboundTransferSignalStatus.SUPPLEMENT_PENDING, dedupeKey, submittedAt: new Date(),
+            supplementOfExternalLineId: line.externalLineId, supplementReconCaseNo: line.caseNo,
+            supplementDispositionNo: line.dispositionNo, supplementEffectiveDate: line.businessDate,
+            supplementRequestedByUserId: actor.userId ?? null,
+          },
+        });
     const traceId = randomUUID();
     const impact = `补录 ${line.ownerNo ?? line.ownerId} 的 ${line.amountMajor} ${line.currency} 入金（对账案 ${line.caseNo}，账单行 ${line.externalRef}）——充值单将照常过 KYT 与合规闸`;
     const approvalCase = await this.approvalsService.createAndSubmit(

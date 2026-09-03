@@ -44,7 +44,7 @@ import { fakeBankRef, fakeChainTxHash } from '../src/common/utils/fake-external-
 /**
  * 平账 B 批（spec §9）e2e：补单三入口全链。案子 → 定性（SUPPLEMENT 出口）→ 案子上发起 →
  * 真审批中心（三类型，单步 CFO）→ 业务域执行（① 信号进通道 → 充值单 SUCCESS；② CLAWED_BACK；
- * ③ RETURNED）→ WalletReconRunService.run() 重跑 → 案子 AUTO_HEALED。审计断言按 recordedAt >= testStartedAt 圈定
+ * ③ RETURNED）→ WalletReconRunService.run() 重跑 → 案子 RESOLVED（resolutionReason=AUTO_HEALED）。审计断言按 recordedAt >= testStartedAt 圈定
  * （同日 reset 重跑复用案件号，见 A 批 e2e 的说明）。与另外三份 recon e2e 串行（jest-e2e.json maxWorkers: 1）。
  *
  * 四条主链全部用 demo_bob@example.com（ACTIVE、零未结限制便签）——本文件写作时
@@ -58,14 +58,21 @@ import { fakeBankRef, fakeChainTxHash } from '../src/common/utils/fake-external-
  * breakCase 每次都建全新钱包，「每个场景的 account_flows 互不相干」这条不变量
  * 不依赖换客户，用同一个 ACTIVE 客户不影响隔离性。
  *
- * ⚠ 本文件顺带在 src 里改了一处：src/modules/clearing-settle/reconciliation/
- * disposition/supplement-evidence.service.ts 的 loadLine() 币种校验此前拿
- * wallet.asset.currency（裸币种 'USDT'）去比 external_statement_lines.currency
- * （全仓惯例存的是 asset.code，加密币是 'USDT-TRON'，见该文件改动处的注释与证据
- * 链接），导致任何加密币账单行都会被误判"币种不符"——①a 用真实 USDT 案子跑通
- * 时当场复现，三条 initiate* 补单入口全部经这条守卫，此前只在 mock 下测过从未
- * 被真实数据触发。判定为显然的字段级笔误（全仓其余同类比较都按 asset.code），
- * 已按任务指示的例外条款自行改正并在此点名，未改动该函数其余行为。
+ * ⚠ 本文件顺带在 src 里改了两处（均评审复核确认为实现错，非 brief/测试预期错）：
+ * 1) src/modules/clearing-settle/reconciliation/disposition/supplement-evidence.service.ts
+ *    的 loadLine() 币种校验此前拿 wallet.asset.currency（裸币种 'USDT'）去比
+ *    external_statement_lines.currency（全仓惯例存的是 asset.code，加密币是
+ *    'USDT-TRON'，见该文件改动处的注释与证据链接），导致任何加密币账单行都会被
+ *    误判"币种不符"——①a 用真实 USDT 案子跑通时当场复现，三条 initiate* 补单
+ *    入口全部经这条守卫，此前只在 mock 下测过从未被真实数据触发。
+ * 2) 同文件的 assertUnclaimed() + inbound-transfer-signals.service.ts 的
+ *    initiateSupplement()：spec §2.2/§9-5 明写"拒绝/超时/撤回后原状态不动、
+ *    supplementNo 清空、可再次发起"，①②③ 三路口径一致；但①的占用列
+ *    supplementOfExternalLineId 是 @unique 且从不清空（②③靠 clearClawbackRequest
+ *    一类方法清空各自占用列），初版实现漏了"拒绝后复用同一行"这条路，账单行会
+ *    被永久占用——Step 6(c) 用真实数据跑通时当场复现，评审判为 Critical。
+ * 两处均为孤立、可被真实数据证伪的字段/分支缺口，不涉及设计取舍；已按任务指示
+ * 的例外条款自行改正并在此点名，改动详情见各自文件内注释。
  */
 describe('Recon supplement e2e (平账 B 批, Task 8)', () => {
   jest.setTimeout(90000);
@@ -397,22 +404,23 @@ describe('Recon supplement e2e (平账 B 批, Task 8)', () => {
     return verdictArgsForButton(buttonKey);
   }
 
-  /** 真造一笔 SUCCESS 法币充值（Bob）：真实客户入口 createForCustomer + QUICK_DEMO
+  /** 真造一笔 SUCCESS 法币充值：真实客户入口 createForCustomer + QUICK_DEMO
    *  扫描 → 等 COMPLIANCE_PENDING → 真 KYT 通道（花名册 ⚡① 同一条通道）→ 等 SUCCESS；
    *  随后把这笔充值自己的外部对账镜像补上（同参考号的 IN 行）——不补的话，充值
    *  Step 1 那条 isExternalCrossing 内部流水在后续对账里找不到对应外部行，
    *  永远是一条「我有外无」孤儿，桶判定卡在 SOFT_FLAG 而不是 MATCHED（哪怕总额
    *  已经用退汇/退回冲平），调用方最后一步「案子该愈」的断言会等不到 RESOLVED——
    *  e2e 首次真实数据跑通时当场复现（brief Step 4 原文本就点名了这一步，是我
-   *  实现时漏抄的，不是 brief 错）。 */
-  async function makeSuccessfulFiatDeposit(amount: string): Promise<{ deposit: any; wallet: { id: string } }> {
+   *  实现时漏抄的，不是 brief 错）。customerId/customerNo 默认 Bob——Step 6(b)
+   *  要单独用一个本文件专属的全新客户（避免碰 Bob 的历史余额），显式传参覆盖。 */
+  async function makeSuccessfulFiatDeposit(amount: string, customerId: string = bobId, customerNo: string = bobNo): Promise<{ deposit: any; wallet: { id: string } }> {
     const wallet = await createCustomerWallet({
-      ownerId: bobId, ownerNo: bobNo, assetId: aedAssetId,
+      ownerId: customerId, ownerNo: customerNo, assetId: aedAssetId,
       walletRole: 'C_VIBAN', type: 'FIAT_VIBAN', iban: `AE-E2E-SUPP-DEP-${randomUUID().slice(0, 10)}`,
     });
     const referenceNo = `E2E-DEP-${randomUUID().slice(0, 12)}`;
-    await signals.createForCustomer(bobId, { walletId: wallet.id, amount, referenceNo, fromIban: 'AE070331234567890123456' } as any);
-    const scan = await signals.scanForCustomer(bobId, { walletId: wallet.id, mode: 'QUICK_DEMO' } as any);
+    await signals.createForCustomer(customerId, { walletId: wallet.id, amount, referenceNo, fromIban: 'AE070331234567890123456' } as any);
+    const scan = await signals.scanForCustomer(customerId, { walletId: wallet.id, mode: 'QUICK_DEMO' } as any);
     const depositId = (scan as any).depositIds[0];
     await waitUntil(async () => (await deposits.findOne(depositId)).status === 'COMPLIANCE_PENDING', 30000);
     await depositWf.applyKytVerdict(depositId, verdictArgs('approved'));
@@ -459,9 +467,13 @@ describe('Recon supplement e2e (平账 B 批, Task 8)', () => {
     // no-op（同函数 JSDoc "Idempotent"），这里只是提前把它自己也会做的赋值做掉，
     // 不是绕过什么校验。手续费腿另有一次独立的（无排序）活跃钱包查找
     // （WithdrawWorkflowService#initiatePayoutPhase 里的 findCustomerWallet），不受
-    // 这次钉死影响——可能落到另一只钱包上，但净额腿的 POST/退回两笔金额相同、方向
-    // 相反，对本钱包净额互相抵消，手续费单独走别处不影响这只钱包"归零"这件事，
-    // 不影响本文件任何断言。
+    // 这次钉死影响——理论上可能落到另一只钱包上。实测（多轮 e2e 真跑）里这次查找
+    // 与上面钉死的这只钱包结果一致，NET_POST / FEE_POST / BOUNCE_REENTRY 三条
+    // evidence 的 walletRef 全部落在同一只上，下面补的手续费外部镜像行、③ 断言的
+    // `-feeMinor` 收盘算术都是建立在"手续费也落在这只钱包"这个真实观察到的事实
+    // 上——不是保证：若哪次这条独立查找选到了别的钱包，手续费镜像行会变成这只
+    // 钱包上一条没有对应内部流水的孤儿（桶判定卡 SOFT_FLAG），③ 的收盘算术也会
+    // 对不上（真实手续费记到了另一只钱包，不在这只上）。
     await (prisma as any).withdrawTransaction.update({
       where: { id: w.id },
       data: { fromWalletId: wallet.id, fromWalletNo: wallet.walletNo ?? null, fromIban: wallet.iban ?? null },
@@ -491,12 +503,11 @@ describe('Recon supplement e2e (平账 B 批, Task 8)', () => {
 
   /** 夹具级直接扣款——镜像 fundCustomerWallet 的贷方向，走同一组 TB 原语（同样是
    *  "测试铺底"性质的直接记账，不代表任何真实业务事件）。Step 6(b) 只是要构造
-   *  「当下可用余额不够」这一个前提，不需要（也不该）经真实客户提现端点：那笔
-   *  金额要清空 Bob 当下的全部余额（大小不可控——这个不清空的 self 库里他的余额
-   *  是跨很多次 e2e 历史累计值），真走 createWithdrawal 会撞上 L1
-   *  TransactionLimitGateService 的单笔/累计上限，且限额闸门本就不是
-   *  initiateClawback 自己那道余额守卫想测的东西——直接记账绕开这个不相关的
-   *  限制。 */
+   *  「当下可用余额不够」这一个前提，不需要（也不该）经真实客户提现端点：真走
+   *  createWithdrawal 会撞上 L1 TransactionLimitGateService 的单笔/累计上限，
+   *  且限额闸门本就不是 initiateClawback 自己那道余额守卫想测的东西——直接记账
+   *  绕开这个不相关的限制。调用方对本文件专属的全新客户只扣 1 分钱（不打负），
+   *  不碰任何种子演示客户的余额。 */
   async function debitCustomerBalance(ownerId: string, amountMinor: bigint): Promise<void> {
     if (amountMinor <= 0n) return;
     const sourceNo = `E2E-SUPP-DRAIN-${randomUUID().slice(0, 8)}`;
@@ -513,6 +524,21 @@ describe('Recon supplement e2e (平账 B 批, Task 8)', () => {
         isExternalCrossing: false,
       },
     });
+  }
+
+  /** 一个全新客户（非种子数据，raw `customerMain.create`）没有任何 TigerBeetle 账户——
+   *  TB 账户全仓唯一的建户口是 `prisma/seed-tb.helper.ts`（业务 seed 跑一次性建好
+   *  Bob/Carol 等种子客户的），生产代码里再没有第二处"客户级账户缺失就自动建"的
+   *  兜底（`AccountingService.resolveTbAccountId` 找不到直接 404，`executeDepositAccounting`
+   *  的 STEP_1 会原样把这个 404 炸出来）——Step 6(b) 想用一个全新客户就必须自己开户，
+   *  用的是与 seed 脚本同一个真实入口 `AccountingService.createAccounts`（建 TB 账户 +
+   *  登记 registry 两步一次做完），不是新发明的路子。法币充值只会摸到 CLIENT_PAYABLE
+   *  （100）与 DEPOSIT_SUSPENSE（101）这两个客户级科目，只开这两个。 */
+  async function provisionCustomerTbAccounts(customerId: string, customerNo: string): Promise<void> {
+    await accounting.createAccounts([
+      { code: TB_ACCOUNT_CODES.CLIENT_PAYABLE, ledger: TB_LEDGERS.AED, ownerType: 'CUSTOMER', ownerUuid: customerId, ownerNo: customerNo, assetCurrency: 'AED', description: 'e2e fixture customer CLIENT_PAYABLE' },
+      { code: TB_ACCOUNT_CODES.DEPOSIT_SUSPENSE, ledger: TB_LEDGERS.AED, ownerType: 'CUSTOMER', ownerUuid: customerId, ownerNo: customerNo, assetCurrency: 'AED', description: 'e2e fixture customer DEPOSIT_SUSPENSE' },
+    ]);
   }
 
   // ── scenarios ────────────────────────────────────────────────────────────
@@ -641,28 +667,77 @@ describe('Recon supplement e2e (平账 B 批, Task 8)', () => {
     expect(await auditSince('WITHDRAW_RETURNED_AFTER_SUCCESS', w.withdrawNo)).toHaveLength(1);
   });
 
-  it('拒绝路径：同一行二次发起 400；② 余额不足 400；成因与方向不符 400；CFO 拒绝后原状态不动、supplementNo 清空、可再发起', async () => {
+  it('拒绝路径：方向不符 400；余额不足 400；同一行仍待决时二次发起 400，CFO 拒绝后可再发起（复用同一信号）；② 拒绝后原状态不动、supplementNo 清空、可再发起', async () => {
     // (a) 方向不符：外部 OUT 行定性 MISSED_DEPOSIT（要求 IN）→ dispositions.record 抛 /方向不符/
     const txHashA = `0xe2esuppdiramis${randomUUID().replace(/-/g, '')}`;
     const { line: lineA, kase: kaseA } = await breakCase({ assetId: usdtAssetId, currency: usdtCode, decimals: usdtDecimals, direction: 'OUT', amountMinor: 2_000_000n, externalRef: txHashA, ownerId: bobId, ownerNo: bobNo });
     await expect(dispositions.record(kaseA.caseNo, { explainedExternalLineId: lineA.id, matchType: 'ORPHAN_EXTERNAL', causeCode: 'MISSED_DEPOSIT', externalDirection: 'OUT', findingNote: 'e2e 方向不符测试' } as any, ops())).rejects.toThrow(/方向不符/);
 
-    // (c) 二次发起：①a 这条补单路一旦被 CFO 拒绝，账单行仍被那笔（已拒绝的）信号永久占用
-    // ——inboundTransferSignal.supplementOfExternalLineId 是 @unique 且拒绝不清空它
-    // （只清 disposition.supplementNo），故拒绝后同一行的第二次发起仍会撞
-    // assertUnclaimed 的「已被补录 .* 认领」，不是 assertClaimable 更早那条「已转补单」
-    // ——两条 400 文案不同，必须先拒绝一次才能真实复现被 brief 点名的那条文案。
+    // (b) 余额不足：用一个本文件专属的全新客户（lifecycle=ACTIVE、零历史），不碰 Bob 或
+    // 任何种子客户的累计余额——也因此跟 (a)(c)(d) 完全独立，谁先跑都行，`-t` 单跑
+    // 这一段也复现得出来。充值 1200 后只扣 1 分钱（debitCustomerBalance 是夹具级
+    // 直接记账，见其 JSDoc），让可用余额刚好比这笔要退汇的金额少 1 分——不需要、
+    // 也不应该把任何人的余额打到负数（这个 self 库同一时间还要过闸门⑥ demo:all，
+    // 判据对照 demo/baseline.md，种子演示客户的余额不该被本文件的反例测试污染）。
+    // 一个全新客户还差两样种子客户天生就有的东西：TB 账户（provisionCustomerTbAccounts，
+    // 理由见其 JSDoc）与已登记的法币提现地址——DepositWorkflowService#applyKytApproved
+    // 的 assertTradingReadyOrHold 会因为查不到就把充值原地挂起（NOT_TRADING_READY，
+    // 状态停在 COMPLIANCE_PENDING 不再往前），e2e 用真实全新客户跑通时当场复现。
+    const tmpCustomer = await (prisma as any).customerMain.create({
+      data: { customerNo: `CU-E2E-SUPP-${randomUUID().slice(0, 8)}`, lifecycle: 'ACTIVE' },
+      select: { id: true, customerNo: true },
+    });
+    await provisionCustomerTbAccounts(tmpCustomer.id, tmpCustomer.customerNo);
+    const tmpIban = `AE-E2E-SUPP-TMPADDR-${tmpCustomer.customerNo}`;
+    await ensureWithdrawalAddress({
+      customerId: tmpCustomer.id, customerNo: tmpCustomer.customerNo, assetId: aedAssetId,
+      addressType: 'BANK', network: 'FIAT', address: tmpIban, iban: tmpIban,
+    });
+    const { deposit: depB, wallet: walletB } = await makeSuccessfulFiatDeposit('1200', tmpCustomer.id, tmpCustomer.customerNo);
+    await debitCustomerBalance(tmpCustomer.id, 1n);
+    const refB = `E2E-CLAW-INSUFF-${randomUUID()}`;
+    const lineB = await createExternalLine({ walletId: walletB.id, currency: 'AED', book: 'CLIENT', direction: 'OUT', amount: 120_000n, externalRef: refB, description: 'Return' });
+    await upsertExternalBalance({ walletId: walletB.id, currency: 'AED', book: 'CLIENT', closingBalance: 0n });
+    await walletRecon.run({ cutoff: CUTOFF });
+    const kaseB = await openCaseFor(walletB.id);
+    const dispB = await dispositions.record(kaseB.caseNo, { explainedExternalLineId: lineB.id, matchType: 'ORPHAN_EXTERNAL', causeCode: 'BOUNCED_FUNDS', externalDirection: 'OUT', findingNote: 'e2e 余额不足测试' } as any, ops());
+    await expect(depositWf.initiateClawback(depB.depositNo, { externalLineId: lineB.id, caseNo: kaseB.caseNo, dispositionNo: dispB.dispositionNo, reason: 'e2e 余额不足' }, ops())).rejects.toThrow(/余额不足/);
+
+    // (c) 二次发起：仍待决时二次发起 → 400——第一次发起时 linkSupplement 已经把
+    // disposition.supplementNo 同步挂上了（不等 CFO 裁决），所以第二次撞的是
+    // assertClaimable 更早那道「已转补单」自守卫（同一条定性只认一张在途的补单，
+    // DispositionService.record 的锚点去重决定了同一行只有这一条定性行，走不到
+    // assertUnclaimed 那句「已被补录」——那句留给下面「已拒绝」的场景）。CFO 拒绝
+    // 后，spec §2.2 / §9-5 明写「拒绝/超时/撤回后原状态不动、supplementNo 清空、
+    // 可再次发起」，①②③ 三路口径一致——同一行应当能再次发起，复用同一条信号回到
+    // SUPPLEMENT_PENDING、拿到新 approvalNo、定性 supplementNo 重新挂上。
+    // inboundTransferSignal.supplementOfExternalLineId 是 @unique 且从不清空，
+    // "能不能复用"全靠 InboundTransferSignalsService.initiateSupplement 主动查
+    // "已存在且是 SUPPLEMENT_REJECTED 就复用"——这条分支原来没有，账单行会被那笔
+    // 已拒绝的信号永久占用（此时 disposition.supplementNo 已被拒绝流程清空，第二次
+    // 发起才终于走到 assertUnclaimed，撞的正是它的「已被补录」），本文件写作过程中
+    // 用真实数据跑通时当场复现（②③ 的等价场景本来就对，靠 clearClawbackRequest
+    // 一类方法把各自的占用列清空；①的占用列是 @unique 不能清空，只能靠复用，是这
+    // 条路独有的修法）。已按此改了 src（inbound-transfer-signals.service.ts 的
+    // initiateSupplement + supplement-evidence.service.ts 的 assertUnclaimed），
+    // 下面断言改成断言 spec 的行为，不再断言"永久占用"。
     const txHashC = `0xe2esuppdup${randomUUID().replace(/-/g, '')}`;
     const { line: lineC, kase: kaseC } = await breakCase({ assetId: usdtAssetId, currency: usdtCode, decimals: usdtDecimals, direction: 'IN', amountMinor: 3_000_000n, externalRef: txHashC, ownerId: bobId, ownerNo: bobNo });
     const dispC = await dispositions.record(kaseC.caseNo, { explainedExternalLineId: lineC.id, matchType: 'ORPHAN_EXTERNAL', causeCode: 'MISSED_DEPOSIT', externalDirection: 'IN', findingNote: 'e2e 二次发起测试' } as any, ops());
-    const reqC = await signals.initiateSupplement({ externalLineId: lineC.id, caseNo: kaseC.caseNo, dispositionNo: dispC.dispositionNo, fromAddress: 'TE2eSupplementDup', reason: 'e2e first attempt (to be rejected)' }, ops());
-    await approvalsService.reject(reqC.approvalNo, { reason: 'e2e CFO reject to poison the line' }, cfo());
+    const reqC = await signals.initiateSupplement({ externalLineId: lineC.id, caseNo: kaseC.caseNo, dispositionNo: dispC.dispositionNo, fromAddress: 'TE2eSupplementDup', reason: 'e2e first attempt' }, ops());
+    await expect(signals.initiateSupplement({ externalLineId: lineC.id, caseNo: kaseC.caseNo, dispositionNo: dispC.dispositionNo, fromAddress: 'TE2eSupplementWhilePending', reason: 'e2e while first still pending' }, ops())).rejects.toThrow(/已转补单/);
+    await approvalsService.reject(reqC.approvalNo, { reason: 'e2e CFO reject supplement' }, cfo());
     await waitUntil(async () => (await (prisma as any).inboundTransferSignal.findUnique({ where: { signalNo: reqC.signalNo } })).status === 'SUPPLEMENT_REJECTED', 30000);
     expect((await (prisma as any).reconciliationDisposition.findUnique({ where: { dispositionNo: dispC.dispositionNo } })).supplementNo).toBeNull();
-    await expect(signals.initiateSupplement({ externalLineId: lineC.id, caseNo: kaseC.caseNo, dispositionNo: dispC.dispositionNo, fromAddress: 'TE2eSupplementDup2', reason: 'e2e retry' }, ops())).rejects.toThrow(/已被补录 .* 认领/);
+    const reqC2 = await signals.initiateSupplement({ externalLineId: lineC.id, caseNo: kaseC.caseNo, dispositionNo: dispC.dispositionNo, fromAddress: 'TE2eSupplementRetry', reason: 'e2e retry after reject' }, ops());
+    expect(reqC2.signalNo).toBe(reqC.signalNo); // 复用同一条信号，不是新建
+    expect(reqC2.approvalNo).not.toBe(reqC.approvalNo);
+    const sigC2 = await (prisma as any).inboundTransferSignal.findUnique({ where: { signalNo: reqC2.signalNo } });
+    expect(sigC2.status).toBe('SUPPLEMENT_PENDING');
+    expect(sigC2.fromAddress).toBe('TE2eSupplementRetry');
+    expect((await (prisma as any).reconciliationDisposition.findUnique({ where: { dispositionNo: dispC.dispositionNo } })).supplementNo).toBe(reqC2.signalNo);
 
     // (d) 拒绝：新造 ② 场景，initiateClawback 后 CFO 拒绝，原状态不动、占用清空、可再发起拿新 approvalNo
-    // ——放在 (b) 之前跑：(b) 会故意把 Bob 的可用余额打到不够，(d) 需要余额充足才是真的在测「拒绝后能重来」而不是意外撞到余额不足。
     const { deposit: depD, wallet: walletD } = await makeSuccessfulFiatDeposit('300');
     const refD = `E2E-CLAW-REJ-${randomUUID()}`;
     const lineD = await createExternalLine({ walletId: walletD.id, currency: 'AED', book: 'CLIENT', direction: 'OUT', amount: 30_000n, externalRef: refD, description: 'Return' });
@@ -678,21 +753,5 @@ describe('Recon supplement e2e (平账 B 批, Task 8)', () => {
     expect(depDAfterReject.status).toBe('SUCCESS');
     const reqD2 = await depositWf.initiateClawback(depD.depositNo, { externalLineId: lineD.id, caseNo: kaseD.caseNo, dispositionNo: dispD.dispositionNo, reason: 'e2e retry after reject' }, ops());
     expect(reqD2.approvalNo).not.toBe(reqD.approvalNo);
-
-    // (b) 余额不足：先把 Bob 的 AED 可用余额直接记账扣到明显低于 0（夹具级直接扣款，
-    // 理由见 debitCustomerBalance 的 JSDoc；扣的比「当前余额」多 1500，保证扣完
-    // 是负的，无论当前是正是负），再造一笔 1200 SUCCESS 充值发起退汇——此时她的
-    // 总可用余额仍 < 1200，assertClawbackBalance 抛 /余额不足/。
-    const beforeDrain = (await accounting.getCustomerAvailableBalance(bobId, 'AED')).available;
-    const drainAmountMinor = (beforeDrain > 0n ? beforeDrain : 0n) + 150_000n;
-    await debitCustomerBalance(bobId, drainAmountMinor);
-    const { deposit: depB, wallet: walletB } = await makeSuccessfulFiatDeposit('1200');
-    const refB = `E2E-CLAW-INSUFF-${randomUUID()}`;
-    const lineB = await createExternalLine({ walletId: walletB.id, currency: 'AED', book: 'CLIENT', direction: 'OUT', amount: 120_000n, externalRef: refB, description: 'Return' });
-    await upsertExternalBalance({ walletId: walletB.id, currency: 'AED', book: 'CLIENT', closingBalance: 0n });
-    await walletRecon.run({ cutoff: CUTOFF });
-    const kaseB = await openCaseFor(walletB.id);
-    const dispB = await dispositions.record(kaseB.caseNo, { explainedExternalLineId: lineB.id, matchType: 'ORPHAN_EXTERNAL', causeCode: 'BOUNCED_FUNDS', externalDirection: 'OUT', findingNote: 'e2e 余额不足测试' } as any, ops());
-    await expect(depositWf.initiateClawback(depB.depositNo, { externalLineId: lineB.id, caseNo: kaseB.caseNo, dispositionNo: dispB.dispositionNo, reason: 'e2e 余额不足' }, ops())).rejects.toThrow(/余额不足/);
   });
 });

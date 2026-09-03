@@ -219,6 +219,7 @@ Last Updated: 2026-09-02
 
 - [ ] **严重度分级跨资产不可比**（2026-09-02 平账 A 批发现）：`wallet-recon-run.service.ts` `computeSeverity` 用「最小单位 1 万」一个数——AED 是 100 元、USDT 是 0.01 元。本批「金额小」另立小额线（`recon-thresholds.constant.ts` 按币种），未借用严重度；修法：severity 阈值按币种进同一张常量表 ｜来源: 2026-09-02 平账 A 批 spec §0-12
 - [ ] **`RECON_CASE_OPENED` 审计 metadata 仍带 `walletRef`（内部 UUID）**（2026-09-03 平账 A 批终审）：`wallet-recon-run.service.ts` 开案审计的 metadata 直接放 walletRef；本批新增的两条账龄审计已改用 `walletNo` 业务键，开案这条应对齐（子主体已是业务键，只是 metadata 漏了）｜来源: 平账 A 批终审 triage
+- [ ] **① 漏记入金补录：小额（低于该资产 DEPOSIT 单笔下限）CFO 批完不会自动到 SUCCESS，案子这一轮愈不了**（2026-09-04 平账 B 批 Task 8 e2e 实证）：`prisma/seed.business.ts` 给每个资产的 DEPOSIT `SINGLE_LIMIT` 都挂了下限（AED/USDT 现为 100）；补录信号建单时（`detected()`）金额低于这条线会带上 `limitHoldReason=BELOW_MIN`，即便运营发起补录、CFO 也在 `DEPOSIT_SUPPLEMENT` 审批里批准了，充值单入账唯一出口 `approveDeposit()` 仍会照下限单的老规矩把它按到 `OPERATION_PENDING`（不是 `SUCCESS`）——这一路的「重对账后案子愈」因此不成立，得再等运营在充值详情页点一次既有的「放行下限挂起」（`waiveLimitHold`）才走完。不是死路、也不是新缺口（下限闸是既有设计，补录只是撞上了它），但"漏记的往往是零头"——这正是"漏记入金"补录场景最典型的金额区间，补录闭环的演示脚本/文档若不点名这个额外步骤，讲这一幕时会卡在"怎么案子没愈"｜来源: 2026-09-04 Task 8 e2e 用真实 61 USDT 金额跑通 ①a 时当场复现（改用 150 USDT 绕开，未改代码）
 
 ## H. 第七幕 · 事后说得清（审计追溯）
 

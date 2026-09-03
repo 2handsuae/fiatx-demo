@@ -79,6 +79,27 @@ describe('assertClaimable（spec §2.1）', () => {
   });
 });
 
+describe('loadLine 币种校验（评审 Minor 4）：全仓惯例 external_statement_lines.currency 存的是 asset.code，不是 asset.currency', () => {
+  // 上面 wallet 那份 AED mock 是法币，code===currency（'AED'==='AED'）——不管
+  // loadLine 比哪个字段都会放行，等于没有护栏（评审实测：把 src 改回
+  // wallet.asset.currency，这组 AED 用例仍然 9/9 全绿）。这里补一组真正会岔开
+  // 的加密币场景：USDT 的 code 是 'USDT-TRON'，与它的 currency 'USDT' 不同名。
+  const cryptoWallet = { ...wallet, asset: { id: 'a2', code: 'USDT-TRON', currency: 'USDT', type: 'CRYPTO', decimals: 6 } };
+  const ok = { caseNo: 'REC1', externalLineId: 'line-1', dispositionNo: 'RCD1', kind: 'SUPPLEMENT_DEPOSIT' as const };
+  it('账单行 currency 是 asset.code（USDT-TRON）→ 放行', async () => {
+    prisma.wallet.findUnique.mockResolvedValueOnce(cryptoWallet);
+    prisma.externalStatementLine.findUnique.mockResolvedValueOnce({ ...line, currency: 'USDT-TRON' });
+    const r = await service.assertClaimable(ok);
+    expect(r.assetType).toBe('CRYPTO');
+    expect(r.currency).toBe('USDT'); // 返回值供人读审计文案，仍是裸币种，不是 code
+  });
+  it('账单行 currency 是裸币种（USDT，不是 asset.code）→ 400', async () => {
+    prisma.wallet.findUnique.mockResolvedValueOnce(cryptoWallet);
+    prisma.externalStatementLine.findUnique.mockResolvedValueOnce({ ...line, currency: 'USDT' });
+    await expect(service.assertClaimable(ok)).rejects.toThrow(/币种.*不符/);
+  });
+});
+
 describe('listCandidates', () => {
   it('② 退汇：同钱包 SUCCESS 同额充值单，按创建时间倒序', async () => {
     prisma.externalStatementLine.findUnique.mockResolvedValueOnce({ ...line, direction: 'OUT' });

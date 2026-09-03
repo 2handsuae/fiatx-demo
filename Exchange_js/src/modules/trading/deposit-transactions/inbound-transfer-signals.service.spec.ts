@@ -34,6 +34,7 @@ describe('InboundTransferSignalsService', () => {
     prisma = {
       inboundTransferSignal: {
         findUnique: jest.fn(),
+        findFirst: jest.fn(), // initiateSupplement 的"拒绝后复用同一行"分支用（评审 Critical，见该函数改动处的注释）；默认 undefined = 没有已存在的信号，走既有的建新行分支
         findMany: jest.fn(),
         create: jest.fn(),
         update: jest.fn(),

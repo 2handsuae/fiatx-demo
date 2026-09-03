@@ -162,7 +162,18 @@ export class SupplementEvidenceService {
   }
 
   private async assertUnclaimed(externalLineId: string): Promise<void> {
-    const sig = await (this.prisma as any).inboundTransferSignal.findFirst({ where: { supplementOfExternalLineId: externalLineId }, select: { signalNo: true } });
+    // spec §2.2：拒绝 / 超时 / 撤回后原状态不动、supplementNo 清空、可再次发起——
+    // 三条路一致。②③ 靠 clearClawbackRequest / 同款方法把各自的占用列
+    // （clawbackExternalLineId / returnExternalLineId）清空来实现；① 的占用列
+    // supplementOfExternalLineId 是 @unique，永不清空（清了新建行会撞唯一约束），
+    // 靠 InboundTransferSignalsService.initiateSupplement 发现"已存在且是
+    // SUPPLEMENT_REJECTED"时复用同一行来实现——这里必须放行 REJECTED 状态的信号，
+    // 否则这道守卫会先于复用逻辑把请求拒掉（Task 8 e2e 用真实数据跑通拒绝路径时
+    // 发现：① 是这里唯一没放行终态-可重来的分支，②③ 本来就对）。
+    const sig = await (this.prisma as any).inboundTransferSignal.findFirst({
+      where: { supplementOfExternalLineId: externalLineId, status: { not: 'SUPPLEMENT_REJECTED' } },
+      select: { signalNo: true },
+    });
     if (sig) throw new BadRequestException(`该账单行已被补录 ${sig.signalNo} 认领`);
     const dep = await (this.prisma as any).depositTransaction.findFirst({ where: { clawbackExternalLineId: externalLineId }, select: { depositNo: true } });
     if (dep) throw new BadRequestException(`该账单行已被退汇认领 ${dep.depositNo} 占用`);
