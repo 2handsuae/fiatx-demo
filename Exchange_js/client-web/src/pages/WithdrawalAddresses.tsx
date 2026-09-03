@@ -174,6 +174,12 @@ export default function WithdrawalAddresses() {
   const [deactivateError, setDeactivateError] = useState('');
   const [deactivateReason, setDeactivateReason] = useState('');
 
+  // cancel registration (PENDING_ACTIVATION only) — inline per-card confirm
+  const [cancelConfirmFor, setCancelConfirmFor] = useState<string | null>(null);
+  const [cancelReason, setCancelReason] = useState('');
+  const [cancelling, setCancelling] = useState(false);
+  const [cancelError, setCancelError] = useState('');
+
   // edit label / beneficiary (crypto + bank detail modals)
   const [editLabel, setEditLabel] = useState('');
   const [editBeneficiary, setEditBeneficiary] = useState('');
@@ -357,14 +363,40 @@ export default function WithdrawalAddresses() {
   };
 
   /* ─── Cancel registration (PENDING_ACTIVATION only) ─────────── */
+  const startCancel = (addressNo: string) => {
+    setCancelConfirmFor(addressNo);
+    setCancelReason('');
+    setCancelError('');
+  };
+
+  const resetCancelState = () => {
+    setCancelConfirmFor(null);
+    setCancelReason('');
+    setCancelError('');
+  };
+
   const handleCancel = async (addr: WithdrawalAddr) => {
-    const reason = window.prompt('Why are you cancelling this registration?');
-    if (!reason?.trim()) return;
-    const res = await customerFetch(`${API}/client/withdrawal-addresses/${addr.addressNo}`, {
-      method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ reason }),
-    });
-    if (!res.ok) { alert(await getCustomerApiErrorMessage(res, 'Failed to cancel registration')); return; }
-    await fetchAddresses();
+    if (!cancelReason.trim()) return;
+    setCancelError('');
+    setCancelling(true);
+    try {
+      const res = await customerFetch(`${API}/client/withdrawal-addresses/${addr.addressNo}`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reason: cancelReason }),
+      });
+      if (!res.ok) {
+        setCancelError(await getCustomerApiErrorMessage(res, 'Failed to cancel registration'));
+        return;
+      }
+      resetCancelState();
+      await fetchAddresses();
+    } catch (err: any) {
+      if (err instanceof CustomerSessionError) return;
+      setCancelError(err.message || 'Unexpected error');
+    } finally {
+      setCancelling(false);
+    }
   };
 
   /* ─── Deactivate ─────────────────────────────────────────── */
@@ -608,10 +640,10 @@ export default function WithdrawalAddresses() {
                     {group.map(addr => (
                       <div
                         key={addr.addressNo}
-                        onClick={() => openDetail(addr)}
+                        onClick={() => { if (cancelConfirmFor !== addr.addressNo) openDetail(addr); }}
                         role="button"
                         tabIndex={0}
-                        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openDetail(addr); } }}
+                        onKeyDown={(e) => { if ((e.key === 'Enter' || e.key === ' ') && cancelConfirmFor !== addr.addressNo) { e.preventDefault(); openDetail(addr); } }}
                         className="w-full cursor-pointer text-left rounded-2xl border border-fx-rule bg-fx-charcoal/40 p-4 hover:border-fx-brass/40 hover:bg-fx-charcoal/60 transition-all group"
                       >
                         <div className="flex items-center justify-between gap-3">
@@ -635,12 +667,14 @@ export default function WithdrawalAddresses() {
                                   <Clock size={12} />
                                   {formatCountdown(addr.activatesAt)}
                                 </div>
-                                <button
-                                  onClick={(e) => { e.stopPropagation(); handleCancel(addr); }}
-                                  className="text-xs font-semibold text-rose-400 hover:underline"
-                                >
-                                  Cancel registration
-                                </button>
+                                {cancelConfirmFor !== addr.addressNo && (
+                                  <button
+                                    onClick={(e) => { e.stopPropagation(); startCancel(addr.addressNo); }}
+                                    className="text-xs font-semibold text-rose-400 hover:underline"
+                                  >
+                                    Cancel registration
+                                  </button>
+                                )}
                               </>
                             )}
                             <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold ${statusColor(addr.status)}`}>
@@ -649,6 +683,46 @@ export default function WithdrawalAddresses() {
                             <ChevronRight size={16} className="text-fx-dust group-hover:text-fx-brass transition-colors" />
                           </div>
                         </div>
+                        {cancelConfirmFor === addr.addressNo && (
+                          <div
+                            onClick={e => e.stopPropagation()}
+                            onKeyDown={e => e.stopPropagation()}
+                            className="mt-3 pt-3 border-t border-fx-rule space-y-3"
+                          >
+                            {cancelError && (
+                              <div className="flex items-start gap-2 rounded-xl border border-rose-500/20 bg-rose-500/5 px-3 py-2.5 text-xs text-rose-400">
+                                <AlertCircle size={14} className="mt-0.5 shrink-0" />
+                                {cancelError}
+                              </div>
+                            )}
+                            <div>
+                              <label className="text-xs text-fx-dust font-medium block mb-1">Reason</label>
+                              <textarea
+                                value={cancelReason}
+                                onChange={e => setCancelReason(e.target.value)}
+                                placeholder="Why are you cancelling this registration?"
+                                className="w-full px-3 py-2.5 border border-fx-rule rounded-xl bg-fx-charcoal text-fx-sand text-sm placeholder:text-fx-dust/50 focus:outline-none focus:border-fx-brass h-16 resize-none"
+                              />
+                            </div>
+                            <div className="flex gap-3">
+                              <button
+                                onClick={resetCancelState}
+                                disabled={cancelling}
+                                className="flex-1 py-3 bg-fx-ink border border-fx-rule text-fx-dune font-semibold rounded-xl hover:bg-fx-charcoal transition-colors disabled:opacity-60"
+                              >
+                                Keep registration
+                              </button>
+                              <button
+                                onClick={() => handleCancel(addr)}
+                                disabled={cancelling || !cancelReason.trim()}
+                                className="flex-1 py-3 bg-rose-500/90 text-white font-bold rounded-xl hover:bg-rose-500 transition-colors disabled:opacity-40 flex items-center justify-center gap-2"
+                              >
+                                {cancelling && <RefreshCw size={16} className="animate-spin" />}
+                                {cancelling ? 'Cancelling...' : 'Confirm Cancel'}
+                              </button>
+                            </div>
+                          </div>
+                        )}
                       </div>
                     ))}
                   </div>
@@ -714,10 +788,10 @@ export default function WithdrawalAddresses() {
                 {bankAddresses.map(addr => (
                   <div
                     key={addr.addressNo}
-                    onClick={() => openBankDetail(addr)}
+                    onClick={() => { if (cancelConfirmFor !== addr.addressNo) openBankDetail(addr); }}
                     role="button"
                     tabIndex={0}
-                    onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openBankDetail(addr); } }}
+                    onKeyDown={(e) => { if ((e.key === 'Enter' || e.key === ' ') && cancelConfirmFor !== addr.addressNo) { e.preventDefault(); openBankDetail(addr); } }}
                     className="w-full cursor-pointer text-left rounded-2xl border border-fx-rule bg-fx-charcoal/40 p-4 hover:border-fx-brass/40 hover:bg-fx-charcoal/60 transition-all group"
                   >
                     <div className="flex items-center justify-between gap-3">
@@ -746,12 +820,14 @@ export default function WithdrawalAddresses() {
                               <Clock size={12} />
                               {formatCountdown(addr.activatesAt)}
                             </div>
-                            <button
-                              onClick={(e) => { e.stopPropagation(); handleCancel(addr); }}
-                              className="text-xs font-semibold text-rose-400 hover:underline"
-                            >
-                              Cancel registration
-                            </button>
+                            {cancelConfirmFor !== addr.addressNo && (
+                              <button
+                                onClick={(e) => { e.stopPropagation(); startCancel(addr.addressNo); }}
+                                className="text-xs font-semibold text-rose-400 hover:underline"
+                              >
+                                Cancel registration
+                              </button>
+                            )}
                           </>
                         )}
                         <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold ${statusColor(addr.status)}`}>
@@ -760,6 +836,46 @@ export default function WithdrawalAddresses() {
                         <ChevronRight size={16} className="text-fx-dust group-hover:text-fx-brass transition-colors" />
                       </div>
                     </div>
+                    {cancelConfirmFor === addr.addressNo && (
+                      <div
+                        onClick={e => e.stopPropagation()}
+                        onKeyDown={e => e.stopPropagation()}
+                        className="mt-3 pt-3 border-t border-fx-rule space-y-3"
+                      >
+                        {cancelError && (
+                          <div className="flex items-start gap-2 rounded-xl border border-rose-500/20 bg-rose-500/5 px-3 py-2.5 text-xs text-rose-400">
+                            <AlertCircle size={14} className="mt-0.5 shrink-0" />
+                            {cancelError}
+                          </div>
+                        )}
+                        <div>
+                          <label className="text-xs text-fx-dust font-medium block mb-1">Reason</label>
+                          <textarea
+                            value={cancelReason}
+                            onChange={e => setCancelReason(e.target.value)}
+                            placeholder="Why are you cancelling this registration?"
+                            className="w-full px-3 py-2.5 border border-fx-rule rounded-xl bg-fx-charcoal text-fx-sand text-sm placeholder:text-fx-dust/50 focus:outline-none focus:border-fx-brass h-16 resize-none"
+                          />
+                        </div>
+                        <div className="flex gap-3">
+                          <button
+                            onClick={resetCancelState}
+                            disabled={cancelling}
+                            className="flex-1 py-3 bg-fx-ink border border-fx-rule text-fx-dune font-semibold rounded-xl hover:bg-fx-charcoal transition-colors disabled:opacity-60"
+                          >
+                            Keep registration
+                          </button>
+                          <button
+                            onClick={() => handleCancel(addr)}
+                            disabled={cancelling || !cancelReason.trim()}
+                            className="flex-1 py-3 bg-rose-500/90 text-white font-bold rounded-xl hover:bg-rose-500 transition-colors disabled:opacity-40 flex items-center justify-center gap-2"
+                          >
+                            {cancelling && <RefreshCw size={16} className="animate-spin" />}
+                            {cancelling ? 'Cancelling...' : 'Confirm Cancel'}
+                          </button>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>
