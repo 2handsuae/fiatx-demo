@@ -1,7 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import {
   BadRequestException,
-  ForbiddenException,
   Injectable,
   Logger,
   NotFoundException,
@@ -9,11 +8,13 @@ import {
 import { Prisma } from '@prisma/client';
 import { generateReferenceNo } from '../../../common/utils/no-generator.util';
 import { PrismaService } from '../../../core/prisma/prisma.service';
+import { assertNetwork } from '../../../config/manifests/networks.manifest';
 import {
   AuditActions,
   AuditEntityTypes,
 } from '../../audit-logging/constants/audit-actions.constant';
 import { AuditLogsService } from '../../audit-logging/audit-logs.service';
+import { AuditOutcome } from '../../audit-logging/dto/audit-log.dto';
 import { CustomerAccessService } from '../../identity/customers/customer-access.service';
 import { DepositTransactionsService } from './deposit-transactions.service';
 import { FundsOrderService } from '../../funds-orders/funds-order.service';
@@ -31,7 +32,6 @@ import {
   SimulationRiskLevel,
   SimulationRiskReason,
 } from './dto/inbound-transfer-signal.dto';
-import { WalletRole } from '../../asset-treasury/wallets/dto/wallet.dto';
 
 export interface ScanSummaryRecord {
   signalId: string;
@@ -74,7 +74,7 @@ export class InboundTransferSignalsService {
       ownerId: customerId,
     };
 
-    if (query.walletId) where.walletId = query.walletId;
+    if (query.network) where.wallet = { network: query.network };
     if (query.status) where.status = query.status;
 
     const [items, total] = await Promise.all([
@@ -99,7 +99,8 @@ export class InboundTransferSignalsService {
               address: true,
               iban: true,
               walletNo: true,
-              type: true,
+              network: true,
+              vaultCode: true,
               walletRole: true,
             },
           },
@@ -119,8 +120,9 @@ export class InboundTransferSignalsService {
     const customer = await (this.prisma as any).customerMain.findUnique({
       where: { id: customerId },
     });
-    const wallet = await this.getCustomerDepositWalletOrThrow(customerId, dto.walletId);
-    const channelType = this.getChannelTypeFromWallet(wallet);
+    const { wallet, network } = await this.resolveDepositWalletOrThrow(customerId, dto);
+    const asset = await this.resolveAssetOrReject(customer, network, dto);
+    const channelType = network.kind === 'CHAIN' ? InboundTransferChannelType.CRYPTO : InboundTransferChannelType.FIAT;
 
     if (channelType === InboundTransferChannelType.CRYPTO) {
       if (!dto.txHash || !dto.fromAddress) {
@@ -141,7 +143,7 @@ export class InboundTransferSignalsService {
 
     this.assertSimulationRiskProfile(dto, channelType);
 
-    const isCrypto = String(wallet.asset?.type).toUpperCase() === 'CRYPTO';
+    const isCrypto = asset.type === 'CRYPTO';
     if (isCrypto && dto.counterpartyIsVasp == null) {
       throw new BadRequestException('counterpartyIsVasp is required for crypto deposits');
     }
@@ -152,7 +154,7 @@ export class InboundTransferSignalsService {
     const dedupeKey = this.buildDedupeKey({
       channelType,
       walletId: wallet.id,
-      assetId: wallet.assetId,
+      assetId: asset.id,
       txHash: dto.txHash,
       referenceNo: dto.referenceNo,
     });
@@ -169,7 +171,8 @@ export class InboundTransferSignalsService {
             address: true,
             iban: true,
             walletNo: true,
-            type: true,
+            network: true,
+            vaultCode: true,
             walletRole: true,
           },
         },
@@ -183,7 +186,7 @@ export class InboundTransferSignalsService {
           signalNo: generateReferenceNo('SIG'),
           ownerId: customerId,
           walletId: wallet.id,
-          assetId: wallet.assetId,
+          assetId: asset.id,
           channelType,
           amount,
           txHash: dto.txHash,
@@ -225,7 +228,8 @@ export class InboundTransferSignalsService {
               address: true,
               iban: true,
               walletNo: true,
-              type: true,
+              network: true,
+              vaultCode: true,
               walletRole: true,
             },
           },
@@ -248,11 +252,11 @@ export class InboundTransferSignalsService {
     customerId: string,
     dto: ScanInboundTransferSignalsDto,
   ): Promise<ScanSummary> {
-    const wallet = await this.getCustomerDepositWalletOrThrow(customerId, dto.walletId);
+    const { wallet } = await this.resolveDepositWalletOrThrow(customerId, dto);
     const signals = await (this.prisma as any).inboundTransferSignal.findMany({
       where: {
         ownerId: customerId,
-        walletId: dto.walletId,
+        walletId: wallet.id,
         status: InboundTransferSignalStatus.PENDING_SCAN,
       },
       orderBy: [{ submittedAt: 'asc' }, { createdAt: 'asc' }],
@@ -540,39 +544,56 @@ export class InboundTransferSignalsService {
     });
   }
 
-  private async getCustomerDepositWalletOrThrow(customerId: string, walletId: string) {
-    const wallet = await (this.prisma as any).wallet.findUnique({
-      where: { id: walletId },
-      include: {
-        asset: true,
+  /** 钥匙①：（网络, 地址 | IBAN）→ 本客户在该网络上的收款行 */
+  private async resolveDepositWalletOrThrow(
+    customerId: string,
+    dto: { network: string; toAddress?: string; iban?: string },
+  ) {
+    const network = assertNetwork(dto.network);
+    const destination = network.kind === 'CHAIN' ? dto.toAddress : dto.iban;
+    if (!destination) {
+      throw new BadRequestException(
+        network.kind === 'CHAIN' ? 'toAddress is required for chain deposits' : 'iban is required for bank-rail deposits',
+      );
+    }
+    const wallet = await (this.prisma as any).wallet.findFirst({
+      where: {
+        ownerType: 'CUSTOMER',
+        ownerId: customerId,
+        vaultCode: 'CLIENT_DEPOSIT',
+        network: network.code,
+        ...(network.kind === 'CHAIN' ? { address: destination } : { iban: destination }),
       },
     });
     if (!wallet) {
-      throw new NotFoundException('Wallet not found');
+      throw new NotFoundException({ code: 'DEPOSIT_WALLET_NOT_FOUND', message: `No deposit address on ${network.code} matches ${destination}` });
     }
-    const DEPOSIT_WALLET_ROLES = new Set([WalletRole.C_DEP, WalletRole.C_VIBAN]);
-    if (
-      wallet.ownerType !== 'CUSTOMER' ||
-      wallet.ownerId !== customerId ||
-      !DEPOSIT_WALLET_ROLES.has(wallet.walletRole as WalletRole)
-    ) {
-      throw new ForbiddenException('Customer can only use own deposit wallet');
-    }
-    if (wallet.status !== 'ACTIVE') {
-      throw new BadRequestException('Deposit wallet must be ACTIVE');
-    }
-    return wallet;
+    if (wallet.status !== 'ACTIVE') throw new BadRequestException('Deposit wallet must be ACTIVE');
+    return { wallet, network };
   }
 
-  private getChannelTypeFromWallet(wallet: any): InboundTransferChannelType {
-    const type = String(wallet.asset?.type || '').toUpperCase();
-    if (type === InboundTransferChannelType.CRYPTO) {
-      return InboundTransferChannelType.CRYPTO;
-    }
-    if (type === InboundTransferChannelType.FIAT) {
-      return InboundTransferChannelType.FIAT;
-    }
-    throw new BadRequestException(`Unsupported wallet asset type: ${wallet.asset?.type}`);
+  /** 钥匙②：（网络, 合约地址）→ 资产；对不上就是诈骗币 / 未上架币，拒收并留痕 */
+  private async resolveAssetOrReject(
+    customer: { customerNo: string } | null,
+    network: { code: string },
+    dto: { contractAddress?: string; toAddress?: string; iban?: string; txHash?: string; referenceNo?: string; amount: string },
+  ) {
+    const contractAddress = dto.contractAddress?.trim() || null;
+    const asset = await (this.prisma as any).asset.findFirst({ where: { network: network.code, contractAddress } });
+    if (asset) return asset;
+    await this.auditLogsService.recordSystem({
+      action: AuditActions.DEPOSIT_SIGNAL_REJECTED,
+      actionDomain: 'DEPOSIT',
+      primarySubjectType: AuditEntityTypes.INBOUND_TRANSFER_SIGNAL,
+      ownerCustomerNo: customer?.customerNo,
+      outcome: AuditOutcome.DENIED,
+      reasonCode: 'UNKNOWN_ASSET',
+      reason: `No asset on ${network.code} with contract ${contractAddress ?? '(native)'}`,
+      metadata: { network: network.code, contractAddress, toAddress: dto.toAddress ?? null, iban: dto.iban ?? null, txHash: dto.txHash ?? null, referenceNo: dto.referenceNo ?? null, amount: dto.amount },
+      requestId: `DEPOSIT_SIGNAL_REJECTED_${randomUUID()}`,
+      sourcePlatform: 'CUSTOMER_API',
+    } as any);
+    throw new BadRequestException({ code: 'UNKNOWN_ASSET', message: `No asset on ${network.code} with contract ${contractAddress ?? '(native)'}` });
   }
 
   private buildDedupeKey(input: {

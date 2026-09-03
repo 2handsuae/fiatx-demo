@@ -259,6 +259,8 @@ export const AuditActions = {
   INBOUND_SIGNAL_MATCHED: 'INBOUND_SIGNAL_MATCHED',
   INBOUND_SIGNAL_BLOCKED: 'INBOUND_SIGNAL_BLOCKED',
   INBOUND_SIGNAL_FAILED: 'INBOUND_SIGNAL_FAILED',
+  // 波一 T5：入金信号合约对不上任何资产——建单之前被拦，留痕拒收
+  DEPOSIT_SIGNAL_REJECTED: 'DEPOSIT_SIGNAL_REJECTED',
   SWAP_QUOTE_CREATED: 'SWAP_QUOTE_CREATED',
   SWAP_CREATED: 'SWAP_CREATED',
   SWAP_KYT_SUBMITTED: 'SWAP_KYT_SUBMITTED',
@@ -725,6 +727,8 @@ export const V4_DEPOSIT_AUDIT_ACTIONS: Record<string, AuditActionSpec> = {
   INBOUND_SIGNAL_MATCHED:         { domain: 'DEPOSIT', correlationMode: N, requiredFields: [], requiresCausation: false },
   INBOUND_SIGNAL_BLOCKED:         { domain: 'DEPOSIT', correlationMode: N, requiredFields: ['reason'], requiresCausation: false },
   INBOUND_SIGNAL_FAILED:          { domain: 'DEPOSIT', correlationMode: N, requiredFields: ['reason'], requiresCausation: false },
+  // 合约对不上任何资产的入金信号：建单之前被拦、没有旅程 → NONE；outcome=DENIED + reasonCode=UNKNOWN_ASSET
+  DEPOSIT_SIGNAL_REJECTED:        { domain: 'DEPOSIT', correlationMode: N, requiredFields: [], requiresCausation: false },
   // 客户在某网络上开收款地址（波一：钱包表唯一写路径；actor=客户）。单步动作、无旅程可继承 → NONE；
   // 失败并入双结局（outcome=FAILED + reasonCode=PROVISION_ERROR）。
   CUSTOMER_DEPOSIT_ADDRESS_CREATED: { domain: 'DEPOSIT', correlationMode: N, requiredFields: ['afterData'], requiresCausation: false },

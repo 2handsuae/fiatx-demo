@@ -1,10 +1,11 @@
 import { Test, TestingModule } from '@nestjs/testing';
+import { BadRequestException, NotFoundException } from '@nestjs/common';
+import { InboundTransferSignalsService } from './inbound-transfer-signals.service';
 import { PrismaService } from '../../../core/prisma/prisma.service';
-import { CustomerAccessService } from '../../identity/customers/customer-access.service';
 import { DepositTransactionsService } from './deposit-transactions.service';
 import { FundsOrderService } from '../../funds-orders/funds-order.service';
+import { CustomerAccessService } from '../../identity/customers/customer-access.service';
 import { AuditLogsService } from '../../audit-logging/audit-logs.service';
-import { InboundTransferSignalsService } from './inbound-transfer-signals.service';
 import {
   InboundTransferScanMode,
   InboundTransferSignalStatus,
@@ -16,12 +17,89 @@ import {
   FundsOrderStatus,
 } from '../../funds-orders/dto/funds-order.dto';
 
-describe('InboundTransferSignalsService', () => {
+describe('InboundTransferSignalsService · 按网络与合约找钥匙（波一）', () => {
+  const prisma: any = {
+    customerMain: { findUnique: jest.fn() },
+    wallet: { findFirst: jest.fn() },
+    asset: { findFirst: jest.fn() },
+    inboundTransferSignal: { findUnique: jest.fn(), create: jest.fn() },
+  };
+  const audit = { recordSystem: jest.fn(), recordByActor: jest.fn() };
+  const access = { assertTradingEligibility: jest.fn() };
+  let service: InboundTransferSignalsService;
+
+  const wallet = { id: 'w1', walletNo: 'WA1', ownerType: 'CUSTOMER', ownerId: 'c1', vaultCode: 'CLIENT_DEPOSIT', walletRole: 'C_DEP', network: 'TRON', address: 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t', status: 'ACTIVE' };
+  const usdt = { id: 'a-usdt', code: 'USDT-TRON', type: 'CRYPTO', network: 'TRON', contractAddress: 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t', decimals: 6 };
+
+  beforeEach(async () => {
+    jest.clearAllMocks();
+    const mod = await Test.createTestingModule({
+      providers: [
+        InboundTransferSignalsService,
+        { provide: PrismaService, useValue: prisma },
+        { provide: DepositTransactionsService, useValue: {} },
+        { provide: FundsOrderService, useValue: {} },
+        { provide: CustomerAccessService, useValue: access },
+        { provide: AuditLogsService, useValue: audit },
+      ],
+    }).compile();
+    service = mod.get(InboundTransferSignalsService);
+    prisma.customerMain.findUnique.mockResolvedValue({ id: 'c1', customerNo: 'CU001' });
+  });
+
+  it('合约对不上任何资产：拒收 400 + DEPOSIT_SIGNAL_REJECTED（DENIED / UNKNOWN_ASSET），不落信号行', async () => {
+    prisma.wallet.findFirst.mockResolvedValue(wallet);
+    prisma.asset.findFirst.mockResolvedValue(null);
+    await expect(service.createForCustomer('c1', {
+      network: 'TRON', toAddress: wallet.address, contractAddress: 'TScamScamScamScamScamScamScamScamXX',
+      amount: '100', txHash: 'ab'.repeat(32), fromAddress: 'TSender', counterpartyIsVasp: false,
+    } as any)).rejects.toBeInstanceOf(BadRequestException);
+    expect(audit.recordSystem).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'DEPOSIT_SIGNAL_REJECTED', actionDomain: 'DEPOSIT', outcome: 'DENIED', reasonCode: 'UNKNOWN_ASSET', ownerCustomerNo: 'CU001',
+    }));
+    expect(prisma.inboundTransferSignal.create).not.toHaveBeenCalled();
+  });
+
+  it('地址不是本客户在该网络上的收款行：404', async () => {
+    prisma.wallet.findFirst.mockResolvedValue(null);
+    await expect(service.createForCustomer('c1', { network: 'TRON', toAddress: 'Tnobody', amount: '1', txHash: 'x', fromAddress: 'y', counterpartyIsVasp: false } as any))
+      .rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it('钥匙对上：信号行落 walletId / assetId（服务端解析，DTO 不再携带）', async () => {
+    prisma.wallet.findFirst.mockResolvedValue(wallet);
+    prisma.asset.findFirst.mockResolvedValue(usdt);
+    prisma.inboundTransferSignal.findUnique.mockResolvedValue(null);
+    prisma.inboundTransferSignal.create.mockImplementation(async ({ data }: any) => ({ id: 's1', ...data }));
+    prisma.inboundTransferSignal.findUnique.mockResolvedValueOnce(null).mockResolvedValueOnce({ id: 's1' });
+    await service.createForCustomer('c1', {
+      network: 'TRON', toAddress: wallet.address, contractAddress: usdt.contractAddress,
+      amount: '100', txHash: 'ab'.repeat(32), fromAddress: 'TSender', counterpartyIsVasp: false,
+    } as any);
+    expect(prisma.inboundTransferSignal.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ walletId: 'w1', assetId: 'a-usdt', channelType: 'CRYPTO' }),
+    }));
+  });
+
+  it('未注册网络：400', async () => {
+    await expect(service.createForCustomer('c1', { network: 'FIAT', iban: 'AE1', amount: '1' } as any)).rejects.toBeInstanceOf(BadRequestException);
+  });
+});
+
+describe('InboundTransferSignalsService · 既有行为回归（钥匙改按网络/合约解析，波一 T5）', () => {
   let service: InboundTransferSignalsService;
   let prisma: any;
   let customerAccess: any;
   let depositService: any;
   let fundsOrderService: any;
+
+  // 三个固定钱包行(one-address-per-row，Task 4 终态)：链上收款地址 / 法币 vIBAN(C_DEP 语境) /
+  // 法币 vIBAN(C_VIBAN 语境，覆盖两种客户收款行角色都要放行的既有用例)。
+  const cryptoWallet = { id: 'wallet-1', walletNo: 'WA-C1', ownerType: 'CUSTOMER', ownerId: 'cust-1', vaultCode: 'CLIENT_DEPOSIT', walletRole: 'C_DEP', network: 'TRON', address: 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t', status: 'ACTIVE' };
+  const fiatWallet = { id: 'wallet-fiat-1', walletNo: 'WA-F1', ownerType: 'CUSTOMER', ownerId: 'cust-1', vaultCode: 'CLIENT_DEPOSIT', walletRole: 'C_VIBAN', network: 'AED_ZAND', iban: 'AE070331234567890123456', status: 'ACTIVE' };
+  const vibanWallet = { id: 'wallet-viban-1', walletNo: 'WA-F2', ownerType: 'CUSTOMER', ownerId: 'cust-1', vaultCode: 'CLIENT_DEPOSIT', walletRole: 'C_VIBAN', network: 'AED_ZAND', iban: 'AE070331234567890999999', status: 'ACTIVE' };
+  const usdtAsset = { id: 'asset-1', code: 'USDT-TRON', type: 'CRYPTO', network: 'TRON', contractAddress: 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t', decimals: 6 };
+  const aedAsset = { id: 'asset-fiat-1', code: 'AED', type: 'FIAT', network: 'AED_ZAND', contractAddress: null, decimals: 2 };
 
   beforeEach(async () => {
     prisma = {
@@ -33,7 +111,10 @@ describe('InboundTransferSignalsService', () => {
         count: jest.fn(),
       },
       wallet: {
-        findUnique: jest.fn(),
+        findFirst: jest.fn(),
+      },
+      asset: {
+        findFirst: jest.fn(),
       },
       fundsOrder: {
         findFirst: jest.fn(),
@@ -44,18 +125,11 @@ describe('InboundTransferSignalsService', () => {
       customerMain: {
         findUnique: jest.fn(),
       },
-      auditLogEvent: {
-        findUnique: jest.fn().mockResolvedValue(null),
-        create: jest.fn().mockImplementation(({ data }: any) => Promise.resolve(data)),
-      },
     };
 
     prisma.customerMain.findUnique.mockResolvedValue({
       id: 'cust-1',
-      onboardingStatus: 'APPROVED',
-      adminStatus: 'ACTIVE',
-      complianceStatus: 'ACTIVE',
-      restrictions: null,
+      customerNo: 'CU-CUST-1',
     });
 
     customerAccess = {
@@ -111,48 +185,42 @@ describe('InboundTransferSignalsService', () => {
 
   it('should create a pending inbound transfer signal for customer deposit wallet', async () => {
     customerAccess.assertTradingEligibility.mockResolvedValue(undefined);
-    prisma.wallet.findUnique.mockResolvedValue({
-      id: 'wallet-1',
-      ownerType: 'CUSTOMER',
-      ownerId: 'cust-1',
-      direction: 'INBOUND',
-      walletRole: 'C_DEP',
-      status: 'ACTIVE',
-      assetId: 'asset-1',
-      asset: { type: 'CRYPTO' },
-    });
+    prisma.wallet.findFirst.mockResolvedValue(cryptoWallet);
+    prisma.asset.findFirst.mockResolvedValue(usdtAsset);
     prisma.inboundTransferSignal.findUnique.mockResolvedValueOnce(null);
     prisma.inboundTransferSignal.create.mockResolvedValue({
       id: 'sig-1',
       signalNo: 'SIG0001',
       ownerId: 'cust-1',
-      walletId: 'wallet-1',
-      assetId: 'asset-1',
+      walletId: cryptoWallet.id,
+      assetId: usdtAsset.id,
       status: InboundTransferSignalStatus.PENDING_SCAN,
     });
     prisma.inboundTransferSignal.findUnique.mockResolvedValueOnce({
       id: 'sig-1',
       signalNo: 'SIG0001',
       ownerId: 'cust-1',
-      walletId: 'wallet-1',
-      assetId: 'asset-1',
+      walletId: cryptoWallet.id,
+      assetId: usdtAsset.id,
       status: InboundTransferSignalStatus.PENDING_SCAN,
     });
 
     const result = await service.createForCustomer('cust-1', {
-      walletId: 'wallet-1',
+      network: 'TRON',
+      toAddress: cryptoWallet.address,
+      contractAddress: usdtAsset.contractAddress,
       amount: '12.50',
       txHash: '0xabc',
       fromAddress: '0xfrom',
       counterpartyIsVasp: true,
-    });
+    } as any);
 
     expect(prisma.inboundTransferSignal.create).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({
           ownerId: 'cust-1',
-          walletId: 'wallet-1',
-          assetId: 'asset-1',
+          walletId: cryptoWallet.id,
+          assetId: usdtAsset.id,
           status: InboundTransferSignalStatus.PENDING_SCAN,
           counterpartyIsVasp: true,
         }),
@@ -163,90 +231,63 @@ describe('InboundTransferSignalsService', () => {
 
   it('should reject a crypto inbound signal missing counterpartyIsVasp', async () => {
     customerAccess.assertTradingEligibility.mockResolvedValue(undefined);
-    prisma.wallet.findUnique.mockResolvedValue({
-      id: 'wallet-1',
-      ownerType: 'CUSTOMER',
-      ownerId: 'cust-1',
-      direction: 'INBOUND',
-      walletRole: 'C_DEP',
-      status: 'ACTIVE',
-      assetId: 'asset-1',
-      asset: { type: 'CRYPTO' },
-    });
+    prisma.wallet.findFirst.mockResolvedValue(cryptoWallet);
+    prisma.asset.findFirst.mockResolvedValue(usdtAsset);
 
     await expect(
       service.createForCustomer('cust-1', {
-        walletId: 'wallet-1',
+        network: 'TRON',
+        toAddress: cryptoWallet.address,
+        contractAddress: usdtAsset.contractAddress,
         amount: '12.50',
         txHash: '0xabc',
         fromAddress: '0xfrom',
-      }),
+      } as any),
     ).rejects.toThrow('counterpartyIsVasp is required for crypto deposits');
     expect(prisma.inboundTransferSignal.create).not.toHaveBeenCalled();
   });
 
   it('should reject a crypto inbound signal with counterpartyIsVasp explicitly null', async () => {
     customerAccess.assertTradingEligibility.mockResolvedValue(undefined);
-    prisma.wallet.findUnique.mockResolvedValue({
-      id: 'wallet-1',
-      ownerType: 'CUSTOMER',
-      ownerId: 'cust-1',
-      direction: 'INBOUND',
-      walletRole: 'C_DEP',
-      status: 'ACTIVE',
-      assetId: 'asset-1',
-      asset: { type: 'CRYPTO' },
-    });
+    prisma.wallet.findFirst.mockResolvedValue(cryptoWallet);
+    prisma.asset.findFirst.mockResolvedValue(usdtAsset);
 
     await expect(
       service.createForCustomer('cust-1', {
-        walletId: 'wallet-1',
+        network: 'TRON',
+        toAddress: cryptoWallet.address,
+        contractAddress: usdtAsset.contractAddress,
         amount: '12.50',
         txHash: '0xabc',
         fromAddress: '0xfrom',
         counterpartyIsVasp: null as any,
-      }),
+      } as any),
     ).rejects.toThrow('counterpartyIsVasp is required for crypto deposits');
     expect(prisma.inboundTransferSignal.create).not.toHaveBeenCalled();
   });
 
   it('should reject a fiat inbound signal that provides counterpartyIsVasp', async () => {
     customerAccess.assertTradingEligibility.mockResolvedValue(undefined);
-    prisma.wallet.findUnique.mockResolvedValue({
-      id: 'wallet-fiat-1',
-      ownerType: 'CUSTOMER',
-      ownerId: 'cust-1',
-      direction: 'INBOUND',
-      walletRole: 'C_DEP',
-      status: 'ACTIVE',
-      assetId: 'asset-fiat-1',
-      asset: { type: 'FIAT' },
-    });
+    prisma.wallet.findFirst.mockResolvedValue(fiatWallet);
+    prisma.asset.findFirst.mockResolvedValue(aedAsset);
 
     await expect(
       service.createForCustomer('cust-1', {
-        walletId: 'wallet-fiat-1',
+        network: 'AED_ZAND',
+        iban: fiatWallet.iban,
         amount: '88.10',
         referenceNo: 'REF-1001',
         fromIban: 'IBAN-001',
         counterpartyIsVasp: false,
-      }),
+      } as any),
     ).rejects.toThrow('counterpartyIsVasp must not be provided for fiat deposits');
     expect(prisma.inboundTransferSignal.create).not.toHaveBeenCalled();
   });
 
   it('should return existing inbound signal when dedupe key already exists', async () => {
     customerAccess.assertTradingEligibility.mockResolvedValue(undefined);
-    prisma.wallet.findUnique.mockResolvedValue({
-      id: 'wallet-1',
-      ownerType: 'CUSTOMER',
-      ownerId: 'cust-1',
-      direction: 'INBOUND',
-      walletRole: 'C_DEP',
-      status: 'ACTIVE',
-      assetId: 'asset-1',
-      asset: { type: 'FIAT' },
-    });
+    prisma.wallet.findFirst.mockResolvedValue(fiatWallet);
+    prisma.asset.findFirst.mockResolvedValue(aedAsset);
     prisma.inboundTransferSignal.findUnique.mockResolvedValue({
       id: 'sig-existing',
       signalNo: 'SIG0002',
@@ -254,11 +295,12 @@ describe('InboundTransferSignalsService', () => {
     });
 
     const result = await service.createForCustomer('cust-1', {
-      walletId: 'wallet-1',
+      network: 'AED_ZAND',
+      iban: fiatWallet.iban,
       amount: '88.10',
       referenceNo: 'REF-1001',
       fromIban: 'IBAN-001',
-    });
+    } as any);
 
     expect(prisma.inboundTransferSignal.create).not.toHaveBeenCalled();
     expect(result.id).toBe('sig-existing');
@@ -266,23 +308,15 @@ describe('InboundTransferSignalsService', () => {
 
   it('should accept fiat medium risk with large deposit profile mismatch', async () => {
     customerAccess.assertTradingEligibility.mockResolvedValue(undefined);
-    prisma.wallet.findUnique.mockResolvedValue({
-      id: 'wallet-fiat-1',
-      ownerType: 'CUSTOMER',
-      ownerId: 'cust-1',
-      direction: 'INBOUND',
-      walletRole: 'C_DEP',
-      status: 'ACTIVE',
-      assetId: 'asset-fiat-1',
-      asset: { type: 'FIAT' },
-    });
+    prisma.wallet.findFirst.mockResolvedValue(fiatWallet);
+    prisma.asset.findFirst.mockResolvedValue(aedAsset);
     prisma.inboundTransferSignal.findUnique.mockResolvedValueOnce(null);
     prisma.inboundTransferSignal.create.mockResolvedValue({
       id: 'sig-fiat-medium-1',
       signalNo: 'SIG-FIAT-MEDIUM-1',
       ownerId: 'cust-1',
-      walletId: 'wallet-fiat-1',
-      assetId: 'asset-fiat-1',
+      walletId: fiatWallet.id,
+      assetId: aedAsset.id,
       status: InboundTransferSignalStatus.PENDING_SCAN,
       simulationRiskLevel: SimulationRiskLevel.MEDIUM,
       simulationRiskReason: SimulationRiskReason.LARGE_DEPOSIT_PROFILE_MISMATCH,
@@ -291,21 +325,22 @@ describe('InboundTransferSignalsService', () => {
       id: 'sig-fiat-medium-1',
       signalNo: 'SIG-FIAT-MEDIUM-1',
       ownerId: 'cust-1',
-      walletId: 'wallet-fiat-1',
-      assetId: 'asset-fiat-1',
+      walletId: fiatWallet.id,
+      assetId: aedAsset.id,
       status: InboundTransferSignalStatus.PENDING_SCAN,
       simulationRiskLevel: SimulationRiskLevel.MEDIUM,
       simulationRiskReason: SimulationRiskReason.LARGE_DEPOSIT_PROFILE_MISMATCH,
     });
 
     const result = await service.createForCustomer('cust-1', {
-      walletId: 'wallet-fiat-1',
+      network: 'AED_ZAND',
+      iban: fiatWallet.iban,
       amount: '12000.00',
       referenceNo: 'REF-FIAT-MEDIUM-1',
       fromIban: 'IBAN-FIAT-1',
       simulationRiskLevel: SimulationRiskLevel.MEDIUM,
       simulationRiskReason: SimulationRiskReason.LARGE_DEPOSIT_PROFILE_MISMATCH,
-    });
+    } as any);
 
     expect(prisma.inboundTransferSignal.create).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -321,26 +356,19 @@ describe('InboundTransferSignalsService', () => {
 
   it('should reject fiat medium risk reasons that rely on crypto-only enums', async () => {
     customerAccess.assertTradingEligibility.mockResolvedValue(undefined);
-    prisma.wallet.findUnique.mockResolvedValue({
-      id: 'wallet-fiat-1',
-      ownerType: 'CUSTOMER',
-      ownerId: 'cust-1',
-      direction: 'INBOUND',
-      walletRole: 'C_DEP',
-      status: 'ACTIVE',
-      assetId: 'asset-fiat-1',
-      asset: { type: 'FIAT' },
-    });
+    prisma.wallet.findFirst.mockResolvedValue(fiatWallet);
+    prisma.asset.findFirst.mockResolvedValue(aedAsset);
 
     await expect(
       service.createForCustomer('cust-1', {
-        walletId: 'wallet-fiat-1',
+        network: 'AED_ZAND',
+        iban: fiatWallet.iban,
         amount: '12000.00',
         referenceNo: 'REF-FIAT-BAD-1',
         fromIban: 'IBAN-FIAT-2',
         simulationRiskLevel: SimulationRiskLevel.MEDIUM,
         simulationRiskReason: SimulationRiskReason.KYT_ISSUE,
-      }),
+      } as any),
     ).rejects.toThrow(
       'FIAT MEDIUM simulation risk requires LARGE_DEPOSIT_PROFILE_MISMATCH.',
     );
@@ -348,23 +376,15 @@ describe('InboundTransferSignalsService', () => {
 
   it('should accept fiat high risk with sanctions hit', async () => {
     customerAccess.assertTradingEligibility.mockResolvedValue(undefined);
-    prisma.wallet.findUnique.mockResolvedValue({
-      id: 'wallet-fiat-1',
-      ownerType: 'CUSTOMER',
-      ownerId: 'cust-1',
-      direction: 'INBOUND',
-      walletRole: 'C_DEP',
-      status: 'ACTIVE',
-      assetId: 'asset-fiat-1',
-      asset: { type: 'FIAT' },
-    });
+    prisma.wallet.findFirst.mockResolvedValue(fiatWallet);
+    prisma.asset.findFirst.mockResolvedValue(aedAsset);
     prisma.inboundTransferSignal.findUnique.mockResolvedValueOnce(null);
     prisma.inboundTransferSignal.create.mockResolvedValue({
       id: 'sig-fiat-high-1',
       signalNo: 'SIG-FIAT-HIGH-1',
       ownerId: 'cust-1',
-      walletId: 'wallet-fiat-1',
-      assetId: 'asset-fiat-1',
+      walletId: fiatWallet.id,
+      assetId: aedAsset.id,
       status: InboundTransferSignalStatus.PENDING_SCAN,
       simulationRiskLevel: SimulationRiskLevel.HIGH,
       simulationRiskReason: SimulationRiskReason.SANCTIONS_HIT,
@@ -373,36 +393,28 @@ describe('InboundTransferSignalsService', () => {
       id: 'sig-fiat-high-1',
       signalNo: 'SIG-FIAT-HIGH-1',
       ownerId: 'cust-1',
-      walletId: 'wallet-fiat-1',
-      assetId: 'asset-fiat-1',
+      walletId: fiatWallet.id,
+      assetId: aedAsset.id,
       status: InboundTransferSignalStatus.PENDING_SCAN,
       simulationRiskLevel: SimulationRiskLevel.HIGH,
       simulationRiskReason: SimulationRiskReason.SANCTIONS_HIT,
     });
 
     const result = await service.createForCustomer('cust-1', {
-      walletId: 'wallet-fiat-1',
+      network: 'AED_ZAND',
+      iban: fiatWallet.iban,
       amount: '35000.00',
       referenceNo: 'REF-FIAT-HIGH-1',
       fromIban: 'IBAN-FIAT-3',
       simulationRiskLevel: SimulationRiskLevel.HIGH,
       simulationRiskReason: SimulationRiskReason.SANCTIONS_HIT,
-    });
+    } as any);
 
     expect(result.id).toBe('sig-fiat-high-1');
   });
 
   it('should mark signals ignored when deposit trading gate is blocked during scan', async () => {
-    prisma.wallet.findUnique.mockResolvedValue({
-      id: 'wallet-1',
-      ownerType: 'CUSTOMER',
-      ownerId: 'cust-1',
-      direction: 'INBOUND',
-      walletRole: 'C_DEP',
-      status: 'ACTIVE',
-      assetId: 'asset-1',
-      asset: { type: 'CRYPTO' },
-    });
+    prisma.wallet.findFirst.mockResolvedValue(cryptoWallet);
     customerAccess.assertTradingEligibility.mockRejectedValue(
       new Error('DEPOSIT is blocked by onboarding gate'),
     );
@@ -411,13 +423,16 @@ describe('InboundTransferSignalsService', () => {
         id: 'sig-1',
         signalNo: 'SIG0001',
         ownerId: 'cust-1',
-        walletId: 'wallet-1',
-        assetId: 'asset-1',
+        walletId: cryptoWallet.id,
+        assetId: usdtAsset.id,
       },
     ]);
     prisma.inboundTransferSignal.update.mockResolvedValue({});
 
-    const result = await service.scanForCustomer('cust-1', { walletId: 'wallet-1' });
+    const result = await service.scanForCustomer('cust-1', {
+      network: 'TRON',
+      toAddress: cryptoWallet.address,
+    } as any);
 
     expect(result.blockedCount).toBe(1);
     expect(result.failedCount).toBe(0);
@@ -432,24 +447,15 @@ describe('InboundTransferSignalsService', () => {
   });
 
   it('should create and advance a crypto funds order to deposit compliance pending during scan', async () => {
-    prisma.wallet.findUnique.mockResolvedValue({
-      id: 'wallet-1',
-      ownerType: 'CUSTOMER',
-      ownerId: 'cust-1',
-      direction: 'INBOUND',
-      walletRole: 'C_DEP',
-      status: 'ACTIVE',
-      assetId: 'asset-1',
-      asset: { type: 'CRYPTO' },
-    });
+    prisma.wallet.findFirst.mockResolvedValue(cryptoWallet);
     customerAccess.assertTradingEligibility.mockResolvedValue(undefined);
     prisma.inboundTransferSignal.findMany.mockResolvedValue([
       {
         id: 'sig-1',
         signalNo: 'SIG0001',
         ownerId: 'cust-1',
-        walletId: 'wallet-1',
-        assetId: 'asset-1',
+        walletId: cryptoWallet.id,
+        assetId: usdtAsset.id,
         amount: { toString: () => '100.00' },
         channelType: 'CRYPTO',
         txHash: '0xabc',
@@ -480,7 +486,10 @@ describe('InboundTransferSignalsService', () => {
     });
     prisma.inboundTransferSignal.update.mockResolvedValue({});
 
-    const result = await service.scanForCustomer('cust-1', { walletId: 'wallet-1' });
+    const result = await service.scanForCustomer('cust-1', {
+      network: 'TRON',
+      toAddress: cryptoWallet.address,
+    } as any);
 
     expect(result.scannedCount).toBe(1);
     expect(result.createdPayinCount).toBe(1);
@@ -518,24 +527,15 @@ describe('InboundTransferSignalsService', () => {
   // #toCustomerDepositView 那道防线（Deposit.tsx 此前是 `Status:
   // {summary.depositStatus}` 裸显，完全绕开视图层）。
   it('scan 返回的 depositStatus 必须经收敛——重读到的 FROZEN 不能原样下发', async () => {
-    prisma.wallet.findUnique.mockResolvedValue({
-      id: 'wallet-1',
-      ownerType: 'CUSTOMER',
-      ownerId: 'cust-1',
-      direction: 'INBOUND',
-      walletRole: 'C_DEP',
-      status: 'ACTIVE',
-      assetId: 'asset-1',
-      asset: { type: 'CRYPTO' },
-    });
+    prisma.wallet.findFirst.mockResolvedValue(cryptoWallet);
     customerAccess.assertTradingEligibility.mockResolvedValue(undefined);
     prisma.inboundTransferSignal.findMany.mockResolvedValue([
       {
         id: 'sig-frozen-1',
         signalNo: 'SIG-FROZEN-1',
         ownerId: 'cust-1',
-        walletId: 'wallet-1',
-        assetId: 'asset-1',
+        walletId: cryptoWallet.id,
+        assetId: usdtAsset.id,
         amount: { toString: () => '100.00' },
         channelType: 'CRYPTO',
         txHash: '0xfrozen',
@@ -563,7 +563,10 @@ describe('InboundTransferSignalsService', () => {
     });
     prisma.inboundTransferSignal.update.mockResolvedValue({});
 
-    const result = await service.scanForCustomer('cust-1', { walletId: 'wallet-1' });
+    const result = await service.scanForCustomer('cust-1', {
+      network: 'TRON',
+      toAddress: cryptoWallet.address,
+    } as any);
 
     expect(depositService.toCustomerStatus).toHaveBeenCalledWith('FROZEN');
     expect(result.records).toEqual([
@@ -575,24 +578,15 @@ describe('InboundTransferSignalsService', () => {
   });
 
   it('should reuse an existing deposit funds order on repeated scan without creating duplicates', async () => {
-    prisma.wallet.findUnique.mockResolvedValue({
-      id: 'wallet-1',
-      ownerType: 'CUSTOMER',
-      ownerId: 'cust-1',
-      direction: 'INBOUND',
-      walletRole: 'C_DEP',
-      status: 'ACTIVE',
-      assetId: 'asset-1',
-      asset: { type: 'FIAT' },
-    });
+    prisma.wallet.findFirst.mockResolvedValue(fiatWallet);
     customerAccess.assertTradingEligibility.mockResolvedValue(undefined);
     prisma.inboundTransferSignal.findMany.mockResolvedValue([
       {
         id: 'sig-1',
         signalNo: 'SIG0001',
         ownerId: 'cust-1',
-        walletId: 'wallet-1',
-        assetId: 'asset-1',
+        walletId: fiatWallet.id,
+        assetId: aedAsset.id,
         amount: { toString: () => '50.00' },
         channelType: 'FIAT',
         referenceNo: 'REF-1',
@@ -620,7 +614,10 @@ describe('InboundTransferSignalsService', () => {
     });
     prisma.inboundTransferSignal.update.mockResolvedValue({});
 
-    const result = await service.scanForCustomer('cust-1', { walletId: 'wallet-1' });
+    const result = await service.scanForCustomer('cust-1', {
+      network: 'AED_ZAND',
+      iban: fiatWallet.iban,
+    } as any);
 
     expect(result.createdPayinCount).toBe(0);
     expect(result.reusedPayinCount).toBe(1);
@@ -630,24 +627,15 @@ describe('InboundTransferSignalsService', () => {
   });
 
   it('should stop at SUBMITTED funds order and PAYIN_PENDING deposit during interactive scan', async () => {
-    prisma.wallet.findUnique.mockResolvedValue({
-      id: 'wallet-1',
-      ownerType: 'CUSTOMER',
-      ownerId: 'cust-1',
-      direction: 'INBOUND',
-      walletRole: 'C_DEP',
-      status: 'ACTIVE',
-      assetId: 'asset-1',
-      asset: { type: 'CRYPTO' },
-    });
+    prisma.wallet.findFirst.mockResolvedValue(cryptoWallet);
     customerAccess.assertTradingEligibility.mockResolvedValue(undefined);
     prisma.inboundTransferSignal.findMany.mockResolvedValue([
       {
         id: 'sig-interactive-1',
         signalNo: 'SIG-INTERACTIVE-1',
         ownerId: 'cust-1',
-        walletId: 'wallet-1',
-        assetId: 'asset-1',
+        walletId: cryptoWallet.id,
+        assetId: usdtAsset.id,
         amount: { toString: () => '75.00' },
         channelType: 'CRYPTO',
         txHash: '0xinteractive',
@@ -668,9 +656,10 @@ describe('InboundTransferSignalsService', () => {
     prisma.inboundTransferSignal.update.mockResolvedValue({});
 
     const result = await service.scanForCustomer('cust-1', {
-      walletId: 'wallet-1',
+      network: 'TRON',
+      toAddress: cryptoWallet.address,
       mode: InboundTransferScanMode.INTERACTIVE,
-    });
+    } as any);
 
     expect(fundsOrderService.advance).not.toHaveBeenCalled();
     expect(result.records).toEqual([
@@ -685,47 +674,40 @@ describe('InboundTransferSignalsService', () => {
 
   it('should accept C_VIBAN wallet role for fiat deposit signal creation', async () => {
     customerAccess.assertTradingEligibility.mockResolvedValue(undefined);
-    prisma.wallet.findUnique.mockResolvedValue({
-      id: 'wallet-viban-1',
-      ownerType: 'CUSTOMER',
-      ownerId: 'cust-1',
-      direction: 'INBOUND',
-      walletRole: 'C_VIBAN',
-      status: 'ACTIVE',
-      assetId: 'asset-fiat-1',
-      asset: { type: 'FIAT' },
-    });
+    prisma.wallet.findFirst.mockResolvedValue(vibanWallet);
+    prisma.asset.findFirst.mockResolvedValue(aedAsset);
     prisma.inboundTransferSignal.findUnique.mockResolvedValueOnce(null);
     prisma.inboundTransferSignal.create.mockResolvedValue({
       id: 'sig-viban-1',
       signalNo: 'SIG-VIBAN-1',
       ownerId: 'cust-1',
-      walletId: 'wallet-viban-1',
-      assetId: 'asset-fiat-1',
+      walletId: vibanWallet.id,
+      assetId: aedAsset.id,
       status: InboundTransferSignalStatus.PENDING_SCAN,
     });
     prisma.inboundTransferSignal.findUnique.mockResolvedValueOnce({
       id: 'sig-viban-1',
       signalNo: 'SIG-VIBAN-1',
       ownerId: 'cust-1',
-      walletId: 'wallet-viban-1',
-      assetId: 'asset-fiat-1',
+      walletId: vibanWallet.id,
+      assetId: aedAsset.id,
       status: InboundTransferSignalStatus.PENDING_SCAN,
     });
 
     const result = await service.createForCustomer('cust-1', {
-      walletId: 'wallet-viban-1',
+      network: 'AED_ZAND',
+      iban: vibanWallet.iban,
       amount: '500.00',
       referenceNo: 'REF-VIBAN-1',
       fromIban: 'IBAN-VIBAN-1',
-    });
+    } as any);
 
     expect(prisma.inboundTransferSignal.create).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({
           ownerId: 'cust-1',
-          walletId: 'wallet-viban-1',
-          assetId: 'asset-fiat-1',
+          walletId: vibanWallet.id,
+          assetId: aedAsset.id,
           status: InboundTransferSignalStatus.PENDING_SCAN,
         }),
       }),

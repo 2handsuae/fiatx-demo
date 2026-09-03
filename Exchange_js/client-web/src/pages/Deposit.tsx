@@ -19,21 +19,26 @@ interface Asset {
   type: string;
   network: string | null;
   decimals?: number;
+  contractAddress: string | null;
+  minConfirmations?: number;
 }
 
 interface WalletItem {
   id: string;
-  assetId: string;
-  type: string;
+  walletNo: string;
   walletRole?: string;
+  network: string;
   status: string;
-  asset: { code: string; type: string; decimals?: number };
   address?: string;
-  bankName?: string;
   iban?: string;
-  accountName?: string;
-  memo?: string;
-  bankCode?: string;
+  custodianRef?: string;
+  networkInfo?: {
+    kind: string;
+    custodian: string;
+    bankName: string | null;
+    accountName: string | null;
+    explorerUrl: string | null;
+  };
 }
 
 interface Transaction {
@@ -104,7 +109,10 @@ interface CreatedInboundSignalResponse {
 type DepositAssetType = 'CRYPTO' | 'FIAT';
 
 interface CreateInboundTransferSignalPayload {
-  walletId: string;
+  network: string;
+  toAddress?: string;
+  iban?: string;
+  contractAddress?: string;
   amount: string;
   txHash?: string;
   fromAddress?: string;
@@ -228,7 +236,6 @@ const Deposit = () => {
             const data = await response.json();
             const items: WalletItem[] = data.items || [];
             const found = items.find(w =>
-                w.assetId === selectedAssetId &&
                 (w.walletRole === 'C_DEP' || w.walletRole === 'C_VIBAN')
             );
             setDepositWallet(found || null);
@@ -329,9 +336,12 @@ const Deposit = () => {
     setTimeout(() => setCopied(false), 2000);
   };
 
-  const filteredAssets = assets.filter(a => 
+  const filteredAssets = assets.filter(a =>
     activeTab === 'crypto' ? a.type === 'CRYPTO' : a.type === 'FIAT'
   );
+  // wallet.asset 已随钱包表改地址行(Task 4)一并删除——⚡ 模拟面板需要的资产信息(code/
+  // type/contractAddress)改读当前选中的 asset。
+  const selectedAsset = assets.find(a => a.id === selectedAssetId);
   const showSimulationDepositFlow = simulationModeEnabled;
 
   useEffect(() => {
@@ -369,23 +379,25 @@ const Deposit = () => {
 
   const buildMockInboundSignalPayload = (
     wallet: WalletItem,
+    asset: Asset,
     amount: string,
     counterpartyIsVasp: boolean | null,
   ): CreateInboundTransferSignalPayload => {
-    const rawSeed = `${wallet.id}-${wallet.asset.code}-${Date.now().toString(16)}-${Math.random()
+    const rawSeed = `${wallet.id}-${asset.code}-${Date.now().toString(16)}-${Math.random()
       .toString(16)
       .slice(2, 10)}`;
     const compactSeed = rawSeed.replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
 
-    if (wallet.asset.type === 'CRYPTO') {
+    if (wallet.networkInfo?.kind === 'CHAIN') {
       const txSeed = buildHexMockValue(rawSeed, 64);
-      const addressSeed = buildHexMockValue(`${rawSeed}-from`, 40);
 
       return {
-        walletId: wallet.id,
+        network: wallet.network,
+        toAddress: wallet.address,
+        contractAddress: asset.contractAddress ?? undefined,
         amount,
-        txHash: `0x${txSeed}`,
-        fromAddress: `0x${addressSeed}`,
+        txHash: txSeed,
+        fromAddress: `T${compactSeed.padEnd(33, 'x').slice(0, 33)}`,
         counterpartyIsVasp: counterpartyIsVasp ?? undefined,
       };
     }
@@ -394,19 +406,25 @@ const Deposit = () => {
     const referenceSuffix = compactSeed.slice(-10).padStart(10, '7');
 
     return {
-      walletId: wallet.id,
+      network: wallet.network,
+      iban: wallet.iban,
       amount,
-      referenceNo: `REF-${wallet.asset.code}-${referenceSuffix}`,
+      referenceNo: `REF-${asset.code}-${referenceSuffix}`,
       fromIban: `AE07MOCK${ibanSeed}`,
     };
   };
 
-  const scanInboundSignals = async (walletId: string) => {
+  const scanInboundSignals = async (wallet: WalletItem) => {
     const response = await customerFetch(
       `${import.meta.env.VITE_API_URL}/deposit-transactions/my/inbound-signals/scan`,
       {
         method: 'POST',
-        body: JSON.stringify({ walletId, mode: 'INTERACTIVE' }),
+        body: JSON.stringify({
+          network: wallet.network,
+          toAddress: wallet.address ?? undefined,
+          iban: wallet.iban ?? undefined,
+          mode: 'INTERACTIVE',
+        }),
       },
     );
 
@@ -418,7 +436,7 @@ const Deposit = () => {
   };
 
   const handleSubmitInboundSignal = async () => {
-    if (!depositWallet) return;
+    if (!depositWallet || !selectedAsset) return;
 
     const amount = signalAmount.trim();
     if (!amount) {
@@ -429,7 +447,7 @@ const Deposit = () => {
       return;
     }
 
-    const isCryptoDeposit = depositWallet.asset.type === 'CRYPTO';
+    const isCryptoDeposit = depositWallet.networkInfo?.kind === 'CHAIN';
     if (isCryptoDeposit && counterpartyIsVasp === null) {
       setSignalFeedback({
         kind: 'error',
@@ -443,7 +461,7 @@ const Deposit = () => {
     setLastSimulationResult(null);
     try {
       const payload: CreateInboundTransferSignalPayload = {
-        ...buildMockInboundSignalPayload(depositWallet, amount, counterpartyIsVasp),
+        ...buildMockInboundSignalPayload(depositWallet, selectedAsset, amount, counterpartyIsVasp),
       };
       const createResponse = await customerFetch(
         `${import.meta.env.VITE_API_URL}/deposit-transactions/my/inbound-signals`,
@@ -461,7 +479,7 @@ const Deposit = () => {
 
       const createdSignal =
         (await createResponse.json()) as CreatedInboundSignalResponse;
-      const result = await scanInboundSignals(depositWallet.id);
+      const result = await scanInboundSignals(depositWallet);
       await fetchHistory();
       const firstRecord = result.records?.[0];
       const fallbackRecord = createdSignal?.payin
@@ -486,8 +504,8 @@ const Deposit = () => {
         payinStatus: resolvedRecord.payinStatus || 'DETECTED',
         depositNo: resolvedRecord.depositNo || null,
         depositStatus: resolvedRecord.depositStatus || 'PAYIN_PENDING',
-        assetCode: depositWallet.asset.code,
-        assetType: normalizeSimulationAssetType(depositWallet.asset.type),
+        assetCode: selectedAsset.code,
+        assetType: normalizeSimulationAssetType(selectedAsset.type),
       });
       setSignalAmount('');
       setCounterpartyIsVasp(null);
@@ -964,12 +982,12 @@ const Deposit = () => {
                       <>
                         <div className="px-4 py-3">
                           <label className="text-xs text-fx-dust font-medium">Account Holder</label>
-                          <div className="mt-0.5 text-sm font-semibold text-fx-sand">{depositWallet.accountName || 'FiatX User'}</div>
+                          <div className="mt-0.5 text-sm font-semibold text-fx-sand">{depositWallet.networkInfo?.accountName || 'FiatX User'}</div>
                         </div>
-                        {depositWallet.bankName && (
+                        {depositWallet.networkInfo?.bankName && (
                           <div className="px-4 py-3">
                             <label className="text-xs text-fx-dust font-medium">Bank Name</label>
-                            <div className="mt-0.5 text-sm font-semibold text-fx-sand">{depositWallet.bankName}</div>
+                            <div className="mt-0.5 text-sm font-semibold text-fx-sand">{depositWallet.networkInfo.bankName}</div>
                           </div>
                         )}
                       </>
@@ -992,27 +1010,6 @@ const Deposit = () => {
                       </div>
                     </div>
 
-                    {activeTab === 'crypto' && depositWallet.memo && (
-                      <div className="px-4 py-3">
-                        <label className="text-xs text-fx-dust font-medium">Memo / Tag</label>
-                        <div className="mt-0.5 flex items-center justify-between gap-3">
-                          <span className="text-sm font-mono text-fx-sand">{depositWallet.memo}</span>
-                          <button
-                            onClick={() => copyToClipboard(depositWallet.memo || '')}
-                            className="p-2 text-fx-dust hover:text-fx-brass transition-colors shrink-0"
-                          >
-                            <Copy size={16} />
-                          </button>
-                        </div>
-                      </div>
-                    )}
-
-                    {activeTab === 'fiat' && depositWallet.bankCode && (
-                      <div className="px-4 py-3">
-                        <label className="text-xs text-fx-dust font-medium">SWIFT / BIC</label>
-                        <div className="mt-0.5 text-sm font-mono text-fx-sand">{depositWallet.bankCode}</div>
-                      </div>
-                    )}
                   </div>
 
                   {showSimulationDepositFlow ? renderSimulationDepositFlow() : null}
@@ -1057,7 +1054,7 @@ const Deposit = () => {
               <div>
                 <h3 className="text-lg font-bold text-fx-sand">Simulate Deposit</h3>
                 <p className="text-sm text-fx-dust mt-1">
-                  Enter an amount for the mock {depositWallet.asset.type === 'CRYPTO' ? 'crypto' : 'fiat'} deposit. Final risk simulation now happens in Admin Risk Policy Executions.
+                  Enter an amount for the mock {selectedAsset?.type === 'CRYPTO' ? 'crypto' : 'fiat'} deposit. Final risk simulation now happens in Admin Risk Policy Executions.
                 </p>
               </div>
               <button
@@ -1075,12 +1072,12 @@ const Deposit = () => {
               <div className="rounded-xl border border-fx-rule bg-fx-charcoal/50 p-4 space-y-2">
                 <div className="flex items-center justify-between gap-3 text-sm">
                   <span className="text-fx-dust">Asset</span>
-                  <span className="font-semibold text-fx-sand">{depositWallet.asset.code}</span>
+                  <span className="font-semibold text-fx-sand">{selectedAsset?.code}</span>
                 </div>
                 <div className="flex items-center justify-between gap-3 text-sm">
                   <span className="text-fx-dust">Wallet</span>
                   <span className="font-mono text-xs text-fx-sand text-right break-all">
-                    {depositWallet.asset.type === 'CRYPTO' ? depositWallet.address : depositWallet.iban}
+                    {selectedAsset?.type === 'CRYPTO' ? depositWallet.address : depositWallet.iban}
                   </span>
                 </div>
               </div>
@@ -1096,7 +1093,7 @@ const Deposit = () => {
                 />
               </div>
 
-              {depositWallet.asset.type === 'CRYPTO' && (
+              {selectedAsset?.type === 'CRYPTO' && (
                 <div>
                   <label className="text-xs text-fx-dust font-medium block mb-1">Counterparty</label>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
