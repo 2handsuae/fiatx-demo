@@ -29,16 +29,16 @@ interface WalletItem {
   walletRole?: string;
   network: string;
   status: string;
-  address?: string;
-  iban?: string;
-  custodianRef?: string;
-  networkInfo?: {
+  address: string | null;
+  iban: string | null;
+  custodianRef: string | null;
+  networkInfo: {
     kind: string;
     custodian: string;
     bankName: string | null;
     accountName: string | null;
     explorerUrl: string | null;
-  };
+  } | null;
 }
 
 interface Transaction {
@@ -393,7 +393,7 @@ const Deposit = () => {
 
       return {
         network: wallet.network,
-        toAddress: wallet.address,
+        toAddress: wallet.address ?? undefined,
         contractAddress: asset.contractAddress ?? undefined,
         amount,
         txHash: txSeed,
@@ -407,7 +407,7 @@ const Deposit = () => {
 
     return {
       network: wallet.network,
-      iban: wallet.iban,
+      iban: wallet.iban ?? undefined,
       amount,
       referenceNo: `REF-${asset.code}-${referenceSuffix}`,
       fromIban: `AE07MOCK${ibanSeed}`,
