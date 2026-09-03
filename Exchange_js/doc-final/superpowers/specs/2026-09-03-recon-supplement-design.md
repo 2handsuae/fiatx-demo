@@ -102,11 +102,11 @@
 
 ### 2.6 审计（铁律①）
 
-每条路三个码，出生即冻结四属性，`assertActionSpec` 校验；每次写带显式 `requestId`；主体是业务单号，案号与定性号进 metadata：
+每条路三个码（① 多一个拒绝码，共十个），出生即冻结四属性，`assertActionSpec` 校验；每次写带显式 `requestId`；主体是业务单号，案号与定性号进 metadata：
 
 | 路 | 码 | domain | correlationMode | 特有必填 |
 |---|---|---|---|---|
-| ① | `DEPOSIT_SUPPLEMENT_REQUESTED` / `DEPOSIT_SUPPLEMENT_STARTED` / `DEPOSIT_SUPPLEMENTED` | DEPOSIT | 同 `DEPOSIT_RETURN_*` 三件套 | STARTED 必填 `approvalNo`；SUPPLEMENTED 必填 `depositNo` |
+| ① | `DEPOSIT_SUPPLEMENT_REQUESTED` / `DEPOSIT_SUPPLEMENT_STARTED` / `DEPOSIT_SUPPLEMENT_REJECTED` / `DEPOSIT_SUPPLEMENTED` | DEPOSIT | `N`（信号无 correlationId，照 `INBOUND_SIGNAL_*`）| STARTED / REJECTED 必填 `approvalNo`；SUPPLEMENTED 必填 `depositNo`。① 拒绝会改信号状态（持久化），所以比 ②③ 多一个拒绝码 |
 | ② | `DEPOSIT_CLAWBACK_REQUESTED` / `DEPOSIT_CLAWBACK_STARTED` / `DEPOSIT_CLAWED_BACK` | DEPOSIT | 同上 | 同上；CLAWED_BACK 必填 `externalLineId` |
 | ③ | `WITHDRAW_RETURN_CLAIM_REQUESTED` / `WITHDRAW_RETURN_CLAIM_STARTED` / `WITHDRAW_RETURNED_AFTER_SUCCESS` | WITHDRAW | 同上 | 同上 |
 
@@ -241,10 +241,10 @@
 | `withdraw_transactions` | + `returnExternalLineId String? @unique`、`returnReconCaseNo String?` |
 | `reconciliation_dispositions` | + `supplementNo String?`；`outlet` 新值 `SUPPLEMENT`；`deferredTarget` 新值 `SUPPLEMENT_PAYOUT_RETURN` |
 
-常量：`TB_TRANSFER_CODES.DEPOSIT_CLAWBACK`（下一个空号）+ `TB_CODE_TO_COA` 无新科目；`ApprovalActionTypes` +3、`DEFAULT_APPROVAL_POLICIES` +3；`AuditActions` +9、`AuditBusinessWorkflowTypes` +3；`PermissionGroup` +3、`route()` +4、`ACTION_BUCKET_CATALOG` 桶各一条、`OPS_OFFICER` 持有；`DomainEventNames` 无新事件（审批 decided 事件由 `ApprovalHandlerBase` 按既有命名派生）。
+常量：`TB_TRANSFER_CODES.DEPOSIT_CLAWBACK`（下一个空号）+ `TB_CODE_TO_COA` 无新科目；`ApprovalActionTypes` +3、`DEFAULT_APPROVAL_POLICIES` +3；`AuditActions` +10、`AuditBusinessWorkflowTypes` +3；`PermissionGroup` +3、`route()` +4、`ACTION_BUCKET_CATALOG` 桶各一条、`OPS_OFFICER` 持有；`DomainEventNames` 无新事件（审批 decided 事件由 `ApprovalHandlerBase` 按既有命名派生）。
 
 ## 附录 B · 本批触发的交付清单行（`rules/delivery-checklist.md`）
 
-任何持久状态变化（审计 + requestId）｜ 新增审计动作码（9 个，四属性冻结）｜ 新状态 / 新结局（`CLAWED_BACK` 一条边、`SUCCESS→RETURNED` 一条边、信号两态；计时：都不要，终态或有审批超时兜着）｜ 动了钱（同步直调、不建资金单、不新增科目；`verify:coa`）｜ 该走 maker-checker（三类走 `ApprovalsService` 正门）｜ 新增审批策略（`MAKER_GROUP_BY_POLICY` +3）｜ 新增权限组（三个，四处齐）｜ 新增 admin 端点（4 条，登记 + sync + 重启）｜ 新增业务动作（前端入口三个）｜ 改了交易三域（充值、提现都动了；兑换无对应，因为兑换不产生外部行）｜ 新字段 / 新状态到客户面（`CLAWED_BACK` 客户可见，白名单加）｜ 涉及金额（最小单位存）｜ 对外识别（业务键）｜ 改 schema（一个迁移，无 backfill）｜ 改页面或种子（`data.md` / `script.md` / `baseline.md`）｜ 改了前端（截图六张）｜ **本任务是多波中的一波**（合并前把「承接 B 批」写进二期 spec `2026-09-03-internal-transfer-order-design.md` 开头：实际偏差 / 新事实 / 二期前提变化；**只写承接，不展开二期**，展开是二期新会话读总纲 + 承接 + 骨架后跟业主脑暴的活；本 spec 随即归档）｜ 每轮收尾（modules v8-recon / v4-deposit / v5-withdraw / overview、手册、decisions +5、CHANGELOG、BACKLOG 销三行加两行）
+任何持久状态变化（审计 + requestId）｜ 新增审计动作码（10 个，四属性冻结）｜ 新状态 / 新结局（`CLAWED_BACK` 一条边、`SUCCESS→RETURNED` 一条边、信号两态；计时：都不要，终态或有审批超时兜着）｜ 动了钱（同步直调、不建资金单、不新增科目；`verify:coa`）｜ 该走 maker-checker（三类走 `ApprovalsService` 正门）｜ 新增审批策略（`MAKER_GROUP_BY_POLICY` +3）｜ 新增权限组（三个，四处齐）｜ 新增 admin 端点（4 条，登记 + sync + 重启）｜ 新增业务动作（前端入口三个）｜ 改了交易三域（充值、提现都动了；兑换无对应，因为兑换不产生外部行）｜ 新字段 / 新状态到客户面（`CLAWED_BACK` 客户可见，白名单加）｜ 涉及金额（最小单位存）｜ 对外识别（业务键）｜ 改 schema（一个迁移，无 backfill）｜ 改页面或种子（`data.md` / `script.md` / `baseline.md`）｜ 改了前端（截图六张）｜ **本任务是多波中的一波**（合并前把「承接 B 批」写进二期 spec `2026-09-03-internal-transfer-order-design.md` 开头：实际偏差 / 新事实 / 二期前提变化；**只写承接，不展开二期**，展开是二期新会话读总纲 + 承接 + 骨架后跟业主脑暴的活；本 spec 随即归档）｜ 每轮收尾（modules v8-recon / v4-deposit / v5-withdraw / overview、手册、decisions +5、CHANGELOG、BACKLOG 销三行加两行）
 
 不触发：退役业务动作（无）｜ 新事件（无）
