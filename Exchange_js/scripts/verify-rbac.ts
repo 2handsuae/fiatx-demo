@@ -333,7 +333,6 @@ function runS6FrontendBackendCodeDiff(): void {
 // 不是「用完没删」，与上面这段注释警惕的腐烂死行不同类——每个对应任务落地 controller
 // 后必须把自己那一行从这份白名单删掉，任务收尾前 S7 应重新验证不再需要该条例外。
 const S7_PENDING_DEAD_ROWS = new Set<string>([
-  'api.post.deposit_transactions_supplement',        // Task 5：POST /deposit-transactions/supplement 控制器落地后删
   'api.post.deposit_transactions_depositno_clawback', // Task 6：POST /deposit-transactions/:depositNo/clawback 控制器落地后删
   'api.post.withdraw_transactions_withdrawno_return_claim', // Task 7：POST /withdraw-transactions/:withdrawNo/return-claim 控制器落地后删
 ]);

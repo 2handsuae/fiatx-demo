@@ -18,6 +18,8 @@ import { DepositApplicantActionsService } from './deposit-applicant-actions.serv
 import { CustomersModule } from '../../identity/customers/customers.module';
 import { MaterialRequestsModule } from '../../identity/material-requests/material-requests.module';
 import { L1GateModule } from '../shared/l1-gate/l1-gate.module';
+import { ReconciliationModule } from '../../clearing-settle/reconciliation/reconciliation.module';
+import { DepositSupplementApprovalService } from './deposit-supplement-approval.service';
 
 @Module({
   imports: [
@@ -41,6 +43,9 @@ import { L1GateModule } from '../shared/l1-gate/l1-gate.module';
     // L1 快照求值器）。与提现/兑换同形状的平引用即可 —— L1GateModule 自己已用
     // forwardRef 解开与 CustomersModule 的真实 require 环。
     L1GateModule,
+    // 平账 B 批 ①：initiateSupplement 要靠 SupplementEvidenceService 查证账单行、
+    // onSupplementDecided 批准后要靠 DispositionService 回挂/改写补单号。
+    ReconciliationModule,
   ],
   controllers: [DepositTransactionsController],
   providers: [
@@ -52,6 +57,7 @@ import { L1GateModule } from '../shared/l1-gate/l1-gate.module';
     DepositSeizeApprovalService,
     DepositUnfreezeApprovalService,
     DepositApplicantActionsService,
+    DepositSupplementApprovalService,
   ],
   exports: [DepositTransactionsService, DepositWorkflowService, DepositApplicantActionsService],
 })

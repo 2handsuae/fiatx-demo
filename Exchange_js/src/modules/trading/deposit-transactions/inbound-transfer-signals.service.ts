@@ -6,6 +6,7 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
+import { OnEvent } from '@nestjs/event-emitter';
 import { Prisma } from '@prisma/client';
 import { generateReferenceNo } from '../../../common/utils/no-generator.util';
 import { PrismaService } from '../../../core/prisma/prisma.service';
@@ -32,6 +33,11 @@ import {
   SimulationRiskReason,
 } from './dto/inbound-transfer-signal.dto';
 import { WalletRole } from '../../asset-treasury/wallets/dto/wallet.dto';
+import { ApprovalsService } from '../../governance/approvals/approvals.service';
+import { ApprovalActionTypes, ApprovalActorContext } from '../../governance/approvals/constants/approval.constants';
+import { ApprovalDecidedEvent } from '../../governance/approvals/approval-handler.base';
+import { SupplementEvidenceService, ClaimableLine } from '../../clearing-settle/reconciliation/disposition/supplement-evidence.service';
+import { DispositionService as ReconDispositionService } from '../../clearing-settle/reconciliation/disposition/disposition.service';
 
 export interface ScanSummaryRecord {
   signalId: string;
@@ -64,6 +70,9 @@ export class InboundTransferSignalsService {
     private readonly fundsOrderService: FundsOrderService,
     private readonly customerAccess: CustomerAccessService,
     private readonly auditLogsService: AuditLogsService,
+    private readonly approvalsService: ApprovalsService,
+    private readonly supplementEvidence: SupplementEvidenceService,
+    private readonly reconDisposition: ReconDispositionService,
   ) {}
 
   async findAllForCustomer(
@@ -242,6 +251,84 @@ export class InboundTransferSignalsService {
       }
       throw error;
     }
+  }
+
+  // ═══ 平账 B 批 ①：运营凭账单行补录（spec §3）═══════════════════════════════
+  // 与 createForCustomer 的区别：① 不做 assertTradingEligibility——那是拦客户「发起」的，
+  // 钱已经物理进了，该冻该退由充值域自己的闸决定；② 金额 / 币种 / 钱包 / 参考号全从账单行来，
+  // 运营只补来源地址或来源 IBAN；③ 先挂「待复核」，CFO 批了才进通道。
+  async initiateSupplement(
+    dto: { externalLineId: string; caseNo: string; dispositionNo: string; fromAddress?: string; fromIban?: string; reason: string },
+    actor: ApprovalActorContext,
+  ): Promise<{ signalNo: string; approvalNo: string; status: 'SUPPLEMENT_PENDING' }> {
+    const line = await this.supplementEvidence.assertClaimable({ caseNo: dto.caseNo, externalLineId: dto.externalLineId, dispositionNo: dto.dispositionNo, kind: 'SUPPLEMENT_DEPOSIT' });
+    const isCrypto = line.assetType === 'CRYPTO';
+    if (isCrypto && !dto.fromAddress?.trim()) throw new BadRequestException('链上补录必须填来源地址');
+    if (!isCrypto && !dto.fromIban?.trim()) throw new BadRequestException('法币补录必须填来源 IBAN');
+    if (!line.externalRef) throw new BadRequestException('该账单行没有参考号，补录后对账配不回去——先在账单侧补参考号');
+    const channelType = isCrypto ? InboundTransferChannelType.CRYPTO : InboundTransferChannelType.FIAT;
+    const dedupeKey = this.buildDedupeKey({ channelType, walletId: line.walletId, assetId: line.assetId, txHash: isCrypto ? line.externalRef : undefined, referenceNo: isCrypto ? undefined : line.externalRef });
+    const created = await (this.prisma as any).inboundTransferSignal.create({
+      data: {
+        signalNo: generateReferenceNo('SIG'),
+        ownerId: line.ownerId, walletId: line.walletId, assetId: line.assetId, channelType,
+        amount: new Prisma.Decimal(line.amountMajor),
+        txHash: isCrypto ? line.externalRef : null, referenceNo: isCrypto ? null : line.externalRef,
+        fromAddress: dto.fromAddress ?? null, fromIban: dto.fromIban ?? null,
+        counterpartyIsVasp: isCrypto ? false : null,
+        status: InboundTransferSignalStatus.SUPPLEMENT_PENDING, dedupeKey, submittedAt: new Date(),
+        supplementOfExternalLineId: line.externalLineId, supplementReconCaseNo: line.caseNo,
+        supplementDispositionNo: line.dispositionNo, supplementEffectiveDate: line.businessDate,
+        supplementRequestedByUserId: actor.userId ?? null,
+      },
+    });
+    const traceId = randomUUID();
+    const impact = `补录 ${line.ownerNo ?? line.ownerId} 的 ${line.amountMajor} ${line.currency} 入金（对账案 ${line.caseNo}，账单行 ${line.externalRef}）——充值单将照常过 KYT 与合规闸`;
+    const approvalCase = await this.approvalsService.createAndSubmit(
+      { actionType: ApprovalActionTypes.DEPOSIT_SUPPLEMENT, entityRef: created.signalNo, traceId,
+        objectSnapshot: { signalNo: created.signalNo, caseNo: line.caseNo, dispositionNo: line.dispositionNo, externalLineId: line.externalLineId,
+          externalRef: line.externalRef, walletNo: line.walletNo, customerNo: line.ownerNo, amount: line.amountMajor, currency: line.currency, impact } },
+      { reason: dto.reason, traceId }, actor,
+    );
+    await this.reconDisposition.linkSupplement(line.dispositionNo!, created.signalNo, 'SUPPLEMENT_DEPOSIT');
+    await this.auditLogsService.recordByActor({
+      action: AuditActions.DEPOSIT_SUPPLEMENT_REQUESTED, actionDomain: 'DEPOSIT',
+      primarySubjectType: AuditEntityTypes.INBOUND_TRANSFER_SIGNAL, primarySubjectNo: created.signalNo,
+      ownerCustomerNo: line.ownerNo ?? undefined,
+      subjects: [
+        { subjectType: AuditEntityTypes.INBOUND_TRANSFER_SIGNAL, subjectNo: created.signalNo, subjectRole: 'PRIMARY' },
+        { subjectType: 'RECONCILIATION_CASE', subjectNo: line.caseNo, subjectRole: 'RELATED' },
+        { subjectType: AuditEntityTypes.APPROVAL_CASE, subjectNo: approvalCase.approvalNo, subjectRole: 'INSTRUMENT' },
+      ],
+      reason: dto.reason, approvalNo: approvalCase.approvalNo,
+      requestId: `DEPOSIT_SUPPLEMENT_REQUESTED_${created.signalNo}_${randomUUID()}`,
+      metadata: { caseNo: line.caseNo, dispositionNo: line.dispositionNo, externalLineId: line.externalLineId, externalRef: line.externalRef, amount: line.amountMajor, currency: line.currency },
+      sourcePlatform: 'ADMIN_API',
+    } as any, { actorType: 'ADMIN', actorNo: actor.userNo ?? actor.userId ?? 'ADMIN', actorDisplayName: actor.userNo ?? actor.userId ?? 'ADMIN', actorRolesAtTime: actor.roleCodes ?? [] });
+    return { signalNo: created.signalNo, approvalNo: approvalCase.approvalNo, status: 'SUPPLEMENT_PENDING' };
+  }
+
+  @OnEvent('workflow.deposit-supplement.decided', { async: true })
+  async onSupplementDecided(event: ApprovalDecidedEvent) {
+    const signal = await (this.prisma as any).inboundTransferSignal.findUnique({ where: { signalNo: event.entityRef }, include: { wallet: { include: { asset: true } } } });
+    if (!signal) return; // entityRef 不是我们的主体
+    if (signal.status !== InboundTransferSignalStatus.SUPPLEMENT_PENDING) {
+      this.logger.warn(`Supplement ${signal.signalNo} decided ${event.decision} but status is ${signal.status} — ignored`);
+      return;
+    }
+    if (event.decision !== 'APPROVED') {
+      await (this.prisma as any).inboundTransferSignal.update({ where: { id: signal.id }, data: { status: InboundTransferSignalStatus.SUPPLEMENT_REJECTED, scanResult: `Supplement ${event.decision} (${event.approvalNo})` } });
+      if (signal.supplementDispositionNo) await this.reconDisposition.unlinkSupplement(signal.supplementDispositionNo, signal.signalNo);
+      await this.recordSignalAudit({ action: AuditActions.DEPOSIT_SUPPLEMENT_REJECTED, signal, reason: `补录审批 ${event.decision}：${event.decisionReason ?? ''}`, approvalNo: event.approvalNo, metadata: { approvalNo: event.approvalNo, decision: event.decision }, sourcePlatform: 'SYSTEM' });
+      return;
+    }
+    await (this.prisma as any).inboundTransferSignal.update({ where: { id: signal.id }, data: { status: InboundTransferSignalStatus.PENDING_SCAN } });
+    await this.recordSignalAudit({ action: AuditActions.DEPOSIT_SUPPLEMENT_STARTED, signal, reason: 'CFO 批准补录，信号进入正常充值通道', approvalNo: event.approvalNo, metadata: { approvalNo: event.approvalNo, caseNo: signal.supplementReconCaseNo }, sourcePlatform: 'SYSTEM' });
+    const result = await this.processSignal(signal, signal.wallet, InboundTransferScanMode.QUICK_DEMO, { effectiveDate: signal.supplementEffectiveDate ?? undefined });
+    if (result.depositNo && signal.supplementDispositionNo) {
+      await this.reconDisposition.replaceSupplement(signal.supplementDispositionNo, signal.signalNo, result.depositNo);
+    }
+    await this.recordSignalAudit({ action: AuditActions.DEPOSIT_SUPPLEMENTED, signal, reason: '补录完成：充值单已建，走正常 KYT / 合规', approvalNo: event.approvalNo, depositNo: result.depositNo, metadata: { depositNo: result.depositNo, caseNo: signal.supplementReconCaseNo, effectiveDate: signal.supplementEffectiveDate }, sourcePlatform: 'SYSTEM' });
   }
 
   async scanForCustomer(
@@ -685,8 +772,13 @@ export class InboundTransferSignalsService {
     reason: string;
     metadata: Record<string, unknown>;
     sourcePlatform: string;
+    // 平账 B 批 ①：DEPOSIT_SUPPLEMENT_STARTED/REJECTED 的审计合同把 approvalNo 定成
+    // 顶层必填字段（DEPOSIT_SUPPLEMENTED 是 depositNo）——放进 metadata 不算数，
+    // assertActionSpec() 校验的是 input 对象本身的同名属性，见 audit-logs.service.ts。
+    approvalNo?: string;
+    depositNo?: string;
   }) {
-    const { action, signal, reason, metadata, sourcePlatform } = params;
+    const { action, signal, reason, metadata, sourcePlatform, approvalNo, depositNo } = params;
     await this.auditLogsService.recordSystem({
       action,
       actionDomain: 'DEPOSIT',
@@ -697,6 +789,8 @@ export class InboundTransferSignalsService {
       ],
       reason,
       requestId: `${action}_${signal.signalNo}_${randomUUID()}`,
+      approvalNo,
+      depositNo,
       metadata,
       sourcePlatform,
     } as any);

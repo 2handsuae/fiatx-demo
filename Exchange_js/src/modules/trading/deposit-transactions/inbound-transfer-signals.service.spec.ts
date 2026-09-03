@@ -15,6 +15,9 @@ import {
   FundsOrderAction,
   FundsOrderStatus,
 } from '../../funds-orders/dto/funds-order.dto';
+import { ApprovalsService } from '../../governance/approvals/approvals.service';
+import { SupplementEvidenceService } from '../../clearing-settle/reconciliation/disposition/supplement-evidence.service';
+import { DispositionService as ReconDispositionService } from '../../clearing-settle/reconciliation/disposition/disposition.service';
 
 describe('InboundTransferSignalsService', () => {
   let service: InboundTransferSignalsService;
@@ -22,6 +25,10 @@ describe('InboundTransferSignalsService', () => {
   let customerAccess: any;
   let depositService: any;
   let fundsOrderService: any;
+  let auditLogsService: any;
+  let approvalsService: any;
+  let supplementEvidence: any;
+  let reconDisposition: any;
 
   beforeEach(async () => {
     prisma = {
@@ -89,6 +96,26 @@ describe('InboundTransferSignalsService', () => {
       advance: jest.fn(),
     };
 
+    auditLogsService = {
+      create: jest.fn().mockResolvedValue(undefined),
+      recordSystem: jest.fn().mockResolvedValue(undefined),
+      recordByActor: jest.fn().mockResolvedValue(undefined),
+    };
+
+    approvalsService = {
+      createAndSubmit: jest.fn(),
+    };
+
+    supplementEvidence = {
+      assertClaimable: jest.fn(),
+    };
+
+    reconDisposition = {
+      linkSupplement: jest.fn(),
+      replaceSupplement: jest.fn(),
+      unlinkSupplement: jest.fn(),
+    };
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         InboundTransferSignalsService,
@@ -96,13 +123,10 @@ describe('InboundTransferSignalsService', () => {
         { provide: CustomerAccessService, useValue: customerAccess },
         { provide: DepositTransactionsService, useValue: depositService },
         { provide: FundsOrderService, useValue: fundsOrderService },
-        {
-          provide: AuditLogsService,
-          useValue: {
-            create: jest.fn().mockResolvedValue(undefined),
-            recordSystem: jest.fn().mockResolvedValue(undefined),
-          },
-        },
+        { provide: AuditLogsService, useValue: auditLogsService },
+        { provide: ApprovalsService, useValue: approvalsService },
+        { provide: SupplementEvidenceService, useValue: supplementEvidence },
+        { provide: ReconDispositionService, useValue: reconDisposition },
       ],
     }).compile();
 
@@ -733,5 +757,59 @@ describe('InboundTransferSignalsService', () => {
       }),
     );
     expect(result.id).toBe('sig-viban-1');
+  });
+
+  describe('平账 B 批 ①：补录', () => {
+    const line = { externalLineId: 'line-1', caseNo: 'REC1', caseId: 'c1', businessDate: '2026-09-01', dispositionNo: 'RCD1',
+      walletId: 'w1', walletNo: 'W-1', walletAddress: null, walletIban: 'AE00', ownerId: 'cust-1', ownerNo: 'CUS1',
+      assetId: 'a1', currency: 'AED', assetType: 'FIAT', decimals: 2, direction: 'IN', amountMinor: '120000', amountMajor: '1200.00',
+      externalRef: 'REF-1', channelRef: null, datetime: '2026-09-01T10:00:00.000Z', description: 'Incoming', source: 'ZAND' };
+    const actor = { actorType: 'ADMIN', userId: 'u1', userNo: 'ADM1', role: 'OPS_OFFICER', roleCodes: ['OPS_OFFICER'] } as any;
+
+    it('发起：法币缺来源 IBAN → 400；链上缺来源地址 → 400', async () => {
+      supplementEvidence.assertClaimable.mockResolvedValue(line);
+      await expect(service.initiateSupplement({ externalLineId: 'line-1', caseNo: 'REC1', dispositionNo: 'RCD1', reason: 'x' }, actor)).rejects.toThrow(/IBAN/);
+      supplementEvidence.assertClaimable.mockResolvedValue({ ...line, assetType: 'CRYPTO', externalRef: '0xabc' });
+      await expect(service.initiateSupplement({ externalLineId: 'line-1', caseNo: 'REC1', dispositionNo: 'RCD1', reason: 'x' }, actor)).rejects.toThrow(/地址/);
+    });
+
+    it('发起：建 SUPPLEMENT_PENDING 信号（参考号 = 账单行参考号、金额换业务单位、生效日 = 案子业务日）→ 审批单 → 回挂 → 审计', async () => {
+      supplementEvidence.assertClaimable.mockResolvedValue(line);
+      prisma.inboundTransferSignal.create.mockResolvedValue({ id: 's1', signalNo: 'SIG1', walletId: 'w1' });
+      approvalsService.createAndSubmit.mockResolvedValue({ approvalNo: 'APR1' });
+      const r = await service.initiateSupplement({ externalLineId: 'line-1', caseNo: 'REC1', dispositionNo: 'RCD1', fromIban: 'AE11', reason: '银行看到了我们漏了' }, actor);
+      const data = prisma.inboundTransferSignal.create.mock.calls[0][0].data;
+      expect(data).toMatchObject({ status: 'SUPPLEMENT_PENDING', channelType: 'FIAT', referenceNo: 'REF-1', fromIban: 'AE11',
+        supplementOfExternalLineId: 'line-1', supplementReconCaseNo: 'REC1', supplementDispositionNo: 'RCD1', supplementEffectiveDate: '2026-09-01' });
+      // Prisma.Decimal（真实 @prisma/client 导出，非 mock）在 toString() 时会规约掉小数尾零——
+      // 直接 `node -e "new (require('@prisma/client').Prisma.Decimal)('1200.00').toString()"`
+      // 验证过是 '1200'，不是 '1200.00'。这里断言的是数值换算对（120000 分 → 1200，不是误用
+      // 分为单位的 120000），不是字符串格式化。
+      expect(String(data.amount)).toBe('1200');
+      expect(approvalsService.createAndSubmit.mock.calls[0][0]).toMatchObject({ actionType: 'DEPOSIT_SUPPLEMENT', entityRef: 'SIG1' });
+      expect(reconDisposition.linkSupplement).toHaveBeenCalledWith('RCD1', 'SIG1', 'SUPPLEMENT_DEPOSIT');
+      expect(auditLogsService.recordByActor.mock.calls[0][0]).toMatchObject({ action: 'DEPOSIT_SUPPLEMENT_REQUESTED', primarySubjectNo: 'SIG1' });
+      expect(r).toEqual({ signalNo: 'SIG1', approvalNo: 'APR1', status: 'SUPPLEMENT_PENDING' });
+    });
+
+    it('批准：信号 → PENDING_SCAN，processSignal 带生效日，回挂改写为充值单号，审计 SUPPLEMENTED', async () => {
+      prisma.inboundTransferSignal.findUnique.mockResolvedValue({ id: 's1', signalNo: 'SIG1', status: 'SUPPLEMENT_PENDING', walletId: 'w1', channelType: 'FIAT',
+        supplementDispositionNo: 'RCD1', supplementEffectiveDate: '2026-09-01', wallet: { id: 'w1', asset: { type: 'FIAT' } } });
+      const spy = jest.spyOn(service as any, 'processSignal').mockResolvedValue({ depositNo: 'DEP7', depositId: 'd7' });
+      await service.onSupplementDecided({ decision: 'APPROVED', entityRef: 'SIG1', approvalId: 'ap1', approvalNo: 'APR1' } as any);
+      expect(spy.mock.calls[0][3]).toEqual({ effectiveDate: '2026-09-01' });
+      expect(reconDisposition.replaceSupplement).toHaveBeenCalledWith('RCD1', 'SIG1', 'DEP7');
+      const actions = auditLogsService.recordSystem.mock.calls.map((c: any[]) => c[0].action);
+      expect(actions).toEqual(expect.arrayContaining(['DEPOSIT_SUPPLEMENT_STARTED', 'DEPOSIT_SUPPLEMENTED']));
+    });
+
+    it('拒绝：信号 → SUPPLEMENT_REJECTED，解挂，审计 REJECTED；不进通道', async () => {
+      prisma.inboundTransferSignal.findUnique.mockResolvedValue({ id: 's1', signalNo: 'SIG1', status: 'SUPPLEMENT_PENDING', supplementDispositionNo: 'RCD1' });
+      const spy = jest.spyOn(service as any, 'processSignal');
+      await service.onSupplementDecided({ decision: 'DECLINED', entityRef: 'SIG1', approvalId: 'ap1', approvalNo: 'APR1' } as any);
+      expect(spy).not.toHaveBeenCalled();
+      expect(prisma.inboundTransferSignal.update.mock.calls[0][0].data.status).toBe('SUPPLEMENT_REJECTED');
+      expect(reconDisposition.unlinkSupplement).toHaveBeenCalledWith('RCD1', 'SIG1');
+    });
   });
 });

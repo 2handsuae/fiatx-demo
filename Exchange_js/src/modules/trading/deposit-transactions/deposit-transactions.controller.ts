@@ -15,6 +15,7 @@ import { DepositTransactionsService } from './deposit-transactions.service';
 import {
   DepositTransactionQueryDto,
   InitiateDepositReturnDto,
+  InitiateDepositSupplementDto,
 } from './dto/deposit-transaction.dto';
 import { DepositWorkflowService } from './deposit-workflow.service';
 import {
@@ -125,6 +126,23 @@ export class DepositTransactionsController {
   // too; adminFreeze() (deposit-workflow.service.ts) had no other caller and was
   // removed alongside it. service.updateStatus() stays — still the direct call target
   // for every other internal FREEZE/status transition (KYT-rejected auto-freeze etc).
+
+  // 平账 B 批 ①：凭对账账单行补喂入站信号，CFO 批准后走正常充值通道。静态段路径，
+  // 但仍按本文件惯例排在所有 `:id` 路由之前声明。
+  @Post('supplement')
+  @ApiOperation({ summary: '平账 B 批 ①：凭对账账单行补录漏记入金（CFO maker-checker）' })
+  @RequirePermissions(buildPermissionCode('POST', '/deposit-transactions/supplement'))
+  initiateSupplement(@Body() dto: InitiateDepositSupplementDto, @Req() req: any) {
+    this.assertAdmin(req);
+    const actor: ApprovalActorContext = {
+      actorType: 'ADMIN',
+      userId: req.user?.userId,
+      userNo: req.user?.userNo,
+      role: req.user?.role,
+      roleCodes: req.user?.roleCodes || (req.user?.role ? [req.user.role] : []),
+    };
+    return this.inboundTransferSignalsService.initiateSupplement(dto, actor);
+  }
 
   @Post(':id/waive-limit')
   @ApiOperation({ summary: 'Waive below-minimum amount hold (PASS disposition)' })

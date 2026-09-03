@@ -120,3 +120,15 @@ export class InitiateDepositReturnDto {
   @IsNotEmpty()
   reason!: string;
 }
+
+// 平账 B 批 ①：POST /deposit-transactions/supplement 的入参。金额 / 币种 / 钱包 / 参考号
+// 全从账单行来（服务端经 SupplementEvidenceService.assertClaimable 查证），运营只补来源
+// 地址（链上）或来源 IBAN（法币）+ 理由；reason 进审批单与审计留痕。
+export class InitiateDepositSupplementDto {
+  @IsString() externalLineId!: string;
+  @IsString() caseNo!: string;
+  @IsString() dispositionNo!: string;
+  @IsOptional() @IsString() fromAddress?: string;
+  @IsOptional() @IsString() fromIban?: string;
+  @IsString() reason!: string;
+}
