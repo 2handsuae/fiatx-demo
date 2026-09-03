@@ -1,25 +1,32 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { X, ShieldOff, ShieldCheck, Zap, Pencil } from 'lucide-react';
+import { X, ShieldOff, ShieldCheck } from 'lucide-react';
 import { AdminSessionError, adminFetch, getApiErrorMessage } from '../utils/adminFetch';
+import { copyToClipboard } from '../utils/clipboard';
 import { adminButtonClass } from '../components/common/adminButtonStyles';
 import { DetailPageHeader, InfoField } from '../components/compliance/DetailPageComponents';
 import { AdminBadge } from '../components/ui/AdminBadge';
+import { useAdminSession } from '../contexts/AdminSessionContext';
+import { PERMISSIONS } from '../rbac/permissions';
 
 /* ── Interfaces ──────────────────────────────────────────────── */
 
 interface AssetDetailData {
   id: string;
-  assetNo?: string | null;
+  assetNo: string;
   type: 'FIAT' | 'CRYPTO';
   currency: string;
   code: string;
-  network: string | null;
+  network: string;
   decimals: number;
   description: string | null;
+  contractAddress: string | null;
+  isNative: boolean;
+  standard: string | null;
+  minConfirmations: number;
+  custodianAssetKey: string | null;
   status: string;
-  depositEnabled?: boolean;
-  withdrawalEnabled?: boolean;
+  approvalCaseNo: string | null;
   suspendedAt?: string | null;
   suspendReason?: string | null;
   createdAt: string;
@@ -79,18 +86,17 @@ const SidebarKV = ({
 export default function AssetDetail() {
   const { assetNo } = useParams<{ assetNo: string }>();
   const navigate = useNavigate();
+  const { hasAnyPermission } = useAdminSession();
 
   const [asset, setAsset] = useState<AssetDetailData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [copiedField, setCopiedField] = useState<string | null>(null);
 
   const [showSuspendModal, setShowSuspendModal] = useState(false);
   const [suspendReason, setSuspendReason] = useState('');
   const [submittingSuspend, setSubmittingSuspend] = useState(false);
-
-  const [showActivateModal, setShowActivateModal] = useState(false);
-  const [submittingActivate, setSubmittingActivate] = useState(false);
 
   const [showReactivateModal, setShowReactivateModal] = useState(false);
   const [submittingReactivate, setSubmittingReactivate] = useState(false);
@@ -119,27 +125,12 @@ export default function AssetDetail() {
     return () => window.clearTimeout(t);
   }, [notice]);
 
-  /* ── Activate / Suspend / Reactivate actions ── */
+  /* ── Suspend / Reactivate actions ── */
 
-  const handleSubmitActivate = async () => {
-    if (!asset?.assetNo) return;
-    setSubmittingActivate(true);
-    try {
-      const res = await adminFetch(
-        `${import.meta.env.VITE_API_URL}/admin/assets/${asset.assetNo}/activate`,
-        { method: 'POST' },
-      );
-      if (!res.ok) throw new Error(await getApiErrorMessage(res, 'Failed to submit activation request'));
-      const data = await res.json();
-      setShowActivateModal(false);
-      setNotice(`Activation request submitted for approval (${data.approvalNo}).`);
-      void fetchDetail();
-    } catch (err) {
-      if (err instanceof AdminSessionError) return;
-      setError(err instanceof Error ? err.message : 'Failed to submit activation request.');
-    } finally {
-      setSubmittingActivate(false);
-    }
+  const handleCopy = (text: string, field: string) => {
+    copyToClipboard(text);
+    setCopiedField(field);
+    setTimeout(() => setCopiedField(null), 2000);
   };
 
   const handleSubmitSuspend = async () => {
@@ -260,11 +251,22 @@ export default function AssetDetail() {
                 <div className="font-mono text-[9px] uppercase tracking-[0.1em] text-adm-t3">Status</div>
                 <div className="mt-1"><AdminBadge value={asset.status} /></div>
               </div>
+              {asset.approvalCaseNo && (
+                <div>
+                  <div className="font-mono text-[9px] uppercase tracking-[0.1em] text-adm-t3">Pending Approval</div>
+                  <button
+                    onClick={() => navigate(`/admin/governance/approvals/${asset.approvalCaseNo}`)}
+                    className="mt-1 font-mono text-[11px] text-adm-amber hover:underline"
+                  >
+                    {asset.approvalCaseNo}
+                  </button>
+                </div>
+              )}
             </div>
             <div className="mt-3 grid grid-cols-2 gap-x-8 gap-y-2">
               <InfoField label="Currency" value={asset.currency} mono />
               <InfoField label="Type" value={asset.type} />
-              {asset.network && <InfoField label="Network" value={asset.network} />}
+              <InfoField label="Network" value={asset.network} />
             </div>
           </section>
 
@@ -275,22 +277,24 @@ export default function AssetDetail() {
               <InfoField label="Code" value={asset.code} mono />
               <InfoField label="Currency" value={asset.currency} mono />
               <InfoField label="Type" value={asset.type} />
-              <InfoField label="Network" value={asset.network || '—'} />
+              <InfoField label="Network" value={asset.network} mono />
+              <InfoField
+                label="Contract Address"
+                value={asset.isNative ? 'Native' : asset.contractAddress || '—'}
+                mono
+                copyable={!asset.isNative}
+                copied={copiedField === 'contractAddress'}
+                onCopy={(v) => handleCopy(v, 'contractAddress')}
+              />
+              <InfoField label="Token Standard" value={asset.standard || '—'} />
+              <InfoField label="Confirmations" value={String(asset.minConfirmations)} mono />
+              <InfoField label="Custodian Asset Key" value={asset.custodianAssetKey || '—'} mono />
               <InfoField label="Decimals" value={String(asset.decimals)} mono />
               <InfoField label="Description" value={asset.description || '—'} />
             </div>
           </section>
 
-          {/* ③ Limits */}
-          <section className="px-6 py-5">
-            <Cap>Deposit & Withdrawal</Cap>
-            <div className="mt-3 grid grid-cols-2 gap-x-8 gap-y-4">
-              <InfoField label="Deposit Enabled" value={asset.depositEnabled ? 'Yes' : 'No'} />
-              <InfoField label="Withdrawal Enabled" value={asset.withdrawalEnabled ? 'Yes' : 'No'} />
-            </div>
-          </section>
-
-          {/* ④ Suspension Info (visible when suspended) */}
+          {/* ③ Suspension Info (visible when suspended) */}
           {asset.status === 'SUSPENDED' && (
             <section className="px-6 py-5">
               <Cap>Suspension</Cap>
@@ -306,49 +310,32 @@ export default function AssetDetail() {
         <div className="w-[272px] min-w-[272px] overflow-y-auto border-l border-adm-border bg-adm-panel px-4 py-1">
 
           {/* Actions */}
-          {(asset.status === 'PROVISIONING' || asset.status === 'ACTIVE' || asset.status === 'SUSPENDED') && (
-            <div className="border-b border-adm-border py-4">
-              <Cap>Actions</Cap>
-              <div className="mt-2.5 flex flex-col gap-2">
-                {asset.status === 'PROVISIONING' && (
-                  <>
-                    <button
-                      onClick={() => navigate(`/admin/assets/${assetNo}/edit`)}
-                      className={adminButtonClass('detailUtility')}
-                    >
-                      <Pencil size={13} />
-                      Edit Asset
-                    </button>
-                    <button
-                      onClick={() => setShowActivateModal(true)}
-                      className={adminButtonClass('workflowPrimary')}
-                    >
-                      <Zap size={13} />
-                      Activate Asset
-                    </button>
-                  </>
-                )}
-                {asset.status === 'ACTIVE' && (
-                  <button
-                    onClick={() => { setSuspendReason(''); setShowSuspendModal(true); }}
-                    className={adminButtonClass('workflowNegative')}
-                  >
-                    <ShieldOff size={13} />
-                    Suspend Asset
-                  </button>
-                )}
-                {asset.status === 'SUSPENDED' && (
-                  <button
-                    onClick={() => setShowReactivateModal(true)}
-                    className={adminButtonClass('workflowPrimary')}
-                  >
-                    <ShieldCheck size={13} />
-                    Reactivate Asset
-                  </button>
-                )}
-              </div>
+          <div className="border-b border-adm-border py-4">
+            <Cap>Actions</Cap>
+            <div className="mt-2.5 flex flex-col gap-2">
+              {asset.status === 'ACTIVE' && !asset.approvalCaseNo && hasAnyPermission([PERMISSIONS.ASSET_SUSPEND]) && (
+                <button
+                  onClick={() => { setSuspendReason(''); setShowSuspendModal(true); }}
+                  className={adminButtonClass('workflowNegative')}
+                >
+                  <ShieldOff size={13} />
+                  Suspend Asset
+                </button>
+              )}
+              {asset.status === 'SUSPENDED' && !asset.approvalCaseNo && hasAnyPermission([PERMISSIONS.ASSET_REACTIVATE]) && (
+                <button
+                  onClick={() => setShowReactivateModal(true)}
+                  className={adminButtonClass('workflowPrimary')}
+                >
+                  <ShieldCheck size={13} />
+                  Reactivate Asset
+                </button>
+              )}
+              {asset.approvalCaseNo && (
+                <p className="font-mono text-[10px] text-adm-t3">Waiting for CISO decision on {asset.approvalCaseNo}</p>
+              )}
             </div>
-          )}
+          </div>
 
           {/* Identity */}
           <SidebarGroup title="Identity">
@@ -366,52 +353,6 @@ export default function AssetDetail() {
 
         </div>
       </div>
-
-      {/* ════ Activate Modal ════ */}
-      {showActivateModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div className="w-full max-w-md overflow-hidden rounded-xl border border-adm-border bg-adm-panel shadow-xl">
-
-            <div className="flex items-center justify-between border-b border-adm-border bg-adm-card px-5 py-4">
-              <div>
-                <p className="font-mono text-[11px] font-semibold text-adm-t1">
-                  Activate Asset
-                </p>
-                <p className="mt-1 font-mono text-[9px] text-adm-t3">
-                  {asset.assetNo} · {asset.code}
-                </p>
-              </div>
-              <button
-                onClick={() => setShowActivateModal(false)}
-                className="rounded p-1 text-adm-t3 hover:bg-adm-hover hover:text-adm-t1"
-              >
-                <X size={15} />
-              </button>
-            </div>
-
-            <div className="px-5 py-4 space-y-3">
-              <div className="rounded border border-adm-amber/30 bg-adm-amber/10 px-3 py-2.5 font-mono text-[10px] text-adm-amber leading-relaxed">
-                This will submit an activation request for CISO approval. If approved, the asset will
-                go live and all business operations (deposits, withdrawals, trading) will be enabled.
-              </div>
-            </div>
-
-            <div className="flex justify-end gap-2 border-t border-adm-border bg-adm-card px-5 py-4">
-              <button onClick={() => setShowActivateModal(false)} className={adminButtonClass('modalCancel')}>
-                Cancel
-              </button>
-              <button
-                onClick={() => void handleSubmitActivate()}
-                disabled={submittingActivate}
-                className={adminButtonClass('modalConfirm')}
-              >
-                {submittingActivate ? 'Submitting…' : 'Submit for Approval'}
-              </button>
-            </div>
-
-          </div>
-        </div>
-      )}
 
       {/* ════ Suspend Modal ════ */}
       {showSuspendModal && (
@@ -437,8 +378,7 @@ export default function AssetDetail() {
 
             <div className="px-5 py-4 space-y-3">
               <div className="rounded border border-adm-amber/30 bg-adm-amber/10 px-3 py-2.5 font-mono text-[10px] text-adm-amber leading-relaxed">
-                This will submit a suspension request for CISO approval. If approved, the asset will
-                be suspended and deposit/withdrawal will be disabled immediately.
+                Submitted by Operations, decided by CISO (12h)
               </div>
 
               <div>
@@ -497,8 +437,7 @@ export default function AssetDetail() {
 
             <div className="px-5 py-4 space-y-3">
               <div className="rounded border border-adm-amber/30 bg-adm-amber/10 px-3 py-2.5 font-mono text-[10px] text-adm-amber leading-relaxed">
-                This will submit a reactivation request for CISO approval. If approved, the asset
-                will be reactivated and deposit/withdrawal settings will be restored.
+                Submitted by Operations, decided by CISO (12h)
               </div>
             </div>
 

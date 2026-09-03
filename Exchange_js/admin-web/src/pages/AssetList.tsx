@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Plus, RefreshCw } from 'lucide-react';
+import { RefreshCw } from 'lucide-react';
 import Pagination from '../components/common/Pagination';
 import {
   adminButtonClass,
@@ -140,14 +140,7 @@ const AssetList = () => {
       <PageTitleBar
         title="Assets"
         subtitle={`${total} assets · Configuration`}
-      >
-        <button
-          onClick={() => navigate('/admin/assets/create')}
-          className={adminButtonClass('listPrimary')}
-        >
-          <Plus size={13} /> New Asset
-        </button>
-      </PageTitleBar>
+      />
 
       {/* ─── Error banner ─── */}
       {error && (
@@ -180,7 +173,6 @@ const AssetList = () => {
           onChange={(e) => updateFilter('status', e.target.value)}
         >
           <option value="">All status</option>
-          <option value="PROVISIONING">PROVISIONING</option>
           <option value="ACTIVE">ACTIVE</option>
           <option value="SUSPENDED">SUSPENDED</option>
         </select>

@@ -93,7 +93,6 @@ const ENTITY_ROUTE_BY_ACTION: Record<string, (ref: string) => string | null> = {
   DEPOSIT_SEIZE: (r) => `/admin/trading/deposits?keyword=${r}`,
   DEPOSIT_UNFREEZE: (r) => `/admin/trading/deposits?keyword=${r}`,
   // 资产域（entityRef = assetNo / ruleNo）
-  ASSET_ACTIVATION: (r) => `/admin/assets/${r}`,
   ASSET_SUSPENSION: (r) => `/admin/assets/${r}`,
   ASSET_REACTIVATION: (r) => `/admin/assets/${r}`,
   TRANSACTION_LIMIT_CREATION: (r) => `/admin/assets/transaction-limits/${r}`,
