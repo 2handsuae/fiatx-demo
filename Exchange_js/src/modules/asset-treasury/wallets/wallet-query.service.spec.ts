@@ -24,16 +24,12 @@ describe('WalletQueryService', () => {
     },
   };
 
-  const mockAsset = { id: 'asset-1', code: 'USDT', type: 'CRYPTO', decimals: 6 };
-
   const platformWallet = {
     id: 'wallet-plat-1',
     walletNo: 'WA0001',
     ownerType: 'PLATFORM',
     ownerId: null,
     walletRole: 'F_LIQ',
-    mockBalance: '1000.00',
-    asset: mockAsset,
   };
 
   const customerWallet = {
@@ -42,8 +38,6 @@ describe('WalletQueryService', () => {
     ownerType: 'CUSTOMER',
     ownerId: 'cust-1',
     walletRole: 'C_DEP',
-    mockBalance: '500.50',
-    asset: mockAsset,
   };
 
   const lpWallet = {
@@ -52,8 +46,6 @@ describe('WalletQueryService', () => {
     ownerType: 'LIQUIDITY_PROVIDER',
     ownerId: 'lp-1',
     walletRole: 'F_LIQ',
-    mockBalance: '9999.00',
-    asset: mockAsset,
   };
 
   beforeEach(async () => {
@@ -100,9 +92,9 @@ describe('WalletQueryService', () => {
 
     it('CUSTOMER rows batch enrich ownerName(firstName+lastName, single IN), no surfaceCategory', async () => {
       prisma.wallet.findMany.mockResolvedValue([
-        { id: 'w1', ownerType: 'CUSTOMER', ownerId: 'u1', mockBalance: 5, asset: {} },
-        { id: 'w2', ownerType: 'CUSTOMER', ownerId: 'u2', mockBalance: 0, asset: {} },
-        { id: 'w3', ownerType: 'PLATFORM', ownerId: null, ownerNo: 'PLATFORM', mockBalance: 0, asset: {} },
+        { id: 'w1', ownerType: 'CUSTOMER', ownerId: 'u1' },
+        { id: 'w2', ownerType: 'CUSTOMER', ownerId: 'u2' },
+        { id: 'w3', ownerType: 'PLATFORM', ownerId: null, ownerNo: 'PLATFORM' },
       ]);
       prisma.wallet.count.mockResolvedValue(3);
       prisma.customerMain.findMany.mockResolvedValue([

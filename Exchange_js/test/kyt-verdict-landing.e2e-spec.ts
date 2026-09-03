@@ -32,6 +32,7 @@ import { DepositTransactionStatus } from '../src/modules/trading/deposit-transac
 import { WithdrawTransactionStatus } from '../src/modules/trading/withdraw-transactions/dto/withdraw-transaction.dto';
 import { SwapTransactionStatus } from '../src/modules/trading/swap-transactions/dto/swap-transaction.dto';
 import { AuditActions } from '../src/modules/audit-logging/constants/audit-actions.constant';
+import { generateReferenceNo } from '../src/common/utils/no-generator.util';
 
 describe('第一批 · 合规裁决落地 (e2e)', () => {
   let app: INestApplication;
@@ -53,10 +54,26 @@ describe('第一批 · 合规裁决落地 (e2e)', () => {
     await app.init();
     prisma = app.get(PrismaService);
 
-    const customer = await prisma.customerMain.findFirstOrThrow();
+    // 专属 fixture 客户，不用 findFirstOrThrow() 抓来的"随便一个"——Task 4 后
+    // Wallet 的唯一键是 (vaultCode, network, ownerNo)，抓到的客户若跨轮稳定，
+    // 下面按 (CLIENT_DEPOSIT, AED_ZAND, customer.customerNo) 建的钱包在第二轮
+    // 重跑（不重置库）时会撞同一把钥匙。customerNo 由 generateReferenceNo 现铸，
+    // 每次 beforeAll 都不同。
     const asset = await prisma.asset.findFirstOrThrow({ where: { status: 'ACTIVE' } });
-    customerId = customer.id;
     assetId = asset.id;
+    const customerNo = generateReferenceNo('CU');
+    const customer = await prisma.customerMain.create({
+      data: {
+        email: `e2e_kyt_landing_${customerNo}@example.com`.toLowerCase(),
+        customerNo,
+        phone: `+1${customerNo.replace(/\D/g, '')}`,
+        firstName: 'Kyt', lastName: 'Landing',
+        customerType: 'INDIVIDUAL',
+        lifecycle: 'ACTIVE',
+        riskRating: 'LOW', tradingTier: 'BASIC', eddRequired: false,
+      },
+    });
+    customerId = customer.id;
 
     // DepositTransaction.toWalletId 是必填外键(schema 无 default)——自建一个钱包，
     // 不依赖种子库里现成的钱包布局。FROZEN → IGNORE 分支从不读钱包内容，这里只是

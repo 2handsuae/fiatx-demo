@@ -81,7 +81,6 @@ import { buildDeterministicNo } from '../src/common/utils/no-generator.util';
 // ── constants ────────────────────────────────────────────────────────────────
 export const SIM = 'DEMO'; // deterministic-no tag + operatorId for driven legs
 
-import { NETWORKS } from '../src/config/manifests/networks.manifest';
 import { fakeTronAddress } from '../src/common/utils/tron-address.util';
 
 // Tradeable business-seed customers (onboarding APPROVED + compliance CLEAR).
