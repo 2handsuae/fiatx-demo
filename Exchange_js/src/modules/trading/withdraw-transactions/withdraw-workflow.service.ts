@@ -288,11 +288,12 @@ export class WithdrawWorkflowService implements OnModuleInit {
       counterpartyIsVasp = registeredAddress.addressType === 'VASP';
       destinationVerified = true;
     } else if (!isCryptoWithdraw && toIban) {
-      // NOTE: registered bank rows are stamped addressType='BANK' (network is
-      // the generic asset-network value 'FIAT', not 'BANK') — see
-      // WithdrawalAddressService#createBankAccount. Matches the addressType
-      // filter used everywhere else in the codebase that checks for an active
-      // bank account (e.g. onboarding.service.ts, withdrawal-address.service.ts).
+      // NOTE: registered bank rows are stamped addressType='BANK' and
+      // network=BANK_RAIL_NETWORK (i.e. 'AED_ZAND', the same value as the fiat
+      // asset's own `network`) — see WithdrawalAddressService#createBankAccount.
+      // Matches the addressType filter used everywhere else in the codebase
+      // that checks for an active bank account (e.g. onboarding.service.ts,
+      // withdrawal-address.service.ts).
       const registeredAddress = await (this.prisma as any).withdrawalAddress.findFirst({
         where: { customerId: userId, network: asset.network, iban: toIban, status: 'ACTIVE', addressType: 'BANK' },
       });

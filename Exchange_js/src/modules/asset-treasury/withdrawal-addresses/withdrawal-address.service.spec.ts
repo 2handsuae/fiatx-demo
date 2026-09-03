@@ -239,9 +239,9 @@ describe('WithdrawalAddressService', () => {
     it('q → OR[addressNo/address/iban contains],customerName 由 customer 关联铺平', async () => {
       prisma.withdrawalAddress.findMany.mockResolvedValue([
         { id: 'a1', addressNo: 'ADDR1', customerNo: 'CU1', label: 'My Binance',
-          customer: { firstName: 'Alice', lastName: 'Happy' }, asset: { code: 'USDT-TRON' } },
+          customer: { firstName: 'Alice', lastName: 'Happy' } },
         { id: 'a2', addressNo: 'ADDR2', customerNo: 'CU2', label: null,
-          customer: { firstName: null, lastName: null }, asset: { code: 'AED' } },
+          customer: { firstName: null, lastName: null } },
       ]);
       prisma.withdrawalAddress.count.mockResolvedValue(2);
 
