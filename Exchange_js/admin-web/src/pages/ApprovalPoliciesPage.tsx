@@ -46,7 +46,6 @@ const ACTION_TYPE_LABELS: Record<string, string> = {
   ADMIN_PASSWORD_RESET: 'Password Reset',
   ADMIN_MFA_RESET: 'MFA Reset',
   ASSET_ACTIVATION: 'Asset Activation',
-  CUSTODIAN_WALLET_CREATE: 'Custodian Wallet Create',
   ASSET_SUSPENSION: 'Asset Suspension',
   ASSET_REACTIVATION: 'Asset Reactivation',
   TRANSACTION_LIMIT_CHANGE: 'Transaction Limit Change',

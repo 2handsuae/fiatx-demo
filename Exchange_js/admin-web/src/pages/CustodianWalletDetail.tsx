@@ -1,56 +1,40 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { RotateCcw } from 'lucide-react';
 import { copyToClipboard } from '../utils/clipboard';
-import { formatAssetAmount } from '../utils/number-format';
 import { AdminSessionError, adminFetch, getApiErrorMessage } from '../utils/adminFetch';
 import { adminButtonClass } from '../components/common/adminButtonStyles';
 import { DetailPageHeader, InfoField } from '../components/compliance/DetailPageComponents';
 import { AdminBadge } from '../components/ui/AdminBadge';
-import { useAdminSession } from '../contexts/AdminSessionContext';
-import { PERMISSIONS } from '../rbac/permissions';
-import { WalletRoleBadge, WALLET_ROLE_LABEL } from '../utils/walletRole.util';
+import { WalletRoleBadge } from '../utils/walletRole.util';
 
 /* ── Interfaces ──────────────────────────────────────────────── */
 
 interface WalletDetailData {
   id: string;
   walletNo: string;
+  vaultCode: string;
   walletRole: string;
   ownerType: string;
-  ownerId: string | null;
   ownerNo: string | null;
   ownerName?: string | null;
-  type: string;
-  assetId: string;
-  balance: string;
+  network: string;
 
   address: string | null;
-
-  bankName: string | null;
-  accountName: string | null;
   iban: string | null;
-
-  vaultId: string | null;
+  custodianRef: string | null;
 
   status: string;
-  regulatoryGateSummary?: {
-    gateId: string;
-    gateNo: string;
-    gateType: string;
-    gateResult: string;
-  } | null;
 
   createdAt: string;
   updatedAt: string;
 
-  asset: {
-    currency: string;
-    code: string;
-    type: string;
-    network: string | null;
-    decimals?: number;
-  };
+  networkInfo: {
+    kind: string;
+    custodian: string;
+    bankName: string | null;
+    accountName: string | null;
+    explorerUrl: string | null;
+  } | null;
 }
 
 /* ── Helpers ─────────────────────────────────────────────────── */
@@ -106,12 +90,10 @@ const SidebarKV = ({
 export default function CustodianWalletDetail() {
   const { walletNo } = useParams<{ walletNo: string }>();
   const navigate = useNavigate();
-  const { hasAnyPermission } = useAdminSession();
 
   const [wallet, setWallet] = useState<WalletDetailData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
   const [copiedField, setCopiedField] = useState<string | null>(null);
 
   const fetchWallet = async () => {
@@ -165,60 +147,7 @@ export default function CustodianWalletDetail() {
 
   /* ── Derived state ── */
 
-  const isCrypto = wallet.type === 'CRYPTO_ADDRESS';
-  const isFiat = wallet.type === 'FIAT_BANK';
-  const isDepositWallet = wallet.walletRole === 'C_DEP';
-  const canRetry = hasAnyPermission([PERMISSIONS.CUSTODIAN_WALLET_RETRY]);
-
-  /* ── Status toggle ── */
-
-  const handleStatusChange = async (newStatus: string) => {
-    if (!window.confirm(`${newStatus === 'DISABLED' ? 'Disable' : 'Enable'} wallet ${wallet.walletNo}?`)) return;
-    try {
-      const res = await adminFetch(
-        `${import.meta.env.VITE_API_URL}/wallets/${wallet.walletNo}/status`,
-        {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ status: newStatus }),
-        },
-      );
-      if (!res.ok) {
-        setError(await getApiErrorMessage(res, 'Failed to update wallet status.'));
-        return;
-      }
-      setNotice(`Wallet ${newStatus === 'ACTIVE' ? 'enabled' : 'disabled'} successfully.`);
-      void fetchWallet();
-    } catch (err) {
-      if (err instanceof AdminSessionError) return;
-      setError(err instanceof Error ? err.message : 'Failed to update wallet status.');
-    }
-  };
-
-  const handleRetryCreation = async () => {
-    if (!wallet.walletNo || !window.confirm(`Retry vault creation for wallet ${wallet.walletNo}?`)) return;
-    try {
-      const res = await adminFetch(
-        `${import.meta.env.VITE_API_URL}/admin/custodian-wallets/${wallet.walletNo}/retry`,
-        { method: 'POST' },
-      );
-      if (!res.ok) {
-        setError(await getApiErrorMessage(res, 'Retry failed.'));
-        return;
-      }
-      setNotice('Vault creation retried successfully.');
-      void fetchWallet();
-    } catch (err) {
-      if (err instanceof AdminSessionError) return;
-      setError(err instanceof Error ? err.message : 'Retry failed.');
-    }
-  };
-
-  /* ── Sidebar action visibility ── */
-
-  const canToggleStatus = wallet.status !== 'FROZEN';
-  const isFailed = wallet.status === 'FAILED';
-  const showActions = canToggleStatus || isFailed;
+  const isChain = wallet.networkInfo?.kind === 'CHAIN';
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
@@ -231,18 +160,11 @@ export default function CustodianWalletDetail() {
       />
 
       {/* ── Notices ── */}
-      {(notice || error) && (
-        <div className="shrink-0 px-6 pt-3 pb-1 space-y-2">
-          {notice && (
-            <div className="rounded border border-adm-green/30 bg-adm-green/10 px-4 py-2 font-mono text-[11px] text-adm-green">
-              {notice}
-            </div>
-          )}
-          {error && (
-            <div className="rounded border border-adm-red/30 bg-adm-red/10 px-4 py-2 font-mono text-[11px] text-adm-red">
-              {error}
-            </div>
-          )}
+      {error && (
+        <div className="shrink-0 px-6 pt-3 pb-1">
+          <div className="rounded border border-adm-red/30 bg-adm-red/10 px-4 py-2 font-mono text-[11px] text-adm-red">
+            {error}
+          </div>
         </div>
       )}
 
@@ -269,11 +191,10 @@ export default function CustodianWalletDetail() {
             </div>
           </section>
 
-          {/* ② Details */}
+          {/* ② Identity */}
           <section className="px-6 py-5">
-            <Cap>Details</Cap>
+            <Cap>Identity</Cap>
             <div className="mt-3 grid grid-cols-2 gap-x-8 gap-y-4">
-              <InfoField label="Owner Type" value={wallet.ownerType} />
               <div className="min-w-0">
                 <div className="font-mono text-[9px] uppercase tracking-[0.1em] text-adm-t3">Owner No</div>
                 <div className="mt-1 text-[13px]">
@@ -291,74 +212,63 @@ export default function CustodianWalletDetail() {
                 </div>
               </div>
               <InfoField label="Owner Name" value={wallet.ownerName ?? '—'} />
-              <InfoField label="Asset" value={wallet.asset.code} />
-              <InfoField label="Network" value={wallet.asset.network || '—'} />
-              <InfoField
-                label="Custodian"
-                value={wallet.type === 'FIAT_BANK' ? 'ZandBank' : 'HexTrust'}
-              />
+              <InfoField label="Vault" value={wallet.vaultCode} />
+              <InfoField label="Network" value={wallet.network} />
+              <InfoField label="Custodian" value={wallet.networkInfo?.custodian} />
+              <InfoField label="Custodian Ref" value={wallet.custodianRef} mono />
             </div>
           </section>
 
-          {/* ③ Balance */}
+          {/* ③ Balance — 余额不在钱包表上,账本才是唯一真相 */}
           <section className="px-6 py-5">
-            <Cap>Balance (mock)</Cap>
-            <div className="mt-3">
-              <InfoField
-                label="Balance (mock)"
-                value={`${formatAssetAmount(wallet.balance ?? '0', wallet.asset.decimals)} ${wallet.asset.currency}`}
-                highlight
-              />
+            <Cap>Balance</Cap>
+            <div className="mt-3 space-y-3">
+              <p className="text-[12px] text-adm-t2">
+                Balances are not kept on wallet rows — the ledger is the single source of truth.
+              </p>
+              <button
+                onClick={() => navigate(`/admin/ledger/accounts?ownerNo=${wallet.ownerNo ?? ''}`)}
+                className={adminButtonClass('detailUtility')}
+              >
+                Open ledger accounts
+              </button>
             </div>
           </section>
 
-          {/* ④ Address / Bank (conditional) */}
-          {(isCrypto || isFiat) && (
-            <section className="px-6 py-5">
-              <Cap>{isCrypto ? 'Crypto Address' : 'Bank Account'}</Cap>
-              <div className="mt-3 grid grid-cols-2 gap-x-8 gap-y-4">
-                {isCrypto ? (
-                  <>
+          {/* ④ Address / Bank */}
+          <section className="px-6 py-5">
+            <Cap>{isChain ? 'Crypto Address' : 'Bank Account'}</Cap>
+            <div className="mt-3 grid grid-cols-2 gap-x-8 gap-y-4">
+              {isChain ? (
+                <>
+                  <InfoField
+                    label="Address"
+                    value={wallet.address}
+                    mono
+                    copyable
+                    copied={copiedField === 'address'}
+                    onCopy={(v) => handleCopy(v, 'address')}
+                  />
+                  {wallet.networkInfo?.explorerUrl && (
                     <InfoField
-                      label="Address"
-                      value={wallet.address}
+                      label="Explorer"
+                      value={wallet.networkInfo.explorerUrl}
+                      link={wallet.networkInfo.explorerUrl}
                       mono
-                      copyable
-                      copied={copiedField === 'address'}
-                      onCopy={(v) => handleCopy(v, 'address')}
                     />
-                    <InfoField label="Vault ID" value={wallet.vaultId} mono />
-                  </>
-                ) : (
-                  <>
-                    <InfoField label="Bank Name" value={wallet.bankName} />
-                    <InfoField label="Account Holder" value={wallet.accountName} />
-                    <InfoField label="IBAN" value={wallet.iban} />
-                  </>
-                )}
-              </div>
-            </section>
-          )}
+                  )}
+                </>
+              ) : (
+                <>
+                  <InfoField label="Bank Name" value={wallet.networkInfo?.bankName} />
+                  <InfoField label="Account Holder" value={wallet.networkInfo?.accountName} />
+                  <InfoField label="IBAN" value={wallet.iban} mono />
+                </>
+              )}
+            </div>
+          </section>
 
-          {/* ⑤ Deposit Collection (conditional: C_DEP only) */}
-          {isDepositWallet && (
-            <section className="px-6 py-5">
-              <Cap>Deposit Collection</Cap>
-              <div className="mt-3 grid grid-cols-2 gap-x-8 gap-y-4">
-                <InfoField
-                  label="Collection Amount"
-                  value={`${formatAssetAmount(wallet.balance ?? '0', wallet.asset.decimals)} ${wallet.asset.currency}`}
-                  highlight
-                />
-                <InfoField
-                  label="Execution Rule"
-                  value="Create full-balance DEPOSIT_COLLECTION when triggered"
-                />
-              </div>
-            </section>
-          )}
-
-          {/* ⑥ Audit */}
+          {/* ⑤ Audit */}
           <section className="px-6 py-5">
             <Cap>Audit</Cap>
             <div className="mt-3 grid grid-cols-2 gap-x-8 gap-y-4">
@@ -372,47 +282,13 @@ export default function CustodianWalletDetail() {
         {/* ════ RIGHT SIDEBAR ════ */}
         <div className="w-[272px] min-w-[272px] overflow-y-auto border-l border-adm-border bg-adm-panel px-4 py-1">
 
-          {/* Actions */}
-          {showActions && (
-            <div className="border-b border-adm-border py-4">
-              <Cap>Actions</Cap>
-              <div className="mt-2.5 flex flex-col gap-2">
-                {isFailed && canRetry && (
-                  <button
-                    onClick={() => void handleRetryCreation()}
-                    className={adminButtonClass('workflowPrimary')}
-                  >
-                    <RotateCcw size={13} />
-                    Retry Creation
-                  </button>
-                )}
-                {canToggleStatus && wallet.status === 'ACTIVE' && (
-                  <button
-                    onClick={() => void handleStatusChange('DISABLED')}
-                    className={adminButtonClass('workflowNegative')}
-                  >
-                    Disable Wallet
-                  </button>
-                )}
-                {canToggleStatus && wallet.status === 'DISABLED' && (
-                  <button
-                    onClick={() => void handleStatusChange('ACTIVE')}
-                    className={adminButtonClass('workflowPrimary')}
-                  >
-                    Enable Wallet
-                  </button>
-                )}
-              </div>
-            </div>
-          )}
-
           {/* Quick Reference */}
           <SidebarGroup title="Quick Reference">
             <SidebarKV label="Wallet No" value={wallet.walletNo} mono />
             <SidebarKV label="Status" value={<AdminBadge value={wallet.status} />} />
+            <SidebarKV label="Vault" value={wallet.vaultCode} mono />
             <SidebarKV label="Role" value={wallet.walletRole} mono />
-            <SidebarKV label="Role Name" value={WALLET_ROLE_LABEL[wallet.walletRole] || wallet.walletRole} />
-            <SidebarKV label="Asset" value={wallet.asset.code} />
+            <SidebarKV label="Network" value={wallet.network} mono />
             <SidebarKV label="Owner No" value={wallet.ownerNo} mono />
             <SidebarKV label="Owner Name" value={wallet.ownerName} />
           </SidebarGroup>

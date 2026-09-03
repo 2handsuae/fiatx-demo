@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { RefreshCw, Search, Plus } from 'lucide-react';
+import { RefreshCw, Search } from 'lucide-react';
 import Pagination from '../components/common/Pagination';
 import {
   adminButtonClass,
@@ -13,30 +13,31 @@ import {
 } from '../utils/adminFetch';
 import { AdminBadge } from '../components/ui/AdminBadge';
 import { PageTitleBar } from '../components/ui/PageTitleBar';
-import { WalletRoleBadge, WALLET_ROLE_OPTIONS } from '../utils/walletRole.util';
-import { formatAssetAmount } from '../utils/number-format';
-import { useAdminSession } from '../contexts/AdminSessionContext';
-import { PERMISSIONS } from '../rbac/permissions';
-import CustodianWalletCreateModal from './CustodianWalletCreateModal';
+import { WalletRoleBadge, VAULT_LABELS } from '../utils/walletRole.util';
 
 /* ── Interfaces ──────────────────────────────────────────────── */
 
 interface WalletItem {
   id: string;
-  walletNo: string | null;
+  walletNo: string;
+  vaultCode: string;
   walletRole: string;
-  surfaceCategory?: string;
   ownerType: string;
-  ownerId: string | null;
   ownerNo: string | null;
   ownerName?: string | null;
-  type: string;
-  direction: string;
-  balance: string;
-  asset: { currency: string; code: string; type: string; network?: string | null; decimals?: number };
+  network: string;
+  address: string | null;
+  iban: string | null;
+  custodianRef: string | null;
   status: string;
-  vaultId?: string | null;
   updatedAt: string;
+  networkInfo: {
+    kind: string;
+    custodian: string;
+    bankName: string | null;
+    accountName: string | null;
+    explorerUrl: string | null;
+  } | null;
 }
 
 interface WalletListResponse {
@@ -48,8 +49,8 @@ interface FilterState {
   walletNoSearch: string;
   customerNoSearch: string;
   ownerType: string;
-  walletRole: string;
-  type: string;
+  vaultCode: string;
+  network: string;
   status: string;
 }
 
@@ -65,12 +66,15 @@ const fmt = (v?: string | null): string => {
 
 const PAGE_SIZE = 20;
 
+/** 分组表头的固定顺序（Step 3）。 */
+const VAULT_ORDER = ['F_OPS', 'F_SET', 'F_FEE', 'F_LIQ', 'CLIENT_DEPOSIT'];
+
 const DEFAULT_FILTERS: FilterState = {
   walletNoSearch: '',
   customerNoSearch: '',
   ownerType: '',
-  walletRole: '',
-  type: '',
+  vaultCode: '',
+  network: '',
   status: '',
 };
 
@@ -78,9 +82,6 @@ const DEFAULT_FILTERS: FilterState = {
 
 const CustodianWalletList = () => {
   const navigate = useNavigate();
-  const { hasAnyPermission } = useAdminSession();
-  const canCreate = hasAnyPermission([PERMISSIONS.CUSTODIAN_WALLET_CREATE]);
-  const [showCreateModal, setShowCreateModal] = useState(false);
 
   const [filters, setFilters] = useState<FilterState>(DEFAULT_FILTERS);
   const [items, setItems] = useState<WalletItem[]>([]);
@@ -100,8 +101,8 @@ const CustodianWalletList = () => {
     if (next.walletNoSearch.trim()) params.set('q', next.walletNoSearch.trim());
     if (next.customerNoSearch.trim()) params.set('ownerNo', next.customerNoSearch.trim());
     if (next.ownerType) params.set('ownerType', next.ownerType);
-    if (next.walletRole) params.set('walletRole', next.walletRole);
-    if (next.type) params.set('type', next.type);
+    if (next.vaultCode) params.set('vaultCode', next.vaultCode);
+    if (next.network) params.set('network', next.network);
     if (next.status) params.set('status', next.status);
     return params;
   };
@@ -132,13 +133,21 @@ const CustodianWalletList = () => {
 
   useEffect(() => { void fetchItems(1, DEFAULT_FILTERS); }, []);
 
+  /* ── Grouping (Step 3: 按 vault 分组，固定顺序) ── */
+  const groups = new Map<string, WalletItem[]>();
+  for (const w of items) {
+    const list = groups.get(w.vaultCode) ?? [];
+    list.push(w);
+    groups.set(w.vaultCode, list);
+  }
+
   /* ── Input style ── */
   const fi =
     'h-[30px] rounded border border-adm-border bg-adm-bg px-2.5 font-mono text-[11px] text-adm-t1 placeholder:text-adm-t3 outline-none focus:border-adm-amber transition-colors';
 
   const hasFilter =
     !!filters.walletNoSearch || !!filters.customerNoSearch || !!filters.ownerType
-    || !!filters.walletRole || !!filters.type || !!filters.status;
+    || !!filters.vaultCode || !!filters.network || !!filters.status;
 
   const updateFilter = (key: keyof FilterState, value: string) =>
     setFilters((prev) => ({ ...prev, [key]: value }));
@@ -160,15 +169,6 @@ const CustodianWalletList = () => {
         title="Custodian Wallets"
         meta={`${total} wallet${total === 1 ? '' : 's'} · Treasury`}
       >
-        {canCreate && (
-          <button
-            onClick={() => setShowCreateModal(true)}
-            className={adminButtonClass('listPrimary')}
-          >
-            <Plus size={13} />
-            Create Wallet
-          </button>
-        )}
         <button
           onClick={() => void fetchItems(currentPage)}
           className={adminIconButtonClass()}
@@ -204,23 +204,25 @@ const CustodianWalletList = () => {
           <option value="CUSTOMER">CUSTOMER</option>
         </select>
         <select
-          value={filters.walletRole}
-          onChange={(e) => updateFilter('walletRole', e.target.value)}
-          className={`${fi} w-28`}
-        >
-          <option value="">All roles</option>
-          {WALLET_ROLE_OPTIONS.map((r) => (
-            <option key={r} value={r}>{r}</option>
-          ))}
-        </select>
-        <select
-          value={filters.type}
-          onChange={(e) => updateFilter('type', e.target.value)}
+          value={filters.vaultCode}
+          onChange={(e) => updateFilter('vaultCode', e.target.value)}
           className={`${fi} w-36`}
         >
-          <option value="">All types</option>
-          <option value="CRYPTO_ADDRESS">CRYPTO_ADDRESS</option>
-          <option value="FIAT_BANK">FIAT_BANK</option>
+          <option value="">All vaults</option>
+          <option value="F_OPS">F_OPS</option>
+          <option value="F_SET">F_SET</option>
+          <option value="F_FEE">F_FEE</option>
+          <option value="F_LIQ">F_LIQ</option>
+          <option value="CLIENT_DEPOSIT">CLIENT_DEPOSIT</option>
+        </select>
+        <select
+          value={filters.network}
+          onChange={(e) => updateFilter('network', e.target.value)}
+          className={`${fi} w-32`}
+        >
+          <option value="">All networks</option>
+          <option value="TRON">TRON</option>
+          <option value="AED_ZAND">AED_ZAND</option>
         </select>
         <select
           value={filters.status}
@@ -228,12 +230,9 @@ const CustodianWalletList = () => {
           className={`${fi} w-36`}
         >
           <option value="">All status</option>
-          <option value="PENDING_APPROVAL">PENDING_APPROVAL</option>
           <option value="CREATING">CREATING</option>
           <option value="ACTIVE">ACTIVE</option>
           <option value="FAILED">FAILED</option>
-          <option value="DISABLED">DISABLED</option>
-          <option value="FROZEN">FROZEN</option>
         </select>
         <button onClick={handleSearch} className={adminButtonClass('listPrimary')}>
           <Search size={13} />
@@ -262,15 +261,14 @@ const CustodianWalletList = () => {
             <tr>
               {(
                 [
-                  ['Wallet No',       '150px'],
-                  ['Role',            '100px'],
-                  ['Owner No',        '130px'],
-                  ['Owner Name',      '140px'],
-                  ['Asset',           '80px'],
+                  ['Wallet No',       '140px'],
+                  ['Role',            '90px'],
                   ['Network',         '90px'],
-                  ['Balance (mock)',  '130px'],
+                  ['Address / IBAN',  '220px'],
+                  ['Owner No',        '120px'],
+                  ['Owner Name',      '130px'],
+                  ['Custodian',       '100px'],
                   ['Status',          '90px'],
-                  ['Vault',           '110px'],
                   ['Updated',         '150px'],
                 ] as [string, string][]
               ).map(([label, w]) => (
@@ -287,94 +285,96 @@ const CustodianWalletList = () => {
           <tbody>
             {loading && (
               <tr>
-                <td colSpan={10} className="px-4 py-10 text-center font-mono text-[11px] text-adm-t3">
+                <td colSpan={9} className="px-4 py-10 text-center font-mono text-[11px] text-adm-t3">
                   Loading…
                 </td>
               </tr>
             )}
             {!loading && items.length === 0 && (
               <tr>
-                <td colSpan={10} className="px-4 py-10 text-center font-mono text-[11px] text-adm-t3">
+                <td colSpan={9} className="px-4 py-10 text-center font-mono text-[11px] text-adm-t3">
                   No wallets found.
                 </td>
               </tr>
             )}
-            {!loading && items.map((w) => {
-              return (
-                <tr
-                  key={w.id}
-                  className="cursor-pointer border-b border-adm-border transition-colors hover:bg-adm-hover"
-                  onClick={() => navigate(`/admin/custody/wallets/${w.walletNo}`)}
-                >
-                  {/* Wallet No */}
-                  <td className="px-4 py-2.5">
-                    <span className="font-mono text-[11px] font-semibold text-adm-amber">
-                      {w.walletNo || w.id.slice(0, 8)}
-                    </span>
+            {!loading && VAULT_ORDER.flatMap((vault) => {
+              const rows = groups.get(vault);
+              if (!rows || rows.length === 0) return [];
+              return [
+                <tr key={`group-${vault}`}>
+                  <td colSpan={9} className="bg-adm-panel px-4 py-1.5 font-mono text-[9px] uppercase tracking-[0.12em] text-adm-t3">
+                    {VAULT_LABELS[vault]} · {vault}
                   </td>
+                </tr>,
+                ...rows.map((w) => (
+                  <tr
+                    key={w.id}
+                    className="cursor-pointer border-b border-adm-border transition-colors hover:bg-adm-hover"
+                    onClick={() => navigate(`/admin/custody/wallets/${w.walletNo}`)}
+                  >
+                    {/* Wallet No */}
+                    <td className="px-4 py-2.5">
+                      <span className="font-mono text-[11px] font-semibold text-adm-amber">
+                        {w.walletNo}
+                      </span>
+                    </td>
 
-                  {/* Role */}
-                  <td className="px-4 py-2.5">
-                    <WalletRoleBadge role={w.walletRole} />
-                  </td>
+                    {/* Role */}
+                    <td className="px-4 py-2.5">
+                      <WalletRoleBadge role={w.walletRole} />
+                    </td>
 
-                  {/* Owner No */}
-                  <td className="px-3 py-2 font-mono text-[11px]">
-                    {w.ownerType === 'CUSTOMER' && w.ownerNo ? (
-                      <button
-                        onClick={(e) => { e.stopPropagation(); navigate(`/admin/customers/${w.ownerNo}`); }}
-                        className="text-adm-amber hover:underline"
-                        title="Open customer"
+                    {/* Network */}
+                    <td className="px-4 py-2.5">
+                      <span className="font-mono text-[11px] text-adm-t2">{w.network}</span>
+                    </td>
+
+                    {/* Address / IBAN */}
+                    <td className="px-4 py-2.5">
+                      <span
+                        className="block max-w-[220px] truncate font-mono text-[11px] text-adm-t1"
+                        title={w.address ?? w.iban ?? undefined}
                       >
-                        {w.ownerNo}
-                      </button>
-                    ) : (
-                      <span className="text-adm-t2">{w.ownerNo ?? '—'}</span>
-                    )}
-                  </td>
-                  {/* Owner Name */}
-                  <td className="px-3 py-2 text-[11px] text-adm-t2">
-                    {w.ownerName ?? <span className="text-adm-t3">—</span>}
-                  </td>
+                        {w.address ?? w.iban ?? '—'}
+                      </span>
+                    </td>
 
-                  {/* Asset */}
-                  <td className="px-4 py-2.5">
-                    <span className="font-mono text-[11px] text-adm-t1">{w.asset?.code || '—'}</span>
-                  </td>
+                    {/* Owner No */}
+                    <td className="px-3 py-2 font-mono text-[11px]">
+                      {w.ownerType === 'CUSTOMER' && w.ownerNo ? (
+                        <button
+                          onClick={(e) => { e.stopPropagation(); navigate(`/admin/customers/${w.ownerNo}`); }}
+                          className="text-adm-amber hover:underline"
+                          title="Open customer"
+                        >
+                          {w.ownerNo}
+                        </button>
+                      ) : (
+                        <span className="text-adm-t2">{w.ownerNo ?? '—'}</span>
+                      )}
+                    </td>
+                    {/* Owner Name */}
+                    <td className="px-3 py-2 text-[11px] text-adm-t2">
+                      {w.ownerName ?? <span className="text-adm-t3">—</span>}
+                    </td>
 
-                  {/* Network */}
-                  <td className="px-4 py-2.5">
-                    <span className="font-mono text-[11px] text-adm-t2">{w.asset?.network || '—'}</span>
-                  </td>
+                    {/* Custodian */}
+                    <td className="px-4 py-2.5">
+                      <span className="font-mono text-[11px] text-adm-t2">{w.networkInfo?.custodian ?? '—'}</span>
+                    </td>
 
-                  {/* Balance */}
-                  <td className="px-4 py-2.5 text-right">
-                    <span className="font-mono text-[11px] text-adm-t1">
-                      {formatAssetAmount(w.balance ?? '0', w.asset?.decimals)}
-                    </span>
-                    <span className="ml-1 font-mono text-[9px] text-adm-t3">{w.asset?.currency}</span>
-                  </td>
+                    {/* Status */}
+                    <td className="px-4 py-2.5">
+                      <AdminBadge value={w.status} />
+                    </td>
 
-                  {/* Status */}
-                  <td className="px-4 py-2.5">
-                    <AdminBadge value={w.status} />
-                  </td>
-
-                  {/* Vault */}
-                  <td className="px-4 py-2.5">
-                    <span className="font-mono text-[10px] text-adm-t2">
-                      {(w as any).vaultId || '—'}
-                    </span>
-                  </td>
-
-                  {/* Updated */}
-                  <td className="px-4 py-2.5 font-mono text-[10px] text-adm-t2 whitespace-nowrap">
-                    {fmt(w.updatedAt)}
-                  </td>
-
-
-                </tr>
-              );
+                    {/* Updated */}
+                    <td className="px-4 py-2.5 font-mono text-[10px] text-adm-t2 whitespace-nowrap">
+                      {fmt(w.updatedAt)}
+                    </td>
+                  </tr>
+                )),
+              ];
             })}
           </tbody>
         </table>
@@ -398,16 +398,6 @@ const CustodianWalletList = () => {
           )}
         </div>
       </div>
-
-      {showCreateModal && (
-        <CustodianWalletCreateModal
-          onClose={() => setShowCreateModal(false)}
-          onCreated={() => {
-            setShowCreateModal(false);
-            void fetchItems(1);
-          }}
-        />
-      )}
     </div>
   );
 };

@@ -220,13 +220,15 @@ const Deposit = () => {
     }
 
     const fetchWallet = async () => {
+      const asset = assets.find((a) => a.id === selectedAssetId);
+      if (!asset) { setDepositWallet(null); return; }
       setLoading(true);
       try {
         const params = new URLSearchParams({
           ownerType: 'CUSTOMER',
-          ownerId: user.id,
-          walletRole: activeTab === 'crypto' ? 'C_DEP' : 'C_VIBAN',
-          assetId: selectedAssetId,
+          vaultCode: 'CLIENT_DEPOSIT',
+          network: asset.network!,
+          status: 'ACTIVE',
         });
         const response = await customerFetch(
           `${import.meta.env.VITE_API_URL}/wallets?${params.toString()}`,
@@ -235,10 +237,8 @@ const Deposit = () => {
         if (response.ok) {
             const data = await response.json();
             const items: WalletItem[] = data.items || [];
-            const found = items.find(w =>
-                (w.walletRole === 'C_DEP' || w.walletRole === 'C_VIBAN')
-            );
-            setDepositWallet(found || null);
+            const found = items.find((w) => w.network === asset.network) || null;
+            setDepositWallet(found);
         }
       } catch (error) {
         if (error instanceof CustomerSessionError) return;
@@ -311,7 +311,7 @@ const Deposit = () => {
             `${import.meta.env.VITE_API_URL}/client/deposit-wallets`,
             {
                 method: 'POST',
-                body: JSON.stringify({ assetId: selectedAssetId }),
+                body: JSON.stringify({ network: assets.find((a) => a.id === selectedAssetId)?.network }),
             },
         );
 
@@ -665,7 +665,7 @@ const Deposit = () => {
                     <div>
                         <h4 className="text-sm font-bold text-fx-sand">Confirmation Time</h4>
                         <p className="text-xs text-fx-dune mt-1">
-                            Requires <strong className="underline text-fx-sand">1-3 network confirmations</strong>. Automatic processing after confirmation.
+                            Requires <strong className="underline text-fx-sand">{selectedAsset?.minConfirmations ?? 0} network confirmations</strong>. Automatic processing after confirmation.
                         </p>
                     </div>
                 </div>
@@ -1012,6 +1012,12 @@ const Deposit = () => {
 
                   </div>
 
+                  {activeTab === 'crypto' && selectedAsset && (
+                    <p className="text-xs text-fx-dust font-mono">
+                      Network: {depositWallet.network} · Contract: {selectedAsset.contractAddress ?? 'Native'}
+                    </p>
+                  )}
+
                   {showSimulationDepositFlow ? renderSimulationDepositFlow() : null}
                 </div>
                             ) : (
@@ -1054,7 +1060,7 @@ const Deposit = () => {
               <div>
                 <h3 className="text-lg font-bold text-fx-sand">Simulate Deposit</h3>
                 <p className="text-sm text-fx-dust mt-1">
-                  Enter an amount for the mock {selectedAsset?.type === 'CRYPTO' ? 'crypto' : 'fiat'} deposit. Final risk simulation now happens in Admin Risk Policy Executions.
+                  Enter an amount for the mock {depositWallet.networkInfo?.kind === 'CHAIN' ? 'crypto' : 'fiat'} deposit. Final risk simulation now happens in Admin Risk Policy Executions.
                 </p>
               </div>
               <button
@@ -1077,7 +1083,7 @@ const Deposit = () => {
                 <div className="flex items-center justify-between gap-3 text-sm">
                   <span className="text-fx-dust">Wallet</span>
                   <span className="font-mono text-xs text-fx-sand text-right break-all">
-                    {selectedAsset?.type === 'CRYPTO' ? depositWallet.address : depositWallet.iban}
+                    {depositWallet.networkInfo?.kind === 'CHAIN' ? depositWallet.address : depositWallet.iban}
                   </span>
                 </div>
               </div>
@@ -1093,7 +1099,7 @@ const Deposit = () => {
                 />
               </div>
 
-              {selectedAsset?.type === 'CRYPTO' && (
+              {depositWallet.networkInfo?.kind === 'CHAIN' && (
                 <div>
                   <label className="text-xs text-fx-dust font-medium block mb-1">Counterparty</label>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">

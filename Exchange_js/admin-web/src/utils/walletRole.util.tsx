@@ -1,21 +1,19 @@
 export const WALLET_ROLE_LABEL: Record<string, string> = {
   C_DEP: 'Client Deposit',
   C_VIBAN: 'Client vIBAN',
-  C_MAIN: 'Client Omnibus',
-  C_OUT: 'Client Outbound',
-  C_CMA: 'Client Money Account',
   F_LIQ: 'Company Liquidity',
   F_OPS: 'Company Operations',
+  F_SET: 'Company Settlement',
+  F_FEE: 'Company Fees',
 };
 
 const ROLE_CLS: Record<string, string> = {
   C_DEP:   'bg-adm-blue/10  text-adm-blue  border-adm-blue/25',
   C_VIBAN: 'bg-adm-blue/10  text-adm-blue  border-adm-blue/25',
-  C_MAIN:  'bg-adm-amber/10 text-adm-amber border-adm-amber/25',
-  C_OUT:   'bg-adm-amber/10 text-adm-amber border-adm-amber/25',
-  C_CMA:   'bg-adm-amber/10 text-adm-amber border-adm-amber/25',
   F_LIQ:   'bg-adm-green/10 text-adm-green border-adm-green/25',
   F_OPS:   'bg-adm-green/10 text-adm-green border-adm-green/25',
+  F_SET:   'bg-adm-green/10 text-adm-green border-adm-green/25',
+  F_FEE:   'bg-adm-green/10 text-adm-green border-adm-green/25',
 };
 
 export const WalletRoleBadge = ({ role }: { role: string }) => {
@@ -32,3 +30,12 @@ export const WalletRoleBadge = ({ role }: { role: string }) => {
 };
 
 export const WALLET_ROLE_OPTIONS = Object.keys(WALLET_ROLE_LABEL);
+
+/** vaultCode → 展示名（CustodianWalletList 分组表头用）。 */
+export const VAULT_LABELS: Record<string, string> = {
+  F_OPS: 'Company Operations',
+  F_SET: 'Company Settlement',
+  F_FEE: 'Company Fees',
+  F_LIQ: 'Company Liquidity',
+  CLIENT_DEPOSIT: 'Client Deposit Pool',
+};

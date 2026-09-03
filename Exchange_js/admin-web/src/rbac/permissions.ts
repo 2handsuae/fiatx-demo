@@ -97,8 +97,6 @@ export const PERMISSIONS = {
   ASSETS_READ: 'api.get.assets',
   ASSET_SUSPEND: 'api.post.admin_assets_assetno_suspend',
   ASSET_REACTIVATE: 'api.post.admin_assets_assetno_reactivate',
-  CUSTODIAN_WALLET_CREATE: 'api.post.admin_custodian_wallets',
-  CUSTODIAN_WALLET_RETRY: 'api.post.admin_custodian_wallets_walletno_retry',
   DEPOSIT_TRANSACTIONS_READ: 'api.get.deposit_transactions',
   DEPOSIT_TRANSACTION_DETAIL_READ: 'api.get.deposit_transactions_id',
   WITHDRAW_TRANSACTIONS_READ: 'api.get.withdraw_transactions',
