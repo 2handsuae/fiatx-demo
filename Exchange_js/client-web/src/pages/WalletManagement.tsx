@@ -13,16 +13,16 @@ interface WalletItem {
   walletRole?: string;
   network: string;
   status: string;
-  address?: string;
-  iban?: string;
-  custodianRef?: string;
-  networkInfo?: {
+  address: string | null;
+  iban: string | null;
+  custodianRef: string | null;
+  networkInfo: {
     kind: string;
     custodian: string;
     bankName: string | null;
     accountName: string | null;
     explorerUrl: string | null;
-  };
+  } | null;
 }
 
 interface Asset {

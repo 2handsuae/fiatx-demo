@@ -64,7 +64,9 @@ const fmt = (v?: string | null): string => {
 
 /* ── Constants ───────────────────────────────────────────────── */
 
-const PAGE_SIZE = 20;
+// 一页装下现实规模的全部托管钱包（7 平台位 + 每客户每网络一行 CLIENT_DEPOSIT），
+// 避免同一 vault 的行跨页断开、分组表头重复或不完整；分页控件仍保留应对理论溢出。
+const PAGE_SIZE = 200;
 
 /** 分组表头的固定顺序（Step 3）。 */
 const VAULT_ORDER = ['F_OPS', 'F_SET', 'F_FEE', 'F_LIQ', 'CLIENT_DEPOSIT'];
