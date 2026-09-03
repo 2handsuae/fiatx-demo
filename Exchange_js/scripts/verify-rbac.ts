@@ -332,9 +332,9 @@ function runS6FrontendBackendCodeDiff(): void {
 // 消费这些名字；真实 controller 端点分别在后续任务里落地。这四行是「暂未出生」
 // 不是「用完没删」，与上面这段注释警惕的腐烂死行不同类——每个对应任务落地 controller
 // 后必须把自己那一行从这份白名单删掉，任务收尾前 S7 应重新验证不再需要该条例外。
-const S7_PENDING_DEAD_ROWS = new Set<string>([
-  'api.post.withdraw_transactions_withdrawno_return_claim', // Task 7：POST /withdraw-transactions/:withdrawNo/return-claim 控制器落地后删
-]);
+// Task 7（2026-09-03）落地 POST /withdraw-transactions/:withdrawNo/return-claim
+// 控制器后删掉最后一行——本批四条暂未出生的 route() 已全部有真实端点，白名单清空。
+const S7_PENDING_DEAD_ROWS = new Set<string>([]);
 
 /** 镜像 admin-permission.guard.ts#buildRequestPermissionCode 的拼接算法——不是重新
  *  发明；两处若不一致，S7 会跟着不准，见上方大注释的已知取舍。 */

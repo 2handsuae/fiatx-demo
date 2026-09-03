@@ -19,6 +19,8 @@ import { TransactionLimitsModule } from '../../asset-treasury/transaction-limits
 import { SumsubTxnClientModule } from '../../sumsub-shared/sumsub-txn-client.module';
 import { MaterialRequestsModule } from '../../identity/material-requests/material-requests.module';
 import { L1GateModule } from '../shared/l1-gate/l1-gate.module';
+import { ReconciliationModule } from '../../clearing-settle/reconciliation/reconciliation.module';
+import { WithdrawReturnClaimApprovalService } from './withdraw-return-claim-approval.service';
 
 @Module({
   imports: [
@@ -40,6 +42,9 @@ import { L1GateModule } from '../shared/l1-gate/l1-gate.module';
     MaterialRequestsModule,
     // B2（第四批）：WithdrawWorkflowService 注入 L1GateService（三域共用的 L1 快照求值器）。
     L1GateModule,
+    // 平账 B 批③：initiateReturnClaim/onReturnClaimDecided 要用 SupplementEvidenceService
+    // + DispositionService（对账域）。
+    ReconciliationModule,
   ],
   controllers: [WithdrawTransactionsController, CustomerWithdrawController],
   providers: [
@@ -49,6 +54,7 @@ import { L1GateModule } from '../shared/l1-gate/l1-gate.module';
     WithdrawUnfreezeApprovalService,
     WithdrawSanctionRefundApprovalService,
     WithdrawApplicantActionsService,
+    WithdrawReturnClaimApprovalService,
   ],
   exports: [
     WithdrawTransactionsService,

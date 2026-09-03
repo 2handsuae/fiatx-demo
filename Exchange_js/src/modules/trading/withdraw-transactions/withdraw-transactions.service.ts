@@ -41,7 +41,15 @@ export interface WithdrawStatusChangedEvent {
   traceId: string | null;
 }
 
-/** 提现终态。零出边（状态机收窄后不再有 SUCCESS→RETURNED 或终态自环）。 */
+/**
+ * 提现终态——材料请求作废监听器（material-request-order-cancel.listener.ts）与
+ * 材料请求在途查询（material-requests.admin.controller.ts）也读这一份，不另立
+ * 第二份定义。
+ * ⚠️ 平账 B 批③起，SUCCESS 不再是严格"零出边"：`transitions[SUCCESS]` 多了一条
+ * `RETURN → RETURNED`（出款成功后被银行退回）。本集合的成员**没有变**——SUCCESS
+ * 在"材料请求是否已终结"这个语义下依旧算终态，只是状态机层面它现在有唯一一条
+ * 出边。REJECTED/FAILED/RETURNED 三个仍是真正的零出边终态。
+ */
 export const WITHDRAW_TERMINAL_STATUSES: ReadonlySet<string> = new Set<string>([
   WithdrawTransactionStatus.SUCCESS,
   WithdrawTransactionStatus.REJECTED,
@@ -94,10 +102,13 @@ export class WithdrawTransactionsService {
 
   // 状态机收窄(10 状态/13 动作/22 边,定稿于 .superpowers/sdd/task-1-brief.md Step 1;
   // 2026-08-13 补 PENDING_APPROVAL --freeze--> FROZEN 一条,20→21;2026-08-29 补
-  // ACTION_PENDING --resume--> COMPLIANCE_PENDING 一条(补料回炉),21→22)。
-  // 终态集合 TERMINAL = SUCCESS/REJECTED/FAILED/RETURNED,零出边——不再有 SUCCESS→
-  // RETURNED 或终态自环(旧表里"for logging"的边全删)。守则性测试见
-  // withdraw-transactions.service.spec.ts 的「state machine integrity guard」。
+  // ACTION_PENDING --resume--> COMPLIANCE_PENDING 一条(补料回炉),21→22;2026-09-03
+  // 平账 B 批③补 SUCCESS --return--> RETURNED 一条(出款成功后被银行退回的认领,
+  // spec §5),22→23)。
+  // 终态集合 TERMINAL = SUCCESS/REJECTED/FAILED/RETURNED——SUCCESS 不再是零出边,
+  // 唯一出边是上面这条 RETURN;REJECTED/FAILED/RETURNED 三个仍是零出边真终态,
+  // 旧表里"for logging"的边全删未变。守则性测试见 withdraw-transactions.service.spec.ts
+  // 的「state machine integrity guard」。
   private readonly transitions: Record<WithdrawTransactionStatus, Partial<Record<WithdrawTransactionAction, WithdrawTransactionStatus>>> = {
     [WithdrawTransactionStatus.PENDING_APPROVAL]: {
       [WithdrawTransactionAction.GATE_APPROVE]: WithdrawTransactionStatus.COMPLIANCE_PENDING,
@@ -140,7 +151,10 @@ export class WithdrawTransactionsService {
       [WithdrawTransactionAction.FAIL]: WithdrawTransactionStatus.FAILED,
       [WithdrawTransactionAction.RETURN]: WithdrawTransactionStatus.RETURNED,
     },
-    [WithdrawTransactionStatus.SUCCESS]: {},
+    [WithdrawTransactionStatus.SUCCESS]: {
+      // 平账 B 批③（spec §5）：出款成功后被银行退回——唯一出边；反向分录先落再翻（与 PAYOUT_PENDING 的退汇同终态）。
+      [WithdrawTransactionAction.RETURN]: WithdrawTransactionStatus.RETURNED,
+    },
     [WithdrawTransactionStatus.REJECTED]: {},
     [WithdrawTransactionStatus.FAILED]: {},
     [WithdrawTransactionStatus.RETURNED]: {},
@@ -1070,6 +1084,14 @@ export class WithdrawTransactionsService {
       where: { ownerId, status: { notIn: ['SUCCESS', 'REJECTED', 'FAILED', 'RETURNED', 'FROZEN'] } },
       select: { id: true, withdrawNo: true, ownerType: true, ownerId: true, status: true, traceId: true },
     });
+  }
+
+  /** 平账 B 批③：退回认领申请的三列标记（域服务写自己的表；workflow 不直写）。 */
+  async markReturnClaimRequested(id: string, m: { externalLineId: string; caseNo: string; dispositionNo: string }) {
+    return (this.prisma as any).withdrawTransaction.update({ where: { id }, data: { returnExternalLineId: m.externalLineId, returnReconCaseNo: m.caseNo, returnDispositionNo: m.dispositionNo } });
+  }
+  async clearReturnClaimRequest(id: string) {
+    return (this.prisma as any).withdrawTransaction.update({ where: { id }, data: { returnExternalLineId: null, returnReconCaseNo: null, returnDispositionNo: null } });
   }
 
 }

@@ -72,6 +72,8 @@ describe('WithdrawWorkflowService — releaseLock on approval decline', () => {
       { assertCapability: jest.fn(), assertOffboardable: jest.fn(), resolve: jest.fn().mockResolvedValue({ lifecycle: 'ACTIVE', blocked: new Set(), disclosedBlocked: new Set(), disclosed: [], openCount: 0 }) } as any, // customerAccessService
       { open: jest.fn().mockResolvedValue({ restrictionNo: 'CR-TEST', created: true }) } as any, // customerRestrictionsService
       { evaluate: jest.fn().mockResolvedValue({ evaluatedAt: '2026-08-22T00:00:00.000Z', domain: 'WITHDRAW', verdict: 'PASS', holdReason: null, tradingTier: 'BASIC', checks: [] }) } as any, // l1Gate
+      {} as any, // supplementEvidence
+      {} as any, // reconDisposition
     );
   });
 
@@ -158,6 +160,8 @@ describe('WithdrawWorkflowService — releaseLock on payout leg failure (P6)', (
       { assertCapability: jest.fn(), assertOffboardable: jest.fn(), resolve: jest.fn().mockResolvedValue({ lifecycle: 'ACTIVE', blocked: new Set(), disclosedBlocked: new Set(), disclosed: [], openCount: 0 }) } as any, // customerAccessService
       { open: jest.fn().mockResolvedValue({ restrictionNo: 'CR-TEST', created: true }) } as any, // customerRestrictionsService
       { evaluate: jest.fn().mockResolvedValue({ evaluatedAt: '2026-08-22T00:00:00.000Z', domain: 'WITHDRAW', verdict: 'PASS', holdReason: null, tradingTier: 'BASIC', checks: [] }) } as any, // l1Gate
+      {} as any, // supplementEvidence
+      {} as any, // reconDisposition
     );
   });
 
@@ -266,6 +270,8 @@ describe('WithdrawWorkflowService — assertWithdrawSettled (乙 SUCCESS invaria
       { assertCapability: jest.fn(), assertOffboardable: jest.fn(), resolve: jest.fn().mockResolvedValue({ lifecycle: 'ACTIVE', blocked: new Set(), disclosedBlocked: new Set(), disclosed: [], openCount: 0 }) } as any, // customerAccessService
       { open: jest.fn().mockResolvedValue({ restrictionNo: 'CR-TEST', created: true }) } as any, // customerRestrictionsService
       { evaluate: jest.fn().mockResolvedValue({ evaluatedAt: '2026-08-22T00:00:00.000Z', domain: 'WITHDRAW', verdict: 'PASS', holdReason: null, tradingTier: 'BASIC', checks: [] }) } as any, // l1Gate
+      {} as any, // supplementEvidence
+      {} as any, // reconDisposition
     );
   });
 
@@ -341,6 +347,8 @@ describe('WithdrawWorkflowService — ensureSourceWalletBound (R4)', () => {
       { assertCapability: jest.fn(), assertOffboardable: jest.fn(), resolve: jest.fn().mockResolvedValue({ lifecycle: 'ACTIVE', blocked: new Set(), disclosedBlocked: new Set(), disclosed: [], openCount: 0 }) } as any, // customerAccessService
       { open: jest.fn().mockResolvedValue({ restrictionNo: 'CR-TEST', created: true }) } as any, // customerRestrictionsService
       { evaluate: jest.fn().mockResolvedValue({ evaluatedAt: '2026-08-22T00:00:00.000Z', domain: 'WITHDRAW', verdict: 'PASS', holdReason: null, tradingTier: 'BASIC', checks: [] }) } as any, // l1Gate
+      {} as any, // supplementEvidence
+      {} as any, // reconDisposition
     );
   });
 
@@ -550,6 +558,8 @@ describe('WithdrawWorkflowService.handleWithdrawalCreated — birth landing (Tas
       { assertCapability: jest.fn(), assertOffboardable: jest.fn(), resolve: jest.fn().mockResolvedValue({ lifecycle: 'ACTIVE', blocked: new Set(), disclosedBlocked: new Set(), disclosed: [], openCount: 0 }) } as any, // customerAccessService
       { open: jest.fn().mockResolvedValue({ restrictionNo: 'CR-TEST', created: true }) } as any, // customerRestrictionsService
       { evaluate: jest.fn().mockResolvedValue({ evaluatedAt: '2026-08-22T00:00:00.000Z', domain: 'WITHDRAW', verdict: 'PASS', holdReason: null, tradingTier: 'BASIC', checks: [] }) } as any, // l1Gate
+      {} as any, // supplementEvidence
+      {} as any, // reconDisposition
     );
     return { workflow, withdrawService, approvalsService, binanceRateProvider, limitRulesService };
   }
@@ -716,6 +726,8 @@ function buildFullWorkflow(overrides: {
     { assertCapability: jest.fn(), assertOffboardable: jest.fn(), resolve: jest.fn().mockResolvedValue({ lifecycle: 'ACTIVE', blocked: new Set(), disclosedBlocked: new Set(), disclosed: [], openCount: 0 }) } as any, // customerAccessService
     customerRestrictionsService as any,
     { evaluate: jest.fn().mockResolvedValue({ evaluatedAt: '2026-08-22T00:00:00.000Z', domain: 'WITHDRAW', verdict: 'PASS', holdReason: null, tradingTier: 'BASIC', checks: [] }) } as any, // l1Gate
+    {} as any, // supplementEvidence
+    {} as any, // reconDisposition
   );
 
   return { workflow, withdrawService, auditLogsService, accountingService, sumsubTxnClient, applicantActions, customerRestrictionsService };
@@ -1696,6 +1708,8 @@ function buildFeeWorkflow(overrides: {
     { assertCapability: jest.fn(), assertOffboardable: jest.fn(), resolve: jest.fn().mockResolvedValue({ lifecycle: 'ACTIVE', blocked: new Set(), disclosedBlocked: new Set(), disclosed: [], openCount: 0 }) } as any, // customerAccessService
     { open: jest.fn().mockResolvedValue({ restrictionNo: 'CR-TEST', created: true }) } as any, // customerRestrictionsService
     { evaluate: jest.fn().mockResolvedValue({ evaluatedAt: '2026-08-22T00:00:00.000Z', domain: 'WITHDRAW', verdict: 'PASS', holdReason: null, tradingTier: 'BASIC', checks: [] }) } as any, // l1Gate
+    {} as any, // supplementEvidence
+    {} as any, // reconDisposition
   );
 
   return {
@@ -2044,6 +2058,8 @@ function buildBounceWorkflow(overrides: {
     { assertCapability: jest.fn(), assertOffboardable: jest.fn(), resolve: jest.fn().mockResolvedValue({ lifecycle: 'ACTIVE', blocked: new Set(), disclosedBlocked: new Set(), disclosed: [], openCount: 0 }) } as any, // customerAccessService
     { open: jest.fn().mockResolvedValue({ restrictionNo: 'CR-TEST', created: true }) } as any, // customerRestrictionsService
     { evaluate: jest.fn().mockResolvedValue({ evaluatedAt: '2026-08-22T00:00:00.000Z', domain: 'WITHDRAW', verdict: 'PASS', holdReason: null, tradingTier: 'BASIC', checks: [] }) } as any, // l1Gate
+    {} as any, // supplementEvidence
+    {} as any, // reconDisposition
   );
 
   return { workflow, withdrawService, auditLogsService, accountingService, fundsOrders, prisma, sumsubTxnClient };
@@ -2410,6 +2426,8 @@ describe('WithdrawWorkflowService.initiateUnfreeze / initiateRefund (Task 8)', (
       { assertCapability: jest.fn(), assertOffboardable: jest.fn(), resolve: jest.fn().mockResolvedValue({ lifecycle: 'ACTIVE', blocked: new Set(), disclosedBlocked: new Set(), disclosed: [], openCount: 0 }) } as any, // customerAccessService
       { open: jest.fn().mockResolvedValue({ restrictionNo: 'CR-TEST', created: true }) } as any, // customerRestrictionsService
       { evaluate: jest.fn().mockResolvedValue({ evaluatedAt: '2026-08-22T00:00:00.000Z', domain: 'WITHDRAW', verdict: 'PASS', holdReason: null, tradingTier: 'BASIC', checks: [] }) } as any, // l1Gate
+      {} as any, // supplementEvidence
+      {} as any, // reconDisposition
     );
 
     return { workflow, withdrawService, auditLogsService, approvalsService };
@@ -2648,6 +2666,8 @@ describe('WithdrawWorkflowService — Task 9: FROZEN execution side', () => {
       { assertCapability: jest.fn(), assertOffboardable: jest.fn(), resolve: jest.fn().mockResolvedValue({ lifecycle: 'ACTIVE', blocked: new Set(), disclosedBlocked: new Set(), disclosed: [], openCount: 0 }) } as any, // customerAccessService
       { open: jest.fn().mockResolvedValue({ restrictionNo: 'CR-TEST', created: true }) } as any, // customerRestrictionsService
       { evaluate: jest.fn().mockResolvedValue({ evaluatedAt: '2026-08-22T00:00:00.000Z', domain: 'WITHDRAW', verdict: 'PASS', holdReason: null, tradingTier: 'BASIC', checks: [] }) } as any, // l1Gate
+      {} as any, // supplementEvidence
+      {} as any, // reconDisposition
     );
 
     return { workflow, withdrawService, auditLogsService, approvalsService, accountingService, sumsubTxnClient };
@@ -2904,6 +2924,8 @@ describe('WithdrawWorkflowService — Task 9: FROZEN execution side', () => {
         { assertCapability: jest.fn(), assertOffboardable: jest.fn(), resolve: jest.fn().mockResolvedValue({ lifecycle: 'ACTIVE', blocked: new Set(), disclosedBlocked: new Set(), disclosed: [], openCount: 0 }) } as any, // customerAccessService
         { open: jest.fn().mockResolvedValue({ restrictionNo: 'CR-TEST', created: true }) } as any, // customerRestrictionsService
         { evaluate: jest.fn().mockResolvedValue({ evaluatedAt: '2026-08-22T00:00:00.000Z', domain: 'WITHDRAW', verdict: 'PASS', holdReason: null, tradingTier: 'BASIC', checks: [] }) } as any, // l1Gate
+        {} as any, // supplementEvidence
+        {} as any, // reconDisposition
       );
 
       // Trigger onLegCleared indirectly via handleFundsOrderChanged (which calls onLegCleared)
@@ -2979,6 +3001,8 @@ describe('WithdrawWorkflowService — onCustomerRestrictionOpened 批量冻单�
       customerAccessService as any,
       { open: jest.fn().mockResolvedValue({ restrictionNo: 'CR-TEST', created: true }) } as any, // customerRestrictionsService
       { evaluate: jest.fn().mockResolvedValue({ evaluatedAt: '2026-08-22T00:00:00.000Z', domain: 'WITHDRAW', verdict: 'PASS', holdReason: null, tradingTier: 'BASIC', checks: [] }) } as any, // l1Gate
+      {} as any, // supplementEvidence
+      {} as any, // reconDisposition
     );
     return { workflow, withdrawService, auditLogsService };
   }
@@ -3116,6 +3140,8 @@ describe('WithdrawWorkflowService.onMaterialRequestReviewed — 材料审过后�
       {} as any, // customerAccessService
       {} as any, // customerRestrictionsService
       {} as any, // l1Gate
+      {} as any, // supplementEvidence
+      {} as any, // reconDisposition
     );
     return { workflow, withdrawService, auditLogsService };
   }
@@ -3177,5 +3203,129 @@ describe('WithdrawWorkflowService.onMaterialRequestReviewed — 材料审过后�
 
     expect(withdrawService.updateStatus).not.toHaveBeenCalled();
     expect(auditLogsService.recordSystem).not.toHaveBeenCalled();
+  });
+});
+
+// task-7(.superpowers/sdd/reconB/task-7-brief.md)：平账 B 批③——出款成功后被银行退回
+// 的认领。照 initiateUnfreeze / onUnfreezeDecided / onBounce 既有用例的 mock 搭法：
+// 每个 it 按需 mock 各依赖的返回值，workflow 用同一份最小化 mock 构造。
+describe('WithdrawWorkflowService — 平账 B 批③：退回认领', () => {
+  let workflow: WithdrawWorkflowService;
+  let withdrawService: any;
+  let supplementEvidence: any;
+  let approvalsService: any;
+  let reconDisposition: any;
+  let accountingService: any;
+  let auditLogsService: any;
+  let prisma: any;
+
+  const line = {
+    externalLineId: 'line-3', caseNo: 'REC3', businessDate: '2026-09-01', dispositionNo: 'RCD3', walletId: 'w9', ownerId: 'cust-2', ownerNo: 'CUS2',
+    assetId: 'a1', currency: 'AED', assetType: 'FIAT', decimals: 2, direction: 'IN', amountMinor: '90000', amountMajor: '900.00', externalRef: 'PAYRET-1',
+  };
+  const w = {
+    id: 'wd1', withdrawNo: 'WDR1', status: 'SUCCESS', fromWalletId: 'w9', ownerId: 'cust-2', netAmount: '900', feeAmount: '10',
+    asset: { currency: 'AED', decimals: 2 }, traceId: 't9', tbPendingFeeId: null,
+  };
+  const actor = { actorType: 'ADMIN', userId: 'u1', userNo: 'ADM1', role: 'OPS_OFFICER', roleCodes: ['OPS_OFFICER'] } as any;
+
+  beforeEach(() => {
+    withdrawService = {
+      findByNo: jest.fn(),
+      findOneInternal: jest.fn(),
+      markReturnClaimRequested: jest.fn().mockResolvedValue(undefined),
+      clearReturnClaimRequest: jest.fn().mockResolvedValue(undefined),
+      updateStatus: jest.fn(),
+    };
+    supplementEvidence = {
+      assertClaimable: jest.fn(),
+      describeLine: jest.fn(),
+    };
+    approvalsService = {
+      list: jest.fn().mockResolvedValue({ total: 0, items: [] }),
+      createAndSubmit: jest.fn(),
+    };
+    reconDisposition = {
+      linkSupplement: jest.fn().mockResolvedValue(undefined),
+      unlinkSupplement: jest.fn().mockResolvedValue(undefined),
+    };
+    accountingService = {
+      resolveTbAccountId: jest.fn(),
+      executeTransfer: jest.fn().mockResolvedValue({ tbTransferId: BigInt(1) }),
+      voidPendingTransferBestEffort: jest.fn().mockResolvedValue(true),
+    };
+    auditLogsService = {
+      recordSystem: jest.fn().mockResolvedValue({}),
+      recordByActor: jest.fn().mockResolvedValue({}),
+    };
+    prisma = {
+      tbTransferEvidence: { findMany: jest.fn().mockResolvedValue([]) },
+    };
+
+    workflow = new WithdrawWorkflowService(
+      prisma as any, // prisma
+      {} as any, // eventEmitter
+      withdrawService as any,
+      {} as any, // withdrawQuoteService
+      auditLogsService as any,
+      accountingService as any,
+      {} as any, // fundsOrders
+      approvalsService as any,
+      {} as any, // binanceRateProvider
+      {} as any, // systemWalletResolver
+      {} as any, // tbEvidenceService
+      {} as any, // limitGateService
+      {} as any, // limitRulesService
+      {} as any, // sumsubTxnClient
+      {} as any, // applicantActions
+      {} as any, // customerAccessService
+      {} as any, // customerRestrictionsService
+      {} as any, // l1Gate
+      supplementEvidence as any,
+      reconDisposition as any,
+    );
+  });
+
+  it('发起：非 SUCCESS / 钱包不符 / 净额不符 → 400', async () => {
+    supplementEvidence.assertClaimable.mockResolvedValue(line);
+    withdrawService.findByNo.mockResolvedValue({ ...w, status: 'PAYOUT_PENDING' });
+    await expect(workflow.initiateReturnClaim('WDR1', { externalLineId: 'line-3', caseNo: 'REC3', dispositionNo: 'RCD3', reason: 'x' }, actor)).rejects.toThrow(/SUCCESS/);
+    withdrawService.findByNo.mockResolvedValue({ ...w, netAmount: '850' });
+    await expect(workflow.initiateReturnClaim('WDR1', { externalLineId: 'line-3', caseNo: 'REC3', dispositionNo: 'RCD3', reason: 'x' }, actor)).rejects.toThrow(/净额/);
+  });
+
+  it('发起：审批单 + 三列 + 回挂 + 审计', async () => {
+    supplementEvidence.assertClaimable.mockResolvedValue(line);
+    withdrawService.findByNo.mockResolvedValue(w);
+    approvalsService.list.mockResolvedValue({ total: 0, items: [] });
+    approvalsService.createAndSubmit.mockResolvedValue({ approvalNo: 'APR3' });
+    const r = await workflow.initiateReturnClaim('WDR1', { externalLineId: 'line-3', caseNo: 'REC3', dispositionNo: 'RCD3', reason: 'IBAN 错退回' }, actor);
+    expect(withdrawService.markReturnClaimRequested).toHaveBeenCalledWith('wd1', { externalLineId: 'line-3', caseNo: 'REC3', dispositionNo: 'RCD3' });
+    expect(reconDisposition.linkSupplement).toHaveBeenCalledWith('RCD3', 'WDR1', 'SUPPLEMENT_PAYOUT_RETURN');
+    expect(r).toEqual({ withdrawNo: 'WDR1', approvalNo: 'APR3', status: 'PENDING_APPROVAL' });
+  });
+
+  it('批准：净额腿已 POST 才重记；分录借资产贷应付（码 17，externalRef 行参考号，effectiveDate 业务日）；不碰费腿；状态 RETURNED', async () => {
+    withdrawService.findByNo.mockResolvedValue({ ...w, returnExternalLineId: 'line-3', returnReconCaseNo: 'REC3', returnDispositionNo: 'RCD3' });
+    withdrawService.findOneInternal.mockResolvedValue({ ...w, returnExternalLineId: 'line-3' });
+    supplementEvidence.describeLine.mockResolvedValue({ externalLineId: 'line-3', externalRef: 'PAYRET-1', businessDate: '2026-09-01', amountMinor: '90000', direction: 'IN', caseNo: 'REC3' });
+    prisma.tbTransferEvidence.findMany.mockResolvedValue([{ eventCode: 'WITHDRAW_NET_POST' }]);
+    accountingService.resolveTbAccountId.mockResolvedValueOnce(1n).mockResolvedValueOnce(100n);
+    withdrawService.updateStatus.mockResolvedValue({ ...w, status: 'RETURNED' });
+    await workflow.onReturnClaimDecided({ decision: 'APPROVED', entityRef: 'WDR1', approvalId: 'ap3', approvalNo: 'APR3' } as any);
+    const call = accountingService.executeTransfer.mock.calls[0][0];
+    expect(call.code).toBe(TB_TRANSFER_CODES.WITHDRAW_BOUNCE_REENTRY);
+    expect(call.amount).toBe(90000n);
+    expect(call.evidence).toMatchObject({ externalRef: 'PAYRET-1', effectiveDate: '2026-09-01', isExternalCrossing: true });
+    expect(accountingService.voidPendingTransferBestEffort).not.toHaveBeenCalled();
+    expect(withdrawService.updateStatus).toHaveBeenCalledWith('wd1', expect.objectContaining({ action: WithdrawTransactionAction.RETURN }), expect.anything());
+  });
+
+  it('拒绝：状态不动、清三列、解挂', async () => {
+    withdrawService.findByNo.mockResolvedValue({ ...w, returnExternalLineId: 'line-3', returnDispositionNo: 'RCD3' });
+    await workflow.onReturnClaimDecided({ decision: 'EXPIRED', entityRef: 'WDR1', approvalId: 'ap3', approvalNo: 'APR3' } as any);
+    expect(accountingService.executeTransfer).not.toHaveBeenCalled();
+    expect(withdrawService.clearReturnClaimRequest).toHaveBeenCalledWith('wd1');
+    expect(reconDisposition.unlinkSupplement).toHaveBeenCalledWith('RCD3', 'WDR1');
   });
 });

@@ -78,6 +78,17 @@ export class SanctionRefundWithdrawTransactionDto {
   reason!: string;
 }
 
+// 平账 B 批 ③：POST /withdraw-transactions/:withdrawNo/return-claim 的入参。金额 / 币种 /
+// 钱包 / 参考号全从账单行来（服务端经 SupplementEvidenceService.assertClaimable 查证），
+// 运营只给出账单行 / 案子 / 定性三个业务键 + 理由；reason 进审批单与审计留痕（与同批
+// InitiateDepositSupplementDto / InitiateDepositClawbackDto 的 reason 校验对齐）。
+export class InitiateWithdrawReturnClaimDto {
+  @IsString() externalLineId!: string;
+  @IsString() caseNo!: string;
+  @IsString() dispositionNo!: string;
+  @IsString() @IsNotEmpty() reason!: string;
+}
+
 export class CreateWithdrawTransactionDto {
   @IsString()
   assetId!: string;

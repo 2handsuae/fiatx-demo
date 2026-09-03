@@ -41,6 +41,7 @@ import { bigintToHex, hexToBigint } from '../../accounting/tigerbeetle/utils/tb-
 import { WithdrawQuoteService } from '../withdrawal-fee-level/withdraw-quote.service';
 import { WalletRole } from '../../asset-treasury/wallets/dto/wallet.dto';
 import { ApprovalsService } from '../../governance/approvals/approvals.service';
+import { ApprovalDecidedEvent } from '../../governance/approvals/approval-handler.base';
 import {
   ApprovalActionTypes,
   ApprovalActorContext,
@@ -68,6 +69,8 @@ import {
 } from '../../sumsub-shared/sumsub-txn-client.interface';
 import { resolveKytTxnType } from '../../deposit-sumsub/kyt-txn-type.resolver';
 import { WithdrawApplicantActionsService } from './withdraw-applicant-actions.service';
+import { SupplementEvidenceService } from '../../clearing-settle/reconciliation/disposition/supplement-evidence.service';
+import { DispositionService as ReconDispositionService } from '../../clearing-settle/reconciliation/disposition/disposition.service';
 
 /**
  * Payload of `funds_order.status.changed` — emitted by FundsOrderService on
@@ -209,6 +212,12 @@ export class WithdrawWorkflowService implements OnModuleInit {
     private readonly customerAccessService: CustomerAccessService,
     private readonly customerRestrictionsService: CustomerRestrictionsService,
     private readonly l1Gate: L1GateService,
+    // 平账 B 批③：initiateReturnClaim 要靠 SupplementEvidenceService 查证账单行，
+    // onReturnClaimDecided 批准后要靠 DispositionService 回挂/解挂退回认领——起
+    // 别名（同 DepositWorkflowService 手法），本域目前未注入钱侧同名类，纯粹是
+    // 为了两域写法一致、读起来不用记两套名字。
+    private readonly supplementEvidence: SupplementEvidenceService,
+    private readonly reconDisposition: ReconDispositionService,
   ) {}
 
   // Phase B helper: resolve the platform's F_FEE wallet id for an asset, used
@@ -1869,6 +1878,84 @@ export class WithdrawWorkflowService implements OnModuleInit {
     } else {
       await this.auditLogsService.recordSystem(input as any);
     }
+  }
+
+  // ═══ 平账 B 批③：出款成功后被银行退回的认领（spec §5）═══════════════════════
+  async initiateReturnClaim(withdrawNo: string, dto: { externalLineId: string; caseNo: string; dispositionNo: string; reason: string }, actor: ApprovalActorContext) {
+    const line = await this.supplementEvidence.assertClaimable({ caseNo: dto.caseNo, externalLineId: dto.externalLineId, dispositionNo: dto.dispositionNo, kind: 'SUPPLEMENT_PAYOUT_RETURN' });
+    const w = await this.withdrawService.findByNo(withdrawNo);
+    if (!w) throw new NotFoundException(`提现单不存在：${withdrawNo}`);
+    if (w.status !== WithdrawTransactionStatus.SUCCESS) throw new BadRequestException(`提现单 ${withdrawNo} 不是 SUCCESS，出款中的退回走既有 bounce`);
+    if (w.fromWalletId !== line.walletId) throw new BadRequestException(`提现单 ${withdrawNo} 不在该案子的钱包上`);
+    const netMinor = this.decimalToBigint(w.netAmount, line.decimals);
+    if (netMinor !== BigInt(line.amountMinor)) throw new BadRequestException(`提现单 ${withdrawNo} 净额与账单行金额不符`);
+    if (w.returnExternalLineId) throw new BadRequestException(`提现单 ${withdrawNo} 已在退回认领中`);
+    const open = await this.approvalsService.list({ actionType: ApprovalActionTypes.WITHDRAW_RETURN_CLAIM, entityRef: w.withdrawNo, status: ApprovalStatuses.PENDING, take: 1 });
+    if (open.total > 0) throw new ConflictException(`提现单 ${withdrawNo} 已有待批的退回认领`);
+    const traceId = w.traceId || randomUUID();
+    const impact = `${line.ownerNo ?? w.ownerId} 的 ${line.amountMajor} ${line.currency} 提现被银行退回，本金将重新记入余额，手续费不退（对账案 ${line.caseNo}，账单行 ${line.externalRef}）`;
+    const approvalCase = await this.approvalsService.createAndSubmit(
+      { actionType: ApprovalActionTypes.WITHDRAW_RETURN_CLAIM, entityRef: w.withdrawNo, traceId,
+        objectSnapshot: { withdrawNo: w.withdrawNo, caseNo: line.caseNo, dispositionNo: line.dispositionNo, externalLineId: line.externalLineId, externalRef: line.externalRef, customerNo: line.ownerNo, netAmount: line.amountMajor, currency: line.currency, impact } },
+      { reason: dto.reason, traceId }, actor,
+    );
+    await this.withdrawService.markReturnClaimRequested(w.id, { externalLineId: line.externalLineId, caseNo: line.caseNo, dispositionNo: line.dispositionNo! });
+    await this.reconDisposition.linkSupplement(line.dispositionNo!, w.withdrawNo, 'SUPPLEMENT_PAYOUT_RETURN');
+    await this.withdrawAudit(w, { action: 'WITHDRAW_RETURN_CLAIM_REQUESTED', reason: dto.reason, approvalNo: approvalCase.approvalNo,
+      metadata: { caseNo: line.caseNo, dispositionNo: line.dispositionNo, externalLineId: line.externalLineId, externalRef: line.externalRef, netAmount: line.amountMajor },
+      actor: this.toAuditActor(actor), sourcePlatform: 'ADMIN_API' });
+    return { withdrawNo: w.withdrawNo, approvalNo: approvalCase.approvalNo, status: 'PENDING_APPROVAL' as const };
+  }
+
+  @OnEvent('workflow.withdraw-return-claim.decided', { async: true })
+  async onReturnClaimDecided(event: ApprovalDecidedEvent) {
+    const w = await this.withdrawService.findByNo(event.entityRef);
+    if (!w) return;
+    if (event.decision !== 'APPROVED') {
+      const dispositionNo = w.returnDispositionNo;
+      await this.withdrawService.clearReturnClaimRequest(w.id);
+      if (dispositionNo) await this.reconDisposition.unlinkSupplement(dispositionNo, w.withdrawNo);
+      this.logger.log(`Withdrawal ${w.withdrawNo} return-claim ${event.decision} (case ${event.approvalNo}) — SUCCESS intact, request cleared.`);
+      return;
+    }
+    await this.onReturnAfterSuccess(w.id, event);
+  }
+
+  /**
+   * SUCCESS 之后的退回：与 onBounce 同一笔重记分录（DR CLIENT_ASSET / CR CLIENT_PAYABLE，净额），
+   * 但 ① 不碰费腿——SUCCESS 时费腿早已结清，手续费不退；② externalRef / effectiveDate 用账单行的，
+   * 让重跑案子那天的对账按参考号把这条流水认回去。先账后状态。
+   */
+  private async onReturnAfterSuccess(withdrawId: string, event: ApprovalDecidedEvent) {
+    const w = await this.withdrawService.findOneInternal(withdrawId);
+    if (w.status !== WithdrawTransactionStatus.SUCCESS || !w.returnExternalLineId) {
+      this.logger.warn(`Withdrawal ${w.withdrawNo} return-claim approved but status ${w.status} / no line — no-op`);
+      return;
+    }
+    const posted = await (this.prisma as any).tbTransferEvidence.findMany({ where: { sourceType: 'WITHDRAWAL', sourceNo: w.withdrawNo, eventCode: 'WITHDRAW_NET_POST' } });
+    if (posted.length === 0) throw new BadRequestException(`提现单 ${w.withdrawNo} 净额腿未 POST，没有可退回的钱`);
+    const line = await this.supplementEvidence.describeLine(w.returnExternalLineId);
+    await this.withdrawAudit(w, { action: 'WITHDRAW_RETURN_CLAIM_STARTED', reason: 'CFO 批准退回认领，落重记分录', approvalNo: event.approvalNo, causationId: event.approvalId,
+      metadata: { externalLineId: line.externalLineId, externalRef: line.externalRef, effectiveDate: line.businessDate } });
+    const decimals = w.asset?.decimals ?? 8;
+    const netBigint = this.decimalToBigint(w.netAmount, decimals);
+    const ledger = TB_LEDGERS[w.asset.currency as keyof typeof TB_LEDGERS];
+    const clientAssetId = await this.accountingService.resolveTbAccountId({ code: TB_ACCOUNT_CODES.CLIENT_ASSET, ledger, ownerType: 'SYSTEM' });
+    const clientPayableId = await this.accountingService.resolveTbAccountId({ code: TB_ACCOUNT_CODES.CLIENT_PAYABLE, ledger, ownerType: 'CUSTOMER', ownerUuid: w.ownerId });
+    await this.accountingService.executeTransfer({
+      debitAccountId: clientAssetId, creditAccountId: clientPayableId, amount: netBigint, ledger, code: TB_TRANSFER_CODES.WITHDRAW_BOUNCE_REENTRY,
+      evidence: {
+        sourceType: 'WITHDRAWAL', sourceNo: w.withdrawNo, eventCode: 'WITHDRAW_BOUNCE_REENTRY',
+        debitCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.CLIENT_ASSET], creditCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.CLIENT_PAYABLE],
+        assetCurrency: w.asset?.currency || '', traceId: w.traceId || w.id, actorType: 'SYSTEM', actorId: 'SYSTEM',
+        memo: `Payout returned by bank after SUCCESS — statement line ${line.externalRef ?? line.externalLineId} (recon case ${line.caseNo ?? '-'}); fee retained`,
+        debitWalletRef: w.fromWalletId ?? null, creditWalletRef: w.fromWalletId ?? null,
+        externalRef: line.externalRef, isExternalCrossing: true, effectiveDate: line.businessDate,
+      },
+    });
+    const returnedRow = await this.withdrawService.updateStatus(w.id, { action: WithdrawTransactionAction.RETURN, reason: `Returned by bank per approval ${event.approvalNo}` }, this.systemCtx);
+    await this.withdrawAudit(w, { action: 'WITHDRAW_RETURNED_AFTER_SUCCESS', reason: '出款成功后被银行退回，本金已重新记入余额，手续费不退', fromStatus: WithdrawTransactionStatus.SUCCESS, toStatus: returnedRow.status, approvalNo: event.approvalNo,
+      metadata: { reversedNet: String(w.netAmount), externalLineId: line.externalLineId, externalRef: line.externalRef, effectiveDate: line.businessDate, caseNo: line.caseNo, feeDisposition: 'fee retained (collected)' } });
   }
 
   /**

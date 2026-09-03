@@ -18,6 +18,7 @@ import {
   BounceWithdrawTransactionDto,
   UnfreezeWithdrawTransactionDto,
   SanctionRefundWithdrawTransactionDto,
+  InitiateWithdrawReturnClaimDto,
 } from './dto/withdraw-transaction.dto';
 import {
   ApiTags,
@@ -26,6 +27,8 @@ import {
 } from '@nestjs/swagger';
 import { AuthGuard } from '@nestjs/passport';
 import { AdminPermissionGuard } from '../../../modules/identity/access-control/admin-permission.guard';
+import { RequirePermissions } from '../../../modules/identity/access-control/require-permissions.decorator';
+import { buildPermissionCode } from '../../../modules/identity/access-control/permission-code.util';
 import { ApprovalActorContext } from '../../governance/approvals/constants/approval.constants';
 
 @ApiTags('Withdraw Transactions')
@@ -113,6 +116,14 @@ export class WithdrawTransactionsController {
       { reason: dto.reason },
       this.toApprovalActor(req),
     );
+  }
+
+  @Post(':withdrawNo/return-claim')
+  @ApiOperation({ summary: '平账 B 批 ③：认领出款成功后被银行退回（CFO maker-checker）' })
+  @RequirePermissions(buildPermissionCode('POST', '/withdraw-transactions/:withdrawNo/return-claim'))
+  initiateReturnClaim(@Param('withdrawNo') withdrawNo: string, @Body() dto: InitiateWithdrawReturnClaimDto, @Req() req: any) {
+    this.assertAdmin(req);
+    return this.workflowService.initiateReturnClaim(withdrawNo, dto, this.toApprovalActor(req));
   }
 
   @Post(':withdrawNo/simulate-sla-timeout')

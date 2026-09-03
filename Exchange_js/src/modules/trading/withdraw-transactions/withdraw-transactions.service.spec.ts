@@ -129,6 +129,8 @@ describe('WithdrawTransactionsService', () => {
       { assertCapability: jest.fn(), assertOffboardable: jest.fn(), resolve: jest.fn().mockResolvedValue({ lifecycle: 'ACTIVE', blocked: new Set(), disclosedBlocked: new Set(), disclosed: [], openCount: 0 }) } as any, // customerAccessService
       { open: jest.fn().mockResolvedValue({ restrictionNo: 'CR-TEST', created: true }) } as any, // customerRestrictionsService
       { evaluate: jest.fn().mockResolvedValue({ evaluatedAt: '2026-08-22T00:00:00.000Z', domain: 'WITHDRAW', verdict: 'PASS', holdReason: null, tradingTier: 'BASIC', checks: [] }) } as any, // l1Gate
+      {} as any, // supplementEvidence
+      {} as any, // reconDisposition
     );
 
     jest.clearAllMocks();
@@ -1365,7 +1367,7 @@ describe('WithdrawTransactionsService', () => {
   // 回炉)一条,21→22——逐条列出,多一条、少一条、边指向变了,这里都会红。同时用穷举
   // (10 状态 × 13 动作)反向断言:凡不在这 22 条边名单里的组合,一律必须抛 Invalid
   // action(即没有偷偷长出的第 23 条边)。照抄充值 deposit-transactions.service.spec.ts 的写法。
-  describe('state machine integrity guard (22-edge spec)', () => {
+  describe('state machine integrity guard (23-edge spec)', () => {
     const mockId = 'wd-edge-1';
 
     function setupMock(status: WithdrawTransactionStatus) {
@@ -1419,10 +1421,14 @@ describe('WithdrawTransactionsService', () => {
       [WithdrawTransactionStatus.PAYOUT_PENDING, WithdrawTransactionAction.SUCCESS, WithdrawTransactionStatus.SUCCESS],
       [WithdrawTransactionStatus.PAYOUT_PENDING, WithdrawTransactionAction.FAIL, WithdrawTransactionStatus.FAILED],
       [WithdrawTransactionStatus.PAYOUT_PENDING, WithdrawTransactionAction.RETURN, WithdrawTransactionStatus.RETURNED],
+
+      // 平账 B 批③(2026-09-03)新增一条：出款成功后被银行退回——唯一出边，SUCCESS
+      // 不再是零出边终态（REJECTED/FAILED/RETURNED 三个仍是）。
+      [WithdrawTransactionStatus.SUCCESS, WithdrawTransactionAction.RETURN, WithdrawTransactionStatus.RETURNED],
     ];
 
-    it('brief lists exactly the 22 spec edges', () => {
-      expect(EDGES).toHaveLength(22);
+    it('brief lists exactly the 23 spec edges', () => {
+      expect(EDGES).toHaveLength(23);
     });
 
     it.each(
@@ -1433,7 +1439,7 @@ describe('WithdrawTransactionsService', () => {
       expect(result.status).toBe(to);
     });
 
-    it('rejects every (status,action) pair NOT in the 22-edge list (no undocumented edge exists)', async () => {
+    it('rejects every (status,action) pair NOT in the 23-edge list (no undocumented edge exists)', async () => {
       const edgeKeys = new Set(EDGES.map(([from, action]) => `${from}::${action}`));
       const allStatuses = Object.values(WithdrawTransactionStatus);
       const allActions = Object.values(WithdrawTransactionAction);
@@ -1469,6 +1475,43 @@ describe('WithdrawTransactionsService', () => {
           reason: 'x',
         }),
       ).rejects.toThrow(/Invalid action/i);
+    });
+  });
+
+  // task-7(.superpowers/sdd/reconB/task-7-brief.md Step 1)：与 task-B1 的具名测试同一
+  // 用意——上面的矩阵测的是「转移表形状对不对」，这两条单独具名，方便走查时讲清楚
+  // SUCCESS 这条新边解决的是什么业务问题（出款成功后被银行退回），而不是淹没在
+  // 穷举列表里。
+  describe('平账 B 批 ③：SUCCESS 之后的退回', () => {
+    const mockId = 'wd-success-return-1';
+    function setupMock(status: WithdrawTransactionStatus) {
+      mockTx.withdrawTransaction.findUnique.mockResolvedValue({
+        id: mockId,
+        withdrawNo: 'WD-SUCCESS-RETURN',
+        ownerType: 'CUSTOMER',
+        ownerId: 'cust-sr',
+        assetId: 'asset-sr',
+        status,
+        statusHistory: '[]',
+        approvedAt: null,
+        payoutRequestedAt: null,
+        completedAt: null,
+        asset: { type: 'CRYPTO' },
+      });
+      mockTx.withdrawTransaction.update.mockImplementation(({ data }: any) =>
+        Promise.resolve({ id: mockId, status: data.status }),
+      );
+    }
+
+    it('SUCCESS —return→ RETURNED；SUCCESS 其余动作仍非法', async () => {
+      setupMock(WithdrawTransactionStatus.SUCCESS);
+      const result = await service.updateStatus(mockId, { action: WithdrawTransactionAction.RETURN });
+      expect(result.status).toBe(WithdrawTransactionStatus.RETURNED);
+
+      setupMock(WithdrawTransactionStatus.SUCCESS);
+      await expect(
+        service.updateStatus(mockId, { action: WithdrawTransactionAction.APPROVE }),
+      ).rejects.toThrow(BadRequestException);
     });
   });
 
