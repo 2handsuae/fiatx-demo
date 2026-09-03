@@ -46,7 +46,7 @@ NestJS + Prisma + SQLite 后端 ｜ React 管理台 ｜ React 客户端 ｜ 会�
 ## 6. 流程尺寸
 
 - spec / plan 由 superpowers 技能产出，格式技能自治；写入 `doc-final/superpowers/{specs,plans}/`，任务合并后移入 `doc-final/archive/`；代码体检报告写入 `doc-final/superpowers/checkups/`，同一生命周期
-- 一个模块一波做不完 → 讨论完先定**总纲**（目标 / 拆几波 / 每波边界与验收口径），spec **只写细当前波**，后面几波开工前再展开；每波收尾的承接记录按 `rules/delivery-checklist.md` 写进下一波 spec 开头
+- 一个模块一波做不完 → 讨论完先定**总纲**（目标 / 拆几波 / 每波边界与验收口径），**单独一份文件**放 `specs/`（各波 spec 会逐波归档，总纲要活到最后一波）；spec **只写细当前波**；每波收尾只按 `rules/delivery-checklist.md` 往下一波 spec 开头写**承接记录**，下一波 spec 的展开是下一波**新会话**读总纲 + 承接后跟业主脑暴的活，收尾会话不代做
 - 任务标题用业务语言；任务开场必须列「本任务做 / 不做」，"不做"项对照 §2
 - 任务收尾对照 `doc-final/rules/delivery-checklist.md`——按触发条件列出必须交付的东西；plan 引用它，不重抄
 - 评审按 `doc-final/rules/review-rubric.md`，只判三件事，其余不算缺陷
