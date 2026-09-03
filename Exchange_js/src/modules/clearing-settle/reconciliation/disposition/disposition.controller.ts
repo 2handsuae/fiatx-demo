@@ -6,6 +6,7 @@ import { RequirePermissions } from '../../../identity/access-control/require-per
 import { buildPermissionCode } from '../../../identity/access-control/permission-code.util';
 import { ApprovalActorContext } from '../../../governance/approvals/constants/approval.constants';
 import { DispositionService } from './disposition.service';
+import { SupplementEvidenceService } from './supplement-evidence.service';
 import { RecordDispositionDto } from '../dto/disposition.dto';
 
 @ApiTags('Admin - Reconciliation Disposition (平账·定性)')
@@ -14,7 +15,10 @@ import { RecordDispositionDto } from '../dto/disposition.dto';
 @UseGuards(AuthGuard('jwt'), AdminPermissionGuard)
 @UsePipes(new ValidationPipe({ transform: true, whitelist: true }))
 export class DispositionController {
-  constructor(private readonly disposition: DispositionService) {}
+  constructor(
+    private readonly disposition: DispositionService,
+    private readonly supplementEvidence: SupplementEvidenceService,
+  ) {}
 
   private buildActor(req: any): ApprovalActorContext {
     const user = req.user;
@@ -39,5 +43,12 @@ export class DispositionController {
   @RequirePermissions(buildPermissionCode('GET', '/admin/reconciliation/cases/:caseNo/reattribution-candidates'))
   candidates(@Param('caseNo') caseNo: string, @Query('side') side: 'FROM' | 'TO', @Query('amount') amount: string) {
     return this.disposition.listReattributionCandidates(caseNo, side, amount);
+  }
+
+  @Get('supplement-candidates')
+  @ApiOperation({ summary: 'Statement-line facts + candidate original orders for a supplement (平账 B 批)' })
+  @RequirePermissions(buildPermissionCode('GET', '/admin/reconciliation/cases/:caseNo/supplement-candidates'))
+  supplementCandidates(@Param('caseNo') caseNo: string, @Query('externalLineId') externalLineId: string) {
+    return this.supplementEvidence.listCandidates(caseNo, externalLineId);
   }
 }

@@ -29,6 +29,8 @@ import { AdjustmentController } from './disposition/adjustment.controller';
 // 平账一期半 T4: 定性落库（record/linkAdjustment/改记候选）+ RECON_DISPOSITION_RECORDED 审计。
 import { DispositionService } from './disposition/disposition.service';
 import { DispositionController } from './disposition/disposition.controller';
+// 平账 B 批 Task 4：补单证据守卫 + 候选原单读接口（只读，Task 5/6/7 的守卫入口）。
+import { SupplementEvidenceService } from './disposition/supplement-evidence.service';
 // 平账 A 批：案件账龄主体（算截止 / 找候选 / 置标记 / ⚡拨钟）+ 每分钟扫描。
 import { CaseAgingService } from './workflow/case-aging.service';
 import { CaseAgingSweepService } from './sweep/case-aging-sweep.service';
@@ -51,7 +53,9 @@ import { CaseAgingSweepService } from './sweep/case-aging-sweep.service';
     DispositionService,
     // 平账 A 批：案件账龄主体 + 每分钟扫描。
     CaseAgingService, CaseAgingSweepService,
+    // 平账 B 批 Task 4：补单证据守卫 + 候选原单（只读）。
+    SupplementEvidenceService,
   ],
-  exports: [WalletReconRunService, CaseAgingService],
+  exports: [WalletReconRunService, CaseAgingService, DispositionService, SupplementEvidenceService],
 })
 export class ReconciliationModule {}
