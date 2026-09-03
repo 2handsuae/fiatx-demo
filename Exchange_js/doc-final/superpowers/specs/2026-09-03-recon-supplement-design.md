@@ -245,6 +245,6 @@
 
 ## 附录 B · 本批触发的交付清单行（`rules/delivery-checklist.md`）
 
-任何持久状态变化（审计 + requestId）｜ 新增审计动作码（9 个，四属性冻结）｜ 新状态 / 新结局（`CLAWED_BACK` 一条边、`SUCCESS→RETURNED` 一条边、信号两态；计时：都不要，终态或有审批超时兜着）｜ 动了钱（同步直调、不建资金单、不新增科目；`verify:coa`）｜ 该走 maker-checker（三类走 `ApprovalsService` 正门）｜ 新增审批策略（`MAKER_GROUP_BY_POLICY` +3）｜ 新增权限组（三个，四处齐）｜ 新增 admin 端点（4 条，登记 + sync + 重启）｜ 新增业务动作（前端入口三个）｜ 改了交易三域（充值、提现都动了；兑换无对应，因为兑换不产生外部行）｜ 新字段 / 新状态到客户面（`CLAWED_BACK` 客户可见，白名单加）｜ 涉及金额（最小单位存）｜ 对外识别（业务键）｜ 改 schema（一个迁移，无 backfill）｜ 改页面或种子（`data.md` / `script.md` / `baseline.md`）｜ 改了前端（截图六张）｜ **本任务是多波中的一波**（合并前把「承接 B 批」写进二期 spec `2026-09-03-internal-transfer-order-design.md` 开头：实际偏差 / 新事实 / 二期前提变化，并把二期从骨架展开写细；本 spec 随即归档）｜ 每轮收尾（modules v8-recon / v4-deposit / v5-withdraw / overview、手册、decisions +5、CHANGELOG、BACKLOG 销三行加两行）
+任何持久状态变化（审计 + requestId）｜ 新增审计动作码（9 个，四属性冻结）｜ 新状态 / 新结局（`CLAWED_BACK` 一条边、`SUCCESS→RETURNED` 一条边、信号两态；计时：都不要，终态或有审批超时兜着）｜ 动了钱（同步直调、不建资金单、不新增科目；`verify:coa`）｜ 该走 maker-checker（三类走 `ApprovalsService` 正门）｜ 新增审批策略（`MAKER_GROUP_BY_POLICY` +3）｜ 新增权限组（三个，四处齐）｜ 新增 admin 端点（4 条，登记 + sync + 重启）｜ 新增业务动作（前端入口三个）｜ 改了交易三域（充值、提现都动了；兑换无对应，因为兑换不产生外部行）｜ 新字段 / 新状态到客户面（`CLAWED_BACK` 客户可见，白名单加）｜ 涉及金额（最小单位存）｜ 对外识别（业务键）｜ 改 schema（一个迁移，无 backfill）｜ 改页面或种子（`data.md` / `script.md` / `baseline.md`）｜ 改了前端（截图六张）｜ **本任务是多波中的一波**（合并前把「承接 B 批」写进二期 spec `2026-09-03-internal-transfer-order-design.md` 开头：实际偏差 / 新事实 / 二期前提变化；**只写承接，不展开二期**，展开是二期新会话读总纲 + 承接 + 骨架后跟业主脑暴的活；本 spec 随即归档）｜ 每轮收尾（modules v8-recon / v4-deposit / v5-withdraw / overview、手册、decisions +5、CHANGELOG、BACKLOG 销三行加两行）
 
 不触发：退役业务动作（无）｜ 新事件（无）
