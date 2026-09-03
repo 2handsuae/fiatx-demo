@@ -137,8 +137,15 @@ export class SupplementEvidenceService {
     if (!line) throw new NotFoundException(`账单行不存在：${externalLineId}`);
     const wallet = await (this.prisma as any).wallet.findUnique({ where: { id: kase.walletRef }, include: { asset: true } });
     if (!wallet?.asset) throw new BadRequestException(`案子 ${caseNo} 的钱包或资产不存在`);
-    if (String(wallet.asset.currency) !== String(line.currency)) {
-      throw new BadRequestException(`账单行币种 ${line.currency} 与钱包资产 ${wallet.asset.currency} 不符`);
+    // external_statement_lines.currency 全仓惯例存的是 asset.code（法币两者同名，
+    // 加密币不同——见 wallet-recon-run.service.ts:170 / adjustment.service.ts:493 /
+    // reconciliation-query.service.ts:699 同一约定），这里此前错拿 wallet.asset.currency
+    // （裸币种 'USDT'）去比，USDT-TRON 账单行永远判"不符"——Task 8 e2e 用真实 USDT
+    // 案子跑通①a 时当场复现（补录/退汇/退回三条 initiate* 入口全部经这条守卫，
+    // 加密币三路此前从未被非 mock 的真实数据跑过）。改比 wallet.asset.code；下面
+    // 返回值 `currency: wallet.asset.currency`（供审计文案人读，如"61 USDT"）不动。
+    if (String(wallet.asset.code) !== String(line.currency)) {
+      throw new BadRequestException(`账单行币种 ${line.currency} 与钱包资产 ${wallet.asset.code} 不符`);
     }
     const owner = wallet.ownerId ? await (this.prisma as any).customerMain.findUnique({ where: { id: wallet.ownerId }, select: { customerNo: true } }) : null;
     const decimals: number = wallet.asset.decimals ?? 2;

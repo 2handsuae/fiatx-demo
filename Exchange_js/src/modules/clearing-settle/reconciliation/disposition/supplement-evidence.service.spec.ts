@@ -20,7 +20,11 @@ const service = new SupplementEvidenceService(prisma);
 const kase = { id: 'case-1', caseNo: 'REC1', status: 'OPEN', book: 'CLIENT', walletRef: 'w1', businessDate: '2026-09-01', ownerNo: 'CUS1',
   lineItems: [{ externalTxId: 'line-1', matchStatus: 'ORPHAN_EXTERNAL' }] };
 const line = { id: 'line-1', direction: 'IN', amount: '120000', currency: 'AED', externalRef: 'REF-1', channelRef: null, datetime: new Date('2026-09-01T10:00:00Z'), description: 'Incoming', source: 'ZAND' };
-const wallet = { id: 'w1', walletNo: 'W-1', address: null, iban: 'AE00', ownerId: 'cust-1', assetId: 'a1', asset: { id: 'a1', currency: 'AED', type: 'FIAT', decimals: 2 } };
+// asset.code 补进（AED 法币 code===currency，与真实种子数据同形）——loadLine() 的
+// 币种校验改比 asset.code 不改 asset.currency 后（Task 8 e2e 用真实 USDT 案子跑通
+// ①a 时发现的字段级笔误，见该文件改动处的注释），mock 若只给 currency 不给 code，
+// code 读出 undefined，法币这个原本该过的场景也会被判「币种不符」。
+const wallet = { id: 'w1', walletNo: 'W-1', address: null, iban: 'AE00', ownerId: 'cust-1', assetId: 'a1', asset: { id: 'a1', code: 'AED', currency: 'AED', type: 'FIAT', decimals: 2 } };
 const disposition = { dispositionNo: 'RCD1', caseNo: 'REC1', explainedExternalLineId: 'line-1', outlet: 'SUPPLEMENT', deferredTarget: 'SUPPLEMENT_DEPOSIT', supplementNo: null };
 
 beforeEach(() => {
