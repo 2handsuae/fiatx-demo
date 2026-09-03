@@ -39,7 +39,6 @@ export type PermissionGroup =
   | 'TRADING_SWAP_READ'
   | 'TRADING_SWAP_WRITE'
   | 'WALLET_READ'
-  | 'WALLET_WRITE'
   | 'FUNDS_ORDER_VIEW'
   | 'FUNDS_ORDER_ACT'
   | 'RECON_RUN_READ'
@@ -366,14 +365,8 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
   // funds-orders read surface (see "Funds Orders" below).
 
   // Wallet / treasury
-  route('GET', '/wallets', 'List wallets', ['WALLET_READ']),
+  route('GET', '/wallets', 'List wallet address rows (vault × network)', ['WALLET_READ']),
   route('GET', '/wallets/:walletNo', 'Get wallet detail', ['WALLET_READ']),
-  route('GET', '/wallets/:walletNo/balance', 'Get wallet balance', ['WALLET_READ']),
-  route('PATCH', '/wallets/:walletNo/status', 'Update wallet status', ['WALLET_WRITE']),
-
-  // Custodian wallet workflow
-  route('POST', '/admin/custodian-wallets', 'Create custodian wallet (approval workflow)', ['WALLET_WRITE']),
-  route('POST', '/admin/custodian-wallets/:walletNo/retry', 'Retry failed custodian wallet creation', ['WALLET_WRITE']),
 
   // Reconciliation
   route('GET', '/admin/reconciliation/demo/compare', 'Demo compare: injected breaks vs detected line-items', ['RECON_RUN_READ']),
@@ -695,14 +688,8 @@ export const ACTION_BUCKET_CATALOG: ActionDomain[] = [
       {
         key: 'treasury.view_wallets',
         label: 'View wallets',
-        description: 'Browse wallet list, wallet detail, and balance queries',
+        description: 'Browse wallet address rows (vault × network) and detail; balances live in the ledger',
         groups: ['WALLET_READ'],
-      },
-      {
-        key: 'treasury.manage_wallets',
-        label: 'Manage wallets',
-        description: 'Create custodian wallets, retry failed creations, update wallet status',
-        groups: ['WALLET_WRITE'],
       },
       {
         key: 'treasury.view_addresses',
@@ -939,7 +926,7 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
     'WITHDRAWAL_FEE_LEVEL_WRITE', 'SWAP_FEE_LEVEL_WRITE',
   ],
 
-  // 钱放在哪归他：托管钱包与提现地址的写权限全仓仅此一处。
+  // 提现地址的写权限全仓仅此一处；钱包地址行只从种子来，管理台只读。
   // 暂停 / 恢复资产归运营，不归他——他管钱装在哪个容器里，不管资产状态。
   TREASURY_OFFICER: [
     'BASE_ACCESS',
@@ -948,7 +935,7 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
     'AUDIT_READ',
     'LEDGER_ACCOUNT_READ', 'LEDGER_EVIDENCE_READ', 'LEDGER_FLOW_READ',
     'ASSET_CONFIG_READ',
-    'WALLET_READ', 'WALLET_WRITE',
+    'WALLET_READ',
     'WITHDRAWAL_ADDRESS_READ', 'WITHDRAWAL_ADDRESS_WRITE',
     'FUNDS_ORDER_VIEW',
     // 调账单裁决人是 CFO（平账 A 批起，原 OPS_OFFICER）；开单权 RECON_ADJUSTMENT_WRITE

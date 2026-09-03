@@ -174,13 +174,13 @@ describe('Recon reattribution + disposition behaviour (e2e, Task 12)', () => {
    *  别的 spec 文件的并发 worker 会往同一个物理钱包上落真实流水（范本头注释
    *  论证过同一件事），共用等于让本文件的余额断言随机翻车。 */
   async function createCustomerWallet(opts: {
-    ownerId: string; ownerNo: string; assetId: string; walletRole: 'C_VIBAN' | 'C_DEP'; type: string; iban?: string;
+    ownerId: string; ownerNo: string; network: string; walletRole: 'C_VIBAN' | 'C_DEP'; iban?: string;
   }): Promise<{ id: string }> {
     return (prisma as any).wallet.create({
       data: {
         walletNo: `WA-E2E-REATTR-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
         ownerType: 'CUSTOMER', ownerId: opts.ownerId, ownerNo: opts.ownerNo,
-        type: opts.type, walletRole: opts.walletRole, assetId: opts.assetId,
+        vaultCode: 'CLIENT_DEPOSIT', walletRole: opts.walletRole, network: opts.network,
         iban: opts.iban ?? null, status: 'ACTIVE',
       },
       select: { id: true },
@@ -189,13 +189,15 @@ describe('Recon reattribution + disposition behaviour (e2e, Task 12)', () => {
 
   /** 全新公司钱包——同样不碰种子的 F_FEE（那是共享聚合户，提现/兑换套件会往上
    *  真的落手续费收入）。ownerType:'PLATFORM' 与种子惯例一致，R2 校验按
-   *  FIRM_SIDE={PLATFORM,SYSTEM} 放行。 */
-  async function createFirmWallet(opts: { assetId: string; walletRole: string; type: string }): Promise<{ id: string }> {
+   *  FIRM_SIDE={PLATFORM,SYSTEM} 放行。唯一键 (vaultCode, network, ownerNo)
+   *  不允许第二条 PLATFORM 行，独立归属号避开种子的 'PLATFORM'。 */
+  async function createFirmWallet(opts: { vaultCode: string; network: string }): Promise<{ id: string }> {
+    const tag = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     return (prisma as any).wallet.create({
       data: {
-        walletNo: `WA-E2E-REATTR-FIRM-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-        ownerType: 'PLATFORM', ownerId: null, ownerNo: 'PLATFORM',
-        type: opts.type, walletRole: opts.walletRole, assetId: opts.assetId,
+        walletNo: `WA-E2E-REATTR-FIRM-${tag}`,
+        ownerType: 'PLATFORM', ownerId: null, ownerNo: `PLATFORM-E2E-${tag}`,
+        vaultCode: opts.vaultCode, walletRole: opts.vaultCode, network: opts.network,
         status: 'ACTIVE',
       },
       select: { id: true },
@@ -419,7 +421,7 @@ describe('Recon reattribution + disposition behaviour (e2e, Task 12)', () => {
     // 错记方（carol）：钱真进了我们的账，记在她名下；银行对账单上根本没有这一笔
     // （因为这笔钱在银行那边是打给 dave 的）。
     const fromWallet = await createCustomerWallet({
-      ownerId: carolId, ownerNo: carolNo, assetId: aedAssetId, walletRole: 'C_VIBAN', type: 'FIAT_BANK',
+      ownerId: carolId, ownerNo: carolNo, network: 'AED_ZAND', walletRole: 'C_VIBAN',
       iban: `AE_E2E_REATTR_FROM_${Date.now()}`,
     });
     const crossingRef = `ZANDREF-E2E-REATTR-FROM-${randomUUID().slice(0, 8)}`;
@@ -432,7 +434,7 @@ describe('Recon reattribution + disposition behaviour (e2e, Task 12)', () => {
 
     // 正主方（dave）：银行那边真收到了这笔钱，我方内部一分没记。
     const toWallet = await createCustomerWallet({
-      ownerId: daveId, ownerNo: daveNo, assetId: aedAssetId, walletRole: 'C_VIBAN', type: 'FIAT_BANK',
+      ownerId: daveId, ownerNo: daveNo, network: 'AED_ZAND', walletRole: 'C_VIBAN',
       iban: `AE_E2E_REATTR_TO_${Date.now()}`,
     });
     const toExternalRef = `ZANDREF-E2E-REATTR-TO-${randomUUID().slice(0, 8)}`;
@@ -713,7 +715,7 @@ describe('Recon reattribution + disposition behaviour (e2e, Task 12)', () => {
 
     // 公司池：ownerNo 为空，不牵连任何客户（也天然不会跟场景 A 的客户案件串成
     // 改记候选——候选按 book 过滤）。
-    const wallet = await createFirmWallet({ assetId: aedAssetId, walletRole: 'F_FEE', type: 'FIAT_BANK' });
+    const wallet = await createFirmWallet({ vaultCode: 'F_FEE', network: 'AED_ZAND' });
     const ref = `ZANDREF-E2E-REATTR-B-${randomUUID().slice(0, 8)}`;
     await fundFirmWallet({ walletId: wallet.id, ledger, currency: aedCode, amount: BOOKED, tag: 'B', externalRef: ref });
     const line = await createExternalLine({

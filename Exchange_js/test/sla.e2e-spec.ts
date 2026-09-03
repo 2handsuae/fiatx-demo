@@ -164,8 +164,10 @@ describe('第三批 · 三域 SLA (e2e)', () => {
   ): Promise<{ id: string; depositNo: string }> {
     const wallet = await prisma.wallet.create({
       data: {
+        walletNo: `WA-E2E-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
         ownerType: 'CUSTOMER', ownerId: c.id, ownerNo: c.customerNo,
-        type: 'FIAT_BANK', assetId: fiatAssetId, iban: `AE_E2E_SLA_${c.customerNo}`, status: 'ACTIVE',
+        vaultCode: 'CLIENT_DEPOSIT', walletRole: 'C_VIBAN', network: 'AED_ZAND',
+        iban: `AE_E2E_SLA_${c.customerNo}`, status: 'ACTIVE',
       },
     });
     const depositNo = generateReferenceNo('DEP');

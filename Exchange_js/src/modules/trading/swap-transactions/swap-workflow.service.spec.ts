@@ -72,9 +72,9 @@ function reverseQuote() {
 
 // ── mocks ────────────────────────────────────────────────────────────────────
 
-const assetMap: Record<string, { currency: string; decimals: number; type: string }> = {
-  'asset-usdt': { currency: 'USDT', decimals: 6, type: 'CRYPTO' },
-  'asset-aed': { currency: 'AED', decimals: 2, type: 'FIAT' },
+const assetMap: Record<string, { currency: string; decimals: number; type: string; network: string }> = {
+  'asset-usdt': { currency: 'USDT', decimals: 6, type: 'CRYPTO', network: 'TRON' },
+  'asset-aed': { currency: 'AED', decimals: 2, type: 'FIAT', network: 'AED_ZAND' },
 };
 
 function buildMocks(quote: ReturnType<typeof baseQuote>) {
@@ -557,7 +557,7 @@ describe('SwapWorkflowService.initiateSwap — COMPLIANCE_PENDING, no legs', () 
     const mocks = buildMocks(makeQuote()); // USDT(from) → AED(to)
     const service = makeService(mocks);
     (mocks as any).walletQuery.hasReceivingAccount.mockImplementation(
-      (_customerId: string, assetId: string) => Promise.resolve(assetId !== 'asset-aed'),
+      (_customerId: string, network: string) => Promise.resolve(network !== 'AED_ZAND'),
     );
 
     await expect(service.initiateSwap('cust-1', 'q-1')).rejects.toMatchObject({
@@ -573,7 +573,7 @@ describe('SwapWorkflowService.initiateSwap — COMPLIANCE_PENDING, no legs', () 
     const mocks = buildMocks(makeQuote()); // USDT(from) → AED(to)
     const service = makeService(mocks);
     (mocks as any).walletQuery.hasReceivingAccount.mockImplementation(
-      (_customerId: string, assetId: string) => Promise.resolve(assetId !== 'asset-usdt'),
+      (_customerId: string, network: string) => Promise.resolve(network !== 'TRON'),
     );
 
     await expect(service.initiateSwap('cust-1', 'q-1')).rejects.toMatchObject({
@@ -591,8 +591,8 @@ describe('SwapWorkflowService.initiateSwap — COMPLIANCE_PENDING, no legs', () 
 
     await service.initiateSwap('cust-1', 'q-1');
 
-    expect((mocks as any).walletQuery.hasReceivingAccount).toHaveBeenCalledWith('cust-1', 'asset-usdt');
-    expect((mocks as any).walletQuery.hasReceivingAccount).toHaveBeenCalledWith('cust-1', 'asset-aed');
+    expect((mocks as any).walletQuery.hasReceivingAccount).toHaveBeenCalledWith('cust-1', 'TRON');
+    expect((mocks as any).walletQuery.hasReceivingAccount).toHaveBeenCalledWith('cust-1', 'AED_ZAND');
     expect(mocks.swapTransactionsService.create).toHaveBeenCalledTimes(1);
   });
 

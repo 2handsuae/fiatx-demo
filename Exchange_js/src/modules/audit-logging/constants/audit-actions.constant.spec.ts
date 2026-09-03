@@ -21,8 +21,11 @@ describe('第一批 · V1 词表守则', () => {
     + '（体检漏数的第 14 族裸词，码值不变，从旧附册迁入合同），得 101；'
     + '− 6 波一(2026-09-04)T2：资产创建+激活两族（ASSET_CREATED_AND_PROVISIONED/ASSET_CREATION_FAILED/'
     + 'ASSET_PROVISIONING_UPDATED/ASSET_ACTIVATION_REQUESTED/ASSET_ACTIVATED/ASSET_ACTIVATION_FAILED）'
-    + '随上架/激活整条路退役迁出（业主定「本轮不做新资产上线」），剩 SUSPENSION_/REACTIVATION_ 两族六码，得 95）', () => {
-    expect(codes).toHaveLength(95);
+    + '随上架/激活整条路退役迁出（业主定「本轮不做新资产上线」），剩 SUSPENSION_/REACTIVATION_ 两族六码，得 95；'
+    + '− 5 波一(2026-09-04)T4：托管钱包创建四码（CUSTODIAN_WALLET_CREATE_REQUESTED/CREATED/FAILED/'
+    + 'CANCELLED）+ WALLET_STATUS_UPDATED 随托管钱包创建整条路 + 钱包状态开关退役迁出（平台钱包只从'
+    + '种子来、管理台只读），得 90）', () => {
+    expect(codes).toHaveLength(90);
   });
 
   it('全部全局唯一（键即字面量，无重复）', () => {
@@ -79,12 +82,11 @@ describe('第一批 · V1 词表守则', () => {
       // TRANSACTION_LIMIT_REJECTED 不进任何前缀桶（单码落单，同 WALLET_STATUS_UPDATED）。
       'TRANSACTION_LIMIT_CREATION_': 4, 'TRANSACTION_LIMIT_CHANGE_': 4,
       'CUSTOMER_TAG_': 2,
-      // Task15(2026-09-02)：CUSTODIAN_WALLET_CREATE_ 只收 REQUESTED/FAILED/CANCELLED
-      // 三码——CUSTODIAN_WALLET_CREATED 是保留原值的不规则过去式，同 ASSET_ACTIVATED
-      // 一样不进前缀桶（CREATE_ 后面接的是 D 不是下划线，字符串前缀本就不匹配）。
-      // WITHDRAWAL_ADDRESS_ 六码全共享前缀（REGISTERED/ACTIVATED/CANCELLED/SUSPENDED/
-      // DEACTIVATED/COOLING_SKIPPED），无不规则过去式例外。
-      'CUSTODIAN_WALLET_CREATE_': 3, 'WITHDRAWAL_ADDRESS_': 6,
+      // Task15(2026-09-02) CUSTODIAN_WALLET_CREATE_ 三码 → 波一(2026-09-04)T4 随托管钱包
+      // 创建整条路退役一并迁出（不再是活码）。WITHDRAWAL_ADDRESS_ 六码全共享前缀
+      // （REGISTERED/ACTIVATED/CANCELLED/SUSPENDED/DEACTIVATED/COOLING_SKIPPED），
+      // 无不规则过去式例外，波一未动。
+      'WITHDRAWAL_ADDRESS_': 6,
       // Task15 收尾(2026-09-02)：常规登录 MFA 二次校验两码共享前缀（区别于
       // ADMIN_FIRST_LOGIN_——那是首次登录专属四步链，不是同一趟旅程）。
       'MFA_LOGIN_': 2,
@@ -109,9 +111,11 @@ describe('第一批 · V1 词表守则', () => {
     + '无旅程可开，定 NONE，不贡献 START），得 26；'
     + '− 3 波一(2026-09-04)T2：ASSET_CREATED_AND_PROVISIONED/ASSET_CREATION_FAILED/'
     + 'ASSET_ACTIVATION_REQUESTED 三个 START 随创建/激活两族退役迁出，剩 ASSET_SUSPENSION_REQUESTED/'
-    + 'ASSET_REACTIVATION_REQUESTED 两个 START，得 23）', () => {
+    + 'ASSET_REACTIVATION_REQUESTED 两个 START，得 23；'
+    + '− 1 波一(2026-09-04)T4：CUSTODIAN_WALLET_CREATE_REQUESTED 随托管钱包创建整条路退役迁出，'
+    + '得 22）', () => {
     expect(codes.filter((c) => V1_AUDIT_ACTIONS[c].correlationMode === AuditCorrelationMode.START))
-      .toHaveLength(23);
+      .toHaveLength(22);
   });
 
   it('退役码 97 个（V1 域 11 + 充值域 18+1 + 提现域 18 + 兑换域 3 + 对账域 4 + Task5扩面 19：'
@@ -129,9 +133,13 @@ describe('第一批 · V1 词表守则', () => {
     + '按 TRANSACTION_LIMIT_REJECTED 判例不登退役闸，得 97'
     + ' + 6 波一(2026-09-04)T2：ASSET_CREATED_AND_PROVISIONED/ASSET_CREATION_FAILED/'
     + 'ASSET_PROVISIONING_UPDATED/ASSET_ACTIVATION_REQUESTED/ASSET_ACTIVATED/ASSET_ACTIVATION_FAILED'
-    + ' 六码随上架/激活整条路退役新入闸，得 103），'
+    + ' 六码随上架/激活整条路退役新入闸，得 103'
+    + ' + 6 波一(2026-09-04)T4：CUSTODIAN_WALLET_CREATE_REQUESTED/CUSTODIAN_WALLET_CREATED/'
+    + 'CUSTODIAN_WALLET_CREATE_FAILED/CUSTODIAN_WALLET_CREATE_CANCELLED/WALLET_STATUS_UPDATED/'
+    + 'DEPOSIT_WALLET_CREATED 六码随托管钱包创建整条路 + 钱包状态开关 + 客户充值地址供给改名'
+    + '新入闸，得 109），'
     + '且与五本在用名册零交集', () => {
-    expect(DEPRECATED_AUDIT_ACTIONS).toHaveLength(103);
+    expect(DEPRECATED_AUDIT_ACTIONS).toHaveLength(109);
     expect(DEPRECATED_AUDIT_ACTIONS.filter((d) => codes.includes(d))).toEqual([]);
     expect(DEPRECATED_AUDIT_ACTIONS.filter((d) => d in V4_DEPOSIT_AUDIT_ACTIONS)).toEqual([]);
     expect(DEPRECATED_AUDIT_ACTIONS.filter((d) => d in V5_WITHDRAW_AUDIT_ACTIONS)).toEqual([]);

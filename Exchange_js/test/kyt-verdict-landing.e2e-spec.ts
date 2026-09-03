@@ -63,11 +63,14 @@ describe('第一批 · 合规裁决落地 (e2e)', () => {
     // 满足外键约束。
     const wallet = await prisma.wallet.create({
       data: {
+        walletNo: `WA-E2E-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
         ownerType: 'CUSTOMER',
         ownerId: customerId,
         ownerNo: customer.customerNo,
-        type: 'FIAT_BANK',
-        assetId,
+        vaultCode: 'CLIENT_DEPOSIT',
+        walletRole: 'C_VIBAN',
+        network: 'AED_ZAND',
+        iban: `AE07086${Date.now().toString().padStart(16, '0').slice(-16)}`,
         status: 'ACTIVE',
       },
     });

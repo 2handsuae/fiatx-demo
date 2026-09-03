@@ -193,13 +193,13 @@ describe('Recon adjustment money arcs (e2e, Task 8)', () => {
    *  ensureCustomerWallet, but always creates — never reused across scenarios
    *  so each scenario's account_flows are provably exclusive to it). */
   async function createCustomerWallet(opts: {
-    ownerId: string; ownerNo: string; assetId: string; walletRole: 'C_VIBAN' | 'C_DEP'; type: string; iban?: string; address?: string;
+    ownerId: string; ownerNo: string; network: string; walletRole: 'C_VIBAN' | 'C_DEP'; iban?: string; address?: string;
   }): Promise<{ id: string }> {
     return (prisma as any).wallet.create({
       data: {
         walletNo: `WA-E2E-ADJ-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
         ownerType: 'CUSTOMER', ownerId: opts.ownerId, ownerNo: opts.ownerNo,
-        type: opts.type, walletRole: opts.walletRole, assetId: opts.assetId,
+        vaultCode: 'CLIENT_DEPOSIT', walletRole: opts.walletRole, network: opts.network,
         address: opts.address ?? null, iban: opts.iban ?? null, status: 'ACTIVE',
       },
       select: { id: true },
@@ -210,13 +210,16 @@ describe('Recon adjustment money arcs (e2e, Task 8)', () => {
    *  which is a shared aggregate other e2e suites post real fee income to
    *  concurrently (see file header). ownerType:'PLATFORM' matches the seeded
    *  convention so the R2 walletRef/registry-owner check in
-   *  AccountFlowProjectorService exempts it (FIRM_SIDE = {PLATFORM, SYSTEM}). */
-  async function createFirmWallet(opts: { assetId: string; walletRole: string; type: string }): Promise<{ id: string }> {
+   *  AccountFlowProjectorService exempts it (FIRM_SIDE = {PLATFORM, SYSTEM}).
+   *  唯一键 (vaultCode, network, ownerNo) 不允许第二条 PLATFORM 行，独立归属号
+   *  避开种子的 'PLATFORM'。 */
+  async function createFirmWallet(opts: { vaultCode: string; network: string }): Promise<{ id: string }> {
+    const tag = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     return (prisma as any).wallet.create({
       data: {
-        walletNo: `WA-E2E-ADJ-FIRM-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-        ownerType: 'PLATFORM', ownerId: null, ownerNo: 'PLATFORM',
-        type: opts.type, walletRole: opts.walletRole, assetId: opts.assetId,
+        walletNo: `WA-E2E-ADJ-FIRM-${tag}`,
+        ownerType: 'PLATFORM', ownerId: null, ownerNo: `PLATFORM-E2E-${tag}`,
+        vaultCode: opts.vaultCode, walletRole: opts.vaultCode, network: opts.network,
         status: 'ACTIVE',
       },
       select: { id: true },
@@ -451,7 +454,7 @@ describe('Recon adjustment money arcs (e2e, Task 8)', () => {
   it('1. 客户账簿·减（重复入账撤销）：BREAK case → 开单 → 提交 → 真的批准 → account_flows 落账 + 审计留痕 → 重跑对账 → case AUTO_HEALED', async () => {
     const ledger = 1; // AED
     const wallet = await createCustomerWallet({
-      ownerId: carolId, ownerNo: carolNo, assetId: aedAssetId, walletRole: 'C_VIBAN', type: 'FIAT_BANK',
+      ownerId: carolId, ownerNo: carolNo, network: 'AED_ZAND', walletRole: 'C_VIBAN',
       iban: `AE_E2E_ADJ_C1_${Date.now()}`,
     });
 
@@ -559,7 +562,7 @@ describe('Recon adjustment money arcs (e2e, Task 8)', () => {
   it('2. 客户账簿·加（提现撤销退回，带关联原单）：闭环 + 分录方向为 借客户托管/贷客户应付', async () => {
     const ledger = 1; // AED
     const wallet = await createCustomerWallet({
-      ownerId: daveId, ownerNo: daveNo, assetId: aedAssetId, walletRole: 'C_VIBAN', type: 'FIAT_BANK',
+      ownerId: daveId, ownerNo: daveNo, network: 'AED_ZAND', walletRole: 'C_VIBAN',
       iban: `AE_E2E_ADJ_C2_${Date.now()}`,
     });
 
@@ -620,7 +623,7 @@ describe('Recon adjustment money arcs (e2e, Task 8)', () => {
 
   it('3. 公司账簿·加（银行利息）：闭环 + 分录方向为 借公司资产/贷其他收入', async () => {
     const ledger = 1; // AED
-    const wallet = await createFirmWallet({ assetId: aedAssetId, walletRole: 'F_FEE', type: 'FIAT_BANK' });
+    const wallet = await createFirmWallet({ vaultCode: 'F_FEE', network: 'AED_ZAND' });
 
     const FUNDED = 5000n;
     const REALLY = 7000n; // 银行多给了 2000 —— 利息，归公司（decisions.md 2026-08-28）
@@ -670,7 +673,7 @@ describe('Recon adjustment money arcs (e2e, Task 8)', () => {
 
   it('4. 反向断言：审批未通过 → 账本零动静、单仍待审批；驳回后仍零动静且落终态 REJECTED', async () => {
     const wallet = await createCustomerWallet({
-      ownerId: carolId, ownerNo: carolNo, assetId: aedAssetId, walletRole: 'C_VIBAN', type: 'FIAT_BANK',
+      ownerId: carolId, ownerNo: carolNo, network: 'AED_ZAND', walletRole: 'C_VIBAN',
       iban: `AE_E2E_ADJ_C4_${Date.now()}`,
     });
     const kase = await createFixtureCase({ walletRef: wallet.id, book: 'CLIENT', ownerNo: carolNo });
@@ -705,7 +708,7 @@ describe('Recon adjustment money arcs (e2e, Task 8)', () => {
 
   it('5. 边界线守卫：客户账簿 + 加钱 + 无关联原单 → 拒（凭空给客户加钱等于绕过 KYT 与合规闸）', async () => {
     const wallet = await createCustomerWallet({
-      ownerId: carolId, ownerNo: carolNo, assetId: aedAssetId, walletRole: 'C_VIBAN', type: 'FIAT_BANK',
+      ownerId: carolId, ownerNo: carolNo, network: 'AED_ZAND', walletRole: 'C_VIBAN',
       iban: `AE_E2E_ADJ_C5_${Date.now()}`,
     });
     const kase = await createFixtureCase({ walletRef: wallet.id, book: 'CLIENT', ownerNo: carolNo });
@@ -745,7 +748,7 @@ describe('Recon adjustment money arcs (e2e, Task 8)', () => {
 
     const ledger = 2;
     const wallet = await createCustomerWallet({
-      ownerId: daveId, ownerNo: daveNo, assetId: usdt.id, walletRole: 'C_DEP', type: 'CRYPTO',
+      ownerId: daveId, ownerNo: daveNo, network: 'TRON', walletRole: 'C_DEP',
       address: `TE2EADJ${Date.now()}`,
     });
 
@@ -802,7 +805,7 @@ describe('Recon adjustment money arcs (e2e, Task 8)', () => {
 
   it('6. 成因闸：公司侧成因（银行利息）落到客户账簿的案件 → 拒', async () => {
     const wallet = await createCustomerWallet({
-      ownerId: carolId, ownerNo: carolNo, assetId: aedAssetId, walletRole: 'C_VIBAN', type: 'FIAT_BANK',
+      ownerId: carolId, ownerNo: carolNo, network: 'AED_ZAND', walletRole: 'C_VIBAN',
       iban: `AE_E2E_ADJ_C6_${Date.now()}`,
     });
     const kase = await createFixtureCase({ walletRef: wallet.id, book: 'CLIENT', ownerNo: carolNo });
@@ -838,7 +841,7 @@ describe('Recon adjustment money arcs (e2e, Task 8)', () => {
 
   it('7. 公司账簿·减（银行杂费）：闭环 + 分录方向为 借公司运营/贷公司资产（V2 补口——四种分录组合里此前从未真落过账的最后一种）', async () => {
     const ledger = 1; // AED
-    const wallet = await createFirmWallet({ assetId: aedAssetId, walletRole: 'F_FEE', type: 'FIAT_BANK' });
+    const wallet = await createFirmWallet({ vaultCode: 'F_FEE', network: 'AED_ZAND' });
 
     const FUNDED = 7000n;
     const REALLY = 5000n; // 银行扣了 2000 账管费/电汇费 —— 外部实际比我们记的少，公司承担（decisions.md 2026-08-28）
@@ -892,7 +895,7 @@ describe('Recon adjustment money arcs (e2e, Task 8)', () => {
 
   it('V1 · maker≡checker：同一个人开单+提交后又想批自己的单 → SoD 拒绝（Fix 2 回归锁——maker 侧的 actor 身份不能被塌缩成一个字符串，否则自审批检测悄悄失效）', async () => {
     const wallet = await createCustomerWallet({
-      ownerId: carolId, ownerNo: carolNo, assetId: aedAssetId, walletRole: 'C_VIBAN', type: 'FIAT_BANK',
+      ownerId: carolId, ownerNo: carolNo, network: 'AED_ZAND', walletRole: 'C_VIBAN',
       iban: `AE_E2E_ADJ_V1_${Date.now()}`,
     });
     const kase = await createFixtureCase({ walletRef: wallet.id, book: 'CLIENT', ownerNo: carolNo });
@@ -964,7 +967,7 @@ describe('Recon adjustment money arcs (e2e, Task 8)', () => {
 
     const ledger = 1; // AED
     const wallet = await createCustomerWallet({
-      ownerId: daveId, ownerNo: daveNo, assetId: aedAssetId, walletRole: 'C_VIBAN', type: 'FIAT_BANK',
+      ownerId: daveId, ownerNo: daveNo, network: 'AED_ZAND', walletRole: 'C_VIBAN',
       iban: `AE_E2E_ADJ_C9_${Date.now()}`,
     });
 
@@ -1068,7 +1071,7 @@ describe('Recon adjustment money arcs (e2e, Task 8)', () => {
   it('10. 查了 0 个钱包的对账（当天没有外部对账单）→ 不许关掉任何 OPEN 案件', async () => {
     const ledger = 1; // AED
     const wallet = await createCustomerWallet({
-      ownerId: carolId, ownerNo: carolNo, assetId: aedAssetId, walletRole: 'C_VIBAN', type: 'FIAT_BANK',
+      ownerId: carolId, ownerNo: carolNo, network: 'AED_ZAND', walletRole: 'C_VIBAN',
       iban: `AE_E2E_ADJ_C10_${Date.now()}`,
     });
     await fundCustomerWallet({

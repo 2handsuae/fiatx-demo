@@ -155,8 +155,8 @@ describe('Swap money arcs (e2e, Task 12)', () => {
 
     // Customer receiving wallets (R4: initiateSwap's receiving-account gate
     // requires C_VIBAN/C_DEP, CUSTOMER-owned, ACTIVE, for BOTH sides of the pair).
-    await ensureCustomerWallet({ assetId: aedAssetId, walletRole: 'C_VIBAN', type: 'FIAT_BANK', iban: `AE_SWAP_ARCS_${customerNo}` });
-    await ensureCustomerWallet({ assetId: usdtAssetId, walletRole: 'C_DEP', type: 'CRYPTO_ADDRESS', address: `T_SWAP_ARCS_${customerNo}` });
+    await ensureCustomerWallet({ network: 'AED_ZAND', walletRole: 'C_VIBAN', iban: `AE_SWAP_ARCS_${customerNo}` });
+    await ensureCustomerWallet({ network: 'TRON', walletRole: 'C_DEP', address: `T_SWAP_ARCS_${customerNo}` });
 
     // Trading-start precondition gate (assertTradingReady, non-DEPOSIT actions):
     // requires ≥1 ACTIVE BANK withdrawal address on file — not used for payout
@@ -187,16 +187,17 @@ describe('Swap money arcs (e2e, Task 12)', () => {
   }
 
   async function ensureCustomerWallet(opts: {
-    assetId: string; walletRole: 'C_VIBAN' | 'C_DEP'; type: string; iban?: string; address?: string;
+    walletRole: 'C_VIBAN' | 'C_DEP'; network: string; iban?: string; address?: string;
   }): Promise<string> {
     const existing = await (prisma as any).wallet.findFirst({
-      where: { ownerType: 'CUSTOMER', ownerId: customerId, assetId: opts.assetId, walletRole: opts.walletRole, status: 'ACTIVE' },
+      where: { ownerType: 'CUSTOMER', ownerId: customerId, network: opts.network, walletRole: opts.walletRole, status: 'ACTIVE' },
     });
     if (existing) return existing.id;
     const created = await (prisma as any).wallet.create({
       data: {
+        walletNo: `WA-E2E-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
         ownerType: 'CUSTOMER', ownerId: customerId, ownerNo: customerNo,
-        type: opts.type, walletRole: opts.walletRole, assetId: opts.assetId,
+        vaultCode: 'CLIENT_DEPOSIT', walletRole: opts.walletRole, network: opts.network,
         address: opts.address ?? null, iban: opts.iban ?? null, status: 'ACTIVE',
       },
     });

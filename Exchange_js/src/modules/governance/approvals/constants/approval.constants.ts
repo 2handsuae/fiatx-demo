@@ -24,8 +24,6 @@ export const ApprovalActionTypes = {
   // ─── Credential Reset Governance (2026-05-10) ────
   ADMIN_PASSWORD_RESET: 'ADMIN_PASSWORD_RESET',
   ADMIN_MFA_RESET: 'ADMIN_MFA_RESET',
-  // ─── Custodian Wallet Create (2026-05-13) ────
-  CUSTODIAN_WALLET_CREATE: 'CUSTODIAN_WALLET_CREATE',
   // ─── Asset Suspension (2026-05-14) ────
   ASSET_SUSPENSION: 'ASSET_SUSPENSION',
   ASSET_REACTIVATION: 'ASSET_REACTIVATION',
@@ -223,12 +221,6 @@ export const DEFAULT_APPROVAL_POLICIES: Record<
     timeoutHours: 48,
     allowCancel: true,
   },
-  // ─── Custodian Wallet Create (2026-05-13) ────
-  [ApprovalActionTypes.CUSTODIAN_WALLET_CREATE]: {
-    steps: [{ stepNo: 1, roles: ['CISO'] }],
-    timeoutHours: 48,
-    allowCancel: true,
-  },
   // ─── Asset Suspension (2026-05-14) ────
   [ApprovalActionTypes.ASSET_SUSPENSION]: {
     steps: [{ stepNo: 1, roles: ['CISO'] }],
@@ -355,7 +347,6 @@ export const V1_APPROVAL_ACTION_TYPES: readonly string[] = [
   ApprovalActionTypes.ROLE_DEFINITION_MODIFY,
   ApprovalActionTypes.ADMIN_PASSWORD_RESET,
   ApprovalActionTypes.ADMIN_MFA_RESET,
-  ApprovalActionTypes.CUSTODIAN_WALLET_CREATE,
   ApprovalActionTypes.ASSET_SUSPENSION,
   ApprovalActionTypes.ASSET_REACTIVATION,
   ApprovalActionTypes.TRANSACTION_LIMIT_CHANGE,

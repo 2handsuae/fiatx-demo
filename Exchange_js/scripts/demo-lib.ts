@@ -81,13 +81,8 @@ import { buildDeterministicNo } from '../src/common/utils/no-generator.util';
 // ── constants ────────────────────────────────────────────────────────────────
 export const SIM = 'DEMO'; // deterministic-no tag + operatorId for driven legs
 
-// 客户 VIBAN 的收款行信息 —— 单一真相源在 src，造数与真实开户 API 共用同一份
-// （见该文件注释：分散写正是 C_CMA 退役时漏掉生产路径的原因）。
-import {
-  CUSTOMER_VIBAN_BANK_NAME,
-  CUSTOMER_VIBAN_ACCOUNT_NAME,
-} from '../src/modules/asset-treasury/wallets/customer-viban-bank.constant';
-export { CUSTOMER_VIBAN_BANK_NAME, CUSTOMER_VIBAN_ACCOUNT_NAME };
+import { NETWORKS } from '../src/config/manifests/networks.manifest';
+import { fakeTronAddress } from '../src/common/utils/tron-address.util';
 
 // Tradeable business-seed customers (onboarding APPROVED + compliance CLEAR).
 // Order matters: index → deterministic refs/addresses.
@@ -328,26 +323,26 @@ export async function ensureSetup(ctx: DemoCtx): Promise<void> {
       }
     }
 
-    // C_DEP (USDT deposit address)
+    // C_DEP（TRON 收款地址）
     const depNo = buildDeterministicNo('WA', SIM, 'C_DEP', c.customerNo);
-    const depAddr = `T${createHash('sha256').update(depNo).digest('hex').slice(0, 33)}`;
     await ctx.prisma.wallet.upsert({
       where: { walletNo: depNo }, update: {},
       create: {
         walletNo: depNo, ownerType: 'CUSTOMER', ownerId: c.id, ownerNo: c.customerNo,
-        type: 'CRYPTO_ADDRESS', walletRole: 'C_DEP', assetId: ctx.usdt.id, address: depAddr, status: 'ACTIVE',
+        vaultCode: 'CLIENT_DEPOSIT', walletRole: 'C_DEP', network: 'TRON',
+        address: fakeTronAddress(depNo), custodianRef: `hextrust-demo-${c.customerNo}`, status: 'ACTIVE',
       },
     });
 
-    // C_VIBAN (AED)
+    // C_VIBAN（AED_ZAND 虚拟账号）
     const vibanNo = buildDeterministicNo('WA', SIM, 'C_VIBAN', c.customerNo);
     const vibanIban = `AE07086${createHash('sha256').update(vibanNo).digest('hex').replace(/\D/g, '').padEnd(16, '0').slice(0, 16)}`;
     await ctx.prisma.wallet.upsert({
       where: { walletNo: vibanNo }, update: {},
       create: {
         walletNo: vibanNo, ownerType: 'CUSTOMER', ownerId: c.id, ownerNo: c.customerNo,
-        type: 'FIAT_BANK', walletRole: 'C_VIBAN', assetId: ctx.aed.id, iban: vibanIban,
-        bankName: CUSTOMER_VIBAN_BANK_NAME, accountName: CUSTOMER_VIBAN_ACCOUNT_NAME, status: 'ACTIVE',
+        vaultCode: 'CLIENT_DEPOSIT', walletRole: 'C_VIBAN', network: 'AED_ZAND',
+        iban: vibanIban, custodianRef: `zand-demo-${c.customerNo}`, status: 'ACTIVE',
       },
     });
 
@@ -439,7 +434,7 @@ export async function runFrankPreStage(ctx: DemoCtx): Promise<Array<{ seq: numbe
 
   const depositEntry = DEMO_ROSTER.find((r) => r.seq === 21)!;
   const aedWallet = await ctx.prisma.wallet.findFirst({
-    where: { ownerId: frank.id, walletRole: 'C_VIBAN', assetId: ctx.aed.id },
+    where: { ownerId: frank.id, walletRole: 'C_VIBAN', network: 'AED_ZAND' },
   });
   if (!aedWallet) throw new Error(`${frank.email} missing C_VIBAN — run demo:setup first`);
 
@@ -638,8 +633,8 @@ export async function runDeposits(ctx: DemoCtx): Promise<Array<{ seq: number; or
 
   const wallets = new Map<string, { usdt: any; aed: any }>();
   for (const c of depositCustomers) {
-    const usdtWallet = await ctx.prisma.wallet.findFirst({ where: { ownerId: c.id, walletRole: 'C_DEP', assetId: ctx.usdt.id } });
-    const aedWallet = await ctx.prisma.wallet.findFirst({ where: { ownerId: c.id, walletRole: 'C_VIBAN', assetId: ctx.aed.id } });
+    const usdtWallet = await ctx.prisma.wallet.findFirst({ where: { ownerId: c.id, walletRole: 'C_DEP', network: 'TRON' } });
+    const aedWallet = await ctx.prisma.wallet.findFirst({ where: { ownerId: c.id, walletRole: 'C_VIBAN', network: 'AED_ZAND' } });
     if (!usdtWallet || !aedWallet) throw new Error(`${c.email} missing C_DEP/C_VIBAN — run demo:setup first`);
     wallets.set(c.email, { usdt: usdtWallet, aed: aedWallet });
   }
@@ -1105,7 +1100,7 @@ export async function runWithdraws(ctx: DemoCtx): Promise<Array<{ seq: number; o
       const idx = customerIdx(c.email);
       toAddress = `T${createHash('sha256').update(`${SIM}wd${idx}`).digest('hex').slice(0, 33)}`;
     } else {
-      const viban = await ctx.prisma.wallet.findFirst({ where: { ownerId: c.id, walletRole: 'C_VIBAN', assetId: ctx.aed.id } });
+      const viban = await ctx.prisma.wallet.findFirst({ where: { ownerId: c.id, walletRole: 'C_VIBAN', network: 'AED_ZAND' } });
       if (!viban) throw new Error(`${c.email} missing C_VIBAN — run demo:setup first`);
       toIban = viban.iban;
     }

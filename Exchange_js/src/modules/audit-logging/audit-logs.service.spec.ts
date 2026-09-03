@@ -90,7 +90,6 @@ describe('AuditLogsService', () => {
       ROLE_DEFINITION_MODIFY: 'ROLE_DEFINITION_MODIFY',
       ADMIN_PASSWORD_RESET: 'ADMIN_PASSWORD_RESET',
       ADMIN_MFA_RESET: 'ADMIN_MFA_RESET',
-      CUSTODIAN_WALLET_CREATE: 'CUSTODIAN_WALLET_CREATE',
       WITHDRAWAL_ADDRESS_REGISTRATION: 'WITHDRAWAL_ADDRESS_REGISTRATION',
       TB_ACCOUNT_MANUAL_CREATE: 'TB_ACCOUNT_MANUAL_CREATE',
       TRADING_TIER_UPGRADE: 'TRADING_TIER_UPGRADE',
@@ -569,7 +568,10 @@ describe('AuditLogsService', () => {
     await expect(
       service.recordByActor(
         {
-          action: AuditActions.WALLET_STATUS_UPDATED,
+          // 波一 T4：WALLET_STATUS_UPDATED 随钱包状态开关退役，登退役闸后
+          // assertActionSpec 会当场拒绝——换一个仍在役、同形状（CONFIG 域、
+          // 无必填字段）的码，测试意图不变：只是要触发存储不可用的 fail-fast。
+          action: AuditActions.FUNDS_ORDER_ADVANCED,
           actionDomain: 'CONFIG',
           primarySubjectType: AuditEntityTypes.WALLET,
         } as any,

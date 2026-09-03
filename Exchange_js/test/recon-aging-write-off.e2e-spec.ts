@@ -148,13 +148,13 @@ describe('Recon case aging → write-off e2e (平账 A 批, Task 12)', () => {
   /** Fresh customer wallet row — always creates, never reused across scenarios
    *  so each scenario's account_flows are provably exclusive to it. */
   async function createCustomerWallet(opts: {
-    ownerId: string; ownerNo: string; assetId: string; walletRole: 'C_VIBAN' | 'C_DEP'; type: string; iban?: string; address?: string;
+    ownerId: string; ownerNo: string; network: string; walletRole: 'C_VIBAN' | 'C_DEP'; iban?: string; address?: string;
   }): Promise<{ id: string }> {
     return (prisma as any).wallet.create({
       data: {
         walletNo: `WA-E2E-ADJ-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
         ownerType: 'CUSTOMER', ownerId: opts.ownerId, ownerNo: opts.ownerNo,
-        type: opts.type, walletRole: opts.walletRole, assetId: opts.assetId,
+        vaultCode: 'CLIENT_DEPOSIT', walletRole: opts.walletRole, network: opts.network,
         address: opts.address ?? null, iban: opts.iban ?? null, status: 'ACTIVE',
       },
       select: { id: true },
@@ -165,13 +165,15 @@ describe('Recon case aging → write-off e2e (平账 A 批, Task 12)', () => {
    *  which is a shared aggregate other e2e suites post real fee income to
    *  concurrently. ownerType:'PLATFORM' matches the seeded convention so the
    *  R2 walletRef/registry-owner check in AccountFlowProjectorService exempts
-   *  it (FIRM_SIDE = {PLATFORM, SYSTEM}). */
-  async function createFirmWallet(opts: { assetId: string; walletRole: string; type: string }): Promise<{ id: string }> {
+   *  it (FIRM_SIDE = {PLATFORM, SYSTEM}). 唯一键 (vaultCode, network, ownerNo)
+   *  不允许第二条 PLATFORM 行，独立归属号避开种子的 'PLATFORM'。 */
+  async function createFirmWallet(opts: { vaultCode: string; network: string }): Promise<{ id: string }> {
+    const tag = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     return (prisma as any).wallet.create({
       data: {
-        walletNo: `WA-E2E-ADJ-FIRM-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-        ownerType: 'PLATFORM', ownerId: null, ownerNo: 'PLATFORM',
-        type: opts.type, walletRole: opts.walletRole, assetId: opts.assetId,
+        walletNo: `WA-E2E-ADJ-FIRM-${tag}`,
+        ownerType: 'PLATFORM', ownerId: null, ownerNo: `PLATFORM-E2E-${tag}`,
+        vaultCode: opts.vaultCode, walletRole: opts.vaultCode, network: opts.network,
         status: 'ACTIVE',
       },
       select: { id: true },
@@ -405,7 +407,7 @@ describe('Recon case aging → write-off e2e (平账 A 批, Task 12)', () => {
     // 查询圈定下限，不削断言本身。
     const testStartedAt = new Date();
     const ledger = 1; // AED
-    const wallet = await createFirmWallet({ assetId: aedAssetId, walletRole: 'F_FEE', type: 'FIAT_BANK' });
+    const wallet = await createFirmWallet({ vaultCode: 'F_FEE', network: 'AED_ZAND' });
     const REF = `E2E-WO-${randomUUID().slice(0, 8)}`;
     await fundFirmWallet({ walletId: wallet.id, ledger, currency: aedCode, amount: 5000n, tag: 'WO', externalRef: REF, crossing: true });
     await createExternalLine({ walletId: wallet.id, currency: aedCode, book: 'FIRM', direction: 'IN', amount: 4993n, externalRef: REF });
@@ -489,7 +491,7 @@ describe('Recon case aging → write-off e2e (平账 A 批, Task 12)', () => {
   });
 
   it('反例③：客户池超期 + 调查中 → 核销 400，读面给「待二期划转」', async () => {
-    const wallet = await createCustomerWallet({ ownerId: carolId, ownerNo: carolNo, assetId: aedAssetId, walletRole: 'C_VIBAN', type: 'FIAT_VIBAN', iban: `AE-E2E-${randomUUID().slice(0, 8)}` });
+    const wallet = await createCustomerWallet({ ownerId: carolId, ownerNo: carolNo, network: 'AED_ZAND', walletRole: 'C_VIBAN', iban: `AE-E2E-${randomUUID().slice(0, 8)}` });
     const kase = await createFixtureCase({ walletRef: wallet.id, book: 'CLIENT', ownerNo: carolNo });
     await (prisma as any).reconciliationCase.update({ where: { id: kase.id }, data: { slaBreached: true, slaDeadline: new Date(Date.now() - 1000) } });
     const flowId = `flow-fixture-${randomUUID()}`;
@@ -509,7 +511,7 @@ describe('Recon case aging → write-off e2e (平账 A 批, Task 12)', () => {
   it('跨日切：跑批截止点后 6 小时的外部行，案件页仍显示那条「我有外无」（spec §6.1）', async () => {
     const day = new Date(CUTOFF.getTime() + 2 * 86_400_000).toISOString().slice(0, 10);
     const runCutoff = new Date(`${day}T10:00:00.000Z`);
-    const wallet = await createCustomerWallet({ ownerId: daveId, ownerNo: daveNo, assetId: aedAssetId, walletRole: 'C_VIBAN', type: 'FIAT_VIBAN', iban: `AE-E2E-${randomUUID().slice(0, 8)}` });
+    const wallet = await createCustomerWallet({ ownerId: daveId, ownerNo: daveNo, network: 'AED_ZAND', walletRole: 'C_VIBAN', iban: `AE-E2E-${randomUUID().slice(0, 8)}` });
     const REF = `E2E-STRADDLE-${randomUUID().slice(0, 8)}`;
     await fundCustomerWallet({ walletId: wallet.id, ownerId: daveId, assetId: aedAssetId, ledger: 1, currency: aedCode, amount: 800n, tag: 'S9', crossing: true, externalRef: REF } as any);
     await createExternalLine({ walletId: wallet.id, currency: aedCode, book: 'CLIENT', direction: 'IN', amount: 800n, externalRef: REF, datetime: new Date(`${day}T16:00:00.000Z`) });

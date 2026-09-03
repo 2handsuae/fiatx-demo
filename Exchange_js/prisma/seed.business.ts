@@ -19,11 +19,9 @@ import {
   RestrictionScope,
 } from '../src/modules/identity/customers/constants/restriction-cause.constant';
 import { deterministicTransferId } from '../src/modules/accounting/tigerbeetle/utils/tb-id.util';
-import {
-  CRYPTO_SYSTEM_WALLET_ROLES,
-  FIAT_SYSTEM_WALLET_ROLES,
-} from '../src/modules/asset-treasury/wallets/system-wallet.util';
-import { WalletRole } from '../src/modules/asset-treasury/wallets/dto/wallet.dto';
+import { platformWalletSlots } from '../src/config/manifests/vaults.manifest';
+import { NETWORKS } from '../src/config/manifests/networks.manifest';
+import { fakeTronAddress } from '../src/common/utils/tron-address.util';
 
 type SeedBusinessOptions = {
   skipEnsureBase?: boolean;
@@ -41,6 +39,8 @@ export async function seedBusiness(
 
   // ① Assets layer
   await seedAssets(prisma);
+  // ①b Platform wallet address rows (vault × network)
+  await seedPlatformWallets(prisma);
   // ② Config layer
   await seedSwapFeeLevels(prisma);
   await seedWithdrawalFeeLevels(prisma);
@@ -65,34 +65,9 @@ function normalizeSegment(value: string): string {
   return value.toUpperCase().replace(/[^A-Z0-9]+/g, '_');
 }
 
-// System wallet roles required by V7 settlement/fee workflows, selected per
-// asset type: crypto pools (C_MAIN/C_OUT/F_LIQ/F_OPS) vs fiat pools
-// (C_CMA/F_SET/F_FEE/F_OPS/F_LIQ). See system-wallet.util.ts.
-type SystemWalletRole = WalletRole;
-
-function buildSystemWalletAddress(
-  role: SystemWalletRole,
-  assetCode: string,
-  network: string | null | undefined,
-): string {
-  const normalizedNetwork = normalizeSegment(network || 'NA');
-  const normalizedCode = normalizeSegment(assetCode);
+function buildSystemPoolIban(vaultCode: string, currency: string): string {
   const hash = createHash('sha256')
-    .update(`${role}|${normalizedCode}|${normalizedNetwork}`)
-    .digest('hex');
-
-  if (normalizedNetwork === 'TRON') {
-    return `T${hash.slice(0, 33)}`;
-  }
-  if (normalizedNetwork === 'ETHEREUM') {
-    return `0x${hash.slice(0, 40)}`;
-  }
-  return `sys_${role.toLowerCase()}_${normalizedCode.toLowerCase()}_${normalizedNetwork.toLowerCase()}_${hash.slice(0, 12)}`;
-}
-
-function buildSystemPoolIban(role: SystemWalletRole, assetCode: string): string {
-  const hash = createHash('sha256')
-    .update(`${role}|${normalizeSegment(assetCode)}`)
+    .update(`${vaultCode}|${normalizeSegment(currency)}`)
     .digest('hex');
   // AE IBAN 形制:AE + 2 check digits + 3-digit bank code + 16-digit account (23 chars)。
   // 演示库:数字从 hash 确定性导出,不做真实 mod-97 校验(spec §7 范围外)。
@@ -140,7 +115,6 @@ async function seedAssets(prisma: PrismaClient): Promise<void> {
     });
 
     // System TB accounts (ownerType SYSTEM, no ownerUuid).
-    const isFiat = asset.type === 'FIAT';
     const systemAccounts = systemAccountCodesFor(asset.type);
     for (const acct of systemAccounts) {
       await ensureTbAccountRegistry(prisma, {
@@ -154,82 +128,36 @@ async function seedAssets(prisma: PrismaClient): Promise<void> {
       });
     }
 
-    // System wallets (ownerType PLATFORM), one per role — fiat vs crypto pool sets.
-    // C_CMA is not provisioned: it has no ledger position of its own (a
-    // read-time aggregate of customer C_VIBAN, see system-wallet.util.ts) and
-    // reconciliation doesn't cover it.
-    const systemRoles = isFiat ? FIAT_SYSTEM_WALLET_ROLES : CRYPTO_SYSTEM_WALLET_ROLES;
-    for (const role of systemRoles) {
-      const owner = { ownerType: 'PLATFORM' as const, ownerNo: 'PLATFORM' };
-      const walletNo = buildDeterministicNo(
-        'WA',
-        role,
-        normalizeSegment(asset.code),
-        asset.network ? normalizeSegment(asset.network) : '',
-      );
-
-      if (isFiat) {
-        await prisma.wallet.upsert({
-          where: { walletNo },
-          update: {
-            ownerType: owner.ownerType,
-            ownerId: null,
-            ownerNo: owner.ownerNo,
-            type: 'FIAT_BANK',
-            walletRole: role,
-            assetId: record.id,
-            iban: buildSystemPoolIban(role, asset.code),
-            bankName: 'Zand Bank PJSC',
-            accountName: 'FiatX Ltd',
-            status: 'ACTIVE',
-          },
-          create: {
-            walletNo,
-            ownerType: owner.ownerType,
-            ownerId: null,
-            ownerNo: owner.ownerNo,
-            type: 'FIAT_BANK',
-            walletRole: role,
-            assetId: record.id,
-            iban: buildSystemPoolIban(role, asset.code),
-            bankName: 'Zand Bank PJSC',
-            accountName: 'FiatX Ltd',
-            status: 'ACTIVE',
-          },
-        });
-      } else {
-        const address = buildSystemWalletAddress(role, asset.code, asset.network);
-        await prisma.wallet.upsert({
-          where: { walletNo },
-          update: {
-            ownerType: owner.ownerType,
-            ownerId: null,
-            ownerNo: owner.ownerNo,
-            type: 'CRYPTO_ADDRESS',
-            walletRole: role,
-            assetId: record.id,
-            address,
-            status: 'ACTIVE',
-          },
-          create: {
-            walletNo,
-            ownerType: owner.ownerType,
-            ownerId: null,
-            ownerNo: owner.ownerNo,
-            type: 'CRYPTO_ADDRESS',
-            walletRole: role,
-            assetId: record.id,
-            address,
-            status: 'ACTIVE',
-          },
-        });
-      }
-    }
   }
 
   console.log(
-    `Seeded ${DEFAULT_ASSETS.length} assets + system TB accounts + system wallets.`,
+    `Seeded ${DEFAULT_ASSETS.length} assets + system TB accounts.`,
   );
+}
+
+// ─────────────────────────────────────────────────────────────
+// ①b Platform wallet rows — 4 vault × network slots (7 rows), keyed by network not asset
+// ─────────────────────────────────────────────────────────────
+async function seedPlatformWallets(prisma: PrismaClient): Promise<void> {
+  for (const slot of platformWalletSlots()) {
+    const net = NETWORKS[slot.network];
+    const walletNo = buildDeterministicNo('WA', slot.vaultCode, slot.network);
+    const isChain = net.kind === 'CHAIN';
+    const data = {
+      ownerType: 'PLATFORM',
+      ownerId: null,
+      ownerNo: 'PLATFORM',
+      vaultCode: slot.vaultCode,
+      walletRole: slot.vaultCode,
+      network: slot.network,
+      address: isChain ? fakeTronAddress(`PLATFORM|${slot.vaultCode}|${slot.network}`) : null,
+      iban: isChain ? null : buildSystemPoolIban(slot.vaultCode, 'AED'),
+      custodianRef: `${net.custodian.toLowerCase()}-vault-${slot.vaultCode.toLowerCase()}`,
+      status: 'ACTIVE',
+    };
+    await prisma.wallet.upsert({ where: { walletNo }, update: data, create: { walletNo, ...data } });
+  }
+  console.log('Seeded 7 platform wallet address rows (vault × network).');
 }
 
 // ─────────────────────────────────────────────────────────────

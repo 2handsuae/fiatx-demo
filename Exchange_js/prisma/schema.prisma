@@ -650,7 +650,6 @@ model Asset {
   swapQuoteFroms                 SwapQuote[]                     @relation("SwapQuoteFromAsset")
   swapQuoteTos                   SwapQuote[]                     @relation("SwapQuoteToAsset")
   withdrawPricingQuotes          WithdrawPricingQuote[]
-  wallets                        Wallet[]
   withdrawTransactions           WithdrawTransaction[]
   fundsOrders                    FundsOrder[]
   reconciliationCases            ReconciliationCase[]
@@ -698,33 +697,30 @@ model WithdrawPricingQuote {
 }
 
 model Wallet {
-  id                                       String                          @id @default(uuid())
-  walletNo                                 String?                         @unique
-  ownerType                                String
-  ownerId                                  String?
-  ownerNo                                  String?
-  type                                     String
-  walletRole                               String                          @default("GENERAL")
-  assetId                                  String
-  address                                  String?
-  bankName                                 String?
-  status                                   String                          @default("ACTIVE")
-  mockBalance                              Decimal                         @default(0)
-  createdAt                                DateTime                        @default(now()) @map("created_at")
-  updatedAt                                DateTime                        @updatedAt @map("updated_at")
-  accountName                              String?
-  iban                                     String?
-  vaultId                                  String?
-  depositTransactions                      DepositTransaction[]
-  depositTransactionsFrom                  DepositTransaction[]            @relation("DepositFromWallet")
-  fundsOrdersFrom                          FundsOrder[]                    @relation("FundsOrderFromWallet")
-  fundsOrdersTo                            FundsOrder[]                    @relation("FundsOrderToWallet")
-  asset                                    Asset                           @relation(fields: [assetId], references: [id])
-  inboundTransferSignals                   InboundTransferSignal[]
+  id           String   @id @default(uuid())
+  walletNo     String   @unique
+  ownerType    String                       // PLATFORM | CUSTOMER
+  ownerId      String?                      // 内部外键（客户 UUID）；平台行 null（计划裁定 1）
+  ownerNo      String                       // 客户号；平台行 'PLATFORM'
+  vaultCode    String                       // F_OPS | F_SET | F_FEE | F_LIQ | CLIENT_DEPOSIT（vaults.manifest）
+  walletRole   String                       // 平台行 = vaultCode；客户行 C_DEP（链上）/ C_VIBAN（法币通道）
+  network      String                       // networks.manifest 的 code
+  address      String?                      // CHAIN 网络的地址
+  iban         String?                      // BANK_RAIL 网络的虚拟账号
+  custodianRef String?                      // 托管方返回的钱包 id（原 vaultId）
+  status       String   @default("ACTIVE")  // CREATING | ACTIVE | FAILED
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+  depositTransactions     DepositTransaction[]
+  depositTransactionsFrom DepositTransaction[]   @relation("DepositFromWallet")
+  fundsOrdersFrom         FundsOrder[]           @relation("FundsOrderFromWallet")
+  fundsOrdersTo           FundsOrder[]           @relation("FundsOrderToWallet")
+  inboundTransferSignals  InboundTransferSignal[]
 
+  @@unique([vaultCode, network, ownerNo])
   @@index([ownerType, ownerId])
-  @@index([assetId])
-  @@index([status])
+  @@index([network, address])
+  @@index([network, iban])
   @@map("wallets")
 }
 

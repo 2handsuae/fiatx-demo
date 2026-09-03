@@ -1,98 +1,18 @@
-import {
-  CRYPTO_SYSTEM_WALLET_ROLES,
-  FIAT_SYSTEM_WALLET_ROLES,
-  PROTECTED_SYSTEM_WALLET_ROLES,
-  isProtectedSystemWalletRole,
-  classifyWalletSurface,
-  WalletSurfaceCategory,
-} from './system-wallet.util';
-import { WalletRole } from './dto/wallet.dto';
+import { PLATFORM_WALLET_ROLES, CUSTOMER_DEPOSIT_ROLES, isPlatformWalletRole, customerRoleForNetworkKind } from './system-wallet.util';
 
-describe('system-wallet.util', () => {
-  describe('role constants', () => {
-    it('CRYPTO_SYSTEM_WALLET_ROLES contains correct roles', () => {
-      // C_MAIN / C_OUT 是 V7 延迟结算时代的平台归集池，realtime 1:1 改造后
-      // 加密提现直接从客户自己的 C_DEP 出金，两者已于 790a6685 退役。
-      expect(CRYPTO_SYSTEM_WALLET_ROLES).toEqual([
-        WalletRole.F_LIQ, WalletRole.F_OPS, WalletRole.F_FEE,
-      ]);
-    });
-
-    it('FIAT_SYSTEM_WALLET_ROLES contains correct roles', () => {
-      expect(FIAT_SYSTEM_WALLET_ROLES).toEqual([
-        WalletRole.F_SET, WalletRole.F_FEE, WalletRole.F_OPS, WalletRole.F_LIQ,
-      ]);
-    });
-
-    it('PROTECTED_SYSTEM_WALLET_ROLES is union of both', () => {
-      // 三个已退役的池角色都不该在保护集里：C_MAIN/C_OUT(790a6685)、C_CMA(b7b67405)
-      expect(PROTECTED_SYSTEM_WALLET_ROLES).not.toContain(WalletRole.C_MAIN);
-      expect(PROTECTED_SYSTEM_WALLET_ROLES).not.toContain(WalletRole.C_OUT);
-      expect(PROTECTED_SYSTEM_WALLET_ROLES).not.toContain(WalletRole.C_CMA);
-      expect(PROTECTED_SYSTEM_WALLET_ROLES).toContain(WalletRole.F_LIQ);
-      expect(PROTECTED_SYSTEM_WALLET_ROLES).toContain(WalletRole.F_OPS);
-      expect(PROTECTED_SYSTEM_WALLET_ROLES).toContain(WalletRole.F_SET);
-      expect(PROTECTED_SYSTEM_WALLET_ROLES).toContain(WalletRole.F_FEE);
-    });
+describe('system-wallet.util（波一）', () => {
+  it('平台角色 = 四个 vault 码；客户收款角色 = C_DEP / C_VIBAN', () => {
+    expect([...PLATFORM_WALLET_ROLES].sort()).toEqual(['F_FEE', 'F_LIQ', 'F_OPS', 'F_SET']);
+    expect([...CUSTOMER_DEPOSIT_ROLES].sort()).toEqual(['C_DEP', 'C_VIBAN']);
   });
-
-  describe('isProtectedSystemWalletRole', () => {
-    it('returns true for system roles', () => {
-      expect(isProtectedSystemWalletRole(WalletRole.F_LIQ)).toBe(true);
-      expect(isProtectedSystemWalletRole(WalletRole.F_SET)).toBe(true);
-    });
-
-    it('returns false for retired pool roles', () => {
-      expect(isProtectedSystemWalletRole(WalletRole.C_MAIN)).toBe(false);
-      expect(isProtectedSystemWalletRole(WalletRole.C_OUT)).toBe(false);
-      expect(isProtectedSystemWalletRole(WalletRole.C_CMA)).toBe(false);
-    });
-
-    it('returns false for customer roles', () => {
-      expect(isProtectedSystemWalletRole(WalletRole.C_DEP)).toBe(false);
-      expect(isProtectedSystemWalletRole(WalletRole.C_VIBAN)).toBe(false);
-    });
+  it('C_MAIN / C_OUT / C_CMA 不再是任何角色', () => {
+    for (const r of ['C_MAIN', 'C_OUT', 'C_CMA']) {
+      expect(isPlatformWalletRole(r)).toBe(false);
+      expect(CUSTOMER_DEPOSIT_ROLES.has(r)).toBe(false);
+    }
   });
-
-  describe('classifyWalletSurface', () => {
-    it('C_MAIN → CUSTOMER_POOL', () => {
-      expect(classifyWalletSurface({ walletRole: WalletRole.C_MAIN, ownerType: 'PLATFORM' }))
-        .toBe(WalletSurfaceCategory.CUSTOMER_POOL);
-    });
-
-    it('C_OUT → CUSTOMER_POOL', () => {
-      expect(classifyWalletSurface({ walletRole: WalletRole.C_OUT, ownerType: 'PLATFORM' }))
-        .toBe(WalletSurfaceCategory.CUSTOMER_POOL);
-    });
-
-    it('C_CMA → CUSTOMER_POOL', () => {
-      expect(classifyWalletSurface({ walletRole: WalletRole.C_CMA, ownerType: 'PLATFORM' }))
-        .toBe(WalletSurfaceCategory.CUSTOMER_POOL);
-    });
-
-    it('F_LIQ → PLATFORM_POOL', () => {
-      expect(classifyWalletSurface({ walletRole: WalletRole.F_LIQ, ownerType: 'PLATFORM' }))
-        .toBe(WalletSurfaceCategory.PLATFORM_POOL);
-    });
-
-    it('F_OPS → PLATFORM_POOL', () => {
-      expect(classifyWalletSurface({ walletRole: WalletRole.F_OPS, ownerType: 'PLATFORM' }))
-        .toBe(WalletSurfaceCategory.PLATFORM_POOL);
-    });
-
-    it('C_DEP customer → CUSTOMER_DEPOSIT', () => {
-      expect(classifyWalletSurface({ walletRole: WalletRole.C_DEP, ownerType: 'CUSTOMER' }))
-        .toBe(WalletSurfaceCategory.CUSTOMER_DEPOSIT);
-    });
-
-    it('C_VIBAN customer → CUSTOMER_DEPOSIT', () => {
-      expect(classifyWalletSurface({ walletRole: WalletRole.C_VIBAN, ownerType: 'CUSTOMER' }))
-        .toBe(WalletSurfaceCategory.CUSTOMER_DEPOSIT);
-    });
-
-    it('LIQUIDITY_PROVIDER → LIQUIDITY_PROVIDER_ACCOUNT', () => {
-      expect(classifyWalletSurface({ walletRole: WalletRole.F_LIQ, ownerType: 'LIQUIDITY_PROVIDER' }))
-        .toBe(WalletSurfaceCategory.LIQUIDITY_PROVIDER_ACCOUNT);
-    });
+  it('客户收款角色由网络种类决定：CHAIN → C_DEP，BANK_RAIL → C_VIBAN', () => {
+    expect(customerRoleForNetworkKind('CHAIN')).toBe('C_DEP');
+    expect(customerRoleForNetworkKind('BANK_RAIL')).toBe('C_VIBAN');
   });
 });

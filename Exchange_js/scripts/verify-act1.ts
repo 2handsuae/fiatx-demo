@@ -225,7 +225,6 @@ async function main(): Promise<void> {
 
   // ══════════════════════ B6：成员 / 钱包详情对外用业务键（铁律⑥，Task 18）══════════════════════
 
-  const asset0 = await prisma.asset.findFirstOrThrow();
   const su4 = uniq();
   const userFxB6 = await prisma.user.create({
     data: {
@@ -237,7 +236,10 @@ async function main(): Promise<void> {
     },
   });
   const walletFxB6 = await prisma.wallet.create({
-    data: { walletNo: `WA-ACT1-B6-${su4}`, ownerType: 'PLATFORM', type: 'FIAT_BANK', assetId: asset0.id },
+    data: {
+      walletNo: `WA-ACT1-B6-${su4}`, ownerType: 'PLATFORM', ownerId: null, ownerNo: `PLATFORM-ACT1-B6-${su4}`,
+      vaultCode: 'F_OPS', walletRole: 'F_OPS', network: 'AED_ZAND', status: 'ACTIVE',
+    },
   });
   const b6u200 = await call('GET', `/users/${userFxB6.userNo}`, tokens.treasury);
   const b6u404 = await call('GET', `/users/${userFxB6.id}`, tokens.treasury);

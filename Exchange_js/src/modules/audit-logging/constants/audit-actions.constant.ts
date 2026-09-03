@@ -102,8 +102,7 @@ export const AuditBusinessWorkflowTypes = {
   // Credential Reset Governance (2026-05-10)
   ADMIN_PASSWORD_RESET: 'ADMIN_PASSWORD_RESET',
   ADMIN_MFA_RESET: 'ADMIN_MFA_RESET',
-  // Custodian Wallet Create (2026-05-13)
-  CUSTODIAN_WALLET_CREATE: 'CUSTODIAN_WALLET_CREATE',
+  // Custodian Wallet Create (2026-05-13) — 波一(2026-09-04)T4 随托管钱包创建整条路退役
   WITHDRAWAL_ADDRESS_REGISTRATION: 'WITHDRAWAL_ADDRESS_REGISTRATION',
   TB_ACCOUNT_MANUAL_CREATE: 'TB_ACCOUNT_MANUAL_CREATE',
   // Asset Suspension (2026-05-14)
@@ -387,8 +386,7 @@ export const AuditActions = {
   CUSTOMER_RESTRICTION_ADDED: 'CUSTOMER_RESTRICTION_ADDED',
   CUSTOMER_RESTRICTION_CLEARED: 'CUSTOMER_RESTRICTION_CLEARED',
   WALLET_STATUS_UPDATED: 'WALLET_STATUS_UPDATED',
-  DEPOSIT_WALLET_CREATED: 'DEPOSIT_WALLET_CREATED',
-  DEPOSIT_WALLET_CREATE_FAILED: 'DEPOSIT_WALLET_CREATE_FAILED',
+  CUSTOMER_DEPOSIT_ADDRESS_CREATED: 'CUSTOMER_DEPOSIT_ADDRESS_CREATED',
   SWAP_QUOTE_CANCELLED: 'SWAP_QUOTE_CANCELLED',
   SWAP_QUOTE_USED: 'SWAP_QUOTE_USED',
   AUDIT_EVIDENCE_EXPORT_REQUESTED: 'AUDIT_EVIDENCE_EXPORT_REQUESTED',
@@ -612,21 +610,6 @@ export const V1_AUDIT_ACTIONS: Record<string, AuditActionSpec> = {
   CUSTOMER_TAG_ASSIGNED: { domain: 'CONFIG', correlationMode: N, requiredFields: ['afterData'], requiresCausation: false },
   CUSTOMER_TAG_REVOKED:  { domain: 'CONFIG', correlationMode: N, requiredFields: ['beforeData', 'reason'], requiresCausation: false },
 
-  // ── 托管钱包创建（2026-09-02 换名册·批四）：REQUESTED 是 createAndSubmit 铸的
-  // correlationId 起点（S）；CREATED/FAILED/CANCELLED 都经审批决定事件 INHERIT 回同
-  // 一个 correlationId，且都是被「审批已决定」这个异步事件驱动（causationId=approvalId）。
-  // 连带修：executeCreation 已有 approvalId 参数直接用；executeCancellation 原来
-  // 不传 approvalId/decisionReason，Task 15 补了两个参数（decisionReason 来自
-  // ApprovalDecidedEvent，即被拒时审批人填的理由，喂 reason）；retryCreate 是直接
-  // 管理员单步重试、没有新审批，原来现铸一个孤立 traceId——若照 INHERIT 硬填会让
-  // correlationId/causationId 语义落空，Task 15 改查回原 ApprovalCase（entityRef=
-  // walletId, actionType=CUSTODIAN_WALLET_CREATE）取其 traceId/id，真正接续同一趟
-  // 创建旅程而不是编一个假值。
-  CUSTODIAN_WALLET_CREATE_REQUESTED:  { domain: 'CONFIG', correlationMode: S, requiredFields: ['afterData'], requiresCausation: false },
-  CUSTODIAN_WALLET_CREATED:           { domain: 'CONFIG', correlationMode: I, requiredFields: ['afterData', 'approvalNo'], requiresCausation: true },
-  CUSTODIAN_WALLET_CREATE_FAILED:     { domain: 'CONFIG', correlationMode: I, requiredFields: [], requiresCausation: true },
-  CUSTODIAN_WALLET_CREATE_CANCELLED:  { domain: 'CONFIG', correlationMode: I, requiredFields: ['reason'], requiresCausation: true },
-
   // ── 客户提现地址·24h 冷却闸（2026-09-02 换名册·批四）：REGISTERED 是地址自己的
   // traceId 起点（S，创建时铸号存 WithdrawalAddress.traceId 列）；后续五码都是单步
   // 管理/客户操作、无审批引擎，INHERIT 回读同一枚persisted traceId，故 requiresCausation
@@ -663,7 +646,8 @@ export const V1_AUDIT_ACTIONS: Record<string, AuditActionSpec> = {
   // 零消费方（2026-08-31 grep 核实），迁入 DEPRECATED_AUDIT_ACTIONS，本组已删。
 
   // ── ⑬ 站7 收编：平台运营件（金库/资金单模拟推进；手工建户与对手方已退役见下方注释）──
-  WALLET_STATUS_UPDATED:            { domain: 'CONFIG', correlationMode: N, requiredFields: [], requiresCausation: false },
+  // WALLET_STATUS_UPDATED：2026-09-04 波一 T4 随钱包状态开关整条路退役（平台钱包只从
+  // 种子来、管理台只读），迁入 DEPRECATED_AUDIT_ACTIONS（见下方），本组已删。
   // MANUAL_TB_ACCOUNT_CREATED：2026-08-31 随手工开账本科目退役（业主定「账本
   // 没有手动配置这回事」），写点 TbManualAccountService（tb-manual-account.
   // service.ts）已整文件删除（commit 3ed5a10f），全仓零消费方（2026-08-31 grep
@@ -741,7 +725,9 @@ export const V4_DEPOSIT_AUDIT_ACTIONS: Record<string, AuditActionSpec> = {
   INBOUND_SIGNAL_MATCHED:         { domain: 'DEPOSIT', correlationMode: N, requiredFields: [], requiresCausation: false },
   INBOUND_SIGNAL_BLOCKED:         { domain: 'DEPOSIT', correlationMode: N, requiredFields: ['reason'], requiresCausation: false },
   INBOUND_SIGNAL_FAILED:          { domain: 'DEPOSIT', correlationMode: N, requiredFields: ['reason'], requiresCausation: false },
-  DEPOSIT_WALLET_CREATED:         { domain: 'DEPOSIT', correlationMode: N, requiredFields: [], requiresCausation: false },
+  // 客户在某网络上开收款地址（波一：钱包表唯一写路径；actor=客户）。单步动作、无旅程可继承 → NONE；
+  // 失败并入双结局（outcome=FAILED + reasonCode=PROVISION_ERROR）。
+  CUSTOMER_DEPOSIT_ADDRESS_CREATED: { domain: 'DEPOSIT', correlationMode: N, requiredFields: ['afterData'], requiresCausation: false },
 };
 
 /**
@@ -970,4 +956,8 @@ export const DEPRECATED_AUDIT_ACTIONS: readonly string[] = [
   // 写点 asset-listing-workflow / asset-activation-workflow 已整文件删除，六码登退役闸
   'ASSET_CREATED_AND_PROVISIONED', 'ASSET_CREATION_FAILED', 'ASSET_PROVISIONING_UPDATED',
   'ASSET_ACTIVATION_REQUESTED', 'ASSET_ACTIVATED', 'ASSET_ACTIVATION_FAILED',
+  // 2026-09-04 波一（V3 治愈）：托管钱包创建整条路 + 钱包状态开关退役（平台钱包只从种子来、管理台只读）；
+  // 客户充值地址供给改名 CUSTOMER_DEPOSIT_ADDRESS_CREATED（actor=客户），旧名登退役闸
+  'CUSTODIAN_WALLET_CREATE_REQUESTED', 'CUSTODIAN_WALLET_CREATED', 'CUSTODIAN_WALLET_CREATE_FAILED', 'CUSTODIAN_WALLET_CREATE_CANCELLED',
+  'WALLET_STATUS_UPDATED', 'DEPOSIT_WALLET_CREATED',
 ] as const;

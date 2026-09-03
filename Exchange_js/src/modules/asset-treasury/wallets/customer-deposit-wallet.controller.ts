@@ -24,6 +24,6 @@ export class CustomerDepositWalletController {
     if (req.user?.type !== 'CUSTOMER') {
       throw new ForbiddenException('Customer token required');
     }
-    return this.service.createOrReturn(req.user.userId, dto.assetId);
+    return this.service.createOrReturn(req.user.userId, dto.network);
   }
 }
