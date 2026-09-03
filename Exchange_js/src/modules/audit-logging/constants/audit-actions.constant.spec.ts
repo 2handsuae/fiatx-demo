@@ -135,27 +135,40 @@ describe('第一批 · V1 词表守则', () => {
 describe('平账 B 批：补单十码出生即冻结四属性', () => {
   // 本文件没有单一的 AUDIT_ACTION_CONTRACTS 合同表——合同按域封册在 V4_DEPOSIT_AUDIT_ACTIONS /
   // V5_WITHDRAW_AUDIT_ACTIONS 里（见 audit-vocabulary-closure.spec.ts 的 REGISTRIES），合并后查。
-  const contracts: Record<string, { domain: string; requiredFields: string[] }> = {
-    ...V4_DEPOSIT_AUDIT_ACTIONS,
-    ...V5_WITHDRAW_AUDIT_ACTIONS,
+  const contracts: Record<
+    string,
+    { domain: string; correlationMode: AuditCorrelationMode; requiredFields: string[]; requiresCausation: boolean }
+  > = { ...V4_DEPOSIT_AUDIT_ACTIONS, ...V5_WITHDRAW_AUDIT_ACTIONS } as any;
+
+  // 逐码精确期望——四属性全断言；correlationMode 比实际导出的 AuditCorrelationMode 枚举值，
+  // 不比字符串字面量（源码本身也是拿这个枚举赋给本地 N/I 常量，见 audit-actions.constant.ts）。
+  const expected: Record<
+    string,
+    { domain: string; correlationMode: AuditCorrelationMode; requiredFields: string[]; requiresCausation: boolean }
+  > = {
+    // ① 主体是入站信号（无 correlationId，照 INBOUND_SIGNAL_* 走 NONE），四码全 requiresCausation=false
+    DEPOSIT_SUPPLEMENT_REQUESTED: { domain: 'DEPOSIT', correlationMode: AuditCorrelationMode.NONE, requiredFields: [], requiresCausation: false },
+    DEPOSIT_SUPPLEMENT_STARTED: { domain: 'DEPOSIT', correlationMode: AuditCorrelationMode.NONE, requiredFields: ['approvalNo'], requiresCausation: false },
+    DEPOSIT_SUPPLEMENT_REJECTED: { domain: 'DEPOSIT', correlationMode: AuditCorrelationMode.NONE, requiredFields: ['approvalNo'], requiresCausation: false },
+    DEPOSIT_SUPPLEMENTED: { domain: 'DEPOSIT', correlationMode: AuditCorrelationMode.NONE, requiredFields: ['depositNo'], requiresCausation: false },
+    // ② 主体是充值单（INHERIT，照 DEPOSIT_RETURN_*）；只有 STARTED 是异步驱动，requiresCausation=true
+    DEPOSIT_CLAWBACK_REQUESTED: { domain: 'DEPOSIT', correlationMode: AuditCorrelationMode.INHERIT, requiredFields: [], requiresCausation: false },
+    DEPOSIT_CLAWBACK_STARTED: { domain: 'DEPOSIT', correlationMode: AuditCorrelationMode.INHERIT, requiredFields: ['approvalNo'], requiresCausation: true },
+    DEPOSIT_CLAWED_BACK: { domain: 'DEPOSIT', correlationMode: AuditCorrelationMode.INHERIT, requiredFields: ['fromStatus', 'toStatus'], requiresCausation: false },
+    // ③ 主体是提现单（INHERIT，照 WITHDRAW_UNFREEZE_*）；只有 STARTED 是异步驱动，requiresCausation=true
+    WITHDRAW_RETURN_CLAIM_REQUESTED: { domain: 'WITHDRAW', correlationMode: AuditCorrelationMode.INHERIT, requiredFields: [], requiresCausation: false },
+    WITHDRAW_RETURN_CLAIM_STARTED: { domain: 'WITHDRAW', correlationMode: AuditCorrelationMode.INHERIT, requiredFields: ['approvalNo'], requiresCausation: true },
+    WITHDRAW_RETURNED_AFTER_SUCCESS: { domain: 'WITHDRAW', correlationMode: AuditCorrelationMode.INHERIT, requiredFields: ['fromStatus', 'toStatus'], requiresCausation: false },
   };
-  const codes = [
-    'DEPOSIT_SUPPLEMENT_REQUESTED', 'DEPOSIT_SUPPLEMENT_STARTED', 'DEPOSIT_SUPPLEMENT_REJECTED', 'DEPOSIT_SUPPLEMENTED',
-    'DEPOSIT_CLAWBACK_REQUESTED', 'DEPOSIT_CLAWBACK_STARTED', 'DEPOSIT_CLAWED_BACK',
-    'WITHDRAW_RETURN_CLAIM_REQUESTED', 'WITHDRAW_RETURN_CLAIM_STARTED', 'WITHDRAW_RETURNED_AFTER_SUCCESS',
-  ] as const;
-  it.each(codes)('%s 在词表且有合同', (code) => {
+
+  it.each(Object.keys(expected))('%s 在词表，且合同四属性逐一精确匹配', (code) => {
     expect((AuditActions as any)[code]).toBe(code);
     const c = contracts[code];
     expect(c).toBeDefined();
-    expect(['DEPOSIT', 'WITHDRAW']).toContain(c.domain);
-  });
-  it('STARTED 三码必填 approvalNo；终态三码必填 from/toStatus 或 depositNo', () => {
-    for (const c of ['DEPOSIT_SUPPLEMENT_STARTED', 'DEPOSIT_CLAWBACK_STARTED', 'WITHDRAW_RETURN_CLAIM_STARTED']) {
-      expect(contracts[c].requiredFields).toContain('approvalNo');
-    }
-    expect(contracts.DEPOSIT_CLAWED_BACK.requiredFields).toEqual(['fromStatus', 'toStatus']);
-    expect(contracts.WITHDRAW_RETURNED_AFTER_SUCCESS.requiredFields).toEqual(['fromStatus', 'toStatus']);
-    expect(contracts.DEPOSIT_SUPPLEMENTED.requiredFields).toEqual(['depositNo']);
+    const want = expected[code];
+    expect(c.domain).toBe(want.domain);
+    expect(c.correlationMode).toBe(want.correlationMode);
+    expect(c.requiredFields).toEqual(want.requiredFields);
+    expect(c.requiresCausation).toBe(want.requiresCausation);
   });
 });
