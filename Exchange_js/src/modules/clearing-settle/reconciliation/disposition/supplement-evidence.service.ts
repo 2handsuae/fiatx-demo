@@ -21,7 +21,22 @@ export interface ClaimableLine {
   externalRef: string | null; channelRef: string | null; datetime: string; description: string | null; source: string;
 }
 
-export interface SupplementCandidate { orderNo: string; id: string; amountMajor: string; createdAt: string; status: string }
+export interface SupplementCandidate { orderNo: string; amountMajor: string; createdAt: string; status: string }
+
+/**
+ * `listCandidates` 的对外投影（铁律⑥：对外用业务键，管理台不暴露 UUID）。
+ * UUID 只留 `externalLineId` 这一个——它是补单表单的隐藏锚，不上页面展示。
+ * `caseId` / `walletId` / `ownerId` / `assetId` 等内部 id 一律不进这个类型；
+ * Task 5/6/7 建信号 / 查余额要用这些 id，走 `assertClaimable()` 返回的 `ClaimableLine`
+ *（服务端内部值，不出 HTTP 响应），不走这里。
+ */
+export interface SupplementCandidatesView {
+  externalLineId: string; caseNo: string; businessDate: string; dispositionNo: string | null;
+  walletNo: string | null; ownerNo: string | null;
+  currency: string; assetType: 'CRYPTO' | 'FIAT'; decimals: number;
+  direction: 'IN' | 'OUT'; amountMajor: string;
+  externalRef: string | null; channelRef: string | null; datetime: string; description: string | null; source: string;
+}
 
 /** 最小单位整数字符串 → 业务单位字符串（补零到 decimals 位，不四舍五入）。 */
 export function minorToMajor(minor: string, decimals: number): string {
@@ -58,7 +73,7 @@ export class SupplementEvidenceService {
     return { ...facts, dispositionNo: d.dispositionNo };
   }
 
-  async listCandidates(caseNo: string, externalLineId: string) {
+  async listCandidates(caseNo: string, externalLineId: string): Promise<{ line: SupplementCandidatesView; kind: SupplementKind | null; candidates: SupplementCandidate[] }> {
     const line = await this.loadLine(caseNo, externalLineId);
     const kase = await (this.prisma as any).reconciliationCase.findUnique({ where: { caseNo } });
     const d = await (this.prisma as any).reconciliationDisposition.findFirst({ where: { caseNo, explainedExternalLineId: externalLineId } });
@@ -70,15 +85,24 @@ export class SupplementEvidenceService {
         where: { toWalletId: line.walletId, status: 'SUCCESS' }, orderBy: { createdAt: 'desc' },
       });
       candidates = rows.filter((r: any) => majorToMinor(r.amount, line.decimals) === target)
-        .map((r: any) => ({ orderNo: r.depositNo, id: r.id, amountMajor: String(r.amount), createdAt: r.createdAt.toISOString(), status: r.status }));
+        .map((r: any) => ({ orderNo: r.depositNo, amountMajor: String(r.amount), createdAt: r.createdAt.toISOString(), status: r.status }));
     } else if (kind === 'SUPPLEMENT_PAYOUT_RETURN') {
       const rows = await (this.prisma as any).withdrawTransaction.findMany({
         where: { fromWalletId: line.walletId, status: 'SUCCESS' }, orderBy: { createdAt: 'desc' },
       });
       candidates = rows.filter((r: any) => majorToMinor(r.netAmount, line.decimals) === target)
-        .map((r: any) => ({ orderNo: r.withdrawNo, id: r.id, amountMajor: String(r.netAmount), createdAt: r.createdAt.toISOString(), status: r.status }));
+        .map((r: any) => ({ orderNo: r.withdrawNo, amountMajor: String(r.netAmount), createdAt: r.createdAt.toISOString(), status: r.status }));
     }
-    return { line: { ...line, dispositionNo: d?.dispositionNo ?? null, businessDate: kase.businessDate }, kind, candidates };
+    // 对外投影：显式挑字段构造，不用 delete —— caseId/walletId/ownerId/assetId 等内部 id
+    // 从不进入这个对象（铁律⑥）。line（ClaimableLine，含内部 id）只在函数内部用于查询。
+    const view: SupplementCandidatesView = {
+      externalLineId: line.externalLineId, caseNo: line.caseNo, businessDate: kase.businessDate, dispositionNo: d?.dispositionNo ?? null,
+      walletNo: line.walletNo, ownerNo: line.ownerNo,
+      currency: line.currency, assetType: line.assetType, decimals: line.decimals,
+      direction: line.direction, amountMajor: line.amountMajor,
+      externalRef: line.externalRef, channelRef: line.channelRef, datetime: line.datetime, description: line.description, source: line.source,
+    };
+    return { line: view, kind, candidates };
   }
 
   /** 执行期：只要参考号 / 关联号 / 业务日 / 案号，不重跑守卫（守卫在提交与批准两个时点已跑）。 */
@@ -100,7 +124,11 @@ export class SupplementEvidenceService {
     const kase = await (this.prisma as any).reconciliationCase.findUnique({ where: { caseNo }, include: { lineItems: true } });
     if (!kase) throw new NotFoundException(`对账案件不存在：${caseNo}`);
     if (kase.status !== 'OPEN') throw new BadRequestException(`案子 ${caseNo} 不是打开状态，不能补单`);
-    if (kase.book !== 'CLIENT') throw new BadRequestException(`案子 ${caseNo} 不是客户账簿，补单只对客户钱包`);
+    // book 的真实落库值是 'CUSTOMER'（wallet-recon-run.service.ts 的引擎写入值），不是 'CLIENT'
+    // ——同目录 adjustment.service.ts / disposition.service.ts 都按「=== 'FIRM' 才算不是客户账簿」
+    // 归一化，这里对齐同一惯例（曾误写成严格等于 'CLIENT'，会把每一条真实客户案件都拒掉，
+    // 冒烟测试对运行中 self 栈的真实数据直接复现过）。
+    if (kase.book === 'FIRM') throw new BadRequestException(`案子 ${caseNo} 不是客户账簿，补单只对客户钱包`);
     const li = (kase.lineItems ?? []).find((x: any) => x.externalTxId === externalLineId);
     if (!li || li.matchStatus !== 'ORPHAN_EXTERNAL') {
       throw new BadRequestException('该账单行不是本案最新一轮的「外有我无」差异行');

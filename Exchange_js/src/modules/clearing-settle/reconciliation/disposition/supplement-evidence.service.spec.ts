@@ -87,4 +87,26 @@ describe('listCandidates', () => {
     expect(r.kind).toBe('SUPPLEMENT_BOUNCE');
     expect(r.candidates.map((c) => c.orderNo)).toEqual(['DEP1']);
   });
+
+  it('对外投影不带内部 UUID（铁律⑥）：line 不含内部 id / 最小单位，candidates 元素不含 id', async () => {
+    prisma.externalStatementLine.findUnique.mockResolvedValueOnce({ ...line, direction: 'OUT' });
+    prisma.reconciliationDisposition.findUnique.mockResolvedValue(null);
+    prisma.depositTransaction.findMany.mockResolvedValueOnce([
+      { id: 'd1', depositNo: 'DEP1', amount: '1200', status: 'SUCCESS', createdAt: new Date('2026-08-30') },
+    ]);
+    const r = await service.listCandidates('REC1', 'line-1');
+    // 保留：externalLineId 是补单表单的隐藏锚（spec §2.1 明确保留），walletNo 是业务键。
+    expect(r.line.externalLineId).toBe('line-1');
+    expect(r.line.walletNo).toBe('W-1');
+    // 去掉：内部 id 与最小单位金额一律不出这个对象。
+    expect(r.line).not.toHaveProperty('caseId');
+    expect(r.line).not.toHaveProperty('walletId');
+    expect(r.line).not.toHaveProperty('ownerId');
+    expect(r.line).not.toHaveProperty('assetId');
+    expect(r.line).not.toHaveProperty('amountMinor');
+    expect(r.line).not.toHaveProperty('walletAddress');
+    expect(r.line).not.toHaveProperty('walletIban');
+    expect(r.candidates.length).toBeGreaterThan(0);
+    r.candidates.forEach((c: any) => expect(c).not.toHaveProperty('id'));
+  });
 });
