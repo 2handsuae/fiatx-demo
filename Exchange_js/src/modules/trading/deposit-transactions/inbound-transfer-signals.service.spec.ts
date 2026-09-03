@@ -30,6 +30,8 @@ describe('InboundTransferSignalsService · 按网络与合约找钥匙（波一�
 
   const wallet = { id: 'w1', walletNo: 'WA1', ownerType: 'CUSTOMER', ownerId: 'c1', vaultCode: 'CLIENT_DEPOSIT', walletRole: 'C_DEP', network: 'TRON', address: 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t', status: 'ACTIVE' };
   const usdt = { id: 'a-usdt', code: 'USDT-TRON', type: 'CRYPTO', network: 'TRON', contractAddress: 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t', decimals: 6 };
+  const fiatWallet = { id: 'w-fiat-1', walletNo: 'WA-F1', ownerType: 'CUSTOMER', ownerId: 'c1', vaultCode: 'CLIENT_DEPOSIT', walletRole: 'C_VIBAN', network: 'AED_ZAND', iban: 'AE070331234567890123456', status: 'ACTIVE' };
+  const aed = { id: 'a-aed', code: 'AED', type: 'FIAT', network: 'AED_ZAND', contractAddress: null, decimals: 2 };
 
   beforeEach(async () => {
     jest.clearAllMocks();
@@ -83,6 +85,75 @@ describe('InboundTransferSignalsService · 按网络与合约找钥匙（波一�
 
   it('未注册网络：400', async () => {
     await expect(service.createForCustomer('c1', { network: 'FIAT', iban: 'AE1', amount: '1' } as any)).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  // 评审发现：钥匙①(resolveDepositWalletOrThrow) 的 where 子句此前只在 404
+  // 分支验证过"没查到"，从未验证过"查的时候到底带了什么条件"——删掉
+  // ownerId 或 vaultCode 任一子句，全部用例仍然全绿(因为 findFirst 是
+  // mock,不会真的按条件过滤)。这两条子句正是挡"客户 A 拿客户 B 的收款地址
+  // 报入金信号"的唯一防线,必须锁精确 where。链上与银行通道分支的
+  // destination key 不同(address vs iban),两条分支都要锁。
+  it('钥匙①的 where 精确锁客户归属：链上带 network+address、银行通道带 network+iban，都必须挂 ownerId + vaultCode=CLIENT_DEPOSIT', async () => {
+    prisma.wallet.findFirst.mockResolvedValueOnce(wallet);
+    prisma.asset.findFirst.mockResolvedValueOnce(usdt);
+    prisma.inboundTransferSignal.findUnique
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({ id: 's-chain' });
+    prisma.inboundTransferSignal.create.mockResolvedValueOnce({ id: 's-chain' });
+    await service.createForCustomer('c1', {
+      network: 'TRON', toAddress: wallet.address, contractAddress: usdt.contractAddress,
+      amount: '100', txHash: 'ab'.repeat(32), fromAddress: 'TSender', counterpartyIsVasp: false,
+    } as any);
+    expect(prisma.wallet.findFirst).toHaveBeenLastCalledWith({
+      where: {
+        ownerType: 'CUSTOMER',
+        ownerId: 'c1',
+        vaultCode: 'CLIENT_DEPOSIT',
+        network: 'TRON',
+        address: wallet.address,
+      },
+    });
+
+    prisma.wallet.findFirst.mockResolvedValueOnce(fiatWallet);
+    prisma.asset.findFirst.mockResolvedValueOnce(aed);
+    prisma.inboundTransferSignal.findUnique
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({ id: 's-fiat' });
+    prisma.inboundTransferSignal.create.mockResolvedValueOnce({ id: 's-fiat' });
+    await service.createForCustomer('c1', {
+      network: 'AED_ZAND', iban: fiatWallet.iban,
+      amount: '100', referenceNo: 'REF-1', fromIban: 'IBAN-1',
+    } as any);
+    expect(prisma.wallet.findFirst).toHaveBeenLastCalledWith({
+      where: {
+        ownerType: 'CUSTOMER',
+        ownerId: 'c1',
+        vaultCode: 'CLIENT_DEPOSIT',
+        network: 'AED_ZAND',
+        iban: fiatWallet.iban,
+      },
+    });
+  });
+
+  // 评审发现：DEPOSIT_SIGNAL_REJECTED 这条拒收留痕此前只跟 mock 的
+  // AuditLogsService 对过("有没有调用、带没带这几个字段"),从来没有真正跑过
+  // audit-logs.service.ts 里那道硬闸(assertActionSpec)——actionDomain 抄
+  // 错、reasonCode 掉了、以后这个码被重新登记成 INHERIT,这些漂移都不会
+  // 让任何测试变红。这里把服务实际传出去的信封原样喂给真实校验函数
+  // (不连库:assertActionSpec 是纯校验,不碰 prisma,与
+  // adjustment.service.spec.ts 的 assertActionSpec 回归锁同款做法)。
+  it('DEPOSIT_SIGNAL_REJECTED 拒收信封过真实 assertActionSpec 不拒写（不依赖真库）', async () => {
+    prisma.wallet.findFirst.mockResolvedValue(wallet);
+    prisma.asset.findFirst.mockResolvedValue(null);
+    await expect(service.createForCustomer('c1', {
+      network: 'TRON', toAddress: wallet.address, contractAddress: 'TScamScamScamScamScamScamScamScamXX',
+      amount: '100', txHash: 'ab'.repeat(32), fromAddress: 'TSender', counterpartyIsVasp: false,
+    } as any)).rejects.toBeInstanceOf(BadRequestException);
+
+    expect(audit.recordSystem).toHaveBeenCalledTimes(1);
+    const envelope = audit.recordSystem.mock.calls[0][0];
+    const realAuditLogs = new AuditLogsService(null as any);
+    expect(() => (realAuditLogs as any).assertActionSpec(envelope)).not.toThrow();
   });
 });
 
