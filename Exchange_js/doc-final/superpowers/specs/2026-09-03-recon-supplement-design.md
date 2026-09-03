@@ -3,6 +3,22 @@
 - 日期：2026-09-03
 - 承接：`archive/specs/2026-09-01-recon-disposition-conclusion-design.md`（一期半，留档指路）、`archive/specs/2026-09-02-recon-aging-writeoff-design.md`（A 批，账龄 + 核销 + 审批人 CFO）
 - 状态：业主 2026-09-03 逐段认可，待 plan
+- 总纲：`2026-09-03-recon-settlement-waves-outline.md`（目标 / 波次 / 跨波口径，本 spec 只写细 B 批这一波）
+
+## 承接上一波（A 批，合 main b17758ac，2026-09-03）
+
+按 `rules/delivery-checklist.md` 多波行写在这里，不留在 A 批 spec（已归档）。
+
+**实际偏差。** 范围无偏差：账龄线、公司池核销、审批人改 CFO、公司账簿冲销定码、跨日切修复、三处 tooltip 都按 spec 落地。一处实现口径要记住：审批人从 `checkerRoles` 改 CFO 后，`ApprovalPolicyService` 先读库里 `stepsConfig`，seed 只 upsert `checkerRoles`，所以**改审批人必须 `stack.sh reset`，`db:base:sync` 不够**。
+
+**执行中发现的新事实。**
+- `stack.sh reset` 清业务表但**不清 `audit_log_events`**（IAM / 治理表也留着）：main 库上 `verify:audit` 不变量③ 因 3 条历史退役码恒红，只有删库重铺能清，业主未拍板；`verify:rbac` V2·CFO 撞了一张手工挂的待批改角色单 RDM-260903336397。B 批在 worktree 里 `reset self` 不受影响，但合 main 后主栈复核要预期这两条红
+- **任何「重新对账」都会把场景 9（跨日切）自愈**：第六幕场景 9 必须排在所有重对账之前；B 批新增的三次重对账演示同样要排在它后面
+- 案件号 `REC{日期}-{序}` 同日 reset 重跑会复用，e2e 审计断言按 `recordedAt >= testStartedAt` 圈定（`recon-aging-write-off.e2e-spec.ts` 已是范式）
+- main 自带缺陷：制裁冻结充值写 `DEPOSIT_FROZEN` 审计被 INHERIT 合同拒（`deposit-workflow.service.ts` 约 2842 行），终态仍对，已登 BACKLOG，B 批不修
+- 环境：worktree 会话的 harness 拒绝复合命令（`a && b`），主树会话不拒；后端跑的是 dist，改完要 `stack.sh up` 重启；`/tmp` 下有两个别人的 1.1G 残留 worktree 目录待业主删
+
+**下一波前提有无变化。** 核销仍锁公司池（`assertWriteOffAllowed` 前提 3），B 批不动它，二期解锁；成因表现 20 码（`PRECISION_DUST` 已删），B 批 +1 = 21；`RECON_ADJUSTMENT_POST` 复核人已是 CFO，B 批三个新审批类型照此；场景 14 仍挂在 Alice USDT，B 批搬去 Kate AED。
 
 ## 0. 决策记录（本轮脑暴的结论）
 
@@ -229,6 +245,6 @@
 
 ## 附录 B · 本批触发的交付清单行（`rules/delivery-checklist.md`）
 
-任何持久状态变化（审计 + requestId）｜ 新增审计动作码（9 个，四属性冻结）｜ 新状态 / 新结局（`CLAWED_BACK` 一条边、`SUCCESS→RETURNED` 一条边、信号两态；计时：都不要，终态或有审批超时兜着）｜ 动了钱（同步直调、不建资金单、不新增科目；`verify:coa`）｜ 该走 maker-checker（三类走 `ApprovalsService` 正门）｜ 新增审批策略（`MAKER_GROUP_BY_POLICY` +3）｜ 新增权限组（三个，四处齐）｜ 新增 admin 端点（4 条，登记 + sync + 重启）｜ 新增业务动作（前端入口三个）｜ 改了交易三域（充值、提现都动了；兑换无对应，因为兑换不产生外部行）｜ 新字段 / 新状态到客户面（`CLAWED_BACK` 客户可见，白名单加）｜ 涉及金额（最小单位存）｜ 对外识别（业务键）｜ 改 schema（一个迁移，无 backfill）｜ 改页面或种子（`data.md` / `script.md` / `baseline.md`）｜ 改了前端（截图六张）｜ 每轮收尾（modules v8-recon / v4-deposit / v5-withdraw / overview、手册、decisions +5、CHANGELOG、BACKLOG 销三行加两行）
+任何持久状态变化（审计 + requestId）｜ 新增审计动作码（9 个，四属性冻结）｜ 新状态 / 新结局（`CLAWED_BACK` 一条边、`SUCCESS→RETURNED` 一条边、信号两态；计时：都不要，终态或有审批超时兜着）｜ 动了钱（同步直调、不建资金单、不新增科目；`verify:coa`）｜ 该走 maker-checker（三类走 `ApprovalsService` 正门）｜ 新增审批策略（`MAKER_GROUP_BY_POLICY` +3）｜ 新增权限组（三个，四处齐）｜ 新增 admin 端点（4 条，登记 + sync + 重启）｜ 新增业务动作（前端入口三个）｜ 改了交易三域（充值、提现都动了；兑换无对应，因为兑换不产生外部行）｜ 新字段 / 新状态到客户面（`CLAWED_BACK` 客户可见，白名单加）｜ 涉及金额（最小单位存）｜ 对外识别（业务键）｜ 改 schema（一个迁移，无 backfill）｜ 改页面或种子（`data.md` / `script.md` / `baseline.md`）｜ 改了前端（截图六张）｜ **本任务是多波中的一波**（合并前把「承接 B 批」写进二期 spec `2026-09-03-internal-transfer-order-design.md` 开头：实际偏差 / 新事实 / 二期前提变化，并把二期从骨架展开写细；本 spec 随即归档）｜ 每轮收尾（modules v8-recon / v4-deposit / v5-withdraw / overview、手册、decisions +5、CHANGELOG、BACKLOG 销三行加两行）
 
 不触发：退役业务动作（无）｜ 新事件（无）
