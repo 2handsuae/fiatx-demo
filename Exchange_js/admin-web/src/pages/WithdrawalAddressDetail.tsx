@@ -456,7 +456,7 @@ export default function WithdrawalAddressDetail() {
             <div className="border-b border-adm-border py-4">
               <Cap>Actions</Cap>
               <div className="mt-2.5 flex flex-col gap-2">
-                {isActive && (
+                {isActive && canWrite && (
                   <button
                     onClick={() => setShowSuspendModal(true)}
                     disabled={actionLoading}

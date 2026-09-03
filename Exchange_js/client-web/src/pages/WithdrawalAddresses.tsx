@@ -174,7 +174,7 @@ export default function WithdrawalAddresses() {
   const [deactivateError, setDeactivateError] = useState('');
   const [deactivateReason, setDeactivateReason] = useState('');
 
-  // edit label / beneficiary (crypto detail modal only)
+  // edit label / beneficiary (crypto + bank detail modals)
   const [editLabel, setEditLabel] = useState('');
   const [editBeneficiary, setEditBeneficiary] = useState('');
   const [editSubmitting, setEditSubmitting] = useState(false);
@@ -431,11 +431,12 @@ export default function WithdrawalAddresses() {
   };
 
   const handleEditSave = async () => {
-    if (!detailAddr) return;
+    const addr = detailAddr || bankDetailAddr;
+    if (!addr) return;
     setEditError('');
     setEditSubmitting(true);
     try {
-      const res = await customerFetch(`${API}/client/withdrawal-addresses/${detailAddr.addressNo}`, {
+      const res = await customerFetch(`${API}/client/withdrawal-addresses/${addr.addressNo}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ label: editLabel.trim(), beneficiaryName: editBeneficiary.trim() }),
@@ -445,7 +446,8 @@ export default function WithdrawalAddresses() {
         return;
       }
       const updated = await res.json();
-      setDetailAddr(updated);
+      if (detailAddr) setDetailAddr(updated);
+      if (bankDetailAddr) setBankDetailAddr(updated);
       await fetchAddresses();
     } catch (err: any) {
       if (err instanceof CustomerSessionError) return;
@@ -455,9 +457,19 @@ export default function WithdrawalAddresses() {
     }
   };
 
+  /* ─── Edit label / beneficiary (bank detail modal) ──────────── */
+  const openBankDetail = (addr: WithdrawalAddr) => {
+    resetDeactivateState();
+    setBankDetailAddr(addr);
+    setEditLabel(addr.label ?? '');
+    setEditBeneficiary(addr.beneficiaryName ?? '');
+    setEditError('');
+  };
+
   const closeBankDetail = () => {
     setBankDetailAddr(null);
     resetDeactivateState();
+    setEditError('');
   };
 
   /* ═══════════════════════════════════════════════════════════
@@ -597,6 +609,9 @@ export default function WithdrawalAddresses() {
                       <div
                         key={addr.addressNo}
                         onClick={() => openDetail(addr)}
+                        role="button"
+                        tabIndex={0}
+                        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openDetail(addr); } }}
                         className="w-full cursor-pointer text-left rounded-2xl border border-fx-rule bg-fx-charcoal/40 p-4 hover:border-fx-brass/40 hover:bg-fx-charcoal/60 transition-all group"
                       >
                         <div className="flex items-center justify-between gap-3">
@@ -697,10 +712,13 @@ export default function WithdrawalAddresses() {
                   {bankAddresses[0].network} · Bank accounts
                 </div>
                 {bankAddresses.map(addr => (
-                  <button
+                  <div
                     key={addr.addressNo}
-                    onClick={() => { resetDeactivateState(); setBankDetailAddr(addr); }}
-                    className="w-full text-left rounded-2xl border border-fx-rule bg-fx-charcoal/40 p-4 hover:border-fx-brass/40 hover:bg-fx-charcoal/60 transition-all group"
+                    onClick={() => openBankDetail(addr)}
+                    role="button"
+                    tabIndex={0}
+                    onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openBankDetail(addr); } }}
+                    className="w-full cursor-pointer text-left rounded-2xl border border-fx-rule bg-fx-charcoal/40 p-4 hover:border-fx-brass/40 hover:bg-fx-charcoal/60 transition-all group"
                   >
                     <div className="flex items-center justify-between gap-3">
                       <div className="min-w-0 flex-1">
@@ -723,10 +741,18 @@ export default function WithdrawalAddresses() {
                       </div>
                       <div className="flex items-center gap-2.5 shrink-0">
                         {addr.status === 'PENDING_ACTIVATION' && (
-                          <div className="flex items-center gap-1 text-xs font-mono text-amber-400">
-                            <Clock size={12} />
-                            {formatCountdown(addr.activatesAt)}
-                          </div>
+                          <>
+                            <div className="flex items-center gap-1 text-xs font-mono text-amber-400">
+                              <Clock size={12} />
+                              {formatCountdown(addr.activatesAt)}
+                            </div>
+                            <button
+                              onClick={(e) => { e.stopPropagation(); handleCancel(addr); }}
+                              className="text-xs font-semibold text-rose-400 hover:underline"
+                            >
+                              Cancel registration
+                            </button>
+                          </>
                         )}
                         <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold ${statusColor(addr.status)}`}>
                           {statusLabel(addr.status)}
@@ -734,7 +760,7 @@ export default function WithdrawalAddresses() {
                         <ChevronRight size={16} className="text-fx-dust group-hover:text-fx-brass transition-colors" />
                       </div>
                     </div>
-                  </button>
+                  </div>
                 ))}
               </div>
             )}
@@ -1321,6 +1347,43 @@ export default function WithdrawalAddresses() {
                       {new Date(bankDetailAddr.ownershipDeclaredAt).toLocaleString()}
                     </div>
                   </div>
+                </div>
+              )}
+
+              {/* Edit — hidden for terminal states (CANCELLED / DEACTIVATED) */}
+              {bankDetailAddr.status !== 'CANCELLED' && bankDetailAddr.status !== 'DEACTIVATED' && (
+                <div className="rounded-xl bg-fx-charcoal/50 border border-fx-rule p-4 space-y-3">
+                  <label className="text-[11px] uppercase tracking-wider text-fx-dust font-bold">Edit</label>
+                  {editError && (
+                    <div className="flex items-start gap-2 rounded-xl border border-rose-500/20 bg-rose-500/5 px-3 py-2.5 text-xs text-rose-400">
+                      <AlertCircle size={14} className="mt-0.5 shrink-0" />
+                      {editError}
+                    </div>
+                  )}
+                  <div>
+                    <label className="text-xs text-fx-dust font-medium block mb-1">Label</label>
+                    <input
+                      value={editLabel}
+                      onChange={e => setEditLabel(e.target.value)}
+                      className="w-full px-3 py-2.5 border border-fx-rule rounded-xl bg-fx-charcoal text-fx-sand text-sm placeholder:text-fx-dust/50 focus:outline-none focus:border-fx-brass"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs text-fx-dust font-medium block mb-1">Beneficiary Name</label>
+                    <input
+                      value={editBeneficiary}
+                      onChange={e => setEditBeneficiary(e.target.value)}
+                      className="w-full px-3 py-2.5 border border-fx-rule rounded-xl bg-fx-charcoal text-fx-sand text-sm placeholder:text-fx-dust/50 focus:outline-none focus:border-fx-brass"
+                    />
+                  </div>
+                  <button
+                    onClick={handleEditSave}
+                    disabled={editSubmitting}
+                    className="w-full py-2.5 bg-fx-brass text-fx-obsidian font-bold rounded-xl hover:shadow-lg hover:shadow-fx-brass/20 transition-all disabled:opacity-40 flex items-center justify-center gap-2"
+                  >
+                    {editSubmitting && <RefreshCw size={16} className="animate-spin" />}
+                    {editSubmitting ? 'Saving...' : 'Save'}
+                  </button>
                 </div>
               )}
             </div>
