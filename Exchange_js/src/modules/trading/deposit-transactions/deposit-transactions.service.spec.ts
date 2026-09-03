@@ -1370,6 +1370,17 @@ describe('DepositTransactionsService', () => {
       expect(service.toCustomerStatus('CLAWED_BACK')).toBe('CLAWED_BACK');
       expect(CUSTOMER_BUCKETS.RETURNED).toEqual({ status: { in: ['RETURNED', 'CLAWED_BACK'] } });
     });
+    it('findNonTerminalByOwner（制裁冻结在途单扫描）把 CLAWED_BACK 当终态排除（评审 Minor）', async () => {
+      (prisma as any).depositTransaction.findMany.mockResolvedValue([]);
+      await service.findNonTerminalByOwner('cust-1');
+      expect((prisma as any).depositTransaction.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            status: expect.objectContaining({ notIn: expect.arrayContaining(['CLAWED_BACK']) }),
+          }),
+        }),
+      );
+    });
   });
 
   describe('setSlaDeadlineByNo (演示用「模拟超时」端点)', () => {

@@ -769,7 +769,8 @@ export class DepositTransactionsService {
   ): DepositTransactionStatus {
     // 状态机收窄(业主 2026-07-31 定稿;含 2026-08-13 增两条、2026-08-22 退役
     // confiscate_failed 一条、2026-08-22(C1) 增 OPERATION_PENDING--return-->RETURNING
-    // 一条后为 14 状态/15 动作/28 边)。每个终态都必须回答
+    // 一条、2026-09-03(平账 B 批②) 增 SUCCESS--clawback-->CLAWED_BACK 一条后为
+    // 15 状态/16 动作/29 边)。每个终态都必须回答
     // 「钱去哪了」——REJECTED/EXPIRED 是仅有的说不出资金去向的终态(钱已到账却"拒绝"/
     // "过期",资金悬空),已删除。payin 结束就是钱到了,COMPLIANCE_PENDING 之后不再有
     // FAILED(FAIL 的唯一入口是 PAYIN_PENDING)。FROZEN 收窄为只剩两个合法归宿
@@ -1317,7 +1318,11 @@ export class DepositTransactionsService {
       // onCustomerRestrictionOpened，已经冻了的单不需要再冻一次。不排除的话
       // 制裁路径「先冻人→广播→自己的监听器扫到自己刚冻的这笔」会走到无 FREEZE
       // 自环边的 FROZEN 行上抛 BadRequest，被吞成一条与事实不符的 warn。
-      where: { ownerId, status: { notIn: ['SUCCESS', 'FAILED', 'CONFISCATED', 'RETURNED', 'SEIZED', 'FROZEN'] } },
+      // CLAWED_BACK 同理（平账 B 批②，评审 Minor）：零出边终态，FREEZE 在
+      // getNextStatus 里无边可查，不排除会让同一客户后续若再被制裁命中时，
+      // 已退汇的单被当"在途"捞出来去 FREEZE，抛 BadRequest 后被上面调用方的
+      // catch 吞成一条"冻结失败"的 warn——单其实早就不在途了，不是真失败。
+      where: { ownerId, status: { notIn: ['SUCCESS', 'FAILED', 'CONFISCATED', 'RETURNED', 'SEIZED', 'FROZEN', 'CLAWED_BACK'] } },
       select: { id: true, depositNo: true, ownerType: true, ownerId: true, status: true, traceId: true },
     });
   }
