@@ -107,8 +107,8 @@
 | 路 | 码 | domain | correlationMode | 特有必填 |
 |---|---|---|---|---|
 | ① | `DEPOSIT_SUPPLEMENT_REQUESTED` / `DEPOSIT_SUPPLEMENT_STARTED` / `DEPOSIT_SUPPLEMENT_REJECTED` / `DEPOSIT_SUPPLEMENTED` | DEPOSIT | `N`（信号无 correlationId，照 `INBOUND_SIGNAL_*`）| STARTED / REJECTED 必填 `approvalNo`；SUPPLEMENTED 必填 `depositNo`。① 拒绝会改信号状态（持久化），所以比 ②③ 多一个拒绝码 |
-| ② | `DEPOSIT_CLAWBACK_REQUESTED` / `DEPOSIT_CLAWBACK_STARTED` / `DEPOSIT_CLAWED_BACK` | DEPOSIT | 同上 | 同上；CLAWED_BACK 必填 `externalLineId` |
-| ③ | `WITHDRAW_RETURN_CLAIM_REQUESTED` / `WITHDRAW_RETURN_CLAIM_STARTED` / `WITHDRAW_RETURNED_AFTER_SUCCESS` | WITHDRAW | 同上 | 同上 |
+| ② | `DEPOSIT_CLAWBACK_REQUESTED` / `DEPOSIT_CLAWBACK_STARTED` / `DEPOSIT_CLAWED_BACK` | DEPOSIT | `I`（照 `DEPOSIT_RETURN_*`）| STARTED 必填 `approvalNo` + `causationId`；CLAWED_BACK 必填 `fromStatus` / `toStatus`，`externalLineId` 进 metadata |
+| ③ | `WITHDRAW_RETURN_CLAIM_REQUESTED` / `WITHDRAW_RETURN_CLAIM_STARTED` / `WITHDRAW_RETURNED_AFTER_SUCCESS` | WITHDRAW | `I`（照 `WITHDRAW_UNFREEZE_*`）| STARTED 必填 `approvalNo` + `causationId`；RETURNED_AFTER_SUCCESS 必填 `fromStatus` / `toStatus` |
 
 定性行 `supplementNo` 的回写属同一持久化动作，不另立码，REQUESTED 的 metadata 带 `caseNo` / `dispositionNo` / `externalLineId`。`AuditBusinessWorkflowTypes` 加三个：`DEPOSIT_SUPPLEMENT` / `DEPOSIT_CLAWBACK` / `WITHDRAW_RETURN_CLAIM`。
 
