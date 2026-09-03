@@ -3290,6 +3290,11 @@ describe('WithdrawWorkflowService — 平账 B 批③：退回认领', () => {
     supplementEvidence.assertClaimable.mockResolvedValue(line);
     withdrawService.findByNo.mockResolvedValue({ ...w, status: 'PAYOUT_PENDING' });
     await expect(workflow.initiateReturnClaim('WDR1', { externalLineId: 'line-3', caseNo: 'REC3', dispositionNo: 'RCD3', reason: 'x' }, actor)).rejects.toThrow(/SUCCESS/);
+    // 评审补漏：三种情形此前只断言了两种（非 SUCCESS / 净额不符），钱包不符从未真正
+    // 触发过——这里补上，status 留 SUCCESS（继承 w 默认值），只改 fromWalletId 使其
+    // 与 line.walletId('w9') 不相等,确保命中的是钱包守卫而不是前一道状态守卫。
+    withdrawService.findByNo.mockResolvedValue({ ...w, fromWalletId: 'w-other' });
+    await expect(workflow.initiateReturnClaim('WDR1', { externalLineId: 'line-3', caseNo: 'REC3', dispositionNo: 'RCD3', reason: 'x' }, actor)).rejects.toThrow(/钱包/);
     withdrawService.findByNo.mockResolvedValue({ ...w, netAmount: '850' });
     await expect(workflow.initiateReturnClaim('WDR1', { externalLineId: 'line-3', caseNo: 'REC3', dispositionNo: 'RCD3', reason: 'x' }, actor)).rejects.toThrow(/净额/);
   });
@@ -3319,6 +3324,22 @@ describe('WithdrawWorkflowService — 平账 B 批③：退回认领', () => {
     expect(call.evidence).toMatchObject({ externalRef: 'PAYRET-1', effectiveDate: '2026-09-01', isExternalCrossing: true });
     expect(accountingService.voidPendingTransferBestEffort).not.toHaveBeenCalled();
     expect(withdrawService.updateStatus).toHaveBeenCalledWith('wd1', expect.objectContaining({ action: WithdrawTransactionAction.RETURN }), expect.anything());
+  });
+
+  // 评审补漏：防凭空造钱那道守卫（posted.length === 0 → throw）此前零覆盖——
+  // beforeEach 把 tbTransferEvidence.findMany 默认设成 []，但唯一走到这行的
+  // 「批准」用例把它覆盖成 [{eventCode:'WITHDRAW_NET_POST'}]，「未 POST」分支
+  // 从未真正执行过。这里显式留空（即便是 beforeEach 默认值，也原地重申一次，
+  // 不依赖隐式默认），断言拒绝的同时分录未落、状态未翻。
+  it('批准：净额腿未 POST → 拒绝重记，不落分录，状态不翻', async () => {
+    withdrawService.findByNo.mockResolvedValue({ ...w, returnExternalLineId: 'line-3', returnReconCaseNo: 'REC3', returnDispositionNo: 'RCD3' });
+    withdrawService.findOneInternal.mockResolvedValue({ ...w, returnExternalLineId: 'line-3' });
+    prisma.tbTransferEvidence.findMany.mockResolvedValue([]);
+    await expect(
+      workflow.onReturnClaimDecided({ decision: 'APPROVED', entityRef: 'WDR1', approvalId: 'ap3', approvalNo: 'APR3' } as any),
+    ).rejects.toThrow(/未 POST/);
+    expect(accountingService.executeTransfer).not.toHaveBeenCalled();
+    expect(withdrawService.updateStatus).not.toHaveBeenCalled();
   });
 
   it('拒绝：状态不动、清三列、解挂', async () => {
