@@ -4,6 +4,8 @@ import { AdminSessionError, adminFetch, getApiErrorMessage } from '../utils/admi
 import { adminButtonClass } from '../components/common/adminButtonStyles';
 import { DetailPageHeader, InfoField } from '../components/compliance/DetailPageComponents';
 import { AdminBadge } from '../components/ui/AdminBadge';
+import { useAdminSession } from '../contexts/AdminSessionContext';
+import { PERMISSIONS } from '../rbac/permissions';
 
 /* ── Interfaces ──────────────────────────────────────────────── */
 
@@ -35,7 +37,6 @@ interface WithdrawalAddr {
   traceId: string;
   createdAt: string;
   updatedAt: string;
-  asset: { currency: string; code: string; type: string; network: string | null };
   customer: { id: string; customerNo: string } | null;
 }
 
@@ -118,6 +119,7 @@ const AddressTypeBadge = ({ type }: { type: string }) => {
 export default function WithdrawalAddressDetail() {
   const { addressNo } = useParams<{ addressNo: string }>();
   const navigate = useNavigate();
+  const { hasAnyPermission } = useAdminSession();
 
   const [data, setData] = useState<WithdrawalAddr | null>(null);
   const [loading, setLoading] = useState(true);
@@ -126,8 +128,12 @@ export default function WithdrawalAddressDetail() {
   const [actionLoading, setActionLoading] = useState(false);
   const [showSuspendModal, setShowSuspendModal] = useState(false);
   const [suspendReason, setSuspendReason] = useState('');
+  const [showUnsuspendModal, setShowUnsuspendModal] = useState(false);
+  const [unsuspendReason, setUnsuspendReason] = useState('');
   const [showSkipCoolingModal, setShowSkipCoolingModal] = useState(false);
   const [skipCoolingReason, setSkipCoolingReason] = useState('');
+
+  const canWrite = hasAnyPermission([PERMISSIONS.WITHDRAWAL_ADDRESS_SUSPEND]);
 
   const fetchData = async () => {
     if (!addressNo) return;
@@ -205,6 +211,34 @@ export default function WithdrawalAddressDetail() {
     }
   };
 
+  const handleUnsuspend = async () => {
+    if (!unsuspendReason.trim()) return;
+    setActionLoading(true);
+    setError(null);
+    try {
+      const res = await adminFetch(
+        `${import.meta.env.VITE_API_URL}/admin/withdrawal-addresses/${addressNo}/unsuspend`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ reason: unsuspendReason }),
+        },
+      );
+      if (!res.ok) {
+        setError(await getApiErrorMessage(res, 'Failed to unsuspend'));
+        return;
+      }
+      setShowUnsuspendModal(false);
+      setUnsuspendReason('');
+      setNotice('Address unsuspended successfully.');
+      void fetchData();
+    } catch (err) {
+      if (!(err instanceof AdminSessionError)) setError('Failed to unsuspend address');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
   /* ── Loading / Error states ── */
 
   if (loading && !data) {
@@ -236,7 +270,7 @@ export default function WithdrawalAddressDetail() {
   const isActive = data.status === 'ACTIVE';
   const isBank = data.addressType === 'BANK';
   const isVasp = data.addressType === 'VASP';
-  const showActions = isPending || isActive;
+  const showActions = isActive || data.status === 'SUSPENDED';
 
   const remaining = isPending ? Math.max(0, new Date(data.activatesAt).getTime() - Date.now()) : 0;
   const remainingHours = Math.floor(remaining / 3600000);
@@ -320,7 +354,6 @@ export default function WithdrawalAddressDetail() {
                 </div>
               </div>
               <InfoField label="Customer Name" value={data.customerName ?? '—'} />
-              <InfoField label="Asset" value={data.asset.code} />
               <InfoField label="Network" value={data.network} />
               <InfoField label="Registered" value={fmt(data.createdAt)} mono />
             </div>
@@ -423,15 +456,6 @@ export default function WithdrawalAddressDetail() {
             <div className="border-b border-adm-border py-4">
               <Cap>Actions</Cap>
               <div className="mt-2.5 flex flex-col gap-2">
-                {isPending && (
-                  <button
-                    onClick={() => setShowSkipCoolingModal(true)}
-                    disabled={actionLoading}
-                    className={adminButtonClass('workflowPrimary')}
-                  >
-                    Skip Cooling Period
-                  </button>
-                )}
                 {isActive && (
                   <button
                     onClick={() => setShowSuspendModal(true)}
@@ -441,7 +465,31 @@ export default function WithdrawalAddressDetail() {
                     Force Suspend
                   </button>
                 )}
+                {data.status === 'SUSPENDED' && canWrite && (
+                  <button
+                    onClick={() => setShowUnsuspendModal(true)}
+                    disabled={actionLoading}
+                    className={adminButtonClass('workflowPrimary')}
+                  >
+                    Unsuspend
+                  </button>
+                )}
               </div>
+            </div>
+          )}
+
+          {/* Manual Simulation — demo backdoor for the 24h cooling period */}
+          {isPending && canWrite && (
+            <div className="border-b border-adm-border py-4">
+              <Cap>Manual Simulation ⚡</Cap>
+              <p className="mt-1 font-mono text-[10px] text-adm-t3">Demo backdoor — bypasses the 24h cooling period. Reason is audited.</p>
+              <button
+                onClick={() => setShowSkipCoolingModal(true)}
+                disabled={actionLoading}
+                className={`${adminButtonClass('workflowPrimary')} mt-2`}
+              >
+                ⚡ Skip Cooling Period
+              </button>
             </div>
           )}
 
@@ -450,7 +498,6 @@ export default function WithdrawalAddressDetail() {
             <SidebarKV label="Address No" value={data.addressNo} mono />
             <SidebarKV label="Status" value={<AdminBadge value={data.status} />} />
             <SidebarKV label="Type" value={data.addressType} mono />
-            <SidebarKV label="Asset" value={data.asset.code} />
             <SidebarKV label="Customer No" value={data.customerNo} mono />
             <SidebarKV label="Customer Name" value={data.customerName} />
           </SidebarGroup>
@@ -496,6 +543,44 @@ export default function WithdrawalAddressDetail() {
                 className={adminButtonClass('workflowNegative')}
               >
                 Suspend
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Unsuspend Modal ── */}
+      {showUnsuspendModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="w-full max-w-md rounded-xl border border-adm-border bg-adm-panel shadow-xl">
+            <div className="border-b border-adm-border px-6 py-4">
+              <h2 className="text-base font-semibold text-adm-t1">Unsuspend Withdrawal Address</h2>
+              <p className="mt-1 text-xs text-adm-t3">This will lift the suspension and allow the address to be used for withdrawals again.</p>
+            </div>
+            <div className="px-6 py-4">
+              <label className="block font-mono text-[9px] font-semibold uppercase tracking-[0.12em] text-adm-t3 mb-1.5">
+                Reason
+              </label>
+              <textarea
+                value={unsuspendReason}
+                onChange={(e) => setUnsuspendReason(e.target.value)}
+                placeholder="e.g. Customer identity re-verified by phone"
+                className="w-full rounded border border-adm-border bg-adm-bg px-2.5 py-2 text-xs text-adm-t1 placeholder:text-adm-t3 outline-none focus:border-adm-amber h-20 resize-none"
+              />
+            </div>
+            <div className="flex justify-end gap-3 border-t border-adm-border px-6 py-4">
+              <button
+                onClick={() => { setShowUnsuspendModal(false); setUnsuspendReason(''); }}
+                className={adminButtonClass('modalCancel')}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => void handleUnsuspend()}
+                disabled={!unsuspendReason.trim() || actionLoading}
+                className={adminButtonClass('workflowPrimary')}
+              >
+                Unsuspend
               </button>
             </div>
           </div>

@@ -194,10 +194,16 @@ const Withdraw = () => {
         return;
     }
 
+    const network = assets.find((a) => a.id === selectedAssetId)?.network ?? '';
+    if (!network) {
+        setAddresses([]);
+        return;
+    }
+
     const fetchAddresses = async () => {
       try {
         const params = new URLSearchParams({
-            assetId: selectedAssetId,
+            network,
             status: 'ACTIVE',
         });
         const response = await customerFetch(
@@ -217,7 +223,7 @@ const Withdraw = () => {
     };
 
     fetchAddresses();
-  }, [user, activeTab, selectedAssetId]);
+  }, [user, activeTab, selectedAssetId, assets]);
 
   // Fetch History
   useEffect(() => {
@@ -910,7 +916,7 @@ const Withdraw = () => {
                                     <div>
                                         <h4 className="text-sm font-bold text-fx-brass">Minimum Withdrawal</h4>
                                         <p className="text-xs text-fx-dust mt-1">
-                                            Min: <strong>0.001 BTC / 0.01 ETH</strong>. Fees deducted from amount.
+                                            Per-withdrawal minimum and maximum follow the platform limits for this asset (see the quote before you confirm). Fees are deducted from the amount.
                                         </p>
                                     </div>
                                 </div>

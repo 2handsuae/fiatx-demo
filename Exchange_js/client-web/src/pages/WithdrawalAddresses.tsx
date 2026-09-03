@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useMemo } from 'react';
 import {
   Wallet,
   Building2,
@@ -48,7 +48,6 @@ interface WithdrawalAddr {
   createdAt: string;
   counterpartyVaspName: string | null;
   ownershipDeclaredAt: string | null;
-  asset: { code: string; network?: string };
   // Bank-specific fields
   iban: string | null;
   swiftBic: string | null;
@@ -127,16 +126,26 @@ export default function WithdrawalAddresses() {
   const { tradingReady, loading: tradingReadinessLoading, refetch: refetchTradingReadiness } = useTradingReadiness();
   const [activeTab, setActiveTab] = useState<ActiveTab>('crypto');
   const [assets, setAssets] = useState<Asset[]>([]);
-  const [fiatAssets, setFiatAssets] = useState<Asset[]>([]);
   const [addresses, setAddresses] = useState<WithdrawalAddr[]>([]);
   const [loading, setLoading] = useState(true);
+
+  // Network options derived from loaded crypto assets — client has no access
+  // to the backend's network registry, so it groups assets by network instead.
+  const chainNetworks = useMemo(() => {
+    const byNetwork = new Map<string, string[]>();
+    for (const a of assets) {
+      if (a.type !== 'CRYPTO') continue;
+      byNetwork.set(a.network, [...(byNetwork.get(a.network) ?? []), a.code]);
+    }
+    return Array.from(byNetwork, ([network, codes]) => ({ network, label: `${network} (${codes.join(', ')})` }));
+  }, [assets]);
 
   // modal states
   const [showAddModal, setShowAddModal] = useState(false);
   const [detailAddr, setDetailAddr] = useState<WithdrawalAddr | null>(null);
 
   // form fields
-  const [formAssetId, setFormAssetId] = useState('');
+  const [formNetwork, setFormNetwork] = useState(chainNetworks[0]?.network ?? '');
   const [formBeneficiary, setFormBeneficiary] = useState('');
   const [formLabel, setFormLabel] = useState('');
   const [formAddress, setFormAddress] = useState('');
@@ -148,7 +157,6 @@ export default function WithdrawalAddresses() {
   // bank form fields
   const [showBankAddModal, setShowBankAddModal] = useState(false);
   const [bankDetailAddr, setBankDetailAddr] = useState<WithdrawalAddr | null>(null);
-  const [bankFormAssetId, setBankFormAssetId] = useState('');
   const [bankFormBeneficiary, setBankFormBeneficiary] = useState('');
   const [bankFormBankName, setBankFormBankName] = useState('');
   const [bankFormIban, setBankFormIban] = useState('');
@@ -166,6 +174,12 @@ export default function WithdrawalAddresses() {
   const [deactivateError, setDeactivateError] = useState('');
   const [deactivateReason, setDeactivateReason] = useState('');
 
+  // edit label / beneficiary (crypto detail modal only)
+  const [editLabel, setEditLabel] = useState('');
+  const [editBeneficiary, setEditBeneficiary] = useState('');
+  const [editSubmitting, setEditSubmitting] = useState(false);
+  const [editError, setEditError] = useState('');
+
   /* ─── Load assets ────────────────────────────────────────── */
   useEffect(() => {
     (async () => {
@@ -175,10 +189,8 @@ export default function WithdrawalAddresses() {
           const data = await res.json();
           const all = (data.items ?? data) as Asset[];
           const crypto = all.filter(a => a.type === 'CRYPTO');
-          const fiat = all.filter(a => a.type === 'FIAT');
           setAssets(crypto);
-          setFiatAssets(fiat);
-          if (crypto.length > 0) setFormAssetId(crypto[0].id);
+          if (crypto[0]?.network) setFormNetwork(crypto[0].network);
         }
       } catch (err) {
         if (err instanceof CustomerSessionError) return;
@@ -211,9 +223,17 @@ export default function WithdrawalAddresses() {
   }, [tradingReadinessLoading, tradingReady]);
 
   /* ─── Derived ────────────────────────────────────────────── */
-  const visibleAddresses = addresses.filter(a => a.addressType !== 'BANK' && a.status !== 'CANCELLED');
+  const visibleAddresses = addresses.filter(a => a.addressType !== 'BANK');
   const activeCount = addresses.filter(a => a.addressType !== 'BANK' && ['PENDING_ACTIVATION', 'ACTIVE'].includes(a.status)).length;
   const canAdd = activeCount < 3 && tradingReady;
+
+  // Crypto cards grouped by network for display (group title = network code)
+  const visibleAddressesByNetwork = new Map<string, WithdrawalAddr[]>();
+  for (const addr of visibleAddresses) {
+    const group = visibleAddressesByNetwork.get(addr.network) ?? [];
+    group.push(addr);
+    visibleAddressesByNetwork.set(addr.network, group);
+  }
 
   // Bank tab derived
   const bankAddresses = addresses.filter(a => a.addressType === 'BANK' && a.status !== 'CANCELLED');
@@ -230,7 +250,7 @@ export default function WithdrawalAddresses() {
   /* ─── Submit ─────────────────────────────────────────────── */
   const handleSubmit = async () => {
     setFormError('');
-    if (!formAssetId) { setFormError('Please select an asset'); return; }
+    if (!formNetwork) { setFormError('Please select a network'); return; }
     if (!formAddress.trim()) { setFormError('Wallet address is required'); return; }
     if (!formDeclaration) { setFormError('You must accept the ownership declaration'); return; }
 
@@ -240,7 +260,7 @@ export default function WithdrawalAddresses() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          assetId: formAssetId,
+          network: formNetwork,
           address: formAddress.trim(),
           ownershipDeclaration: true,
           label: formLabel.trim() || undefined,
@@ -277,7 +297,7 @@ export default function WithdrawalAddresses() {
 
   const openAddModal = () => {
     resetForm();
-    if (assets.length > 0 && !formAssetId) setFormAssetId(assets[0].id);
+    if (chainNetworks.length > 0 && !formNetwork) setFormNetwork(chainNetworks[0].network);
     setShowAddModal(true);
   };
 
@@ -293,13 +313,11 @@ export default function WithdrawalAddresses() {
 
   const openBankAddModal = () => {
     resetBankForm();
-    if (fiatAssets.length > 0) setBankFormAssetId(fiatAssets[0].id);
     setShowBankAddModal(true);
   };
 
   const handleBankSubmit = async () => {
     setBankFormError('');
-    if (!bankFormAssetId) { setBankFormError('Please select an asset'); return; }
     if (!bankFormBeneficiary.trim()) { setBankFormError('Beneficiary name is required'); return; }
     if (!bankFormBankName.trim()) { setBankFormError('Bank name is required'); return; }
     if (!bankFormIban.trim()) { setBankFormError('IBAN is required'); return; }
@@ -312,7 +330,6 @@ export default function WithdrawalAddresses() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          assetId: bankFormAssetId,
           beneficiaryName: bankFormBeneficiary.trim(),
           bankName: bankFormBankName.trim(),
           iban: bankFormIban.trim(),
@@ -337,6 +354,17 @@ export default function WithdrawalAddresses() {
     } finally {
       setBankSubmitting(false);
     }
+  };
+
+  /* ─── Cancel registration (PENDING_ACTIVATION only) ─────────── */
+  const handleCancel = async (addr: WithdrawalAddr) => {
+    const reason = window.prompt('Why are you cancelling this registration?');
+    if (!reason?.trim()) return;
+    const res = await customerFetch(`${API}/client/withdrawal-addresses/${addr.addressNo}`, {
+      method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ reason }),
+    });
+    if (!res.ok) { alert(await getCustomerApiErrorMessage(res, 'Failed to cancel registration')); return; }
+    await fetchAddresses();
   };
 
   /* ─── Deactivate ─────────────────────────────────────────── */
@@ -390,6 +418,41 @@ export default function WithdrawalAddresses() {
   const closeDetail = () => {
     setDetailAddr(null);
     resetDeactivateState();
+    setEditError('');
+  };
+
+  /* ─── Edit label / beneficiary (crypto detail modal) ────────── */
+  const openDetail = (addr: WithdrawalAddr) => {
+    resetDeactivateState();
+    setDetailAddr(addr);
+    setEditLabel(addr.label ?? '');
+    setEditBeneficiary(addr.beneficiaryName ?? '');
+    setEditError('');
+  };
+
+  const handleEditSave = async () => {
+    if (!detailAddr) return;
+    setEditError('');
+    setEditSubmitting(true);
+    try {
+      const res = await customerFetch(`${API}/client/withdrawal-addresses/${detailAddr.addressNo}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ label: editLabel.trim(), beneficiaryName: editBeneficiary.trim() }),
+      });
+      if (!res.ok) {
+        setEditError(await getCustomerApiErrorMessage(res, 'Failed to update address'));
+        return;
+      }
+      const updated = await res.json();
+      setDetailAddr(updated);
+      await fetchAddresses();
+    } catch (err: any) {
+      if (err instanceof CustomerSessionError) return;
+      setEditError(err.message || 'Unexpected error');
+    } finally {
+      setEditSubmitting(false);
+    }
   };
 
   const closeBankDetail = () => {
@@ -526,41 +589,54 @@ export default function WithdrawalAddresses() {
                 </button>
               </div>
             ) : (
-              <div className="space-y-3">
-                {visibleAddresses.map(addr => (
-                  <button
-                    key={addr.addressNo}
-                    onClick={() => { resetDeactivateState(); setDetailAddr(addr); }}
-                    className="w-full text-left rounded-2xl border border-fx-rule bg-fx-charcoal/40 p-4 hover:border-fx-brass/40 hover:bg-fx-charcoal/60 transition-all group"
-                  >
-                    <div className="flex items-center justify-between gap-3">
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-2">
-                          <span className="text-sm font-semibold text-fx-sand truncate">
-                            {addr.label || truncAddr(addr.address)}
-                          </span>
-                          <span className="shrink-0 text-[10px] font-bold uppercase text-fx-dust bg-fx-charcoal px-1.5 py-0.5 rounded">
-                            {addr.asset.code}
-                          </span>
-                        </div>
-                        <div className="mt-1 text-xs font-mono text-fx-dust truncate">
-                          {truncAddr(addr.address)}
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-2.5 shrink-0">
-                        {addr.status === 'PENDING_ACTIVATION' && (
-                          <div className="flex items-center gap-1 text-xs font-mono text-amber-400">
-                            <Clock size={12} />
-                            {formatCountdown(addr.activatesAt)}
+              <div className="space-y-5">
+                {Array.from(visibleAddressesByNetwork, ([network, group]) => (
+                  <div key={network} className="space-y-3">
+                    <div className="text-xs font-bold uppercase tracking-wider text-fx-dust">{network}</div>
+                    {group.map(addr => (
+                      <div
+                        key={addr.addressNo}
+                        onClick={() => openDetail(addr)}
+                        className="w-full cursor-pointer text-left rounded-2xl border border-fx-rule bg-fx-charcoal/40 p-4 hover:border-fx-brass/40 hover:bg-fx-charcoal/60 transition-all group"
+                      >
+                        <div className="flex items-center justify-between gap-3">
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-2">
+                              <span className="text-sm font-semibold text-fx-sand truncate">
+                                {addr.label || truncAddr(addr.address)}
+                              </span>
+                              <span className="shrink-0 text-[10px] font-bold uppercase text-fx-dust bg-fx-charcoal px-1.5 py-0.5 rounded">
+                                {addr.network}
+                              </span>
+                            </div>
+                            <div className="mt-1 text-xs font-mono text-fx-dust truncate">
+                              {truncAddr(addr.address)}
+                            </div>
                           </div>
-                        )}
-                        <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold ${statusColor(addr.status)}`}>
-                          {statusLabel(addr.status)}
-                        </span>
-                        <ChevronRight size={16} className="text-fx-dust group-hover:text-fx-brass transition-colors" />
+                          <div className="flex items-center gap-2.5 shrink-0">
+                            {addr.status === 'PENDING_ACTIVATION' && (
+                              <>
+                                <div className="flex items-center gap-1 text-xs font-mono text-amber-400">
+                                  <Clock size={12} />
+                                  {formatCountdown(addr.activatesAt)}
+                                </div>
+                                <button
+                                  onClick={(e) => { e.stopPropagation(); handleCancel(addr); }}
+                                  className="text-xs font-semibold text-rose-400 hover:underline"
+                                >
+                                  Cancel registration
+                                </button>
+                              </>
+                            )}
+                            <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold ${statusColor(addr.status)}`}>
+                              {statusLabel(addr.status)}
+                            </span>
+                            <ChevronRight size={16} className="text-fx-dust group-hover:text-fx-brass transition-colors" />
+                          </div>
+                        </div>
                       </div>
-                    </div>
-                  </button>
+                    ))}
+                  </div>
                 ))}
               </div>
             )}
@@ -617,6 +693,9 @@ export default function WithdrawalAddresses() {
               </div>
             ) : (
               <div className="space-y-3">
+                <div className="text-xs font-bold uppercase tracking-wider text-fx-dust">
+                  {bankAddresses[0].network} · Bank accounts
+                </div>
                 {bankAddresses.map(addr => (
                   <button
                     key={addr.addressNo}
@@ -630,7 +709,7 @@ export default function WithdrawalAddresses() {
                             {addr.label || (addr.iban ? maskIban(addr.iban) : 'Bank Account')}
                           </span>
                           <span className="shrink-0 text-[10px] font-bold uppercase text-fx-dust bg-fx-charcoal px-1.5 py-0.5 rounded">
-                            {addr.asset.code}
+                            {addr.network}
                           </span>
                         </div>
                         <div className="mt-1 text-xs font-mono text-fx-dust truncate">
@@ -692,16 +771,16 @@ export default function WithdrawalAddresses() {
                 </div>
               )}
 
-              {/* Asset */}
+              {/* Network */}
               <div>
-                <label className="text-xs text-fx-dust font-medium block mb-1">Asset</label>
+                <label className="text-xs text-fx-dust font-medium block mb-1">Network</label>
                 <select
-                  value={formAssetId}
-                  onChange={e => setFormAssetId(e.target.value)}
+                  value={formNetwork}
+                  onChange={e => setFormNetwork(e.target.value)}
                   className="w-full px-3 py-2.5 border border-fx-rule rounded-xl bg-fx-charcoal text-fx-sand text-sm focus:outline-none focus:border-fx-brass"
                 >
-                  {assets.map(a => (
-                    <option key={a.id} value={a.id}>{a.code}</option>
+                  {chainNetworks.map(n => (
+                    <option key={n.network} value={n.network}>{n.label}</option>
                   ))}
                 </select>
               </div>
@@ -869,10 +948,6 @@ export default function WithdrawalAddresses() {
               {/* Info Grid */}
               <div className="grid grid-cols-2 gap-3">
                 <div className="rounded-xl bg-fx-charcoal/50 border border-fx-rule p-3">
-                  <div className="text-[11px] uppercase tracking-wider text-fx-dust font-bold">Asset</div>
-                  <div className="mt-1 text-sm font-semibold text-fx-sand">{detailAddr.asset.code}</div>
-                </div>
-                <div className="rounded-xl bg-fx-charcoal/50 border border-fx-rule p-3">
                   <div className="text-[11px] uppercase tracking-wider text-fx-dust font-bold">Network</div>
                   <div className="mt-1 text-sm font-semibold text-fx-sand">{detailAddr.network}</div>
                 </div>
@@ -916,6 +991,43 @@ export default function WithdrawalAddresses() {
                       {new Date(detailAddr.ownershipDeclaredAt).toLocaleString()}
                     </div>
                   </div>
+                </div>
+              )}
+
+              {/* Edit — hidden for terminal states (CANCELLED / DEACTIVATED) */}
+              {detailAddr.status !== 'CANCELLED' && detailAddr.status !== 'DEACTIVATED' && (
+                <div className="rounded-xl bg-fx-charcoal/50 border border-fx-rule p-4 space-y-3">
+                  <label className="text-[11px] uppercase tracking-wider text-fx-dust font-bold">Edit</label>
+                  {editError && (
+                    <div className="flex items-start gap-2 rounded-xl border border-rose-500/20 bg-rose-500/5 px-3 py-2.5 text-xs text-rose-400">
+                      <AlertCircle size={14} className="mt-0.5 shrink-0" />
+                      {editError}
+                    </div>
+                  )}
+                  <div>
+                    <label className="text-xs text-fx-dust font-medium block mb-1">Label</label>
+                    <input
+                      value={editLabel}
+                      onChange={e => setEditLabel(e.target.value)}
+                      className="w-full px-3 py-2.5 border border-fx-rule rounded-xl bg-fx-charcoal text-fx-sand text-sm placeholder:text-fx-dust/50 focus:outline-none focus:border-fx-brass"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs text-fx-dust font-medium block mb-1">Beneficiary Name</label>
+                    <input
+                      value={editBeneficiary}
+                      onChange={e => setEditBeneficiary(e.target.value)}
+                      className="w-full px-3 py-2.5 border border-fx-rule rounded-xl bg-fx-charcoal text-fx-sand text-sm placeholder:text-fx-dust/50 focus:outline-none focus:border-fx-brass"
+                    />
+                  </div>
+                  <button
+                    onClick={handleEditSave}
+                    disabled={editSubmitting}
+                    className="w-full py-2.5 bg-fx-brass text-fx-obsidian font-bold rounded-xl hover:shadow-lg hover:shadow-fx-brass/20 transition-all disabled:opacity-40 flex items-center justify-center gap-2"
+                  >
+                    {editSubmitting && <RefreshCw size={16} className="animate-spin" />}
+                    {editSubmitting ? 'Saving...' : 'Save'}
+                  </button>
                 </div>
               )}
             </div>
@@ -1005,20 +1117,6 @@ export default function WithdrawalAddresses() {
                   {bankFormError}
                 </div>
               )}
-
-              {/* Asset */}
-              <div>
-                <label className="text-xs text-fx-dust font-medium block mb-1">Asset</label>
-                <select
-                  value={bankFormAssetId}
-                  onChange={e => setBankFormAssetId(e.target.value)}
-                  className="w-full px-3 py-2.5 border border-fx-rule rounded-xl bg-fx-charcoal text-fx-sand text-sm focus:outline-none focus:border-fx-brass"
-                >
-                  {fiatAssets.map(a => (
-                    <option key={a.id} value={a.id}>{a.code} (Fiat)</option>
-                  ))}
-                </select>
-              </div>
 
               {/* Beneficiary Name */}
               <div>
@@ -1197,10 +1295,6 @@ export default function WithdrawalAddresses() {
 
               {/* Info Grid */}
               <div className="grid grid-cols-2 gap-3">
-                <div className="rounded-xl bg-fx-charcoal/50 border border-fx-rule p-3">
-                  <div className="text-[11px] uppercase tracking-wider text-fx-dust font-bold">Asset</div>
-                  <div className="mt-1 text-sm font-semibold text-fx-sand">{bankDetailAddr.asset.code}</div>
-                </div>
                 <div className="rounded-xl bg-fx-charcoal/50 border border-fx-rule p-3">
                   <div className="text-[11px] uppercase tracking-wider text-fx-dust font-bold">Bank</div>
                   <div className="mt-1 text-sm font-semibold text-fx-sand">{bankDetailAddr.bankName || '—'}</div>

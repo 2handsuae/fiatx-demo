@@ -237,7 +237,7 @@ const DashboardLayout = () => {
           path: '/admin/custody/withdrawal-addresses',
           label: 'Withdrawal Addresses',
           icon: <Upload size={13} />,
-          requiredPermissions: [PERMISSIONS.BASE_ACCESS],
+          requiredPermissions: [PERMISSIONS.WITHDRAWAL_ADDRESSES_READ],
         },
       ],
     },
