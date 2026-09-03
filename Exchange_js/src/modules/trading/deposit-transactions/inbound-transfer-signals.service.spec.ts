@@ -504,6 +504,8 @@ describe('InboundTransferSignalsService', () => {
       'fo-1',
       FundsOrderAction.CONFIRM,
       'SYSTEM',
+      undefined,
+      undefined,
     );
     expect(depositService.detected).toHaveBeenCalledWith(
       expect.objectContaining({ counterpartyIsVasp: true }),

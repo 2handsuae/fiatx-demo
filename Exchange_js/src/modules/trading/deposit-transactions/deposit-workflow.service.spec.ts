@@ -2133,6 +2133,23 @@ describe('DepositWorkflowService', () => {
         }),
       );
     });
+
+    it('STEP_2: deposit.effectiveDate（补录单业务归属日,平账 B 批 spec §2.3）流入 executeTransfer evidence', async () => {
+      accountingService.resolveTbAccountId
+        .mockResolvedValueOnce('tb-suspense-id')    // debit: DEPOSIT_SUSPENSE CUSTOMER
+        .mockResolvedValueOnce('tb-payable-id');    // credit: CLIENT_PAYABLE CUSTOMER
+
+      const backfilledDeposit = { ...baseDeposit, effectiveDate: '2026-09-01' };
+      await (service as any).executeDepositAccounting(backfilledDeposit, 'STEP_2', cryptoFundsOrder);
+
+      expect(accountingService.executeTransfer).toHaveBeenCalledWith(
+        expect.objectContaining({
+          evidence: expect.objectContaining({
+            effectiveDate: '2026-09-01',
+          }),
+        }),
+      );
+    });
   });
 
   describe('applyKytVerdict — 展示投影回写(sumsubVerdict/sumsubScore)', () => {

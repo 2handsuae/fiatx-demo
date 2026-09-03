@@ -1098,6 +1098,7 @@ export class DepositTransactionsService {
     providerTxnId?: string | null;
     traceId?: string;
     counterpartyIsVasp?: boolean | null;
+    effectiveDate?: string;
   }) {
     const wallet = await (this.prisma as any).wallet.findUnique({
       where: { id: input.toWalletId },
@@ -1151,6 +1152,7 @@ export class DepositTransactionsService {
         toIban: wallet.iban,
         limitHoldReason,
         counterpartyIsVasp: input.counterpartyIsVasp ?? null,
+        effectiveDate: input.effectiveDate ?? undefined,
       },
     });
 
@@ -1172,6 +1174,7 @@ export class DepositTransactionsService {
         ? FundsOrderStatus.SUBMITTED
         : FundsOrderStatus.CONFIRMED,
       traceId: resolvedTraceId,
+      effectiveDate: input.effectiveDate ?? undefined,
     });
 
     const ownerCustomer = await (this.prisma as any).customerMain.findUnique({

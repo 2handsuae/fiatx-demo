@@ -42,4 +42,5 @@ export interface CreateFundsOrderInput {
   providerTxnId?: string | null;
   initialStatus?: FundsOrderStatus; // 默认 CREATED
   traceId?: string;
+  effectiveDate?: string; // 平账 B 批：事后补的单记到案子业务日；只随事件走，不落表
 }

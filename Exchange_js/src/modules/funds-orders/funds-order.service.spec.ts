@@ -60,6 +60,17 @@ describe('FundsOrderService', () => {
     );
   });
 
+  it('create emits effectiveDate from input when given (fiat CONFIRMED-at-birth path)', async () => {
+    prisma.fundsOrder.create.mockResolvedValue({
+      id: 'fo1', fundsOrderNo: 'FO1', depositTransactionId: 'dep1',
+      swapTransactionId: null, withdrawTransactionId: null,
+      legSeq: 1, attempt: 1, status: 'SUBMITTED',
+    });
+    await service.create({ depositTransactionId: 'dep1', assetId: 'asset-aed', amount: '10', initialStatus: FundsOrderStatus.CONFIRMED, effectiveDate: '2026-09-01' } as any);
+    const payload = emitter.emit.mock.calls.find(([name]) => name === 'funds_order.status.changed')![1];
+    expect(payload.effectiveDate).toBe('2026-09-01');
+  });
+
   it('advance rejects illegal transition', async () => {
     prisma.fundsOrder.findUnique.mockResolvedValue({
       id: 'fo1', status: 'CREATED', depositTransactionId: null, withdrawTransactionId: 'w1', swapTransactionId: null,

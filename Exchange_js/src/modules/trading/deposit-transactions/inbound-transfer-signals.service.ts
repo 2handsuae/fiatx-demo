@@ -362,6 +362,7 @@ export class InboundTransferSignalsService {
     signal: any,
     wallet: any,
     mode: InboundTransferScanMode = InboundTransferScanMode.QUICK_DEMO,
+    opts?: { effectiveDate?: string },
   ) {
     const existing = await this.resolveExistingDeposit(signal);
     const createdDeposit = !existing;
@@ -382,6 +383,7 @@ export class InboundTransferSignalsService {
         referenceNo: signal.referenceNo || undefined,
         providerTxnId: signal.id,
         counterpartyIsVasp: signal.counterpartyIsVasp,
+        effectiveDate: opts?.effectiveDate,
       });
       deposit = detected.deposit;
       fundsOrder = detected.fundsOrder;
@@ -392,7 +394,7 @@ export class InboundTransferSignalsService {
     // the workflow's funds_order.status.changed handler). INTERACTIVE stops at the
     // freshly-created funds_order so an operator can drive it manually.
     if (mode !== InboundTransferScanMode.INTERACTIVE && fundsOrder) {
-      fundsOrder = await this.advanceFundsOrder(fundsOrder.id, signal.channelType);
+      fundsOrder = await this.advanceFundsOrder(fundsOrder.id, signal.channelType, opts?.effectiveDate);
     }
     // Re-read the deposit after driving so its status reflects the workflow.
     deposit = await this.findDeposit(deposit.id);
@@ -498,6 +500,7 @@ export class InboundTransferSignalsService {
   private async advanceFundsOrder(
     fundsOrderId: string,
     channelType: InboundTransferChannelType,
+    effectiveDate?: string,
   ) {
     let current = await this.fundsOrderService.findById(fundsOrderId);
     if (!current) {
@@ -521,6 +524,8 @@ export class InboundTransferSignalsService {
         fundsOrderId,
         FundsOrderAction.CONFIRM,
         'SYSTEM',
+        undefined,
+        effectiveDate ? { effectiveDate } : undefined,
       );
       current = await this.fundsOrderService.findById(fundsOrderId);
     }

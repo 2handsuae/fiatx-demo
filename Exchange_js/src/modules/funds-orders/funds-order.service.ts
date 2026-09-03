@@ -94,6 +94,7 @@ export class FundsOrderService {
       oldStatus: null,
       newStatus: row.status,
       traceId: input.traceId,
+      effectiveDate: input.effectiveDate,
     });
     return row;
   }

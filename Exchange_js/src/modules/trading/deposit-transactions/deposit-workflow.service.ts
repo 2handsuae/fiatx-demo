@@ -1722,6 +1722,10 @@ export class DepositWorkflowService implements OnModuleInit {
       throw new Error(`Asset ${asset.currency} has no tbLedgerId`);
     }
 
+    // 平账 B 批（spec §2.3）：补录的充值单带业务归属日，两步记账都用它；普通充值恒 undefined
+    // （推单回填那条路径仍从事件带来，优先级低于单上的列）。
+    const effectiveDateResolved: string | undefined = deposit.effectiveDate ?? effectiveDate;
+
     const ledger = asset.tbLedgerId;
     const amountBigint = this.decimalToBigint(deposit.amount, asset.decimals);
 
@@ -1773,7 +1777,7 @@ export class DepositWorkflowService implements OnModuleInit {
           creditWalletRef: walletRef,
           externalRef,
           isExternalCrossing: true,
-          ...(effectiveDate && { effectiveDate }),
+          ...(effectiveDateResolved && { effectiveDate: effectiveDateResolved }),
         },
       });
 
@@ -1815,7 +1819,7 @@ export class DepositWorkflowService implements OnModuleInit {
           creditWalletRef: walletRef,
           externalRef: null,
           isExternalCrossing: false,
-          ...(effectiveDate && { effectiveDate }),
+          ...(effectiveDateResolved && { effectiveDate: effectiveDateResolved }),
         },
       });
 
