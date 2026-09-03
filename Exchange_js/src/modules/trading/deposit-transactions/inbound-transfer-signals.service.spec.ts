@@ -792,15 +792,45 @@ describe('InboundTransferSignalsService', () => {
       expect(r).toEqual({ signalNo: 'SIG1', approvalNo: 'APR1', status: 'SUPPLEMENT_PENDING' });
     });
 
-    it('批准：信号 → PENDING_SCAN，processSignal 带生效日，回挂改写为充值单号，审计 SUPPLEMENTED', async () => {
+    it('批准：不翻 PENDING_SCAN（避免被自助扫描误捡），processSignal 带生效日，回挂改写为充值单号，STARTED/SUPPLEMENTED 审计顶层字段齐全', async () => {
       prisma.inboundTransferSignal.findUnique.mockResolvedValue({ id: 's1', signalNo: 'SIG1', status: 'SUPPLEMENT_PENDING', walletId: 'w1', channelType: 'FIAT',
         supplementDispositionNo: 'RCD1', supplementEffectiveDate: '2026-09-01', wallet: { id: 'w1', asset: { type: 'FIAT' } } });
       const spy = jest.spyOn(service as any, 'processSignal').mockResolvedValue({ depositNo: 'DEP7', depositId: 'd7' });
       await service.onSupplementDecided({ decision: 'APPROVED', entityRef: 'SIG1', approvalId: 'ap1', approvalNo: 'APR1' } as any);
+      // 评审 Important 1（1）回归断言：processSignal 自己收尾，onSupplementDecided 不再
+      // 抢先翻状态——processSignal 已被 mock 掉（不执行真实的 inboundTransferSignal.update），
+      // 若 onSupplementDecided 还残留那次 PENDING_SCAN 翻牌，这里就会看到一次调用。
+      expect(prisma.inboundTransferSignal.update).not.toHaveBeenCalled();
       expect(spy.mock.calls[0][3]).toEqual({ effectiveDate: '2026-09-01' });
       expect(reconDisposition.replaceSupplement).toHaveBeenCalledWith('RCD1', 'SIG1', 'DEP7');
-      const actions = auditLogsService.recordSystem.mock.calls.map((c: any[]) => c[0].action);
+      const calls = auditLogsService.recordSystem.mock.calls.map((c: any[]) => c[0]);
+      const actions = calls.map((c: any) => c.action);
       expect(actions).toEqual(expect.arrayContaining(['DEPOSIT_SUPPLEMENT_STARTED', 'DEPOSIT_SUPPLEMENTED']));
+      // 评审 Minor 1：顶层字段回归断言（不是 metadata 里有就算数——assertActionSpec()
+      // 校验的是 input 对象自身的同名属性，见 audit-logs.service.ts）。
+      const started = calls.find((c: any) => c.action === 'DEPOSIT_SUPPLEMENT_STARTED');
+      expect(started.approvalNo).toBe('APR1');
+      const supplemented = calls.find((c: any) => c.action === 'DEPOSIT_SUPPLEMENTED');
+      expect(supplemented.depositNo).toBe('DEP7');
+    });
+
+    it('批准但 processSignal 失败：不留半截状态——信号收口 SUPPLEMENT_REJECTED、解挂、REJECTED 审计带 outcome:FAILED + reasonCode；不进 SUPPLEMENTED', async () => {
+      prisma.inboundTransferSignal.findUnique.mockResolvedValue({ id: 's1', signalNo: 'SIG1', status: 'SUPPLEMENT_PENDING', walletId: 'w1', channelType: 'FIAT',
+        supplementDispositionNo: 'RCD1', supplementEffectiveDate: '2026-09-01', wallet: { id: 'w1', asset: { type: 'FIAT' } } });
+      jest.spyOn(service as any, 'processSignal').mockRejectedValue(new Error('Funds order fo-9 is FAILED'));
+      await service.onSupplementDecided({ decision: 'APPROVED', entityRef: 'SIG1', approvalId: 'ap1', approvalNo: 'APR1' } as any);
+      // 评审 Important 1（1）：失败路径下信号从未被翻成 PENDING_SCAN——不会被自助扫描误捡。
+      expect(prisma.inboundTransferSignal.update).toHaveBeenCalledTimes(1);
+      expect(prisma.inboundTransferSignal.update.mock.calls[0][0]).toMatchObject({ where: { id: 's1' }, data: { status: 'SUPPLEMENT_REJECTED' } });
+      // 评审 Important 1（2）：解挂，让定性单不再悬空指向一个已死的信号。
+      expect(reconDisposition.unlinkSupplement).toHaveBeenCalledWith('RCD1', 'SIG1');
+      expect(reconDisposition.replaceSupplement).not.toHaveBeenCalled();
+      const calls = auditLogsService.recordSystem.mock.calls.map((c: any[]) => c[0]);
+      const actions = calls.map((c: any) => c.action);
+      expect(actions).toContain('DEPOSIT_SUPPLEMENT_REJECTED');
+      expect(actions).not.toContain('DEPOSIT_SUPPLEMENTED');
+      const rejected = calls.find((c: any) => c.action === 'DEPOSIT_SUPPLEMENT_REJECTED');
+      expect(rejected).toMatchObject({ approvalNo: 'APR1', outcome: 'FAILED', reasonCode: 'PAYIN_FAILED' });
     });
 
     it('拒绝：信号 → SUPPLEMENT_REJECTED，解挂，审计 REJECTED；不进通道', async () => {

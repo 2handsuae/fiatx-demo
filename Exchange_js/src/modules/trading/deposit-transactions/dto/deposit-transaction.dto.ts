@@ -130,5 +130,5 @@ export class InitiateDepositSupplementDto {
   @IsString() dispositionNo!: string;
   @IsOptional() @IsString() fromAddress?: string;
   @IsOptional() @IsString() fromIban?: string;
-  @IsString() reason!: string;
+  @IsString() @IsNotEmpty() reason!: string;
 }

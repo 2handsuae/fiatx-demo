@@ -36,8 +36,9 @@ import { WalletRole } from '../../asset-treasury/wallets/dto/wallet.dto';
 import { ApprovalsService } from '../../governance/approvals/approvals.service';
 import { ApprovalActionTypes, ApprovalActorContext } from '../../governance/approvals/constants/approval.constants';
 import { ApprovalDecidedEvent } from '../../governance/approvals/approval-handler.base';
-import { SupplementEvidenceService, ClaimableLine } from '../../clearing-settle/reconciliation/disposition/supplement-evidence.service';
+import { SupplementEvidenceService } from '../../clearing-settle/reconciliation/disposition/supplement-evidence.service';
 import { DispositionService as ReconDispositionService } from '../../clearing-settle/reconciliation/disposition/disposition.service';
+import { AuditOutcome } from '../../audit-logging/dto/audit-log.dto';
 
 export interface ScanSummaryRecord {
   signalId: string;
@@ -297,7 +298,7 @@ export class InboundTransferSignalsService {
       ownerCustomerNo: line.ownerNo ?? undefined,
       subjects: [
         { subjectType: AuditEntityTypes.INBOUND_TRANSFER_SIGNAL, subjectNo: created.signalNo, subjectRole: 'PRIMARY' },
-        { subjectType: 'RECONCILIATION_CASE', subjectNo: line.caseNo, subjectRole: 'RELATED' },
+        { subjectType: AuditEntityTypes.RECONCILIATION_CASE, subjectNo: line.caseNo, subjectRole: 'RELATED' },
         { subjectType: AuditEntityTypes.APPROVAL_CASE, subjectNo: approvalCase.approvalNo, subjectRole: 'INSTRUMENT' },
       ],
       reason: dto.reason, approvalNo: approvalCase.approvalNo,
@@ -322,13 +323,42 @@ export class InboundTransferSignalsService {
       await this.recordSignalAudit({ action: AuditActions.DEPOSIT_SUPPLEMENT_REJECTED, signal, reason: `补录审批 ${event.decision}：${event.decisionReason ?? ''}`, approvalNo: event.approvalNo, metadata: { approvalNo: event.approvalNo, decision: event.decision }, sourcePlatform: 'SYSTEM' });
       return;
     }
-    await (this.prisma as any).inboundTransferSignal.update({ where: { id: signal.id }, data: { status: InboundTransferSignalStatus.PENDING_SCAN } });
+    // 评审 Important 1（1）：这里不再把信号先翻 PENDING_SCAN 才调 processSignal。
+    // processSignal()（下方 ~L500 一带的 inboundTransferSignal.update）在自己成功收尾时
+    // 会无条件把信号写成 PAYIN_CREATED，不依赖调用方预先把状态摆在 PENDING_SCAN——它内部
+    // 从不读 signal.status。若这里先翻 PENDING_SCAN 再调 processSignal，一旦 processSignal
+    // 中途抛错，信号会卡在 PENDING_SCAN；而 scanForCustomer() 查询的正是这个状态，客户下
+    // 一次自助扫描会把这条本该走 CFO 通道的信号误捡走，走的是不带 opts.effectiveDate 的
+    // 调用点——「生效日=案子业务日」这条硬规矩当场失守且无人知晓。信号在 processSignal
+    // 成功前继续停在 SUPPLEMENT_PENDING，自助扫描（只捡 PENDING_SCAN）天然捞不到它。
     await this.recordSignalAudit({ action: AuditActions.DEPOSIT_SUPPLEMENT_STARTED, signal, reason: 'CFO 批准补录，信号进入正常充值通道', approvalNo: event.approvalNo, metadata: { approvalNo: event.approvalNo, caseNo: signal.supplementReconCaseNo }, sourcePlatform: 'SYSTEM' });
-    const result = await this.processSignal(signal, signal.wallet, InboundTransferScanMode.QUICK_DEMO, { effectiveDate: signal.supplementEffectiveDate ?? undefined });
-    if (result.depositNo && signal.supplementDispositionNo) {
-      await this.reconDisposition.replaceSupplement(signal.supplementDispositionNo, signal.signalNo, result.depositNo);
+    let result: { depositNo: string | null; [key: string]: unknown };
+    try {
+      result = await this.processSignal(signal, signal.wallet, InboundTransferScanMode.QUICK_DEMO, { effectiveDate: signal.supplementEffectiveDate ?? undefined });
+    } catch (err) {
+      // 评审 Important 1（2）：失败也要留终态痕，形状照抄 deposit-workflow.service.ts
+      // onPayinFailed/onPayinConfirmed 对同类失败的处理——复用既有里程碑码 + outcome:
+      // FAILED + reasonCode（该文件 reasonCode:'PAYIN_FAILED' 的既有值），不新铸码。这不是
+      // 重试/补偿（禁做清单内）——只是把这次尝试的真实结局写下来，把挂着的定性单解开
+      // （不让它悬空指向一个已死的信号），信号本身按「未成功」收口到既有的 REJECTED 态
+      // （与 CFO 明确拒绝共用同一个终态值，靠审计的 outcome/reasonCode 区分成因）。
+      const error = err instanceof Error ? err : new Error(String(err));
+      this.logger.error(`Supplement ${signal.signalNo} processSignal failed: ${error.message}`);
+      await (this.prisma as any).inboundTransferSignal.update({ where: { id: signal.id }, data: { status: InboundTransferSignalStatus.SUPPLEMENT_REJECTED, scanResult: `Supplement processing failed: ${error.message}` } });
+      if (signal.supplementDispositionNo) await this.reconDisposition.unlinkSupplement(signal.supplementDispositionNo, signal.signalNo);
+      await this.recordSignalAudit({ action: AuditActions.DEPOSIT_SUPPLEMENT_REJECTED, signal, reason: `补录处理失败：${error.message}`, approvalNo: event.approvalNo, outcome: AuditOutcome.FAILED, reasonCode: 'PAYIN_FAILED', metadata: { approvalNo: event.approvalNo, caseNo: signal.supplementReconCaseNo, error: error.message }, sourcePlatform: 'SYSTEM' });
+      return;
     }
-    await this.recordSignalAudit({ action: AuditActions.DEPOSIT_SUPPLEMENTED, signal, reason: '补录完成：充值单已建，走正常 KYT / 合规', approvalNo: event.approvalNo, depositNo: result.depositNo, metadata: { depositNo: result.depositNo, caseNo: signal.supplementReconCaseNo, effectiveDate: signal.supplementEffectiveDate }, sourcePlatform: 'SYSTEM' });
+    // deposit 在 processSignal() 内部是无条件重读赋值（没有分支跳过它），depositNo 是
+    // schema 里 NOT NULL 的唯一列——非抛出路径下 result.depositNo 结构上不可能是空值，
+    // 这里不再对它做运行时防空判断；supplementDispositionNo 是真的可空列（Task 1
+    // schema 里 `String?`），继续判它来决定要不要回挂改写／落进审计（评审 Minor：统一
+    // 掉此前两行不一致的假设——一行防了 depositNo、下一行又假设它必然存在）。
+    const depositNo = result.depositNo;
+    if (signal.supplementDispositionNo) {
+      await this.reconDisposition.replaceSupplement(signal.supplementDispositionNo, signal.signalNo, depositNo as string);
+    }
+    await this.recordSignalAudit({ action: AuditActions.DEPOSIT_SUPPLEMENTED, signal, reason: '补录完成：充值单已建，走正常 KYT / 合规', approvalNo: event.approvalNo, depositNo: depositNo as string, metadata: { depositNo, caseNo: signal.supplementReconCaseNo, effectiveDate: signal.supplementEffectiveDate }, sourcePlatform: 'SYSTEM' });
   }
 
   async scanForCustomer(
@@ -777,8 +807,13 @@ export class InboundTransferSignalsService {
     // assertActionSpec() 校验的是 input 对象本身的同名属性，见 audit-logs.service.ts。
     approvalNo?: string;
     depositNo?: string;
+    // 评审 Important 1（2）：processSignal 失败时复用 DEPOSIT_SUPPLEMENT_REJECTED 这个
+    // 里程碑码，用 outcome+reasonCode 区分「CFO 拒绝」与「处理失败」——非成功路径下
+    // assertActionSpec() 改成强制 reasonCode（而非 requiredFields），见同一处校验逻辑。
+    outcome?: AuditOutcome;
+    reasonCode?: string;
   }) {
-    const { action, signal, reason, metadata, sourcePlatform, approvalNo, depositNo } = params;
+    const { action, signal, reason, metadata, sourcePlatform, approvalNo, depositNo, outcome, reasonCode } = params;
     await this.auditLogsService.recordSystem({
       action,
       actionDomain: 'DEPOSIT',
@@ -791,6 +826,8 @@ export class InboundTransferSignalsService {
       requestId: `${action}_${signal.signalNo}_${randomUUID()}`,
       approvalNo,
       depositNo,
+      outcome,
+      reasonCode,
       metadata,
       sourcePlatform,
     } as any);
