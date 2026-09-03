@@ -373,7 +373,7 @@ export async function ensureSetup(ctx: DemoCtx): Promise<void> {
     // must match runWithdraws' own deterministic address derivation exactly.
     if (WITHDRAW_PLAN[c.email]?.cryptoUsdt) {
       const idx = customerIdx(c.email);
-      const cryptoWdAddr = `T${createHash('sha256').update(`${SIM}wd${idx}`).digest('hex').slice(0, 33)}`;
+      const cryptoWdAddr = fakeTronAddress(`${SIM}wd${idx}`);
       const cryptoWdAddrNo = buildDeterministicNo('WA', SIM, 'WD_CRYPTO', c.customerNo);
       await ctx.prisma.withdrawalAddress.upsert({
         where: { customerId_assetId_address: { customerId: c.id, assetId: ctx.usdt.id, address: cryptoWdAddr } },
@@ -1097,7 +1097,7 @@ export async function runWithdraws(ctx: DemoCtx): Promise<Array<{ seq: number; o
     let toAddress: string | undefined;
     if (isUsdt) {
       const idx = customerIdx(c.email);
-      toAddress = `T${createHash('sha256').update(`${SIM}wd${idx}`).digest('hex').slice(0, 33)}`;
+      toAddress = fakeTronAddress(`${SIM}wd${idx}`);
     } else {
       const viban = await ctx.prisma.wallet.findFirst({ where: { ownerId: c.id, walletRole: 'C_VIBAN', network: 'AED_ZAND' } });
       if (!viban) throw new Error(`${c.email} missing C_VIBAN — run demo:setup first`);

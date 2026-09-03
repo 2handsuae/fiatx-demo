@@ -125,19 +125,20 @@ describe('Deposit money arcs (e2e, Task A6)', () => {
     fiatDecimals = fiatAsset.decimals;
     ledger = fiatAsset.tbLedgerId;
 
-    const fiatWallet = await prisma.wallet.create({
-      data: {
-        walletNo: `WA-E2E-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-        ownerType: 'CUSTOMER',
-        ownerId: customerId,
-        ownerNo: customer.customerNo,
-        vaultCode: 'CLIENT_DEPOSIT',
-        walletRole: 'C_VIBAN',
-        network: 'AED_ZAND',
-        iban: `AE_A6_E2E_${Date.now()}`,
-        status: 'ACTIVE',
-      },
+    // demo:setup already opens exactly one C_VIBAN row per (customer, network) —
+    // Wallet's unique key is (vaultCode, network, ownerNo), so creating a second
+    // one here would violate that constraint whenever this suite runs after
+    // demo:all/demo:setup has seeded the fixture customer (the Step 5 stage-gate
+    // sequence always does). Reuse the real one instead of minting a synthetic
+    // duplicate.
+    const fiatWallet = await prisma.wallet.findFirst({
+      where: { ownerId: customerId, walletRole: 'C_VIBAN', network: 'AED_ZAND', status: 'ACTIVE' },
     });
+    if (!fiatWallet) {
+      throw new Error(
+        "Fixture customer demo_bob@example.com has no ACTIVE C_VIBAN wallet on AED_ZAND — run demo:setup first.",
+      );
+    }
     fiatWalletId = fiatWallet.id;
   });
 

@@ -528,7 +528,6 @@ export class TbEvidenceService {
     //    share the walletRef but don't belong to this wallet's view).
     const wallet = await (this.prisma as any).wallet.findUnique({
       where: { id: walletRef },
-      include: { asset: true },
     });
 
     // 2. Pull AccountFlow rows for this walletRef (POSTED only, optional crossing filter).
@@ -615,7 +614,7 @@ export class TbEvidenceService {
     let ownerType: string | null = wallet?.ownerType ?? null;
     let derivedOwnerNo: string | null = ownerNo;
     let ownerName: string | null = null;
-    let assetCode: string | null = wallet?.asset?.currency ?? null;
+    let assetCode: string | null = flows[0]?.assetCode ?? null;
     if (!ownerType || !derivedOwnerNo) {
       // Fallback: most common (ownerType, ownerNo) among row registry entries.
       const tally = new Map<string, { count: number; reg: any }>();
@@ -708,7 +707,6 @@ export class TbEvidenceService {
     // 2. Resolve owners from Wallet table.
     const wallets = await (this.prisma as any).wallet.findMany({
       where: { id: { in: walletRefs } },
-      include: { asset: true },
     });
     const walletById = new Map<string, any>(wallets.map((w: any) => [w.id, w]));
 

@@ -1433,8 +1433,9 @@ export class WithdrawWorkflowService implements OnModuleInit {
 
     const sourceWallet = await (this.prisma as any).wallet.findFirst({
       where: {
+        vaultCode: 'CLIENT_DEPOSIT',
         walletRole,
-        assetId: w.assetId,
+        network: w.asset.network,
         ownerType: 'CUSTOMER',
         ownerId: w.ownerId,
         status: 'ACTIVE',
@@ -1446,7 +1447,7 @@ export class WithdrawWorkflowService implements OnModuleInit {
     if (!sourceWallet) {
       throw new IllegalSourceWalletError(
         `Withdrawal ${w.id}: customer ${w.ownerId} has no active ${walletRole} ` +
-        `wallet for asset ${w.assetId} (${w.asset.currency}). R4 requires the ` +
+        `wallet on network ${w.asset.network} (${w.asset.currency}). R4 requires the ` +
         `source wallet to be customer-owned (FIAT→C_VIBAN, CRYPTO→C_DEP).`,
       );
     }
