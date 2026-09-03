@@ -87,8 +87,10 @@ cd client-web && npx tsc -b --noEmit && cd ..    # ③ 客户端
 | 验收 / 走查 | `demo/script.md`（七幕主线）+ `modules/<篇>` §4 演示脚本 |
 | 说"以后做" | 业务缺口记 `BACKLOG.md`；技术兜底记 `PRODUCTION-NOTES.md`；工具/环境记 `TOOLING-DEBT.md` |
 | 要同步到飞书的业务文档 | `lark/`——业主维护、agent **不读**（不是现状真相，真相只在 `modules/`） |
+| 每轮收尾 / 回顾这版比上版多了什么 | `CHANGELOG.md`——一合并一行 |
+| 业主排期 | `reference/roadmap.md`（业主维护，agent 不主动读） |
 
-**不读** `archive/`（历史存档）、`lark/`。**不在本表里的文档不该存在**——发现了就删或归档，不另建地图。rules 与本文件冲突时以本文件为准。
+**不读** `archive/`（历史存档）、`lark/`。**既不在本表、也没被本表里的文档链到的文档不该存在**——发现了就删或归档，不另建地图。rules 与本文件冲突时以本文件为准。
 
 两层关系：**`modules/` = 现状唯一真相 ｜ `demo/script.md` + `modules/<篇>` §4 = 验收（演得出来就算过）**；两者不一致就是待办，登记 BACKLOG。
 （`prd/` 应然层未建、PRD 在飞书；旧 `test-cases/` 271 条用例 2026-08-31 整体封箱，理由见 `archive/test-cases/README.md`。）
