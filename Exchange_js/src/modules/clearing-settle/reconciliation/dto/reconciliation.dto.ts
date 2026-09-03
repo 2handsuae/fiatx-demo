@@ -167,7 +167,12 @@ export interface FlowComparisonRow {
     outlet: string; outletLabel: string;
     family?: 'CORRECT' | 'REVERSE' | 'RECORD' | 'REATTRIBUTE' | 'WRITE_OFF';
     reasonCode?: string; direction?: 'REDUCE' | 'INCREASE';
-    findingNote: string; adjustmentNo: string | null; createdBy: string; createdAt: string;
+    findingNote: string; adjustmentNo: string | null;
+    // 平账 B 批（spec §2.5）：出口去向 + 补单回挂单号 + 该单号的详情页引用（SIG… 无页面，id 为 null）。
+    deferredTarget: string | null;
+    supplementNo: string | null;
+    supplementRef: { kind: 'SIGNAL' | 'DEPOSIT' | 'WITHDRAW'; no: string; id: string | null } | null;
+    createdBy: string; createdAt: string;
   } | null;
   // 15 个成因里唯一机器认得出的证据（spec §0.3）：本行与已匹配池里某行同参考号同
   // 金额——只对 ORPHAN_INTERNAL 生效，查证池只认「已匹配」。

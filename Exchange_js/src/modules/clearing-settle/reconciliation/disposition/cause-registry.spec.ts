@@ -1,4 +1,4 @@
-import { menuFor, resolveOutlet, CAUSE_REGISTRY, CauseCode, FAMILY_LABEL, resolveWriteOff } from './cause-registry';
+import { menuFor, resolveOutlet, staticOutletLabel, CAUSE_REGISTRY, CauseCode, FAMILY_LABEL, resolveWriteOff } from './cause-registry';
 
 describe('cause-registry —— 六格成因菜单（spec §4，注册表单一来源）', () => {
   const codes = (mt: any, book: any) => menuFor(mt, book).map((m) => m.code);
@@ -21,7 +21,7 @@ describe('cause-registry —— 六格成因菜单（spec §4，注册表单一�
   });
   it('外有我无 × 客户', () => {
     expect(codes('ORPHAN_EXTERNAL', 'CLIENT')).toEqual([
-      'MISSED_DEPOSIT', 'BOUNCED_FUNDS', 'MISATTRIBUTED_TO', 'UNAUTHORIZED_OUTFLOW', 'UNEXPLAINED',
+      'MISSED_DEPOSIT', 'BOUNCED_FUNDS', 'PAYOUT_RETURNED', 'MISATTRIBUTED_TO', 'UNAUTHORIZED_OUTFLOW', 'UNEXPLAINED',
     ]);
   });
   it('外有我无 × 公司', () => {
@@ -138,10 +138,7 @@ describe('resolveOutlet —— 出口与 reason 派生（spec §4）', () => {
     expect(resolveOutlet('UNEXPLAINED', { matchType: 'AMOUNT_MISMATCH', book: 'FIRM' }).outlet).toBe('HOLD_INVESTIGATING');
     expect(resolveOutlet('UNCLAIMED_INFLOW', { matchType: 'ORPHAN_EXTERNAL', book: 'FIRM' }).outlet).toBe('HOLD_INVESTIGATING');
   });
-  it('留档三路：补单进/补单出/事故（公司冲销 A 批已定码，不再留档——见下方新增用例）', () => {
-    expect(resolveOutlet('MISSED_DEPOSIT', { matchType: 'ORPHAN_EXTERNAL', book: 'CLIENT' }))
-      .toEqual(expect.objectContaining({ outlet: 'DEFERRED', deferredTarget: 'SUPPLEMENT_DEPOSIT' }));
-    expect(resolveOutlet('BOUNCED_FUNDS', { matchType: 'ORPHAN_EXTERNAL', book: 'CLIENT' }).deferredTarget).toBe('SUPPLEMENT_BOUNCE');
+  it('留档一路：事故（补单三路 B 批已改走 SUPPLEMENT 出口，见下方新增用例；公司冲销 A 批已定码，不再留档）', () => {
     expect(resolveOutlet('UNAUTHORIZED_OUTFLOW', { matchType: 'ORPHAN_EXTERNAL', book: 'CLIENT' }).deferredTarget).toBe('INCIDENT');
   });
   it('成因不属于该格 → 显式拒绝（无兜底档的机器面）', () => {
@@ -186,5 +183,31 @@ describe('平账 A 批：公司账簿冲销定码 + 核销判定（spec §3.3 / 
         .toEqual({ reasonCode: 'UNEXPLAINED_WRITE_OFF', family: 'WRITE_OFF', direction: 'INCREASE', amountMinor: '300' });
       expect(resolveWriteOff({ matchType: 'ORPHAN_EXTERNAL', book: 'FIRM', externalDirection: 'OUT', externalAmount: '300' }).direction).toBe('REDUCE');
     });
+  });
+});
+
+describe('平账 B 批：补单出口（spec §6）', () => {
+  it('成因码 21 个；三码走 SUPPLEMENT 出口', () => {
+    expect(Object.keys(CAUSE_REGISTRY)).toHaveLength(21);
+    expect(CAUSE_REGISTRY.MISSED_DEPOSIT.kind).toBe('SUPPLEMENT');
+    expect(CAUSE_REGISTRY.BOUNCED_FUNDS.kind).toBe('SUPPLEMENT');
+    expect(CAUSE_REGISTRY.PAYOUT_RETURNED.kind).toBe('SUPPLEMENT');
+    expect(staticOutletLabel('MISSED_DEPOSIT')).toBe('补单·充值补录');
+    expect(staticOutletLabel('BOUNCED_FUNDS')).toBe('补单·退汇认领');
+    expect(staticOutletLabel('PAYOUT_RETURNED')).toBe('补单·退回认领');
+  });
+  it('resolveOutlet：出口 SUPPLEMENT + 去向', () => {
+    expect(resolveOutlet('MISSED_DEPOSIT', { matchType: 'ORPHAN_EXTERNAL', book: 'CLIENT', externalDirection: 'IN' }))
+      .toEqual({ outlet: 'SUPPLEMENT', outletLabel: '补单·充值补录', deferredTarget: 'SUPPLEMENT_DEPOSIT' });
+    expect(resolveOutlet('BOUNCED_FUNDS', { matchType: 'ORPHAN_EXTERNAL', book: 'CLIENT', externalDirection: 'OUT' }).deferredTarget).toBe('SUPPLEMENT_BOUNCE');
+    expect(resolveOutlet('PAYOUT_RETURNED', { matchType: 'ORPHAN_EXTERNAL', book: 'CLIENT', externalDirection: 'IN' }).deferredTarget).toBe('SUPPLEMENT_PAYOUT_RETURN');
+  });
+  it('成因与账单行方向不符 → 400', () => {
+    expect(() => resolveOutlet('MISSED_DEPOSIT', { matchType: 'ORPHAN_EXTERNAL', book: 'CLIENT', externalDirection: 'OUT' })).toThrow(/方向不符/);
+    expect(() => resolveOutlet('BOUNCED_FUNDS', { matchType: 'ORPHAN_EXTERNAL', book: 'CLIENT', externalDirection: 'IN' })).toThrow(/方向不符/);
+  });
+  it('菜单顺序：外有我无×客户 = 漏记 / 退汇 / 退回 / 记错客户 / 未授权 / 查不出', () => {
+    expect(menuFor('ORPHAN_EXTERNAL', 'CLIENT').map((m) => m.code))
+      .toEqual(['MISSED_DEPOSIT', 'BOUNCED_FUNDS', 'PAYOUT_RETURNED', 'MISATTRIBUTED_TO', 'UNAUTHORIZED_OUTFLOW', 'UNEXPLAINED']);
   });
 });

@@ -1229,6 +1229,9 @@ describe('getCase 行注解（spec §3/§8）', () => {
       direction: 'INCREASE',
       findingNote: '银行/链上查无此笔，客户确认未收到通知',
       adjustmentNo: null,
+      deferredTarget: null,
+      supplementNo: null,
+      supplementRef: null,
       createdBy: 'user-ops-1',
       createdAt: dispositionRow.updatedAt.toISOString(), // 优先 updatedAt，不是 createdAt
     });

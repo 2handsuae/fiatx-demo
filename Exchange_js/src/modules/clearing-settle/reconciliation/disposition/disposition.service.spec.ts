@@ -162,3 +162,34 @@ describe('平账 A 批：定性联动放行组合（spec §3.6）', () => {
     await expect(svc.linkAdjustment('RCD001', 'ADJ_X')).rejects.toThrow(BadRequestException);
   });
 });
+
+describe('平账 B 批：supplementNo 回挂与覆盖锁', () => {
+  it('linkSupplement：出口不是 SUPPLEMENT 或去向不符 → 400；已挂 → 400；正常写入', async () => {
+    const { svc: service, prisma } = build();
+    prisma.reconciliationDisposition.findUnique.mockResolvedValueOnce({ dispositionNo: 'RCD1', outlet: 'HOLD_INVESTIGATING', deferredTarget: null, supplementNo: null });
+    await expect(service.linkSupplement('RCD1', 'SIG1', 'SUPPLEMENT_DEPOSIT')).rejects.toThrow(/不接/);
+    prisma.reconciliationDisposition.findUnique.mockResolvedValueOnce({ dispositionNo: 'RCD1', outlet: 'SUPPLEMENT', deferredTarget: 'SUPPLEMENT_DEPOSIT', supplementNo: 'SIG0' });
+    await expect(service.linkSupplement('RCD1', 'SIG1', 'SUPPLEMENT_DEPOSIT')).rejects.toThrow(/已转补单/);
+    prisma.reconciliationDisposition.findUnique.mockResolvedValueOnce({ dispositionNo: 'RCD1', outlet: 'SUPPLEMENT', deferredTarget: 'SUPPLEMENT_DEPOSIT', supplementNo: null });
+    await service.linkSupplement('RCD1', 'SIG1', 'SUPPLEMENT_DEPOSIT');
+    expect(prisma.reconciliationDisposition.update).toHaveBeenCalledWith({ where: { dispositionNo: 'RCD1' }, data: { supplementNo: 'SIG1' } });
+  });
+  it('record：已转补单的定性不可覆盖', async () => {
+    // 按该文件既有 record() 用例的 mock 铺法，只把 existing 换成带 supplementNo 的行
+    const { svc: service } = build({
+      reconciliationDisposition: {
+        findFirst: jest.fn().mockResolvedValue({ dispositionNo: 'RCD1', adjustmentNo: null, supplementNo: 'SIG1' }),
+      },
+    });
+    await expect(service.record('REC-1', {
+      matchType: 'ORPHAN_INTERNAL', explainedFlowId: 'f1',
+      causeCode: 'DUP_BOOKING', findingNote: 'x', internalDirection: 'IN',
+    } as any, ACTOR)).rejects.toThrow(/已转补单/);
+  });
+  it('unlinkSupplement：挂的不是期望值就不动', async () => {
+    const { svc: service, prisma } = build();
+    prisma.reconciliationDisposition.findUnique.mockResolvedValueOnce({ dispositionNo: 'RCD1', supplementNo: 'DEP9' });
+    await service.unlinkSupplement('RCD1', 'SIG1');
+    expect(prisma.reconciliationDisposition.update).not.toHaveBeenCalled();
+  });
+});

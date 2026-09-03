@@ -500,6 +500,9 @@ export class ReconciliationQueryService {
         outlet: d.outlet, outletLabel: staticOutletLabel(d.causeCode as CauseCode),
         family: resolved!.family, reasonCode: resolved!.reasonCode, direction: resolved!.direction,
         findingNote: d.findingNote, adjustmentNo: d.adjustmentNo ?? null,
+        deferredTarget: d.deferredTarget ?? null,
+        supplementNo: d.supplementNo ?? null,
+        supplementRef: await this.resolveSupplementRef(d.supplementNo ?? null),
         createdBy: d.createdByUserId, createdAt: (d.updatedAt ?? d.createdAt).toISOString(),
       } : null;
       r.duplicateTwinRef = (r.matchType === 'ORPHAN_INTERNAL' && r.internalFlow?.externalRef
@@ -659,6 +662,20 @@ export class ReconciliationQueryService {
       observation,
       adjustments: caseAdjustments,
     };
+  }
+
+  /** 补单回挂的单号 → 详情页链接用的 { kind, no, id }。SIG… 没有页面，id 为 null。 */
+  private async resolveSupplementRef(no: string | null): Promise<{ kind: 'SIGNAL' | 'DEPOSIT' | 'WITHDRAW'; no: string; id: string | null } | null> {
+    if (!no) return null;
+    if (no.startsWith('DEP')) {
+      const d = await (this.prisma as any).depositTransaction.findUnique({ where: { depositNo: no }, select: { id: true } });
+      return { kind: 'DEPOSIT', no, id: d?.id ?? null };
+    }
+    if (no.startsWith('WD')) {
+      const w = await (this.prisma as any).withdrawTransaction.findUnique({ where: { withdrawNo: no }, select: { id: true } });
+      return { kind: 'WITHDRAW', no, id: w?.id ?? null };
+    }
+    return { kind: 'SIGNAL', no, id: null };
   }
 
   async listExternalBalances(q: { cutoffDate?: string; book?: string; source?: string; currency?: string }) {

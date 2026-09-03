@@ -8,7 +8,7 @@ import { AuditLogsService } from '../../../audit-logging/audit-logs.service';
 import { AuditEntityTypes } from '../../../audit-logging/constants/audit-actions.constant';
 import { ApprovalActorContext } from '../../../governance/approvals/constants/approval.constants';
 import { RecordDispositionDto } from '../dto/disposition.dto';
-import { AdjustFamily, CAUSE_REGISTRY, CauseBook, resolveOutlet } from './cause-registry';
+import { AdjustFamily, CAUSE_REGISTRY, CauseBook, DeferredTarget, resolveOutlet } from './cause-registry';
 
 export interface ReattributionCandidate {
   caseNo: string; walletNo: string | null; ownerNo: string | null;
@@ -57,6 +57,9 @@ export class DispositionService {
     });
     if (existing?.adjustmentNo) {
       throw new BadRequestException(`该行定性已挂调账单 ${existing.adjustmentNo}，不可覆盖——单和结论必须对得上`);
+    }
+    if (existing?.supplementNo) {
+      throw new BadRequestException(`该行定性已转补单 ${existing.supplementNo}，不可覆盖——单和结论必须对得上`);
     }
 
     const data = {
@@ -125,6 +128,34 @@ export class DispositionService {
     }
     if (row.adjustmentNo) throw new BadRequestException(`定性 ${dispositionNo} 已挂调账单 ${row.adjustmentNo}`);
     await (this.prisma as any).reconciliationDisposition.update({ where: { dispositionNo }, data: { adjustmentNo } });
+  }
+
+  /**
+   * 平账 B 批（spec §2.5）：补单回挂。① 申请时挂信号号、执行后改写为充值单号；② 挂充值单号；③ 挂提现单号。
+   * 挂了就锁死（record 的覆盖锁），审批被拒 / 撤回 / 超时由业务域调 unlinkSupplement 解开。
+   */
+  async linkSupplement(dispositionNo: string, supplementNo: string, target: DeferredTarget): Promise<void> {
+    const row = await (this.prisma as any).reconciliationDisposition.findUnique({ where: { dispositionNo } });
+    if (!row) throw new NotFoundException(`定性记录不存在：${dispositionNo}`);
+    if (row.outlet !== 'SUPPLEMENT' || row.deferredTarget !== target) {
+      throw new BadRequestException(`定性 ${dispositionNo} 的出口是 ${row.outlet}/${row.deferredTarget ?? '-'}，不接 ${target} 的补单`);
+    }
+    if (row.supplementNo) throw new BadRequestException(`定性 ${dispositionNo} 已转补单 ${row.supplementNo}`);
+    await (this.prisma as any).reconciliationDisposition.update({ where: { dispositionNo }, data: { supplementNo } });
+  }
+
+  async replaceSupplement(dispositionNo: string, from: string, to: string): Promise<void> {
+    const row = await (this.prisma as any).reconciliationDisposition.findUnique({ where: { dispositionNo } });
+    if (!row) throw new NotFoundException(`定性记录不存在：${dispositionNo}`);
+    if (row.supplementNo !== from) throw new BadRequestException(`定性 ${dispositionNo} 挂的是 ${row.supplementNo ?? '-'}，不是 ${from}`);
+    await (this.prisma as any).reconciliationDisposition.update({ where: { dispositionNo }, data: { supplementNo: to } });
+  }
+
+  async unlinkSupplement(dispositionNo: string, expected: string): Promise<void> {
+    const row = await (this.prisma as any).reconciliationDisposition.findUnique({ where: { dispositionNo } });
+    if (!row) throw new NotFoundException(`定性记录不存在：${dispositionNo}`);
+    if (row.supplementNo !== expected) return; // 已被别的路径清掉或改写，不动
+    await (this.prisma as any).reconciliationDisposition.update({ where: { dispositionNo }, data: { supplementNo: null } });
   }
 
   /**
