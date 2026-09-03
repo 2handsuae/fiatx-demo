@@ -465,6 +465,9 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
   route('POST', '/admin/withdrawal-addresses/:addressNo/skip-cooling', 'Skip withdrawal address cooling period', [
     'WITHDRAWAL_ADDRESS_WRITE',
   ]),
+  route('POST', '/admin/withdrawal-addresses/:addressNo/unsuspend', 'Lift withdrawal address suspension', [
+    'WITHDRAWAL_ADDRESS_WRITE',
+  ]),
 
   // Withdrawal Fee Levels
   route('GET', '/admin/withdrawal-fee-levels', 'List withdrawal fee levels', [
@@ -700,7 +703,7 @@ export const ACTION_BUCKET_CATALOG: ActionDomain[] = [
       {
         key: 'treasury.manage_addresses',
         label: 'Manage withdrawal addresses',
-        description: 'Suspend withdrawal addresses, skip cooling period',
+        description: 'Suspend / unsuspend withdrawal addresses, skip cooling period (simulation)',
         groups: ['WITHDRAWAL_ADDRESS_WRITE'],
       },
       {

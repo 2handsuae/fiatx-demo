@@ -163,7 +163,7 @@ describe('Swap money arcs (e2e, Task 12)', () => {
     // here, only to satisfy the gate so SWAP/WITHDRAW eligibility checks reach
     // the restrictions check this suite actually exercises.
     await ensureWithdrawalAddress({
-      assetId: aedAssetId, addressType: 'BANK', network: 'FIAT',
+      addressType: 'BANK', network: 'AED_ZAND',
       address: 'AE070331234567890199999', iban: 'AE070331234567890199999',
     });
 
@@ -205,20 +205,20 @@ describe('Swap money arcs (e2e, Task 12)', () => {
   }
 
   async function ensureWithdrawalAddress(opts: {
-    assetId: string; addressType: string; network: string; address: string; iban?: string;
+    addressType: string; network: string; address: string; iban?: string;
   }): Promise<void> {
     const existing = await (prisma as any).withdrawalAddress.findFirst({
-      where: { customerId, assetId: opts.assetId, address: opts.address, status: 'ACTIVE' },
+      where: { customerId, network: opts.network, address: opts.address, status: 'ACTIVE' },
     });
     if (existing) return;
     await (prisma as any).withdrawalAddress.create({
       data: {
-        addressNo: `WAD-E2E-SWAPARCS-${opts.addressType}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-        customerId, customerNo, assetId: opts.assetId, network: opts.network,
+        addressNo: `WAD-E2E-${opts.addressType}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        customerId, customerNo, network: opts.network,
         address: opts.address, addressType: opts.addressType, iban: opts.iban ?? null,
         ownershipDeclaredAt: new Date(), ownershipProofType: 'E2E_FIXTURE',
         status: 'ACTIVE', activatesAt: new Date(Date.now() - 1000),
-        traceId: 'e2e-swap-money-arcs-address',
+        traceId: `e2e-address-${opts.addressType}`,
       },
     });
   }

@@ -21,8 +21,6 @@ describe('WithdrawalAddressService', () => {
     $transaction: jest.fn(),
   };
 
-  const mockAsset = { id: 'asset-1', code: 'ETH', type: 'CRYPTO', network: 'ETH', status: 'ACTIVE', decimals: 18 };
-
   beforeEach(async () => {
     jest.clearAllMocks();
     const module: TestingModule = await Test.createTestingModule({
@@ -40,13 +38,13 @@ describe('WithdrawalAddressService', () => {
       prismaMock.withdrawalAddress.count.mockResolvedValue(0);
       prismaMock.withdrawalAddress.create.mockResolvedValue({
         id: 'wa-1', addressNo: 'WAD2605130001', status: 'PENDING_ACTIVATION',
-        address: '0x742d35Cc6634C0532925a3b844Bc9e7595f2bD18',
+        address: 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t',
       });
 
       const result = await service.create({
         customerId: 'cust-1', customerNo: 'CUS001',
-        assetId: 'asset-1', network: 'ETH',
-        address: '0x742d35Cc6634C0532925a3b844Bc9e7595f2bD18',
+        network: 'TRON',
+        address: 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t',
         addressType: 'SELF_CUSTODY', traceId: 'trace-1',
         ownershipDeclaredAt: new Date(), ownershipProofType: 'DECLARATION',
       });
@@ -59,29 +57,36 @@ describe('WithdrawalAddressService', () => {
       prismaMock.withdrawalAddress.count.mockResolvedValue(3);
       await expect(service.create({
         customerId: 'cust-1', customerNo: 'CUS001',
-        assetId: 'asset-1', network: 'ETH',
-        address: '0x742d35Cc6634C0532925a3b844Bc9e7595f2bD18',
+        network: 'TRON',
+        address: 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t',
         addressType: 'SELF_CUSTODY', traceId: 'trace-1',
         ownershipDeclaredAt: new Date(), ownershipProofType: 'DECLARATION',
       })).rejects.toThrow(BadRequestException);
+      expect(prismaMock.withdrawalAddress.count).toHaveBeenCalledWith({
+        where: { customerId: 'cust-1', network: 'TRON', status: { in: ['PENDING_ACTIVATION', 'ACTIVE'] } },
+      });
     });
 
     it('rejects invalid address format', async () => {
       prismaMock.withdrawalAddress.count.mockResolvedValue(0);
       await expect(service.create({
         customerId: 'cust-1', customerNo: 'CUS001',
-        assetId: 'asset-1', network: 'ETH',
-        address: 'not-a-valid-address',
+        network: 'TRON',
+        address: '0x742d35Cc6634C0532925a3b844Bc9e7595f2bD18',
         addressType: 'SELF_CUSTODY', traceId: 'trace-1',
         ownershipDeclaredAt: new Date(), ownershipProofType: 'DECLARATION',
       })).rejects.toThrow(BadRequestException);
+    });
+
+    it('rejects a bank-rail network for on-chain registration (NETWORK_NOT_CHAIN)', async () => {
+      await expect(service.create({ customerId: 'cust-1', customerNo: 'CUS001', network: 'AED_ZAND', address: 'AE070860000000000000001', addressType: 'SELF_CUSTODY', traceId: 't', ownershipDeclaredAt: new Date(), ownershipProofType: 'DECLARATION' }))
+        .rejects.toMatchObject({ response: { code: 'NETWORK_NOT_CHAIN' } });
     });
   });
 
   describe('createBankAccount', () => {
     const baseInput = {
       customerId: 'cust-1', customerNo: 'CUS001',
-      assetId: 'asset-fiat-1',
       iban: 'DE89370400440532013000',
       swiftBic: 'DEUTDEFF',
       bankName: 'Deutsche Bank',
@@ -97,7 +102,7 @@ describe('WithdrawalAddressService', () => {
     it('first bank address (count→0) auto-activates: status ACTIVE', async () => {
       prismaMock.withdrawalAddress.count.mockResolvedValue(0);
       prismaMock.withdrawalAddress.create.mockImplementation(async ({ data }: any) => ({
-        id: 'wa-1', addressNo: data.addressNo, status: data.status,
+        id: 'wa-1', addressNo: data.addressNo, status: data.status, network: data.network,
         activatesAt: data.activatesAt, activatedAt: data.activatedAt,
       }));
 
@@ -105,7 +110,9 @@ describe('WithdrawalAddressService', () => {
 
       expect(result.status).toBe('ACTIVE');
       expect(result.activatedAt).toBeInstanceOf(Date);
+      expect((result as any).network).toBe('AED_ZAND');
       expect(prismaMock.withdrawalAddress.create).toHaveBeenCalledTimes(1);
+      expect(prismaMock.withdrawalAddress.create.mock.calls[0][0].data.network).toBe('AED_ZAND');
     });
 
     it('second bank address (count→1) keeps PENDING_ACTIVATION with 24h cooling', async () => {
@@ -135,12 +142,11 @@ describe('WithdrawalAddressService', () => {
       expect(result.status).toBe('ACTIVE');
     });
 
-    it('returns existing ACTIVE address idempotently', async () => {
+    it('rejects activating an ACTIVE address (409 Invalid transition)', async () => {
       prismaMock.withdrawalAddress.findUnique.mockResolvedValue({
         id: 'wa-1', addressNo: 'WAD001', status: 'ACTIVE',
       });
-      const result = await service.activate('WAD001');
-      expect(result.status).toBe('ACTIVE');
+      await expect(service.activate('WAD001')).rejects.toBeInstanceOf(ConflictException);
       expect(prismaMock.withdrawalAddress.update).not.toHaveBeenCalled();
     });
 
@@ -174,7 +180,8 @@ describe('WithdrawalAddressService', () => {
       prismaMock.withdrawalAddress.findUnique.mockResolvedValue({
         id: 'wa-1', addressNo: 'WAD001', status: 'ACTIVE', customerId: 'cust-1',
       });
-      await expect(service.cancel('WAD001', 'cust-1')).rejects.toThrow(BadRequestException);
+      await expect(service.cancel('WAD001', 'cust-1')).rejects.toBeInstanceOf(ConflictException);
+      await expect(service.cancel('WAD001', 'cust-1')).rejects.toThrow(/Invalid transition/);
     });
   });
 
@@ -192,7 +199,39 @@ describe('WithdrawalAddressService', () => {
       prismaMock.withdrawalAddress.findUnique.mockResolvedValue({
         id: 'wa-1', addressNo: 'WAD001', status: 'PENDING_ACTIVATION',
       });
-      await expect(service.suspend('WAD001', 'ADM001', 'reason')).rejects.toThrow(BadRequestException);
+      await expect(service.suspend('WAD001', 'ADM001', 'reason')).rejects.toBeInstanceOf(ConflictException);
+      await expect(service.suspend('WAD001', 'ADM001', 'reason')).rejects.toThrow(/Invalid transition/);
+    });
+  });
+
+  describe('unsuspend', () => {
+    it('SUSPENDED → ACTIVE，清空三个 suspend 字段', async () => {
+      prismaMock.withdrawalAddress.findUnique.mockResolvedValue({ addressNo: 'WAD1', status: 'SUSPENDED' });
+      prismaMock.withdrawalAddress.update.mockResolvedValue({ addressNo: 'WAD1', status: 'ACTIVE' });
+      const r = await service.unsuspend('WAD1');
+      expect(r.status).toBe('ACTIVE');
+      expect(prismaMock.withdrawalAddress.update).toHaveBeenCalledWith(expect.objectContaining({
+        data: { status: 'ACTIVE', suspendedAt: null, suspendedBy: null, suspendReason: null },
+      }));
+    });
+    it('ACTIVE 不能 unsuspend → 409', async () => {
+      prismaMock.withdrawalAddress.findUnique.mockResolvedValue({ addressNo: 'WAD1', status: 'ACTIVE' });
+      await expect(service.unsuspend('WAD1')).rejects.toBeInstanceOf(ConflictException);
+    });
+  });
+
+  describe('updateDetails', () => {
+    it('只改 label / beneficiaryName，地址本身不动', async () => {
+      prismaMock.withdrawalAddress.findUnique.mockResolvedValue({ addressNo: 'WAD1', customerId: 'cust-1', status: 'ACTIVE', label: 'old', beneficiaryName: null });
+      prismaMock.withdrawalAddress.update.mockResolvedValue({ addressNo: 'WAD1', label: 'Ledger' });
+      await service.updateDetails('WAD1', 'cust-1', { label: 'Ledger' });
+      expect(prismaMock.withdrawalAddress.update).toHaveBeenCalledWith({ where: { addressNo: 'WAD1' }, data: { label: 'Ledger' } });
+    });
+    it('终态（DEACTIVATED）不可改 → 409；别人的地址 → 403', async () => {
+      prismaMock.withdrawalAddress.findUnique.mockResolvedValue({ addressNo: 'WAD1', customerId: 'cust-1', status: 'DEACTIVATED' });
+      await expect(service.updateDetails('WAD1', 'cust-1', { label: 'x' })).rejects.toBeInstanceOf(ConflictException);
+      prismaMock.withdrawalAddress.findUnique.mockResolvedValue({ addressNo: 'WAD1', customerId: 'cust-2', status: 'ACTIVE' });
+      await expect(service.updateDetails('WAD1', 'cust-1', { label: 'x' })).rejects.toBeInstanceOf(ForbiddenException);
     });
   });
 
@@ -301,10 +340,8 @@ describe('WithdrawalAddressService', () => {
         ...activeCryptoAddr, status: 'PENDING_ACTIVATION',
       });
 
-      await expect(service.deactivate('WAD002', 'cust-1')).rejects.toThrow(BadRequestException);
-      await expect(service.deactivate('WAD002', 'cust-1')).rejects.toMatchObject({
-        response: { code: 'ADDRESS_NOT_ACTIVE' },
-      });
+      await expect(service.deactivate('WAD002', 'cust-1')).rejects.toBeInstanceOf(ConflictException);
+      await expect(service.deactivate('WAD002', 'cust-1')).rejects.toThrow(/Invalid transition/);
       expect(prismaMock.withdrawalAddress.update).not.toHaveBeenCalled();
     });
 

@@ -629,6 +629,9 @@ export const V1_AUDIT_ACTIONS: Record<string, AuditActionSpec> = {
   WITHDRAWAL_ADDRESS_SUSPENDED:       { domain: 'CONFIG', correlationMode: I, requiredFields: ['reason'], requiresCausation: false },
   WITHDRAWAL_ADDRESS_DEACTIVATED:     { domain: 'CONFIG', correlationMode: I, requiredFields: ['reason'], requiresCausation: false },
   WITHDRAWAL_ADDRESS_COOLING_SKIPPED: { domain: 'CONFIG', correlationMode: I, requiredFields: ['reason'], requiresCausation: false },
+  // 波一新增：改标签 / 收款人（客户单步，INHERIT 地址自己的 traceId）；管理员恢复（补 D5 出边）
+  WITHDRAWAL_ADDRESS_UPDATED:         { domain: 'CONFIG', correlationMode: I, requiredFields: ['beforeData', 'afterData'], requiresCausation: false },
+  WITHDRAWAL_ADDRESS_UNSUSPENDED:     { domain: 'CONFIG', correlationMode: I, requiredFields: ['reason'], requiresCausation: false },
 
   // ── ⑪ 审计日志自身的操作 ────────────────────────────────
   AUDIT_EVIDENCE_EXPORT_REQUESTED:  { domain: 'AUDIT', correlationMode: S, requiredFields: [], requiresCausation: false },

@@ -277,7 +277,7 @@ export class WithdrawWorkflowService implements OnModuleInit {
     let destinationVerified = false;
     if (isCryptoWithdraw && toAddress) {
       const registeredAddress = await (this.prisma as any).withdrawalAddress.findFirst({
-        where: { customerId: userId, address: toAddress, status: 'ACTIVE' },
+        where: { customerId: userId, network: asset.network, address: toAddress, status: 'ACTIVE' },
       });
       if (!registeredAddress) {
         throw new BadRequestException({
@@ -294,7 +294,7 @@ export class WithdrawWorkflowService implements OnModuleInit {
       // filter used everywhere else in the codebase that checks for an active
       // bank account (e.g. onboarding.service.ts, withdrawal-address.service.ts).
       const registeredAddress = await (this.prisma as any).withdrawalAddress.findFirst({
-        where: { customerId: userId, iban: toIban, status: 'ACTIVE', addressType: 'BANK' },
+        where: { customerId: userId, network: asset.network, iban: toIban, status: 'ACTIVE', addressType: 'BANK' },
       });
       if (!registeredAddress) {
         throw new BadRequestException({

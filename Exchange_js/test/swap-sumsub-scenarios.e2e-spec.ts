@@ -203,7 +203,7 @@ describe('Swap Sumsub verdict buttons (e2e, Task 12)', () => {
     // BANK withdrawal address on file for SWAP/WITHDRAW eligibility to even
     // reach the restrictions check this suite exercises.
     await ensureWithdrawalAddress({
-      assetId: aedAssetId, addressType: 'BANK', network: 'FIAT',
+      addressType: 'BANK', network: 'AED_ZAND',
       address: 'AE070331234567890177777', iban: 'AE070331234567890177777',
     });
 
@@ -257,20 +257,20 @@ describe('Swap Sumsub verdict buttons (e2e, Task 12)', () => {
   }
 
   async function ensureWithdrawalAddress(opts: {
-    assetId: string; addressType: string; network: string; address: string; iban?: string;
+    addressType: string; network: string; address: string; iban?: string;
   }): Promise<void> {
     const existing = await (prisma as any).withdrawalAddress.findFirst({
-      where: { customerId, assetId: opts.assetId, address: opts.address, status: 'ACTIVE' },
+      where: { customerId, network: opts.network, address: opts.address, status: 'ACTIVE' },
     });
     if (existing) return;
     await (prisma as any).withdrawalAddress.create({
       data: {
-        addressNo: `WAD-E2E-SWAPSCN-${opts.addressType}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-        customerId, customerNo, assetId: opts.assetId, network: opts.network,
+        addressNo: `WAD-E2E-${opts.addressType}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        customerId, customerNo, network: opts.network,
         address: opts.address, addressType: opts.addressType, iban: opts.iban ?? null,
         ownershipDeclaredAt: new Date(), ownershipProofType: 'E2E_FIXTURE',
         status: 'ACTIVE', activatesAt: new Date(Date.now() - 1000),
-        traceId: 'e2e-swap-sumsub-scenarios-address',
+        traceId: `e2e-address-${opts.addressType}`,
       },
     });
   }

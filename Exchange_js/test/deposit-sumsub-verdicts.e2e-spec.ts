@@ -244,7 +244,6 @@ describe('Deposit Sumsub verdict buttons (e2e, Task 9)', () => {
     await app.get(WithdrawalAddressService).createBankAccount({
       customerId,
       customerNo: customer.customerNo,
-      assetId: fiatAssetId,
       iban: 'DE89370400440532013000',
       swiftBic: 'DEUTDEFF500',
       bankName: 'E2E Test Bank',

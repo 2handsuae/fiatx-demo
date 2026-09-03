@@ -653,7 +653,6 @@ model Asset {
   withdrawTransactions           WithdrawTransaction[]
   fundsOrders                    FundsOrder[]
   reconciliationCases            ReconciliationCase[]
-  withdrawalAddresses            WithdrawalAddress[]
   withdrawalFeeLevels            WithdrawalFeeLevel[]
   swapFeeLevelsFrom              SwapFeeLevel[]                  @relation("SwapFeeLevelFromAsset")
   swapFeeLevelsTo                SwapFeeLevel[]                  @relation("SwapFeeLevelToAsset")
@@ -729,7 +728,6 @@ model WithdrawalAddress {
   addressNo            String       @unique
   customerId           String
   customerNo           String
-  assetId              String
   network              String
   address              String
   addressType          String
@@ -763,10 +761,9 @@ model WithdrawalAddress {
   updatedAt            DateTime     @updatedAt @map("updated_at")
 
   customer             CustomerMain @relation(fields: [customerId], references: [id])
-  asset                Asset        @relation(fields: [assetId], references: [id])
 
-  @@unique([customerId, assetId, address])
-  @@index([customerId, assetId, status])
+  @@unique([customerId, network, address])
+  @@index([customerId, network, status])
   @@index([status, activatesAt])
   @@map("withdrawal_addresses")
 }

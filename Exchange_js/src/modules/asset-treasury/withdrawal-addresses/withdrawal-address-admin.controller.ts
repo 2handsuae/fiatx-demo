@@ -5,6 +5,7 @@ import { WithdrawalAddressWorkflowService } from './withdrawal-address-workflow.
 import { WithdrawalAddressService } from './withdrawal-address.service';
 import { ListWithdrawalAddressQueryDto } from './dto/list-withdrawal-address-query.dto';
 import { SuspendWithdrawalAddressDto } from './dto/suspend-withdrawal-address.dto';
+import { UnsuspendWithdrawalAddressDto } from './dto/unsuspend-withdrawal-address.dto';
 import { AdminPermissionGuard } from '../../identity/access-control/admin-permission.guard';
 
 @ApiTags('admin/withdrawal-addresses')
@@ -45,6 +46,13 @@ export class WithdrawalAddressAdminController {
   async suspend(@Request() req: any, @Param('addressNo') addressNo: string, @Body() dto: SuspendWithdrawalAddressDto) {
     const actor = this.extractAdmin(req);
     return this.workflowService.suspendAddress(addressNo, actor, dto.reason);
+  }
+
+  @Post(':addressNo/unsuspend')
+  @ApiOperation({ summary: 'Lift a suspension' })
+  async unsuspend(@Request() req: any, @Param('addressNo') addressNo: string, @Body() dto: UnsuspendWithdrawalAddressDto) {
+    const actor = this.extractAdmin(req);
+    return this.workflowService.unsuspendAddress(addressNo, actor, dto.reason);
   }
 
   @Post(':addressNo/skip-cooling')

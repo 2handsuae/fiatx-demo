@@ -355,11 +355,11 @@ export async function ensureSetup(ctx: DemoCtx): Promise<void> {
     // from an earlier successful withdrawal and never notices).
     const wdAddrNo = buildDeterministicNo('WA', SIM, 'WD_BANK', c.customerNo);
     await ctx.prisma.withdrawalAddress.upsert({
-      where: { customerId_assetId_address: { customerId: c.id, assetId: ctx.aed.id, address: vibanIban } },
+      where: { customerId_network_address: { customerId: c.id, network: 'AED_ZAND', address: vibanIban } },
       update: { status: 'ACTIVE' },
       create: {
         addressNo: wdAddrNo, customerId: c.id, customerNo: c.customerNo,
-        assetId: ctx.aed.id, network: 'FIAT', address: vibanIban, addressType: 'BANK', iban: vibanIban,
+        network: 'AED_ZAND', address: vibanIban, addressType: 'BANK', iban: vibanIban,
         ownershipDeclaredAt: new Date(), ownershipProofType: 'DEMO_FIXTURE',
         status: 'ACTIVE', activatesAt: new Date(Date.now() - 1000),
         traceId: `demo-setup-withdrawal-address-${c.customerNo}`,
@@ -376,11 +376,11 @@ export async function ensureSetup(ctx: DemoCtx): Promise<void> {
       const cryptoWdAddr = fakeTronAddress(`${SIM}wd${idx}`);
       const cryptoWdAddrNo = buildDeterministicNo('WA', SIM, 'WD_CRYPTO', c.customerNo);
       await ctx.prisma.withdrawalAddress.upsert({
-        where: { customerId_assetId_address: { customerId: c.id, assetId: ctx.usdt.id, address: cryptoWdAddr } },
+        where: { customerId_network_address: { customerId: c.id, network: 'TRON', address: cryptoWdAddr } },
         update: { status: 'ACTIVE' },
         create: {
           addressNo: cryptoWdAddrNo, customerId: c.id, customerNo: c.customerNo,
-          assetId: ctx.usdt.id, network: ctx.usdt.network || 'TRON', address: cryptoWdAddr, addressType: 'SELF_CUSTODY',
+          network: 'TRON', address: cryptoWdAddr, addressType: 'SELF_CUSTODY',
           ownershipDeclaredAt: new Date(), ownershipProofType: 'DEMO_FIXTURE',
           status: 'ACTIVE', activatesAt: new Date(Date.now() - 1000),
           traceId: `demo-setup-withdrawal-address-crypto-${c.customerNo}`,
