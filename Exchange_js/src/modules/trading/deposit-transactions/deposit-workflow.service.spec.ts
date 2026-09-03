@@ -36,6 +36,8 @@ import {
 } from '../../identity/customers/constants/restriction-cause.constant';
 import { L1GateService } from '../shared/l1-gate/l1-gate.service';
 import type { L1Snapshot } from '../shared/l1-gate/l1-gate.types';
+import { SupplementEvidenceService } from '../../clearing-settle/reconciliation/disposition/supplement-evidence.service';
+import { DispositionService as ReconDispositionService } from '../../clearing-settle/reconciliation/disposition/disposition.service';
 
 /** Task 9：Gate 0 与 checkAutoApproval 改读限制账，不再读已删的 complianceStatus 列。 */
 const customerAccessService = {
@@ -120,6 +122,9 @@ describe('DepositWorkflowService', () => {
   let actionsService: Record<string, jest.Mock>;
   let customerRestrictionsService: Record<string, jest.Mock>;
   let l1Gate: Record<string, jest.Mock>;
+  let accountingService: Record<string, jest.Mock>;
+  let supplementEvidence: Record<string, jest.Mock>;
+  let reconDisposition: Record<string, jest.Mock>;
 
   beforeEach(async () => {
     // Task 9：access mock 是模块级的，本 spec 无 clearAllMocks —— 逐例复位，
@@ -145,6 +150,9 @@ describe('DepositWorkflowService', () => {
       setSumsubTxn: jest.fn().mockResolvedValue(undefined),
       clearLimitHold: jest.fn().mockResolvedValue(undefined),
       findNonTerminalByOwner: jest.fn().mockResolvedValue([]),
+      // 平账 B 批②：退汇认领申请的三列标记。
+      markClawbackRequested: jest.fn().mockResolvedValue(undefined),
+      clearClawbackRequest: jest.fn().mockResolvedValue(undefined),
       // 生产代码在崩溃分支里对返回值链 .catch(...)（见 A2）——必须 resolve 而非裸
       // jest.fn()(返回 undefined),否则 undefined.catch(...) 同步抛错，会把既有
       // "Fix 2" 崩溃路径用例带崩。
@@ -204,6 +212,21 @@ describe('DepositWorkflowService', () => {
     l1Gate = {
       evaluate: jest.fn().mockResolvedValue(l1SnapshotFixture()),
     };
+    // 平账 B 批②：resolveTbAccountId/executeTransfer 与既有 A2/A3 弧共用，
+    // getCustomerAvailableBalance 是本批新增的余额前置条件查询。
+    accountingService = {
+      resolveTbAccountId: jest.fn(),
+      executeTransfer: jest.fn(),
+      getCustomerAvailableBalance: jest.fn(),
+    };
+    supplementEvidence = {
+      assertClaimable: jest.fn(),
+      describeLine: jest.fn(),
+    };
+    reconDisposition = {
+      linkSupplement: jest.fn(),
+      unlinkSupplement: jest.fn(),
+    };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -213,7 +236,7 @@ describe('DepositWorkflowService', () => {
         { provide: FundsOrderService, useValue: fundsOrders },
         { provide: DispositionService, useValue: { initiate: jest.fn().mockResolvedValue({ fundsOrderNo: 'FO-DISP-1', attempt: 1 }), rebuild: jest.fn().mockResolvedValue({ fundsOrderNo: 'FO-DISP-2' }), settle: jest.fn().mockResolvedValue({ ok: true, externalRef: null }), voidAttempt: jest.fn().mockResolvedValue(undefined), clearLeg: jest.fn().mockResolvedValue(null) } },
         { provide: AuditLogsService, useValue: auditLogsService },
-        { provide: AccountingService, useValue: { resolveTbAccountId: jest.fn(), executeTransfer: jest.fn() } },
+        { provide: AccountingService, useValue: accountingService },
         { provide: WithdrawalAddressService, useValue: withdrawalAddresses },
         { provide: SUMSUB_TXN_CLIENT, useValue: sumsubTxnClient },
         { provide: ApprovalsService, useValue: approvalsService },
@@ -222,6 +245,8 @@ describe('DepositWorkflowService', () => {
         { provide: DepositApplicantActionsService, useValue: actionsService },
         { provide: CustomerRestrictionsService, useValue: customerRestrictionsService },
         { provide: L1GateService, useValue: l1Gate },
+        { provide: SupplementEvidenceService, useValue: supplementEvidence },
+        { provide: ReconDispositionService, useValue: reconDisposition },
       ],
     }).compile();
 
@@ -1903,6 +1928,60 @@ describe('DepositWorkflowService', () => {
     });
   });
 
+  describe('平账 B 批 ②：退汇认领', () => {
+    const line = { externalLineId: 'line-2', caseNo: 'REC2', businessDate: '2026-09-01', dispositionNo: 'RCD2', walletId: 'w1', ownerId: 'cust-1', ownerNo: 'CUS1',
+      assetId: 'a1', currency: 'AED', assetType: 'FIAT', decimals: 2, direction: 'OUT', amountMinor: '120000', amountMajor: '1200.00', externalRef: 'RET-1' };
+    const deposit = { id: 'd1', depositNo: 'DEP1', status: 'SUCCESS', toWalletId: 'w1', ownerId: 'cust-1', amount: '1200', asset: { currency: 'AED', decimals: 2, tbLedgerId: 2 }, traceId: 't1', customer: { customerNo: 'CUS1' } };
+    const actor = { actorType: 'ADMIN', userId: 'u1', userNo: 'ADM1', role: 'OPS_OFFICER', roleCodes: ['OPS_OFFICER'] } as any;
+
+    it('发起：原单不是 SUCCESS / 钱包不符 / 金额不符 → 400', async () => {
+      supplementEvidence.assertClaimable.mockResolvedValue(line);
+      depositService.findOneByNo.mockResolvedValue({ ...deposit, status: 'COMPLIANCE_PENDING' });
+      await expect(service.initiateClawback('DEP1', { externalLineId: 'line-2', caseNo: 'REC2', dispositionNo: 'RCD2', reason: 'x' }, actor)).rejects.toThrow(/SUCCESS/);
+      depositService.findOneByNo.mockResolvedValue({ ...deposit, amount: '999' });
+      await expect(service.initiateClawback('DEP1', { externalLineId: 'line-2', caseNo: 'REC2', dispositionNo: 'RCD2', reason: 'x' }, actor)).rejects.toThrow(/金额/);
+    });
+    it('发起：可用余额不足 → 400，文案带可用与需要', async () => {
+      supplementEvidence.assertClaimable.mockResolvedValue(line);
+      depositService.findOneByNo.mockResolvedValue(deposit);
+      accountingService.getCustomerAvailableBalance.mockResolvedValue({ available: 50000n });
+      await expect(service.initiateClawback('DEP1', { externalLineId: 'line-2', caseNo: 'REC2', dispositionNo: 'RCD2', reason: 'x' }, actor)).rejects.toThrow(/可用 500\.00，需要 1200\.00/);
+    });
+    it('发起：余额够 → 审批单 + 三列标记 + 回挂 + 审计 REQUESTED', async () => {
+      supplementEvidence.assertClaimable.mockResolvedValue(line);
+      depositService.findOneByNo.mockResolvedValue(deposit);
+      accountingService.getCustomerAvailableBalance.mockResolvedValue({ available: 500000n });
+      approvalsService.list.mockResolvedValue({ total: 0, items: [] });
+      approvalsService.createAndSubmit.mockResolvedValue({ approvalNo: 'APR2' });
+      const r = await service.initiateClawback('DEP1', { externalLineId: 'line-2', caseNo: 'REC2', dispositionNo: 'RCD2', reason: '银行撤回' }, actor);
+      expect(depositService.markClawbackRequested).toHaveBeenCalledWith('d1', { externalLineId: 'line-2', caseNo: 'REC2', dispositionNo: 'RCD2' });
+      expect(reconDisposition.linkSupplement).toHaveBeenCalledWith('RCD2', 'DEP1', 'SUPPLEMENT_BOUNCE');
+      expect(r).toEqual({ depositNo: 'DEP1', approvalNo: 'APR2', status: 'PENDING_APPROVAL' });
+    });
+    it('批准：再查余额 → 分录借应付贷资产（码 21，externalRef 行参考号，effectiveDate 业务日）→ 状态 CLAWED_BACK → 审计', async () => {
+      depositService.findOneByNo.mockResolvedValue({ ...deposit, clawbackExternalLineId: 'line-2', clawbackReconCaseNo: 'REC2', clawbackDispositionNo: 'RCD2' });
+      supplementEvidence.describeLine.mockResolvedValue({ externalLineId: 'line-2', externalRef: 'RET-1', businessDate: '2026-09-01', amountMinor: '120000', direction: 'OUT', caseNo: 'REC2' });
+      accountingService.getCustomerAvailableBalance.mockResolvedValue({ available: 500000n });
+      accountingService.resolveTbAccountId.mockResolvedValueOnce(100n).mockResolvedValueOnce(1n);
+      depositService.updateStatus.mockResolvedValue({ ...deposit, status: 'CLAWED_BACK' });
+      await service.onClawbackDecided({ decision: 'APPROVED', entityRef: 'DEP1', approvalId: 'ap2', approvalNo: 'APR2' } as any);
+      const call = accountingService.executeTransfer.mock.calls[0][0];
+      expect(call.code).toBe(TB_TRANSFER_CODES.DEPOSIT_CLAWBACK);
+      expect(call.amount).toBe(120000n);
+      expect(call.evidence).toMatchObject({ eventCode: 'DEPOSIT_CLAWBACK', externalRef: 'RET-1', effectiveDate: '2026-09-01', isExternalCrossing: true, debitWalletRef: 'w1', creditWalletRef: 'w1' });
+      expect(depositService.updateStatus).toHaveBeenCalledWith('d1', expect.objectContaining({ action: DepositTransactionAction.CLAWBACK }));
+      const actions = auditLogsService.recordSystem.mock.calls.map((c: any[]) => c[0].action);
+      expect(actions).toEqual(expect.arrayContaining(['DEPOSIT_CLAWBACK_STARTED', 'DEPOSIT_CLAWED_BACK']));
+    });
+    it('拒绝：状态不动、清三列、解挂', async () => {
+      depositService.findOneByNo.mockResolvedValue({ ...deposit, clawbackExternalLineId: 'line-2', clawbackDispositionNo: 'RCD2' });
+      await service.onClawbackDecided({ decision: 'DECLINED', entityRef: 'DEP1', approvalId: 'ap2', approvalNo: 'APR2' } as any);
+      expect(accountingService.executeTransfer).not.toHaveBeenCalled();
+      expect(depositService.clearClawbackRequest).toHaveBeenCalledWith('d1');
+      expect(reconDisposition.unlinkSupplement).toHaveBeenCalledWith('RCD2', 'DEP1');
+    });
+  });
+
   describe('handleFundsOrderChanged — filter + routing', () => {
     it('ignores funds orders that are not payins (no depositTransactionId)', async () => {
       await service.handleFundsOrderChanged({
@@ -1975,6 +2054,8 @@ describe('DepositWorkflowService', () => {
           { provide: DepositApplicantActionsService, useValue: actionsService },
           { provide: CustomerRestrictionsService, useValue: customerRestrictionsService },
           { provide: L1GateService, useValue: l1Gate },
+          { provide: SupplementEvidenceService, useValue: supplementEvidence },
+          { provide: ReconDispositionService, useValue: reconDisposition },
         ],
       }).compile();
 
@@ -3193,6 +3274,8 @@ describe('DepositWorkflowService', () => {
           { provide: DepositApplicantActionsService, useValue: actionsService },
           { provide: CustomerRestrictionsService, useValue: customerRestrictionsService },
           { provide: L1GateService, useValue: l1Gate },
+          { provide: SupplementEvidenceService, useValue: supplementEvidence },
+          { provide: ReconDispositionService, useValue: reconDisposition },
         ],
       }).compile();
       service = module.get<DepositWorkflowService>(DepositWorkflowService);
@@ -3525,6 +3608,8 @@ describe('DepositWorkflowService', () => {
           { provide: DepositApplicantActionsService, useValue: actionsService },
           { provide: CustomerRestrictionsService, useValue: customerRestrictionsService },
           { provide: L1GateService, useValue: l1Gate },
+          { provide: SupplementEvidenceService, useValue: supplementEvidence },
+          { provide: ReconDispositionService, useValue: reconDisposition },
           {
             provide: TransactionLimitRulesService,
             useValue: { getSingleRule: jest.fn().mockResolvedValue(null) },

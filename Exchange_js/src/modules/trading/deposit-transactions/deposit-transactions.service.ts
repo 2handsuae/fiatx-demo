@@ -52,11 +52,14 @@ type DepositWriteClient = Prisma.TransactionClient | PrismaService;
 // 落在这个桶。
 const ACTION_REQUIRED_BUCKET_WHERE = { status: 'ACTION_PENDING' };
 const RETURNING_BUCKET_WHERE = { status: 'RETURNING' };
-const RETURNED_BUCKET_WHERE = { status: 'RETURNED' };
+// 平账 B 批②：银行/托管方事后退汇（CLAWED_BACK）落客户视角与我方处置退回
+// （RETURNED）同一个「Returned」桶——两者对客户来说都是「钱曾经到账、现在
+// 又没了」的同一类结果，触发方只是我方 vs 对方，不该拆成第二个桶 / clawed back。
+const RETURNED_BUCKET_WHERE = { status: { in: ['RETURNED', 'CLAWED_BACK'] } };
 const SUCCESS_BUCKET_WHERE = { status: 'SUCCESS' };
 const FAILED_BUCKET_WHERE = { status: 'FAILED' };
 
-const CUSTOMER_BUCKETS: Record<string, any> = {
+export const CUSTOMER_BUCKETS: Record<string, any> = {
   PROCESSING: {
     NOT: {
       OR: [
@@ -98,6 +101,9 @@ const CUSTOMER_STATUS_PASSTHROUGH = new Set<string>([
   'FAILED',
   'RETURNING',
   'RETURNED',
+  // 平账 B 批②：银行/托管方事后退汇——这是银行事实，不是合规/执法动作，
+  // 不涉及规则 A 的 tipping-off 顾虑，客户本就该看到真实结果。
+  'CLAWED_BACK',
 ]);
 
 // 客户面 completedAt 白名单（终审 Critical，见 toCustomerDepositView 文档
@@ -105,9 +111,15 @@ const CUSTOMER_STATUS_PASSTHROUGH = new Set<string>([
 // 反过来问"status 有没有被收敛"——那个判据只在单子仍处于敏感态时成立,
 // 单子冻结后又被解冻回 COMPLIANCE_PENDING 时会失效,把冻结期间写下的
 // completedAt 原样漏给客户。
-const CUSTOMER_COMPLETED_STATUSES = new Set<string>(['SUCCESS', 'FAILED', 'RETURNED']);
+const CUSTOMER_COMPLETED_STATUSES = new Set<string>(['SUCCESS', 'FAILED', 'RETURNED', 'CLAWED_BACK']);
 
-/** 充值终态。零出边 —— 材料账的作废监听器也读这一份，不另立第二份定义。 */
+/**
+ * 充值终态——材料账的作废监听器也读这一份，不另立第二份定义。
+ * ⚠️ 平账 B 批②起，SUCCESS 不再是严格"零出边"：getNextStatus 内部已把这份集合的
+ * 用途收窄成"查表未命中时报什么错"，不再用它整体拦截 SUCCESS 上的任何动作——
+ * clawback 这一条边由 transitions[SUCCESS] 单独放行。本集合在 completedAt 判定 /
+ * 材料请求作废监听器这两处仍按原语义使用（业务生命周期意义上的"已完结"）。
+ */
 export const DEPOSIT_TERMINAL_STATUSES: ReadonlySet<string> = new Set<string>([
   DepositTransactionStatus.SUCCESS,
   DepositTransactionStatus.FAILED,
@@ -755,12 +767,6 @@ export class DepositTransactionsService {
     current: DepositTransactionStatus,
     action: DepositTransactionAction,
   ): DepositTransactionStatus {
-    if (DEPOSIT_TERMINAL_STATUSES.has(current)) {
-      throw new BadRequestException(
-        `Cannot apply action '${action}' to terminal status '${current}'`,
-      );
-    }
-
     // 状态机收窄(业主 2026-07-31 定稿;含 2026-08-13 增两条、2026-08-22 退役
     // confiscate_failed 一条、2026-08-22(C1) 增 OPERATION_PENDING--return-->RETURNING
     // 一条后为 14 状态/15 动作/28 边)。每个终态都必须回答
@@ -858,6 +864,10 @@ export class DepositTransactionsService {
         [DepositTransactionAction.CONFISCATE_SETTLE]:
           DepositTransactionStatus.CONFISCATED,
       },
+      [DepositTransactionStatus.SUCCESS]: {
+        // 平账 B 批②（spec §4）：入账后被银行/托管方退汇——唯一出边，反向分录先落再翻。
+        [DepositTransactionAction.CLAWBACK]: DepositTransactionStatus.CLAWED_BACK,
+      },
       [DepositTransactionStatus.RETURNING]: {
         [DepositTransactionAction.RETURNED_DONE]:
           DepositTransactionStatus.RETURNED,
@@ -870,6 +880,16 @@ export class DepositTransactionsService {
 
     const nextStatus = transitions[current]?.[action];
     if (!nextStatus) {
+      // 平账 B 批②：终态判断挪到查表未命中之后——SUCCESS 原是 DEPOSIT_TERMINAL_STATUSES
+      // 里零出边的终态，现在多了 clawback 这一条边；若仍在查表前挡，这条新边永远走不到
+      // （会被"终态不可变更"提前拦下）。查表命中的分支（含 SUCCESS+CLAWBACK）已在上面
+      // return 掉，落到这里说明这个 (status, action) 组合确实没有边，其余场景的报错文案
+      // 与此前完全一致。
+      if (DEPOSIT_TERMINAL_STATUSES.has(current)) {
+        throw new BadRequestException(
+          `Cannot apply action '${action}' to terminal status '${current}'`,
+        );
+      }
       throw new BadRequestException(
         `Invalid action '${action}' for status '${current}'`,
       );
@@ -1302,4 +1322,15 @@ export class DepositTransactionsService {
     });
   }
 
+  /** 平账 B 批②：退汇认领申请的三列标记（域服务写自己的表；workflow 不直写）。 */
+  async markClawbackRequested(id: string, m: { externalLineId: string; caseNo: string; dispositionNo: string }) {
+    return (this.prisma as any).depositTransaction.update({
+      where: { id }, data: { clawbackExternalLineId: m.externalLineId, clawbackReconCaseNo: m.caseNo, clawbackDispositionNo: m.dispositionNo },
+    });
+  }
+  async clearClawbackRequest(id: string) {
+    return (this.prisma as any).depositTransaction.update({
+      where: { id }, data: { clawbackExternalLineId: null, clawbackReconCaseNo: null, clawbackDispositionNo: null },
+    });
+  }
 }

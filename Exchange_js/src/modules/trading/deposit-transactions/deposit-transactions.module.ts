@@ -20,6 +20,7 @@ import { MaterialRequestsModule } from '../../identity/material-requests/materia
 import { L1GateModule } from '../shared/l1-gate/l1-gate.module';
 import { ReconciliationModule } from '../../clearing-settle/reconciliation/reconciliation.module';
 import { DepositSupplementApprovalService } from './deposit-supplement-approval.service';
+import { DepositClawbackApprovalService } from './deposit-clawback-approval.service';
 
 @Module({
   imports: [
@@ -58,6 +59,7 @@ import { DepositSupplementApprovalService } from './deposit-supplement-approval.
     DepositUnfreezeApprovalService,
     DepositApplicantActionsService,
     DepositSupplementApprovalService,
+    DepositClawbackApprovalService,
   ],
   exports: [DepositTransactionsService, DepositWorkflowService, DepositApplicantActionsService],
 })

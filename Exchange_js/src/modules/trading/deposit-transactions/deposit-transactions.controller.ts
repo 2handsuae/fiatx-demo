@@ -16,6 +16,7 @@ import {
   DepositTransactionQueryDto,
   InitiateDepositReturnDto,
   InitiateDepositSupplementDto,
+  InitiateDepositClawbackDto,
 } from './dto/deposit-transaction.dto';
 import { DepositWorkflowService } from './deposit-workflow.service';
 import {
@@ -194,6 +195,23 @@ export class DepositTransactionsController {
       roleCodes: req.user?.roleCodes || (req.user?.role ? [req.user.role] : []),
     };
     return this.workflow.initiateReturn(id, { reason: dto.reason }, actor);
+  }
+
+  // 平账 B 批 ②：认领一笔已 SUCCESS 的入金被银行/托管方事后退汇——CFO maker-checker，
+  // 与 supplement 同形状(静态段在前、:depositNo 段在后，排在 :id/return 之后按本文件惯例)。
+  @Post(':depositNo/clawback')
+  @ApiOperation({ summary: '平账 B 批 ②：认领入金被银行退汇（CFO maker-checker）' })
+  @RequirePermissions(buildPermissionCode('POST', '/deposit-transactions/:depositNo/clawback'))
+  initiateClawback(@Param('depositNo') depositNo: string, @Body() dto: InitiateDepositClawbackDto, @Req() req: any) {
+    this.assertAdmin(req);
+    const actor: ApprovalActorContext = {
+      actorType: 'ADMIN',
+      userId: req.user?.userId,
+      userNo: req.user?.userNo,
+      role: req.user?.role,
+      roleCodes: req.user?.roleCodes || (req.user?.role ? [req.user.role] : []),
+    };
+    return this.workflow.initiateClawback(depositNo, dto, actor);
   }
 
   @Post(':id/seize')

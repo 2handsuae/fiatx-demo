@@ -1,5 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { DepositTransactionsService } from './deposit-transactions.service';
+import { DepositTransactionsService, CUSTOMER_BUCKETS } from './deposit-transactions.service';
 import { PrismaService } from '../../../core/prisma/prisma.service';
 import {
   DepositTransactionStatus,
@@ -1220,16 +1220,21 @@ describe('DepositTransactionsService', () => {
 
     // 守则性测试(防转移表再次漂移):brief `doc-final/superpowers/sdd/statemachine-brief.md`
     // §二定稿的 26 条边 + 2026-08-13 新增 2 条 − 2026-08-22 退役 1 条 + 第四批 C1 新增
-    // 1 条 = 28 条边逐条列出
-    // ——多一条、少一条、边指向变了,这里都会红。同时用穷举(14 状态 × 15 动作)反向断言:
-    // 凡不在这 28 条边名单里的组合,一律必须抛 Invalid action/Cannot apply action
-    // (即没有偷偷长出第 29 条边)。
+    // 1 条 + 平账 B 批②新增 1 条 = 29 条边逐条列出
+    // ——多一条、少一条、边指向变了,这里都会红。同时用穷举(15 状态 × 16 动作)反向断言:
+    // 凡不在这 29 条边名单里的组合,一律必须抛 Invalid action/Cannot apply action
+    // (即没有偷偷长出第 30 条边)。
     // 2026-08-13 新增两条:
     //   OPERATION_PENDING --freeze--> FROZEN            钱在暂扣里等处置,制裁命中必须冻得住
     //   CONFISCATING --confiscate_failed--> OPERATION_PENDING  A1 没收腿失败解锁后退回待处置
     // 2026-08-22 退役一条(A3,业主定稿「重试三次仍不行就原地不动+标红」):
     //   CONFISCATING --confiscate_failed--> OPERATION_PENDING  没收腿改重试三级梯,耗尽
     //   后原地留 CONFISCATING + 置 needsReview 红标,与退回/上缴弧同形状,不再退状态。
+    // 平账 B 批②(2026-09-03)新增一条:
+    //   SUCCESS --clawback--> CLAWED_BACK  入账后被银行/托管方退汇,唯一出边,零出边终态。
+    //   这条边落地同时把 SUCCESS 从"查表前直接拦"改成"查表未命中才拦"（见
+    //   getNextStatus 实现注释）——SUCCESS 不再是查表前就被挡的终态,但除 clawback
+    //   外的其余任何 action 依旧落回同一句 Cannot apply action 报错,行为不变。
     const EXPECTED_EDGES: Array<{
       from: DepositTransactionStatus;
       action: DepositTransactionAction;
@@ -1270,11 +1275,13 @@ describe('DepositTransactionsService', () => {
       { from: DepositTransactionStatus.CONFISCATING, action: DepositTransactionAction.CONFISCATE_SETTLE, to: DepositTransactionStatus.CONFISCATED },
       { from: DepositTransactionStatus.RETURNING, action: DepositTransactionAction.RETURNED_DONE, to: DepositTransactionStatus.RETURNED },
       { from: DepositTransactionStatus.SEIZING, action: DepositTransactionAction.SEIZED_DONE, to: DepositTransactionStatus.SEIZED },
+      // 平账 B 批②：唯一出边——入账后被银行/托管方退汇。
+      { from: DepositTransactionStatus.SUCCESS, action: DepositTransactionAction.CLAWBACK, to: DepositTransactionStatus.CLAWED_BACK },
     ];
 
-    describe('state machine integrity guard (28-edge brief)', () => {
-      it('brief lists exactly 28 edges', () => {
-        expect(EXPECTED_EDGES).toHaveLength(28);
+    describe('state machine integrity guard (29-edge brief)', () => {
+      it('brief lists exactly 29 edges', () => {
+        expect(EXPECTED_EDGES).toHaveLength(29);
       });
 
       it('CONFISCATING 只剩 confiscate_settle 一条出边（confiscate_failed 已退役）', () => {
@@ -1350,6 +1357,18 @@ describe('DepositTransactionsService', () => {
         expect(updated.status).toBe(DepositTransactionStatus.SUCCESS);
         expect(updated.slaDeadline).toBeNull();
       });
+    });
+  });
+
+  describe('平账 B 批 ②：退汇终态', () => {
+    it('SUCCESS —clawback→ CLAWED_BACK；其余状态 clawback 非法', () => {
+      expect((service as any).getNextStatus(DepositTransactionStatus.SUCCESS, DepositTransactionAction.CLAWBACK)).toBe(DepositTransactionStatus.CLAWED_BACK);
+      expect(() => (service as any).getNextStatus(DepositTransactionStatus.COMPLIANCE_PENDING, DepositTransactionAction.CLAWBACK)).toThrow(/Invalid action/);
+      expect(() => (service as any).getNextStatus(DepositTransactionStatus.CLAWED_BACK, DepositTransactionAction.APPROVE)).toThrow(/Invalid action/);
+    });
+    it('CLAWED_BACK 客户可见（白名单）且落 RETURNED 桶', () => {
+      expect(service.toCustomerStatus('CLAWED_BACK')).toBe('CLAWED_BACK');
+      expect(CUSTOMER_BUCKETS.RETURNED).toEqual({ status: { in: ['RETURNED', 'CLAWED_BACK'] } });
     });
   });
 

@@ -132,3 +132,13 @@ export class InitiateDepositSupplementDto {
   @IsOptional() @IsString() fromIban?: string;
   @IsString() @IsNotEmpty() reason!: string;
 }
+
+// 平账 B 批 ②：POST /deposit-transactions/:depositNo/clawback 的入参。金额 / 币种 / 钱包
+// 全从账单行来（服务端经 SupplementEvidenceService.assertClaimable 查证），运营只给出账单行 /
+// 案子 / 定性三个业务键 + 理由；reason 进审批单与审计留痕。
+export class InitiateDepositClawbackDto {
+  @IsString() externalLineId!: string;
+  @IsString() caseNo!: string;
+  @IsString() dispositionNo!: string;
+  @IsString() @IsNotEmpty() reason!: string;
+}

@@ -49,6 +49,8 @@ import {
 } from '../../identity/customers/customer-restrictions.service';
 import { L1GateService } from '../shared/l1-gate/l1-gate.service';
 import type { L1Check } from '../shared/l1-gate/l1-gate.types';
+import { SupplementEvidenceService, minorToMajor } from '../../clearing-settle/reconciliation/disposition/supplement-evidence.service';
+import { DispositionService as ReconDispositionService } from '../../clearing-settle/reconciliation/disposition/disposition.service';
 
 interface FundsOrderStatusChangedEvent {
   fundsOrderId: string;
@@ -135,6 +137,11 @@ export class DepositWorkflowService implements OnModuleInit {
     private readonly customerRestrictionsService: CustomerRestrictionsService,
     // B4（第四批）：Gate 0 落 L1 快照用的三域共用求值器。它不抛错，只出快照。
     private readonly l1Gate: L1GateService,
+    // 平账 B 批②：initiateClawback 要靠 SupplementEvidenceService 查证账单行，
+    // onClawbackDecided 批准后要靠 DispositionService 回挂/解挂退汇认领——起别名
+    // 避开本域已注入的钱侧 disposition（funds-orders/disposition.service.ts 同名）。
+    private readonly supplementEvidence: SupplementEvidenceService,
+    private readonly reconDisposition: ReconDispositionService,
   ) {}
 
   private toAuditActor(actor: ApprovalActorContext) {
@@ -1999,6 +2006,93 @@ export class DepositWorkflowService implements OnModuleInit {
       approvalNo: approvalCase.approvalNo,
       status: 'PENDING_APPROVAL',
     };
+  }
+
+  // ═══ 平账 B 批②：入金退汇认领（spec §4）═══════════════════════════════════
+  private async assertClawbackBalance(deposit: any, amountMinor: bigint, decimals: number) {
+    const bal = await this.accountingService.getCustomerAvailableBalance(deposit.ownerId, deposit.asset.currency);
+    if (bal.available < amountMinor) {
+      const fmt = (v: bigint) => minorToMajor(v.toString(), decimals);
+      throw new BadRequestException(`客户可用余额不足以退汇（可用 ${fmt(bal.available)}，需要 ${fmt(amountMinor)} ${deposit.asset.currency}），待二期公司垫款与三期追索`);
+    }
+  }
+
+  async initiateClawback(depositNo: string, dto: { externalLineId: string; caseNo: string; dispositionNo: string; reason: string }, actor: ApprovalActorContext) {
+    const line = await this.supplementEvidence.assertClaimable({ caseNo: dto.caseNo, externalLineId: dto.externalLineId, dispositionNo: dto.dispositionNo, kind: 'SUPPLEMENT_BOUNCE' });
+    const deposit = await this.depositService.findOneByNo(depositNo);
+    if (deposit.status !== DepositTransactionStatus.SUCCESS) throw new BadRequestException(`充值单 ${depositNo} 不是 SUCCESS，不能退汇`);
+    if (deposit.toWalletId !== line.walletId) throw new BadRequestException(`充值单 ${depositNo} 不在该案子的钱包上`);
+    const amountMinor = BigInt(line.amountMinor);
+    if (this.decimalToBigint(deposit.amount, line.decimals) !== amountMinor) throw new BadRequestException(`充值单 ${depositNo} 金额与账单行金额不符`);
+    if (deposit.clawbackExternalLineId) throw new BadRequestException(`充值单 ${depositNo} 已在退汇认领中`);
+    await this.assertClawbackBalance(deposit, amountMinor, line.decimals);
+    const open = await this.approvalsService.list({ actionType: ApprovalActionTypes.DEPOSIT_CLAWBACK, entityRef: deposit.depositNo, status: ApprovalStatuses.PENDING, take: 1 });
+    if (open.total > 0) throw new ConflictException(`充值单 ${depositNo} 已有待批的退汇认领`);
+    const traceId = deposit.traceId || randomUUID();
+    const impact = `${line.ownerNo ?? deposit.ownerId} 的 ${line.amountMajor} ${line.currency} 充值将被退汇，余额相应减少（对账案 ${line.caseNo}，账单行 ${line.externalRef}）`;
+    const approvalCase = await this.approvalsService.createAndSubmit(
+      { actionType: ApprovalActionTypes.DEPOSIT_CLAWBACK, entityRef: deposit.depositNo, traceId,
+        objectSnapshot: { depositNo: deposit.depositNo, caseNo: line.caseNo, dispositionNo: line.dispositionNo, externalLineId: line.externalLineId, externalRef: line.externalRef, customerNo: line.ownerNo, amount: line.amountMajor, currency: line.currency, impact } },
+      { reason: dto.reason, traceId }, actor,
+    );
+    await this.depositService.markClawbackRequested(deposit.id, { externalLineId: line.externalLineId, caseNo: line.caseNo, dispositionNo: line.dispositionNo! });
+    await this.reconDisposition.linkSupplement(line.dispositionNo!, deposit.depositNo, 'SUPPLEMENT_BOUNCE');
+    await this.depositAudit(deposit, { action: 'DEPOSIT_CLAWBACK_REQUESTED', reason: dto.reason, approvalNo: approvalCase.approvalNo,
+      metadata: { caseNo: line.caseNo, dispositionNo: line.dispositionNo, externalLineId: line.externalLineId, externalRef: line.externalRef, amount: line.amountMajor },
+      actor: this.toAuditActor(actor), sourcePlatform: 'ADMIN_API' });
+    return { depositNo: deposit.depositNo, approvalNo: approvalCase.approvalNo, status: 'PENDING_APPROVAL' as const };
+  }
+
+  @OnEvent('workflow.deposit-clawback.decided', { async: true })
+  async onClawbackDecided(event: ApprovalDecidedEvent) {
+    let deposit: any;
+    try { deposit = await this.depositService.findOneByNo(event.entityRef); } catch (err) { if (err instanceof NotFoundException) return; throw err; }
+    if (event.decision !== 'APPROVED') {
+      const dispositionNo = deposit.clawbackDispositionNo;
+      await this.depositService.clearClawbackRequest(deposit.id);
+      if (dispositionNo) await this.reconDisposition.unlinkSupplement(dispositionNo, deposit.depositNo);
+      this.logger.log(`Deposit ${deposit.depositNo} clawback ${event.decision} (case ${event.approvalNo}) — SUCCESS intact, request cleared.`);
+      return;
+    }
+    await this.executeClawback(deposit, event);
+  }
+
+  /** 先账后状态：反向分录落了再翻 CLAWED_BACK；余额在批准时点再查一次（提交后客户可能又花了钱）。 */
+  private async executeClawback(deposit: any, event: ApprovalDecidedEvent) {
+    if (deposit.status !== DepositTransactionStatus.SUCCESS || !deposit.clawbackExternalLineId) {
+      this.logger.warn(`Deposit ${deposit.depositNo} clawback approved but status ${deposit.status} / no line — no-op`);
+      return;
+    }
+    const asset = deposit.asset; const decimals: number = asset.decimals;
+    const line = await this.supplementEvidence.describeLine(deposit.clawbackExternalLineId);
+    const amountMinor = BigInt(line.amountMinor);
+    try {
+      await this.assertClawbackBalance(deposit, amountMinor, decimals);
+    } catch (err) {
+      await this.depositAudit(deposit, { action: 'DEPOSIT_CLAWBACK_STARTED', outcome: AuditOutcome.FAILED, reasonCode: 'INSUFFICIENT_BALANCE', reason: (err as Error).message, approvalNo: event.approvalNo, causationId: event.approvalId });
+      const dispositionNo = deposit.clawbackDispositionNo;
+      await this.depositService.clearClawbackRequest(deposit.id);
+      if (dispositionNo) await this.reconDisposition.unlinkSupplement(dispositionNo, deposit.depositNo);
+      return;
+    }
+    await this.depositAudit(deposit, { action: 'DEPOSIT_CLAWBACK_STARTED', reason: 'CFO 批准退汇认领，落反向分录', approvalNo: event.approvalNo, causationId: event.approvalId, metadata: { externalLineId: line.externalLineId, externalRef: line.externalRef, effectiveDate: line.businessDate } });
+    const ledger = asset.tbLedgerId;
+    const debitAccountId = await this.accountingService.resolveTbAccountId({ code: TB_ACCOUNT_CODES.CLIENT_PAYABLE, ledger, ownerType: 'CUSTOMER', ownerUuid: deposit.ownerId });
+    const creditAccountId = await this.accountingService.resolveTbAccountId({ code: TB_ACCOUNT_CODES.CLIENT_ASSET, ledger, ownerType: 'SYSTEM' });
+    await this.accountingService.executeTransfer({
+      debitAccountId, creditAccountId, amount: amountMinor, ledger, code: TB_TRANSFER_CODES.DEPOSIT_CLAWBACK,
+      evidence: {
+        sourceType: 'DEPOSIT', sourceNo: deposit.depositNo, eventCode: 'DEPOSIT_CLAWBACK',
+        debitCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.CLIENT_PAYABLE], creditCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.CLIENT_ASSET],
+        assetCurrency: asset.currency, traceId: deposit.traceId || deposit.id, actorType: 'SYSTEM', actorId: 'SYSTEM',
+        memo: `Deposit clawed back by bank/custodian — statement line ${line.externalRef ?? line.externalLineId} (recon case ${line.caseNo ?? '-'})`,
+        debitWalletRef: deposit.toWalletId, creditWalletRef: deposit.toWalletId,
+        externalRef: line.externalRef, isExternalCrossing: true, effectiveDate: line.businessDate,
+      },
+    });
+    const row = await this.depositService.updateStatus(deposit.id, { action: DepositTransactionAction.CLAWBACK, reason: `Clawed back per approval ${event.approvalNo}` } as any);
+    await this.depositAudit(deposit, { action: 'DEPOSIT_CLAWED_BACK', reason: '入账后被银行/托管方退汇，客户余额已相应减少', fromStatus: DepositTransactionStatus.SUCCESS, toStatus: row.status, approvalNo: event.approvalNo,
+      metadata: { externalLineId: line.externalLineId, externalRef: line.externalRef, amount: String(deposit.amount), effectiveDate: line.businessDate, caseNo: line.caseNo } });
   }
 
   /**
