@@ -140,6 +140,8 @@ Q6 谁查过审计日志：重铺后恒红，管理员真查一次审计页当�
 2. **串行跑**：`bash scripts/on-stack.sh main test:e2e --runInBand <11 个文件>`（**不要**在文件列表前多写 `--`，会被 jest 当路径模式吞掉 runInBand）；并行会互踩栈库出假红；
 3. **干净态起跑**：栈库残留多轮数据会触发日累计限额假红；`reset` + 重铺私库后一次跑完。
 
+> 💡 **`demo:all` 不能与 e2e 共用同一个库——`withdraw-money-arcs` × `demo_frank` 是实测坐实的一例。** 该 spec 的夹具客户 `demo_frank@example.com` 会被 `demo:all` 花名册 #7 行的广播制裁连坐永久冻结（`CAPABILITY_RESTRICTED`）；若在跑过 `demo:all` 的同一个库上接着跑 `withdraw-money-arcs.e2e-spec.ts`，7 个场景会全部卡在 `CustomerAccessService.assertCapability` 抛 `ForbiddenException`——这正是上面第 3 条「干净态起跑」的具体反例，不是 suite 本身的缺陷。2026-09-03 V3 波一 Task 6 修复轮在干净库上复测：`withdraw-money-arcs` 7/7 全绿。不改夹具客户，按三要素跑即可。
+
 ~~已知 flake：`fundsOrderNo` 撞号（P2002）~~ → **2026-09-01 已修，本条销账**：
 根因是熵不够——`generateReferenceNo()` 原为 前缀+`YYMMDD`+`Math.random()*10000`，同一天同一前缀只有 1 万个坑，一次 `demo:all` 造几十张资金单按生日问题约 **7–20%** 撞（当天连撞两次实测）。
 业主 2026-09-01 定：改用 `randomUUID` 取 **6 位**（100 万个坑，同量级撞号率降到约 0.2%）。加守则性单测 `no-generator.util.spec.ts` 锁住位宽。⚠️ 其中「1000 次不撞号」那条原写 `expect(seen.size).toBe(1000)`，**本身是自相矛盾的**——6 位随机抽 1000 次，按生日问题碰撞期望 λ≈0.5，「一次不撞」概率仅 e^(−0.5)≈61%，即约 39% 会随机变红。2026-09-02（Task 12，业主裁定「改断言」）改为对碰撞数设上界 ≤8：6 位下假阳性率约 6×10⁻⁸，4 位下碰撞约 48 必然超界——判别力不变、不再 flaky。实测 200 轮：6 位均值 0.42/最大 3，4 位均值 49.19/200 轮全部超界；该 spec 连跑 5 次全绿。实测：修复后连续 2 轮重铺 + `demo:all` 全过。`buildDeterministicNo`（种子幂等靠它）刻意不动。

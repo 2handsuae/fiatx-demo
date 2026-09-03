@@ -39,7 +39,7 @@ import { FundsOrderStatus } from '../src/modules/funds-orders/dto/funds-order.dt
 //   （单纯用时间抖动不够：同一分钟/同一秒内连跑两次仍会撞同额，故按实际历史集合避让最稳。）
 async function pickCollisionFreeWdAmount(ctx: DemoCtx, customer: any, asset: any): Promise<string> {
   const wallets = (await ctx.prisma.wallet.findMany({
-    where: { ownerId: customer.id, assetId: asset.id },
+    where: { ownerId: customer.id, network: asset.network },
     select: { id: true },
   })) as Array<{ id: string }>;
   const walletIds = wallets.map((w) => w.id);

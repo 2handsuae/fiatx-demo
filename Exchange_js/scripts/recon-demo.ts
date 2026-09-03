@@ -408,11 +408,11 @@ async function planWallets(
   // COA v2 (2026-08-13): 收入段 210/211/212;202/203/204 已废弃且无兼容层(demo 随时 reset)。
   const FIRM_CODES = new Set<number>([200, 201, 210, 211, 212]);
   const CUSTOMER_CODES = new Set<number>([100, 101]);
-  const assetRows = (await (prisma as any).asset.findMany({ select: { code: true, currency: true, network: true } })) as Array<{ code: string; currency: string; network: string }>;
-  const assetsByNetwork = new Map<string, Array<{ code: string; currency: string }>>();
+  const assetRows = (await (prisma as any).asset.findMany({ select: { code: true, network: true } })) as Array<{ code: string; network: string }>;
+  const assetsByNetwork = new Map<string, Array<{ code: string }>>();
   for (const a of assetRows) {
     const list = assetsByNetwork.get(a.network) ?? [];
-    list.push({ code: a.code, currency: a.currency });
+    list.push({ code: a.code });
     assetsByNetwork.set(a.network, list);
   }
   const allActiveWallets = (await (prisma as any).wallet.findMany({
