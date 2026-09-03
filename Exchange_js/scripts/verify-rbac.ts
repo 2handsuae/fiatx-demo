@@ -228,6 +228,9 @@ function runStaticChecks(): void {
     WITHDRAWAL_FEE_LEVEL_CREATION: 'WITHDRAWAL_FEE_LEVEL_WRITE',
     WITHDRAWAL_FEE_LEVEL_CHANGE: 'WITHDRAWAL_FEE_LEVEL_WRITE',
     RECON_ADJUSTMENT_POST: 'RECON_ADJUSTMENT_WRITE',
+    DEPOSIT_SUPPLEMENT: 'DEPOSIT_SUPPLEMENT_WRITE',
+    DEPOSIT_CLAWBACK: 'DEPOSIT_CLAWBACK_WRITE',
+    WITHDRAW_RETURN_CLAIM: 'WITHDRAW_RETURN_CLAIM_WRITE',
   };
 
   const holdersOf = (group: string): string[] =>
@@ -323,7 +326,18 @@ function runS6FrontendBackendCodeDiff(): void {
 // funds-layer 遗留）连同 PermissionGroup 联合类型里的 INTERNAL_TRANSFER_READ/
 // WRITE 孤儿组一并从 catalog.ts 删掉——白名单不再放过任何 code，S7 从本轮起
 // 正式上岗：catalog 里出现的每一行都必须对应一个真实端点，否则当场报红。
-const S7_PENDING_DEAD_ROWS = new Set<string>([]);
+//
+// 平账 B 批·补单三入口（2026-09-03，Task 1/13）：本批刻意先立地基——route()
+// 四行随 PermissionGroup/桶/OPS_OFFICER 一起在 Task 1 登记，供后续 12 个任务
+// 消费这些名字；真实 controller 端点分别在后续任务里落地。这四行是「暂未出生」
+// 不是「用完没删」，与上面这段注释警惕的腐烂死行不同类——每个对应任务落地 controller
+// 后必须把自己那一行从这份白名单删掉，任务收尾前 S7 应重新验证不再需要该条例外。
+const S7_PENDING_DEAD_ROWS = new Set<string>([
+  'api.post.deposit_transactions_supplement',        // Task ?：POST /deposit-transactions/supplement 控制器落地后删
+  'api.post.deposit_transactions_depositno_clawback', // Task ?：POST /deposit-transactions/:depositNo/clawback 控制器落地后删
+  'api.post.withdraw_transactions_withdrawno_return_claim', // Task ?：POST /withdraw-transactions/:withdrawNo/return-claim 控制器落地后删
+  'api.get.admin_reconciliation_cases_caseno_supplement_candidates', // Task ?：GET .../supplement-candidates 控制器落地后删
+]);
 
 /** 镜像 admin-permission.guard.ts#buildRequestPermissionCode 的拼接算法——不是重新
  *  发明；两处若不一致，S7 会跟着不准，见上方大注释的已知取舍。 */

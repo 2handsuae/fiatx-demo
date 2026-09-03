@@ -1,4 +1,4 @@
-import { V1_AUDIT_ACTIONS, V4_DEPOSIT_AUDIT_ACTIONS, V5_WITHDRAW_AUDIT_ACTIONS, V6_SWAP_AUDIT_ACTIONS, V8_RECON_AUDIT_ACTIONS, DEPRECATED_AUDIT_ACTIONS } from './audit-actions.constant';
+import { AuditActions, V1_AUDIT_ACTIONS, V4_DEPOSIT_AUDIT_ACTIONS, V5_WITHDRAW_AUDIT_ACTIONS, V6_SWAP_AUDIT_ACTIONS, V8_RECON_AUDIT_ACTIONS, DEPRECATED_AUDIT_ACTIONS } from './audit-actions.constant';
 import { AuditCorrelationMode } from '../dto/audit-log.dto';
 
 describe('第一批 · V1 词表守则', () => {
@@ -129,5 +129,33 @@ describe('第一批 · V1 词表守则', () => {
     expect(DEPRECATED_AUDIT_ACTIONS.filter((d) => d in V5_WITHDRAW_AUDIT_ACTIONS)).toEqual([]);
     expect(DEPRECATED_AUDIT_ACTIONS.filter((d) => d in V6_SWAP_AUDIT_ACTIONS)).toEqual([]);
     expect(DEPRECATED_AUDIT_ACTIONS.filter((d) => d in V8_RECON_AUDIT_ACTIONS)).toEqual([]);
+  });
+});
+
+describe('平账 B 批：补单十码出生即冻结四属性', () => {
+  // 本文件没有单一的 AUDIT_ACTION_CONTRACTS 合同表——合同按域封册在 V4_DEPOSIT_AUDIT_ACTIONS /
+  // V5_WITHDRAW_AUDIT_ACTIONS 里（见 audit-vocabulary-closure.spec.ts 的 REGISTRIES），合并后查。
+  const contracts: Record<string, { domain: string; requiredFields: string[] }> = {
+    ...V4_DEPOSIT_AUDIT_ACTIONS,
+    ...V5_WITHDRAW_AUDIT_ACTIONS,
+  };
+  const codes = [
+    'DEPOSIT_SUPPLEMENT_REQUESTED', 'DEPOSIT_SUPPLEMENT_STARTED', 'DEPOSIT_SUPPLEMENT_REJECTED', 'DEPOSIT_SUPPLEMENTED',
+    'DEPOSIT_CLAWBACK_REQUESTED', 'DEPOSIT_CLAWBACK_STARTED', 'DEPOSIT_CLAWED_BACK',
+    'WITHDRAW_RETURN_CLAIM_REQUESTED', 'WITHDRAW_RETURN_CLAIM_STARTED', 'WITHDRAW_RETURNED_AFTER_SUCCESS',
+  ] as const;
+  it.each(codes)('%s 在词表且有合同', (code) => {
+    expect((AuditActions as any)[code]).toBe(code);
+    const c = contracts[code];
+    expect(c).toBeDefined();
+    expect(['DEPOSIT', 'WITHDRAW']).toContain(c.domain);
+  });
+  it('STARTED 三码必填 approvalNo；终态三码必填 from/toStatus 或 depositNo', () => {
+    for (const c of ['DEPOSIT_SUPPLEMENT_STARTED', 'DEPOSIT_CLAWBACK_STARTED', 'WITHDRAW_RETURN_CLAIM_STARTED']) {
+      expect(contracts[c].requiredFields).toContain('approvalNo');
+    }
+    expect(contracts.DEPOSIT_CLAWED_BACK.requiredFields).toEqual(['fromStatus', 'toStatus']);
+    expect(contracts.WITHDRAW_RETURNED_AFTER_SUCCESS.requiredFields).toEqual(['fromStatus', 'toStatus']);
+    expect(contracts.DEPOSIT_SUPPLEMENTED.requiredFields).toEqual(['depositNo']);
   });
 });

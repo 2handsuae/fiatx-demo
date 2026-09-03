@@ -15,6 +15,8 @@ export enum InboundTransferSignalStatus {
   PAYIN_CREATED = 'PAYIN_CREATED',
   IGNORED = 'IGNORED',
   FAILED = 'FAILED',
+  SUPPLEMENT_PENDING = 'SUPPLEMENT_PENDING',
+  SUPPLEMENT_REJECTED = 'SUPPLEMENT_REJECTED',
 }
 
 export enum InboundTransferChannelType {

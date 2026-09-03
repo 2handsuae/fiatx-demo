@@ -58,6 +58,10 @@ export const ApprovalActionTypes = {
   CUSTOMER_RESTRICTION_RELEASE_OPS: 'CUSTOMER_RESTRICTION_RELEASE_OPS',
   // Recon Adjustment Post (Task 4, 2026-08-28) — 平账一期·调账单落账前置审批，单步 CFO（平账 A 批 2026-09-02，原 OPS_OFFICER）。
   RECON_ADJUSTMENT_POST: 'RECON_ADJUSTMENT_POST',
+  // 平账 B 批（2026-09-03）：补单三入口，纯资金件 → CFO 单步（合规件才归 MLRO）
+  DEPOSIT_SUPPLEMENT: 'DEPOSIT_SUPPLEMENT',
+  DEPOSIT_CLAWBACK: 'DEPOSIT_CLAWBACK',
+  WITHDRAW_RETURN_CLAIM: 'WITHDRAW_RETURN_CLAIM',
 } as const;
 
 export const ApprovalStatuses = {
@@ -346,6 +350,9 @@ export const DEFAULT_APPROVAL_POLICIES: Record<
     timeoutHours: 48,
     allowCancel: true,
   },
+  [ApprovalActionTypes.DEPOSIT_SUPPLEMENT]: { steps: [{ stepNo: 1, roles: ['CFO'] }], timeoutHours: 48, allowCancel: true },
+  [ApprovalActionTypes.DEPOSIT_CLAWBACK]: { steps: [{ stepNo: 1, roles: ['CFO'] }], timeoutHours: 48, allowCancel: true },
+  [ApprovalActionTypes.WITHDRAW_RETURN_CLAIM]: { steps: [{ stepNo: 1, roles: ['CFO'] }], timeoutHours: 48, allowCancel: true },
 };
 
 /**

@@ -39,6 +39,9 @@ export const TB_TRANSFER_CODES = {
 
   // ── 充值·上缴续段(20–29)：充值段 5–9 已满,续挪此──
   DEPOSIT_SEIZE_VOID: 20, // 上缴取消/失败:void
+  // 平账 B 批②：入账后被银行/托管方退汇（SUCCESS→CLAWED_BACK），单腿反向：
+  // DR CLIENT_PAYABLE(客户) / CR CLIENT_ASSET(SYSTEM)。不建资金单（decisions 2026-08-28）。
+  DEPOSIT_CLAWBACK: 21,
 
   // ── 兑换(30–49)──
   SWAP_SELL_CLIENT: 30,        // 客户卖出(from):DR CLIENT_PAYABLE / CR CLIENT_ASSET

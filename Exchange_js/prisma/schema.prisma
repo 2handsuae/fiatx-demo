@@ -800,6 +800,12 @@ model InboundTransferSignal {
   submittedAt          DateTime     @default(now())
   lastScannedAt        DateTime?
   scanResult           String?
+  // 平账 B 批 ①：运营凭外部账单行补录（spec §3）。一行只补一次 → 唯一。
+  supplementOfExternalLineId  String?   @unique
+  supplementReconCaseNo       String?
+  supplementDispositionNo     String?
+  supplementEffectiveDate     String?   // 案子业务日 YYYY-MM-DD，两步记账都写它
+  supplementRequestedByUserId String?
   createdAt            DateTime     @default(now())
   updatedAt            DateTime     @updatedAt
   customer             CustomerMain @relation(fields: [ownerId], references: [id], onDelete: Cascade)
@@ -840,6 +846,11 @@ model DepositTransaction {
   traceId              String?
   statusHistory        String?
   limitHoldReason      String?           // 'BELOW_MIN' — L1 金额挂起原因(客户面隐藏依据)
+  // 平账 B 批：补录才有值（业务归属日，两步记账都读）；② 退汇认领三列，一行只认一次 → 唯一
+  effectiveDate            String?
+  clawbackExternalLineId   String?   @unique
+  clawbackReconCaseNo      String?
+  clawbackDispositionNo    String?
   needsReview          Boolean           @default(false)
   l1Snapshot           String?
   aggregatedAt         DateTime?
@@ -1102,6 +1113,10 @@ model WithdrawTransaction {
   approvalNo           String?
   tbPendingNetId       String?
   tbPendingFeeId       String?
+  // 平账 B 批 ③：出款后被银行退回的认领（spec §5）
+  returnExternalLineId     String?   @unique
+  returnReconCaseNo        String?
+  returnDispositionNo      String?
   pricingQuoteId       String?               @unique
   createdAt            DateTime              @default(now())
   approvedAt           DateTime?
@@ -1672,6 +1687,7 @@ model ReconciliationDisposition {
   deferredTarget          String?
   findingNote             String
   adjustmentNo            String?
+  supplementNo            String?   // 平账 B 批：与 adjustmentNo 平行，① 先写信号号、执行后改写为充值单号
   createdByUserId         String
   createdAt               DateTime  @default(now())
   updatedAt               DateTime  @updatedAt

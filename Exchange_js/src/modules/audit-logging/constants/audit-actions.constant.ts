@@ -124,9 +124,14 @@ export const AuditBusinessWorkflowTypes = {
   DEPOSIT_RETURN: 'DEPOSIT_RETURN',
   DEPOSIT_SEIZE: 'DEPOSIT_SEIZE',
   DEPOSIT_UNFREEZE: 'DEPOSIT_UNFREEZE',
+  // 平账 B 批（2026-09-03）：补单三入口
+  DEPOSIT_SUPPLEMENT: 'DEPOSIT_SUPPLEMENT',
+  DEPOSIT_CLAWBACK: 'DEPOSIT_CLAWBACK',
   // Withdraw FROZEN Unfreeze/Sanction-Refund maker-checker approvals (Task 8, 2026-08-03) — 复刻 DEPOSIT_UNFREEZE
   WITHDRAW_UNFREEZE: 'WITHDRAW_UNFREEZE',
   WITHDRAW_SANCTION_REFUND: 'WITHDRAW_SANCTION_REFUND',
+  // 平账 B 批（2026-09-03）：出款后被银行退回的认领
+  WITHDRAW_RETURN_CLAIM: 'WITHDRAW_RETURN_CLAIM',
   // Withdrawal Fee Level (2026-05-30)
   WITHDRAWAL_FEE_LEVEL_CREATION: 'WITHDRAWAL_FEE_LEVEL_CREATION',
   WITHDRAWAL_FEE_LEVEL_CHANGE: 'WITHDRAWAL_FEE_LEVEL_CHANGE',
@@ -238,6 +243,15 @@ export const AuditActions = {
   DEPOSIT_RETURNED: 'DEPOSIT_RETURNED',
   DEPOSIT_RETURN_RETRIED: 'DEPOSIT_RETURN_RETRIED',
   DEPOSIT_RETURN_STUCK: 'DEPOSIT_RETURN_STUCK',
+  // 平账 B 批（2026-09-03）：补单三入口。① 主体是入站信号（无 correlationId，照 INBOUND_SIGNAL_* 走 N）
+  DEPOSIT_SUPPLEMENT_REQUESTED: 'DEPOSIT_SUPPLEMENT_REQUESTED',
+  DEPOSIT_SUPPLEMENT_STARTED: 'DEPOSIT_SUPPLEMENT_STARTED',
+  DEPOSIT_SUPPLEMENT_REJECTED: 'DEPOSIT_SUPPLEMENT_REJECTED',
+  DEPOSIT_SUPPLEMENTED: 'DEPOSIT_SUPPLEMENTED',
+  // ② 主体是充值单（INHERIT，照 DEPOSIT_RETURN_*）
+  DEPOSIT_CLAWBACK_REQUESTED: 'DEPOSIT_CLAWBACK_REQUESTED',
+  DEPOSIT_CLAWBACK_STARTED: 'DEPOSIT_CLAWBACK_STARTED',
+  DEPOSIT_CLAWED_BACK: 'DEPOSIT_CLAWED_BACK',
   // 上缴(SEIZING→SEIZED)地基常量(A1),记账/审批接线见 A2-A4
   DEPOSIT_SEIZE_APPROVAL_REQUESTED: 'DEPOSIT_SEIZE_APPROVAL_REQUESTED',
   DEPOSIT_SEIZE_STARTED: 'DEPOSIT_SEIZE_STARTED',
@@ -371,6 +385,10 @@ export const AuditActions = {
   WITHDRAW_SANCTION_REFUND_APPROVAL_REQUESTED: 'WITHDRAW_SANCTION_REFUND_APPROVAL_REQUESTED',
   // Task 9: FROZEN maker-checker gates (execution side) — decided-event handlers.
   WITHDRAW_UNFROZEN: 'WITHDRAW_UNFROZEN',
+  // 平账 B 批③：出款成功后被银行退回的认领（INHERIT，照 WITHDRAW_UNFREEZE_*）
+  WITHDRAW_RETURN_CLAIM_REQUESTED: 'WITHDRAW_RETURN_CLAIM_REQUESTED',
+  WITHDRAW_RETURN_CLAIM_STARTED: 'WITHDRAW_RETURN_CLAIM_STARTED',
+  WITHDRAW_RETURNED_AFTER_SUCCESS: 'WITHDRAW_RETURNED_AFTER_SUCCESS',
   WITHDRAW_SANCTION_REFUNDED: 'WITHDRAW_SANCTION_REFUNDED',
   // Task 10: Demo scenario runner — mirrors DEPOSIT_DEMO_SCENARIO_RUN. Feeds a
   // withdrawal through a Sumsub mock verdict fixture (SUMSUB_MOCK_MODE only —
@@ -734,6 +752,14 @@ export const V4_DEPOSIT_AUDIT_ACTIONS: Record<string, AuditActionSpec> = {
   DEPOSIT_CONFISCATION_EXECUTED:  { domain: 'DEPOSIT', correlationMode: I, requiredFields: ['fromStatus', 'toStatus'], requiresCausation: false },
   DEPOSIT_RETURNED:               { domain: 'DEPOSIT', correlationMode: I, requiredFields: ['fromStatus', 'toStatus'], requiresCausation: false },
   DEPOSIT_SEIZED:                 { domain: 'DEPOSIT', correlationMode: I, requiredFields: ['fromStatus', 'toStatus'], requiresCausation: false },
+  // ── 平账 B 批 · 补单（10）────────────────────────────────
+  DEPOSIT_SUPPLEMENT_REQUESTED:   { domain: 'DEPOSIT', correlationMode: N, requiredFields: [], requiresCausation: false },
+  DEPOSIT_SUPPLEMENT_STARTED:     { domain: 'DEPOSIT', correlationMode: N, requiredFields: ['approvalNo'], requiresCausation: false },
+  DEPOSIT_SUPPLEMENT_REJECTED:    { domain: 'DEPOSIT', correlationMode: N, requiredFields: ['approvalNo'], requiresCausation: false },
+  DEPOSIT_SUPPLEMENTED:           { domain: 'DEPOSIT', correlationMode: N, requiredFields: ['depositNo'], requiresCausation: false },
+  DEPOSIT_CLAWBACK_REQUESTED:     { domain: 'DEPOSIT', correlationMode: I, requiredFields: [], requiresCausation: false },
+  DEPOSIT_CLAWBACK_STARTED:       { domain: 'DEPOSIT', correlationMode: I, requiredFields: ['approvalNo'], requiresCausation: true },
+  DEPOSIT_CLAWED_BACK:            { domain: 'DEPOSIT', correlationMode: I, requiredFields: ['fromStatus', 'toStatus'], requiresCausation: false },
   DEPOSIT_CONFISCATION_STUCK:     { domain: 'DEPOSIT', correlationMode: I, requiredFields: [], requiresCausation: false },
   DEPOSIT_RETURN_STUCK:           { domain: 'DEPOSIT', correlationMode: I, requiredFields: [], requiresCausation: false },
   DEPOSIT_SEIZE_STUCK:            { domain: 'DEPOSIT', correlationMode: I, requiredFields: [], requiresCausation: false },
@@ -791,6 +817,9 @@ export const V5_WITHDRAW_AUDIT_ACTIONS: Record<string, AuditActionSpec> = {
   // ── 冻结处置（4）────────────────────────────────────────
   WITHDRAW_UNFREEZE_REQUESTED:    { domain: 'WITHDRAW', correlationMode: I, requiredFields: [], requiresCausation: false },
   WITHDRAW_UNFROZEN:              { domain: 'WITHDRAW', correlationMode: I, requiredFields: ['approvalNo'], requiresCausation: true },
+  WITHDRAW_RETURN_CLAIM_REQUESTED: { domain: 'WITHDRAW', correlationMode: I, requiredFields: [], requiresCausation: false },
+  WITHDRAW_RETURN_CLAIM_STARTED:   { domain: 'WITHDRAW', correlationMode: I, requiredFields: ['approvalNo'], requiresCausation: true },
+  WITHDRAW_RETURNED_AFTER_SUCCESS: { domain: 'WITHDRAW', correlationMode: I, requiredFields: ['fromStatus', 'toStatus'], requiresCausation: false },
   WITHDRAW_REFUND_REQUESTED:      { domain: 'WITHDRAW', correlationMode: I, requiredFields: [], requiresCausation: false },
   // 两个门共用（官员标签路无审批因果，故不强制；审批路自愿携 approvalNo+causationId）
   WITHDRAW_REFUNDED:              { domain: 'WITHDRAW', correlationMode: I, requiredFields: ['fromStatus', 'toStatus'], requiresCausation: false },

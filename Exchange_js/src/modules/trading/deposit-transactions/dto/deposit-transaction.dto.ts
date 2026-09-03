@@ -17,6 +17,8 @@ export enum DepositTransactionStatus {
   SEIZING = 'SEIZING',
   SEIZED = 'SEIZED',
   CONFISCATING = 'CONFISCATING',
+  /** 平账 B 批②：入账后被银行/托管方退汇，反向分录已落，零出边终态 */
+  CLAWED_BACK = 'CLAWED_BACK',
 }
 
 export enum DepositOwnerType {
@@ -99,6 +101,7 @@ export enum DepositTransactionAction {
   RETURNED_DONE = 'returned_done',
   SEIZE = 'seize',
   SEIZED_DONE = 'seized_done',
+  CLAWBACK = 'clawback',
 }
 
 export class UpdateDepositTransactionStatusDto {
