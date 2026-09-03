@@ -61,9 +61,9 @@ export class AssetsController {
     });
   }
 
-  @Get(':id')
-  @ApiOperation({ summary: 'Get an asset by ID' })
-  findOne(@Param('id') id: string) {
-    return this.service.findOne(id);
+  @Get(':assetNo')
+  @ApiOperation({ summary: 'Get an asset by asset number' })
+  findOne(@Param('assetNo') assetNo: string) {
+    return this.service.findOne(assetNo);
   }
 }

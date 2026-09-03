@@ -403,10 +403,7 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
 
   // Assets
   route('GET', '/assets', 'List assets', ['ASSET_CONFIG_READ']),
-  route('GET', '/assets/:id', 'Get asset detail', ['ASSET_CONFIG_READ']),
-  route('POST', '/admin/assets/listing', 'Submit asset listing request', ['ASSET_CONFIG_WRITE']),
-  route('PATCH', '/admin/assets/:assetNo', 'Update asset metadata', ['ASSET_CONFIG_WRITE']),
-  route('POST', '/admin/assets/:assetNo/activate', 'Activate asset', ['ASSET_CONFIG_WRITE']),
+  route('GET', '/assets/:assetNo', 'Get asset detail', ['ASSET_CONFIG_READ']),
   route('POST', '/admin/assets/:assetNo/suspend', 'Suspend asset', ['ASSET_CONFIG_WRITE']),
   route('POST', '/admin/assets/:assetNo/reactivate', 'Reactivate asset', ['ASSET_CONFIG_WRITE']),
 
@@ -691,8 +688,8 @@ export const ACTION_BUCKET_CATALOG: ActionDomain[] = [
       },
       {
         key: 'treasury.manage_assets',
-        label: 'Manage asset lifecycle',
-        description: 'Submit asset listing, update metadata, activate, suspend, or reactivate assets',
+        label: 'Suspend / reactivate assets',
+        description: 'Submit asset suspension and reactivation requests — CISO signs them off',
         groups: ['ASSET_CONFIG_WRITE'],
       },
       {
@@ -943,7 +940,7 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
   ],
 
   // 钱放在哪归他：托管钱包与提现地址的写权限全仓仅此一处。
-  // 与技术官的分界是「容器 vs 配置」——资产怎么配是技术官，钱装在哪个容器里是他。
+  // 暂停 / 恢复资产归运营，不归他——他管钱装在哪个容器里，不管资产状态。
   TREASURY_OFFICER: [
     'BASE_ACCESS',
     'IAM_MEMBER_READ', 'IAM_ROLE_READ',
@@ -967,7 +964,7 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
     'GOV_APPROVAL_READ', 'GOV_APPROVAL_POLICY_READ',
     'AUDIT_READ', 'AUDIT_EXPORT_READ',
     'LEDGER_ACCOUNT_READ', 'LEDGER_EVIDENCE_READ', 'LEDGER_FLOW_READ',
-    'ASSET_CONFIG_READ', 'ASSET_CONFIG_WRITE',
+    'ASSET_CONFIG_READ',
     'WALLET_READ', 'WITHDRAWAL_ADDRESS_READ', 'TRANSACTION_LIMIT_READ',
     'SUMSUB_EVENT_VIEW',
     'FUNDS_ORDER_VIEW',
@@ -982,7 +979,7 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
     'GOV_APPROVAL_READ',
     'AUDIT_READ',
     'LEDGER_ACCOUNT_READ', 'LEDGER_EVIDENCE_READ', 'LEDGER_FLOW_READ',
-    'ASSET_CONFIG_READ', 'WALLET_READ', 'WITHDRAWAL_ADDRESS_READ',
+    'ASSET_CONFIG_READ', 'ASSET_CONFIG_WRITE', 'WALLET_READ', 'WITHDRAWAL_ADDRESS_READ',
     'TRANSACTION_LIMIT_READ', 'TRANSACTION_LIMIT_WRITE',
     'CUSTOMER_READ', 'CUSTOMER_RESTRICTION_READ', 'CUSTOMER_TAG_VIEW',
     'TRADING_DEPOSIT_READ', 'TRADING_WITHDRAW_READ', 'TRADING_SWAP_READ', 'SUMSUB_EVENT_VIEW',

@@ -109,9 +109,6 @@ export const AuditBusinessWorkflowTypes = {
   // Asset Suspension (2026-05-14)
   ASSET_SUSPENSION: 'ASSET_SUSPENSION',
   ASSET_REACTIVATION: 'ASSET_REACTIVATION',
-  // Asset Creation & Activation (2026-05-14)
-  ASSET_CREATION: 'ASSET_CREATION',
-  ASSET_ACTIVATION: 'ASSET_ACTIVATION',
   // Transaction Limit Change (2026-05-16)
   TRANSACTION_LIMIT_CHANGE: 'TRANSACTION_LIMIT_CHANGE',
   // Transaction Limit Creation (2026-05-16)
@@ -578,17 +575,12 @@ export const V1_AUDIT_ACTIONS: Record<string, AuditActionSpec> = {
   WITHDRAWAL_FEE_LEVEL_CHANGE_APPLY_FAILED:   { domain: 'CONFIG', correlationMode: I, requiredFields: [], requiresCausation: true },
   WITHDRAWAL_FEE_LEVEL_CHANGE_CANCELLED:      { domain: 'CONFIG', correlationMode: I, requiredFields: ['reason'], requiresCausation: true },
 
-  // ── 资产四族（2026-09-01 换名册·批二）：ASSET_CREATED_AND_PROVISIONED/
-  // ASSET_CREATION_FAILED/ASSET_PROVISIONING_UPDATED/ASSET_ACTIVATED/ASSET_SUSPENDED/
-  // ASSET_REACTIVATED 六码本就前缀唯一，码值不变只进合同；另六个裸名
-  // （SUSPENSION_/REACTIVATION_/ACTIVATION_ 各 REQUESTED+FAILED）改前缀唯一新码，
-  // 无跨族复用，裸名直接登退役闸（见下方 DEPRECATED_AUDIT_ACTIONS）。
-  ASSET_CREATED_AND_PROVISIONED: { domain: 'CONFIG', correlationMode: S, requiredFields: ['afterData'], requiresCausation: false },
-  ASSET_CREATION_FAILED:         { domain: 'CONFIG', correlationMode: S, requiredFields: [], requiresCausation: false },
-  ASSET_PROVISIONING_UPDATED:    { domain: 'CONFIG', correlationMode: I, requiredFields: ['afterData'], requiresCausation: false },
-  ASSET_ACTIVATION_REQUESTED:    { domain: 'CONFIG', correlationMode: S, requiredFields: ['beforeData'], requiresCausation: false },
-  ASSET_ACTIVATED:               { domain: 'CONFIG', correlationMode: I, requiredFields: ['approvalNo'], requiresCausation: true },
-  ASSET_ACTIVATION_FAILED:       { domain: 'CONFIG', correlationMode: I, requiredFields: [], requiresCausation: true },
+  // ── 资产两族（2026-09-01 换名册·批二 ASSET_SUSPENSION_*/ASSET_REACTIVATION_* 六码，
+  // 2026-09-04 波一 T2 收窄）：创建 + 激活两族（ASSET_CREATED_AND_PROVISIONED/
+  // ASSET_CREATION_FAILED/ASSET_PROVISIONING_UPDATED/ASSET_ACTIVATION_REQUESTED/
+  // ASSET_ACTIVATED/ASSET_ACTIVATION_FAILED 六码）随上架/激活整条路退役
+  // （业主定「本轮不做新资产上线」），迁入 DEPRECATED_AUDIT_ACTIONS（见下方）；
+  // 暂停 / 恢复两族原样保留。
   ASSET_SUSPENSION_REQUESTED:    { domain: 'CONFIG', correlationMode: S, requiredFields: ['beforeData'], requiresCausation: false },
   ASSET_SUSPENDED:               { domain: 'CONFIG', correlationMode: I, requiredFields: ['approvalNo'], requiresCausation: true },
   ASSET_SUSPENSION_FAILED:       { domain: 'CONFIG', correlationMode: I, requiredFields: [], requiresCausation: true },
@@ -974,4 +966,8 @@ export const DEPRECATED_AUDIT_ACTIONS: readonly string[] = [
   'CREATE_REQUESTED', 'WALLET_CREATED', 'WALLET_CREATE_FAILED', 'CREATE_CANCELLED',
   'ADDRESS_REGISTERED', 'ADDRESS_ACTIVATED', 'ADDRESS_CANCELLED', 'ADDRESS_SUSPENDED',
   'ADDRESS_DEACTIVATED', 'MANUAL_COOLING_SKIP',
+  // 2026-09-04 波一（V3 治愈）：上架 / 激活 / 编辑整条路退役（业主定「本轮不做新资产上线」），
+  // 写点 asset-listing-workflow / asset-activation-workflow 已整文件删除，六码登退役闸
+  'ASSET_CREATED_AND_PROVISIONED', 'ASSET_CREATION_FAILED', 'ASSET_PROVISIONING_UPDATED',
+  'ASSET_ACTIVATION_REQUESTED', 'ASSET_ACTIVATED', 'ASSET_ACTIVATION_FAILED',
 ] as const;

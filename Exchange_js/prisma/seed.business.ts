@@ -6,8 +6,10 @@ import { generateReferenceNo } from '../src/common/utils/no-generator.util';
 import { ensureBaseSeeded } from './seed.base';
 import { ensureTbAccountRegistry, provisionTbAccounts } from './seed-tb.helper';
 import { DEFAULT_ASSETS } from '../src/config/manifests/assets.manifest';
+import { assertNetwork } from '../src/config/manifests/networks.manifest';
 import { buildDeterministicNo } from '../src/common/utils/no-generator.util';
 import { TB_ACCOUNT_CODES } from '../src/modules/accounting/tigerbeetle/constants/tb-account-codes.constant';
+import { systemAccountCodesFor } from '../src/modules/asset-treasury/assets/asset-provisioning.service';
 import { TB_TRANSFER_CODES } from '../src/modules/accounting/tigerbeetle/constants/tb-transfer-codes.constant';
 import { TB_LEDGERS } from '../src/modules/accounting/tigerbeetle/constants/tb-ledgers.constant';
 import { CustomerLifecycle } from '../src/modules/identity/constants/customer-lifecycle.constant';
@@ -59,10 +61,6 @@ export async function seedBusiness(
 // ① Assets layer — assets + system TB accounts + system wallets
 // ─────────────────────────────────────────────────────────────
 
-function normalizeNetwork(network: string | null | undefined): string {
-  return network ?? '';
-}
-
 function normalizeSegment(value: string): string {
   return value.toUpperCase().replace(/[^A-Z0-9]+/g, '_');
 }
@@ -104,23 +102,22 @@ function buildSystemPoolIban(role: SystemWalletRole, assetCode: string): string 
 
 async function seedAssets(prisma: PrismaClient): Promise<void> {
   for (const asset of DEFAULT_ASSETS) {
-    const normalizedNetwork = normalizeNetwork(asset.network);
+    assertNetwork(asset.network);
     const currency = asset.currency as keyof typeof TB_LEDGERS;
     const ledger = TB_LEDGERS[currency];
 
     const record = await prisma.asset.upsert({
-      where: {
-        type_currency_network: {
-          type: asset.type,
-          currency: asset.currency,
-          network: normalizedNetwork,
-        },
-      },
+      where: { type_currency_network: { type: asset.type, currency: asset.currency, network: asset.network } },
       update: {
         assetNo: asset.assetNo,
         code: asset.code,
         decimals: asset.decimals,
         description: asset.description,
+        contractAddress: asset.contractAddress,
+        isNative: asset.isNative,
+        standard: asset.standard,
+        minConfirmations: asset.minConfirmations,
+        custodianAssetKey: asset.custodianAssetKey,
         status: 'ACTIVE',
         tbLedgerId: ledger,
       },
@@ -129,9 +126,14 @@ async function seedAssets(prisma: PrismaClient): Promise<void> {
         type: asset.type,
         currency: asset.currency,
         code: asset.code,
-        network: normalizedNetwork,
+        network: asset.network,
         decimals: asset.decimals,
         description: asset.description,
+        contractAddress: asset.contractAddress,
+        isNative: asset.isNative,
+        standard: asset.standard,
+        minConfirmations: asset.minConfirmations,
+        custodianAssetKey: asset.custodianAssetKey,
         status: 'ACTIVE',
         tbLedgerId: ledger,
       },
@@ -139,15 +141,7 @@ async function seedAssets(prisma: PrismaClient): Promise<void> {
 
     // System TB accounts (ownerType SYSTEM, no ownerUuid).
     const isFiat = asset.type === 'FIAT';
-    const systemAccounts = [
-      { code: TB_ACCOUNT_CODES.CLIENT_ASSET, desc: 'CLIENT_ASSET' },
-      { code: TB_ACCOUNT_CODES.FIRM_ASSET, desc: 'FIRM_ASSET' },
-      { code: TB_ACCOUNT_CODES.FIRM_OPS, desc: 'FIRM_OPS' },
-      { code: TB_ACCOUNT_CODES.INCOME_SWAP_FEE, desc: 'INCOME_SWAP_FEE' },
-      { code: TB_ACCOUNT_CODES.INCOME_WITHDRAW_FEE, desc: 'INCOME_WITHDRAW_FEE' },
-      { code: TB_ACCOUNT_CODES.INCOME_OTHER, desc: 'INCOME_OTHER' },
-      ...(isFiat ? [{ code: TB_ACCOUNT_CODES.FIRM_SET, desc: 'FIRM_SET' }] : []),
-    ];
+    const systemAccounts = systemAccountCodesFor(asset.type);
     for (const acct of systemAccounts) {
       await ensureTbAccountRegistry(prisma, {
         code: acct.code,
@@ -171,7 +165,7 @@ async function seedAssets(prisma: PrismaClient): Promise<void> {
         'WA',
         role,
         normalizeSegment(asset.code),
-        normalizedNetwork ? normalizeSegment(normalizedNetwork) : '',
+        asset.network ? normalizeSegment(asset.network) : '',
       );
 
       if (isFiat) {

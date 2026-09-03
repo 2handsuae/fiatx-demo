@@ -29,8 +29,6 @@ export const ApprovalActionTypes = {
   // ─── Asset Suspension (2026-05-14) ────
   ASSET_SUSPENSION: 'ASSET_SUSPENSION',
   ASSET_REACTIVATION: 'ASSET_REACTIVATION',
-  // ─── Asset Activation (2026-05-14) ────
-  ASSET_ACTIVATION: 'ASSET_ACTIVATION',
   // Transaction Limit Change (2026-05-16)
   TRANSACTION_LIMIT_CHANGE: 'TRANSACTION_LIMIT_CHANGE',
   // Transaction Limit Creation (2026-05-16)
@@ -242,12 +240,6 @@ export const DEFAULT_APPROVAL_POLICIES: Record<
     timeoutHours: 12,
     allowCancel: true,
   },
-  // ─── Asset Activation (2026-05-14) ────
-  [ApprovalActionTypes.ASSET_ACTIVATION]: {
-    steps: [{ stepNo: 1, roles: ['CISO'] }],
-    timeoutHours: 12,
-    allowCancel: true,
-  },
   // ─── Transaction Limit Change ────
   [ApprovalActionTypes.TRANSACTION_LIMIT_CHANGE]: {
     // 2026-08-30：裁决人 OPS_OFFICER → SENIOR_MANAGEMENT_OFFICER。限额归运营改（业主定），
@@ -363,7 +355,6 @@ export const V1_APPROVAL_ACTION_TYPES: readonly string[] = [
   ApprovalActionTypes.ROLE_DEFINITION_MODIFY,
   ApprovalActionTypes.ADMIN_PASSWORD_RESET,
   ApprovalActionTypes.ADMIN_MFA_RESET,
-  ApprovalActionTypes.ASSET_ACTIVATION,
   ApprovalActionTypes.CUSTODIAN_WALLET_CREATE,
   ApprovalActionTypes.ASSET_SUSPENSION,
   ApprovalActionTypes.ASSET_REACTIVATION,

@@ -18,8 +18,11 @@ describe('第一批 · V1 词表守则', () => {
     + 'CREATED/FAILED/CANCELLED 四码 + WITHDRAWAL_ADDRESS_REGISTERED/ACTIVATED/CANCELLED/'
     + 'SUSPENDED/DEACTIVATED/COOLING_SKIPPED 六码，得 99；'
     + '+ 2 Task15 收尾(2026-09-02) 常规登录 MFA 二次校验：MFA_LOGIN_VERIFIED/MFA_LOGIN_VERIFY_FAILED'
-    + '（体检漏数的第 14 族裸词，码值不变，从旧附册迁入合同），得 101）', () => {
-    expect(codes).toHaveLength(101);
+    + '（体检漏数的第 14 族裸词，码值不变，从旧附册迁入合同），得 101；'
+    + '− 6 波一(2026-09-04)T2：资产创建+激活两族（ASSET_CREATED_AND_PROVISIONED/ASSET_CREATION_FAILED/'
+    + 'ASSET_PROVISIONING_UPDATED/ASSET_ACTIVATION_REQUESTED/ASSET_ACTIVATED/ASSET_ACTIVATION_FAILED）'
+    + '随上架/激活整条路退役迁出（业主定「本轮不做新资产上线」），剩 SUSPENSION_/REACTIVATION_ 两族六码，得 95）', () => {
+    expect(codes).toHaveLength(95);
   });
 
   it('全部全局唯一（键即字面量，无重复）', () => {
@@ -67,12 +70,11 @@ describe('第一批 · V1 词表守则', () => {
       // Task12(2026-09-01)：费率两域裸名换前缀唯一新码，四族各 4 码
       'SWAP_FEE_LEVEL_CREATION_': 4, 'SWAP_FEE_LEVEL_CHANGE_': 4,
       'WITHDRAWAL_FEE_LEVEL_CREATION_': 4, 'WITHDRAWAL_FEE_LEVEL_CHANGE_': 4,
-      // Task13(2026-09-01)：资产四族——REQUESTED/FAILED 共享前缀各 2 码；ASSET_ACTIVATED/
-      // ASSET_SUSPENDED/ASSET_REACTIVATED 是保留原值的不规则过去式，不进前缀桶（同
-      // WALLET_STATUS_UPDATED 等单码一样落单）；ASSET_CREATION_ 仅 FAILED 1 码
-      // （ASSET_CREATED_AND_PROVISIONED/ASSET_PROVISIONING_UPDATED 不共享该前缀）
-      'ASSET_ACTIVATION_': 2, 'ASSET_SUSPENSION_': 2, 'ASSET_REACTIVATION_': 2,
-      'ASSET_CREATION_': 1,
+      // Task13(2026-09-01) 资产四族 → 波一(2026-09-04)T2 收窄：创建/激活两族（ASSET_CREATION_/
+      // ASSET_ACTIVATION_ 前缀）随上架/激活整条路退役一并迁出；SUSPENSION_/REACTIVATION_
+      // 两族原样保留，REQUESTED/FAILED 仍共享前缀各 2 码，ASSET_SUSPENDED/ASSET_REACTIVATED
+      // 是保留原值的不规则过去式，不进前缀桶（同 WALLET_STATUS_UPDATED 等单码一样落单）。
+      'ASSET_SUSPENSION_': 2, 'ASSET_REACTIVATION_': 2,
       // Task14(2026-09-02)：限额两族裸名换前缀唯一新码，各 4 码；客户标签两码共享前缀。
       // TRANSACTION_LIMIT_REJECTED 不进任何前缀桶（单码落单，同 WALLET_STATUS_UPDATED）。
       'TRANSACTION_LIMIT_CREATION_': 4, 'TRANSACTION_LIMIT_CHANGE_': 4,
@@ -104,9 +106,12 @@ describe('第一批 · V1 词表守则', () => {
     + ' + Task15 两个：CUSTODIAN_WALLET_CREATE_REQUESTED/WITHDRAWAL_ADDRESS_REGISTERED 各起一段新旅程'
     + '——其余 8 码都是 INHERIT 读回同一旅程的 correlationId'
     + '（Task15 收尾新增的 MFA_LOGIN_VERIFIED/MFA_LOGIN_VERIFY_FAILED 都是单步登录校验、'
-    + '无旅程可开，定 NONE，不贡献 START），得 26）', () => {
+    + '无旅程可开，定 NONE，不贡献 START），得 26；'
+    + '− 3 波一(2026-09-04)T2：ASSET_CREATED_AND_PROVISIONED/ASSET_CREATION_FAILED/'
+    + 'ASSET_ACTIVATION_REQUESTED 三个 START 随创建/激活两族退役迁出，剩 ASSET_SUSPENSION_REQUESTED/'
+    + 'ASSET_REACTIVATION_REQUESTED 两个 START，得 23）', () => {
     expect(codes.filter((c) => V1_AUDIT_ACTIONS[c].correlationMode === AuditCorrelationMode.START))
-      .toHaveLength(26);
+      .toHaveLength(23);
   });
 
   it('退役码 97 个（V1 域 11 + 充值域 18+1 + 提现域 18 + 兑换域 3 + 对账域 4 + Task5扩面 19：'
@@ -121,9 +126,12 @@ describe('第一批 · V1 词表守则', () => {
     + 'ADDRESS_CANCELLED/ADDRESS_SUSPENDED/ADDRESS_DEACTIVATED/MANUAL_COOLING_SKIP，得 99'
     + ' − 2 Task15 收尾(2026-09-02)：MFA_LOGIN_VERIFIED/MFA_LOGIN_VERIFY_FAILED 移出——站7首铸'
     + '（9aac76e4）预登记时假设会改名退役，核实后码值不变只是从旧附册搬进 V1_AUDIT_ACTIONS，'
-    + '按 TRANSACTION_LIMIT_REJECTED 判例不登退役闸，得 97），'
+    + '按 TRANSACTION_LIMIT_REJECTED 判例不登退役闸，得 97'
+    + ' + 6 波一(2026-09-04)T2：ASSET_CREATED_AND_PROVISIONED/ASSET_CREATION_FAILED/'
+    + 'ASSET_PROVISIONING_UPDATED/ASSET_ACTIVATION_REQUESTED/ASSET_ACTIVATED/ASSET_ACTIVATION_FAILED'
+    + ' 六码随上架/激活整条路退役新入闸，得 103），'
     + '且与五本在用名册零交集', () => {
-    expect(DEPRECATED_AUDIT_ACTIONS).toHaveLength(97);
+    expect(DEPRECATED_AUDIT_ACTIONS).toHaveLength(103);
     expect(DEPRECATED_AUDIT_ACTIONS.filter((d) => codes.includes(d))).toEqual([]);
     expect(DEPRECATED_AUDIT_ACTIONS.filter((d) => d in V4_DEPOSIT_AUDIT_ACTIONS)).toEqual([]);
     expect(DEPRECATED_AUDIT_ACTIONS.filter((d) => d in V5_WITHDRAW_AUDIT_ACTIONS)).toEqual([]);

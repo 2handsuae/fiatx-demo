@@ -19,6 +19,7 @@ import {
   ApprovalActorContext,
 } from '../../governance/approvals/constants/approval.constants';
 import { AssetsService } from './assets.service';
+import { assertAssetTransition, AssetAction } from './constants/asset-transitions.constant';
 
 const SECONDARY_EVENT = 'workflow.asset-suspension.decided';
 
@@ -52,11 +53,7 @@ export class AssetSuspensionWorkflowService {
       throw new NotFoundException(`Asset ${assetNo} not found`);
     }
 
-    if (asset.status !== 'ACTIVE') {
-      throw new ConflictException(
-        `Asset ${assetNo} is not in ACTIVE status (current: ${asset.status})`,
-      );
-    }
+    assertAssetTransition(asset.status, AssetAction.SUSPEND);
 
     const existingPending = await this.prisma.approvalCase.findFirst({
       where: {
@@ -83,8 +80,6 @@ export class AssetSuspensionWorkflowService {
           assetType: asset.type,
           network: asset.network,
           currentStatus: asset.status,
-          depositEnabled: asset.depositEnabled,
-          withdrawalEnabled: asset.withdrawalEnabled,
           reason,
         },
       },
@@ -95,11 +90,11 @@ export class AssetSuspensionWorkflowService {
       actor,
     );
 
-    // beforeData：请求发起时资产的状态快照（suspendAsset 会改 status + 两个 enabled 开关）。
+    await this.assetsService.linkApprovalCase(assetNo, approvalCase.approvalNo);
+
+    // beforeData：请求发起时资产的状态快照（suspendAsset 会改 status）。
     const beforeData = {
       status: asset.status,
-      depositEnabled: asset.depositEnabled,
-      withdrawalEnabled: asset.withdrawalEnabled,
     };
 
     await this.auditLogsService.recordByActor(
@@ -135,6 +130,7 @@ export class AssetSuspensionWorkflowService {
     if (event.decision === 'APPROVED') {
       return this.executeSuspension(event);
     }
+    await this.assetsService.clearApprovalCase(event.entityRef);
   }
 
   private async executeSuspension(event: ApprovalDecidedEvent) {

@@ -623,31 +623,26 @@ model ApprovalPolicyChangeRequest {
 }
 
 model Asset {
-  id                             String                          @id @default(uuid())
-  assetNo                        String?                         @unique
-  type                           String
-  currency                       String
-  code                           String                          @unique
-  network                        String?
-  decimals                       Int
-  description                    String?
-  status                         String                          @default("ACTIVE")
-  tbLedgerId                     Int?                            @unique
-  contractAddress                String?
-  minDepositAmount               Float?
-  maxDepositAmount               Float?
-  minWithdrawAmount              Float?
-  maxWithdrawAmount              Float?
-  depositEnabled                 Boolean                         @default(true)
-  withdrawalEnabled              Boolean                         @default(true)
-  suspendedAt                    DateTime?
-  suspendReason                  String?
-  preSuspendDepositEnabled       Boolean?
-  preSuspendWithdrawalEnabled    Boolean?
-  approvalCaseId                 String?
-  approvalCaseNo                 String?
-  createdAt                      DateTime                        @default(now())
-  updatedAt                      DateTime                        @updatedAt
+  id                String    @id @default(uuid())
+  assetNo           String    @unique
+  type              String
+  currency          String
+  code              String    @unique
+  network           String
+  decimals          Int
+  description       String?
+  contractAddress   String?
+  isNative          Boolean   @default(true)
+  standard          String?
+  minConfirmations  Int       @default(0)
+  custodianAssetKey String?
+  status            String    @default("ACTIVE")
+  tbLedgerId        Int?      @unique
+  approvalCaseNo    String?
+  suspendedAt       DateTime?
+  suspendReason     String?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
   depositTransactions            DepositTransaction[]
   inboundTransferSignals         InboundTransferSignal[]
   swapFromTransactions           SwapTransaction[]               @relation("SwapFromAsset")

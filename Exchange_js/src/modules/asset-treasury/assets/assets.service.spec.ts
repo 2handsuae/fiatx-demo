@@ -2,7 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { AssetsService } from './assets.service';
 import { PrismaService } from '../../../core/prisma/prisma.service';
 import { NotFoundException } from '@nestjs/common';
-import { assertAssetTransition, AssetAction } from './constants/asset-transitions.constant';
+import { assertAssetTransition, AssetAction, ASSET_TRANSITIONS } from './constants/asset-transitions.constant';
 
 const mockPrismaService = {
   asset: {
@@ -15,14 +15,18 @@ const mockPrismaService = {
   },
 };
 
-describe('资产状态迁移表（Task 11 · 法二）', () => {
-  it('非法跃迁：ACTIVE 资产不能再次 activate', () => {
-    expect(() => assertAssetTransition('ACTIVE', AssetAction.ACTIVATE)).toThrow(/Invalid transition/);
-  });
-  it('合法边：PROVISIONING--ACTIVATE-->ACTIVE；SUSPENDED 只能 REACTIVATE', () => {
-    expect(assertAssetTransition('PROVISIONING', AssetAction.ACTIVATE)).toBe('ACTIVE');
+describe('资产状态迁移表（波一 · 两边）', () => {
+  it('ACTIVE --SUSPEND--> SUSPENDED；SUSPENDED --REACTIVATE--> ACTIVE', () => {
+    expect(assertAssetTransition('ACTIVE', AssetAction.SUSPEND)).toBe('SUSPENDED');
     expect(assertAssetTransition('SUSPENDED', AssetAction.REACTIVATE)).toBe('ACTIVE');
-    expect(() => assertAssetTransition('SUSPENDED', AssetAction.ACTIVATE)).toThrow(/Invalid transition/);
+  });
+  it('非法跃迁：ACTIVE 不能 REACTIVATE、SUSPENDED 不能 SUSPEND', () => {
+    expect(() => assertAssetTransition('ACTIVE', AssetAction.REACTIVATE)).toThrow(/Invalid transition/);
+    expect(() => assertAssetTransition('SUSPENDED', AssetAction.SUSPEND)).toThrow(/Invalid transition/);
+  });
+  it('PROVISIONING 与 ACTIVATE 已退役：表里没有这两个键', () => {
+    expect((ASSET_TRANSITIONS as any).PROVISIONING).toBeUndefined();
+    expect((AssetAction as any).ACTIVATE).toBeUndefined();
   });
 });
 
@@ -61,19 +65,6 @@ describe('AssetsService', () => {
     it('should throw NotFoundException if not found', async () => {
       mockPrismaService.asset.findUnique.mockResolvedValue(null);
       await expect(service.findOne('999')).rejects.toThrow(NotFoundException);
-    });
-  });
-
-  describe('activateAsset', () => {
-    it('绑定证明：DB 读到 status=ACTIVE 时抛 Invalid transition（from 来自读值，非字面量）', async () => {
-      mockPrismaService.asset.findFirst.mockResolvedValue({
-        id: 'a1',
-        assetNo: 'AS1',
-        status: 'ACTIVE',
-      });
-
-      await expect(service.activateAsset('AS1')).rejects.toThrow(/Invalid transition/);
-      expect(mockPrismaService.asset.update).not.toHaveBeenCalled();
     });
   });
 });

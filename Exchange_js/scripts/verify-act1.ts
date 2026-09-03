@@ -250,15 +250,18 @@ async function main(): Promise<void> {
   );
 
   // ══════════════════════ B7：资产状态迁移表（法二，铁律④）══════════════════════
+  // 波一起：上架 / 激活退役，表只剩 ACTIVE⇄SUSPENDED 两边；提单人换运营。
+  // 对 ACTIVE 资产打 reactivate 必须被迁移表拒绝（409 + 'Invalid transition'），
+  // 而不是请求层另写一条 if——请求层已改走表（asset-reactivation-workflow.service.ts）。
 
-  precheckRoute('POST', '/admin/assets/:assetNo/activate');
+  precheckRoute('POST', '/admin/assets/:assetNo/reactivate');
   const activeAsset = await prisma.asset.findFirstOrThrow({ where: { status: 'ACTIVE' } });
-  const b7 = await call('POST', `/admin/assets/${activeAsset.assetNo}/activate`, tokens.tech_admin);
+  const b7 = await call('POST', `/admin/assets/${activeAsset.assetNo}/reactivate`, tokens.ops_officer);
   const b7MsgOk = typeof b7.json?.message === 'string' && b7.json.message.includes('Invalid transition');
   judge(
     'B7',
     b7.status === 409 && b7MsgOk,
-    `POST activate(ACTIVE 资产) → ${b7.status} ${JSON.stringify(b7.json)}（期望 409 + 'Invalid transition'）`,
+    `POST reactivate(ACTIVE 资产, ops_officer@) → ${b7.status} ${JSON.stringify(b7.json)}（期望 409 + 'Invalid transition'）`,
   );
 
   // ══════════════════════ B8：留痕带上下文——B1 那张单的 APPROVAL_EXPIRED 一行 ══════════════════════
