@@ -46,6 +46,7 @@ NestJS + Prisma + SQLite 后端 ｜ React 管理台 ｜ React 客户端 ｜ 会�
 ## 6. 流程尺寸
 
 - spec / plan 由 superpowers 技能产出，格式技能自治；写入 `doc-final/superpowers/{specs,plans}/`，任务合并后移入 `doc-final/archive/`；代码体检报告写入 `doc-final/superpowers/checkups/`，同一生命周期
+- 一个模块一波做不完 → 讨论完先定**总纲**（目标 / 拆几波 / 每波边界与验收口径），spec **只写细当前波**，后面几波开工前再展开；每波收尾的承接记录按 `rules/delivery-checklist.md` 写进下一波 spec 开头
 - 任务标题用业务语言；任务开场必须列「本任务做 / 不做」，"不做"项对照 §2
 - 任务收尾对照 `doc-final/rules/delivery-checklist.md`——按触发条件列出必须交付的东西；plan 引用它，不重抄
 - 评审按 `doc-final/rules/review-rubric.md`，只判三件事，其余不算缺陷
@@ -85,8 +86,9 @@ cd client-web && npx tsc -b --noEmit && cd ..    # ③ 客户端
 | 改页面 / 种子数据 | 同步 `demo/data.md`、`demo/script.md` 对应步骤 |
 | 验收 / 走查 | `demo/script.md`（七幕主线）+ `modules/<篇>` §4 演示脚本 |
 | 说"以后做" | 业务缺口记 `BACKLOG.md`；技术兜底记 `PRODUCTION-NOTES.md`；工具/环境记 `TOOLING-DEBT.md` |
+| 要同步到飞书的业务文档 | `lark/`——业主维护、agent **不读**（不是现状真相，真相只在 `modules/`） |
 
-**不读** `archive/`（历史存档）。rules 与本文件冲突时以本文件为准——Phase 1 拆规范完成前，`rules/backend-platform.md` 里幂等 / 去重 / 回放 / 迁移安全 / 签收清单类要求**一律视为已废止**。
+**不读** `archive/`（历史存档）、`lark/`。**不在本表里的文档不该存在**——发现了就删或归档，不另建地图。rules 与本文件冲突时以本文件为准。
 
 两层关系：**`modules/` = 现状唯一真相 ｜ `demo/script.md` + `modules/<篇>` §4 = 验收（演得出来就算过）**；两者不一致就是待办，登记 BACKLOG。
 （`prd/` 应然层未建、PRD 在飞书；旧 `test-cases/` 271 条用例 2026-08-31 整体封箱，理由见 `archive/test-cases/README.md`。）
