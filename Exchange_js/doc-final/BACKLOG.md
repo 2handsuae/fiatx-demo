@@ -35,6 +35,20 @@ Last Updated: 2026-09-02
 
 - [ ] **托管钱包页分组只按当前页数据分、非全量**：`CustodianWalletList.tsx` 把返回结果按 vault（F_OPS/F_SET/F_FEE/F_LIQ/CLIENT_DEPOSIT）在前端分组，只覆盖当次抓取的这一页；钱包总数一旦超过页大小，同一 vault 的行会跨页断开，出现重复或不完整的分组表头且不报错。页大小已从 20 提到 200（现状 19 个钱包：7 个平台位 + 每客户每网络一行 CLIENT_DEPOSIT，随客户增长自然涨，远低于 200）；钱包总数超过 200 时问题会复现 ｜来源: V3 财务配置治愈波一 Task 7 评审修复轮
 
+- [ ] 🔴 **角色绑定变更审批 `ADMIN_ROLE_BINDING_CHANGE_APPROVAL` 结构性自批死锁——提单权限组与裁决人全系统唯一都是 CISO**：谁能提交"改某管理员的角色绑定"这个审批案（`POST /admin/iam/role-change-requests`）与谁能裁决它，恒为同一个人——`approvals.service.ts` 的同用户 SoD 会当场拒绝自批，这条治理流程在当前配置下结构性走不通、从未真正跑通过一次。
+
+  **两个事实**（均可直接复现）：`approval.constants.ts:182` 该策略 `steps = [{ stepNo: 1, roles: ['CISO'] }]`（裁决人唯一）；`rbac.catalog.ts:863` 提单所需的 `IAM_ROLE_ASSIGN` 组全系统只在 CISO 的绑定列表里出现过一次（该权限组名在文件里共 4 处命中，只有这一处是角色绑定表，见 `grep -n "IAM_ROLE_ASSIGN" rbac.catalog.ts`）。`prisma/seed.base.ts:30` 只种了一个 CISO 账号，不是"理论上可能有第二个缓解"。
+
+  **姊妹对照，暴露了不对称是 bug 本体**：形状一样的 `ADMIN_INVITE_APPROVAL`（提单组也挂 CISO、裁决人也是 CISO）不会死锁，因为它的提单组 `IAM_MEMBER_MANAGE` 被 `TECH_OFFICER` 双持——TECH_OFFICER 走正常提单，CISO 只有自己提时才撞 SoD（站 0 的刻意演示装置）。`TECH_OFFICER` 持有 IAM 域另外三个组（`IAM_MEMBER_MANAGE`/`IAM_ROLE_DEFINE`/`IAM_CREDENTIAL_RESET`）唯独不持 `IAM_ROLE_ASSIGN`，这一个组的缺口就是问题所在。
+
+  **溯源**：2026-04-30 Wave 1 治理重设计遗留的配置缺陷；V3 财务配置治愈波一 Task 13 新增 S8（"策略全集必须被 S5 的保护表或豁免表覆盖"）后第一次被纳入判据范围才照见——此前这条策略从未受 S5 或任何其它判据保护。`doc-final/demo/` 全文检索 "role-change|角色变更" 零命中，不在七幕演示脚本上；但对应 4 条管理端路由是真实存在的功能面（未被排过、不是虚设）。
+
+  **两个候选修法**（业主待裁，本任务/评审均未擅自实施）：
+  - **方案甲（推荐）**：给 `TECH_OFFICER` 也加 `IAM_ROLE_ASSIGN` 组——复刻系统自己已有的邀请流程模式（TECH_OFFICER 操作、CISO 审批），不下放单方面权力（改绑定仍必须过 CISO 审批）。
+  - **方案乙**：把裁决人从 CISO 改成 `SENIOR_MANAGEMENT_OFFICER`（复刻 `ADMIN_SUSPENSION_APPROVAL`/`ADMIN_REACTIVATION_APPROVAL`，`approval.constants.ts:188-196` 同构）——角色分配权仍单独留给 CISO，代价是对这一条动作反转 maker/checker 分工。
+
+  **判据现状**：`scripts/verify-rbac.ts` 的 S5 已把这条登记进独立的"已知死锁"清单 `S5_KNOWN_DEADLOCKS`（与"双持豁免"表 `MAKER_GROUP_EXEMPT` 语义不同——那张表登记的重叠是刻意设计，这张表登记的是真实未修的死锁），S5 的判据只算未登记死锁，这条会以专门的 `⚠` 行持续出现在 `verify:rbac` 输出里，直到上面两个方案选一个落地、把这一行从登记表里删掉为止 ｜来源: 2026-09-04 V3 财务配置治愈波一 Task 13，S8 覆盖判据首次照见，业主核实三项事实后确认为真实业务缺口
+
 - [ ] **报价落"资格快照"**：现 quote 仅存 `policyRef=LEVEL:code`；V3 要求成交时落 命中集合 + 选中级 + 选中理由(最低费) + 客户此刻标签快照（可解释/可申诉）｜来源: 2026-07-11 费率 V3 §4.4/§5.5
 
 - [ ] **费率变更 30 日历日生效闸 + 通知客户**：现即改即生效；与提现/兑换 backlog 的 30 日闸同源（MC II.A.7/8），费率治理统一落 ｜来源: 2026-07-11 费率 V3 §1.2
