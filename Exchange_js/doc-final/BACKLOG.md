@@ -78,6 +78,10 @@ Last Updated: 2026-09-02
 
   ⚠️ **归 BACKLOG 不归 PRODUCTION-NOTES**：它动的是「钱动必过账」这条不可违反规则，一旦坐实会动摇账本可信度，不是纯技术兜底 ｜来源: 2026-08-30 破口场景批次 Task 5 收尾时撞见，专项调查报告见 `.superpowers/sdd/coa-imbalance-report.md`
 
+- [ ] **`TransactionLimitRule.ruleNo` 随机铸造，重铺一次孤儿 15 条 `TRANSACTION_LIMIT_SEEDED` 审计行——现存 45 条只有 15 条对应活着的规则**：`prisma/seed.business.ts:433-435` 的 `no()` 用 `generateReferenceNo('TLR')` 随机铸造 `ruleNo`，不像其余四块种子配置（资产 `assetNo`、托管钱包 `walletNo`、两族费率 `levelCode`）都用确定性业务号；`stack.sh reset` 清业务表但不清 `audit_log_events`，每次重铺 `ruleNo` 换一批新值，旧一批的 15 条 `TRANSACTION_LIMIT_SEEDED` 行找不到对应的活规则、变孤儿，净增不清零。实测现状：45 条里只有 15 条 `primarySubjectNo` 命中当前活着的规则，另外 30 条指向已不存在的规则号。演示者若按 `TRANSACTION_LIMIT_SEEDED` 过滤审计日志会直接看到这批孤儿。这是业务键不跨重铺稳定的一致性问题，不是技术兜底，故不进 `PRODUCTION-NOTES.md`。`ruleNo` 全仓只当查找键用（`transaction-limit-rules.service.ts:79` 的 `findByNo()` 纯 `findUnique({where:{ruleNo}})`，不解析格式），以后改成确定性生成是安全的 ｜来源: 2026-09-04 V3 财务配置治愈波一 Task 14 评审修复轮，R5 由计数改 join 后实证
+
+- [ ] **限额与费率两族 `*_SEEDED` 审计行的 `afterData` 里塞的是原始 UUID（`fromAssetId`/`toAssetId`/`assetId`），管理台按字面量渲染，犯铁律⑥**：`admin-web/src/pages/AuditLogDetailPage.tsx:242` 把 `detail.afterData` 整体交给 `JsonBlock`（`DetailPageComponents.tsx:200` `JSON.stringify(value, null, 2)`），零字段翻译；`TRANSACTION_LIMIT_SEEDED`/`SWAP_FEE_LEVEL_SEEDED`/`WITHDRAWAL_FEE_LEVEL_SEEDED` 三块种子把 `Asset.id`（UUID 内部键）原样写进 `afterData` 的 `assetId`/`fromAssetId`/`toAssetId`，演示者点开详情看到的是 `fromAssetId: e8594fa7-…` 而不是 `USDT-TRON`。这不是本任务新引入的孤例——库里已有 40 条历史 `SWAP_FEE_LEVEL_CREATION_REQUESTED`/`SWAP_FEE_LEVEL_CREATION_APPLIED`（各 20 条）同样把裸 UUID 写进 `afterData` 的 `fromAssetId`/`toAssetId`。登记覆盖两处：新的三块种子 + 这 40 条历史行；只改新种子会在同一份日志里留下两种形状（有的行是业务号、有的行是 UUID），半修比不修更糟 ｜来源: 2026-09-04 V3 财务配置治愈波一 Task 14 评审修复轮
+
 ## C. 第二幕 · 迎客（V2 客户与合规）
 
 > 讲「客户是谁、能不能交易由合规说了算」这一幕的缺口。最大一件是开户流程重做（站6 整体拆除后待接真 Sumsub 申请人侧）。

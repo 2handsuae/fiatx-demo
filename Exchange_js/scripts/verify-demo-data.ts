@@ -142,29 +142,65 @@ async function scanR4(prisma: PrismaClient): Promise<void> {
 }
 
 // ─────────────────────────────────────────────────────────────
-// R5（波一 T14）：配置身世——业务种子的五块配置每条都有 *_SEEDED 审计行（actorNo RELEASE）
+// R5（波一 T14 修复轮）：配置身世——按业务键 join，不按计数比较。
+//   计数版本对 reset 遗留的孤儿审计行免疫：TransactionLimitRule.ruleNo 随机铸造
+//   （seed.business.ts:433-435），每次重铺业务表被清但 audit_log_events 不清，
+//   净增的孤儿只会把计数推得更高，永远摸不到 count < expected 的红线（详见
+//   BACKLOG「限额审计孤儿」条）。这里改成对每一块活着的业务行，按其业务号
+//   在审计表里精确找一条同码 *_SEEDED 行（actorNo=RELEASE）；找不到就是这一
+//   行没留痕，报违规并指名是哪一行——孤儿行不参与比对，也不会被这条规则动。
 async function scanR5(prisma: PrismaClient): Promise<void> {
-  const expected: Record<string, number> = {
-    ASSET_SEEDED: 2,
-    CUSTODIAN_WALLET_SEEDED: 7,
-    TRANSACTION_LIMIT_SEEDED: 15,
-    SWAP_FEE_LEVEL_SEEDED: 3,
-    WITHDRAWAL_FEE_LEVEL_SEEDED: 2,
-  };
-  const rows = await (prisma as any).auditLogEvent.groupBy({
-    by: ['action'],
-    where: { actorNo: 'RELEASE', action: { in: Object.keys(expected) } },
-    _count: { _all: true },
+  const blocks: Array<{ action: string; entity: string; keys: string[] }> = [];
+
+  const assets: any[] = await (prisma as any).asset.findMany({ select: { assetNo: true } });
+  blocks.push({ action: 'ASSET_SEEDED', entity: 'asset', keys: assets.map((a) => a.assetNo) });
+
+  const custodianWallets: any[] = await (prisma as any).wallet.findMany({
+    where: { ownerType: 'PLATFORM' },
+    select: { walletNo: true },
   });
-  const got = new Map<string, number>(rows.map((r: any) => [r.action, r._count._all]));
-  for (const [code, n] of Object.entries(expected)) {
-    const count = got.get(code) ?? 0;
-    if (count < n) {
-      violations.push({
-        rule: 'R5',
-        entity: code,
-        detail: `expected >= ${n} *_SEEDED rows (actorNo=RELEASE), got ${count}`,
-      });
+  blocks.push({
+    action: 'CUSTODIAN_WALLET_SEEDED',
+    entity: 'wallet',
+    keys: custodianWallets.map((w) => w.walletNo),
+  });
+
+  const limitRules: any[] = await (prisma as any).transactionLimitRule.findMany({ select: { ruleNo: true } });
+  blocks.push({
+    action: 'TRANSACTION_LIMIT_SEEDED',
+    entity: 'transactionLimitRule',
+    keys: limitRules.map((r) => r.ruleNo),
+  });
+
+  const swapFeeLevels: any[] = await (prisma as any).swapFeeLevel.findMany({ select: { levelCode: true } });
+  blocks.push({
+    action: 'SWAP_FEE_LEVEL_SEEDED',
+    entity: 'swapFeeLevel',
+    keys: swapFeeLevels.map((l) => l.levelCode),
+  });
+
+  const withdrawalFeeLevels: any[] = await (prisma as any).withdrawalFeeLevel.findMany({ select: { levelCode: true } });
+  blocks.push({
+    action: 'WITHDRAWAL_FEE_LEVEL_SEEDED',
+    entity: 'withdrawalFeeLevel',
+    keys: withdrawalFeeLevels.map((l) => l.levelCode),
+  });
+
+  for (const block of blocks) {
+    if (block.keys.length === 0) continue;
+    const rows: any[] = await (prisma as any).auditLogEvent.findMany({
+      where: { actorNo: 'RELEASE', action: block.action, primarySubjectNo: { in: block.keys } },
+      select: { primarySubjectNo: true },
+    });
+    const seeded = new Set(rows.map((r) => r.primarySubjectNo));
+    for (const key of block.keys) {
+      if (!seeded.has(key)) {
+        violations.push({
+          rule: 'R5',
+          entity: key,
+          detail: `no ${block.action} audit row (actorNo=RELEASE, primarySubjectNo=${key}) for live ${block.entity}`,
+        });
+      }
     }
   }
 }
