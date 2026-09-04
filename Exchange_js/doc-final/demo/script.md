@@ -36,7 +36,7 @@
 
 **站 4 · 资产管控**（暂停就是总开关；上币不在这页）
 账号：`ops_officer@`（运营，maker）→ `ciso@`（CISO，checker）；切客户端 `demo_alice`
-走查：① 资产页打开 USDT-TRON——身份字段一屏看全：网络 TRON、合约 `TR7N…`（防诈骗字段）、TRC-20、19 个确认、托管方资产键 → ② 点 Suspend 填理由提交 → 详情出现待批徽章 + 审批单号 → ③ 换 `ciso@` 批准 → 状态 SUSPENDED → ④ 切客户端 alice：充值 / 兑换 / 提现三个页面的资产下拉都读同一份「只认 ACTIVE」的清单——USDT 同时从三处消失，三条路都选不到它（三域共用同一份清单当门，不是各自拦一道，也没有单独的报错提示）→ ⑤ 回 `ops_officer@` 提恢复 → `ciso@` 批 → ACTIVE → USDT 重新出现在三个下拉里 → ⑥ 审计页按 USDT 查：第一行 `ASSET_SEEDED`（actor `RELEASE`，metadata 带版本与 commit）——上币走开发流程随版本上架，管理台没有"新建资产"
+走查：① 资产页打开 USDT-TRON——身份字段一屏看全：网络 TRON、合约 `TR7N…`（防诈骗字段）、TRC-20、19 个确认、托管方资产键 → ② 点 Suspend 填理由提交 → 详情出现待批徽章 + 审批单号 → ③ 换 `ciso@` 批准 → 状态 SUSPENDED → ④ 切客户端 alice：充值 / 兑换 / 提现三个页面的资产下拉都读同一份「只认 ACTIVE」的清单——USDT 同时从三处消失，三条路都选不到它（三域共用同一份清单当门，不是各自拦一道，也没有单独的报错提示）→ ⑤ 回 `ops_officer@` 提恢复 → `ciso@` 批 → ACTIVE → USDT 重新出现在三个下拉里 → ⑥ 审计页**按资产业务号 `AS2601012024` 查**（这个号就在第 ① 步那张详情页上，对外识别一律用业务号——铁律⑥）：USDT-TRON 的一生五行同屏，第一行 `ASSET_SEEDED`（actor `RELEASE`，metadata 带版本与 commit），随后是刚做的两条人的戏（`ASSET_SUSPENSION_REQUESTED` → `ASSET_SUSPENDED` → `ASSET_REACTIVATION_REQUESTED` → `ASSET_REACTIVATED`）——上币走开发流程随版本上架，管理台没有"新建资产"。⚠️ **不要按 `USDT` 搜**：审计关键词只覆盖 action / 主体类型 / 主体号 / 操作人 / 归属客户 / traceId / 理由，`USDT-TRON` 只存在于 `afterData` 里，搜不到（2026-09-04 波一终审实证）
 期望：两个人的戏（运营提、CISO 批）；暂停当场让三条路都选不到 USDT；配置的身世从装载那一刻就有
 
 **站 5 · 三种门与容器**（钱放在哪、拦在哪一刻）

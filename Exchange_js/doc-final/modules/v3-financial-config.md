@@ -50,7 +50,7 @@
 管理台 `P+1`，11 职务账号见 `demo/data.md`；完整 6 站剧本见 `demo/script.md`，本篇只补技术细节：
 
 1. **站 2 · 费率页**：`cfo@` 改一档兑换费 → `ops_officer@` 批 → 客户端报价立刻变；对照：Grace（VIP 标签）与 Alice 各拿一次 USDT→AED 报价——Grace 命中 `VIP-USDT-AED`、Alice 命中 `STD-USDT-AED`（受众谓词 + 最便宜档）；退役：`cfo@` 对某档点 Retire → `ops_officer@` 批 → 列表筛 RETIRED；对 `STD-USDT-AED` 点 Retire 会被 `LAST_ACTIVE_DEFAULT` 拒
-2. **站 4 · 资产管控**：`ops_officer@` 对 USDT-TRON 提暂停 → `ciso@` 批 → 切客户端 alice：充值 / 兑换 / 提现三条路的 USDT 当场不可用 → `ops_officer@` 提恢复 → `ciso@` 批；讲清：上币不在这页——审计页按 USDT 查，第一行 `ASSET_SEEDED`（随版本上架）
+2. **站 4 · 资产管控**：`ops_officer@` 对 USDT-TRON 提暂停 → `ciso@` 批 → 切客户端 alice：充值 / 兑换 / 提现三条路的 USDT 当场不可用 → `ops_officer@` 提恢复 → `ciso@` 批；讲清：上币不在这页——审计页**按资产业务号查**（`AS2601012024`，详情页上就有；铁律⑥ 对外用业务键），第一行 `ASSET_SEEDED`（随版本上架）。⚠️ 不要按 `USDT` 搜：审计关键词不覆盖 `afterData`，而 `USDT-TRON` 只存在于那里（`audit-logs.service.ts:530-539`，2026-09-04 终审实证命中 0 行）
 3. **站 5 · 限额页**：按类型筛选三种门各看一眼 → `ops_officer@` 改一条单笔限额 → 详情待批徽章 → `sm@` 批
 4. **站 5 · 托管钱包页**（`treasury@`）：只读看容器——5 组（4 平台 vault + CLIENT_DEPOSIT）按 vault 分组，每行 = 一个网络上的一个地址；余额引导去账本页
 5. **站 5 · 提现地址簿**（客户端 alice + 管理台 `treasury@`）三拍：① 登记一条 TRON 地址（选网络）→ 冷却倒计时 → Cancel registration；② 再登记一条 → `treasury@` 详情 ⚡ Skip Cooling → ACTIVE → Force Suspend → Unsuspend；③ 用尚无法币账户的种子客户登记首个银行账户 → 即时 ACTIVE

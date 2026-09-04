@@ -63,6 +63,9 @@
 
 > 💡 **A 批（账龄线 + 公司池核销）在 worktree 内验证走自己的栈**：`bash scripts/stack.sh reset self` → `bash scripts/stack.sh up self` → `bash scripts/on-stack.sh self demo:all`（与 main 栈 `reset main` → `up main` 同构，仅栈名不同；worktree 内不得碰 main 栈，见 CLAUDE.md §10）。`recon:demo:break` 的检出判据仍是 **14/14 场景 + 11/11 钱包桶**——账龄与核销只改变案子「能不能平」，不改变检出与分桶，这两个数字不受本批影响。
 
+> 🔴 **V3 波一合并到 main 之后，第一次重铺前必须先 `rm -f /tmp/exchange_js_main/dev.db`——否则 `stack.sh reset main` 会中途失败。** 迁移 `20260903125954_v3w1_wallet_address_rows` 走 SQLite 建新表再 `INSERT…SELECT` 的模式，而新表的 `vaultCode` / `network` 是 NOT NULL、老 `wallets` 行没有这两列的值（Prisma 自己在该文件第 10–11 行就警告过「表非空则不可能」）。`apply-local-migrations.sh` 是**就地**升级现有库、`set -euo pipefail` + 事务，`db:biz:reset` 排在迁移之后、根本走不到。main 上现有 19 行 wallet，实测在隔离副本上复现：`NOT NULL constraint failed: new_wallets.vaultCode`，退出码 1；同一副本先清空 wallets 再跑则退出码 0（对照组）。按 §3「数据随时可重铺、不写兼容层」，正解是删库重建、不是给迁移打补丁。
+> 同一个 `rm` 顺带解决第二个合并后必红：`scripts/reset-business-data.ts` 不清 `audit_log_events`，而 main 的审计表里已有 5 行携带本波新退役的码（`ASSET_ACTIVATED` / `ASSET_ACTIVATION_REQUESTED` / `ASSET_CREATED_AND_PROVISIONED` / `CUSTODIAN_WALLET_CREATED` / `CUSTODIAN_WALLET_CREATE_REQUESTED`），不删库的话 `verify:audit` 不变量③「退役码零写入」会在 main 上恒红。**一条 `rm`，两个问题**（2026-09-04 波一终审实证，含对照组）。
+
 > ⚠️ **重铺前必须先 `stack.sh down <栈>` 停栈，否则 TigerBeetle 清不掉。** `reset-stack.sh` 的 `rm -f` 对运行中进程持有的文件只是 unlink，旧 tigerbeetle 仍在旧 inode 上服务 → SQLite 重铺了、TB 没有 → 客户 UUID 全新使 `CLIENT_PAYABLE` 读 0 而 SYSTEM 口径 `CLIENT_ASSET` 留旧余额（恒等式假红），多轮提现累积还会把公司 AED 打成负数（负余额假红）。2026-08-28 平账一期实测定位——正确顺序：`down` → `reset` → `up`。⚠️ `stack.sh reset` 自己会拉起 TigerBeetle，`up` 之前要先把它 kill 掉，否则 `up` 在 TB 端口上撞车。
 
 > 💡 **`verify:coa` 建议在 `test:e2e recon-adjustment-money-arcs` 之后再跑一次。** 调账单的四种分录组合里，`FIRM`+`REDUCE`（银行杂费）与 `FIRM`+`INCREASE`（银行利息）**只有这支 e2e 会真落账**——`demo:all` 不碰调账。在 e2e 之后跑 `verify:coa`，四种组合各自落账后的恒等式与负余额就都被覆盖了。2026-08-28 实测：e2e 后 ALL INVARIANTS PASS。
