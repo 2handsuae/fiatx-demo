@@ -670,6 +670,7 @@ export default function WithdrawalAddresses() {
                                 {cancelConfirmFor !== addr.addressNo && (
                                   <button
                                     onClick={(e) => { e.stopPropagation(); startCancel(addr.addressNo); }}
+                                    onKeyDown={(e) => e.stopPropagation()}
                                     className="text-xs font-semibold text-rose-400 hover:underline"
                                   >
                                     Cancel registration
@@ -823,6 +824,7 @@ export default function WithdrawalAddresses() {
                             {cancelConfirmFor !== addr.addressNo && (
                               <button
                                 onClick={(e) => { e.stopPropagation(); startCancel(addr.addressNo); }}
+                                onKeyDown={(e) => e.stopPropagation()}
                                 className="text-xs font-semibold text-rose-400 hover:underline"
                               >
                                 Cancel registration
