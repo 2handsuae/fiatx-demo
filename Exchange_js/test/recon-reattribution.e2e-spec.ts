@@ -30,6 +30,7 @@ import { TB_ACCOUNT_CODES, TB_CODE_TO_COA } from '../src/modules/accounting/tige
 import { TB_TRANSFER_CODES } from '../src/modules/accounting/tigerbeetle/constants/tb-transfer-codes.constant';
 import { ApprovalsService } from '../src/modules/governance/approvals/approvals.service';
 import { ApprovalActionTypes, ApprovalActorContext } from '../src/modules/governance/approvals/constants/approval.constants';
+import { ensureTbAccountRegistry, provisionTbAccounts } from '../prisma/seed-tb.helper';
 import { AuditActions, AuditEntityTypes } from '../src/modules/audit-logging/constants/audit-actions.constant';
 import { generateReferenceNo } from '../src/common/utils/no-generator.util';
 
@@ -92,11 +93,6 @@ describe('Recon reattribution + disposition behaviour (e2e, Task 12)', () => {
   let aedAssetId: string;
   let aedCode: string; // 'AED' — 法币 code == currency，避开 code≠currency 那个坑（那条已由 money-arcs 场景 8 锁住）
 
-  let carolId: string;
-  let carolNo: string;
-  let daveId: string;
-  let daveNo: string;
-
   // 截止点钉在 wall-clock now 之后几天：本文件所有夹具写入的 effectiveDate 都是
   // 默认的「今天」，于是 effectiveCutoffFilter 的 `effectiveDate < businessDate`
   // 这一支无条件成立，取数不依赖 createdAt 与 cutoff 的毫秒先后（同范本）。
@@ -132,19 +128,6 @@ describe('Recon reattribution + disposition behaviour (e2e, Task 12)', () => {
     }
     aedAssetId = aed.id;
     aedCode = aed.code;
-
-    const carol = await (prisma as any).customerMain.findUnique({ where: { email: 'demo_carol@example.com' } });
-    const dave = await (prisma as any).customerMain.findUnique({ where: { email: 'demo_dave@example.com' } });
-    if (!carol || !dave) {
-      throw new Error(
-        "Fixture customers demo_carol@example.com / demo_dave@example.com not found — this worktree's " +
-          'self-stack DB needs business seed data first: `DATABASE_URL=... TB_ADDRESS=... npm run db:biz:init`.',
-      );
-    }
-    carolId = carol.id;
-    carolNo = carol.customerNo;
-    daveId = dave.id;
-    daveNo = dave.customerNo;
   });
 
   afterAll(async () => {
@@ -174,13 +157,13 @@ describe('Recon reattribution + disposition behaviour (e2e, Task 12)', () => {
    *  别的 spec 文件的并发 worker 会往同一个物理钱包上落真实流水（范本头注释
    *  论证过同一件事），共用等于让本文件的余额断言随机翻车。 */
   async function createCustomerWallet(opts: {
-    ownerId: string; ownerNo: string; assetId: string; walletRole: 'C_VIBAN' | 'C_DEP'; type: string; iban?: string;
+    ownerId: string; ownerNo: string; network: string; walletRole: 'C_VIBAN' | 'C_DEP'; iban?: string;
   }): Promise<{ id: string }> {
     return (prisma as any).wallet.create({
       data: {
         walletNo: `WA-E2E-REATTR-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
         ownerType: 'CUSTOMER', ownerId: opts.ownerId, ownerNo: opts.ownerNo,
-        type: opts.type, walletRole: opts.walletRole, assetId: opts.assetId,
+        vaultCode: 'CLIENT_DEPOSIT', walletRole: opts.walletRole, network: opts.network,
         iban: opts.iban ?? null, status: 'ACTIVE',
       },
       select: { id: true },
@@ -189,17 +172,58 @@ describe('Recon reattribution + disposition behaviour (e2e, Task 12)', () => {
 
   /** 全新公司钱包——同样不碰种子的 F_FEE（那是共享聚合户，提现/兑换套件会往上
    *  真的落手续费收入）。ownerType:'PLATFORM' 与种子惯例一致，R2 校验按
-   *  FIRM_SIDE={PLATFORM,SYSTEM} 放行。 */
-  async function createFirmWallet(opts: { assetId: string; walletRole: string; type: string }): Promise<{ id: string }> {
+   *  FIRM_SIDE={PLATFORM,SYSTEM} 放行。唯一键 (vaultCode, network, ownerNo)
+   *  不允许第二条 PLATFORM 行，独立归属号避开种子的 'PLATFORM'。 */
+  async function createFirmWallet(opts: { vaultCode: string; network: string }): Promise<{ id: string }> {
+    const tag = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     return (prisma as any).wallet.create({
       data: {
-        walletNo: `WA-E2E-REATTR-FIRM-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-        ownerType: 'PLATFORM', ownerId: null, ownerNo: 'PLATFORM',
-        type: opts.type, walletRole: opts.walletRole, assetId: opts.assetId,
+        walletNo: `WA-E2E-REATTR-FIRM-${tag}`,
+        ownerType: 'PLATFORM', ownerId: null, ownerNo: `PLATFORM-E2E-${tag}`,
+        vaultCode: opts.vaultCode, walletRole: opts.vaultCode, network: opts.network,
         status: 'ACTIVE',
       },
       select: { id: true },
     });
+  }
+
+  /** 全新 fixture 客户，专属场景 A 的一端（错记方或正主方）——照抄
+   *  sla.e2e-spec.ts 的 makeCustomer() / material-requests.e2e-spec.ts 的
+   *  per-call customer maker。Task 4 把 Wallet 的唯一键改成 (vaultCode, network,
+   *  ownerNo)，场景 A 原来共用种子的 carol/dave 在 AED_ZAND 上各开一个钱包，
+   *  这与另外两份 recon e2e 文件（同样共用 carol/dave 的 AED_ZAND 行、三份
+   *  文件串行跑在同一个库上）以及自身重跑都会撞同一把钥匙——改用各自现铸的
+   *  专属客户。customerNo 由 generateReferenceNo 现铸，每次调用都不同。 */
+  async function makeCustomer(tag: string): Promise<{ id: string; customerNo: string }> {
+    const customerNo = generateReferenceNo('CU');
+    const row = await (prisma as any).customerMain.create({
+      data: {
+        email: `e2e_recon_reattr_${tag}_${customerNo}@example.com`.toLowerCase(),
+        customerNo,
+        phone: `+1${customerNo.replace(/\D/g, '')}`,
+        firstName: 'Recon', lastName: 'Fixture',
+        customerType: 'INDIVIDUAL',
+        lifecycle: 'ACTIVE',
+        riskRating: 'LOW', tradingTier: 'BASIC', eddRequired: false,
+      },
+      select: { id: true, customerNo: true },
+    });
+    return { id: row.id, customerNo: row.customerNo };
+  }
+
+  /** 新客户不像种子的 8 个 DEMO_CUSTOMERS（carol/dave 在内）那样天然带全资产的
+   *  TB 账户注册行（seed.business.ts 只为种子客户无条件建）——场景 A 里错记方
+   *  被 fundCustomerWallet() 真转账、正主方的 CLIENT_PAYABLE 也在改记单落账时
+   *  被真转账收款，两端都要自己补上 AED 这两个注册行，照抄
+   *  swap-sumsub-scenarios.e2e-spec.ts 的同一步。 */
+  async function ensureCustomerAedTbAccounts(customerId: string, customerNo: string): Promise<void> {
+    for (const code of [TB_ACCOUNT_CODES.CLIENT_PAYABLE, TB_ACCOUNT_CODES.DEPOSIT_SUSPENSE]) {
+      await ensureTbAccountRegistry(prisma as any, {
+        code, ledger: 1, ownerType: 'CUSTOMER', ownerUuid: customerId, ownerNo: customerNo,
+        assetCode: aedCode, description: `e2e recon-reattribution ${code}/AED`,
+      });
+    }
+    await provisionTbAccounts(prisma as any);
   }
 
   /**
@@ -416,23 +440,28 @@ describe('Recon reattribution + disposition behaviour (e2e, Task 12)', () => {
     const ledger = 1; // AED
     const X = 87500n; // AED 875.00 —— 被记错主人的那一笔
 
-    // 错记方（carol）：钱真进了我们的账，记在她名下；银行对账单上根本没有这一笔
-    // （因为这笔钱在银行那边是打给 dave 的）。
+    // 错记方（专属 fixture 客户）：钱真进了我们的账，记在她名下；银行对账单上
+    // 根本没有这一笔（因为这笔钱在银行那边是打给正主方的）。
+    const fromCustomer = await makeCustomer('FROM');
+    await ensureCustomerAedTbAccounts(fromCustomer.id, fromCustomer.customerNo);
     const fromWallet = await createCustomerWallet({
-      ownerId: carolId, ownerNo: carolNo, assetId: aedAssetId, walletRole: 'C_VIBAN', type: 'FIAT_BANK',
+      ownerId: fromCustomer.id, ownerNo: fromCustomer.customerNo, network: 'AED_ZAND', walletRole: 'C_VIBAN',
       iban: `AE_E2E_REATTR_FROM_${Date.now()}`,
     });
     const crossingRef = `ZANDREF-E2E-REATTR-FROM-${randomUUID().slice(0, 8)}`;
     await fundCustomerWallet({
-      walletId: fromWallet.id, ownerId: carolId, ledger, currency: aedCode, amount: X,
+      walletId: fromWallet.id, ownerId: fromCustomer.id, ledger, currency: aedCode, amount: X,
       tag: 'FROM', externalRef: crossingRef,
     });
     // 外部对账单：这个钱包上一分钱都没有 → 差额 = 0 − X = −X。
     await upsertExternalBalance({ walletId: fromWallet.id, currency: aedCode, book: 'CLIENT', closingBalance: 0n });
 
-    // 正主方（dave）：银行那边真收到了这笔钱，我方内部一分没记。
+    // 正主方（专属 fixture 客户）：银行那边真收到了这笔钱，我方内部一分没记。
+    // CLIENT_PAYABLE 也要先备好——下面改记单落账时会真收款到这个户头。
+    const toCustomer = await makeCustomer('TO');
+    await ensureCustomerAedTbAccounts(toCustomer.id, toCustomer.customerNo);
     const toWallet = await createCustomerWallet({
-      ownerId: daveId, ownerNo: daveNo, assetId: aedAssetId, walletRole: 'C_VIBAN', type: 'FIAT_BANK',
+      ownerId: toCustomer.id, ownerNo: toCustomer.customerNo, network: 'AED_ZAND', walletRole: 'C_VIBAN',
       iban: `AE_E2E_REATTR_TO_${Date.now()}`,
     });
     const toExternalRef = `ZANDREF-E2E-REATTR-TO-${randomUUID().slice(0, 8)}`;
@@ -452,8 +481,8 @@ describe('Recon reattribution + disposition behaviour (e2e, Task 12)', () => {
     expect(toCase).toBeTruthy();
     expect(fromCase.book).toBe('CUSTOMER');
     expect(toCase.book).toBe('CUSTOMER');
-    expect(fromCase.ownerNo).toBe(carolNo);
-    expect(toCase.ownerNo).toBe(daveNo);
+    expect(fromCase.ownerNo).toBe(fromCustomer.customerNo);
+    expect(toCase.ownerNo).toBe(toCustomer.customerNo);
     expect(String(fromCase.deltaAmount)).toBe(`-${X}`); // 外部 0 − 内部 X
     expect(String(toCase.deltaAmount)).toBe(String(X));  // 外部 X − 内部 0
     // 改记开单要求两案同业务日（跨日改记本轮不做）——同一次 run 天然同日。
@@ -495,7 +524,7 @@ describe('Recon reattribution + disposition behaviour (e2e, Task 12)', () => {
     // 数据），本条要证的是「正主方那一案确实被找出来了、锚指对了」，不是候选集大小。
     const hit = candidates.find((c) => c.caseNo === toCase.caseNo);
     expect(hit).toBeTruthy();
-    expect(hit!.ownerNo).toBe(daveNo);
+    expect(hit!.ownerNo).toBe(toCustomer.customerNo);
     expect(hit!.amount).toBe(String(X));
     // 锚必须是外部对账单行 id（跨轮稳定的真实证据），不是每轮重建的差异行 id。
     expect(hit!.anchorId).toBe(toLine.id);
@@ -505,7 +534,7 @@ describe('Recon reattribution + disposition behaviour (e2e, Task 12)', () => {
     // 边界线守卫：改记必须指向一张真实存在的原单（KYT 对这笔钱跑过才放行）。
     // 叙事上就是那笔被记错主人的充值——收款钱包 = 错记方钱包。
     const originalDeposit = await createFixtureDeposit({
-      ownerId: carolId, assetId: aedAssetId, toWalletId: fromWallet.id, amount: String(X),
+      ownerId: fromCustomer.id, assetId: aedAssetId, toWalletId: fromWallet.id, amount: String(X),
     });
 
     const { adjustmentNo } = await adjustments.createDraft(
@@ -532,8 +561,8 @@ describe('Recon reattribution + disposition behaviour (e2e, Task 12)', () => {
     // direction 落 'REATTRIBUTE'（不是入参的 REDUCE）——分录由族定，不走 book×direction。
     expect(draft.direction).toBe('REATTRIBUTE');
     expect(draft.book).toBe('CLIENT');
-    expect(draft.ownerNo).toBe(carolNo);
-    expect(draft.toOwnerNo).toBe(daveNo);
+    expect(draft.ownerNo).toBe(fromCustomer.customerNo);
+    expect(draft.toOwnerNo).toBe(toCustomer.customerNo);
 
     // 定性联动真的回填了（linkAdjustment 的行为证明）。
     const linkedDisposition = await (prisma as any).reconciliationDisposition.findUnique({
@@ -548,7 +577,7 @@ describe('Recon reattribution + disposition behaviour (e2e, Task 12)', () => {
     expect(approvalCase).toBeTruthy();
     expect(approvalCase.status).toBe('PENDING');
     // 审批页要看得见钱去了谁名下——只看到「错记方少了一笔」的审批就是橡皮图章。
-    expect(JSON.parse(approvalCase.objectSnapshot).toOwnerNo).toBe(daveNo);
+    expect(JSON.parse(approvalCase.objectSnapshot).toOwnerNo).toBe(toCustomer.customerNo);
 
     await approvalsService.approve(
       approvalCase.approvalNo, { reason: 'e2e approve reattribution' }, makeActor('E2E_OPS_APPROVER_A', 'CFO'),
@@ -591,8 +620,8 @@ describe('Recon reattribution + disposition behaviour (e2e, Task 12)', () => {
     expect(inReg.code).not.toBe(TB_ACCOUNT_CODES.CLIENT_ASSET);
     expect(outReg.ownerType).toBe('CUSTOMER');
     expect(inReg.ownerType).toBe('CUSTOMER');
-    expect(outReg.ownerNo).toBe(carolNo); // 借：从错记方名下拿走
-    expect(inReg.ownerNo).toBe(daveNo);   // 贷：记到正主方名下
+    expect(outReg.ownerNo).toBe(fromCustomer.customerNo); // 借：从错记方名下拿走
+    expect(inReg.ownerNo).toBe(toCustomer.customerNo);   // 贷：记到正主方名下
     expect(outReg.ownerNo).not.toBe(inReg.ownerNo); // 两腿必须是**不同**客户的应付户
 
     // 凭证侧同一结论（写的人说的）与上面注册表侧（TB 真做的）互为交叉验证。
@@ -616,8 +645,8 @@ describe('Recon reattribution + disposition behaviour (e2e, Task 12)', () => {
     expect(auditEvent.actorNo).toBe('E2E_OPS_APPROVER_A');
     const auditSubjects = await (prisma as any).auditLogSubject.findMany({ where: { eventId: auditEvent.id } });
     const owners = auditSubjects.filter((s: any) => s.subjectType === 'CUSTOMER' && s.subjectRole === 'OWNER').map((s: any) => s.subjectNo);
-    expect(owners).toContain(carolNo);
-    expect(owners).toContain(daveNo);
+    expect(owners).toContain(fromCustomer.customerNo);
+    expect(owners).toContain(toCustomer.customerNo);
 
     // ── ⑦ 挂单锁：定性已挂调账单，同锚再定性一次必须被拒 ────────────────────
     // ⚠ 必须**趁案子还 OPEN** 做这一步：案子一旦被重对账关掉，record() 会先撞上
@@ -713,7 +742,7 @@ describe('Recon reattribution + disposition behaviour (e2e, Task 12)', () => {
 
     // 公司池：ownerNo 为空，不牵连任何客户（也天然不会跟场景 A 的客户案件串成
     // 改记候选——候选按 book 过滤）。
-    const wallet = await createFirmWallet({ assetId: aedAssetId, walletRole: 'F_FEE', type: 'FIAT_BANK' });
+    const wallet = await createFirmWallet({ vaultCode: 'F_FEE', network: 'AED_ZAND' });
     const ref = `ZANDREF-E2E-REATTR-B-${randomUUID().slice(0, 8)}`;
     await fundFirmWallet({ walletId: wallet.id, ledger, currency: aedCode, amount: BOOKED, tag: 'B', externalRef: ref });
     const line = await createExternalLine({

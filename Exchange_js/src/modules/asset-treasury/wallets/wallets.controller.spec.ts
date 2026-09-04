@@ -5,13 +5,11 @@ import { WalletsService } from './wallets.service';
 import { WalletQueryService } from './wallet-query.service';
 import {
   OwnerType,
-  WalletStatus,
 } from './dto/wallet.dto';
 
 describe('WalletsController', () => {
   let controller: WalletsController;
   const serviceMock = {
-    changeStatus: jest.fn(),
     // Task 18：三端点改按 walletNo 收参，落地前先经 findByWalletNo 换回内部
     // id——镜像 walletNo 本身即 id，下游断言不必再区分两者。
     findByWalletNo: jest.fn(),
@@ -19,7 +17,6 @@ describe('WalletsController', () => {
   const queryServiceMock = {
     findAll: jest.fn(),
     findOne: jest.fn(),
-    findBalance: jest.fn(),
   };
 
   const customerReq = { user: { type: 'CUSTOMER', userId: 'cust-1' } };
@@ -42,16 +39,7 @@ describe('WalletsController', () => {
   it('should force CUSTOMER list query to self owner', async () => {
     queryServiceMock.findAll.mockResolvedValue({ items: [], total: 0 });
 
-    await controller.findAll(
-      customerReq,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-    );
+    await controller.findAll(customerReq);
 
     expect(queryServiceMock.findAll).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -77,7 +65,6 @@ describe('WalletsController', () => {
       undefined,
       undefined,
       undefined,
-      undefined,
       'AE07',
     );
 
@@ -94,21 +81,6 @@ describe('WalletsController', () => {
     );
   });
 
-  it('should reject CUSTOMER querying other ownerId', () => {
-    expect(() =>
-      controller.findAll(
-        customerReq,
-        undefined,
-        undefined,
-        undefined,
-        'cust-2',
-        undefined,
-        undefined,
-        undefined,
-      ),
-    ).toThrow(ForbiddenException);
-  });
-
   it('should reject CUSTOMER querying non-CUSTOMER ownerType', () => {
     expect(() =>
       controller.findAll(
@@ -116,19 +88,7 @@ describe('WalletsController', () => {
         undefined,
         undefined,
         OwnerType.PLATFORM,
-        undefined,
-        undefined,
-        undefined,
-        undefined,
       ),
-    ).toThrow(ForbiddenException);
-  });
-
-  it('should reject CUSTOMER changing wallet status', () => {
-    expect(() =>
-      controller.changeStatus(customerReq, 'wallet-1', {
-        status: WalletStatus.DISABLED,
-      }),
     ).toThrow(ForbiddenException);
   });
 

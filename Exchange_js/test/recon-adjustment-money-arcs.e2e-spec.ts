@@ -32,6 +32,7 @@ import { ApprovalActionTypes, ApprovalActorContext } from '../src/modules/govern
 import { AuditActions, AuditEntityTypes } from '../src/modules/audit-logging/constants/audit-actions.constant';
 import { generateReferenceNo } from '../src/common/utils/no-generator.util';
 import { WithdrawTransactionStatus } from '../src/modules/trading/withdraw-transactions/dto/withdraw-transaction.dto';
+import { ensureTbAccountRegistry, provisionTbAccounts } from '../prisma/seed-tb.helper';
 
 /**
  * Task 8: recon-adjustment (调账单) e2e — proves the whole 平账一期 chain works
@@ -107,11 +108,6 @@ describe('Recon adjustment money arcs (e2e, Task 8)', () => {
   let aedAssetId: string;
   let aedCode: string; // 'AED' — equals asset.currency for fiat, unlike crypto
 
-  let carolId: string;
-  let carolNo: string;
-  let daveId: string;
-  let daveNo: string;
-
   // Cutoff pinned a few days ahead of wall-clock `now` so every fixture write
   // in this file (effectiveDate defaults to today) is unconditionally included
   // via effectiveCutoffFilter's `effectiveDate < businessDate(cutoff)` branch —
@@ -145,19 +141,6 @@ describe('Recon adjustment money arcs (e2e, Task 8)', () => {
     }
     aedAssetId = aed.id;
     aedCode = aed.code;
-
-    const carol = await (prisma as any).customerMain.findUnique({ where: { email: 'demo_carol@example.com' } });
-    const dave = await (prisma as any).customerMain.findUnique({ where: { email: 'demo_dave@example.com' } });
-    if (!carol || !dave) {
-      throw new Error(
-        "Fixture customers demo_carol@example.com / demo_dave@example.com not found — this worktree's " +
-          'self-stack DB needs business seed data first: `DATABASE_URL=... TB_ADDRESS=... npm run db:biz:init`.',
-      );
-    }
-    carolId = carol.id;
-    carolNo = carol.customerNo;
-    daveId = dave.id;
-    daveNo = dave.customerNo;
   });
 
   afterAll(async () => {
@@ -193,13 +176,13 @@ describe('Recon adjustment money arcs (e2e, Task 8)', () => {
    *  ensureCustomerWallet, but always creates — never reused across scenarios
    *  so each scenario's account_flows are provably exclusive to it). */
   async function createCustomerWallet(opts: {
-    ownerId: string; ownerNo: string; assetId: string; walletRole: 'C_VIBAN' | 'C_DEP'; type: string; iban?: string; address?: string;
+    ownerId: string; ownerNo: string; network: string; walletRole: 'C_VIBAN' | 'C_DEP'; iban?: string; address?: string;
   }): Promise<{ id: string }> {
     return (prisma as any).wallet.create({
       data: {
         walletNo: `WA-E2E-ADJ-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
         ownerType: 'CUSTOMER', ownerId: opts.ownerId, ownerNo: opts.ownerNo,
-        type: opts.type, walletRole: opts.walletRole, assetId: opts.assetId,
+        vaultCode: 'CLIENT_DEPOSIT', walletRole: opts.walletRole, network: opts.network,
         address: opts.address ?? null, iban: opts.iban ?? null, status: 'ACTIVE',
       },
       select: { id: true },
@@ -210,17 +193,66 @@ describe('Recon adjustment money arcs (e2e, Task 8)', () => {
    *  which is a shared aggregate other e2e suites post real fee income to
    *  concurrently (see file header). ownerType:'PLATFORM' matches the seeded
    *  convention so the R2 walletRef/registry-owner check in
-   *  AccountFlowProjectorService exempts it (FIRM_SIDE = {PLATFORM, SYSTEM}). */
-  async function createFirmWallet(opts: { assetId: string; walletRole: string; type: string }): Promise<{ id: string }> {
+   *  AccountFlowProjectorService exempts it (FIRM_SIDE = {PLATFORM, SYSTEM}).
+   *  唯一键 (vaultCode, network, ownerNo) 不允许第二条 PLATFORM 行，独立归属号
+   *  避开种子的 'PLATFORM'。 */
+  async function createFirmWallet(opts: { vaultCode: string; network: string }): Promise<{ id: string }> {
+    const tag = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     return (prisma as any).wallet.create({
       data: {
-        walletNo: `WA-E2E-ADJ-FIRM-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-        ownerType: 'PLATFORM', ownerId: null, ownerNo: 'PLATFORM',
-        type: opts.type, walletRole: opts.walletRole, assetId: opts.assetId,
+        walletNo: `WA-E2E-ADJ-FIRM-${tag}`,
+        ownerType: 'PLATFORM', ownerId: null, ownerNo: `PLATFORM-E2E-${tag}`,
+        vaultCode: opts.vaultCode, walletRole: opts.vaultCode, network: opts.network,
         status: 'ACTIVE',
       },
       select: { id: true },
     });
+  }
+
+  /** Fresh fixture customer, exclusive to one scenario — mirrors sla.e2e-spec.ts's
+   *  makeCustomer() / material-requests.e2e-spec.ts's per-call customer maker.
+   *  Task 4 made Wallet's unique key (vaultCode, network, ownerNo), so scenarios
+   *  that used to share carol/dave's ownerNo can no longer coexist — not just the
+   *  6 carol/2 dave scenarios that shared AED_ZAND (an intra-run collision), but
+   *  even scenario 8's lone TRON wallet on dave (an inter-run collision: dave's
+   *  customerNo is stable, so its TRON row survives across suite runs and the
+   *  SECOND run's insert hits the exact same key — reproduced empirically while
+   *  verifying this fix). Every scenario that creates a customer wallet now uses
+   *  makeCustomer() instead of reusing carol/dave. customerNo comes from
+   *  generateReferenceNo (fresh every call), so repeated suite runs against this
+   *  persistent DB never collide on customerMain's own email/customerNo unique
+   *  constraints either — same "random suffix, not just a tag" caution this file
+   *  already applies to walletNo/sourceNo below. */
+  async function makeCustomer(tag: string): Promise<{ id: string; customerNo: string }> {
+    const customerNo = generateReferenceNo('CU');
+    const row = await (prisma as any).customerMain.create({
+      data: {
+        email: `e2e_recon_adj_${tag}_${customerNo}@example.com`.toLowerCase(),
+        customerNo,
+        phone: `+1${customerNo.replace(/\D/g, '')}`,
+        firstName: 'Recon', lastName: 'Fixture',
+        customerType: 'INDIVIDUAL',
+        lifecycle: 'ACTIVE',
+        riskRating: 'LOW', tradingTier: 'BASIC', eddRequired: false,
+      },
+      select: { id: true, customerNo: true },
+    });
+    return { id: row.id, customerNo: row.customerNo };
+  }
+
+  /** Fresh customers don't inherit the demo seed's per-customer TB accounts —
+   *  seed.business.ts only provisions CLIENT_PAYABLE/DEPOSIT_SUSPENSE unconditionally
+   *  for the 8 seeded DEMO_CUSTOMERS (carol/dave included). Scenarios that call
+   *  fundCustomerWallet() on a makeCustomer() row need to provision AED themselves
+   *  first — mirrors swap-sumsub-scenarios.e2e-spec.ts's own per-customer step. */
+  async function ensureCustomerAedTbAccounts(customerId: string, customerNo: string): Promise<void> {
+    for (const code of [TB_ACCOUNT_CODES.CLIENT_PAYABLE, TB_ACCOUNT_CODES.DEPOSIT_SUSPENSE]) {
+      await ensureTbAccountRegistry(prisma as any, {
+        code, ledger: 1, ownerType: 'CUSTOMER', ownerUuid: customerId, ownerNo: customerNo,
+        assetCode: aedCode, description: `e2e recon-adjustment ${code}/AED`,
+      });
+    }
+    await provisionTbAccounts(prisma as any);
   }
 
   /** Real production evidence shape — mirrors deposit-workflow.service.ts's own
@@ -450,14 +482,16 @@ describe('Recon adjustment money arcs (e2e, Task 8)', () => {
 
   it('1. 客户账簿·减（重复入账撤销）：BREAK case → 开单 → 提交 → 真的批准 → account_flows 落账 + 审计留痕 → 重跑对账 → case AUTO_HEALED', async () => {
     const ledger = 1; // AED
+    const customer = await makeCustomer('C1');
+    await ensureCustomerAedTbAccounts(customer.id, customer.customerNo);
     const wallet = await createCustomerWallet({
-      ownerId: carolId, ownerNo: carolNo, assetId: aedAssetId, walletRole: 'C_VIBAN', type: 'FIAT_BANK',
+      ownerId: customer.id, ownerNo: customer.customerNo, network: 'AED_ZAND', walletRole: 'C_VIBAN',
       iban: `AE_E2E_ADJ_C1_${Date.now()}`,
     });
 
     const X1 = 20000n; // AED 200.00, posted TWICE below (simulated duplicate deposit entry)
-    await fundCustomerWallet({ walletId: wallet.id, ownerId: carolId, assetId: aedAssetId, ledger, currency: aedCode, amount: X1, tag: 'C1-A' });
-    await fundCustomerWallet({ walletId: wallet.id, ownerId: carolId, assetId: aedAssetId, ledger, currency: aedCode, amount: X1, tag: 'C1-B' });
+    await fundCustomerWallet({ walletId: wallet.id, ownerId: customer.id, assetId: aedAssetId, ledger, currency: aedCode, amount: X1, tag: 'C1-A' });
+    await fundCustomerWallet({ walletId: wallet.id, ownerId: customer.id, assetId: aedAssetId, ledger, currency: aedCode, amount: X1, tag: 'C1-B' });
     // internal.total for this wallet is now 2×X1 = 40000 (two "deposits" landed).
 
     // External bank statement only ever saw ONE legitimate deposit — X1.
@@ -469,7 +503,7 @@ describe('Recon adjustment money arcs (e2e, Task 8)', () => {
     const kase = await openCaseFor(wallet.id);
     expect(kase).toBeTruthy();
     expect(kase.book).toBe('CUSTOMER'); // recon-engine vocabulary (WalletKind) — AdjustmentService.createDraft() converts this to Book='CLIENT'
-    expect(kase.ownerNo).toBe(carolNo);
+    expect(kase.ownerNo).toBe(customer.customerNo);
     expect(String(kase.deltaAmount)).toBe('-20000'); // external(20000) − internal(40000); Decimal, not a plain string
 
     const { adjustmentNo } = await adjustments.createDraft(
@@ -558,14 +592,16 @@ describe('Recon adjustment money arcs (e2e, Task 8)', () => {
 
   it('2. 客户账簿·加（提现撤销退回，带关联原单）：闭环 + 分录方向为 借客户托管/贷客户应付', async () => {
     const ledger = 1; // AED
+    const customer = await makeCustomer('C2');
+    await ensureCustomerAedTbAccounts(customer.id, customer.customerNo);
     const wallet = await createCustomerWallet({
-      ownerId: daveId, ownerNo: daveNo, assetId: aedAssetId, walletRole: 'C_VIBAN', type: 'FIAT_BANK',
+      ownerId: customer.id, ownerNo: customer.customerNo, network: 'AED_ZAND', walletRole: 'C_VIBAN',
       iban: `AE_E2E_ADJ_C2_${Date.now()}`,
     });
 
     const FUNDED = 30000n;   // 我们账上记着的
     const REALLY = 45000n;   // 外部实际有的 —— 我们少记了 15000（一笔提现扣了客户的钱但实际没出去）
-    await fundCustomerWallet({ walletId: wallet.id, ownerId: daveId, assetId: aedAssetId, ledger, currency: aedCode, amount: FUNDED, tag: 'C2' });
+    await fundCustomerWallet({ walletId: wallet.id, ownerId: customer.id, assetId: aedAssetId, ledger, currency: aedCode, amount: FUNDED, tag: 'C2' });
     await upsertExternalBalance({ walletId: wallet.id, currency: aedCode, book: 'CLIENT', closingBalance: REALLY });
 
     expect((await walletRecon.run({ cutoff: CUTOFF })).status).toBe('BREAK');
@@ -578,7 +614,7 @@ describe('Recon adjustment money arcs (e2e, Task 8)', () => {
     // 编一个字符串（这行改动本身就是 Fix 3 那条评审发现的实证：改之前这里写死
     // 'WD-E2E-ADJ-C2-0001'，一张不存在的单号，createDraft 照样放行并成功过账）。
     const originalWithdraw = await createFixtureWithdraw({
-      ownerId: daveId, ownerNo: daveNo, assetId: aedAssetId, amount: '15000',
+      ownerId: customer.id, ownerNo: customer.customerNo, assetId: aedAssetId, amount: '15000',
     });
 
     const { adjustmentNo } = await adjustments.createDraft(
@@ -620,7 +656,7 @@ describe('Recon adjustment money arcs (e2e, Task 8)', () => {
 
   it('3. 公司账簿·加（银行利息）：闭环 + 分录方向为 借公司资产/贷其他收入', async () => {
     const ledger = 1; // AED
-    const wallet = await createFirmWallet({ assetId: aedAssetId, walletRole: 'F_FEE', type: 'FIAT_BANK' });
+    const wallet = await createFirmWallet({ vaultCode: 'F_FEE', network: 'AED_ZAND' });
 
     const FUNDED = 5000n;
     const REALLY = 7000n; // 银行多给了 2000 —— 利息，归公司（decisions.md 2026-08-28）
@@ -669,11 +705,12 @@ describe('Recon adjustment money arcs (e2e, Task 8)', () => {
   });
 
   it('4. 反向断言：审批未通过 → 账本零动静、单仍待审批；驳回后仍零动静且落终态 REJECTED', async () => {
+    const customer = await makeCustomer('C4');
     const wallet = await createCustomerWallet({
-      ownerId: carolId, ownerNo: carolNo, assetId: aedAssetId, walletRole: 'C_VIBAN', type: 'FIAT_BANK',
+      ownerId: customer.id, ownerNo: customer.customerNo, network: 'AED_ZAND', walletRole: 'C_VIBAN',
       iban: `AE_E2E_ADJ_C4_${Date.now()}`,
     });
-    const kase = await createFixtureCase({ walletRef: wallet.id, book: 'CLIENT', ownerNo: carolNo });
+    const kase = await createFixtureCase({ walletRef: wallet.id, book: 'CLIENT', ownerNo: customer.customerNo });
 
     const { adjustmentNo } = await adjustments.createDraft(
       {
@@ -704,11 +741,12 @@ describe('Recon adjustment money arcs (e2e, Task 8)', () => {
   });
 
   it('5. 边界线守卫：客户账簿 + 加钱 + 无关联原单 → 拒（凭空给客户加钱等于绕过 KYT 与合规闸）', async () => {
+    const customer = await makeCustomer('C5');
     const wallet = await createCustomerWallet({
-      ownerId: carolId, ownerNo: carolNo, assetId: aedAssetId, walletRole: 'C_VIBAN', type: 'FIAT_BANK',
+      ownerId: customer.id, ownerNo: customer.customerNo, network: 'AED_ZAND', walletRole: 'C_VIBAN',
       iban: `AE_E2E_ADJ_C5_${Date.now()}`,
     });
-    const kase = await createFixtureCase({ walletRef: wallet.id, book: 'CLIENT', ownerNo: carolNo });
+    const kase = await createFixtureCase({ walletRef: wallet.id, book: 'CLIENT', ownerNo: customer.customerNo });
 
     await expect(
       adjustments.createDraft(
@@ -744,13 +782,25 @@ describe('Recon adjustment money arcs (e2e, Task 8)', () => {
     expect(usdt.code).not.toBe(usdt.currency); // 前提：这条测试的意义就建立在两者不同上
 
     const ledger = 2;
+    // 专属客户，不用种子的 dave：TRON 与其余场景的 AED_ZAND 不撞（评审原话“合法、
+    // 无需改”），但 daveNo 本身是稳定值，(CLIENT_DEPOSIT, TRON, daveNo) 这把钥匙
+    // 撞的是**自己上一轮**——verify:e2e 复跑口径要求连跑两次不重置库，跑两次就会在
+    // 这一行 P2002（已现场复现）。故仍按 makeCustomer 现铸法处理，与其余场景一致。
+    const customer = await makeCustomer('C8');
+    for (const code of [TB_ACCOUNT_CODES.CLIENT_PAYABLE, TB_ACCOUNT_CODES.DEPOSIT_SUSPENSE]) {
+      await ensureTbAccountRegistry(prisma as any, {
+        code, ledger, ownerType: 'CUSTOMER', ownerUuid: customer.id, ownerNo: customer.customerNo,
+        assetCode: usdt.code, description: `e2e recon-adjustment ${code}/USDT-TRON`,
+      });
+    }
+    await provisionTbAccounts(prisma as any);
     const wallet = await createCustomerWallet({
-      ownerId: daveId, ownerNo: daveNo, assetId: usdt.id, walletRole: 'C_DEP', type: 'CRYPTO',
+      ownerId: customer.id, ownerNo: customer.customerNo, network: 'TRON', walletRole: 'C_DEP',
       address: `TE2EADJ${Date.now()}`,
     });
 
     const X = 5_000_000n; // 5.000000 USDT（6 位精度）
-    await fundCustomerWallet({ walletId: wallet.id, ownerId: daveId, assetId: usdt.id, ledger, currency: usdt.code, amount: X * 2n, tag: 'C8' });
+    await fundCustomerWallet({ walletId: wallet.id, ownerId: customer.id, assetId: usdt.id, ledger, currency: usdt.code, amount: X * 2n, tag: 'C8' });
     // 外部只有一半 —— 内部记多了 X
     await upsertExternalBalance({ walletId: wallet.id, currency: usdt.code, book: 'CLIENT', closingBalance: X });
 
@@ -801,11 +851,12 @@ describe('Recon adjustment money arcs (e2e, Task 8)', () => {
   });
 
   it('6. 成因闸：公司侧成因（银行利息）落到客户账簿的案件 → 拒', async () => {
+    const customer = await makeCustomer('C6');
     const wallet = await createCustomerWallet({
-      ownerId: carolId, ownerNo: carolNo, assetId: aedAssetId, walletRole: 'C_VIBAN', type: 'FIAT_BANK',
+      ownerId: customer.id, ownerNo: customer.customerNo, network: 'AED_ZAND', walletRole: 'C_VIBAN',
       iban: `AE_E2E_ADJ_C6_${Date.now()}`,
     });
-    const kase = await createFixtureCase({ walletRef: wallet.id, book: 'CLIENT', ownerNo: carolNo });
+    const kase = await createFixtureCase({ walletRef: wallet.id, book: 'CLIENT', ownerNo: customer.customerNo });
 
     // ⚠ 反遮蔽：必须传一张**真实存在**的原单。
     // Fix 3 之前闸二只查非空，编造一个字符串就能绕过它、把闸一隔离出来；Fix 3 把闸二
@@ -813,7 +864,7 @@ describe('Recon adjustment money arcs (e2e, Task 8)', () => {
     // （今天只是因为闸一先执行才碰巧还测对）。传真单号后，闸二对本输入不可能触发，
     // 抛出的异常只可能来自闸一。本批已在 Task 3 栽过一次同形的遮蔽，不重蹈。
     const unrelatedWithdraw = await createFixtureWithdraw({
-      ownerId: carolId, ownerNo: carolNo, assetId: aedAssetId, amount: '10',
+      ownerId: customer.id, ownerNo: customer.customerNo, assetId: aedAssetId, amount: '10',
     });
 
     await expect(
@@ -838,7 +889,7 @@ describe('Recon adjustment money arcs (e2e, Task 8)', () => {
 
   it('7. 公司账簿·减（银行杂费）：闭环 + 分录方向为 借公司运营/贷公司资产（V2 补口——四种分录组合里此前从未真落过账的最后一种）', async () => {
     const ledger = 1; // AED
-    const wallet = await createFirmWallet({ assetId: aedAssetId, walletRole: 'F_FEE', type: 'FIAT_BANK' });
+    const wallet = await createFirmWallet({ vaultCode: 'F_FEE', network: 'AED_ZAND' });
 
     const FUNDED = 7000n;
     const REALLY = 5000n; // 银行扣了 2000 账管费/电汇费 —— 外部实际比我们记的少，公司承担（decisions.md 2026-08-28）
@@ -891,11 +942,12 @@ describe('Recon adjustment money arcs (e2e, Task 8)', () => {
   // ── verification gaps closed at final review (V1/V2/V3) ────────────────────
 
   it('V1 · maker≡checker：同一个人开单+提交后又想批自己的单 → SoD 拒绝（Fix 2 回归锁——maker 侧的 actor 身份不能被塌缩成一个字符串，否则自审批检测悄悄失效）', async () => {
+    const customer = await makeCustomer('V1');
     const wallet = await createCustomerWallet({
-      ownerId: carolId, ownerNo: carolNo, assetId: aedAssetId, walletRole: 'C_VIBAN', type: 'FIAT_BANK',
+      ownerId: customer.id, ownerNo: customer.customerNo, network: 'AED_ZAND', walletRole: 'C_VIBAN',
       iban: `AE_E2E_ADJ_V1_${Date.now()}`,
     });
-    const kase = await createFixtureCase({ walletRef: wallet.id, book: 'CLIENT', ownerNo: carolNo });
+    const kase = await createFixtureCase({ walletRef: wallet.id, book: 'CLIENT', ownerNo: customer.customerNo });
 
     // 刻意让 userId 与 userNo 不同（真实生产里两者本就不同：JWT 的 UUID vs
     // 业务号）——makeActor() 把两者设成同一个字符串，若照抄它，"maker 端把
@@ -963,15 +1015,17 @@ describe('Recon adjustment money arcs (e2e, Task 8)', () => {
     const FUND_DATE = new Date(Date.now() - 3 * 24 * 3600 * 1000).toISOString().slice(0, 10);
 
     const ledger = 1; // AED
+    const customer = await makeCustomer('C9');
+    await ensureCustomerAedTbAccounts(customer.id, customer.customerNo);
     const wallet = await createCustomerWallet({
-      ownerId: daveId, ownerNo: daveNo, assetId: aedAssetId, walletRole: 'C_VIBAN', type: 'FIAT_BANK',
+      ownerId: customer.id, ownerNo: customer.customerNo, network: 'AED_ZAND', walletRole: 'C_VIBAN',
       iban: `AE_E2E_ADJ_C9_${Date.now()}`,
     });
 
     // 我们记了一笔 300.00 的充值（真实外部穿越），银行那边根本没这笔钱。
     const X = 30000n;
     await fundCustomerWallet({
-      walletId: wallet.id, ownerId: daveId, assetId: aedAssetId, ledger, currency: aedCode,
+      walletId: wallet.id, ownerId: customer.id, assetId: aedAssetId, ledger, currency: aedCode,
       amount: X, tag: 'C9', crossing: true, effectiveDate: FUND_DATE,
     });
     // 外部对账单：0（这笔钱从没到过）。也没有任何 external_statement_line。
@@ -1067,12 +1121,14 @@ describe('Recon adjustment money arcs (e2e, Task 8)', () => {
   // 单测已在 wallet-recon-run.service.spec.ts 锁过判据本身，这里锁真库真引擎的口径。
   it('10. 查了 0 个钱包的对账（当天没有外部对账单）→ 不许关掉任何 OPEN 案件', async () => {
     const ledger = 1; // AED
+    const customer = await makeCustomer('C10');
+    await ensureCustomerAedTbAccounts(customer.id, customer.customerNo);
     const wallet = await createCustomerWallet({
-      ownerId: carolId, ownerNo: carolNo, assetId: aedAssetId, walletRole: 'C_VIBAN', type: 'FIAT_BANK',
+      ownerId: customer.id, ownerNo: customer.customerNo, network: 'AED_ZAND', walletRole: 'C_VIBAN',
       iban: `AE_E2E_ADJ_C10_${Date.now()}`,
     });
     await fundCustomerWallet({
-      walletId: wallet.id, ownerId: carolId, assetId: aedAssetId, ledger, currency: aedCode,
+      walletId: wallet.id, ownerId: customer.id, assetId: aedAssetId, ledger, currency: aedCode,
       amount: 5000n, tag: 'C10',
     });
     await upsertExternalBalance({ walletId: wallet.id, currency: aedCode, book: 'CLIENT', closingBalance: 0n });

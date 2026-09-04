@@ -55,6 +55,9 @@ describe('DepositTransactionsService', () => {
             wallet: {
               findUnique: jest.fn(),
             },
+            asset: {
+              findUnique: jest.fn(),
+            },
             customerMain: {
               findUnique: jest.fn(),
             },
@@ -1467,12 +1470,16 @@ describe('DepositTransactionsService', () => {
     beforeEach(() => {
       ((prisma as any).wallet.findUnique as jest.Mock).mockResolvedValue({
         id: 'w1',
-        assetId: 'a1',
         ownerType: 'CUSTOMER',
         ownerId: 'cust-1',
         address: null,
         iban: null,
-        asset: { type: 'FIAT' },
+        network: 'AED_ZAND',
+      });
+      ((prisma as any).asset.findUnique as jest.Mock).mockResolvedValue({
+        id: 'a1',
+        type: 'FIAT',
+        network: 'AED_ZAND',
       });
       ((prisma as any).depositTransaction.create as jest.Mock).mockImplementation(
         ({ data }: any) => Promise.resolve({ id: 'dep-1', ...data }),

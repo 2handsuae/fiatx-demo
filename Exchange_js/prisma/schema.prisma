@@ -623,31 +623,26 @@ model ApprovalPolicyChangeRequest {
 }
 
 model Asset {
-  id                             String                          @id @default(uuid())
-  assetNo                        String?                         @unique
-  type                           String
-  currency                       String
-  code                           String                          @unique
-  network                        String?
-  decimals                       Int
-  description                    String?
-  status                         String                          @default("ACTIVE")
-  tbLedgerId                     Int?                            @unique
-  contractAddress                String?
-  minDepositAmount               Float?
-  maxDepositAmount               Float?
-  minWithdrawAmount              Float?
-  maxWithdrawAmount              Float?
-  depositEnabled                 Boolean                         @default(true)
-  withdrawalEnabled              Boolean                         @default(true)
-  suspendedAt                    DateTime?
-  suspendReason                  String?
-  preSuspendDepositEnabled       Boolean?
-  preSuspendWithdrawalEnabled    Boolean?
-  approvalCaseId                 String?
-  approvalCaseNo                 String?
-  createdAt                      DateTime                        @default(now())
-  updatedAt                      DateTime                        @updatedAt
+  id                String    @id @default(uuid())
+  assetNo           String    @unique
+  type              String
+  currency          String
+  code              String    @unique
+  network           String
+  decimals          Int
+  description       String?
+  contractAddress   String?
+  isNative          Boolean   @default(true)
+  standard          String?
+  minConfirmations  Int       @default(0)
+  custodianAssetKey String?
+  status            String    @default("ACTIVE")
+  tbLedgerId        Int?      @unique
+  approvalCaseNo    String?
+  suspendedAt       DateTime?
+  suspendReason     String?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
   depositTransactions            DepositTransaction[]
   inboundTransferSignals         InboundTransferSignal[]
   swapFromTransactions           SwapTransaction[]               @relation("SwapFromAsset")
@@ -655,11 +650,9 @@ model Asset {
   swapQuoteFroms                 SwapQuote[]                     @relation("SwapQuoteFromAsset")
   swapQuoteTos                   SwapQuote[]                     @relation("SwapQuoteToAsset")
   withdrawPricingQuotes          WithdrawPricingQuote[]
-  wallets                        Wallet[]
   withdrawTransactions           WithdrawTransaction[]
   fundsOrders                    FundsOrder[]
   reconciliationCases            ReconciliationCase[]
-  withdrawalAddresses            WithdrawalAddress[]
   withdrawalFeeLevels            WithdrawalFeeLevel[]
   swapFeeLevelsFrom              SwapFeeLevel[]                  @relation("SwapFeeLevelFromAsset")
   swapFeeLevelsTo                SwapFeeLevel[]                  @relation("SwapFeeLevelToAsset")
@@ -703,33 +696,30 @@ model WithdrawPricingQuote {
 }
 
 model Wallet {
-  id                                       String                          @id @default(uuid())
-  walletNo                                 String?                         @unique
-  ownerType                                String
-  ownerId                                  String?
-  ownerNo                                  String?
-  type                                     String
-  walletRole                               String                          @default("GENERAL")
-  assetId                                  String
-  address                                  String?
-  bankName                                 String?
-  status                                   String                          @default("ACTIVE")
-  mockBalance                              Decimal                         @default(0)
-  createdAt                                DateTime                        @default(now()) @map("created_at")
-  updatedAt                                DateTime                        @updatedAt @map("updated_at")
-  accountName                              String?
-  iban                                     String?
-  vaultId                                  String?
-  depositTransactions                      DepositTransaction[]
-  depositTransactionsFrom                  DepositTransaction[]            @relation("DepositFromWallet")
-  fundsOrdersFrom                          FundsOrder[]                    @relation("FundsOrderFromWallet")
-  fundsOrdersTo                            FundsOrder[]                    @relation("FundsOrderToWallet")
-  asset                                    Asset                           @relation(fields: [assetId], references: [id])
-  inboundTransferSignals                   InboundTransferSignal[]
+  id           String   @id @default(uuid())
+  walletNo     String   @unique
+  ownerType    String                       // PLATFORM | CUSTOMER
+  ownerId      String?                      // 内部外键（客户 UUID）；平台行 null（计划裁定 1）
+  ownerNo      String                       // 客户号；平台行 'PLATFORM'
+  vaultCode    String                       // F_OPS | F_SET | F_FEE | F_LIQ | CLIENT_DEPOSIT（vaults.manifest）
+  walletRole   String                       // 平台行 = vaultCode；客户行 C_DEP（链上）/ C_VIBAN（法币通道）
+  network      String                       // networks.manifest 的 code
+  address      String?                      // CHAIN 网络的地址
+  iban         String?                      // BANK_RAIL 网络的虚拟账号
+  custodianRef String?                      // 托管方返回的钱包 id（原 vaultId）
+  status       String   @default("ACTIVE")  // CREATING | ACTIVE | FAILED
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+  depositTransactions     DepositTransaction[]
+  depositTransactionsFrom DepositTransaction[]   @relation("DepositFromWallet")
+  fundsOrdersFrom         FundsOrder[]           @relation("FundsOrderFromWallet")
+  fundsOrdersTo           FundsOrder[]           @relation("FundsOrderToWallet")
+  inboundTransferSignals  InboundTransferSignal[]
 
+  @@unique([vaultCode, network, ownerNo])
   @@index([ownerType, ownerId])
-  @@index([assetId])
-  @@index([status])
+  @@index([network, address])
+  @@index([network, iban])
   @@map("wallets")
 }
 
@@ -738,7 +728,6 @@ model WithdrawalAddress {
   addressNo            String       @unique
   customerId           String
   customerNo           String
-  assetId              String
   network              String
   address              String
   addressType          String
@@ -772,10 +761,9 @@ model WithdrawalAddress {
   updatedAt            DateTime     @updatedAt @map("updated_at")
 
   customer             CustomerMain @relation(fields: [customerId], references: [id])
-  asset                Asset        @relation(fields: [assetId], references: [id])
 
-  @@unique([customerId, assetId, address])
-  @@index([customerId, assetId, status])
+  @@unique([customerId, network, address])
+  @@index([customerId, network, status])
   @@index([status, activatesAt])
   @@map("withdrawal_addresses")
 }
@@ -1384,16 +1372,13 @@ model TransactionLimitRule {
   minAmount      Decimal?                    // SINGLE(原生币种,可只填一边)
   maxAmount      Decimal?                    // SINGLE(原生币种)
   defaultLimit   Decimal?                    // CUMULATIVE(AED)
-  cap            Decimal?                    // CUMULATIVE(AED,客户微调层上限,本轮仅占位)
   threshold      Decimal?                    // LARGE_APPROVAL(AED)
-  status         String   @default("ACTIVE") // ACTIVE | PENDING_APPROVAL
-  approvalCaseId String?
-  approvalCaseNo String?
+  approvalCaseNo String?                     // 待批变更单号；非空即"变更中"
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
   @@unique([gateType, operationType, assetId, tradingTier, period])
-  @@index([gateType, status])
+  @@index([gateType])
   @@map("transaction_limit_rules")
 }
 
@@ -1404,7 +1389,6 @@ model WithdrawalFeeLevel {
   name             String
   assetId          String
   isDefault        Boolean   @default(false)
-  enabled          Boolean   @default(true)
   tiersJson        String
   configHash       String
   requiredTagsJson String    @default("[]")
@@ -1421,13 +1405,13 @@ model WithdrawalFeeLevel {
   asset            Asset     @relation(fields: [assetId], references: [id])
   changeRequests   WithdrawalFeeLevelChangeRequest[]
 
-  @@index([assetId, status, enabled])
+  @@index([assetId, status])
   @@map("withdrawal_fee_levels")
 }
 
 model WithdrawalFeeLevelChangeRequest {
   id                 String    @id @default(uuid())
-  requestNo          String    @unique @default("TEMP")
+  requestNo          String    @unique
   levelId            String
   levelCode          String
   currentTiersJson   String
@@ -1439,7 +1423,6 @@ model WithdrawalFeeLevelChangeRequest {
   approvalCaseId     String?
   approvalCaseNo     String?
   executedAt         DateTime?
-  failureReason      String?
   createdAt          DateTime  @default(now())
   updatedAt          DateTime  @updatedAt
 
@@ -1457,7 +1440,6 @@ model SwapFeeLevel {
   fromAssetId      String
   toAssetId        String
   isDefault        Boolean   @default(false)
-  enabled          Boolean   @default(true)
   tiersJson        String
   configHash       String
   requiredTagsJson String    @default("[]")
@@ -1475,13 +1457,13 @@ model SwapFeeLevel {
   toAsset          Asset     @relation("SwapFeeLevelToAsset", fields: [toAssetId], references: [id])
   changeRequests   SwapFeeLevelChangeRequest[]
 
-  @@index([fromAssetId, toAssetId, status, enabled])
+  @@index([fromAssetId, toAssetId, status])
   @@map("swap_fee_levels")
 }
 
 model SwapFeeLevelChangeRequest {
   id                 String    @id @default(uuid())
-  requestNo          String    @unique @default("TEMP")
+  requestNo          String    @unique
   levelId            String
   levelCode          String
   currentTiersJson   String
@@ -1493,7 +1475,6 @@ model SwapFeeLevelChangeRequest {
   approvalCaseId     String?
   approvalCaseNo     String?
   executedAt         DateTime?
-  failureReason      String?
   createdAt          DateTime  @default(now())
   updatedAt          DateTime  @updatedAt
 

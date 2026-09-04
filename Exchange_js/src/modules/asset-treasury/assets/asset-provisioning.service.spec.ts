@@ -1,5 +1,5 @@
 // asset-provisioning.service.spec.ts
-import { AssetProvisioningService } from './asset-provisioning.service';
+import { AssetProvisioningService, systemAccountCodesFor } from './asset-provisioning.service';
 import { TB_ACCOUNT_CODES } from '../../accounting/tigerbeetle/constants/tb-account-codes.constant';
 
 describe('AssetProvisioningService (real-time 1:1)', () => {
@@ -36,5 +36,15 @@ describe('AssetProvisioningService (real-time 1:1)', () => {
     const codes = createAccounts.mock.calls[0][0].map((p: any) => p.code);
     expect(codes).toContain(TB_ACCOUNT_CODES.FIRM_SET); // 201
     expect(codes).toHaveLength(7);
+  });
+
+  it('systemAccountCodesFor：FIAT 7 码含 FIRM_SET，CRYPTO 6 码不含', () => {
+    const fiatCodes = systemAccountCodesFor('FIAT').map((c) => c.code);
+    expect(fiatCodes).toHaveLength(7);
+    expect(fiatCodes).toContain(TB_ACCOUNT_CODES.FIRM_SET);
+
+    const cryptoCodes = systemAccountCodesFor('CRYPTO').map((c) => c.code);
+    expect(cryptoCodes).toHaveLength(6);
+    expect(cryptoCodes).not.toContain(TB_ACCOUNT_CODES.FIRM_SET);
   });
 });

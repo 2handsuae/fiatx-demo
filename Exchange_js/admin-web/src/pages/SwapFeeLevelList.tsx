@@ -89,7 +89,7 @@ const assetBadge = (asset: { code: string; type: string }) => (
 /* ── Constants ───────────────────────────────────────────────── */
 
 const PAGE_SIZE = 20;
-const STATUS_OPTIONS = ['ACTIVE', 'PENDING_APPROVAL', 'REJECTED'];
+const STATUS_OPTIONS = ['PENDING_APPROVAL', 'ACTIVE', 'REJECTED', 'CANCELLED', 'RETIRED'];
 const DEFAULT_FILTERS: FilterState = { fromAssetId: '', toAssetId: '', status: '', defaultOnly: false };
 
 /* ── Component ───────────────────────────────────────────────── */

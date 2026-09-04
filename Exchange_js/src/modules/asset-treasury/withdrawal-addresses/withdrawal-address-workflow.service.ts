@@ -6,10 +6,11 @@ import {
   AuditEntityTypes,
 } from '../../audit-logging/constants/audit-actions.constant';
 import { AuditOutcome } from '../../audit-logging/dto/audit-log.dto';
-import { WithdrawalAddressService } from './withdrawal-address.service';
+import { WithdrawalAddressService, BANK_RAIL_NETWORK } from './withdrawal-address.service';
 import { TRAVEL_RULE_ADAPTER, TravelRuleAdapter } from './travel-rule-adapter.interface';
 import { CreateWithdrawalAddressDto } from './dto/create-withdrawal-address.dto';
 import { CreateBankAccountDto } from './dto/create-bank-account.dto';
+import { assertNetwork } from '../../../config/manifests/networks.manifest';
 import * as crypto from 'crypto';
 
 @Injectable()
@@ -34,13 +35,9 @@ export class WithdrawalAddressWorkflowService {
       throw new ForbiddenException({ code: 'CUSTOMER_NOT_ACTIVE', message: 'Customer is not active' });
     }
 
-    const asset = await (this.prisma as any).asset.findUnique({ where: { id: dto.assetId } });
-    if (!asset) throw new NotFoundException({ code: 'ASSET_NOT_FOUND', message: 'Asset not found' });
-    if (asset.status !== 'ACTIVE') {
-      throw new BadRequestException({ code: 'ASSET_NOT_ACTIVE', message: `Asset is in ${asset.status} status` });
-    }
-    if (asset.type !== 'CRYPTO') {
-      throw new BadRequestException({ code: 'ASSET_NOT_CRYPTO', message: 'Only crypto assets are supported' });
+    const network = assertNetwork(dto.network);
+    if (network.kind !== 'CHAIN') {
+      throw new BadRequestException({ code: 'NETWORK_NOT_CHAIN', message: 'Only chain networks accept on-chain addresses' });
     }
 
     if (!(await this.addressService.hasActiveFiatWithdrawalAddress(customerId))) {
@@ -52,14 +49,13 @@ export class WithdrawalAddressWorkflowService {
 
     const traceId = crypto.randomUUID();
 
-    const attribution = await this.trAdapter.attributeAddress(dto.address, asset.network ?? '');
+    const attribution = await this.trAdapter.attributeAddress(dto.address, network.code);
     const addressType = attribution.attributed ? 'VASP' : 'SELF_CUSTODY';
 
     const address = await this.addressService.create({
       customerId,
       customerNo,
-      assetId: dto.assetId,
-      network: asset.network ?? '',
+      network: network.code,
       address: dto.address,
       addressType,
       label: dto.label,
@@ -79,7 +75,7 @@ export class WithdrawalAddressWorkflowService {
       primarySubjectNo: address.addressNo,
       correlationId: traceId,
       outcome: AuditOutcome.SUCCESS,
-      afterData: { addressType, address: dto.address, network: asset.network, assetCurrency: asset.currency, counterpartyVaspName: attribution.vaspName, label: dto.label },
+      afterData: { addressType, address: dto.address, network: network.code, counterpartyVaspName: attribution.vaspName, label: dto.label },
       sourcePlatform: 'CLIENT_API',
       ownerCustomerNo: customerNo,
     });
@@ -98,21 +94,11 @@ export class WithdrawalAddressWorkflowService {
       throw new ForbiddenException({ code: 'CUSTOMER_NOT_ACTIVE', message: 'Customer is not active' });
     }
 
-    const asset = await (this.prisma as any).asset.findUnique({ where: { id: dto.assetId } });
-    if (!asset) throw new NotFoundException({ code: 'ASSET_NOT_FOUND', message: 'Asset not found' });
-    if (asset.status !== 'ACTIVE') {
-      throw new BadRequestException({ code: 'ASSET_NOT_ACTIVE', message: `Asset is in ${asset.status} status` });
-    }
-    if (asset.type !== 'FIAT') {
-      throw new BadRequestException({ code: 'ASSET_NOT_FIAT', message: 'Only fiat assets are supported for bank accounts' });
-    }
-
     const traceId = crypto.randomUUID();
 
     const address = await this.addressService.createBankAccount({
       customerId,
       customerNo,
-      assetId: dto.assetId,
       iban: dto.iban,
       swiftBic: dto.swiftBic,
       bankName: dto.bankName,
@@ -135,7 +121,7 @@ export class WithdrawalAddressWorkflowService {
       primarySubjectNo: address.addressNo,
       correlationId: traceId,
       outcome: AuditOutcome.SUCCESS,
-      afterData: { addressType: 'BANK', iban: maskedIban, bankName: dto.bankName, assetCurrency: asset.currency, skipCooling: address.status === 'ACTIVE' },
+      afterData: { addressType: 'BANK', iban: maskedIban, bankName: dto.bankName, network: BANK_RAIL_NETWORK, skipCooling: address.status === 'ACTIVE' },
       sourcePlatform: 'CLIENT_API',
       ownerCustomerNo: customerNo,
     });
@@ -243,8 +229,8 @@ export class WithdrawalAddressWorkflowService {
    * Called from controller before listing/detail endpoints.
    * Each activation goes through the workflow's activateAddress (with full audit).
    */
-  async batchActivateExpired(customerId: string, assetId?: string): Promise<void> {
-    const expired = await this.addressService.findExpiredPendingForCustomer(customerId, assetId);
+  async batchActivateExpired(customerId: string, network?: string): Promise<void> {
+    const expired = await this.addressService.findExpiredPendingForCustomer(customerId, network);
     for (const addr of expired) {
       try {
         await this.activateAddress(addr.addressNo, 'LAZY');
@@ -278,6 +264,49 @@ export class WithdrawalAddressWorkflowService {
       { actorType: 'ADMIN', actorNo: actor.userNo || 'UNKNOWN', actorDisplayName: actor.userNo || 'UNKNOWN', actorRolesAtTime: [actor.role || 'UNKNOWN'] },
     );
 
+    return result;
+  }
+
+  async updateAddress(addressNo: string, customerId: string, customerNo: string, patch: { label?: string; beneficiaryName?: string }) {
+    const existing = await this.addressService.findByNo(addressNo);
+    if (!existing) throw new NotFoundException({ code: 'ADDRESS_NOT_FOUND', message: `Address ${addressNo} not found` });
+    const result = await this.addressService.updateDetails(addressNo, customerId, patch);
+    await this.auditLogsService.recordSystem({
+      action: 'WITHDRAWAL_ADDRESS_UPDATED',
+      actionDomain: 'CONFIG',
+      primarySubjectType: AuditEntityTypes.WITHDRAWAL_ADDRESS,
+      primarySubjectNo: addressNo,
+      correlationId: existing.traceId,
+      outcome: AuditOutcome.SUCCESS,
+      beforeData: { label: existing.label, beneficiaryName: existing.beneficiaryName },
+      afterData: { label: result.label, beneficiaryName: result.beneficiaryName },
+      metadata: { updatedByCustomerNo: customerNo },
+      sourcePlatform: 'CLIENT_API',
+      ownerCustomerNo: customerNo,
+    });
+    return result;
+  }
+
+  async unsuspendAddress(addressNo: string, actor: { userId: string; userNo: string; role: string }, reason: string) {
+    if (!reason?.trim()) throw new BadRequestException('reason is required');
+    const existing = await this.addressService.findByNo(addressNo);
+    if (!existing) throw new NotFoundException({ code: 'ADDRESS_NOT_FOUND', message: `Address ${addressNo} not found` });
+    const result = await this.addressService.unsuspend(addressNo);
+    await this.auditLogsService.recordByActor(
+      {
+        action: 'WITHDRAWAL_ADDRESS_UNSUSPENDED',
+        actionDomain: 'CONFIG',
+        primarySubjectType: AuditEntityTypes.WITHDRAWAL_ADDRESS,
+        primarySubjectNo: addressNo,
+        correlationId: existing.traceId,
+        outcome: AuditOutcome.SUCCESS,
+        reason,
+        metadata: { unsuspendedBy: actor.userNo },
+        sourcePlatform: 'ADMIN_API',
+        ownerCustomerNo: existing.customerNo,
+      },
+      { actorType: 'ADMIN', actorNo: actor.userNo || 'UNKNOWN', actorDisplayName: actor.userNo || 'UNKNOWN', actorRolesAtTime: [actor.role || 'UNKNOWN'] },
+    );
     return result;
   }
 }

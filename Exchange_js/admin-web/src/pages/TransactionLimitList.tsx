@@ -34,9 +34,7 @@ interface RuleItem {
   minAmount: string | null;
   maxAmount: string | null;
   defaultLimit: string | null;
-  cap: string | null;
   threshold: string | null;
-  status: string;
   approvalCaseId: string | null;
   createdAt: string;
   updatedAt: string;
@@ -212,13 +210,12 @@ const TransactionLimitList = () => {
               <th className={th} style={{ width: 120 }}>Operation</th>
               <th className={th} style={{ width: 160 }}>Applies To</th>
               <th className={th}>Limit</th>
-              <th className={th} style={{ width: 120 }}>Status</th>
             </tr>
           </thead>
           <tbody>
             {visibleItems.length === 0 && !loading ? (
               <tr>
-                <td colSpan={6} className="px-3 py-12 text-center text-[11px] text-adm-t3">
+                <td colSpan={5} className="px-3 py-12 text-center text-[11px] text-adm-t3">
                   No rules found
                 </td>
               </tr>
@@ -251,9 +248,6 @@ const TransactionLimitList = () => {
                     {appliesTo(r, assetCodeById)}
                   </td>
                   <td className="px-3 py-2 font-mono text-adm-t1">{limitSummary(r)}</td>
-                  <td className="px-3 py-2">
-                    <AdminBadge value={r.status} />
-                  </td>
                 </tr>
               ))
             )}

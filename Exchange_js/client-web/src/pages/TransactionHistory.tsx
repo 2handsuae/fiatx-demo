@@ -73,10 +73,11 @@ const TransactionHistory = () => {
   const fetchAssetInfo = useCallback(async () => {
     if (!assetId) return;
     try {
-      const response = await customerFetch(`${import.meta.env.VITE_API_URL}/assets/${assetId}`);
+      const response = await customerFetch(`${import.meta.env.VITE_API_URL}/assets?take=200`);
       if (response.ok) {
         const data = await response.json();
-        setAssetInfo(data);
+        const found = (data.items || []).find((a: { id: string }) => a.id === assetId) ?? null;
+        setAssetInfo(found);
       }
     } catch (err) {
       if (err instanceof CustomerSessionError) return;

@@ -46,7 +46,7 @@
 
 **原 BACKLOG §安全守卫（已生成卡片，跟踪落地）**
 
-- [ ] 提现后端补提现地址 ACTIVE 校验（绕过前端可用任意地址提现）｜卡片 task_20678a2c ｜来源: 2026-07-03 V3 体检
+- [x] ~~提现后端补提现地址 ACTIVE 校验（绕过前端可用任意地址提现）｜卡片 task_20678a2c ｜来源: 2026-07-03 V3 体检~~ → **2026-09-04 核实：已修，销账**。代码自 2026-08-04 起已校验（`withdraw-workflow.service.ts` 建单前查 `withdrawalAddress`，按 `network` + `status: 'ACTIVE'`，crypto 比对 `address`、法币比对 `iban`；无注册/未激活地址提交即 400 `WITHDRAWAL_ADDRESS_NOT_REGISTERED`；commit `4cca8c63`）
 - [ ] 充值"已记账不可直转终态"守卫（回退分录未实现前，拦住对已入暂扣充值的拒绝）｜卡片 task_16af8187 ｜来源: 2026-07-03 V4 体检
 - [ ] **`DepositTransactionsController` 兄弟 admin 端点缺 `assertAdmin` 授权洞（PRE-EXISTING，早于 deposit-min）**：`AdminPermissionGuard.canActivate` 对非 ADMIN token 直接 `return true`（NO-OP），控制器需各 admin 路由自己调 `assertAdmin(req)` 才真拦。`GET /deposit-transactions`(findAll)、`GET /deposit-transactions/export`、`PATCH /deposit-transactions/:id/status`(updateStatus) 三个端点均缺此调用 → **今天客户 token 即可列出/导出全部客户的充值、乱推状态机**（越权读他人数据 + 篡改）。本轮仅修了新增的 `POST :id/waive-limit`（已加 assertAdmin）；这三个同源兄弟洞属既存债，需一次 DepositTransactionsController 全量硬化补齐（对齐 `withdraw-transactions.controller.ts` 每路由 assertAdmin 模式）｜来源: 2026-07-16 D5 review
 - [ ] **同一洞第四个成员 + 已实测证据 + 已另开专修分支（2026-08-05 补）**：`deposit-transactions.controller.ts` 缺 `assertAdmin` 的完整清单是四条，不是三条——上一行漏记了 `GET /deposit-transactions/:id`（`findOne`，第 117 行；`GET /deposit-transactions`(`findAll`，第 110 行)/`PATCH /:id/status`(`updateStatus`，第 139 行)/`GET /export`(`export`，第 247 行) 同上一行）。**已在干净 `main` 上实测坐实**：新注册客户 token 打 `GET /deposit-transactions` 得 HTTP 200（应得 403）；对照有闸的 `POST :id/seize` 同 token 得 403 `"Admin only"`——证明问题确实是"这四条路由各自漏调 `assertAdmin(req)`"而非 guard 整体失效。业主已决定本轮（deposit-action-embed）不顺手修，本任务未触碰 `deposit-transactions.controller.ts` 的权限代码。⚠️ **2026-08-07 更新**：当时开的专修分支 `fix/deposit-transactions-authz` 已随 deposit-action-embed 一并清理（该分支零 commit、只是占位），本条**仍未修复**，重开时直接从当时的 main 拉新分支即可，复现步骤见上（新注册客户 token 打 `GET /deposit-transactions` 得 200） ｜来源: 2026-08-05 Task 7 验收前置排查
@@ -78,6 +78,7 @@
 **原 BACKLOG §演示/测试环境卫生（2026-08-13 A1-A6 收官实跑发现，均为既存问题非本轮引入）**
 
 - [ ] **money-arcs 两个 e2e spec 会把 worktree 常驻栈的验收库搞脏**：`test/deposit-money-arcs.e2e-spec.ts` / `withdraw-money-arcs.e2e-spec.ts` 直接在 `MANUAL_CHECKING`/`FROZEN` 等态建 fixture 单**不跑 STEP_1**，随后走退回/上缴弧 post `DEPOSIT_SUSPENSE→CLIENT_ASSET`，把从未入账的科目扣成负数。实测跑完 4 个 e2e suite 后 `verify:coa` 报 5 处负余额（`CLIENT_ASSET` −118000 / 某客户 `DEPOSIT_SUSPENSE` −1e12 等），而**两条恒等式照常全绿**（两边同减正负相消）——正是本轮新增负余额断言首次逮到的实例。对照：`deposit-sumsub-verdicts.e2e-spec.ts` 有物理拦截、跑在专用 `e2e-` 库上。建议这两个 spec 同样切专用库 ｜来源: 2026-08-13 T11
+
 - [x] ~~**`deposit-sumsub-verdicts.e2e-spec.ts` 把 DB 路径硬编码成一个早已删除的 worktree 目录**~~ → **2026-08-31 核实：已不复现，第六条陈账**。该 spec 现在用 `resolveE2eDatabaseUrl('e2e-deposit-verdicts.db')`（跟着当前 worktree 的栈目录走，见 `test/e2e-db.ts`），硬编码路径早已移除；文件里仅存的两处 `exchange_js_wt_deposit_arcs` 字样，一处是描述旧状态的注释、一处是错误提示里的举例。
 
   **过程留痕（值得记）**：Task 10 评审提 Minor② 说它与 `recon-demo.ts` 的 MANIFEST_PATH 同类、应一并迁入新桶；控制方据此动手迁移，`grep exchange_js_wt_deposit_arcs` 命中两处便认定"仍成立"——**没读命中的是什么**。读了才发现两处都不是活代码。**这正是本仓库最高频的失误形态**（拿字符串命中当行为证据），而且发生在正在建立"进来必须写清怎么复现"那条规矩的人身上。已撤回误迁，改为销账。
@@ -513,3 +514,4 @@
 - [2026-09-02] **审批超时扫描按 timeoutAt asc 逐行处理，某行确定性抛错会卡住其后所有行** ｜ `approvals.service.ts expirePendingApprovals`：瞬时错 60s 下轮自愈；毒行（确定性错）会持续挡队尾。逐行 try/catch 属故障恢复（禁做清单），演示不可见且 reset 可愈——落户即止（四模块治愈终审 Issue 6）
 - [2026-09-03] **补单①补录：CFO 批准的调用恒返回成功，真正的执行失败要另外去查** ｜ `inbound-transfer-signals.service.ts` 批准回调：批准这个动作本身（审批引擎的状态变更）与信号真正被 `processSignal()` 执行（建充值单、走 KYT/合规）是两回事——批准调用总是成功返回，执行失败只在审计（`DEPOSIT_SUPPLEMENT_REJECTED` + `outcome=FAILED`）与信号自己的 `scanResult` 字段里看得到，CFO 在审批中心看到的是"已批准"，看不出后面这步是否真的执行成功 ｜来源: 2026-09-03 平账 B 批 Task 5 评审
 - [2026-09-03] **补单①补录：执行失败若发生在充值单已建之后，信号显示"已拒绝"但充值单与一张 FAILED 资金单其实真实存在** ｜ 同上：失败分支复用了 `DEPOSIT_SUPPLEMENT_REJECTED` 这个信号状态，但如果失败点在建完充值单之后（比如资金单确认那一步才炸），案发现场其实是"充值单 + FAILED 资金单都已经建出来了，只是信号被覆写成看起来像没发生过"——按信号状态查会误判成"什么都没建"，要交叉核对充值单与资金单表才看得到真相 ｜来源: 2026-09-03 平账 B 批 Task 5 评审
+- [2026-09-04] **executeRetire 落地失败不清 approvalCaseNo，等级会卡死在"变更中"** ｜ `swap-fee-level-retire-workflow.service.ts`/`withdrawal-fee-level-retire-workflow.service.ts` 的 `executeRetire` catch：落地时复检守卫（LAST_ACTIVE_DEFAULT）或 `retireLevel` 本身抛错都落进这个 catch，只写 FAILED 审计、不调 `clearApprovalCase`——approvalCaseNo 留在行上，该等级此后 `requestChange`/`requestRetire` 一律被"already has a pending approval"拒绝，唯一解法是 reset 重铺。故障恢复类兜底（禁做清单），按 CLAUDE.md §4 记账即止（波一 T11 修复轮评审 Fix 3）

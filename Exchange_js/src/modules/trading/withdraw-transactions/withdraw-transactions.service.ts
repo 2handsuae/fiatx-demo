@@ -495,8 +495,10 @@ export class WithdrawTransactionsService {
     assetId: string,
     walletRole: 'C_DEP' | 'C_VIBAN',
   ): Promise<{ id: string; address: string | null; iban: string | null } | null> {
+    const asset = await (this.prisma as any).asset.findUnique({ where: { id: assetId }, select: { network: true } });
+    if (!asset) return null;
     return (this.prisma as any).wallet.findFirst({
-      where: { walletRole, ownerType: 'CUSTOMER', ownerId, assetId, status: 'ACTIVE' },
+      where: { vaultCode: 'CLIENT_DEPOSIT', walletRole, ownerType: 'CUSTOMER', ownerId, network: asset.network, status: 'ACTIVE' },
       select: { id: true, address: true, iban: true },
     });
   }

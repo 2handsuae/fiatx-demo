@@ -24,16 +24,12 @@ describe('WalletQueryService', () => {
     },
   };
 
-  const mockAsset = { id: 'asset-1', code: 'USDT', type: 'CRYPTO', decimals: 6 };
-
   const platformWallet = {
     id: 'wallet-plat-1',
     walletNo: 'WA0001',
     ownerType: 'PLATFORM',
     ownerId: null,
     walletRole: 'F_LIQ',
-    mockBalance: '1000.00',
-    asset: mockAsset,
   };
 
   const customerWallet = {
@@ -42,8 +38,6 @@ describe('WalletQueryService', () => {
     ownerType: 'CUSTOMER',
     ownerId: 'cust-1',
     walletRole: 'C_DEP',
-    mockBalance: '500.50',
-    asset: mockAsset,
   };
 
   const lpWallet = {
@@ -52,8 +46,6 @@ describe('WalletQueryService', () => {
     ownerType: 'LIQUIDITY_PROVIDER',
     ownerId: 'lp-1',
     walletRole: 'F_LIQ',
-    mockBalance: '9999.00',
-    asset: mockAsset,
   };
 
   beforeEach(async () => {
@@ -73,29 +65,16 @@ describe('WalletQueryService', () => {
   // ── findAll() ────────────────────────────────────────────────────────
 
   describe('findAll()', () => {
-    it('should return enriched items with mockBalance as balance, no surfaceCategory', async () => {
-      prismaMock.wallet.findMany.mockResolvedValue([platformWallet]);
-      prismaMock.wallet.count.mockResolvedValue(1);
-      prismaMock.customerMain.findMany.mockResolvedValue([]);
-      prismaMock.liquidityProvider.findMany.mockResolvedValue([]);
-
-      const result = await service.findAll({ skip: 0, take: 20, where: {}, orderBy: { createdAt: 'desc' } });
-
-      expect(result.total).toBe(1);
-      expect(result.items).toHaveLength(1);
-      expect(result.items[0].balance).toBe(platformWallet.mockBalance);
-      expect(result.items[0].surfaceCategory).toBeUndefined();
-    });
-
-    it('should NOT include surfaceCategory (formerly PLATFORM_POOL)', async () => {
-      prismaMock.wallet.findMany.mockResolvedValue([platformWallet]);
-      prismaMock.wallet.count.mockResolvedValue(1);
-      prismaMock.customerMain.findMany.mockResolvedValue([]);
-      prismaMock.liquidityProvider.findMany.mockResolvedValue([]);
-
-      const result = await service.findAll({ skip: 0, take: 20, where: {}, orderBy: {} });
-
-      expect(result.items[0].surfaceCategory).toBeUndefined();
+    it('每行挂 networkInfo（来自注册表）：TRON → HEXTRUST 无收款行；AED_ZAND → ZAND 带收款行', async () => {
+      prismaMock.wallet.findMany.mockResolvedValue([
+        { id: 'w1', ownerType: 'PLATFORM', ownerNo: 'PLATFORM', network: 'TRON' },
+        { id: 'w2', ownerType: 'PLATFORM', ownerNo: 'PLATFORM', network: 'AED_ZAND' },
+      ]);
+      prismaMock.wallet.count.mockResolvedValue(2);
+      const { items } = await service.findAll({});
+      expect(items[0].networkInfo).toEqual({ kind: 'CHAIN', custodian: 'HEXTRUST', bankName: null, accountName: null, explorerUrl: 'https://tronscan.org/#/transaction/' });
+      expect(items[1].networkInfo.bankName).toBe('Zand Bank PJSC');
+      expect(items[0]).not.toHaveProperty('balance');
     });
 
     it('should return total count from prisma.wallet.count', async () => {
@@ -113,9 +92,9 @@ describe('WalletQueryService', () => {
 
     it('CUSTOMER rows batch enrich ownerName(firstName+lastName, single IN), no surfaceCategory', async () => {
       prisma.wallet.findMany.mockResolvedValue([
-        { id: 'w1', ownerType: 'CUSTOMER', ownerId: 'u1', mockBalance: 5, asset: {} },
-        { id: 'w2', ownerType: 'CUSTOMER', ownerId: 'u2', mockBalance: 0, asset: {} },
-        { id: 'w3', ownerType: 'PLATFORM', ownerId: null, ownerNo: 'PLATFORM', mockBalance: 0, asset: {} },
+        { id: 'w1', ownerType: 'CUSTOMER', ownerId: 'u1' },
+        { id: 'w2', ownerType: 'CUSTOMER', ownerId: 'u2' },
+        { id: 'w3', ownerType: 'PLATFORM', ownerId: null, ownerNo: 'PLATFORM' },
       ]);
       prisma.wallet.count.mockResolvedValue(3);
       prisma.customerMain.findMany.mockResolvedValue([
@@ -136,16 +115,16 @@ describe('WalletQueryService', () => {
   // ── findOne() ────────────────────────────────────────────────────────
 
   describe('findOne()', () => {
-    it('should return wallet with mockBalance as balance, no surfaceCategory', async () => {
-      prismaMock.wallet.findUnique.mockResolvedValue(customerWallet);
+    it('挂 networkInfo（来自注册表），不返回 balance', async () => {
+      prismaMock.wallet.findUnique.mockResolvedValue({ ...customerWallet, network: 'TRON' });
       prismaMock.customerMain.findMany.mockResolvedValue([
         { id: 'cust-1', customerNo: 'CUST-0001', firstName: null, lastName: null, companyName: 'Acme Corp', email: 'x@x.com' },
       ]);
 
       const result = await service.findOne('wallet-cust-1');
 
-      expect(result.balance).toBe(customerWallet.mockBalance);
-      expect(result.surfaceCategory).toBeUndefined();
+      expect(result.networkInfo).toEqual({ kind: 'CHAIN', custodian: 'HEXTRUST', bankName: null, accountName: null, explorerUrl: 'https://tronscan.org/#/transaction/' });
+      expect(result).not.toHaveProperty('balance');
       expect(result.ownerName).toBe('Acme Corp');
       expect(result.ownerNo).toBe('CUST-0001');
     });
@@ -178,103 +157,21 @@ describe('WalletQueryService', () => {
     });
   });
 
-  // ── C_CMA derived balance (Σ VIBAN) ──────────────────────────────────
-
-  describe('C_CMA derived balance', () => {
-    const cmaWallet = {
-      id: 'wallet-cma-1',
-      walletNo: 'WA-CMA',
-      ownerType: 'PLATFORM',
-      ownerId: null,
-      walletRole: 'C_CMA',
-      mockBalance: '0',
-      assetId: 'asset-aed',
-      asset: { id: 'asset-aed', code: 'AED', type: 'FIAT', decimals: 6 },
-    };
-
-    it('findOne C_CMA → balance = Σ C_VIBAN mockBalance for the asset', async () => {
-      prismaMock.wallet.findUnique.mockResolvedValue(cmaWallet);
-      prismaMock.customerMain.findMany.mockResolvedValue([]);
-      prismaMock.liquidityProvider.findMany.mockResolvedValue([]);
-      prismaMock.wallet.aggregate.mockResolvedValue({
-        _sum: { mockBalance: '4150.75' },
-      });
-
-      const result = await service.findOne('wallet-cma-1');
-
-      expect(prismaMock.wallet.aggregate).toHaveBeenCalledWith(
-        expect.objectContaining({
-          where: { walletRole: 'C_VIBAN', assetId: 'asset-aed' },
-          _sum: { mockBalance: true },
-        }),
-      );
-      expect(result.balance).toBe('4150.75');
-    });
-
-    it('findOne C_CMA with no VIBANs → balance 0', async () => {
-      prismaMock.wallet.findUnique.mockResolvedValue(cmaWallet);
-      prismaMock.customerMain.findMany.mockResolvedValue([]);
-      prismaMock.liquidityProvider.findMany.mockResolvedValue([]);
-      prismaMock.wallet.aggregate.mockResolvedValue({
-        _sum: { mockBalance: null },
-      });
-
-      const result = await service.findOne('wallet-cma-1');
-
-      expect(result.balance).toBe('0');
-    });
-
-    it('non-C_CMA wallet → reads own mockBalance, no aggregate call', async () => {
-      prismaMock.wallet.findUnique.mockResolvedValue(customerWallet);
-      prismaMock.customerMain.findMany.mockResolvedValue([]);
-
-      const result = await service.findOne('wallet-cust-1');
-
-      expect(result.balance).toBe(customerWallet.mockBalance);
-      expect(prismaMock.wallet.aggregate).not.toHaveBeenCalled();
-    });
-  });
-
-  // ── findBalance() ────────────────────────────────────────────────────
-
-  describe('findBalance()', () => {
-    it('should return wallet balance info with mockBalance', async () => {
-      prismaMock.wallet.findUnique.mockResolvedValue(customerWallet);
-
-      const result = await service.findBalance('wallet-cust-1');
-
-      expect(result).toEqual({
-        walletId: customerWallet.id,
-        walletNo: customerWallet.walletNo,
-        ownerType: customerWallet.ownerType,
-        ownerId: customerWallet.ownerId,
-        asset: customerWallet.asset,
-        balance: customerWallet.mockBalance,
-      });
-    });
-
-    it('should throw NotFoundException for missing wallet', async () => {
-      prismaMock.wallet.findUnique.mockResolvedValue(null);
-
-      await expect(service.findBalance('no-such-wallet')).rejects.toThrow(NotFoundException);
-    });
-  });
-
   // ── hasReceivingAccount() (R4) ───────────────────────────────────────
 
   describe('hasReceivingAccount()', () => {
-    it('returns true when the customer has an ACTIVE C_DEP wallet for the asset', async () => {
+    it('returns true when the customer has an ACTIVE receiving wallet for the network', async () => {
       prismaMock.wallet.count.mockResolvedValue(1);
 
-      const result = await service.hasReceivingAccount('cust-1', 'asset-usdt');
+      const result = await service.hasReceivingAccount('c1', 'TRON');
 
       expect(result).toBe(true);
       expect(prismaMock.wallet.count).toHaveBeenCalledWith({
         where: {
           ownerType: 'CUSTOMER',
-          ownerId: 'cust-1',
-          assetId: 'asset-usdt',
-          walletRole: { in: ['C_DEP', 'C_VIBAN'] },
+          ownerId: 'c1',
+          vaultCode: 'CLIENT_DEPOSIT',
+          network: 'TRON',
           status: 'ACTIVE',
         },
       });
@@ -283,7 +180,7 @@ describe('WalletQueryService', () => {
     it('returns false when no matching wallet exists', async () => {
       prismaMock.wallet.count.mockResolvedValue(0);
 
-      const result = await service.hasReceivingAccount('cust-1', 'asset-aed');
+      const result = await service.hasReceivingAccount('c1', 'TRON');
 
       expect(result).toBe(false);
     });

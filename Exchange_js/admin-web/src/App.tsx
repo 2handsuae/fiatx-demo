@@ -26,8 +26,6 @@ const CustodianWalletDetail = lazy(() => import('./pages/CustodianWalletDetail')
 const FundsOrderList = lazy(() => import('./pages/FundsOrderList'));
 const FundsOrderDetail = lazy(() => import('./pages/FundsOrderDetail'));
 const AssetList = lazy(() => import('./pages/AssetList'));
-const AssetCreate = lazy(() => import('./pages/AssetCreate'));
-const AssetEdit = lazy(() => import('./pages/AssetEdit'));
 const AssetDetail = lazy(() => import('./pages/AssetDetail'));
 const DepositTransactionList = lazy(() => import('./pages/DepositTransactionList'));
 const DepositTransactionDetail = lazy(() => import('./pages/DepositTransactionDetail'));
@@ -369,14 +367,6 @@ function App() {
               element={withPermission(<AssetList />, [PERMISSIONS.ASSETS_READ])}
             />
             <Route
-              path="system/assets/create"
-              element={withPermission(<AssetCreate />, [PERMISSIONS.ASSETS_CREATE])}
-            />
-            <Route
-              path="system/assets/:assetNo/edit"
-              element={withPermission(<AssetEdit />, [PERMISSIONS.ASSETS_CREATE])}
-            />
-            <Route
               path="system/assets/:assetNo"
               element={withPermission(<AssetDetail />, [PERMISSIONS.ASSETS_READ])}
             />
@@ -466,8 +456,6 @@ function App() {
 
             {/* assets */}
             <Route path="assets" element={withPermission(<AssetList />, [PERMISSIONS.ASSETS_READ])} />
-            <Route path="assets/create" element={withPermission(<AssetCreate />, [PERMISSIONS.ASSETS_CREATE])} />
-            <Route path="assets/:assetNo/edit" element={withPermission(<AssetEdit />, [PERMISSIONS.ASSETS_CREATE])} />
             <Route path="assets/:assetNo" element={withPermission(<AssetDetail />, [PERMISSIONS.ASSETS_READ])} />
             <Route path="assets/transaction-limits" element={withPermission(<TransactionLimitList />, [PERMISSIONS.TRANSACTION_LIMIT_READ])} />
             <Route path="assets/transaction-limits/:ruleNo" element={withPermission(<TransactionLimitDetail />, [PERMISSIONS.TRANSACTION_LIMIT_READ])} />

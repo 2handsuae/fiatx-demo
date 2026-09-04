@@ -12,7 +12,7 @@ import {
   AuditBusinessWorkflowTypes,
   AuditEntityTypes,
 } from '../../audit-logging/constants/audit-actions.constant';
-import { AuditOutcome } from '../../audit-logging/dto/audit-log.dto';
+import { AuditOutcome, AuditSubjectRole } from '../../audit-logging/dto/audit-log.dto';
 import { ApprovalsService } from '../../governance/approvals/approvals.service';
 import {
   ApprovalActionTypes,
@@ -56,6 +56,9 @@ export class SwapFeeLevelChangeWorkflowService {
       throw new ConflictException(
         `Level ${levelCode} is not ACTIVE (current status: ${level.status}). Cannot submit a change request.`,
       );
+    }
+    if (level.approvalCaseNo) {
+      throw new ConflictException(`Level ${levelCode} has a pending approval (${level.approvalCaseNo})`);
     }
 
     // 2. Validate input
@@ -116,7 +119,7 @@ export class SwapFeeLevelChangeWorkflowService {
         action: 'SWAP_FEE_LEVEL_CHANGE_REQUESTED',
         actionDomain: 'CONFIG',
         primarySubjectType: AuditEntityTypes.SWAP_FEE_LEVEL,
-        primarySubjectNo: requestNo,
+        primarySubjectNo: level.levelCode,
         correlationId,
         outcome: AuditOutcome.SUCCESS,
         reason: changeReason.trim(),
@@ -127,6 +130,10 @@ export class SwapFeeLevelChangeWorkflowService {
           levelCode: level.levelCode,
           approvalNo: approvalCase.approvalNo,
         },
+        subjects: [
+          { subjectType: AuditEntityTypes.SWAP_FEE_LEVEL, subjectNo: level.levelCode, subjectRole: AuditSubjectRole.PRIMARY },
+          { subjectType: 'FEE_LEVEL_CHANGE_REQUEST', subjectNo: requestNo, subjectRole: AuditSubjectRole.INSTRUMENT },
+        ],
         requestId: `SWAP_FEE_LEVEL_CHANGE_REQUESTED_${requestNo}`,
         sourcePlatform: 'ADMIN_API',
       },
@@ -177,18 +184,21 @@ export class SwapFeeLevelChangeWorkflowService {
       } catch (err) {
         if (err instanceof ConflictException || err instanceof NotFoundException) {
           const reason = err.message;
-          await this.feeLevelService.markRequestExecutionFailed(request.requestNo, reason);
           await this.auditLogsService.recordSystem({
             action: 'SWAP_FEE_LEVEL_CHANGE_APPLY_FAILED',
             actionDomain: 'CONFIG',
             primarySubjectType: AuditEntityTypes.SWAP_FEE_LEVEL,
-            primarySubjectNo: request.requestNo,
+            primarySubjectNo: request.levelCode,
             correlationId: event?.traceId,
             causationId: approvalId,
             outcome: AuditOutcome.FAILED,
             reasonCode: 'CONFLICT',
             reason,
             metadata: { levelId: request.levelId, levelCode: request.levelCode },
+            subjects: [
+              { subjectType: AuditEntityTypes.SWAP_FEE_LEVEL, subjectNo: request.levelCode, subjectRole: AuditSubjectRole.PRIMARY },
+              { subjectType: 'FEE_LEVEL_CHANGE_REQUEST', subjectNo: request.requestNo, subjectRole: AuditSubjectRole.INSTRUMENT },
+            ],
             requestId: `SWAP_FEE_LEVEL_CHANGE_APPLY_FAILED_${request.requestNo}`,
             sourcePlatform: 'SYSTEM',
           });
@@ -203,7 +213,7 @@ export class SwapFeeLevelChangeWorkflowService {
         action: 'SWAP_FEE_LEVEL_CHANGE_APPLIED',
         actionDomain: 'CONFIG',
         primarySubjectType: AuditEntityTypes.SWAP_FEE_LEVEL,
-        primarySubjectNo: request.requestNo,
+        primarySubjectNo: request.levelCode,
         correlationId: event?.traceId,
         causationId: approvalId,
         outcome: AuditOutcome.SUCCESS,
@@ -211,6 +221,10 @@ export class SwapFeeLevelChangeWorkflowService {
         afterData: { tiersJson: request.proposedTiersJson },
         approvalNo: event?.approvalNo,
         metadata: { levelId: request.levelId, levelCode: request.levelCode },
+        subjects: [
+          { subjectType: AuditEntityTypes.SWAP_FEE_LEVEL, subjectNo: request.levelCode, subjectRole: AuditSubjectRole.PRIMARY },
+          { subjectType: 'FEE_LEVEL_CHANGE_REQUEST', subjectNo: request.requestNo, subjectRole: AuditSubjectRole.INSTRUMENT },
+        ],
         requestId: `SWAP_FEE_LEVEL_CHANGE_APPLIED_${request.requestNo}`,
         sourcePlatform: 'SYSTEM',
       });
@@ -219,23 +233,20 @@ export class SwapFeeLevelChangeWorkflowService {
     } catch (err: any) {
       this.logger.error(`Failed to execute change request ${requestNo}: ${err.message}`);
 
-      // Try to mark as failed
-      if (request) {
-        try {
-          await this.feeLevelService.markRequestExecutionFailed(request.requestNo, err.message);
-        } catch { /* ignore */ }
-      }
-
       await this.auditLogsService.recordSystem({
         action: 'SWAP_FEE_LEVEL_CHANGE_APPLY_FAILED',
         actionDomain: 'CONFIG',
         primarySubjectType: AuditEntityTypes.SWAP_FEE_LEVEL,
-        primarySubjectNo: request?.requestNo,
+        primarySubjectNo: request?.levelCode,
         correlationId: event?.traceId,
         causationId: approvalId,
         outcome: AuditOutcome.FAILED,
         reasonCode: 'EXECUTION_FAILED',
         reason: err.message,
+        subjects: [
+          ...(request?.levelCode ? [{ subjectType: AuditEntityTypes.SWAP_FEE_LEVEL, subjectNo: request.levelCode, subjectRole: AuditSubjectRole.PRIMARY }] : []),
+          { subjectType: 'FEE_LEVEL_CHANGE_REQUEST', subjectNo: requestNo, subjectRole: AuditSubjectRole.INSTRUMENT },
+        ],
         requestId: `SWAP_FEE_LEVEL_CHANGE_APPLY_FAILED_${requestNo}`,
         sourcePlatform: 'SYSTEM',
       });
@@ -260,6 +271,8 @@ export class SwapFeeLevelChangeWorkflowService {
       // Update request status
       if (decision === 'DECLINED') {
         await this.feeLevelService.rejectChangeRequest(request.requestNo);
+      } else if (decision === 'EXPIRED') {
+        await this.feeLevelService.expireChangeRequest(request.requestNo);
       } else {
         await this.feeLevelService.cancelChangeRequest(request.requestNo);
       }
@@ -269,7 +282,7 @@ export class SwapFeeLevelChangeWorkflowService {
         action: 'SWAP_FEE_LEVEL_CHANGE_CANCELLED',
         actionDomain: 'CONFIG',
         primarySubjectType: AuditEntityTypes.SWAP_FEE_LEVEL,
-        primarySubjectNo: request.requestNo,
+        primarySubjectNo: request.levelCode,
         correlationId: event?.traceId,
         causationId: approvalId,
         outcome: AuditOutcome.SUCCESS,
@@ -280,6 +293,10 @@ export class SwapFeeLevelChangeWorkflowService {
           levelCode: request.levelCode,
           approvalNo: event?.approvalNo,
         },
+        subjects: [
+          { subjectType: AuditEntityTypes.SWAP_FEE_LEVEL, subjectNo: request.levelCode, subjectRole: AuditSubjectRole.PRIMARY },
+          { subjectType: 'FEE_LEVEL_CHANGE_REQUEST', subjectNo: request.requestNo, subjectRole: AuditSubjectRole.INSTRUMENT },
+        ],
         requestId: `SWAP_FEE_LEVEL_CHANGE_CANCELLED_${request.requestNo}`,
         sourcePlatform: 'SYSTEM',
       });

@@ -13,6 +13,10 @@
 // R4: WithdrawTransaction.fromWalletId must point to a wallet OWNED by the
 //     withdraw's owner (ownerType=CUSTOMER, ownerNo matches), with the right
 //     role (FIAT→C_VIBAN, CRYPTO→C_DEP).
+// R5（波一 T14）：配置身世——校验的是「种子装载的配置都留痕」，不是「活着的配置都是种子装的」。
+//     资产/托管钱包/限额三块只有种子写入路径，全量必须有 actorNo=RELEASE 的 *_SEEDED 审计行；
+//     兑换/提现两族费率等级还有运行时创建路径（operator 经 maker-checker 建的等级留的是
+//     SWAP_FEE_LEVEL_CREATION_APPLIED 一类审计，不是 *_SEEDED），这两块只对种子行要求留痕。
 //
 // Usage:
 //   DATABASE_URL="file:/tmp/exchange_js_main/dev.db" \
@@ -26,7 +30,7 @@ requireStackEnv({ requireTb: false });
 import { PrismaClient } from '@prisma/client';
 
 interface Violation {
-  rule: 'R1' | 'R2' | 'R3' | 'R4';
+  rule: 'R1' | 'R2' | 'R3' | 'R4' | 'R5';
   entity: string;
   detail: string;
 }
@@ -139,6 +143,98 @@ async function scanR4(prisma: PrismaClient): Promise<void> {
   }
 }
 
+// ─────────────────────────────────────────────────────────────
+// R5（波一 T14 修复轮）：配置身世——按业务键 join，不按计数比较。
+//   计数版本对 reset 遗留的孤儿审计行免疫：TransactionLimitRule.ruleNo 随机铸造
+//   （seed.business.ts:433-435），每次重铺业务表被清但 audit_log_events 不清，
+//   净增的孤儿只会把计数推得更高，永远摸不到 count < expected 的红线（详见
+//   BACKLOG「限额审计孤儿」条）。这里改成对每一块活着的业务行，按其业务号
+//   在审计表里精确找一条同码 *_SEEDED 行（actorNo=RELEASE）；找不到就是这一
+//   行没留痕，报违规并指名是哪一行——孤儿行不参与比对，也不会被这条规则动。
+async function scanR5(prisma: PrismaClient): Promise<void> {
+  const blocks: Array<{ action: string; entity: string; keys: string[]; scope?: string }> = [];
+
+  const assets: any[] = await (prisma as any).asset.findMany({ select: { assetNo: true } });
+  blocks.push({ action: 'ASSET_SEEDED', entity: 'asset', keys: assets.map((a) => a.assetNo) });
+
+  const custodianWallets: any[] = await (prisma as any).wallet.findMany({
+    where: { ownerType: 'PLATFORM' },
+    select: { walletNo: true },
+  });
+  blocks.push({
+    action: 'CUSTODIAN_WALLET_SEEDED',
+    entity: 'wallet',
+    keys: custodianWallets.map((w) => w.walletNo),
+  });
+
+  const limitRules: any[] = await (prisma as any).transactionLimitRule.findMany({ select: { ruleNo: true } });
+  blocks.push({
+    action: 'TRANSACTION_LIMIT_SEEDED',
+    entity: 'transactionLimitRule',
+    keys: limitRules.map((r) => r.ruleNo),
+  });
+
+  // 费率等级不是只种子——两条运行时创建路径存在（swap-fee-level-creation-workflow.service.ts
+  // → swap-fee-level.service.ts createLevel；withdrawal-fee-level.service.ts createLevel 同款），
+  // operator 经 maker-checker 建的等级留的是 SWAP_FEE_LEVEL_CREATION_APPLIED 一类审计，本来就
+  // 没有 *_SEEDED 行。种子写 createdByUserId='SYSTEM'（seed.business.ts），运行时写 actor 的
+  // 真实 user id——按这个判别式只挑种子行，否则每条 operator 建的等级都会被错判成没留痕。
+  // ⚠️ 这个判别式的前提是「运行时路径永远带真实 user id」：两条创建流收的是 ApprovalActorContext，
+  // 而该类型允许 userId='SYSTEM'（approvals.service.ts 的 systemActor()）。今天 systemActor() 只用在
+  // 一处只读的 mapApproval、够不到创建流，但类型上是通的——将来若出现系统发起的费率创建，它的行会被
+  // 悄悄算回种子行，假红重现。没有测试钉住这条性质，故在此写明依赖。
+  const swapFeeLevels: any[] = await (prisma as any).swapFeeLevel.findMany({
+    where: { createdByUserId: 'SYSTEM' },
+    select: { levelCode: true },
+  });
+  blocks.push({
+    action: 'SWAP_FEE_LEVEL_SEEDED',
+    entity: 'swapFeeLevel',
+    scope: "createdByUserId='SYSTEM'",
+    keys: swapFeeLevels.map((l) => l.levelCode),
+  });
+
+  const withdrawalFeeLevels: any[] = await (prisma as any).withdrawalFeeLevel.findMany({
+    where: { createdByUserId: 'SYSTEM' },
+    select: { levelCode: true },
+  });
+  blocks.push({
+    action: 'WITHDRAWAL_FEE_LEVEL_SEEDED',
+    entity: 'withdrawalFeeLevel',
+    scope: "createdByUserId='SYSTEM'",
+    keys: withdrawalFeeLevels.map((l) => l.levelCode),
+  });
+
+  for (const block of blocks) {
+    // 五块在任何正确铺好的库上都不可能为空（资产 2 / 平台钱包 7 / 限额 15 / 兑换费率 3 / 提现费率 2）。
+    // 空表就跳过 = 「没装载任何配置」也算「装载都留了痕」——正是本判据上一版栽的那种空真绿。
+    if (block.keys.length === 0) {
+      violations.push({
+        rule: 'R5',
+        entity: block.entity,
+        detail: block.scope
+          ? `no live ${block.entity} rows matching ${block.scope} — the table may hold rows, but none are seed-owned; R5 cannot vacuously pass`
+          : `no live ${block.entity} rows at all — seeding of this block did not happen; R5 cannot vacuously pass`,
+      });
+      continue;
+    }
+    const rows: any[] = await (prisma as any).auditLogEvent.findMany({
+      where: { actorNo: 'RELEASE', action: block.action, primarySubjectNo: { in: block.keys } },
+      select: { primarySubjectNo: true },
+    });
+    const seeded = new Set(rows.map((r) => r.primarySubjectNo));
+    for (const key of block.keys) {
+      if (!seeded.has(key)) {
+        violations.push({
+          rule: 'R5',
+          entity: key,
+          detail: `no ${block.action} audit row (actorNo=RELEASE, primarySubjectNo=${key}) for live ${block.entity}`,
+        });
+      }
+    }
+  }
+}
+
 /* 2026-08-24：删掉 scanR1 / scanR3 与 scanR4 的尾段 —— 它们读的
    `internalFund` / `payin` / `payout` 三张表在 funds_orders 三合一那批就被 DROP 了
    （schema 里只剩 InternalFundAuditLog），Prisma client 上这三个 delegate 是
@@ -155,11 +251,12 @@ async function main(): Promise<void> {
   try {
     await scanR2(prisma);
     await scanR4(prisma);
+    await scanR5(prisma);
   } finally {
     await prisma.$disconnect();
   }
 
-  const byRule: Record<string, number> = { R1: 0, R2: 0, R3: 0, R4: 0 };
+  const byRule: Record<string, number> = { R1: 0, R2: 0, R3: 0, R4: 0, R5: 0 };
   for (const v of violations) byRule[v.rule]++;
 
   if (violations.length === 0) {
@@ -169,7 +266,7 @@ async function main(): Promise<void> {
 
   console.error(`\nverify:demo-data FAILED — ${violations.length} violation(s)`);
   console.error(
-    `  R1=${byRule.R1}  R2=${byRule.R2}  R3=${byRule.R3}  R4=${byRule.R4}\n`,
+    `  R1=${byRule.R1}  R2=${byRule.R2}  R3=${byRule.R3}  R4=${byRule.R4}  R5=${byRule.R5}\n`,
   );
   for (const v of violations) {
     console.error(`  [${v.rule}] ${v.entity}: ${v.detail}`);

@@ -95,15 +95,8 @@ export const PERMISSIONS = {
   // PAYINS_* / PAYOUTS_* / INTERNAL_FUNDS_* removed in Round 2 (C6) — merged into FUNDS_ORDERS_*.
 
   ASSETS_READ: 'api.get.assets',
-  // Task 26 发现并订正：旧值对应的 POST /assets 端点早已被 /admin/assets/listing
-  // 取代（AssetCreate.tsx 实际调用的就是后者），但两者共用 ASSET_CONFIG_WRITE 组，
-  // 此前持组角色恰好也捎带持有旧码，抄串一直被意外掩盖——直到 rbac.catalog.ts
-  // 12 死行清零把旧码从 catalog 里删掉，S6 才当场揪出（此后旧码在任何角色的
-  // 持有集合里都不会再出现，前端闸门若不修会变成对所有人恒拒）。改指向
-  // AssetCreate.tsx 真实调用的活端点。
-  ASSETS_CREATE: 'api.post.admin_assets_listing',
-  CUSTODIAN_WALLET_CREATE: 'api.post.admin_custodian_wallets',
-  CUSTODIAN_WALLET_RETRY: 'api.post.admin_custodian_wallets_walletno_retry',
+  ASSET_SUSPEND: 'api.post.admin_assets_assetno_suspend',
+  ASSET_REACTIVATE: 'api.post.admin_assets_assetno_reactivate',
   DEPOSIT_TRANSACTIONS_READ: 'api.get.deposit_transactions',
   DEPOSIT_TRANSACTION_DETAIL_READ: 'api.get.deposit_transactions_id',
   WITHDRAW_TRANSACTIONS_READ: 'api.get.withdraw_transactions',
@@ -126,14 +119,17 @@ export const PERMISSIONS = {
   TB_FLOWS_READ: 'api.get.admin_tb_account_flows',
 
   TRANSACTION_LIMIT_READ: 'api.get.admin_transaction_limit_rules',
-  TRANSACTION_LIMIT_WRITE: 'api.post.admin_transaction_limit_rules',
+  TRANSACTION_LIMIT_WRITE: 'api.post.admin_transaction_limit_rules_ruleno_change',
 
   WITHDRAWAL_ADDRESSES_READ: 'api.get.admin_withdrawal_addresses',
   WITHDRAWAL_ADDRESS_DETAIL_READ: 'api.get.admin_withdrawal_addresses_addressno',
   WITHDRAWAL_ADDRESS_SUSPEND: 'api.post.admin_withdrawal_addresses_addressno_suspend',
   WITHDRAWAL_ADDRESS_SKIP_COOLING: 'api.post.admin_withdrawal_addresses_addressno_skip_cooling',
+  WITHDRAWAL_ADDRESS_UNSUSPEND: 'api.post.admin_withdrawal_addresses_addressno_unsuspend',
   WITHDRAWAL_FEE_LEVELS_READ: 'api.get.admin_withdrawal_fee_levels',
   SWAP_FEE_LEVELS_READ: 'api.get.admin_swap_fee_levels',
+  SWAP_FEE_LEVEL_RETIRE: 'api.post.admin_swap_fee_levels_levelcode_retire',
+  WITHDRAWAL_FEE_LEVEL_RETIRE: 'api.post.admin_withdrawal_fee_levels_levelcode_retire',
   WITHDRAW_QUOTES_READ: 'api.get.admin_withdrawal_fee_levels_quotes',
   WITHDRAW_QUOTES_DETAIL_READ: 'api.get.admin_withdrawal_fee_levels_quotes_id',
 } as const;

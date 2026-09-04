@@ -24,23 +24,21 @@ export const ApprovalActionTypes = {
   // ─── Credential Reset Governance (2026-05-10) ────
   ADMIN_PASSWORD_RESET: 'ADMIN_PASSWORD_RESET',
   ADMIN_MFA_RESET: 'ADMIN_MFA_RESET',
-  // ─── Custodian Wallet Create (2026-05-13) ────
-  CUSTODIAN_WALLET_CREATE: 'CUSTODIAN_WALLET_CREATE',
   // ─── Asset Suspension (2026-05-14) ────
   ASSET_SUSPENSION: 'ASSET_SUSPENSION',
   ASSET_REACTIVATION: 'ASSET_REACTIVATION',
-  // ─── Asset Activation (2026-05-14) ────
-  ASSET_ACTIVATION: 'ASSET_ACTIVATION',
-  // Transaction Limit Change (2026-05-16)
+  // Transaction Limit Change (2026-05-16)（原 Transaction Limit Creation 已随「限额只改
+  // 不建不删」创建流整条退役,波一 T10,2026-09-04）
   TRANSACTION_LIMIT_CHANGE: 'TRANSACTION_LIMIT_CHANGE',
-  // Transaction Limit Creation (2026-05-16)
-  TRANSACTION_LIMIT_CREATION: 'TRANSACTION_LIMIT_CREATION',
   // Withdrawal Fee Level (2026-05-30)
   WITHDRAWAL_FEE_LEVEL_CREATION: 'WITHDRAWAL_FEE_LEVEL_CREATION',
   WITHDRAWAL_FEE_LEVEL_CHANGE: 'WITHDRAWAL_FEE_LEVEL_CHANGE',
   // Swap Fee Level (2026-05-31)
   SWAP_FEE_LEVEL_CREATION: 'SWAP_FEE_LEVEL_CREATION',
   SWAP_FEE_LEVEL_CHANGE: 'SWAP_FEE_LEVEL_CHANGE',
+  // Fee Level Retirement（波一 T11，2026-09-04）——"删" 改走审批终态，CFO 提、运营批
+  SWAP_FEE_LEVEL_RETIRE: 'SWAP_FEE_LEVEL_RETIRE',
+  WITHDRAWAL_FEE_LEVEL_RETIRE: 'WITHDRAWAL_FEE_LEVEL_RETIRE',
   // Withdraw Large-Value Approval Gate (2026-06-01)
   WITHDRAW_LARGE_VALUE_APPROVAL: 'WITHDRAW_LARGE_VALUE_APPROVAL',
   // Deposit Below-Min Confiscation (2026-07-16)
@@ -229,12 +227,6 @@ export const DEFAULT_APPROVAL_POLICIES: Record<
     timeoutHours: 48,
     allowCancel: true,
   },
-  // ─── Custodian Wallet Create (2026-05-13) ────
-  [ApprovalActionTypes.CUSTODIAN_WALLET_CREATE]: {
-    steps: [{ stepNo: 1, roles: ['CISO'] }],
-    timeoutHours: 48,
-    allowCancel: true,
-  },
   // ─── Asset Suspension (2026-05-14) ────
   [ApprovalActionTypes.ASSET_SUSPENSION]: {
     steps: [{ stepNo: 1, roles: ['CISO'] }],
@@ -246,22 +238,8 @@ export const DEFAULT_APPROVAL_POLICIES: Record<
     timeoutHours: 12,
     allowCancel: true,
   },
-  // ─── Asset Activation (2026-05-14) ────
-  [ApprovalActionTypes.ASSET_ACTIVATION]: {
-    steps: [{ stepNo: 1, roles: ['CISO'] }],
-    timeoutHours: 12,
-    allowCancel: true,
-  },
   // ─── Transaction Limit Change ────
   [ApprovalActionTypes.TRANSACTION_LIMIT_CHANGE]: {
-    // 2026-08-30：裁决人 OPS_OFFICER → SENIOR_MANAGEMENT_OFFICER。限额归运营改（业主定），
-    // 高管签字：定阈值与放超额单归同一人（大额提现本就是高管批）。
-    steps: [{ stepNo: 1, roles: ['SENIOR_MANAGEMENT_OFFICER'] }],
-    timeoutHours: 48,
-    allowCancel: true,
-  },
-  // ─── Transaction Limit Creation ────
-  [ApprovalActionTypes.TRANSACTION_LIMIT_CREATION]: {
     // 2026-08-30：裁决人 OPS_OFFICER → SENIOR_MANAGEMENT_OFFICER。限额归运营改（业主定），
     // 高管签字：定阈值与放超额单归同一人（大额提现本就是高管批）。
     steps: [{ stepNo: 1, roles: ['SENIOR_MANAGEMENT_OFFICER'] }],
@@ -286,6 +264,17 @@ export const DEFAULT_APPROVAL_POLICIES: Record<
     allowCancel: true,
   },
   [ApprovalActionTypes.SWAP_FEE_LEVEL_CHANGE]: {
+    steps: [{ stepNo: 1, roles: ['OPS_OFFICER'] }],
+    timeoutHours: 48,
+    allowCancel: true,
+  },
+  // ─── Fee Level Retirement（波一 T11，2026-09-04）────
+  [ApprovalActionTypes.SWAP_FEE_LEVEL_RETIRE]: {
+    steps: [{ stepNo: 1, roles: ['OPS_OFFICER'] }],
+    timeoutHours: 48,
+    allowCancel: true,
+  },
+  [ApprovalActionTypes.WITHDRAWAL_FEE_LEVEL_RETIRE]: {
     steps: [{ stepNo: 1, roles: ['OPS_OFFICER'] }],
     timeoutHours: 48,
     allowCancel: true,
@@ -344,7 +333,7 @@ export const DEFAULT_APPROVAL_POLICIES: Record<
   },
   // ─── Recon Adjustment Post（平账 A 批 2026-09-02：裁决人 OPS_OFFICER → CFO）────
   // 对账引出的账本更正与核销在业内是财务签批；链条 = 运营查证定性 → 金库开单 → CFO 裁决。
-  // 自批死锁不存在：CFO 不持 RECON_ADJUSTMENT_WRITE（verify:rbac S5 守着）。
+  // 自批死锁不存在：CFO 不持 RECON_ADJUSTMENT_WRITE（verify:rbac S5c 守着）。
   [ApprovalActionTypes.RECON_ADJUSTMENT_POST]: {
     steps: [{ stepNo: 1, roles: ['CFO'] }],
     timeoutHours: 48,
@@ -370,16 +359,15 @@ export const V1_APPROVAL_ACTION_TYPES: readonly string[] = [
   ApprovalActionTypes.ROLE_DEFINITION_MODIFY,
   ApprovalActionTypes.ADMIN_PASSWORD_RESET,
   ApprovalActionTypes.ADMIN_MFA_RESET,
-  ApprovalActionTypes.ASSET_ACTIVATION,
-  ApprovalActionTypes.CUSTODIAN_WALLET_CREATE,
   ApprovalActionTypes.ASSET_SUSPENSION,
   ApprovalActionTypes.ASSET_REACTIVATION,
   ApprovalActionTypes.TRANSACTION_LIMIT_CHANGE,
-  ApprovalActionTypes.TRANSACTION_LIMIT_CREATION,
   ApprovalActionTypes.WITHDRAWAL_FEE_LEVEL_CREATION,
   ApprovalActionTypes.WITHDRAWAL_FEE_LEVEL_CHANGE,
   ApprovalActionTypes.SWAP_FEE_LEVEL_CREATION,
   ApprovalActionTypes.SWAP_FEE_LEVEL_CHANGE,
+  ApprovalActionTypes.SWAP_FEE_LEVEL_RETIRE,
+  ApprovalActionTypes.WITHDRAWAL_FEE_LEVEL_RETIRE,
   ApprovalActionTypes.DEPOSIT_CONFISCATION,
   ApprovalActionTypes.DEPOSIT_RETURN,
   ApprovalActionTypes.DEPOSIT_SEIZE,

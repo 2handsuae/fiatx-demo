@@ -18,7 +18,9 @@ import { ApprovalActorContext } from '../../governance/approvals/constants/appro
 import { SwapFeeLevelService } from './swap-fee-level.service';
 import { SwapFeeLevelCreationWorkflowService } from './swap-fee-level-creation-workflow.service';
 import { SwapFeeLevelChangeWorkflowService } from './swap-fee-level-change-workflow.service';
+import { SwapFeeLevelRetireWorkflowService } from './swap-fee-level-retire-workflow.service';
 import { CreateSwapFeeLevelDto } from './dto/create-swap-fee-level.dto';
+import { RetireSwapFeeLevelDto } from './dto/retire-swap-fee-level.dto';
 
 @Controller('admin/swap-fee-levels')
 @UseGuards(AuthGuard('jwt'), AdminPermissionGuard)
@@ -27,6 +29,7 @@ export class SwapFeeLevelController {
     private readonly feeLevelService: SwapFeeLevelService,
     private readonly creationWorkflowService: SwapFeeLevelCreationWorkflowService,
     private readonly changeWorkflowService: SwapFeeLevelChangeWorkflowService,
+    private readonly retireWorkflowService: SwapFeeLevelRetireWorkflowService,
   ) {}
 
   private ensureAdmin(req: any) {
@@ -95,5 +98,12 @@ export class SwapFeeLevelController {
       dto.changeReason,
       this.buildAdminActor(req),
     );
+  }
+
+  @Post(':levelCode/retire')
+  @RequirePermissions(buildPermissionCode('POST', '/admin/swap-fee-levels/:levelCode/retire'))
+  async retire(@Param('levelCode') levelCode: string, @Body() dto: RetireSwapFeeLevelDto, @Req() req: any) {
+    this.ensureAdmin(req);
+    return this.retireWorkflowService.requestRetire(levelCode, dto.reason, this.buildAdminActor(req));
   }
 }

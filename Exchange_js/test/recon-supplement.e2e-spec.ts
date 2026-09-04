@@ -31,6 +31,7 @@ import { TB_LEDGERS } from '../src/modules/accounting/tigerbeetle/constants/tb-l
 import { ApprovalsService } from '../src/modules/governance/approvals/approvals.service';
 import { ApprovalActorContext } from '../src/modules/governance/approvals/constants/approval.constants';
 import { InboundTransferSignalsService } from '../src/modules/trading/deposit-transactions/inbound-transfer-signals.service';
+import { CustomerDepositWalletService } from '../src/modules/asset-treasury/wallets/customer-deposit-wallet.service';
 import { DepositWorkflowService } from '../src/modules/trading/deposit-transactions/deposit-workflow.service';
 import { DepositTransactionsService } from '../src/modules/trading/deposit-transactions/deposit-transactions.service';
 import { WithdrawWorkflowService } from '../src/modules/trading/withdraw-transactions/withdraw-workflow.service';
@@ -88,8 +89,9 @@ describe('Recon supplement e2e (平账 B 批, Task 8)', () => {
   let withdrawWf: WithdrawWorkflowService; let withdraws: WithdrawTransactionsService;
   let withdrawQuoteService: WithdrawQuoteService; let fundsOrders: FundsOrderService;
   let tbEvidence: TbEvidenceService; let accounting: AccountingService;
-  let aedAssetId: string; let aedCode: string; let aedDecimals: number;
-  let usdtAssetId: string; let usdtCode: string; let usdtDecimals: number;
+  let depositWallets: CustomerDepositWalletService;
+  let aedAssetId: string; let aedCode: string; let aedDecimals: number; let aedNetwork: string;
+  let usdtAssetId: string; let usdtCode: string; let usdtDecimals: number; let usdtNetwork: string;
   let bobId: string; let bobNo: string; let bobWithdrawalIban: string;
   let CUTOFF: Date; let testStartedAt: Date;
   const ops = () => makeActor('E2E_OPS', 'OPS_OFFICER');
@@ -118,6 +120,7 @@ describe('Recon supplement e2e (平账 B 批, Task 8)', () => {
     fundsOrders = app.get(FundsOrderService);
     tbEvidence = app.get(TbEvidenceService);
     accounting = app.get(AccountingService);
+    depositWallets = app.get(CustomerDepositWalletService);
 
     CUTOFF = new Date(Date.now() + 3 * 24 * 3600 * 1000);
     testStartedAt = new Date();
@@ -127,8 +130,8 @@ describe('Recon supplement e2e (平账 B 批, Task 8)', () => {
     if (!aed?.tbLedgerId || !usdt?.tbLedgerId) {
       throw new Error('Fixture assets AED/USDT not seeded (or missing tbLedgerId) — run `npm run db:biz:init` first.');
     }
-    aedAssetId = aed.id; aedCode = aed.code; aedDecimals = aed.decimals;
-    usdtAssetId = usdt.id; usdtCode = usdt.code; usdtDecimals = usdt.decimals;
+    aedAssetId = aed.id; aedCode = aed.code; aedDecimals = aed.decimals; aedNetwork = aed.network;
+    usdtAssetId = usdt.id; usdtCode = usdt.code; usdtDecimals = usdt.decimals; usdtNetwork = usdt.network;
 
     const bob = await (prisma as any).customerMain.findUnique({ where: { email: 'demo_bob@example.com' } });
     if (!bob) {
@@ -148,8 +151,8 @@ describe('Recon supplement e2e (平账 B 批, Task 8)', () => {
     // 独立的全新客户（不再依赖这笔地址），理由见各自 it() 内注释。
     bobWithdrawalIban = `AE-E2E-SUPP-WDADDR-${bobNo}`;
     await ensureWithdrawalAddress({
-      customerId: bobId, customerNo: bobNo, assetId: aedAssetId,
-      addressType: 'BANK', network: 'FIAT', address: bobWithdrawalIban, iban: bobWithdrawalIban,
+      customerId: bobId, customerNo: bobNo,
+      addressType: 'BANK', network: aedNetwork, address: bobWithdrawalIban, iban: bobWithdrawalIban,
     });
   });
 
@@ -157,7 +160,7 @@ describe('Recon supplement e2e (平账 B 批, Task 8)', () => {
     if (app) await app.close();
   });
 
-  // ── helpers（makeActor / waitUntil / createCustomerWallet / fundCustomerWallet /
+  // ── helpers（makeActor / waitUntil / ensureDepositWallet / fundCustomerWallet /
   //     createExternalLine / upsertExternalBalance / openCaseFor 原样抄自
   //     recon-aging-write-off.e2e-spec.ts，dedupKey 前缀改 E2E-SUPP-；未抄
   //     latestApprovalCase——本文件每处审批号都由 initiate*/scan 的返回值直接拿到，
@@ -178,18 +181,35 @@ describe('Recon supplement e2e (平账 B 批, Task 8)', () => {
     }
   }
 
-  async function createCustomerWallet(opts: {
-    ownerId: string; ownerNo: string; assetId: string; walletRole: 'C_VIBAN' | 'C_DEP'; type: string; iban?: string; address?: string;
-  }): Promise<{ id: string; walletNo?: string | null; iban?: string | null }> {
-    return (prisma as any).wallet.create({
-      data: {
-        walletNo: `WA-E2E-SUPP-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-        ownerType: 'CUSTOMER', ownerId: opts.ownerId, ownerNo: opts.ownerNo,
-        type: opts.type, walletRole: opts.walletRole, assetId: opts.assetId,
-        address: opts.address ?? null, iban: opts.iban ?? null, status: 'ACTIVE',
-      },
-      select: { id: true, walletNo: true, iban: true },
+  /** 客户在某网络上的收款地址行——走真实生产入口 createOrReturn（合并 main / V3 波一
+   *  T5 后改）。波一把 Wallet 从「一资产一钱包」改成「一 vault × 一网络 × 一归属人一行
+   *  地址」，并加了 @@unique([vaultCode, network, ownerNo])：同一客户在同一网络上**只能
+   *  有一行** CLIENT_DEPOSIT。此前本文件自己 prisma.wallet.create 手搓钱包、每个场景建
+   *  一只，那两个写法在新模型下都不成立——写的列（type / assetId）已被删，且第二只就撞
+   *  唯一约束（demo:all 还会先给每个种子客户各铺一行 TRON + AED_ZAND，见 demo-lib.ts，
+   *  所以对 Bob 连第一只都建不出来）。改调 createOrReturn 后：同一客户同一网络反复调
+   *  返回同一行（它自己就是 create-or-return 语义），要独立钱包就换独立客户。 */
+  async function ensureDepositWallet(customerId: string, network: string): Promise<any> {
+    return depositWallets.createOrReturn(customerId, network);
+  }
+
+  /** 一个本文件专属的全新客户，配齐「能跑通充值/提现自助入口」所需的两样东西：
+   *  TB 账户（provisionCustomerTbAccounts）+ 已登记的法币提现地址（assertTradingReady
+   *  硬门，也是 createOrReturn 开新地址时要过的门）。新模型下「一客户一网络一地址行」，
+   *  所以每个需要**独立钱包 / 独立案子**的场景都得有自己的客户——这正是 breakCase 从
+   *  「给 Bob 建第 N 只钱包」改成「造一个自己的客户」的原因。 */
+  async function createIsolatedCustomer(tag: string): Promise<{ id: string; customerNo: string }> {
+    const customer = await (prisma as any).customerMain.create({
+      data: { customerNo: `CU-E2E-SUPP-${tag}-${randomUUID().slice(0, 8)}`, lifecycle: 'ACTIVE' },
+      select: { id: true, customerNo: true },
     });
+    await provisionCustomerTbAccounts(customer.id, customer.customerNo);
+    const iban = `AE-E2E-SUPP-WDADDR-${customer.customerNo}`;
+    await ensureWithdrawalAddress({
+      customerId: customer.id, customerNo: customer.customerNo,
+      addressType: 'BANK', network: aedNetwork, address: iban, iban,
+    });
+    return customer;
   }
 
   /** Real production evidence shape — mirrors deposit-workflow.service.ts's own
@@ -281,17 +301,19 @@ describe('Recon supplement e2e (平账 B 批, Task 8)', () => {
    *  案子在演示里常常是「已有余额、漏了新的一笔」，不是每次都从零开始）。 */
   async function breakCase(opts: {
     assetId: string; currency: string; decimals: number; direction: 'IN' | 'OUT'; amountMinor: bigint;
-    externalRef: string; ownerId: string; ownerNo: string; internalMinor?: bigint;
+    externalRef: string; tag: string; internalMinor?: bigint;
   }) {
     const isCrypto = opts.currency !== 'AED';
-    const wallet = await createCustomerWallet({
-      ownerId: opts.ownerId, ownerNo: opts.ownerNo, assetId: opts.assetId,
-      walletRole: isCrypto ? 'C_DEP' : 'C_VIBAN', type: isCrypto ? 'CRYPTO_ADDRESS' : 'FIAT_VIBAN',
-      ...(isCrypto ? { address: `TE2ESUPP${randomUUID().slice(0, 10)}` } : { iban: `AE-E2E-SUPP-${randomUUID().slice(0, 10)}` }),
-    });
+    // 合并 main / V3 波一 T5 后：每个破口案子配一个**自己的客户**，不再是「给 Bob 再建
+    // 一只钱包」。新模型下同一客户同一网络只有一行收款地址（@@unique），而每条主链都要
+    // 一个独立的钱包 + 独立的案子（openCaseFor 按 walletRef 找 OPEN 案），共用客户会让
+    // 几条主链抢同一只钱包、同一个案子。客户本身对这些断言不是变量——断言都锚在
+    // wallet.id / kase.id 上，不锚在"谁"身上。
+    const customer = await createIsolatedCustomer(opts.tag);
+    const wallet = await ensureDepositWallet(customer.id, isCrypto ? usdtNetwork : aedNetwork);
     if (opts.internalMinor && opts.internalMinor > 0n) {
       await fundCustomerWallet({
-        walletId: wallet.id, ownerId: opts.ownerId, assetId: opts.assetId,
+        walletId: wallet.id, ownerId: customer.id, assetId: opts.assetId,
         ledger: TB_LEDGERS[opts.currency as keyof typeof TB_LEDGERS], currency: opts.currency,
         amount: opts.internalMinor, tag: 'BASE', externalRef: `E2E-SUPP-BASE-${randomUUID()}`,
       });
@@ -301,7 +323,7 @@ describe('Recon supplement e2e (平账 B 批, Task 8)', () => {
     await upsertExternalBalance({ walletId: wallet.id, currency: opts.currency, book: 'CLIENT', closingBalance: closing });
     expect((await walletRecon.run({ cutoff: CUTOFF })).status).toBe('BREAK');
     const kase = await openCaseFor(wallet.id);
-    return { wallet, line, kase };
+    return { wallet, line, kase, customer };
   }
 
   // ── helpers（本文件新增，brief 未给出字面代码的部分） ──────────────────────
@@ -318,17 +340,23 @@ describe('Recon supplement e2e (平账 B 批, Task 8)', () => {
     return BigInt(whole + paddedFrac);
   }
 
+  /** 合并 main（V3 波一 T8）后 WithdrawalAddress 砍掉 assetId、改按 network 归口，
+   *  唯一键是 (customerId, network, address)。法币银行行的 network 存的是**资产自己的
+   *  network**（'AED_ZAND'），不是 'FIAT'——见 WithdrawWorkflowService 里按
+   *  `{ customerId, network: asset.network, iban, addressType:'BANK' }` 查注册地址的那段
+   *  与 demo-lib.ts 的种子写法。此前本函数传 assetId + network:'FIAT'，前者已是不存在的
+   *  列（PrismaClientValidationError），后者会让提现单查不到注册地址而 400。 */
   async function ensureWithdrawalAddress(opts: {
-    customerId: string; customerNo: string; assetId: string; addressType: string; network: string; address: string; iban?: string;
+    customerId: string; customerNo: string; addressType: string; network: string; address: string; iban?: string;
   }): Promise<void> {
     const existing = await (prisma as any).withdrawalAddress.findFirst({
-      where: { customerId: opts.customerId, assetId: opts.assetId, address: opts.address, status: 'ACTIVE' },
+      where: { customerId: opts.customerId, network: opts.network, address: opts.address, status: 'ACTIVE' },
     });
     if (existing) return;
     await (prisma as any).withdrawalAddress.create({
       data: {
         addressNo: `WAD-E2E-SUPP-${opts.addressType}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-        customerId: opts.customerId, customerNo: opts.customerNo, assetId: opts.assetId, network: opts.network,
+        customerId: opts.customerId, customerNo: opts.customerNo, network: opts.network,
         address: opts.address, addressType: opts.addressType, iban: opts.iban ?? null,
         ownershipDeclaredAt: new Date(), ownershipProofType: 'E2E_FIXTURE',
         status: 'ACTIVE', activatesAt: new Date(Date.now() - 1000),
@@ -406,13 +434,14 @@ describe('Recon supplement e2e (平账 B 批, Task 8)', () => {
    *  实现时漏抄的，不是 brief 错）。customerId/customerNo 默认 Bob——Step 6(b)
    *  要单独用一个本文件专属的全新客户（避免碰 Bob 的历史余额），显式传参覆盖。 */
   async function makeSuccessfulFiatDeposit(amount: string, customerId: string = bobId, customerNo: string = bobNo): Promise<{ deposit: any; wallet: { id: string } }> {
-    const wallet = await createCustomerWallet({
-      ownerId: customerId, ownerNo: customerNo, assetId: aedAssetId,
-      walletRole: 'C_VIBAN', type: 'FIAT_VIBAN', iban: `AE-E2E-SUPP-DEP-${randomUUID().slice(0, 10)}`,
-    });
+    void customerNo; // 新模型下钱包由 createOrReturn 按 customerId 取，不再手搓、不需要 ownerNo
+    // 合并 main / V3 波一 T5：客户自助入金的钥匙从内部 walletId 换成（网络, 地址 | IBAN），
+    // 钱包也从「每笔充值建一只」换成「一客户一网络一行」，故这里取回该客户既有的
+    // AED_ZAND 收款行（Bob 的那行 demo:all 已铺好），用它的 IBAN 当入金落点。
+    const wallet = await ensureDepositWallet(customerId, aedNetwork);
     const referenceNo = `E2E-DEP-${randomUUID().slice(0, 12)}`;
-    await signals.createForCustomer(customerId, { walletId: wallet.id, amount, referenceNo, fromIban: 'AE070331234567890123456' } as any);
-    const scan = await signals.scanForCustomer(customerId, { walletId: wallet.id, mode: 'QUICK_DEMO' } as any);
+    await signals.createForCustomer(customerId, { network: aedNetwork, iban: wallet.iban, amount, referenceNo, fromIban: 'AE070331234567890123456' } as any);
+    const scan = await signals.scanForCustomer(customerId, { network: aedNetwork, iban: wallet.iban, mode: 'QUICK_DEMO' } as any);
     const depositId = (scan as any).depositIds[0];
     await waitUntil(async () => (await deposits.findOne(depositId)).status === 'COMPLIANCE_PENDING', 30000);
     await depositWf.applyKytVerdict(depositId, verdictArgs('approved'));
@@ -433,39 +462,34 @@ describe('Recon supplement e2e (平账 B 批, Task 8)', () => {
    *  内部流水各是一条「我有外无」孤儿，桶判定卡在 SOFT_FLAG。TigerBeetle 在本系统
    *  没启用不可透支约束（C2，见 doc-final/PRODUCTION-NOTES.md），createWithdrawal
    *  本身不需要余额铺底就能成功——不为它单独铺底。 */
-  async function makeSuccessfulFiatWithdraw(amount: string): Promise<any> {
-    const wallet = await createCustomerWallet({
-      ownerId: bobId, ownerNo: bobNo, assetId: aedAssetId,
-      walletRole: 'C_VIBAN', type: 'FIAT_VIBAN', iban: `AE-E2E-SUPP-WDSRC-${randomUUID().slice(0, 10)}`,
-    });
+  async function makeSuccessfulFiatWithdraw(amount: string, customer: { id: string; customerNo: string }, toIban: string): Promise<any> {
+    // 改成收一个**独立客户**（合并 main / V3 波一 T5）：新模型下一客户一网络只有一行
+    // 收款地址，Bob 的那一行是 demo:all 花名册 29 笔反复用过的公共钱包，外部收盘上挂满
+    // 了别人的历史；③ 的判据要按「这只钱包出 net+fee、回 net，净变化 = -fee」精确摆
+    // 收盘余额才能重跑自愈，落在这样一只公共钱包上永远对不平（案子停在 OPEN）。
+    // 独立客户 = 独立钱包 = 干净的外部历史，收盘算术才成立。
+    const wallet = await ensureDepositWallet(customer.id, aedNetwork);
     const quote = await withdrawQuoteService.createQuote({
-      ownerType: 'CUSTOMER', ownerId: bobId, ownerNo: bobNo, assetId: aedAssetId, assetCode: aedCode,
-      amount: new Prisma.Decimal(amount), customerId: bobId,
+      ownerType: 'CUSTOMER', ownerId: customer.id, ownerNo: customer.customerNo, assetId: aedAssetId, assetCode: aedCode,
+      amount: new Prisma.Decimal(amount), customerId: customer.id,
     });
     const w = await withdrawWf.createWithdrawal(
-      { assetId: aedAssetId, amount: Number(amount), toIban: bobWithdrawalIban, quoteId: quote.id } as any,
-      bobId, 'CUSTOMER',
+      { assetId: aedAssetId, amount: Number(amount), toIban, quoteId: quote.id } as any,
+      customer.id, 'CUSTOMER',
     );
     expect(w.status).toBe('COMPLIANCE_PENDING');
     // createWithdrawal() 出生时 fromWalletId 还是 null（真实生产也是——真正绑定在
     // 进 PAYOUT_PENDING 时才由 ensureSourceWalletBound 做，见该私有方法 JSDoc）；
-    // 它的查法是"这个客户名下最早那只 ACTIVE 的 C_VIBAN/AED 钱包"，不是"刚建的这
-    // 只"。本文件同一个 it() 序列会给 Bob 反复建新的 C_VIBAN/AED 钱包（①b/②各建
-    // 一只、每次调用本函数也各建一只），"最早那只"在跑到 ③/⑥ 时早就不是刚建的
-    // 这只——账实质上全记到了另一只（可能是别的场景、甚至别的 e2e 早年历史遗留）
-    // 钱包上，这只钱包上什么内部流水都没有，"退回后案子该愈"这类断言会永远等不到，
-    // e2e 首次真实数据跑通时当场复现（brief 只有 mock 下测过）。直接钉死，绕开这
-    // 个"哪只最老"的不确定性——ensureSourceWalletBound 对已有 fromWalletId 的单是
-    // no-op（同函数 JSDoc "Idempotent"），这里只是提前把它自己也会做的赋值做掉，
-    // 不是绕过什么校验。手续费腿另有一次独立的（无排序）活跃钱包查找
-    // （WithdrawWorkflowService#initiatePayoutPhase 里的 findCustomerWallet），不受
-    // 这次钉死影响——理论上可能落到另一只钱包上。实测（多轮 e2e 真跑）里这次查找
-    // 与上面钉死的这只钱包结果一致，NET_POST / FEE_POST / BOUNCE_REENTRY 三条
-    // evidence 的 walletRef 全部落在同一只上，下面补的手续费外部镜像行、③ 断言的
-    // `-feeMinor` 收盘算术都是建立在"手续费也落在这只钱包"这个真实观察到的事实
-    // 上——不是保证：若哪次这条独立查找选到了别的钱包，手续费镜像行会变成这只
-    // 钱包上一条没有对应内部流水的孤儿（桶判定卡 SOFT_FLAG），③ 的收盘算术也会
-    // 对不上（真实手续费记到了另一只钱包，不在这只上）。
+    // 它的查法是"这个客户名下最早那只 ACTIVE 的 C_VIBAN/AED 钱包"，不是"刚建的这只"。
+    // 合并 main / V3 波一 T5 后这个不确定性**从根上消失了**：新模型给同一客户在同一
+    // 网络上只留一行收款地址（@@unique([vaultCode, network, ownerNo])），该客户名下的
+    // AED_ZAND 行有且仅有一只，"最早那只" ≡ "上面 createOrReturn 取回的这只"。此前
+    // 本文件给 Bob 反复建新 C_VIBAN/AED 钱包，"最早那只"跑到 ③/⑥ 时早就不是刚建的
+    // 那只，账全记到了别只上、"退回后案子该愈"永远等不到（e2e 首次真实数据跑通时
+    // 当场复现）——那个坑连同"手续费腿可能落到另一只钱包"的隐患一起没了：现在
+    // 只有一只钱包可选，NET_POST / FEE_POST / BOUNCE_REENTRY 必然同址。
+    // 下面这次赋值保留：ensureSourceWalletBound 对已有 fromWalletId 的单是 no-op
+    // （同函数 JSDoc "Idempotent"），这里只是提前把它自己也会做的赋值做掉，不绕校验。
     await (prisma as any).withdrawTransaction.update({
       where: { id: w.id },
       data: { fromWalletId: wallet.id, fromWalletNo: wallet.walletNo ?? null, fromIban: wallet.iban ?? null },
@@ -525,7 +549,7 @@ describe('Recon supplement e2e (平账 B 批, Task 8)', () => {
    *  的 STEP_1 会原样把这个 404 炸出来）——Step 6(b) 想用一个全新客户就必须自己开户，
    *  用的是与 seed 脚本同一个真实入口 `AccountingService.createAccounts`（建 TB 账户 +
    *  登记 registry 两步一次做完），不是新发明的路子。法币充值只会摸到 CLIENT_PAYABLE
-   *  （100）与 DEPOSIT_SUSPENSE（101）这两个客户级科目，只开这两个。
+   *  （100）与 DEPOSIT_SUSPENSE（101）这两个客户级科目；AED / USDT 两个账簿各开一对，共四个。
    *
    *  Task 12 收口轮当场复现的一处真实缺口（未改 src，登记 BACKLOG，见文末）：
    *  `AccountingService.createAccounts()` 登记 registry 时用
@@ -544,9 +568,17 @@ describe('Recon supplement e2e (平账 B 批, Task 8)', () => {
    *  `prisma/seed-tb.helper.ts`（用 SHA256 哈希取前 32 位，天然定长不会短）一致
    *  的字符串宽度——测试夹具自己的收口，不改 `AccountingService`。 */
   async function provisionCustomerTbAccounts(customerId: string, customerNo: string): Promise<void> {
+    // AED + USDT 两个账簿都开：合并 main（V3 波一）后每个破口场景各配一个独立客户
+    // （见 breakCase / createIsolatedCustomer 的注释），其中 ①a 走的是**链上 USDT**
+    // 那条路。只开 AED 时，USDT 充值在 executeDepositAccounting 的 STEP_1 直接炸
+    // `No TB account found for code=101 ledger=2 ownerType=CUSTOMER`，充值单卡在
+    // PAYIN_PENDING 永远到不了 COMPLIANCE_PENDING（此前这条路借的是种子客户 Bob，
+    // 两个账簿都是 seed 建好的，所以没暴露）。种子客户天生两簿齐全，这里对齐同一形状。
     await accounting.createAccounts([
       { code: TB_ACCOUNT_CODES.CLIENT_PAYABLE, ledger: TB_LEDGERS.AED, ownerType: 'CUSTOMER', ownerUuid: customerId, ownerNo: customerNo, assetCurrency: 'AED', description: 'e2e fixture customer CLIENT_PAYABLE' },
       { code: TB_ACCOUNT_CODES.DEPOSIT_SUSPENSE, ledger: TB_LEDGERS.AED, ownerType: 'CUSTOMER', ownerUuid: customerId, ownerNo: customerNo, assetCurrency: 'AED', description: 'e2e fixture customer DEPOSIT_SUSPENSE' },
+      { code: TB_ACCOUNT_CODES.CLIENT_PAYABLE, ledger: TB_LEDGERS.USDT, ownerType: 'CUSTOMER', ownerUuid: customerId, ownerNo: customerNo, assetCurrency: 'USDT', description: 'e2e fixture customer CLIENT_PAYABLE (USDT)' },
+      { code: TB_ACCOUNT_CODES.DEPOSIT_SUSPENSE, ledger: TB_LEDGERS.USDT, ownerType: 'CUSTOMER', ownerUuid: customerId, ownerNo: customerNo, assetCurrency: 'USDT', description: 'e2e fixture customer DEPOSIT_SUSPENSE (USDT)' },
     ]);
     const registered = await (prisma as any).tbAccountRegistry.findMany({ where: { ownerUuid: customerId } });
     for (const row of registered) {
@@ -568,7 +600,7 @@ describe('Recon supplement e2e (平账 B 批, Task 8)', () => {
     // limitHoldReason=BELOW_MIN，KYT 批准后 applyKytApproved 的 assertTradingReadyOrHold
     // 直接 no-op 掉、永远到不了 SUCCESS——e2e 首次真实数据跑通时当场复现（brief 那个
     // 数字只在 mock 下测过，没有下限门这回事）。
-    const { wallet, line, kase } = await breakCase({ assetId: usdtAssetId, currency: usdtCode, decimals: usdtDecimals, direction: 'IN', amountMinor: 150_000_000n, externalRef: txHash, ownerId: bobId, ownerNo: bobNo });
+    const { wallet, line, kase } = await breakCase({ assetId: usdtAssetId, currency: usdtCode, decimals: usdtDecimals, direction: 'IN', amountMinor: 150_000_000n, externalRef: txHash, tag: 'A1' });
     const disp = await dispositions.record(kase.caseNo, { explainedExternalLineId: line.id, matchType: 'ORPHAN_EXTERNAL', causeCode: 'MISSED_DEPOSIT', externalDirection: 'IN', findingNote: '托管账单有、我方监听漏了' } as any, ops());
     expect(disp.outlet).toBe('SUPPLEMENT'); expect(disp.deferredTarget).toBe('SUPPLEMENT_DEPOSIT');
 
@@ -597,7 +629,7 @@ describe('Recon supplement e2e (平账 B 批, Task 8)', () => {
 
   it('①b 法币补录：案子 → 定性漏记入金 → 发起（来源 IBAN）→ CFO 批 → 信号进通道 → 充值单 SUCCESS → 重跑愈', async () => {
     const ref = `E2E-BANK-REF-${randomUUID().slice(0, 12)}`;
-    const { wallet, line, kase } = await breakCase({ assetId: aedAssetId, currency: 'AED', decimals: aedDecimals, direction: 'IN', amountMinor: 120_000n, externalRef: ref, ownerId: bobId, ownerNo: bobNo });
+    const { wallet, line, kase } = await breakCase({ assetId: aedAssetId, currency: 'AED', decimals: aedDecimals, direction: 'IN', amountMinor: 120_000n, externalRef: ref, tag: 'B1' });
     const disp = await dispositions.record(kase.caseNo, { explainedExternalLineId: line.id, matchType: 'ORPHAN_EXTERNAL', causeCode: 'MISSED_DEPOSIT', externalDirection: 'IN', findingNote: '托管账单有、我方监听漏了（法币）' } as any, ops());
     expect(disp.outlet).toBe('SUPPLEMENT'); expect(disp.deferredTarget).toBe('SUPPLEMENT_DEPOSIT');
 
@@ -640,8 +672,8 @@ describe('Recon supplement e2e (平账 B 批, Task 8)', () => {
     await provisionCustomerTbAccounts(custClaw.id, custClaw.customerNo);
     const custClawIban = `AE-E2E-SUPP-CLAWADDR-${custClaw.customerNo}`;
     await ensureWithdrawalAddress({
-      customerId: custClaw.id, customerNo: custClaw.customerNo, assetId: aedAssetId,
-      addressType: 'BANK', network: 'FIAT', address: custClawIban, iban: custClawIban,
+      customerId: custClaw.id, customerNo: custClaw.customerNo,
+      addressType: 'BANK', network: aedNetwork, address: custClawIban, iban: custClawIban,
     });
 
     const { deposit, wallet } = await makeSuccessfulFiatDeposit('1200', custClaw.id, custClaw.customerNo);
@@ -668,27 +700,39 @@ describe('Recon supplement e2e (平账 B 批, Task 8)', () => {
   });
 
   it('③ 退回：SUCCESS 提现 → 银行退回 → 定性 → 发起 → CFO 批 → RETURNED，借资产贷应付，余额加、手续费不退 → 重跑愈', async () => {
-    const w = await makeSuccessfulFiatWithdraw('900');
+    // ③ 用本文件专属的独立客户（不用 Bob）——理由见 makeSuccessfulFiatWithdraw 的注释：
+    // 收盘算术要求这只钱包的外部历史只有本场景造的那几笔。
+    const custRet = await createIsolatedCustomer('RET');
+    const custRetIban = `AE-E2E-SUPP-WDADDR-${custRet.customerNo}`;
+    // 先给这个全新客户真造一笔入金铺底再提现：手续费不退意味着走完全程后客户应付
+    // 净减 feeMinor，零余额起步会把 L.CLIENT_PAYABLE 记成负数，收尾闸 ⑦ verify:coa
+    // 的「负余额」判据当场报红（此前借的是 Bob 的 demo:all 余额，负不下去所以没暴露）。
+    // 用与 ② 同一条真实入金通道铺底，不是夹具直接改数。
+    const seedAmount = '1200';
+    const seedMinor = decimalToBigint(seedAmount, aedDecimals);
+    await makeSuccessfulFiatDeposit(seedAmount, custRet.id, custRet.customerNo);
+    const w = await makeSuccessfulFiatWithdraw('900', custRet, custRetIban);
     expect(w.status).toBe('SUCCESS');
     const netMinor = decimalToBigint(String(w.netAmount), aedDecimals);
     const ref = `E2E-PAYRET-${randomUUID()}`;
     const line = await createExternalLine({ walletId: w.fromWalletId, currency: 'AED', book: 'CLIENT', direction: 'IN', amount: netMinor, externalRef: ref, description: 'Payout returned' });
-    // 收盘设 -feeMinor（手续费留在客户身上的那一份），不是 0：makeSuccessfulFiatWithdraw
-    // 已经把「原笔出账」镜像成两条外部行（本金 OUT netMinor + 手续费 OUT feeMinor），
-    // 这只钱包外部层面的真实历史是「出 netMinor+feeMinor、回 netMinor」——净变化
-    // = -feeMinor，不是 0（手续费不退，钱确实少了这一点，且退回处置本身也不碰
-    // 费腿）。此刻内部只有 SUCCESS 提现已经记走的 -netMinor-feeMinor（两条腿都已
-    // POST），delta = -feeMinor − (-netMinor-feeMinor) = netMinor ≠ 0，仍是待发现的
-    // 差异；认领处置落账后内部归到 -feeMinor，才跟这个不变的收盘对上。
+    // 收盘设 seedMinor - feeMinor（不是 0，也不再是 -feeMinor）：这只钱包外部层面的
+    // 真实历史是「进 seedMinor（铺底入金镜像）、出 netMinor+feeMinor（提现两条腿镜像）、
+    // 回 netMinor（本场景的退回行）」——净变化 = seedMinor - feeMinor（手续费不退，
+    // 钱确实少了这一点，且退回处置本身也不碰费腿）。此刻内部是铺底 +seedMinor 加上
+    // SUCCESS 提现已经记走的 -netMinor-feeMinor（两条腿都已 POST），
+    // delta = (seedMinor-feeMinor) − (seedMinor-netMinor-feeMinor) = netMinor ≠ 0，
+    // 仍是待发现的差异；认领处置落账（+netMinor）后内部归到 seedMinor-feeMinor，
+    // 才跟这个不变的收盘对上。
     const feeMinor = decimalToBigint(String(w.feeAmount), aedDecimals);
-    await upsertExternalBalance({ walletId: w.fromWalletId, currency: 'AED', book: 'CLIENT', closingBalance: -feeMinor });
+    await upsertExternalBalance({ walletId: w.fromWalletId, currency: 'AED', book: 'CLIENT', closingBalance: seedMinor - feeMinor });
     expect((await walletRecon.run({ cutoff: CUTOFF })).status).toBe('BREAK');
     const kase = await openCaseFor(w.fromWalletId);
     const disp = await dispositions.record(kase.caseNo, { explainedExternalLineId: line.id, matchType: 'ORPHAN_EXTERNAL', causeCode: 'PAYOUT_RETURNED', externalDirection: 'IN', findingNote: '银行退回提现' } as any, ops());
     expect(disp.outlet).toBe('SUPPLEMENT'); expect(disp.deferredTarget).toBe('SUPPLEMENT_PAYOUT_RETURN');
 
     const feeEvidenceBefore = (await tbEvidence.findBySource('WITHDRAWAL', w.withdrawNo)).filter((e: any) => String(e.eventCode).includes('FEE'));
-    const before = (await accounting.getCustomerAvailableBalance(bobId, 'AED')).available;
+    const before = (await accounting.getCustomerAvailableBalance(custRet.id, 'AED')).available;
     const req = await withdrawWf.initiateReturnClaim(w.withdrawNo, { externalLineId: line.id, caseNo: kase.caseNo, dispositionNo: disp.dispositionNo, reason: '银行退回' }, ops());
     await approvalsService.approve(req.approvalNo, { reason: 'e2e CFO approve return-claim' }, cfo());
     await waitUntil(async () => (await withdraws.findByNo(w.withdrawNo)).status === 'RETURNED', 30000);
@@ -696,7 +740,7 @@ describe('Recon supplement e2e (平账 B 批, Task 8)', () => {
     const ev = (await tbEvidence.findBySource('WITHDRAWAL', w.withdrawNo)).find((e: any) => e.eventCode === 'WITHDRAW_BOUNCE_REENTRY');
     expect(ev.debitCode).toBe(TB_CODE_TO_COA[TB_ACCOUNT_CODES.CLIENT_ASSET]); expect(ev.creditCode).toBe(TB_CODE_TO_COA[TB_ACCOUNT_CODES.CLIENT_PAYABLE]);
     expect(ev.externalRef).toBe(ref); expect(ev.effectiveDate).toBe(kase.businessDate);
-    expect((await accounting.getCustomerAvailableBalance(bobId, 'AED')).available).toBe(before + netMinor);
+    expect((await accounting.getCustomerAvailableBalance(custRet.id, 'AED')).available).toBe(before + netMinor);
     const feeEvidenceAfter = (await tbEvidence.findBySource('WITHDRAWAL', w.withdrawNo)).filter((e: any) => String(e.eventCode).includes('FEE'));
     expect(feeEvidenceAfter.length).toBe(feeEvidenceBefore.length); // 手续费不退：净额腿之外没有新的费腿证据
     await walletRecon.run({ cutoff: CUTOFF });
@@ -707,7 +751,7 @@ describe('Recon supplement e2e (平账 B 批, Task 8)', () => {
   it('拒绝路径：方向不符 400；余额不足 400；同一行仍待决时二次发起 400，CFO 拒绝后可再发起（复用同一信号）；② 拒绝后原状态不动、supplementNo 清空、可再发起', async () => {
     // (a) 方向不符：外部 OUT 行定性 MISSED_DEPOSIT（要求 IN）→ dispositions.record 抛 /方向不符/
     const txHashA = `0xe2esuppdiramis${randomUUID().replace(/-/g, '')}`;
-    const { line: lineA, kase: kaseA } = await breakCase({ assetId: usdtAssetId, currency: usdtCode, decimals: usdtDecimals, direction: 'OUT', amountMinor: 2_000_000n, externalRef: txHashA, ownerId: bobId, ownerNo: bobNo });
+    const { line: lineA, kase: kaseA } = await breakCase({ assetId: usdtAssetId, currency: usdtCode, decimals: usdtDecimals, direction: 'OUT', amountMinor: 2_000_000n, externalRef: txHashA, tag: 'RJA' });
     await expect(dispositions.record(kaseA.caseNo, { explainedExternalLineId: lineA.id, matchType: 'ORPHAN_EXTERNAL', causeCode: 'MISSED_DEPOSIT', externalDirection: 'OUT', findingNote: 'e2e 方向不符测试' } as any, ops())).rejects.toThrow(/方向不符/);
 
     // (b) 余额不足：用一个本文件专属的全新客户（lifecycle=ACTIVE、零历史），不碰 Bob 或
@@ -727,8 +771,8 @@ describe('Recon supplement e2e (平账 B 批, Task 8)', () => {
     await provisionCustomerTbAccounts(tmpCustomer.id, tmpCustomer.customerNo);
     const tmpIban = `AE-E2E-SUPP-TMPADDR-${tmpCustomer.customerNo}`;
     await ensureWithdrawalAddress({
-      customerId: tmpCustomer.id, customerNo: tmpCustomer.customerNo, assetId: aedAssetId,
-      addressType: 'BANK', network: 'FIAT', address: tmpIban, iban: tmpIban,
+      customerId: tmpCustomer.id, customerNo: tmpCustomer.customerNo,
+      addressType: 'BANK', network: aedNetwork, address: tmpIban, iban: tmpIban,
     });
     const { deposit: depB, wallet: walletB } = await makeSuccessfulFiatDeposit('1200', tmpCustomer.id, tmpCustomer.customerNo);
     await debitCustomerBalance(tmpCustomer.id, 1n);
@@ -759,7 +803,7 @@ describe('Recon supplement e2e (平账 B 批, Task 8)', () => {
     // initiateSupplement + supplement-evidence.service.ts 的 assertUnclaimed），
     // 下面断言改成断言 spec 的行为，不再断言"永久占用"。
     const txHashC = `0xe2esuppdup${randomUUID().replace(/-/g, '')}`;
-    const { line: lineC, kase: kaseC } = await breakCase({ assetId: usdtAssetId, currency: usdtCode, decimals: usdtDecimals, direction: 'IN', amountMinor: 3_000_000n, externalRef: txHashC, ownerId: bobId, ownerNo: bobNo });
+    const { line: lineC, kase: kaseC } = await breakCase({ assetId: usdtAssetId, currency: usdtCode, decimals: usdtDecimals, direction: 'IN', amountMinor: 3_000_000n, externalRef: txHashC, tag: 'RJC' });
     const dispC = await dispositions.record(kaseC.caseNo, { explainedExternalLineId: lineC.id, matchType: 'ORPHAN_EXTERNAL', causeCode: 'MISSED_DEPOSIT', externalDirection: 'IN', findingNote: 'e2e 二次发起测试' } as any, ops());
     const reqC = await signals.initiateSupplement({ externalLineId: lineC.id, caseNo: kaseC.caseNo, dispositionNo: dispC.dispositionNo, fromAddress: 'TE2eSupplementDup', reason: 'e2e first attempt' }, ops());
     await expect(signals.initiateSupplement({ externalLineId: lineC.id, caseNo: kaseC.caseNo, dispositionNo: dispC.dispositionNo, fromAddress: 'TE2eSupplementWhilePending', reason: 'e2e while first still pending' }, ops())).rejects.toThrow(/已转补单/);
@@ -786,8 +830,8 @@ describe('Recon supplement e2e (平账 B 批, Task 8)', () => {
     await provisionCustomerTbAccounts(custD.id, custD.customerNo);
     const custDIban = `AE-E2E-SUPP-REJADDR-${custD.customerNo}`;
     await ensureWithdrawalAddress({
-      customerId: custD.id, customerNo: custD.customerNo, assetId: aedAssetId,
-      addressType: 'BANK', network: 'FIAT', address: custDIban, iban: custDIban,
+      customerId: custD.id, customerNo: custD.customerNo,
+      addressType: 'BANK', network: aedNetwork, address: custDIban, iban: custDIban,
     });
     const { deposit: depD, wallet: walletD } = await makeSuccessfulFiatDeposit('300', custD.id, custD.customerNo);
     const refD = `E2E-CLAW-REJ-${randomUUID()}`;

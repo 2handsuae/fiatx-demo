@@ -1,67 +1,21 @@
 import { WalletRole } from './dto/wallet.dto';
+import type { NetworkKind } from '../../../config/manifests/networks.manifest';
 
-// Realtime 1:1 mirror model: customer crypto withdrawals source funds directly
-// from the customer's own C_DEP wallet (the deposit address that received the
-// funds). The legacy C_MAIN/C_OUT platform pool was V7 collect-then-pay-out
-// and is no longer provisioned. The enum entries (C_MAIN/C_OUT in WalletRole)
-// stay defined so dead-code references compile until Phase C cleanup.
-export const CRYPTO_SYSTEM_WALLET_ROLES: WalletRole[] = [
-  WalletRole.F_LIQ, WalletRole.F_OPS, WalletRole.F_FEE,
-];
-
-// C_CMA (Client Money Account) has no ledger position of its own —
-// wallet-query.service.ts#resolveDisplayBalance resolves it as a read-time
-// aggregate of every customer C_VIBAN for the same asset (Σ VIBAN), and
-// reconciliation doesn't cover it (recon-demo.ts plans only wallets with a
-// real balance). It is no longer provisioned. The enum entry (C_CMA in
-// WalletRole) stays defined so dead-code references compile.
-export const FIAT_SYSTEM_WALLET_ROLES: WalletRole[] = [
-  WalletRole.F_SET, WalletRole.F_FEE, WalletRole.F_OPS, WalletRole.F_LIQ,
-];
-
-export const PROTECTED_SYSTEM_WALLET_ROLES: ReadonlySet<string> = new Set([
-  ...CRYPTO_SYSTEM_WALLET_ROLES, ...FIAT_SYSTEM_WALLET_ROLES,
+/** 平台侧钱包角色 = vault 码本身（F_*）；四个 vault 在 vaults.manifest.ts 定义 */
+export const PLATFORM_WALLET_ROLES: ReadonlySet<string> = new Set([
+  WalletRole.F_OPS, WalletRole.F_SET, WalletRole.F_FEE, WalletRole.F_LIQ,
 ]);
 
-export const CUSTOMER_POOL_ROLES: ReadonlySet<string> = new Set([
-  WalletRole.C_MAIN, WalletRole.C_OUT, WalletRole.C_CMA,
+/** 客户收款账户角色（CLIENT_DEPOSIT vault 下的行） */
+export const CUSTOMER_DEPOSIT_ROLES: ReadonlySet<string> = new Set([
+  WalletRole.C_DEP, WalletRole.C_VIBAN,
 ]);
 
-export const PLATFORM_POOL_ROLES: ReadonlySet<string> = new Set([
-  WalletRole.F_LIQ, WalletRole.F_OPS, WalletRole.F_SET, WalletRole.F_FEE,
-]);
-
-export enum WalletSurfaceCategory {
-  CUSTOMER_POOL = 'CUSTOMER_POOL',
-  PLATFORM_POOL = 'PLATFORM_POOL',
-  CUSTOMER_DEPOSIT = 'CUSTOMER_DEPOSIT',
-  CUSTOMER_PAYOUT_TARGET = 'CUSTOMER_PAYOUT_TARGET',
-  LIQUIDITY_PROVIDER_ACCOUNT = 'LIQUIDITY_PROVIDER_ACCOUNT',
-  OTHER = 'OTHER',
+export function isPlatformWalletRole(role: string): boolean {
+  return PLATFORM_WALLET_ROLES.has(role);
 }
 
-export function isProtectedSystemWalletRole(role: string): boolean {
-  return PROTECTED_SYSTEM_WALLET_ROLES.has(role);
-}
-
-export function classifyWalletSurface(wallet: {
-  walletRole: string;
-  ownerType: string;
-}): WalletSurfaceCategory {
-  if (wallet.ownerType === 'LIQUIDITY_PROVIDER') {
-    return WalletSurfaceCategory.LIQUIDITY_PROVIDER_ACCOUNT;
-  }
-  if (wallet.ownerType === 'CUSTOMER') {
-    if (wallet.walletRole === WalletRole.C_DEP || wallet.walletRole === WalletRole.C_VIBAN) {
-      return WalletSurfaceCategory.CUSTOMER_DEPOSIT;
-    }
-    return WalletSurfaceCategory.OTHER;
-  }
-  if (CUSTOMER_POOL_ROLES.has(wallet.walletRole)) {
-    return WalletSurfaceCategory.CUSTOMER_POOL;
-  }
-  if (PLATFORM_POOL_ROLES.has(wallet.walletRole)) {
-    return WalletSurfaceCategory.PLATFORM_POOL;
-  }
-  return WalletSurfaceCategory.OTHER;
+/** 客户充值地址的角色由网络种类决定：链上 C_DEP，银行通道 C_VIBAN */
+export function customerRoleForNetworkKind(kind: NetworkKind): WalletRole {
+  return kind === 'CHAIN' ? WalletRole.C_DEP : WalletRole.C_VIBAN;
 }

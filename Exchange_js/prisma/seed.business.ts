@@ -6,8 +6,10 @@ import { generateReferenceNo } from '../src/common/utils/no-generator.util';
 import { ensureBaseSeeded } from './seed.base';
 import { ensureTbAccountRegistry, provisionTbAccounts } from './seed-tb.helper';
 import { DEFAULT_ASSETS } from '../src/config/manifests/assets.manifest';
+import { assertNetwork } from '../src/config/manifests/networks.manifest';
 import { buildDeterministicNo } from '../src/common/utils/no-generator.util';
 import { TB_ACCOUNT_CODES } from '../src/modules/accounting/tigerbeetle/constants/tb-account-codes.constant';
+import { systemAccountCodesFor } from '../src/modules/asset-treasury/assets/asset-provisioning.service';
 import { TB_TRANSFER_CODES } from '../src/modules/accounting/tigerbeetle/constants/tb-transfer-codes.constant';
 import { TB_LEDGERS } from '../src/modules/accounting/tigerbeetle/constants/tb-ledgers.constant';
 import { CustomerLifecycle } from '../src/modules/identity/constants/customer-lifecycle.constant';
@@ -17,11 +19,10 @@ import {
   RestrictionScope,
 } from '../src/modules/identity/customers/constants/restriction-cause.constant';
 import { deterministicTransferId } from '../src/modules/accounting/tigerbeetle/utils/tb-id.util';
-import {
-  CRYPTO_SYSTEM_WALLET_ROLES,
-  FIAT_SYSTEM_WALLET_ROLES,
-} from '../src/modules/asset-treasury/wallets/system-wallet.util';
-import { WalletRole } from '../src/modules/asset-treasury/wallets/dto/wallet.dto';
+import { platformWalletSlots } from '../src/config/manifests/vaults.manifest';
+import { NETWORKS } from '../src/config/manifests/networks.manifest';
+import { fakeTronAddress } from '../src/common/utils/tron-address.util';
+import { writeSeedAudit } from './seed-audit.helper';
 
 type SeedBusinessOptions = {
   skipEnsureBase?: boolean;
@@ -39,6 +40,8 @@ export async function seedBusiness(
 
   // ① Assets layer
   await seedAssets(prisma);
+  // ①b Platform wallet address rows (vault × network)
+  await seedPlatformWallets(prisma);
   // ② Config layer
   await seedSwapFeeLevels(prisma);
   await seedWithdrawalFeeLevels(prisma);
@@ -59,42 +62,13 @@ export async function seedBusiness(
 // ① Assets layer — assets + system TB accounts + system wallets
 // ─────────────────────────────────────────────────────────────
 
-function normalizeNetwork(network: string | null | undefined): string {
-  return network ?? '';
-}
-
 function normalizeSegment(value: string): string {
   return value.toUpperCase().replace(/[^A-Z0-9]+/g, '_');
 }
 
-// System wallet roles required by V7 settlement/fee workflows, selected per
-// asset type: crypto pools (C_MAIN/C_OUT/F_LIQ/F_OPS) vs fiat pools
-// (C_CMA/F_SET/F_FEE/F_OPS/F_LIQ). See system-wallet.util.ts.
-type SystemWalletRole = WalletRole;
-
-function buildSystemWalletAddress(
-  role: SystemWalletRole,
-  assetCode: string,
-  network: string | null | undefined,
-): string {
-  const normalizedNetwork = normalizeSegment(network || 'NA');
-  const normalizedCode = normalizeSegment(assetCode);
+function buildSystemPoolIban(vaultCode: string, currency: string): string {
   const hash = createHash('sha256')
-    .update(`${role}|${normalizedCode}|${normalizedNetwork}`)
-    .digest('hex');
-
-  if (normalizedNetwork === 'TRON') {
-    return `T${hash.slice(0, 33)}`;
-  }
-  if (normalizedNetwork === 'ETHEREUM') {
-    return `0x${hash.slice(0, 40)}`;
-  }
-  return `sys_${role.toLowerCase()}_${normalizedCode.toLowerCase()}_${normalizedNetwork.toLowerCase()}_${hash.slice(0, 12)}`;
-}
-
-function buildSystemPoolIban(role: SystemWalletRole, assetCode: string): string {
-  const hash = createHash('sha256')
-    .update(`${role}|${normalizeSegment(assetCode)}`)
+    .update(`${vaultCode}|${normalizeSegment(currency)}`)
     .digest('hex');
   // AE IBAN 形制:AE + 2 check digits + 3-digit bank code + 16-digit account (23 chars)。
   // 演示库:数字从 hash 确定性导出,不做真实 mod-97 校验(spec §7 范围外)。
@@ -104,23 +78,22 @@ function buildSystemPoolIban(role: SystemWalletRole, assetCode: string): string 
 
 async function seedAssets(prisma: PrismaClient): Promise<void> {
   for (const asset of DEFAULT_ASSETS) {
-    const normalizedNetwork = normalizeNetwork(asset.network);
+    assertNetwork(asset.network);
     const currency = asset.currency as keyof typeof TB_LEDGERS;
     const ledger = TB_LEDGERS[currency];
 
     const record = await prisma.asset.upsert({
-      where: {
-        type_currency_network: {
-          type: asset.type,
-          currency: asset.currency,
-          network: normalizedNetwork,
-        },
-      },
+      where: { type_currency_network: { type: asset.type, currency: asset.currency, network: asset.network } },
       update: {
         assetNo: asset.assetNo,
         code: asset.code,
         decimals: asset.decimals,
         description: asset.description,
+        contractAddress: asset.contractAddress,
+        isNative: asset.isNative,
+        standard: asset.standard,
+        minConfirmations: asset.minConfirmations,
+        custodianAssetKey: asset.custodianAssetKey,
         status: 'ACTIVE',
         tbLedgerId: ledger,
       },
@@ -129,25 +102,26 @@ async function seedAssets(prisma: PrismaClient): Promise<void> {
         type: asset.type,
         currency: asset.currency,
         code: asset.code,
-        network: normalizedNetwork,
+        network: asset.network,
         decimals: asset.decimals,
         description: asset.description,
+        contractAddress: asset.contractAddress,
+        isNative: asset.isNative,
+        standard: asset.standard,
+        minConfirmations: asset.minConfirmations,
+        custodianAssetKey: asset.custodianAssetKey,
         status: 'ACTIVE',
         tbLedgerId: ledger,
       },
     });
 
+    await writeSeedAudit(prisma, {
+      action: 'ASSET_SEEDED', subjectType: 'ASSET', subjectNo: record.assetNo, actorNo: 'RELEASE',
+      afterData: { code: record.code, currency: record.currency, network: record.network, contractAddress: record.contractAddress, standard: record.standard, decimals: record.decimals, status: record.status },
+    });
+
     // System TB accounts (ownerType SYSTEM, no ownerUuid).
-    const isFiat = asset.type === 'FIAT';
-    const systemAccounts = [
-      { code: TB_ACCOUNT_CODES.CLIENT_ASSET, desc: 'CLIENT_ASSET' },
-      { code: TB_ACCOUNT_CODES.FIRM_ASSET, desc: 'FIRM_ASSET' },
-      { code: TB_ACCOUNT_CODES.FIRM_OPS, desc: 'FIRM_OPS' },
-      { code: TB_ACCOUNT_CODES.INCOME_SWAP_FEE, desc: 'INCOME_SWAP_FEE' },
-      { code: TB_ACCOUNT_CODES.INCOME_WITHDRAW_FEE, desc: 'INCOME_WITHDRAW_FEE' },
-      { code: TB_ACCOUNT_CODES.INCOME_OTHER, desc: 'INCOME_OTHER' },
-      ...(isFiat ? [{ code: TB_ACCOUNT_CODES.FIRM_SET, desc: 'FIRM_SET' }] : []),
-    ];
+    const systemAccounts = systemAccountCodesFor(asset.type);
     for (const acct of systemAccounts) {
       await ensureTbAccountRegistry(prisma, {
         code: acct.code,
@@ -160,82 +134,40 @@ async function seedAssets(prisma: PrismaClient): Promise<void> {
       });
     }
 
-    // System wallets (ownerType PLATFORM), one per role — fiat vs crypto pool sets.
-    // C_CMA is not provisioned: it has no ledger position of its own (a
-    // read-time aggregate of customer C_VIBAN, see system-wallet.util.ts) and
-    // reconciliation doesn't cover it.
-    const systemRoles = isFiat ? FIAT_SYSTEM_WALLET_ROLES : CRYPTO_SYSTEM_WALLET_ROLES;
-    for (const role of systemRoles) {
-      const owner = { ownerType: 'PLATFORM' as const, ownerNo: 'PLATFORM' };
-      const walletNo = buildDeterministicNo(
-        'WA',
-        role,
-        normalizeSegment(asset.code),
-        normalizedNetwork ? normalizeSegment(normalizedNetwork) : '',
-      );
-
-      if (isFiat) {
-        await prisma.wallet.upsert({
-          where: { walletNo },
-          update: {
-            ownerType: owner.ownerType,
-            ownerId: null,
-            ownerNo: owner.ownerNo,
-            type: 'FIAT_BANK',
-            walletRole: role,
-            assetId: record.id,
-            iban: buildSystemPoolIban(role, asset.code),
-            bankName: 'Zand Bank PJSC',
-            accountName: 'FiatX Ltd',
-            status: 'ACTIVE',
-          },
-          create: {
-            walletNo,
-            ownerType: owner.ownerType,
-            ownerId: null,
-            ownerNo: owner.ownerNo,
-            type: 'FIAT_BANK',
-            walletRole: role,
-            assetId: record.id,
-            iban: buildSystemPoolIban(role, asset.code),
-            bankName: 'Zand Bank PJSC',
-            accountName: 'FiatX Ltd',
-            status: 'ACTIVE',
-          },
-        });
-      } else {
-        const address = buildSystemWalletAddress(role, asset.code, asset.network);
-        await prisma.wallet.upsert({
-          where: { walletNo },
-          update: {
-            ownerType: owner.ownerType,
-            ownerId: null,
-            ownerNo: owner.ownerNo,
-            type: 'CRYPTO_ADDRESS',
-            walletRole: role,
-            assetId: record.id,
-            address,
-            status: 'ACTIVE',
-          },
-          create: {
-            walletNo,
-            ownerType: owner.ownerType,
-            ownerId: null,
-            ownerNo: owner.ownerNo,
-            type: 'CRYPTO_ADDRESS',
-            walletRole: role,
-            assetId: record.id,
-            address,
-            status: 'ACTIVE',
-          },
-        });
-      }
-    }
   }
 
   console.log(
-    `Seeded ${DEFAULT_ASSETS.length} assets + system TB accounts + system wallets.`,
+    `Seeded ${DEFAULT_ASSETS.length} assets + system TB accounts.`,
   );
+}
+
+// ─────────────────────────────────────────────────────────────
+// ①b Platform wallet rows — 4 vault × network slots (7 rows), keyed by network not asset
+// ─────────────────────────────────────────────────────────────
+async function seedPlatformWallets(prisma: PrismaClient): Promise<void> {
+  for (const slot of platformWalletSlots()) {
+    const net = NETWORKS[slot.network];
+    const walletNo = buildDeterministicNo('WA', slot.vaultCode, slot.network);
+    const isChain = net.kind === 'CHAIN';
+    const data = {
+      ownerType: 'PLATFORM',
+      ownerId: null,
+      ownerNo: 'PLATFORM',
+      vaultCode: slot.vaultCode,
+      walletRole: slot.vaultCode,
+      network: slot.network,
+      address: isChain ? fakeTronAddress(`PLATFORM|${slot.vaultCode}|${slot.network}`) : null,
+      iban: isChain ? null : buildSystemPoolIban(slot.vaultCode, 'AED'),
+      custodianRef: `${net.custodian.toLowerCase()}-vault-${slot.vaultCode.toLowerCase()}`,
+      status: 'ACTIVE',
+    };
+    const row = await prisma.wallet.upsert({ where: { walletNo }, update: data, create: { walletNo, ...data } });
+    await writeSeedAudit(prisma, {
+      action: 'CUSTODIAN_WALLET_SEEDED', subjectType: 'WALLET', subjectNo: row.walletNo, actorNo: 'RELEASE',
+      afterData: { vaultCode: row.vaultCode, network: row.network, address: row.address, iban: row.iban, custodianRef: row.custodianRef, status: row.status },
+    });
+  }
+  console.log('Seeded 7 platform wallet address rows (vault × network).');
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -327,7 +259,7 @@ async function seedSwapFeeLevels(prisma: PrismaClient): Promise<void> {
     const tiersJson = JSON.stringify({ tiers });
     const configHash = createHash('sha256').update(tiersJson).digest('hex');
 
-    await prisma.swapFeeLevel.upsert({
+    const row = await prisma.swapFeeLevel.upsert({
       where: { levelCode: pair.levelCode },
       update: { tiersJson, configHash, status: 'ACTIVE' },
       create: {
@@ -336,16 +268,59 @@ async function seedSwapFeeLevels(prisma: PrismaClient): Promise<void> {
         fromAssetId: pair.fromAssetId,
         toAssetId: pair.toAssetId,
         isDefault: true,
-        enabled: true,
         tiersJson,
         configHash,
         status: 'ACTIVE',
         createdByUserId: 'SYSTEM',
       },
     });
+    await writeSeedAudit(prisma, {
+      action: 'SWAP_FEE_LEVEL_SEEDED', subjectType: 'SWAP_FEE_LEVEL', subjectNo: row.levelCode, actorNo: 'RELEASE',
+      afterData: { name: row.name, fromAssetId: row.fromAssetId, toAssetId: row.toAssetId, isDefault: row.isDefault, requiredTags: JSON.parse(row.requiredTagsJson), configHash: row.configHash },
+    });
   }
 
   console.log(`Seeded ${pairs.length} swap fee levels.`);
+
+  // 受众档：VIP 标签命中，各档比 STD 便宜（站 2：Grace 命中它、Alice 命中默认档）
+  const vipTiers = [
+    { amountMin: '0',     amountMax: '500',   rateMarkupBps: 60, flatFee: '20' },
+    { amountMin: '500',   amountMax: '2000',  rateMarkupBps: 40, flatFee: '12' },
+    { amountMin: '2000',  amountMax: '10000', rateMarkupBps: 25, flatFee: '8' },
+    { amountMin: '10000', amountMax: null,    rateMarkupBps: 10, flatFee: '5' },
+  ].map((t, i) => {
+    const tierIdx = String(i + 1).padStart(3, '0');
+    return {
+      id: `VIP-USDT-AED-TIER-${tierIdx}`,
+      name: `VIP Tier ${i + 1} (${t.amountMin}${t.amountMax ? '-' + t.amountMax : '+'})`,
+      enabled: true,
+      rateMarkupBps: t.rateMarkupBps,
+      conditions: { amountMin: t.amountMin, amountMax: t.amountMax },
+      feeItems: [{ id: `VIP-USDT-AED-TIER-${tierIdx}-FEE-001`, itemCode: 'SWAP_SERVICE_FEE', calcType: 'FLAT', value: t.flatFee, min: null, max: null, roundingMode: 'ROUND' }],
+    };
+  });
+  const vipTiersJson = JSON.stringify({ tiers: vipTiers });
+  const vipRow = await prisma.swapFeeLevel.upsert({
+    where: { levelCode: 'VIP-USDT-AED' },
+    update: { tiersJson: vipTiersJson, configHash: createHash('sha256').update(vipTiersJson).digest('hex'), status: 'ACTIVE' },
+    create: {
+      levelCode: 'VIP-USDT-AED',
+      name: 'VIP USDT → AED',
+      fromAssetId: usdt.id,
+      toAssetId: aed.id,
+      isDefault: false,
+      requiredTagsJson: JSON.stringify(['VIP']),
+      tiersJson: vipTiersJson,
+      configHash: createHash('sha256').update(vipTiersJson).digest('hex'),
+      status: 'ACTIVE',
+      createdByUserId: 'SYSTEM',
+    },
+  });
+  await writeSeedAudit(prisma, {
+    action: 'SWAP_FEE_LEVEL_SEEDED', subjectType: 'SWAP_FEE_LEVEL', subjectNo: vipRow.levelCode, actorNo: 'RELEASE',
+    afterData: { name: vipRow.name, fromAssetId: vipRow.fromAssetId, toAssetId: vipRow.toAssetId, isDefault: vipRow.isDefault, requiredTags: JSON.parse(vipRow.requiredTagsJson), configHash: vipRow.configHash },
+  });
+  console.log('Seeded VIP-USDT-AED audience level.');
 }
 
 async function seedWithdrawalFeeLevels(prisma: PrismaClient): Promise<void> {
@@ -418,7 +393,7 @@ async function seedWithdrawalFeeLevels(prisma: PrismaClient): Promise<void> {
     const tiersJson = JSON.stringify({ tiers });
     const configHash = createHash('sha256').update(tiersJson).digest('hex');
 
-    await prisma.withdrawalFeeLevel.upsert({
+    const row = await prisma.withdrawalFeeLevel.upsert({
       where: { levelCode },
       update: { tiersJson, configHash, status: 'ACTIVE' },
       create: {
@@ -426,12 +401,15 @@ async function seedWithdrawalFeeLevels(prisma: PrismaClient): Promise<void> {
         name: `Standard ${asset.currency}`,
         assetId: asset.id,
         isDefault: true,
-        enabled: true,
         tiersJson,
         configHash,
         status: 'ACTIVE',
         createdByUserId: 'SYSTEM',
       },
+    });
+    await writeSeedAudit(prisma, {
+      action: 'WITHDRAWAL_FEE_LEVEL_SEEDED', subjectType: 'WITHDRAWAL_FEE_LEVEL', subjectNo: row.levelCode, actorNo: 'RELEASE',
+      afterData: { name: row.name, assetId: row.assetId, isDefault: row.isDefault, configHash: row.configHash },
     });
     count++;
   }
@@ -469,19 +447,19 @@ export async function seedTransactionLimitRules(prisma: PrismaClient): Promise<v
   for (const a of assets) {
     rules.push({ ruleNo: no(), gateType: 'SINGLE', operationType: 'DEPOSIT', assetId: a.id, minAmount: '100' });
   }
-  // B: tier × 方向 × 周期（AED；默认值+cap）
+  // B: tier × 方向 × 周期（AED；默认值）
   const cum = [
-    ['BASIC', 'WITHDRAWAL', 'DAILY', '50000', '100000'],
-    ['BASIC', 'WITHDRAWAL', 'MONTHLY', '500000', '1000000'],
-    ['BASIC', 'SWAP', 'DAILY', '100000', '200000'],
-    ['BASIC', 'SWAP', 'MONTHLY', '1000000', '2000000'],
-    ['PREMIUM', 'WITHDRAWAL', 'DAILY', '500000', '1000000'],
-    ['PREMIUM', 'WITHDRAWAL', 'MONTHLY', '5000000', '10000000'],
-    ['PREMIUM', 'SWAP', 'DAILY', '1000000', '2000000'],
-    ['PREMIUM', 'SWAP', 'MONTHLY', '10000000', '20000000'],
+    ['BASIC', 'WITHDRAWAL', 'DAILY', '50000'],
+    ['BASIC', 'WITHDRAWAL', 'MONTHLY', '500000'],
+    ['BASIC', 'SWAP', 'DAILY', '100000'],
+    ['BASIC', 'SWAP', 'MONTHLY', '1000000'],
+    ['PREMIUM', 'WITHDRAWAL', 'DAILY', '500000'],
+    ['PREMIUM', 'WITHDRAWAL', 'MONTHLY', '5000000'],
+    ['PREMIUM', 'SWAP', 'DAILY', '1000000'],
+    ['PREMIUM', 'SWAP', 'MONTHLY', '10000000'],
   ];
-  for (const [tier, op, period, defaultLimit, cap] of cum) {
-    rules.push({ ruleNo: no(), gateType: 'CUMULATIVE', operationType: op, tradingTier: tier, period, defaultLimit, cap });
+  for (const [tier, op, period, defaultLimit] of cum) {
+    rules.push({ ruleNo: no(), gateType: 'CUMULATIVE', operationType: op, tradingTier: tier, period, defaultLimit });
   }
   // D1: 提现大额审批线（承接原 WITHDRAW_APPROVAL_AED_THRESHOLD=200000）
   rules.push({ ruleNo: no(), gateType: 'LARGE_APPROVAL', operationType: 'WITHDRAWAL', threshold: '200000' });
@@ -494,14 +472,20 @@ export async function seedTransactionLimitRules(prisma: PrismaClient): Promise<v
         assetId: r.assetId ?? null, tradingTier: r.tradingTier ?? null, period: r.period ?? null,
       },
     });
+    let persisted;
     if (existing) {
       await prisma.transactionLimitRule.update({
         where: { id: existing.id },
-        data: { minAmount: r.minAmount, maxAmount: r.maxAmount, defaultLimit: r.defaultLimit, cap: r.cap, threshold: r.threshold, status: 'ACTIVE' },
+        data: { minAmount: r.minAmount, maxAmount: r.maxAmount, defaultLimit: r.defaultLimit, threshold: r.threshold },
       });
+      persisted = existing;
     } else {
-      await prisma.transactionLimitRule.create({ data: { ...r, status: 'ACTIVE' } });
+      persisted = await prisma.transactionLimitRule.create({ data: { ...r } });
     }
+    await writeSeedAudit(prisma, {
+      action: 'TRANSACTION_LIMIT_SEEDED', subjectType: 'TRANSACTION_LIMIT_POLICY', subjectNo: persisted.ruleNo, actorNo: 'RELEASE',
+      afterData: { gateType: persisted.gateType, operationType: persisted.operationType, assetId: persisted.assetId, tradingTier: persisted.tradingTier, period: persisted.period, minAmount: persisted.minAmount?.toString() ?? null, maxAmount: persisted.maxAmount?.toString() ?? null, defaultLimit: persisted.defaultLimit?.toString() ?? null, threshold: persisted.threshold?.toString() ?? null },
+    });
   }
   console.log(`  ✔ Seeded ${rules.length} transaction limit rules`);
 }

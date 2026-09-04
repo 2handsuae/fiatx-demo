@@ -135,26 +135,35 @@ export class SupplementEvidenceService {
     }
     const line = await (this.prisma as any).externalStatementLine.findUnique({ where: { id: externalLineId } });
     if (!line) throw new NotFoundException(`账单行不存在：${externalLineId}`);
-    const wallet = await (this.prisma as any).wallet.findUnique({ where: { id: kase.walletRef }, include: { asset: true } });
-    if (!wallet?.asset) throw new BadRequestException(`案子 ${caseNo} 的钱包或资产不存在`);
+    const wallet = await (this.prisma as any).wallet.findUnique({ where: { id: kase.walletRef } });
+    if (!wallet) throw new BadRequestException(`案子 ${caseNo} 的钱包不存在`);
+    // 资产从**案子**取，不再从钱包取（2026-09-04 合并 main / V3 波一 T5 时改）：波一把
+    // Wallet 改成按 vault × network × 归属人开的「地址行」，砍掉了 assetId 列与 asset
+    // 关联——一个地址行不再绑死单一资产，从钱包问"这是什么币"已经问不出来了。案子本身
+    // 带 assetId（引擎按币种开案时写入，见 wallet-recon-run.service.ts 的 resolveAssetId），
+    // 那才是这条账单行所属资产的权威来源。⚠️ 这段原本走 `wallet.asset`，因整份文件用
+    // `(this.prisma as any)` 取数，tsc 照不到，合并后会在运行期才炸成
+    // PrismaClientValidationError（Unknown field `asset`）。
+    const asset = await (this.prisma as any).asset.findUnique({ where: { id: kase.assetId } });
+    if (!asset) throw new BadRequestException(`案子 ${caseNo} 的资产不存在`);
     // external_statement_lines.currency 全仓惯例存的是 asset.code（法币两者同名，
     // 加密币不同——见 wallet-recon-run.service.ts:170 / adjustment.service.ts:493 /
-    // reconciliation-query.service.ts:699 同一约定），这里此前错拿 wallet.asset.currency
+    // reconciliation-query.service.ts:699 同一约定），这里此前错拿 asset.currency
     // （裸币种 'USDT'）去比，USDT-TRON 账单行永远判"不符"——Task 8 e2e 用真实 USDT
     // 案子跑通①a 时当场复现（补录/退汇/退回三条 initiate* 入口全部经这条守卫，
-    // 加密币三路此前从未被非 mock 的真实数据跑过）。改比 wallet.asset.code；下面
-    // 返回值 `currency: wallet.asset.currency`（供审计文案人读，如"61 USDT"）不动。
-    if (String(wallet.asset.code) !== String(line.currency)) {
-      throw new BadRequestException(`账单行币种 ${line.currency} 与钱包资产 ${wallet.asset.code} 不符`);
+    // 加密币三路此前从未被非 mock 的真实数据跑过）。改比 asset.code；下面
+    // 返回值 `currency: asset.currency`（供审计文案人读，如"61 USDT"）不动。
+    if (String(asset.code) !== String(line.currency)) {
+      throw new BadRequestException(`账单行币种 ${line.currency} 与案件资产 ${asset.code} 不符`);
     }
     const owner = wallet.ownerId ? await (this.prisma as any).customerMain.findUnique({ where: { id: wallet.ownerId }, select: { customerNo: true } }) : null;
-    const decimals: number = wallet.asset.decimals ?? 2;
+    const decimals: number = asset.decimals ?? 2;
     const amountMinor = line.amount.toString();
     return {
       externalLineId, caseNo, caseId: kase.id, businessDate: kase.businessDate, dispositionNo: null,
       walletId: wallet.id, walletNo: wallet.walletNo ?? null, walletAddress: wallet.address ?? null, walletIban: wallet.iban ?? null,
       ownerId: wallet.ownerId, ownerNo: owner?.customerNo ?? kase.ownerNo ?? null,
-      assetId: wallet.assetId, currency: wallet.asset.currency, assetType: String(wallet.asset.type).toUpperCase() === 'CRYPTO' ? 'CRYPTO' : 'FIAT', decimals,
+      assetId: asset.id, currency: asset.currency, assetType: String(asset.type).toUpperCase() === 'CRYPTO' ? 'CRYPTO' : 'FIAT', decimals,
       direction: line.direction, amountMinor, amountMajor: minorToMajor(amountMinor, decimals),
       externalRef: line.externalRef ?? null, channelRef: line.channelRef ?? null, datetime: line.datetime.toISOString(),
       description: line.description ?? null, source: line.source,

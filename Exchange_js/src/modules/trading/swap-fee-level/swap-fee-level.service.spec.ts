@@ -1,5 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { BadRequestException } from '@nestjs/common';
+import { BadRequestException, ConflictException } from '@nestjs/common';
 import { SwapFeeLevelService } from './swap-fee-level.service';
 import { PrismaService } from '../../../core/prisma/prisma.service';
 
@@ -14,6 +14,15 @@ describe('SwapFeeLevelService', () => {
     swapFeeLevel: {
       findUnique: jest.fn(),
       create: jest.fn(),
+      update: jest.fn(),
+      count: jest.fn(),
+      delete: jest.fn(),
+    },
+    swapFeeLevelChangeRequest: {
+      findFirst: jest.fn(),
+      findUnique: jest.fn(),
+      create: jest.fn(),
+      update: jest.fn(),
     },
   };
 
@@ -152,6 +161,45 @@ describe('SwapFeeLevelService', () => {
       ).rejects.toThrow(BadRequestException);
 
       expect(prismaMock.swapFeeLevel.create).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('波一 · 状态集与退役', () => {
+    it('declineLevel：PENDING_APPROVAL → REJECTED，行不删', async () => {
+      prisma.swapFeeLevel.findUnique.mockResolvedValue({ levelCode: 'L1', status: 'PENDING_APPROVAL' });
+      await service.declineLevel('L1');
+      expect(prisma.swapFeeLevel.update).toHaveBeenCalledWith({ where: { levelCode: 'L1' }, data: { status: 'REJECTED', approvalCaseId: null, approvalCaseNo: null } });
+      expect(prisma.swapFeeLevel.delete).not.toHaveBeenCalled();
+    });
+    it('retireLevel：ACTIVE → RETIRED；PENDING 不能退 → 409', async () => {
+      prisma.swapFeeLevel.findUnique.mockResolvedValue({ levelCode: 'L1', status: 'ACTIVE' });
+      await service.retireLevel('L1');
+      expect(prisma.swapFeeLevel.update).toHaveBeenCalledWith({ where: { levelCode: 'L1' }, data: { status: 'RETIRED', approvalCaseId: null, approvalCaseNo: null } });
+      prisma.swapFeeLevel.findUnique.mockResolvedValue({ levelCode: 'L2', status: 'PENDING_APPROVAL' });
+      await expect(service.retireLevel('L2')).rejects.toBeInstanceOf(ConflictException);
+    });
+    it('activateLevel：已 ACTIVE 的等级不能再次 APPROVE → 409（迁移表 ACTIVE 无 APPROVE 边）', async () => {
+      prisma.swapFeeLevel.findUnique.mockResolvedValue({ levelCode: 'L1', status: 'ACTIVE' });
+      await expect(service.activateLevel('L1')).rejects.toBeInstanceOf(ConflictException);
+      expect(prisma.swapFeeLevel.update).not.toHaveBeenCalled();
+    });
+    it('assertNotLastActiveDefault：该币对最后一个 ACTIVE 默认档不可退', async () => {
+      prisma.swapFeeLevel.count.mockResolvedValue(0);
+      await expect(service.assertNotLastActiveDefault({ id: 'x', levelCode: 'STD', isDefault: true, fromAssetId: 'a', toAssetId: 'b' } as any))
+        .rejects.toMatchObject({ response: { code: 'LAST_ACTIVE_DEFAULT' } });
+      expect(prisma.swapFeeLevel.count).toHaveBeenCalledWith({ where: { fromAssetId: 'a', toAssetId: 'b', isDefault: true, status: 'ACTIVE', id: { not: 'x' } } });
+    });
+    it('变更单号走 SFC 前缀，不再 SFLC-### 顺序号', async () => {
+      prisma.swapFeeLevelChangeRequest.findFirst.mockResolvedValue(null);
+      prisma.swapFeeLevel.findUnique.mockResolvedValue({ id: 'l1', tiersJson: '{"tiers":[{"id":"T","name":"T","rateMarkupBps":1}]}', configHash: 'h' });
+      prisma.swapFeeLevelChangeRequest.create.mockImplementation(async ({ data }: any) => data);
+      const r: any = await service.createChangeRequest({ levelId: 'l1', levelCode: 'L1', proposedTiersJson: '{"tiers":[{"id":"T","name":"T","rateMarkupBps":2}]}', changeReason: 'x', requestedByUserId: 'u' });
+      expect(r.requestNo).toMatch(/^SFC\d{12}$/);
+    });
+    it('expireChangeRequest：PENDING_APPROVAL → EXPIRED', async () => {
+      prisma.swapFeeLevelChangeRequest.findUnique.mockResolvedValue({ requestNo: 'R1', status: 'PENDING_APPROVAL' });
+      await service.expireChangeRequest('R1');
+      expect(prisma.swapFeeLevelChangeRequest.update).toHaveBeenCalledWith({ where: { requestNo: 'R1' }, data: { status: 'EXPIRED' } });
     });
   });
 });

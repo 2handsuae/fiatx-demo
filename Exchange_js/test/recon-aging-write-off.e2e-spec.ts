@@ -33,6 +33,7 @@ import { TB_TRANSFER_CODES } from '../src/modules/accounting/tigerbeetle/constan
 import { ApprovalsService } from '../src/modules/governance/approvals/approvals.service';
 import { ApprovalActionTypes, ApprovalActorContext } from '../src/modules/governance/approvals/constants/approval.constants';
 import { generateReferenceNo } from '../src/common/utils/no-generator.util';
+import { ensureTbAccountRegistry, provisionTbAccounts } from '../prisma/seed-tb.helper';
 
 /**
  * 平账 A 批（spec §2/§3）e2e（Task 12）：案件账龄 → 公司池核销 全链路，真 AppModule
@@ -67,11 +68,6 @@ describe('Recon case aging → write-off e2e (平账 A 批, Task 12)', () => {
 
   let aedAssetId: string;
   let aedCode: string; // 'AED' — equals asset.currency for fiat, unlike crypto
-
-  let carolId: string;
-  let carolNo: string;
-  let daveId: string;
-  let daveNo: string;
 
   // Cutoff pinned a few days ahead of wall-clock `now` so every fixture write
   // in this file (effectiveDate defaults to today) is unconditionally included
@@ -109,19 +105,6 @@ describe('Recon case aging → write-off e2e (平账 A 批, Task 12)', () => {
     }
     aedAssetId = aed.id;
     aedCode = aed.code;
-
-    const carol = await (prisma as any).customerMain.findUnique({ where: { email: 'demo_carol@example.com' } });
-    const dave = await (prisma as any).customerMain.findUnique({ where: { email: 'demo_dave@example.com' } });
-    if (!carol || !dave) {
-      throw new Error(
-        "Fixture customers demo_carol@example.com / demo_dave@example.com not found — this worktree's " +
-          'self-stack DB needs business seed data first: `DATABASE_URL=... TB_ADDRESS=... npm run db:biz:init`.',
-      );
-    }
-    carolId = carol.id;
-    carolNo = carol.customerNo;
-    daveId = dave.id;
-    daveNo = dave.customerNo;
   });
 
   afterAll(async () => {
@@ -148,13 +131,13 @@ describe('Recon case aging → write-off e2e (平账 A 批, Task 12)', () => {
   /** Fresh customer wallet row — always creates, never reused across scenarios
    *  so each scenario's account_flows are provably exclusive to it. */
   async function createCustomerWallet(opts: {
-    ownerId: string; ownerNo: string; assetId: string; walletRole: 'C_VIBAN' | 'C_DEP'; type: string; iban?: string; address?: string;
+    ownerId: string; ownerNo: string; network: string; walletRole: 'C_VIBAN' | 'C_DEP'; iban?: string; address?: string;
   }): Promise<{ id: string }> {
     return (prisma as any).wallet.create({
       data: {
         walletNo: `WA-E2E-ADJ-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
         ownerType: 'CUSTOMER', ownerId: opts.ownerId, ownerNo: opts.ownerNo,
-        type: opts.type, walletRole: opts.walletRole, assetId: opts.assetId,
+        vaultCode: 'CLIENT_DEPOSIT', walletRole: opts.walletRole, network: opts.network,
         address: opts.address ?? null, iban: opts.iban ?? null, status: 'ACTIVE',
       },
       select: { id: true },
@@ -165,17 +148,59 @@ describe('Recon case aging → write-off e2e (平账 A 批, Task 12)', () => {
    *  which is a shared aggregate other e2e suites post real fee income to
    *  concurrently. ownerType:'PLATFORM' matches the seeded convention so the
    *  R2 walletRef/registry-owner check in AccountFlowProjectorService exempts
-   *  it (FIRM_SIDE = {PLATFORM, SYSTEM}). */
-  async function createFirmWallet(opts: { assetId: string; walletRole: string; type: string }): Promise<{ id: string }> {
+   *  it (FIRM_SIDE = {PLATFORM, SYSTEM}). 唯一键 (vaultCode, network, ownerNo)
+   *  不允许第二条 PLATFORM 行，独立归属号避开种子的 'PLATFORM'。 */
+  async function createFirmWallet(opts: { vaultCode: string; network: string }): Promise<{ id: string }> {
+    const tag = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     return (prisma as any).wallet.create({
       data: {
-        walletNo: `WA-E2E-ADJ-FIRM-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-        ownerType: 'PLATFORM', ownerId: null, ownerNo: 'PLATFORM',
-        type: opts.type, walletRole: opts.walletRole, assetId: opts.assetId,
+        walletNo: `WA-E2E-ADJ-FIRM-${tag}`,
+        ownerType: 'PLATFORM', ownerId: null, ownerNo: `PLATFORM-E2E-${tag}`,
+        vaultCode: opts.vaultCode, walletRole: opts.vaultCode, network: opts.network,
         status: 'ACTIVE',
       },
       select: { id: true },
     });
+  }
+
+  /** Fresh fixture customer, exclusive to one scenario — mirrors sla.e2e-spec.ts's
+   *  makeCustomer() / material-requests.e2e-spec.ts's per-call customer maker.
+   *  Task 4 made Wallet's unique key (vaultCode, network, ownerNo); the two
+   *  scenarios below used to share carol/dave's ownerNo on AED_ZAND, which no
+   *  longer coexists with the other recon e2e files' own carol/dave AED_ZAND rows
+   *  (all three run serially against the same DB — maxWorkers:1) nor with itself
+   *  on a re-run. customerNo comes from generateReferenceNo (fresh every call),
+   *  so repeated suite runs never collide on customerMain's own unique fields. */
+  async function makeCustomer(tag: string): Promise<{ id: string; customerNo: string }> {
+    const customerNo = generateReferenceNo('CU');
+    const row = await (prisma as any).customerMain.create({
+      data: {
+        email: `e2e_recon_aging_${tag}_${customerNo}@example.com`.toLowerCase(),
+        customerNo,
+        phone: `+1${customerNo.replace(/\D/g, '')}`,
+        firstName: 'Recon', lastName: 'Fixture',
+        customerType: 'INDIVIDUAL',
+        lifecycle: 'ACTIVE',
+        riskRating: 'LOW', tradingTier: 'BASIC', eddRequired: false,
+      },
+      select: { id: true, customerNo: true },
+    });
+    return { id: row.id, customerNo: row.customerNo };
+  }
+
+  /** Fresh customers don't inherit the demo seed's per-customer TB accounts —
+   *  seed.business.ts only provisions CLIENT_PAYABLE/DEPOSIT_SUSPENSE unconditionally
+   *  for the 8 seeded DEMO_CUSTOMERS (carol/dave included). The 跨日切 scenario calls
+   *  fundCustomerWallet() on a makeCustomer() row, so it needs AED provisioned first —
+   *  mirrors swap-sumsub-scenarios.e2e-spec.ts's own per-customer step. */
+  async function ensureCustomerAedTbAccounts(customerId: string, customerNo: string): Promise<void> {
+    for (const code of [TB_ACCOUNT_CODES.CLIENT_PAYABLE, TB_ACCOUNT_CODES.DEPOSIT_SUSPENSE]) {
+      await ensureTbAccountRegistry(prisma as any, {
+        code, ledger: 1, ownerType: 'CUSTOMER', ownerUuid: customerId, ownerNo: customerNo,
+        assetCode: aedCode, description: `e2e recon-aging ${code}/AED`,
+      });
+    }
+    await provisionTbAccounts(prisma as any);
   }
 
   /** Real production evidence shape — mirrors deposit-workflow.service.ts's own
@@ -405,7 +430,7 @@ describe('Recon case aging → write-off e2e (平账 A 批, Task 12)', () => {
     // 查询圈定下限，不削断言本身。
     const testStartedAt = new Date();
     const ledger = 1; // AED
-    const wallet = await createFirmWallet({ assetId: aedAssetId, walletRole: 'F_FEE', type: 'FIAT_BANK' });
+    const wallet = await createFirmWallet({ vaultCode: 'F_FEE', network: 'AED_ZAND' });
     const REF = `E2E-WO-${randomUUID().slice(0, 8)}`;
     await fundFirmWallet({ walletId: wallet.id, ledger, currency: aedCode, amount: 5000n, tag: 'WO', externalRef: REF, crossing: true });
     await createExternalLine({ walletId: wallet.id, currency: aedCode, book: 'FIRM', direction: 'IN', amount: 4993n, externalRef: REF });
@@ -489,8 +514,9 @@ describe('Recon case aging → write-off e2e (平账 A 批, Task 12)', () => {
   });
 
   it('反例③：客户池超期 + 调查中 → 核销 400，读面给「待二期划转」', async () => {
-    const wallet = await createCustomerWallet({ ownerId: carolId, ownerNo: carolNo, assetId: aedAssetId, walletRole: 'C_VIBAN', type: 'FIAT_VIBAN', iban: `AE-E2E-${randomUUID().slice(0, 8)}` });
-    const kase = await createFixtureCase({ walletRef: wallet.id, book: 'CLIENT', ownerNo: carolNo });
+    const customer = await makeCustomer('EX3');
+    const wallet = await createCustomerWallet({ ownerId: customer.id, ownerNo: customer.customerNo, network: 'AED_ZAND', walletRole: 'C_VIBAN', iban: `AE-E2E-${randomUUID().slice(0, 8)}` });
+    const kase = await createFixtureCase({ walletRef: wallet.id, book: 'CLIENT', ownerNo: customer.customerNo });
     await (prisma as any).reconciliationCase.update({ where: { id: kase.id }, data: { slaBreached: true, slaDeadline: new Date(Date.now() - 1000) } });
     const flowId = `flow-fixture-${randomUUID()}`;
     await (prisma as any).reconciliationDisposition.create({
@@ -509,9 +535,11 @@ describe('Recon case aging → write-off e2e (平账 A 批, Task 12)', () => {
   it('跨日切：跑批截止点后 6 小时的外部行，案件页仍显示那条「我有外无」（spec §6.1）', async () => {
     const day = new Date(CUTOFF.getTime() + 2 * 86_400_000).toISOString().slice(0, 10);
     const runCutoff = new Date(`${day}T10:00:00.000Z`);
-    const wallet = await createCustomerWallet({ ownerId: daveId, ownerNo: daveNo, assetId: aedAssetId, walletRole: 'C_VIBAN', type: 'FIAT_VIBAN', iban: `AE-E2E-${randomUUID().slice(0, 8)}` });
+    const customer = await makeCustomer('STRADDLE');
+    await ensureCustomerAedTbAccounts(customer.id, customer.customerNo);
+    const wallet = await createCustomerWallet({ ownerId: customer.id, ownerNo: customer.customerNo, network: 'AED_ZAND', walletRole: 'C_VIBAN', iban: `AE-E2E-${randomUUID().slice(0, 8)}` });
     const REF = `E2E-STRADDLE-${randomUUID().slice(0, 8)}`;
-    await fundCustomerWallet({ walletId: wallet.id, ownerId: daveId, assetId: aedAssetId, ledger: 1, currency: aedCode, amount: 800n, tag: 'S9', crossing: true, externalRef: REF } as any);
+    await fundCustomerWallet({ walletId: wallet.id, ownerId: customer.id, assetId: aedAssetId, ledger: 1, currency: aedCode, amount: 800n, tag: 'S9', crossing: true, externalRef: REF } as any);
     await createExternalLine({ walletId: wallet.id, currency: aedCode, book: 'CLIENT', direction: 'IN', amount: 800n, externalRef: REF, datetime: new Date(`${day}T16:00:00.000Z`) });
     await upsertExternalBalance({ walletId: wallet.id, currency: aedCode, book: 'CLIENT', closingBalance: 800n, cutoffDate: day });
 

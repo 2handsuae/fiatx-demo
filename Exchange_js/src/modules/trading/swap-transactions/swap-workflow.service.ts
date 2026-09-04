@@ -354,13 +354,6 @@ export class SwapWorkflowService {
           { id: quote.fromAssetId, code: quote.fromAssetCode },
           { id: quote.toAssetId, code: quote.toAssetCode },
         ]) {
-          if (!(await this.walletQuery.hasReceivingAccount(ownerId, asset.id))) {
-            throw new BadRequestException({
-              code: 'RECEIVING_ACCOUNT_REQUIRED',
-              assetCode: asset.code,
-              message: `请先为 ${asset.code} 创建收款账户再兑换`,
-            });
-          }
           // Ledger precheck: fail fast (and roll back the quote consume + swap
           // row together with the rest of this transaction) if the asset's
           // settlement currency isn't registered in TB_LEDGERS. Without this,
@@ -368,10 +361,18 @@ export class SwapWorkflowService {
           // buildLegContext — by then the compliance verdict has already been
           // written outside that transaction, leaving the swap stuck in
           // COMPLIANCE_PENDING with the quote burned and the KYT check wasted.
+          // (波一 T4：同一次读取也拿 network——R4 收款账户校验现在按网络找钱包。)
           const assetRow = await tx.asset.findUnique({
             where: { id: asset.id },
-            select: { currency: true },
+            select: { currency: true, network: true },
           });
+          if (!(await this.walletQuery.hasReceivingAccount(ownerId, assetRow?.network ?? ''))) {
+            throw new BadRequestException({
+              code: 'RECEIVING_ACCOUNT_REQUIRED',
+              assetCode: asset.code,
+              message: `请先为 ${asset.code} 创建收款账户再兑换`,
+            });
+          }
           this.resolveLedger(assetRow?.currency || asset.code);
         }
 

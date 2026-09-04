@@ -59,6 +59,7 @@ const API = resolveApiBase();
 
 let failed = 0;
 let guardOpenCount = 0;
+let knownDeadlockCount = 0; // S5 已登记死锁数——不计入 failed，但必须出现在总结行，见 main() 末尾
 
 function check(name: string, ok: boolean, detail: string) {
   console.log(`${ok ? '✓' : '✗'} ${name} —— ${detail}`);
@@ -204,34 +205,127 @@ function runStaticChecks(): void {
   // 提单人，提完只能自己批，`approvals.service.ts` 的 SoD 当场拒绝，那条业务出路
   // 就此走不通（第一幕走查②在改造前就是这么跑不通的）。
   //
-  // 判据：对每条「maker 权限组唯一确定」的审批策略，
-  //        持有该 maker 组的角色集合  ∩  该策略任一步骤的裁决人集合  必须为空。
+  // 本闸门两条判据都要成立，缺一不可（波一 T13 修复轮二 review Critical：修复轮一把
+  // 旧判据 P2 换成新判据 P1，当成「改写」处理，实为拿掉一半——两者不等价，maker 组
+  // ≥2 人持有时 P2 严格强于 P1，只留 P1 会漏掉 P2 单独守住的那类真缺口）：
   //
-  // 交集非空 = 存在某个角色既能提又能批 = 该业务出路可能变回死锁（若他恰好是唯一
-  // 提单人）或破坏 maker≠checker。终审判定：不补这条判据，未来有人改
-  // `approval.constants.ts` 就会把死锁悄悄改回来且无人发现。
+  //   P1（安全 maker 非空）：对每条「maker 权限组唯一确定」的审批策略，持有该 maker
+  //       组的角色集合 ∖ 该策略任一步骤的裁决人集合 必须非空（至少一个角色能提但不在
+  //       裁决人集合里，永远能正常提单、不会被 SoD 卡死）。安全 maker 集合为空 = 该
+  //       策略结构性走不通：唯一能提的人也是唯一能批的人，真死锁例子见
+  //       `ADMIN_ROLE_BINDING_CHANGE_APPROVAL`（maker 组只有 CISO 一人持有，已登记见
+  //       下方 `S5_KNOWN_DEADLOCKS`）。
+  //
+  //   P2（maker ∩ checker = ∅，本轮修复轮二恢复，见下方 S5c）：对 P1 覆盖的 28 条策略
+  //       中除下方 `MAKER_CHECKER_OVERLAP_EXEMPT` 点名的 5 条之外的其余 23 条，持有
+  //       maker 组的角色集合必须与裁决人集合完全不相交——同一职务不能既提单又裁决，
+  //       哪怕 maker 组另有安全成员兜底。P1 单独存在时验证不出这个缺口：只要 maker
+  //       组还有第二个持有人，P1 就判定"能提"，根本不管这个持有人是不是恰好也是唯一
+  //       裁决人——把 `'RECON_ADJUSTMENT_WRITE'` 加进 CFO 绑定（CFO 已是
+  //       RECON_ADJUSTMENT_POST 唯一裁决人）、或把 `'SWAP_FEE_LEVEL_WRITE'` 加进
+  //       OPS_OFFICER 绑定（OPS_OFFICER 已是三条费率策略唯一裁决人），P1 都因为
+  //       TREASURY_OFFICER / CFO 仍是安全 maker 而照样全绿——但业务上就是同一个运营
+  //       角色自己提、自己批，没有任何跨部门签字，是本闸门存在的理由本身正被绕开。
+  //
+  // 为什么不是全部 28 条都要求 P2：本仓库每个角色码在种子数据里只绑一个真人账号（见
+  // `ROLE_LOGIN` 花名册），`MAKER_CHECKER_OVERLAP_EXEMPT` 点名的 5 条策略，maker 组是
+  // 刻意双持的站点演示装置——checker 就是两个持有人之一，自批被 SoD 当场拒绝，另一
+  // 持有人正常提、正常批，业务出路并不会被卡死，这个"双持"事实由 P1 逐次验证（不再
+  // 是本轮之前那种只有人工评语担保、代码从不校验的状态）。"重叠即假阳性"这个定性只对
+  // 这 5 条成立；其余 23 条没有"刻意双持、checker 是其中之一"这重设计前提，一旦出现
+  // 重叠就是真实的 SoD 缺口，必须由 P2 报红，不能被 P1 的"还有安全 maker"结论悄悄
+  // 稀释掉。
   //
   // ⚠️ 这张表是**人工维护**的 policy→maker 组映射——代码里没有可推导的关联
   // （谁能提某个审批，取决于哪个端点会建这张单，那是 workflow 的事）。新增
   // maker-checker 型审批策略时**必须往这里加一行**，否则新策略不受本闸门保护。
   const MAKER_GROUP_BY_POLICY: Record<string, string> = {
+    ASSET_SUSPENSION: 'ASSET_CONFIG_WRITE',
+    ASSET_REACTIVATION: 'ASSET_CONFIG_WRITE',
+    TRANSACTION_LIMIT_CHANGE: 'TRANSACTION_LIMIT_WRITE',
+    SWAP_FEE_LEVEL_CREATION: 'SWAP_FEE_LEVEL_WRITE',
+    SWAP_FEE_LEVEL_CHANGE: 'SWAP_FEE_LEVEL_WRITE',
+    SWAP_FEE_LEVEL_RETIRE: 'SWAP_FEE_LEVEL_WRITE',
+    WITHDRAWAL_FEE_LEVEL_CREATION: 'WITHDRAWAL_FEE_LEVEL_WRITE',
+    WITHDRAWAL_FEE_LEVEL_CHANGE: 'WITHDRAWAL_FEE_LEVEL_WRITE',
+    WITHDRAWAL_FEE_LEVEL_RETIRE: 'WITHDRAWAL_FEE_LEVEL_WRITE',
     DEPOSIT_CONFISCATION: 'DEPOSIT_CONFISCATE_WRITE',
     DEPOSIT_RETURN: 'DEPOSIT_RETURN_WRITE',
     DEPOSIT_SEIZE: 'DEPOSIT_SEIZE_WRITE',
     DEPOSIT_UNFREEZE: 'DEPOSIT_UNFREEZE_WRITE',
     WITHDRAW_UNFREEZE: 'WITHDRAW_UNFREEZE_WRITE',
     WITHDRAW_SANCTION_REFUND: 'WITHDRAW_REFUND_WRITE',
-    TRANSACTION_LIMIT_CREATION: 'TRANSACTION_LIMIT_WRITE',
-    TRANSACTION_LIMIT_CHANGE: 'TRANSACTION_LIMIT_WRITE',
-    SWAP_FEE_LEVEL_CREATION: 'SWAP_FEE_LEVEL_WRITE',
-    SWAP_FEE_LEVEL_CHANGE: 'SWAP_FEE_LEVEL_WRITE',
-    WITHDRAWAL_FEE_LEVEL_CREATION: 'WITHDRAWAL_FEE_LEVEL_WRITE',
-    WITHDRAWAL_FEE_LEVEL_CHANGE: 'WITHDRAWAL_FEE_LEVEL_WRITE',
     RECON_ADJUSTMENT_POST: 'RECON_ADJUSTMENT_WRITE',
     DEPOSIT_SUPPLEMENT: 'DEPOSIT_SUPPLEMENT_WRITE',
     DEPOSIT_CLAWBACK: 'DEPOSIT_CLAWBACK_WRITE',
     WITHDRAW_RETURN_CLAIM: 'WITHDRAW_RETURN_CLAIM_WRITE',
+    ADMIN_SUSPENSION_APPROVAL: 'IAM_MEMBER_MANAGE',
+    ADMIN_REACTIVATION_APPROVAL: 'IAM_MEMBER_MANAGE',
+    ADMIN_ROLE_BINDING_CHANGE_APPROVAL: 'IAM_ROLE_ASSIGN',
+    ADMIN_PASSWORD_RESET: 'IAM_CREDENTIAL_RESET',
+    ADMIN_MFA_RESET: 'IAM_CREDENTIAL_RESET',
+    AUDIT_EVIDENCE_EXPORT_APPROVAL: 'AUDIT_EXPORT_CREATE',
+    CUSTOMER_RESTRICTION_RELEASE_OPS: 'CUSTOMER_RESTRICTION_RELEASE',
+    // 以下 5 条波一 T13 修复轮从 MAKER_GROUP_EXEMPT 并入——原先靠人工评语担保「maker 组
+    // 双持、总有另一个角色能安全提单」，现在统一走上面的「安全 maker 非空」判据，评语
+    // 描述的事实由代码逐次重算，不再是一次性写死的文字担保：
+    ADMIN_INVITE_APPROVAL: 'IAM_MEMBER_MANAGE',
+    APPROVAL_POLICY_CHANGE: 'GOV_APPROVAL_POLICY_WRITE',
+    ROLE_DEFINITION_CREATE: 'IAM_ROLE_DEFINE',
+    ROLE_DEFINITION_MODIFY: 'IAM_ROLE_DEFINE',
+    CUSTOMER_RESTRICTION_RELEASE_MLRO: 'CUSTOMER_RESTRICTION_RELEASE',
   };
+
+  // 有意不进上表的策略——maker 组本身不可判定（不是某个角色权限组闸住的，是系统自己在
+  // 建单时自动开单，没有"谁能提交"这个角色层面的概念），上面「安全 maker 非空」判据无从
+  // 算起，只能手工读源码确认清楚；S8 保证策略全集 = 上表 ∪ 本表。
+  const MAKER_GROUP_EXEMPT: Record<string, string> = {
+    WITHDRAW_LARGE_VALUE_APPROVAL:
+      '系统在建单时自动开单，没有提单权限组——withdraw-workflow.service.ts 的 ' +
+      '@OnEvent(WITHDRAWAL_CREATED) 处理器按 AED 估值超阈值触发 openApprovalGate()，用 ' +
+      'SYSTEM_APPROVAL_ACTOR 提交，不经任何 @RequirePermissions 端点',
+  };
+
+  // P2（maker ∩ checker = ∅，见上方判据说明）专属豁免表——与上面 `MAKER_GROUP_EXEMPT`
+  // 语义不同：这 5 条策略确实在 `MAKER_GROUP_BY_POLICY` 里、确实受 P1 保护（"双持、
+  // 其中一人是 checker"这件事由 P1 逐次验证，不是靠本表担保），只是 P2 的"完全不相交"
+  // 对它们不适用——maker 组是刻意双持的站点演示装置，checker 恰是两个持有人之一，另一
+  // 持有人是安全 maker。原 `MAKER_GROUP_EXEMPT`（波一 T13 修复轮一之前）就是这 5 条 +
+  // WITHDRAW_LARGE_VALUE_APPROVAL 共 6 条、担保的正是同一件事，只是当时是整条豁免（P1
+  // P2 都不查）；现在把这 5 条挪回来，但只窄化到豁免 P2，P1 仍然覆盖，见 S5c。
+  const MAKER_CHECKER_OVERLAP_EXEMPT: Record<string, string> = {
+    ADMIN_INVITE_APPROVAL:
+      '提单组 IAM_MEMBER_MANAGE 由 CISO 与技术官双持，裁决人 CISO 刻意在其中——自批由 ' +
+      'approvals.service 的 SoD 当场拒（站 0 演示装置），TECH_OFFICER 是安全 maker，P1 已验证',
+    APPROVAL_POLICY_CHANGE:
+      '提单组 GOV_APPROVAL_POLICY_WRITE 由高管与 CISO 双持，裁决人 CISO 刻意在其中——站 3' +
+      '「门自己也要过门」演的就是自批被拒，SENIOR_MANAGEMENT_OFFICER 是安全 maker，P1 已验证',
+    ROLE_DEFINITION_CREATE:
+      '提单组 IAM_ROLE_DEFINE 由 CISO 与技术官双持，裁决人 CISO 在其中（站 1），' +
+      'TECH_OFFICER 是安全 maker，P1 已验证',
+    ROLE_DEFINITION_MODIFY: '同 ROLE_DEFINITION_CREATE',
+    CUSTOMER_RESTRICTION_RELEASE_MLRO:
+      '提单组 CUSTOMER_RESTRICTION_RELEASE 由 MLRO 与合规官双持，裁决人 MLRO 在其中（合规官' +
+      '提、MLRO 批；MLRO 自提自批被 SoD 拒），COMPLIANCE_OFFICER 是安全 maker，P1 已验证',
+    ADMIN_ROLE_BINDING_CHANGE_APPROVAL:
+      '提单组 IAM_ROLE_ASSIGN 由 CISO 与技术官双持，裁决人 CISO 刻意在其中——自批由 ' +
+      'approvals.service 的 SoD 当场拒（业主拍板甲案，形状同 ADMIN_INVITE_APPROVAL），' +
+      'TECH_OFFICER 是安全 maker，P1 已验证',
+  };
+
+  // 已知但未修的自批死锁登记——与上面 MAKER_GROUP_EXEMPT 语义不同：豁免表登记的是「maker
+  // 组不可判定」；这张表登记的是**真实死锁**（按上方判据算出安全 maker 集合确实为空），
+  // S5 依然要为它们报红，只是红得可辨认——见下方专门打印的 ⚠ 行，且不计入"未登记死锁 = 0"
+  // 这条判据本身的失败数，避免整个脚本永久红、训练所有人对红视而不见。值 = BACKLOG 落点，
+  // 方便一眼找到谁在跟这件事、决定了没有。**唯一合法的清空方式**：业主拍板两个候选修法
+  // 之一并落地后，删掉这一行——届时 S5 的主判据自动收紧回"零已知死锁"，不用额外改判据
+  // 代码。登记条目本身是否仍站得住由下面的 S5b 守着，不是写一次就永久信任。
+  // 目前为空——这是正常终态，不是"忘了写"。历史：2026-09-04 Task 13 曾在此登记
+  // ADMIN_ROLE_BINDING_CHANGE_APPROVAL（S8 新增全覆盖判据后第一次照见的既有死锁），同日业主
+  // 拍板甲案（给 TECH_OFFICER 加 IAM_ROLE_ASSIGN）真正修掉，按上面写的"唯一合法清空方式"删除。
+  // 那条策略随即转登记进 MAKER_CHECKER_OVERLAP_EXEMPT——CISO 双持是刻意的，能提不能批的
+  // 安全 maker 由 TECH_OFFICER 提供，P1 继续守着。
+  const S5_KNOWN_DEADLOCKS: Record<string, string> = {};
 
   const holdersOf = (group: string): string[] =>
     Object.entries(RBAC_ROLE_GROUP_BINDINGS)
@@ -239,7 +333,9 @@ function runStaticChecks(): void {
       .map(([role]) => role);
 
   const deadlocks: string[] = [];
+  const registeredDeadlocks: string[] = [];
   const missingFromTable: string[] = [];
+  const staleDeadlocks: string[] = [];
   let gatedPolicies = 0;
 
   for (const [actionType, makerGroup] of Object.entries(MAKER_GROUP_BY_POLICY)) {
@@ -251,20 +347,211 @@ function runStaticChecks(): void {
     gatedPolicies += 1;
     const makers = new Set(holdersOf(makerGroup));
     const checkers = new Set<string>(policy.steps.flatMap((st: any) => st.roles as string[]));
-    const both = [...makers].filter((r) => checkers.has(r));
-    if (both.length > 0) {
-      deadlocks.push(
-        `${actionType}: ${both.join('/')} 既持 ${makerGroup}（能提）又在裁决人集合 {${[...checkers].join(',')}} 里（能批）`,
+    // 安全 maker = 持有 maker 组、但不在裁决人集合里的角色——这种角色永远能正常提单，
+    // 不会被 SoD 卡死。集合为空才是真死锁（见上方判据说明）。
+    const safeMakers = [...makers].filter((r) => !checkers.has(r));
+    if (safeMakers.length === 0) {
+      // makers.size === 0 是另一种坏：不是「唯一提单人也是裁决人」，是压根没人持有这个
+      // maker 组——没人能提单，跟"能提但会被自批拦"是两件不同的事，措辞不能混为一谈。
+      const msg = makers.size === 0
+        ? `${actionType}: 持 ${makerGroup} 的角色集合为空——没有任何角色持有这个 maker 组，没人能提单`
+        : `${actionType}: 持 ${makerGroup} 的角色 {${[...makers].join(',')}} 全部同时在裁决人集合 {${[...checkers].join(',')}} 里——没有一个角色能提但不能批，唯一提单人必自批（SoD 拒绝）`;
+      if (actionType in S5_KNOWN_DEADLOCKS) {
+        registeredDeadlocks.push(`${msg} —— 已登记：${S5_KNOWN_DEADLOCKS[actionType]}`);
+      } else {
+        deadlocks.push(msg);
+      }
+    } else if (actionType in S5_KNOWN_DEADLOCKS) {
+      // S5b 的核心：登记表说这是死锁，但按当前绑定算出来已经不是了（比如业主已经把
+      // 候选修法之一落地，给了另一个角色安全提单的能力）——登记条目过期了，必须报出来
+      // 要求清理，不能悄悄放行，否则未来有人真把重叠改回来，登记表会把新死锁也一并吞掉。
+      staleDeadlocks.push(
+        `${actionType}（现在存在安全 maker {${safeMakers.join(',')}}，已不再是死锁，应从 S5_KNOWN_DEADLOCKS 删除）`,
       );
     }
   }
 
+  // 登记了但压根对不上当前 MAKER_GROUP_BY_POLICY / DEFAULT_APPROVAL_POLICIES 的登记条目
+  // ——同样是过期登记（比如维护表那一行被删了，或策略改名了，登记表忘了跟着删/改）。
+  for (const actionType of Object.keys(S5_KNOWN_DEADLOCKS)) {
+    if (!(actionType in MAKER_GROUP_BY_POLICY)) {
+      staleDeadlocks.push(`${actionType}（登记条目不在 MAKER_GROUP_BY_POLICY 里，应清理登记）`);
+    } else if (!(DEFAULT_APPROVAL_POLICIES as Record<string, any>)[actionType]) {
+      staleDeadlocks.push(`${actionType}（登记条目指向的策略已不存在，应清理登记）`);
+    }
+  }
+
   check(
-    'S5 自批死锁闸门（裁决人 ∩ 提单权限持有者 = 空）',
+    'S5 自批死锁闸门（无未登记的自批死锁；已登记死锁见下方 ⚠ 行，不计入本判据）',
     deadlocks.length === 0 && missingFromTable.length === 0,
     deadlocks.length === 0 && missingFromTable.length === 0
-      ? `${gatedPolicies} 条 maker-checker 策略逐条验过，无任何角色同时具备提单与裁决资格`
+      ? `${gatedPolicies} 条 maker-checker 策略逐条验过，无任何未登记的自批死锁` +
+        (registeredDeadlocks.length > 0
+          ? `（另有 ${registeredDeadlocks.length} 条已登记死锁待业主裁决，见下方 ⚠ 行）`
+          : '')
       : [...deadlocks, ...missingFromTable].join(' ｜ '),
+  );
+  knownDeadlockCount = registeredDeadlocks.length;
+
+  // S5b：已登记死锁名副其实（镜像 S1/S1b 的白名单核验模式）—— 登记条目一旦按当前判据算出
+  // 来已经不是死锁了，就该从 S5_KNOWN_DEADLOCKS 删掉；不删的话，未来某次真重叠又发生时，
+  // 登记表会把这个"新问题"也一并悄悄放行，S5 的「未登记死锁 = 0」判据也就不再收紧。
+  check(
+    'S5b 已登记死锁名副其实（确认登记条目仍是真死锁）',
+    staleDeadlocks.length === 0,
+    staleDeadlocks.length === 0
+      ? `${Object.keys(S5_KNOWN_DEADLOCKS).length} 条登记全部确认仍是真死锁`
+      : `以下登记条目已过期，应清理: ${staleDeadlocks.join(' ｜ ')}`,
+  );
+
+  // 已登记死锁的可见提示——不是 check()，不计入 failed 计数（S5 本身可以整体绿），但也
+  // 不是静默通过：单独一行、⚠ 符号（区别于 ✓/✗），点名策略 + BACKLOG 落点，任何人扫一眼
+  // 输出都能看到这不是"全干净"，只是"已知问题、业主还没拍板"。
+  for (const line of registeredDeadlocks) {
+    console.log(`⚠ S5 已登记死锁（不计入判据失败数，需业主裁决）—— ${line}`);
+  }
+
+  // ── S5c：maker ≠ checker（P2，波一 T13 修复轮二恢复）────────────────────
+  // 见上方判据说明。对 `MAKER_CHECKER_OVERLAP_EXEMPT` 未点名的策略，要求持有 maker 组
+  // 的角色集合与裁决人集合完全不相交——单独一个安全 maker 不够，maker 组里不能有任何
+  // 一个角色同时也是 checker。已经被上方判定为"无安全 maker"的策略（无论是否已登记）
+  // 不重复计入：makers ⊆ checkers 时 makers ∩ checkers = makers ≠ ∅ 必然成立，重叠已经
+  // 是那条真死锁本身报出来的同一件事，这里不再算作新发现，避免同一根因被两条判据各报
+  // 一次、稀释掉"这是同一个问题"的信号。
+  const overlapViolations: string[] = [];
+  let overlapChecked = 0;
+  let exemptApplied = 0; // 豁免表里实际被这个循环用到（consulted）的条目数，见下方判据说明
+  let p1SkippedCount = 0; // 已由上方 P1（S5/S5b）报过、这里不重复计入的条数
+  for (const [actionType, makerGroup] of Object.entries(MAKER_GROUP_BY_POLICY)) {
+    if (actionType in MAKER_CHECKER_OVERLAP_EXEMPT) {
+      exemptApplied += 1;
+      continue;
+    }
+    const policy = (DEFAULT_APPROVAL_POLICIES as Record<string, any>)[actionType];
+    if (!policy) continue; // 已由上方 missingFromTable 报过，这里不重复报
+    const makers = new Set(holdersOf(makerGroup));
+    const checkers = new Set<string>(policy.steps.flatMap((st: any) => st.roles as string[]));
+    const safeMakers = [...makers].filter((r) => !checkers.has(r));
+    if (safeMakers.length === 0) {
+      p1SkippedCount += 1;
+      continue; // 已由上方 P1（S5/S5b）报过，见上方注释
+    }
+    overlapChecked += 1;
+    const overlap = [...makers].filter((r) => checkers.has(r));
+    if (overlap.length > 0) {
+      overlapViolations.push(
+        `${actionType}: ${overlap.join('/')} 既持 ${makerGroup}（能提）又在裁决人集合 {${[...checkers].join(',')}} 里（能批）——若确系刻意保留的双持豁免，加进 MAKER_CHECKER_OVERLAP_EXEMPT 并写明理由；若不是，就是真实 SoD 缺口，应上报给上级会话处理，禁止为了让闸门变绿而把它塞进豁免表`,
+      );
+    }
+  }
+  check(
+    'S5c maker≠checker（不相交判据：同一职务不得既是提单人又是裁决人；MAKER_CHECKER_OVERLAP_EXEMPT 显式豁免的 6 条站点演示策略除外）',
+    overlapViolations.length === 0,
+    overlapViolations.length === 0
+      ? `${overlapChecked} 条策略逐条验证 maker 与 checker 角色集合不相交（豁免 ${exemptApplied} 条，另有 ${p1SkippedCount} 条已被 P1 判定无安全 maker 的策略不重复计入）`
+      : overlapViolations.join(' ｜ '),
+  );
+
+  // ── S5d：MAKER_CHECKER_OVERLAP_EXEMPT 名副其实（镜像 S1b/S5b 的白名单核验模式）───
+  // 这张豁免表是第三张手工维护的逃生表（另两张是 S1b 守的 ROUTE_ORPHAN_WHITELIST、S5b
+  // 守的 S5_KNOWN_DEADLOCKS），本轮之前一直没配套的名副其实校验，两种腐坏都能悄悄
+  // 潜伏而全绿：
+  //   (a) 垃圾/改名键——S5c 的豁免统计只从 MAKER_GROUP_BY_POLICY 出发，一个不存在的
+  //       策略代码压根不会被那个循环遍历到，于是白白占位而不受任何约束；S8 也不覆盖
+  //       这张表（S8 读的是另一张 MAKER_GROUP_EXEMPT，语义不同，见上方注释）。
+  //   (b) 陈旧豁免——登记时那条策略确实重叠，后来 maker 或 checker 绑定改了、不再
+  //       重叠，登记条目却还留着；未来一次不相关的绑定改动如果又造出真重叠，会被这条
+  //       陈旧豁免不经任何人审视地悄悄放行，而不是被 S5c 正常报红。
+  const exemptGhosts: string[] = [];
+  const exemptStale: string[] = [];
+  for (const actionType of Object.keys(MAKER_CHECKER_OVERLAP_EXEMPT)) {
+    const makerGroup = MAKER_GROUP_BY_POLICY[actionType];
+    const policy = (DEFAULT_APPROVAL_POLICIES as Record<string, any>)[actionType];
+    if (!makerGroup || !policy) {
+      exemptGhosts.push(`${actionType}（不在 MAKER_GROUP_BY_POLICY 或 DEFAULT_APPROVAL_POLICIES 里，应删除）`);
+      continue;
+    }
+    const makers = new Set(holdersOf(makerGroup));
+    const checkers = new Set<string>(policy.steps.flatMap((st: any) => st.roles as string[]));
+    const overlap = [...makers].filter((r) => checkers.has(r));
+    if (overlap.length === 0) {
+      exemptStale.push(`${actionType}（豁免已不需要，应删除）`);
+    }
+  }
+  check(
+    'S5d MAKER_CHECKER_OVERLAP_EXEMPT 名副其实（豁免键存在且仍真实重叠）',
+    exemptGhosts.length === 0 && exemptStale.length === 0,
+    exemptGhosts.length === 0 && exemptStale.length === 0
+      ? `${Object.keys(MAKER_CHECKER_OVERLAP_EXEMPT).length} 条豁免全部确认键存在且仍真实重叠`
+      : [...exemptGhosts, ...exemptStale].join(' ｜ '),
+  );
+
+  // ── S8：MAKER 表与策略一一对应 ────────────────────────────────────────
+  // 交付清单要求：新增 maker-checker 策略必须往 MAKER_GROUP_BY_POLICY 加一行——此前靠人记，
+  // 波一起由本判据守：策略全集 == 表 ∪ 豁免表，且两表不相交、表里没有策略里不存在的键。
+  const policyKeys = new Set(Object.keys(DEFAULT_APPROVAL_POLICIES));
+  const tableKeys = new Set(Object.keys(MAKER_GROUP_BY_POLICY));
+  const exemptKeys = new Set(Object.keys(MAKER_GROUP_EXEMPT));
+  const uncovered = [...policyKeys].filter((k) => !tableKeys.has(k) && !exemptKeys.has(k));
+  const unknown = [...tableKeys, ...exemptKeys].filter((k) => !policyKeys.has(k));
+  const overlap = [...tableKeys].filter((k) => exemptKeys.has(k));
+  check(
+    'S8 MAKER 表与策略一一对应（策略全集 = 表 ∪ 豁免表，两表不相交）',
+    uncovered.length === 0 && unknown.length === 0 && overlap.length === 0,
+    uncovered.length === 0 && unknown.length === 0 && overlap.length === 0
+      ? `${policyKeys.size} 条策略：${tableKeys.size} 条受 S5 保护 + ${exemptKeys.size} 条显式豁免`
+      : `未覆盖 ${uncovered.join(',') || '无'} ｜ 表里有策略里没有 ${unknown.join(',') || '无'} ｜ 两表重叠 ${overlap.join(',') || '无'}`,
+  );
+
+  // ── S9：裁决人看得见 entityRef 的详情页 ────────────────────────────────
+  // 镜像 admin-web/src/pages/ApprovalDetailPage.tsx 的 ENTITY_ROUTE_BY_ACTION：审批详情页把 entityRef
+  // 链到业务详情页，裁决人若没有那页的读权限，点过去就是 403——"能批却看不见批的是什么"。
+  const DETAIL_READ_GROUP_BY_POLICY: Record<string, string> = {
+    ASSET_SUSPENSION: 'ASSET_CONFIG_READ',
+    ASSET_REACTIVATION: 'ASSET_CONFIG_READ',
+    TRANSACTION_LIMIT_CHANGE: 'TRANSACTION_LIMIT_READ',
+    SWAP_FEE_LEVEL_CREATION: 'SWAP_FEE_LEVEL_READ',
+    SWAP_FEE_LEVEL_RETIRE: 'SWAP_FEE_LEVEL_READ',
+    WITHDRAWAL_FEE_LEVEL_CREATION: 'WITHDRAWAL_FEE_LEVEL_READ',
+    WITHDRAWAL_FEE_LEVEL_RETIRE: 'WITHDRAWAL_FEE_LEVEL_READ',
+    WITHDRAW_LARGE_VALUE_APPROVAL: 'TRADING_WITHDRAW_READ',
+    WITHDRAW_UNFREEZE: 'TRADING_WITHDRAW_READ',
+    WITHDRAW_SANCTION_REFUND: 'TRADING_WITHDRAW_READ',
+    DEPOSIT_CONFISCATION: 'TRADING_DEPOSIT_READ',
+    DEPOSIT_RETURN: 'TRADING_DEPOSIT_READ',
+    DEPOSIT_SEIZE: 'TRADING_DEPOSIT_READ',
+    DEPOSIT_UNFREEZE: 'TRADING_DEPOSIT_READ',
+    ADMIN_INVITE_APPROVAL: 'IAM_MEMBER_READ',
+    ADMIN_SUSPENSION_APPROVAL: 'IAM_MEMBER_READ',
+    ADMIN_REACTIVATION_APPROVAL: 'IAM_MEMBER_READ',
+    ADMIN_PASSWORD_RESET: 'IAM_MEMBER_READ',
+    ADMIN_MFA_RESET: 'IAM_MEMBER_READ',
+    ROLE_DEFINITION_CREATE: 'IAM_ROLE_READ',
+    ROLE_DEFINITION_MODIFY: 'IAM_ROLE_READ',
+    // brief 快照没列这两条——`git grep -n "(r) =>" admin-web/src/pages/ApprovalDetailPage.tsx`
+    // 核对，页面确实把这两个 actionType 链到业务详情页，故本任务补齐（2026-09-04）：
+    ADMIN_ROLE_BINDING_CHANGE_APPROVAL: 'IAM_ROLE_READ', // → /admin/iam/role-change-requests/:id，读端点挂 IAM_ROLE_READ
+    RECON_ADJUSTMENT_POST: 'RECON_CASE_READ', // → /admin/reconciliation/adjustments/:id，读端点挂 RECON_CASE_READ
+  };
+  const blindCheckers: string[] = [];
+  for (const [actionType, readGroup] of Object.entries(DETAIL_READ_GROUP_BY_POLICY)) {
+    const policy = (DEFAULT_APPROVAL_POLICIES as Record<string, any>)[actionType];
+    if (!policy) { blindCheckers.push(`${actionType}（策略不存在）`); continue; }
+    for (const st of policy.steps) {
+      for (const role of st.roles as string[]) {
+        if (role === 'SUPER_ADMIN') continue;
+        if (!(RBAC_ROLE_GROUP_BINDINGS[role] as string[] | undefined)?.includes(readGroup)) {
+          blindCheckers.push(`${actionType}: 裁决人 ${role} 不持 ${readGroup}`);
+        }
+      }
+    }
+  }
+  check(
+    'S9 裁决人持有 entityRef 详情页读权限（镜像 ApprovalDetailPage 回链映射）',
+    blindCheckers.length === 0,
+    blindCheckers.length === 0
+      ? `${Object.keys(DETAIL_READ_GROUP_BY_POLICY).length} 条带回链的策略，裁决人都看得见要批的对象`
+      : blindCheckers.join(' ｜ '),
   );
 }
 
@@ -559,11 +846,6 @@ const PROBES: DirectionalProbe[] = [
     role: 'auditor', expect: 'DENY',
   },
   {
-    section: '内审零 Act', name: '内审 不得 建托管钱包', method: 'POST',
-    routePattern: '/admin/custodian-wallets', path: '/admin/custodian-wallets',
-    role: 'auditor', expect: 'DENY',
-  },
-  {
     section: '内审零 Act', name: '内审 不得 放行小额挂起', method: 'POST',
     routePattern: '/deposit-transactions/:id/waive-limit', path: `/deposit-transactions/${NOPE}/waive-limit`,
     role: 'auditor', expect: 'DENY',
@@ -588,21 +870,6 @@ const PROBES: DirectionalProbe[] = [
 
   // ── 钱包地址只在金库 ─────────────────────────────────────
   {
-    section: '钱包地址只在金库', name: '金库官 可以 建托管钱包', method: 'POST',
-    routePattern: '/admin/custodian-wallets', path: '/admin/custodian-wallets',
-    role: 'treasury', expect: 'ALLOW',
-  },
-  {
-    section: '钱包地址只在金库', name: '运营 不得 建托管钱包', method: 'POST',
-    routePattern: '/admin/custodian-wallets', path: '/admin/custodian-wallets',
-    role: 'ops_officer', expect: 'DENY',
-  },
-  {
-    section: '钱包地址只在金库', name: '技术官 不得 建托管钱包', method: 'POST',
-    routePattern: '/admin/custodian-wallets', path: '/admin/custodian-wallets',
-    role: 'tech_admin', expect: 'DENY',
-  },
-  {
     section: '钱包地址只在金库', name: '金库官 可以 冻结提现地址', method: 'POST',
     routePattern: '/admin/withdrawal-addresses/:addressNo/suspend', path: `/admin/withdrawal-addresses/${NOPE}/suspend`,
     role: 'treasury', expect: 'ALLOW',
@@ -616,6 +883,45 @@ const PROBES: DirectionalProbe[] = [
     section: '钱包地址只在金库', name: '财务 不得 冻结提现地址', method: 'POST',
     routePattern: '/admin/withdrawal-addresses/:addressNo/suspend', path: `/admin/withdrawal-addresses/${NOPE}/suspend`,
     role: 'cfo', expect: 'DENY',
+  },
+  {
+    section: '钱包地址只在金库', name: '金库官 可以 恢复提现地址', method: 'POST',
+    routePattern: '/admin/withdrawal-addresses/:addressNo/unsuspend', path: `/admin/withdrawal-addresses/${NOPE}/unsuspend`,
+    role: 'treasury', expect: 'ALLOW', body: { reason: 'verify:rbac probe' },
+  },
+  {
+    section: '钱包地址只在金库', name: '运营 不得 恢复提现地址', method: 'POST',
+    routePattern: '/admin/withdrawal-addresses/:addressNo/unsuspend', path: `/admin/withdrawal-addresses/${NOPE}/unsuspend`,
+    role: 'ops_officer', expect: 'DENY', body: { reason: 'verify:rbac probe' },
+  },
+
+  // ── 资产暂停 / 恢复只在运营（波一：技术官只剩 IAM）──────────
+  {
+    section: '资产管控只在运营', name: '运营 可以 提暂停资产', method: 'POST',
+    routePattern: '/admin/assets/:assetNo/suspend', path: `/admin/assets/${NOPE}/suspend`,
+    role: 'ops_officer', expect: 'ALLOW', body: { reason: 'verify:rbac probe' },
+  },
+  {
+    section: '资产管控只在运营', name: '技术官 不得 提暂停资产', method: 'POST',
+    routePattern: '/admin/assets/:assetNo/suspend', path: `/admin/assets/${NOPE}/suspend`,
+    role: 'tech_admin', expect: 'DENY', body: { reason: 'verify:rbac probe' },
+  },
+  {
+    section: '资产管控只在运营', name: '金库官 不得 提恢复资产', method: 'POST',
+    routePattern: '/admin/assets/:assetNo/reactivate', path: `/admin/assets/${NOPE}/reactivate`,
+    role: 'treasury', expect: 'DENY',
+  },
+
+  // ── 费率退役只在 CFO ─────────────────────────────────────
+  {
+    section: '费率只在 CFO', name: '财务 可以 提退役费率等级', method: 'POST',
+    routePattern: '/admin/swap-fee-levels/:levelCode/retire', path: `/admin/swap-fee-levels/${NOPE}/retire`,
+    role: 'cfo', expect: 'ALLOW', body: { reason: 'verify:rbac probe' },
+  },
+  {
+    section: '费率只在 CFO', name: '运营 不得 提退役费率等级', method: 'POST',
+    routePattern: '/admin/withdrawal-fee-levels/:levelCode/retire', path: `/admin/withdrawal-fee-levels/${NOPE}/retire`,
+    role: 'ops_officer', expect: 'DENY', body: { reason: 'verify:rbac probe' },
   },
 
   // ── 推单跑批只在运营（V4 后半 + 矩阵头条）────────────────
@@ -895,7 +1201,13 @@ async function main(): Promise<void> {
   }
   console.log('');
   console.log(`共 ${failed} 条 FAIL，其中 GUARD_OPEN（守卫 fail-open，非权限配错）${guardOpenCount} 条`);
-  console.log(failed === 0 ? 'ALL RBAC CHECKS PASS' : `FAIL: ${failed} check(s) failed`);
+  // 已登记死锁数带进总结行——下游任务（含人）实际读的判据就是这一行字符串 + 退出码，
+  // S5 那条 ⚠ 提示在 ~85 行之前，扫到这一行看不到；不带上就等于把"业主还欠一个裁决"这件
+  // 事从最容易读到的地方藏起来了。仍然是 PASS（不是 FAIL）——已登记死锁不改变退出码。
+  const passLine = knownDeadlockCount > 0
+    ? `ALL RBAC CHECKS PASS（另有 ${knownDeadlockCount} 条已登记死锁待业主裁决）`
+    : 'ALL RBAC CHECKS PASS';
+  console.log(failed === 0 ? passLine : `FAIL: ${failed} check(s) failed`);
   process.exit(failed === 0 ? 0 : 1);
 }
 

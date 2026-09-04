@@ -8,6 +8,9 @@ const prisma: any = {
   // 不补会在 listCandidates 测试里当场抛「不是函数」——不是改断言，是补全 fixture。
   reconciliationDisposition: { findUnique: jest.fn(), findFirst: jest.fn() },
   wallet: { findUnique: jest.fn() },
+  // asset 补进：合并 main（V3 波一 T5）后 Wallet 已无 asset 关联，loadLine() 改按
+  // 案子的 assetId 取资产（见该文件同处注释），mock 要跟着提供这个模型。
+  asset: { findUnique: jest.fn() },
   customerMain: { findUnique: jest.fn() },
   inboundTransferSignal: { findFirst: jest.fn() },
   depositTransaction: { findFirst: jest.fn(), findMany: jest.fn() },
@@ -18,13 +21,17 @@ const prisma: any = {
 const service = new SupplementEvidenceService(prisma);
 
 const kase = { id: 'case-1', caseNo: 'REC1', status: 'OPEN', book: 'CLIENT', walletRef: 'w1', businessDate: '2026-09-01', ownerNo: 'CUS1',
+  assetId: 'a1', assetCode: 'AED',
   lineItems: [{ externalTxId: 'line-1', matchStatus: 'ORPHAN_EXTERNAL' }] };
 const line = { id: 'line-1', direction: 'IN', amount: '120000', currency: 'AED', externalRef: 'REF-1', channelRef: null, datetime: new Date('2026-09-01T10:00:00Z'), description: 'Incoming', source: 'ZAND' };
 // asset.code 补进（AED 法币 code===currency，与真实种子数据同形）——loadLine() 的
 // 币种校验改比 asset.code 不改 asset.currency 后（Task 8 e2e 用真实 USDT 案子跑通
 // ①a 时发现的字段级笔误，见该文件改动处的注释），mock 若只给 currency 不给 code，
 // code 读出 undefined，法币这个原本该过的场景也会被判「币种不符」。
-const wallet = { id: 'w1', walletNo: 'W-1', address: null, iban: 'AE00', ownerId: 'cust-1', assetId: 'a1', asset: { id: 'a1', code: 'AED', currency: 'AED', type: 'FIAT', decimals: 2 } };
+// 钱包不再带资产（波一 T5 砍了 Wallet.assetId 与 asset 关联，钱包是「网络上的地址行」）；
+// 资产独立一份，由 loadLine 按 kase.assetId 取。
+const wallet = { id: 'w1', walletNo: 'W-1', address: null, iban: 'AE00', ownerId: 'cust-1', network: 'AED_ZAND', vaultCode: 'CLIENT_DEPOSIT' };
+const aedAsset = { id: 'a1', code: 'AED', currency: 'AED', type: 'FIAT', decimals: 2 };
 const disposition = { dispositionNo: 'RCD1', caseNo: 'REC1', explainedExternalLineId: 'line-1', outlet: 'SUPPLEMENT', deferredTarget: 'SUPPLEMENT_DEPOSIT', supplementNo: null };
 
 beforeEach(() => {
@@ -32,6 +39,7 @@ beforeEach(() => {
   prisma.reconciliationCase.findUnique.mockResolvedValue(kase);
   prisma.externalStatementLine.findUnique.mockResolvedValue(line);
   prisma.wallet.findUnique.mockResolvedValue(wallet);
+  prisma.asset.findUnique.mockResolvedValue(aedAsset);
   prisma.customerMain.findUnique.mockResolvedValue({ customerNo: 'CUS1' });
   prisma.reconciliationDisposition.findUnique.mockResolvedValue(disposition);
   prisma.inboundTransferSignal.findFirst.mockResolvedValue(null);
@@ -84,17 +92,17 @@ describe('loadLine 币种校验（评审 Minor 4）：全仓惯例 external_stat
   // loadLine 比哪个字段都会放行，等于没有护栏（评审实测：把 src 改回
   // wallet.asset.currency，这组 AED 用例仍然 9/9 全绿）。这里补一组真正会岔开
   // 的加密币场景：USDT 的 code 是 'USDT-TRON'，与它的 currency 'USDT' 不同名。
-  const cryptoWallet = { ...wallet, asset: { id: 'a2', code: 'USDT-TRON', currency: 'USDT', type: 'CRYPTO', decimals: 6 } };
+  const cryptoAsset = { id: 'a2', code: 'USDT-TRON', currency: 'USDT', type: 'CRYPTO', decimals: 6 };
   const ok = { caseNo: 'REC1', externalLineId: 'line-1', dispositionNo: 'RCD1', kind: 'SUPPLEMENT_DEPOSIT' as const };
   it('账单行 currency 是 asset.code（USDT-TRON）→ 放行', async () => {
-    prisma.wallet.findUnique.mockResolvedValueOnce(cryptoWallet);
+    prisma.asset.findUnique.mockResolvedValueOnce(cryptoAsset);
     prisma.externalStatementLine.findUnique.mockResolvedValueOnce({ ...line, currency: 'USDT-TRON' });
     const r = await service.assertClaimable(ok);
     expect(r.assetType).toBe('CRYPTO');
     expect(r.currency).toBe('USDT'); // 返回值供人读审计文案，仍是裸币种，不是 code
   });
   it('账单行 currency 是裸币种（USDT，不是 asset.code）→ 400', async () => {
-    prisma.wallet.findUnique.mockResolvedValueOnce(cryptoWallet);
+    prisma.asset.findUnique.mockResolvedValueOnce(cryptoAsset);
     prisma.externalStatementLine.findUnique.mockResolvedValueOnce({ ...line, currency: 'USDT' });
     await expect(service.assertClaimable(ok)).rejects.toThrow(/币种.*不符/);
   });

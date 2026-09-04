@@ -7,7 +7,6 @@ import {
 import { OnEvent } from '@nestjs/event-emitter';
 import { Prisma } from '@prisma/client';
 import { randomUUID } from 'crypto';
-import { generateReferenceNo } from '../../../common/utils/no-generator.util';
 import { PrismaService } from '../../../core/prisma/prisma.service';
 import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import {
@@ -20,12 +19,8 @@ import { ApprovalDecidedEvent } from '../../governance/approvals/approval-handle
 import {
   ApprovalActionTypes,
   ApprovalActorContext,
-  ApprovalStatuses,
 } from '../../governance/approvals/constants/approval.constants';
-import {
-  RuleShapeInput,
-  TransactionLimitRulesService,
-} from './transaction-limit-rules.service';
+import { TransactionLimitRulesService } from './transaction-limit-rules.service';
 import {
   ALL_AMOUNT_FIELDS,
   GATE_SHAPES,
@@ -34,30 +29,14 @@ import {
 
 // 二级"已裁决"事件名由 approval 引擎按 workflowType 推导(approval-handler.base.ts:
 // `workflow.${workflowType.toLowerCase().replace(/_/g,'-')}.decided`),此处逐字对齐。
-// 发射方仍是旧 governance 模块里的 TransactionLimit{Creation,Change}ApprovalService(共用同一 actionType),
-// Task 8 退役旧模块时须把两个发射器搬进本模块 providers,否则本工作流将收不到裁决事件。
-const CREATION_DECIDED_EVENT = 'workflow.transaction-limit-creation.decided';
+// 发射方是本模块 providers 里的 TransactionLimitChangeApprovalService——创建流(连同它的
+// TransactionLimitCreationApprovalService 发射器)已随「限额只改不建不删」整条退役(波一 T10)。
 const CHANGE_DECIDED_EVENT = 'workflow.transaction-limit-change.decided';
-
-interface CreateRuleInput {
-  gateType: string;
-  operationType: string;
-  assetId?: string | null;
-  tradingTier?: string | null;
-  period?: string | null;
-  minAmount?: number | null;
-  maxAmount?: number | null;
-  defaultLimit?: number | null;
-  cap?: number | null;
-  threshold?: number | null;
-  reason: string;
-}
 
 interface ChangeRuleInput {
   minAmount?: number | null;
   maxAmount?: number | null;
   defaultLimit?: number | null;
-  cap?: number | null;
   threshold?: number | null;
   reason: string;
 }
@@ -83,210 +62,17 @@ export class TransactionLimitRuleWorkflowService {
     };
   }
 
-  // ─────────────────────────── 创建流 ───────────────────────────
-
-  async initiateCreate(dto: CreateRuleInput, actor: ApprovalActorContext) {
-    const input: RuleShapeInput = {
-      gateType: dto.gateType as GateType,
-      operationType: dto.operationType,
-      assetId: dto.assetId ?? null,
-      tradingTier: dto.tradingTier ?? null,
-      period: dto.period ?? null,
-      minAmount: dto.minAmount ?? null,
-      maxAmount: dto.maxAmount ?? null,
-      defaultLimit: dto.defaultLimit ?? null,
-      cap: dto.cap ?? null,
-      threshold: dto.threshold ?? null,
-    };
-
-    if (!dto.reason?.trim()) throw new BadRequestException('reason is required');
-    this.rulesService.validateShape(input);
-    await this.rulesService.assertUnique(input);
-
-    const ruleNo = generateReferenceNo('TLR');
-    const rule = await this.rulesService.createPending({ ...input, ruleNo });
-
-    // START：本次创建旅程的 correlationId，同一个值同事务写进 ApprovalCase.traceId
-    // （经 createAndSubmit 的 traceId 入参），供下游 onCreationDecided 经
-    // ApprovalDecidedEvent.traceId INHERIT 读回。
-    const correlationId = randomUUID();
-    let approvalCase: any;
-    try {
-      approvalCase = await this.approvalsService.createAndSubmit(
-        {
-          actionType: ApprovalActionTypes.TRANSACTION_LIMIT_CREATION,
-          entityRef: rule.ruleNo,
-          traceId: correlationId,
-          objectSnapshot: {
-            ruleNo,
-            gateType: input.gateType,
-            operationType: input.operationType,
-            assetId: input.assetId,
-            tradingTier: input.tradingTier,
-            period: input.period,
-            ...this.amountSnapshot(input.gateType as GateType, input),
-            reason: dto.reason,
-          },
-        },
-        { reason: dto.reason, traceId: correlationId },
-        actor,
-      );
-    } catch (err) {
-      // 补偿:审批建单失败则回删占坑行
-      await this.rulesService.deletePending(ruleNo);
-      throw err;
-    }
-
-    await this.rulesService.attachApprovalCase(ruleNo, approvalCase.id, approvalCase.approvalNo);
-
-    // afterData：CREATE 没有「前」态，只存提案身份本身。
-    const afterData = {
-      gateType: input.gateType,
-      operationType: input.operationType,
-      assetId: input.assetId,
-      tradingTier: input.tradingTier,
-      period: input.period,
-      ...this.amountSnapshot(input.gateType as GateType, input),
-    };
-
-    await this.auditLogsService.recordByActor(
-      {
-        action: 'TRANSACTION_LIMIT_CREATION_REQUESTED',
-        actionDomain: 'CONFIG',
-        primarySubjectType: AuditEntityTypes.TRANSACTION_LIMIT_POLICY,
-        primarySubjectNo: ruleNo,
-        correlationId,
-        outcome: AuditOutcome.SUCCESS,
-        reason: dto.reason,
-        afterData,
-        metadata: {
-          approvalNo: approvalCase.approvalNo,
-        },
-        requestId: `TRANSACTION_LIMIT_CREATION_REQUESTED_${ruleNo}`,
-        sourcePlatform: 'ADMIN_API',
-      },
-      this.toAuditActor(actor),
-    );
-
-    return {
-      ruleNo,
-      approvalNo: approvalCase.approvalNo,
-      status: 'PENDING_APPROVAL',
-    };
-  }
-
-  @OnEvent(CREATION_DECIDED_EVENT, { async: true })
-  async onCreationDecided(event: ApprovalDecidedEvent) {
-    const decision = event?.decision;
-    const entityRef = event?.entityRef;
-    const approvalId = event?.approvalId;
-    if (!entityRef || !approvalId) {
-      this.logger.warn('Transaction limit rule creation decided event missing entityRef/approvalId');
-      return;
-    }
-
-    // entityRef 可能属于旧 governance policy 流(非本表 ruleNo)→ findUnique 返回 null,安全退出
-    const rule = await this.prisma.transactionLimitRule.findUnique({ where: { ruleNo: entityRef } });
-    if (!rule) return;
-
-    if (decision === 'APPROVED') {
-      if (rule.status !== 'PENDING_APPROVAL') {
-        this.logger.warn(`Rule ${rule.ruleNo} not PENDING_APPROVAL (${rule.status}); skip activation`);
-        return;
-      }
-      try {
-        await this.rulesService.activate(rule.ruleNo);
-        await this.auditLogsService.recordSystem({
-          action: 'TRANSACTION_LIMIT_CREATION_APPLIED',
-          actionDomain: 'CONFIG',
-          primarySubjectType: AuditEntityTypes.TRANSACTION_LIMIT_POLICY,
-          primarySubjectNo: rule.ruleNo,
-          // INHERIT：读 ApprovalDecidedEvent.traceId——它就是 initiateCreate 铸造的
-          // correlationId 原样传播过来的（经 ApprovalCase.traceId）。
-          correlationId: event?.traceId,
-          // 异步驱动：这条记录是被「审批已批准」这个决定触发的。
-          causationId: approvalId,
-          outcome: AuditOutcome.SUCCESS,
-          afterData: {
-            gateType: rule.gateType,
-            operationType: rule.operationType,
-            assetId: rule.assetId,
-            tradingTier: rule.tradingTier,
-            period: rule.period,
-            ...this.currentAmounts(rule),
-          },
-          approvalNo: event?.approvalNo,
-          requestId: `TRANSACTION_LIMIT_CREATION_APPLIED_${rule.ruleNo}`,
-          sourcePlatform: 'SYSTEM',
-        });
-        this.logger.log(`Rule ${rule.ruleNo} activated`);
-      } catch (err: any) {
-        this.logger.error(`Failed to activate rule ${rule.ruleNo}: ${err.message}`);
-        await this.auditLogsService.recordSystem({
-          action: 'TRANSACTION_LIMIT_CREATION_APPLY_FAILED',
-          actionDomain: 'CONFIG',
-          primarySubjectType: AuditEntityTypes.TRANSACTION_LIMIT_POLICY,
-          primarySubjectNo: rule.ruleNo,
-          correlationId: event?.traceId,
-          causationId: approvalId,
-          outcome: AuditOutcome.FAILED,
-          reasonCode: 'EXECUTION_FAILED',
-          reason: err.message,
-          requestId: `TRANSACTION_LIMIT_CREATION_APPLY_FAILED_${rule.ruleNo}`,
-          sourcePlatform: 'SYSTEM',
-        });
-      }
-      return;
-    }
-
-    // 否决/取消/超时 → 物理删除占坑行
-    if (rule.status !== 'PENDING_APPROVAL') {
-      this.logger.warn(`Rule ${rule.ruleNo} not PENDING_APPROVAL (${rule.status}); skip deletion`);
-      return;
-    }
-    try {
-      await this.rulesService.deletePending(rule.ruleNo);
-      await this.auditLogsService.recordSystem({
-        action: 'TRANSACTION_LIMIT_CREATION_CANCELLED',
-        actionDomain: 'CONFIG',
-        primarySubjectType: AuditEntityTypes.TRANSACTION_LIMIT_POLICY,
-        primarySubjectNo: rule.ruleNo,
-        correlationId: event?.traceId,
-        causationId: approvalId,
-        outcome: AuditOutcome.SUCCESS,
-        reason: event?.decisionReason || `Transaction limit rule creation request ${String(decision).toLowerCase()}`,
-        metadata: { decision },
-        requestId: `TRANSACTION_LIMIT_CREATION_CANCELLED_${rule.ruleNo}`,
-        sourcePlatform: 'SYSTEM',
-      });
-      this.logger.log(`Rule ${rule.ruleNo} creation cancelled (${decision}), row deleted`);
-    } catch (err: any) {
-      this.logger.error(`Failed to cancel rule creation ${rule.ruleNo}: ${err.message}`);
-    }
-  }
-
   // ─────────────────────────── 变更流 ───────────────────────────
 
   async initiateChange(ruleNo: string, dto: ChangeRuleInput, actor: ApprovalActorContext) {
     if (!dto.reason?.trim()) throw new BadRequestException('reason is required');
 
     const rule = await this.rulesService.findByNo(ruleNo);
-    if (rule.status !== 'ACTIVE') {
-      throw new ConflictException(
-        `Rule ${ruleNo} is not ACTIVE (current status: ${rule.status}); cannot submit a change.`,
-      );
-    }
 
-    // 早拒(FIX-1b):同一规则已有 OPEN 的变更审批 → 不许再提第二单(否则两单先后落地,后者绝对值快照会覆盖前者)
-    const openChanges = await this.approvalsService.list({
-      actionType: ApprovalActionTypes.TRANSACTION_LIMIT_CHANGE,
-      entityRef: rule.ruleNo,
-      status: ApprovalStatuses.PENDING,
-      take: 1,
-    });
-    if (openChanges.total > 0) {
+    // 早拒(FIX-1b):approvalCaseNo 非空即"变更中" → 不许再提第二单(否则两单先后落地,后者绝对值快照会覆盖前者)
+    if (rule.approvalCaseNo) {
       throw new ConflictException(
-        `Rule ${ruleNo} already has a pending change approval; resolve it before submitting another.`,
+        `Rule ${ruleNo} already has a pending change approval (${rule.approvalCaseNo}); resolve it before submitting another.`,
       );
     }
 
@@ -352,6 +138,8 @@ export class TransactionLimitRuleWorkflowService {
       { reason: dto.reason, traceId: correlationId },
       actor,
     );
+
+    await this.rulesService.attachApprovalCase(rule.ruleNo, approvalCase.approvalNo);
 
     await this.auditLogsService.recordByActor(
       {
@@ -430,6 +218,8 @@ export class TransactionLimitRuleWorkflowService {
           this.logger.warn(
             `Rule ${rule.ruleNo} change skipped: snapshot 'before' drifted from current amounts (concurrent change)`,
           );
+          // 单子已裁决(即便应用被冲突守卫挡下)→ 清挂号,不留死锁在"变更中"。
+          await this.rulesService.clearApprovalCase(rule.ruleNo);
           return;
         }
 
@@ -466,6 +256,8 @@ export class TransactionLimitRuleWorkflowService {
           sourcePlatform: 'SYSTEM',
         });
       }
+      // 单子已裁决(无论应用成功还是执行失败)→ 清挂号。
+      await this.rulesService.clearApprovalCase(rule.ruleNo);
       return;
     }
 
@@ -483,17 +275,8 @@ export class TransactionLimitRuleWorkflowService {
       requestId: `TRANSACTION_LIMIT_CHANGE_CANCELLED_${rule.ruleNo}`,
       sourcePlatform: 'SYSTEM',
     });
+    await this.rulesService.clearApprovalCase(rule.ruleNo);
     this.logger.log(`Rule ${rule.ruleNo} change cancelled (${decision})`);
-  }
-
-  /** 取本形状金额字段的快照(字符串化,便于审计/审批只读展示) */
-  private amountSnapshot(gateType: GateType, input: RuleShapeInput): Record<string, string> {
-    const out: Record<string, string> = {};
-    for (const f of GATE_SHAPES[gateType].amountFields) {
-      const v = (input as any)[f];
-      if (v != null) out[f] = String(v);
-    }
-    return out;
   }
 
   /** 规则当前金额(本形状字段,字符串化)——落地冲突失败审计用 */

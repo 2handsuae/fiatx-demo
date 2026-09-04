@@ -75,7 +75,7 @@ const countTiers = (json: string): number => {
 /* ── Constants ───────────────────────────────────────────────── */
 
 const PAGE_SIZE = 20;
-const STATUS_OPTIONS = ['ACTIVE', 'PENDING_APPROVAL', 'REJECTED'];
+const STATUS_OPTIONS = ['PENDING_APPROVAL', 'ACTIVE', 'REJECTED', 'CANCELLED', 'RETIRED'];
 const DEFAULT_FILTERS: FilterState = { assetId: '', status: '', defaultOnly: false };
 
 /* ── Component ───────────────────────────────────────────────── */

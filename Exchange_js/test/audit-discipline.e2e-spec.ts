@@ -249,13 +249,16 @@ describe('成员 / 钱包端点对外识别（铁律⑥ 对外用业务键）', 
   });
 
   it('钱包详情端点收 walletNo；拿 UUID 打 → 404', async () => {
-    const asset = await prisma.asset.findFirstOrThrow();
     const wallet = await prisma.wallet.create({
       data: {
         walletNo: `WA-KEY-${Date.now()}`,
         ownerType: 'PLATFORM',
-        type: 'FIAT_BANK',
-        assetId: asset.id,
+        ownerId: null,
+        ownerNo: `PLATFORM-KEY-${Date.now()}`,
+        vaultCode: 'F_OPS',
+        walletRole: 'F_OPS',
+        network: 'AED_ZAND',
+        status: 'ACTIVE',
       },
     });
     const token = await loginAs('treasury@fiatx.com');

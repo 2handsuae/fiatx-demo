@@ -1,10 +1,12 @@
-import { IsUUID, IsString, IsBoolean, IsOptional, Equals } from 'class-validator';
+import { IsString, IsIn, IsBoolean, IsOptional, Equals } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
+import { NETWORK_CODES } from '../../../../config/manifests/networks.manifest';
 
 export class CreateWithdrawalAddressDto {
-  @ApiProperty({ description: 'Asset UUID' })
-  @IsUUID()
-  assetId!: string;
+  @ApiProperty({ description: 'Network the address lives on (chain networks only)', enum: NETWORK_CODES })
+  @IsString()
+  @IsIn(NETWORK_CODES)
+  network!: string;
 
   @ApiProperty({ description: 'Blockchain address' })
   @IsString()

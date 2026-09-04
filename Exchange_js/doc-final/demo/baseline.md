@@ -57,11 +57,14 @@
 | 对账 | recon:demo:pass ｜ **recon:demo:break 15/15 场景 + 10/10 钱包桶 + `casesOpened` 完整性断言**（2026-09-03 平账 B 批重排后实测：`scenarios 15/15 DETECTED` / `wallets 10/10 bucket OK`（break 7 / softFlag 2 / inTransit 1）/ `casesOpened 10/10`，答案键 `rootCause` 已换成注册表成因码）｜ verify:demo-data。⚠️ **必须走整库重铺验证**：**场景 6（重复入账）真写账本**、`recon:demo:reset` 不回滚账本，轻量重跑会让场景 6 假性 MISSED（显示 14/15）|
 | 账本 | verify:coa —— 两恒等式 + 负余额断言（49 科目全部 ≥ 0）。收官多轮实测重铺后与 demo:all 后均全绿；历史上个别含 break 注入的运行轮见过公司 AED 负余额（浮存时序）。**2026-09-01 三支合流后在 main 栈两轮独立实测：57 科目全部 ≥ 0，全绿**（此前 08-31 的负余额红已定位为资本注入被跳过的假红，见上方\"已结\"节）|
 | 审计 | verify:audit 恒绿七项：Q2 按单据查 ｜ Q4 按客户查 ｜ 不变量①②③（PRIMARY 至多一 / INHERIT 必有旅程号 / 退役码零写入）——三查合同七站换装后的固定资产 |
-| 封册 | audit-vocabulary-closure.spec 四条：平面表归籍 / 六册互斥 / V3 附册冻结快照 / 写点闭合退役词零引用 |
+| 封册 | audit-vocabulary-closure.spec 四条：平面表归籍 / 六册互斥 / 写点闭合退役词零引用 / 码全局唯一禁裸名 |
 | 单测 | `npx jest` **全绿**（**163 套 / 2067 例通过 + 2 skipped + 4 todo，退出码 0——2026-09-02 平账一期半 Task 12 实测**。⚠️ 此前记的"156 套 / 2026-08-31 实测"在 2026-09-01 之后有一段时间是**过期依据**：`c7bc7e3f` 改了单号随机位宽（4→6 位）但只跑了工具自己的新 spec，`no-generator.util.spec.ts` 那条「1000 次不撞号」按生日问题约 39% 必红，另有两处 `\d{10}` 位宽断言没跟着改——三处已于 2026-09-02 修好，本行数字即当次实测）｜ `npm run test:client`（vitest 4 套 83 例） |
 | 栈 | `bash scripts/stack-env.test.sh`（`ensure_env_files` 权威重写的 11 项断言） |
 
 > 💡 **A 批（账龄线 + 公司池核销）在 worktree 内验证走自己的栈**：`bash scripts/stack.sh reset self` → `bash scripts/stack.sh up self` → `bash scripts/on-stack.sh self demo:all`（与 main 栈 `reset main` → `up main` 同构，仅栈名不同；worktree 内不得碰 main 栈，见 CLAUDE.md §10）。`recon:demo:break` 的检出判据仍是 **15/15 场景 + 10/10 钱包桶**（2026-09-03 平账 B 批重排后的现行值）——账龄与核销只改变案子「能不能平」，不改变检出与分桶，这两个数字不受本批影响。
+
+> 🔴 **V3 波一合并到 main 之后，第一次重铺前必须先 `rm -f /tmp/exchange_js_main/dev.db`——否则 `stack.sh reset main` 会中途失败。** 迁移 `20260903125954_v3w1_wallet_address_rows` 走 SQLite 建新表再 `INSERT…SELECT` 的模式，而新表的 `vaultCode` / `network` 是 NOT NULL、老 `wallets` 行没有这两列的值（Prisma 自己在该文件第 10–11 行就警告过「表非空则不可能」）。`apply-local-migrations.sh` 是**就地**升级现有库、`set -euo pipefail` + 事务，`db:biz:reset` 排在迁移之后、根本走不到。main 上现有 19 行 wallet，实测在隔离副本上复现：`NOT NULL constraint failed: new_wallets.vaultCode`，退出码 1；同一副本先清空 wallets 再跑则退出码 0（对照组）。按 §3「数据随时可重铺、不写兼容层」，正解是删库重建、不是给迁移打补丁。
+> 同一个 `rm` 顺带解决第二个合并后必红：`scripts/reset-business-data.ts` 不清 `audit_log_events`，而 main 的审计表里已有 5 行携带本波新退役的码（`ASSET_ACTIVATED` / `ASSET_ACTIVATION_REQUESTED` / `ASSET_CREATED_AND_PROVISIONED` / `CUSTODIAN_WALLET_CREATED` / `CUSTODIAN_WALLET_CREATE_REQUESTED`），不删库的话 `verify:audit` 不变量③「退役码零写入」会在 main 上恒红。**一条 `rm`，两个问题**（2026-09-04 波一终审实证，含对照组）。
 
 > ⚠️ **重铺前必须先 `stack.sh down <栈>` 停栈，否则 TigerBeetle 清不掉。** `reset-stack.sh` 的 `rm -f` 对运行中进程持有的文件只是 unlink，旧 tigerbeetle 仍在旧 inode 上服务 → SQLite 重铺了、TB 没有 → 客户 UUID 全新使 `CLIENT_PAYABLE` 读 0 而 SYSTEM 口径 `CLIENT_ASSET` 留旧余额（恒等式假红），多轮提现累积还会把公司 AED 打成负数（负余额假红）。2026-08-28 平账一期实测定位——正确顺序：`down` → `reset` → `up`。⚠️ `stack.sh reset` 自己会拉起 TigerBeetle，`up` 之前要先把它 kill 掉，否则 `up` 在 TB 端口上撞车。
 
@@ -108,6 +111,10 @@
 
 **裁决**：与 `verify:rbac` 同一条运行顺序——`verify:rbac` → `verify:act1` → `stack.sh reset [main|self]` → `demo:all`，重铺把探针痕迹与手工补种的 holding 一并冲掉。
 
+**波一起**：B6 夹具按 (vaultCode, network, ownerNo) 建平台行、B7 改为对 ACTIVE 资产提恢复（运营 token）→ 409。
+
+**改过 `rbac.catalog.ts` 就必须重启后端再跑**：本波把 TECH_OFFICER 加了 `IAM_ROLE_ASSIGN`（见 `overview.md` §4）。`verify:act1` 真登录真 HTTP，后端进程按内存里的 `RBAC_PERMISSION_DEFINITIONS` 判权限——只 `db:base:sync` 不重启后端，权限判断仍是改之前那份，`verify:act1` / `verify:rbac` 都会读到假结果（不是判据本身错，是跑的时候后端还没换脑子）。
+
 ## 红名单 —— 已于 2026-08-31 清零并退役
 
 原有 4 条，实为四种互不相干的成因，被"净新失败 0"的判据一并豁免了最久 64 天：
@@ -137,8 +144,26 @@ Q6 谁查过审计日志：重铺后恒红，管理员真查一次审计页当�
 全量 11 套件 **83/83**（收官在 main 实测）。跑法三要素，缺一必假红：
 
 1. **私库先铺**：六个自带独立库的套件（kyt-verdict-landing / sanction-subject-split / deposit-verdicts / material-requests / customer-restrictions / sla）在每次 `stack.sh reset` 后库被清空，须逐库 `DATABASE_URL=file:/tmp/exchange_js_main/<e2e-库名>.db` 依次 `prisma migrate deploy` + `db:base:sync` + `db:biz:init`；
-2. **串行跑**：`bash scripts/on-stack.sh main test:e2e --runInBand <11 个文件>`（**不要**在文件列表前多写 `--`，会被 jest 当路径模式吞掉 runInBand）；并行会互踩栈库出假红；
+2. **串行跑**：`bash scripts/on-stack.sh main test:e2e --runInBand <下列 11 个文件>`（**不要**在文件列表前多写 `--`，会被 jest 当路径模式吞掉 runInBand）；并行会互踩栈库出假红。**这 11 个就是基线口径的全集，逐字写在这里**（2026-09-04 补：此前这里只写「11 个文件」四个字、正文只点名了自带私库的 6 个，另外 5 个从没落过纸，波一收尾时只能靠 `git log --diff-filter=A` 的加入日期对着 CHANGELOG「45a4f1a8 e2e 11 套 83/83 首次入基线」那条考据出来——闸门的定义必须自己写得清，不能靠考据）：
+
+```
+test/deposit-money-arcs.e2e-spec.ts          # 共用 dev.db
+test/withdraw-money-arcs.e2e-spec.ts         # 共用 dev.db
+test/swap-money-arc.e2e-spec.ts              # 共用 dev.db
+test/deposit-sumsub-verdicts.e2e-spec.ts     # 共用 dev.db
+test/withdraw-sumsub-scenarios.e2e-spec.ts   # 共用 dev.db
+test/swap-sumsub-scenarios.e2e-spec.ts       # 共用 dev.db
+test/kyt-verdict-landing.e2e-spec.ts         # 私库
+test/sanction-subject-split.e2e-spec.ts      # 私库
+test/material-requests.e2e-spec.ts           # 私库
+test/customer-restrictions.e2e-spec.ts       # 私库
+test/sla.e2e-spec.ts                         # 私库
+```
+
 3. **干净态起跑**：栈库残留多轮数据会触发日累计限额假红；`reset` + 重铺私库后一次跑完。
+4. **共用库那 6 个还要先 `demo:setup`**（2026-09-04 波一收尾实测补）：裸 `reset` 只铺业务种子，建出客户花名册但**一条客户钱包行都没有**；6 个共用 `dev.db` 的套件里有 4 个自带 `ensureCustomerWallet` 自助开钱包，`deposit-money-arcs` 没有，缺钱包时直接抛 `"...has no ACTIVE C_VIBAN wallet on AED_ZAND — run demo:setup first"`。所以 `reset` 之后、跑 e2e 之前要补一句 `bash scripts/on-stack.sh <stack> demo:setup`。**它不等于 `demo:all`**：`demo:setup` 只跑 `ensureSetup`（铺钱包与地址），不跑 `runFrankPreStage`（广播制裁那步），所以不会把 `demo_frank` 连坐冻结、不违反上面 💡 那条「`demo:all` 不能与 e2e 共用同一个库」。实测确认：`demo:setup` 后 `demo_frank` 的 `customer_restrictions` 行数为 0。
+
+> 💡 **`demo:all` 不能与 e2e 共用同一个库——`withdraw-money-arcs` × `demo_frank` 是实测坐实的一例。** 该 spec 的夹具客户 `demo_frank@example.com` 会被 `demo:all` 花名册 #7 行的广播制裁连坐永久冻结（`CAPABILITY_RESTRICTED`）；若在跑过 `demo:all` 的同一个库上接着跑 `withdraw-money-arcs.e2e-spec.ts`，7 个场景会全部卡在 `CustomerAccessService.assertCapability` 抛 `ForbiddenException`——这正是上面第 3 条「干净态起跑」的具体反例，不是 suite 本身的缺陷。2026-09-03 V3 波一 Task 6 修复轮在干净库上复测：`withdraw-money-arcs` 7/7 全绿。不改夹具客户，按三要素跑即可。
 
 ~~已知 flake：`fundsOrderNo` 撞号（P2002）~~ → **2026-09-01 已修，本条销账**：
 根因是熵不够——`generateReferenceNo()` 原为 前缀+`YYMMDD`+`Math.random()*10000`，同一天同一前缀只有 1 万个坑，一次 `demo:all` 造几十张资金单按生日问题约 **7–20%** 撞（当天连撞两次实测）。

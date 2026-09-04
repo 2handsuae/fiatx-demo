@@ -33,13 +33,12 @@ interface WithdrawalAddr {
   updatedAt: string;
   iban: string | null;
   bankName: string | null;
-  asset: { currency: string; code: string; type: string };
 }
 
 interface FilterState {
   q: string;
   customerNo: string;
-  assetId: string;
+  network: string;
   status: string;
   addressType: string;
 }
@@ -85,7 +84,7 @@ const PAGE_SIZE = 20;
 const DEFAULT_FILTERS: FilterState = {
   q: '',
   customerNo: '',
-  assetId: '',
+  network: '',
   status: '',
   addressType: '',
 };
@@ -101,25 +100,8 @@ const WithdrawalAddressList = () => {
   const [currentPage, setCurrentPage] = useState(1);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [assetOptions, setAssetOptions] = useState<{ id: string; code: string }[]>([]);
 
   const requestSeqRef = useRef(0);
-
-  /* ── Asset options ── */
-
-  const fetchAssetOptions = async () => {
-    try {
-      const res = await adminFetch(`${import.meta.env.VITE_API_URL}/assets?take=100`);
-      if (!res.ok) return;
-      const data = await res.json();
-      const options = (data.items ?? data ?? [])
-        .filter((a: any) => a.tbLedgerId != null)
-        .map((a: any) => ({ id: String(a.id), code: String(a.code) }));
-      setAssetOptions(options);
-    } catch {
-      /* ignore — dropdown simply stays empty */
-    }
-  };
 
   /* ── Data fetching ── */
 
@@ -129,7 +111,7 @@ const WithdrawalAddressList = () => {
     params.set('take', String(PAGE_SIZE));
     if (next.q.trim()) params.set('q', next.q.trim());
     if (next.customerNo.trim()) params.set('customerNo', next.customerNo.trim());
-    if (next.assetId) params.set('assetId', next.assetId);
+    if (next.network) params.set('network', next.network);
     if (next.status) params.set('status', next.status);
     if (next.addressType) params.set('addressType', next.addressType);
     return params;
@@ -160,7 +142,6 @@ const WithdrawalAddressList = () => {
   };
 
   useEffect(() => {
-    void fetchAssetOptions();
     void fetchItems(1, DEFAULT_FILTERS);
   }, []);
 
@@ -169,7 +150,7 @@ const WithdrawalAddressList = () => {
     'h-[30px] rounded border border-adm-border bg-adm-bg px-2.5 font-mono text-[11px] text-adm-t1 placeholder:text-adm-t3 outline-none focus:border-adm-amber transition-colors';
 
   const hasFilter =
-    !!filters.q || !!filters.customerNo || !!filters.assetId || !!filters.status || !!filters.addressType;
+    !!filters.q || !!filters.customerNo || !!filters.network || !!filters.status || !!filters.addressType;
 
   const updateFilter = (key: keyof FilterState, value: string) =>
     setFilters((prev) => ({ ...prev, [key]: value }));
@@ -218,13 +199,12 @@ const WithdrawalAddressList = () => {
         />
         <select
           className={`${fi} w-[150px]`}
-          value={filters.assetId}
-          onChange={(e) => updateFilter('assetId', e.target.value)}
+          value={filters.network}
+          onChange={(e) => updateFilter('network', e.target.value)}
         >
-          <option value="">All assets</option>
-          {assetOptions.map((a) => (
-            <option key={a.id} value={a.id}>{a.code}</option>
-          ))}
+          <option value="">All networks</option>
+          <option value="TRON">TRON</option>
+          <option value="AED_ZAND">AED_ZAND</option>
         </select>
         <select
           value={filters.status}
@@ -236,6 +216,7 @@ const WithdrawalAddressList = () => {
           <option value="ACTIVE">ACTIVE</option>
           <option value="CANCELLED">CANCELLED</option>
           <option value="SUSPENDED">SUSPENDED</option>
+          <option value="DEACTIVATED">DEACTIVATED</option>
         </select>
         <select
           value={filters.addressType}
@@ -278,7 +259,6 @@ const WithdrawalAddressList = () => {
                   ['Customer No',   '110px'],
                   ['Customer Name', '130px'],
                   ['Label',         '120px'],
-                  ['Asset',         '80px'],
                   ['Network',       '90px'],
                   ['Address',       '160px'],
                   ['Type',          '110px'],
@@ -299,14 +279,14 @@ const WithdrawalAddressList = () => {
           <tbody>
             {loading && (
               <tr>
-                <td colSpan={10} className="px-4 py-10 text-center font-mono text-[11px] text-adm-t3">
+                <td colSpan={9} className="px-4 py-10 text-center font-mono text-[11px] text-adm-t3">
                   Loading…
                 </td>
               </tr>
             )}
             {!loading && items.length === 0 && (
               <tr>
-                <td colSpan={10} className="px-4 py-10 text-center font-mono text-[11px] text-adm-t3">
+                <td colSpan={9} className="px-4 py-10 text-center font-mono text-[11px] text-adm-t3">
                   No withdrawal addresses found.
                 </td>
               </tr>
@@ -349,14 +329,9 @@ const WithdrawalAddressList = () => {
                   {item.label ?? <span className="text-adm-t3">—</span>}
                 </td>
 
-                {/* Asset */}
-                <td className="px-4 py-2.5">
-                  <span className="font-mono text-[11px] text-adm-t1">{item.asset?.code || '—'}</span>
-                </td>
-
                 {/* Network */}
                 <td className="px-4 py-2.5">
-                  <span className="font-mono text-[11px] text-adm-t2">{item.network}</span>
+                  <span className="font-mono text-[11px] text-adm-t1">{item.network}</span>
                 </td>
 
                 {/* Address */}

@@ -5,6 +5,8 @@ import { AdminSessionError, adminFetch, getApiErrorMessage } from '../utils/admi
 import { adminButtonClass } from '../components/common/adminButtonStyles';
 import { DetailPageHeader } from '../components/compliance/DetailPageComponents';
 import { AdminBadge } from '../components/ui/AdminBadge';
+import { useAdminSession } from '../contexts/AdminSessionContext';
+import { PERMISSIONS } from '../rbac/permissions';
 import TierEditor, {
   parseTiersJson,
   serializeTiers,
@@ -26,6 +28,7 @@ interface FeeLevelDetail {
   status: string;
   configHash: string | null;
   approvalCaseNo: string | null;
+  pendingChangeRequest: { requestNo: string; approvalCaseNo: string | null } | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -96,6 +99,7 @@ const SidebarKV = ({
 export default function WithdrawalFeeLevelDetail() {
   const { levelCode } = useParams<{ levelCode: string }>();
   const navigate = useNavigate();
+  const { hasAnyPermission } = useAdminSession();
 
   const [level, setLevel] = useState<FeeLevelDetail | null>(null);
   const [loading, setLoading] = useState(true);
@@ -109,6 +113,12 @@ export default function WithdrawalFeeLevelDetail() {
   const [changeReason, setChangeReason] = useState('');
   const [changeLoading, setChangeLoading] = useState(false);
   const [changeError, setChangeError] = useState<string | null>(null);
+
+  /* ── Retire Modal state ── */
+  const [showRetireModal, setShowRetireModal] = useState(false);
+  const [retireReason, setRetireReason] = useState('');
+  const [retireLoading, setRetireLoading] = useState(false);
+  const [retireError, setRetireError] = useState<string | null>(null);
 
   /* ── Technical section ── */
   const [showRawJson, setShowRawJson] = useState(false);
@@ -213,6 +223,40 @@ export default function WithdrawalFeeLevelDetail() {
     }
   };
 
+  /* ── Retire ── */
+
+  const handleRetireSubmit = async () => {
+    if (!levelCode) return;
+    if (!retireReason.trim()) {
+      setRetireError('Retire reason is required');
+      return;
+    }
+
+    setRetireLoading(true);
+    setRetireError(null);
+    try {
+      const res = await adminFetch(
+        `${import.meta.env.VITE_API_URL}/admin/withdrawal-fee-levels/${levelCode}/retire`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ reason: retireReason.trim() }),
+        },
+      );
+      if (!res.ok)
+        throw new Error(await getApiErrorMessage(res, 'Failed to submit retirement'));
+      const data = (await res.json()) as { approvalNo?: string };
+      setShowRetireModal(false);
+      setNotice(`Retirement submitted for approval (${data.approvalNo}).`);
+      void fetchDetail();
+    } catch (err) {
+      if (err instanceof AdminSessionError) return;
+      setRetireError(err instanceof Error ? err.message : 'Failed to submit retirement.');
+    } finally {
+      setRetireLoading(false);
+    }
+  };
+
   /* ── Parse tiers for display ── */
 
   const parsedTiers = level
@@ -245,14 +289,14 @@ export default function WithdrawalFeeLevelDetail() {
   /* ── Audience (read-only) ── */
 
   const audienceDisplay = (() => {
-    if (!level) return '全体客户（everyone）';
+    if (!level) return 'Everyone';
     let tags: string[] = [];
     try {
       tags = JSON.parse(level.requiredTagsJson || '[]');
     } catch {
       tags = [];
     }
-    if (tags.length === 0) return '全体客户（everyone）';
+    if (tags.length === 0) return 'Everyone';
     const tagCode = tags[0];
     const found = tagCatalog.find((t) => t.tagCode === tagCode);
     return found ? found.displayName : tagCode;
@@ -260,8 +304,8 @@ export default function WithdrawalFeeLevelDetail() {
 
   const audienceWindowDisplay =
     level && (level.validFrom || level.validTo)
-      ? `生效窗：${fmt(level.validFrom)} ~ ${fmt(level.validTo)}`
-      : '长期有效';
+      ? `Valid ${fmt(level.validFrom)} ~ ${fmt(level.validTo)}`
+      : 'No expiry';
 
   /* ── Loading / Error states ── */
 
@@ -294,6 +338,9 @@ export default function WithdrawalFeeLevelDetail() {
       </div>
     );
   }
+
+  const pendingApprovalNo = level.approvalCaseNo ?? level.pendingChangeRequest?.approvalCaseNo ?? null;
+  const canRetire = hasAnyPermission([PERMISSIONS.WITHDRAWAL_FEE_LEVEL_RETIRE]);
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
@@ -333,6 +380,14 @@ export default function WithdrawalFeeLevelDetail() {
                 {level.levelCode}
               </p>
               <AdminBadge value={level.status} />
+              {pendingApprovalNo && (
+                <div>
+                  <div className="font-mono text-[9px] uppercase tracking-[0.1em] text-adm-t3">Pending Approval</div>
+                  <button onClick={() => navigate(`/admin/governance/approvals/${pendingApprovalNo}`)} className="mt-1 font-mono text-[11px] text-adm-amber hover:underline">
+                    {pendingApprovalNo}
+                  </button>
+                </div>
+              )}
               {level.isDefault && (
                 <span className="inline-flex items-center rounded bg-blue-100 px-1.5 py-0.5 font-mono text-[10px] font-medium text-blue-800 dark:bg-blue-900/30 dark:text-blue-300">
                   DEFAULT
@@ -445,18 +500,31 @@ export default function WithdrawalFeeLevelDetail() {
         {/* ════ RIGHT SIDEBAR ════ */}
         <div className="w-[272px] min-w-[272px] overflow-y-auto border-l border-adm-border bg-adm-panel px-4 py-1">
           {/* Actions */}
-          {level.status === 'ACTIVE' && (
+          {level.status === 'ACTIVE' && !pendingApprovalNo && (
             <div className="border-b border-adm-border py-4">
               <Cap>Actions</Cap>
-              <div className="mt-2.5 flex flex-col gap-2">
-                <button onClick={openChangeModal} className={adminButtonClass('workflowPrimary')}>
-                  <Pencil size={13} />
-                  Edit Tiers
-                </button>
-                <p className="text-center font-mono text-[10px] text-adm-t3">
-                  Edit Tiers requires CFO → Ops Officer approval
-                </p>
-              </div>
+              {canRetire ? (
+                <div className="mt-2.5 flex flex-col gap-2">
+                  <button onClick={openChangeModal} className={adminButtonClass('workflowPrimary')}>
+                    <Pencil size={13} />
+                    Edit Tiers
+                  </button>
+                  <button onClick={() => { setRetireReason(''); setShowRetireModal(true); }} className={adminButtonClass('workflowNegative')}>
+                    Retire Level
+                  </button>
+                  <p className="text-center font-mono text-[10px] text-adm-t3">Edit / Retire requires CFO → Ops Officer approval</p>
+                </div>
+              ) : (
+                <p className="mt-2.5 text-center font-mono text-[10px] text-adm-t3">Requires CFO permission</p>
+              )}
+            </div>
+          )}
+          {level.status === 'ACTIVE' && pendingApprovalNo && (
+            <div className="border-b border-adm-border py-4">
+              <Cap>Actions</Cap>
+              <p className="mt-2.5 text-center font-mono text-[10px] text-adm-t3">
+                Waiting for Ops Officer decision on {pendingApprovalNo}
+              </p>
             </div>
           )}
 
@@ -475,16 +543,16 @@ export default function WithdrawalFeeLevelDetail() {
             <SidebarKV
               label="Approval"
               value={
-                level.approvalCaseNo ? (
+                pendingApprovalNo ? (
                   <button
                     onClick={() =>
                       navigate(
-                        `/admin/governance/approvals/${level.approvalCaseNo}`,
+                        `/admin/governance/approvals/${pendingApprovalNo}`,
                       )
                     }
                     className="font-mono text-[10px] text-adm-amber hover:underline"
                   >
-                    {level.approvalCaseNo}
+                    {pendingApprovalNo}
                   </button>
                 ) : (
                   '—'
@@ -574,6 +642,76 @@ export default function WithdrawalFeeLevelDetail() {
                 className={adminButtonClass('modalConfirm')}
               >
                 {changeLoading ? 'Submitting…' : 'Submit for Approval'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ════ Retire Modal ════ */}
+      {showRetireModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-md overflow-hidden rounded-xl border border-adm-border bg-adm-panel shadow-xl">
+            {/* Header */}
+            <div className="flex items-center justify-between border-b border-adm-border bg-adm-card px-5 py-4">
+              <div>
+                <p className="font-mono text-[11px] font-semibold text-adm-t1">
+                  Retire Level
+                </p>
+                <p className="mt-1 font-mono text-[9px] text-adm-t3">
+                  {level.levelCode} · {level.asset.code}
+                </p>
+              </div>
+              <button
+                onClick={() => setShowRetireModal(false)}
+                className="rounded p-1 text-adm-t3 hover:bg-adm-hover hover:text-adm-t1"
+              >
+                <X size={15} />
+              </button>
+            </div>
+
+            {/* Body */}
+            <div className="px-5 py-4 space-y-3">
+              <div className="rounded border border-adm-amber/30 bg-adm-amber/10 px-3 py-2.5 font-mono text-[10px] text-adm-amber leading-relaxed">
+                This will submit a retirement request for CFO → Ops Officer approval. The level
+                remains ACTIVE until the retirement is approved.
+              </div>
+
+              {retireError && (
+                <div className="rounded border border-adm-danger/30 bg-adm-danger/5 px-3 py-2 font-mono text-[11px] text-adm-danger">
+                  {retireError}
+                </div>
+              )}
+
+              <div>
+                <label className="mb-1 block font-mono text-[10px] font-semibold uppercase tracking-wider text-adm-t3">
+                  Reason for Retirement
+                </label>
+                <textarea
+                  value={retireReason}
+                  onChange={(e) => setRetireReason(e.target.value)}
+                  rows={4}
+                  placeholder="Describe why this level should be retired…"
+                  className="w-full rounded border border-adm-border bg-adm-bg px-3 py-2 font-mono text-[10px] text-adm-t2 placeholder:text-adm-t3 focus:border-adm-amber focus:outline-none resize-none transition-colors"
+                  autoFocus
+                />
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="flex justify-end gap-2 border-t border-adm-border bg-adm-card px-5 py-4">
+              <button
+                onClick={() => setShowRetireModal(false)}
+                className={adminButtonClass('modalCancel')}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => void handleRetireSubmit()}
+                disabled={retireLoading || !retireReason.trim()}
+                className={adminButtonClass('modalConfirm')}
+              >
+                {retireLoading ? 'Submitting…' : 'Submit for Approval'}
               </button>
             </div>
           </div>

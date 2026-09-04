@@ -21,13 +21,32 @@ admin@fiatx.com 超管 ｜ sm@ 高管(SMO) ｜ ciso@ ｜ mlro@ ｜ dpo@ ｜ comp
 | Dave Pending | 认证中 | 开户流程中段 |
 | Eve New | 刚注册未认证 | 开户起点 |
 | Frank HighRisk | 高风险 | 风险分层 |
-| Grace Premium | VIP 费率等级 | 费率受众谓词 |
+| Grace Premium | VIP 费率等级 | 费率受众谓词（命中 VIP-USDT-AED） |
 | Henry Acme | 企业客户 | 企业形态占位 |
 | Ivy Restricted | **材料过期 · 明示受限** | 与 Carol 对照：明示 vs 静默 |
 
-## 资产与钱包
+## 资产、网络与钱包地址行
 
-USDT（链上，托管 HEXTRUST）＋ AED（法币，ZAND）；客户钱包按客户铺，平台侧 F_OPS/F_SET/F_FEE 等系统钱包；账本 TigerBeetle 9 码科目。
+**网络注册表**（代码，不建表）：`TRON`（链，HexTrust，地址 `T` + 33 位 Base58，19 个确认）｜ `AED_ZAND`（银行通道，Zand，IBAN `AE` + 21 位数字）。
+
+**资产**（随版本装载，审计 `ASSET_SEEDED`）：`AED`（法币，AED_ZAND）｜ `USDT-TRON`（TRC-20，合约 `TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t`，6 位小数，托管键 `tron_USDT`）。上币不在管理台。
+
+**平台钱包地址行**（7 行，审计 `CUSTODIAN_WALLET_SEEDED`，管理台只读）：
+
+| vault | TRON | AED_ZAND |
+|---|---|---|
+| F_OPS 运营 | ✓ 地址 | ✓ IBAN |
+| F_SET 结算 | —（只走法币通道） | ✓ IBAN |
+| F_FEE 手续费 | ✓ 地址 | ✓ IBAN |
+| F_LIQ 流动性 | ✓ 地址 | ✓ IBAN |
+
+**客户收款地址行**（`demo:setup`，审计 `CUSTOMER_DEPOSIT_ADDRESS_SEEDED`）：alice / bob / grace / jack / kate / frank 各一条 TRON（C_DEP）+ 一条 AED_ZAND（C_VIBAN），vault `CLIENT_DEPOSIT`；账本科目仍按资产。
+
+**地址簿种子**（审计 `WITHDRAWAL_ADDRESS_SEEDED`）：六位客户（alice/bob/grace/jack/kate/frank）各一条 ACTIVE 银行账户（AED_ZAND，即本人 vIBAN）；alice / bob 各再一条 ACTIVE 的 TRON 地址。**尚无法币账户的种子客户**：Henry Acme（`demo_acme@example.com`，企业客户）——不在 `demo:setup` 那六人名单内，没有走地址簿种子；站 5 ④c 用他演"首个法币账户即时生效"。
+
+**费率**：`STD-USDT-AED` / `STD-AED-USDT`（默认档）+ `VIP-USDT-AED`（requiredTags `["VIP"]`，各档比 STD 便宜；Grace 带 VIP 标签命中它）；提现 `STD-AED-AED_ZAND` / `STD-USDT-TRON`。**限额**：15 条（单笔 6 / 累计 8 / 大额 1）。
+
+**现场登记用的合法 TRON 样例地址**：`bash -c 'npx ts-node -e "import(\"./src/common/utils/tron-address.util\").then(m=>console.log(m.fakeTronAddress(\"demo-register-1\")))"' 生成一枚（形态合法、不做校验和）。
 
 ## 各脚本造什么
 

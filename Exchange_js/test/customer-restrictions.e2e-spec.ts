@@ -138,8 +138,10 @@ describe('Customer lifecycle restrictions (e2e, Task 14)', () => {
   async function makeDeposit(c: Fixture, amount: string): Promise<{ id: string; depositNo: string }> {
     const wallet = await prisma.wallet.create({
       data: {
+        walletNo: `WA-E2E-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
         ownerType: 'CUSTOMER', ownerId: c.id, ownerNo: c.customerNo,
-        type: 'FIAT_BANK', assetId: fiatAssetId, iban: `AE_E2E_${c.customerNo}`, status: 'ACTIVE',
+        vaultCode: 'CLIENT_DEPOSIT', walletRole: 'C_VIBAN', network: 'AED_ZAND',
+        iban: `AE_E2E_${c.customerNo}`, status: 'ACTIVE',
       },
     });
     const depositNo = generateReferenceNo('DEP');
@@ -430,7 +432,7 @@ describe('Customer lifecycle restrictions (e2e, Task 14)', () => {
     expect([...(await access.resolve(c.id)).blocked].sort()).toEqual(['DEPOSIT', 'SWAP', 'WITHDRAW']);
 
     // OPS 批准 → 撕
-    await approvals.approve(pending!.id, { reason: 'e2e approve' }, OPS_CHECKER);
+    await approvals.approve(pending!.approvalNo, { reason: 'e2e approve' }, OPS_CHECKER);
     await waitUntil(
       `${restrictionNo} 被 OPS 批准后转 RELEASED`,
       async () => (await restrictions.findByNo(restrictionNo))?.status === 'RELEASED',
@@ -472,7 +474,7 @@ describe('Customer lifecycle restrictions (e2e, Task 14)', () => {
     const pending = await openApprovalCaseFor(restrictionNo, ApprovalActionTypes.CUSTOMER_RESTRICTION_RELEASE_MLRO);
     expect(pending!.status).toBe('PENDING');
 
-    await approvals.approve(pending!.id, { reason: 'e2e approve' }, MLRO_CHECKER);
+    await approvals.approve(pending!.approvalNo, { reason: 'e2e approve' }, MLRO_CHECKER);
     await waitUntil(
       `${restrictionNo} 被 MLRO 批准后转 RELEASED`,
       async () => (await restrictions.findByNo(restrictionNo))?.status === 'RELEASED',

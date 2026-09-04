@@ -1,7 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import {
   BadRequestException,
-  ForbiddenException,
   Injectable,
   Logger,
   NotFoundException,
@@ -10,11 +9,13 @@ import { OnEvent } from '@nestjs/event-emitter';
 import { Prisma } from '@prisma/client';
 import { generateReferenceNo } from '../../../common/utils/no-generator.util';
 import { PrismaService } from '../../../core/prisma/prisma.service';
+import { assertNetwork } from '../../../config/manifests/networks.manifest';
 import {
   AuditActions,
   AuditEntityTypes,
 } from '../../audit-logging/constants/audit-actions.constant';
 import { AuditLogsService } from '../../audit-logging/audit-logs.service';
+import { AuditOutcome } from '../../audit-logging/dto/audit-log.dto';
 import { CustomerAccessService } from '../../identity/customers/customer-access.service';
 import { DepositTransactionsService } from './deposit-transactions.service';
 import { FundsOrderService } from '../../funds-orders/funds-order.service';
@@ -32,13 +33,14 @@ import {
   SimulationRiskLevel,
   SimulationRiskReason,
 } from './dto/inbound-transfer-signal.dto';
-import { WalletRole } from '../../asset-treasury/wallets/dto/wallet.dto';
+// WalletRole 的导入随 main（V3 波一 T5）删除 getCustomerDepositWalletOrThrow 一并退役——
+// 钱包解析改按（网络, 地址|IBAN）走 resolveDepositWalletOrThrow，不再按 walletRole 判归属。
+// AuditOutcome 已在上方随 main 的 resolveAssetOrReject 一并导入，此处不重复。
 import { ApprovalsService } from '../../governance/approvals/approvals.service';
 import { ApprovalActionTypes, ApprovalActorContext } from '../../governance/approvals/constants/approval.constants';
 import { ApprovalDecidedEvent } from '../../governance/approvals/approval-handler.base';
 import { SupplementEvidenceService } from '../../clearing-settle/reconciliation/disposition/supplement-evidence.service';
 import { DispositionService as ReconDispositionService } from '../../clearing-settle/reconciliation/disposition/disposition.service';
-import { AuditOutcome } from '../../audit-logging/dto/audit-log.dto';
 
 export interface ScanSummaryRecord {
   signalId: string;
@@ -84,7 +86,7 @@ export class InboundTransferSignalsService {
       ownerId: customerId,
     };
 
-    if (query.walletId) where.walletId = query.walletId;
+    if (query.network) where.wallet = { network: query.network };
     if (query.status) where.status = query.status;
 
     const [items, total] = await Promise.all([
@@ -109,7 +111,8 @@ export class InboundTransferSignalsService {
               address: true,
               iban: true,
               walletNo: true,
-              type: true,
+              network: true,
+              vaultCode: true,
               walletRole: true,
             },
           },
@@ -129,8 +132,9 @@ export class InboundTransferSignalsService {
     const customer = await (this.prisma as any).customerMain.findUnique({
       where: { id: customerId },
     });
-    const wallet = await this.getCustomerDepositWalletOrThrow(customerId, dto.walletId);
-    const channelType = this.getChannelTypeFromWallet(wallet);
+    const { wallet, network } = await this.resolveDepositWalletOrThrow(customerId, dto);
+    const asset = await this.resolveAssetOrReject(customer, network, dto);
+    const channelType = network.kind === 'CHAIN' ? InboundTransferChannelType.CRYPTO : InboundTransferChannelType.FIAT;
 
     if (channelType === InboundTransferChannelType.CRYPTO) {
       if (!dto.txHash || !dto.fromAddress) {
@@ -151,7 +155,7 @@ export class InboundTransferSignalsService {
 
     this.assertSimulationRiskProfile(dto, channelType);
 
-    const isCrypto = String(wallet.asset?.type).toUpperCase() === 'CRYPTO';
+    const isCrypto = asset.type === 'CRYPTO';
     if (isCrypto && dto.counterpartyIsVasp == null) {
       throw new BadRequestException('counterpartyIsVasp is required for crypto deposits');
     }
@@ -162,7 +166,7 @@ export class InboundTransferSignalsService {
     const dedupeKey = this.buildDedupeKey({
       channelType,
       walletId: wallet.id,
-      assetId: wallet.assetId,
+      assetId: asset.id,
       txHash: dto.txHash,
       referenceNo: dto.referenceNo,
     });
@@ -179,7 +183,8 @@ export class InboundTransferSignalsService {
             address: true,
             iban: true,
             walletNo: true,
-            type: true,
+            network: true,
+            vaultCode: true,
             walletRole: true,
           },
         },
@@ -193,7 +198,7 @@ export class InboundTransferSignalsService {
           signalNo: generateReferenceNo('SIG'),
           ownerId: customerId,
           walletId: wallet.id,
-          assetId: wallet.assetId,
+          assetId: asset.id,
           channelType,
           amount,
           txHash: dto.txHash,
@@ -235,7 +240,8 @@ export class InboundTransferSignalsService {
               address: true,
               iban: true,
               walletNo: true,
-              type: true,
+              network: true,
+              vaultCode: true,
               walletRole: true,
             },
           },
@@ -258,6 +264,18 @@ export class InboundTransferSignalsService {
   // 与 createForCustomer 的区别：① 不做 assertTradingEligibility——那是拦客户「发起」的，
   // 钱已经物理进了，该冻该退由充值域自己的闸决定；② 金额 / 币种 / 钱包 / 参考号全从账单行来，
   // 运营只补来源地址或来源 IBAN；③ 先挂「待复核」，CFO 批了才进通道。
+  //
+  // 与 V3 波一新钱包/资产解析模型的关系（2026-09-04 合并 main 时判定）：客户自助那条路
+  // （createForCustomer）要靠 resolveDepositWalletOrThrow 按（网络, 地址|IBAN）反查钱包、
+  // 靠 resolveAssetOrReject 按（网络, 合约）反查资产，合约对不上就当诈骗币/未上架币拒收——
+  // 因为那条路的钱包与资产是**客户自己报的**，必须反查校验。补录这条路不经过这两个解析器，
+  // 也不该经过：它的钱包与资产由**对账案子**锁定（assertClaimable 返回的 ClaimableLine 直接
+  // 带 walletId / assetId / assetType / currency / decimals，其中资产取自案子的 assetId、
+  // 并已在 SupplementEvidenceService#loadLine 里跟账单行币种逐字核对过）。证据来源比客户
+  // 自报强一级，再跑一遍按合约反查反而是拿弱证据覆盖强证据。
+  //
+  // 顺带：Wallet 表在波一 T5 已砍掉 assetId 列与 asset 关联（钱包按 vault × network × 归属人
+  // 开地址行，一个地址行不再绑死单一资产），所以本路径一律不从 wallet 取资产，只从案子取。
   async initiateSupplement(
     dto: { externalLineId: string; caseNo: string; dispositionNo: string; fromAddress?: string; fromIban?: string; reason: string },
     actor: ApprovalActorContext,
@@ -330,7 +348,12 @@ export class InboundTransferSignalsService {
 
   @OnEvent('workflow.deposit-supplement.decided', { async: true })
   async onSupplementDecided(event: ApprovalDecidedEvent) {
-    const signal = await (this.prisma as any).inboundTransferSignal.findUnique({ where: { signalNo: event.entityRef }, include: { wallet: { include: { asset: true } } } });
+    // 合并 main（V3 波一 T5）后 Wallet 已无 asset 关联，原来的
+    // `wallet: { include: { asset: true } }` 会抛 PrismaClientValidationError；
+    // 这里本来也没人读 signal.wallet.asset——processSignal 的 wallet 形参全程不被读
+    // （单据要的 assetId / walletId 都直接取自 signal 自己的列），资产真要用时读
+    // signal.asset（InboundTransferSignal 的 asset 关联仍在）。故只留 wallet 本身。
+    const signal = await (this.prisma as any).inboundTransferSignal.findUnique({ where: { signalNo: event.entityRef }, include: { wallet: true, asset: true } });
     if (!signal) return; // entityRef 不是我们的主体
     if (signal.status !== InboundTransferSignalStatus.SUPPLEMENT_PENDING) {
       this.logger.warn(`Supplement ${signal.signalNo} decided ${event.decision} but status is ${signal.status} — ignored`);
@@ -384,11 +407,11 @@ export class InboundTransferSignalsService {
     customerId: string,
     dto: ScanInboundTransferSignalsDto,
   ): Promise<ScanSummary> {
-    const wallet = await this.getCustomerDepositWalletOrThrow(customerId, dto.walletId);
+    const { wallet } = await this.resolveDepositWalletOrThrow(customerId, dto);
     const signals = await (this.prisma as any).inboundTransferSignal.findMany({
       where: {
         ownerId: customerId,
-        walletId: dto.walletId,
+        walletId: wallet.id,
         status: InboundTransferSignalStatus.PENDING_SCAN,
       },
       orderBy: [{ submittedAt: 'asc' }, { createdAt: 'asc' }],
@@ -681,39 +704,56 @@ export class InboundTransferSignalsService {
     });
   }
 
-  private async getCustomerDepositWalletOrThrow(customerId: string, walletId: string) {
-    const wallet = await (this.prisma as any).wallet.findUnique({
-      where: { id: walletId },
-      include: {
-        asset: true,
+  /** 钥匙①：（网络, 地址 | IBAN）→ 本客户在该网络上的收款行 */
+  private async resolveDepositWalletOrThrow(
+    customerId: string,
+    dto: { network: string; toAddress?: string; iban?: string },
+  ) {
+    const network = assertNetwork(dto.network);
+    const destination = network.kind === 'CHAIN' ? dto.toAddress : dto.iban;
+    if (!destination) {
+      throw new BadRequestException(
+        network.kind === 'CHAIN' ? 'toAddress is required for chain deposits' : 'iban is required for bank-rail deposits',
+      );
+    }
+    const wallet = await (this.prisma as any).wallet.findFirst({
+      where: {
+        ownerType: 'CUSTOMER',
+        ownerId: customerId,
+        vaultCode: 'CLIENT_DEPOSIT',
+        network: network.code,
+        ...(network.kind === 'CHAIN' ? { address: destination } : { iban: destination }),
       },
     });
     if (!wallet) {
-      throw new NotFoundException('Wallet not found');
+      throw new NotFoundException({ code: 'DEPOSIT_WALLET_NOT_FOUND', message: `No deposit address on ${network.code} matches ${destination}` });
     }
-    const DEPOSIT_WALLET_ROLES = new Set([WalletRole.C_DEP, WalletRole.C_VIBAN]);
-    if (
-      wallet.ownerType !== 'CUSTOMER' ||
-      wallet.ownerId !== customerId ||
-      !DEPOSIT_WALLET_ROLES.has(wallet.walletRole as WalletRole)
-    ) {
-      throw new ForbiddenException('Customer can only use own deposit wallet');
-    }
-    if (wallet.status !== 'ACTIVE') {
-      throw new BadRequestException('Deposit wallet must be ACTIVE');
-    }
-    return wallet;
+    if (wallet.status !== 'ACTIVE') throw new BadRequestException('Deposit wallet must be ACTIVE');
+    return { wallet, network };
   }
 
-  private getChannelTypeFromWallet(wallet: any): InboundTransferChannelType {
-    const type = String(wallet.asset?.type || '').toUpperCase();
-    if (type === InboundTransferChannelType.CRYPTO) {
-      return InboundTransferChannelType.CRYPTO;
-    }
-    if (type === InboundTransferChannelType.FIAT) {
-      return InboundTransferChannelType.FIAT;
-    }
-    throw new BadRequestException(`Unsupported wallet asset type: ${wallet.asset?.type}`);
+  /** 钥匙②：（网络, 合约地址）→ 资产；对不上就是诈骗币 / 未上架币，拒收并留痕 */
+  private async resolveAssetOrReject(
+    customer: { customerNo: string } | null,
+    network: { code: string },
+    dto: { contractAddress?: string; toAddress?: string; iban?: string; txHash?: string; referenceNo?: string; amount: string },
+  ) {
+    const contractAddress = dto.contractAddress?.trim() || null;
+    const asset = await (this.prisma as any).asset.findFirst({ where: { network: network.code, contractAddress } });
+    if (asset) return asset;
+    await this.auditLogsService.recordSystem({
+      action: AuditActions.DEPOSIT_SIGNAL_REJECTED,
+      actionDomain: 'DEPOSIT',
+      primarySubjectType: AuditEntityTypes.INBOUND_TRANSFER_SIGNAL,
+      ownerCustomerNo: customer?.customerNo,
+      outcome: AuditOutcome.DENIED,
+      reasonCode: 'UNKNOWN_ASSET',
+      reason: `No asset on ${network.code} with contract ${contractAddress ?? '(native)'}`,
+      metadata: { network: network.code, contractAddress, toAddress: dto.toAddress ?? null, iban: dto.iban ?? null, txHash: dto.txHash ?? null, referenceNo: dto.referenceNo ?? null, amount: dto.amount },
+      requestId: `DEPOSIT_SIGNAL_REJECTED_${randomUUID()}`,
+      sourcePlatform: 'CUSTOMER_API',
+    } as any);
+    throw new BadRequestException({ code: 'UNKNOWN_ASSET', message: `No asset on ${network.code} with contract ${contractAddress ?? '(native)'}` });
   }
 
   private buildDedupeKey(input: {

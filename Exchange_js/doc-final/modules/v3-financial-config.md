@@ -1,76 +1,77 @@
-# V3 · 财务配置（资产 / 钱包 / 提现地址 / 费率 / 限额 / 定价）
+# V3 · 财务配置（资产 / 钱包地址 / 提现地址簿 / 费率 / 限额 / 定价）
 
-> 对应 PRD：待写 ｜ 技术节点 Last Verified：2026-09-02（四模块治愈 第一幕六站真人走查复核；底稿 truth 2026-08-13 + 旧 test-cases TC-03/04〔已封箱〕+ 费率定价锚点本轮补核）
-> 演示幕次：第一幕「开业」后半 ｜ 验收：第一幕后半走查（`demo/script.md`）+ 本篇 §4
-> 注：费率与定价两节为**首次成文**——旧 truth 无此两篇，底稿取自验收用例与代码。
+> 对应 PRD：待写 ｜ 技术节点 Last Verified：2026-09-04（V3 治愈波一「结构与退役」收尾走查）
+> 演示幕次：第一幕「开业」后半 ｜ 验收：第一幕后半走查（`demo/script.md` 站 2 / 4 / 5）+ 本篇 §4
+> 两波总纲：`superpowers/specs/2026-09-03-v3-config-cure-waves-outline.md`；波二（法一留痕全域推广 / 判据扩容）另起会话脑暴。
 
 ## 0. 一句话定位
 
-管**交易的静态参数**：上什么资产、钱放在哪个物理容器、收多少费、限多少额、按什么价。不管单据怎么流转（V4–V6 的事）、不管客户是谁（V2 的事）。第一幕"开业"的下半场：店铺货架就是在这里摆出来的。
+管**交易的静态参数**：上什么资产（在哪条网络、什么合约）、钱放在哪个容器（vault × 网络的地址行）、客户往哪提（按网络登记的地址簿）、收多少费、限多少额。不管单据怎么流转（V4–V6）、不管客户是谁（V2）。**上币不在管理台**——走开发流程随版本装载，"先有账后有货"发生在装载时。
 
 ## 1. 业务叙事
 
-最重要的一件事：**交易的每一个参数都有身世——谁配的、谁批的、什么时候生效，都答得上来。** 五样东西各讲一句：
+**网络是一等实体。** 资产 = 币种 × 网络 × 合约地址；`USDT-TRON` 的合约地址是防诈骗字段——入金信号的合约对不上任何资产直接拒收留痕（`DEPOSIT_SIGNAL_REJECTED`）。网络（`TRON` / `AED_ZAND`）是代码注册表（`config/manifests/networks.manifest.ts`），不建表、不做管理面；托管方（HexTrust / Zand）按网络给地址。
 
-**资产的一生。** 创建的同一笔事务里就把账本科目开好（先有账、后有货）；要上架得过两道就绪检查（账本户齐全 + 至少一个可用钱包），然后由 CISO 批准激活。激活、暂停、恢复是三种独立审批。资产的身份（币种/网络/精度）终身锁定——能改的只有运营开关。
+**资产只有开关。** 两个资产随版本装载（审计第一行 `ASSET_SEEDED`，actor `RELEASE`）；运营提暂停 / 恢复，CISO 批（12h）；暂停 = 三条路的**客户端选择面**当场关（三个页面都读 `GET /assets?status=ACTIVE`，暂停后该资产不再出现在下拉里）。⚠️ **后端目前没有资产状态门**：兑换 `swap-transactions.service.ts:159-168`、提现 `withdraw-workflow.service.ts:257-258`、充值信号匹配 `inbound-transfer-signals.service.ts:582` 三处都只判「资产存在」不判 `status`，绕过前端直接打 API 仍可交易已暂停资产。设计口径本来要求这是一道硬门，代码没有——已登记 BACKLOG。上架 / 激活 / 编辑整条路已退役——将来上币见 BACKLOG「新资产上线整条流程」。
 
-**钱包不是钱。** 钱包只是物理容器的地址：虚拟币在 HexTrust（vault），法币在 Zand（IBAN）。**余额的唯一真相在账本**，钱包表上没有余额。客户收款账户按"客户 × 资产"恒只有一个（重复请求原样复用，总数不变）；平台侧系统钱包（运营/结算/手续费/流动性）受保护，运营停不掉。
+**钱包行 = 一个地址。** 平台侧 4 个 vault（F_OPS / F_SET / F_FEE / F_LIQ）× 网络 = 7 行只从种子来（`CUSTODIAN_WALLET_SEEDED`），管理台只读，余额一律看账本（钱包表上没有余额）。客户侧唯一写路径是"客户在某网络上要一个收款地址"（`POST /client/deposit-wallets { network }`）：同网络第二次直接复用——一 vault 一链一地址（HexTrust 语义），将来上第二个 TRC-20 币零地址工作。
 
-**提现地址是资金安全闸。** 新登记的地址要过 24 小时冷却才能用——防的是"账号被盗后立刻把钱提到陌生地址"。唯一例外：**首个法币银行账户登记即生效**，因为它是一切业务的起点（没有它，充值兑换提现全部进不去——这是交易起始的前置门）。客户可以自助停用地址，但最后一个法币地址和有在途提现的地址停不掉。
+**提现地址簿按网络。** 登记选网络不选资产；24h 冷却、首个法币账户即时生效、每网络最多 3 条不变；改只改标签与收款人（改地址 = 新登记，冷却闸才有意义）；冷却期内可取消、自助可停用（最后一个法币账户与有在途提现的地址停不掉）、管理员可暂停 / 恢复 / 跳过冷却（⚡ 后门必留痕）；五条边写在迁移表里，非法跃迁 409。
 
-**费率是有受众的。** 费率等级绑定资产/币对，按金额分档；受众要么是所有人（默认档），要么由谓词圈定（客户标签 + 时间窗——比如"新客 30 天内享优惠档"）。客户拿报价时，系统在他够格的档里**选最便宜的**。改费率走审批，且批准落地那一刻会核对快照：如果现值已被别人改过，这次批准作废——两个人不会互相踩掉对方的修改。
+**限额从种子来、只改不建不删。** 15 条规则（单笔 6 / 累计 8 / 大额 1）随版本铺好（`TRANSACTION_LIMIT_SEEDED`）；运营提改金额、高管批；落地前 before-vs-current 冲突守卫；规则没有生命周期——`approvalCaseNo` 非空即"变更中"，一条规则同时只能有一张待批单。
 
-**限额是三种门。** 单笔门（每资产的上下限，原生币种）、累计门（按客户档位 × 日/月，AED 口径）、大额审批门（超阈值的提现要人批）。提现和兑换在**建单之前**就判；充值是被动入金拦不住，只能收下后挂起等处置。
+**费率增删改查齐。** 等级 `PENDING_APPROVAL → ACTIVE | REJECTED | CANCELLED`、`ACTIVE → RETIRED`（"删" = 退役终态；该币对 / 资产最后一个 ACTIVE 默认档不可退）；创建被拒不再消失，列表筛 REJECTED 是真的；变更走独立请求单（`SFC…` / `WFC…`，configHash 快照守卫，`EXPIRED` 单独终态）；受众谓词（默认档 / 标签 + 时间窗）——Grace（VIP）命中 `VIP-USDT-AED`、Alice 命中默认档，报价在够格的档里选最便宜。
 
 ## 2. 状态机
 
-| 主体 | 状态流 |
-|---|---|
-| 资产 Asset | `PROVISIONING → ACTIVE ⇄ SUSPENDED`（无下架终态；身份字段创建即锁定） |
-| 托管钱包 Wallet | `CREATING → ACTIVE ⇄ DISABLED`；外部开立失败 → `FAILED`（系统钱包受保护不可停用） |
-| 提现地址 | `PENDING_ACTIVATION →(24h)→ ACTIVE`；冷却内可取消 → `CANCELLED`；管理员可 `SUSPENDED`；客户自助 → `DEACTIVATED`（终态归档） |
-| 费率等级 | `PENDING_APPROVAL → ACTIVE`；创建被否决 = **直接删除**（不是置废）；变更走独立请求单（快照守卫） |
-| 限额规则 | 创建/变更经审批生效（三种门型行形状锁死，唯一键防重） |
+| 主体 | 迁移表 | 边 |
+|---|---|---|
+| 资产 | `assets/constants/asset-transitions.constant.ts` | `ACTIVE --SUSPEND--> SUSPENDED --REACTIVATE--> ACTIVE`（请求层也走表：对 ACTIVE 提恢复 → 409） |
+| 钱包行 | `wallets/wallets.service.ts#WALLET_STATUS_TRANSITIONS` | `CREATING → ACTIVE`｜`CREATING → FAILED`；两者终态（DISABLED / FROZEN 已退役——停入金靠 V2 限制账） |
+| 提现地址 | `withdrawal-addresses/constants/withdrawal-address-transitions.constant.ts` | `PENDING_ACTIVATION --ACTIVATE--> ACTIVE`｜`--CANCEL--> CANCELLED`｜`ACTIVE --SUSPEND--> SUSPENDED --UNSUSPEND--> ACTIVE`｜`ACTIVE --DEACTIVATE--> DEACTIVATED` |
+| 费率等级（两族） | `trading/shared/fee-level-transitions.constant.ts` | `PENDING_APPROVAL --APPROVE--> ACTIVE`｜`--DECLINE--> REJECTED`｜`--CANCEL--> CANCELLED`｜`ACTIVE --RETIRE--> RETIRED` |
+| 费率变更单 | 同上 | `PENDING_APPROVAL → APPROVED ｜ REJECTED ｜ CANCELLED ｜ EXPIRED` |
+| 限额规则 | — | 无生命周期（恒生效）；`approvalCaseNo` 非空 = 变更中 |
 
 ## 3. 决策点与角色
 
-| 动作 | 谁发起 | 谁裁决 | 要点 |
+| 动作 | 谁发起（权限组） | 谁裁决（策略） | 要点 |
 |---|---|---|---|
-| 资产创建 | 持「资产管理」包（TECH_OFFICER 独有） | **无审批**（同事务开账本户） | 创建≠上架，上架才要批 |
-| 资产激活 / 暂停 / 恢复 | 同上 | **CISO** 独立审批 ×3 | 激活前跑两道就绪检查 |
-| 费率等级创建 / 变更 | **CFO**（费率包唯一持有者，2026-08-30 起由运营改财务） | **OPS_OFFICER 单步**（48h 时限，未变） | maker≠checker；变更落地过 configHash 快照守卫 |
-| 限额规则创建 / 变更 | **OPS_OFFICER**（限额包唯一持有者，未变） | **SENIOR_MANAGEMENT_OFFICER 单步**（2026-08-30 起由运营改高管，解自批死锁） | 落地时 before-vs-current 冲突守卫 |
-| 地址跳过冷却 | **金库专员**（提现地址写权限唯一持有者） | 后门端点，**必留审计** | 演示加速用，讲清是后门 |
-| 托管钱包创建 | **金库专员**（钱包写权限唯一持有者） | **CISO** 单步 | 站 4「货架」的钱包环节 |
-| 客户收款账户停用 / 恢复 | **金库专员**（2026-08-30 起由运营改金库专员，钱放哪归他） | 直接执行（Manage 包） | 系统钱包拒绝停用 |
+| 资产暂停 / 恢复 | **OPS_OFFICER**（`ASSET_CONFIG_WRITE`，运营独有；技术官只剩 IAM） | **CISO** 12h（`ASSET_SUSPENSION` / `ASSET_REACTIVATION`） | 有待批单时详情显示徽章 + 单号，动作按钮隐去 |
+| 客户收款地址 | 客户本人（客户端） | 无审批 | 交易就绪门只在开新地址时过；同网络复用 |
+| 提现地址登记 / 改标签 / 取消 / 停用 | 客户本人 | 无审批 | 24h 冷却；首个法币账户即时生效 |
+| 提现地址暂停 / 恢复 / 跳过冷却 | **TREASURY_OFFICER**（`WITHDRAWAL_ADDRESS_WRITE`，金库独有） | 直接执行，必留痕 | 跳过冷却是 ⚡ 后门（Manual Simulation 区） |
+| 限额改金额 | **OPS_OFFICER**（`TRANSACTION_LIMIT_WRITE`） | **SENIOR_MANAGEMENT_OFFICER** 48h | 一条规则同时只能有一张待批单；落地前冲突守卫 |
+| 费率创建 / 变更 / 退役 | **CFO**（`*_FEE_LEVEL_WRITE`，财务独有） | **OPS_OFFICER** 48h（`*_CREATION` / `*_CHANGE` / `*_RETIRE`） | maker≠checker（`verify:rbac` S5c 守，本域零豁免）；最后一个默认档不可退 |
+| 上币 / 建平台钱包 / 建限额 | 开发（随版本装载） | 无——发布标记审计 `*_SEEDED` | 管理台无入口 |
 
 ## 4. 演示脚本（第一幕 · 后半）
 
-管理台 3001，11 职务账号见 `demo/data.md` ｜ 完整 6 站剧本见 `demo/script.md`。本模块对应**站 2「一笔配置要过门」**、**站 4「货架」**、**站 5「三种门与容器」**，此处只补 script.md 未展开的技术细节，不重复整段走查：
+管理台 `P+1`，11 职务账号见 `demo/data.md`；完整 6 站剧本见 `demo/script.md`，本篇只补技术细节：
 
-1. **站 2 · 费率页**：`cfo@`（财务负责人）给兑换费改一档提交 → `ops_officer@`（运营）批准 → 切客户端拿报价，**费率立刻变**（这条线直通第四幕钱换）
-2. **站 4 · 资产页**：看 USDT / AED 的状态与身世 → `tech_admin@` 现场新建一个资产 → 停在 `PROVISIONING`，点激活 → 就绪检查报"缺钱包"——**上架是有门槛的，不是填个表**；换 `treasury@`（金库专员）建一个托管钱包 → 提交审批 → `ciso@` 批准，钱包转 `ACTIVE` → 回资产页再次激活，`ciso@` 批准，资产转 `ACTIVE`
-3. **站 5 · 限额页**：三个 tab 各看一眼（单笔 / 累计 / 大额），说清楚三种门在哪一刻拦人 → `ops_officer@` 改一条单笔限额提交 → `sm@`（高管）批准（2026-08-30 起裁决人由运营改高管，解自批死锁）
-4. **站 5 · 提现地址**（切客户端）：登记一个新链上地址 → 显示 24h 冷却倒计时 → 用它发起提现 → 被拒；对照：首个法币账户登记即生效（两者成对讲，反差就是重点）
-5. **收款账户幂等**（补充走查，不属任何站）：对同一资产重复点创建 → 返回同一个账户，总数不变
+1. **站 2 · 费率页**：`cfo@` 改一档兑换费 → `ops_officer@` 批 → 客户端报价立刻变；对照：Grace（VIP 标签）与 Alice 各拿一次 USDT→AED 报价——Grace 命中 `VIP-USDT-AED`、Alice 命中 `STD-USDT-AED`（受众谓词 + 最便宜档）；退役：`cfo@` 对某档点 Retire → `ops_officer@` 批 → 列表筛 RETIRED；对 `STD-USDT-AED` 点 Retire 会被 `LAST_ACTIVE_DEFAULT` 拒
+2. **站 4 · 资产管控**：`ops_officer@` 对 USDT-TRON 提暂停 → `ciso@` 批 → 切客户端 alice：充值 / 兑换 / 提现三条路的 USDT 当场不可用 → `ops_officer@` 提恢复 → `ciso@` 批；讲清：上币不在这页——审计页**按资产业务号查**（`AS2601012024`，详情页上就有；铁律⑥ 对外用业务键），履历最早的一行是 `ASSET_SEEDED`（随版本上架；审计页倒序，故它显示在最下面）。⚠️ 不要按 `USDT` 搜：审计关键词不覆盖 `afterData`，而 `USDT-TRON` 只存在于那里（`audit-logs.service.ts:530-539`，2026-09-04 终审实证命中 0 行）
+3. **站 5 · 限额页**：按类型筛选三种门各看一眼 → `ops_officer@` 改一条单笔限额 → 详情待批徽章 → `sm@` 批
+4. **站 5 · 托管钱包页**（`treasury@`）：只读看容器——5 组（4 平台 vault + CLIENT_DEPOSIT）按 vault 分组，每行 = 一个网络上的一个地址；余额引导去账本页
+5. **站 5 · 提现地址簿**（客户端 alice + 管理台 `treasury@`）三拍：① 登记一条 TRON 地址（选网络）→ 冷却倒计时 → Cancel registration；② 再登记一条 → `treasury@` 详情 ⚡ Skip Cooling → ACTIVE → Force Suspend → Unsuspend；③ 用尚无法币账户的种子客户登记首个银行账户 → 即时 ACTIVE
+6. **收款地址复用**（补充走查）：对同一网络重复点开地址 → 返回同一行，总数不变
 
 ## 5. 关键技术节点（≤30 行）
 
-- 资产 `asset-treasury/assets/`：`assets.service.ts` ｜ `asset-activation-workflow.service.ts → checkReadiness()`（两道就绪检查）｜ `asset-provisioning.service.ts → provision()`（同事务开系统级账本户；客户级科目首笔交易懒解析，见 accounting-coa 篇）
-- 钱包 `asset-treasury/wallets/`：`wallet-role-policies.constant.ts`（角色×ownerType 策略）｜ `system-wallet.util.ts`（系统钱包解析；C_MAIN/C_OUT 已退役）
-- 提现地址 `asset-treasury/withdrawal-addresses/`：`withdrawal-address.service.ts → COOLING_PERIOD_HOURS=24 / createBankAccount()`（首法币免冷却判定）/ `deactivate()`（两道停用守卫）｜ `withdrawal-address-workflow.service.ts → registerAddress()`（crypto 登记的法币前置门）｜ `withdrawal-address-sweep.service.ts`（@Cron 每 5 分钟 + 查询前懒激活双机制）
-- 限额 `asset-treasury/transaction-limits/`：`transaction-limit-rules.service.ts`（三门型 CRUD + 唯一预检）｜ `transaction-limit-gate.service.ts → evaluate()`（L1 引擎，提现/兑换建单前调）｜ `transaction-limit-rule-workflow.service.ts`（审批）｜ 种子 `seed.business.ts → seedTransactionLimitRules()`
-- 费率（两族同构）`trading/{swap,withdrawal}-fee-level/`：`*-fee-level.service.ts` ｜ `*-creation-workflow` / `*-change-workflow`（+配对 approval 发射器）｜ 受众判定 `trading/shared/fee-audience.util.ts`（effectiveTags 求值 + resolveBestLevel 最便宜档）｜ 报价 `swap-quote.service.ts` / `withdraw-quote.service.ts`
-- 定价 `trading/pricing-center/`：`pricing-engine.service.ts`（报价价源）
-- 前端引导 `client-web`：`AuthGuard.tsx`（就绪门渲染 `TradingStartGuide.tsx`；路径匹配须段边界，防 `/withdraw` 误吞 `/withdrawal-addresses` 白屏）｜ `WithdrawalAddresses.tsx`（锁 Crypto tab 强制先加法币）
-- 审计留痕：本域全部写点（资产/钱包/提现地址/限额/费率/客户标签，约 60 个写点）已随 V1 换名册四批入 `audit-actions.constant.ts` 合同（`domain: 'CONFIG'`，四属性齐备）——第一幕改的费率/限额那笔配置变更，第七幕按单号能查到；此前"V3 词汇未入册"的缺口已解，详见 `v1-governance.md` §5
+- 注册表 `config/manifests/{networks,vaults,assets}.manifest.ts`：`assertNetwork()`（三列写入前都过）｜ `validateAddressForNetwork()` ｜ `platformWalletSlots()`（恒 7）｜ `DEFAULT_ASSETS`（含合约 / 标准 / 确认数 / 托管键）
+- 资产 `asset-treasury/assets/`：`assets.service.ts`（`suspendAsset / reactivateAsset / linkApprovalCase / clearApprovalCase`）｜ `asset-admin.controller.ts`（suspend / reactivate）｜ `asset-{suspension,reactivation}-workflow`（请求层走 `assertAssetTransition`）｜ `asset-provisioning.service.ts#systemAccountCodesFor`（种子开系统科目）
+- 钱包 `asset-treasury/wallets/`：`wallets.service.ts`（迁移表 + `createWalletRecord` 校验 vault × 网络槽位）｜ `customer-deposit-wallet.service.ts#createOrReturn(customerId, network)` ｜ `mock-custodian.adapter.ts#createAddress`（TRON 形态地址 / AE IBAN）｜ `wallet-query.service.ts`（挂 `networkInfo`，无余额）｜ `funds-layer/domain/system-wallet-resolver.service.ts`（按资产网络找 `PLATFORM` / `CLIENT_DEPOSIT` 行）
+- 入金信号 `trading/deposit-transactions/inbound-transfer-signals.service.ts`：钥匙①（network, address｜iban）→ 客户收款行，找不到 404（`DEPOSIT_WALLET_NOT_FOUND`）；钥匙②（network, contractAddress）→ 资产，对不上留痕拒收（`DEPOSIT_SIGNAL_REJECTED`，DENIED / `UNKNOWN_ASSET`）
+- 提现地址 `asset-treasury/withdrawal-addresses/`：迁移表常量 ｜ `withdrawal-address.service.ts`（`MAX_ADDRESSES_PER_NETWORK=3` / `COOLING_PERIOD_HOURS=24` / `BANK_RAIL_NETWORK` / `createBankAccount` 首法币免冷却 / `deactivate` 两道守卫 / `unsuspend` / `updateDetails`）｜ workflow（`updateAddress` / `unsuspendAddress`）｜ sweep（@Cron */5 + 查询前懒激活）
+- 限额 `asset-treasury/transaction-limits/`：`rules.service`（只改：`attachApprovalCase / clearApprovalCase / applyAmountChange`）｜ `gate.service#evaluate`（L1）｜ `rule-workflow`（变更审批 + 冲突守卫）｜ 种子 `seedTransactionLimitRules`（15 条）
+- 费率 `trading/{swap,withdrawal}-fee-level/`：`*-fee-level.service`（`declineLevel / cancelLevel / retireLevel / assertNotLastActiveDefault / expireChangeRequest`；`findByLevelCode` 带 `pendingChangeRequest`）｜ `*-creation / *-change / *-retire-workflow`（+ approval 发射器）｜ `trading/shared/fee-level-transitions.constant.ts` ｜ 受众 `trading/shared/fee-audience.util.ts` ｜ 报价 `swap-quote` / `withdraw-quote`（交易域，未动）
+- 种子身世 `prisma/seed-audit.helper.ts`：`*_SEEDED` ×7，actorNo `RELEASE`（业务种子）/ `DEMO_SEED`（演示夹具），metadata `{ seedVersion, commit }`；`verify:demo-data` R5 按业务键逐行核验留痕（非计数，不怕 reset 遗留孤儿行），覆盖 RELEASE 的五块，两块费率过滤到 `createdByUserId='SYSTEM'`（运营经审批建的等级本就没有 `*_SEEDED` 行，不算漏留痕）
+- 判据：`verify:act1` B6（钱包业务键）/ B7（对 ACTIVE 资产提恢复 409，运营 token）｜ `verify:rbac` 自批死锁闸 S5/S5b（28 条策略逐一验安全 maker 非空，已登记死锁表现空）+ maker≠checker 闸 S5c/S5d（本域零豁免）+ S8（MAKER 表与策略一一对应）/ S9（裁决人持详情页读权限）+ 资产 / 地址 / 费率退役探针
+- 审计：本域全部写点在 `audit-actions.constant.ts` 合同（CONFIG / DEPOSIT 域，四属性齐）；波一退役码 16 个入 `DEPRECATED_AUDIT_ACTIONS`（资产六 / 钱包六 / 限额四），`verify:audit` 不变量③守零写入
 
 ## 6. 演示缺口（BACKLOG 有账）
 
-- **资本注入流水缺一笔凭证**：公司自有资金注入在账本流水里少一行 evidence——第六幕对账讲公司户时会被问到
-- **充值累计限额未接**：三种门里的累计门（B 档）对充值方向尚未消费——限额页讲三门时说明"充值只接了单笔下限（小额挂起）"
-- **报价未落资格快照 / 费率 30 日历日生效闸未做**：改费率即刻生效，无"提前 30 天通知客户"的缓冲（合规应然，待决策）
-- **费率与定价无 truth 前史**：本篇即第一份现状记录；定价中心只有引擎一件，价格配置的管理面待补篇幅
-- 待决策两项：金额闸门矩阵扩展、费率变更通知客户方式
-
-（提现建单不校验地址状态属安全加固类，已入 PRODUCTION-NOTES，不在演示缺口列。）
+- **新资产上线整条流程**（未来：上币包装载 + 就绪检查 + 运营提激活）
+- **充值累计限额未接**；充值下限拦截不经 gate 留痕、被守卫拦下留痕、客户动作 actor=CUSTOMER 全域推广、行为判据扩容 —— 波二
+- **报价未落资格快照 / 费率 30 日历日生效闸未做**
+- 只有 TRON 一条链、一个链上资产："同链共用地址"没有第二个币可演——结构对了即可

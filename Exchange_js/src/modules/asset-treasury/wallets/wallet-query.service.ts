@@ -1,5 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../../core/prisma/prisma.service';
+import { NETWORKS, isNetworkCode } from '../../../config/manifests/networks.manifest';
 
 @Injectable()
 export class WalletQueryService {
@@ -7,68 +8,37 @@ export class WalletQueryService {
 
   async findAll({ skip, take, where, orderBy }: any) {
     const [items, total] = await Promise.all([
-      this.prisma.wallet.findMany({ skip, take, where, orderBy, include: { asset: true } }),
+      this.prisma.wallet.findMany({ skip, take, where, orderBy }),
       this.prisma.wallet.count({ where }),
     ]);
     const enriched = await this.attachOwnerInfo(items);
-    const withBalance = await Promise.all(
-      enriched.map(async (w: any) => ({ ...w, balance: await this.resolveDisplayBalance(w) })),
-    );
-    return { items: withBalance, total };
+    return { items: enriched.map((w) => this.attachNetworkInfo(w)), total };
   }
 
   async findOne(id: string) {
-    const wallet = await this.prisma.wallet.findUnique({
-      where: { id },
-      include: { asset: true },
-    });
+    const wallet = await this.prisma.wallet.findUnique({ where: { id } });
     if (!wallet) throw new NotFoundException({ code: 'WALLET_NOT_FOUND', message: `Wallet ${id} not found` });
     const [enriched] = await this.attachOwnerInfo([wallet]);
-    return { ...enriched, balance: await this.resolveDisplayBalance(wallet as any) };
+    return this.attachNetworkInfo(enriched);
   }
 
-  /**
-   * Display balance. C_CMA has no balance of its own — it is the read-time
-   * aggregate of every customer C_VIBAN for the same asset (Σ VIBAN). All other
-   * roles read their own mockBalance.
-   */
-  private async resolveDisplayBalance(wallet: any): Promise<any> {
-    if (wallet?.walletRole !== 'C_CMA') return wallet?.mockBalance;
-    const agg = await (this.prisma as any).wallet.aggregate({
-      where: { walletRole: 'C_VIBAN', assetId: wallet.assetId },
-      _sum: { mockBalance: true },
-    });
-    return agg?._sum?.mockBalance ?? '0';
-  }
-
-  /** R4: does this customer have an ACTIVE receiving account (C_DEP/C_VIBAN) for this asset? */
-  async hasReceivingAccount(customerId: string, assetId: string): Promise<boolean> {
+  /** R4：客户在该网络上有没有 ACTIVE 的收款行（CLIENT_DEPOSIT vault） */
+  async hasReceivingAccount(customerId: string, network: string): Promise<boolean> {
     const n = await this.prisma.wallet.count({
-      where: {
-        ownerType: 'CUSTOMER',
-        ownerId: customerId,
-        assetId,
-        walletRole: { in: ['C_DEP', 'C_VIBAN'] },
-        status: 'ACTIVE',
-      },
+      where: { ownerType: 'CUSTOMER', ownerId: customerId, vaultCode: 'CLIENT_DEPOSIT', network, status: 'ACTIVE' },
     });
     return n > 0;
   }
 
-  async findBalance(id: string) {
-    const wallet = await this.prisma.wallet.findUnique({
-      where: { id },
-      include: { asset: { select: { id: true, code: true, type: true, decimals: true } } },
-    });
-    if (!wallet) throw new NotFoundException({ code: 'WALLET_NOT_FOUND', message: `Wallet ${id} not found` });
-
+  /** 余额不在钱包表上（唯一真相在账本）；这里只挂网络注册表里的展示信息 */
+  private attachNetworkInfo(w: any) {
+    const network: string = w.network;
+    const net = isNetworkCode(network) ? NETWORKS[network] : null;
     return {
-      walletId: wallet.id,
-      walletNo: wallet.walletNo,
-      ownerType: wallet.ownerType,
-      ownerId: wallet.ownerId,
-      asset: wallet.asset,
-      balance: await this.resolveDisplayBalance(wallet as any),
+      ...w,
+      networkInfo: net
+        ? { kind: net.kind, custodian: net.custodian, bankName: net.bankName, accountName: net.accountName, explorerUrl: net.explorerUrl }
+        : null,
     };
   }
 

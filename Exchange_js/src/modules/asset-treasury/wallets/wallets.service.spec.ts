@@ -1,128 +1,65 @@
-import { NotFoundException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
+import { BadRequestException, ConflictException } from '@nestjs/common';
+import { WalletsService, WALLET_STATUS_TRANSITIONS } from './wallets.service';
 import { PrismaService } from '../../../core/prisma/prisma.service';
-import { AuditLogsService } from '../../audit-logging/audit-logs.service';
-import { WalletsService } from './wallets.service';
-import {
-  OwnerType,
-  WalletRole,
-  WalletStatus,
-} from './dto/wallet.dto';
 
-describe('WalletsService', () => {
+const prismaMock = {
+  wallet: { create: jest.fn(), findFirst: jest.fn(), update: jest.fn() },
+};
+
+describe('WalletsService（波一 · 地址行）', () => {
   let service: WalletsService;
-  let prisma: PrismaService;
-
-  const prismaMock = {
-    wallet: {
-      findUnique: jest.fn(),
-      update: jest.fn(),
-    },
-  };
-
-  const auditMock = {
-    recordSystem: jest.fn().mockResolvedValue(undefined),
-    recordByActor: jest.fn().mockResolvedValue(undefined),
-  };
-
-  const mockActor = { actorId: 'admin-1', actorNo: 'ADM001', actorRole: 'TECH_OFFICER' };
 
   beforeEach(async () => {
-    const module: TestingModule = await Test.createTestingModule({
-      providers: [
-        WalletsService,
-        { provide: PrismaService, useValue: prismaMock },
-        { provide: AuditLogsService, useValue: auditMock },
-      ],
-    }).compile();
-
-    service = module.get<WalletsService>(WalletsService);
-    prisma = module.get<PrismaService>(PrismaService);
-
     jest.clearAllMocks();
-    (prisma as any).wallet.findUnique.mockResolvedValue(null);
-    (prisma as any).wallet.update.mockResolvedValue({
-      id: 'wallet-1',
-      walletNo: 'WA2605120001',
-      ownerType: OwnerType.CUSTOMER,
-      ownerId: 'cust-1',
-      ownerNo: null,
+    const module: TestingModule = await Test.createTestingModule({
+      providers: [WalletsService, { provide: PrismaService, useValue: prismaMock }],
+    }).compile();
+    service = module.get(WalletsService);
+  });
+
+  describe('迁移表', () => {
+    it('只有 CREATING → ACTIVE | FAILED 两条边，ACTIVE / FAILED 是终态', () => {
+      expect(WALLET_STATUS_TRANSITIONS).toEqual({ CREATING: ['ACTIVE', 'FAILED'], ACTIVE: [], FAILED: [] });
+    });
+    it('transitionStatus 拒绝 ACTIVE → FAILED（409 Invalid / Illegal transition）', async () => {
+      await expect(service.transitionStatus('WA1', 'ACTIVE', 'FAILED')).rejects.toBeInstanceOf(ConflictException);
+      expect(prismaMock.wallet.update).not.toHaveBeenCalled();
+    });
+    it('transitionStatus 的 from 绑定 DB 读值：行是 ACTIVE 却声称 CREATING → 409', async () => {
+      prismaMock.wallet.findFirst.mockResolvedValue({ id: 'w1', walletNo: 'WA1', status: 'ACTIVE' });
+      await expect(service.transitionStatus('WA1', 'CREATING', 'ACTIVE')).rejects.toBeInstanceOf(ConflictException);
     });
   });
 
-  // ── changeStatus() ────────────────────────────────────────────────
+  describe('createWalletRecord', () => {
+    const base = { ownerType: 'CUSTOMER' as const, ownerId: 'c1', ownerNo: 'CU001', vaultCode: 'CLIENT_DEPOSIT', walletRole: 'C_DEP', network: 'TRON', status: 'CREATING' as const };
 
-  describe('changeStatus()', () => {
-    it('should reject status changes for protected system wallet roles', async () => {
-      (prisma as any).wallet.findUnique.mockResolvedValue({
-        id: 'wallet-protected',
-        walletNo: 'WA-SYS-001',
-        walletRole: WalletRole.F_LIQ,
-        ownerType: OwnerType.PLATFORM,
-        ownerId: null,
-        ownerNo: null,
-        status: WalletStatus.ACTIVE,
-      });
-
-      await expect(
-        service.changeStatus('wallet-protected', WalletStatus.DISABLED, mockActor),
-      ).rejects.toThrow(
-        'F_LIQ wallets are system-provisioned and cannot be manually disabled',
-      );
-      expect((prisma as any).wallet.update).not.toHaveBeenCalled();
+    it('拒绝未注册网络', async () => {
+      await expect(service.createWalletRecord({ ...base, network: 'FIAT' })).rejects.toBeInstanceOf(BadRequestException);
     });
-
-    it('should allow status change on non-protected wallet', async () => {
-      (prisma as any).wallet.findUnique.mockResolvedValue({
-        id: 'wallet-normal',
-        walletNo: 'WA2605120099',
-        walletRole: WalletRole.C_DEP,
-        ownerType: OwnerType.CUSTOMER,
-        ownerId: 'cust-1',
-        ownerNo: 'CUST-0001',
-        status: WalletStatus.ACTIVE,
-      });
-
-      await service.changeStatus('wallet-normal', WalletStatus.DISABLED, mockActor);
-
-      expect((prisma as any).wallet.update).toHaveBeenCalledWith({
-        where: { id: 'wallet-normal' },
-        data: { status: WalletStatus.DISABLED },
-      });
+    it('拒绝 vault 在该网络没有槽位（F_SET × TRON）', async () => {
+      await expect(service.createWalletRecord({ ...base, ownerType: 'PLATFORM', ownerNo: 'PLATFORM', vaultCode: 'F_SET', walletRole: 'F_SET' })).rejects.toThrow(/no address slot/);
     });
-
-    it('should throw NotFoundException when wallet does not exist', async () => {
-      (prisma as any).wallet.findUnique.mockResolvedValue(null);
-
-      await expect(
-        service.changeStatus('nonexistent', WalletStatus.DISABLED, mockActor),
-      ).rejects.toThrow(NotFoundException);
+    it('拒绝 vault 归属类型与 ownerType 不符（客户开 F_OPS）', async () => {
+      await expect(service.createWalletRecord({ ...base, vaultCode: 'F_OPS', walletRole: 'F_OPS' })).rejects.toThrow(/PLATFORM-owned/);
     });
+    it('合法输入：写入 WA 开头的 walletNo，平台行 ownerId 置 null', async () => {
+      prismaMock.wallet.create.mockImplementation(async ({ data }: any) => data);
+      const row: any = await service.createWalletRecord({ ...base, ownerType: 'PLATFORM', ownerId: 'should-be-dropped', ownerNo: 'PLATFORM', vaultCode: 'F_OPS', walletRole: 'F_OPS', status: 'ACTIVE' });
+      expect(row.walletNo).toMatch(/^WA\d{12}$/);
+      expect(row.ownerId).toBeNull();
+      expect(row.network).toBe('TRON');
+    });
+  });
 
-    it('should write audit log on successful status change', async () => {
-      (prisma as any).wallet.findUnique.mockResolvedValue({
-        id: 'wallet-audit',
-        walletNo: 'WA2605120088',
-        walletRole: WalletRole.C_DEP,
-        ownerType: OwnerType.CUSTOMER,
-        ownerId: 'cust-1',
-        ownerNo: 'CUST-0001',
-        status: WalletStatus.ACTIVE,
-      });
-
-      await service.changeStatus('wallet-audit', WalletStatus.FROZEN, mockActor);
-
-      expect(auditMock.recordByActor).toHaveBeenCalledWith(
-        expect.objectContaining({
-          action: 'WALLET_STATUS_UPDATED',
-          primarySubjectNo: expect.any(String),
-          outcome: 'SUCCESS',
-        }),
-        expect.objectContaining({
-          actorType: 'ADMIN',
-          actorNo: mockActor.actorNo,
-        }),
-      );
+  describe('findCustomerWalletByDestination', () => {
+    it('链上按 (network, address) 找，法币按 (network, iban) 找，只认 CLIENT_DEPOSIT', async () => {
+      prismaMock.wallet.findFirst.mockResolvedValue(null);
+      await service.findCustomerWalletByDestination('TRON', { address: 'Tabc' });
+      expect(prismaMock.wallet.findFirst).toHaveBeenLastCalledWith({ where: { network: 'TRON', ownerType: 'CUSTOMER', vaultCode: 'CLIENT_DEPOSIT', address: 'Tabc' } });
+      await service.findCustomerWalletByDestination('AED_ZAND', { iban: 'AE07086' });
+      expect(prismaMock.wallet.findFirst).toHaveBeenLastCalledWith({ where: { network: 'AED_ZAND', ownerType: 'CUSTOMER', vaultCode: 'CLIENT_DEPOSIT', iban: 'AE07086' } });
     });
   });
 });

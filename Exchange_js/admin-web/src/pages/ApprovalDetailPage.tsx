@@ -93,16 +93,14 @@ const ENTITY_ROUTE_BY_ACTION: Record<string, (ref: string) => string | null> = {
   DEPOSIT_SEIZE: (r) => `/admin/trading/deposits?keyword=${r}`,
   DEPOSIT_UNFREEZE: (r) => `/admin/trading/deposits?keyword=${r}`,
   // 资产域（entityRef = assetNo / ruleNo）
-  ASSET_ACTIVATION: (r) => `/admin/assets/${r}`,
   ASSET_SUSPENSION: (r) => `/admin/assets/${r}`,
   ASSET_REACTIVATION: (r) => `/admin/assets/${r}`,
-  TRANSACTION_LIMIT_CREATION: (r) => `/admin/assets/transaction-limits/${r}`,
   TRANSACTION_LIMIT_CHANGE: (r) => `/admin/assets/transaction-limits/${r}`,
-  // 托管钱包（entityRef = walletNo）
-  CUSTODIAN_WALLET_CREATE: (r) => `/admin/custody/wallets/${r}`,
-  // 定价域——仅创建流 entityRef 是 levelCode；变更流是变更请求 requestNo，不映射
+  // 定价域——创建流、退役流 entityRef 是 levelCode；变更流是变更请求 requestNo，不映射
   SWAP_FEE_LEVEL_CREATION: (r) => `/admin/pricing/swap-fee-levels/${r}`,
   WITHDRAWAL_FEE_LEVEL_CREATION: (r) => `/admin/pricing/withdrawal-fee-levels/${r}`,
+  SWAP_FEE_LEVEL_RETIRE: (r) => `/admin/pricing/swap-fee-levels/${r}`,
+  WITHDRAWAL_FEE_LEVEL_RETIRE: (r) => `/admin/pricing/withdrawal-fee-levels/${r}`,
   // 治理域（entityRef = userNo / role.code，Task 19-21 后新增业务号）
   ADMIN_INVITE_APPROVAL: (r) => `/admin/iam/members/${r}`,
   ADMIN_SUSPENSION_APPROVAL: (r) => `/admin/iam/members/${r}`,

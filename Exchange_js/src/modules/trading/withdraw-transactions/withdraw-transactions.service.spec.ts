@@ -417,7 +417,7 @@ describe('WithdrawTransactionsService', () => {
   // the registered address's addressType (crypto only — fiat always null).
   describe('address-registration guard + VASP derivation', () => {
     it('throws WITHDRAWAL_ADDRESS_NOT_REGISTERED when the crypto toAddress is not registered/ACTIVE', async () => {
-      prisma.asset.findUnique.mockResolvedValue({ id: 'asset-1', type: 'CRYPTO' });
+      prisma.asset.findUnique.mockResolvedValue({ id: 'asset-1', type: 'CRYPTO', network: 'TRON' });
       prisma.customerMain.findUnique.mockResolvedValue({ customerNo: 'C001', onboardingStatus: 'APPROVED', adminStatus: 'ACTIVE' });
       prisma.withdrawalAddress.findFirst.mockResolvedValue(null);
 
@@ -436,14 +436,14 @@ describe('WithdrawTransactionsService', () => {
       });
 
       expect(prisma.withdrawalAddress.findFirst).toHaveBeenCalledWith({
-        where: { customerId: 'user-1', address: '0xUNREGISTERED', status: 'ACTIVE' },
+        where: { customerId: 'user-1', network: 'TRON', address: '0xUNREGISTERED', status: 'ACTIVE' },
       });
       // Never reaches insert when the guard rejects.
       expect(mockTx.withdrawTransaction.create).not.toHaveBeenCalled();
     });
 
     it('crypto: a registered VASP address derives counterpartyIsVasp=true on the inserted record', async () => {
-      prisma.asset.findUnique.mockResolvedValue({ id: 'asset-1', type: 'CRYPTO' });
+      prisma.asset.findUnique.mockResolvedValue({ id: 'asset-1', type: 'CRYPTO', network: 'TRON' });
       prisma.customerMain.findUnique.mockResolvedValue({ customerNo: 'C001', onboardingStatus: 'APPROVED', adminStatus: 'ACTIVE' });
       prisma.withdrawalAddress.findFirst.mockResolvedValue({ addressType: 'VASP' });
       mockTx.withdrawTransaction.create.mockResolvedValue({
@@ -479,7 +479,7 @@ describe('WithdrawTransactionsService', () => {
     });
 
     it('fiat: a registered BANK address passes the guard with counterpartyIsVasp left null', async () => {
-      prisma.asset.findUnique.mockResolvedValue({ id: 'asset-fiat-1', type: 'FIAT' });
+      prisma.asset.findUnique.mockResolvedValue({ id: 'asset-fiat-1', type: 'FIAT', network: 'AED_ZAND' });
       prisma.customerMain.findUnique.mockResolvedValue({ customerNo: 'C001', onboardingStatus: 'APPROVED', adminStatus: 'ACTIVE' });
       prisma.withdrawalAddress.findFirst.mockResolvedValue({ addressType: 'BANK' });
       mockTx.withdrawTransaction.create.mockResolvedValue({
@@ -515,7 +515,7 @@ describe('WithdrawTransactionsService', () => {
       );
 
       expect(prisma.withdrawalAddress.findFirst).toHaveBeenCalledWith({
-        where: { customerId: 'user-1', iban: 'AE070331234567890123456', status: 'ACTIVE', addressType: 'BANK' },
+        where: { customerId: 'user-1', network: 'AED_ZAND', iban: 'AE070331234567890123456', status: 'ACTIVE', addressType: 'BANK' },
       });
       expect(mockTx.withdrawTransaction.create).toHaveBeenCalledWith(
         expect.objectContaining({

@@ -1189,17 +1189,15 @@ export class DepositTransactionsService {
     counterpartyIsVasp?: boolean | null;
     effectiveDate?: string;
   }) {
-    const wallet = await (this.prisma as any).wallet.findUnique({
-      where: { id: input.toWalletId },
-      include: { asset: true },
-    });
+    const wallet = await (this.prisma as any).wallet.findUnique({ where: { id: input.toWalletId } });
     if (!wallet) throw new NotFoundException('Wallet not found');
-    if (wallet.assetId !== input.assetId) {
-      throw new BadRequestException('Wallet asset does not match deposit asset');
+    const asset = await (this.prisma as any).asset.findUnique({ where: { id: input.assetId }, select: { id: true, type: true, network: true } });
+    if (!asset) throw new NotFoundException('Asset not found');
+    if (asset.network !== wallet.network) {
+      throw new BadRequestException(`Wallet is on ${wallet.network} but asset is on ${asset.network}`);
     }
 
-    const isCrypto =
-      String(wallet.asset?.type || '').toUpperCase() === 'CRYPTO';
+    const isCrypto = String(asset.type || '').toUpperCase() === 'CRYPTO';
     const resolvedTraceId = input.traceId ?? randomUUID();
     const depositNo = generateReferenceNo('DEP');
     // 审计主线：DEPOSIT_CREATED=START 在此铸根，此后这笔单的所有审计都 INHERIT 同一条线。

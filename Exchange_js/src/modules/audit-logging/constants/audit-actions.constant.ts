@@ -102,20 +102,15 @@ export const AuditBusinessWorkflowTypes = {
   // Credential Reset Governance (2026-05-10)
   ADMIN_PASSWORD_RESET: 'ADMIN_PASSWORD_RESET',
   ADMIN_MFA_RESET: 'ADMIN_MFA_RESET',
-  // Custodian Wallet Create (2026-05-13)
-  CUSTODIAN_WALLET_CREATE: 'CUSTODIAN_WALLET_CREATE',
+  // Custodian Wallet Create (2026-05-13) — 波一(2026-09-04)T4 随托管钱包创建整条路退役
   WITHDRAWAL_ADDRESS_REGISTRATION: 'WITHDRAWAL_ADDRESS_REGISTRATION',
   TB_ACCOUNT_MANUAL_CREATE: 'TB_ACCOUNT_MANUAL_CREATE',
   // Asset Suspension (2026-05-14)
   ASSET_SUSPENSION: 'ASSET_SUSPENSION',
   ASSET_REACTIVATION: 'ASSET_REACTIVATION',
-  // Asset Creation & Activation (2026-05-14)
-  ASSET_CREATION: 'ASSET_CREATION',
-  ASSET_ACTIVATION: 'ASSET_ACTIVATION',
-  // Transaction Limit Change (2026-05-16)
+  // Transaction Limit Change (2026-05-16)（原 Transaction Limit Creation 已随「限额只改
+  // 不建不删」创建流整条退役,波一 T10,2026-09-04）
   TRANSACTION_LIMIT_CHANGE: 'TRANSACTION_LIMIT_CHANGE',
-  // Transaction Limit Creation (2026-05-16)
-  TRANSACTION_LIMIT_CREATION: 'TRANSACTION_LIMIT_CREATION',
   // Transaction Limit Enforcement (2026-07-16) — L1 per-transaction gate rejections (A/B)
   TRANSACTION_LIMIT_ENFORCEMENT: 'TRANSACTION_LIMIT_ENFORCEMENT',
   // Deposit Below-Min Confiscation (2026-07-16) — V1 maker-checker confiscation of below-min deposit as fee
@@ -138,6 +133,9 @@ export const AuditBusinessWorkflowTypes = {
   // Swap Fee Level (2026-05-31)
   SWAP_FEE_LEVEL_CREATION: 'SWAP_FEE_LEVEL_CREATION',
   SWAP_FEE_LEVEL_CHANGE: 'SWAP_FEE_LEVEL_CHANGE',
+  // Fee Level Retirement（波一 T11，2026-09-04）——"删" 改走审批终态，CFO 提、运营批
+  SWAP_FEE_LEVEL_RETIRE: 'SWAP_FEE_LEVEL_RETIRE',
+  WITHDRAWAL_FEE_LEVEL_RETIRE: 'WITHDRAWAL_FEE_LEVEL_RETIRE',
   // Trading Tier Upgrade (pre-registered, workflow deferred)
   TRADING_TIER_UPGRADE: 'TRADING_TIER_UPGRADE',
   // Withdraw Large-Value Approval Gate (2026-06-01)
@@ -277,6 +275,8 @@ export const AuditActions = {
   INBOUND_SIGNAL_MATCHED: 'INBOUND_SIGNAL_MATCHED',
   INBOUND_SIGNAL_BLOCKED: 'INBOUND_SIGNAL_BLOCKED',
   INBOUND_SIGNAL_FAILED: 'INBOUND_SIGNAL_FAILED',
+  // 波一 T5：入金信号合约对不上任何资产——建单之前被拦，留痕拒收
+  DEPOSIT_SIGNAL_REJECTED: 'DEPOSIT_SIGNAL_REJECTED',
   SWAP_QUOTE_CREATED: 'SWAP_QUOTE_CREATED',
   SWAP_CREATED: 'SWAP_CREATED',
   SWAP_KYT_SUBMITTED: 'SWAP_KYT_SUBMITTED',
@@ -408,8 +408,7 @@ export const AuditActions = {
   CUSTOMER_RESTRICTION_ADDED: 'CUSTOMER_RESTRICTION_ADDED',
   CUSTOMER_RESTRICTION_CLEARED: 'CUSTOMER_RESTRICTION_CLEARED',
   WALLET_STATUS_UPDATED: 'WALLET_STATUS_UPDATED',
-  DEPOSIT_WALLET_CREATED: 'DEPOSIT_WALLET_CREATED',
-  DEPOSIT_WALLET_CREATE_FAILED: 'DEPOSIT_WALLET_CREATE_FAILED',
+  CUSTOMER_DEPOSIT_ADDRESS_CREATED: 'CUSTOMER_DEPOSIT_ADDRESS_CREATED',
   SWAP_QUOTE_CANCELLED: 'SWAP_QUOTE_CANCELLED',
   SWAP_QUOTE_USED: 'SWAP_QUOTE_USED',
   AUDIT_EVIDENCE_EXPORT_REQUESTED: 'AUDIT_EVIDENCE_EXPORT_REQUESTED',
@@ -586,6 +585,10 @@ export const V1_AUDIT_ACTIONS: Record<string, AuditActionSpec> = {
   SWAP_FEE_LEVEL_CHANGE_APPLIED:         { domain: 'CONFIG', correlationMode: I, requiredFields: ['beforeData', 'afterData', 'approvalNo'], requiresCausation: true },
   SWAP_FEE_LEVEL_CHANGE_APPLY_FAILED:    { domain: 'CONFIG', correlationMode: I, requiredFields: [], requiresCausation: true },
   SWAP_FEE_LEVEL_CHANGE_CANCELLED:       { domain: 'CONFIG', correlationMode: I, requiredFields: ['reason'], requiresCausation: true },
+  // 波一新增：退役等级（"删" = 终态）。REQUESTED 铸 correlationId（S）；RETIRED / RETIRE_CANCELLED 经审批决定事件 INHERIT + causationId。
+  SWAP_FEE_LEVEL_RETIRE_REQUESTED:       { domain: 'CONFIG', correlationMode: S, requiredFields: ['beforeData'], requiresCausation: false },
+  SWAP_FEE_LEVEL_RETIRED:                { domain: 'CONFIG', correlationMode: I, requiredFields: ['approvalNo'], requiresCausation: true },
+  SWAP_FEE_LEVEL_RETIRE_CANCELLED:       { domain: 'CONFIG', correlationMode: I, requiredFields: ['reason'], requiresCausation: true },
   // ── 提现费率等级 ────────────────────────────────────────
   WITHDRAWAL_FEE_LEVEL_CREATION_REQUESTED:    { domain: 'CONFIG', correlationMode: S, requiredFields: ['afterData'], requiresCausation: false },
   WITHDRAWAL_FEE_LEVEL_CREATION_APPLIED:      { domain: 'CONFIG', correlationMode: I, requiredFields: ['afterData', 'approvalNo'], requiresCausation: true },
@@ -595,18 +598,17 @@ export const V1_AUDIT_ACTIONS: Record<string, AuditActionSpec> = {
   WITHDRAWAL_FEE_LEVEL_CHANGE_APPLIED:        { domain: 'CONFIG', correlationMode: I, requiredFields: ['beforeData', 'afterData', 'approvalNo'], requiresCausation: true },
   WITHDRAWAL_FEE_LEVEL_CHANGE_APPLY_FAILED:   { domain: 'CONFIG', correlationMode: I, requiredFields: [], requiresCausation: true },
   WITHDRAWAL_FEE_LEVEL_CHANGE_CANCELLED:      { domain: 'CONFIG', correlationMode: I, requiredFields: ['reason'], requiresCausation: true },
+  // 波一新增：退役等级（"删" = 终态）。REQUESTED 铸 correlationId（S）；RETIRED / RETIRE_CANCELLED 经审批决定事件 INHERIT + causationId。
+  WITHDRAWAL_FEE_LEVEL_RETIRE_REQUESTED:      { domain: 'CONFIG', correlationMode: S, requiredFields: ['beforeData'], requiresCausation: false },
+  WITHDRAWAL_FEE_LEVEL_RETIRED:               { domain: 'CONFIG', correlationMode: I, requiredFields: ['approvalNo'], requiresCausation: true },
+  WITHDRAWAL_FEE_LEVEL_RETIRE_CANCELLED:      { domain: 'CONFIG', correlationMode: I, requiredFields: ['reason'], requiresCausation: true },
 
-  // ── 资产四族（2026-09-01 换名册·批二）：ASSET_CREATED_AND_PROVISIONED/
-  // ASSET_CREATION_FAILED/ASSET_PROVISIONING_UPDATED/ASSET_ACTIVATED/ASSET_SUSPENDED/
-  // ASSET_REACTIVATED 六码本就前缀唯一，码值不变只进合同；另六个裸名
-  // （SUSPENSION_/REACTIVATION_/ACTIVATION_ 各 REQUESTED+FAILED）改前缀唯一新码，
-  // 无跨族复用，裸名直接登退役闸（见下方 DEPRECATED_AUDIT_ACTIONS）。
-  ASSET_CREATED_AND_PROVISIONED: { domain: 'CONFIG', correlationMode: S, requiredFields: ['afterData'], requiresCausation: false },
-  ASSET_CREATION_FAILED:         { domain: 'CONFIG', correlationMode: S, requiredFields: [], requiresCausation: false },
-  ASSET_PROVISIONING_UPDATED:    { domain: 'CONFIG', correlationMode: I, requiredFields: ['afterData'], requiresCausation: false },
-  ASSET_ACTIVATION_REQUESTED:    { domain: 'CONFIG', correlationMode: S, requiredFields: ['beforeData'], requiresCausation: false },
-  ASSET_ACTIVATED:               { domain: 'CONFIG', correlationMode: I, requiredFields: ['approvalNo'], requiresCausation: true },
-  ASSET_ACTIVATION_FAILED:       { domain: 'CONFIG', correlationMode: I, requiredFields: [], requiresCausation: true },
+  // ── 资产两族（2026-09-01 换名册·批二 ASSET_SUSPENSION_*/ASSET_REACTIVATION_* 六码，
+  // 2026-09-04 波一 T2 收窄）：创建 + 激活两族（ASSET_CREATED_AND_PROVISIONED/
+  // ASSET_CREATION_FAILED/ASSET_PROVISIONING_UPDATED/ASSET_ACTIVATION_REQUESTED/
+  // ASSET_ACTIVATED/ASSET_ACTIVATION_FAILED 六码）随上架/激活整条路退役
+  // （业主定「本轮不做新资产上线」），迁入 DEPRECATED_AUDIT_ACTIONS（见下方）；
+  // 暂停 / 恢复两族原样保留。
   ASSET_SUSPENSION_REQUESTED:    { domain: 'CONFIG', correlationMode: S, requiredFields: ['beforeData'], requiresCausation: false },
   ASSET_SUSPENDED:               { domain: 'CONFIG', correlationMode: I, requiredFields: ['approvalNo'], requiresCausation: true },
   ASSET_SUSPENSION_FAILED:       { domain: 'CONFIG', correlationMode: I, requiredFields: [], requiresCausation: true },
@@ -618,10 +620,6 @@ export const V1_AUDIT_ACTIONS: Record<string, AuditActionSpec> = {
   // （同 8 个裸词也被费率两域用过，Task 12 已把费率四族迁走），本批改前缀唯一新码，
   // 8 个裸名同批登退役（见下方 DEPRECATED_AUDIT_ACTIONS；'CHANGE_APPLY_FAILED' 早前
   // 已在站7批次登过，不重复登记）。
-  TRANSACTION_LIMIT_CREATION_REQUESTED:    { domain: 'CONFIG', correlationMode: S, requiredFields: ['afterData'], requiresCausation: false },
-  TRANSACTION_LIMIT_CREATION_APPLIED:      { domain: 'CONFIG', correlationMode: I, requiredFields: ['afterData', 'approvalNo'], requiresCausation: true },
-  TRANSACTION_LIMIT_CREATION_APPLY_FAILED: { domain: 'CONFIG', correlationMode: I, requiredFields: [], requiresCausation: true },
-  TRANSACTION_LIMIT_CREATION_CANCELLED:    { domain: 'CONFIG', correlationMode: I, requiredFields: ['reason'], requiresCausation: true },
   TRANSACTION_LIMIT_CHANGE_REQUESTED:      { domain: 'CONFIG', correlationMode: S, requiredFields: ['beforeData', 'afterData'], requiresCausation: false },
   TRANSACTION_LIMIT_CHANGE_APPLIED:        { domain: 'CONFIG', correlationMode: I, requiredFields: ['beforeData', 'afterData', 'approvalNo'], requiresCausation: true },
   TRANSACTION_LIMIT_CHANGE_APPLY_FAILED:   { domain: 'CONFIG', correlationMode: I, requiredFields: [], requiresCausation: true },
@@ -637,21 +635,6 @@ export const V1_AUDIT_ACTIONS: Record<string, AuditActionSpec> = {
   // 定 NONE（同 V2_CUSTOMER_AUDIT_ACTIONS 整册客户级动作一样，客户级件无订单旅程）。
   CUSTOMER_TAG_ASSIGNED: { domain: 'CONFIG', correlationMode: N, requiredFields: ['afterData'], requiresCausation: false },
   CUSTOMER_TAG_REVOKED:  { domain: 'CONFIG', correlationMode: N, requiredFields: ['beforeData', 'reason'], requiresCausation: false },
-
-  // ── 托管钱包创建（2026-09-02 换名册·批四）：REQUESTED 是 createAndSubmit 铸的
-  // correlationId 起点（S）；CREATED/FAILED/CANCELLED 都经审批决定事件 INHERIT 回同
-  // 一个 correlationId，且都是被「审批已决定」这个异步事件驱动（causationId=approvalId）。
-  // 连带修：executeCreation 已有 approvalId 参数直接用；executeCancellation 原来
-  // 不传 approvalId/decisionReason，Task 15 补了两个参数（decisionReason 来自
-  // ApprovalDecidedEvent，即被拒时审批人填的理由，喂 reason）；retryCreate 是直接
-  // 管理员单步重试、没有新审批，原来现铸一个孤立 traceId——若照 INHERIT 硬填会让
-  // correlationId/causationId 语义落空，Task 15 改查回原 ApprovalCase（entityRef=
-  // walletId, actionType=CUSTODIAN_WALLET_CREATE）取其 traceId/id，真正接续同一趟
-  // 创建旅程而不是编一个假值。
-  CUSTODIAN_WALLET_CREATE_REQUESTED:  { domain: 'CONFIG', correlationMode: S, requiredFields: ['afterData'], requiresCausation: false },
-  CUSTODIAN_WALLET_CREATED:           { domain: 'CONFIG', correlationMode: I, requiredFields: ['afterData', 'approvalNo'], requiresCausation: true },
-  CUSTODIAN_WALLET_CREATE_FAILED:     { domain: 'CONFIG', correlationMode: I, requiredFields: [], requiresCausation: true },
-  CUSTODIAN_WALLET_CREATE_CANCELLED:  { domain: 'CONFIG', correlationMode: I, requiredFields: ['reason'], requiresCausation: true },
 
   // ── 客户提现地址·24h 冷却闸（2026-09-02 换名册·批四）：REGISTERED 是地址自己的
   // traceId 起点（S，创建时铸号存 WithdrawalAddress.traceId 列）；后续五码都是单步
@@ -670,6 +653,20 @@ export const V1_AUDIT_ACTIONS: Record<string, AuditActionSpec> = {
   WITHDRAWAL_ADDRESS_SUSPENDED:       { domain: 'CONFIG', correlationMode: I, requiredFields: ['reason'], requiresCausation: false },
   WITHDRAWAL_ADDRESS_DEACTIVATED:     { domain: 'CONFIG', correlationMode: I, requiredFields: ['reason'], requiresCausation: false },
   WITHDRAWAL_ADDRESS_COOLING_SKIPPED: { domain: 'CONFIG', correlationMode: I, requiredFields: ['reason'], requiresCausation: false },
+  // 波一新增：改标签 / 收款人（客户单步，INHERIT 地址自己的 traceId）；管理员恢复（补 D5 出边）
+  WITHDRAWAL_ADDRESS_UPDATED:         { domain: 'CONFIG', correlationMode: I, requiredFields: ['beforeData', 'afterData'], requiresCausation: false },
+  WITHDRAWAL_ADDRESS_UNSUSPENDED:     { domain: 'CONFIG', correlationMode: I, requiredFields: ['reason'], requiresCausation: false },
+
+  // ── 种子身世（波一，spec §8）：配置随版本装载，装载即留痕——第七幕按 USDT 查，第一行是"随版本上架"。
+  // 种子跑在 Nest 之外，由 prisma/seed-audit.helper.ts 直写：actorType SYSTEM、actorNo RELEASE（业务种子）/ DEMO_SEED（演示客户造数），
+  // metadata { seedVersion, commit }。每条装载都是自己旅程的起点 → START。
+  ASSET_SEEDED:                    { domain: 'CONFIG', correlationMode: S, requiredFields: ['afterData'], requiresCausation: false },
+  CUSTODIAN_WALLET_SEEDED:         { domain: 'CONFIG', correlationMode: S, requiredFields: ['afterData'], requiresCausation: false },
+  TRANSACTION_LIMIT_SEEDED:        { domain: 'CONFIG', correlationMode: S, requiredFields: ['afterData'], requiresCausation: false },
+  SWAP_FEE_LEVEL_SEEDED:           { domain: 'CONFIG', correlationMode: S, requiredFields: ['afterData'], requiresCausation: false },
+  WITHDRAWAL_FEE_LEVEL_SEEDED:     { domain: 'CONFIG', correlationMode: S, requiredFields: ['afterData'], requiresCausation: false },
+  CUSTOMER_DEPOSIT_ADDRESS_SEEDED: { domain: 'CONFIG', correlationMode: S, requiredFields: ['afterData'], requiresCausation: false },
+  WITHDRAWAL_ADDRESS_SEEDED:       { domain: 'CONFIG', correlationMode: S, requiredFields: ['afterData'], requiresCausation: false },
 
   // ── ⑪ 审计日志自身的操作 ────────────────────────────────
   AUDIT_EVIDENCE_EXPORT_REQUESTED:  { domain: 'AUDIT', correlationMode: S, requiredFields: [], requiresCausation: false },
@@ -689,7 +686,8 @@ export const V1_AUDIT_ACTIONS: Record<string, AuditActionSpec> = {
   // 零消费方（2026-08-31 grep 核实），迁入 DEPRECATED_AUDIT_ACTIONS，本组已删。
 
   // ── ⑬ 站7 收编：平台运营件（金库/资金单模拟推进；手工建户与对手方已退役见下方注释）──
-  WALLET_STATUS_UPDATED:            { domain: 'CONFIG', correlationMode: N, requiredFields: [], requiresCausation: false },
+  // WALLET_STATUS_UPDATED：2026-09-04 波一 T4 随钱包状态开关整条路退役（平台钱包只从
+  // 种子来、管理台只读），迁入 DEPRECATED_AUDIT_ACTIONS（见下方），本组已删。
   // MANUAL_TB_ACCOUNT_CREATED：2026-08-31 随手工开账本科目退役（业主定「账本
   // 没有手动配置这回事」），写点 TbManualAccountService（tb-manual-account.
   // service.ts）已整文件删除（commit 3ed5a10f），全仓零消费方（2026-08-31 grep
@@ -775,7 +773,11 @@ export const V4_DEPOSIT_AUDIT_ACTIONS: Record<string, AuditActionSpec> = {
   INBOUND_SIGNAL_MATCHED:         { domain: 'DEPOSIT', correlationMode: N, requiredFields: [], requiresCausation: false },
   INBOUND_SIGNAL_BLOCKED:         { domain: 'DEPOSIT', correlationMode: N, requiredFields: ['reason'], requiresCausation: false },
   INBOUND_SIGNAL_FAILED:          { domain: 'DEPOSIT', correlationMode: N, requiredFields: ['reason'], requiresCausation: false },
-  DEPOSIT_WALLET_CREATED:         { domain: 'DEPOSIT', correlationMode: N, requiredFields: [], requiresCausation: false },
+  // 合约对不上任何资产的入金信号：建单之前被拦、没有旅程 → NONE；outcome=DENIED + reasonCode=UNKNOWN_ASSET
+  DEPOSIT_SIGNAL_REJECTED:        { domain: 'DEPOSIT', correlationMode: N, requiredFields: [], requiresCausation: false },
+  // 客户在某网络上开收款地址（波一：钱包表唯一写路径；actor=客户）。单步动作、无旅程可继承 → NONE；
+  // 失败并入双结局（outcome=FAILED + reasonCode=PROVISION_ERROR）。
+  CUSTOMER_DEPOSIT_ADDRESS_CREATED: { domain: 'DEPOSIT', correlationMode: N, requiredFields: ['afterData'], requiresCausation: false },
 };
 
 /**
@@ -1003,4 +1005,15 @@ export const DEPRECATED_AUDIT_ACTIONS: readonly string[] = [
   'CREATE_REQUESTED', 'WALLET_CREATED', 'WALLET_CREATE_FAILED', 'CREATE_CANCELLED',
   'ADDRESS_REGISTERED', 'ADDRESS_ACTIVATED', 'ADDRESS_CANCELLED', 'ADDRESS_SUSPENDED',
   'ADDRESS_DEACTIVATED', 'MANUAL_COOLING_SKIP',
+  // 2026-09-04 波一（V3 治愈）：上架 / 激活 / 编辑整条路退役（业主定「本轮不做新资产上线」），
+  // 写点 asset-listing-workflow / asset-activation-workflow 已整文件删除，六码登退役闸
+  'ASSET_CREATED_AND_PROVISIONED', 'ASSET_CREATION_FAILED', 'ASSET_PROVISIONING_UPDATED',
+  'ASSET_ACTIVATION_REQUESTED', 'ASSET_ACTIVATED', 'ASSET_ACTIVATION_FAILED',
+  // 2026-09-04 波一（V3 治愈）：托管钱包创建整条路 + 钱包状态开关退役（平台钱包只从种子来、管理台只读）；
+  // 客户充值地址供给改名 CUSTOMER_DEPOSIT_ADDRESS_CREATED（actor=客户），旧名登退役闸
+  'CUSTODIAN_WALLET_CREATE_REQUESTED', 'CUSTODIAN_WALLET_CREATED', 'CUSTODIAN_WALLET_CREATE_FAILED', 'CUSTODIAN_WALLET_CREATE_CANCELLED',
+  'WALLET_STATUS_UPDATED', 'DEPOSIT_WALLET_CREATED',
+  // 2026-09-04 波一（V3 治愈）：限额只改不建不删——创建流整条退役，四码登退役闸
+  'TRANSACTION_LIMIT_CREATION_REQUESTED', 'TRANSACTION_LIMIT_CREATION_APPLIED',
+  'TRANSACTION_LIMIT_CREATION_APPLY_FAILED', 'TRANSACTION_LIMIT_CREATION_CANCELLED',
 ] as const;

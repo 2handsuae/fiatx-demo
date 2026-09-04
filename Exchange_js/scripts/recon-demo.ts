@@ -410,114 +410,111 @@ async function planWallets(
   // COA v2 (2026-08-13): 收入段 210/211/212;202/203/204 已废弃且无兼容层(demo 随时 reset)。
   const FIRM_CODES = new Set<number>([200, 201, 210, 211, 212]);
   const CUSTOMER_CODES = new Set<number>([100, 101]);
+  const assetRows = (await (prisma as any).asset.findMany({ select: { code: true, network: true } })) as Array<{ code: string; network: string }>;
+  const assetsByNetwork = new Map<string, Array<{ code: string }>>();
+  for (const a of assetRows) {
+    const list = assetsByNetwork.get(a.network) ?? [];
+    list.push({ code: a.code });
+    assetsByNetwork.set(a.network, list);
+  }
   const allActiveWallets = (await (prisma as any).wallet.findMany({
     where: { status: 'ACTIVE' },
-    select: {
-      id: true,
-      walletRole: true,
-      ownerType: true,
-      ownerNo: true,
-      asset: { select: { code: true, currency: true } },
-    },
-  })) as Array<{
-    id: string;
-    walletRole: string;
-    ownerType: string;
-    ownerNo: string | null;
-    asset: { code: string; currency: string } | null;
-  }>;
+    select: { id: true, walletRole: true, ownerType: true, ownerNo: true, network: true },
+  })) as Array<{ id: string; walletRole: string; ownerType: string; ownerNo: string | null; network: string }>;
 
   const plans: WalletPlan[] = [];
   for (const w of allActiveWallets) {
-    const currency = w.asset?.code ?? w.asset?.currency ?? null;
-    if (!currency) continue;
-    const isFirm = w.ownerType !== 'CUSTOMER';
-    const ownedCodes = isFirm ? FIRM_CODES : CUSTOMER_CODES;
+    // 一条网络上的每个资产各计划一行（今天每网络恰一个资产，将来上第二个 TRC-20 币这里自动多一行）
+    for (const a of assetsByNetwork.get(w.network) ?? []) {
+      const currency = a.code;
+      const isFirm = w.ownerType !== 'CUSTOMER';
+      const ownedCodes = isFirm ? FIRM_CODES : CUSTOMER_CODES;
 
-    // Step 1 — pull every POSTED *crossing* account_flow on this walletRef up
-    // to cutoff. isExternalCrossing=true is the demarcation between what an
-    // external system (Zand for fiat / HexTrust for crypto) actually observes
-    // vs internal book-to-book movements (e.g. DEPOSIT_SUSPENSE_TO_PAYABLE)
-    // that the bank/custodian never sees. Including the latter would put
-    // phantom rows on the customer's external statement.
-    const rawFlows = (await (prisma as any).accountFlow.findMany({
-      where: {
+      // Step 1 — pull every POSTED *crossing* account_flow on this walletRef up
+      // to cutoff. isExternalCrossing=true is the demarcation between what an
+      // external system (Zand for fiat / HexTrust for crypto) actually observes
+      // vs internal book-to-book movements (e.g. DEPOSIT_SUSPENSE_TO_PAYABLE)
+      // that the bank/custodian never sees. Including the latter would put
+      // phantom rows on the customer's external statement.
+      const rawFlows = (await (prisma as any).accountFlow.findMany({
+        where: {
+          walletRef: w.id,
+          transferType: 'POSTED',
+          isExternalCrossing: true,
+          createdAt: { lte: cutoff },
+        },
+        select: {
+          id: true,
+          tbAccountId: true,
+          direction: true,
+          amount: true,
+          externalRef: true,
+          createdAt: true,
+        },
+        orderBy: { createdAt: 'asc' },
+      })) as Array<{
+        id: string;
+        tbAccountId: string;
+        direction: string;
+        amount: Prisma.Decimal;
+        externalRef: string | null;
+        createdAt: Date;
+      }>;
+
+      // Step 2 — resolve tbAccountId → code, drop aggregate legs (code 1/50)
+      // and keep only rows posting to the wallet's "owned" TB accounts.
+      //
+      // tb_account_registry stores tbAccountId in 32-char padded form
+      // ('0886e84...'), but account_flows.tbAccountId can be either 32-char
+      // padded or 31-char unpadded ('886e84...') depending on the writer.
+      // Pad both sides to 32 chars before joining so F_SET / F_FEE / etc.
+      // flows don't silently drop on a string mismatch.
+      const padTbId = (id: string) => (id.length < 32 ? id.padStart(32, '0') : id);
+      const tbAccountIds = Array.from(
+        new Set(rawFlows.map((f) => padTbId(f.tbAccountId))),
+      );
+      const regs = tbAccountIds.length
+        ? (await (prisma as any).tbAccountRegistry.findMany({
+            where: { tbAccountId: { in: tbAccountIds } },
+            select: { tbAccountId: true, code: true },
+          })) as Array<{ tbAccountId: string; code: number }>
+        : [];
+      const codeById = new Map<string, number>(
+        regs.map((r) => [padTbId(r.tbAccountId), r.code]),
+      );
+
+      const flows = rawFlows.filter((f) => {
+        const code = codeById.get(padTbId(f.tbAccountId));
+        return code !== undefined && ownedCodes.has(code);
+      });
+
+      // Step 3 — balance from the engine's own check. closingBalance below
+      // will equal bal.internal.total ⇒ drift is structurally 0.
+      const bal = await balanceChecker.checkBalance({
         walletRef: w.id,
-        transferType: 'POSTED',
-        isExternalCrossing: true,
-        createdAt: { lte: cutoff },
-      },
-      select: {
-        id: true,
-        tbAccountId: true,
-        direction: true,
-        amount: true,
-        externalRef: true,
-        createdAt: true,
-      },
-      orderBy: { createdAt: 'asc' },
-    })) as Array<{
-      id: string;
-      tbAccountId: string;
-      direction: string;
-      amount: Prisma.Decimal;
-      externalRef: string | null;
-      createdAt: Date;
-    }>;
+        externalClosing: 0n,
+        cutoff,
+      });
 
-    // Step 2 — resolve tbAccountId → code, drop aggregate legs (code 1/50)
-    // and keep only rows posting to the wallet's "owned" TB accounts.
-    //
-    // tb_account_registry stores tbAccountId in 32-char padded form
-    // ('0886e84...'), but account_flows.tbAccountId can be either 32-char
-    // padded or 31-char unpadded ('886e84...') depending on the writer.
-    // Pad both sides to 32 chars before joining so F_SET / F_FEE / etc.
-    // flows don't silently drop on a string mismatch.
-    const padTbId = (id: string) => (id.length < 32 ? id.padStart(32, '0') : id);
-    const tbAccountIds = Array.from(
-      new Set(rawFlows.map((f) => padTbId(f.tbAccountId))),
-    );
-    const regs = tbAccountIds.length
-      ? (await (prisma as any).tbAccountRegistry.findMany({
-          where: { tbAccountId: { in: tbAccountIds } },
-          select: { tbAccountId: true, code: true },
-        })) as Array<{ tbAccountId: string; code: number }>
-      : [];
-    const codeById = new Map<string, number>(
-      regs.map((r) => [padTbId(r.tbAccountId), r.code]),
-    );
-
-    const flows = rawFlows.filter((f) => {
-      const code = codeById.get(padTbId(f.tbAccountId));
-      return code !== undefined && ownedCodes.has(code);
-    });
-
-    // Step 3 — balance from the engine's own check. closingBalance below
-    // will equal bal.internal.total ⇒ drift is structurally 0.
-    const bal = await balanceChecker.checkBalance({
-      walletRef: w.id,
-      externalClosing: 0n,
-      cutoff,
-    });
-
-    plans.push({
-      walletRef: w.id,
-      walletKind: isFirm ? 'FIRM' : 'CUSTOMER',
-      book: isFirm ? 'FIRM' : 'CLIENT',
-      currency,
-      internalTotal: bal.internal.total,
-      coaCode: bal.coaCode,
-      ownerNo: bal.ownerNo ?? w.ownerNo,
-      lines: flows.map((f) => ({
-        direction: f.direction as 'IN' | 'OUT',
-        amount: f.amount,
-        externalRef: f.externalRef,
-        // Use the real posting time — no random shift. Operators expect the
-        // external statement timestamp to match the internal ledger event.
-        datetime: f.createdAt,
-        sourceFlowId: f.id,
-      })),
-    });
+      plans.push({
+        walletRef: w.id,
+        walletKind: isFirm ? 'FIRM' : 'CUSTOMER',
+        book: isFirm ? 'FIRM' : 'CLIENT',
+        currency,
+        internalTotal: bal.internal.total,
+        coaCode: bal.coaCode,
+        ownerNo: bal.ownerNo ?? w.ownerNo,
+        lines: flows.map((f) => ({
+          direction: f.direction as 'IN' | 'OUT',
+          amount: f.amount,
+          externalRef: f.externalRef,
+          // Use the real posting time — no random shift. Operators expect the
+          // external statement timestamp to match the internal ledger event.
+          datetime: f.createdAt,
+          sourceFlowId: f.id,
+        })),
+      });
+    }
   }
 
   return plans;

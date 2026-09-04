@@ -161,7 +161,7 @@ export async function createStuckWithdraw(
   const viban = isCrypto
     ? null
     : await ctx.prisma.wallet.findFirst({
-        where: { ownerId: c.id, walletRole: 'C_VIBAN', assetId: asset.id },
+        where: { ownerId: c.id, walletRole: 'C_VIBAN', network: asset.network },
       });
   const toIban = isCrypto ? undefined : (viban?.iban ?? undefined);
   const toAddress = isCrypto ? `Tstuckwd${c.customerNo}`.slice(0, 34) : undefined;

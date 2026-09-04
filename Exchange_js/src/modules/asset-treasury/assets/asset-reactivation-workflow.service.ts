@@ -19,6 +19,7 @@ import {
   ApprovalActorContext,
 } from '../../governance/approvals/constants/approval.constants';
 import { AssetsService } from './assets.service';
+import { assertAssetTransition, AssetAction } from './constants/asset-transitions.constant';
 
 const SECONDARY_EVENT = 'workflow.asset-reactivation.decided';
 
@@ -52,11 +53,7 @@ export class AssetReactivationWorkflowService {
       throw new NotFoundException(`Asset ${assetNo} not found`);
     }
 
-    if (asset.status !== 'SUSPENDED') {
-      throw new ConflictException(
-        `Asset ${assetNo} is not suspended (current: ${asset.status})`,
-      );
-    }
+    assertAssetTransition(asset.status, AssetAction.REACTIVATE);
 
     const existingPending = await this.prisma.approvalCase.findFirst({
       where: {
@@ -94,7 +91,9 @@ export class AssetReactivationWorkflowService {
       actor,
     );
 
-    // beforeData：请求发起时资产的停牌状态快照（reactivateAsset 会清空这两个字段并复原开关）。
+    await this.assetsService.linkApprovalCase(assetNo, approvalCase.approvalNo);
+
+    // beforeData：请求发起时资产的停牌状态快照（reactivateAsset 会清空这两个字段）。
     const beforeData = {
       status: asset.status,
       suspendedAt: asset.suspendedAt,
@@ -133,6 +132,7 @@ export class AssetReactivationWorkflowService {
     if (event.decision === 'APPROVED') {
       return this.executeReactivation(event);
     }
+    await this.assetsService.clearApprovalCase(event.entityRef);
   }
 
   private async executeReactivation(event: ApprovalDecidedEvent) {

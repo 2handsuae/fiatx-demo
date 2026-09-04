@@ -6,7 +6,6 @@ import {
   IsNumberString,
   IsOptional,
   IsString,
-  IsUUID,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 
@@ -44,8 +43,8 @@ export enum InboundTransferScanMode {
 
 export class InboundTransferSignalQueryDto {
   @IsOptional()
-  @IsUUID()
-  walletId?: string;
+  @IsString()
+  network?: string;
 
   @IsOptional()
   @IsEnum(InboundTransferSignalStatus)
@@ -63,8 +62,22 @@ export class InboundTransferSignalQueryDto {
 }
 
 export class CreateInboundTransferSignalDto {
-  @IsUUID()
-  walletId!: string;
+  /** 入金落在哪条网络的哪个地址——钥匙是（网络, 地址 | IBAN），不再是内部 walletId */
+  @IsString()
+  network!: string;
+
+  @IsOptional()
+  @IsString()
+  toAddress?: string;
+
+  @IsOptional()
+  @IsString()
+  iban?: string;
+
+  /** 代币合约地址；原生币 / 法币留空。对不上任何资产的信号拒收留痕——合约地址防诈骗落在这里 */
+  @IsOptional()
+  @IsString()
+  contractAddress?: string;
 
   @IsNumberString()
   amount!: string;
@@ -102,8 +115,16 @@ export class CreateInboundTransferSignalDto {
 }
 
 export class ScanInboundTransferSignalsDto {
-  @IsUUID()
-  walletId!: string;
+  @IsString()
+  network!: string;
+
+  @IsOptional()
+  @IsString()
+  toAddress?: string;
+
+  @IsOptional()
+  @IsString()
+  iban?: string;
 
   @IsOptional()
   @IsEnum(InboundTransferScanMode)

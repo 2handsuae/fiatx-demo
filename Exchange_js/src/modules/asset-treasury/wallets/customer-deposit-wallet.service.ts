@@ -1,30 +1,19 @@
-import {
-  Injectable,
-  Inject,
-  Logger,
-  BadRequestException,
-  BadGatewayException,
-  ForbiddenException,
-  NotFoundException,
-} from '@nestjs/common';
+import { Injectable, Inject, Logger, BadGatewayException, ForbiddenException, NotFoundException } from '@nestjs/common';
+import { randomUUID } from 'crypto';
 import { PrismaService } from '../../../core/prisma/prisma.service';
 import { AuditLogsService } from '../../audit-logging/audit-logs.service';
-import {
-  AuditActions,
-  AuditEntityTypes,
-  AuditBusinessWorkflowTypes,
-} from '../../audit-logging/constants/audit-actions.constant';
+import { AuditActions, AuditEntityTypes } from '../../audit-logging/constants/audit-actions.constant';
 import { AuditOutcome } from '../../audit-logging/dto/audit-log.dto';
 import { CUSTODIAN_ADAPTER, CustodianAdapter } from './custodian-adapter.interface';
-import { WalletRole, WalletStatus } from './dto/wallet.dto';
-import {
-  CUSTOMER_VIBAN_ACCOUNT_NAME,
-  CUSTOMER_VIBAN_BANK_NAME,
-} from './customer-viban-bank.constant';
+import { WalletStatus } from './dto/wallet.dto';
 import { WalletsService } from './wallets.service';
+import { WalletQueryService } from './wallet-query.service';
+import { customerRoleForNetworkKind } from './system-wallet.util';
 import { CustomerAccessService } from '../../identity/customers/customer-access.service';
-import * as crypto from 'crypto';
+import { assertNetwork } from '../../../config/manifests/networks.manifest';
 
+/** 钱包表唯一保留的写路径（spec §4）：客户在某条网络上要一个收款地址。
+ *  同网络第二次直接复用——一个客户在一条网络上只有一个地址（HexTrust：一 vault 一链一地址）。 */
 @Injectable()
 export class CustomerDepositWalletService {
   private readonly logger = new Logger(CustomerDepositWalletService.name);
@@ -33,206 +22,127 @@ export class CustomerDepositWalletService {
     private readonly prisma: PrismaService,
     private readonly auditLogsService: AuditLogsService,
     private readonly walletsService: WalletsService,
-    @Inject(CUSTODIAN_ADAPTER)
-    private readonly custodianAdapter: CustodianAdapter,
+    private readonly queryService: WalletQueryService,
+    @Inject(CUSTODIAN_ADAPTER) private readonly custodianAdapter: CustodianAdapter,
     private readonly customerAccess: CustomerAccessService,
   ) {}
 
-  async createOrReturn(customerId: string, assetId: string) {
-    // ── Validate customer & asset (reads only, outside tx) ──
+  async createOrReturn(customerId: string, networkCode: string) {
+    const network = assertNetwork(networkCode);
+
     const customer = await this.prisma.customerMain.findUnique({
       where: { id: customerId },
       select: { id: true, customerNo: true, lifecycle: true },
     });
-    if (!customer) {
-      throw new NotFoundException({ code: 'CUSTOMER_NOT_FOUND', message: 'Customer not found' });
-    }
-    // 三轴收敛：原先的「onboardingStatus===APPROVED 且 adminStatus===ACTIVE」
-    // 现在就是 lifecycle==='ACTIVE' 一条（旧 adminStatus 本就是 onboarding 结果的投影）。
+    if (!customer) throw new NotFoundException({ code: 'CUSTOMER_NOT_FOUND', message: 'Customer not found' });
     if (customer.lifecycle !== 'ACTIVE') {
-      throw new ForbiddenException({
-        code: 'CUSTOMER_NOT_ACTIVE',
-        message: 'Customer is not active',
-      });
+      throw new ForbiddenException({ code: 'CUSTOMER_NOT_ACTIVE', message: 'Customer is not active' });
     }
 
-    const asset = await this.prisma.asset.findUnique({ where: { id: assetId } });
-    if (!asset) {
-      throw new NotFoundException({ code: 'ASSET_NOT_FOUND', message: 'Asset not found' });
-    }
-    if (asset.status !== 'ACTIVE') {
-      throw new BadRequestException({ code: 'ASSET_NOT_ACTIVE', message: `Asset is in ${asset.status} status` });
-    }
+    const walletRole = customerRoleForNetworkKind(network.kind);
+    const whereExisting = {
+      ownerType: 'CUSTOMER',
+      ownerId: customerId,
+      vaultCode: 'CLIENT_DEPOSIT',
+      network: network.code,
+      status: WalletStatus.ACTIVE,
+    };
 
-    const walletRole = asset.type === 'FIAT' ? WalletRole.C_VIBAN : WalletRole.C_DEP;
-    const walletType = asset.type === 'FIAT' ? 'FIAT_BANK' : 'CRYPTO_ADDRESS';
-
-    // Dependency chain ②: gate CREATION only. createOrReturn is also the fetch path
-    // for an already-existing receiving account (the client Deposit page POSTs it to
-    // display the existing address), so an existing ACTIVE wallet must NOT be gated —
-    // otherwise a later withdrawal-address deactivation would 403 the customer out of
-    // viewing their own address. Cheap pre-tx probe decides whether the gate runs; the
-    // $transaction below still re-checks idempotently for race safety.
-    const existingActive = await this.prisma.wallet.findFirst({
-      where: {
-        ownerType: 'CUSTOMER',
-        ownerId: customerId,
-        assetId,
-        walletRole,
-        status: WalletStatus.ACTIVE,
-      },
-    });
+    // 只在"要开新地址"时过交易就绪门；已有地址的取回路径不过门（否则停用提现地址会把客户锁在自己的地址外）
+    const existingActive = await this.prisma.wallet.findFirst({ where: whereExisting });
     if (!existingActive) {
       await this.customerAccess.assertTradingReady(customerId);
     }
 
-    // ── H5: Atomic check-then-create inside $transaction (prevents race condition) ──
     const txResult = await this.prisma.$transaction(async (tx) => {
-      const existing = await tx.wallet.findFirst({
-        where: {
-          ownerType: 'CUSTOMER',
-          ownerId: customerId,
-          assetId,
-          walletRole,
-          status: WalletStatus.ACTIVE,
-        },
-        include: { asset: { select: { code: true, type: true, decimals: true } } },
-      });
-      if (existing) {
-        return { kind: 'existing' as const, wallet: existing };
-      }
-
-      // 客户 VIBAN 的收款行信息取自常量 —— 2026-08-30 之前是从 C_CMA 钱包上读的，
-      // 那个钱包已退役（见 system-wallet.util.ts）。当时只改了 demo 造数路径，
-      // 这条真实开户 API 漏了：C_CMA 查不到时 `if (cma)` 静默跳过，新开的 VIBAN
-      // 银行名与户名会是空的，客户在客户端看自己的虚拟账号就是两栏白的。
-      let bankName: string | undefined;
-      let accountName: string | undefined;
-      if (walletRole === WalletRole.C_VIBAN) {
-        bankName = CUSTOMER_VIBAN_BANK_NAME;
-        accountName = CUSTOMER_VIBAN_ACCOUNT_NAME;
-      }
-
-      // H4: Use WalletsService domain method instead of direct prisma.wallet.create
+      const existing = await tx.wallet.findFirst({ where: whereExisting });
+      if (existing) return { kind: 'existing' as const, wallet: existing };
       const wallet = await this.walletsService.createWalletRecord(
         {
-          assetId,
           ownerType: 'CUSTOMER',
           ownerId: customerId,
           ownerNo: customer.customerNo,
+          vaultCode: 'CLIENT_DEPOSIT',
           walletRole,
-          type: walletType,
+          network: network.code,
           status: 'CREATING',
-          bankName,
-          accountName,
         },
         tx,
       );
-
-      return { kind: 'created' as const, wallet: wallet! };
+      return { kind: 'created' as const, wallet };
     });
 
-    // Short-circuit if existing wallet found
-    if (txResult.kind === 'existing') {
-      return txResult.wallet;
-    }
+    if (txResult.kind === 'existing') return this.queryService.findOne(txResult.wallet.id);
 
     const wallet = txResult.wallet;
-    const walletNo = wallet.walletNo!; // guaranteed non-null by createWalletRecord
-    const traceId = crypto.randomUUID();
+    const traceId = randomUUID();
+    const actor = {
+      actorType: 'CUSTOMER' as const,
+      actorNo: customer.customerNo,
+      actorDisplayName: customer.customerNo,
+      actorRolesAtTime: ['CUSTOMER'],
+    };
 
-    // ── Call custodian adapter (outside tx — external API call) ──
     try {
-      const result = await this.custodianAdapter.createVault({
-        assetCurrency: asset.currency,
-        network: asset.network ?? undefined,
-        role: walletRole,
+      const result = await this.custodianAdapter.createAddress({
+        vaultCode: 'CLIENT_DEPOSIT',
+        network: network.code,
+        ownerNo: customer.customerNo,
+      });
+      await this.walletsService.transitionStatus(wallet.walletNo, 'CREATING', 'ACTIVE', {
+        custodianRef: result.custodianRef,
+        address: result.address ?? null,
+        iban: result.iban ?? null,
       });
 
-      // H4: Transition via domain method instead of direct prisma.wallet.update
-      await this.walletsService.transitionStatus(
-        walletNo,
-        'CREATING',
-        'ACTIVE',
+      await this.auditLogsService.recordByActor(
         {
-          vaultId: result.vaultId,
-          address: result.address ?? null,
-          iban: result.iban ?? null,
+          action: AuditActions.CUSTOMER_DEPOSIT_ADDRESS_CREATED,
+          actionDomain: 'DEPOSIT',
+          primarySubjectType: AuditEntityTypes.WALLET,
+          primarySubjectNo: wallet.walletNo,
+          ownerCustomerNo: customer.customerNo,
+          subjects: [
+            { subjectType: AuditEntityTypes.WALLET, subjectNo: wallet.walletNo, subjectRole: 'PRIMARY' as any },
+            { subjectType: 'CUSTOMER', subjectNo: customer.customerNo, subjectRole: 'OWNER' as any },
+          ],
+          requestId: `CUSTOMER_DEPOSIT_ADDRESS_CREATED_${wallet.walletNo}`,
+          traceId,
+          outcome: AuditOutcome.SUCCESS,
+          afterData: { walletNo: wallet.walletNo, network: network.code, walletRole, address: result.address ?? null, iban: result.iban ?? null, custodianRef: result.custodianRef },
+          sourcePlatform: 'CLIENT_API',
         },
+        actor,
       );
 
-      // Re-fetch with asset include for API response
-      const updated = await this.prisma.wallet.findUnique({
-        where: { id: wallet.id },
-        include: { asset: { select: { code: true, type: true, decimals: true } } },
-      });
-
-      await this.auditLogsService.recordSystem({
-        action: AuditActions.DEPOSIT_WALLET_CREATED,
-        actionDomain: 'DEPOSIT',
-        primarySubjectType: AuditEntityTypes.WALLET,
-        primarySubjectNo: walletNo,
-        ownerCustomerNo: customer.customerNo,
-        subjects: [
-          { subjectType: AuditEntityTypes.WALLET, subjectNo: walletNo, subjectRole: 'PRIMARY' },
-          { subjectType: 'CUSTOMER', subjectNo: customer.customerNo, subjectRole: 'OWNER' },
-        ],
-        requestId: `DEPOSIT_WALLET_CREATED_${walletNo}_${crypto.randomUUID()}`,
-        traceId,
-        outcome: AuditOutcome.SUCCESS,
-        metadata: {
-          assetCurrency: asset.currency,
-          assetType: asset.type,
-          walletRole,
-          vaultId: result.vaultId,
-          address: result.address,
-          iban: result.iban,
-        },
-        sourcePlatform: 'CLIENT_API',
-      } as any);
-
-      this.logger.log(`Deposit wallet ${walletNo} created for customer ${customer.customerNo}, asset ${asset.currency}`);
-      return updated;
+      this.logger.log(`Deposit address ${wallet.walletNo} opened for ${customer.customerNo} on ${network.code}`);
+      return this.queryService.findOne(wallet.id);
     } catch (err: any) {
-      // H4: Transition to FAILED via domain method instead of direct delete
-      try {
-        await this.walletsService.transitionStatus(
-          walletNo,
-          'CREATING',
-          'FAILED',
-        );
-      } catch (transitionErr) {
-        this.logger.error(
-          `Failed to transition wallet ${walletNo} to FAILED: ${(transitionErr as Error).message}`,
-        );
-      }
-
-      // 站7：失败不单独起名——CREATE_FAILED 并入 CREATED 双结局（旧名进退役闸）。
-      await this.auditLogsService.recordSystem({
-        action: AuditActions.DEPOSIT_WALLET_CREATED,
-        actionDomain: 'DEPOSIT',
-        primarySubjectType: AuditEntityTypes.WALLET,
-        primarySubjectNo: walletNo,
-        ownerCustomerNo: customer.customerNo,
-        subjects: [
-          { subjectType: AuditEntityTypes.WALLET, subjectNo: walletNo, subjectRole: 'PRIMARY' },
-          { subjectType: 'CUSTOMER', subjectNo: customer.customerNo, subjectRole: 'OWNER' },
-        ],
-        requestId: `DEPOSIT_WALLET_CREATED_${walletNo}_${crypto.randomUUID()}`,
-        reasonCode: 'PROVISION_ERROR',
-        traceId,
-        outcome: AuditOutcome.FAILED,
-        metadata: {
-          assetCurrency: asset.currency,
-          assetType: asset.type,
-          walletRole,
-          error: err.message,
+      await this.walletsService.transitionStatus(wallet.walletNo, 'CREATING', 'FAILED');
+      // 双结局：失败不单独起名——同码 outcome=FAILED + reasonCode
+      await this.auditLogsService.recordByActor(
+        {
+          action: AuditActions.CUSTOMER_DEPOSIT_ADDRESS_CREATED,
+          actionDomain: 'DEPOSIT',
+          primarySubjectType: AuditEntityTypes.WALLET,
+          primarySubjectNo: wallet.walletNo,
+          ownerCustomerNo: customer.customerNo,
+          subjects: [
+            { subjectType: AuditEntityTypes.WALLET, subjectNo: wallet.walletNo, subjectRole: 'PRIMARY' as any },
+            { subjectType: 'CUSTOMER', subjectNo: customer.customerNo, subjectRole: 'OWNER' as any },
+          ],
+          requestId: `CUSTOMER_DEPOSIT_ADDRESS_CREATED_${wallet.walletNo}`,
+          traceId,
+          outcome: AuditOutcome.FAILED,
+          reasonCode: 'PROVISION_ERROR',
+          reason: err?.message ?? 'custodian error',
+          metadata: { network: network.code, walletRole },
+          sourcePlatform: 'CLIENT_API',
         },
-        sourcePlatform: 'CLIENT_API',
-      } as any);
-
-      this.logger.error(`Deposit wallet creation failed for customer ${customer.customerNo}: ${err.message}`, err.stack);
-      throw new BadGatewayException({ code: 'CUSTODIAN_CREATE_FAILED', message: 'Failed to create deposit wallet' });
+        actor,
+      );
+      this.logger.error(`Deposit address creation failed for ${customer.customerNo} on ${network.code}: ${err?.message}`);
+      throw new BadGatewayException({ code: 'CUSTODIAN_CREATE_FAILED', message: 'Failed to create deposit address' });
     }
   }
 }

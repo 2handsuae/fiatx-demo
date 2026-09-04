@@ -366,7 +366,7 @@ describe('WithdrawWorkflowService — ensureSourceWalletBound (R4)', () => {
       ownerId: 'cust-1',
       assetId: 'asset-aed',
       fromWalletId: null,
-      asset: { currency: 'AED', type: 'FIAT' },
+      asset: { currency: 'AED', type: 'FIAT', network: 'AED_ZAND' },
     };
 
     const result = await (workflow as any).ensureSourceWalletBound(fiatWithdrawal);
@@ -375,10 +375,11 @@ describe('WithdrawWorkflowService — ensureSourceWalletBound (R4)', () => {
     expect(prisma.wallet.findFirst).toHaveBeenCalledWith(
       expect.objectContaining({
         where: expect.objectContaining({
+          vaultCode: 'CLIENT_DEPOSIT',
           walletRole: 'C_VIBAN',
           ownerType: 'CUSTOMER',
           ownerId: 'cust-1',
-          assetId: 'asset-aed',
+          network: 'AED_ZAND',
           status: 'ACTIVE',
         }),
       }),
@@ -406,7 +407,7 @@ describe('WithdrawWorkflowService — ensureSourceWalletBound (R4)', () => {
       ownerId: 'cust-2',
       assetId: 'asset-usdt',
       fromWalletId: null,
-      asset: { currency: 'USDT', type: 'CRYPTO' },
+      asset: { currency: 'USDT', type: 'CRYPTO', network: 'TRON' },
     };
 
     const result = await (workflow as any).ensureSourceWalletBound(cryptoWithdrawal);
@@ -414,10 +415,11 @@ describe('WithdrawWorkflowService — ensureSourceWalletBound (R4)', () => {
     expect(prisma.wallet.findFirst).toHaveBeenCalledWith(
       expect.objectContaining({
         where: expect.objectContaining({
+          vaultCode: 'CLIENT_DEPOSIT',
           walletRole: 'C_DEP',
           ownerType: 'CUSTOMER',
           ownerId: 'cust-2',
-          assetId: 'asset-usdt',
+          network: 'TRON',
           status: 'ACTIVE',
         }),
       }),

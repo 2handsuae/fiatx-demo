@@ -52,18 +52,18 @@ describe('TradingReadinessController', () => {
 
   describe('receiving', () => {
     it('maps each requested asset code to hasReceivingAccount=true when a wallet exists', async () => {
-      assets.findByCode.mockResolvedValue({ id: 'asset-usd-id' });
+      assets.findByCode.mockResolvedValue({ id: 'asset-usd-id', network: 'AED_ZAND' });
       walletQuery.hasReceivingAccount.mockResolvedValue(true);
 
       const result = await controller.receiving({ user: { type: 'CUSTOMER', userId: 'cust-1' } }, 'USD');
 
       expect(assets.findByCode).toHaveBeenCalledWith('USD');
-      expect(walletQuery.hasReceivingAccount).toHaveBeenCalledWith('cust-1', 'asset-usd-id');
+      expect(walletQuery.hasReceivingAccount).toHaveBeenCalledWith('cust-1', 'AED_ZAND');
       expect(result).toEqual({ USD: { hasReceivingAccount: true } });
     });
 
     it('maps each requested asset code to hasReceivingAccount=false when no wallet exists', async () => {
-      assets.findByCode.mockResolvedValue({ id: 'asset-usdt-id' });
+      assets.findByCode.mockResolvedValue({ id: 'asset-usdt-id', network: 'TRON' });
       walletQuery.hasReceivingAccount.mockResolvedValue(false);
 
       const result = await controller.receiving({ user: { type: 'CUSTOMER', userId: 'cust-1' } }, 'USDT-TRC20');
@@ -82,10 +82,10 @@ describe('TradingReadinessController', () => {
 
     it('handles multiple comma-separated codes and trims whitespace', async () => {
       assets.findByCode.mockImplementation((code: string) =>
-        Promise.resolve(code === 'USD' ? { id: 'asset-usd-id' } : { id: 'asset-usdt-id' }),
+        Promise.resolve(code === 'USD' ? { id: 'asset-usd-id', network: 'AED_ZAND' } : { id: 'asset-usdt-id', network: 'TRON' }),
       );
-      walletQuery.hasReceivingAccount.mockImplementation((_customerId: string, assetId: string) =>
-        Promise.resolve(assetId === 'asset-usd-id'),
+      walletQuery.hasReceivingAccount.mockImplementation((_customerId: string, network: string) =>
+        Promise.resolve(network === 'AED_ZAND'),
       );
 
       const result = await controller.receiving(

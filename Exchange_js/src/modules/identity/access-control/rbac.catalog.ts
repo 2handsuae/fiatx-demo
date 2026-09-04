@@ -42,7 +42,6 @@ export type PermissionGroup =
   | 'TRADING_SWAP_READ'
   | 'TRADING_SWAP_WRITE'
   | 'WALLET_READ'
-  | 'WALLET_WRITE'
   | 'FUNDS_ORDER_VIEW'
   | 'FUNDS_ORDER_ACT'
   | 'RECON_RUN_READ'
@@ -372,14 +371,8 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
   // funds-orders read surface (see "Funds Orders" below).
 
   // Wallet / treasury
-  route('GET', '/wallets', 'List wallets', ['WALLET_READ']),
+  route('GET', '/wallets', 'List wallet address rows (vault × network)', ['WALLET_READ']),
   route('GET', '/wallets/:walletNo', 'Get wallet detail', ['WALLET_READ']),
-  route('GET', '/wallets/:walletNo/balance', 'Get wallet balance', ['WALLET_READ']),
-  route('PATCH', '/wallets/:walletNo/status', 'Update wallet status', ['WALLET_WRITE']),
-
-  // Custodian wallet workflow
-  route('POST', '/admin/custodian-wallets', 'Create custodian wallet (approval workflow)', ['WALLET_WRITE']),
-  route('POST', '/admin/custodian-wallets/:walletNo/retry', 'Retry failed custodian wallet creation', ['WALLET_WRITE']),
 
   // Reconciliation
   route('GET', '/admin/reconciliation/demo/compare', 'Demo compare: injected breaks vs detected line-items', ['RECON_RUN_READ']),
@@ -410,10 +403,7 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
 
   // Assets
   route('GET', '/assets', 'List assets', ['ASSET_CONFIG_READ']),
-  route('GET', '/assets/:id', 'Get asset detail', ['ASSET_CONFIG_READ']),
-  route('POST', '/admin/assets/listing', 'Submit asset listing request', ['ASSET_CONFIG_WRITE']),
-  route('PATCH', '/admin/assets/:assetNo', 'Update asset metadata', ['ASSET_CONFIG_WRITE']),
-  route('POST', '/admin/assets/:assetNo/activate', 'Activate asset', ['ASSET_CONFIG_WRITE']),
+  route('GET', '/assets/:assetNo', 'Get asset detail', ['ASSET_CONFIG_READ']),
   route('POST', '/admin/assets/:assetNo/suspend', 'Suspend asset', ['ASSET_CONFIG_WRITE']),
   route('POST', '/admin/assets/:assetNo/reactivate', 'Reactivate asset', ['ASSET_CONFIG_WRITE']),
 
@@ -466,7 +456,6 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
   // Transaction Limit Rules
   route('GET', '/admin/transaction-limit-rules', 'List transaction limit rules', ['TRANSACTION_LIMIT_READ']),
   route('GET', '/admin/transaction-limit-rules/:ruleNo', 'Get transaction limit rule detail', ['TRANSACTION_LIMIT_READ']),
-  route('POST', '/admin/transaction-limit-rules', 'Create transaction limit rule', ['TRANSACTION_LIMIT_WRITE']),
   route('POST', '/admin/transaction-limit-rules/:ruleNo/change', 'Submit transaction limit rule change', ['TRANSACTION_LIMIT_WRITE']),
 
   // Withdrawal Addresses
@@ -480,6 +469,9 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
     'WITHDRAWAL_ADDRESS_WRITE',
   ]),
   route('POST', '/admin/withdrawal-addresses/:addressNo/skip-cooling', 'Skip withdrawal address cooling period', [
+    'WITHDRAWAL_ADDRESS_WRITE',
+  ]),
+  route('POST', '/admin/withdrawal-addresses/:addressNo/unsuspend', 'Lift withdrawal address suspension', [
     'WITHDRAWAL_ADDRESS_WRITE',
   ]),
 
@@ -496,6 +488,9 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
   route('POST', '/admin/withdrawal-fee-levels/:levelCode/change', 'Submit withdrawal fee level change request', [
     'WITHDRAWAL_FEE_LEVEL_WRITE',
   ]),
+  route('POST', '/admin/withdrawal-fee-levels/:levelCode/retire', 'Submit withdrawal fee level retirement request', [
+    'WITHDRAWAL_FEE_LEVEL_WRITE',
+  ]),
 
   // Swap Fee Levels
   route('GET', '/admin/swap-fee-levels', 'List swap fee levels', [
@@ -508,6 +503,9 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
     'SWAP_FEE_LEVEL_WRITE',
   ]),
   route('POST', '/admin/swap-fee-levels/:levelCode/change', 'Submit swap fee level change request', [
+    'SWAP_FEE_LEVEL_WRITE',
+  ]),
+  route('POST', '/admin/swap-fee-levels/:levelCode/retire', 'Submit swap fee level retirement request', [
     'SWAP_FEE_LEVEL_WRITE',
   ]),
 
@@ -698,21 +696,15 @@ export const ACTION_BUCKET_CATALOG: ActionDomain[] = [
       },
       {
         key: 'treasury.manage_assets',
-        label: 'Manage asset lifecycle',
-        description: 'Submit asset listing, update metadata, activate, suspend, or reactivate assets',
+        label: 'Suspend / reactivate assets',
+        description: 'Submit asset suspension and reactivation requests — CISO signs them off',
         groups: ['ASSET_CONFIG_WRITE'],
       },
       {
         key: 'treasury.view_wallets',
         label: 'View wallets',
-        description: 'Browse wallet list, wallet detail, and balance queries',
+        description: 'Browse wallet address rows (vault × network) and detail; balances live in the ledger',
         groups: ['WALLET_READ'],
-      },
-      {
-        key: 'treasury.manage_wallets',
-        label: 'Manage wallets',
-        description: 'Create custodian wallets, retry failed creations, update wallet status',
-        groups: ['WALLET_WRITE'],
       },
       {
         key: 'treasury.view_addresses',
@@ -723,7 +715,7 @@ export const ACTION_BUCKET_CATALOG: ActionDomain[] = [
       {
         key: 'treasury.manage_addresses',
         label: 'Manage withdrawal addresses',
-        description: 'Suspend withdrawal addresses, skip cooling period',
+        description: 'Suspend / unsuspend withdrawal addresses, skip cooling period (simulation)',
         groups: ['WITHDRAWAL_ADDRESS_WRITE'],
       },
       {
@@ -735,7 +727,7 @@ export const ACTION_BUCKET_CATALOG: ActionDomain[] = [
       {
         key: 'treasury.manage_limits',
         label: 'Manage transaction limits',
-        description: 'Create transaction limit policies, submit limit change requests',
+        description: 'Submit transaction limit change requests — senior management signs them off',
         groups: ['TRANSACTION_LIMIT_WRITE'],
       },
     ],
@@ -829,7 +821,7 @@ export const ACTION_BUCKET_CATALOG: ActionDomain[] = [
     icon: '💰',
     buckets: [
       { key: 'pricing.view', label: 'View fee levels', description: 'Browse withdrawal and swap fee levels', groups: ['WITHDRAWAL_FEE_LEVEL_READ', 'SWAP_FEE_LEVEL_READ'] },
-      { key: 'pricing.manage', label: 'Manage fee levels', description: 'Raise fee level creation and change requests — operations signs them off', groups: ['WITHDRAWAL_FEE_LEVEL_WRITE', 'SWAP_FEE_LEVEL_WRITE'] },
+      { key: 'pricing.manage', label: 'Manage fee levels', description: 'Raise fee level creation, change and retirement requests — operations signs them off', groups: ['WITHDRAWAL_FEE_LEVEL_WRITE', 'SWAP_FEE_LEVEL_WRITE'] },
     ],
   },
   // ─── Domain: Demo Instruments ────────────────────────
@@ -950,10 +942,16 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
     'RECON_RUN_READ', 'RECON_CASE_READ', 'RECON_EXTERNAL_BALANCE_READ',
     'WITHDRAWAL_FEE_LEVEL_READ', 'SWAP_FEE_LEVEL_READ',
     'WITHDRAWAL_FEE_LEVEL_WRITE', 'SWAP_FEE_LEVEL_WRITE',
+    // CUSTOMER_TAG_VIEW 补于波一 T13——此前 CFO 持两族 *_FEE_LEVEL_WRITE 却没这个组，唯一
+    // 能建费率等级的角色打开费率等级创建/变更弹窗的受众标签选择器（GET
+    // /admin/customer-tags/catalog）只看得到 everyone，VIP 等受众标签选不到；这个组同时也
+    // 挂在 GET /admin/customers/:customerNo/effective-tags 上（非本次新增用途，原本就在）。
+    // 不带 CUSTOMER_READ——CFO 不查客户资料。
+    'CUSTOMER_TAG_VIEW',
   ],
 
-  // 钱放在哪归他：托管钱包与提现地址的写权限全仓仅此一处。
-  // 与技术官的分界是「容器 vs 配置」——资产怎么配是技术官，钱装在哪个容器里是他。
+  // 提现地址的写权限全仓仅此一处；钱包地址行只从种子来，管理台只读。
+  // 暂停 / 恢复资产归运营，不归他——他管钱装在哪个容器里，不管资产状态。
   TREASURY_OFFICER: [
     'BASE_ACCESS',
     'IAM_MEMBER_READ', 'IAM_ROLE_READ',
@@ -961,23 +959,23 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
     'AUDIT_READ',
     'LEDGER_ACCOUNT_READ', 'LEDGER_EVIDENCE_READ', 'LEDGER_FLOW_READ',
     'ASSET_CONFIG_READ',
-    'WALLET_READ', 'WALLET_WRITE',
+    'WALLET_READ',
     'WITHDRAWAL_ADDRESS_READ', 'WITHDRAWAL_ADDRESS_WRITE',
     'FUNDS_ORDER_VIEW',
     // 调账单裁决人是 CFO（平账 A 批起，原 OPS_OFFICER）；开单权 RECON_ADJUSTMENT_WRITE
-    // 归金库——maker（金库）≠ checker（CFO），verify:rbac S5 守着这条。RECON_CASE_READ 是
+    // 归金库——maker（金库）≠ checker（CFO），verify:rbac S5c 守着这条。RECON_CASE_READ 是
     // 走到入口的必需品：侧栏 Cases 与调账单详情路由都要它。
     'RECON_CASE_READ', 'RECON_ADJUSTMENT_WRITE',
   ],
 
   TECH_OFFICER: [
     'BASE_ACCESS',
-    'IAM_MEMBER_READ', 'IAM_ROLE_READ', 'IAM_MEMBER_MANAGE',
+    'IAM_MEMBER_READ', 'IAM_ROLE_READ', 'IAM_MEMBER_MANAGE', 'IAM_ROLE_ASSIGN',
     'IAM_ROLE_DEFINE', 'IAM_CREDENTIAL_RESET',
     'GOV_APPROVAL_READ', 'GOV_APPROVAL_POLICY_READ',
     'AUDIT_READ', 'AUDIT_EXPORT_READ',
     'LEDGER_ACCOUNT_READ', 'LEDGER_EVIDENCE_READ', 'LEDGER_FLOW_READ',
-    'ASSET_CONFIG_READ', 'ASSET_CONFIG_WRITE',
+    'ASSET_CONFIG_READ',
     'WALLET_READ', 'WITHDRAWAL_ADDRESS_READ', 'TRANSACTION_LIMIT_READ',
     'SUMSUB_EVENT_VIEW',
     'FUNDS_ORDER_VIEW',
@@ -992,7 +990,7 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
     'GOV_APPROVAL_READ',
     'AUDIT_READ',
     'LEDGER_ACCOUNT_READ', 'LEDGER_EVIDENCE_READ', 'LEDGER_FLOW_READ',
-    'ASSET_CONFIG_READ', 'WALLET_READ', 'WITHDRAWAL_ADDRESS_READ',
+    'ASSET_CONFIG_READ', 'ASSET_CONFIG_WRITE', 'WALLET_READ', 'WITHDRAWAL_ADDRESS_READ',
     'TRANSACTION_LIMIT_READ', 'TRANSACTION_LIMIT_WRITE',
     'CUSTOMER_READ', 'CUSTOMER_RESTRICTION_READ', 'CUSTOMER_TAG_VIEW',
     'TRADING_DEPOSIT_READ', 'TRADING_WITHDRAW_READ', 'TRADING_SWAP_READ', 'SUMSUB_EVENT_VIEW',

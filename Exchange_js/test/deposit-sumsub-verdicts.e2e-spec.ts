@@ -221,16 +221,20 @@ describe('Deposit Sumsub verdict buttons (e2e, Task 9)', () => {
     // cross-checks walletRef's wallet.ownerNo against tb_account_registry's ownerNo.
     const fiatWallet = await prisma.wallet.create({
       data: {
+        walletNo: `WA-E2E-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
         ownerType: 'CUSTOMER', ownerId: customerId, ownerNo: customer.customerNo,
-        type: 'FIAT_BANK', assetId: fiatAssetId, iban: 'AE_E2E_TEST_IBAN', status: 'ACTIVE',
+        vaultCode: 'CLIENT_DEPOSIT', walletRole: 'C_VIBAN', network: 'AED_ZAND',
+        iban: 'AE_E2E_TEST_IBAN', status: 'ACTIVE',
       },
     });
     fiatWalletId = fiatWallet.id;
 
     const cryptoWallet = await prisma.wallet.create({
       data: {
+        walletNo: `WA-E2E-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
         ownerType: 'CUSTOMER', ownerId: customerId, ownerNo: customer.customerNo,
-        type: 'CRYPTO_ADDRESS', assetId: cryptoAssetId, address: 'T_E2E_TEST_ADDRESS', status: 'ACTIVE',
+        vaultCode: 'CLIENT_DEPOSIT', walletRole: 'C_DEP', network: 'TRON',
+        address: 'T_E2E_TEST_ADDRESS', status: 'ACTIVE',
       },
     });
     cryptoWalletId = cryptoWallet.id;
@@ -240,7 +244,6 @@ describe('Deposit Sumsub verdict buttons (e2e, Task 9)', () => {
     await app.get(WithdrawalAddressService).createBankAccount({
       customerId,
       customerNo: customer.customerNo,
-      assetId: fiatAssetId,
       iban: 'DE89370400440532013000',
       swiftBic: 'DEUTDEFF500',
       bankName: 'E2E Test Bank',

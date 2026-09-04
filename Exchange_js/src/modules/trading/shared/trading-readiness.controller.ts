@@ -40,7 +40,7 @@ export class TradingReadinessController {
     for (const code of codes) {
       const asset = await this.assets.findByCode(code);
       out[code] = {
-        hasReceivingAccount: asset ? await this.walletQuery.hasReceivingAccount(customerId, asset.id) : false,
+        hasReceivingAccount: asset ? await this.walletQuery.hasReceivingAccount(customerId, asset.network) : false,
       };
     }
     return out;

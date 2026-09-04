@@ -286,7 +286,7 @@ export class WithdrawWorkflowService implements OnModuleInit {
     let destinationVerified = false;
     if (isCryptoWithdraw && toAddress) {
       const registeredAddress = await (this.prisma as any).withdrawalAddress.findFirst({
-        where: { customerId: userId, address: toAddress, status: 'ACTIVE' },
+        where: { customerId: userId, network: asset.network, address: toAddress, status: 'ACTIVE' },
       });
       if (!registeredAddress) {
         throw new BadRequestException({
@@ -297,13 +297,14 @@ export class WithdrawWorkflowService implements OnModuleInit {
       counterpartyIsVasp = registeredAddress.addressType === 'VASP';
       destinationVerified = true;
     } else if (!isCryptoWithdraw && toIban) {
-      // NOTE: registered bank rows are stamped addressType='BANK' (network is
-      // the generic asset-network value 'FIAT', not 'BANK') — see
-      // WithdrawalAddressService#createBankAccount. Matches the addressType
-      // filter used everywhere else in the codebase that checks for an active
-      // bank account (e.g. onboarding.service.ts, withdrawal-address.service.ts).
+      // NOTE: registered bank rows are stamped addressType='BANK' and
+      // network=BANK_RAIL_NETWORK (i.e. 'AED_ZAND', the same value as the fiat
+      // asset's own `network`) — see WithdrawalAddressService#createBankAccount.
+      // Matches the addressType filter used everywhere else in the codebase
+      // that checks for an active bank account (e.g. onboarding.service.ts,
+      // withdrawal-address.service.ts).
       const registeredAddress = await (this.prisma as any).withdrawalAddress.findFirst({
-        where: { customerId: userId, iban: toIban, status: 'ACTIVE', addressType: 'BANK' },
+        where: { customerId: userId, network: asset.network, iban: toIban, status: 'ACTIVE', addressType: 'BANK' },
       });
       if (!registeredAddress) {
         throw new BadRequestException({
@@ -1442,8 +1443,9 @@ export class WithdrawWorkflowService implements OnModuleInit {
 
     const sourceWallet = await (this.prisma as any).wallet.findFirst({
       where: {
+        vaultCode: 'CLIENT_DEPOSIT',
         walletRole,
-        assetId: w.assetId,
+        network: w.asset.network,
         ownerType: 'CUSTOMER',
         ownerId: w.ownerId,
         status: 'ACTIVE',
@@ -1455,7 +1457,7 @@ export class WithdrawWorkflowService implements OnModuleInit {
     if (!sourceWallet) {
       throw new IllegalSourceWalletError(
         `Withdrawal ${w.id}: customer ${w.ownerId} has no active ${walletRole} ` +
-        `wallet for asset ${w.assetId} (${w.asset.currency}). R4 requires the ` +
+        `wallet on network ${w.asset.network} (${w.asset.currency}). R4 requires the ` +
         `source wallet to be customer-owned (FIAT→C_VIBAN, CRYPTO→C_DEP).`,
       );
     }

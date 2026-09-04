@@ -1,4 +1,4 @@
-import { Controller, Post, Get, Delete, Body, Param, Query, Request, UseGuards, ForbiddenException } from '@nestjs/common';
+import { Controller, Post, Get, Patch, Delete, Body, Param, Query, Request, UseGuards, ForbiddenException } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { WithdrawalAddressWorkflowService } from './withdrawal-address-workflow.service';
@@ -6,6 +6,7 @@ import { WithdrawalAddressService } from './withdrawal-address.service';
 import { CreateWithdrawalAddressDto } from './dto/create-withdrawal-address.dto';
 import { CreateBankAccountDto } from './dto/create-bank-account.dto';
 import { ListWithdrawalAddressQueryDto } from './dto/list-withdrawal-address-query.dto';
+import { UpdateWithdrawalAddressDto } from './dto/update-withdrawal-address.dto';
 
 @ApiTags('client/withdrawal-addresses')
 @ApiBearerAuth()
@@ -42,7 +43,7 @@ export class WithdrawalAddressController {
   @ApiOperation({ summary: 'List my withdrawal addresses' })
   async list(@Request() req: any, @Query() query: ListWithdrawalAddressQueryDto) {
     const { customerId } = this.extractCustomer(req);
-    await this.workflowService.batchActivateExpired(customerId, query.assetId);
+    await this.workflowService.batchActivateExpired(customerId, query.network);
     return this.addressService.listByCustomer(customerId, query);
   }
 
@@ -56,6 +57,13 @@ export class WithdrawalAddressController {
       throw new ForbiddenException('Address not found or not owned by you');
     }
     return address;
+  }
+
+  @Patch(':addressNo')
+  @ApiOperation({ summary: 'Edit label / beneficiary name of my withdrawal address' })
+  async update(@Request() req: any, @Param('addressNo') addressNo: string, @Body() dto: UpdateWithdrawalAddressDto) {
+    const { customerId, customerNo } = this.extractCustomer(req);
+    return this.workflowService.updateAddress(addressNo, customerId, customerNo, dto);
   }
 
   @Delete(':addressNo')

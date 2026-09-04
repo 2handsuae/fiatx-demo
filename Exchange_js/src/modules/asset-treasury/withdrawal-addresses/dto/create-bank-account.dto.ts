@@ -1,11 +1,7 @@
-import { IsUUID, IsString, IsBoolean, IsOptional, Equals } from 'class-validator';
+import { IsString, IsBoolean, IsOptional, Equals } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
 
 export class CreateBankAccountDto {
-  @ApiProperty({ description: 'Asset UUID (must be a FIAT asset)' })
-  @IsUUID()
-  assetId!: string;
-
   @ApiProperty({ description: 'Full legal name of the bank account holder' })
   @IsString()
   beneficiaryName!: string;

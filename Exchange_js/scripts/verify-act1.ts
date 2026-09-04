@@ -225,7 +225,6 @@ async function main(): Promise<void> {
 
   // ══════════════════════ B6：成员 / 钱包详情对外用业务键（铁律⑥，Task 18）══════════════════════
 
-  const asset0 = await prisma.asset.findFirstOrThrow();
   const su4 = uniq();
   const userFxB6 = await prisma.user.create({
     data: {
@@ -237,7 +236,10 @@ async function main(): Promise<void> {
     },
   });
   const walletFxB6 = await prisma.wallet.create({
-    data: { walletNo: `WA-ACT1-B6-${su4}`, ownerType: 'PLATFORM', type: 'FIAT_BANK', assetId: asset0.id },
+    data: {
+      walletNo: `WA-ACT1-B6-${su4}`, ownerType: 'PLATFORM', ownerId: null, ownerNo: `PLATFORM-ACT1-B6-${su4}`,
+      vaultCode: 'F_OPS', walletRole: 'F_OPS', network: 'AED_ZAND', status: 'ACTIVE',
+    },
   });
   const b6u200 = await call('GET', `/users/${userFxB6.userNo}`, tokens.treasury);
   const b6u404 = await call('GET', `/users/${userFxB6.id}`, tokens.treasury);
@@ -250,15 +252,18 @@ async function main(): Promise<void> {
   );
 
   // ══════════════════════ B7：资产状态迁移表（法二，铁律④）══════════════════════
+  // 波一起：上架 / 激活退役，表只剩 ACTIVE⇄SUSPENDED 两边；提单人换运营。
+  // 对 ACTIVE 资产打 reactivate 必须被迁移表拒绝（409 + 'Invalid transition'），
+  // 而不是请求层另写一条 if——请求层已改走表（asset-reactivation-workflow.service.ts）。
 
-  precheckRoute('POST', '/admin/assets/:assetNo/activate');
+  precheckRoute('POST', '/admin/assets/:assetNo/reactivate');
   const activeAsset = await prisma.asset.findFirstOrThrow({ where: { status: 'ACTIVE' } });
-  const b7 = await call('POST', `/admin/assets/${activeAsset.assetNo}/activate`, tokens.tech_admin);
+  const b7 = await call('POST', `/admin/assets/${activeAsset.assetNo}/reactivate`, tokens.ops_officer);
   const b7MsgOk = typeof b7.json?.message === 'string' && b7.json.message.includes('Invalid transition');
   judge(
     'B7',
     b7.status === 409 && b7MsgOk,
-    `POST activate(ACTIVE 资产) → ${b7.status} ${JSON.stringify(b7.json)}（期望 409 + 'Invalid transition'）`,
+    `POST reactivate(ACTIVE 资产, ops_officer@) → ${b7.status} ${JSON.stringify(b7.json)}（期望 409 + 'Invalid transition'）`,
   );
 
   // ══════════════════════ B8：留痕带上下文——B1 那张单的 APPROVAL_EXPIRED 一行 ══════════════════════

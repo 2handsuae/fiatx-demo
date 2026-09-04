@@ -54,10 +54,13 @@ describe('system TB account codes are registered at every provisioning site (reg
     'INCOME_OTHER',
   ] as const;
 
+  // 波一(2026-09-04)T2 前，这里另有两条：prisma/seed.business.ts（自己内联一份同款数组）
+  // 与 asset-activation-workflow.service.ts（checkReadiness 前也内联一份，做就绪校验）。
+  // T2 把种子那份收口成调用 asset-provisioning.service.ts#systemAccountCodesFor()（seed
+  // 不再内联字面量）；activation 整条路随上架/激活退役被删（BACKLOG「新资产上线整条流程」）。
+  // 现在全仓只剩这一处内联，唯一注册点。
   const REGISTRATION_SOURCES = [
-    '../../../../../prisma/seed.business.ts',
     '../../../asset-treasury/assets/asset-provisioning.service.ts',
-    '../../../asset-treasury/assets/asset-activation-workflow.service.ts',
   ];
 
   for (const rel of REGISTRATION_SOURCES) {
