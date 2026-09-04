@@ -108,6 +108,12 @@ export const PERMISSIONS = {
   DEPOSIT_TRANSACTION_DETAIL_READ: 'api.get.deposit_transactions_id',
   WITHDRAW_TRANSACTIONS_READ: 'api.get.withdraw_transactions',
   WITHDRAW_TRANSACTION_DETAIL_READ: 'api.get.withdraw_transactions_id',
+
+  // 平账 B 批（Task 9）——三条补单路的写权限码，精确镜像 rbac.catalog.ts 里
+  // Task 5/6/7 已登记的 buildPermissionCode(method, path) 派生值。
+  DEPOSIT_SUPPLEMENT_WRITE: 'api.post.deposit_transactions_supplement',
+  DEPOSIT_CLAWBACK_WRITE: 'api.post.deposit_transactions_depositno_clawback',
+  WITHDRAW_RETURN_CLAIM_WRITE: 'api.post.withdraw_transactions_withdrawno_return_claim',
   // Unified funds-orders admin surface (Round 2 / C6) — replaces the legacy
   // payins / payouts / internal-funds read permissions.
   FUNDS_ORDERS_READ: 'api.get.admin_funds_orders',

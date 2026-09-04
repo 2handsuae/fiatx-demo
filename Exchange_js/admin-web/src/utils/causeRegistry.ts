@@ -8,6 +8,8 @@ import type { FlowComparisonRow } from '../pages/ReconciliationCasesDetailPage';
 export const OUTLET_TONE: Record<string, 'green' | 'blue' | 'amber' | 'red'> = {
   ADJUST_CORRECT: 'blue', ADJUST_REVERSE: 'blue', ADJUST_RECORD: 'blue', ADJUST_REATTRIBUTE: 'blue',
   HOLD_NEXT_PERIOD: 'amber', HOLD_INVESTIGATING: 'amber', DEFERRED: 'amber',
+  // 平账 B 批（Task 9）：SUPPLEMENT 同 DEFERRED 语义——不落分录、等业务域执行。
+  SUPPLEMENT: 'amber',
 };
 
 /** 行事实（出口判定的输入）——从被点的那一行原样取，POST 时带给后端。 */

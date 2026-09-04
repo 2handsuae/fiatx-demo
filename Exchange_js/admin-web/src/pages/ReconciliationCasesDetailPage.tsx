@@ -52,6 +52,7 @@ import ReconciliationAdjustmentCreateModal, {
 import ReconciliationDispositionModal, {
   type AdjustHandoff,
 } from '../components/ReconciliationDispositionModal';
+import ReconciliationSupplementModal from '../components/ReconciliationSupplementModal';
 import { useAdminSession } from '../contexts/AdminSessionContext';
 import { PERMISSIONS } from '../rbac/permissions';
 import { OUTLET_TONE, directionNoteFor } from '../utils/causeRegistry';
@@ -111,6 +112,10 @@ export interface FlowComparisonRow {
     reasonCode?: string; direction?: 'REDUCE' | 'INCREASE';
     findingNote: string;
     adjustmentNo: string | null; createdBy: string; createdAt: string;
+    // 平账 B 批（Task 9）：SUPPLEMENT 出口专用——去向 / 转的补单号 / 补单业务域引用。
+    deferredTarget?: 'SUPPLEMENT_DEPOSIT' | 'SUPPLEMENT_BOUNCE' | 'SUPPLEMENT_PAYOUT_RETURN' | string | null;
+    supplementNo?: string | null;
+    supplementRef?: { kind: 'SIGNAL' | 'DEPOSIT' | 'WITHDRAW'; no: string; id: string | null } | null;
   } | null;
   duplicateTwinRef?: string | null;
   menu?: Array<{ code: string; label: string; clue: string; outletLabel: string }>;
@@ -364,6 +369,10 @@ export const MATCH_LABEL: Record<FlowMatchType, string> = {
   AMOUNT_MISMATCH: 'Mismatch / 金额不符',
 };
 
+// 平账 B 批（Task 9）：SUPPLEMENT 出口按 deferredTarget 给按钮文案——三路一个弹层，
+// 按钮词区分去向，弹层内部再按 kind 切表单。
+const SUPPLEMENT_ACTION_LABEL: Record<string, string> = { SUPPLEMENT_DEPOSIT: '发起补录', SUPPLEMENT_BOUNCE: '认领退汇', SUPPLEMENT_PAYOUT_RETURN: '认领退回' };
+
 const MatchChip = ({ row }: { row: FlowComparisonRow }) => {
   const tone = MATCH_TONE[row.matchType];
   return (
@@ -407,10 +416,17 @@ const ObservationBar = ({ kase }: { kase: ReconCaseDetail }) => {
 const ReconciliationCasesDetailPage = () => {
   const { caseNo } = useParams<{ caseNo: string }>();
   const navigate = useNavigate();
-  const { hasPermission } = useAdminSession();
+  const { hasPermission, hasAnyPermission } = useAdminSession();
   const canCreateAdjustment = hasPermission(PERMISSIONS.RECON_ADJUSTMENT_CREATE);
   // T8（平账一期半）：动作列六态里「未定性」状态的处置按钮门控。
   const canRecordDisposition = hasPermission(PERMISSIONS.RECON_DISPOSITION_CREATE);
+  // 平账 B 批（Task 9）：三路补单入口——持三个业务域写权限任一即可看到按钮
+  // （对账域自己的候选只读端点门槛更低，不额外拿来门控整个按钮，同 canCreateAdjustment 的约定）。
+  const canSupplement = hasAnyPermission([
+    PERMISSIONS.DEPOSIT_SUPPLEMENT_WRITE,
+    PERMISSIONS.DEPOSIT_CLAWBACK_WRITE,
+    PERMISSIONS.WITHDRAW_RETURN_CLAIM_WRITE,
+  ]);
   const [kase, setKase] = useState<ReconCaseDetail | null>(null);
   const [loading, setLoading] = useState(true);
   // MATCHED rows are collapsed by default (layout 乙 — single mixed table,
@@ -426,6 +442,8 @@ const ReconciliationCasesDetailPage = () => {
   const [adjustLocked, setAdjustLocked] = useState<AdjustmentLocked | null>(null);
   // T8: 处置弹层——null = 关闭；非 null = 打开且带着被点击的那一行。
   const [dispositionRow, setDispositionRow] = useState<FlowComparisonRow | null>(null);
+  // 平账 B 批（Task 9）：补单弹层——null = 关闭；非 null = 打开且带着被点击的那一行。
+  const [supplementRow, setSupplementRow] = useState<FlowComparisonRow | null>(null);
   // 平账 A 批（spec §2.4）：⚡拨钟——只在模拟模式下出现；已超期 / 已结案就不再需要它。
   const { enabled: simEnabled } = useSimulationMode();
   const [agingSubmitting, setAgingSubmitting] = useState(false);
@@ -955,6 +973,26 @@ const ReconciliationCasesDetailPage = () => {
                                     开单
                                   </button>
                                 )}
+                                {row.disposition.outlet === 'SUPPLEMENT' && !row.disposition.supplementNo && canSupplement && kase.status === 'OPEN' && (
+                                  <button
+                                    type="button"
+                                    onClick={() => setSupplementRow(row)}
+                                    className="inline-flex items-center gap-1 whitespace-nowrap font-mono text-[10px] font-medium text-adm-blue hover:underline"
+                                  >
+                                    <Plus size={10} />
+                                    {SUPPLEMENT_ACTION_LABEL[row.disposition.deferredTarget ?? ''] ?? '发起补单'}
+                                  </button>
+                                )}
+                                {row.disposition.outlet === 'SUPPLEMENT' && row.disposition.supplementNo && (
+                                  <span className="whitespace-nowrap font-mono text-[10px] text-adm-t2">
+                                    已转补单 →{' '}
+                                    {row.disposition.supplementRef?.kind === 'DEPOSIT' && row.disposition.supplementRef.id
+                                      ? <Link to={`/admin/trading/deposits/${row.disposition.supplementRef.id}`} className="text-adm-blue hover:underline">{row.disposition.supplementNo}</Link>
+                                      : row.disposition.supplementRef?.kind === 'WITHDRAW' && row.disposition.supplementRef.id
+                                        ? <Link to={`/admin/trading/withdrawals/${row.disposition.supplementRef.id}`} className="text-adm-blue hover:underline">{row.disposition.supplementNo}</Link>
+                                        : <span>{row.disposition.supplementNo}（待 CFO 复核）</span>}
+                                  </span>
+                                )}
                                 {row.nextStep?.kind === 'WRITE_OFF' && kase.status === 'OPEN' && (
                                   canCreateAdjustment ? (
                                     <button
@@ -1175,6 +1213,15 @@ const ReconciliationCasesDetailPage = () => {
         onClose={() => setDispositionRow(null)}
         onRecorded={fetchCase}
         onProceedToAdjust={handleAdjustHandoff}
+      />
+
+      {/* 平账 B 批（Task 9）：补单弹层——同样挂在页面最外层，内部状态只靠 row 区分。 */}
+      <ReconciliationSupplementModal
+        open={!!supplementRow}
+        caseNo={kase.caseNo}
+        row={supplementRow}
+        onClose={() => setSupplementRow(null)}
+        onDone={() => { setSupplementRow(null); fetchCase(); }}
       />
     </div>
   );
