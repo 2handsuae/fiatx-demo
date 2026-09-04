@@ -1165,6 +1165,19 @@ export class DepositTransactionsService {
     });
   }
 
+  /** 波二：L1 行政级问题「打标记、不换状态」——只写挂起原因，状态留给合规通过后的 holdIfHeld 推进 */
+  async markLimitHold(id: string, reason: string) {
+    return (this.prisma as any).depositTransaction.update({
+      where: { id },
+      data: { limitHoldReason: reason },
+    });
+  }
+
+  /** 充值单笔下限规则——挂起证据要把命中的规则号当次主体（INSTRUMENT） */
+  async singleDepositLimitRule(assetId: string) {
+    return this.limitRulesService.getSingleRule('DEPOSIT', assetId);
+  }
+
   /**
    * Inbound detection entry (funds_order-driven, replaces the legacy payin.created
    * → orchestratePayinDetected path). Creates the deposit row (PAYIN_PENDING) and

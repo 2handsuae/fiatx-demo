@@ -150,6 +150,9 @@ describe('DepositWorkflowService', () => {
       }),
       setSumsubTxn: jest.fn().mockResolvedValue(undefined),
       clearLimitHold: jest.fn().mockResolvedValue(undefined),
+      // 波二：L1 行政级问题「打标记、不换状态」出口 + 命中限额规则查询（挂起证据次主体）。
+      markLimitHold: jest.fn().mockResolvedValue(undefined),
+      singleDepositLimitRule: jest.fn().mockResolvedValue({ ruleNo: 'TLR-DEP-USDT', minAmount: '100' }),
       findNonTerminalByOwner: jest.fn().mockResolvedValue([]),
       // 平账 B 批②：退汇认领申请的三列标记。
       markClawbackRequested: jest.fn().mockResolvedValue(undefined),
@@ -254,7 +257,7 @@ describe('DepositWorkflowService', () => {
     service = module.get<DepositWorkflowService>(DepositWorkflowService);
   });
 
-  describe('handleDepositStatusChanged — Gate 0', () => {
+  describe('handleDepositStatusChanged — L1', () => {
     /** Gate 0 现在一进来就 findOne（要拿 limitHoldReason 记 SINGLE_LIMIT、要拿单号写快照/审计）。 */
     const gate0Deposit = (overrides: Record<string, unknown> = {}) => ({
       id: 'dep-1',
@@ -264,6 +267,8 @@ describe('DepositWorkflowService', () => {
       traceId: null,
       amount: '100',
       limitHoldReason: null,
+      assetId: 'asset-1',
+      asset: { assetNo: 'AS2601012024', type: 'CRYPTO' },
       ...overrides,
     });
 
@@ -274,6 +279,13 @@ describe('DepositWorkflowService', () => {
         DepositTransactionStatus.COMPLIANCE_PENDING,
         'CUSTOMER', 'cust-1', 'asset-1', '100',
       );
+
+    // 波二：打标不短路送检——L1 之后不管 HOLD 还是 PASS 都会走到 submitSumsubTxns。
+    // 其余用例不断言 Sumsub 提交，spy 只是把它换成 no-op，不影响既有断言。
+    let submitSpy: jest.SpyInstance;
+    beforeEach(() => {
+      submitSpy = jest.spyOn(service as any, 'submitSumsubTxns').mockResolvedValue(undefined);
+    });
 
     it('runs Gate 0 when entering COMPLIANCE_PENDING with normal customer', async () => {
       customerAccessService.resolve.mockResolvedValue(accessAllowing());
@@ -342,7 +354,7 @@ describe('DepositWorkflowService', () => {
     // （OPS_APPROVAL）→ OPERATION_PENDING。判据按 releasePolicy 派生，不写死
     // cause 名单 —— 将来新增一个 MLRO 级 cause 会自动走对分支。
 
-    it('B4 分流：ADMIN_SUSPENSION（OPS_APPROVAL，行政级）卡住 DEPOSIT → OPERATION_PENDING + 落挂起原因，不冻', async () => {
+    it('波二订正：B4 分流：ADMIN_SUSPENSION（OPS_APPROVAL，行政级）卡住 DEPOSIT → 打标 CAPABILITY_RESTRICTED、不冻、不换状态（此前误推 OPERATION_PENDING，本波纠正为打标不换状态）', async () => {
       customerAccessService.resolve.mockResolvedValue(accessBlocking('DEPOSIT', 'WITHDRAW', 'SWAP'));
       customerRestrictionsService.listOpen.mockResolvedValue([openRestriction('ADMIN_SUSPENSION')]);
       depositService.findOne.mockResolvedValue(gate0Deposit());
@@ -352,17 +364,11 @@ describe('DepositWorkflowService', () => {
 
       await service.handleDepositStatusChanged(gate0Event());
 
-      expect(depositService.updateStatus).toHaveBeenCalledWith(
-        'dep-1',
-        expect.objectContaining({ action: DepositTransactionAction.OPERATION_PENDING }),
-        expect.objectContaining({
-          extraData: expect.objectContaining({ limitHoldReason: 'CAPABILITY_RESTRICTED' }),
-        }),
-      );
-      expect(depositService.updateStatus).not.toHaveBeenCalledWith(
-        'dep-1',
-        expect.objectContaining({ action: DepositTransactionAction.FREEZE }),
-        expect.anything(),
+      // 波二：打标不换状态——不进 OPERATION_PENDING，也不冻（enforcement=false 走的是标记分支）。
+      expect(depositService.updateStatus).not.toHaveBeenCalled();
+      expect(depositService.markLimitHold).toHaveBeenCalledWith('dep-1', 'CAPABILITY_RESTRICTED');
+      expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
+        expect.objectContaining({ action: 'DEPOSIT_L1_HELD', reasonCode: 'CAPABILITY_RESTRICTED' }),
       );
     });
 
@@ -383,10 +389,10 @@ describe('DepositWorkflowService', () => {
       );
     });
 
-    it('B4 分流：MLRO 级便签的 scope 不含 DEPOSIT（KYT_REJECTED_HARD 只卡 WITHDRAW/SWAP）时不算数 —— scope 必须展开后再判', async () => {
+    it('B4 分流：MLRO 级便签的 scope 不含 DEPOSIT（KYT_REJECTED_HARD 只卡 WITHDRAW/SWAP）时不算数 —— scope 必须展开后再判，不冻、打标不换状态', async () => {
       // 卡住 DEPOSIT 的只有 ADMIN_SUSPENSION(ALL/OPS)；KYT_REJECTED_HARD 虽是 MLRO 级，
       // 但 scope 是 WITHDRAW+SWAP，不该把这笔充值拖进 FROZEN。
-      // 若实现少了 scope 过滤（对整张便签表 some(MLRO)），这条会红。
+      // 若实现少了 scope 过滤（对整张便签表 some(MLRO)），updateStatus 会被调用（FREEZE），这条会红。
       customerAccessService.resolve.mockResolvedValue(accessBlocking('DEPOSIT', 'WITHDRAW', 'SWAP'));
       customerRestrictionsService.listOpen.mockResolvedValue([
         openRestriction('ADMIN_SUSPENSION'),
@@ -399,11 +405,9 @@ describe('DepositWorkflowService', () => {
 
       await service.handleDepositStatusChanged(gate0Event());
 
-      expect(depositService.updateStatus).toHaveBeenCalledWith(
-        'dep-1',
-        expect.objectContaining({ action: DepositTransactionAction.OPERATION_PENDING }),
-        expect.anything(),
-      );
+      // 波二：不冻（updateStatus 从未被调用，含 FREEZE）、走标记分支。
+      expect(depositService.updateStatus).not.toHaveBeenCalled();
+      expect(depositService.markLimitHold).toHaveBeenCalledWith('dep-1', 'CAPABILITY_RESTRICTED');
     });
 
     it('B4 分流：便签一张都没有却 blocked（内部不一致，分类不出来）→ 不降级，保持现状 FROZEN', async () => {
@@ -422,7 +426,7 @@ describe('DepositWorkflowService', () => {
 
     // §4：Gate 0 此前只判 blocked，**没判 lifecycle** —— 已销户/停用但没贴便签的
     // 客户，充值一路走得通。lifecycle 非 ACTIVE 属行政性 → OPERATION_PENDING。
-    it('B4 §4：lifecycle 非 ACTIVE 且一张便签都没有 → OPERATION_PENDING（此前这种单一路放行）', async () => {
+    it('波二订正：B4 §4：lifecycle 非 ACTIVE 且一张便签都没有 → 打标 LIFECYCLE_NOT_ACTIVE、不换状态（此前误推 OPERATION_PENDING，本波纠正）', async () => {
       customerAccessService.resolve.mockResolvedValue(accessLifecycle('OFFBOARDED'));
       customerRestrictionsService.listOpen.mockResolvedValue([]);
       depositService.findOne.mockResolvedValue(gate0Deposit());
@@ -432,25 +436,26 @@ describe('DepositWorkflowService', () => {
 
       await service.handleDepositStatusChanged(gate0Event());
 
-      expect(depositService.updateStatus).toHaveBeenCalledWith(
-        'dep-1',
-        expect.objectContaining({ action: DepositTransactionAction.OPERATION_PENDING }),
-        expect.objectContaining({
-          extraData: expect.objectContaining({ limitHoldReason: 'LIFECYCLE_NOT_ACTIVE' }),
-        }),
+      expect(depositService.updateStatus).not.toHaveBeenCalled();
+      expect(depositService.markLimitHold).toHaveBeenCalledWith('dep-1', 'LIFECYCLE_NOT_ACTIVE');
+      expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
+        expect.objectContaining({ action: 'DEPOSIT_L1_HELD', reasonCode: 'LIFECYCLE_NOT_ACTIVE' }),
       );
     });
 
-    it('B4 §4：lifecycle 非 ACTIVE 的单不进 Sumsub（挂起路径不提交 KYT）', async () => {
+    it('波二订正：B4 §4：lifecycle 非 ACTIVE 的单打标后照常送检（此前挂起路径刻意不提交 KYT，本波「照常送检」覆盖这条分支）', async () => {
       customerAccessService.resolve.mockResolvedValue(accessLifecycle('OFFBOARDED'));
       customerRestrictionsService.listOpen.mockResolvedValue([]);
       depositService.findOne.mockResolvedValue(
-        gate0Deposit({ customer: { sumsubApplicantId: 'appl-1' }, asset: { type: 'CRYPTO', currency: 'USDT' } }),
+        gate0Deposit({ customer: { sumsubApplicantId: 'appl-1' } }),
+      );
+      l1Gate.evaluate.mockResolvedValue(
+        l1SnapshotFixture({ verdict: 'HOLD', holdReason: 'LIFECYCLE_NOT_ACTIVE' }),
       );
 
       await service.handleDepositStatusChanged(gate0Event());
 
-      expect(sumsubTxnClient.submitTxn).not.toHaveBeenCalled();
+      expect(submitSpy).toHaveBeenCalledWith(expect.objectContaining({ id: 'dep-1' }));
     });
 
     // §5：快照落库。preChecks 的每一格都必须守 B2 判据 ——「PASS 当且仅当该守卫对
@@ -467,6 +472,7 @@ describe('DepositWorkflowService', () => {
       expect(l1Gate.evaluate).toHaveBeenCalledWith({
         domain: 'DEPOSIT',
         customerId: 'cust-1',
+        assetIds: ['asset-1'],
         preChecks: [
           // 建单时 detected() 判过下限（低于则出生带 BELOW_MIN），本单没带 → 确凿过了
           expect.objectContaining({ code: 'SINGLE_LIMIT', outcome: 'PASS' }),
@@ -520,9 +526,8 @@ describe('DepositWorkflowService', () => {
       // 真求值器：holdReason 取 CHECK_ORDER 里第一条 FAIL，而 CUSTOMER_RESTRICTION
       // 排在 SINGLE_LIMIT 前面 → 真实返回值是 CAPABILITY_RESTRICTED，**不是** BELOW_MIN。
       const realGate = new L1GateService(customerAccessService as any, {
-        customerMain: {
-          findUnique: jest.fn().mockResolvedValue({ tradingTier: 'BASIC' }),
-        },
+        customerMain: { findUnique: jest.fn().mockResolvedValue({ tradingTier: 'BASIC' }) },
+        asset: { findMany: jest.fn().mockResolvedValue([{ id: 'asset-1', assetNo: 'AS2601012024', currency: 'USDT', status: 'ACTIVE' }]) },
       } as any);
       l1Gate.evaluate.mockImplementation((input: any) => realGate.evaluate(input));
 
@@ -536,19 +541,49 @@ describe('DepositWorkflowService', () => {
       expect(snapshot.verdict).toBe('HOLD');
       expect(snapshot.holdReason).toBe('CAPABILITY_RESTRICTED');
 
-      // 列上保留单级原因：否则 waive 后这笔低于下限的钱直接入账、
-      // DEPOSIT_HELD_BELOW_MIN 审计不写、没收弧（硬钉 BELOW_MIN）永远进不去。
-      expect(depositService.updateStatus).toHaveBeenCalledWith(
-        'dep-1',
-        expect.objectContaining({ action: DepositTransactionAction.OPERATION_PENDING }),
-        expect.objectContaining({ extraData: { limitHoldReason: 'BELOW_MIN' } }),
+      // 波二：打标不换状态——不再推 OPERATION_PENDING；已有原因优先，所以也不重写 limitHoldReason
+      expect(depositService.updateStatus).not.toHaveBeenCalled();
+      expect(depositService.markLimitHold).not.toHaveBeenCalled();
+      expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
+        expect.objectContaining({ action: 'DEPOSIT_L1_HELD', reasonCode: 'BELOW_MIN' }),
       );
-      // 保留 BELOW_MIN ≠ 放过这个客户：单子照样被路由到挂起，且不该被冻。
-      expect(depositService.updateStatus).not.toHaveBeenCalledWith(
-        'dep-1',
-        expect.objectContaining({ action: DepositTransactionAction.FREEZE }),
-        expect.anything(),
+    });
+
+    it('波二：资产暂停 → L1 HOLD 打标（ASSET_SUSPENDED）、状态不动、照常送检、DEPOSIT_L1_HELD 带 RELATED 资产号', async () => {
+      customerAccessService.resolve.mockResolvedValue(accessAllowing());
+      depositService.findOne.mockResolvedValue(gate0Deposit());
+      l1Gate.evaluate.mockResolvedValue(l1SnapshotFixture({
+        verdict: 'HOLD', holdReason: 'ASSET_SUSPENDED',
+        checks: [{ code: 'ASSET_AVAILABILITY', outcome: 'FAIL', detail: '资产 AS2601012024（USDT）状态 SUSPENDED，不可交易' }],
+      }));
+
+      await service.handleDepositStatusChanged(gate0Event());
+
+      expect(l1Gate.evaluate).toHaveBeenCalledWith(expect.objectContaining({ domain: 'DEPOSIT', assetIds: ['asset-1'] }));
+      expect(depositService.markLimitHold).toHaveBeenCalledWith('dep-1', 'ASSET_SUSPENDED');
+      expect(depositService.updateStatus).not.toHaveBeenCalled();
+      expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: 'DEPOSIT_L1_HELD',
+          reasonCode: 'ASSET_SUSPENDED',
+          subjects: expect.arrayContaining([
+            expect.objectContaining({ subjectType: 'ASSET', subjectNo: 'AS2601012024', subjectRole: 'RELATED' }),
+          ]),
+        }),
       );
+      // 送检没被打标短路：submitSumsubTxns 在本 describe 的开关 OFF 下会 return，但它一定被走到——用 spy 断言
+      expect(submitSpy).toHaveBeenCalledWith(expect.objectContaining({ id: 'dep-1' }));
+    });
+
+    it('波二：L1 PASS 路径不打标、不写 DEPOSIT_L1_HELD', async () => {
+      customerAccessService.resolve.mockResolvedValue(accessAllowing());
+      depositService.findOne.mockResolvedValue(gate0Deposit());
+      l1Gate.evaluate.mockResolvedValue(l1SnapshotFixture({ verdict: 'PASS', holdReason: null }));
+
+      await service.handleDepositStatusChanged(gate0Event());
+
+      expect(depositService.markLimitHold).not.toHaveBeenCalled();
+      expect(auditLogsService.recordSystem).not.toHaveBeenCalledWith(expect.objectContaining({ action: 'DEPOSIT_L1_HELD' }));
     });
 
     it('B4 §5：冻结路径同样落 l1Snapshot（证据不因处置分支而缺失）', async () => {
