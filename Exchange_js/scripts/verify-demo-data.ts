@@ -13,8 +13,10 @@
 // R4: WithdrawTransaction.fromWalletId must point to a wallet OWNED by the
 //     withdraw's owner (ownerType=CUSTOMER, ownerNo matches), with the right
 //     role (FIAT→C_VIBAN, CRYPTO→C_DEP).
-// R5（波一 T14）：配置身世——业务种子的五块配置（资产/托管钱包/限额/两族费率）
-//     每条落库都必须有一条 actorNo=RELEASE 的 *_SEEDED 审计行；装载即留痕。
+// R5（波一 T14）：配置身世——校验的是「种子装载的配置都留痕」，不是「活着的配置都是种子装的」。
+//     资产/托管钱包/限额三块只有种子写入路径，全量必须有 actorNo=RELEASE 的 *_SEEDED 审计行；
+//     兑换/提现两族费率等级还有运行时创建路径（operator 经 maker-checker 建的等级留的是
+//     SWAP_FEE_LEVEL_CREATION_APPLIED 一类审计，不是 *_SEEDED），这两块只对种子行要求留痕。
 //
 // Usage:
 //   DATABASE_URL="file:/tmp/exchange_js_main/dev.db" \
@@ -172,14 +174,25 @@ async function scanR5(prisma: PrismaClient): Promise<void> {
     keys: limitRules.map((r) => r.ruleNo),
   });
 
-  const swapFeeLevels: any[] = await (prisma as any).swapFeeLevel.findMany({ select: { levelCode: true } });
+  // 费率等级不是只种子——两条运行时创建路径存在（swap-fee-level-creation-workflow.service.ts
+  // → swap-fee-level.service.ts createLevel；withdrawal-fee-level.service.ts createLevel 同款），
+  // operator 经 maker-checker 建的等级留的是 SWAP_FEE_LEVEL_CREATION_APPLIED 一类审计，本来就
+  // 没有 *_SEEDED 行。种子写 createdByUserId='SYSTEM'（seed.business.ts），运行时写 actor 的
+  // 真实 user id——按这个判别式只挑种子行，否则每条 operator 建的等级都会被错判成没留痕。
+  const swapFeeLevels: any[] = await (prisma as any).swapFeeLevel.findMany({
+    where: { createdByUserId: 'SYSTEM' },
+    select: { levelCode: true },
+  });
   blocks.push({
     action: 'SWAP_FEE_LEVEL_SEEDED',
     entity: 'swapFeeLevel',
     keys: swapFeeLevels.map((l) => l.levelCode),
   });
 
-  const withdrawalFeeLevels: any[] = await (prisma as any).withdrawalFeeLevel.findMany({ select: { levelCode: true } });
+  const withdrawalFeeLevels: any[] = await (prisma as any).withdrawalFeeLevel.findMany({
+    where: { createdByUserId: 'SYSTEM' },
+    select: { levelCode: true },
+  });
   blocks.push({
     action: 'WITHDRAWAL_FEE_LEVEL_SEEDED',
     entity: 'withdrawalFeeLevel',
