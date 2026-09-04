@@ -1,6 +1,6 @@
 # V4 · 充值（钱怎么进来）
 
-> 对应 PRD：待写 ｜ 技术节点 Last Verified：2026-08-26（地基站处置动词搬家后收尾闸全绿复核）
+> 对应 PRD：待写 ｜ 技术节点 Last Verified：2026-09-03（平账 B 批：补录 + 退汇认领两条补单路接入，新增 `CLAWED_BACK` 终态）
 > 演示幕次：第三幕「钱进」 ｜ 验收：第三幕走查（`demo/script.md`）+ 本篇 §4
 
 ## 0. 一句话定位
@@ -22,7 +22,7 @@
 
 **小额单独讲。** 低于最低限额的钱照收，挂起等处置：运营可以豁免放行、也可以走没收——它是"挂起"不是"拒绝"，因为钱已经在暂扣户里了。
 
-## 2. 状态机（14 状态 / 15 动作 / 28 边）
+## 2. 状态机（15 状态 / 16 动作 / 29 边）
 
 主路径：`PAYIN_PENDING →(钱到)→ COMPLIANCE_PENDING →(通过)→ SUCCESS`
 
@@ -34,8 +34,9 @@
 | 冻结 | `→ FROZEN`（出边收窄为仅 解冻回炉 / 上缴） |
 | 三条处置弧 | `CONFISCATING → CONFISCATED` ｜ `RETURNING → RETURNED` ｜ `SEIZING → SEIZED`（各为两段：先锁账推入"进行中"，资金单腿确认后落终态） |
 | 失败 | `FAILED` 唯一入口是 `PAYIN_PENDING`（钱没到才叫失败；钱到了就必须走处置弧） |
+| 已成功后被退汇 | `SUCCESS → CLAWED_BACK`（新终态，2026-09-03 平账 B 批「入金退汇认领」——对账案子上认领 → CFO 批 → 落地，见 `modules/v8-recon.md` 第六幕场景 14），SUCCESS 唯一出边 |
 
-守则：迁移表在代码里逐边穷举，且有一条守则性单测断言**边数恰为 28**——加边减边都会被当场抓住。
+守则：迁移表在代码里逐边穷举，且有一条守则性单测断言**边数恰为 29**——加边减边都会被当场抓住。
 
 ## 3. 决策点与角色
 
@@ -46,6 +47,8 @@
 | 人工复核翻案 | 运营 | 批准即入账（记翻案审计） | 翻案是显式动作不是改字段 |
 | 没收 / 退回 / 上缴 / 解冻 | 运营发起 | **MLRO 单步审批（48h）** | 四弧同范式但**入口不同**：没收←挂起；退回←复核/挂起；上缴、解冻←冻结；退回目的地锁死原发款方 |
 | 小额豁免放行 | 运营 | 直接执行（带审计） | 只对挂起态可用 |
+| **漏记入金补录**（2026-09-03 平账 B 批） | 运营（对账案子上「发起补录」，链上填来源地址 / 法币填来源 IBAN）| **CFO 单步审批（48h，可撤）** | 批准即建入站信号，走既有充值通道，照常过 KYT / 合规到 SUCCESS；入口在案子上，见 `modules/v8-recon.md` §3 |
+| **入金退汇认领**（同批） | 运营（对账案子上「认领退汇」，选候选原充值单）| **CFO 单步审批**（提交、批准各查一次客户余额）| `SUCCESS → CLAWED_BACK`；余额不够即拒、案子照旧红；不建资金单 |
 | 状态直改（PATCH） | — | **侧门已封** | 工作流专属动作黑名单直接拒绝 |
 
 ## 4. 演示脚本（第三幕 · 钱进）
@@ -58,23 +61,25 @@
 6. 小额：充一笔低于下限的 → 挂起 `OPERATION_PENDING` → 演豁免放行或**没收**二选一——没收的正确舞台在这里，终态 `CONFISCATED` 账本看钱进公司户
 7. 退回：再来一笔，⚡喂"拒绝（退回标签）" → 人工复核 → 发起**原路退回** → MLRO 批准 → `RETURNED`（强调目的地=原发款方，不可改）
 8. 全程任一步，审计页按单号查——每步谁、何时、依据什么（垫第七幕）。留痕词表 31 码封闭（站1b-β）：单在建单时铸「旅程号」，此后每条留痕继承同号——按单号/按客户/按旅程三种查法都成立；失败不起名（outcome+原因码），状态变化写从/到两列
+9. 漏记的客户入金与已成功入金被银行退汇，入口都不在这一幕——从**第六幕对账案子**上发起（`modules/v8-recon.md` §4 场景 13/14），CFO 复核后回落到这一域：补录照常走 KYT/合规到 SUCCESS，退汇认领落 `CLAWED_BACK`
 
 ## 5. 关键技术节点（≤30 行）
 
 - 工作流 `trading/deposit-transactions/deposit-workflow.service.ts`：`runGate0()`（L1 三分流：FREEZE / holdAtGate0 / 放行）｜ `applyKytVerdict()+decideVerdictLanding()`（四裁决落地路由）｜ `initiate{Confiscation,Return,Seize,Unfreeze}()` + `{confiscation,return,seize}Spec()`（三弧处置说明书）+ 对应 `on*Decided/settle*`（业务判断与留痕层）｜ `executeDepositAccounting()`（两步入账 + 客户级科目懒解析）
 - **处置动词** `funds-orders/disposition.service.ts → DispositionService`（地基站 2026-08-26）：initiate / rebuild / settle / voidAttempt / clearLeg——三弧的建腿、锁账、落账、重试三级梯、腿收口收敛为一份实现，工作流按说明书一句话调用
-- 状态机 `deposit-transactions.service.ts → getNextStatus()`（28 边迁移表 + 守则单测锁边数）；PATCH 侧门黑名单在 controller `updateStatus()`
+- 状态机 `deposit-transactions.service.ts → getNextStatus()`（29 边迁移表 + 守则单测锁边数）；PATCH 侧门黑名单在 controller `updateStatus()`
 - L1 闸门 `trading/shared/` `L1GateService`（九项快照，三域共用求值器；判定结果整包落单上 l1Snapshot）
 - KYT 类型判定 `kyt-txn-type.resolver.ts → resolveKytTxnType()`（crypto ∧ VASP ∧ 金额≥阈值 → travelRule；阈值写死：AED 3500 / USDT 1000，边界取 ≥）
 - SLA `deposit-sla.service.ts`（按"进入状态"计时；COMPLIANCE_PENDING 5 分钟硬线 / ACTION_PENDING 7 天）
 - 补料 `material_requests` 材料账驱动（下发/提交/裁决闭环，见 V2 篇）；客户端独立补料页内嵌 Sumsub SDK
 - Sumsub 接入 `sumsub-ingestion/ → ingest()/dispatch()`（webhook 统一入口按事件×域路由）；演示裁决 `SUMSUB_MOCK_MODE=true` 时注册的 verdict runner（⚡11 按钮，三域同源共享表 `sumsub-shared/verdict-buttons.shared.ts`）
+- 补单（B 批，2026-09-03）：`effectiveDate String?` 新列（补录才有值，`executeDepositAccounting` 的 STEP_1/STEP_2 都读它，列优先于资金单 CONFIRM 步同名参数——后者对这条路径是死代码）｜ 新终态 `CLAWED_BACK` + 动作 `CLAWBACK`，新转账码 `DEPOSIT_CLAWBACK`（分录借客户应付 / 贷客户资产）｜ 入口、审批与守卫见 `modules/v8-recon.md` §3/§5
 - 资金单镜像与逐腿记账机制 → 见 funds-orders 篇 / accounting-coa 篇
 
 ## 6. 演示缺口（BACKLOG 有账，挑演示可见的）
 
 - **技术性失败（FAILED）无反向分录**——好在 FAILED 只收"钱没到"的单，账本无余额可退；讲清语义即可
-- **法币两分支没做**：汇款人名义不符、银行退汇（bounce）都无入口——法币异常只能讲链上的
+- **法币一个分支仍没做**：汇款人名义不符无入口，讲法币异常还只能讲这一类走不通；**银行退汇（bounce）已由平账 B 批的「入金退汇认领」补上**（对账案子上认领 → CFO 批 → `SUCCESS → CLAWED_BACK`，见 `modules/v8-recon.md` 第六幕场景 14）
 - **小额的计次自动冻结、自动没收 cron 未做**——现在都是手动处置
 - **CONFISCATING 重试耗尽后无手动重触发出口**——红旗standing但只能等 Phase 4 补口子
 - **三条弧在客户流水里都误标成"没收"**（kind 字段未分弧）——演示退回/上缴时别开客户流水页对照

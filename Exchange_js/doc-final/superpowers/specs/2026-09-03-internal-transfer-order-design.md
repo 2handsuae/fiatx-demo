@@ -7,7 +7,28 @@
 
 ## 承接上一波（B 批）
 
-（空。B 批合并前由 B 批的会话填：实际偏差 / 执行中发现的新事实 / 本波前提有无变化。）
+**实际偏差**（对照 B 批 spec / plan 的字面）：
+- Task 4：铁律⑥优先于 plan 的接口字面量——`SupplementCandidate` 去掉 `id`、`listCandidates` 出口投影成 `SupplementCandidatesView`（对外无 caseId/walletId/ownerId/assetId，只留 `externalLineId` 一个表单锚）
+- Task 4：真库冒烟逮到真 bug——`reconciliation_cases.book` 实际落库值是 `'CUSTOMER'` 不是 `'CLIENT'`（同目录既有惯例是「`=== 'FIRM'` 才算公司账簿，否则客户」），守卫原写 `!== 'CLIENT'` 对任何真实客户案件都必拒，已改 `=== 'FIRM'`。**二期任何涉及 book 判断的新代码都照此写，不要再写 `'CLIENT'` 比较**
+- Task 5：批准分支的实现与 plan 不同——不再预翻 `PENDING_SCAN`，`processSignal` 自己无条件收尾且全程不读 `signal.status`；`dedupeKey` 占死问题（拒绝后客户自助补报被静默吞掉）plan 预期修、控制方裁定本批不修，已登记 `BACKLOG.md` §G
+- Task 6：`getNextStatus` 的终态前置守卫会挡住新加的边（`SUCCESS` 本就在终态集里，查表前就被拒），修法是把终态检查挪到查表未命中之后——**二期给提现/充值状态机加新边时先查有没有同款前置守卫**
+- Task 7：实现者正确顶掉了 brief「把 SUCCESS 移出零出边终态集」的指令——`WITHDRAW_TERMINAL_STATUSES` 有两个外部读者（材料请求作废监听、在途 notIn 查询），移出会让成功单的材料请求永不作废
+- Task 8：Critical——spec 明写「拒绝后可再次发起」，但②③拒绝时清了认领列、①不释放 `supplementOfExternalLineId`；已修（复用被拒的信号行，新增状态边 `SUPPLEMENT_REJECTED → SUPPLEMENT_PENDING`）
+- Task 11：plan 的一个事实错——花名册 #16 提现的 900 是毛额，净额 898（费 2），外部穿越的出款腿走净额；已改按净额匹配。**实测数字与 plan 预测不同**：`recon:demo:break` 现为 `scenarios 15/15、wallets 10/10、casesOpened 10/10`（不是 plan 写的 11/11），因为场景 14/15 都叠在已计数的钱包上、没有各开一个新钱包
+- Task 12：plan 给的两条变异靶子都指错了位置——① 命中的是 `initiateClawback`（发起时点）不是 `executeClawback`（批准时点，全仓曾经零覆盖，本批已补单测）；② 资金单 CONFIRM 步的 `effectiveDate` 参数对充值补录这条路径其实是死代码，真正生效的是充值单自己的 `effectiveDate` 列（列优先、事件参数只是兜底）
+
+**执行中发现的新事实**：
+- `AccountingService.createAccounts()` 写 `tb_account_registry` 时 `bigintToHex()` 不补零，u128 账户 id 十六进制首位为 0 时写出 31 字符行，与已知的「读侧未补零」缺陷同源但根因在写侧——已在测试夹具内规避（未改 `src`），登记 `BACKLOG.md` §G。**二期开新账户（内部划转单同样要走 `createAccounts()`）时会撞上同一个坑**，命中率约 1/16
+- 批准时点（`executeClawback`）的余额闸此前全仓零测试覆盖，本批变异测试证实这条闸有真实杀伤力（注掉守卫会真落一笔不该落的反向分录）——二期任何「提交时查一次、执行时再查一次」的双重前置条件都要照此补批准时点的单测，不能只测提交时点
+- e2e 与 `demo:all` 存在执行顺序耦合：花名册会给种子客户铺一些非零余额/在途锁定，测试套件若依赖种子客户的可用余额，必须改用测试自建的独立客户（本批「② 退汇」的收口轮已示范这个模式）——二期写自己的 e2e 时直接抄这个先例，别再踩一次
+- 走查中撞见的两条真实操作事实（与代码/文档一致性无关，纯粹是"演示会卡在这里"）：补录出来的充值单会撞金额下限门，需要运营多点一次「放行下限挂起」；⚡ 裁决按钮要切 `compliance_lead@fiatx.com`（`ops_officer@`/`cfo@` 都没有 `DEMO_VERDICT_WRITE`）——已写进 `demo/script.md` 第六幕，二期若也有类似的隐藏操作步骤，提前想着写脚本
+
+**二期前提有无变化**：
+- `SupplementEvidenceService` 与 `DispositionService` 已从 `ReconciliationModule` 的 `exports` 数组导出（`reconciliation.module.ts:59`：`exports: [WalletReconRunService, CaseAgingService, DispositionService, SupplementEvidenceService]`），二期若要复用这两个服务（如内部划转单也要走证据校验或定性联动），直接 import 即可，不需要再改模块声明
+- 生效日管道已通到充值两步：`deposit_transactions.effectiveDate` 新列，`executeDepositAccounting` 的 STEP_1/STEP_2 都优先读它（资金单 CONFIRM 步的同名参数是兜底，充值补录这条路径从不用到兜底分支）——二期内部划转单若也要挂业务日，参考这个「列优先、事件兜底」的模式
+- `assertWriteOffAllowed` 仍然锁死公司池（`adjustment.service.ts:129-130`：`book !== 'FIRM'` 即拒，错误文案原文就是「客户池的查无果差异不能一笔核销：托管里真少了钱，要先认损再由公司补款（二期划转）」）——客户池核销继续等二期的认损调账 + 补款两步，B 批未动这道守卫
+- Alice USDT 钱包位已真空出：场景 14（入金被退汇）从 Alice USDT 搬到 Kate AED（与场景 8 共案），Alice USDT 不再承载任何 B 批场景，可以给二期新场景 16（客户池小额查不出）用，不需要另开钱包
+- `reconciliation_cases.book` 真实值是 `'CUSTOMER'` 不是 `'CLIENT'`（见上「实际偏差」Task 4）——0.1 已定事实第 6 条「纯资金动作复核人 = CFO」不受影响，但二期任何新写的 book 判断代码都要按 `=== 'FIRM'` 写，不要重蹈覆辙
 
 ## 0.1 已经定了的（有出处，不翻案）
 

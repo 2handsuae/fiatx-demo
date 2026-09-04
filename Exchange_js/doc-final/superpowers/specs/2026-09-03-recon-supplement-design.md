@@ -129,7 +129,7 @@
 
 **信号（主体：入站信号）。**
 - 新列：`supplementOfExternalLineId String? @unique`（一行一次）、`supplementReconCaseNo String?`、`supplementRequestedByUserId String?`
-- 状态新增两枚：`SUPPLEMENT_PENDING`（申请中）、`SUPPLEMENT_REJECTED`（拒绝 / 撤回 / 超时）；批准即置 `PENDING_SCAN` 走既有通道。信号无显式迁移表，本批也不为它建（三态直写、注释写明边）
+- 状态新增两枚：`SUPPLEMENT_PENDING`（申请中）、`SUPPLEMENT_REJECTED`（拒绝 / 撤回 / 超时）；批准即置 `PENDING_SCAN` 走既有通道。信号无显式迁移表，本批也不为它建（三态直写、注释写明边：`PENDING → REJECTED`｜`PENDING → PENDING_SCAN`（批准）｜**`REJECTED → PENDING`**——实现期任务 8 收口轮补的一条边，本节初稿漏了：拒绝后 `supplementOfExternalLineId` 不释放会把账单行死锁住，与本节下方「拒绝后可再次发起」矛盾，修法是复用被拒的同一条信号行，`update` 回 `SUPPLEMENT_PENDING` 并重新回挂）
 - 运营路径**不做**客户端那条 `assertTradingEligibility(customerId,'DEPOSIT')`：那是拦客户「发起」的；钱已经物理进了，该冻该退由充值域自己的闸决定（制裁客户的漏记入金补录后会走到 FROZEN，这才是对的结局）
 - 信号 `txHash` / `referenceNo` = 账单行 `externalRef`；`amount` = 行金额；`dedupeKey` 沿用既有构造（钱包 + 参考号），与客户端演示入口天然去重
 
