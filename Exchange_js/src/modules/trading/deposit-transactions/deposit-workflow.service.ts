@@ -504,6 +504,10 @@ export class DepositWorkflowService implements OnModuleInit {
     DepositTransactionStatus.CONFISCATED,
     DepositTransactionStatus.RETURNED,
     DepositTransactionStatus.SEIZED,
+    // 平账 B 批②新增终态：入账后被银行/托管方退汇，零出边——同 RETURNED
+    // 等其余终态一样，晚到的裁决必须静默 IGNORE，不能落到 DISPATCH 撞状态机
+    // 零出边守卫抛 BadRequestException（Task 10 评审逮到：这里当时漏收）。
+    DepositTransactionStatus.CLAWED_BACK,
     // 在途处置态(A5)
     DepositTransactionStatus.CONFISCATING,
     DepositTransactionStatus.RETURNING,

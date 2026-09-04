@@ -2875,6 +2875,30 @@ describe('DepositWorkflowService', () => {
       );
     });
 
+    // 平账 B 批 Task 10 评审补漏：CLAWED_BACK 是本批新增的终态（零出边），
+    // 出生时漏收进 KYT_VERDICT_IGNORED_STATUSES——晚到的裁决会绕过 IGNORE 分支
+    // 直接落到 DISPATCH，撞状态机零出边守卫抛 BadRequestException，而不是像
+    // 其余终态一样静默 IGNORE + 留痕。这条钉住修复后的行为，镜像上面 SUCCESS
+    // 那条同款断言。
+    it('no-op when deposit already terminal (CLAWED_BACK)', async () => {
+      depositService.findOne.mockResolvedValue({
+        id: 'dep-clawed-back-1',
+        depositNo: 'DEP-CLAWED-BACK-1',
+        status: DepositTransactionStatus.CLAWED_BACK,
+        ownerType: 'CUSTOMER',
+        ownerId: 'cust-1',
+        traceId: null,
+      });
+
+      await service.applyKytVerdict('dep-clawed-back-1', { verdict: 'rejected', sceneTag: 'SANCTION_COUNTERPARTY' });
+
+      expect(depositService.updateStatus).not.toHaveBeenCalled();
+      expect(auditLogsService.recordSystem).toHaveBeenCalledTimes(1);
+      expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
+        expect.objectContaining({ action: 'DEPOSIT_KYT_VERDICT_IGNORED' }),
+      );
+    });
+
     it('no-op when already FROZEN and a duplicate rejected+SANCTION_COUNTERPARTY webhook arrives', async () => {
       depositService.findOne.mockResolvedValue({
         id: 'dep-10',

@@ -24,7 +24,8 @@ interface DepositDetailData {
  * 材料请求的监听器（`material-request-order-cancel.listener.ts`）目前只有
  * SWAP 域端到端走得通，DEPOSIT/WITHDRAW 域接的事件在真实链路上从未被
  * emit 过（见该 commit 说明）——一条未挂限制的材料请求可能在单子已经
- * SUCCESS/FAILED/RETURNED 之后仍然"活"在账上，客户端必须自己兜底不显示。
+ * SUCCESS/FAILED/RETURNED/CLAWED_BACK 之后仍然"活"在账上，客户端必须自己
+ * 兜底不显示。
  */
 interface MaterialRequestEntry {
   requestNo: string;
@@ -34,7 +35,7 @@ interface MaterialRequestEntry {
   orderRef: string | null;
 }
 
-const DEPOSIT_TERMINAL_STATUSES = new Set(['SUCCESS', 'FAILED', 'RETURNED']);
+const DEPOSIT_TERMINAL_STATUSES = new Set(['SUCCESS', 'FAILED', 'RETURNED', 'CLAWED_BACK']);
 
 const DepositDetail = () => {
   const { depositNo } = useParams();

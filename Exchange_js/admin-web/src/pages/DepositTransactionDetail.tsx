@@ -53,11 +53,8 @@ const DEPOSIT_KYT_VERDICT_IGNORED_STATUSES = new Set([
   'CONFISCATED',
   'RETURNED',
   'SEIZED',
-  // 平账 B 批②：入账后被银行/托管方退汇，零出边终态。⚠️ 后端
-  // KYT_VERDICT_IGNORED_STATUSES 未收编它（该集合语义是「终态 + 在途处置态」，
-  // 本可以加）——落到 CLAWED_BACK 的裁决不会走 IGNORE 分支 no-op，而是照常
-  // 进 applyKyt*，撞上状态机零出边必抛 BadRequestException。这里仍然把它列进
-  // 置灰名单：跟其余终态一样，operator 点了不该有反应，抛异常不是更好的反应。
+  // 平账 B 批②：入账后被银行/托管方退汇，零出边终态——同其余终态一样
+  // 收编进后端 KYT_VERDICT_IGNORED_STATUSES（deposit-workflow.service.ts）。
   'CLAWED_BACK',
   // 在途处置态
   'CONFISCATING',

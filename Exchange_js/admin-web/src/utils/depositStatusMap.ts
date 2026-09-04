@@ -4,11 +4,11 @@
    Single source of truth for the admin-facing deposit status badge.
    admin shows the RAW backend status (FROZEN / SEIZED / etc as-is) —
    this is the operator-facing table. The client-facing counterpart
-   (client-web/src/utils/depositStatusView.ts) softens the same 14
+   (client-web/src/utils/depositStatusView.ts) softens the same 15
    statuses for tipping-off compliance; the two tables are deliberately
    different and must never be merged.
 
-   Source of the 14 backend statuses:
+   Source of the 15 backend statuses:
    src/modules/trading/deposit-transactions/dto/deposit-transaction.dto.ts:4-19
 
    Badge copy and grouping copied verbatim from design spec §1.1:
