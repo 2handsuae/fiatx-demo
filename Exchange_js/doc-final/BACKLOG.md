@@ -16,6 +16,8 @@ Last Updated: 2026-09-02
 
 ## B. 第一幕 · 开业（V1 治理底座 ｜ V3 财务配置 ｜ 账本）
 
+
+- [ ] 🔴 **资产暂停只关前端下拉、后端三条交易路都没有资产状态门（触碰铁律②「门不可绕」，且模块篇原先写反了）**：设计口径（本波 spec 与 `modules/v3-financial-config.md` §1 原文）是「暂停 = 充值/兑换/提现三条路的资产门当场关」，但全波 16 个任务没有任何一个任务点去建这道门，逐任务评审也只看各自 diff、没人问过「这道门到底建了没」。实证三处逐个复现：兑换 `src/modules/trading/swap-transactions/swap-transactions.service.ts:159-168` `asset.findUnique({where:{id}})` 后只 `if (!asset) throw NotFound`；提现 `src/modules/trading/withdraw-transactions/withdraw-workflow.service.ts:257-258` 同款；充值信号 `src/modules/trading/deposit-transactions/inbound-transfer-signals.service.ts:582` `asset.findFirst({where:{network, contractAddress}})` 无 `status` 条件。唯一实际生效的机制是三个客户端页面（`Deposit.tsx`/`Swap.tsx`/`Withdraw.tsx`）都读 `GET /assets?status=ACTIVE`，所以暂停后资产从下拉消失——**走查看得见效果，绕过前端直接打 API 则畅通无阻**。演示影响：站 4 用 UI 走查是能演的（客户端确实选不到），但「暂停 = 硬门」这句讲解与后端不符。修法=三处各加一道 `status !== 'ACTIVE'` 拒绝并留痕；属业务门不属技术兜底，故记本文件。模块篇 §1 已按代码实况订正，不再声称有这道门 ｜来源: 2026-09-04 V3 财务配置治愈波一 Task 15b 写演示剧本时对代码核验发现，控制方三处逐一复现确认
 > （原「A. 演示装备」档——开演前铺不出数据、⚡ 模拟面板一按就 500——2026-08-29 演示装备一期收官后 8/8 全部修完，整节退役；这类"挡住开演"的问题以后按内容归进对应幕次，不再单独设档。原文见文末「本轮销账」与 git 历史。）
 > 讲「谁能做什么是拼包拼出来的、改任何配置都过审批」这一幕时会露的馅，加上账本/财务口径。
 
