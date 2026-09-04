@@ -89,6 +89,11 @@ export class WithdrawalFeeLevelRetireWorkflowService {
   private async executeRetire(event: ApprovalDecidedEvent) {
     const levelCode = event.entityRef;
     try {
+      // 落地时复检(FIX-11):请求时通过不代表落地时仍成立——两个并行退役请求都能在各自
+      // 请求时看到"对方仍 ACTIVE"而通过；此处紧挨 retireLevel 前重跑同一守卫，撞回则
+      // 落进下面的 catch，同码 outcome=FAILED + reasonCode=LAST_ACTIVE_DEFAULT。
+      const level = await this.feeLevelService.findByLevelCode(levelCode);
+      await this.feeLevelService.assertNotLastActiveDefault(level);
       await this.feeLevelService.retireLevel(levelCode);
       await this.auditLogsService.recordSystem({
         action: 'WITHDRAWAL_FEE_LEVEL_RETIRED',
@@ -107,7 +112,9 @@ export class WithdrawalFeeLevelRetireWorkflowService {
       });
       this.logger.log(`Withdrawal fee level ${levelCode} retired`);
     } catch (err: any) {
-      // 双结局：失败不单独起名——同码 outcome=FAILED + reasonCode
+      // 双结局：失败不单独起名——同码 outcome=FAILED + reasonCode；守卫拒绝时 reasonCode 取
+      // 守卫自己的 code(如 LAST_ACTIVE_DEFAULT),不是笼统的 EXECUTION_FAILED
+      const reasonCode = err?.response?.code ?? 'EXECUTION_FAILED';
       await this.auditLogsService.recordSystem({
         action: 'WITHDRAWAL_FEE_LEVEL_RETIRED',
         actionDomain: 'CONFIG',
@@ -116,7 +123,7 @@ export class WithdrawalFeeLevelRetireWorkflowService {
         correlationId: event.traceId,
         causationId: event.approvalId,
         outcome: AuditOutcome.FAILED,
-        reasonCode: 'EXECUTION_FAILED',
+        reasonCode,
         reason: err?.message ?? 'retire execution failed',
         approvalNo: event.approvalNo,
         requestId: `WITHDRAWAL_FEE_LEVEL_RETIRED_${levelCode}`,

@@ -176,6 +176,11 @@ describe('WithdrawalFeeLevelService', () => {
       prisma.withdrawalFeeLevel.findUnique.mockResolvedValue({ levelCode: 'L2', status: 'PENDING_APPROVAL' });
       await expect(service.retireLevel('L2')).rejects.toBeInstanceOf(ConflictException);
     });
+    it('activateLevel：已 ACTIVE 的等级不能再次 APPROVE → 409（迁移表 ACTIVE 无 APPROVE 边）', async () => {
+      prisma.withdrawalFeeLevel.findUnique.mockResolvedValue({ levelCode: 'L1', status: 'ACTIVE' });
+      await expect(service.activateLevel('L1')).rejects.toBeInstanceOf(ConflictException);
+      expect(prisma.withdrawalFeeLevel.update).not.toHaveBeenCalled();
+    });
     it('assertNotLastActiveDefault：该资产最后一个 ACTIVE 默认档不可退', async () => {
       prisma.withdrawalFeeLevel.count.mockResolvedValue(0);
       await expect(service.assertNotLastActiveDefault({ id: 'x', levelCode: 'STD', isDefault: true, assetId: 'a' } as any))

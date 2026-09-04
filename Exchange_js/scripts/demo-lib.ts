@@ -120,7 +120,7 @@ export const WITHDRAW_PLAN: Record<string, { fiatAed: number; cryptoUsdt?: numbe
 export const FEE_PLAN: Array<['swapFeeLevel' | 'withdrawalFeeLevel', string, string, string]> = [
   ['swapFeeLevel', 'STD-USDT-AED', 'SWAP_SERVICE_FEE', '10'], // 10 AED flat
   ['swapFeeLevel', 'STD-AED-USDT', 'SWAP_SERVICE_FEE', '3'], //  3 USDT flat
-  ['withdrawalFeeLevel', 'STD-AED-FIAT', 'WITHDRAW_SERVICE_FEE', '2'], // 2 AED flat
+  ['withdrawalFeeLevel', 'STD-AED-AED_ZAND', 'WITHDRAW_SERVICE_FEE', '2'], // 2 AED flat
   ['withdrawalFeeLevel', 'STD-USDT-TRON', 'WITHDRAW_SERVICE_FEE', '1'], // 1 USDT flat
 ];
 
