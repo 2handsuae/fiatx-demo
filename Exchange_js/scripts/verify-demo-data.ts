@@ -187,7 +187,16 @@ async function scanR5(prisma: PrismaClient): Promise<void> {
   });
 
   for (const block of blocks) {
-    if (block.keys.length === 0) continue;
+    // 五块在任何正确铺好的库上都不可能为空（资产 2 / 平台钱包 7 / 限额 15 / 兑换费率 3 / 提现费率 2）。
+    // 空表就跳过 = 「没装载任何配置」也算「装载都留了痕」——正是本判据上一版栽的那种空真绿。
+    if (block.keys.length === 0) {
+      violations.push({
+        rule: 'R5',
+        entity: block.entity,
+        detail: `no live ${block.entity} rows at all — seeding of this block did not happen; R5 cannot vacuously pass`,
+      });
+      continue;
+    }
     const rows: any[] = await (prisma as any).auditLogEvent.findMany({
       where: { actorNo: 'RELEASE', action: block.action, primarySubjectNo: { in: block.keys } },
       select: { primarySubjectNo: true },
