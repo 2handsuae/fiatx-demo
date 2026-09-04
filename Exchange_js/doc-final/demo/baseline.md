@@ -57,7 +57,7 @@
 | 对账 | recon:demo:pass ｜ **recon:demo:break 14/14 场景 + 11/11 钱包桶 + `casesOpened` 完整性断言**（2026-09-02 平账一期半重编号后实测：`scenarios 14/14 DETECTED` / `wallets 11/11 bucket OK` / `casesOpened 11/11`，答案键 `rootCause` 已换成注册表成因码）｜ verify:demo-data。⚠️ **必须走整库重铺验证**：**场景 6（重复入账）真写账本**、`recon:demo:reset` 不回滚账本，轻量重跑会让场景 6 假性 MISSED（显示 13/14）|
 | 账本 | verify:coa —— 两恒等式 + 负余额断言（49 科目全部 ≥ 0）。收官多轮实测重铺后与 demo:all 后均全绿；历史上个别含 break 注入的运行轮见过公司 AED 负余额（浮存时序）。**2026-09-01 三支合流后在 main 栈两轮独立实测：57 科目全部 ≥ 0，全绿**（此前 08-31 的负余额红已定位为资本注入被跳过的假红，见上方\"已结\"节）|
 | 审计 | verify:audit 恒绿七项：Q2 按单据查 ｜ Q4 按客户查 ｜ 不变量①②③（PRIMARY 至多一 / INHERIT 必有旅程号 / 退役码零写入）——三查合同七站换装后的固定资产 |
-| 封册 | audit-vocabulary-closure.spec 四条：平面表归籍 / 六册互斥 / V3 附册冻结快照 / 写点闭合退役词零引用 |
+| 封册 | audit-vocabulary-closure.spec 四条：平面表归籍 / 六册互斥 / 写点闭合退役词零引用 / 码全局唯一禁裸名 |
 | 单测 | `npx jest` **全绿**（**163 套 / 2067 例通过 + 2 skipped + 4 todo，退出码 0——2026-09-02 平账一期半 Task 12 实测**。⚠️ 此前记的"156 套 / 2026-08-31 实测"在 2026-09-01 之后有一段时间是**过期依据**：`c7bc7e3f` 改了单号随机位宽（4→6 位）但只跑了工具自己的新 spec，`no-generator.util.spec.ts` 那条「1000 次不撞号」按生日问题约 39% 必红，另有两处 `\d{10}` 位宽断言没跟着改——三处已于 2026-09-02 修好，本行数字即当次实测）｜ `npm run test:client`（vitest 4 套 83 例） |
 | 栈 | `bash scripts/stack-env.test.sh`（`ensure_env_files` 权威重写的 11 项断言） |
 
@@ -107,6 +107,10 @@
 **B13 判据依赖库里存在至少一条真实 `CustomerMaterialHolding`**（材料生命周期记录，不是纯治理夹具，`verify:act1` 按 brief 明确指示**不伪造**）——全新重铺的库在 `demo:all` 跑过一次客户 KYC 全流程之前通常是空的，此时 B13 判据自动 **SKIP**（打印原因，不计入失败，`n/15 PASS + 1 SKIP` 仍算通过）；库里一旦有真实 holding（无论是 `demo:all` 走出来的还是运维手工补的），B13 就会正常跑判据，不再 SKIP。2026-09-02 首次实测：全新 worktree 自动分栈的库尚无客户走过材料生命周期，手工补种 1 条 holding 后 B13 转为真实通过，**15/15 PASS**。
 
 **裁决**：与 `verify:rbac` 同一条运行顺序——`verify:rbac` → `verify:act1` → `stack.sh reset [main|self]` → `demo:all`，重铺把探针痕迹与手工补种的 holding 一并冲掉。
+
+**波一起**：B6 夹具按 (vaultCode, network, ownerNo) 建平台行、B7 改为对 ACTIVE 资产提恢复（运营 token）→ 409。
+
+**改过 `rbac.catalog.ts` 就必须重启后端再跑**：本波把 TECH_OFFICER 加了 `IAM_ROLE_ASSIGN`（见 `overview.md` §4）。`verify:act1` 真登录真 HTTP，后端进程按内存里的 `RBAC_PERMISSION_DEFINITIONS` 判权限——只 `db:base:sync` 不重启后端，权限判断仍是改之前那份，`verify:act1` / `verify:rbac` 都会读到假结果（不是判据本身错，是跑的时候后端还没换脑子）。
 
 ## 红名单 —— 已于 2026-08-31 清零并退役
 
