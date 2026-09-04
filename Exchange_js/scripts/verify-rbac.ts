@@ -304,6 +304,10 @@ function runStaticChecks(): void {
     CUSTOMER_RESTRICTION_RELEASE_MLRO:
       '提单组 CUSTOMER_RESTRICTION_RELEASE 由 MLRO 与合规官双持，裁决人 MLRO 在其中（合规官' +
       '提、MLRO 批；MLRO 自提自批被 SoD 拒），COMPLIANCE_OFFICER 是安全 maker，P1 已验证',
+    ADMIN_ROLE_BINDING_CHANGE_APPROVAL:
+      '提单组 IAM_ROLE_ASSIGN 由 CISO 与技术官双持，裁决人 CISO 刻意在其中——自批由 ' +
+      'approvals.service 的 SoD 当场拒（业主拍板甲案，形状同 ADMIN_INVITE_APPROVAL），' +
+      'TECH_OFFICER 是安全 maker，P1 已验证',
   };
 
   // 已知但未修的自批死锁登记——与上面 MAKER_GROUP_EXEMPT 语义不同：豁免表登记的是「maker
@@ -315,10 +319,7 @@ function runStaticChecks(): void {
   // 代码。登记条目本身是否仍站得住由下面的 S5b 守着，不是写一次就永久信任。
   // 2026-09-04 Task 13 登记（S8 新增全覆盖判据后第一次照见，非本任务改动引入，详情见
   // doc-final/BACKLOG.md「角色绑定变更审批 ADMIN_ROLE_BINDING_CHANGE_APPROVAL 结构性自批死锁」）。
-  const S5_KNOWN_DEADLOCKS: Record<string, string> = {
-    ADMIN_ROLE_BINDING_CHANGE_APPROVAL:
-      'doc-final/BACKLOG.md §B——提单组 IAM_ROLE_ASSIGN 与裁决人全系统唯一都是 CISO，业主待裁两个候选修法',
-  };
+  const S5_KNOWN_DEADLOCKS: Record<string, string> = {};
 
   const holdersOf = (group: string): string[] =>
     Object.entries(RBAC_ROLE_GROUP_BINDINGS)
@@ -438,7 +439,7 @@ function runStaticChecks(): void {
     }
   }
   check(
-    'S5c maker≠checker（不相交判据：同一职务不得既是提单人又是裁决人；MAKER_CHECKER_OVERLAP_EXEMPT 显式豁免的 5 条站点演示策略除外）',
+    'S5c maker≠checker（不相交判据：同一职务不得既是提单人又是裁决人；MAKER_CHECKER_OVERLAP_EXEMPT 显式豁免的 6 条站点演示策略除外）',
     overlapViolations.length === 0,
     overlapViolations.length === 0
       ? `${overlapChecked} 条策略逐条验证 maker 与 checker 角色集合不相交（豁免 ${exemptApplied} 条，另有 ${p1SkippedCount} 条已被 P1 判定无安全 maker 的策略不重复计入）`
