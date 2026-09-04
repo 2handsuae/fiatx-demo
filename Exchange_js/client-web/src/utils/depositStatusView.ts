@@ -72,6 +72,11 @@ const VIEW_MAP: Record<string, DepositStatusView> = {
     note: 'Funds were returned to the original sender',
     tone: 'neutral',
   },
+  CLAWED_BACK: {
+    label: 'CLAWED BACK',
+    note: 'The bank reversed this deposit; your balance was reduced accordingly',
+    tone: 'neutral',
+  },
   // 制裁 / 执法 / 人工复核四态：与 COMPLIANCE_PENDING **逐字段完全一致**
   // （label + 无 note + neutral），客户端上与"正常处理中"在视觉与文案上都无从区分。
   //

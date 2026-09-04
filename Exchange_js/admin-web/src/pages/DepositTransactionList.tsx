@@ -36,6 +36,8 @@ interface DepositItem {
   slaDeadline?: string | null;
   slaBreached?: boolean;
   needsReview?: boolean;
+  /** 平账 B 批 Task 10：这单是运营凭账单行补录出来的（补单三路①）。 */
+  isSupplement?: boolean;
 }
 
 interface FilterState {
@@ -335,6 +337,7 @@ const DepositTransactionList = () => {
                   <span className="font-mono text-[11px] font-semibold text-adm-amber">
                     {item.depositNo}
                   </span>
+                  {item.isSupplement && <span className="ml-1 rounded bg-adm-blue/10 px-1 text-[9px] text-adm-blue">补录</span>}
                 </td>
 
                 {/* Status */}

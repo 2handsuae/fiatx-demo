@@ -39,6 +39,7 @@ const STATUS_PILL_MAP: Record<string, string> = {
   REJECTED: 'bg-red-100 text-red-800',
   CANCELLED: 'bg-red-100 text-red-800',
   RETURNED: 'bg-red-100 text-red-800',
+  CLAWED_BACK: 'bg-red-100 text-red-800',
   CONFISCATED: 'bg-red-100 text-red-800',
   FAIL: 'bg-red-100 text-red-800',
   FAILED: 'bg-orange-100 text-orange-800',

@@ -642,7 +642,26 @@ export class WithdrawTransactionsService {
       createdAt: a.createdAt,
     }));
 
-    return { ...item, sumsubDetail, approvals };
+    // 平账 B 批 Task 10：退回来源块——只读展示，镜像充值 findOneForAdmin 的
+    // loadClawbackOrigin（本单自己的一列 + 一次账单行查参考号，横向只读）。
+    const returnOrigin = await this.loadReturnOrigin(item);
+
+    return { ...item, sumsubDetail, approvals, returnOrigin };
+  }
+
+  /**
+   * 退回来源（平账 B 批 Task 10）：returnExternalLineId 非空时拼出对账案号 +
+   * 账单行参考号；案号是本单自己的列，只多查一次账单行取参考号。
+   */
+  private async loadReturnOrigin(item: any) {
+    if (!item.returnExternalLineId) return null;
+    const line = await (this.prisma as any).externalStatementLine.findUnique({
+      where: { id: item.returnExternalLineId },
+    });
+    return {
+      reconCaseNo: item.returnReconCaseNo,
+      externalRef: line?.externalRef ?? null,
+    };
   }
 
   /**

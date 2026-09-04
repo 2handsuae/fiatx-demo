@@ -270,19 +270,38 @@ export class DepositTransactionsService {
               lifecycle: true,
             },
           },
+          // 平账 B 批 Task 10：列表「补录」小标只认 legSeq 1（payin）资金单的
+          // providerTxnId——同 findOne 挑 payinOrder 的口径。
+          fundsOrders: { where: { legSeq: 1 }, select: { providerTxnId: true } },
         },
       }),
       (this.prisma as any).depositTransaction.count({ where }),
     ]);
 
+    // 一次批量查补录信号，不逐行查（N+1）。
+    const providerTxnIds = items
+      .map((item: any) => item.fundsOrders?.[0]?.providerTxnId)
+      .filter((x: any): x is string => Boolean(x));
+    const supplementSignals = providerTxnIds.length
+      ? await (this.prisma as any).inboundTransferSignal.findMany({
+          where: { id: { in: providerTxnIds }, supplementOfExternalLineId: { not: null } },
+          select: { id: true },
+        })
+      : [];
+    const supplementSignalIds = new Set(supplementSignals.map((s: any) => s.id));
+
     return {
-      items: items.map((item: any) => ({
-        ...item,
-        ownerNo:
-          item.ownerNo ||
-          (item.ownerType === 'CUSTOMER' ? item.customer?.customerNo || null : null),
-        type: this.deriveDepositType(item.asset?.type),
-      })),
+      items: items.map((item: any) => {
+        const { fundsOrders, ...rest } = item;
+        return {
+          ...rest,
+          ownerNo:
+            item.ownerNo ||
+            (item.ownerType === 'CUSTOMER' ? item.customer?.customerNo || null : null),
+          type: this.deriveDepositType(item.asset?.type),
+          isSupplement: supplementSignalIds.has(fundsOrders?.[0]?.providerTxnId),
+        };
+      }),
       total,
     };
   }
@@ -584,8 +603,14 @@ export class DepositTransactionsService {
       createdAt: a.createdAt,
     }));
 
+    // 平账 B 批 Task 10：补单 / 退汇来源块——只读展示，只挂在 admin 详情读面。
+    // 不塞进 findOne：findOne 是状态机热路径（见本方法上方 JSDoc），这两次额外
+    // 查询只有详情页要看。
+    const supplementOrigin = await this.loadSupplementOrigin(item);
+    const clawbackOrigin = await this.loadClawbackOrigin(item);
+
     if (!item.sumsubTxnId) {
-      return { ...item, sumsubDetail, approvals, latestSumsubWebhook: null };
+      return { ...item, sumsubDetail, approvals, latestSumsubWebhook: null, supplementOrigin, clawbackOrigin };
     }
 
     // webhook 事件表不挂 depositId 外键(它是全站 Sumsub 事件的落地表),只能靠
@@ -606,7 +631,50 @@ export class DepositTransactionsService {
       },
     });
 
-    return { ...item, sumsubDetail, approvals, latestSumsubWebhook: events[0] ?? null };
+    return { ...item, sumsubDetail, approvals, latestSumsubWebhook: events[0] ?? null, supplementOrigin, clawbackOrigin };
+  }
+
+  /**
+   * 补单来源（平账 B 批 Task 10）：查 payin（legSeq 1）资金单的 providerTxnId
+   * 找回当初的 InboundTransferSignal；只有它是补录信号
+   * （supplementOfExternalLineId 非空）才拼出来源块，否则 null——普通信号扫描
+   * 出来的充值单没有这个块。只读，横向查 inboundTransferSignal /
+   * externalStatementLine 两张表，不写任何表。
+   */
+  private async loadSupplementOrigin(item: any) {
+    const fundsOrders = item.fundsOrders ?? [];
+    const payinOrder = fundsOrders.find((f: any) => !f.legSeq || f.legSeq === 1);
+    if (!payinOrder?.providerTxnId) return null;
+    const signal = await (this.prisma as any).inboundTransferSignal.findUnique({
+      where: { id: payinOrder.providerTxnId },
+    });
+    if (!signal?.supplementOfExternalLineId) return null;
+    const line = await (this.prisma as any).externalStatementLine.findUnique({
+      where: { id: signal.supplementOfExternalLineId },
+    });
+    return {
+      signalNo: signal.signalNo,
+      reconCaseNo: signal.supplementReconCaseNo,
+      externalRef: line?.externalRef ?? null,
+      effectiveDate: signal.supplementEffectiveDate,
+    };
+  }
+
+  /**
+   * 退汇来源（平账 B 批 Task 10）：clawbackExternalLineId 非空时拼出对账案号 +
+   * 账单行参考号 + 定性单号；案号/定性单号是本单自己的列，只多查一次账单行
+   * 取参考号（横向只读 externalStatementLine）。
+   */
+  private async loadClawbackOrigin(item: any) {
+    if (!item.clawbackExternalLineId) return null;
+    const line = await (this.prisma as any).externalStatementLine.findUnique({
+      where: { id: item.clawbackExternalLineId },
+    });
+    return {
+      reconCaseNo: item.clawbackReconCaseNo,
+      externalRef: line?.externalRef ?? null,
+      dispositionNo: item.clawbackDispositionNo,
+    };
   }
 
   /**

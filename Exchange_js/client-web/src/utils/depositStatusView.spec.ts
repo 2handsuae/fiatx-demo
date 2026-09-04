@@ -30,6 +30,7 @@ const ALL_STATUSES = [
   'SEIZING',
   'SEIZED',
   'CONFISCATING',
+  'CLAWED_BACK',
 ];
 
 // [status, expected label] — copied verbatim from design §1.2
@@ -40,6 +41,7 @@ const LABEL_CASES: Array<[string, string]> = [
   ['SUCCESS', 'SUCCESS'],
   ['RETURNING', 'RETURNING'],
   ['RETURNED', 'RETURNED'],
+  ['CLAWED_BACK', 'CLAWED BACK'],
   ['FROZEN', 'PROCESSING'],
   ['SEIZING', 'PROCESSING'],
   ['SEIZED', 'PROCESSING'],
@@ -48,8 +50,8 @@ const LABEL_CASES: Array<[string, string]> = [
 ];
 
 describe('depositStatusView (client, tipping-off safe)', () => {
-  it('exercises all 13 backend statuses', () => {
-    expect(ALL_STATUSES).toHaveLength(13);
+  it('exercises all 14 backend statuses', () => {
+    expect(ALL_STATUSES).toHaveLength(14);
   });
 
   it.each(LABEL_CASES)('%s -> label=%s', (status, label) => {

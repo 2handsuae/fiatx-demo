@@ -53,6 +53,12 @@ const DEPOSIT_KYT_VERDICT_IGNORED_STATUSES = new Set([
   'CONFISCATED',
   'RETURNED',
   'SEIZED',
+  // 平账 B 批②：入账后被银行/托管方退汇，零出边终态。⚠️ 后端
+  // KYT_VERDICT_IGNORED_STATUSES 未收编它（该集合语义是「终态 + 在途处置态」，
+  // 本可以加）——落到 CLAWED_BACK 的裁决不会走 IGNORE 分支 no-op，而是照常
+  // 进 applyKyt*，撞上状态机零出边必抛 BadRequestException。这里仍然把它列进
+  // 置灰名单：跟其余终态一样，operator 点了不该有反应，抛异常不是更好的反应。
+  'CLAWED_BACK',
   // 在途处置态
   'CONFISCATING',
   'RETURNING',
@@ -113,6 +119,19 @@ interface DepositDetail {
   slaBreached?: boolean | null;
   sumsubActionId?: string | null;
   l1Snapshot?: string | null;
+  /** 平账 B 批 Task 10：补录才有值（案子业务归属日）。 */
+  effectiveDate?: string | null;
+  supplementOrigin?: {
+    signalNo: string;
+    reconCaseNo: string | null;
+    externalRef: string | null;
+    effectiveDate: string | null;
+  } | null;
+  clawbackOrigin?: {
+    reconCaseNo: string | null;
+    externalRef: string | null;
+    dispositionNo: string | null;
+  } | null;
   asset: {
     code: string;
     type: string;
@@ -592,6 +611,9 @@ const DepositTransactionDetail = () => {
             <InfoField label="To Wallet" value={data.toWalletNo} mono />
             <InfoField label="To Address" value={data.toAddress} copyable onCopy={(v) => handleCopy(v, 'toAddr')} isCopied={copiedField === 'toAddr'} mono />
             <InfoField label="Reference No" value={data.referenceNo} mono />
+            {data.effectiveDate && <InfoField label="业务归属日" value={data.effectiveDate} mono />}
+            {data.supplementOrigin && <InfoField label="补单来源" value={`对账案 ${data.supplementOrigin.reconCaseNo} · 账单行 ${data.supplementOrigin.externalRef} · 信号 ${data.supplementOrigin.signalNo}`} mono />}
+            {data.clawbackOrigin && <InfoField label="退汇来源" value={`对账案 ${data.clawbackOrigin.reconCaseNo} · 账单行 ${data.clawbackOrigin.externalRef}`} mono />}
           </DetailCard>
 
           {/* 3. Compliance Layers */}

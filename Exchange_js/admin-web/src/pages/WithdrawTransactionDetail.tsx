@@ -145,6 +145,8 @@ interface WithdrawDetail {
   linkedFundOrders?: LinkedFundOrder[];
   sumsubDetail?: SumsubTxnDetail | null;
   approvals?: WithdrawApproval[];
+  /** 平账 B 批 Task 10：出款后被银行退回的认领来源（补单三路③）。 */
+  returnOrigin?: { reconCaseNo: string | null; externalRef: string | null } | null;
 }
 
 /** Internal-approval `actionType` → English action label shown in the
@@ -440,6 +442,7 @@ const WithdrawTransactionDetail = () => {
             <InfoField label="Amount" value={formatAssetAmount(data.amount, data.asset.decimals)} accent />
             <InfoField label="Fee" value={formatAssetAmount(data.feeAmount, data.asset.decimals)} />
             <InfoField label="Net Amount" value={formatAssetAmount(data.netAmount, data.asset.decimals)} accent />
+            {data.returnOrigin && <InfoField label="退回来源" value={`出款后被银行退回 · 对账案 ${data.returnOrigin.reconCaseNo} · 账单行 ${data.returnOrigin.externalRef} · 本金已重记，手续费不退`} />}
             <InfoField label="Tx Hash" value={data.txHash} copyable onCopy={(v) => handleCopy(v, 'txHash')} isCopied={copiedField === 'txHash'} mono link={data.txHash ? explorerTxUrl(data.asset.network, data.txHash) : undefined} />
             <InfoField label="To Address" value={data.toAddress} copyable onCopy={(v) => handleCopy(v, 'toAddr')} isCopied={copiedField === 'toAddr'} mono />
             <InfoField label="To Iban" value={data.toIban} copyable onCopy={(v) => handleCopy(v, 'toIban')} isCopied={copiedField === 'toIban'} mono />
