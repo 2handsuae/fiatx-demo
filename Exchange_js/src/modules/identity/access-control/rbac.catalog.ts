@@ -932,9 +932,11 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
     'RECON_RUN_READ', 'RECON_CASE_READ', 'RECON_EXTERNAL_BALANCE_READ',
     'WITHDRAWAL_FEE_LEVEL_READ', 'SWAP_FEE_LEVEL_READ',
     'WITHDRAWAL_FEE_LEVEL_WRITE', 'SWAP_FEE_LEVEL_WRITE',
-    // 费率等级创建/变更弹窗的受众标签选择器读 GET /admin/customer-tags/catalog（波一 T13
-    // 补）——此前 CFO 持两族 *_FEE_LEVEL_WRITE 却没这个组，唯一能建费率等级的角色打开
-    // 弹窗只看得到 everyone，VIP 等受众标签选不到。不带 CUSTOMER_READ——CFO 不查客户资料。
+    // CUSTOMER_TAG_VIEW 补于波一 T13——此前 CFO 持两族 *_FEE_LEVEL_WRITE 却没这个组，唯一
+    // 能建费率等级的角色打开费率等级创建/变更弹窗的受众标签选择器（GET
+    // /admin/customer-tags/catalog）只看得到 everyone，VIP 等受众标签选不到；这个组同时也
+    // 挂在 GET /admin/customers/:customerNo/effective-tags 上（非本次新增用途，原本就在）。
+    // 不带 CUSTOMER_READ——CFO 不查客户资料。
     'CUSTOMER_TAG_VIEW',
   ],
 

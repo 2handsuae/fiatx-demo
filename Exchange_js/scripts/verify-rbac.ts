@@ -59,6 +59,7 @@ const API = resolveApiBase();
 
 let failed = 0;
 let guardOpenCount = 0;
+let knownDeadlockCount = 0; // S5 已登记死锁数——不计入 failed，但必须出现在总结行，见 main() 末尾
 
 function check(name: string, ok: boolean, detail: string) {
   console.log(`${ok ? '✓' : '✗'} ${name} —— ${detail}`);
@@ -204,12 +205,25 @@ function runStaticChecks(): void {
   // 提单人，提完只能自己批，`approvals.service.ts` 的 SoD 当场拒绝，那条业务出路
   // 就此走不通（第一幕走查②在改造前就是这么跑不通的）。
   //
-  // 判据：对每条「maker 权限组唯一确定」的审批策略，
-  //        持有该 maker 组的角色集合  ∩  该策略任一步骤的裁决人集合  必须为空。
+  // 判据（波一 T13 修复轮改写，见 review）：对每条「maker 权限组唯一确定」的审批策略，
+  //        持有该 maker 组的角色集合 ∖ 该策略任一步骤的裁决人集合  必须非空
+  //        （至少一个角色能提但不在裁决人集合里——这个角色永远能正常提单）。
   //
-  // 交集非空 = 存在某个角色既能提又能批 = 该业务出路可能变回死锁（若他恰好是唯一
-  // 提单人）或破坏 maker≠checker。终审判定：不补这条判据，未来有人改
-  // `approval.constants.ts` 就会把死锁悄悄改回来且无人发现。
+  // 为什么不是「交集必须为空」（旧判据，2026-09-04 前）：本仓库每个角色码在种子数据里
+  // 只绑一个真人账号（`ROLE_LOGIN` 花名册），角色 X 若同时是 maker 又是 checker，X 提交
+  // 的单只能由 X 自己批，SoD 当场拒绝；但只要 maker 组还有第二个持有角色 Y（Y ≠
+  // checker），Y 正常提、X 正常批，压根不会撞上"唯一提单人=唯一裁决人"这条死路。旧判据
+  // 把「存在交集」直接当死锁，对双持场景是假阳性——此前靠下面 `MAKER_GROUP_EXEMPT` 里的
+  // 人工评语搪塞这类假阳性（本轮之前有 5 条），评语只是注释文字，没有代码断言：谁改坏了
+  // 评语描述的事实（比如误删双持角色持有的那个组），判据不会跟着报警——是本闸门自己应该
+  // 挡住、却挡不住的那类问题。新判据把「至少一个安全 maker」变成真正会算的表达式，
+  // 假阳性与真死锁（`ADMIN_ROLE_BINDING_CHANGE_APPROVAL`，maker 组只有 CISO 一人持有）在
+  // 同一条公式下被正确分开，不用再逐条人工担保——原豁免表因此从 6 条缩到 1 条：见下方
+  // `MAKER_GROUP_EXEMPT`，唯一留下的是 maker 组本身不可判定（系统自动开单）的那条。
+  //
+  // 安全 maker 集合为空 = 该策略结构性走不通：唯一能提的人也是唯一能批的人，SoD 会永久
+  // 卡死这条业务出路。终审判定：不补这条判据，未来有人改 `approval.constants.ts` 或
+  // `rbac.catalog.ts` 的绑定就会把死锁悄悄改回来且无人发现。
   //
   // ⚠️ 这张表是**人工维护**的 policy→maker 组映射——代码里没有可推导的关联
   // （谁能提某个审批，取决于哪个端点会建这张单，那是 workflow 的事）。新增
@@ -238,24 +252,33 @@ function runStaticChecks(): void {
     ADMIN_MFA_RESET: 'IAM_CREDENTIAL_RESET',
     AUDIT_EVIDENCE_EXPORT_APPROVAL: 'AUDIT_EXPORT_CREATE',
     CUSTOMER_RESTRICTION_RELEASE_OPS: 'CUSTOMER_RESTRICTION_RELEASE',
+    // 以下 5 条波一 T13 修复轮从 MAKER_GROUP_EXEMPT 并入——原先靠人工评语担保「maker 组
+    // 双持、总有另一个角色能安全提单」，现在统一走上面的「安全 maker 非空」判据，评语
+    // 描述的事实由代码逐次重算，不再是一次性写死的文字担保：
+    ADMIN_INVITE_APPROVAL: 'IAM_MEMBER_MANAGE',
+    APPROVAL_POLICY_CHANGE: 'GOV_APPROVAL_POLICY_WRITE',
+    ROLE_DEFINITION_CREATE: 'IAM_ROLE_DEFINE',
+    ROLE_DEFINITION_MODIFY: 'IAM_ROLE_DEFINE',
+    CUSTOMER_RESTRICTION_RELEASE_MLRO: 'CUSTOMER_RESTRICTION_RELEASE',
   };
 
-  // 有意不进上表的策略——每条都要写清为什么 S5 的「集合交空」判据不适用；S8 保证策略全集 = 上表 ∪ 本表
+  // 有意不进上表的策略——maker 组本身不可判定（不是某个角色权限组闸住的，是系统自己在
+  // 建单时自动开单，没有"谁能提交"这个角色层面的概念），上面「安全 maker 非空」判据无从
+  // 算起，只能手工读源码确认清楚；S8 保证策略全集 = 上表 ∪ 本表。
   const MAKER_GROUP_EXEMPT: Record<string, string> = {
-    WITHDRAW_LARGE_VALUE_APPROVAL: '系统在建单时自动开单，没有提单权限组',
-    ADMIN_INVITE_APPROVAL: '提单组 IAM_MEMBER_MANAGE 由 CISO 与技术官双持，裁决人 CISO 刻意在其中——自批由 approvals.service 的 SoD 当场拒（站 0 演示装置）',
-    APPROVAL_POLICY_CHANGE: '提单组 GOV_APPROVAL_POLICY_WRITE 由高管与 CISO 双持，裁决人 CISO 刻意在其中——站 3「门自己也要过门」演的就是自批被拒',
-    ROLE_DEFINITION_CREATE: '提单组 IAM_ROLE_DEFINE 由 CISO 与技术官双持，裁决人 CISO 在其中（站 1）',
-    ROLE_DEFINITION_MODIFY: '同 ROLE_DEFINITION_CREATE',
-    CUSTOMER_RESTRICTION_RELEASE_MLRO: '提单组 CUSTOMER_RESTRICTION_RELEASE 由 MLRO 与合规官双持，裁决人 MLRO 在其中（合规官提、MLRO 批；MLRO 自提自批被 SoD 拒）',
+    WITHDRAW_LARGE_VALUE_APPROVAL:
+      '系统在建单时自动开单，没有提单权限组——withdraw-workflow.service.ts 的 ' +
+      '@OnEvent(WITHDRAWAL_CREATED) 处理器按 AED 估值超阈值触发 openApprovalGate()，用 ' +
+      'SYSTEM_APPROVAL_ACTOR 提交，不经任何 @RequirePermissions 端点',
   };
 
-  // 已知但未修的自批死锁登记——与上面 MAKER_GROUP_EXEMPT 语义不同：豁免表登记的重叠是
-  // 刻意设计（双持，SoD 拒自批是演示装置）；这张表登记的是**真实死锁**，S5 依然要为它们
-  // 报红，只是红得可辨认——见下方专门打印的 ⚠ 行，且不计入"未登记死锁 = 0"这条判据本身
-  // 的失败数，避免整个脚本永久红、训练所有人对红视而不见。值 = BACKLOG 落点，方便一眼找到
-  // 谁在跟这件事、决定了没有。**唯一合法的清空方式**：业主拍板两个候选修法之一并落地后，
-  // 删掉这一行——届时 S5 的主判据自动收紧回"零已知死锁"，不用额外改判据代码。
+  // 已知但未修的自批死锁登记——与上面 MAKER_GROUP_EXEMPT 语义不同：豁免表登记的是「maker
+  // 组不可判定」；这张表登记的是**真实死锁**（按上方判据算出安全 maker 集合确实为空），
+  // S5 依然要为它们报红，只是红得可辨认——见下方专门打印的 ⚠ 行，且不计入"未登记死锁 = 0"
+  // 这条判据本身的失败数，避免整个脚本永久红、训练所有人对红视而不见。值 = BACKLOG 落点，
+  // 方便一眼找到谁在跟这件事、决定了没有。**唯一合法的清空方式**：业主拍板两个候选修法
+  // 之一并落地后，删掉这一行——届时 S5 的主判据自动收紧回"零已知死锁"，不用额外改判据
+  // 代码。登记条目本身是否仍站得住由下面的 S5b 守着，不是写一次就永久信任。
   // 2026-09-04 Task 13 登记（S8 新增全覆盖判据后第一次照见，非本任务改动引入，详情见
   // doc-final/BACKLOG.md「角色绑定变更审批 ADMIN_ROLE_BINDING_CHANGE_APPROVAL 结构性自批死锁」）。
   const S5_KNOWN_DEADLOCKS: Record<string, string> = {
@@ -271,6 +294,7 @@ function runStaticChecks(): void {
   const deadlocks: string[] = [];
   const registeredDeadlocks: string[] = [];
   const missingFromTable: string[] = [];
+  const staleDeadlocks: string[] = [];
   let gatedPolicies = 0;
 
   for (const [actionType, makerGroup] of Object.entries(MAKER_GROUP_BY_POLICY)) {
@@ -282,14 +306,33 @@ function runStaticChecks(): void {
     gatedPolicies += 1;
     const makers = new Set(holdersOf(makerGroup));
     const checkers = new Set<string>(policy.steps.flatMap((st: any) => st.roles as string[]));
-    const both = [...makers].filter((r) => checkers.has(r));
-    if (both.length > 0) {
-      const msg = `${actionType}: ${both.join('/')} 既持 ${makerGroup}（能提）又在裁决人集合 {${[...checkers].join(',')}} 里（能批）`;
+    // 安全 maker = 持有 maker 组、但不在裁决人集合里的角色——这种角色永远能正常提单，
+    // 不会被 SoD 卡死。集合为空才是真死锁（见上方判据说明）。
+    const safeMakers = [...makers].filter((r) => !checkers.has(r));
+    if (safeMakers.length === 0) {
+      const msg = `${actionType}: 持 ${makerGroup} 的角色 {${[...makers].join(',')}} 全部同时在裁决人集合 {${[...checkers].join(',')}} 里——没有一个角色能提但不能批，唯一提单人必自批（SoD 拒绝）`;
       if (actionType in S5_KNOWN_DEADLOCKS) {
         registeredDeadlocks.push(`${msg} —— 已登记：${S5_KNOWN_DEADLOCKS[actionType]}`);
       } else {
         deadlocks.push(msg);
       }
+    } else if (actionType in S5_KNOWN_DEADLOCKS) {
+      // S5b 的核心：登记表说这是死锁，但按当前绑定算出来已经不是了（比如业主已经把
+      // 候选修法之一落地，给了另一个角色安全提单的能力）——登记条目过期了，必须报出来
+      // 要求清理，不能悄悄放行，否则未来有人真把重叠改回来，登记表会把新死锁也一并吞掉。
+      staleDeadlocks.push(
+        `${actionType}（现在存在安全 maker {${safeMakers.join(',')}}，已不再是死锁，应从 S5_KNOWN_DEADLOCKS 删除）`,
+      );
+    }
+  }
+
+  // 登记了但压根对不上当前 MAKER_GROUP_BY_POLICY / DEFAULT_APPROVAL_POLICIES 的登记条目
+  // ——同样是过期登记（比如维护表那一行被删了，或策略改名了，登记表忘了跟着删/改）。
+  for (const actionType of Object.keys(S5_KNOWN_DEADLOCKS)) {
+    if (!(actionType in MAKER_GROUP_BY_POLICY)) {
+      staleDeadlocks.push(`${actionType}（登记条目不在 MAKER_GROUP_BY_POLICY 里，应清理登记）`);
+    } else if (!(DEFAULT_APPROVAL_POLICIES as Record<string, any>)[actionType]) {
+      staleDeadlocks.push(`${actionType}（登记条目指向的策略已不存在，应清理登记）`);
     }
   }
 
@@ -302,6 +345,18 @@ function runStaticChecks(): void {
           ? `（另有 ${registeredDeadlocks.length} 条已登记死锁待业主裁决，见下方 ⚠ 行）`
           : '')
       : [...deadlocks, ...missingFromTable].join(' ｜ '),
+  );
+  knownDeadlockCount = registeredDeadlocks.length;
+
+  // S5b：已登记死锁名副其实（镜像 S1/S1b 的白名单核验模式）—— 登记条目一旦按当前判据算出
+  // 来已经不是死锁了，就该从 S5_KNOWN_DEADLOCKS 删掉；不删的话，未来某次真重叠又发生时，
+  // 登记表会把这个"新问题"也一并悄悄放行，S5 的「未登记死锁 = 0」判据也就不再收紧。
+  check(
+    'S5b 已登记死锁名副其实（确认登记条目仍是真死锁）',
+    staleDeadlocks.length === 0,
+    staleDeadlocks.length === 0
+      ? `${Object.keys(S5_KNOWN_DEADLOCKS).length} 条登记全部确认仍是真死锁`
+      : `以下登记条目已过期，应清理: ${staleDeadlocks.join(' ｜ ')}`,
   );
 
   // 已登记死锁的可见提示——不是 check()，不计入 failed 计数（S5 本身可以整体绿），但也
@@ -1018,7 +1073,13 @@ async function main(): Promise<void> {
   }
   console.log('');
   console.log(`共 ${failed} 条 FAIL，其中 GUARD_OPEN（守卫 fail-open，非权限配错）${guardOpenCount} 条`);
-  console.log(failed === 0 ? 'ALL RBAC CHECKS PASS' : `FAIL: ${failed} check(s) failed`);
+  // 已登记死锁数带进总结行——下游任务（含人）实际读的判据就是这一行字符串 + 退出码，
+  // S5 那条 ⚠ 提示在 ~85 行之前，扫到这一行看不到；不带上就等于把"业主还欠一个裁决"这件
+  // 事从最容易读到的地方藏起来了。仍然是 PASS（不是 FAIL）——已登记死锁不改变退出码。
+  const passLine = knownDeadlockCount > 0
+    ? `ALL RBAC CHECKS PASS（另有 ${knownDeadlockCount} 条已登记死锁待业主裁决）`
+    : 'ALL RBAC CHECKS PASS';
+  console.log(failed === 0 ? passLine : `FAIL: ${failed} check(s) failed`);
   process.exit(failed === 0 ? 0 : 1);
 }
 
