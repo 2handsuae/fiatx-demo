@@ -62,8 +62,8 @@ describe('TransactionLimitGateService', () => {
     expect(audit.recordSystem.mock.calls[1][0].requestId).not.toEqual(call.requestId);
   });
 
-  it('B: CUMULATIVE 规则缺 defaultLimit(只填 cap) → 引擎跳过、不抛 DecimalError、放行', async () => {
-    rules.getCumulativeRules.mockResolvedValue([{ ruleNo: 'TLR-4', period: 'DAILY', defaultLimit: null, cap: D('999') }]);
+  it('B: CUMULATIVE 规则 defaultLimit 缺失 → 引擎跳过、不抛 DecimalError、放行', async () => {
+    rules.getCumulativeRules.mockResolvedValue([{ ruleNo: 'TLR-4', period: 'DAILY', defaultLimit: null }]);
     prisma.withdrawTransaction.aggregate.mockResolvedValue({ _sum: { grossAedValue: D('100') } });
     await expect(gate.evaluate(input)).resolves.toBeDefined();
     // 缺 defaultLimit 视为无限额:不计用量、不拒绝

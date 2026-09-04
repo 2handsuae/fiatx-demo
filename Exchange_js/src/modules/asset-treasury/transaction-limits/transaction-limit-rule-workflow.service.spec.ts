@@ -41,7 +41,6 @@ describe('TransactionLimitRuleWorkflowService', () => {
   const singleRule = (over: Record<string, any> = {}) => ({
     id: 'r1',
     ruleNo: 'TLR-1',
-    status: 'ACTIVE',
     gateType: 'SINGLE',
     operationType: 'WITHDRAWAL',
     assetId: 'a1',
@@ -50,7 +49,6 @@ describe('TransactionLimitRuleWorkflowService', () => {
     minAmount: new Prisma.Decimal(10),
     maxAmount: new Prisma.Decimal(100),
     defaultLimit: null,
-    cap: null,
     threshold: null,
     ...over,
   });

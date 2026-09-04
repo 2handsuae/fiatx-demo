@@ -31,7 +31,7 @@ describe('TransactionLimitRulesService', () => {
 
   it('validateShape accepts a well-formed CUMULATIVE row', () => {
     expect(() =>
-      service.validateShape({ gateType: 'CUMULATIVE', operationType: 'SWAP', tradingTier: 'BASIC', period: 'DAILY', defaultLimit: 100000, cap: 200000 } as any),
+      service.validateShape({ gateType: 'CUMULATIVE', operationType: 'SWAP', tradingTier: 'BASIC', period: 'DAILY', defaultLimit: 100000 } as any),
     ).not.toThrow();
   });
 
