@@ -317,8 +317,11 @@ function runStaticChecks(): void {
   // 方便一眼找到谁在跟这件事、决定了没有。**唯一合法的清空方式**：业主拍板两个候选修法
   // 之一并落地后，删掉这一行——届时 S5 的主判据自动收紧回"零已知死锁"，不用额外改判据
   // 代码。登记条目本身是否仍站得住由下面的 S5b 守着，不是写一次就永久信任。
-  // 2026-09-04 Task 13 登记（S8 新增全覆盖判据后第一次照见，非本任务改动引入，详情见
-  // doc-final/BACKLOG.md「角色绑定变更审批 ADMIN_ROLE_BINDING_CHANGE_APPROVAL 结构性自批死锁」）。
+  // 目前为空——这是正常终态，不是"忘了写"。历史：2026-09-04 Task 13 曾在此登记
+  // ADMIN_ROLE_BINDING_CHANGE_APPROVAL（S8 新增全覆盖判据后第一次照见的既有死锁），同日业主
+  // 拍板甲案（给 TECH_OFFICER 加 IAM_ROLE_ASSIGN）真正修掉，按上面写的"唯一合法清空方式"删除。
+  // 那条策略随即转登记进 MAKER_CHECKER_OVERLAP_EXEMPT——CISO 双持是刻意的，能提不能批的
+  // 安全 maker 由 TECH_OFFICER 提供，P1 继续守着。
   const S5_KNOWN_DEADLOCKS: Record<string, string> = {};
 
   const holdersOf = (group: string): string[] =>
