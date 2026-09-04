@@ -432,7 +432,7 @@ describe('Customer lifecycle restrictions (e2e, Task 14)', () => {
     expect([...(await access.resolve(c.id)).blocked].sort()).toEqual(['DEPOSIT', 'SWAP', 'WITHDRAW']);
 
     // OPS 批准 → 撕
-    await approvals.approve(pending!.id, { reason: 'e2e approve' }, OPS_CHECKER);
+    await approvals.approve(pending!.approvalNo, { reason: 'e2e approve' }, OPS_CHECKER);
     await waitUntil(
       `${restrictionNo} 被 OPS 批准后转 RELEASED`,
       async () => (await restrictions.findByNo(restrictionNo))?.status === 'RELEASED',
@@ -474,7 +474,7 @@ describe('Customer lifecycle restrictions (e2e, Task 14)', () => {
     const pending = await openApprovalCaseFor(restrictionNo, ApprovalActionTypes.CUSTOMER_RESTRICTION_RELEASE_MLRO);
     expect(pending!.status).toBe('PENDING');
 
-    await approvals.approve(pending!.id, { reason: 'e2e approve' }, MLRO_CHECKER);
+    await approvals.approve(pending!.approvalNo, { reason: 'e2e approve' }, MLRO_CHECKER);
     await waitUntil(
       `${restrictionNo} 被 MLRO 批准后转 RELEASED`,
       async () => (await restrictions.findByNo(restrictionNo))?.status === 'RELEASED',
