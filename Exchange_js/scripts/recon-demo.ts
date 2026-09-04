@@ -10,10 +10,10 @@
 //                  external closing balance == internal balance.
 //                  Expected: status=PASS, casesOpened=0, orphan/mismatch=0.
 //
-//   --mode=break   Pass-mode setup, then inject 14 scenarios covering the
+//   --mode=break   Pass-mode setup, then inject 15 scenarios covering the
 //                  disposition matrix and write `manifest.json`.
 //                  按处置分组（spec 2026-09-01-recon-disposition-conclusion-
-//                  design.md §5，= 走查顺序），14 行 = 14 场景：
+//                  design.md §5，= 走查顺序），15 行 = 15 场景：
 //                    ① 在途时序差   推单
 //                    ② 小数点错位   冲正
 //                    ③ 我方少记     冲正
@@ -26,8 +26,9 @@
 //                    ⑩ 查无果       挂起·调查中
 //                    ⑪ 银行杂费     补记（与⑫对冲）
 //                    ⑫ 银行利息     补记（与⑪对冲）
-//                    ⑬ 漏监听充值   留档·补单（下一轮）
-//                    ⑭ 退汇         留档·补单（下一轮）
+//                    ⑬ 漏监听充值   补单·充值补录（B 批开门，链上）
+//                    ⑭ 入金被退汇   补单·退汇认领（B 批开门，法币，叠 Kate AED）
+//                    ⑮ 出金被退回   补单·退回认领（B 批开门，法币，叠 Grace AED）
 //                  公理：外部资料是权威——不平只能是三种性质之一：我方账错了 /
 //                  我方账缺了 / 时机没到，没有第四档"外部数据本身可以商榷"。
 //                  旧版两条场景（银行漏报明细、对账单重复行）已删：两者都靠
@@ -729,7 +730,6 @@ async function injectScenarios(
     return c.customerNo;
   };
 
-  const ALICE_NO = await emailToNo('demo_alice@example.com');
   const BOB_NO   = await emailToNo('demo_bob@example.com');
   const GRACE_NO = await emailToNo('demo_grace@example.com');
   const FRANK_NO = await emailToNo('demo_frank@example.com');
@@ -747,7 +747,8 @@ async function injectScenarios(
   const slotShowcaseB     = planByOwnerAsset(FRANK_NO, 'AED');        // 展示位乙：我有外无 ⑥⑦（机器佐证 vs 纯人判）
   const slotShowcaseC     = planByOwnerAsset(BOB_NO,   'USDT-TRON');  // ⑬ 漏监听充值（原展示位丙，⑨已删只剩单场景）
   const slotFeeNetted     = planByOwnerAsset(BOB_NO,   'AED');        // ⑤ 手续费轧差
-  const slotReturn        = planByOwnerAsset(ALICE_NO, 'USDT-TRON');  // ⑭ 退汇
+  const slotReturn        = planByOwnerAsset(KATE_NO,  'AED');        // ⑭ 入金被退汇（B 批搬家：退汇只有法币；Alice USDT 位空出给二期场景 16）
+  const slotPayoutReturn  = planByOwnerAsset(GRACE_NO, 'AED');        // ⑮ 出金被退回（叠展示位甲）
   const slotCutoff        = planByOwnerAsset(GRACE_NO, 'USDT-TRON');  // ⑨ 跨日切
   const slotMisroutedFrom = planByOwnerAsset(JACK_NO,  'AED');        // ⑧ 记错客户 · 发出端
   const slotMisroutedTo   = planByOwnerAsset(KATE_NO,  'AED');        // ⑧ 记错客户 · 接收端
@@ -1221,11 +1222,12 @@ async function injectScenarios(
     });
     wallets.push({
       walletRef: slotShowcaseA.walletRef,
-      scenarioIds: [2, 3, 4],
+      scenarioIds: [2, 3, 4, 15],
       expectedBucket: 'BREAK',
       bucketRationale:
         '三条金额差同时存在：② 外部−内部 = 99×原额、③ +333、④ +2（方向按各自行的 IN/OUT 计入收盘）。' +
-        '三者之和恒 ≠ 0（② 一项就远大于其余两项之和），且无在途 → 残差 ≠ 0 → BREAK。',
+        '三者之和恒 ≠ 0（② 一项就远大于其余两项之和），且无在途 → 残差 ≠ 0 → BREAK。' +
+        '；⑮ 再加一条 IN 幽灵行并抬高同额收盘（900 AED 出款退回），残差仍 ≠ 0 → BREAK',
     hasNonTerminalFundsOrder: false,
     });
   }
@@ -1463,9 +1465,10 @@ async function injectScenarios(
     });
     wallets.push({
       walletRef: slotMisroutedTo.walletRef,
-      scenarioIds: [8],
+      scenarioIds: [8, 14],
       expectedBucket: 'BREAK',
-      bucketRationale: '接收端：加一条 IN 幽灵行并抬高同额收盘 → 残差 = +该行金额 ≠ 0 → BREAK',
+      bucketRationale: '接收端：加一条 IN 幽灵行并抬高同额收盘 → 残差 = +该行金额 ≠ 0 → BREAK' +
+        '；⑭ 再加一条 OUT 幽灵行并压低同额收盘（1200 AED 退汇），残差仍 ≠ 0 → BREAK',
       hasNonTerminalFundsOrder: false,
     });
   }
@@ -1518,51 +1521,62 @@ async function injectScenarios(
     });
   }
 
-  // ── 场景 ⑭ — 退汇 (BREAK / ORPHAN_EXTERNAL / 客户账簿) ──────────────────
-  // 一笔已经入过账的钱被银行退了回去：银行对账单上多出一条 OUT，我方账上
-  // 还留着那笔入账。→ 外有我无 + 余额差。
-  // ⚠️ 2026-08-30 重写：旧版造了一进一出净额为零的两条行，又单独把收盘压低
-  // 同额——现实里没有哪个事件同时产生这两样（旧 spec §8 短板 1 已登记）。
+  // ── 场景 ⑭ — 入金被退汇 (BREAK / ORPHAN_EXTERNAL / 客户账簿 / 法币) ──────────
+  // 银行把一笔已经入账的钱扣了回去：账单上多一条 OUT，我方账上那笔充值仍在 → 外有我无 + 余额差。
+  // B 批（2026-09-03）搬到 Kate AED：退汇只有法币；原单必须是一笔真实 SUCCESS 充值（花名册 #28，1200 AED），
+  // 认领时候选靠「同钱包 · SUCCESS · 同金额」找它，所以这里先断言它在。叠在改记接收端钱包上（一案两行）。
   {
-    const s6Amount = D('4700');   // 分 —— USDT 0.004700
-    const outRef = refFor(slotReturn.currency, 'RETURNOUT');
+    const s14Amount = D('120000');   // 分 —— 1200.00 AED = 花名册 #28
+    const original = await (prisma as any).depositTransaction.findFirst({
+      where: { toWalletId: slotReturn.walletRef, status: 'SUCCESS', amount: new Prisma.Decimal('1200') },
+    });
+    if (!original) throw new Error('场景 14 需要 Kate 有一笔 SUCCESS 的 1200 AED 充值（花名册 #28）—— demo:all 是否跑过？');
+    const outRef = refFor(slotReturn.currency, 'CLAWBACK');
     const created = await (prisma as any).externalStatementLine.create({
       data: {
-        source: sourceFor(slotReturn.currency),
-        accountRef: slotReturn.walletRef,
-        subAccount: slotReturn.walletRef,
-        book: slotReturn.book,
-        currency: slotReturn.currency,
-        direction: 'OUT',
-        amount: s6Amount,
-        externalRef: outRef,
-        datetime: cutoff,
+        source: sourceFor(slotReturn.currency), accountRef: slotReturn.walletRef, subAccount: slotReturn.walletRef,
+        book: slotReturn.book, currency: slotReturn.currency, direction: 'OUT', amount: s14Amount, externalRef: outRef,
+        channelRef: original.referenceNo ?? null, datetime: cutoff,
         description: 'Demo bank return — a previously credited deposit was clawed back',
         dedupKey: `DEMO-INJ-${cutoffDate}-${slotReturn.walletRef}-s14-bounced`,
       },
     });
-    const prevClose = await bumpClosing(slotReturn, s6Amount.negated());
+    const prevClose = await bumpClosing(slotReturn, s14Amount.negated());
     scenarios.push({
-      scenarioId: 14,
-      rootCause: 'BOUNCED_FUNDS',
-      expectedLines: [{
-        walletRef: slotReturn.walletRef,
-        lineType: 'ORPHAN_EXTERNAL',
-        amount: s6Amount.toString(),
-        externalRef: outRef,
-      }],
-      detail: {
-        insertedExternalLineId: created.id,
-        prevClosingBalance: prevClose,
-        closingBalanceDelta: s6Amount.negated().toString(),
+      scenarioId: 14, rootCause: 'BOUNCED_FUNDS',
+      expectedLines: [{ walletRef: slotReturn.walletRef, lineType: 'ORPHAN_EXTERNAL', amount: s14Amount.toString(), externalRef: outRef }],
+      detail: { insertedExternalLineId: created.id, originalDepositNo: original.depositNo, prevClosingBalance: prevClose, closingBalanceDelta: s14Amount.negated().toString() },
+    });
+  }
+
+  // ── 场景 ⑮ — 出金被退回 (BREAK / ORPHAN_EXTERNAL / 客户账簿 / 法币) ──────────
+  // 一笔已经成功出款的提现，几天后被银行原路退回：账单上多一条 IN、带原出款关联号，我方账上那笔提现仍是 SUCCESS。
+  // 原单 = 花名册 #16（Grace AED 提现成功，花名册记的 900 是税前 amount）。叠进展示位甲（一案四行）。
+  // ⚠️ 用 amount=900 钉行（花名册字面量、不随手续费漂移），但外部真正过账、日后会被退回的
+  // 是 netAmount（付款腿 isExternalCrossing=true 用的就是它，见 withdraw-workflow.service.ts
+  // 的 payout principal leg）——两者因 2 AED 提现手续费而不相等，s15Amount 必须从 original
+  // 现读取 netAmount 换算，不能对着花名册的 900 硬编（那是税前数，会查不到行）。
+  {
+    const original = await (prisma as any).withdrawTransaction.findFirst({
+      where: { fromWalletId: slotPayoutReturn.walletRef, status: 'SUCCESS', amount: new Prisma.Decimal('900') },
+    });
+    if (!original) throw new Error('场景 15 需要 Grace 有一笔 SUCCESS 的 900 AED 提现（花名册 #16）—— demo:all 是否跑过？');
+    const s15Amount = D(original.netAmount).mul(100);   // 分 —— netAmount(AED) → 外部对账单口径
+    const inRef = refFor(slotPayoutReturn.currency, 'PAYOUTRET');
+    const created = await (prisma as any).externalStatementLine.create({
+      data: {
+        source: sourceFor(slotPayoutReturn.currency), accountRef: slotPayoutReturn.walletRef, subAccount: slotPayoutReturn.walletRef,
+        book: slotPayoutReturn.book, currency: slotPayoutReturn.currency, direction: 'IN', amount: s15Amount, externalRef: inRef,
+        channelRef: original.withdrawNo, datetime: cutoff,
+        description: 'Demo bank return — a completed payout bounced back (Return)',
+        dedupKey: `DEMO-INJ-${cutoffDate}-${slotPayoutReturn.walletRef}-s15-payout-returned`,
       },
     });
-    wallets.push({
-      walletRef: slotReturn.walletRef,
-      scenarioIds: [14],
-      expectedBucket: 'BREAK',
-      bucketRationale: '加一条 OUT 幽灵行并压低同额收盘 → 残差 = −该行金额 ≠ 0 → BREAK',
-      hasNonTerminalFundsOrder: false,
+    const prevClose = await bumpClosing(slotPayoutReturn, s15Amount);
+    scenarios.push({
+      scenarioId: 15, rootCause: 'PAYOUT_RETURNED',
+      expectedLines: [{ walletRef: slotPayoutReturn.walletRef, lineType: 'ORPHAN_EXTERNAL', amount: s15Amount.toString(), externalRef: inRef }],
+      detail: { insertedExternalLineId: created.id, originalWithdrawNo: original.withdrawNo, prevClosingBalance: prevClose, closingBalanceDelta: s15Amount.toString() },
     });
   }
 
