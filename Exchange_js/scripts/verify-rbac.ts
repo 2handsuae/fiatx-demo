@@ -205,25 +205,36 @@ function runStaticChecks(): void {
   // 提单人，提完只能自己批，`approvals.service.ts` 的 SoD 当场拒绝，那条业务出路
   // 就此走不通（第一幕走查②在改造前就是这么跑不通的）。
   //
-  // 判据（波一 T13 修复轮改写，见 review）：对每条「maker 权限组唯一确定」的审批策略，
-  //        持有该 maker 组的角色集合 ∖ 该策略任一步骤的裁决人集合  必须非空
-  //        （至少一个角色能提但不在裁决人集合里——这个角色永远能正常提单）。
+  // 本闸门两条判据都要成立，缺一不可（波一 T13 修复轮二 review Critical：修复轮一把
+  // 旧判据 P2 换成新判据 P1，当成「改写」处理，实为拿掉一半——两者不等价，maker 组
+  // ≥2 人持有时 P2 严格强于 P1，只留 P1 会漏掉 P2 单独守住的那类真缺口）：
   //
-  // 为什么不是「交集必须为空」（旧判据，2026-09-04 前）：本仓库每个角色码在种子数据里
-  // 只绑一个真人账号（`ROLE_LOGIN` 花名册），角色 X 若同时是 maker 又是 checker，X 提交
-  // 的单只能由 X 自己批，SoD 当场拒绝；但只要 maker 组还有第二个持有角色 Y（Y ≠
-  // checker），Y 正常提、X 正常批，压根不会撞上"唯一提单人=唯一裁决人"这条死路。旧判据
-  // 把「存在交集」直接当死锁，对双持场景是假阳性——此前靠下面 `MAKER_GROUP_EXEMPT` 里的
-  // 人工评语搪塞这类假阳性（本轮之前有 5 条），评语只是注释文字，没有代码断言：谁改坏了
-  // 评语描述的事实（比如误删双持角色持有的那个组），判据不会跟着报警——是本闸门自己应该
-  // 挡住、却挡不住的那类问题。新判据把「至少一个安全 maker」变成真正会算的表达式，
-  // 假阳性与真死锁（`ADMIN_ROLE_BINDING_CHANGE_APPROVAL`，maker 组只有 CISO 一人持有）在
-  // 同一条公式下被正确分开，不用再逐条人工担保——原豁免表因此从 6 条缩到 1 条：见下方
-  // `MAKER_GROUP_EXEMPT`，唯一留下的是 maker 组本身不可判定（系统自动开单）的那条。
+  //   P1（安全 maker 非空）：对每条「maker 权限组唯一确定」的审批策略，持有该 maker
+  //       组的角色集合 ∖ 该策略任一步骤的裁决人集合 必须非空（至少一个角色能提但不在
+  //       裁决人集合里，永远能正常提单、不会被 SoD 卡死）。安全 maker 集合为空 = 该
+  //       策略结构性走不通：唯一能提的人也是唯一能批的人，真死锁例子见
+  //       `ADMIN_ROLE_BINDING_CHANGE_APPROVAL`（maker 组只有 CISO 一人持有，已登记见
+  //       下方 `S5_KNOWN_DEADLOCKS`）。
   //
-  // 安全 maker 集合为空 = 该策略结构性走不通：唯一能提的人也是唯一能批的人，SoD 会永久
-  // 卡死这条业务出路。终审判定：不补这条判据，未来有人改 `approval.constants.ts` 或
-  // `rbac.catalog.ts` 的绑定就会把死锁悄悄改回来且无人发现。
+  //   P2（maker ∩ checker = ∅，本轮修复轮二恢复，见下方 S5c）：对 P1 覆盖的 28 条策略
+  //       中除下方 `MAKER_CHECKER_OVERLAP_EXEMPT` 点名的 5 条之外的其余 23 条，持有
+  //       maker 组的角色集合必须与裁决人集合完全不相交——同一职务不能既提单又裁决，
+  //       哪怕 maker 组另有安全成员兜底。P1 单独存在时验证不出这个缺口：只要 maker
+  //       组还有第二个持有人，P1 就判定"能提"，根本不管这个持有人是不是恰好也是唯一
+  //       裁决人——把 `'RECON_ADJUSTMENT_WRITE'` 加进 CFO 绑定（CFO 已是
+  //       RECON_ADJUSTMENT_POST 唯一裁决人）、或把 `'SWAP_FEE_LEVEL_WRITE'` 加进
+  //       OPS_OFFICER 绑定（OPS_OFFICER 已是三条费率策略唯一裁决人），P1 都因为
+  //       TREASURY_OFFICER / CFO 仍是安全 maker 而照样全绿——但业务上就是同一个运营
+  //       角色自己提、自己批，没有任何跨部门签字，是本闸门存在的理由本身正被绕开。
+  //
+  // 为什么不是全部 28 条都要求 P2：本仓库每个角色码在种子数据里只绑一个真人账号（见
+  // `ROLE_LOGIN` 花名册），`MAKER_CHECKER_OVERLAP_EXEMPT` 点名的 5 条策略，maker 组是
+  // 刻意双持的站点演示装置——checker 就是两个持有人之一，自批被 SoD 当场拒绝，另一
+  // 持有人正常提、正常批，业务出路并不会被卡死，这个"双持"事实由 P1 逐次验证（不再
+  // 是本轮之前那种只有人工评语担保、代码从不校验的状态）。"重叠即假阳性"这个定性只对
+  // 这 5 条成立；其余 23 条没有"刻意双持、checker 是其中之一"这重设计前提，一旦出现
+  // 重叠就是真实的 SoD 缺口，必须由 P2 报红，不能被 P1 的"还有安全 maker"结论悄悄
+  // 稀释掉。
   //
   // ⚠️ 这张表是**人工维护**的 policy→maker 组映射——代码里没有可推导的关联
   // （谁能提某个审批，取决于哪个端点会建这张单，那是 workflow 的事）。新增
@@ -270,6 +281,29 @@ function runStaticChecks(): void {
       '系统在建单时自动开单，没有提单权限组——withdraw-workflow.service.ts 的 ' +
       '@OnEvent(WITHDRAWAL_CREATED) 处理器按 AED 估值超阈值触发 openApprovalGate()，用 ' +
       'SYSTEM_APPROVAL_ACTOR 提交，不经任何 @RequirePermissions 端点',
+  };
+
+  // P2（maker ∩ checker = ∅，见上方判据说明）专属豁免表——与上面 `MAKER_GROUP_EXEMPT`
+  // 语义不同：这 5 条策略确实在 `MAKER_GROUP_BY_POLICY` 里、确实受 P1 保护（"双持、
+  // 其中一人是 checker"这件事由 P1 逐次验证，不是靠本表担保），只是 P2 的"完全不相交"
+  // 对它们不适用——maker 组是刻意双持的站点演示装置，checker 恰是两个持有人之一，另一
+  // 持有人是安全 maker。原 `MAKER_GROUP_EXEMPT`（波一 T13 修复轮一之前）就是这 5 条 +
+  // WITHDRAW_LARGE_VALUE_APPROVAL 共 6 条、担保的正是同一件事，只是当时是整条豁免（P1
+  // P2 都不查）；现在把这 5 条挪回来，但只窄化到豁免 P2，P1 仍然覆盖，见 S5c。
+  const MAKER_CHECKER_OVERLAP_EXEMPT: Record<string, string> = {
+    ADMIN_INVITE_APPROVAL:
+      '提单组 IAM_MEMBER_MANAGE 由 CISO 与技术官双持，裁决人 CISO 刻意在其中——自批由 ' +
+      'approvals.service 的 SoD 当场拒（站 0 演示装置），TECH_OFFICER 是安全 maker，P1 已验证',
+    APPROVAL_POLICY_CHANGE:
+      '提单组 GOV_APPROVAL_POLICY_WRITE 由高管与 CISO 双持，裁决人 CISO 刻意在其中——站 3' +
+      '「门自己也要过门」演的就是自批被拒，SENIOR_MANAGEMENT_OFFICER 是安全 maker，P1 已验证',
+    ROLE_DEFINITION_CREATE:
+      '提单组 IAM_ROLE_DEFINE 由 CISO 与技术官双持，裁决人 CISO 在其中（站 1），' +
+      'TECH_OFFICER 是安全 maker，P1 已验证',
+    ROLE_DEFINITION_MODIFY: '同 ROLE_DEFINITION_CREATE',
+    CUSTOMER_RESTRICTION_RELEASE_MLRO:
+      '提单组 CUSTOMER_RESTRICTION_RELEASE 由 MLRO 与合规官双持，裁决人 MLRO 在其中（合规官' +
+      '提、MLRO 批；MLRO 自提自批被 SoD 拒），COMPLIANCE_OFFICER 是安全 maker，P1 已验证',
   };
 
   // 已知但未修的自批死锁登记——与上面 MAKER_GROUP_EXEMPT 语义不同：豁免表登记的是「maker
@@ -365,6 +399,39 @@ function runStaticChecks(): void {
   for (const line of registeredDeadlocks) {
     console.log(`⚠ S5 已登记死锁（不计入判据失败数，需业主裁决）—— ${line}`);
   }
+
+  // ── S5c：maker ≠ checker（P2，波一 T13 修复轮二恢复）────────────────────
+  // 见上方判据说明。对 `MAKER_CHECKER_OVERLAP_EXEMPT` 未点名的策略，要求持有 maker 组
+  // 的角色集合与裁决人集合完全不相交——单独一个安全 maker 不够，maker 组里不能有任何
+  // 一个角色同时也是 checker。已经被上方判定为"无安全 maker"的策略（无论是否已登记）
+  // 不重复计入：makers ⊆ checkers 时 makers ∩ checkers = makers ≠ ∅ 必然成立，重叠已经
+  // 是那条真死锁本身报出来的同一件事，这里不再算作新发现，避免同一根因被两条判据各报
+  // 一次、稀释掉"这是同一个问题"的信号。
+  const overlapViolations: string[] = [];
+  let overlapChecked = 0;
+  for (const [actionType, makerGroup] of Object.entries(MAKER_GROUP_BY_POLICY)) {
+    if (actionType in MAKER_CHECKER_OVERLAP_EXEMPT) continue;
+    const policy = (DEFAULT_APPROVAL_POLICIES as Record<string, any>)[actionType];
+    if (!policy) continue; // 已由上方 missingFromTable 报过，这里不重复报
+    const makers = new Set(holdersOf(makerGroup));
+    const checkers = new Set<string>(policy.steps.flatMap((st: any) => st.roles as string[]));
+    const safeMakers = [...makers].filter((r) => !checkers.has(r));
+    if (safeMakers.length === 0) continue; // 已由上方 P1（S5/S5b）报过，见上方注释
+    overlapChecked += 1;
+    const overlap = [...makers].filter((r) => checkers.has(r));
+    if (overlap.length > 0) {
+      overlapViolations.push(
+        `${actionType}: ${overlap.join('/')} 既持 ${makerGroup}（能提）又在裁决人集合 {${[...checkers].join(',')}} 里（能批）——应豁免则加进 MAKER_CHECKER_OVERLAP_EXEMPT 并写明理由，否则视为 SoD 缺口`,
+      );
+    }
+  }
+  check(
+    'S5c maker≠checker（不相交判据：同一职务不得既是提单人又是裁决人；MAKER_CHECKER_OVERLAP_EXEMPT 显式豁免的 5 条站点演示策略除外）',
+    overlapViolations.length === 0,
+    overlapViolations.length === 0
+      ? `${overlapChecked} 条策略逐条验证 maker 与 checker 角色集合不相交（豁免 ${Object.keys(MAKER_CHECKER_OVERLAP_EXEMPT).length} 条，另有已被 P1 判定无安全 maker 的策略不重复计入）`
+      : overlapViolations.join(' ｜ '),
+  );
 
   // ── S8：MAKER 表与策略一一对应 ────────────────────────────────────────
   // 交付清单要求：新增 maker-checker 策略必须往 MAKER_GROUP_BY_POLICY 加一行——此前靠人记，
