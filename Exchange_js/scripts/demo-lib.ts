@@ -76,6 +76,7 @@ import { WithdrawQuoteService } from '../src/modules/trading/withdrawal-fee-leve
 import { WithdrawTransactionsService } from '../src/modules/trading/withdraw-transactions/withdraw-transactions.service';
 import { WithdrawWorkflowService } from '../src/modules/trading/withdraw-transactions/withdraw-workflow.service';
 import { ensureTbAccountRegistry, provisionTbAccounts } from '../prisma/seed-tb.helper';
+import { writeSeedAudit } from '../prisma/seed-audit.helper';
 import { buildDeterministicNo } from '../src/common/utils/no-generator.util';
 
 // ── constants ────────────────────────────────────────────────────────────────
@@ -332,6 +333,10 @@ export async function ensureSetup(ctx: DemoCtx): Promise<void> {
         address: fakeTronAddress(depNo), custodianRef: `hextrust-demo-${c.customerNo}`, status: 'ACTIVE',
       },
     });
+    await writeSeedAudit(ctx.prisma, {
+      action: 'CUSTOMER_DEPOSIT_ADDRESS_SEEDED', subjectType: 'WALLET', subjectNo: depNo, actorNo: 'DEMO_SEED', ownerCustomerNo: c.customerNo,
+      afterData: { network: 'TRON', walletRole: 'C_DEP', address: fakeTronAddress(depNo) },
+    });
 
     // C_VIBAN（AED_ZAND 虚拟账号）
     const vibanNo = buildDeterministicNo('WA', SIM, 'C_VIBAN', c.customerNo);
@@ -343,6 +348,10 @@ export async function ensureSetup(ctx: DemoCtx): Promise<void> {
         vaultCode: 'CLIENT_DEPOSIT', walletRole: 'C_VIBAN', network: 'AED_ZAND',
         iban: vibanIban, custodianRef: `zand-demo-${c.customerNo}`, status: 'ACTIVE',
       },
+    });
+    await writeSeedAudit(ctx.prisma, {
+      action: 'CUSTOMER_DEPOSIT_ADDRESS_SEEDED', subjectType: 'WALLET', subjectNo: vibanNo, actorNo: 'DEMO_SEED', ownerCustomerNo: c.customerNo,
+      afterData: { network: 'AED_ZAND', walletRole: 'C_VIBAN', iban: vibanIban },
     });
 
     // Registered fiat withdrawal address (BANK/ACTIVE) — the 2026-07-11
@@ -365,6 +374,10 @@ export async function ensureSetup(ctx: DemoCtx): Promise<void> {
         traceId: `demo-setup-withdrawal-address-${c.customerNo}`,
       },
     });
+    await writeSeedAudit(ctx.prisma, {
+      action: 'WITHDRAWAL_ADDRESS_SEEDED', subjectType: 'WITHDRAWAL_ADDRESS', subjectNo: wdAddrNo, actorNo: 'DEMO_SEED', ownerCustomerNo: c.customerNo,
+      afterData: { network: 'AED_ZAND', addressType: 'BANK', address: vibanIban },
+    });
 
     // Registered crypto withdrawal destination — Task 3's per-transaction hard
     // guard (createWithdrawal requires the EXACT target address on file, on
@@ -385,6 +398,10 @@ export async function ensureSetup(ctx: DemoCtx): Promise<void> {
           status: 'ACTIVE', activatesAt: new Date(Date.now() - 1000),
           traceId: `demo-setup-withdrawal-address-crypto-${c.customerNo}`,
         },
+      });
+      await writeSeedAudit(ctx.prisma, {
+        action: 'WITHDRAWAL_ADDRESS_SEEDED', subjectType: 'WITHDRAWAL_ADDRESS', subjectNo: cryptoWdAddrNo, actorNo: 'DEMO_SEED', ownerCustomerNo: c.customerNo,
+        afterData: { network: 'TRON', addressType: 'SELF_CUSTODY', address: cryptoWdAddr },
       });
     }
   }

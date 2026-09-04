@@ -22,6 +22,7 @@ import { deterministicTransferId } from '../src/modules/accounting/tigerbeetle/u
 import { platformWalletSlots } from '../src/config/manifests/vaults.manifest';
 import { NETWORKS } from '../src/config/manifests/networks.manifest';
 import { fakeTronAddress } from '../src/common/utils/tron-address.util';
+import { writeSeedAudit } from './seed-audit.helper';
 
 type SeedBusinessOptions = {
   skipEnsureBase?: boolean;
@@ -114,6 +115,11 @@ async function seedAssets(prisma: PrismaClient): Promise<void> {
       },
     });
 
+    await writeSeedAudit(prisma, {
+      action: 'ASSET_SEEDED', subjectType: 'ASSET', subjectNo: record.assetNo, actorNo: 'RELEASE',
+      afterData: { code: record.code, currency: record.currency, network: record.network, contractAddress: record.contractAddress, standard: record.standard, decimals: record.decimals, status: record.status },
+    });
+
     // System TB accounts (ownerType SYSTEM, no ownerUuid).
     const systemAccounts = systemAccountCodesFor(asset.type);
     for (const acct of systemAccounts) {
@@ -155,7 +161,11 @@ async function seedPlatformWallets(prisma: PrismaClient): Promise<void> {
       custodianRef: `${net.custodian.toLowerCase()}-vault-${slot.vaultCode.toLowerCase()}`,
       status: 'ACTIVE',
     };
-    await prisma.wallet.upsert({ where: { walletNo }, update: data, create: { walletNo, ...data } });
+    const row = await prisma.wallet.upsert({ where: { walletNo }, update: data, create: { walletNo, ...data } });
+    await writeSeedAudit(prisma, {
+      action: 'CUSTODIAN_WALLET_SEEDED', subjectType: 'WALLET', subjectNo: row.walletNo, actorNo: 'RELEASE',
+      afterData: { vaultCode: row.vaultCode, network: row.network, address: row.address, iban: row.iban, custodianRef: row.custodianRef, status: row.status },
+    });
   }
   console.log('Seeded 7 platform wallet address rows (vault × network).');
 }
@@ -249,7 +259,7 @@ async function seedSwapFeeLevels(prisma: PrismaClient): Promise<void> {
     const tiersJson = JSON.stringify({ tiers });
     const configHash = createHash('sha256').update(tiersJson).digest('hex');
 
-    await prisma.swapFeeLevel.upsert({
+    const row = await prisma.swapFeeLevel.upsert({
       where: { levelCode: pair.levelCode },
       update: { tiersJson, configHash, status: 'ACTIVE' },
       create: {
@@ -263,6 +273,10 @@ async function seedSwapFeeLevels(prisma: PrismaClient): Promise<void> {
         status: 'ACTIVE',
         createdByUserId: 'SYSTEM',
       },
+    });
+    await writeSeedAudit(prisma, {
+      action: 'SWAP_FEE_LEVEL_SEEDED', subjectType: 'SWAP_FEE_LEVEL', subjectNo: row.levelCode, actorNo: 'RELEASE',
+      afterData: { name: row.name, fromAssetId: row.fromAssetId, toAssetId: row.toAssetId, isDefault: row.isDefault, requiredTags: JSON.parse(row.requiredTagsJson), configHash: row.configHash },
     });
   }
 
@@ -286,7 +300,7 @@ async function seedSwapFeeLevels(prisma: PrismaClient): Promise<void> {
     };
   });
   const vipTiersJson = JSON.stringify({ tiers: vipTiers });
-  await prisma.swapFeeLevel.upsert({
+  const vipRow = await prisma.swapFeeLevel.upsert({
     where: { levelCode: 'VIP-USDT-AED' },
     update: { tiersJson: vipTiersJson, configHash: createHash('sha256').update(vipTiersJson).digest('hex'), status: 'ACTIVE' },
     create: {
@@ -301,6 +315,10 @@ async function seedSwapFeeLevels(prisma: PrismaClient): Promise<void> {
       status: 'ACTIVE',
       createdByUserId: 'SYSTEM',
     },
+  });
+  await writeSeedAudit(prisma, {
+    action: 'SWAP_FEE_LEVEL_SEEDED', subjectType: 'SWAP_FEE_LEVEL', subjectNo: vipRow.levelCode, actorNo: 'RELEASE',
+    afterData: { name: vipRow.name, fromAssetId: vipRow.fromAssetId, toAssetId: vipRow.toAssetId, isDefault: vipRow.isDefault, requiredTags: JSON.parse(vipRow.requiredTagsJson), configHash: vipRow.configHash },
   });
   console.log('Seeded VIP-USDT-AED audience level.');
 }
@@ -375,7 +393,7 @@ async function seedWithdrawalFeeLevels(prisma: PrismaClient): Promise<void> {
     const tiersJson = JSON.stringify({ tiers });
     const configHash = createHash('sha256').update(tiersJson).digest('hex');
 
-    await prisma.withdrawalFeeLevel.upsert({
+    const row = await prisma.withdrawalFeeLevel.upsert({
       where: { levelCode },
       update: { tiersJson, configHash, status: 'ACTIVE' },
       create: {
@@ -388,6 +406,10 @@ async function seedWithdrawalFeeLevels(prisma: PrismaClient): Promise<void> {
         status: 'ACTIVE',
         createdByUserId: 'SYSTEM',
       },
+    });
+    await writeSeedAudit(prisma, {
+      action: 'WITHDRAWAL_FEE_LEVEL_SEEDED', subjectType: 'WITHDRAWAL_FEE_LEVEL', subjectNo: row.levelCode, actorNo: 'RELEASE',
+      afterData: { name: row.name, assetId: row.assetId, isDefault: row.isDefault, configHash: row.configHash },
     });
     count++;
   }
@@ -450,14 +472,20 @@ export async function seedTransactionLimitRules(prisma: PrismaClient): Promise<v
         assetId: r.assetId ?? null, tradingTier: r.tradingTier ?? null, period: r.period ?? null,
       },
     });
+    let persisted;
     if (existing) {
       await prisma.transactionLimitRule.update({
         where: { id: existing.id },
         data: { minAmount: r.minAmount, maxAmount: r.maxAmount, defaultLimit: r.defaultLimit, threshold: r.threshold },
       });
+      persisted = existing;
     } else {
-      await prisma.transactionLimitRule.create({ data: { ...r } });
+      persisted = await prisma.transactionLimitRule.create({ data: { ...r } });
     }
+    await writeSeedAudit(prisma, {
+      action: 'TRANSACTION_LIMIT_SEEDED', subjectType: 'TRANSACTION_LIMIT_POLICY', subjectNo: persisted.ruleNo, actorNo: 'RELEASE',
+      afterData: { gateType: persisted.gateType, operationType: persisted.operationType, assetId: persisted.assetId, tradingTier: persisted.tradingTier, period: persisted.period, minAmount: persisted.minAmount?.toString() ?? null, maxAmount: persisted.maxAmount?.toString() ?? null, defaultLimit: persisted.defaultLimit?.toString() ?? null, threshold: persisted.threshold?.toString() ?? null },
+    });
   }
   console.log(`  ✔ Seeded ${rules.length} transaction limit rules`);
 }

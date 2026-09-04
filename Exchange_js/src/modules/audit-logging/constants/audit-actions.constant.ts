@@ -639,6 +639,17 @@ export const V1_AUDIT_ACTIONS: Record<string, AuditActionSpec> = {
   WITHDRAWAL_ADDRESS_UPDATED:         { domain: 'CONFIG', correlationMode: I, requiredFields: ['beforeData', 'afterData'], requiresCausation: false },
   WITHDRAWAL_ADDRESS_UNSUSPENDED:     { domain: 'CONFIG', correlationMode: I, requiredFields: ['reason'], requiresCausation: false },
 
+  // ── 种子身世（波一，spec §8）：配置随版本装载，装载即留痕——第七幕按 USDT 查，第一行是"随版本上架"。
+  // 种子跑在 Nest 之外，由 prisma/seed-audit.helper.ts 直写：actorType SYSTEM、actorNo RELEASE（业务种子）/ DEMO_SEED（演示客户造数），
+  // metadata { seedVersion, commit }。每条装载都是自己旅程的起点 → START。
+  ASSET_SEEDED:                    { domain: 'CONFIG', correlationMode: S, requiredFields: ['afterData'], requiresCausation: false },
+  CUSTODIAN_WALLET_SEEDED:         { domain: 'CONFIG', correlationMode: S, requiredFields: ['afterData'], requiresCausation: false },
+  TRANSACTION_LIMIT_SEEDED:        { domain: 'CONFIG', correlationMode: S, requiredFields: ['afterData'], requiresCausation: false },
+  SWAP_FEE_LEVEL_SEEDED:           { domain: 'CONFIG', correlationMode: S, requiredFields: ['afterData'], requiresCausation: false },
+  WITHDRAWAL_FEE_LEVEL_SEEDED:     { domain: 'CONFIG', correlationMode: S, requiredFields: ['afterData'], requiresCausation: false },
+  CUSTOMER_DEPOSIT_ADDRESS_SEEDED: { domain: 'CONFIG', correlationMode: S, requiredFields: ['afterData'], requiresCausation: false },
+  WITHDRAWAL_ADDRESS_SEEDED:       { domain: 'CONFIG', correlationMode: S, requiredFields: ['afterData'], requiresCausation: false },
+
   // ── ⑪ 审计日志自身的操作 ────────────────────────────────
   AUDIT_EVIDENCE_EXPORT_REQUESTED:  { domain: 'AUDIT', correlationMode: S, requiredFields: [], requiresCausation: false },
   AUDIT_EVIDENCE_EXPORT_GENERATED:  { domain: 'AUDIT', correlationMode: I, requiredFields: ['payloadDigest'], requiresCausation: true },

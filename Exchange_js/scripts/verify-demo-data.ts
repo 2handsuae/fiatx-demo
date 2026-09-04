@@ -13,6 +13,8 @@
 // R4: WithdrawTransaction.fromWalletId must point to a wallet OWNED by the
 //     withdraw's owner (ownerType=CUSTOMER, ownerNo matches), with the right
 //     role (FIAT→C_VIBAN, CRYPTO→C_DEP).
+// R5（波一 T14）：配置身世——业务种子的五块配置（资产/托管钱包/限额/两族费率）
+//     每条落库都必须有一条 actorNo=RELEASE 的 *_SEEDED 审计行；装载即留痕。
 //
 // Usage:
 //   DATABASE_URL="file:/tmp/exchange_js_main/dev.db" \
@@ -26,7 +28,7 @@ requireStackEnv({ requireTb: false });
 import { PrismaClient } from '@prisma/client';
 
 interface Violation {
-  rule: 'R1' | 'R2' | 'R3' | 'R4';
+  rule: 'R1' | 'R2' | 'R3' | 'R4' | 'R5';
   entity: string;
   detail: string;
 }
@@ -139,6 +141,34 @@ async function scanR4(prisma: PrismaClient): Promise<void> {
   }
 }
 
+// ─────────────────────────────────────────────────────────────
+// R5（波一 T14）：配置身世——业务种子的五块配置每条都有 *_SEEDED 审计行（actorNo RELEASE）
+async function scanR5(prisma: PrismaClient): Promise<void> {
+  const expected: Record<string, number> = {
+    ASSET_SEEDED: 2,
+    CUSTODIAN_WALLET_SEEDED: 7,
+    TRANSACTION_LIMIT_SEEDED: 15,
+    SWAP_FEE_LEVEL_SEEDED: 3,
+    WITHDRAWAL_FEE_LEVEL_SEEDED: 2,
+  };
+  const rows = await (prisma as any).auditLogEvent.groupBy({
+    by: ['action'],
+    where: { actorNo: 'RELEASE', action: { in: Object.keys(expected) } },
+    _count: { _all: true },
+  });
+  const got = new Map<string, number>(rows.map((r: any) => [r.action, r._count._all]));
+  for (const [code, n] of Object.entries(expected)) {
+    const count = got.get(code) ?? 0;
+    if (count < n) {
+      violations.push({
+        rule: 'R5',
+        entity: code,
+        detail: `expected >= ${n} *_SEEDED rows (actorNo=RELEASE), got ${count}`,
+      });
+    }
+  }
+}
+
 /* 2026-08-24：删掉 scanR1 / scanR3 与 scanR4 的尾段 —— 它们读的
    `internalFund` / `payin` / `payout` 三张表在 funds_orders 三合一那批就被 DROP 了
    （schema 里只剩 InternalFundAuditLog），Prisma client 上这三个 delegate 是
@@ -155,11 +185,12 @@ async function main(): Promise<void> {
   try {
     await scanR2(prisma);
     await scanR4(prisma);
+    await scanR5(prisma);
   } finally {
     await prisma.$disconnect();
   }
 
-  const byRule: Record<string, number> = { R1: 0, R2: 0, R3: 0, R4: 0 };
+  const byRule: Record<string, number> = { R1: 0, R2: 0, R3: 0, R4: 0, R5: 0 };
   for (const v of violations) byRule[v.rule]++;
 
   if (violations.length === 0) {
@@ -169,7 +200,7 @@ async function main(): Promise<void> {
 
   console.error(`\nverify:demo-data FAILED — ${violations.length} violation(s)`);
   console.error(
-    `  R1=${byRule.R1}  R2=${byRule.R2}  R3=${byRule.R3}  R4=${byRule.R4}\n`,
+    `  R1=${byRule.R1}  R2=${byRule.R2}  R3=${byRule.R3}  R4=${byRule.R4}  R5=${byRule.R5}\n`,
   );
   for (const v of violations) {
     console.error(`  [${v.rule}] ${v.entity}: ${v.detail}`);
