@@ -96,7 +96,7 @@ const WITHDRAW_STATUS_MAP: Record<string, WithdrawStatusMeta> = {
   },
   RETURNED: {
     label: 'RETURNED',
-    description: 'Payout bounced by the bank/network after broadcast.',
+    description: 'Payout bounced by the bank/network — either right after broadcast, or days after it had already cleared.',
     group: 'COMPLETED',
     badgeClass: GRAYBLUE,
   },
