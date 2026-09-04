@@ -344,7 +344,11 @@ function runStaticChecks(): void {
     // 不会被 SoD 卡死。集合为空才是真死锁（见上方判据说明）。
     const safeMakers = [...makers].filter((r) => !checkers.has(r));
     if (safeMakers.length === 0) {
-      const msg = `${actionType}: 持 ${makerGroup} 的角色 {${[...makers].join(',')}} 全部同时在裁决人集合 {${[...checkers].join(',')}} 里——没有一个角色能提但不能批，唯一提单人必自批（SoD 拒绝）`;
+      // makers.size === 0 是另一种坏：不是「唯一提单人也是裁决人」，是压根没人持有这个
+      // maker 组——没人能提单，跟"能提但会被自批拦"是两件不同的事，措辞不能混为一谈。
+      const msg = makers.size === 0
+        ? `${actionType}: 持 ${makerGroup} 的角色集合为空——没有任何角色持有这个 maker 组，没人能提单`
+        : `${actionType}: 持 ${makerGroup} 的角色 {${[...makers].join(',')}} 全部同时在裁决人集合 {${[...checkers].join(',')}} 里——没有一个角色能提但不能批，唯一提单人必自批（SoD 拒绝）`;
       if (actionType in S5_KNOWN_DEADLOCKS) {
         registeredDeadlocks.push(`${msg} —— 已登记：${S5_KNOWN_DEADLOCKS[actionType]}`);
       } else {
@@ -409,19 +413,27 @@ function runStaticChecks(): void {
   // 一次、稀释掉"这是同一个问题"的信号。
   const overlapViolations: string[] = [];
   let overlapChecked = 0;
+  let exemptApplied = 0; // 豁免表里实际被这个循环用到（consulted）的条目数，见下方判据说明
+  let p1SkippedCount = 0; // 已由上方 P1（S5/S5b）报过、这里不重复计入的条数
   for (const [actionType, makerGroup] of Object.entries(MAKER_GROUP_BY_POLICY)) {
-    if (actionType in MAKER_CHECKER_OVERLAP_EXEMPT) continue;
+    if (actionType in MAKER_CHECKER_OVERLAP_EXEMPT) {
+      exemptApplied += 1;
+      continue;
+    }
     const policy = (DEFAULT_APPROVAL_POLICIES as Record<string, any>)[actionType];
     if (!policy) continue; // 已由上方 missingFromTable 报过，这里不重复报
     const makers = new Set(holdersOf(makerGroup));
     const checkers = new Set<string>(policy.steps.flatMap((st: any) => st.roles as string[]));
     const safeMakers = [...makers].filter((r) => !checkers.has(r));
-    if (safeMakers.length === 0) continue; // 已由上方 P1（S5/S5b）报过，见上方注释
+    if (safeMakers.length === 0) {
+      p1SkippedCount += 1;
+      continue; // 已由上方 P1（S5/S5b）报过，见上方注释
+    }
     overlapChecked += 1;
     const overlap = [...makers].filter((r) => checkers.has(r));
     if (overlap.length > 0) {
       overlapViolations.push(
-        `${actionType}: ${overlap.join('/')} 既持 ${makerGroup}（能提）又在裁决人集合 {${[...checkers].join(',')}} 里（能批）——应豁免则加进 MAKER_CHECKER_OVERLAP_EXEMPT 并写明理由，否则视为 SoD 缺口`,
+        `${actionType}: ${overlap.join('/')} 既持 ${makerGroup}（能提）又在裁决人集合 {${[...checkers].join(',')}} 里（能批）——若确系刻意保留的双持豁免，加进 MAKER_CHECKER_OVERLAP_EXEMPT 并写明理由；若不是，就是真实 SoD 缺口，应上报给上级会话处理，禁止为了让闸门变绿而把它塞进豁免表`,
       );
     }
   }
@@ -429,8 +441,42 @@ function runStaticChecks(): void {
     'S5c maker≠checker（不相交判据：同一职务不得既是提单人又是裁决人；MAKER_CHECKER_OVERLAP_EXEMPT 显式豁免的 5 条站点演示策略除外）',
     overlapViolations.length === 0,
     overlapViolations.length === 0
-      ? `${overlapChecked} 条策略逐条验证 maker 与 checker 角色集合不相交（豁免 ${Object.keys(MAKER_CHECKER_OVERLAP_EXEMPT).length} 条，另有已被 P1 判定无安全 maker 的策略不重复计入）`
+      ? `${overlapChecked} 条策略逐条验证 maker 与 checker 角色集合不相交（豁免 ${exemptApplied} 条，另有 ${p1SkippedCount} 条已被 P1 判定无安全 maker 的策略不重复计入）`
       : overlapViolations.join(' ｜ '),
+  );
+
+  // ── S5d：MAKER_CHECKER_OVERLAP_EXEMPT 名副其实（镜像 S1b/S5b 的白名单核验模式）───
+  // 这张豁免表是第三张手工维护的逃生表（另两张是 S1b 守的 ROUTE_ORPHAN_WHITELIST、S5b
+  // 守的 S5_KNOWN_DEADLOCKS），本轮之前一直没配套的名副其实校验，两种腐坏都能悄悄
+  // 潜伏而全绿：
+  //   (a) 垃圾/改名键——S5c 的豁免统计只从 MAKER_GROUP_BY_POLICY 出发，一个不存在的
+  //       策略代码压根不会被那个循环遍历到，于是白白占位而不受任何约束；S8 也不覆盖
+  //       这张表（S8 读的是另一张 MAKER_GROUP_EXEMPT，语义不同，见上方注释）。
+  //   (b) 陈旧豁免——登记时那条策略确实重叠，后来 maker 或 checker 绑定改了、不再
+  //       重叠，登记条目却还留着；未来一次不相关的绑定改动如果又造出真重叠，会被这条
+  //       陈旧豁免不经任何人审视地悄悄放行，而不是被 S5c 正常报红。
+  const exemptGhosts: string[] = [];
+  const exemptStale: string[] = [];
+  for (const actionType of Object.keys(MAKER_CHECKER_OVERLAP_EXEMPT)) {
+    const makerGroup = MAKER_GROUP_BY_POLICY[actionType];
+    const policy = (DEFAULT_APPROVAL_POLICIES as Record<string, any>)[actionType];
+    if (!makerGroup || !policy) {
+      exemptGhosts.push(`${actionType}（不在 MAKER_GROUP_BY_POLICY 或 DEFAULT_APPROVAL_POLICIES 里，应删除）`);
+      continue;
+    }
+    const makers = new Set(holdersOf(makerGroup));
+    const checkers = new Set<string>(policy.steps.flatMap((st: any) => st.roles as string[]));
+    const overlap = [...makers].filter((r) => checkers.has(r));
+    if (overlap.length === 0) {
+      exemptStale.push(`${actionType}（豁免已不需要，应删除）`);
+    }
+  }
+  check(
+    'S5d MAKER_CHECKER_OVERLAP_EXEMPT 名副其实（豁免键存在且仍真实重叠）',
+    exemptGhosts.length === 0 && exemptStale.length === 0,
+    exemptGhosts.length === 0 && exemptStale.length === 0
+      ? `${Object.keys(MAKER_CHECKER_OVERLAP_EXEMPT).length} 条豁免全部确认键存在且仍真实重叠`
+      : [...exemptGhosts, ...exemptStale].join(' ｜ '),
   );
 
   // ── S8：MAKER 表与策略一一对应 ────────────────────────────────────────

@@ -329,7 +329,7 @@ export const DEFAULT_APPROVAL_POLICIES: Record<
   },
   // ─── Recon Adjustment Post（平账 A 批 2026-09-02：裁决人 OPS_OFFICER → CFO）────
   // 对账引出的账本更正与核销在业内是财务签批；链条 = 运营查证定性 → 金库开单 → CFO 裁决。
-  // 自批死锁不存在：CFO 不持 RECON_ADJUSTMENT_WRITE（verify:rbac S5 守着）。
+  // 自批死锁不存在：CFO 不持 RECON_ADJUSTMENT_WRITE（verify:rbac S5c 守着）。
   [ApprovalActionTypes.RECON_ADJUSTMENT_POST]: {
     steps: [{ stepNo: 1, roles: ['CFO'] }],
     timeoutHours: 48,

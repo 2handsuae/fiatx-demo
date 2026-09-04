@@ -953,7 +953,7 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
     'WITHDRAWAL_ADDRESS_READ', 'WITHDRAWAL_ADDRESS_WRITE',
     'FUNDS_ORDER_VIEW',
     // 调账单裁决人是 CFO（平账 A 批起，原 OPS_OFFICER）；开单权 RECON_ADJUSTMENT_WRITE
-    // 归金库——maker（金库）≠ checker（CFO），verify:rbac S5 守着这条。RECON_CASE_READ 是
+    // 归金库——maker（金库）≠ checker（CFO），verify:rbac S5c 守着这条。RECON_CASE_READ 是
     // 走到入口的必需品：侧栏 Cases 与调账单详情路由都要它。
     'RECON_CASE_READ', 'RECON_ADJUSTMENT_WRITE',
   ],
