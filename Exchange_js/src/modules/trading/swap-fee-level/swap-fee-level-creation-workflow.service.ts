@@ -235,7 +235,8 @@ export class SwapFeeLevelCreationWorkflowService {
         return;
       }
 
-      await this.feeLevelService.deleteRejectedLevel(level.levelCode);
+      if (decision === 'DECLINED') await this.feeLevelService.declineLevel(level.levelCode);
+      else await this.feeLevelService.cancelLevel(level.levelCode);
 
       await this.auditLogsService.recordSystem({
         action: 'SWAP_FEE_LEVEL_CREATION_CANCELLED',
@@ -251,7 +252,7 @@ export class SwapFeeLevelCreationWorkflowService {
         sourcePlatform: 'SYSTEM',
       });
 
-      this.logger.log(`Level ${level.levelCode} creation cancelled (${decision}), row deleted`);
+      this.logger.log(`Level ${level.levelCode} creation cancelled (${decision}), row marked ${decision === 'DECLINED' ? 'REJECTED' : 'CANCELLED'}`);
     } catch (err: any) {
       this.logger.error(`Failed to cancel level creation ${levelCode}: ${err.message}`);
     }

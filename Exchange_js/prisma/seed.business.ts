@@ -258,7 +258,6 @@ async function seedSwapFeeLevels(prisma: PrismaClient): Promise<void> {
         fromAssetId: pair.fromAssetId,
         toAssetId: pair.toAssetId,
         isDefault: true,
-        enabled: true,
         tiersJson,
         configHash,
         status: 'ACTIVE',
@@ -268,6 +267,42 @@ async function seedSwapFeeLevels(prisma: PrismaClient): Promise<void> {
   }
 
   console.log(`Seeded ${pairs.length} swap fee levels.`);
+
+  // 受众档：VIP 标签命中，各档比 STD 便宜（站 2：Grace 命中它、Alice 命中默认档）
+  const vipTiers = [
+    { amountMin: '0',     amountMax: '500',   rateMarkupBps: 60, flatFee: '20' },
+    { amountMin: '500',   amountMax: '2000',  rateMarkupBps: 40, flatFee: '12' },
+    { amountMin: '2000',  amountMax: '10000', rateMarkupBps: 25, flatFee: '8' },
+    { amountMin: '10000', amountMax: null,    rateMarkupBps: 10, flatFee: '5' },
+  ].map((t, i) => {
+    const tierIdx = String(i + 1).padStart(3, '0');
+    return {
+      id: `VIP-USDT-AED-TIER-${tierIdx}`,
+      name: `VIP Tier ${i + 1} (${t.amountMin}${t.amountMax ? '-' + t.amountMax : '+'})`,
+      enabled: true,
+      rateMarkupBps: t.rateMarkupBps,
+      conditions: { amountMin: t.amountMin, amountMax: t.amountMax },
+      feeItems: [{ id: `VIP-USDT-AED-TIER-${tierIdx}-FEE-001`, itemCode: 'SWAP_SERVICE_FEE', calcType: 'FLAT', value: t.flatFee, min: null, max: null, roundingMode: 'ROUND' }],
+    };
+  });
+  const vipTiersJson = JSON.stringify({ tiers: vipTiers });
+  await prisma.swapFeeLevel.upsert({
+    where: { levelCode: 'VIP-USDT-AED' },
+    update: { tiersJson: vipTiersJson, configHash: createHash('sha256').update(vipTiersJson).digest('hex'), status: 'ACTIVE' },
+    create: {
+      levelCode: 'VIP-USDT-AED',
+      name: 'VIP USDT → AED',
+      fromAssetId: usdt.id,
+      toAssetId: aed.id,
+      isDefault: false,
+      requiredTagsJson: JSON.stringify(['VIP']),
+      tiersJson: vipTiersJson,
+      configHash: createHash('sha256').update(vipTiersJson).digest('hex'),
+      status: 'ACTIVE',
+      createdByUserId: 'SYSTEM',
+    },
+  });
+  console.log('Seeded VIP-USDT-AED audience level.');
 }
 
 async function seedWithdrawalFeeLevels(prisma: PrismaClient): Promise<void> {
@@ -348,7 +383,6 @@ async function seedWithdrawalFeeLevels(prisma: PrismaClient): Promise<void> {
         name: `Standard ${asset.currency}`,
         assetId: asset.id,
         isDefault: true,
-        enabled: true,
         tiersJson,
         configHash,
         status: 'ACTIVE',

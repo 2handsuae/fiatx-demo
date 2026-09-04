@@ -19,8 +19,10 @@ import { ApprovalActorContext } from '../../governance/approvals/constants/appro
 import { WithdrawalFeeLevelService } from './withdrawal-fee-level.service';
 import { WithdrawalFeeLevelCreationWorkflowService } from './withdrawal-fee-level-creation-workflow.service';
 import { WithdrawalFeeLevelChangeWorkflowService } from './withdrawal-fee-level-change-workflow.service';
+import { WithdrawalFeeLevelRetireWorkflowService } from './withdrawal-fee-level-retire-workflow.service';
 import { PrismaService } from '../../../core/prisma/prisma.service';
 import { CreateWithdrawalFeeLevelDto } from './dto/create-withdrawal-fee-level.dto';
+import { RetireWithdrawalFeeLevelDto } from './dto/retire-withdrawal-fee-level.dto';
 
 @Controller('admin/withdrawal-fee-levels')
 @UseGuards(AuthGuard('jwt'), AdminPermissionGuard)
@@ -29,6 +31,7 @@ export class WithdrawalFeeLevelController {
     private readonly feeLevelService: WithdrawalFeeLevelService,
     private readonly creationWorkflowService: WithdrawalFeeLevelCreationWorkflowService,
     private readonly changeWorkflowService: WithdrawalFeeLevelChangeWorkflowService,
+    private readonly retireWorkflowService: WithdrawalFeeLevelRetireWorkflowService,
     private readonly prisma: PrismaService,
   ) {}
 
@@ -136,5 +139,12 @@ export class WithdrawalFeeLevelController {
       dto.changeReason,
       this.buildAdminActor(req),
     );
+  }
+
+  @Post(':levelCode/retire')
+  @RequirePermissions(buildPermissionCode('POST', '/admin/withdrawal-fee-levels/:levelCode/retire'))
+  async retire(@Param('levelCode') levelCode: string, @Body() dto: RetireWithdrawalFeeLevelDto, @Req() req: any) {
+    this.ensureAdmin(req);
+    return this.retireWorkflowService.requestRetire(levelCode, dto.reason, this.buildAdminActor(req));
   }
 }

@@ -1,5 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { BadRequestException } from '@nestjs/common';
+import { BadRequestException, ConflictException } from '@nestjs/common';
 import { WithdrawalFeeLevelService } from './withdrawal-fee-level.service';
 import { PrismaService } from '../../../core/prisma/prisma.service';
 
@@ -14,6 +14,15 @@ describe('WithdrawalFeeLevelService', () => {
     withdrawalFeeLevel: {
       findUnique: jest.fn(),
       create: jest.fn(),
+      update: jest.fn(),
+      count: jest.fn(),
+      delete: jest.fn(),
+    },
+    withdrawalFeeLevelChangeRequest: {
+      findFirst: jest.fn(),
+      findUnique: jest.fn(),
+      create: jest.fn(),
+      update: jest.fn(),
     },
   };
 
@@ -150,6 +159,40 @@ describe('WithdrawalFeeLevelService', () => {
       ).rejects.toThrow(BadRequestException);
 
       expect(prismaMock.withdrawalFeeLevel.create).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('波一 · 状态集与退役', () => {
+    it('declineLevel：PENDING_APPROVAL → REJECTED，行不删', async () => {
+      prisma.withdrawalFeeLevel.findUnique.mockResolvedValue({ levelCode: 'L1', status: 'PENDING_APPROVAL' });
+      await service.declineLevel('L1');
+      expect(prisma.withdrawalFeeLevel.update).toHaveBeenCalledWith({ where: { levelCode: 'L1' }, data: { status: 'REJECTED', approvalCaseId: null, approvalCaseNo: null } });
+      expect(prisma.withdrawalFeeLevel.delete).not.toHaveBeenCalled();
+    });
+    it('retireLevel：ACTIVE → RETIRED；PENDING 不能退 → 409', async () => {
+      prisma.withdrawalFeeLevel.findUnique.mockResolvedValue({ levelCode: 'L1', status: 'ACTIVE' });
+      await service.retireLevel('L1');
+      expect(prisma.withdrawalFeeLevel.update).toHaveBeenCalledWith({ where: { levelCode: 'L1' }, data: { status: 'RETIRED', approvalCaseId: null, approvalCaseNo: null } });
+      prisma.withdrawalFeeLevel.findUnique.mockResolvedValue({ levelCode: 'L2', status: 'PENDING_APPROVAL' });
+      await expect(service.retireLevel('L2')).rejects.toBeInstanceOf(ConflictException);
+    });
+    it('assertNotLastActiveDefault：该资产最后一个 ACTIVE 默认档不可退', async () => {
+      prisma.withdrawalFeeLevel.count.mockResolvedValue(0);
+      await expect(service.assertNotLastActiveDefault({ id: 'x', levelCode: 'STD', isDefault: true, assetId: 'a' } as any))
+        .rejects.toMatchObject({ response: { code: 'LAST_ACTIVE_DEFAULT' } });
+      expect(prisma.withdrawalFeeLevel.count).toHaveBeenCalledWith({ where: { assetId: 'a', isDefault: true, status: 'ACTIVE', id: { not: 'x' } } });
+    });
+    it('变更单号走 WFC 前缀，不再 WFLC-### 顺序号', async () => {
+      prisma.withdrawalFeeLevelChangeRequest.findFirst.mockResolvedValue(null);
+      prisma.withdrawalFeeLevel.findUnique.mockResolvedValue({ id: 'l1', tiersJson: validTiersJson, configHash: 'h' });
+      prisma.withdrawalFeeLevelChangeRequest.create.mockImplementation(async ({ data }: any) => data);
+      const r: any = await service.createChangeRequest({ levelId: 'l1', levelCode: 'L1', proposedTiersJson: validTiersJson, changeReason: 'x', requestedByUserId: 'u' });
+      expect(r.requestNo).toMatch(/^WFC\d{12}$/);
+    });
+    it('expireChangeRequest：PENDING_APPROVAL → EXPIRED', async () => {
+      prisma.withdrawalFeeLevelChangeRequest.findUnique.mockResolvedValue({ requestNo: 'R1', status: 'PENDING_APPROVAL' });
+      await service.expireChangeRequest('R1');
+      expect(prisma.withdrawalFeeLevelChangeRequest.update).toHaveBeenCalledWith({ where: { requestNo: 'R1' }, data: { status: 'EXPIRED' } });
     });
   });
 });

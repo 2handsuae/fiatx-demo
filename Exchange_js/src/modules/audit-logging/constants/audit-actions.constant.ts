@@ -128,6 +128,9 @@ export const AuditBusinessWorkflowTypes = {
   // Swap Fee Level (2026-05-31)
   SWAP_FEE_LEVEL_CREATION: 'SWAP_FEE_LEVEL_CREATION',
   SWAP_FEE_LEVEL_CHANGE: 'SWAP_FEE_LEVEL_CHANGE',
+  // Fee Level Retirement（波一 T11，2026-09-04）——"删" 改走审批终态，CFO 提、运营批
+  SWAP_FEE_LEVEL_RETIRE: 'SWAP_FEE_LEVEL_RETIRE',
+  WITHDRAWAL_FEE_LEVEL_RETIRE: 'WITHDRAWAL_FEE_LEVEL_RETIRE',
   // Trading Tier Upgrade (pre-registered, workflow deferred)
   TRADING_TIER_UPGRADE: 'TRADING_TIER_UPGRADE',
   // Withdraw Large-Value Approval Gate (2026-06-01)
@@ -564,6 +567,10 @@ export const V1_AUDIT_ACTIONS: Record<string, AuditActionSpec> = {
   SWAP_FEE_LEVEL_CHANGE_APPLIED:         { domain: 'CONFIG', correlationMode: I, requiredFields: ['beforeData', 'afterData', 'approvalNo'], requiresCausation: true },
   SWAP_FEE_LEVEL_CHANGE_APPLY_FAILED:    { domain: 'CONFIG', correlationMode: I, requiredFields: [], requiresCausation: true },
   SWAP_FEE_LEVEL_CHANGE_CANCELLED:       { domain: 'CONFIG', correlationMode: I, requiredFields: ['reason'], requiresCausation: true },
+  // 波一新增：退役等级（"删" = 终态）。REQUESTED 铸 correlationId（S）；RETIRED / RETIRE_CANCELLED 经审批决定事件 INHERIT + causationId。
+  SWAP_FEE_LEVEL_RETIRE_REQUESTED:       { domain: 'CONFIG', correlationMode: S, requiredFields: ['beforeData'], requiresCausation: false },
+  SWAP_FEE_LEVEL_RETIRED:                { domain: 'CONFIG', correlationMode: I, requiredFields: ['approvalNo'], requiresCausation: true },
+  SWAP_FEE_LEVEL_RETIRE_CANCELLED:       { domain: 'CONFIG', correlationMode: I, requiredFields: ['reason'], requiresCausation: true },
   // ── 提现费率等级 ────────────────────────────────────────
   WITHDRAWAL_FEE_LEVEL_CREATION_REQUESTED:    { domain: 'CONFIG', correlationMode: S, requiredFields: ['afterData'], requiresCausation: false },
   WITHDRAWAL_FEE_LEVEL_CREATION_APPLIED:      { domain: 'CONFIG', correlationMode: I, requiredFields: ['afterData', 'approvalNo'], requiresCausation: true },
@@ -573,6 +580,10 @@ export const V1_AUDIT_ACTIONS: Record<string, AuditActionSpec> = {
   WITHDRAWAL_FEE_LEVEL_CHANGE_APPLIED:        { domain: 'CONFIG', correlationMode: I, requiredFields: ['beforeData', 'afterData', 'approvalNo'], requiresCausation: true },
   WITHDRAWAL_FEE_LEVEL_CHANGE_APPLY_FAILED:   { domain: 'CONFIG', correlationMode: I, requiredFields: [], requiresCausation: true },
   WITHDRAWAL_FEE_LEVEL_CHANGE_CANCELLED:      { domain: 'CONFIG', correlationMode: I, requiredFields: ['reason'], requiresCausation: true },
+  // 波一新增：退役等级（"删" = 终态）。REQUESTED 铸 correlationId（S）；RETIRED / RETIRE_CANCELLED 经审批决定事件 INHERIT + causationId。
+  WITHDRAWAL_FEE_LEVEL_RETIRE_REQUESTED:      { domain: 'CONFIG', correlationMode: S, requiredFields: ['beforeData'], requiresCausation: false },
+  WITHDRAWAL_FEE_LEVEL_RETIRED:               { domain: 'CONFIG', correlationMode: I, requiredFields: ['approvalNo'], requiresCausation: true },
+  WITHDRAWAL_FEE_LEVEL_RETIRE_CANCELLED:      { domain: 'CONFIG', correlationMode: I, requiredFields: ['reason'], requiresCausation: true },
 
   // ── 资产两族（2026-09-01 换名册·批二 ASSET_SUSPENSION_*/ASSET_REACTIVATION_* 六码，
   // 2026-09-04 波一 T2 收窄）：创建 + 激活两族（ASSET_CREATED_AND_PROVISIONED/

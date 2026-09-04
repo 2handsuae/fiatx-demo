@@ -481,6 +481,9 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
   route('POST', '/admin/withdrawal-fee-levels/:levelCode/change', 'Submit withdrawal fee level change request', [
     'WITHDRAWAL_FEE_LEVEL_WRITE',
   ]),
+  route('POST', '/admin/withdrawal-fee-levels/:levelCode/retire', 'Submit withdrawal fee level retirement request', [
+    'WITHDRAWAL_FEE_LEVEL_WRITE',
+  ]),
 
   // Swap Fee Levels
   route('GET', '/admin/swap-fee-levels', 'List swap fee levels', [
@@ -493,6 +496,9 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
     'SWAP_FEE_LEVEL_WRITE',
   ]),
   route('POST', '/admin/swap-fee-levels/:levelCode/change', 'Submit swap fee level change request', [
+    'SWAP_FEE_LEVEL_WRITE',
+  ]),
+  route('POST', '/admin/swap-fee-levels/:levelCode/retire', 'Submit swap fee level retirement request', [
     'SWAP_FEE_LEVEL_WRITE',
   ]),
 
@@ -805,7 +811,7 @@ export const ACTION_BUCKET_CATALOG: ActionDomain[] = [
     icon: '💰',
     buckets: [
       { key: 'pricing.view', label: 'View fee levels', description: 'Browse withdrawal and swap fee levels', groups: ['WITHDRAWAL_FEE_LEVEL_READ', 'SWAP_FEE_LEVEL_READ'] },
-      { key: 'pricing.manage', label: 'Manage fee levels', description: 'Raise fee level creation and change requests — operations signs them off', groups: ['WITHDRAWAL_FEE_LEVEL_WRITE', 'SWAP_FEE_LEVEL_WRITE'] },
+      { key: 'pricing.manage', label: 'Manage fee levels', description: 'Raise fee level creation, change and retirement requests — operations signs them off', groups: ['WITHDRAWAL_FEE_LEVEL_WRITE', 'SWAP_FEE_LEVEL_WRITE'] },
     ],
   },
   // ─── Domain: Demo Instruments ────────────────────────

@@ -10,6 +10,13 @@ import { createHash } from 'crypto';
 import { PrismaService } from '../../../core/prisma/prisma.service';
 import { SwapFeeLevelTiersConfig, SWAP_FEE_ITEM_CODES } from './types/fee-level.types';
 import { isValidTag } from '../../identity/customer-tags/constants/customer-tag.constant';
+import {
+  assertFeeLevelTransition,
+  FeeLevelAction,
+  assertFeeChangeRequestTransition,
+  FeeChangeRequestAction,
+} from '../shared/fee-level-transitions.constant';
+import { generateReferenceNo } from '../../../common/utils/no-generator.util';
 
 @Injectable()
 export class SwapFeeLevelService {
@@ -58,15 +65,17 @@ export class SwapFeeLevelService {
       include: {
         fromAsset: { select: { code: true, type: true, currency: true, network: true } },
         toAsset: { select: { code: true, type: true, currency: true, network: true } },
+        changeRequests: { where: { status: 'PENDING_APPROVAL' }, take: 1, select: { requestNo: true, approvalCaseNo: true } },
       },
     });
     if (!level) throw new NotFoundException(`SwapFeeLevel ${levelCode} not found`);
-    return level;
+    const { changeRequests, ...rest } = level;
+    return { ...rest, pendingChangeRequest: changeRequests[0] ?? null };
   }
 
   async findActiveByPair(fromAssetId: string, toAssetId: string) {
     return this.prisma.swapFeeLevel.findMany({
-      where: { fromAssetId, toAssetId, status: 'ACTIVE', enabled: true },
+      where: { fromAssetId, toAssetId, status: 'ACTIVE' },
       orderBy: { levelCode: 'asc' },
     });
   }
@@ -198,23 +207,47 @@ export class SwapFeeLevelService {
     const db = tx ?? this.prisma;
     const level = await db.swapFeeLevel.findUnique({ where: { levelCode } });
     if (!level) throw new NotFoundException(`Level ${levelCode} not found`);
-    if (level.status !== 'PENDING_APPROVAL') {
-      throw new ConflictException(`Level ${levelCode} is ${level.status}, expected PENDING_APPROVAL`);
-    }
+    const to = assertFeeLevelTransition(level.status, FeeLevelAction.APPROVE);
     await db.swapFeeLevel.update({
       where: { levelCode },
-      data: { status: 'ACTIVE', approvalCaseId: null, approvalCaseNo: null },
+      data: { status: to, approvalCaseId: null, approvalCaseNo: null },
     });
   }
 
-  async deleteRejectedLevel(levelCode: string, tx?: Prisma.TransactionClient): Promise<void> {
+  async declineLevel(levelCode: string, tx?: Prisma.TransactionClient): Promise<void> {
+    await this.moveLevel(levelCode, FeeLevelAction.DECLINE, tx);
+  }
+
+  async cancelLevel(levelCode: string, tx?: Prisma.TransactionClient): Promise<void> {
+    await this.moveLevel(levelCode, FeeLevelAction.CANCEL, tx);
+  }
+
+  async retireLevel(levelCode: string, tx?: Prisma.TransactionClient): Promise<void> {
+    await this.moveLevel(levelCode, FeeLevelAction.RETIRE, tx);
+  }
+
+  private async moveLevel(levelCode: string, action: FeeLevelAction, tx?: Prisma.TransactionClient): Promise<void> {
     const db = tx ?? this.prisma;
     const level = await db.swapFeeLevel.findUnique({ where: { levelCode } });
     if (!level) throw new NotFoundException(`Level ${levelCode} not found`);
-    if (level.status !== 'PENDING_APPROVAL') {
-      throw new ConflictException(`Cannot delete level ${levelCode}: status is ${level.status}`);
+    const to = assertFeeLevelTransition(level.status, action);
+    await db.swapFeeLevel.update({ where: { levelCode }, data: { status: to, approvalCaseId: null, approvalCaseNo: null } });
+  }
+
+  async clearApprovalCase(levelCode: string, tx?: Prisma.TransactionClient): Promise<void> {
+    const db = tx ?? this.prisma;
+    await db.swapFeeLevel.update({ where: { levelCode }, data: { approvalCaseId: null, approvalCaseNo: null } });
+  }
+
+  /** 退役守卫：该币对最后一个 ACTIVE 默认档不可退——报价会没有兜底档 */
+  async assertNotLastActiveDefault(level: { id: string; levelCode: string; isDefault: boolean; fromAssetId: string; toAssetId: string }): Promise<void> {
+    if (!level.isDefault) return;
+    const others = await this.prisma.swapFeeLevel.count({
+      where: { fromAssetId: level.fromAssetId, toAssetId: level.toAssetId, isDefault: true, status: 'ACTIVE', id: { not: level.id } },
+    });
+    if (others === 0) {
+      throw new ConflictException({ code: 'LAST_ACTIVE_DEFAULT', message: `${level.levelCode} is the last active default level for this pair and cannot be retired` });
     }
-    await db.swapFeeLevel.delete({ where: { levelCode } });
   }
 
   async deleteById(id: string, tx?: Prisma.TransactionClient): Promise<void> {
@@ -223,16 +256,6 @@ export class SwapFeeLevelService {
   }
 
   // ─── Change Request CRUD ─────────────────────────────────
-
-  async generateNextRequestNo(): Promise<string> {
-    const last = await this.prisma.swapFeeLevelChangeRequest.findFirst({
-      orderBy: { requestNo: 'desc' },
-      select: { requestNo: true },
-    });
-    if (!last || last.requestNo === 'TEMP') return 'SFLC-001';
-    const num = parseInt(last.requestNo.replace('SFLC-', ''), 10);
-    return `SFLC-${String(num + 1).padStart(3, '0')}`;
-  }
 
   async createChangeRequest(
     dto: {
@@ -259,7 +282,7 @@ export class SwapFeeLevelService {
     if (!level) throw new NotFoundException(`Level ${dto.levelId} not found`);
 
     for (let attempt = 0; attempt < 3; attempt++) {
-      const requestNo = await this.generateNextRequestNo();
+      const requestNo = generateReferenceNo('SFC');
       try {
         return await db.swapFeeLevelChangeRequest.create({
           data: {
@@ -297,9 +320,7 @@ export class SwapFeeLevelService {
     const run = async (db: Prisma.TransactionClient | PrismaService) => {
       const request = await db.swapFeeLevelChangeRequest.findUnique({ where: { requestNo } });
       if (!request) throw new NotFoundException(`Change request ${requestNo} not found`);
-      if (request.status !== 'PENDING_APPROVAL') {
-        throw new ConflictException(`Request ${requestNo} is ${request.status}, expected PENDING_APPROVAL`);
-      }
+      const to = assertFeeChangeRequestTransition(request.status, FeeChangeRequestAction.APPROVE);
 
       const level = await db.swapFeeLevel.findUnique({ where: { id: request.levelId } });
       if (!level) throw new NotFoundException(`Level for request ${requestNo} not found`);
@@ -322,7 +343,7 @@ export class SwapFeeLevelService {
 
       const updatedRequest = await db.swapFeeLevelChangeRequest.update({
         where: { requestNo },
-        data: { status: 'APPROVED', executedAt: new Date() },
+        data: { status: to, executedAt: new Date() },
       });
 
       return { level: updatedLevel, request: updatedRequest };
@@ -333,37 +354,23 @@ export class SwapFeeLevelService {
   }
 
   async rejectChangeRequest(requestNo: string, tx?: Prisma.TransactionClient): Promise<void> {
-    const db = tx ?? this.prisma;
-    const request = await db.swapFeeLevelChangeRequest.findUnique({ where: { requestNo } });
-    if (!request) throw new NotFoundException(`Change request ${requestNo} not found`);
-    if (request.status !== 'PENDING_APPROVAL') {
-      throw new ConflictException(`Request ${requestNo} is ${request.status}, expected PENDING_APPROVAL`);
-    }
-    await db.swapFeeLevelChangeRequest.update({
-      where: { requestNo },
-      data: { status: 'REJECTED' },
-    });
+    await this.moveChangeRequest(requestNo, FeeChangeRequestAction.DECLINE, tx);
   }
 
   async cancelChangeRequest(requestNo: string, tx?: Prisma.TransactionClient): Promise<void> {
+    await this.moveChangeRequest(requestNo, FeeChangeRequestAction.CANCEL, tx);
+  }
+
+  async expireChangeRequest(requestNo: string, tx?: Prisma.TransactionClient): Promise<void> {
+    await this.moveChangeRequest(requestNo, FeeChangeRequestAction.EXPIRE, tx);
+  }
+
+  private async moveChangeRequest(requestNo: string, action: FeeChangeRequestAction, tx?: Prisma.TransactionClient): Promise<void> {
     const db = tx ?? this.prisma;
     const request = await db.swapFeeLevelChangeRequest.findUnique({ where: { requestNo } });
     if (!request) throw new NotFoundException(`Change request ${requestNo} not found`);
-    if (request.status !== 'PENDING_APPROVAL') {
-      throw new ConflictException(`Request ${requestNo} is ${request.status}, expected PENDING_APPROVAL`);
-    }
-    await db.swapFeeLevelChangeRequest.update({
-      where: { requestNo },
-      data: { status: 'CANCELLED' },
-    });
-  }
-
-  async markRequestExecutionFailed(requestNo: string, reason: string, tx?: Prisma.TransactionClient): Promise<void> {
-    const db = tx ?? this.prisma;
-    await db.swapFeeLevelChangeRequest.update({
-      where: { requestNo },
-      data: { status: 'FAILED', failureReason: reason },
-    });
+    const to = assertFeeChangeRequestTransition(request.status, action);
+    await db.swapFeeLevelChangeRequest.update({ where: { requestNo }, data: { status: to } });
   }
 
   async findChangeRequestById(id: string) {

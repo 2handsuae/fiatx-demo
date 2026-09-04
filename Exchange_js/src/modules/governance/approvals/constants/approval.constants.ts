@@ -36,6 +36,9 @@ export const ApprovalActionTypes = {
   // Swap Fee Level (2026-05-31)
   SWAP_FEE_LEVEL_CREATION: 'SWAP_FEE_LEVEL_CREATION',
   SWAP_FEE_LEVEL_CHANGE: 'SWAP_FEE_LEVEL_CHANGE',
+  // Fee Level Retirement（波一 T11，2026-09-04）——"删" 改走审批终态，CFO 提、运营批
+  SWAP_FEE_LEVEL_RETIRE: 'SWAP_FEE_LEVEL_RETIRE',
+  WITHDRAWAL_FEE_LEVEL_RETIRE: 'WITHDRAWAL_FEE_LEVEL_RETIRE',
   // Withdraw Large-Value Approval Gate (2026-06-01)
   WITHDRAW_LARGE_VALUE_APPROVAL: 'WITHDRAW_LARGE_VALUE_APPROVAL',
   // Deposit Below-Min Confiscation (2026-07-16)
@@ -261,6 +264,17 @@ export const DEFAULT_APPROVAL_POLICIES: Record<
     timeoutHours: 48,
     allowCancel: true,
   },
+  // ─── Fee Level Retirement（波一 T11，2026-09-04）────
+  [ApprovalActionTypes.SWAP_FEE_LEVEL_RETIRE]: {
+    steps: [{ stepNo: 1, roles: ['OPS_OFFICER'] }],
+    timeoutHours: 48,
+    allowCancel: true,
+  },
+  [ApprovalActionTypes.WITHDRAWAL_FEE_LEVEL_RETIRE]: {
+    steps: [{ stepNo: 1, roles: ['OPS_OFFICER'] }],
+    timeoutHours: 48,
+    allowCancel: true,
+  },
   // ─── Withdraw Large-Value Approval Gate (2026-06-01) ────
   [ApprovalActionTypes.WITHDRAW_LARGE_VALUE_APPROVAL]: {
     steps: [{ stepNo: 1, roles: ['SENIOR_MANAGEMENT_OFFICER'] }],
@@ -345,6 +359,8 @@ export const V1_APPROVAL_ACTION_TYPES: readonly string[] = [
   ApprovalActionTypes.WITHDRAWAL_FEE_LEVEL_CHANGE,
   ApprovalActionTypes.SWAP_FEE_LEVEL_CREATION,
   ApprovalActionTypes.SWAP_FEE_LEVEL_CHANGE,
+  ApprovalActionTypes.SWAP_FEE_LEVEL_RETIRE,
+  ApprovalActionTypes.WITHDRAWAL_FEE_LEVEL_RETIRE,
   ApprovalActionTypes.DEPOSIT_CONFISCATION,
   ApprovalActionTypes.DEPOSIT_RETURN,
   ApprovalActionTypes.DEPOSIT_SEIZE,

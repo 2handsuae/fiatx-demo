@@ -1374,7 +1374,6 @@ model WithdrawalFeeLevel {
   name             String
   assetId          String
   isDefault        Boolean   @default(false)
-  enabled          Boolean   @default(true)
   tiersJson        String
   configHash       String
   requiredTagsJson String    @default("[]")
@@ -1391,13 +1390,13 @@ model WithdrawalFeeLevel {
   asset            Asset     @relation(fields: [assetId], references: [id])
   changeRequests   WithdrawalFeeLevelChangeRequest[]
 
-  @@index([assetId, status, enabled])
+  @@index([assetId, status])
   @@map("withdrawal_fee_levels")
 }
 
 model WithdrawalFeeLevelChangeRequest {
   id                 String    @id @default(uuid())
-  requestNo          String    @unique @default("TEMP")
+  requestNo          String    @unique
   levelId            String
   levelCode          String
   currentTiersJson   String
@@ -1409,7 +1408,6 @@ model WithdrawalFeeLevelChangeRequest {
   approvalCaseId     String?
   approvalCaseNo     String?
   executedAt         DateTime?
-  failureReason      String?
   createdAt          DateTime  @default(now())
   updatedAt          DateTime  @updatedAt
 
@@ -1427,7 +1425,6 @@ model SwapFeeLevel {
   fromAssetId      String
   toAssetId        String
   isDefault        Boolean   @default(false)
-  enabled          Boolean   @default(true)
   tiersJson        String
   configHash       String
   requiredTagsJson String    @default("[]")
@@ -1445,13 +1442,13 @@ model SwapFeeLevel {
   toAsset          Asset     @relation("SwapFeeLevelToAsset", fields: [toAssetId], references: [id])
   changeRequests   SwapFeeLevelChangeRequest[]
 
-  @@index([fromAssetId, toAssetId, status, enabled])
+  @@index([fromAssetId, toAssetId, status])
   @@map("swap_fee_levels")
 }
 
 model SwapFeeLevelChangeRequest {
   id                 String    @id @default(uuid())
-  requestNo          String    @unique @default("TEMP")
+  requestNo          String    @unique
   levelId            String
   levelCode          String
   currentTiersJson   String
@@ -1463,7 +1460,6 @@ model SwapFeeLevelChangeRequest {
   approvalCaseId     String?
   approvalCaseNo     String?
   executedAt         DateTime?
-  failureReason      String?
   createdAt          DateTime  @default(now())
   updatedAt          DateTime  @updatedAt
 
