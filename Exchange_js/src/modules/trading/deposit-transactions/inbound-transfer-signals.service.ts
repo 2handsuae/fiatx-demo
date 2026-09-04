@@ -269,7 +269,8 @@ export class InboundTransferSignalsService {
     if (!line.externalRef) throw new BadRequestException('该账单行没有参考号，补录后对账配不回去——先在账单侧补参考号');
     const channelType = isCrypto ? InboundTransferChannelType.CRYPTO : InboundTransferChannelType.FIAT;
     const dedupeKey = this.buildDedupeKey({ channelType, walletId: line.walletId, assetId: line.assetId, txHash: isCrypto ? line.externalRef : undefined, referenceNo: isCrypto ? undefined : line.externalRef });
-    // spec §2.2：拒绝 / 超时 / 撤回后可再次发起——supplementOfExternalLineId 是
+    // spec §2.2：拒绝 / 超时 / 撤回后可再次发起（下方 processSignal 失败分支落的也是
+    // 这个态，不止 CFO 这三种决定会到这里）——supplementOfExternalLineId 是
     // @unique 且从不清空（见 SupplementEvidenceService#assertUnclaimed 的同款注释），
     // 上面 assertClaimable 已经过 assertUnclaimed 放行，能走到这里、又查到一条已存在
     // 的信号，那条信号必然是 SUPPLEMENT_REJECTED（其余状态 assertUnclaimed 会先拒）。

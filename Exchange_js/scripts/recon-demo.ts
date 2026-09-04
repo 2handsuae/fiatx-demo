@@ -127,7 +127,8 @@ function parseArgs(argv: string[]): { mode: Mode; cutoffIso: string | null } {
   return { mode, cutoffIso };
 }
 
-// 14-scenario model（2026-09-01 平账一期半重排，分组表见文件头）：每个场景
+// 15-scenario model（2026-09-01 平账一期半重排，分组表见文件头；2026-09-03
+// 平账 B 批补场景 ⑭⑮，14→15）：每个场景
 // 重现一个**成因**，成因码 = disposition/cause-registry.ts 的注册表码——
 // 种子答案键与注册表**编译期同源**，改错码、漏改码这里直接编译不过。
 //
@@ -1404,7 +1405,7 @@ async function injectScenarios(
   // 一笔本该记到 Jack 账上的钱，被记到了 Kate 账上。
   //   发出端（Jack）：我方账上有、对账单上没有 → 我有外无
   //   接收端（Kate）：对账单上有、我方账上没有 → 外有我无
-  // 一个成因、两个案子——这是 14 条里唯一跨钱包的，答案键里两条 expectedLines
+  // 一个成因、两个案子——这是 15 条里唯一跨钱包的，答案键里两条 expectedLines
   // 指向不同的 walletRef，但共用同一个 scenarioId。
   {
     const moved = (await (prisma as any).externalStatementLine.findFirst({
@@ -1530,7 +1531,7 @@ async function injectScenarios(
     const original = await (prisma as any).depositTransaction.findFirst({
       where: { toWalletId: slotReturn.walletRef, status: 'SUCCESS', amount: new Prisma.Decimal('1200') },
     });
-    if (!original) throw new Error('场景 14 需要 Kate 有一笔 SUCCESS 的 1200 AED 充值（花名册 #28）—— demo:all 是否跑过？');
+    if (!original) throw new Error('场景 14 需要 Kate 有一笔 SUCCESS 的 1200 AED 充值（花名册 #28）—— demo:all 是否跑过？花名册 #28 是否改了？');
     const outRef = refFor(slotReturn.currency, 'CLAWBACK');
     const created = await (prisma as any).externalStatementLine.create({
       data: {
@@ -1560,7 +1561,7 @@ async function injectScenarios(
     const original = await (prisma as any).withdrawTransaction.findFirst({
       where: { fromWalletId: slotPayoutReturn.walletRef, status: 'SUCCESS', amount: new Prisma.Decimal('900') },
     });
-    if (!original) throw new Error('场景 15 需要 Grace 有一笔 SUCCESS 的 900 AED 提现（花名册 #16）—— demo:all 是否跑过？');
+    if (!original) throw new Error('场景 15 需要 Grace 有一笔 SUCCESS 的 900 AED 提现（花名册 #16）—— demo:all 是否跑过？花名册 #16 是否改了？');
     const s15Amount = D(original.netAmount).mul(100);   // 分 —— netAmount(AED) → 外部对账单口径
     const inRef = refFor(slotPayoutReturn.currency, 'PAYOUTRET');
     const created = await (prisma as any).externalStatementLine.create({

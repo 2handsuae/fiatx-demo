@@ -1312,7 +1312,7 @@ describe('DepositTransactionsService', () => {
         );
       });
 
-      it('every (status, action) pair NOT in the 28-edge list throws (no undocumented edge exists)', async () => {
+      it('every (status, action) pair NOT in the 29-edge list throws (no undocumented edge exists)', async () => {
         const edgeKeys = new Set(
           EXPECTED_EDGES.map((e) => `${e.from}::${e.action}`),
         );

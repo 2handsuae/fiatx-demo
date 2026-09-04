@@ -163,7 +163,9 @@ export class SupplementEvidenceService {
 
   private async assertUnclaimed(externalLineId: string): Promise<void> {
     // spec §2.2：拒绝 / 超时 / 撤回后原状态不动、supplementNo 清空、可再次发起——
-    // 三条路一致。②③ 靠 clearClawbackRequest / 同款方法把各自的占用列
+    // 三条路一致（① 已批准但 processSignal 抛错的失败分支也落回同一可复用状态，
+    // 不止 CFO 这三种决定会到这里，见 InboundTransferSignalsService 的同款注释）。
+    // ②③ 靠 clearClawbackRequest / 同款方法把各自的占用列
     // （clawbackExternalLineId / returnExternalLineId）清空来实现；① 的占用列
     // supplementOfExternalLineId 是 @unique，永不清空（清了新建行会撞唯一约束），
     // 靠 InboundTransferSignalsService.initiateSupplement 发现"已存在且是

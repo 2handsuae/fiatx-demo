@@ -285,7 +285,7 @@ describe('规则① 同一模块显示逻辑一致 · ⚡ Simulation（Task 7 + 
 
   it('充值/提现按自家忽略集合置灰，集合内容与后端逐字一致', () => {
     const EXPECTED: Record<string, string[]> = {
-      DEPOSIT: ['SUCCESS', 'FAILED', 'CONFISCATED', 'RETURNED', 'SEIZED', 'CONFISCATING', 'RETURNING', 'SEIZING'],
+      DEPOSIT: ['SUCCESS', 'FAILED', 'CONFISCATED', 'RETURNED', 'SEIZED', 'CLAWED_BACK', 'CONFISCATING', 'RETURNING', 'SEIZING'],
       WITHDRAW: ['SUCCESS', 'REJECTED', 'FAILED', 'RETURNED'],
     };
     for (const [domain, file] of Object.entries(ORDER_LEVEL_DOMAINS)) {

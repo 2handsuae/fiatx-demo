@@ -1364,9 +1364,10 @@ describe('WithdrawTransactionsService', () => {
 
   // 守则性测试(防转移表再次漂移):brief `.superpowers/sdd/task-1-brief.md` Step 1 定稿的
   // 21 条边,2026-08-29 task-B1 补 ACTION_PENDING --resume--> COMPLIANCE_PENDING(补料
-  // 回炉)一条,21→22——逐条列出,多一条、少一条、边指向变了,这里都会红。同时用穷举
-  // (10 状态 × 13 动作)反向断言:凡不在这 22 条边名单里的组合,一律必须抛 Invalid
-  // action(即没有偷偷长出的第 23 条边)。照抄充值 deposit-transactions.service.spec.ts 的写法。
+  // 回炉)一条,21→22;2026-09-03 平账 B 批③补 SUCCESS --return--> RETURNED 一条,22→23
+  // ——逐条列出,多一条、少一条、边指向变了,这里都会红。同时用穷举
+  // (10 状态 × 13 动作)反向断言:凡不在这 23 条边名单里的组合,一律必须抛 Invalid
+  // action(即没有偷偷长出的第 24 条边)。照抄充值 deposit-transactions.service.spec.ts 的写法。
   describe('state machine integrity guard (23-edge spec)', () => {
     const mockId = 'wd-edge-1';
 

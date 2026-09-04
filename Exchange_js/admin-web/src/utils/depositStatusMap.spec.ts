@@ -25,6 +25,7 @@ const CASES: Array<[string, string, string]> = [
   ['SUCCESS', 'SUCCESS', 'COMPLETED'],
   ['RETURNING', 'RETURNING', 'DISPOSING'],
   ['RETURNED', 'RETURNED', 'COMPLETED'],
+  ['CLAWED_BACK', 'CLAWED BACK', 'COMPLETED'],
   ['SEIZING', 'SEIZING', 'DISPOSING'],
   ['SEIZED', 'SEIZED', 'COMPLETED'],
   ['CONFISCATING', 'CONFISCATING', 'DISPOSING'],
@@ -33,8 +34,8 @@ const CASES: Array<[string, string, string]> = [
 ];
 
 describe('depositStatusMap (admin, as-is)', () => {
-  it('covers exactly the 14 backend statuses (one row per DEPOSIT_STATUS_MAP key — keeps this drift-proof)', () => {
-    expect(CASES).toHaveLength(14);
+  it('covers exactly the 15 backend statuses (one row per DEPOSIT_STATUS_MAP key — keeps this drift-proof)', () => {
+    expect(CASES).toHaveLength(15);
     expect(CASES.map(([status]) => status).sort()).toEqual([...ALL_DEPOSIT_STATUSES].sort());
   });
 
