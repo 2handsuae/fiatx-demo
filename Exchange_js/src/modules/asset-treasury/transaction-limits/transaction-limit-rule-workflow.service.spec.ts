@@ -5,6 +5,7 @@ import { AuditOutcome } from '../../audit-logging/dto/audit-log.dto';
 
 const CHANGE_APPLIED = 'TRANSACTION_LIMIT_CHANGE_APPLIED';
 const CHANGE_APPLY_FAILED = 'TRANSACTION_LIMIT_CHANGE_APPLY_FAILED';
+const CHANGE_CANCELLED = 'TRANSACTION_LIMIT_CHANGE_CANCELLED';
 
 describe('TransactionLimitRuleWorkflowService', () => {
   let svc: TransactionLimitRuleWorkflowService;
@@ -14,12 +15,9 @@ describe('TransactionLimitRuleWorkflowService', () => {
   } as any;
   const rulesService = {
     validateShape: jest.fn(),
-    assertUnique: jest.fn(),
     findByNo: jest.fn(),
-    createPending: jest.fn(),
     attachApprovalCase: jest.fn(),
-    activate: jest.fn(),
-    deletePending: jest.fn(),
+    clearApprovalCase: jest.fn(),
     applyAmountChange: jest.fn(),
   } as any;
   const approvalsService = {
@@ -68,63 +66,6 @@ describe('TransactionLimitRuleWorkflowService', () => {
       approvalsService,
       auditLogsService,
     );
-  });
-
-  // ── 创建流 ──
-
-  it('initiateCreate validates, inserts PENDING, submits approval, links, audits', async () => {
-    rulesService.createPending.mockResolvedValue({ id: 'r1', ruleNo: 'TLR-x' });
-    approvalsService.createAndSubmit.mockResolvedValue({ id: 'ap1', approvalNo: 'AP-1' });
-
-    const res = await svc.initiateCreate(
-      { gateType: 'SINGLE', operationType: 'WITHDRAWAL', assetId: 'a1', minAmount: 1, maxAmount: 5, reason: 'r' } as any,
-      actor,
-    );
-
-    expect(rulesService.validateShape).toHaveBeenCalled();
-    expect(rulesService.assertUnique).toHaveBeenCalled();
-    expect(rulesService.createPending).toHaveBeenCalled();
-    expect(approvalsService.createAndSubmit).toHaveBeenCalledWith(
-      expect.objectContaining({ actionType: 'TRANSACTION_LIMIT_CREATION', entityRef: 'TLR-x' }),
-      expect.anything(),
-      actor,
-    );
-    expect(rulesService.attachApprovalCase).toHaveBeenCalled();
-    expect(auditLogsService.recordByActor).toHaveBeenCalled();
-    expect(res.status).toBe('PENDING_APPROVAL');
-  });
-
-  it('APPROVED creation decided → activate (status→ACTIVE)', async () => {
-    prisma.transactionLimitRule.findUnique.mockResolvedValue(
-      singleRule({ status: 'PENDING_APPROVAL' }),
-    );
-
-    await svc.onCreationDecided({
-      decision: 'APPROVED',
-      entityRef: 'TLR-1',
-      approvalId: 'ap1',
-      approvalNo: 'AP-1',
-      traceId: 't',
-    } as any);
-
-    expect(rulesService.activate).toHaveBeenCalledWith('TLR-1');
-    expect(rulesService.deletePending).not.toHaveBeenCalled();
-    expect(auditLogsService.recordSystem).toHaveBeenCalled();
-  });
-
-  it('DECLINED creation decided → deletePending (physical delete)', async () => {
-    prisma.transactionLimitRule.findUnique.mockResolvedValue(
-      singleRule({ status: 'PENDING_APPROVAL' }),
-    );
-
-    await svc.onCreationDecided({
-      decision: 'DECLINED',
-      entityRef: 'TLR-1',
-      approvalId: 'ap1',
-    } as any);
-
-    expect(rulesService.deletePending).toHaveBeenCalledWith('TLR-1');
-    expect(rulesService.activate).not.toHaveBeenCalled();
   });
 
   // ── 变更流 ──
@@ -176,6 +117,8 @@ describe('TransactionLimitRuleWorkflowService', () => {
     const failCall = failFindFor(CHANGE_APPLY_FAILED);
     expect(failCall).toBeTruthy();
     expect(failCall[0].outcome).toBe(AuditOutcome.FAILED);
+    // 冲突守卫跳过的那条也清挂号——单子已裁决,规则不留死锁在"变更中"。
+    expect(rulesService.clearApprovalCase).toHaveBeenCalledWith('TLR-1');
   });
 
   it('APPROVED change with missing after snapshot → CHANGE_APPLY_FAILED, no apply', async () => {
@@ -206,8 +149,7 @@ describe('TransactionLimitRuleWorkflowService', () => {
   });
 
   it('initiateChange rejects when a pending change approval already exists (FIX-1b)', async () => {
-    rulesService.findByNo.mockResolvedValue(singleRule());
-    approvalsService.list.mockResolvedValue({ total: 1, items: [{ status: 'PENDING' }] });
+    rulesService.findByNo.mockResolvedValue(singleRule({ approvalCaseNo: 'APR-OPEN' }));
 
     await expect(
       svc.initiateChange('TLR-1', { maxAmount: 200, reason: 'x' } as any, actor),
@@ -215,17 +157,58 @@ describe('TransactionLimitRuleWorkflowService', () => {
     expect(approvalsService.createAndSubmit).not.toHaveBeenCalled();
   });
 
-  // ── coexistence routing ──
+  it('initiateChange 成功后 attachApprovalCase(ruleNo, approvalNo)', async () => {
+    rulesService.findByNo.mockResolvedValue(singleRule());
+    approvalsService.createAndSubmit.mockResolvedValue({ id: 'ap1', approvalNo: 'AP-1' });
 
-  it('decided event whose entityRef matches no rule → graceful no-op', async () => {
+    await svc.initiateChange('TLR-1', { maxAmount: 200, reason: 'x' } as any, actor);
+
+    expect(rulesService.attachApprovalCase).toHaveBeenCalledWith('TLR-1', 'AP-1');
+  });
+
+  it('APPROVED change → applyAmountChange 后 clearApprovalCase', async () => {
+    prisma.transactionLimitRule.findUnique.mockResolvedValue(singleRule({ approvalCaseNo: 'AP-1' }));
+    approvalsService.getById.mockResolvedValue({
+      objectSnapshot: {
+        before: { minAmount: '10', maxAmount: '100' },
+        after: { minAmount: '10', maxAmount: '200' },
+      },
+    });
+
+    await svc.onChangeDecided({
+      decision: 'APPROVED',
+      entityRef: 'TLR-1',
+      approvalId: 'ap1',
+      approvalNo: 'AP-1',
+    } as any);
+
+    expect(rulesService.applyAmountChange).toHaveBeenCalled();
+    expect(rulesService.clearApprovalCase).toHaveBeenCalledWith('TLR-1');
+  });
+
+  it('DECLINED change → clearApprovalCase + CANCELLED 审计', async () => {
+    prisma.transactionLimitRule.findUnique.mockResolvedValue(singleRule({ approvalCaseNo: 'AP-1' }));
+
+    await svc.onChangeDecided({
+      decision: 'DECLINED',
+      entityRef: 'TLR-1',
+      approvalId: 'ap1',
+      approvalNo: 'AP-1',
+    } as any);
+
+    expect(rulesService.clearApprovalCase).toHaveBeenCalledWith('TLR-1');
+    expect(failFindFor(CHANGE_CANCELLED)).toBeTruthy();
+  });
+
+  // ── null-rule routing ──
+
+  it('onChangeDecided: entityRef matches no rule → graceful no-op', async () => {
     prisma.transactionLimitRule.findUnique.mockResolvedValue(null);
 
-    await svc.onCreationDecided({ decision: 'APPROVED', entityRef: 'not-a-rule', approvalId: 'ap1' } as any);
     await svc.onChangeDecided({ decision: 'APPROVED', entityRef: 'not-a-rule', approvalId: 'ap1' } as any);
 
-    expect(rulesService.activate).not.toHaveBeenCalled();
-    expect(rulesService.deletePending).not.toHaveBeenCalled();
     expect(rulesService.applyAmountChange).not.toHaveBeenCalled();
+    expect(rulesService.clearApprovalCase).not.toHaveBeenCalled();
     expect(approvalsService.getById).not.toHaveBeenCalled();
     expect(auditLogsService.recordSystem).not.toHaveBeenCalled();
   });

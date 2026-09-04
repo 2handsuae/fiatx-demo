@@ -95,7 +95,6 @@ const ENTITY_ROUTE_BY_ACTION: Record<string, (ref: string) => string | null> = {
   // 资产域（entityRef = assetNo / ruleNo）
   ASSET_SUSPENSION: (r) => `/admin/assets/${r}`,
   ASSET_REACTIVATION: (r) => `/admin/assets/${r}`,
-  TRANSACTION_LIMIT_CREATION: (r) => `/admin/assets/transaction-limits/${r}`,
   TRANSACTION_LIMIT_CHANGE: (r) => `/admin/assets/transaction-limits/${r}`,
   // 定价域——仅创建流 entityRef 是 levelCode；变更流是变更请求 requestNo，不映射
   SWAP_FEE_LEVEL_CREATION: (r) => `/admin/pricing/swap-fee-levels/${r}`,

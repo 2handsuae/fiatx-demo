@@ -449,7 +449,6 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
   // Transaction Limit Rules
   route('GET', '/admin/transaction-limit-rules', 'List transaction limit rules', ['TRANSACTION_LIMIT_READ']),
   route('GET', '/admin/transaction-limit-rules/:ruleNo', 'Get transaction limit rule detail', ['TRANSACTION_LIMIT_READ']),
-  route('POST', '/admin/transaction-limit-rules', 'Create transaction limit rule', ['TRANSACTION_LIMIT_WRITE']),
   route('POST', '/admin/transaction-limit-rules/:ruleNo/change', 'Submit transaction limit rule change', ['TRANSACTION_LIMIT_WRITE']),
 
   // Withdrawal Addresses
@@ -715,7 +714,7 @@ export const ACTION_BUCKET_CATALOG: ActionDomain[] = [
       {
         key: 'treasury.manage_limits',
         label: 'Manage transaction limits',
-        description: 'Create transaction limit policies, submit limit change requests',
+        description: 'Submit transaction limit change requests — senior management signs them off',
         groups: ['TRANSACTION_LIMIT_WRITE'],
       },
     ],

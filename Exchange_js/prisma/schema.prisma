@@ -1357,16 +1357,13 @@ model TransactionLimitRule {
   minAmount      Decimal?                    // SINGLE(原生币种,可只填一边)
   maxAmount      Decimal?                    // SINGLE(原生币种)
   defaultLimit   Decimal?                    // CUMULATIVE(AED)
-  cap            Decimal?                    // CUMULATIVE(AED,客户微调层上限,本轮仅占位)
   threshold      Decimal?                    // LARGE_APPROVAL(AED)
-  status         String   @default("ACTIVE") // ACTIVE | PENDING_APPROVAL
-  approvalCaseId String?
-  approvalCaseNo String?
+  approvalCaseNo String?                     // 待批变更单号；非空即"变更中"
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
   @@unique([gateType, operationType, assetId, tradingTier, period])
-  @@index([gateType, status])
+  @@index([gateType])
   @@map("transaction_limit_rules")
 }
 

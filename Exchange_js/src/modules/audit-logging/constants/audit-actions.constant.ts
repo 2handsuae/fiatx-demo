@@ -108,10 +108,9 @@ export const AuditBusinessWorkflowTypes = {
   // Asset Suspension (2026-05-14)
   ASSET_SUSPENSION: 'ASSET_SUSPENSION',
   ASSET_REACTIVATION: 'ASSET_REACTIVATION',
-  // Transaction Limit Change (2026-05-16)
+  // Transaction Limit Change (2026-05-16)（原 Transaction Limit Creation 已随「限额只改
+  // 不建不删」创建流整条退役,波一 T10,2026-09-04）
   TRANSACTION_LIMIT_CHANGE: 'TRANSACTION_LIMIT_CHANGE',
-  // Transaction Limit Creation (2026-05-16)
-  TRANSACTION_LIMIT_CREATION: 'TRANSACTION_LIMIT_CREATION',
   // Transaction Limit Enforcement (2026-07-16) — L1 per-transaction gate rejections (A/B)
   TRANSACTION_LIMIT_ENFORCEMENT: 'TRANSACTION_LIMIT_ENFORCEMENT',
   // Deposit Below-Min Confiscation (2026-07-16) — V1 maker-checker confiscation of below-min deposit as fee
@@ -592,10 +591,6 @@ export const V1_AUDIT_ACTIONS: Record<string, AuditActionSpec> = {
   // （同 8 个裸词也被费率两域用过，Task 12 已把费率四族迁走），本批改前缀唯一新码，
   // 8 个裸名同批登退役（见下方 DEPRECATED_AUDIT_ACTIONS；'CHANGE_APPLY_FAILED' 早前
   // 已在站7批次登过，不重复登记）。
-  TRANSACTION_LIMIT_CREATION_REQUESTED:    { domain: 'CONFIG', correlationMode: S, requiredFields: ['afterData'], requiresCausation: false },
-  TRANSACTION_LIMIT_CREATION_APPLIED:      { domain: 'CONFIG', correlationMode: I, requiredFields: ['afterData', 'approvalNo'], requiresCausation: true },
-  TRANSACTION_LIMIT_CREATION_APPLY_FAILED: { domain: 'CONFIG', correlationMode: I, requiredFields: [], requiresCausation: true },
-  TRANSACTION_LIMIT_CREATION_CANCELLED:    { domain: 'CONFIG', correlationMode: I, requiredFields: ['reason'], requiresCausation: true },
   TRANSACTION_LIMIT_CHANGE_REQUESTED:      { domain: 'CONFIG', correlationMode: S, requiredFields: ['beforeData', 'afterData'], requiresCausation: false },
   TRANSACTION_LIMIT_CHANGE_APPLIED:        { domain: 'CONFIG', correlationMode: I, requiredFields: ['beforeData', 'afterData', 'approvalNo'], requiresCausation: true },
   TRANSACTION_LIMIT_CHANGE_APPLY_FAILED:   { domain: 'CONFIG', correlationMode: I, requiredFields: [], requiresCausation: true },
@@ -967,4 +962,7 @@ export const DEPRECATED_AUDIT_ACTIONS: readonly string[] = [
   // 客户充值地址供给改名 CUSTOMER_DEPOSIT_ADDRESS_CREATED（actor=客户），旧名登退役闸
   'CUSTODIAN_WALLET_CREATE_REQUESTED', 'CUSTODIAN_WALLET_CREATED', 'CUSTODIAN_WALLET_CREATE_FAILED', 'CUSTODIAN_WALLET_CREATE_CANCELLED',
   'WALLET_STATUS_UPDATED', 'DEPOSIT_WALLET_CREATED',
+  // 2026-09-04 波一（V3 治愈）：限额只改不建不删——创建流整条退役，四码登退役闸
+  'TRANSACTION_LIMIT_CREATION_REQUESTED', 'TRANSACTION_LIMIT_CREATION_APPLIED',
+  'TRANSACTION_LIMIT_CREATION_APPLY_FAILED', 'TRANSACTION_LIMIT_CREATION_CANCELLED',
 ] as const;

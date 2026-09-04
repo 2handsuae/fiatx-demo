@@ -26,8 +26,10 @@ describe('第一批 · V1 词表守则', () => {
     + 'CANCELLED）+ WALLET_STATUS_UPDATED 随托管钱包创建整条路 + 钱包状态开关退役迁出（平台钱包只从'
     + '种子来、管理台只读），得 90；'
     + '+ 2 波一(2026-09-04)T8：提现地址簿改按网络归属，补两个新动作——WITHDRAWAL_ADDRESS_UPDATED'
-    + '（客户改标签/收款人）/WITHDRAWAL_ADDRESS_UNSUSPENDED（管理员恢复，补 D5 出边），得 92）', () => {
-    expect(codes).toHaveLength(92);
+    + '（客户改标签/收款人）/WITHDRAWAL_ADDRESS_UNSUSPENDED（管理员恢复，补 D5 出边），得 92；'
+    + '− 4 波一(2026-09-04)T10：限额只改不建不删——创建流四码（TRANSACTION_LIMIT_CREATION_REQUESTED/'
+    + 'APPLIED/APPLY_FAILED/CANCELLED）随创建流整条退役迁出，得 88）', () => {
+    expect(codes).toHaveLength(88);
   });
 
   it('全部全局唯一（键即字面量，无重复）', () => {
@@ -82,9 +84,11 @@ describe('第一批 · V1 词表守则', () => {
       // 两族原样保留，REQUESTED/FAILED 仍共享前缀各 2 码，ASSET_SUSPENDED/ASSET_REACTIVATED
       // 是保留原值的不规则过去式，不进前缀桶（同 WALLET_STATUS_UPDATED 等单码一样落单）。
       'ASSET_SUSPENSION_': 2, 'ASSET_REACTIVATION_': 2,
-      // Task14(2026-09-02)：限额两族裸名换前缀唯一新码，各 4 码；客户标签两码共享前缀。
+      // Task14(2026-09-02)：限额两族裸名换前缀唯一新码，各 4 码 → 波一(2026-09-04)T10：
+      // CREATION_ 随创建流整条退役迁出（限额只改不建不删）；断言 0 而不是删掉这一行，同
+      // REGULATORY_GATE_ 判例，钉住「live 表里该前缀一个都没有」。CHANGE_ 原样保留仍 4 码。
       // TRANSACTION_LIMIT_REJECTED 不进任何前缀桶（单码落单，同 WALLET_STATUS_UPDATED）。
-      'TRANSACTION_LIMIT_CREATION_': 4, 'TRANSACTION_LIMIT_CHANGE_': 4,
+      'TRANSACTION_LIMIT_CREATION_': 0, 'TRANSACTION_LIMIT_CHANGE_': 4,
       'CUSTOMER_TAG_': 2,
       // Task15(2026-09-02) CUSTODIAN_WALLET_CREATE_ 三码 → 波一(2026-09-04)T4 随托管钱包
       // 创建整条路退役一并迁出（不再是活码）。WITHDRAWAL_ADDRESS_ 原六码共享前缀
@@ -118,9 +122,10 @@ describe('第一批 · V1 词表守则', () => {
     + 'ASSET_ACTIVATION_REQUESTED 三个 START 随创建/激活两族退役迁出，剩 ASSET_SUSPENSION_REQUESTED/'
     + 'ASSET_REACTIVATION_REQUESTED 两个 START，得 23；'
     + '− 1 波一(2026-09-04)T4：CUSTODIAN_WALLET_CREATE_REQUESTED 随托管钱包创建整条路退役迁出，'
-    + '得 22）', () => {
+    + '得 22；'
+    + '− 1 波一(2026-09-04)T10：TRANSACTION_LIMIT_CREATION_REQUESTED 随创建流整条退役迁出，得 21）', () => {
     expect(codes.filter((c) => V1_AUDIT_ACTIONS[c].correlationMode === AuditCorrelationMode.START))
-      .toHaveLength(22);
+      .toHaveLength(21);
   });
 
   it('退役码 97 个（V1 域 11 + 充值域 18+1 + 提现域 18 + 兑换域 3 + 对账域 4 + Task5扩面 19：'
@@ -142,9 +147,11 @@ describe('第一批 · V1 词表守则', () => {
     + ' + 6 波一(2026-09-04)T4：CUSTODIAN_WALLET_CREATE_REQUESTED/CUSTODIAN_WALLET_CREATED/'
     + 'CUSTODIAN_WALLET_CREATE_FAILED/CUSTODIAN_WALLET_CREATE_CANCELLED/WALLET_STATUS_UPDATED/'
     + 'DEPOSIT_WALLET_CREATED 六码随托管钱包创建整条路 + 钱包状态开关 + 客户充值地址供给改名'
-    + '新入闸，得 109），'
+    + '新入闸，得 109'
+    + ' + 4 波一(2026-09-04)T10：TRANSACTION_LIMIT_CREATION_REQUESTED/APPLIED/APPLY_FAILED/'
+    + 'CANCELLED 四码随创建流整条退役新入闸，得 113），'
     + '且与五本在用名册零交集', () => {
-    expect(DEPRECATED_AUDIT_ACTIONS).toHaveLength(109);
+    expect(DEPRECATED_AUDIT_ACTIONS).toHaveLength(113);
     expect(DEPRECATED_AUDIT_ACTIONS.filter((d) => codes.includes(d))).toEqual([]);
     expect(DEPRECATED_AUDIT_ACTIONS.filter((d) => d in V4_DEPOSIT_AUDIT_ACTIONS)).toEqual([]);
     expect(DEPRECATED_AUDIT_ACTIONS.filter((d) => d in V5_WITHDRAW_AUDIT_ACTIONS)).toEqual([]);

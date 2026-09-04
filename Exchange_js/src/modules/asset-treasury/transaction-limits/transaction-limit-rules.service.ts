@@ -12,7 +12,6 @@ export interface RuleShapeInput {
   minAmount?: number | string | null;
   maxAmount?: number | string | null;
   defaultLimit?: number | string | null;
-  cap?: number | string | null;
   threshold?: number | string | null;
 }
 
@@ -39,12 +38,6 @@ export class TransactionLimitRulesService {
       (f) => !shape.amountFields.includes(f) && (input as any)[f] != null,
     );
     if (alien.length) throw new BadRequestException(`${input.gateType} rule must not set: ${alien.join(', ')}`);
-    // CUMULATIVE 的 defaultLimit 是引擎 B 环真正消费的限额；cap 仅占位(未来客户层微调)。
-    // 只填 cap 会让引擎 `new Decimal(defaultLimit)` 抛 DecimalError → 该 tier 每笔交易 500。
-    // 不放进 GATE_SHAPES.required(维度专用,`!input[f]` 会把 0 误读成缺失)，此处按 gateType 单独强校验。
-    if (input.gateType === 'CUMULATIVE' && input.defaultLimit == null) {
-      throw new BadRequestException('CUMULATIVE rule requires defaultLimit');
-    }
     for (const f of shape.amountFields) {
       const v = (input as any)[f];
       if (v != null && new Prisma.Decimal(v).lte(0)) throw new BadRequestException(`${f} must be > 0`);
@@ -54,38 +47,22 @@ export class TransactionLimitRulesService {
     }
   }
 
-  /** SQLite 复合唯一对 NULL 不去重 → 服务层预检(含 PENDING_APPROVAL 占坑) */
-  async assertUnique(input: RuleShapeInput): Promise<void> {
-    const existing = await this.prisma.transactionLimitRule.findFirst({
-      where: {
-        gateType: input.gateType,
-        operationType: input.operationType,
-        assetId: input.assetId ?? null,
-        tradingTier: input.tradingTier ?? null,
-        period: input.period ?? null,
-      },
-    });
-    if (existing) {
-      throw new BadRequestException(`Rule already exists for this key (${existing.ruleNo}, status: ${existing.status})`);
-    }
-  }
-
-  // ── 三查找(引擎/工作流消费,只认 ACTIVE) ──
+  // ── 三查找(引擎/工作流消费) ──
   getSingleRule(operationType: string, assetId: string) {
     return this.prisma.transactionLimitRule.findFirst({
-      where: { gateType: 'SINGLE', operationType, assetId, status: 'ACTIVE' },
+      where: { gateType: 'SINGLE', operationType, assetId },
     });
   }
 
   getCumulativeRules(operationType: string, tradingTier: string) {
     return this.prisma.transactionLimitRule.findMany({
-      where: { gateType: 'CUMULATIVE', operationType, tradingTier, status: 'ACTIVE' },
+      where: { gateType: 'CUMULATIVE', operationType, tradingTier },
     });
   }
 
   async getLargeApprovalThreshold(operationType: string): Promise<Prisma.Decimal | null> {
     const rule = await this.prisma.transactionLimitRule.findFirst({
-      where: { gateType: 'LARGE_APPROVAL', operationType, status: 'ACTIVE' },
+      where: { gateType: 'LARGE_APPROVAL', operationType },
     });
     return rule?.threshold ? new Prisma.Decimal(rule.threshold) : null;
   }
@@ -106,43 +83,20 @@ export class TransactionLimitRulesService {
 
   // ── 工作流写面(仅供 workflow 调用;领域写入统一经此,守 validateShape 不变量,Rule 5) ──
 
-  /** 以 PENDING_APPROVAL 落一条新规则(调用方须先 validateShape + assertUnique) */
-  createPending(input: RuleShapeInput & { ruleNo: string }) {
-    return this.prisma.transactionLimitRule.create({
-      data: {
-        ruleNo: input.ruleNo,
-        gateType: input.gateType,
-        operationType: input.operationType,
-        assetId: input.assetId ?? null,
-        tradingTier: input.tradingTier ?? null,
-        period: input.period ?? null,
-        minAmount: this.toDecimal(input.minAmount),
-        maxAmount: this.toDecimal(input.maxAmount),
-        defaultLimit: this.toDecimal(input.defaultLimit),
-        cap: this.toDecimal(input.cap),
-        threshold: this.toDecimal(input.threshold),
-        status: 'PENDING_APPROVAL',
-      },
-    });
-  }
-
-  attachApprovalCase(ruleNo: string, approvalCaseId: string, approvalCaseNo: string) {
+  /** 提单挂号:approvalCaseNo 非空即"变更中"(规则无生命周期,不建不删,只改) */
+  attachApprovalCase(ruleNo: string, approvalCaseNo: string) {
     return this.prisma.transactionLimitRule.update({
       where: { ruleNo },
-      data: { approvalCaseId, approvalCaseNo },
+      data: { approvalCaseNo },
     });
   }
 
-  activate(ruleNo: string) {
+  /** 裁决落地(批准/否决/取消后)清挂号 */
+  clearApprovalCase(ruleNo: string) {
     return this.prisma.transactionLimitRule.update({
       where: { ruleNo },
-      data: { status: 'ACTIVE' },
+      data: { approvalCaseNo: null },
     });
-  }
-
-  /** 物理删除一条 PENDING_APPROVAL 规则(创建被否决时) */
-  deletePending(ruleNo: string) {
-    return this.prisma.transactionLimitRule.delete({ where: { ruleNo } });
   }
 
   /** 变更生效:仅覆盖传入的金额字段(其余保持不变) */

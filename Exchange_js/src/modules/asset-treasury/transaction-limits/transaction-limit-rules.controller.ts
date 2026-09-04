@@ -16,10 +16,7 @@ import { buildPermissionCode } from '../../identity/access-control/permission-co
 import { ApprovalActorContext } from '../../governance/approvals/constants/approval.constants';
 import { TransactionLimitRulesService } from './transaction-limit-rules.service';
 import { TransactionLimitRuleWorkflowService } from './transaction-limit-rule-workflow.service';
-import {
-  ChangeTransactionLimitRuleDto,
-  CreateTransactionLimitRuleDto,
-} from './dto/transaction-limit-rule.dto';
+import { ChangeTransactionLimitRuleDto } from './dto/transaction-limit-rule.dto';
 
 @Controller('admin/transaction-limit-rules')
 @UseGuards(AuthGuard('jwt'), AdminPermissionGuard)
@@ -56,13 +53,6 @@ export class TransactionLimitRulesController {
   @RequirePermissions(buildPermissionCode('GET', '/admin/transaction-limit-rules/:ruleNo'))
   async findOne(@Param('ruleNo') ruleNo: string) {
     return this.rulesService.findByNo(ruleNo);
-  }
-
-  @Post()
-  @RequirePermissions(buildPermissionCode('POST', '/admin/transaction-limit-rules'))
-  async create(@Body() dto: CreateTransactionLimitRuleDto, @Req() req: any) {
-    this.ensureAdmin(req);
-    return this.workflow.initiateCreate(dto, this.buildAdminActor(req));
   }
 
   @Post(':ruleNo/change')

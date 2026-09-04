@@ -17,7 +17,7 @@ export type LimitTradingTier = (typeof LIMIT_TRADING_TIERS)[number];
  */
 export const GATE_SHAPES: Record<GateType, { required: string[]; forbidden: string[]; amountFields: string[] }> = {
   SINGLE:         { required: ['operationType', 'assetId'],                 forbidden: ['tradingTier', 'period'], amountFields: ['minAmount', 'maxAmount'] },
-  CUMULATIVE:     { required: ['operationType', 'tradingTier', 'period'],   forbidden: ['assetId'],               amountFields: ['defaultLimit', 'cap'] },
+  CUMULATIVE:     { required: ['operationType', 'tradingTier', 'period'],   forbidden: ['assetId'],               amountFields: ['defaultLimit'] },
   LARGE_APPROVAL: { required: ['operationType'],                            forbidden: ['assetId', 'tradingTier', 'period'], amountFields: ['threshold'] },
 };
 

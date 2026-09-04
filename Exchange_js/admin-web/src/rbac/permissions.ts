@@ -113,7 +113,7 @@ export const PERMISSIONS = {
   TB_FLOWS_READ: 'api.get.admin_tb_account_flows',
 
   TRANSACTION_LIMIT_READ: 'api.get.admin_transaction_limit_rules',
-  TRANSACTION_LIMIT_WRITE: 'api.post.admin_transaction_limit_rules',
+  TRANSACTION_LIMIT_WRITE: 'api.post.admin_transaction_limit_rules_ruleno_change',
 
   WITHDRAWAL_ADDRESSES_READ: 'api.get.admin_withdrawal_addresses',
   WITHDRAWAL_ADDRESS_DETAIL_READ: 'api.get.admin_withdrawal_addresses_addressno',

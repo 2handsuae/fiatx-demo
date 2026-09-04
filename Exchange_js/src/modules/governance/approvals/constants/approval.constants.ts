@@ -27,10 +27,9 @@ export const ApprovalActionTypes = {
   // ─── Asset Suspension (2026-05-14) ────
   ASSET_SUSPENSION: 'ASSET_SUSPENSION',
   ASSET_REACTIVATION: 'ASSET_REACTIVATION',
-  // Transaction Limit Change (2026-05-16)
+  // Transaction Limit Change (2026-05-16)（原 Transaction Limit Creation 已随「限额只改
+  // 不建不删」创建流整条退役,波一 T10,2026-09-04）
   TRANSACTION_LIMIT_CHANGE: 'TRANSACTION_LIMIT_CHANGE',
-  // Transaction Limit Creation (2026-05-16)
-  TRANSACTION_LIMIT_CREATION: 'TRANSACTION_LIMIT_CREATION',
   // Withdrawal Fee Level (2026-05-30)
   WITHDRAWAL_FEE_LEVEL_CREATION: 'WITHDRAWAL_FEE_LEVEL_CREATION',
   WITHDRAWAL_FEE_LEVEL_CHANGE: 'WITHDRAWAL_FEE_LEVEL_CHANGE',
@@ -240,14 +239,6 @@ export const DEFAULT_APPROVAL_POLICIES: Record<
     timeoutHours: 48,
     allowCancel: true,
   },
-  // ─── Transaction Limit Creation ────
-  [ApprovalActionTypes.TRANSACTION_LIMIT_CREATION]: {
-    // 2026-08-30：裁决人 OPS_OFFICER → SENIOR_MANAGEMENT_OFFICER。限额归运营改（业主定），
-    // 高管签字：定阈值与放超额单归同一人（大额提现本就是高管批）。
-    steps: [{ stepNo: 1, roles: ['SENIOR_MANAGEMENT_OFFICER'] }],
-    timeoutHours: 48,
-    allowCancel: true,
-  },
   // ─── Withdrawal Fee Level ────
   [ApprovalActionTypes.WITHDRAWAL_FEE_LEVEL_CREATION]: {
     steps: [{ stepNo: 1, roles: ['OPS_OFFICER'] }],
@@ -350,7 +341,6 @@ export const V1_APPROVAL_ACTION_TYPES: readonly string[] = [
   ApprovalActionTypes.ASSET_SUSPENSION,
   ApprovalActionTypes.ASSET_REACTIVATION,
   ApprovalActionTypes.TRANSACTION_LIMIT_CHANGE,
-  ApprovalActionTypes.TRANSACTION_LIMIT_CREATION,
   ApprovalActionTypes.WITHDRAWAL_FEE_LEVEL_CREATION,
   ApprovalActionTypes.WITHDRAWAL_FEE_LEVEL_CHANGE,
   ApprovalActionTypes.SWAP_FEE_LEVEL_CREATION,

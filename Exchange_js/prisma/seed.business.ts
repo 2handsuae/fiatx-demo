@@ -391,19 +391,19 @@ export async function seedTransactionLimitRules(prisma: PrismaClient): Promise<v
   for (const a of assets) {
     rules.push({ ruleNo: no(), gateType: 'SINGLE', operationType: 'DEPOSIT', assetId: a.id, minAmount: '100' });
   }
-  // B: tier × 方向 × 周期（AED；默认值+cap）
+  // B: tier × 方向 × 周期（AED；默认值）
   const cum = [
-    ['BASIC', 'WITHDRAWAL', 'DAILY', '50000', '100000'],
-    ['BASIC', 'WITHDRAWAL', 'MONTHLY', '500000', '1000000'],
-    ['BASIC', 'SWAP', 'DAILY', '100000', '200000'],
-    ['BASIC', 'SWAP', 'MONTHLY', '1000000', '2000000'],
-    ['PREMIUM', 'WITHDRAWAL', 'DAILY', '500000', '1000000'],
-    ['PREMIUM', 'WITHDRAWAL', 'MONTHLY', '5000000', '10000000'],
-    ['PREMIUM', 'SWAP', 'DAILY', '1000000', '2000000'],
-    ['PREMIUM', 'SWAP', 'MONTHLY', '10000000', '20000000'],
+    ['BASIC', 'WITHDRAWAL', 'DAILY', '50000'],
+    ['BASIC', 'WITHDRAWAL', 'MONTHLY', '500000'],
+    ['BASIC', 'SWAP', 'DAILY', '100000'],
+    ['BASIC', 'SWAP', 'MONTHLY', '1000000'],
+    ['PREMIUM', 'WITHDRAWAL', 'DAILY', '500000'],
+    ['PREMIUM', 'WITHDRAWAL', 'MONTHLY', '5000000'],
+    ['PREMIUM', 'SWAP', 'DAILY', '1000000'],
+    ['PREMIUM', 'SWAP', 'MONTHLY', '10000000'],
   ];
-  for (const [tier, op, period, defaultLimit, cap] of cum) {
-    rules.push({ ruleNo: no(), gateType: 'CUMULATIVE', operationType: op, tradingTier: tier, period, defaultLimit, cap });
+  for (const [tier, op, period, defaultLimit] of cum) {
+    rules.push({ ruleNo: no(), gateType: 'CUMULATIVE', operationType: op, tradingTier: tier, period, defaultLimit });
   }
   // D1: 提现大额审批线（承接原 WITHDRAW_APPROVAL_AED_THRESHOLD=200000）
   rules.push({ ruleNo: no(), gateType: 'LARGE_APPROVAL', operationType: 'WITHDRAWAL', threshold: '200000' });
@@ -419,10 +419,10 @@ export async function seedTransactionLimitRules(prisma: PrismaClient): Promise<v
     if (existing) {
       await prisma.transactionLimitRule.update({
         where: { id: existing.id },
-        data: { minAmount: r.minAmount, maxAmount: r.maxAmount, defaultLimit: r.defaultLimit, cap: r.cap, threshold: r.threshold, status: 'ACTIVE' },
+        data: { minAmount: r.minAmount, maxAmount: r.maxAmount, defaultLimit: r.defaultLimit, threshold: r.threshold },
       });
     } else {
-      await prisma.transactionLimitRule.create({ data: { ...r, status: 'ACTIVE' } });
+      await prisma.transactionLimitRule.create({ data: { ...r } });
     }
   }
   console.log(`  ✔ Seeded ${rules.length} transaction limit rules`);

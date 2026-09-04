@@ -7,7 +7,6 @@ import { TransactionLimitRulesService } from './transaction-limit-rules.service'
 import { TransactionLimitRuleWorkflowService } from './transaction-limit-rule-workflow.service';
 import { TransactionLimitRulesController } from './transaction-limit-rules.controller';
 import { TransactionLimitGateService } from './transaction-limit-gate.service';
-import { TransactionLimitCreationApprovalService } from './transaction-limit-creation-approval.service';
 import { TransactionLimitChangeApprovalService } from './transaction-limit-change-approval.service';
 
 @Module({
@@ -16,7 +15,6 @@ import { TransactionLimitChangeApprovalService } from './transaction-limit-chang
     TransactionLimitRulesService,
     TransactionLimitRuleWorkflowService,
     TransactionLimitGateService,
-    TransactionLimitCreationApprovalService,
     TransactionLimitChangeApprovalService,
   ],
   controllers: [TransactionLimitRulesController],

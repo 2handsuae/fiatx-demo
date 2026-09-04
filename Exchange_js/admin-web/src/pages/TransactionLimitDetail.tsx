@@ -21,9 +21,7 @@ interface RuleDetail {
   minAmount: string | null;
   maxAmount: string | null;
   defaultLimit: string | null;
-  cap: string | null;
   threshold: string | null;
-  status: string;
   approvalCaseNo: string | null;
   createdAt: string;
   updatedAt: string;
@@ -36,7 +34,7 @@ interface AssetOption {
 }
 
 /** Amount fields exposed per gate shape (change form + read-only display). */
-type AmountKey = 'minAmount' | 'maxAmount' | 'defaultLimit' | 'cap' | 'threshold';
+type AmountKey = 'minAmount' | 'maxAmount' | 'defaultLimit' | 'threshold';
 
 const SHAPE_AMOUNT_FIELDS: Record<
   GateType,
@@ -141,14 +139,16 @@ export default function TransactionLimitDetail() {
       setRule(data);
 
       // Resolve asset code (SINGLE shape) — never surface the raw assetId UUID.
+      // The asset detail route keys on assetNo, not id, so look the id up in the list instead.
       if (data.assetId) {
         try {
           const aRes = await adminFetch(
-            `${import.meta.env.VITE_API_URL}/assets/${data.assetId}`,
+            `${import.meta.env.VITE_API_URL}/assets?take=200`,
           );
           if (aRes.ok) {
-            const asset = (await aRes.json()) as AssetOption;
-            setAssetCode(asset.code ?? null);
+            const assetData = (await aRes.json()) as { items: AssetOption[] };
+            const match = assetData.items?.find((a) => a.id === data.assetId);
+            setAssetCode(match?.code ?? null);
           }
         } catch {
           /* ignore — display falls back to '—' */
@@ -320,7 +320,15 @@ export default function TransactionLimitDetail() {
             <div className="mt-2.5 flex items-center gap-2">
               <AdminBadge value={gateLabel} />
               <AdminBadge value={rule.operationType} />
-              <AdminBadge value={rule.status} />
+              {rule.approvalCaseNo ? <AdminBadge value="PENDING_APPROVAL" /> : <AdminBadge value="IN_EFFECT" />}
+              {rule.approvalCaseNo && (
+                <button
+                  onClick={() => navigate(`/admin/governance/approvals/${rule.approvalCaseNo}`)}
+                  className="ml-2 font-mono text-[11px] text-adm-amber hover:underline"
+                >
+                  {rule.approvalCaseNo}
+                </button>
+              )}
             </div>
           </section>
 
@@ -365,7 +373,7 @@ export default function TransactionLimitDetail() {
         {/* ════ RIGHT SIDEBAR ════ */}
         <div className="w-[272px] min-w-[272px] overflow-y-auto border-l border-adm-border bg-adm-panel px-4 py-1">
           {/* Actions */}
-          {rule.status === 'ACTIVE' && (
+          {!rule.approvalCaseNo && (
             <div className="border-b border-adm-border py-4">
               <Cap>Actions</Cap>
               <div className="mt-2.5 flex flex-col gap-2">
@@ -379,6 +387,14 @@ export default function TransactionLimitDetail() {
               </div>
             </div>
           )}
+          {rule.approvalCaseNo && (
+            <div className="border-b border-adm-border py-4">
+              <Cap>Actions</Cap>
+              <p className="mt-2.5 text-center font-mono text-[10px] text-adm-t3">
+                Waiting for SENIOR_MANAGEMENT_OFFICER decision on {rule.approvalCaseNo}
+              </p>
+            </div>
+          )}
 
           {/* Identity */}
           <SidebarGroup title="Identity">
@@ -388,7 +404,6 @@ export default function TransactionLimitDetail() {
             <SidebarKV label="Asset" value={rule.gateType === 'SINGLE' ? assetCode ?? '—' : '—'} />
             <SidebarKV label="Trading Tier" value={rule.tradingTier ?? '—'} />
             <SidebarKV label="Period" value={rule.period ?? '—'} />
-            <SidebarKV label="Status" value={<AdminBadge value={rule.status} />} />
             <SidebarKV
               label="Approval"
               value={
