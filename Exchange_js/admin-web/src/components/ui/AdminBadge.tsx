@@ -1,6 +1,6 @@
 // src/components/ui/AdminBadge.tsx
 
-type BadgeVariant = 'success' | 'failed' | 'rejected' | 'pending' | 'active' | 'deleted' | 'info';
+type BadgeVariant = 'success' | 'failed' | 'rejected' | 'pending' | 'active' | 'deleted' | 'info' | 'retired';
 
 const STATUS_MAP: Record<string, BadgeVariant> = {
   SUCCESS:          'success',
@@ -23,6 +23,7 @@ const STATUS_MAP: Record<string, BadgeVariant> = {
   SUSPENDED:            'failed',
   USED:                 'info',
   EXPIRED:              'deleted',
+  RETIRED:              'retired',
 };
 
 // Note: `active` and `success` intentionally use the same green colour — both represent "positive/live" states.
@@ -34,6 +35,7 @@ const BADGE_CLS: Record<BadgeVariant, string> = {
   active:   'bg-adm-green/10  text-adm-green  border-adm-green/25',
   deleted:  'bg-adm-t3/10     text-adm-t2     border-adm-t3/25',
   info:     'bg-adm-t3/10     text-adm-t2     border-adm-t3/25',
+  retired:  'bg-adm-t2/10     text-adm-t1     border-adm-t2/25',
 };
 
 /** Status badge — SUCCESS / FAILED / REJECTED / PENDING / ACTIVE / DELETED / etc. */

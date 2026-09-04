@@ -503,18 +503,20 @@ export default function WithdrawalFeeLevelDetail() {
           {level.status === 'ACTIVE' && !pendingApprovalNo && (
             <div className="border-b border-adm-border py-4">
               <Cap>Actions</Cap>
-              <div className="mt-2.5 flex flex-col gap-2">
-                <button onClick={openChangeModal} className={adminButtonClass('workflowPrimary')}>
-                  <Pencil size={13} />
-                  Edit Tiers
-                </button>
-                {canRetire && (
+              {canRetire ? (
+                <div className="mt-2.5 flex flex-col gap-2">
+                  <button onClick={openChangeModal} className={adminButtonClass('workflowPrimary')}>
+                    <Pencil size={13} />
+                    Edit Tiers
+                  </button>
                   <button onClick={() => { setRetireReason(''); setShowRetireModal(true); }} className={adminButtonClass('workflowNegative')}>
                     Retire Level
                   </button>
-                )}
-                <p className="text-center font-mono text-[10px] text-adm-t3">Edit / Retire requires CFO → Ops Officer approval</p>
-              </div>
+                  <p className="text-center font-mono text-[10px] text-adm-t3">Edit / Retire requires CFO → Ops Officer approval</p>
+                </div>
+              ) : (
+                <p className="mt-2.5 text-center font-mono text-[10px] text-adm-t3">Requires CFO permission</p>
+              )}
             </div>
           )}
           {level.status === 'ACTIVE' && pendingApprovalNo && (
