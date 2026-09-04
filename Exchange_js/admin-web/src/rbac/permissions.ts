@@ -122,6 +122,8 @@ export const PERMISSIONS = {
   WITHDRAWAL_ADDRESS_UNSUSPEND: 'api.post.admin_withdrawal_addresses_addressno_unsuspend',
   WITHDRAWAL_FEE_LEVELS_READ: 'api.get.admin_withdrawal_fee_levels',
   SWAP_FEE_LEVELS_READ: 'api.get.admin_swap_fee_levels',
+  SWAP_FEE_LEVEL_RETIRE: 'api.post.admin_swap_fee_levels_levelcode_retire',
+  WITHDRAWAL_FEE_LEVEL_RETIRE: 'api.post.admin_withdrawal_fee_levels_levelcode_retire',
   WITHDRAW_QUOTES_READ: 'api.get.admin_withdrawal_fee_levels_quotes',
   WITHDRAW_QUOTES_DETAIL_READ: 'api.get.admin_withdrawal_fee_levels_quotes_id',
 } as const;
