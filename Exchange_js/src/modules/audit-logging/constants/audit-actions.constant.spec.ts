@@ -33,8 +33,9 @@ describe('第一批 · V1 词表守则', () => {
     + 'SWAP_FEE_LEVEL_RETIRED/SWAP_FEE_LEVEL_RETIRE_CANCELLED + WITHDRAWAL 同型三码，得 94；'
     + '+ 7 波一(2026-09-04)T14：种子身世七码——ASSET_SEEDED/CUSTODIAN_WALLET_SEEDED/'
     + 'TRANSACTION_LIMIT_SEEDED/SWAP_FEE_LEVEL_SEEDED/WITHDRAWAL_FEE_LEVEL_SEEDED/'
-    + 'CUSTOMER_DEPOSIT_ADDRESS_SEEDED/WITHDRAWAL_ADDRESS_SEEDED（配置随版本装载，装载即留痕），得 101）', () => {
-    expect(codes).toHaveLength(101);
+    + 'CUSTOMER_DEPOSIT_ADDRESS_SEEDED/WITHDRAWAL_ADDRESS_SEEDED（配置随版本装载，装载即留痕），得 101；'
+    + '+ 1 波二(2026-09-05)T2：WITHDRAWAL_ADDRESS_REQUEST_DENIED（地址五门拒绝留痕，Task3/5 消费），得 102）', () => {
+    expect(codes).toHaveLength(102);
   });
 
   it('全部全局唯一（键即字面量，无重复）', () => {
@@ -106,8 +107,10 @@ describe('第一批 · V1 词表守则', () => {
       // （REGISTERED/ACTIVATED/CANCELLED/SUSPENDED/DEACTIVATED/COOLING_SKIPPED），
       // + 2 波一(2026-09-04)T8：UPDATED/UNSUSPENDED（改标签+管理员恢复两新动作），得 8；
       // + 1 波一(2026-09-04)T14：WITHDRAWAL_ADDRESS_SEEDED（种子身世，提现地址簿随演示
-      // 造数装载即留痕），得 9；无不规则过去式例外。
-      'WITHDRAWAL_ADDRESS_': 9,
+      // 造数装载即留痕），得 9；
+      // + 1 波二(2026-09-05)T2：WITHDRAWAL_ADDRESS_REQUEST_DENIED（地址五门拒绝留痕），得 10；
+      // 无不规则过去式例外。
+      'WITHDRAWAL_ADDRESS_': 10,
       // Task15 收尾(2026-09-02)：常规登录 MFA 二次校验两码共享前缀（区别于
       // ADMIN_FIRST_LOGIN_——那是首次登录专属四步链，不是同一趟旅程）。
       'MFA_LOGIN_': 2,

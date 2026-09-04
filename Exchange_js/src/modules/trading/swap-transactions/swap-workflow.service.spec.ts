@@ -153,9 +153,10 @@ function buildMocks(quote: ReturnType<typeof baseQuote>) {
       findUnique: jest.fn(() => Promise.resolve({ id: 'cust-1', complianceStatus: 'ACTIVE', adminStatus: 'ACTIVE', onboardingStatus: 'APPROVED' })),
     },
     // L1 Transaction Limit gate: initiateSwap peeks the quote (outside the tx)
-    // for the from-asset + amount before evaluating the gate.
+    // for the from-asset + amount before evaluating the gate. toAssetId (波二)
+    // feeds L1's assetIds — both legs of the swap are subject to the asset gate.
     swapQuote: {
-      findUnique: jest.fn(() => Promise.resolve({ fromAssetId: quote.fromAssetId, amountIn: quote.amountIn })),
+      findUnique: jest.fn(() => Promise.resolve({ fromAssetId: quote.fromAssetId, amountIn: quote.amountIn, toAssetId: quote.toAssetId })),
     },
     // B3: 建单前余额校验读卖出侧资产的 currency/decimals（在 $transaction 之外，
     // 与 quotePeek 同一层级）。
@@ -165,6 +166,9 @@ function buildMocks(quote: ReturnType<typeof baseQuote>) {
           ? { currency: assetMap[where.id].currency, decimals: assetMap[where.id].decimals }
           : null,
       )),
+      // 波二：L1 BLOCK 分支查两侧资产号写审计。默认空——不关心审计内容的既有 BLOCK
+      // 用例（只断言 rejects/中性文案）不必逐个补 mock；关心内容的用例自行覆盖。
+      findMany: jest.fn(() => Promise.resolve([])),
     },
     // submitSumsubTxnOut reads/writes the swap row directly (outside the
     // create transaction) — used by initiateSwap's post-commit submit call
@@ -280,6 +284,40 @@ describe('B2 · 兑换 L1 资格闸', () => {
     expect(body.code).toBe('L1_GATE_BLOCKED');
     expect(body.message).toBe('This operation is not available for your account at the moment.');
     expect(JSON.stringify(body)).not.toMatch(/SANCTION|RESTRICTION|限制|便签/);
+  });
+
+  it('波二·资产 SUSPENDED → 403 L1_GATE_BLOCKED，且写 SWAP_L1_BLOCKED（DENIED / reasonCode ASSET_SUSPENDED / 两侧资产 RELATED）', async () => {
+    const mocks = buildMocks(makeQuote());
+    mocks.prisma.customerMain.findUnique.mockResolvedValue({ id: 'cust-1', customerNo: 'CUST0001' });
+    mocks.l1Gate.evaluate.mockResolvedValue({
+      evaluatedAt: '2026-09-05T00:00:00.000Z',
+      domain: 'SWAP', verdict: 'BLOCK', holdReason: null, tradingTier: 'BASIC',
+      checks: [{ code: 'ASSET_AVAILABILITY', outcome: 'FAIL', detail: '资产 AS2601012024（USDT）状态 SUSPENDED，不可交易' }],
+    });
+    mocks.prisma.asset.findMany = jest.fn().mockResolvedValue([{ assetNo: 'AS1' }, { assetNo: 'AS2' }]);
+    const service = makeService(mocks);
+
+    const err: any = await service.initiateSwap('c1', 'q1').catch((e) => e);
+    const body = err?.getResponse ? err.getResponse() : err;
+    expect(body.code).toBe('L1_GATE_BLOCKED');
+
+    expect(mocks.auditLogsService.recordByActor).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'SWAP_L1_BLOCKED',
+        actionDomain: 'SWAP',
+        outcome: 'DENIED',
+        reasonCode: 'ASSET_SUSPENDED',
+        subjects: expect.arrayContaining([
+          expect.objectContaining({ subjectType: 'ASSET', subjectNo: 'AS1', subjectRole: 'RELATED' }),
+          expect.objectContaining({ subjectType: 'ASSET', subjectNo: 'AS2', subjectRole: 'RELATED' }),
+        ]),
+        requestId: expect.stringMatching(/^SWAP_L1_BLOCKED_/),
+      }),
+      expect.objectContaining({ actorType: 'CUSTOMER' }),
+    );
+    expect(mocks.l1Gate.evaluate).toHaveBeenCalledWith(
+      expect.objectContaining({ assetIds: ['asset-usdt', 'asset-aed'] }),
+    );
   });
 
   it('L1 verdict=PASS 时快照写进建单入参', async () => {

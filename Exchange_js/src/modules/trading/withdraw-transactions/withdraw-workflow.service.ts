@@ -22,7 +22,7 @@ import type { SceneTag } from '../../withdraw-sumsub/withdraw-kyt-verdict.handle
 import type { DispoTag } from '../../sumsub-shared/scene-tags';
 import { CustomerAccessService, NEUTRAL_DENIAL } from '../../identity/customers/customer-access.service';
 import { CustomerRestrictionsService } from '../../identity/customers/customer-restrictions.service';
-import { L1GateService } from '../shared/l1-gate/l1-gate.service';
+import { L1GateService, l1ReasonCodeOf } from '../shared/l1-gate/l1-gate.service';
 import type { L1Check, L1Snapshot } from '../shared/l1-gate/l1-gate.types';
 import { generateReferenceNo } from '../../../common/utils/no-generator.util';
 import { AuditLogsService } from '../../audit-logging/audit-logs.service';
@@ -377,9 +377,34 @@ export class WithdrawWorkflowService implements OnModuleInit {
       l1 = await this.l1Gate.evaluate({
         domain: 'WITHDRAW',
         customerId: userId,
+        assetIds: [assetId],
         preChecks,
       });
       if (l1.verdict === 'BLOCK') {
+        // 波二·法一：被拦下也留痕。单未建、无单号——主体是客户，资产当次主体（第七幕按资产号能拉出被它拦下的单）。
+        const failed = l1.checks.filter((c) => c.outcome === 'FAIL');
+        const actorNo = ownerNo ?? userId;
+        await this.auditLogsService.recordByActor(
+          {
+            action: 'WITHDRAW_L1_BLOCKED',
+            actionDomain: 'WITHDRAW',
+            category: AuditCategory.BUSINESS,
+            primarySubjectType: 'CUSTOMER',
+            primarySubjectNo: actorNo,
+            ownerCustomerNo: ownerNo ?? undefined,
+            outcome: AuditOutcome.DENIED,
+            reasonCode: failed[0] ? l1ReasonCodeOf(failed[0].code) : 'L1_BLOCK',
+            reason: `L1 blocked withdrawal: ${failed.map((c) => `${c.code} — ${c.detail}`).join('; ')}`,
+            subjects: [
+              ...(ownerNo ? [{ subjectType: 'CUSTOMER', subjectNo: ownerNo, subjectRole: AuditSubjectRole.OWNER }] : []),
+              ...(asset.assetNo ? [{ subjectType: AuditEntityTypes.ASSET, subjectNo: asset.assetNo, subjectRole: AuditSubjectRole.RELATED }] : []),
+            ],
+            metadata: { assetId, amount: String(amount), l1Snapshot: l1 },
+            requestId: `WITHDRAW_L1_BLOCKED_${actorNo}_${randomUUID()}`,
+            sourcePlatform: 'CUSTOMER_API',
+          } as any,
+          { actorType: 'CUSTOMER', actorNo, actorDisplayName: actorNo, actorRolesAtTime: ['CUSTOMER'] },
+        );
         throw new ForbiddenException({
           code: 'L1_GATE_BLOCKED',
           // 中性文案 —— 直接引用 CustomerAccessService 的那一份（禁止手抄副本）。
