@@ -152,7 +152,7 @@ async function scanR4(prisma: PrismaClient): Promise<void> {
 //   在审计表里精确找一条同码 *_SEEDED 行（actorNo=RELEASE）；找不到就是这一
 //   行没留痕，报违规并指名是哪一行——孤儿行不参与比对，也不会被这条规则动。
 async function scanR5(prisma: PrismaClient): Promise<void> {
-  const blocks: Array<{ action: string; entity: string; keys: string[] }> = [];
+  const blocks: Array<{ action: string; entity: string; keys: string[]; scope?: string }> = [];
 
   const assets: any[] = await (prisma as any).asset.findMany({ select: { assetNo: true } });
   blocks.push({ action: 'ASSET_SEEDED', entity: 'asset', keys: assets.map((a) => a.assetNo) });
@@ -179,6 +179,10 @@ async function scanR5(prisma: PrismaClient): Promise<void> {
   // operator 经 maker-checker 建的等级留的是 SWAP_FEE_LEVEL_CREATION_APPLIED 一类审计，本来就
   // 没有 *_SEEDED 行。种子写 createdByUserId='SYSTEM'（seed.business.ts），运行时写 actor 的
   // 真实 user id——按这个判别式只挑种子行，否则每条 operator 建的等级都会被错判成没留痕。
+  // ⚠️ 这个判别式的前提是「运行时路径永远带真实 user id」：两条创建流收的是 ApprovalActorContext，
+  // 而该类型允许 userId='SYSTEM'（approvals.service.ts 的 systemActor()）。今天 systemActor() 只用在
+  // 一处只读的 mapApproval、够不到创建流，但类型上是通的——将来若出现系统发起的费率创建，它的行会被
+  // 悄悄算回种子行，假红重现。没有测试钉住这条性质，故在此写明依赖。
   const swapFeeLevels: any[] = await (prisma as any).swapFeeLevel.findMany({
     where: { createdByUserId: 'SYSTEM' },
     select: { levelCode: true },
@@ -186,6 +190,7 @@ async function scanR5(prisma: PrismaClient): Promise<void> {
   blocks.push({
     action: 'SWAP_FEE_LEVEL_SEEDED',
     entity: 'swapFeeLevel',
+    scope: "createdByUserId='SYSTEM'",
     keys: swapFeeLevels.map((l) => l.levelCode),
   });
 
@@ -196,6 +201,7 @@ async function scanR5(prisma: PrismaClient): Promise<void> {
   blocks.push({
     action: 'WITHDRAWAL_FEE_LEVEL_SEEDED',
     entity: 'withdrawalFeeLevel',
+    scope: "createdByUserId='SYSTEM'",
     keys: withdrawalFeeLevels.map((l) => l.levelCode),
   });
 
@@ -206,7 +212,9 @@ async function scanR5(prisma: PrismaClient): Promise<void> {
       violations.push({
         rule: 'R5',
         entity: block.entity,
-        detail: `no live ${block.entity} rows at all — seeding of this block did not happen; R5 cannot vacuously pass`,
+        detail: block.scope
+          ? `no live ${block.entity} rows matching ${block.scope} — the table may hold rows, but none are seed-owned; R5 cannot vacuously pass`
+          : `no live ${block.entity} rows at all — seeding of this block did not happen; R5 cannot vacuously pass`,
       });
       continue;
     }
