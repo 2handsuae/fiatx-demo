@@ -47,16 +47,21 @@ import { fakeBankRef, fakeChainTxHash } from '../src/common/utils/fake-external-
  * ③ RETURNED）→ WalletReconRunService.run() 重跑 → 案子 RESOLVED（resolutionReason=AUTO_HEALED）。审计断言按 recordedAt >= testStartedAt 圈定
  * （同日 reset 重跑复用案件号，见 A 批 e2e 的说明）。与另外三份 recon e2e 串行（jest-e2e.json maxWorkers: 1）。
  *
- * 四条主链全部用 demo_bob@example.com（ACTIVE、零未结限制便签）——本文件写作时
- * 用 sqlite3 直查 self 栈库实证：demo_dave@example.com lifecycle=IN_VERIFICATION，
+ * ①a/①b/③ 三条主链用 demo_bob@example.com（ACTIVE、零未结限制便签）——本文件
+ * 写作时用 sqlite3 直查 self 栈库实证：demo_dave@example.com lifecycle=IN_VERIFICATION，
  * demo_carol@example.com 名下挂着一张 OPEN/SILENT 的 SANCTION 限制便签
  * （scope=ALL，来自别的 e2e 套件遗留，不是本任务开的）——两者都会在
  * CustomerAccessService.assertCapability 上 403，不能拿来跑「充值/提现自助发起」
- * 这两个真实客户入口（②③ 分别要先真造一笔 SUCCESS 充值/提现）；B 批三条补单入口
- * 本身（initiateSupplement/initiateClawback/initiateReturnClaim）不查这两道客户闸，
- * 但②③需要的「先有一笔 SUCCESS」前置动作要走客户自助入口，故统一用 Bob。
+ * 这两个真实客户入口（①a/①b/③ 都要先走客户自助入口造一笔 SUCCESS）；B 批三条
+ * 补单入口本身（initiateSupplement/initiateClawback/initiateReturnClaim）不查
+ * 这两道客户闸。② 与拒绝路径 (d) 改用各自独立的全新客户（Task 12 验收轮收口）——
+ * self 栈的 demo:all 花名册第 18 条固定给 Bob 铺一笔 25 万 AED 待审批提现
+ * （PENDING_APPROVAL，TigerBeetle pending 未过账），会把 Bob 的 AED 可用余额锁成
+ * 负数，与合并闸门要求的「先 demo:all 再跑这份 e2e」顺序互斥（首次按此顺序跑通
+ * 全套闸门时当场复现——不是记账逻辑缺陷，是这两条用例复用 Bob 造成的环境耦合，
+ * 详见各自 it() 内注释与 Task 12 报告根因链路）。
  * breakCase 每次都建全新钱包，「每个场景的 account_flows 互不相干」这条不变量
- * 不依赖换客户，用同一个 ACTIVE 客户不影响隔离性。
+ * 不依赖换客户，用同一个客户（或各自的新客户）不影响隔离性。
  *
  * ⚠ 本文件顺带在 src 里改了两处（均评审复核确认为实现错，非 brief/测试预期错）：
  * 1) src/modules/clearing-settle/reconciliation/disposition/supplement-evidence.service.ts
@@ -129,35 +134,22 @@ describe('Recon supplement e2e (平账 B 批, Task 8)', () => {
     if (!bob) {
       throw new Error(
         "Fixture customer demo_bob@example.com not found — this worktree's self-stack DB needs " +
-          'business seed data first: `DATABASE_URL=... TB_ADDRESS=... npm run db:biz:init`.',
+          'business seed data: run `bash scripts/stack.sh reset self && bash scripts/stack.sh up && ' +
+          'bash scripts/on-stack.sh self demo:all` first (db:biz:init alone seeds Bob, but this suite ' +
+          'is designed to run AFTER demo:all, not instead of it — see Task 12 收口轮).',
       );
     }
     bobId = bob.id;
     bobNo = bob.customerNo;
 
-    // ②③ 需要先真造一笔 SUCCESS 提现（customerAccessService.assertTradingReady 硬门：
-    // 无激活法币提现地址不给建单）——一次性登记，四条链路共用，findFirst 幂等（同日重跑不重复建）。
+    // ①a/①b/③（及拒绝路径 (a)/(c)）需要先真造一笔 SUCCESS 充值/提现
+    // （customerAccessService.assertTradingReady 硬门：无激活法币提现地址不给建单）
+    // ——一次性登记，findFirst 幂等（同日重跑不重复建）。② 与拒绝路径 (d) 改用各自
+    // 独立的全新客户（不再依赖这笔地址），理由见各自 it() 内注释。
     bobWithdrawalIban = `AE-E2E-SUPP-WDADDR-${bobNo}`;
     await ensureWithdrawalAddress({
       customerId: bobId, customerNo: bobNo, assetId: aedAssetId,
       addressType: 'BANK', network: 'FIAT', address: bobWithdrawalIban, iban: bobWithdrawalIban,
-    });
-
-    // ②/⑥d 的退汇认领要求 Bob「当下」AED 可用余额 >= 这笔退汇额——这个 self 库不
-    // 每次重置，Bob 名下的 CLIENT_PAYABLE 是全库累计值（按 ownerId 记，不按钱包），
-    // 会被本文件之外别的 e2e 历史跑动带成负数（写作时实测到 -2425.00 AED），首次
-    // 真实数据跑通 e2e 时当场复现（brief 只在 mock 下测过，没有累计余额这回事）。
-    // 一次性铺一大笔垫底，钱包 id 只是记账留痕的标签——CLIENT_PAYABLE 这本 TB 账
-    // 按 (ledger, ownerType, ownerUuid) 记，不按钱包，这只钱包永远不会有对应的
-    // external_balance 行，对任何一次 walletRecon.run() 都不可见，不会污染任何
-    // 场景自己的对账比对。
-    const bulkFundWallet = await createCustomerWallet({
-      ownerId: bobId, ownerNo: bobNo, assetId: aedAssetId,
-      walletRole: 'C_VIBAN', type: 'FIAT_VIBAN', iban: `AE-E2E-SUPP-BULKFUND-${randomUUID().slice(0, 8)}`,
-    });
-    await fundCustomerWallet({
-      walletId: bulkFundWallet.id, ownerId: bobId, assetId: aedAssetId, ledger: TB_LEDGERS.AED, currency: 'AED',
-      amount: 2_000_000n, tag: 'BULKFUND', // 20,000.00 AED——够盖负漂移即可，别铺太大（Step 6(b) 会把它也扣光，扣得越多下一轮起点越怪）
     });
   });
 
@@ -533,12 +525,38 @@ describe('Recon supplement e2e (平账 B 批, Task 8)', () => {
    *  的 STEP_1 会原样把这个 404 炸出来）——Step 6(b) 想用一个全新客户就必须自己开户，
    *  用的是与 seed 脚本同一个真实入口 `AccountingService.createAccounts`（建 TB 账户 +
    *  登记 registry 两步一次做完），不是新发明的路子。法币充值只会摸到 CLIENT_PAYABLE
-   *  （100）与 DEPOSIT_SUSPENSE（101）这两个客户级科目，只开这两个。 */
+   *  （100）与 DEPOSIT_SUSPENSE（101）这两个客户级科目，只开这两个。
+   *
+   *  Task 12 收口轮当场复现的一处真实缺口（未改 src，登记 BACKLOG，见文末）：
+   *  `AccountingService.createAccounts()` 登记 registry 时用
+   *  `bigintToHex(accountId)`（`tb-id.util.ts`）——不补零，u128 账户 id 十六进制
+   *  首位若恰好是 0，写进 `tb_account_registry.tbAccountId` 的就是 31 字符（而非
+   *  规范的 32 字符）。`WalletFlowMatcherService`（对账引擎）的 `padTbId` join
+   *  只补 `account_flows.tbAccountId` 那一侧，前提假设是"registry 那一侧永远已经
+   *  是 32 字符"（该文件其自身注释语）——两个客户级科目全新生成时如果撞上这个
+   *  概率事件，注册表那一侧本身就是 31 字符，`padTbId` 补的 32 字符永远对不上，
+   *  这只钱包的活动会从对账引擎的 `internal[]` 里静默消失，案子卡死在
+   *  `SOFT_FLAG`、永远不会自愈——即使底层复式记账本身完全正确（用真实两条独立
+   *  客户跑通全链路时各命中一次，概率不低，不是构造出来的极端用例）。
+   *  这里补零对齐到 32 字符：只改字符串表示，不改数值（十六进制前导零不影响
+   *  BigInt 数值，`resolveTbAccountId` 按 code/ledger/ownerType/ownerUuid 查表拿
+   *  回字符串再转 BigInt，不受影响），纯粹是把这个全新客户的 registry 行改成跟
+   *  `prisma/seed-tb.helper.ts`（用 SHA256 哈希取前 32 位，天然定长不会短）一致
+   *  的字符串宽度——测试夹具自己的收口，不改 `AccountingService`。 */
   async function provisionCustomerTbAccounts(customerId: string, customerNo: string): Promise<void> {
     await accounting.createAccounts([
       { code: TB_ACCOUNT_CODES.CLIENT_PAYABLE, ledger: TB_LEDGERS.AED, ownerType: 'CUSTOMER', ownerUuid: customerId, ownerNo: customerNo, assetCurrency: 'AED', description: 'e2e fixture customer CLIENT_PAYABLE' },
       { code: TB_ACCOUNT_CODES.DEPOSIT_SUSPENSE, ledger: TB_LEDGERS.AED, ownerType: 'CUSTOMER', ownerUuid: customerId, ownerNo: customerNo, assetCurrency: 'AED', description: 'e2e fixture customer DEPOSIT_SUSPENSE' },
     ]);
+    const registered = await (prisma as any).tbAccountRegistry.findMany({ where: { ownerUuid: customerId } });
+    for (const row of registered) {
+      if (String(row.tbAccountId).length < 32) {
+        await (prisma as any).tbAccountRegistry.update({
+          where: { tbAccountId: row.tbAccountId },
+          data: { tbAccountId: String(row.tbAccountId).padStart(32, '0') },
+        });
+      }
+    }
   }
 
   // ── scenarios ────────────────────────────────────────────────────────────
@@ -607,7 +625,26 @@ describe('Recon supplement e2e (平账 B 批, Task 8)', () => {
   });
 
   it('② 退汇：SUCCESS 充值 1200 AED → 银行扣回 → 定性 → 发起（候选含原单）→ CFO 批 → CLAWED_BACK，借应付贷资产，余额减 → 重跑愈', async () => {
-    const { deposit, wallet } = await makeSuccessfulFiatDeposit('1200');
+    // 用本文件专属的全新客户，不用 Bob（Task 12 验收轮收口）——self 栈跑过
+    // demo:all 后，Bob 的 AED 可用余额会被花名册第 18 条那笔 25 万 AED 待审批
+    // 提现（PENDING_APPROVAL，TigerBeetle pending 未过账）锁成负数，导致这里退汇
+    // 1200 AED 时 initiateClawback 的余额闸误判「不足」——这是环境耦合，与本测试
+    // 要验证的记账逻辑无关（Task 12 报告根因链路）。同 Step 6(b) 的道理，全新客户
+    // 开户/登记地址的必要性见 provisionCustomerTbAccounts/ensureWithdrawalAddress
+    // 的 JSDoc。
+    const custClawNo = `CU-E2E-SUPP-${randomUUID().slice(0, 8)}`;
+    const custClaw = await (prisma as any).customerMain.create({
+      data: { customerNo: custClawNo, lifecycle: 'ACTIVE' },
+      select: { id: true, customerNo: true },
+    });
+    await provisionCustomerTbAccounts(custClaw.id, custClaw.customerNo);
+    const custClawIban = `AE-E2E-SUPP-CLAWADDR-${custClaw.customerNo}`;
+    await ensureWithdrawalAddress({
+      customerId: custClaw.id, customerNo: custClaw.customerNo, assetId: aedAssetId,
+      addressType: 'BANK', network: 'FIAT', address: custClawIban, iban: custClawIban,
+    });
+
+    const { deposit, wallet } = await makeSuccessfulFiatDeposit('1200', custClaw.id, custClaw.customerNo);
     const ref = `E2E-CLAW-${randomUUID()}`;
     const line = await createExternalLine({ walletId: wallet.id, currency: 'AED', book: 'CLIENT', direction: 'OUT', amount: 120_000n, externalRef: ref, description: 'Return' });
     await upsertExternalBalance({ walletId: wallet.id, currency: 'AED', book: 'CLIENT', closingBalance: 0n }); // 外部：1200 进又 1200 出
@@ -617,14 +654,14 @@ describe('Recon supplement e2e (平账 B 批, Task 8)', () => {
     const cands = await supplementEvidence.listCandidates(kase.caseNo, line.id);
     expect(cands.kind).toBe('SUPPLEMENT_BOUNCE'); expect(cands.candidates.map((c) => c.orderNo)).toContain(deposit.depositNo);
 
-    const before = (await accounting.getCustomerAvailableBalance(bobId, 'AED')).available;
+    const before = (await accounting.getCustomerAvailableBalance(custClaw.id, 'AED')).available;
     const req = await depositWf.initiateClawback(deposit.depositNo, { externalLineId: line.id, caseNo: kase.caseNo, dispositionNo: disp.dispositionNo, reason: '银行撤回' }, ops());
     await approvalsService.approve(req.approvalNo, { reason: 'e2e CFO approve clawback' }, cfo());
     await waitUntil(async () => (await deposits.findOne(deposit.id)).status === 'CLAWED_BACK', 30000);
     const ev = (await tbEvidence.findBySource('DEPOSIT', deposit.depositNo)).find((e: any) => e.eventCode === 'DEPOSIT_CLAWBACK');
     expect(ev.debitCode).toBe(TB_CODE_TO_COA[TB_ACCOUNT_CODES.CLIENT_PAYABLE]); expect(ev.creditCode).toBe(TB_CODE_TO_COA[TB_ACCOUNT_CODES.CLIENT_ASSET]);
     expect(ev.externalRef).toBe(ref); expect(ev.effectiveDate).toBe(kase.businessDate);
-    expect((await accounting.getCustomerAvailableBalance(bobId, 'AED')).available).toBe(before - 120_000n);
+    expect((await accounting.getCustomerAvailableBalance(custClaw.id, 'AED')).available).toBe(before - 120_000n);
     await walletRecon.run({ cutoff: CUTOFF });
     expect((await (prisma as any).reconciliationCase.findUnique({ where: { id: kase.id } })).status).toBe('RESOLVED');
     expect(await auditSince('DEPOSIT_CLAWED_BACK', deposit.depositNo)).toHaveLength(1);
@@ -737,8 +774,22 @@ describe('Recon supplement e2e (平账 B 批, Task 8)', () => {
     expect(sigC2.fromAddress).toBe('TE2eSupplementRetry');
     expect((await (prisma as any).reconciliationDisposition.findUnique({ where: { dispositionNo: dispC.dispositionNo } })).supplementNo).toBe(reqC2.signalNo);
 
-    // (d) 拒绝：新造 ② 场景，initiateClawback 后 CFO 拒绝，原状态不动、占用清空、可再发起拿新 approvalNo
-    const { deposit: depD, wallet: walletD } = await makeSuccessfulFiatDeposit('300');
+    // (d) 拒绝：新造 ② 场景，initiateClawback 后 CFO 拒绝，原状态不动、占用清空、可再发起拿新 approvalNo。
+    // 同样改用本文件专属的全新客户，不用 Bob（Task 12 验收轮收口，理由同 ② 开头
+    // 的注释——demo:all 花名册第 18 条会把 Bob 的 AED 可用余额锁成负数，跟这里
+    // initiateClawback 想测的「拒绝后可再发起」逻辑无关）。
+    const custDNo = `CU-E2E-SUPP-${randomUUID().slice(0, 8)}`;
+    const custD = await (prisma as any).customerMain.create({
+      data: { customerNo: custDNo, lifecycle: 'ACTIVE' },
+      select: { id: true, customerNo: true },
+    });
+    await provisionCustomerTbAccounts(custD.id, custD.customerNo);
+    const custDIban = `AE-E2E-SUPP-REJADDR-${custD.customerNo}`;
+    await ensureWithdrawalAddress({
+      customerId: custD.id, customerNo: custD.customerNo, assetId: aedAssetId,
+      addressType: 'BANK', network: 'FIAT', address: custDIban, iban: custDIban,
+    });
+    const { deposit: depD, wallet: walletD } = await makeSuccessfulFiatDeposit('300', custD.id, custD.customerNo);
     const refD = `E2E-CLAW-REJ-${randomUUID()}`;
     const lineD = await createExternalLine({ walletId: walletD.id, currency: 'AED', book: 'CLIENT', direction: 'OUT', amount: 30_000n, externalRef: refD, description: 'Return' });
     await upsertExternalBalance({ walletId: walletD.id, currency: 'AED', book: 'CLIENT', closingBalance: 0n });

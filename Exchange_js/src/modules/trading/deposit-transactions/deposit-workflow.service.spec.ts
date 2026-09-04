@@ -22,6 +22,7 @@ import {
   AuditActions,
   AuditEntityTypes,
 } from '../../audit-logging/constants/audit-actions.constant';
+import { AuditOutcome } from '../../audit-logging/dto/audit-log.dto';
 import { ApprovalsService } from '../../governance/approvals/approvals.service';
 import { SystemWalletResolver } from '../../funds-layer/domain/system-wallet-resolver.service';
 import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
@@ -1979,6 +1980,39 @@ describe('DepositWorkflowService', () => {
       expect(accountingService.executeTransfer).not.toHaveBeenCalled();
       expect(depositService.clearClawbackRequest).toHaveBeenCalledWith('d1');
       expect(reconDisposition.unlinkSupplement).toHaveBeenCalledWith('RCD2', 'DEP1');
+    });
+    // Task 12 验收轮变异测试逮到的真实覆盖缺口：initiateClawback（发起时点）与
+    // executeClawback（CFO 批准执行时点）各自独立调用一次 assertClawbackBalance——
+    // spec 明写「提交与批准两个时点各查一次」正是为了防「发起时够、批准前客户把
+    // 钱花了」这个真实业务场景，但此前全仓零测试覆盖 executeClawback 自己这处否定
+    // 分支（上面「批准：再查余额…」那条走的是够的正向路径）。本用例先让 initiateClawback
+    // 以充足余额真实跑通（不是直接摆一个「已发起」的假 deposit），再让 onClawbackDecided
+    // 批准时查到余额已经不够，用 mockResolvedValueOnce 分两次给 getCustomerAvailableBalance
+    // 不同返回值，对应「提交时」与「批准时」两个不同时点。
+    it('批准：发起时余额够、批准执行时再查发现不够（客户提交后把钱花了）→ 不落分录、状态不变、清三列解挂、审计 FAILED/INSUFFICIENT_BALANCE', async () => {
+      // 发起时点：initiateClawback 内部 assertClawbackBalance 查到余额充足。
+      supplementEvidence.assertClaimable.mockResolvedValue(line);
+      depositService.findOneByNo.mockResolvedValue(deposit);
+      accountingService.getCustomerAvailableBalance.mockResolvedValueOnce({ available: 500000n });
+      approvalsService.list.mockResolvedValue({ total: 0, items: [] });
+      approvalsService.createAndSubmit.mockResolvedValue({ approvalNo: 'APR2' });
+      await service.initiateClawback('DEP1', { externalLineId: 'line-2', caseNo: 'REC2', dispositionNo: 'RCD2', reason: '银行撤回' }, actor);
+
+      // 批准执行时点：CFO 批准后 onClawbackDecided → executeClawback 再查一次，
+      // 这次余额已经不够（模拟客户在提交与批准之间把钱花掉）。
+      depositService.findOneByNo.mockResolvedValue({ ...deposit, clawbackExternalLineId: 'line-2', clawbackDispositionNo: 'RCD2', clawbackReconCaseNo: 'REC2' });
+      supplementEvidence.describeLine.mockResolvedValue({ externalLineId: 'line-2', externalRef: 'RET-1', businessDate: '2026-09-01', amountMinor: '120000', direction: 'OUT', caseNo: 'REC2' });
+      accountingService.getCustomerAvailableBalance.mockResolvedValueOnce({ available: 50000n });
+
+      await service.onClawbackDecided({ decision: 'APPROVED', entityRef: 'DEP1', approvalId: 'ap2', approvalNo: 'APR2' } as any);
+
+      expect(accountingService.executeTransfer).not.toHaveBeenCalled();
+      expect(depositService.updateStatus).not.toHaveBeenCalled();
+      expect(depositService.clearClawbackRequest).toHaveBeenCalledWith('d1');
+      expect(reconDisposition.unlinkSupplement).toHaveBeenCalledWith('RCD2', 'DEP1');
+      expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
+        expect.objectContaining({ action: 'DEPOSIT_CLAWBACK_STARTED', outcome: AuditOutcome.FAILED, reasonCode: 'INSUFFICIENT_BALANCE' }),
+      );
     });
   });
 
