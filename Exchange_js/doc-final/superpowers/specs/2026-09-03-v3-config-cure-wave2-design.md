@@ -121,7 +121,11 @@
 
 **恢复之后**：运营对 OPERATION_PENDING 的单点 Release Hold（`waiveLimitHold` 已泛化到任何非空原因）→ `checkAutoApproval`（已接受 OPERATION_PENDING）→ 入账。暂停未解除时运营也能 waive——那是运营的裁量，不加规则。
 
-**客户端**：三个页面 ACTIVE-only 下拉不变（暂停资产继续从下拉消失）。⚡ 入金模拟面板的资产来源改为**按当前充值地址所在网络列出全部状态的资产**（SUSPENDED 带标记）——它模拟的是链上世界，链上不认我方开关；今天 `Deposit.tsx:203` 只拉 ACTIVE、`:344` 从同一列表取 `selectedAsset`，暂停后面板里选不到 USDT，站 4 新一拍演不了。
+**客户端**：三个页面 ACTIVE-only 下拉不变（暂停资产继续从下拉消失）。⚡ 入金模拟面板的资产来源改为**按当前充值地址所在网络列出全部状态的资产**（SUSPENDED 带标记）——它模拟的是链上世界，链上不认我方开关；今天 `Deposit.tsx:203` 只拉 ACTIVE、`:344` 从同一列表取 `selectedAsset`，暂停后面板里选不到 USDT，站 4 新一拍演不了。⚡ 面板取数直接打 `GET /assets`（不带 `status`，`assets.controller.ts:30-50` 的 `status` 本就是可选过滤）——**不新增端点**；资产状态是公开信息，暴露给客户端不触 tipping-off。
+
+**SLA 口径不变**（交付清单「新状态要回答要不要计时」）：打了标的单仍在 `COMPLIANCE_PENDING` 计 5 分钟硬 SLA（等 Sumsub，超时转人工复核照旧）；合规通过进 `OPERATION_PENDING` 后计 24h 软 SLA（只置 `slaBreached`）。本波不新增任何状态，所以不新增任何计时格。
+
+**钱**：本波不新增任何记账路径。V5 那笔入账仍走 `approveDeposit` 唯一出口（暂扣户 → 客户应付两步记账、资金单镜像，全是现成的），`verify:coa` 在收尾闸兜底。
 
 ### 2.3 状态机零改动
 
@@ -133,13 +137,18 @@
 
 **提现 / 兑换 BLOCK**：两条新审计码 `WITHDRAW_L1_BLOCKED` / `SWAP_L1_BLOCKED`——出生即冻结四属性（domain 各自域、`correlationMode: N`、`requiredFields: ['reasonCode']`、`requiresCausation: false`），`assertActionSpec` 校验。写在 workflow 抛 `ForbiddenException` 之前：`outcome: DENIED`、`recordByActor` actorType `CUSTOMER`、主体 = 客户（单未建、无单号）、`reasonCode` = 第一条 FAIL 的 code、metadata 带全部 FAIL 项、**subjects 带 `RELATED` = 资产业务号、`INSTRUMENT` = 命中的限额规则号**、requestId 带随机位。今天两处 BLOCK **零审计**（`grep -n L1_GATE_BLOCKED -A8` 两个 workflow 均无 record 调用）——不只资产，九项任一项拦下都没痕，本条按「L1 拦下」整体补。
 
-**充值挂起**：证据两段——评估当刻的 `l1Snapshot`（已有）+ 合规通过后 `holdIfHeld` 写的 `DEPOSIT_HELD`（已有，补 `fromStatus: COMPLIANCE_PENDING / toStatus: OPERATION_PENDING`、`reasonCode`、**subjects `RELATED` 资产号 / `INSTRUMENT` 规则号**）。充值 BELOW_MIN 从此也有按规则号可查的痕——不再单写 `TRANSACTION_LIMIT_REJECTED`（那是拒绝语义，提现 / 兑换的 `gate.service.ts:108-120` 继续用）。
+**充值挂起**：证据三段，对应三个持久化动作（交付清单「任何持久状态变化必写审计」——打标虽不换状态，`limitHoldReason` 与 `l1Snapshot` 都是落库的）：
+1. **打标当刻**：新码 `DEPOSIT_L1_HELD`（DEPOSIT 域、`correlationMode: I`、`requiredFields: ['reasonCode']`、`requiresCausation: false`），`recordSystem`、无 from/to（状态没变）、`reasonCode` = 挂起原因、**subjects `RELATED` 资产号 / `INSTRUMENT` 规则号**、reason 写明「等合规」。KYT 若拒绝，这一行就是「暂停曾拦下它」的唯一审计证据
+2. **合规通过后**：`holdIfHeld` 写的 `DEPOSIT_HELD`（已有）补 `fromStatus: COMPLIANCE_PENDING / toStatus: OPERATION_PENDING`、`reasonCode`、同一组 subjects
+3. **运营放行**：`waiveLimitHold` 现有审计不动
+
+现有 `CAPABILITY_RESTRICTED / LIFECYCLE_NOT_ACTIVE` 两种行政级挂起同样走这三段。充值 BELOW_MIN 从此也有按规则号可查的痕——规则号在 L1 评估时从限额门取（`gate.service.ts:46` 已有 `single.ruleNo`，出生打标处 `deposit-transactions.service.ts:1117` 今天不存规则号）；不再单写 `TRANSACTION_LIMIT_REJECTED`（那是拒绝语义，提现 / 兑换的 `gate.service.ts:108-120` 继续用）。
 
 **第七幕怎么取证**：审计页的 **Subject No** 筛选（`AuditLogsPage.tsx:53`，服务端 `subjects.some`，`audit-logs.service.ts:1082`）按资产号 / 规则号能拉出被它拦下的单——站 4 ⑥ 的第六行。关键词搜索只覆盖主字段（`:530-539`），剧本必须写明用 Subject No 栏。
 
 ### 3.2 地址五门 DENIED 留痕
 
-一条新码 `WITHDRAWAL_ADDRESS_REQUEST_DENIED`（地址域、`N`、`requiredFields: ['reasonCode']`），`reasonCode` ∈ {`ADDRESS_LIMIT_REACHED`, `COOLING_PERIOD_NOT_EXPIRED`, `LAST_ACTIVE_FIAT_ADDRESS`, `ADDRESS_HAS_INFLIGHT_WITHDRAWAL`, `NO_ACTIVE_FIAT_WITHDRAWAL_ADDRESS`}。**写在 workflow 层**：主体层照抛（铁律③ 主体不写审计），workflow 捕获这五个 code 的 `BadRequestException` → 记 DENIED → 重抛；actor 按发起人（客户 `CUSTOMER` / 管理员）。`NO_ACTIVE_FIAT_WITHDRAWAL_ADDRESS` 在 `customer-access.service.ts:148` 那份是 L1 的 `TRADING_READINESS`，走 §3.1；`-workflow.service.ts:45` 那份是登记链上地址前的法币前置，走本条。
+（本波新审计码合计 **4 条**：`WITHDRAW_L1_BLOCKED` / `SWAP_L1_BLOCKED` / `DEPOSIT_L1_HELD` / 本条。）一条新码 `WITHDRAWAL_ADDRESS_REQUEST_DENIED`（地址域、`N`、`requiredFields: ['reasonCode']`），`reasonCode` ∈ {`ADDRESS_LIMIT_REACHED`, `COOLING_PERIOD_NOT_EXPIRED`, `LAST_ACTIVE_FIAT_ADDRESS`, `ADDRESS_HAS_INFLIGHT_WITHDRAWAL`, `NO_ACTIVE_FIAT_WITHDRAWAL_ADDRESS`}。**写在 workflow 层**：主体层照抛（铁律③ 主体不写审计），workflow 捕获这五个 code 的 `BadRequestException` → 记 DENIED → 重抛；actor 按发起人（客户 `CUSTOMER` / 管理员）。`NO_ACTIVE_FIAT_WITHDRAWAL_ADDRESS` 在 `customer-access.service.ts:148` 那份是 L1 的 `TRADING_READINESS`，走 §3.1；`-workflow.service.ts:45` 那份是登记链上地址前的法币前置，走本条。
 
 ### 3.3 客户动作的 actor
 
@@ -163,7 +172,7 @@ actorId `COMPLIANCE_GATE_0` → `L1_GATE`（数据重铺，不留兼容）；`DE
 ## 4. 治疗单（② 档，站上看得见）
 
 1. **冷却倒计时走秒**：`client-web/src/pages/WithdrawalAddresses.tsx` `formatCountdown()` 加 1s tick，到期后自动刷新一次列表（懒激活在查询时发生）
-2. **提现页假规则句删**：`client-web/src/pages/Withdraw.tsx:928` "first withdrawal after changing security settings will be delayed by 24 hours"——本系统没有这条规则；规则来自限额表与地址簿冷却，页面不写死
+2. **提现页假规则句删**：`client-web/src/pages/Withdraw.tsx:928` "first withdrawal after changing security settings will be delayed by 24 hours"——本系统没有这条规则；规则来自限额表与地址簿冷却，页面不写死。三域对照：充值 / 兑换页 `grep "24 hours\|Min:\|delayed"` 无命中，假规则只在提现页这一处（`:917-928` 那块里 `:919`「follow the platform limits」是真话，留）
 3. **地址详情动作按钮门控**：Force Suspend / Unsuspend / ⚡ Skip Cooling 按 `hasPermission(PERMISSIONS.WITHDRAWAL_ADDRESS_WRITE)` 显隐（先例 `RoleDetailPage.tsx:144`；钩子 `contexts/AdminSessionContext.tsx:123`）；今天 sm@ 看得到 Force Suspend、点了 403
 4. **费率表单中文夹英文**：`SwapFeeLevelList.tsx:609/623`、`WithdrawalFeeLevelList.tsx:563/577` "全体客户（everyone）" → 英文
 5. **兑换实时报价带客户身份**：`swap-transactions-customer.controller.ts:129-146` `getRate` 补 `@Request()`，把 `req.user.userId` 作 `ownerId` 传 `getExecutableRate`；等价性已证——`create`（`:151-152`）就是用 `req.user.userId` 建单，确认页价是对的。配一条行为测试：Grace 预览费用 = 确认页费用。全仓 `getExecutableRate` 只有定义与这一处调用，下单路径不走它
@@ -186,7 +195,7 @@ actorId `COMPLIANCE_GATE_0` → `L1_GATE`（数据重铺，不留兼容）；`DE
 |---|---|
 | V1 | 运营提暂停 USDT-TRON、CISO 批 → 客户 POST 兑换建单 → **403 `L1_GATE_BLOCKED`**；审计出现 `SWAP_L1_BLOCKED`（DENIED，reasonCode `ASSET_SUSPENDED`，subjects 含该资产号） |
 | V2 | 同上 POST 提现建单 → 403 + `WITHDRAW_L1_BLOCKED` |
-| V3 | 暂停期间喂入金信号 → 单建成、状态 **COMPLIANCE_PENDING**、`limitHoldReason = ASSET_SUSPENDED`、`l1Snapshot` 含 `ASSET_AVAILABILITY: FAIL`、`sumsubTxnId` 非空（已送检） |
+| V3 | 暂停期间喂入金信号 → 单建成、状态 **COMPLIANCE_PENDING**、`limitHoldReason = ASSET_SUSPENDED`、`l1Snapshot` 含 `ASSET_AVAILABILITY: FAIL`、`sumsubTxnId` 非空（已送检）；审计出现 `DEPOSIT_L1_HELD`（reasonCode `ASSET_SUSPENDED`，subjects 含资产号，无 from/to） |
 | V4 | 喂「通过」裁决 → **OPERATION_PENDING**；`DEPOSIT_HELD` 带 from/to、reasonCode、subjects 资产号 |
 | V5 | 提恢复、CISO 批 → 运营 Release Hold → **SUCCESS**，账本客户应付贷记（`verify:coa` 兜底） |
 | V6 | 对照：恢复后同一客户建兑换单 → 201（防「门永远关」的伪绿） |
@@ -224,3 +233,30 @@ actorId `COMPLIANCE_GATE_0` → `L1_GATE`（数据重铺，不留兼容）；`DE
 - 运营 waive 时客户仍受限 → 原地不动（既有，§0.4）
 - 暂停未解除时运营可 waive（裁量，不加规则）
 - L1 冻结分支零审计不在本波（§0.4）
+
+## 10. 交付清单命中表（`rules/delivery-checklist.md` 逐行过；plan 的每个任务从这里抄「本任务过哪几条」）
+
+| 清单触发 | 本波命中？ | 落在哪 |
+|---|---|---|
+| 任何持久状态变化 → 写审计（编排层、显式 requestId） | **命中** | §3.1 三段（含打标当刻的 `DEPOSIT_L1_HELD`）、§3.2、§3.4 地址 9 处 requestId 补齐 |
+| 新增审计动作码 → 出生冻结四属性 + `assertActionSpec` | **命中，4 条** | §3.1 / §3.2 逐条写了 domain / correlationMode / requiredFields / requiresCausation |
+| 新状态 / 新结局 → 迁移表加边 + 要不要计时 | **不命中**（零新状态） | §2.3 零改动；§2.2「SLA 口径不变」回答了计时 |
+| 动了钱 → 同步直调记账、资金单 1:1、不新增科目 | **不新增**（复用 `approveDeposit`） | §2.2「钱」；收尾闸 ⑦ `verify:coa` 仍跑 |
+| 该走 maker-checker → `ApprovalsService` 正门 | **不新增**（暂停 / 恢复审批现成；Release Hold 是既有单人动作） | §2.2 |
+| 新增审批策略 → `MAKER_GROUP_BY_POLICY` 加行 | 不命中 | — |
+| 新增权限组 → 四处齐 | 不命中 | — |
+| 新增 admin 端点 → `route()` + sync + 重启 | 不命中（⚡ 面板复用 `GET /assets`） | §2.2；本波反倒把「合并后重启 + sync」写进章程（§7） |
+| 新增业务动作 → 前端要有入口 | **命中** | ⚡ 面板列全部状态资产（§2.2）；Release Hold 对任意挂起原因可用（既有） |
+| 退役业务动作 → 前端入口同步删 | **命中** | `/dashboard` 树与两张死页同删（§5.2）；Gate 0 只是改名不是动作 |
+| 改了交易三域任一 → 问另外两个 | **命中，已问** | L1 留痕三域对称（两条 BLOCK 码 + 充值三段）；假规则文案只在提现页（§4.2） |
+| 新字段 / 新状态到客户面 → 当场决定看不看得到 | **命中，已决** | 暂停资产在 ⚡ 面板可见（公开信息）；L1 BLOCK 对客户仍是中性文案；挂起单对客户不可见沿用现状（§9） |
+| 涉及金额 → 最小单位存 | 不命中 | — |
+| 对外识别 → 业务键 | **命中** | 审计 subjects 用资产业务号 / 规则号（§3.1）；`assetIds` 只在服务内部 |
+| 新事件 → 先登记 | 不命中（零新事件） | — |
+| 改 schema → 迁移文件 | 不命中（新审计码不是 schema） | §8 |
+| 改页面或种子 → 同步 `demo/data.md` + `demo/script.md` | **命中** | 站 2 / 4 / 5 改写（§7）；种子不动，`data.md` 不动 |
+| 改了前端 → preview + 截图 | **命中** | §8：站 4 ⑦ 全程、站 5 倒计时、报价预览、地址详情按钮显隐 |
+| 多波中的一波 → 承接写进下一波 | **末波** | 无下一波；合并后总纲与本文归档，`CHANGELOG` 一行（§8） |
+| 每轮收尾 → 文档分层 + `CHANGELOG` + `BACKLOG` 销账 | **命中** | §7 |
+| 永不豁免 ①截图 ②`verify:coa` | **两条都过** | §8 |
+
