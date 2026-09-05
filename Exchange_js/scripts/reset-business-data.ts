@@ -41,6 +41,10 @@ const BUSINESS_DELEGATES_FK_SAFE: string[] = [
   'internalFundAuditLog',
   'internalTransactionAuditLog',
   'fundsOrder',
+  // internal_transfers：FK → asset(RESTRICT)，且 fundsOrder.internalTransferId 引用它——必须排在
+  // fundsOrder 之后、asset 之前。平账二期 Task 2（c1fde421）加表时漏登记本清单，
+  // 直到 Task 10 重铺验证撞 P2003 才发现（TOOLING-DEBT）。
+  'internalTransfer',
   'internalTransaction',
   'reimbursementObligation',
 
