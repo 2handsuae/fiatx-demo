@@ -1,4 +1,4 @@
-import { PrismaClient } from '@prisma/client';
+import { Prisma, PrismaClient } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
 import { createHash } from 'crypto';
 import { createClient as tbCreateClient } from 'tigerbeetle-node';
@@ -18,7 +18,7 @@ import {
   RestrictionCause,
   RestrictionScope,
 } from '../src/modules/identity/customers/constants/restriction-cause.constant';
-import { deterministicTransferId } from '../src/modules/accounting/tigerbeetle/utils/tb-id.util';
+import { deterministicTransferId, bigintToHex } from '../src/modules/accounting/tigerbeetle/utils/tb-id.util';
 import { platformWalletSlots } from '../src/config/manifests/vaults.manifest';
 import { NETWORKS } from '../src/config/manifests/networks.manifest';
 import { fakeTronAddress } from '../src/common/utils/tron-address.util';
@@ -877,10 +877,11 @@ async function seedCapitalInjection(prisma: PrismaClient): Promise<void> {
   try {
     const assets = await prisma.asset.findMany({
       where: { status: 'ACTIVE' },
-      select: { currency: true, decimals: true, code: true },
+      select: { currency: true, decimals: true, code: true, network: true },
     });
 
     const transfers: any[] = [];
+    const evidenceRows: Array<{ asset: { currency: string; network: string }; transferId: bigint; amount: bigint; firmAssetId: string; firmOpsId: string }> = [];
     for (const asset of assets) {
       const rawAmount = SEED_FIRM_CAPITAL[asset.currency];
       if (!rawAmount) continue;
@@ -921,6 +922,8 @@ async function seedCapitalInjection(prisma: PrismaClient): Promise<void> {
         flags: 0,
         timestamp: 0n,
       });
+
+      evidenceRows.push({ asset, transferId, amount, firmAssetId: firmAssetReg.tbAccountId, firmOpsId: firmOpsReg.tbAccountId });
     }
 
     if (transfers.length === 0) {
@@ -940,6 +943,38 @@ async function seedCapitalInjection(prisma: PrismaClient): Promise<void> {
 
     const existed = errors.filter((e: any) => e.status === TB_TRANSFER_EXISTS).length;
     console.log(`  ✔ Capital injection: ${transfers.length - existed} transfer(s) created, ${existed} already existed`);
+
+    // 平账二期搭车②(BACKLOG「资本注入少一行流水凭证」)：注资写进凭证与流水投影，
+    // 对账页上运营户从此显示真实起点(此前只有 TB 转账、流水里查不到，外部余额页显示负数)。
+    // 种子路径直写两表(与账户注册表同款、不经 Nest)；upsert 幂等；FIRM_ASSET 是聚合科目，
+    // 引擎读侧本就丢弃聚合腿，walletRef 挂运营户行只为可追溯。
+    for (const r of evidenceRows) {
+      const opsWallet = await (prisma as any).wallet.findFirst({ where: { vaultCode: 'F_OPS', network: r.asset.network, ownerType: 'PLATFORM' }, select: { id: true } });
+      if (!opsWallet) throw new Error(`注资凭证：找不到 ${r.asset.network} 上的运营户地址行——seedPlatformWallets 是否先跑？`);
+      const tbTransferId = bigintToHex(r.transferId);
+      const now = new Date();
+      const shared = {
+        sourceType: 'SEED_CAPITAL', sourceNo: r.asset.currency, eventCode: 'CAPITAL_INJECTION',
+        amount: new Prisma.Decimal(r.amount.toString()), assetCode: r.asset.currency, transferType: 'POSTED',
+        isExternalCrossing: true, externalRef: `SEED-CAPITAL-${r.asset.currency}`, effectiveDate: now.toISOString().slice(0, 10),
+      };
+      await (prisma as any).tbTransferEvidence.upsert({
+        where: { tbTransferId }, update: {},
+        create: {
+          tbTransferId, ...shared, debitCode: 'A.FIRM_ASSET', creditCode: 'E.FIRM_OPS',
+          debitTbAccountId: r.firmAssetId, creditTbAccountId: r.firmOpsId,
+          traceId: `SEED_CAPITAL_${r.asset.currency}`, actorType: 'SYSTEM', actorId: 'RELEASE', memo: '公司注资(随版本装载)',
+          debitWalletRef: opsWallet.id, creditWalletRef: opsWallet.id, createdAt: now,
+        },
+      });
+      for (const [tbAccountId, direction] of [[r.firmAssetId, 'OUT'], [r.firmOpsId, 'IN']] as const) {
+        await (prisma as any).accountFlow.upsert({
+          where: { tbTransferId_tbAccountId: { tbTransferId, tbAccountId } }, update: {},
+          create: { tbTransferId, tbAccountId, walletRef: opsWallet.id, direction, ...shared, createdAt: now },
+        });
+      }
+    }
+    console.log(`  ✔ Capital injection evidence: ${evidenceRows.length} evidence row(s) + ${evidenceRows.length * 2} flow row(s)`);
   } finally {
     client.destroy();
   }
