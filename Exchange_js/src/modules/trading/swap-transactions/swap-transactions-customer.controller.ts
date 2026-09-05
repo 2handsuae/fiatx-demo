@@ -129,6 +129,7 @@ export class SwapTransactionsCustomerController {
   @Get('rate')
   @ApiOperation({ summary: 'Get executable swap rate for an asset pair' })
   getRate(
+    @Request() req: any,
     @Query('fromAssetId') fromAssetId: string,
     @Query('toAssetId') toAssetId: string,
     @Query('amount') amountRaw: string,
@@ -137,11 +138,12 @@ export class SwapTransactionsCustomerController {
     if (!Number.isFinite(amount) || amount <= 0) {
       throw new BadRequestException('amount query parameter is required and must be > 0');
     }
-    return this.swapTransactionsService.getExecutableRate(
-      fromAssetId,
-      toAssetId,
-      { amount },
-    );
+    // 波二·岔口 4：预览与确认同一身份——resolveBestLevel 按客户标签选档，缺身份就永远落默认档（BACKLOG:20）
+    return this.swapTransactionsService.getExecutableRate(fromAssetId, toAssetId, {
+      amount,
+      ownerType: 'CUSTOMER',
+      ownerId: req.user.userId,
+    });
   }
 
   @Post()
