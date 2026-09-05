@@ -407,7 +407,7 @@ const ReconciliationAdjustmentCreateModal = ({
             // T9 锁定视图：成因由上一屏（处置弹层）判死，这里只回显——不给下拉。
             // 唯一真相在后端 cause-registry.ts，前端不猜、不改。
             <div className="mb-4 rounded border border-adm-border bg-adm-bg px-2.5 py-2 font-mono text-[11px] text-adm-t1">
-              【{FAMILY_WORD[locked.family] ?? locked.family}】{REASON_LABEL[locked.reasonCode ?? ''] ?? locked.reasonCode}
+              【{locked.reasonCode === 'UNEXPLAINED_CLIENT_LOSS' ? '认损' : (FAMILY_WORD[locked.family] ?? locked.family)}】{REASON_LABEL[locked.reasonCode ?? ''] ?? locked.reasonCode}
             </div>
           ) : (
             <select
