@@ -195,6 +195,8 @@ async function seedSwapFeeLevels(prisma: PrismaClient): Promise<void> {
     name: string;
     fromAssetId: string;
     toAssetId: string;
+    fromCurrency: string;
+    toCurrency: string;
     feeCurrency: string;
   }> = [
     {
@@ -202,6 +204,8 @@ async function seedSwapFeeLevels(prisma: PrismaClient): Promise<void> {
       name: 'Standard USDT → AED',
       fromAssetId: usdt.id,
       toAssetId: aed.id,
+      fromCurrency: usdt.currency,
+      toCurrency: aed.currency,
       feeCurrency: aed.currency,
     },
     {
@@ -209,6 +213,8 @@ async function seedSwapFeeLevels(prisma: PrismaClient): Promise<void> {
       name: 'Standard AED → USDT',
       fromAssetId: aed.id,
       toAssetId: usdt.id,
+      fromCurrency: aed.currency,
+      toCurrency: usdt.currency,
       feeCurrency: usdt.currency,
     },
   ];
@@ -276,7 +282,7 @@ async function seedSwapFeeLevels(prisma: PrismaClient): Promise<void> {
     });
     await writeSeedAudit(prisma, {
       action: 'SWAP_FEE_LEVEL_SEEDED', subjectType: 'SWAP_FEE_LEVEL', subjectNo: row.levelCode, actorNo: 'RELEASE',
-      afterData: { name: row.name, fromAssetId: row.fromAssetId, toAssetId: row.toAssetId, isDefault: row.isDefault, requiredTags: JSON.parse(row.requiredTagsJson), configHash: row.configHash },
+      afterData: { name: row.name, fromCurrency: pair.fromCurrency, toCurrency: pair.toCurrency, isDefault: row.isDefault, requiredTags: JSON.parse(row.requiredTagsJson), configHash: row.configHash },
     });
   }
 
@@ -318,7 +324,7 @@ async function seedSwapFeeLevels(prisma: PrismaClient): Promise<void> {
   });
   await writeSeedAudit(prisma, {
     action: 'SWAP_FEE_LEVEL_SEEDED', subjectType: 'SWAP_FEE_LEVEL', subjectNo: vipRow.levelCode, actorNo: 'RELEASE',
-    afterData: { name: vipRow.name, fromAssetId: vipRow.fromAssetId, toAssetId: vipRow.toAssetId, isDefault: vipRow.isDefault, requiredTags: JSON.parse(vipRow.requiredTagsJson), configHash: vipRow.configHash },
+    afterData: { name: vipRow.name, fromCurrency: usdt.currency, toCurrency: aed.currency, isDefault: vipRow.isDefault, requiredTags: JSON.parse(vipRow.requiredTagsJson), configHash: vipRow.configHash },
   });
   console.log('Seeded VIP-USDT-AED audience level.');
 }
@@ -409,7 +415,7 @@ async function seedWithdrawalFeeLevels(prisma: PrismaClient): Promise<void> {
     });
     await writeSeedAudit(prisma, {
       action: 'WITHDRAWAL_FEE_LEVEL_SEEDED', subjectType: 'WITHDRAWAL_FEE_LEVEL', subjectNo: row.levelCode, actorNo: 'RELEASE',
-      afterData: { name: row.name, assetId: row.assetId, isDefault: row.isDefault, configHash: row.configHash },
+      afterData: { name: row.name, assetCode: asset.currency, isDefault: row.isDefault, configHash: row.configHash },
     });
     count++;
   }
@@ -428,11 +434,15 @@ export async function seedTransactionLimitRules(prisma: PrismaClient): Promise<v
     USD: { min: '10', max: '1000000' },
   };
   const rules: any[] = [];
-  // 标准业务号(与 DEP/APR/SWP 同源);批内去重防同秒随机撞号
+  // 确定性业务号：同一条业务规则(gateType+区分段)每次重铺铸出同一个 ruleNo，
+  // 身世(TRANSACTION_LIMIT_SEEDED 审计行)才能稳定 join 到同一条活规则。
+  // usedNos 只做批内撞号红线——确定性输入撞哈希只能改分段，禁静默重试。
   const usedNos = new Set<string>();
-  const no = () => {
-    let n = generateReferenceNo('TLR');
-    while (usedNos.has(n)) n = generateReferenceNo('TLR');
+  const no = (...segments: string[]) => {
+    const n = buildDeterministicNo('TLR', ...segments);
+    if (usedNos.has(n)) {
+      throw new Error(`transaction limit ruleNo collision: ${n} (segments=${segments.join('|')})`);
+    }
     usedNos.add(n);
     return n;
   };
@@ -440,12 +450,12 @@ export async function seedTransactionLimitRules(prisma: PrismaClient): Promise<v
     // 按 currency 而非 code 匹配——code 含网络后缀(如 USDT-TRON),currency 才是 singleDefaults 的键
     const d = singleDefaults[a.currency] || { min: '0.0001', max: '1000000' };
     for (const op of ['WITHDRAWAL', 'SWAP']) {
-      rules.push({ ruleNo: no(), gateType: 'SINGLE', operationType: op, assetId: a.id, minAmount: d.min, maxAmount: d.max });
+      rules.push({ ruleNo: no('SINGLE', op, a.currency), gateType: 'SINGLE', operationType: op, assetId: a.id, minAmount: d.min, maxAmount: d.max });
     }
   }
   // DEPOSIT: 只有下限(min=100 原生币种),无上限(maxAmount 空=∞) — 2026-07-16 deposit-min spec
   for (const a of assets) {
-    rules.push({ ruleNo: no(), gateType: 'SINGLE', operationType: 'DEPOSIT', assetId: a.id, minAmount: '100' });
+    rules.push({ ruleNo: no('SINGLE', 'DEPOSIT', a.currency), gateType: 'SINGLE', operationType: 'DEPOSIT', assetId: a.id, minAmount: '100' });
   }
   // B: tier × 方向 × 周期（AED；默认值）
   const cum = [
@@ -459,10 +469,13 @@ export async function seedTransactionLimitRules(prisma: PrismaClient): Promise<v
     ['PREMIUM', 'SWAP', 'MONTHLY', '10000000'],
   ];
   for (const [tier, op, period, defaultLimit] of cum) {
-    rules.push({ ruleNo: no(), gateType: 'CUMULATIVE', operationType: op, tradingTier: tier, period, defaultLimit });
+    rules.push({ ruleNo: no('CUMULATIVE', op, tier, period), gateType: 'CUMULATIVE', operationType: op, tradingTier: tier, period, defaultLimit });
   }
   // D1: 提现大额审批线（承接原 WITHDRAW_APPROVAL_AED_THRESHOLD=200000）
-  rules.push({ ruleNo: no(), gateType: 'LARGE_APPROVAL', operationType: 'WITHDRAWAL', threshold: '200000' });
+  rules.push({ ruleNo: no('LARGE_APPROVAL', 'WITHDRAWAL'), gateType: 'LARGE_APPROVAL', operationType: 'WITHDRAWAL', threshold: '200000' });
+
+  // afterData 是管理台上屏物(铁律⑥)：assetId(UUID) → assetCode(业务键，经 assets 数组 id→currency 查回)
+  const currencyById = new Map(assets.map((a) => [a.id, a.currency]));
 
   for (const r of rules) {
     // ⚠️ Prisma+SQLite composite-unique WHERE with NULLs is unreliable — use manual upsert:
@@ -484,7 +497,7 @@ export async function seedTransactionLimitRules(prisma: PrismaClient): Promise<v
     }
     await writeSeedAudit(prisma, {
       action: 'TRANSACTION_LIMIT_SEEDED', subjectType: 'TRANSACTION_LIMIT_POLICY', subjectNo: persisted.ruleNo, actorNo: 'RELEASE',
-      afterData: { gateType: persisted.gateType, operationType: persisted.operationType, assetId: persisted.assetId, tradingTier: persisted.tradingTier, period: persisted.period, minAmount: persisted.minAmount?.toString() ?? null, maxAmount: persisted.maxAmount?.toString() ?? null, defaultLimit: persisted.defaultLimit?.toString() ?? null, threshold: persisted.threshold?.toString() ?? null },
+      afterData: { gateType: persisted.gateType, operationType: persisted.operationType, assetCode: persisted.assetId ? currencyById.get(persisted.assetId) ?? null : null, tradingTier: persisted.tradingTier, period: persisted.period, minAmount: persisted.minAmount?.toString() ?? null, maxAmount: persisted.maxAmount?.toString() ?? null, defaultLimit: persisted.defaultLimit?.toString() ?? null, threshold: persisted.threshold?.toString() ?? null },
     });
   }
   console.log(`  ✔ Seeded ${rules.length} transaction limit rules`);
