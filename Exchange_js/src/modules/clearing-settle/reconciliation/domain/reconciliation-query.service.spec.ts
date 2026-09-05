@@ -1442,3 +1442,114 @@ describe('平账 A 批：超期后的下一步 nextStep（spec §2.6）', () => 
     expect(linked.flowComparison.find((r: any) => r.matchType === 'AMOUNT_MISMATCH')!.nextStep).toBeUndefined();
   });
 });
+
+// 评审 Finding 2（平账二期 Task 8 评审补测）：此前全部 14 组既有 fixture 把
+// reconciliationAdjustment/reconciliationDisposition/internalTransfer 的新增查询
+// 都喂 []，getCase 的补款/垫款回挂块与 listCases 的徽标循环从未真正跑过一个分支。
+// 下面按 T4「超期后的下一步」section 同款 prismaFor 风格补最小行为覆盖。
+describe('getCase — 补款 / 垫款回挂行为覆盖（平账二期 Task 8 评审补测）', () => {
+  const flowId = 'fund-flow-1';
+  const extId = 'fund-ext-1';
+  // 复用「超期后的下一步」一节验证过的组合：causeCode=UNEXPLAINED 的 cells 是
+  // ALL_CELLS，对任意 matchType×book 都不会被 resolveOutlet 拒——disposition.outlet/
+  // deferredTarget 是读面直接展示的落库字段，与 resolveOutlet 重算的 family/reasonCode/
+  // direction 互不校验一致性，因此可以照下面这样单独摆 outlet='SUPPLEMENT' 而不触发
+  // 「成因不属于该格」。
+  function prismaFor(opts: { disposition: any; adjustments?: any[]; transfers?: any[]; externalAmount?: number }) {
+    const kase = {
+      id: 'c-fund', caseNo: 'REC-FUND', businessDate: '2026-09-05', assetCode: 'AED', walletRef: 'w-fund', status: 'OPEN',
+      book: 'CLIENT', ownerNo: 'CU100', slaBreached: false, lastObservedRunId: 'run-x', firstSeenRunId: 'run-x', closedByRunId: null, openedByRunId: 'run-x',
+      tbAmount: new Prisma.Decimal(0), actualExternal: new Prisma.Decimal(0), deltaAmount: new Prisma.Decimal(0), createdAt: new Date(), lineItems: [],
+    };
+    return {
+      reconciliationCase: { findUnique: jest.fn().mockResolvedValue(kase) },
+      reconciliationRun: { findUnique: jest.fn().mockResolvedValue({ runNo: 'RUN-1', businessDate: '2026-09-05', cutoffAt: new Date('2026-09-05T10:00:00Z'), startedAt: new Date(), completedAt: new Date() }) },
+      reconciliationDisposition: { findMany: jest.fn().mockResolvedValue([opts.disposition]) },
+      reconciliationAdjustment: { findMany: jest.fn().mockResolvedValue(opts.adjustments ?? []) },
+      externalBalance: { findMany: jest.fn().mockResolvedValue([]) },
+      externalStatementLine: { findMany: jest.fn().mockResolvedValue([{ id: extId, direction: 'IN', amount: new Prisma.Decimal(opts.externalAmount ?? 5000), externalRef: 'R1', datetime: new Date('2026-09-05T09:00:00Z'), description: null }]) },
+      accountFlow: { findMany: jest.fn().mockResolvedValue([{ id: flowId, direction: 'IN', amount: new Prisma.Decimal(5000), externalRef: 'R1', eventCode: 'E2E', sourceType: 'DEPOSIT', sourceNo: 'S1', createdAt: new Date('2026-09-05T09:00:00Z') }]) },
+      asset: { findUnique: jest.fn().mockResolvedValue({ decimals: 2, currency: 'AED' }) },
+      wallet: { findUnique: jest.fn().mockResolvedValue({ walletNo: 'WA1', ownerId: 'owner-uuid' }) },
+      fundsOrder: { findMany: jest.fn().mockResolvedValue([]) },
+      internalTransfer: { findMany: jest.fn().mockResolvedValue(opts.transfers ?? []) },
+    };
+  }
+  const mismatchMatcher = { matchFlows: jest.fn().mockResolvedValue({ matched: [], orphanInternal: [], orphanExternal: [], mismatch: [{ internalFlowId: flowId, externalLineId: extId }] }) };
+  // adjustmentNo 非空使旧 write-off nextStep 块的 `!d.adjustmentNo` 守卫恒假，
+  // 与补款块互不干扰（同 T4 已证明的写法）。
+  const lossLinked = { dispositionNo: 'RCD-FUND-1', explainedFlowId: flowId, explainedExternalLineId: extId, matchType: 'AMOUNT_MISMATCH', book: 'CLIENT', causeCode: 'UNEXPLAINED', outlet: 'HOLD_INVESTIGATING', findingNote: 'n', adjustmentNo: 'ADJ1', deferredTarget: null, supplementNo: null, createdByUserId: 'ADM', createdAt: new Date(), updatedAt: new Date() };
+
+  it('补款：认损已落账（POSTED/UNEXPLAINED_CLIENT_LOSS）、无划转单 → nextStep=COMPENSATION，transfer 不下发', async () => {
+    const prisma = prismaFor({
+      disposition: lossLinked,
+      adjustments: [{ adjustmentNo: 'ADJ1', status: 'POSTED', reasonCode: 'UNEXPLAINED_CLIENT_LOSS', direction: 'REDUCE', amount: '4200000' }],
+      transfers: [],
+    });
+    const res: any = await mkSvc(prisma, { flowMatcher: mismatchMatcher }).getCase('REC-FUND');
+    const row = res.flowComparison.find((r: any) => r.matchType === 'AMOUNT_MISMATCH');
+    expect(row.nextStep).toEqual({ kind: 'COMPENSATION', adjustmentNo: 'ADJ1', amount: '4200000', customerNo: 'CU100', walletNo: 'WA1' });
+    expect(row.transfer).toBeUndefined();
+  });
+
+  it('补款：划转单已在走（EXECUTING）→ transfer 回挂三字段，nextStep 收起（不再给按钮）', async () => {
+    const prisma = prismaFor({
+      disposition: lossLinked,
+      adjustments: [{ adjustmentNo: 'ADJ1', status: 'POSTED', reasonCode: 'UNEXPLAINED_CLIENT_LOSS', direction: 'REDUCE', amount: '4200000' }],
+      transfers: [{ transferNo: 'ITR1', purpose: 'CLIENT_COMPENSATION', status: 'EXECUTING', sourceAdjustmentNo: 'ADJ1', sourceExternalLineId: null }],
+    });
+    const res: any = await mkSvc(prisma, { flowMatcher: mismatchMatcher }).getCase('REC-FUND');
+    const row = res.flowComparison.find((r: any) => r.matchType === 'AMOUNT_MISMATCH');
+    expect(row.transfer).toEqual({ transferNo: 'ITR1', purpose: 'CLIENT_COMPENSATION', status: 'EXECUTING' });
+    expect(row.nextStep).toBeUndefined();
+  });
+
+  it('垫款：退汇定性（SUPPLEMENT/SUPPLEMENT_BOUNCE）行余额不足 → nextStep=ADVANCE，金额 = 账单行 − 可用', async () => {
+    const bounceDisposition = {
+      dispositionNo: 'RCD-FUND-2', explainedFlowId: flowId, explainedExternalLineId: extId,
+      matchType: 'AMOUNT_MISMATCH', book: 'CLIENT', causeCode: 'UNEXPLAINED',
+      outlet: 'SUPPLEMENT', deferredTarget: 'SUPPLEMENT_BOUNCE', supplementNo: null,
+      findingNote: 'n', adjustmentNo: null, createdByUserId: 'ADM', createdAt: new Date(), updatedAt: new Date(),
+    };
+    const prisma = prismaFor({ disposition: bounceDisposition, adjustments: [], transfers: [], externalAmount: 120_000 });
+    const accounting = { getCustomerAvailableBalance: jest.fn(async () => ({ available: 30_000n })) };
+    const res: any = await mkSvc(prisma, { flowMatcher: mismatchMatcher, accounting }).getCase('REC-FUND');
+    const row = res.flowComparison.find((r: any) => r.matchType === 'AMOUNT_MISMATCH');
+    expect(row.nextStep).toEqual({ kind: 'ADVANCE', amount: '90000', externalLineId: extId, customerNo: 'CU100', walletNo: 'WA1', available: '30000', lineAmount: '120000' });
+  });
+});
+
+describe('listCases — 补款 / 垫款徽标（平账二期 Task 8 评审补测）', () => {
+  it('待补款 PENDING / 挂着划转单 IN_PROGRESS / 已成功不再挂 → pendingFunding 三态', async () => {
+    const caseA = { id: 'c-fund-a', caseNo: 'REC-FUND-A', status: 'OPEN', book: 'CLIENT', assetCode: 'AED', createdAt: new Date() };
+    const caseB = { id: 'c-fund-b', caseNo: 'REC-FUND-B', status: 'OPEN', book: 'CLIENT', assetCode: 'AED', createdAt: new Date() };
+    const caseC = { id: 'c-fund-c', caseNo: 'REC-FUND-C', status: 'OPEN', book: 'CLIENT', assetCode: 'AED', createdAt: new Date() };
+    const prisma = {
+      reconciliationCase: { findMany: jest.fn().mockResolvedValue([caseA, caseB, caseC]) },
+      reconciliationRun: { findMany: jest.fn().mockResolvedValue([]) },
+      reconciliationDisposition: { groupBy: jest.fn().mockResolvedValue([]), findMany: jest.fn().mockResolvedValue([]) },
+      reconciliationLineItem: { groupBy: jest.fn().mockResolvedValue([]) },
+      asset: { findMany: jest.fn().mockResolvedValue([]) },
+      // 三个案子各挂一张 POSTED 客损调账单——B/C 各配一张 sourceAdjustmentNo 对应的
+      // 在途划转单（B=EXECUTING，C=SUCCESS），A 没有划转单。
+      reconciliationAdjustment: {
+        findMany: jest.fn().mockResolvedValue([
+          { caseNo: 'REC-FUND-A', adjustmentNo: 'ADJ-A' },
+          { caseNo: 'REC-FUND-B', adjustmentNo: 'ADJ-B' },
+          { caseNo: 'REC-FUND-C', adjustmentNo: 'ADJ-C' },
+        ]),
+      },
+      internalTransfer: {
+        findMany: jest.fn().mockResolvedValue([
+          { sourceCaseNo: 'REC-FUND-B', purpose: 'CLIENT_COMPENSATION', status: 'EXECUTING', sourceAdjustmentNo: 'ADJ-B', sourceExternalLineId: null },
+          { sourceCaseNo: 'REC-FUND-C', purpose: 'CLIENT_COMPENSATION', status: 'SUCCESS', sourceAdjustmentNo: 'ADJ-C', sourceExternalLineId: null },
+        ]),
+      },
+    };
+    const rows = await mkSvc(prisma).listCases({});
+    const byCaseNo = new Map(rows.map((r: any) => [r.caseNo, r]));
+    expect(byCaseNo.get('REC-FUND-A').pendingFunding).toEqual({ kind: 'COMPENSATION', status: 'PENDING' });
+    expect(byCaseNo.get('REC-FUND-B').pendingFunding).toEqual({ kind: 'COMPENSATION', status: 'IN_PROGRESS' });
+    expect(byCaseNo.get('REC-FUND-C').pendingFunding).toBeNull();
+  });
+});

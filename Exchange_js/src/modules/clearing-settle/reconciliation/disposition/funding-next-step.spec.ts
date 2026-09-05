@@ -13,6 +13,14 @@ describe('deriveFundingNextStep（平账二期 Task 8）', () => {
   it('公司池核销不是补款来源', () => {
     expect(deriveFundingNextStep({ ...base, book: 'FIRM', adjustment: { ...postedLoss, reasonCode: 'UNEXPLAINED_WRITE_OFF' } }).nextStep).toBeUndefined();
   });
+  // 评审 Finding 1：上一条同时翻转 book 与 reasonCode，删掉任一守卫都仍是绿——
+  // 补两条各自单翻一个变量的用例，book 守卫、reasonCode 守卫各自可红。
+  it('CLIENT 落账但事由是核销（非客损）→ 无（单独验证 reasonCode 守卫）', () => {
+    expect(deriveFundingNextStep({ ...base, adjustment: { ...postedLoss, reasonCode: 'UNEXPLAINED_WRITE_OFF' } }).nextStep).toBeUndefined();
+  });
+  it('FIRM 落账客损事由（书本不对）→ 无（单独验证 book 守卫）', () => {
+    expect(deriveFundingNextStep({ ...base, book: 'FIRM', adjustment: postedLoss }).nextStep).toBeUndefined();
+  });
   it('已有划转单在走 / 已成功 → 只回挂状态，不再给按钮', () => {
     const r = deriveFundingNextStep({ ...base, adjustment: postedLoss, transfer: { transferNo: 'ITR1', purpose: 'CLIENT_COMPENSATION', status: 'EXECUTING' } });
     expect(r.transfer).toEqual({ transferNo: 'ITR1', purpose: 'CLIENT_COMPENSATION', status: 'EXECUTING' });
