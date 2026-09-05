@@ -61,7 +61,7 @@ describe('邀请过期清扫（ADMIN_INVITE_EXPIRED 从死码活过来）', () =
     });
   };
 
-  it('expiresAt 已过的 PENDING 邀请行，扫一轮后打 revokedAt 并留痕 ADMIN_INVITE_EXPIRED', async () => {
+  it('expiresAt 已过的 PENDING 邀请行，扫一轮后打 expiredAt（不碰 revokedAt）并留痕 ADMIN_INVITE_EXPIRED', async () => {
     const user = await mkUser('DUE');
     const invitation = await mkInvitation(user.id, 'DUE', new Date(Date.now() - 60_000));
 
@@ -70,7 +70,10 @@ describe('邀请过期清扫（ADMIN_INVITE_EXPIRED 从死码活过来）', () =
     const after = await prisma.adminUserInvitation.findUniqueOrThrow({
       where: { id: invitation.id },
     });
-    expect(after.revokedAt).not.toBeNull();
+    expect(after.expiredAt).not.toBeNull();
+    // 自然过期与管理员人工撤销分列两根柱子：sweep 只能盖 expiredAt，revokedAt 永远
+    // 留给人工撤销专用，两者不许共用一列（否则派生态会把自然过期误判成 REVOKED）。
+    expect(after.revokedAt).toBeNull();
     expect(after.consumedAt).toBeNull();
 
     const auditRow = await prisma.auditLogEvent.findFirst({
@@ -92,6 +95,7 @@ describe('邀请过期清扫（ADMIN_INVITE_EXPIRED 从死码活过来）', () =
       where: { id: invitation.id },
     });
     expect(after.revokedAt).toBeNull();
+    expect(after.expiredAt).toBeNull();
 
     const auditRow = await prisma.auditLogEvent.findFirst({
       where: { action: 'ADMIN_INVITE_EXPIRED', primarySubjectNo: user.userNo },

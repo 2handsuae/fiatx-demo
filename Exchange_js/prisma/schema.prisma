@@ -116,6 +116,7 @@ model AdminUserInvitation {
   expiresAt       DateTime
   consumedAt      DateTime?
   revokedAt       DateTime?
+  expiredAt       DateTime?
   createdByUserId String?
   workflowType    String?
   workflowNo      String?

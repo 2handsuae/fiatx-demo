@@ -81,6 +81,7 @@ export class UsersService {
     expiresAt: Date;
     consumedAt: Date | null;
     revokedAt: Date | null;
+    expiredAt: Date | null;
   }): MemberInvitationSummary['inviteStatus'] {
     if (invitation.revokedAt) {
       return 'REVOKED';
@@ -88,7 +89,7 @@ export class UsersService {
     if (invitation.consumedAt) {
       return 'USED';
     }
-    if (invitation.expiresAt.getTime() <= Date.now()) {
+    if (invitation.expiredAt || invitation.expiresAt.getTime() <= Date.now()) {
       return 'EXPIRED';
     }
     return 'PENDING';
@@ -166,6 +167,7 @@ export class UsersService {
         expiresAt: true,
         consumedAt: true,
         revokedAt: true,
+        expiredAt: true,
       },
     });
 

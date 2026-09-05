@@ -469,7 +469,8 @@ export class AdminInviteWorkflowService {
 
   /**
    * ADMIN_INVITE_EXPIRED 唯一写入点。定期扫描已派发但过期未被接受/取消的邀请链接，
-   * 逐条打 revokedAt（防止下次扫描重复处理、重复写审计）+ recordSystem 留痕。
+   * 逐条打 expiredAt（防止下次扫描重复处理、重复写审计；与人工撤销的 revokedAt 分列，
+   * 自然过期不再冒充被管理员撤销）+ recordSystem 留痕。
    *
    * 未接 @Cron——与 approvals.service.ts 的 expirePendingApprovals() 同款差距
    * （该方法本身也没有 @Cron 调用方，是已登记的既有 BACKLOG 项）。是否要在这批把
@@ -481,6 +482,7 @@ export class AdminInviteWorkflowService {
       where: {
         consumedAt: null,
         revokedAt: null,
+        expiredAt: null,
         expiresAt: { lte: now },
       },
       include: {
@@ -492,7 +494,7 @@ export class AdminInviteWorkflowService {
     for (const invitation of expired) {
       await (this.prisma as any).adminUserInvitation.update({
         where: { id: invitation.id },
-        data: { revokedAt: now },
+        data: { expiredAt: now },
       });
 
       if (!invitation.user) continue;

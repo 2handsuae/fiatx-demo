@@ -158,6 +158,7 @@ describe('UsersService', () => {
           expiresAt: true,
           consumedAt: true,
           revokedAt: true,
+          expiredAt: true,
         }),
       }),
     );
@@ -194,6 +195,28 @@ describe('UsersService', () => {
         expiresAt: new Date('2026-04-02T00:00:00.000Z'),
         consumedAt: null,
         revokedAt: null,
+      },
+    ],
+    [
+      // 自然过期由 sweepExpiredInvites 盖 expiredAt（不再盖 revokedAt）。这里 expiresAt
+      // 故意给未来值，只为孤立验证 expiredAt 这一支单独驱动 EXPIRED，不依赖 expiresAt 对照。
+      'EXPIRED',
+      {
+        expiresAt: new Date('2026-04-02T00:00:00.000Z'),
+        consumedAt: null,
+        revokedAt: null,
+        expiredAt: new Date('2026-04-01T00:00:00.000Z'),
+      },
+    ],
+    [
+      // 人工撤销仍最优先：即便 sweep 已经先盖过 expiredAt，只要 revokedAt 非空
+      // （例如管理员在扫描器跑到之前手动撤销），派生态必须是 REVOKED。
+      'REVOKED',
+      {
+        expiresAt: new Date('2026-03-20T00:00:00.000Z'),
+        consumedAt: null,
+        revokedAt: new Date('2026-03-21T00:00:00.000Z'),
+        expiredAt: new Date('2026-03-20T00:00:00.000Z'),
       },
     ],
   ])(

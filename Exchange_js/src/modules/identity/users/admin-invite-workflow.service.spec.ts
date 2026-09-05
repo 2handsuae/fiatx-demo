@@ -212,12 +212,18 @@ describe('AdminInviteWorkflowService', () => {
       const result = await service.sweepExpiredInvites();
 
       expect(result.expiredCount).toBe(1);
-      expect(prisma.adminUserInvitation.update).toHaveBeenCalledWith(
+      // 自然过期盖 expiredAt，不许再盖 revokedAt——那一列专属人工撤销，混用会让
+      // 派生态把超时邀请误判成 REVOKED（这就是本任务要修的病灶）。
+      const updateCall = prisma.adminUserInvitation.update.mock.calls.find(
+        (c: any[]) => c[0].where.id === 'invite-1',
+      );
+      expect(updateCall[0]).toEqual(
         expect.objectContaining({
           where: { id: 'invite-1' },
-          data: expect.objectContaining({ revokedAt: expect.any(Date) }),
+          data: expect.objectContaining({ expiredAt: expect.any(Date) }),
         }),
       );
+      expect(updateCall[0].data.revokedAt).toBeUndefined();
 
       const call = auditLogsService.recordSystem.mock.calls.find(
         (c: any[]) => c[0].action === 'ADMIN_INVITE_EXPIRED',
