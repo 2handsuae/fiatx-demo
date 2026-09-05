@@ -9,6 +9,7 @@ import {
   X,
 } from 'lucide-react';
 import { formatAssetAmount } from '../utils/number-format';
+import { statementSourceLabel } from '../utils/statementSourceLabel';
 import {
   CustomerSessionError,
   customerFetch,
@@ -472,9 +473,10 @@ const DashboardOverview = () => {
                             <span className={`font-mono text-[9px] uppercase tracking-wide ${
                               row.sourceType === 'DEPOSIT' ? 'text-emerald-400' :
                               row.sourceType === 'WITHDRAWAL' ? 'text-blue-400' :
+                              row.sourceType === 'RECON_ADJUSTMENT' || row.sourceType === 'INTERNAL_TRANSFER' ? 'text-fx-sage' :
                               'text-fx-brass'
                             }`}>
-                              {row.sourceType === 'WITHDRAWAL' ? 'WITHDRAW' : row.sourceType}
+                              {statementSourceLabel(row)}
                             </span>
                           </td>
                           <td className="px-3 py-2 font-mono text-[10px] text-fx-dune truncate max-w-[100px]" title={row.sourceNo}>
