@@ -45,6 +45,8 @@ interface ReconCase {
   dispositionCount: number;   // T7: rows in reconciliation_dispositions for this case
   anomalyLineCount: number;   // T7: case's flagged line items (mismatch/orphan)
   decimals: number;           // T7: asset decimals — scales deltaAmount (分→元)
+  // 平账二期：这个案子挂着的补款 / 垫款——PENDING = 还没发起，IN_PROGRESS = 已发起未到账
+  pendingFunding: { kind: 'COMPENSATION' | 'ADVANCE'; status: 'PENDING' | 'IN_PROGRESS' } | null;
 }
 
 /* ── Constants ───────────────────────────────────────────────── */
@@ -341,6 +343,13 @@ const ReconciliationCasesListPage = () => {
                         no flagged lines to triage (nothing to qualify). */}
                     <td className="px-3 py-3 font-mono text-[11px] text-adm-t3">
                       {kase.anomalyLineCount > 0 ? `${kase.dispositionCount}/${kase.anomalyLineCount}` : '—'}
+                      {kase.pendingFunding && (
+                        <span className={`ml-1 inline-flex rounded border px-1 py-0.5 font-mono text-[9px] ${kase.pendingFunding.status === 'PENDING' ? 'border-adm-amber/40 bg-adm-amber/10 text-adm-amber' : 'border-adm-blue/40 bg-adm-blue/10 text-adm-blue'}`}>
+                          {kase.pendingFunding.kind === 'COMPENSATION'
+                            ? (kase.pendingFunding.status === 'PENDING' ? '待补款' : '补款中')
+                            : (kase.pendingFunding.status === 'PENDING' ? '待垫款' : '垫款中')}
+                        </span>
+                      )}
                     </td>
 
                     {/* Status badge */}

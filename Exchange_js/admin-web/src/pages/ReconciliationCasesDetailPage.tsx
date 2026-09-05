@@ -53,6 +53,7 @@ import ReconciliationDispositionModal, {
   type AdjustHandoff,
 } from '../components/ReconciliationDispositionModal';
 import ReconciliationSupplementModal from '../components/ReconciliationSupplementModal';
+import InternalTransferInitiateModal from '../components/InternalTransferInitiateModal';
 import { useAdminSession } from '../contexts/AdminSessionContext';
 import { PERMISSIONS } from '../rbac/permissions';
 import { OUTLET_TONE, directionNoteFor } from '../utils/causeRegistry';
@@ -121,9 +122,12 @@ export interface FlowComparisonRow {
   menu?: Array<{ code: string; label: string; clue: string; outletLabel: string }>;
   // 平账 A 批（spec §2.6）：超期后的下一步（服务端判）
   nextStep?: {
-    kind: 'WRITE_OFF' | 'INCIDENT_DEFERRED' | 'TRANSFER_DEFERRED';
-    reasonCode?: 'UNEXPLAINED_WRITE_OFF'; direction?: 'REDUCE' | 'INCREASE'; amount?: string; effectiveDate?: string;
+    kind: 'WRITE_OFF' | 'INCIDENT_DEFERRED' | 'CLIENT_SURPLUS' | 'COMPENSATION' | 'ADVANCE';
+    reasonCode?: 'UNEXPLAINED_WRITE_OFF' | 'UNEXPLAINED_CLIENT_LOSS'; direction?: 'REDUCE' | 'INCREASE'; amount?: string; effectiveDate?: string;
+    adjustmentNo?: string; externalLineId?: string; customerNo?: string | null; walletNo?: string | null; available?: string; lineAmount?: string;
   };
+  // 平账二期：这条差异行牵出的划转单（补款 / 垫款）回挂
+  transfer?: { transferNo: string; purpose: string; status: string } | null;
 }
 
 interface FlowComparisonSummary {
@@ -373,6 +377,11 @@ export const MATCH_LABEL: Record<FlowMatchType, string> = {
 // 按钮词区分去向，弹层内部再按 kind 切表单。
 const SUPPLEMENT_ACTION_LABEL: Record<string, string> = { SUPPLEMENT_DEPOSIT: '发起补录', SUPPLEMENT_BOUNCE: '认领退汇', SUPPLEMENT_PAYOUT_RETURN: '认领退回' };
 
+// 平账二期：划转单状态的人话（与 utils/internalTransferStatusMap.ts 同词，Task 13 建后改为 import）
+const TRANSFER_STATUS_WORD: Record<string, string> = {
+  PENDING_APPROVAL: '待 CFO 复核', EXECUTING: '执行中 · 钱在路上', SUCCESS: '已到账', FAILED: '失败', REJECTED: '已拒绝', CANCELLED: '已撤回',
+};
+
 const MatchChip = ({ row }: { row: FlowComparisonRow }) => {
   const tone = MATCH_TONE[row.matchType];
   return (
@@ -427,6 +436,9 @@ const ReconciliationCasesDetailPage = () => {
     PERMISSIONS.DEPOSIT_CLAWBACK_WRITE,
     PERMISSIONS.WITHDRAW_RETURN_CLAIM_WRITE,
   ]);
+  // 平账二期：补款 / 垫款发起归金库——持两个写码任一即可看到按钮；运营只看到指路文字。
+  const canFundClient = hasAnyPermission([PERMISSIONS.INTERNAL_TRANSFER_COMPENSATION_WRITE, PERMISSIONS.INTERNAL_TRANSFER_ADVANCE_WRITE]);
+  const [fundingRow, setFundingRow] = useState<FlowComparisonRow | null>(null);
   const [kase, setKase] = useState<ReconCaseDetail | null>(null);
   const [loading, setLoading] = useState(true);
   // MATCHED rows are collapsed by default (layout 乙 — single mixed table,
@@ -585,6 +597,33 @@ const ReconciliationCasesDetailPage = () => {
   }, [kase, showMatched]);
 
   const matchedCount = kase?.flowComparison?.filter((r) => r.matchType === 'MATCHED').length ?? 0;
+
+  // 平账二期：行上的划转回挂 + 补款 / 垫款按钮。案子 RESOLVED 之后照样给（认损让案子愈了，补款是对客户的交代）。
+  const renderFunding = (row: FlowComparisonRow) => (
+    <>
+      {row.transfer && (
+        <span className="whitespace-nowrap font-mono text-[10px] text-adm-t2">
+          {row.transfer.purpose === 'CLIENT_ADVANCE' ? '垫款' : '补款'}{' '}
+          <Link to={`/admin/treasury/internal-transfers/${encodeURIComponent(row.transfer.transferNo)}`} className="text-adm-blue hover:underline">{row.transfer.transferNo}</Link>
+          {' · '}{TRANSFER_STATUS_WORD[row.transfer.status] ?? row.transfer.status}
+        </span>
+      )}
+      {(row.nextStep?.kind === 'COMPENSATION' || row.nextStep?.kind === 'ADVANCE') && kase && (
+        canFundClient ? (
+          <button type="button" onClick={() => setFundingRow(row)} className="inline-flex items-center gap-1 whitespace-nowrap font-mono text-[10px] font-medium text-adm-blue hover:underline">
+            <Plus size={10} />
+            {row.nextStep.kind === 'COMPENSATION'
+              ? `发起补款 ${formatAmount(row.nextStep.amount, kase.decimals)} ${kase.assetCode}`
+              : `余额不足，发起垫款 ${formatAmount(row.nextStep.amount, kase.decimals)} ${kase.assetCode}`}
+          </button>
+        ) : (
+          <span className="whitespace-nowrap font-mono text-[10px] text-adm-amber">
+            {row.nextStep.kind === 'COMPENSATION' ? '待补款（金库发起）' : `余额不足 ${formatAmount(row.nextStep.amount, kase.decimals)}，待金库垫款`}
+          </span>
+        )
+      )}
+    </>
+  );
 
   if (loading && !kase) {
     return (
@@ -926,12 +965,15 @@ const ReconciliationCasesDetailPage = () => {
                             {row.explainedByAdjustmentNo ? (
                               // ① 已解释——这条差异已经被一张落了账的调账单解释掉，
                               // 引擎算桶时已把它从异常数里摘掉，改为指回那张单。
-                              <Link
-                                to={`/admin/reconciliation/adjustments/${encodeURIComponent(row.explainedByAdjustmentNo)}`}
-                                className="inline-flex items-center gap-1 whitespace-nowrap rounded border border-adm-green/30 bg-adm-green/10 px-1.5 py-0.5 font-mono text-[10px] font-medium text-adm-green hover:underline"
-                              >
-                                已解释 · {row.explainedByAdjustmentNo}
-                              </Link>
+                              <div className="flex flex-col gap-1">
+                                <Link
+                                  to={`/admin/reconciliation/adjustments/${encodeURIComponent(row.explainedByAdjustmentNo)}`}
+                                  className="inline-flex items-center gap-1 whitespace-nowrap rounded border border-adm-green/30 bg-adm-green/10 px-1.5 py-0.5 font-mono text-[10px] font-medium text-adm-green hover:underline"
+                                >
+                                  已解释 · {row.explainedByAdjustmentNo}
+                                </Link>
+                                {renderFunding(row)}
+                              </div>
                             ) : row.matchType === 'MATCHED' ? (
                               // ② 已匹配——两边一致，没有可处置的东西。
                               null
@@ -973,7 +1015,7 @@ const ReconciliationCasesDetailPage = () => {
                                     开单
                                   </button>
                                 )}
-                                {row.disposition.outlet === 'SUPPLEMENT' && !row.disposition.supplementNo && canSupplement && kase.status === 'OPEN' && (
+                                {row.disposition.outlet === 'SUPPLEMENT' && !row.disposition.supplementNo && canSupplement && kase.status === 'OPEN' && row.nextStep?.kind !== 'ADVANCE' && (
                                   <button
                                     type="button"
                                     onClick={() => setSupplementRow(row)}
@@ -1001,18 +1043,19 @@ const ReconciliationCasesDetailPage = () => {
                                       className="inline-flex items-center gap-1 whitespace-nowrap font-mono text-[10px] font-medium text-adm-red hover:underline"
                                     >
                                       <Plus size={10} />
-                                      核销
+                                      {row.nextStep.reasonCode === 'UNEXPLAINED_CLIENT_LOSS' ? '认损' : '核销'}
                                     </button>
                                   ) : (
-                                    <span className="whitespace-nowrap font-mono text-[10px] text-adm-red">超期 · 可核销</span>
+                                    <span className="whitespace-nowrap font-mono text-[10px] text-adm-red">{row.nextStep.reasonCode === 'UNEXPLAINED_CLIENT_LOSS' ? '超期 · 可认损' : '超期 · 可核销'}</span>
                                   )
                                 )}
                                 {row.nextStep?.kind === 'INCIDENT_DEFERRED' && (
                                   <span className="whitespace-nowrap font-mono text-[10px] text-adm-red">超期 · 待升级事故（三期）</span>
                                 )}
-                                {row.nextStep?.kind === 'TRANSFER_DEFERRED' && (
-                                  <span className="whitespace-nowrap font-mono text-[10px] text-adm-amber">超期 · 待二期划转</span>
+                                {row.nextStep?.kind === 'CLIENT_SURPLUS' && (
+                                  <span className="whitespace-nowrap font-mono text-[10px] text-adm-amber">超期 · 多出来的钱查清归属走补录</span>
                                 )}
+                                {renderFunding(row)}
                               </div>
                             ) : (
                               // ⑤/⑥ 未定性——这条差异还没人查过，给处置入口（按既有约定
@@ -1222,6 +1265,13 @@ const ReconciliationCasesDetailPage = () => {
         row={supplementRow}
         onClose={() => setSupplementRow(null)}
         onDone={() => { setSupplementRow(null); fetchCase(); }}
+      />
+
+      {/* 平账二期（Task 12）：补款 / 垫款发起弹层——一个弹层两条路，靠 row.nextStep.kind 分。 */}
+      <InternalTransferInitiateModal
+        open={!!fundingRow} caseNo={kase.caseNo} row={fundingRow} assetCode={kase.assetCode} decimals={kase.decimals}
+        onClose={() => setFundingRow(null)}
+        onDone={() => { setFundingRow(null); void fetchCase(); }}
       />
     </div>
   );

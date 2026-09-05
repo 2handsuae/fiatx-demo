@@ -62,6 +62,7 @@ export const REASON_LABEL: Record<string, string> = {
   ...Object.fromEntries(Object.entries(REASON_META).map(([code, meta]) => [code, meta.label])),
   CUSTOMER_REATTRIBUTION: '记错客户更正（改记）',
   UNEXPLAINED_WRITE_OFF: '查无果核销',
+  UNEXPLAINED_CLIENT_LOSS: '客户池查无果认损',
 };
 
 // T9：族的中文词——本文件内常量，不是共享注册表（唯一真相仍在后端
@@ -215,8 +216,8 @@ const ReconciliationAdjustmentCreateModal = ({
     setAmountDisplay(prefill.amountMinor ? minorToDisplay(prefill.amountMinor, decimals) : '');
     setEffectiveDate(caseBusinessDate);
     setRelatedOrderNo(prefill.relatedOrderNo ?? '');
-    setReasonInternal(locked?.writeOff ? `查无果核销：${locked.writeOff.findingNote}` : '');
-    setReasonCustomer(locked?.writeOff ? '（公司侧核销，客户不可见）' : '');
+    setReasonInternal(locked?.writeOff ? `${locked.reasonCode === 'UNEXPLAINED_CLIENT_LOSS' ? '客户池查无果认损' : '查无果核销'}：${locked.writeOff.findingNote}` : '');
+    setReasonCustomer(locked?.writeOff ? (locked.reasonCode === 'UNEXPLAINED_CLIENT_LOSS' ? '平台调整（托管差额认损，随后公司补款）' : '（公司侧核销，客户不可见）') : '');
     setError('');
     setCandidates([]);
     setCandidatesError('');
@@ -383,7 +384,11 @@ const ReconciliationAdjustmentCreateModal = ({
       <div className="w-full max-w-lg rounded-xl border border-adm-border bg-adm-panel shadow-xl">
         <div className="border-b border-adm-border px-6 py-4">
           <h2 className="text-base font-semibold text-adm-t1">
-            {locked ? (LOCKED_TITLE[locked.family] ?? '开调账单 / Open Adjustment') : '开调账单 / Open Adjustment'}
+            {locked
+              ? (locked.family === 'WRITE_OFF' && locked.reasonCode === 'UNEXPLAINED_CLIENT_LOSS'
+                ? '认损 · 让账跟着托管走，随后公司补款'
+                : (LOCKED_TITLE[locked.family] ?? '开调账单 / Open Adjustment'))
+              : '开调账单 / Open Adjustment'}
           </h2>
           <p className="mt-1 font-mono text-[10px] text-adm-t3">
             {caseNo} · {book === 'CLIENT' ? '客户账簿' : '公司账簿'} · {assetCode}
