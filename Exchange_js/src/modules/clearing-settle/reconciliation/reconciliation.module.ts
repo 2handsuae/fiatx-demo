@@ -34,6 +34,8 @@ import { SupplementEvidenceService } from './disposition/supplement-evidence.ser
 // 平账 A 批：案件账龄主体（算截止 / 找候选 / 置标记 / ⚡拨钟）+ 每分钟扫描。
 import { CaseAgingService } from './workflow/case-aging.service';
 import { CaseAgingSweepService } from './sweep/case-aging-sweep.service';
+// 平账二期：模拟托管方回单——划转工作流在腿提交时调用。
+import { SimulatedCustodianStatementService } from './simulation/simulated-custodian-statement.service';
 
 @Module({
   imports: [PrismaModule, AuditLogsModule, TigerBeetleModule, FundsOrdersModule, ApprovalsModule],
@@ -55,7 +57,8 @@ import { CaseAgingSweepService } from './sweep/case-aging-sweep.service';
     CaseAgingService, CaseAgingSweepService,
     // 平账 B 批 Task 4：补单证据守卫 + 候选原单（只读）。
     SupplementEvidenceService,
+    SimulatedCustodianStatementService,
   ],
-  exports: [WalletReconRunService, CaseAgingService, DispositionService, SupplementEvidenceService],
+  exports: [WalletReconRunService, CaseAgingService, DispositionService, SupplementEvidenceService, SimulatedCustodianStatementService],
 })
 export class ReconciliationModule {}
