@@ -52,7 +52,6 @@ Last Updated: 2026-09-02
 
 - [ ] **报价落"资格快照"**：现 quote 仅存 `policyRef=LEVEL:code`；V3 要求成交时落 命中集合 + 选中级 + 选中理由(最低费) + 客户此刻标签快照（可解释/可申诉）｜来源: 2026-07-11 费率 V3 §4.4/§5.5
 
-- [ ] **费率变更 30 日历日生效闸 + 通知客户**：现即改即生效；与提现/兑换 backlog 的 30 日闸同源（MC II.A.7/8），费率治理统一落 ｜来源: 2026-07-11 费率 V3 §1.2
 
 - [ ] 资本注入流水缺 evidence 行（`FIRM_ASSET` 流水缺资本那笔）｜来源: V8 redesign 遗留
 
@@ -152,7 +151,6 @@ Last Updated: 2026-09-02
 
 - [ ] **TR 适用判定未自动计算**：充值 PRD 定义 Travel Rule 适用 = 虚拟币 且 来源地址为 VASP 托管 且 单笔 ≥ 3,500 AED（三条件 AND，否则 NOT_REQUIRED）；现状仅条件①法币→NOT_REQUIRED 落地，条件②(hosted/unhosted VASP 分类，依赖 roadmap V3 地址打标)+③(3,500 阈值判定)**代码未自动计算** → crypto TR 结果当前由 demo 模拟端点注入 ｜来源: 2026-07-11 充值 PRD v2
 
-- [ ] **DEPOSIT 累计限额（CUMULATIVE gateType B）仍未接**：本轮只接了 SINGLE 单笔下限，`transaction_limit_rules` 的 B 档（tradingTier×period 累计）尚未对 DEPOSIT operationType 消费 ｜来源: 2026-07-17 deposit-min 收口复核
 
 - [ ] **BELOW_MIN 计次自动冻结未做**：同客户多次触发 below-min 挂起累计到阈值后自动转 FROZEN（防试探式小额充值绕限额）未实现，本轮只做单笔挂起+人工处置 ｜来源: 2026-07-16 deposit-min spec §8（deferred）
 
@@ -315,7 +313,6 @@ Last Updated: 2026-09-02
 
 - [ ] **单笔金额级冻结原语（交易风控 L3 前置依赖）**：已终态充值/兑换订单命中行为监测（L3）需冻结"对应金额"，现仅有客户级整体冻结（V2 冻结流），无 TB 层单笔金额锁定/冻结子账户原语；交易风控 L3 落地前须先建（提现无此需求——钱已出只管人）。设计见 `superpowers/specs/2026-07-12-transaction-risk-gates-design.md` §5/§7 ｜来源: 2026-07-12 交易风控三闸门 spec（业主定 deferred，不纳入本 spec）
 
-- [ ] **⚠待定：受众（requiredTags/window）变更口径**：现变更流只覆盖 `tiersJson`（configHash 保护费率本身）；受众字段变更是否也走 configHash + 审批链未定 ｜来源: 2026-07-11 费率 V3 §4.2
 
 - [ ] **待决策：cheapest 只减免不加价**：命中集合取最低费 → 更贵的级永不胜出；若将来要"VIP 必走 VIP（即便更贵）"或高风险客户加附加费，须改**优先级选级引擎**（V3 明确不做，留此账）｜来源: 2026-07-11 费率 V3 §5.5
 
