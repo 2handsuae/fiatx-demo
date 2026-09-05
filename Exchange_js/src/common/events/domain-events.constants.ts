@@ -35,9 +35,9 @@ export const DOMAIN_EVENTS = {
   FUNDS_ORDER_STATUS_CHANGED: {
     name: 'funds_order.status.changed',
     emitter: 'FundsOrderService',
-    subscribers: ['DepositWorkflowService', 'WithdrawWorkflowService', 'SwapWorkflowService'],
+    subscribers: ['DepositWorkflowService', 'WithdrawWorkflowService', 'SwapWorkflowService', 'InternalTransferWorkflowService'],
     payload:
-      '{ fundsOrderId, fundsOrderNo, parent: {depositTransactionId?, withdrawTransactionId?, swapTransactionId?}, legSeq, attempt, oldStatus, newStatus, traceId? }',
+      '{ fundsOrderId, fundsOrderNo, parent: {depositTransactionId?, withdrawTransactionId?, swapTransactionId?, internalTransferId?}, legSeq, attempt, oldStatus, newStatus, traceId? }',
   },
 
   // ── Customer Restriction (2026-08-16) ──

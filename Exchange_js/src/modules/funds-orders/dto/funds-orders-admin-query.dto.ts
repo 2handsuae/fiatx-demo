@@ -7,10 +7,10 @@ import { IsIn, IsOptional, IsString } from 'class-validator';
  * `parent` is a virtual filter over the deposit/withdraw/swap FKs.
  */
 export class FundsOrdersAdminQueryDto {
-  @ApiPropertyOptional({ enum: ['all', 'deposit', 'withdraw', 'swap'] })
+  @ApiPropertyOptional({ enum: ['all', 'deposit', 'withdraw', 'swap', 'internal-transfer'] })
   @IsOptional()
-  @IsIn(['all', 'deposit', 'withdraw', 'swap'])
-  parent?: 'all' | 'deposit' | 'withdraw' | 'swap';
+  @IsIn(['all', 'deposit', 'withdraw', 'swap', 'internal-transfer'])
+  parent?: 'all' | 'deposit' | 'withdraw' | 'swap' | 'internal-transfer';
 
   @ApiPropertyOptional() @IsOptional() @IsString() status?: string;
   @ApiPropertyOptional() @IsOptional() @IsString() assetId?: string;

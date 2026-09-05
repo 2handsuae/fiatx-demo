@@ -652,6 +652,7 @@ model Asset {
   withdrawPricingQuotes          WithdrawPricingQuote[]
   withdrawTransactions           WithdrawTransaction[]
   fundsOrders                    FundsOrder[]
+  internalTransfers              InternalTransfer[]
   reconciliationCases            ReconciliationCase[]
   withdrawalFeeLevels            WithdrawalFeeLevel[]
   swapFeeLevelsFrom              SwapFeeLevel[]                  @relation("SwapFeeLevelFromAsset")
@@ -872,12 +873,50 @@ model DepositTransaction {
   @@map("deposit_transactions")
 }
 
+// 平账二期（2026-09-05）：第四类订单——公司 → 客户的补款 / 垫款。
+// 订单层金额按三域惯例存元；账本分录与外部账单最小单位。
+model InternalTransfer {
+  id                   String    @id @default(uuid())
+  transferNo           String    @unique
+  purpose              String    // CLIENT_COMPENSATION | CLIENT_ADVANCE
+  assetId              String
+  amount               Decimal   // 元
+  fromWalletId         String    // 运营户 F_OPS 在该网络的地址行
+  viaWalletId          String?   // 法币：结算户 F_SET 行；加密币 null
+  toWalletId           String    // 客户在该网络的收款行 = 案子的钱包
+  customerId           String
+  customerNo           String
+  status               String    @default("PENDING_APPROVAL") // PENDING_APPROVAL | EXECUTING | SUCCESS | FAILED | REJECTED | CANCELLED
+  reason               String
+  sourceCaseNo         String
+  sourceAdjustmentNo   String?   // 补款：认损调账单号
+  sourceExternalLineId String?   // 垫款：被退汇的那条账单行（内部 id，任何界面不得展示）
+  approvalNo           String?
+  failureReasonCode    String?   // INSUFFICIENT_FIRM_BALANCE | LEG_FAILED | POSTING_FAILED
+  failureNote          String?
+  executedAt           DateTime?
+  settledAt            DateTime?
+  traceId              String
+  createdByUserId      String
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+  asset       Asset        @relation(fields: [assetId], references: [id])
+  fundsOrders FundsOrder[] @relation("InternalTransferFundsOrders")
+
+  @@index([status])
+  @@index([sourceCaseNo])
+  @@index([sourceAdjustmentNo])
+  @@index([sourceExternalLineId])
+  @@map("internal_transfers")
+}
+
 model FundsOrder {
   id                    String                 @id @default(uuid())
   fundsOrderNo          String                 @unique
   depositTransactionId  String?
   swapTransactionId     String?
   withdrawTransactionId String?
+  internalTransferId    String?
   legSeq                Int                    @default(1)
   attempt               Int                    @default(1)
   status                String
@@ -908,15 +947,18 @@ model FundsOrder {
   deposit               DepositTransaction?    @relation("DepositFundsOrders", fields: [depositTransactionId], references: [id], onDelete: SetNull)
   swapTransaction       SwapTransaction?       @relation("SwapFundsOrders", fields: [swapTransactionId], references: [id], onDelete: Cascade)
   withdrawTransaction   WithdrawTransaction?   @relation("WithdrawFundsOrders", fields: [withdrawTransactionId], references: [id], onDelete: Cascade)
+  internalTransfer      InternalTransfer?      @relation("InternalTransferFundsOrders", fields: [internalTransferId], references: [id], onDelete: Cascade)
   asset                 Asset                  @relation(fields: [assetId], references: [id])
   fromWallet            Wallet?                @relation("FundsOrderFromWallet", fields: [fromWalletId], references: [id])
   toWallet              Wallet?                @relation("FundsOrderToWallet", fields: [toWalletId], references: [id])
   auditLogs             InternalFundAuditLog[]
 
   @@unique([swapTransactionId, legSeq, attempt])
+  @@unique([internalTransferId, legSeq, attempt])
   @@index([depositTransactionId])
   @@index([swapTransactionId, legSeq])
   @@index([withdrawTransactionId])
+  @@index([internalTransferId])
   @@index([status])
   @@index([txHash])
   @@index([createdAt])
