@@ -89,6 +89,10 @@ Last Updated: 2026-09-02
 
 - [ ] **`admin-web/tailwind.config.js` 的 `adm-*` 色系没有走 Tailwind 的透明度修饰符格式，全站 `bg-adm-*/N` 与 `border-adm-*/N` 类名不产生任何 CSS 规则**：`tailwind.config.js:28-41` 把每个 `adm-*` 颜色直接定义成裸的 `var(--adm-xxx)` 字符串，不是 Tailwind 需要的 `rgb(var(--x) / <alpha-value>)` 函数形式；而 `admin-web/src/index.css:9-24`（亮色 `:root`）/`:26-41`（暗色 `.dark`）里 `--adm-*` 变量本身存的又是十六进制字面量（如 `--adm-green: #059669`），不是"R G B" 三元组——即便日后补上 `rgb(...)` 包裹也还差一步。后果是应用级、无声的：Tailwind 对"颜色值是纯字符串"的工具类叠加透明度修饰符时不知道怎么混合，直接不生成该条规则——`bg-adm-green/10`、`border-adm-green/25` 这类类名在产物 CSS 里查无此类。最典型的受害者是全站状态徽章组件 `admin-web/src/components/ui/AdminBadge.tsx`（`BADGE_CLS`:31-38、`TRIGGER_CLS`:61-70）：圆点用 `bg-current`（继承不带修饰符的 `text-adm-*`，正常显色）、文字用 `text-adm-*`（同样正常），唯独该有的浅色底与描边（`bg-adm-green/10`、`border-adm-green/25` 等）整条规则都不存在——徽章视觉上只靠文字和圆点区分状态，源代码里"这个状态该有底色/描边"这件事完全落空且不报错。全仓 `grep -rEo "(bg|border|text)-adm-[a-zA-Z0-9]+/[0-9]+" admin-web/src` 命中 583 处、分布在 77 个文件，非孤例。修法两步都要做：CSS 变量改存 "R G B" 三元组（如 `--adm-green: 5 150 105`），`tailwind.config.js` 的每个 `adm-*` 条目改成 `rgb(var(--adm-xxx) / <alpha-value>)`。预先存在于本仓库、非本轮引入 ｜来源: 2026-09-04 V3 财务配置治愈波一 Task 12 评审时对照实际计算样式发现（走查费率退役徽章时顺带撞见，与限额/费率任务本身无关）
 
+- [ ] **治理域两个策略变更查询端点零前端消费方**：`approval-policy.controller.ts:80`（`GET .../approval-policies/change-requests` 列表）与 `:99`（`GET .../change-requests/:id` 详情）在删除 `/dashboard` 旧树与两张策略变更页后没有任何前端调用方——`admin-web` 全仓搜 `governance/approval-policies/change-requests` 零命中；现在提交变更走 `:61` 的 `POST :actionType/change-requests`（`ApprovalPoliciesPage.tsx` 在用），裁决走通用审批中心，这两个 GET 端点悬空。留作 API 或退役，待定 ｜来源: 2026-09-05 波二终审
+
+- [ ] **`activateAddress` 是 `COOLING_PERIOD_NOT_EXPIRED` 唯一抛点，未来手动激活入口须补 DENIED 留痕**：`withdrawal-address-workflow.service.ts` 的 `activateAddress()` 直调主体层 `activate()`、没套 `recordDeniedAndRethrow`——今天仅有的两条调用方（cron 扫描 `WithdrawalAddressSweepService`、懒激活 `batchActivateExpired`）都已按 `activatesAt` 到期时间预过滤，撞不上这个五门码；但它是全仓唯一会命中 `COOLING_PERIOD_NOT_EXPIRED` 的调用路径，将来一旦加手动激活入口（如管理台按钮），必须仿照 `suspendAddress`/`skipCoolingPeriod` 套一层 `recordDeniedAndRethrow`，否则被拒的手动操作不会留痕，犯铁律①（见该方法上的注释）｜来源: 2026-09-05 波二终审
+
 ## C. 第二幕 · 迎客（V2 客户与合规）
 
 > 讲「客户是谁、能不能交易由合规说了算」这一幕的缺口。最大一件是开户流程重做（站6 整体拆除后待接真 Sumsub 申请人侧）。
