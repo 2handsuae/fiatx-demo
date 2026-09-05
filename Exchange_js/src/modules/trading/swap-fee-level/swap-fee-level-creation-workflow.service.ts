@@ -187,6 +187,8 @@ export class SwapFeeLevelCreationWorkflowService {
         // 异步驱动：这条记录是被"审批已批准"这个决定触发的。
         causationId: approvalId,
         outcome: AuditOutcome.SUCCESS,
+        fromStatus: 'PENDING_APPROVAL',
+        toStatus: 'ACTIVE',
         afterData: {
           levelCode: level.levelCode,
           name: level.name,

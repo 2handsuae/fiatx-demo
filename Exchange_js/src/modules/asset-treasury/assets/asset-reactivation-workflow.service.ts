@@ -155,6 +155,8 @@ export class AssetReactivationWorkflowService {
         // 异步驱动：这条记录是被「审批已批准」这个决定触发的。
         causationId: event.approvalId,
         outcome: AuditOutcome.SUCCESS,
+        fromStatus: 'SUSPENDED',
+        toStatus: 'ACTIVE',
         approvalNo: event.approvalNo,
         metadata: {
           reactivatedByUserId: event.decisionByUserId,

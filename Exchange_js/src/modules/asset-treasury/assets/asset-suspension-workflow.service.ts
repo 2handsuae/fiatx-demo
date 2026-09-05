@@ -156,6 +156,8 @@ export class AssetSuspensionWorkflowService {
         // 异步驱动：这条记录是被「审批已批准」这个决定触发的。
         causationId: event.approvalId,
         outcome: AuditOutcome.SUCCESS,
+        fromStatus: 'ACTIVE',
+        toStatus: 'SUSPENDED',
         approvalNo: event.approvalNo,
         metadata: {
           suspendedByUserId: event.decisionByUserId,
