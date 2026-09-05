@@ -96,6 +96,8 @@ interface FundsOrderDetail {
   deposit?: FoParent | null;
   withdrawTransaction?: FoParent | null;
   swapTransaction?: FoParent | null;
+  // 平账二期：第四种父键——内部划转单。回链走业务号 transferNo，不碰 id。
+  internalTransfer?: { transferNo: string; status: string } | null;
   depositNo?: string | null;
   withdrawNo?: string | null;
   swapNo?: string | null;
@@ -169,6 +171,14 @@ const resolveParent = (
       no: data.swapNo,
       status: data.swapTransaction?.status ?? '',
       route: '/admin/trading/swaps/' + (data.swapTransaction?.id ?? ''),
+    };
+  }
+  if (data.internalTransfer?.transferNo) {
+    return {
+      kind: 'Internal transfer',
+      no: data.internalTransfer.transferNo,
+      status: data.internalTransfer.status ?? '',
+      route: '/admin/treasury/internal-transfers/' + data.internalTransfer.transferNo,
     };
   }
   return null;

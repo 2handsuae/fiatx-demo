@@ -61,6 +61,8 @@ const TransferEvidenceDetail = lazy(() => import('./pages/TransferEvidenceDetail
 const AccountFlowList = lazy(() => import('./pages/AccountFlowList'));
 const WithdrawalAddressList = lazy(() => import('./pages/WithdrawalAddressList'));
 const WithdrawalAddressDetail = lazy(() => import('./pages/WithdrawalAddressDetail'));
+const InternalTransferList = lazy(() => import('./pages/InternalTransferList'));
+const InternalTransferDetail = lazy(() => import('./pages/InternalTransferDetail'));
 const TransactionLimitList = lazy(() => import('./pages/TransactionLimitList'));
 const TransactionLimitDetail = lazy(() => import('./pages/TransactionLimitDetail'));
 const WithdrawalFeeLevelList = lazy(() => import('./pages/WithdrawalFeeLevelList'));
@@ -453,6 +455,10 @@ function App() {
             <Route path="custody/wallets/:walletNo" element={withPermission(<CustodianWalletDetail />, [PERMISSIONS.WALLET_DETAIL_READ])} />
             <Route path="custody/withdrawal-addresses" element={withPermission(<WithdrawalAddressList />, [PERMISSIONS.WITHDRAWAL_ADDRESSES_READ])} />
             <Route path="custody/withdrawal-addresses/:addressNo" element={withPermission(<WithdrawalAddressDetail />, [PERMISSIONS.WITHDRAWAL_ADDRESS_DETAIL_READ])} />
+
+            {/* 平账二期：内部划转单（公司 → 客户补款 / 垫款） */}
+            <Route path="treasury/internal-transfers" element={withPermission(<InternalTransferList />, [PERMISSIONS.INTERNAL_TRANSFERS_READ])} />
+            <Route path="treasury/internal-transfers/:transferNo" element={withPermission(<InternalTransferDetail />, [PERMISSIONS.INTERNAL_TRANSFER_DETAIL_READ])} />
 
             {/* assets */}
             <Route path="assets" element={withPermission(<AssetList />, [PERMISSIONS.ASSETS_READ])} />

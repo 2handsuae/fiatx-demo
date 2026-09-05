@@ -35,6 +35,8 @@ import {
 import { SidebarGroup, SidebarKV } from '../components/ui/SidebarPrimitives';
 import { StatusPill } from '../components/ui/StatusPill';
 import { BUCKET_LABELS, formatBucketBilingual, type ReconBucket } from '../utils/reconBucketMap';
+// 平账二期：划转单状态人话——与列表 / 详情页同一份词表（Task 13）
+import { INTERNAL_TRANSFER_STATUS_LABEL as TRANSFER_STATUS_WORD } from '../utils/internalTransferStatusMap';
 import { buildCaseConclusion } from '../utils/caseConclusion';
 import {
   AdminSessionError,
@@ -376,11 +378,6 @@ export const MATCH_LABEL: Record<FlowMatchType, string> = {
 // 平账 B 批（Task 9）：SUPPLEMENT 出口按 deferredTarget 给按钮文案——三路一个弹层，
 // 按钮词区分去向，弹层内部再按 kind 切表单。
 const SUPPLEMENT_ACTION_LABEL: Record<string, string> = { SUPPLEMENT_DEPOSIT: '发起补录', SUPPLEMENT_BOUNCE: '认领退汇', SUPPLEMENT_PAYOUT_RETURN: '认领退回' };
-
-// 平账二期：划转单状态的人话（与 utils/internalTransferStatusMap.ts 同词，Task 13 建后改为 import）
-const TRANSFER_STATUS_WORD: Record<string, string> = {
-  PENDING_APPROVAL: '待 CFO 复核', EXECUTING: '执行中 · 钱在路上', SUCCESS: '已到账', FAILED: '失败', REJECTED: '已拒绝', CANCELLED: '已撤回',
-};
 
 const MatchChip = ({ row }: { row: FlowComparisonRow }) => {
   const tone = MATCH_TONE[row.matchType];

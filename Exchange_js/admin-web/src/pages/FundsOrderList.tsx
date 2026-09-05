@@ -26,7 +26,7 @@ import {
 
 /* ── Types ──────────────────────────────────────────────────── */
 
-type ParentType = 'all' | 'deposit' | 'withdraw' | 'swap';
+type ParentType = 'all' | 'deposit' | 'withdraw' | 'swap' | 'internal-transfer';
 
 interface FundsOrderItem {
   fundsOrderNo: string;
@@ -38,6 +38,8 @@ interface FundsOrderItem {
   depositNo?: string | null;
   withdrawNo?: string | null;
   swapNo?: string | null;
+  // 平账二期：第四种父键——内部划转单
+  transferNo?: string | null;
   txHash?: string | null;
   referenceNo?: string | null;
 }
@@ -62,6 +64,7 @@ const PARENT_TYPES: Array<{ key: ParentType; label: string }> = [
   { key: 'deposit', label: 'Deposit' },
   { key: 'withdraw', label: 'Withdraw' },
   { key: 'swap', label: 'Swap' },
+  { key: 'internal-transfer', label: 'Internal transfer' },
 ];
 
 /* ── Helpers ────────────────────────────────────────────────── */
@@ -73,6 +76,7 @@ const parentOf = (
   if (item.depositNo) return { kind: 'Deposit', no: item.depositNo };
   if (item.withdrawNo) return { kind: 'Withdraw', no: item.withdrawNo };
   if (item.swapNo) return { kind: 'Swap', no: item.swapNo };
+  if (item.transferNo) return { kind: 'Internal transfer', no: item.transferNo };
   return { kind: '—', no: null };
 };
 

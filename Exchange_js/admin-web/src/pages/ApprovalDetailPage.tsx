@@ -112,6 +112,8 @@ const ENTITY_ROUTE_BY_ACTION: Record<string, (ref: string) => string | null> = {
   ROLE_DEFINITION_MODIFY: (r) => `/admin/iam/role-definition-modify-requests/${r}`,
   // 对账域（entityRef = adjustmentNo）
   RECON_ADJUSTMENT_POST: (r) => `/admin/reconciliation/adjustments/${r}`,
+  // 平账二期（entityRef = transferNo）
+  INTERNAL_TRANSFER_APPROVAL: (r) => `/admin/treasury/internal-transfers/${r}`,
 };
 
 /* ── Shared layout primitives ────────────────────────────────── */

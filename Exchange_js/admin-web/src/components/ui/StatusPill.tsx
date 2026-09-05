@@ -30,6 +30,7 @@ const STATUS_PILL_MAP: Record<string, string> = {
   PAYOUT_PENDING: 'bg-blue-100 text-blue-800',
   PROCESSING: 'bg-blue-100 text-blue-800',
   INTERNAL_FUNDS_PENDING: 'bg-blue-100 text-blue-800',
+  EXECUTING: 'bg-blue-100 text-blue-800',
   SIGNING: 'bg-amber-100 text-amber-800',
   BROADCASTED: 'bg-blue-100 text-blue-800',
   CONFIRMING: 'bg-amber-100 text-amber-800',
