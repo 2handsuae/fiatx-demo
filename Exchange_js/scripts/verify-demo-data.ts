@@ -270,12 +270,31 @@ async function scanR5(prisma: PrismaClient): Promise<void> {
     // 七块在 demo:all 跑过一次之后都不可能为空（资产 2 / 平台钱包 7 / 限额 15 / 兑换费率 3 /
     // 提现费率 2 / 客户收款钱包 12 / 提现地址 8——后两块数随花名册人数变而变，此处只是现场实测值）。
     // 空表就跳过 = 「没装载任何配置」也算「装载都留了痕」——正是本判据上一版栽的那种空真绿。
+    const actorNo = block.actorNo ?? 'RELEASE';
     if (block.keys.length === 0) {
       if (block.skipIfEmpty) {
-        // demo-lib.ts#ensureSetup 还没跑过（reset 链内先跑 prisma/seed.ts --mode=business
-        // 就会调用一次本脚本——见文件头 R5 注释），这一刻这两块活着的业务行天生是 0 条，
-        // 不是"装载都没留痕"的空真绿：这里没有任何东西被装载过，谈不上留没留痕。
-        console.log(`  [R5] SKIP ${block.action} — no live ${block.entity} rows matching ${block.scope} yet (demo-lib.ts#ensureSetup hasn't run in this DB); not a violation`);
+        // 光看活体 keys 为空分不清两种情况：① demo-lib.ts#ensureSetup 还没跑过（reset 链内
+        // 先跑 prisma/seed.ts --mode=business 就会调用一次本脚本——见文件头 R5 注释）；
+        // ② demo:all 跑过了，但这一块的活体行是空的（建行被删 / 判别式漂移）——孤儿方向的
+        // 对称半边，之前的代码对它是盲的。
+        // 判别器**不能用审计行数**：`stack.sh reset` 清业务表但刻意不清 audit_log_events
+        // （writeSeedAudit 幂等去重依赖它），所以"审计在、活体空"在 reset 链内是常态。
+        // 用 demo 的活体证据当判别器：充值单表非空 = demo:all 在这个库里真跑过。
+        const demoDeposits = await (prisma as any).depositTransaction.count();
+        if (demoDeposits === 0) {
+          // 业务种子刚铺完、demo 还没跑——SKIP，不计违规（reset 链走这条）。
+          console.log(`  [R5] SKIP ${block.action} — no live ${block.entity} rows matching ${block.scope} yet (demo-lib.ts#ensureSetup hasn't run in this DB); not a violation`);
+          continue;
+        }
+        // demo 数据在场（充值单非空）而本块活体行为零——建行被删或判别式漂移，必须报红。
+        // ⚠️ 边界：ensureSetup 整段被删（行、审计、连 demo 主流程一起消失）不归本判据管——
+        // 那种退化 demo:all 自己的 29/29 花名册断言会先炸（没有客户收款钱包/提现地址，
+        // 充值/提现单一张都建不起来），轮不到这里。
+        violations.push({
+          rule: 'R5',
+          entity: block.entity,
+          detail: `demo data present (${demoDeposits} deposit rows) but 0 live ${block.entity} rows matching ${block.scope} — rows deleted, or the seed discriminator drifted`,
+        });
         continue;
       }
       violations.push({
@@ -287,7 +306,6 @@ async function scanR5(prisma: PrismaClient): Promise<void> {
       });
       continue;
     }
-    const actorNo = block.actorNo ?? 'RELEASE';
     const rows: any[] = await (prisma as any).auditLogEvent.findMany({
       where: { actorNo, action: block.action, primarySubjectNo: { in: block.keys } },
       select: { primarySubjectNo: true },
