@@ -88,14 +88,14 @@ describe('assertReasonAllowed —— 成因 × 账簿 × 方向 合法组合写�
     expect(() => assertReasonAllowed('WITHDRAW_VOID_REFUND', 'FIRM', 'INCREASE')).toThrow(BadRequestException);
   });
 
-  it('成因清单恰好十个（含第四族改记 + 平账 A 批两码），且无兜底档', () => {
+  it('成因清单恰好十一个（含第四族改记 + 平账 A 批两码 + 二期客户池认损），且无兜底档', () => {
     const codes = Object.keys(REASON_SPECS).sort();
     expect(codes).toEqual([
       'BANK_CHARGE', 'BANK_INTEREST',
       'CUSTOMER_REATTRIBUTION',
       'DEPOSIT_AMOUNT_CORRECTION', 'DEPOSIT_DUPLICATE_REVERSAL', 'DEPOSIT_SIGNAL_VOID',
       'FIRM_ENTRY_REVERSAL',
-      'UNEXPLAINED_WRITE_OFF',
+      'UNEXPLAINED_CLIENT_LOSS', 'UNEXPLAINED_WRITE_OFF',
       'WITHDRAW_AMOUNT_CORRECTION', 'WITHDRAW_VOID_REFUND',
     ]);
   });

@@ -513,7 +513,7 @@ describe('Recon case aging → write-off e2e (平账 A 批, Task 12)', () => {
     expect(healed.resolutionReason).toBe('AUTO_HEALED');
   });
 
-  it('反例③：客户池超期 + 调查中 → 核销 400，读面给「待二期划转」', async () => {
+  it('反例③（二期改口）：客户池超期 + 调查中——拿公司池码 400；拿客户池认损码 REDUCE 放行建单', async () => {
     const customer = await makeCustomer('EX3');
     const wallet = await createCustomerWallet({ ownerId: customer.id, ownerNo: customer.customerNo, network: 'AED_ZAND', walletRole: 'C_VIBAN', iban: `AE-E2E-${randomUUID().slice(0, 8)}` });
     const kase = await createFixtureCase({ walletRef: wallet.id, book: 'CLIENT', ownerNo: customer.customerNo });
@@ -526,10 +526,11 @@ describe('Recon case aging → write-off e2e (平账 A 批, Task 12)', () => {
         findingNote: 'e2e fixture', createdByUserId: 'E2E',
       },
     });
-    await expect(adjustments.createDraft({
-      caseNo: kase.caseNo, reasonCode: 'UNEXPLAINED_WRITE_OFF', direction: 'REDUCE', amount: '7', effectiveDate: TODAY,
-      explainedFlowId: flowId, reasonInternal: 'x', reasonCustomer: 'x',
-    } as any, makeActor('E2E_TREASURY_C', 'TREASURY_OFFICER'))).rejects.toThrow(/二期/);
+    const treasury = makeActor('E2E_TREASURY_C', 'TREASURY_OFFICER');
+    const base = { caseNo: kase.caseNo, direction: 'REDUCE', amount: '7', effectiveDate: TODAY, explainedFlowId: flowId, reasonInternal: 'x', reasonCustomer: 'x' };
+    await expect(adjustments.createDraft({ ...base, reasonCode: 'UNEXPLAINED_WRITE_OFF' } as any, treasury)).rejects.toThrow(/客户池查无果认损/);
+    const { adjustmentNo } = await adjustments.createDraft({ ...base, reasonCode: 'UNEXPLAINED_CLIENT_LOSS' } as any, treasury);
+    expect((await adjustmentRow(adjustmentNo)).book).toBe('CLIENT');
   });
 
   it('跨日切：跑批截止点后 6 小时的外部行，案件页仍显示那条「我有外无」（spec §6.1）', async () => {

@@ -251,6 +251,48 @@ describe('AdjustmentService.createDraft 两道闸 —— 门不可绕的落点�
       expect(create).toHaveBeenCalled();
     }
   });
+
+  // 平账二期 Task 4：客户池核销解锁为「认损」——UNEXPLAINED_CLIENT_LOSS 只许
+  // REDUCE，多出来的（INCREASE）指路补录；账簿 × 成因码配对不许交叉用码。
+  // 本 describe 已有的 makeSvc(kase, create) 是两个位置参数的形状，与这里
+  // 三个具名子对象（kase/disposition/asset）的调法不同，故另起一个同名局部
+  // 工厂（嵌套 describe 作用域内遮蔽，不影响本 describe 其它用例）。
+  describe('客户池认损（平账二期 Task 4）——UNEXPLAINED_CLIENT_LOSS 放行 / 拒绝', () => {
+    const treasury = { actorType: 'ADMIN' as const, userId: 'U_TREASURY', userNo: 'U_TREASURY', roleCodes: ['TREASURY_OFFICER'] };
+
+    const makeSvc = (opts: { kase: any; disposition: any; asset: any }) => {
+      const prisma: any = {
+        reconciliationCase: { findUnique: jest.fn().mockResolvedValue(opts.kase) },
+        reconciliationDisposition: { findFirst: jest.fn().mockResolvedValue(opts.disposition) },
+        asset: { findUnique: jest.fn().mockResolvedValue(opts.asset) },
+        customerMain: { findUnique: jest.fn().mockResolvedValue({ id: 'uuid-cu' }) },
+        reconciliationAdjustment: { create: jest.fn(({ data }: any) => Promise.resolve({ ...data })) },
+      };
+      const svc = new AdjustmentService(
+        prisma, {} as any, {} as any, { recordByActor: jest.fn() } as any, { linkAdjustment: jest.fn() } as any,
+      );
+      return { svc, prisma };
+    };
+
+    it('客户池认损·放行：超期 + 调查中 + 小额 + REDUCE + 码 UNEXPLAINED_CLIENT_LOSS → 建单', async () => {
+      const { svc, prisma } = makeSvc({
+        kase: { caseNo: 'REC-C1', status: 'OPEN', book: 'CUSTOMER', assetCode: 'USDT-TRON', walletRef: 'w-1', ownerNo: 'CU-1', slaBreached: true, businessDate: '2026-09-05' },
+        disposition: { dispositionNo: 'RCD-1', outlet: 'HOLD_INVESTIGATING', adjustmentNo: null },
+        asset: { currency: 'USDT', decimals: 6 },
+      });
+      const r = await svc.createDraft({ caseNo: 'REC-C1', reasonCode: 'UNEXPLAINED_CLIENT_LOSS', direction: 'REDUCE', amount: '7500000', effectiveDate: '2026-09-05', explainedFlowId: 'f-1', reasonInternal: 'x', reasonCustomer: 'x' } as any, treasury);
+      expect(r.adjustmentNo).toMatch(/^ADJ/);
+      expect(prisma.reconciliationAdjustment.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ book: 'CLIENT', reasonCode: 'UNEXPLAINED_CLIENT_LOSS', direction: 'REDUCE' }) }));
+    });
+    it('客户池·多出来的钱（INCREASE）→ 400 指路补录', async () => {
+      const { svc } = makeSvc({ kase: { caseNo: 'REC-C2', status: 'OPEN', book: 'CUSTOMER', assetCode: 'AED', walletRef: 'w-2', ownerNo: 'CU-2', slaBreached: true, businessDate: '2026-09-05' }, disposition: { dispositionNo: 'RCD-2', outlet: 'HOLD_INVESTIGATING', adjustmentNo: null }, asset: { currency: 'AED', decimals: 2 } });
+      await expect(svc.createDraft({ caseNo: 'REC-C2', reasonCode: 'UNEXPLAINED_CLIENT_LOSS', direction: 'INCREASE', amount: '100', effectiveDate: '2026-09-05', explainedExternalLineId: 'x-1', reasonInternal: 'x', reasonCustomer: 'x' } as any, treasury)).rejects.toThrow(/补录/);
+    });
+    it('客户池拿公司池的码 / 公司池拿客户池的码 → 400', async () => {
+      const { svc } = makeSvc({ kase: { caseNo: 'REC-C3', status: 'OPEN', book: 'CUSTOMER', assetCode: 'AED', walletRef: 'w-3', ownerNo: 'CU-3', slaBreached: true, businessDate: '2026-09-05' }, disposition: { dispositionNo: 'RCD-3', outlet: 'HOLD_INVESTIGATING', adjustmentNo: null }, asset: { currency: 'AED', decimals: 2 } });
+      await expect(svc.createDraft({ caseNo: 'REC-C3', reasonCode: 'UNEXPLAINED_WRITE_OFF', direction: 'REDUCE', amount: '100', effectiveDate: '2026-09-05', explainedFlowId: 'f-3', reasonInternal: 'x', reasonCustomer: 'x' } as any, treasury)).rejects.toThrow(/客户池查无果认损/);
+    });
+  });
 });
 
 describe('AdjustmentService.onRejected —— 驳回落库 + 终态闸（Task 4 补测 B）', () => {
@@ -945,9 +987,12 @@ describe('平账 A 批：核销四前提（spec §3.2）——少一道就是抹
   it('前提 2b：定性已挂单 → 400', async () => {
     await expect(makeSvc(firmCase, { ...heldDisposition, adjustmentNo: 'ADJ_OLD' }).svc.createDraft(dto as any, OP)).rejects.toThrow(/ADJ_OLD/);
   });
-  it('前提 3：客户池 → 400，文案指向二期划转', async () => {
+  // 平账二期 Task 4 改口：客户池不再一律 400——用公司池的核销码（UNEXPLAINED_WRITE_OFF）
+  // 才拒，拒因是「账簿 × 成因码配对」不对，指向客户池自己的认损码，不再是「二期划转」
+  // （客户池用对码 UNEXPLAINED_CLIENT_LOSS 放行的路径见下方新增 describe）。
+  it('前提 3：客户池用了公司池的核销码 → 400，文案指向客户池认损码', async () => {
     const { svc } = makeSvc({ ...firmCase, book: 'CLIENT', ownerNo: 'C0042' }, heldDisposition);
-    await expect(svc.createDraft(dto as any, OP)).rejects.toThrow(/二期/);
+    await expect(svc.createDraft(dto as any, OP)).rejects.toThrow(/客户池查无果认损/);
   });
   it('前提 4：金额超小额线 → 400，文案指向事故登记', async () => {
     const { svc } = makeSvc(firmCase, heldDisposition);

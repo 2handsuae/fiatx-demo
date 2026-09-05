@@ -18,7 +18,8 @@ export type ReasonCode =
   | 'BANK_CHARGE'
   | 'CUSTOMER_REATTRIBUTION'
   | 'FIRM_ENTRY_REVERSAL'
-  | 'UNEXPLAINED_WRITE_OFF';
+  | 'UNEXPLAINED_WRITE_OFF'
+  | 'UNEXPLAINED_CLIENT_LOSS';
 
 /**
  * 成因清单（业主 2026-08-28 确认）。**无兜底档**——兜底档一开，说不清的全往里塞，
@@ -55,6 +56,9 @@ export const REASON_SPECS: Record<ReasonCode, {
   // 平账 A 批（spec §3）：第五族核销——查无果 + 账龄到线 + 小额，公司认下来。
   // 不是成因表里的成因：触发它的是账龄，开单守卫在 adjustment.service.assertWriteOffAllowed。
   UNEXPLAINED_WRITE_OFF:      { book: 'FIRM',   directions: ['REDUCE', 'INCREASE'], customerLabel: null, internalLabel: '查无果核销', family: 'WRITE_OFF' },
+  // 平账二期（spec §7.1）：客户池查无果认损——托管里真少了钱，先让账跟着外面走（客户余额下降），
+  // 再由公司补款划转补齐；只许 REDUCE（托管里多出来的走补录，不许核销进客户余额）。
+  UNEXPLAINED_CLIENT_LOSS:    { book: 'CLIENT', directions: ['REDUCE'],             customerLabel: '平台调整',     internalLabel: '客户池查无果认损', family: 'WRITE_OFF' },
 };
 
 export function assertReasonAllowed(reasonCode: ReasonCode, book: Book, direction: Direction): void {

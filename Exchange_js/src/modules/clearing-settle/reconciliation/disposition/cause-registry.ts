@@ -4,6 +4,7 @@
 // 我方账错了 / 我方账缺了 / 时机没到 三种性质之一。
 // 平账 A 批（2026-09-02）：删「精度尘埃差」（豁免不做，本系统精度与服务商一致）；公司两成因定码冲销；核销不是成因、是账龄的后续（resolveWriteOff）。
 // 平账 B 批（2026-09-03）：漏记入金 / 入金退汇 / 提现退回 三码改走 SUPPLEMENT 出口（补单开门）。
+// 平账二期（2026-09-05）：退役 FIRM_TRANSFER_UNTRACKED（二期不做公司池调拨，「留档·二期内部划转」永远点不通；同格误记 → 冲销、查不出 → 挂起已分完），21 → 20。
 // 纯常量 + 纯函数，无 IO；BadRequestException 是唯一的 Nest 依赖。
 import { BadRequestException } from '@nestjs/common';
 
@@ -17,7 +18,6 @@ export type DeferredTarget =
   | 'SUPPLEMENT_DEPOSIT'        // 补单 → 充值域补录（B 批已开）
   | 'SUPPLEMENT_BOUNCE'         // 补单 → 入金退汇认领（B 批已开）
   | 'SUPPLEMENT_PAYOUT_RETURN'  // 补单 → 出金退回认领（B 批已开）
-  | 'INTERNAL_TRANSFER'         // 二期内部划转
   | 'INCIDENT'                  // 三期事故升级
   | 'NO_REASON_CODE';           // 冲正类成因遇 SWAP 流水，无对应 reason 码（spec §11-6）
 
@@ -25,7 +25,7 @@ export type CauseCode =
   | 'AMT_MISBOOKED' | 'AMT_FEE_NETTED' | 'AMT_ROUNDING'
   | 'FIRM_AMT_UNDERBOOKED' | 'FIRM_AMT_OVERBOOKED'
   | 'DUP_BOOKING' | 'PHANTOM_BOOKING' | 'PAYOUT_NOT_EXECUTED' | 'MISATTRIBUTED_FROM' | 'CUTOFF_STRADDLE'
-  | 'FIRM_MISBOOKED' | 'FIRM_TRANSFER_UNTRACKED'
+  | 'FIRM_MISBOOKED'
   | 'MISSED_DEPOSIT' | 'BOUNCED_FUNDS' | 'PAYOUT_RETURNED' | 'MISATTRIBUTED_TO' | 'UNAUTHORIZED_OUTFLOW'
   | 'BANK_INTEREST_UNBOOKED' | 'BANK_CHARGE_UNBOOKED' | 'UNCLAIMED_INFLOW'
   | 'UNEXPLAINED';
@@ -69,7 +69,6 @@ export const CAUSE_REGISTRY: Record<CauseCode, CauseSpec> = {
   CUTOFF_STRADDLE:     { cells: [C('ORPHAN_INTERNAL', 'CLIENT')], label: '跨账期——下期自平', clue: '外部行时间戳落下一账期，余额并不差', kind: 'HOLD_NEXT_PERIOD' },
   // ── 我有外无 × 公司 ──
   FIRM_MISBOOKED:          { cells: [C('ORPHAN_INTERNAL', 'FIRM')], label: '公司收支误记/重复记', clue: '银行单查无', kind: 'ADJUST', family: 'REVERSE' },
-  FIRM_TRANSFER_UNTRACKED: { cells: [C('ORPHAN_INTERNAL', 'FIRM')], label: '公司调拨已记账、无资金单跟踪', clue: '本不该发生——公司资金移动应有内部划转单', kind: 'DEFERRED', deferredTarget: 'INTERNAL_TRANSFER', deferredLabel: '二期内部划转' },
   // ── 外有我无 × 客户 ──
   MISSED_DEPOSIT:   { cells: [C('ORPHAN_EXTERNAL', 'CLIENT')], label: '漏记客户入金', clue: '外部行带客户归属（VIBAN/链上地址）', kind: 'SUPPLEMENT', supplementTarget: 'SUPPLEMENT_DEPOSIT', supplementLabel: '充值补录', requiredDirection: 'IN' },
   BOUNCED_FUNDS:    { cells: [C('ORPHAN_EXTERNAL', 'CLIENT')], label: '入金被退汇/回冲', clue: '外部 OUT 与此前某笔成功入金同源', kind: 'SUPPLEMENT', supplementTarget: 'SUPPLEMENT_BOUNCE', supplementLabel: '退汇认领', requiredDirection: 'OUT' },
@@ -205,17 +204,19 @@ export interface WriteOffFacts extends RowFacts {
  * 取内部方向的反向（同冲销）；外有我无照外部方向（同补记孤儿）。
  */
 export function resolveWriteOff(facts: WriteOffFacts): {
-  reasonCode: 'UNEXPLAINED_WRITE_OFF'; family: 'WRITE_OFF'; direction: 'REDUCE' | 'INCREASE'; amountMinor: string;
+  reasonCode: 'UNEXPLAINED_WRITE_OFF' | 'UNEXPLAINED_CLIENT_LOSS'; family: 'WRITE_OFF'; direction: 'REDUCE' | 'INCREASE'; amountMinor: string;
 } {
+  // 平账二期：客户池另立成因码（分录同为借应付 / 贷资产池，但审批文案、客户可见标签、守卫都不同）
+  const reasonCode = facts.book === 'FIRM' ? 'UNEXPLAINED_WRITE_OFF' : 'UNEXPLAINED_CLIENT_LOSS';
   const abs = (s: string | undefined) => (s ?? '0').replace(/^-/, '');
   if (facts.matchType === 'AMOUNT_MISMATCH') {
     const direction: 'REDUCE' | 'INCREASE' = signedDeltaSign(facts) === -1 ? 'REDUCE' : 'INCREASE';
-    return { reasonCode: 'UNEXPLAINED_WRITE_OFF', family: 'WRITE_OFF', direction, amountMinor: abs(facts.deltaAmount) };
+    return { reasonCode, family: 'WRITE_OFF', direction, amountMinor: abs(facts.deltaAmount) };
   }
   if (facts.matchType === 'ORPHAN_INTERNAL') {
     const direction: 'REDUCE' | 'INCREASE' = facts.internalDirection === 'OUT' ? 'INCREASE' : 'REDUCE';
-    return { reasonCode: 'UNEXPLAINED_WRITE_OFF', family: 'WRITE_OFF', direction, amountMinor: abs(facts.internalAmount) };
+    return { reasonCode, family: 'WRITE_OFF', direction, amountMinor: abs(facts.internalAmount) };
   }
   const direction: 'REDUCE' | 'INCREASE' = facts.externalDirection === 'IN' ? 'INCREASE' : 'REDUCE';
-  return { reasonCode: 'UNEXPLAINED_WRITE_OFF', family: 'WRITE_OFF', direction, amountMinor: abs(facts.externalAmount) };
+  return { reasonCode, family: 'WRITE_OFF', direction, amountMinor: abs(facts.externalAmount) };
 }

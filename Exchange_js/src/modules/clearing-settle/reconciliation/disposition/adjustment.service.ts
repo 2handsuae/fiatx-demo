@@ -62,6 +62,12 @@ export class AdjustmentService {
       return `本单将把 ${majorAmount} ${row.assetCode} 从客户 ${row.ownerNo ?? '(未知)'} 名下改记到客户 ${row.toOwnerNo ?? '(未知)'} 名下；`
            + `客户资产总额不变；理由：${row.reasonInternal}`;
     }
+    // 平账二期（spec §7.1）：客户池认损——审批人要读到「谁的钱包、少了多少、客户余额跟着降、随后公司补款」。
+    if (row.reasonCode === 'UNEXPLAINED_CLIENT_LOSS') {
+      const majorAmount = bigintToDecimal(BigInt(row.amount), decimals).toFixed(decimals);
+      return `客户池查无果认损：客户 ${row.ownerNo ?? '(未知)'} 钱包 ${extra?.walletNo ?? '(未知)'} ${row.assetCode} 差额 ${majorAmount} 认损，客户余额相应减少；`
+           + `案件 ${row.caseNo ?? '(未知)'} 已超期 ${extra?.agedDays ?? '?'} 天；查证结论：${extra?.findingNote ?? row.reasonInternal}；认损后由公司补款划转补齐`;
+    }
     // 第五族核销（spec §3.7）：审批人要读到的是「哪个池子、哪个钱包、差额往哪去、悬了多久、查过什么」。
     if (row.reasonCode === 'UNEXPLAINED_WRITE_OFF') {
       const majorAmount = bigintToDecimal(BigInt(row.amount), decimals).toFixed(decimals);
@@ -104,7 +110,7 @@ export class AdjustmentService {
   /**
    * 核销四前提（spec §3.2）——全部 400、人话文案：
    *   ① 案子已超期  ② 锚的那行已定性且出口 = 挂起·调查中、未挂单
-   *   ③ 案件账簿 = 公司  ④ 金额 ≤ 该币种小额线
+   *   ③ 账簿 × 成因码配对；客户池只许 REDUCE  ④ 金额 ≤ 该币种小额线
    * 返回命中的定性行（afterDraftCreated 据此挂单号锁定）。
    */
   private async assertWriteOffAllowed(dto: CreateAdjustmentDto, kase: any, book: Book): Promise<{ dispositionNo: string }> {
@@ -126,8 +132,17 @@ export class AdjustmentService {
     if (held.adjustmentNo) {
       throw new BadRequestException(`该行定性已挂调账单 ${held.adjustmentNo}，不可再开核销单`);
     }
-    if (book !== 'FIRM') {
-      throw new BadRequestException('客户池的查无果差异不能一笔核销：托管里真少了钱，要先认损再由公司补款（二期划转）');
+    // ③ 账簿 × 成因码配对（平账二期解锁客户池）：公司池走 UNEXPLAINED_WRITE_OFF，客户池走
+    //    UNEXPLAINED_CLIENT_LOSS；客户池只许「托管里少了」（REDUCE）——多出来的钱不能核销进客户
+    //    余额，那是绕充值合规闸往客户钱包塞钱，查清归属后走补录。
+    const expectedReason = book === 'FIRM' ? 'UNEXPLAINED_WRITE_OFF' : 'UNEXPLAINED_CLIENT_LOSS';
+    if (dto.reasonCode !== expectedReason) {
+      throw new BadRequestException(book === 'FIRM'
+        ? '公司池查无果走「查无果核销」（UNEXPLAINED_WRITE_OFF），不能用客户池认损码'
+        : '客户池查无果走「客户池查无果认损」（UNEXPLAINED_CLIENT_LOSS），不能用公司池核销码');
+    }
+    if (book !== 'FIRM' && dto.direction !== 'REDUCE') {
+      throw new BadRequestException('客户池多出来的钱不能核销进客户余额：查清归属后走补录（充值域），不走认损');
     }
     const asset = await (this.prisma as any).asset.findUnique({ where: { code: kase.assetCode }, select: { currency: true, decimals: true } });
     const currency: string = asset?.currency ?? kase.assetCode;
@@ -155,7 +170,7 @@ export class AdjustmentService {
 
     // 第五族核销（spec §3.2）：四道前提，少一道就是抹差异的后门。守卫顺序 = spec 表序。
     let heldDispositionNo: string | null = null;
-    if (dto.reasonCode === 'UNEXPLAINED_WRITE_OFF') {
+    if (dto.reasonCode === 'UNEXPLAINED_WRITE_OFF' || dto.reasonCode === 'UNEXPLAINED_CLIENT_LOSS') {
       heldDispositionNo = (await this.assertWriteOffAllowed(dto, kase, book)).dispositionNo;
     }
 
@@ -337,7 +352,7 @@ export class AdjustmentService {
     });
     // 第五族核销：后果原话要带钱包号 / 超期天数 / 查证结论（spec §3.7），三样都不在单上，现查。
     let extra: { walletNo?: string | null; agedDays?: number | null; findingNote?: string | null } | undefined;
-    if (row.reasonCode === 'UNEXPLAINED_WRITE_OFF') {
+    if (row.reasonCode === 'UNEXPLAINED_WRITE_OFF' || row.reasonCode === 'UNEXPLAINED_CLIENT_LOSS') {
       const kase = await (this.prisma as any).reconciliationCase.findUnique({ where: { caseNo: row.caseNo }, select: { slaDeadline: true } });
       const wallet = row.walletRef && !String(row.walletRef).startsWith('XREF:')
         ? await (this.prisma as any).wallet.findUnique({ where: { id: row.walletRef }, select: { walletNo: true } })

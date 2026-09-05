@@ -182,10 +182,14 @@ export interface FlowComparisonRow {
   // 平账 A 批（spec §2.6）：超期后的下一步——只在「案件超期 + 该行已定性为挂起·调查中 + 未挂单」时出现。
   // 服务端算（前端不自己拼真相）：WRITE_OFF 带开单预填四项；另外两种只是只读标签。
   nextStep?: {
-    kind: 'WRITE_OFF' | 'INCIDENT_DEFERRED' | 'TRANSFER_DEFERRED';
-    reasonCode?: 'UNEXPLAINED_WRITE_OFF'; direction?: 'REDUCE' | 'INCREASE';
-    amount?: string;          // 最小单位整数字符串
-    effectiveDate?: string;   // = 案件业务日
+    kind: 'WRITE_OFF' | 'INCIDENT_DEFERRED' | 'CLIENT_SURPLUS' | 'COMPENSATION' | 'ADVANCE';
+    reasonCode?: 'UNEXPLAINED_WRITE_OFF' | 'UNEXPLAINED_CLIENT_LOSS'; direction?: 'REDUCE' | 'INCREASE';
+    amount?: string;          // 最小单位整数字符串（WRITE_OFF：核销 / 认损额；COMPENSATION：补款额；ADVANCE：差额）
+    effectiveDate?: string;   // = 案件业务日（WRITE_OFF）
+    adjustmentNo?: string;    // COMPENSATION：来源认损单
+    externalLineId?: string;  // ADVANCE：被退汇的账单行（隐藏锚，不上页面）
+    customerNo?: string | null; walletNo?: string | null;
+    available?: string; lineAmount?: string; // ADVANCE：客户可用 / 账单行金额（最小单位）
   };
 }
 

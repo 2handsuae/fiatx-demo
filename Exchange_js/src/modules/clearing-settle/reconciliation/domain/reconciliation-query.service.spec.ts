@@ -1365,9 +1365,13 @@ describe('平账 A 批：超期后的下一步 nextStep（spec §2.6）', () => 
     const res = await mkSvc(prisma, { flowMatcher: mismatchMatcher }).getCase('REC-A');
     expect(res.flowComparison.find((r: any) => r.matchType === 'AMOUNT_MISMATCH')!.nextStep).toEqual({ kind: 'INCIDENT_DEFERRED' });
   });
-  it('客户池 + 超期 + 调查中 → TRANSFER_DEFERRED', async () => {
+  // 平账二期 Task 4 改口：客户池超期不再一律 TRANSFER_DEFERRED——小额且「托管里少了」
+  // （REDUCE）直接解锁认损（reasonCode 换成 UNEXPLAINED_CLIENT_LOSS，其余三项与公司池
+  // 同款预填）；多出来的（INCREASE）→ CLIENT_SURPLUS、大额 → INCIDENT_DEFERRED，
+  // 由 adjustment.service 的账簿 × 成因码守卫兜底，本用例只覆盖小额 REDUCE 这一支。
+  it('客户池 + 超期 + 调查中 + 小额 + REDUCE → WRITE_OFF（认损码，平账二期解锁）', async () => {
     const res = await mkSvc(prismaFor({ book: 'CLIENT', slaBreached: true, disposition: { ...held, book: 'CLIENT' } }), { flowMatcher: mismatchMatcher }).getCase('REC-A');
-    expect(res.flowComparison.find((r: any) => r.matchType === 'AMOUNT_MISMATCH')!.nextStep).toEqual({ kind: 'TRANSFER_DEFERRED' });
+    expect(res.flowComparison.find((r: any) => r.matchType === 'AMOUNT_MISMATCH')!.nextStep).toEqual({ kind: 'WRITE_OFF', reasonCode: 'UNEXPLAINED_CLIENT_LOSS', direction: 'REDUCE', amount: '7', effectiveDate: '2026-09-02' });
   });
   it('未超期 / 未定性 / 结论不是调查中 / 已挂单 → 没有 nextStep', async () => {
     const notBreached = await mkSvc(prismaFor({ book: 'FIRM', slaBreached: false, disposition: held }), { flowMatcher: mismatchMatcher }).getCase('REC-A');

@@ -16,7 +16,7 @@ describe('cause-registry —— 六格成因菜单（spec §4，注册表单一�
   });
   it('我有外无 × 公司', () => {
     expect(codes('ORPHAN_INTERNAL', 'FIRM')).toEqual([
-      'FIRM_MISBOOKED', 'FIRM_TRANSFER_UNTRACKED', 'UNEXPLAINED',
+      'FIRM_MISBOOKED', 'UNEXPLAINED',
     ]);
   });
   it('外有我无 × 客户', () => {
@@ -29,7 +29,7 @@ describe('cause-registry —— 六格成因菜单（spec §4，注册表单一�
       'BANK_INTEREST_UNBOOKED', 'BANK_CHARGE_UNBOOKED', 'UNCLAIMED_INFLOW', 'UNEXPLAINED',
     ]);
   });
-  it('21 码分完，无遗漏：每个码至少出现在一个格的菜单里', () => {
+  it('20 码分完，无遗漏：每个码至少出现在一个格的菜单里', () => {
     const all = new Set<string>();
     (['AMOUNT_MISMATCH', 'ORPHAN_INTERNAL', 'ORPHAN_EXTERNAL'] as const).forEach((mt) =>
       (['CLIENT', 'FIRM'] as const).forEach((book) => codes(mt, book).forEach((c) => all.add(c))));
@@ -183,12 +183,25 @@ describe('平账 A 批：公司账簿冲销定码 + 核销判定（spec §3.3 / 
         .toEqual({ reasonCode: 'UNEXPLAINED_WRITE_OFF', family: 'WRITE_OFF', direction: 'INCREASE', amountMinor: '300' });
       expect(resolveWriteOff({ matchType: 'ORPHAN_EXTERNAL', book: 'FIRM', externalDirection: 'OUT', externalAmount: '300' }).direction).toBe('REDUCE');
     });
+    it('客户池：成因码是 UNEXPLAINED_CLIENT_LOSS，方向仍按「让内部等于外部」', () => {
+      const r = resolveWriteOff({ matchType: 'AMOUNT_MISMATCH', book: 'CLIENT', deltaSign: -1, internalDirection: 'IN', deltaAmount: '-7500000' });
+      expect(r).toEqual({ reasonCode: 'UNEXPLAINED_CLIENT_LOSS', family: 'WRITE_OFF', direction: 'REDUCE', amountMinor: '7500000' });
+      const inc = resolveWriteOff({ matchType: 'ORPHAN_EXTERNAL', book: 'CLIENT', externalDirection: 'IN', externalAmount: '100' });
+      expect(inc.reasonCode).toBe('UNEXPLAINED_CLIENT_LOSS');
+      expect(inc.direction).toBe('INCREASE'); // 方向照算；「客户池不许 INCREASE」由 adjustment.service 与读面拦，不在纯函数里拦
+    });
+    it('公司池仍是 UNEXPLAINED_WRITE_OFF', () => {
+      expect(resolveWriteOff({ matchType: 'ORPHAN_INTERNAL', book: 'FIRM', internalDirection: 'IN', internalAmount: '7' }).reasonCode).toBe('UNEXPLAINED_WRITE_OFF');
+    });
+  });
+  it('FIRM_TRANSFER_UNTRACKED 已退役（二期不做公司池调拨，出口永远点不通）', () => {
+    expect((CAUSE_REGISTRY as any).FIRM_TRANSFER_UNTRACKED).toBeUndefined();
   });
 });
 
 describe('平账 B 批：补单出口（spec §6）', () => {
-  it('成因码 21 个；三码走 SUPPLEMENT 出口', () => {
-    expect(Object.keys(CAUSE_REGISTRY)).toHaveLength(21);
+  it('成因码 20 个；三码走 SUPPLEMENT 出口', () => {
+    expect(Object.keys(CAUSE_REGISTRY)).toHaveLength(20);
     expect(CAUSE_REGISTRY.MISSED_DEPOSIT.kind).toBe('SUPPLEMENT');
     expect(CAUSE_REGISTRY.BOUNCED_FUNDS.kind).toBe('SUPPLEMENT');
     expect(CAUSE_REGISTRY.PAYOUT_RETURNED.kind).toBe('SUPPLEMENT');

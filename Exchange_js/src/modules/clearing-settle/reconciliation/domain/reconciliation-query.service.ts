@@ -509,20 +509,22 @@ export class ReconciliationQueryService {
         && matchedKeys.has(`${r.internalFlow.externalRef}|${r.internalFlow.amount}`))
         ? r.internalFlow.externalRef : null;
       r.menu = menuFor(r.matchType as any, caseBook);
-      // 平账 A 批（spec §2.6）：超期解锁——判据全在服务端。
+      // 平账 A 批（spec §2.6）+ 二期（spec §7.1）：超期解锁——判据全在服务端。
+      // 公司池：小额 → 核销，大额 → 事故（三期）；客户池：小额且「托管里少了」→ 认损，
+      // 多出来的 → 指路补录，大额 → 事故。
       if (kase.status === 'OPEN' && kase.slaBreached && d && d.outlet === 'HOLD_INVESTIGATING' && !d.adjustmentNo) {
-        if (caseBook !== 'FIRM') {
-          r.nextStep = { kind: 'TRANSFER_DEFERRED' };
+        const wo = resolveWriteOff({
+          matchType: r.matchType as any, book: caseBook,
+          deltaSign: r.deltaAmount != null ? ((r.deltaAmount.startsWith('-') ? -1 : 1) as 1 | -1) : undefined,
+          internalDirection: r.internalFlow?.direction, externalDirection: r.externalLine?.direction,
+          internalAmount: r.internalFlow?.amount, externalAmount: r.externalLine?.amount, deltaAmount: r.deltaAmount,
+        });
+        if (caseBook === 'CLIENT' && wo.direction === 'INCREASE') {
+          r.nextStep = { kind: 'CLIENT_SURPLUS' };
+        } else if (!isSmallAmount(caseCurrency, BigInt(wo.amountMinor))) {
+          r.nextStep = { kind: 'INCIDENT_DEFERRED' };
         } else {
-          const wo = resolveWriteOff({
-            matchType: r.matchType as any, book: 'FIRM',
-            deltaSign: r.deltaAmount != null ? ((r.deltaAmount.startsWith('-') ? -1 : 1) as 1 | -1) : undefined,
-            internalDirection: r.internalFlow?.direction, externalDirection: r.externalLine?.direction,
-            internalAmount: r.internalFlow?.amount, externalAmount: r.externalLine?.amount, deltaAmount: r.deltaAmount,
-          });
-          r.nextStep = isSmallAmount(caseCurrency, BigInt(wo.amountMinor))
-            ? { kind: 'WRITE_OFF', reasonCode: wo.reasonCode, direction: wo.direction, amount: wo.amountMinor, effectiveDate: kase.businessDate }
-            : { kind: 'INCIDENT_DEFERRED' };
+          r.nextStep = { kind: 'WRITE_OFF', reasonCode: wo.reasonCode, direction: wo.direction, amount: wo.amountMinor, effectiveDate: kase.businessDate };
         }
       }
     }
