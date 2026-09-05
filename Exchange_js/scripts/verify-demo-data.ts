@@ -13,10 +13,15 @@
 // R4: WithdrawTransaction.fromWalletId must point to a wallet OWNED by the
 //     withdraw's owner (ownerType=CUSTOMER, ownerNo matches), with the right
 //     role (FIAT→C_VIBAN, CRYPTO→C_DEP).
-// R5（波一 T14）：配置身世——校验的是「种子装载的配置都留痕」，不是「活着的配置都是种子装的」。
+// R5（波一 T14 + 第一幕小轮 T2）：配置身世——校验的是「种子装载的配置都留痕」，不是「活着的配置都是种子装的」。
 //     资产/托管钱包/限额三块只有种子写入路径，全量必须有 actorNo=RELEASE 的 *_SEEDED 审计行；
 //     兑换/提现两族费率等级还有运行时创建路径（operator 经 maker-checker 建的等级留的是
 //     SWAP_FEE_LEVEL_CREATION_APPLIED 一类审计，不是 *_SEEDED），这两块只对种子行要求留痕。
+//     客户收款地址（钱包表 C_DEP/C_VIBAN）/ 提现地址两块由 demo-lib.ts（BACKLOG:86）写，
+//     actorNo=DEMO_SEED（不是 RELEASE ——两者是不同的写手，前五块是 prisma/seed.ts 系）；
+//     两块同样各有运行时创建路径不写 *_SEEDED（客户收款地址：customer-deposit-wallet.service.ts
+//     #createOrReturn；提现地址：withdrawal-address.service.ts），demo:all 流程本身不经这两条服务
+//     （直接 prisma upsert），故按各自判别式限定作用域后可放心要求全员留痕。
 //
 // Usage:
 //   DATABASE_URL="file:/tmp/exchange_js_main/dev.db" \
@@ -152,7 +157,7 @@ async function scanR4(prisma: PrismaClient): Promise<void> {
 //   在审计表里精确找一条同码 *_SEEDED 行（actorNo=RELEASE）；找不到就是这一
 //   行没留痕，报违规并指名是哪一行——孤儿行不参与比对，也不会被这条规则动。
 async function scanR5(prisma: PrismaClient): Promise<void> {
-  const blocks: Array<{ action: string; entity: string; keys: string[]; scope?: string }> = [];
+  const blocks: Array<{ action: string; entity: string; keys: string[]; scope?: string; actorNo?: string }> = [];
 
   const assets: any[] = await (prisma as any).asset.findMany({ select: { assetNo: true } });
   blocks.push({ action: 'ASSET_SEEDED', entity: 'asset', keys: assets.map((a) => a.assetNo) });
@@ -205,8 +210,42 @@ async function scanR5(prisma: PrismaClient): Promise<void> {
     keys: withdrawalFeeLevels.map((l) => l.levelCode),
   });
 
+  // 客户收款地址（wallets 表 ownerType=CUSTOMER，角色只有 C_DEP/C_VIBAN——见
+  // system-wallet.util.ts）。生产侧唯一运行时写路径是 customer-deposit-wallet.service.ts
+  // #createOrReturn（客户主动申领），demo:all 走的是 demo-lib.ts 直接 prisma upsert，两条路
+  // 互不相通；按 ownerType 限定作用域后，活钱包必须全员留痕（镜像上面 CUSTODIAN_WALLET_SEEDED
+  // 用 ownerType=PLATFORM 的写法）。
+  const customerWallets: any[] = await (prisma as any).wallet.findMany({
+    where: { ownerType: 'CUSTOMER' },
+    select: { walletNo: true },
+  });
+  blocks.push({
+    action: 'CUSTOMER_DEPOSIT_ADDRESS_SEEDED',
+    entity: 'wallet',
+    scope: "ownerType='CUSTOMER'",
+    actorNo: 'DEMO_SEED',
+    keys: customerWallets.map((w) => w.walletNo),
+  });
+
+  // 提现地址（withdrawal_addresses 表）。生产侧唯一运行时写路径是
+  // withdrawal-address.service.ts（客户自行登记，ownershipProofType 不是 DEMO_FIXTURE），
+  // demo-lib.ts 种的两处（银行账号 + alice/bob 的链上地址）都固定写 DEMO_FIXTURE——按这个判别式
+  // 限定作用域，只对种子地址要求留痕，不会误判客户自行登记的真实地址。
+  const withdrawalAddresses: any[] = await (prisma as any).withdrawalAddress.findMany({
+    where: { ownershipProofType: 'DEMO_FIXTURE' },
+    select: { addressNo: true },
+  });
+  blocks.push({
+    action: 'WITHDRAWAL_ADDRESS_SEEDED',
+    entity: 'withdrawalAddress',
+    scope: "ownershipProofType='DEMO_FIXTURE'",
+    actorNo: 'DEMO_SEED',
+    keys: withdrawalAddresses.map((a) => a.addressNo),
+  });
+
   for (const block of blocks) {
-    // 五块在任何正确铺好的库上都不可能为空（资产 2 / 平台钱包 7 / 限额 15 / 兑换费率 3 / 提现费率 2）。
+    // 七块在 demo:all 跑过一次之后都不可能为空（资产 2 / 平台钱包 7 / 限额 15 / 兑换费率 3 /
+    // 提现费率 2 / 客户收款钱包 12 / 提现地址 8——后两块数随花名册人数变而变，此处只是现场实测值）。
     // 空表就跳过 = 「没装载任何配置」也算「装载都留了痕」——正是本判据上一版栽的那种空真绿。
     if (block.keys.length === 0) {
       violations.push({
@@ -218,8 +257,9 @@ async function scanR5(prisma: PrismaClient): Promise<void> {
       });
       continue;
     }
+    const actorNo = block.actorNo ?? 'RELEASE';
     const rows: any[] = await (prisma as any).auditLogEvent.findMany({
-      where: { actorNo: 'RELEASE', action: block.action, primarySubjectNo: { in: block.keys } },
+      where: { actorNo, action: block.action, primarySubjectNo: { in: block.keys } },
       select: { primarySubjectNo: true },
     });
     const seeded = new Set(rows.map((r) => r.primarySubjectNo));
@@ -228,7 +268,7 @@ async function scanR5(prisma: PrismaClient): Promise<void> {
         violations.push({
           rule: 'R5',
           entity: key,
-          detail: `no ${block.action} audit row (actorNo=RELEASE, primarySubjectNo=${key}) for live ${block.entity}`,
+          detail: `no ${block.action} audit row (actorNo=${actorNo}, primarySubjectNo=${key}) for live ${block.entity}`,
         });
       }
     }
