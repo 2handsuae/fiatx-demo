@@ -7,37 +7,37 @@
    Tailwind adm-* colors in tailwind.config.js reference these vars.
 ──────────────────────────────────────────────────────────── */
 :root {
-  --adm-bg:      #f8fafc;
-  --adm-panel:   #ffffff;
-  --adm-card:    #f1f5f9;
-  --adm-hover:   #f1f5f9;
-  --adm-border:  #e2e8f0;
-  --adm-bhi:     #cbd5e1;
-  --adm-amber:   #d97706;
-  --adm-text-1:  #0f172a;
-  --adm-text-2:  #475569;
-  --adm-text-3:  #94a3b8;
-  --adm-green:   #059669;
-  --adm-red:     #dc2626;
-  --adm-yellow:  #d97706;
-  --adm-blue:    #2563eb;
+  --adm-bg:      248 250 252;
+  --adm-panel:   255 255 255;
+  --adm-card:    241 245 249;
+  --adm-hover:   241 245 249;
+  --adm-border:  226 232 240;
+  --adm-bhi:     203 213 225;
+  --adm-amber:   217 119 6;
+  --adm-text-1:  15 23 42;
+  --adm-text-2:  71 85 105;
+  --adm-text-3:  148 163 184;
+  --adm-green:   5 150 105;
+  --adm-red:     220 38 38;
+  --adm-yellow:  217 119 6;
+  --adm-blue:    37 99 235;
 }
 
 .dark {
-  --adm-bg:      #0c1018;
-  --adm-panel:   #111827;
-  --adm-card:    #1a2332;
-  --adm-hover:   #1e2d3f;
-  --adm-border:  #1f2d3d;
-  --adm-bhi:     #2a3d52;
-  --adm-amber:   #f59e0b;
-  --adm-text-1:  #e2e8f0;
-  --adm-text-2:  #8b9eb0;
-  --adm-text-3:  #4a6075;
-  --adm-green:   #10b981;
-  --adm-red:     #ef4444;
-  --adm-yellow:  #f59e0b;
-  --adm-blue:    #3b82f6;
+  --adm-bg:      12 16 24;
+  --adm-panel:   17 24 39;
+  --adm-card:    26 35 50;
+  --adm-hover:   30 45 63;
+  --adm-border:  31 45 61;
+  --adm-bhi:     42 61 82;
+  --adm-amber:   245 158 11;
+  --adm-text-1:  226 232 240;
+  --adm-text-2:  139 158 176;
+  --adm-text-3:  74 96 117;
+  --adm-green:   16 185 129;
+  --adm-red:     239 68 68;
+  --adm-yellow:  245 158 11;
+  --adm-blue:    59 130 246;
 }
 
 :root {
@@ -52,5 +52,5 @@ body {
 /* Scrollbar */
 ::-webkit-scrollbar { width: 5px; height: 5px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: var(--adm-border); border-radius: 3px; }
-::-webkit-scrollbar-thumb:hover { background: var(--adm-bhi); }
+::-webkit-scrollbar-thumb { background: rgb(var(--adm-border)); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: rgb(var(--adm-bhi)); }
