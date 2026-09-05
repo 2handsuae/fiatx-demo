@@ -510,8 +510,9 @@ export class ReconciliationQueryService {
         ? r.internalFlow.externalRef : null;
       r.menu = menuFor(r.matchType as any, caseBook);
       // 平账 A 批（spec §2.6）+ 二期（spec §7.1）：超期解锁——判据全在服务端。
-      // 公司池：小额 → 核销，大额 → 事故（三期）；客户池：小额且「托管里少了」→ 认损，
-      // 多出来的 → 指路补录，大额 → 事故。
+      // 公司池：小额 → 核销，大额 → 事故（三期）；客户池：多出来的不论大小 → 指路补录
+      // （这一判断排在金额判断之前，见下方 if 顺序）；「托管里少了」再看金额——
+      // 小额 → 认损，大额 → 事故。
       if (kase.status === 'OPEN' && kase.slaBreached && d && d.outlet === 'HOLD_INVESTIGATING' && !d.adjustmentNo) {
         const wo = resolveWriteOff({
           matchType: r.matchType as any, book: caseBook,

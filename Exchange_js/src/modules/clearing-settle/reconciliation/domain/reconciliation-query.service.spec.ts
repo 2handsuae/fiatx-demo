@@ -1373,6 +1373,22 @@ describe('平账 A 批：超期后的下一步 nextStep（spec §2.6）', () => 
     const res = await mkSvc(prismaFor({ book: 'CLIENT', slaBreached: true, disposition: { ...held, book: 'CLIENT' } }), { flowMatcher: mismatchMatcher }).getCase('REC-A');
     expect(res.flowComparison.find((r: any) => r.matchType === 'AMOUNT_MISMATCH')!.nextStep).toEqual({ kind: 'WRITE_OFF', reasonCode: 'UNEXPLAINED_CLIENT_LOSS', direction: 'REDUCE', amount: '7', effectiveDate: '2026-09-02' });
   });
+  // 大额而非小额：金额刻意选在小额线之上，用来证明「多出来的不论大小都指路补录」
+  // ——如果 CLIENT_SURPLUS 判断被错放到小额线检查之后，这一支会被误判成 INCIDENT_DEFERRED。
+  it('客户池 + 超期 + 调查中 + 大额「多出来」（INCREASE）→ CLIENT_SURPLUS（多出来的不论大小，都不能核销进客户余额）', async () => {
+    const prisma = prismaFor({ book: 'CLIENT', slaBreached: true, disposition: { ...held, book: 'CLIENT' } });
+    prisma.externalStatementLine.findMany.mockResolvedValue([{ id: extId, direction: 'IN', amount: new Prisma.Decimal(30_000), externalRef: 'R1', datetime: new Date(), description: null }]);
+    prisma.accountFlow.findMany.mockResolvedValue([{ id: flowId, direction: 'IN', amount: new Prisma.Decimal(0), externalRef: 'R1', eventCode: 'E2E', sourceType: 'DEPOSIT', sourceNo: 'S1', createdAt: new Date() }]);
+    const res = await mkSvc(prisma, { flowMatcher: mismatchMatcher }).getCase('REC-A');
+    expect(res.flowComparison.find((r: any) => r.matchType === 'AMOUNT_MISMATCH')!.nextStep).toEqual({ kind: 'CLIENT_SURPLUS' });
+  });
+  it('客户池 + 超期 + 调查中 + 大额 REDUCE → INCIDENT_DEFERRED（客户池大额不走认损，同公司池升级事故）', async () => {
+    const prisma = prismaFor({ book: 'CLIENT', slaBreached: true, disposition: { ...held, book: 'CLIENT' } });
+    prisma.externalStatementLine.findMany.mockResolvedValue([{ id: extId, direction: 'IN', amount: new Prisma.Decimal(0), externalRef: 'R1', datetime: new Date(), description: null }]);
+    prisma.accountFlow.findMany.mockResolvedValue([{ id: flowId, direction: 'IN', amount: new Prisma.Decimal(20_000), externalRef: 'R1', eventCode: 'E', sourceType: 'DEPOSIT', sourceNo: 'S', createdAt: new Date() }]);
+    const res = await mkSvc(prisma, { flowMatcher: mismatchMatcher }).getCase('REC-A');
+    expect(res.flowComparison.find((r: any) => r.matchType === 'AMOUNT_MISMATCH')!.nextStep).toEqual({ kind: 'INCIDENT_DEFERRED' });
+  });
   it('未超期 / 未定性 / 结论不是调查中 / 已挂单 → 没有 nextStep', async () => {
     const notBreached = await mkSvc(prismaFor({ book: 'FIRM', slaBreached: false, disposition: held }), { flowMatcher: mismatchMatcher }).getCase('REC-A');
     expect(notBreached.flowComparison.find((r: any) => r.matchType === 'AMOUNT_MISMATCH')!.nextStep).toBeUndefined();

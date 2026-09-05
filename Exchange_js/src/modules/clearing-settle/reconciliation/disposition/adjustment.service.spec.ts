@@ -291,6 +291,10 @@ describe('AdjustmentService.createDraft 两道闸 —— 门不可绕的落点�
     it('客户池拿公司池的码 / 公司池拿客户池的码 → 400', async () => {
       const { svc } = makeSvc({ kase: { caseNo: 'REC-C3', status: 'OPEN', book: 'CUSTOMER', assetCode: 'AED', walletRef: 'w-3', ownerNo: 'CU-3', slaBreached: true, businessDate: '2026-09-05' }, disposition: { dispositionNo: 'RCD-3', outlet: 'HOLD_INVESTIGATING', adjustmentNo: null }, asset: { currency: 'AED', decimals: 2 } });
       await expect(svc.createDraft({ caseNo: 'REC-C3', reasonCode: 'UNEXPLAINED_WRITE_OFF', direction: 'REDUCE', amount: '100', effectiveDate: '2026-09-05', explainedFlowId: 'f-3', reasonInternal: 'x', reasonCustomer: 'x' } as any, treasury)).rejects.toThrow(/客户池查无果认损/);
+
+      // 反过来：公司池案子拿客户池的认损码 → 400，文案指向公司池自己的核销码。
+      const { svc: svcFirm } = makeSvc({ kase: { caseNo: 'REC-C4', status: 'OPEN', book: 'FIRM', assetCode: 'AED', walletRef: 'w-4', ownerNo: null, slaBreached: true, businessDate: '2026-09-05' }, disposition: { dispositionNo: 'RCD-4', outlet: 'HOLD_INVESTIGATING', adjustmentNo: null }, asset: { currency: 'AED', decimals: 2 } });
+      await expect(svcFirm.createDraft({ caseNo: 'REC-C4', reasonCode: 'UNEXPLAINED_CLIENT_LOSS', direction: 'REDUCE', amount: '100', effectiveDate: '2026-09-05', explainedFlowId: 'f-4', reasonInternal: 'x', reasonCustomer: 'x' } as any, treasury)).rejects.toThrow(/公司池查无果走/);
     });
   });
 });
