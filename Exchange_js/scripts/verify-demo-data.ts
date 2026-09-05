@@ -13,15 +13,23 @@
 // R4: WithdrawTransaction.fromWalletId must point to a wallet OWNED by the
 //     withdraw's owner (ownerType=CUSTOMER, ownerNo matches), with the right
 //     role (FIAT→C_VIBAN, CRYPTO→C_DEP).
-// R5（波一 T14 + 第一幕小轮 T2）：配置身世——校验的是「种子装载的配置都留痕」，不是「活着的配置都是种子装的」。
+// R5（波一 T14 + 第一幕小轮 T2 + 评审修复轮）：配置身世——校验的是「种子装载的配置都留痕」，
+//     不是「活着的配置都是种子装的」。
 //     资产/托管钱包/限额三块只有种子写入路径，全量必须有 actorNo=RELEASE 的 *_SEEDED 审计行；
 //     兑换/提现两族费率等级还有运行时创建路径（operator 经 maker-checker 建的等级留的是
 //     SWAP_FEE_LEVEL_CREATION_APPLIED 一类审计，不是 *_SEEDED），这两块只对种子行要求留痕。
 //     客户收款地址（钱包表 C_DEP/C_VIBAN）/ 提现地址两块由 demo-lib.ts（BACKLOG:86）写，
-//     actorNo=DEMO_SEED（不是 RELEASE ——两者是不同的写手，前五块是 prisma/seed.ts 系）；
-//     两块同样各有运行时创建路径不写 *_SEEDED（客户收款地址：customer-deposit-wallet.service.ts
-//     #createOrReturn；提现地址：withdrawal-address.service.ts），demo:all 流程本身不经这两条服务
-//     （直接 prisma upsert），故按各自判别式限定作用域后可放心要求全员留痕。
+//     actorNo=DEMO_SEED（不是 RELEASE ——两者是不同的写手，前五块是 prisma/seed.ts 系）。
+//     ⚠️ 这两块必须比前五块多一道"demo 数据在场"门控，否则会打断 stack.sh reset：
+//     `db:seed:business` = `prisma/seed.ts --mode=business && npm run verify:demo-data`
+//     （reset-stack.sh 等重铺脚本在 set -euo pipefail 下内联调用它）——这一步只跑了业务种子，
+//     demo-lib.ts#ensureSetup（建这两块业务行的唯一写点）根本还没执行，此刻活钱包/活地址天生是
+//     0 条。前五块的种子行是业务种子自己无条件建的，同一时刻已非空，不受影响；这两块若和前五块
+//     一样"空表即违规"，会在这个中间态必红、reset 因此非零退出——不是假设，是实测复现过的（见
+//     本次评审修复报告 task-2-report.md）。判据因此对这两块单独放行：`keys.length === 0` 时打印
+//     SKIP 说明、不计违规（其余五块仍然"空表即违规"不变）。这个门控读的是"业务行本身是否存在"，
+//     不经过、也不依赖会被 BACKLOG:86 删掉的那次 writeSeedAudit 调用——写点被删时业务行仍然照常
+//     创建（keys 非空），门控不会连带把真正的孤儿身世 SKIP 掉。
 //
 // Usage:
 //   DATABASE_URL="file:/tmp/exchange_js_main/dev.db" \
@@ -157,7 +165,12 @@ async function scanR4(prisma: PrismaClient): Promise<void> {
 //   在审计表里精确找一条同码 *_SEEDED 行（actorNo=RELEASE）；找不到就是这一
 //   行没留痕，报违规并指名是哪一行——孤儿行不参与比对，也不会被这条规则动。
 async function scanR5(prisma: PrismaClient): Promise<void> {
-  const blocks: Array<{ action: string; entity: string; keys: string[]; scope?: string; actorNo?: string }> = [];
+  const blocks: Array<{
+    action: string; entity: string; keys: string[]; scope?: string; actorNo?: string;
+    // true = 这一块的业务行只由 demo-lib.ts#ensureSetup 建（不是业务种子无条件建的），
+    // 空表可能只是"ensureSetup 还没跑"（reset 链内的合法中间态），空表本身不算违规——见文件头 R5 注释。
+    skipIfEmpty?: boolean;
+  }> = [];
 
   const assets: any[] = await (prisma as any).asset.findMany({ select: { assetNo: true } });
   blocks.push({ action: 'ASSET_SEEDED', entity: 'asset', keys: assets.map((a) => a.assetNo) });
@@ -212,9 +225,17 @@ async function scanR5(prisma: PrismaClient): Promise<void> {
 
   // 客户收款地址（wallets 表 ownerType=CUSTOMER，角色只有 C_DEP/C_VIBAN——见
   // system-wallet.util.ts）。生产侧唯一运行时写路径是 customer-deposit-wallet.service.ts
-  // #createOrReturn（客户主动申领），demo:all 走的是 demo-lib.ts 直接 prisma upsert，两条路
-  // 互不相通；按 ownerType 限定作用域后，活钱包必须全员留痕（镜像上面 CUSTODIAN_WALLET_SEEDED
-  // 用 ownerType=PLATFORM 的写法）。
+  // #createOrReturn（客户主动申领，写 CUSTOMER_DEPOSIT_ADDRESS_CREATED 审计，不是 *_SEEDED）。
+  // ⚠️ 这条路不是只有 demo:all 才会绕开——verify-act1.ts 的 V3 就真的 POST /client/deposit-wallets
+  // 替 alice 申领（走同一个 createOrReturn），如果那次调用发生在 demo-lib.ts#ensureSetup 还没
+  // 替 alice 建好 C_DEP/C_VIBAN 之前，createOrReturn 会新建一个 ownerType=CUSTOMER 的真钱包
+  // （custodianRef 形如 mock-<custodian>-<hex>，不是 demo-lib 的 hextrust-demo-*/zand-demo-*），
+  // 这个真钱包没有 *_SEEDED 审计、会被本块误判成孤儿。今天不误伤，靠的是 baseline 的运行顺序——
+  // verify:act1 的 V 组每次先 reset 单独跑（不接 demo:all），demo:all 前又会再 reset 一次
+  // ——两者从不共享同一份未重置的库；这是操作约定，不是本判据判别式自身的保证。约定被打破
+  // （比如有人在同一个库上先跑 verify:act1 再跑 demo:all/verify:demo-data，中间不 reset）
+  // 就会在这里假红，需要用户知悉。按 ownerType 限定作用域后，活钱包必须全员留痕（镜像上面
+  // CUSTODIAN_WALLET_SEEDED 用 ownerType=PLATFORM 的写法）。
   const customerWallets: any[] = await (prisma as any).wallet.findMany({
     where: { ownerType: 'CUSTOMER' },
     select: { walletNo: true },
@@ -224,6 +245,7 @@ async function scanR5(prisma: PrismaClient): Promise<void> {
     entity: 'wallet',
     scope: "ownerType='CUSTOMER'",
     actorNo: 'DEMO_SEED',
+    skipIfEmpty: true,
     keys: customerWallets.map((w) => w.walletNo),
   });
 
@@ -240,6 +262,7 @@ async function scanR5(prisma: PrismaClient): Promise<void> {
     entity: 'withdrawalAddress',
     scope: "ownershipProofType='DEMO_FIXTURE'",
     actorNo: 'DEMO_SEED',
+    skipIfEmpty: true,
     keys: withdrawalAddresses.map((a) => a.addressNo),
   });
 
@@ -248,6 +271,13 @@ async function scanR5(prisma: PrismaClient): Promise<void> {
     // 提现费率 2 / 客户收款钱包 12 / 提现地址 8——后两块数随花名册人数变而变，此处只是现场实测值）。
     // 空表就跳过 = 「没装载任何配置」也算「装载都留了痕」——正是本判据上一版栽的那种空真绿。
     if (block.keys.length === 0) {
+      if (block.skipIfEmpty) {
+        // demo-lib.ts#ensureSetup 还没跑过（reset 链内先跑 prisma/seed.ts --mode=business
+        // 就会调用一次本脚本——见文件头 R5 注释），这一刻这两块活着的业务行天生是 0 条，
+        // 不是"装载都没留痕"的空真绿：这里没有任何东西被装载过，谈不上留没留痕。
+        console.log(`  [R5] SKIP ${block.action} — no live ${block.entity} rows matching ${block.scope} yet (demo-lib.ts#ensureSetup hasn't run in this DB); not a violation`);
+        continue;
+      }
       violations.push({
         rule: 'R5',
         entity: block.entity,
