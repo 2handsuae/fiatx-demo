@@ -1,4 +1,5 @@
 import { PrismaClient } from '@prisma/client';
+import { DEPRECATED_AUDIT_ACTIONS } from '../src/modules/audit-logging/constants/audit-actions.constant';
 
 const prisma = new PrismaClient();
 let failed = 0;
@@ -74,27 +75,8 @@ async function main() {
   // 两族实际写入，不能提前登记，见 audit-actions.constant.ts 的迁移注释）。
   // 2026-09-02（Task 15）补入托管钱包创建 + 提现地址登记两族共用裸名——同理，
   // 此前是 CUSTODIAN_WALLET_CREATE/WITHDRAWAL_ADDRESS_REGISTRATION 实际写入。
-  // 2026-09-02（Task 15 收尾）移出 MFA_LOGIN_VERIFIED：核实后它不是退役码，只是
-  // 从旧附册搬进 V1_AUDIT_ACTIONS 合同（码值不变，仍由 verifyMfaLogin() 每次常规
-  // 登录写入）——留在这份闸里会把合法的常规登录审计当成退役码误判。
   const deprecated = await prisma.auditLogEvent.count({
-    where: { action: { in: [
-      'ADMIN_LOGIN_SUCCESS', 'RESET_FAILED',
-      'CREATION_REQUESTED', 'CREATION_APPLIED', 'CREATION_APPLY_FAILED', 'CREATION_CANCELLED',
-      'CHANGE_REQUESTED', 'CHANGE_APPLIED', 'CHANGE_APPLY_FAILED', 'CHANGE_CANCELLED',
-      'TAG_ASSIGNED', 'TAG_REVOKED',
-      'CREATE_REQUESTED', 'WALLET_CREATED', 'WALLET_CREATE_FAILED', 'CREATE_CANCELLED',
-      'ADDRESS_REGISTERED', 'ADDRESS_ACTIVATED', 'ADDRESS_CANCELLED', 'ADDRESS_SUSPENDED',
-      'ADDRESS_DEACTIVATED', 'MANUAL_COOLING_SKIP',
-      // 波一 T4 追加（Task 2 与本任务退役的码，此前漏登本闸名单）：
-      'ASSET_CREATED_AND_PROVISIONED', 'ASSET_CREATION_FAILED', 'ASSET_PROVISIONING_UPDATED',
-      'ASSET_ACTIVATION_REQUESTED', 'ASSET_ACTIVATED', 'ASSET_ACTIVATION_FAILED',
-      'CUSTODIAN_WALLET_CREATE_REQUESTED', 'CUSTODIAN_WALLET_CREATED', 'CUSTODIAN_WALLET_CREATE_FAILED',
-      'CUSTODIAN_WALLET_CREATE_CANCELLED', 'WALLET_STATUS_UPDATED', 'DEPOSIT_WALLET_CREATED',
-      // 波一 T10 追加：限额只改不建不删——创建流整条退役，四码登退役闸
-      'TRANSACTION_LIMIT_CREATION_REQUESTED', 'TRANSACTION_LIMIT_CREATION_APPLIED',
-      'TRANSACTION_LIMIT_CREATION_APPLY_FAILED', 'TRANSACTION_LIMIT_CREATION_CANCELLED',
-    ] } },
+    where: { action: { in: [...DEPRECATED_AUDIT_ACTIONS] } },
   });
   check('不变量③ 退役码零写入', deprecated === 0, `${deprecated} 条退役码记录`);
 

@@ -8,7 +8,6 @@ import { randomUUID } from 'crypto';
 import { PrismaService } from '../../../core/prisma/prisma.service';
 import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import {
-  AuditBusinessWorkflowTypes,
   AuditEntityTypes,
 } from '../../audit-logging/constants/audit-actions.constant';
 import { AuditOutcome } from '../../audit-logging/dto/audit-log.dto';
@@ -156,6 +155,8 @@ export class AssetSuspensionWorkflowService {
         // 异步驱动：这条记录是被「审批已批准」这个决定触发的。
         causationId: event.approvalId,
         outcome: AuditOutcome.SUCCESS,
+        fromStatus: 'ACTIVE',
+        toStatus: 'SUSPENDED',
         approvalNo: event.approvalNo,
         metadata: {
           suspendedByUserId: event.decisionByUserId,

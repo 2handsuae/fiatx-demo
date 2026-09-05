@@ -48,7 +48,7 @@ import {
   type RestrictionRow,
 } from '../../identity/customers/customer-restrictions.service';
 import { L1GateService } from '../shared/l1-gate/l1-gate.service';
-import type { L1Check } from '../shared/l1-gate/l1-gate.types';
+import type { L1Check, L1Snapshot } from '../shared/l1-gate/l1-gate.types';
 import { SupplementEvidenceService, minorToMajor } from '../../clearing-settle/reconciliation/disposition/supplement-evidence.service';
 import { DispositionService as ReconDispositionService } from '../../clearing-settle/reconciliation/disposition/disposition.service';
 
@@ -102,8 +102,8 @@ export class DepositWorkflowService implements OnModuleInit {
   // 第四批 C1 复审 · 业主裁定（2026-08-22，甲/乙/丙 三案取乙）：`limitHoldReason`
   // 这一列有两类主人，退回落地时**只清行政级这一类**。
   //
-  //   行政级（下面这两个，Gate 0 按**客户**属性落的）—— 退回时清掉。
-  //     业主口径：「账户被停用期间你的钱退回去了」是客户**有权知道**的事实。
+  //   行政级（下面这些，L1 按**客户**属性落的；资产暂停 ASSET_SUSPENDED 波二并入同类）
+  //     —— 退回时清掉。业主口径：「账户被停用期间你的钱退回去了」是客户**有权知道**的事实。
   //   BELOW_MIN（建单时按**这笔单自身**的金额下限落的）—— 退回时保留、继续藏。
   //     业主口径：藏小额单是为了不让客户看见「这笔太小我们没收了」这类处置噪音。
   //
@@ -113,11 +113,11 @@ export class DepositWorkflowService implements OnModuleInit {
   // CUSTOMER_COMPLETED_STATUSES 里 —— 设计意图本来就是让客户看见这两个态。不清就是：
   // 钱到过又原路退回，客户面零记录（列表查不到、两个筛选桶都空、按单号打详情 404）。
   //
-  // ⚠️ 两个原因并存时列上留的是 BELOW_MIN（见 holdAtGate0 的「已有挂起原因优先」），
+  // ⚠️ 两个原因并存时列上留的是 BELOW_MIN（见 markL1Hold 的「已有挂起原因优先」），
   //    集合判定天然落在「保留」这一侧 —— 与业主裁定一致，不需要再补条件。
   // ⚠️ 没收弧（initiateConfiscation + 没收落地前置）硬钉 BELOW_MIN，本清除不碰它们。
   private static readonly ADMINISTRATIVE_HOLD_REASONS: ReadonlySet<string> =
-    new Set<string>(['CAPABILITY_RESTRICTED', 'LIFECYCLE_NOT_ACTIVE']);
+    new Set<string>(['CAPABILITY_RESTRICTED', 'LIFECYCLE_NOT_ACTIVE', 'ASSET_SUSPENDED']);
 
   private readonly logger = new Logger(DepositWorkflowService.name);
 
@@ -135,7 +135,7 @@ export class DepositWorkflowService implements OnModuleInit {
     private readonly applicantActions: DepositApplicantActionsService,
     private readonly customerAccessService: CustomerAccessService,
     private readonly customerRestrictionsService: CustomerRestrictionsService,
-    // B4（第四批）：Gate 0 落 L1 快照用的三域共用求值器。它不抛错，只出快照。
+    // B4（第四批）：L1 落快照用的三域共用求值器。它不抛错，只出快照。
     private readonly l1Gate: L1GateService,
     // 平账 B 批②：initiateClawback 要靠 SupplementEvidenceService 查证账单行，
     // onClawbackDecided 批准后要靠 DispositionService 回挂/解挂退汇认领——起别名
@@ -200,221 +200,124 @@ export class DepositWorkflowService implements OnModuleInit {
     );
 
     if (newStatus === DepositTransactionStatus.COMPLIANCE_PENDING) {
-      await this.runGate0(depositId, event.ownerId);
+      await this.evaluateL1(depositId, event.ownerId);
     }
   }
 
   /**
-   * Gate 0 —— 进入 COMPLIANCE_PENDING 时跑一次的客户级闸。
+   * L1 —— 进入 COMPLIANCE_PENDING 时跑一次的平台内限制判断（旧称已随 2026-09-05 的 L1/L2 命名统一退役）。
    *
-   * ⚠️ 口径澄清（B4，2026-08-22）：本次改动**不是**「堵住被限制客户的新钱入账」。
-   * 充值域在此之前就有三道限制账闸：`inbound-transfer-signals` 的
-   * `createForCustomer`/`scanForCustomer` 两道 `assertTradingEligibility`，加本函数
-   * 这一道；`detected()`（真正建单）全仓唯一的生产调用方就在第二道闸后面。
-   * 本次改的是**同一道闸后面的分流与取证**：
-   *   ① 按 `releasePolicy` 分流（执法级冻 / 行政级挂），不再一视同仁全 FROZEN；
-   *   ② 补上此前漏判的 `lifecycle`（已销户/停用但没贴便签的客户此前一路走得通）；
-   *   ③ 把这一刻的 L1 九格判定落成可回显快照（`l1Snapshot` 列，A1 已建）。
+   * 分流（业主 2026-09-05）：
+   *   · 执法级限制（releasePolicy=MLRO_APPROVAL）→ FREEZE（不变）
+   *   · 其余 L1 FAIL（行政级限制 / 生命周期 / 资产暂停 / 低于下限）→ **打标记、不换状态、照常送检**
+   *     —— OPERATION_PENDING 只能从合规通过进入（holdIfHeld），没有后悔药；这恢复的是 2026-07-31
+   *     「先合规后判金额」口径，08-22 在 KYT 之前直推 OPERATION_PENDING 属反向，本波纠正
+   *   · PASS → 送检（不变）
    */
-  private async runGate0(depositId: string, ownerId: string) {
-    // Task 9：改读限制账。原先经 getOwnerComplianceStatus 读 CustomerMain.complianceStatus，
-    // 该列已删；那个方法用 (prisma as any) 抹掉了类型，编译器看不见 —— 这道合规闸
-    // 在删列后其实已经失效，构建却是绿的。
-    // ownerId 由事件带入，不再为拿它多查一次库。
+  private async evaluateL1(depositId: string, ownerId: string) {
     const access = await this.customerAccessService.resolve(ownerId);
     const deposit = await this.depositService.findOne(depositId);
 
-    // 分流要的 cause / releasePolicy 只有限制账的原始行有 —— `CustomerAccess` 结构性
-    // 给不出：`disclosed` 只装 DISCLOSED 行，而最要紧的 SANCTION 是 SILENT，压根不在
-    // 里面。所以这里直接读一次限制账。
     const openRows: RestrictionRow[] =
       await this.customerRestrictionsService.listOpen(ownerId);
-    // scope 展开：SANCTION 与 ADMIN_SUSPENSION 的 scope 都是 'ALL'，直接字符串比
-    // `=== 'DEPOSIT'` 会把这两种最要紧的因由全漏掉。
     const depositBlockers = openRows.filter((row) =>
       row.scopes.some((scope) => scope === 'ALL' || scope === 'DEPOSIT'),
     );
 
-    // ── L1 快照（§5）─────────────────────────────────────────────────────────
-    // 逐格只写这一刻**真判过**的（B2 判据：写不实的 PASS 是伪证据，比不记录更糟）。
-    //  · CUSTOMER_ELIGIBILITY / CUSTOMER_RESTRICTION —— **不传**：L1GateService 自判，
-    //    传了也会被它的 SELF_OWNED_CHECKS 静默丢弃。
-    //  · SINGLE_LIMIT —— 建单时 `detected()` 判过下限（低于则出生带 BELOW_MIN 标记）。
-    //    带着标记的单那一格就是没过，照实记 FAIL。
-    //  · ACCOUNT_READINESS —— 建单时 `detected()` 无条件校验过收款钱包存在且资产匹配，
-    //    不过整单不建 → 能走到这里的单这一格必然为真。
-    //  · TRADING_READINESS —— **SKIPPED，不是 PASS**：`assertTradingEligibility` 对
-    //    DEPOSIT 刻意跳过 `assertTradingReady`（onboarding.service.ts:1192-1194），
-    //    真正判法币提现地址的是放行前的 `assertTradingReadyOrHold`，跑在本评估点之后。
-    //  · 其余四格（累计额度 / 大额审批 / 余额 / 报价）由 L1GateService 的 NA 表处理。
     const belowMin = deposit.limitHoldReason === 'BELOW_MIN';
     const preChecks: L1Check[] = [
       belowMin
-        ? {
-            code: 'SINGLE_LIMIT',
-            outcome: 'FAIL',
-            detail: '建单时判定金额低于 DEPOSIT 单笔下限（BELOW_MIN），等运营处置',
-          }
-        : {
-            code: 'SINGLE_LIMIT',
-            outcome: 'PASS',
-            detail: '建单时已过 DEPOSIT 单笔下限判定（充值是被动入金，只判下限、无上限）',
-          },
-      {
-        code: 'ACCOUNT_READINESS',
-        outcome: 'PASS',
-        detail: '建单时校验过收款钱包存在且资产匹配（不匹配则整单不建）',
-      },
-      {
-        code: 'TRADING_READINESS',
-        outcome: 'SKIPPED',
-        detail:
-          '交易起始就绪（法币提现地址）由放行前的 assertTradingReadyOrHold 校验，本评估点在其之前',
-      },
+        ? { code: 'SINGLE_LIMIT', outcome: 'FAIL', detail: '建单时判定金额低于 DEPOSIT 单笔下限（BELOW_MIN），等运营处置' }
+        : { code: 'SINGLE_LIMIT', outcome: 'PASS', detail: '建单时已过 DEPOSIT 单笔下限判定（充值是被动入金，只判下限、无上限）' },
+      { code: 'ACCOUNT_READINESS', outcome: 'PASS', detail: '建单时校验过收款钱包存在且资产匹配（不匹配则整单不建）' },
+      { code: 'TRADING_READINESS', outcome: 'SKIPPED', detail: '交易起始就绪（法币提现地址）由放行前的 assertTradingReadyOrHold 校验，本评估点在其之前' },
     ];
     const l1 = await this.l1Gate.evaluate({
       domain: 'DEPOSIT',
       customerId: ownerId,
+      assetIds: deposit.assetId ? [deposit.assetId] : [],
       preChecks,
     });
-    // 三条分支（冻 / 挂 / 放行）都要留下证据，所以落库放在分流之前。
+    // 三条分支（冻 / 标 / 放行）都要留下证据，所以落库放在分流之前。
     await this.depositService.saveL1Snapshot(depositId, JSON.stringify(l1));
 
     if (access.blocked.has('DEPOSIT')) {
-      // 分流（业主 2026-08-22 裁定一）：命中 DEPOSIT 的 OPEN 便签里只要有一条
-      // releasePolicy === 'MLRO_APPROVAL' → 执法级 → FROZEN（保持此前行为）；
-      // 全是 OPS_APPROVAL → 行政级（账户暂停这类）→ OPERATION_PENDING。
-      // 按 releasePolicy 派生而不是写死 cause 名单：日后新增一个 MLRO 级 cause
-      // 会自动走对分支。
-      // depositBlockers 为空 = access 说卡住、限制账却查不出卡 DEPOSIT 的 OPEN 行
-      //（两次读之间刚被撕掉之类的内部不一致）——分类不出来就**不降级**，保持 FROZEN。
       const enforcement =
         depositBlockers.length === 0 ||
         depositBlockers.some((row) => row.releasePolicy === 'MLRO_APPROVAL');
-
       if (enforcement) {
-        this.logger.warn(
-          `Gate 0 FAIL: deposit ${depositId} — customer DEPOSIT capability is blocked`,
-        );
+        this.logger.warn(`L1 FAIL: deposit ${depositId} — customer DEPOSIT capability is blocked (enforcement)`);
         await this.depositService.updateStatus(
           depositId,
           { action: DepositTransactionAction.FREEZE },
           {
             reason: 'Customer DEPOSIT capability is restricted',
-            actor: { actorType: 'SYSTEM', actorId: 'COMPLIANCE_GATE_0' },
+            actor: { actorType: 'SYSTEM', actorId: 'L1_GATE' },
           },
         );
         return;
       }
-
-      await this.holdAtGate0(
-        deposit,
-        l1.holdReason ?? 'CAPABILITY_RESTRICTED',
-        'Gate 0: customer DEPOSIT capability is restricted by an operational (non-enforcement) hold — awaiting ops disposition',
-      );
-      return;
     }
 
-    // §4：此前 Gate 0 只判 blocked，lifecycle 只写进审计 metadata —— 一个已销户/
-    // 停用但一张便签都没贴的客户，充值照样走得通。lifecycle 非 ACTIVE 属行政性
-    // （不是执法），走挂起分支。
-    if (access.lifecycle !== 'ACTIVE') {
-      await this.holdAtGate0(
-        deposit,
-        l1.holdReason ?? 'LIFECYCLE_NOT_ACTIVE',
-        `Gate 0: customer lifecycle is ${access.lifecycle} (not ACTIVE) — awaiting ops disposition`,
-      );
-      return;
+    if (l1.verdict === 'HOLD') {
+      await this.markL1Hold(deposit, l1);
+    } else {
+      this.logger.log(`L1 PASS: deposit ${depositId}`);
     }
 
-    this.logger.log(`Gate 0 PASS: deposit ${depositId}`);
-
-    // 站1b-β：GATE0_PASSED 留痕删除——每单必过属高频噪音，资格快照已落单上 l1Snapshot 列。
-
+    // 打标不短路送检：L2 照筛。合规通过后 holdIfHeld 才把带标记的单推进 OPERATION_PENDING。
     try {
       await this.submitSumsubTxns(deposit);
     } catch (err) {
       const error = err instanceof Error ? err : new Error(String(err));
       this.logger.error(
         `Sumsub submit failed for deposit ${depositId}: ${error.message} — ` +
-          `deposit remains COMPLIANCE_PENDING for manual handling/retry; Gate 0 continues`,
+          `deposit remains COMPLIANCE_PENDING for manual handling/retry; L1 continues`,
       );
     }
   }
 
   /**
-   * Gate 0 的**行政级**挂起（B4 裁定一的「非执法级」那一半）：钱已经在
-   * DEPOSIT_SUSPENSE 里，拒不了，只能挂在 OPERATION_PENDING 上等运营处置。
-   *
-   * 与执法级（FROZEN）的区别只在出场：这条挂起由运营用 `waiveLimitHold` 解除
-   * （§3 已把它从只认 BELOW_MIN 放宽到认任何非空挂起原因），FROZEN 只能走
-   * MLRO 解冻审批。
-   *
-   * ⚠️ 挂起原因取自刚落库的快照 `holdReason`，两者由此天然一致 —— 不要在这里
-   * 另算一份，那会长出「列上写 A、快照里写 B」的第二真相。
-   *
-   * ⚠️ 但**已有的挂起原因优先保留**（`BELOW_MIN` 是建单时按金额下限落的）：
-   * `limitHoldReason` 这一列有两个主人 —— `BELOW_MIN` 是这笔单**自身**的属性
-   * （金额低于配置下限），Gate 0 这条是**客户**的属性（被停用/生命周期非 ACTIVE）。
-   * 覆盖写会把 `BELOW_MIN` 抹掉，后果有三：waive 后这笔低于下限的钱直接入客户
-   * 余额、`DEPOSIT_HELD`(reasonCode=BELOW_MIN) 审计从未写过、且没收弧（`initiateConfiscation`
-   * 与落地前置都硬钉 `BELOW_MIN`）永远走不进去 —— 小额充值的专属处置被从另一个
-   * 方向绕掉。两个原因并存时列上留 `BELOW_MIN`，客户级那条在 `l1Snapshot` 里有
-   * 完整记录（含 `holdReason` 与逐格 detail），且单子照样被路由到 OPERATION_PENDING。
-   *
-   * ⚠️ 挂起原因非空 = 该单对客户面三处读侧（findAll / findOneForCustomer /
-   * findOneForCustomerByDepositNo）整单不可见。这是维持现状的刻意选择（业主：
-   * 页面不漏字即可），不是疏漏。**挂着的时候**藏；一旦走上退回弧，行政级这两个
-   * 原因会被清掉（见 clearAdministrativeHoldOnReturn），客户看得见钱退回去了。
-   *
-   * 挂起路径**不提交 Sumsub** —— 与紧邻的 FROZEN 分支同形状：客户当下不该交易，
-   * 没有必要为他起一个 KYT 案子。
+   * L1 挂起打标（旧函数名已随本波退役）：只写 limitHoldReason，**不换状态、不写 DEPOSIT_HELD**——那条由合规通过后的
+   * holdIfHeld 写。已有挂起原因优先（不覆盖建单时落的 BELOW_MIN）。打标本身是持久化动作，留 DEPOSIT_L1_HELD。
    */
-  private async holdAtGate0(deposit: any, holdReason: string, reason: string) {
-    // 已有挂起原因优先（见方法头 ⚠️）：不覆盖建单时落的 BELOW_MIN。
-    const effectiveHoldReason: string = deposit.limitHoldReason ?? holdReason;
-    // 两者不一致 = 这笔单同时背着自身的金额原因和客户级原因；日志/审计两个都写出来，
-    // 免得运营在列上只看见 BELOW_MIN、不知道客户当下还被停用着。
-    const holdTrace =
-      effectiveHoldReason === holdReason
-        ? `holdReason=${holdReason}`
-        : `holdReason=${effectiveHoldReason} (kept; Gate 0 also flagged ${holdReason})`;
-
-    this.logger.warn(
-      `Gate 0 HOLD: deposit ${deposit.id} — ${reason} (${holdTrace})`,
-    );
-
-    await this.depositService.updateStatus(
-      deposit.id,
-      { action: DepositTransactionAction.OPERATION_PENDING, reason },
-      {
-        actor: { actorType: 'SYSTEM', actorId: 'COMPLIANCE_GATE_0' },
-        sourcePlatform: 'SYSTEM',
-        extraData: { limitHoldReason: effectiveHoldReason },
-      },
-    );
-
-    // 状态跃迁审计走动态动作名（DEPOSIT_COMPLIANCE_PENDING_TO_OPERATION_PENDING），
-    // 不新造审计动作常量 —— 本批不做审计专项。
-    //
-    // ⚠️ requestId 必传：没有它幂等键退化成
-    // `entityType|entityId|action|NO_REQUEST_ID`，**同一笔单的第二次 Gate 0 挂起会被
-    // 静默去重**。而二次挂起是常规操作 —— freeze→unfreeze(RESUME 回 COMPLIANCE_PENDING)
-    // →Gate 0 重跑重新挂起，或 waive→重新挂起。少这一行 = 取证链缺一次挂起事实。
+  private async markL1Hold(deposit: any, l1: L1Snapshot) {
+    const effectiveHoldReason: string = deposit.limitHoldReason ?? l1.holdReason ?? 'L1_HOLD';
+    const failed = l1.checks.filter((c) => c.outcome === 'FAIL');
+    if (deposit.limitHoldReason !== effectiveHoldReason) {
+      await this.depositService.markLimitHold(deposit.id, effectiveHoldReason);
+    }
     await this.depositAudit(deposit, {
-      action: 'DEPOSIT_HELD',
-      reasonCode: holdReason,
-      reason: `${reason} (${holdTrace})`,
-      fromStatus: DepositTransactionStatus.COMPLIANCE_PENDING,
-      toStatus: DepositTransactionStatus.OPERATION_PENDING,
+      action: 'DEPOSIT_L1_HELD',
+      reasonCode: effectiveHoldReason,
+      reason: `L1 hold marked (${failed.map((c) => `${c.code}: ${c.detail}`).join('; ')}) — awaiting compliance (L2); status unchanged`,
+      metadata: { limitHoldReason: effectiveHoldReason, l1Failed: failed.map((c) => c.code) },
+      extraSubjects: await this.l1HoldSubjects(deposit, effectiveHoldReason),
     });
+    this.logger.warn(`L1 HOLD marked: deposit ${deposit.id} — ${effectiveHoldReason}; status stays ${deposit.status}, submitting to Sumsub`);
+  }
+
+  /** 挂起证据的次主体：资产（RELATED）、命中的限额规则（INSTRUMENT，仅 BELOW_MIN） */
+  private async l1HoldSubjects(deposit: any, holdReason: string): Promise<AuditSubjectInput[]> {
+    const subjects: AuditSubjectInput[] = [];
+    const assetNo: string | null = deposit.asset?.assetNo ?? null;
+    if (assetNo) {
+      subjects.push({ subjectType: AuditEntityTypes.ASSET, subjectNo: assetNo, subjectRole: AuditSubjectRole.RELATED });
+    }
+    if (holdReason === 'BELOW_MIN' && deposit.assetId) {
+      const rule = await this.depositService.singleDepositLimitRule(deposit.assetId);
+      if (rule?.ruleNo) {
+        subjects.push({ subjectType: AuditEntityTypes.TRANSACTION_LIMIT_POLICY, subjectNo: rule.ruleNo, subjectRole: AuditSubjectRole.INSTRUMENT });
+      }
+    }
+    return subjects;
   }
 
   /**
-   * Gate 0 submission entry: submits the deposit to Sumsub KYT so a verdict webhook
+   * L1 submission entry: submits the deposit to Sumsub KYT so a verdict webhook
    * can later drive the state machine. One deposit → one txn; `type` is decided by
    * resolveKytTxnType (VARA判定,spec §3). Idempotent on sumsubTxnId (protects
-   * against runGate0 re-entry). If the customer has no sumsubApplicantId yet, warns
+   * against evaluateL1 re-entry). If the customer has no sumsubApplicantId yet, warns
    * and skips — the deposit stays in COMPLIANCE_PENDING awaiting manual handling
    * rather than crashing.
    *
@@ -708,15 +611,15 @@ export class DepositWorkflowService implements OnModuleInit {
    * `'BELOW_MIN'`。那在 `limitHoldReason` 值域只有一个成员时是等价的 —— 于是
    * 「落到 SUCCESS 的单，`limitHoldReason` 必为 null」这条不变量一直成立，客户面
    * 三处读侧（findAll / findOneForCustomer / findOneForCustomerByDepositNo，判据都是
-   * 「非空即整单不可见」）就靠它。B4 的 `holdAtGate0` 把值域扩到三个
+   * 「非空即整单不可见」）就靠它。B4 的 `markL1Hold` 把值域扩到三个
    * （+ CAPABILITY_RESTRICTED / LIFECYCLE_NOT_ACTIVE）之后，只认 BELOW_MIN 就漏：
    * approveDeposit 的白名单有四个入口（COMPLIANCE_PENDING / ACTION_PENDING /
    * MANUAL_CHECKING / OPERATION_PENDING），当时只有 OPERATION_PENDING 那一条被
    * 单独的 no-op 特判盖住。终审实测复现的漏法（钱对、记录消失）：
-   *   Gate 0 行政级挂起 → OPERATION_PENDING(CAPABILITY_RESTRICTED)
+   *   L1 行政级挂起 → OPERATION_PENDING(CAPABILITY_RESTRICTED)
    *   → 后开的制裁便签广播 freeze → FROZEN
    *   → 误报，MLRO 解冻 RESUME → COMPLIANCE_PENDING（**这一路不清挂起原因**）
-   *   → Gate 0 重跑 PASS → 送 Sumsub → KYT approved → approveDeposit
+   *   → L1 重跑 PASS → 送 Sumsub → KYT approved → approveDeposit
    *     此时 oldStatus=COMPLIANCE_PENDING，特判不适用、旧闸不认 →
    *     TB 过账落 SUCCESS，而 limitHoldReason 仍是 'CAPABILITY_RESTRICTED'
    *     → 余额加了全额，单子对客户永久不可见（列表无、筛选桶无、详情 404），
@@ -771,6 +674,9 @@ export class DepositWorkflowService implements OnModuleInit {
         reasonCode: 'BELOW_MIN',
         reason: 'Deposit held: compliance approved but amount below configured minimum (BELOW_MIN)',
         metadata: { amount: String(deposit.amount), limitHoldReason: holdReason },
+        fromStatus: deposit.status,
+        toStatus: DepositTransactionStatus.OPERATION_PENDING,
+        extraSubjects: await this.l1HoldSubjects(deposit, holdReason),
       });
     } else {
       await this.depositAudit(deposit, {
@@ -779,6 +685,7 @@ export class DepositWorkflowService implements OnModuleInit {
         reason: `Compliance approved but the deposit hold is still in place (${holdReason}) — not credited, awaiting ops disposition`,
         fromStatus: deposit.status,
         toStatus: DepositTransactionStatus.OPERATION_PENDING,
+        extraSubjects: await this.l1HoldSubjects(deposit, holdReason),
       });
     }
 
@@ -940,7 +847,7 @@ export class DepositWorkflowService implements OnModuleInit {
       //     兜底的是 Sumsub webhook 重试：重跑 applyKytVerdict，open() 幂等返回
       //     created=false，照常往下冻单。
       // 无论走哪条兜底路径，即便真留下「人冻了、单没冻」的窗口，新单进
-      // COMPLIANCE_PENDING 时 Gate 0（本文件 runGate0）会读限制账直接冻掉，提现/兑换
+      // COMPLIANCE_PENDING 时 L1（本文件 evaluateL1）会读限制账直接冻掉，提现/兑换
       // 也被能力闸硬挡 —— 损害收敛。反过来「单冻了、人没冻」，客户下一单畅通无阻，方向
       // 危险。不要因为"看起来能合并"或"先改状态更直觉"调换。
       if (isApplicantSanction) {
@@ -1223,22 +1130,15 @@ export class DepositWorkflowService implements OnModuleInit {
    * 已订正为下面的如实描述：
    *
    *   `checkAutoApproval` 只在这笔单**已经有 Sumsub 裁决**（`sumsubVerdict === 'approved'`）
-   *   时才会往下推进；裁决为 null 时它提前 return。而 **Gate 0 挂起的单从未送检** ——
-   *   `holdAtGate0` 那条分支刻意不调 `submitSumsubTxns`。所以：
-   *     · BELOW_MIN 挂起（合规已过之后才落的闸）→ 有裁决 → waive 后确实会自动放行。
-   *     · 行政级挂起（CAPABILITY_RESTRICTED / LIFECYCLE_NOT_ACTIVE，Gate 0 落的）
-   *       → **没有裁决** → waive 之后 `checkAutoApproval` 静默早退，单子停在
-   *       OPERATION_PENDING、无挂起、无 KYT 案，**不会**自动走合规。
+   *   时才会往下推进；裁决为 null 时它提前 return。⚠️ 波二（2026-09-05，业主裁定
+   *   「OPERATION_PENDING 只从合规通过进入」）：L1 行政级挂起改为打标不换状态、
+   *   照常送检（`evaluateL1` / `markL1Hold`）；`waiveLimitHold` 要求
+   *   `status === OPERATION_PENDING`，而该状态只由合规通过后的 `holdIfHeld`
+   *   产生——所以能 waive 的单必然已有 `approved` 裁决，`checkAutoApproval`
+   *   不会再因裁决为空早退。旧的「waive 后无裁决走不动」死角在结构上不存在了
+   *   （BACKLOG:129 随本波销账）。
    *
-   *   此时这笔单的处境：waive 再点会抛（挂起已清）、没收要求 BELOW_MIN、详情页没有
-   *   Approve 按钮，实际只剩「原路退回汇款人」一条出路，否则钱一直压在 DEPOSIT_SUSPENSE。
-   *   `OPERATION_PENDING --resume--> COMPLIANCE_PENDING` 这条能重新武装 Gate 0 的边
-   *   **不存在**（FROZEN 有、这里没有），所以也重跑不了。
-   *
-   *   三个候选解法（挂起分支也送检 / 补 resume 边 / 维持现状但把文案说清）待业主拍板，
-   *   已登记 BACKLOG。**本批不改行为。**
-   *
-   * B4（§3）：守卫从只认 `BELOW_MIN` 放宽到**任何非空挂起原因**。原因是 Gate 0
+   * B4（§3）：守卫从只认 `BELOW_MIN` 放宽到**任何非空挂起原因**。原因是 L1
    * 开始往 OPERATION_PENDING 上落行政级挂起（CAPABILITY_RESTRICTED /
    * LIFECYCLE_NOT_ACTIVE）之后，这类单若还只有 BELOW_MIN 能 waive，就**出场无路**
    * ——没收那条路刻意不放宽（见 initiateConfiscation），approve 在挂起未解除时
@@ -1848,7 +1748,7 @@ export class DepositWorkflowService implements OnModuleInit {
   /**
    * ⚠️ `requestId`（可选）：不传时审计幂等键退化成
    * `entityType|entityId|action|NO_REQUEST_ID` —— **同一笔单的同一条状态跃迁第二次
-   * 就会被静默去重**。会重复发生的跃迁（如 Gate 0 挂起：freeze→unfreeze→重新挂起、
+   * 就会被静默去重**。会重复发生的跃迁（如 L1 挂起：freeze→unfreeze→重新挂起、
    * 或 waive→重新挂起）必须传一个唯一值，否则监管面的取证链从第一天就缺行。
    */
   /**
@@ -1874,6 +1774,8 @@ export class DepositWorkflowService implements OnModuleInit {
       /** 人为动作传 actor → 走 recordByActor；缺省系统动作走 recordSystem */
       actor?: ReturnType<DepositWorkflowService['toAuditActor']>;
       sourcePlatform?: string;
+      /** 额外次主体（如 L1 挂起证据的资产 / 限额规则），追加在固定三项之后。 */
+      extraSubjects?: AuditSubjectInput[];
     },
   ): Promise<void> {
     const customerNo: string | null =
@@ -1894,6 +1796,7 @@ export class DepositWorkflowService implements OnModuleInit {
     if (patch.fundsOrderNo) {
       subjects.push({ subjectType: 'FUNDS_ORDER', subjectNo: patch.fundsOrderNo, subjectRole: AuditSubjectRole.RELATED });
     }
+    subjects.push(...(patch.extraSubjects ?? []));
     const input = {
       action: patch.action,
       actionDomain: 'DEPOSIT',

@@ -1598,7 +1598,31 @@ describe('DepositTransactionsService', () => {
       expect(result.limitHoldReason).toBeNull();
     });
 
-    // B4（第四批）：Gate 0 的 L1 快照落库出口。workflow 禁止直接写 domain 表
+    // 波二：L1 行政级问题「打标记、不换状态」出口——与 clearLimitHold 同形状，只写这一列。
+    it('markLimitHold writes limitHoldReason to the given reason', async () => {
+      const mockRecord = { id: 'dep-1', limitHoldReason: 'ASSET_SUSPENDED' };
+      ((prisma as any).depositTransaction.update as jest.Mock).mockResolvedValue(mockRecord);
+
+      const result = await service.markLimitHold('dep-1', 'ASSET_SUSPENDED');
+
+      expect((prisma as any).depositTransaction.update).toHaveBeenCalledWith({
+        where: { id: 'dep-1' },
+        data: { limitHoldReason: 'ASSET_SUSPENDED' },
+      });
+      expect(result.limitHoldReason).toBe('ASSET_SUSPENDED');
+    });
+
+    // 波二：挂起证据把命中的限额规则当次主体（INSTRUMENT）——需要按 assetId 查到规则号。
+    it('singleDepositLimitRule delegates to limitRulesService.getSingleRule(DEPOSIT, assetId)', async () => {
+      limitRules.getSingleRule.mockResolvedValue({ ruleNo: 'TLR-DEP-USDT', minAmount: new Prisma.Decimal('100') });
+
+      const rule = await service.singleDepositLimitRule('asset-1');
+
+      expect(limitRules.getSingleRule).toHaveBeenCalledWith('DEPOSIT', 'asset-1');
+      expect(rule?.ruleNo).toBe('TLR-DEP-USDT');
+    });
+
+    // B4（第四批）：L1 的快照落库出口。workflow 禁止直接写 domain 表
     // （铁律⑤），所以落库这一下必须由本 service 提供方法 —— 与 saveTxnDetail 同形状。
     it('saveL1Snapshot writes the l1Snapshot column only (no status/hold side effects)', async () => {
       const snapshot = JSON.stringify({ domain: 'DEPOSIT', verdict: 'PASS' });

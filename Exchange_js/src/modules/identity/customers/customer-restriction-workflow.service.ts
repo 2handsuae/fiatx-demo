@@ -11,7 +11,6 @@ import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import { PrismaService } from '../../../core/prisma/prisma.service';
 import {
   AuditActions,
-  AuditBusinessWorkflowTypes,
   AuditEntityTypes,
 } from '../../audit-logging/constants/audit-actions.constant';
 import { AuditActorContext, AuditOutcome } from '../../audit-logging/dto/audit-log.dto';

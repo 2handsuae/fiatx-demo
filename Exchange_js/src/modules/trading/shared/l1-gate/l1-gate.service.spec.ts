@@ -88,13 +88,13 @@ describe('L1GateService', () => {
     expect(snap.checks.find((c) => c.code === 'BALANCE_SUFFICIENCY')?.detail).toBe('余额不足');
   });
 
-  it('未提供的项一律落 SKIPPED,九项一个不少', async () => {
+  it('未提供的项一律落 SKIPPED,十项一个不少', async () => {
     customerAccess.resolve.mockResolvedValue(activeAccess);
     prisma.customerMain.findUnique.mockResolvedValue({ tradingTier: 'BASIC' });
 
     const snap = await service.evaluate({ domain: 'DEPOSIT', customerId: 'c1' });
 
-    expect(snap.checks).toHaveLength(9);
+    expect(snap.checks).toHaveLength(10);
     expect(snap.checks.find((c) => c.code === 'QUOTE_VALIDITY')?.outcome).toBe('NA');
   });
 
@@ -166,6 +166,61 @@ describe('L1GateService', () => {
           expect(outcome).toBe('SKIPPED');
         }
       }
+    });
+  });
+
+  describe('ASSET_AVAILABILITY（波二第十项）', () => {
+    it('资产 SUSPENDED + 提现域 → BLOCK，第十格 FAIL', async () => {
+      customerAccess.resolve.mockResolvedValue(activeAccess);
+      prisma.customerMain.findUnique.mockResolvedValue({ tradingTier: 'BASIC' });
+      prisma.asset = { findMany: jest.fn().mockResolvedValue([{ id: 'a-usdt', assetNo: 'AS2601012024', currency: 'USDT', status: 'SUSPENDED' }]) };
+
+      const snap = await service.evaluate({ domain: 'WITHDRAW', customerId: 'c1', assetIds: ['a-usdt'] });
+
+      expect(snap.verdict).toBe('BLOCK');
+      const check = snap.checks.find((c) => c.code === 'ASSET_AVAILABILITY');
+      expect(check?.outcome).toBe('FAIL');
+      expect(check?.detail).toContain('AS2601012024');
+      expect(prisma.asset.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { id: { in: ['a-usdt'] } } }));
+    });
+
+    it('资产 SUSPENDED + 充值域 → HOLD，holdReason=ASSET_SUSPENDED', async () => {
+      customerAccess.resolve.mockResolvedValue(activeAccess);
+      prisma.customerMain.findUnique.mockResolvedValue({ tradingTier: 'BASIC' });
+      prisma.asset = { findMany: jest.fn().mockResolvedValue([{ id: 'a-usdt', assetNo: 'AS2601012024', currency: 'USDT', status: 'SUSPENDED' }]) };
+
+      const snap = await service.evaluate({ domain: 'DEPOSIT', customerId: 'c1', assetIds: ['a-usdt'] });
+
+      expect(snap.verdict).toBe('HOLD');
+      expect(snap.holdReason).toBe('ASSET_SUSPENDED');
+    });
+
+    it('两个资产都 ACTIVE（兑换）→ PASS；不传 assetIds → 第十格 SKIPPED', async () => {
+      customerAccess.resolve.mockResolvedValue(activeAccess);
+      prisma.customerMain.findUnique.mockResolvedValue({ tradingTier: 'BASIC' });
+      prisma.asset = { findMany: jest.fn().mockResolvedValue([
+        { id: 'a-usdt', assetNo: 'AS1', currency: 'USDT', status: 'ACTIVE' },
+        { id: 'a-aed', assetNo: 'AS2', currency: 'AED', status: 'ACTIVE' },
+      ]) };
+
+      const ok = await service.evaluate({ domain: 'SWAP', customerId: 'c1', assetIds: ['a-usdt', 'a-aed'] });
+      expect(ok.verdict).toBe('PASS');
+      expect(ok.checks.find((c) => c.code === 'ASSET_AVAILABILITY')?.outcome).toBe('PASS');
+
+      const none = await service.evaluate({ domain: 'SWAP', customerId: 'c1' });
+      expect(none.checks.find((c) => c.code === 'ASSET_AVAILABILITY')?.outcome).toBe('SKIPPED');
+    });
+
+    it('自判自赢：preChecks 里塞 ASSET_AVAILABILITY=PASS 也盖不掉本 service 判出的 FAIL', async () => {
+      customerAccess.resolve.mockResolvedValue(activeAccess);
+      prisma.customerMain.findUnique.mockResolvedValue({ tradingTier: 'BASIC' });
+      prisma.asset = { findMany: jest.fn().mockResolvedValue([{ id: 'a-usdt', assetNo: 'AS1', currency: 'USDT', status: 'SUSPENDED' }]) };
+
+      const snap = await service.evaluate({
+        domain: 'WITHDRAW', customerId: 'c1', assetIds: ['a-usdt'],
+        preChecks: [{ code: 'ASSET_AVAILABILITY', outcome: 'PASS', detail: '伪造' }],
+      });
+      expect(snap.checks.find((c) => c.code === 'ASSET_AVAILABILITY')?.outcome).toBe('FAIL');
     });
   });
 });

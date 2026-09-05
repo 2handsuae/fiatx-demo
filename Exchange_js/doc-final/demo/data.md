@@ -44,7 +44,7 @@ admin@fiatx.com 超管 ｜ sm@ 高管(SMO) ｜ ciso@ ｜ mlro@ ｜ dpo@ ｜ comp
 
 **地址簿种子**（审计 `WITHDRAWAL_ADDRESS_SEEDED`）：六位客户（alice/bob/grace/jack/kate/frank）各一条 ACTIVE 银行账户（AED_ZAND，即本人 vIBAN）；alice / bob 各再一条 ACTIVE 的 TRON 地址。**尚无法币账户的种子客户**：Henry Acme（`demo_acme@example.com`，企业客户）——不在 `demo:setup` 那六人名单内，没有走地址簿种子；站 5 ④c 用他演"首个法币账户即时生效"。
 
-**费率**：`STD-USDT-AED` / `STD-AED-USDT`（默认档）+ `VIP-USDT-AED`（requiredTags `["VIP"]`，各档比 STD 便宜；Grace 带 VIP 标签命中它）；提现 `STD-AED-AED_ZAND` / `STD-USDT-TRON`。**限额**：15 条（单笔 6 / 累计 8 / 大额 1）。
+**费率**：`STD-USDT-AED` / `STD-AED-USDT`（默认档）+ `VIP-USDT-AED`（requiredTags `["VIP"]`，各档比 STD 便宜；Grace 带 VIP 标签命中它）；demo:all 会把 `STD-USDT-AED` Tier 1 平费改成 10（`demo-lib.ts` FEE_PLAN，造数取整），所以舞台上对照用 1000 USDT（Tier 2：VIP 12 < STD 20）；提现 `STD-AED-AED_ZAND` / `STD-USDT-TRON`。**限额**：15 条（单笔 6 / 累计 8 / 大额 1）。
 
 **现场登记用的合法 TRON 样例地址**：`bash -c 'npx ts-node -e "import(\"./src/common/utils/tron-address.util\").then(m=>console.log(m.fakeTronAddress(\"demo-register-1\")))"' 生成一枚（形态合法、不做校验和）。
 

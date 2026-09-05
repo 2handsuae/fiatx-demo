@@ -19,6 +19,7 @@ import { readFileSync } from 'fs';
 import { join } from 'path';
 import { PrismaClient } from '@prisma/client';
 import { RBAC_PERMISSION_DEFINITIONS } from '../src/modules/identity/access-control/rbac.catalog';
+import { MAX_ADDRESSES_PER_NETWORK } from '../src/modules/asset-treasury/withdrawal-addresses/withdrawal-address.service';
 
 // ══════════════════════ API base（.stackports 探测，同 verify-rbac.ts） ══════════════════════
 //
@@ -93,6 +94,70 @@ async function call(method: 'GET' | 'POST', p: string, token?: string, body?: un
     // 非 JSON 响应体，保留原始文本供报错引用
   }
   return { status: res.status, json, text };
+}
+
+async function customerLogin(email: string): Promise<string> {
+  const r = await fetch(`${API}/auth/customer/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, password: '123456' }),
+  });
+  const j: any = await r.json().catch(() => ({}));
+  if (!j.access_token) throw new Error(`客户登录失败: ${email} → ${r.status} ${JSON.stringify(j)}`);
+  return j.access_token as string;
+}
+
+/** 运营提暂停/恢复 → CISO 批 → 等资产落到目标状态 */
+async function driveAssetStatus(assetNo: string, target: 'SUSPENDED' | 'ACTIVE', tokens: Record<string, string>): Promise<string> {
+  const action = target === 'SUSPENDED' ? 'suspend' : 'reactivate';
+  precheckRoute('POST', `/admin/assets/:assetNo/${action}`);
+  const req = await call('POST', `/admin/assets/${assetNo}/${action}`, tokens.ops_officer, { reason: `verify:act1 V 组 ${action}` });
+  if (req.status >= 300) throw new Error(`${action} → ${req.status} ${req.text}`);
+  const approvalNo: string = req.json.approvalNo;
+  const ok = await call('POST', `/admin/control-gates/approvals/${approvalNo}/approve`, tokens.ciso, { reason: 'verify:act1' });
+  if (ok.status >= 300) throw new Error(`approve ${approvalNo} → ${ok.status} ${ok.text}`);
+  const landed = await waitUntil(async () => (await prisma.asset.findFirst({ where: { assetNo } }))?.status === target, 15_000, 300);
+  if (!landed) throw new Error(`资产 ${assetNo} 未在 15s 内到 ${target}`);
+  return approvalNo;
+}
+
+/**
+ * V 组夹具补丁（非本波行为——customer-access.service.ts#assertTradingReady，
+ * 2026-07-11 交易起始前置门既有闸门）：SWAP/WITHDRAW 动作、以及登记链上提现地址
+ * （registerAddress），都要求客户名下已有 ≥1 条 ACTIVE 的 BANK 提现地址；on a
+ * freshly-reset stack 没有任何种子会造这条数据（实测 withdrawal_addresses 表
+ * reset 后为空）。V 组要测的是资产暂停这道 L1 门，不是这道更早的前置门——用真实
+ * HTTP 把它满足掉（同 test/swap-money-arc.e2e-spec.ts 的 ensureWithdrawalAddress
+ * 一个道理；那边直接 prisma 造，这里能走 HTTP 就走 HTTP——客户首条法币地址
+ * createBankAccount 不设冷却、即时 ACTIVE，不必再劳烦 admin skip-cooling）。
+ * 幂等：已有 ACTIVE 法币地址就跳过，避免重跑撞 IBAN 唯一冲突。
+ */
+/**
+ * ISO 13616 IBAN 校验位计算（mod-97）——bank-validator.util.ts 的 validateIban() 只管验证，
+ * 这里反过来按客户号派生 BBAN 再算出配套校验位，让 alice/grace 两条法币地址各有各的 IBAN，
+ * 不再共用同一个字面量（银行代码沿用原字面量的 37040044，仅账号段换成客户号派生）。
+ */
+function computeIbanCheckDigits(countryCode: string, bban: string): string {
+  const rearranged = `${bban}${countryCode}00`;
+  const numeric = rearranged.replace(/[A-Z]/g, (ch) => String(ch.charCodeAt(0) - 55));
+  let remainder = '';
+  for (const char of numeric) {
+    remainder += char;
+    remainder = String(Number(remainder) % 97);
+  }
+  return String(98 - Number(remainder)).padStart(2, '0');
+}
+
+async function ensureFiatWithdrawalAddress(token: string, customerId: string, customerNo: string): Promise<void> {
+  const existing = await prisma.withdrawalAddress.count({ where: { customerId, addressType: 'BANK', status: 'ACTIVE' } });
+  if (existing > 0) return;
+  const bban = `37040044${customerNo.replace(/\D/g, '').padStart(10, '0').slice(-10)}`;
+  const iban = `DE${computeIbanCheckDigits('DE', bban)}${bban}`;
+  const r = await call('POST', '/client/withdrawal-addresses/bank-accounts', token, {
+    beneficiaryName: 'Verify Act1 V Group', bankName: 'Deutsche Bank',
+    iban, swiftBic: 'DEUTDEFF', ownershipDeclaration: true,
+  });
+  if (r.status >= 300) throw new Error(`夹具：开首个法币提现地址失败（交易起始前置门）→ ${r.status} ${r.text}`);
 }
 
 /**
@@ -424,13 +489,184 @@ async function main(): Promise<void> {
     `GET audit-logs?subjectNo=<B9 entityRef> → ${b14.status}，命中行数=${b14.json?.items?.length ?? 0}，含 APPROVAL_CASE 主体=${hasApprovalCaseSubject}`,
   );
 
+  // ══════════════════════ V1–V10：波二 · 资产暂停是 L1 硬门 + 留痕 + 报价身份 ══════════════════════
+  const usdt = await prisma.asset.findFirstOrThrow({ where: { currency: 'USDT', network: 'TRON' } });
+  const aed = await prisma.asset.findFirstOrThrow({ where: { currency: 'AED' } });
+  const alice = await prisma.customerMain.findFirstOrThrow({ where: { email: 'demo_alice@example.com' } });
+  const grace = await prisma.customerMain.findFirstOrThrow({ where: { email: 'demo_grace@example.com' } });
+  const aliceTok = await customerLogin('demo_alice@example.com');
+  const graceTok = await customerLogin('demo_grace@example.com');
+  const vStart = new Date();
+
+  // ── 夹具补丁：交易起始前置门（见 ensureFiatWithdrawalAddress 注释）——
+  // alice 还要一条 AED C_VIBAN 收款钱包，V6 的 initiateSwap R4 收款账户校验要用
+  // （USDT 那侧的 C_DEP 由下面 V3 的 /client/deposit-wallets 调用顺带创建）。
+  await ensureFiatWithdrawalAddress(aliceTok, alice.id, alice.customerNo);
+  await ensureFiatWithdrawalAddress(graceTok, grace.id, grace.customerNo);
+  const aedWallet = await call('POST', '/client/deposit-wallets', aliceTok, { network: 'AED_ZAND' });
+  if (aedWallet.status >= 300) throw new Error(`夹具：alice 开 AED 收款钱包失败 → ${aedWallet.status} ${aedWallet.text}`);
+
+  // ── 第一轮暂停：V3 暂停期间入金 → V4 通过后挂运营 → 恢复 → V5 放行入账（alice 由此拿到 150 USDT，供 V1/V6 的兑换用）
+  await driveAssetStatus(usdt.assetNo!, 'SUSPENDED', tokens);
+
+  const wallet = await call('POST', '/client/deposit-wallets', aliceTok, { network: 'TRON' });
+  const toAddress: string = wallet.json?.address ?? wallet.json?.wallet?.address;
+  if (!toAddress) throw new Error(`POST /client/deposit-wallets 没返回地址：${wallet.status} ${wallet.text}`);
+  const txSeed = `${Date.now()}`;
+  // counterpartyIsVasp 是运行时必填（inbound-transfer-signals.service.ts 对 crypto
+  // 起手就查，DTO 上标 optional 但没带就 400 "counterpartyIsVasp is required for
+  // crypto deposits"）——brief 骨架漏了这个字段，实测会让整条信号创建静默 400、
+  // scan 找不到任何 PENDING_SCAN 信号，depositIds 恒为空。
+  const sig = await call('POST', '/deposit-transactions/my/inbound-signals', aliceTok, {
+    network: 'TRON', toAddress, contractAddress: usdt.contractAddress, amount: '150',
+    txHash: Buffer.from(`v3-${txSeed}`).toString('hex').padEnd(64, '0').slice(0, 64),
+    fromAddress: `TVerifyAct1${txSeed}`.padEnd(34, 'x').slice(0, 34),
+    counterpartyIsVasp: false,
+  });
+  if (sig.status >= 300) throw new Error(`夹具：创建入站信号失败 → ${sig.status} ${sig.text}`);
+  const scan = await call('POST', '/deposit-transactions/my/inbound-signals/scan', aliceTok, { network: 'TRON', toAddress });
+  const depositId: string | undefined = scan.json?.depositIds?.[0];
+  let v3row: any = null;
+  const v3ok = !!depositId && (await waitUntil(async () => {
+    v3row = await prisma.depositTransaction.findUnique({ where: { id: depositId } });
+    return v3row?.status === 'COMPLIANCE_PENDING' && v3row?.limitHoldReason === 'ASSET_SUSPENDED' && !!v3row?.sumsubTxnId;
+  }, 15_000, 300));
+  const v3snap = v3row?.l1Snapshot ? JSON.parse(v3row.l1Snapshot) : null;
+  const v3held = v3row ? await prisma.auditLogEvent.findFirst({
+    where: { action: 'DEPOSIT_L1_HELD', primarySubjectNo: v3row.depositNo, recordedAt: { gte: vStart } },
+    include: { subjects: true },
+  }) : null;
+  judge(
+    'V3',
+    v3ok && v3snap?.checks?.some((c: any) => c.code === 'ASSET_AVAILABILITY' && c.outcome === 'FAIL')
+      && !!v3held && v3held.fromStatus == null && v3held.toStatus == null
+      && v3held.subjects.some((s: any) => s.subjectType === 'ASSET' && s.subjectNo === usdt.assetNo && s.subjectRole === 'RELATED'),
+    `暂停期间入金 scan → depositIds=${JSON.stringify(scan.json?.depositIds)} status=${v3row?.status} hold=${v3row?.limitHoldReason} sumsubTxnId=${v3row?.sumsubTxnId ? '有' : '无'} DEPOSIT_L1_HELD=${v3held ? '有' : '无'}`,
+  );
+
+  const v4 = depositId ? await call('POST', '/admin/deposit-sumsub/demo/run-verdict', tokens.admin, { depositId, verdict: 'V1_APPROVED' }) : { status: 0, json: null, text: 'no deposit' };
+  // !!depositId 前置：status:0 哨兵本身满足 `< 300`，没有它 depositId 为空时会
+  // 掉进 waitUntil 拿 `id: undefined` 去查 prisma，炸的是 PrismaClientValidationError
+  // 而不是一条干净的 FAIL——V6-V10 全部拿不到结果。
+  const v4ok = !!depositId && v4.status < 300 && (await waitUntil(async () => (await prisma.depositTransaction.findUnique({ where: { id: depositId! } }))?.status === 'OPERATION_PENDING', 15_000, 300));
+  const v4held = v3row ? await prisma.auditLogEvent.findFirst({
+    where: { action: 'DEPOSIT_HELD', primarySubjectNo: v3row.depositNo, recordedAt: { gte: vStart } }, include: { subjects: true },
+  }) : null;
+  judge(
+    'V4',
+    v4ok && v4held?.fromStatus === 'COMPLIANCE_PENDING' && v4held?.toStatus === 'OPERATION_PENDING' && v4held?.reasonCode === 'ASSET_SUSPENDED'
+      && v4held.subjects.some((s: any) => s.subjectType === 'ASSET' && s.subjectNo === usdt.assetNo),
+    `run-verdict(V1_APPROVED) → ${v4.status}；DEPOSIT_HELD from=${v4held?.fromStatus} to=${v4held?.toStatus} reason=${v4held?.reasonCode}`,
+  );
+
+  await driveAssetStatus(usdt.assetNo!, 'ACTIVE', tokens);
+  const suspendedRow = await prisma.auditLogEvent.findFirst({ where: { action: 'ASSET_SUSPENDED', primarySubjectNo: usdt.assetNo!, recordedAt: { gte: vStart } } });
+  precheckRoute('POST', '/deposit-transactions/:id/waive-limit');
+  const v5 = depositId ? await call('POST', `/deposit-transactions/${depositId}/waive-limit`, tokens.ops_officer) : { status: 0, json: null, text: 'no deposit' };
+  const v5ok = !!depositId && v5.status < 300 && (await waitUntil(async () => (await prisma.depositTransaction.findUnique({ where: { id: depositId! } }))?.status === 'SUCCESS', 20_000, 300));
+  judge('V5', v5ok && suspendedRow?.fromStatus === 'ACTIVE' && suspendedRow?.toStatus === 'SUSPENDED',
+    `恢复后 Release Hold → ${v5.status}，终态=${v5ok ? 'SUCCESS' : '未到 SUCCESS'}；ASSET_SUSPENDED 行 from/to=${suspendedRow?.fromStatus}/${suspendedRow?.toStatus}`);
+
+  // ── V7/V8：地址登记 actor 与四门之一（同时给 V2 备一个 ACTIVE 的 TRON 地址）
+  const { fakeTronAddress } = await import('../src/common/utils/tron-address.util');
+  // 客户路由不在 RBAC_PERMISSION_DEFINITIONS 里，不走 precheckRoute（它只核管理端路由）
+  const reg1 = await call('POST', '/client/withdrawal-addresses', aliceTok, { network: 'TRON', address: fakeTronAddress(`act1-${txSeed}-1`), ownershipDeclaration: true, label: 'verify:act1 V7' });
+  const addr1No: string | undefined = reg1.json?.addressNo;
+  const v7row = addr1No ? await prisma.auditLogEvent.findFirst({ where: { action: 'WITHDRAWAL_ADDRESS_REGISTERED', primarySubjectNo: addr1No } }) : null;
+  judge('V7', reg1.status < 300 && reg1.json?.status === 'PENDING_ACTIVATION' && v7row?.actorType === 'CUSTOMER' && !!v7row?.requestId,
+    `登记链上地址 → ${reg1.status} ${reg1.json?.status}；审计 actorType=${v7row?.actorType} requestId=${v7row?.requestId ? '有' : '无'}`);
+
+  const existingActive = await prisma.withdrawalAddress.count({ where: { customerId: alice.id, network: 'TRON', status: { in: ['PENDING_ACTIVATION', 'ACTIVE'] } } });
+  for (let i = existingActive; i < MAX_ADDRESSES_PER_NETWORK; i += 1) {
+    await call('POST', '/client/withdrawal-addresses', aliceTok, { network: 'TRON', address: fakeTronAddress(`act1-${txSeed}-fill${i}`), ownershipDeclaration: true });
+  }
+  const reg4 = await call('POST', '/client/withdrawal-addresses', aliceTok, { network: 'TRON', address: fakeTronAddress(`act1-${txSeed}-4`), ownershipDeclaration: true });
+  const v8row = await prisma.auditLogEvent.findFirst({
+    where: { action: 'WITHDRAWAL_ADDRESS_REQUEST_DENIED', reasonCode: 'ADDRESS_LIMIT_REACHED', ownerCustomerNo: alice.customerNo, recordedAt: { gte: vStart } },
+  });
+  judge('V8', reg4.status === 400 && reg4.json?.code === 'ADDRESS_LIMIT_REACHED' && !!v8row && v8row.outcome === 'DENIED',
+    `同网络第 4 条 → ${reg4.status} ${reg4.json?.code}；DENIED 行=${v8row ? '有' : '无'}`);
+
+  if (addr1No) {
+    precheckRoute('POST', '/admin/withdrawal-addresses/:addressNo/skip-cooling');
+    const skipCooling = await call('POST', `/admin/withdrawal-addresses/${addr1No}/skip-cooling`, tokens.treasury, { reason: 'verify:act1 V2 需要一个 ACTIVE 地址' });
+    if (skipCooling.status >= 300) throw new Error(`skip-cooling ${addr1No} → ${skipCooling.status} ${skipCooling.text}`);
+  }
+  const activeAddr = await prisma.withdrawalAddress.findFirst({ where: { customerId: alice.id, network: 'TRON', status: 'ACTIVE' } });
+
+  // ── 第二轮暂停：V1 兑换 BLOCK、V2 提现 BLOCK（alice 此刻已有 150 USDT，余额前置不会先拦）
+  await driveAssetStatus(usdt.assetNo!, 'SUSPENDED', tokens);
+  const q1 = await call('POST', '/swap-transactions/quotes', aliceTok, { fromAssetId: usdt.id, toAssetId: aed.id, fromAmount: 10 });
+  // toCustomerQuoteResponse()（swap-transactions-customer.controller.ts）返回的字段是
+  // `quoteId`，不是 `id`——brief 骨架写的 q1.json.id 恒 undefined，会在这一步先撞
+  // "quoteId must be a UUID" 400，L1 门根本挨不到边。
+  const v1 = q1.status < 300 ? await call('POST', '/swap-transactions', aliceTok, { quoteId: q1.json.quoteId }) : { status: q1.status, json: q1.json, text: q1.text };
+  const v1row = await prisma.auditLogEvent.findFirst({
+    where: { action: 'SWAP_L1_BLOCKED', ownerCustomerNo: alice.customerNo, recordedAt: { gte: vStart } }, include: { subjects: true }, orderBy: { recordedAt: 'desc' },
+  });
+  judge('V1', v1.status === 403 && v1.json?.code === 'L1_GATE_BLOCKED' && v1row?.outcome === 'DENIED' && v1row?.reasonCode === 'ASSET_SUSPENDED'
+      && v1row.subjects.some((s: any) => s.subjectType === 'ASSET' && s.subjectNo === usdt.assetNo),
+    `暂停中建兑换单 → ${v1.status} ${v1.json?.code}；SWAP_L1_BLOCKED reason=${v1row?.reasonCode}`);
+
+  // 提现同 swap 一样先建报价（quoteId 是 CreateWithdrawTransactionDto 的必填字段，
+  // 这一步不受资产暂停影响——限额闸只挡 SINGLE_LIMIT，USDT 提现最小额 10，取 20
+  // 留足余量）；quote 建好后才轮到 L1 门拦。
+  const wq2 = await call('POST', '/withdraw-transactions/quotes', aliceTok, { assetId: usdt.id, amount: 20 });
+  const v2 = !activeAddr
+    ? { status: 0, json: null, text: 'no active TRON address' }
+    : wq2.status >= 300
+      ? { status: wq2.status, json: wq2.json, text: wq2.text }
+      : await call('POST', '/client/withdraw-transactions', aliceTok, { assetId: usdt.id, amount: 20, toAddress: activeAddr.address, quoteId: wq2.json.quoteId });
+  const v2row = await prisma.auditLogEvent.findFirst({
+    where: { action: 'WITHDRAW_L1_BLOCKED', ownerCustomerNo: alice.customerNo, recordedAt: { gte: vStart } }, orderBy: { recordedAt: 'desc' },
+  });
+  judge('V2', v2.status === 403 && v2.json?.code === 'L1_GATE_BLOCKED' && v2row?.outcome === 'DENIED' && v2row?.reasonCode === 'ASSET_SUSPENDED',
+    `暂停中建提现单 → ${v2.status} ${v2.json?.code}；WITHDRAW_L1_BLOCKED=${v2row ? '有' : '无'}`);
+
+  await driveAssetStatus(usdt.assetNo!, 'ACTIVE', tokens);
+  const q6 = await call('POST', '/swap-transactions/quotes', aliceTok, { fromAssetId: usdt.id, toAssetId: aed.id, fromAmount: 10 });
+  const v6 = q6.status < 300 ? await call('POST', '/swap-transactions', aliceTok, { quoteId: q6.json.quoteId }) : { status: q6.status, json: q6.json, text: q6.text };
+  judge('V6', v6.status === 201, `恢复后同一客户建兑换单 → ${v6.status}（对照：门不是永远关着）${v6.status >= 300 ? ' ' + v6.text : ''}`);
+
+  // ── V9：VIP 预览价 = 确认价（岔口 4）
+  // 选档只比平费不比点差；种子里 VIP 全档更便宜，但 demo:all 的 FEE_PLAN（demo-lib.ts:122）
+  // 会把 STD-USDT-AED Tier 1 平费压到 10，舞台上 100 USDT 时 Grace 会落 STD——判据与剧本统一
+  // 用 1000 USDT（Tier 2：VIP 12 < STD 20），两种库态都成立。
+  const rateGrace = await call('GET', `/swap-transactions/rate?fromAssetId=${usdt.id}&toAssetId=${aed.id}&amount=1000`, graceTok);
+  const rateAlice = await call('GET', `/swap-transactions/rate?fromAssetId=${usdt.id}&toAssetId=${aed.id}&amount=1000`, aliceTok);
+  const quoteGrace = await call('POST', '/swap-transactions/quotes', graceTok, { fromAssetId: usdt.id, toAssetId: aed.id, fromAmount: 1000 });
+  // 修复前两人的预览都落默认档 → tierId 相同；修复后 Grace 命中 VIP 档 → tierId 不同。用 tierId 而不用点差数值：
+  // 两档点差恰好相等时数值比较会伪绿，tierId 不会。
+  // 命中档位名（feeLevelCode）只存在于 SwapQuote 表本身；客户确认响应 toCustomerQuoteResponse() 刻意不透出这个字段（设计如此，非缺陷）——
+  // 这里改从报价行直读，不是绕断言、不是弱化判据。
+  const graceQuoteRow = quoteGrace.json?.quoteId
+    ? await prisma.swapQuote.findUnique({ where: { id: quoteGrace.json.quoteId }, select: { feeLevelCode: true } })
+    : null;
+  judge('V9',
+    rateGrace.status === 200 && rateAlice.status === 200 && quoteGrace.status < 300
+      && !!rateGrace.json.tierId && rateGrace.json.tierId !== rateAlice.json.tierId
+      && String(graceQuoteRow?.feeLevelCode ?? '').startsWith('VIP'),
+    `Grace 预览 tierId=${rateGrace.json?.tierId} vs Alice ${rateAlice.json?.tierId}；Grace 报价 level=${graceQuoteRow?.feeLevelCode}`);
+
+  // ── V10：取证路径本身进判据——审计页 Subject No 栏按资产号能拉出被它拦下的单
+  const v10 = await call('GET', `/admin/audit-logs?subjectNo=${encodeURIComponent(usdt.assetNo!)}&take=100`, tokens.admin);
+  // 不限时间窗会让 V10 吃到本资产历史上任何一次 SWAP_L1_BLOCKED/DEPOSIT_HELD——哪怕本轮 V1/V3
+  // 已经因回归而拦不下来，只要之前跑过一次就能常绿。按 vStart 门控只认本轮新写的行。
+  // audit-logs 响应体（audit-logs.service.ts#mapEvent）同时带 occurredAt 与 recordedAt，
+  // 两个写入点（swap-workflow.service.ts SWAP_L1_BLOCKED / deposit-workflow.service.ts
+  // DEPOSIT_HELD）都不显式传 occurredAt,两者等价于同一个 now()——occurredAt 优先、
+  // recordedAt 兜底。
+  const v10hit = (a: string) => (v10.json?.items ?? []).some((i: any) => i.action === a && new Date(i.occurredAt ?? i.recordedAt) >= vStart);
+  judge('V10', v10.status === 200 && v10hit('SWAP_L1_BLOCKED') && v10hit('DEPOSIT_HELD'),
+    `GET audit-logs?subjectNo=${usdt.assetNo} → ${v10.status}，含 ${['SWAP_L1_BLOCKED', 'DEPOSIT_HELD'].filter((a) => v10hit(a)).join('+') || '无'}`);
+
   // ══════════════════════ 汇总 ══════════════════════
 
   console.log('');
   const passCount = results.filter((r) => r.status === 'PASS').length;
   const failCount = results.filter((r) => r.status === 'FAIL').length;
   const skipCount = results.filter((r) => r.status === 'SKIP').length;
-  console.log(`${passCount}/15 PASS${skipCount > 0 ? ` + ${skipCount} SKIP` : ''}${failCount > 0 ? ` + ${failCount} FAIL` : ''}`);
+  console.log(`${passCount}/${results.length} PASS${skipCount > 0 ? ` + ${skipCount} SKIP` : ''}${failCount > 0 ? ` + ${failCount} FAIL` : ''}`);
 
   if (failCount > 0) {
     const first = results.find((r) => r.status === 'FAIL')!;

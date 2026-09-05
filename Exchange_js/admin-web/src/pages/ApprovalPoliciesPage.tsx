@@ -162,7 +162,7 @@ export default function ApprovalPoliciesPage() {
       if (!res.ok) throw new Error(await getApiErrorMessage(res, 'Submit failed.'));
       const data = await res.json();
       closeEdit();
-      navigate(`/dashboard/governance/policy-change-requests/${data.id}`);
+      navigate(`/admin/governance/approvals/${data.approvalNo}`);
     } catch (err) {
       if (err instanceof AdminSessionError) return;
       setSubmitError(err instanceof Error ? err.message : 'Submit failed.');

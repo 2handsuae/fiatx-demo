@@ -12,7 +12,7 @@
 
 **网络是一等实体。** 资产 = 币种 × 网络 × 合约地址；`USDT-TRON` 的合约地址是防诈骗字段——入金信号的合约对不上任何资产直接拒收留痕（`DEPOSIT_SIGNAL_REJECTED`）。网络（`TRON` / `AED_ZAND`）是代码注册表（`config/manifests/networks.manifest.ts`），不建表、不做管理面；托管方（HexTrust / Zand）按网络给地址。
 
-**资产只有开关。** 两个资产随版本装载（审计第一行 `ASSET_SEEDED`，actor `RELEASE`）；运营提暂停 / 恢复，CISO 批（12h）；暂停 = 三条路的**客户端选择面**当场关（三个页面都读 `GET /assets?status=ACTIVE`，暂停后该资产不再出现在下拉里）。⚠️ **后端目前没有资产状态门**：兑换 `swap-transactions.service.ts:159-168`、提现 `withdraw-workflow.service.ts:257-258`、充值信号匹配 `inbound-transfer-signals.service.ts:582` 三处都只判「资产存在」不判 `status`，绕过前端直接打 API 仍可交易已暂停资产。设计口径本来要求这是一道硬门，代码没有——已登记 BACKLOG。上架 / 激活 / 编辑整条路已退役——将来上币见 BACKLOG「新资产上线整条流程」。
+**资产只有开关。** 两个资产随版本装载（审计第一行 `ASSET_SEEDED`，actor `RELEASE`）；运营提暂停 / 恢复，CISO 批（12h）；暂停 = 三条路的**客户端选择面**当场关（三个页面都读 `GET /assets?status=ACTIVE`，暂停后该资产不再出现在下拉里）。暂停 = L1 第十项 `ASSET_AVAILABILITY`：提现 / 兑换建单 BLOCK（403 + `*_L1_BLOCKED` 审计），充值照建单、打标、送检、合规通过后挂给运营（`DEPOSIT_L1_HELD` → `DEPOSIT_HELD`）；在途单不受影响；入金识别不判状态。上架 / 激活 / 编辑整条路已退役——将来上币见 BACKLOG「新资产上线整条流程」。
 
 **钱包行 = 一个地址。** 平台侧 4 个 vault（F_OPS / F_SET / F_FEE / F_LIQ）× 网络 = 7 行只从种子来（`CUSTODIAN_WALLET_SEEDED`），管理台只读，余额一律看账本（钱包表上没有余额）。客户侧唯一写路径是"客户在某网络上要一个收款地址"（`POST /client/deposit-wallets { network }`）：同网络第二次直接复用——一 vault 一链一地址（HexTrust 语义），将来上第二个 TRC-20 币零地址工作。
 

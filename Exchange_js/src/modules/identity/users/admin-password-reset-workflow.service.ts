@@ -25,7 +25,6 @@ import { UsersDomainService } from './users.domain.service';
 import { generateReferenceNo } from '../../../common/utils/no-generator.util';
 import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import {
-  AuditBusinessWorkflowTypes,
   AuditEntityTypes,
 } from '../../audit-logging/constants/audit-actions.constant';
 import { AuditCategory, AuditOutcome } from '../../audit-logging/dto/audit-log.dto';

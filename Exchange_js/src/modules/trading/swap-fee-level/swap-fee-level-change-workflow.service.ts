@@ -9,7 +9,6 @@ import { OnEvent } from '@nestjs/event-emitter';
 import { PrismaService } from '../../../core/prisma/prisma.service';
 import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import {
-  AuditBusinessWorkflowTypes,
   AuditEntityTypes,
 } from '../../audit-logging/constants/audit-actions.constant';
 import { AuditOutcome, AuditSubjectRole } from '../../audit-logging/dto/audit-log.dto';

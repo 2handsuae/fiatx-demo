@@ -277,8 +277,10 @@ export const AuditActions = {
   INBOUND_SIGNAL_FAILED: 'INBOUND_SIGNAL_FAILED',
   // 波一 T5：入金信号合约对不上任何资产——建单之前被拦，留痕拒收
   DEPOSIT_SIGNAL_REJECTED: 'DEPOSIT_SIGNAL_REJECTED',
+  DEPOSIT_L1_HELD: 'DEPOSIT_L1_HELD',
   SWAP_QUOTE_CREATED: 'SWAP_QUOTE_CREATED',
   SWAP_CREATED: 'SWAP_CREATED',
+  SWAP_L1_BLOCKED: 'SWAP_L1_BLOCKED',
   SWAP_KYT_SUBMITTED: 'SWAP_KYT_SUBMITTED',
   SWAP_KYT_SUBMIT_FAILED: 'SWAP_KYT_SUBMIT_FAILED',
   // Task 6: applyKytVerdict state-transition audits (markStatus itself writes
@@ -332,6 +334,7 @@ export const AuditActions = {
   // must never be bypassed.
   SWAP_ACTION_GREEN_HARDLINE_HELD: 'SWAP_ACTION_GREEN_HARDLINE_HELD',
   WITHDRAW_CREATED: 'WITHDRAW_CREATED',
+  WITHDRAW_L1_BLOCKED: 'WITHDRAW_L1_BLOCKED',
   // V5 Withdrawal Happy Path
   WITHDRAW_REQUESTED: 'WITHDRAW_REQUESTED',
   WITHDRAW_COMPLIANCE_PASSED: 'WITHDRAW_COMPLIANCE_PASSED',
@@ -664,6 +667,9 @@ export const V1_AUDIT_ACTIONS: Record<string, AuditActionSpec> = {
   // 波一新增：改标签 / 收款人（客户单步，INHERIT 地址自己的 traceId）；管理员恢复（补 D5 出边）
   WITHDRAWAL_ADDRESS_UPDATED:         { domain: 'CONFIG', correlationMode: I, requiredFields: ['beforeData', 'afterData'], requiresCausation: false },
   WITHDRAWAL_ADDRESS_UNSUSPENDED:     { domain: 'CONFIG', correlationMode: I, requiredFields: ['reason'], requiresCausation: false },
+  // 波二：地址五门（ADDRESS_LIMIT_REACHED / COOLING_PERIOD_NOT_EXPIRED / LAST_ACTIVE_FIAT_ADDRESS /
+  // ADDRESS_HAS_INFLIGHT_WITHDRAWAL / NO_ACTIVE_FIAT_WITHDRAWAL_ADDRESS）拒绝留痕，reasonCode = 门的 code
+  WITHDRAWAL_ADDRESS_REQUEST_DENIED: { domain: 'CONFIG', correlationMode: N, requiredFields: ['reasonCode'], requiresCausation: false },
 
   // ── 种子身世（波一，spec §8）：配置随版本装载，装载即留痕——第七幕按 USDT 查，第一行是"随版本上架"。
   // 种子跑在 Nest 之外，由 prisma/seed-audit.helper.ts 直写：actorType SYSTEM、actorNo RELEASE（业务种子）/ DEMO_SEED（演示客户造数），
@@ -731,6 +737,8 @@ export const V4_DEPOSIT_AUDIT_ACTIONS: Record<string, AuditActionSpec> = {
   DEPOSIT_CREATED:        { domain: 'DEPOSIT', correlationMode: S, requiredFields: ['amount', 'currency', 'ownerCustomerNo'], requiresCausation: false },
   DEPOSIT_PAYIN_COMPLETED:{ domain: 'DEPOSIT', correlationMode: I, requiredFields: ['fromStatus', 'toStatus'], requiresCausation: false },
   DEPOSIT_HELD:           { domain: 'DEPOSIT', correlationMode: I, requiredFields: ['reasonCode'], requiresCausation: false },
+  // 波二（2026-09-05）：L1 行政级问题打标不换状态、照常送检；这一行是打标当刻的证据（KYT 若随后拒绝，它是「暂停曾拦下它」的唯一审计痕）
+  DEPOSIT_L1_HELD:        { domain: 'DEPOSIT', correlationMode: I, requiredFields: ['reasonCode'], requiresCausation: false },
   DEPOSIT_SUMSUB_SUBMITTED:{ domain: 'DEPOSIT', correlationMode: I, requiredFields: [], requiresCausation: false },
   DEPOSIT_APPROVED:       { domain: 'DEPOSIT', correlationMode: I, requiredFields: ['fromStatus', 'toStatus'], requiresCausation: false },
   DEPOSIT_LIMIT_WAIVED:   { domain: 'DEPOSIT', correlationMode: I, requiredFields: ['reason'], requiresCausation: false },
@@ -798,6 +806,8 @@ export const V4_DEPOSIT_AUDIT_ACTIONS: Record<string, AuditActionSpec> = {
 export const V5_WITHDRAW_AUDIT_ACTIONS: Record<string, AuditActionSpec> = {
   // ── 出生（1）────────────────────────────────────────────
   WITHDRAW_CREATED:         { domain: 'WITHDRAW', correlationMode: S, requiredFields: ['amount', 'currency', 'ownerCustomerNo'], requiresCausation: false },
+  // 波二：L1 拦下留痕（单未建、无单号；主体=客户；次主体 RELATED=资产）
+  WITHDRAW_L1_BLOCKED:      { domain: 'WITHDRAW', correlationMode: N, requiredFields: ['reasonCode'], requiresCausation: false },
   // ── 大额闸（3）──────────────────────────────────────────
   WITHDRAW_LARGE_VALUE_REQUESTED: { domain: 'WITHDRAW', correlationMode: I, requiredFields: [], requiresCausation: false },
   WITHDRAW_LARGE_VALUE_PASSED:    { domain: 'WITHDRAW', correlationMode: I, requiredFields: ['approvalNo', 'fromStatus', 'toStatus'], requiresCausation: true },
@@ -849,6 +859,7 @@ export const V5_WITHDRAW_AUDIT_ACTIONS: Record<string, AuditActionSpec> = {
 export const V6_SWAP_AUDIT_ACTIONS: Record<string, AuditActionSpec> = {
   // ── 出生（1）────────────────────────────────────────────
   SWAP_CREATED:              { domain: 'SWAP', correlationMode: S, requiredFields: ['amount', 'currency', 'ownerCustomerNo'], requiresCausation: false },
+  SWAP_L1_BLOCKED:           { domain: 'SWAP', correlationMode: N, requiredFields: ['reasonCode'], requiresCausation: false },
   // ── KYT 合规（5）────────────────────────────────────────
   SWAP_KYT_SUBMITTED:        { domain: 'SWAP', correlationMode: I, requiredFields: [], requiresCausation: false },
   SWAP_KYT_APPROVED:         { domain: 'SWAP', correlationMode: I, requiredFields: ['fromStatus', 'toStatus'], requiresCausation: false },

@@ -21,7 +21,6 @@ import {
   checkerRolesToSteps,
 } from './constants/approval.constants';
 import {
-  AuditBusinessWorkflowTypes,
   AuditEntityTypes,
 } from '../../audit-logging/constants/audit-actions.constant';
 import { AuditCategory, AuditOutcome } from '../../audit-logging/dto/audit-log.dto';

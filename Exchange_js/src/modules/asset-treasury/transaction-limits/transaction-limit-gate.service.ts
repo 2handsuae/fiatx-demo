@@ -3,7 +3,7 @@ import { randomUUID } from 'crypto';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../core/prisma/prisma.service';
 import { AuditLogsService } from '../../audit-logging/audit-logs.service';
-import { AuditEntityTypes, AuditBusinessWorkflowTypes } from '../../audit-logging/constants/audit-actions.constant';
+import { AuditEntityTypes } from '../../audit-logging/constants/audit-actions.constant';
 import { AuditOutcome } from '../../audit-logging/dto/audit-log.dto';
 import { BinanceRateProvider } from '../../trading/pricing-center/providers/binance-rate.provider';
 import { TransactionLimitRulesService } from './transaction-limit-rules.service';

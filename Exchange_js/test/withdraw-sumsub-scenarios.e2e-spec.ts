@@ -122,7 +122,7 @@ describe('Withdraw Sumsub verdict buttons (e2e, Task 12)', () => {
     customerId = customer.id;
     customerNo = customer.customerNo;
 
-    // submitSumsubTxn (birth-time Gate 0 equivalent) needs an applicantId on file
+    // submitSumsubTxn (birth-time L1 equivalent) needs an applicantId on file
     // to actually stamp a real sumsubTxnId — without it, WithdrawDemoScenarioService's
     // verdict delivery would mint a txnId no withdraw row actually carries, and the
     // handler would treat every delivery as an orphan webhook (see that service's

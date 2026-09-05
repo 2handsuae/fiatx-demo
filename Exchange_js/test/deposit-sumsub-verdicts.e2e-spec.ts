@@ -89,7 +89,7 @@ import { AuditActions, AuditEntityTypes } from '../src/modules/audit-logging/con
  *   全部与生产行为同一份代码,e2e 验证的是"按钮语义对不对",不是"测试替身像不像"。
  * - 建单直接 Prisma 插入 COMPLIANCE_PENDING(不经 `detected()`/funds_order 级联——那条链是
  *   fire-and-forget emit,测试里会竞态),然后手动调用 `handleDepositStatusChanged()`
- *   驱动真实 Gate 0(compliance 状态检查 + submitSumsubTxns 提交 mock 交易)。
+ *   驱动真实 L1(compliance 状态检查 + submitSumsubTxns 提交 mock 交易)。
  * - below-min 用例直接在建单时落 `limitHoldReason: 'BELOW_MIN'`(生产里这是 `detected()`
  *   查限额规则后落的标 —— 这里跳过规则查询,直接给结果,与
  *   `DepositWorkflowService.holdIfHeld`(原 holdBelowMinIfNeeded) 的 JSDoc "判定依据是建单时落的
@@ -125,7 +125,7 @@ describe('Deposit Sumsub verdict buttons (e2e, Task 9)', () => {
 
   // 2026-08-31：原先调 workflow.adminFreeze()，该方法随 PATCH /deposit-transactions/:id/status
   // 路由退役（Task 4）—— 它唯一的调用方就是那条零消费方的 controller 分支。这里改直调
-  // depositService.updateStatus()，与仍然活着的两条自动 FREEZE 路径（Gate 0 执法级限制、
+  // depositService.updateStatus()，与仍然活着的两条自动 FREEZE 路径（L1 执法级限制、
   // KYT rejected）走同一个原语；本用例只关心「冻上之后客户端会话视图逐字不变」，
   // 不断言审计，故不复刻 adminFreeze 附带的那次 depositAudit。
   const freezeDeposit = (depositId: string, reason: string) =>
@@ -301,7 +301,7 @@ describe('Deposit Sumsub verdict buttons (e2e, Task 9)', () => {
   }
 
   /**
-   * Creates a deposit directly at COMPLIANCE_PENDING and drives Gate 0
+   * Creates a deposit directly at COMPLIANCE_PENDING and drives L1
    * (submitSumsubTxns) for real, mirroring `detected()`'s COMPLIANCE_PENDING
    * entry without the funds_order/event cascade (fire-and-forget, races in tests).
    */
@@ -315,9 +315,9 @@ describe('Deposit Sumsub verdict buttons (e2e, Task 9)', () => {
     const assetId = opts.isCrypto ? cryptoAssetId : fiatAssetId;
     const toWalletId = opts.isCrypto ? cryptoWalletId : fiatWalletId;
     const depositNo = `DEPT9V${Date.now()}${depositNoSeq}`;
-    // Sumsub-shaped 24-hex txnId (not a real submission — just what Gate 0's
+    // Sumsub-shaped 24-hex txnId (not a real submission — just what L1's
     // submitSumsubTxns is primed to hand back for this deposit's clientTxnId).
-    const submitTxnId = createHash('sha1').update(`gate0:${depositNo}`).digest('hex').slice(0, 24);
+    const submitTxnId = createHash('sha1').update(`l1:${depositNo}`).digest('hex').slice(0, 24);
 
     const created = await prisma.depositTransaction.create({
       data: {
@@ -351,7 +351,7 @@ describe('Deposit Sumsub verdict buttons (e2e, Task 9)', () => {
 
     mockSumsubTxnClient.primeSubmit(created.depositNo, submitTxnId);
 
-    // Real Gate-0 entry point — the exact method 'deposit.status.changed' would invoke.
+    // Real L1 entry point — the exact method 'deposit.status.changed' would invoke.
     await workflow.handleDepositStatusChanged(
       new DepositStatusChangedEvent(
         created.id,

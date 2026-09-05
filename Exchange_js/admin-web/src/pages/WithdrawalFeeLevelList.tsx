@@ -560,7 +560,7 @@ const WithdrawalFeeLevelList = () => {
                   Audience — Required Tag
                 </label>
                 <p className="mb-2 font-mono text-[9px] text-adm-t3">
-                  Select 全体客户（everyone） for no restriction, or a single tag this level applies to.
+                  Select "Everyone" for no restriction, or a single tag this level applies to.
                 </p>
                 <select
                   className="w-full rounded border border-adm-border bg-adm-bg px-3 py-2 font-mono text-[11px] text-adm-t1 focus:border-adm-amber focus:outline-none transition-colors disabled:opacity-50"
@@ -574,7 +574,7 @@ const WithdrawalFeeLevelList = () => {
                     }));
                   }}
                 >
-                  <option value="">全体客户（everyone）</option>
+                  <option value="">Everyone (no restriction)</option>
                   {tagCatalog.map((t) => (
                     <option key={t.tagCode} value={t.tagCode}>
                       {t.displayName} ({t.type})

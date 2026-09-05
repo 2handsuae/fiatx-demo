@@ -5,7 +5,7 @@
 
 ## 0. 一句话定位
 
-管**钱怎么出去**。资金流出是全系统风险最高的动作，所以提现是**门最多的一域**（资格、地址、限额、大额审批、合规筛查五道全有），也是 L1 九项资格快照**全部适用**的唯一一域。虚拟币和法币共用同一条工作流。
+管**钱怎么出去**。资金流出是全系统风险最高的动作，所以提现是**门最多的一域**（资格、地址、限额、大额审批、合规筛查五道全有），也是 L1 十项资格快照**全部适用**的唯一一域。虚拟币和法币共用同一条工作流。
 
 ## 1. 业务叙事
 
@@ -71,7 +71,7 @@
 - 客户面防线 `getWithdrawStatusView()`（FROZEN/MANUAL_CHECKING/PENDING_APPROVAL 逐字段收敛成 PROCESSING）+ `toCustomerWithdrawView()`（调查性字段白名单裁剪）+ 违禁词单测全态零命中
 - SLA `WITHDRAW_SLA_MINUTES_BY_STATUS` 四格（5 分钟/7 天硬；3 天/1 天软）｜ `withdraw-sumsub/withdraw-sla.service.ts`
 - 资金腿迁移表 `funds-order-transitions.constant.ts → FIAT_OUT/CRYPTO_OUT_TRANSITIONS`；费腿三级梯 `onFeeLegFailed()`
-- L1 `L1GateService`（提现九项全适用）；限额/大额阈值读 `transaction_limit_rules`（V3 篇）
+- L1 `L1GateService`（提现十项全适用，含资产可用性；BLOCK 留 `*_L1_BLOCKED` 痕）；限额/大额阈值读 `transaction_limit_rules`（V3 篇）
 - 补单（B 批，2026-09-03）：`withdraw-workflow.service.ts → initiateReturnClaim()+onReturnAfterSuccess()`（复用 `onBounce()` 的重记分录，evidence 的 `externalRef`/`effectiveDate` 改用传入值，**跳过**费腿分支——SUCCESS 时费腿早已结清、手续费不退）｜ 新列 `returnExternalLineId String? @unique`/`returnReconCaseNo String?`｜ 入口、审批与守卫见 `modules/v8-recon.md` §3/§5
 - 补料与材料账、Sumsub 接入同充值（V4 篇 §5），两域同构
 

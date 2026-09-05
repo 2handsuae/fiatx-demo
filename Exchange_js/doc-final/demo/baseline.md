@@ -74,7 +74,7 @@
 
 `demo:all` 的判据从「8 场景全 SUCCESS」改成了「花名册 29 笔逐条比对预期终态 + COA 四恒等式」——一份丰富的演示数据本来就该有冻结的、没收的、退回的、上缴的、卡在半路的，不是清一色 SUCCESS（详见 `data.md`）。
 
-**由此带出一条硬约束：`demo:all` 必须在全新库上跑，不能在同一个库上连跑两次。** 花名册第 #7/#10/#13 行故意把第四人设 FRANK 造成一个**永久被制裁**的客户（customer-level ALL-scope 限制，本仓库没有任何流程会解开它——这也是刻意的，交易三人组 Alice/Bob/Grace 必须全程可交易，冻结这个不可逆动作只能落在专门"报废"的第四个人身上）。第二次在同一个库上跑 `demo:all`，Gate 0 会（正确地）拒绝 FRANK 的新充值，`runFrankPreStage` 因此卡住直到超时——**这是闸门在正确工作，不是 bug**。正确姿势：`bash scripts/stack.sh reset [main|self]` 重铺出全新库后再跑一次。
+**由此带出一条硬约束：`demo:all` 必须在全新库上跑，不能在同一个库上连跑两次。** 花名册第 #7/#10/#13 行故意把第四人设 FRANK 造成一个**永久被制裁**的客户（customer-level ALL-scope 限制，本仓库没有任何流程会解开它——这也是刻意的，交易三人组 Alice/Bob/Grace 必须全程可交易，冻结这个不可逆动作只能落在专门"报废"的第四个人身上）。第二次在同一个库上跑 `demo:all`，L1 会（正确地）拒绝 FRANK 的新充值，`runFrankPreStage` 因此卡住直到超时——**这是闸门在正确工作，不是 bug**。正确姿势：`bash scripts/stack.sh reset [main|self]` 重铺出全新库后再跑一次。
 
 > 💡 **`demo:all` 打印的那四个 COA 恒等数值会随花名册变化，数字变了不等于账错了。**
 > `verify:coa` 与 `demo:all` 验的都是**等式两边相等**，不验具体数值——所以花名册加了行、
@@ -96,7 +96,7 @@
 
 ## verify:act1 操作约束（四模块治愈 · 判据收口，2026-09-02 起）
 
-`npm run verify:act1`（15 条行为判据 B0–B14，见 `scripts/verify-act1.ts`）**会写数据**——每轮实测留下：
+`npm run verify:act1`（25 条行为判据：B0–B14 + 波二新增 V1–V10，见 `scripts/verify-act1.ts`）**会写数据**——每轮实测留下：
 
 - 3 张 `VERIFY_ACT1_TIMEOUT_PROBE` / `VERIFY_ACT1_KEY_PROBE` 探针审批单（B0–B5 夹具，其中一张真被 cron 判 `EXPIRED`，其余永久停在 `PENDING`——没有对应正门能推它们往前走，纯探针留档）
 - 1 个 `ADM-ACT1-B6-*` 探针成员 + 1 个 `WA-ACT1-B6-*` 探针钱包（B6，静态数据，无副作用）
@@ -107,11 +107,13 @@
 
 以上记录均带 `verify-act1` / `ACT1-*` 前缀或探针专属 actionType，不进任何真实报价/风控/推单路径，**但会在角色页、审批中心列表里以探针行形式可见**——同 `verify:rbac` 的风险，一并交给同一条重铺约束收口，不单独加清理逻辑。
 
-**B13 判据依赖库里存在至少一条真实 `CustomerMaterialHolding`**（材料生命周期记录，不是纯治理夹具，`verify:act1` 按 brief 明确指示**不伪造**）——全新重铺的库在 `demo:all` 跑过一次客户 KYC 全流程之前通常是空的，此时 B13 判据自动 **SKIP**（打印原因，不计入失败，`n/15 PASS + 1 SKIP` 仍算通过）；库里一旦有真实 holding（无论是 `demo:all` 走出来的还是运维手工补的），B13 就会正常跑判据，不再 SKIP。2026-09-02 首次实测：全新 worktree 自动分栈的库尚无客户走过材料生命周期，手工补种 1 条 holding 后 B13 转为真实通过，**15/15 PASS**。
+**B13 判据依赖库里存在至少一条真实 `CustomerMaterialHolding`**（材料生命周期记录，不是纯治理夹具，`verify:act1` 按 brief 明确指示**不伪造**）——全新重铺的库在 `demo:all` 跑过一次客户 KYC 全流程之前通常是空的，此时 B13 判据自动 **SKIP**（打印原因，不计入失败，`n/25 PASS + 1 SKIP` 仍算通过）；库里一旦有真实 holding（无论是 `demo:all` 走出来的还是运维手工补的），B13 就会正常跑判据，不再 SKIP。2026-09-02 首次实测：全新 worktree 自动分栈的库尚无客户走过材料生命周期，手工补种 1 条 holding 后 B13 转为真实通过，**15/15 PASS**。
 
 **裁决**：与 `verify:rbac` 同一条运行顺序——`verify:rbac` → `verify:act1` → `stack.sh reset [main|self]` → `demo:all`，重铺把探针痕迹与手工补种的 holding 一并冲掉。
 
 **波一起**：B6 夹具按 (vaultCode, network, ownerNo) 建平台行、B7 改为对 ACTIVE 资产提恢复（运营 token）→ 409。
+
+**波二起（2026-09-05）**：新增 **V1–V10** 共 10 条（资产暂停 L1 十项硬门在兑换 / 提现两域的 BLOCK 行为、充值域挂起证据链、提现地址登记 actor 与四道拒绝门之一、VIP 客户报价预览价=确认价、按资产业务号取证），基数由 15 升为 **25**。V7/V8 会真注册 alice 的提现地址（逼近 `MAX_ADDRESSES_PER_NETWORK=3` 上限）——同一个库里连跑两次，第二轮的 V7/V8 会因残留地址判错，**V 组同样只能在全新库上跑一次**，跑完直接进下面的重铺，不必再单独多铺一次库；实测（全新库，B13 依例因无真实材料记录 SKIP）：**24/25 PASS + 1 SKIP**。
 
 **改过 `rbac.catalog.ts` 就必须重启后端再跑**：本波把 TECH_OFFICER 加了 `IAM_ROLE_ASSIGN`（见 `overview.md` §4）。`verify:act1` 真登录真 HTTP，后端进程按内存里的 `RBAC_PERMISSION_DEFINITIONS` 判权限——只 `db:base:sync` 不重启后端，权限判断仍是改之前那份，`verify:act1` / `verify:rbac` 都会读到假结果（不是判据本身错，是跑的时候后端还没换脑子）。
 
@@ -143,14 +145,14 @@ Q6 谁查过审计日志：重铺后恒红，管理员真查一次审计页当�
 
 全量 11 套件 **83/83**（收官在 main 实测）。跑法三要素，缺一必假红：
 
-1. **私库先铺**：六个自带独立库的套件（kyt-verdict-landing / sanction-subject-split / deposit-verdicts / material-requests / customer-restrictions / sla）在每次 `stack.sh reset` 后库被清空，须逐库 `DATABASE_URL=file:/tmp/exchange_js_main/<e2e-库名>.db` 依次 `prisma migrate deploy` + `db:base:sync` + `db:biz:init`；
+1. **私库先铺**：六个自带独立库的套件（kyt-verdict-landing / sanction-subject-split / deposit-sumsub-verdicts / material-requests / customer-restrictions / sla）在每次 `stack.sh reset` 后库被清空，须逐库 `DATABASE_URL=file:/tmp/exchange_js_main/<e2e-库名>.db` 依次 `prisma migrate deploy` + `db:base:sync` + `db:biz:init`；
 2. **串行跑**：`bash scripts/on-stack.sh main test:e2e --runInBand <下列 11 个文件>`（**不要**在文件列表前多写 `--`，会被 jest 当路径模式吞掉 runInBand）；并行会互踩栈库出假红。**这 11 个就是基线口径的全集，逐字写在这里**（2026-09-04 补：此前这里只写「11 个文件」四个字、正文只点名了自带私库的 6 个，另外 5 个从没落过纸，波一收尾时只能靠 `git log --diff-filter=A` 的加入日期对着 CHANGELOG「45a4f1a8 e2e 11 套 83/83 首次入基线」那条考据出来——闸门的定义必须自己写得清，不能靠考据）：
 
 ```
 test/deposit-money-arcs.e2e-spec.ts          # 共用 dev.db
 test/withdraw-money-arcs.e2e-spec.ts         # 共用 dev.db
 test/swap-money-arc.e2e-spec.ts              # 共用 dev.db
-test/deposit-sumsub-verdicts.e2e-spec.ts     # 共用 dev.db
+test/deposit-sumsub-verdicts.e2e-spec.ts     # 私库
 test/withdraw-sumsub-scenarios.e2e-spec.ts   # 共用 dev.db
 test/swap-sumsub-scenarios.e2e-spec.ts       # 共用 dev.db
 test/kyt-verdict-landing.e2e-spec.ts         # 私库
@@ -163,7 +165,7 @@ test/sla.e2e-spec.ts                         # 私库
    **recon 组另列，不入上面 83/83 的口径**（五份，全部共用 `dev.db`，跑前先 `demo:setup`；2026-09-05 平账二期实测五份 26/26）：`test/recon-adjustment-money-arcs.e2e-spec.ts`、`test/recon-aging-write-off.e2e-spec.ts`、`test/recon-reattribution.e2e-spec.ts`、`test/recon-supplement.e2e-spec.ts`、`test/recon-internal-transfer.e2e-spec.ts`（最后这份截止用「现在」，不跨 UTC 零点跑）。跑法：`bash scripts/on-stack.sh <stack> test:e2e test/recon-`。
 
 3. **干净态起跑**：栈库残留多轮数据会触发日累计限额假红；`reset` + 重铺私库后一次跑完。
-4. **共用库那 6 个还要先 `demo:setup`**（2026-09-04 波一收尾实测补）：裸 `reset` 只铺业务种子，建出客户花名册但**一条客户钱包行都没有**；6 个共用 `dev.db` 的套件里有 4 个自带 `ensureCustomerWallet` 自助开钱包，`deposit-money-arcs` 没有，缺钱包时直接抛 `"...has no ACTIVE C_VIBAN wallet on AED_ZAND — run demo:setup first"`。所以 `reset` 之后、跑 e2e 之前要补一句 `bash scripts/on-stack.sh <stack> demo:setup`。**它不等于 `demo:all`**：`demo:setup` 只跑 `ensureSetup`（铺钱包与地址），不跑 `runFrankPreStage`（广播制裁那步），所以不会把 `demo_frank` 连坐冻结、不违反上面 💡 那条「`demo:all` 不能与 e2e 共用同一个库」。实测确认：`demo:setup` 后 `demo_frank` 的 `customer_restrictions` 行数为 0。
+4. **共用库那 5 个还要先 `demo:setup`**（2026-09-04 波一收尾实测补）：裸 `reset` 只铺业务种子，建出客户花名册但**一条客户钱包行都没有**；5 个共用 `dev.db` 的套件里有 4 个自带 `ensureCustomerWallet` 自助开钱包，`deposit-money-arcs` 没有，缺钱包时直接抛 `"...has no ACTIVE C_VIBAN wallet on AED_ZAND — run demo:setup first"`。所以 `reset` 之后、跑 e2e 之前要补一句 `bash scripts/on-stack.sh <stack> demo:setup`。**它不等于 `demo:all`**：`demo:setup` 只跑 `ensureSetup`（铺钱包与地址），不跑 `runFrankPreStage`（广播制裁那步），所以不会把 `demo_frank` 连坐冻结、不违反上面 💡 那条「`demo:all` 不能与 e2e 共用同一个库」。实测确认：`demo:setup` 后 `demo_frank` 的 `customer_restrictions` 行数为 0。
 
 > 💡 **`demo:all` 不能与 e2e 共用同一个库——`withdraw-money-arcs` × `demo_frank` 是实测坐实的一例。** 该 spec 的夹具客户 `demo_frank@example.com` 会被 `demo:all` 花名册 #7 行的广播制裁连坐永久冻结（`CAPABILITY_RESTRICTED`）；若在跑过 `demo:all` 的同一个库上接着跑 `withdraw-money-arcs.e2e-spec.ts`，7 个场景会全部卡在 `CustomerAccessService.assertCapability` 抛 `ForbiddenException`——这正是上面第 3 条「干净态起跑」的具体反例，不是 suite 本身的缺陷。2026-09-03 V3 波一 Task 6 修复轮在干净库上复测：`withdraw-money-arcs` 7/7 全绿。不改夹具客户，按三要素跑即可。
 

@@ -3352,3 +3352,85 @@ describe('WithdrawWorkflowService — 平账 B 批③：退回认领', () => {
     expect(reconDisposition.unlinkSupplement).toHaveBeenCalledWith('RCD3', 'WDR1');
   });
 });
+
+describe('波二 · L1 BLOCK 留痕（提现）', () => {
+  it('资产 SUSPENDED → 403 L1_GATE_BLOCKED，且写 WITHDRAW_L1_BLOCKED（DENIED / reasonCode ASSET_SUSPENDED / RELATED 资产号）', async () => {
+    const auditLogsService: any = {
+      recordByActor: jest.fn().mockResolvedValue({}),
+      recordSystem: jest.fn().mockResolvedValue({}),
+    };
+    const l1Gate: any = {
+      evaluate: jest.fn().mockResolvedValue({
+        evaluatedAt: '2026-09-05T00:00:00.000Z',
+        domain: 'WITHDRAW',
+        verdict: 'BLOCK',
+        holdReason: null,
+        tradingTier: 'BASIC',
+        checks: [{ code: 'ASSET_AVAILABILITY', outcome: 'FAIL', detail: '资产 AS2601012024（USDT）状态 SUSPENDED，不可交易' }],
+      }),
+    };
+    const prisma: any = {
+      asset: {
+        findUnique: jest.fn().mockResolvedValue({ id: 'a-usdt', assetNo: 'AS2601012024', type: 'CRYPTO', network: 'TRON', currency: 'USDT' }),
+      },
+      withdrawalAddress: {
+        findFirst: jest.fn().mockResolvedValue({ addressType: 'SELF_CUSTODY' }),
+      },
+      customerMain: {
+        findUnique: jest.fn().mockResolvedValue({ customerNo: 'CUST0001' }),
+      },
+    };
+    // L1 快照的 CUMULATIVE_LIMIT 那格要读 gateValuation?.grossAedValue —— 建单前限额闸
+    // 与 L1 收口共用同一段 if(ownerType==='CUSTOMER')，本用例走 CUSTOMER 分支必须给
+    // 一个能 resolve 的实现，否则先炸在这一步而不是我们要测的 L1 BLOCK 分支。
+    const limitGateService: any = {
+      evaluate: jest.fn().mockResolvedValue({ grossAedValue: '100' }),
+    };
+
+    const workflow = new WithdrawWorkflowService(
+      prisma as any, // prisma
+      {} as any, // eventEmitter
+      {} as any, // withdrawService
+      {} as any, // withdrawQuoteService
+      auditLogsService as any,
+      {} as any, // accountingService
+      {} as any, // fundsOrders
+      {} as any, // approvalsService
+      {} as any, // binanceRateProvider
+      {} as any, // systemWalletResolver
+      {} as any, // tbEvidenceService
+      limitGateService as any,
+      {} as any, // limitRulesService
+      {} as any, // sumsubTxnClient
+      {} as any, // applicantActions
+      { assertCapability: jest.fn(), assertOffboardable: jest.fn(), resolve: jest.fn().mockResolvedValue({ lifecycle: 'ACTIVE', blocked: new Set(), disclosedBlocked: new Set(), disclosed: [], openCount: 0 }) } as any, // customerAccessService
+      { open: jest.fn().mockResolvedValue({ restrictionNo: 'CR-TEST', created: true }) } as any, // customerRestrictionsService
+      l1Gate as any,
+      {} as any, // supplementEvidence
+      {} as any, // reconDisposition
+    );
+
+    // createWithdrawal(dto, userId, ownerType) —— 见 withdraw-workflow.service.ts 的
+    // 真实签名；dto 必须带 quoteId（非空校验在 L1 闸门之前）才能走到 L1 BLOCK 分支。
+    const err: any = await workflow
+      .createWithdrawal({ assetId: 'a-usdt', amount: 10, toAddress: 'TXYZ', quoteId: 'q-1' } as any, 'cust-1', 'CUSTOMER')
+      .catch((e) => e);
+    const body = err?.getResponse ? err.getResponse() : err;
+    expect(body.code).toBe('L1_GATE_BLOCKED');
+
+    expect(auditLogsService.recordByActor).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'WITHDRAW_L1_BLOCKED',
+        actionDomain: 'WITHDRAW',
+        outcome: 'DENIED',
+        reasonCode: 'ASSET_SUSPENDED',
+        subjects: expect.arrayContaining([
+          expect.objectContaining({ subjectType: 'ASSET', subjectNo: 'AS2601012024', subjectRole: 'RELATED' }),
+        ]),
+        requestId: expect.stringMatching(/^WITHDRAW_L1_BLOCKED_/),
+      }),
+      expect.objectContaining({ actorType: 'CUSTOMER' }),
+    );
+    expect(l1Gate.evaluate).toHaveBeenCalledWith(expect.objectContaining({ assetIds: ['a-usdt'] }));
+  });
+});

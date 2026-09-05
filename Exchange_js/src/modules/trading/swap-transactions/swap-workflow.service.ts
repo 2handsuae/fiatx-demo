@@ -39,7 +39,7 @@ import { CustomerAccessService, NEUTRAL_DENIAL } from '../../identity/customers/
 import { CustomersService } from '../../identity/customers/customers.service';
 import { MaterialRequestsService } from '../../identity/material-requests/material-requests.service';
 import { MaterialRequestIssuerService } from '../../identity/material-requests/material-request-issuer.service';
-import { L1GateService } from '../shared/l1-gate/l1-gate.service';
+import { L1GateService, l1ReasonCodeOf } from '../shared/l1-gate/l1-gate.service';
 import type { L1Check } from '../shared/l1-gate/l1-gate.types';
 
 /**
@@ -214,7 +214,7 @@ export class SwapWorkflowService {
     let gateValuation: GateValuation | null = null;
     const quotePeek = await this.prisma.swapQuote.findUnique({
       where: { id: quoteId },
-      select: { fromAssetId: true, amountIn: true },
+      select: { fromAssetId: true, amountIn: true, toAssetId: true },
     });
     if (quotePeek) {
       gateValuation = await this.limitGateService.evaluate({
@@ -313,12 +313,41 @@ export class SwapWorkflowService {
       }
     }
 
+    const swapAssetIds = quotePeek ? [quotePeek.fromAssetId, quotePeek.toAssetId] : [];
     const l1 = await this.l1Gate.evaluate({
       domain: 'SWAP',
       customerId: ownerId,
+      assetIds: swapAssetIds,
       preChecks,
     });
     if (l1.verdict === 'BLOCK') {
+      // 波二·法一：被拦下也留痕。单未建、无单号——主体是客户，兑换涉及的两侧资产当次主体。
+      const failed = l1.checks.filter((c) => c.outcome === 'FAIL');
+      const actorNo = customer?.customerNo ?? ownerId;
+      const blockedAssets: Array<{ assetNo: string | null }> = swapAssetIds.length
+        ? await this.prisma.asset.findMany({ where: { id: { in: swapAssetIds } }, select: { assetNo: true } })
+        : [];
+      await this.auditLogsService.recordByActor(
+        {
+          action: 'SWAP_L1_BLOCKED',
+          actionDomain: 'SWAP',
+          category: AuditCategory.BUSINESS,
+          primarySubjectType: 'CUSTOMER',
+          primarySubjectNo: actorNo,
+          ownerCustomerNo: customer?.customerNo ?? undefined,
+          outcome: AuditOutcome.DENIED,
+          reasonCode: failed[0] ? l1ReasonCodeOf(failed[0].code) : 'L1_BLOCK',
+          reason: `L1 blocked swap: ${failed.map((c) => `${c.code} — ${c.detail}`).join('; ')}`,
+          subjects: [
+            ...(customer?.customerNo ? [{ subjectType: 'CUSTOMER', subjectNo: customer.customerNo, subjectRole: AuditSubjectRole.OWNER }] : []),
+            ...blockedAssets.filter((a) => a.assetNo).map((a) => ({ subjectType: AuditEntityTypes.ASSET, subjectNo: a.assetNo as string, subjectRole: AuditSubjectRole.RELATED })),
+          ],
+          metadata: { quoteId, assetIds: swapAssetIds, l1Snapshot: l1 },
+          requestId: `SWAP_L1_BLOCKED_${actorNo}_${randomUUID()}`,
+          sourcePlatform: 'CUSTOMER_API',
+        } as any,
+        { actorType: 'CUSTOMER', actorNo, actorDisplayName: actorNo, actorRolesAtTime: ['CUSTOMER'] },
+      );
       throw new ForbiddenException({
         code: 'L1_GATE_BLOCKED',
         // 中性文案 —— 直接引用 CustomerAccessService 的那一份（禁止手抄副本：

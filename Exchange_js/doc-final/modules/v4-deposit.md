@@ -11,7 +11,7 @@
 
 最重要的一件事（也是状态机的设计公理）：**每个终态都必须回答"钱去哪了"。** 成功=入了客户账；失败=钱压根没到；没收/退回/上缴=各有对应的账本分录把钱送到明确去处。回答不出这个问题的状态（如笼统的"已拒绝""已过期"）被从状态机里删掉了——不是少功能，是拒绝糊涂账。
 
-**进门三步。** ① 钱到了（链上确认 / 银行入账）→ 订单落地，先过 **L1 资格闸门**：九项快照（限额、账户就绪、客户能力……）三分流——执法级问题（制裁/合规）直接**冻结**，行政级问题（账户被停、小额不足）**挂起**待处置，干净的放行进筛查；② **KYT 合规筛查**：单笔报 Sumsub，报送类型现场判定——虚拟币 ∧ 对手方是 VASP ∧ 金额过阈值（AED 3500 / USDT 1000，写死代码）→ 按 Travel Rule 类型报；③ **裁决落地**，四种：通过 → 入账（暂扣户 → 客户应付，两步记账）；要求补料 → 等客户提交材料（材料账驱动，客户端独立补料页）；拒绝无处置标签 → 转人工复核；制裁命中 → **先冻人再冻单**（申请人命中连客户一起冻，对手方命中只冻单）。
+**进门三步。** ① 钱到了（链上确认 / 银行入账）→ 订单落地，先过 **L1**（十项快照，三分流：执法级 FREEZE / 其余 FAIL **打标记、不换状态、照常送检** / PASS 送检）；② **KYT 合规筛查**：单笔报 Sumsub，报送类型现场判定——虚拟币 ∧ 对手方是 VASP ∧ 金额过阈值（AED 3500 / USDT 1000，写死代码）→ 按 Travel Rule 类型报；③ **裁决落地**，四种：通过 → 入账（暂扣户 → 客户应付，两步记账）（带 L1 标记的单：通过 → `OPERATION_PENDING` 等运营）；要求补料 → 等客户提交材料（材料账驱动，客户端独立补料页）；拒绝无处置标签 → 转人工复核；制裁命中 → **先冻人再冻单**（申请人命中连客户一起冻，对手方命中只冻单）。
 
 **被拦下的钱有四条处置弧**，同一个范式：**MLRO 发起审批 → 批准后先锁账、再变状态 → 资金单腿走完 → 终态落地**。但**哪条弧对哪种单开放是业务红线**：
 - **冻结单（制裁/官方冻结）只有两条出路：上缴或解冻**——上缴 = 政府移交、钱出平台；解冻 = 误伤平反、回炉重查。**不能没收**（把被制裁资产收进公司收入 = 据赃为己有），**不能退回**（退给被制裁对象 = 资助他）；
@@ -29,7 +29,7 @@
 | 岔路 | 走向 |
 |---|---|
 | 等客户补料 | `COMPLIANCE_PENDING ⇄ ACTION_PENDING`（补齐回炉） |
-| 小额/行政挂起 | `→ OPERATION_PENDING`（出边：放行 / 没收 / 冻结 / 退回） |
+| 小额/行政挂起 | `→ OPERATION_PENDING`（入边：只从合规通过进入（`holdIfHeld`）；出边：放行 / 没收 / 冻结 / 退回） |
 | 人工复核 | `→ MANUAL_CHECKING`（两条成因刻意分开：SLA 超时 `sla_breach` ≠ 官方拒绝 `kyt_rejected`——事后取证要讲得清是"系统等太久"还是"裁定要人看"） |
 | 冻结 | `→ FROZEN`（出边收窄为仅 解冻回炉 / 上缴） |
 | 三条处置弧 | `CONFISCATING → CONFISCATED` ｜ `RETURNING → RETURNED` ｜ `SEIZING → SEIZED`（各为两段：先锁账推入"进行中"，资金单腿确认后落终态） |
@@ -65,10 +65,10 @@
 
 ## 5. 关键技术节点（≤30 行）
 
-- 工作流 `trading/deposit-transactions/deposit-workflow.service.ts`：`runGate0()`（L1 三分流：FREEZE / holdAtGate0 / 放行）｜ `applyKytVerdict()+decideVerdictLanding()`（四裁决落地路由）｜ `initiate{Confiscation,Return,Seize,Unfreeze}()` + `{confiscation,return,seize}Spec()`（三弧处置说明书）+ 对应 `on*Decided/settle*`（业务判断与留痕层）｜ `executeDepositAccounting()`（两步入账 + 客户级科目懒解析）
+- 工作流 `trading/deposit-transactions/deposit-workflow.service.ts`：`evaluateL1()`（L1：执法级 FREEZE / 其余 FAIL 打标不换状态照常送检 / PASS 送检）｜ `applyKytVerdict()+decideVerdictLanding()`（四裁决落地路由）｜ `initiate{Confiscation,Return,Seize,Unfreeze}()` + `{confiscation,return,seize}Spec()`（三弧处置说明书）+ 对应 `on*Decided/settle*`（业务判断与留痕层）｜ `executeDepositAccounting()`（两步入账 + 客户级科目懒解析）
 - **处置动词** `funds-orders/disposition.service.ts → DispositionService`（地基站 2026-08-26）：initiate / rebuild / settle / voidAttempt / clearLeg——三弧的建腿、锁账、落账、重试三级梯、腿收口收敛为一份实现，工作流按说明书一句话调用
 - 状态机 `deposit-transactions.service.ts → getNextStatus()`（29 边迁移表 + 守则单测锁边数）；PATCH 侧门黑名单在 controller `updateStatus()`
-- L1 闸门 `trading/shared/` `L1GateService`（九项快照，三域共用求值器；判定结果整包落单上 l1Snapshot）
+- L1 闸门 `trading/shared/` `L1GateService`（十项快照，三域共用求值器；判定结果整包落单上 l1Snapshot）
 - KYT 类型判定 `kyt-txn-type.resolver.ts → resolveKytTxnType()`（crypto ∧ VASP ∧ 金额≥阈值 → travelRule；阈值写死：AED 3500 / USDT 1000，边界取 ≥）
 - SLA `deposit-sla.service.ts`（按"进入状态"计时；COMPLIANCE_PENDING 5 分钟硬线 / ACTION_PENDING 7 天）
 - 补料 `material_requests` 材料账驱动（下发/提交/裁决闭环，见 V2 篇）；客户端独立补料页内嵌 Sumsub SDK
@@ -84,4 +84,3 @@
 - **CONFISCATING 重试耗尽后无手动重触发出口**——红旗standing但只能等 Phase 4 补口子
 - **三条弧在客户流水里都误标成"没收"**（kind 字段未分弧）——演示退回/上缴时别开客户流水页对照
 - **翻案后原命中证据被覆写无历史留档**（原命中即拒的按钮不再单独占一格——⚡ 面板已统一成三域同码同义的 11 键表，见 `modules/v6-swap.md` 与 `PRODUCTION-NOTES.md`）
-- **行政级挂起的"重走合规"承诺是空的**（waive 后不会真回炉）——待业主拍板

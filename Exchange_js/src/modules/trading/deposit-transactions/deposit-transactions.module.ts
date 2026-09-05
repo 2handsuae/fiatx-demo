@@ -40,7 +40,7 @@ import { DepositClawbackApprovalService } from './deposit-clawback-approval.serv
     ApprovalsModule,
     // Task 8：DepositApplicantActionsService 改走材料账，需要 issuer/requests service。
     MaterialRequestsModule,
-    // B4（第四批）：DepositWorkflowService 的 Gate 0 注入 L1GateService（三域共用的
+    // B4（第四批）：DepositWorkflowService 的 L1 注入 L1GateService（三域共用的
     // L1 快照求值器）。与提现/兑换同形状的平引用即可 —— L1GateModule 自己已用
     // forwardRef 解开与 CustomersModule 的真实 require 环。
     L1GateModule,

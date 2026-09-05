@@ -4,7 +4,8 @@
  *
  * ⚠️ Travel Rule 类型判定**刻意不在这里**——业主裁定：判断照做，但不算 L1
  * 内容、不进 L1 卡片（`resolveKytTxnType()` 保持原位不动）。
- * ⚠️ 资产状态闸**刻意没有**——业主裁定「我们也不下架资产」。
+ * ⚠️ 资产状态闸：2026-08-22 业主曾裁定「我们也不下架资产」故意不做；2026-09-05
+ * 业主改口，资产 SUSPENDED 现为三域硬门，见 `ASSET_AVAILABILITY`（本 service 自判）。
  */
 
 export type L1Domain = 'DEPOSIT' | 'WITHDRAW' | 'SWAP';
@@ -21,7 +22,8 @@ export type L1CheckCode =
   | 'ACCOUNT_READINESS'      // 收付账户就绪
   | 'BALANCE_SUFFICIENCY'    // 余额充足
   | 'QUOTE_VALIDITY'         // 报价有效性
-  | 'TRADING_READINESS';     // 交易起始就绪
+  | 'TRADING_READINESS'      // 交易起始就绪
+  | 'ASSET_AVAILABILITY';    // 资产 ACTIVE（波二第十项，三域适用，本 service 自判；业主 2026-09-05：资产暂停是 L1 硬门）
 
 export interface L1Check {
   code: L1CheckCode;
@@ -51,6 +53,8 @@ export interface L1Snapshot {
 export interface L1GateInput {
   domain: L1Domain;
   customerId: string;
+  /** 本次交易涉及的资产 id（充值 1 / 提现 1 / 兑换 2）。不传或空数组 = 第十格 SKIPPED。 */
+  assetIds?: string[];
   /**
    * 调用方已经判过的项（单笔/累计/大额/账户/余额/报价/起始就绪）。
    * 这些判定住在各域自己的位置，L1GateService 不重复执行，只收进快照。

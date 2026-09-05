@@ -51,7 +51,7 @@ NestJS + Prisma + SQLite 后端 ｜ React 管理台 ｜ React 客户端 ｜ 会�
 - 任务收尾对照 `doc-final/rules/delivery-checklist.md`——按触发条件列出必须交付的东西；plan 引用它，不重抄
 - 评审按 `doc-final/rules/review-rubric.md`，只判三件事，其余不算缺陷
 - 派 subagent 时，任务 prompt 必须带上本文件 §0–§5 的要点
-- 派 subagent 的模型分层（判断密度高且一次性的不降档，重复且有终审兜底的降档）：任务执行（含随码写的测试）/ 任务级 code review / 走查截图 / 文档收口 → `sonnet`；纯批量机械活（导表 / 批量扫描 / 重命名）→ `haiku`；spec 评审、终审、变异测试 → `fable` 不降档（fable 额度不够时降 `opus`，不再往下）；plan 给动钱 / 动状态机的高危任务点名升档评审 → `opus`。闸门红了诊断不动 → 回主会话，不让便宜模型死磕
+- 派 subagent 的模型分层（判断密度高且一次性的不降档，重复且有终审兜底的降档）：任务执行（含随码写的测试）/ 任务级 code review / 走查截图 / 文档收口 → `sonnet`；纯批量机械活（导表 / 批量扫描 / 重命名）→ `haiku`；spec 评审、终审、变异测试 → **Fable 5**（不用 5.1：更烧额度、无质量增益证据）不降档，额度不够时降 `opus`，不再往下——落地：主会话保持 `/model claude-fable-5`，派发时**省略 model 字段**走继承（model 参数只收别名，钉不住版本）；plan 给动钱 / 动状态机的高危任务点名升档评审 → `opus`。闸门红了诊断不动 → 回主会话，不让便宜模型死磕
 - 代码体检 / 现状摸底：扫描取数 → `sonnet`（纯计数可 `haiku`），判读与结论 → 主会话不降档——体检输出是后续轮次的地图，判错会被逐轮放大。扫描子代理交「数字 + 复现命令」、不交裸结论；否定性结论（零引用 / 没有 / 不存在）九成错在搜法不在事实，主会话抽查复现后才采信
 
 ## 7. 闸门（分两档）
@@ -113,3 +113,4 @@ bash scripts/stack.sh status       # 看各栈端口与状态
 - 端口隔离铁律：每个栈只碰自己的端口段和 DB，禁止跨栈访问；起服务前 `lsof -ti:<端口段>` 确认无残留
 - ⚠️ `recon:demo` / `demo:*` / `verify:demo-data` 等 12 个 npm 脚本**必须经包装器**：主树 `bash scripts/on-stack.sh main <script>`，worktree 内 `bash scripts/on-stack.sh self <script>`。2026-08-31 起它们的内联默认值已全部剥除（此前 11 处默认连 **main 的 TigerBeetle**，漏套包装器 = 读自己的空库、写 main 的账本且不报错），改为缺 `DATABASE_URL`/`TB_ADDRESS` 时**当场 fail-fast 并提示正确用法**
 - **并行任务一律 worktree 隔离**：一会话 = 一 worktree（统一放 `.claude/worktrees/<名>/`）= 一分支 = 一套自动分的栈；要为某分支起服务只在它的 worktree 里 `stack.sh up`，绝不在主工作树切分支跑服务；合并后清 worktree + 分支
+- **合并进 main 后必做**：重启后端 + `npm run db:base:sync`（权限字典与内存 `RBAC_PERMISSION_DEFINITIONS` 都是旧的会 403）；动过 schema / seed 再 `stack.sh reset main`

@@ -26,7 +26,7 @@
 
 **站 2 · 一笔配置要过门**（配置有身世）
 账号：`cfo@`（财务负责人，maker）→ `ops_officer@`（运营，checker）；切客户端 `demo_grace`（VIP）与 `demo_alice`
-走查：① 费率页给兑换费改一档 → 财务负责人提交（费率写权限现为财务独有）→ ② 换运营账号登录批准 → ③ 切客户端拿一次报价 → ④ 对照：Grace 与 Alice 各拿一次 USDT→AED 报价——Grace 命中 `VIP-USDT-AED`（VIP 标签），Alice 命中 `STD-USDT-AED`（默认档）：够格的档里选最便宜 → ⑤ 财务对某档点 Retire（理由）→ 运营批准 → 列表筛 RETIRED 看得到它；对 `STD-USDT-AED` 点 Retire 会被拒（最后一个默认档不可退）
+走查：① 费率页给兑换费改一档 → 财务负责人提交（费率写权限现为财务独有）→ ② 换运营账号登录批准 → ③ 切客户端拿一次报价 → ④ 对照：Grace 与 Alice 各输入 **1000 USDT**（金额要 ≥ 500——选档只比平费不比点差，`demo:all` 造数把 STD Tier 1 平费压到 10，100 USDT 时 Grace 也会落 STD 档）拿一次 USDT→AED 报价——Grace 命中 `VIP-USDT-AED`（VIP 标签），Alice 命中 `STD-USDT-AED`（默认档）：够格的档里选最便宜（预览即对照：预览区 `Matched:` 行已把档位代码与分层号一起显示——Grace `VIP-USDT-AED / VIP-USDT-AED-TIER-002`、Alice `STD-USDT-AED / STD-USDT-AED-TIER-002`；2026-09-05 修复前预览拿不到身份，两人都先显示 STD 档；确认页的报价响应才刻意不带档位代码，看的是费用与点差数字）→ ⑤ 财务对某档点 Retire（理由）→ 运营批准 → 列表筛 RETIRED 看得到它；对 `STD-USDT-AED` 点 Retire 会被拒（最后一个默认档不可退）
 期望：报价当场变（直通第四幕）；受众档与默认档同屏对照；"删" = 退役终态不是消失；提单人是财务、批的人是运营，两条线不落一人
 
 **站 3 · 门自己也要过门**（规则不能被规则的管理员悄悄改）
@@ -36,12 +36,12 @@
 
 **站 4 · 资产管控**（暂停就是总开关；上币不在这页）
 账号：`ops_officer@`（运营，maker）→ `ciso@`（CISO，checker）；切客户端 `demo_alice`
-走查：① 资产页打开 USDT-TRON——身份字段一屏看全：网络 TRON、合约 `TR7N…`（防诈骗字段）、TRC-20、19 个确认、托管方资产键 → ② 点 Suspend 填理由提交 → 详情出现待批徽章 + 审批单号 → ③ 换 `ciso@` 批准 → 状态 SUSPENDED → ④ 切客户端 alice：充值 / 兑换 / 提现三个页面的资产下拉都读同一份「只认 ACTIVE」的清单——USDT 同时从三处消失，三条路都选不到它（三域共用同一份清单当门，不是各自拦一道，也没有单独的报错提示）→ ⑤ 回 `ops_officer@` 提恢复 → `ciso@` 批 → ACTIVE → USDT 重新出现在三个下拉里 → ⑥ 审计页**按资产业务号 `AS2601012024` 查**（这个号就在第 ① 步那张详情页上，对外识别一律用业务号——铁律⑥）：USDT-TRON 的一生五行同屏。审计页默认按时间**倒序**，所以 `ASSET_SEEDED`（actor `RELEASE`，metadata 带版本与 commit）是**最下面那一行**——它是这个资产履历的起点（actor `RELEASE`，metadata 带版本与 commit），随后是刚做的两条人的戏（`ASSET_SUSPENSION_REQUESTED` → `ASSET_SUSPENDED` → `ASSET_REACTIVATION_REQUESTED` → `ASSET_REACTIVATED`）——上币走开发流程随版本上架，管理台没有"新建资产"。⚠️ **不要按 `USDT` 搜**：审计关键词只覆盖 action / 主体类型 / 主体号 / 操作人 / 归属客户 / traceId / 理由，`USDT-TRON` 只存在于 `afterData` 里，搜不到（2026-09-04 波一终审实证）
-期望：两个人的戏（运营提、CISO 批）；暂停当场让三条路都选不到 USDT；配置的身世从装载那一刻就有
+走查：① 资产页打开 USDT-TRON——身份字段一屏看全：网络 TRON、合约 `TR7N…`（防诈骗字段）、TRC-20、19 个确认、托管方资产键 → ② 点 Suspend 填理由提交 → 详情出现待批徽章 + 审批单号 → ③ 换 `ciso@` 批准 → 状态 SUSPENDED → ④ 切客户端 alice：充值 / 兑换 / 提现三个页面的下拉里 USDT 同时消失（三页共读 `GET /assets?status=ACTIVE`）；**而且绕过界面直接打接口也做不成新交易**——资产可用性是 L1 第十项，兑换 / 提现建单当场 403 并留 `SWAP_/WITHDRAW_L1_BLOCKED` 痕；已经在路上的单照走完，已经到账的钱照收（见 ⑤） → ⑤ ⚡ 暂停期间喂 150 USDT：客户端 alice 充值页 ⚡ Simulate Deposit（不用先选资产）→ 弹窗资产选 `USDT-TRON · TRON — SUSPENDED` → 金额 150 → Confirm Simulation → 管理台 Funds Orders 里 ⚡ 链上可见 → ⚡ 确认到账 → 管理台充值列表看单 COMPLIANCE_PENDING，详情 L1 十项面板资产格红、挂起原因 ASSET_SUSPENDED（**先合规后挂起**：L2 照筛）、已送检 → ⚡ 喂「① Approved」→ 单子转 OPERATION_PENDING 等运营（Release Hold 按钮出现） → ⑥ 回 `ops_officer@` 提恢复 → `ciso@` 批 → ACTIVE → USDT 重新出现在三个下拉里 → ⑦ 运营 Release Hold → SUCCESS，账本页看客户应付 → ⑧ 审计页**按资产业务号 `AS2601012024` 查**（这个号就在第 ① 步那张详情页上，对外识别一律用业务号——铁律⑥）：USDT-TRON 的一生五行同屏。审计页默认按时间**倒序**，所以 `ASSET_SEEDED`（actor `RELEASE`，metadata 带版本与 commit）是**最下面那一行**——它是这个资产履历的起点（actor `RELEASE`，metadata 带版本与 commit），随后是刚做的两条人的戏（`ASSET_SUSPENSION_REQUESTED` → `ASSET_SUSPENDED` → `ASSET_REACTIVATION_REQUESTED` → `ASSET_REACTIVATED`）。**关键词搜索只覆盖主字段**——同一个号换填 **Advanced ▾ 展开后的 Related No 栏**（后端 `subjectNo` 过滤：查次主体，不是 Entity No）（次主体专用）再查一次，除资产自己的履历外，还能看到被它拦下的单（`SWAP_L1_BLOCKED` / `DEPOSIT_L1_HELD` / `DEPOSIT_HELD`）——上币走开发流程随版本上架，管理台没有"新建资产"。⚠️ **不要按 `USDT` 搜**：审计关键词只覆盖 action / 主体类型 / 主体号 / 操作人 / 归属客户 / traceId / 理由，`USDT-TRON` 只存在于 `afterData` 里，搜不到（2026-09-04 波一终审实证）
+期望：两个人的戏（运营提、CISO 批）；暂停当场让三条路都选不到 USDT、新单 403，但在途的单照走完、已到账的钱照收；配置的身世从装载那一刻就有
 
 **站 5 · 三种门与容器**（钱放在哪、拦在哪一刻）
 账号：`ops_officer@`（运营，maker）→ `sm@`（高管，checker）；钱包与地址环节 `treasury@`（金库专员）；切客户端 `demo_alice`；首个法币账户用尚无法币地址的种子客户（见 data.md「地址簿种子」）
-走查：① 限额页按类型筛选（单笔／累计／大额）各看一眼，说清三种门在哪一刻拦人 → ② 改一条单笔限额 → 运营提交 → 详情待批徽章 → 换高管账号批准（限额裁决人是高管，非运营自批；规则从种子来，这页没有新建）→ ③ 托管钱包页（`treasury@`）只读看容器：按 vault 分五组，每行 = 一个网络上的一个地址（7 行平台 + 客户地址行），余额去账本页看 → ④ 切客户端登记一个 TRON 地址（选网络不选资产）→ 24h 冷却倒计时 → 三拍：a) 冷却期内 Cancel registration；b) 再登记一条 → `treasury@` 详情 ⚡ Skip Cooling Period（理由必填，后门留痕）→ ACTIVE → Force Suspend → Unsuspend；c) 用尚无法币账户的种子客户登记首个银行账户 → 即时生效
+走查：① 限额页按类型筛选（单笔／累计／大额）各看一眼，说清三种门在哪一刻拦人 → ② 改一条单笔限额 → 运营提交 → 详情待批徽章 → 换高管账号批准（限额裁决人是高管，非运营自批；规则从种子来，这页没有新建）→ ③ 托管钱包页（`treasury@`）只读看容器：按 vault 分五组，每行 = 一个网络上的一个地址（7 行平台 + 客户地址行），余额去账本页看 → ④ 切客户端登记一个 TRON 地址（选网络不选资产）→ 24h 冷却倒计时（走秒；到期那一秒列表自动刷新为 ACTIVE）→ 三拍：a) 冷却期内 Cancel registration；b) 再登记一条 → `treasury@` 详情 ⚡ Skip Cooling Period（理由必填，后门留痕）→ ACTIVE → Force Suspend → Unsuspend；c) 用尚无法币账户的种子客户登记首个银行账户 → 即时生效
 期望：三种门各在哪一刻拦人；容器是 vault × 网络不是资产；冷却闸的例外规则与后门都有痕
 
 **审计不设站**（业主口径）：第一幕负责**产证据**，第七幕负责取证——本幕的每个动作都是第七幕要拉出来的证据链。

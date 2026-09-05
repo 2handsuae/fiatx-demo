@@ -6,7 +6,6 @@ import { AuditLogsModule } from '../../audit-logging/audit-logs.module';
 import { AssetsController } from './assets.controller';
 import { AssetAdminController } from './asset-admin.controller';
 import { AssetsService } from './assets.service';
-import { AssetProvisioningService } from './asset-provisioning.service';
 import { AssetSuspensionApprovalService } from './asset-suspension-approval.service';
 import { AssetReactivationApprovalService } from './asset-reactivation-approval.service';
 import { AssetSuspensionWorkflowService } from './asset-suspension-workflow.service';
@@ -17,7 +16,6 @@ import { AssetReactivationWorkflowService } from './asset-reactivation-workflow.
   controllers: [AssetsController, AssetAdminController],
   providers: [
     AssetsService,
-    AssetProvisioningService,
     AssetSuspensionApprovalService,
     AssetReactivationApprovalService,
     AssetSuspensionWorkflowService,

@@ -21,6 +21,7 @@ interface Asset {
   decimals?: number;
   contractAddress: string | null;
   minConfirmations?: number;
+  status?: string;
 }
 
 interface WalletItem {
@@ -435,8 +436,45 @@ const Deposit = () => {
     return response.json() as Promise<ScanInboundSignalsResult>;
   };
 
+  // 站 4 ⑦（Task 8b 补丁）：⚡ 面板模拟的是链上/银行世界的入账，不该依赖页面是否已选中
+  // 资产、是否已解析出 depositWallet——否则资产全 SUSPENDED 时真实下拉是空的，⚡ 也打不开。
+  // 按当前 tab 的资产类型列全部状态的资产(含 SUSPENDED，带标记)，不再局限于某一张钱包的网络；
+  // 具体钱包改到提交时按所选资产的网络解析/创建（见下面 resolveSimWallet）。真实充值下拉
+  // （filteredAssets）仍只读 ACTIVE 列表，两者刻意分离。
+  const [simAssets, setSimAssets] = useState<Asset[]>([]);
+  const [simAssetId, setSimAssetId] = useState('');
+  useEffect(() => {
+    if (!showSimulateModal) return;
+    (async () => {
+      try {
+        const res = await customerFetch(`${import.meta.env.VITE_API_URL}/assets?take=200`);
+        if (!res.ok) return;
+        const data = await res.json();
+        const onTab = ((data.items || []) as Asset[]).filter((a) =>
+          activeTab === 'crypto' ? a.type === 'CRYPTO' : a.type === 'FIAT',
+        );
+        setSimAssets(onTab);
+        setSimAssetId((cur) => (onTab.some((a) => a.id === cur) ? cur : (selectedAsset?.id ?? onTab[0]?.id ?? '')));
+      } catch (err) {
+        if (err instanceof CustomerSessionError) return;
+      }
+    })();
+  }, [showSimulateModal, activeTab, selectedAsset?.id]);
+  const simAsset = simAssets.find((a) => a.id === simAssetId) ?? selectedAsset;
+
+  /** 模拟入金用的钱包：选中资产同网络就复用页面已解析的，否则按网络向后端要（createOrReturn，幂等由后端保证） */
+  const resolveSimWallet = async (network: string): Promise<WalletItem | null> => {
+    if (depositWallet && depositWallet.network === network) return depositWallet;
+    const res = await customerFetch(`${import.meta.env.VITE_API_URL}/client/deposit-wallets`, {
+      method: 'POST',
+      body: JSON.stringify({ network }),
+    });
+    if (!res.ok) return null;
+    return (await res.json()) as WalletItem;
+  };
+
   const handleSubmitInboundSignal = async () => {
-    if (!depositWallet || !selectedAsset) return;
+    if (!simAsset) return;
 
     const amount = signalAmount.trim();
     if (!amount) {
@@ -447,7 +485,13 @@ const Deposit = () => {
       return;
     }
 
-    const isCryptoDeposit = depositWallet.networkInfo?.kind === 'CHAIN';
+    const wallet = await resolveSimWallet(simAsset.network!);
+    if (!wallet) {
+      setSignalFeedback({ kind: 'error', message: `No deposit address available on ${simAsset.network}.` });
+      return;
+    }
+
+    const isCryptoDeposit = wallet.networkInfo ? wallet.networkInfo.kind === 'CHAIN' : simAsset.type === 'CRYPTO';
     if (isCryptoDeposit && counterpartyIsVasp === null) {
       setSignalFeedback({
         kind: 'error',
@@ -461,7 +505,7 @@ const Deposit = () => {
     setLastSimulationResult(null);
     try {
       const payload: CreateInboundTransferSignalPayload = {
-        ...buildMockInboundSignalPayload(depositWallet, selectedAsset, amount, counterpartyIsVasp),
+        ...buildMockInboundSignalPayload(wallet, simAsset, amount, counterpartyIsVasp),
       };
       const createResponse = await customerFetch(
         `${import.meta.env.VITE_API_URL}/deposit-transactions/my/inbound-signals`,
@@ -479,7 +523,7 @@ const Deposit = () => {
 
       const createdSignal =
         (await createResponse.json()) as CreatedInboundSignalResponse;
-      const result = await scanInboundSignals(depositWallet);
+      const result = await scanInboundSignals(wallet);
       await fetchHistory();
       const firstRecord = result.records?.[0];
       const fallbackRecord = createdSignal?.payin
@@ -504,8 +548,8 @@ const Deposit = () => {
         payinStatus: resolvedRecord.payinStatus || 'DETECTED',
         depositNo: resolvedRecord.depositNo || null,
         depositStatus: resolvedRecord.depositStatus || 'PAYIN_PENDING',
-        assetCode: selectedAsset.code,
-        assetType: normalizeSimulationAssetType(selectedAsset.type),
+        assetCode: simAsset.code,
+        assetType: normalizeSimulationAssetType(simAsset.type),
       });
       setSignalAmount('');
       setCounterpartyIsVasp(null);
@@ -928,6 +972,8 @@ const Deposit = () => {
                 </select>
               </div>
 
+              {showSimulationDepositFlow ? renderSimulationDepositFlow() : null}
+
               {!selectedAssetId ? (
                 <div className="text-center py-16 bg-fx-charcoal/30 rounded-2xl border border-dashed border-fx-rule">
                   <div className="w-16 h-16 bg-fx-charcoal rounded-full flex items-center justify-center mb-4 text-fx-dust mx-auto">
@@ -1017,8 +1063,6 @@ const Deposit = () => {
                       Network: {depositWallet.network} · Contract: {selectedAsset.contractAddress ?? 'Native'}
                     </p>
                   )}
-
-                  {showSimulationDepositFlow ? renderSimulationDepositFlow() : null}
                 </div>
                             ) : (
                                 <div className="text-center py-16 bg-fx-charcoal/30 rounded-2xl border border-dashed border-fx-rule">
@@ -1053,14 +1097,14 @@ const Deposit = () => {
             )}
       </div>
 
-      {showSimulationDepositFlow && showSimulateModal && depositWallet && (
+      {showSimulationDepositFlow && showSimulateModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
           <div className="bg-fx-ink rounded-2xl shadow-xl w-full max-w-md overflow-hidden border border-fx-rule">
             <div className="flex justify-between items-center p-5 border-b border-fx-rule">
               <div>
                 <h3 className="text-lg font-bold text-fx-sand">Simulate Deposit</h3>
                 <p className="text-sm text-fx-dust mt-1">
-                  Enter an amount for the mock {depositWallet.networkInfo?.kind === 'CHAIN' ? 'crypto' : 'fiat'} deposit. Final risk simulation now happens in Admin Risk Policy Executions.
+                  Enter an amount for the mock {simAsset?.type === 'CRYPTO' ? 'crypto' : 'fiat'} deposit. Final risk simulation now happens in Admin Risk Policy Executions.
                 </p>
               </div>
               <button
@@ -1075,15 +1119,37 @@ const Deposit = () => {
             <div className="p-5 space-y-4">
               {signalFeedback ? renderSimulationFeedback(signalFeedback) : null}
 
+              <label className="block text-xs text-fx-dust">
+                Asset
+                <select
+                  className="mt-1 w-full rounded-xl border border-fx-rule bg-fx-charcoal/50 px-3 py-2 text-sm text-fx-sand"
+                  value={simAssetId}
+                  onChange={(e) => setSimAssetId(e.target.value)}
+                  disabled={simulatingSignal}
+                >
+                  {simAssets.map((a) => (
+                    <option key={a.id} value={a.id}>
+                      {a.code} · {a.network}{a.status && a.status !== 'ACTIVE' ? ` — ${a.status}` : ''}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
               <div className="rounded-xl border border-fx-rule bg-fx-charcoal/50 p-4 space-y-2">
                 <div className="flex items-center justify-between gap-3 text-sm">
                   <span className="text-fx-dust">Asset</span>
-                  <span className="font-semibold text-fx-sand">{selectedAsset?.code}</span>
+                  <span className="font-semibold text-fx-sand">{simAsset?.code}</span>
+                </div>
+                <div className="flex items-center justify-between gap-3 text-sm">
+                  <span className="text-fx-dust">Network</span>
+                  <span className="font-semibold text-fx-sand">{simAsset?.network}</span>
                 </div>
                 <div className="flex items-center justify-between gap-3 text-sm">
                   <span className="text-fx-dust">Wallet</span>
                   <span className="font-mono text-xs text-fx-sand text-right break-all">
-                    {depositWallet.networkInfo?.kind === 'CHAIN' ? depositWallet.address : depositWallet.iban}
+                    {depositWallet && depositWallet.network === simAsset?.network
+                      ? (depositWallet.networkInfo?.kind === 'CHAIN' ? depositWallet.address : depositWallet.iban)
+                      : `Will use / create your ${simAsset?.network} deposit address`}
                   </span>
                 </div>
               </div>
@@ -1099,7 +1165,7 @@ const Deposit = () => {
                 />
               </div>
 
-              {depositWallet.networkInfo?.kind === 'CHAIN' && (
+              {simAsset?.type === 'CRYPTO' && (
                 <div>
                   <label className="text-xs text-fx-dust font-medium block mb-1">Counterparty</label>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">

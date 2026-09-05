@@ -65,7 +65,7 @@ COMPLIANCE_PENDING（出生态，零记账）
 - 记账 `swap-leg-accounting.ts`（四腿实时逐腿 post）；腿=挂 swapTransactionId 的资金单（见 funds-orders 篇）；腿 1 特殊：圈在下单时已画（createLeg 对 legSeq=1&attempt=1 跳过画圈只落笔），重试 attempt≥2 恢复按次画圈
 - 报价 `swap-fee-level/swap-quote.service.ts`（TTL 30s 懒过期）+ `pricing-center/pricing-engine.service.ts` + Binance 价源（3s 缓存，AED 钉 3.6725）+ `fee-audience.util.ts → resolveBestLevel()`
 - SLA `swap-sumsub/swap-sla.service.ts → sweep()`（30s cron；超时推 REJECTED、不做客户处置；txnId 为空的单是漏提交，重提不判死）
-- L1/限额 `TransactionLimitGateService.evaluate()`（建单前；AED 估值快照落单供累计取数）
+- L1 `L1GateService`（十项，含资产可用性；BLOCK 留 `*_L1_BLOCKED` 痕）／限额 `TransactionLimitGateService.evaluate()`（建单前；AED 估值快照落单供累计取数）
 
 ## 6. 演示缺口（BACKLOG 有账）
 

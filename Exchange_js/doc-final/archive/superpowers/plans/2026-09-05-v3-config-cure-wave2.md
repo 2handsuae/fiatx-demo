@@ -1457,14 +1457,14 @@ npx jest src/modules/trading src/modules/asset-treasury src/modules/audit-loggin
 bash scripts/on-stack.sh self verify:rbac
 bash scripts/on-stack.sh self verify:act1          # 25/25
 bash scripts/stack.sh reset self                   # 冲掉判据残留
-bash scripts/on-stack.sh self test:e2e --runInBand test/deposit-money-arcs.e2e-spec.ts test/withdraw-money-arcs.e2e-spec.ts test/swap-money-arc.e2e-spec.ts test/deposit-sumsub-verdicts.e2e-spec.ts test/withdraw-sumsub-scenarios.e2e-spec.ts test/swap-sumsub-scenarios.e2e-spec.ts
+bash scripts/on-stack.sh self test:e2e --runInBand test/deposit-money-arcs.e2e-spec.ts test/withdraw-money-arcs.e2e-spec.ts test/swap-money-arc.e2e-spec.ts test/withdraw-sumsub-scenarios.e2e-spec.ts test/swap-sumsub-scenarios.e2e-spec.ts   # 共用 dev.db 的 5 套；deposit-sumsub-verdicts 是私库套件，随下一行的 6 套私库跑
 bash scripts/stack.sh reset self                   # e2e 后再重铺（e2e 与 demo:all 不同库跑，见 baseline）
 bash scripts/on-stack.sh self demo:all
 bash scripts/on-stack.sh self verify:coa
 bash scripts/on-stack.sh self verify:audit
 bash scripts/on-stack.sh self verify:demo-data
 ```
-另外五个私库 e2e 套件按 baseline「私库先铺」跑法各跑一次（清单在 `demo/baseline.md` e2e 节）。全部全绿才算过。
+另外六个私库 e2e 套件（含 deposit-sumsub-verdicts）按 baseline「私库先铺」跑法各跑一次（清单在 `demo/baseline.md` e2e 节）。全部全绿才算过。
 
 - [ ] **Step 3: 三站真机走查 + 截图**（preview，两端）
 

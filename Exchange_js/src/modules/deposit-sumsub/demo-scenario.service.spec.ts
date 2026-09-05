@@ -72,7 +72,7 @@ describe('DepositDemoScenarioService', () => {
 
     const result = await service.runVerdict('deposit-1', 'V1_APPROVED', actor);
 
-    // 该单尚未过 Gate 0(deposit.sumsubTxnId 为空)—— 现铸的必须是真实形态 txnId,
+    // 该单尚未过 L1(deposit.sumsubTxnId 为空)—— 现铸的必须是真实形态 txnId,
     // 不是按钮 key 字面量。
     expect(primeSubmitSpy).toHaveBeenCalledWith('DEPT1', expect.stringMatching(OBJECT_ID));
     const mintedTxnId = primeSubmitSpy.mock.calls[0][1];
@@ -117,7 +117,7 @@ describe('DepositDemoScenarioService', () => {
     });
   });
 
-  it('已过 Gate 0 的单:复用该单自己的 txnId,不铸新号(否则 webhook 全成孤儿)', async () => {
+  it('已过 L1 的单:复用该单自己的 txnId,不铸新号(否则 webhook 全成孤儿)', async () => {
     depositService.findOne.mockResolvedValue({
       ...deposit,
       sumsubTxnId: '68c0aa11bb22cc33dd44ee55',
