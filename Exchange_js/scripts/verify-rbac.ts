@@ -505,7 +505,8 @@ function runStaticChecks(): void {
   );
 
   // ── S9：裁决人看得见 entityRef 的详情页 ────────────────────────────────
-  // 镜像 admin-web/src/pages/ApprovalDetailPage.tsx 的 ENTITY_ROUTE_BY_ACTION：审批详情页把 entityRef
+  // 镜像 admin-web/src/pages/approvalEntityRoutes.ts 的 ENTITY_ROUTE_BY_ACTION（表本体在
+  // scripts/verify-rbac.tables.ts 的 DETAIL_READ_GROUP_BY_POLICY）：审批详情页把 entityRef
   // 链到业务详情页，裁决人若没有那页的读权限，点过去就是 403——"能批却看不见批的是什么"。
   const blindCheckers: string[] = [];
   for (const [actionType, readGroup] of Object.entries(DETAIL_READ_GROUP_BY_POLICY)) {

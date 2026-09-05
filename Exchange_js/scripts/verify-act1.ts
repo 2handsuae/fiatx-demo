@@ -19,6 +19,7 @@ import { readFileSync } from 'fs';
 import { join } from 'path';
 import { PrismaClient } from '@prisma/client';
 import { RBAC_PERMISSION_DEFINITIONS } from '../src/modules/identity/access-control/rbac.catalog';
+import { MAX_ADDRESSES_PER_NETWORK } from '../src/modules/asset-treasury/withdrawal-addresses/withdrawal-address.service';
 
 // ══════════════════════ API base（.stackports 探测，同 verify-rbac.ts） ══════════════════════
 //
@@ -131,12 +132,30 @@ async function driveAssetStatus(assetNo: string, target: 'SUSPENDED' | 'ACTIVE',
  * createBankAccount 不设冷却、即时 ACTIVE，不必再劳烦 admin skip-cooling）。
  * 幂等：已有 ACTIVE 法币地址就跳过，避免重跑撞 IBAN 唯一冲突。
  */
-async function ensureFiatWithdrawalAddress(token: string, customerId: string): Promise<void> {
+/**
+ * ISO 13616 IBAN 校验位计算（mod-97）——bank-validator.util.ts 的 validateIban() 只管验证，
+ * 这里反过来按客户号派生 BBAN 再算出配套校验位，让 alice/grace 两条法币地址各有各的 IBAN，
+ * 不再共用同一个字面量（银行代码沿用原字面量的 37040044，仅账号段换成客户号派生）。
+ */
+function computeIbanCheckDigits(countryCode: string, bban: string): string {
+  const rearranged = `${bban}${countryCode}00`;
+  const numeric = rearranged.replace(/[A-Z]/g, (ch) => String(ch.charCodeAt(0) - 55));
+  let remainder = '';
+  for (const char of numeric) {
+    remainder += char;
+    remainder = String(Number(remainder) % 97);
+  }
+  return String(98 - Number(remainder)).padStart(2, '0');
+}
+
+async function ensureFiatWithdrawalAddress(token: string, customerId: string, customerNo: string): Promise<void> {
   const existing = await prisma.withdrawalAddress.count({ where: { customerId, addressType: 'BANK', status: 'ACTIVE' } });
   if (existing > 0) return;
+  const bban = `37040044${customerNo.replace(/\D/g, '').padStart(10, '0').slice(-10)}`;
+  const iban = `DE${computeIbanCheckDigits('DE', bban)}${bban}`;
   const r = await call('POST', '/client/withdrawal-addresses/bank-accounts', token, {
     beneficiaryName: 'Verify Act1 V Group', bankName: 'Deutsche Bank',
-    iban: 'DE89370400440532013000', swiftBic: 'DEUTDEFF', ownershipDeclaration: true,
+    iban, swiftBic: 'DEUTDEFF', ownershipDeclaration: true,
   });
   if (r.status >= 300) throw new Error(`夹具：开首个法币提现地址失败（交易起始前置门）→ ${r.status} ${r.text}`);
 }
@@ -482,8 +501,8 @@ async function main(): Promise<void> {
   // ── 夹具补丁：交易起始前置门（见 ensureFiatWithdrawalAddress 注释）——
   // alice 还要一条 AED C_VIBAN 收款钱包，V6 的 initiateSwap R4 收款账户校验要用
   // （USDT 那侧的 C_DEP 由下面 V3 的 /client/deposit-wallets 调用顺带创建）。
-  await ensureFiatWithdrawalAddress(aliceTok, alice.id);
-  await ensureFiatWithdrawalAddress(graceTok, grace.id);
+  await ensureFiatWithdrawalAddress(aliceTok, alice.id, alice.customerNo);
+  await ensureFiatWithdrawalAddress(graceTok, grace.id, grace.customerNo);
   const aedWallet = await call('POST', '/client/deposit-wallets', aliceTok, { network: 'AED_ZAND' });
   if (aedWallet.status >= 300) throw new Error(`夹具：alice 开 AED 收款钱包失败 → ${aedWallet.status} ${aedWallet.text}`);
 
@@ -558,7 +577,7 @@ async function main(): Promise<void> {
     `登记链上地址 → ${reg1.status} ${reg1.json?.status}；审计 actorType=${v7row?.actorType} requestId=${v7row?.requestId ? '有' : '无'}`);
 
   const existingActive = await prisma.withdrawalAddress.count({ where: { customerId: alice.id, network: 'TRON', status: { in: ['PENDING_ACTIVATION', 'ACTIVE'] } } });
-  for (let i = existingActive; i < 3; i += 1) {
+  for (let i = existingActive; i < MAX_ADDRESSES_PER_NETWORK; i += 1) {
     await call('POST', '/client/withdrawal-addresses', aliceTok, { network: 'TRON', address: fakeTronAddress(`act1-${txSeed}-fill${i}`), ownershipDeclaration: true });
   }
   const reg4 = await call('POST', '/client/withdrawal-addresses', aliceTok, { network: 'TRON', address: fakeTronAddress(`act1-${txSeed}-4`), ownershipDeclaration: true });
@@ -607,7 +626,7 @@ async function main(): Promise<void> {
   await driveAssetStatus(usdt.assetNo!, 'ACTIVE', tokens);
   const q6 = await call('POST', '/swap-transactions/quotes', aliceTok, { fromAssetId: usdt.id, toAssetId: aed.id, fromAmount: 10 });
   const v6 = q6.status < 300 ? await call('POST', '/swap-transactions', aliceTok, { quoteId: q6.json.quoteId }) : { status: q6.status, json: q6.json, text: q6.text };
-  judge('V6', v6.status === 201 || v6.status === 200, `恢复后同一客户建兑换单 → ${v6.status}（对照：门不是永远关着）${v6.status >= 300 ? ' ' + v6.text : ''}`);
+  judge('V6', v6.status === 201, `恢复后同一客户建兑换单 → ${v6.status}（对照：门不是永远关着）${v6.status >= 300 ? ' ' + v6.text : ''}`);
 
   // ── V9：VIP 预览价 = 确认价（岔口 4）
   // 选档只比平费不比点差；种子里 VIP 全档更便宜，但 demo:all 的 FEE_PLAN（demo-lib.ts:122）

@@ -246,6 +246,13 @@ export class WithdrawalAddressWorkflowService {
     return result;
   }
 
+  /**
+   * 主体层 activate()（withdrawal-address.service.ts）到期前调用会抛 COOLING_PERIOD_NOT_EXPIRED——
+   * 这是目前唯一会撞上这个五门码的调用路径，但这里没套 recordDeniedAndRethrow：今天的两条调用方
+   * （cron 扫描 WithdrawalAddressSweepService、懒激活 batchActivateExpired）都已按 activatesAt
+   * 到期时间预过滤，不会有人在这里被拒。未来若加手动激活入口，必须仿照 suspendAddress /
+   * skipCoolingPeriod 那样用 recordDeniedAndRethrow 包一层，把 DENIED 补上留痕。
+   */
   async activateAddress(addressNo: string, activatedBy: 'CRON' | 'LAZY' = 'CRON') {
     const existing = await this.addressService.findByNo(addressNo);
     if (!existing) throw new NotFoundException({ code: 'ADDRESS_NOT_FOUND', message: `Address ${addressNo} not found` });

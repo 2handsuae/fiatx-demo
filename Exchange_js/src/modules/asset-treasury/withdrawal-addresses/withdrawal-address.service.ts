@@ -5,7 +5,7 @@ import { assertNetwork, validateAddressForNetwork, NETWORKS, NETWORK_CODES } fro
 import { validateIban, validateSwiftBic } from './bank-validator.util';
 import { assertWithdrawalAddressTransition, WithdrawalAddressAction } from './constants/withdrawal-address-transitions.constant';
 
-const MAX_ADDRESSES_PER_NETWORK = 3;
+export const MAX_ADDRESSES_PER_NETWORK = 3;
 const COOLING_PERIOD_HOURS = 24;
 /** 唯一的银行通道网络：银行账户类地址都挂它（今天 = AED_ZAND） */
 export const BANK_RAIL_NETWORK: string = NETWORK_CODES.map((c) => NETWORKS[c]).find((n) => n.kind === 'BANK_RAIL')!.code;
