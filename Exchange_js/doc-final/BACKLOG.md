@@ -50,6 +50,7 @@ Last Updated: 2026-09-05
   **已解（2026-09-04，业主拍板方案甲）**：给 `TECH_OFFICER` 也加 `IAM_ROLE_ASSIGN` 组（`rbac.catalog.ts`）——技术官提交、CISO 审批；未采用方案乙（把裁决人从 CISO 改成 `SENIOR_MANAGEMENT_OFFICER`，复刻 `ADMIN_SUSPENSION_APPROVAL`/`ADMIN_REACTIVATION_APPROVAL`）。**理由**：复刻本域其它每一条身份管理动作已有的模式（技术官操作、CISO 审批），与姊妹邀请流程 `ADMIN_INVITE_APPROVAL` 形状完全一致，且不下放任何单方面权力——每一次角色变更仍须经 CISO 审批。**实测**：`tech_admin@` 登录后 `POST /admin/iam/role-change-requests` → 201（新建待批请求）；未持该权限组的角色（如 `ops_officer@`）同请求仍 403，证明门不是 fail-open。**判据**：`scripts/verify-rbac.ts` 把这条从"已知死锁"清单 `S5_KNOWN_DEADLOCKS` 删除（现为空表，正常终态）、转登记进"双持豁免"表 `MAKER_CHECKER_OVERLAP_EXEMPT`（与 `ADMIN_INVITE_APPROVAL` 同款理由：CISO 双持是刻意设计，`TECH_OFFICER` 是安全 maker，S5c 继续守），`verify:rbac` 那行专门的已登记死锁 `⚠` 提示随之消失 ｜来源: 2026-09-04 业主拍板落地，commits `7dd26103`/`35184742`（原登记见 2026-09-04 V3 财务配置治愈波一 Task 13，S8 覆盖判据首次照见）
 
 - [ ] **报价落"资格快照"**：现 quote 仅存 `policyRef=LEVEL:code`；V3 要求成交时落 命中集合 + 选中级 + 选中理由(最低费) + 客户此刻标签快照（可解释/可申诉）｜来源: 2026-07-11 费率 V3 §4.4/§5.5
+- [ ] **费率两族现网创建/落地审计的 afterData 仍写裸资产 UUID（种子三块 2026-09-06 小轮已换业务键，这两处是残余的另一半）**：`swap-fee-level-creation-workflow.service.ts:103-111`（CREATION_REQUESTED 与 :191 APPLIED 的 afterData 带 `fromAssetId/toAssetId`）、`withdrawal-fee-level-creation-workflow.service.ts:100-108` 同款带 `assetId`——管理台审计页按字面量渲染，触铁律⑥。修法同种子侧：落 afterData 前把资产 id 映射成 currency ｜来源: 2026-09-06 第一幕小轮 Task 6 复查（原合并条目销账时拆出）
 
 
 - [x] ~~资本注入流水缺 evidence 行（`FIRM_ASSET` 流水缺资本那笔）~~ —— 已解（2026-09-05 平账二期 Task 10，commit `d1f92997`）：种子路径注资时补写凭证行 + 两行流水投影（每资产 OUT/IN 各一行），运营户对账起点不再显示负数 ｜来源: V8 redesign 遗留
