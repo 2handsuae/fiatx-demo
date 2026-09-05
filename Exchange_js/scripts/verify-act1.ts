@@ -610,9 +610,12 @@ async function main(): Promise<void> {
   judge('V6', v6.status === 201 || v6.status === 200, `恢复后同一客户建兑换单 → ${v6.status}（对照：门不是永远关着）${v6.status >= 300 ? ' ' + v6.text : ''}`);
 
   // ── V9：VIP 预览价 = 确认价（岔口 4）
-  const rateGrace = await call('GET', `/swap-transactions/rate?fromAssetId=${usdt.id}&toAssetId=${aed.id}&amount=100`, graceTok);
-  const rateAlice = await call('GET', `/swap-transactions/rate?fromAssetId=${usdt.id}&toAssetId=${aed.id}&amount=100`, aliceTok);
-  const quoteGrace = await call('POST', '/swap-transactions/quotes', graceTok, { fromAssetId: usdt.id, toAssetId: aed.id, fromAmount: 100 });
+  // 选档只比平费不比点差；种子里 VIP 全档更便宜，但 demo:all 的 FEE_PLAN（demo-lib.ts:122）
+  // 会把 STD-USDT-AED Tier 1 平费压到 10，舞台上 100 USDT 时 Grace 会落 STD——判据与剧本统一
+  // 用 1000 USDT（Tier 2：VIP 12 < STD 20），两种库态都成立。
+  const rateGrace = await call('GET', `/swap-transactions/rate?fromAssetId=${usdt.id}&toAssetId=${aed.id}&amount=1000`, graceTok);
+  const rateAlice = await call('GET', `/swap-transactions/rate?fromAssetId=${usdt.id}&toAssetId=${aed.id}&amount=1000`, aliceTok);
+  const quoteGrace = await call('POST', '/swap-transactions/quotes', graceTok, { fromAssetId: usdt.id, toAssetId: aed.id, fromAmount: 1000 });
   // 修复前两人的预览都落默认档 → tierId 相同；修复后 Grace 命中 VIP 档 → tierId 不同。用 tierId 而不用点差数值：
   // 两档点差恰好相等时数值比较会伪绿，tierId 不会。
   // 命中档位名（feeLevelCode）只存在于 SwapQuote 表本身；客户确认响应 toCustomerQuoteResponse() 刻意不透出这个字段（设计如此，非缺陷）——
