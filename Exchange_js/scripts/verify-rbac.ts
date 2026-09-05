@@ -624,13 +624,8 @@ function runS6FrontendBackendCodeDiff(): void {
 // 控制器后删掉最后一行——本批四条暂未出生的 route() 已全部有真实端点，白名单清空。
 // 平账二期（2026-09-05，Task 3/8）：五条 route() 与 Task 3 一起登记、Task 8 落地控制器后清空——
 // 与 B 批「暂未出生」同类，不是腐烂死行。
-const S7_PENDING_DEAD_ROWS = new Set<string>([
-  'api.post.admin_internal_transfers_compensation',
-  'api.post.admin_internal_transfers_advance',
-  'api.post.admin_internal_transfers_transferno_cancel',
-  'api.get.admin_internal_transfers',
-  'api.get.admin_internal_transfers_transferno',
-]);
+// 平账二期 Task 8（2026-09-05）落地五条控制器后清空——白名单再次为空。
+const S7_PENDING_DEAD_ROWS = new Set<string>([]);
 
 /** 镜像 admin-permission.guard.ts#buildRequestPermissionCode 的拼接算法——不是重新
  *  发明；两处若不一致，S7 会跟着不准，见上方大注释的已知取舍。 */

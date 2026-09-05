@@ -2017,7 +2017,7 @@ export class DepositWorkflowService implements OnModuleInit {
     const bal = await this.accountingService.getCustomerAvailableBalance(deposit.ownerId, deposit.asset.currency);
     if (bal.available < amountMinor) {
       const fmt = (v: bigint) => minorToMajor(v.toString(), decimals);
-      throw new BadRequestException(`客户可用余额不足以退汇（可用 ${fmt(bal.available)}，需要 ${fmt(amountMinor)} ${deposit.asset.currency}），待二期公司垫款与三期追索`);
+      throw new BadRequestException(`客户可用余额不足以退汇（可用 ${fmt(bal.available)}，需要 ${fmt(amountMinor)} ${deposit.asset.currency}），先由金库在案子上「发起垫款」补足差额再认领`);
     }
   }
 

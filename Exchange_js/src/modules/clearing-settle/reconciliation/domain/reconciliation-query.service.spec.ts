@@ -9,7 +9,7 @@ import { CAUSE_REGISTRY, menuFor, staticOutletLabel } from '../disposition/cause
 // snapshot table instead), and no other method in this service used it.
 function mkSvc(
   prisma: any,
-  opts: { flowMatcher?: any; explainedDifferences?: any } = {},
+  opts: { flowMatcher?: any; explainedDifferences?: any; accounting?: any } = {},
 ) {
   const flowMatcher = opts.flowMatcher ?? {
     matchFlows: jest.fn().mockResolvedValue({
@@ -20,7 +20,12 @@ function mkSvc(
   const explainedDifferences = opts.explainedDifferences ?? {
     indexForWallet: jest.fn().mockResolvedValue({ byFlowId: new Map(), byExternalLineId: new Map() }),
   };
-  return new ReconciliationQueryService(prisma, flowMatcher, explainedDifferences);
+  // 平账二期 Task 8：getCase/listCases 的补款 / 垫款回挂只在极少数用例里真正触发
+  // availableMinor()（都在下面单独 override）——默认给 0，够挡住其余所有用例。
+  const accounting = opts.accounting ?? {
+    getCustomerAvailableBalance: jest.fn(async () => ({ available: 0n })),
+  };
+  return new ReconciliationQueryService(prisma, flowMatcher, explainedDifferences, accounting);
 }
 
 // Helpers to build test fixtures concisely.
@@ -226,6 +231,8 @@ describe('getCase — flowComparison (T3)', () => {
       reconciliationAdjustment: { findMany: jest.fn().mockResolvedValue([]) },
       // 平账一期半（T7 案件读面）：getCase 的行注解块同样 unconditional 发一次。
       reconciliationDisposition: { findMany: jest.fn().mockResolvedValue([]) },
+      // 平账二期 Task 8：补款 / 垫款回挂块的划转单查询同样 unconditional。
+      internalTransfer: { findMany: jest.fn().mockResolvedValue([]) },
     };
     const flowMatcher = {
       matchFlows: jest.fn().mockResolvedValue({
@@ -283,6 +290,8 @@ describe('getCase — flowComparison (T3)', () => {
       reconciliationAdjustment: { findMany: jest.fn().mockResolvedValue([]) },
       // 平账一期半（T7 案件读面）：getCase 的行注解块同样 unconditional 发一次。
       reconciliationDisposition: { findMany: jest.fn().mockResolvedValue([]) },
+      // 平账二期 Task 8：补款 / 垫款回挂块的划转单查询同样 unconditional，XREF case 也要发。
+      internalTransfer: { findMany: jest.fn().mockResolvedValue([]) },
     };
     const flowMatcher = { matchFlows: jest.fn() };
     const svc = mkSvc(prisma, { flowMatcher });
@@ -400,6 +409,8 @@ describe('getCase — walletNo / linkedRunNo / slaDeadline / book', () => {
       reconciliationAdjustment: { findMany: jest.fn().mockResolvedValue([]) },
       // 平账一期半（T7 案件读面）：getCase 的行注解块同样 unconditional 发一次。
       reconciliationDisposition: { findMany: jest.fn().mockResolvedValue([]) },
+      // 平账二期 Task 8：补款 / 垫款回挂块的划转单查询同样 unconditional。
+      internalTransfer: { findMany: jest.fn().mockResolvedValue([]) },
     } as any;
   }
 
@@ -433,6 +444,8 @@ describe('getCase — walletNo / linkedRunNo / slaDeadline / book', () => {
       reconciliationAdjustment: { findMany: jest.fn().mockResolvedValue([]) },
       // 平账一期半（T7 案件读面）：getCase 的行注解块同样 unconditional 发一次。
       reconciliationDisposition: { findMany: jest.fn().mockResolvedValue([]) },
+      // 平账二期 Task 8：补款 / 垫款回挂块的划转单查询同样 unconditional，XREF case 也要发。
+      internalTransfer: { findMany: jest.fn().mockResolvedValue([]) },
     } as any;
     const svc = mkSvc(prisma);
     const result: any = await svc.getCase('CASE-XREF');
@@ -453,9 +466,14 @@ describe('listCases — T3 default OPEN + aging desc', () => {
     reconciliationRun: { findMany: jest.fn().mockResolvedValue([]) },
     // 平账一期半（T7 案件读面）：listCases 新增 dispositionCount/anomalyLineCount/
     // decimals 三个 groupBy/findMany 查询，非空行 fixture 都会触发。
-    reconciliationDisposition: { groupBy: jest.fn().mockResolvedValue([]) },
+    // 平账二期 Task 8：同一 reconciliationDisposition 模型上又加了一条
+    // findMany（退汇账单行徽标用）——与上面的 groupBy 是两个不同的 mock 方法。
+    reconciliationDisposition: { groupBy: jest.fn().mockResolvedValue([]), findMany: jest.fn().mockResolvedValue([]) },
     reconciliationLineItem: { groupBy: jest.fn().mockResolvedValue([]) },
     asset: { findMany: jest.fn().mockResolvedValue([]) },
+    // 平账二期 Task 8：列表徽标——待补款 / 待垫款 / 进行中，非空行 fixture 都会触发。
+    reconciliationAdjustment: { findMany: jest.fn().mockResolvedValue([]) },
+    internalTransfer: { findMany: jest.fn().mockResolvedValue([]) },
   };
 
   it('defaults to status=OPEN when status omitted', async () => {
@@ -519,9 +537,13 @@ describe('listCases — T3 default OPEN + aging desc', () => {
         ]),
       },
       // 平账一期半（T7 案件读面）：同上，非空行会触发新增的 groupBy/findMany。
-      reconciliationDisposition: { groupBy: jest.fn().mockResolvedValue([]) },
+      // 平账二期 Task 8：同一模型上再加一条 findMany（退汇账单行徽标）。
+      reconciliationDisposition: { groupBy: jest.fn().mockResolvedValue([]), findMany: jest.fn().mockResolvedValue([]) },
       reconciliationLineItem: { groupBy: jest.fn().mockResolvedValue([]) },
       asset: { findMany: jest.fn().mockResolvedValue([]) },
+      // 平账二期 Task 8：列表徽标查询。
+      reconciliationAdjustment: { findMany: jest.fn().mockResolvedValue([]) },
+      internalTransfer: { findMany: jest.fn().mockResolvedValue([]) },
     };
     const svc = mkSvc(prisma);
     const result = await svc.listCases({});
@@ -682,9 +704,13 @@ describe('listCases with runNo filter', () => {
       },
       // 平账一期半（T7 案件读面）：过滤后仍有 2 行，会触发新增的 groupBy/findMany
       // （另一条 runNo 不存在的用例在到达这里之前就已经 return [] 短路）。
-      reconciliationDisposition: { groupBy: jest.fn().mockResolvedValue([]) },
+      // 平账二期 Task 8：同一 reconciliationDisposition 模型上再加一条 findMany
+      // （退汇账单行徽标）；列表徽标另两条查询也一并跟上。
+      reconciliationDisposition: { groupBy: jest.fn().mockResolvedValue([]), findMany: jest.fn().mockResolvedValue([]) },
       reconciliationLineItem: { groupBy: jest.fn().mockResolvedValue([]) },
       asset: { findMany: jest.fn().mockResolvedValue([]) },
+      reconciliationAdjustment: { findMany: jest.fn().mockResolvedValue([]) },
+      internalTransfer: { findMany: jest.fn().mockResolvedValue([]) },
     } as any;
   }
 
@@ -850,6 +876,8 @@ describe('getCase — explain / observation / bucket (T6)', () => {
       reconciliationAdjustment: { findMany: jest.fn().mockResolvedValue([]) },
       // 平账一期半（T7 案件读面）：getCase 的行注解块同样 unconditional 发一次。
       reconciliationDisposition: { findMany: jest.fn().mockResolvedValue([]) },
+      // 平账二期 Task 8：补款 / 垫款回挂块的划转单查询同样 unconditional。
+      internalTransfer: { findMany: jest.fn().mockResolvedValue([]) },
     } as any;
   }
 
@@ -952,6 +980,8 @@ describe('getCase — 案件级调账单列表 adjustments（Task 7）', () => {
       asset: { findUnique: jest.fn().mockResolvedValue({ decimals: 2 }) },
       // 平账一期半（T7 案件读面）：getCase 的行注解块同样 unconditional 发一次。
       reconciliationDisposition: { findMany: jest.fn().mockResolvedValue([]) },
+      // 平账二期 Task 8：补款 / 垫款回挂块的划转单查询同样 unconditional。
+      internalTransfer: { findMany: jest.fn().mockResolvedValue([]) },
     } as any;
   }
 
@@ -1065,6 +1095,8 @@ describe('getCase 行注解（spec §3/§8）', () => {
       reconciliationAdjustment: { findMany: jest.fn().mockResolvedValue([]) },
       reconciliationDisposition: { findMany: jest.fn().mockResolvedValue([]) },
       fundsOrder: { findMany: jest.fn().mockResolvedValue([]) },
+      // 平账二期 Task 8：补款 / 垫款回挂块的划转单查询同样 unconditional。
+      internalTransfer: { findMany: jest.fn().mockResolvedValue([]) },
       ...overrides,
     } as any;
   }
@@ -1251,11 +1283,17 @@ describe('listCases 进度与 decimals', () => {
       reconciliationRun: { findMany: jest.fn().mockResolvedValue([]) },
       reconciliationDisposition: {
         groupBy: jest.fn().mockResolvedValue([{ caseNo: 'REC-PROG-001', _count: { _all: 3 } }]),
+        // 平账二期 Task 8：同一模型上再加一条 findMany（退汇账单行徽标）——与上面
+        // 的 groupBy 是两个不同的 mock 方法，不影响它的 mock.calls 断言。
+        findMany: jest.fn().mockResolvedValue([]),
       },
       reconciliationLineItem: {
         groupBy: jest.fn().mockResolvedValue([{ caseId: 'case-prog-1', _count: { _all: 5 } }]),
       },
       asset: { findMany: jest.fn().mockResolvedValue([{ code: 'AED', decimals: 2 }]) },
+      // 平账二期 Task 8：列表徽标查询。
+      reconciliationAdjustment: { findMany: jest.fn().mockResolvedValue([]) },
+      internalTransfer: { findMany: jest.fn().mockResolvedValue([]) },
     };
     const svc = mkSvc(prisma);
     const rows = await svc.listCases({});
@@ -1277,9 +1315,11 @@ describe('listCases 进度与 decimals', () => {
     const prisma = {
       reconciliationCase: { findMany: jest.fn().mockResolvedValue([caseRow]) },
       reconciliationRun: { findMany: jest.fn().mockResolvedValue([]) },
-      reconciliationDisposition: { groupBy: jest.fn().mockResolvedValue([]) },
+      reconciliationDisposition: { groupBy: jest.fn().mockResolvedValue([]), findMany: jest.fn().mockResolvedValue([]) },
       reconciliationLineItem: { groupBy: jest.fn().mockResolvedValue([]) },
       asset: { findMany: jest.fn().mockResolvedValue([]) },
+      reconciliationAdjustment: { findMany: jest.fn().mockResolvedValue([]) },
+      internalTransfer: { findMany: jest.fn().mockResolvedValue([]) },
     };
     const svc = mkSvc(prisma);
     const rows = await svc.listCases({});
@@ -1308,6 +1348,8 @@ describe('平账 A 批：案件页按跑批截止时刻重建差异行（spec §
       asset: { findUnique: jest.fn().mockResolvedValue({ decimals: 6, currency: 'USDT' }) },
       wallet: { findUnique: jest.fn().mockResolvedValue({ walletNo: 'WA1' }) },
       fundsOrder: { findMany: jest.fn().mockResolvedValue([]) },
+      // 平账二期 Task 8：补款 / 垫款回挂块的划转单查询同样 unconditional。
+      internalTransfer: { findMany: jest.fn().mockResolvedValue([]) },
     };
   }
   it('run 记了 cutoffAt → 外部行与内部流水都按它截止', async () => {
@@ -1348,6 +1390,8 @@ describe('平账 A 批：超期后的下一步 nextStep（spec §2.6）', () => 
       asset: { findUnique: jest.fn().mockResolvedValue({ decimals: opts.decimals ?? 2, currency: opts.currency ?? 'AED' }) },
       wallet: { findUnique: jest.fn().mockResolvedValue({ walletNo: 'WA1' }) },
       fundsOrder: { findMany: jest.fn().mockResolvedValue([]) },
+      // 平账二期 Task 8：补款 / 垫款回挂块的划转单查询同样 unconditional。
+      internalTransfer: { findMany: jest.fn().mockResolvedValue([]) },
     };
   }
   const mismatchMatcher = { matchFlows: jest.fn().mockResolvedValue({ matched: [], orphanInternal: [], orphanExternal: [], mismatch: [{ internalFlowId: flowId, externalLineId: extId }] }) };

@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../core/prisma/prisma.service';
+import { AccountingService } from '../../../accounting/tigerbeetle/accounting.service';
 import {
   WalletFlowMatcherService,
   ExternalStatementLineInput,
@@ -19,6 +20,7 @@ import {
   staticOutletLabel,
 } from '../disposition/cause-registry';
 import { isSmallAmount } from '../disposition/recon-thresholds.constant';
+import { deriveFundingNextStep } from '../disposition/funding-next-step';
 import {
   AccountStatusRow,
   CaseAdjustmentSummary,
@@ -143,6 +145,7 @@ export class ReconciliationQueryService {
     private readonly prisma: PrismaService,
     private readonly walletFlowMatcher: WalletFlowMatcherService,
     private readonly explainedDifferences: ExplainedDifferenceService,
+    private readonly accounting: AccountingService,
   ) {}
 
   listRuns(q: { businessDate?: string; layer?: string }) {
@@ -363,6 +366,36 @@ export class ReconciliationQueryService {
         })) as Array<{ id: string; runNo: string }>);
     const runNoById = new Map(runs.map((r) => [r.id, r.runNo]));
 
+    // 平账二期：列表徽标——待补款 / 待垫款 / 进行中，金库一眼找到活
+    const lossAdjustments = caseNos.length
+      ? ((await (this.prisma as any).reconciliationAdjustment.findMany({ where: { caseNo: { in: caseNos }, status: 'POSTED', reasonCode: 'UNEXPLAINED_CLIENT_LOSS' }, select: { caseNo: true, adjustmentNo: true } })) as Array<{ caseNo: string; adjustmentNo: string }>)
+      : [];
+    const bounceDispositions = caseNos.length
+      ? ((await (this.prisma as any).reconciliationDisposition.findMany({ where: { caseNo: { in: caseNos }, outlet: 'SUPPLEMENT', deferredTarget: 'SUPPLEMENT_BOUNCE', supplementNo: null }, select: { caseNo: true, explainedExternalLineId: true, walletRef: true } })) as Array<{ caseNo: string; explainedExternalLineId: string | null; walletRef: string }>)
+      : [];
+    const liveTransfers = caseNos.length
+      ? ((await (this.prisma as any).internalTransfer.findMany({ where: { sourceCaseNo: { in: caseNos }, status: { in: ['PENDING_APPROVAL', 'EXECUTING', 'SUCCESS'] } }, select: { sourceCaseNo: true, purpose: true, status: true, sourceAdjustmentNo: true, sourceExternalLineId: true } })) as Array<{ sourceCaseNo: string; purpose: string; status: string; sourceAdjustmentNo: string | null; sourceExternalLineId: string | null }>)
+      : [];
+    const fundingByCase = new Map<string, { kind: 'COMPENSATION' | 'ADVANCE'; status: 'PENDING' | 'IN_PROGRESS' }>();
+    for (const a of lossAdjustments) {
+      const t = liveTransfers.find((x) => x.sourceAdjustmentNo === a.adjustmentNo);
+      if (t?.status === 'SUCCESS') continue;
+      fundingByCase.set(a.caseNo, { kind: 'COMPENSATION', status: t ? 'IN_PROGRESS' : 'PENDING' });
+    }
+    for (const b of bounceDispositions) {
+      if (!b.explainedExternalLineId || fundingByCase.has(b.caseNo)) continue;
+      const t = liveTransfers.find((x) => x.sourceExternalLineId === b.explainedExternalLineId);
+      if (t?.status === 'SUCCESS') continue;
+      if (t) { fundingByCase.set(b.caseNo, { kind: 'ADVANCE', status: 'IN_PROGRESS' }); continue; }
+      const line = await (this.prisma as any).externalStatementLine.findUnique({ where: { id: b.explainedExternalLineId }, select: { amount: true } });
+      const wallet = await (this.prisma as any).wallet.findUnique({ where: { id: b.walletRef }, select: { ownerId: true } });
+      const row = rows.find((r: any) => r.caseNo === b.caseNo);
+      const currency = row ? (await (this.prisma as any).asset.findUnique({ where: { code: row.assetCode }, select: { currency: true } }))?.currency : null;
+      if (!line || !wallet?.ownerId || !currency) continue;
+      const available = (await this.accounting.getCustomerAvailableBalance(wallet.ownerId, currency)).available;
+      if (BigInt(line.amount.toString()) > available) fundingByCase.set(b.caseNo, { kind: 'ADVANCE', status: 'PENDING' });
+    }
+
     const now = Date.now();
     const decorated = rows.map((r: any) => {
       const ref = r.createdAt instanceof Date ? r.createdAt.getTime() : new Date(r.createdAt).getTime();
@@ -378,6 +411,7 @@ export class ReconciliationQueryService {
         dispositionCount: dispCountByCase.get(r.caseNo) ?? 0,
         anomalyLineCount: anomalyByCaseId.get(r.id) ?? 0,
         decimals: decimalsByCode.get(r.assetCode) ?? 0,
+        pendingFunding: fundingByCase.get(r.caseNo) ?? null,
       };
     });
     decorated.sort((a, b) => b.aging - a.aging);
@@ -448,6 +482,60 @@ export class ReconciliationQueryService {
       flowSummary = built.summary;
     }
 
+    // 平账二期 Task 8：caseAdjustments 与紧随其后的 assetRow / caseCurrency 一起，
+    // 从原位置（下方 IN_TRANSIT 追加段之后）上移到这里——补款 / 垫款回挂块（再往下）要用。
+    // Task 7（调账单 admin 前端 · 控制方裁定）：案件级调账单列表，按 caseNo 直查
+    // 全部——不依赖 lineItems 是否为空、不依赖某行是否曾传过 lineItemId（新表单
+    // 不再传）。运营在案件页一眼看到本案已开过哪些调账单，防重复开单的目的靠这份
+    // 列表达成，不靠"整行置灰"（brief 原方案做不到——flowComparison 的行 id 和
+    // ReconciliationLineItem.id 不是一张表，且后者每轮对账 delete-then-insert
+    // 没有跨轮身份）。
+    //
+    // Fix 6（末站整改）：Task 6 曾在这里按 lineItemId 批量查调账单、把
+    // { adjustmentNo, status } 挂到每条差异项上供前端"整行置灰"——该用途随 Task 7
+    // 改用上面这条 caseNo 查询后废弃：新表单不再传 lineItemId（恒空 Map），
+    // 且前端从未渲染过 kase.lineItems（管理台按 flowComparison 展示对账行，不是
+    // 原始 lineItems）。按 CLAUDE.md §3 视为本分支自产的孤儿，随 Task 6 的
+    // lineItemId 查询与 decoratedLineItems 一并删除；下方 return 里的
+    // `lineItems` 字段回落到 `...kase` 展开自带的原始值（Task 6 之前的行为）。
+    const caseAdjustments = (await (this.prisma as any).reconciliationAdjustment.findMany({
+      where: { caseNo: kase.caseNo },
+      select: { adjustmentNo: true, status: true, reasonCode: true, direction: true, amount: true },
+      orderBy: { createdAt: 'desc' },
+    })) as CaseAdjustmentSummary[];
+    // T4 (canon2): the display layer scales every amount by 10^decimals to turn
+    // integer base units (分) back into 元. Same source as listExternalBalances
+    // and buildFlowComparison — asset table by currency code, never hardcoded.
+    // 平账 A 批：也是 nextStep 判小额线要用的币种（按 currency，不按 code）——提前
+    // 到这里查一次，下文用同一个变量，不查两次。
+    const assetRow = (await (this.prisma as any).asset.findUnique({
+      where: { code: kase.assetCode }, select: { decimals: true, currency: true },
+    })) as { decimals: number; currency: string } | null;
+    const caseCurrency = assetRow?.currency ?? kase.assetCode;
+    // 平账二期（spec §7.2/§7.3）：补款 / 垫款回挂——读本案的划转单（直查 internal_transfers，
+    // 与 resolveSupplementRef 读业务域表同款先例），按来源锚回贴到行上。
+    const adjustmentByNo = new Map(caseAdjustments.map((a) => [a.adjustmentNo, a]));
+    const caseTransfers = (await (this.prisma as any).internalTransfer.findMany({
+      where: { sourceCaseNo: kase.caseNo }, orderBy: { createdAt: 'desc' },
+      select: { transferNo: true, purpose: true, status: true, sourceAdjustmentNo: true, sourceExternalLineId: true },
+    })) as Array<{ transferNo: string; purpose: string; status: string; sourceAdjustmentNo: string | null; sourceExternalLineId: string | null }>;
+    const transferByAdjustment = new Map<string, (typeof caseTransfers)[number]>();
+    const transferByLine = new Map<string, (typeof caseTransfers)[number]>();
+    for (const t of caseTransfers) { // 最新在前，只留每个来源最新的一张
+      if (t.sourceAdjustmentNo && !transferByAdjustment.has(t.sourceAdjustmentNo)) transferByAdjustment.set(t.sourceAdjustmentNo, t);
+      if (t.sourceExternalLineId && !transferByLine.has(t.sourceExternalLineId)) transferByLine.set(t.sourceExternalLineId, t);
+    }
+    const walletOwner = kase.walletRef && !kase.walletRef.startsWith('XREF:')
+      ? await (this.prisma as any).wallet.findUnique({ where: { id: kase.walletRef }, select: { walletNo: true, ownerId: true } })
+      : null;
+    let availableMinorCache: bigint | null = null;
+    const availableMinor = async (): Promise<bigint> => {
+      if (availableMinorCache === null) {
+        availableMinorCache = walletOwner?.ownerId ? (await this.accounting.getCustomerAvailableBalance(walletOwner.ownerId, caseCurrency)).available : 0n;
+      }
+      return availableMinorCache;
+    };
+
     // ── 平账一期半（spec §3/§8）：行注解——定性回贴 / 双胞胎线索 / 成因菜单 ──
     // 跑在 IN_TRANSIT 追加段之前：此刻 flowComparison 只有 built.rows 的四类
     // 行，IN_TRANSIT 行还没生成，天然不会被这段行注解处理（它们不是差异）。
@@ -469,15 +557,6 @@ export class ReconciliationQueryService {
         .map((r) => `${r.externalLine!.externalRef}|${r.externalLine!.amount}`),
     );
     const caseBook = kase.book === 'FIRM' ? 'FIRM' : 'CLIENT';
-    // T4 (canon2): the display layer scales every amount by 10^decimals to turn
-    // integer base units (分) back into 元. Same source as listExternalBalances
-    // and buildFlowComparison — asset table by currency code, never hardcoded.
-    // 平账 A 批：也是 nextStep 判小额线要用的币种（按 currency，不按 code）——提前
-    // 到这里查一次，下文用同一个变量，不查两次。
-    const assetRow = (await (this.prisma as any).asset.findUnique({
-      where: { code: kase.assetCode }, select: { decimals: true, currency: true },
-    })) as { decimals: number; currency: string } | null;
-    const caseCurrency = assetRow?.currency ?? kase.assetCode;
     for (const r of flowComparison) {
       if (r.matchType === 'MATCHED' || r.matchType === 'IN_TRANSIT') continue;
       const d = (r.internalFlow && dByFlow.get(r.internalFlow.id!)) || (r.externalLine && dByExt.get(r.externalLine.id!)) || null;
@@ -528,6 +607,21 @@ export class ReconciliationQueryService {
           r.nextStep = { kind: 'WRITE_OFF', reasonCode: wo.reasonCode, direction: wo.direction, amount: wo.amountMinor, effectiveDate: kase.businessDate };
         }
       }
+      // 平账二期：补款 / 垫款——案子 RESOLVED 之后也要给（认损让案子愈了，补款是对客户的交代）
+      if (d && caseBook === 'CLIENT') {
+        const adj = d.adjustmentNo ? (adjustmentByNo.get(d.adjustmentNo) ?? null) : null;
+        const bounce = d.outlet === 'SUPPLEMENT' && d.deferredTarget === 'SUPPLEMENT_BOUNCE' && r.externalLine?.id
+          ? { externalLineId: r.externalLine.id, lineAmountMinor: BigInt(r.externalLine.amount), availableMinor: await availableMinor(), supplementNo: d.supplementNo ?? null }
+          : null;
+        const transfer = (d.adjustmentNo ? transferByAdjustment.get(d.adjustmentNo) : undefined) ?? (r.externalLine?.id ? transferByLine.get(r.externalLine.id) : undefined) ?? null;
+        const funding = deriveFundingNextStep({
+          book: 'CLIENT', customerNo: kase.ownerNo ?? null, walletNo: walletOwner?.walletNo ?? null,
+          adjustment: adj ? { adjustmentNo: adj.adjustmentNo, status: adj.status, reasonCode: adj.reasonCode, amount: adj.amount } : null,
+          transfer, bounce,
+        });
+        if (funding.transfer) r.transfer = funding.transfer;
+        if (funding.nextStep) r.nextStep = funding.nextStep;
+      }
     }
 
     // T6: append persisted IN_TRANSIT line items — these aren't reconstructed
@@ -554,26 +648,6 @@ export class ReconciliationQueryService {
       })) as Array<{ fundsOrderNo: string; status: string }>;
       for (const fo of fundsOrders) fundsOrderStatusByNo.set(fo.fundsOrderNo, fo.status);
     }
-
-    // Task 7（调账单 admin 前端 · 控制方裁定）：案件级调账单列表，按 caseNo 直查
-    // 全部——不依赖 lineItems 是否为空、不依赖某行是否曾传过 lineItemId（新表单
-    // 不再传）。运营在案件页一眼看到本案已开过哪些调账单，防重复开单的目的靠这份
-    // 列表达成，不靠"整行置灰"（brief 原方案做不到——flowComparison 的行 id 和
-    // ReconciliationLineItem.id 不是一张表，且后者每轮对账 delete-then-insert
-    // 没有跨轮身份）。
-    //
-    // Fix 6（末站整改）：Task 6 曾在这里按 lineItemId 批量查调账单、把
-    // { adjustmentNo, status } 挂到每条差异项上供前端"整行置灰"——该用途随 Task 7
-    // 改用上面这条 caseNo 查询后废弃：新表单不再传 lineItemId（恒空 Map），
-    // 且前端从未渲染过 kase.lineItems（管理台按 flowComparison 展示对账行，不是
-    // 原始 lineItems）。按 CLAUDE.md §3 视为本分支自产的孤儿，随 Task 6 的
-    // lineItemId 查询与 decoratedLineItems 一并删除；下方 return 里的
-    // `lineItems` 字段回落到 `...kase` 展开自带的原始值（Task 6 之前的行为）。
-    const caseAdjustments = (await (this.prisma as any).reconciliationAdjustment.findMany({
-      where: { caseNo: kase.caseNo },
-      select: { adjustmentNo: true, status: true, reasonCode: true, direction: true, amount: true },
-      orderBy: { createdAt: 'desc' },
-    })) as CaseAdjustmentSummary[];
 
     for (const li of inTransitLineItems) {
       const fundsOrderNo = li.internalSourceNo ?? null;

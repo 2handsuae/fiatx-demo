@@ -191,6 +191,8 @@ export interface FlowComparisonRow {
     customerNo?: string | null; walletNo?: string | null;
     available?: string; lineAmount?: string; // ADVANCE：客户可用 / 账单行金额（最小单位）
   };
+  // 平账二期：这条差异行牵出的划转单（补款 / 垫款）回挂——只在客户账簿行上出现
+  transfer?: { transferNo: string; purpose: string; status: string } | null;
 }
 
 export interface FlowComparisonSummary {
