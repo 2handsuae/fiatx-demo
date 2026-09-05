@@ -10,10 +10,10 @@
 //                  external closing balance == internal balance.
 //                  Expected: status=PASS, casesOpened=0, orphan/mismatch=0.
 //
-//   --mode=break   Pass-mode setup, then inject 15 scenarios covering the
+//   --mode=break   Pass-mode setup, then inject 17 scenarios covering the
 //                  disposition matrix and write `manifest.json`.
 //                  按处置分组（spec 2026-09-01-recon-disposition-conclusion-
-//                  design.md §5，= 走查顺序），15 行 = 15 场景：
+//                  design.md §5，= 走查顺序），17 行 = 17 场景：
 //                    ① 在途时序差   推单
 //                    ② 小数点错位   冲正
 //                    ③ 我方少记     冲正
@@ -29,6 +29,8 @@
 //                    ⑬ 漏监听充值   补单·充值补录（B 批开门，链上）
 //                    ⑭ 入金被退汇   补单·退汇认领（B 批开门，法币，叠 Kate AED）
 //                    ⑮ 出金被退回   补单·退回认领（B 批开门，法币，叠 Grace AED）
+//                    ⑯ 客户池小额查不出 认损 + 补款划转（二期开门，加密币一腿，Alice USDT）
+//                    ⑰ 入金退汇·余额不足 垫款划转 + 退汇认领（二期开门，法币两腿，叠 Grace AED）
 //                  公理：外部资料是权威——不平只能是三种性质之一：我方账错了 /
 //                  我方账缺了 / 时机没到，没有第四档"外部数据本身可以商榷"。
 //                  旧版两条场景（银行漏报明细、对账单重复行）已删：两者都靠
@@ -230,6 +232,19 @@ function sourceFor(assetCode: string): 'HEXTRUST' | 'ZAND' {
 // ledger transfers that this lightweight reset does not undo, see that
 // block's comment for why a full db reset is required after it has run.)
 const DEMO_IN_TRANSIT_REF_PREFIX = 'DEMO-IT-';
+
+/** 平账二期前置闸：铺场时不得有在途划转——pass / break 都先清空外部账单再从流水重铸，
+ *  在途划转的镜像行会被清掉、而它的流水还没落，⚡ 确认后就成「我有外无」假破口。撞到当场报错。 */
+async function assertNoOpenInternalTransfers(prisma: PrismaService): Promise<void> {
+  const open = (await (prisma as any).internalTransfer.findMany({
+    where: { status: { in: ['PENDING_APPROVAL', 'EXECUTING'] } }, select: { transferNo: true, status: true },
+  })) as Array<{ transferNo: string; status: string }>;
+  if (open.length === 0) return;
+  throw new Error(
+    `铺场前不得有在途内部划转单（${open.map((o) => `${o.transferNo}:${o.status}`).join(', ')}）——`
+    + '先把它们结清（⚡ 推腿到 CONFIRMED）或撤回 / 拒绝，再铺场',
+  );
+}
 
 /**
  * Delete the demo-fixture stuck WITHDRAWS scenario 1 leaves behind, so this
@@ -733,6 +748,7 @@ async function injectScenarios(
   const FRANK_NO = await emailToNo('demo_frank@example.com');
   const JACK_NO  = await emailToNo('demo_jack@example.com');
   const KATE_NO  = await emailToNo('demo_kate@example.com');
+  const ALICE_NO = await emailToNo('demo_alice@example.com');
 
   // ⚠️ 在途那个钱包**必须从卡单 fixture 推出来，不能按 owner 猜**：场景 ① 用的是
   // createStuckWithdraw 造的那笔真卡单（变量 `stuck`），它挂在哪个钱包由花名册
@@ -750,6 +766,8 @@ async function injectScenarios(
   const slotCutoff        = planByOwnerAsset(GRACE_NO, 'USDT-TRON');  // ⑨ 跨日切
   const slotMisroutedFrom = planByOwnerAsset(JACK_NO,  'AED');        // ⑧ 记错客户 · 发出端
   const slotMisroutedTo   = planByOwnerAsset(KATE_NO,  'AED');        // ⑧ 记错客户 · 接收端
+  const slotClientLoss    = planByOwnerAsset(ALICE_NO, 'USDT-TRON');  // ⑯ 客户池小额查不出（二期；B 批搬走 ⑭ 后空出的位）
+  const slotAdvance       = slotShowcaseA;                            // ⑰ 入金退汇·余额不足（二期，叠展示位甲）
 
   // ── FIRM wallet pick (scenarios ⑪⑫ — shared wallet, hedged pair) ──────
   // Exclude any FIRM wallet that is already the from/to side of a non-terminal
@@ -827,6 +845,7 @@ async function injectScenarios(
     { walletRef: slotMisroutedTo.walletRef,   allowNonTerminal: false },
     { walletRef: firmHedgedPlan.walletRef,    allowNonTerminal: false },
     { walletRef: firmUnexplainedPlan.walletRef, allowNonTerminal: false },
+    { walletRef: slotClientLoss.walletRef,    allowNonTerminal: false },
   ]);
 
   const scenarios: ScenarioExpectation[] = [];
@@ -1578,6 +1597,66 @@ async function injectScenarios(
     });
   }
 
+  // ── 场景 ⑯ — 客户池小额查不出 (BREAK / AMOUNT_MISMATCH / 客户账簿 / 加密币) ─────────
+  // 二期：托管里真少了 7.5 USDT（≤ 小额线 30），翻遍凭证查无可查 → 定性查不出 → ⚡拨钟 → 金库「认损」
+  // → CFO 批 → 重对账愈 → 「发起补款」→ CFO 批 → ⚡ 提交腿（在途不红）→ ⚡ 确认 → 余额复位。同 ⑩ 手法。
+  {
+    const line = (await (prisma as any).externalStatementLine.findFirst({
+      where: { subAccount: slotClientLoss.walletRef, amount: { gt: 7_500_000 } }, orderBy: { datetime: 'asc' },
+    })) as { id: string; amount: Prisma.Decimal; direction: string; externalRef: string | null } | null;
+    if (!line) throw new Error('场景 16 需要 Alice USDT 钱包至少一条金额 > 7.5 USDT 的外部行（花名册 #1 3000 USDT）—— demo:all 是否跑过？');
+    const s16Delta = D('-7500000'); // 分（6 位）：外部比内部少 7.5 USDT
+    const newAmount = line.amount.plus(s16Delta);
+    await (prisma as any).externalStatementLine.update({ where: { id: line.id }, data: { amount: newAmount } });
+    const signed = line.direction === 'IN' ? s16Delta : s16Delta.negated();
+    const prevClose = await bumpClosing(slotClientLoss, signed);
+    scenarios.push({
+      scenarioId: 16, rootCause: 'UNEXPLAINED',
+      expectedLines: [{ walletRef: slotClientLoss.walletRef, lineType: 'AMOUNT_MISMATCH', amount: newAmount.toString(), externalRef: line.externalRef }],
+      detail: { lineId: line.id, internalAmount: line.amount.toString(), externalAmount: newAmount.toString(), prevClosingBalance: prevClose },
+    });
+    wallets.push({
+      walletRef: slotClientLoss.walletRef, scenarioIds: [16], expectedBucket: 'BREAK',
+      bucketRationale: '一条外部行金额 −7.5 USDT 并压低同额收盘 → 残差 ≠ 0 → BREAK。处置 = 查不出 → 超期 → 客户池认损（金库开单、CFO 批）→ 愈 → 补款划转 → 余额复位',
+      hasNonTerminalFundsOrder: false,
+    });
+  }
+
+  // ── 场景 ⑰ — 入金被退汇·余额不足 (BREAK / ORPHAN_EXTERNAL / 客户账簿 / 法币) ─────────
+  // 二期：银行扣回 Grace 最大一笔入金 6500（花名册 #3）；她此时账上约 4800——不管 ②③④⑮ 先做后做差额始终为正，
+  // 认领退汇过不了余额闸 → 行上「余额不足，发起垫款」→ CFO 批 → ⚡ 两腿（运营户 → 结算户 → vIBAN）→ 再认领。叠展示位甲（一案五行）。
+  // 不放 Kate：场景 ⑧ 改记会把 Jack 的 5000 记到她名下，怎么摆余额都够扣，演不出短缺。
+  {
+    const s17Amount = D('650000'); // 分 —— 6500.00 AED = 花名册 #3
+    const original = await (prisma as any).depositTransaction.findFirst({
+      where: { toWalletId: slotAdvance.walletRef, status: 'SUCCESS', amount: new Prisma.Decimal('6500') },
+    });
+    if (!original) throw new Error('场景 17 需要 Grace 有一笔 SUCCESS 的 6500 AED 充值（花名册 #3）—— demo:all 是否跑过？花名册 #3 是否改了？');
+    const outRef = refFor(slotAdvance.currency, 'CLAWSHORT');
+    const created = await (prisma as any).externalStatementLine.create({
+      data: {
+        source: sourceFor(slotAdvance.currency), accountRef: slotAdvance.walletRef, subAccount: slotAdvance.walletRef,
+        book: slotAdvance.book, currency: slotAdvance.currency, direction: 'OUT', amount: s17Amount, externalRef: outRef,
+        channelRef: original.referenceNo ?? null, datetime: cutoff,
+        description: 'Demo bank return — largest deposit clawed back after the client already spent part of it',
+        dedupKey: `DEMO-INJ-${cutoffDate}-${slotAdvance.walletRef}-s17-bounced-shortfall`,
+      },
+    });
+    const prevClose = await bumpClosing(slotAdvance, s17Amount.negated());
+    const grace = await (prisma as any).customerMain.findUnique({ where: { customerNo: GRACE_NO }, select: { id: true } });
+    const available = (await accounting.getCustomerAvailableBalance(grace.id, 'AED')).available;
+    console.log(`  场景 17：Grace AED 当刻可用 ${(Number(available) / 100).toFixed(2)}，退汇 6500.00，差额 ${((650000 - Number(available)) / 100).toFixed(2)}（铺场时点；演到 17 时以案件页显示为准）`);
+    scenarios.push({
+      scenarioId: 17, rootCause: 'BOUNCED_FUNDS',
+      expectedLines: [{ walletRef: slotAdvance.walletRef, lineType: 'ORPHAN_EXTERNAL', amount: s17Amount.toString(), externalRef: outRef }],
+      detail: { insertedExternalLineId: created.id, originalDepositNo: original.depositNo, prevClosingBalance: prevClose, closingBalanceDelta: s17Amount.negated().toString(), availableAtSeedMinor: available.toString() },
+    });
+    const showcaseA = wallets.find((w) => w.walletRef === slotShowcaseA.walletRef);
+    if (!showcaseA) throw new Error('场景 17 要叠在展示位甲的钱包断言上，但没找到它——场景 ②③④ 的 wallets.push 是否还在？');
+    showcaseA.scenarioIds.push(17);
+    showcaseA.bucketRationale += '；⑰ 再加一条 OUT 幽灵行并压低同额收盘（6500 退汇），残差仍 ≠ 0 → BREAK';
+  }
+
   return { cutoff: cutoff.toISOString(), scenarios, wallets };
 }
 
@@ -1760,6 +1839,8 @@ async function main() {
     await app.close();
     process.exit(0);
   }
+
+  await assertNoOpenInternalTransfers(prisma);
 
   // Both pass and break start from a clean slate — wipe WALLET_V1 footprint
   // so the new Run is the only one for this cutoff.
