@@ -44,7 +44,7 @@ import { fakeBankRef, fakeChainTxHash } from '../src/common/utils/fake-external-
  * - Deposits are created directly at the state each arc starts from (MANUAL_CHECKING /
  *   FROZEN) via Prisma, exactly like deposit-sumsub-scenarios's
  *   `createDepositAtCompliancePending` bypasses the full lifecycle — the earlier lifecycle
- *   stages (Gate 0, KYT dispatch, MANUAL_CHECKING entry) are already covered by Task 12's
+ *   stages (L1, KYT dispatch, MANUAL_CHECKING entry) are already covered by Task 12's
  *   suite; this file's job is the four arcs themselves.
  * - The return/seize arcs assume money is already resting in DEPOSIT_SUSPENSE (the real
  *   precondition — Step 1 already ran before compliance review). `preBookSuspense()`

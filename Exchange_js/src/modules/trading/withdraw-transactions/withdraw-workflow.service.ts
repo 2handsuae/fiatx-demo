@@ -2370,7 +2370,7 @@ export class WithdrawWorkflowService implements OnModuleInit {
    * I2 (充值教训): the ENTIRE call is wrapped in try/catch — a submit failure
    * (Sumsub down, network error) must never strand the withdrawal; it just stays
    * in COMPLIANCE_PENDING for retry (there is no caller-side try/catch here, unlike
-   * deposit's runGate0 wrapper).
+   * deposit's evaluateL1 wrapper).
    */
   private async submitSumsubTxn(withdrawId: string): Promise<void> {
     try {

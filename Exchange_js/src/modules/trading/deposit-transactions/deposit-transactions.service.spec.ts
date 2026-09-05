@@ -1622,7 +1622,7 @@ describe('DepositTransactionsService', () => {
       expect(rule?.ruleNo).toBe('TLR-DEP-USDT');
     });
 
-    // B4（第四批）：Gate 0 的 L1 快照落库出口。workflow 禁止直接写 domain 表
+    // B4（第四批）：L1 的快照落库出口。workflow 禁止直接写 domain 表
     // （铁律⑤），所以落库这一下必须由本 service 提供方法 —— 与 saveTxnDetail 同形状。
     it('saveL1Snapshot writes the l1Snapshot column only (no status/hold side effects)', async () => {
       const snapshot = JSON.stringify({ domain: 'DEPOSIT', verdict: 'PASS' });

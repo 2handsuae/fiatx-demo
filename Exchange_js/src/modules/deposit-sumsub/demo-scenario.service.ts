@@ -68,7 +68,7 @@ export class DepositDemoScenarioService {
     const deposit = await this.depositService.findOne(depositId);
     const statusBefore = deposit.status;
 
-    // 该单已过 Gate 0 → 用它自己的真号;还没过 → 现铸一个并 prime,等 Gate 0 取用。
+    // 该单已过 L1 → 用它自己的真号;还没过 → 现铸一个并 prime,等 L1 取用。
     const txnId = deposit.sumsubTxnId ?? this.mintTxnId(deposit, button.key);
     if (!deposit.sumsubTxnId) mockClient.primeSubmit(deposit.depositNo, txnId);
 

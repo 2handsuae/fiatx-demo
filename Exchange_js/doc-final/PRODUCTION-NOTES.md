@@ -108,7 +108,7 @@
 - [x] ~~**`admin-web` 零组件测试基建**：`jest.config.js` 的 `testRegex: '.*\\.spec\\.ts$'` 只匹配 `.spec.ts`，`.spec.tsx` **永不执行**。本批建过一个 `L1GateCard.spec.tsx`、发现跑不起来后删掉（`5e943691`），并把 `admin-web/tsconfig.app.json` 的 `exclude` 补上 `src/**/*.spec.tsx` 免得空跑 build 时报错。admin 前端组件目前只能靠渲染截图验证 ｜来源: 2026-08-22 第四批 B5~~ → **2026-08-31 环境收口 Task 10 核实：仍在，已迁入 `TOOLING-DEBT.md`**（jest `testRegex`/`moduleFileExtensions` 均未变，且始终未装 `jest-environment-jsdom`/`@testing-library`；本轮 Task 2 只修了 tsc 类型检查覆盖，没修 jest 执行覆盖，两回事）
 - [x] ~~**`jest.config.js` 的 `roots` 同样不含 `scripts/`——把 spec 建在 `scripts/` 下会被 `npx jest` 静默 0 匹配（"No tests found"，不是红也不是绿，就是不存在）**：与 `test/` 目录同根因——`roots` 里同样没有它，只是换了目录（`test/` 那条旧账——`swap-sumsub-scenarios.e2e-spec.ts` 常年 9/9 全红——2026-08-31 环境收口实测已不复现，见文末销账记录）。Task C1（造数花名册）实测撞上：任务书原定文件是 `scripts/demo-roster.spec.ts`，跑 `npx jest scripts/demo-roster.spec.ts` 得 `roots: .../src, .../admin-web/src, .../client-web/src - 564 matches` / `Pattern: scripts/demo-roster.spec.ts - 0 matches`。已绕过——spec 改放 `src/common/utils/demo-roster.spec.ts`（该目录本已收纳面向 demo 的确定性纯函数测试，如 `fake-external-refs.util.spec.ts`），import 反向指回 `scripts/demo-roster.ts`；未改 jest 配置。后续任何要给 `scripts/` 下文件写 spec 的任务会重复撞上同一个坑 ｜来源: 2026-08-29 Task C1~~ → **2026-08-31 环境收口 Task 10 核实：仍在（未被本轮任何任务触碰），已迁入 `TOOLING-DEBT.md`**。当前 `roots` 只有 `<rootDir>/src`、`<rootDir>/admin-web/src`（`client-web/src` 已被 Task 5 摘除，见上条），`scripts/` 从未被任何一次改动加进去——Task C1 当时的绕过（挪去 `src/common/utils/`）依旧是绕过，不是修复
 
-**Gate 0 / 退回弧**
+**L1 / 退回弧**
 
 
 **原 BACKLOG §对账应然设计 gap（2026-07-12 target design）**
@@ -357,7 +357,7 @@
 - [ ] **按钮 ⑨（SLA breach）与真实 SLA 定时器取证痕迹不一致**：⑨ 只是投一份 `applicantKytTxnRejected` + `SLA_BREACH` tag（与 ⑦"无处置 tag"走同一条 `applyKytRejected` 分支，落 `MANUAL_CHECK`/`DEPOSIT_MANUAL_CHECKING`），并不真的驱动 `DepositSlaService` 的 cron 扫描/`slaDeadline` 过期判定——旧场景模型（`S9_ONHOLD_SLA`）是真拨 `slaDeadline` 到过去、再触发 `checkSlaBreaches()` 走 `DEPOSIT_SLA_BREACHED` 系统审计；新按钮模型为换取"单步即完成"的仿真简洁性，代价是 operator 点 ⑨ 看到的审计/报文痕迹与真实 SLA 超时触发的痕迹不完全一致。业主已知情，暂不处理 ｜来源: 2026-07-31 Task 4 final-review triage Minor②
 - [已解 2026-08-29] 上一条按钮已整个删除——三域按钮表统一（充值/提现 11 码、兑换 8 码）时把这个假 SLA breach 按钮连同它对不上的取证痕迹一起摘掉；三域各自本来就有真实的 `POST :no/simulate-sla-timeout` 端点，不再需要这个仿造品 ｜ `src/modules/sumsub-shared/verdict-buttons.shared.ts` ｜ 见 commit `503357e7`
 
-- [ ] **单缺 `sumsubApplicantId` 时 Gate 0 跳过提交，之后仿真按钮喂的 webhook 成静默孤儿**：`submitSumsubTxns()` 在 `customer.sumsubApplicantId` 为空时只 warn + 跳过（deposit 留 `COMPLIANCE_PENDING`，`sumsubTxnId` 恒空）；此时若 operator/demo 仍对这笔单点了仿真裁决按钮，`DepositDemoScenarioService.runVerdict()` 会现铸一个 txnId 走完整 ingest 链路，并把结果原样返回（`statusBefore`/`statusAfter` 字段齐全，HTTP 层 201 不报错）——但这次投递对生产链路而言毫无意义（这笔单从未真正提交过 Sumsub，webhook 找不到匹配的真实报送记录）。旧的 `runScenario`（已删）同样存在该缺口，非本轮新引入的回归 ｜来源: 2026-07-31 Task 4 final-review triage Minor③
+- [ ] **单缺 `sumsubApplicantId` 时 L1 跳过提交，之后仿真按钮喂的 webhook 成静默孤儿**：`submitSumsubTxns()` 在 `customer.sumsubApplicantId` 为空时只 warn + 跳过（deposit 留 `COMPLIANCE_PENDING`，`sumsubTxnId` 恒空）；此时若 operator/demo 仍对这笔单点了仿真裁决按钮，`DepositDemoScenarioService.runVerdict()` 会现铸一个 txnId 走完整 ingest 链路，并把结果原样返回（`statusBefore`/`statusAfter` 字段齐全，HTTP 层 201 不报错）——但这次投递对生产链路而言毫无意义（这笔单从未真正提交过 Sumsub，webhook 找不到匹配的真实报送记录）。旧的 `runScenario`（已删）同样存在该缺口，非本轮新引入的回归 ｜来源: 2026-07-31 Task 4 final-review triage Minor③
 
 - [ ] **外部账单摄入生产管道未做**：银行/HexTrust/链账单的拉取+清洗入库无生产实现，`external_balances`/`external_statement_lines` 仅 demo 脚本注入、引擎只读 ｜来源: spec §2.2/§9
 

@@ -546,10 +546,10 @@ function verdictArgsForButton(buttonKey: string) {
 }
 
 /** Creates one deposit + drives its payin funds order (legSeq 1) to CLEARED, then
- *  waits for it to leave PAYIN_PENDING — either COMPLIANCE_PENDING (Gate 0 ran
- *  and passed) or somewhere Gate 0 routed it to on its own (e.g. straight to
+ *  waits for it to leave PAYIN_PENDING — either COMPLIANCE_PENDING (L1 ran
+ *  and passed) or somewhere L1 routed it to on its own (e.g. straight to
  *  FROZEN, when an earlier roster row already sanctioned this same customer —
- *  see #10 below). Gate 0 runs off a fire-and-forget `emit()` (not `emitAsync` —
+ *  see #10 below). L1 runs off a fire-and-forget `emit()` (not `emitAsync` —
  *  see test/deposit-money-arcs.e2e-spec.ts's header comment for the same race on
  *  funds-order events), so this has to poll rather than trust the immediate
  *  post-CONFIRM state. */
@@ -588,11 +588,11 @@ async function createRosterDeposit(
 /** Feeds one ⚡ verdict button into a COMPLIANCE_PENDING deposit via the real
  *  DepositWorkflowService.applyKytVerdict — see verdictArgsForButton above for why
  *  this calls the workflow method rather than replaying the webhook endpoint.
- *  No-ops (just logs) if Gate 0 already moved the deposit elsewhere. */
+ *  No-ops (just logs) if L1 already moved the deposit elsewhere. */
 async function driveVerdict(ctx: DemoCtx, depositId: string, buttonKey: string): Promise<any> {
   const current: any = await ctx.deposits.findOne(depositId);
   if (current.status !== 'COMPLIANCE_PENDING') {
-    console.log(`    ⚡${buttonKey} skipped — ${current.depositNo} already ${current.status} (Gate 0 pre-empted)`);
+    console.log(`    ⚡${buttonKey} skipped — ${current.depositNo} already ${current.status} (L1 pre-empted)`);
     return current;
   }
   await ctx.depositWf.applyKytVerdict(depositId, verdictArgsForButton(buttonKey));
@@ -744,7 +744,7 @@ export async function runDeposits(ctx: DemoCtx): Promise<Array<{ seq: number; or
 
       case 10: {
         // ⚡⑦ 冻结（#7 已把 FRANK 判过一次 SANCTION_APPLICANT —— 这是 customerLevel 限制，
-        // 会连坐冻住 FRANK 名下所有非终态单；这笔新单créé时 FRANK 已被限制，Gate 0 会在
+        // 会连坐冻住 FRANK 名下所有非终态单；这笔新单créé时 FRANK 已被限制，L1 会在
         // 提交 Sumsub 之前就直接把它落 FROZEN，driveVerdict 撞上非 COMPLIANCE_PENDING
         // 会自己跳过 —— 两条路径殊途同归，都是真实的处置起点）→ 运营发起上缴 →
         // 两步批（SENIOR_MANAGEMENT_OFFICER → MLRO，四眼）→ 资金单腿(legSeq 4)确认 → SEIZED。

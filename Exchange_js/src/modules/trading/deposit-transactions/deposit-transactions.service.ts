@@ -975,7 +975,7 @@ export class DepositTransactionsService {
   }
 
   /**
-   * L1 闸门快照落库(B4)。Gate 0 每跑一次求值就覆盖写一次 —— 快照是「这一刻
+   * L1 闸门快照落库(B4)。L1 每跑一次求值就覆盖写一次 —— 快照是「这一刻
    * 九格分别判成什么」的存证,不是流水,只留最近一次。
    *
    * 由本 service 提供而不是让 workflow 直接 update:铁律⑤(workflow 禁止直接写
@@ -1126,7 +1126,7 @@ export class DepositTransactionsService {
 
   /**
    * Persists the single Sumsub txn id + type returned by SumsubTxnClient.submitTxn at
-   * Gate 0 submission time (DepositWorkflowService.submitSumsubTxns). One deposit → one txn.
+   * L1 submission time (DepositWorkflowService.submitSumsubTxns). One deposit → one txn.
    */
   async setSumsubTxn(
     id: string,
