@@ -139,9 +139,15 @@ export class AssetSuspensionWorkflowService {
         throw new ConflictException(`Asset ${event.entityRef} not found`);
       }
 
+      // ApprovalDecidedEvent.metadata 恒为 {}（approval-handler.base.ts 的
+      // emitDecidedEvent 硬编码，从不转发案上数据）——理由回查已批准案的
+      // objectSnapshot（请求侧 requestSuspension 写入），与
+      // transaction-limit-rule-workflow.service.ts → onChangeDecided 同一读法，
+      // 而非拼审计日志。
+      const approval: any = await this.approvalsService.getById(event.approvalNo);
       const result = await this.assetsService.suspendAsset(
         assetRecord.id,
-        event.metadata?.reason || 'Approved suspension',
+        approval?.objectSnapshot?.reason,
       );
 
       await this.auditLogsService.recordSystem({
