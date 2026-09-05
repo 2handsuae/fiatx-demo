@@ -1816,6 +1816,37 @@ describe('AuditLogsService', () => {
       ).rejects.toThrow('must carry reasonCode');
     });
   });
+
+  describe('平账二期 Task 3 评审修复 · V7 财资名册接入 assertActionSpec', () => {
+    beforeEach(() => {
+      prisma.auditLogSubject = { createMany: jest.fn() };
+      prisma.auditLogEvent.findUnique.mockResolvedValue(null);
+      prisma.auditLogEvent.create.mockResolvedValue({ id: 'e', eventNo: 'A' });
+    });
+
+    it('INTERNAL_TRANSFER_REQUESTED 带齐 amount/reason 时写入成功——证明 V7 名册确实在解析链里', async () => {
+      await expect(
+        service.recordSystem({
+          action: 'INTERNAL_TRANSFER_REQUESTED',
+          actionDomain: 'TREASURY',
+          category: AuditCategory.GOVERNANCE,
+          amount: '100.00',
+          reason: '内部调拨',
+        } as any),
+      ).resolves.toBeDefined();
+    });
+
+    it('缺 reason 时被 assertActionSpec 拒绝——V7 名册若未接入解析链，这条会静默放行', async () => {
+      await expect(
+        service.recordSystem({
+          action: 'INTERNAL_TRANSFER_REQUESTED',
+          actionDomain: 'TREASURY',
+          category: AuditCategory.GOVERNANCE,
+          amount: '100.00',
+        } as any),
+      ).rejects.toThrow('missing required field');
+    });
+  });
 });
 
 describe('第一批 · 守则：审计写入不得再用 result 当键名', () => {
