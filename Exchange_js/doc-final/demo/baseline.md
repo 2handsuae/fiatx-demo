@@ -145,14 +145,14 @@ Q6 谁查过审计日志：重铺后恒红，管理员真查一次审计页当�
 
 全量 11 套件 **83/83**（收官在 main 实测）。跑法三要素，缺一必假红：
 
-1. **私库先铺**：六个自带独立库的套件（kyt-verdict-landing / sanction-subject-split / deposit-verdicts / material-requests / customer-restrictions / sla）在每次 `stack.sh reset` 后库被清空，须逐库 `DATABASE_URL=file:/tmp/exchange_js_main/<e2e-库名>.db` 依次 `prisma migrate deploy` + `db:base:sync` + `db:biz:init`；
+1. **私库先铺**：六个自带独立库的套件（kyt-verdict-landing / sanction-subject-split / deposit-sumsub-verdicts / material-requests / customer-restrictions / sla）在每次 `stack.sh reset` 后库被清空，须逐库 `DATABASE_URL=file:/tmp/exchange_js_main/<e2e-库名>.db` 依次 `prisma migrate deploy` + `db:base:sync` + `db:biz:init`；
 2. **串行跑**：`bash scripts/on-stack.sh main test:e2e --runInBand <下列 11 个文件>`（**不要**在文件列表前多写 `--`，会被 jest 当路径模式吞掉 runInBand）；并行会互踩栈库出假红。**这 11 个就是基线口径的全集，逐字写在这里**（2026-09-04 补：此前这里只写「11 个文件」四个字、正文只点名了自带私库的 6 个，另外 5 个从没落过纸，波一收尾时只能靠 `git log --diff-filter=A` 的加入日期对着 CHANGELOG「45a4f1a8 e2e 11 套 83/83 首次入基线」那条考据出来——闸门的定义必须自己写得清，不能靠考据）：
 
 ```
 test/deposit-money-arcs.e2e-spec.ts          # 共用 dev.db
 test/withdraw-money-arcs.e2e-spec.ts         # 共用 dev.db
 test/swap-money-arc.e2e-spec.ts              # 共用 dev.db
-test/deposit-sumsub-verdicts.e2e-spec.ts     # 共用 dev.db
+test/deposit-sumsub-verdicts.e2e-spec.ts     # 私库
 test/withdraw-sumsub-scenarios.e2e-spec.ts   # 共用 dev.db
 test/swap-sumsub-scenarios.e2e-spec.ts       # 共用 dev.db
 test/kyt-verdict-landing.e2e-spec.ts         # 私库
@@ -163,7 +163,7 @@ test/sla.e2e-spec.ts                         # 私库
 ```
 
 3. **干净态起跑**：栈库残留多轮数据会触发日累计限额假红；`reset` + 重铺私库后一次跑完。
-4. **共用库那 6 个还要先 `demo:setup`**（2026-09-04 波一收尾实测补）：裸 `reset` 只铺业务种子，建出客户花名册但**一条客户钱包行都没有**；6 个共用 `dev.db` 的套件里有 4 个自带 `ensureCustomerWallet` 自助开钱包，`deposit-money-arcs` 没有，缺钱包时直接抛 `"...has no ACTIVE C_VIBAN wallet on AED_ZAND — run demo:setup first"`。所以 `reset` 之后、跑 e2e 之前要补一句 `bash scripts/on-stack.sh <stack> demo:setup`。**它不等于 `demo:all`**：`demo:setup` 只跑 `ensureSetup`（铺钱包与地址），不跑 `runFrankPreStage`（广播制裁那步），所以不会把 `demo_frank` 连坐冻结、不违反上面 💡 那条「`demo:all` 不能与 e2e 共用同一个库」。实测确认：`demo:setup` 后 `demo_frank` 的 `customer_restrictions` 行数为 0。
+4. **共用库那 5 个还要先 `demo:setup`**（2026-09-04 波一收尾实测补）：裸 `reset` 只铺业务种子，建出客户花名册但**一条客户钱包行都没有**；5 个共用 `dev.db` 的套件里有 4 个自带 `ensureCustomerWallet` 自助开钱包，`deposit-money-arcs` 没有，缺钱包时直接抛 `"...has no ACTIVE C_VIBAN wallet on AED_ZAND — run demo:setup first"`。所以 `reset` 之后、跑 e2e 之前要补一句 `bash scripts/on-stack.sh <stack> demo:setup`。**它不等于 `demo:all`**：`demo:setup` 只跑 `ensureSetup`（铺钱包与地址），不跑 `runFrankPreStage`（广播制裁那步），所以不会把 `demo_frank` 连坐冻结、不违反上面 💡 那条「`demo:all` 不能与 e2e 共用同一个库」。实测确认：`demo:setup` 后 `demo_frank` 的 `customer_restrictions` 行数为 0。
 
 > 💡 **`demo:all` 不能与 e2e 共用同一个库——`withdraw-money-arcs` × `demo_frank` 是实测坐实的一例。** 该 spec 的夹具客户 `demo_frank@example.com` 会被 `demo:all` 花名册 #7 行的广播制裁连坐永久冻结（`CAPABILITY_RESTRICTED`）；若在跑过 `demo:all` 的同一个库上接着跑 `withdraw-money-arcs.e2e-spec.ts`，7 个场景会全部卡在 `CustomerAccessService.assertCapability` 抛 `ForbiddenException`——这正是上面第 3 条「干净态起跑」的具体反例，不是 suite 本身的缺陷。2026-09-03 V3 波一 Task 6 修复轮在干净库上复测：`withdraw-money-arcs` 7/7 全绿。不改夹具客户，按三要素跑即可。
 

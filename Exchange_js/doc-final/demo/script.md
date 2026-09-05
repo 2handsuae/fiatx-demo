@@ -26,7 +26,7 @@
 
 **站 2 · 一笔配置要过门**（配置有身世）
 账号：`cfo@`（财务负责人，maker）→ `ops_officer@`（运营，checker）；切客户端 `demo_grace`（VIP）与 `demo_alice`
-走查：① 费率页给兑换费改一档 → 财务负责人提交（费率写权限现为财务独有）→ ② 换运营账号登录批准 → ③ 切客户端拿一次报价 → ④ 对照：Grace 与 Alice 各拿一次 USDT→AED 报价——Grace 命中 `VIP-USDT-AED`（VIP 标签），Alice 命中 `STD-USDT-AED`（默认档）：够格的档里选最便宜（预览即对照：Grace 输入金额时预览费用已是 VIP 档——2026-09-05 修复前预览拿不到身份，会先显示默认档价；屏幕上认得到的是命中的分层号，如 `VIP-USDT-AED-TIER-002`，报价响应本身不暴露档位代码）→ ⑤ 财务对某档点 Retire（理由）→ 运营批准 → 列表筛 RETIRED 看得到它；对 `STD-USDT-AED` 点 Retire 会被拒（最后一个默认档不可退）
+走查：① 费率页给兑换费改一档 → 财务负责人提交（费率写权限现为财务独有）→ ② 换运营账号登录批准 → ③ 切客户端拿一次报价 → ④ 对照：Grace 与 Alice 各拿一次 USDT→AED 报价——Grace 命中 `VIP-USDT-AED`（VIP 标签），Alice 命中 `STD-USDT-AED`（默认档）：够格的档里选最便宜（预览即对照：Grace 与 Alice 输入金额时，预览区 `Matched:` 行已把档位代码与分层号一起显示——例如 `VIP-USDT-AED / VIP-USDT-AED-TIER-00x`、`STD-USDT-AED / STD-USDT-AED-TIER-00x`；2026-09-05 修复前预览拿不到身份，两人都先显示 STD 档；确认页的报价响应才刻意不带档位代码，看的是费用与点差数字）→ ⑤ 财务对某档点 Retire（理由）→ 运营批准 → 列表筛 RETIRED 看得到它；对 `STD-USDT-AED` 点 Retire 会被拒（最后一个默认档不可退）
 期望：报价当场变（直通第四幕）；受众档与默认档同屏对照；"删" = 退役终态不是消失；提单人是财务、批的人是运营，两条线不落一人
 
 **站 3 · 门自己也要过门**（规则不能被规则的管理员悄悄改）
