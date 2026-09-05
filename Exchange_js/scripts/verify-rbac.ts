@@ -28,6 +28,7 @@ import {
 } from '../src/modules/identity/access-control/rbac.catalog';
 import { DEFAULT_APPROVAL_POLICIES } from '../src/modules/governance/approvals/constants/approval.constants';
 import { buildPermissionCode } from '../src/modules/identity/access-control/permission-code.util';
+import { DETAIL_READ_GROUP_BY_POLICY } from './verify-rbac.tables';
 
 // ══════════════════════ API base ══════════════════════
 //
@@ -506,33 +507,6 @@ function runStaticChecks(): void {
   // ── S9：裁决人看得见 entityRef 的详情页 ────────────────────────────────
   // 镜像 admin-web/src/pages/ApprovalDetailPage.tsx 的 ENTITY_ROUTE_BY_ACTION：审批详情页把 entityRef
   // 链到业务详情页，裁决人若没有那页的读权限，点过去就是 403——"能批却看不见批的是什么"。
-  const DETAIL_READ_GROUP_BY_POLICY: Record<string, string> = {
-    ASSET_SUSPENSION: 'ASSET_CONFIG_READ',
-    ASSET_REACTIVATION: 'ASSET_CONFIG_READ',
-    TRANSACTION_LIMIT_CHANGE: 'TRANSACTION_LIMIT_READ',
-    SWAP_FEE_LEVEL_CREATION: 'SWAP_FEE_LEVEL_READ',
-    SWAP_FEE_LEVEL_RETIRE: 'SWAP_FEE_LEVEL_READ',
-    WITHDRAWAL_FEE_LEVEL_CREATION: 'WITHDRAWAL_FEE_LEVEL_READ',
-    WITHDRAWAL_FEE_LEVEL_RETIRE: 'WITHDRAWAL_FEE_LEVEL_READ',
-    WITHDRAW_LARGE_VALUE_APPROVAL: 'TRADING_WITHDRAW_READ',
-    WITHDRAW_UNFREEZE: 'TRADING_WITHDRAW_READ',
-    WITHDRAW_SANCTION_REFUND: 'TRADING_WITHDRAW_READ',
-    DEPOSIT_CONFISCATION: 'TRADING_DEPOSIT_READ',
-    DEPOSIT_RETURN: 'TRADING_DEPOSIT_READ',
-    DEPOSIT_SEIZE: 'TRADING_DEPOSIT_READ',
-    DEPOSIT_UNFREEZE: 'TRADING_DEPOSIT_READ',
-    ADMIN_INVITE_APPROVAL: 'IAM_MEMBER_READ',
-    ADMIN_SUSPENSION_APPROVAL: 'IAM_MEMBER_READ',
-    ADMIN_REACTIVATION_APPROVAL: 'IAM_MEMBER_READ',
-    ADMIN_PASSWORD_RESET: 'IAM_MEMBER_READ',
-    ADMIN_MFA_RESET: 'IAM_MEMBER_READ',
-    ROLE_DEFINITION_CREATE: 'IAM_ROLE_READ',
-    ROLE_DEFINITION_MODIFY: 'IAM_ROLE_READ',
-    // brief 快照没列这两条——`git grep -n "(r) =>" admin-web/src/pages/ApprovalDetailPage.tsx`
-    // 核对，页面确实把这两个 actionType 链到业务详情页，故本任务补齐（2026-09-04）：
-    ADMIN_ROLE_BINDING_CHANGE_APPROVAL: 'IAM_ROLE_READ', // → /admin/iam/role-change-requests/:id，读端点挂 IAM_ROLE_READ
-    RECON_ADJUSTMENT_POST: 'RECON_CASE_READ', // → /admin/reconciliation/adjustments/:id，读端点挂 RECON_CASE_READ
-  };
   const blindCheckers: string[] = [];
   for (const [actionType, readGroup] of Object.entries(DETAIL_READ_GROUP_BY_POLICY)) {
     const policy = (DEFAULT_APPROVAL_POLICIES as Record<string, any>)[actionType];
