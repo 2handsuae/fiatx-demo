@@ -920,15 +920,6 @@ const Withdraw = () => {
                                         </p>
                                     </div>
                                 </div>
-
-                                <div className="p-4 bg-fx-charcoal/60 rounded-xl border border-fx-rule mt-2">
-                                    <div className="flex gap-2 items-start">
-                                        <AlertTriangle size={18} className="text-amber-500 shrink-0 mt-0.5" />
-                                        <p className="text-[11px] font-bold text-fx-dust leading-relaxed">
-                                            For security reasons, your first withdrawal after changing security settings will be delayed by 24 hours.
-                                        </p>
-                                    </div>
-                                </div>
                             </div>
                         ) : (
                             <div className="space-y-4">

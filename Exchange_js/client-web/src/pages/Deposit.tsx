@@ -21,6 +21,7 @@ interface Asset {
   decimals?: number;
   contractAddress: string | null;
   minConfirmations?: number;
+  status?: string;
 }
 
 interface WalletItem {
@@ -435,8 +436,29 @@ const Deposit = () => {
     return response.json() as Promise<ScanInboundSignalsResult>;
   };
 
+  // 站 4 ⑦：⚡ 面板模拟的是链上世界，链上不认我方开关——按当前网络列全部状态的资产(含 SUSPENDED，带标记)。
+  // 真实充值下拉（filteredAssets）仍只读 ACTIVE 列表，两者刻意分离。
+  const [simAssets, setSimAssets] = useState<Asset[]>([]);
+  const [simAssetId, setSimAssetId] = useState('');
+  useEffect(() => {
+    if (!showSimulateModal || !depositWallet) return;
+    (async () => {
+      try {
+        const res = await customerFetch(`${import.meta.env.VITE_API_URL}/assets?take=200`);
+        if (!res.ok) return;
+        const data = await res.json();
+        const onNetwork = ((data.items || []) as Asset[]).filter((a) => a.network === depositWallet.network);
+        setSimAssets(onNetwork);
+        setSimAssetId((cur) => (onNetwork.some((a) => a.id === cur) ? cur : (selectedAsset?.id ?? onNetwork[0]?.id ?? '')));
+      } catch (err) {
+        if (err instanceof CustomerSessionError) return;
+      }
+    })();
+  }, [showSimulateModal, depositWallet, selectedAsset?.id]);
+  const simAsset = simAssets.find((a) => a.id === simAssetId) ?? selectedAsset;
+
   const handleSubmitInboundSignal = async () => {
-    if (!depositWallet || !selectedAsset) return;
+    if (!depositWallet || !simAsset) return;
 
     const amount = signalAmount.trim();
     if (!amount) {
@@ -461,7 +483,7 @@ const Deposit = () => {
     setLastSimulationResult(null);
     try {
       const payload: CreateInboundTransferSignalPayload = {
-        ...buildMockInboundSignalPayload(depositWallet, selectedAsset, amount, counterpartyIsVasp),
+        ...buildMockInboundSignalPayload(depositWallet, simAsset, amount, counterpartyIsVasp),
       };
       const createResponse = await customerFetch(
         `${import.meta.env.VITE_API_URL}/deposit-transactions/my/inbound-signals`,
@@ -504,8 +526,8 @@ const Deposit = () => {
         payinStatus: resolvedRecord.payinStatus || 'DETECTED',
         depositNo: resolvedRecord.depositNo || null,
         depositStatus: resolvedRecord.depositStatus || 'PAYIN_PENDING',
-        assetCode: selectedAsset.code,
-        assetType: normalizeSimulationAssetType(selectedAsset.type),
+        assetCode: simAsset.code,
+        assetType: normalizeSimulationAssetType(simAsset.type),
       });
       setSignalAmount('');
       setCounterpartyIsVasp(null);
@@ -1075,10 +1097,26 @@ const Deposit = () => {
             <div className="p-5 space-y-4">
               {signalFeedback ? renderSimulationFeedback(signalFeedback) : null}
 
+              <label className="block text-xs text-fx-dust">
+                Asset (on {depositWallet.network})
+                <select
+                  className="mt-1 w-full rounded-xl border border-fx-rule bg-fx-charcoal/50 px-3 py-2 text-sm text-fx-sand"
+                  value={simAssetId}
+                  onChange={(e) => setSimAssetId(e.target.value)}
+                  disabled={simulatingSignal}
+                >
+                  {simAssets.map((a) => (
+                    <option key={a.id} value={a.id}>
+                      {a.code}{a.status && a.status !== 'ACTIVE' ? ` — ${a.status}` : ''}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
               <div className="rounded-xl border border-fx-rule bg-fx-charcoal/50 p-4 space-y-2">
                 <div className="flex items-center justify-between gap-3 text-sm">
                   <span className="text-fx-dust">Asset</span>
-                  <span className="font-semibold text-fx-sand">{selectedAsset?.code}</span>
+                  <span className="font-semibold text-fx-sand">{simAsset?.code}</span>
                 </div>
                 <div className="flex items-center justify-between gap-3 text-sm">
                   <span className="text-fx-dust">Wallet</span>

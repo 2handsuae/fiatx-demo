@@ -21,6 +21,7 @@ import {
   getCustomerApiErrorMessage,
 } from '../utils/customerFetch';
 import { useTradingReadiness } from '../hooks/useTradingReadiness';
+import { formatCountdown } from './countdown';
 
 const API = import.meta.env.VITE_API_URL;
 
@@ -57,13 +58,6 @@ interface WithdrawalAddr {
 type ActiveTab = 'crypto' | 'bank';
 
 /* ─── Helpers ──────────────────────────────────────────────── */
-
-function formatCountdown(activatesAt: string): string {
-  const ms = Math.max(0, new Date(activatesAt).getTime() - Date.now());
-  const h = Math.floor(ms / 3600000);
-  const m = Math.floor((ms % 3600000) / 60000);
-  return `${h}h ${m}m`;
-}
 
 function truncAddr(addr: string): string {
   if (addr.length <= 14) return addr;
@@ -124,6 +118,12 @@ function formatIban(iban: string): string {
 
 export default function WithdrawalAddresses() {
   const { tradingReady, loading: tradingReadinessLoading, refetch: refetchTradingReadiness } = useTradingReadiness();
+  // 站 5 ④：倒计时走秒。到期那一秒重拉一次列表——后端查询时懒激活，会把 PENDING_ACTIVATION 翻成 ACTIVE。
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, []);
   const [activeTab, setActiveTab] = useState<ActiveTab>('crypto');
   const [assets, setAssets] = useState<Asset[]>([]);
   const [addresses, setAddresses] = useState<WithdrawalAddr[]>([]);
@@ -218,6 +218,13 @@ export default function WithdrawalAddresses() {
     }
     setLoading(false);
   }, []);
+
+  useEffect(() => {
+    const due = addresses.some(
+      (a) => a.status === 'PENDING_ACTIVATION' && new Date(a.activatesAt).getTime() <= now,
+    );
+    if (due) void fetchAddresses();
+  }, [now, addresses, fetchAddresses]);
 
   useEffect(() => { void fetchAddresses(); }, [fetchAddresses]);
 
@@ -665,7 +672,7 @@ export default function WithdrawalAddresses() {
                               <>
                                 <div className="flex items-center gap-1 text-xs font-mono text-amber-400">
                                   <Clock size={12} />
-                                  {formatCountdown(addr.activatesAt)}
+                                  {formatCountdown(addr.activatesAt, now)}
                                 </div>
                                 {cancelConfirmFor !== addr.addressNo && (
                                   <button
@@ -819,7 +826,7 @@ export default function WithdrawalAddresses() {
                           <>
                             <div className="flex items-center gap-1 text-xs font-mono text-amber-400">
                               <Clock size={12} />
-                              {formatCountdown(addr.activatesAt)}
+                              {formatCountdown(addr.activatesAt, now)}
                             </div>
                             {cancelConfirmFor !== addr.addressNo && (
                               <button
@@ -1061,7 +1068,7 @@ export default function WithdrawalAddresses() {
                 <div className="rounded-xl border border-amber-500/25 bg-amber-500/5 p-4 text-center">
                   <div className="text-[11px] uppercase tracking-wider text-amber-400/70 font-bold">Activates In</div>
                   <div className="mt-1 text-2xl font-bold font-mono text-amber-400">
-                    {formatCountdown(detailAddr.activatesAt)}
+                    {formatCountdown(detailAddr.activatesAt, now)}
                   </div>
                   <div className="mt-1 text-xs text-fx-dust">
                     {new Date(detailAddr.activatesAt).toLocaleString()}
@@ -1405,7 +1412,7 @@ export default function WithdrawalAddresses() {
                 <div className="rounded-xl border border-amber-500/25 bg-amber-500/5 p-4 text-center">
                   <div className="text-[11px] uppercase tracking-wider text-amber-400/70 font-bold">Activates In</div>
                   <div className="mt-1 text-2xl font-bold font-mono text-amber-400">
-                    {formatCountdown(bankDetailAddr.activatesAt)}
+                    {formatCountdown(bankDetailAddr.activatesAt, now)}
                   </div>
                   <div className="mt-1 text-xs text-fx-dust">
                     {new Date(bankDetailAddr.activatesAt).toLocaleString()}
