@@ -550,23 +550,8 @@ describe('Recon supplement e2e (平账 B 批, Task 8)', () => {
    *  用的是与 seed 脚本同一个真实入口 `AccountingService.createAccounts`（建 TB 账户 +
    *  登记 registry 两步一次做完），不是新发明的路子。法币充值只会摸到 CLIENT_PAYABLE
    *  （100）与 DEPOSIT_SUSPENSE（101）这两个客户级科目；AED / USDT 两个账簿各开一对，共四个。
-   *
-   *  Task 12 收口轮当场复现的一处真实缺口（未改 src，登记 BACKLOG，见文末）：
-   *  `AccountingService.createAccounts()` 登记 registry 时用
-   *  `bigintToHex(accountId)`（`tb-id.util.ts`）——不补零，u128 账户 id 十六进制
-   *  首位若恰好是 0，写进 `tb_account_registry.tbAccountId` 的就是 31 字符（而非
-   *  规范的 32 字符）。`WalletFlowMatcherService`（对账引擎）的 `padTbId` join
-   *  只补 `account_flows.tbAccountId` 那一侧，前提假设是"registry 那一侧永远已经
-   *  是 32 字符"（该文件其自身注释语）——两个客户级科目全新生成时如果撞上这个
-   *  概率事件，注册表那一侧本身就是 31 字符，`padTbId` 补的 32 字符永远对不上，
-   *  这只钱包的活动会从对账引擎的 `internal[]` 里静默消失，案子卡死在
-   *  `SOFT_FLAG`、永远不会自愈——即使底层复式记账本身完全正确（用真实两条独立
-   *  客户跑通全链路时各命中一次，概率不低，不是构造出来的极端用例）。
-   *  这里补零对齐到 32 字符：只改字符串表示，不改数值（十六进制前导零不影响
-   *  BigInt 数值，`resolveTbAccountId` 按 code/ledger/ownerType/ownerUuid 查表拿
-   *  回字符串再转 BigInt，不受影响），纯粹是把这个全新客户的 registry 行改成跟
-   *  `prisma/seed-tb.helper.ts`（用 SHA256 哈希取前 32 位，天然定长不会短）一致
-   *  的字符串宽度——测试夹具自己的收口，不改 `AccountingService`。 */
+   */
+  // 注册表账户号补零已在 AccountingService.createAccounts 写侧根治（平账二期 Task 1），夹具不再规避。
   async function provisionCustomerTbAccounts(customerId: string, customerNo: string): Promise<void> {
     // AED + USDT 两个账簿都开：合并 main（V3 波一）后每个破口场景各配一个独立客户
     // （见 breakCase / createIsolatedCustomer 的注释），其中 ①a 走的是**链上 USDT**
@@ -580,15 +565,6 @@ describe('Recon supplement e2e (平账 B 批, Task 8)', () => {
       { code: TB_ACCOUNT_CODES.CLIENT_PAYABLE, ledger: TB_LEDGERS.USDT, ownerType: 'CUSTOMER', ownerUuid: customerId, ownerNo: customerNo, assetCurrency: 'USDT', description: 'e2e fixture customer CLIENT_PAYABLE (USDT)' },
       { code: TB_ACCOUNT_CODES.DEPOSIT_SUSPENSE, ledger: TB_LEDGERS.USDT, ownerType: 'CUSTOMER', ownerUuid: customerId, ownerNo: customerNo, assetCurrency: 'USDT', description: 'e2e fixture customer DEPOSIT_SUSPENSE (USDT)' },
     ]);
-    const registered = await (prisma as any).tbAccountRegistry.findMany({ where: { ownerUuid: customerId } });
-    for (const row of registered) {
-      if (String(row.tbAccountId).length < 32) {
-        await (prisma as any).tbAccountRegistry.update({
-          where: { tbAccountId: row.tbAccountId },
-          data: { tbAccountId: String(row.tbAccountId).padStart(32, '0') },
-        });
-      }
-    }
   }
 
   // ── scenarios ────────────────────────────────────────────────────────────

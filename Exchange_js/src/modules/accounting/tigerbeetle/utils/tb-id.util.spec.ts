@@ -49,3 +49,19 @@ describe('tb-id.util', () => {
     });
   });
 });
+
+import { bigintToRegistryHex } from './tb-id.util';
+
+describe('bigintToRegistryHex —— 注册表账户号恒 32 位（平账二期搭车①）', () => {
+  it('十六进制首位为 0 的 u128 也补到 32 位，且数值不变', () => {
+    const id = BigInt('0x0abc0000000000000000000000000001'); // 首位 0 → 裸 toString(16) 只有 31 位
+    const hex = bigintToRegistryHex(id);
+    expect(hex).toHaveLength(32);
+    expect(hex.startsWith('0')).toBe(true);
+    expect(hexToBigint(hex)).toBe(id);
+  });
+  it('已是 32 位的不动', () => {
+    const id = BigInt('0xfabc0000000000000000000000000001');
+    expect(bigintToRegistryHex(id)).toBe(id.toString(16));
+  });
+});

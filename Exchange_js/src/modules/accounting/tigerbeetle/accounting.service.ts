@@ -4,7 +4,7 @@ import { Prisma } from '@prisma/client';
 import { TigerBeetleService } from './tigerbeetle.service';
 import { TbAccountRegistryService } from './tb-account-registry.service';
 import { TbEvidenceService } from './tb-evidence.service';
-import { deterministicTransferId, bigintToHex, hexToBigint } from './utils/tb-id.util';
+import { deterministicTransferId, bigintToHex, bigintToRegistryHex, hexToBigint } from './utils/tb-id.util';
 import { CreateTbAccountParams, EvidenceParams, TbBalanceResult, CustomerAvailableBalance, ExecutePendingTransferParams, PostOrVoidPendingTransferParams } from './types/accounting.types';
 import { TB_ACCOUNT_CODES } from './constants/tb-account-codes.constant';
 import { TB_LEDGERS } from './constants/tb-ledgers.constant';
@@ -60,7 +60,7 @@ export class AccountingService {
 
     for (const { accountId, params } of tbAccounts) {
       await this.registryService.register({
-        tbAccountId: bigintToHex(accountId),
+        tbAccountId: bigintToRegistryHex(accountId),
         code: params.code,
         ledger: params.ledger,
         ownerType: params.ownerType,
