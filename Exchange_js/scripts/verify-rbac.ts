@@ -259,6 +259,7 @@ function runStaticChecks(): void {
     DEPOSIT_SUPPLEMENT: 'DEPOSIT_SUPPLEMENT_WRITE',
     DEPOSIT_CLAWBACK: 'DEPOSIT_CLAWBACK_WRITE',
     WITHDRAW_RETURN_CLAIM: 'WITHDRAW_RETURN_CLAIM_WRITE',
+    INTERNAL_TRANSFER_APPROVAL: 'INTERNAL_TRANSFER_WRITE',
     ADMIN_SUSPENSION_APPROVAL: 'IAM_MEMBER_MANAGE',
     ADMIN_REACTIVATION_APPROVAL: 'IAM_MEMBER_MANAGE',
     ADMIN_ROLE_BINDING_CHANGE_APPROVAL: 'IAM_ROLE_ASSIGN',
@@ -621,7 +622,15 @@ function runS6FrontendBackendCodeDiff(): void {
 // 后必须把自己那一行从这份白名单删掉，任务收尾前 S7 应重新验证不再需要该条例外。
 // Task 7（2026-09-03）落地 POST /withdraw-transactions/:withdrawNo/return-claim
 // 控制器后删掉最后一行——本批四条暂未出生的 route() 已全部有真实端点，白名单清空。
-const S7_PENDING_DEAD_ROWS = new Set<string>([]);
+// 平账二期（2026-09-05，Task 3/8）：五条 route() 与 Task 3 一起登记、Task 8 落地控制器后清空——
+// 与 B 批「暂未出生」同类，不是腐烂死行。
+const S7_PENDING_DEAD_ROWS = new Set<string>([
+  'api.post.admin_internal_transfers_compensation',
+  'api.post.admin_internal_transfers_advance',
+  'api.post.admin_internal_transfers_transferno_cancel',
+  'api.get.admin_internal_transfers',
+  'api.get.admin_internal_transfers_transferno',
+]);
 
 /** 镜像 admin-permission.guard.ts#buildRequestPermissionCode 的拼接算法——不是重新
  *  发明；两处若不一致，S7 会跟着不准，见上方大注释的已知取舍。 */

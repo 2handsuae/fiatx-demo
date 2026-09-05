@@ -59,6 +59,13 @@ export const PERMISSIONS = {
   RECON_DISPOSITION_CREATE: 'api.post.admin_reconciliation_cases_caseno_dispositions',
   RECON_REATTRIBUTION_CANDIDATES_READ: 'api.get.admin_reconciliation_cases_caseno_reattribution_candidates',
 
+  // 平账二期（2026-09-05）：内部划转单——五个码精确镜像 rbac.catalog.ts route() 的 buildPermissionCode 派生值
+  INTERNAL_TRANSFERS_READ: 'api.get.admin_internal_transfers',
+  INTERNAL_TRANSFER_DETAIL_READ: 'api.get.admin_internal_transfers_transferno',
+  INTERNAL_TRANSFER_COMPENSATION_WRITE: 'api.post.admin_internal_transfers_compensation',
+  INTERNAL_TRANSFER_ADVANCE_WRITE: 'api.post.admin_internal_transfers_advance',
+  INTERNAL_TRANSFER_CANCEL: 'api.post.admin_internal_transfers_transferno_cancel',
+
   SUMSUB_EVENTS_READ: 'api.get.admin_sumsub_events',
   AUDIT_LOGS_READ: 'api.get.admin_audit_logs',
   AUDIT_EXPORT_CREATE: 'api.post.admin_audit_evidence_packages',

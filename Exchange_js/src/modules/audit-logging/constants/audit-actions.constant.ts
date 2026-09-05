@@ -432,6 +432,14 @@ export const AuditActions = {
   // ── 平账 A 批：账龄（spec §2.8）──
   RECON_CASE_AGING_BREACHED: 'RECON_CASE_AGING_BREACHED',
   RECON_AGING_TIMEOUT_SIMULATED: 'RECON_AGING_TIMEOUT_SIMULATED',
+  // ── 平账二期（2026-09-05）：内部划转单（V7 财资名册，域 TREASURY）──
+  INTERNAL_TRANSFER_REQUESTED: 'INTERNAL_TRANSFER_REQUESTED',
+  INTERNAL_TRANSFER_CANCELLED: 'INTERNAL_TRANSFER_CANCELLED',
+  INTERNAL_TRANSFER_REJECTED: 'INTERNAL_TRANSFER_REJECTED',
+  INTERNAL_TRANSFER_EXECUTION_STARTED: 'INTERNAL_TRANSFER_EXECUTION_STARTED',
+  INTERNAL_TRANSFER_LEG_POSTED: 'INTERNAL_TRANSFER_LEG_POSTED',
+  INTERNAL_TRANSFER_SETTLED: 'INTERNAL_TRANSFER_SETTLED',
+  INTERNAL_TRANSFER_FAILED: 'INTERNAL_TRANSFER_FAILED',
   // ── Material Request Ledger（向客户要材料）──
   MATERIAL_REQUEST_ISSUED: 'MATERIAL_REQUEST_ISSUED',
   MATERIAL_REQUEST_SUBMITTED: 'MATERIAL_REQUEST_SUBMITTED',
@@ -476,7 +484,7 @@ import { AuditCorrelationMode } from '../dto/audit-log.dto';
 /** V1 治理四域，声明与下方 assertActionSpec 的退役码放行闸共用同一份 */
 export const V1_ACTION_DOMAINS = ['IAM', 'APPROVAL', 'CONFIG', 'AUDIT'] as const;
 /** 新合同已入住的全部域——站1b-β 起交易域逐域加入（充值第一个）。机器校验的域闸读这份。 */
-export const CONTRACT_ACTION_DOMAINS = [...V1_ACTION_DOMAINS, 'DEPOSIT', 'WITHDRAW', 'SWAP', 'RECON', 'CUSTOMER'] as const;
+export const CONTRACT_ACTION_DOMAINS = [...V1_ACTION_DOMAINS, 'DEPOSIT', 'WITHDRAW', 'SWAP', 'RECON', 'CUSTOMER', 'TREASURY'] as const;
 
 export interface AuditActionSpec {
   /** actionDomain 列的值 */
@@ -930,6 +938,22 @@ export const V2_CUSTOMER_AUDIT_ACTIONS: Record<string, AuditActionSpec> = {
   MATERIAL_REQUEST_ORDER_UNBOUND:{ domain: 'CUSTOMER', correlationMode: N, requiredFields: [], requiresCausation: false },
   // ── 档位模拟（1，站6 新铸）────────────────────────────
   CUSTOMER_TIER_CHANGE_SIMULATED:{ domain: 'CUSTOMER', correlationMode: N, requiredFields: ['reason'], requiresCausation: false },
+};
+
+/**
+ * V7 财资名册（平账二期，2026-09-05）——内部划转单七码。主对象一律 INTERNAL_TRANSFER · transferNo，
+ * 子主体：客户 OWNER、对账案 RELATED、认损调账单 RELATED（仅补款）、审批单 INSTRUMENT。
+ * REQUESTED 起划转单自己的旅程（NONE），其余继承（INHERIT）；批准 / 拒绝由审批裁决驱动带因果。
+ * 划转单是公司自己的钱在动，故域是 TREASURY 不是 RECON——案子只是入口，主体是财资件。
+ */
+export const V7_TREASURY_AUDIT_ACTIONS: Record<string, AuditActionSpec> = {
+  INTERNAL_TRANSFER_REQUESTED:         { domain: 'TREASURY', correlationMode: N, requiredFields: ['amount', 'reason'], requiresCausation: false },
+  INTERNAL_TRANSFER_CANCELLED:         { domain: 'TREASURY', correlationMode: I, requiredFields: ['reason'], requiresCausation: false },
+  INTERNAL_TRANSFER_REJECTED:          { domain: 'TREASURY', correlationMode: I, requiredFields: ['approvalNo'], requiresCausation: true },
+  INTERNAL_TRANSFER_EXECUTION_STARTED: { domain: 'TREASURY', correlationMode: I, requiredFields: ['approvalNo'], requiresCausation: true },
+  INTERNAL_TRANSFER_LEG_POSTED:        { domain: 'TREASURY', correlationMode: I, requiredFields: ['amount'], requiresCausation: false },
+  INTERNAL_TRANSFER_SETTLED:           { domain: 'TREASURY', correlationMode: I, requiredFields: ['amount', 'effectiveDate'], requiresCausation: false },
+  INTERNAL_TRANSFER_FAILED:            { domain: 'TREASURY', correlationMode: I, requiredFields: ['reasonCode'], requiresCausation: false },
 };
 
 /** 动态迁移码族（<域>_<从>_TO_<到>，充值站1b-β/提现站2-β 整族废除；站7 扩面治理五簿+监管闸——

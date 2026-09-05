@@ -60,6 +60,8 @@ export const ApprovalActionTypes = {
   DEPOSIT_SUPPLEMENT: 'DEPOSIT_SUPPLEMENT',
   DEPOSIT_CLAWBACK: 'DEPOSIT_CLAWBACK',
   WITHDRAW_RETURN_CLAIM: 'WITHDRAW_RETURN_CLAIM',
+  // 平账二期（2026-09-05）：内部划转单（公司 → 客户补款 / 垫款），纯资金件 → CFO 单步；金库提、CFO 批
+  INTERNAL_TRANSFER_APPROVAL: 'INTERNAL_TRANSFER_APPROVAL',
 } as const;
 
 export const ApprovalStatuses = {
@@ -342,6 +344,7 @@ export const DEFAULT_APPROVAL_POLICIES: Record<
   [ApprovalActionTypes.DEPOSIT_SUPPLEMENT]: { steps: [{ stepNo: 1, roles: ['CFO'] }], timeoutHours: 48, allowCancel: true },
   [ApprovalActionTypes.DEPOSIT_CLAWBACK]: { steps: [{ stepNo: 1, roles: ['CFO'] }], timeoutHours: 48, allowCancel: true },
   [ApprovalActionTypes.WITHDRAW_RETURN_CLAIM]: { steps: [{ stepNo: 1, roles: ['CFO'] }], timeoutHours: 48, allowCancel: true },
+  [ApprovalActionTypes.INTERNAL_TRANSFER_APPROVAL]: { steps: [{ stepNo: 1, roles: ['CFO'] }], timeoutHours: 48, allowCancel: true },
 };
 
 /**
@@ -375,6 +378,7 @@ export const V1_APPROVAL_ACTION_TYPES: readonly string[] = [
   ApprovalActionTypes.WITHDRAW_UNFREEZE,
   ApprovalActionTypes.WITHDRAW_SANCTION_REFUND,
   ApprovalActionTypes.RECON_ADJUSTMENT_POST,
+  ApprovalActionTypes.INTERNAL_TRANSFER_APPROVAL,
 ] as const;
 
 export function isSuperAdminRoleContext(roleCodes: string[]): boolean {

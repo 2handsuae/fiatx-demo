@@ -62,6 +62,13 @@ export const TB_TRANSFER_CODES = {
   // 第五种是改记(direction='REATTRIBUTE',成因 CUSTOMER_REATTRIBUTION)——两腿都是
   // CLIENT_PAYABLE、只换 ownerUuid,不由 book×direction 决定(resolveReattributionLegs)。
   RECON_ADJUSTMENT: 80, // 调账单落账(disposition/adjustment-rules.ts)
+
+  // ── 平账·划转(81–83)（二期，2026-09-05）：内部划转单（公司 → 客户）三种腿分录。
+  // 形状与兑换买入腿同源（32 OPS_TO_SET / 33 SET_TO_ASSET / 34 BUY_CLIENT），父单换成划转单：
+  //   法币腿 1：运营户 → 结算户；法币腿 2 / 加密币腿 1：公司放出 + 客户收到（一步两笔，任一失败整步失败）。
+  INTERNAL_TRANSFER_OPS_TO_SET: 81, // DR FIRM_OPS / CR FIRM_SET（法币腿 1）
+  INTERNAL_TRANSFER_FIRM_OUT: 82,   // DR FIRM_SET(法币腿 2) 或 FIRM_OPS(加密币腿 1) / CR FIRM_ASSET
+  INTERNAL_TRANSFER_CLIENT_IN: 83,  // DR CLIENT_ASSET / CR CLIENT_PAYABLE(客户)
 } as const;
 
 export type TbTransferCode = (typeof TB_TRANSFER_CODES)[keyof typeof TB_TRANSFER_CODES];

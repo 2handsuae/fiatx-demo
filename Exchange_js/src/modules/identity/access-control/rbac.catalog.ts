@@ -50,6 +50,8 @@ export type PermissionGroup =
   | 'RECON_EXTERNAL_BALANCE_READ'
   | 'RECON_ADJUSTMENT_WRITE'
   | 'RECON_DISPOSITION_WRITE'
+  | 'INTERNAL_TRANSFER_READ'
+  | 'INTERNAL_TRANSFER_WRITE'
   | 'LEDGER_ACCOUNT_READ'
   | 'LEDGER_EVIDENCE_READ'
   | 'LEDGER_FLOW_READ'
@@ -390,6 +392,12 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
   route('POST', '/admin/reconciliation/cases/:caseNo/dispositions', 'Record disposition conclusion on a reconciliation diff row', ['RECON_DISPOSITION_WRITE']),
   route('GET', '/admin/reconciliation/cases/:caseNo/reattribution-candidates', 'List counterpart candidates for a reattribution', ['RECON_CASE_READ']),
   route('GET', '/admin/reconciliation/cases/:caseNo/supplement-candidates', 'Statement-line facts + candidate original orders for a supplement', ['RECON_CASE_READ']),
+  // ─── 平账二期 · 内部划转单（2026-09-05）：公司 → 客户的补款 / 垫款，入口在案子上 ───
+  route('POST', '/admin/internal-transfers/compensation', 'Initiate a client compensation transfer from a posted client-loss write-off', ['INTERNAL_TRANSFER_WRITE']),
+  route('POST', '/admin/internal-transfers/advance', 'Initiate a client advance transfer to cover a clawback shortfall', ['INTERNAL_TRANSFER_WRITE']),
+  route('POST', '/admin/internal-transfers/:transferNo/cancel', 'Cancel a pending internal transfer (maker only)', ['INTERNAL_TRANSFER_WRITE']),
+  route('GET', '/admin/internal-transfers', 'List internal transfers', ['INTERNAL_TRANSFER_READ']),
+  route('GET', '/admin/internal-transfers/:transferNo', 'Get internal transfer detail', ['INTERNAL_TRANSFER_READ']),
   // 平账 A 批：⚡拨钟——把案件账龄截止拨到过去（演示件，挂现有拨钟组，桶 demo.act_clock 已涵盖 SLA timers）
   route('POST', '/admin/reconciliation/cases/:caseNo/simulate-aging-timeout', 'Fast-forward a reconciliation case past its aging line (demo only)', ['DEMO_CLOCK_WRITE']),
 
@@ -730,6 +738,18 @@ export const ACTION_BUCKET_CATALOG: ActionDomain[] = [
         description: 'Submit transaction limit change requests — senior management signs them off',
         groups: ['TRANSACTION_LIMIT_WRITE'],
       },
+      {
+        key: 'treasury.view_transfers',
+        label: 'View internal transfers',
+        description: 'Browse company → client compensation / advance transfers and their funds-order legs',
+        groups: ['INTERNAL_TRANSFER_READ'],
+      },
+      {
+        key: 'treasury.act_client_funding',
+        label: 'Fund a client (compensation / advance)',
+        description: 'Initiate or cancel a company → client transfer from a reconciliation case — CFO signs it off',
+        groups: ['INTERNAL_TRANSFER_WRITE'],
+      },
     ],
   },
   // ─── Domain: Customer ────────────────────────────────
@@ -864,7 +884,7 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
     'CUSTOMER_READ', 'CUSTOMER_RESTRICTION_READ', 'CUSTOMER_TAG_VIEW',
     'TRADING_DEPOSIT_READ', 'TRADING_WITHDRAW_READ', 'TRADING_SWAP_READ', 'SUMSUB_EVENT_VIEW',
     'FUNDS_ORDER_VIEW',
-    'RECON_RUN_READ', 'RECON_CASE_READ', 'RECON_EXTERNAL_BALANCE_READ',
+    'RECON_RUN_READ', 'RECON_CASE_READ', 'RECON_EXTERNAL_BALANCE_READ', 'INTERNAL_TRANSFER_READ',
     'WITHDRAWAL_FEE_LEVEL_READ', 'SWAP_FEE_LEVEL_READ',
   ],
 
@@ -908,7 +928,7 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
     'CUSTOMER_READ', 'CUSTOMER_RESTRICTION_READ', 'CUSTOMER_TAG_VIEW',
     'TRADING_DEPOSIT_READ', 'TRADING_WITHDRAW_READ', 'TRADING_SWAP_READ', 'SUMSUB_EVENT_VIEW',
     'FUNDS_ORDER_VIEW',
-    'RECON_RUN_READ', 'RECON_CASE_READ', 'RECON_EXTERNAL_BALANCE_READ',
+    'RECON_RUN_READ', 'RECON_CASE_READ', 'RECON_EXTERNAL_BALANCE_READ', 'INTERNAL_TRANSFER_READ',
     'WITHDRAWAL_FEE_LEVEL_READ', 'SWAP_FEE_LEVEL_READ',
   ],
 
@@ -939,7 +959,7 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
     'ASSET_CONFIG_READ', 'WALLET_READ', 'TRANSACTION_LIMIT_READ',
     'TRADING_DEPOSIT_READ', 'TRADING_WITHDRAW_READ', 'TRADING_SWAP_READ',
     'FUNDS_ORDER_VIEW',
-    'RECON_RUN_READ', 'RECON_CASE_READ', 'RECON_EXTERNAL_BALANCE_READ',
+    'RECON_RUN_READ', 'RECON_CASE_READ', 'RECON_EXTERNAL_BALANCE_READ', 'INTERNAL_TRANSFER_READ',
     'WITHDRAWAL_FEE_LEVEL_READ', 'SWAP_FEE_LEVEL_READ',
     'WITHDRAWAL_FEE_LEVEL_WRITE', 'SWAP_FEE_LEVEL_WRITE',
     // CUSTOMER_TAG_VIEW 补于波一 T13——此前 CFO 持两族 *_FEE_LEVEL_WRITE 却没这个组，唯一
@@ -966,6 +986,8 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
     // 归金库——maker（金库）≠ checker（CFO），verify:rbac S5c 守着这条。RECON_CASE_READ 是
     // 走到入口的必需品：侧栏 Cases 与调账单详情路由都要它。
     'RECON_CASE_READ', 'RECON_ADJUSTMENT_WRITE',
+    // 平账二期：补款 / 垫款开单归金库——maker（金库）≠ checker（CFO），verify:rbac S5 守着；READ 走到列表 / 详情入口。
+    'INTERNAL_TRANSFER_READ', 'INTERNAL_TRANSFER_WRITE',
   ],
 
   TECH_OFFICER: [
@@ -998,7 +1020,7 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
     'TRADING_WITHDRAW_WRITE', 'WITHDRAW_BOUNCE_WRITE', 'WITHDRAW_REFUND_WRITE', 'WITHDRAW_RETURN_CLAIM_WRITE',
     'TRADING_SWAP_WRITE',
     'FUNDS_ORDER_VIEW', 'FUNDS_ORDER_ACT',
-    'RECON_RUN_READ', 'RECON_CASE_READ', 'RECON_EXTERNAL_BALANCE_READ', 'RECON_RUN_WRITE', 'RECON_DISPOSITION_WRITE',
+    'RECON_RUN_READ', 'RECON_CASE_READ', 'RECON_EXTERNAL_BALANCE_READ', 'RECON_RUN_WRITE', 'RECON_DISPOSITION_WRITE', 'INTERNAL_TRANSFER_READ',
     'WITHDRAWAL_FEE_LEVEL_READ', 'SWAP_FEE_LEVEL_READ',
     'DEMO_CLOCK_WRITE',
   ],
