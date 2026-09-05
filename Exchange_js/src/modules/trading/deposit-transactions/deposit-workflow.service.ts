@@ -1130,23 +1130,13 @@ export class DepositWorkflowService implements OnModuleInit {
    * 已订正为下面的如实描述：
    *
    *   `checkAutoApproval` 只在这笔单**已经有 Sumsub 裁决**（`sumsubVerdict === 'approved'`）
-   *   时才会往下推进；裁决为 null 时它提前 return。⚠️ 波二订正：以下三段描述的是
-   *   **本波之前**的行为——当时 L1 挂起的单从未送检（`markL1Hold` 那条分支刻意不调
-   *   `submitSumsubTxns`）。波二把「打标不短路送检」改成三条分支统一行为后，行政级
-   *   挂起的单现在也会送检、也会拿到裁决，此处描述的「没有裁决」缺口理应已随之解决，
-   *   但本任务范围不含验证这条端到端链路 / 改状态机，未重新实测，先如实标注存疑：
-   *     · BELOW_MIN 挂起（合规已过之后才落的闸）→ 有裁决 → waive 后确实会自动放行。
-   *     · 行政级挂起（CAPABILITY_RESTRICTED / LIFECYCLE_NOT_ACTIVE，L1 落的）
-   *       → **没有裁决** → waive 之后 `checkAutoApproval` 静默早退，单子停在
-   *       OPERATION_PENDING、无挂起、无 KYT 案，**不会**自动走合规。
-   *
-   *   此时这笔单的处境：waive 再点会抛（挂起已清）、没收要求 BELOW_MIN、详情页没有
-   *   Approve 按钮，实际只剩「原路退回汇款人」一条出路，否则钱一直压在 DEPOSIT_SUSPENSE。
-   *   `OPERATION_PENDING --resume--> COMPLIANCE_PENDING` 这条能重新武装 L1 的边
-   *   **不存在**（FROZEN 有、这里没有），所以也重跑不了。
-   *
-   *   三个候选解法（挂起分支也送检 / 补 resume 边 / 维持现状但把文案说清）待业主拍板，
-   *   已登记 BACKLOG。**本批不改行为。**
+   *   时才会往下推进；裁决为 null 时它提前 return。⚠️ 波二（2026-09-05，业主裁定
+   *   「OPERATION_PENDING 只从合规通过进入」）：L1 行政级挂起改为打标不换状态、
+   *   照常送检（`evaluateL1` / `markL1Hold`）；`waiveLimitHold` 要求
+   *   `status === OPERATION_PENDING`，而该状态只由合规通过后的 `holdIfHeld`
+   *   产生——所以能 waive 的单必然已有 `approved` 裁决，`checkAutoApproval`
+   *   不会再因裁决为空早退。旧的「waive 后无裁决走不动」死角在结构上不存在了
+   *   （BACKLOG:129 随本波销账）。
    *
    * B4（§3）：守卫从只认 `BELOW_MIN` 放宽到**任何非空挂起原因**。原因是 L1
    * 开始往 OPERATION_PENDING 上落行政级挂起（CAPABILITY_RESTRICTED /

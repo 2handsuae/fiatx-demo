@@ -545,7 +545,19 @@ describe('DepositWorkflowService', () => {
       expect(depositService.updateStatus).not.toHaveBeenCalled();
       expect(depositService.markLimitHold).not.toHaveBeenCalled();
       expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
-        expect.objectContaining({ action: 'DEPOSIT_L1_HELD', reasonCode: 'BELOW_MIN' }),
+        expect.objectContaining({
+          action: 'DEPOSIT_L1_HELD',
+          reasonCode: 'BELOW_MIN',
+          // 挂起证据的次主体必须带上命中的限额规则（INSTRUMENT）—— singleDepositLimitRule
+          // mock 返回 ruleNo='TLR-DEP-USDT'，这是 l1HoldSubjects 在 BELOW_MIN 分支查出来的。
+          subjects: expect.arrayContaining([
+            expect.objectContaining({
+              subjectType: 'TRANSACTION_LIMIT_POLICY',
+              subjectNo: 'TLR-DEP-USDT',
+              subjectRole: 'INSTRUMENT',
+            }),
+          ]),
+        }),
       );
     });
 
@@ -1260,7 +1272,7 @@ describe('DepositWorkflowService', () => {
         ownerId: 'cust-1',
         traceId: 'tr-crit-1',
         amount: '500',
-        asset: { currency: 'USDT', tbLedgerId: 2, decimals: 6 },
+        asset: { assetNo: 'AS2601012024', currency: 'USDT', tbLedgerId: 2, decimals: 6 },
       });
       const executeAccountingSpy = jest.spyOn(service as any, 'executeDepositAccounting');
 
@@ -1295,6 +1307,14 @@ describe('DepositWorkflowService', () => {
           reasonCode: 'CAPABILITY_RESTRICTED',
           fromStatus: DepositTransactionStatus.COMPLIANCE_PENDING,
           toStatus: DepositTransactionStatus.OPERATION_PENDING,
+          // holdIfHeld 补的次主体：命中挂起证据的资产（RELATED）。
+          subjects: expect.arrayContaining([
+            expect.objectContaining({
+              subjectType: 'ASSET',
+              subjectNo: 'AS2601012024',
+              subjectRole: 'RELATED',
+            }),
+          ]),
         }),
       );
     });
