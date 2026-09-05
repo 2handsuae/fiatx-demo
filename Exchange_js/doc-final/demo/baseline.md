@@ -54,7 +54,7 @@
 | 编译 | tsc 后端（src / test / scripts / prisma 四目录）｜ tsc 管理台（含 .spec.ts）｜ tsc 客户端 |
 | 重铺 | `stack.sh reset main`（含 TigerBeetle 清理重建，全链实跑） |
 | 演示 | demo:setup ｜ demo:deposit ｜ demo:swap ｜ demo:withdraw ｜ demo:in-transit ｜ demo:all（**花名册 29/29 逐条符合预期 + COA 四恒等式**——演示装备一期改判据，见下方操作约束） |
-| 对账 | recon:demo:pass ｜ **recon:demo:break 17/17 场景 + 11/11 钱包桶 + `casesOpened` 完整性断言**（2026-09-05 平账二期加 16（Alice USDT 认损 + 补款）/ 17（Grace AED 退汇余额不足 → 垫款）后实测：`scenarios 17/17 DETECTED` / `wallets 11/11 bucket OK`（break 8 / softFlag 2 / inTransit 1）/ `casesOpened 11/11`，答案键 `rootCause` 用注册表成因码）｜ verify:demo-data。⚠️ **铺场前不得有在途划转**（待批 / 执行中的内部划转单会让脚本前置闸当场报错——先 ⚡ 推到确认或撤回）。⚠️ **必须走整库重铺验证**：**场景 6（重复入账）真写账本**、`recon:demo:reset` 不回滚账本，轻量重跑会让场景 6 假性 MISSED（显示 14/15）|
+| 对账 | recon:demo:pass ｜ **recon:demo:break 17/17 场景 + 11/11 钱包桶 + `casesOpened` 完整性断言**（2026-09-05 平账二期加 16（Alice USDT 认损 + 补款）/ 17（Grace AED 退汇余额不足 → 垫款）后实测：`scenarios 17/17 DETECTED` / `wallets 11/11 bucket OK`（break 8 / softFlag 2 / inTransit 1）/ `casesOpened 11/11`，答案键 `rootCause` 用注册表成因码）｜ verify:demo-data。⚠️ **铺场前不得有在途划转**（待批 / 执行中的内部划转单会让脚本前置闸当场报错——先 ⚡ 推到确认或撤回）。⚠️ **必须走整库重铺验证**：**场景 6（重复入账）真写账本**、`recon:demo:reset` 不回滚账本，轻量重跑会让场景 6 假性 MISSED（显示 16/17）|
 | 账本 | verify:coa —— 两恒等式 + 负余额断言（49 科目全部 ≥ 0）。收官多轮实测重铺后与 demo:all 后均全绿；历史上个别含 break 注入的运行轮见过公司 AED 负余额（浮存时序）。**2026-09-01 三支合流后在 main 栈两轮独立实测：57 科目全部 ≥ 0，全绿**（此前 08-31 的负余额红已定位为资本注入被跳过的假红，见上方\"已结\"节）。**2026-09-05 起注资那笔已在流水里**（种子写凭证 + 两行流水），运营户对账起点为正 |
 | 审计 | verify:audit 恒绿七项：Q2 按单据查 ｜ Q4 按客户查 ｜ 不变量①②③（PRIMARY 至多一 / INHERIT 必有旅程号 / 退役码零写入）——三查合同七站换装后的固定资产 |
 | 封册 | audit-vocabulary-closure.spec 四条：平面表归籍 / 六册互斥 / 写点闭合退役词零引用 / 码全局唯一禁裸名 |
@@ -153,13 +153,14 @@ test/swap-money-arc.e2e-spec.ts              # 共用 dev.db
 test/deposit-sumsub-verdicts.e2e-spec.ts     # 共用 dev.db
 test/withdraw-sumsub-scenarios.e2e-spec.ts   # 共用 dev.db
 test/swap-sumsub-scenarios.e2e-spec.ts       # 共用 dev.db
-test/recon-internal-transfer.e2e-spec.ts     # 共用 dev.db，跑前先 demo:setup；截止用「现在」，不跨 UTC 零点跑（recon 四份同款前置）
 test/kyt-verdict-landing.e2e-spec.ts         # 私库
 test/sanction-subject-split.e2e-spec.ts      # 私库
 test/material-requests.e2e-spec.ts           # 私库
 test/customer-restrictions.e2e-spec.ts       # 私库
 test/sla.e2e-spec.ts                         # 私库
 ```
+
+   **recon 组另列，不入上面 83/83 的口径**（五份，全部共用 `dev.db`，跑前先 `demo:setup`；2026-09-05 平账二期实测五份 26/26）：`test/recon-adjustment-money-arcs.e2e-spec.ts`、`test/recon-aging-write-off.e2e-spec.ts`、`test/recon-reattribution.e2e-spec.ts`、`test/recon-supplement.e2e-spec.ts`、`test/recon-internal-transfer.e2e-spec.ts`（最后这份截止用「现在」，不跨 UTC 零点跑）。跑法：`bash scripts/on-stack.sh <stack> test:e2e test/recon-`。
 
 3. **干净态起跑**：栈库残留多轮数据会触发日累计限额假红；`reset` + 重铺私库后一次跑完。
 4. **共用库那 6 个还要先 `demo:setup`**（2026-09-04 波一收尾实测补）：裸 `reset` 只铺业务种子，建出客户花名册但**一条客户钱包行都没有**；6 个共用 `dev.db` 的套件里有 4 个自带 `ensureCustomerWallet` 自助开钱包，`deposit-money-arcs` 没有，缺钱包时直接抛 `"...has no ACTIVE C_VIBAN wallet on AED_ZAND — run demo:setup first"`。所以 `reset` 之后、跑 e2e 之前要补一句 `bash scripts/on-stack.sh <stack> demo:setup`。**它不等于 `demo:all`**：`demo:setup` 只跑 `ensureSetup`（铺钱包与地址），不跑 `runFrankPreStage`（广播制裁那步），所以不会把 `demo_frank` 连坐冻结、不违反上面 💡 那条「`demo:all` 不能与 e2e 共用同一个库」。实测确认：`demo:setup` 后 `demo_frank` 的 `customer_restrictions` 行数为 0。
