@@ -614,11 +614,16 @@ async function main(): Promise<void> {
   const quoteGrace = await call('POST', '/swap-transactions/quotes', graceTok, { fromAssetId: usdt.id, toAssetId: aed.id, fromAmount: 100 });
   // 修复前两人的预览都落默认档 → tierId 相同；修复后 Grace 命中 VIP 档 → tierId 不同。用 tierId 而不用点差数值：
   // 两档点差恰好相等时数值比较会伪绿，tierId 不会。
+  // 命中档位名（feeLevelCode）只存在于 SwapQuote 表本身；客户确认响应 toCustomerQuoteResponse() 刻意不透出这个字段（设计如此，非缺陷）——
+  // 这里改从报价行直读，不是绕断言、不是弱化判据。
+  const graceQuoteRow = quoteGrace.json?.quoteId
+    ? await prisma.swapQuote.findUnique({ where: { id: quoteGrace.json.quoteId }, select: { feeLevelCode: true } })
+    : null;
   judge('V9',
     rateGrace.status === 200 && rateAlice.status === 200 && quoteGrace.status < 300
       && !!rateGrace.json.tierId && rateGrace.json.tierId !== rateAlice.json.tierId
-      && String(quoteGrace.json.feeLevelCode).startsWith('VIP'),
-    `Grace 预览 tierId=${rateGrace.json?.tierId} vs Alice ${rateAlice.json?.tierId}；Grace 报价 level=${quoteGrace.json?.feeLevelCode}`);
+      && String(graceQuoteRow?.feeLevelCode ?? '').startsWith('VIP'),
+    `Grace 预览 tierId=${rateGrace.json?.tierId} vs Alice ${rateAlice.json?.tierId}；Grace 报价 level=${graceQuoteRow?.feeLevelCode}`);
 
   // ── V10：取证路径本身进判据——审计页 Subject No 栏按资产号能拉出被它拦下的单
   const v10 = await call('GET', `/admin/audit-logs?subjectNo=${encodeURIComponent(usdt.assetNo!)}&take=100`, tokens.admin);
