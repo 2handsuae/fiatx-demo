@@ -49,13 +49,13 @@
 
 - 记账主 `accounting/tigerbeetle/accounting.service.ts`：`executeTransfer()`（实时单笔）｜ `executePendingTransfer()/postPendingTransfer()/voidPendingTransfer()`（两阶段；post/void 对"已处理"回执放行为幂等 no-op）｜ `getCustomerAvailableBalance()`（可用=posted−pending）
 - 凭证漏斗 `tb-evidence.service.ts → writeEvidence()`（**唯一写入口**：凭证行 + 生效日 + 触发流水投影）；投影 `projector/account-flow-projector.service.ts`（每笔转账两行借贷，含 balanceAfter 快照）
-- 科目 `constants/tb-account-codes.constant.ts`（9 码 + 退役死名单防回归断言）；账户注册 `tb-account-registry.service.ts`（四元组唯一）；转账类型码 `tb-transfer-codes.constant.ts`
+- 科目 `constants/tb-account-codes.constant.ts`（9 码 + 退役死名单防回归断言）；账户注册 `tb-account-registry.service.ts`（四元组唯一）；转账类型码 `tb-transfer-codes.constant.ts`（**81–83 内部划转**，2026-09-05 平账二期新增）
 - 校验 `scripts/verify-realtime-coa.ts`（`npm run verify:coa`）；对账预门复用同式（V8 篇）
 - 读面 `tb-admin.controller.ts` 三页（账户/凭证/流水），权限 LEDGER_ACCOUNT/EVIDENCE/FLOW_READ 分治
 
 ## 6. 演示缺口（BACKLOG 有账）
 
-- **资本注入少一行流水凭证**：公司资产的注资那笔在流水里查不到——讲公司户时提前说明
+- **资本注入 2026-09-05 起在流水里**：公司资产的注资分录已随种子写入凭证与流水投影，运营户对账起点不再是负数
 - **报表层四张财务视图缓做**（业主定）：财务口径的对钩视图还没有，账本页是原始视角
 - **业务日期按 UTC 切，非迪拜收盘口径**（财务硬需求，待做）
 - **业务层金额仍存"元"**：账本与对账已统一"分"，订单/报价层的整层迁移是单位契约的下一步

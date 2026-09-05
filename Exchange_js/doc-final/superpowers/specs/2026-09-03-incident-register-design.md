@@ -7,7 +7,31 @@
 
 ## 承接上一波（二期）
 
-（空。二期合并前由二期的会话填：实际偏差 / 执行中发现的新事实 / 本波前提有无变化。）
+二期（内部划转单：认损补款 / 退汇垫款）16 任务已在 worktree 分支 `worktree-recon-wave2` 执行完毕，待合 main（本轮不展开三期，只写承接）。
+
+### 实际偏差（对照 plan 逐任务）
+
+- **Task 3（审计合同接线）**：plan 原指向 `audit-actions.constant.ts` 内一个 spread 合并点登记七个新审计码；复核后该文件内并无这样的合并点——真正要接线的地方是 `audit-logs.service.ts` 里 `assertActionSpec()` 的 `??` 判空链（V1→…→V8→V2）。第一轮实现漏接，评审当场判 Critical：若不修，七码在 `if (!spec) return` 处静默放行、全部免检。修复接上 `?? V7_TREASURY_AUDIT_ACTIONS[input.action]`（挂在 V8 之后、V2 之前）。
+- **Task 2 / Task 10（建表与重铺脚本）**：plan 的 Task 2 只交代新建 `internal_transfers` 表，未提示同步登记进 `scripts/reset-business-data.ts` 的删表顺序；Task 9 的 e2e 造出划转单后，`stack.sh reset self` 在 `asset.deleteMany()` 上撞 FK 约束（`internal_transfers.assetId` RESTRICT）中止——Task 9 之前因表还空未曾撞到，Task 10 才补上登记（独立提交）。
+- **Task 9（新 e2e 截止时间）**：截止用真实"现在"而非固定种子时刻，且必须保证不跨 UTC 午夜——这是执行时定的实现约束，不是 plan 原文写明的；記入本节而非 `decisions.md`（不构成业主级业务裁决，是技术实现约束）。
+- **Task 11（demo 脚本重排 + 场景 17 金额）**：plan 估计场景 17 的退汇差额约 4800，实测种子铺出的差额是 3200（Grace 铺场时可用余额 3300）——`recon-demo.ts` 注释与 baseline 文档已按实测改口，不影响判据（判据看案件页当场显示值，不是硬编码金额）。
+- **Task 12（走查截图）**：评审补上两处 brief 未点名的旧口径：认损锁定视图仍沿用旧「核销」家族前缀常量（需按 `reasonCode` 改成「认损」）；处置弹层里退汇认领的说明文字仍写着"客户池待二期划转"（需改成认损 / 补录口径）——与 Task 4 发现的手册旧口径同一类缺陷：功能上线后没人回头改写死的旧状态文案。
+
+### 执行中发现的新事实
+
+- `cases.book` 落库存的是 `'CUSTOMER'`，而 `adjustments.book` 存的是 `'CLIENT'|'FIRM'`——两张表口径不同，判断账簿归属统一按 `=== 'FIRM'`。
+- 模拟托管方对账单镜像行在腿 **SUBMITTED** 时写入，账本在腿 **CONFIRMED** 时落账——两者不是同一时点，且互不重复计数（评审专门核对过）。
+- 加密币路径只有一条腿（直达），法币路径两条腿（经结算户，串行——腿 1 CLEAR 后腿 2 才诞生）。
+- `verify:coa` 在 e2e 挪动真钱之后仍全绿——两恒等式 + 负余额断言未被内部划转破坏。
+- demo 判据终态：17/17 场景 / 11/11 钱包（破口 8 / 软标记 2 / 在途 1）/ `casesOpened` 11/11 / `demo:all` 29/29；`recon:demo:break` 若只轻量重跑不整库重铺，场景 6（重复入账真写账本）会假性 MISSED（显示 16/17）——既有现象、baseline 已登记，非本波引入，但两个新场景加入后更容易被误读成检出退化，验收时须走整库重铺。
+
+### 三期前提有无变化
+
+- **补款划转已是一个可复用的赔付原语**：内部划转单今天只有两种诞生方式——补款（`initiateCompensation`，源 = 已过账的认损调账单 `adjustmentNo`）与垫款（`initiateAdvance`，源 = 案子 + 退汇账单行 `externalLineId`）。三期做「未授权转出事故认损后的赔付」时，需要给补款再加一条来源（`sourceIncidentNo`，指向三期的事故登记单），不是重新发明一条赔付通道。
+- `SimulatedCustodianStatementService`（模拟托管方回单）可以被三期直接复用——它只认"资金单腿提交"这个触发点，不关心资金单挂在哪个父类型下面，接线点已经通用。
+- 成因表现为 **20 码**（`FIRM_TRANSFER_UNTRACKED` 已退役），`UNAUTHORIZED_OUTFLOW` 仍然留档（出口"留档 · 事故升级（三期）"未变）——三期设计时这两点都是既定起点，不用重新盘点。
+- 复核人口径不变：三期涉及资金的动作（追索、赔付）复核人仍是 CFO；`UNAUTHORIZED_OUTFLOW` 定性时的上报留痕（对象 / 时限 / 依据）需求点依旧待三期设计补齐，本波未涉及。
+- 追索的入口已经确定：`purpose=CLIENT_ADVANCE` 的垫款单是它的锚点（客户欠公司的钱来自哪一张垫款单），但追索本身（客户 → 公司反向）**只登记不入账**——三期落地时这条已是既定事实，不必重新讨论账务模型。
 
 ## 0.1 已经定了的
 
