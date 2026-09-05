@@ -3,7 +3,6 @@ import { OnEvent } from '@nestjs/event-emitter';
 import { randomUUID } from 'crypto';
 import { AuditLogsService } from './audit-logs.service';
 import {
-  AuditBusinessWorkflowTypes,
   AuditEntityTypes,
 } from './constants/audit-actions.constant';
 import {

@@ -11,7 +11,6 @@ import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import {
   AuditActions,
   AuditEntityTypes,
-  AuditBusinessWorkflowTypes,
 } from '../../audit-logging/constants/audit-actions.constant';
 import { AuditOutcome } from '../../audit-logging/dto/audit-log.dto';
 import { generateReferenceNo } from '../../../common/utils/no-generator.util';

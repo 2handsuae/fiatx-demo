@@ -46,7 +46,6 @@ import { AuditActorContext, AuditCategory, AuditSubjectRole } from '../../../aud
 import {
   AuditActions,
   AuditEntityTypes,
-  AuditBusinessWorkflowTypes,
 } from '../../../audit-logging/constants/audit-actions.constant';
 
 const RUN_LAYER = 'WALLET';

@@ -9,7 +9,6 @@ import { PrismaService } from '../../core/prisma/prisma.service';
 import { generateReferenceNo } from '../../common/utils/no-generator.util';
 import {
   AuditActions,
-  AuditBusinessWorkflowTypes,
   AuditEntityTypes,
   AuditModules,
   mapRawAuditActionToUserAction,
