@@ -93,6 +93,7 @@
 - 状态机：各域 service 内显式迁移表（如 `withdraw-transactions.service.ts` 的 10 态 20 边）；工作流（`*-workflow.service.ts`）串主体
 - 账本：TigerBeetle 复式记账，9 码科目表，实时 1:1 逐腿 post；对账引擎在 `clearing-settle`
 - 权限：`rbac.catalog.ts` 集中登记端点 × 权限包
+- 两级门：**L1** = 平台内所有限制条件的判断（`L1GateService` 十项，三域共用），**L2** = Sumsub 合规判断；`OPERATION_PENDING` 只能从 L2 通过进入
 
 ## 6. 演示缺口
 

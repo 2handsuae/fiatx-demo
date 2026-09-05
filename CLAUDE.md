@@ -113,3 +113,4 @@ bash scripts/stack.sh status       # 看各栈端口与状态
 - 端口隔离铁律：每个栈只碰自己的端口段和 DB，禁止跨栈访问；起服务前 `lsof -ti:<端口段>` 确认无残留
 - ⚠️ `recon:demo` / `demo:*` / `verify:demo-data` 等 12 个 npm 脚本**必须经包装器**：主树 `bash scripts/on-stack.sh main <script>`，worktree 内 `bash scripts/on-stack.sh self <script>`。2026-08-31 起它们的内联默认值已全部剥除（此前 11 处默认连 **main 的 TigerBeetle**，漏套包装器 = 读自己的空库、写 main 的账本且不报错），改为缺 `DATABASE_URL`/`TB_ADDRESS` 时**当场 fail-fast 并提示正确用法**
 - **并行任务一律 worktree 隔离**：一会话 = 一 worktree（统一放 `.claude/worktrees/<名>/`）= 一分支 = 一套自动分的栈；要为某分支起服务只在它的 worktree 里 `stack.sh up`，绝不在主工作树切分支跑服务；合并后清 worktree + 分支
+- **合并进 main 后必做**：重启后端 + `npm run db:base:sync`（权限字典与内存 `RBAC_PERMISSION_DEFINITIONS` 都是旧的会 403）；动过 schema / seed 再 `stack.sh reset main`
