@@ -26,6 +26,7 @@ describe('WithdrawalAddressWorkflowService — deactivateAddress', () => {
     };
     auditLogsService = {
       recordSystem: jest.fn().mockResolvedValue({}),
+      recordByActor: jest.fn().mockResolvedValue({}),
     };
 
     workflow = new WithdrawalAddressWorkflowService(
@@ -40,15 +41,14 @@ describe('WithdrawalAddressWorkflowService — deactivateAddress', () => {
     const result = await workflow.deactivateAddress('WAD1001', 'cust-1', 'CUST0001', 'Customer requested deactivation');
 
     expect(addressService.deactivate).toHaveBeenCalledWith('WAD1001', 'cust-1');
-    expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
+    expect(auditLogsService.recordByActor).toHaveBeenCalledWith(
       expect.objectContaining({
         action: 'WITHDRAWAL_ADDRESS_DEACTIVATED',
-        actionDomain: 'CONFIG',
-        primarySubjectNo: 'WAD1001',
-        reason: 'Customer requested deactivation',
-        sourcePlatform: 'CLIENT_API',
-        ownerCustomerNo: 'CUST0001',
+        fromStatus: 'ACTIVE',
+        toStatus: 'DEACTIVATED',
+        requestId: expect.stringMatching(/^WITHDRAWAL_ADDRESS_DEACTIVATED_WAD1001_/),
       }),
+      expect.objectContaining({ actorType: 'CUSTOMER', actorNo: 'CUST0001' }),
     );
     expect(result).toEqual(deactivatedResult);
   });
@@ -62,6 +62,37 @@ describe('WithdrawalAddressWorkflowService — deactivateAddress', () => {
 
     expect(addressService.deactivate).not.toHaveBeenCalled();
     expect(auditLogsService.recordSystem).not.toHaveBeenCalled();
+  });
+
+  it('最后一个法币地址停不掉 → 主体层抛 LAST_ACTIVE_FIAT_ADDRESS，workflow 记 DENIED 后原样重抛', async () => {
+    const { BadRequestException } = await import('@nestjs/common');
+    addressService.deactivate.mockRejectedValue(
+      new BadRequestException({ code: 'LAST_ACTIVE_FIAT_ADDRESS', message: '这是最后一个可用法币提现地址' }),
+    );
+
+    await expect(workflow.deactivateAddress('WAD1001', 'cust-1', 'CUST0001', 'bye')).rejects.toMatchObject({
+      response: { code: 'LAST_ACTIVE_FIAT_ADDRESS' },
+    });
+    expect(auditLogsService.recordByActor).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'WITHDRAWAL_ADDRESS_REQUEST_DENIED',
+        actionDomain: 'CONFIG',
+        outcome: 'DENIED',
+        reasonCode: 'LAST_ACTIVE_FIAT_ADDRESS',
+        primarySubjectNo: 'WAD1001',
+        ownerCustomerNo: 'CUST0001',
+      }),
+      expect.objectContaining({ actorType: 'CUSTOMER' }),
+    );
+  });
+
+  it('非五门的错误（ADDRESS_NOT_FOUND 等）不记 DENIED', async () => {
+    addressService.findByNo.mockResolvedValue(null);
+    await expect(workflow.deactivateAddress('WAD9', 'cust-1', 'CUST0001', 'bye')).rejects.toThrow();
+    expect(auditLogsService.recordByActor).not.toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'WITHDRAWAL_ADDRESS_REQUEST_DENIED' }),
+      expect.anything(),
+    );
   });
 });
 
@@ -98,6 +129,7 @@ describe('WithdrawalAddressWorkflowService — registerAddress (crypto) fiat-add
     };
     auditLogsService = {
       recordSystem: jest.fn().mockResolvedValue({}),
+      recordByActor: jest.fn().mockResolvedValue({}),
     };
     trAdapter = {
       attributeAddress: jest.fn().mockResolvedValue({ attributed: false }),
@@ -120,6 +152,13 @@ describe('WithdrawalAddressWorkflowService — registerAddress (crypto) fiat-add
 
     expect(addressService.hasActiveFiatWithdrawalAddress).toHaveBeenCalledWith('cust-1');
     expect(addressService.create).not.toHaveBeenCalled();
+    expect(auditLogsService.recordByActor).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'WITHDRAWAL_ADDRESS_REQUEST_DENIED',
+        reasonCode: 'NO_ACTIVE_FIAT_WITHDRAWAL_ADDRESS',
+      }),
+      expect.objectContaining({ actorType: 'CUSTOMER' }),
+    );
   });
 
   it('proceeds when customer has an active fiat withdrawal address', async () => {
@@ -128,6 +167,13 @@ describe('WithdrawalAddressWorkflowService — registerAddress (crypto) fiat-add
     expect(addressService.hasActiveFiatWithdrawalAddress).toHaveBeenCalledWith('cust-1');
     expect(addressService.create).toHaveBeenCalled();
     expect(result).toEqual(createdAddress);
+    expect(auditLogsService.recordByActor).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'WITHDRAWAL_ADDRESS_REGISTERED',
+        requestId: expect.stringMatching(/^WITHDRAWAL_ADDRESS_REGISTERED_/),
+      }),
+      expect.objectContaining({ actorType: 'CUSTOMER' }),
+    );
   });
 
   it('rejects a bank-rail network (AED_ZAND) for on-chain registration (NETWORK_NOT_CHAIN)', async () => {
@@ -227,6 +273,7 @@ describe('WithdrawalAddressWorkflowService — updateAddress', () => {
     };
     auditLogsService = {
       recordSystem: jest.fn().mockResolvedValue({}),
+      recordByActor: jest.fn().mockResolvedValue({}),
     };
 
     workflow = new WithdrawalAddressWorkflowService(
@@ -241,7 +288,7 @@ describe('WithdrawalAddressWorkflowService — updateAddress', () => {
     const result = await workflow.updateAddress('WAD1001', 'cust-1', 'CUST0001', { label: 'new label' });
 
     expect(addressService.updateDetails).toHaveBeenCalledWith('WAD1001', 'cust-1', { label: 'new label' });
-    expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
+    expect(auditLogsService.recordByActor).toHaveBeenCalledWith(
       expect.objectContaining({
         action: 'WITHDRAWAL_ADDRESS_UPDATED',
         actionDomain: 'CONFIG',
@@ -250,7 +297,9 @@ describe('WithdrawalAddressWorkflowService — updateAddress', () => {
         afterData: { label: 'new label', beneficiaryName: null },
         sourcePlatform: 'CLIENT_API',
         ownerCustomerNo: 'CUST0001',
+        requestId: expect.stringMatching(/^WITHDRAWAL_ADDRESS_UPDATED_WAD1001_/),
       }),
+      expect.objectContaining({ actorType: 'CUSTOMER', actorNo: 'CUST0001' }),
     );
     expect(result).toEqual(updatedResult);
   });
@@ -310,6 +359,7 @@ describe('WithdrawalAddressWorkflowService — registerBankAccount (fiat) not ga
     };
     auditLogsService = {
       recordSystem: jest.fn().mockResolvedValue({}),
+      recordByActor: jest.fn().mockResolvedValue({}),
     };
 
     workflow = new WithdrawalAddressWorkflowService(

@@ -1,11 +1,10 @@
-import { Injectable, Inject, Logger, NotFoundException, BadRequestException, ForbiddenException } from '@nestjs/common';
+import { Injectable, Inject, Logger, NotFoundException, BadRequestException, ForbiddenException, HttpException } from '@nestjs/common';
 import { PrismaService } from '../../../core/prisma/prisma.service';
 import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import {
-  AuditBusinessWorkflowTypes,
   AuditEntityTypes,
 } from '../../audit-logging/constants/audit-actions.constant';
-import { AuditOutcome } from '../../audit-logging/dto/audit-log.dto';
+import { AuditOutcome, AuditActorContext } from '../../audit-logging/dto/audit-log.dto';
 import { WithdrawalAddressService, BANK_RAIL_NETWORK } from './withdrawal-address.service';
 import { TRAVEL_RULE_ADAPTER, TravelRuleAdapter } from './travel-rule-adapter.interface';
 import { CreateWithdrawalAddressDto } from './dto/create-withdrawal-address.dto';
@@ -25,6 +24,49 @@ export class WithdrawalAddressWorkflowService {
     private readonly trAdapter: TravelRuleAdapter,
   ) {}
 
+  /** 五门：主体层抛的业务拒绝码（其余异常不算「被拦下」，不记） */
+  private static readonly DENIED_GATE_CODES: ReadonlySet<string> = new Set([
+    'ADDRESS_LIMIT_REACHED',
+    'COOLING_PERIOD_NOT_EXPIRED',
+    'LAST_ACTIVE_FIAT_ADDRESS',
+    'ADDRESS_HAS_INFLIGHT_WITHDRAWAL',
+    'NO_ACTIVE_FIAT_WITHDRAWAL_ADDRESS',
+  ]);
+
+  private customerActor(customerNo: string): AuditActorContext {
+    return { actorType: 'CUSTOMER', actorNo: customerNo, actorDisplayName: customerNo, actorRolesAtTime: ['CUSTOMER'] };
+  }
+
+  /**
+   * 法一·被拦下也留痕：主体层照抛（铁律③ 主体不写审计），这里认出五门的 code 就记一条 DENIED，再原样重抛。
+   */
+  private async recordDeniedAndRethrow(
+    err: unknown,
+    ctx: { attempted: string; addressNo?: string; customerNo: string; actor: AuditActorContext; sourcePlatform: 'CLIENT_API' | 'ADMIN_API'; metadata?: Record<string, unknown> },
+  ): Promise<never> {
+    const body: any = err instanceof HttpException ? err.getResponse() : null;
+    const code: string | undefined = body && typeof body === 'object' ? body.code : undefined;
+    if (code && WithdrawalAddressWorkflowService.DENIED_GATE_CODES.has(code)) {
+      await this.auditLogsService.recordByActor(
+        {
+          action: 'WITHDRAWAL_ADDRESS_REQUEST_DENIED',
+          actionDomain: 'CONFIG',
+          primarySubjectType: AuditEntityTypes.WITHDRAWAL_ADDRESS,
+          primarySubjectNo: ctx.addressNo,
+          outcome: AuditOutcome.DENIED,
+          reasonCode: code,
+          reason: `${ctx.attempted} denied: ${body.message ?? code}`,
+          metadata: ctx.metadata,
+          ownerCustomerNo: ctx.customerNo,
+          requestId: `WITHDRAWAL_ADDRESS_REQUEST_DENIED_${ctx.addressNo ?? ctx.customerNo}_${crypto.randomUUID()}`,
+          sourcePlatform: ctx.sourcePlatform,
+        } as any,
+        ctx.actor,
+      );
+    }
+    throw err;
+  }
+
   async registerAddress(dto: CreateWithdrawalAddressDto, customerId: string, customerNo: string) {
     const customer = await (this.prisma as any).customerMain.findUnique({ where: { id: customerId } });
     if (!customer) throw new NotFoundException({ code: 'CUSTOMER_NOT_FOUND', message: 'Customer not found' });
@@ -41,10 +83,10 @@ export class WithdrawalAddressWorkflowService {
     }
 
     if (!(await this.addressService.hasActiveFiatWithdrawalAddress(customerId))) {
-      throw new ForbiddenException({
-        code: 'NO_ACTIVE_FIAT_WITHDRAWAL_ADDRESS',
-        message: '需要先创建并激活一个法币提现地址才能登记提现地址',
-      });
+      await this.recordDeniedAndRethrow(
+        new ForbiddenException({ code: 'NO_ACTIVE_FIAT_WITHDRAWAL_ADDRESS', message: '需要先创建并激活一个法币提现地址才能登记提现地址' }),
+        { attempted: 'registerAddress', customerNo, actor: this.customerActor(customerNo), sourcePlatform: 'CLIENT_API', metadata: { network: network.code } },
+      );
     }
 
     const traceId = crypto.randomUUID();
@@ -66,19 +108,25 @@ export class WithdrawalAddressWorkflowService {
       ownershipDeclaredAt: new Date(),
       ownershipProofType: 'DECLARATION',
       traceId,
-    });
+    }).catch((err) =>
+      this.recordDeniedAndRethrow(err, { attempted: 'registerAddress', customerNo, actor: this.customerActor(customerNo), sourcePlatform: 'CLIENT_API', metadata: { network: network.code, address: dto.address } }),
+    );
 
-    await this.auditLogsService.recordSystem({
-      action: 'WITHDRAWAL_ADDRESS_REGISTERED',
-      actionDomain: 'CONFIG',
-      primarySubjectType: AuditEntityTypes.WITHDRAWAL_ADDRESS,
-      primarySubjectNo: address.addressNo,
-      correlationId: traceId,
-      outcome: AuditOutcome.SUCCESS,
-      afterData: { addressType, address: dto.address, network: network.code, counterpartyVaspName: attribution.vaspName, label: dto.label },
-      sourcePlatform: 'CLIENT_API',
-      ownerCustomerNo: customerNo,
-    });
+    await this.auditLogsService.recordByActor(
+      {
+        action: 'WITHDRAWAL_ADDRESS_REGISTERED',
+        actionDomain: 'CONFIG',
+        primarySubjectType: AuditEntityTypes.WITHDRAWAL_ADDRESS,
+        primarySubjectNo: address.addressNo,
+        correlationId: traceId,
+        outcome: AuditOutcome.SUCCESS,
+        afterData: { addressType, address: dto.address, network: network.code, counterpartyVaspName: attribution.vaspName, label: dto.label },
+        sourcePlatform: 'CLIENT_API',
+        ownerCustomerNo: customerNo,
+        requestId: `WITHDRAWAL_ADDRESS_REGISTERED_${address.addressNo}_${crypto.randomUUID()}`,
+      } as any,
+      this.customerActor(customerNo),
+    );
 
     this.logger.log(`Withdrawal address ${address.addressNo} registered by customer ${customerNo}`);
     return address;
@@ -107,24 +155,30 @@ export class WithdrawalAddressWorkflowService {
       ownershipDeclaredAt: new Date(),
       ownershipProofType: 'DECLARATION',
       traceId,
-    });
+    }).catch((err) =>
+      this.recordDeniedAndRethrow(err, { attempted: 'registerBankAccount', customerNo, actor: this.customerActor(customerNo), sourcePlatform: 'CLIENT_API' }),
+    );
 
     const cleanIban = dto.iban.replace(/\s/g, '').toUpperCase();
     const maskedIban = cleanIban.length > 8
       ? `${cleanIban.slice(0, 4)}****${cleanIban.slice(-4)}`
       : cleanIban;
 
-    await this.auditLogsService.recordSystem({
-      action: 'WITHDRAWAL_ADDRESS_REGISTERED',
-      actionDomain: 'CONFIG',
-      primarySubjectType: AuditEntityTypes.WITHDRAWAL_ADDRESS,
-      primarySubjectNo: address.addressNo,
-      correlationId: traceId,
-      outcome: AuditOutcome.SUCCESS,
-      afterData: { addressType: 'BANK', iban: maskedIban, bankName: dto.bankName, network: BANK_RAIL_NETWORK, skipCooling: address.status === 'ACTIVE' },
-      sourcePlatform: 'CLIENT_API',
-      ownerCustomerNo: customerNo,
-    });
+    await this.auditLogsService.recordByActor(
+      {
+        action: 'WITHDRAWAL_ADDRESS_REGISTERED',
+        actionDomain: 'CONFIG',
+        primarySubjectType: AuditEntityTypes.WITHDRAWAL_ADDRESS,
+        primarySubjectNo: address.addressNo,
+        correlationId: traceId,
+        outcome: AuditOutcome.SUCCESS,
+        afterData: { addressType: 'BANK', iban: maskedIban, bankName: dto.bankName, network: BANK_RAIL_NETWORK, skipCooling: address.status === 'ACTIVE' },
+        sourcePlatform: 'CLIENT_API',
+        ownerCustomerNo: customerNo,
+        requestId: `WITHDRAWAL_ADDRESS_REGISTERED_${address.addressNo}_${crypto.randomUUID()}`,
+      } as any,
+      this.customerActor(customerNo),
+    );
 
     this.logger.log(`Bank account ${address.addressNo} registered by customer ${customerNo}`);
     return address;
@@ -135,20 +189,28 @@ export class WithdrawalAddressWorkflowService {
     const existing = await this.addressService.findByNo(addressNo);
     if (!existing) throw new NotFoundException({ code: 'ADDRESS_NOT_FOUND', message: `Address ${addressNo} not found` });
 
-    const result = await this.addressService.cancel(addressNo, customerId);
+    const result = await this.addressService.cancel(addressNo, customerId).catch((err) =>
+      this.recordDeniedAndRethrow(err, { attempted: 'cancelAddress', addressNo, customerNo, actor: this.customerActor(customerNo), sourcePlatform: 'CLIENT_API' }),
+    );
 
-    await this.auditLogsService.recordSystem({
-      action: 'WITHDRAWAL_ADDRESS_CANCELLED',
-      actionDomain: 'CONFIG',
-      primarySubjectType: AuditEntityTypes.WITHDRAWAL_ADDRESS,
-      primarySubjectNo: addressNo,
-      correlationId: existing.traceId,
-      outcome: AuditOutcome.SUCCESS,
-      reason,
-      metadata: { cancelledByCustomerNo: customerNo },
-      sourcePlatform: 'CLIENT_API',
-      ownerCustomerNo: customerNo,
-    });
+    await this.auditLogsService.recordByActor(
+      {
+        action: 'WITHDRAWAL_ADDRESS_CANCELLED',
+        actionDomain: 'CONFIG',
+        primarySubjectType: AuditEntityTypes.WITHDRAWAL_ADDRESS,
+        primarySubjectNo: addressNo,
+        correlationId: existing.traceId,
+        outcome: AuditOutcome.SUCCESS,
+        reason,
+        fromStatus: existing.status,
+        toStatus: result.status,
+        metadata: { cancelledByCustomerNo: customerNo },
+        sourcePlatform: 'CLIENT_API',
+        ownerCustomerNo: customerNo,
+        requestId: `WITHDRAWAL_ADDRESS_CANCELLED_${addressNo}_${crypto.randomUUID()}`,
+      } as any,
+      this.customerActor(customerNo),
+    );
 
     return result;
   }
@@ -158,20 +220,28 @@ export class WithdrawalAddressWorkflowService {
     const existing = await this.addressService.findByNo(addressNo);
     if (!existing) throw new NotFoundException({ code: 'ADDRESS_NOT_FOUND', message: `Address ${addressNo} not found` });
 
-    const result = await this.addressService.deactivate(addressNo, customerId);
+    const result = await this.addressService.deactivate(addressNo, customerId).catch((err) =>
+      this.recordDeniedAndRethrow(err, { attempted: 'deactivateAddress', addressNo, customerNo, actor: this.customerActor(customerNo), sourcePlatform: 'CLIENT_API' }),
+    );
 
-    await this.auditLogsService.recordSystem({
-      action: 'WITHDRAWAL_ADDRESS_DEACTIVATED',
-      actionDomain: 'CONFIG',
-      primarySubjectType: AuditEntityTypes.WITHDRAWAL_ADDRESS,
-      primarySubjectNo: addressNo,
-      correlationId: existing.traceId,
-      outcome: AuditOutcome.SUCCESS,
-      reason,
-      metadata: { deactivatedByCustomerNo: customerNo },
-      sourcePlatform: 'CLIENT_API',
-      ownerCustomerNo: customerNo,
-    });
+    await this.auditLogsService.recordByActor(
+      {
+        action: 'WITHDRAWAL_ADDRESS_DEACTIVATED',
+        actionDomain: 'CONFIG',
+        primarySubjectType: AuditEntityTypes.WITHDRAWAL_ADDRESS,
+        primarySubjectNo: addressNo,
+        correlationId: existing.traceId,
+        outcome: AuditOutcome.SUCCESS,
+        reason,
+        fromStatus: existing.status,
+        toStatus: result.status,
+        metadata: { deactivatedByCustomerNo: customerNo },
+        sourcePlatform: 'CLIENT_API',
+        ownerCustomerNo: customerNo,
+        requestId: `WITHDRAWAL_ADDRESS_DEACTIVATED_${addressNo}_${crypto.randomUUID()}`,
+      } as any,
+      this.customerActor(customerNo),
+    );
 
     return result;
   }
@@ -190,10 +260,13 @@ export class WithdrawalAddressWorkflowService {
         primarySubjectNo: addressNo,
         correlationId: existing.traceId,
         outcome: AuditOutcome.SUCCESS,
+        fromStatus: existing.status,
+        toStatus: result.status,
         metadata: { activatedBy },
         sourcePlatform: 'SYSTEM',
         ownerCustomerNo: existing.customerNo,
-      });
+        requestId: `WITHDRAWAL_ADDRESS_ACTIVATED_${addressNo}_${crypto.randomUUID()}`,
+      } as any);
     }
 
     return result;
@@ -203,7 +276,11 @@ export class WithdrawalAddressWorkflowService {
     const existing = await this.addressService.findByNo(addressNo);
     if (!existing) throw new NotFoundException({ code: 'ADDRESS_NOT_FOUND', message: `Address ${addressNo} not found` });
 
-    const result = await this.addressService.suspend(addressNo, actor.userNo, reason);
+    const adminActor: AuditActorContext = { actorType: 'ADMIN', actorNo: actor.userNo || 'UNKNOWN', actorDisplayName: actor.userNo || 'UNKNOWN', actorRolesAtTime: [actor.role || 'UNKNOWN'] };
+
+    const result = await this.addressService.suspend(addressNo, actor.userNo, reason).catch((err) =>
+      this.recordDeniedAndRethrow(err, { attempted: 'suspendAddress', addressNo, customerNo: existing.customerNo, actor: adminActor, sourcePlatform: 'ADMIN_API' }),
+    );
 
     await this.auditLogsService.recordByActor(
       {
@@ -214,11 +291,14 @@ export class WithdrawalAddressWorkflowService {
         correlationId: existing.traceId,
         outcome: AuditOutcome.SUCCESS,
         reason,
+        fromStatus: existing.status,
+        toStatus: result.status,
         metadata: { suspendedBy: actor.userNo },
         sourcePlatform: 'ADMIN_API',
         ownerCustomerNo: existing.customerNo,
-      },
-      { actorType: 'ADMIN', actorNo: actor.userNo || 'UNKNOWN', actorDisplayName: actor.userNo || 'UNKNOWN', actorRolesAtTime: [actor.role || 'UNKNOWN'] },
+        requestId: `WITHDRAWAL_ADDRESS_SUSPENDED_${addressNo}_${crypto.randomUUID()}`,
+      } as any,
+      adminActor,
     );
 
     return result;
@@ -246,7 +326,11 @@ export class WithdrawalAddressWorkflowService {
     const existing = await this.addressService.findByNo(addressNo);
     if (!existing) throw new NotFoundException({ code: 'ADDRESS_NOT_FOUND', message: `Address ${addressNo} not found` });
 
-    const result = await this.addressService.skipCooling(addressNo);
+    const adminActor: AuditActorContext = { actorType: 'ADMIN', actorNo: actor.userNo || 'UNKNOWN', actorDisplayName: actor.userNo || 'UNKNOWN', actorRolesAtTime: [actor.role || 'UNKNOWN'] };
+
+    const result = await this.addressService.skipCooling(addressNo).catch((err) =>
+      this.recordDeniedAndRethrow(err, { attempted: 'skipCoolingPeriod', addressNo, customerNo: existing.customerNo, actor: adminActor, sourcePlatform: 'ADMIN_API' }),
+    );
 
     await this.auditLogsService.recordByActor(
       {
@@ -257,11 +341,14 @@ export class WithdrawalAddressWorkflowService {
         correlationId: existing.traceId,
         outcome: AuditOutcome.SUCCESS,
         reason,
+        fromStatus: existing.status,
+        toStatus: result.status,
         metadata: { skippedBy: actor.userNo },
         sourcePlatform: 'ADMIN_API',
         ownerCustomerNo: existing.customerNo,
-      },
-      { actorType: 'ADMIN', actorNo: actor.userNo || 'UNKNOWN', actorDisplayName: actor.userNo || 'UNKNOWN', actorRolesAtTime: [actor.role || 'UNKNOWN'] },
+        requestId: `WITHDRAWAL_ADDRESS_COOLING_SKIPPED_${addressNo}_${crypto.randomUUID()}`,
+      } as any,
+      adminActor,
     );
 
     return result;
@@ -271,19 +358,23 @@ export class WithdrawalAddressWorkflowService {
     const existing = await this.addressService.findByNo(addressNo);
     if (!existing) throw new NotFoundException({ code: 'ADDRESS_NOT_FOUND', message: `Address ${addressNo} not found` });
     const result = await this.addressService.updateDetails(addressNo, customerId, patch);
-    await this.auditLogsService.recordSystem({
-      action: 'WITHDRAWAL_ADDRESS_UPDATED',
-      actionDomain: 'CONFIG',
-      primarySubjectType: AuditEntityTypes.WITHDRAWAL_ADDRESS,
-      primarySubjectNo: addressNo,
-      correlationId: existing.traceId,
-      outcome: AuditOutcome.SUCCESS,
-      beforeData: { label: existing.label, beneficiaryName: existing.beneficiaryName },
-      afterData: { label: result.label, beneficiaryName: result.beneficiaryName },
-      metadata: { updatedByCustomerNo: customerNo },
-      sourcePlatform: 'CLIENT_API',
-      ownerCustomerNo: customerNo,
-    });
+    await this.auditLogsService.recordByActor(
+      {
+        action: 'WITHDRAWAL_ADDRESS_UPDATED',
+        actionDomain: 'CONFIG',
+        primarySubjectType: AuditEntityTypes.WITHDRAWAL_ADDRESS,
+        primarySubjectNo: addressNo,
+        correlationId: existing.traceId,
+        outcome: AuditOutcome.SUCCESS,
+        beforeData: { label: existing.label, beneficiaryName: existing.beneficiaryName },
+        afterData: { label: result.label, beneficiaryName: result.beneficiaryName },
+        metadata: { updatedByCustomerNo: customerNo },
+        sourcePlatform: 'CLIENT_API',
+        ownerCustomerNo: customerNo,
+        requestId: `WITHDRAWAL_ADDRESS_UPDATED_${addressNo}_${crypto.randomUUID()}`,
+      } as any,
+      this.customerActor(customerNo),
+    );
     return result;
   }
 
@@ -301,10 +392,13 @@ export class WithdrawalAddressWorkflowService {
         correlationId: existing.traceId,
         outcome: AuditOutcome.SUCCESS,
         reason,
+        fromStatus: existing.status,
+        toStatus: result.status,
         metadata: { unsuspendedBy: actor.userNo },
         sourcePlatform: 'ADMIN_API',
         ownerCustomerNo: existing.customerNo,
-      },
+        requestId: `WITHDRAWAL_ADDRESS_UNSUSPENDED_${addressNo}_${crypto.randomUUID()}`,
+      } as any,
       { actorType: 'ADMIN', actorNo: actor.userNo || 'UNKNOWN', actorDisplayName: actor.userNo || 'UNKNOWN', actorRolesAtTime: [actor.role || 'UNKNOWN'] },
     );
     return result;
