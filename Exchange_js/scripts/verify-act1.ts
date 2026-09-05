@@ -513,14 +513,14 @@ async function main(): Promise<void> {
     return v3row?.status === 'COMPLIANCE_PENDING' && v3row?.limitHoldReason === 'ASSET_SUSPENDED' && !!v3row?.sumsubTxnId;
   }, 15_000, 300));
   const v3snap = v3row?.l1Snapshot ? JSON.parse(v3row.l1Snapshot) : null;
-  const v3held = depositId ? await prisma.auditLogEvent.findFirst({
-    where: { action: 'DEPOSIT_L1_HELD', primarySubjectNo: v3row?.depositNo, recordedAt: { gte: vStart } },
+  const v3held = v3row ? await prisma.auditLogEvent.findFirst({
+    where: { action: 'DEPOSIT_L1_HELD', primarySubjectNo: v3row.depositNo, recordedAt: { gte: vStart } },
     include: { subjects: true },
   }) : null;
   judge(
     'V3',
     v3ok && v3snap?.checks?.some((c: any) => c.code === 'ASSET_AVAILABILITY' && c.outcome === 'FAIL')
-      && !!v3held && v3held.fromStatus == null
+      && !!v3held && v3held.fromStatus == null && v3held.toStatus == null
       && v3held.subjects.some((s: any) => s.subjectType === 'ASSET' && s.subjectNo === usdt.assetNo && s.subjectRole === 'RELATED'),
     `暂停期间入金 scan → depositIds=${JSON.stringify(scan.json?.depositIds)} status=${v3row?.status} hold=${v3row?.limitHoldReason} sumsubTxnId=${v3row?.sumsubTxnId ? '有' : '无'} DEPOSIT_L1_HELD=${v3held ? '有' : '无'}`,
   );
@@ -570,7 +570,8 @@ async function main(): Promise<void> {
 
   if (addr1No) {
     precheckRoute('POST', '/admin/withdrawal-addresses/:addressNo/skip-cooling');
-    await call('POST', `/admin/withdrawal-addresses/${addr1No}/skip-cooling`, tokens.treasury, { reason: 'verify:act1 V2 需要一个 ACTIVE 地址' });
+    const skipCooling = await call('POST', `/admin/withdrawal-addresses/${addr1No}/skip-cooling`, tokens.treasury, { reason: 'verify:act1 V2 需要一个 ACTIVE 地址' });
+    if (skipCooling.status >= 300) throw new Error(`skip-cooling ${addr1No} → ${skipCooling.status} ${skipCooling.text}`);
   }
   const activeAddr = await prisma.withdrawalAddress.findFirst({ where: { customerId: alice.id, network: 'TRON', status: 'ACTIVE' } });
 
@@ -627,9 +628,15 @@ async function main(): Promise<void> {
 
   // ── V10：取证路径本身进判据——审计页 Subject No 栏按资产号能拉出被它拦下的单
   const v10 = await call('GET', `/admin/audit-logs?subjectNo=${encodeURIComponent(usdt.assetNo!)}&take=100`, tokens.admin);
-  const v10actions: string[] = (v10.json?.items ?? []).map((i: any) => i.action);
-  judge('V10', v10.status === 200 && v10actions.includes('SWAP_L1_BLOCKED') && v10actions.includes('DEPOSIT_HELD'),
-    `GET audit-logs?subjectNo=${usdt.assetNo} → ${v10.status}，含 ${['SWAP_L1_BLOCKED', 'DEPOSIT_HELD'].filter((a) => v10actions.includes(a)).join('+') || '无'}`);
+  // 不限时间窗会让 V10 吃到本资产历史上任何一次 SWAP_L1_BLOCKED/DEPOSIT_HELD——哪怕本轮 V1/V3
+  // 已经因回归而拦不下来，只要之前跑过一次就能常绿。按 vStart 门控只认本轮新写的行。
+  // audit-logs 响应体（audit-logs.service.ts#mapEvent）同时带 occurredAt 与 recordedAt，
+  // 两个写入点（swap-workflow.service.ts SWAP_L1_BLOCKED / deposit-workflow.service.ts
+  // DEPOSIT_HELD）都不显式传 occurredAt,两者等价于同一个 now()——occurredAt 优先、
+  // recordedAt 兜底。
+  const v10hit = (a: string) => (v10.json?.items ?? []).some((i: any) => i.action === a && new Date(i.occurredAt ?? i.recordedAt) >= vStart);
+  judge('V10', v10.status === 200 && v10hit('SWAP_L1_BLOCKED') && v10hit('DEPOSIT_HELD'),
+    `GET audit-logs?subjectNo=${usdt.assetNo} → ${v10.status}，含 ${['SWAP_L1_BLOCKED', 'DEPOSIT_HELD'].filter((a) => v10hit(a)).join('+') || '无'}`);
 
   // ══════════════════════ 汇总 ══════════════════════
 
