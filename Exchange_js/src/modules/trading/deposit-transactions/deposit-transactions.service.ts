@@ -210,6 +210,7 @@ export class DepositTransactionsService {
       take,
       depositNo,
       ownerId,
+      ownerNo,
       ownerType,
       assetId,
       toWalletId,
@@ -222,6 +223,9 @@ export class DepositTransactionsService {
 
     if (depositNo) where.depositNo = { contains: depositNo };
     if (ownerId) where.ownerId = ownerId;
+    // DepositTransaction 表本身无 ownerNo 列（见 CustomerMain 关联），按客户
+    // 业务键过滤走 customer 关系（客户详情页 → 三域交易跳转，第二幕波一）。
+    if (ownerNo) where.customer = { customerNo: ownerNo };
     if (ownerType) where.ownerType = ownerType;
     if (assetId) where.assetId = assetId;
     if (toWalletId) where.toWalletId = toWalletId;

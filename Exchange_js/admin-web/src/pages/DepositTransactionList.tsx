@@ -1,6 +1,6 @@
 // admin-web/src/pages/DepositTransactionList.tsx
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { RefreshCw, Search } from 'lucide-react';
 import { ListFooter } from '../components/common/ListFooter';
 import {
@@ -80,8 +80,13 @@ const fmt = (v?: string | null): string => {
 
 const DepositTransactionList = () => {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
 
-  const [filters, setFilters] = useState<FilterState>(DEFAULT_FILTERS);
+  // 客户详情页 → 三域交易跳转（第二幕波一）：深链 ?ownerNo= 初始化过滤，铁律⑥。
+  const [filters, setFilters] = useState<FilterState>(() => ({
+    ...DEFAULT_FILTERS,
+    ownerNo: searchParams.get('ownerNo')?.trim() ?? '',
+  }));
   const [items, setItems] = useState<DepositItem[]>([]);
   const [total, setTotal] = useState(0);
   const [currentPage, setCurrentPage] = useState(1);
@@ -135,7 +140,10 @@ const DepositTransactionList = () => {
     }
   };
 
-  useEffect(() => { void fetchItems(1, DEFAULT_FILTERS); }, []);
+  useEffect(() => {
+    void fetchItems(1, filters);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   /* ── Filter helpers ── */
 

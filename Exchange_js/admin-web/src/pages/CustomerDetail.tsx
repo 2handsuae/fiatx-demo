@@ -1,9 +1,9 @@
 import { Fragment, useEffect, useMemo, useState, type ReactNode } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams } from 'react-router-dom';
 import { RefreshCw } from 'lucide-react';
 import RestrictionOpenModal from '../components/RestrictionOpenModal';
 import RestrictionReleaseModal from '../components/RestrictionReleaseModal';
-import MaterialRequestPanel from '../components/MaterialRequestPanel';
+import MaterialRequestPanel, { type AdminMaterialRequestRow } from '../components/MaterialRequestPanel';
 import MaterialRequestIssueModal from '../components/MaterialRequestIssueModal';
 import { DetailPageHeader } from '../components/compliance/DetailPageComponents';
 import { adminButtonClass } from '../components/common/adminButtonStyles';
@@ -181,6 +181,7 @@ const CustomerDetail = () => {
   const [restrictionModalOpen, setRestrictionModalOpen] = useState(false);
   const [materialRequestModalOpen, setMaterialRequestModalOpen] = useState(false);
   const [materialRequestsRefreshKey, setMaterialRequestsRefreshKey] = useState(0);
+  const [materialRequestRows, setMaterialRequestRows] = useState<AdminMaterialRequestRow[]>([]);
   const [releaseTarget, setReleaseTarget] = useState<AdminRestrictionRow | null>(null);
   const [restrictions, setRestrictions] = useState<AdminRestrictionRow[]>([]);
   const [restrictionsLoading, setRestrictionsLoading] = useState(false);
@@ -418,6 +419,9 @@ const CustomerDetail = () => {
   const isCorporate = detail.customerType === 'CORPORATE';
   const openRestrictions = restrictions.filter((r) => r.status === 'OPEN');
   const releasedRestrictions = restrictions.filter((r) => r.status === 'RELEASED');
+  // 材料终拒 = 离场出口（decisions.md 2026-09-06 业主拍板）：任一材料请求走到
+  // REJECTED（RED · FINAL）即触发，RETRY 不算——见 material-request.constant.ts。
+  const hasFinalMaterialRejection = materialRequestRows.some((r) => r.status === 'REJECTED');
 
   /* ── Render ── */
 
@@ -466,6 +470,12 @@ const CustomerDetail = () => {
               {openRestrictions.length > 0 && (
                 <span className="inline-flex items-center rounded border border-adm-red/25 bg-adm-red/10 px-1.5 py-px font-mono text-[9px] font-semibold text-adm-red">
                   {openRestrictions.length} RESTRICTION{openRestrictions.length === 1 ? '' : 'S'}
+                </span>
+              )}
+              {/* 材料终拒待离场（第二幕波一；decisions.md 2026-09-06）：只读展示，无按钮 */}
+              {hasFinalMaterialRejection && (
+                <span className="inline-flex items-center rounded border border-adm-red/25 bg-adm-red/10 px-1.5 py-px font-mono text-[9px] font-semibold text-adm-red">
+                  尽调未完成 · 待离场处理
                 </span>
               )}
             </div>
@@ -610,6 +620,34 @@ const CustomerDetail = () => {
               </FieldGrid>
             </section>
           )}
+
+          {/* 客户名下交易入口（第二幕③联动走查用；铁律⑥ 参数用业务键） */}
+          <section className="px-6 py-5">
+            <Cap>Transactions</Cap>
+            <p className="mt-1 mb-3 font-mono text-[9px] text-adm-t3">
+              Jump to this customer's transactions in each trading domain.
+            </p>
+            <div className="flex flex-wrap gap-2">
+              <Link
+                to={`/admin/trading/deposits?ownerNo=${detail.customerNo}`}
+                className={adminButtonClass('detailUtility')}
+              >
+                Deposits →
+              </Link>
+              <Link
+                to={`/admin/trading/withdrawals?ownerNo=${detail.customerNo}`}
+                className={adminButtonClass('detailUtility')}
+              >
+                Withdrawals →
+              </Link>
+              <Link
+                to={`/admin/trading/swaps?ownerNo=${detail.customerNo}`}
+                className={adminButtonClass('detailUtility')}
+              >
+                Swaps →
+              </Link>
+            </div>
+          </section>
 
           {/* ⑤ Restrictions —— 一行一张便签；🔇 = SILENT，后台可见客户不可见 */}
           {canReadRestrictions && (
@@ -782,6 +820,7 @@ const CustomerDetail = () => {
               customerNo={detail.customerNo}
               refreshKey={materialRequestsRefreshKey}
               onChanged={() => fetchRestrictions(detail.customerNo)}
+              onRowsChange={setMaterialRequestRows}
             />
           </section>
 

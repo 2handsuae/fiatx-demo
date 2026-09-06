@@ -298,6 +298,7 @@ export class WithdrawTransactionsService {
       take,
       withdrawNo,
       ownerId,
+      ownerNo,
       ownerType,
       assetId,
       status,
@@ -308,6 +309,8 @@ export class WithdrawTransactionsService {
 
     if (withdrawNo) where.withdrawNo = { contains: withdrawNo };
     if (ownerId) where.ownerId = ownerId;
+    // 客户详情页 → 三域交易跳转（第二幕波一）：按客户业务键过滤，见铁律⑥。
+    if (ownerNo) where.ownerNo = ownerNo;
     if (ownerType) where.ownerType = ownerType;
     if (assetId) where.assetId = assetId;
     if (status) where.status = Array.isArray(status) ? { in: status } : status;

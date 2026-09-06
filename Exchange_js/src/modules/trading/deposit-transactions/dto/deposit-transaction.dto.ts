@@ -45,6 +45,11 @@ export class DepositTransactionQueryDto {
   @IsString()
   ownerId?: string;
 
+  // 客户详情页 → 三域交易跳转（第二幕波一）：按客户业务键过滤，见铁律⑥。
+  @IsOptional()
+  @IsString()
+  ownerNo?: string;
+
   @IsOptional()
   @IsEnum(DepositOwnerType)
   ownerType?: DepositOwnerType;
