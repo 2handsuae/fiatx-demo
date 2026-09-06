@@ -360,14 +360,14 @@ describe('事故路认损（平账三期 Task 10）——outlet=INCIDENT 分支�
     const { svc } = makeSvc({
       incident: { incidentNo: 'INC-0001', status: 'ASSESSED', assessmentBasis: 'RECOVERED', assessedAmount: new Prisma.Decimal('1234.56') },
     });
-    await expect(svc.createDraft(dto as any, treasury)).rejects.toThrow(BadRequestException);
+    await expect(svc.createDraft(dto as any, treasury)).rejects.toThrow(/公司承损/);
   });
 
   it('金额 ≠ 定损额 → 400（锁额，认损金额不许多报少报）', async () => {
     const { svc } = makeSvc({
       incident: { incidentNo: 'INC-0001', status: 'ASSESSED', assessmentBasis: 'FIRM_LOSS', assessedAmount: new Prisma.Decimal('999.00') },
     });
-    await expect(svc.createDraft(dto as any, treasury)).rejects.toThrow(BadRequestException);
+    await expect(svc.createDraft(dto as any, treasury)).rejects.toThrow(/锁定为定损额/);
   });
 
   it('定性行是「事故·待登记」但还没挂事故单号（incidentNo 空）→ 400', async () => {
@@ -375,7 +375,7 @@ describe('事故路认损（平账三期 Task 10）——outlet=INCIDENT 分支�
       disposition: { dispositionNo: 'RCD-INC-2', outlet: 'INCIDENT', incidentNo: null, adjustmentNo: null },
       incident: null,
     });
-    await expect(svc.createDraft(dto as any, treasury)).rejects.toThrow(BadRequestException);
+    await expect(svc.createDraft(dto as any, treasury)).rejects.toThrow(/事故单号/);
   });
 
   it('reasonCode 配对不变：客户池仍必须 UNEXPLAINED_CLIENT_LOSS + REDUCE，多出来的（INCREASE）→ 400 指路补录', async () => {
