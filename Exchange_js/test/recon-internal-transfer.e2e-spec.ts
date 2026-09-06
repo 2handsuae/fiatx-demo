@@ -470,7 +470,7 @@ describe('Recon internal transfer e2e (平账二期, Task 9)', () => {
       explainedFlowId: row0.internalFlow!.id, explainedExternalLineId: row0.externalLine!.id,
       reasonInternal: 'e2e 客户池认损', reasonCustomer: '平台调整', dispositionNo: disp.dispositionNo,
     };
-    await expect(adjustments.createDraft({ ...woDto, reasonCode: 'UNEXPLAINED_WRITE_OFF' } as any, treasury())).rejects.toThrow(/客户池查无果认损/);
+    await expect(adjustments.createDraft({ ...woDto, reasonCode: 'UNEXPLAINED_WRITE_OFF' } as any, treasury())).rejects.toThrow(/客户池认损/);
     const { adjustmentNo } = await adjustments.createDraft(woDto as any, treasury());
     await adjustments.submit(adjustmentNo, treasury());
     const apr = await latestApprovalCase(ApprovalActionTypes.RECON_ADJUSTMENT_POST, adjustmentNo);

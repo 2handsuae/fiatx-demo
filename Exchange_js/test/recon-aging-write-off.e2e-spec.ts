@@ -528,7 +528,7 @@ describe('Recon case aging → write-off e2e (平账 A 批, Task 12)', () => {
     });
     const treasury = makeActor('E2E_TREASURY_C', 'TREASURY_OFFICER');
     const base = { caseNo: kase.caseNo, direction: 'REDUCE', amount: '7', effectiveDate: TODAY, explainedFlowId: flowId, reasonInternal: 'x', reasonCustomer: 'x' };
-    await expect(adjustments.createDraft({ ...base, reasonCode: 'UNEXPLAINED_WRITE_OFF' } as any, treasury)).rejects.toThrow(/客户池查无果认损/);
+    await expect(adjustments.createDraft({ ...base, reasonCode: 'UNEXPLAINED_WRITE_OFF' } as any, treasury)).rejects.toThrow(/客户池认损/);
     const { adjustmentNo } = await adjustments.createDraft({ ...base, reasonCode: 'UNEXPLAINED_CLIENT_LOSS' } as any, treasury);
     expect((await adjustmentRow(adjustmentNo)).book).toBe('CLIENT');
   });
