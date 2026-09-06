@@ -70,7 +70,9 @@ export type PermissionGroup =
   | 'WITHDRAWAL_FEE_LEVEL_READ'
   | 'WITHDRAWAL_FEE_LEVEL_WRITE'
   | 'SWAP_FEE_LEVEL_READ'
-  | 'SWAP_FEE_LEVEL_WRITE';
+  | 'SWAP_FEE_LEVEL_WRITE'
+  | 'INCIDENT_READ'
+  | 'INCIDENT_WRITE';
 
 export interface RbacPermissionDefinition {
   code: string;
@@ -400,6 +402,20 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
   route('GET', '/admin/internal-transfers/:transferNo', 'Get internal transfer detail', ['INTERNAL_TRANSFER_READ']),
   // 平账 A 批：⚡拨钟——把案件账龄截止拨到过去（演示件，挂现有拨钟组，桶 demo.act_clock 已涵盖 SLA timers）
   route('POST', '/admin/reconciliation/cases/:caseNo/simulate-aging-timeout', 'Fast-forward a reconciliation case past its aging line (demo only)', ['DEMO_CLOCK_WRITE']),
+
+  // Incident Register（平账三期）：controller 在 Task 8，本任务只登记 route（占位 404 无妨）
+  route('POST', '/admin/incidents', 'Register an incident (from a recon case or manually)', ['INCIDENT_WRITE']),
+  route('GET', '/admin/incidents', 'List incidents', ['INCIDENT_READ', 'INCIDENT_WRITE']),
+  route('GET', '/admin/incidents/:incidentNo', 'View incident detail', ['INCIDENT_READ', 'INCIDENT_WRITE']),
+  route('POST', '/admin/incidents/:incidentNo/investigation', 'Start investigation', ['INCIDENT_WRITE']),
+  route('POST', '/admin/incidents/:incidentNo/notes', 'Add investigation note', ['INCIDENT_WRITE']),
+  route('POST', '/admin/incidents/:incidentNo/escalate', 'Record an escalation (MLRO / CFO / senior management)', ['INCIDENT_WRITE']),
+  route('POST', '/admin/incidents/:incidentNo/assess', 'Record loss assessment and reporting decision', ['INCIDENT_WRITE']),
+  route('POST', '/admin/incidents/:incidentNo/remediations', 'Link a remediation order', ['INCIDENT_WRITE']),
+  route('POST', '/admin/incidents/:incidentNo/regulator-report', 'Save regulator report draft', ['INCIDENT_WRITE']),
+  route('POST', '/admin/incidents/:incidentNo/regulator-report/mark', 'Mark regulator report as filed', ['INCIDENT_WRITE']),
+  route('POST', '/admin/incidents/:incidentNo/close', 'Request incident closure (opens approval)', ['INCIDENT_WRITE']),
+  route('POST', '/admin/incidents/:incidentNo/withdraw', 'Withdraw a mis-registered incident', ['INCIDENT_WRITE']),
 
   // TB Ledger
   route('GET', '/admin/tb/accounts', 'List TB account registry', ['LEDGER_ACCOUNT_READ']),
@@ -834,6 +850,16 @@ export const ACTION_BUCKET_CATALOG: ActionDomain[] = [
       { key: 'recon.act_dispose', label: 'Record disposition conclusions', description: 'Record the investigated cause and outlet on a reconciliation diff row (hold / route / precede an adjustment)', groups: ['RECON_DISPOSITION_WRITE'] },
     ],
   },
+  // ─── Domain: Incident Register ───────────────────────
+  {
+    id: 'incidents',
+    label: 'Incident Register',
+    icon: '🚨',
+    buckets: [
+      { key: 'incidents.view', label: 'View incidents', description: 'Browse the incident register and reporting trail', groups: ['INCIDENT_READ', 'INCIDENT_WRITE'] },
+      { key: 'incidents.manage', label: 'Register & manage incidents', description: 'Register, investigate, assess, link remediations, request closure', groups: ['INCIDENT_WRITE'] },
+    ],
+  },
   // ─── Domain: Pricing ─────────────────────────────────
   {
     id: 'pricing',
@@ -886,6 +912,7 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
     'FUNDS_ORDER_VIEW',
     'RECON_RUN_READ', 'RECON_CASE_READ', 'RECON_EXTERNAL_BALANCE_READ', 'INTERNAL_TRANSFER_READ',
     'WITHDRAWAL_FEE_LEVEL_READ', 'SWAP_FEE_LEVEL_READ',
+    'INCIDENT_READ',
   ],
 
   CISO: [
@@ -907,6 +934,7 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
     'TRADING_DEPOSIT_READ', 'TRADING_WITHDRAW_READ', 'TRADING_SWAP_READ', 'SUMSUB_EVENT_VIEW',
     'FUNDS_ORDER_VIEW',
     'TRANSACTION_LIMIT_READ',
+    'INCIDENT_READ',
   ],
 
   DPO: [
@@ -915,6 +943,7 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
     'GOV_APPROVAL_READ', 'GOV_APPROVAL_POLICY_READ',
     'AUDIT_READ', 'AUDIT_EXPORT_READ', 'AUDIT_EXPORT_CREATE',
     'CUSTOMER_READ', 'CUSTOMER_RESTRICTION_READ', 'CUSTOMER_TAG_VIEW',
+    'INCIDENT_READ',
   ],
 
   // 全域只读 + 建证据包；一个 manage / act 包都不给 —— 这是本职务的全部意义
@@ -930,6 +959,7 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
     'FUNDS_ORDER_VIEW',
     'RECON_RUN_READ', 'RECON_CASE_READ', 'RECON_EXTERNAL_BALANCE_READ', 'INTERNAL_TRANSFER_READ',
     'WITHDRAWAL_FEE_LEVEL_READ', 'SWAP_FEE_LEVEL_READ',
+    'INCIDENT_READ',
   ],
 
   // 拦的手：开/解限制、贴撕标签、提解冻；管理台里推不动任何交易单据（D-不翻案）
@@ -968,6 +998,7 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
     // 挂在 GET /admin/customers/:customerNo/effective-tags 上（非本次新增用途，原本就在）。
     // 不带 CUSTOMER_READ——CFO 不查客户资料。
     'CUSTOMER_TAG_VIEW',
+    'INCIDENT_READ',
   ],
 
   // 提现地址的写权限全仓仅此一处；钱包地址行只从种子来，管理台只读。
@@ -988,6 +1019,7 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
     'RECON_CASE_READ', 'RECON_ADJUSTMENT_WRITE',
     // 平账二期：补款 / 垫款开单归金库——maker（金库）≠ checker（CFO），verify:rbac S5 守着；READ 走到列表 / 详情入口。
     'INTERNAL_TRANSFER_READ', 'INTERNAL_TRANSFER_WRITE',
+    'INCIDENT_WRITE',
   ],
 
   TECH_OFFICER: [
@@ -1023,6 +1055,7 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
     'RECON_RUN_READ', 'RECON_CASE_READ', 'RECON_EXTERNAL_BALANCE_READ', 'RECON_RUN_WRITE', 'RECON_DISPOSITION_WRITE', 'INTERNAL_TRANSFER_READ',
     'WITHDRAWAL_FEE_LEVEL_READ', 'SWAP_FEE_LEVEL_READ',
     'DEMO_CLOCK_WRITE',
+    'INCIDENT_WRITE',
   ],
 };
 
