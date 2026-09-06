@@ -14,8 +14,9 @@ import { AuditActions, AuditBusinessWorkflowTypes, AuditEntityTypes } from '../.
 import { AuditCategory, AuditSubjectInput, AuditSubjectRole } from '../../audit-logging/dto/audit-log.dto';
 import { ApprovalActorContext } from '../approvals/constants/approval.constants';
 import {
-  EscalateIncidentDto, INCIDENT_TRANSITIONS, IncidentRemediationKinds, IncidentStatus,
-  IncidentTypes, LinkRemediationDto, RegisterIncidentDto,
+  AssessIncidentDto, EscalateIncidentDto, INCIDENT_REPORT_BASES, INCIDENT_TRANSITIONS,
+  IncidentRemediationKinds, IncidentStatus, IncidentTypes, LinkRemediationDto,
+  MarkReportedDto, RegisterIncidentDto,
 } from './incident.constants';
 
 @Injectable()
@@ -168,6 +169,90 @@ export class IncidentService {
       reason, fromStatus: row.status, toStatus: updated.status,
     });
     return { incidentNo, status: updated.status as string };
+  }
+
+  // ── 定损 + 通报留痕（spec §4/§7：72h 倒计时从事故登记时刻起算——Task 6）───────
+
+  /**
+   * 定损：INVESTIGATING → ASSESSED。reportRequired=true 必带非空且在
+   * `INCIDENT_REPORT_BASES` 目录内的 reportBasisCodes；reportDeadlineAt = 事故登记时刻
+   * （`incident.createdAt`，不是定损时刻——条款措辞"检测后 72h"，登记即检测记录）
+   * + min(所选依据里有钟的 hours)；只选无钟依据（hours=null）时保持 null，不杜撰时限。
+   */
+  async assess(incidentNo: string, dto: AssessIncidentDto, actor: ApprovalActorContext): Promise<{ incidentNo: string; status: string; reportDeadlineAt: Date | null }> {
+    if (!dto.assessedAmount || !dto.assessmentBasis) throw new BadRequestException('定损必须带定损金额与结论');
+    const basisCodes = dto.reportRequired ? (dto.reportBasisCodes ?? []) : [];
+    if (dto.reportRequired) {
+      if (!basisCodes.length) throw new BadRequestException('判定需要通报必须带依据码');
+      for (const code of basisCodes) {
+        if (!(code in INCIDENT_REPORT_BASES)) throw new BadRequestException(`未知依据码：${code}`);
+      }
+    }
+    const row = await this.findByNo(incidentNo);
+    this.assertTransition(row.status, IncidentStatus.ASSESSED);
+    const updated = await (this.prisma as any).incident.update({
+      where: { incidentNo },
+      data: {
+        status: IncidentStatus.ASSESSED,
+        assessedAmount: new Prisma.Decimal(dto.assessedAmount),
+        assessmentBasis: dto.assessmentBasis,
+        reportRequired: dto.reportRequired,
+        reportBasisCodes: basisCodes.length ? basisCodes.join(',') : null,
+        reportDeadlineAt: this.computeReportDeadline(row.createdAt, basisCodes),
+      },
+    });
+    // requiredFields=['assessmentBasis']（INCIDENT_AUDIT_ACTIONS）——顶层传，assertActionSpec 直接读得到。
+    await this.recordAudit(updated, AuditActions.INCIDENT_ASSESSED, actor, {
+      fromStatus: row.status, toStatus: updated.status,
+      extra: { assessmentBasis: dto.assessmentBasis },
+      metadata: { assessedAmount: dto.assessedAmount, reportRequired: dto.reportRequired, reportBasisCodes: basisCodes },
+    });
+    return { incidentNo, status: updated.status as string, reportDeadlineAt: updated.reportDeadlineAt ?? null };
+  }
+
+  /** 只对选中依据里 hours 非 null 的取 min；全无钟则返回 null（界面显式「未设时限」）。 */
+  private computeReportDeadline(createdAt: Date, basisCodes: string[]): Date | null {
+    const hours = basisCodes
+      .map((code) => (INCIDENT_REPORT_BASES as Record<string, { hours: number | null }>)[code]?.hours)
+      .filter((h): h is number => h != null);
+    if (!hours.length) return null;
+    return new Date(createdAt.getTime() + Math.min(...hours) * 3600 * 1000);
+  }
+
+  /**
+   * 存监管通报草案。首次落草案记 `INCIDENT_REGULATOR_REPORT_DRAFTED` 审计 + `reportDraftedAt`
+   * （勘定结论：审计只证"何时开始起草"与"何时通报"两个时点）；再次保存只更新草案字段，不重记该码。
+   */
+  async saveReportDraft(incidentNo: string, draft: string, actor: ApprovalActorContext): Promise<{ incidentNo: string }> {
+    const row = await this.findByNo(incidentNo);
+    const isFirst = !row.reportDraft;
+    const patch: Record<string, unknown> = { reportDraft: draft };
+    if (isFirst) patch.reportDraftedAt = new Date();
+    const updated = await (this.prisma as any).incident.update({ where: { incidentNo }, data: patch });
+    if (isFirst) {
+      await this.recordAudit(updated, AuditActions.INCIDENT_REGULATOR_REPORT_DRAFTED, actor, {
+        reason: '起草监管通报稿',
+      });
+    }
+    return { incidentNo };
+  }
+
+  /** 标已通报：前置 reportRequired && reportDraft 非空；落 reportedAt/reportedByUserId，软标不推状态。 */
+  async markReported(incidentNo: string, dto: MarkReportedDto, actor: ApprovalActorContext): Promise<{ incidentNo: string }> {
+    const row = await this.findByNo(incidentNo);
+    if (!row.reportRequired || !row.reportDraft) {
+      throw new BadRequestException('必须已判定需要通报且已起草通报稿才能标记已通报');
+    }
+    const updated = await (this.prisma as any).incident.update({
+      where: { incidentNo },
+      data: { reportedAt: new Date(), reportedByUserId: actor.userNo ?? actor.userId, reportReference: dto.reference ?? null },
+    });
+    // requiredFields=['basisCodes']（spec §7 硬性要求）——值是落库同款逗号分隔字符串，非数组。
+    await this.recordAudit(updated, AuditActions.INCIDENT_REGULATOR_REPORTED, actor, {
+      reason: '完成监管通报', extra: { basisCodes: row.reportBasisCodes },
+      metadata: { basisCodes: row.reportBasisCodes, reference: dto.reference ?? null },
+    });
+    return { incidentNo };
   }
 
   // ── 善后挂载（spec §5：只校验单号存在，不管账，不管归属校验之外的东西）────

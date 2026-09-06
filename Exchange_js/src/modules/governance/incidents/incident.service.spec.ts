@@ -1,6 +1,6 @@
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { IncidentService } from './incident.service';
-import { IncidentStatus as S, IncidentTypes as T } from './incident.constants';
+import { IncidentStatus as S, IncidentTypes as T, INCIDENT_REPORT_BASES as REPORT_BASES } from './incident.constants';
 
 const ops = { actorType: 'ADMIN' as const, userId: 'uuid-ops', userNo: 'ADM-OPS', roleCodes: ['OPS_OFFICER'] };
 
@@ -251,6 +251,113 @@ describe('IncidentService（平账三期 Task 5）', () => {
       const { svc: s6, auditLogs: a6 } = makeService({ adjustment: { adjustmentNo: 'ADJ1' } });
       await s6.linkRemediation('INC1', { kind: 'ADJUSTMENT', referenceNo: 'ADJ1' }, ops);
       expect(a6.recordByActor).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('INCIDENT_REPORT_BASES —— 依据条款目录（数字来源监管条款一手核，不得改动）', () => {
+    it('TIR_K_H 有 72h 法定钟，两条 CRM 依据无钟（hours=null）', () => {
+      expect(REPORT_BASES.TIR_K_H.hours).toBe(72);
+      expect(REPORT_BASES.CRM_IV_E_5.hours).toBeNull();
+      expect(REPORT_BASES.CRM_V_D_2.hours).toBeNull();
+      expect(Object.keys(REPORT_BASES)).toEqual(['TIR_K_H', 'CRM_IV_E_5', 'CRM_V_D_2']);
+    });
+  });
+
+  describe('assess —— 定损 + 依据码 + 72h 倒计时（Task 6）', () => {
+    it('只许从 INVESTIGATING（400）', async () => {
+      const { svc } = makeService({ incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', status: S.REGISTERED, createdAt: new Date('2026-09-01T00:00:00.000Z') } });
+      await expect(svc.assess('INC1', { assessedAmount: '100', assessmentBasis: 'NO_LOSS', reportRequired: false }, ops)).rejects.toThrow(/非法状态迁移/);
+    });
+
+    it('缺 assessedAmount/assessmentBasis → 400', async () => {
+      const { svc } = makeService({ incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', status: S.INVESTIGATING, createdAt: new Date() } });
+      await expect(svc.assess('INC1', { assessedAmount: '', assessmentBasis: 'NO_LOSS', reportRequired: false } as any, ops)).rejects.toThrow(BadRequestException);
+    });
+
+    it('reportRequired=true 但 reportBasisCodes 为空 → 400', async () => {
+      const { svc } = makeService({ incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', status: S.INVESTIGATING, createdAt: new Date() } });
+      await expect(svc.assess('INC1', { assessedAmount: '5000', assessmentBasis: 'FIRM_LOSS', reportRequired: true, reportBasisCodes: [] }, ops)).rejects.toThrow(BadRequestException);
+    });
+
+    it('reportBasisCodes 含目录外的码 → 400', async () => {
+      const { svc } = makeService({ incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', status: S.INVESTIGATING, createdAt: new Date() } });
+      await expect(svc.assess('INC1', { assessedAmount: '5000', assessmentBasis: 'FIRM_LOSS', reportRequired: true, reportBasisCodes: ['NOT_A_BASIS'] }, ops)).rejects.toThrow(BadRequestException);
+    });
+
+    it('正路径：单选 TIR_K_H → reportDeadlineAt = createdAt + 72h（变异靶子②）+ 审计顶层 assessmentBasis', async () => {
+      const createdAt = new Date('2026-09-01T00:00:00.000Z');
+      const { svc, prisma, auditLogs } = makeService({ incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', status: S.INVESTIGATING, createdAt } });
+      const r = await svc.assess('INC1', { assessedAmount: '5000', assessmentBasis: 'FIRM_LOSS', reportRequired: true, reportBasisCodes: ['TIR_K_H'] }, ops);
+      expect(r.status).toBe(S.ASSESSED);
+      const updateCall = prisma.incident.update.mock.calls[0][0];
+      expect(updateCall.data.status).toBe(S.ASSESSED);
+      expect(updateCall.data.reportDeadlineAt.getTime()).toBe(createdAt.getTime() + 72 * 3600 * 1000);
+      expect(r.reportDeadlineAt!.getTime()).toBe(createdAt.getTime() + 72 * 3600 * 1000);
+      const call = auditLogs.recordByActor.mock.calls[0][0];
+      expect(call).toMatchObject({ action: 'INCIDENT_ASSESSED', assessmentBasis: 'FIRM_LOSS', fromStatus: S.INVESTIGATING, toStatus: S.ASSESSED });
+    });
+
+    it('只选无钟依据（CRM_IV_E_5）→ reportDeadlineAt 保持 null（不杜撰时限）', async () => {
+      const createdAt = new Date('2026-09-01T00:00:00.000Z');
+      const { svc, prisma } = makeService({ incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', status: S.INVESTIGATING, createdAt } });
+      await svc.assess('INC1', { assessedAmount: '5000', assessmentBasis: 'CLIENT_COLLECTION', reportRequired: true, reportBasisCodes: ['CRM_IV_E_5'] }, ops);
+      const updateCall = prisma.incident.update.mock.calls[0][0];
+      expect(updateCall.data.reportDeadlineAt).toBeNull();
+    });
+
+    it('reportRequired=false → reportBasisCodes/reportDeadlineAt 均落 null', async () => {
+      const { svc, prisma } = makeService({ incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', status: S.INVESTIGATING, createdAt: new Date() } });
+      await svc.assess('INC1', { assessedAmount: '0', assessmentBasis: 'RECOVERED', reportRequired: false }, ops);
+      const updateCall = prisma.incident.update.mock.calls[0][0];
+      expect(updateCall.data.reportRequired).toBe(false);
+      expect(updateCall.data.reportBasisCodes).toBeNull();
+      expect(updateCall.data.reportDeadlineAt).toBeNull();
+    });
+  });
+
+  describe('saveReportDraft —— 首次记草案审计，再次只更新草案（spec 已核结论）', () => {
+    it('首次落草案：reportDraftedAt + 审计 INCIDENT_REGULATOR_REPORT_DRAFTED', async () => {
+      const { svc, prisma, auditLogs } = makeService({ incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', status: S.ASSESSED, reportDraft: null } });
+      await svc.saveReportDraft('INC1', '通报稿 v1', ops);
+      expect(prisma.incident.update).toHaveBeenCalledWith(expect.objectContaining({
+        where: { incidentNo: 'INC1' },
+        data: expect.objectContaining({ reportDraft: '通报稿 v1', reportDraftedAt: expect.any(Date) }),
+      }));
+      expect(auditLogs.recordByActor).toHaveBeenCalledTimes(1);
+      expect(auditLogs.recordByActor.mock.calls[0][0]).toMatchObject({ action: 'INCIDENT_REGULATOR_REPORT_DRAFTED' });
+    });
+
+    it('再次保存：只更新草案字段，不再记该审计码', async () => {
+      const { svc, prisma, auditLogs } = makeService({ incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', status: S.ASSESSED, reportDraft: '已有草案' } });
+      await svc.saveReportDraft('INC1', '通报稿 v2', ops);
+      expect(prisma.incident.update).toHaveBeenCalledWith({ where: { incidentNo: 'INC1' }, data: { reportDraft: '通报稿 v2' } });
+      expect(auditLogs.recordByActor).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('markReported —— 前置 reportRequired && reportDraft 非空', () => {
+    it('reportRequired=false → 400', async () => {
+      const { svc } = makeService({ incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', status: S.ASSESSED, reportRequired: false, reportDraft: '稿' } });
+      await expect(svc.markReported('INC1', {}, ops)).rejects.toThrow(BadRequestException);
+    });
+
+    it('reportDraft 为空 → 400', async () => {
+      const { svc } = makeService({ incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', status: S.ASSESSED, reportRequired: true, reportDraft: null } });
+      await expect(svc.markReported('INC1', {}, ops)).rejects.toThrow(BadRequestException);
+    });
+
+    it('正路径：落 reportedAt/reportedByUserId/reportReference + 审计 metadata.basisCodes', async () => {
+      const { svc, prisma, auditLogs } = makeService({
+        incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', status: S.ASSESSED, reportRequired: true, reportDraft: '稿', reportBasisCodes: 'TIR_K_H' },
+      });
+      await svc.markReported('INC1', { reference: 'VARA-2026-001' }, ops);
+      expect(prisma.incident.update).toHaveBeenCalledWith(expect.objectContaining({
+        where: { incidentNo: 'INC1' },
+        data: expect.objectContaining({ reportedAt: expect.any(Date), reportedByUserId: 'ADM-OPS', reportReference: 'VARA-2026-001' }),
+      }));
+      const call = auditLogs.recordByActor.mock.calls[0][0];
+      expect(call).toMatchObject({ action: 'INCIDENT_REGULATOR_REPORTED', basisCodes: 'TIR_K_H' });
+      expect(call.metadata).toMatchObject({ basisCodes: 'TIR_K_H' });
     });
   });
 });
