@@ -208,10 +208,13 @@ const IncidentDetailPage = () => {
   // 说明认损已过审批入账，该由公司补齐客户了。跳到对账案子页，复用那里已有的补款
   // 发起入口（案件页会按 disposition.adjustmentNo 自动算出同一张单的 COMPENSATION
   // nextStep，零新通道）。
+  // 走查发现 Fix 2：挂载里已经有一张 kind==='TRANSFER' 的善后单，说明补款单已经在了——
+  // 同 Task 12 各入口的徽标收敛纪律，按钮不再显示，避免重复发起。
   const postedAdjustment = detail.status === 'RESOLVING'
     ? detail.remediations.find((r) => r.kind === 'ADJUSTMENT' && r.status === 'POSTED')
     : undefined;
-  const canInitiateCompensation = canWrite && !!postedAdjustment && !!detail.sourceCaseNo;
+  const hasTransferRemediation = detail.remediations.some((r) => r.kind === 'TRANSFER');
+  const canInitiateCompensation = canWrite && !!postedAdjustment && !!detail.sourceCaseNo && !hasTransferRemediation;
   const canSaveDraft = canWrite && assessed && detail.reportRequired && !detail.reportedAt;
   const canMarkReported = canWrite && assessed && detail.reportRequired && !detail.reportedAt && !!detail.reportDraft;
 

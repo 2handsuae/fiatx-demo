@@ -111,6 +111,7 @@ describe('IncidentCloseWorkflowService（平账三期 Task 7）', () => {
         incidentNo: 'INC1', customerNo: 'CU1',
         type: T.CLIENT_SHORTFALL, amount: '900', assessmentBasis: 'CLIENT_COLLECTION',
         remediationReferenceNos: ['ITR9'], reported: true,
+        impact: '结案事故 INC1（退汇欠款）：定损追索 900，善后单 1 张已落账，已通报 VARA',
       });
       expect(JSON.stringify(call.objectSnapshot)).not.toMatch(/uuid-/);
 

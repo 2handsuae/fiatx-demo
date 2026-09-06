@@ -18,6 +18,21 @@ import { ApprovalActionTypes, ApprovalActorContext } from '../approvals/constant
 import { IncidentStatus, IncidentTypes } from './incident.constants';
 import { IncidentService } from './incident.service';
 
+// 走查发现 Fix 1：结案审批页是 MLRO/CFO 的最后一道人闸，其余审批类型（模板见
+// internal-transfer-workflow.service.ts 的 impact 串）都给裁决人一句人话后果描述，
+// 事故结案此前没有——裁决人只看得到裸字段，读不出"批下去会怎样"。这两张表只用来
+// 把类型 / 定损口径译成人话，镜像 admin-web/src/utils/incidentStatusMap.ts 的
+// INCIDENT_TYPE_LABEL / ASSESSMENT_BASIS_LABEL（前后端各自维护展示词，无共享路径）。
+const INCIDENT_TYPE_IMPACT_LABEL: Record<string, string> = {
+  [IncidentTypes.UNAUTHORIZED_OUTFLOW]: '未授权转出',
+  [IncidentTypes.LARGE_UNEXPLAINED]: '大额查不出',
+  [IncidentTypes.CLIENT_SHORTFALL]: '退汇欠款',
+  [IncidentTypes.MANUAL]: '人工登记',
+};
+const ASSESSMENT_BASIS_IMPACT_VERB: Record<string, string> = {
+  RECOVERED: '追回', FIRM_LOSS: '认损', CLIENT_COLLECTION: '追索', NO_LOSS: '无损失',
+};
+
 @Injectable()
 export class IncidentCloseWorkflowService {
   constructor(
@@ -56,6 +71,7 @@ export class IncidentCloseWorkflowService {
     const actionType = row.type === IncidentTypes.UNAUTHORIZED_OUTFLOW
       ? ApprovalActionTypes.INCIDENT_CLOSE_SECURITY
       : ApprovalActionTypes.INCIDENT_CLOSE_FINANCIAL;
+    const impact = this.describeCloseImpact(row, remediationReferenceNos);
 
     const approval = await this.approvals.createAndSubmit(
       {
@@ -70,6 +86,7 @@ export class IncidentCloseWorkflowService {
           assessmentBasis: row.assessmentBasis ?? null,
           remediationReferenceNos,
           reported: !!row.reportedAt,
+          impact,
         },
       },
       { reason: `事故 ${row.incidentNo} 申请结案`, traceId: row.traceId },
@@ -106,6 +123,25 @@ export class IncidentCloseWorkflowService {
       fromStatus: row.status, toStatus: updated.status,
       reason: `${event.decisionByRole ?? 'CFO'} 批准结案`,
     });
+  }
+
+  /**
+   * 结案 impact 人话串（走查发现 Fix 1）：类型 + 定损口径/金额 + 善后单落账数 + 通报状态，
+   * 例「结案事故 INC1（未授权转出）：定损认损 400 USDT-TRON，善后单 2 张已落账，已通报 VARA」；
+   * NO_LOSS 口径不带金额：「结案事故 INC1（人工登记）：定损无损失，无善后，无需通报」。
+   */
+  private describeCloseImpact(row: any, remediationReferenceNos: string[]): string {
+    const typeLabel = INCIDENT_TYPE_IMPACT_LABEL[row.type] ?? row.type;
+    const basisVerb = ASSESSMENT_BASIS_IMPACT_VERB[row.assessmentBasis] ?? row.assessmentBasis ?? '-';
+    const assessedAmount = row.assessedAmount != null ? row.assessedAmount.toString() : null;
+    const assessmentPart = row.assessmentBasis === 'NO_LOSS' || assessedAmount == null
+      ? `定损${basisVerb}`
+      : `定损${basisVerb} ${assessedAmount}${row.assetCode ? ` ${row.assetCode}` : ''}`;
+    const remediationPart = remediationReferenceNos.length > 0
+      ? `善后单 ${remediationReferenceNos.length} 张已落账`
+      : '无善后';
+    const reportPart = row.reportRequired ? '已通报 VARA' : '无需通报';
+    return `结案事故 ${row.incidentNo}（${typeLabel}）：${assessmentPart}，${remediationPart}，${reportPart}`;
   }
 
   // ── 审计（本文件专记 CLOSE_REQUESTED/CLOSED 两码——跨主体动作，IncidentService 自己的
