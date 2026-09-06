@@ -127,7 +127,7 @@
 
 **善后回挂**：事故单上「善后单」列表，登记时选类型（补录 / 认领 / 调账 / 划转）+ 单号，系统只校验单号存在与归属同一客户或钱包；单子在各自域走完自己的审批与记账，事故页只读它们的状态。
 
-**未授权转出的善后两步**（沿承接预判，不发明新通道）：① 认损调账——沿用二期认损家族（金库开单、`reasonCode` 认损、CFO 批），把客户应付减掉、账实归一；② 补款划转——`initiateCompensation` 增加**第三种来源 `sourceIncidentNo`**（金额锁定 = 定损额，金库在事故单处置中阶段发起，CFO 批），公司真金白银把客户余额补回。落账后重对账，案子自愈。
+**未授权转出的善后两步**（不发明新通道）：① 认损调账——沿用二期认损家族（金库开单、`reasonCode = UNEXPLAINED_CLIENT_LOSS`、CFO 批），把客户应付减掉、账实归一；开单门槛为事故路新开分支：定性行出口 = `INCIDENT` 且事故已定损（口径认损）、金额锁定 = 定损额，**不要求账龄到线、不受小额线约束**（大额正是走事故的理由——今日小额线守卫的报错文案就写着"走事故登记"）；② 补款划转——**复用既有补款通道原样**（源 = 已落账认损单 `adjustmentNo`，金额锁定 = 认损额 = 定损额，CFO 批）。plan 前实证：`initiateCompensation` 守卫链（POSTED + `UNEXPLAINED_CLIENT_LOSS` + CLIENT 池 + 防重开）对事故路成立，事故页「发起补款」按钮带认损单号调既有端点即可，**不加 `sourceIncidentNo` 列**（承接预判修正——追溯链 = 事故善后挂载 + 划转单自带 `sourceAdjustmentNo`，已闭合）。落账后重对账，案子自愈。
 
 **案子侧**：成因表 `UNAUTHORIZED_OUTFLOW` 出口从「留档 · 事故升级（三期）」改为 `INCIDENT`（新 `StoredOutlet` 值），定性行显示「事故 · 已登记 INC…」可点；案子不因登记而愈。
 
@@ -172,7 +172,7 @@
 ## 12. decisions.md 条目（2026-09-06 已落档，此处存目）
 
 - 事故登记是治理件、独立主体 `Incident`（`governance/incidents`），与已删 `incidents` 的区别写清
-- 事故零账务；善后走既有原语；追索只登记不入账、不设应收科目
+- 事故零账务；善后走既有原语（补款复用 `adjustmentNo` 通道、不加 `sourceIncidentNo`——实证守卫链后修正承接预判）；追索只登记不入账、不设应收科目
 - 结案裁决按类型拆两个审批动作类型（安全类两步 / 资金类单步）；升级是动作不是状态
 - 监管通报只留痕；依据条款目录 + 时限跟条款走（72h 只属网安线；CRM 线无钟不杜撰；小额不单独通报）
 
@@ -184,7 +184,8 @@
 | `incident_notes`（新） | `incidentId`、`kind`（NOTE / ESCALATION）、`escalatedTo?`、`body`、`authorUserId`、`createdAt` |
 | `incident_remediations`（新） | `incidentId`、`kind`（SUPPLEMENT / CLAIM / ADJUSTMENT / TRANSFER）、`referenceNo`、`linkedByUserId`、`createdAt` |
 | `reconciliation_dispositions` | + `incidentNo String?`（与 `adjustmentNo` / `supplementNo` 平行） |
-| `internal_transfers` | + `sourceIncidentNo String?`（补款第三来源） |
+
+（`internal_transfers` 不加列——补款复用 `sourceAdjustmentNo` 既有通道，§5。）
 
 常量：`INCIDENT_REPORT_BASES` 依据目录（3 条，§4）；`ApprovalActionTypes` +2、策略 +2、`MAKER_GROUP_BY_POLICY` +2；`AuditActions` +11、工作流类型 +1；`PermissionGroup` +2、`route()` +11；成因表 `UNAUTHORIZED_OUTFLOW` 出口 `DEFERRED/INCIDENT` → `INCIDENT`（新 `StoredOutlet` 值）；A 批账龄「待升级事故」文案改按钮。
 
@@ -194,8 +195,9 @@
 
 不触发：动了钱（事故零账务；善后在各自域已各自过闸）｜ 改了交易三域（无）｜ 新字段到客户面（无，刻意）｜ 新事件（无）
 
-## 进 plan 前要核
+## 进 plan 前要核（2026-09-06 已核毕，结论如下）
 
-- 认损调账当前入口的门槛：二期认损家族是否绑死在客户池核销（账龄线）语境；若绑，需为「事故定损 = 认损」开放同族入口而非绕道
-- 场景 18 的钱包位与金额、`casesOpened` / 钱包数 / `demo:all` 判据终值
-- `_REGULATOR_REPORT_DRAFTED` 是否随 `…/regulator-report` 每次保存都记（建议只在首次落草案时记，改稿走 `_NOTE_ADDED` 语义之外不另设码——plan 定）
+- ~~认损调账门槛~~：实证绑死「`slaBreached` 账龄到线 + 定性行 `HOLD_INVESTIGATING` + 小额线」（`adjustment.service.ts` `assertWriteOffAllowed` 四前提）——事故路按 §5 开 `INCIDENT` 分支（定损锁额，免账龄线与小额线）
+- ~~补款来源~~：不加 `sourceIncidentNo`（§5，实证守卫链后修正承接预判）
+- ~~场景 18 判据~~：钱包位选当前不在 break 桶的客户钱包（优先 Bob USDT-TRON，铺场任务先打印钱包桶现状再定）；判据 17/17→**18/18** 场景、11/11→**12/12** 钱包桶（break 8→9）、`casesOpened` 11/11→**12/12**、`demo:all` 29/29 花名册不动
+- ~~`_REGULATOR_REPORT_DRAFTED` 时机~~：只在首次落草案时记一次，后续改稿不另记（改稿留在草案字段的最后版本，审计只证"何时开始起草"与"何时通报"两个时点）
