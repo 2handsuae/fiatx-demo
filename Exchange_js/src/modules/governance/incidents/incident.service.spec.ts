@@ -204,28 +204,70 @@ describe('IncidentService（平账三期 Task 5）', () => {
     });
   });
 
-  describe('linkRemediation —— 校验 referenceNo 在对应域存在', () => {
+  describe('linkRemediation —— 校验 referenceNo 在对应域存在（状态须 ASSESSED/RESOLVING，见下方 Task 7 守卫用例）', () => {
     it('ADJUSTMENT 不存在 → 404', async () => {
-      const { svc } = makeService({ adjustment: null });
+      const { svc } = makeService({ adjustment: null, incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', status: S.ASSESSED } });
       await expect(svc.linkRemediation('INC1', { kind: 'ADJUSTMENT', referenceNo: 'ADJ1' }, ops)).rejects.toBeInstanceOf(NotFoundException);
     });
     it('TRANSFER 不存在 → 404', async () => {
-      const { svc } = makeService({ transfer: null });
+      const { svc } = makeService({ transfer: null, incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', status: S.ASSESSED } });
       await expect(svc.linkRemediation('INC1', { kind: 'TRANSFER', referenceNo: 'ITR1' }, ops)).rejects.toBeInstanceOf(NotFoundException);
     });
     it('SUPPLEMENT 不存在 → 404', async () => {
-      const { svc } = makeService({ deposit: null });
+      const { svc } = makeService({ deposit: null, incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', status: S.ASSESSED } });
       await expect(svc.linkRemediation('INC1', { kind: 'SUPPLEMENT', referenceNo: 'DEP1' }, ops)).rejects.toBeInstanceOf(NotFoundException);
     });
     it('CLAIM 不存在 → 404', async () => {
-      const { svc } = makeService({ deposit: null });
+      const { svc } = makeService({ deposit: null, incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', status: S.ASSESSED } });
       await expect(svc.linkRemediation('INC1', { kind: 'CLAIM', referenceNo: 'DEP2' }, ops)).rejects.toBeInstanceOf(NotFoundException);
     });
     it('正路径：ADJUSTMENT 存在 → 挂载 + 审计 referenceNo 顶层', async () => {
-      const { svc, prisma, auditLogs } = makeService({ adjustment: { adjustmentNo: 'ADJ1' } });
+      const { svc, prisma, auditLogs } = makeService({ adjustment: { adjustmentNo: 'ADJ1' }, incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', status: S.RESOLVING } });
       await svc.linkRemediation('INC1', { kind: 'ADJUSTMENT', referenceNo: 'ADJ1' }, ops);
       expect(prisma.incidentRemediation.create).toHaveBeenCalledWith({ data: expect.objectContaining({ incidentId: 'uuid-inc', kind: 'ADJUSTMENT', referenceNo: 'ADJ1' }) });
       expect(auditLogs.recordByActor.mock.calls[0][0]).toMatchObject({ action: 'INCIDENT_REMEDIATION_LINKED', referenceNo: 'ADJ1' });
+    });
+  });
+
+  describe('linkRemediation —— 挂载状态守卫 + 迁移承载（Task 7 裁决修复：ASSESSED→RESOLVING 无处触发的缺口）', () => {
+    it('ASSESSED 状态挂载 → 状态推到 RESOLVING + 挂载成功 + 审计 metadata.statusAdvanced', async () => {
+      const { svc, prisma, auditLogs } = makeService({
+        adjustment: { adjustmentNo: 'ADJ1' },
+        incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', status: S.ASSESSED },
+      });
+      await svc.linkRemediation('INC1', { kind: 'ADJUSTMENT', referenceNo: 'ADJ1' }, ops);
+      expect(prisma.incident.update).toHaveBeenCalledWith(expect.objectContaining({
+        where: { incidentNo: 'INC1' }, data: expect.objectContaining({ status: S.RESOLVING }),
+      }));
+      expect(prisma.incidentRemediation.create).toHaveBeenCalledWith({ data: expect.objectContaining({ incidentId: 'uuid-inc', kind: 'ADJUSTMENT', referenceNo: 'ADJ1' }) });
+      const call = auditLogs.recordByActor.mock.calls[0][0];
+      expect(call).toMatchObject({ action: 'INCIDENT_REMEDIATION_LINKED', referenceNo: 'ADJ1' });
+      expect(call.metadata).toMatchObject({ statusAdvanced: 'ASSESSED→RESOLVING' });
+    });
+
+    it('RESOLVING 状态挂载 → 状态不动、纯追加，审计 metadata 不带 statusAdvanced', async () => {
+      const { svc, prisma, auditLogs } = makeService({
+        transfer: { transferNo: 'ITR1' },
+        incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', status: S.RESOLVING },
+      });
+      await svc.linkRemediation('INC1', { kind: 'TRANSFER', referenceNo: 'ITR1' }, ops);
+      expect(prisma.incident.update).not.toHaveBeenCalled();
+      expect(prisma.incidentRemediation.create).toHaveBeenCalledWith({ data: expect.objectContaining({ incidentId: 'uuid-inc', kind: 'TRANSFER', referenceNo: 'ITR1' }) });
+      const call = auditLogs.recordByActor.mock.calls[0][0];
+      expect(call).toMatchObject({ action: 'INCIDENT_REMEDIATION_LINKED', referenceNo: 'ITR1' });
+      expect(call.metadata?.statusAdvanced).toBeUndefined();
+    });
+
+    it('REGISTERED 状态挂载 → 400（还没定损，善后单挂不上）', async () => {
+      const { svc, prisma } = makeService({ incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', status: S.REGISTERED } });
+      await expect(svc.linkRemediation('INC1', { kind: 'ADJUSTMENT', referenceNo: 'ADJ1' }, ops)).rejects.toThrow(BadRequestException);
+      expect(prisma.incidentRemediation.create).not.toHaveBeenCalled();
+    });
+
+    it('INVESTIGATING 状态挂载 → 400（还没定损，善后单挂不上）', async () => {
+      const { svc, prisma } = makeService({ incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', status: S.INVESTIGATING } });
+      await expect(svc.linkRemediation('INC1', { kind: 'ADJUSTMENT', referenceNo: 'ADJ1' }, ops)).rejects.toThrow(BadRequestException);
+      expect(prisma.incidentRemediation.create).not.toHaveBeenCalled();
     });
   });
 
@@ -251,7 +293,10 @@ describe('IncidentService（平账三期 Task 5）', () => {
       await s5.withdraw('INC1', 'x', ops);
       expect(a5.recordByActor).toHaveBeenCalledTimes(1);
 
-      const { svc: s6, auditLogs: a6 } = makeService({ adjustment: { adjustmentNo: 'ADJ1' } });
+      const { svc: s6, auditLogs: a6 } = makeService({
+        adjustment: { adjustmentNo: 'ADJ1' },
+        incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', status: S.ASSESSED },
+      });
       await s6.linkRemediation('INC1', { kind: 'ADJUSTMENT', referenceNo: 'ADJ1' }, ops);
       expect(a6.recordByActor).toHaveBeenCalledTimes(1);
     });

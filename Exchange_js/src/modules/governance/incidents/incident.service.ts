@@ -257,14 +257,35 @@ export class IncidentService {
 
   // ── 善后挂载（spec §5：只校验单号存在，不管账，不管归属校验之外的东西）────
 
+  /**
+   * 只许在 ASSESSED 或 RESOLVING 挂善后单（定损口径决定善后动作，定损前挂单无业务意义）。
+   * Task 7 裁决修复：`ASSESSED→RESOLVING`（`INCIDENT_TRANSITIONS` 已登记的边）此前无任何
+   * 公开方法触发——十一码审计合同锁死，没有"开始处置"独立码位（见 task-7-report.md）；
+   * 裁决把这条迁移搭在首次善后挂载上：ASSESSED 时挂载经 `assertTransition` 走迁移表同步推
+   * 状态到 RESOLVING（铁律④），已是 RESOLVING 则只追加挂载。审计仍用既有
+   * `INCIDENT_REMEDIATION_LINKED` 一条（不加码），发生迁移时 metadata 带 statusAdvanced。
+   */
   async linkRemediation(incidentNo: string, dto: LinkRemediationDto, actor: ApprovalActorContext): Promise<{ incidentNo: string }> {
     const row = await this.findByNo(incidentNo);
+    if (row.status !== IncidentStatus.ASSESSED && row.status !== IncidentStatus.RESOLVING) {
+      throw new BadRequestException(`事故还没定损，善后单挂不上——先定损（当前状态：${row.status}）`);
+    }
     await this.assertRemediationReferenceExists(dto.kind, dto.referenceNo);
+
+    let updated = row;
+    let statusAdvanced: string | undefined;
+    if (row.status === IncidentStatus.ASSESSED) {
+      this.assertTransition(row.status, IncidentStatus.RESOLVING);
+      updated = await (this.prisma as any).incident.update({ where: { incidentNo }, data: { status: IncidentStatus.RESOLVING } });
+      statusAdvanced = `${IncidentStatus.ASSESSED}→${IncidentStatus.RESOLVING}`;
+    }
+
     await (this.prisma as any).incidentRemediation.create({
       data: { incidentId: row.id, kind: dto.kind, referenceNo: dto.referenceNo, linkedByUserId: actor.userNo ?? actor.userId },
     });
-    await this.recordAudit(row, AuditActions.INCIDENT_REMEDIATION_LINKED, actor, {
-      reason: `挂载善后单 ${dto.referenceNo}（${dto.kind}）`, extra: { referenceNo: dto.referenceNo }, metadata: { kind: dto.kind, referenceNo: dto.referenceNo },
+    await this.recordAudit(updated, AuditActions.INCIDENT_REMEDIATION_LINKED, actor, {
+      reason: `挂载善后单 ${dto.referenceNo}（${dto.kind}）`, extra: { referenceNo: dto.referenceNo },
+      metadata: { kind: dto.kind, referenceNo: dto.referenceNo, ...(statusAdvanced ? { statusAdvanced } : {}) },
     });
     return { incidentNo };
   }
