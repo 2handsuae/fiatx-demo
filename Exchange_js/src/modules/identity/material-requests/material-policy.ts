@@ -20,7 +20,7 @@ export interface MaterialRefreshPolicy {
 }
 
 @Injectable()
-export class MaterialRefreshPolicyLoader {
+export class MaterialPolicyLoader {
   private cached: MaterialRefreshPolicy | null = null;
 
   getPolicy(): MaterialRefreshPolicy {

@@ -1,7 +1,6 @@
 import { Module } from '@nestjs/common';
 import { PrismaModule } from '../../core/prisma/prisma.module';
 import { SumsubApplicantClientModule } from '../sumsub-applicant-client/sumsub-applicant-client.module';
-import { MaterialRefreshModule } from '../identity/material-refresh/material-refresh.module';
 import { DepositTransactionsModule } from '../trading/deposit-transactions/deposit-transactions.module';
 import { WithdrawTransactionsModule } from '../trading/withdraw-transactions/withdraw-transactions.module';
 import { DepositSumsubModule } from '../deposit-sumsub/deposit-sumsub.module';
@@ -24,7 +23,6 @@ import { MaterialRequestsModule } from '../identity/material-requests/material-r
     CustomersModule,
     PrismaModule,
     SumsubApplicantClientModule,
-    MaterialRefreshModule,
     DepositTransactionsModule,
     WithdrawTransactionsModule,
     DepositSumsubModule,

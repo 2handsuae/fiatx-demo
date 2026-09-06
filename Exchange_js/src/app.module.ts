@@ -29,7 +29,6 @@ import { InternalTransfersModule } from './modules/asset-treasury/internal-trans
 import { AuditLogsModule } from './modules/audit-logging/audit-logs.module';
 import { GovernanceModule } from './modules/governance/governance.module';
 import { SumsubIngestionModule } from './modules/sumsub-ingestion/sumsub-ingestion.module';
-import { MaterialRefreshModule } from './modules/identity/material-refresh/material-refresh.module';
 import { MaterialRequestsModule } from './modules/identity/material-requests/material-requests.module';
 import { ProfileBannersModule } from './modules/identity/profile-banners/profile-banners.module';
 import { FundsLayerModule } from './modules/funds-layer/funds-layer.module';
@@ -86,7 +85,6 @@ import { TransactionLimitsModule as TransactionLimitRulesModule } from './module
     AuditLogsModule,
     GovernanceModule,
     SumsubIngestionModule,
-    MaterialRefreshModule,
     MaterialRequestsModule,
     ProfileBannersModule,
     FundsLayerModule,

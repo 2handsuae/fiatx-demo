@@ -7,7 +7,6 @@ import { PrismaService } from '../../core/prisma/prisma.service';
 import { CustomerRestrictionsService } from '../identity/customers/customer-restrictions.service';
 import { CustomerRestrictionWorkflowService } from '../identity/customers/customer-restriction-workflow.service';
 import { MaterialRequestReviewService } from '../identity/material-requests/material-request-review.service';
-import { MaterialRefreshService } from '../identity/material-refresh/material-refresh.service';
 import { DepositWorkflowService } from '../trading/deposit-transactions/deposit-workflow.service';
 import { WithdrawTransactionsService } from '../trading/withdraw-transactions/withdraw-transactions.service';
 import { DepositWebhookRouter } from '../deposit-sumsub/deposit-webhook.router';
@@ -26,7 +25,6 @@ export class SumsubIngestionService {
 
   constructor(
     private readonly prisma: PrismaService,
-    private readonly materialRefreshService: MaterialRefreshService,
     private readonly depositWorkflowService: DepositWorkflowService,
     private readonly withdrawService: WithdrawTransactionsService,
     private readonly depositWebhookRouter: DepositWebhookRouter,
@@ -102,7 +100,6 @@ export class SumsubIngestionService {
       let result: unknown;
       let dispatchedContext = event.context;
 
-      const reviewMode = String(payload.reviewMode ?? '');
       const inspectionId = String(payload.inspectionId ?? '');
       const applicantId = String(payload.applicantId ?? '');
       const externalActionId: string | undefined =
@@ -119,8 +116,8 @@ export class SumsubIngestionService {
       // Reuses this durable event table's dedup/retry/dead-letter; only the
       // routing target changes here. Old withdraw/swap/kyt/tr branches below are untouched.
       // NOTE: does NOT include applicantAction* — those are consumed by the
-      // externalActionId 分支下方（材料请求账一次查表，命中后材料重检域自己靠
-      // MATERIAL_REQUEST_REVIEWED 事件收尾，见 material-refresh-review.listener.ts）。
+      // externalActionId 分支下方（材料请求账一次查表命中后收尾——材料刷新监控
+      // 已随巡查退役（2026-09-06），事件落 unrouted 警告）。
       // deposit 侧对 action 事件的重检不需要专门 handler:客户补料后 Sumsub 会自动
       // 重评并发出 applicantKytTxn*,仍走上面这条 KYT 分支(Task 9 结论,
       // DepositActionHandler 桩已退役)。
@@ -184,11 +181,8 @@ export class SumsubIngestionService {
           dispatchedContext = 'MATERIAL_REQUEST';
         }
       }
-      // Clue 1: explicit reviewMode → ongoing doc monitoring
-      else if (reviewMode === 'ongoingDocExpired') {
-        result = await this.materialRefreshService.handleSumsubDocMonitoringFire({ applicantId });
-        dispatchedContext = 'MATERIAL_REFRESH_MONITORING';
-      }
+      // Clue 1（ongoingDocExpired）：材料刷新监控已随巡查退役（2026-09-06），
+      // 事件落 unrouted 警告。
       // 站6：Clue 2（AML 按 inspectionId 归属 CRA）随一期风评拆除。
       // Clue 3（已退役，2026-08-18）：原来按 actionId 查 pending MaterialRefreshCycle。
       // 2026-08-17 材料请求账 Task 11 之后建 cycle 全部改走
@@ -197,8 +191,9 @@ export class SumsubIngestionService {
       // 恒查不到，是死码；而且真实
       // webhook 也轮不到它——上面 `applicantActionReviewed && externalActionId`
       // 那条分支会先按 externalActionId 认领。已改为材料重检域自己监听
-      // MaterialRequestReviewService 广播的 MATERIAL_REQUEST_REVIEWED 事件
-      // （见 material-refresh-review.listener.ts），不再需要这里的兜底查询。
+      // MaterialRequestReviewService 广播的 MATERIAL_REQUEST_REVIEWED 事件——
+      // 材料刷新监控已随巡查退役（2026-09-06），事件落 unrouted 警告，不再需要
+      // 这里的兜底查询。
       // Clues 4 & 5: look up customer by applicantId
       if (!result && applicantId) {
         const customer = await this.prisma.customerMain.findFirst({
