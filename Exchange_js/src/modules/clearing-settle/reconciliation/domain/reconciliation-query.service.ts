@@ -549,11 +549,16 @@ export class ReconciliationQueryService {
     // CLIENT_SHORTFALL 两类落在这里）。这条是案件级全量列表，不是对行级
     // disposition.incidentNo 的互补——案子上的「升级事故」/「登记欠款」按钮
     // 看这个列表判断是否已经登记过。按创建倒序，空数组表示该案从未挂过事故。
-    const caseIncidents = (await (this.prisma as any).incident.findMany({
+    // Task 12 消费：额外带上定损结论（assessedAmount/assessmentBasis）——只用于
+    // 下面按 disposition.incidentNo 反查「该行事故是否已定损 FIRM_LOSS」，不进
+    // 对外的 `incidents` 投影（那份契约仍是 {incidentNo,status,type}[]，见下方 map）。
+    const caseIncidentRows = (await (this.prisma as any).incident.findMany({
       where: { sourceCaseNo: caseNo },
       orderBy: { createdAt: 'desc' },
-      select: { incidentNo: true, status: true, type: true },
-    })) as Array<{ incidentNo: string; status: string; type: string }>;
+      select: { incidentNo: true, status: true, type: true, assessedAmount: true, assessmentBasis: true },
+    })) as Array<{ incidentNo: string; status: string; type: string; assessedAmount: Prisma.Decimal | null; assessmentBasis: string | null }>;
+    const caseIncidents = caseIncidentRows.map(({ incidentNo, status, type }) => ({ incidentNo, status, type }));
+    const incidentByNo = new Map(caseIncidentRows.map((i) => [i.incidentNo, i]));
     const dByFlow = new Map<string, any>();
     const dByExt = new Map<string, any>();
     for (const d of dispositions) {
@@ -614,9 +619,26 @@ export class ReconciliationQueryService {
         if (caseBook === 'CLIENT' && wo.direction === 'INCREASE') {
           r.nextStep = { kind: 'CLIENT_SURPLUS' };
         } else if (!isSmallAmount(caseCurrency, BigInt(wo.amountMinor))) {
-          r.nextStep = { kind: 'INCIDENT_DEFERRED' };
+          // Task 12：带上金额——「升级事故」按钮要用它预填 LARGE_UNEXPLAINED 的金额。
+          r.nextStep = { kind: 'INCIDENT_DEFERRED', amount: wo.amountMinor };
         } else {
           r.nextStep = { kind: 'WRITE_OFF', reasonCode: wo.reasonCode, direction: wo.direction, amount: wo.amountMinor, effectiveDate: kase.businessDate };
+        }
+      }
+      // 平账三期（Task 12）：出口 = INCIDENT（未授权转出）且事故已定损「公司承损」——
+      // 认损开单入口对该行可用，与上面的账龄线判断互斥（INCIDENT 出口从不是
+      // HOLD_INVESTIGATING，本就走不进上面那个 if），不受账龄线/小额线约束——这正是
+      // assertIncidentWriteOffAllowed 的三重闸（状态 ASSESSED/RESOLVING + 口径
+      // FIRM_LOSS + 未挂单），前端按钮只是不让人白点，真闸仍在后端。复用 WRITE_OFF
+      // 这个 nextStep 形状——案件页 openWriteOff/「认损」按钮已经是通用实现，不必
+      // 另开一种 kind。金额锁定为定损额（元→最小单位，惯例同 receipt-lookup.service.ts）。
+      if (kase.status === 'OPEN' && d && d.outlet === 'INCIDENT' && d.incidentNo && !d.adjustmentNo) {
+        const incident = incidentByNo.get(d.incidentNo);
+        if (incident && (incident.status === 'ASSESSED' || incident.status === 'RESOLVING')
+          && incident.assessmentBasis === 'FIRM_LOSS' && incident.assessedAmount != null) {
+          const decimals = assetRow?.decimals ?? 0;
+          const assessedMinor = new Prisma.Decimal(incident.assessedAmount).mul(new Prisma.Decimal(10).pow(decimals)).toFixed(0);
+          r.nextStep = { kind: 'WRITE_OFF', reasonCode: 'UNEXPLAINED_CLIENT_LOSS', direction: 'REDUCE', amount: assessedMinor, effectiveDate: kase.businessDate };
         }
       }
       // 平账二期：补款 / 垫款——案子 RESOLVED 之后也要给（认损让案子愈了，补款是对客户的交代）

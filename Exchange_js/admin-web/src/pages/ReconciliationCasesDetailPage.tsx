@@ -26,7 +26,7 @@
 // page is investigation-only this release. Funds-order deep link (in-transit
 // rows) is read-only this release too — no advance/sync/confirm actions.
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Link, useParams, useNavigate } from 'react-router-dom';
+import { Link, useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { RefreshCw, Check, AlertTriangle, ArrowRight, ExternalLink, Plus } from 'lucide-react';
 import {
   DetailPageHeader,
@@ -119,6 +119,9 @@ export interface FlowComparisonRow {
     deferredTarget?: 'SUPPLEMENT_DEPOSIT' | 'SUPPLEMENT_BOUNCE' | 'SUPPLEMENT_PAYOUT_RETURN' | string | null;
     supplementNo?: string | null;
     supplementRef?: { kind: 'SIGNAL' | 'DEPOSIT' | 'WITHDRAW'; no: string; id: string | null } | null;
+    // 平账三期（Task 9 写入，Task 12 消费）：出口 = INCIDENT 且已登记后回填的事故单号——
+    // 未登记恒 null，前端按它渲染「登记事故」按钮 vs「事故 · INC…」徽标。
+    incidentNo?: string | null;
   } | null;
   duplicateTwinRef?: string | null;
   menu?: Array<{ code: string; label: string; clue: string; outletLabel: string }>;
@@ -217,6 +220,10 @@ interface ReconCaseDetail {
   observation?: CaseObservation;
   // T7 addition — see CaseAdjustmentRow above.
   adjustments?: CaseAdjustmentRow[];
+  // 平账三期（Task 9 写入，Task 12 消费）：本案已登记过的事故——全类型、按创建倒序。
+  // 空数组 = 该案从未挂过事故；「升级事故」/「登记欠款」按钮据此判断是否已经登记过
+  // （非撤回状态即算已登记，不再重复给按钮，改给徽标）。
+  incidents?: Array<{ incidentNo: string; status: string; type: string }>;
 }
 
 /* ── Constants & helpers ────────────────────────────────────── */
@@ -236,6 +243,11 @@ export const formatAmount = (raw: string | null | undefined, decimals: number): 
   const intGrouped = intPart.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
   return `${neg ? '-' : ''}${intGrouped}${fracPart ? `.${fracPart}` : ''}`;
 };
+
+// 平账三期（Task 12）：登记事故表单的「金额」字段要的是元（同 RegisterIncidentDto.amount
+// 口径），不能带千分位逗号——复用 formatAmount 的换算，只是去掉分组符。
+const minorToMajorPlain = (raw: string | null | undefined, decimals: number): string =>
+  formatAmount(raw, decimals).replace(/,/g, '');
 
 const isZeroAmount = (raw: string | null | undefined): boolean => {
   const s = String(raw ?? '0').replace(/^-/, '');
@@ -379,6 +391,29 @@ export const MATCH_LABEL: Record<FlowMatchType, string> = {
 // 按钮词区分去向，弹层内部再按 kind 切表单。
 const SUPPLEMENT_ACTION_LABEL: Record<string, string> = { SUPPLEMENT_DEPOSIT: '发起补录', SUPPLEMENT_BOUNCE: '认领退汇', SUPPLEMENT_PAYOUT_RETURN: '认领退回' };
 
+// 平账三期（Task 12）：案件页三入口共用——拼「登记事故」跳转的 query。铁律⑥：
+// 只传业务键（案号/定性行号/客户号/资产代码/元口径金额）；钱包与账单行参考号在
+// NewIncidentModal 里没有专用结构化字段，塞进 description 供人读、可编辑，不当
+// 隐藏字段提交（walletRef 字段在后端要的是内部 UUID，本页不该替它拼一个出来）。
+const buildIncidentHref = (params: Record<string, string | null | undefined>): string => {
+  const qs = new URLSearchParams();
+  for (const [k, v] of Object.entries(params)) {
+    if (v) qs.set(k, v);
+  }
+  return `/admin/governance/incidents?${qs.toString()}`;
+};
+
+// 已登记事故的徽标——三处出口（未授权转出 / 大额到线 / 退汇欠款）共用同一个样式，
+// 点进去是事故详情页；outlet=INCIDENT 的红色调沿用 OUTLET_TONE.INCIDENT 的既有语义。
+const IncidentBadge = ({ incidentNo }: { incidentNo: string }) => (
+  <Link
+    to={`/admin/governance/incidents/${encodeURIComponent(incidentNo)}`}
+    className="inline-flex items-center gap-1 whitespace-nowrap rounded border border-adm-red/30 bg-adm-red/10 px-1.5 py-0.5 font-mono text-[10px] font-medium text-adm-red hover:underline"
+  >
+    事故 · {incidentNo}
+  </Link>
+);
+
 const MatchChip = ({ row }: { row: FlowComparisonRow }) => {
   const tone = MATCH_TONE[row.matchType];
   return (
@@ -435,7 +470,10 @@ const ReconciliationCasesDetailPage = () => {
   ]);
   // 平账二期：补款 / 垫款发起归金库——持两个写码任一即可看到按钮；运营只看到指路文字。
   const canFundClient = hasAnyPermission([PERMISSIONS.INTERNAL_TRANSFER_COMPENSATION_WRITE, PERMISSIONS.INTERNAL_TRANSFER_ADVANCE_WRITE]);
+  // 平账三期（Task 12）：案件页三入口共用——登记事故写权。
+  const canRegisterIncident = hasPermission(PERMISSIONS.INCIDENT_WRITE);
   const [fundingRow, setFundingRow] = useState<FlowComparisonRow | null>(null);
+  const [searchParams] = useSearchParams();
   const [kase, setKase] = useState<ReconCaseDetail | null>(null);
   const [loading, setLoading] = useState(true);
   // MATCHED rows are collapsed by default (layout 乙 — single mixed table,
@@ -580,6 +618,22 @@ const ReconciliationCasesDetailPage = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [caseNo]);
 
+  // 平账三期（Task 12）：事故页「发起补款」跳转带 ?adjustmentNo=——案子加载后自动
+  // 定位到那一行（nextStep.kind==='COMPENSATION' 且认损单号匹配）并直接开弹层，
+  // 不用再让人在表里手动找按钮（零新通道：复用的还是本页原有的补款弹层）。只在
+  // 首次带参数进页时开一次——用 ref 挡住之后每次 fetchCase()（关别的弹层也会触发
+  // 刷新）把用户刚手动关掉的弹层又弹回来。
+  const autoOpenedFundingRef = useRef(false);
+  useEffect(() => {
+    if (!kase || autoOpenedFundingRef.current) return;
+    const wantAdjustmentNo = searchParams.get('adjustmentNo');
+    if (!wantAdjustmentNo) return;
+    autoOpenedFundingRef.current = true;
+    const row = kase.flowComparison?.find((r) => r.nextStep?.kind === 'COMPENSATION' && r.nextStep.adjustmentNo === wantAdjustmentNo);
+    if (row) setFundingRow(row);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [kase]);
+
   // Single mixed-bucket table (layout 乙): mismatch/orphan rows first, then
   // in-transit, then matched (hidden unless expanded via showMatched). Within
   // each bucket, sort by timestamp asc. Hook called BEFORE early returns so
@@ -619,6 +673,35 @@ const ReconciliationCasesDetailPage = () => {
           </span>
         )
       )}
+      {/* 平账三期（Task 12）：B 批退汇认领余额不足（ADVANCE）——垫款按钮旁加「登记欠款」，
+          预填 CLIENT_SHORTFALL/客户/差额/垫款单号（有则带，"有则带"= row.transfer 已是
+          CLIENT_ADVANCE 划转单时才带）；已登记同样徽标化，不给第二次入口——徽标判重靠
+          kase.incidents（案件级、按 sourceCaseNo 查），所以这里必须带上案号，不能漏
+          （不带 = 判重永远查不到，按钮永不收敛，重复入口的口子就开在这一个字段上）。 */}
+      {row.nextStep?.kind === 'ADVANCE' && kase && (
+        existingClientShortfall ? (
+          <IncidentBadge incidentNo={existingClientShortfall.incidentNo} />
+        ) : canRegisterIncident ? (
+          <button
+            type="button"
+            onClick={() => navigate(buildIncidentHref({
+              type: 'CLIENT_SHORTFALL',
+              sourceCaseNo: kase.caseNo,
+              customerNo: row.nextStep!.customerNo,
+              assetCode: kase.assetCode,
+              amount: minorToMajorPlain(row.nextStep!.amount, kase.decimals),
+              sourceAdvanceTransferNo: row.transfer?.purpose === 'CLIENT_ADVANCE' ? row.transfer.transferNo : undefined,
+              title: `退汇欠款 · 客户 ${row.nextStep!.customerNo ?? '—'}`,
+              description: `退汇认领后客户钱包 ${row.nextStep!.walletNo ?? '—'} 余额不足，差额 `
+                + `${minorToMajorPlain(row.nextStep!.amount, kase.decimals)} ${kase.assetCode} 由公司先垫款，登记欠款用于后续追索。`,
+            }))}
+            className="inline-flex items-center gap-1 whitespace-nowrap font-mono text-[10px] font-medium text-adm-red hover:underline"
+          >
+            <Plus size={10} />
+            登记欠款
+          </button>
+        ) : null
+      )}
     </>
   );
 
@@ -650,6 +733,12 @@ const ReconciliationCasesDetailPage = () => {
 
   // Minor #5（终审）：结案后的超期天数要在结案那一刻冻结，不能继续跟着 Date.now() 涨。
   const agingReferenceMs = kase.status === 'RESOLVED' && kase.resolvedAt ? new Date(kase.resolvedAt).getTime() : Date.now();
+
+  // 平账三期（Task 12）：「升级事故」/「登记欠款」按钮的防重复入口——案子已经登记过
+  // 同类型事故（任何非撤回状态）就不再给按钮，改显示徽标（后端 §2 不查重，前端
+  // 入口收敛是唯一防线，这是设计决定不是防御校验）。
+  const existingLargeUnexplained = kase.incidents?.find((i) => i.type === 'LARGE_UNEXPLAINED' && i.status !== 'WITHDRAWN');
+  const existingClientShortfall = kase.incidents?.find((i) => i.type === 'CLIENT_SHORTFALL' && i.status !== 'WITHDRAWN');
 
   return (
     <div className="flex h-full flex-col">
@@ -1032,6 +1121,36 @@ const ReconciliationCasesDetailPage = () => {
                                         : <span>{row.disposition.supplementNo}（待 CFO 复核）</span>}
                                   </span>
                                 )}
+                                {/* 平账三期（Task 12）：出口 = INCIDENT（未授权转出）——未登记给「登记事故」
+                                    按钮（预填类型/钱包/客户/金额/案号/账单行参考号跳新建），已登记改徽标
+                                    可点跳详情。一行只对应一个事故，不查 kase.incidents 那份案件级列表。 */}
+                                {row.disposition.outlet === 'INCIDENT' && (
+                                  row.disposition.incidentNo ? (
+                                    <IncidentBadge incidentNo={row.disposition.incidentNo} />
+                                  ) : canRegisterIncident && kase.status === 'OPEN' ? (
+                                    <button
+                                      type="button"
+                                      onClick={() => navigate(buildIncidentHref({
+                                        type: 'UNAUTHORIZED_OUTFLOW',
+                                        sourceCaseNo: kase.caseNo,
+                                        sourceDispositionNo: row.disposition!.dispositionNo,
+                                        customerNo: kase.ownerNo,
+                                        assetCode: kase.assetCode,
+                                        amount: minorToMajorPlain(row.externalLine?.amount ?? row.internalFlow?.amount, kase.decimals),
+                                        title: `未授权转出 · 案 ${kase.caseNo}`,
+                                        description: `钱包 ${kase.walletNo ?? '—'} 出现未授权转出，账单行参考号 ${row.externalLine?.externalRef ?? '—'}，`
+                                          + `金额 ${minorToMajorPlain(row.externalLine?.amount ?? row.internalFlow?.amount, kase.decimals)} ${kase.assetCode}。`
+                                          + `查证结论：${row.disposition!.findingNote}`,
+                                      }))}
+                                      className="inline-flex items-center gap-1 whitespace-nowrap font-mono text-[10px] font-medium text-adm-red hover:underline"
+                                    >
+                                      <Plus size={10} />
+                                      登记事故
+                                    </button>
+                                  ) : (
+                                    <span className="whitespace-nowrap font-mono text-[10px] text-adm-red">待登记事故（三期）</span>
+                                  )
+                                )}
                                 {row.nextStep?.kind === 'WRITE_OFF' && kase.status === 'OPEN' && (
                                   canCreateAdjustment ? (
                                     <button
@@ -1043,11 +1162,36 @@ const ReconciliationCasesDetailPage = () => {
                                       {row.nextStep.reasonCode === 'UNEXPLAINED_CLIENT_LOSS' ? '认损' : '核销'}
                                     </button>
                                   ) : (
-                                    <span className="whitespace-nowrap font-mono text-[10px] text-adm-red">{row.nextStep.reasonCode === 'UNEXPLAINED_CLIENT_LOSS' ? '超期 · 可认损' : '超期 · 可核销'}</span>
+                                    // 出口 = INCIDENT（事故已定损公司承损）不是「超期」——那句话在这里是撒谎。
+                                    <span className="whitespace-nowrap font-mono text-[10px] text-adm-red">
+                                      {row.disposition.outlet === 'INCIDENT' ? '事故已定损 · 可认损' : row.nextStep.reasonCode === 'UNEXPLAINED_CLIENT_LOSS' ? '超期 · 可认损' : '超期 · 可核销'}
+                                    </span>
                                   )
                                 )}
                                 {row.nextStep?.kind === 'INCIDENT_DEFERRED' && (
-                                  <span className="whitespace-nowrap font-mono text-[10px] text-adm-red">超期 · 待升级事故（三期）</span>
+                                  existingLargeUnexplained ? (
+                                    <IncidentBadge incidentNo={existingLargeUnexplained.incidentNo} />
+                                  ) : canRegisterIncident ? (
+                                    <button
+                                      type="button"
+                                      onClick={() => navigate(buildIncidentHref({
+                                        type: 'LARGE_UNEXPLAINED',
+                                        sourceCaseNo: kase.caseNo,
+                                        customerNo: kase.ownerNo,
+                                        assetCode: kase.assetCode,
+                                        amount: minorToMajorPlain(row.nextStep!.amount, kase.decimals),
+                                        title: `大额查不出 · 案 ${kase.caseNo}`,
+                                        description: `钱包 ${kase.walletNo ?? '—'} 差额超期未能查出原因，金额 ${minorToMajorPlain(row.nextStep!.amount, kase.decimals)} ${kase.assetCode}，`
+                                          + `超过小额线，升级事故登记。查证结论：${row.disposition!.findingNote}`,
+                                      }))}
+                                      className="inline-flex items-center gap-1 whitespace-nowrap font-mono text-[10px] font-medium text-adm-red hover:underline"
+                                    >
+                                      <Plus size={10} />
+                                      升级事故
+                                    </button>
+                                  ) : (
+                                    <span className="whitespace-nowrap font-mono text-[10px] text-adm-red">超期 · 待升级事故（三期）</span>
+                                  )
                                 )}
                                 {row.nextStep?.kind === 'CLIENT_SURPLUS' && (
                                   <span className="whitespace-nowrap font-mono text-[10px] text-adm-amber">超期 · 多出来的钱查清归属走补录</span>

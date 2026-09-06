@@ -1345,6 +1345,70 @@ describe('getCase 行注解（spec §3/§8）', () => {
     const result: any = await svc.getCase(baseKase.caseNo);
     expect(result.incidents).toEqual([]);
   });
+
+  // 平账三期（Task 12）：出口 = INCIDENT（未授权转出）的定性行，事故一旦定损为
+  // 「公司承损」（FIRM_LOSS），案件页要给出「认损」开单入口——不受账龄线约束
+  // （这条行天生不是 HOLD_INVESTIGATING，走不进上面那组超期判断）。复用 WRITE_OFF
+  // 这个 nextStep 形状，金额锁定为事故定损额（元→最小单位）。
+  it('出口 = INCIDENT 且事故已定损 FIRM_LOSS → nextStep = WRITE_OFF（认损开单入口，金额锁定为定损额，不受账龄线约束）', async () => {
+    const externalLines = [
+      { id: 'ext-uo', direction: 'OUT', amount: new Prisma.Decimal(500), externalRef: 'REF-UO', datetime: new Date('2026-06-27T09:00:00Z'), description: null },
+    ];
+    const dispositionRow = {
+      dispositionNo: 'DISP-UO-1', caseNo: baseKase.caseNo,
+      explainedFlowId: null, explainedExternalLineId: 'ext-uo',
+      matchType: 'ORPHAN_EXTERNAL', book: 'CLIENT', causeCode: 'UNAUTHORIZED_OUTFLOW', outlet: 'INCIDENT',
+      deferredTarget: null, findingNote: '客户确认未授权，链上核实转出地址非白名单',
+      adjustmentNo: null, incidentNo: 'INC1', createdByUserId: 'user-ops-1',
+      createdAt: new Date('2026-06-27T12:00:00Z'), updatedAt: new Date('2026-06-27T12:00:00Z'),
+    };
+    const prisma = mkBasePrisma({
+      externalBalance: { findMany: jest.fn().mockResolvedValue([]) },
+      externalStatementLine: { findMany: jest.fn().mockResolvedValue(externalLines) },
+      accountFlow: { findMany: jest.fn().mockResolvedValue([]) },
+      reconciliationDisposition: { findMany: jest.fn().mockResolvedValue([dispositionRow]) },
+      incident: {
+        findMany: jest.fn().mockResolvedValue([
+          { incidentNo: 'INC1', status: 'ASSESSED', type: 'UNAUTHORIZED_OUTFLOW', assessedAmount: new Prisma.Decimal('123.45'), assessmentBasis: 'FIRM_LOSS' },
+        ]),
+      },
+    });
+    const flowMatcher = { matchFlows: jest.fn().mockResolvedValue({ matched: [], orphanInternal: [], orphanExternal: [{ externalLineId: 'ext-uo' }], mismatch: [] }) };
+    const svc = mkSvc(prisma, { flowMatcher });
+    const result: any = await svc.getCase(baseKase.caseNo);
+    const row = result.flowComparison.find((r: any) => r.externalLine?.id === 'ext-uo');
+    // decimals=2（mkBasePrisma 默认）：123.45 → 12345 最小单位。
+    expect(row.nextStep).toEqual({ kind: 'WRITE_OFF', reasonCode: 'UNEXPLAINED_CLIENT_LOSS', direction: 'REDUCE', amount: '12345', effectiveDate: baseKase.businessDate });
+  });
+
+  it('出口 = INCIDENT 但事故还没定损（REGISTERED）→ 没有 nextStep（等定损结论，不许提前解锁）', async () => {
+    const externalLines = [
+      { id: 'ext-uo2', direction: 'OUT', amount: new Prisma.Decimal(500), externalRef: 'REF-UO2', datetime: new Date('2026-06-27T09:00:00Z'), description: null },
+    ];
+    const dispositionRow = {
+      dispositionNo: 'DISP-UO-2', caseNo: baseKase.caseNo,
+      explainedFlowId: null, explainedExternalLineId: 'ext-uo2',
+      matchType: 'ORPHAN_EXTERNAL', book: 'CLIENT', causeCode: 'UNAUTHORIZED_OUTFLOW', outlet: 'INCIDENT',
+      deferredTarget: null, findingNote: 'n', adjustmentNo: null, incidentNo: 'INC2', createdByUserId: 'user-ops-1',
+      createdAt: new Date(), updatedAt: new Date(),
+    };
+    const prisma = mkBasePrisma({
+      externalBalance: { findMany: jest.fn().mockResolvedValue([]) },
+      externalStatementLine: { findMany: jest.fn().mockResolvedValue(externalLines) },
+      accountFlow: { findMany: jest.fn().mockResolvedValue([]) },
+      reconciliationDisposition: { findMany: jest.fn().mockResolvedValue([dispositionRow]) },
+      incident: {
+        findMany: jest.fn().mockResolvedValue([
+          { incidentNo: 'INC2', status: 'REGISTERED', type: 'UNAUTHORIZED_OUTFLOW', assessedAmount: null, assessmentBasis: null },
+        ]),
+      },
+    });
+    const flowMatcher = { matchFlows: jest.fn().mockResolvedValue({ matched: [], orphanInternal: [], orphanExternal: [{ externalLineId: 'ext-uo2' }], mismatch: [] }) };
+    const svc = mkSvc(prisma, { flowMatcher });
+    const result: any = await svc.getCase(baseKase.caseNo);
+    const row = result.flowComparison.find((r: any) => r.externalLine?.id === 'ext-uo2');
+    expect(row.nextStep).toBeUndefined();
+  });
 });
 
 describe('listCases 进度与 decimals', () => {
@@ -1483,7 +1547,8 @@ describe('平账 A 批：超期后的下一步 nextStep（spec §2.6）', () => 
     prisma.externalStatementLine.findMany.mockResolvedValue([{ id: extId, direction: 'IN', amount: new Prisma.Decimal(0), externalRef: 'R1', datetime: new Date(), description: null }]);
     prisma.accountFlow.findMany.mockResolvedValue([{ id: flowId, direction: 'IN', amount: new Prisma.Decimal(20_000), externalRef: 'R1', eventCode: 'E', sourceType: 'DEPOSIT', sourceNo: 'S', createdAt: new Date() }]);
     const res = await mkSvc(prisma, { flowMatcher: mismatchMatcher }).getCase('REC-A');
-    expect(res.flowComparison.find((r: any) => r.matchType === 'AMOUNT_MISMATCH')!.nextStep).toEqual({ kind: 'INCIDENT_DEFERRED' });
+    // Task 12：nextStep 带上金额（元→最小单位，"升级事故"按钮据此预填）。
+    expect(res.flowComparison.find((r: any) => r.matchType === 'AMOUNT_MISMATCH')!.nextStep).toEqual({ kind: 'INCIDENT_DEFERRED', amount: '20000' });
   });
   // 平账二期 Task 4 改口：客户池超期不再一律 TRANSFER_DEFERRED——小额且「托管里少了」
   // （REDUCE）直接解锁认损（reasonCode 换成 UNEXPLAINED_CLIENT_LOSS，其余三项与公司池
@@ -1507,7 +1572,7 @@ describe('平账 A 批：超期后的下一步 nextStep（spec §2.6）', () => 
     prisma.externalStatementLine.findMany.mockResolvedValue([{ id: extId, direction: 'IN', amount: new Prisma.Decimal(0), externalRef: 'R1', datetime: new Date(), description: null }]);
     prisma.accountFlow.findMany.mockResolvedValue([{ id: flowId, direction: 'IN', amount: new Prisma.Decimal(20_000), externalRef: 'R1', eventCode: 'E', sourceType: 'DEPOSIT', sourceNo: 'S', createdAt: new Date() }]);
     const res = await mkSvc(prisma, { flowMatcher: mismatchMatcher }).getCase('REC-A');
-    expect(res.flowComparison.find((r: any) => r.matchType === 'AMOUNT_MISMATCH')!.nextStep).toEqual({ kind: 'INCIDENT_DEFERRED' });
+    expect(res.flowComparison.find((r: any) => r.matchType === 'AMOUNT_MISMATCH')!.nextStep).toEqual({ kind: 'INCIDENT_DEFERRED', amount: '20000' });
   });
   it('未超期 / 未定性 / 结论不是调查中 / 已挂单 → 没有 nextStep', async () => {
     const notBreached = await mkSvc(prismaFor({ book: 'FIRM', slaBreached: false, disposition: held }), { flowMatcher: mismatchMatcher }).getCase('REC-A');

@@ -62,7 +62,7 @@ export const REASON_LABEL: Record<string, string> = {
   ...Object.fromEntries(Object.entries(REASON_META).map(([code, meta]) => [code, meta.label])),
   CUSTOMER_REATTRIBUTION: '记错客户更正（改记）',
   UNEXPLAINED_WRITE_OFF: '查无果核销',
-  UNEXPLAINED_CLIENT_LOSS: '客户池查无果认损',
+  UNEXPLAINED_CLIENT_LOSS: '客户池认损',
 };
 
 // T9：族的中文词——本文件内常量，不是共享注册表（唯一真相仍在后端
@@ -216,7 +216,7 @@ const ReconciliationAdjustmentCreateModal = ({
     setAmountDisplay(prefill.amountMinor ? minorToDisplay(prefill.amountMinor, decimals) : '');
     setEffectiveDate(caseBusinessDate);
     setRelatedOrderNo(prefill.relatedOrderNo ?? '');
-    setReasonInternal(locked?.writeOff ? `${locked.reasonCode === 'UNEXPLAINED_CLIENT_LOSS' ? '客户池查无果认损' : '查无果核销'}：${locked.writeOff.findingNote}` : '');
+    setReasonInternal(locked?.writeOff ? `${locked.reasonCode === 'UNEXPLAINED_CLIENT_LOSS' ? '客户池认损' : '查无果核销'}：${locked.writeOff.findingNote}` : '');
     setReasonCustomer(locked?.writeOff ? (locked.reasonCode === 'UNEXPLAINED_CLIENT_LOSS' ? '平台调整（托管差额认损，随后公司补款）' : '（公司侧核销，客户不可见）') : '');
     setError('');
     setCandidates([]);

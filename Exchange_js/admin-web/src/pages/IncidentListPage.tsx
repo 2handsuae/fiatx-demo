@@ -2,7 +2,7 @@
 // 平账三期 · 事故登记：列表 + 人工登记入口（四入口之一，另三个在案子详情页，Task 12）。
 // 铁律⑥：列表投影零 UUID（后端 IncidentService.list 已保证）。
 import { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Plus, RefreshCw } from 'lucide-react';
 import Pagination from '../components/common/Pagination';
 import { adminButtonClass, adminIconButtonClass } from '../components/common/adminButtonStyles';
@@ -38,9 +38,19 @@ interface Item {
 
 const PAGE_SIZE = 20;
 
-/** 人工登记表单（四入口的第四个：治理台空表单，类型手选，来源案号为空）。
- * 另三个入口（案子定性升级 / 大额到线 / 退汇欠款）在案子详情页，Task 12。 */
-const NewIncidentModal = ({ open, onClose, onCreated }: { open: boolean; onClose: () => void; onCreated: (incidentNo: string) => void }) => {
+/** Task 12：案子详情页三入口跳转过来的预填——业务键 only（铁律⑥）。钱包 / 账单行
+ * 参考号在这份表单里没有专用字段，由调用方拼进 description（人读、可编辑），不当
+ * 结构化字段传。 */
+export interface NewIncidentPrefill {
+  type?: string; title?: string; description?: string;
+  sourceCaseNo?: string; sourceDispositionNo?: string; sourceAdvanceTransferNo?: string;
+  customerNo?: string; assetCode?: string; amount?: string;
+}
+
+/** 人工登记表单（四入口的第四个：治理台空表单，类型手选，来源案号为空；
+ * 另三个入口——案子定性升级 / 大额到线 / 退汇欠款——在案子详情页，通过 `prefill`
+ * 带着业务键跳到这里，Task 12）。 */
+const NewIncidentModal = ({ open, prefill, onClose, onCreated }: { open: boolean; prefill?: NewIncidentPrefill; onClose: () => void; onCreated: (incidentNo: string) => void }) => {
   const [type, setType] = useState<string>('MANUAL');
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
@@ -52,6 +62,23 @@ const NewIncidentModal = ({ open, onClose, onCreated }: { open: boolean; onClose
   const [amount, setAmount] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
+
+  // Task 12：每次打开都按 prefill 重新灌一遍字段——同一个弹层实例在案子页跳转
+  // 之间复用，不重置就会把上一次的预填带进下一次打开。
+  useEffect(() => {
+    if (!open) return;
+    setType(prefill?.type ?? 'MANUAL');
+    setTitle(prefill?.title ?? '');
+    setDescription(prefill?.description ?? '');
+    setSourceCaseNo(prefill?.sourceCaseNo ?? '');
+    setSourceDispositionNo(prefill?.sourceDispositionNo ?? '');
+    setSourceAdvanceTransferNo(prefill?.sourceAdvanceTransferNo ?? '');
+    setCustomerNo(prefill?.customerNo ?? '');
+    setAssetCode(prefill?.assetCode ?? '');
+    setAmount(prefill?.amount ?? '');
+    setError('');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, prefill]);
 
   if (!open) return null;
 
@@ -160,6 +187,7 @@ const NewIncidentModal = ({ open, onClose, onCreated }: { open: boolean; onClose
 
 const IncidentListPage = () => {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { hasPermission } = useAdminSession();
   const canWrite = hasPermission(PERMISSIONS.INCIDENT_WRITE);
   const [items, setItems] = useState<Item[]>([]);
@@ -169,6 +197,27 @@ const IncidentListPage = () => {
   const [type, setType] = useState('');
   const [loading, setLoading] = useState(true);
   const [showNew, setShowNew] = useState(false);
+  // Task 12：案子详情页三入口带 query 跳过来的预填——存在 type 就当作是跳转
+  // 过来的，直接开弹层，不用再让人自己点「登记事故」。
+  const [newPrefill, setNewPrefill] = useState<NewIncidentPrefill | undefined>(undefined);
+
+  useEffect(() => {
+    const qType = searchParams.get('type');
+    if (!qType) return;
+    setNewPrefill({
+      type: qType,
+      title: searchParams.get('title') ?? undefined,
+      description: searchParams.get('description') ?? undefined,
+      sourceCaseNo: searchParams.get('sourceCaseNo') ?? undefined,
+      sourceDispositionNo: searchParams.get('sourceDispositionNo') ?? undefined,
+      sourceAdvanceTransferNo: searchParams.get('sourceAdvanceTransferNo') ?? undefined,
+      customerNo: searchParams.get('customerNo') ?? undefined,
+      assetCode: searchParams.get('assetCode') ?? undefined,
+      amount: searchParams.get('amount') ?? undefined,
+    });
+    setShowNew(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const fetchItems = async (nextPage = page, nextStatus = status, nextType = type) => {
     setLoading(true);
@@ -209,7 +258,7 @@ const IncidentListPage = () => {
         meta={`${total} incident(s)`}
       >
         {canWrite && (
-          <button type="button" onClick={() => setShowNew(true)} className={adminButtonClass('listPrimary')}>
+          <button type="button" onClick={() => { setNewPrefill(undefined); setShowNew(true); }} className={adminButtonClass('listPrimary')}>
             <Plus size={13} /> 登记事故
           </button>
         )}
@@ -284,6 +333,7 @@ const IncidentListPage = () => {
 
       <NewIncidentModal
         open={showNew}
+        prefill={newPrefill}
         onClose={() => setShowNew(false)}
         onCreated={(incidentNo) => { setShowNew(false); navigate(`/admin/governance/incidents/${encodeURIComponent(incidentNo)}`); }}
       />

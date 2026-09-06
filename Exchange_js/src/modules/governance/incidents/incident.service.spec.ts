@@ -4,7 +4,7 @@ import { IncidentStatus as S, IncidentTypes as T, INCIDENT_REPORT_BASES as REPOR
 
 const ops = { actorType: 'ADMIN' as const, userId: 'uuid-ops', userNo: 'ADM-OPS', roleCodes: ['OPS_OFFICER'] };
 
-function makeService(o: Partial<Record<'incidentRow' | 'disposition' | 'kase' | 'transfer' | 'adjustment' | 'deposit' | 'remediations' | 'notes' | 'listRows' | 'listTotal' | 'wallet', any>> = {}) {
+function makeService(o: Partial<Record<'incidentRow' | 'disposition' | 'kase' | 'transfer' | 'adjustment' | 'adjustments' | 'deposit' | 'remediations' | 'notes' | 'listRows' | 'listTotal' | 'wallet', any>> = {}) {
   const incidentRow = o.incidentRow ?? {
     id: 'uuid-inc', incidentNo: 'INC1', type: T.MANUAL, status: S.REGISTERED,
     title: 't', description: 'd', customerNo: null, sourceCaseNo: null, traceId: 'trace-seed',
@@ -28,7 +28,10 @@ function makeService(o: Partial<Record<'incidentRow' | 'disposition' | 'kase' | 
     reconciliationDisposition: { findUnique: jest.fn(async () => o.disposition ?? null) },
     reconciliationCase: { findUnique: jest.fn(async () => o.kase ?? null) },
     internalTransfer: { findUnique: jest.fn(async () => o.transfer ?? null) },
-    reconciliationAdjustment: { findUnique: jest.fn(async () => o.adjustment ?? null) },
+    reconciliationAdjustment: {
+      findUnique: jest.fn(async () => o.adjustment ?? null),
+      findMany: jest.fn(async () => o.adjustments ?? []),
+    },
     depositTransaction: { findUnique: jest.fn(async () => o.deposit ?? null) },
     wallet: { findUnique: jest.fn(async () => o.wallet ?? null) },
   };
@@ -493,13 +496,33 @@ describe('IncidentService（平账三期 Task 5）', () => {
       };
       const notes = [{ kind: 'NOTE', escalatedTo: null, body: '记录一条', authorUserId: 'ADM-OPS', createdAt }];
       const remediations = [{ kind: 'ADJUSTMENT', referenceNo: 'ADJ1', linkedByUserId: 'ADM-OPS', createdAt }];
-      const { svc } = makeService({ incidentRow, notes, remediations });
+      const adjustments = [{ adjustmentNo: 'ADJ1', status: 'POSTED' }];
+      const { svc } = makeService({ incidentRow, notes, remediations, adjustments });
       const view = await svc.getView('INC1');
       expect(view.incidentNo).toBe('INC1');
       expect(view.notes).toEqual([{ kind: 'NOTE', escalatedTo: null, body: '记录一条', authorBy: 'ADM-OPS', createdAt: createdAt.toISOString() }]);
-      expect(view.remediations).toEqual([{ kind: 'ADJUSTMENT', referenceNo: 'ADJ1', linkedBy: 'ADM-OPS', createdAt: createdAt.toISOString() }]);
+      // Task 12：ADJUSTMENT 善后单要带上调账单现状——事故页「发起补款」按钮据此判断
+      // 「已落账（POSTED）」，remediations 表本身不存这个会过期的状态快照。
+      expect(view.remediations).toEqual([{ kind: 'ADJUSTMENT', referenceNo: 'ADJ1', linkedBy: 'ADM-OPS', createdAt: createdAt.toISOString(), status: 'POSTED' }]);
       expect(view).not.toHaveProperty('id');
       expect(JSON.stringify(view)).not.toContain('uuid-inc');
+    });
+
+    it('getView：非 ADJUSTMENT 善后单不查调账单状态，status 恒 null', async () => {
+      const incidentRow = {
+        id: 'uuid-inc', incidentNo: 'INC1', type: T.MANUAL, status: S.RESOLVING,
+        title: 't', description: 'd', customerNo: null, sourceCaseNo: null, sourceDispositionNo: null,
+        sourceAdvanceTransferNo: null, walletRef: null, assetCode: null, amount: null,
+        assessedAmount: null, assessmentBasis: null, reportRequired: false, reportBasisCodes: null,
+        reportDeadlineAt: null, reportDraft: null, reportDraftedAt: null, reportedAt: null,
+        reportReference: null, approvalNo: null, registeredByUserId: 'ADM-OPS',
+        closedAt: null, withdrawnReason: null, createdAt,
+      };
+      const remediations = [{ kind: 'TRANSFER', referenceNo: 'ITR1', linkedByUserId: 'ADM-OPS', createdAt }];
+      const { svc, prisma } = makeService({ incidentRow, remediations });
+      const view = await svc.getView('INC1');
+      expect(view.remediations).toEqual([{ kind: 'TRANSFER', referenceNo: 'ITR1', linkedBy: 'ADM-OPS', createdAt: createdAt.toISOString(), status: null }]);
+      expect(prisma.reconciliationAdjustment.findMany).not.toHaveBeenCalled();
     });
 
     it('getView：事故不存在 → 404', async () => {

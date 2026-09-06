@@ -187,7 +187,8 @@ export interface FlowComparisonRow {
   nextStep?: {
     kind: 'WRITE_OFF' | 'INCIDENT_DEFERRED' | 'CLIENT_SURPLUS' | 'COMPENSATION' | 'ADVANCE';
     reasonCode?: 'UNEXPLAINED_WRITE_OFF' | 'UNEXPLAINED_CLIENT_LOSS'; direction?: 'REDUCE' | 'INCREASE';
-    amount?: string;          // 最小单位整数字符串（WRITE_OFF：核销 / 认损额；COMPENSATION：补款额；ADVANCE：差额）
+    amount?: string;          // 最小单位整数字符串（WRITE_OFF：核销 / 认损额；COMPENSATION：补款额；ADVANCE：差额；
+                              // INCIDENT_DEFERRED：Task 12 起也带——「升级事故」按钮据此预填 LARGE_UNEXPLAINED 金额）
     effectiveDate?: string;   // = 案件业务日（WRITE_OFF）
     adjustmentNo?: string;    // COMPENSATION：来源认损单
     externalLineId?: string;  // ADVANCE：被退汇的账单行（隐藏锚，不上页面）

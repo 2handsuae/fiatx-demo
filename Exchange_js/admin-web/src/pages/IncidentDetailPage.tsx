@@ -39,6 +39,9 @@ interface RemediationItem {
   referenceNo: string;
   linkedBy: string;
   createdAt: string;
+  // Task 12：只有 kind === 'ADJUSTMENT' 才有值（调账单现状）——「发起补款」按钮据此
+  // 判断是否已落账（POSTED）；其余 kind 恒 null。
+  status: string | null;
 }
 
 interface Detail {
@@ -201,6 +204,14 @@ const IncidentDetailPage = () => {
   const canAssess = canWrite && detail.status === 'INVESTIGATING';
   const canLinkRemediation = canWrite && (detail.status === 'ASSESSED' || detail.status === 'RESOLVING');
   const assessed = detail.assessedAmount != null;
+  // Task 12：善后区「发起补款」——事故处置中 + 挂载里有一张已落账（POSTED）认损调账单，
+  // 说明认损已过审批入账，该由公司补齐客户了。跳到对账案子页，复用那里已有的补款
+  // 发起入口（案件页会按 disposition.adjustmentNo 自动算出同一张单的 COMPENSATION
+  // nextStep，零新通道）。
+  const postedAdjustment = detail.status === 'RESOLVING'
+    ? detail.remediations.find((r) => r.kind === 'ADJUSTMENT' && r.status === 'POSTED')
+    : undefined;
+  const canInitiateCompensation = canWrite && !!postedAdjustment && !!detail.sourceCaseNo;
   const canSaveDraft = canWrite && assessed && detail.reportRequired && !detail.reportedAt;
   const canMarkReported = canWrite && assessed && detail.reportRequired && !detail.reportedAt && !!detail.reportDraft;
 
@@ -416,6 +427,18 @@ const IncidentDetailPage = () => {
                 (detail.status === 'REGISTERED' || detail.status === 'INVESTIGATING') && (
                   <p className="border-t border-adm-border pt-3 font-mono text-[11px] text-adm-t3">先定损才能挂善后单</p>
                 )
+              )}
+              {canInitiateCompensation && (
+                <div className="border-t border-adm-border pt-3">
+                  <button
+                    type="button"
+                    onClick={() => navigate(`/admin/reconciliation/cases/${encodeURIComponent(detail.sourceCaseNo!)}?adjustmentNo=${encodeURIComponent(postedAdjustment!.referenceNo)}`)}
+                    className={adminButtonClass('workflowPrimary')}
+                  >
+                    发起补款
+                  </button>
+                  <p className="mt-1 font-mono text-[9px] text-adm-t3">认损单 {postedAdjustment!.referenceNo} 已落账——跳对账案子页发起补款（复用既有入口）</p>
+                </div>
               )}
             </div>
           </DetailCard>
