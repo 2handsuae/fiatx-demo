@@ -148,19 +148,6 @@ const DashboardLayout = () => {
           icon: <Users size={13} />,
           requiredPermissions: [PERMISSIONS.CUSTOMERS_READ],
         },
-        {
-          path: '/admin/customers/material-holdings',
-          label: 'Material Holdings',
-          icon: <FileText size={13} />,
-          requiredPermissions: [PERMISSIONS.CUSTOMERS_READ],
-        },
-        // Hidden from sidebar 2026-07-02 (route stays live for direct links)
-        // {
-        //   path: '/admin/customers/refresh-cycles',
-        //   label: 'Refresh Cycles',
-        //   icon: <History size={13} />,
-        //   requiredPermissions: [PERMISSIONS.CUSTOMERS_READ],
-        // },
       ],
     },
     // ─── Compliance ───────────────────────────────────────────────

@@ -182,44 +182,6 @@ const SidebarKV = ({
 
 /* ─────────────────────────────────────────────────────────────── */
 
-/* ── Material Holding (summary) ─────────────────────────────── */
-
-interface MaterialHoldingSummary {
-  id: string;
-  materialType: string;
-  status: string;
-  expiresAt?: string | null;
-  daysFromExpiry?: number | null;
-  activeRefreshCycle?: {
-    id: string;
-    cycleNo: string;
-  } | null;
-}
-
-/* ── DaysLeftCell (inline, compact) ─────────────────────────── */
-
-const DaysLeftCell = ({ days }: { days?: number | null }) => {
-  if (days === null || days === undefined) {
-    return <span className="font-mono text-[10px] text-adm-t3">—</span>;
-  }
-  if (days < 0) {
-    return (
-      <span className="font-mono text-[10px] font-bold text-adm-red">
-        {days}d (exp)
-      </span>
-    );
-  }
-  if (days < 7) {
-    return <span className="font-mono text-[10px] font-bold text-adm-red">{days}d</span>;
-  }
-  if (days <= 30) {
-    return <span className="font-mono text-[10px] font-semibold text-adm-amber">{days}d</span>;
-  }
-  return <span className="font-mono text-[10px] text-adm-t2">{days}d</span>;
-};
-
-/* ─────────────────────────────────────────────────────────────── */
-
 const CustomerDetail = () => {
   const { customerNo } = useParams<{ customerNo: string }>();
   const navigate = useNavigate();
@@ -255,7 +217,6 @@ const CustomerDetail = () => {
   const [removeTagReason, setRemoveTagReason] = useState('');
 
   /* ── Material holdings state ── */
-  const [holdings, setHoldings] = useState<MaterialHoldingSummary[]>([]);
   const [tierMessage, setTierMessage] = useState<string | null>(null);
 
   /* ── Risk Assessment trigger state ── */
@@ -310,19 +271,6 @@ const CustomerDetail = () => {
     );
     return () => window.clearTimeout(t);
   }, [tierMessage]);
-
-  /* ── Load material holdings whenever customer id is available ── */
-  const fetchHoldings = (customerId: string) => {
-    adminFetch(`${import.meta.env.VITE_API_URL}/admin/material-management/holdings?customerId=${customerId}`)
-      .then((r) => r.json())
-      .then((d: { items?: MaterialHoldingSummary[] }) => setHoldings(d.items || []))
-      .catch(() => {});
-  };
-
-  useEffect(() => {
-    if (detail?.id) fetchHoldings(detail.id);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [detail?.id]);
 
   /* ── Tags fetching ── */
   const fetchTagCatalog = () => {
@@ -944,85 +892,6 @@ const CustomerDetail = () => {
                   mono
                 />
               </FieldGrid>
-            </div>
-          </section>
-
-          {/* ⑩ Material Holdings Summary */}
-          <section className="px-6 py-5">
-            <Cap>Material Holdings</Cap>
-            <p className="mt-1 mb-3 font-mono text-[9px] text-adm-t3">
-              Active KYC material holdings for this customer
-            </p>
-            {holdings.length === 0 ? (
-              <p className="font-mono text-[10px] text-adm-t3">No holdings found.</p>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full border-collapse text-sm">
-                  <thead>
-                    <tr>
-                      {(['Material', 'Status', 'Expires', 'Days Left', 'Cycle'] as string[]).map((h) => (
-                        <th
-                          key={h}
-                          className="border-b border-adm-border bg-adm-panel px-3 py-1.5 text-left font-mono text-[8.5px] font-semibold uppercase tracking-[0.12em] text-adm-t3 whitespace-nowrap"
-                        >
-                          {h}
-                        </th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {holdings.map((h) => (
-                      <tr
-                        key={h.id}
-                        className="cursor-pointer border-b border-adm-border transition-colors hover:bg-adm-hover"
-                        onClick={() => navigate(`/admin/customers/material-holdings/${h.id}`)}
-                      >
-                        <td className="px-3 py-2 font-mono text-[10px] text-adm-t2 whitespace-nowrap">
-                          {h.materialType}
-                        </td>
-                        <td className="px-3 py-2 whitespace-nowrap">
-                          <AdminBadge value={h.status} />
-                        </td>
-                        <td className="px-3 py-2 font-mono text-[10px] text-adm-t2 whitespace-nowrap">
-                          {h.expiresAt
-                            ? new Date(h.expiresAt).toLocaleDateString()
-                            : '—'}
-                        </td>
-                        <td className="px-3 py-2 whitespace-nowrap">
-                          <DaysLeftCell days={h.daysFromExpiry} />
-                        </td>
-                        <td className="px-3 py-2 font-mono text-[10px] whitespace-nowrap">
-                          {h.activeRefreshCycle ? (
-                            <button
-                              className={adminButtonClass('rowLink')}
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                navigate(`/admin/customers/material-holdings/${h.id}`);
-                              }}
-                            >
-                              {h.activeRefreshCycle.cycleNo} →
-                            </button>
-                          ) : (
-                            <span className="text-adm-t3">—</span>
-                          )}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-            <div className="mt-3">
-              <button
-                className={adminButtonClass('rowLink')}
-                onClick={() =>
-                  navigate(
-                    `/admin/customers/material-holdings?customerId=${detail.id}`,
-                  )
-                }
-              >
-                View All →
-              </button>
             </div>
           </section>
 

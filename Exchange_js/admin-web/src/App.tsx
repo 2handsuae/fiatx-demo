@@ -47,10 +47,6 @@ const RoleDefinitionModifyRequestsPage = lazy(() => import('./pages/RoleDefiniti
 const RoleDefinitionModifyRequestDetailPage = lazy(() => import('./pages/RoleDefinitionModifyRequestDetailPage'));
 const RolesPage = lazy(() => import('./pages/RolesPage'));
 const RoleDetailPage = lazy(() => import('./pages/RoleDetailPage'));
-const MaterialManagementPage = lazy(() => import('./pages/MaterialManagementPage'));
-const MaterialHoldingDetailPage = lazy(() => import('./pages/MaterialHoldingDetailPage'));
-const RefreshCyclesPage = lazy(() => import('./pages/RefreshCyclesPage'));
-const RefreshCycleDetailPage = lazy(() => import('./pages/RefreshCycleDetailPage'));
 const ApprovalPoliciesPage = lazy(() => import('./pages/ApprovalPoliciesPage'));
 const LedgerAccountList = lazy(() => import('./pages/LedgerAccountList'));
 const LedgerAccountDetail = lazy(() => import('./pages/LedgerAccountDetail'));
@@ -199,10 +195,6 @@ function App() {
             {/* customers */}
             <Route path="customers" element={withPermission(<CustomerManagement />, [PERMISSIONS.CUSTOMERS_READ])} />
             <Route path="customers/:customerNo" element={withPermission(<CustomerDetail />, [PERMISSIONS.CUSTOMERS_DETAIL_READ])} />
-            <Route path="customers/material-holdings" element={withPermission(<MaterialManagementPage />, [PERMISSIONS.CUSTOMERS_READ])} />
-            <Route path="customers/material-holdings/:holdingId" element={withPermission(<MaterialHoldingDetailPage />, [PERMISSIONS.CUSTOMERS_READ])} />
-            <Route path="customers/refresh-cycles" element={withPermission(<RefreshCyclesPage />, [PERMISSIONS.CUSTOMERS_READ])} />
-            <Route path="customers/refresh-cycles/:cycleId" element={withPermission(<RefreshCycleDetailPage />, [])} />
 
             {/* compliance */}
             <Route path="compliance/sumsub-events" element={withPermission(<SumsubEventsPage />, [PERMISSIONS.SUMSUB_EVENTS_READ])} />
