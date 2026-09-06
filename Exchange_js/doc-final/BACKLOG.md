@@ -11,7 +11,7 @@
 > **⭐ = 带同事走七幕时会当场看到或讲不圆的**，共 31 条。一行四要素：是什么 ｜ 哪来的 ｜ 落点 / 状态。做完就勾掉。
 > 分诊历史：2026-08-26 首次分流（加固类迁出）；2026-08-28 二次分诊——业务/技术彻底分家：8 条已完成或已作废销账、45 条迁 `PRODUCTION-NOTES`、4 条从 `PRODUCTION-NOTES` 判回业务；同日「演示装备」A 档 8 条逐条实跑复核，6 条实证已修当场销账。**2026-08-29 演示装备一期收官**——A 档剩下的 2 条（造数花名册、补料回炉）做完销账，A 档 8/8 全部完成、整节退役删除（原文见「本轮销账」章节与 git 历史）；导语并入 §B。分诊前全文见 git 历史（`649b4e88`）。
 
-Last Updated: 2026-09-05
+Last Updated: 2026-09-06
 
 
 ## B. 第一幕 · 开业（V1 治理底座 ｜ V3 财务配置 ｜ 账本）
@@ -52,6 +52,8 @@ Last Updated: 2026-09-05
 - [ ] **报价落"资格快照"**：现 quote 仅存 `policyRef=LEVEL:code`；V3 要求成交时落 命中集合 + 选中级 + 选中理由(最低费) + 客户此刻标签快照（可解释/可申诉）｜来源: 2026-07-11 费率 V3 §4.4/§5.5
 - [ ] **费率两族现网创建/落地审计的 afterData 仍写裸资产 UUID（种子三块 2026-09-06 小轮已换业务键，这两处是残余的另一半）**：`swap-fee-level-creation-workflow.service.ts:103-111`（CREATION_REQUESTED 与 :191 APPLIED 的 afterData 带 `fromAssetId/toAssetId`）、`withdrawal-fee-level-creation-workflow.service.ts:100-108` 同款带 `assetId`——管理台审计页按字面量渲染，触铁律⑥。修法同种子侧：落 afterData 前把资产 id 映射成 currency ｜来源: 2026-09-06 第一幕小轮 Task 6 复查（原合并条目销账时拆出）
 
+- [ ] **`demo:all` 花名册断言只看订单终态，不校验命中费率档——Grace 命中 VIP 档还是回落 STD 档，花名册分不出**：`demo-lib.ts` 的花名册比对逐笔只断言"预期终态 == 实到状态"（如 SUCCESS/FROZEN），不读订单实际结算用的费率等级或费用金额。VIP 与交易档位解绑后（2026-09-06 客户域波一，VIP 改手打 STATIC 标签），Grace 的 VIP 标签是否真的命中 `VIP-USDT-AED` 费率档、还是意外回落到 `STD-USDT-AED` 默认档，两种结局订单终态都是 SUCCESS——花名册测不出区别，是判据网缺口，不是已知业务功能缺失 ｜来源: 2026-09-06 第二幕客户域波一评审发现
+
 
 - [x] ~~资本注入流水缺 evidence 行（`FIRM_ASSET` 流水缺资本那笔）~~ —— 已解（2026-09-05 平账二期 Task 10，commit `d1f92997`）：种子路径注资时补写凭证行 + 两行流水投影（每资产 OUT/IN 各一行），运营户对账起点不再显示负数 ｜来源: V8 redesign 遗留
 
@@ -86,21 +88,21 @@ Last Updated: 2026-09-05
 
 > 讲「客户是谁、能不能交易由合规说了算」这一幕的缺口。最大一件是开户流程重做（站6 整体拆除后待接真 Sumsub 申请人侧）。
 
-- [ ] **一期客户流程重做（接真 Sumsub 申请人侧）**：入驻流程 / 定期风评（CRA）/ 高风险升级案已于站6 整体拆除（业主 2026-08-27 方案2：演示零损失、免去"翻新旧的再推倒"双份工）。重做落点：申请人侧 Sumsub 集成（建充值地址时同步注册 applicant 绑定已是既定集成点）、开户 happy path、AML 命中走限制账、EDD 走审批。重建时直接在新审计合同上出生（词表/子表/旅程号第一天就对）；摄取分发器的 unrouted 警告处即重新开路的位置 ｜ 来源: 站6 业主拍板
+- [ ] **一期客户流程重做（接真 Sumsub 申请人侧，已排波次）**：入驻流程 / 定期风评（CRA）/ 高风险升级案曾于站6 整体拆除（业主 2026-08-27 方案2）；**2026-09-06 业主拍板推翻"开户流程不演"口径**（decisions.md 同日），按总纲 `superpowers/specs/2026-09-06-act2-customer-waves-outline.md` 拆波二（入驻重建：注册 → 建 Sumsub applicant → 模拟认证 → 裁决 → MLRO 终审 → ACTIVE，含被拒/撤回/重申、EDD 分支、把波一保留的 `customer-lifecycle.constant.ts` 状态机接上驱动）/ 波三（档位升级：BASIC→PREMIUM 审批）落地。摄取分发器的 `unrouted_*` 警告处即波二重新开路的位置；波一（本轮）只清地基，不接流程 ｜ 来源: 站6 业主拍板 ｜ 2026-09-06 总纲推翻，改指波二/波三
 
-- [ ] **若做 onboarding 风险审批展示，先接 `latestRiskApprovalId` 写入方**：该列全仓零生产写入方（2026-09-02 实证），CustomerDetail 靠它渲染的「Risk Approval」区块从来出不来，2026-09-03 客户域业务号化轮已把该死 UI 段退役（业主拍板：不在演示故事里）。回接位置就在上一条「一期客户流程重做」的 MLRO 终审落列处——先有写入方，再回接展示 ｜ 来源: 2026-09-03 客户域业务键收口
+- [x] ~~若做 onboarding 风险审批展示，先接 `latestRiskApprovalId` 写入方~~ —— 销账（2026-09-06 客户域波一 Task 1，客户表 48→24 字段治理）：`latestRiskApprovalId` 列已随本轮物理删除（该列此前就全仓零生产写入方，靠它渲染的死 UI 段本就已退役）。波二入驻重建若需要 MLRO 终审落列展示，按新 spec 设计新列，不是"回接"这一列 ｜ 来源: 2026-09-03 客户域业务键收口 ｜ 2026-09-06 波一销账
 
-- [ ] **Tier Upgrade ⛔ 缺客户端 UI**：后端全建（createFromCra→Level2→MLRO+SMO 审批），缺客户材料提交前端（真实卡点，roadmap 已标 BLOCKED）｜来源: 2026-07-04 V2 体检
+- [ ] **Tier Upgrade（BASIC→PREMIUM 档位升级）待波三重建**：旧记录"后端全建（`createFromCra`→Level2→MLRO+SMO 审批），缺客户端 UI"的前提已不成立——`createFromCra` 随站6 CRA 拆除整体消失（2026-08-27，全仓零命中），旧后端链路不在了。新设计见骨架 `superpowers/specs/2026-09-06-act2-wave3-tier-upgrade-skeleton.md`（客户主动申请 → 补高级别材料 → 审批 → `tradingTier` BASIC→PREMIUM，限额门/L1 当场变），依赖波二入驻重建的申请人侧地基先落地 ｜来源: 2026-07-04 V2 体检 ｜ 2026-09-06 波一复核确认旧前提已亡，改指波三骨架
 
-- [ ] **Corporate/机构客户 stub**：CorporateProfile/UboProfile 表+关系连但无业务逻辑，onboarding 两处显式 disabled；机构客户全 ADVANCED ｜来源: 2026-07-04 V2 体检
+- [ ] **机构客户 stub（现状口径已更正，非本波动作）**：`CorporateProfile`/`UboProfile` 两表已随站6（2026-08-27 一期拆除）整体删除——不是"表在逻辑无"，是表已不存在；`customerType='CORPORATE'` 现仅剩 `CustomerManagement.tsx` 筛选下拉与 `CustomerDetail.tsx` 两处死注释占位（`⑫ Corporate Profile`/`⑪ UBO List`，无渲染内容），入口仍是禁用状态。若要支持机构客户需从零设计数据模型，不是"接回"旧表 ｜来源: 2026-07-04 V2 体检 ｜ 2026-09-06 波一复核现状口径更正
 
-- [ ] ⭐ **Q2 销户流程只落了轴上位置 + 三条断言**：`OFFBOARDED` 是 `lifecycle` 终态，`CustomerAccessService.assertOffboardable()` 只实现三条不变量（`OFFBOARD_BLOCKED_BY_SANCTION` / `_BY_BALANCE` / `_BY_INFLIGHT`）。真正的销户流程——余额清退、材料归档留存期、审批链、客户侧发起入口——全部未做；管理台 Offboard 按钮当前是 disabled 占位 ｜来源: 2026-08-15 设计稿 §8 Q2
+- [ ] ⭐ **Q2 销户流程只落了轴上位置 + 三条断言**：`OFFBOARDED` 是 `lifecycle` 终态，`CustomerAccessService.assertOffboardable()` 只实现三条不变量（`OFFBOARD_BLOCKED_BY_SANCTION` / `_BY_BALANCE` / `_BY_INFLIGHT`）。真正的销户流程——余额清退、材料归档留存期、审批链、客户侧发起入口——全部未做；管理台 Offboard 按钮当前是 disabled 占位（与下方「材料终拒 → 离场清退流程未接」并链——材料终拒是触发销户清退的另一条路径，两条记录指向同一个未做的缺口）｜来源: 2026-08-15 设计稿 §8 Q2
 
-- [ ] ⭐ **六个 admin 页仍读已删的 `customer.complianceStatus`，客户级合规信号退化成 N/A(2026-08-16)**：三轴收敛后 `CustomerMain.complianceStatus` 列已删，但 `DepositTransactionDetail.tsx:401`、`WithdrawTransactionDetail.tsx:345`、`SwapTransactionDetail.tsx:284`（三张交易详情的**合规 L1「客户级」层**）与 `RiskAssessmentDetailPage.tsx:390`、`MaterialHoldingDetailPage.tsx:339/503`、`RefreshCycleDetailPage.tsx:350`（三张详情页的"客户被冻结"徽章）仍读该字段。降级是温和的——`getComplianceLayerStyle(undefined)` 返回灰底 `N/A`、徽章条件不成立直接不渲染，**不报错、不白屏**，但这些位置从此永远显示"没信号"，等于悄悄少了一层合规提示。新模型下这个信号的正确来源是限制账（"这个客户身上有没有开着的便签"），admin 侧可以连 SILENT 一起看（不涉 tipping-off）。要做的是：六个页面各自的后端 `customer` include 补一个限制摘要（`openRestrictionCount` / `hasSanction`，或直接复用 `CustomerAccessService.resolve()`），前端把 L1 层与徽章改读它。本轮 Task 12 只负责客户详情/列表两页，这六页无任务归属，故登记 ｜来源: 2026-08-16 Task 12 收尾时全仓 grep 发现
+- [x] ~~六个 admin 页仍读已删的 `customer.complianceStatus`，客户级合规信号退化成 N/A~~ —— 已解（凭证销账）：三张交易详情页（`DepositTransactionDetail.tsx`/`WithdrawTransactionDetail.tsx`/`SwapTransactionDetail.tsx`）的 L1「客户级」层早于本条登记后 6 天已改读 `customer.lifecycle`（2026-08-22 第四批 commit `339195e4`，`getComplianceLayerStyle(data.customer?.lifecycle)` 三处实测在场，本条此前未跟进销账）；`RiskAssessmentDetailPage.tsx` 随站6 一期拆除已不存在（2026-08-27 `4c6770ac`）；`MaterialHoldingDetailPage.tsx`/`RefreshCycleDetailPage.tsx` 随本轮 material-refresh 子系统退役一并删除（2026-09-06 波一 `5f5faccc`）。六页全部核清（`find admin-web -iname` 三页名零命中）｜来源: 2026-08-16 Task 12 收尾时全仓 grep 发现 ｜ 2026-09-06 波一销账
 
-- [ ] ⭐ **材料到期 cron 的扫描筛选值与 `customerMaterialHolding.status` 实际写入值对不上，`REFRESH_IN_PROGRESS` 之后的 holding 永远不再被任何一次扫描捡到(既有缺陷，非本轮引入)**：`material-freshness-cron.service.ts:31`（`scanHoldingsForStageTransitions()`）的筛选是 `status: { in: ['FRESH', 'NOTIFIED', 'URGENT', 'BLOCKING'] }`，但全仓 grep `customerMaterialHolding.update/create` 证实该字段实际只会被写成四个值：`FRESH`（`material-refresh.service.ts:323/452/555`、`admin-material-management.controller.ts:222`）、`REFRESH_IN_PROGRESS`（`material-refresh.service.ts:108/499`）、`EXPIRED`（`material-refresh.service.ts:168/200`）、`MISSING`（`material-refresh.service.ts:452`）——`NOTIFIED`/`URGENT`/`BLOCKING` 从未出现在任何写入点，它们是 `computeStage()`（`policy/compute-stage.ts`）的返回值，是 **cycle 的 `stage` 字段**取值，不是 holding.status 的取值。后果：holding 一旦被 `enterNotifiedStage()` 置成 `REFRESH_IN_PROGRESS`（T-30 就会发生），就**永远不再出现在任何一次 cron 扫描的候选集**里——`escalateToUrgent()`/`enterBlockingStage()` 这两个自动升档动作，生产环境里除了 admin 后台手动 `simulate-stage` 之外可能从未被自动触发过。连带：`handleSumsubDocMonitoringFire()` 也会被自己的 `if (holding.activeRefreshCycleId) continue` 挡住——T-30 建过 cycle 后这个条件恒真，Sumsub 主动上报证件过期同样叫不醒它。**已核实是既有缺陷**：`git show 71483d0d:...material-freshness-cron.service.ts` 基线上就是这个筛选条件（`git log 71483d0d..HEAD -- .../material-freshness-cron.service.ts` 零提交），本分支（材料请求账 Task 11）对该文件零改动；holding.status 实际取值只有那四个也已现场 grep 核实，非猜测。修法二选一，需先确认设计意图：① 筛选改成 `['FRESH', 'REFRESH_IN_PROGRESS']`（cron 应该关心的是"还没到终态"的 holding，不该按 cycle 的 stage 词汇筛 holding 表）；② 让 `holding.status` 真的跟着 stage 走（`enterNotifiedStage`/`escalateToUrgent`/`enterBlockingStage` 各自把 holding.status 同步写成 `NOTIFIED`/`URGENT`/`BLOCKING`，筛选条件不用改，但要评估这四个新状态值对其它读 `holding.status` 的地方——如 admin 列表页/客户端 profile-banners——是否会产生连带展示影响）｜来源: 2026-08-18 材料请求账 Task 11 评审核实（既存缺陷，登记不改代码）
+- [x] ~~材料到期 cron 的扫描筛选值与 `customerMaterialHolding.status` 实际写入值对不上，`REFRESH_IN_PROGRESS` 之后的 holding 永远不再被任何一次扫描捡到~~ —— 主体退役销账（2026-09-06 客户域波一 Task 2）：`material-freshness-cron.service.ts`、`customerMaterialHolding`/`materialRefreshCycle` 两表、整个 `material-refresh/` 目录随 material-refresh 子系统整体退役一并删除（业主拍板「没有用就删」，四证俱在——主库 0 行 / 造数链断头 / cron 空转 / 状态值失配，decisions.md 2026-09-06），此缺陷所在的代码已不存在，不必再修 ｜来源: 2026-08-18 材料请求账 Task 11 评审核实 ｜ 2026-09-06 波一销账
 
-- [ ] ⭐ **被 `REJECTED` 的材料请求，其便签长期挂着无人清理，无 SLA 提醒（设计稿 §9 Q3）**：材料请求行走到 `REJECTED`（RED·FINAL）是终态，但它挂着的便签（`restrictionNo` 指向的 `customer_restrictions` 行）不会跟着自动撕——两种 RED 都不撕便签是本设计刻意的（`MaterialRequestReviewService.applyReview()`：只有 GREEN 才 `autoRelease()`），但 FINAL 与 RETRY 不同：RETRY 客户还能再交、有机会转 GREEN 自动解开；FINAL 是死路，客户唯一的解法是靠运营再下发一次新的材料请求（走 `restrict:true` 挂到同一张便签或开新的），或运营手工去限制账页面撕票——现设计没有任何 SLA/看板提醒运营"这张便签背后的材料请求已经死路一条，光等客户自己不会有下文"。本轮不做，登记 BACKLOG ｜来源: 设计稿 `doc-final/superpowers/specs/2026-08-17-material-request-ledger-design.md` §9 Q3
+- [ ] ⭐ **材料终拒 → 离场清退流程未接**（原「REJECTED 材料请求便签长期无人清理」缺口并入，背景见下）：2026-09-06 业主拍板"材料终拒出口 = 离场"（decisions.md 同日，行业口径 FATF 建议10——无法完成尽调即退出客户关系，条子挂着不处理本身是合规瑕疵）；本轮（波一）管理台客户详情页已展示「尽调未完成 · 待离场处理」文字提示（`CustomerDetail.tsx`，走查已验：Bob 的 EMIRATES_ID 材料请求打到终拒后文字出现），但实际的销户清退动作（余额清退 / 材料归档留存期 / 审批链）未做——与上方「Q2 销户流程只落了轴上位置」并链，是同一个未做缺口的两条触发路径（一条走 `OFFBOARD` 边、一条走材料终拒）。**背景（原条目内容）**：材料请求走到 `REJECTED`（RED·FINAL）是终态，但它挂着的便签不会自动撕（`MaterialRequestReviewService.applyReview()` 只有 GREEN 才 `autoRelease()`，两种 RED 都不撕是设计刻意），FINAL 是死路——客户唯一解法是靠运营再下发一次新材料请求或手工去限制账页面撕票，此前无 SLA/看板提醒运营处理 ｜来源: 设计稿 `superpowers/specs/2026-08-17-material-request-ledger-design.md` §9 Q3 ｜ 2026-09-06 波一并入销户缺口，管理台文字展示已补
 
 - [ ] **Q1 制裁客户的订单级折叠未做**：本轮贴 `scope=ALL` 便签只把在途单打成 `FROZEN`，客户面靠服务端脱敏白名单收敛成 `COMPLIANCE_PENDING`；设计稿讨论过的「收单后一律挂 `PROCESSING`、连状态变化都不产生」的订单级折叠没做。与「提现域 tipping-off 未对齐」同源，一并排期 ｜来源: 2026-08-15 设计稿 §8 Q1
 
@@ -282,7 +284,7 @@ Last Updated: 2026-09-05
 
 - [ ] ⭐ 🔴 **通知 send/retry = STUB**：`core/notifications/` 只有 WebSocket `NotificationsGateway`，无 email/webhook/失败重试实现——roadmap 标 Notification send/retry ✅ MVP 为过度声明；这是 V4-V6 各版本"通知未接"的根因（本体没做，不是没调）｜来源: 2026-07-04 V1 体检
 
-- [ ] ⭐ **三域 Owner 按客户号搜索全是坏的（实证）**：三个列表页输入框都写 `Owner No`，但充值/提现发 `ownerNo`（后端 QueryDto 只有 `ownerId`）→ `main.ts` 的 `ValidationPipe({whitelist:true})` **静默丢弃** → **输什么都返回全量**；兑换把客户号塞进 `ownerId` → 拿客户号比 UUID → **恒 0 行**。实测 `30/30/0`、`83/83/0`、`59/59/0`。修法：三个 QueryDto 加 `ownerNo`，service 穿 `customer: { customerNo }` 关系过滤（**充值表没有 ownerNo 冗余列**，三域要一致只能走关系）；⚠️ 三域 `findAllForCustomer` 都是 `{ ...query, ownerId: customerId }` 的 spread，必须 AND 语义 + 显式剥掉，否则客户传别人客户号能跨客户读单 ｜来源: 2026-08-23 第五批设计期实证（本批「严格只做前端」故未修）
+- [x] ~~三域 Owner 按客户号搜索全是坏的（实证）~~ —— 已解（2026-09-06 客户域波一 Task 6，commit `6c173a80`）：三个 QueryDto 各加 `ownerNo`——充值走 `customer:{customerNo}` 关系过滤（该表无 ownerNo 冗余列），提现 / 兑换本身已有 `ownerNo` 列直接过滤；管理台三个列表页筛选框改发 `ownerNo` 参数（此前误发 `ownerId`，从未生效，此次连带修正）；客户详情页新增的三域跳转（`?ownerNo=` 深链）验证了过滤真实生效。`findAllForCustomer`（客户自助视角）仍强制 `ownerId: customerId` 不变，新 `ownerNo` 是独立 AND 条件、不覆盖它，未引入跨客户读单风险 ｜来源: 2026-08-23 第五批设计期实证 ｜ 2026-09-06 波一销账
 
 - [ ] ⭐ **`AuthGuard` 里 `/wallet/send` 的受限重定向守着一条不存在的路由**：`client-web/src/components/AuthGuard.tsx` 有一段「WITHDRAW 受限时把 `/wallet/send` 重定向到 `/profile`」，但 `/wallet/send` 这条路由全仓不存在——受限客户真走到这一步会落到空路由。演示第二幕「现场给一位客户开限制」时是可能被点到的 ｜来源: 2026-08-16；2026-08-26 分流迁入 PRODUCTION-NOTES，2026-08-28 判为业务缺口迁回
 

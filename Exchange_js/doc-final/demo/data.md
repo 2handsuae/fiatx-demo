@@ -21,7 +21,7 @@ admin@fiatx.com 超管 ｜ sm@ 高管(SMO) ｜ ciso@ ｜ mlro@ ｜ dpo@ ｜ comp
 | Dave Pending | 认证中 | 开户流程中段 |
 | Eve New | 刚注册未认证 | 开户起点 |
 | Frank HighRisk | 高风险 | 风险分层 |
-| Grace Premium | VIP 费率等级 | 费率受众谓词（命中 VIP-USDT-AED） |
+| Grace Premium | VIP 费率标签（手打 STATIC，与 PREMIUM 交易档位解绑，2026-09-06） | 费率受众谓词（命中 VIP-USDT-AED） |
 | Henry Acme | 企业客户 | 企业形态占位 |
 | Ivy Restricted | **材料过期 · 明示受限** | 与 Carol 对照：明示 vs 静默 |
 
