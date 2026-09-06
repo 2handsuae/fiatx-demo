@@ -108,7 +108,7 @@ cd admin-web && npx tsc -b --noEmit && cd ..
 - Delete: `src/modules/identity/review-response-compat.util.ts`
 - Modify: `src/modules/identity/customers/customer-access.service.ts`（删 `assertOffboardable` 方法 :176-207 及其独用的注入依赖）
 - Modify: `src/modules/identity/customers/customers.module.ts`（删 :20-22 注释与 TigerBeetleModule / FundsOrdersModule 两个 import——注释自证仅为 assertOffboardable 存在）
-- Modify: `src/modules/identity/material-requests/constants/material-request.constant.ts`（删 `MATERIAL_REQUEST_TERMINAL` 导出）
+- ~~Modify: `material-request.constant.ts`（删 `MATERIAL_REQUEST_TERMINAL` 导出）~~ **撤销（2026-09-06 执行中裁决）**：该常量被 `material-request.constant.spec.ts:45,53` 的状态机不变量断言（终态集合 × 迁移表一致性）消费——体检的引用搜索排除了 spec 才误判死码；守状态机的不变量测试是真守卫，常量保留。commit 信息里「三个死导出」实际交付两个，以本注记为准
 - Modify: `src/modules/identity/customers/customer-access.service.ts:55`（`ALL_CAPABILITIES` 去 `export` 保留常量）
 - Modify: `src/modules/identity/customer-tags/constants/customer-tag.constant.ts:20-21`（删 `isDerivedTag`、`staticTagCodes` 两函数）
 
