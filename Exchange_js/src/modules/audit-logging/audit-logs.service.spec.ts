@@ -123,6 +123,8 @@ describe('AuditLogsService', () => {
       // Task 2（material-request-ledger, 2026-08-17）：向客户要材料
       MATERIAL_REQUEST: 'MATERIAL_REQUEST',
       V8_RECONCILIATION: 'clearing-settle/reconciliation',
+      // 平账三期（2026-09-06）：事故登记
+      INCIDENT: 'INCIDENT',
     });
 
     expect(AuditUserActions).toEqual({

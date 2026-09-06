@@ -9,6 +9,7 @@ import {
   V8_RECON_AUDIT_ACTIONS,
   V2_CUSTOMER_AUDIT_ACTIONS,
   V7_TREASURY_AUDIT_ACTIONS,
+  INCIDENT_AUDIT_ACTIONS,
   DEPRECATED_AUDIT_ACTIONS,
 } from './audit-actions.constant';
 
@@ -37,6 +38,7 @@ const REGISTRIES: Record<string, Record<string, unknown>> = {
   V8_RECON_AUDIT_ACTIONS,
   V2_CUSTOMER_AUDIT_ACTIONS,
   V7_TREASURY_AUDIT_ACTIONS,
+  INCIDENT_AUDIT_ACTIONS,
 };
 
 const registered = new Set<string>(

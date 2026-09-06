@@ -71,6 +71,8 @@ export const AuditEntityTypes = {
   RECON_DISPOSITION: 'RECON_DISPOSITION',
   CUSTOMER_TAG: 'CUSTOMER_TAG',
   MATERIAL_REQUEST: 'MATERIAL_REQUEST',
+  // 平账三期（2026-09-06）：事故登记
+  INCIDENT: 'INCIDENT',
 } as const;
 
 export const AuditWorkflowTypes = {
@@ -150,6 +152,8 @@ export const AuditBusinessWorkflowTypes = {
   CUSTOMER_RESTRICTION_RELEASE: 'CUSTOMER_RESTRICTION_RELEASE',
   // 材料请求账（2026-08-17）：下发 / 提交 / 裁决 / 作废共用一个 workflowType
   MATERIAL_REQUEST: 'MATERIAL_REQUEST',
+  // 平账三期（2026-09-06）：事故登记（治理件，独立主体 Incident）
+  INCIDENT: 'INCIDENT',
 } as const;
 
 // Task 28：退役清单扫尾——原 15 键仅 2 键（REQUEST_CREATED/SUBMITTED）经
@@ -451,6 +455,18 @@ export const AuditActions = {
   MATERIAL_REQUEST_REJECTED: 'MATERIAL_REQUEST_REJECTED',
   MATERIAL_REQUEST_CANCELLED: 'MATERIAL_REQUEST_CANCELLED',
   MATERIAL_REQUEST_ORDER_UNBOUND: 'MATERIAL_REQUEST_ORDER_UNBOUND',
+  // ── 平账三期（2026-09-06）：事故登记（治理件，域 GOVERNANCE）──
+  INCIDENT_REGISTERED: 'INCIDENT_REGISTERED',
+  INCIDENT_INVESTIGATION_STARTED: 'INCIDENT_INVESTIGATION_STARTED',
+  INCIDENT_NOTE_ADDED: 'INCIDENT_NOTE_ADDED',
+  INCIDENT_ESCALATED: 'INCIDENT_ESCALATED',
+  INCIDENT_ASSESSED: 'INCIDENT_ASSESSED',
+  INCIDENT_REMEDIATION_LINKED: 'INCIDENT_REMEDIATION_LINKED',
+  INCIDENT_REGULATOR_REPORT_DRAFTED: 'INCIDENT_REGULATOR_REPORT_DRAFTED',
+  INCIDENT_REGULATOR_REPORTED: 'INCIDENT_REGULATOR_REPORTED',
+  INCIDENT_CLOSE_REQUESTED: 'INCIDENT_CLOSE_REQUESTED',
+  INCIDENT_CLOSED: 'INCIDENT_CLOSED',
+  INCIDENT_WITHDRAWN: 'INCIDENT_WITHDRAWN',
 } as const;
 
 // 站4 清扫:十条死词映射(APPROVAL_APPROVED/EXECUTED、ADMIN_INVITATION_*、USER_*、
@@ -487,7 +503,7 @@ import { AuditCorrelationMode } from '../dto/audit-log.dto';
 /** V1 治理四域，声明与下方 assertActionSpec 的退役码放行闸共用同一份 */
 export const V1_ACTION_DOMAINS = ['IAM', 'APPROVAL', 'CONFIG', 'AUDIT'] as const;
 /** 新合同已入住的全部域——站1b-β 起交易域逐域加入（充值第一个）。机器校验的域闸读这份。 */
-export const CONTRACT_ACTION_DOMAINS = [...V1_ACTION_DOMAINS, 'DEPOSIT', 'WITHDRAW', 'SWAP', 'RECON', 'CUSTOMER', 'TREASURY'] as const;
+export const CONTRACT_ACTION_DOMAINS = [...V1_ACTION_DOMAINS, 'DEPOSIT', 'WITHDRAW', 'SWAP', 'RECON', 'CUSTOMER', 'TREASURY', 'GOVERNANCE'] as const;
 
 export interface AuditActionSpec {
   /** actionDomain 列的值 */
@@ -965,6 +981,32 @@ export const V7_TREASURY_AUDIT_ACTIONS: Record<string, AuditActionSpec> = {
   INTERNAL_TRANSFER_LEG_POSTED:        { domain: 'TREASURY', correlationMode: I, requiredFields: ['amount'], requiresCausation: false },
   INTERNAL_TRANSFER_SETTLED:           { domain: 'TREASURY', correlationMode: I, requiredFields: ['amount', 'effectiveDate'], requiresCausation: false },
   INTERNAL_TRANSFER_FAILED:            { domain: 'TREASURY', correlationMode: I, requiredFields: ['reasonCode'], requiresCausation: false },
+};
+
+/**
+ * 治理域名册（平账三期 · 事故登记，2026-09-06）——事故 Incident 十一码，域 GOVERNANCE
+ * （spec §7 业主拍板）。主对象一律 INCIDENT · incidentNo。
+ * REGISTERED 起事故自己的旅程（S，铸 traceId）；CLOSE_REQUESTED / CLOSED 是结案两步
+ * maker-checker，继承同一旅程（I），CLOSED 由审批裁决驱动带因果、必填 approvalNo。
+ * 中段八个（调查开始 / 记笔记 / 升级 / 定损 / 挂善后 / 通报草案 / 已通报 / 撤回）都是
+ * 运营对事故单的直接一次性操作——不经 createAndSubmit 审批旅程，没有 START 步铸的
+ * correlationId 可继承，correlationMode 定 NONE，不伪造关联（二期判例：同
+ * CUSTOMER_TAG_ASSIGNED/REVOKED 一样，单步动作没有旅程可继承时老实标 NONE）。
+ */
+export const INCIDENT_AUDIT_ACTIONS: Record<string, AuditActionSpec> = {
+  INCIDENT_REGISTERED:               { domain: 'GOVERNANCE', correlationMode: S, requiredFields: ['type'], requiresCausation: false },
+  INCIDENT_INVESTIGATION_STARTED:    { domain: 'GOVERNANCE', correlationMode: N, requiredFields: ['fromStatus', 'toStatus'], requiresCausation: false },
+  INCIDENT_NOTE_ADDED:               { domain: 'GOVERNANCE', correlationMode: N, requiredFields: ['body'], requiresCausation: false },
+  // escalatedTo：MLRO | CFO | SENIOR_MANAGEMENT（IncidentNote.escalatedTo 同款枚举，spec §7）
+  INCIDENT_ESCALATED:                { domain: 'GOVERNANCE', correlationMode: N, requiredFields: ['escalatedTo'], requiresCausation: false },
+  INCIDENT_ASSESSED:                 { domain: 'GOVERNANCE', correlationMode: N, requiredFields: ['assessmentBasis'], requiresCausation: false },
+  INCIDENT_REMEDIATION_LINKED:       { domain: 'GOVERNANCE', correlationMode: N, requiredFields: ['referenceNo'], requiresCausation: false },
+  INCIDENT_REGULATOR_REPORT_DRAFTED: { domain: 'GOVERNANCE', correlationMode: N, requiredFields: [], requiresCausation: false },
+  // basisCodes：逗号分隔依据码字符串（INCIDENT_REPORT_BASES 目录键，spec §7 必填）
+  INCIDENT_REGULATOR_REPORTED:       { domain: 'GOVERNANCE', correlationMode: N, requiredFields: ['basisCodes'], requiresCausation: false },
+  INCIDENT_CLOSE_REQUESTED:          { domain: 'GOVERNANCE', correlationMode: I, requiredFields: [], requiresCausation: false },
+  INCIDENT_CLOSED:                   { domain: 'GOVERNANCE', correlationMode: I, requiredFields: ['approvalNo'], requiresCausation: true },
+  INCIDENT_WITHDRAWN:                { domain: 'GOVERNANCE', correlationMode: N, requiredFields: ['reason'], requiresCausation: false },
 };
 
 /** 动态迁移码族（<域>_<从>_TO_<到>，充值站1b-β/提现站2-β 整族废除；站7 扩面治理五簿+监管闸——
