@@ -92,7 +92,7 @@ const TransactionHistory = () => {
     setError('');
     try {
       const params = new URLSearchParams();
-      params.append('customerId', user.id);
+      params.append('customerId', user.customerNo);
       params.append('assetId', assetId);
       params.append('skip', ((page - 1) * pageSize).toString());
       params.append('take', pageSize.toString());

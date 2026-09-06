@@ -278,6 +278,7 @@ export class SwapTransactionsService {
       take,
       swapNo,
       ownerId,
+      ownerNo,
       ownerType,
       status,
       startDate,
@@ -287,6 +288,8 @@ export class SwapTransactionsService {
 
     if (swapNo) where.swapNo = { contains: swapNo };
     if (ownerId) where.ownerId = ownerId;
+    // 客户详情页 → 三域交易跳转（第二幕波一）：按客户业务键过滤，见铁律⑥。
+    if (ownerNo) where.ownerNo = ownerNo;
     if (ownerType) where.ownerType = ownerType;
     // customerScope 下 status 查询参数按客户可见值展开成原始状态集合再过滤
     // （对齐充值 deposit-transactions.service.ts:191 的「评审 Important 1(a)」，

@@ -6,7 +6,7 @@ import { CustomerRestrictionWorkflowService } from '../customers/customer-restri
 import type { ApprovalActorContext } from '../../governance/approvals/constants/approval.constants';
 import type { RestrictionScope } from '../customers/constants/restriction-cause.constant';
 import { SumsubClient } from '../../sumsub-applicant-client/sumsub.client';
-import { MaterialRefreshPolicyLoader } from '../material-refresh/policy/material-refresh-policy';
+import { MaterialPolicyLoader } from './material-policy';
 import {
   ISSUABLE_RESTRICTION_CAUSES,
   type IssuableRestrictionCause,
@@ -57,7 +57,7 @@ export class MaterialRequestIssuerService {
     private readonly requests: MaterialRequestsService,
     private readonly restrictionWorkflow: CustomerRestrictionWorkflowService,
     private readonly sumsubClient: SumsubClient,
-    private readonly policyLoader: MaterialRefreshPolicyLoader,
+    private readonly policyLoader: MaterialPolicyLoader,
   ) {}
 
   async issue(input: IssueInput): Promise<{ requestNo: string; restrictionNo: string | null }> {

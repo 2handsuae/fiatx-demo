@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { RefreshCw, Search } from 'lucide-react';
 import { ListFooter } from '../components/common/ListFooter';
 import {
@@ -77,21 +77,23 @@ const fmt = (v?: string | null): string => {
 
 const SwapTransactionList = () => {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const [items, setItems] = useState<SwapTransactionListItem[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [filters, setFilters] = useState<FilterState>({
+  // 客户详情页 → 三域交易跳转（第二幕波一）：深链 ?ownerNo= 初始化过滤，铁律⑥。
+  const [filters, setFilters] = useState<FilterState>(() => ({
     swapNo: '',
-    ownerNo: '',
+    ownerNo: searchParams.get('ownerNo')?.trim() ?? '',
     startDate: '',
     endDate: '',
     statusGroup: '',
     type: '',
     needsReviewOnly: false,
     slaBreachedOnly: false,
-  });
+  }));
 
   const hasFilters = useMemo(
     () =>
@@ -115,7 +117,9 @@ const SwapTransactionList = () => {
       params.set('skip', String((pageNum - 1) * PAGE_SIZE));
       params.set('take', String(PAGE_SIZE));
       if (f.swapNo.trim()) params.set('swapNo', f.swapNo.trim());
-      if (f.ownerNo.trim()) params.set('ownerId', f.ownerNo.trim());
+      // 铁律⑥：过滤参数用客户业务键 ownerNo，不用内部 ownerId（此前误将该
+      // 文本框的值塞进 ownerId 参数，从未真正生效——见 SwapTransactionQueryDto）。
+      if (f.ownerNo.trim()) params.set('ownerNo', f.ownerNo.trim());
       if (f.startDate) params.set('startDate', f.startDate);
       if (f.endDate) params.set('endDate', f.endDate);
 

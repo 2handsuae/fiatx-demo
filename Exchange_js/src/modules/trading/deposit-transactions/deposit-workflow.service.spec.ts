@@ -44,7 +44,6 @@ import { DispositionService as ReconDispositionService } from '../../clearing-se
 const customerAccessService = {
   resolve: jest.fn(),
   assertCapability: jest.fn(),
-  assertOffboardable: jest.fn(),
 };
 const accessAllowing = () => ({
   lifecycle: 'ACTIVE',

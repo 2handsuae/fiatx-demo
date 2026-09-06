@@ -39,15 +39,15 @@ describe('CustomerTagService', () => {
     prisma.customerMain.findUnique.mockResolvedValue({ customerNo: 'C-001' });
     await expect(service.revoke('cust1', 'WHITELIST_PILOT', '', actor)).rejects.toThrow();
   });
-  it('effectiveTags: 显式 WHITELIST_PILOT + PREMIUM + 注册10天前 → {WHITELIST_PILOT,VIP,NEW_CUSTOMER}', async () => {
-    prisma.customerExplicitTag.findMany.mockResolvedValue([{ tagCode: 'WHITELIST_PILOT' }]);
-    prisma.customerMain.findUnique.mockResolvedValue({ tradingTier: 'PREMIUM', onboardingApprovedAt: new Date('2026-07-02T00:00:00Z') });
+  it('effectiveTags: 显式 WHITELIST_PILOT+VIP + 注册10天前 → {WHITELIST_PILOT,VIP,NEW_CUSTOMER}', async () => {
+    prisma.customerExplicitTag.findMany.mockResolvedValue([{ tagCode: 'WHITELIST_PILOT' }, { tagCode: 'VIP' }]);
+    prisma.customerMain.findUnique.mockResolvedValue({ onboardingApprovedAt: new Date('2026-07-02T00:00:00Z') });
     const tags = await service.effectiveTags('cust1', now);
     expect([...tags].sort()).toEqual(['NEW_CUSTOMER', 'VIP', 'WHITELIST_PILOT']);
   });
-  it('effectiveTags: BASIC + 注册40天前 → 不含 VIP/NEW_CUSTOMER', async () => {
+  it('effectiveTags: 无显式标签 + 注册40天前 → 不含 VIP/NEW_CUSTOMER', async () => {
     prisma.customerExplicitTag.findMany.mockResolvedValue([]);
-    prisma.customerMain.findUnique.mockResolvedValue({ tradingTier: 'BASIC', onboardingApprovedAt: new Date('2026-06-01T00:00:00Z') });
+    prisma.customerMain.findUnique.mockResolvedValue({ onboardingApprovedAt: new Date('2026-06-01T00:00:00Z') });
     const tags = await service.effectiveTags('cust1', now);
     expect(tags.has('VIP')).toBe(false);
     expect(tags.has('NEW_CUSTOMER')).toBe(false);

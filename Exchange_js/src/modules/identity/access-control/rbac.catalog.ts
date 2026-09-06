@@ -257,14 +257,7 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
   // Sumsub events
   route('GET', '/admin/sumsub-events', 'List Sumsub webhook events', ['SUMSUB_EVENT_VIEW']),
 
-  // ── 材料管理（2026-09-01 收编：此前只查 type==='ADMIN'，内审也能按模拟钮）──
-  route('GET', '/admin/material-management/cycles', 'List material refresh cycles', ['CUSTOMER_READ']),
-  route('GET', '/admin/material-management/cycles/:id', 'Get material refresh cycle', ['CUSTOMER_READ']),
-  route('GET', '/admin/material-management/holdings', 'List material holdings', ['CUSTOMER_READ']),
-  route('GET', '/admin/material-management/holdings/:id', 'Get material holding', ['CUSTOMER_READ']),
-  route('POST', '/admin/material-management/holdings/:id/simulate-stage', 'Simulate material stage transition (demo only)', ['DEMO_CLOCK_WRITE']),
-  route('POST', '/admin/material-management/customers/:customerId/simulate-tier-change', 'Simulate customer tier change (demo only)', ['DEMO_CLOCK_WRITE']),
-  // ── Sumsub 入站模拟（收编同上）──
+  // ── Sumsub 入站模拟（2026-09-01 收编：此前只查 type==='ADMIN'）──
   route('POST', '/admin/sumsub/simulate/applicant-action-result', 'Feed a simulated Sumsub applicant-action webhook (demo only)', ['DEMO_VERDICT_WRITE']),
   route('POST', '/admin/sumsub/simulate/ongoing-doc-monitoring-fire', 'Fire a simulated ongoing-doc-monitoring event (demo only)', ['DEMO_VERDICT_WRITE']),
 

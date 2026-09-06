@@ -96,24 +96,24 @@
 
 ## verify:act1 操作约束（四模块治愈 · 判据收口，2026-09-02 起）
 
-`npm run verify:act1`（25 条行为判据：B0–B14 + 波二新增 V1–V10，见 `scripts/verify-act1.ts`）**会写数据**——每轮实测留下：
+`npm run verify:act1`（24 条行为判据：B0–B14〈无 B13，2026-09-06 随材料管理路由族退役摘除〉+ 波二新增 V1–V10，见 `scripts/verify-act1.ts`）**会写数据**——每轮实测留下：
 
 - 3 张 `VERIFY_ACT1_TIMEOUT_PROBE` / `VERIFY_ACT1_KEY_PROBE` 探针审批单（B0–B5 夹具，其中一张真被 cron 判 `EXPIRED`，其余永久停在 `PENDING`——没有对应正门能推它们往前走，纯探针留档）
 - 1 个 `ADM-ACT1-B6-*` 探针成员 + 1 个 `WA-ACT1-B6-*` 探针钱包（B6，静态数据，无副作用）
 - 1 张 `DEPOSIT_SEIZE` 形状的两步审批单（B9/B14 共用夹具，`entityRef` 是占位字符串、不对应真实存款单，两票 `APPROVAL_GRANTED` 留痕后案子 `APPROVED`，`workflow.deposit-seize.decided` 的下游被 `deposit-workflow.service.ts#onSeizeDecided` 的 `NotFoundException` 分支静默吞掉，不触发任何资金动作）
 - 1 个 `VERIFY_ACT1_ROLE_*` 探针角色 + 1 张已 `REJECTED` 的角色定义修改申请单（B10）
 - 1 个 `ADM-ACT1-B12-*` 探针成员（B12，全程 `ACTIVE`，reactivate 被拒不改变状态）
-- 若干条 `ADMIN_ACCESS_DENIED` 审计行（B11 打 `/admin/reconciliation/runs/wallet`、B13 打材料 `simulate-stage`，actorNo 均为 `auditor@` 的 ADM 号）
+- 若干条 `ADMIN_ACCESS_DENIED` 审计行（B11 打 `/admin/reconciliation/runs/wallet`，actorNo 均为 `auditor@` 的 ADM 号）
 
 以上记录均带 `verify-act1` / `ACT1-*` 前缀或探针专属 actionType，不进任何真实报价/风控/推单路径，**但会在角色页、审批中心列表里以探针行形式可见**——同 `verify:rbac` 的风险，一并交给同一条重铺约束收口，不单独加清理逻辑。
 
-**B13 判据依赖库里存在至少一条真实 `CustomerMaterialHolding`**（材料生命周期记录，不是纯治理夹具，`verify:act1` 按 brief 明确指示**不伪造**）——全新重铺的库在 `demo:all` 跑过一次客户 KYC 全流程之前通常是空的，此时 B13 判据自动 **SKIP**（打印原因，不计入失败，`n/25 PASS + 1 SKIP` 仍算通过）；库里一旦有真实 holding（无论是 `demo:all` 走出来的还是运维手工补的），B13 就会正常跑判据，不再 SKIP。2026-09-02 首次实测：全新 worktree 自动分栈的库尚无客户走过材料生命周期，手工补种 1 条 holding 后 B13 转为真实通过，**15/15 PASS**。
+**B13（收编生效，业主裁决5，Task 24）已于 2026-09-06 随材料管理路由族整体退役摘除**（路由 `/admin/material-management/holdings/:id/simulate-stage` 已删，判据主体不存在）——历史上 B13 依赖库里存在至少一条真实 `CustomerMaterialHolding`、缺失时自动 SKIP 的机制随之一并退役，不再出现在判据编号或计数里。
 
-**裁决**：与 `verify:rbac` 同一条运行顺序——`verify:rbac` → `verify:act1` → `stack.sh reset [main|self]` → `demo:all`，重铺把探针痕迹与手工补种的 holding 一并冲掉。
+**裁决**：与 `verify:rbac` 同一条运行顺序——`verify:rbac` → `verify:act1` → `stack.sh reset [main|self]` → `demo:all`，重铺把探针痕迹一并冲掉。
 
 **波一起**：B6 夹具按 (vaultCode, network, ownerNo) 建平台行、B7 改为对 ACTIVE 资产提恢复（运营 token）→ 409。
 
-**波二起（2026-09-05）**：新增 **V1–V10** 共 10 条（资产暂停 L1 十项硬门在兑换 / 提现两域的 BLOCK 行为、充值域挂起证据链、提现地址登记 actor 与四道拒绝门之一、VIP 客户报价预览价=确认价、按资产业务号取证），基数由 15 升为 **25**。V7/V8 会真注册 alice 的提现地址（逼近 `MAX_ADDRESSES_PER_NETWORK=3` 上限）——同一个库里连跑两次，第二轮的 V7/V8 会因残留地址判错，**V 组同样只能在全新库上跑一次**，跑完直接进下面的重铺，不必再单独多铺一次库；实测（全新库，B13 依例因无真实材料记录 SKIP）：**24/25 PASS + 1 SKIP**。
+**波二起（2026-09-05）**：新增 **V1–V10** 共 10 条（资产暂停 L1 十项硬门在兑换 / 提现两域的 BLOCK 行为、充值域挂起证据链、提现地址登记 actor 与四道拒绝门之一、VIP 客户报价预览价=确认价、按资产业务号取证），基数由 15 升为 25（含 B13）。V7/V8 会真注册 alice 的提现地址（逼近 `MAX_ADDRESSES_PER_NETWORK=3` 上限）——同一个库里连跑两次，第二轮的 V7/V8 会因残留地址判错，**V 组同样只能在全新库上跑一次**，跑完直接进下面的重铺，不必再单独多铺一次库；**2026-09-06 B13 摘除后基数改为 24**，实测（全新库）：**24/24 PASS**。
 
 **改过 `rbac.catalog.ts` 就必须重启后端再跑**：本波把 TECH_OFFICER 加了 `IAM_ROLE_ASSIGN`（见 `overview.md` §4）。`verify:act1` 真登录真 HTTP，后端进程按内存里的 `RBAC_PERMISSION_DEFINITIONS` 判权限——只 `db:base:sync` 不重启后端，权限判断仍是改之前那份，`verify:act1` / `verify:rbac` 都会读到假结果（不是判据本身错，是跑的时候后端还没换脑子）。
 

@@ -19,9 +19,6 @@ describe('SumsubIngestionService — deposit/withdraw/swap KYT cascade (Task 4/5
   let depositWebhookRouter: jest.Mocked<DepositWebhookRouter>;
   let withdrawWebhookRouter: jest.Mocked<WithdrawWebhookRouter>;
   let swapWebhookRouter: jest.Mocked<SwapWebhookRouter>;
-  // Finding 6（终审 Minor）：给 Clue 3（材料重检）配一个真 mock，而不是空
-  // `{} as any` —— 否则"swap miss 应该继续往下落到 Clue 3"这句断言无从谈起。
-  let materialRefreshService: any;
   // Task 4（材料请求账）：applicantActionReviewed 现在直接查材料请求账，
   // 不再问 swap router — mock 掉 MaterialRequestReviewService.applyReview。
   let materialRequestReviewService: any;
@@ -65,12 +62,10 @@ describe('SumsubIngestionService — deposit/withdraw/swap KYT cascade (Task 4/5
     depositWebhookRouter = { route: jest.fn() } as unknown as jest.Mocked<DepositWebhookRouter>;
     withdrawWebhookRouter = { route: jest.fn() } as unknown as jest.Mocked<WithdrawWebhookRouter>;
     swapWebhookRouter = { route: jest.fn() } as unknown as jest.Mocked<SwapWebhookRouter>;
-    materialRefreshService = { handleSumsubDocMonitoringFire: jest.fn().mockResolvedValue(undefined) };
     materialRequestReviewService = { applyReview: jest.fn().mockResolvedValue(null) };
 
     service = new SumsubIngestionService(
       prisma,
-      materialRefreshService,
       {} as any, // depositWorkflowService
       {} as any, // withdrawService
       depositWebhookRouter,
@@ -234,8 +229,6 @@ describe('SumsubIngestionService — deposit/withdraw/swap KYT cascade (Task 4/5
       reviewRejectType: 'FINAL',
       actor: { actorType: 'SYSTEM', actorId: 'SYSTEM', actorNo: 'SYSTEM', actorRole: 'SYSTEM' },
     });
-    // Clue 3 已删除：不再有任何路径调用 material-refresh 的完成逻辑。
-    expect(materialRefreshService.handleSumsubDocMonitoringFire).not.toHaveBeenCalled();
     expect(result).toBeUndefined();
     expect(prisma.sumsubWebhookEvent.update).toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ status: 'PROCESSED' }) }),

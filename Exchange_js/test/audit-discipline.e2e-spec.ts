@@ -294,26 +294,9 @@ describe('游离端点收编纪律（业主裁决5：内审零 Act 补全）', (
     return res.body?.access_token;
   }
 
-  it('auditor@（INTERNAL_AUDITOR，无 DEMO_CLOCK_WRITE）打 POST 材料 simulate-stage → 403 且留一行 ADMIN_ACCESS_DENIED（收编前是 200——本条即收编的行为证明）', async () => {
-    const token = await loginAs('auditor@fiatx.com');
-    const auditor = await prisma.user.findFirstOrThrow({ where: { email: 'auditor@fiatx.com' } });
-
-    const before = new Date();
-    const res = await request(app.getHttpServer())
-      .post('/admin/material-management/holdings/RBAC-PROBE-404/simulate-stage')
-      .set('Authorization', `Bearer ${token}`)
-      .send({ targetStage: 'T_MINUS_30' });
-    expect(res.status).toBe(403);
-
-    // Task 7 的 403 留痕（法一纪律4）叠加在本次收编上：三断言同 108 行那组用例。
-    const row = await prisma.auditLogEvent.findFirst({
-      where: { action: 'ADMIN_ACCESS_DENIED', actorNo: auditor.userNo, recordedAt: { gte: before } },
-      orderBy: { recordedAt: 'desc' },
-    });
-    expect(row).not.toBeNull();
-    expect(row?.actorNo).toBe(auditor.userNo);
-    expect(row?.reasonCode).toBe('MISSING_PERMISSION');
-  });
+  // 材料管理路由族 2026-09-06 随巡查退役，收编纪律用例随之退役（原用例打
+  // POST /admin/material-management/holdings/.../simulate-stage，路由已删，
+  // 期待 403 的断言现会撞 404）。
 
   it('compliance_lead@（COMPLIANCE_OFFICER，持 DEMO_VERDICT_WRITE）打 POST Sumsub 模拟裁决 → 非 403（收编没有误伤真持有该组的职务）', async () => {
     const token = await loginAs('compliance_lead@fiatx.com');

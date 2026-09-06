@@ -187,8 +187,6 @@ model CustomerMain {
   customerType    String    @default("INDIVIDUAL")
   email           String?   @unique
   phone           String?   @unique
-  emailVerifiedAt DateTime?
-  phoneVerifiedAt DateTime?
   firstName       String?
   lastName        String?
   companyName     String?
@@ -199,10 +197,6 @@ model CustomerMain {
   failedLoginCount  Int       @default(0)
   lockedUntil       DateTime?
   lastLoginAt       DateTime?
-  lastLoginIp       String?
-  locale            String?
-  timezone          String?
-  termsAcceptedAt   DateTime?
 
   // ═══ 唯一状态轴：客户关系生命周期 ═══
   // 取值见 src/modules/identity/constants/customer-lifecycle.constant.ts（七态九边）。
@@ -218,39 +212,17 @@ model CustomerMain {
   // 入口重新打开（tipping-off 的沉默必须跨订单持久，不能是 last-writer-wins）。
   hardLineDispositionedAt DateTime? @map("hard_line_dispositioned_at")
 
-  // ═══ 产品属性 ═══
-  investorTier          String    @default("STANDARD")
-  investorTierUpdatedAt DateTime?
-
   // Trading limits (2026-05-16)
   tradingTier              String   @default("BASIC")    // BASIC | PREMIUM
-  riskLevel                String   @default("LOW")      // LOW | MEDIUM | HIGH
 
   // ═══ 合规属性 ═══
   riskRating          String    @default("LOW")
   riskRatingUpdatedAt DateTime?
   eddRequired         Boolean   @default(false)
-  pepStatus           String    @default("NONE")
-  pepConfirmedAt      DateTime?
-  cddDocumentExpiresAt DateTime?
 
   // ═══ Sumsub 集成 ═══
   sumsubApplicantId                  String?   @unique
   sumsubCurrentLevelName             String?
-  sumsubLatestReviewId               String?
-  sumsubLatestAttemptId              String?
-  sumsubExperiencedLevel2            Boolean   @default(false)
-  verificationSubstatus              String?
-  verificationCustomerActionRequired Boolean   @default(false)
-  verificationCanContinue            Boolean   @default(false)
-  verificationLatestEventType        String?
-  verificationLatestEventAt          DateTime?
-
-  // ═══ 工作流指针 ═══
-  latestRiskApprovalId        String?   @unique
-  latestRiskApprovalStatus    String?
-  latestRiskAssessmentId      String?
-  nextReviewAt                DateTime?
 
   // ═══ 时间戳 ═══
   createdAt DateTime @default(now())
@@ -261,9 +233,6 @@ model CustomerMain {
   swapTransactions          SwapTransaction[]
   withdrawTransactions      WithdrawTransaction[]
   inboundTransferSignals    InboundTransferSignal[]
-  latestRiskApproval        ApprovalCase?            @relation("CustomerLatestRiskApproval", fields: [latestRiskApprovalId], references: [id], onDelete: SetNull)
-  materialHoldings          CustomerMaterialHolding[] @relation("CustomerMaterialHoldings")
-  materialRefreshCycles     MaterialRefreshCycle[]   @relation("CustomerMaterialRefreshCycles")
   withdrawalAddresses       WithdrawalAddress[]
   explicitTags                CustomerExplicitTag[]
   restrictionRows             CustomerRestriction[]
@@ -277,7 +246,6 @@ model CustomerExplicitTag {
   id               String   @id @default(uuid())
   customerId       String
   tagCode          String
-  assignedByUserId String
   assignedAt       DateTime @default(now())
   customer         CustomerMain @relation(fields: [customerId], references: [id])
   @@unique([customerId, tagCode])
@@ -546,7 +514,6 @@ model ApprovalCase {
   timeoutAt                      DateTime?
   steps                          ApprovalStep[]
   evidencePackage                AuditEvidencePackage?          @relation("AuditEvidencePackageApprovalCase")
-  latestForCustomerRiskApproval  CustomerMain?                  @relation("CustomerLatestRiskApproval")
 
   @@index([actionType, entityRef, status])
   @@index([status, timeoutAt])
@@ -1196,78 +1163,6 @@ model SumsubWebhookEvent {
   @@index([externalUserId])
   @@index([eventType, status])
   @@map("sumsub_webhook_events")
-}
-
-// ═══════════════════════════════════════════════════════════════
-// Wave 3 Firm-Driven Customer Review (2026-04-09)
-// ═══════════════════════════════════════════════════════════════
-
-model CustomerMaterialHolding {
-  id                   String   @id @default(cuid())
-  holdingNo            String   @unique @default("TEMP")
-  customerId           String
-  customer             CustomerMain @relation("CustomerMaterialHoldings", fields: [customerId], references: [id])
-
-  materialType         String
-  managementMode       String
-
-  verifiedAt           DateTime
-  expiresAt            DateTime?
-  status               String   @default("FRESH")
-
-  sumsubIdDocSetType   String?
-  sumsubDocId          String?
-
-  activeRefreshCycleId String?  @unique
-  activeRefreshCycle   MaterialRefreshCycle? @relation("ActiveRefreshCycle", fields: [activeRefreshCycleId], references: [id])
-
-  createdAt            DateTime @default(now())
-  updatedAt            DateTime @updatedAt
-
-  refreshCycles        MaterialRefreshCycle[] @relation("HoldingRefreshCycles")
-
-  @@unique([customerId, materialType])
-  @@index([expiresAt, status])
-  @@index([customerId])
-  @@map("customer_material_holdings")
-}
-
-model MaterialRefreshCycle {
-  id                       String   @id @default(cuid())
-  cycleNo                  String   @unique
-  customerId               String
-  customer                 CustomerMain @relation("CustomerMaterialRefreshCycles", fields: [customerId], references: [id])
-
-  holdingId                String
-  holding                  CustomerMaterialHolding @relation("HoldingRefreshCycles", fields: [holdingId], references: [id])
-
-  materialType             String
-
-  status                   String   @default("PENDING_CUSTOMER_EVIDENCE")
-  stage                    String   @default("NUDGE_ONLY")
-  triggerType              String
-
-  createdAt                DateTime @default(now())
-  stageNudgeAt             DateTime?
-  stageUrgentAt            DateTime?
-  stageBlockingAt          DateTime?
-  clearedAt                DateTime?
-  rejectedAt               DateTime?
-  customerSubmittedAt      DateTime?
-  graceExpiresAt           DateTime?
-  resolutionReason         String?
-
-  // 本轮到期提醒对应的材料请求。cycle 管「哪天到期」，材料账管「下发本身」。
-  materialRequestNo        String?
-
-
-  traceId                  String   @unique
-
-  activeForHolding         CustomerMaterialHolding? @relation("ActiveRefreshCycle")
-
-  @@index([customerId, status])
-  @@index([status, graceExpiresAt])
-  @@map("material_refresh_cycles")
 }
 
 model RoleDefinitionModifyRequest {

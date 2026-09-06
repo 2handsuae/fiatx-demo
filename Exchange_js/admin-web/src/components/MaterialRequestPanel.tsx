@@ -43,6 +43,9 @@ type Props = (
   /** 客户详情页在下发弹窗提交成功后 bump 这个值，让本已挂载的面板重新拉取一次——
    * 面板自己管自己的行状态，父页面没有别的办法通知它「有新行了」。 */
   refreshKey?: number;
+  /** 客户详情页需要读一眼有没有 REJECTED 行来渲染终拒徽标（第二幕波一）——
+   * 面板自己管自己的行状态，父页面没有别的办法拿到它，故加这个只读回传。 */
+  onRowsChange?: (rows: AdminMaterialRequestRow[]) => void;
 };
 
 const fmt = (v?: string | null) => (v ? new Date(v).toLocaleString() : '—');
@@ -77,9 +80,14 @@ const MaterialRequestPanel = (props: Props) => {
     setLoading(true);
     adminFetch(url)
       .then((r) => (r.ok ? r.json() : []))
-      .then((d: AdminMaterialRequestRow[]) => setRows(Array.isArray(d) ? d : []))
+      .then((d: AdminMaterialRequestRow[]) => {
+        const arr = Array.isArray(d) ? d : [];
+        setRows(arr);
+        props.onRowsChange?.(arr);
+      })
       .catch(() => {})
       .finally(() => setLoading(false));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [url, canRead]);
 
   useEffect(() => {

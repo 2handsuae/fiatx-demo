@@ -3,24 +3,17 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 export interface MaterialConfig {
-  managementMode: 'SUMSUB_MANAGED' | 'SELF_MANAGED';
-  requiredForLevels: string[];
-  sumsubIdDocSetType?: string;
   sumsubActionLevelName: string;
-  windowDays?: Record<string, number>;
-  enforceRestriction: boolean;
-  alternativeOf?: string;
 }
 
 export interface MaterialRefreshPolicy {
   version: string;
   effectiveFrom: string;
-  stages: Array<{ daysFromExpiry: number; action: string }>;
   materials: Record<string, MaterialConfig>;
 }
 
 @Injectable()
-export class MaterialRefreshPolicyLoader {
+export class MaterialPolicyLoader {
   private cached: MaterialRefreshPolicy | null = null;
 
   getPolicy(): MaterialRefreshPolicy {
@@ -32,9 +25,5 @@ export class MaterialRefreshPolicyLoader {
 
   getMaterialConfig(materialType: string): MaterialConfig | null {
     return this.getPolicy().materials[materialType] || null;
-  }
-
-  reload(): void {
-    this.cached = null;
   }
 }

@@ -37,7 +37,7 @@ export class CustomerProfileController {
     const customer = await this.prisma.customerMain.findUnique({
       where: { id: customerId },
       select: {
-        id: true,
+        customerNo: true,
         email: true,
         phone: true,
         firstName: true,
@@ -46,8 +46,6 @@ export class CustomerProfileController {
         customerType: true,
         riskRating: true,
         eddRequired: true,
-        cddDocumentExpiresAt: true,
-        investorTier: true,
         createdAt: true,
         lastLoginAt: true,
       },

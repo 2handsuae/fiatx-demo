@@ -8,11 +8,11 @@ describe('customer tag registry', () => {
       expect(['STATIC', 'DERIVED']).toContain(d.type);
     }
   });
-  it('NEW_CUSTOMER/VIP 是 DERIVED、不可手打', () => {
+  it('NEW_CUSTOMER 是 DERIVED、不可手打', () => {
     expect(isStaticTag('NEW_CUSTOMER')).toBe(false);
-    expect(isStaticTag('VIP')).toBe(false);
   });
-  it('WHITELIST_PILOT 是 STATIC、可手打', () => {
+  it('VIP/WHITELIST_PILOT 是 STATIC、可手打', () => {
+    expect(isStaticTag('VIP')).toBe(true);
     expect(isStaticTag('WHITELIST_PILOT')).toBe(true);
   });
   it('未注册 tag 无效', () => {

@@ -42,8 +42,6 @@ const MATERIAL_ROW = row({
 function build(opts: {
   lifecycle?: string | null;
   openRows?: any[];
-  balances?: Record<string, bigint>;
-  inflight?: number;
 } = {}) {
   const prisma = {
     customerMain: {
@@ -55,22 +53,8 @@ function build(opts: {
     },
   } as any;
   const restrictions = { listOpen: jest.fn().mockResolvedValue(opts.openRows ?? []) } as any;
-  const accounting = {
-    getCustomerAvailableBalance: jest.fn(async (_c: string, currency: string) => {
-      const balances = opts.balances ?? {};
-      if (!(currency in balances)) {
-        // 客户在该 ledger 从未开户 —— 真实 AccountingService 就是抛这个
-        throw new NotFoundException({ code: 'TB_ACCOUNT_REGISTRY_NOT_FOUND', message: 'no account' });
-      }
-      const total = balances[currency];
-      return { available: total, held: 0n, total };
-    }),
-  } as any;
-  const fundsOrders = {
-    countNonTerminalByCustomer: jest.fn().mockResolvedValue(opts.inflight ?? 0),
-  } as any;
-  const svc = new CustomerAccessService(prisma, restrictions, accounting, fundsOrders);
-  return { svc, prisma, restrictions, accounting, fundsOrders };
+  const svc = new CustomerAccessService(prisma, restrictions);
+  return { svc, prisma, restrictions };
 }
 
 async function catchForbidden(p: Promise<unknown>): Promise<any> {
@@ -161,35 +145,5 @@ describe('CustomerAccessService.assertCapability', () => {
   it('未被卡的能力放行', async () => {
     const { svc } = build({ openRows: [MATERIAL_ROW] });
     await expect(svc.assertCapability('cust-1', 'DEPOSIT')).resolves.toBeUndefined();
-  });
-});
-
-describe('CustomerAccessService.assertOffboardable', () => {
-  it('有 SILENT OPEN 行 → OFFBOARD_BLOCKED_BY_SANCTION', async () => {
-    const { svc } = build({ openRows: [SANCTION_ROW] });
-    const body = await catchForbidden(svc.assertOffboardable('cust-1'));
-    expect(body.code).toBe('OFFBOARD_BLOCKED_BY_SANCTION');
-    expect(body.restrictionNo).toBe('RST-1');
-  });
-
-  it('余额非零 → OFFBOARD_BLOCKED_BY_BALANCE', async () => {
-    const { svc } = build({ openRows: [MATERIAL_ROW], balances: { AED: 12345n } });
-    const body = await catchForbidden(svc.assertOffboardable('cust-1'));
-    expect(body.code).toBe('OFFBOARD_BLOCKED_BY_BALANCE');
-    expect(body.currency).toBe('AED');
-    expect(body.total).toBe('12345');
-  });
-
-  it('有非终态 funds_order → OFFBOARD_BLOCKED_BY_INFLIGHT', async () => {
-    const { svc } = build({ balances: { AED: 0n, USDT: 0n }, inflight: 2 });
-    const body = await catchForbidden(svc.assertOffboardable('cust-1'));
-    expect(body.code).toBe('OFFBOARD_BLOCKED_BY_INFLIGHT');
-    expect(body.inflight).toBe(2);
-  });
-
-  it('干净客户放行；某币种从未开户（TB 注册表 404）按 0 处理，不误报 BALANCE', async () => {
-    const { svc, accounting } = build({ balances: { AED: 0n } }); // USDT 会抛 NotFound
-    await expect(svc.assertOffboardable('cust-1')).resolves.toBeUndefined();
-    expect(accounting.getCustomerAvailableBalance).toHaveBeenCalledTimes(2);
   });
 });

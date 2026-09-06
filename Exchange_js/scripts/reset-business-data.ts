@@ -106,10 +106,6 @@ const BUSINESS_DELEGATES_FK_SAFE: string[] = [
   'periodicReviewCycle',
   'kytCase',
   'travelRuleCase',
-  // materialRefreshCycle 先于 customerMaterialHolding：见 resetBusinessData() 里
-  // 断循环外键那一步的注释。
-  'materialRefreshCycle',
-  'customerMaterialHolding',
   'sumsubWebhookEvent',
 
   // ── Customers / assets / wallets / TB registry ─────────────────────
@@ -131,17 +127,6 @@ const BUSINESS_DELEGATES_FK_SAFE: string[] = [
 
 async function resetBusinessData(): Promise<void> {
   console.log('--- Clearing ALL business-layer data (base IAM preserved) ---');
-
-  // CustomerMaterialHolding ⇄ MaterialRefreshCycle 是一对真循环外键
-  // （holding.activeRefreshCycleId → cycle.id，cycle.holdingId → holding.id，
-  // 两条边都没有 onDelete，默认 RESTRICT）。光靠"子表先于父表"的线性顺序解不开
-  // 循环——不管这两张表谁排前面，都会被另一条边挡住撞 P2003。先把
-  // activeRefreshCycleId 置空断开其中一条边，再按下面 materialRefreshCycle
-  // 先于 customerMaterialHolding 的顺序删，两张表才都能删干净。
-  const holdingDelegate = (prisma as any).customerMaterialHolding;
-  if (holdingDelegate?.updateMany) {
-    await holdingDelegate.updateMany({ data: { activeRefreshCycleId: null } });
-  }
 
   const deleted: Record<string, number> = {};
   for (const delegate of BUSINESS_DELEGATES_FK_SAFE) {

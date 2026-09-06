@@ -13,8 +13,7 @@ import { Link, useNavigate } from 'react-router-dom';
  *    customerType = 'INDIVIDUAL'  (only option today)
  *
  *  The acceptTerms checkbox is a client-side gate only; the backend
- *  does not yet persist termsAcceptedAt (see
- *  docs/cleanup/deferred-refactors.md for the deferred work).
+ *  does not persist it.
  * ──────────────────────────────────────────────────────────────── */
 
 const MASTHEAD = ['F', 'I', 'A', 'T', 'X'];
@@ -373,9 +372,6 @@ const CustomerRegister = () => {
             customerType: 'INDIVIDUAL',
             firstName: formData.firstName.trim() || undefined,
             lastName: formData.lastName.trim() || undefined,
-            // TODO(backend): persist termsAcceptedAt when the register endpoint
-            // is extended. Currently the column exists on customer_main but is
-            // not written. See docs/cleanup/deferred-refactors.md.
           }),
         },
       );

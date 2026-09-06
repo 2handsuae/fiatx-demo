@@ -45,7 +45,7 @@ export class CustomerTagService {
     const row = await this.prisma.customerExplicitTag.upsert({
       where: { customerId_tagCode: { customerId, tagCode } },
       update: {},
-      create: { customerId, tagCode, assignedByUserId: actor.userId },
+      create: { customerId, tagCode },
     });
 
     await this.audit.recordByActor(
@@ -101,12 +101,11 @@ export class CustomerTagService {
       this.prisma.customerExplicitTag.findMany({ where: { customerId }, select: { tagCode: true } }),
       this.prisma.customerMain.findUnique({
         where: { id: customerId },
-        select: { tradingTier: true, onboardingApprovedAt: true },
+        select: { onboardingApprovedAt: true },
       }),
     ]);
 
     const tags = new Set<string>(explicit.map((e: any) => e.tagCode));
-    if (c?.tradingTier === 'PREMIUM') tags.add('VIP');
     if (
       c?.onboardingApprovedAt &&
       now.getTime() - c.onboardingApprovedAt.getTime() <= NEW_CUSTOMER_DAYS * 86_400_000

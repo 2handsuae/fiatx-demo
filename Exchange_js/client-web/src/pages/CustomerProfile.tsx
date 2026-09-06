@@ -264,9 +264,6 @@ const CustomerProfile = () => {
                 <span>Cycle {profile.activePeriodicReviewCycle.cycleNo}</span>
               )}
               {prrStatus && <span>Status {prrStatus}</span>}
-              {profile.nextReviewAt && (
-                <span>Next {fmtDate(profile.nextReviewAt)}</span>
-              )}
             </div>
           </div>
           <button
@@ -311,12 +308,6 @@ const CustomerProfile = () => {
           />
           <Row label="Risk rating" value={profile.riskRating} mono />
           <Row label="EDD required" value={profile.eddRequired ? 'YES' : 'NO'} mono />
-          <Row label="Investor tier" value={profile.investorTier || 'STANDARD'} />
-          <Row
-            label="CDD document expires"
-            value={fmt(profile.cddDocumentExpiresAt)}
-            mono
-          />
         </div>
       </section>
 
@@ -410,7 +401,7 @@ const CustomerProfile = () => {
           <Row label="Governing rulebook" value="CRM Rulebook Part F" mono />
           <Row label="Data protection" value="UAE Federal PDPL" mono />
           <Row label="DPO contact" value="dpo@fiatx.ae" mono />
-          <Row label="Member identifier" value={profile.id} mono span={3} />
+          <Row label="Member identifier" value={profile.customerNo} mono span={3} />
         </div>
         <p className="mt-4 font-sans text-[12px] text-fx-dust/70 leading-relaxed max-w-2xl">
           You may request a copy of all personal data held about you at any time by emailing{' '}

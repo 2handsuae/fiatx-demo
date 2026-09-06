@@ -938,12 +938,10 @@ export const V8_RECON_AUDIT_ACTIONS: Record<string, AuditActionSpec> = {
 };
 
 /**
- * V2 客户域名册（站6-β，2026-08-27 业主方案2 后的存活面）——14 现役词 + 1 新词，
+ * V2 客户域名册（站6-β，2026-08-27 业主方案2 后的存活面）——14 现役词，
  * 现名全保守零改名。客户级件无订单旅程 → 全员 NONE；材料请求绑单时机会性携带
  * 父单旅程号（不设 INHERIT 硬闸：请求可无单发起，码的模式是固有属性不看场景）。
  * 便签四词双通道（系统命中 recordSystem / 运营贴撕 recordByActor）。
- * CUSTOMER_TIER_CHANGE_SIMULATED：档位模拟端点原以一行假风评行当 trail，
- * CRA 表随一期拆除后改由本词承担（操作员通道）。
  */
 export const V2_CUSTOMER_AUDIT_ACTIONS: Record<string, AuditActionSpec> = {
   // ── 客户主档（3）──────────────────────────────────────
@@ -963,8 +961,6 @@ export const V2_CUSTOMER_AUDIT_ACTIONS: Record<string, AuditActionSpec> = {
   MATERIAL_REQUEST_REJECTED:     { domain: 'CUSTOMER', correlationMode: N, requiredFields: [], requiresCausation: false },
   MATERIAL_REQUEST_CANCELLED:    { domain: 'CUSTOMER', correlationMode: N, requiredFields: ['reason'], requiresCausation: false },
   MATERIAL_REQUEST_ORDER_UNBOUND:{ domain: 'CUSTOMER', correlationMode: N, requiredFields: [], requiresCausation: false },
-  // ── 档位模拟（1，站6 新铸）────────────────────────────
-  CUSTOMER_TIER_CHANGE_SIMULATED:{ domain: 'CUSTOMER', correlationMode: N, requiredFields: ['reason'], requiresCausation: false },
 };
 
 /**
