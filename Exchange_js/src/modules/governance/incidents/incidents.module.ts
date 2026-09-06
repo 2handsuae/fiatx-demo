@@ -8,6 +8,7 @@ import { IncidentService } from './incident.service';
 import { DISPOSITION_INCIDENT_LINK, DispositionIncidentLink, IncidentRegistrationWorkflowService } from './incident-registration-workflow.service';
 import { IncidentCloseWorkflowService } from './incident-close-workflow.service';
 import { IncidentCloseFinancialApprovalService, IncidentCloseSecurityApprovalService } from './incident-approval.service';
+import { IncidentsController } from './incidents.controller';
 
 /**
  * 占位适配器——Task 9 落地 disposition.service.ts 的 attachIncident() 前，本模块用它顶住
@@ -31,6 +32,7 @@ export class InterimDispositionIncidentLink implements DispositionIncidentLink {
 
 @Module({
   imports: [PrismaModule, AuditLogsModule, ApprovalsModule],
+  controllers: [IncidentsController],
   providers: [
     IncidentService,
     IncidentRegistrationWorkflowService,

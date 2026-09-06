@@ -4,7 +4,7 @@ import { IncidentStatus as S, IncidentTypes as T, INCIDENT_REPORT_BASES as REPOR
 
 const ops = { actorType: 'ADMIN' as const, userId: 'uuid-ops', userNo: 'ADM-OPS', roleCodes: ['OPS_OFFICER'] };
 
-function makeService(o: Partial<Record<'incidentRow' | 'disposition' | 'kase' | 'transfer' | 'adjustment' | 'deposit' | 'remediations', any>> = {}) {
+function makeService(o: Partial<Record<'incidentRow' | 'disposition' | 'kase' | 'transfer' | 'adjustment' | 'deposit' | 'remediations' | 'notes' | 'listRows' | 'listTotal', any>> = {}) {
   const incidentRow = o.incidentRow ?? {
     id: 'uuid-inc', incidentNo: 'INC1', type: T.MANUAL, status: S.REGISTERED,
     title: 't', description: 'd', customerNo: null, sourceCaseNo: null, traceId: 'trace-seed',
@@ -14,8 +14,13 @@ function makeService(o: Partial<Record<'incidentRow' | 'disposition' | 'kase' | 
       create: jest.fn(async ({ data }: any) => ({ ...incidentRow, ...data })),
       findUnique: jest.fn(async () => incidentRow),
       update: jest.fn(async ({ data }: any) => ({ ...incidentRow, ...data })),
+      findMany: jest.fn(async () => o.listRows ?? [incidentRow]),
+      count: jest.fn(async () => o.listTotal ?? (o.listRows ?? [incidentRow]).length),
     },
-    incidentNote: { create: jest.fn(async ({ data }: any) => ({ id: 'note-1', ...data })) },
+    incidentNote: {
+      create: jest.fn(async ({ data }: any) => ({ id: 'note-1', ...data })),
+      findMany: jest.fn(async () => o.notes ?? []),
+    },
     incidentRemediation: {
       create: jest.fn(async ({ data }: any) => ({ id: 'rem-1', ...data })),
       findMany: jest.fn(async () => o.remediations ?? []),
@@ -451,6 +456,55 @@ describe('IncidentService（平账三期 Task 5）', () => {
     it('close：非法来源状态（如 REGISTERED）→ 400（迁移表兜底）', async () => {
       const { svc } = makeService({ incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', status: S.REGISTERED } });
       await expect(svc.close('INC1')).rejects.toThrow(/非法状态迁移/);
+    });
+  });
+
+  describe('list / getView（Task 8：HTTP 层薄转发用的纯投影，铁律⑥零 id）', () => {
+    const createdAt = new Date('2026-09-01T00:00:00.000Z');
+
+    it('list：按 status/type/customerNo/sourceCaseNo 过滤并投影为业务键视图', async () => {
+      const row = {
+        incidentNo: 'INC1', type: T.MANUAL, status: S.REGISTERED, title: 't',
+        customerNo: null, assetCode: null, amount: null, sourceCaseNo: null,
+        reportRequired: false, reportedAt: null, reportDeadlineAt: null, createdAt,
+      };
+      const { svc, prisma } = makeService({ listRows: [row], listTotal: 1 });
+      const r = await svc.list({ status: S.REGISTERED, take: 10, skip: 0 });
+      expect(r.total).toBe(1);
+      expect(r.items).toEqual([{
+        incidentNo: 'INC1', type: T.MANUAL, status: S.REGISTERED, title: 't',
+        customerNo: null, assetCode: null, amount: null, sourceCaseNo: null,
+        reportRequired: false, reportedAt: null, reportDeadlineAt: null, createdAt: createdAt.toISOString(),
+      }]);
+      expect(prisma.incident.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { status: S.REGISTERED }, skip: 0, take: 10 }));
+      expect((prisma.incident.findMany.mock.calls[0][0] as any).where).not.toHaveProperty('id');
+    });
+
+    it('getView：主体字段 + notes + remediations，零 id/incidentId', async () => {
+      const incidentRow = {
+        id: 'uuid-inc', incidentNo: 'INC1', type: T.MANUAL, status: S.INVESTIGATING,
+        title: 't', description: 'd', customerNo: null, sourceCaseNo: null, sourceDispositionNo: null,
+        sourceAdvanceTransferNo: null, walletRef: null, assetCode: null, amount: null,
+        assessedAmount: null, assessmentBasis: null, reportRequired: false, reportBasisCodes: null,
+        reportDeadlineAt: null, reportDraft: null, reportDraftedAt: null, reportedAt: null,
+        reportReference: null, approvalNo: null, registeredByUserId: 'ADM-OPS',
+        closedAt: null, withdrawnReason: null, createdAt,
+      };
+      const notes = [{ kind: 'NOTE', escalatedTo: null, body: '记录一条', authorUserId: 'ADM-OPS', createdAt }];
+      const remediations = [{ kind: 'ADJUSTMENT', referenceNo: 'ADJ1', linkedByUserId: 'ADM-OPS', createdAt }];
+      const { svc } = makeService({ incidentRow, notes, remediations });
+      const view = await svc.getView('INC1');
+      expect(view.incidentNo).toBe('INC1');
+      expect(view.notes).toEqual([{ kind: 'NOTE', escalatedTo: null, body: '记录一条', authorBy: 'ADM-OPS', createdAt: createdAt.toISOString() }]);
+      expect(view.remediations).toEqual([{ kind: 'ADJUSTMENT', referenceNo: 'ADJ1', linkedBy: 'ADM-OPS', createdAt: createdAt.toISOString() }]);
+      expect(view).not.toHaveProperty('id');
+      expect(JSON.stringify(view)).not.toContain('uuid-inc');
+    });
+
+    it('getView：事故不存在 → 404', async () => {
+      const { svc, prisma } = makeService();
+      prisma.incident.findUnique.mockResolvedValueOnce(null);
+      await expect(svc.getView('NOPE')).rejects.toThrow(NotFoundException);
     });
   });
 });

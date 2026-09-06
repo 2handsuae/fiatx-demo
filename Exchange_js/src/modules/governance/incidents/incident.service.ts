@@ -37,6 +37,75 @@ export class IncidentService {
     return row;
   }
 
+  // ── 读（Task 8 补：列表 / 详情，HTTP 层薄转发要用——纯投影，不加业务规则）─────
+
+  /** 列表：铁律⑥投影，零 id。 */
+  async list(q: { status?: string; type?: string; customerNo?: string; sourceCaseNo?: string; skip?: number; take?: number }): Promise<{ items: ReturnType<IncidentService['toListItem']>[]; total: number }> {
+    const where: any = {
+      ...(q.status && { status: q.status }),
+      ...(q.type && { type: q.type }),
+      ...(q.customerNo && { customerNo: q.customerNo }),
+      ...(q.sourceCaseNo && { sourceCaseNo: q.sourceCaseNo }),
+    };
+    const skip = Number(q.skip ?? 0);
+    const take = Number(q.take ?? 20);
+    const [rows, total] = await Promise.all([
+      (this.prisma as any).incident.findMany({ where, skip, take, orderBy: { createdAt: 'desc' } }),
+      (this.prisma as any).incident.count({ where }),
+    ]);
+    return { items: rows.map((r: any) => this.toListItem(r)), total };
+  }
+
+  private toListItem(row: any) {
+    return {
+      incidentNo: row.incidentNo, type: row.type, status: row.status, title: row.title,
+      customerNo: row.customerNo ?? null, assetCode: row.assetCode ?? null,
+      amount: row.amount != null ? row.amount.toString() : null,
+      sourceCaseNo: row.sourceCaseNo ?? null,
+      reportRequired: row.reportRequired, reportedAt: row.reportedAt ? row.reportedAt.toISOString() : null,
+      reportDeadlineAt: row.reportDeadlineAt ? row.reportDeadlineAt.toISOString() : null,
+      createdAt: row.createdAt.toISOString(),
+    };
+  }
+
+  /** 详情：主体字段 + 调查时间线（notes）+ 善后单列表——铁律⑥投影，零 id。 */
+  async getView(incidentNo: string) {
+    const row = await this.findByNo(incidentNo);
+    const [notes, remediations] = await Promise.all([
+      (this.prisma as any).incidentNote.findMany({ where: { incidentId: row.id }, orderBy: { createdAt: 'asc' } }),
+      (this.prisma as any).incidentRemediation.findMany({ where: { incidentId: row.id }, orderBy: { createdAt: 'asc' } }),
+    ]);
+    return {
+      incidentNo: row.incidentNo, type: row.type, status: row.status,
+      title: row.title, description: row.description,
+      sourceCaseNo: row.sourceCaseNo ?? null, sourceDispositionNo: row.sourceDispositionNo ?? null,
+      sourceAdvanceTransferNo: row.sourceAdvanceTransferNo ?? null,
+      walletRef: row.walletRef ?? null, customerNo: row.customerNo ?? null, assetCode: row.assetCode ?? null,
+      amount: row.amount != null ? row.amount.toString() : null,
+      assessedAmount: row.assessedAmount != null ? row.assessedAmount.toString() : null,
+      assessmentBasis: row.assessmentBasis ?? null,
+      reportRequired: row.reportRequired,
+      reportBasisCodes: row.reportBasisCodes ? row.reportBasisCodes.split(',') : [],
+      reportDeadlineAt: row.reportDeadlineAt ? row.reportDeadlineAt.toISOString() : null,
+      reportDraft: row.reportDraft ?? null,
+      reportDraftedAt: row.reportDraftedAt ? row.reportDraftedAt.toISOString() : null,
+      reportedAt: row.reportedAt ? row.reportedAt.toISOString() : null,
+      reportReference: row.reportReference ?? null,
+      approvalNo: row.approvalNo ?? null,
+      registeredBy: row.registeredByUserId,
+      closedAt: row.closedAt ? row.closedAt.toISOString() : null,
+      withdrawnReason: row.withdrawnReason ?? null,
+      createdAt: row.createdAt.toISOString(),
+      notes: notes.map((n: any) => ({
+        kind: n.kind, escalatedTo: n.escalatedTo ?? null, body: n.body,
+        authorBy: n.authorUserId, createdAt: n.createdAt.toISOString(),
+      })),
+      remediations: remediations.map((r: any) => ({
+        kind: r.kind, referenceNo: r.referenceNo, linkedBy: r.linkedByUserId, createdAt: r.createdAt.toISOString(),
+      })),
+    };
+  }
+
   private async transition(incidentNo: string, to: string, patch: Record<string, unknown> = {}) {
     const row = await this.findByNo(incidentNo);
     this.assertTransition(row.status, to);
