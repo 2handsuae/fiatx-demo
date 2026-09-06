@@ -1,10 +1,11 @@
-// scripts/verify-act1.ts —— 第一幕系统属性行为校验器（Task 29，15 条判据 B0–B14）
+// scripts/verify-act1.ts —— 第一幕系统属性行为校验器（Task 29，14 条判据 B0–B14，
+//   无 B13——2026-09-06 随材料管理路由族退役摘除，见 Task1 评审修复）
 //
 // 同范式：verify-rbac.ts 的三条铁规矩——
 //   ① 端口从 .stackports 读，绝不写死（写死会打到 main 栈）。
 //   ② 每条判据先做路径存在性预检——404 冒充「非 403=通过」的假绿本仓库栽过
 //     （verify-rbac.ts 文件头那次事故）。本文件对没有「先证明路由存在的 2xx
-//     步骤」的判据（B7/B11/B12/B13），用 RBAC_PERMISSION_DEFINITIONS（已解析的
+//     步骤」的判据（B7/B11/B12），用 RBAC_PERMISSION_DEFINITIONS（已解析的
 //     源码常量，不是 grep 文本）核对 method+path 真实存在；其余判据（B0/B4/B6/
 //     B9/B10）天然先有一次「正确 key 应 2xx」的步骤在前，同一路由已被验证不是
 //     404，不需要再补一次静态核对。
@@ -51,11 +52,6 @@ function judge(id: string, ok: boolean, msg: string): void {
   const status: Status = ok ? 'PASS' : 'FAIL';
   results.push({ id, status, msg });
   console.log(`${ok ? '✓' : '✗'} ${id} ${msg}`);
-}
-
-function skip(id: string, msg: string): void {
-  results.push({ id, status: 'SKIP', msg });
-  console.log(`○ ${id} SKIP —— ${msg}`);
 }
 
 // ══════════════════════ HTTP 小工具 ══════════════════════
@@ -455,25 +451,8 @@ async function main(): Promise<void> {
   });
   judge('B12', b12.status === 409, `POST reactivate(ACTIVE 管理员) → ${b12.status}（期望 409）`);
 
-  // ══════════════════════ B13：收编生效（业主裁决5，Task 24）══════════════════════
-  //
-  // 预检用一个真实 holding id——库里没有就跳过（不伪造夹具：CustomerMaterialHolding
-  // 挂在真实客户 KYC 材料生命周期上，不是纯治理记录，brief 明确指示跳过而非造假）。
-
-  const holding = await prisma.customerMaterialHolding.findFirst();
-  if (!holding) {
-    skip('B13', '库里没有真实 material holding（此栈尚无客户走过材料生命周期）——按 brief 指示跳过，不伪造夹具');
-  } else {
-    precheckRoute('POST', '/admin/material-management/holdings/:id/simulate-stage');
-    const holdingPrecheck = await call('GET', `/admin/material-management/holdings/${holding.id}`, tokens.admin);
-    if (holdingPrecheck.status === 404) {
-      throw new Error(`B13 预检失败：holding id ${holding.id}（来自 prisma 查询）GET 详情 404，判据路径写错`);
-    }
-    const b13 = await call('POST', `/admin/material-management/holdings/${holding.id}/simulate-stage`, tokens.auditor, {
-      targetStage: 'T_MINUS_30',
-    });
-    judge('B13', b13.status === 403, `POST simulate-stage(auditor) → ${b13.status}（期望 403，收编前是 200）`);
-  }
+  // B13（收编生效，业主裁决5，Task 24）已随材料管理路由族 2026-09-06 退役摘除——
+  // 路由 /admin/material-management/holdings/:id/simulate-stage 已删，判据主体不存在。
 
   // ══════════════════════ B14：审计子表检索（法三业务键 + 决定4，rbac.catalog:412）══════════════════════
 

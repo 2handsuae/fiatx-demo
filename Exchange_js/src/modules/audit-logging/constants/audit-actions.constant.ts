@@ -922,7 +922,7 @@ export const V8_RECON_AUDIT_ACTIONS: Record<string, AuditActionSpec> = {
 };
 
 /**
- * V2 客户域名册（站6-β，2026-08-27 业主方案2 后的存活面）——14 现役词 + 1 新词，
+ * V2 客户域名册（站6-β，2026-08-27 业主方案2 后的存活面）——14 现役词，
  * 现名全保守零改名。客户级件无订单旅程 → 全员 NONE；材料请求绑单时机会性携带
  * 父单旅程号（不设 INHERIT 硬闸：请求可无单发起，码的模式是固有属性不看场景）。
  * 便签四词双通道（系统命中 recordSystem / 运营贴撕 recordByActor）。

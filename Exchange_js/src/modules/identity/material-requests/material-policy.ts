@@ -3,13 +3,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 export interface MaterialConfig {
-  managementMode: 'SUMSUB_MANAGED' | 'SELF_MANAGED';
-  requiredForLevels: string[];
-  sumsubIdDocSetType?: string;
   sumsubActionLevelName: string;
-  windowDays?: Record<string, number>;
-  enforceRestriction: boolean;
-  alternativeOf?: string;
 }
 
 export interface MaterialRefreshPolicy {

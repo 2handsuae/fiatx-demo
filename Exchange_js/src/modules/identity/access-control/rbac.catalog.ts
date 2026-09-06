@@ -255,7 +255,7 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
   // Sumsub events
   route('GET', '/admin/sumsub-events', 'List Sumsub webhook events', ['SUMSUB_EVENT_VIEW']),
 
-  // ── Sumsub 入站模拟（收编同上）──
+  // ── Sumsub 入站模拟（2026-09-01 收编：此前只查 type==='ADMIN'）──
   route('POST', '/admin/sumsub/simulate/applicant-action-result', 'Feed a simulated Sumsub applicant-action webhook (demo only)', ['DEMO_VERDICT_WRITE']),
   route('POST', '/admin/sumsub/simulate/ongoing-doc-monitoring-fire', 'Fire a simulated ongoing-doc-monitoring event (demo only)', ['DEMO_VERDICT_WRITE']),
 
