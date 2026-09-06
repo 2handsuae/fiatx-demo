@@ -17,5 +17,3 @@ export const NEW_CUSTOMER_DAYS = 30;
 
 export function isValidTag(code: string): boolean { return BY_CODE.has(code); }
 export function isStaticTag(code: string): boolean { return BY_CODE.get(code)?.type === 'STATIC'; }
-export function isDerivedTag(code: string): boolean { return BY_CODE.get(code)?.type === 'DERIVED'; }
-export function staticTagCodes(): string[] { return CUSTOMER_TAG_DEFINITIONS.filter((d) => d.type === 'STATIC').map((d) => d.tagCode); }

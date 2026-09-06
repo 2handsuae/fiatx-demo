@@ -237,7 +237,7 @@ function makeService(mocks: ReturnType<typeof buildMocks>) {
     mocks.sumsubTxnClient as any,
     {} as any, // customerRestrictionsService — not on this path (initiateSwap never rejects)
     {} as any, // pendingActionService — not on this path
-    { resolve: jest.fn().mockResolvedValue({ lifecycle: 'ACTIVE', blocked: new Set(), disclosedBlocked: new Set(), disclosed: [], openCount: 0 }), assertCapability: jest.fn(), assertOffboardable: jest.fn() } as any, // customerAccessService
+    { resolve: jest.fn().mockResolvedValue({ lifecycle: 'ACTIVE', blocked: new Set(), disclosedBlocked: new Set(), disclosed: [], openCount: 0 }), assertCapability: jest.fn() } as any, // customerAccessService
     {} as any, // materialRequests — not on this path
     {} as any, // materialRequestIssuer — not on this path
     mocks.l1Gate as any,
@@ -838,7 +838,7 @@ function makeAdvanceLegService(mocks: ReturnType<typeof buildAdvanceLegMocks>) {
     {} as any,
     {} as any, // customerRestrictionsService — not on this path (advanceLeg never rejects)
     {} as any, // pendingActionService — not on this path
-    { resolve: jest.fn().mockResolvedValue({ lifecycle: 'ACTIVE', blocked: new Set(), disclosedBlocked: new Set(), disclosed: [], openCount: 0 }), assertCapability: jest.fn(), assertOffboardable: jest.fn() } as any, // customerAccessService
+    { resolve: jest.fn().mockResolvedValue({ lifecycle: 'ACTIVE', blocked: new Set(), disclosedBlocked: new Set(), disclosed: [], openCount: 0 }), assertCapability: jest.fn() } as any, // customerAccessService
     {} as any, // materialRequests — not on this path
     {} as any, // materialRequestIssuer — not on this path
     {} as any, // l1Gate — not on this path (advanceLeg 不建单)
@@ -1531,7 +1531,7 @@ describe('SwapWorkflowService.applyKytVerdict', () => {
       mocks.sumsubTxnClient as any,
       mocks.customerRestrictionsService as any,
       mocks.pendingActionService as any,
-      { resolve: jest.fn().mockResolvedValue({ lifecycle: 'ACTIVE', blocked: new Set(), disclosedBlocked: new Set(), disclosed: [], openCount: 0 }), assertCapability: jest.fn(), assertOffboardable: jest.fn() } as any, // customerAccessService
+      { resolve: jest.fn().mockResolvedValue({ lifecycle: 'ACTIVE', blocked: new Set(), disclosedBlocked: new Set(), disclosed: [], openCount: 0 }), assertCapability: jest.fn() } as any, // customerAccessService
       mocks.materialRequests as any,
       mocks.materialRequestIssuer as any,
       {} as any, // l1Gate — not on this path (applyKytVerdict 不建单)

@@ -6,8 +6,6 @@ import { CustomersController } from './customers.controller';
 import { CustomerProfileController } from './customer-profile.controller';
 import { PrismaModule } from '../../../core/prisma/prisma.module';
 import { NotificationsModule } from '../../../core/notifications/notifications.module';
-import { TigerBeetleModule } from '../../accounting/tigerbeetle/tigerbeetle.module';
-import { FundsOrdersModule } from '../../funds-orders/funds-orders.module';
 import { CustomerRestrictionWorkflowService } from './customer-restriction-workflow.service';
 import { CustomerRestrictionReleaseMlroApprovalService } from './customer-restriction-release-mlro-approval.service';
 import { CustomerRestrictionReleaseOpsApprovalService } from './customer-restriction-release-ops-approval.service';
@@ -17,9 +15,6 @@ import { CustomerRestrictionsAdminController } from './customer-restrictions.adm
 import { CustomerRestrictionsClientController } from './customer-restrictions.client.controller';
 
 @Module({
-  // TigerBeetleModule / FundsOrdersModule：仅为 CustomerAccessService.assertOffboardable
-  // 的余额与在途单前置。两者的 imports 只有 PrismaModule / AuditLogsModule，
-  // 都不反向依赖 Customers，无环（2026-08-15 核）。
   imports: [
     // Task 10：initiateRelease 经 ApprovalsService 开审批案
     ApprovalsModule,
@@ -29,8 +24,6 @@ import { CustomerRestrictionsClientController } from './customer-restrictions.cl
     forwardRef(() => MaterialRequestsModule),
     PrismaModule,
     NotificationsModule,
-    TigerBeetleModule,
-    FundsOrdersModule,
   ],
   providers: [
     CustomerRestrictionWorkflowService,

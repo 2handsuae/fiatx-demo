@@ -1,8 +1,5 @@
 import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../../core/prisma/prisma.service';
-import { AccountingService } from '../../accounting/tigerbeetle/accounting.service';
-import { TB_LEDGERS } from '../../accounting/tigerbeetle/constants/tb-ledgers.constant';
-import { FundsOrderService } from '../../funds-orders/funds-order.service';
 import { CustomerLifecycle } from '../constants/customer-lifecycle.constant';
 import {
   RESTRICTION_CAUSE_POLICY,
@@ -52,7 +49,7 @@ export interface CustomerAccess {
  */
 export const NEUTRAL_DENIAL = 'This operation is not available for your account at the moment.';
 
-export const ALL_CAPABILITIES: readonly Capability[] = ['DEPOSIT', 'WITHDRAW', 'SWAP'];
+const ALL_CAPABILITIES: readonly Capability[] = ['DEPOSIT', 'WITHDRAW', 'SWAP'];
 
 function expandScopes(scopes: RestrictionScope[]): Capability[] {
   const out: Capability[] = [];
@@ -75,8 +72,6 @@ export class CustomerAccessService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly restrictionsService: CustomerRestrictionsService,
-    private readonly accountingService: AccountingService,
-    private readonly fundsOrderService: FundsOrderService,
   ) {}
 
   async resolve(customerId: string): Promise<CustomerAccess> {
@@ -170,50 +165,4 @@ export class CustomerAccessService {
     }
   }
 
-  /**
-   * 销户前置（INV-2 / INV-3）。仅 admin 侧调用，故错误体可带排障明细。
-   */
-  async assertOffboardable(customerId: string): Promise<void> {
-    const openRows = await this.restrictionsService.listOpen(customerId);
-    const silent = openRows.find((row) => row.visibility === 'SILENT');
-    if (silent) {
-      throw new ForbiddenException({
-        code: 'OFFBOARD_BLOCKED_BY_SANCTION',
-        message: 'Customer has an open confidential restriction and cannot be offboarded',
-        restrictionNo: silent.restrictionNo,
-      });
-    }
-
-    for (const currency of Object.keys(TB_LEDGERS)) {
-      const total = await this.readTotalBalance(customerId, currency);
-      if (total !== 0n) {
-        throw new ForbiddenException({
-          code: 'OFFBOARD_BLOCKED_BY_BALANCE',
-          message: `Customer still holds a ${currency} balance`,
-          currency,
-          total: total.toString(),
-        });
-      }
-    }
-
-    const inflight = await this.fundsOrderService.countNonTerminalByCustomer(customerId);
-    if (inflight > 0) {
-      throw new ForbiddenException({
-        code: 'OFFBOARD_BLOCKED_BY_INFLIGHT',
-        message: 'Customer has funds orders still in flight',
-        inflight,
-      });
-    }
-  }
-
-  /** 客户在该 ledger 从未开户时 AccountingService 抛 404，语义上等于零余额。 */
-  private async readTotalBalance(customerId: string, currency: string): Promise<bigint> {
-    try {
-      const balance = await this.accountingService.getCustomerAvailableBalance(customerId, currency);
-      return balance.total;
-    } catch (e) {
-      if (e instanceof NotFoundException) return 0n;
-      throw e;
-    }
-  }
 }
