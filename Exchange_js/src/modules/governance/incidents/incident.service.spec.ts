@@ -4,7 +4,7 @@ import { IncidentStatus as S, IncidentTypes as T, INCIDENT_REPORT_BASES as REPOR
 
 const ops = { actorType: 'ADMIN' as const, userId: 'uuid-ops', userNo: 'ADM-OPS', roleCodes: ['OPS_OFFICER'] };
 
-function makeService(o: Partial<Record<'incidentRow' | 'disposition' | 'kase' | 'transfer' | 'adjustment' | 'deposit', any>> = {}) {
+function makeService(o: Partial<Record<'incidentRow' | 'disposition' | 'kase' | 'transfer' | 'adjustment' | 'deposit' | 'remediations', any>> = {}) {
   const incidentRow = o.incidentRow ?? {
     id: 'uuid-inc', incidentNo: 'INC1', type: T.MANUAL, status: S.REGISTERED,
     title: 't', description: 'd', customerNo: null, sourceCaseNo: null, traceId: 'trace-seed',
@@ -16,7 +16,10 @@ function makeService(o: Partial<Record<'incidentRow' | 'disposition' | 'kase' | 
       update: jest.fn(async ({ data }: any) => ({ ...incidentRow, ...data })),
     },
     incidentNote: { create: jest.fn(async ({ data }: any) => ({ id: 'note-1', ...data })) },
-    incidentRemediation: { create: jest.fn(async ({ data }: any) => ({ id: 'rem-1', ...data })) },
+    incidentRemediation: {
+      create: jest.fn(async ({ data }: any) => ({ id: 'rem-1', ...data })),
+      findMany: jest.fn(async () => o.remediations ?? []),
+    },
     reconciliationDisposition: { findUnique: jest.fn(async () => o.disposition ?? null) },
     reconciliationCase: { findUnique: jest.fn(async () => o.kase ?? null) },
     internalTransfer: { findUnique: jest.fn(async () => o.transfer ?? null) },
@@ -358,6 +361,49 @@ describe('IncidentService（平账三期 Task 5）', () => {
       const call = auditLogs.recordByActor.mock.calls[0][0];
       expect(call).toMatchObject({ action: 'INCIDENT_REGULATOR_REPORTED', basisCodes: 'TIR_K_H' });
       expect(call.metadata).toMatchObject({ basisCodes: 'TIR_K_H' });
+    });
+  });
+
+  describe('结案支持方法（Task 7）—— 纯数据方法，不审计（workflow 记账）', () => {
+    it('findRemediations：返回善后单号清单（只取 referenceNo）', async () => {
+      const { svc, prisma } = makeService({
+        incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', status: S.RESOLVING },
+        remediations: [{ id: 'rem-1', referenceNo: 'ADJ1' }, { id: 'rem-2', referenceNo: 'ITR9' }],
+      });
+      const refs = await svc.findRemediations('INC1');
+      expect(refs).toEqual(['ADJ1', 'ITR9']);
+      expect(prisma.incidentRemediation.findMany).toHaveBeenCalledWith({ where: { incidentId: 'uuid-inc' } });
+    });
+
+    it('findRemediations：无挂载 → 空数组', async () => {
+      const { svc } = makeService({ incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', status: S.ASSESSED }, remediations: [] });
+      await expect(svc.findRemediations('INC1')).resolves.toEqual([]);
+    });
+
+    it('markCloseRequested：只写 approvalNo 一列，不动 status，不审计', async () => {
+      const { svc, prisma, auditLogs } = makeService();
+      await svc.markCloseRequested('INC1', 'AC1');
+      expect(prisma.incident.update).toHaveBeenCalledWith({ where: { incidentNo: 'INC1' }, data: { approvalNo: 'AC1' } });
+      expect(auditLogs.recordByActor).not.toHaveBeenCalled();
+    });
+
+    it('close：ASSESSED → CLOSED + closedAt，不审计', async () => {
+      const { svc, prisma, auditLogs } = makeService({ incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', status: S.ASSESSED } });
+      const r = await svc.close('INC1');
+      expect(r.status).toBe(S.CLOSED);
+      expect(prisma.incident.update).toHaveBeenCalledWith(expect.objectContaining({ where: { incidentNo: 'INC1' }, data: expect.objectContaining({ status: S.CLOSED, closedAt: expect.any(Date) }) }));
+      expect(auditLogs.recordByActor).not.toHaveBeenCalled();
+    });
+
+    it('close：RESOLVING → CLOSED', async () => {
+      const { svc } = makeService({ incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', status: S.RESOLVING } });
+      const r = await svc.close('INC1');
+      expect(r.status).toBe(S.CLOSED);
+    });
+
+    it('close：非法来源状态（如 REGISTERED）→ 400（迁移表兜底）', async () => {
+      const { svc } = makeService({ incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', status: S.REGISTERED } });
+      await expect(svc.close('INC1')).rejects.toThrow(/非法状态迁移/);
     });
   });
 });

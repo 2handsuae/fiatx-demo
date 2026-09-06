@@ -293,8 +293,33 @@ export class IncidentService {
     }
   }
 
+  // ── 结案支持方法（spec §7，Task 7）：三个纯数据方法，供 IncidentCloseWorkflowService
+  // 编排——审批本身是跨主体协作（铁律③），因此 requestClose/onDecided 的守卫、
+  // objectSnapshot、审计（INCIDENT_CLOSE_REQUESTED/INCIDENT_CLOSED）都放在 workflow
+  // 层，本服务只暴露它需要的三个读写原子，不掺一句审计（与 InternalTransferService/
+  // WithdrawTransactionsService.markReturnClaimRequested 同款分工）。────────────────
+
+  /** 结案前置校验要用到的善后单号清单（只读，spec §7"善后单号清单"字段的数据来源）。 */
+  async findRemediations(incidentNo: string): Promise<string[]> {
+    const row = await this.findByNo(incidentNo);
+    const rows = await (this.prisma as any).incidentRemediation.findMany({ where: { incidentId: row.id } });
+    return rows.map((r: any) => r.referenceNo as string);
+  }
+
+  /** 结案审批提交后回填 approvalNo——不推状态、不审计（workflow 记 INCIDENT_CLOSE_REQUESTED）。 */
+  async markCloseRequested(incidentNo: string, approvalNo: string): Promise<void> {
+    await (this.prisma as any).incident.update({ where: { incidentNo }, data: { approvalNo } });
+  }
+
+  /** ASSESSED/RESOLVING → CLOSED + closedAt——不审计（workflow 记 INCIDENT_CLOSED）。 */
+  async close(incidentNo: string): Promise<{ incidentNo: string; status: string }> {
+    const { updated } = await this.transition(incidentNo, IncidentStatus.CLOSED, { closedAt: new Date() });
+    return { incidentNo, status: updated.status as string };
+  }
+
   // ── 审计（十一码共用信封的当前子集：REGISTERED/INVESTIGATION_STARTED/NOTE_ADDED/
-  //     ESCALATED/WITHDRAWN/REMEDIATION_LINKED——ASSESSED 系与 CLOSE 系留给 Task 6/7）──
+  //     ESCALATED/ASSESSED/REMEDIATION_LINKED/REGULATOR_REPORT_DRAFTED/REGULATOR_REPORTED/
+  //     WITHDRAWN——CLOSE_REQUESTED/CLOSED 由 IncidentCloseWorkflowService 记，见上）──
 
   private async recordAudit(row: any, action: string, actor: ApprovalActorContext, patch: {
     reason?: string; fromStatus?: string; toStatus?: string; correlationId?: string;

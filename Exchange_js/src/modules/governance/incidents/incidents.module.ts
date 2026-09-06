@@ -3,8 +3,11 @@ import { ConflictException, Injectable, Module, NotFoundException } from '@nestj
 import { PrismaModule } from '../../../core/prisma/prisma.module';
 import { PrismaService } from '../../../core/prisma/prisma.service';
 import { AuditLogsModule } from '../../audit-logging/audit-logs.module';
+import { ApprovalsModule } from '../approvals/approvals.module';
 import { IncidentService } from './incident.service';
 import { DISPOSITION_INCIDENT_LINK, DispositionIncidentLink, IncidentRegistrationWorkflowService } from './incident-registration-workflow.service';
+import { IncidentCloseWorkflowService } from './incident-close-workflow.service';
+import { IncidentCloseFinancialApprovalService, IncidentCloseSecurityApprovalService } from './incident-approval.service';
 
 /**
  * 占位适配器——Task 9 落地 disposition.service.ts 的 attachIncident() 前，本模块用它顶住
@@ -27,13 +30,16 @@ export class InterimDispositionIncidentLink implements DispositionIncidentLink {
 }
 
 @Module({
-  imports: [PrismaModule, AuditLogsModule],
+  imports: [PrismaModule, AuditLogsModule, ApprovalsModule],
   providers: [
     IncidentService,
     IncidentRegistrationWorkflowService,
+    IncidentCloseWorkflowService,
+    IncidentCloseSecurityApprovalService,
+    IncidentCloseFinancialApprovalService,
     InterimDispositionIncidentLink,
     { provide: DISPOSITION_INCIDENT_LINK, useExisting: InterimDispositionIncidentLink },
   ],
-  exports: [IncidentService, IncidentRegistrationWorkflowService],
+  exports: [IncidentService, IncidentRegistrationWorkflowService, IncidentCloseWorkflowService],
 })
 export class IncidentsModule {}
