@@ -45,28 +45,15 @@ interface CustomerDetailData {
   companyName?: string | null;
   customerType: string;
   lifecycle: string;
-  riskTier?: string | null;
   riskRating?: string | null;
   eddRequired?: boolean;
-  cddDocumentExpiresAt?: string | null;
-  nextReviewAt?: string | null;
   activePeriodicReviewCycleId?: string | null;
   activePeriodicReviewCycle?: PeriodicReviewCycleSummary | null;
-  investorTier?: string | null;
-  investorTierUpdatedAt?: string | null;
   createdAt: string;
   updatedAt?: string | null;
   // Verification (Sumsub) snapshot
-  verificationSubstatus?: string | null;
-  verificationCustomerActionRequired?: boolean;
-  verificationCanContinue?: boolean;
-  verificationLatestEventType?: string | null;
-  verificationLatestEventAt?: string | null;
   sumsubApplicantId?: string | null;
   sumsubCurrentLevelName?: string | null;
-  sumsubLatestReviewId?: string | null;
-  sumsubLatestAttemptId?: string | null;
-  sumsubExperiencedLevel2?: boolean;
 }
 
 /* ── Customer Tags ───────────────────────────────────────────── */
@@ -216,7 +203,6 @@ const CustomerDetail = () => {
   const [removeTagTarget, setRemoveTagTarget] = useState<string | null>(null);
   const [removeTagReason, setRemoveTagReason] = useState('');
 
-  /* ── Material holdings state ── */
   const [tierMessage, setTierMessage] = useState<string | null>(null);
 
   /* ── Risk Assessment trigger state ── */
@@ -373,12 +359,7 @@ const CustomerDetail = () => {
       !!detail?.activePeriodicReviewCycleId,
     [detail],
   );
-  const hasVerification = useMemo(
-    () =>
-      !!detail?.verificationSubstatus ||
-      !!detail?.sumsubApplicantId,
-    [detail],
-  );
+  const hasVerification = useMemo(() => !!detail?.sumsubApplicantId, [detail]);
 
   /* ── Loading / error stubs ── */
 
@@ -610,10 +591,8 @@ const CustomerDetail = () => {
             <div className="mt-3">
               <FieldGrid>
                 <Field label="Lifecycle" value={detail.lifecycle} />
-                <Field label="Risk Rating" value={detail.riskTier || detail.riskRating || undefined} />
+                <Field label="Risk Rating" value={detail.riskRating || undefined} />
                 <Field label="EDD Required" value={detail.eddRequired ? 'YES' : 'NO'} />
-                <Field label="CDD Document Expires" value={fmt(detail.cddDocumentExpiresAt)} mono />
-                <Field label="Next Review" value={fmt(detail.nextReviewAt)} mono />
               </FieldGrid>
             </div>
           </section>
@@ -623,51 +602,11 @@ const CustomerDetail = () => {
             <section className="px-6 py-5">
               <Cap>Verification</Cap>
               <p className="mt-1 mb-4 font-mono text-[9px] text-adm-t3">
-                Identity provider snapshot — latest webhook event and SDK identifiers
+                Identity provider snapshot — SDK identifiers
               </p>
-              <div className="mt-3 mb-4 flex flex-wrap items-center gap-2">
-                <AdminBadge value={detail.verificationSubstatus || 'CREATED'} />
-                {detail.sumsubExperiencedLevel2 && (
-                  <span className="inline-flex items-center rounded border border-adm-blue/25 bg-adm-blue/10 px-1.5 py-px font-mono text-[9px] text-adm-blue">
-                    EDD level2
-                  </span>
-                )}
-              </div>
               <FieldGrid>
                 <Field label="Current Level" value={detail.sumsubCurrentLevelName ?? undefined} />
-                <Field
-                  label="Latest Event"
-                  value={detail.verificationLatestEventType ?? undefined}
-                  mono
-                />
-                <Field
-                  label="Latest Event At"
-                  value={fmt(detail.verificationLatestEventAt)}
-                  mono
-                />
-                <Field
-                  label="Customer Action Required"
-                  value={
-                    detail.verificationCustomerActionRequired === undefined
-                      ? undefined
-                      : detail.verificationCustomerActionRequired
-                        ? 'YES'
-                        : 'NO'
-                  }
-                />
-                <Field
-                  label="Can Continue"
-                  value={
-                    detail.verificationCanContinue === undefined
-                      ? undefined
-                      : detail.verificationCanContinue
-                        ? 'YES'
-                        : 'NO'
-                  }
-                />
                 <Field label="Applicant ID" value={detail.sumsubApplicantId ?? undefined} mono />
-                <Field label="Latest Review ID" value={detail.sumsubLatestReviewId ?? undefined} mono />
-                <Field label="Latest Attempt ID" value={detail.sumsubLatestAttemptId ?? undefined} mono />
               </FieldGrid>
             </section>
           )}
@@ -880,21 +819,6 @@ const CustomerDetail = () => {
             </section>
           )}
 
-          {/* Investor Classification */}
-          <section className="px-6 py-5">
-            <Cap>Investor Tier</Cap>
-            <div className="mt-3">
-              <FieldGrid>
-                <Field label="Tier" value={detail.investorTier ?? 'RETAIL'} />
-                <Field
-                  label="Updated At"
-                  value={fmt(detail.investorTierUpdatedAt)}
-                  mono
-                />
-              </FieldGrid>
-            </div>
-          </section>
-
           {/* ⑫ Corporate Profile (only for CORPORATE) */}
           
           {/* ⑪ UBO List (only for CORPORATE) */}
@@ -953,39 +877,19 @@ const CustomerDetail = () => {
 
           {/* Verification */}
           <SidebarGroup title="Verification">
-            <div className="flex items-center justify-between gap-2">
-              <span className="shrink-0 font-mono text-[9px] text-adm-t3">Substatus</span>
-              <AdminBadge value={detail.verificationSubstatus || 'CREATED'} />
-            </div>
             <SidebarKV label="Level" value={detail.sumsubCurrentLevelName} mono />
-            <SidebarKV label="Last Event" value={detail.verificationLatestEventType} mono />
-            <SidebarKV label="Updated" value={fmt(detail.verificationLatestEventAt)} mono />
-            <SidebarKV
-              label="EDD Level2"
-              value={detail.sumsubExperiencedLevel2 ? 'YES' : 'NO'}
-            />
           </SidebarGroup>
 
           {/* Risk */}
           <SidebarGroup title="Risk">
-            <SidebarKV label="Risk Rating" value={detail.riskTier || detail.riskRating} />
+            <SidebarKV label="Risk Rating" value={detail.riskRating} />
             <SidebarKV label="EDD Required" value={detail.eddRequired ? 'YES' : 'NO'} />
-            <SidebarKV
-              label="Investor Tier"
-              value={detail.investorTier || 'RETAIL'}
-            />
           </SidebarGroup>
 
           {/* Lifecycle */}
           <SidebarGroup title="Lifecycle">
             <SidebarKV label="Created" value={fmt(detail.createdAt)} mono />
             <SidebarKV label="Updated" value={fmt(detail.updatedAt)} mono />
-            <SidebarKV
-              label="CDD Expires"
-              value={fmt(detail.cddDocumentExpiresAt)}
-              mono
-            />
-            <SidebarKV label="Next Review" value={fmt(detail.nextReviewAt)} mono />
           </SidebarGroup>
         </div>
       </div>

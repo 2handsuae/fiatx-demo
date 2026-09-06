@@ -18,7 +18,7 @@ export interface DisclosedRestrictionView {
 }
 
 export interface CustomerProfileData {
-  id: string;
+  customerNo: string;
   email: string | null;
   phone: string | null;
   firstName: string | null;
@@ -34,7 +34,6 @@ export interface CustomerProfileData {
   riskRating: string;
   eddRequired: boolean;
   cddDocumentExpiresAt?: string | null;
-  nextReviewAt?: string | null;
   activePeriodicReviewCycleId?: string | null;
   activePeriodicReviewCycle?: {
     id: string;
@@ -85,7 +84,6 @@ export const useCustomerProfile = () => {
           riskRating: data.riskRating || 'LOW',
           eddRequired: !!data.eddRequired,
           cddDocumentExpiresAt: data.cddDocumentExpiresAt || null,
-          nextReviewAt: data.nextReviewAt || null,
           activePeriodicReviewCycleId: data.activePeriodicReviewCycleId || null,
           activePeriodicReviewCycle: data.activePeriodicReviewCycle || null,
           investorTier: data.investorTier || 'STANDARD',
