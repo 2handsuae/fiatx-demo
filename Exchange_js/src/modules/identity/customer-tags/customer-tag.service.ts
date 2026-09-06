@@ -45,7 +45,7 @@ export class CustomerTagService {
     const row = await this.prisma.customerExplicitTag.upsert({
       where: { customerId_tagCode: { customerId, tagCode } },
       update: {},
-      create: { customerId, tagCode, assignedByUserId: actor.userId },
+      create: { customerId, tagCode },
     });
 
     await this.audit.recordByActor(

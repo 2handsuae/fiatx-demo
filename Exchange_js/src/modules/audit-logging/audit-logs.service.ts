@@ -2004,7 +2004,6 @@ export class AuditLogsService {
             lastName: true,
             email: true,
             riskRating: true,
-            investorTier: true,
           },
         },
       },

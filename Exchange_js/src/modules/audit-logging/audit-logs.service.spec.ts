@@ -893,7 +893,6 @@ describe('AuditLogsService', () => {
           lastName: 'Lovelace',
           email: 'ada@example.com',
           riskRating: 'LOW',
-          investorTier: 'RETAIL',
         },
       },
     ]);

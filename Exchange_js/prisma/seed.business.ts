@@ -735,7 +735,7 @@ async function seedCustomers(prisma: PrismaClient): Promise<void> {
       await prisma.customerExplicitTag.upsert({
         where: { customerId_tagCode: { customerId: customer.id, tagCode: 'VIP' } },
         update: {},
-        create: { customerId: customer.id, tagCode: 'VIP', assignedByUserId: 'SEED' },
+        create: { customerId: customer.id, tagCode: 'VIP' },
       });
     }
 
