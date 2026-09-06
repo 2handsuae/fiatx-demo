@@ -66,6 +66,15 @@ export const PERMISSIONS = {
   INTERNAL_TRANSFER_ADVANCE_WRITE: 'api.post.admin_internal_transfers_advance',
   INTERNAL_TRANSFER_CANCEL: 'api.post.admin_internal_transfers_transferno_cancel',
 
+  // 平账三期（2026-09-06）：事故登记——三个码精确镜像 rbac.catalog.ts route() 的
+  // buildPermissionCode 派生值。列表/详情两个 GET 路由的 allowedGroups 同时含
+  // INCIDENT_READ/INCIDENT_WRITE（route() 已登记），写动作只有 INCIDENT_WRITE 一组；
+  // 本页所有写按钮（登记/调查/升级/定损/挂善后/通报/结案/撤回）统一用注册端点这一个
+  // 代表码判断——同一权限组绑定的角色，会一并拿到该组下全部路由的码，不必逐动作各开一码。
+  INCIDENTS_READ: 'api.get.admin_incidents',
+  INCIDENT_DETAIL_READ: 'api.get.admin_incidents_incidentno',
+  INCIDENT_WRITE: 'api.post.admin_incidents',
+
   SUMSUB_EVENTS_READ: 'api.get.admin_sumsub_events',
   AUDIT_LOGS_READ: 'api.get.admin_audit_logs',
   AUDIT_EXPORT_CREATE: 'api.post.admin_audit_evidence_packages',

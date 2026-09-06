@@ -22,6 +22,7 @@ import {
   Gauge,
   ShieldCheck,
   Shield,
+  AlertTriangle,
   UserCheck,
   Sun,
   Moon,
@@ -352,6 +353,13 @@ const DashboardLayout = () => {
           label: 'Approval Policies',
           icon: <Shield size={13} />,
           requiredPermissions: [PERMISSIONS.GOV_APPROVAL_POLICIES_READ],
+        },
+        // 平账三期：事故登记——独立治理件，与审批中心平级（G1 拍板）
+        {
+          path: '/admin/governance/incidents',
+          label: 'Incident Register',
+          icon: <AlertTriangle size={13} />,
+          requiredPermissions: [PERMISSIONS.INCIDENTS_READ],
         },
       ],
     },

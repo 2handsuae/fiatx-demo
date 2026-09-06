@@ -69,6 +69,8 @@ const SwapFeeLevelList = lazy(() => import('./pages/SwapFeeLevelList'));
 const SwapFeeLevelDetail = lazy(() => import('./pages/SwapFeeLevelDetail'));
 const WithdrawQuoteList = lazy(() => import('./pages/WithdrawQuoteList'));
 const WithdrawQuoteDetail = lazy(() => import('./pages/WithdrawQuoteDetail'));
+const IncidentListPage = lazy(() => import('./pages/IncidentListPage'));
+const IncidentDetailPage = lazy(() => import('./pages/IncidentDetailPage'));
 
 const FullPageMessage = ({
   title,
@@ -266,6 +268,10 @@ function App() {
             <Route path="governance/approvals" element={withPermission(<ApprovalsPage />, [PERMISSIONS.GOV_APPROVALS_READ])} />
             <Route path="governance/approvals/:approvalNo" element={withPermission(<ApprovalDetailPage />, [PERMISSIONS.GOV_APPROVAL_DETAIL_READ])} />
             <Route path="governance/approval-policies" element={withPermission(<ApprovalPoliciesPage />, [PERMISSIONS.GOV_APPROVAL_POLICIES_READ])} />
+
+            {/* 平账三期：事故登记（治理件，与审批中心平级） */}
+            <Route path="governance/incidents" element={withPermission(<IncidentListPage />, [PERMISSIONS.INCIDENTS_READ])} />
+            <Route path="governance/incidents/:incidentNo" element={withPermission(<IncidentDetailPage />, [PERMISSIONS.INCIDENT_DETAIL_READ])} />
 
             {/* audit */}
             <Route path="audit/logs" element={withPermission(<AuditLogsPage />, [PERMISSIONS.AUDIT_LOGS_READ])} />

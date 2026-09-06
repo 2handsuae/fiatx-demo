@@ -61,6 +61,9 @@ const ACTION_TYPE_LABELS: Record<string, string> = {
   WITHDRAW_UNFREEZE: 'Withdraw Unfreeze',
   WITHDRAW_SANCTION_REFUND: 'Withdraw Sanction Refund',
   RECON_ADJUSTMENT_POST: 'Recon Adjustment Post',
+  // 平账三期：事故结案拆两个动作类型（安全类两步 MLRO→CFO / 资金类单步 CFO）
+  INCIDENT_CLOSE_SECURITY: '事故结案·安全类',
+  INCIDENT_CLOSE_FINANCIAL: '事故结案·资金类',
 };
 
 export default function ApprovalPoliciesPage() {

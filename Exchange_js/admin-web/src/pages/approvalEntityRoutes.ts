@@ -45,4 +45,7 @@ export const ENTITY_ROUTE_BY_ACTION: Record<string, (ref: string) => string | nu
   RECON_ADJUSTMENT_POST: (r) => `/admin/reconciliation/adjustments/${r}`,
   // 平账二期（entityRef = transferNo）
   INTERNAL_TRANSFER_APPROVAL: (r) => `/admin/treasury/internal-transfers/${r}`,
+  // 平账三期（entityRef = incidentNo）：结案拆两个动作类型，都指向同一事故详情路由
+  INCIDENT_CLOSE_SECURITY: (r) => `/admin/governance/incidents/${r}`,
+  INCIDENT_CLOSE_FINANCIAL: (r) => `/admin/governance/incidents/${r}`,
 };
