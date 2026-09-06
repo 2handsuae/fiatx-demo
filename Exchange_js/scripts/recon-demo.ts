@@ -10,10 +10,10 @@
 //                  external closing balance == internal balance.
 //                  Expected: status=PASS, casesOpened=0, orphan/mismatch=0.
 //
-//   --mode=break   Pass-mode setup, then inject 17 scenarios covering the
+//   --mode=break   Pass-mode setup, then inject 18 scenarios covering the
 //                  disposition matrix and write `manifest.json`.
 //                  按处置分组（spec 2026-09-01-recon-disposition-conclusion-
-//                  design.md §5，= 走查顺序），17 行 = 17 场景：
+//                  design.md §5，= 走查顺序），18 行 = 18 场景：
 //                    ① 在途时序差   推单
 //                    ② 小数点错位   冲正
 //                    ③ 我方少记     冲正
@@ -31,6 +31,7 @@
 //                    ⑮ 出金被退回   补单·退回认领（B 批开门，法币，叠 Grace AED）
 //                    ⑯ 客户池小额查不出 认损 + 补款划转（二期开门，加密币一腿，Alice USDT）
 //                    ⑰ 入金退汇·余额不足 垫款划转 + 退汇认领（二期开门，法币两腿，叠 Grace AED）
+//                    ⑱ 未授权转出       事故登记（三期开门，加密币一腿，Jack USDT-TRON）
 //                  公理：外部资料是权威——不平只能是三种性质之一：我方账错了 /
 //                  我方账缺了 / 时机没到，没有第四档"外部数据本身可以商榷"。
 //                  旧版两条场景（银行漏报明细、对账单重复行）已删：两者都靠
@@ -768,6 +769,7 @@ async function injectScenarios(
   const slotMisroutedTo   = planByOwnerAsset(KATE_NO,  'AED');        // ⑧ 记错客户 · 接收端
   const slotClientLoss    = planByOwnerAsset(ALICE_NO, 'USDT-TRON');  // ⑯ 客户池小额查不出（二期；B 批搬走 ⑭ 后空出的位）
   const slotAdvance       = slotShowcaseA;                            // ⑰ 入金退汇·余额不足（二期，叠展示位甲）
+  const slotIncident      = planByOwnerAsset(JACK_NO,  'USDT-TRON');  // ⑱ 未授权转出（三期；先跑后选，见场景 ⑱ 块头注释）
 
   // ── FIRM wallet pick (scenarios ⑪⑫ — shared wallet, hedged pair) ──────
   // Exclude any FIRM wallet that is already the from/to side of a non-terminal
@@ -846,6 +848,7 @@ async function injectScenarios(
     { walletRef: firmHedgedPlan.walletRef,    allowNonTerminal: false },
     { walletRef: firmUnexplainedPlan.walletRef, allowNonTerminal: false },
     { walletRef: slotClientLoss.walletRef,    allowNonTerminal: false },
+    { walletRef: slotIncident.walletRef,      allowNonTerminal: false },
   ]);
 
   const scenarios: ScenarioExpectation[] = [];
@@ -1655,6 +1658,42 @@ async function injectScenarios(
     if (!showcaseA) throw new Error('场景 17 要叠在展示位甲的钱包断言上，但没找到它——场景 ②③④ 的 wallets.push 是否还在？');
     showcaseA.scenarioIds.push(17);
     showcaseA.bucketRationale += '；⑰ 再加一条 OUT 幽灵行并压低同额收盘（6500 退汇），残差仍 ≠ 0 → BREAK';
+  }
+
+  // ── 场景 ⑱ — 未授权转出 (BREAK / ORPHAN_EXTERNAL / 客户账簿 / 加密币) ─────────
+  // 三期：钱包位「先跑后选」——铺场前先 `bash scripts/on-stack.sh self recon:demo:break`
+  // 摸过一遍现行钱包桶再钉死：Bob USDT-TRON 已被 ⑬ 占用、Grace USDT-TRON 已被 ⑨ 占用
+  // （都在既有桶里），Frank USDT-TRON 挂了钱包但余额为 0（造不出"当刻余额内的整数"）；
+  // Jack USDT-TRON（花名册 #26，充值 400 USDT）此前没被任何场景碰过，选它。金额取
+  // 钱包当刻全部余额 400.00 USDT——不穿仓、又是这只钱包能给的最大数，够"大"到必须走
+  // 事故登记而不是小额核销。
+  // 无任何单据：不像 ⑤⑬⑭⑮⑯⑰ 那样先查一笔真实内部单据再对照——这里压根没有内部
+  // 对手，幽灵 OUT 凭空出现在外部对账单上，客户没发起、我方没记录，成因 =
+  // UNAUTHORIZED_OUTFLOW，出口 = INCIDENT（Task 9 起独立于「留档」，本任务落地为
+  // 事故登记：登记→调查→定损→善后→结案，见 doc-final/demo/script.md 第六幕 #18）。
+  {
+    const s18Amount = D('400000000'); // 分（6 位）：400.00 USDT-TRON = Jack 钱包当刻全部余额（花名册 #26）
+    const outRef = refFor(slotIncident.currency, 'GHOSTOUT');
+    const created = await (prisma as any).externalStatementLine.create({
+      data: {
+        source: sourceFor(slotIncident.currency), accountRef: slotIncident.walletRef, subAccount: slotIncident.walletRef,
+        book: slotIncident.book, currency: slotIncident.currency, direction: 'OUT', amount: s18Amount, externalRef: outRef,
+        channelRef: null, datetime: cutoff,
+        description: 'Demo unauthorized outflow — ghost OUT with no originating order of any kind',
+        dedupKey: `DEMO-INJ-${cutoffDate}-${slotIncident.walletRef}-s18-unauthorized-outflow`,
+      },
+    });
+    const prevClose = await bumpClosing(slotIncident, s18Amount.negated());
+    scenarios.push({
+      scenarioId: 18, rootCause: 'UNAUTHORIZED_OUTFLOW',
+      expectedLines: [{ walletRef: slotIncident.walletRef, lineType: 'ORPHAN_EXTERNAL', amount: s18Amount.toString(), externalRef: outRef }],
+      detail: { insertedExternalLineId: created.id, prevClosingBalance: prevClose, closingBalanceDelta: s18Amount.negated().toString() },
+    });
+    wallets.push({
+      walletRef: slotIncident.walletRef, scenarioIds: [18], expectedBucket: 'BREAK',
+      bucketRationale: '一条外部行金额 −400 USDT-TRON（钱包当刻全部余额）并压低同额收盘、内部无任何对应单据 → 残差 ≠ 0 → BREAK。处置 = 未授权转出 → 事故登记（调查 / 定损 / 善后 / 监管通报，认损后由金库补款）',
+      hasNonTerminalFundsOrder: false,
+    });
   }
 
   return { cutoff: cutoff.toISOString(), scenarios, wallets };

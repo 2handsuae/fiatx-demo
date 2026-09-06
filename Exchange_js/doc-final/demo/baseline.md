@@ -6,7 +6,7 @@
 > `npx jest` 退出码 0）。**任何红都是事故**，没有"这条是旧账"的退路；真有一时修不了的，
 > 须当场决定修或由业主正式豁免并记入 `TOOLING-DEBT.md`，不得默留。
 > 重钉纪律：只在业主批准的行为变化后重钉；每次重钉记 CHANGELOG 一行。
-> 重钉历史：2026-08-26 Step 0 首钉（7c53afd4）→ 2026-08-27 Phase 4 收官重钉（45a4f1a8）→ 2026-09-01 三支合流重钉 → 2026-09-02 平账一期半重钉（本版：对账行 15/15→14/14 + 10/10→11/11）→ 2026-09-03 平账 B 批重钉（对账行 14/14→15/15 + 11/11→10/10）→ **2026-09-05 平账二期重钉（本版：对账行 15/15→17/17 + 10/10→11/11）**。
+> 重钉历史：2026-08-26 Step 0 首钉（7c53afd4）→ 2026-08-27 Phase 4 收官重钉（45a4f1a8）→ 2026-09-01 三支合流重钉 → 2026-09-02 平账一期半重钉（本版：对账行 15/15→14/14 + 10/10→11/11）→ 2026-09-03 平账 B 批重钉（对账行 14/14→15/15 + 11/11→10/10）→ 2026-09-05 平账二期重钉（对账行 15/15→17/17 + 10/10→11/11）→ **2026-09-06 平账三期重钉（本版：对账行 17/17→18/18 + 11/11→12/12，break 8→9，casesOpened 11/11→12/12）**。
 > **2026-09-01 三支合流后重钉（本版为当前生效基线）**：第一幕职权重划 + 环境与工具债收口 + 平账
 > （调账单 / 处置动作 / 破口按成因铺全）三个分支全部并入 main，在 main 栈从零重铺后按新判据「全绿」
 > 实跑通过。env-debt 于 2026-08-31 报的 `verify:coa` 负余额已定位为资本注入被静默跳过造成的假红，
@@ -54,14 +54,14 @@
 | 编译 | tsc 后端（src / test / scripts / prisma 四目录）｜ tsc 管理台（含 .spec.ts）｜ tsc 客户端 |
 | 重铺 | `stack.sh reset main`（含 TigerBeetle 清理重建，全链实跑） |
 | 演示 | demo:setup ｜ demo:deposit ｜ demo:swap ｜ demo:withdraw ｜ demo:in-transit ｜ demo:all（**花名册 29/29 逐条符合预期 + COA 四恒等式**——演示装备一期改判据，见下方操作约束） |
-| 对账 | recon:demo:pass ｜ **recon:demo:break 17/17 场景 + 11/11 钱包桶 + `casesOpened` 完整性断言**（2026-09-05 平账二期加 16（Alice USDT 认损 + 补款）/ 17（Grace AED 退汇余额不足 → 垫款）后实测：`scenarios 17/17 DETECTED` / `wallets 11/11 bucket OK`（break 8 / softFlag 2 / inTransit 1）/ `casesOpened 11/11`，答案键 `rootCause` 用注册表成因码）｜ verify:demo-data。⚠️ **铺场前不得有在途划转**（待批 / 执行中的内部划转单会让脚本前置闸当场报错——先 ⚡ 推到确认或撤回）。⚠️ **必须走整库重铺验证**：**场景 6（重复入账）真写账本**、`recon:demo:reset` 不回滚账本，轻量重跑会让场景 6 假性 MISSED（显示 16/17）|
+| 对账 | recon:demo:pass ｜ **recon:demo:break 18/18 场景 + 12/12 钱包桶 + `casesOpened` 完整性断言**（2026-09-06 平账三期加 18（Jack USDT-TRON 未授权转出 → 事故登记）后实测：`scenarios 18/18 DETECTED` / `wallets 12/12 bucket OK`（break 9 / softFlag 2 / inTransit 1）/ `casesOpened 12/12`，答案键 `rootCause` 用注册表成因码）｜ verify:demo-data。⚠️ **铺场前不得有在途划转**（待批 / 执行中的内部划转单会让脚本前置闸当场报错——先 ⚡ 推到确认或撤回）。⚠️ **必须走整库重铺验证**：**场景 6（重复入账）真写账本**、`recon:demo:reset` 不回滚账本，轻量重跑会让场景 6 假性 MISSED（显示 17/18）|
 | 账本 | verify:coa —— 两恒等式 + 负余额断言（49 科目全部 ≥ 0）。收官多轮实测重铺后与 demo:all 后均全绿；历史上个别含 break 注入的运行轮见过公司 AED 负余额（浮存时序）。**2026-09-01 三支合流后在 main 栈两轮独立实测：57 科目全部 ≥ 0，全绿**（此前 08-31 的负余额红已定位为资本注入被跳过的假红，见上方\"已结\"节）。**2026-09-05 起注资那笔已在流水里**（种子写凭证 + 两行流水），运营户对账起点为正 |
 | 审计 | verify:audit 恒绿七项：Q2 按单据查 ｜ Q4 按客户查 ｜ 不变量①②③（PRIMARY 至多一 / INHERIT 必有旅程号 / 退役码零写入）——三查合同七站换装后的固定资产 |
 | 封册 | audit-vocabulary-closure.spec 四条：平面表归籍 / 六册互斥 / 写点闭合退役词零引用 / 码全局唯一禁裸名 |
 | 单测 | `npx jest` **全绿**（**163 套 / 2067 例通过 + 2 skipped + 4 todo，退出码 0——2026-09-02 平账一期半 Task 12 实测**。⚠️ 此前记的"156 套 / 2026-08-31 实测"在 2026-09-01 之后有一段时间是**过期依据**：`c7bc7e3f` 改了单号随机位宽（4→6 位）但只跑了工具自己的新 spec，`no-generator.util.spec.ts` 那条「1000 次不撞号」按生日问题约 39% 必红，另有两处 `\d{10}` 位宽断言没跟着改——三处已于 2026-09-02 修好，本行数字即当次实测）｜ `npm run test:client`（vitest 4 套 83 例） |
 | 栈 | `bash scripts/stack-env.test.sh`（`ensure_env_files` 权威重写的 11 项断言） |
 
-> 💡 **A 批（账龄线 + 公司池核销）在 worktree 内验证走自己的栈**：`bash scripts/stack.sh reset self` → `bash scripts/stack.sh up self` → `bash scripts/on-stack.sh self demo:all`（与 main 栈 `reset main` → `up main` 同构，仅栈名不同；worktree 内不得碰 main 栈，见 CLAUDE.md §10）。`recon:demo:break` 的检出判据现为 **17/17 场景 + 11/11 钱包桶**（2026-09-05 平账二期加场景 16 / 17 后的现行值；A 批当时为 15/15 + 10/10）——账龄与核销只改变案子「能不能平」，不改变检出与分桶。
+> 💡 **A 批（账龄线 + 公司池核销）在 worktree 内验证走自己的栈**：`bash scripts/stack.sh reset self` → `bash scripts/stack.sh up self` → `bash scripts/on-stack.sh self demo:all`（与 main 栈 `reset main` → `up main` 同构，仅栈名不同；worktree 内不得碰 main 栈，见 CLAUDE.md §10）。`recon:demo:break` 的检出判据现为 **18/18 场景 + 12/12 钱包桶**（2026-09-06 平账三期加场景 18 后的现行值；二期为 17/17 + 11/11，A 批当时为 15/15 + 10/10）——账龄与核销只改变案子「能不能平」，不改变检出与分桶。
 
 > 🔴 **V3 波一合并到 main 之后，第一次重铺前必须先 `rm -f /tmp/exchange_js_main/dev.db`——否则 `stack.sh reset main` 会中途失败。** 迁移 `20260903125954_v3w1_wallet_address_rows` 走 SQLite 建新表再 `INSERT…SELECT` 的模式，而新表的 `vaultCode` / `network` 是 NOT NULL、老 `wallets` 行没有这两列的值（Prisma 自己在该文件第 10–11 行就警告过「表非空则不可能」）。`apply-local-migrations.sh` 是**就地**升级现有库、`set -euo pipefail` + 事务，`db:biz:reset` 排在迁移之后、根本走不到。main 上现有 19 行 wallet，实测在隔离副本上复现：`NOT NULL constraint failed: new_wallets.vaultCode`，退出码 1；同一副本先清空 wallets 再跑则退出码 0（对照组）。按 §3「数据随时可重铺、不写兼容层」，正解是删库重建、不是给迁移打补丁。
 > 同一个 `rm` 顺带解决第二个合并后必红：`scripts/reset-business-data.ts` 不清 `audit_log_events`，而 main 的审计表里已有 5 行携带本波新退役的码（`ASSET_ACTIVATED` / `ASSET_ACTIVATION_REQUESTED` / `ASSET_CREATED_AND_PROVISIONED` / `CUSTODIAN_WALLET_CREATED` / `CUSTODIAN_WALLET_CREATE_REQUESTED`），不删库的话 `verify:audit` 不变量③「退役码零写入」会在 main 上恒红。**一条 `rm`，两个问题**（2026-09-04 波一终审实证，含对照组）。
