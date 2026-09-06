@@ -8,7 +8,7 @@ export interface CustomerTagDefinition {
 
 export const CUSTOMER_TAG_DEFINITIONS: readonly CustomerTagDefinition[] = [
   { tagCode: 'NEW_CUSTOMER', displayName: '新客', type: 'DERIVED', description: 'onboarding 终批 ≤ newCustomerDays 天' },
-  { tagCode: 'VIP', displayName: 'VIP', type: 'DERIVED', description: 'tradingTier=PREMIUM 派生' },
+  { tagCode: 'VIP', displayName: 'VIP', type: 'STATIC', description: '手动指定：商务/高净值客户，费率受众用（2026-09-06 与交易档位解绑）' },
   { tagCode: 'WHITELIST_PILOT', displayName: '白名单·试点', type: 'STATIC', description: '手动指定客户群' },
 ] as const;
 

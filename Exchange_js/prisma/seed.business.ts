@@ -729,6 +729,16 @@ async function seedCustomers(prisma: PrismaClient): Promise<void> {
       }
     }
 
+    // VIP 手打标签 fixture（2026-09-06 解绑：VIP 不再由 tradingTier 派生）。
+    // 与限制账 fixture 同一性质：直接铺终态，不走 service、不写审计。
+    if (c.email === 'demo_grace@example.com') {
+      await prisma.customerExplicitTag.upsert({
+        where: { customerId_tagCode: { customerId: customer.id, tagCode: 'VIP' } },
+        update: {},
+        create: { customerId: customer.id, tagCode: 'VIP', assignedByUserId: 'SEED' },
+      });
+    }
+
     // Customer-level TB accounts: CLIENT_PAYABLE + DEPOSIT_SUSPENSE per asset.
     for (const asset of assets) {
       const ledger = TB_LEDGERS[asset.currency as keyof typeof TB_LEDGERS];

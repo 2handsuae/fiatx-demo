@@ -101,12 +101,11 @@ export class CustomerTagService {
       this.prisma.customerExplicitTag.findMany({ where: { customerId }, select: { tagCode: true } }),
       this.prisma.customerMain.findUnique({
         where: { id: customerId },
-        select: { tradingTier: true, onboardingApprovedAt: true },
+        select: { onboardingApprovedAt: true },
       }),
     ]);
 
     const tags = new Set<string>(explicit.map((e: any) => e.tagCode));
-    if (c?.tradingTier === 'PREMIUM') tags.add('VIP');
     if (
       c?.onboardingApprovedAt &&
       now.getTime() - c.onboardingApprovedAt.getTime() <= NEW_CUSTOMER_DAYS * 86_400_000
