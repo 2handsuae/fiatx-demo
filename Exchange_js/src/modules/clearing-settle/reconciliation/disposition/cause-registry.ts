@@ -5,6 +5,7 @@
 // 平账 A 批（2026-09-02）：删「精度尘埃差」（豁免不做，本系统精度与服务商一致）；公司两成因定码冲销；核销不是成因、是账龄的后续（resolveWriteOff）。
 // 平账 B 批（2026-09-03）：漏记入金 / 入金退汇 / 提现退回 三码改走 SUPPLEMENT 出口（补单开门）。
 // 平账二期（2026-09-05）：退役 FIRM_TRANSFER_UNTRACKED（二期不做公司池调拨，「留档·二期内部划转」永远点不通；同格误记 → 冲销、查不出 → 挂起已分完），21 → 20。
+// 平账三期（2026-09-06）：UNAUTHORIZED_OUTFLOW 出口从「留档·事故升级（三期）」改为独立出口 INCIDENT（事故登记落地）。
 // 纯常量 + 纯函数，无 IO；BadRequestException 是唯一的 Nest 依赖。
 import { BadRequestException } from '@nestjs/common';
 
@@ -13,12 +14,11 @@ export type CauseBook = 'CLIENT' | 'FIRM';
 export type AdjustFamily = 'CORRECT' | 'REVERSE' | 'RECORD' | 'REATTRIBUTE' | 'WRITE_OFF';
 export type StoredOutlet =
   | 'ADJUST_CORRECT' | 'ADJUST_REVERSE' | 'ADJUST_RECORD' | 'ADJUST_REATTRIBUTE'
-  | 'HOLD_NEXT_PERIOD' | 'HOLD_INVESTIGATING' | 'DEFERRED' | 'SUPPLEMENT';
+  | 'HOLD_NEXT_PERIOD' | 'HOLD_INVESTIGATING' | 'DEFERRED' | 'SUPPLEMENT' | 'INCIDENT';
 export type DeferredTarget =
   | 'SUPPLEMENT_DEPOSIT'        // 补单 → 充值域补录（B 批已开）
   | 'SUPPLEMENT_BOUNCE'         // 补单 → 入金退汇认领（B 批已开）
   | 'SUPPLEMENT_PAYOUT_RETURN'  // 补单 → 出金退回认领（B 批已开）
-  | 'INCIDENT'                  // 三期事故升级
   | 'NO_REASON_CODE';           // 冲正类成因遇 SWAP 流水，无对应 reason 码（spec §11-6）
 
 export type CauseCode =
@@ -40,7 +40,7 @@ export interface CauseSpec {
   label: string;
   /** 查证线索一句（手册「查证怎么做」的浓缩版） */
   clue: string;
-  kind: 'ADJUST' | 'HOLD_NEXT_PERIOD' | 'HOLD_INVESTIGATING' | 'DEFERRED' | 'SUPPLEMENT';
+  kind: 'ADJUST' | 'HOLD_NEXT_PERIOD' | 'HOLD_INVESTIGATING' | 'DEFERRED' | 'SUPPLEMENT' | 'INCIDENT';
   family?: AdjustFamily;           // kind=ADJUST 必有
   deferredTarget?: DeferredTarget; // kind=DEFERRED 必有
   deferredLabel?: string;          // kind=DEFERRED 必有（界面显示去向）
@@ -74,7 +74,7 @@ export const CAUSE_REGISTRY: Record<CauseCode, CauseSpec> = {
   BOUNCED_FUNDS:    { cells: [C('ORPHAN_EXTERNAL', 'CLIENT')], label: '入金被退汇/回冲', clue: '外部 OUT 与此前某笔成功入金同源', kind: 'SUPPLEMENT', supplementTarget: 'SUPPLEMENT_BOUNCE', supplementLabel: '退汇认领', requiredDirection: 'OUT' },
   PAYOUT_RETURNED:  { cells: [C('ORPHAN_EXTERNAL', 'CLIENT')], label: '提现被银行退回（出款后退汇）', clue: '外部 IN 与某笔成功提现同额，带原出款关联号', kind: 'SUPPLEMENT', supplementTarget: 'SUPPLEMENT_PAYOUT_RETURN', supplementLabel: '退回认领', requiredDirection: 'IN' },
   MISATTRIBUTED_TO:     { cells: [C('ORPHAN_EXTERNAL', 'CLIENT')], label: '记错客户——这笔是本客户的、记在了别人名下', clue: '对端钱包同日同额「我有外无」成对', kind: 'ADJUST', family: 'REATTRIBUTE' },
-  UNAUTHORIZED_OUTFLOW: { cells: [C('ORPHAN_EXTERNAL', 'CLIENT')], label: '未授权转出（盗转/误划）', clue: '我方无任何单据、客户未发起', kind: 'DEFERRED', deferredTarget: 'INCIDENT', deferredLabel: '事故升级（三期）' },
+  UNAUTHORIZED_OUTFLOW: { cells: [C('ORPHAN_EXTERNAL', 'CLIENT')], label: '未授权转出（盗转/误划）', clue: '我方无任何单据、客户未发起', kind: 'INCIDENT' },
   // ── 外有我无 × 公司 ──
   BANK_INTEREST_UNBOOKED: { cells: [C('ORPHAN_EXTERNAL', 'FIRM')], label: '银行利息未入账', clue: '银行单科目 = 利息', kind: 'ADJUST', family: 'RECORD' },
   BANK_CHARGE_UNBOOKED:   { cells: [C('ORPHAN_EXTERNAL', 'FIRM')], label: '银行杂费/账管费未入账', clue: '银行单科目 = 费用', kind: 'ADJUST', family: 'RECORD' },
@@ -93,6 +93,7 @@ export function staticOutletLabel(code: CauseCode): string {
   if (spec.kind === 'HOLD_NEXT_PERIOD') return '挂起·等下期';
   if (spec.kind === 'HOLD_INVESTIGATING') return '挂起·调查中';
   if (spec.kind === 'SUPPLEMENT') return `补单·${spec.supplementLabel}`;
+  if (spec.kind === 'INCIDENT') return '事故·待登记';
   return `留档·${spec.deferredLabel}`;
 }
 
@@ -154,6 +155,9 @@ export function resolveOutlet(code: CauseCode, facts: RowFacts): ResolvedOutlet 
   }
   if (spec.kind === 'DEFERRED') {
     return { outlet: 'DEFERRED', outletLabel: `留档·${spec.deferredLabel}`, deferredTarget: spec.deferredTarget };
+  }
+  if (spec.kind === 'INCIDENT') {
+    return { outlet: 'INCIDENT', outletLabel: '事故·待登记' };
   }
 
   const family = spec.family!;

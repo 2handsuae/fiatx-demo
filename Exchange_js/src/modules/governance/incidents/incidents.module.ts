@@ -1,37 +1,24 @@
 // 平账三期 · 事故登记（治理件）模块骨架。
-import { ConflictException, Injectable, Module, NotFoundException } from '@nestjs/common';
+import { Module } from '@nestjs/common';
 import { PrismaModule } from '../../../core/prisma/prisma.module';
-import { PrismaService } from '../../../core/prisma/prisma.service';
 import { AuditLogsModule } from '../../audit-logging/audit-logs.module';
 import { ApprovalsModule } from '../approvals/approvals.module';
+// Task 9：定性行写回（attachIncident）落在对账主体自己的服务里（铁律③），
+// 本模块只借道 ReconciliationModule 拿它注入 DISPOSITION_INCIDENT_LINK——
+// ReconciliationModule 不依赖 governance/incidents 的任何东西（只直接
+// import governance/approvals 子模块，不经过 GovernanceModule 大门），
+// 两模块间无环，不需要 forwardRef（CustomersModule 三处 forwardRef 是
+// 双向真环时的解法，这里不成立）。
+import { ReconciliationModule } from '../../clearing-settle/reconciliation/reconciliation.module';
+import { DispositionService } from '../../clearing-settle/reconciliation/disposition/disposition.service';
 import { IncidentService } from './incident.service';
-import { DISPOSITION_INCIDENT_LINK, DispositionIncidentLink, IncidentRegistrationWorkflowService } from './incident-registration-workflow.service';
+import { DISPOSITION_INCIDENT_LINK, IncidentRegistrationWorkflowService } from './incident-registration-workflow.service';
 import { IncidentCloseWorkflowService } from './incident-close-workflow.service';
 import { IncidentCloseFinancialApprovalService, IncidentCloseSecurityApprovalService } from './incident-approval.service';
 import { IncidentsController } from './incidents.controller';
 
-/**
- * 占位适配器——Task 9 落地 disposition.service.ts 的 attachIncident() 前，本模块用它顶住
- * DISPOSITION_INCIDENT_LINK 这个 DI token（不然 IncidentsModule 注册进 GovernanceModule 后，
- * 整个后端在 Task 9 之前会因为解不出这个依赖直接起不来）。行为与 Task 9 brief 定的签名一致
- * （只写 incidentNo 一列、已占用则 409），单测走 mock 接口不经过这个类。
- * Task 9 落地后：把下面 providers 里的这一条换成从 ReconciliationModule 导入的真
- * DispositionService，删除本类。
- */
-@Injectable()
-export class InterimDispositionIncidentLink implements DispositionIncidentLink {
-  constructor(private readonly prisma: PrismaService) {}
-
-  async attachIncident(dispositionNo: string, incidentNo: string): Promise<void> {
-    const disp = await (this.prisma as any).reconciliationDisposition.findUnique({ where: { dispositionNo } });
-    if (!disp) throw new NotFoundException(`定性行不存在：${dispositionNo}`);
-    if (disp.incidentNo) throw new ConflictException(`定性行 ${dispositionNo} 已挂事故 ${disp.incidentNo}，不能再挂`);
-    await (this.prisma as any).reconciliationDisposition.update({ where: { dispositionNo }, data: { incidentNo } });
-  }
-}
-
 @Module({
-  imports: [PrismaModule, AuditLogsModule, ApprovalsModule],
+  imports: [PrismaModule, AuditLogsModule, ApprovalsModule, ReconciliationModule],
   controllers: [IncidentsController],
   providers: [
     IncidentService,
@@ -39,8 +26,9 @@ export class InterimDispositionIncidentLink implements DispositionIncidentLink {
     IncidentCloseWorkflowService,
     IncidentCloseSecurityApprovalService,
     IncidentCloseFinancialApprovalService,
-    InterimDispositionIncidentLink,
-    { provide: DISPOSITION_INCIDENT_LINK, useExisting: InterimDispositionIncidentLink },
+    // Task 9 落地：DISPOSITION_INCIDENT_LINK 接对账侧真实现（原占位类
+    // InterimDispositionIncidentLink 已删，行为迁到 DispositionService.attachIncident）。
+    { provide: DISPOSITION_INCIDENT_LINK, useExisting: DispositionService },
   ],
   exports: [IncidentService, IncidentRegistrationWorkflowService, IncidentCloseWorkflowService],
 })

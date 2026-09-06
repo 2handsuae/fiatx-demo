@@ -172,6 +172,9 @@ export interface FlowComparisonRow {
     deferredTarget: string | null;
     supplementNo: string | null;
     supplementRef: { kind: 'SIGNAL' | 'DEPOSIT' | 'WITHDRAW'; no: string; id: string | null } | null;
+    // 平账三期（Task 9）：出口 = INCIDENT 且已登记后回填的事故单号——未登记恒 null，
+    // 前端按它渲染「登记事故」按钮 vs 「事故 · INC…」徽标（Task 12 消费）。
+    incidentNo: string | null;
     createdBy: string; createdAt: string;
   } | null;
   // 15 个成因里唯一机器认得出的证据（spec §0.3）：本行与已匹配池里某行同参考号同

@@ -1,4 +1,4 @@
-import { BadRequestException } from '@nestjs/common';
+import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
 import { DispositionService } from './disposition.service';
 
 const CASE_ROW = {
@@ -191,5 +191,44 @@ describe('平账 B 批：supplementNo 回挂与覆盖锁', () => {
     prisma.reconciliationDisposition.findUnique.mockResolvedValueOnce({ dispositionNo: 'RCD1', supplementNo: 'DEP9' });
     await service.unlinkSupplement('RCD1', 'SIG1');
     expect(prisma.reconciliationDisposition.update).not.toHaveBeenCalled();
+  });
+});
+
+// 平账三期（Task 9）：从 incidents.module.ts 的 InterimDispositionIncidentLink 占位类
+// 迁移过来的三条行为测试——占位类已删，行为原样锁在这里（404/409/只写 incidentNo 一列）。
+describe('DispositionService.attachIncident（平账三期：事故登记回挂，铁律③本主体自己的方法）', () => {
+  it('定性行不存在 → 404，未调用 update', async () => {
+    const { svc, prisma } = build({
+      reconciliationDisposition: { findUnique: jest.fn().mockResolvedValue(null), update: jest.fn() },
+    });
+    await expect(svc.attachIncident('RCD1', 'INC1')).rejects.toBeInstanceOf(NotFoundException);
+    await expect(svc.attachIncident('RCD1', 'INC1')).rejects.toThrow(/定性行不存在：RCD1/);
+    expect(prisma.reconciliationDisposition.update).not.toHaveBeenCalled();
+  });
+
+  it('定性行已挂事故 → 409，未调用 update', async () => {
+    const { svc, prisma } = build({
+      reconciliationDisposition: {
+        findUnique: jest.fn().mockResolvedValue({ dispositionNo: 'RCD1', incidentNo: 'INC0' }),
+        update: jest.fn(),
+      },
+    });
+    await expect(svc.attachIncident('RCD1', 'INC1')).rejects.toBeInstanceOf(ConflictException);
+    await expect(svc.attachIncident('RCD1', 'INC1')).rejects.toThrow(/定性行 RCD1 已挂事故 INC0，不能再挂/);
+    expect(prisma.reconciliationDisposition.update).not.toHaveBeenCalled();
+  });
+
+  it('正路径：update 只写 incidentNo 一列', async () => {
+    const { svc, prisma } = build({
+      reconciliationDisposition: {
+        findUnique: jest.fn().mockResolvedValue({ dispositionNo: 'RCD1', incidentNo: null }),
+        update: jest.fn().mockResolvedValue({}),
+      },
+    });
+    await svc.attachIncident('RCD1', 'INC1');
+    expect(prisma.reconciliationDisposition.update).toHaveBeenCalledWith({
+      where: { dispositionNo: 'RCD1' },
+      data: { incidentNo: 'INC1' },
+    });
   });
 });

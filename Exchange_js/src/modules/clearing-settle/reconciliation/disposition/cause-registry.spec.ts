@@ -138,8 +138,10 @@ describe('resolveOutlet —— 出口与 reason 派生（spec §4）', () => {
     expect(resolveOutlet('UNEXPLAINED', { matchType: 'AMOUNT_MISMATCH', book: 'FIRM' }).outlet).toBe('HOLD_INVESTIGATING');
     expect(resolveOutlet('UNCLAIMED_INFLOW', { matchType: 'ORPHAN_EXTERNAL', book: 'FIRM' }).outlet).toBe('HOLD_INVESTIGATING');
   });
-  it('留档一路：事故（补单三路 B 批已改走 SUPPLEMENT 出口，见下方新增用例；公司冲销 A 批已定码，不再留档）', () => {
-    expect(resolveOutlet('UNAUTHORIZED_OUTFLOW', { matchType: 'ORPHAN_EXTERNAL', book: 'CLIENT' }).deferredTarget).toBe('INCIDENT');
+  it('事故出口：未授权转出 → INCIDENT（平账三期，不再留档；补单三路 B 批已改走 SUPPLEMENT 出口，见下方新增用例；公司冲销 A 批已定码）', () => {
+    expect(resolveOutlet('UNAUTHORIZED_OUTFLOW', { matchType: 'ORPHAN_EXTERNAL', book: 'CLIENT' }))
+      .toEqual({ outlet: 'INCIDENT', outletLabel: '事故·待登记' });
+    expect(staticOutletLabel('UNAUTHORIZED_OUTFLOW')).toBe('事故·待登记'); // 菜单静态标签同款，未登记态
   });
   it('成因不属于该格 → 显式拒绝（无兜底档的机器面）', () => {
     expect(() => resolveOutlet('BANK_INTEREST_UNBOOKED', { matchType: 'ORPHAN_INTERNAL', book: 'CLIENT' })).toThrow(/不属于/);

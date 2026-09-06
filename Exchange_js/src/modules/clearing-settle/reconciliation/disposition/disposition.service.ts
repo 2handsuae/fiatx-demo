@@ -1,7 +1,7 @@
 // 定性落库（spec §3.2/§7）——「财务查证的结论」这件事的落点。零账务：
 // 挂起/留档只写这张表；ADJUST 类出口的账务动作仍走调账单（Task 5 联动）。
 import { randomUUID } from 'node:crypto';
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { generateReferenceNo } from '../../../../common/utils/no-generator.util';
 import { PrismaService } from '../../../../core/prisma/prisma.service';
 import { AuditLogsService } from '../../../audit-logging/audit-logs.service';
@@ -156,6 +156,19 @@ export class DispositionService {
     if (!row) throw new NotFoundException(`定性记录不存在：${dispositionNo}`);
     if (row.supplementNo !== expected) return; // 已被别的路径清掉或改写，不动
     await (this.prisma as any).reconciliationDisposition.update({ where: { dispositionNo }, data: { supplementNo: null } });
+  }
+
+  /**
+   * 平账三期（Task 9）：事故登记回挂——铁律③本主体自己的方法，写自己的表一列。
+   * 原为 incidents.module.ts 的 InterimDispositionIncidentLink 占位实现（Task 5 为
+   * 打通 DI 先立的桩），落地后接线切到这里，占位类随之删除；行为原样保留
+   * （404/409/只写 incidentNo 一列），三条行为测试同迁移到本文件 spec。
+   */
+  async attachIncident(dispositionNo: string, incidentNo: string): Promise<void> {
+    const row = await (this.prisma as any).reconciliationDisposition.findUnique({ where: { dispositionNo } });
+    if (!row) throw new NotFoundException(`定性行不存在：${dispositionNo}`);
+    if (row.incidentNo) throw new ConflictException(`定性行 ${dispositionNo} 已挂事故 ${row.incidentNo}，不能再挂`);
+    await (this.prisma as any).reconciliationDisposition.update({ where: { dispositionNo }, data: { incidentNo } });
   }
 
   /**
