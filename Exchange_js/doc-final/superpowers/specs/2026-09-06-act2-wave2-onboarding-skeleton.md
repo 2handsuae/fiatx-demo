@@ -2,9 +2,14 @@
 
 - 总纲：`2026-09-06-act2-customer-waves-outline.md`（跨波口径直接引用）｜ 性质：骨架——只记已定事实与待定岔口，**展开是波二新会话读总纲 + 承接后跟业主脑暴的活**
 
-## 承接波一（波一收尾时填）
+## 承接波一（2026-09-06 波一收尾填）
 
-（空）
+- **偏差① 策略加载器搬家不退役**：材料请求建单要按材料类型查 Sumsub 认证等级名——现居 `material-requests/material-policy.ts`（`MaterialPolicyLoader.getMaterialConfig()`），策略 JSON 已修剪到每材料只剩 `sumsubActionLevelName`；波二/波三要扩 level 概念在此基础上加
+- **偏差② doc-monitoring 摄取路由随巡查摘除**：Sumsub 摄取现状**两路**（三域 KYT 级联 + 材料请求裁决），ongoingDocExpired 与申请人级事件一样落 unrouted warn——波二开申请人级路由时，unrouted warn 处即开路位置
+- **偏差③ `MATERIAL_REQUEST_TERMINAL` 保留**：被状态机不变量断言（终态集合×迁移表一致性）消费，体检误判死码——波二动材料请求状态机时它是现成守卫
+- **新事实**：三域列表后端 `ownerNo` 过滤已通（治好历史死过滤框，客户详情三域跳转在用）｜ verify:act1 现 24 判据（B13 随材料路由族退役）｜ V2 审计码 14 ｜ demo:all 花名册只断言终态、不校验命中费率档（BACKLOG 已记）——波二若铺新客受众档，验收别只靠花名册 ｜ `demo-shot.js` 支持 `--select`/`--type` 有序交互步骤（站2 档位对照截图即出自它）
+- **前提确认（无变化）**：`customer-lifecycle.constant.ts` 状态表在册零调用待接；`onboardingApprovedAt` / `sumsubApplicantId` / `sumsubCurrentLevelName` 接线点健在；客户表 24 字段口径已落（波二新增字段按自己的 spec 走迁移）；终拒「尽调未完成 · 待离场处理」徽标已在客户详情
+- **收尾闸残留**：verify:act1 B6 夹具污染 verify:demo-data R5 的顺序敏感缺陷已记 TOOLING-DEBT（预置、非波一回归）
 
 ## 已定事实
 
