@@ -32,18 +32,23 @@
 - Modify: `src/modules/audit-logging/constants/audit-actions.constant.ts:951`（`CUSTOMER_TIER_CHANGE_SIMULATED` 行）及 928-931 头注中提及它的两句
 
 **Interfaces:**
-- Produces: 后端不再存在 `/admin/material-management/*` 任何路由；V2 审计词表 15→14 码
+- Produces: 后端不再存在 `/admin/material-management/*` 任何路由；V2 审计词表 15→14 码；`MaterialPolicyLoader`（原 `MaterialRefreshPolicyLoader` 搬家改名）由 `material-requests/` 自持
+
+**修正（2026-09-06 首次执行 Step 1 逮到两条活依赖，控制方裁决，Files 清单相应扩大）：**
+- **策略加载器搬家不退役**：`MaterialRequestIssuerService.issue()` 运行时调 `policyLoader.getMaterialConfig(materialType)`（按材料类型查 Sumsub 认证等级名，建单主线真用）。把 `material-refresh/policy/material-refresh-policy.ts` 挪为 `src/modules/identity/material-requests/material-policy.ts`，类改名 `MaterialPolicyLoader`（"refresh" 概念随巡查退役），`MaterialConfig` 类型与 `getMaterialConfig()` 原样保留；`computeStage` / `getRequiredMaterialsForLevel` 确认除 material-refresh 自身外零引用后随目录死。策略 JSON（`config/material-refresh-policy.json`）路径不动；打开看内容——仅巡查消费的旋钮（如刷新窗口天数、阶段天数）一并修剪，只留 `getMaterialConfig` 消费的字段。`material-requests.module.ts` 摘 `forwardRef(() => MaterialRefreshModule)`，把 `MaterialPolicyLoader` 注册为自己的 provider；`material-request-issuer.service.ts` 的 import 与构造注入改指新位置新类名。
+- **doc-monitoring 路由随巡查退役**：`SumsubIngestionService` 的 `handleSumsubDocMonitoringFire` 调用（:189 附近分支）是巡查的喂入口，摘掉注入与该分支——此类事件此后落到 dispatch 既有的 unrouted `logger.warn`（文档指定的将来重开位置）；`sumsub-ingestion.module.ts` 摘 `MaterialRefreshModule` import；`sumsub-ingestion.service.spec.ts` 里该路由的用例同步删；两处提及已删 `material-refresh-review.listener` 的注释（:123,:201）改口为「材料刷新监控已随巡查退役（2026-09-06），事件落 unrouted 警告」。
+- Step 1 判读口径放宽：纯注释/字符串命中记录即可、不算阻塞；预期外的**代码**命中仍然停下报告。
 
 - [ ] **Step 1: 现场零引用复核**（删目录前）
 
 ```bash
 grep -rn "material-refresh\|MaterialRefreshModule\|MaterialRefreshService\|MaterialFreshnessCron" --include="*.ts" src/ | grep -v "src/modules/identity/material-refresh/"
 ```
-Expected: 只命中 `app.module.ts` 两行。多出来的命中先判读再动手。
+Expected: 代码级命中只有修正块列出的四个文件（material-requests.module / material-request-issuer.service / sumsub-ingestion.module / sumsub-ingestion.service）+ `app.module.ts` 两行；其余为注释/字符串。超出此清单的代码命中先停下判读。
 
-- [ ] **Step 2: 删目录、摘装配**
+- [ ] **Step 2: 搬家 + 摘喂入口 + 删目录、摘装配**
 
-`rm -rf src/modules/identity/material-refresh/`；删 `app.module.ts` 第 32 行 import 与第 89 行 `MaterialRefreshModule,`。
+先按修正块完成策略加载器搬家与 doc-monitoring 路由摘除，再 `rm -rf src/modules/identity/material-refresh/`；删 `app.module.ts` 第 32 行 import 与第 89 行 `MaterialRefreshModule,`。
 
 - [ ] **Step 3: 摘 rbac 6 条路由**
 
@@ -57,11 +62,11 @@ Expected: 只命中 `app.module.ts` 两行。多出来的命中先判读再动�
 
 ```bash
 npx tsc --noEmit -p tsconfig.json
-npx jest src/modules/identity src/modules/audit-logging
+npx jest src/modules/identity src/modules/audit-logging src/modules/sumsub-ingestion
 ```
-Expected: tsc 0 错；jest 全绿（material-refresh 的 spec 已随目录消失）。
+Expected: tsc 0 错；jest 全绿（material-refresh 的 spec 已随目录消失，sumsub-ingestion 摘路由后其余用例仍绿）。
 
-- [ ] **Step 6: Commit**：`refactor(客户域波一): material-refresh 子系统后端退役——主库0行/造数断头/cron空转（业主2026-09-06拍板）`
+- [ ] **Step 6: Commit**：`refactor(客户域波一): material-refresh 子系统后端退役——策略加载器搬家进材料请求域,doc-monitoring 喂入口随巡查摘除（业主2026-09-06拍板）`
 
 ---
 
