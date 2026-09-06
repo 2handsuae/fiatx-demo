@@ -1,4 +1,4 @@
-import { PrismaClient } from '@prisma/client';
+import { Prisma, PrismaClient } from '@prisma/client';
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { AdjustmentStatus } from '../constants/adjustment-transitions.constant';
 import { AdjustmentService } from './adjustment.service';
@@ -296,6 +296,93 @@ describe('AdjustmentService.createDraft 两道闸 —— 门不可绕的落点�
       const { svc: svcFirm } = makeSvc({ kase: { caseNo: 'REC-C4', status: 'OPEN', book: 'FIRM', assetCode: 'AED', walletRef: 'w-4', ownerNo: null, slaBreached: true, businessDate: '2026-09-05' }, disposition: { dispositionNo: 'RCD-4', outlet: 'HOLD_INVESTIGATING', adjustmentNo: null }, asset: { currency: 'AED', decimals: 2 } });
       await expect(svcFirm.createDraft({ caseNo: 'REC-C4', reasonCode: 'UNEXPLAINED_CLIENT_LOSS', direction: 'REDUCE', amount: '100', effectiveDate: '2026-09-05', explainedFlowId: 'f-4', reasonInternal: 'x', reasonCustomer: 'x' } as any, treasury)).rejects.toThrow(/公司池查无果走/);
     });
+  });
+});
+
+// 平账三期 Task 10：认损调账事故分支。锚的定性行 outlet='INCIDENT'（cause-registry
+// UNAUTHORIZED_OUTFLOW，大额未授权转出）时不走「查无果」四前提，改查事故定损结论——
+// 账龄线/小额线是给「查无果」小额差异用的，大额未授权转出走事故正是为了绕开这两条线，
+// 等的是事故侧的定损结论（状态 + 口径 + 锁额），不是时间或金额。
+describe('事故路认损（平账三期 Task 10）——outlet=INCIDENT 分支：定损口径 + 锁额 + 状态', () => {
+  const treasury = { actorType: 'ADMIN' as const, userId: 'U_TREASURY', userNo: 'U_TREASURY', roleCodes: ['TREASURY_OFFICER'] };
+  const kase = {
+    caseNo: 'REC-INC-1', status: 'OPEN', book: 'CUSTOMER', assetCode: 'AED',
+    walletRef: 'w-inc-1', ownerNo: 'CU-9', slaBreached: false, businessDate: '2026-09-06',
+  };
+  const disposition = { dispositionNo: 'RCD-INC-1', outlet: 'INCIDENT', incidentNo: 'INC-0001', adjustmentNo: null };
+  const dto = {
+    caseNo: 'REC-INC-1', reasonCode: 'UNEXPLAINED_CLIENT_LOSS', direction: 'REDUCE',
+    amount: '123456', // 1234.56 AED（最小单位）——远超小额线（100.00 AED），刻意验证不查小额线
+    effectiveDate: '2026-09-06', explainedFlowId: 'f-inc-1',
+    reasonInternal: '未授权转出认损', reasonCustomer: '（公司侧，客户不可见）',
+  };
+
+  const makeSvc = (opts: { kase?: any; disposition?: any; incident: any; asset?: any }) => {
+    const create = jest.fn(({ data }: any) => Promise.resolve({ ...data, adjustmentNo: 'ADJ_INC' }));
+    const prisma: any = {
+      reconciliationCase: { findUnique: jest.fn().mockResolvedValue(opts.kase ?? kase) },
+      reconciliationDisposition: { findFirst: jest.fn().mockResolvedValue(opts.disposition ?? disposition) },
+      incident: { findUnique: jest.fn().mockResolvedValue(opts.incident) },
+      asset: { findUnique: jest.fn().mockResolvedValue(opts.asset ?? { currency: 'AED', decimals: 2 }) },
+      customerMain: { findUnique: jest.fn().mockResolvedValue({ id: 'uuid-cu-9' }) },
+      reconciliationAdjustment: { create },
+    };
+    const dispositions = { linkAdjustment: jest.fn().mockResolvedValue(undefined) };
+    const svc = new AdjustmentService(prisma, {} as any, {} as any, { recordByActor: jest.fn() } as any, dispositions as any);
+    return { svc, prisma, create, dispositions };
+  };
+
+  it('放行：账龄未到线 + 大额超小额线，事故 ASSESSED + FIRM_LOSS + 金额=定损额（换算后）→ 建单', async () => {
+    const { svc, create, dispositions } = makeSvc({
+      incident: { incidentNo: 'INC-0001', status: 'ASSESSED', assessmentBasis: 'FIRM_LOSS', assessedAmount: new Prisma.Decimal('1234.56') },
+    });
+    const r = await svc.createDraft(dto as any, treasury);
+    expect(r.adjustmentNo).toBe('ADJ_INC');
+    expect(create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ book: 'CLIENT', reasonCode: 'UNEXPLAINED_CLIENT_LOSS', direction: 'REDUCE', amount: '123456' }),
+    }));
+    expect(dispositions.linkAdjustment).toHaveBeenCalledWith('RCD-INC-1', 'ADJ_INC', { family: 'WRITE_OFF' });
+  });
+
+  it('事故 RESOLVING（已进入处置）态同样放行', async () => {
+    const { svc } = makeSvc({
+      incident: { incidentNo: 'INC-0001', status: 'RESOLVING', assessmentBasis: 'FIRM_LOSS', assessedAmount: new Prisma.Decimal('1234.56') },
+    });
+    await expect(svc.createDraft(dto as any, treasury)).resolves.toEqual(expect.objectContaining({ adjustmentNo: 'ADJ_INC' }));
+  });
+
+  it('事故还没定损（INVESTIGATING）→ 400「事故还没定损」', async () => {
+    const { svc } = makeSvc({ incident: { incidentNo: 'INC-0001', status: 'INVESTIGATING', assessmentBasis: null, assessedAmount: null } });
+    await expect(svc.createDraft(dto as any, treasury)).rejects.toThrow(/还没定损/);
+  });
+
+  it('定损结论不是「公司承损」（如 RECOVERED）→ 400', async () => {
+    const { svc } = makeSvc({
+      incident: { incidentNo: 'INC-0001', status: 'ASSESSED', assessmentBasis: 'RECOVERED', assessedAmount: new Prisma.Decimal('1234.56') },
+    });
+    await expect(svc.createDraft(dto as any, treasury)).rejects.toThrow(BadRequestException);
+  });
+
+  it('金额 ≠ 定损额 → 400（锁额，认损金额不许多报少报）', async () => {
+    const { svc } = makeSvc({
+      incident: { incidentNo: 'INC-0001', status: 'ASSESSED', assessmentBasis: 'FIRM_LOSS', assessedAmount: new Prisma.Decimal('999.00') },
+    });
+    await expect(svc.createDraft(dto as any, treasury)).rejects.toThrow(BadRequestException);
+  });
+
+  it('定性行是「事故·待登记」但还没挂事故单号（incidentNo 空）→ 400', async () => {
+    const { svc } = makeSvc({
+      disposition: { dispositionNo: 'RCD-INC-2', outlet: 'INCIDENT', incidentNo: null, adjustmentNo: null },
+      incident: null,
+    });
+    await expect(svc.createDraft(dto as any, treasury)).rejects.toThrow(BadRequestException);
+  });
+
+  it('reasonCode 配对不变：客户池仍必须 UNEXPLAINED_CLIENT_LOSS + REDUCE，多出来的（INCREASE）→ 400 指路补录', async () => {
+    const { svc } = makeSvc({
+      incident: { incidentNo: 'INC-0001', status: 'ASSESSED', assessmentBasis: 'FIRM_LOSS', assessedAmount: new Prisma.Decimal('1234.56') },
+    });
+    await expect(svc.createDraft({ ...dto, direction: 'INCREASE' } as any, treasury)).rejects.toThrow(/补录/);
   });
 });
 

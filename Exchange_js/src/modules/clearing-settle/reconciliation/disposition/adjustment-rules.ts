@@ -58,7 +58,9 @@ export const REASON_SPECS: Record<ReasonCode, {
   UNEXPLAINED_WRITE_OFF:      { book: 'FIRM',   directions: ['REDUCE', 'INCREASE'], customerLabel: null, internalLabel: '查无果核销', family: 'WRITE_OFF' },
   // 平账二期（spec §7.1）：客户池查无果认损——托管里真少了钱，先让账跟着外面走（客户余额下降），
   // 再由公司补款划转补齐；只许 REDUCE（托管里多出来的走补录，不许核销进客户余额）。
-  UNEXPLAINED_CLIENT_LOSS:    { book: 'CLIENT', directions: ['REDUCE'],             customerLabel: '平台调整',     internalLabel: '客户池查无果认损', family: 'WRITE_OFF' },
+  // 平账三期：事故路（大额未授权转出走事故登记而非「查无果」）也用这个码——「查无果」
+  // 二字对事故路不成立，internalLabel 改中性表述，两条来路都适用。
+  UNEXPLAINED_CLIENT_LOSS:    { book: 'CLIENT', directions: ['REDUCE'],             customerLabel: '平台调整',     internalLabel: '客户池认损', family: 'WRITE_OFF' },
 };
 
 export function assertReasonAllowed(reasonCode: ReasonCode, book: Book, direction: Direction): void {

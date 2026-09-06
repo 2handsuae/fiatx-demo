@@ -112,11 +112,13 @@ export class AdjustmentService {
    *   ① 案子已超期  ② 锚的那行已定性且出口 = 挂起·调查中、未挂单
    *   ③ 账簿 × 成因码配对；客户池只许 REDUCE  ④ 金额 ≤ 该币种小额线
    * 返回命中的定性行（afterDraftCreated 据此挂单号锁定）。
+   *
+   * 平账三期 Task 10：锚的定性行出口若是 INCIDENT（大额未授权转出，走事故登记而不是
+   * 「查无果」），分流到 assertIncidentWriteOffAllowed——那条路不受账龄线/小额线约束
+   * （大额正是走事故的理由），改查事故侧的定损结论。anchors/held 的查法两条路共用，
+   * 提到分流点之前；账龄线检查留在原位——它只对「查无果」路径有意义。
    */
   private async assertWriteOffAllowed(dto: CreateAdjustmentDto, kase: any, book: Book): Promise<{ dispositionNo: string }> {
-    if (!kase.slaBreached) {
-      throw new BadRequestException('案子还没到账龄线，查无果的差异先挂着，到线再谈核销');
-    }
     const anchors = [
       dto.explainedFlowId ? { explainedFlowId: dto.explainedFlowId } : null,
       dto.explainedExternalLineId ? { explainedExternalLineId: dto.explainedExternalLineId } : null,
@@ -125,6 +127,15 @@ export class AdjustmentService {
       throw new BadRequestException('核销必须锚在一条已定性为「挂起·调查中」的差异行上');
     }
     const held = await (this.prisma as any).reconciliationDisposition.findFirst({ where: { caseNo: dto.caseNo, OR: anchors } });
+
+    if (held?.outlet === 'INCIDENT') {
+      const dispositionNo = await this.assertIncidentWriteOffAllowed(dto, held, kase, book);
+      return { dispositionNo };
+    }
+
+    if (!kase.slaBreached) {
+      throw new BadRequestException('案子还没到账龄线，查无果的差异先挂着，到线再谈核销');
+    }
     if (!held || held.outlet !== 'HOLD_INVESTIGATING') {
       const conclusion = held ? staticOutletLabel(held.causeCode as CauseCode) : '尚未定性';
       throw new BadRequestException(`核销只对已定性为「挂起·调查中」的差异行；这行的结论是 ${conclusion}`);
@@ -132,9 +143,24 @@ export class AdjustmentService {
     if (held.adjustmentNo) {
       throw new BadRequestException(`该行定性已挂调账单 ${held.adjustmentNo}，不可再开核销单`);
     }
-    // ③ 账簿 × 成因码配对（平账二期解锁客户池）：公司池走 UNEXPLAINED_WRITE_OFF，客户池走
-    //    UNEXPLAINED_CLIENT_LOSS；客户池只许「托管里少了」（REDUCE）——多出来的钱不能核销进客户
-    //    余额，那是绕充值合规闸往客户钱包塞钱，查清归属后走补录。
+    this.assertReasonPairing(dto, book);
+    const asset = await (this.prisma as any).asset.findUnique({ where: { code: kase.assetCode }, select: { currency: true, decimals: true } });
+    const currency: string = asset?.currency ?? kase.assetCode;
+    if (!isSmallAmount(currency, BigInt(dto.amount))) {
+      const line = bigintToDecimal(SMALL_AMOUNT_LINE_MINOR[currency], asset?.decimals ?? 0).toFixed(asset?.decimals ?? 0);
+      const amt = bigintToDecimal(BigInt(dto.amount), asset?.decimals ?? 0).toFixed(asset?.decimals ?? 0);
+      throw new BadRequestException(`差额 ${amt} ${currency} 超过小额线 ${line} ${currency}，查无果的大额差异不许核销，走事故登记（三期）`);
+    }
+    return { dispositionNo: held.dispositionNo };
+  }
+
+  /**
+   * ③ 账簿 × 成因码配对（平账二期解锁客户池），核销路（HOLD_INVESTIGATING）与事故路
+   * （INCIDENT）共用同一套配对规则：公司池走 UNEXPLAINED_WRITE_OFF，客户池走
+   * UNEXPLAINED_CLIENT_LOSS；客户池只许「托管里少了」（REDUCE）——多出来的钱不能核销
+   * 进客户余额，那是绕充值合规闸往客户钱包塞钱，查清归属后走补录。
+   */
+  private assertReasonPairing(dto: CreateAdjustmentDto, book: Book): void {
     const expectedReason = book === 'FIRM' ? 'UNEXPLAINED_WRITE_OFF' : 'UNEXPLAINED_CLIENT_LOSS';
     if (dto.reasonCode !== expectedReason) {
       throw new BadRequestException(book === 'FIRM'
@@ -144,14 +170,38 @@ export class AdjustmentService {
     if (book !== 'FIRM' && dto.direction !== 'REDUCE') {
       throw new BadRequestException('客户池多出来的钱不能核销进客户余额：查清归属后走补录（充值域），不走认损');
     }
-    const asset = await (this.prisma as any).asset.findUnique({ where: { code: kase.assetCode }, select: { currency: true, decimals: true } });
-    const currency: string = asset?.currency ?? kase.assetCode;
-    if (!isSmallAmount(currency, BigInt(dto.amount))) {
-      const line = bigintToDecimal(SMALL_AMOUNT_LINE_MINOR[currency], asset?.decimals ?? 0).toFixed(asset?.decimals ?? 0);
-      const amt = bigintToDecimal(BigInt(dto.amount), asset?.decimals ?? 0).toFixed(asset?.decimals ?? 0);
-      throw new BadRequestException(`差额 ${amt} ${currency} 超过小额线 ${line} ${currency}，查无果的大额差异不许核销，走事故登记（三期）`);
+  }
+
+  /**
+   * 平账三期 Task 10：事故路认损三重闸——大额未授权转出锚定的定性行不查账龄线/小额线
+   * （大额正是走事故的理由），改查事故侧的定损结论：
+   *   ① 状态 ∈ {ASSESSED, RESOLVING}（还没定损就没有结论可谈）
+   *   ② assessmentBasis === 'FIRM_LOSS'（公司承损；RECOVERED/CLIENT_COLLECTION/NO_LOSS 都不走认损）
+   *   ③ 金额锁定为定损额（最小单位换算后相等——不许多报少报）
+   * assessedAmount 是元口径 Decimal（对齐 InternalTransfer.amount 惯例），dto.amount 是
+   * 最小单位整数字符串；换算精度照 :150-151 小额线的既有写法（换算到同一 decimals 后
+   * toFixed 定长字符串比较，避免 Decimal 输入位数不一致时的浮点/位数误判）。
+   */
+  private async assertIncidentWriteOffAllowed(dto: CreateAdjustmentDto, held: any, kase: any, book: Book): Promise<string> {
+    if (!held.incidentNo) {
+      throw new BadRequestException('这行定性是「事故·待登记」，还没挂上事故单号——先登记事故（三期）再谈认损');
     }
-    return { dispositionNo: held.dispositionNo };
+    const incident = await (this.prisma as any).incident.findUnique({ where: { incidentNo: held.incidentNo } });
+    if (!incident || !['ASSESSED', 'RESOLVING'].includes(incident.status)) {
+      throw new BadRequestException(`事故 ${held.incidentNo} 还没定损，等定损结论出来再开认损单`);
+    }
+    if (incident.assessmentBasis !== 'FIRM_LOSS') {
+      throw new BadRequestException(`事故 ${held.incidentNo} 的定损结论是「${incident.assessmentBasis}」，不是「公司承损」——只有公司承损才能开认损单`);
+    }
+    this.assertReasonPairing(dto, book);
+    const asset = await (this.prisma as any).asset.findUnique({ where: { code: kase.assetCode }, select: { decimals: true } });
+    const decimals = asset?.decimals ?? 0;
+    const amt = bigintToDecimal(BigInt(dto.amount), decimals).toFixed(decimals);
+    const assessed = incident.assessedAmount.toFixed(decimals);
+    if (amt !== assessed) {
+      throw new BadRequestException(`调账金额 ${amt} 与事故 ${held.incidentNo} 定损额 ${assessed} 不一致——认损金额必须锁定为定损额，不许多报少报`);
+    }
+    return held.dispositionNo;
   }
 
   async createDraft(dto: CreateAdjustmentDto, actor: ApprovalActorContext) {
