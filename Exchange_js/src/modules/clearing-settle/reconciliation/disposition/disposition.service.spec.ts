@@ -163,6 +163,44 @@ describe('平账 A 批：定性联动放行组合（spec §3.6）', () => {
   });
 });
 
+// 平账三期 Task 10 评审 Fix 1（Critical）：linkAdjustment 出口白名单原先只认
+// HOLD_INVESTIGATING+WRITE_OFF，事故路（outlet='INCIDENT'）建单后回挂必然 400、
+// 已落库的 DRAFT 调账单变成孤儿（定性行挂不上号还能再被提交过账）。白名单补上
+// 同构分支后，本组用例锁住四种边界：事故路放行、事故路无 family 仍拒、其他出口
+// 不因为这次改动被误放行、事故路已挂单的行拒绝再挂。
+describe('平账三期 Task 10 评审 Fix 1：linkAdjustment 出口白名单纳入 INCIDENT', () => {
+  const heldIncident = { dispositionNo: 'RCD-INC-1', outlet: 'INCIDENT', adjustmentNo: null };
+  const buildLink = (row: any) => {
+    const prisma: any = {
+      reconciliationDisposition: {
+        findUnique: jest.fn().mockResolvedValue(row),
+        update: jest.fn().mockResolvedValue({ ...row, adjustmentNo: 'ADJ_INC' }),
+      },
+    };
+    return { svc: new DispositionService(prisma, { recordByActor: jest.fn() } as any), prisma };
+  };
+  it('事故·待处置 + 核销族 → 放行挂单（此前必 400，事故路认损单建单后调不通）', async () => {
+    const { svc, prisma } = buildLink(heldIncident);
+    await svc.linkAdjustment('RCD-INC-1', 'ADJ_INC', { family: 'WRITE_OFF' });
+    expect(prisma.reconciliationDisposition.update).toHaveBeenCalledWith({
+      where: { dispositionNo: 'RCD-INC-1' }, data: { adjustmentNo: 'ADJ_INC' },
+    });
+  });
+  it('事故·待处置 + 无 family / 其他族 → 仍拒', async () => {
+    const { svc } = buildLink(heldIncident);
+    await expect(svc.linkAdjustment('RCD-INC-1', 'ADJ_X')).rejects.toThrow(BadRequestException);
+    await expect(svc.linkAdjustment('RCD-INC-1', 'ADJ_X', { family: 'CORRECT' })).rejects.toThrow(BadRequestException);
+  });
+  it('既不是 ADJUST 类、也不是 HOLD_INVESTIGATING/INCIDENT 的出口 → 核销族同样拒（白名单没被顺手放宽）', async () => {
+    const { svc } = buildLink({ dispositionNo: 'RCD-DEF-1', outlet: 'DEFERRED', adjustmentNo: null });
+    await expect(svc.linkAdjustment('RCD-DEF-1', 'ADJ_X', { family: 'WRITE_OFF' })).rejects.toThrow(BadRequestException);
+  });
+  it('事故·待处置行已挂调账单 → 拒绝再挂（400，不因为新分支绕开挂单锁）', async () => {
+    const { svc } = buildLink({ ...heldIncident, adjustmentNo: 'ADJ_OLD' });
+    await expect(svc.linkAdjustment('RCD-INC-1', 'ADJ_NEW', { family: 'WRITE_OFF' })).rejects.toThrow(/已挂调账单 ADJ_OLD/);
+  });
+});
+
 describe('平账 B 批：supplementNo 回挂与覆盖锁', () => {
   it('linkSupplement：出口不是 SUPPLEMENT 或去向不符 → 400；已挂 → 400；正常写入', async () => {
     const { svc: service, prisma } = build();

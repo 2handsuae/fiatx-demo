@@ -53,7 +53,12 @@ export class AdjustmentService {
     book: string; ownerNo: string | null; amount: string; assetCode: string;
     direction: string; reasonCode: string; reasonInternal: string;
     toOwnerNo?: string | null; caseNo?: string | null;
-  }, decimals: number, extra?: { walletNo?: string | null; agedDays?: number | null; findingNote?: string | null }): string {
+  }, decimals: number, extra?: {
+    walletNo?: string | null; agedDays?: number | null; findingNote?: string | null;
+    // 平账三期 Task 10 评审 Fix 3：锚中定性行 outlet==='INCIDENT' 时由调用方
+    // （submit()）传入，用来在 UNEXPLAINED_CLIENT_LOSS 分支里分流出事故路文案。
+    incidentNo?: string | null;
+  }): string {
     // 第四族改记（spec §6）：三族的「余额增加/减少」话术套上来是错的——钱在托管里
     // 一分没动，只是主人记错了。审批人要读到的是「从谁名下去了谁名下」，
     // 以及「客户资产总额不变」这个判断该不该批的关键事实。
@@ -63,8 +68,18 @@ export class AdjustmentService {
            + `客户资产总额不变；理由：${row.reasonInternal}`;
     }
     // 平账二期（spec §7.1）：客户池认损——审批人要读到「谁的钱包、少了多少、客户余额跟着降、随后公司补款」。
+    // 平账三期 Task 10 评审 Fix 3：事故路（outlet='INCIDENT'）走到这里时，认损结论
+    // 早已在 assertIncidentWriteOffAllowed 里锁定为「公司承损」——不是拖到账龄线还
+    // 查不出原因。继续套「查无果」「已超期 N 天」这两句是在审批页撒谎：这单不是等出
+    // 结果等到没耐心才认栽，是事故已经定了损、结论就是公司认。extra.incidentNo 由
+    // submit() 按锚中定性行 outlet 传入，只有事故路才带。
     if (row.reasonCode === 'UNEXPLAINED_CLIENT_LOSS') {
       const majorAmount = bigintToDecimal(BigInt(row.amount), decimals).toFixed(decimals);
+      if (extra?.incidentNo) {
+        return `客户池认损（事故 ${extra.incidentNo} 定损 ${majorAmount} ${row.assetCode}）：借客户应付、贷客户资产池，`
+             + `客户 ${row.ownerNo ?? '(未知)'} 钱包 ${extra?.walletNo ?? '(未知)'} 差额 ${majorAmount} ${row.assetCode} 认损，客户余额相应减少；`
+             + `事故定损结论：公司承损；查证结论：${extra?.findingNote ?? row.reasonInternal}；认损后由公司补款划转补齐`;
+      }
       return `客户池查无果认损：客户 ${row.ownerNo ?? '(未知)'} 钱包 ${extra?.walletNo ?? '(未知)'} ${row.assetCode} 差额 ${majorAmount} 认损，客户余额相应减少；`
            + `案件 ${row.caseNo ?? '(未知)'} 已超期 ${extra?.agedDays ?? '?'} 天；查证结论：${extra?.findingNote ?? row.reasonInternal}；认损后由公司补款划转补齐`;
     }
@@ -165,7 +180,7 @@ export class AdjustmentService {
     if (dto.reasonCode !== expectedReason) {
       throw new BadRequestException(book === 'FIRM'
         ? '公司池查无果走「查无果核销」（UNEXPLAINED_WRITE_OFF），不能用客户池认损码'
-        : '客户池查无果走「客户池查无果认损」（UNEXPLAINED_CLIENT_LOSS），不能用公司池核销码');
+        : '客户池走「客户池认损」（UNEXPLAINED_CLIENT_LOSS），不能用公司池核销码');
     }
     if (book !== 'FIRM' && dto.direction !== 'REDUCE') {
       throw new BadRequestException('客户池多出来的钱不能核销进客户余额：查清归属后走补录（充值域），不走认损');
@@ -181,10 +196,19 @@ export class AdjustmentService {
    * assessedAmount 是元口径 Decimal（对齐 InternalTransfer.amount 惯例），dto.amount 是
    * 最小单位整数字符串；换算精度照 :150-151 小额线的既有写法（换算到同一 decimals 后
    * toFixed 定长字符串比较，避免 Decimal 输入位数不一致时的浮点/位数误判）。
+   *
+   * 平账三期 Task 10 评审 Fix 2（Important）：补「该行已挂调账单不可再开」前置复检。
+   * `DispositionService.linkAdjustment` 的挂单锁在 createDraft **落库之后**才跑——
+   * 三重闸（状态/口径/锁额）全过、`reconciliationAdjustment.create` 已经写库，才轮到
+   * linkAdjustment 拒绝。没有这条前置复检，同一条已挂单的事故定性行还能再走完三重闸
+   * 建出第二张 DRAFT（孤儿草稿：没挂上定性行，却已经落库、还能被提交过账）。
    */
   private async assertIncidentWriteOffAllowed(dto: CreateAdjustmentDto, held: any, kase: any, book: Book): Promise<string> {
     if (!held.incidentNo) {
       throw new BadRequestException('这行定性是「事故·待登记」，还没挂上事故单号——先登记事故（三期）再谈认损');
+    }
+    if (held.adjustmentNo) {
+      throw new BadRequestException(`该行定性已挂调账单 ${held.adjustmentNo}，不可再开认损单`);
     }
     const incident = await (this.prisma as any).incident.findUnique({ where: { incidentNo: held.incidentNo } });
     if (!incident || !['ASSESSED', 'RESOLVING'].includes(incident.status)) {
@@ -401,15 +425,23 @@ export class AdjustmentService {
       where: { code: row.assetCode }, select: { decimals: true },
     });
     // 第五族核销：后果原话要带钱包号 / 超期天数 / 查证结论（spec §3.7），三样都不在单上，现查。
-    let extra: { walletNo?: string | null; agedDays?: number | null; findingNote?: string | null } | undefined;
+    // 平账三期 Task 10 评审 Fix 3：多查 outlet/incidentNo——锚中定性行出口是
+    // 'INCIDENT' 时把事故单号递给 describeImpact，UNEXPLAINED_CLIENT_LOSS 分支据此
+    // 分流出事故路文案（不带超期天数、不说查无果）。
+    let extra: { walletNo?: string | null; agedDays?: number | null; findingNote?: string | null; incidentNo?: string | null } | undefined;
     if (row.reasonCode === 'UNEXPLAINED_WRITE_OFF' || row.reasonCode === 'UNEXPLAINED_CLIENT_LOSS') {
       const kase = await (this.prisma as any).reconciliationCase.findUnique({ where: { caseNo: row.caseNo }, select: { slaDeadline: true } });
       const wallet = row.walletRef && !String(row.walletRef).startsWith('XREF:')
         ? await (this.prisma as any).wallet.findUnique({ where: { id: row.walletRef }, select: { walletNo: true } })
         : null;
-      const held = await (this.prisma as any).reconciliationDisposition.findFirst({ where: { adjustmentNo }, select: { findingNote: true } });
+      const held = await (this.prisma as any).reconciliationDisposition.findFirst({
+        where: { adjustmentNo }, select: { findingNote: true, outlet: true, incidentNo: true },
+      });
       const agedDays = kase?.slaDeadline ? Math.max(1, Math.floor((Date.now() - new Date(kase.slaDeadline).getTime()) / 86_400_000)) : null;
-      extra = { walletNo: wallet?.walletNo ?? null, agedDays, findingNote: held?.findingNote ?? null };
+      extra = {
+        walletNo: wallet?.walletNo ?? null, agedDays, findingNote: held?.findingNote ?? null,
+        incidentNo: held?.outlet === 'INCIDENT' ? held?.incidentNo ?? null : null,
+      };
     }
     const impact = this.describeImpact(row, assetRow?.decimals ?? 0, extra);
     // Fix 2（末站整改）：这里此前自己拼一个 { userId: operatorId, userNo: operatorId,

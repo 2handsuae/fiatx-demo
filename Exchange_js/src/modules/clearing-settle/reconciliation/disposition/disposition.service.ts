@@ -118,12 +118,19 @@ export class DispositionService {
    * Task 5 联动：调账单开出后回填，之后该定性锁死不可覆盖。
    * 平账 A 批（spec §3.6）：放行一种组合——出口是「挂起·调查中」且调账单族是核销。
    * 「查不出」仍是查证结论的真相，核销是它在账龄到线后的后续处置，不改写 outlet。
+   * 平账三期 Task 10 评审 Fix 1（Critical）：事故路（outlet='INCIDENT'）同样是核销族
+   * 认损单的合法锚——`adjustment.service.ts` 的 `assertIncidentWriteOffAllowed` 早已把
+   * 「状态/口径/锁额」三重闸过完才走到 createDraft 建单，白名单这里若不认 INCIDENT，
+   * 事故路认损单建单后必然在这一步 400，且已落库的 DRAFT 调账单会变成孤儿（定性行没
+   * 挂上号，还能再被提交过账）——白名单必须与 assertIncidentWriteOffAllowed 放行的出口
+   * 保持同构。
    */
   async linkAdjustment(dispositionNo: string, adjustmentNo: string, opts?: { family?: AdjustFamily }): Promise<void> {
     const row = await (this.prisma as any).reconciliationDisposition.findUnique({ where: { dispositionNo } });
     if (!row) throw new NotFoundException(`定性记录不存在：${dispositionNo}`);
     const writeOffOnHeld = row.outlet === 'HOLD_INVESTIGATING' && opts?.family === 'WRITE_OFF';
-    if (!String(row.outlet).startsWith('ADJUST') && !writeOffOnHeld) {
+    const writeOffOnIncident = row.outlet === 'INCIDENT' && opts?.family === 'WRITE_OFF';
+    if (!String(row.outlet).startsWith('ADJUST') && !writeOffOnHeld && !writeOffOnIncident) {
       throw new BadRequestException(`定性 ${dispositionNo} 的出口是 ${row.outlet}，不落调账单`);
     }
     if (row.adjustmentNo) throw new BadRequestException(`定性 ${dispositionNo} 已挂调账单 ${row.adjustmentNo}`);
