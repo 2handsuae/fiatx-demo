@@ -543,16 +543,17 @@ export class ReconciliationQueryService {
     const dispositions = (await (this.prisma as any).reconciliationDisposition.findMany({
       where: { caseNo },
     })) as any[];
-    // 平账三期（Task 9）：案件级事故摘要——LARGE_UNEXPLAINED/CLIENT_SHORTFALL 两类
-    // 事故只锚案号（不锚具体定性行，见 IncidentService.assertLargeUnexplained/
-    // assertClientShortfall），案子上的「升级事故」/「登记欠款」按钮要看这个才知道
-    // 该案是否已经登记过，不靠某一行的 disposition.incidentNo（那个只覆盖
-    // UNAUTHORIZED_OUTFLOW 一类）。同案多次登记时取最近一条。
-    const caseIncident = (await (this.prisma as any).incident.findFirst({
+    // 平账三期（Task 9）：案件级事故列表——按 sourceCaseNo 查询，覆盖全部事故类型
+    // （UNAUTHORIZED_OUTFLOW 建单时同样带 sourceCaseNo，见 IncidentService.register
+    // :151 + assertUnauthorizedOutflow :171，并非只有 LARGE_UNEXPLAINED/
+    // CLIENT_SHORTFALL 两类落在这里）。这条是案件级全量列表，不是对行级
+    // disposition.incidentNo 的互补——案子上的「升级事故」/「登记欠款」按钮
+    // 看这个列表判断是否已经登记过。按创建倒序，空数组表示该案从未挂过事故。
+    const caseIncidents = (await (this.prisma as any).incident.findMany({
       where: { sourceCaseNo: caseNo },
       orderBy: { createdAt: 'desc' },
       select: { incidentNo: true, status: true, type: true },
-    })) as { incidentNo: string; status: string; type: string } | null;
+    })) as Array<{ incidentNo: string; status: string; type: string }>;
     const dByFlow = new Map<string, any>();
     const dByExt = new Map<string, any>();
     for (const d of dispositions) {
@@ -749,7 +750,7 @@ export class ReconciliationQueryService {
       explain,
       observation,
       adjustments: caseAdjustments,
-      incidentSummary: caseIncident ?? null,
+      incidents: caseIncidents,
     };
   }
 

@@ -12,10 +12,19 @@ import { ApprovalsModule } from '../approvals/approvals.module';
 import { ReconciliationModule } from '../../clearing-settle/reconciliation/reconciliation.module';
 import { DispositionService } from '../../clearing-settle/reconciliation/disposition/disposition.service';
 import { IncidentService } from './incident.service';
-import { DISPOSITION_INCIDENT_LINK, IncidentRegistrationWorkflowService } from './incident-registration-workflow.service';
+import { DISPOSITION_INCIDENT_LINK, DispositionIncidentLink, IncidentRegistrationWorkflowService } from './incident-registration-workflow.service';
 import { IncidentCloseWorkflowService } from './incident-close-workflow.service';
 import { IncidentCloseFinancialApprovalService, IncidentCloseSecurityApprovalService } from './incident-approval.service';
 import { IncidentsController } from './incidents.controller';
+
+// `useExisting: DispositionService` 换实现后没有编译期接口检查（Nest 的 DI token
+// 是运行时字符串，DispositionService 是否仍满足 DispositionIncidentLink 全靠人肉
+// 记得同步）。这里补一个 type-only 见证：DispositionService 一旦不再结构兼容
+// DispositionIncidentLink（例如 attachIncident 改名/改签名），下面这行编译期报红，
+// 零运行时开销（纯类型层）。
+type _AssertDispositionIncidentLink = DispositionService extends DispositionIncidentLink ? true : never;
+const _dispositionIncidentLinkWitness: _AssertDispositionIncidentLink = true;
+void _dispositionIncidentLinkWitness;
 
 @Module({
   imports: [PrismaModule, AuditLogsModule, ApprovalsModule, ReconciliationModule],

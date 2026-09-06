@@ -94,7 +94,10 @@ export function staticOutletLabel(code: CauseCode): string {
   if (spec.kind === 'HOLD_INVESTIGATING') return '挂起·调查中';
   if (spec.kind === 'SUPPLEMENT') return `补单·${spec.supplementLabel}`;
   if (spec.kind === 'INCIDENT') return '事故·待登记';
-  return `留档·${spec.deferredLabel}`;
+  if (spec.kind === 'DEFERRED') return `留档·${spec.deferredLabel}`;
+  // 穷尽收口：加第 6 个 kind 时，上面漏判一支这里就编译期报红。
+  const _exhaustive: never = spec.kind;
+  throw new BadRequestException(`未知出口 kind：${_exhaustive}`);
 }
 
 export function menuFor(matchType: CauseMatchType, book: CauseBook) {
@@ -159,41 +162,45 @@ export function resolveOutlet(code: CauseCode, facts: RowFacts): ResolvedOutlet 
   if (spec.kind === 'INCIDENT') {
     return { outlet: 'INCIDENT', outletLabel: '事故·待登记' };
   }
-
-  const family = spec.family!;
-  if (family === 'REATTRIBUTE') {
-    return { outlet: 'ADJUST_REATTRIBUTE', outletLabel: '改记', family, reasonCode: 'CUSTOMER_REATTRIBUTION' };
-  }
-  if (family === 'CORRECT') {
-    const direction: 'REDUCE' | 'INCREASE' = signedDeltaSign(facts) === -1 ? 'REDUCE' : 'INCREASE';
-    const reasonCode = facts.internalSourceType === 'DEPOSIT' ? 'DEPOSIT_AMOUNT_CORRECTION'
-      : facts.internalSourceType === 'WITHDRAW' ? 'WITHDRAW_AMOUNT_CORRECTION' : null;
-    if (!reasonCode) {
-      // SWAP 等流水本轮无冲正码（spec §11-6）——留档，不硬塞
-      return { outlet: 'DEFERRED', outletLabel: '留档·本流水类型暂无冲正码（下一轮）', deferredTarget: 'NO_REASON_CODE' };
+  if (spec.kind === 'ADJUST') {
+    const family = spec.family!;
+    if (family === 'REATTRIBUTE') {
+      return { outlet: 'ADJUST_REATTRIBUTE', outletLabel: '改记', family, reasonCode: 'CUSTOMER_REATTRIBUTION' };
     }
-    return { outlet: 'ADJUST_CORRECT', outletLabel: '冲正', family, reasonCode, direction };
-  }
-  if (family === 'REVERSE') {
-    // 公司账簿两成因（A 批定码）：金额不对按差额符号（出账翻符号，同冲正）；孤儿按内部方向取反。
-    if (code === 'FIRM_AMT_OVERBOOKED' || code === 'FIRM_MISBOOKED') {
-      const direction: 'REDUCE' | 'INCREASE' = facts.matchType === 'AMOUNT_MISMATCH'
-        ? (signedDeltaSign(facts) === -1 ? 'REDUCE' : 'INCREASE')
-        : (facts.internalDirection === 'OUT' ? 'INCREASE' : 'REDUCE');
-      return { outlet: 'ADJUST_REVERSE', outletLabel: '冲销', family, reasonCode: 'FIRM_ENTRY_REVERSAL', direction };
+    if (family === 'CORRECT') {
+      const direction: 'REDUCE' | 'INCREASE' = signedDeltaSign(facts) === -1 ? 'REDUCE' : 'INCREASE';
+      const reasonCode = facts.internalSourceType === 'DEPOSIT' ? 'DEPOSIT_AMOUNT_CORRECTION'
+        : facts.internalSourceType === 'WITHDRAW' ? 'WITHDRAW_AMOUNT_CORRECTION' : null;
+      if (!reasonCode) {
+        // SWAP 等流水本轮无冲正码（spec §11-6）——留档，不硬塞
+        return { outlet: 'DEFERRED', outletLabel: '留档·本流水类型暂无冲正码（下一轮）', deferredTarget: 'NO_REASON_CODE' };
+      }
+      return { outlet: 'ADJUST_CORRECT', outletLabel: '冲正', family, reasonCode, direction };
     }
-    const direction: 'REDUCE' | 'INCREASE' = facts.internalDirection === 'OUT' ? 'INCREASE' : 'REDUCE';
-    const reasonCode = code === 'DUP_BOOKING' ? 'DEPOSIT_DUPLICATE_REVERSAL'
-      : code === 'PHANTOM_BOOKING' ? 'DEPOSIT_SIGNAL_VOID' : 'WITHDRAW_VOID_REFUND';
-    return { outlet: 'ADJUST_REVERSE', outletLabel: '冲销', family, reasonCode, direction };
+    if (family === 'REVERSE') {
+      // 公司账簿两成因（A 批定码）：金额不对按差额符号（出账翻符号，同冲正）；孤儿按内部方向取反。
+      if (code === 'FIRM_AMT_OVERBOOKED' || code === 'FIRM_MISBOOKED') {
+        const direction: 'REDUCE' | 'INCREASE' = facts.matchType === 'AMOUNT_MISMATCH'
+          ? (signedDeltaSign(facts) === -1 ? 'REDUCE' : 'INCREASE')
+          : (facts.internalDirection === 'OUT' ? 'INCREASE' : 'REDUCE');
+        return { outlet: 'ADJUST_REVERSE', outletLabel: '冲销', family, reasonCode: 'FIRM_ENTRY_REVERSAL', direction };
+      }
+      const direction: 'REDUCE' | 'INCREASE' = facts.internalDirection === 'OUT' ? 'INCREASE' : 'REDUCE';
+      const reasonCode = code === 'DUP_BOOKING' ? 'DEPOSIT_DUPLICATE_REVERSAL'
+        : code === 'PHANTOM_BOOKING' ? 'DEPOSIT_SIGNAL_VOID' : 'WITHDRAW_VOID_REFUND';
+      return { outlet: 'ADJUST_REVERSE', outletLabel: '冲销', family, reasonCode, direction };
+    }
+    // RECORD（公司补记）：金额差按差额符号（出账翻符号），公司孤儿按外部方向
+    const positive = facts.matchType === 'AMOUNT_MISMATCH' ? signedDeltaSign(facts) === 1 : facts.externalDirection === 'IN';
+    return {
+      outlet: 'ADJUST_RECORD', outletLabel: '补记', family,
+      reasonCode: positive ? 'BANK_INTEREST' : 'BANK_CHARGE',
+      direction: positive ? 'INCREASE' : 'REDUCE',
+    };
   }
-  // RECORD（公司补记）：金额差按差额符号（出账翻符号），公司孤儿按外部方向
-  const positive = facts.matchType === 'AMOUNT_MISMATCH' ? signedDeltaSign(facts) === 1 : facts.externalDirection === 'IN';
-  return {
-    outlet: 'ADJUST_RECORD', outletLabel: '补记', family,
-    reasonCode: positive ? 'BANK_INTEREST' : 'BANK_CHARGE',
-    direction: positive ? 'INCREASE' : 'REDUCE',
-  };
+  // 穷尽收口：加第 6 个 kind 时，上面漏判一支这里就编译期报红。
+  const _exhaustive: never = spec.kind;
+  throw new BadRequestException(`未知出口 kind：${_exhaustive}`);
 }
 
 export interface WriteOffFacts extends RowFacts {

@@ -234,7 +234,7 @@ describe('getCase — flowComparison (T3)', () => {
       // 平账二期 Task 8：补款 / 垫款回挂块的划转单查询同样 unconditional。
       internalTransfer: { findMany: jest.fn().mockResolvedValue([]) },
       // 平账三期 Task 9：案件级事故摘要查询同样 unconditional。
-      incident: { findFirst: jest.fn().mockResolvedValue(null) },
+      incident: { findMany: jest.fn().mockResolvedValue([]) },
     };
     const flowMatcher = {
       matchFlows: jest.fn().mockResolvedValue({
@@ -295,7 +295,7 @@ describe('getCase — flowComparison (T3)', () => {
       // 平账二期 Task 8：补款 / 垫款回挂块的划转单查询同样 unconditional，XREF case 也要发。
       internalTransfer: { findMany: jest.fn().mockResolvedValue([]) },
       // 平账三期 Task 9：案件级事故摘要查询同样 unconditional，XREF case 也要发。
-      incident: { findFirst: jest.fn().mockResolvedValue(null) },
+      incident: { findMany: jest.fn().mockResolvedValue([]) },
     };
     const flowMatcher = { matchFlows: jest.fn() };
     const svc = mkSvc(prisma, { flowMatcher });
@@ -416,7 +416,7 @@ describe('getCase — walletNo / linkedRunNo / slaDeadline / book', () => {
       // 平账二期 Task 8：补款 / 垫款回挂块的划转单查询同样 unconditional。
       internalTransfer: { findMany: jest.fn().mockResolvedValue([]) },
       // 平账三期 Task 9：案件级事故摘要查询同样 unconditional。
-      incident: { findFirst: jest.fn().mockResolvedValue(null) },
+      incident: { findMany: jest.fn().mockResolvedValue([]) },
     } as any;
   }
 
@@ -453,7 +453,7 @@ describe('getCase — walletNo / linkedRunNo / slaDeadline / book', () => {
       // 平账二期 Task 8：补款 / 垫款回挂块的划转单查询同样 unconditional，XREF case 也要发。
       internalTransfer: { findMany: jest.fn().mockResolvedValue([]) },
       // 平账三期 Task 9：案件级事故摘要查询同样 unconditional，XREF case 也要发。
-      incident: { findFirst: jest.fn().mockResolvedValue(null) },
+      incident: { findMany: jest.fn().mockResolvedValue([]) },
     } as any;
     const svc = mkSvc(prisma);
     const result: any = await svc.getCase('CASE-XREF');
@@ -887,7 +887,7 @@ describe('getCase — explain / observation / bucket (T6)', () => {
       // 平账二期 Task 8：补款 / 垫款回挂块的划转单查询同样 unconditional。
       internalTransfer: { findMany: jest.fn().mockResolvedValue([]) },
       // 平账三期 Task 9：案件级事故摘要查询同样 unconditional。
-      incident: { findFirst: jest.fn().mockResolvedValue(null) },
+      incident: { findMany: jest.fn().mockResolvedValue([]) },
     } as any;
   }
 
@@ -993,7 +993,7 @@ describe('getCase — 案件级调账单列表 adjustments（Task 7）', () => {
       // 平账二期 Task 8：补款 / 垫款回挂块的划转单查询同样 unconditional。
       internalTransfer: { findMany: jest.fn().mockResolvedValue([]) },
       // 平账三期 Task 9：案件级事故摘要查询同样 unconditional。
-      incident: { findFirst: jest.fn().mockResolvedValue(null) },
+      incident: { findMany: jest.fn().mockResolvedValue([]) },
     } as any;
   }
 
@@ -1110,7 +1110,7 @@ describe('getCase 行注解（spec §3/§8）', () => {
       // 平账二期 Task 8：补款 / 垫款回挂块的划转单查询同样 unconditional。
       internalTransfer: { findMany: jest.fn().mockResolvedValue([]) },
       // 平账三期 Task 9：案件级事故摘要查询同样 unconditional。
-      incident: { findFirst: jest.fn().mockResolvedValue(null) },
+      incident: { findMany: jest.fn().mockResolvedValue([]) },
       ...overrides,
     } as any;
   }
@@ -1290,36 +1290,60 @@ describe('getCase 行注解（spec §3/§8）', () => {
     });
   });
 
-  // 平账三期（Task 9）：案件对象的事故摘要——独立于上面按行回贴的
+  // 平账三期（Task 9）：案件对象的事故列表——独立于上面按行回贴的
   // disposition.incidentNo（那个只覆盖 UNAUTHORIZED_OUTFLOW 一类，锚在具体定性行
-  // 上）；这里按 sourceCaseNo 直查 Incident，覆盖 LARGE_UNEXPLAINED 等不锚定性行的
-  // 事故类型，供案子上「升级事故」等按钮判断是否已经登记过。
-  it('案件对象带出关联事故摘要 incidentSummary（号/状态/类型）——按 sourceCaseNo 查询', async () => {
+  // 上）；这里按 sourceCaseNo 直查 Incident，是**全类型**案件级列表（UNAUTHORIZED_
+  // OUTFLOW 建单时同样带 sourceCaseNo，并非只覆盖 LARGE_UNEXPLAINED/CLIENT_
+  // SHORTFALL），供案子上「升级事故」等按钮判断是否已经登记过。
+  it('案件对象带出关联事故列表 incidents（号/状态/类型）——按 sourceCaseNo 查询', async () => {
     const prisma = mkBasePrisma({
       externalBalance: { findMany: jest.fn().mockResolvedValue([]) },
       externalStatementLine: { findMany: jest.fn().mockResolvedValue([]) },
       accountFlow: { findMany: jest.fn().mockResolvedValue([]) },
       incident: {
-        findFirst: jest.fn().mockResolvedValue({ incidentNo: 'INC2026000002', status: 'INVESTIGATING', type: 'LARGE_UNEXPLAINED' }),
+        findMany: jest.fn().mockResolvedValue([{ incidentNo: 'INC2026000002', status: 'INVESTIGATING', type: 'LARGE_UNEXPLAINED' }]),
       },
     });
     const svc = mkSvc(prisma);
     const result: any = await svc.getCase(baseKase.caseNo);
-    expect(result.incidentSummary).toEqual({ incidentNo: 'INC2026000002', status: 'INVESTIGATING', type: 'LARGE_UNEXPLAINED' });
-    expect((prisma.incident.findFirst as jest.Mock).mock.calls[0][0]).toEqual(
+    expect(result.incidents).toEqual([{ incidentNo: 'INC2026000002', status: 'INVESTIGATING', type: 'LARGE_UNEXPLAINED' }]);
+    expect((prisma.incident.findMany as jest.Mock).mock.calls[0][0]).toEqual(
       expect.objectContaining({ where: { sourceCaseNo: baseKase.caseNo } }),
     );
   });
 
-  it('案子从未挂过事故 → incidentSummary 为 null', async () => {
+  it('一案两事故（不同类型）都在列表里、按创建倒序', async () => {
     const prisma = mkBasePrisma({
       externalBalance: { findMany: jest.fn().mockResolvedValue([]) },
       externalStatementLine: { findMany: jest.fn().mockResolvedValue([]) },
       accountFlow: { findMany: jest.fn().mockResolvedValue([]) },
-    }); // 默认 incident.findFirst 解析为 null
+      incident: {
+        findMany: jest.fn().mockResolvedValue([
+          { incidentNo: 'INC2026000003', status: 'REGISTERED', type: 'UNAUTHORIZED_OUTFLOW' },
+          { incidentNo: 'INC2026000002', status: 'INVESTIGATING', type: 'LARGE_UNEXPLAINED' },
+        ]),
+      },
+    });
     const svc = mkSvc(prisma);
     const result: any = await svc.getCase(baseKase.caseNo);
-    expect(result.incidentSummary).toBeNull();
+    expect(result.incidents).toEqual([
+      { incidentNo: 'INC2026000003', status: 'REGISTERED', type: 'UNAUTHORIZED_OUTFLOW' },
+      { incidentNo: 'INC2026000002', status: 'INVESTIGATING', type: 'LARGE_UNEXPLAINED' },
+    ]);
+    expect((prisma.incident.findMany as jest.Mock).mock.calls[0][0]).toEqual(
+      expect.objectContaining({ where: { sourceCaseNo: baseKase.caseNo }, orderBy: { createdAt: 'desc' } }),
+    );
+  });
+
+  it('案子从未挂过事故 → incidents 为空数组', async () => {
+    const prisma = mkBasePrisma({
+      externalBalance: { findMany: jest.fn().mockResolvedValue([]) },
+      externalStatementLine: { findMany: jest.fn().mockResolvedValue([]) },
+      accountFlow: { findMany: jest.fn().mockResolvedValue([]) },
+    }); // 默认 incident.findMany 解析为 []
+    const svc = mkSvc(prisma);
+    const result: any = await svc.getCase(baseKase.caseNo);
+    expect(result.incidents).toEqual([]);
   });
 });
 
@@ -1399,7 +1423,7 @@ describe('平账 A 批：案件页按跑批截止时刻重建差异行（spec §
       // 平账二期 Task 8：补款 / 垫款回挂块的划转单查询同样 unconditional。
       internalTransfer: { findMany: jest.fn().mockResolvedValue([]) },
       // 平账三期 Task 9：案件级事故摘要查询同样 unconditional。
-      incident: { findFirst: jest.fn().mockResolvedValue(null) },
+      incident: { findMany: jest.fn().mockResolvedValue([]) },
     };
   }
   it('run 记了 cutoffAt → 外部行与内部流水都按它截止', async () => {
@@ -1443,7 +1467,7 @@ describe('平账 A 批：超期后的下一步 nextStep（spec §2.6）', () => 
       // 平账二期 Task 8：补款 / 垫款回挂块的划转单查询同样 unconditional。
       internalTransfer: { findMany: jest.fn().mockResolvedValue([]) },
       // 平账三期 Task 9：案件级事故摘要查询同样 unconditional。
-      incident: { findFirst: jest.fn().mockResolvedValue(null) },
+      incident: { findMany: jest.fn().mockResolvedValue([]) },
     };
   }
   const mismatchMatcher = { matchFlows: jest.fn().mockResolvedValue({ matched: [], orphanInternal: [], orphanExternal: [], mismatch: [{ internalFlowId: flowId, externalLineId: extId }] }) };
@@ -1525,7 +1549,7 @@ describe('getCase — 补款 / 垫款回挂行为覆盖（平账二期 Task 8 �
       wallet: { findUnique: jest.fn().mockResolvedValue({ walletNo: 'WA1', ownerId: 'owner-uuid' }) },
       fundsOrder: { findMany: jest.fn().mockResolvedValue([]) },
       internalTransfer: { findMany: jest.fn().mockResolvedValue(opts.transfers ?? []) },
-      incident: { findFirst: jest.fn().mockResolvedValue(null) },
+      incident: { findMany: jest.fn().mockResolvedValue([]) },
     };
   }
   const mismatchMatcher = { matchFlows: jest.fn().mockResolvedValue({ matched: [], orphanInternal: [], orphanExternal: [], mismatch: [{ internalFlowId: flowId, externalLineId: extId }] }) };
