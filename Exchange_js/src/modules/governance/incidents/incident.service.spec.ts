@@ -4,7 +4,7 @@ import { IncidentStatus as S, IncidentTypes as T, INCIDENT_REPORT_BASES as REPOR
 
 const ops = { actorType: 'ADMIN' as const, userId: 'uuid-ops', userNo: 'ADM-OPS', roleCodes: ['OPS_OFFICER'] };
 
-function makeService(o: Partial<Record<'incidentRow' | 'disposition' | 'kase' | 'transfer' | 'adjustment' | 'deposit' | 'remediations' | 'notes' | 'listRows' | 'listTotal', any>> = {}) {
+function makeService(o: Partial<Record<'incidentRow' | 'disposition' | 'kase' | 'transfer' | 'adjustment' | 'deposit' | 'remediations' | 'notes' | 'listRows' | 'listTotal' | 'wallet', any>> = {}) {
   const incidentRow = o.incidentRow ?? {
     id: 'uuid-inc', incidentNo: 'INC1', type: T.MANUAL, status: S.REGISTERED,
     title: 't', description: 'd', customerNo: null, sourceCaseNo: null, traceId: 'trace-seed',
@@ -30,6 +30,7 @@ function makeService(o: Partial<Record<'incidentRow' | 'disposition' | 'kase' | 
     internalTransfer: { findUnique: jest.fn(async () => o.transfer ?? null) },
     reconciliationAdjustment: { findUnique: jest.fn(async () => o.adjustment ?? null) },
     depositTransaction: { findUnique: jest.fn(async () => o.deposit ?? null) },
+    wallet: { findUnique: jest.fn(async () => o.wallet ?? null) },
   };
   const auditLogs: any = { recordByActor: jest.fn(async () => ({})) };
   const svc = new IncidentService(prisma, auditLogs);
@@ -505,6 +506,24 @@ describe('IncidentService（平账三期 Task 5）', () => {
       const { svc, prisma } = makeService();
       prisma.incident.findUnique.mockResolvedValueOnce(null);
       await expect(svc.getView('NOPE')).rejects.toThrow(NotFoundException);
+    });
+
+    it('getView：walletRef 非空（UUID 形状）→ 翻译成 walletNo 业务键，输出零 UUID（铁律⑥评审修复）', async () => {
+      const incidentRow = {
+        id: 'uuid-inc', incidentNo: 'INC1', type: T.CLIENT_SHORTFALL, status: S.INVESTIGATING,
+        title: 't', description: 'd', customerNo: 'CU1', sourceCaseNo: null, sourceDispositionNo: null,
+        sourceAdvanceTransferNo: null, walletRef: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee', assetCode: 'USDT', amount: null,
+        assessedAmount: null, assessmentBasis: null, reportRequired: false, reportBasisCodes: null,
+        reportDeadlineAt: null, reportDraft: null, reportDraftedAt: null, reportedAt: null,
+        reportReference: null, approvalNo: null, registeredByUserId: 'ADM-OPS',
+        closedAt: null, withdrawnReason: null, createdAt,
+      };
+      const { svc, prisma } = makeService({ incidentRow, wallet: { walletNo: 'W-000123' } });
+      const view = await svc.getView('INC1') as any;
+      expect(prisma.wallet.findUnique).toHaveBeenCalledWith({ where: { id: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee' }, select: { walletNo: true } });
+      expect(view.walletNo).toBe('W-000123');
+      expect(view).not.toHaveProperty('walletRef');
+      expect(JSON.stringify(view)).not.toContain('aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee');
     });
   });
 });

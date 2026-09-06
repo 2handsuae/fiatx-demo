@@ -71,16 +71,19 @@ export class IncidentService {
   /** 详情：主体字段 + 调查时间线（notes）+ 善后单列表——铁律⑥投影，零 id。 */
   async getView(incidentNo: string) {
     const row = await this.findByNo(incidentNo);
-    const [notes, remediations] = await Promise.all([
+    const [notes, remediations, wallet] = await Promise.all([
       (this.prisma as any).incidentNote.findMany({ where: { incidentId: row.id }, orderBy: { createdAt: 'asc' } }),
       (this.prisma as any).incidentRemediation.findMany({ where: { incidentId: row.id }, orderBy: { createdAt: 'asc' } }),
+      // walletRef 落的是 Wallet.id（内部 UUID，客户/平台户共用一张表，见 schema Wallet 注释）——
+      // 铁律⑥翻译成 walletNo 业务键，惯例同 reconciliation-query.service.ts 的 walletRef→walletNo 投影。
+      row.walletRef ? (this.prisma as any).wallet.findUnique({ where: { id: row.walletRef }, select: { walletNo: true } }) : null,
     ]);
     return {
       incidentNo: row.incidentNo, type: row.type, status: row.status,
       title: row.title, description: row.description,
       sourceCaseNo: row.sourceCaseNo ?? null, sourceDispositionNo: row.sourceDispositionNo ?? null,
       sourceAdvanceTransferNo: row.sourceAdvanceTransferNo ?? null,
-      walletRef: row.walletRef ?? null, customerNo: row.customerNo ?? null, assetCode: row.assetCode ?? null,
+      walletNo: wallet?.walletNo ?? null, customerNo: row.customerNo ?? null, assetCode: row.assetCode ?? null,
       amount: row.amount != null ? row.amount.toString() : null,
       assessedAmount: row.assessedAmount != null ? row.assessedAmount.toString() : null,
       assessmentBasis: row.assessmentBasis ?? null,
