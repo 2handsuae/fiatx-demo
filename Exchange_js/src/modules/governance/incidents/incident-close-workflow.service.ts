@@ -126,9 +126,10 @@ export class IncidentCloseWorkflowService {
   }
 
   /**
-   * 结案 impact 人话串（走查发现 Fix 1）：类型 + 定损口径/金额 + 善后单落账数 + 通报状态，
-   * 例「结案事故 INC1（未授权转出）：定损认损 400 USDT-TRON，善后单 2 张已落账，已通报 VARA」；
+   * 结案 impact 人话串（走查发现 Fix 1）：类型 + 定损口径/金额 + 善后单张数 + 通报状态，
+   * 例「结案事故 INC1（未授权转出）：定损认损 400 USDT-TRON，善后单 2 张，已通报 VARA」；
    * NO_LOSS 口径不带金额：「结案事故 INC1（人工登记）：定损无损失，无善后，无需通报」。
+   * （linkRemediation 只挂关联不验落账状态，故 impact 不替审批人担保"已落账"——见终审 Fix 2。）
    */
   private describeCloseImpact(row: any, remediationReferenceNos: string[]): string {
     const typeLabel = INCIDENT_TYPE_IMPACT_LABEL[row.type] ?? row.type;
@@ -138,7 +139,7 @@ export class IncidentCloseWorkflowService {
       ? `定损${basisVerb}`
       : `定损${basisVerb} ${assessedAmount}${row.assetCode ? ` ${row.assetCode}` : ''}`;
     const remediationPart = remediationReferenceNos.length > 0
-      ? `善后单 ${remediationReferenceNos.length} 张已落账`
+      ? `善后单 ${remediationReferenceNos.length} 张`
       : '无善后';
     const reportPart = row.reportRequired ? '已通报 VARA' : '无需通报';
     return `结案事故 ${row.incidentNo}（${typeLabel}）：${assessmentPart}，${remediationPart}，${reportPart}`;

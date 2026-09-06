@@ -164,7 +164,7 @@ export class AdjustmentService {
     if (!isSmallAmount(currency, BigInt(dto.amount))) {
       const line = bigintToDecimal(SMALL_AMOUNT_LINE_MINOR[currency], asset?.decimals ?? 0).toFixed(asset?.decimals ?? 0);
       const amt = bigintToDecimal(BigInt(dto.amount), asset?.decimals ?? 0).toFixed(asset?.decimals ?? 0);
-      throw new BadRequestException(`差额 ${amt} ${currency} 超过小额线 ${line} ${currency}，查无果的大额差异不许核销，走事故登记（三期）`);
+      throw new BadRequestException(`差额 ${amt} ${currency} 超过小额线 ${line} ${currency}，查无果的大额差异不许核销，走事故登记`);
     }
     return { dispositionNo: held.dispositionNo };
   }
@@ -205,7 +205,7 @@ export class AdjustmentService {
    */
   private async assertIncidentWriteOffAllowed(dto: CreateAdjustmentDto, held: any, kase: any, book: Book): Promise<string> {
     if (!held.incidentNo) {
-      throw new BadRequestException('这行定性是「事故·待登记」，还没挂上事故单号——先登记事故（三期）再谈认损');
+      throw new BadRequestException('这行定性是「事故·待登记」，还没挂上事故单号——先登记事故再谈认损');
     }
     if (held.adjustmentNo) {
       throw new BadRequestException(`该行定性已挂调账单 ${held.adjustmentNo}，不可再开认损单`);

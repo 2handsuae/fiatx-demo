@@ -188,10 +188,10 @@ const ReconciliationDispositionModal = ({
             <h3 className="mb-2 text-sm font-semibold text-adm-t1">已定性 · {result.outletLabel}</h3>
             <p className="text-xs text-adm-t2">
               {result.outlet === 'HOLD_NEXT_PERIOD' && '不落任何分录。案子保持现状，下期对账自然配平后自动销案。'}
-              {result.outlet === 'HOLD_INVESTIGATING' && '不落任何分录。案子保持破口，标注「已定性 · 调查中」——查证记录已留档。账龄到线（3 天）后：公司池小额可核销；客户池「托管里少了」小额可认损（随后金库发起补款）、多出来的走补录；大额升级事故（三期）。'}
+              {result.outlet === 'HOLD_INVESTIGATING' && '不落任何分录。案子保持破口，标注「已定性 · 调查中」——查证记录已留档。账龄到线（3 天）后：公司池小额可核销；客户池「托管里少了」小额可认损（随后金库发起补款）、多出来的走补录；大额走「登记事故」。'}
               {result.outlet === 'DEFERRED' && `不落任何分录。该差异的正确出口（${result.outletLabel.replace('留档·', '')}）本期未开放，结论已留档，案子继续挂。`}
               {result.outlet === 'SUPPLEMENT' && `不落任何分录。这条差异要回业务域补单（${result.outletLabel.replace('补单·', '')}）：点「完成」后在定性行旁发起，CFO 复核通过由业务域执行，再回来「重新对账」。`}
-              {result.outlet === 'INCIDENT' && '不落任何分录。这是大额未授权转出，直接升级事故（三期）：点「完成」后在定性行旁「登记事故」，走调查 / 定损 / 善后 / 监管通报的完整流程，认损后才由金库补款。'}
+              {result.outlet === 'INCIDENT' && '不落任何分录。这是大额未授权转出，直接升级事故：点「完成」后在定性行旁「登记事故」，走调查 / 定损 / 善后 / 监管通报的完整流程，认损后才由金库补款。'}
             </p>
             <p className="mt-2 font-mono text-[11px] text-adm-t3">{result.dispositionNo}</p>
             <div className="mt-4 flex justify-end">

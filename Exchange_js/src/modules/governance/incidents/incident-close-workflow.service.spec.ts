@@ -111,13 +111,27 @@ describe('IncidentCloseWorkflowService（平账三期 Task 7）', () => {
         incidentNo: 'INC1', customerNo: 'CU1',
         type: T.CLIENT_SHORTFALL, amount: '900', assessmentBasis: 'CLIENT_COLLECTION',
         remediationReferenceNos: ['ITR9'], reported: true,
-        impact: '结案事故 INC1（退汇欠款）：定损追索 900，善后单 1 张已落账，已通报 VARA',
+        impact: '结案事故 INC1（退汇欠款）：定损追索 900，善后单 1 张，已通报 VARA',
       });
       expect(JSON.stringify(call.objectSnapshot)).not.toMatch(/uuid-/);
 
       expect(incidents.markCloseRequested).toHaveBeenCalledWith('INC1', 'AC1');
       const audit = auditLogs.recordByActor.mock.calls[0][0];
       expect(audit).toMatchObject({ action: 'INCIDENT_CLOSE_REQUESTED', approvalNo: 'AC1', correlationId: 'trace-9' });
+    });
+
+    it('定损行带 assetCode → impact 拼上币种（终审点名：此前无覆盖分支）', async () => {
+      const { wf, approvals } = makeWorkflow({
+        incidentRow: {
+          id: 'uuid-inc', incidentNo: 'INC1', type: T.UNAUTHORIZED_OUTFLOW, status: S.RESOLVING,
+          assessmentBasis: 'FIRM_LOSS', assessedAmount: { toString: () => '400' }, assetCode: 'USDT-TRON',
+          reportRequired: false, reportedAt: null, customerNo: null, sourceCaseNo: 'REC1', traceId: 'trace-2',
+        },
+        remediations: ['ADJ2'],
+      });
+      await wf.requestClose('INC1', ops);
+      const call = approvals.createAndSubmit.mock.calls[0][0];
+      expect(call.objectSnapshot.impact).toBe('结案事故 INC1（未授权转出）：定损认损 400 USDT-TRON，善后单 1 张，无需通报');
     });
   });
 

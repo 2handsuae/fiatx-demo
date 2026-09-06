@@ -261,6 +261,10 @@ Last Updated: 2026-09-05
 - [ ] **`RECON_CASE_OPENED` 审计 metadata 仍带 `walletRef`（内部 UUID）**（2026-09-03 平账 A 批终审）：`wallet-recon-run.service.ts` 开案审计的 metadata 直接放 walletRef；本批新增的两条账龄审计已改用 `walletNo` 业务键，开案这条应对齐（子主体已是业务键，只是 metadata 漏了）｜来源: 平账 A 批终审 triage
 - [ ] **① 漏记入金补录：小额（低于该资产 DEPOSIT 单笔下限）CFO 批完不会自动到 SUCCESS，案子这一轮愈不了**（2026-09-04 平账 B 批 Task 8 e2e 实证）：`prisma/seed.business.ts` 给每个资产的 DEPOSIT `SINGLE_LIMIT` 都挂了下限（AED/USDT 现为 100）；补录信号建单时（`detected()`）金额低于这条线会带上 `limitHoldReason=BELOW_MIN`，即便运营发起补录、CFO 也在 `DEPOSIT_SUPPLEMENT` 审批里批准了，充值单入账唯一出口 `approveDeposit()` 仍会照下限单的老规矩把它按到 `OPERATION_PENDING`（不是 `SUCCESS`）——这一路的「重对账后案子愈」因此不成立，得再等运营在充值详情页点一次既有的「放行下限挂起」（`waiveLimitHold`）才走完。不是死路、也不是新缺口（下限闸是既有设计，补录只是撞上了它），但"漏记的往往是零头"——这正是"漏记入金"补录场景最典型的金额区间，补录闭环的演示脚本/文档若不点名这个额外步骤，讲这一幕时会卡在"怎么案子没愈"｜来源: 2026-09-04 Task 8 e2e 用真实 61 USDT 金额跑通 ①a 时当场复现（改用 150 USDT 绕开，未改代码）
 
+- [ ] **事故通报超时无持久软标与审计**：spec §2 曾承诺超时软标+审计，实现为界面倒计时徽标（前端算），十一码名册（业主拍板）无超时码位，补齐须业主扩名册；演示不演超时，缺口不影响本波验收 ｜来源: 2026-09-06 平账三期终审
+
+- [ ] **incidents 表三根低写入列**：customerId / sourceExternalLineId 零写入方、walletRef 仅 DTO 通道，下次动 incidents schema 时清理或接上真实写入 ｜来源: 2026-09-06 平账三期终审
+
 ## H. 第七幕 · 事后说得清（审计追溯）
 
 > 讲「这笔事谁批的、依据什么、钱去哪了」这一幕的缺口。三域词表已换装，剩配置域与子表覆盖面。
