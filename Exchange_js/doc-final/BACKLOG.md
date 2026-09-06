@@ -96,7 +96,7 @@ Last Updated: 2026-09-06
 
 - [ ] **机构客户 stub（现状口径已更正，非本波动作）**：`CorporateProfile`/`UboProfile` 两表已随站6（2026-08-27 一期拆除）整体删除——不是"表在逻辑无"，是表已不存在；`customerType='CORPORATE'` 现仅剩 `CustomerManagement.tsx` 筛选下拉与 `CustomerDetail.tsx` 两处死注释占位（`⑫ Corporate Profile`/`⑪ UBO List`，无渲染内容），入口仍是禁用状态。若要支持机构客户需从零设计数据模型，不是"接回"旧表 ｜来源: 2026-07-04 V2 体检 ｜ 2026-09-06 波一复核现状口径更正
 
-- [ ] ⭐ **Q2 销户流程只落了轴上位置 + 三条断言**：`OFFBOARDED` 是 `lifecycle` 终态，`CustomerAccessService.assertOffboardable()` 只实现三条不变量（`OFFBOARD_BLOCKED_BY_SANCTION` / `_BY_BALANCE` / `_BY_INFLIGHT`）。真正的销户流程——余额清退、材料归档留存期、审批链、客户侧发起入口——全部未做；管理台 Offboard 按钮当前是 disabled 占位（与下方「材料终拒 → 离场清退流程未接」并链——材料终拒是触发销户清退的另一条路径，两条记录指向同一个未做的缺口）｜来源: 2026-08-15 设计稿 §8 Q2
+- [ ] ⭐ **Q2 销户流程只落了轴上位置**（`assertOffboardable()` 三条不变量断言已随 2026-09-06 波一死码清扫删除——零调用方死码，重建销户时按新 spec 立）：`OFFBOARDED` 是 `lifecycle` 终态。真正的销户流程——余额清退、材料归档留存期、审批链、客户侧发起入口——全部未做；管理台 Offboard 按钮当前是 disabled 占位（与下方「材料终拒 → 离场清退流程未接」并链——材料终拒是触发销户清退的另一条路径，两条记录指向同一个未做的缺口）｜来源: 2026-08-15 设计稿 §8 Q2
 
 - [x] ~~六个 admin 页仍读已删的 `customer.complianceStatus`，客户级合规信号退化成 N/A~~ —— 已解（凭证销账）：三张交易详情页（`DepositTransactionDetail.tsx`/`WithdrawTransactionDetail.tsx`/`SwapTransactionDetail.tsx`）的 L1「客户级」层早于本条登记后 6 天已改读 `customer.lifecycle`（2026-08-22 第四批 commit `339195e4`，`getComplianceLayerStyle(data.customer?.lifecycle)` 三处实测在场，本条此前未跟进销账）；`RiskAssessmentDetailPage.tsx` 随站6 一期拆除已不存在（2026-08-27 `4c6770ac`）；`MaterialHoldingDetailPage.tsx`/`RefreshCycleDetailPage.tsx` 随本轮 material-refresh 子系统退役一并删除（2026-09-06 波一 `5f5faccc`）。六页全部核清（`find admin-web -iname` 三页名零命中）｜来源: 2026-08-16 Task 12 收尾时全仓 grep 发现 ｜ 2026-09-06 波一销账
 

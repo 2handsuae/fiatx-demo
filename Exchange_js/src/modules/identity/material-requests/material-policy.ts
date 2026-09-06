@@ -9,7 +9,6 @@ export interface MaterialConfig {
 export interface MaterialRefreshPolicy {
   version: string;
   effectiveFrom: string;
-  stages: Array<{ daysFromExpiry: number; action: string }>;
   materials: Record<string, MaterialConfig>;
 }
 
@@ -26,9 +25,5 @@ export class MaterialPolicyLoader {
 
   getMaterialConfig(materialType: string): MaterialConfig | null {
     return this.getPolicy().materials[materialType] || null;
-  }
-
-  reload(): void {
-    this.cached = null;
   }
 }
