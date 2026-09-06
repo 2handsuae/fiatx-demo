@@ -1,9 +1,8 @@
-# 平账三期 · 事故登记（治理件）—— 骨架
+# 平账三期 · 事故登记（治理件）
 
-- 日期：2026-09-03
-- 性质：**骨架，不是 spec**。按 `CLAUDE.md §6`，只留已定事实与岔口；二期收尾时由那一波**只**把「承接二期」写进本文开头；展开写细由三期开工的新会话读总纲 + 承接 + 本骨架后跟业主脑暴完成，再进 writing-plans。三期依赖 B 批与二期（善后原语），顺序不能反
-- 总纲：`2026-09-03-recon-settlement-waves-outline.md`（本波边界与验收口径以总纲为准）
-- 展开时的素材：提交 `313c60a1` 里本文的全文版（主体字段 / 五态状态机 / 结案审批 / 通报留痕 / 与案子的三处入口 / 页面 / 演示 / 验收草案），未经业主拍板，取材不照抄
+- 日期：2026-09-03 立骨架；**2026-09-06 展开成 spec**（业主逐岔拍板，本文取代骨架）
+- 性质：本波 spec。总纲：`2026-09-03-recon-settlement-waves-outline.md`（本波边界与验收口径以总纲为准）；素材取自 313c60a1 全文版草稿，已按拍板口径修订
+- 前序：一期 → 一期半 → A 批 → B 批 → 二期，**全部已合 main**——两个前置依赖（B 批补录 / 认领原语、二期补款划转原语）成立，演示闭环不拆
 
 ## 承接上一波（二期）
 
@@ -34,38 +33,169 @@
 - 复核人口径不变：三期涉及资金的动作（追索、赔付）复核人仍是 CFO；`UNAUTHORIZED_OUTFLOW` 定性时的上报留痕（对象 / 时限 / 依据）需求点依旧待三期设计补齐，本波未涉及。
 - 追索的入口已经确定：`purpose=CLIENT_ADVANCE` 的垫款单是它的锚点（客户欠公司的钱来自哪一张垫款单），但追索本身（客户 → 公司反向）**只登记不入账**——三期落地时这条已是既定事实，不必重新讨论账务模型。
 
-## 0.1 已经定了的
+## 0. 拍板记录（2026-09-06 脑暴，业主逐岔）
 
-| # | 事实 | 出处 |
+| # | 岔口 | 拍板 |
 |---|---|---|
-| 1 | 三期 = 事故登记，性质是**治理件**：纠错不动钱、划转动真钱有在途、事故是治理件，不硬塞进一个主体 | decisions 2026-08-28 |
-| 2 | C3 未授权转出（钥匙泄露 / 内部人 / 银行误划）业主定性为**事故**；补款只是善后，事故本身要登记、定性、升级（MLRO / 管理层）、通报监管 | BACKLOG §G 三期条 |
-| 3 | 抽不抽独立模块三期再定；**若建，先在 decisions 写清与已删 `incidents` 的区别**：被删的是合规筛查信号（归 Sumsub），这里是运营 / 安全 / 资金事件 | BACKLOG §G；decisions [合规承接] |
-| 4 | **上报留痕要求待设计**：该上报给谁、什么时候、依据什么——手册里抢先写的一句已删，需求点留给三期 | BACKLOG §G（2026-09-02 手册评审补记） |
-| 5 | 成因表 `UNAUTHORIZED_OUTFLOW` 出口「留档 · 事故升级（三期）」；公司池大额到线显示「超期 · 待升级事故（三期）」无入口 | `cause-registry.ts`；`modules/v8-recon.md` §5 |
-| 6 | 漏记的提现是事故不是差异，只开案升级 | BACKLOG「运营补录入站信号」条边角② |
-| 7 | 退汇认领余额不足 → 拒绝，待二期垫款与**三期追索** | B 批 spec §4 |
-| 8 | 内部恒等预门已在，破裂即中止本轮；事故界面 / 告警 / 收敛全部 defer，PRD 不把 INTERNAL_BREAK 当 run 结果 | BACKLOG「INTERNAL_BREAK 全链本期不做」 |
-| 9 | 监管挂钩在路线图：「未平差异报 VARA」（CRM IV.E.5 + V.D.2）、「卡单重大事件 72h 上报判定」（Tech K.1 + I.H.1）；今天无对外出口 | `reference/roadmap.md` ⚖️P1 |
-| 10 | 平台牌照仅 BD，T&S 条款不能当直接义务引 | memory `platform-license-bd-only` |
-| 11 | 复核口径：合规驱动归 MLRO，纯资金归 CFO | 业主 2026-09-03 |
+| G1 | 模块归属 | **甲：独立治理件** `governance/incidents`，与审批中心平级。事故可不来自对账（人工登记），挂对账下名不正；decisions 已写清与已删 `incidents`（合规筛查信号，归 Sumsub）的区别 |
+| G2 | 首批类型 | **四个**：未授权转出 / 大额查不出 / 退汇欠款 / 人工登记；漏记提现、恒等破裂留 BACKLOG |
+| G3 | 状态机 | 五态（已登记→调查中→已定损→处置中→已结案）；**升级是动作 + 记录，不是状态** |
+| G4 | 谁裁决 | 登记：运营 / 金库；结案按性质分链：安全类两步 MLRO→CFO、资金类单步 CFO（§3） |
+| G5 | 通报 | 只留痕不真发；**依据条款做成常量目录，时限跟条款走**（§4）——应然依据：真实世界上报是人工经门户 / 邮件，系统本分 = 证据、计时、留痕 |
+| G6 | 冻结 | 不自动；事故页只放「去冻结」指路链接（冻结是合规动作，有自己的门） |
+| G7 | 账务 | 事故零账务；善后走既有原语（补录 / 认领 / 认损调账 / 补款划转）；追索只登记不入账、不设应收科目 |
+| G8 | 演示 | 新增破口场景「未授权转出」（场景 18），从登记走到结案 + 通报草案；另演一笔人工登记 + 撤回 |
+| G9 | 大额到线 | 案子上「超期 · 待升级事故」文案变可点按钮，预填金额 / 钱包 / 案号 |
 
-## 0.2 待拍板（每条带建议）
+骨架「展开时要核的事实」三件的结论：① 审批框架按动作类型一对一取策略（`approval.constants.ts` 的 `POLICY` 表），不支持同一类型内按条件分流 → 结案拆两个动作类型（§3）；② 二期已合 main（f4611e05），无需降级方案；③ 通报时限已按 roadmap 一手核（业主指路核数）：**72h 只属网安 / BCDR 线**（TIR Rulebook Section K + H；roadmap 2026-07-04 纠偏明确"72h 归网安 / BCDR，旧版误挂'重大事件上报'"），CRM 未平差异线（IV.E.5 / V.D.2）一手核**未载时限数字**——不杜撰，该依据不带倒计时。
 
-| # | 岔口 | 选项 | 建议 |
+## 1. 定位与边界
+
+**是什么。** 一张事故单：谁登记、什么类型、涉及哪个钱包 / 客户 / 多少钱、从哪张案子来、调查记录、升级给了谁、定损多少、善后走了哪些单（补录 / 认领 / 调账 / 划转）、有没有通报监管、谁结的案。零账务。
+
+**不是什么。** 不是合规筛查——Sumsub 的 case 管"这个人 / 这笔钱可不可疑"（合规调查台，decisions [合规承接]），事故簿管"出了事怎么交代"；不是 STR / goAML——可疑交易报告是 MLRO 经 goAML 的合规线（roadmap 纠偏④：Sumsub 报不了、无固定天数），不进本模块；不是通知中心；不是对外通报系统（G5：不真发）；不是恒等破裂的收敛流程（BACKLOG 既定缓做）。
+
+**为什么单独一个主体。** 调账单和划转单都是「钱怎么改」，事故单是「事情怎么交代」：谁知道、何时知道、上报没有。两条硬理由：① 事故可以不来自对账（人工登记：托管方安全通告、钓鱼中招、服务中断、监管问询引发内查），挂对账下这些事没门进来；② 退汇欠款那根刺——公司垫款的损失在落账那刻已全额入账，客户欠的债**在账上故意无处安身**（不设应收科目），案子关了、划转单完结了，不登记就彻底隐形。**欠条得有个家。**
+
+**案子与事故的关系。** 案子是「账不平」的载体，事故单是「要交代」的载体；差异只有严重到要对外或对上交代的程度，才从前者升格出后者。案子不因事故登记而愈——账实仍不符直到善后落账。
+
+## 2. 主体与状态机
+
+主体 `Incident`（单号 `INC…`）。
+
+| 状态 | 含义 | 出边 |
+|---|---|---|
+| `REGISTERED` 已登记 | 有类型、金额、来源；从案子一键登记或人工登记 | `START_INVESTIGATION → INVESTIGATING`；`WITHDRAW → WITHDRAWN`（误登记，必填说明，留审计——登记簿上没有橡皮擦） |
+| `INVESTIGATING` 调查中 | 记录调查条目（时间、人、发现）；可做「升级」动作 | `ASSESS → ASSESSED` |
+| `ASSESSED` 已定损 | 定损金额、定损口径（RECOVERED 追回 / FIRM_LOSS 认损 / CLIENT_COLLECTION 追索 / NO_LOSS 无损失）、是否需通报 + 依据 | `START_RESOLUTION → RESOLVING`；`CLOSE_NO_ACTION → CLOSED`（无损失、无善后，仍走结案审批） |
+| `RESOLVING` 处置中 | 善后单挂上来：补录 / 认领 / 调账 / 划转，各自在自己域走完 | `CLOSE → CLOSED`（结案审批批准后） |
+| `CLOSED` / `WITHDRAWN` | 终态 | — |
+
+- 显式迁移表；`ASSESSED` 之前不能结案（G3）
+- **计时：通报时限一只钟。** 起算点 = **事故登记时刻**（TIR 条款措辞是"检测后 72h"，登记就是系统的检测记录，不从定损起算）；`reportDeadlineAt` 在定损勾选带钟依据时计算落库；超时只软标 + 审计，不推状态。其余不计时
+- 升级动作：`ESCALATE { to: MLRO | CFO | SENIOR_MANAGEMENT, note }`，可多次，每次一条记录 + 审计；升级是留痕不是审批，硬门只有结案审批一道
+
+## 3. 审批（结案拆两个动作类型）
+
+框架按动作类型一对一取审批链（§0 实证），不为单用例加分支能力——拆两个类型，各绑各的链：
+
+| 动作类型 | 审批链 | 哪些事故走它 |
+|---|---|---|
+| `INCIDENT_CLOSE_SECURITY` 事故结案·安全类 | 两步 `[MLRO] → [CFO]` | 未授权转出 |
+| `INCIDENT_CLOSE_FINANCIAL` 事故结案·资金类 | 单步 `[CFO]` | 大额查不出 / 退汇欠款 / 人工登记 |
+
+- **提单人无感知**：一个「提结案」按钮，系统按事故类型自动挑动作类型开审批单；两步链先例 = `DEPOSIT_SEIZE`，框架零改动、纯登记两行策略
+- 两步分工：MLRO 把合规 / 安全关（调查全不全、升级到位没有、通报留痕齐不齐、要不要另走 STR），CFO 把钱关（定损金额、善后单都落账了、公司损失口径）；任一步拒绝 = 整单拒绝，事故留在处置中，可补可重提
+- 结案审批单摘要：类型、金额、定损口径、善后单号清单、是否已通报
+- maker≠checker 照旧：`MAKER_GROUP_BY_POLICY` 两行都指 `INCIDENT_WRITE`；MLRO / CFO 不持 `INCIDENT_WRITE`，自批死锁不存在；48h 时效、批前可撤，与其他审批单同款
+- ⚠️ 二期承接教训：**审批类型三处同加**（routes + detail-read + maker），漏一处就是 403 或摘要空白
+
+## 4. 通报留痕（只留痕不真发）
+
+**依据条款目录**（常量表 `INCIDENT_REPORT_BASES`，roadmap 一手核，数字不杜撰）：
+
+| 依据码 | 条款 | 义务 | 法定钟 |
 |---|---|---|---|
-| G1 | 抽不抽独立模块 | 甲 `governance/incidents`，与 approvals 平级 ｜ 乙 挂在对账模块下 | **甲**；decisions 先写清与已删 `incidents` 的区别 |
-| G2 | 首批事故类型 | 未授权转出 ｜ 公司池大额查不出到线 ｜ 客户欠款 ｜ 漏记提现 ｜ 恒等破裂 ｜ 人工登记 | **前三 + 人工登记**；漏记提现与恒等破裂留 BACKLOG |
-| G3 | 状态机形状 | 甲 已登记 → 调查中 → 已定损 → 处置中 → 已结案 ｜ 乙 加「已升级」态 | **甲**；升级是动作 + 记录 |
-| G4 | 谁裁决 | 登记：运营 / 金库 ｜ 升级：按类型路由 ｜ 结案：未授权转出 MLRO → CFO 两步，其余 CFO 单步 | 采纳 |
-| G5 | 监管通报做到哪 | 甲 只留痕（对象 / 时限 / 依据 / 草案 / 已通报标记）｜ 乙 真发 | **甲**；时限数字按 CRM Rulebook 条款核后填，不杜撰 |
-| G6 | 与冻结联动 | 自动冻结 ｜ 不自动、页面指路 | **不自动** |
-| G7 | 账务出口 | 事故零账务；善后走既有原语（补录 / 认领 / 认损调账 / 补款划转）；追索只登记不入账 | 采纳，不设应收科目 |
-| G8 | 演示 | 新增「未授权转出」破口场景，从登记走到结案 + 通报草案 | 采纳，钱包位 plan 时定 |
-| G9 | 大额到线入口 | 案子上「升级事故」按钮带金额 / 钱包 / 案号 | 采纳 |
+| `TIR_K_H` | TIR Rulebook Section K + H | 材料性网安 / BCDR 事件报 VARA：性质 / 范围 / 影响 + 缓解 + 是否已报他机关 | **72h，检测起算** |
+| `CRM_IV_E_5` | CRM IV.E.5（Client Money） | 重大未平差异未纠正 → 通报 VARA | 无（条款一手核未载数字） |
+| `CRM_V_D_2` | CRM V.D.2（Client VAs） | 同上，客户虚拟资产侧 | 无 |
 
-## 展开时要核的事实
+- 定损时勾「需通报」并**多选依据**（未授权转出并引 TIR + CRM 是常态：既是安全事件又是客户资产差异）；`reportDeadlineAt` = 登记时刻 + 所选依据中最紧的钟；只选无钟依据则不设倒计时，界面显式显示「未设时限」
+- 事故单下挂通报子记录：`required`、`basisCodes`、`deadlineAt?`、`draft`（通报草案正文）、`reportedAt?` / `reportedByUserId?`（人工点「已通报」）、`reference?`（对外编号）。**三要素必须留痕：对象（VARA）、时限（含"未设时限"这个显式状态）、依据**
+- **不做泛化的"重大事件一律 72h"**——72h 常量只绑 `TIR_K_H` 一条依据（roadmap 纠偏①正是旧版把它挂错的教训）
+- **重要性阈值立场（写明，防止被当漏做）**：低于账龄线金额的查不出差异走核销、不单独通报 VARA——实务里这是客户资金政策的重要性门槛，门槛下差异内部处置留痕即可
 
-- 审批框架是否支持同一 actionType 按类型走不同步数；不支持则拆两个类型（`INCIDENT_CLOSE_SECURITY` / `INCIDENT_CLOSE_FINANCIAL`）
-- 二期是否合入：补款划转是赔付原语；未合入则演示闭环演不出，要业主同意再拆
-- 通报时限常量的依据条款（roadmap 引的 IV.E.5 / V.D.2 / I.H.1 是起点），由业主或飞书 PRD 给数
+## 5. 事故类型、入口与善后
+
+**首批四类**：
+
+| 类型 | 从哪来 | 通常通报姿态 | 善后口径 |
+|---|---|---|---|
+| `UNAUTHORIZED_OUTFLOW` 未授权转出 | 案子定性（查出来了：这笔转出不是我们发起的——钥匙泄露 / 内部人 / 银行误划） | 需通报，TIR + CRM 并引，72h 倒计时 | 认损调账 + 补款划转（客户余额复位） |
+| `LARGE_UNEXPLAINED` 大额查不出 | 挂起·调查中 → 账龄到线 → 大额（查不出：悬而未决本身升格为事故） | 需通报，CRM 依据，无法定钟 | 后续查明则按查明结果走；仍不明则认损 / 核销口径 |
+| `CLIENT_SHORTFALL` 退汇欠款 | 退汇认领余额不足 → 垫款之后，客户欠公司 | 通常不通报（催收事务） | 追回（钱进来时按进账落账）或放弃追索（无分录——损失早在垫款落账时入账） |
+| `MANUAL` 人工登记 | 治理台空表单（型录外其他事件兜底） | 定损时从依据目录选 | 视事而定，可零善后 |
+
+**四个入口**：
+
+| 入口 | 位置 | 预填 |
+|---|---|---|
+| 案子定性 `UNAUTHORIZED_OUTFLOW` → 「登记事故」 | 对账案子详情定性行出口 | 类型、钱包、客户、金额、案号、账单行参考号 |
+| 公司池大额到线 → 「升级事故」 | 案子详情 A 批「超期 · 待升级事故」处（文案变按钮，G9） | 类型 `LARGE_UNEXPLAINED`、金额、钱包、案号 |
+| 退汇认领余额不足 → 「登记欠款」 | B 批认领拒绝提示处（垫款按钮旁） | 类型 `CLIENT_SHORTFALL`、客户、差额、垫款单号（存在时锚定） |
+| 人工登记 | 治理台「事故登记」列表新建 | 空表单，类型手选，来源案号为空 |
+
+**善后回挂**：事故单上「善后单」列表，登记时选类型（补录 / 认领 / 调账 / 划转）+ 单号，系统只校验单号存在与归属同一客户或钱包；单子在各自域走完自己的审批与记账，事故页只读它们的状态。
+
+**未授权转出的善后两步**（沿承接预判，不发明新通道）：① 认损调账——沿用二期认损家族（金库开单、`reasonCode` 认损、CFO 批），把客户应付减掉、账实归一；② 补款划转——`initiateCompensation` 增加**第三种来源 `sourceIncidentNo`**（金额锁定 = 定损额，金库在事故单处置中阶段发起，CFO 批），公司真金白银把客户余额补回。落账后重对账，案子自愈。
+
+**案子侧**：成因表 `UNAUTHORIZED_OUTFLOW` 出口从「留档 · 事故升级（三期）」改为 `INCIDENT`（新 `StoredOutlet` 值），定性行显示「事故 · 已登记 INC…」可点；案子不因登记而愈。
+
+## 6. 页面
+
+- 管理台治理：「事故登记」列表（类型 / 状态 / 金额 / 来源案号 / 通报状态 / 时限倒计时）、详情（基本信息、调查记录时间线、升级记录、定损、善后单、通报留痕、审批、「去冻结」指路链接）、新建表单
+- 对账案子详情：三处入口按钮（§5）
+- 审批中心：通用（两个新动作类型天生分列，"安全类结案谁签的字"一个筛选就出来）
+- 客户端：**无**。事故信息一律不出客户面（未授权转出可能涉刑事调查，tipping-off 同款谨慎；客户看到的只是善后落账后的余额变化）
+
+**截图六张**：登记表单｜调查中详情（含升级记录）｜定损 + 通报草案（72h 倒计时在画面里）｜善后单挂载｜两步结案审批｜案子上的三处入口。
+
+## 7. 审计与权限
+
+- 审计码 11 个（domain `GOVERNANCE`）：`INCIDENT_REGISTERED` / `_INVESTIGATION_STARTED` / `_NOTE_ADDED` / `_ESCALATED` / `_ASSESSED` / `_REMEDIATION_LINKED` / `_REGULATOR_REPORT_DRAFTED` / `_REGULATOR_REPORTED` / `_CLOSE_REQUESTED` / `_CLOSED` / `_WITHDRAWN`；`_ESCALATED` 必填 `escalatedTo`，`_REGULATOR_REPORTED` 必填 `basisCodes`
+- ⚠️ **接线点 = `audit-logs.service.ts` 里 `assertActionSpec()` 的 `??` 判空链**（二期 Task 3 的 Critical 教训：接在常量文件里没用，漏接这条链 = 11 码全部免检静默放行）
+- 权限组 2 个：`INCIDENT_WRITE`（运营 + 金库：登记、调查、定损、挂善后、提结案、撤回）｜ `INCIDENT_READ`（MLRO、CFO、内审、高管：看）。不设单独复核组——裁决走审批中心策略角色，与其他审批同款；四处齐（catalog / bindings / route / 桶目录）
+- 端点 11 个：`POST /admin/incidents`（登记）、`GET` 列表 / 详情、`POST …/:incidentNo/notes`、`…/escalate`、`…/assess`、`…/remediations`、`…/regulator-report`（存草案）、`…/regulator-report/mark`（标已通报 + 编号）、`…/close`（开审批）、`…/withdraw`；`route()` 登记 + `db:base:sync` + 重启
+
+## 8. 演示脚本变化
+
+新增破口场景「未授权转出」（**场景 18**，编号接二期之后）：客户钱包幽灵 OUT、无任何单据 → 第六幕末段：定性「未授权转出」→ 登记事故 → 调查记录两条（查托管流水、查内部操作日志，结论：API 钥匙泄露）→ 升级 MLRO → 定损「认损，需通报」（并引 TIR + CRM，72h 倒计时起走）→ 通报草案 → 善后：认损调账 + 补款划转（客户余额复位）→ 结案两步审批 → 案子重对账愈。顺带演一笔 `MANUAL` 人工登记并撤回，讲「误登记怎么收」。
+
+花名册不动；`recon:demo:break` 场景数 **18/18**；钱包位与金额、`casesOpened` / 钱包数 / `demo:all` 判据数 plan 时定（承接：Alice USDT 已被场景 16 占用则叠 Bob USDT）；`baseline.md` 同步。验收必须**整库重铺**（承接：轻量重跑会让场景 6 假性 MISSED，误读成检出退化）。
+
+## 9. 验收标准
+
+- 随手闸三处；jest：`governance/incidents/`（新）、`reconciliation/`、`approvals/` 全绿
+- e2e `test/incident-register.e2e-spec.ts`：从案子登记 → 调查 → 升级 → 定损 → 善后挂载（引用真调账单 / 划转单）→ 两步结案 → 终态；通报留痕三要素齐（含无钟依据的「未设时限」显式态）；`ASSESSED` 前结案 400；人工登记 + 撤回；权限：运营能登记不能裁决、CFO 不能自批、两步链 MLRO 未批时 CFO 批不动
+- 收尾闸：`reset` 整库重铺 → `demo:all` → `recon:demo:break` 18/18 → 第六幕末段走查 → `verify:coa`（事故零账务；善后落账后恒等仍平）→ `verify:audit`（11 新码）→ `verify:rbac` → 截图六张
+- 变异测试：删「定损前不许结案」守卫 → 对应 e2e 必红；删通报时限计算 → 倒计时断言必红
+- 新表登记 `scripts/reset-business-data.ts` 删表顺序（二期 Task 2/10 的 FK 教训，随建表同一提交做）
+
+## 10. 明确不做
+
+真实对外通报 ｜ 自动冻结 ｜ 恒等破裂收敛全链 ｜ 漏记提现类型（BACKLOG）｜ STR / goAML（MLRO 合规线，不进本模块）｜ 泛化「重大事件 72h」钟（72h 只绑网安依据）｜ 低于账龄线差异的单独通报（重要性阈值立场，§4）｜ 通知中心 ｜ 事故 SLA 硬推状态 ｜ 应收科目 ｜ 客户端可见 ｜ 与 Sumsub 的信号联动 ｜ 幂等 / 并发 / 重试
+
+## 11. 依赖与顺序
+
+前提全部成立：B 批已合 main（2ee61e2a 收口，补录 / 认领原语）、二期已合 main（f4611e05，补款划转原语）。骨架里的降级拆分方案作废，演示闭环完整演。
+
+## 12. decisions.md 条目（2026-09-06 已落档，此处存目）
+
+- 事故登记是治理件、独立主体 `Incident`（`governance/incidents`），与已删 `incidents` 的区别写清
+- 事故零账务；善后走既有原语；追索只登记不入账、不设应收科目
+- 结案裁决按类型拆两个审批动作类型（安全类两步 / 资金类单步）；升级是动作不是状态
+- 监管通报只留痕；依据条款目录 + 时限跟条款走（72h 只属网安线；CRM 线无钟不杜撰；小额不单独通报）
+
+## 附录 A · 数据模型（一个迁移）
+
+| 表 | 字段 |
+|---|---|
+| `incidents`（新） | `id`、`incidentNo @unique`、`type`、`status`、`sourceCaseNo?`、`sourceDispositionNo?`、`sourceExternalLineId?`、`sourceAdvanceTransferNo?`（退汇欠款锚定的垫款单）、`walletRef?`、`customerId?`、`assetCode?`、`amount Decimal?`、`title`、`description`、`assessedAmount?`、`assessmentBasis?`（RECOVERED / FIRM_LOSS / CLIENT_COLLECTION / NO_LOSS）、`reportRequired Boolean`、`reportBasisCodes?`（依据码列表）、`reportDeadlineAt?`、`reportDraft?`、`reportedAt?`、`reportedByUserId?`、`reportReference?`、`registeredByUserId`、`closedAt?`、`withdrawnReason?`、`traceId`、时间戳 |
+| `incident_notes`（新） | `incidentId`、`kind`（NOTE / ESCALATION）、`escalatedTo?`、`body`、`authorUserId`、`createdAt` |
+| `incident_remediations`（新） | `incidentId`、`kind`（SUPPLEMENT / CLAIM / ADJUSTMENT / TRANSFER）、`referenceNo`、`linkedByUserId`、`createdAt` |
+| `reconciliation_dispositions` | + `incidentNo String?`（与 `adjustmentNo` / `supplementNo` 平行） |
+| `internal_transfers` | + `sourceIncidentNo String?`（补款第三来源） |
+
+常量：`INCIDENT_REPORT_BASES` 依据目录（3 条，§4）；`ApprovalActionTypes` +2、策略 +2、`MAKER_GROUP_BY_POLICY` +2；`AuditActions` +11、工作流类型 +1；`PermissionGroup` +2、`route()` +11；成因表 `UNAUTHORIZED_OUTFLOW` 出口 `DEFERRED/INCIDENT` → `INCIDENT`（新 `StoredOutlet` 值）；A 批账龄「待升级事故」文案改按钮。
+
+## 附录 B · 交付清单行（`rules/delivery-checklist.md` 对照）
+
+任何持久状态变化 ｜ 新增审计动作码（11，接 `assertActionSpec` 链）｜ 新状态 / 新结局（一整套迁移表；计时：通报时限一只钟、登记起算、软标）｜ 该走 maker-checker（结案，两类型）｜ 新增审批策略（+2，三处同加）｜ 新增权限组（2）｜ 新增 admin 端点（11）｜ 新增业务动作（前端入口四处）｜ 对外识别（`incidentNo`）｜ 改 schema（三新表 + 两加列，登记 reset 删表顺序）｜ 改页面与种子（破口场景 +1）｜ 改了前端（截图六张）｜ 每轮收尾（modules：`v1-governance.md` 加事故一节或新篇 plan 定；`v8-recon.md` §5 三处「三期」句改现状；手册 `UNAUTHORIZED_OUTFLOW` 行；`overview.md`；`decisions.md` 已落；`CHANGELOG.md`；`BACKLOG.md` 销 §G 三期条 + 上报留痕待设计 + B 批留下的追索行；roadmap 461 行部分兑现提醒业主自更）
+
+不触发：动了钱（事故零账务；善后在各自域已各自过闸）｜ 改了交易三域（无）｜ 新字段到客户面（无，刻意）｜ 新事件（无）
+
+## 进 plan 前要核
+
+- 认损调账当前入口的门槛：二期认损家族是否绑死在客户池核销（账龄线）语境；若绑，需为「事故定损 = 认损」开放同族入口而非绕道
+- 场景 18 的钱包位与金额、`casesOpened` / 钱包数 / `demo:all` 判据终值
+- `_REGULATOR_REPORT_DRAFTED` 是否随 `…/regulator-report` 每次保存都记（建议只在首次落草案时记，改稿走 `_NOTE_ADDED` 语义之外不另设码——plan 定）
