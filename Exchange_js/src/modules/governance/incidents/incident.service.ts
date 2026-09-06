@@ -268,6 +268,12 @@ export class IncidentService {
   async linkRemediation(incidentNo: string, dto: LinkRemediationDto, actor: ApprovalActorContext): Promise<{ incidentNo: string }> {
     const row = await this.findByNo(incidentNo);
     if (row.status !== IncidentStatus.ASSESSED && row.status !== IncidentStatus.RESOLVING) {
+      if (row.status === IncidentStatus.CLOSED) {
+        throw new BadRequestException(`事故 ${incidentNo} 已结案，不能再挂善后单`);
+      }
+      if (row.status === IncidentStatus.WITHDRAWN) {
+        throw new BadRequestException(`事故 ${incidentNo} 已撤回，不能挂善后单`);
+      }
       throw new BadRequestException(`事故还没定损，善后单挂不上——先定损（当前状态：${row.status}）`);
     }
     await this.assertRemediationReferenceExists(dto.kind, dto.referenceNo);
@@ -283,8 +289,11 @@ export class IncidentService {
     await (this.prisma as any).incidentRemediation.create({
       data: { incidentId: row.id, kind: dto.kind, referenceNo: dto.referenceNo, linkedByUserId: actor.userNo ?? actor.userId },
     });
+    // 发生迁移时按 assess() 样板同填 fromStatus/toStatus（本仓库记录状态边的规范列）；
+    // RESOLVING 上纯追加时没有状态边，两列留空。
     await this.recordAudit(updated, AuditActions.INCIDENT_REMEDIATION_LINKED, actor, {
       reason: `挂载善后单 ${dto.referenceNo}（${dto.kind}）`, extra: { referenceNo: dto.referenceNo },
+      ...(statusAdvanced ? { fromStatus: row.status, toStatus: updated.status } : {}),
       metadata: { kind: dto.kind, referenceNo: dto.referenceNo, ...(statusAdvanced ? { statusAdvanced } : {}) },
     });
     return { incidentNo };

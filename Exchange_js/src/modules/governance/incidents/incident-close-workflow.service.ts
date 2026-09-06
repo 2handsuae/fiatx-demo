@@ -15,7 +15,7 @@ import { AuditCategory, AuditSubjectInput, AuditSubjectRole } from '../../audit-
 import { ApprovalDecidedEvent } from '../approvals/approval-handler.base';
 import { ApprovalsService } from '../approvals/approvals.service';
 import { ApprovalActionTypes, ApprovalActorContext } from '../approvals/constants/approval.constants';
-import { IncidentTypes } from './incident.constants';
+import { IncidentStatus, IncidentTypes } from './incident.constants';
 import { IncidentService } from './incident.service';
 
 @Injectable()
@@ -36,11 +36,17 @@ export class IncidentCloseWorkflowService {
     const row = await this.incidents.findByNo(incidentNo);
     const remediationReferenceNos = await this.incidents.findRemediations(incidentNo);
 
-    if (row.status === 'ASSESSED') {
+    if (row.status === IncidentStatus.ASSESSED) {
       if (row.assessmentBasis !== 'NO_LOSS' || remediationReferenceNos.length > 0) {
         throw new BadRequestException(`事故 ${incidentNo} 定损结论非「无损失」或已挂善后单，须先进入处置中（RESOLVING）才能申请结案`);
       }
-    } else if (row.status !== 'RESOLVING') {
+    } else if (row.status !== IncidentStatus.RESOLVING) {
+      if (row.status === IncidentStatus.CLOSED) {
+        throw new BadRequestException(`事故 ${incidentNo} 已结案，不能再申请结案`);
+      }
+      if (row.status === IncidentStatus.WITHDRAWN) {
+        throw new BadRequestException(`事故 ${incidentNo} 已撤回，不能申请结案`);
+      }
       throw new BadRequestException(`事故 ${incidentNo} 当前状态 ${row.status} 不能申请结案——须先完成定损（进入 ASSESSED 或 RESOLVING）`);
     }
     if (row.reportRequired && !row.reportedAt) {
@@ -58,6 +64,7 @@ export class IncidentCloseWorkflowService {
         traceId: row.traceId,
         // 铁律⑥：快照零 UUID——审批页把 objectSnapshot 原样渲染
         objectSnapshot: {
+          incidentNo: row.incidentNo, customerNo: row.customerNo ?? null,
           type: row.type,
           amount: row.assessedAmount != null ? row.assessedAmount.toString() : null,
           assessmentBasis: row.assessmentBasis ?? null,

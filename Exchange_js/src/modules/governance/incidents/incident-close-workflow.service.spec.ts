@@ -108,6 +108,7 @@ describe('IncidentCloseWorkflowService（平账三期 Task 7）', () => {
       expect(call.entityRef).toBe('INC1');
       expect(call.traceId).toBe('trace-9');
       expect(call.objectSnapshot).toEqual({
+        incidentNo: 'INC1', customerNo: 'CU1',
         type: T.CLIENT_SHORTFALL, amount: '900', assessmentBasis: 'CLIENT_COLLECTION',
         remediationReferenceNos: ['ITR9'], reported: true,
       });

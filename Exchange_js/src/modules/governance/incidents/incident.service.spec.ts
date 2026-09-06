@@ -241,7 +241,7 @@ describe('IncidentService（平账三期 Task 5）', () => {
       }));
       expect(prisma.incidentRemediation.create).toHaveBeenCalledWith({ data: expect.objectContaining({ incidentId: 'uuid-inc', kind: 'ADJUSTMENT', referenceNo: 'ADJ1' }) });
       const call = auditLogs.recordByActor.mock.calls[0][0];
-      expect(call).toMatchObject({ action: 'INCIDENT_REMEDIATION_LINKED', referenceNo: 'ADJ1' });
+      expect(call).toMatchObject({ action: 'INCIDENT_REMEDIATION_LINKED', referenceNo: 'ADJ1', fromStatus: S.ASSESSED, toStatus: S.RESOLVING });
       expect(call.metadata).toMatchObject({ statusAdvanced: 'ASSESSED→RESOLVING' });
     });
 
@@ -256,6 +256,8 @@ describe('IncidentService（平账三期 Task 5）', () => {
       const call = auditLogs.recordByActor.mock.calls[0][0];
       expect(call).toMatchObject({ action: 'INCIDENT_REMEDIATION_LINKED', referenceNo: 'ITR1' });
       expect(call.metadata?.statusAdvanced).toBeUndefined();
+      expect(call.fromStatus).toBeUndefined();
+      expect(call.toStatus).toBeUndefined();
     });
 
     it('REGISTERED 状态挂载 → 400（还没定损，善后单挂不上）', async () => {

@@ -25,8 +25,8 @@ export type IncidentStatusType = (typeof IncidentStatus)[keyof typeof IncidentSt
  * 显式迁移表（spec §2）：状态 → 允许直达的下一状态集合。终态零出边。
  * `ASSESSED → RESOLVING`（十一码审计合同没有独立"开始处置"码位，裁决改搭在
  * `IncidentService.linkRemediation` 首次善后挂载上触发，Task 7 修复）、`ASSESSED → CLOSED`
- * （CLOSE_NO_ACTION，Task 7 落方法）、`RESOLVING → CLOSED`（CLOSE，Task 7 落方法）
- * 三条边按 brief 要求先登记在表里——本任务只实现 REGISTERED/INVESTIGATING 两段的方法。
+ * （CLOSE_NO_ACTION）、`RESOLVING → CLOSED`（CLOSE）三条边均已落方法
+ * （`IncidentCloseWorkflowService.requestClose`/`IncidentService.close`，Task 7）。
  */
 export const INCIDENT_TRANSITIONS: Record<string, readonly string[]> = {
   [IncidentStatus.REGISTERED]: [IncidentStatus.INVESTIGATING, IncidentStatus.WITHDRAWN],
