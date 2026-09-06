@@ -218,7 +218,7 @@ export class IncidentService {
     const subjects: AuditSubjectInput[] = [
       { subjectType: AuditEntityTypes.INCIDENT, subjectNo: row.incidentNo, subjectRole: AuditSubjectRole.PRIMARY },
     ];
-    if (row.customerNo) subjects.push({ subjectType: 'CUSTOMER', subjectNo: row.customerNo, subjectRole: AuditSubjectRole.OWNER });
+    if (row.customerNo) subjects.push({ subjectType: AuditEntityTypes.CUSTOMER, subjectNo: row.customerNo, subjectRole: AuditSubjectRole.OWNER });
     if (row.sourceCaseNo) subjects.push({ subjectType: AuditEntityTypes.RECONCILIATION_CASE, subjectNo: row.sourceCaseNo, subjectRole: AuditSubjectRole.RELATED });
     const display = actor.userNo ?? actor.userId;
     const input: any = {

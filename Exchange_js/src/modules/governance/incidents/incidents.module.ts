@@ -15,7 +15,7 @@ import { DISPOSITION_INCIDENT_LINK, DispositionIncidentLink, IncidentRegistratio
  * DispositionService，删除本类。
  */
 @Injectable()
-class InterimDispositionIncidentLink implements DispositionIncidentLink {
+export class InterimDispositionIncidentLink implements DispositionIncidentLink {
   constructor(private readonly prisma: PrismaService) {}
 
   async attachIncident(dispositionNo: string, incidentNo: string): Promise<void> {
