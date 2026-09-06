@@ -1148,7 +1148,7 @@ const ReconciliationCasesDetailPage = () => {
                                       登记事故
                                     </button>
                                   ) : (
-                                    <span className="whitespace-nowrap font-mono text-[10px] text-adm-red">待登记事故（三期）</span>
+                                    <span className="whitespace-nowrap font-mono text-[10px] text-adm-red">待登记事故</span>
                                   )
                                 )}
                                 {row.nextStep?.kind === 'WRITE_OFF' && kase.status === 'OPEN' && (
@@ -1190,7 +1190,7 @@ const ReconciliationCasesDetailPage = () => {
                                       升级事故
                                     </button>
                                   ) : (
-                                    <span className="whitespace-nowrap font-mono text-[10px] text-adm-red">超期 · 待升级事故（三期）</span>
+                                    <span className="whitespace-nowrap font-mono text-[10px] text-adm-red">超期 · 待升级事故</span>
                                   )
                                 )}
                                 {row.nextStep?.kind === 'CLIENT_SURPLUS' && (
