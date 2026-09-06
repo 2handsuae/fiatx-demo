@@ -142,16 +142,16 @@
 
 ## 7. 审计与权限
 
-- 审计码 11 个（domain `GOVERNANCE`）：`INCIDENT_REGISTERED` / `_INVESTIGATION_STARTED` / `_NOTE_ADDED` / `_ESCALATED` / `_ASSESSED` / `_REMEDIATION_LINKED` / `_REGULATOR_REPORT_DRAFTED` / `_REGULATOR_REPORTED` / `_CLOSE_REQUESTED` / `_CLOSED` / `_WITHDRAWN`；`_ESCALATED` 必填 `escalatedTo`，`_REGULATOR_REPORTED` 必填 `basisCodes`
+- 审计码 11 个（domain `GOVERNANCE`）：`INCIDENT_REGISTERED` / `_INVESTIGATION_STARTED` / `_NOTE_ADDED` / `_ESCALATED` / `_ASSESSED` / `_REMEDIATION_LINKED` / `_REGULATOR_REPORT_DRAFTED` / `_REGULATOR_REPORTED` / `_CLOSE_REQUESTED` / `_CLOSED` / `_WITHDRAWN`；`_ESCALATED` 必填 `escalatedTo`，`_REGULATOR_REPORTED` 必填 `basisCodes`。四属性（含义 / actionDomain / correlationMode / 特有必填）出生即冻结、plan 逐码定——单步动作 `correlationMode=N` 不伪造关联（二期判例）
 - ⚠️ **接线点 = `audit-logs.service.ts` 里 `assertActionSpec()` 的 `??` 判空链**（二期 Task 3 的 Critical 教训：接在常量文件里没用，漏接这条链 = 11 码全部免检静默放行）
-- 权限组 2 个：`INCIDENT_WRITE`（运营 + 金库：登记、调查、定损、挂善后、提结案、撤回）｜ `INCIDENT_READ`（MLRO、CFO、内审、高管：看）。不设单独复核组——裁决走审批中心策略角色，与其他审批同款；四处齐（catalog / bindings / route / 桶目录）
+- 权限组 2 个：`INCIDENT_WRITE`（运营 + 金库：登记、调查、定损、挂善后、提结案、撤回）｜ `INCIDENT_READ`（MLRO、CFO、内审、高管：看）。不设单独复核组——裁决走审批中心策略角色，与其他审批同款；四处齐（`PermissionGroup` 联合类型 / 职务 bindings / `route()` / 桶目录）。**桶落位**：桶目录新增「事故登记」域两桶（查事故 = `INCIDENT_READ`、管事故 = `INCIDENT_WRITE`）——G1 独立治理件在目录上的映射，维持零空域；12 域 56 桶 → 13 域 58 桶，`overview.md` §4 收尾同步
 - 端点 11 个：`POST /admin/incidents`（登记）、`GET` 列表 / 详情、`POST …/:incidentNo/notes`、`…/escalate`、`…/assess`、`…/remediations`、`…/regulator-report`（存草案）、`…/regulator-report/mark`（标已通报 + 编号）、`…/close`（开审批）、`…/withdraw`；`route()` 登记 + `db:base:sync` + 重启
 
 ## 8. 演示脚本变化
 
 新增破口场景「未授权转出」（**场景 18**，编号接二期之后）：客户钱包幽灵 OUT、无任何单据 → 第六幕末段：定性「未授权转出」→ 登记事故 → 调查记录两条（查托管流水、查内部操作日志，结论：API 钥匙泄露）→ 升级 MLRO → 定损「认损，需通报」（并引 TIR + CRM，72h 倒计时起走）→ 通报草案 → 善后：认损调账 + 补款划转（客户余额复位）→ 结案两步审批 → 案子重对账愈。顺带演一笔 `MANUAL` 人工登记并撤回，讲「误登记怎么收」。
 
-花名册不动；`recon:demo:break` 场景数 **18/18**；钱包位与金额、`casesOpened` / 钱包数 / `demo:all` 判据数 plan 时定（承接：Alice USDT 已被场景 16 占用则叠 Bob USDT）；`baseline.md` 同步。验收必须**整库重铺**（承接：轻量重跑会让场景 6 假性 MISSED，误读成检出退化）。
+花名册不动；`recon:demo:break` 场景数 **18/18**；钱包位与金额、`casesOpened` / 钱包数 / `demo:all` 判据数 plan 时定（承接：Alice USDT 已被场景 16 占用则叠 Bob USDT）；`demo/script.md` 第六幕末段新增步骤、`demo/data.md`（生成区由 `demo:all` 自写、手写区如需）与 `baseline.md` 同步。验收必须**整库重铺**（承接：轻量重跑会让场景 6 假性 MISSED，误读成检出退化）。
 
 ## 9. 验收标准
 
@@ -190,7 +190,7 @@
 
 ## 附录 B · 交付清单行（`rules/delivery-checklist.md` 对照）
 
-任何持久状态变化 ｜ 新增审计动作码（11，接 `assertActionSpec` 链）｜ 新状态 / 新结局（一整套迁移表；计时：通报时限一只钟、登记起算、软标）｜ 该走 maker-checker（结案，两类型）｜ 新增审批策略（+2，三处同加）｜ 新增权限组（2）｜ 新增 admin 端点（11）｜ 新增业务动作（前端入口四处）｜ 对外识别（`incidentNo`）｜ 改 schema（三新表 + 两加列，登记 reset 删表顺序）｜ 改页面与种子（破口场景 +1）｜ 改了前端（截图六张）｜ 每轮收尾（modules：`v1-governance.md` 加事故一节或新篇 plan 定；`v8-recon.md` §5 三处「三期」句改现状；手册 `UNAUTHORIZED_OUTFLOW` 行；`overview.md`；`decisions.md` 已落；`CHANGELOG.md`；`BACKLOG.md` 销 §G 三期条 + 上报留痕待设计 + B 批留下的追索行；roadmap 461 行部分兑现提醒业主自更）
+任何持久状态变化 ｜ 新增审计动作码（11，接 `assertActionSpec` 链）｜ 新状态 / 新结局（一整套迁移表；计时：通报时限一只钟、登记起算、软标）｜ 该走 maker-checker（结案，两类型）｜ 新增审批策略（+2，三处同加）｜ 新增权限组（2）｜ 新增 admin 端点（11）｜ 新增业务动作（前端入口四处）｜ 对外识别（`incidentNo`）｜ 改 schema（三新表 + 两加列，登记 reset 删表顺序）｜ 改页面与种子（破口场景 +1，`demo/script.md` + `demo/data.md` 同步）｜ 改了前端（截图六张）｜ 每轮收尾（modules：`v1-governance.md` 加事故一节或新篇 plan 定；`v8-recon.md` §5 三处「三期」句改现状；手册 `UNAUTHORIZED_OUTFLOW` 行；`overview.md` 含 §4 桶目录数；`decisions.md` 已落；`CHANGELOG.md`；`BACKLOG.md` 销 §G 三期条 + 上报留痕待设计 + B 批留下的追索行；roadmap 461 行部分兑现提醒业主自更）｜ **多波收官**（三期是最后一波：「承接下一波」行不触发——无下一波；取而代之，本波合并后**总纲随之归档 `archive/`**，总纲第 4 行自定的生命周期）
 
 不触发：动了钱（事故零账务；善后在各自域已各自过闸）｜ 改了交易三域（无）｜ 新字段到客户面（无，刻意）｜ 新事件（无）
 
