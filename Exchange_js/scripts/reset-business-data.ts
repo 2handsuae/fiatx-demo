@@ -53,6 +53,10 @@ const BUSINESS_DELEGATES_FK_SAFE: string[] = [
   // 旧调账单还挂在已删除案件的单号上，案件页的「本案调账单」块会长期堆
   // 陈年残留（一期落地当天就攒了 79 行）。放在 case 之前只是与本节
   // 「children before parents」的书写顺序保持一致。
+  // 平账三期：事故登记（零 FK 到 asset，但 notes/remediations FK → incidents，子先删）
+  'incidentNote',
+  'incidentRemediation',
+  'incident',
   'reconciliationAdjustment',
   'reconciliationLineItem',
   'reconciliationCase',

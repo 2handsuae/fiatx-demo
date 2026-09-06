@@ -1712,6 +1712,7 @@ model ReconciliationDisposition {
   findingNote             String
   adjustmentNo            String?
   supplementNo            String?   // 平账 B 批：与 adjustmentNo 平行，① 先写信号号、执行后改写为充值单号
+  incidentNo              String?   // 平账三期：与 adjustmentNo/supplementNo 平行，登记事故后写回
   createdByUserId         String
   createdAt               DateTime  @default(now())
   updatedAt               DateTime  @updatedAt
@@ -1719,6 +1720,71 @@ model ReconciliationDisposition {
   @@index([caseNo])
   @@index([walletRef, businessDate])
   @@map("reconciliation_dispositions")
+}
+
+model Incident {
+  id                 String    @id @default(uuid())
+  incidentNo         String    @unique
+  type               String    // UNAUTHORIZED_OUTFLOW | LARGE_UNEXPLAINED | CLIENT_SHORTFALL | MANUAL
+  status             String    @default("REGISTERED") // REGISTERED | INVESTIGATING | ASSESSED | RESOLVING | CLOSED | WITHDRAWN
+  title              String
+  description        String
+  sourceCaseNo       String?
+  sourceDispositionNo String?
+  sourceExternalLineId String? // 内部 id，任何界面不得展示
+  sourceAdvanceTransferNo String? // CLIENT_SHORTFALL：欠条锚定的垫款单
+  walletRef          String?
+  customerId         String?
+  customerNo         String?
+  assetCode          String?
+  amount             Decimal?  // 元（对齐 InternalTransfer.amount 口径）
+  assessedAmount     Decimal?
+  assessmentBasis    String?   // RECOVERED | FIRM_LOSS | CLIENT_COLLECTION | NO_LOSS
+  reportRequired     Boolean   @default(false)
+  reportBasisCodes   String?   // 逗号分隔依据码，如 "TIR_K_H,CRM_V_D_2"
+  reportDeadlineAt   DateTime?
+  reportDraft        String?
+  reportDraftedAt    DateTime?
+  reportedAt         DateTime?
+  reportedByUserId   String?
+  reportReference    String?
+  approvalNo         String?   // 结案审批单
+  registeredByUserId String
+  closedAt           DateTime?
+  withdrawnReason    String?
+  traceId            String
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+  notes        IncidentNote[]
+  remediations IncidentRemediation[]
+  @@index([status])
+  @@index([sourceCaseNo])
+  @@map("incidents")
+}
+
+model IncidentNote {
+  id           String   @id @default(uuid())
+  incidentId   String
+  kind         String   // NOTE | ESCALATION
+  escalatedTo  String?  // MLRO | CFO | SENIOR_MANAGEMENT（kind=ESCALATION 必填）
+  body         String
+  authorUserId String
+  createdAt    DateTime @default(now())
+  incident Incident @relation(fields: [incidentId], references: [id])
+  @@index([incidentId])
+  @@map("incident_notes")
+}
+
+model IncidentRemediation {
+  id             String   @id @default(uuid())
+  incidentId     String
+  kind           String   // SUPPLEMENT | CLAIM | ADJUSTMENT | TRANSFER
+  referenceNo    String
+  linkedByUserId String
+  createdAt      DateTime @default(now())
+  incident Incident @relation(fields: [incidentId], references: [id])
+  @@index([incidentId])
+  @@map("incident_remediations")
 }
 
 model ReconciliationRunWallet {
