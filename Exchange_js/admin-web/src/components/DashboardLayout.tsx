@@ -27,6 +27,7 @@ import {
   Sun,
   Moon,
   Database,
+  FileEdit,
 } from 'lucide-react';
 import { Link, useLocation, useNavigate, Outlet } from 'react-router-dom';
 import { useAdminSession } from '../contexts/AdminSessionContext';
@@ -296,6 +297,12 @@ const DashboardLayout = () => {
           label: 'External Balances',
           icon: <FileText size={13} />,
           requiredPermissions: [PERMISSIONS.RECON_EXTERNAL_BALANCE_READ],
+        },
+        {
+          path: '/admin/reconciliation/adjustments',
+          label: 'Adjustments',
+          icon: <FileEdit size={13} />,
+          requiredPermissions: [PERMISSIONS.RECON_ADJUSTMENT_LIST_READ],
         },
       ],
     },

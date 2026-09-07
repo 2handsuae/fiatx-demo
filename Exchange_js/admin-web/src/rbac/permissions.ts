@@ -56,6 +56,8 @@ export const PERMISSIONS = {
   RECON_ADJUSTMENT_CREATE: 'api.post.admin_reconciliation_adjustments',
   RECON_ADJUSTMENT_SUBMIT: 'api.post.admin_reconciliation_adjustments_adjustmentno_submit',
   RECON_ADJUSTMENT_DETAIL_READ: 'api.get.admin_reconciliation_adjustments_adjustmentno',
+  // 平账收尾·界面收口轮 Task 5——调账单列表端点（Task 4 已在 rbac.catalog.ts 登记）。
+  RECON_ADJUSTMENT_LIST_READ: 'api.get.admin_reconciliation_adjustments',
   RECON_DISPOSITION_CREATE: 'api.post.admin_reconciliation_cases_caseno_dispositions',
   RECON_REATTRIBUTION_CANDIDATES_READ: 'api.get.admin_reconciliation_cases_caseno_reattribution_candidates',
 
