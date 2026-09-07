@@ -134,7 +134,7 @@ export class AdminSumsubSimulationController {
         reviewResult: { reviewAnswer: body.reviewAnswer, reviewRejectType: body.reviewRejectType },
         createdAtMs: String(Date.now()),
       },
-      { isSimulated: true, simulatedByUserId: 'ADMIN_SIMULATION' },
+      { isSimulated: true, simulatedByUserId: 'ADMIN_SIMULATION', context: 'TIER_UPGRADE' },
     );
   }
 

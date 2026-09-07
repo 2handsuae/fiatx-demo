@@ -196,6 +196,8 @@ describe('首次 ACTIVE 开账本户钩子（波三 spec §7）', () => {
     const order = d.provisioning.provisionCustomerAccounts.mock.invocationCallOrder[0];
     expect(order).toBeLessThan(d.lifecycle.applyAction.mock.invocationCallOrder[0]); // 开户在迁移前
     expect(d.audit.recordSystem.mock.calls.some(([p]: any[]) => p.action === 'CUSTOMER_LEDGER_PROVISIONED')).toBe(true);
+    const provisioned = d.audit.recordSystem.mock.calls.find(([p]: any[]) => p.action === 'CUSTOMER_LEDGER_PROVISIONED');
+    expect(provisioned[0].afterData).toEqual({ created: 4, accounts: ['CLIENT_PAYABLE/AED'] });
   });
 
   it('onboardingApprovedAt 已有值（种子客户/重复进 ACTIVE）→ 钩子不触发', async () => {

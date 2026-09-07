@@ -133,6 +133,7 @@ describe('TierUpgradeWorkflowService 审批路径', () => {
     expect(d.customers.applyTierUpgrade).toHaveBeenCalledWith('cid', expect.anything());
     expect(d.prisma.tierUpgradeApplication.update).toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ status: 'APPROVED', decidedAt: expect.any(Date) }) }));
+    expect(d.prisma.$transaction).toHaveBeenCalledTimes(1);
     const audited = d.audit.recordByActor.mock.calls.find(([p]: any[]) => p.action === 'TIER_UPGRADE_ACCEPTANCE_DECIDED');
     expect(audited[0].afterData).toMatchObject({ decision: 'APPROVED', beforeTier: 'BASIC', afterTier: 'PREMIUM', fromStatus: 'MATERIALS_CLEARED', toStatus: 'APPROVED' });
   });
