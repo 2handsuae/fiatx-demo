@@ -248,6 +248,7 @@ model CustomerMain {
   explicitTags                CustomerExplicitTag[]
   restrictionRows             CustomerRestriction[]
   materialRequests            MaterialRequest[]       @relation("CustomerMaterialRequests")
+  tierUpgradeApplications     TierUpgradeApplication[]
 
   @@index([riskRating])
   @@map("customer_main")
@@ -345,6 +346,23 @@ model MaterialRequest {
   @@index([orderDomain, orderRef])
   @@index([restrictionNo])
   @@map("material_requests")
+}
+
+model TierUpgradeApplication {
+  id                   String    @id @default(uuid())
+  upgradeNo            String    @unique
+  customerId           String
+  status               String    @default("IN_REVIEW") // IN_REVIEW | MATERIALS_CLEARED | APPROVED | REJECTED
+  fromTier             String // 本波恒 BASIC，落列为审计真相
+  toTier               String // 本波恒 PREMIUM
+  materialsSubmittedAt DateTime?
+  decidedAt            DateTime?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+  customer CustomerMain @relation(fields: [customerId], references: [id])
+
+  @@index([customerId, status])
+  @@map("tier_upgrade_applications")
 }
 
 model AuditLogEvent {
