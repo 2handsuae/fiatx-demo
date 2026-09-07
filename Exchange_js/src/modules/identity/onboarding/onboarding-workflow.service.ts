@@ -1,10 +1,13 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { OnEvent } from '@nestjs/event-emitter';
 import { randomUUID } from 'crypto';
 import { PrismaService } from '../../../core/prisma/prisma.service';
 import { CustomerLifecycleService } from '../customers/customer-lifecycle.service';
 import { CustomersService } from '../customers/customers.service';
 import { SumsubClient } from '../../sumsub-applicant-client/sumsub.client';
 import { ApprovalsService } from '../../governance/approvals/approvals.service';
+import { ApprovalActorContext } from '../../governance/approvals/constants/approval.constants';
+import { ApprovalDecidedEvent } from '../../governance/approvals/approval-handler.base';
 import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import { AuditActions, AuditEntityTypes } from '../../audit-logging/constants/audit-actions.constant';
 import {
@@ -200,5 +203,66 @@ export class OnboardingWorkflowService {
       afterData: { levelName: ONBOARDING_LEVELS.EDD, eddRequired: true },
     }, false);
     return { customerNo: c.customerNo, levelName: ONBOARDING_LEVELS.EDD };
+  }
+
+  /** 运营提请准入核准（maker）。守卫：客户在 PENDING_APPROVAL 且无在批单。 */
+  async submitAcceptance(customerNo: string, reason: string, actor: ApprovalActorContext) {
+    const c = await this.prisma.customerMain.findFirst({ where: { customerNo } });
+    if (!c) throw new NotFoundException(`Customer not found: ${customerNo}`);
+    if (c.lifecycle !== 'PENDING_APPROVAL') {
+      throw new BadRequestException(`Customer ${customerNo} is not awaiting acceptance`);
+    }
+    const open = await this.prisma.approvalCase.findFirst({
+      where: { actionType: 'CUSTOMER_ONBOARDING_ACCEPTANCE', entityRef: customerNo, status: { in: ['DRAFT', 'PENDING'] } },
+    });
+    if (open) throw new BadRequestException(`Acceptance already pending approval: ${open.approvalNo}`);
+    const traceId = randomUUID();
+    const impact = `高风险客户准入核准：${customerNo}（风险 ${c.riskRating}，EDD 已在 Sumsub 完成，GREEN）——批准即开户 ACTIVE，限额与费率按默认档生效`;
+    const approvalCase = await this.approvalsService.createAndSubmit(
+      {
+        actionType: 'CUSTOMER_ONBOARDING_ACCEPTANCE', entityRef: customerNo, traceId,
+        objectSnapshot: {
+          customerNo, riskRating: c.riskRating, eddRequired: c.eddRequired,
+          levelName: c.sumsubCurrentLevelName, submittedAt: c.onboardingSubmittedAt, impact,
+        },
+      },
+      { reason, traceId },
+      actor,
+    );
+    await this.auditLogsService.recordByActor({
+      action: AuditActions.ONBOARDING_ACCEPTANCE_SUBMITTED, actionDomain: 'CUSTOMER',
+      primarySubjectType: AuditEntityTypes.CUSTOMER, primarySubjectNo: customerNo, ownerCustomerNo: customerNo,
+      subjects: [
+        { subjectType: AuditEntityTypes.CUSTOMER, subjectNo: customerNo, subjectRole: 'PRIMARY' },
+        { subjectType: AuditEntityTypes.APPROVAL_CASE, subjectNo: approvalCase.approvalNo, subjectRole: 'INSTRUMENT' },
+      ],
+      reason, approvalNo: approvalCase.approvalNo,
+      requestId: `ONBOARDING_ACCEPTANCE_SUBMITTED_${customerNo}_${randomUUID()}`,
+      afterData: { approvalNo: approvalCase.approvalNo },
+      sourcePlatform: 'ADMIN_API',
+    } as any, { actorType: 'ADMIN', actorNo: actor.userNo ?? actor.userId ?? 'ADMIN', actorDisplayName: actor.userNo ?? actor.userId ?? 'ADMIN', actorRolesAtTime: actor.roleCodes ?? [] });
+    return { approvalNo: approvalCase.approvalNo };
+  }
+
+  /** 高管裁决落轴（handler 二级事件）。APPROVED → ACTIVE；DECLINED → REJECTED（可重申）。 */
+  @OnEvent('workflow.customer-onboarding-acceptance.decided', { async: true })
+  async onAcceptanceDecided(event: ApprovalDecidedEvent) {
+    if (event.decision !== 'APPROVED' && event.decision !== 'DECLINED') return;
+    const c = await this.prisma.customerMain.findFirst({ where: { customerNo: event.entityRef } });
+    if (!c) return;
+    const action = event.decision === 'APPROVED' ? 'FINAL_APPROVED' : 'FINAL_REJECTED';
+    let to = '';
+    await this.prisma.$transaction(async (tx) => {
+      const r = await this.lifecycle.applyAction(c.id, action, tx);
+      to = r.to;
+    });
+    await this.auditLogsService.recordByActor({
+      action: AuditActions.ONBOARDING_ACCEPTANCE_DECIDED, actionDomain: 'CUSTOMER',
+      primarySubjectType: AuditEntityTypes.CUSTOMER, primarySubjectNo: c.customerNo, ownerCustomerNo: c.customerNo,
+      approvalNo: event.approvalNo,
+      requestId: `ONBOARDING_ACCEPTANCE_DECIDED_${c.customerNo}_${randomUUID()}`,
+      afterData: { decision: event.decision, to },
+      sourcePlatform: 'ADMIN_API',
+    } as any, { actorType: 'ADMIN', actorNo: event.decisionByUserNo ?? 'ADMIN', actorDisplayName: event.decisionByUserNo ?? 'ADMIN', actorRolesAtTime: [event.decisionByRole ?? 'UNKNOWN'] });
   }
 }

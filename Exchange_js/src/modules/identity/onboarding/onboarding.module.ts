@@ -5,7 +5,9 @@ import { CustomersModule } from '../customers/customers.module';
 import { SumsubApplicantClientModule } from '../../sumsub-applicant-client/sumsub-applicant-client.module';
 import { ApprovalsModule } from '../../governance/approvals/approvals.module';
 import { OnboardingWorkflowService } from './onboarding-workflow.service';
+import { OnboardingAcceptanceApprovalService } from './onboarding-acceptance-approval.service';
 import { OnboardingClientController } from './onboarding.client.controller';
+import { OnboardingAdminController } from './onboarding.admin.controller';
 
 @Module({
   imports: [
@@ -16,8 +18,8 @@ import { OnboardingClientController } from './onboarding.client.controller';
     SumsubApplicantClientModule,
     ApprovalsModule,
   ],
-  providers: [OnboardingWorkflowService],
-  controllers: [OnboardingClientController],
+  providers: [OnboardingWorkflowService, OnboardingAcceptanceApprovalService],
+  controllers: [OnboardingClientController, OnboardingAdminController],
   exports: [OnboardingWorkflowService],
 })
 export class OnboardingModule {}

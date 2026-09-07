@@ -21,6 +21,7 @@ export type PermissionGroup =
   | 'CUSTOMER_RESTRICTION_READ'
   | 'CUSTOMER_RESTRICTION_WRITE'
   | 'CUSTOMER_RESTRICTION_RELEASE'
+  | 'CUSTOMER_ONBOARDING_ACCEPT_WRITE'
   | 'DEMO_CLOCK_WRITE'
   | 'DEMO_VERDICT_WRITE'
   | 'SUMSUB_EVENT_VIEW'
@@ -244,6 +245,14 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
     '/admin/customers/:customerNo/restrictions/:restrictionNo/release',
     'Request restriction release',
     ['CUSTOMER_RESTRICTION_RELEASE'],
+  ),
+
+  // Onboarding acceptance（客户域波二·准入审批线，2026-09-07）
+  route(
+    'POST',
+    '/admin/customers/:customerNo/onboarding-acceptance',
+    'Open a senior-management acceptance approval for a high-risk onboarding customer',
+    ['CUSTOMER_ONBOARDING_ACCEPT_WRITE'],
   ),
 
   // Material requests
@@ -792,6 +801,12 @@ export const ACTION_BUCKET_CATALOG: ActionDomain[] = [
         description: 'Request release of an existing restriction — deliberately split from opening one',
         groups: ['CUSTOMER_RESTRICTION_RELEASE'],
       },
+      {
+        key: 'customer.act_onboarding_acceptance',
+        label: 'Request onboarding acceptance',
+        description: 'Open a senior-management approval to accept a high-risk onboarding customer',
+        groups: ['CUSTOMER_ONBOARDING_ACCEPT_WRITE'],
+      },
     ],
   },
   // ─── Domain: Trading (split per concrete action) ──────
@@ -1040,7 +1055,7 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
     'LEDGER_ACCOUNT_READ', 'LEDGER_EVIDENCE_READ', 'LEDGER_FLOW_READ',
     'ASSET_CONFIG_READ', 'ASSET_CONFIG_WRITE', 'WALLET_READ', 'WITHDRAWAL_ADDRESS_READ',
     'TRANSACTION_LIMIT_READ', 'TRANSACTION_LIMIT_WRITE',
-    'CUSTOMER_READ', 'CUSTOMER_RESTRICTION_READ', 'CUSTOMER_TAG_VIEW',
+    'CUSTOMER_READ', 'CUSTOMER_RESTRICTION_READ', 'CUSTOMER_TAG_VIEW', 'CUSTOMER_ONBOARDING_ACCEPT_WRITE',
     'TRADING_DEPOSIT_READ', 'TRADING_WITHDRAW_READ', 'TRADING_SWAP_READ', 'SUMSUB_EVENT_VIEW',
     'DEPOSIT_WAIVE_WRITE', 'DEPOSIT_CONFISCATE_WRITE', 'DEPOSIT_RETURN_WRITE', 'DEPOSIT_SEIZE_WRITE', 'DEPOSIT_SUPPLEMENT_WRITE', 'DEPOSIT_CLAWBACK_WRITE',
     'TRADING_WITHDRAW_WRITE', 'WITHDRAW_BOUNCE_WRITE', 'WITHDRAW_REFUND_WRITE', 'WITHDRAW_RETURN_CLAIM_WRITE',

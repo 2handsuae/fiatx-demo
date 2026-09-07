@@ -136,3 +136,41 @@ describe('OnboardingWorkflowService 裁决与换档（webhook 侧）', () => {
       .rejects.toThrow(BadRequestException);
   });
 });
+
+describe('OnboardingWorkflowService 准入审批线', () => {
+  const pending = () => customerRow({ lifecycle: 'PENDING_APPROVAL', eddRequired: true,
+    sumsubCurrentLevelName: ONBOARDING_LEVELS.EDD, onboardingSubmittedAt: new Date() });
+  const adminActor = { userId: 'u1', userNo: 'ADM001', roleCodes: ['OPS_OFFICER'] } as any;
+
+  it('submitAcceptance: 走 ApprovalsService 正门,快照带后果原话,留痕带 approvalNo', async () => {
+    const d = makeDeps(pending());
+    await build(d).submitAcceptance('CU250907001', '尽调完成，提请准入', adminActor);
+    const [first] = d.approvals.createAndSubmit.mock.calls[0];
+    expect(first.actionType).toBe('CUSTOMER_ONBOARDING_ACCEPTANCE');
+    expect(first.entityRef).toBe('CU250907001');
+    expect(first.objectSnapshot.impact).toContain('CU250907001');
+    expect(d.audit.recordByActor).toHaveBeenCalled();
+  });
+
+  it('submitAcceptance: 非 PENDING_APPROVAL 或已有在批单 → 显式拒', async () => {
+    const d1 = makeDeps(customerRow({ lifecycle: 'ACTIVE' }));
+    await expect(build(d1).submitAcceptance('CU250907001', 'x', adminActor)).rejects.toThrow(BadRequestException);
+    const d2 = makeDeps(pending());
+    d2.prisma.approvalCase.findFirst.mockResolvedValue({ approvalNo: 'APR0009', status: 'PENDING' });
+    await expect(build(d2).submitAcceptance('CU250907001', 'x', adminActor)).rejects.toThrow(BadRequestException);
+  });
+
+  it('decided APPROVED → FINAL_APPROVED；DECLINED → FINAL_REJECTED；CANCELLED 不动轴', async () => {
+    const base = { actionType: 'CUSTOMER_ONBOARDING_ACCEPTANCE', entityRef: 'CU250907001', approvalNo: 'APR0001',
+      decisionByUserNo: 'ADM2501010002', decisionByRole: 'SENIOR_MANAGEMENT_OFFICER' } as any;
+    const d = makeDeps(pending());
+    await build(d).onAcceptanceDecided({ ...base, decision: 'APPROVED' });
+    expect(d.lifecycle.applyAction).toHaveBeenCalledWith('cid', 'FINAL_APPROVED', expect.anything());
+    const d2 = makeDeps(pending());
+    await build(d2).onAcceptanceDecided({ ...base, decision: 'DECLINED' });
+    expect(d2.lifecycle.applyAction).toHaveBeenCalledWith('cid', 'FINAL_REJECTED', expect.anything());
+    const d3 = makeDeps(pending());
+    await build(d3).onAcceptanceDecided({ ...base, decision: 'CANCELLED' });
+    expect(d3.lifecycle.applyAction).not.toHaveBeenCalled();
+  });
+});
