@@ -52,7 +52,7 @@ export class PushOrderService {
     const receipt = await this.receiptLookup.findUniqueReceipt(this.toView(order));
     if (receipt.kind === 'MISS') {
       throw new BadRequestException(
-        `未找到唯一回执（${receipt.candidates} 条候选）——请核实外部对账单摄入情况，或走人工确认`,
+        `No unique receipt found (${receipt.candidates} candidates)——verify the external statement ingestion, or use manual confirmation`,
       );
     }
     const fromStatus = order.status;
@@ -77,7 +77,7 @@ export class PushOrderService {
     const order = await this.loadPushable(fundsOrderNo);
     this.assertValidExternalDate(evidence.externalDate, order.createdAt);
     if (!evidence.receiptRef?.trim() || !evidence.reason?.trim()) {
-      throw new BadRequestException('人工确认必填证据三件套：回执号 + 外部实际动账日 + 原因');
+      throw new BadRequestException('Manual confirmation requires the full evidence triplet: receipt reference + actual external value date + reason');
     }
     const fromStatus = order.status;
     const final = await this.driveToCleared(order, operatorId, evidence.externalDate);
@@ -104,11 +104,11 @@ export class PushOrderService {
     if (!order) throw new NotFoundException(`FundsOrder ${fundsOrderNo} not found`);
     if (order.swapTransactionId) {
       throw new BadRequestException(
-        'swap 腿资金单请走 Swap 详情页逐腿推进（顺序守卫），本期不支持推单',
+        'Swap-leg funds orders must be advanced leg by leg from the Swap detail page (sequence guard) — push order is not supported for them this round',
       );
     }
     if (TERMINAL.has(order.status)) {
-      throw new BadRequestException(`FundsOrder ${fundsOrderNo} 已是终态（${order.status}），无可推进`);
+      throw new BadRequestException(`FundsOrder ${fundsOrderNo} is already in a terminal state (${order.status}) — nothing to advance`);
     }
     return order;
   }
@@ -158,7 +158,7 @@ export class PushOrderService {
       }
       if (fresh && TERMINAL.has(fresh.status)) {
         throw new BadRequestException(
-          `FundsOrder ${order.fundsOrderNo} 推进出意外：并发已落终态 ${fresh.status}（非 CLEARED）`,
+          `FundsOrder ${order.fundsOrderNo} advance hit an unexpected state: a concurrent process already reached terminal state ${fresh.status} (not CLEARED)`,
         );
       }
       if (fresh) current = fresh;
@@ -185,13 +185,13 @@ export class PushOrderService {
           current = recheck;
           break;
         }
-        throw new BadRequestException(`FundsOrder ${order.fundsOrderNo} 在 ${current.status} 无合法推进动作`);
+        throw new BadRequestException(`FundsOrder ${order.fundsOrderNo} has no legal advance action from state ${current.status}`);
       }
       current = advanced;
     }
     // (4) 收尾闸门:A3 起接受 CONFIRMED(推单的终点)或 CLEARED(workflow 已抢先结清)。
     if (!reachedGoal(current.status)) {
-      throw new BadRequestException(`推进未达目标态（止于 ${current.status}，期望 CONFIRMED）`);
+      throw new BadRequestException(`Advance did not reach the target state (stopped at ${current.status}, expected CONFIRMED)`);
     }
     // A3:循环在 CONFIRMED 就停手,但并发的 workflow 结算可能已经把这一行推到 CLEARED。
     // 收尾重读一次,让上报的 finalStatus 反映真实行状态,而不是循环里的中间值。
@@ -200,11 +200,11 @@ export class PushOrderService {
   }
 
   private assertValidExternalDate(d: string, orderCreatedAt: Date) {
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) throw new BadRequestException('外部动账日格式须为 YYYY-MM-DD');
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) throw new BadRequestException('External value date must be in YYYY-MM-DD format');
     const today = new Date().toISOString().slice(0, 10);
-    if (d > today) throw new BadRequestException('外部动账日不能是未来');
+    if (d > today) throw new BadRequestException('External value date cannot be in the future');
     if (d < orderCreatedAt.toISOString().slice(0, 10)) {
-      throw new BadRequestException('外部动账日不能早于单子创建日');
+      throw new BadRequestException('External value date cannot be earlier than the order creation date');
     }
   }
 

@@ -9,7 +9,7 @@ import { DispositionService } from './disposition.service';
 import { SupplementEvidenceService } from './supplement-evidence.service';
 import { RecordDispositionDto } from '../dto/disposition.dto';
 
-@ApiTags('Admin - Reconciliation Disposition (平账·定性)')
+@ApiTags('Admin - Reconciliation Disposition (Recon · Findings)')
 @ApiBearerAuth()
 @Controller('admin/reconciliation/cases/:caseNo')
 @UseGuards(AuthGuard('jwt'), AdminPermissionGuard)
@@ -32,21 +32,21 @@ export class DispositionController {
   }
 
   @Post('dispositions')
-  @ApiOperation({ summary: '定性：记查证结论（成因 + 说明），出口由注册表判定' })
+  @ApiOperation({ summary: 'Record finding: log the investigation conclusion (cause + note); outlet is determined by the registry' })
   @RequirePermissions(buildPermissionCode('POST', '/admin/reconciliation/cases/:caseNo/dispositions'))
   record(@Param('caseNo') caseNo: string, @Body() dto: RecordDispositionDto, @Req() req: any) {
     return this.disposition.record(caseNo, dto, this.buildActor(req));
   }
 
   @Get('reattribution-candidates')
-  @ApiOperation({ summary: '改记对端候选：同日同资产同金额的反向孤儿' })
+  @ApiOperation({ summary: 'Reattribution candidates: same-day, same-asset, same-amount opposite orphans' })
   @RequirePermissions(buildPermissionCode('GET', '/admin/reconciliation/cases/:caseNo/reattribution-candidates'))
   candidates(@Param('caseNo') caseNo: string, @Query('side') side: 'FROM' | 'TO', @Query('amount') amount: string) {
     return this.disposition.listReattributionCandidates(caseNo, side, amount);
   }
 
   @Get('supplement-candidates')
-  @ApiOperation({ summary: 'Statement-line facts + candidate original orders for a supplement (平账 B 批)' })
+  @ApiOperation({ summary: 'Statement-line facts + candidate original orders for a supplement (Recon Batch B)' })
   @RequirePermissions(buildPermissionCode('GET', '/admin/reconciliation/cases/:caseNo/supplement-candidates'))
   supplementCandidates(@Param('caseNo') caseNo: string, @Query('externalLineId') externalLineId: string) {
     return this.supplementEvidence.listCandidates(caseNo, externalLineId);

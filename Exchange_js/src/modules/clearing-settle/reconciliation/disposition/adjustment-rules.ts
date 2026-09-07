@@ -40,37 +40,37 @@ export const REASON_SPECS: Record<ReasonCode, {
    *  只用于留痕/统计分组，不参与 assertReasonAllowed 的合法性判定。 */
   family: AdjustFamily;
 }> = {
-  DEPOSIT_AMOUNT_CORRECTION:  { book: 'CLIENT', directions: ['REDUCE', 'INCREASE'], customerLabel: '充值金额更正', internalLabel: '充值金额更正', family: 'CORRECT' },
-  DEPOSIT_DUPLICATE_REVERSAL: { book: 'CLIENT', directions: ['REDUCE'],             customerLabel: '重复入账撤销', internalLabel: '重复入账撤销', family: 'REVERSE' },
-  DEPOSIT_SIGNAL_VOID:        { book: 'CLIENT', directions: ['REDUCE'],             customerLabel: '充值撤销',     internalLabel: '充值撤销',     family: 'REVERSE' },
-  WITHDRAW_AMOUNT_CORRECTION: { book: 'CLIENT', directions: ['INCREASE'],           customerLabel: '提现金额更正', internalLabel: '提现金额更正', family: 'CORRECT' },
-  WITHDRAW_VOID_REFUND:       { book: 'CLIENT', directions: ['INCREASE'],           customerLabel: '提现撤销退回', internalLabel: '提现撤销退回', family: 'REVERSE' },
-  BANK_INTEREST:              { book: 'FIRM',   directions: ['INCREASE'],           customerLabel: null,           internalLabel: '银行利息',     family: 'RECORD' },
-  BANK_CHARGE:                { book: 'FIRM',   directions: ['REDUCE'],             customerLabel: null,           internalLabel: '银行杂费',     family: 'RECORD' },
+  DEPOSIT_AMOUNT_CORRECTION:  { book: 'CLIENT', directions: ['REDUCE', 'INCREASE'], customerLabel: 'Deposit amount correction', internalLabel: 'Deposit amount correction', family: 'CORRECT' },
+  DEPOSIT_DUPLICATE_REVERSAL: { book: 'CLIENT', directions: ['REDUCE'],             customerLabel: 'Duplicate deposit reversal', internalLabel: 'Duplicate deposit reversal', family: 'REVERSE' },
+  DEPOSIT_SIGNAL_VOID:        { book: 'CLIENT', directions: ['REDUCE'],             customerLabel: 'Deposit reversal',     internalLabel: 'Deposit reversal',     family: 'REVERSE' },
+  WITHDRAW_AMOUNT_CORRECTION: { book: 'CLIENT', directions: ['INCREASE'],           customerLabel: 'Withdrawal amount correction', internalLabel: 'Withdrawal amount correction', family: 'CORRECT' },
+  WITHDRAW_VOID_REFUND:       { book: 'CLIENT', directions: ['INCREASE'],           customerLabel: 'Withdrawal refund', internalLabel: 'Withdrawal refund', family: 'REVERSE' },
+  BANK_INTEREST:              { book: 'FIRM',   directions: ['INCREASE'],           customerLabel: null,           internalLabel: 'Bank interest',     family: 'RECORD' },
+  BANK_CHARGE:                { book: 'FIRM',   directions: ['REDUCE'],             customerLabel: null,           internalLabel: 'Bank charges',     family: 'RECORD' },
   // 第四族（spec §6）：钱在托管里一分没动，主人记错了。不走 book×direction
   // 语义（directions 空 = assertReasonAllowed 对它恒拒），分录由
   // resolveReattributionLegs 直接定；两个客户的应付对转，资产腿不动。
-  CUSTOMER_REATTRIBUTION:     { book: 'CLIENT', directions: [],                     customerLabel: '账户更正划转', internalLabel: '记错客户更正（改记）', family: 'REATTRIBUTE' },
+  CUSTOMER_REATTRIBUTION:     { book: 'CLIENT', directions: [],                     customerLabel: 'Account correction', internalLabel: 'Customer reattribution', family: 'REATTRIBUTE' },
   // 平账 A 批（spec §5）：公司账簿冲销定码——一期半留档的「公司收支记多 / 误记」有了码。
-  FIRM_ENTRY_REVERSAL:        { book: 'FIRM',   directions: ['REDUCE', 'INCREASE'], customerLabel: null, internalLabel: '公司账簿冲销', family: 'REVERSE' },
+  FIRM_ENTRY_REVERSAL:        { book: 'FIRM',   directions: ['REDUCE', 'INCREASE'], customerLabel: null, internalLabel: 'Firm ledger reversal', family: 'REVERSE' },
   // 平账 A 批（spec §3）：第五族核销——查无果 + 账龄到线 + 小额，公司认下来。
   // 不是成因表里的成因：触发它的是账龄，开单守卫在 adjustment.service.assertWriteOffAllowed。
-  UNEXPLAINED_WRITE_OFF:      { book: 'FIRM',   directions: ['REDUCE', 'INCREASE'], customerLabel: null, internalLabel: '查无果核销', family: 'WRITE_OFF' },
+  UNEXPLAINED_WRITE_OFF:      { book: 'FIRM',   directions: ['REDUCE', 'INCREASE'], customerLabel: null, internalLabel: 'Unexplained write-off', family: 'WRITE_OFF' },
   // 平账二期（spec §7.1）：客户池查无果认损——托管里真少了钱，先让账跟着外面走（客户余额下降），
   // 再由公司补款划转补齐；只许 REDUCE（托管里多出来的走补录，不许核销进客户余额）。
   // 平账三期：事故路（大额未授权转出走事故登记而非「查无果」）也用这个码——「查无果」
   // 二字对事故路不成立，internalLabel 改中性表述，两条来路都适用。
-  UNEXPLAINED_CLIENT_LOSS:    { book: 'CLIENT', directions: ['REDUCE'],             customerLabel: '平台调整',     internalLabel: '客户池认损', family: 'WRITE_OFF' },
+  UNEXPLAINED_CLIENT_LOSS:    { book: 'CLIENT', directions: ['REDUCE'],             customerLabel: 'Balance adjustment',     internalLabel: 'Client loss recognition', family: 'WRITE_OFF' },
 };
 
 export function assertReasonAllowed(reasonCode: ReasonCode, book: Book, direction: Direction): void {
   const spec = REASON_SPECS[reasonCode];
-  if (!spec) throw new BadRequestException(`未知成因码：${reasonCode}`);
+  if (!spec) throw new BadRequestException(`Unknown reason code: ${reasonCode}`);
   if (spec.book !== book) {
-    throw new BadRequestException(`成因 ${reasonCode} 只能用于 ${spec.book} 账簿，本案在 ${book} 账簿`);
+    throw new BadRequestException(`Reason ${reasonCode} can only be used on the ${spec.book} book, but this case is on the ${book} book`);
   }
   if (!spec.directions.includes(direction)) {
-    throw new BadRequestException(`成因 ${reasonCode} 不允许方向 ${direction}`);
+    throw new BadRequestException(`Reason ${reasonCode} does not allow direction ${direction}`);
   }
 }
 

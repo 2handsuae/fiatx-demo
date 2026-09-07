@@ -4,29 +4,29 @@ import {
   REASON_SPECS, assertReasonAllowed, resolvePostingLegs, requiresRelatedOrder, resolveReattributionLegs,
 } from './adjustment-rules';
 
-describe('resolvePostingLegs —— 四种组合，成因不参与计算', () => {
-  it('客户账簿 · 减：借客户应付 / 贷客户托管', () => {
+describe('resolvePostingLegs —— four combinations, cause plays no part in the calculation', () => {
+  it('client book · reduce: debit client payable / credit client asset', () => {
     expect(resolvePostingLegs('CLIENT', 'REDUCE')).toEqual({
       debitCode: TB_ACCOUNT_CODES.CLIENT_PAYABLE,
       creditCode: TB_ACCOUNT_CODES.CLIENT_ASSET,
     });
   });
 
-  it('客户账簿 · 加：借客户托管 / 贷客户应付', () => {
+  it('client book · increase: debit client asset / credit client payable', () => {
     expect(resolvePostingLegs('CLIENT', 'INCREASE')).toEqual({
       debitCode: TB_ACCOUNT_CODES.CLIENT_ASSET,
       creditCode: TB_ACCOUNT_CODES.CLIENT_PAYABLE,
     });
   });
 
-  it('公司账簿 · 减：借公司运营 / 贷公司资产', () => {
+  it('firm book · reduce: debit firm ops / credit firm asset', () => {
     expect(resolvePostingLegs('FIRM', 'REDUCE')).toEqual({
       debitCode: TB_ACCOUNT_CODES.FIRM_OPS,
       creditCode: TB_ACCOUNT_CODES.FIRM_ASSET,
     });
   });
 
-  it('公司账簿 · 加：借公司资产 / 贷其他收入', () => {
+  it('firm book · increase: debit firm asset / credit other income', () => {
     expect(resolvePostingLegs('FIRM', 'INCREASE')).toEqual({
       debitCode: TB_ACCOUNT_CODES.FIRM_ASSET,
       creditCode: TB_ACCOUNT_CODES.INCOME_OTHER,
@@ -34,61 +34,61 @@ describe('resolvePostingLegs —— 四种组合，成因不参与计算', () =>
   });
 });
 
-describe('requiresRelatedOrder —— §4 边界线守卫', () => {
-  it('客户账簿加钱必须有原单', () => {
+describe('requiresRelatedOrder —— §4 boundary-line guard', () => {
+  it('adding funds to a client-book account requires an original order', () => {
     expect(requiresRelatedOrder('CLIENT', 'INCREASE')).toBe(true);
   });
-  it('其余三种组合不强制', () => {
+  it('the other three combinations do not require it', () => {
     expect(requiresRelatedOrder('CLIENT', 'REDUCE')).toBe(false);
     expect(requiresRelatedOrder('FIRM', 'INCREASE')).toBe(false);
     expect(requiresRelatedOrder('FIRM', 'REDUCE')).toBe(false);
   });
 });
 
-describe('assertReasonAllowed —— 成因 × 账簿 × 方向 合法组合写死', () => {
-  it('充值金额更正在客户账簿上双向都合法', () => {
+describe('assertReasonAllowed —— cause × book × direction legal combinations are hard-coded', () => {
+  it('deposit amount correction is legal both ways on the client book', () => {
     expect(() => assertReasonAllowed('DEPOSIT_AMOUNT_CORRECTION', 'CLIENT', 'REDUCE')).not.toThrow();
     expect(() => assertReasonAllowed('DEPOSIT_AMOUNT_CORRECTION', 'CLIENT', 'INCREASE')).not.toThrow();
   });
 
-  it('重复入账撤销只能减', () => {
+  it('duplicate deposit reversal can only reduce', () => {
     expect(() => assertReasonAllowed('DEPOSIT_DUPLICATE_REVERSAL', 'CLIENT', 'REDUCE')).not.toThrow();
     expect(() => assertReasonAllowed('DEPOSIT_DUPLICATE_REVERSAL', 'CLIENT', 'INCREASE')).toThrow(BadRequestException);
   });
 
-  it('银行利息只能落公司账簿、只能加', () => {
+  it('bank interest can only land on the firm book, and can only increase', () => {
     expect(() => assertReasonAllowed('BANK_INTEREST', 'FIRM', 'INCREASE')).not.toThrow();
     expect(() => assertReasonAllowed('BANK_INTEREST', 'CLIENT', 'INCREASE')).toThrow(BadRequestException);
     expect(() => assertReasonAllowed('BANK_INTEREST', 'FIRM', 'REDUCE')).toThrow(BadRequestException);
   });
 
-  it('银行费用只能落公司账簿、只能减', () => {
+  it('bank charges can only land on the firm book, and can only reduce', () => {
     expect(() => assertReasonAllowed('BANK_CHARGE', 'FIRM', 'REDUCE')).not.toThrow();
     expect(() => assertReasonAllowed('BANK_CHARGE', 'CLIENT', 'REDUCE')).toThrow(BadRequestException);
     expect(() => assertReasonAllowed('BANK_CHARGE', 'FIRM', 'INCREASE')).toThrow(BadRequestException);
   });
 
-  it('充值撤销只能减', () => {
+  it('deposit reversal can only reduce', () => {
     expect(() => assertReasonAllowed('DEPOSIT_SIGNAL_VOID', 'CLIENT', 'REDUCE')).not.toThrow();
     expect(() => assertReasonAllowed('DEPOSIT_SIGNAL_VOID', 'CLIENT', 'INCREASE')).toThrow(BadRequestException);
   });
 
-  it('提现金额更正只能加', () => {
+  it('withdrawal amount correction can only increase', () => {
     expect(() => assertReasonAllowed('WITHDRAW_AMOUNT_CORRECTION', 'CLIENT', 'INCREASE')).not.toThrow();
     expect(() => assertReasonAllowed('WITHDRAW_AMOUNT_CORRECTION', 'CLIENT', 'REDUCE')).toThrow(BadRequestException);
   });
 
-  it('提现撤销退回只能加', () => {
+  it('withdrawal refund can only increase', () => {
     expect(() => assertReasonAllowed('WITHDRAW_VOID_REFUND', 'CLIENT', 'INCREASE')).not.toThrow();
     expect(() => assertReasonAllowed('WITHDRAW_VOID_REFUND', 'CLIENT', 'REDUCE')).toThrow(BadRequestException);
     expect(() => assertReasonAllowed('WITHDRAW_VOID_REFUND', 'FIRM', 'INCREASE')).toThrow(BadRequestException);
   });
 
-  it('客户侧成因不能落公司账簿', () => {
+  it('client-side causes cannot land on the firm book', () => {
     expect(() => assertReasonAllowed('WITHDRAW_VOID_REFUND', 'FIRM', 'INCREASE')).toThrow(BadRequestException);
   });
 
-  it('成因清单恰好十一个（含第四族改记 + 平账 A 批两码 + 二期客户池认损），且无兜底档', () => {
+  it('exactly eleven reason codes (fourth-family reattribution + two batch-A codes + wave-2 client pool loss recognition), no catch-all', () => {
     const codes = Object.keys(REASON_SPECS).sort();
     expect(codes).toEqual([
       'BANK_CHARGE', 'BANK_INTEREST',
@@ -100,15 +100,15 @@ describe('assertReasonAllowed —— 成因 × 账簿 × 方向 合法组合写�
     ]);
   });
 
-  it('公司账簿成因没有客户口径词（客户看不到公司侧调账）', () => {
+  it('firm-book causes have no customer-facing label (customer cannot see firm-side adjustments)', () => {
     expect(REASON_SPECS.BANK_INTEREST.customerLabel).toBeNull();
     expect(REASON_SPECS.BANK_CHARGE.customerLabel).toBeNull();
-    expect(REASON_SPECS.DEPOSIT_DUPLICATE_REVERSAL.customerLabel).toBe('重复入账撤销');
+    expect(REASON_SPECS.DEPOSIT_DUPLICATE_REVERSAL.customerLabel).toBe('Duplicate deposit reversal');
   });
 });
 
-describe('第四族 REATTRIBUTE（spec §6）', () => {
-  it('族划分覆盖既有四族、无遗漏无重叠（第五族 WRITE_OFF 见 cause-registry.spec 的 resolveWriteOff 用例）', () => {
+describe('Fourth family REATTRIBUTE (spec §6)', () => {
+  it('family assignment covers the existing four families with no gaps or overlaps (fifth family WRITE_OFF is covered by the resolveWriteOff cases in cause-registry.spec)', () => {
     const byFamily: Record<string, string[]> = {};
     for (const [code, spec] of Object.entries(REASON_SPECS)) {
       (byFamily[(spec as any).family] ??= []).push(code);
@@ -118,32 +118,32 @@ describe('第四族 REATTRIBUTE（spec §6）', () => {
     expect(byFamily.RECORD!.sort()).toEqual(['BANK_CHARGE', 'BANK_INTEREST']);
     expect(byFamily.REATTRIBUTE).toEqual(['CUSTOMER_REATTRIBUTION']);
   });
-  it('改记分录：借错记方应付 / 贷正主方应付——资产腿不动（第五种组合）', () => {
+  it('reattribution entry: debit the misattributed party payable / credit the rightful owner payable — the asset leg does not move (fifth combination)', () => {
     expect(resolveReattributionLegs()).toEqual({
       debitCode: TB_ACCOUNT_CODES.CLIENT_PAYABLE,
       creditCode: TB_ACCOUNT_CODES.CLIENT_PAYABLE,
     });
   });
-  it('改记不走 book×direction 语义：assertReasonAllowed 对它任何方向都拒', () => {
+  it('reattribution does not follow book×direction semantics: assertReasonAllowed rejects it for any direction', () => {
     expect(() => assertReasonAllowed('CUSTOMER_REATTRIBUTION' as any, 'CLIENT', 'REDUCE')).toThrow();
   });
 });
 
-describe('平账 A 批：两个新成因码（spec §3.1 / §5）', () => {
-  it('FIRM_ENTRY_REVERSAL：公司账簿、两向、冲销族', () => {
+describe('Recon batch A: two new reason codes (spec §3.1 / §5)', () => {
+  it('FIRM_ENTRY_REVERSAL: firm book, both directions, reversal family', () => {
     expect(REASON_SPECS.FIRM_ENTRY_REVERSAL).toEqual({
-      book: 'FIRM', directions: ['REDUCE', 'INCREASE'], customerLabel: null, internalLabel: '公司账簿冲销', family: 'REVERSE',
+      book: 'FIRM', directions: ['REDUCE', 'INCREASE'], customerLabel: null, internalLabel: 'Firm ledger reversal', family: 'REVERSE',
     });
     expect(() => assertReasonAllowed('FIRM_ENTRY_REVERSAL', 'FIRM', 'REDUCE')).not.toThrow();
     expect(() => assertReasonAllowed('FIRM_ENTRY_REVERSAL', 'CLIENT', 'REDUCE')).toThrow(BadRequestException);
   });
-  it('UNEXPLAINED_WRITE_OFF：公司账簿、两向、核销族；客户账簿恒拒', () => {
+  it('UNEXPLAINED_WRITE_OFF: firm book, both directions, write-off family; client book always rejected', () => {
     expect(REASON_SPECS.UNEXPLAINED_WRITE_OFF).toEqual({
-      book: 'FIRM', directions: ['REDUCE', 'INCREASE'], customerLabel: null, internalLabel: '查无果核销', family: 'WRITE_OFF',
+      book: 'FIRM', directions: ['REDUCE', 'INCREASE'], customerLabel: null, internalLabel: 'Unexplained write-off', family: 'WRITE_OFF',
     });
     expect(() => assertReasonAllowed('UNEXPLAINED_WRITE_OFF', 'CLIENT', 'INCREASE')).toThrow(BadRequestException);
   });
-  it('核销分录腿与补记同一对：少了 借运营/贷公司资产，多了 借公司资产/贷其他收入', () => {
+  it('write-off entry legs pair with record entry: reduce = debit ops/credit firm asset, increase = debit firm asset/credit other income', () => {
     expect(resolvePostingLegs('FIRM', 'REDUCE')).toEqual({ debitCode: TB_ACCOUNT_CODES.FIRM_OPS, creditCode: TB_ACCOUNT_CODES.FIRM_ASSET });
     expect(resolvePostingLegs('FIRM', 'INCREASE')).toEqual({ debitCode: TB_ACCOUNT_CODES.FIRM_ASSET, creditCode: TB_ACCOUNT_CODES.INCOME_OTHER });
   });

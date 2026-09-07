@@ -48,68 +48,69 @@ beforeEach(() => {
 });
 
 describe('minorToMajor', () => {
-  it('120000 分 → 1200.00；4700 → 0.004700（6 位）', () => {
+  it('120000 minor → 1200.00; 4700 → 0.004700 (6 decimals)', () => {
     expect(minorToMajor('120000', 2)).toBe('1200.00');
     expect(minorToMajor('4700', 6)).toBe('0.004700');
   });
 });
 
-describe('assertClaimable（spec §2.1）', () => {
+describe('assertClaimable (spec §2.1)', () => {
   const ok = { caseNo: 'REC1', externalLineId: 'line-1', dispositionNo: 'RCD1', kind: 'SUPPLEMENT_DEPOSIT' as const };
-  it('全部满足 → 返回行事实（最小单位 + 业务单位 + 业务日）', async () => {
+  it('all conditions met → returns line facts (minor unit + major unit + business date)', async () => {
     const r = await service.assertClaimable(ok);
     expect(r.amountMinor).toBe('120000'); expect(r.amountMajor).toBe('1200.00'); expect(r.businessDate).toBe('2026-09-01');
     expect(r.ownerNo).toBe('CUS1'); expect(r.assetType).toBe('FIAT');
   });
-  it('案子不是 OPEN / 不是客户账簿 → 400', async () => {
+  it('case is not OPEN / not a client-book case → 400', async () => {
     prisma.reconciliationCase.findUnique.mockResolvedValueOnce({ ...kase, status: 'RESOLVED' });
     await expect(service.assertClaimable(ok)).rejects.toThrow(BadRequestException);
     prisma.reconciliationCase.findUnique.mockResolvedValueOnce({ ...kase, book: 'FIRM' });
-    await expect(service.assertClaimable(ok)).rejects.toThrow(/客户账簿/);
+    await expect(service.assertClaimable(ok)).rejects.toThrow(/client-book/);
   });
-  it('行不在最新一轮差异行里 / 不是外有我无 → 400', async () => {
+  it('line is not in the latest run\'s difference lines / not external-only → 400', async () => {
     prisma.reconciliationCase.findUnique.mockResolvedValueOnce({ ...kase, lineItems: [{ externalTxId: 'line-1', matchStatus: 'MATCHED' }] });
-    await expect(service.assertClaimable(ok)).rejects.toThrow(/外有我无/);
+    await expect(service.assertClaimable(ok)).rejects.toThrow(/external only/);
   });
-  it('方向与路不符 → 400（① 要 IN，给 OUT）', async () => {
+  it('direction does not match the path → 400 (① wants IN, given OUT)', async () => {
     prisma.externalStatementLine.findUnique.mockResolvedValueOnce({ ...line, direction: 'OUT' });
-    await expect(service.assertClaimable(ok)).rejects.toThrow(/方向/);
+    await expect(service.assertClaimable(ok)).rejects.toThrow(/direction/);
   });
-  it('已被认领（信号 / 充值 / 提现任一）→ 400', async () => {
+  it('already claimed (by a signal / deposit / withdrawal) → 400', async () => {
     prisma.inboundTransferSignal.findFirst.mockResolvedValueOnce({ signalNo: 'SIG9' });
     await expect(service.assertClaimable(ok)).rejects.toThrow(/SIG9/);
   });
-  it('定性不是该行 / 出口不是 SUPPLEMENT / 去向不符 / 已挂补单 → 400', async () => {
+  it('finding is not for this line / outlet is not SUPPLEMENT / target mismatch / already linked to a supplement → 400', async () => {
     prisma.reconciliationDisposition.findUnique.mockResolvedValueOnce({ ...disposition, deferredTarget: 'SUPPLEMENT_BOUNCE' });
-    await expect(service.assertClaimable(ok)).rejects.toThrow(/去向/);
+    await expect(service.assertClaimable(ok)).rejects.toThrow(/target/);
     prisma.reconciliationDisposition.findUnique.mockResolvedValueOnce({ ...disposition, supplementNo: 'SIG1' });
-    await expect(service.assertClaimable(ok)).rejects.toThrow(/已转补单/);
+    await expect(service.assertClaimable(ok)).rejects.toThrow(/already linked to supplement/);
   });
 });
 
-describe('loadLine 币种校验（评审 Minor 4）：全仓惯例 external_statement_lines.currency 存的是 asset.code，不是 asset.currency', () => {
-  // 上面 wallet 那份 AED mock 是法币，code===currency（'AED'==='AED'）——不管
-  // loadLine 比哪个字段都会放行，等于没有护栏（评审实测：把 src 改回
-  // wallet.asset.currency，这组 AED 用例仍然 9/9 全绿）。这里补一组真正会岔开
-  // 的加密币场景：USDT 的 code 是 'USDT-TRON'，与它的 currency 'USDT' 不同名。
+describe('loadLine currency validation (review Minor 4): repo-wide convention — external_statement_lines.currency stores asset.code, not asset.currency', () => {
+  // The AED mock on `wallet` above is a fiat asset where code===currency ('AED'==='AED') — no
+  // matter which field loadLine compares, it passes, i.e. no real guardrail (verified in review:
+  // reverting the src to wallet.asset.currency, this AED group still passes 9/9). This block adds
+  // a crypto scenario that actually diverges: USDT's code is 'USDT-TRON', different from its
+  // currency 'USDT'.
   const cryptoAsset = { id: 'a2', code: 'USDT-TRON', currency: 'USDT', type: 'CRYPTO', decimals: 6 };
   const ok = { caseNo: 'REC1', externalLineId: 'line-1', dispositionNo: 'RCD1', kind: 'SUPPLEMENT_DEPOSIT' as const };
-  it('账单行 currency 是 asset.code（USDT-TRON）→ 放行', async () => {
+  it('statement line currency is asset.code (USDT-TRON) → allowed', async () => {
     prisma.asset.findUnique.mockResolvedValueOnce(cryptoAsset);
     prisma.externalStatementLine.findUnique.mockResolvedValueOnce({ ...line, currency: 'USDT-TRON' });
     const r = await service.assertClaimable(ok);
     expect(r.assetType).toBe('CRYPTO');
-    expect(r.currency).toBe('USDT'); // 返回值供人读审计文案，仍是裸币种，不是 code
+    expect(r.currency).toBe('USDT'); // return value is for human-readable audit copy, still the bare currency, not the code
   });
-  it('账单行 currency 是裸币种（USDT，不是 asset.code）→ 400', async () => {
+  it('statement line currency is the bare currency (USDT, not asset.code) → 400', async () => {
     prisma.asset.findUnique.mockResolvedValueOnce(cryptoAsset);
     prisma.externalStatementLine.findUnique.mockResolvedValueOnce({ ...line, currency: 'USDT' });
-    await expect(service.assertClaimable(ok)).rejects.toThrow(/币种.*不符/);
+    await expect(service.assertClaimable(ok)).rejects.toThrow(/currency.*does not match/);
   });
 });
 
 describe('listCandidates', () => {
-  it('② 退汇：同钱包 SUCCESS 同额充值单，按创建时间倒序', async () => {
+  it('② recall: SUCCESS deposits on the same wallet with the same amount, newest first', async () => {
     prisma.externalStatementLine.findUnique.mockResolvedValueOnce({ ...line, direction: 'OUT' });
     prisma.reconciliationDisposition.findUnique.mockResolvedValue(null);
     prisma.depositTransaction.findMany.mockResolvedValueOnce([
@@ -121,17 +122,17 @@ describe('listCandidates', () => {
     expect(r.candidates.map((c) => c.orderNo)).toEqual(['DEP1']);
   });
 
-  it('对外投影不带内部 UUID（铁律⑥）：line 不含内部 id / 最小单位，candidates 元素不含 id', async () => {
+  it('external projection carries no internal UUID (principle ⑥): line has no internal id / minor amount, candidates carry no id', async () => {
     prisma.externalStatementLine.findUnique.mockResolvedValueOnce({ ...line, direction: 'OUT' });
     prisma.reconciliationDisposition.findUnique.mockResolvedValue(null);
     prisma.depositTransaction.findMany.mockResolvedValueOnce([
       { id: 'd1', depositNo: 'DEP1', amount: '1200', status: 'SUCCESS', createdAt: new Date('2026-08-30') },
     ]);
     const r = await service.listCandidates('REC1', 'line-1');
-    // 保留：externalLineId 是补单表单的隐藏锚（spec §2.1 明确保留），walletNo 是业务键。
+    // Kept: externalLineId is the supplement form's hidden anchor (explicitly kept per spec §2.1), walletNo is a business key.
     expect(r.line.externalLineId).toBe('line-1');
     expect(r.line.walletNo).toBe('W-1');
-    // 去掉：内部 id 与最小单位金额一律不出这个对象。
+    // Dropped: internal ids and minor-unit amounts never leave this object.
     expect(r.line).not.toHaveProperty('caseId');
     expect(r.line).not.toHaveProperty('walletId');
     expect(r.line).not.toHaveProperty('ownerId');

@@ -36,7 +36,7 @@ export class AdjustmentService {
   assertTransition(from: string, to: string): void {
     const allowed = ADJUSTMENT_TRANSITIONS[from] ?? [];
     if (!allowed.includes(to)) {
-      throw new BadRequestException(`调账单非法状态迁移：${from} → ${to}`);
+      throw new BadRequestException(`Illegal adjustment status transition: ${from} → ${to}`);
     }
   }
 
@@ -64,8 +64,8 @@ export class AdjustmentService {
     // 以及「客户资产总额不变」这个判断该不该批的关键事实。
     if (row.direction === 'REATTRIBUTE') {
       const majorAmount = bigintToDecimal(BigInt(row.amount), decimals).toFixed(decimals);
-      return `本单将把 ${majorAmount} ${row.assetCode} 从客户 ${row.ownerNo ?? '(未知)'} 名下改记到客户 ${row.toOwnerNo ?? '(未知)'} 名下；`
-           + `客户资产总额不变；理由：${row.reasonInternal}`;
+      return `This adjustment reattributes ${majorAmount} ${row.assetCode} from customer ${row.ownerNo ?? '(unknown)'} to customer ${row.toOwnerNo ?? '(unknown)'}; `
+           + `total customer assets are unchanged; reason: ${row.reasonInternal}`;
     }
     // 平账二期（spec §7.1）：客户池认损——审批人要读到「谁的钱包、少了多少、客户余额跟着降、随后公司补款」。
     // 平账三期 Task 10 评审 Fix 3：事故路（outlet='INCIDENT'）走到这里时，认损结论
@@ -76,28 +76,28 @@ export class AdjustmentService {
     if (row.reasonCode === 'UNEXPLAINED_CLIENT_LOSS') {
       const majorAmount = bigintToDecimal(BigInt(row.amount), decimals).toFixed(decimals);
       if (extra?.incidentNo) {
-        return `客户池认损（事故 ${extra.incidentNo} 定损 ${majorAmount} ${row.assetCode}）：借客户应付、贷客户资产池，`
-             + `客户 ${row.ownerNo ?? '(未知)'} 钱包 ${extra?.walletNo ?? '(未知)'} 差额 ${majorAmount} ${row.assetCode} 认损，客户余额相应减少；`
-             + `事故定损结论：公司承损；查证结论：${extra?.findingNote ?? row.reasonInternal}；认损后由公司补款划转补齐`;
+        return `Client pool loss recognition (incident ${extra.incidentNo} assessed ${majorAmount} ${row.assetCode}): debit client payable, credit client asset pool; `
+             + `customer ${row.ownerNo ?? '(unknown)'} wallet ${extra?.walletNo ?? '(unknown)'} difference ${majorAmount} ${row.assetCode} recognized as loss, customer balance reduced accordingly; `
+             + `incident assessment: firm bears the loss; investigation conclusion: ${extra?.findingNote ?? row.reasonInternal}; a compensation transfer will follow to restore the balance`;
       }
-      return `客户池查无果认损：客户 ${row.ownerNo ?? '(未知)'} 钱包 ${extra?.walletNo ?? '(未知)'} ${row.assetCode} 差额 ${majorAmount} 认损，客户余额相应减少；`
-           + `案件 ${row.caseNo ?? '(未知)'} 已超期 ${extra?.agedDays ?? '?'} 天；查证结论：${extra?.findingNote ?? row.reasonInternal}；认损后由公司补款划转补齐`;
+      return `Client pool unexplained loss recognition: customer ${row.ownerNo ?? '(unknown)'} wallet ${extra?.walletNo ?? '(unknown)'} ${row.assetCode} difference ${majorAmount} recognized as loss, customer balance reduced accordingly; `
+           + `case ${row.caseNo ?? '(unknown)'} has been overdue ${extra?.agedDays ?? '?'} days; investigation conclusion: ${extra?.findingNote ?? row.reasonInternal}; a compensation transfer will follow to restore the balance`;
     }
     // 第五族核销（spec §3.7）：审批人要读到的是「哪个池子、哪个钱包、差额往哪去、悬了多久、查过什么」。
     if (row.reasonCode === 'UNEXPLAINED_WRITE_OFF') {
       const majorAmount = bigintToDecimal(BigInt(row.amount), decimals).toFixed(decimals);
-      const outlet = row.direction === 'REDUCE' ? '认损进运营资金' : '计入其他收入';
-      return `公司池查无果核销：钱包 ${extra?.walletNo ?? '(未知)'} ${row.assetCode} 差额 ${majorAmount} ${outlet}；`
-           + `案件 ${row.caseNo ?? '(未知)'} 已超期 ${extra?.agedDays ?? '?'} 天；查证结论：${extra?.findingNote ?? row.reasonInternal}`;
+      const outlet = row.direction === 'REDUCE' ? 'recognized into operating funds' : 'recorded as other income';
+      return `Firm pool unexplained write-off: wallet ${extra?.walletNo ?? '(unknown)'} ${row.assetCode} difference ${majorAmount} ${outlet}; `
+           + `case ${row.caseNo ?? '(unknown)'} has been overdue ${extra?.agedDays ?? '?'} days; investigation conclusion: ${extra?.findingNote ?? row.reasonInternal}`;
     }
-    const dir = row.direction === 'REDUCE' ? '减少' : '增加';
-    const who = row.book === 'CLIENT' ? `客户 ${row.ownerNo ?? '(未知)'}` : '公司自有资金';
+    const dir = row.direction === 'REDUCE' ? 'decrease' : 'increase';
+    const who = row.book === 'CLIENT' ? `customer ${row.ownerNo ?? '(unknown)'}` : 'the firm';
     const majorAmount = bigintToDecimal(BigInt(row.amount), decimals).toFixed(decimals);
     // internalLabel 而不是 customerLabel——后者对公司侧两个成因刻意为 null，
     // 借用它会让审批页回落打印裸枚举「成因：BANK_CHARGE」（末站评审 Minor 1）。
     const label = REASON_SPECS[row.reasonCode as ReasonCode]?.internalLabel ?? row.reasonCode;
-    return `本单将使${who} 余额${dir} ${majorAmount} ${row.assetCode}；`
-         + `成因：${label}；理由：${row.reasonInternal}`;
+    return `This adjustment will ${dir} ${who}'s balance by ${majorAmount} ${row.assetCode}; `
+         + `cause: ${label}; reason: ${row.reasonInternal}`;
   }
 
   /**
@@ -139,7 +139,7 @@ export class AdjustmentService {
       dto.explainedExternalLineId ? { explainedExternalLineId: dto.explainedExternalLineId } : null,
     ].filter(Boolean);
     if (anchors.length === 0) {
-      throw new BadRequestException('核销必须锚在一条已定性为「挂起·调查中」的差异行上');
+      throw new BadRequestException('Write-off must be anchored to a difference line already found as "Hold · Investigating"');
     }
     const held = await (this.prisma as any).reconciliationDisposition.findFirst({ where: { caseNo: dto.caseNo, OR: anchors } });
 
@@ -149,14 +149,14 @@ export class AdjustmentService {
     }
 
     if (!kase.slaBreached) {
-      throw new BadRequestException('案子还没到账龄线，查无果的差异先挂着，到线再谈核销');
+      throw new BadRequestException('The case has not yet reached the aging threshold — unexplained differences stay on hold until then; write-off can only be discussed after that');
     }
     if (!held || held.outlet !== 'HOLD_INVESTIGATING') {
-      const conclusion = held ? staticOutletLabel(held.causeCode as CauseCode) : '尚未定性';
-      throw new BadRequestException(`核销只对已定性为「挂起·调查中」的差异行；这行的结论是 ${conclusion}`);
+      const conclusion = held ? staticOutletLabel(held.causeCode as CauseCode) : 'not yet found';
+      throw new BadRequestException(`Write-off only applies to a difference line found as "Hold · Investigating"; this line's conclusion is ${conclusion}`);
     }
     if (held.adjustmentNo) {
-      throw new BadRequestException(`该行定性已挂调账单 ${held.adjustmentNo}，不可再开核销单`);
+      throw new BadRequestException(`This line's finding is already linked to adjustment ${held.adjustmentNo} — cannot open another write-off`);
     }
     this.assertReasonPairing(dto, book);
     const asset = await (this.prisma as any).asset.findUnique({ where: { code: kase.assetCode }, select: { currency: true, decimals: true } });
@@ -164,7 +164,7 @@ export class AdjustmentService {
     if (!isSmallAmount(currency, BigInt(dto.amount))) {
       const line = bigintToDecimal(SMALL_AMOUNT_LINE_MINOR[currency], asset?.decimals ?? 0).toFixed(asset?.decimals ?? 0);
       const amt = bigintToDecimal(BigInt(dto.amount), asset?.decimals ?? 0).toFixed(asset?.decimals ?? 0);
-      throw new BadRequestException(`差额 ${amt} ${currency} 超过小额线 ${line} ${currency}，查无果的大额差异不许核销，走事故登记`);
+      throw new BadRequestException(`Difference ${amt} ${currency} exceeds the small-amount threshold ${line} ${currency} — a large unexplained difference cannot be written off; register an incident instead`);
     }
     return { dispositionNo: held.dispositionNo };
   }
@@ -179,11 +179,11 @@ export class AdjustmentService {
     const expectedReason = book === 'FIRM' ? 'UNEXPLAINED_WRITE_OFF' : 'UNEXPLAINED_CLIENT_LOSS';
     if (dto.reasonCode !== expectedReason) {
       throw new BadRequestException(book === 'FIRM'
-        ? '公司池查无果走「查无果核销」（UNEXPLAINED_WRITE_OFF），不能用客户池认损码'
-        : '客户池走「客户池认损」（UNEXPLAINED_CLIENT_LOSS），不能用公司池核销码');
+        ? 'Firm pool unexplained differences use "Unexplained write-off" (UNEXPLAINED_WRITE_OFF) — cannot use the client pool loss-recognition code'
+        : 'Client pool differences use "Client pool loss recognition" (UNEXPLAINED_CLIENT_LOSS) — cannot use the firm pool write-off code');
     }
     if (book !== 'FIRM' && dto.direction !== 'REDUCE') {
-      throw new BadRequestException('客户池多出来的钱不能核销进客户余额：查清归属后走补录（充值域），不走认损');
+      throw new BadRequestException('Excess funds in the client pool cannot be written off into a customer balance: identify the true owner first, then record it via deposit backfill — not loss recognition');
     }
   }
 
@@ -205,17 +205,17 @@ export class AdjustmentService {
    */
   private async assertIncidentWriteOffAllowed(dto: CreateAdjustmentDto, held: any, kase: any, book: Book): Promise<string> {
     if (!held.incidentNo) {
-      throw new BadRequestException('这行定性是「事故·待登记」，还没挂上事故单号——先登记事故再谈认损');
+      throw new BadRequestException('This line is found as "Incident · Pending" and has no incident number attached yet — register the incident before loss recognition');
     }
     if (held.adjustmentNo) {
-      throw new BadRequestException(`该行定性已挂调账单 ${held.adjustmentNo}，不可再开认损单`);
+      throw new BadRequestException(`This line's finding is already linked to adjustment ${held.adjustmentNo} — cannot open another loss-recognition adjustment`);
     }
     const incident = await (this.prisma as any).incident.findUnique({ where: { incidentNo: held.incidentNo } });
     if (!incident || !['ASSESSED', 'RESOLVING'].includes(incident.status)) {
-      throw new BadRequestException(`事故 ${held.incidentNo} 还没定损，等定损结论出来再开认损单`);
+      throw new BadRequestException(`Incident ${held.incidentNo} has not been assessed yet — wait for the assessment before opening a loss-recognition adjustment`);
     }
     if (incident.assessmentBasis !== 'FIRM_LOSS') {
-      throw new BadRequestException(`事故 ${held.incidentNo} 的定损结论是「${incident.assessmentBasis}」，不是「公司承损」——只有公司承损才能开认损单`);
+      throw new BadRequestException(`Incident ${held.incidentNo}'s assessment is "${incident.assessmentBasis}", not "Firm bears the loss" — only a firm-bears-the-loss assessment can open a loss-recognition adjustment`);
     }
     this.assertReasonPairing(dto, book);
     const asset = await (this.prisma as any).asset.findUnique({ where: { code: kase.assetCode }, select: { decimals: true } });
@@ -223,15 +223,15 @@ export class AdjustmentService {
     const amt = bigintToDecimal(BigInt(dto.amount), decimals).toFixed(decimals);
     const assessed = incident.assessedAmount.toFixed(decimals);
     if (amt !== assessed) {
-      throw new BadRequestException(`调账金额 ${amt} 与事故 ${held.incidentNo} 定损额 ${assessed} 不一致——认损金额必须锁定为定损额，不许多报少报`);
+      throw new BadRequestException(`Adjustment amount ${amt} does not match incident ${held.incidentNo}'s assessed amount ${assessed} — the loss-recognition amount must exactly equal the assessed amount`);
     }
     return held.dispositionNo;
   }
 
   async createDraft(dto: CreateAdjustmentDto, actor: ApprovalActorContext) {
     const kase = await (this.prisma as any).reconciliationCase.findUnique({ where: { caseNo: dto.caseNo } });
-    if (!kase) throw new NotFoundException(`对账案件不存在：${dto.caseNo}`);
-    if (kase.status !== 'OPEN') throw new BadRequestException('只能对打开中的案件开调账单');
+    if (!kase) throw new NotFoundException(`Reconciliation case not found: ${dto.caseNo}`);
+    if (kase.status !== 'OPEN') throw new BadRequestException('Adjustments can only be opened on open cases');
 
     const book: Book = kase.book === 'FIRM' ? 'FIRM' : 'CLIENT';
     const direction = dto.direction as Direction;
@@ -261,8 +261,8 @@ export class AdjustmentService {
     // 这条守卫是后端的兜底，防止再从别的入口把日期填到未来。
     if (dto.effectiveDate > kase.businessDate) {
       throw new BadRequestException(
-        `生效日 ${dto.effectiveDate} 晚于案件业务日 ${kase.businessDate}——`
-        + '调账单修的是案件那一天的账，落在之后的账期里，重跑对账看不到这笔分录，差额平不了。',
+        `Effective date ${dto.effectiveDate} is later than the case's business date ${kase.businessDate}——`
+        + "an adjustment corrects the books for that business day; landing it in a later period means a rerun of reconciliation for that day will not see this entry, and the difference will never clear.",
       );
     }
 
@@ -274,14 +274,14 @@ export class AdjustmentService {
       const relatedOrderNo = dto.relatedOrderNo?.trim();
       if (!relatedOrderNo) {
         throw new BadRequestException(
-          '客户账簿加钱必须指明关联原单号——无原单即凭空给客户加钱，会绕过 KYT 与合规闸；'
-          + '若为未归属入金，请走充值域补录入站信号。',
+          'Adding funds to a client-book account must reference an existing order — without one, this would credit the customer out of thin air and bypass KYT and compliance gates; '
+          + 'for an unattributed inbound deposit, use deposit backfill instead.',
         );
       }
       if (!(await this.relatedOrderExists(relatedOrderNo))) {
         throw new BadRequestException(
-          `关联原单号不存在：${relatedOrderNo}——必须指向一张已存在的充值/提现/兑换单，`
-          + '否则等于凭空给客户加钱，绕过 KYT 与合规闸。',
+          `Related order not found: ${relatedOrderNo}——it must reference an existing deposit, withdrawal, or swap order, `
+          + 'otherwise it credits the customer out of thin air and bypasses KYT and compliance gates.',
         );
       }
     }
@@ -333,21 +333,21 @@ export class AdjustmentService {
    * direction 落 'REATTRIBUTE'——它不参与 book×direction 语义，分录由族定。
    */
   private async createReattributionDraft(dto: CreateAdjustmentDto, fromCase: any, actor: ApprovalActorContext) {
-    if (!dto.toCaseNo) throw new BadRequestException('改记必须指明正主方案件号（toCaseNo）');
+    if (!dto.toCaseNo) throw new BadRequestException('Reattribution must specify the rightful-owner case number (toCaseNo)');
     const toCase = await (this.prisma as any).reconciliationCase.findUnique({ where: { caseNo: dto.toCaseNo } });
-    if (!toCase) throw new NotFoundException(`正主方案件不存在：${dto.toCaseNo}`);
-    if (toCase.status !== 'OPEN') throw new BadRequestException('正主方案件不是打开状态');
-    if (fromCase.book === 'FIRM' || toCase.book === 'FIRM') throw new BadRequestException('改记只发生在客户账簿之间');
+    if (!toCase) throw new NotFoundException(`Rightful-owner case not found: ${dto.toCaseNo}`);
+    if (toCase.status !== 'OPEN') throw new BadRequestException('The rightful-owner case is not open');
+    if (fromCase.book === 'FIRM' || toCase.book === 'FIRM') throw new BadRequestException('Reattribution can only happen between client-book cases');
     if (fromCase.businessDate !== toCase.businessDate) {
-      throw new BadRequestException(`两案业务日不同（${fromCase.businessDate} vs ${toCase.businessDate}）——跨日改记本轮不做`);
+      throw new BadRequestException(`The two cases have different business dates (${fromCase.businessDate} vs ${toCase.businessDate})——cross-day reattribution is not supported this round`);
     }
-    if (fromCase.assetCode !== toCase.assetCode) throw new BadRequestException('两案资产不同，改记说不通');
+    if (fromCase.assetCode !== toCase.assetCode) throw new BadRequestException('The two cases have different assets — reattribution does not make sense');
     if (dto.effectiveDate > fromCase.businessDate) {
-      throw new BadRequestException(`生效日 ${dto.effectiveDate} 晚于案件业务日 ${fromCase.businessDate}`);
+      throw new BadRequestException(`Effective date ${dto.effectiveDate} is later than the case's business date ${fromCase.businessDate}`);
     }
     const relatedOrderNo = dto.relatedOrderNo?.trim();
     if (!relatedOrderNo || !(await this.relatedOrderExists(relatedOrderNo))) {
-      throw new BadRequestException('改记必须指向一张已存在的原单（记在错记方名下的那笔真实充值/提现）——KYT 对这笔钱跑过才放行');
+      throw new BadRequestException('Reattribution must reference an existing order (the real deposit/withdrawal recorded under the misattributed owner) — it is only allowed once KYT has cleared that money');
     }
     const owner = fromCase.ownerNo
       ? await (this.prisma as any).customerMain.findUnique({ where: { customerNo: fromCase.ownerNo }, select: { id: true } })
@@ -412,7 +412,7 @@ export class AdjustmentService {
 
   async submit(adjustmentNo: string, actor: ApprovalActorContext) {
     const row = await (this.prisma as any).reconciliationAdjustment.findUnique({ where: { adjustmentNo } });
-    if (!row) throw new NotFoundException(`调账单不存在：${adjustmentNo}`);
+    if (!row) throw new NotFoundException(`Adjustment not found: ${adjustmentNo}`);
     this.assertTransition(row.status, AdjustmentStatus.PENDING_APPROVAL);
 
     // 真实签名：createAndSubmit(createDto, submitDto, actor, client?, options?)
@@ -495,7 +495,7 @@ export class AdjustmentService {
    */
   async getAdjustment(adjustmentNo: string) {
     const row = await (this.prisma as any).reconciliationAdjustment.findUnique({ where: { adjustmentNo } });
-    if (!row) throw new NotFoundException(`调账单不存在：${adjustmentNo}`);
+    if (!row) throw new NotFoundException(`Adjustment not found: ${adjustmentNo}`);
 
     // 两侧钱包同一个查法（跨钱包合成案件的 'XREF:' 前缀不是真 Wallet.id，查了必空）。
     const walletNoOf = async (ref: string | null | undefined): Promise<string | null> => {
@@ -545,7 +545,7 @@ export class AdjustmentService {
   // 收了也是死参数。
   async onRejected(adjustmentNo: string, deciderId: string, deciderNo?: string | null) {
     const row = await (this.prisma as any).reconciliationAdjustment.findUnique({ where: { adjustmentNo } });
-    if (!row) throw new NotFoundException(`调账单不存在：${adjustmentNo}`);
+    if (!row) throw new NotFoundException(`Adjustment not found: ${adjustmentNo}`);
     this.assertTransition(row.status, AdjustmentStatus.REJECTED);
     await (this.prisma as any).reconciliationAdjustment.update({
       where: { adjustmentNo },
@@ -569,7 +569,7 @@ export class AdjustmentService {
    */
   async onApproved(adjustmentNo: string, deciderId: string, deciderNo?: string | null, deciderRole?: string | null): Promise<void> {
     const row = await (this.prisma as any).reconciliationAdjustment.findUnique({ where: { adjustmentNo } });
-    if (!row) throw new NotFoundException(`调账单不存在：${adjustmentNo}`);
+    if (!row) throw new NotFoundException(`Adjustment not found: ${adjustmentNo}`);
 
     // 第四族改记（spec §6）：分录不由 book × direction 推导，两腿是同一个科目、
     // 不同 ownerUuid。分流在状态闸之前——改记路径自带同一道闸，不重复走。
@@ -599,7 +599,7 @@ export class AdjustmentService {
     const ledger = TB_LEDGERS[assetRow?.currency as keyof typeof TB_LEDGERS];
     if (!ledger) {
       throw new NotFoundException(
-        `资产 ${row.assetCode} 解析不出账本 ledger（currency=${assetRow?.currency ?? '未找到该资产'}）`,
+        `Cannot resolve a ledger for asset ${row.assetCode} (currency=${assetRow?.currency ?? 'asset not found'})`,
       );
     }
 
@@ -734,7 +734,7 @@ export class AdjustmentService {
     const ledger = TB_LEDGERS[assetRow?.currency as keyof typeof TB_LEDGERS];
     if (!ledger) {
       throw new NotFoundException(
-        `资产 ${row.assetCode} 解析不出账本 ledger（currency=${assetRow?.currency ?? '未找到该资产'}）`,
+        `Cannot resolve a ledger for asset ${row.assetCode} (currency=${assetRow?.currency ?? 'asset not found'})`,
       );
     }
 
@@ -744,7 +744,7 @@ export class AdjustmentService {
       : null;
     if (!row.ownerId || !toOwner?.id) {
       throw new NotFoundException(
-        `改记两端客户解析失败（错记方 ownerId=${row.ownerId ?? '空'}、正主方 toOwnerNo=${row.toOwnerNo ?? '空'}）`,
+        `Failed to resolve both sides of the reattribution (misattributed owner ownerId=${row.ownerId ?? 'empty'}, rightful owner toOwnerNo=${row.toOwnerNo ?? 'empty'})`,
       );
     }
 

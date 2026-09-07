@@ -55,49 +55,49 @@ const C = (matchType: CauseMatchType, book: CauseBook): Cell => ({ matchType, bo
 // 手册与截图验收都按这个顺序对——挪行等于改菜单。
 export const CAUSE_REGISTRY: Record<CauseCode, CauseSpec> = {
   // ── 金额不对 × 客户 ──
-  AMT_MISBOOKED:   { cells: [C('AMOUNT_MISMATCH', 'CLIENT')], label: '我方金额录错（含小数点错位、少记）', clue: '对银行回单原件，差额无规律', kind: 'ADJUST', family: 'CORRECT' },
-  AMT_FEE_NETTED:  { cells: [C('AMOUNT_MISMATCH', 'CLIENT')], label: '银行轧差入账（手续费被扣净额）', clue: '差额恰为固定费/费率，同通道笔笔如此', kind: 'ADJUST', family: 'CORRECT' },
-  AMT_ROUNDING:    { cells: [C('AMOUNT_MISMATCH', 'CLIENT')], label: '舍入精度差（钱已到位）', clue: '差额在最小精度量级', kind: 'ADJUST', family: 'CORRECT' },
+  AMT_MISBOOKED:   { cells: [C('AMOUNT_MISMATCH', 'CLIENT')], label: 'Amount misbooked', clue: 'Check the original bank receipt; the difference follows no pattern.', kind: 'ADJUST', family: 'CORRECT' },
+  AMT_FEE_NETTED:  { cells: [C('AMOUNT_MISMATCH', 'CLIENT')], label: 'Bank fee netted', clue: 'The difference matches a fixed fee or rate, consistent across every transaction on this channel.', kind: 'ADJUST', family: 'CORRECT' },
+  AMT_ROUNDING:    { cells: [C('AMOUNT_MISMATCH', 'CLIENT')], label: 'Rounding difference', clue: 'The difference is at the smallest precision unit.', kind: 'ADJUST', family: 'CORRECT' },
   // ── 金额不对 × 公司 ──
-  FIRM_AMT_UNDERBOOKED: { cells: [C('AMOUNT_MISMATCH', 'FIRM')], label: '公司收支记少（实扣/实收 > 所记）', clue: '银行回单 vs 我方记账', kind: 'ADJUST', family: 'RECORD' },
-  FIRM_AMT_OVERBOOKED:  { cells: [C('AMOUNT_MISMATCH', 'FIRM')], label: '公司收支记多', clue: '银行回单 vs 我方记账', kind: 'ADJUST', family: 'REVERSE' },
+  FIRM_AMT_UNDERBOOKED: { cells: [C('AMOUNT_MISMATCH', 'FIRM')], label: 'Firm amount underbooked', clue: 'Compare the bank receipt against our own books.', kind: 'ADJUST', family: 'RECORD' },
+  FIRM_AMT_OVERBOOKED:  { cells: [C('AMOUNT_MISMATCH', 'FIRM')], label: 'Firm amount overbooked', clue: 'Compare the bank receipt against our own books.', kind: 'ADJUST', family: 'REVERSE' },
   // ── 我有外无 × 客户 ──
-  DUP_BOOKING:         { cells: [C('ORPHAN_INTERNAL', 'CLIENT')], label: '重复入账——同一笔入了两次', clue: '已匹配列表里有同参考号同金额的双胞胎', kind: 'ADJUST', family: 'REVERSE' },
-  PHANTOM_BOOKING:     { cells: [C('ORPHAN_INTERNAL', 'CLIENT')], label: '假信号入账——外部凭证不存在', clue: '银行/链上查无此笔', kind: 'ADJUST', family: 'REVERSE' },
-  PAYOUT_NOT_EXECUTED: { cells: [C('ORPHAN_INTERNAL', 'CLIENT')], label: '提现已记但银行未执行', clue: '无回执/有失败通知', kind: 'ADJUST', family: 'REVERSE' },
-  MISATTRIBUTED_FROM:  { cells: [C('ORPHAN_INTERNAL', 'CLIENT')], label: '记错客户——这笔钱是别人的', clue: '对端钱包同日同额「外有我无」成对', kind: 'ADJUST', family: 'REATTRIBUTE' },
-  CUTOFF_STRADDLE:     { cells: [C('ORPHAN_INTERNAL', 'CLIENT')], label: '跨账期——下期自平', clue: '外部行时间戳落下一账期，余额并不差', kind: 'HOLD_NEXT_PERIOD' },
+  DUP_BOOKING:         { cells: [C('ORPHAN_INTERNAL', 'CLIENT')], label: 'Duplicate posting (twin)', clue: 'The matched list has a twin entry with the same reference number and amount.', kind: 'ADJUST', family: 'REVERSE' },
+  PHANTOM_BOOKING:     { cells: [C('ORPHAN_INTERNAL', 'CLIENT')], label: 'Phantom posting', clue: 'No record of this transaction at the bank or on-chain.', kind: 'ADJUST', family: 'REVERSE' },
+  PAYOUT_NOT_EXECUTED: { cells: [C('ORPHAN_INTERNAL', 'CLIENT')], label: 'Payout not executed', clue: 'No receipt on file, or a failure notice was received.', kind: 'ADJUST', family: 'REVERSE' },
+  MISATTRIBUTED_FROM:  { cells: [C('ORPHAN_INTERNAL', 'CLIENT')], label: 'Misattributed customer', clue: 'A same-day, same-amount "external only" entry exists on the counterparty wallet.', kind: 'ADJUST', family: 'REATTRIBUTE' },
+  CUTOFF_STRADDLE:     { cells: [C('ORPHAN_INTERNAL', 'CLIENT')], label: 'Cross-period timing', clue: "The external line's timestamp falls in the next accounting period; the balance is not actually short.", kind: 'HOLD_NEXT_PERIOD' },
   // ── 我有外无 × 公司 ──
-  FIRM_MISBOOKED:          { cells: [C('ORPHAN_INTERNAL', 'FIRM')], label: '公司收支误记/重复记', clue: '银行单查无', kind: 'ADJUST', family: 'REVERSE' },
+  FIRM_MISBOOKED:          { cells: [C('ORPHAN_INTERNAL', 'FIRM')], label: 'Firm entry error', clue: 'No matching entry on the bank statement.', kind: 'ADJUST', family: 'REVERSE' },
   // ── 外有我无 × 客户 ──
-  MISSED_DEPOSIT:   { cells: [C('ORPHAN_EXTERNAL', 'CLIENT')], label: '漏记客户入金', clue: '外部行带客户归属（VIBAN/链上地址）', kind: 'SUPPLEMENT', supplementTarget: 'SUPPLEMENT_DEPOSIT', supplementLabel: '充值补录', requiredDirection: 'IN' },
-  BOUNCED_FUNDS:    { cells: [C('ORPHAN_EXTERNAL', 'CLIENT')], label: '入金被退汇/回冲', clue: '外部 OUT 与此前某笔成功入金同源', kind: 'SUPPLEMENT', supplementTarget: 'SUPPLEMENT_BOUNCE', supplementLabel: '退汇认领', requiredDirection: 'OUT' },
-  PAYOUT_RETURNED:  { cells: [C('ORPHAN_EXTERNAL', 'CLIENT')], label: '提现被银行退回（出款后退汇）', clue: '外部 IN 与某笔成功提现同额，带原出款关联号', kind: 'SUPPLEMENT', supplementTarget: 'SUPPLEMENT_PAYOUT_RETURN', supplementLabel: '退回认领', requiredDirection: 'IN' },
-  MISATTRIBUTED_TO:     { cells: [C('ORPHAN_EXTERNAL', 'CLIENT')], label: '记错客户——这笔是本客户的、记在了别人名下', clue: '对端钱包同日同额「我有外无」成对', kind: 'ADJUST', family: 'REATTRIBUTE' },
-  UNAUTHORIZED_OUTFLOW: { cells: [C('ORPHAN_EXTERNAL', 'CLIENT')], label: '未授权转出（盗转/误划）', clue: '我方无任何单据、客户未发起', kind: 'INCIDENT' },
+  MISSED_DEPOSIT:   { cells: [C('ORPHAN_EXTERNAL', 'CLIENT')], label: 'Missed customer deposit', clue: 'The external line carries customer attribution (VIBAN / on-chain address).', kind: 'SUPPLEMENT', supplementTarget: 'SUPPLEMENT_DEPOSIT', supplementLabel: 'Deposit backfill', requiredDirection: 'IN' },
+  BOUNCED_FUNDS:    { cells: [C('ORPHAN_EXTERNAL', 'CLIENT')], label: 'Deposit recalled', clue: 'The external OUT line traces back to an earlier successful deposit.', kind: 'SUPPLEMENT', supplementTarget: 'SUPPLEMENT_BOUNCE', supplementLabel: 'Recall claim', requiredDirection: 'OUT' },
+  PAYOUT_RETURNED:  { cells: [C('ORPHAN_EXTERNAL', 'CLIENT')], label: 'Payout returned by bank', clue: 'The external IN line matches a successful withdrawal in amount and carries the original payout reference.', kind: 'SUPPLEMENT', supplementTarget: 'SUPPLEMENT_PAYOUT_RETURN', supplementLabel: 'Return claim', requiredDirection: 'IN' },
+  MISATTRIBUTED_TO:     { cells: [C('ORPHAN_EXTERNAL', 'CLIENT')], label: 'Misattributed customer', clue: 'A same-day, same-amount "internal only" entry exists on the counterparty wallet.', kind: 'ADJUST', family: 'REATTRIBUTE' },
+  UNAUTHORIZED_OUTFLOW: { cells: [C('ORPHAN_EXTERNAL', 'CLIENT')], label: 'Unauthorized outflow', clue: 'We hold no order for it, and the customer did not initiate it.', kind: 'INCIDENT' },
   // ── 外有我无 × 公司 ──
-  BANK_INTEREST_UNBOOKED: { cells: [C('ORPHAN_EXTERNAL', 'FIRM')], label: '银行利息未入账', clue: '银行单科目 = 利息', kind: 'ADJUST', family: 'RECORD' },
-  BANK_CHARGE_UNBOOKED:   { cells: [C('ORPHAN_EXTERNAL', 'FIRM')], label: '银行杂费/账管费未入账', clue: '银行单科目 = 费用', kind: 'ADJUST', family: 'RECORD' },
-  UNCLAIMED_INFLOW:       { cells: [C('ORPHAN_EXTERNAL', 'FIRM')], label: '无主入金待归属', clue: '账户归属排查：查明是客户→转补单，公司→补记', kind: 'HOLD_INVESTIGATING' },
+  BANK_INTEREST_UNBOOKED: { cells: [C('ORPHAN_EXTERNAL', 'FIRM')], label: 'Bank interest unbooked', clue: 'The bank statement line item is interest.', kind: 'ADJUST', family: 'RECORD' },
+  BANK_CHARGE_UNBOOKED:   { cells: [C('ORPHAN_EXTERNAL', 'FIRM')], label: 'Bank charges unbooked', clue: 'The bank statement line item is a fee.', kind: 'ADJUST', family: 'RECORD' },
+  UNCLAIMED_INFLOW:       { cells: [C('ORPHAN_EXTERNAL', 'FIRM')], label: 'Unclaimed inflow', clue: "Trace the account owner: if it's a customer, route to Supplement; if it's the firm, route to Record entry.", kind: 'HOLD_INVESTIGATING' },
   // ── 每格通用收尾 ──
-  UNEXPLAINED: { cells: ALL_CELLS, label: '查不出（已穷尽调查）', clue: '说明里写清查过什么', kind: 'HOLD_INVESTIGATING' },
+  UNEXPLAINED: { cells: ALL_CELLS, label: 'Unexplained (exhausted)', clue: 'State clearly in the notes what was investigated.', kind: 'HOLD_INVESTIGATING' },
 };
 
 export const FAMILY_LABEL: Record<AdjustFamily, string> = {
-  CORRECT: '冲正', REVERSE: '冲销', RECORD: '补记', REATTRIBUTE: '改记', WRITE_OFF: '核销',
+  CORRECT: 'Correction', REVERSE: 'Reversal', RECORD: 'Record entry', REATTRIBUTE: 'Reattribution', WRITE_OFF: 'Write-off',
 };
 
 export function staticOutletLabel(code: CauseCode): string {
   const spec = CAUSE_REGISTRY[code];
   if (spec.kind === 'ADJUST') return FAMILY_LABEL[spec.family!];
-  if (spec.kind === 'HOLD_NEXT_PERIOD') return '挂起·等下期';
-  if (spec.kind === 'HOLD_INVESTIGATING') return '挂起·调查中';
-  if (spec.kind === 'SUPPLEMENT') return `补单·${spec.supplementLabel}`;
-  if (spec.kind === 'INCIDENT') return '事故·待登记';
-  if (spec.kind === 'DEFERRED') return `留档·${spec.deferredLabel}`;
+  if (spec.kind === 'HOLD_NEXT_PERIOD') return 'Hold · Next period';
+  if (spec.kind === 'HOLD_INVESTIGATING') return 'Hold · Investigating';
+  if (spec.kind === 'SUPPLEMENT') return `Supplement · ${spec.supplementLabel}`;
+  if (spec.kind === 'INCIDENT') return 'Incident · Pending';
+  if (spec.kind === 'DEFERRED') return `File only · ${spec.deferredLabel}`;
   // 穷尽收口：加第 6 个 kind 时，上面漏判一支这里就编译期报红。
   const _exhaustive: never = spec.kind;
-  throw new BadRequestException(`未知出口 kind：${_exhaustive}`);
+  throw new BadRequestException(`Unknown outlet kind: ${_exhaustive}`);
 }
 
 export function menuFor(matchType: CauseMatchType, book: CauseBook) {
@@ -143,29 +143,29 @@ export interface ResolvedOutlet {
  */
 export function resolveOutlet(code: CauseCode, facts: RowFacts): ResolvedOutlet {
   const spec = CAUSE_REGISTRY[code];
-  if (!spec) throw new BadRequestException(`未知成因码：${code}`);
+  if (!spec) throw new BadRequestException(`Unknown cause code: ${code}`);
   if (!spec.cells.some((c) => c.matchType === facts.matchType && c.book === facts.book)) {
-    throw new BadRequestException(`成因 ${code} 不属于该格（${facts.matchType} × ${facts.book}）`);
+    throw new BadRequestException(`Cause ${code} does not belong to this cell (${facts.matchType} × ${facts.book})`);
   }
-  if (spec.kind === 'HOLD_NEXT_PERIOD') return { outlet: 'HOLD_NEXT_PERIOD', outletLabel: '挂起·等下期' };
-  if (spec.kind === 'HOLD_INVESTIGATING') return { outlet: 'HOLD_INVESTIGATING', outletLabel: '挂起·调查中' };
+  if (spec.kind === 'HOLD_NEXT_PERIOD') return { outlet: 'HOLD_NEXT_PERIOD', outletLabel: 'Hold · Next period' };
+  if (spec.kind === 'HOLD_INVESTIGATING') return { outlet: 'HOLD_INVESTIGATING', outletLabel: 'Hold · Investigating' };
   if (spec.kind === 'SUPPLEMENT') {
     // 平账 B 批（spec §2.1-3）：补单三路各认一个方向，选错成因当场拒，不让错方向的表单开出来。
     if (facts.externalDirection && facts.externalDirection !== spec.requiredDirection) {
-      throw new BadRequestException(`成因 ${code} 要求账单行方向为 ${spec.requiredDirection}，该行是 ${facts.externalDirection}——成因与账单行方向不符`);
+      throw new BadRequestException(`Cause ${code} requires the statement line direction to be ${spec.requiredDirection}, but this line is ${facts.externalDirection}——cause and statement line direction do not match`);
     }
-    return { outlet: 'SUPPLEMENT', outletLabel: `补单·${spec.supplementLabel}`, deferredTarget: spec.supplementTarget };
+    return { outlet: 'SUPPLEMENT', outletLabel: `Supplement · ${spec.supplementLabel}`, deferredTarget: spec.supplementTarget };
   }
   if (spec.kind === 'DEFERRED') {
-    return { outlet: 'DEFERRED', outletLabel: `留档·${spec.deferredLabel}`, deferredTarget: spec.deferredTarget };
+    return { outlet: 'DEFERRED', outletLabel: `File only · ${spec.deferredLabel}`, deferredTarget: spec.deferredTarget };
   }
   if (spec.kind === 'INCIDENT') {
-    return { outlet: 'INCIDENT', outletLabel: '事故·待登记' };
+    return { outlet: 'INCIDENT', outletLabel: 'Incident · Pending' };
   }
   if (spec.kind === 'ADJUST') {
     const family = spec.family!;
     if (family === 'REATTRIBUTE') {
-      return { outlet: 'ADJUST_REATTRIBUTE', outletLabel: '改记', family, reasonCode: 'CUSTOMER_REATTRIBUTION' };
+      return { outlet: 'ADJUST_REATTRIBUTE', outletLabel: FAMILY_LABEL.REATTRIBUTE, family, reasonCode: 'CUSTOMER_REATTRIBUTION' };
     }
     if (family === 'CORRECT') {
       const direction: 'REDUCE' | 'INCREASE' = signedDeltaSign(facts) === -1 ? 'REDUCE' : 'INCREASE';
@@ -173,9 +173,9 @@ export function resolveOutlet(code: CauseCode, facts: RowFacts): ResolvedOutlet 
         : facts.internalSourceType === 'WITHDRAW' ? 'WITHDRAW_AMOUNT_CORRECTION' : null;
       if (!reasonCode) {
         // SWAP 等流水本轮无冲正码（spec §11-6）——留档，不硬塞
-        return { outlet: 'DEFERRED', outletLabel: '留档·本流水类型暂无冲正码（下一轮）', deferredTarget: 'NO_REASON_CODE' };
+        return { outlet: 'DEFERRED', outletLabel: 'File only · This transaction type has no correction code yet (next round)', deferredTarget: 'NO_REASON_CODE' };
       }
-      return { outlet: 'ADJUST_CORRECT', outletLabel: '冲正', family, reasonCode, direction };
+      return { outlet: 'ADJUST_CORRECT', outletLabel: FAMILY_LABEL.CORRECT, family, reasonCode, direction };
     }
     if (family === 'REVERSE') {
       // 公司账簿两成因（A 批定码）：金额不对按差额符号（出账翻符号，同冲正）；孤儿按内部方向取反。
@@ -183,24 +183,24 @@ export function resolveOutlet(code: CauseCode, facts: RowFacts): ResolvedOutlet 
         const direction: 'REDUCE' | 'INCREASE' = facts.matchType === 'AMOUNT_MISMATCH'
           ? (signedDeltaSign(facts) === -1 ? 'REDUCE' : 'INCREASE')
           : (facts.internalDirection === 'OUT' ? 'INCREASE' : 'REDUCE');
-        return { outlet: 'ADJUST_REVERSE', outletLabel: '冲销', family, reasonCode: 'FIRM_ENTRY_REVERSAL', direction };
+        return { outlet: 'ADJUST_REVERSE', outletLabel: FAMILY_LABEL.REVERSE, family, reasonCode: 'FIRM_ENTRY_REVERSAL', direction };
       }
       const direction: 'REDUCE' | 'INCREASE' = facts.internalDirection === 'OUT' ? 'INCREASE' : 'REDUCE';
       const reasonCode = code === 'DUP_BOOKING' ? 'DEPOSIT_DUPLICATE_REVERSAL'
         : code === 'PHANTOM_BOOKING' ? 'DEPOSIT_SIGNAL_VOID' : 'WITHDRAW_VOID_REFUND';
-      return { outlet: 'ADJUST_REVERSE', outletLabel: '冲销', family, reasonCode, direction };
+      return { outlet: 'ADJUST_REVERSE', outletLabel: FAMILY_LABEL.REVERSE, family, reasonCode, direction };
     }
     // RECORD（公司补记）：金额差按差额符号（出账翻符号），公司孤儿按外部方向
     const positive = facts.matchType === 'AMOUNT_MISMATCH' ? signedDeltaSign(facts) === 1 : facts.externalDirection === 'IN';
     return {
-      outlet: 'ADJUST_RECORD', outletLabel: '补记', family,
+      outlet: 'ADJUST_RECORD', outletLabel: FAMILY_LABEL.RECORD, family,
       reasonCode: positive ? 'BANK_INTEREST' : 'BANK_CHARGE',
       direction: positive ? 'INCREASE' : 'REDUCE',
     };
   }
   // 穷尽收口：加第 6 个 kind 时，上面漏判一支这里就编译期报红。
   const _exhaustive: never = spec.kind;
-  throw new BadRequestException(`未知出口 kind：${_exhaustive}`);
+  throw new BadRequestException(`Unknown outlet kind: ${_exhaustive}`);
 }
 
 export interface WriteOffFacts extends RowFacts {

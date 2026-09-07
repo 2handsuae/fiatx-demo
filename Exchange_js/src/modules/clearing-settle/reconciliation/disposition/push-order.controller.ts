@@ -20,7 +20,7 @@ import { ManualPushDto } from '../dto/push-order.dto';
  * 平账·推单处置端点（spec §1/§2）。同步腿查唯一外部回执自动推进；人工腿凭证据三件套强推。
  * 两端点都不直写账本——委托 PushOrderService 循环调 advance()，记账由事件链穿透（T2）。
  */
-@ApiTags('Admin - Reconciliation Disposition (平账·推单)')
+@ApiTags('Admin - Reconciliation Disposition (Recon · Push order)')
 @ApiBearerAuth()
 @Controller('admin/funds-orders')
 @UseGuards(AuthGuard('jwt'), AdminPermissionGuard)
@@ -29,7 +29,7 @@ export class PushOrderController {
   constructor(private readonly pushOrder: PushOrderService) {}
 
   @Post(':fundsOrderNo/push/sync')
-  @ApiOperation({ summary: '推单·同步状态：查唯一外部回执并推进至终态（幂等安全）' })
+  @ApiOperation({ summary: 'Push order · sync: look up the unique external receipt and advance to terminal state (idempotency-safe)' })
   @RequirePermissions(buildPermissionCode('POST', '/admin/funds-orders/:fundsOrderNo/push/sync'))
   sync(@Param('fundsOrderNo') no: string, @Req() req: any) {
     const operatorId = req.user?.userNo || req.user?.sub || 'ADMIN';
@@ -37,7 +37,7 @@ export class PushOrderController {
   }
 
   @Post(':fundsOrderNo/push/manual')
-  @ApiOperation({ summary: '推单·人工确认：证据三件套强推至终态（审计人工标记）' })
+  @ApiOperation({ summary: 'Push order · manual confirm: force-advance to terminal state with the evidence triplet (audited as manual)' })
   @RequirePermissions(buildPermissionCode('POST', '/admin/funds-orders/:fundsOrderNo/push/manual'))
   manual(@Param('fundsOrderNo') no: string, @Body() dto: ManualPushDto, @Req() req: any) {
     const operatorId = req.user?.userNo || req.user?.sub || 'ADMIN';

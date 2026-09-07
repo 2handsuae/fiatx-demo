@@ -23,9 +23,10 @@ function build(overrides: any = {}) {
   return { svc: new DispositionService(prisma, audit), prisma, audit };
 }
 
-// 极简 Prisma where 求值器：OR 取任一子条件命中，其余键值要求逐一相等。
-// 只有当 service 传来的 where 语义正确时，下面回归测试里的 existing 才会被
-// 找到——如果 service 退回成把两个锚 AND 进同一层 where，这里会判不中。
+// Minimal Prisma where evaluator: OR matches if any sub-condition hits, other keys require exact equality.
+// The `existing` row in the regression test below is only found when the service's where clause is
+// correctly shaped — if the service regresses to AND-ing the two anchors into one where level, this
+// evaluator will fail to match it.
 function whereMatches(row: any, where: any): boolean {
   return Object.entries(where).every(([key, value]) => {
     if (key === 'OR') return (value as any[]).some((cond) => whereMatches(row, cond));
@@ -33,24 +34,24 @@ function whereMatches(row: any, where: any): boolean {
   });
 }
 
-describe('DispositionService.record（spec §3.2/§7）', () => {
-  it('挂起：落定性记录 + 审计带显式 requestId，不碰账', async () => {
+describe('DispositionService.record (spec §3.2/§7)', () => {
+  it('hold: writes a finding record + audit with an explicit requestId, touches no ledger', async () => {
     const { svc, prisma, audit } = build();
     const r = await svc.record('REC-1', {
       matchType: 'ORPHAN_INTERNAL', explainedFlowId: 'f1',
-      causeCode: 'CUTOFF_STRADDLE', findingNote: '外部行时间戳在下一账期', internalDirection: 'IN',
+      causeCode: 'CUTOFF_STRADDLE', findingNote: 'External line timestamp falls in the next period', internalDirection: 'IN',
     } as any, ACTOR);
     expect(r.outlet).toBe('HOLD_NEXT_PERIOD');
     const created = prisma.reconciliationDisposition.create.mock.calls[0][0].data;
-    expect(created.book).toBe('CLIENT');                    // case.book CUSTOMER → CLIENT 归一化（同 adjustment）
+    expect(created.book).toBe('CLIENT');                    // case.book CUSTOMER → normalized to CLIENT (same as adjustment)
     expect(created.dispositionNo).toMatch(/^RCD/);
     const auditArg = audit.recordByActor.mock.calls[0][0];
     expect(auditArg.action).toBe('RECON_DISPOSITION_RECORDED');
-    expect(auditArg.causeCode).toBe('CUTOFF_STRADDLE');      // requiredFields 顶层
+    expect(auditArg.causeCode).toBe('CUTOFF_STRADDLE');      // requiredFields top level
     expect(auditArg.outlet).toBe('HOLD_NEXT_PERIOD');
-    expect(auditArg.requestId).toMatch(/^RECON_DISPOSITION_RECORDED_RCD/); // 显式 requestId
+    expect(auditArg.requestId).toMatch(/^RECON_DISPOSITION_RECORDED_RCD/); // explicit requestId
   });
-  it('同锚重定 = 覆盖 + 再记一条审计', async () => {
+  it('re-finding the same anchor = overwrite + one more audit entry', async () => {
     const existing = { id: 'd0', dispositionNo: 'RCD000', adjustmentNo: null };
     const { svc, prisma, audit } = build({
       reconciliationDisposition: {
@@ -61,13 +62,13 @@ describe('DispositionService.record（spec §3.2/§7）', () => {
     });
     await svc.record('REC-1', {
       matchType: 'ORPHAN_INTERNAL', explainedFlowId: 'f1',
-      causeCode: 'DUP_BOOKING', findingNote: '双胞胎实证', internalDirection: 'IN',
+      causeCode: 'DUP_BOOKING', findingNote: 'Twin entry confirmed', internalDirection: 'IN',
     } as any, ACTOR);
     expect(prisma.reconciliationDisposition.update).toHaveBeenCalled();
     expect(prisma.reconciliationDisposition.create).not.toHaveBeenCalled();
     expect(audit.recordByActor).toHaveBeenCalledTimes(1);
   });
-  it('已挂调账单的行拒绝覆盖（400）', async () => {
+  it('a line already linked to an adjustment rejects overwrite (400)', async () => {
     const { svc } = build({
       reconciliationDisposition: {
         findFirst: jest.fn().mockResolvedValue({ dispositionNo: 'RCD000', adjustmentNo: 'ADJ001' }),
@@ -78,10 +79,11 @@ describe('DispositionService.record（spec §3.2/§7）', () => {
       causeCode: 'DUP_BOOKING', findingNote: 'x', internalDirection: 'IN',
     } as any, ACTOR)).rejects.toThrow(BadRequestException);
   });
-  it('同锚查找按 OR 而非 AND——锚集跨轮次漂移仍需命中既有记录、维持挂单锁（回归：曾经的 AND 写法会漏网）', async () => {
-    // 场景还原评审逮到的缺陷：这条证据第一次定性时是 ORPHAN_INTERNAL，
-    // 库里只留了 explainedFlowId，explainedExternalLineId 是 null；下一轮
-    // 对账把它重分类成 AMOUNT_MISMATCH，新请求两个锚都带上了。
+  it('same-anchor lookup uses OR not AND — an anchor set that drifts across runs still hits the existing record and keeps the link lock (regression: the old AND wording would miss it)', async () => {
+    // Reproduces a defect caught in review: this piece of evidence was first found as
+    // ORPHAN_INTERNAL, so the row only had explainedFlowId, with explainedExternalLineId
+    // null; the next reconciliation run reclassified it as AMOUNT_MISMATCH, and the new
+    // request carries both anchors.
     const existing = {
       caseNo: 'REC-1', dispositionNo: 'RCD000', explainedFlowId: 'f1', explainedExternalLineId: null, adjustmentNo: 'ADJ001',
     };
@@ -93,11 +95,12 @@ describe('DispositionService.record（spec §3.2/§7）', () => {
 
     await expect(svc.record('REC-1', {
       matchType: 'AMOUNT_MISMATCH', explainedFlowId: 'f1', explainedExternalLineId: 'x-new',
-      causeCode: 'AMT_MISBOOKED', findingNote: '重分类后两个锚都带', deltaSign: 1, internalSourceType: 'DEPOSIT',
-    } as any, ACTOR)).rejects.toThrow(/ADJ001/); // 命中 existing 才会报出它挂的单号
+      causeCode: 'AMT_MISBOOKED', findingNote: 'Both anchors present after reclassification', deltaSign: 1, internalSourceType: 'DEPOSIT',
+    } as any, ACTOR)).rejects.toThrow(/ADJ001/); // only hits existing (and reports its linked order) when the lookup matches
 
-    // 断言调用参数：必须按字段独立 OR，不能把两个锚 AND 进同一层 where
-    // ——否则新请求的 explainedExternalLineId='x-new' 永远碰不上库里的 null。
+    // Assert the call params: the two anchors must be independent OR clauses, not AND-ed
+    // into the same where level — otherwise the new request's explainedExternalLineId='x-new'
+    // would never match the null stored in the database.
     const calledWhere = findFirstMock.mock.calls[0][0].where;
     expect(calledWhere.OR).toEqual(expect.arrayContaining([
       { explainedFlowId: 'f1' },
@@ -105,20 +108,20 @@ describe('DispositionService.record（spec §3.2/§7）', () => {
     ]));
     expect(prisma.reconciliationDisposition.create).not.toHaveBeenCalled();
   });
-  it('两个锚都缺 → 400；案件非 OPEN → 400', async () => {
+  it('both anchors missing → 400; case not OPEN → 400', async () => {
     const { svc } = build();
     await expect(svc.record('REC-1', {
       matchType: 'ORPHAN_INTERNAL', causeCode: 'DUP_BOOKING', findingNote: 'x', internalDirection: 'IN',
-    } as any, ACTOR)).rejects.toThrow(/锚/);
+    } as any, ACTOR)).rejects.toThrow(/anchored/);
     const closed = build({ reconciliationCase: { findUnique: jest.fn().mockResolvedValue({ ...CASE_ROW, status: 'RESOLVED' }) } });
     await expect(closed.svc.record('REC-1', {
       matchType: 'ORPHAN_INTERNAL', explainedFlowId: 'f1', causeCode: 'DUP_BOOKING', findingNote: 'x', internalDirection: 'IN',
-    } as any, ACTOR)).rejects.toThrow(/OPEN|打开/);
+    } as any, ACTOR)).rejects.toThrow(/open/i);
   });
 });
 
 describe('DispositionService.linkAdjustment', () => {
-  it('只接受 ADJUST 类出口且未挂单的定性', async () => {
+  it('only accepts findings with an ADJUST-family outlet that are not yet linked', async () => {
     const { svc, prisma } = build({
       reconciliationDisposition: {
         findUnique: jest.fn().mockResolvedValue({ dispositionNo: 'RCD001', outlet: 'ADJUST_REVERSE', adjustmentNo: null }),
@@ -140,7 +143,7 @@ describe('DispositionService.linkAdjustment', () => {
   });
 });
 
-describe('平账 A 批：定性联动放行组合（spec §3.6）', () => {
+describe('Recon batch A: allowed finding-link combinations (spec §3.6)', () => {
   const held = { dispositionNo: 'RCD001', outlet: 'HOLD_INVESTIGATING', adjustmentNo: null };
   const buildLink = (row: any) => {
     const prisma: any = {
@@ -151,24 +154,26 @@ describe('平账 A 批：定性联动放行组合（spec §3.6）', () => {
     };
     return { svc: new DispositionService(prisma, { recordByActor: jest.fn() } as any), prisma };
   };
-  it('挂起·调查中 + 核销族 → 放行挂单', async () => {
+  it('Hold · Investigating + write-off family → link allowed', async () => {
     const { svc, prisma } = buildLink(held);
     await svc.linkAdjustment('RCD001', 'ADJ_WO', { family: 'WRITE_OFF' });
     expect(prisma.reconciliationDisposition.update).toHaveBeenCalledWith({ where: { dispositionNo: 'RCD001' }, data: { adjustmentNo: 'ADJ_WO' } });
   });
-  it('挂起·调查中 + 其他族 → 仍拒（"不落调账单"）', async () => {
+  it('Hold · Investigating + any other family → still rejected ("does not route to an adjustment")', async () => {
     const { svc } = buildLink(held);
     await expect(svc.linkAdjustment('RCD001', 'ADJ_X', { family: 'CORRECT' })).rejects.toThrow(BadRequestException);
     await expect(svc.linkAdjustment('RCD001', 'ADJ_X')).rejects.toThrow(BadRequestException);
   });
 });
 
-// 平账三期 Task 10 评审 Fix 1（Critical）：linkAdjustment 出口白名单原先只认
-// HOLD_INVESTIGATING+WRITE_OFF，事故路（outlet='INCIDENT'）建单后回挂必然 400、
-// 已落库的 DRAFT 调账单变成孤儿（定性行挂不上号还能再被提交过账）。白名单补上
-// 同构分支后，本组用例锁住四种边界：事故路放行、事故路无 family 仍拒、其他出口
-// 不因为这次改动被误放行、事故路已挂单的行拒绝再挂。
-describe('平账三期 Task 10 评审 Fix 1：linkAdjustment 出口白名单纳入 INCIDENT', () => {
+// Recon wave 3 (Task 10) review Fix 1 (Critical): linkAdjustment's outlet allowlist originally
+// only recognized HOLD_INVESTIGATING+WRITE_OFF, so the incident path (outlet='INCIDENT') always
+// hit 400 when linking back after the adjustment was opened, orphaning the already-persisted DRAFT
+// adjustment (the finding line never got linked, yet it could still be submitted for approval).
+// With the matching branch added, this group locks down four edge cases: incident path allowed,
+// incident path with no family still rejected, other outlets not accidentally allowed by this
+// change, and an incident-path line that is already linked rejects linking again.
+describe('Recon wave 3 Task 10 review Fix 1: linkAdjustment allowlist now includes INCIDENT', () => {
   const heldIncident = { dispositionNo: 'RCD-INC-1', outlet: 'INCIDENT', adjustmentNo: null };
   const buildLink = (row: any) => {
     const prisma: any = {
@@ -179,41 +184,41 @@ describe('平账三期 Task 10 评审 Fix 1：linkAdjustment 出口白名单纳�
     };
     return { svc: new DispositionService(prisma, { recordByActor: jest.fn() } as any), prisma };
   };
-  it('事故·待处置 + 核销族 → 放行挂单（此前必 400，事故路认损单建单后调不通）', async () => {
+  it('Incident · Pending + write-off family → link allowed (previously always 400, blocking loss-recognition adjustments on the incident path)', async () => {
     const { svc, prisma } = buildLink(heldIncident);
     await svc.linkAdjustment('RCD-INC-1', 'ADJ_INC', { family: 'WRITE_OFF' });
     expect(prisma.reconciliationDisposition.update).toHaveBeenCalledWith({
       where: { dispositionNo: 'RCD-INC-1' }, data: { adjustmentNo: 'ADJ_INC' },
     });
   });
-  it('事故·待处置 + 无 family / 其他族 → 仍拒', async () => {
+  it('Incident · Pending + no family / any other family → still rejected', async () => {
     const { svc } = buildLink(heldIncident);
     await expect(svc.linkAdjustment('RCD-INC-1', 'ADJ_X')).rejects.toThrow(BadRequestException);
     await expect(svc.linkAdjustment('RCD-INC-1', 'ADJ_X', { family: 'CORRECT' })).rejects.toThrow(BadRequestException);
   });
-  it('既不是 ADJUST 类、也不是 HOLD_INVESTIGATING/INCIDENT 的出口 → 核销族同样拒（白名单没被顺手放宽）', async () => {
+  it('an outlet that is neither ADJUST-family nor HOLD_INVESTIGATING/INCIDENT → write-off family still rejected (allowlist was not loosened by accident)', async () => {
     const { svc } = buildLink({ dispositionNo: 'RCD-DEF-1', outlet: 'DEFERRED', adjustmentNo: null });
     await expect(svc.linkAdjustment('RCD-DEF-1', 'ADJ_X', { family: 'WRITE_OFF' })).rejects.toThrow(BadRequestException);
   });
-  it('事故·待处置行已挂调账单 → 拒绝再挂（400，不因为新分支绕开挂单锁）', async () => {
+  it('an incident-path line already linked to an adjustment → rejects linking again (400, the new branch does not bypass the link lock)', async () => {
     const { svc } = buildLink({ ...heldIncident, adjustmentNo: 'ADJ_OLD' });
-    await expect(svc.linkAdjustment('RCD-INC-1', 'ADJ_NEW', { family: 'WRITE_OFF' })).rejects.toThrow(/已挂调账单 ADJ_OLD/);
+    await expect(svc.linkAdjustment('RCD-INC-1', 'ADJ_NEW', { family: 'WRITE_OFF' })).rejects.toThrow(/already linked to adjustment ADJ_OLD/);
   });
 });
 
-describe('平账 B 批：supplementNo 回挂与覆盖锁', () => {
-  it('linkSupplement：出口不是 SUPPLEMENT 或去向不符 → 400；已挂 → 400；正常写入', async () => {
+describe('Recon batch B: supplementNo link-back and overwrite lock', () => {
+  it('linkSupplement: outlet not SUPPLEMENT or target mismatch → 400; already linked → 400; normal write succeeds', async () => {
     const { svc: service, prisma } = build();
     prisma.reconciliationDisposition.findUnique.mockResolvedValueOnce({ dispositionNo: 'RCD1', outlet: 'HOLD_INVESTIGATING', deferredTarget: null, supplementNo: null });
-    await expect(service.linkSupplement('RCD1', 'SIG1', 'SUPPLEMENT_DEPOSIT')).rejects.toThrow(/不接/);
+    await expect(service.linkSupplement('RCD1', 'SIG1', 'SUPPLEMENT_DEPOSIT')).rejects.toThrow(/does not accept/);
     prisma.reconciliationDisposition.findUnique.mockResolvedValueOnce({ dispositionNo: 'RCD1', outlet: 'SUPPLEMENT', deferredTarget: 'SUPPLEMENT_DEPOSIT', supplementNo: 'SIG0' });
-    await expect(service.linkSupplement('RCD1', 'SIG1', 'SUPPLEMENT_DEPOSIT')).rejects.toThrow(/已转补单/);
+    await expect(service.linkSupplement('RCD1', 'SIG1', 'SUPPLEMENT_DEPOSIT')).rejects.toThrow(/already linked to supplement/);
     prisma.reconciliationDisposition.findUnique.mockResolvedValueOnce({ dispositionNo: 'RCD1', outlet: 'SUPPLEMENT', deferredTarget: 'SUPPLEMENT_DEPOSIT', supplementNo: null });
     await service.linkSupplement('RCD1', 'SIG1', 'SUPPLEMENT_DEPOSIT');
     expect(prisma.reconciliationDisposition.update).toHaveBeenCalledWith({ where: { dispositionNo: 'RCD1' }, data: { supplementNo: 'SIG1' } });
   });
-  it('record：已转补单的定性不可覆盖', async () => {
-    // 按该文件既有 record() 用例的 mock 铺法，只把 existing 换成带 supplementNo 的行
+  it('record: a finding already linked to a supplement cannot be overwritten', async () => {
+    // Follows this file's existing record() mock setup, just swaps `existing` for a row carrying a supplementNo
     const { svc: service } = build({
       reconciliationDisposition: {
         findFirst: jest.fn().mockResolvedValue({ dispositionNo: 'RCD1', adjustmentNo: null, supplementNo: 'SIG1' }),
@@ -222,9 +227,9 @@ describe('平账 B 批：supplementNo 回挂与覆盖锁', () => {
     await expect(service.record('REC-1', {
       matchType: 'ORPHAN_INTERNAL', explainedFlowId: 'f1',
       causeCode: 'DUP_BOOKING', findingNote: 'x', internalDirection: 'IN',
-    } as any, ACTOR)).rejects.toThrow(/已转补单/);
+    } as any, ACTOR)).rejects.toThrow(/already linked to supplement/);
   });
-  it('unlinkSupplement：挂的不是期望值就不动', async () => {
+  it('unlinkSupplement: leaves the row untouched if the linked value is not the expected one', async () => {
     const { svc: service, prisma } = build();
     prisma.reconciliationDisposition.findUnique.mockResolvedValueOnce({ dispositionNo: 'RCD1', supplementNo: 'DEP9' });
     await service.unlinkSupplement('RCD1', 'SIG1');
@@ -232,19 +237,20 @@ describe('平账 B 批：supplementNo 回挂与覆盖锁', () => {
   });
 });
 
-// 平账三期（Task 9）：从 incidents.module.ts 的 InterimDispositionIncidentLink 占位类
-// 迁移过来的三条行为测试——占位类已删，行为原样锁在这里（404/409/只写 incidentNo 一列）。
-describe('DispositionService.attachIncident（平账三期：事故登记回挂，铁律③本主体自己的方法）', () => {
-  it('定性行不存在 → 404，未调用 update', async () => {
+// Recon wave 3 (Task 9): three behavioral tests migrated from the placeholder
+// InterimDispositionIncidentLink class in incidents.module.ts — the placeholder class was
+// deleted, and the behavior is locked here as-is (404/409/writes only the incidentNo column).
+describe('DispositionService.attachIncident (recon wave 3: incident registration link-back, principle ③ — a subject writes only its own table)', () => {
+  it('finding line not found → 404, update not called', async () => {
     const { svc, prisma } = build({
       reconciliationDisposition: { findUnique: jest.fn().mockResolvedValue(null), update: jest.fn() },
     });
     await expect(svc.attachIncident('RCD1', 'INC1')).rejects.toBeInstanceOf(NotFoundException);
-    await expect(svc.attachIncident('RCD1', 'INC1')).rejects.toThrow(/定性行不存在：RCD1/);
+    await expect(svc.attachIncident('RCD1', 'INC1')).rejects.toThrow(/Finding line not found: RCD1/);
     expect(prisma.reconciliationDisposition.update).not.toHaveBeenCalled();
   });
 
-  it('定性行已挂事故 → 409，未调用 update', async () => {
+  it('finding line already linked to an incident → 409, update not called', async () => {
     const { svc, prisma } = build({
       reconciliationDisposition: {
         findUnique: jest.fn().mockResolvedValue({ dispositionNo: 'RCD1', incidentNo: 'INC0' }),
@@ -252,11 +258,11 @@ describe('DispositionService.attachIncident（平账三期：事故登记回挂�
       },
     });
     await expect(svc.attachIncident('RCD1', 'INC1')).rejects.toBeInstanceOf(ConflictException);
-    await expect(svc.attachIncident('RCD1', 'INC1')).rejects.toThrow(/定性行 RCD1 已挂事故 INC0，不能再挂/);
+    await expect(svc.attachIncident('RCD1', 'INC1')).rejects.toThrow(/Finding line RCD1 is already linked to incident INC0 — cannot link another/);
     expect(prisma.reconciliationDisposition.update).not.toHaveBeenCalled();
   });
 
-  it('正路径：update 只写 incidentNo 一列', async () => {
+  it('happy path: update writes only the incidentNo column', async () => {
     const { svc, prisma } = build({
       reconciliationDisposition: {
         findUnique: jest.fn().mockResolvedValue({ dispositionNo: 'RCD1', incidentNo: null }),

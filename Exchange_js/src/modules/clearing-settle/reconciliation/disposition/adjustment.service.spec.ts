@@ -33,59 +33,60 @@ describe('AdjustmentService.assertTransition', () => {
   // 本 describe 只测纯同步方法，不碰任何依赖，占位 null 即可。
   const svc = new AdjustmentService(null as any, null as any, null as any, null as any, null as any);
 
-  it('DRAFT → PENDING_APPROVAL 放行', () => {
+  it('DRAFT → PENDING_APPROVAL allowed', () => {
     expect(() => svc.assertTransition(AdjustmentStatus.DRAFT, AdjustmentStatus.PENDING_APPROVAL)).not.toThrow();
   });
-  it('POSTED 是终态，任何再迁移都被拒', () => {
+  it('POSTED is terminal, any further transition is rejected', () => {
     expect(() => svc.assertTransition(AdjustmentStatus.POSTED, AdjustmentStatus.REJECTED)).toThrow(BadRequestException);
   });
-  it('DRAFT 不能跳过审批直接 POSTED', () => {
+  it('DRAFT cannot skip approval and jump straight to POSTED', () => {
     expect(() => svc.assertTransition(AdjustmentStatus.DRAFT, AdjustmentStatus.POSTED)).toThrow(BadRequestException);
   });
 });
 
-describe('AdjustmentService.describeImpact —— 审批页看到的是后果，不是单号', () => {
+describe('AdjustmentService.describeImpact —— the approval page sees the consequence, not the order number', () => {
   const svc = new AdjustmentService(null as any, null as any, null as any, null as any, null as any);
-  it('客户账簿减钱，说清是谁、少多少、为什么——金额按 decimals 缩放成人看得懂的数，成因显示客户口径标签而不是原始枚举', () => {
+  it('client-book reduction: states who, how much, and why — amount scaled by decimals to a human-readable number, cause shows the customer-facing label rather than the raw enum', () => {
     const text = svc.describeImpact({
       book: 'CLIENT', ownerNo: 'C0042', amount: '1500', assetCode: 'AED',
-      direction: 'REDUCE', reasonCode: 'DEPOSIT_DUPLICATE_REVERSAL', reasonInternal: '同一笔充值入账两次',
+      direction: 'REDUCE', reasonCode: 'DEPOSIT_DUPLICATE_REVERSAL', reasonInternal: 'Same deposit recorded twice',
     } as any, 2);
     expect(text).toContain('C0042');
-    expect(text).toContain('减少');
-    // Fix 1b：1500 分（最小单位）在 decimals=2 下是 15.00 AED，不是裸打印的 1500——
-    // 后者是审批人唯一读到金额的这一屏上两个数量级的错读（200.00 AED 读成 20000）。
+    expect(text).toContain('decrease');
+    // Fix 1b: 1500 minor units at decimals=2 is 15.00 AED, not the raw 1500 printed as-is —
+    // the latter is a two-order-of-magnitude misread on the one screen where the approver reads the amount (200.00 AED read as 20000).
     expect(text).toContain('15.00');
     expect(text).not.toContain('1500');
-    // customerLabel（"重复入账撤销"）取代原始枚举 DEPOSIT_DUPLICATE_REVERSAL。
-    expect(text).toContain('重复入账撤销');
+    // customerLabel ("Duplicate deposit reversal") replaces the raw enum DEPOSIT_DUPLICATE_REVERSAL.
+    expect(text).toContain('Duplicate deposit reversal');
     expect(text).not.toContain('DEPOSIT_DUPLICATE_REVERSAL');
-    expect(text).toContain('同一笔充值入账两次');
+    expect(text).toContain('Same deposit recorded twice');
   });
-  it('公司账簿：文案显示"公司自有资金"', () => {
+  it('firm book: copy reads "the firm\'s balance"', () => {
     const text = svc.describeImpact({
       book: 'FIRM', ownerNo: null, amount: '500', assetCode: 'AED',
-      direction: 'REDUCE', reasonCode: 'BANK_CHARGE', reasonInternal: '银行手续费扣款',
+      direction: 'REDUCE', reasonCode: 'BANK_CHARGE', reasonInternal: 'Bank fee deduction',
     } as any, 2);
-    expect(text).toContain('公司自有资金');
-    expect(text).toContain('5.00'); // 500 分 → 5.00 AED
-    // 末站 Minor 1：公司侧两个成因的 customerLabel 刻意为 null（客户看不到公司侧调账），
-    // 早先借用它会让这一屏回落打印裸枚举「成因：BANK_CHARGE」——客户侧五个成因都是中文，
-    // 唯独公司侧半英半中。现在走 internalLabel。
-    expect(text).toContain('银行杂费');
+    expect(text).toContain("the firm's balance");
+    expect(text).toContain('5.00'); // 500 minor → 5.00 AED
+    // Final-stage Minor 1: the two firm-side causes have customerLabel deliberately null (customer
+    // cannot see firm-side adjustments) — reusing it here used to fall back to printing the raw enum
+    // "cause: BANK_CHARGE" (the five client-side causes were all in Chinese, only the firm side was
+    // half English half Chinese). Now uses internalLabel.
+    expect(text).toContain('Bank charges');
     expect(text).not.toContain('BANK_CHARGE');
   });
-  it('方向 INCREASE 时文案显示"增加"', () => {
+  it('direction INCREASE: copy reads "increase"', () => {
     const text = svc.describeImpact({
       book: 'CLIENT', ownerNo: 'C0099', amount: '800', assetCode: 'USDT',
-      direction: 'INCREASE', reasonCode: 'WITHDRAW_VOID_REFUND', reasonInternal: '提现被驳回退回余额',
+      direction: 'INCREASE', reasonCode: 'WITHDRAW_VOID_REFUND', reasonInternal: 'Withdrawal rejected, balance refunded',
     } as any, 6);
-    expect(text).toContain('增加');
-    expect(text).toContain('0.000800'); // 800 最小单位 → 6 位 decimals 的 USDT
+    expect(text).toContain('increase');
+    expect(text).toContain('0.000800'); // 800 minor units → USDT at 6 decimals
   });
 });
 
-describe('AdjustmentService.createDraft 两道闸 —— 门不可绕的落点，闸失效不能只靠人眼看代码', () => {
+describe('AdjustmentService.createDraft two gates —— where the gate cannot be bypassed, a gate failure must not rely on eyeballing the code', () => {
   const openClientCase = {
     caseNo: 'CASE_GATE', status: 'OPEN', book: 'CLIENT',
     walletRef: 'W_GATE', assetCode: 'AED', ownerNo: 'C0042', traceId: null,
@@ -121,40 +122,40 @@ describe('AdjustmentService.createDraft 两道闸 —— 门不可绕的落点�
     };
   };
 
-  it('闸二·边界线：客户账簿加钱不传关联原单号 → 拒', async () => {
+  it('gate 2 · boundary line: adding funds to a client-book account without a related order number → rejected', async () => {
     const { svc } = makeSvc(openClientCase);
     await expect(svc.createDraft({
       caseNo: 'CASE_GATE', lineItemId: 'LI_1', reasonCode: 'DEPOSIT_AMOUNT_CORRECTION',
       direction: 'INCREASE', amount: '1000', effectiveDate: '2026-08-28',
-      reasonInternal: '充值金额记错，需向上更正', reasonCustomer: '充值金额更正',
+      reasonInternal: 'Deposit amount recorded incorrectly, needs correcting upward', reasonCustomer: 'Deposit amount correction',
     } as any, OP)).rejects.toThrow(BadRequestException);
   });
 
-  it('闸二·放行：传了关联原单号且原单真实存在（充值单）→ 不拒，落库的 relatedOrderNo 是传进去的值', async () => {
+  it('gate 2 · allowed: a related order number is given and the order really exists (a deposit) → not rejected, the persisted relatedOrderNo is the value passed in', async () => {
     const { svc, create, prisma } = makeSvc(openClientCase);
     prisma.depositTransaction.findUnique.mockResolvedValue({ id: 'dep-uuid' });
     await svc.createDraft({
       caseNo: 'CASE_GATE', lineItemId: 'LI_1', reasonCode: 'DEPOSIT_AMOUNT_CORRECTION',
       direction: 'INCREASE', amount: '1000', effectiveDate: '2026-08-28',
-      reasonInternal: '充值金额记错，需向上更正', reasonCustomer: '充值金额更正',
+      reasonInternal: 'Deposit amount recorded incorrectly, needs correcting upward', reasonCustomer: 'Deposit amount correction',
       relatedOrderNo: 'DEP2608280001',
     } as any, OP);
     expect(create).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({ relatedOrderNo: 'DEP2608280001' }),
     }));
-    // 反遮蔽：查询必须按传进来的这个单号查，不是任意通配。
+    // Anti-masking: the lookup must query by the number passed in, not any wildcard.
     expect(prisma.depositTransaction.findUnique).toHaveBeenCalledWith(
       expect.objectContaining({ where: { depositNo: 'DEP2608280001' } }),
     );
   });
 
-  it('闸二·放行：原单是提现单而不是充值单也认——三张表逐一查，不是只认充值表', async () => {
+  it('gate 2 · allowed: an original order that is a withdrawal rather than a deposit is also accepted — all three tables are checked in turn, not only the deposit table', async () => {
     const { svc, create, prisma } = makeSvc(openClientCase);
     prisma.withdrawTransaction.findUnique.mockResolvedValue({ id: 'wd-uuid' });
     await svc.createDraft({
       caseNo: 'CASE_GATE', reasonCode: 'WITHDRAW_VOID_REFUND',
       direction: 'INCREASE', amount: '1000', effectiveDate: '2026-08-28',
-      reasonInternal: '提现已撤销但账没冲', reasonCustomer: '提现撤销退回',
+      reasonInternal: 'Withdrawal was voided but the books were not reversed', reasonCustomer: 'Withdrawal refund',
       relatedOrderNo: 'WD2608280001',
     } as any, OP);
     expect(create).toHaveBeenCalledWith(expect.objectContaining({
@@ -162,37 +163,37 @@ describe('AdjustmentService.createDraft 两道闸 —— 门不可绕的落点�
     }));
   });
 
-  it('闸二·边界线（Fix 3）：relatedOrderNo 非空，但充值/提现/兑换三张表都查无此单 → 拒——不能靠瞎填一个单号就绕过边界线守卫', async () => {
+  it('gate 2 · boundary line (Fix 3): relatedOrderNo is non-empty, but none of the deposit/withdrawal/swap tables have it → rejected — a made-up order number cannot bypass the boundary-line guard', async () => {
     const { svc, create, prisma } = makeSvc(openClientCase);
     await expect(svc.createDraft({
       caseNo: 'CASE_GATE', reasonCode: 'DEPOSIT_AMOUNT_CORRECTION',
       direction: 'INCREASE', amount: '1000', effectiveDate: '2026-08-28',
-      reasonInternal: '充值金额记错，需向上更正', reasonCustomer: '充值金额更正',
+      reasonInternal: 'Deposit amount recorded incorrectly, needs correcting upward', reasonCustomer: 'Deposit amount correction',
       relatedOrderNo: 'DEP_DOES_NOT_EXIST',
     } as any, OP)).rejects.toThrow(BadRequestException);
-    // 拒得干净：没有走到落库那一步。
+    // Rejected cleanly: never reached the persistence step.
     expect(create).not.toHaveBeenCalled();
-    // 反遮蔽：确实查过三张表（不是提前因为别的原因短路拒绝）。
+    // Anti-masking: all three tables were actually queried (not short-circuited earlier for some other reason).
     expect(prisma.depositTransaction.findUnique).toHaveBeenCalled();
     expect(prisma.withdrawTransaction.findUnique).toHaveBeenCalled();
     expect(prisma.swapTransaction.findUnique).toHaveBeenCalled();
   });
 
-  it('闸一·成因非法组合：FIRM 专属成因配到 CLIENT 账簿的 case → 拒', async () => {
+  it('gate 1 · illegal cause combination: a FIRM-only cause paired with a case on the CLIENT book → rejected', async () => {
     const { svc } = makeSvc(openClientCase);
     await expect(svc.createDraft({
       caseNo: 'CASE_GATE', lineItemId: 'LI_1', reasonCode: 'BANK_INTEREST',
       direction: 'INCREASE', amount: '1000', effectiveDate: '2026-08-28',
-      reasonInternal: '银行利息', reasonCustomer: '银行利息', relatedOrderNo: 'X',
+      reasonInternal: 'Bank interest', reasonCustomer: 'Bank interest', relatedOrderNo: 'X',
     } as any, OP)).rejects.toThrow(BadRequestException);
   });
 
-  it('闸一·防绕过：落库的 book 来自 case，请求里塞 book 也带不进去', async () => {
+  it('gate 1 · anti-bypass: the persisted book comes from the case, stuffing a book into the request does not get through', async () => {
     const { svc, create } = makeSvc(openClientCase);
     await svc.createDraft({
       caseNo: 'CASE_GATE', lineItemId: 'LI_1', reasonCode: 'DEPOSIT_DUPLICATE_REVERSAL',
       direction: 'REDUCE', amount: '1000', effectiveDate: '2026-08-28',
-      reasonInternal: '同一笔充值入账两次', reasonCustomer: '重复入账撤销',
+      reasonInternal: 'Same deposit recorded twice', reasonCustomer: 'Duplicate deposit reversal',
       book: 'FIRM',
     } as any, OP);
     expect(create).toHaveBeenCalledWith(expect.objectContaining({
@@ -200,15 +201,16 @@ describe('AdjustmentService.createDraft 两道闸 —— 门不可绕的落点�
     }));
   });
 
-  // ④ 解释锚：这张单在解释哪一条差异，锚在真实证据 id 上（内部流水 / 外部对账单行），
-  // 不锚 ReconciliationLineItem.id（每轮对账 delete-then-insert，锚上去就悬空）。
-  // 落库必须带上，否则下一轮对账摘不掉这条差异，案子平不下来。
-  it('从差异行开单：两个解释锚原样落库', async () => {
+  // Anchor ④: which difference this adjustment explains is anchored to a real evidence id (internal
+  // flow / external statement line), not ReconciliationLineItem.id (each run deletes and reinserts,
+  // anchoring to it would go stale). It must be persisted, otherwise the next reconciliation run
+  // cannot clear this difference and the case never balances.
+  it('opening from a difference line: both explanation anchors are persisted as-is', async () => {
     const { svc, create } = makeSvc(openClientCase);
     await svc.createDraft({
       caseNo: 'CASE_GATE', reasonCode: 'DEPOSIT_DUPLICATE_REVERSAL',
       direction: 'REDUCE', amount: '1000', effectiveDate: '2026-08-28',
-      reasonInternal: '同一笔充值入账两次', reasonCustomer: '重复入账撤销',
+      reasonInternal: 'Same deposit recorded twice', reasonCustomer: 'Duplicate deposit reversal',
       explainedFlowId: 'FLOW_9', explainedExternalLineId: 'EXTLINE_9',
     } as any, OP);
     expect(create).toHaveBeenCalledWith(expect.objectContaining({
@@ -216,49 +218,50 @@ describe('AdjustmentService.createDraft 两道闸 —— 门不可绕的落点�
     }));
   });
 
-  // 案件级入口开单（纯余额差、案子上没有差异行可指）：两个锚都空，照常建单。
-  it('不带解释锚（案件级入口）：createDraft 照常建单，两个锚落 null', async () => {
+  // Opening from the case-level entry point (a pure balance difference, no difference line to point at): both anchors are empty, the adjustment opens as usual.
+  it('no explanation anchor (case-level entry point): createDraft opens the adjustment as usual, both anchors land null', async () => {
     const { svc, create } = makeSvc(openClientCase);
     await svc.createDraft({
       caseNo: 'CASE_GATE', reasonCode: 'DEPOSIT_DUPLICATE_REVERSAL',
       direction: 'REDUCE', amount: '1000', effectiveDate: '2026-08-28',
-      reasonInternal: '同一笔充值入账两次', reasonCustomer: '重复入账撤销',
+      reasonInternal: 'Same deposit recorded twice', reasonCustomer: 'Duplicate deposit reversal',
     } as any, OP);
     expect(create).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({ explainedFlowId: null, explainedExternalLineId: null }),
     }));
   });
 
-  // ① 生效日守卫：晚于案件业务日 = 重跑该业务日的对账取不到这笔分录，差额永远
-  // 归不了零。前端默认值已改成案件业务日，这条锁后端兜底。
-  it('生效日晚于案件业务日 → 400，不建单', async () => {
+  // Anchor ①, effective-date guard: later than the case's business date = a rerun of that business
+  // day's reconciliation would not see this entry, and the difference would never reach zero. The
+  // frontend default has been changed to the case's business date; this lock is the backend backstop.
+  it('effective date later than the case business date → 400, no adjustment opened', async () => {
     const { svc, create } = makeSvc(openClientCase);   // openClientCase.businessDate = '2026-08-28'
     await expect(svc.createDraft({
       caseNo: 'CASE_GATE', reasonCode: 'DEPOSIT_DUPLICATE_REVERSAL',
       direction: 'REDUCE', amount: '1000', effectiveDate: '2026-08-29',
-      reasonInternal: '同一笔充值入账两次', reasonCustomer: '重复入账撤销',
+      reasonInternal: 'Same deposit recorded twice', reasonCustomer: 'Duplicate deposit reversal',
     } as any, OP)).rejects.toThrow(BadRequestException);
     expect(create).not.toHaveBeenCalled();
   });
 
-  it('生效日等于案件业务日（正常口径）与早于案件业务日 → 都放行', async () => {
+  it('effective date equal to the case business date (normal case) and earlier than it → both allowed', async () => {
     for (const effectiveDate of ['2026-08-28', '2026-08-01']) {
       const { svc, create } = makeSvc(openClientCase);
       await svc.createDraft({
         caseNo: 'CASE_GATE', reasonCode: 'DEPOSIT_DUPLICATE_REVERSAL',
         direction: 'REDUCE', amount: '1000', effectiveDate,
-        reasonInternal: '同一笔充值入账两次', reasonCustomer: '重复入账撤销',
+        reasonInternal: 'Same deposit recorded twice', reasonCustomer: 'Duplicate deposit reversal',
       } as any, OP);
       expect(create).toHaveBeenCalled();
     }
   });
 
-  // 平账二期 Task 4：客户池核销解锁为「认损」——UNEXPLAINED_CLIENT_LOSS 只许
-  // REDUCE，多出来的（INCREASE）指路补录；账簿 × 成因码配对不许交叉用码。
-  // 本 describe 已有的 makeSvc(kase, create) 是两个位置参数的形状，与这里
-  // 三个具名子对象（kase/disposition/asset）的调法不同，故另起一个同名局部
-  // 工厂（嵌套 describe 作用域内遮蔽，不影响本 describe 其它用例）。
-  describe('客户池认损（平账二期 Task 4）——UNEXPLAINED_CLIENT_LOSS 放行 / 拒绝', () => {
+  // Recon wave 2 Task 4: client pool write-off unlocked as "loss recognition" — UNEXPLAINED_CLIENT_LOSS
+  // only allows REDUCE, excess funds (INCREASE) are routed to deposit backfill instead; book × reason
+  // code pairing does not allow cross-using codes. This describe's existing makeSvc(kase, create) takes
+  // two positional args, unlike the three named sub-objects (kase/disposition/asset) used here, so this
+  // is a separate same-named local factory (shadowed within this nested describe's scope, does not affect other cases in this describe).
+  describe('Client pool loss recognition (recon wave 2 Task 4) —— UNEXPLAINED_CLIENT_LOSS allowed / rejected', () => {
     const treasury = { actorType: 'ADMIN' as const, userId: 'U_TREASURY', userNo: 'U_TREASURY', roleCodes: ['TREASURY_OFFICER'] };
 
     const makeSvc = (opts: { kase: any; disposition: any; asset: any }) => {
@@ -275,7 +278,7 @@ describe('AdjustmentService.createDraft 两道闸 —— 门不可绕的落点�
       return { svc, prisma };
     };
 
-    it('客户池认损·放行：超期 + 调查中 + 小额 + REDUCE + 码 UNEXPLAINED_CLIENT_LOSS → 建单', async () => {
+    it('client pool loss recognition · allowed: overdue + investigating + small amount + REDUCE + code UNEXPLAINED_CLIENT_LOSS → adjustment opened', async () => {
       const { svc, prisma } = makeSvc({
         kase: { caseNo: 'REC-C1', status: 'OPEN', book: 'CUSTOMER', assetCode: 'USDT-TRON', walletRef: 'w-1', ownerNo: 'CU-1', slaBreached: true, businessDate: '2026-09-05' },
         disposition: { dispositionNo: 'RCD-1', outlet: 'HOLD_INVESTIGATING', adjustmentNo: null },
@@ -285,26 +288,28 @@ describe('AdjustmentService.createDraft 两道闸 —— 门不可绕的落点�
       expect(r.adjustmentNo).toMatch(/^ADJ/);
       expect(prisma.reconciliationAdjustment.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ book: 'CLIENT', reasonCode: 'UNEXPLAINED_CLIENT_LOSS', direction: 'REDUCE' }) }));
     });
-    it('客户池·多出来的钱（INCREASE）→ 400 指路补录', async () => {
+    it('client pool · excess funds (INCREASE) → 400 pointing to deposit backfill', async () => {
       const { svc } = makeSvc({ kase: { caseNo: 'REC-C2', status: 'OPEN', book: 'CUSTOMER', assetCode: 'AED', walletRef: 'w-2', ownerNo: 'CU-2', slaBreached: true, businessDate: '2026-09-05' }, disposition: { dispositionNo: 'RCD-2', outlet: 'HOLD_INVESTIGATING', adjustmentNo: null }, asset: { currency: 'AED', decimals: 2 } });
-      await expect(svc.createDraft({ caseNo: 'REC-C2', reasonCode: 'UNEXPLAINED_CLIENT_LOSS', direction: 'INCREASE', amount: '100', effectiveDate: '2026-09-05', explainedExternalLineId: 'x-1', reasonInternal: 'x', reasonCustomer: 'x' } as any, treasury)).rejects.toThrow(/补录/);
+      await expect(svc.createDraft({ caseNo: 'REC-C2', reasonCode: 'UNEXPLAINED_CLIENT_LOSS', direction: 'INCREASE', amount: '100', effectiveDate: '2026-09-05', explainedExternalLineId: 'x-1', reasonInternal: 'x', reasonCustomer: 'x' } as any, treasury)).rejects.toThrow(/backfill/);
     });
-    it('客户池拿公司池的码 / 公司池拿客户池的码 → 400', async () => {
+    it('client pool using the firm pool code / firm pool using the client pool code → 400', async () => {
       const { svc } = makeSvc({ kase: { caseNo: 'REC-C3', status: 'OPEN', book: 'CUSTOMER', assetCode: 'AED', walletRef: 'w-3', ownerNo: 'CU-3', slaBreached: true, businessDate: '2026-09-05' }, disposition: { dispositionNo: 'RCD-3', outlet: 'HOLD_INVESTIGATING', adjustmentNo: null }, asset: { currency: 'AED', decimals: 2 } });
-      await expect(svc.createDraft({ caseNo: 'REC-C3', reasonCode: 'UNEXPLAINED_WRITE_OFF', direction: 'REDUCE', amount: '100', effectiveDate: '2026-09-05', explainedFlowId: 'f-3', reasonInternal: 'x', reasonCustomer: 'x' } as any, treasury)).rejects.toThrow(/客户池认损/);
+      await expect(svc.createDraft({ caseNo: 'REC-C3', reasonCode: 'UNEXPLAINED_WRITE_OFF', direction: 'REDUCE', amount: '100', effectiveDate: '2026-09-05', explainedFlowId: 'f-3', reasonInternal: 'x', reasonCustomer: 'x' } as any, treasury)).rejects.toThrow(/Client pool loss recognition/);
 
-      // 反过来：公司池案子拿客户池的认损码 → 400，文案指向公司池自己的核销码。
+      // The other way around: a firm-book case using the client pool's loss-recognition code → 400, copy points to the firm's own write-off code.
       const { svc: svcFirm } = makeSvc({ kase: { caseNo: 'REC-C4', status: 'OPEN', book: 'FIRM', assetCode: 'AED', walletRef: 'w-4', ownerNo: null, slaBreached: true, businessDate: '2026-09-05' }, disposition: { dispositionNo: 'RCD-4', outlet: 'HOLD_INVESTIGATING', adjustmentNo: null }, asset: { currency: 'AED', decimals: 2 } });
-      await expect(svcFirm.createDraft({ caseNo: 'REC-C4', reasonCode: 'UNEXPLAINED_CLIENT_LOSS', direction: 'REDUCE', amount: '100', effectiveDate: '2026-09-05', explainedFlowId: 'f-4', reasonInternal: 'x', reasonCustomer: 'x' } as any, treasury)).rejects.toThrow(/公司池查无果走/);
+      await expect(svcFirm.createDraft({ caseNo: 'REC-C4', reasonCode: 'UNEXPLAINED_CLIENT_LOSS', direction: 'REDUCE', amount: '100', effectiveDate: '2026-09-05', explainedFlowId: 'f-4', reasonInternal: 'x', reasonCustomer: 'x' } as any, treasury)).rejects.toThrow(/Firm pool unexplained differences use/);
     });
   });
 });
 
-// 平账三期 Task 10：认损调账事故分支。锚的定性行 outlet='INCIDENT'（cause-registry
-// UNAUTHORIZED_OUTFLOW，大额未授权转出）时不走「查无果」四前提，改查事故定损结论——
-// 账龄线/小额线是给「查无果」小额差异用的，大额未授权转出走事故正是为了绕开这两条线，
-// 等的是事故侧的定损结论（状态 + 口径 + 锁额），不是时间或金额。
-describe('事故路认损（平账三期 Task 10）——outlet=INCIDENT 分支：定损口径 + 锁额 + 状态', () => {
+// Recon wave 3 Task 10: the loss-recognition adjustment incident branch. When the anchored finding
+// line's outlet='INCIDENT' (cause-registry UNAUTHORIZED_OUTFLOW, a large unauthorized outflow), it
+// skips the "unexplained" four preconditions and instead checks the incident's assessment conclusion —
+// the aging threshold / small-amount threshold are for small "unexplained" differences; a large
+// unauthorized outflow going through the incident path is precisely meant to bypass those two lines,
+// and instead waits on the incident-side assessment conclusion (status + basis + locked amount), not time or amount.
+describe('Incident-path loss recognition (recon wave 3 Task 10) —— outlet=INCIDENT branch: assessment basis + amount lock + status', () => {
   const treasury = { actorType: 'ADMIN' as const, userId: 'U_TREASURY', userNo: 'U_TREASURY', roleCodes: ['TREASURY_OFFICER'] };
   const kase = {
     caseNo: 'REC-INC-1', status: 'OPEN', book: 'CUSTOMER', assetCode: 'AED',
@@ -313,9 +318,9 @@ describe('事故路认损（平账三期 Task 10）——outlet=INCIDENT 分支�
   const disposition = { dispositionNo: 'RCD-INC-1', outlet: 'INCIDENT', incidentNo: 'INC-0001', adjustmentNo: null };
   const dto = {
     caseNo: 'REC-INC-1', reasonCode: 'UNEXPLAINED_CLIENT_LOSS', direction: 'REDUCE',
-    amount: '123456', // 1234.56 AED（最小单位）——远超小额线（100.00 AED），刻意验证不查小额线
+    amount: '123456', // 1234.56 AED (minor units) — well past the small-amount threshold (100.00 AED), deliberately verifies the threshold is not checked
     effectiveDate: '2026-09-06', explainedFlowId: 'f-inc-1',
-    reasonInternal: '未授权转出认损', reasonCustomer: '（公司侧，客户不可见）',
+    reasonInternal: 'Unauthorized outflow loss recognition', reasonCustomer: '(firm side, not visible to customer)',
   };
 
   // Task 10 评审 Fix 1（Critical）回归锁：此前这里用一颗「永远 resolve」的假
@@ -349,7 +354,7 @@ describe('事故路认损（平账三期 Task 10）——outlet=INCIDENT 分支�
     return { svc, prisma, create, dispositions, dispositionPrisma };
   };
 
-  it('放行：账龄未到线 + 大额超小额线，事故 ASSESSED + FIRM_LOSS + 金额=定损额（换算后）→ 建单，定性行真实挂上调账单号', async () => {
+  it('allowed: aging threshold not reached + large amount past the small-amount threshold, incident ASSESSED + FIRM_LOSS + amount = assessed amount (after conversion) → adjustment opened, the finding line is genuinely linked to the adjustment number', async () => {
     const { svc, create, dispositions, dispositionPrisma } = makeSvc({
       incident: { incidentNo: 'INC-0001', status: 'ASSESSED', assessmentBasis: 'FIRM_LOSS', assessedAmount: new Prisma.Decimal('1234.56') },
     });
@@ -359,74 +364,75 @@ describe('事故路认损（平账三期 Task 10）——outlet=INCIDENT 分支�
       data: expect.objectContaining({ book: 'CLIENT', reasonCode: 'UNEXPLAINED_CLIENT_LOSS', direction: 'REDUCE', amount: '123456' }),
     }));
     expect(dispositions.linkAdjustment).toHaveBeenCalledWith('RCD-INC-1', 'ADJ_INC', { family: 'WRITE_OFF' });
-    // 真实白名单放行生效的证据：定性行确实被（真实 DispositionService 实例）挂上了
-    // 调账单号，不是被 stub 假装通过的。Fix 1 之前，disposition.service.ts 的白名单
-    // 不认 outlet='INCIDENT'，上面这条 await 本身就会抛 BadRequestException（该行
-    // 定性的出口是 INCIDENT，不落调账单）——createDraft 全链在这一步真实 400。
+    // Evidence that the real allowlist actually let it through: the finding line was genuinely linked
+    // to the adjustment number (by a real DispositionService instance), not passed by a pretending
+    // stub. Before Fix 1, disposition.service.ts's allowlist did not recognize outlet='INCIDENT', so
+    // this await itself would throw a BadRequestException (this finding's outlet is INCIDENT, it does
+    // not route to an adjustment) — the whole createDraft chain would genuinely 400 at this step.
     expect(dispositionPrisma.reconciliationDisposition.update).toHaveBeenCalledWith({
       where: { dispositionNo: 'RCD-INC-1' }, data: { adjustmentNo: 'ADJ_INC' },
     });
   });
 
-  it('事故 RESOLVING（已进入处置）态同样放行', async () => {
+  it('incident status RESOLVING (already being resolved) is likewise allowed', async () => {
     const { svc } = makeSvc({
       incident: { incidentNo: 'INC-0001', status: 'RESOLVING', assessmentBasis: 'FIRM_LOSS', assessedAmount: new Prisma.Decimal('1234.56') },
     });
     await expect(svc.createDraft(dto as any, treasury)).resolves.toEqual(expect.objectContaining({ adjustmentNo: 'ADJ_INC' }));
   });
 
-  it('事故还没定损（INVESTIGATING）→ 400「事故还没定损」', async () => {
+  it('incident not yet assessed (INVESTIGATING) → 400 "has not been assessed yet"', async () => {
     const { svc } = makeSvc({ incident: { incidentNo: 'INC-0001', status: 'INVESTIGATING', assessmentBasis: null, assessedAmount: null } });
-    await expect(svc.createDraft(dto as any, treasury)).rejects.toThrow(/还没定损/);
+    await expect(svc.createDraft(dto as any, treasury)).rejects.toThrow(/has not been assessed/);
   });
 
-  it('定损结论不是「公司承损」（如 RECOVERED）→ 400', async () => {
+  it('the assessment conclusion is not "firm bears the loss" (e.g. RECOVERED) → 400', async () => {
     const { svc } = makeSvc({
       incident: { incidentNo: 'INC-0001', status: 'ASSESSED', assessmentBasis: 'RECOVERED', assessedAmount: new Prisma.Decimal('1234.56') },
     });
-    await expect(svc.createDraft(dto as any, treasury)).rejects.toThrow(/公司承损/);
+    await expect(svc.createDraft(dto as any, treasury)).rejects.toThrow(/Firm bears the loss/);
   });
 
-  it('金额 ≠ 定损额 → 400（锁额，认损金额不许多报少报）', async () => {
+  it('amount ≠ assessed amount → 400 (amount is locked, the loss-recognition amount cannot be over- or under-reported)', async () => {
     const { svc } = makeSvc({
       incident: { incidentNo: 'INC-0001', status: 'ASSESSED', assessmentBasis: 'FIRM_LOSS', assessedAmount: new Prisma.Decimal('999.00') },
     });
-    await expect(svc.createDraft(dto as any, treasury)).rejects.toThrow(/锁定为定损额/);
+    await expect(svc.createDraft(dto as any, treasury)).rejects.toThrow(/must exactly equal the assessed amount/);
   });
 
-  it('定性行是「事故·待登记」但还没挂事故单号（incidentNo 空）→ 400', async () => {
+  it('the finding is "Incident · Pending" but has no incident number attached yet (incidentNo empty) → 400', async () => {
     const { svc } = makeSvc({
       disposition: { dispositionNo: 'RCD-INC-2', outlet: 'INCIDENT', incidentNo: null, adjustmentNo: null },
       incident: null,
     });
-    await expect(svc.createDraft(dto as any, treasury)).rejects.toThrow(/事故单号/);
+    await expect(svc.createDraft(dto as any, treasury)).rejects.toThrow(/no incident number attached/);
   });
 
   // Task 10 评审 Fix 2（Important）：linkAdjustment 的挂单锁在 createDraft **落库
   // 之后**才跑（afterDraftCreated），三重闸全过、reconciliationAdjustment.create
   // 已经写库才轮到它拒绝——没有这条前置复检，同一条已挂单的事故定性行还能再走完
   // 三重闸建出第二张 DRAFT（孤儿草稿：定性行挂不上号，单却已经落库、还能被提交过账）。
-  it('该行定性已挂调账单 → 400，不可再开认损单（落库前复检，堵孤儿草稿）', async () => {
+  it('the finding is already linked to an adjustment → 400, cannot open another loss-recognition adjustment (pre-persistence recheck, blocks orphan drafts)', async () => {
     const { svc, prisma } = makeSvc({
       disposition: { dispositionNo: 'RCD-INC-1', outlet: 'INCIDENT', incidentNo: 'INC-0001', adjustmentNo: 'ADJ_OLD' },
       incident: { incidentNo: 'INC-0001', status: 'ASSESSED', assessmentBasis: 'FIRM_LOSS', assessedAmount: new Prisma.Decimal('1234.56') },
     });
-    await expect(svc.createDraft(dto as any, treasury)).rejects.toThrow(/该行定性已挂调账单 ADJ_OLD，不可再开认损单/);
-    // 拒在落库前：incident 查询、reconciliationAdjustment.create 都不该被碰到。
+    await expect(svc.createDraft(dto as any, treasury)).rejects.toThrow(/already linked to adjustment ADJ_OLD — cannot open another loss-recognition adjustment/);
+    // Rejected before persistence: neither the incident lookup nor reconciliationAdjustment.create should be touched.
     expect(prisma.incident.findUnique).not.toHaveBeenCalled();
     expect(prisma.reconciliationAdjustment.create).not.toHaveBeenCalled();
   });
 
-  it('reasonCode 配对不变：客户池仍必须 UNEXPLAINED_CLIENT_LOSS + REDUCE，多出来的（INCREASE）→ 400 指路补录', async () => {
+  it('reason code pairing unchanged: the client pool still requires UNEXPLAINED_CLIENT_LOSS + REDUCE, excess funds (INCREASE) → 400 pointing to deposit backfill', async () => {
     const { svc } = makeSvc({
       incident: { incidentNo: 'INC-0001', status: 'ASSESSED', assessmentBasis: 'FIRM_LOSS', assessedAmount: new Prisma.Decimal('1234.56') },
     });
-    await expect(svc.createDraft({ ...dto, direction: 'INCREASE' } as any, treasury)).rejects.toThrow(/补录/);
+    await expect(svc.createDraft({ ...dto, direction: 'INCREASE' } as any, treasury)).rejects.toThrow(/backfill/);
   });
 });
 
-describe('AdjustmentService.onRejected —— 驳回落库 + 终态闸（Task 4 补测 B）', () => {
-  it('PENDING_APPROVAL 单被驳回：status 变 REJECTED，decidedByUserId 是传入的人', async () => {
+describe('AdjustmentService.onRejected —— rejection persistence + terminal-state gate (Task 4 supplementary test B)', () => {
+  it('a PENDING_APPROVAL adjustment is rejected: status becomes REJECTED, decidedByUserId is the person passed in', async () => {
     const update = jest.fn().mockResolvedValue({});
     const prisma: any = {
       reconciliationAdjustment: {
@@ -442,7 +448,7 @@ describe('AdjustmentService.onRejected —— 驳回落库 + 终态闸（Task 4 
     });
   });
 
-  it('POSTED 单已是终态：onRejected 抛 BadRequestException，且不写库', async () => {
+  it('a POSTED adjustment is already terminal: onRejected throws BadRequestException, and writes nothing', async () => {
     const update = jest.fn();
     const prisma: any = {
       reconciliationAdjustment: {
@@ -456,7 +462,7 @@ describe('AdjustmentService.onRejected —— 驳回落库 + 终态闸（Task 4 
   });
 });
 
-describe('AdjustmentService.onApproved 落账', () => {
+describe('AdjustmentService.onApproved posting', () => {
   const makeSvc = (row: any, accounting: any, update = jest.fn(), recordByActor = jest.fn()) => {
     const prisma: any = {
       reconciliationAdjustment: { findUnique: jest.fn().mockResolvedValue(row), update },
@@ -479,10 +485,10 @@ describe('AdjustmentService.onApproved 落账', () => {
     direction: 'REDUCE', reasonCode: 'DEPOSIT_DUPLICATE_REVERSAL',
     walletRef: 'W_CUST_1', assetCode: 'AED', amount: '1500', effectiveDate: '2026-08-15',
     ownerNo: 'C0042', ownerId: 'uuid-cust', caseNo: 'RC26082800001',
-    reasonInternal: '同一笔充值入账两次', traceId: 'T1', relatedOrderNo: 'DP2608150042',
+    reasonInternal: 'Same deposit recorded twice', traceId: 'T1', relatedOrderNo: 'DP2608150042',
   };
 
-  it('evidence 必须带该 case 的 walletRef 且 isExternalCrossing=false', async () => {
+  it('evidence must carry the case\'s walletRef and isExternalCrossing=false', async () => {
     const executeTransfer = jest.fn().mockResolvedValue({ tbTransferId: 7n });
     const accounting = { executeTransfer, resolveTbAccountId: jest.fn().mockResolvedValue(1n) };
     await makeSvc(clientRow, accounting).onApproved('ADJ2608280001', 'U_OPS');
@@ -494,7 +500,7 @@ describe('AdjustmentService.onApproved 落账', () => {
     expect(evidence.effectiveDate).toBe('2026-08-15');
   });
 
-  it('客户账簿减钱走「借客户应付 / 贷客户托管」', async () => {
+  it('client-book reduction posts "debit client payable / credit client asset"', async () => {
     const resolveTbAccountId = jest.fn().mockResolvedValue(1n);
     const accounting = { executeTransfer: jest.fn().mockResolvedValue({ tbTransferId: 1n }), resolveTbAccountId };
     await makeSvc(clientRow, accounting).onApproved('ADJ2608280001', 'U_OPS');
@@ -502,7 +508,7 @@ describe('AdjustmentService.onApproved 落账', () => {
     expect(codes).toEqual([TB_ACCOUNT_CODES.CLIENT_PAYABLE, TB_ACCOUNT_CODES.CLIENT_ASSET]);
   });
 
-  it('落账后置 POSTED 并记下 tbTransferId', async () => {
+  it('after posting, status becomes POSTED and tbTransferId is recorded', async () => {
     const update = jest.fn();
     const accounting = {
       executeTransfer: jest.fn().mockResolvedValue({ tbTransferId: 42n }),
@@ -514,7 +520,7 @@ describe('AdjustmentService.onApproved 落账', () => {
     }));
   });
 
-  it('已 POSTED 的单再落一次被状态机拒绝，且不碰账本', async () => {
+  it('an already-POSTED adjustment posted again is rejected by the status machine, and touches no ledger', async () => {
     const executeTransfer = jest.fn();
     const update = jest.fn();
     const accounting = { executeTransfer, resolveTbAccountId: jest.fn() };
@@ -522,7 +528,7 @@ describe('AdjustmentService.onApproved 落账', () => {
       makeSvc({ ...clientRow, status: 'POSTED' }, accounting, update).onApproved('ADJ2608280001', 'U_OPS'),
     ).rejects.toThrow(BadRequestException);
     expect(executeTransfer).not.toHaveBeenCalled();
-    // 对称补上（评审 Minor 5）：与 onRejected 的终态测试一样，闸门拒绝时不该碰任何一次写库。
+    // Symmetry fix (review Minor 5): same as onRejected's terminal-state test, the gate rejection must not touch persistence at all.
     expect(update).not.toHaveBeenCalled();
   });
 
@@ -534,7 +540,7 @@ describe('AdjustmentService.onApproved 落账', () => {
   // tb-account-registry.service.ts resolve() 的严格 where 等值匹配），不是 'FIRM'——
   // 若只断言 code 不断言 ownerType，这处会在 mock 测试下全绿、真实环境里
   // resolveTbAccountId 却因查不到注册行而抛 NotFoundException。
-  it('公司账簿加钱走「借公司资产 / 贷其他收入」，且科目 ownerType 是 SYSTEM 不是 FIRM', async () => {
+  it('firm-book increase posts "debit firm asset / credit other income", and the account ownerType is SYSTEM, not FIRM', async () => {
     const resolveTbAccountId = jest.fn().mockResolvedValue(1n);
     const accounting = { executeTransfer: jest.fn().mockResolvedValue({ tbTransferId: 1n }), resolveTbAccountId };
     const firmRow = {
@@ -551,7 +557,7 @@ describe('AdjustmentService.onApproved 落账', () => {
   // 剩下两种（镜像方向）在接线层完全没测过。补齐后四组合两两科目对都不同
   // （注意 CLIENT 两条码集合相同、顺序相反——toEqual 对数组顺序敏感，
   // 硬编码答案没法同时通过这两条）。
-  it('分录接线覆盖·CLIENT/INCREASE：走「借客户托管 / 贷客户应付」（提现撤销退回场景）', async () => {
+  it('posting-legs coverage · CLIENT/INCREASE: posts "debit client asset / credit client payable" (withdrawal-refund scenario)', async () => {
     const resolveTbAccountId = jest.fn().mockResolvedValue(1n);
     const accounting = { executeTransfer: jest.fn().mockResolvedValue({ tbTransferId: 1n }), resolveTbAccountId };
     const row = { ...clientRow, direction: 'INCREASE', reasonCode: 'WITHDRAW_VOID_REFUND' };
@@ -560,7 +566,7 @@ describe('AdjustmentService.onApproved 落账', () => {
     expect(codes).toEqual([TB_ACCOUNT_CODES.CLIENT_ASSET, TB_ACCOUNT_CODES.CLIENT_PAYABLE]);
   });
 
-  it('分录接线覆盖·FIRM/REDUCE：走「借公司运营 / 贷公司资产」（演示破口场景5：银行杂费）', async () => {
+  it('posting-legs coverage · FIRM/REDUCE: posts "debit firm ops / credit firm asset" (demo scenario 5: bank charges)', async () => {
     const resolveTbAccountId = jest.fn().mockResolvedValue(1n);
     const accounting = { executeTransfer: jest.fn().mockResolvedValue({ tbTransferId: 1n }), resolveTbAccountId };
     const row = {
@@ -582,7 +588,7 @@ describe('AdjustmentService.onApproved 落账', () => {
   //   b) 直接拿真实 AuditLogsService 的校验函数验一遍捕获到的信封（防「a 写的字段
   //      清单本身抄错」这层自证风险——不是照抄合同表再断言一次，是让生产用的那个
   //      函数亲自跑，评审就是这样抓到 bug 的）。
-  describe('审计信封契约一致性（评审 Critical 回归锁）', () => {
+  describe('audit envelope contract consistency (review Critical regression lock)', () => {
     const captureEnvelope = async (row: any) => {
       const recordByActor = jest.fn();
       const accounting = { executeTransfer: jest.fn().mockResolvedValue({ tbTransferId: 1n }), resolveTbAccountId: jest.fn().mockResolvedValue(1n) };
@@ -591,10 +597,10 @@ describe('AdjustmentService.onApproved 落账', () => {
       return recordByActor.mock.calls[0][0];
     };
 
-    it('a) 信封顶层字段覆盖合同表 RECON_ADJUSTMENT_POSTED.requiredFields 里的每一项', async () => {
+    it('a) the envelope\'s top-level fields cover every item in the contract table RECON_ADJUSTMENT_POSTED.requiredFields', async () => {
       const envelope = await captureEnvelope(clientRow);
       const required = V8_RECON_AUDIT_ACTIONS.RECON_ADJUSTMENT_POSTED.requiredFields;
-      // 合同表本身别被改空——空数组会让下面的循环啥都不测，等于测试形同虚设。
+      // Guard the contract table itself isn't emptied out — an empty array would make the loop below test nothing, i.e. the test would be a no-op.
       expect(required.length).toBeGreaterThan(0);
       for (const field of required) {
         expect(envelope[field as keyof typeof envelope]).not.toBeUndefined();
@@ -602,13 +608,13 @@ describe('AdjustmentService.onApproved 落账', () => {
       }
     });
 
-    it('b) 真实 AuditLogsService.assertActionSpec 验捕获到的信封——不抛（不依赖真库：assertActionSpec 是纯校验，不碰 prisma）', async () => {
+    it('b) the real AuditLogsService.assertActionSpec validates the captured envelope — does not throw (no real DB needed: assertActionSpec is a pure check, never touches prisma)', async () => {
       const envelope = await captureEnvelope(clientRow);
       const realAuditLogs = new AuditLogsService(null as any);
       expect(() => (realAuditLogs as any).assertActionSpec(envelope)).not.toThrow();
     });
 
-    it('correlationId 回落：case 没有 traceId 时不拒写（INHERIT 码空 correlationId 会被真校验拒绝），回落值与 evidence 那侧（:181 已有的 row.traceId||row.adjustmentNo）对齐', async () => {
+    it('correlationId fallback: no rejection when the case has no traceId (an empty correlationId under the INHERIT code would be rejected by the real check), the fallback value matches the evidence side\'s (row.traceId||row.adjustmentNo already at :181)', async () => {
       const envelope = await captureEnvelope({ ...clientRow, traceId: null });
       expect(envelope.correlationId).toBe('ADJ2608280001');
 
@@ -616,7 +622,7 @@ describe('AdjustmentService.onApproved 落账', () => {
       expect(() => (realAuditLogs as any).assertActionSpec(envelope)).not.toThrow();
     });
 
-    it('subjects 里案件用词表登记名 RECONCILIATION_CASE，不用未登记的自造词 RECON_CASE（按案件查这笔调账靠它，同模块开案审计 wallet-recon-run.service.ts 用的就是这个词）', async () => {
+    it('the case in subjects uses the word-table registered name RECONCILIATION_CASE, not the unregistered made-up word RECON_CASE (looking up this adjustment by case relies on it, the same module\'s case-opening audit in wallet-recon-run.service.ts uses this word too)', async () => {
       const envelope = await captureEnvelope(clientRow);
       expect(envelope.subjects).toEqual(expect.arrayContaining([
         expect.objectContaining({ subjectType: 'RECONCILIATION_CASE', subjectNo: 'RC26082800001', subjectRole: 'RELATED' }),
@@ -629,7 +635,7 @@ describe('AdjustmentService.onApproved 落账', () => {
 // 缩放，与 getCase 同款惯例）与借/贷分录预览助记码（(book,direction) 纯函数推导，
 // 复用 onApproved 落账时已经在用的同一对工具函数 resolvePostingLegs/TB_CODE_TO_COA，
 // 两处科目对不能各说各话——这条断言直接跟 onApproved 分录接线测试里的科目对呼应）。
-describe('AdjustmentService.getAdjustment —— 详情读模型（Task 7）', () => {
+describe('AdjustmentService.getAdjustment —— detail read model (Task 7)', () => {
   const makeSvc = (row: any, assetRow: any = { decimals: 2 }, walletRow: any = null) => {
     const prisma: any = {
       reconciliationAdjustment: { findUnique: jest.fn().mockResolvedValue(row) },
@@ -643,12 +649,12 @@ describe('AdjustmentService.getAdjustment —— 详情读模型（Task 7）', (
     id: 'uuid-row', adjustmentNo: 'ADJ2608280002', caseNo: 'RC26082800001',
     explainedFlowId: null, explainedExternalLineId: null, walletRef: 'W_CUST_1', book: 'CLIENT', direction: 'REDUCE',
     reasonCode: 'DEPOSIT_DUPLICATE_REVERSAL', assetCode: 'AED', amount: '1500',
-    effectiveDate: '2026-08-15', reasonInternal: '同一笔充值入账两次', reasonCustomer: '重复入账撤销',
+    effectiveDate: '2026-08-15', reasonInternal: 'Same deposit recorded twice', reasonCustomer: 'Duplicate deposit reversal',
     status: 'DRAFT', approvalCaseId: null, approvalNo: null, ownerNo: 'C0042', ownerId: 'uuid-cust',
     traceId: null, createdByUserId: 'U_OP', decidedByUserId: null, postedAt: null, tbTransferId: null,
   };
 
-  it('返回体不含任何 UUID（铁律⑥）：id/ownerId/approvalCaseId/两个解释锚/walletRef 被剔除，业务号 adjustmentNo 保留', async () => {
+  it('the response body carries no UUID (principle ⑥): id/ownerId/approvalCaseId/both explanation anchors/walletRef are stripped, the business number adjustmentNo is kept', async () => {
     const svc = makeSvc(baseRow);
     const result: any = await svc.getAdjustment('ADJ2608280002');
     expect(result.id).toBeUndefined();
@@ -660,7 +666,7 @@ describe('AdjustmentService.getAdjustment —— 详情读模型（Task 7）', (
     expect(result.adjustmentNo).toBe('ADJ2608280002');
   });
 
-  it('decimals 取自资产表；查不到资产行时兜底 0（不抛，与 getCase 同款兜底）', async () => {
+  it('decimals comes from the asset table; falls back to 0 when no asset row is found (does not throw, same fallback as getCase)', async () => {
     const svcHit = makeSvc(baseRow, { decimals: 2 });
     expect((await svcHit.getAdjustment('ADJ2608280002') as any).decimals).toBe(2);
 
@@ -668,14 +674,14 @@ describe('AdjustmentService.getAdjustment —— 详情读模型（Task 7）', (
     expect((await svcMiss.getAdjustment('ADJ2608280002') as any).decimals).toBe(0);
   });
 
-  it('客户账簿减钱（DEPOSIT_DUPLICATE_REVERSAL/REDUCE）：分录预览是「借 L.CLIENT_PAYABLE / 贷 A.CLIENT_ASSET」', async () => {
+  it('client-book reduction (DEPOSIT_DUPLICATE_REVERSAL/REDUCE): the posting preview is "debit L.CLIENT_PAYABLE / credit A.CLIENT_ASSET"', async () => {
     const svc = makeSvc(baseRow);
     const result: any = await svc.getAdjustment('ADJ2608280002');
     expect(result.debitAccountCode).toBe('L.CLIENT_PAYABLE');
     expect(result.creditAccountCode).toBe('A.CLIENT_ASSET');
   });
 
-  it('公司账簿加钱（BANK_INTEREST/INCREASE）：分录预览是「借 A.FIRM_ASSET / 贷 E.INCOME_OTHER」——与 onApproved 分录接线测试的科目对呼应，不能两处各说各话', async () => {
+  it('firm-book increase (BANK_INTEREST/INCREASE): the posting preview is "debit A.FIRM_ASSET / credit E.INCOME_OTHER" — matches the account pair in the onApproved posting-legs test, the two must not disagree', async () => {
     const firmRow = { ...baseRow, book: 'FIRM', direction: 'INCREASE', reasonCode: 'BANK_INTEREST', ownerNo: null, ownerId: null };
     const svc = makeSvc(firmRow);
     const result: any = await svc.getAdjustment('ADJ2608280002');
@@ -689,11 +695,11 @@ describe('AdjustmentService.getAdjustment —— 详情读模型（Task 7）', (
 // auditLogs.recordByActor——别的 describe 的 makeSvc 已经在各自的 4/5 号参数位
 // 补上了能接住调用的桩（见"两道闸"describe 的改动）；这里自己起一套 mock
 // 台架，不跨 describe 复用私有 makeSvc（block 作用域出不去）。
-describe('createDraft 第四族（改记，spec §6）+ 定性联动 + DRAFTED 审计', () => {
-  // 与"两道闸" describe 的 OP 同一惯例：userId/userNo 同值，createdByUserId 落业务号。
+describe('createDraft fourth family (reattribution, spec §6) + finding link-back + DRAFTED audit', () => {
+  // Same convention as the OP in the "two gates" describe: userId/userNo share a value, createdByUserId lands the business number.
   const ACTOR = { actorType: 'ADMIN' as const, userId: 'U_OP', userNo: 'U_OP', roleCodes: ['ADMIN'] };
 
-  it('改记：两案同业务日校验、正主方必填原单、direction 落 REATTRIBUTE、toWalletRef/toOwnerNo 落库', async () => {
+  it('reattribution: both cases must share the same business date, the rightful owner requires an original order, direction lands REATTRIBUTE, toWalletRef/toOwnerNo are persisted', async () => {
     // fromCase = 错记方（我有外无，dto.caseNo 传的是它）；
     // toCase   = 正主方（外有我无，dto.toCaseNo 传的是它）。
     const fromCase = {
@@ -746,7 +752,7 @@ describe('createDraft 第四族（改记，spec §6）+ 定性联动 + DRAFTED �
     expect(dispositionMock.linkAdjustment).toHaveBeenCalledWith('RCD001', r.adjustmentNo, expect.objectContaining({}));
   });
 
-  it('改记两案业务日不同 → 400（本轮不做跨日改记）', async () => {
+  it('reattribution with mismatched business dates → 400 (cross-day reattribution not supported this round)', async () => {
     const fromCase = {
       caseNo: 'REC-FROM', status: 'OPEN', book: 'CLIENT', businessDate: '2026-09-01',
       assetCode: 'AED', walletRef: 'wallet-from-uuid', ownerNo: 'CU-FROM', traceId: null,
@@ -769,10 +775,10 @@ describe('createDraft 第四族（改记，spec §6）+ 定性联动 + DRAFTED �
       reasonCode: 'CUSTOMER_REATTRIBUTION', direction: 'REDUCE',
       amount: '1000', effectiveDate: '2026-08-31',
       reasonInternal: 'x', reasonCustomer: 'y',
-    } as any, ACTOR)).rejects.toThrow(/业务日/);
+    } as any, ACTOR)).rejects.toThrow(/different business dates/);
   });
 
-  it('改记缺 toCaseNo / 缺 relatedOrderNo → 各 400', async () => {
+  it('reattribution missing toCaseNo / missing relatedOrderNo → each 400', async () => {
     const fromCase = {
       caseNo: 'REC-FROM', status: 'OPEN', book: 'CLIENT', businessDate: '2026-09-01',
       assetCode: 'AED', walletRef: 'wallet-from-uuid', ownerNo: 'CU-FROM', traceId: null,
@@ -791,26 +797,26 @@ describe('createDraft 第四族（改记，spec §6）+ 定性联动 + DRAFTED �
       );
     };
 
-    // 断言一：不传 toCaseNo——正主方是谁都不知道，压根不该建单。
+    // Assertion 1: toCaseNo not passed — the rightful owner is unknown, the adjustment should never open.
     await expect(makeService().createDraft({
       caseNo: 'REC-FROM',
       reasonCode: 'CUSTOMER_REATTRIBUTION', direction: 'REDUCE',
       amount: '1000', effectiveDate: '2026-09-01',
       reasonInternal: 'x', reasonCustomer: 'y',
-    } as any, ACTOR)).rejects.toThrow(/toCaseNo|正主方案件号/);
+    } as any, ACTOR)).rejects.toThrow(/toCaseNo|rightful-owner case number/);
 
-    // 断言二：toCaseNo 给了，但没给 relatedOrderNo——正主方是"加钱"，没原单等于凭空加钱。
+    // Assertion 2: toCaseNo given, but relatedOrderNo missing — the rightful owner is "adding funds", no original order means crediting funds out of thin air.
     await expect(makeService().createDraft({
       caseNo: 'REC-FROM', toCaseNo: 'REC-TO',
       reasonCode: 'CUSTOMER_REATTRIBUTION', direction: 'REDUCE',
       amount: '1000', effectiveDate: '2026-09-01',
       reasonInternal: 'x', reasonCustomer: 'y',
-    } as any, ACTOR)).rejects.toThrow(/原单/);
+    } as any, ACTOR)).rejects.toThrow(/reference an existing order/);
   });
 
   // afterDraftCreated 是四族通用的收尾——用既有三族里最简单的一条路径（客户账簿
   // 减钱、不触发原单守卫）验证它接上了，不必借第四族才能测到这条通用行为。
-  it('每次 createDraft（四族通用）记 RECON_ADJUSTMENT_DRAFTED，requestId 显式', async () => {
+  it('every createDraft (common to all four families) records RECON_ADJUSTMENT_DRAFTED, with an explicit requestId', async () => {
     const openCase = {
       caseNo: 'CASE_DRAFTED_1', status: 'OPEN', book: 'CLIENT',
       walletRef: 'W_DRAFTED', assetCode: 'AED', ownerNo: 'C0042', traceId: null,
@@ -822,7 +828,7 @@ describe('createDraft 第四族（改记，spec §6）+ 定性联动 + DRAFTED �
     const createdRow = {
       adjustmentNo: 'ADJ2608280099', reasonCode: 'DEPOSIT_DUPLICATE_REVERSAL', amount: '1000',
       ownerNo: 'C0042', caseNo: 'CASE_DRAFTED_1', direction: 'REDUCE', book: 'CLIENT',
-      reasonInternal: '同一笔充值入账两次',
+      reasonInternal: 'Same deposit recorded twice',
     };
     const prismaMock: any = {
       reconciliationCase: { findUnique: jest.fn().mockResolvedValue(openCase) },
@@ -836,7 +842,7 @@ describe('createDraft 第四族（改记，spec §6）+ 定性联动 + DRAFTED �
     await service.createDraft({
       caseNo: 'CASE_DRAFTED_1', reasonCode: 'DEPOSIT_DUPLICATE_REVERSAL',
       direction: 'REDUCE', amount: '1000', effectiveDate: '2026-08-28',
-      reasonInternal: '同一笔充值入账两次', reasonCustomer: '重复入账撤销',
+      reasonInternal: 'Same deposit recorded twice', reasonCustomer: 'Duplicate deposit reversal',
     } as any, ACTOR);
 
     expect(recordByActor).toHaveBeenCalledTimes(1);
@@ -854,7 +860,7 @@ describe('createDraft 第四族（改记，spec §6）+ 定性联动 + DRAFTED �
 // 会计正确性是核心——四条断言各自锁住一处「mock 下会全绿、真环境里会炸/会算错」
 // 的坑（ledger 取 currency、CLIENT_PAYABLE 的 ownerType、evidence.assetCurrency、
 // 两腿钱包各落各的）。
-describe('AdjustmentService.onApproved 第四族落账（改记，spec §6）', () => {
+describe('AdjustmentService.onApproved fourth-family posting (reattribution, spec §6)', () => {
   const makeSvc = (row: any, accounting: any, update = jest.fn(), recordByActor = jest.fn()) => {
     const prisma: any = {
       reconciliationAdjustment: { findUnique: jest.fn().mockResolvedValue(row), update },
@@ -878,11 +884,11 @@ describe('AdjustmentService.onApproved 第四族落账（改记，spec §6）', 
     walletRef: 'wallet-from', toWalletRef: 'wallet-to',
     assetCode: 'AED', amount: '730000', effectiveDate: '2026-09-01',
     ownerNo: 'CU-FROM', ownerId: 'uuid-from', toOwnerNo: 'CU-TO',
-    caseNo: 'RC26090100001', reasonInternal: '记错客户', traceId: 'T-REATTR',
+    caseNo: 'RC26090100001', reasonInternal: 'Misattributed customer', traceId: 'T-REATTR',
     relatedOrderNo: 'DP2609010001',
   };
 
-  it('借 from 应付 / 贷 to 应付：两腿同科目 CLIENT_PAYABLE、ownerType 都是 CUSTOMER、ownerUuid 各自的；客户资产腿一次都不出现', async () => {
+  it('debit from-payable / credit to-payable: both legs share the account CLIENT_PAYABLE, ownerType is CUSTOMER on both, ownerUuid is each side\'s own; the client asset leg never appears', async () => {
     const resolveTbAccountId = jest.fn().mockResolvedValue(1n);
     const accounting = { executeTransfer: jest.fn().mockResolvedValue({ tbTransferId: 9n }), resolveTbAccountId };
     await makeSvc(reattrRow, accounting).onApproved('ADJ2609010001', 'U_OPS');
@@ -899,7 +905,7 @@ describe('AdjustmentService.onApproved 第四族落账（改记，spec §6）', 
     expect(calls.map((c) => c.code)).not.toContain(TB_ACCOUNT_CODES.CLIENT_ASSET);
   });
 
-  it('evidence 两腿各落各的钱包（错记方降/正主方升），isExternalCrossing=false，生效日随单', async () => {
+  it('evidence: each leg posts to its own wallet (misattributed party down / rightful owner up), isExternalCrossing=false, effective date follows the adjustment', async () => {
     const executeTransfer = jest.fn().mockResolvedValue({ tbTransferId: 9n });
     const accounting = { executeTransfer, resolveTbAccountId: jest.fn().mockResolvedValue(1n) };
     await makeSvc(reattrRow, accounting).onApproved('ADJ2609010001', 'U_OPS');
@@ -916,7 +922,7 @@ describe('AdjustmentService.onApproved 第四族落账（改记，spec §6）', 
     expect(evidence.creditCode).toBe('L.CLIENT_PAYABLE');
   });
 
-  it('加密币改记：ledger 与 evidence.assetCurrency 都按 asset.currency 取（USDT-TRON → USDT），不是 assetCode', async () => {
+  it('crypto reattribution: both ledger and evidence.assetCurrency use asset.currency (USDT-TRON → USDT), not assetCode', async () => {
     const executeTransfer = jest.fn().mockResolvedValue({ tbTransferId: 9n });
     const accounting = { executeTransfer, resolveTbAccountId: jest.fn().mockResolvedValue(1n) };
     await makeSvc({ ...reattrRow, assetCode: 'USDT-TRON' }, accounting).onApproved('ADJ2609010001', 'U_OPS');
@@ -929,7 +935,7 @@ describe('AdjustmentService.onApproved 第四族落账（改记，spec §6）', 
     expect(params.evidence.assetCurrency).toBe('USDT');
   });
 
-  it('落账后置 POSTED、记下 tbTransferId，裁决人落业务号（铁律⑥）', async () => {
+  it('after posting, status becomes POSTED, tbTransferId recorded, the decider lands as a business number (principle ⑥)', async () => {
     const update = jest.fn();
     const accounting = {
       executeTransfer: jest.fn().mockResolvedValue({ tbTransferId: 88n }),
@@ -941,7 +947,7 @@ describe('AdjustmentService.onApproved 第四族落账（改记，spec §6）', 
     }));
   });
 
-  it('已 POSTED 的改记单再落一次被状态机拒绝（铁律④），且不碰账本、不写库', async () => {
+  it('an already-POSTED reattribution posted again is rejected by the status machine (principle ④), and touches no ledger, writes nothing', async () => {
     const executeTransfer = jest.fn();
     const update = jest.fn();
     const accounting = { executeTransfer, resolveTbAccountId: jest.fn() };
@@ -952,7 +958,7 @@ describe('AdjustmentService.onApproved 第四族落账（改记，spec §6）', 
     expect(update).not.toHaveBeenCalled();
   });
 
-  it('正主方客户解析不到 → 抛 NotFoundException，账本一动不动（宁可不落账，也不能把负债贷给一个解析不出的户）', async () => {
+  it('the rightful owner\'s customer cannot be resolved → throws NotFoundException, ledger stays untouched (better to not post than to credit a liability to an unresolvable account)', async () => {
     const executeTransfer = jest.fn();
     const accounting = { executeTransfer, resolveTbAccountId: jest.fn().mockResolvedValue(1n) };
     await expect(
@@ -961,7 +967,7 @@ describe('AdjustmentService.onApproved 第四族落账（改记，spec §6）', 
     expect(executeTransfer).not.toHaveBeenCalled();
   });
 
-  it('审计信封与主路径同构：RECON_ADJUSTMENT_POSTED、requiredFields 在顶层、requestId 显式、真实 assertActionSpec 不拒写；metadata 多带正主方线索', async () => {
+  it('the audit envelope matches the main path\'s shape: RECON_ADJUSTMENT_POSTED, requiredFields at the top level, explicit requestId, the real assertActionSpec does not reject; metadata carries an extra rightful-owner clue', async () => {
     const recordByActor = jest.fn();
     const accounting = {
       executeTransfer: jest.fn().mockResolvedValue({ tbTransferId: 9n }),
@@ -996,7 +1002,7 @@ describe('AdjustmentService.onApproved 第四族落账（改记，spec §6）', 
   // 查审计」查 B 时这条事件根本不出现，等于「改了 B 的钱、按 B 查不到」，踩铁律①。
   // 这是本仓第一个双 OWNER 事件，所以断言两个 OWNER **同时存在**，不断言数组长度
   // （长度断言会在未来往 subjects 里加任何一条无关主体时误红，也测不出少的是哪一个）。
-  it('两侧客户都进 subjects：错记方与正主方各一条 CUSTOMER/OWNER（按正主方客户号也要查得到这笔改记）', async () => {
+  it('both customers land in subjects: one CUSTOMER/OWNER entry each for the misattributed party and the rightful owner (this reattribution must also be findable by the rightful owner\'s customer number)', async () => {
     const recordByActor = jest.fn();
     const accounting = {
       executeTransfer: jest.fn().mockResolvedValue({ tbTransferId: 9n }),
@@ -1012,37 +1018,37 @@ describe('AdjustmentService.onApproved 第四族落账（改记，spec §6）', 
   });
 });
 
-describe('AdjustmentService.describeImpact 第四族 —— 审批人要看见钱从谁名下去了谁名下', () => {
+describe('AdjustmentService.describeImpact fourth family —— the approver must see whose name the money moved from and to', () => {
   const svc = new AdjustmentService(null as any, null as any, null as any, null as any, null as any);
 
-  it('输出「从 A 名下改记到 B 名下；客户资产总额不变」', () => {
+  it('outputs "reattributed from A to B; total customer assets unchanged"', () => {
     const text = svc.describeImpact({
       book: 'CLIENT', ownerNo: 'CU-FROM', amount: '730000', assetCode: 'AED',
       direction: 'REATTRIBUTE', reasonCode: 'CUSTOMER_REATTRIBUTION',
-      reasonInternal: '记错客户', toOwnerNo: 'CU-TO',
+      reasonInternal: 'Misattributed customer', toOwnerNo: 'CU-TO',
     } as any, 2);
     expect(text).toContain('CU-FROM');
     expect(text).toContain('CU-TO');
     expect(text).toContain('7300.00');
-    // 托管里的钱没动 —— 这句是审批人判断「该不该批」的关键事实。
-    expect(text).toContain('客户资产总额不变');
-    // 三族的「余额增加/减少」话术套在改记上是错的：钱没增没减，只是换了主人。
-    expect(text).not.toContain('余额增加');
-    expect(text).not.toContain('余额减少');
+    // The money in custody did not move — this sentence is the key fact the approver uses to decide whether to approve.
+    expect(text).toContain('total customer assets are unchanged');
+    // The other three families' "balance increased/decreased" wording is wrong for reattribution: nothing increased or decreased, only the owner changed.
+    expect(text).not.toContain('balance increase');
+    expect(text).not.toContain('balance decrease');
   });
 });
 
 // 顺手收口（前序评审）：Task 5 让 toWalletRef 真正落库之后，详情接口的解构
 // 排除清单只剔了 walletRef —— 改记单一被查询就把正主方钱包的内部 UUID 吐出去，
 // 踩铁律⑥「管理台不暴露 UUID」。
-describe('AdjustmentService.getAdjustment 第四族 —— 正主方钱包也只给业务号', () => {
+describe('AdjustmentService.getAdjustment fourth family —— the rightful owner\'s wallet also only reveals the business number', () => {
   const reattrRow = {
     id: 'uuid-row', adjustmentNo: 'ADJ2609010002', caseNo: 'RC26090100001',
     explainedFlowId: 'flow-from', explainedExternalLineId: 'ext-to',
     walletRef: 'wallet-from', toWalletRef: 'wallet-to', toOwnerNo: 'CU-TO',
     book: 'CLIENT', direction: 'REATTRIBUTE', reasonCode: 'CUSTOMER_REATTRIBUTION',
     assetCode: 'AED', amount: '730000', effectiveDate: '2026-09-01',
-    reasonInternal: '记错客户', reasonCustomer: '账户更正划转',
+    reasonInternal: 'Misattributed customer', reasonCustomer: 'Account correction',
     status: 'DRAFT', approvalCaseId: null, approvalNo: null,
     ownerNo: 'CU-FROM', ownerId: 'uuid-from', traceId: null,
     createdByUserId: 'U_OP', decidedByUserId: null, postedAt: null, tbTransferId: null,
@@ -1060,7 +1066,7 @@ describe('AdjustmentService.getAdjustment 第四族 —— 正主方钱包也只
     return new AdjustmentService(prisma, null as any, null as any, null as any, null as any);
   };
 
-  it('toWalletRef 不出现在返回体里，换成业务号 toWalletNo；正主方客户号照常给', async () => {
+  it('toWalletRef does not appear in the response body, replaced by the business number toWalletNo; the rightful owner\'s customer number is given as usual', async () => {
     const result: any = await makeSvc().getAdjustment('ADJ2609010002');
     expect(result.toWalletRef).toBeUndefined();
     expect(result.walletRef).toBeUndefined();
@@ -1069,14 +1075,14 @@ describe('AdjustmentService.getAdjustment 第四族 —— 正主方钱包也只
     expect(result.toOwnerNo).toBe('CU-TO');
   });
 
-  it('分录预览走第五种组合：借/贷都是 L.CLIENT_PAYABLE——不能落回 (book,direction) 四组合（那会显示成「借客户托管」，与真实落账相反）', async () => {
+  it('the posting preview uses the fifth combination: both debit and credit are L.CLIENT_PAYABLE — must not fall back to the (book,direction) four-combination logic (that would show "debit client asset", the reverse of what actually posts)', async () => {
     const result: any = await makeSvc().getAdjustment('ADJ2609010002');
     expect(result.debitAccountCode).toBe('L.CLIENT_PAYABLE');
     expect(result.creditAccountCode).toBe('L.CLIENT_PAYABLE');
   });
 });
 
-describe('平账 A 批：核销四前提（spec §3.2）——少一道就是抹差异的后门', () => {
+describe('Recon batch A: write-off four preconditions (spec §3.2) —— missing even one is a backdoor for erasing differences', () => {
   const firmCase = {
     caseNo: 'CASE_WO', status: 'OPEN', book: 'FIRM', walletRef: 'W_FIRM', assetCode: 'AED', ownerNo: null, traceId: null,
     businessDate: '2026-09-02', slaBreached: true,
@@ -1086,7 +1092,7 @@ describe('平账 A 批：核销四前提（spec §3.2）——少一道就是抹
   const dto = {
     caseNo: 'CASE_WO', reasonCode: 'UNEXPLAINED_WRITE_OFF', direction: 'REDUCE', amount: '7', effectiveDate: '2026-09-02',
     explainedFlowId: 'flow-1', explainedExternalLineId: 'ext-1',
-    reasonInternal: '查无果核销', reasonCustomer: '（公司侧，客户不可见）',
+    reasonInternal: 'Unexplained write-off', reasonCustomer: '(firm side, not visible to customer)',
   };
   const makeSvc = (kase: any, disposition: any) => {
     const create = jest.fn().mockResolvedValue({ adjustmentNo: 'ADJ_WO', reasonCode: 'UNEXPLAINED_WRITE_OFF', caseNo: 'CASE_WO', amount: '7', direction: 'REDUCE', book: 'FIRM' });
@@ -1105,30 +1111,32 @@ describe('平账 A 批：核销四前提（spec §3.2）——少一道就是抹
     return { svc, prisma, create, dispositions };
   };
 
-  it('前提 1：案子未超期 → 400，文案说清"到线再谈核销"', async () => {
+  it('precondition 1: the case has not aged out → 400, copy states clearly "write-off can only be discussed after that"', async () => {
     const { svc } = makeSvc({ ...firmCase, slaBreached: false }, heldDisposition);
-    await expect(svc.createDraft(dto as any, OP)).rejects.toThrow(/账龄线/);
+    await expect(svc.createDraft(dto as any, OP)).rejects.toThrow(/aging threshold/);
   });
-  it('前提 2：锚的那行没定性、或结论不是「挂起·调查中」→ 400', async () => {
-    await expect(makeSvc(firmCase, null).svc.createDraft(dto as any, OP)).rejects.toThrow(/挂起·调查中/);
+  it('precondition 2: the anchored line has no finding, or its conclusion is not "Hold · Investigating" → 400', async () => {
+    await expect(makeSvc(firmCase, null).svc.createDraft(dto as any, OP)).rejects.toThrow(/Hold · Investigating/);
     await expect(makeSvc(firmCase, { ...heldDisposition, outlet: 'HOLD_NEXT_PERIOD', causeCode: 'CUTOFF_STRADDLE' }).svc.createDraft(dto as any, OP))
-      .rejects.toThrow(/挂起·等下期/);
+      .rejects.toThrow(/Hold · Next period/);
   });
-  it('前提 2b：定性已挂单 → 400', async () => {
+  it('precondition 2b: the finding is already linked to an adjustment → 400', async () => {
     await expect(makeSvc(firmCase, { ...heldDisposition, adjustmentNo: 'ADJ_OLD' }).svc.createDraft(dto as any, OP)).rejects.toThrow(/ADJ_OLD/);
   });
-  // 平账二期 Task 4 改口：客户池不再一律 400——用公司池的核销码（UNEXPLAINED_WRITE_OFF）
-  // 才拒，拒因是「账簿 × 成因码配对」不对，指向客户池自己的认损码，不再是「二期划转」
-  // （客户池用对码 UNEXPLAINED_CLIENT_LOSS 放行的路径见下方新增 describe）。
-  it('前提 3：客户池用了公司池的核销码 → 400，文案指向客户池认损码', async () => {
+  // Recon wave 2 Task 4 change: the client pool is no longer always 400 — it is rejected only when
+  // using the firm pool's write-off code (UNEXPLAINED_WRITE_OFF), the rejection reason being a "book
+  // × reason code pairing" mismatch pointing to the client pool's own loss-recognition code, no longer
+  // "wave 2 transfer" (the path where the client pool uses the correct code UNEXPLAINED_CLIENT_LOSS
+  // and is allowed is covered in the new describe below).
+  it('precondition 3: the client pool used the firm pool\'s write-off code → 400, copy points to the client pool\'s loss-recognition code', async () => {
     const { svc } = makeSvc({ ...firmCase, book: 'CLIENT', ownerNo: 'C0042' }, heldDisposition);
-    await expect(svc.createDraft(dto as any, OP)).rejects.toThrow(/客户池认损/);
+    await expect(svc.createDraft(dto as any, OP)).rejects.toThrow(/Client pool loss recognition/);
   });
-  it('前提 4：金额超小额线 → 400，文案指向事故登记', async () => {
+  it('precondition 4: amount exceeds the small-amount threshold → 400, copy points to incident registration', async () => {
     const { svc } = makeSvc(firmCase, heldDisposition);
-    await expect(svc.createDraft({ ...dto, amount: '10001' } as any, OP)).rejects.toThrow(/小额线/);
+    await expect(svc.createDraft({ ...dto, amount: '10001' } as any, OP)).rejects.toThrow(/small-amount threshold/);
   });
-  it('四前提齐 → 落 DRAFT，定性挂上单号（联动带族 WRITE_OFF）', async () => {
+  it('all four preconditions met → lands DRAFT, the finding is linked to the adjustment number (link carries family WRITE_OFF)', async () => {
     const { svc, create, dispositions } = makeSvc(firmCase, heldDisposition);
     const r = await svc.createDraft(dto as any, OP);
     expect(r.adjustmentNo).toBe('ADJ_WO');
@@ -1137,26 +1145,26 @@ describe('平账 A 批：核销四前提（spec §3.2）——少一道就是抹
   });
 });
 
-describe('平账 A 批：审批页后果原话——核销一族（spec §3.7）', () => {
+describe('Recon batch A: the approval page tells it straight —— write-off family (spec §3.7)', () => {
   const svc = new AdjustmentService(null as any, null as any, null as any, null as any, null as any);
-  it('说清池子、钱包、差额去向、超期天数、查证结论', () => {
+  it('states the pool, the wallet, where the difference goes, days overdue, and the investigation conclusion', () => {
     const text = svc.describeImpact({
       book: 'FIRM', ownerNo: null, amount: '7', assetCode: 'AED', direction: 'REDUCE',
-      reasonCode: 'UNEXPLAINED_WRITE_OFF', reasonInternal: '查无果核销', caseNo: 'REC20260902-010',
-    } as any, 2, { walletNo: 'WA2601017168', agedDays: 3, findingNote: '对了三天回单，差额无规律' });
-    expect(text).toContain('公司池查无果核销');
+      reasonCode: 'UNEXPLAINED_WRITE_OFF', reasonInternal: 'Unexplained write-off', caseNo: 'REC20260902-010',
+    } as any, 2, { walletNo: 'WA2601017168', agedDays: 3, findingNote: 'Checked receipts for three days running; the difference follows no pattern' });
+    expect(text).toContain('Firm pool unexplained write-off');
     expect(text).toContain('WA2601017168');
     expect(text).toContain('0.07');
-    expect(text).toContain('认损进运营资金');
-    expect(text).toContain('超期 3 天');
-    expect(text).toContain('对了三天回单');
+    expect(text).toContain('recognized into operating funds');
+    expect(text).toContain('overdue 3 days');
+    expect(text).toContain('Checked receipts for three days');
   });
-  it('多了的方向写"计入其他收入"', () => {
+  it('the increase direction reads "recorded as other income"', () => {
     const text = svc.describeImpact({
       book: 'FIRM', ownerNo: null, amount: '7', assetCode: 'AED', direction: 'INCREASE',
       reasonCode: 'UNEXPLAINED_WRITE_OFF', reasonInternal: 'x', caseNo: 'REC-1',
     } as any, 2, { walletNo: 'WA1', agedDays: 4, findingNote: 'y' });
-    expect(text).toContain('计入其他收入');
+    expect(text).toContain('recorded as other income');
   });
 });
 
@@ -1165,40 +1173,40 @@ describe('平账 A 批：审批页后果原话——核销一族（spec §3.7）
 // 路（大额未授权转出，结论已经定成「公司承损」）。CFO 审批那一屏是动钱前最后人闸
 // （describeImpact 函数头注释自己写的），继续对事故路说「查无果」「已超期 N 天」是在
 // 审批页撒谎——两条路各自的文案在这里锁死，互不外溢。
-describe('AdjustmentService.describeImpact —— 客户池认损两条来路各自文案（Task 10 评审 Fix 3）', () => {
+describe('AdjustmentService.describeImpact —— client pool loss recognition\'s two paths each get their own copy (Task 10 review Fix 3)', () => {
   const svc = new AdjustmentService(null as any, null as any, null as any, null as any, null as any);
   const baseRow = {
     book: 'CLIENT', ownerNo: 'C0042', amount: '150000', assetCode: 'AED',
     direction: 'REDUCE', reasonCode: 'UNEXPLAINED_CLIENT_LOSS',
   } as any;
 
-  it('HOLD_INVESTIGATING 老路：文案原样保留「查无果」+ 超期天数（未传 incidentNo）', () => {
+  it('HOLD_INVESTIGATING old path: copy keeps "unexplained" + days overdue as-is (no incidentNo passed)', () => {
     const text = svc.describeImpact(
-      { ...baseRow, reasonInternal: '客户池认损', caseNo: 'REC-HOLD-1' },
+      { ...baseRow, reasonInternal: 'Client loss recognition', caseNo: 'REC-HOLD-1' },
       2,
-      { walletNo: 'WA001', agedDays: 5, findingNote: '多轮核对无果' },
+      { walletNo: 'WA001', agedDays: 5, findingNote: 'Multiple reconciliation passes turned up nothing' },
     );
-    expect(text).toContain('客户池查无果认损');
-    expect(text).toContain('超期 5 天');
-    expect(text).not.toContain('事故');
+    expect(text).toContain('Client pool unexplained loss recognition');
+    expect(text).toContain('overdue 5 days');
+    expect(text).not.toContain('incident');
   });
 
-  it('INCIDENT 事故路：不说「查无果」、不带超期天数，带事故单号 + 定损额，落「公司承损」', () => {
+  it('INCIDENT path: does not say "unexplained", carries no days-overdue, carries the incident number + assessed amount, states "firm bears the loss"', () => {
     const text = svc.describeImpact(
-      { ...baseRow, reasonInternal: '未授权转出认损', caseNo: 'REC-INC-1' },
+      { ...baseRow, reasonInternal: 'Unauthorized outflow loss recognition', caseNo: 'REC-INC-1' },
       2,
-      // agedDays 刻意仍然传一个值（30）——用来证明事故路是真的不读它，
-      // 不是恰好没算出超期天数才没显示。
-      { walletNo: 'WA001', agedDays: 30, findingNote: '大额未授权转出，事故已定损', incidentNo: 'INC-0009' },
+      // agedDays is deliberately still passed a value (30) — to prove the incident path genuinely
+      // does not read it, not that it merely failed to compute a days-overdue figure to show.
+      { walletNo: 'WA001', agedDays: 30, findingNote: 'Large unauthorized outflow; incident has been assessed', incidentNo: 'INC-0009' },
     );
     expect(text).toContain('INC-0009');
-    expect(text).toContain('客户池认损');
-    expect(text).not.toContain('查无果');
-    expect(text).not.toContain('超期');
+    expect(text).toContain('Client pool loss recognition');
+    expect(text).not.toContain('unexplained');
+    expect(text).not.toContain('overdue');
     expect(text).not.toContain('30');
-    expect(text).toContain('公司承损');
-    // 150000 分（最小单位）在 decimals=2 下是 1500.00 AED——定损额与调账金额同一个数
-    // （assertIncidentWriteOffAllowed 已经锁额，两者本就必须相等）。
+    expect(text).toContain('firm bears the loss');
+    // 150000 minor units at decimals=2 is 1500.00 AED — the assessed amount and the adjustment amount
+    // are the same number (assertIncidentWriteOffAllowed already locks the amount, the two must be equal).
     expect(text).toContain('1500.00');
   });
 });

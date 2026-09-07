@@ -23,7 +23,7 @@ import { CreateAdjustmentDto } from '../dto/adjustment.dto';
  * 落账发生在审批通过后的 @OnEvent handler 里（AdjustmentApprovalService →
  * AdjustmentService.onApproved，Task 4/5），本控制器不直接触碰账本。
  */
-@ApiTags('Admin - Reconciliation Disposition (平账·调账单)')
+@ApiTags('Admin - Reconciliation Disposition (Recon · Adjustments)')
 @ApiBearerAuth()
 @Controller('admin/reconciliation/adjustments')
 @UseGuards(AuthGuard('jwt'), AdminPermissionGuard)
@@ -52,21 +52,21 @@ export class AdjustmentController {
   }
 
   @Post()
-  @ApiOperation({ summary: '开调账单草稿' })
+  @ApiOperation({ summary: 'Create adjustment draft' })
   @RequirePermissions(buildPermissionCode('POST', '/admin/reconciliation/adjustments'))
   create(@Body() dto: CreateAdjustmentDto, @Req() req: any) {
     return this.adjustment.createDraft(dto, this.buildActor(req));
   }
 
   @Post(':adjustmentNo/submit')
-  @ApiOperation({ summary: '提审调账单：进入审批中心' })
+  @ApiOperation({ summary: 'Submit adjustment for approval' })
   @RequirePermissions(buildPermissionCode('POST', '/admin/reconciliation/adjustments/:adjustmentNo/submit'))
   submit(@Param('adjustmentNo') adjustmentNo: string, @Req() req: any) {
     return this.adjustment.submit(adjustmentNo, this.buildActor(req));
   }
 
   @Get(':adjustmentNo')
-  @ApiOperation({ summary: '调账单详情' })
+  @ApiOperation({ summary: 'Adjustment detail' })
   @RequirePermissions(buildPermissionCode('GET', '/admin/reconciliation/adjustments/:adjustmentNo'))
   getOne(@Param('adjustmentNo') adjustmentNo: string) {
     return this.adjustment.getAdjustment(adjustmentNo);

@@ -10,13 +10,13 @@ import {
 } from '../../../governance/approvals/constants/approval.constants';
 
 describe('AdjustmentApprovalService', () => {
-  it('只认领 RECON_ADJUSTMENT_POST', () => {
+  it('only claims RECON_ADJUSTMENT_POST', () => {
     const svc = new AdjustmentApprovalService(null as any, null as any);
     expect(svc.actionType).toBe('RECON_ADJUSTMENT_POST');
     expect(svc.workflowType).toBe('RECON');
   });
 
-  it('批准事件转调 onApproved（单号取自 entityRef，裁决人业务号/角色取自事件）', async () => {
+  it('an approved event routes to onApproved (the number comes from entityRef, the decider\'s business number/role comes from the event)', async () => {
     const adjustments = { onApproved: jest.fn(), onRejected: jest.fn() };
     const svc = new AdjustmentApprovalService(adjustments as any, null as any);
     await svc.handleApproved({
@@ -30,7 +30,7 @@ describe('AdjustmentApprovalService', () => {
     expect(adjustments.onApproved).toHaveBeenCalledWith('ADJ2608280001', 'U_OPS', 'OPS-001', 'OPS_OFFICER');
   });
 
-  it('驳回事件转调 onRejected（裁决人业务号取自事件）', async () => {
+  it('a rejected event routes to onRejected (the decider\'s business number comes from the event)', async () => {
     const adjustments = { onApproved: jest.fn(), onRejected: jest.fn() };
     const svc = new AdjustmentApprovalService(adjustments as any, null as any);
     await svc.handleRejected({
@@ -40,7 +40,7 @@ describe('AdjustmentApprovalService', () => {
     expect(adjustments.onRejected).toHaveBeenCalledWith('ADJ2608280001', 'U_OPS', 'OPS-001');
   });
 
-  it('不是自己的 actionType 就不动手', async () => {
+  it('an actionType that is not its own is left untouched', async () => {
     const adjustments = { onApproved: jest.fn(), onRejected: jest.fn() };
     const svc = new AdjustmentApprovalService(adjustments as any, null as any);
     await svc.handleApproved({ actionType: 'SOMETHING_ELSE', entityRef: 'X' } as any);
@@ -50,7 +50,7 @@ describe('AdjustmentApprovalService', () => {
   // Minor 3 —— 上面那条守卫只测了 handleApproved，handleRejected 那条没人测过：
   // 删掉 handleRejected/handleCancelled/handleExpired 共用的 routeToRejected 里的
   // actionType 判断，整套测试照样绿。镜像一条堵上。
-  it('不是自己的 actionType 就不动手（handleRejected）', async () => {
+  it('an actionType that is not its own is left untouched (handleRejected)', async () => {
     const adjustments = { onApproved: jest.fn(), onRejected: jest.fn() };
     const svc = new AdjustmentApprovalService(adjustments as any, null as any);
     await svc.handleRejected({ actionType: 'SOMETHING_ELSE', entityRef: 'X' } as any);
@@ -63,8 +63,8 @@ describe('AdjustmentApprovalService', () => {
 // 点取消、或审批 48 小时超时，调账单就卡死——PENDING_APPROVAL 的出边只有
 // POSTED/REJECTED，没有回 DRAFT 的边，再也批不了、驳不了、关不掉。
 // 对调账单业务上，驳回/取消/超时是同一个结局：这张单不会落账，统一转 onRejected。
-describe('AdjustmentApprovalService —— 取消/超时同归 onRejected（Important 1）', () => {
-  it('取消事件转调 onRejected（单号取自 entityRef，裁决人取自 decisionByUserId）', async () => {
+describe('AdjustmentApprovalService —— cancelled/expired both route to onRejected (Important 1)', () => {
+  it('a cancelled event routes to onRejected (the number comes from entityRef, the decider comes from decisionByUserId)', async () => {
     const adjustments = { onApproved: jest.fn(), onRejected: jest.fn() };
     const svc = new AdjustmentApprovalService(adjustments as any, null as any);
     await svc.handleCancelled({
@@ -74,14 +74,14 @@ describe('AdjustmentApprovalService —— 取消/超时同归 onRejected（Impo
     expect(adjustments.onRejected).toHaveBeenCalledWith('ADJ2608280002', 'U_OPS_2', null);
   });
 
-  it('不是自己的 actionType 就不动手（handleCancelled）', async () => {
+  it('an actionType that is not its own is left untouched (handleCancelled)', async () => {
     const adjustments = { onApproved: jest.fn(), onRejected: jest.fn() };
     const svc = new AdjustmentApprovalService(adjustments as any, null as any);
     await svc.handleCancelled({ actionType: 'SOMETHING_ELSE', entityRef: 'X' } as any);
     expect(adjustments.onRejected).not.toHaveBeenCalled();
   });
 
-  it('超时事件转调 onRejected；超时没有裁决人，decisionByUserId 缺省回落 SYSTEM', async () => {
+  it('an expired event routes to onRejected; a timeout has no decider, decisionByUserId falls back to SYSTEM when absent', async () => {
     const adjustments = { onApproved: jest.fn(), onRejected: jest.fn() };
     const svc = new AdjustmentApprovalService(adjustments as any, null as any);
     await svc.handleExpired({
@@ -91,7 +91,7 @@ describe('AdjustmentApprovalService —— 取消/超时同归 onRejected（Impo
     expect(adjustments.onRejected).toHaveBeenCalledWith('ADJ2608280003', 'SYSTEM', null);
   });
 
-  it('不是自己的 actionType 就不动手（handleExpired）', async () => {
+  it('an actionType that is not its own is left untouched (handleExpired)', async () => {
     const adjustments = { onApproved: jest.fn(), onRejected: jest.fn() };
     const svc = new AdjustmentApprovalService(adjustments as any, null as any);
     await svc.handleExpired({ actionType: 'SOMETHING_ELSE', entityRef: 'X' } as any);
@@ -101,8 +101,8 @@ describe('AdjustmentApprovalService —— 取消/超时同归 onRejected（Impo
 
 // 补测 A —— 铁律②「门不可绕」的落点：默认策略被删掉、被改成两步、或角色被换掉，
 // 必须有测试当场变红；运行时不报错要等到真提交审批才会炸（"No steps configured"），那是事故现场。
-describe('RECON_ADJUSTMENT_POST 默认审批策略', () => {
-  it('单步、角色恰好是 CFO（平账 A 批 2026-09-02：裁决人 OPS_OFFICER → CFO）', () => {
+describe('RECON_ADJUSTMENT_POST default approval policy', () => {
+  it('single step, the role is exactly CFO (recon batch A 2026-09-02: decider changed from OPS_OFFICER → CFO)', () => {
     const policy = DEFAULT_APPROVAL_POLICIES[ApprovalActionTypes.RECON_ADJUSTMENT_POST];
     expect(policy).toBeDefined();
     expect(policy.steps).toEqual([{ stepNo: 1, roles: ['CFO'] }]);
@@ -114,7 +114,7 @@ describe('RECON_ADJUSTMENT_POST 默认审批策略', () => {
 // EventSubscribersLoader 走一遍真实的“扫描原型链 → 取函数对象 → 查装饰器元数据 →
 // 注册监听器”流程，再用真实 EventEmitter2 派发事件——四个 @OnEvent 有一个漏挂，
 // 这条测试就会真的收不到调用，永久锁住覆写后必须重新装饰这件事。
-describe('AdjustmentApprovalService —— 真实事件系统接线（Important 2，锁住 4 个 @OnEvent 装饰器）', () => {
+describe('AdjustmentApprovalService —— wired into the real event system (Important 2, locks down all 4 @OnEvent decorators)', () => {
   const buildEvent = (overrides: Partial<ApprovalDecisionEvent>): ApprovalDecisionEvent => ({
     approvalId: 'AC_WIRE_1',
     approvalNo: 'AC_WIRE_1',
@@ -133,7 +133,7 @@ describe('AdjustmentApprovalService —— 真实事件系统接线（Important 
     [ApprovalEvents.REJECTED, 'onRejected'],
     [ApprovalEvents.CANCELLED, 'onRejected'],
     [ApprovalEvents.EXPIRED, 'onRejected'],
-  ] as const)('真实派发 %s，%s 真的被调用（不是靠直接调方法）', async (eventName, hookName) => {
+  ] as const)('a real dispatch of %s genuinely calls %s (not by calling the method directly)', async (eventName, hookName) => {
     const onApproved = jest.fn();
     const onRejected = jest.fn();
     const moduleRef = await Test.createTestingModule({

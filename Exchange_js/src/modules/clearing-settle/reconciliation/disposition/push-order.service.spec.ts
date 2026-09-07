@@ -70,7 +70,7 @@ function build(opts: { order?: any; lookup?: any } = {}) {
 }
 
 describe('PushOrderService', () => {
-  it('sync: unique receipt → advances to CONFIRMED (A3: 停手不 CLEAR) with back-valued effectiveDate on every step', async () => {
+  it('sync: unique receipt → advances to CONFIRMED (A3: stops there, no CLEAR) with back-valued effectiveDate on every step', async () => {
     const { svc, fundsOrders } = build();
     const res = await svc.syncPush('FO-1', 'admin-1');
     // A3:推单的终点是 CONFIRMED,结清交还 workflow(它记完账才 CLEAR)
@@ -85,7 +85,7 @@ describe('PushOrderService', () => {
   // A3 守则性断言:推单永远不得自己发 CLEAR。发了就会绕过 onFeeLegConfirmed 的结算
   // (其防重入判据是「状态不是 CONFIRMED = 别人结算过了」),手续费永久锁死、提现永停
   // PAYOUT_PENDING,而单据显示"已结清"。
-  it('A3: 推单绝不发 CLEAR —— 结清是 workflow 记完账后的产物,不是可外部驱动的动作', async () => {
+  it('A3: push order never issues CLEAR — settlement is produced by the workflow after it posts the entries, not an externally drivable action', async () => {
     const { svc, fundsOrders } = build();
     await svc.syncPush('FO-1', 'admin-1');
     const actions = fundsOrders.advance.mock.calls.map((c: any[]) => c[1]);
@@ -175,7 +175,7 @@ describe('PushOrderService', () => {
     const res = await svc.manualPush('FO-1', 'admin-1', {
       receiptRef: 'R-1',
       externalDate: '2026-06-30',
-      reason: '银行后台已见到账',
+      reason: 'Bank back office confirms funds received',
     });
     // A3:推单止于 CONFIRMED,结清交还 workflow
     expect(res.finalStatus).toBe(FundsOrderStatus.CONFIRMED);
@@ -193,7 +193,7 @@ describe('PushOrderService', () => {
     await expect(s2.syncPush('FO-1', 'a')).rejects.toThrow(BadRequestException);
   });
 
-  it('driveToCleared rethrows non-transition advance errors (e.g. row deleted) — not masked as "无合法推进动作"', async () => {
+  it('driveToCleared rethrows non-transition advance errors (e.g. row deleted) — not masked as "no legal advance action"', async () => {
     // M-1: a narrowed catch only continues on "Invalid transition"; a NotFound (row vanished mid-drive)
     // must propagate verbatim, not be swallowed into the generic "no legal advance" BadRequest.
     const order = makeOrder();

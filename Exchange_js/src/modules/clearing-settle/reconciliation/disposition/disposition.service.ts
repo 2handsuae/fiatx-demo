@@ -24,10 +24,10 @@ export class DispositionService {
 
   async record(caseNo: string, dto: RecordDispositionDto, actor: ApprovalActorContext) {
     const kase = await (this.prisma as any).reconciliationCase.findUnique({ where: { caseNo } });
-    if (!kase) throw new NotFoundException(`对账案件不存在：${caseNo}`);
-    if (kase.status !== 'OPEN') throw new BadRequestException('只能对打开中的案件定性');
+    if (!kase) throw new NotFoundException(`Reconciliation case not found: ${caseNo}`);
+    if (kase.status !== 'OPEN') throw new BadRequestException('Findings can only be recorded on open cases');
     if (!dto.explainedFlowId && !dto.explainedExternalLineId) {
-      throw new BadRequestException('定性必须锚在真实证据上（内部流水 id / 外部对账单行 id 至少其一）');
+      throw new BadRequestException('A finding must be anchored to real evidence (at least one of an internal flow id / external statement line id)');
     }
 
     const book: CauseBook = kase.book === 'FIRM' ? 'FIRM' : 'CLIENT';
@@ -56,10 +56,10 @@ export class DispositionService {
       where: { caseNo, OR: anchorConditions },
     });
     if (existing?.adjustmentNo) {
-      throw new BadRequestException(`该行定性已挂调账单 ${existing.adjustmentNo}，不可覆盖——单和结论必须对得上`);
+      throw new BadRequestException(`This line's finding is already linked to adjustment ${existing.adjustmentNo} — cannot overwrite; the order and the conclusion must stay consistent`);
     }
     if (existing?.supplementNo) {
-      throw new BadRequestException(`该行定性已转补单 ${existing.supplementNo}，不可覆盖——单和结论必须对得上`);
+      throw new BadRequestException(`This line's finding is already linked to supplement ${existing.supplementNo} — cannot overwrite; the order and the conclusion must stay consistent`);
     }
 
     const data = {
@@ -127,13 +127,13 @@ export class DispositionService {
    */
   async linkAdjustment(dispositionNo: string, adjustmentNo: string, opts?: { family?: AdjustFamily }): Promise<void> {
     const row = await (this.prisma as any).reconciliationDisposition.findUnique({ where: { dispositionNo } });
-    if (!row) throw new NotFoundException(`定性记录不存在：${dispositionNo}`);
+    if (!row) throw new NotFoundException(`Finding record not found: ${dispositionNo}`);
     const writeOffOnHeld = row.outlet === 'HOLD_INVESTIGATING' && opts?.family === 'WRITE_OFF';
     const writeOffOnIncident = row.outlet === 'INCIDENT' && opts?.family === 'WRITE_OFF';
     if (!String(row.outlet).startsWith('ADJUST') && !writeOffOnHeld && !writeOffOnIncident) {
-      throw new BadRequestException(`定性 ${dispositionNo} 的出口是 ${row.outlet}，不落调账单`);
+      throw new BadRequestException(`Finding ${dispositionNo}'s outlet is ${row.outlet} — it does not route to an adjustment`);
     }
-    if (row.adjustmentNo) throw new BadRequestException(`定性 ${dispositionNo} 已挂调账单 ${row.adjustmentNo}`);
+    if (row.adjustmentNo) throw new BadRequestException(`Finding ${dispositionNo} is already linked to adjustment ${row.adjustmentNo}`);
     await (this.prisma as any).reconciliationDisposition.update({ where: { dispositionNo }, data: { adjustmentNo } });
   }
 
@@ -143,24 +143,24 @@ export class DispositionService {
    */
   async linkSupplement(dispositionNo: string, supplementNo: string, target: DeferredTarget): Promise<void> {
     const row = await (this.prisma as any).reconciliationDisposition.findUnique({ where: { dispositionNo } });
-    if (!row) throw new NotFoundException(`定性记录不存在：${dispositionNo}`);
+    if (!row) throw new NotFoundException(`Finding record not found: ${dispositionNo}`);
     if (row.outlet !== 'SUPPLEMENT' || row.deferredTarget !== target) {
-      throw new BadRequestException(`定性 ${dispositionNo} 的出口是 ${row.outlet}/${row.deferredTarget ?? '-'}，不接 ${target} 的补单`);
+      throw new BadRequestException(`Finding ${dispositionNo}'s outlet is ${row.outlet}/${row.deferredTarget ?? '-'} — it does not accept a ${target} supplement`);
     }
-    if (row.supplementNo) throw new BadRequestException(`定性 ${dispositionNo} 已转补单 ${row.supplementNo}`);
+    if (row.supplementNo) throw new BadRequestException(`Finding ${dispositionNo} is already linked to supplement ${row.supplementNo}`);
     await (this.prisma as any).reconciliationDisposition.update({ where: { dispositionNo }, data: { supplementNo } });
   }
 
   async replaceSupplement(dispositionNo: string, from: string, to: string): Promise<void> {
     const row = await (this.prisma as any).reconciliationDisposition.findUnique({ where: { dispositionNo } });
-    if (!row) throw new NotFoundException(`定性记录不存在：${dispositionNo}`);
-    if (row.supplementNo !== from) throw new BadRequestException(`定性 ${dispositionNo} 挂的是 ${row.supplementNo ?? '-'}，不是 ${from}`);
+    if (!row) throw new NotFoundException(`Finding record not found: ${dispositionNo}`);
+    if (row.supplementNo !== from) throw new BadRequestException(`Finding ${dispositionNo} is linked to ${row.supplementNo ?? '-'}, not ${from}`);
     await (this.prisma as any).reconciliationDisposition.update({ where: { dispositionNo }, data: { supplementNo: to } });
   }
 
   async unlinkSupplement(dispositionNo: string, expected: string): Promise<void> {
     const row = await (this.prisma as any).reconciliationDisposition.findUnique({ where: { dispositionNo } });
-    if (!row) throw new NotFoundException(`定性记录不存在：${dispositionNo}`);
+    if (!row) throw new NotFoundException(`Finding record not found: ${dispositionNo}`);
     if (row.supplementNo !== expected) return; // 已被别的路径清掉或改写，不动
     await (this.prisma as any).reconciliationDisposition.update({ where: { dispositionNo }, data: { supplementNo: null } });
   }
@@ -173,8 +173,8 @@ export class DispositionService {
    */
   async attachIncident(dispositionNo: string, incidentNo: string): Promise<void> {
     const row = await (this.prisma as any).reconciliationDisposition.findUnique({ where: { dispositionNo } });
-    if (!row) throw new NotFoundException(`定性行不存在：${dispositionNo}`);
-    if (row.incidentNo) throw new ConflictException(`定性行 ${dispositionNo} 已挂事故 ${row.incidentNo}，不能再挂`);
+    if (!row) throw new NotFoundException(`Finding line not found: ${dispositionNo}`);
+    if (row.incidentNo) throw new ConflictException(`Finding line ${dispositionNo} is already linked to incident ${row.incidentNo} — cannot link another`);
     await (this.prisma as any).reconciliationDisposition.update({ where: { dispositionNo }, data: { incidentNo } });
   }
 
@@ -186,7 +186,7 @@ export class DispositionService {
    */
   async listReattributionCandidates(caseNo: string, side: 'FROM' | 'TO', amount: string): Promise<ReattributionCandidate[]> {
     const kase = await (this.prisma as any).reconciliationCase.findUnique({ where: { caseNo } });
-    if (!kase) throw new NotFoundException(`对账案件不存在：${caseNo}`);
+    if (!kase) throw new NotFoundException(`Reconciliation case not found: ${caseNo}`);
     const wantStatus = side === 'FROM' ? 'ORPHAN_EXTERNAL' : 'ORPHAN_INTERNAL';
     const peers = await (this.prisma as any).reconciliationCase.findMany({
       where: {

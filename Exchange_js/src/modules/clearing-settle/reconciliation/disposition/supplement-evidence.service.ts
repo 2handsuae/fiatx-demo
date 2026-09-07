@@ -60,15 +60,15 @@ export class SupplementEvidenceService {
     const facts = await this.loadLine(input.caseNo, input.externalLineId);
     const want = DIRECTION_BY_KIND[input.kind];
     if (facts.direction !== want) {
-      throw new BadRequestException(`该账单行方向是 ${facts.direction}，这条补单路要求 ${want}——成因与账单行方向不符`);
+      throw new BadRequestException(`This statement line's direction is ${facts.direction}, but this supplement path requires ${want}——the cause does not match the statement line's direction`);
     }
     const d = await (this.prisma as any).reconciliationDisposition.findUnique({ where: { dispositionNo: input.dispositionNo } });
     if (!d || d.caseNo !== input.caseNo || d.explainedExternalLineId !== input.externalLineId) {
-      throw new BadRequestException(`定性 ${input.dispositionNo} 不是这条账单行的定性`);
+      throw new BadRequestException(`Finding ${input.dispositionNo} is not the finding for this statement line`);
     }
-    if (d.outlet !== 'SUPPLEMENT') throw new BadRequestException(`定性 ${input.dispositionNo} 的出口是 ${d.outlet}，不是补单`);
-    if (d.deferredTarget !== input.kind) throw new BadRequestException(`定性 ${input.dispositionNo} 的去向是 ${d.deferredTarget}，与本路不符`);
-    if (d.supplementNo) throw new BadRequestException(`定性 ${input.dispositionNo} 已转补单 ${d.supplementNo}`);
+    if (d.outlet !== 'SUPPLEMENT') throw new BadRequestException(`Finding ${input.dispositionNo}'s outlet is ${d.outlet}, not a supplement`);
+    if (d.deferredTarget !== input.kind) throw new BadRequestException(`Finding ${input.dispositionNo}'s target is ${d.deferredTarget}, which does not match this path`);
+    if (d.supplementNo) throw new BadRequestException(`Finding ${input.dispositionNo} is already linked to supplement ${d.supplementNo}`);
     await this.assertUnclaimed(input.externalLineId);
     return { ...facts, dispositionNo: d.dispositionNo };
   }
@@ -108,7 +108,7 @@ export class SupplementEvidenceService {
   /** 执行期：只要参考号 / 关联号 / 业务日 / 案号，不重跑守卫（守卫在提交与批准两个时点已跑）。 */
   async describeLine(externalLineId: string) {
     const line = await (this.prisma as any).externalStatementLine.findUnique({ where: { id: externalLineId } });
-    if (!line) throw new NotFoundException(`账单行不存在：${externalLineId}`);
+    if (!line) throw new NotFoundException(`Statement line not found: ${externalLineId}`);
     const li = await (this.prisma as any).reconciliationLineItem.findFirst({
       where: { externalTxId: externalLineId }, orderBy: { createdAt: 'desc' }, include: { case: true },
     });
@@ -122,21 +122,21 @@ export class SupplementEvidenceService {
   // ── 内部 ──
   private async loadLine(caseNo: string, externalLineId: string): Promise<ClaimableLine> {
     const kase = await (this.prisma as any).reconciliationCase.findUnique({ where: { caseNo }, include: { lineItems: true } });
-    if (!kase) throw new NotFoundException(`对账案件不存在：${caseNo}`);
-    if (kase.status !== 'OPEN') throw new BadRequestException(`案子 ${caseNo} 不是打开状态，不能补单`);
+    if (!kase) throw new NotFoundException(`Reconciliation case not found: ${caseNo}`);
+    if (kase.status !== 'OPEN') throw new BadRequestException(`Case ${caseNo} is not open — cannot supplement`);
     // book 的真实落库值是 'CUSTOMER'（wallet-recon-run.service.ts 的引擎写入值），不是 'CLIENT'
     // ——同目录 adjustment.service.ts / disposition.service.ts 都按「=== 'FIRM' 才算不是客户账簿」
     // 归一化，这里对齐同一惯例（曾误写成严格等于 'CLIENT'，会把每一条真实客户案件都拒掉，
     // 冒烟测试对运行中 self 栈的真实数据直接复现过）。
-    if (kase.book === 'FIRM') throw new BadRequestException(`案子 ${caseNo} 不是客户账簿，补单只对客户钱包`);
+    if (kase.book === 'FIRM') throw new BadRequestException(`Case ${caseNo} is not a client-book case — supplements only apply to client wallets`);
     const li = (kase.lineItems ?? []).find((x: any) => x.externalTxId === externalLineId);
     if (!li || li.matchStatus !== 'ORPHAN_EXTERNAL') {
-      throw new BadRequestException('该账单行不是本案最新一轮的「外有我无」差异行');
+      throw new BadRequestException(`This statement line is not an "external only" difference line from this case's latest run`);
     }
     const line = await (this.prisma as any).externalStatementLine.findUnique({ where: { id: externalLineId } });
-    if (!line) throw new NotFoundException(`账单行不存在：${externalLineId}`);
+    if (!line) throw new NotFoundException(`Statement line not found: ${externalLineId}`);
     const wallet = await (this.prisma as any).wallet.findUnique({ where: { id: kase.walletRef } });
-    if (!wallet) throw new BadRequestException(`案子 ${caseNo} 的钱包不存在`);
+    if (!wallet) throw new BadRequestException(`Case ${caseNo}'s wallet was not found`);
     // 资产从**案子**取，不再从钱包取（2026-09-04 合并 main / V3 波一 T5 时改）：波一把
     // Wallet 改成按 vault × network × 归属人开的「地址行」，砍掉了 assetId 列与 asset
     // 关联——一个地址行不再绑死单一资产，从钱包问"这是什么币"已经问不出来了。案子本身
@@ -145,7 +145,7 @@ export class SupplementEvidenceService {
     // `(this.prisma as any)` 取数，tsc 照不到，合并后会在运行期才炸成
     // PrismaClientValidationError（Unknown field `asset`）。
     const asset = await (this.prisma as any).asset.findUnique({ where: { id: kase.assetId } });
-    if (!asset) throw new BadRequestException(`案子 ${caseNo} 的资产不存在`);
+    if (!asset) throw new BadRequestException(`Case ${caseNo}'s asset was not found`);
     // external_statement_lines.currency 全仓惯例存的是 asset.code（法币两者同名，
     // 加密币不同——见 wallet-recon-run.service.ts:170 / adjustment.service.ts:493 /
     // reconciliation-query.service.ts:699 同一约定），这里此前错拿 asset.currency
@@ -154,7 +154,7 @@ export class SupplementEvidenceService {
     // 加密币三路此前从未被非 mock 的真实数据跑过）。改比 asset.code；下面
     // 返回值 `currency: asset.currency`（供审计文案人读，如"61 USDT"）不动。
     if (String(asset.code) !== String(line.currency)) {
-      throw new BadRequestException(`账单行币种 ${line.currency} 与案件资产 ${asset.code} 不符`);
+      throw new BadRequestException(`Statement line currency ${line.currency} does not match the case's asset ${asset.code}`);
     }
     const owner = wallet.ownerId ? await (this.prisma as any).customerMain.findUnique({ where: { id: wallet.ownerId }, select: { customerNo: true } }) : null;
     const decimals: number = asset.decimals ?? 2;
@@ -185,10 +185,10 @@ export class SupplementEvidenceService {
       where: { supplementOfExternalLineId: externalLineId, status: { not: 'SUPPLEMENT_REJECTED' } },
       select: { signalNo: true },
     });
-    if (sig) throw new BadRequestException(`该账单行已被补录 ${sig.signalNo} 认领`);
+    if (sig) throw new BadRequestException(`This statement line is already claimed by backfill ${sig.signalNo}`);
     const dep = await (this.prisma as any).depositTransaction.findFirst({ where: { clawbackExternalLineId: externalLineId }, select: { depositNo: true } });
-    if (dep) throw new BadRequestException(`该账单行已被退汇认领 ${dep.depositNo} 占用`);
+    if (dep) throw new BadRequestException(`This statement line is already claimed by recall ${dep.depositNo}`);
     const wd = await (this.prisma as any).withdrawTransaction.findFirst({ where: { returnExternalLineId: externalLineId }, select: { withdrawNo: true } });
-    if (wd) throw new BadRequestException(`该账单行已被退回认领 ${wd.withdrawNo} 占用`);
+    if (wd) throw new BadRequestException(`This statement line is already claimed by return ${wd.withdrawNo}`);
   }
 }
