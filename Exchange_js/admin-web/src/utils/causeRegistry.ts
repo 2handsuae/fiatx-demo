@@ -14,7 +14,7 @@ export const OUTLET_TONE: Record<string, 'green' | 'blue' | 'amber' | 'red'> = {
   INCIDENT: 'red',
 };
 
-/** 行事实（出口判定的输入）——从被点的那一行原样取，POST 时带给后端。 */
+/** Row facts (the input to outlet resolution) — taken as-is from the clicked row, sent to the backend on POST. */
 export const rowFacts = (row: FlowComparisonRow) => ({
   deltaSign: row.deltaAmount != null ? (row.deltaAmount.startsWith('-') ? -1 : 1) as 1 | -1 : undefined,
   internalDirection: row.internalFlow?.direction,
@@ -22,8 +22,8 @@ export const rowFacts = (row: FlowComparisonRow) => ({
   externalDirection: row.externalLine?.direction,
 });
 
-/** 方向只读时的推导依据一句话（spec §3.3 表）。 */
+/** One-line rationale for read-only direction (spec §3.3 table). Task 8: translated alongside the page's English pass. */
 export const directionNoteFor = (matchType: string): string =>
-  matchType === 'AMOUNT_MISMATCH' ? '方向由差额符号推出（外部−内部；出账流水按钱的方向翻过来算），不可改'
-  : matchType === 'ORPHAN_INTERNAL' ? '方向 = 内部流水方向取反（IN→减，OUT→加），不可改'
-  : '方向 = 外部流水方向照搬（IN→加，OUT→减），不可改';
+  matchType === 'AMOUNT_MISMATCH' ? 'Direction is derived from the delta sign (external − internal; outbound flows flip the sign) — not editable'
+  : matchType === 'ORPHAN_INTERNAL' ? 'Direction = internal flow direction reversed (IN → decrease, OUT → increase) — not editable'
+  : 'Direction = external flow direction as-is (IN → increase, OUT → decrease) — not editable';

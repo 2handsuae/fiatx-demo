@@ -1,33 +1,36 @@
 // admin-web/src/pages/ReconciliationCasesDetailPage.tsx
 //
 // T8 "Investigation cockpit" — read-only Case detail for the WALLET_V1 engine.
-// Round3 layout 乙 (confirmed in brainstorm): bucket badge + explain 5-cell +
-// observation history + single mixed-bucket flow table (no grouped sections).
+// English redesign (平账收尾·界面收口 Task 8, design/Main.dc.html): plain-English
+// hero conclusion + slim badge row, no bilingual labels anywhere on the page.
 //
-// Replaces the V8 five-formula book/asset/vintage view (kept off-screen — the
-// new wallet engine never populates `book` LHS labels). The cockpit answers
-// the operator's two investigation questions:
+// The cockpit answers the operator's two investigation questions:
 //   1. "What broke for this wallet? (balance, flows, both?)"
 //   2. "Which specific external/internal lines diverge?"
 //
 // Layout (top → bottom):
 //   1. Nav header (back + refresh)
-//   2. Hero — caseNo + bucket badge + severity badge
-//   3. Account Identity card — wallet, owner, asset, COA, linked run, status
-//   4. 差额解释 / Delta Explained — 5 cells: Internal / External / Δ /
-//      In-transit / Residual (residual is the core investigation signal)
-//   5. 观察历史 / Observation — first/last-seen run history one-liner
-//   6. 流水下钻 / Flow Drilldown — single mixed table sorted by severity
-//      (mismatch/orphan → in-transit → matched, matched collapsed by default)
-//   7. Bottom — "View in Account Statement" deep link
-//   8. Sidebar (identity + lifecycle)
+//   2. Hero — caseNo + bucket/severity/aging badges + StatusPill + one-line
+//      plain-English conclusion (buildCaseConclusion, utils/caseConclusion.ts)
+//   3. Account — wallet / customer (linked) / ledger account (COA phrase) /
+//      asset·book / business date
+//   4. Balance Explained — 5 tiles: Internal / External / Difference /
+//      In-Transit / Unexplained (Unexplained is the core investigation signal)
+//   5. Case History — 3 cells: Opened By / Last Re-Checked / Aging (re-observed
+//      count is intentionally not rendered — known-zero counter, spec §3.3)
+//   6. Differences — single mixed table sorted by severity (mismatch/orphan →
+//      in-transit → matched, matched collapsed by default), six-state
+//      disposition column (width 250px, no horizontal scroll at 1280px)
+//   7. This Case's Adjustments — case-level adjustment list
+//   8. Related Views — deep link to Ledger flows
+//   9. Sidebar (actions + identity + lifecycle)
 //
 // Disposition workflow (Close / Waive / Assign) is deferred to Phase C — this
 // page is investigation-only this release. Funds-order deep link (in-transit
 // rows) is read-only this release too — no advance/sync/confirm actions.
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useParams, useNavigate, useSearchParams } from 'react-router-dom';
-import { RefreshCw, Check, AlertTriangle, ArrowRight, ExternalLink, Plus } from 'lucide-react';
+import { RefreshCw, Check, AlertTriangle, ArrowRight, ExternalLink, Plus, Clock, Zap, Copy, PenLine } from 'lucide-react';
 import {
   DetailPageHeader,
   DetailCard,
@@ -380,16 +383,62 @@ const MATCH_TONE: Record<FlowMatchType, string> = {
 };
 
 export const MATCH_LABEL: Record<FlowMatchType, string> = {
-  MATCHED:         'Matched / 已匹配',
-  IN_TRANSIT:      'In-transit / 在途',
-  ORPHAN_INTERNAL: 'Internal only / 我有外无',
-  ORPHAN_EXTERNAL: 'External only / 外有我无',
-  AMOUNT_MISMATCH: 'Mismatch / 金额不符',
+  MATCHED:         'Matched',
+  IN_TRANSIT:      'In-transit',
+  ORPHAN_INTERNAL: 'Internal only',
+  ORPHAN_EXTERNAL: 'External only',
+  AMOUNT_MISMATCH: 'Mismatch',
 };
 
 // 平账 B 批（Task 9）：SUPPLEMENT 出口按 deferredTarget 给按钮文案——三路一个弹层，
-// 按钮词区分去向，弹层内部再按 kind 切表单。
-const SUPPLEMENT_ACTION_LABEL: Record<string, string> = { SUPPLEMENT_DEPOSIT: '发起补录', SUPPLEMENT_BOUNCE: '认领退汇', SUPPLEMENT_PAYOUT_RETURN: '认领退回' };
+// 按钮词区分去向，弹层内部再按 kind 切表单。共享动作词表（Task 8 环境说明）逐词抄。
+const SUPPLEMENT_ACTION_LABEL: Record<string, string> = { SUPPLEMENT_DEPOSIT: 'Record missed deposit', SUPPLEMENT_BOUNCE: 'Claim recall', SUPPLEMENT_PAYOUT_RETURN: 'Claim return' };
+
+// Task 8（Account 节）：科目码 → 人话短语，缺映射不算错——原码原样显示，且始终把
+// 原码放 title（既给了兜底文本，也给了可核对的原始值）。
+const COA_PHRASE: Record<string, string> = {
+  'L.CLIENT_PAYABLE': 'Client payable',
+  'L.CLIENT_PAYABLE+L.DEPOSIT_SUSPENSE': 'Client payable + Deposit suspense',
+  'E.FIRM_OPS': 'Firm operating',
+};
+
+// Task 8（Differences 表 Reference 列）：外部单号截断 + 复制，治横滚的关键一环——原
+// 组件展示完整 externalRef（部分是长链上哈希），是表格撑爆 1280 视口的主因之一。
+const ShortRef = ({ value }: { value: string | null }) =>
+  !value ? <span className="text-adm-t3">—</span> : (
+    <span className="inline-flex items-center gap-1.5 font-mono text-[11px] text-adm-t2" title={value}>
+      {value.length > 18 ? `${value.slice(0, 10)}…${value.slice(-4)}` : value}
+      <button
+        type="button"
+        onClick={() => { void navigator.clipboard.writeText(value); }}
+        className="shrink-0 text-adm-t3 hover:text-adm-blue"
+      >
+        <Copy size={11} />
+      </button>
+    </span>
+  );
+
+// Task 8（Differences 表 Source 列）：内部行链到对应订单详情。不复用
+// approvalEntityRoutes.ts 的 ENTITY_ROUTE_BY_ACTION——那张表按审批 actionType 建键
+// （如 DEPOSIT_CONFISCATION），键空间与账务 sourceType（DEPOSIT/WITHDRAWAL/…）不
+// 重合；这里沿用它"能给详情页用详情页、不能给（deposit/withdraw 详情路由仍是内部
+// id）用列表页 + keyword 定位"的既有惯例，对 recon 场景会出现的 sourceType 逐条落地。
+const SOURCE_TYPE_HREF: Record<string, (no: string) => string> = {
+  DEPOSIT: (no) => `/admin/trading/deposits?keyword=${encodeURIComponent(no)}`,
+  WITHDRAWAL: (no) => `/admin/trading/withdrawals?keyword=${encodeURIComponent(no)}`,
+  SWAP: (no) => `/admin/trading/swaps?keyword=${encodeURIComponent(no)}`,
+  INTERNAL_TRANSFER: (no) => `/admin/treasury/internal-transfers/${encodeURIComponent(no)}`,
+  RECON_ADJUSTMENT: (no) => `/admin/reconciliation/adjustments/${encodeURIComponent(no)}`,
+};
+
+// Task 8（Case History 卡）：三格用的紧凑时间戳——design/Main.dc.html 字面格式
+// "Sep 6, 21:51"（24 小时制，无秒）。
+const caseHistoryTime = (iso: string | null): string | null => {
+  if (!iso) return null;
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return null;
+  return d.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false });
+};
 
 // 平账三期（Task 12）：案件页三入口共用——拼「登记事故」跳转的 query。铁律⑥：
 // 只传业务键（案号/定性行号/客户号/资产代码/元口径金额）；钱包与账单行参考号在
@@ -410,7 +459,7 @@ const IncidentBadge = ({ incidentNo }: { incidentNo: string }) => (
     to={`/admin/governance/incidents/${encodeURIComponent(incidentNo)}`}
     className="inline-flex items-center gap-1 whitespace-nowrap rounded border border-adm-red/30 bg-adm-red/10 px-1.5 py-0.5 font-mono text-[10px] font-medium text-adm-red hover:underline"
   >
-    事故 · {incidentNo}
+    Incident · {incidentNo}
   </Link>
 );
 
@@ -424,29 +473,66 @@ const MatchChip = ({ row }: { row: FlowComparisonRow }) => {
   );
 };
 
-// 观察历史 / Observation — one text line summarizing this case's run history.
-// Any null runNo (historical case, pre-T6 data) renders as "—" rather than
-// throwing. OPEN cases aged 2+ days get a red "仍 OPEN·已挂 N 天" tail.
-const ObservationBar = ({ kase }: { kase: ReconCaseDetail }) => {
+// Task 8：Case History 三格卡，替换旧的一行式 ObservationBar——OPENED BY /
+// LAST RE-CHECKED / AGING（design/Main.dc.html §3）。复观察次数（reObservedCount）
+// 故意不渲染：该计数器现状恒为 0（T6 已知限制，见 CaseObservation 类型定义处的
+// KNOWN LIMITATION 注释——delete-then-insert 的行项目没有跨轮身份），spec §3.3
+// 业主拍板不展示，不是本任务该修的 bug。RESOLVED 案子的 resolutionReason 同样不
+// 在三格里落地——设计给的字面模板只有 closedByRunNo+"closed"，没有它的位置。
+const CaseHistoryCell = ({
+  label, value, sub, tone = 'neutral',
+}: { label: string; value: string; sub?: string | null; tone?: 'neutral' | 'red' }) => (
+  <div
+    className={[
+      'rounded-lg border p-4',
+      tone === 'red' ? 'border-adm-red/30 bg-adm-red/5' : 'border-adm-border bg-adm-bg',
+    ].join(' ')}
+  >
+    <div className={['font-mono text-[9px] uppercase tracking-wider', tone === 'red' ? 'text-adm-red' : 'text-adm-t3'].join(' ')}>
+      {label}
+    </div>
+    <div className={['mt-1 font-mono text-[13px]', tone === 'red' ? 'font-bold text-adm-red' : 'text-adm-t1'].join(' ')}>
+      {value}
+    </div>
+    {sub && <div className="mt-0.5 font-mono text-[10px] text-adm-t3">{sub}</div>}
+  </div>
+);
+
+// agingReferenceMs — Minor #5（终审）冻结逻辑：结案后的超期天数在结案那一刻冻结，
+// 不再跟着 Date.now() 涨；由外层（页面组件已算好）传入，AGING 格与 Hero 徽标共用
+// 同一个数，避免两处各算一遍出现分歧。
+const CaseHistory = ({ kase, agingReferenceMs }: { kase: ReconCaseDetail; agingReferenceMs: number }) => {
   const obs = kase.observation;
   const runOrDash = (v: string | null | undefined) => v ?? '—';
   if (!obs) {
     return <div className="font-mono text-[12px] text-adm-t3">No observation history available.</div>;
   }
-  const isAged = kase.status === 'OPEN' && (obs.ageDays ?? 0) >= 2;
+  const isResolved = kase.status === 'RESOLVED';
+  const isOverdue = !isResolved && kase.slaBreached && !!kase.slaDeadline;
+  const overdueDays = isOverdue && kase.slaDeadline
+    ? Math.max(1, Math.floor((agingReferenceMs - new Date(kase.slaDeadline).getTime()) / 86_400_000))
+    : 0;
+  const ageDaysFrozen = Math.max(0, Math.floor((agingReferenceMs - new Date(kase.createdAt).getTime()) / 86_400_000));
+  const lastCheckedTime = isResolved ? caseHistoryTime(kase.resolvedAt) : caseHistoryTime(kase.updatedAt);
+  const lastCheckedSuffix = isResolved ? 'closed' : 'still unmatched';
+
   return (
-    <div className="font-mono text-[12px] text-adm-t2">
-      首见 <span className="text-adm-t1">{runOrDash(obs.firstSeenRunNo)}</span>
-      {' → '}复观察 ×{obs.reObservedCount}（最后 <span className="text-adm-t1">{runOrDash(obs.lastObservedRunNo)}</span>）
-      {kase.status === 'RESOLVED' ? (
-        <>
-          {' → '}已关闭 by <span className="text-adm-green">{runOrDash(obs.closedByRunNo)}</span>
-          {kase.resolutionReason && <span className="text-adm-t3">{'（'}{kase.resolutionReason}{'）'}</span>}
-        </>
-      ) : isAged ? (
-        <span className="text-adm-red font-semibold">{' → '}仍 OPEN·已挂 {obs.ageDays} 天</span>
+    <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+      <CaseHistoryCell label="Opened By" value={runOrDash(obs.firstSeenRunNo)} sub={caseHistoryTime(obs.firstSeenAt)} />
+      <CaseHistoryCell
+        label="Last Re-Checked"
+        value={isResolved ? runOrDash(obs.closedByRunNo) : runOrDash(obs.lastObservedRunNo)}
+        sub={lastCheckedTime ? `${lastCheckedTime} · ${lastCheckedSuffix}` : lastCheckedSuffix}
+      />
+      {isOverdue ? (
+        <CaseHistoryCell
+          label="Aging"
+          value={`Overdue by ${overdueDays} day${overdueDays === 1 ? '' : 's'}`}
+          sub={kase.slaDeadline ? `deadline was ${caseHistoryTime(kase.slaDeadline)}` : null}
+          tone="red"
+        />
       ) : (
-        <>{' → '}仍 OPEN</>
+        <CaseHistoryCell label="Aging" value={`day ${ageDaysFrozen} of 3-day SLA`} />
       )}
     </div>
   );
@@ -547,7 +633,7 @@ const ReconciliationCasesDetailPage = () => {
         setAgingNotice(await getApiErrorMessage(res, 'Failed to fast-forward aging.'));
         return;
       }
-      setAgingNotice('截止已拨到过去，下一分钟扫描即超期 / Deadline moved to the past — next scan will breach it');
+      setAgingNotice('Deadline moved to the past — next scan will breach it.');
       await fetchCase();
     } catch (error) {
       if (error instanceof AdminSessionError) return;
@@ -608,7 +694,7 @@ const ReconciliationCasesDetailPage = () => {
     setAdjustLocked({
       dispositionNo: row.disposition.dispositionNo,
       family: 'WRITE_OFF', reasonCode: ns.reasonCode, direction: ns.direction,
-      directionNote: `方向 = 让内部等于外部：${directionNoteFor(row.matchType)}`,
+      directionNote: `Direction makes internal equal external — ${directionNoteFor(row.matchType)}`,
       writeOff: { findingNote: row.disposition.findingNote },
     });
   };
@@ -648,13 +734,16 @@ const ReconciliationCasesDetailPage = () => {
   }, [kase, showMatched]);
 
   const matchedCount = kase?.flowComparison?.filter((r) => r.matchType === 'MATCHED').length ?? 0;
+  // Task 8：Differences 卡标题用的"open rows"计数——恒等于非 MATCHED 行数，不随
+  // showMatched 切换变化（切开显示已匹配行不该让标题的"open"字样失真）。
+  const openRowsCount = kase?.flowComparison?.filter((r) => r.matchType !== 'MATCHED').length ?? 0;
 
   // 平账二期：行上的划转回挂 + 补款 / 垫款按钮。案子 RESOLVED 之后照样给（认损让案子愈了，补款是对客户的交代）。
   const renderFunding = (row: FlowComparisonRow) => (
     <>
       {row.transfer && (
         <span className="whitespace-nowrap font-mono text-[10px] text-adm-t2">
-          {row.transfer.purpose === 'CLIENT_ADVANCE' ? '垫款' : '补款'}{' '}
+          {row.transfer.purpose === 'CLIENT_ADVANCE' ? 'Advance' : 'Compensation'}{' '}
           <Link to={`/admin/treasury/internal-transfers/${encodeURIComponent(row.transfer.transferNo)}`} className="text-adm-blue hover:underline">{row.transfer.transferNo}</Link>
           {' · '}{TRANSFER_STATUS_WORD[row.transfer.status] ?? row.transfer.status}
         </span>
@@ -664,20 +753,23 @@ const ReconciliationCasesDetailPage = () => {
           <button type="button" onClick={() => setFundingRow(row)} className="inline-flex items-center gap-1 whitespace-nowrap font-mono text-[10px] font-medium text-adm-blue hover:underline">
             <Plus size={10} />
             {row.nextStep.kind === 'COMPENSATION'
-              ? `发起补款 ${formatAmount(row.nextStep.amount, kase.decimals)} ${kase.assetCode}`
-              : `余额不足，发起垫款 ${formatAmount(row.nextStep.amount, kase.decimals)} ${kase.assetCode}`}
+              ? `Initiate compensation ${formatAmount(row.nextStep.amount, kase.decimals)} ${kase.assetCode}`
+              : `Insufficient balance — initiate advance ${formatAmount(row.nextStep.amount, kase.decimals)} ${kase.assetCode}`}
           </button>
         ) : (
           <span className="whitespace-nowrap font-mono text-[10px] text-adm-amber">
-            {row.nextStep.kind === 'COMPENSATION' ? '待补款（金库发起）' : `余额不足 ${formatAmount(row.nextStep.amount, kase.decimals)}，待金库垫款`}
+            {row.nextStep.kind === 'COMPENSATION' ? 'Pending compensation (initiated by treasury)' : `Insufficient balance ${formatAmount(row.nextStep.amount, kase.decimals)} — pending treasury advance`}
           </span>
         )
       )}
-      {/* 平账三期（Task 12）：B 批退汇认领余额不足（ADVANCE）——垫款按钮旁加「登记欠款」，
-          预填 CLIENT_SHORTFALL/客户/差额/垫款单号（有则带，"有则带"= row.transfer 已是
-          CLIENT_ADVANCE 划转单时才带）；已登记同样徽标化，不给第二次入口——徽标判重靠
-          kase.incidents（案件级、按 sourceCaseNo 查），所以这里必须带上案号，不能漏
-          （不带 = 判重永远查不到，按钮永不收敛，重复入口的口子就开在这一个字段上）。 */}
+      {/* Recon phase 3 (Task 12): B batch deposit-recall claim insufficient
+          balance (ADVANCE) — add "Register shortfall" next to the advance button,
+          prefilled with CLIENT_SHORTFALL/customer/shortfall amount/advance
+          transfer no (only when row.transfer is already a CLIENT_ADVANCE
+          transfer). Once registered it becomes a badge, not a second entry
+          point — the dedup check keys on kase.incidents (case-level, by
+          sourceCaseNo), so the case no MUST be included here or the dedup
+          check can never find it and the button never converges. */}
       {row.nextStep?.kind === 'ADVANCE' && kase && (
         existingClientShortfall ? (
           <IncidentBadge incidentNo={existingClientShortfall.incidentNo} />
@@ -691,14 +783,14 @@ const ReconciliationCasesDetailPage = () => {
               assetCode: kase.assetCode,
               amount: minorToMajorPlain(row.nextStep!.amount, kase.decimals),
               sourceAdvanceTransferNo: row.transfer?.purpose === 'CLIENT_ADVANCE' ? row.transfer.transferNo : undefined,
-              title: `退汇欠款 · 客户 ${row.nextStep!.customerNo ?? '—'}`,
-              description: `退汇认领后客户钱包 ${row.nextStep!.walletNo ?? '—'} 余额不足，差额 `
-                + `${minorToMajorPlain(row.nextStep!.amount, kase.decimals)} ${kase.assetCode} 由公司先垫款，登记欠款用于后续追索。`,
+              title: `Deposit-recall shortfall · customer ${row.nextStep!.customerNo ?? '—'}`,
+              description: `After the deposit-recall claim, customer wallet ${row.nextStep!.walletNo ?? '—'} has insufficient balance. `
+                + `The firm advances the shortfall of ${minorToMajorPlain(row.nextStep!.amount, kase.decimals)} ${kase.assetCode} first; register the shortfall for later recovery.`,
             }))}
             className="inline-flex items-center gap-1 whitespace-nowrap font-mono text-[10px] font-medium text-adm-red hover:underline"
           >
             <Plus size={10} />
-            登记欠款
+            Register shortfall
           </button>
         ) : null
       )}
@@ -733,6 +825,15 @@ const ReconciliationCasesDetailPage = () => {
 
   // Minor #5（终审）：结案后的超期天数要在结案那一刻冻结，不能继续跟着 Date.now() 涨。
   const agingReferenceMs = kase.status === 'RESOLVED' && kase.resolvedAt ? new Date(kase.resolvedAt).getTime() : Date.now();
+
+  // Task 8（Hero 结论句）：残差已被哪些落账调账单解释掉的金额合计——只数
+  // explainedByAdjustmentNo 非空的行，金额用与「开单」预填同一份 rowAdjustmentPrefill
+  // 算出的 amountMinor（mismatch 取差额、orphan 取该行本身金额），避免结论句这里
+  // 另算一套出现分歧。整数最小单位字符串求和用 BigInt——金额不含小数点，安全。
+  const explainedSumMinor = (kase.flowComparison ?? [])
+    .filter((r) => r.explainedByAdjustmentNo)
+    .reduce((sum, r) => sum + BigInt(rowAdjustmentPrefill(r).amountMinor || '0'), 0n)
+    .toString();
 
   // 平账三期（Task 12）：「升级事故」/「登记欠款」按钮的防重复入口——案子已经登记过
   // 同类型事故（任何非撤回状态）就不再给按钮，改显示徽标（后端 §2 不查重，前端
@@ -785,14 +886,17 @@ const ReconciliationCasesDetailPage = () => {
               )}
               {kase.slaBreached && kase.slaDeadline && (
                 <span className="inline-flex items-center gap-1 rounded border border-adm-red/30 bg-adm-red/10 px-2 py-0.5 font-mono text-[10px] font-semibold uppercase tracking-wider text-adm-red">
-                  <AlertTriangle size={10} />
-                  超期 {Math.max(1, Math.floor((agingReferenceMs - new Date(kase.slaDeadline).getTime()) / 86_400_000))} 天
+                  <Clock size={10} />
+                  OVERDUE {Math.max(1, Math.floor((agingReferenceMs - new Date(kase.slaDeadline).getTime()) / 86_400_000))}D
                 </span>
               )}
               <StatusPill value={kase.status} size="md" />
             </div>
             {(() => {
-              const c = buildCaseConclusion({ ...kase, bucket: kase.bucket ?? null }, (v) => formatAmount(v, kase.decimals));
+              const c = buildCaseConclusion(
+                { ...kase, bucket: kase.bucket ?? null, explainedSum: explainedSumMinor },
+                (v) => formatAmount(v, kase.decimals),
+              );
               if (!c) return null;
               const toneCls =
                 c.tone === 'red' ? 'text-adm-red'
@@ -803,18 +907,60 @@ const ReconciliationCasesDetailPage = () => {
             })()}
           </section>
 
-          {/* 2. 差额解释 / Delta Explained — five cells. Replaces the old 3-cell
+          {/* 2. Account — whose wallet this is (own section, generous spacing,
+              design/Main.dc.html §1b). Customer links to the customer detail
+              page (business key, no UUID — project rule #6); Ledger Account
+              uses COA_PHRASE's human phrase with the raw code always in title. */}
+          <DetailCard title="Account" columns={1}>
+            <div className="grid grid-cols-2 gap-4 font-mono text-[12px] sm:grid-cols-5">
+              <div>
+                <div className="text-[9px] uppercase tracking-wider text-adm-t3">Wallet</div>
+                <div className="mt-1 text-adm-t1">{kase.walletNo ?? (kase.walletRef ? kase.walletRef.slice(0, 12) : '—')}</div>
+              </div>
+              <div>
+                <div className="text-[9px] uppercase tracking-wider text-adm-t3">Customer</div>
+                <div className="mt-1">
+                  {kase.ownerNo ? (
+                    <Link to={`/admin/customers/${encodeURIComponent(kase.ownerNo)}`} className="text-adm-blue hover:underline">{kase.ownerNo}</Link>
+                  ) : <span className="text-adm-t1">—</span>}
+                </div>
+              </div>
+              <div>
+                <div className="text-[9px] uppercase tracking-wider text-adm-t3">Ledger Account</div>
+                <div className="mt-1 text-adm-t1" title={kase.coaCode ?? undefined}>
+                  {kase.coaCode ? (COA_PHRASE[kase.coaCode] ?? kase.coaCode) : '—'}
+                </div>
+              </div>
+              <div>
+                <div className="text-[9px] uppercase tracking-wider text-adm-t3">Asset</div>
+                <div className="mt-1 text-adm-t1">
+                  {/* kase.book's real stored literal is 'FIRM' | 'CUSTOMER' (not
+                      'CLIENT' — same underlying concept as this page's
+                      adjustmentBook normalization above, different word;
+                      verified against the live DB). null (legacy non-wallet
+                      case) gets no suffix at all. */}
+                  {kase.assetCode}{kase.book === 'FIRM' ? ' · Firm book' : kase.book ? ' · Client book' : ''}
+                </div>
+              </div>
+              <div>
+                <div className="text-[9px] uppercase tracking-wider text-adm-t3">Business Date</div>
+                <div className="mt-1 text-adm-t1">{kase.businessDate}</div>
+              </div>
+            </div>
+          </DetailCard>
+
+          {/* 3. Balance Explained — five tiles. Replaces the old 3-cell
               Balance Comparison card (Internal/External/Δ were a subset of
               this same story) so there's a single balance-explanation surface,
-              not two overlapping ones. residual is the core investigation
-              signal — zero means the delta is fully explained by in-transit
-              funds orders; non-zero is what still needs digging. */}
-          <DetailCard title={`差额解释 / Delta Explained (${kase.assetCode})`} columns={1}>
+              not two overlapping ones. Unexplained (residual) is the core
+              investigation signal — zero means the delta is fully explained by
+              in-transit funds orders; non-zero is what still needs digging. */}
+          <DetailCard title={`Balance Explained (${kase.assetCode})`} columns={1}>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-5">
               {/* Internal */}
               <div className="rounded-lg border border-adm-border bg-adm-bg p-4">
                 <div className="font-mono text-[9px] uppercase tracking-wider text-adm-t3">
-                  内部 / Internal
+                  Internal
                 </div>
                 <div className="mt-1 font-mono text-[18px] font-bold leading-tight text-adm-t1">
                   {formatAmount(kase.explain?.internalTotal ?? kase.tbAmount, kase.decimals)}
@@ -826,13 +972,13 @@ const ReconciliationCasesDetailPage = () => {
                   whenever the break is on a single wallet's external balance. */}
               <div className="rounded-lg border border-adm-border bg-adm-bg p-4">
                 <div className="font-mono text-[9px] uppercase tracking-wider text-adm-t3">
-                  外部 / External
+                  External
                 </div>
                 <div className="mt-1 font-mono text-[18px] font-bold leading-tight text-adm-t1">
                   {formatAmount(kase.explain?.externalClosing ?? kase.actualExternal, kase.decimals)}
                 </div>
               </div>
-              {/* Δ — muted green/check when balanced, bold red with sign when not. */}
+              {/* Difference (Δ) — muted green/check when balanced, bold red with sign when not. */}
               <div
                 className={[
                   'rounded-lg border p-4',
@@ -847,7 +993,7 @@ const ReconciliationCasesDetailPage = () => {
                     deltaZero ? 'text-adm-green' : 'text-adm-red',
                   ].join(' ')}
                 >
-                  Δ
+                  Difference
                 </div>
                 <div
                   className={[
@@ -860,17 +1006,17 @@ const ReconciliationCasesDetailPage = () => {
                     : `${sign}${formatAmount(kase.deltaAmount, kase.decimals).replace(/^-/, '')}`}
                 </div>
               </div>
-              {/* 在途解释 / In-transit explained — blue, the portion of Δ
-                  covered by non-terminal funds orders. */}
+              {/* In-Transit explained — blue, the portion of Δ covered by
+                  non-terminal funds orders. */}
               <div className="rounded-lg border border-adm-blue/30 bg-adm-blue/5 p-4">
                 <div className="font-mono text-[9px] uppercase tracking-wider text-adm-blue">
-                  在途解释 / In-transit
+                  In-Transit
                 </div>
                 <div className="mt-1 font-mono text-[18px] font-bold leading-tight text-adm-blue">
                   {kase.explain ? formatAmount(kase.explain.inTransitSigned, kase.decimals) : '—'}
                 </div>
               </div>
-              {/* 未解释残差 / Residual — the core investigation signal. Red
+              {/* Unexplained (residual) — the core investigation signal. Red
                   highlight when non-zero (still needs digging); muted green
                   check when zero (delta fully explained by in-transit). */}
               <div
@@ -887,7 +1033,7 @@ const ReconciliationCasesDetailPage = () => {
                     kase.explain && isZeroAmount(kase.explain.residual) ? 'text-adm-green' : 'text-adm-red',
                   ].join(' ')}
                 >
-                  未解释残差 / Residual
+                  Unexplained
                 </div>
                 <div
                   className={[
@@ -904,38 +1050,29 @@ const ReconciliationCasesDetailPage = () => {
                   ].join(' ')}
                 >
                   {!kase.explain ? null : isZeroAmount(kase.explain.residual)
-                    ? <><Check size={10} /> 已解释 / explained</>
-                    : <><AlertTriangle size={10} /> 待排查 / unexplained</>}
+                    ? <><Check size={10} /> explained</>
+                    : <><AlertTriangle size={10} /> needs investigation</>}
                 </div>
               </div>
             </div>
           </DetailCard>
 
-          {/* 3. Account Identity — collapsed to a single line (Round3 slim):
-              wallet/owner/COA/asset·book. The old run-linkage and lifecycle
-              subcards were dropped — run refs live in the Observation bar
-              below, and those timestamps duplicate the sidebar Created/Updated fields. */}
-          <DetailCard title="账户身份 / Account Identity" columns={1}>
-            <div className="flex flex-wrap gap-x-8 gap-y-2 font-mono text-[12px]">
-              <span><span className="text-adm-t3">钱包 </span><span className="text-adm-t1">{kase.walletNo ?? (kase.walletRef ? kase.walletRef.slice(0, 12) : '—')}</span></span>
-              <span><span className="text-adm-t3">客户 </span><span className="text-adm-t1">{kase.ownerNo ?? '—'}</span></span>
-              <span><span className="text-adm-t3">科目 </span><span className="text-adm-t1">{kase.coaCode ?? '—'}</span></span>
-              <span><span className="text-adm-t3">币种 </span><span className="text-adm-t1">{kase.assetCode}{kase.book ? ` · ${kase.book}` : ''}</span></span>
-            </div>
+          {/* 4. Case History — Opened By / Last Re-Checked / Aging
+              (design/Main.dc.html §3; replaces the old one-line ObservationBar). */}
+          <DetailCard title="Case History" columns={1}>
+            <CaseHistory kase={kase} agingReferenceMs={agingReferenceMs} />
           </DetailCard>
 
-          {/* 4. 观察历史 / Observation — first/last seen, re-observed count,
-              closed-by, and (for OPEN cases) how long the case has been open. */}
-          <DetailCard title="观察历史 / Observation" columns={1}>
-            <ObservationBar kase={kase} />
-          </DetailCard>
-
-          {/* 6. 流水下钻 / Flow Drilldown — single mixed table (layout 乙,
-              confirmed in brainstorm). No grouped sections — orphans,
-              mismatches, and in-transit rows sit in one table sorted by
-              severity, with MATCHED rows collapsed behind a toggle below. */}
+          {/* 5. Differences (renamed from the old Flow Drilldown card, Task 8) —
+              single mixed table, no grouped sections: orphans/mismatches sort
+              first, then in-transit, then MATCHED collapsed behind a toggle
+              below. Disposition column pinned to 250px + Reference truncated
+              via ShortRef — the two changes that cure horizontal scroll at
+              1280px (long externalRefs were the main overflow cause). Title
+              count is the "open" (non-MATCHED) count, independent of the
+              showMatched toggle — matches design/Main.dc.html §4 wording. */}
           <DetailCard
-            title={`流水下钻 / Flow Drilldown · ${sortedFlows.length} row${sortedFlows.length === 1 ? '' : 's'}`}
+            title={`Differences · ${openRowsCount} open row${openRowsCount === 1 ? '' : 's'}`}
             columns={1}
           >
             <div className="overflow-x-auto rounded-lg border border-adm-border">
@@ -943,25 +1080,25 @@ const ReconciliationCasesDetailPage = () => {
                 <thead className="border-b border-adm-border bg-adm-bg">
                   <tr>
                     <th className="px-3 py-2 font-mono text-[9px] font-semibold uppercase tracking-[0.1em] text-adm-t3">
-                      类型 / Type
+                      Type
                     </th>
                     <th className="px-3 py-2 font-mono text-[9px] font-semibold uppercase tracking-[0.1em] text-adm-t3">
-                      方向 / Dir
+                      Dir
                     </th>
                     <th className="px-3 py-2 text-right font-mono text-[9px] font-semibold uppercase tracking-[0.1em] text-adm-t3">
-                      金额 / Amount
+                      Amount
                     </th>
                     <th className="px-3 py-2 font-mono text-[9px] font-semibold uppercase tracking-[0.1em] text-adm-t3">
-                      外部单号 / External Ref
+                      Reference
                     </th>
                     <th className="px-3 py-2 font-mono text-[9px] font-semibold uppercase tracking-[0.1em] text-adm-t3">
-                      内部源 / Internal Source
+                      Source
                     </th>
                     <th className="px-3 py-2 font-mono text-[9px] font-semibold uppercase tracking-[0.1em] text-adm-t3">
-                      时间 / Time
+                      Time
                     </th>
-                    <th className="px-3 py-2 font-mono text-[9px] font-semibold uppercase tracking-[0.1em] text-adm-t3">
-                      操作 / Action
+                    <th className="w-[250px] px-3 py-2 font-mono text-[9px] font-semibold uppercase tracking-[0.1em] text-adm-t3">
+                      Disposition
                     </th>
                   </tr>
                 </thead>
@@ -1011,14 +1148,22 @@ const ReconciliationCasesDetailPage = () => {
                               ? `${formatAmount(intl?.amount, kase.decimals)} ≠ ${formatAmount(ext?.amount, kase.decimals)}`
                               : formatAmount(ext?.amount ?? intl?.amount, kase.decimals)}
                           </td>
-                          {/* External ref */}
-                          <td className="px-3 py-3 font-mono text-[11px] text-adm-t2">
-                            {ext?.externalRef ?? '—'}
+                          {/* Reference — truncated + copy (ShortRef); the main
+                              lever that cures horizontal scroll (raw refs can
+                              be long on-chain hashes). */}
+                          <td className="px-3 py-3">
+                            <ShortRef value={ext?.externalRef ?? null} />
                           </td>
-                          {/* Internal source — IN_TRANSIT links to the funds order.
-                              When that funds order is already CLEARED but this case
-                              is still OPEN, badge "已推进·待重对账": a rerun will close
-                              the case (use the Re-reconcile action in the sidebar). */}
+                          {/* Source — IN_TRANSIT links to the funds order. When
+                              that funds order is already CLEARED but this case
+                              is still OPEN, badge "Pushed · re-reconcile": a
+                              rerun will close the case (Re-reconcile action in
+                              the sidebar). Other rows show the internal
+                              business number (DEP/WD/SWP/…) linked via
+                              SOURCE_TYPE_HREF, eventCode moved to title; a
+                              sourceType with no route mapping falls back to
+                              plain text. External-only orphan rows have no
+                              internal side → em dash. */}
                           <td className="px-3 py-3 font-mono text-[11px] text-adm-t2">
                             {isInTransit && row.fundsOrderNo ? (
                               <span className="inline-flex flex-wrap items-center gap-1.5">
@@ -1030,12 +1175,18 @@ const ReconciliationCasesDetailPage = () => {
                                 </Link>
                                 {kase.status === 'OPEN' && row.fundsOrderStatus === 'CLEARED' && (
                                   <span className="inline-flex items-center gap-1 rounded border border-adm-blue/30 bg-adm-blue/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-adm-blue">
-                                    <Check size={9} /> 已推进·待重对账 / Pushed · re-reconcile
+                                    <Check size={9} /> Pushed · re-reconcile
                                   </span>
                                 )}
                               </span>
                             ) : intl ? (
-                              `${intl.eventCode} · ${intl.sourceType}/${intl.sourceNo}`
+                              SOURCE_TYPE_HREF[intl.sourceType] ? (
+                                <Link to={SOURCE_TYPE_HREF[intl.sourceType](intl.sourceNo)} title={intl.eventCode} className="text-adm-blue hover:underline">
+                                  {intl.sourceNo}
+                                </Link>
+                              ) : (
+                                <span title={intl.eventCode}>{intl.sourceNo}</span>
+                              )
                             ) : (
                               <span className="text-adm-t3">—</span>
                             )}
@@ -1044,9 +1195,11 @@ const ReconciliationCasesDetailPage = () => {
                           <td className="px-3 py-3 font-mono text-[11px] text-adm-t3">
                             {timestamp ? shortTimestamp(timestamp) : '—'}
                           </td>
-                          {/* 平账一期半（spec §3.1）：动作列六态。同形状同按钮——
-                              给不同按钮就是假装机器知道它不知道的东西；差异化发生在
-                              定性弹层里人选完成因之后。 */}
+                          {/* Recon phase 1.5 (spec §3.1): six-state action column.
+                              Same shape, same button — giving different buttons
+                              would pretend the machine knows something it
+                              doesn't; the differentiation happens once a human
+                              picks a cause in the disposition modal. */}
                           <td className="px-3 py-3">
                             {row.explainedByAdjustmentNo ? (
                               // ① 已解释——这条差异已经被一张落了账的调账单解释掉，
@@ -1056,7 +1209,8 @@ const ReconciliationCasesDetailPage = () => {
                                   to={`/admin/reconciliation/adjustments/${encodeURIComponent(row.explainedByAdjustmentNo)}`}
                                   className="inline-flex items-center gap-1 whitespace-nowrap rounded border border-adm-green/30 bg-adm-green/10 px-1.5 py-0.5 font-mono text-[10px] font-medium text-adm-green hover:underline"
                                 >
-                                  已解释 · {row.explainedByAdjustmentNo}
+                                  <Check size={10} />
+                                  Explained · {row.explainedByAdjustmentNo}
                                 </Link>
                                 {renderFunding(row)}
                               </div>
@@ -1070,25 +1224,31 @@ const ReconciliationCasesDetailPage = () => {
                                   to={`/admin/funds-orders/${encodeURIComponent(row.fundsOrderNo)}`}
                                   className="whitespace-nowrap font-mono text-[10px] font-medium text-adm-blue hover:underline"
                                 >
-                                  去推单 →
+                                  Push order →
                                 </Link>
                               ) : (
-                                <span className="text-[10px] text-adm-t3">在途 · 无资金单号</span>
+                                <span className="text-[10px] text-adm-t3">In-transit · no funds order</span>
                               )
                             ) : row.disposition ? (
                               // ④ 已定性——查证结论已经落库；出口是 ADJUST 且还没挂单时，
                               // 额外给「开单」入口（同样按权限 + 案件 OPEN 门控整个按钮）。
+                              // 徽标文案 "Finding: X → Y" 逐字对齐 design/Main.dc.html §4
+                              // Row B 的既有词汇（该行是设计稿唯一给出的已定性视觉参照）。
                               <div className="flex flex-col gap-1">
                                 <span
                                   title={row.disposition.findingNote}
                                   className={[
-                                    'inline-flex items-center gap-1 whitespace-nowrap rounded border px-1.5 py-0.5 font-mono text-[10px]',
+                                    // 与设计稿同款 max-width 换行（design/Main.dc.html §4
+                                    // Row B 该徽标就带 max-width: 230px）——不用 nowrap，
+                                    // 否则长成因/长操作者名会把 250px 定宽的 Disposition
+                                    // 列撑宽，Differences 表就横滚了（治横滚是本任务判据）。
+                                    'inline-flex max-w-[220px] items-start gap-1 rounded border px-1.5 py-0.5 font-mono text-[10px] leading-snug',
                                     TONE_CLASSES[OUTLET_TONE[row.disposition.outlet]].border,
                                     TONE_CLASSES[OUTLET_TONE[row.disposition.outlet]].bg,
                                     TONE_CLASSES[OUTLET_TONE[row.disposition.outlet]].text,
                                   ].join(' ')}
                                 >
-                                  已定性 · {row.disposition.causeLabel} → {row.disposition.outletLabel} · {row.disposition.createdBy} {row.disposition.createdAt.slice(5, 10)}
+                                  Finding: {row.disposition.causeLabel} → {row.disposition.outletLabel} · {row.disposition.createdBy} {row.disposition.createdAt.slice(5, 10)}
                                 </span>
                                 {row.disposition.outlet.startsWith('ADJUST') && !row.disposition.adjustmentNo
                                   && canCreateAdjustment && kase.status === 'OPEN' && (
@@ -1098,7 +1258,7 @@ const ReconciliationCasesDetailPage = () => {
                                     className="inline-flex items-center gap-1 whitespace-nowrap font-mono text-[10px] font-medium text-adm-blue hover:underline"
                                   >
                                     <Plus size={10} />
-                                    开单
+                                    Open adjustment
                                   </button>
                                 )}
                                 {row.disposition.outlet === 'SUPPLEMENT' && !row.disposition.supplementNo && canSupplement && kase.status === 'OPEN' && row.nextStep?.kind !== 'ADVANCE' && (
@@ -1108,22 +1268,28 @@ const ReconciliationCasesDetailPage = () => {
                                     className="inline-flex items-center gap-1 whitespace-nowrap font-mono text-[10px] font-medium text-adm-blue hover:underline"
                                   >
                                     <Plus size={10} />
-                                    {SUPPLEMENT_ACTION_LABEL[row.disposition.deferredTarget ?? ''] ?? '发起补单'}
+                                    {SUPPLEMENT_ACTION_LABEL[row.disposition.deferredTarget ?? ''] ?? 'Start supplement'}
                                   </button>
                                 )}
                                 {row.disposition.outlet === 'SUPPLEMENT' && row.disposition.supplementNo && (
                                   <span className="whitespace-nowrap font-mono text-[10px] text-adm-t2">
-                                    已转补单 →{' '}
+                                    Transferred ·{' '}
                                     {row.disposition.supplementRef?.kind === 'DEPOSIT' && row.disposition.supplementRef.id
                                       ? <Link to={`/admin/trading/deposits/${row.disposition.supplementRef.id}`} className="text-adm-blue hover:underline">{row.disposition.supplementNo}</Link>
                                       : row.disposition.supplementRef?.kind === 'WITHDRAW' && row.disposition.supplementRef.id
                                         ? <Link to={`/admin/trading/withdrawals/${row.disposition.supplementRef.id}`} className="text-adm-blue hover:underline">{row.disposition.supplementNo}</Link>
-                                        : <span>{row.disposition.supplementNo}（待 CFO 复核）</span>}
+                                        : <span>{row.disposition.supplementNo} (Pending CFO review)</span>}
                                   </span>
                                 )}
-                                {/* 平账三期（Task 12）：出口 = INCIDENT（未授权转出）——未登记给「登记事故」
-                                    按钮（预填类型/钱包/客户/金额/案号/账单行参考号跳新建），已登记改徽标
-                                    可点跳详情。一行只对应一个事故，不查 kase.incidents 那份案件级列表。 */}
+                                {/* Recon phase 3 (Task 12): outlet = INCIDENT
+                                    (unauthorized outflow) — not yet registered
+                                    shows a "Register incident" button (prefilled
+                                    type/wallet/customer/amount/case no/statement
+                                    line reference, opens the new-incident form);
+                                    once registered it becomes a clickable badge
+                                    to the incident detail. One row maps to one
+                                    incident — doesn't check the case-level
+                                    kase.incidents list. */}
                                 {row.disposition.outlet === 'INCIDENT' && (
                                   row.disposition.incidentNo ? (
                                     <IncidentBadge incidentNo={row.disposition.incidentNo} />
@@ -1137,18 +1303,18 @@ const ReconciliationCasesDetailPage = () => {
                                         customerNo: kase.ownerNo,
                                         assetCode: kase.assetCode,
                                         amount: minorToMajorPlain(row.externalLine?.amount ?? row.internalFlow?.amount, kase.decimals),
-                                        title: `未授权转出 · 案 ${kase.caseNo}`,
-                                        description: `钱包 ${kase.walletNo ?? '—'} 出现未授权转出，账单行参考号 ${row.externalLine?.externalRef ?? '—'}，`
-                                          + `金额 ${minorToMajorPlain(row.externalLine?.amount ?? row.internalFlow?.amount, kase.decimals)} ${kase.assetCode}。`
-                                          + `查证结论：${row.disposition!.findingNote}`,
+                                        title: `Unauthorized outflow · case ${kase.caseNo}`,
+                                        description: `Wallet ${kase.walletNo ?? '—'} shows an unauthorized outflow, statement line reference ${row.externalLine?.externalRef ?? '—'}, `
+                                          + `amount ${minorToMajorPlain(row.externalLine?.amount ?? row.internalFlow?.amount, kase.decimals)} ${kase.assetCode}. `
+                                          + `Finding: ${row.disposition!.findingNote}`,
                                       }))}
                                       className="inline-flex items-center gap-1 whitespace-nowrap font-mono text-[10px] font-medium text-adm-red hover:underline"
                                     >
                                       <Plus size={10} />
-                                      登记事故
+                                      Register incident
                                     </button>
                                   ) : (
-                                    <span className="whitespace-nowrap font-mono text-[10px] text-adm-red">待登记事故</span>
+                                    <span className="whitespace-nowrap font-mono text-[10px] text-adm-red">Pending incident registration</span>
                                   )
                                 )}
                                 {row.nextStep?.kind === 'WRITE_OFF' && kase.status === 'OPEN' && (
@@ -1159,12 +1325,12 @@ const ReconciliationCasesDetailPage = () => {
                                       className="inline-flex items-center gap-1 whitespace-nowrap font-mono text-[10px] font-medium text-adm-red hover:underline"
                                     >
                                       <Plus size={10} />
-                                      {row.nextStep.reasonCode === 'UNEXPLAINED_CLIENT_LOSS' ? '认损' : '核销'}
+                                      {row.nextStep.reasonCode === 'UNEXPLAINED_CLIENT_LOSS' ? 'Recognize loss' : 'Write off'}
                                     </button>
                                   ) : (
                                     // 出口 = INCIDENT（事故已定损公司承损）不是「超期」——那句话在这里是撒谎。
                                     <span className="whitespace-nowrap font-mono text-[10px] text-adm-red">
-                                      {row.disposition.outlet === 'INCIDENT' ? '事故已定损 · 可认损' : row.nextStep.reasonCode === 'UNEXPLAINED_CLIENT_LOSS' ? '超期 · 可认损' : '超期 · 可核销'}
+                                      {row.disposition.outlet === 'INCIDENT' ? 'Incident assessed · eligible to recognize loss' : row.nextStep.reasonCode === 'UNEXPLAINED_CLIENT_LOSS' ? 'Overdue · eligible to recognize loss' : 'Overdue · eligible to write off'}
                                     </span>
                                   )
                                 )}
@@ -1180,35 +1346,37 @@ const ReconciliationCasesDetailPage = () => {
                                         customerNo: kase.ownerNo,
                                         assetCode: kase.assetCode,
                                         amount: minorToMajorPlain(row.nextStep!.amount, kase.decimals),
-                                        title: `大额查不出 · 案 ${kase.caseNo}`,
-                                        description: `钱包 ${kase.walletNo ?? '—'} 差额超期未能查出原因，金额 ${minorToMajorPlain(row.nextStep!.amount, kase.decimals)} ${kase.assetCode}，`
-                                          + `超过小额线，升级事故登记。查证结论：${row.disposition!.findingNote}`,
+                                        title: `Large unexplained · case ${kase.caseNo}`,
+                                        description: `Wallet ${kase.walletNo ?? '—'}'s difference is overdue and its cause could not be determined. Amount ${minorToMajorPlain(row.nextStep!.amount, kase.decimals)} ${kase.assetCode} `
+                                          + `exceeds the small-amount threshold — escalating to an incident. Finding: ${row.disposition!.findingNote}`,
                                       }))}
                                       className="inline-flex items-center gap-1 whitespace-nowrap font-mono text-[10px] font-medium text-adm-red hover:underline"
                                     >
                                       <Plus size={10} />
-                                      升级事故
+                                      Escalate to incident
                                     </button>
                                   ) : (
-                                    <span className="whitespace-nowrap font-mono text-[10px] text-adm-red">超期 · 待升级事故</span>
+                                    <span className="whitespace-nowrap font-mono text-[10px] text-adm-red">Overdue · pending escalation to incident</span>
                                   )
                                 )}
                                 {row.nextStep?.kind === 'CLIENT_SURPLUS' && (
-                                  <span className="whitespace-nowrap font-mono text-[10px] text-adm-amber">超期 · 多出来的钱查清归属走补录</span>
+                                  <span className="whitespace-nowrap font-mono text-[10px] text-adm-amber">Overdue · surplus pending attribution, route via supplement</span>
                                 )}
                                 {renderFunding(row)}
                               </div>
                             ) : (
                               // ⑤/⑥ 未定性——这条差异还没人查过，给处置入口（按既有约定
                               // 以权限门控整个按钮的显隐，不是禁用态；案件已 RESOLVED 时
-                              // 同样不给入口）。
+                              // 同样不给入口）。视觉升级为设计稿 Row A 的实心边框 chip——
+                              // 那是设计稿唯一给出的未定性状态视觉参照，逐字落地。
                               canRecordDisposition && kase.status === 'OPEN' && (
                                 <button
                                   type="button"
                                   onClick={() => setDispositionRow(row)}
-                                  className="inline-flex items-center gap-1 whitespace-nowrap font-mono text-[10px] font-medium text-adm-blue hover:underline"
+                                  className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-md border border-adm-blue/40 bg-adm-blue/5 px-3 py-1.5 font-mono text-[11px] font-semibold text-adm-blue hover:bg-adm-blue/10"
                                 >
-                                  处置
+                                  <PenLine size={11} />
+                                  Record finding
                                 </button>
                               )
                             )}
@@ -1226,22 +1394,25 @@ const ReconciliationCasesDetailPage = () => {
                 onClick={() => setShowMatched((v) => !v)}
                 className="mt-3 inline-flex items-center gap-1 font-mono text-[11px] text-adm-blue hover:underline"
               >
-                {showMatched ? `隐藏已匹配 ${matchedCount} 行 / Hide matched` : `显示已匹配 ${matchedCount} 行 / Show matched`}
+                {showMatched ? `Hide ${matchedCount} matched rows` : `Show ${matchedCount} matched rows`}
               </button>
             )}
           </DetailCard>
 
-          {/* 本案调账单 / This Case's Adjustments（Task 7 控制方裁定）——案件级列表，
-              运营在这里一眼看到本案已经开过哪些调账单，防重复开单的目的靠它达成
-              （不靠给差异项行"整行置灰"：flowComparison 行 id 和
-              ReconciliationLineItem.id 不是一张表，做不到）。点单号进详情页。 */}
+          {/* This Case's Adjustments (Task 7 controller ruling) — case-level
+              list so operations can see at a glance which adjustments have
+              already been opened for this case; that's how duplicate-adjustment
+              prevention is achieved (not by graying out the whole difference
+              row — flowComparison row ids and ReconciliationLineItem.id are not
+              the same table, so that's not possible). Click the number to go to
+              the adjustment detail page. */}
           <DetailCard
-            title={`本案调账单 / This Case's Adjustments · ${kase.adjustments?.length ?? 0}`}
+            title={`This Case's Adjustments · ${kase.adjustments?.length ?? 0}`}
             columns={1}
           >
             {!kase.adjustments || kase.adjustments.length === 0 ? (
               <div className="py-4 text-center font-mono text-[11px] text-adm-t3">
-                尚未开过调账单 / No adjustments opened yet.
+                No adjustments opened yet.
               </div>
             ) : (
               <div className="overflow-x-auto rounded-lg border border-adm-border">
@@ -1249,19 +1420,19 @@ const ReconciliationCasesDetailPage = () => {
                   <thead className="border-b border-adm-border bg-adm-bg">
                     <tr>
                       <th className="px-3 py-2 font-mono text-[9px] font-semibold uppercase tracking-[0.1em] text-adm-t3">
-                        调账单号 / No.
+                        Adjustment No
                       </th>
                       <th className="px-3 py-2 font-mono text-[9px] font-semibold uppercase tracking-[0.1em] text-adm-t3">
-                        状态 / Status
+                        Status
                       </th>
                       <th className="px-3 py-2 font-mono text-[9px] font-semibold uppercase tracking-[0.1em] text-adm-t3">
-                        成因 / Reason
+                        Reason
                       </th>
                       <th className="px-3 py-2 font-mono text-[9px] font-semibold uppercase tracking-[0.1em] text-adm-t3">
-                        方向 / Dir
+                        Dir
                       </th>
                       <th className="px-3 py-2 text-right font-mono text-[9px] font-semibold uppercase tracking-[0.1em] text-adm-t3">
-                        金额 / Amount
+                        Amount
                       </th>
                     </tr>
                   </thead>
@@ -1313,7 +1484,7 @@ const ReconciliationCasesDetailPage = () => {
                 className="inline-flex items-center gap-2 rounded border border-adm-blue/30 bg-adm-blue/5 px-3 py-2 font-mono text-[11px] text-adm-blue transition-colors hover:bg-adm-blue/10"
               >
                 <ExternalLink size={12} />
-                Flows / 流水
+                Ledger flows
                 <ArrowRight size={11} />
               </button>
             ) : (
@@ -1327,7 +1498,7 @@ const ReconciliationCasesDetailPage = () => {
 
         {/* ── Sidebar ── */}
         <aside className="w-[272px] min-w-[272px] overflow-y-auto border-l border-adm-border bg-adm-panel px-4">
-          {/* ACTIONS — 一键重新对账 / Re-reconcile (fires a fresh wallet run so a
+          {/* ACTIONS — Re-reconcile (fires a fresh wallet run so a
               pushed-then-CLEARED funds order gets re-observed and this case closed). */}
           <SidebarGroup title="Actions">
             <button
@@ -1337,7 +1508,7 @@ const ReconciliationCasesDetailPage = () => {
               className="flex w-full items-center justify-center gap-1.5 rounded border border-adm-blue/40 bg-adm-blue/10 px-3 py-2 font-mono text-[12px] font-semibold text-adm-blue transition-colors hover:bg-adm-blue/20 disabled:opacity-50"
             >
               <RefreshCw size={12} className={reconciling ? 'animate-spin' : ''} />
-              重新对账 / Re-reconcile
+              Re-reconcile
             </button>
             {simEnabled && kase.status === 'OPEN' && kase.slaDeadline && !kase.slaBreached && (
               <button
@@ -1346,7 +1517,8 @@ const ReconciliationCasesDetailPage = () => {
                 onClick={() => void handleSimulateAging()}
                 className="mt-2 flex w-full items-center justify-center gap-1.5 rounded border border-adm-amber/40 bg-adm-amber/10 px-3 py-2 font-mono text-[12px] font-semibold text-adm-amber transition-colors hover:bg-adm-amber/20 disabled:cursor-not-allowed disabled:opacity-50"
               >
-                ⚡ 拨到超期 / Fast-forward aging
+                <Zap size={12} />
+                Fast-forward aging
               </button>
             )}
             {agingNotice && <p className="mt-2 font-mono text-[10px] text-adm-t3">{agingNotice}</p>}
@@ -1367,8 +1539,10 @@ const ReconciliationCasesDetailPage = () => {
         </aside>
       </div>
 
-      {/* Task 7: 开调账单弹层——挂在页面最外层而不是某一行内部，因为它是全页级的
-          浮层（fixed inset-0），弹层内部状态与"点的是哪一行"无关，只靠 prefill 值区分。 */}
+      {/* Task 7: the create-adjustment modal is mounted at the page's outer
+          level rather than inside any one row, because it's a page-level
+          overlay (fixed inset-0) — its internal state doesn't care which row
+          was clicked, only the prefill value. */}
       {createPrefill && (
         <ReconciliationAdjustmentCreateModal
           open={!!createPrefill}
@@ -1386,8 +1560,10 @@ const ReconciliationCasesDetailPage = () => {
         />
       )}
 
-      {/* T8：处置弹层——同样挂在页面最外层，内部状态只靠 row 区分。caseNo 取
-          kase.caseNo（非路由参数 caseNo，后者类型是 string | undefined）。 */}
+      {/* T8: the disposition modal is likewise mounted at the page's outer
+          level, its internal state keyed only by row. caseNo here is
+          kase.caseNo (not the route param caseNo, which is typed
+          string | undefined). */}
       <ReconciliationDispositionModal
         open={!!dispositionRow}
         caseNo={kase.caseNo}
@@ -1399,7 +1575,8 @@ const ReconciliationCasesDetailPage = () => {
         onProceedToAdjust={handleAdjustHandoff}
       />
 
-      {/* 平账 B 批（Task 9）：补单弹层——同样挂在页面最外层，内部状态只靠 row 区分。 */}
+      {/* Recon batch B (Task 9): the supplement modal is likewise mounted at
+          the page's outer level, its internal state keyed only by row. */}
       <ReconciliationSupplementModal
         open={!!supplementRow}
         caseNo={kase.caseNo}
@@ -1408,7 +1585,8 @@ const ReconciliationCasesDetailPage = () => {
         onDone={() => { setSupplementRow(null); fetchCase(); }}
       />
 
-      {/* 平账二期（Task 12）：补款 / 垫款发起弹层——一个弹层两条路，靠 row.nextStep.kind 分。 */}
+      {/* Recon phase 2 (Task 12): compensation/advance initiation modal — one
+          modal, two paths, split by row.nextStep.kind. */}
       <InternalTransferInitiateModal
         open={!!fundingRow} caseNo={kase.caseNo} row={fundingRow} assetCode={kase.assetCode} decimals={kase.decimals}
         onClose={() => setFundingRow(null)}
