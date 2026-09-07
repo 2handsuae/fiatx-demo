@@ -15,7 +15,7 @@
 - **偏差①** 材料策略加载器现居 `material-requests/material-policy.ts`，每材料只剩 `sumsubActionLevelName`——那是**动作级** level；本波入驻用的是**申请人级** level，另立常量（§3），互不相扰，波三扩档位时再统一看
 - **偏差②** Sumsub 摄取现状两路（三域 KYT 级联 + 材料请求裁决），申请人级事件落 unrouted warn——本波开路位置即 `sumsub-ingestion.service.ts` Clues 4&5 段（:206 附近，注释自证"一期重做在此重新开路"）
 - **偏差③** `MATERIAL_REQUEST_TERMINAL` 保留在册（状态机不变量断言消费）——本波不动材料请求状态机，仅备忘
-- **新事实**：三域列表 `ownerNo` 过滤已通｜verify:act1 现 24 判据｜V2 审计码 14｜demo:all 花名册只断终态不校验费率档（→ §11 验收须直接断言报价）｜`demo-shot.js` 支持 `--select`/`--type` 有序交互
+- **新事实**：三域列表 `ownerNo` 过滤已通｜verify:act1 现 24 判据｜V2 审计码 14｜demo:all 花名册只断终态不校验费率档（→ §12 验收须直接断言报价）｜`demo-shot.js` 支持 `--select`/`--type` 有序交互
 - **前提确认**：`customer-lifecycle.constant.ts` 状态表在册零调用待接✓；`onboardingApprovedAt`/`sumsubApplicantId`/`sumsubCurrentLevelName` 接线点健在✓；客户表 24 字段口径已落✓；终拒徽标已在客户详情✓
 - **本会话新核实**：client `AuthGuard.tsx` 生命周期四步 gate 页**活着且文案齐全**（PROSPECT/IN_VERIFICATION/PENDING_APPROVAL/REJECTED/WITHDRAWN 各有其屏），站6 只摘了 CTA（:207 注释"重做接真 Sumsub 后再开门"）——本波开门即可，不重建；受众谓词已有 VIP 一档实例（`seed.business.ts:309`），新客档照抄先例
 - **收尾闸残留**：verify:act1 B6 → verify:demo-data R5 顺序敏感缺陷已在 TOOLING-DEBT（预置，非本波回归）
@@ -51,6 +51,7 @@
 - REAPPLY 加守卫：`onboardingFinalRejectedAt` 非空 → 显式拒（BadRequest，语义"尽调终拒不可重申"）
 - 驱动接线：所有迁移经 `nextLifecycle()` 唯一入口（非法边显式抛，波一保留的地基自此有调用方）；ACTIVE 无回头边不变（INV-1）
 - `onboardingApprovedAt` 写入纪律：**仅当为 null 时落值，永不覆盖**——新客窗口只开一次，将来任何加边都不重开
+- 计时（SLA）显式回答（清单"新状态"行）：**不上**——IN_VERIFICATION / REJECTED / WITHDRAWN 等的是客户自己，PENDING_APPROVAL 的推进节奏在演示者手里（运营提单 + 高管批都是现场动作），没有"挂着没人管"的态；不引入 slaDeadline 机器
 
 ## §3 字段账（24 → 31，个个有主）
 
@@ -69,9 +70,13 @@
 
 **申请人级 level 常量**（新建 `identity/constants/onboarding-level.constant.ts`）：CDD 档 `basic-cdd-level`、EDD 档 `edd-sof-sow-level`（Sumsub 风格命名，值存 `sumsubCurrentLevelName`）；每档带前端模板描述符（CDD = 五字段表单；EDD = 两个上传位），客户端会话端点下发。
 
+**迁移**：照常新增迁移文件（保证空库能建起；不写 backfill / 兼容层，改完 = reset 重铺闸⑧）。
+
 **种子回填**（九位客户矩阵零增减，`demo/data.md` 同步）：7 位 ACTIVE 客户补齐 CDD 五列（可信值）+ `sumsubApplicantId`（缺的补 mock id）+ `sumsubCurrentLevelName`（Carol/Frank = EDD 档，其余 CDD 档）+ `onboardingApprovedAt` **回填数月前**（数据齐全且天然出新客窗口，30 天窗见 `NEW_CUSTOMER_DAYS`，花名册费率不受扰）；Dave（IN_VERIFICATION）补 applicant id + CDD 档名、五列与 submittedAt 留空（"还没交表"）；Eve（PROSPECT）全空。
 
 ## §4 Sumsub 模拟与摄取开路
+
+**复用铁则（业主点名：与交易流程同一套实现，不另起炉灶）**：同一张 `SumsubWebhookEvent` 持久事件表、同一入口 `ingest()`、同一分发器——既有两路（三域 KYT 级联、材料请求裁决）**原样不动**，申请人级分支只加在 Clues 4&5 处，放行顺序不变；不建第二个 webhook 入口、不建第二张事件表、不建独立的入驻模拟服务。
 
 **webhook 形状**（照真，字段名与真 Sumsub 一致）：
 - `applicantReviewed`：`reviewResult.reviewAnswer` GREEN/RED + `reviewRejectType` RETRY/FINAL
@@ -79,9 +84,9 @@
 
 **摄取分发器**（`sumsub-ingestion.service.ts` Clues 4&5 处开路）：按 applicantId 反查客户（现成代码）后——`applicantLevelChanged` → 换档处理（eddRequired/档名/清 submittedAt + 审计）；`applicantReviewed` → 按客户当前档名分流：CDD 档 GREEN → CDD_CLEARED；EDD 档 GREEN → VERIFICATION_PASSED；RED → VERIFICATION_REJECTED（FINAL 加落 `onboardingFinalRejectedAt`）。仍未命中的照旧落 unrouted warn。守卫：客户不在 IN_VERIFICATION 或未提交（submittedAt 空）时到达的裁决/换档事件，显式拒并警告；换档事件另须客户当前在 CDD 档——非法迁移不静默。
 
-**⚡ 模拟端点**（`admin-sumsub-simulation.controller.ts` 加两枚，与既有 applicant-action-result 同款：拼合成 payload → `ingest()`，isSimulated）：
-- `POST onboarding-review-result`：{customerNo, answer, rejectType?}
-- `POST onboarding-level-change`：{customerNo}（固定升 EDD）
+**⚡ 模拟端点**（`admin-sumsub-simulation.controller.ts` 加两枚，与既有 applicant-action-result **逐字同款语法**：拼真形状 payload → `ingest(payload, {isSimulated: true, simulatedByUserId: 'ADMIN_SIMULATION'})`）：
+- `POST onboarding-review-result`：{customerNo, reviewAnswer, reviewRejectType?}——RED 必带 rejectType，缺了显式拒（照 applicant-action-result 判例，不许默默当 FINAL 或 RETRY）
+- `POST onboarding-level-change`：{customerNo}（固定升 EDD 档）
 
 **⚡ 前端面板**：admin 客户详情加"入驻模拟"区（模拟模式门控，同三域 ⚡ 惯例），四按钮：认证通过 / 拒绝-可重试 / 拒绝-终拒 / 升级 EDD；按钮可用性跟客户状态走（仅 IN_VERIFICATION 且已提交时亮裁决钮；升 EDD 仅 CDD 档已提交时亮）。
 
@@ -90,26 +95,30 @@
 - 类型 `CUSTOMER_ONBOARDING_ACCEPTANCE`（高风险客户准入核准），**单步高管批**（checker 与站4/5 高管同一角色码，执行时以 rbac 为准）；按判例（2026-09-05）**三处同加**：routes + detail-read + maker
 - maker = 运营：`POST /admin/customers/:customerNo/onboarding-acceptance` 提单（铁律⑥业务键），守卫 = 客户在 PENDING_APPROVAL 且无在批单；单据快照：customerNo、riskRating、eddRequired、档名、submittedAt、Sumsub 裁决摘要——**审的是"接不接这个高风险客户"，不是重审尽调**（MLRO 的活 100% 在 Sumsub，不碰管理台）
 - 裁决处理器：批准 → FINAL_APPROVED（→ ACTIVE、onboardingApprovedAt）；拒绝 → FINAL_REJECTED（→ REJECTED）
+- 策略登记随判例走：`scripts/verify-rbac.ts` 的 `MAKER_GROUP_BY_POLICY` 同步加一行——表外策略不受自批死锁闸保护（调账单判例 2026-09-01）
 - **不加"待提交"状态**：PENDING_APPROVAL 本身就是等待位，"单子提了没"从关联审批单推导展示（"准入核准：未提请 / 审批中 APR-xxx"）——"单子在批不是状态"，与便签教义同构
 
 ## §6 客户端
 
 - **gate 页开门**（`AuthGuard.tsx`）：四步拦截页文案原样保留，把站6摘掉的 CTA 接回——PROSPECT"开始认证"/ IN_VERIFICATION"继续认证"→ 认证页；REJECTED"重新申请"→ 触发 REAPPLY 后进认证页（`onboardingFinalRejectedAt` 非空时**不渲染 CTA**，只给中性文案，不泄露 FINAL 语义细节）；WITHDRAWN 同 REJECTED；PENDING_APPROVAL 维持"等待终审"陈述屏
-- **认证页**（新页，路由仿 `MaterialVerification.tsx` 双分支惯例）：模拟分支按档名渲染我方模板（CDD 五字段表单，姓名自注册预填可改 / EDD 两个上传位，选了文件只在页内展示不上传）；已提交（submittedAt 非空）→ "资料已提交，等待审核"屏；真接分支保留 WebSDK 容器路（`getSdkToken` + snsWebSdk，形状同补料页）
+- **认证页**（新页，整体**照抄 `MaterialVerification.tsx` 语法**——业主点名与交易补料同一套实现）：双分支（simulation 无 iframe / 真接 snsWebSdk 容器 + token 刷新回调）；加载态先拦（会话 GET 在飞时提交不可点——补料页判例）；提交必查 `r.ok`（后端 404/500 静默"成功"——补料页判例）。simulation 模板按档名渲染：CDD = 五字段表单（与补料页的唯一差异，业主点名的基础信息表单；姓名自注册预填可改）；EDD = **同款虚线占位上传框**两个（SoF / SoW 标签，与补料页假上传同构，不做真文件处理）。已提交（submittedAt 非空）→ "资料已提交，等待审核"屏
 - **撤回入口**：认证页/gate 页在 IN_VERIFICATION 时给"撤回申请"（打 WITHDRAW_APPLICATION）
-- **后端客户面端点**（照 `/onboarding/me` 惯例不进 rbac 目录；tipping-off 红线：响应不出现 blocked 类字段）：发起认证（建 applicant + START_VERIFICATION）/ 会话查询（档名 + 模板描述符 + submitted 态）/ 提交（CDD 落五列，EDD 零存储，均落 submittedAt）/ 撤回 / 重申
+- **后端客户面端点**（照 `/onboarding/me` 与 material 客户面惯例，不进 rbac 目录）：发起认证（建 applicant + START_VERIFICATION）/ 会话查询（照 `{submitted, sdkToken}` 投影语法，mock token 出自同一 `SumsubClient.getSdkToken`，另带档名 + 模板描述符）/ 提交（照 material submit 语法：落章 + 客户 actor 审计；CDD body 多带五字段，EDD 空 body 零存储）/ 撤回 / 重申
+- **客户面白名单当场定**（清单"新字段到客户面"行）：CDD 五列——客户自己的资料，会话端点下发做预填 ✓；`onboardingSubmittedAt` → 派生 submitted 布尔 ✓；`onboardingFinalRejectedAt` **不下发**，派生布尔 `canReapply` 控制 gate 页 CTA 与文案——内部术语不出客户面，照材料流 `resubmission` 布尔先例
 
 ## §7 管理台
 
 - 客户详情：CDD 五列展示进基本信息区；档名 + eddRequired + submittedAt 展示；PENDING_APPROVAL 时运营见"提请准入核准"按钮与关联单状态；`onboardingFinalRejectedAt` 非空复用波一终拒文字位口径（入驻语境文案："尽调终拒 · 不可重新申请"）；⚡ 入驻模拟区（§4）
 - 客户列表：lifecycle 筛选已支持（波一核过），PENDING_APPROVAL 即运营工作队列，不另建页
-- 新增 admin 路由全部登记 `rbac.catalog.ts`（提单 1 + ⚡ 2）
+- 新增 admin 路由全部登记 `rbac.catalog.ts`（提单 1 + ⚡ 2），**优先挂既有权限组**（客户域 / 模拟组）；若确需新建权限组，按清单四处同现（`PermissionGroup` 联合类型 / `route()` / `ACTION_BUCKET_CATALOG` 桶 / 至少一职务持有）
 
 ## §8 新客费率档
 
 照 VIP 受众档先例（`seed.business.ts:309`）：种一档 USDT→AED 兑换费率，`requiredTagsJson=['NEW_CUSTOMER']`，费率低于 STD 对应档（cheapest-wins 保证新客命中）。种子客户全部出窗（§3 回填），花名册与站2对照不受扰。演示拍：现场客户 ACTIVE → 管理台标签区见 NEW_CUSTOMER → 客户端报价费率栏见新客价——第二幕与第一幕当场握手，V3 体检 F-R1 的标签侧病根同波痊愈。
 
 ## §9 审计合同（V2 域 14 → 22 码，出生第一天就对）
+
+写入纪律（清单前两行）：全部写在编排层、经 DI 注入 `AuditLogsService`；人为动作 `recordByActor`、系统动作 `recordSystem`；**每次带显式 `requestId`**（缺了被静默去重、日志直接消失——2026-08-20 判例）；新码出生即冻结四属性（含义 / actionDomain / correlationMode / 特有必填），`assertActionSpec` 写入时机器校验，细则按 `rules/audit-logging.md`。
 
 新增 8 码（domain CUSTOMER、客户级 correlationMode N，同册惯例；主对象一律 customerNo；requiredFields 执行时按词表家风定，下列为语义要求）：
 
@@ -136,7 +145,15 @@
 
 现场注册客户即用即弃（重演再注册新邮箱，不依赖 reset）；`demo/data.md` 同步：种子回填口径（§3）+ 新客费率档条目 + 现场注册客户命名约定。
 
-## §11 验收口径
+## §11 文档收口（清单"每轮收尾"行，plan 落成任务）
+
+- `modules/v2-customer-compliance.md`：§0 定位（"开户准入本波未接"改口 = 已接，指本 spec）；§1 开户之路段落改活 + 材料零存储统一规矩入册；§2 状态机表 + CDD_CLEARED 边（8 → 9 动作）；§3 决策表加准入核准行（运营提 / 高管批）；§4 第二幕演示脚本重写（与 `demo/script.md` 同步）；§5 技术节点（nextLifecycle 驱动已接、入驻端点族、⚡ 两端点、审计 22 码、准入审批类型）；§6 缺口销"一期重做"条（入驻已演；档位升级指波三）
+- `BACKLOG.md`：:99 一期重做条销**入驻部分**（档位升级留波三）；"高管拒收滞留 REJECTED 的清退承接"并入既有销户缺口链
+- `CHANGELOG.md` 合并时一行；Thread 收尾按 `CLAUDE.md §9` 报层
+- 域事件：本波**不新增**（编排直调；plan 若确需事件，先登记 `domain-events.constants.ts`）
+- 清单不触发行（供 plan 写"本任务过哪几条"）：动钱 / 金额（无资金移动，verify:coa 不触发）｜退役业务动作（无）｜交易三域改动（不动——分发器只加申请人级分支，既有两路原样）
+
+## §12 验收口径
 
 1. **走查五景**（截图，`demo-shot.js`）：CDD 全程直通（注册→ACTIVE→新客标签→报价新客价）｜EDD 全程（换档→上传→提单→高管批→ACTIVE）｜RED-RETRY 重申走通（同 applicant）｜RED-FINAL 客户端中性文案 + gate 页无重申 CTA + 管理台终拒徽标｜撤回→重申
 2. **铁律**：④每次迁移经 `nextLifecycle()`，非法喂 ⚡（如未提交先裁决、FINAL 后重申）显式拒；①走查每步在审计日志按 customerNo 查得到对应码；⑥全程业务键无 UUID 外露
