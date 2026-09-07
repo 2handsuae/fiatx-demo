@@ -537,6 +537,14 @@ type DemoCustomer = {
   companyName?: string;
   sumsubApplicantId?: string;
   restrictions?: DemoRestriction[];
+  // 波二回填：入驻史 + CDD 基础信息
+  onboardingApprovedAt?: Date;
+  sumsubCurrentLevelName?: string;
+  dateOfBirth?: string;
+  nationality?: string;
+  idDocType?: string;
+  idDocNumber?: string;
+  residentialAddress?: string;
 };
 
 const DEMO_CUSTOMERS: DemoCustomer[] = [
@@ -549,6 +557,11 @@ const DEMO_CUSTOMERS: DemoCustomer[] = [
     // Sumsub sandbox applicant (externalUserId = this customer's customerNo CU2601019430),
     // tagged shawn-test. Survives reset because customerNo is derived from the email.
     sumsubApplicantId: '6a5dd88f07d9bbd981a22fc9',
+    // 波二回填：入驻史（数月前开户，出新客窗）+ CDD 基础信息（数据齐全轴）
+    onboardingApprovedAt: new Date('2026-06-15T09:00:00Z'),
+    sumsubCurrentLevelName: 'basic-cdd-level',
+    dateOfBirth: '1992-03-14', nationality: 'AE', idDocType: 'PASSPORT',
+    idDocNumber: 'P-AE-1000001', residentialAddress: 'Marina Tower 12F, Dubai',
   },
   {
     email: 'demo_bob@example.com', phone: '+15552000002',
@@ -558,6 +571,11 @@ const DEMO_CUSTOMERS: DemoCustomer[] = [
     // 材料请求账演示位（黄档提醒，见 seedMaterialRequest）需要 sumsubApplicantId
     // 才能落一行——不是真沙盒 applicant，纯确定性 mock id（不打真 Sumsub）。
     sumsubApplicantId: mockSumsubApplicantId('demo_bob@example.com'),
+    // 波二回填：入驻史 + CDD 基础信息
+    onboardingApprovedAt: new Date('2026-06-15T09:00:00Z'),
+    sumsubCurrentLevelName: 'basic-cdd-level',
+    dateOfBirth: '1988-07-22', nationality: 'US', idDocType: 'PASSPORT',
+    idDocNumber: 'P-US-2000002', residentialAddress: '221 Baker St, Chicago, IL',
   },
   // 1× 制裁便签（SILENT）—— 演示零痕迹。lifecycle 仍是 ACTIVE：客户关系没变，
   // 变的是"能不能干事"，这正是本次三轴收敛的核心断言。
@@ -566,6 +584,12 @@ const DEMO_CUSTOMERS: DemoCustomer[] = [
     firstName: 'Carol', lastName: 'Silent', customerType: 'INDIVIDUAL',
     lifecycle: 'ACTIVE',
     riskRating: 'MEDIUM', tradingTier: 'BASIC', eddRequired: true,
+    // 波二回填：入驻史 + CDD 基础信息（eddRequired=true → EDD 档位）
+    onboardingApprovedAt: new Date('2026-06-15T09:00:00Z'),
+    sumsubApplicantId: mockSumsubApplicantId('demo_carol@example.com'),
+    sumsubCurrentLevelName: 'edd-sof-sow-level',
+    dateOfBirth: '1979-11-05', nationality: 'GB', idDocType: 'PASSPORT',
+    idDocNumber: 'P-GB-3000003', residentialAddress: '10 Downing Close, London',
     restrictions: [
       {
         cause: 'SANCTION',
@@ -579,6 +603,9 @@ const DEMO_CUSTOMERS: DemoCustomer[] = [
     firstName: 'Dave', lastName: 'Pending', customerType: 'INDIVIDUAL',
     lifecycle: 'IN_VERIFICATION',
     riskRating: 'LOW', tradingTier: 'BASIC', eddRequired: false,
+    // 波二回填：还没交表——只补 applicantId + 档位，CDD 五列与 submittedAt 留空
+    sumsubApplicantId: mockSumsubApplicantId('demo_dave@example.com'),
+    sumsubCurrentLevelName: 'basic-cdd-level',
   },
   // 1× 刚注册未开认证
   {
@@ -597,6 +624,11 @@ const DEMO_CUSTOMERS: DemoCustomer[] = [
     lifecycle: 'ACTIVE',
     riskRating: 'HIGH', tradingTier: 'BASIC', eddRequired: true,
     sumsubApplicantId: mockSumsubApplicantId('demo_frank@example.com'),
+    // 波二回填：入驻史 + CDD 基础信息（eddRequired=true → EDD 档位）
+    onboardingApprovedAt: new Date('2026-06-15T09:00:00Z'),
+    sumsubCurrentLevelName: 'edd-sof-sow-level',
+    dateOfBirth: '1975-01-30', nationality: 'RU', idDocType: 'PASSPORT',
+    idDocNumber: 'P-RU-4000004', residentialAddress: 'Tverskaya St 5, Moscow',
   },
   // 1× PREMIUM trading tier —— 缺 sumsubApplicantId 时，管理台真实的 ⚡ 演示按钮
   // 对她会静默失效（Gate 0 warn 后跳过提交，裁决永远匹配不到单据）；补上（纯确定性
@@ -607,6 +639,11 @@ const DEMO_CUSTOMERS: DemoCustomer[] = [
     lifecycle: 'ACTIVE',
     riskRating: 'LOW', tradingTier: 'PREMIUM', eddRequired: false,
     sumsubApplicantId: mockSumsubApplicantId('demo_grace@example.com'),
+    // 波二回填：入驻史 + CDD 基础信息
+    onboardingApprovedAt: new Date('2026-06-15T09:00:00Z'),
+    sumsubCurrentLevelName: 'basic-cdd-level',
+    dateOfBirth: '1990-09-18', nationality: 'SG', idDocType: 'PASSPORT',
+    idDocNumber: 'P-SG-5000005', residentialAddress: 'Orchard Rd 88, Singapore',
   },
   // 1× CORPORATE
   {
@@ -615,6 +652,12 @@ const DEMO_CUSTOMERS: DemoCustomer[] = [
     lifecycle: 'ACTIVE',
     riskRating: 'LOW', tradingTier: 'PREMIUM', eddRequired: false,
     companyName: 'Acme Trading LLC',
+    // 波二回填：入驻史 + CDD 基础信息（授权代表本人信息）
+    onboardingApprovedAt: new Date('2026-06-15T09:00:00Z'),
+    sumsubApplicantId: mockSumsubApplicantId('demo_acme@example.com'),
+    sumsubCurrentLevelName: 'basic-cdd-level',
+    dateOfBirth: '1970-04-02', nationality: 'US', idDocType: 'PASSPORT',
+    idDocNumber: 'P-US-6000006', residentialAddress: '500 Fifth Ave, New York',
   },
   // 1× 材料过期便签（DISCLOSED）—— 演示明示受限。新增客户而非改 Dave：
   // Dave 的 IN_VERIFICATION 是另一个演示位，且非 ACTIVE 客户挂交易类便签无意义。
@@ -626,6 +669,11 @@ const DEMO_CUSTOMERS: DemoCustomer[] = [
     // 材料请求账演示位（红档，见 seedMaterialRequest）需要 sumsubApplicantId
     // 才能落一行——不是真沙盒 applicant，纯确定性 mock id（不打真 Sumsub）。
     sumsubApplicantId: mockSumsubApplicantId('demo_ivy@example.com'),
+    // 波二回填：入驻史 + CDD 基础信息
+    onboardingApprovedAt: new Date('2026-06-15T09:00:00Z'),
+    sumsubCurrentLevelName: 'basic-cdd-level',
+    dateOfBirth: '1985-12-09', nationality: 'FR', idDocType: 'PASSPORT',
+    idDocNumber: 'P-FR-7000007', residentialAddress: 'Rue de Rivoli 24, Paris',
     restrictions: [
       {
         cause: 'MATERIAL_EXPIRED',
@@ -645,6 +693,11 @@ const DEMO_CUSTOMERS: DemoCustomer[] = [
     lifecycle: 'ACTIVE',
     riskRating: 'LOW', tradingTier: 'BASIC', eddRequired: false,
     sumsubApplicantId: mockSumsubApplicantId('demo_jack@example.com'),
+    // 波二回填：入驻史 + CDD 基础信息
+    onboardingApprovedAt: new Date('2026-06-15T09:00:00Z'),
+    sumsubCurrentLevelName: 'basic-cdd-level',
+    dateOfBirth: '1993-06-25', nationality: 'CA', idDocType: 'PASSPORT',
+    idDocNumber: 'P-CA-8000008', residentialAddress: '100 Queen St W, Toronto',
   },
   {
     email: 'demo_kate@example.com', phone: '+15552000011',
@@ -652,6 +705,11 @@ const DEMO_CUSTOMERS: DemoCustomer[] = [
     lifecycle: 'ACTIVE',
     riskRating: 'LOW', tradingTier: 'BASIC', eddRequired: false,
     sumsubApplicantId: mockSumsubApplicantId('demo_kate@example.com'),
+    // 波二回填：入驻史 + CDD 基础信息
+    onboardingApprovedAt: new Date('2026-06-15T09:00:00Z'),
+    sumsubCurrentLevelName: 'basic-cdd-level',
+    dateOfBirth: '1991-02-17', nationality: 'AU', idDocType: 'PASSPORT',
+    idDocNumber: 'P-AU-9000009', residentialAddress: '1 Martin Place, Sydney',
   },
 ];
 
@@ -686,6 +744,13 @@ async function seedCustomers(prisma: PrismaClient): Promise<void> {
       eddRequired: c.eddRequired,
       companyName: c.companyName ?? null,
       sumsubApplicantId: c.sumsubApplicantId ?? null,
+      onboardingApprovedAt: c.onboardingApprovedAt ?? null,
+      sumsubCurrentLevelName: c.sumsubCurrentLevelName ?? null,
+      dateOfBirth: c.dateOfBirth ?? null,
+      nationality: c.nationality ?? null,
+      idDocType: c.idDocType ?? null,
+      idDocNumber: c.idDocNumber ?? null,
+      residentialAddress: c.residentialAddress ?? null,
     };
 
     const customer = await prisma.customerMain.upsert({
