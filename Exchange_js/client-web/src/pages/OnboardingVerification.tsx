@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { ArrowLeft } from 'lucide-react';
 import { customerFetch } from '../utils/customerFetch';
 import { useAuth } from '../context/AuthContext';
+import { useSimulationMode } from '../utils/simulationMode';
 
 interface OnboardingTemplate {
   kind: 'CDD_FORM' | 'EDD_UPLOAD';
@@ -37,6 +38,7 @@ interface OnboardingSession {
 const OnboardingVerification = () => {
   const navigate = useNavigate();
   const { user, refreshProfile } = useAuth();
+  const { enabled: simulation } = useSimulationMode();
 
   const [state, setState] = useState<'loading' | 'ready' | 'error'>('loading');
   const [submitted, setSubmitted] = useState(false);
@@ -79,20 +81,19 @@ const OnboardingVerification = () => {
           residentialAddress: s.prefill.residentialAddress || '',
         });
       }
-      // 真接分支专属：没有我方模板、也没拿到 token，说明这条会话眼下铸不出来
-      // （Sumsub 侧异常）。有模板（CDD_FORM / EDD_UPLOAD）不会走到这里。
-      if (!s.template && !s.submitted && !s.sdkToken) {
+      // 真接分支专属：simulation===false 时 submitted===false 却没拿到 token，
+      // 说明这条会话眼下铸不出来（Sumsub 侧异常）。simulation 分支不会走到这里。
+      if (!simulation && !s.submitted && !s.sdkToken) {
         setState('error');
         return;
       }
-      // demo 模板（CDD_FORM / EDD_UPLOAD）没有 iframe 空窗，模板数据一到就绪。
-      // 真接分支（无 template）必须保持 'loading' 直到 idCheck.onReady 才置 'ready'。
-      if (s.template) setState('ready');
+      // demo 分支（simulation===true）没有 iframe 空窗，模板数据一到就绪。
+      // 真接分支（simulation===false）必须保持 'loading' 直到 idCheck.onReady 才置 'ready'。
+      if (simulation) setState('ready');
     } catch {
       setState('error');
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [simulation]);
 
   useEffect(() => { void load(); }, [load]);
 
@@ -103,10 +104,10 @@ const OnboardingVerification = () => {
     return s.sdkToken as string;
   };
 
-  // 真接 Sumsub：template 为 null 时说明当前档位没有我方模板（走真 SDK），token 到手后
-  // 由 SDK 自己往容器里塞 iframe。demo 模板（有 template）不走这条。
+  // 真接 Sumsub：simulation===false 时走真 SDK，token 到手后由 SDK 自己往容器里
+  // 塞 iframe。demo 分支（simulation===true）不走这条。
   useEffect(() => {
-    if (template || !token || submitted || !containerRef.current) return;
+    if (simulation || !token || submitted || !containerRef.current) return;
     const sdk = (window as any).snsWebSdk;
     if (!sdk) { setState('error'); return; }
     const inst = sdk
@@ -119,7 +120,7 @@ const OnboardingVerification = () => {
     inst.launch('#sumsub-container');
     return () => { if (containerRef.current) containerRef.current.innerHTML = ''; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [template, token, submitted]);
+  }, [simulation, token, submitted]);
 
   const doSubmit = async (body?: Record<string, string>) => {
     setSubmitError(false);
@@ -174,13 +175,14 @@ const OnboardingVerification = () => {
           <p className="mb-3 text-sm text-fx-rust">Verification failed to load.</p>
           <button onClick={() => void load()} className="fx-btn-ghost">Retry</button>
         </div>
-      ) : state === 'loading' && token === null && template === null ? (
-        // 初次会话 GET 还在飞、什么都还没拿到——demo 模板 / 真接分支都不能先渲染。
-        // 真接分支拿到 token 后（还在等 idCheck.onReady）改由下面容器自己的浮层显示加载态。
+      ) : state === 'loading' && simulation ? (
+        // demo 分支必须有加载态：会话 GET 还在飞时表单组件不能已经可点（旧页踩过）。
+        // 真接分支的加载态由下面的 SDK 容器自己处理（容器 DOM 必须全程挂着让
+        // sdk.launch() 能找到它），所以这条分支只拦 simulation，不拦真接分支。
         <div className="rounded-xl border border-fx-rule bg-fx-charcoal/40 px-4 py-4 text-sm text-fx-dust">
           Loading verification…
         </div>
-      ) : template?.kind === 'CDD_FORM' ? (
+      ) : simulation && template?.kind === 'CDD_FORM' ? (
         <div className="rounded-xl border border-fx-rule bg-fx-charcoal/40 px-6 py-8">
           <div className="mb-5 grid grid-cols-2 gap-4">
             <label className="text-sm text-fx-dust">
@@ -256,7 +258,7 @@ const OnboardingVerification = () => {
             Submit
           </button>
         </div>
-      ) : template?.kind === 'EDD_UPLOAD' ? (
+      ) : simulation && template?.kind === 'EDD_UPLOAD' ? (
         <div className="rounded-xl border border-fx-rule bg-fx-charcoal/40 px-6 py-8">
           {(template.uploadSlots || []).map((slot) => (
             <div
