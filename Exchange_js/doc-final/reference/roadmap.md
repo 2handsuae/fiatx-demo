@@ -458,7 +458,7 @@ V7（财资运营）已脱离交易链——旧 EOD 结算/内部转账被实时
 
 ### ADVANCED（差异处置闭环 + 监管报送，全 deferred）
 
-- [ ] ⚖️P1 差异处理人工闭环 + **未平差异报 VARA** — Finance 人工核实/补录→RESOLVED + 24h SLA 升级 MLRO/CFO；**重大差异未纠正→末级终态生成 VARA 通报工单(REPORTED_TO_VARA)+审计打点**(现止于内部 RESOLVED、无对外出口) ｜CRM IV.E.5(Client Money)+V.D.2(Client VAs) 一手核 ｜三路 3:0
+- [~] ⚖️P1 差异处理人工闭环 + **未平差异报 VARA** — Finance 人工核实/补录→RESOLVED + 24h SLA 升级 MLRO/CFO；**重大差异未纠正→末级终态生成 VARA 通报工单(REPORTED_TO_VARA)+审计打点**(现止于内部 RESOLVED、无对外出口) ｜CRM IV.E.5(Client Money)+V.D.2(Client VAs) 一手核 ｜三路 3:0 ｜**部分兑现 2026-09-06（平账三期）**：人工闭环已由成因定性 + 十处置动词体系落地；通报载体落在**事故单**而非当年构想的案子终态——大额未平差异到线「升级事故」，定损时勾「需通报」引依据（本条两款即 `CRM_IV_E_5`/`CRM_V_D_2` 依据码，无法定钟不设倒计时）、草案 + 「已通报」人工标记 + 对外编号，`INCIDENT_REGULATOR_REPORTED` 审计打点；**仍缺**：真实对外出口（发送）不做（decisions 2026-09-06 通报只留痕），通报超时无持久软标（BACKLOG 在案，扩审计码名册待业主）
 - [ ] 其余 6 平账处置动作 — 补单/冲正/冲销/豁免/偿付/…(推单已做) ｜来源:业务
 - [ ] 偿付义务工作流(Reimbursement) — 从 V7 移入；OPEN→审批(CFO/MLRO)→REIMBURSED；表已 drop 留 hook；两触发源(对账差异/event 失败)共出口 ｜来源:业务+VARA
 - [ ] ⚖️ Proof of Reserves（**改写：非单纯季度**）— 真实义务四件：储备资产**每日对账** + **≥每半年独立第三方审计** + 审计报告随**季报**交 VARA + **VARA 随时索取即须能出**(on-demand)；口径 Sum(客户 VA 负债)≤HexTrust 储备 ｜CRM V.C.1 + Company Rulebook 储备资产节 Rule 3(一手核) ｜⚠️2026-07-06 订正:原"季度"既漏半年审计、又把 on-demand 窄成定时任务
