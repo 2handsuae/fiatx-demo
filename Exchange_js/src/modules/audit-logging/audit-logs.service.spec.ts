@@ -127,6 +127,8 @@ describe('AuditLogsService', () => {
       INCIDENT: 'INCIDENT',
       // 入驻波二（2026-09-07）：客户接受声明 maker-checker
       CUSTOMER_ONBOARDING_ACCEPTANCE: 'CUSTOMER_ONBOARDING_ACCEPTANCE',
+      // 档位升级波三（2026-09-07）：BASIC→PREMIUM 档位升级 maker-checker
+      CUSTOMER_TIER_UPGRADE: 'CUSTOMER_TIER_UPGRADE',
     });
 
     expect(AuditUserActions).toEqual({

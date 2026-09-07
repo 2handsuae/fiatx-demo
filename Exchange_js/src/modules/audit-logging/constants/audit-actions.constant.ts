@@ -155,6 +155,7 @@ export const AuditBusinessWorkflowTypes = {
   // 平账三期（2026-09-06）：事故登记（治理件，独立主体 Incident）
   INCIDENT: 'INCIDENT',
   CUSTOMER_ONBOARDING_ACCEPTANCE: 'CUSTOMER_ONBOARDING_ACCEPTANCE',
+  CUSTOMER_TIER_UPGRADE: 'CUSTOMER_TIER_UPGRADE',
 } as const;
 
 // Task 28：退役清单扫尾——原 15 键仅 2 键（REQUEST_CREATED/SUBMITTED）经
@@ -465,6 +466,13 @@ export const AuditActions = {
   ONBOARDING_REAPPLIED: 'ONBOARDING_REAPPLIED',
   ONBOARDING_ACCEPTANCE_SUBMITTED: 'ONBOARDING_ACCEPTANCE_SUBMITTED',
   ONBOARDING_ACCEPTANCE_DECIDED: 'ONBOARDING_ACCEPTANCE_DECIDED',
+  // ── 档位升级（波三 2026-09-07）──────────────────────
+  TIER_UPGRADE_APPLIED: 'TIER_UPGRADE_APPLIED',
+  TIER_UPGRADE_SUBMITTED: 'TIER_UPGRADE_SUBMITTED',
+  TIER_UPGRADE_VERDICT_APPLIED: 'TIER_UPGRADE_VERDICT_APPLIED',
+  TIER_UPGRADE_ACCEPTANCE_SUBMITTED: 'TIER_UPGRADE_ACCEPTANCE_SUBMITTED',
+  TIER_UPGRADE_ACCEPTANCE_DECIDED: 'TIER_UPGRADE_ACCEPTANCE_DECIDED',
+  CUSTOMER_LEDGER_PROVISIONED: 'CUSTOMER_LEDGER_PROVISIONED',
   // ── 平账三期（2026-09-06）：事故登记（治理件，域 GOVERNANCE）──
   INCIDENT_REGISTERED: 'INCIDENT_REGISTERED',
   INCIDENT_INVESTIGATION_STARTED: 'INCIDENT_INVESTIGATION_STARTED',
@@ -948,7 +956,7 @@ export const V8_RECON_AUDIT_ACTIONS: Record<string, AuditActionSpec> = {
 };
 
 /**
- * V2 客户域名册（站6-β，2026-08-27 业主方案2 后的存活面）——22 现役词（波二 2026-09-07 +8 入驻），
+ * V2 客户域名册（站6-β，2026-08-27 业主方案2 后的存活面）——28 现役词（波二 2026-09-07 +8 入驻，波三 2026-09-07 +6 档位升级），
  * 现名全保守零改名。客户级件无订单旅程 → 全员 NONE；材料请求绑单时机会性携带
  * 父单旅程号（不设 INHERIT 硬闸：请求可无单发起，码的模式是固有属性不看场景）。
  * 便签四词双通道（系统命中 recordSystem / 运营贴撕 recordByActor）。
@@ -980,6 +988,13 @@ export const V2_CUSTOMER_AUDIT_ACTIONS: Record<string, AuditActionSpec> = {
   ONBOARDING_REAPPLIED:            { domain: 'CUSTOMER', correlationMode: N, requiredFields: [], requiresCausation: false },
   ONBOARDING_ACCEPTANCE_SUBMITTED: { domain: 'CUSTOMER', correlationMode: N, requiredFields: ['approvalNo', 'reason'], requiresCausation: false },
   ONBOARDING_ACCEPTANCE_DECIDED:   { domain: 'CUSTOMER', correlationMode: N, requiredFields: ['approvalNo'], requiresCausation: false },
+  // ── 档位升级（6，波三 2026-09-07）：客户级件，correlationMode 全 N ──
+  TIER_UPGRADE_APPLIED:              { domain: 'CUSTOMER', correlationMode: N, requiredFields: ['afterData'], requiresCausation: false },
+  TIER_UPGRADE_SUBMITTED:            { domain: 'CUSTOMER', correlationMode: N, requiredFields: ['afterData'], requiresCausation: false },
+  TIER_UPGRADE_VERDICT_APPLIED:      { domain: 'CUSTOMER', correlationMode: N, requiredFields: ['afterData'], requiresCausation: false },
+  TIER_UPGRADE_ACCEPTANCE_SUBMITTED: { domain: 'CUSTOMER', correlationMode: N, requiredFields: ['approvalNo', 'reason'], requiresCausation: false },
+  TIER_UPGRADE_ACCEPTANCE_DECIDED:   { domain: 'CUSTOMER', correlationMode: N, requiredFields: ['approvalNo'], requiresCausation: false },
+  CUSTOMER_LEDGER_PROVISIONED:       { domain: 'CUSTOMER', correlationMode: N, requiredFields: ['afterData'], requiresCausation: false },
 };
 
 /**

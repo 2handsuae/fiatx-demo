@@ -50,4 +50,5 @@ export const ENTITY_ROUTE_BY_ACTION: Record<string, (ref: string) => string | nu
   INCIDENT_CLOSE_FINANCIAL: (r) => `/admin/governance/incidents/${r}`,
   // 客户域（entityRef = customerNo）
   CUSTOMER_ONBOARDING_ACCEPTANCE: (r) => `/admin/customers/${r}`,
+  CUSTOMER_TIER_UPGRADE: (r) => `/admin/customers/${r}`,
 };
