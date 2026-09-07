@@ -70,29 +70,52 @@ export class AdminSumsubSimulationController {
     );
   }
 
-  @Post('ongoing-doc-monitoring-fire')
-  @ApiOperation({ summary: 'Simulate Sumsub Ongoing Document Monitoring fire' })
-  @RequirePermissions(buildPermissionCode('POST', '/admin/sumsub/simulate/ongoing-doc-monitoring-fire'))
-  async simulateOngoingDocMonitoring(
+  @Post('onboarding-review-result')
+  @ApiOperation({ summary: '模拟 applicantReviewed —— 入驻 ⚡ 三个裁决按钮打这里' })
+  @RequirePermissions(buildPermissionCode('POST', '/admin/sumsub/simulate/onboarding-review-result'))
+  async simulateOnboardingReviewResult(
     @Req() req: any,
-    @Body() body: { customerId: string },
+    @Body() body: { customerNo: string; reviewAnswer: 'GREEN' | 'RED'; reviewRejectType?: 'RETRY' | 'FINAL' },
   ) {
     this.ensureAdmin(req);
-
+    if (!body.customerNo) throw new BadRequestException('customerNo is required');
+    if (body.reviewAnswer === 'RED' && !body.reviewRejectType) {
+      // 照 applicant-action-result 判例：不许默默当 FINAL 或 RETRY
+      throw new BadRequestException("RED must carry reviewRejectType 'RETRY' or 'FINAL'");
+    }
     const customer = await this.prisma.customerMain.findUnique({
-      where: { id: body.customerId },
+      where: { customerNo: body.customerNo },
+      select: { sumsubApplicantId: true },
     });
     if (!customer?.sumsubApplicantId) {
-      throw new ForbiddenException('Customer has no Sumsub applicant');
+      throw new NotFoundException(`Customer has no Sumsub applicant: ${body.customerNo}`);
     }
-
     return this.ingestionService.ingest(
       {
         type: 'applicantReviewed',
-        reviewMode: 'ongoingDocExpired',
         applicantId: customer.sumsubApplicantId,
+        reviewResult: { reviewAnswer: body.reviewAnswer, reviewRejectType: body.reviewRejectType },
         createdAtMs: String(Date.now()),
       },
+      { isSimulated: true, simulatedByUserId: 'ADMIN_SIMULATION' },
+    );
+  }
+
+  @Post('onboarding-level-change')
+  @ApiOperation({ summary: '模拟 applicantLevelChanged —— CDD 提交后升 EDD' })
+  @RequirePermissions(buildPermissionCode('POST', '/admin/sumsub/simulate/onboarding-level-change'))
+  async simulateOnboardingLevelChange(@Req() req: any, @Body() body: { customerNo: string }) {
+    this.ensureAdmin(req);
+    if (!body.customerNo) throw new BadRequestException('customerNo is required');
+    const customer = await this.prisma.customerMain.findUnique({
+      where: { customerNo: body.customerNo },
+      select: { sumsubApplicantId: true },
+    });
+    if (!customer?.sumsubApplicantId) {
+      throw new NotFoundException(`Customer has no Sumsub applicant: ${body.customerNo}`);
+    }
+    return this.ingestionService.ingest(
+      { type: 'applicantLevelChanged', applicantId: customer.sumsubApplicantId, levelName: 'edd-sof-sow-level', createdAtMs: String(Date.now()) },
       { isSimulated: true, simulatedByUserId: 'ADMIN_SIMULATION' },
     );
   }
