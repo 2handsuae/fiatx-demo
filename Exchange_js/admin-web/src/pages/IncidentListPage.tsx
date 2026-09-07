@@ -92,15 +92,15 @@ const NewIncidentModal = ({ open, prefill, onClose, onCreated }: { open: boolean
 
   const submit = async () => {
     setError('');
-    if (!title.trim() || !description.trim()) { setError('标题与说明必填'); return; }
+    if (!title.trim() || !description.trim()) { setError('Title and description are required'); return; }
     if ((type === 'UNAUTHORIZED_OUTFLOW' || type === 'LARGE_UNEXPLAINED') && !sourceCaseNo.trim()) {
-      setError('该类型必须带来源案号'); return;
+      setError('This type requires a source case number'); return;
     }
     if (type === 'UNAUTHORIZED_OUTFLOW' && !sourceDispositionNo.trim()) {
-      setError('未授权转出必须带来源定性行号'); return;
+      setError('Unauthorized outflow requires a source disposition line number'); return;
     }
     if (type === 'CLIENT_SHORTFALL' && (!customerNo.trim() || !amount.trim())) {
-      setError('退汇欠款必须带客户号与金额'); return;
+      setError('Client shortfall requires a customer number and amount'); return;
     }
     setSubmitting(true);
     try {
@@ -114,13 +114,13 @@ const NewIncidentModal = ({ open, prefill, onClose, onCreated }: { open: boolean
       const res = await adminFetch(`${import.meta.env.VITE_API_URL}/admin/incidents`, {
         method: 'POST', body: JSON.stringify(body),
       });
-      if (!res.ok) { setError(await getApiErrorMessage(res, '登记失败')); return; }
+      if (!res.ok) { setError(await getApiErrorMessage(res, 'Registration failed')); return; }
       const data = await res.json();
       reset();
       onCreated(data.incidentNo as string);
     } catch (e) {
       if (e instanceof AdminSessionError) return;
-      setError(e instanceof Error ? e.message : '登记失败');
+      setError(e instanceof Error ? e.message : 'Registration failed');
     } finally {
       setSubmitting(false);
     }
@@ -129,55 +129,55 @@ const NewIncidentModal = ({ open, prefill, onClose, onCreated }: { open: boolean
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={close}>
       <div className="w-[560px] max-h-[85vh] overflow-y-auto rounded-lg border border-adm-border bg-adm-panel p-5" onClick={(e) => e.stopPropagation()}>
-        <h3 className="mb-3 text-sm font-semibold text-adm-t1">登记事故</h3>
+        <h3 className="mb-3 text-sm font-semibold text-adm-t1">Register Incident</h3>
 
-        <label className="mb-3 block text-xs">类型
+        <label className="mb-3 block text-xs">Type
           <select value={type} onChange={(e) => setType(e.target.value)} className="mt-1 w-full rounded border border-adm-border bg-adm-panel px-2 py-1 text-xs">
             {INCIDENT_TYPES.map((t) => <option key={t} value={t}>{INCIDENT_TYPE_LABEL[t]}</option>)}
           </select>
         </label>
 
-        <label className="mb-3 block text-xs">标题
-          <input value={title} onChange={(e) => setTitle(e.target.value)} className="mt-1 w-full rounded border border-adm-border bg-adm-panel px-2 py-1 text-xs" placeholder="例：客户钱包幽灵 OUT" />
+        <label className="mb-3 block text-xs">Title
+          <input value={title} onChange={(e) => setTitle(e.target.value)} className="mt-1 w-full rounded border border-adm-border bg-adm-panel px-2 py-1 text-xs" placeholder="e.g. Customer wallet ghost OUT" />
         </label>
 
-        <label className="mb-3 block text-xs">说明
-          <textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={3} className="mt-1 w-full rounded border border-adm-border bg-adm-panel px-2 py-1 text-xs" placeholder="发生了什么" />
+        <label className="mb-3 block text-xs">Description
+          <textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={3} className="mt-1 w-full rounded border border-adm-border bg-adm-panel px-2 py-1 text-xs" placeholder="What happened" />
         </label>
 
         {(type === 'UNAUTHORIZED_OUTFLOW' || type === 'LARGE_UNEXPLAINED') && (
-          <label className="mb-3 block text-xs">来源案号
+          <label className="mb-3 block text-xs">Source Case No
             <input value={sourceCaseNo} onChange={(e) => setSourceCaseNo(e.target.value)} className="mt-1 w-full rounded border border-adm-border bg-adm-panel px-2 py-1 text-xs font-mono" placeholder="CASE-…" />
           </label>
         )}
         {type === 'UNAUTHORIZED_OUTFLOW' && (
-          <label className="mb-3 block text-xs">来源定性行号
+          <label className="mb-3 block text-xs">Source Disposition Line No
             <input value={sourceDispositionNo} onChange={(e) => setSourceDispositionNo(e.target.value)} className="mt-1 w-full rounded border border-adm-border bg-adm-panel px-2 py-1 text-xs font-mono" placeholder="DISP-…" />
           </label>
         )}
         {type === 'CLIENT_SHORTFALL' && (
-          <label className="mb-3 block text-xs">来源垫款单号（选填，若已存在）
+          <label className="mb-3 block text-xs">Source Advance Transfer No (optional, if one already exists)
             <input value={sourceAdvanceTransferNo} onChange={(e) => setSourceAdvanceTransferNo(e.target.value)} className="mt-1 w-full rounded border border-adm-border bg-adm-panel px-2 py-1 text-xs font-mono" placeholder="TRF-…" />
           </label>
         )}
 
         <div className="mb-3 grid grid-cols-3 gap-2">
-          <label className="block text-xs">客户号{type === 'CLIENT_SHORTFALL' ? '*' : '（选填）'}
+          <label className="block text-xs">Customer No{type === 'CLIENT_SHORTFALL' ? '*' : ' (optional)'}
             <input value={customerNo} onChange={(e) => setCustomerNo(e.target.value)} className="mt-1 w-full rounded border border-adm-border bg-adm-panel px-2 py-1 text-xs font-mono" />
           </label>
-          <label className="block text-xs">资产（选填）
+          <label className="block text-xs">Asset (optional)
             <input value={assetCode} onChange={(e) => setAssetCode(e.target.value)} className="mt-1 w-full rounded border border-adm-border bg-adm-panel px-2 py-1 text-xs font-mono" />
           </label>
-          <label className="block text-xs">金额{type === 'CLIENT_SHORTFALL' ? '*' : '（选填）'}
+          <label className="block text-xs">Amount{type === 'CLIENT_SHORTFALL' ? '*' : ' (optional)'}
             <input value={amount} onChange={(e) => setAmount(e.target.value)} className="mt-1 w-full rounded border border-adm-border bg-adm-panel px-2 py-1 text-xs font-mono" />
           </label>
         </div>
 
         {error && <p className="mb-2 text-xs text-adm-red">{error}</p>}
         <div className="flex justify-end gap-2">
-          <button type="button" onClick={close} className={adminButtonClass('modalCancel')}>取消</button>
+          <button type="button" onClick={close} className={adminButtonClass('modalCancel')}>Cancel</button>
           <button type="button" disabled={submitting} onClick={() => void submit()} className={adminButtonClass('modalConfirm')}>
-            {submitting ? '提交中…' : '登记'}
+            {submitting ? 'Submitting…' : 'Register'}
           </button>
         </div>
       </div>
@@ -253,13 +253,13 @@ const IncidentListPage = () => {
   return (
     <div className="flex h-full flex-col">
       <PageTitleBar
-        title="Incident Register · 事故登记"
-        subtitle="出了事怎么交代——调查、定损、善后、监管通报留痕，零账务"
+        title="Incident Register"
+        subtitle="How incidents get accounted for — investigation, assessment, remediation, and regulatory reporting on record; zero accounting impact"
         meta={`${total} incident(s)`}
       >
         {canWrite && (
           <button type="button" onClick={() => { setNewPrefill(undefined); setShowNew(true); }} className={adminButtonClass('listPrimary')}>
-            <Plus size={13} /> 登记事故
+            <Plus size={13} /> Register Incident
           </button>
         )}
         <button type="button" onClick={() => void fetchItems(page)} className={adminIconButtonClass()} title="Refresh">
@@ -290,7 +290,7 @@ const IncidentListPage = () => {
         <table className="w-full text-xs">
           <thead className="sticky top-0 bg-adm-panel">
             <tr className="border-b border-adm-border text-left text-adm-t3">
-              {['单号', '类型', '状态', '金额', '来源案号', '通报状态', '时限倒计时'].map((h) => (
+              {['No.', 'Type', 'Status', 'Amount', 'Source Case', 'Report Status', 'Deadline'].map((h) => (
                 <th key={h} className="px-4 py-2 font-mono text-[10px] uppercase tracking-wide">{h}</th>
               ))}
             </tr>
@@ -321,7 +321,7 @@ const IncidentListPage = () => {
             {!loading && items.length === 0 && (
               <tr>
                 <td colSpan={7} className="px-4 py-8 text-center text-adm-t3">
-                  还没有事故——从对账案子定性升级，或点「登记事故」人工登记
+                  No incidents yet — escalate from a reconciliation case's disposition, or click "Register Incident" to register one manually
                 </td>
               </tr>
             )}

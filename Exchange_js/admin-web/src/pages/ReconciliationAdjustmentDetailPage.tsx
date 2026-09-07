@@ -122,8 +122,8 @@ const ReconciliationAdjustmentDetailPage = () => {
   if (!detail) return null;
 
   const reasonLabel = REASON_LABEL[detail.reasonCode];
-  const bookLabel = detail.book === 'CLIENT' ? '客户账簿 / Client' : '公司账簿 / Firm';
-  const directionLabel = detail.direction === 'INCREASE' ? '增加 INCREASE' : '减少 REDUCE';
+  const bookLabel = detail.book === 'CLIENT' ? 'Client' : 'Firm';
+  const directionLabel = detail.direction === 'INCREASE' ? 'INCREASE' : 'REDUCE';
 
   return (
     <div className="flex h-full flex-col">
@@ -143,7 +143,7 @@ const ReconciliationAdjustmentDetailPage = () => {
               <StatusPill value={detail.status} size="md" />
             </div>
             <div className="mt-2 font-mono text-[12px] text-adm-t2">
-              案件{' '}
+              Case{' '}
               <Link
                 to={`/admin/reconciliation/cases/${encodeURIComponent(detail.caseNo)}`}
                 className="text-adm-blue hover:underline"
@@ -154,60 +154,60 @@ const ReconciliationAdjustmentDetailPage = () => {
             </div>
           </section>
 
-          {/* 调账信息 / Adjustment Info */}
-          <DetailCard title="调账信息 / Adjustment Info" columns={3}>
-            <InfoField label="成因 / Reason" value={reasonLabel ? `${reasonLabel} · ${detail.reasonCode}` : detail.reasonCode} />
-            <InfoField label="方向 / Direction" value={directionLabel} mono />
-            <InfoField label="金额 / Amount" value={`${formatAmount(detail.amount, detail.decimals)} ${detail.assetCode}`} accent />
-            <InfoField label="生效日期 / Effective Date" value={detail.effectiveDate} mono />
+          {/* Adjustment Info */}
+          <DetailCard title="Adjustment Info" columns={3}>
+            <InfoField label="Reason" value={reasonLabel ? `${reasonLabel} · ${detail.reasonCode}` : detail.reasonCode} />
+            <InfoField label="Direction" value={directionLabel} mono />
+            <InfoField label="Amount" value={`${formatAmount(detail.amount, detail.decimals)} ${detail.assetCode}`} accent />
+            <InfoField label="Effective Date" value={detail.effectiveDate} mono />
             <InfoField
-              label="关联原单号 / Related Order"
+              label="Related Order"
               value={detail.relatedOrderNo ?? '—'}
               mono={!!detail.relatedOrderNo}
             />
-            <InfoField label="钱包 / Wallet" value={detail.walletNo ?? '—'} mono />
-            <InfoField label="客户 / Customer" value={detail.ownerNo ?? '—（公司账簿）'} />
+            <InfoField label="Wallet" value={detail.walletNo ?? '—'} mono />
+            <InfoField label="Customer" value={detail.ownerNo ?? '— (firm book)'} />
           </DetailCard>
 
-          {/* 两版原因 / Reasons */}
-          <DetailCard title="两版原因 / Reasons" columns={1}>
+          {/* Reasons */}
+          <DetailCard title="Reasons" columns={1}>
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
               <div>
                 <div className="font-mono text-[9px] uppercase tracking-[0.1em] text-adm-t3">
-                  内部原因 / Internal Reason
+                  Internal Reason
                 </div>
                 <div className="mt-1 whitespace-pre-wrap text-[13px] text-adm-t1">{detail.reasonInternal}</div>
               </div>
               <div>
                 <div className="font-mono text-[9px] uppercase tracking-[0.1em] text-adm-t3">
-                  客户可见原因 / Customer-Visible Reason
+                  Internal Note
                 </div>
                 <div className="mt-1 whitespace-pre-wrap text-[13px] text-adm-t1">{detail.reasonCustomer}</div>
                 <p className="mt-1 font-mono text-[9px] text-adm-t3">
-                  本期尚未对客户展示（留给客户流水读模型任务）。
+                  Internal record only — the customer statement shows the standard wording for this reason type.
                 </p>
               </div>
             </div>
           </DetailCard>
 
-          {/* 分录预览 / Posting Preview */}
-          <DetailCard title="分录预览 / Posting Preview" columns={1}>
+          {/* Posting Preview */}
+          <DetailCard title="Posting Preview" columns={1}>
             <div className="flex flex-wrap items-center gap-3 font-mono text-[12px]">
               <span className="rounded border border-adm-border bg-adm-bg px-3 py-2">
-                <span className="text-adm-t3">借 / Dr </span>
+                <span className="text-adm-t3">Dr </span>
                 <span className="text-adm-t1">{detail.debitAccountCode ?? '—'}</span>
               </span>
               <ArrowRight size={14} className="text-adm-t3" />
               <span className="rounded border border-adm-border bg-adm-bg px-3 py-2">
-                <span className="text-adm-t3">贷 / Cr </span>
+                <span className="text-adm-t3">Cr </span>
                 <span className="text-adm-t1">{detail.creditAccountCode ?? '—'}</span>
               </span>
               <span className="text-adm-t2">{formatAmount(detail.amount, detail.decimals)} {detail.assetCode}</span>
             </div>
             <p className="mt-2 font-mono text-[10px] text-adm-t3">
               {detail.status === 'POSTED'
-                ? '审批已通过，此分录已实际过账。'
-                : '预览——按（账簿 × 方向）推导，审批通过后才会实际过账（见 adjustment-rules.ts resolvePostingLegs）。'}
+                ? 'Approved — this entry has been posted.'
+                : 'Preview — derived from (book × direction); posts once approved (see adjustment-rules.ts resolvePostingLegs).'}
             </p>
             {detail.status === 'POSTED' && detail.tbTransferId && (
               <Link
@@ -215,13 +215,13 @@ const ReconciliationAdjustmentDetailPage = () => {
                 className="mt-3 inline-flex items-center gap-1.5 rounded border border-adm-blue/30 bg-adm-blue/5 px-3 py-1.5 font-mono text-[11px] text-adm-blue transition-colors hover:bg-adm-blue/10"
               >
                 <ExternalLink size={12} />
-                查看记账凭证 / View Ledger Evidence
+                View Ledger Evidence
               </Link>
             )}
           </DetailCard>
 
-          {/* 审批 / Approval */}
-          <DetailCard title="审批 / Approval" columns={1}>
+          {/* Approval */}
+          <DetailCard title="Approval" columns={1}>
             {detail.approvalNo ? (
               <button
                 type="button"
@@ -231,11 +231,11 @@ const ReconciliationAdjustmentDetailPage = () => {
                 <ExternalLink size={12} />
                 {detail.approvalNo}
                 <ArrowRight size={11} />
-                审批中心
+                Approval Center
               </button>
             ) : (
               <div className="font-mono text-[11px] text-adm-t3">
-                尚未提审（DRAFT）。
+                Not yet submitted (DRAFT).
               </div>
             )}
           </DetailCard>

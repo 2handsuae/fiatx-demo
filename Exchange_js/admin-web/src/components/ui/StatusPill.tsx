@@ -15,6 +15,7 @@ const STATUS_PILL_MAP: Record<string, string> = {
   APPROVED: 'bg-green-100 text-green-800',
   CLEARED: 'bg-green-100 text-green-800',
   CLEAR: 'bg-green-100 text-green-800',
+  COMPLETED: 'bg-green-100 text-green-800',
   PASS: 'bg-green-100 text-green-800',
   POSTED: 'bg-green-100 text-green-800',
   CONFIRMED: 'bg-indigo-100 text-indigo-800',

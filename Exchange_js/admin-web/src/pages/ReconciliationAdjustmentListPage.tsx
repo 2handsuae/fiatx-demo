@@ -6,7 +6,7 @@
 // { items: AdjustmentListRow[], total }.
 //
 // English-only page (this wave converts new admin pages to English); reuses
-// REASON_LABEL (still Chinese, Task 9's job to translate — not this task's)
+// REASON_LABEL is already English (translated by Task 9)
 // and formatAmount from their single sources rather than forking a third copy.
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';

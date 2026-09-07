@@ -210,7 +210,7 @@ const ReconciliationCasesListPage = () => {
                   ['Δ', '120px', 'right'],
                   ['First Run', '100px', 'left'],
                   ['Last Run', '100px', 'left'],
-                  ['定性进度', '90px', 'left'],
+                  ['Disposition', '90px', 'left'],
                   ['Status', '100px', 'left'],
                 ] as [string, string, string][]
               ).map(([label, w, align]) => (
@@ -302,7 +302,7 @@ const ReconciliationCasesListPage = () => {
                       </span>
                       {kase.slaBreached && (
                         <span className="ml-1 whitespace-nowrap rounded border border-adm-red/30 bg-adm-red/10 px-1 py-0.5 font-mono text-[9px] font-semibold text-adm-red">
-                          超期
+                          Overdue
                         </span>
                       )}
                     </td>
@@ -346,8 +346,8 @@ const ReconciliationCasesListPage = () => {
                       {kase.pendingFunding && (
                         <span className={`ml-1 inline-flex rounded border px-1 py-0.5 font-mono text-[9px] ${kase.pendingFunding.status === 'PENDING' ? 'border-adm-amber/40 bg-adm-amber/10 text-adm-amber' : 'border-adm-blue/40 bg-adm-blue/10 text-adm-blue'}`}>
                           {kase.pendingFunding.kind === 'COMPENSATION'
-                            ? (kase.pendingFunding.status === 'PENDING' ? '待补款' : '补款中')
-                            : (kase.pendingFunding.status === 'PENDING' ? '待垫款' : '垫款中')}
+                            ? (kase.pendingFunding.status === 'PENDING' ? 'Compensation pending' : 'Compensation in progress')
+                            : (kase.pendingFunding.status === 'PENDING' ? 'Advance pending' : 'Advance in progress')}
                         </span>
                       )}
                     </td>

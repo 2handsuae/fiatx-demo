@@ -308,7 +308,7 @@ const FundsOrderDetail = () => {
   const handleManualPush = async () => {
     if (!data) return;
     if (!manualReceiptRef.trim() || !manualExternalDate.trim() || !manualReason.trim()) {
-      alert('All three fields are required / 三项证据均为必填');
+      alert('All three fields are required');
       return;
     }
     setPushSubmitting(true);
@@ -485,7 +485,7 @@ const FundsOrderDetail = () => {
             <div className="bg-adm-card px-6 py-5">
               <div className="rounded-lg border border-amber-200 bg-amber-50 p-4">
                 <div className="mb-2 text-sm font-semibold text-amber-800">
-                  ⚡ 模拟操作 / Simulation
+                  ⚡ Simulation
                 </div>
                 {(() => {
                   const actions = getFundsOrderSimActions(
@@ -497,7 +497,7 @@ const FundsOrderDetail = () => {
                   if (actions.length === 0) {
                     return (
                       <div className="text-sm text-gray-500">
-                        终态或无可用动作 / No actions available
+                        No actions available
                       </div>
                     );
                   }
@@ -615,7 +615,7 @@ const FundsOrderDetail = () => {
                 onClick={handleSyncPush}
                 className="flex w-full items-center justify-center rounded border border-adm-blue/40 bg-adm-blue/10 px-3 py-2 font-mono text-[12px] font-semibold text-adm-blue transition-colors hover:bg-adm-blue/20 disabled:opacity-50"
               >
-                同步状态 / Sync
+                Sync
               </button>
               <button
                 type="button"
@@ -623,10 +623,10 @@ const FundsOrderDetail = () => {
                 onClick={() => setManualOpen(true)}
                 className="mt-2 flex w-full items-center justify-center rounded border border-adm-border bg-adm-bg px-3 py-2 font-mono text-[12px] font-semibold text-adm-t2 transition-colors hover:border-adm-t3 disabled:opacity-50"
               >
-                人工确认 / Manual Confirm
+                Manual Confirm
               </button>
               <p className="mt-2 text-[10px] leading-relaxed text-adm-t3">
-                推至终态以便重对账关单。同步：查唯一回执自动推进；人工：凭证据三件套强推。
+                Push to a terminal state so the next reconciliation run closes this case. Sync: auto-advances from the unique receipt. Manual: force-advances with the evidence trio.
               </p>
             </SidebarGroup>
           )}
@@ -683,7 +683,7 @@ const FundsOrderDetail = () => {
         </div>
       </div>
 
-      {/* ── 人工确认弹层 / Manual Confirm modal ── 三输入全必填，POST /push/manual */}
+      {/* ── Manual Confirm modal ── all three inputs required, POST /push/manual */}
       {manualOpen && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
@@ -694,15 +694,15 @@ const FundsOrderDetail = () => {
             onClick={(e) => e.stopPropagation()}
           >
             <div className="mb-1 font-mono text-[13px] font-semibold text-adm-t1">
-              人工确认推单 / Manual Confirm Push
+              Manual Confirm Push
             </div>
             <p className="mb-4 text-[11px] leading-relaxed text-adm-t3">
               Force this order to CLEARED with operator-supplied evidence. All three
-              fields are required. / 凭证据三件套强推至终态，三项均为必填。
+              fields are required.
             </p>
 
             <label className="mb-1 block font-mono text-[10px] uppercase tracking-wider text-adm-t3">
-              回执号 / Receipt Ref
+              Receipt Ref
             </label>
             <input
               type="text"
@@ -713,7 +713,7 @@ const FundsOrderDetail = () => {
             />
 
             <label className="mb-1 block font-mono text-[10px] uppercase tracking-wider text-adm-t3">
-              外部实际动账日 / Effective Date
+              Effective Date
             </label>
             <input
               type="date"
@@ -723,13 +723,13 @@ const FundsOrderDetail = () => {
             />
 
             <label className="mb-1 block font-mono text-[10px] uppercase tracking-wider text-adm-t3">
-              原因 / Reason
+              Reason
             </label>
             <textarea
               value={manualReason}
               onChange={(e) => setManualReason(e.target.value)}
               rows={3}
-              placeholder="Why is a manual confirm needed? / 为何需要人工确认"
+              placeholder="Why is a manual confirm needed?"
               className="mb-4 w-full rounded border border-adm-border bg-adm-bg px-3 py-2 text-[12px] text-adm-t1 placeholder:text-adm-t3 focus:border-adm-blue focus:outline-none"
             />
 
@@ -740,7 +740,7 @@ const FundsOrderDetail = () => {
                 onClick={() => setManualOpen(false)}
                 className="rounded border border-adm-border bg-adm-bg px-3 py-1.5 font-mono text-[12px] text-adm-t2 transition-colors hover:border-adm-t3 disabled:opacity-50"
               >
-                取消 / Cancel
+                Cancel
               </button>
               <button
                 type="button"
@@ -753,7 +753,7 @@ const FundsOrderDetail = () => {
                 onClick={handleManualPush}
                 className="rounded border border-adm-blue/40 bg-adm-blue/10 px-3 py-1.5 font-mono text-[12px] font-semibold text-adm-blue transition-colors hover:bg-adm-blue/20 disabled:opacity-50"
               >
-                确认强推 / Confirm
+                Confirm
               </button>
             </div>
           </div>

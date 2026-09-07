@@ -6,8 +6,8 @@
 export default function AdminHomePlaceholder() {
   return (
     <div className="flex min-h-[60vh] flex-col items-center justify-center gap-3 text-center">
-      <h1 className="text-xl font-semibold text-adm-t1">FiatX 管理台</h1>
-      <p className="text-sm text-adm-t3">请从左侧菜单开始。</p>
+      <h1 className="text-xl font-semibold text-adm-t1">FiatX Admin</h1>
+      <p className="text-sm text-adm-t3">Start from the menu on the left.</p>
     </div>
   );
 }

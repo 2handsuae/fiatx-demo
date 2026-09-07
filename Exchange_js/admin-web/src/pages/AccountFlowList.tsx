@@ -365,7 +365,7 @@ const AccountFlowList = () => {
               <th
                 className={th}
                 style={{ width: 130, textAlign: 'right' }}
-                title="过账后当时余额"
+                title="Account balance at the moment this entry posted"
               >
                 Balance After
               </th>

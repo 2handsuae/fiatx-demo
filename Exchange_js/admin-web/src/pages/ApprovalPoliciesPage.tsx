@@ -62,8 +62,12 @@ const ACTION_TYPE_LABELS: Record<string, string> = {
   WITHDRAW_SANCTION_REFUND: 'Withdraw Sanction Refund',
   RECON_ADJUSTMENT_POST: 'Recon Adjustment Post',
   // 平账三期：事故结案拆两个动作类型（安全类两步 MLRO→CFO / 资金类单步 CFO）
-  INCIDENT_CLOSE_SECURITY: '事故结案·安全类',
-  INCIDENT_CLOSE_FINANCIAL: '事故结案·资金类',
+  INCIDENT_CLOSE_SECURITY: 'Incident Close · Security',
+  INCIDENT_CLOSE_FINANCIAL: 'Incident Close · Financial',
+  DEPOSIT_SUPPLEMENT: 'Deposit supplement',
+  DEPOSIT_CLAWBACK: 'Deposit recall (clawback)',
+  WITHDRAW_RETURN_CLAIM: 'Withdrawal return claim',
+  INTERNAL_TRANSFER_APPROVAL: 'Internal transfer',
 };
 
 export default function ApprovalPoliciesPage() {

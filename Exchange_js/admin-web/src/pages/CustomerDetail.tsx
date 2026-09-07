@@ -475,7 +475,7 @@ const CustomerDetail = () => {
               {/* 材料终拒待离场（第二幕波一；decisions.md 2026-09-06）：只读展示，无按钮 */}
               {hasFinalMaterialRejection && (
                 <span className="inline-flex items-center rounded border border-adm-red/25 bg-adm-red/10 px-1.5 py-px font-mono text-[9px] font-semibold text-adm-red">
-                  尽调未完成 · 待离场处理
+                  Due diligence incomplete · pending offboarding
                 </span>
               )}
             </div>

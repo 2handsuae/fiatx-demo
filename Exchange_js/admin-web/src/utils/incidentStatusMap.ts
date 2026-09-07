@@ -1,12 +1,12 @@
 // 平账三期 · 事故登记：状态 / 类型 / 定损口径 / 升级去向 / 善后类型 / 通报依据的展示人话。
 // 唯一真相在后端 incident.constants.ts，这里只是展示词（惯例同 internalTransferStatusMap.ts）。
 export const INCIDENT_STATUS_LABEL: Record<string, string> = {
-  REGISTERED: '已登记',
-  INVESTIGATING: '调查中',
-  ASSESSED: '已定损',
-  RESOLVING: '处置中',
-  CLOSED: '已结案',
-  WITHDRAWN: '已撤回',
+  REGISTERED: 'Registered',
+  INVESTIGATING: 'Investigating',
+  ASSESSED: 'Assessed',
+  RESOLVING: 'Resolving',
+  CLOSED: 'Closed',
+  WITHDRAWN: 'Withdrawn',
 };
 
 export const INCIDENT_STATUSES = [
@@ -19,10 +19,10 @@ export const INCIDENT_STATUSES = [
 ] as const;
 
 export const INCIDENT_TYPE_LABEL: Record<string, string> = {
-  UNAUTHORIZED_OUTFLOW: '未授权转出',
-  LARGE_UNEXPLAINED: '大额查不出',
-  CLIENT_SHORTFALL: '退汇欠款',
-  MANUAL: '人工登记',
+  UNAUTHORIZED_OUTFLOW: 'Unauthorized outflow',
+  LARGE_UNEXPLAINED: 'Large unexplained',
+  CLIENT_SHORTFALL: 'Client shortfall',
+  MANUAL: 'Manual registration',
 };
 
 export const INCIDENT_TYPES = [
@@ -33,10 +33,10 @@ export const INCIDENT_TYPES = [
 ] as const;
 
 export const ASSESSMENT_BASIS_LABEL: Record<string, string> = {
-  RECOVERED: '追回',
-  FIRM_LOSS: '认损',
-  CLIENT_COLLECTION: '追索',
-  NO_LOSS: '无损失',
+  RECOVERED: 'Recovered',
+  FIRM_LOSS: 'Loss recognized',
+  CLIENT_COLLECTION: 'Pursuing collection',
+  NO_LOSS: 'No loss',
 };
 
 export const ASSESSMENT_BASIS_VALUES = ['RECOVERED', 'FIRM_LOSS', 'CLIENT_COLLECTION', 'NO_LOSS'] as const;
@@ -44,16 +44,16 @@ export const ASSESSMENT_BASIS_VALUES = ['RECOVERED', 'FIRM_LOSS', 'CLIENT_COLLEC
 export const ESCALATION_TARGET_LABEL: Record<string, string> = {
   MLRO: 'MLRO',
   CFO: 'CFO',
-  SENIOR_MANAGEMENT: '高级管理层',
+  SENIOR_MANAGEMENT: 'Senior management',
 };
 
 export const ESCALATION_TARGETS = ['MLRO', 'CFO', 'SENIOR_MANAGEMENT'] as const;
 
 export const REMEDIATION_KIND_LABEL: Record<string, string> = {
-  SUPPLEMENT: '补录',
-  CLAIM: '认领',
-  ADJUSTMENT: '调账',
-  TRANSFER: '划转',
+  SUPPLEMENT: 'Supplement',
+  CLAIM: 'Claim',
+  ADJUSTMENT: 'Adjustment',
+  TRANSFER: 'Transfer',
 };
 
 export const REMEDIATION_KINDS = ['SUPPLEMENT', 'CLAIM', 'ADJUSTMENT', 'TRANSFER'] as const;
@@ -63,14 +63,14 @@ export const REMEDIATION_KINDS = ['SUPPLEMENT', 'CLAIM', 'ADJUSTMENT', 'TRANSFER
  * hours=null 的依据没有法定钟，界面显式「未设时限」，数字不杜撰。
  */
 export const INCIDENT_REPORT_BASES: Record<string, { label: string; hours: number | null }> = {
-  TIR_K_H: { label: 'TIR Rulebook Section K + H — 网安 / BCDR 事件报 VARA（72h）', hours: 72 },
-  CRM_IV_E_5: { label: 'CRM IV.E.5 — Client Money 重大未平差异（无法定钟）', hours: null },
-  CRM_V_D_2: { label: 'CRM V.D.2 — Client VAs 重大未平差异（无法定钟）', hours: null },
+  TIR_K_H: { label: 'TIR Rulebook Section K + H — Cyber / BCDR incident reporting to VARA (72h)', hours: 72 },
+  CRM_IV_E_5: { label: 'CRM IV.E.5 — Material Client Money discrepancy (no statutory clock)', hours: null },
+  CRM_V_D_2: { label: 'CRM V.D.2 — Material Client VA discrepancy (no statutory clock)', hours: null },
 };
 
 export function reportStatusLabel(reportRequired: boolean, reportedAt: string | null): string {
-  if (!reportRequired) return '无需通报';
-  return reportedAt ? '已通报' : '待通报';
+  if (!reportRequired) return 'Not required';
+  return reportedAt ? 'Reported' : 'Pending report';
 }
 
 export type ReportDeadlineTone = 'none' | 'normal' | 'breached' | 'done';
@@ -84,17 +84,17 @@ export function reportDeadlineDisplay(
   deadlineAt: string | null,
   reportedAt: string | null,
 ): { text: string; tone: ReportDeadlineTone } {
-  if (reportedAt) return { text: '已通报', tone: 'done' };
-  if (!deadlineAt) return { text: '未设时限', tone: 'none' };
+  if (reportedAt) return { text: 'Reported', tone: 'done' };
+  if (!deadlineAt) return { text: 'No deadline set', tone: 'none' };
   const ms = new Date(deadlineAt).getTime() - Date.now();
-  if (ms <= 0) return { text: '已超时', tone: 'breached' };
+  if (ms <= 0) return { text: 'Overdue', tone: 'breached' };
   const totalMinutes = Math.floor(ms / 60_000);
   const days = Math.floor(totalMinutes / (24 * 60));
   const hours = Math.floor((totalMinutes % (24 * 60)) / 60);
   const minutes = totalMinutes % 60;
-  if (days > 0) return { text: `剩 ${days}d ${hours}h`, tone: 'normal' };
-  if (hours > 0) return { text: `剩 ${hours}h ${minutes}m`, tone: 'normal' };
-  return { text: `剩 ${minutes}m`, tone: 'normal' };
+  if (days > 0) return { text: `${days}d ${hours}h`, tone: 'normal' };
+  if (hours > 0) return { text: `${hours}h ${minutes}m`, tone: 'normal' };
+  return { text: `${minutes}m`, tone: 'normal' };
 }
 
 export const REPORT_DEADLINE_TONE_CLASS: Record<ReportDeadlineTone, string> = {

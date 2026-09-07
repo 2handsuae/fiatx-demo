@@ -311,7 +311,7 @@ const ApprovalDetailPage = () => {
         `${import.meta.env.VITE_API_URL}/admin/control-gates/approvals/${detail.approvalNo}/simulate-timeout`,
         { method: 'POST' },
       );
-      setNotice('已把超时时间拨到过去，一分钟内该单将自动过期');
+      setNotice('Timeout deadline pushed into the past — this item will auto-expire within a minute');
       await fetchDetail();
     } catch (e: unknown) {
       if (e instanceof AdminSessionError) return;
@@ -611,7 +611,7 @@ const ApprovalDetailPage = () => {
                 disabled={simulatingTimeout}
                 className={adminButtonClass('simulationAction')}
               >
-                {simulatingTimeout ? 'Working…' : '⚡ 模拟超时'}
+                {simulatingTimeout ? 'Working…' : '⚡ Simulate Timeout'}
               </button>
             </SidebarGroup>
           )}

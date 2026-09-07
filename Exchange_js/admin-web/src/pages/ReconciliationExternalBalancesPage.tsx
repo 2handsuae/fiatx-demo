@@ -324,7 +324,7 @@ const ReconciliationExternalBalancesPage = () => {
                   href="/admin/ledger/flows"
                   className="text-[12px] text-adm-amber hover:underline"
                 >
-                  View in Internal Book / 流水 →
+                  View in Internal Book →
                 </a>
                 <p className="mt-1 text-[10px] text-adm-t3">
                   Opens the internal account flows (raw per-account ledger rows).

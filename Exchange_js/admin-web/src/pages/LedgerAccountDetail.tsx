@@ -219,7 +219,7 @@ export default function LedgerAccountDetail() {
                 className={adminButtonClass('detailUtility')}
                 title="View this account's ledger flows"
               >
-                View Flows (流水) →
+                View Flows →
               </button>
             </div>
             <div className="mt-3 grid grid-cols-2 gap-x-8 gap-y-2">

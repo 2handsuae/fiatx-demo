@@ -87,7 +87,7 @@ const InternalTransferDetail = () => {
 
   const cancel = async () => {
     if (!detail) return;
-    const reason = window.prompt('撤回理由（必填）');
+    const reason = window.prompt('Withdrawal reason (required)');
     if (!reason?.trim()) return;
     setCancelling(true);
     try {
@@ -96,7 +96,7 @@ const InternalTransferDetail = () => {
         { method: 'POST', body: JSON.stringify({ reason: reason.trim() }) },
       );
       if (!res.ok) {
-        alert(await getApiErrorMessage(res, '撤回失败'));
+        alert(await getApiErrorMessage(res, 'Withdrawal failed'));
         return;
       }
       await fetchDetail();
@@ -123,7 +123,7 @@ const InternalTransferDetail = () => {
   return (
     <div className="flex h-full flex-col">
       <DetailPageHeader
-        title="Internal Transfer · 内部划转单"
+        title="Internal Transfer"
         subtitle={detail.transferNo}
         onBack={() => navigate('/admin/treasury/internal-transfers')}
         onRefresh={() => void fetchDetail()}
@@ -138,55 +138,55 @@ const InternalTransferDetail = () => {
             onClick={() => void cancel()}
             className={adminButtonClass('detailUtility')}
           >
-            撤回 / Cancel
+            Cancel
           </button>
         )}
       </DetailPageHeader>
 
       <div className="flex flex-1 overflow-hidden">
         <div className="flex-1 space-y-4 overflow-y-auto p-6">
-          <DetailCard title="划转" columns={3}>
+          <DetailCard title="Transfer" columns={3}>
             <InfoField
-              label="用途"
+              label="Purpose"
               value={INTERNAL_TRANSFER_PURPOSE_LABEL[detail.purpose] ?? detail.purpose}
             />
-            <InfoField label="客户" value={detail.customerNo} mono />
-            <InfoField label="金额" value={`${detail.amount} ${detail.currency}`} mono accent />
-            <InfoField label="路线" value={route} mono />
+            <InfoField label="Customer" value={detail.customerNo} mono />
+            <InfoField label="Amount" value={`${detail.amount} ${detail.currency}`} mono accent />
+            <InfoField label="Route" value={route} mono />
             <InfoField
-              label="状态"
+              label="Status"
               value={INTERNAL_TRANSFER_STATUS_LABEL[detail.status] ?? detail.status}
             />
-            <InfoField label="理由" value={detail.reason} />
+            <InfoField label="Reason" value={detail.reason} />
             {detail.failureNote && (
               <InfoField
-                label="失败"
+                label="Failure"
                 value={`${detail.failureReasonCode ?? ''} ${detail.failureNote}`}
                 highlight
               />
             )}
           </DetailCard>
 
-          <DetailCard title="来源" columns={3}>
+          <DetailCard title="Source" columns={3}>
             <InfoField
-              label="对账案"
+              label="Recon Case"
               value={detail.sourceCaseNo}
               mono
               link={`/admin/reconciliation/cases/${encodeURIComponent(detail.sourceCaseNo)}`}
             />
             {detail.sourceAdjustmentNo && (
               <InfoField
-                label="认损单"
+                label="Loss-Recognition Adjustment"
                 value={detail.sourceAdjustmentNo}
                 mono
                 link={`/admin/reconciliation/adjustments/${encodeURIComponent(detail.sourceAdjustmentNo)}`}
               />
             )}
             {detail.sourceExternalRef && (
-              <InfoField label="退汇账单行参考号" value={detail.sourceExternalRef} mono />
+              <InfoField label="Return Statement Line Ref" value={detail.sourceExternalRef} mono />
             )}
             <InfoField
-              label="审批单"
+              label="Approval"
               value={detail.approvalNo}
               mono
               link={
@@ -197,11 +197,11 @@ const InternalTransferDetail = () => {
             />
           </DetailCard>
 
-          <DetailCard title="资金单腿（⚡ 推进在资金单页）" columns={1}>
+          <DetailCard title="Funds Order Legs (⚡ advance from the Funds Order page)" columns={1}>
             <table className="w-full text-xs">
               <thead>
                 <tr className="text-left text-adm-t3">
-                  {['腿', '资金单', '从 → 到', '状态', '参考号'].map((h) => (
+                  {['Leg', 'Funds Order', 'From → To', 'Status', 'Reference'].map((h) => (
                     <th key={h} className="px-2 py-1 font-mono text-[10px]">
                       {h}
                     </th>
@@ -232,7 +232,7 @@ const InternalTransferDetail = () => {
                 {detail.legs.length === 0 && (
                   <tr>
                     <td colSpan={5} className="px-2 py-3 text-adm-t3">
-                      批准后第一腿才诞生
+                      The first leg is created once approved
                     </td>
                   </tr>
                 )}

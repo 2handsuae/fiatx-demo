@@ -35,14 +35,14 @@ export async function triggerWalletReconRun(businessDate: string): Promise<boole
       },
     );
     if (!res.ok) {
-      alert(await getApiErrorMessage(res, 'Re-reconcile failed / 重新对账失败'));
+      alert(await getApiErrorMessage(res, 'Re-reconcile failed'));
       return false;
     }
     return true;
   } catch (error) {
     if (error instanceof AdminSessionError) return false;
     console.error('Re-reconcile request failed', error);
-    alert('Re-reconcile request failed / 重新对账请求失败');
+    alert('Re-reconcile request failed');
     return false;
   }
 }
