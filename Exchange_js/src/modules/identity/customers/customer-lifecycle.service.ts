@@ -21,7 +21,7 @@ export class CustomerLifecycleService {
     action: CustomerLifecycleAction,
     tx?: Prisma.TransactionClient,
   ): Promise<{ from: CustomerLifecycle; to: CustomerLifecycle }> {
-    const db = (tx ?? this.prisma) as PrismaService;
+    const db = tx ?? this.prisma;
     const c = await db.customerMain.findUnique({
       where: { id: customerId },
       select: { lifecycle: true, onboardingApprovedAt: true, onboardingFinalRejectedAt: true },

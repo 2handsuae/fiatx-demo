@@ -39,5 +39,27 @@ describe('CustomerLifecycleService.applyAction', () => {
     const prisma = makePrisma({ lifecycle: 'PROSPECT', onboardingApprovedAt: null, onboardingFinalRejectedAt: null });
     const svc = new CustomerLifecycleService(prisma as any);
     await expect(svc.applyAction('cid', 'FINAL_APPROVED')).rejects.toThrow(BadRequestException);
+    expect(prisma.customerMain.update).not.toHaveBeenCalled();
+  });
+
+  it('传入 tx 时走 tx，不碰构造注入的 prisma', async () => {
+    const prisma = makePrisma({ lifecycle: 'IN_VERIFICATION', onboardingApprovedAt: null, onboardingFinalRejectedAt: null });
+    const svc = new CustomerLifecycleService(prisma as any);
+    const tx = {
+      customerMain: {
+        findUnique: jest.fn().mockResolvedValue({
+          lifecycle: 'IN_VERIFICATION',
+          onboardingApprovedAt: null,
+          onboardingFinalRejectedAt: null,
+        }),
+        update: jest.fn().mockResolvedValue({}),
+      },
+    };
+    const r = await svc.applyAction('cid', 'CDD_CLEARED', tx as any);
+    expect(r).toEqual({ from: 'IN_VERIFICATION', to: 'ACTIVE' });
+    expect(tx.customerMain.findUnique).toHaveBeenCalledTimes(1);
+    expect(tx.customerMain.update).toHaveBeenCalledTimes(1);
+    expect(prisma.customerMain.findUnique).not.toHaveBeenCalled();
+    expect(prisma.customerMain.update).not.toHaveBeenCalled();
   });
 });
