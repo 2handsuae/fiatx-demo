@@ -51,36 +51,36 @@ function makeWorkflow(o: Partial<Record<'adjustment' | 'asset' | 'wallet' | 'dis
   return { wf, prisma, transfers, approvals, accounting, auditLogs, fundsOrders, systemWallets, supplementEvidence, custodianStatement, transferRow };
 }
 
-describe('InternalTransferWorkflowService（平账二期 Task 7）', () => {
-  describe('initiateCompensation —— 出生守卫', () => {
-    it('认损单未落账 → 400', async () => {
+describe('InternalTransferWorkflowService (Task 7)', () => {
+  describe('initiateCompensation — birth guards', () => {
+    it('the loss-recognition adjustment is not yet posted → 400', async () => {
       const { wf } = makeWorkflow({ adjustment: { adjustmentNo: 'ADJ1', status: 'PENDING_APPROVAL', reasonCode: 'UNEXPLAINED_CLIENT_LOSS', book: 'CLIENT' } });
-      await expect(wf.initiateCompensation({ adjustmentNo: 'ADJ1', reason: 'r' }, treasury)).rejects.toThrow(/还没落账/);
+      await expect(wf.initiateCompensation({ adjustmentNo: 'ADJ1', reason: 'r' }, treasury)).rejects.toThrow(/not yet posted/);
     });
-    it('不是客户池认损单 → 400', async () => {
+    it('not a client-pool loss-recognition adjustment → 400', async () => {
       const { wf } = makeWorkflow({ adjustment: { adjustmentNo: 'ADJ1', status: 'POSTED', reasonCode: 'UNEXPLAINED_WRITE_OFF', book: 'FIRM' } });
-      await expect(wf.initiateCompensation({ adjustmentNo: 'ADJ1', reason: 'r' }, treasury)).rejects.toThrow(/不是客户池认损单/);
+      await expect(wf.initiateCompensation({ adjustmentNo: 'ADJ1', reason: 'r' }, treasury)).rejects.toThrow(/not a client-pool loss-recognition adjustment/);
     });
-    it('同一认损单已有未走完 / 已成功的划转单 → 409', async () => {
+    it('the same adjustment already has an unfinished / successful transfer → 409', async () => {
       const { wf, transfers } = makeWorkflow();
       transfers.findBlockingBySource.mockResolvedValueOnce({ transferNo: 'ITR0', status: 'SUCCESS' });
       await expect(wf.initiateCompensation({ adjustmentNo: 'ADJ1', reason: 'r' }, treasury)).rejects.toBeInstanceOf(ConflictException);
     });
-    it('运营户余额不够 → 400（守卫来自主体）', async () => {
+    it('operating account balance is not enough → 400 (guard comes from the entity)', async () => {
       const { wf, transfers } = makeWorkflow();
-      transfers.assertFirmOpsBalance.mockRejectedValueOnce(new Error('运营户 USDT 余额不足'));
-      await expect(wf.initiateCompensation({ adjustmentNo: 'ADJ1', reason: 'r' }, treasury)).rejects.toThrow(/余额不足/);
+      transfers.assertFirmOpsBalance.mockRejectedValueOnce(new Error('Insufficient USDT balance in the operating account'));
+      await expect(wf.initiateCompensation({ adjustmentNo: 'ADJ1', reason: 'r' }, treasury)).rejects.toThrow(/Insufficient/);
     });
-    it('正路径：加密币一腿（无中转）、金额 = 认损额、送 CFO 审批、审计 REQUESTED、快照零 UUID', async () => {
+    it('happy path: one crypto leg (no via wallet), amount = the recognized loss, sent to CFO approval, audit REQUESTED, snapshot has zero UUIDs', async () => {
       const { wf, transfers, approvals, auditLogs } = makeWorkflow();
-      const r = await wf.initiateCompensation({ adjustmentNo: 'ADJ1', reason: '认赔' }, treasury);
+      const r = await wf.initiateCompensation({ adjustmentNo: 'ADJ1', reason: 'Loss recognized' }, treasury);
       expect(r).toEqual({ transferNo: 'ITR1', approvalNo: 'APR1', status: 'PENDING_APPROVAL' });
       expect(transfers.create).toHaveBeenCalledWith(expect.objectContaining({ purpose: 'CLIENT_COMPENSATION', amountMajor: '7.500000', fromWalletId: 'w-ops', viaWalletId: null, toWalletId: 'w-cust', customerNo: 'CU1', sourceAdjustmentNo: 'ADJ1', sourceCaseNo: 'REC1' }));
       const snapshot = approvals.createAndSubmit.mock.calls[0][0];
       expect(snapshot.actionType).toBe('INTERNAL_TRANSFER_APPROVAL');
       expect(snapshot.entityRef).toBe('ITR1');
       expect(JSON.stringify(snapshot.objectSnapshot)).not.toMatch(/uuid-|w-ops|w-cust/);
-      expect(snapshot.objectSnapshot.impact).toContain('补款 7.500000 USDT');
+      expect(snapshot.objectSnapshot.impact).toContain('compensation of 7.500000 USDT');
       expect(auditLogs.recordByActor.mock.calls[0][0]).toMatchObject({ action: 'INTERNAL_TRANSFER_REQUESTED', actionDomain: 'TREASURY', primarySubjectNo: 'ITR1', amount: '7.500000' });
       expect(auditLogs.recordByActor.mock.calls[0][0].requestId).toMatch(/^INTERNAL_TRANSFER_REQUESTED_ITR1_/);
     });
@@ -88,53 +88,53 @@ describe('InternalTransferWorkflowService（平账二期 Task 7）', () => {
 
   describe('initiateAdvance', () => {
     const disposition = { dispositionNo: 'RCD1', outlet: 'SUPPLEMENT', deferredTarget: 'SUPPLEMENT_BOUNCE', supplementNo: null };
-    it('可用余额够扣 → 400 不需要垫款', async () => {
+    it('available balance already covers it → 400, no advance needed', async () => {
       const { wf, accounting } = makeWorkflow({ disposition, asset: AED });
       accounting.getCustomerAvailableBalance.mockResolvedValueOnce({ available: 120_000n, held: 0n, total: 120_000n });
-      await expect(wf.initiateAdvance({ caseNo: 'REC2', externalLineId: 'line-1', reason: 'r' }, treasury)).rejects.toThrow(/不需要垫款/);
+      await expect(wf.initiateAdvance({ caseNo: 'REC2', externalLineId: 'line-1', reason: 'r' }, treasury)).rejects.toThrow(/no advance is needed/);
     });
-    it('未定性为退汇 → 400', async () => {
+    it('not classified as a bounced deposit → 400', async () => {
       const { wf } = makeWorkflow({ disposition: { ...disposition, deferredTarget: 'SUPPLEMENT_DEPOSIT' }, asset: AED });
-      await expect(wf.initiateAdvance({ caseNo: 'REC2', externalLineId: 'line-1', reason: 'r' }, treasury)).rejects.toThrow(/入金被退汇/);
+      await expect(wf.initiateAdvance({ caseNo: 'REC2', externalLineId: 'line-1', reason: 'r' }, treasury)).rejects.toThrow(/Deposit recalled/);
     });
-    it('正路径：法币两腿（经结算户）、金额 = 退汇 1200 − 可用 300 = 900', async () => {
+    it('happy path: two fiat legs (via the settlement account), amount = bounced 1200 − available 300 = 900', async () => {
       const { wf, transfers, approvals } = makeWorkflow({ disposition, asset: AED });
-      const r = await wf.initiateAdvance({ caseNo: 'REC2', externalLineId: 'line-1', reason: '垫' }, treasury);
+      const r = await wf.initiateAdvance({ caseNo: 'REC2', externalLineId: 'line-1', reason: 'Advance funds' }, treasury);
       expect(r.status).toBe('PENDING_APPROVAL');
       expect(transfers.assertFirmOpsBalance).toHaveBeenCalledWith('AED', 90_000n);
       expect(transfers.create).toHaveBeenCalledWith(expect.objectContaining({ purpose: 'CLIENT_ADVANCE', amountMajor: '900.00', fromWalletId: 'w-ops', viaWalletId: 'w-set', toWalletId: 'w-cust', sourceExternalLineId: 'line-1', sourceCaseNo: 'REC2' }));
-      expect(approvals.createAndSubmit.mock.calls[0][0].objectSnapshot.impact).toContain('垫付 900.00 AED');
+      expect(approvals.createAndSubmit.mock.calls[0][0].objectSnapshot.impact).toContain('Advance 900.00 AED');
     });
   });
 
   describe('onDecided', () => {
     const decided = (decision: any) => ({ decision, actionType: 'INTERNAL_TRANSFER_APPROVAL', entityRef: 'ITR1', approvalId: 'uuid-apr', approvalNo: 'APR1', traceId: 'trace-1', workflowType: 'INTERNAL_TRANSFER', metadata: {} });
-    it('拒绝 → REJECTED + 审计带审批因果', async () => {
+    it('rejected → REJECTED + audit carries the approval causation', async () => {
       const { wf, transfers, auditLogs } = makeWorkflow();
       await wf.onDecided(decided('DECLINED') as any);
       expect(transfers.transition).toHaveBeenCalledWith('ITR1', 'REJECTED', expect.anything());
       expect(auditLogs.recordSystem.mock.calls[0][0]).toMatchObject({ action: 'INTERNAL_TRANSFER_REJECTED', approvalNo: 'APR1', causationId: 'uuid-apr' });
     });
-    it('撤回裁决不处理（撤回由 cancel() 自己收口）', async () => {
+    it('a cancellation decision is not handled here (cancel() closes its own loop)', async () => {
       const { wf, transfers } = makeWorkflow();
       await wf.onDecided(decided('CANCELLED') as any);
       expect(transfers.transition).not.toHaveBeenCalled();
     });
-    it('批准但运营户余额不够 → FAILED(INSUFFICIENT_FIRM_BALANCE)，不建资金单', async () => {
+    it('approved but operating account balance is not enough → FAILED(INSUFFICIENT_FIRM_BALANCE), no funds order created', async () => {
       const { wf, transfers, fundsOrders } = makeWorkflow();
-      transfers.assertFirmOpsBalance.mockRejectedValueOnce(new Error('运营户 USDT 余额不足'));
+      transfers.assertFirmOpsBalance.mockRejectedValueOnce(new Error('Insufficient USDT balance in the operating account'));
       await wf.onDecided(decided('APPROVED') as any);
       expect(transfers.transition).toHaveBeenCalledWith('ITR1', 'FAILED', expect.objectContaining({ failureReasonCode: 'INSUFFICIENT_FIRM_BALANCE' }));
       expect(fundsOrders.create).not.toHaveBeenCalled();
     });
-    it('批准 → 建腿 1（加密币：运营户 → 客户）→ EXECUTING + 审计 EXECUTION_STARTED', async () => {
+    it('approved → creates leg 1 (crypto: operating account → customer) → EXECUTING + audit EXECUTION_STARTED', async () => {
       const { wf, transfers, fundsOrders, auditLogs } = makeWorkflow();
       await wf.onDecided(decided('APPROVED') as any);
       expect(fundsOrders.create).toHaveBeenCalledWith(expect.objectContaining({ internalTransferId: 'uuid-itr', legSeq: 1, initialStatus: 'CREATED', amount: '7.5', fromWalletId: 'w-ops', toWalletId: 'w-cust', fromAddress: 'Tops', toAddress: 'Tcust' }));
       expect(transfers.transition).toHaveBeenCalledWith('ITR1', 'EXECUTING', expect.objectContaining({ executedAt: expect.any(Date) }));
       expect(auditLogs.recordSystem.mock.calls[0][0]).toMatchObject({ action: 'INTERNAL_TRANSFER_EXECUTION_STARTED', approvalNo: 'APR1', causationId: 'uuid-apr' });
     });
-    it('批准 → 法币腿 1 是 运营户 → 结算户', async () => {
+    it('approved → fiat leg 1 is operating account → settlement account', async () => {
       const { wf, fundsOrders } = makeWorkflow({ asset: AED });
       await wf.onDecided(decided('APPROVED') as any);
       expect(fundsOrders.create).toHaveBeenCalledWith(expect.objectContaining({ legSeq: 1, fromWalletId: 'w-ops', toWalletId: 'w-set', fromIban: 'AE-OPS', toIban: 'AE-SET' }));
@@ -145,18 +145,18 @@ describe('InternalTransferWorkflowService（平账二期 Task 7）', () => {
     const executing = (asset: any) => ({ id: 'uuid-itr', transferNo: 'ITR1', purpose: 'CLIENT_COMPENSATION', status: S.EXECUTING, amount: '7.5', assetId: asset.id, asset, fromWalletId: 'w-ops', viaWalletId: asset.type === 'FIAT' ? 'w-set' : null, toWalletId: 'w-cust', customerId: 'uuid-cu', customerNo: 'CU1', reason: 'r', sourceCaseNo: 'REC1', sourceAdjustmentNo: 'ADJ1', sourceExternalLineId: null, traceId: 'trace-1', approvalNo: 'APR1' });
     const evt = (legSeq: number, newStatus: string) => ({ fundsOrderId: `fo-${legSeq}`, fundsOrderNo: `FO${legSeq}`, parent: { internalTransferId: 'uuid-itr' }, legSeq, attempt: 1, oldStatus: null, newStatus });
 
-    it('不是划转腿的事件直接忽略', async () => {
+    it('an event that is not for a transfer leg is ignored outright', async () => {
       const { wf, custodianStatement } = makeWorkflow();
       await wf.handleFundsOrderChanged({ ...evt(1, 'SUBMITTED'), parent: { withdrawTransactionId: 'w' } } as any);
       expect(custodianStatement.recordLegMovement).not.toHaveBeenCalled();
     });
-    it('SUBMITTED：提交那一步就铸参考号（加密币 txHash），随后模拟托管方写两行', async () => {
+    it('SUBMITTED: the reference number is minted at submission (crypto txHash), then the simulated custodian writes two lines', async () => {
       const { wf, prisma, custodianStatement } = makeWorkflow({ transferRow: executing(USDT) });
       await wf.handleFundsOrderChanged(evt(1, 'SUBMITTED') as any);
       expect(prisma.fundsOrder.update).toHaveBeenCalledWith(expect.objectContaining({ where: { id: 'fo-1' }, data: { txHash: expect.stringMatching(/^0x/) } }));
       expect(custodianStatement.recordLegMovement).toHaveBeenCalledWith(expect.objectContaining({ fundsOrderNo: 'FO1', fromWalletId: 'w-ops', toWalletId: 'w-cust', assetCode: 'USDT-TRON', assetType: 'CRYPTO', amountMinor: 7_500_000n, externalRef: expect.stringMatching(/^0x/) }));
     });
-    it('CONFIRMED · 法币腿 1：借运营户 / 贷结算户（81）→ 清算 → 建腿 2（结算户 → 客户）', async () => {
+    it('CONFIRMED · fiat leg 1: debit operating account / credit settlement account (81) → cleared → creates leg 2 (settlement account → customer)', async () => {
       const row = { ...executing(AED), amount: '900' };
       const { wf, accounting, fundsOrders, transfers } = makeWorkflow({ transferRow: row, asset: AED });
       fundsOrders.findById.mockResolvedValueOnce({ id: 'fo-1', fundsOrderNo: 'FO1', legSeq: 1, amount: '900', txHash: null, referenceNo: 'BANK-1', createdAt: new Date(), fromWalletId: 'w-ops', toWalletId: 'w-set' });
@@ -167,7 +167,7 @@ describe('InternalTransferWorkflowService（平账二期 Task 7）', () => {
       expect(fundsOrders.create).toHaveBeenCalledWith(expect.objectContaining({ legSeq: 2, fromWalletId: 'w-set', toWalletId: 'w-cust' }));
       expect(transfers.transition).not.toHaveBeenCalled();
     });
-    it('CONFIRMED · 最后一腿（加密币腿 1）：公司放出（82）+ 客户收到（83，事件码按用途）→ SUCCESS + 审计 LEG_POSTED / SETTLED', async () => {
+    it('CONFIRMED · final leg (crypto leg 1): firm pays out (82) + customer receives (83, event code by purpose) → SUCCESS + audit LEG_POSTED / SETTLED', async () => {
       const { wf, accounting, fundsOrders, transfers, auditLogs } = makeWorkflow({ transferRow: executing(USDT) });
       fundsOrders.findById.mockResolvedValueOnce({ id: 'fo-1', fundsOrderNo: 'FO1', legSeq: 1, amount: '7.5', txHash: '0xleg', referenceNo: null, createdAt: new Date(), fromWalletId: 'w-ops', toWalletId: 'w-cust' });
       await wf.handleFundsOrderChanged(evt(1, 'CONFIRMED') as any);
@@ -178,13 +178,13 @@ describe('InternalTransferWorkflowService（平账二期 Task 7）', () => {
       expect(transfers.transition).toHaveBeenCalledWith('ITR1', 'SUCCESS', expect.objectContaining({ settledAt: expect.any(Date) }));
       expect(auditLogs.recordSystem.mock.calls.map((c: any) => c[0].action)).toEqual(['INTERNAL_TRANSFER_LEG_POSTED', 'INTERNAL_TRANSFER_SETTLED']);
     });
-    it('垫款的客户侧事件码是 INTERNAL_TRANSFER_ADVANCE_IN', async () => {
+    it('the customer-side event code for an advance is INTERNAL_TRANSFER_ADVANCE_IN', async () => {
       const { wf, accounting, fundsOrders } = makeWorkflow({ transferRow: { ...executing(USDT), purpose: 'CLIENT_ADVANCE' } });
       fundsOrders.findById.mockResolvedValueOnce({ id: 'fo-1', fundsOrderNo: 'FO1', legSeq: 1, amount: '7.5', txHash: '0xleg', referenceNo: null, createdAt: new Date(), fromWalletId: 'w-ops', toWalletId: 'w-cust' });
       await wf.handleFundsOrderChanged(evt(1, 'CONFIRMED') as any);
       expect(accounting.executeTransfer.mock.calls[1][0].evidence.eventCode).toBe('INTERNAL_TRANSFER_ADVANCE_IN');
     });
-    it('落账抛错 → 审计 FAILED(POSTING_FAILED)，不清算、不 SUCCESS、不重试', async () => {
+    it('posting throws → audit FAILED(POSTING_FAILED), not cleared, not SUCCESS, no retry', async () => {
       const { wf, accounting, fundsOrders, transfers, auditLogs } = makeWorkflow({ transferRow: executing(USDT) });
       fundsOrders.findById.mockResolvedValueOnce({ id: 'fo-1', fundsOrderNo: 'FO1', legSeq: 1, amount: '7.5', txHash: '0xleg', referenceNo: null, createdAt: new Date(), fromWalletId: 'w-ops', toWalletId: 'w-cust' });
       accounting.executeTransfer.mockRejectedValueOnce(new Error('TB down'));
@@ -193,25 +193,25 @@ describe('InternalTransferWorkflowService（平账二期 Task 7）', () => {
       expect(transfers.transition).not.toHaveBeenCalled();
       expect(auditLogs.recordSystem.mock.calls[0][0]).toMatchObject({ action: 'INTERNAL_TRANSFER_FAILED', reasonCode: 'POSTING_FAILED', outcome: 'FAILED' });
     });
-    it('FAILED · 法币腿 2：订单 FAILED(LEG_FAILED)，备注写清款项停在结算户', async () => {
+    it('FAILED · fiat leg 2: order goes FAILED(LEG_FAILED), the note spells out that funds remain in the settlement account', async () => {
       const { wf, transfers } = makeWorkflow({ transferRow: executing(AED), asset: AED });
       await wf.handleFundsOrderChanged(evt(2, 'FAILED') as any);
-      expect(transfers.transition).toHaveBeenCalledWith('ITR1', 'FAILED', expect.objectContaining({ failureReasonCode: 'LEG_FAILED', failureNote: expect.stringContaining('结算户') }));
+      expect(transfers.transition).toHaveBeenCalledWith('ITR1', 'FAILED', expect.objectContaining({ failureReasonCode: 'LEG_FAILED', failureNote: expect.stringContaining('settlement account') }));
     });
   });
 
   describe('cancel', () => {
-    it('待批可撤：先撤审批单再翻 CANCELLED + 审计', async () => {
+    it('pending-approval transfers can be cancelled: cancels the approval first, then flips to CANCELLED + audit', async () => {
       const { wf, approvals, transfers, auditLogs } = makeWorkflow();
-      const r = await wf.cancel('ITR1', { reason: '开错' }, treasury);
-      expect(approvals.cancel).toHaveBeenCalledWith('APR1', { reason: '开错' }, treasury);
-      expect(transfers.transition).toHaveBeenCalledWith('ITR1', 'CANCELLED', expect.objectContaining({ failureNote: '开错' }));
+      const r = await wf.cancel('ITR1', { reason: 'Opened by mistake' }, treasury);
+      expect(approvals.cancel).toHaveBeenCalledWith('APR1', { reason: 'Opened by mistake' }, treasury);
+      expect(transfers.transition).toHaveBeenCalledWith('ITR1', 'CANCELLED', expect.objectContaining({ failureNote: 'Opened by mistake' }));
       expect(r.status).toBe('CANCELLED');
       expect(auditLogs.recordByActor.mock.calls[0][0].action).toBe('INTERNAL_TRANSFER_CANCELLED');
     });
-    it('执行中不许撤', async () => {
+    it('cannot cancel while executing', async () => {
       const { wf } = makeWorkflow({ transferRow: { transferNo: 'ITR1', status: S.EXECUTING, asset: USDT } });
-      await expect(wf.cancel('ITR1', { reason: 'x' }, treasury)).rejects.toThrow(/不能撤回/);
+      await expect(wf.cancel('ITR1', { reason: 'x' }, treasury)).rejects.toThrow(/cannot be cancelled/);
     });
   });
 });

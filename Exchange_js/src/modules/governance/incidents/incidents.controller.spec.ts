@@ -6,7 +6,7 @@ import { AuthGuard } from '@nestjs/passport';
 import { IncidentsController } from './incidents.controller';
 import { AdminPermissionGuard } from '../../identity/access-control/admin-permission.guard';
 
-describe('IncidentsController（Task 8：薄转发）', () => {
+describe('IncidentsController (Task 8: thin forwarding)', () => {
   const incidents: any = {
     list: jest.fn(),
     getView: jest.fn(),
@@ -35,13 +35,13 @@ describe('IncidentsController（Task 8：薄转发）', () => {
     controller = new IncidentsController(incidents, registrationWorkflow, closeWorkflow);
   });
 
-  it('权限守卫存在：AuthGuard(jwt) + AdminPermissionGuard', () => {
+  it('permission guards present: AuthGuard(jwt) + AdminPermissionGuard', () => {
     const guards = Reflect.getMetadata(GUARDS_METADATA, IncidentsController) || [];
     expect(guards).toContainEqual(AuthGuard('jwt'));
     expect(guards).toContain(AdminPermissionGuard);
   });
 
-  it('register：转发 IncidentRegistrationWorkflowService.register（不是 IncidentService.register）', async () => {
+  it('register: forwards to IncidentRegistrationWorkflowService.register (not IncidentService.register)', async () => {
     registrationWorkflow.register.mockResolvedValue({ incidentNo: 'INC1' });
     const dto = { type: 'MANUAL', title: 't', description: 'd' } as any;
     const r = await controller.register(dto, adminReq);
@@ -49,69 +49,69 @@ describe('IncidentsController（Task 8：薄转发）', () => {
     expect(r).toEqual({ incidentNo: 'INC1' });
   });
 
-  it('register：非 ADMIN token → 403，未转发', () => {
+  it('register: non-ADMIN token → 403, not forwarded', () => {
     expect(() => controller.register({} as any, customerReq)).toThrow(ForbiddenException);
     expect(registrationWorkflow.register).not.toHaveBeenCalled();
   });
 
-  it('list：转发 IncidentService.list', () => {
+  it('list: forwards to IncidentService.list', () => {
     const q = { status: 'REGISTERED' } as any;
     controller.list(q);
     expect(incidents.list).toHaveBeenCalledWith(q);
   });
 
-  it('detail：转发 IncidentService.getView', () => {
+  it('detail: forwards to IncidentService.getView', () => {
     controller.detail('INC1');
     expect(incidents.getView).toHaveBeenCalledWith('INC1');
   });
 
-  it('startInvestigation：转发 + actor', () => {
+  it('startInvestigation: forwards + actor', () => {
     controller.startInvestigation('INC1', adminReq);
     expect(incidents.startInvestigation).toHaveBeenCalledWith('INC1', expectedActor);
   });
 
-  it('addNote：转发 body 字段 + actor', () => {
-    controller.addNote('INC1', { body: '记录' } as any, adminReq);
-    expect(incidents.addNote).toHaveBeenCalledWith('INC1', '记录', expectedActor);
+  it('addNote: forwards body field + actor', () => {
+    controller.addNote('INC1', { body: 'Logged' } as any, adminReq);
+    expect(incidents.addNote).toHaveBeenCalledWith('INC1', 'Logged', expectedActor);
   });
 
-  it('escalate：转发 dto + actor', () => {
+  it('escalate: forwards dto + actor', () => {
     const dto = { to: 'MLRO', note: 'n' } as any;
     controller.escalate('INC1', dto, adminReq);
     expect(incidents.escalate).toHaveBeenCalledWith('INC1', dto, expectedActor);
   });
 
-  it('assess：转发 dto + actor', () => {
+  it('assess: forwards dto + actor', () => {
     const dto = { assessedAmount: '100', assessmentBasis: 'NO_LOSS', reportRequired: false } as any;
     controller.assess('INC1', dto, adminReq);
     expect(incidents.assess).toHaveBeenCalledWith('INC1', dto, expectedActor);
   });
 
-  it('linkRemediation：转发 dto + actor', () => {
+  it('linkRemediation: forwards dto + actor', () => {
     const dto = { kind: 'ADJUSTMENT', referenceNo: 'ADJ1' } as any;
     controller.linkRemediation('INC1', dto, adminReq);
     expect(incidents.linkRemediation).toHaveBeenCalledWith('INC1', dto, expectedActor);
   });
 
-  it('saveReportDraft：转发 draft 字段 + actor', () => {
-    controller.saveReportDraft('INC1', { draft: '草稿内容' } as any, adminReq);
-    expect(incidents.saveReportDraft).toHaveBeenCalledWith('INC1', '草稿内容', expectedActor);
+  it('saveReportDraft: forwards draft field + actor', () => {
+    controller.saveReportDraft('INC1', { draft: 'Draft content' } as any, adminReq);
+    expect(incidents.saveReportDraft).toHaveBeenCalledWith('INC1', 'Draft content', expectedActor);
   });
 
-  it('markReported：转发 dto + actor', () => {
+  it('markReported: forwards dto + actor', () => {
     const dto = { reference: 'REF1' } as any;
     controller.markReported('INC1', dto, adminReq);
     expect(incidents.markReported).toHaveBeenCalledWith('INC1', dto, expectedActor);
   });
 
-  it('requestClose：转发 IncidentCloseWorkflowService.requestClose + actor', () => {
+  it('requestClose: forwards to IncidentCloseWorkflowService.requestClose + actor', () => {
     controller.requestClose('INC1', adminReq);
     expect(closeWorkflow.requestClose).toHaveBeenCalledWith('INC1', expectedActor);
   });
 
-  it('withdraw：转发 reason 字段 + actor', () => {
-    controller.withdraw('INC1', { reason: '误登记' } as any, adminReq);
-    expect(incidents.withdraw).toHaveBeenCalledWith('INC1', '误登记', expectedActor);
+  it('withdraw: forwards reason field + actor', () => {
+    controller.withdraw('INC1', { reason: 'Registered in error' } as any, adminReq);
+    expect(incidents.withdraw).toHaveBeenCalledWith('INC1', 'Registered in error', expectedActor);
   });
 
   it.each([
@@ -124,7 +124,7 @@ describe('IncidentsController（Task 8：薄转发）', () => {
     ['markReported', () => controller.markReported('INC1', {} as any, customerReq)],
     ['requestClose', () => controller.requestClose('INC1', customerReq)],
     ['withdraw', () => controller.withdraw('INC1', { reason: 'r' } as any, customerReq)],
-  ])('%s：非 ADMIN token → 403（assertAdmin 补 AdminPermissionGuard 的 fail-open）', (_name, invoke) => {
+  ])('%s: non-ADMIN token → 403 (assertAdmin backstops AdminPermissionGuard fail-open)', (_name, invoke) => {
     expect(invoke).toThrow(ForbiddenException);
   });
 });

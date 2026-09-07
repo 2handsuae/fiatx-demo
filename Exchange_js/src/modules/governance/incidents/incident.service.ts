@@ -28,12 +28,12 @@ export class IncidentService {
 
   assertTransition(from: string, to: string): void {
     const allowed = INCIDENT_TRANSITIONS[from] ?? [];
-    if (!allowed.includes(to)) throw new BadRequestException(`事故单非法状态迁移：${from} → ${to}`);
+    if (!allowed.includes(to)) throw new BadRequestException(`Illegal incident status transition: ${from} → ${to}`);
   }
 
   async findByNo(incidentNo: string) {
     const row = await (this.prisma as any).incident.findUnique({ where: { incidentNo } });
-    if (!row) throw new NotFoundException(`事故单不存在：${incidentNo}`);
+    if (!row) throw new NotFoundException(`Incident not found: ${incidentNo}`);
     return row;
   }
 
@@ -135,7 +135,7 @@ export class IncidentService {
    * （见 IncidentRegistrationWorkflowService.register，本方法是它编排的第一步）。
    */
   async register(dto: RegisterIncidentDto, actor: ApprovalActorContext): Promise<{ incidentNo: string; traceId: string }> {
-    if (!dto.title || !dto.description) throw new BadRequestException('事故登记必须带标题与说明');
+    if (!dto.title || !dto.description) throw new BadRequestException('Incident registration requires a title and a description');
     switch (dto.type) {
       case IncidentTypes.UNAUTHORIZED_OUTFLOW:
         await this.assertUnauthorizedOutflow(dto);
@@ -149,7 +149,7 @@ export class IncidentService {
       case IncidentTypes.MANUAL:
         break; // 只要 title+description，上面已校验
       default:
-        throw new BadRequestException(`未知事故类型：${dto.type}`);
+        throw new BadRequestException(`Unknown incident type: ${dto.type}`);
     }
 
     const traceId = randomUUID();
@@ -181,31 +181,31 @@ export class IncidentService {
 
   private async assertUnauthorizedOutflow(dto: RegisterIncidentDto): Promise<void> {
     if (!dto.sourceCaseNo || !dto.sourceDispositionNo) {
-      throw new BadRequestException('未授权转出事故必须带来源案号与定性行号');
+      throw new BadRequestException('An unauthorized-outflow incident requires a source case number and disposition line number');
     }
     const disp = await (this.prisma as any).reconciliationDisposition.findUnique({ where: { dispositionNo: dto.sourceDispositionNo } });
-    if (!disp) throw new NotFoundException(`定性行不存在：${dto.sourceDispositionNo}`);
+    if (!disp) throw new NotFoundException(`Disposition line not found: ${dto.sourceDispositionNo}`);
     if (disp.outlet !== 'INCIDENT' || disp.causeCode !== 'UNAUTHORIZED_OUTFLOW') {
-      throw new BadRequestException(`定性行 ${dto.sourceDispositionNo} 不是未授权转出定性（outlet=${disp.outlet}/causeCode=${disp.causeCode}），不能登记这一类事故`);
+      throw new BadRequestException(`Disposition line ${dto.sourceDispositionNo} is not classified as unauthorized outflow (outlet=${disp.outlet}/causeCode=${disp.causeCode}) — this incident type cannot be registered against it`);
     }
     if (disp.incidentNo) {
-      throw new BadRequestException(`定性行 ${dto.sourceDispositionNo} 已挂事故 ${disp.incidentNo}，不能一行两事故`);
+      throw new BadRequestException(`Disposition line ${dto.sourceDispositionNo} is already linked to incident ${disp.incidentNo} — one line cannot carry two incidents`);
     }
   }
 
   private async assertLargeUnexplained(dto: RegisterIncidentDto): Promise<void> {
-    if (!dto.sourceCaseNo) throw new BadRequestException('大额查不出事故必须带来源案号');
+    if (!dto.sourceCaseNo) throw new BadRequestException('A large-unexplained incident requires a source case number');
     const kase = await (this.prisma as any).reconciliationCase.findUnique({ where: { caseNo: dto.sourceCaseNo } });
-    if (!kase) throw new NotFoundException(`对账案件不存在：${dto.sourceCaseNo}`);
-    if (!kase.slaBreached) throw new BadRequestException(`案子 ${dto.sourceCaseNo} 还没到账龄线，够不上升级事故`);
+    if (!kase) throw new NotFoundException(`Reconciliation case not found: ${dto.sourceCaseNo}`);
+    if (!kase.slaBreached) throw new BadRequestException(`Case ${dto.sourceCaseNo} has not yet breached its aging deadline — it does not qualify for escalation to an incident`);
   }
 
   private async assertClientShortfall(dto: RegisterIncidentDto): Promise<void> {
-    if (!dto.customerNo || !dto.amount) throw new BadRequestException('退汇欠款事故必须带客户号与金额');
+    if (!dto.customerNo || !dto.amount) throw new BadRequestException('A client-shortfall incident requires a customer number and an amount');
     if (dto.sourceAdvanceTransferNo) {
       const transfer = await (this.prisma as any).internalTransfer.findUnique({ where: { transferNo: dto.sourceAdvanceTransferNo } });
-      if (!transfer) throw new NotFoundException(`垫款单不存在：${dto.sourceAdvanceTransferNo}`);
-      if (transfer.purpose !== 'CLIENT_ADVANCE') throw new BadRequestException(`划转单 ${dto.sourceAdvanceTransferNo} 不是垫款单（purpose=${transfer.purpose}），不能锚定欠款事故`);
+      if (!transfer) throw new NotFoundException(`Advance transfer not found: ${dto.sourceAdvanceTransferNo}`);
+      if (transfer.purpose !== 'CLIENT_ADVANCE') throw new BadRequestException(`Transfer ${dto.sourceAdvanceTransferNo} is not an advance transfer (purpose=${transfer.purpose}) — it cannot anchor a shortfall incident`);
     }
   }
 
@@ -221,7 +221,7 @@ export class IncidentService {
   }
 
   async addNote(incidentNo: string, body: string, actor: ApprovalActorContext): Promise<{ incidentNo: string }> {
-    if (!body) throw new BadRequestException('调查记录必须填写内容');
+    if (!body) throw new BadRequestException('An investigation note requires content');
     const row = await this.findByNo(incidentNo);
     await (this.prisma as any).incidentNote.create({
       data: { incidentId: row.id, kind: 'NOTE', body, authorUserId: actor.userNo ?? actor.userId },
@@ -231,7 +231,7 @@ export class IncidentService {
   }
 
   async escalate(incidentNo: string, dto: EscalateIncidentDto, actor: ApprovalActorContext): Promise<{ incidentNo: string }> {
-    if (!dto.to) throw new BadRequestException('升级必须指定去向');
+    if (!dto.to) throw new BadRequestException('Escalation requires a target');
     const row = await this.findByNo(incidentNo);
     await (this.prisma as any).incidentNote.create({
       data: { incidentId: row.id, kind: 'ESCALATION', escalatedTo: dto.to, body: dto.note, authorUserId: actor.userNo ?? actor.userId },
@@ -246,7 +246,7 @@ export class IncidentService {
   // ── 撤回（spec §2：仅 REGISTERED，误登记用，留审计不留橡皮擦）───────────
 
   async withdraw(incidentNo: string, reason: string, actor: ApprovalActorContext): Promise<{ incidentNo: string; status: string }> {
-    if (!reason) throw new BadRequestException('撤回必须填写理由');
+    if (!reason) throw new BadRequestException('Withdrawal requires a reason');
     const { row, updated } = await this.transition(incidentNo, IncidentStatus.WITHDRAWN, { withdrawnReason: reason });
     // reason 也是原生字段，INCIDENT_WITHDRAWN 的 requiredFields=['reason'] 直接读得到，不需要 extra。
     await this.recordAudit(updated, AuditActions.INCIDENT_WITHDRAWN, actor, {
@@ -264,12 +264,12 @@ export class IncidentService {
    * + min(所选依据里有钟的 hours)；只选无钟依据（hours=null）时保持 null，不杜撰时限。
    */
   async assess(incidentNo: string, dto: AssessIncidentDto, actor: ApprovalActorContext): Promise<{ incidentNo: string; status: string; reportDeadlineAt: Date | null }> {
-    if (!dto.assessedAmount || !dto.assessmentBasis) throw new BadRequestException('定损必须带定损金额与结论');
+    if (!dto.assessedAmount || !dto.assessmentBasis) throw new BadRequestException('Assessment requires an assessed amount and a conclusion');
     const basisCodes = dto.reportRequired ? (dto.reportBasisCodes ?? []) : [];
     if (dto.reportRequired) {
-      if (!basisCodes.length) throw new BadRequestException('判定需要通报必须带依据码');
+      if (!basisCodes.length) throw new BadRequestException('A determination requiring reporting must include basis codes');
       for (const code of basisCodes) {
-        if (!(code in INCIDENT_REPORT_BASES)) throw new BadRequestException(`未知依据码：${code}`);
+        if (!(code in INCIDENT_REPORT_BASES)) throw new BadRequestException(`Unknown basis code: ${code}`);
       }
     }
     const row = await this.findByNo(incidentNo);
@@ -315,7 +315,7 @@ export class IncidentService {
     const updated = await (this.prisma as any).incident.update({ where: { incidentNo }, data: patch });
     if (isFirst) {
       await this.recordAudit(updated, AuditActions.INCIDENT_REGULATOR_REPORT_DRAFTED, actor, {
-        reason: '起草监管通报稿',
+        reason: 'Drafted regulator report',
       });
     }
     return { incidentNo };
@@ -325,7 +325,7 @@ export class IncidentService {
   async markReported(incidentNo: string, dto: MarkReportedDto, actor: ApprovalActorContext): Promise<{ incidentNo: string }> {
     const row = await this.findByNo(incidentNo);
     if (!row.reportRequired || !row.reportDraft) {
-      throw new BadRequestException('必须已判定需要通报且已起草通报稿才能标记已通报');
+      throw new BadRequestException('Reporting must be determined required, and a report draft must already exist, before marking as reported');
     }
     const updated = await (this.prisma as any).incident.update({
       where: { incidentNo },
@@ -333,7 +333,7 @@ export class IncidentService {
     });
     // requiredFields=['basisCodes']（spec §7 硬性要求）——值是落库同款逗号分隔字符串，非数组。
     await this.recordAudit(updated, AuditActions.INCIDENT_REGULATOR_REPORTED, actor, {
-      reason: '完成监管通报', extra: { basisCodes: row.reportBasisCodes },
+      reason: 'Regulator report completed', extra: { basisCodes: row.reportBasisCodes },
       metadata: { basisCodes: row.reportBasisCodes, reference: dto.reference ?? null },
     });
     return { incidentNo };
@@ -353,12 +353,12 @@ export class IncidentService {
     const row = await this.findByNo(incidentNo);
     if (row.status !== IncidentStatus.ASSESSED && row.status !== IncidentStatus.RESOLVING) {
       if (row.status === IncidentStatus.CLOSED) {
-        throw new BadRequestException(`事故 ${incidentNo} 已结案，不能再挂善后单`);
+        throw new BadRequestException(`Incident ${incidentNo} is already closed — no more remediation can be linked`);
       }
       if (row.status === IncidentStatus.WITHDRAWN) {
-        throw new BadRequestException(`事故 ${incidentNo} 已撤回，不能挂善后单`);
+        throw new BadRequestException(`Incident ${incidentNo} has been withdrawn — remediation cannot be linked`);
       }
-      throw new BadRequestException(`事故还没定损，善后单挂不上——先定损（当前状态：${row.status}）`);
+      throw new BadRequestException(`Incident has not been assessed yet — remediation cannot be linked until assessment is complete (current status: ${row.status})`);
     }
     await this.assertRemediationReferenceExists(dto.kind, dto.referenceNo);
 
@@ -376,7 +376,7 @@ export class IncidentService {
     // 发生迁移时按 assess() 样板同填 fromStatus/toStatus（本仓库记录状态边的规范列）；
     // RESOLVING 上纯追加时没有状态边，两列留空。
     await this.recordAudit(updated, AuditActions.INCIDENT_REMEDIATION_LINKED, actor, {
-      reason: `挂载善后单 ${dto.referenceNo}（${dto.kind}）`, extra: { referenceNo: dto.referenceNo },
+      reason: `Linked remediation ${dto.referenceNo} (${dto.kind})`, extra: { referenceNo: dto.referenceNo },
       ...(statusAdvanced ? { fromStatus: row.status, toStatus: updated.status } : {}),
       metadata: { kind: dto.kind, referenceNo: dto.referenceNo, ...(statusAdvanced ? { statusAdvanced } : {}) },
     });
@@ -387,23 +387,23 @@ export class IncidentService {
     switch (kind) {
       case IncidentRemediationKinds.ADJUSTMENT: {
         const row = await (this.prisma as any).reconciliationAdjustment.findUnique({ where: { adjustmentNo: referenceNo } });
-        if (!row) throw new NotFoundException(`调账单不存在：${referenceNo}`);
+        if (!row) throw new NotFoundException(`Adjustment not found: ${referenceNo}`);
         return;
       }
       case IncidentRemediationKinds.TRANSFER: {
         const row = await (this.prisma as any).internalTransfer.findUnique({ where: { transferNo: referenceNo } });
-        if (!row) throw new NotFoundException(`内部划转单不存在：${referenceNo}`);
+        if (!row) throw new NotFoundException(`Internal transfer not found: ${referenceNo}`);
         return;
       }
       case IncidentRemediationKinds.SUPPLEMENT:
       case IncidentRemediationKinds.CLAIM: {
         // 补录 / 退汇认领落地后都是一张充值单（depositNo）——B 批 disposition.supplementNo 回填的即此号。
         const row = await (this.prisma as any).depositTransaction.findUnique({ where: { depositNo: referenceNo } });
-        if (!row) throw new NotFoundException(`充值单不存在：${referenceNo}`);
+        if (!row) throw new NotFoundException(`Deposit not found: ${referenceNo}`);
         return;
       }
       default:
-        throw new BadRequestException(`未知善后类型：${kind}`);
+        throw new BadRequestException(`Unknown remediation type: ${kind}`);
     }
   }
 

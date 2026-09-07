@@ -506,12 +506,12 @@ describe('Recon internal transfer e2e (平账二期, Task 9)', () => {
     const req = await transferWf.initiateCompensation({ adjustmentNo, reason: '公司认赔' }, treasury());
     const apr = await latestApprovalCase(ApprovalActionTypes.INTERNAL_TRANSFER_APPROVAL, req.transferNo);
     const snapshot = JSON.parse(apr.objectSnapshot);
-    expect(snapshot.impact).toContain('补款 7.500000 USDT');
+    expect(snapshot.impact).toContain('compensation of 7.500000 USDT');
     expect(JSON.stringify(snapshot)).not.toContain(wallet.id);
     // 批准 → 执行中，腿 1 = 运营户 TRON → 客户地址
     await approvalsService.approve(apr.approvalNo, { reason: 'e2e CFO approve compensation' }, cfo());
     await waitUntil(async () => (await transferRow(req.transferNo)).status === 'EXECUTING');
-    await expect(transferWf.cancel(req.transferNo, { reason: 'late' }, treasury())).rejects.toThrow(/不能撤回/);
+    await expect(transferWf.cancel(req.transferNo, { reason: 'late' }, treasury())).rejects.toThrow(/cannot be cancelled/);
     const itr = await transferRow(req.transferNo);
     const opsW = await platformWallet('F_OPS', usdtNetwork);
     const [leg1] = await fundsOrders.findByParent({ internalTransferId: itr.id }, { legSeq: 1 });
@@ -574,7 +574,7 @@ describe('Recon internal transfer e2e (平账二期, Task 9)', () => {
     const req = await transferWf.initiateAdvance({ caseNo: kase.caseNo, externalLineId: line.id, reason: '先垫后扣' }, treasury());
     const apr = await latestApprovalCase(ApprovalActionTypes.INTERNAL_TRANSFER_APPROVAL, req.transferNo);
     const snapshot = JSON.parse(apr.objectSnapshot);
-    expect(snapshot.impact).toContain('垫付 900.00 AED');
+    expect(snapshot.impact).toContain('Advance 900.00 AED');
     expect(snapshot).not.toHaveProperty('externalLineId');
     expect(snapshot.externalRef).toBe(claw);
     await approvalsService.approve(apr.approvalNo, { reason: 'e2e CFO approve advance' }, cfo());

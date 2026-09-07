@@ -10,8 +10,8 @@ function makeWorkflow(incidentNo = 'INC1') {
   return { wf, incidents, dispositionLink };
 }
 
-describe('IncidentRegistrationWorkflowService（平账三期 Task 5 · 铁律③编排点）', () => {
-  it('UNAUTHORIZED_OUTFLOW：建单后回写定性行 attachIncident(dispositionNo, incidentNo)', async () => {
+describe('IncidentRegistrationWorkflowService (Task 5, Rule 3 orchestration point)', () => {
+  it('UNAUTHORIZED_OUTFLOW: after creation, writes the disposition line back with attachIncident(dispositionNo, incidentNo)', async () => {
     const { wf, incidents, dispositionLink } = makeWorkflow('INC1');
     const dto = { type: T.UNAUTHORIZED_OUTFLOW, title: 't', description: 'd', sourceCaseNo: 'REC1', sourceDispositionNo: 'RCD1' };
     const r = await wf.register(dto as any, ops);
@@ -20,16 +20,16 @@ describe('IncidentRegistrationWorkflowService（平账三期 Task 5 · 铁律③
     expect(dispositionLink.attachIncident).toHaveBeenCalledWith('RCD1', 'INC1');
   });
 
-  it.each([T.LARGE_UNEXPLAINED, T.CLIENT_SHORTFALL, T.MANUAL])('%s：不回写定性行（没有 dispositionNo 这回事）', async (type) => {
+  it.each([T.LARGE_UNEXPLAINED, T.CLIENT_SHORTFALL, T.MANUAL])('%s: does not write back a disposition line (there is no such thing as dispositionNo here)', async (type) => {
     const { wf, dispositionLink } = makeWorkflow('INC2');
     await wf.register({ type, title: 't', description: 'd' } as any, ops);
     expect(dispositionLink.attachIncident).not.toHaveBeenCalled();
   });
 
-  it('IncidentService.register 校验失败时不建 attachIncident（异常直接透传，不吞）', async () => {
+  it('when IncidentService.register validation fails, attachIncident is not created (the exception passes straight through, not swallowed)', async () => {
     const { wf, incidents, dispositionLink } = makeWorkflow();
-    incidents.register.mockRejectedValueOnce(new Error('未授权转出事故必须带来源案号与定性行号'));
-    await expect(wf.register({ type: T.UNAUTHORIZED_OUTFLOW, title: 't', description: 'd' } as any, ops)).rejects.toThrow(/来源案号与定性行号/);
+    incidents.register.mockRejectedValueOnce(new Error('An unauthorized-outflow incident requires a source case number and disposition line number'));
+    await expect(wf.register({ type: T.UNAUTHORIZED_OUTFLOW, title: 't', description: 'd' } as any, ops)).rejects.toThrow(/source case number and disposition line number/);
     expect(dispositionLink.attachIncident).not.toHaveBeenCalled();
   });
 });

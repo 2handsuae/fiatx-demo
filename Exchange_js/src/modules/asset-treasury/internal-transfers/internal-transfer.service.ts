@@ -20,7 +20,7 @@ export class InternalTransferService {
 
   assertTransition(from: string, to: string): void {
     const allowed = INTERNAL_TRANSFER_TRANSITIONS[from] ?? [];
-    if (!allowed.includes(to)) throw new BadRequestException(`内部划转单非法状态迁移：${from} → ${to}`);
+    if (!allowed.includes(to)) throw new BadRequestException(`Illegal internal transfer status transition: ${from} → ${to}`);
   }
 
   async create(input: CreateInternalTransferInput) {
@@ -49,7 +49,7 @@ export class InternalTransferService {
 
   async findByNo(transferNo: string) {
     const row = await (this.prisma as any).internalTransfer.findUnique({ where: { transferNo }, include: { asset: true } });
-    if (!row) throw new NotFoundException(`内部划转单不存在：${transferNo}`);
+    if (!row) throw new NotFoundException(`Internal transfer not found: ${transferNo}`);
     return row;
   }
 
@@ -70,13 +70,13 @@ export class InternalTransferService {
   /** 出生守卫③ / 批准时复核：运营户该币种可用（贷 − 借 − 待过账借）≥ 金额（最小单位）。 */
   async assertFirmOpsBalance(currency: string, amountMinor: bigint): Promise<void> {
     const ledger = TB_LEDGERS[currency as keyof typeof TB_LEDGERS];
-    if (!ledger) throw new BadRequestException(`不支持的币种：${currency}`);
+    if (!ledger) throw new BadRequestException(`Unsupported currency: ${currency}`);
     const opsId = await this.accounting.resolveTbAccountId({ code: TB_ACCOUNT_CODES.FIRM_OPS, ledger, ownerType: 'SYSTEM' });
     const bal = await this.accounting.lookupBalance(opsId);
     const available = bal.creditsPosted - bal.debitsPosted - bal.debitsPending;
     if (available < amountMinor) {
       throw new BadRequestException(
-        `运营户 ${currency} 余额不足（可用 ${available.toString()}，需要 ${amountMinor.toString()}，最小单位）——公司不能拿没有的钱补客户`,
+        `Insufficient ${currency} balance in the operating account (available ${available.toString()}, need ${amountMinor.toString()}, smallest unit) — the firm cannot pay out funds it does not have`,
       );
     }
   }

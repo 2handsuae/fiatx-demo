@@ -19,7 +19,7 @@ import {
   WithdrawIncidentDto,
 } from './dto/incident.dto';
 
-@ApiTags('Admin - Incidents (平账三期·事故登记)')
+@ApiTags('Admin - Incidents')
 @ApiBearerAuth()
 @Controller('admin/incidents')
 @UseGuards(AuthGuard('jwt'), AdminPermissionGuard)
@@ -45,7 +45,7 @@ export class IncidentsController {
   }
 
   @Post()
-  @ApiOperation({ summary: '登记事故（对账案件升级或手动）' })
+  @ApiOperation({ summary: 'Register incident (case escalation or manual)' })
   @RequirePermissions(buildPermissionCode('POST', '/admin/incidents'))
   register(@Body() dto: RegisterIncidentBodyDto, @Req() req: any) {
     this.assertAdmin(req);
@@ -53,21 +53,21 @@ export class IncidentsController {
   }
 
   @Get()
-  @ApiOperation({ summary: '事故列表' })
+  @ApiOperation({ summary: 'List incidents' })
   @RequirePermissions(buildPermissionCode('GET', '/admin/incidents'))
   list(@Query() q: IncidentListQueryDto) {
     return this.incidents.list(q);
   }
 
   @Get(':incidentNo')
-  @ApiOperation({ summary: '事故详情' })
+  @ApiOperation({ summary: 'Incident detail' })
   @RequirePermissions(buildPermissionCode('GET', '/admin/incidents/:incidentNo'))
   detail(@Param('incidentNo') incidentNo: string) {
     return this.incidents.getView(incidentNo);
   }
 
   @Post(':incidentNo/investigation')
-  @ApiOperation({ summary: '开始调查' })
+  @ApiOperation({ summary: 'Start investigation' })
   @RequirePermissions(buildPermissionCode('POST', '/admin/incidents/:incidentNo/investigation'))
   startInvestigation(@Param('incidentNo') incidentNo: string, @Req() req: any) {
     this.assertAdmin(req);
@@ -75,7 +75,7 @@ export class IncidentsController {
   }
 
   @Post(':incidentNo/notes')
-  @ApiOperation({ summary: '添加调查记录' })
+  @ApiOperation({ summary: 'Add investigation note' })
   @RequirePermissions(buildPermissionCode('POST', '/admin/incidents/:incidentNo/notes'))
   addNote(@Param('incidentNo') incidentNo: string, @Body() dto: AddIncidentNoteDto, @Req() req: any) {
     this.assertAdmin(req);
@@ -83,7 +83,7 @@ export class IncidentsController {
   }
 
   @Post(':incidentNo/escalate')
-  @ApiOperation({ summary: '记录升级（MLRO / CFO / 高级管理层）' })
+  @ApiOperation({ summary: 'Record escalation (MLRO / CFO / senior management)' })
   @RequirePermissions(buildPermissionCode('POST', '/admin/incidents/:incidentNo/escalate'))
   escalate(@Param('incidentNo') incidentNo: string, @Body() dto: EscalateIncidentBodyDto, @Req() req: any) {
     this.assertAdmin(req);
@@ -91,7 +91,7 @@ export class IncidentsController {
   }
 
   @Post(':incidentNo/assess')
-  @ApiOperation({ summary: '记录定损与是否需要通报' })
+  @ApiOperation({ summary: 'Record assessment and reporting determination' })
   @RequirePermissions(buildPermissionCode('POST', '/admin/incidents/:incidentNo/assess'))
   assess(@Param('incidentNo') incidentNo: string, @Body() dto: AssessIncidentBodyDto, @Req() req: any) {
     this.assertAdmin(req);
@@ -99,7 +99,7 @@ export class IncidentsController {
   }
 
   @Post(':incidentNo/remediations')
-  @ApiOperation({ summary: '挂载善后单' })
+  @ApiOperation({ summary: 'Link remediation' })
   @RequirePermissions(buildPermissionCode('POST', '/admin/incidents/:incidentNo/remediations'))
   linkRemediation(@Param('incidentNo') incidentNo: string, @Body() dto: LinkRemediationBodyDto, @Req() req: any) {
     this.assertAdmin(req);
@@ -107,7 +107,7 @@ export class IncidentsController {
   }
 
   @Post(':incidentNo/regulator-report')
-  @ApiOperation({ summary: '保存监管通报草稿' })
+  @ApiOperation({ summary: 'Save regulator report draft' })
   @RequirePermissions(buildPermissionCode('POST', '/admin/incidents/:incidentNo/regulator-report'))
   saveReportDraft(@Param('incidentNo') incidentNo: string, @Body() dto: SaveReportDraftDto, @Req() req: any) {
     this.assertAdmin(req);
@@ -115,7 +115,7 @@ export class IncidentsController {
   }
 
   @Post(':incidentNo/regulator-report/mark')
-  @ApiOperation({ summary: '标记监管通报已完成' })
+  @ApiOperation({ summary: 'Mark regulator report as completed' })
   @RequirePermissions(buildPermissionCode('POST', '/admin/incidents/:incidentNo/regulator-report/mark'))
   markReported(@Param('incidentNo') incidentNo: string, @Body() dto: MarkReportedBodyDto, @Req() req: any) {
     this.assertAdmin(req);
@@ -123,7 +123,7 @@ export class IncidentsController {
   }
 
   @Post(':incidentNo/close')
-  @ApiOperation({ summary: '申请结案（开启审批）' })
+  @ApiOperation({ summary: 'Request close (opens approval)' })
   @RequirePermissions(buildPermissionCode('POST', '/admin/incidents/:incidentNo/close'))
   requestClose(@Param('incidentNo') incidentNo: string, @Req() req: any) {
     this.assertAdmin(req);
@@ -131,7 +131,7 @@ export class IncidentsController {
   }
 
   @Post(':incidentNo/withdraw')
-  @ApiOperation({ summary: '撤回误登记的事故' })
+  @ApiOperation({ summary: 'Withdraw a misregistered incident' })
   @RequirePermissions(buildPermissionCode('POST', '/admin/incidents/:incidentNo/withdraw'))
   withdraw(@Param('incidentNo') incidentNo: string, @Body() dto: WithdrawIncidentDto, @Req() req: any) {
     this.assertAdmin(req);

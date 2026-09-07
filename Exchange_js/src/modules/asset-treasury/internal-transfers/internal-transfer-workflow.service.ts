@@ -56,16 +56,16 @@ export class InternalTransferWorkflowService {
   /** 认损补款：来源 = 已落账的客户池认损调账单；金额锁定 = 认损额。 */
   async initiateCompensation(dto: { adjustmentNo: string; reason: string }, actor: ApprovalActorContext) {
     const adj = await (this.prisma as any).reconciliationAdjustment.findUnique({ where: { adjustmentNo: dto.adjustmentNo } });
-    if (!adj) throw new NotFoundException(`调账单不存在：${dto.adjustmentNo}`);
-    if (adj.status !== 'POSTED') throw new BadRequestException(`认损单 ${dto.adjustmentNo} 还没落账（${adj.status}），先让账说真话再补款`);
-    if (adj.reasonCode !== 'UNEXPLAINED_CLIENT_LOSS' || adj.book !== 'CLIENT') throw new BadRequestException(`调账单 ${dto.adjustmentNo} 不是客户池认损单，不能补款`);
-    if (!adj.ownerId || !adj.ownerNo || !adj.walletRef) throw new BadRequestException(`认损单 ${dto.adjustmentNo} 缺客户或钱包信息`);
+    if (!adj) throw new NotFoundException(`Adjustment not found: ${dto.adjustmentNo}`);
+    if (adj.status !== 'POSTED') throw new BadRequestException(`Loss-recognition adjustment ${dto.adjustmentNo} is not yet posted (${adj.status}) — the books must reflect it before compensation can be paid`);
+    if (adj.reasonCode !== 'UNEXPLAINED_CLIENT_LOSS' || adj.book !== 'CLIENT') throw new BadRequestException(`Adjustment ${dto.adjustmentNo} is not a client-pool loss-recognition adjustment — compensation cannot be paid`);
+    if (!adj.ownerId || !adj.ownerNo || !adj.walletRef) throw new BadRequestException(`Loss-recognition adjustment ${dto.adjustmentNo} is missing customer or wallet information`);
     const blocking = await this.transfers.findBlockingBySource({ sourceAdjustmentNo: dto.adjustmentNo });
-    if (blocking) throw new ConflictException(`认损单 ${dto.adjustmentNo} 已有划转单 ${blocking.transferNo}（${blocking.status}），不能再开`);
+    if (blocking) throw new ConflictException(`Loss-recognition adjustment ${dto.adjustmentNo} already has transfer ${blocking.transferNo} (${blocking.status}) — another cannot be opened`);
     const asset = await (this.prisma as any).asset.findUnique({ where: { code: adj.assetCode } });
-    if (!asset) throw new NotFoundException(`资产不存在：${adj.assetCode}`);
+    if (!asset) throw new NotFoundException(`Asset not found: ${adj.assetCode}`);
     const wallet = await (this.prisma as any).wallet.findUnique({ where: { id: adj.walletRef }, select: { id: true, ownerId: true } });
-    if (!wallet || wallet.ownerId !== adj.ownerId) throw new BadRequestException('认损单的钱包不属于该客户');
+    if (!wallet || wallet.ownerId !== adj.ownerId) throw new BadRequestException("The loss-recognition adjustment's wallet does not belong to this customer");
     const amountMinor = BigInt(adj.amount);
     await this.transfers.assertFirmOpsBalance(asset.currency, amountMinor);
     const route = await this.resolveRoute(asset, wallet.id);
@@ -75,23 +75,23 @@ export class InternalTransferWorkflowService {
       customerId: adj.ownerId, customerNo: adj.ownerNo, reason: dto.reason, sourceCaseNo: adj.caseNo,
       sourceAdjustmentNo: adj.adjustmentNo, traceId: adj.traceId ?? null, createdByUserId: actor.userNo ?? actor.userId,
     });
-    const impact = `向客户 ${adj.ownerNo} 补款 ${amountMajor} ${asset.currency}（认损单 ${adj.adjustmentNo}，对账案 ${adj.caseNo}）；公司运营户相应减少`;
+    const impact = `Pay customer ${adj.ownerNo} compensation of ${amountMajor} ${asset.currency} (adjustment ${adj.adjustmentNo}, case ${adj.caseNo}); the firm operating account decreases accordingly`;
     return this.submitForApproval({ ...row, asset }, impact, dto.reason, actor, { sourceAdjustmentNo: adj.adjustmentNo });
   }
 
   /** 退汇垫款：来源 = 定性为「入金被退汇」且尚未认领的账单行；金额锁定 = 账单行 − 客户可用。 */
   async initiateAdvance(dto: { caseNo: string; externalLineId: string; reason: string }, actor: ApprovalActorContext) {
     const disp = await (this.prisma as any).reconciliationDisposition.findFirst({ where: { caseNo: dto.caseNo, explainedExternalLineId: dto.externalLineId } });
-    if (!disp || disp.outlet !== 'SUPPLEMENT' || disp.deferredTarget !== 'SUPPLEMENT_BOUNCE') throw new BadRequestException('只有定性为「入金被退汇」的账单行才需要垫款——先定性');
-    if (disp.supplementNo) throw new BadRequestException(`这条账单行已转补单 ${disp.supplementNo}，不需要垫款`);
+    if (!disp || disp.outlet !== 'SUPPLEMENT' || disp.deferredTarget !== 'SUPPLEMENT_BOUNCE') throw new BadRequestException('Only a statement line classified as "Deposit recalled" needs an advance — classify it first');
+    if (disp.supplementNo) throw new BadRequestException(`This statement line has already been converted to supplement ${disp.supplementNo} — no advance is needed`);
     const line = await this.supplementEvidence.assertClaimable({ caseNo: dto.caseNo, externalLineId: dto.externalLineId, dispositionNo: disp.dispositionNo, kind: 'SUPPLEMENT_BOUNCE' });
     const available = (await this.accounting.getCustomerAvailableBalance(line.ownerId, line.currency)).available;
     const shortfall = BigInt(line.amountMinor) - available;
-    if (shortfall <= 0n) throw new BadRequestException('客户可用余额已够扣，不需要垫款，直接认领退汇');
+    if (shortfall <= 0n) throw new BadRequestException("The customer's available balance already covers the shortfall — no advance is needed, claim the recall directly");
     const blocking = await this.transfers.findBlockingBySource({ sourceExternalLineId: dto.externalLineId });
-    if (blocking) throw new ConflictException(`这条账单行已有垫款单 ${blocking.transferNo}（${blocking.status}），不能再开`);
+    if (blocking) throw new ConflictException(`This statement line already has advance ${blocking.transferNo} (${blocking.status}) — another cannot be opened`);
     const asset = await (this.prisma as any).asset.findUnique({ where: { id: line.assetId } });
-    if (!asset) throw new NotFoundException(`资产不存在：${line.assetId}`);
+    if (!asset) throw new NotFoundException(`Asset not found: ${line.assetId}`);
     await this.transfers.assertFirmOpsBalance(asset.currency, shortfall);
     const route = await this.resolveRoute(asset, line.walletId);
     const amountMajor = minorToMajor(shortfall.toString(), asset.decimals);
@@ -100,8 +100,8 @@ export class InternalTransferWorkflowService {
       customerId: line.ownerId, customerNo: line.ownerNo ?? line.ownerId, reason: dto.reason, sourceCaseNo: dto.caseNo,
       sourceExternalLineId: dto.externalLineId, traceId: null, createdByUserId: actor.userNo ?? actor.userId,
     });
-    const impact = `为客户 ${line.ownerNo ?? '-'} 垫付 ${amountMajor} ${asset.currency} 退汇差额（对账案 ${dto.caseNo}，账单行 ${line.externalRef ?? '-'}；`
-      + `客户可用 ${minorToMajor(available.toString(), asset.decimals)}、退汇 ${line.amountMajor}）；垫款须三期追索`;
+    const impact = `Advance ${amountMajor} ${asset.currency} to customer ${line.ownerNo ?? '-'} to cover the bounced-refund shortfall (case ${dto.caseNo}, statement line ${line.externalRef ?? '-'}; `
+      + `customer available ${minorToMajor(available.toString(), asset.decimals)}, recalled ${line.amountMajor}); the advance must be recovered by Treasury`;
     return this.submitForApproval({ ...row, asset }, impact, dto.reason, actor, { externalRef: line.externalRef ?? null });
   }
 
@@ -140,7 +140,7 @@ export class InternalTransferWorkflowService {
 
   async cancel(transferNo: string, dto: { reason: string }, actor: ApprovalActorContext) {
     const row = await this.transfers.findByNo(transferNo);
-    if (row.status !== InternalTransferStatus.PENDING_APPROVAL) throw new BadRequestException(`划转单 ${transferNo} 已在 ${row.status}，钱已在路上或已了结，不能撤回`);
+    if (row.status !== InternalTransferStatus.PENDING_APPROVAL) throw new BadRequestException(`Transfer ${transferNo} is already in ${row.status} — funds are in flight or settled, it cannot be cancelled`);
     if (row.approvalNo) await this.approvals.cancel(row.approvalNo, { reason: dto.reason } as any, actor);
     const updated = await this.transfers.transition(transferNo, InternalTransferStatus.CANCELLED, { failureNote: dto.reason });
     await this.transferAudit(row, { action: AuditActions.INTERNAL_TRANSFER_CANCELLED, reason: dto.reason, fromStatus: row.status, toStatus: updated.status, actor });
@@ -157,7 +157,7 @@ export class InternalTransferWorkflowService {
     if (row.status !== InternalTransferStatus.PENDING_APPROVAL) return;
 
     if (event.decision !== 'APPROVED') {
-      const note = event.decision === 'EXPIRED' ? '审批超时' : (event.decisionReason ?? 'CFO 拒绝');
+      const note = event.decision === 'EXPIRED' ? 'Approval expired' : (event.decisionReason ?? 'Rejected by CFO');
       const updated = await this.transfers.transition(row.transferNo, InternalTransferStatus.REJECTED, { failureNote: note });
       await this.transferAudit(row, { action: AuditActions.INTERNAL_TRANSFER_REJECTED, reason: note, approvalNo: event.approvalNo, causationId: event.approvalId, fromStatus: row.status, toStatus: updated.status });
       return;
@@ -175,7 +175,7 @@ export class InternalTransferWorkflowService {
 
     const leg = await this.createLeg(row, 1);
     const updated = await this.transfers.transition(row.transferNo, InternalTransferStatus.EXECUTING, { executedAt: new Date() });
-    await this.transferAudit(row, { action: AuditActions.INTERNAL_TRANSFER_EXECUTION_STARTED, reason: 'CFO 批准，第一腿资金单建立', approvalNo: event.approvalNo, causationId: event.approvalId, fundsOrderNo: leg.fundsOrderNo, fromStatus: row.status, toStatus: updated.status });
+    await this.transferAudit(row, { action: AuditActions.INTERNAL_TRANSFER_EXECUTION_STARTED, reason: 'Approved by CFO, first leg funds order created', approvalNo: event.approvalNo, causationId: event.approvalId, fundsOrderNo: leg.fundsOrderNo, fromStatus: row.status, toStatus: updated.status });
   }
 
   /** 腿 1：法币 运营户 → 结算户 / 加密币 运营户 → 客户；腿 2（法币）：结算户 → 客户。资金单在此诞生（spec §4）。 */
@@ -240,16 +240,16 @@ export class InternalTransferWorkflowService {
       if (isFiat && leg.legSeq === 1) await this.postOpsToSet(row, leg);
       else await this.postFinalLeg(row, leg);
     } catch (err) {
-      await this.transferAudit(row, { action: AuditActions.INTERNAL_TRANSFER_FAILED, outcome: AuditOutcome.FAILED, reasonCode: 'POSTING_FAILED', reason: `腿 ${leg.legSeq} 落账失败：${(err as Error).message}——订单停在执行中、腿停在已确认，不重试`, fundsOrderNo: leg.fundsOrderNo });
+      await this.transferAudit(row, { action: AuditActions.INTERNAL_TRANSFER_FAILED, outcome: AuditOutcome.FAILED, reasonCode: 'POSTING_FAILED', reason: `Leg ${leg.legSeq} posting failed: ${(err as Error).message} — the order remains in Executing, the leg remains Confirmed, no retry`, fundsOrderNo: leg.fundsOrderNo });
       return;
     }
     await this.fundsOrders.advance(leg.id, FundsOrderAction.CLEAR, 'INTERNAL_TRANSFER_WORKFLOW');
-    await this.transferAudit(row, { action: AuditActions.INTERNAL_TRANSFER_LEG_POSTED, reason: `腿 ${leg.legSeq} 已确认，分录落账并清算`, fundsOrderNo: leg.fundsOrderNo, metadata: { legSeq: leg.legSeq } });
+    await this.transferAudit(row, { action: AuditActions.INTERNAL_TRANSFER_LEG_POSTED, reason: `Leg ${leg.legSeq} confirmed, entries posted and cleared`, fundsOrderNo: leg.fundsOrderNo, metadata: { legSeq: leg.legSeq } });
     if (!finalLeg) { await this.createLeg(row, 2); return; }
     const updated = await this.transfers.transition(row.transferNo, InternalTransferStatus.SUCCESS, { settledAt: new Date() });
     await this.transferAudit(row, {
       action: AuditActions.INTERNAL_TRANSFER_SETTLED,
-      reason: row.purpose === 'CLIENT_COMPENSATION' ? '补款到账，客户余额复位' : '垫款到账，客户可用余额足以认领退汇',
+      reason: row.purpose === 'CLIENT_COMPENSATION' ? 'Compensation received, customer balance restored' : 'Advance received, customer available balance now covers the recalled amount',
       fromStatus: row.status, toStatus: updated.status,
     });
   }
@@ -257,8 +257,8 @@ export class InternalTransferWorkflowService {
   private async onLegFailed(row: any, leg: any, newStatus: string) {
     if (row.status !== InternalTransferStatus.EXECUTING) return;
     const note = row.asset.type === 'FIAT' && leg.legSeq === 2
-      ? `腿 2 ${newStatus}：款项停在结算户，财资人工处理（腿 1 已落账，账与钱一致）`
-      : `腿 ${leg.legSeq} ${newStatus}：钱没动，可重新发起`;
+      ? `Leg 2 ${newStatus}: funds remain in the settlement account, Treasury to handle manually (leg 1 already posted, books match funds)`
+      : `Leg ${leg.legSeq} ${newStatus}: no funds moved, this can be reinitiated`;
     const updated = await this.transfers.transition(row.transferNo, InternalTransferStatus.FAILED, { failureReasonCode: 'LEG_FAILED', failureNote: note });
     await this.transferAudit(row, { action: AuditActions.INTERNAL_TRANSFER_FAILED, outcome: AuditOutcome.FAILED, reasonCode: 'LEG_FAILED', reason: note, fundsOrderNo: leg.fundsOrderNo, fromStatus: row.status, toStatus: updated.status });
   }
@@ -267,7 +267,7 @@ export class InternalTransferWorkflowService {
 
   private async accounts(row: any) {
     const ledger = TB_LEDGERS[row.asset.currency as keyof typeof TB_LEDGERS];
-    if (!ledger) throw new NotFoundException(`资产 ${row.asset.code} 解析不出账本 ledger（currency=${row.asset.currency}）`);
+    if (!ledger) throw new NotFoundException(`Unable to resolve a ledger for asset ${row.asset.code} (currency=${row.asset.currency})`);
     const sys = (code: number) => this.accounting.resolveTbAccountId({ code, ledger, ownerType: 'SYSTEM' });
     return {
       ledger,
@@ -285,7 +285,7 @@ export class InternalTransferWorkflowService {
       debitCode: TB_CODE_TO_COA[debitCode], creditCode: TB_CODE_TO_COA[creditCode],
       assetCurrency: row.asset.currency, // ⚠ currency 不是 code（USDT-TRON vs USDT）
       actorType: 'SYSTEM', actorId: 'INTERNAL_TRANSFER_WORKFLOW',
-      memo: `${row.purpose === 'CLIENT_COMPENSATION' ? '补款' : '垫付'} ${row.transferNo} leg ${leg.legSeq}（对账案 ${row.sourceCaseNo}）`,
+      memo: `${row.purpose === 'CLIENT_COMPENSATION' ? 'Compensation' : 'Advance'} ${row.transferNo} leg ${leg.legSeq} (case ${row.sourceCaseNo})`,
       debitWalletRef, creditWalletRef,
       externalRef: this.fundsOrders.resolveExternalRef({ ...leg, asset: row.asset }),
       isExternalCrossing: true,

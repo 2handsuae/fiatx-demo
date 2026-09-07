@@ -23,42 +23,42 @@ function makeWorkflow(o: Partial<Record<'incidentRow' | 'remediations', any>> = 
   return { wf, incidents, approvals, auditLogs, incidentRow };
 }
 
-describe('IncidentCloseWorkflowService（平账三期 Task 7）', () => {
-  describe('requestClose —— 前置守卫', () => {
-    it('REGISTERED → 400（变异靶子①：删掉这条守卫本用例必红）', async () => {
+describe('IncidentCloseWorkflowService (Task 7)', () => {
+  describe('requestClose — preconditions', () => {
+    it('REGISTERED → 400 (mutation target 1: removing this guard must turn this case red)', async () => {
       const { wf } = makeWorkflow({ incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', type: T.MANUAL, status: S.REGISTERED, traceId: 't' } });
       await expect(wf.requestClose('INC1', ops)).rejects.toThrow(BadRequestException);
     });
 
-    it('INVESTIGATING → 400（变异靶子①）', async () => {
+    it('INVESTIGATING → 400 (mutation target 1)', async () => {
       const { wf } = makeWorkflow({ incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', type: T.MANUAL, status: S.INVESTIGATING, traceId: 't' } });
       await expect(wf.requestClose('INC1', ops)).rejects.toThrow(BadRequestException);
     });
 
-    it('CLOSED（已是终态）→ 400', async () => {
+    it('CLOSED (already terminal) → 400', async () => {
       const { wf } = makeWorkflow({ incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', type: T.MANUAL, status: S.CLOSED, traceId: 't' } });
       await expect(wf.requestClose('INC1', ops)).rejects.toThrow(BadRequestException);
     });
 
-    it('ASSESSED 但定损口径非 NO_LOSS → 400（须先进处置中）', async () => {
+    it('ASSESSED but assessment basis is not NO_LOSS → 400 (must enter Resolving first)', async () => {
       const { wf } = makeWorkflow({ incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', type: T.MANUAL, status: S.ASSESSED, assessmentBasis: 'FIRM_LOSS', traceId: 't' } });
-      await expect(wf.requestClose('INC1', ops)).rejects.toThrow(/处置中/);
+      await expect(wf.requestClose('INC1', ops)).rejects.toThrow(/enter Resolving/);
     });
 
-    it('ASSESSED 且 NO_LOSS 但已挂善后单 → 400', async () => {
+    it('ASSESSED and NO_LOSS but already has remediation linked → 400', async () => {
       const { wf } = makeWorkflow({
         incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', type: T.MANUAL, status: S.ASSESSED, assessmentBasis: 'NO_LOSS', traceId: 't' },
         remediations: ['ADJ1'],
       });
-      await expect(wf.requestClose('INC1', ops)).rejects.toThrow(/处置中/);
+      await expect(wf.requestClose('INC1', ops)).rejects.toThrow(/enter Resolving/);
     });
 
-    it('ASSESSED + NO_LOSS + 零善后 → 放行（CLOSE_NO_ACTION 路）', async () => {
+    it('ASSESSED + NO_LOSS + zero remediation → allowed (the CLOSE_NO_ACTION path)', async () => {
       const { wf } = makeWorkflow({ incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', type: T.MANUAL, status: S.ASSESSED, assessmentBasis: 'NO_LOSS', reportRequired: false, traceId: 't' } });
       await expect(wf.requestClose('INC1', ops)).resolves.toBeDefined();
     });
 
-    it('RESOLVING → 放行（不看 assessmentBasis/善后挂载）', async () => {
+    it('RESOLVING → allowed (assessmentBasis/remediation links are not checked)', async () => {
       const { wf } = makeWorkflow({
         incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', type: T.MANUAL, status: S.RESOLVING, assessmentBasis: 'FIRM_LOSS', reportRequired: false, traceId: 't' },
         remediations: ['ADJ1'],
@@ -66,18 +66,18 @@ describe('IncidentCloseWorkflowService（平账三期 Task 7）', () => {
       await expect(wf.requestClose('INC1', ops)).resolves.toBeDefined();
     });
 
-    it('reportRequired=true 而未 markReported → 400（通报没留痕不许关）', async () => {
+    it('reportRequired=true but not yet markReported → 400 (cannot close without a reporting trace)', async () => {
       const { wf } = makeWorkflow({ incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', type: T.MANUAL, status: S.RESOLVING, reportRequired: true, reportedAt: null, traceId: 't' } });
-      await expect(wf.requestClose('INC1', ops)).rejects.toThrow(/通报/);
+      await expect(wf.requestClose('INC1', ops)).rejects.toThrow(/regulator reporting/);
     });
 
-    it('reportRequired=true 且已 markReported → 放行', async () => {
+    it('reportRequired=true and already markReported → allowed', async () => {
       const { wf } = makeWorkflow({ incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', type: T.MANUAL, status: S.RESOLVING, reportRequired: true, reportedAt: new Date(), traceId: 't' } });
       await expect(wf.requestClose('INC1', ops)).resolves.toBeDefined();
     });
   });
 
-  describe('requestClose —— 类型 → 动作类型路由', () => {
+  describe('requestClose — type → action type routing', () => {
     it('UNAUTHORIZED_OUTFLOW → INCIDENT_CLOSE_SECURITY', async () => {
       const { wf, approvals } = makeWorkflow({ incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', type: T.UNAUTHORIZED_OUTFLOW, status: S.RESOLVING, traceId: 't' } });
       await wf.requestClose('INC1', ops);
@@ -91,8 +91,8 @@ describe('IncidentCloseWorkflowService（平账三期 Task 7）', () => {
     });
   });
 
-  describe('requestClose —— objectSnapshot 零 UUID + markCloseRequested + 审计', () => {
-    it('正路径：objectSnapshot 含类型/金额/定损口径/善后单号清单/是否已通报，无 UUID', async () => {
+  describe('requestClose — objectSnapshot has zero UUIDs + markCloseRequested + audit', () => {
+    it('happy path: objectSnapshot carries type/amount/assessment basis/remediation reference list/reported flag, no UUIDs', async () => {
       const { wf, approvals, incidents, auditLogs } = makeWorkflow({
         incidentRow: {
           id: 'uuid-inc', incidentNo: 'INC1', type: T.CLIENT_SHORTFALL, status: S.RESOLVING,
@@ -111,7 +111,7 @@ describe('IncidentCloseWorkflowService（平账三期 Task 7）', () => {
         incidentNo: 'INC1', customerNo: 'CU1',
         type: T.CLIENT_SHORTFALL, amount: '900', assessmentBasis: 'CLIENT_COLLECTION',
         remediationReferenceNos: ['ITR9'], reported: true,
-        impact: '结案事故 INC1（退汇欠款）：定损追索 900，善后单 1 张，已通报 VARA',
+        impact: 'Closing incident INC1 (Client shortfall): Assessment: pursuing collection 900, 1 remediation item(s), reported to VARA',
       });
       expect(JSON.stringify(call.objectSnapshot)).not.toMatch(/uuid-/);
 
@@ -120,7 +120,7 @@ describe('IncidentCloseWorkflowService（平账三期 Task 7）', () => {
       expect(audit).toMatchObject({ action: 'INCIDENT_CLOSE_REQUESTED', approvalNo: 'AC1', correlationId: 'trace-9' });
     });
 
-    it('定损行带 assetCode → impact 拼上币种（终审点名：此前无覆盖分支）', async () => {
+    it('an assessment row with assetCode → impact appends the currency (called out at final review: previously uncovered branch)', async () => {
       const { wf, approvals } = makeWorkflow({
         incidentRow: {
           id: 'uuid-inc', incidentNo: 'INC1', type: T.UNAUTHORIZED_OUTFLOW, status: S.RESOLVING,
@@ -131,12 +131,12 @@ describe('IncidentCloseWorkflowService（平账三期 Task 7）', () => {
       });
       await wf.requestClose('INC1', ops);
       const call = approvals.createAndSubmit.mock.calls[0][0];
-      expect(call.objectSnapshot.impact).toBe('结案事故 INC1（未授权转出）：定损认损 400 USDT-TRON，善后单 1 张，无需通报');
+      expect(call.objectSnapshot.impact).toBe('Closing incident INC1 (Unauthorized outflow): Assessment: loss recognized 400 USDT-TRON, 1 remediation item(s), no reporting required');
     });
   });
 
-  describe('onDecided —— 裁决落地', () => {
-    it('APPROVED → close() 被调 + INCIDENT_CLOSED 审计（fromStatus/toStatus/approvalNo/causationId）', async () => {
+  describe('onDecided — decision landing', () => {
+    it('APPROVED → close() is called + INCIDENT_CLOSED audit (fromStatus/toStatus/approvalNo/causationId)', async () => {
       const { wf, incidents, auditLogs } = makeWorkflow({ incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', type: T.MANUAL, status: S.RESOLVING, traceId: 'trace-1' } });
       await wf.onDecided({
         decision: 'APPROVED', actionType: 'INCIDENT_CLOSE_FINANCIAL', entityRef: 'INC1',
@@ -148,7 +148,7 @@ describe('IncidentCloseWorkflowService（平账三期 Task 7）', () => {
       expect(audit).toMatchObject({ action: 'INCIDENT_CLOSED', approvalNo: 'AC1', causationId: 'A1', fromStatus: S.RESOLVING, toStatus: S.CLOSED, correlationId: 'trace-1' });
     });
 
-    it('DECLINED → 留原状态：close() 不被调，不写审计', async () => {
+    it('DECLINED → status left unchanged: close() is not called, no audit written', async () => {
       const { wf, incidents, auditLogs } = makeWorkflow({ incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', type: T.MANUAL, status: S.RESOLVING, traceId: 'trace-1' } });
       await wf.onDecided({
         decision: 'DECLINED', actionType: 'INCIDENT_CLOSE_FINANCIAL', entityRef: 'INC1',
@@ -159,7 +159,7 @@ describe('IncidentCloseWorkflowService（平账三期 Task 7）', () => {
       expect(auditLogs.recordByActor).not.toHaveBeenCalled();
     });
 
-    it('EXPIRED/CANCELLED 同样留原状态（非 APPROVED 一律 no-op，不查库）', async () => {
+    it('EXPIRED/CANCELLED also leave status unchanged (anything but APPROVED is a no-op, no lookup)', async () => {
       const { wf, incidents } = makeWorkflow();
       await wf.onDecided({ decision: 'EXPIRED', entityRef: 'INC1' } as any);
       await wf.onDecided({ decision: 'CANCELLED', entityRef: 'INC1' } as any);

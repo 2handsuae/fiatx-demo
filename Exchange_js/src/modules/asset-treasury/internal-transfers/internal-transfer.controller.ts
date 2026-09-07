@@ -10,7 +10,7 @@ import { InternalTransferWorkflowService } from './internal-transfer-workflow.se
 import { CancelInternalTransferDto, InitiateAdvanceDto, InitiateCompensationDto, InternalTransferListQueryDto } from './dto/internal-transfer.dto';
 
 /** 平账二期 · 内部划转单端点。发起 / 撤回归金库（INTERNAL_TRANSFER_WRITE），列表 / 详情归 READ；写动作全在 workflow。 */
-@ApiTags('Admin - Internal Transfers (平账二期·内部划转单)')
+@ApiTags('Admin - Internal Transfers')
 @ApiBearerAuth()
 @Controller('admin/internal-transfers')
 @UseGuards(AuthGuard('jwt'), AdminPermissionGuard)
@@ -28,35 +28,35 @@ export class InternalTransferController {
   }
 
   @Post('compensation')
-  @ApiOperation({ summary: '发起补款（来源 = 已落账的客户池认损调账单）' })
+  @ApiOperation({ summary: 'Initiate compensation (source = posted client-pool loss-recognition adjustment)' })
   @RequirePermissions(buildPermissionCode('POST', '/admin/internal-transfers/compensation'))
   compensation(@Body() dto: InitiateCompensationDto, @Req() req: any) {
     return this.workflow.initiateCompensation(dto, this.buildActor(req));
   }
 
   @Post('advance')
-  @ApiOperation({ summary: '发起垫款（来源 = 定性为退汇且余额不足的账单行）' })
+  @ApiOperation({ summary: 'Initiate advance (source = disposition line classified as bounced with insufficient balance)' })
   @RequirePermissions(buildPermissionCode('POST', '/admin/internal-transfers/advance'))
   advance(@Body() dto: InitiateAdvanceDto, @Req() req: any) {
     return this.workflow.initiateAdvance(dto, this.buildActor(req));
   }
 
   @Post(':transferNo/cancel')
-  @ApiOperation({ summary: '撤回待批的划转单（仅开单人）' })
+  @ApiOperation({ summary: 'Cancel a pending-approval transfer (initiator only)' })
   @RequirePermissions(buildPermissionCode('POST', '/admin/internal-transfers/:transferNo/cancel'))
   cancel(@Param('transferNo') transferNo: string, @Body() dto: CancelInternalTransferDto, @Req() req: any) {
     return this.workflow.cancel(transferNo, dto, this.buildActor(req));
   }
 
   @Get()
-  @ApiOperation({ summary: '划转单列表' })
+  @ApiOperation({ summary: 'List internal transfers' })
   @RequirePermissions(buildPermissionCode('GET', '/admin/internal-transfers'))
   list(@Query() q: InternalTransferListQueryDto) {
     return this.transfers.list(q);
   }
 
   @Get(':transferNo')
-  @ApiOperation({ summary: '划转单详情（含资金单腿）' })
+  @ApiOperation({ summary: 'Internal transfer detail (with funds-order legs)' })
   @RequirePermissions(buildPermissionCode('GET', '/admin/internal-transfers/:transferNo'))
   detail(@Param('transferNo') transferNo: string) {
     return this.transfers.getView(transferNo);

@@ -426,7 +426,7 @@ describe('Incident register e2e (平账三期 · 事故登记, Task 13)', () => 
 
   it('3 · REGISTERED/INVESTIGATING 状态下 close → 400（变异靶子①的 e2e 面）', async () => {
     expect((await incidents.findByNo(mainIncidentNo)).status).toBe('INVESTIGATING');
-    await expect(closeWorkflow.requestClose(mainIncidentNo, ops())).rejects.toThrow(/不能申请结案/);
+    await expect(closeWorkflow.requestClose(mainIncidentNo, ops())).rejects.toThrow(/close cannot be requested/);
     // 拒绝是纯校验、不落库：状态原地不动。
     expect((await incidents.findByNo(mainIncidentNo)).status).toBe('INVESTIGATING');
   });
@@ -574,7 +574,7 @@ describe('Incident register e2e (平账三期 · 事故登记, Task 13)', () => 
     const reg = await registrationWorkflow.register({
       type: IncidentTypes.MANUAL, title: '误登记的对账观察', description: '运营手滑，实际是正常波动，登记后即撤回',
     } as any, ops());
-    await expect(incidents.withdraw(reg.incidentNo, '', ops())).rejects.toThrow(/撤回必须填写理由/);
+    await expect(incidents.withdraw(reg.incidentNo, '', ops())).rejects.toThrow(/Withdrawal requires a reason/);
     const wd = await incidents.withdraw(reg.incidentNo, '经复核，属误报，无实际事故', ops());
     expect(wd.status).toBe('WITHDRAWN');
     const row = await incidents.findByNo(reg.incidentNo);
@@ -607,7 +607,7 @@ describe('Incident register e2e (平账三期 · 事故登记, Task 13)', () => 
     await expect(incidents.register({
       type: IncidentTypes.CLIENT_SHORTFALL, title: '客户欠款登记（负例）', description: '锚定一张非垫款单，验证拒绝',
       customerNo: cust.customerNo, amount: '900', sourceAdvanceTransferNo: mainCompensationTransferNo,
-    } as any, ops())).rejects.toThrow(/不是垫款单/);
+    } as any, ops())).rejects.toThrow(/not an advance transfer/);
 
     // 正例：锚定真实垫款单，登记成功。
     const reg = await registrationWorkflow.register({

@@ -24,13 +24,13 @@ import { IncidentService } from './incident.service';
 // 把类型 / 定损口径译成人话，镜像 admin-web/src/utils/incidentStatusMap.ts 的
 // INCIDENT_TYPE_LABEL / ASSESSMENT_BASIS_LABEL（前后端各自维护展示词，无共享路径）。
 const INCIDENT_TYPE_IMPACT_LABEL: Record<string, string> = {
-  [IncidentTypes.UNAUTHORIZED_OUTFLOW]: '未授权转出',
-  [IncidentTypes.LARGE_UNEXPLAINED]: '大额查不出',
-  [IncidentTypes.CLIENT_SHORTFALL]: '退汇欠款',
-  [IncidentTypes.MANUAL]: '人工登记',
+  [IncidentTypes.UNAUTHORIZED_OUTFLOW]: 'Unauthorized outflow',
+  [IncidentTypes.LARGE_UNEXPLAINED]: 'Large unexplained',
+  [IncidentTypes.CLIENT_SHORTFALL]: 'Client shortfall',
+  [IncidentTypes.MANUAL]: 'Manual registration',
 };
 const ASSESSMENT_BASIS_IMPACT_VERB: Record<string, string> = {
-  RECOVERED: '追回', FIRM_LOSS: '认损', CLIENT_COLLECTION: '追索', NO_LOSS: '无损失',
+  RECOVERED: 'recovered', FIRM_LOSS: 'loss recognized', CLIENT_COLLECTION: 'pursuing collection', NO_LOSS: 'no loss',
 };
 
 @Injectable()
@@ -53,19 +53,19 @@ export class IncidentCloseWorkflowService {
 
     if (row.status === IncidentStatus.ASSESSED) {
       if (row.assessmentBasis !== 'NO_LOSS' || remediationReferenceNos.length > 0) {
-        throw new BadRequestException(`事故 ${incidentNo} 定损结论非「无损失」或已挂善后单，须先进入处置中（RESOLVING）才能申请结案`);
+        throw new BadRequestException(`Incident ${incidentNo} assessment conclusion is not "no loss" or already has remediation linked — it must enter Resolving before close can be requested`);
       }
     } else if (row.status !== IncidentStatus.RESOLVING) {
       if (row.status === IncidentStatus.CLOSED) {
-        throw new BadRequestException(`事故 ${incidentNo} 已结案，不能再申请结案`);
+        throw new BadRequestException(`Incident ${incidentNo} is already closed — close cannot be requested again`);
       }
       if (row.status === IncidentStatus.WITHDRAWN) {
-        throw new BadRequestException(`事故 ${incidentNo} 已撤回，不能申请结案`);
+        throw new BadRequestException(`Incident ${incidentNo} has been withdrawn — close cannot be requested`);
       }
-      throw new BadRequestException(`事故 ${incidentNo} 当前状态 ${row.status} 不能申请结案——须先完成定损（进入 ASSESSED 或 RESOLVING）`);
+      throw new BadRequestException(`Incident ${incidentNo} is in status ${row.status} — close cannot be requested until assessment is complete (Assessed or Resolving)`);
     }
     if (row.reportRequired && !row.reportedAt) {
-      throw new BadRequestException(`事故 ${incidentNo} 判定需要监管通报但尚未标记已通报，不能结案`);
+      throw new BadRequestException(`Incident ${incidentNo} is determined to require regulator reporting but has not been marked as reported — it cannot be closed`);
     }
 
     const actionType = row.type === IncidentTypes.UNAUTHORIZED_OUTFLOW
@@ -89,14 +89,14 @@ export class IncidentCloseWorkflowService {
           impact,
         },
       },
-      { reason: `事故 ${row.incidentNo} 申请结案`, traceId: row.traceId },
+      { reason: `Close requested for incident ${row.incidentNo}`, traceId: row.traceId },
       actor,
     );
 
     await this.incidents.markCloseRequested(row.incidentNo, approval.approvalNo);
     await this.closeAudit(row, {
       action: AuditActions.INCIDENT_CLOSE_REQUESTED, approvalNo: approval.approvalNo, actor,
-      reason: `申请结案（${actionType}）`,
+      reason: `Close requested (${actionType})`,
     });
     return { incidentNo: row.incidentNo, approvalNo: approval.approvalNo as string };
   }
@@ -121,7 +121,7 @@ export class IncidentCloseWorkflowService {
     await this.closeAudit(row, {
       action: AuditActions.INCIDENT_CLOSED, approvalNo: event.approvalNo, causationId: event.approvalId,
       fromStatus: row.status, toStatus: updated.status,
-      reason: `${event.decisionByRole ?? 'CFO'} 批准结案`,
+      reason: `Close approved by ${event.decisionByRole ?? 'CFO'}`,
     });
   }
 
@@ -136,13 +136,13 @@ export class IncidentCloseWorkflowService {
     const basisVerb = ASSESSMENT_BASIS_IMPACT_VERB[row.assessmentBasis] ?? row.assessmentBasis ?? '-';
     const assessedAmount = row.assessedAmount != null ? row.assessedAmount.toString() : null;
     const assessmentPart = row.assessmentBasis === 'NO_LOSS' || assessedAmount == null
-      ? `定损${basisVerb}`
-      : `定损${basisVerb} ${assessedAmount}${row.assetCode ? ` ${row.assetCode}` : ''}`;
+      ? `Assessment: ${basisVerb}`
+      : `Assessment: ${basisVerb} ${assessedAmount}${row.assetCode ? ` ${row.assetCode}` : ''}`;
     const remediationPart = remediationReferenceNos.length > 0
-      ? `善后单 ${remediationReferenceNos.length} 张`
-      : '无善后';
-    const reportPart = row.reportRequired ? '已通报 VARA' : '无需通报';
-    return `结案事故 ${row.incidentNo}（${typeLabel}）：${assessmentPart}，${remediationPart}，${reportPart}`;
+      ? `${remediationReferenceNos.length} remediation item(s)`
+      : 'no remediation';
+    const reportPart = row.reportRequired ? 'reported to VARA' : 'no reporting required';
+    return `Closing incident ${row.incidentNo} (${typeLabel}): ${assessmentPart}, ${remediationPart}, ${reportPart}`;
   }
 
   // ── 审计（本文件专记 CLOSE_REQUESTED/CLOSED 两码——跨主体动作，IncidentService 自己的

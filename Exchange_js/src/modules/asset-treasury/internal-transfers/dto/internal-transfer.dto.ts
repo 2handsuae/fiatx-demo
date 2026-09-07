@@ -22,7 +22,7 @@ export class InitiateCompensationDto {
 }
 export class InitiateAdvanceDto {
   @ApiProperty() @IsString() @IsNotEmpty() caseNo!: string;
-  @ApiProperty({ description: '被退汇的账单行（隐藏锚，来自案件读面 nextStep.externalLineId）' }) @IsString() @IsNotEmpty() externalLineId!: string;
+  @ApiProperty({ description: 'The bounced statement line (hidden anchor, from the case view nextStep.externalLineId)' }) @IsString() @IsNotEmpty() externalLineId!: string;
   @ApiProperty() @IsString() @IsNotEmpty() reason!: string;
 }
 export class CancelInternalTransferDto {

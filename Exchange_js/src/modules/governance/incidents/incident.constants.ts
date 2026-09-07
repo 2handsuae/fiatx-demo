@@ -80,9 +80,9 @@ export interface LinkRemediationDto {
 
 /** 依据条款目录（spec §4）。hours=null 的依据没有法定钟——界面显式「未设时限」，不杜撰。 */
 export const INCIDENT_REPORT_BASES = {
-  TIR_K_H:    { label: 'TIR Rulebook Section K + H — 网安 / BCDR 事件报 VARA', hours: 72 },
-  CRM_IV_E_5: { label: 'CRM IV.E.5 — Client Money 重大未平差异', hours: null },
-  CRM_V_D_2:  { label: 'CRM V.D.2 — Client VAs 重大未平差异', hours: null },
+  TIR_K_H:    { label: 'TIR Rulebook Section K + H — Cyber / BCDR incident reporting to VARA', hours: 72 },
+  CRM_IV_E_5: { label: 'CRM IV.E.5 — Material Client Money discrepancy', hours: null },
+  CRM_V_D_2:  { label: 'CRM V.D.2 — Material Client VA discrepancy', hours: null },
 } as const;
 
 export interface AssessIncidentDto {

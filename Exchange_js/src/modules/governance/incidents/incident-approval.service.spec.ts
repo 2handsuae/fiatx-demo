@@ -1,8 +1,8 @@
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { IncidentCloseFinancialApprovalService, IncidentCloseSecurityApprovalService } from './incident-approval.service';
 
-describe('IncidentCloseSecurityApprovalService/IncidentCloseFinancialApprovalService（Task 7）', () => {
-  it('两个 handler 各只认领自己的动作类型，共用同一 workflowType（汇入同一二级事件）', () => {
+describe('IncidentCloseSecurityApprovalService/IncidentCloseFinancialApprovalService (Task 7)', () => {
+  it('each handler only claims its own action type, sharing one workflowType (feeding into the same second-order event)', () => {
     const emitter = new EventEmitter2();
     const security = new IncidentCloseSecurityApprovalService(emitter);
     const financial = new IncidentCloseFinancialApprovalService(emitter);
@@ -12,7 +12,7 @@ describe('IncidentCloseSecurityApprovalService/IncidentCloseFinancialApprovalSer
     expect(financial.workflowType).toBe('INCIDENT');
   });
 
-  it('不是自己的 actionType 就不动手（Security handler 收到 Financial 的裁决）', async () => {
+  it('does not act on a decision that is not its own actionType (Security handler receives a Financial decision)', async () => {
     const emitter = new EventEmitter2();
     const security = new IncidentCloseSecurityApprovalService(emitter);
     const spy = jest.spyOn(emitter, 'emitAsync');
@@ -20,7 +20,7 @@ describe('IncidentCloseSecurityApprovalService/IncidentCloseFinancialApprovalSer
     expect(spy).not.toHaveBeenCalled();
   });
 
-  it('两条动作类型的裁决都派生同一个二级事件 workflow.incident.decided', async () => {
+  it('decisions from both action types emit the same second-order event workflow.incident.decided', async () => {
     const emitter = new EventEmitter2();
     const security = new IncidentCloseSecurityApprovalService(emitter);
     const financial = new IncidentCloseFinancialApprovalService(emitter);
