@@ -173,4 +173,14 @@ describe('OnboardingWorkflowService 准入审批线', () => {
     await build(d3).onAcceptanceDecided({ ...base, decision: 'CANCELLED' });
     expect(d3.lifecycle.applyAction).not.toHaveBeenCalled();
   });
+
+  it('getAcceptanceCase: 查得到 → 返回 {approvalNo, status}；查不到 → null（终审补齐）', async () => {
+    const d1 = makeDeps(pending());
+    d1.prisma.approvalCase.findFirst.mockResolvedValue({ approvalNo: 'APR0007', status: 'PENDING' });
+    expect(await build(d1).getAcceptanceCase('CU250907001')).toEqual({ approvalNo: 'APR0007', status: 'PENDING' });
+
+    const d2 = makeDeps(pending());
+    d2.prisma.approvalCase.findFirst.mockResolvedValue(null);
+    expect(await build(d2).getAcceptanceCase('CU250907001')).toBeNull();
+  });
 });

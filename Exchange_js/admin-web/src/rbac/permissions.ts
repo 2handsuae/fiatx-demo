@@ -39,6 +39,8 @@ export const PERMISSIONS = {
   // 客户域波二（Task 10）：准入核准提单——精确镜像 rbac.catalog.ts 里 Task 8
   // 已登记的 buildPermissionCode(method, path) 派生值。
   CUSTOMER_ONBOARDING_ACCEPT_WRITE: 'api.post.admin_customers_customerno_onboarding_acceptance',
+  // 终审补齐（2026-09-07）：查关联准入核准单状态——精确镜像 rbac.catalog.ts 同名 GET 路由。
+  CUSTOMER_ONBOARDING_ACCEPTANCE_READ: 'api.get.admin_customers_customerno_onboarding_acceptance',
 
   MATERIAL_REQUESTS_READ: 'api.get.admin_customers_customerno_material_requests',
   MATERIAL_REQUESTS_WRITE: 'api.post.admin_customers_customerno_material_requests',

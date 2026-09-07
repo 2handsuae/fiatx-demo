@@ -70,7 +70,7 @@ describe('customer lifecycle transition table (10-edge guard)', () => {
     expect(nextLifecycle(edge.from, edge.action)).toBe(edge.to);
   });
 
-  it('every (lifecycle, action) pair NOT in the 9-edge list throws (no undocumented edge exists)', () => {
+  it('every (lifecycle, action) pair NOT in the 10-edge list throws (no undocumented edge exists)', () => {
     const edgeKeys = new Set(EXPECTED_EDGES.map((e) => `${e.from}::${e.action}`));
     for (const from of ALL_LIFECYCLES) {
       for (const action of ALL_ACTIONS) {

@@ -201,6 +201,9 @@ const CustomerDetail = () => {
   const canWriteRestrictions = hasPermission(PERMISSIONS.CUSTOMER_RESTRICTIONS_WRITE);
   const canReleaseRestrictions = hasPermission(PERMISSIONS.CUSTOMER_RESTRICTIONS_RELEASE);
 
+  /* ── Onboarding acceptance permission ── */
+  const canReadAcceptanceCase = hasPermission(PERMISSIONS.CUSTOMER_ONBOARDING_ACCEPTANCE_READ);
+
   /* ── Tags state ── */
   const canViewTags = hasPermission(PERMISSIONS.CUSTOMER_TAGS_READ);
   const canManageTags = hasPermission(PERMISSIONS.CUSTOMER_TAGS_ASSIGN);
@@ -217,7 +220,7 @@ const CustomerDetail = () => {
 
   /* ── Onboarding acceptance + ⚡ simulation state ── */
   const { enabled: simEnabled } = useSimulationMode();
-  const [acceptanceNo, setAcceptanceNo] = useState<string | null>(null);
+  const [acceptanceCase, setAcceptanceCase] = useState<{ approvalNo: string; status: string } | null>(null);
   const [acceptanceSubmitting, setAcceptanceSubmitting] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [simBusy, setSimBusy] = useState<string | null>(null);
@@ -318,6 +321,19 @@ const CustomerDetail = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [canReadRestrictions, detail?.customerNo]);
 
+  /* ── Onboarding acceptance case fetching（spec §5/§7：单子提了没，从关联审批单推导展示） ── */
+  const fetchAcceptanceCase = (customerNo: string) => {
+    adminFetch(`${import.meta.env.VITE_API_URL}/admin/customers/${customerNo}/onboarding-acceptance`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d: { approvalNo: string; status: string } | null) => setAcceptanceCase(d))
+      .catch(() => {});
+  };
+
+  useEffect(() => {
+    if (canReadAcceptanceCase && detail?.customerNo) fetchAcceptanceCase(detail.customerNo);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [canReadAcceptanceCase, detail?.customerNo]);
+
   const handleAddTag = async () => {
     if (!detail || !tagAddValue) return;
     setTagBusyCode(tagAddValue);
@@ -382,8 +398,8 @@ const CustomerDetail = () => {
         { method: 'POST', body: JSON.stringify({ reason }) },
       );
       if (!res.ok) throw new Error(await getApiErrorMessage(res, 'Failed to submit acceptance request.'));
-      const { approvalNo } = (await res.json()) as { approvalNo: string };
-      setAcceptanceNo(approvalNo);
+      await res.json();
+      if (canReadAcceptanceCase) fetchAcceptanceCase(detail.customerNo);
       void fetchDetail();
     } catch (e: unknown) {
       if (e instanceof AdminSessionError) return;
@@ -517,6 +533,10 @@ const CustomerDetail = () => {
   const canVerdict = detail.lifecycle === 'IN_VERIFICATION' && detail.onboardingSubmittedAt != null;
   const canEscalate = canVerdict && detail.sumsubCurrentLevelName === 'basic-cdd-level';
   const canRequestAcceptance = hasPermission(PERMISSIONS.CUSTOMER_ONBOARDING_ACCEPT_WRITE);
+  // 「单子提了没」展示口径（spec §5）：PENDING_APPROVAL 待提/审批中、ACTIVE/REJECTED 是裁决后的落点；
+  // 已有关联单（acceptanceCase 非空）时其余 lifecycle 也一并显示，不藏历史单据。
+  const showAcceptanceStatus =
+    ['PENDING_APPROVAL', 'ACTIVE', 'REJECTED'].includes(detail.lifecycle) || acceptanceCase !== null;
 
   /* ── Render ── */
 
@@ -587,8 +607,8 @@ const CustomerDetail = () => {
           </section>
 
           {/* Onboarding —— 入驻状态卡（第二幕波二 Task 10）。准入核准走
-              maker(运营)→checker(高管) 单步审批；approvalNo 只在本次提交的
-              会话内临时展示，不做持久轮询。 */}
+              maker(运营)→checker(高管) 单步审批；关联单状态经
+              GET :customerNo/onboarding-acceptance 推导展示，刷新不丢（终审补齐）。 */}
           <section className="px-6 py-5">
             <Cap>Onboarding</Cap>
             <div className="mt-3">
@@ -603,10 +623,12 @@ const CustomerDetail = () => {
                 {actionError}
               </div>
             )}
-            {acceptanceNo && (
+            {canReadAcceptanceCase && showAcceptanceStatus && (
               <p className="mt-3 font-mono text-[10px] text-adm-t2">
                 Acceptance approval:{' '}
-                <span className="font-semibold text-adm-amber">{acceptanceNo}</span>
+                <span className="font-semibold text-adm-amber">
+                  {acceptanceCase ? `${acceptanceCase.approvalNo} (${acceptanceCase.status})` : 'Not requested'}
+                </span>
               </p>
             )}
             {detail.lifecycle === 'PENDING_APPROVAL' && canRequestAcceptance && (

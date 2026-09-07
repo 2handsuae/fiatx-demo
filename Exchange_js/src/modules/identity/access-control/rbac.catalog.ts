@@ -254,6 +254,13 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
     'Open a senior-management acceptance approval for a high-risk onboarding customer',
     ['CUSTOMER_ONBOARDING_ACCEPT_WRITE'],
   ),
+  // 终审补齐（2026-09-07）：查关联准入核准单状态，挂既有 CUSTOMER_READ 组
+  route(
+    'GET',
+    '/admin/customers/:customerNo/onboarding-acceptance',
+    'Get the latest onboarding acceptance approval case for a customer',
+    ['CUSTOMER_READ'],
+  ),
 
   // Material requests
   route('GET', '/admin/customers/:customerNo/material-requests', 'List customer material requests', ['CUSTOMER_RESTRICTION_READ']),

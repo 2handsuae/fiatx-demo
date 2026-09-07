@@ -217,7 +217,7 @@ export class OnboardingWorkflowService {
     });
     if (open) throw new BadRequestException(`Acceptance already pending approval: ${open.approvalNo}`);
     const traceId = randomUUID();
-    const impact = `高风险客户准入核准：${customerNo}（风险 ${c.riskRating}，EDD 已在 Sumsub 完成，GREEN）——批准即开户 ACTIVE，限额与费率按默认档生效`;
+    const impact = `高风险客户准入核准：${customerNo}（EDD 尽调已在 Sumsub 完成，GREEN）——批准即开户 ACTIVE，限额与费率按默认档生效`;
     const approvalCase = await this.approvalsService.createAndSubmit(
       {
         actionType: ApprovalActionTypes.CUSTOMER_ONBOARDING_ACCEPTANCE, entityRef: customerNo, traceId,
@@ -242,6 +242,16 @@ export class OnboardingWorkflowService {
       sourcePlatform: 'ADMIN_API',
     } as any, { actorType: 'ADMIN', actorNo: actor.userNo ?? actor.userId ?? 'ADMIN', actorDisplayName: actor.userNo ?? actor.userId ?? 'ADMIN', actorRolesAtTime: actor.roleCodes ?? [] });
     return { approvalNo: approvalCase.approvalNo };
+  }
+
+  /** 「单子提了没」从关联审批单推导展示（spec §5）：查最近一条准入核准单，查不到 → null。 */
+  async getAcceptanceCase(customerNo: string): Promise<{ approvalNo: string; status: string } | null> {
+    const approvalCase = await this.prisma.approvalCase.findFirst({
+      where: { actionType: ApprovalActionTypes.CUSTOMER_ONBOARDING_ACCEPTANCE, entityRef: customerNo },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (!approvalCase) return null;
+    return { approvalNo: approvalCase.approvalNo, status: approvalCase.status };
   }
 
   /** 高管裁决落轴（handler 二级事件）。APPROVED → ACTIVE；DECLINED → REJECTED（可重申）。 */

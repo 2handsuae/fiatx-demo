@@ -1,4 +1,4 @@
-import { Body, Controller, ForbiddenException, Param, Post, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, ForbiddenException, Get, Param, Post, Req, UseGuards } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { AdminPermissionGuard } from '../access-control/admin-permission.guard';
@@ -27,5 +27,12 @@ export class OnboardingAdminController {
       roleCodes: req.user?.roleCodes || (req.user?.role ? [req.user.role] : []),
     };
     return this.workflow.submitAcceptance(customerNo, body?.reason ?? '', actor);
+  }
+
+  @Get(':customerNo/onboarding-acceptance')
+  @ApiOperation({ summary: '查关联准入核准单状态（单子提了没，从审批单推导）' })
+  @RequirePermissions(buildPermissionCode('GET', '/admin/customers/:customerNo/onboarding-acceptance'))
+  getAcceptance(@Param('customerNo') customerNo: string) {
+    return this.workflow.getAcceptanceCase(customerNo);
   }
 }
