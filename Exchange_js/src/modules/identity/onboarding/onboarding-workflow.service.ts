@@ -6,7 +6,7 @@ import { CustomerLifecycleService } from '../customers/customer-lifecycle.servic
 import { CustomersService } from '../customers/customers.service';
 import { SumsubClient } from '../../sumsub-applicant-client/sumsub.client';
 import { ApprovalsService } from '../../governance/approvals/approvals.service';
-import { ApprovalActorContext } from '../../governance/approvals/constants/approval.constants';
+import { ApprovalActionTypes, ApprovalActorContext } from '../../governance/approvals/constants/approval.constants';
 import { ApprovalDecidedEvent } from '../../governance/approvals/approval-handler.base';
 import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import { AuditActions, AuditEntityTypes } from '../../audit-logging/constants/audit-actions.constant';
@@ -213,14 +213,14 @@ export class OnboardingWorkflowService {
       throw new BadRequestException(`Customer ${customerNo} is not awaiting acceptance`);
     }
     const open = await this.prisma.approvalCase.findFirst({
-      where: { actionType: 'CUSTOMER_ONBOARDING_ACCEPTANCE', entityRef: customerNo, status: { in: ['DRAFT', 'PENDING'] } },
+      where: { actionType: ApprovalActionTypes.CUSTOMER_ONBOARDING_ACCEPTANCE, entityRef: customerNo, status: { in: ['DRAFT', 'PENDING'] } },
     });
     if (open) throw new BadRequestException(`Acceptance already pending approval: ${open.approvalNo}`);
     const traceId = randomUUID();
     const impact = `高风险客户准入核准：${customerNo}（风险 ${c.riskRating}，EDD 已在 Sumsub 完成，GREEN）——批准即开户 ACTIVE，限额与费率按默认档生效`;
     const approvalCase = await this.approvalsService.createAndSubmit(
       {
-        actionType: 'CUSTOMER_ONBOARDING_ACCEPTANCE', entityRef: customerNo, traceId,
+        actionType: ApprovalActionTypes.CUSTOMER_ONBOARDING_ACCEPTANCE, entityRef: customerNo, traceId,
         objectSnapshot: {
           customerNo, riskRating: c.riskRating, eddRequired: c.eddRequired,
           levelName: c.sumsubCurrentLevelName, submittedAt: c.onboardingSubmittedAt, impact,
