@@ -288,7 +288,7 @@ const FundsOrderList = () => {
                       <span
                         className={`inline-block rounded border px-2 py-0.5 font-mono text-[10px] ${getFundsOrderStatusTone(item.status)}`}
                       >
-                        {formatFundsOrderStatusLabel(item.status, item.asset?.type, 'en')}
+                        {formatFundsOrderStatusLabel(item.status, item.asset?.type)}
                       </span>
                     </td>
 

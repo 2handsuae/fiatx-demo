@@ -426,7 +426,7 @@ const WithdrawTransactionDetail = () => {
                       {sla.text}
                       {sla.tone === 'breached' && (
                         <span className="rounded bg-red-100 px-2 py-0.5 text-[10px] text-red-700">
-                          已于 {new Date(data.slaDeadline).toLocaleString()} 超时
+                          Overdue since {new Date(data.slaDeadline).toLocaleString()}
                         </span>
                       )}
                     </span>
@@ -442,7 +442,7 @@ const WithdrawTransactionDetail = () => {
             <InfoField label="Amount" value={formatAssetAmount(data.amount, data.asset.decimals)} accent />
             <InfoField label="Fee" value={formatAssetAmount(data.feeAmount, data.asset.decimals)} />
             <InfoField label="Net Amount" value={formatAssetAmount(data.netAmount, data.asset.decimals)} accent />
-            {data.returnOrigin && <InfoField label="退回来源" value={`出款后被银行退回 · 对账案 ${data.returnOrigin.reconCaseNo} · 账单行 ${data.returnOrigin.externalRef} · 本金已重记，手续费不退`} />}
+            {data.returnOrigin && <InfoField label="Return Origin" value={`Returned by bank after payout · case ${data.returnOrigin.reconCaseNo} · statement line ${data.returnOrigin.externalRef} · principal re-recorded, fee not refunded`} />}
             <InfoField label="Tx Hash" value={data.txHash} copyable onCopy={(v) => handleCopy(v, 'txHash')} isCopied={copiedField === 'txHash'} mono link={data.txHash ? explorerTxUrl(data.asset.network, data.txHash) : undefined} />
             <InfoField label="To Address" value={data.toAddress} copyable onCopy={(v) => handleCopy(v, 'toAddr')} isCopied={copiedField === 'toAddr'} mono />
             <InfoField label="To Iban" value={data.toIban} copyable onCopy={(v) => handleCopy(v, 'toIban')} isCopied={copiedField === 'toIban'} mono />

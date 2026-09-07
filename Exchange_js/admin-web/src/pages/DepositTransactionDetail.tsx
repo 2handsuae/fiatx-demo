@@ -581,7 +581,7 @@ const DepositTransactionDetail = () => {
                       {sla.text}
                       {sla.tone === 'breached' && (
                         <span className="rounded bg-red-100 px-2 py-0.5 text-[10px] text-red-700">
-                          已于 {new Date(data.slaDeadline).toLocaleString()} 超时
+                          Overdue since {new Date(data.slaDeadline).toLocaleString()}
                         </span>
                       )}
                     </span>
@@ -603,9 +603,9 @@ const DepositTransactionDetail = () => {
             <InfoField label="To Wallet" value={data.toWalletNo} mono />
             <InfoField label="To Address" value={data.toAddress} copyable onCopy={(v) => handleCopy(v, 'toAddr')} isCopied={copiedField === 'toAddr'} mono />
             <InfoField label="Reference No" value={data.referenceNo} mono />
-            {data.effectiveDate && <InfoField label="业务归属日" value={data.effectiveDate} mono />}
-            {data.supplementOrigin && <InfoField label="补单来源" value={`对账案 ${data.supplementOrigin.reconCaseNo} · 账单行 ${data.supplementOrigin.externalRef} · 信号 ${data.supplementOrigin.signalNo}`} mono />}
-            {data.clawbackOrigin && <InfoField label="退汇来源" value={`对账案 ${data.clawbackOrigin.reconCaseNo} · 账单行 ${data.clawbackOrigin.externalRef}`} mono />}
+            {data.effectiveDate && <InfoField label="Effective Date" value={data.effectiveDate} mono />}
+            {data.supplementOrigin && <InfoField label="Supplement Origin" value={`case ${data.supplementOrigin.reconCaseNo} · statement line ${data.supplementOrigin.externalRef} · signal ${data.supplementOrigin.signalNo}`} mono />}
+            {data.clawbackOrigin && <InfoField label="Clawback Origin" value={`case ${data.clawbackOrigin.reconCaseNo} · statement line ${data.clawbackOrigin.externalRef}`} mono />}
           </DetailCard>
 
           {/* 3. Compliance Layers */}

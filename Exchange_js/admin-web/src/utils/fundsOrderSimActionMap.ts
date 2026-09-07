@@ -8,7 +8,6 @@ export interface SimAction {
   key: string;              // 稳定 key
   fundsOrderAction: string; // deposit/withdraw 用(FundsOrderAction)
   swapAction: string;       // swap 腿用(InternalFundAction)
-  labelZh: string;
   labelEn: string;
   destructive: boolean;
   enabledStatuses: Set<string>;   // crypto/fiat 各自的可用状态
@@ -17,35 +16,35 @@ export interface SimAction {
 // crypto: CREATED→SUBMIT→SUBMITTED→OBSERVE_CONFIRMING→CONFIRMING→CONFIRM→CONFIRMED
 const CRYPTO_ACTIONS: SimAction[] = [
   { key: 'SUBMIT', fundsOrderAction: 'SUBMIT', swapAction: 'SIGN',
-    labelZh: '⚡ 广播', labelEn: '⚡ Broadcast', destructive: false,
+    labelEn: '⚡ Broadcast', destructive: false,
     enabledStatuses: new Set(['CREATED']) },
   { key: 'OBSERVE_CONFIRMING', fundsOrderAction: 'OBSERVE_CONFIRMING', swapAction: 'SEEN_IN_MEMPOOL',
-    labelZh: '⚡ 链上可见', labelEn: '⚡ Seen in Mempool', destructive: false,
+    labelEn: '⚡ Seen in Mempool', destructive: false,
     enabledStatuses: new Set(['SUBMITTED']) },
   { key: 'CONFIRM', fundsOrderAction: 'CONFIRM', swapAction: 'CONFIRM',
-    labelZh: '⚡ 确认到账', labelEn: '⚡ Confirm', destructive: false,
+    labelEn: '⚡ Confirm', destructive: false,
     enabledStatuses: new Set(['CONFIRMING']) },
   { key: 'FAIL', fundsOrderAction: 'FAIL', swapAction: 'FAIL',
-    labelZh: '⚡ 失败', labelEn: '⚡ Fail', destructive: true,
+    labelEn: '⚡ Fail', destructive: true,
     enabledStatuses: new Set(['SUBMITTED', 'CONFIRMING']) },
   { key: 'TIMEOUT', fundsOrderAction: 'TIMEOUT', swapAction: 'TIMEOUT',
-    labelZh: '⚡ 超时', labelEn: '⚡ Timeout', destructive: true,
+    labelEn: '⚡ Timeout', destructive: true,
     enabledStatuses: new Set(['SUBMITTED', 'CONFIRMING']) },
 ];
 
 // fiat: CREATED→SUBMIT→SUBMITTED→CONFIRM→CONFIRMED(无 OBSERVE_CONFIRMING)
 const FIAT_ACTIONS: SimAction[] = [
   { key: 'SUBMIT', fundsOrderAction: 'SUBMIT', swapAction: 'SUBMIT',
-    labelZh: '⚡ 提交银行', labelEn: '⚡ Submit', destructive: false,
+    labelEn: '⚡ Submit', destructive: false,
     enabledStatuses: new Set(['CREATED']) },
   { key: 'CONFIRM', fundsOrderAction: 'CONFIRM', swapAction: 'CONFIRM',
-    labelZh: '⚡ 银行到账', labelEn: '⚡ Settle', destructive: false,
+    labelEn: '⚡ Settle', destructive: false,
     enabledStatuses: new Set(['SUBMITTED']) },
   { key: 'FAIL', fundsOrderAction: 'FAIL', swapAction: 'FAIL',
-    labelZh: '⚡ 失败', labelEn: '⚡ Fail', destructive: true,
+    labelEn: '⚡ Fail', destructive: true,
     enabledStatuses: new Set(['SUBMITTED']) },
   { key: 'TIMEOUT', fundsOrderAction: 'TIMEOUT', swapAction: 'TIMEOUT',
-    labelZh: '⚡ 超时', labelEn: '⚡ Timeout', destructive: true,
+    labelEn: '⚡ Timeout', destructive: true,
     enabledStatuses: new Set(['SUBMITTED']) },
 ];
 

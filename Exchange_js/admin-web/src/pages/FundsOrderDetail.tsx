@@ -23,7 +23,7 @@ import {
   getApiErrorMessage,
 } from '../utils/adminFetch';
 import {
-  formatFundsOrderStatusBilingual,
+  formatFundsOrderStatusLabel,
   getFundsOrderStatusTone,
 } from '../utils/fundsOrderStatusMap';
 import { useSimulationMode } from '../utils/simulationMode';
@@ -240,13 +240,13 @@ const FundsOrderDetail = () => {
     fundsOrderAction: string;
     swapAction: string;
     destructive: boolean;
-    labelZh: string;
+    labelEn: string;
   }) => {
     if (!data) return;
     if (
       a.destructive &&
       !window.confirm(
-        `确定执行「${a.labelZh}」? 这会把资金单打到失败终态并触发退款/解锁。`,
+        `Run "${a.labelEn}"? This pushes the funds order to a failed terminal state and triggers refund/unlock.`,
       )
     ) {
       return;
@@ -382,7 +382,7 @@ const FundsOrderDetail = () => {
     <span
       className={`inline-block rounded border px-2 py-0.5 font-mono text-[10px] ${getFundsOrderStatusTone(data.status)}`}
     >
-      {formatFundsOrderStatusBilingual(data.status, data.asset?.type)}
+      {formatFundsOrderStatusLabel(data.status, data.asset?.type)}
     </span>
   );
 
@@ -514,7 +514,7 @@ const FundsOrderDetail = () => {
                               : 'bg-blue-500 hover:bg-blue-600'
                           }`}
                         >
-                          {a.labelZh} / {a.labelEn.replace('⚡ ', '')}
+                          {a.labelEn}
                         </button>
                       ))}
                     </div>

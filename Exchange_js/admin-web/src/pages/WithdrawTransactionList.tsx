@@ -258,7 +258,7 @@ const WithdrawTransactionList = () => {
         {/* 前端过滤，只对当前页生效（后端暂无 slaBreached 查询参数）——与下方 needsReviewOnly 同类局限 */}
         <label
           className="ml-2 inline-flex cursor-pointer items-center gap-1.5 font-mono text-[11px] text-adm-t2"
-          title="仅过滤当前页已加载的行，不是全库筛选"
+          title="Filters only the rows already loaded on this page — not a full-database search"
         >
           <input
             type="checkbox"

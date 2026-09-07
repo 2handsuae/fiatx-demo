@@ -41,7 +41,7 @@ const L1GateCard = ({ raw }: { raw?: string | null }) => {
     return (
       <div className="rounded-lg border border-adm-border bg-adm-bg p-3">
         <div className="font-mono text-[9px] uppercase tracking-wider text-adm-t3">L1 Gate</div>
-        <div className="mt-1 font-mono text-[11px] text-adm-t3">未评估（本单建于 L1 收口之前）</div>
+        <div className="mt-1 font-mono text-[11px] text-adm-t3">Not evaluated (this order predates the L1 rollout)</div>
       </div>
     );
   }
@@ -54,7 +54,7 @@ const L1GateCard = ({ raw }: { raw?: string | null }) => {
       <div className="rounded-lg border border-adm-border bg-adm-bg p-3">
         <div className="font-mono text-[9px] uppercase tracking-wider text-adm-t3">L1 Gate</div>
         <div className="mt-1 font-mono text-[11px] text-adm-yellow">
-          快照无法解析（unparseable）：<span className="text-adm-t3">{raw.slice(0, 80)}</span>
+          Snapshot unparseable: <span className="text-adm-t3">{raw.slice(0, 80)}</span>
         </div>
       </div>
     );
@@ -74,8 +74,8 @@ const L1GateCard = ({ raw }: { raw?: string | null }) => {
       </div>
 
       <div className="mt-1 font-mono text-[10px] text-adm-t3">
-        档位 {snap.tradingTier}
-        {snap.holdReason ? ` · 挂起原因 ${snap.holdReason}` : ''}
+        Tier {snap.tradingTier}
+        {snap.holdReason ? ` · Hold reason ${snap.holdReason}` : ''}
         {snap.evaluatedAt ? ` · ${new Date(snap.evaluatedAt).toLocaleString()}` : ''}
       </div>
 

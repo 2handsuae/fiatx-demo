@@ -379,7 +379,7 @@ const SwapTransactionDetail = () => {
                       {sla.text}
                       {sla.tone === 'breached' && (
                         <span className="rounded bg-red-100 px-2 py-0.5 text-[10px] text-red-700">
-                          已于 {new Date(data.slaDeadline).toLocaleString()} 超时
+                          Overdue since {new Date(data.slaDeadline).toLocaleString()}
                         </span>
                       )}
                     </span>

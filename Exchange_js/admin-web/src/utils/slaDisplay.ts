@@ -11,11 +11,11 @@ export function formatSlaRemaining(
   slaDeadline: string | null | undefined,
   slaBreached: boolean | undefined,
 ): { text: string; tone: SlaTone } {
-  if (slaBreached) return { text: '已超时', tone: 'breached' };
+  if (slaBreached) return { text: 'Overdue', tone: 'breached' };
   if (!slaDeadline) return { text: '—', tone: 'none' };
 
   const ms = new Date(slaDeadline).getTime() - Date.now();
-  if (ms <= 0) return { text: '已超时', tone: 'breached' };
+  if (ms <= 0) return { text: 'Overdue', tone: 'breached' };
 
   const totalMinutes = Math.floor(ms / 60_000);
   const days = Math.floor(totalMinutes / (24 * 60));

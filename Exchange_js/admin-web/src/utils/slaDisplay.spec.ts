@@ -7,7 +7,7 @@ describe('formatSlaRemaining', () => {
 
   it('slaBreached=true 优先于时间计算（软破线状态与 deadline 都不变）', () => {
     const future = new Date(Date.now() + 3 * 24 * 3600_000).toISOString();
-    expect(formatSlaRemaining(future, true)).toEqual({ text: '已超时', tone: 'breached' });
+    expect(formatSlaRemaining(future, true)).toEqual({ text: 'Overdue', tone: 'breached' });
   });
 
   it('deadline 已过 → 已超时', () => {

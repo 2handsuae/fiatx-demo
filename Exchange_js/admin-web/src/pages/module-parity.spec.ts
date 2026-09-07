@@ -391,7 +391,7 @@ describe('规则① 同一模块显示逻辑一致 · ⚡ Simulation（Task 7 + 
      若只查 IGNORED_MSG 是否在文件里"出现过"，deposit 那份还在、字符串仍找得到，
      测不出来。这条改成逐 key 校验，deposit / withdraw 各自必须等于 IGNORED_MSG。 */
   it('置灰说明文案内容按域各自校验，没被删、没被单独改字（随抽组件原样搬进 SimulationPanel）', () => {
-    const IGNORED_MSG = '本单已进终态/处置态，投递的裁决会被后端记录但不改状态。';
+    const IGNORED_MSG = 'This order is in a terminal/dispositioned state — a submitted verdict will be recorded by the backend but will not change the status.';
     const src = srcOf('../components/SimulationPanel.tsx');
     const body = src.match(/const DISABLED_REASON: Record<Domain, string> = \{([\s\S]*?)\};/)?.[1] ?? '';
     if (!body) throw new Error('SimulationPanel.tsx: 找不到 DISABLED_REASON');

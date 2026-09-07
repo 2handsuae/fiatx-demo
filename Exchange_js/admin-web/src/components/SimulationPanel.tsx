@@ -17,14 +17,14 @@ const ID_FIELD: Record<Domain, string> = {
    逐字相同；兑换因业主 2026-08-24 改判换了判据（只有 COMPLIANCE_PENDING
    可投），文案本就不同，一并原样保留，不强行统一成一句话。 */
 const DISABLED_REASON: Record<Domain, string> = {
-  deposit: '本单已进终态/处置态，投递的裁决会被后端记录但不改状态。',
-  withdraw: '本单已进终态/处置态，投递的裁决会被后端记录但不改状态。',
-  swap: '本单不在待合规状态，①-⑧ 里的裁决键不会推进本单，故置灰。',
+  deposit: 'This order is in a terminal/dispositioned state — a submitted verdict will be recorded by the backend but will not change the status.',
+  withdraw: 'This order is in a terminal/dispositioned state — a submitted verdict will be recorded by the backend but will not change the status.',
+  swap: "This order isn't in Compliance Pending — verdict buttons ①-⑧ won't advance it, so they're disabled.",
 };
 
 const GROUPS: readonly (readonly [VerdictButton['source'], string])[] = [
-  ['ENGINE', 'Sumsub 规则引擎自动命中'],
-  ['OFFICER', '合规官在 Sumsub 台上手工处置'],
+  ['ENGINE', 'Automatically matched by the Sumsub rule engine'],
+  ['OFFICER', 'Manually actioned by a compliance officer on the Sumsub console'],
 ];
 
 /**
