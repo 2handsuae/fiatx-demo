@@ -890,10 +890,10 @@ const ReconciliationCasesDetailPage = () => {
                   {kase.severity}
                 </span>
               )}
-              {/* Fix round：加 status === 'OPEN' 门控，对齐 CaseHistory 的 isOverdue
-                  判据（!isResolved && slaBreached && !!slaDeadline）——RESOLVED 后
-                  slaBreached 仍可能是 true（历史事实不回填），此前会同时出现红色
-                  OVERDUE 徽标和 Case History 里中性的 "day N" 格,两处各说各话。 */}
+              {/* OPEN gate aligns this badge with CaseHistory's isOverdue
+                  (!isResolved && slaBreached && !!slaDeadline) — slaBreached is
+                  never cleared after RESOLVED, so without the gate the red
+                  OVERDUE badge and the neutral "day N" tile contradict. */}
               {kase.status === 'OPEN' && kase.slaBreached && kase.slaDeadline && (
                 <span className="inline-flex items-center gap-1 rounded border border-adm-red/30 bg-adm-red/10 px-2 py-0.5 font-mono text-[10px] font-semibold uppercase tracking-wider text-adm-red">
                   <Clock size={10} />
