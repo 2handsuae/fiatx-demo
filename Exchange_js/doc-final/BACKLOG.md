@@ -11,7 +11,7 @@
 > **⭐ = 带同事走七幕时会当场看到或讲不圆的**，共 31 条。一行四要素：是什么 ｜ 哪来的 ｜ 落点 / 状态。做完就勾掉。
 > 分诊历史：2026-08-26 首次分流（加固类迁出）；2026-08-28 二次分诊——业务/技术彻底分家：8 条已完成或已作废销账、45 条迁 `PRODUCTION-NOTES`、4 条从 `PRODUCTION-NOTES` 判回业务；同日「演示装备」A 档 8 条逐条实跑复核，6 条实证已修当场销账。**2026-08-29 演示装备一期收官**——A 档剩下的 2 条（造数花名册、补料回炉）做完销账，A 档 8/8 全部完成、整节退役删除（原文见「本轮销账」章节与 git 历史）；导语并入 §B。分诊前全文见 git 历史（`649b4e88`）。
 
-Last Updated: 2026-09-06
+Last Updated: 2026-09-07
 
 
 ## B. 第一幕 · 开业（V1 治理底座 ｜ V3 财务配置 ｜ 账本）
@@ -151,6 +151,8 @@ Last Updated: 2026-09-06
 - [ ] **自动没收 cron 未做**：BELOW_MIN 挂起超时后自动发起没收（现只能 ops 手动点 Confiscate）未实现 ｜来源: 2026-07-16 deposit-min spec §8（deferred）
 
 - [ ] 充值挂起（`DEPOSIT_HELD_NOT_TRADING_READY`）无自动重驱：客户补齐法币地址后，挂 COMPLIANCE_PENDING 的充值不会自动重跑 checkAutoApproval → 需 hook `ADDRESS_ACTIVATED` 重驱该客户挂起充值，否则要人工 ｜来源: 2026-07-11 Task 4b
+
+- [ ] ⭐ **现场注册的客户永远收不到真实到账余额——TigerBeetle 记账账户从未在运行时被 provision，只在种子脚本里给固定花名册开过户**：`prisma/seed-tb.helper.ts` 的 `ensureTbAccountRegistry`/`provisionTbAccounts` 是全仓**唯一**给客户开 `tb_account_registry` 行（`CLIENT_ASSET`/`CLIENT_PAYABLE` × 每资产）的地方，调用方逐字确认只有两处——`prisma/seed.business.ts`（9 位固定种子客户 + Frank）与 `scripts/demo-lib.ts`（同一花名册）；应用运行时零调用点（`grep -rln "TbAccountRegistry\|AccountingService" src/modules/identity` 零命中，`grep -rn "\.createAccounts(" src --include=*.ts` 只有 accounting 模块内部自引）。后果：任何**现场注册**（`/auth/customer/register`，不在种子花名册里）的客户，走完 CDD 直通 → ACTIVE → 登记首个法币账户 → 客户端 Simulate Deposit → 管理台 ⚡ 链上可见（`OBSERVE_CONFIRMING`）→ ⚡ 确认到账（`CONFIRM`）这套教科书式正路后，资金单在 `CONFIRM` 那一刻触发 `DepositWorkflowService.onPayinConfirmed`（`src/modules/trading/deposit-transactions/deposit-workflow.service.ts:1571`）调 `executeDepositAccounting` STEP_1，`AccountingService.resolveTbAccountId`（`accounting.service.ts:399-413`）查不到该客户的注册项，抛 `TB_ACCOUNT_REGISTRY_NOT_FOUND`，被 `onPayinConfirmed` 的 catch 块吞掉（1588-1600 行）只留一条 `DEPOSIT_PAYIN_COMPLETED` FAILED 审计——充值单**永久卡在 `PAYIN_PENDING`**，资金单卡在 `CONFIRMED`（永远到不了 `CLEARED`，因为 `CLEAR` 调用在 1617 行、catch 提前 return 到不了那一步），客户余额纹丝不动。**复现**：`curl -X POST /auth/customer/register` 现场注册新邮箱走完整条正路（含管理台真按钮/真端点）到 `CONFIRM` 那一步 → `sqlite3 dev.db "SELECT status FROM deposit_transactions WHERE depositNo='...'"` 恒 `PAYIN_PENDING`；`grep "TB Step 1 failed" backend.log` 命中；`sqlite3 dev.db "SELECT count(*) FROM tb_account_registry WHERE ownerUuid='<该客户内部 id>'"` 恒 `0`（对照种子客户 Alice 有 4 行：CLIENT_ASSET/CLIENT_PAYABLE × AED/USDT）。**已排除的可能性**：不是报价/费率分层逻辑的问题——同一客户走只读 `GET /swap-transactions/rate` 端点能正确命中 `NEWCUST-USDT-AED` 档、flat fee 16 AED；卡点精确定位在充值入账这一步的 TB 账户解析。**影响演示的地方**：第二幕脚本"开户全程可以现场走一遍"目前只覆盖到 ACTIVE + 登记法币账户；若要在同一位现场客户身上再演一步"真实充值验证 NEWCUST 费率"，正路当场卡死——本条是该尝试（入驻波二 funding beat）的直接产物。修法方向待业主定：①客户 ACTIVE（或注册即时）时补一个运行时 provisioning 钩子（复用 `ensureTbAccountRegistry` 逻辑，注入 Nest DI 后按 owner 动态建 TB 账户+registry 行）；②demo 明确"现场注册客户只演到 ACTIVE + 只读报价对比"，不承诺可真实充值 ｜来源: 2026-09-07 入驻波二 funding beat 走查（task-14b），完整证据链（截图/sqlite 查询/后端日志/curl）见 `.superpowers/sdd/task-14b-report.md`
 
 
 ## E. 第四幕 · 钱换（V6 兑换）
