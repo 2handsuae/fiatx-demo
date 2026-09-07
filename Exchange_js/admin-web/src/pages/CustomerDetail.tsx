@@ -597,7 +597,7 @@ const CustomerDetail = () => {
                   语境不同——这是入驻裁决本身走到 FINAL，不可再申请。 */}
               {detail.onboardingFinalRejectedAt && (
                 <span className="inline-flex items-center rounded border border-adm-red/25 bg-adm-red/10 px-1.5 py-px font-mono text-[9px] font-semibold text-adm-red">
-                  尽调终拒 · 不可重新申请
+                  Due diligence final rejection · cannot reapply
                 </span>
               )}
             </div>
@@ -662,7 +662,7 @@ const CustomerDetail = () => {
               <div className="mb-3">
                 {!canVerdict && (
                   <p className="mb-1.5 font-mono text-[9px] text-adm-amber">
-                    客户当前不在「入驻审核中」或尚未提交材料，裁决按钮不可用。
+                    Verdict buttons are unavailable — the customer is not under onboarding review or has not submitted materials yet.
                   </p>
                 )}
                 <div className="flex flex-wrap gap-2">
@@ -693,8 +693,8 @@ const CustomerDetail = () => {
                 {!canEscalate && (
                   <p className="mb-1.5 font-mono text-[9px] text-adm-amber">
                     {canVerdict
-                      ? '客户当前不在 basic-cdd-level 档位，升级 EDD 按钮不可用。'
-                      : '客户当前不在「入驻审核中」或尚未提交材料，升级 EDD 按钮不可用。'}
+                      ? 'Escalate to EDD is unavailable — the customer is not at the basic-cdd-level tier.'
+                      : 'Escalate to EDD is unavailable — the customer is not under onboarding review or has not submitted materials yet.'}
                   </p>
                 )}
                 <div className="flex flex-wrap gap-2">
