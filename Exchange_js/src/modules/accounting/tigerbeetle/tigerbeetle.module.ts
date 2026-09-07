@@ -3,6 +3,7 @@ import { TigerBeetleService } from './tigerbeetle.service';
 import { AccountingService } from './accounting.service';
 import { TbEvidenceService } from './tb-evidence.service';
 import { TbAccountRegistryService } from './tb-account-registry.service';
+import { CustomerLedgerProvisioningService } from './customer-ledger-provisioning.service';
 import { TbAdminController } from './tb-admin.controller';
 import { PrismaModule } from '../../../core/prisma/prisma.module';
 // Phase B / T3: AccountFlow projector lives under reconciliation/ (its consumer
@@ -19,6 +20,7 @@ import { AccountFlowProjectorService } from '../../clearing-settle/reconciliatio
     TbEvidenceService,
     TbAccountRegistryService,
     AccountFlowProjectorService,
+    CustomerLedgerProvisioningService,
   ],
   exports: [
     TigerBeetleService,
@@ -26,6 +28,7 @@ import { AccountFlowProjectorService } from '../../clearing-settle/reconciliatio
     TbEvidenceService,
     TbAccountRegistryService,
     AccountFlowProjectorService,
+    CustomerLedgerProvisioningService,
   ],
 })
 export class TigerBeetleModule {}
