@@ -1,3 +1,4 @@
+import { Type } from 'class-transformer';
 import { IsIn, IsNotEmpty, IsOptional, IsString, Matches } from 'class-validator';
 import { REASON_SPECS } from '../disposition/adjustment-rules';
 
@@ -22,4 +23,30 @@ export class CreateAdjustmentDto {
   @IsOptional() @IsString() dispositionNo?: string;
   // 第四族改记：正主方案件号（caseNo = 错记方案件）
   @IsOptional() @IsString() toCaseNo?: string;
+}
+
+// Task 4（调账单列表端点）：GET /admin/reconciliation/adjustments 查询参数。
+// from/to 过滤 createdAt（开单落库时刻）——effectiveDate 是业务日，不是筛选主键。
+export class AdjustmentListQueryDto {
+  @IsOptional() @IsString() status?: string;
+  @IsOptional() @IsString() from?: string;
+  @IsOptional() @IsString() to?: string;
+  @IsOptional() @Type(() => Number) skip?: number;
+  @IsOptional() @Type(() => Number) take?: number;
+}
+
+// 铁律⑥：列表行只带业务键——无 id/walletRef。decimals 随 assetCode join asset 表现查，
+// 供前端（Task 5）分→元 缩放显示，惯例同 reconciliation.dto.ts 的 AccountStatusRow。
+export interface AdjustmentListRow {
+  adjustmentNo: string;
+  caseNo: string;
+  ownerNo: string | null;
+  assetCode: string;
+  decimals: number;
+  reasonCode: string;
+  direction: string;
+  amount: string;       // 最小单位（分）整数字符串
+  status: string;
+  effectiveDate: string; // YYYY-MM-DD
+  createdAt: string;     // ISO
 }

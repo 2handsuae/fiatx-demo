@@ -13,7 +13,7 @@ import { TB_ACCOUNT_CODES, TB_CODE_TO_COA } from '../../../accounting/tigerbeetl
 import { TB_LEDGERS } from '../../../accounting/tigerbeetle/constants/tb-ledgers.constant';
 import { TB_TRANSFER_CODES } from '../../../accounting/tigerbeetle/constants/tb-transfer-codes.constant';
 import { ADJUSTMENT_TRANSITIONS, AdjustmentStatus } from '../constants/adjustment-transitions.constant';
-import { CreateAdjustmentDto } from '../dto/adjustment.dto';
+import { AdjustmentListRow, CreateAdjustmentDto } from '../dto/adjustment.dto';
 import { bigintToDecimal } from '../../../funds-layer/accounting/tb-amount.util';
 import {
   Book, Direction, ReasonCode, REASON_SPECS,
@@ -481,6 +481,59 @@ export class AdjustmentService {
         approvalNo: approval.approvalNo,
       },
     });
+  }
+
+  /**
+   * Task 4: 列表读模型（GET /admin/reconciliation/adjustments）。铁律⑥ 只投影业务键
+   * 白名单字段（select 直接圈死，不走「查整行再摘」——摘漏一个就是漏个 UUID）；
+   * decimals 按 assetCode 现查 asset 表（同 getAdjustment/submit 既有查法），供前端
+   * 分→元 缩放显示。from/to 过滤的是 createdAt（开单落库时刻），不是 effectiveDate
+   * （业务生效日）——见 Before You Begin 澄清。
+   */
+  async listAdjustments(q: { status?: string; from?: string; to?: string; skip?: number; take?: number }): Promise<{ items: AdjustmentListRow[]; total: number }> {
+    const where: any = {
+      ...(q.status && { status: q.status }),
+      ...((q.from || q.to) && {
+        createdAt: {
+          ...(q.from && { gte: new Date(q.from) }),
+          ...(q.to && { lte: new Date(q.to) }),
+        },
+      }),
+    };
+    const skip = Number(q.skip ?? 0);
+    const take = Number(q.take ?? 20);
+    const [rows, total] = await Promise.all([
+      (this.prisma as any).reconciliationAdjustment.findMany({
+        where, skip, take, orderBy: { createdAt: 'desc' },
+        select: {
+          adjustmentNo: true, caseNo: true, ownerNo: true, assetCode: true,
+          reasonCode: true, direction: true, amount: true, status: true,
+          effectiveDate: true, createdAt: true,
+        },
+      }),
+      (this.prisma as any).reconciliationAdjustment.count({ where }),
+    ]);
+    const assetCodes = [...new Set(rows.map((r: any) => r.assetCode as string))];
+    const assets = assetCodes.length
+      ? await (this.prisma as any).asset.findMany({ where: { code: { in: assetCodes } }, select: { code: true, decimals: true } })
+      : [];
+    const decimalsByCode = new Map<string, number>(assets.map((a: any) => [a.code, a.decimals]));
+    return {
+      items: rows.map((r: any): AdjustmentListRow => ({
+        adjustmentNo: r.adjustmentNo,
+        caseNo: r.caseNo,
+        ownerNo: r.ownerNo ?? null,
+        assetCode: r.assetCode,
+        decimals: decimalsByCode.get(r.assetCode) ?? 0,
+        reasonCode: r.reasonCode,
+        direction: r.direction,
+        amount: r.amount,
+        status: r.status,
+        effectiveDate: r.effectiveDate,
+        createdAt: r.createdAt.toISOString(),
+      })),
+      total,
+    };
   }
 
   /**

@@ -383,6 +383,8 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
   // Recon disposition: 调账单（Task 6）
   route('POST', '/admin/reconciliation/adjustments', 'Create Recon Adjustment (Draft)', ['RECON_ADJUSTMENT_WRITE']),
   route('POST', '/admin/reconciliation/adjustments/:adjustmentNo/submit', 'Submit Recon Adjustment for Approval', ['RECON_ADJUSTMENT_WRITE']),
+  // Task 4：列表放在 :adjustmentNo 详情之前——静态段先登记，惯例同上面 cases/runs 各自的 List 在 Detail 之前。
+  route('GET', '/admin/reconciliation/adjustments', 'List Recon Adjustments', ['RECON_CASE_READ']),
   route('GET', '/admin/reconciliation/adjustments/:adjustmentNo', 'View Recon Adjustment Detail', ['RECON_CASE_READ']),
   route('POST', '/admin/reconciliation/cases/:caseNo/dispositions', 'Record disposition conclusion on a reconciliation diff row', ['RECON_DISPOSITION_WRITE']),
   route('GET', '/admin/reconciliation/cases/:caseNo/reattribution-candidates', 'List counterpart candidates for a reattribution', ['RECON_CASE_READ']),

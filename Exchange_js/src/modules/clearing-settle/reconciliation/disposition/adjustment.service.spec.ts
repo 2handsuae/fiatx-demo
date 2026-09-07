@@ -1210,3 +1210,83 @@ describe('AdjustmentService.describeImpact —— client pool loss recognition\'
     expect(text).toContain('1500.00');
   });
 });
+
+// Task 4（调账单列表端点）: real DB, no mocks — the schema-smoke test at the top of this
+// file already establishes the convention of hitting a live PrismaClient for behaviour
+// that has to come from an actual query (ordering / filtering / a join), not from a mock
+// echoing back whatever it was told to return. Fixture rows use far-future createdAt/
+// effectiveDate markers (2031) so this suite can assert exact counts/order without
+// depending on — or colliding with — the ~14 pre-existing rows already in this worktree's
+// shared dev.db (seeded by demo data and other e2e runs).
+describe('AdjustmentService.listAdjustments —— list read model (Task 4)', () => {
+  const prisma = new PrismaClient();
+  const svc = new AdjustmentService(prisma as any, null as any, null as any, null as any, null as any);
+
+  const baseRow = {
+    caseNo: 'CASE_LIST_T4', walletRef: 'W_LIST_T4', book: 'CLIENT',
+    reasonInternal: 'list fixture', reasonCustomer: 'list fixture', createdByUserId: 'U_LIST_T4',
+  };
+
+  beforeAll(async () => {
+    await (prisma as any).reconciliationAdjustment.createMany({
+      data: [
+        {
+          ...baseRow, adjustmentNo: 'ADJ_LIST_T4_1', ownerNo: 'C_LIST_T4_1',
+          direction: 'REDUCE', reasonCode: 'DEPOSIT_DUPLICATE_REVERSAL', assetCode: 'AED', amount: '1000',
+          effectiveDate: '2031-01-01', status: 'DRAFT', createdAt: new Date('2031-01-01T00:00:00Z'),
+        },
+        {
+          ...baseRow, adjustmentNo: 'ADJ_LIST_T4_2', ownerNo: 'C_LIST_T4_2',
+          direction: 'INCREASE', reasonCode: 'WITHDRAW_VOID_REFUND', assetCode: 'USDT-TRON', amount: '2000000',
+          effectiveDate: '2031-01-02', status: 'DRAFT', createdAt: new Date('2031-01-02T00:00:00Z'),
+        },
+        {
+          ...baseRow, adjustmentNo: 'ADJ_LIST_T4_3', ownerNo: null,
+          direction: 'REDUCE', reasonCode: 'BANK_CHARGE', assetCode: 'AED', amount: '3000',
+          effectiveDate: '2031-01-03', status: 'REJECTED', createdAt: new Date('2031-01-03T00:00:00Z'),
+        },
+      ],
+    });
+  });
+  afterAll(async () => {
+    await (prisma as any).reconciliationAdjustment.deleteMany({ where: { caseNo: 'CASE_LIST_T4' } });
+    await prisma.$disconnect();
+  });
+
+  const RANGE = { from: '2031-01-01', to: '2031-01-04' };
+
+  it('sorts createdAt desc, joins asset.decimals by assetCode, and the row shape carries no UUID (no id / walletRef / ownerId)', async () => {
+    const { items, total } = await svc.listAdjustments({ ...RANGE, take: 100 });
+    expect(total).toBe(3);
+    expect(items.map((r) => r.adjustmentNo)).toEqual(['ADJ_LIST_T4_3', 'ADJ_LIST_T4_2', 'ADJ_LIST_T4_1']);
+
+    const aedRow = items.find((r) => r.adjustmentNo === 'ADJ_LIST_T4_1')!;
+    expect(aedRow.decimals).toBe(2); // AED
+    const usdtRow = items.find((r) => r.adjustmentNo === 'ADJ_LIST_T4_2')!;
+    expect(usdtRow.decimals).toBe(6); // USDT-TRON
+
+    for (const row of items) {
+      expect(Object.keys(row).sort()).toEqual([
+        'adjustmentNo', 'amount', 'assetCode', 'caseNo', 'createdAt', 'decimals',
+        'direction', 'effectiveDate', 'ownerNo', 'reasonCode', 'status',
+      ]);
+    }
+  });
+
+  it('status filter actually narrows the query (not a client-side illusion)', async () => {
+    const draftOnly = await svc.listAdjustments({ ...RANGE, status: 'DRAFT' });
+    expect(draftOnly.total).toBe(2);
+    expect(draftOnly.items.map((r) => r.adjustmentNo)).toEqual(['ADJ_LIST_T4_2', 'ADJ_LIST_T4_1']);
+
+    const rejectedOnly = await svc.listAdjustments({ ...RANGE, status: 'REJECTED' });
+    expect(rejectedOnly.total).toBe(1);
+    expect(rejectedOnly.items[0].adjustmentNo).toBe('ADJ_LIST_T4_3');
+  });
+
+  it('pagination: total reflects the full filtered set regardless of skip/take, items reflect only the current page', async () => {
+    const page = await svc.listAdjustments({ ...RANGE, take: 1, skip: 1 });
+    expect(page.total).toBe(3);
+    expect(page.items).toHaveLength(1);
+    expect(page.items[0].adjustmentNo).toBe('ADJ_LIST_T4_2');
+  });
+});

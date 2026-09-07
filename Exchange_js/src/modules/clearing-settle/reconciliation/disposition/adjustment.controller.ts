@@ -4,6 +4,7 @@ import {
   Get,
   Param,
   Post,
+  Query,
   Req,
   UseGuards,
   UsePipes,
@@ -16,7 +17,7 @@ import { RequirePermissions } from '../../../identity/access-control/require-per
 import { buildPermissionCode } from '../../../identity/access-control/permission-code.util';
 import { ApprovalActorContext } from '../../../governance/approvals/constants/approval.constants';
 import { AdjustmentService } from './adjustment.service';
-import { CreateAdjustmentDto } from '../dto/adjustment.dto';
+import { AdjustmentListQueryDto, CreateAdjustmentDto } from '../dto/adjustment.dto';
 
 /**
  * 平账·调账单处置端点（spec §6）。开单只落库（DRAFT）；提审接审批中心——
@@ -63,6 +64,13 @@ export class AdjustmentController {
   @RequirePermissions(buildPermissionCode('POST', '/admin/reconciliation/adjustments/:adjustmentNo/submit'))
   submit(@Param('adjustmentNo') adjustmentNo: string, @Req() req: any) {
     return this.adjustment.submit(adjustmentNo, this.buildActor(req));
+  }
+
+  @Get()
+  @ApiOperation({ summary: 'List adjustments' })
+  @RequirePermissions(buildPermissionCode('GET', '/admin/reconciliation/adjustments'))
+  list(@Query() q: AdjustmentListQueryDto) {
+    return this.adjustment.listAdjustments(q);
   }
 
   @Get(':adjustmentNo')

@@ -16,7 +16,7 @@ export const SMALL_AMOUNT_LINE_MINOR: Record<string, bigint> = {
 
 export function isSmallAmount(currency: string, minor: bigint): boolean {
   const line = SMALL_AMOUNT_LINE_MINOR[currency];
-  if (line === undefined) throw new Error(`小额线未登记币种：${currency}——先在 recon-thresholds.constant.ts 加一行，不兜底`);
+  if (line === undefined) throw new Error(`Small-amount threshold not registered for currency: ${currency}——add a line in recon-thresholds.constant.ts first; no silent fallback`);
   const mag = minor < 0n ? -minor : minor;
   return mag <= line;
 }
