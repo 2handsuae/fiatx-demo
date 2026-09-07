@@ -147,4 +147,58 @@ export class OnboardingWorkflowService {
     await this.audit(AuditActions.ONBOARDING_REAPPLIED, c, {});
     return { ok: true };
   }
+
+  private async loadByApplicantId(applicantId: string) {
+    return this.prisma.customerMain.findFirst({ where: { sumsubApplicantId: applicantId } });
+  }
+
+  /** applicantReviewed 落轴（摄取分发器直调；按当前档名分流，spec §4）。 */
+  async applyReviewVerdict(input: {
+    applicantId: string;
+    reviewAnswer: 'GREEN' | 'RED';
+    reviewRejectType: 'RETRY' | 'FINAL';
+  }): Promise<{ customerNo: string; to: string } | null> {
+    const c = await this.loadByApplicantId(input.applicantId);
+    if (!c) return null; // 落回 unrouted warn
+    if (c.lifecycle !== 'IN_VERIFICATION' || !c.onboardingSubmittedAt) {
+      throw new BadRequestException(`Verdict rejected: customer ${c.customerNo} is not awaiting review`);
+    }
+    const action =
+      input.reviewAnswer === 'GREEN'
+        ? c.sumsubCurrentLevelName === ONBOARDING_LEVELS.EDD
+          ? 'VERIFICATION_PASSED'
+          : 'CDD_CLEARED'
+        : 'VERIFICATION_REJECTED';
+    let to = '';
+    await this.prisma.$transaction(async (tx) => {
+      const r = await this.lifecycle.applyAction(c.id, action, tx);
+      to = r.to;
+      if (input.reviewAnswer === 'RED' && input.reviewRejectType === 'FINAL') {
+        await this.customers.updateOnboardingData(c.id, { onboardingFinalRejectedAt: new Date() }, tx);
+      }
+    });
+    await this.audit(AuditActions.ONBOARDING_VERDICT_APPLIED, c, {
+      afterData: { reviewAnswer: input.reviewAnswer, reviewRejectType: input.reviewRejectType, levelName: c.sumsubCurrentLevelName, to },
+    }, false);
+    return { customerNo: c.customerNo, to };
+  }
+
+  /** applicantLevelChanged：换档到 EDD——尽调深度变了，关系没变，状态轴不动。 */
+  async applyLevelChange(input: { applicantId: string }): Promise<{ customerNo: string; levelName: string } | null> {
+    const c = await this.loadByApplicantId(input.applicantId);
+    if (!c) return null;
+    if (c.lifecycle !== 'IN_VERIFICATION' || c.sumsubCurrentLevelName !== ONBOARDING_LEVELS.CDD || !c.onboardingSubmittedAt) {
+      throw new BadRequestException(`Level change rejected: customer ${c.customerNo} has no reviewable CDD submission`);
+    }
+    await this.customers.updateOnboardingData(
+      c.id,
+      { eddRequired: true, sumsubCurrentLevelName: ONBOARDING_LEVELS.EDD, onboardingSubmittedAt: null },
+      undefined,
+    );
+    await this.audit(AuditActions.ONBOARDING_LEVEL_CHANGED, c, {
+      beforeData: { levelName: ONBOARDING_LEVELS.CDD },
+      afterData: { levelName: ONBOARDING_LEVELS.EDD, eddRequired: true },
+    }, false);
+    return { customerNo: c.customerNo, levelName: ONBOARDING_LEVELS.EDD };
+  }
 }

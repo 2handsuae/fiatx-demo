@@ -13,6 +13,7 @@ import { AdminSumsubSimulationController } from './admin-sumsub-simulation.contr
 import { SumsubRetryService } from './sumsub-ingestion-retry.service';
 import { CustomersModule } from '../identity/customers/customers.module';
 import { MaterialRequestsModule } from '../identity/material-requests/material-requests.module';
+import { OnboardingModule } from '../identity/onboarding/onboarding.module';
 // 站4 解包：本模块曾满身 forwardRef——那是三颗 sumsub 卫星还回指本模块的年代
 // （demo-scenario 走 ingest()）。站3-α2 把演示件摘进独立 demo 模块（AppModule 直挂、
 // 无人回指）后，环已不存在；2026-08-27 全数拆封并开机实证。若未来有人重新让
@@ -31,6 +32,8 @@ import { MaterialRequestsModule } from '../identity/material-requests/material-r
     SwapSumsubModule,
     // 材料请求账（Task 4）：applicantActionReviewed 按 externalActionId 一次查表，落在 MaterialRequestReviewService。
     MaterialRequestsModule,
+    // 波二：申请人级主流程（入驻）开路，方向 ingestion → onboarding，无环，不加 forwardRef。
+    OnboardingModule,
   ],
   providers: [SumsubIngestionService, SumsubRetryService],
   controllers: [SumsubIngestionController, SumsubIngestionAdminController, AdminSumsubSimulationController],

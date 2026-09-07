@@ -7,6 +7,7 @@ import { PrismaService } from '../../core/prisma/prisma.service';
 import { CustomerRestrictionsService } from '../identity/customers/customer-restrictions.service';
 import { CustomerRestrictionWorkflowService } from '../identity/customers/customer-restriction-workflow.service';
 import { MaterialRequestReviewService } from '../identity/material-requests/material-request-review.service';
+import { OnboardingWorkflowService } from '../identity/onboarding/onboarding-workflow.service';
 import { DepositWorkflowService } from '../trading/deposit-transactions/deposit-workflow.service';
 import { WithdrawTransactionsService } from '../trading/withdraw-transactions/withdraw-transactions.service';
 import { DepositWebhookRouter } from '../deposit-sumsub/deposit-webhook.router';
@@ -33,6 +34,7 @@ export class SumsubIngestionService {
     private readonly restrictionsService: CustomerRestrictionsService,
     private readonly restrictionWorkflowService: CustomerRestrictionWorkflowService,
     private readonly materialRequestReviewService: MaterialRequestReviewService,
+    private readonly onboardingWorkflow: OnboardingWorkflowService,
   ) {}
 
   // ─── Main entry point (real webhook + simulation both call this) ──────────
@@ -181,6 +183,26 @@ export class SumsubIngestionService {
           dispatchedContext = 'MATERIAL_REQUEST';
         }
       }
+      // ── 波二开路：申请人级主流程（入驻）。放行顺序不变：KYT 级联与材料请求
+      // 两路在前；这里只认两个申请人级事件类型，其余照旧落 unrouted warn。──
+      else if (depositWebhookType === 'applicantLevelChanged' && applicantId) {
+        const changed = await this.onboardingWorkflow.applyLevelChange({ applicantId });
+        if (changed) {
+          result = { routedTo: 'onboarding', ...changed };
+          dispatchedContext = 'ONBOARDING';
+        }
+      }
+      else if (depositWebhookType === 'applicantReviewed' && applicantId) {
+        const verdict = await this.onboardingWorkflow.applyReviewVerdict({
+          applicantId,
+          reviewAnswer: reviewResult?.reviewAnswer === 'GREEN' ? 'GREEN' : 'RED',
+          reviewRejectType: reviewResult?.reviewRejectType === 'FINAL' ? 'FINAL' : 'RETRY',
+        });
+        if (verdict) {
+          result = { routedTo: 'onboarding', ...verdict };
+          dispatchedContext = 'ONBOARDING';
+        }
+      }
       // Clue 1（ongoingDocExpired）：材料刷新监控已随巡查退役（2026-09-06），
       // 事件落 unrouted 警告。
       // 站6：Clue 2（AML 按 inspectionId 归属 CRA）随一期风评拆除。
@@ -201,8 +223,8 @@ export class SumsubIngestionService {
         });
         if (customer) {
           // 站6：Clue 4（入驻验证）/4.5（升级案 Level2）/5（自发 AML 红）随一期
-          // 拆除（业主方案2）——申请人级 webhook 若不被上面的材料请求/材料刷新
-          // 分支认领，则落此警告；一期重做接真 Sumsub 时在此重新开路。
+          // 拆除（业主方案2）——申请人级主流程已于波二开路（onboarding 分支）；
+          // 仍未命中的事件落此警告。
           this.logger.warn('unrouted_sumsub_webhook', {
             applicantId,
             type: event.eventType,

@@ -81,3 +81,58 @@ describe('OnboardingWorkflowService 客户侧旅程', () => {
     expect(d.customers.updateOnboardingData).toHaveBeenCalledWith('cid', { onboardingSubmittedAt: null }, expect.anything());
   });
 });
+
+describe('OnboardingWorkflowService 裁决与换档（webhook 侧）', () => {
+  const inVerif = (over: Record<string, unknown> = {}) => customerRow({
+    lifecycle: 'IN_VERIFICATION', sumsubApplicantId: 'MOCK-CU250907001',
+    sumsubCurrentLevelName: ONBOARDING_LEVELS.CDD, onboardingSubmittedAt: new Date(), ...over,
+  });
+
+  it('CDD GREEN → CDD_CLEARED（直通 ACTIVE）', async () => {
+    const d = makeDeps(inVerif());
+    await build(d).applyReviewVerdict({ applicantId: 'MOCK-CU250907001', reviewAnswer: 'GREEN', reviewRejectType: 'RETRY' });
+    expect(d.lifecycle.applyAction).toHaveBeenCalledWith('cid', 'CDD_CLEARED', expect.anything());
+    expect(d.audit.recordSystem).toHaveBeenCalled();
+  });
+
+  it('EDD GREEN → VERIFICATION_PASSED（进待准入）', async () => {
+    const d = makeDeps(inVerif({ sumsubCurrentLevelName: ONBOARDING_LEVELS.EDD }));
+    await build(d).applyReviewVerdict({ applicantId: 'MOCK-CU250907001', reviewAnswer: 'GREEN', reviewRejectType: 'RETRY' });
+    expect(d.lifecycle.applyAction).toHaveBeenCalledWith('cid', 'VERIFICATION_PASSED', expect.anything());
+  });
+
+  it('RED+FINAL → VERIFICATION_REJECTED 且落 onboardingFinalRejectedAt', async () => {
+    const d = makeDeps(inVerif());
+    await build(d).applyReviewVerdict({ applicantId: 'MOCK-CU250907001', reviewAnswer: 'RED', reviewRejectType: 'FINAL' });
+    expect(d.lifecycle.applyAction).toHaveBeenCalledWith('cid', 'VERIFICATION_REJECTED', expect.anything());
+    expect(d.customers.updateOnboardingData).toHaveBeenCalledWith('cid',
+      expect.objectContaining({ onboardingFinalRejectedAt: expect.any(Date) }), expect.anything());
+  });
+
+  it('未提交先裁决 → 显式拒（非法迁移不静默）', async () => {
+    const d = makeDeps(inVerif({ onboardingSubmittedAt: null }));
+    await expect(build(d).applyReviewVerdict({ applicantId: 'MOCK-CU250907001', reviewAnswer: 'GREEN', reviewRejectType: 'RETRY' }))
+      .rejects.toThrow(BadRequestException);
+  });
+
+  it('查无 applicant → 返回 null（落回 unrouted warn，不抛）', async () => {
+    const d = makeDeps(inVerif());
+    d.prisma.customerMain.findFirst.mockResolvedValue(null);
+    expect(await build(d).applyReviewVerdict({ applicantId: 'X', reviewAnswer: 'GREEN', reviewRejectType: 'RETRY' })).toBeNull();
+  });
+
+  it('applyLevelChange: eddRequired=true、档名切 EDD、清 submittedAt、状态轴不动', async () => {
+    const d = makeDeps(inVerif());
+    await build(d).applyLevelChange({ applicantId: 'MOCK-CU250907001' });
+    expect(d.customers.updateOnboardingData).toHaveBeenCalledWith('cid',
+      { eddRequired: true, sumsubCurrentLevelName: ONBOARDING_LEVELS.EDD, onboardingSubmittedAt: null }, undefined);
+    expect(d.lifecycle.applyAction).not.toHaveBeenCalled();
+  });
+
+  it('applyLevelChange: 非 CDD 档或未提交 → 显式拒', async () => {
+    await expect(build(makeDeps(inVerif({ sumsubCurrentLevelName: ONBOARDING_LEVELS.EDD }))).applyLevelChange({ applicantId: 'MOCK-CU250907001' }))
+      .rejects.toThrow(BadRequestException);
+    await expect(build(makeDeps(inVerif({ onboardingSubmittedAt: null }))).applyLevelChange({ applicantId: 'MOCK-CU250907001' }))
+      .rejects.toThrow(BadRequestException);
+  });
+});
