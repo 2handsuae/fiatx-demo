@@ -327,6 +327,46 @@ async function seedSwapFeeLevels(prisma: PrismaClient): Promise<void> {
     afterData: { name: vipRow.name, fromCurrency: usdt.currency, toCurrency: aed.currency, isDefault: vipRow.isDefault, requiredTags: JSON.parse(vipRow.requiredTagsJson), configHash: vipRow.configHash },
   });
   console.log('Seeded VIP-USDT-AED audience level.');
+
+  // 受众档：NEW_CUSTOMER 标签命中，各档比 STD 便宜、比 VIP 贵（cheapest-wins：新客命中它，VIP 客户仍拿 VIP 档）
+  const newCustTiers = [
+    { amountMin: '0',     amountMax: '500',   rateMarkupBps: 80, flatFee: '25' },
+    { amountMin: '500',   amountMax: '2000',  rateMarkupBps: 50, flatFee: '16' },
+    { amountMin: '2000',  amountMax: '10000', rateMarkupBps: 30, flatFee: '11' },
+    { amountMin: '10000', amountMax: null,    rateMarkupBps: 15, flatFee: '7' },
+  ].map((t, i) => {
+    const tierIdx = String(i + 1).padStart(3, '0');
+    return {
+      id: `NEWCUST-USDT-AED-TIER-${tierIdx}`,
+      name: `New Customer Tier ${i + 1} (${t.amountMin}${t.amountMax ? '-' + t.amountMax : '+'})`,
+      enabled: true,
+      rateMarkupBps: t.rateMarkupBps,
+      conditions: { amountMin: t.amountMin, amountMax: t.amountMax },
+      feeItems: [{ id: `NEWCUST-USDT-AED-TIER-${tierIdx}-FEE-001`, itemCode: 'SWAP_SERVICE_FEE', calcType: 'FLAT', value: t.flatFee, min: null, max: null, roundingMode: 'ROUND' }],
+    };
+  });
+  const newCustTiersJson = JSON.stringify({ tiers: newCustTiers });
+  const newCustRow = await prisma.swapFeeLevel.upsert({
+    where: { levelCode: 'NEWCUST-USDT-AED' },
+    update: { tiersJson: newCustTiersJson, configHash: createHash('sha256').update(newCustTiersJson).digest('hex'), status: 'ACTIVE' },
+    create: {
+      levelCode: 'NEWCUST-USDT-AED',
+      name: 'New Customer USDT → AED',
+      fromAssetId: usdt.id,
+      toAssetId: aed.id,
+      isDefault: false,
+      requiredTagsJson: JSON.stringify(['NEW_CUSTOMER']),
+      tiersJson: newCustTiersJson,
+      configHash: createHash('sha256').update(newCustTiersJson).digest('hex'),
+      status: 'ACTIVE',
+      createdByUserId: 'SYSTEM',
+    },
+  });
+  await writeSeedAudit(prisma, {
+    action: 'SWAP_FEE_LEVEL_SEEDED', subjectType: 'SWAP_FEE_LEVEL', subjectNo: newCustRow.levelCode, actorNo: 'RELEASE',
+    afterData: { name: newCustRow.name, fromCurrency: usdt.currency, toCurrency: aed.currency, isDefault: newCustRow.isDefault, requiredTags: JSON.parse(newCustRow.requiredTagsJson), configHash: newCustRow.configHash },
+  });
+  console.log('Seeded NEWCUST-USDT-AED audience level.');
 }
 
 async function seedWithdrawalFeeLevels(prisma: PrismaClient): Promise<void> {
