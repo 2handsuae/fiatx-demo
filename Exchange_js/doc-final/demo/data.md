@@ -13,6 +13,8 @@ admin@fiatx.com 超管 ｜ sm@ 高管(SMO) ｜ ciso@ ｜ mlro@ ｜ dpo@ ｜ comp
 
 ## 客户矩阵（business seed，9 位，覆盖 8 种状态位）
 
+7 位 ACTIVE 客户开户日已回填 `onboardingApprovedAt = 2026-06-15T09:00:00Z`、CDD 五列（生日/国籍/证件类型/证件号/住址）已铺——早出新客窗（NEW_CUSTOMER 衍生标签 30 天窗）。Carol、Frank 落 `edd-sof-sow-level`（EDD 档）；其余 5 位 ACTIVE 客户落 `basic-cdd-level`（CDD 档）。Dave（认证中）、Eve（刚注册）本身就是"开户流程中段/起点"的演示位，故意不回填。第二幕②③现场开户走查用的是当场新注册客户，不是这张表；现场注册客户即用即弃，重演换一个新邮箱，不依赖 reset。
+
 | 客户 | 状态位 | 用来演什么 |
 |---|---|---|
 | Alice Happy | 快乐路径（真 Sumsub 沙盒 applicant） | 三条交易流程的主角 |
@@ -44,7 +46,7 @@ admin@fiatx.com 超管 ｜ sm@ 高管(SMO) ｜ ciso@ ｜ mlro@ ｜ dpo@ ｜ comp
 
 **地址簿种子**（审计 `WITHDRAWAL_ADDRESS_SEEDED`）：六位客户（alice/bob/grace/jack/kate/frank）各一条 ACTIVE 银行账户（AED_ZAND，即本人 vIBAN）；alice / bob 各再一条 ACTIVE 的 TRON 地址。**尚无法币账户的种子客户**：Henry Acme（`demo_acme@example.com`，企业客户）——不在 `demo:setup` 那六人名单内，没有走地址簿种子；站 5 ④c 用他演"首个法币账户即时生效"。
 
-**费率**：`STD-USDT-AED` / `STD-AED-USDT`（默认档）+ `VIP-USDT-AED`（requiredTags `["VIP"]`，各档比 STD 便宜；Grace 带 VIP 标签命中它）；demo:all 会把 `STD-USDT-AED` Tier 1 平费改成 10（`demo-lib.ts` FEE_PLAN，造数取整），所以舞台上对照用 1000 USDT（Tier 2：VIP 12 < STD 20）；提现 `STD-AED-AED_ZAND` / `STD-USDT-TRON`。**限额**：15 条（单笔 6 / 累计 8 / 大额 1）。
+**费率**：`STD-USDT-AED` / `STD-AED-USDT`（默认档）+ `VIP-USDT-AED`（requiredTags `["VIP"]`，各档比 STD 便宜；Grace 带 VIP 标签命中它）+ `NEWCUST-USDT-AED`（requiredTags `["NEW_CUSTOMER"]`，各档比 STD 便宜、比 VIP 贵；开户 30 天内的客户命中它——种子客户开户日已回填 2026-06-15、早出新客窗，只有第二幕②③现场开户的新客户能命中）；demo:all 会把 `STD-USDT-AED` Tier 1 平费改成 10（`demo-lib.ts` FEE_PLAN，造数取整），所以舞台上对照用 1000 USDT（Tier 2：VIP 12 < NEWCUST 16 < STD 20）；提现 `STD-AED-AED_ZAND` / `STD-USDT-TRON`。**限额**：15 条（单笔 6 / 累计 8 / 大额 1）。
 
 **现场登记用的合法 TRON 样例地址**：`bash -c 'npx ts-node -e "import(\"./src/common/utils/tron-address.util\").then(m=>console.log(m.fakeTronAddress(\"demo-register-1\")))"' 生成一枚（形态合法、不做校验和）。
 

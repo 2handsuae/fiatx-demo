@@ -48,10 +48,10 @@
 
 ## 第二幕 · 迎客（V2 客户与合规）
 
-**讲什么**：客户是谁、能不能交易，由合规说了算；被调查的人自己不知道。
-**造数**：种子 9 位客户覆盖 8 种状态位（快乐×2/制裁静默/认证中/新注册/高风险/VIP/企业/明示受限——名册见 data.md）。
-**走查**：① 客户列表看状态与标签；② Carol（制裁静默）：管理台看得到便签，**切客户端登录 Carol——什么都看不出来**（零痕迹）；③ Ivy（明示受限）：客户端能看到受限提示；④ 现场给一位客户开限制 → 三个交易域的动作立刻停。
-**期望**：观众看懂"限制是人的属性；静默与明示是两种合规姿态（tipping-off）"。
+**讲什么**：客户是谁、能不能交易，由合规说了算；开户全程可以现场走一遍——不是种子摆拍；被调查的人自己不知道。
+**造数**：种子 9 位客户覆盖 8 种状态位（快乐×2/制裁静默/认证中/新注册/高风险/VIP/企业/明示受限——名册见 data.md；7 位 ACTIVE 客户开户日已回填 2026-06-15、CDD 五列已铺、早出新客窗）。客户端与管理台共享一个 Simulation 开关（管理台顶栏「Simulation」，cookie 跨端口共享）：本幕全程要开着——关着的话认证页会去接真 Sumsub SDK，打不通。
+**走查**：① **静态矩阵**：客户列表看状态与标签，9 位客户逐条对上 data.md 名册的状态位与便签；② **现场开户 · CDD 直通**（低风险客户全程一次过，不经人审）：客户端 `/register` 注册（邮箱现编 `demo_live1_<当天日期>@example.com`，一次性——重演换个新邮箱，不依赖 reset；条款抽屉须拉到底才能勾）→ 提交后跳登录页登录 → 未 ACTIVE 客户落 gate 页 Start verification → 认证页 `/onboarding/verify` 五字段 CDD 表单（姓名预填、其余必填）→ Submit → 切 `compliance_lead@` 该客户详情「⚡ Onboarding Simulation」区 Approve (GREEN) → 客户端刷新：gate 直接消失、进主界面（低风险 GREEN 一步到 ACTIVE，不经审批）→ 客户详情 Tags 区新增一枚「新客」标签（NEW_CUSTOMER，衍生标签，开户 30 天内自动带）→ 客户端 `/withdrawal-addresses` 登记首个法币账户（即时生效，解交易起始门）→ Swap 报价 1000 USDT（USDT→AED，沿用第一幕站 2 同一金额，避开被 demo:all 压过的 STD Tier 1）：预览区 Matched 行命中 `NEWCUST-USDT-AED / NEWCUST-USDT-AED-TIER-002` → 切客户端登 Alice 同额对照，命中 `STD-USDT-AED / STD-USDT-AED-TIER-002`（Alice 开户已出新客窗、非 VIP，落默认档）——新客档比默认档便宜、比 VIP 贵（费率见 data.md）；旁支 RED-RETRY：第二位现场客户同样注册、登录、提交 CDD → `compliance_lead@` 改点 Reject – Retry → 客户端刷新 gate 页 "Application declined."／Retry verification → 点击直接回认证页续走（之前填的资料还在，原样重交即可）；③ **现场开户 · EDD 高风险**（第三位现场客户）：注册 → 登录 → Start verification → CDD 表单提交 → `compliance_lead@` 该客户详情 Escalate to EDD（仅 basic-cdd-level 且已提交材料时可点）→ 客户端刷新页面：gate 页仍是 Continue verification（lifecycle 没变，只是认证模板换了）→ 认证页模板已切 EDD_UPLOAD：Source of Funds (SoF) / Source of Wealth (SoW) 两个虚线占位框 → Submit documents → `compliance_lead@` Approve (GREEN)——这次 GREEN 落 PENDING_APPROVAL，不直通 ACTIVE（EDD 客户要过人审）→ 切 `ops_officer@` 该客户详情 Submit for Approval → 填理由 → 出准入审批单号 → 切 `sm@` 审批中心批准（后果原话读得到 customerNo：「高风险客户准入核准：CUxxx（风险 HIGH，EDD 已在 Sumsub 完成，GREEN）——批准即开户 ACTIVE，限额与费率按默认档生效」）→ 客户端刷新：ACTIVE 进主界面；一句讲词——"MLRO 的审在 Sumsub 完成，我方批的是接不接这个客户关系"，这一单不是重审尽调；④ **便签联动**（原②③④保留 + 材料请求站）：Carol（制裁静默）——管理台看得到便签，**切客户端登录 Carol：什么都看不出来**（零痕迹）；Ivy（明示受限）——客户端能看到受限提示；现场给一位客户开限制 → 三个交易域的动作立刻停；材料请求站：切 `compliance_lead@` 一位已 ACTIVE 客户详情「Verification Requests」区 Request Documents → 发一条材料请求（如 Proof of Address）→ 客户端 Profile 页出现横幅（阻断态标题"… required"／提醒态"… needs refreshing"，CTA Verify now）→ 点开 `/verification/:requestNo` 假上传提交 → 管理台那一行转 SUBMITTED，Approve／Reject · Retry／Reject · Final 三个裁决按钮现身，同一套 GREEN/RED 语义。
+**期望**：观众看懂三件事——① 限制是人的属性，静默与明示是两种合规姿态（tipping-off）；② 开户全程可以现场走完，不靠种子摆拍；③ CDD 直通与 EDD 人审是同一条状态机上的两条真实路径——低风险一步到 ACTIVE，高风险多一道人审，不是两套系统。
 
 ## 第三幕 · 钱进（V4 充值）
 
