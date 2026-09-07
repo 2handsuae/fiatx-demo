@@ -323,7 +323,7 @@ const Swap = () => {
       } else if (!hasValidAmount) {
         setLiveRate(null);
         setRateMeta(null);
-        setRateError('输入金额后获取档位汇率');
+        setRateError('Enter an amount to get the tier rate');
       } else {
         fetchLiveRate(from.id, to.id, parsedAmount, false);
         intervalId = setInterval(() => {
