@@ -519,3 +519,5 @@
 - [2026-09-06] incidents 状态机 read-then-update 无并发守护（linkRemediation ASSESSED→RESOLVING 等）——单人顺序操作假设下不修；真并发需 WHERE 带观察态或事务化（安全扫描 fail-open-state-drift）
 - [2026-09-06] **`GET /customers` 与 `GET /customers/:customerNo` 把 `passwordHash` 等全部列裸出进 API 响应体** ｜ `customers.service.ts:64-68 findOne`/`findAll` 是无 select 的 `findUnique/findMany`，CustomerMain 48 列（含 passwordHash/lockedUntil/lastLoginIp）原样进 admin API 响应；两侧前端都未渲染，演示不可见，只有拿 token 抓包才看得到。属输入/输出防御性收口（禁做清单），记账即止 ｜来源: 2026-09-06 V2 客户域体检
 - [2026-09-06] **customers CRUD 请求体直透传 Prisma Input，任意 CustomerMain 标量字段可经 admin API 写入** ｜ `customers.controller.ts:58,146` 把 body 当 `Prisma.CustomerMainCreateInput/UpdateInput` 透传，`main.ts:34` 全局 `ValidationPipe({whitelist:true})` 对纯 TS 类型（非 class-validator 装饰类）不生效——理论上 PATCH 可直写 lifecycle/customerNo 等任何列绕开状态语义。管理员善意假设下无演示影响；属输入防御性校验（禁做清单），记账即止 ｜来源: 2026-09-06 V2 客户域体检
+- [2026-09-08] 入驻裁决处理器 `onAcceptanceDecided` 是 `@OnEvent({async:true})`：TB 不可达时开户异常死在事件总线，operator 侧无可见报错（客户停 PENDING_APPROVAL）——生产须让审批事件异常可观测（波三 Task 5 评审发现）
+- [2026-09-08] `PATCH /customers/:customerNo` 收裸 `Prisma.CustomerMainUpdateInput`，可直写 lifecycle 绕过状态机与首次 ACTIVE 开户钩子——生产须白名单化该端点字段（波三 Task 5 评审发现）
