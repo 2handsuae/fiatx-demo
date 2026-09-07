@@ -92,7 +92,7 @@ export interface AdjustmentLocked {
   direction?: AdjustmentDirection;
   directionNote: string;
   toCandidatesUrl?: string;
-  /** Recon batch A: write-off locked view — amount / effective date are read-only, the reason is pre-filled from the finding note. */
+  /** 平账 A 批：核销锁定视图——金额 / 生效日只读，说明预填查证结论。 */
   writeOff?: { findingNote: string };
 }
 
@@ -147,7 +147,7 @@ export interface AdjustmentPrefill {
 interface ReconciliationAdjustmentCreateModalProps {
   open: boolean;
   caseNo: string;
-  /** Case business date (YYYY-MM-DD) — default value for the effective date, see the comment at effectiveDate's initial value. */
+  /** 案件业务日（YYYY-MM-DD）——生效日的默认值，见 effectiveDate 初值处注释。 */
   caseBusinessDate: string;
   book: AdjustmentBook;
   assetCode: string;
@@ -157,7 +157,7 @@ interface ReconciliationAdjustmentCreateModalProps {
   ownerNo?: string | null;
   walletNo?: string | null;
   prefill: AdjustmentPrefill;
-  /** T9: the locked state handed back from the disposition modal; when absent, falls back to Task 7's original free-choice form. */
+  /** T9：处置弹层交回的锁定态；缺省 = Task 7 原样的自由选择表单。 */
   locked?: AdjustmentLocked;
   onClose: () => void;
   onCreated: (adjustmentNo: string) => void;
