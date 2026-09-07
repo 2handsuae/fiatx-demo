@@ -22,7 +22,7 @@
 甲版式骨架不动（判词横幅 → Health Check → Case Flow → 快照表），五处改动：
 
 1. 全页英文化；判词横幅一句人话：`BREAK — 19 wallets checked: 7 matched, 1 in transit, 11 need attention`
-2. `SOFT_FLAG → COMPENSATING`：改 `bucket-classifier.ts` 的 `ReconBucket`、`reconciliation.dto.ts` 的 `ReconWalletBucket`/`ReconCaseQuery`、前端 `reconBucketMap`（词表 `Compensating`）及全部引用。bucket 值持久化在 `reconciliation_run_wallets` / `reconciliation_cases`，**不写兼容层**——改完靠 reset 重铺（§9 闸⑧）
+2. `SOFT_FLAG → COMPENSATING`：改 `bucket-classifier.ts` 的 `ReconBucket`、`reconciliation.dto.ts` 的 `ReconWalletBucket`/`ReconCaseQuery`、前端 `reconBucketMap`（词表 `Compensating`）及全部引用。bucket 在 `schema.prisma` 是 **String 列非 enum**（`:1496` / `:1693` 实证）——**无 schema 变更、不新增迁移文件**，执行者不得自作主张写迁移；但那两行列注释里的 `SOFT_FLAG` 字样同步改词防漂移。存量值不写兼容层——改完靠 reset 重铺（§9 闸⑧）
 3. Demo Compare 按钮删除（随 §4 整页退役）
 4. Case Flow 三张大卡压成一条细条（Opened / Re-observed / Closed 三个内联数字 + 右侧 "View all cases for this run"）
 5. 快照表 Flows 列废除 `✓3 OI1 MM1 ⧖1` 密码缩写，改人话短语只列非零项：`12 matched · 2 mismatch · 1 in-transit`；表头 Account→Wallet、在途列 In-Transit
@@ -63,7 +63,7 @@
 
 **后端吐界面的显示串同轮转英**（同扫描口径，非注释中文行）：`cause-registry.ts` 58（20 成因的 label / clue / outletLabel / 客户词）｜ `adjustment.service.ts` 56（`reasonInternal`/`reasonCustomer` 模板 + 管理台可见报错）｜ `incident.service.ts` 32 + `incident-close-workflow.service.ts` 19 ｜ `internal-transfer-workflow.service.ts` 28 ｜ `disposition.service.ts` 20 ｜ `supplement-evidence.service.ts` 17（候选行 `describeLine`）｜ `adjustment-rules.ts` 14 ｜ 各 controller 报错串。`reasonCustomer` 等落库值由创建时模板生成——改模板即可，旧数据靠 reset 重铺，**不做存量清洗**。
 
-**连带**：① 各 `.spec.ts` 里断言中文标签的期望值随词表更新（行为断言不变绿法：改词表必须让旧断言先红再绿）② `ApprovalPoliciesPage` 的 `ACTION_TYPE_LABELS` 转英时**补上缺失的 4 个键**（`DEPOSIT_SUPPLEMENT` / `DEPOSIT_CLAWBACK` / `WITHDRAW_RETURN_CLAIM` / `INTERNAL_TRANSFER_APPROVAL`，BACKLOG 销账）③ `scripts/**` 与 `demo:all` 若有断言 UI 中文文案的判据，随词表改（plan 阶段先 grep 圈定，不许漏到闸⑥才发现）④ 管理台首页占位（`FiatX 管理台/请从左侧菜单开始`）与 Quick Login 弹层一并转英。
+**连带**：① 各 `.spec.ts` 里断言中文标签的期望值随词表更新（行为断言不变绿法：改词表必须让旧断言先红再绿）② `ApprovalPoliciesPage` 的 `ACTION_TYPE_LABELS` 转英时**补上缺失的 4 个键**（`DEPOSIT_SUPPLEMENT` / `DEPOSIT_CLAWBACK` / `WITHDRAW_RETURN_CLAIM` / `INTERNAL_TRANSFER_APPROVAL`，BACKLOG 销账）③ `scripts/**` 与 `demo:all` 若有断言 UI 中文文案的判据，随词表改（plan 阶段先 grep 圈定，不许漏到闸⑥才发现）④ 管理台首页占位（`FiatX 管理台/请从左侧菜单开始`）与 Quick Login 弹层一并转英 ⑤ **三域对称核对**（交付清单触发行）：充值 / 提现 / 兑换三域的详情页结构词汇与状态词表（`depositStatusView` / `swapStatusMap` / withdraw 同族）转英时逐词对照，同一语义三域同一个词——tipping-off 防线只落一域的教训在案。
 
 ## 6. 客户端 Transaction History 页重做（设计稿画板 "Client · Transaction History" + "Client · Overview entry"）
 
@@ -89,6 +89,12 @@
 | 补款划转 | `Credit from FiatX · balance restoration` | 无副行 | + |
 | 垫款划转 | `Credit from FiatX · advance` | 无副行 | + |
 
+**异常结局行与 tipping-off 白名单**（交付清单「新内容到客户面」触发行，本节是本轮最重的合规判断）：读模型落地前必须**逐事件码盘点**哪些账本事件会触到客户应付并因此出现在流水里（没收 / 上缴 / 冻结相关腿是重点），每类行**当场决定客户看不看得到、用什么词**。口径先例已在册：`client-web/src/utils/depositStatusView.ts` **刻意**不给 `CONFISCATING/CONFISCATED` 客户话术、走中性兜底（文件头注释言明）——流水行沿同一教义：涉制裁 / 没收 / 上缴的行若确实触到客户可见余额，主行用中性 `Balance adjustment`、**绝不出现 confiscate / sanction / surrender 字样**；若这些流程的钱从未进过客户可用余额（一直在暂扣户）则天然无行——但这要在任务里**实证**（跑出没收场景看流水），不许假设。各域状态话术表本轮转英时，流水行与详情页共用同一份词。
+
+**金额契约**：读模型金额一律最小单位（分）出、展示层按资产 `decimals` 换算——「分」当「元」显示的判例就发生在对账 Cases 页，不许重演。
+
+**退役纪律**（同 §4）：对账单弹层、旧 TransactionHistory 页替换后，现场逐键 grep 零残余引用才算删净——弹层的连带死码（`statementSourceLabel` 等 util、Overview 里的弹层 state）一并清，不留幽灵。
+
 **样式**：整页从旧白底 gray 迁到现行 fx-* 暖黑系（照设计稿画板）；资产切换 chips + 日期区间过滤保留。
 
 ## 7. 其余对账页轻整理（无画板，判据从紧）
@@ -113,5 +119,14 @@
 - **随手闸**：tsc 三连 ①②③ ｜ ④ jest 相关目录全绿（含被词表连带的 spec）｜ ⑤ 前端改动全部 preview 渲染 + 截图
 - **收尾闸**：⑥ `on-stack demo:all` 走通断言终态 ｜ ⑧ **必须 reset 重铺**（bucket 枚举值与 reasonCustomer 落库值都变了；判据对照 `demo/baseline.md` 全绿）｜ 本轮不动钱不触发 ⑦，但 §6 读模型上线后跑一次 `verify:coa` 兜底确认零影响
 - **英文化闸**（负向判据带复现命令，与本轮摸底扫描同一套启发式）：`grep -rP '[\x{4e00}-\x{9fff}]' admin-web/src client-web/src --include='*.tsx' --include='*.ts' | grep -v '//' | grep -vE '^\S+:\s*\*'` 命中 = 0（排除行内含 `//` 与块注释续行；残余中文若确属注释，逐条人判后放行）；`grep -rn 'SOFT_FLAG' src admin-web/src` = 0
-- **走查**：第六幕按 `demo/script.md` 主线过一遍（重点：处置动作列 1280 无横滚、六态梯全英文可讲）；客户端造一条充值→兑换→提现后打开流水页截图（余额列逐行可加）；调账单菜单从列表点进详情回案件闭环截图
-- **文档收口**（对照 `rules/delivery-checklist.md`，plan 引用不重抄）：`modules/v8-recon.md` §4/§5 前端节 ｜ `demo/script.md` 涉及按钮词的步骤 ｜ BACKLOG 销账（№87 标签缺失 / №200 死端点页 / №232 SOFT_FLAG 改名 / №246 Demo Compare / №290 客户流水加工层——注明十格设计被 §8.3 取代）｜ decisions.md §8 七条 ｜ CHANGELOG 一行
+- **RBAC 闸**：动了 `rbac.catalog.ts`（§1 新端点 + §4 退役登记）→ 跑一遍 `on-stack main verify:rbac` 全绿（判例：会写数据的判据须排在 reset 前）
+- **走查**：第六幕按 `demo/script.md` 主线过一遍（重点：处置动作列 1280 无横滚、六态梯全英文可讲）；客户端造一条充值→兑换→提现后打开流水页截图（余额列逐行可加）；**没收场景跑一条后看流水页**（§6 tipping-off 实证）；调账单菜单从列表点进详情回案件闭环截图
+- **文档收口**（对照 `rules/delivery-checklist.md`，plan 引用不重抄）：`modules/v8-recon.md` §4/§5 前端节 ｜ `demo/script.md` 涉及按钮词的步骤 + `demo/data.md` 如涉及（生成区由 demo:all 自写、不手改）｜ BACKLOG 销账（№87 标签缺失 / №200 死端点页 / №232 SOFT_FLAG 改名 / №246 Demo Compare / №290 客户流水加工层——注明十格设计被 §8.3 取代）｜ decisions.md §8 七条 ｜ CHANGELOG 一行
+
+## 10. 交付清单触发对照（plan 落任务时逐条写死，不许现场再判）
+
+按 `rules/delivery-checklist.md` 左列逐行扫过（2026-09-07，业主点名复查）：
+
+**命中的行**：新增 admin 端点（§1：route + sync + 重启）｜ 新增业务动作前端入口（§1 菜单项）｜ 退役业务动作删前端入口（§4 Demo Compare ×1 + §6 弹层与旧页 ×2，逐键 grep）｜ 改交易三域 → 三域对称（§5 连带⑤）｜ 新内容到客户面 → tipping-off 当场决定（§6 异常结局行节）｜ 涉及金额 → 分存元显（§6 金额契约）｜ 对外识别业务键（§1/§6）｜ 改页面 → 同步 demo 两文档（§9）｜ 改前端 → 截图（§9，永不豁免①）｜ 每轮收尾三件套（§9）
+
+**明确不触发的行**（写死防执行者自作主张）：写审计（本轮零新持久化动作，全是读面 / 文案 / 改名）｜ 新审计码 ｜ 新状态新结局（无新边）｜ 动了钱（无记账变更；verify:coa 仍兜底跑一次，永不豁免②按"未动钱"口径）｜ maker-checker 与 `MAKER_GROUP_BY_POLICY`（无新审批策略）｜ 新增权限组四处齐（复用 `RECON_CASE_READ`，零新组）｜ 新事件 ｜ 改 schema 迁移文件（bucket 是 String 列，§2.2 已钉死）｜ 多波承接（单波）
