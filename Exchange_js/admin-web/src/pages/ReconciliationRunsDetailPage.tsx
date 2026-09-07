@@ -19,7 +19,7 @@
 //   6. Sidebar (identity + lifecycle)
 import { useEffect, useMemo, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { RefreshCw, Check, AlertTriangle, ArrowRight, ArrowUpDown } from 'lucide-react';
+import { RefreshCw, Check, AlertTriangle, Clock, ArrowRight, ArrowUpDown } from 'lucide-react';
 import {
   DetailPageHeader,
   DetailCard,
@@ -157,7 +157,7 @@ const StatusBadge = ({ value }: { value: ReconBucket }) => {
     <span
       className={`inline-flex items-center gap-1 rounded border px-2 py-0.5 font-mono text-[10px] font-semibold uppercase ${tone.border} ${tone.bg} ${tone.text}`}
     >
-      {value === 'MATCHED' ? <Check size={10} /> : <AlertTriangle size={10} />}
+      {value === 'MATCHED' ? <Check size={10} /> : null}
       {label.en}
     </span>
   );
@@ -330,7 +330,7 @@ const ReconciliationRunsDetailPage = () => {
             </div>
             {run.legacy ? (
               <div className="mt-3 rounded-md border border-adm-border bg-adm-bg px-4 py-3 font-mono text-[13px] text-adm-t2">
-                历史 run 无快照数据（Round3 前） / Legacy run – no snapshot data
+                Legacy run — no snapshot data (pre-Round3)
               </div>
             ) : (
               <div
@@ -341,15 +341,16 @@ const ReconciliationRunsDetailPage = () => {
                     : 'border-adm-red/30 bg-adm-red/10 text-adm-red',
                 ].join(' ')}
               >
-                {run.invariantStatus === 'PASS' ? '对平 / PASS' : '不平 / BREAK'} — {summary.walletCount} 个钱包，
-                {summary.matchedCount} 个平，{summary.inTransitCount} 笔在途，{needsAttention} 个需要处理
+                {run.invariantStatus === 'PASS'
+                  ? `PASS — ${summary.walletCount} wallets checked: all matched`
+                  : `BREAK — ${summary.walletCount} wallets checked: ${summary.matchedCount} matched, ${summary.inTransitCount} in transit, ${needsAttention} need attention`}
               </div>
             )}
           </div>
 
           {/* 2. Health Check — five bucket cards. Click to filter the table below
               (local filter, no refetch). Total card clears the filter. */}
-          <DetailCard title="本次体检 / Health Check" columns={1}>
+          <DetailCard title="Health Check" columns={1}>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-5">
               {/* Total — clears filter */}
               <button
@@ -363,7 +364,7 @@ const ReconciliationRunsDetailPage = () => {
                 ].join(' ')}
               >
                 <div className="font-mono text-[9px] uppercase tracking-wider text-adm-t3">
-                  总钱包 / Total
+                  Total Wallets
                 </div>
                 <div className="mt-1 text-[28px] font-bold leading-tight text-adm-t1">
                   {summary.walletCount}
@@ -380,6 +381,7 @@ const ReconciliationRunsDetailPage = () => {
                   summary.breakCount;
                 const active = bucketFilter === bucket;
                 const hasCount = count > 0;
+                const Icon = bucket === 'MATCHED' ? Check : bucket === 'IN_TRANSIT' ? Clock : AlertTriangle;
                 return (
                   <button
                     type="button"
@@ -397,7 +399,7 @@ const ReconciliationRunsDetailPage = () => {
                     <div
                       className={`flex items-center gap-1.5 font-mono text-[9px] uppercase tracking-wider ${hasCount ? tone.text : 'text-adm-t3'}`}
                     >
-                      {bucket === 'MATCHED' ? <Check size={11} /> : <AlertTriangle size={11} />}
+                      <Icon size={11} />
                       {label.en}
                     </div>
                     <div
@@ -411,224 +413,215 @@ const ReconciliationRunsDetailPage = () => {
             </div>
           </DetailCard>
 
-          {/* 3. Case Flow — opened / re-observed / closed this run. Own row below
-              Health Check (layout 甲, confirmed in brainstorm — not side-by-side). */}
-          <DetailCard title="工单流转 / Case Flow" columns={1}>
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+          {/* 3. Case Flow — opened / re-observed / closed this run, compressed to
+              one slim strip: three inline numbers + a right-aligned link to the
+              cases list filtered by this run (own row below Health Check,
+              confirmed in brainstorm — not side-by-side). */}
+          <DetailCard title="Case Flow" columns={1}>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="flex flex-wrap items-center gap-7">
+                <div className="flex items-baseline gap-2">
+                  <span className="font-mono text-[9px] uppercase tracking-wider text-adm-t3">
+                    Opened
+                  </span>
+                  <span className="text-[20px] font-bold text-adm-t1">{summary.openedCount}</span>
+                </div>
+                <div className="h-[22px] w-px bg-adm-border" />
+                <div className="flex items-baseline gap-2">
+                  <span className="font-mono text-[9px] uppercase tracking-wider text-adm-t3">
+                    Re-Observed
+                  </span>
+                  <span className="text-[20px] font-bold text-adm-t1">{summary.reObservedCount}</span>
+                </div>
+                <div className="h-[22px] w-px bg-adm-border" />
+                <div className="flex items-baseline gap-2">
+                  <span className="font-mono text-[9px] uppercase tracking-wider text-adm-green">
+                    Closed
+                  </span>
+                  <span className="text-[20px] font-bold text-adm-green">{summary.closedCount}</span>
+                </div>
+              </div>
               <button
                 type="button"
                 onClick={goToCasesForRun}
-                className="rounded-lg border border-adm-border bg-adm-bg p-4 text-left transition-colors hover:border-adm-t3"
+                className="inline-flex items-center gap-1 font-mono text-[11px] text-adm-blue hover:underline"
               >
-                <div className="font-mono text-[9px] uppercase tracking-wider text-adm-t3">
-                  新开 / Opened
-                </div>
-                <div className="mt-1 text-[28px] font-bold leading-tight text-adm-t1">
-                  {summary.openedCount}
-                </div>
-              </button>
-              <button
-                type="button"
-                onClick={goToCasesForRun}
-                className="rounded-lg border border-adm-border bg-adm-bg p-4 text-left transition-colors hover:border-adm-t3"
-              >
-                <div className="font-mono text-[9px] uppercase tracking-wider text-adm-t3">
-                  复观察 / Re-observed
-                </div>
-                <div className="mt-1 text-[28px] font-bold leading-tight text-adm-t1">
-                  {summary.reObservedCount}
-                </div>
-              </button>
-              <button
-                type="button"
-                onClick={goToCasesForRun}
-                className="rounded-lg border border-adm-green/30 bg-adm-green/5 p-4 text-left transition-colors hover:bg-adm-green/10"
-              >
-                <div className="flex items-center gap-1.5 font-mono text-[9px] uppercase tracking-wider text-adm-green">
-                  <Check size={11} /> 本次关闭 / Closed
-                </div>
-                <div className="mt-1 text-[28px] font-bold leading-tight text-adm-green">
-                  {summary.closedCount}
-                </div>
+                View all cases for this run <ArrowRight size={11} />
               </button>
             </div>
           </DetailCard>
 
-          {/* 4. Account Status snapshot table */}
-          <DetailCard title="Account Status" columns={1}>
+          {/* 4. Account Status snapshot table — filter state now lives in the
+              card title (no separate utilities row); "view all cases" only
+              lives in the Case Flow strip above, not duplicated here. */}
+          <DetailCard
+            title={`Account Status · ${bucketFilter ? `Filtered: ${BUCKET_LABELS[bucketFilter].en}` : `All buckets (${accountTable.length})`}`}
+            columns={1}
+          >
             {run.legacy ? (
               <div className="rounded-md border border-adm-border bg-adm-bg px-4 py-3 font-mono text-[13px] text-adm-t2">
-                历史 run 无快照数据（Round3 前） / Legacy run – no snapshot data
+                Legacy run — no snapshot data (pre-Round3)
               </div>
             ) : (
-              <div className="flex flex-col gap-3">
-                {/* Utilities row */}
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div className="font-mono text-[11px] text-adm-t3">
-                    {bucketFilter
-                      ? `Filtered: ${BUCKET_LABELS[bucketFilter].en}`
-                      : `All buckets (${accountTable.length})`}
-                  </div>
-                  <button
-                    type="button"
-                    onClick={goToCasesForRun}
-                    className="inline-flex items-center gap-1 font-mono text-[11px] text-adm-blue hover:underline"
-                  >
-                    View All Cases for this Run <ArrowRight size={11} />
-                  </button>
-                </div>
-
-                {/* Table */}
-                <div className="overflow-x-auto rounded-lg border border-adm-border">
-                  <table className="w-full text-left text-sm">
-                    <thead className="border-b border-adm-border bg-adm-bg">
+              <div className="overflow-x-auto rounded-lg border border-adm-border">
+                <table className="w-full text-left text-sm">
+                  <thead className="border-b border-adm-border bg-adm-bg">
+                    <tr>
+                      <th className="px-3 py-2 font-mono text-[9px] font-semibold uppercase tracking-[0.1em] text-adm-t3">
+                        Wallet
+                      </th>
+                      <th className="px-3 py-2 font-mono text-[9px] font-semibold uppercase tracking-[0.1em] text-adm-t3">
+                        Owner
+                      </th>
+                      <th
+                        className="cursor-pointer select-none px-3 py-2 font-mono text-[9px] font-semibold uppercase tracking-[0.1em] text-adm-t3 hover:text-adm-t1"
+                        onClick={() => toggleSort('asset')}
+                        title="Sort by asset"
+                      >
+                        <span className="inline-flex items-center gap-1">
+                          Asset
+                          {sortKey === 'asset' && <ArrowUpDown size={10} />}
+                        </span>
+                      </th>
+                      <th className="px-3 py-2 text-right font-mono text-[9px] font-semibold uppercase tracking-[0.1em] text-adm-t3">
+                        Internal
+                      </th>
+                      <th className="px-3 py-2 text-right font-mono text-[9px] font-semibold uppercase tracking-[0.1em] text-adm-t3">
+                        External
+                      </th>
+                      <th
+                        className="cursor-pointer select-none px-3 py-2 text-right font-mono text-[9px] font-semibold uppercase tracking-[0.1em] text-adm-t3 hover:text-adm-t1"
+                        onClick={() => toggleSort('delta')}
+                        title="Sort by |Δ|"
+                      >
+                        <span className="inline-flex items-center justify-end gap-1">
+                          Δ
+                          {sortKey === 'delta' && <ArrowUpDown size={10} />}
+                        </span>
+                      </th>
+                      <th className="px-3 py-2 text-right font-mono text-[9px] font-semibold uppercase tracking-[0.1em] text-adm-t3">
+                        In-Transit
+                      </th>
+                      <th className="px-3 py-2 font-mono text-[9px] font-semibold uppercase tracking-[0.1em] text-adm-t3">
+                        Flow Lines
+                      </th>
+                      <th
+                        className="cursor-pointer select-none px-3 py-2 font-mono text-[9px] font-semibold uppercase tracking-[0.1em] text-adm-t3 hover:text-adm-t1"
+                        onClick={() => toggleSort('status')}
+                        title="Sort by status"
+                      >
+                        <span className="inline-flex items-center gap-1">
+                          Status
+                          {sortKey === 'status' && <ArrowUpDown size={10} />}
+                        </span>
+                      </th>
+                      <th className="px-3 py-2 font-mono text-[9px] font-semibold uppercase tracking-[0.1em] text-adm-t3">
+                        Case
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-adm-border">
+                    {visibleRows.length === 0 ? (
                       <tr>
-                        <th className="px-3 py-2 font-mono text-[9px] font-semibold uppercase tracking-[0.1em] text-adm-t3">
-                          Account
-                        </th>
-                        <th className="px-3 py-2 font-mono text-[9px] font-semibold uppercase tracking-[0.1em] text-adm-t3">
-                          Owner
-                        </th>
-                        <th
-                          className="cursor-pointer select-none px-3 py-2 font-mono text-[9px] font-semibold uppercase tracking-[0.1em] text-adm-t3 hover:text-adm-t1"
-                          onClick={() => toggleSort('asset')}
-                          title="Sort by asset"
+                        <td
+                          colSpan={10}
+                          className="px-3 py-8 text-center font-mono text-[11px] text-adm-t3"
                         >
-                          <span className="inline-flex items-center gap-1">
-                            Asset
-                            {sortKey === 'asset' && <ArrowUpDown size={10} />}
-                          </span>
-                        </th>
-                        <th className="px-3 py-2 text-right font-mono text-[9px] font-semibold uppercase tracking-[0.1em] text-adm-t3">
-                          Internal
-                        </th>
-                        <th className="px-3 py-2 text-right font-mono text-[9px] font-semibold uppercase tracking-[0.1em] text-adm-t3">
-                          External
-                        </th>
-                        <th
-                          className="cursor-pointer select-none px-3 py-2 text-right font-mono text-[9px] font-semibold uppercase tracking-[0.1em] text-adm-t3 hover:text-adm-t1"
-                          onClick={() => toggleSort('delta')}
-                          title="Sort by |Δ|"
-                        >
-                          <span className="inline-flex items-center justify-end gap-1">
-                            Δ
-                            {sortKey === 'delta' && <ArrowUpDown size={10} />}
-                          </span>
-                        </th>
-                        <th className="px-3 py-2 text-right font-mono text-[9px] font-semibold uppercase tracking-[0.1em] text-adm-t3">
-                          在途 / In-transit
-                        </th>
-                        <th className="px-3 py-2 font-mono text-[9px] font-semibold uppercase tracking-[0.1em] text-adm-t3">
-                          Flows
-                        </th>
-                        <th
-                          className="cursor-pointer select-none px-3 py-2 font-mono text-[9px] font-semibold uppercase tracking-[0.1em] text-adm-t3 hover:text-adm-t1"
-                          onClick={() => toggleSort('status')}
-                          title="Sort by status"
-                        >
-                          <span className="inline-flex items-center gap-1">
-                            Status
-                            {sortKey === 'status' && <ArrowUpDown size={10} />}
-                          </span>
-                        </th>
-                        <th className="px-3 py-2 font-mono text-[9px] font-semibold uppercase tracking-[0.1em] text-adm-t3">
-                          Case
-                        </th>
+                          {accountTable.length === 0
+                            ? 'No accounts in this run.'
+                            : 'No rows match this filter.'}
+                        </td>
                       </tr>
-                    </thead>
-                    <tbody className="divide-y divide-adm-border">
-                      {visibleRows.length === 0 ? (
-                        <tr>
-                          <td
-                            colSpan={10}
-                            className="px-3 py-8 text-center font-mono text-[11px] text-adm-t3"
+                    ) : (
+                      visibleRows.map((row) => {
+                        const clickable = row.bucket !== 'MATCHED' && !!row.caseNo;
+                        const deltaZero = isZeroAmount(row.delta);
+                        const inTransitZero = isZeroAmount(row.inTransitAmount);
+                        const displayWallet = row.walletNo ?? row.walletRef.slice(0, 8);
+                        const flowWords = [
+                          `${row.flowMatched} matched`,
+                          row.flowMismatch > 0 && `${row.flowMismatch} mismatch`,
+                          row.flowOrphanInternal > 0 && `${row.flowOrphanInternal} internal-only`,
+                          row.flowOrphanExternal > 0 && `${row.flowOrphanExternal} external-only`,
+                          row.inTransitCount > 0 && `${row.inTransitCount} in-transit`,
+                        ].filter(Boolean).join(' · ');
+                        return (
+                          <tr
+                            key={row.walletRef}
+                            onClick={() => clickable && onRowClick(row)}
+                            className={[
+                              'transition-colors',
+                              clickable ? 'cursor-pointer hover:bg-adm-hover' : 'cursor-default',
+                            ].join(' ')}
                           >
-                            {accountTable.length === 0
-                              ? 'No accounts in this run.'
-                              : 'No rows match this filter.'}
-                          </td>
-                        </tr>
-                      ) : (
-                        visibleRows.map((row) => {
-                          const clickable = row.bucket !== 'MATCHED' && !!row.caseNo;
-                          const deltaZero = isZeroAmount(row.delta);
-                          const inTransitZero = isZeroAmount(row.inTransitAmount);
-                          const displayWallet = row.walletNo ?? row.walletRef.slice(0, 8);
-                          const flowParts = [
-                            `✓${row.flowMatched}`,
-                            row.flowOrphanInternal > 0 ? `OI${row.flowOrphanInternal}` : '',
-                            row.flowOrphanExternal > 0 ? `OE${row.flowOrphanExternal}` : '',
-                            row.flowMismatch > 0 ? `MM${row.flowMismatch}` : '',
-                            row.inTransitCount > 0 ? `⧖${row.inTransitCount}` : '',
-                          ].filter(Boolean).join(' ');
-                          return (
-                            <tr
-                              key={row.walletRef}
-                              onClick={() => clickable && onRowClick(row)}
+                            {/* Wallet — walletNo primary, role secondary */}
+                            <td className="px-3 py-2.5">
+                              <div className="font-mono text-[11px] font-semibold text-adm-t1">
+                                {displayWallet}
+                              </div>
+                              <div className="font-mono text-[10px] text-adm-t3">
+                                {row.walletRole ?? '(unknown)'}
+                              </div>
+                            </td>
+                            {/* Owner — ownerNo if present, else book */}
+                            <td className="px-3 py-2.5 font-mono text-[11px] text-adm-t1">
+                              {row.ownerNo ?? row.book}
+                            </td>
+                            {/* Asset */}
+                            <td className="px-3 py-2.5 font-mono text-[11px] text-adm-t1">
+                              {row.asset}
+                            </td>
+                            {/* Internal */}
+                            <td className="px-3 py-2.5 text-right font-mono text-[11px] text-adm-t1">
+                              {formatAmount(row.internal.balance, row.decimals)}
+                            </td>
+                            {/* External */}
+                            <td className="px-3 py-2.5 text-right font-mono text-[11px] text-adm-t1">
+                              {formatAmount(row.external.balance, row.decimals)}
+                            </td>
+                            {/* Δ — muted gray when zero, bold red when non-zero */}
+                            <td
                               className={[
-                                'transition-colors',
-                                clickable ? 'cursor-pointer hover:bg-adm-hover' : 'cursor-default',
+                                'px-3 py-2.5 text-right font-mono text-[11px]',
+                                deltaZero
+                                  ? 'text-adm-t3'
+                                  : 'font-bold text-adm-red',
                               ].join(' ')}
                             >
-                              {/* Account */}
-                              <td className="px-3 py-2.5">
-                                <div className="font-mono text-[11px] font-semibold text-adm-t1">
-                                  {row.walletRole ?? '(unknown)'}
-                                </div>
-                                <div className="font-mono text-[10px] text-adm-t3">
-                                  {displayWallet}
-                                </div>
-                              </td>
-                              {/* Owner — ownerNo if present, else book */}
-                              <td className="px-3 py-2.5 font-mono text-[11px] text-adm-t1">
-                                {row.ownerNo ?? row.book}
-                              </td>
-                              {/* Asset */}
-                              <td className="px-3 py-2.5 font-mono text-[11px] text-adm-t1">
-                                {row.asset}
-                              </td>
-                              {/* Internal */}
-                              <td className="px-3 py-2.5 text-right font-mono text-[11px] text-adm-t1">
-                                {formatAmount(row.internal.balance, row.decimals)}
-                              </td>
-                              {/* External */}
-                              <td className="px-3 py-2.5 text-right font-mono text-[11px] text-adm-t1">
-                                {formatAmount(row.external.balance, row.decimals)}
-                              </td>
-                              {/* Δ — muted gray when zero, bold red when non-zero */}
-                              <td
-                                className={[
-                                  'px-3 py-2.5 text-right font-mono text-[11px]',
-                                  deltaZero
-                                    ? 'text-adm-t3'
-                                    : 'font-bold text-adm-red',
-                                ].join(' ')}
-                              >
-                                {formatAmount(row.delta, row.decimals)}
-                              </td>
-                              {/* In-transit — em dash when zero */}
-                              <td className="px-3 py-2.5 text-right font-mono text-[11px] text-adm-t1">
-                                {inTransitZero ? '—' : formatAmount(row.inTransitAmount, row.decimals)}
-                              </td>
-                              {/* Flows */}
-                              <td className="px-3 py-2.5 font-mono text-[10px] text-adm-t1">
-                                {flowParts}
-                              </td>
-                              {/* Status */}
-                              <td className="px-3 py-2.5">
-                                <StatusBadge value={row.bucket} />
-                              </td>
-                              {/* Case */}
-                              <td className="px-3 py-2.5 font-mono text-[11px] text-adm-t1">
-                                {row.caseNo ?? '—'}
-                              </td>
-                            </tr>
-                          );
-                        })
-                      )}
-                    </tbody>
-                  </table>
-                </div>
+                              {formatAmount(row.delta, row.decimals)}
+                            </td>
+                            {/* In-Transit — em dash gray when zero, blue when non-zero */}
+                            <td
+                              className={[
+                                'px-3 py-2.5 text-right font-mono text-[11px]',
+                                inTransitZero ? 'text-adm-t3' : 'text-adm-blue',
+                              ].join(' ')}
+                            >
+                              {inTransitZero ? '—' : formatAmount(row.inTransitAmount, row.decimals)}
+                            </td>
+                            {/* Flow Lines — plain-words summary, non-zero items only */}
+                            <td className="px-3 py-2.5 font-mono text-[10px] text-adm-t2">
+                              {flowWords}
+                            </td>
+                            {/* Status */}
+                            <td className="px-3 py-2.5">
+                              <StatusBadge value={row.bucket} />
+                            </td>
+                            {/* Case */}
+                            <td
+                              className={[
+                                'px-3 py-2.5 font-mono text-[11px]',
+                                row.caseNo ? 'text-adm-blue' : 'text-adm-t3',
+                              ].join(' ')}
+                            >
+                              {row.caseNo ?? '—'}
+                            </td>
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </table>
               </div>
             )}
           </DetailCard>
@@ -637,8 +630,8 @@ const ReconciliationRunsDetailPage = () => {
 
         {/* ── Sidebar ── */}
         <div className="w-[272px] min-w-[272px] overflow-y-auto border-l border-adm-border bg-adm-panel px-4">
-          {/* ACTIONS — 一键重新对账 / Re-reconcile (fires a fresh wallet run so
-              pushed-then-CLEARED funds orders get re-observed and cases closed). */}
+          {/* ACTIONS — Re-reconcile (fires a fresh wallet run so pushed-then-CLEARED
+              funds orders get re-observed and cases closed). */}
           <SidebarGroup title="Actions">
             <button
               type="button"
@@ -647,7 +640,7 @@ const ReconciliationRunsDetailPage = () => {
               className="flex w-full items-center justify-center gap-1.5 rounded border border-adm-blue/40 bg-adm-blue/10 px-3 py-2 font-mono text-[12px] font-semibold text-adm-blue transition-colors hover:bg-adm-blue/20 disabled:opacity-50"
             >
               <RefreshCw size={12} className={reconciling ? 'animate-spin' : ''} />
-              重新对账 / Re-reconcile
+              Re-reconcile
             </button>
           </SidebarGroup>
 
