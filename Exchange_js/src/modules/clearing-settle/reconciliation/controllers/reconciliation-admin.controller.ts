@@ -37,13 +37,6 @@ export class ReconciliationAdminController {
     );
   }
 
-  @Get('demo/compare')
-  @ApiOperation({ summary: 'Demo compare: injected break manifest vs engine-detected case line-items' })
-  @RequirePermissions(buildPermissionCode('GET', '/admin/reconciliation/runs'))
-  getDemoCompare(@Query('runNo') runNo: string) {
-    return this.query.getDemoCompare(runNo);
-  }
-
   @Get('runs')
   @ApiOperation({ summary: 'List reconciliation runs' })
   @RequirePermissions(buildPermissionCode('GET', '/admin/reconciliation/runs'))

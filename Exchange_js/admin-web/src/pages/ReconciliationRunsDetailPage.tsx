@@ -97,7 +97,6 @@ interface ReconRunDetail {
   startedAt: string | null;
   completedAt: string | null;
   createdAt: string;
-  hasDemoManifest: boolean;
   legacy: boolean;
   cases?: ReconCaseLink[];
   accountStatusTable: AccountStatusRow[];
@@ -328,17 +327,6 @@ const ReconciliationRunsDetailPage = () => {
               <div className="font-mono text-[13px] text-adm-t3">
                 {run.runNo} · {run.businessDate}
               </div>
-              {run.hasDemoManifest && (
-                <button
-                  type="button"
-                  onClick={() =>
-                    navigate(`/admin/reconciliation/demo-compare/${encodeURIComponent(run.runNo)}`)
-                  }
-                  className="inline-flex items-center gap-1 rounded border border-adm-amber/40 bg-adm-amber/10 px-2 py-0.5 font-mono text-[11px] font-semibold text-adm-amber transition-colors hover:bg-adm-amber/20"
-                >
-                  Demo 对比 <ArrowRight size={11} />
-                </button>
-              )}
             </div>
             {run.legacy ? (
               <div className="mt-3 rounded-md border border-adm-border bg-adm-bg px-4 py-3 font-mono text-[13px] text-adm-t2">

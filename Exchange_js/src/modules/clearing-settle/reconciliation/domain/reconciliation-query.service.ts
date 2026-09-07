@@ -32,113 +32,6 @@ import {
   RunDetailSummary,
 } from '../dto/reconciliation.dto';
 
-// ── Types used by pairManifest ────────────────────────────────────────────────
-
-export interface ManifestBreak {
-  currency: string;
-  book: string;
-  bucket: string;       // ORPHAN_INTERNAL | ORPHAN_EXTERNAL | AMOUNT_MISMATCH
-  targetType: string;
-  targetRef: string;
-  internalAmount: string | null;
-  externalAmount: string | null;
-  signedDelta: string;
-  note: string;
-}
-
-/** Line-item annotated with its parent case's assetCode and book. */
-export interface AnnotatedLineItem {
-  id: string;
-  matchStatus: string;
-  internalSourceNo: string | null;
-  internalTxHash: string | null;
-  externalTxId: string | null;    // external booking/tx id (legacy "externalRef" in task doc)
-  externalTxHash: string | null;
-  internalAmount: unknown;
-  externalAmount: unknown;
-  _currency: string;
-  _book: string;
-  [key: string]: unknown;
-}
-
-export interface PairResult {
-  matched: Array<{ break: ManifestBreak; item: AnnotatedLineItem }>;
-  missed: ManifestBreak[];
-  extra: AnnotatedLineItem[];
-}
-
-/**
- * Primary amount for pairing: prefer internalAmount (present for ORPHAN_INTERNAL and
- * AMOUNT_MISMATCH); fall back to externalAmount (present for ORPHAN_EXTERNAL).
- * Returns null when neither is available (treated as non-matchable).
- */
-function primaryAmount(internalAmount: unknown, externalAmount: unknown): string | null {
-  if (internalAmount != null) return String(internalAmount);
-  if (externalAmount != null) return String(externalAmount);
-  return null;
-}
-
-const AMOUNT_TOLERANCE = 1e-6;
-
-function amountsEqual(a: string | null, b: string | null): boolean {
-  if (a === null || b === null) return false;
-  return Math.abs(parseFloat(a) - parseFloat(b)) < AMOUNT_TOLERANCE;
-}
-
-/**
- * Pure function — no DB access.
- * Key = (currency, book, bucket, primaryAmount).
- * A manifest break matches a line-item when:
- *   - same currency  (_currency === break.currency)
- *   - same book      (_book ?? '' === break.book ?? '')
- *   - same bucket    (matchStatus === break.bucket)
- *   - primaryAmount(break) ≈ primaryAmount(item)  (within 1e-6)
- *
- * primaryAmount = internalAmount if present, else externalAmount.
- * This is rail-agnostic: CRYPTO can ref-match coincidentally, but FIAT cannot
- * (the engine assigns payinNo/UUIDs the manifest never knows).
- *
- * targetRef and line-item ref fields are preserved in returned data for DISPLAY,
- * but are NOT used as the match key.
- *
- * Each item may be claimed by at most one break (first-come, first-served).
- */
-export function pairManifest(
-  breaks: ManifestBreak[],
-  items: AnnotatedLineItem[],
-): PairResult {
-  const unclaimedItems = new Set(items.map((_, i) => i));
-  const matched: PairResult['matched'] = [];
-  const missed: ManifestBreak[] = [];
-
-  for (const brk of breaks) {
-    const brkAmount = primaryAmount(brk.internalAmount, brk.externalAmount);
-    let found = -1;
-    for (const idx of unclaimedItems) {
-      const item = items[idx];
-      const itemAmount = primaryAmount(item.internalAmount, item.externalAmount);
-      if (
-        item._currency === brk.currency &&
-        (item._book ?? '') === (brk.book ?? '') &&
-        item.matchStatus === brk.bucket &&
-        amountsEqual(brkAmount, itemAmount)
-      ) {
-        found = idx;
-        break;
-      }
-    }
-    if (found >= 0) {
-      matched.push({ break: brk, item: items[found] });
-      unclaimedItems.delete(found);
-    } else {
-      missed.push(brk);
-    }
-  }
-
-  const extra = [...unclaimedItems].map((i) => items[i]);
-  return { matched, missed, extra };
-}
-
 @Injectable()
 export class ReconciliationQueryService {
   constructor(
@@ -271,7 +164,6 @@ export class ReconciliationQueryService {
 
     const result: ReconRunDetail = {
       ...run,
-      hasDemoManifest: run.demoManifest !== null,
       cases,
       accountStatusTable,
       summary,
@@ -861,48 +753,6 @@ export class ReconciliationQueryService {
       walletRole: wallet.walletRole,
       decimals: asset?.decimals ?? 0,
       lines,
-    };
-  }
-
-  /**
-   * Demo compare: pairs the injected break manifest stored on a run against
-   * the engine-detected case line-items.  Returns the run summary, the raw
-   * manifest breaks, the detected line-items (annotated with currency/book),
-   * and the pairing result { matched, missed, extra }.
-   */
-  async getDemoCompare(runNo: string) {
-    const run = await this.prisma.reconciliationRun.findUnique({ where: { runNo } });
-    if (!run) throw new NotFoundException(`Run ${runNo} not found`);
-
-    const breaks: ManifestBreak[] = run.demoManifest
-      ? (JSON.parse(run.demoManifest) as { breaks: ManifestBreak[] }).breaks ?? []
-      : [];
-
-    const cases = await this.prisma.reconciliationCase.findMany({
-      where: { lastObservedRunId: run.id },
-      include: { lineItems: { where: { foundByRunId: run.id }, orderBy: { lineNo: 'asc' } } },
-    });
-
-    // Flatten line-items annotated with their parent case's currency and book.
-    const detected: AnnotatedLineItem[] = [];
-    for (const kase of cases) {
-      for (const item of kase.lineItems) {
-        detected.push({ ...item, _currency: kase.assetCode, _book: kase.book ?? '' });
-      }
-    }
-
-    const reconciliation = pairManifest(breaks, detected);
-
-    return {
-      run: {
-        runNo: run.runNo,
-        businessDate: run.businessDate,
-        status: run.status,
-        invariantStatus: run.invariantStatus,
-      },
-      manifest: breaks,
-      detected,
-      reconciliation,
     };
   }
 

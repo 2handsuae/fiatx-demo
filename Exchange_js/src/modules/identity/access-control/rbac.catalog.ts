@@ -372,7 +372,6 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
   route('GET', '/wallets/:walletNo', 'Get wallet detail', ['WALLET_READ']),
 
   // Reconciliation
-  route('GET', '/admin/reconciliation/demo/compare', 'Demo compare: injected breaks vs detected line-items', ['RECON_RUN_READ']),
   route('GET', '/admin/reconciliation/runs', 'View Recon Runs', ['RECON_RUN_READ']),
   route('GET', '/admin/reconciliation/runs/:runNo', 'View Recon Run Detail', ['RECON_RUN_READ']),
   route('POST', '/admin/reconciliation/runs/wallet', 'Trigger per-wallet reconciliation run', ['RECON_RUN_WRITE']),
