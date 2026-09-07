@@ -90,7 +90,7 @@ Last Updated: 2026-09-06
 
 > 讲「客户是谁、能不能交易由合规说了算」这一幕的缺口。最大一件是开户流程重做（站6 整体拆除后待接真 Sumsub 申请人侧）。
 
-- [ ] **一期客户流程重做（接真 Sumsub 申请人侧，已排波次）**：入驻流程 / 定期风评（CRA）/ 高风险升级案曾于站6 整体拆除（业主 2026-08-27 方案2）；**2026-09-06 业主拍板推翻"开户流程不演"口径**（decisions.md 同日），按总纲 `superpowers/specs/2026-09-06-act2-customer-waves-outline.md` 拆波二（入驻重建：注册 → 建 Sumsub applicant → 模拟认证 → 裁决 → MLRO 终审 → ACTIVE，含被拒/撤回/重申、EDD 分支、把波一保留的 `customer-lifecycle.constant.ts` 状态机接上驱动）/ 波三（档位升级：BASIC→PREMIUM 审批）落地。摄取分发器的 `unrouted_*` 警告处即波二重新开路的位置；波一（本轮）只清地基，不接流程 ｜ 来源: 站6 业主拍板 ｜ 2026-09-06 总纲推翻，改指波二/波三
+- [x] ~~一期客户流程重做（接真 Sumsub 申请人侧，已排波次）~~ —— **入驻部分销账**（波二 2026-09-07「入驻重建」已合并，归档 `superpowers/specs/2026-09-07-act2-wave2-onboarding-design.md`）：入驻流程（注册 → 建 Sumsub applicant → 模拟认证 → 裁决 → 高管准入核准 → ACTIVE，含被拒 RETRY/FINAL 分治、撤回、重申、EDD 换档旁支）已接上 `customer-lifecycle.constant.ts` 状态机驱动（`CustomerLifecycleService.applyAction` 唯一写入口）；定期风评（CRA）业主拍板永久不做，不再是缺口；**档位升级（BASIC→PREMIUM）留波三**，见下方「Tier Upgrade」条 ｜ 来源: 站6 业主拍板 ｜ 2026-09-06 总纲推翻，改指波二/波三 ｜ 2026-09-07 波二销账（入驻部分）
 
 - [x] ~~若做 onboarding 风险审批展示，先接 `latestRiskApprovalId` 写入方~~ —— 销账（2026-09-06 客户域波一 Task 1，客户表 48→24 字段治理）：`latestRiskApprovalId` 列已随本轮物理删除（该列此前就全仓零生产写入方，靠它渲染的死 UI 段本就已退役）。波二入驻重建若需要 MLRO 终审落列展示，按新 spec 设计新列，不是"回接"这一列 ｜ 来源: 2026-09-03 客户域业务键收口 ｜ 2026-09-06 波一销账
 
@@ -98,7 +98,7 @@ Last Updated: 2026-09-06
 
 - [ ] **机构客户 stub（现状口径已更正，非本波动作）**：`CorporateProfile`/`UboProfile` 两表已随站6（2026-08-27 一期拆除）整体删除——不是"表在逻辑无"，是表已不存在；`customerType='CORPORATE'` 现仅剩 `CustomerManagement.tsx` 筛选下拉与 `CustomerDetail.tsx` 两处死注释占位（`⑫ Corporate Profile`/`⑪ UBO List`，无渲染内容），入口仍是禁用状态。若要支持机构客户需从零设计数据模型，不是"接回"旧表 ｜来源: 2026-07-04 V2 体检 ｜ 2026-09-06 波一复核现状口径更正
 
-- [ ] ⭐ **Q2 销户流程只落了轴上位置**（`assertOffboardable()` 三条不变量断言已随 2026-09-06 波一死码清扫删除——零调用方死码，重建销户时按新 spec 立）：`OFFBOARDED` 是 `lifecycle` 终态。真正的销户流程——余额清退、材料归档留存期、审批链、客户侧发起入口——全部未做；管理台 Offboard 按钮当前是 disabled 占位（与下方「材料终拒 → 离场清退流程未接」并链——材料终拒是触发销户清退的另一条路径，两条记录指向同一个未做的缺口）｜来源: 2026-08-15 设计稿 §8 Q2
+- [ ] ⭐ **Q2 销户流程只落了轴上位置**（`assertOffboardable()` 三条不变量断言已随 2026-09-06 波一死码清扫删除——零调用方死码，重建销户时按新 spec 立）：`OFFBOARDED` 是 `lifecycle` 终态。真正的销户流程——余额清退、材料归档留存期、审批链、客户侧发起入口——全部未做；管理台 Offboard 按钮当前是 disabled 占位（与下方「材料终拒 → 离场清退流程未接」并链——材料终拒是触发销户清退的另一条路径；波二（2026-09-07）新增第三条触发路径——高管拒收（`FINAL_REJECTED`）后客户滞留 `REJECTED` 未再重申，清退承接同归此缺口，三条记录指向同一个未做的销户流程）｜来源: 2026-08-15 设计稿 §8 Q2 ｜ 2026-09-07 波二追加高管拒收触发路径
 
 - [x] ~~六个 admin 页仍读已删的 `customer.complianceStatus`，客户级合规信号退化成 N/A~~ —— 已解（凭证销账）：三张交易详情页（`DepositTransactionDetail.tsx`/`WithdrawTransactionDetail.tsx`/`SwapTransactionDetail.tsx`）的 L1「客户级」层早于本条登记后 6 天已改读 `customer.lifecycle`（2026-08-22 第四批 commit `339195e4`，`getComplianceLayerStyle(data.customer?.lifecycle)` 三处实测在场，本条此前未跟进销账）；`RiskAssessmentDetailPage.tsx` 随站6 一期拆除已不存在（2026-08-27 `4c6770ac`）；`MaterialHoldingDetailPage.tsx`/`RefreshCycleDetailPage.tsx` 随本轮 material-refresh 子系统退役一并删除（2026-09-06 波一 `5f5faccc`）。六页全部核清（`find admin-web -iname` 三页名零命中）｜来源: 2026-08-16 Task 12 收尾时全仓 grep 发现 ｜ 2026-09-06 波一销账
 
