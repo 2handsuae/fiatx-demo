@@ -1,7 +1,7 @@
 import { useNavigate } from 'react-router-dom';
 import { RefreshCw, ArrowRight } from 'lucide-react';
 import { useCustomerProfile } from '../hooks/useCustomerProfile';
-import { useTierUpgrade } from '../hooks/useTierUpgrade';
+import { useTierUpgrade, type TierUpgradeOverview } from '../hooks/useTierUpgrade';
 import { customerFetch } from '../utils/customerFetch';
 import { ProfileBannerStack } from '../components/ProfileBannerStack';
 import {
@@ -23,10 +23,14 @@ import {
 type ProfileLike = ReturnType<typeof useCustomerProfile>['profile'];
 
 /** 档位升级在途单 stage → 文案（Task 10 brief）。 */
-const STAGE_COPY: Record<string, string> = {
+const STAGE_COPY: Record<
+  NonNullable<TierUpgradeOverview['application']>['stage'],
+  string
+> = {
   SUBMIT_MATERIALS: 'Upgrade started — submit your documents',
   UNDER_REVIEW: 'Documents under review',
   PENDING_DECISION: 'Awaiting final decision',
+  APPROVED: 'Upgrade approved — you are now on Premium.',
   REJECTED: 'Upgrade declined — you may apply again',
 };
 
@@ -355,11 +359,16 @@ const CustomerProfile = () => {
             </div>
           )}
           <div className="mt-5">
+            {tier?.application?.stage === 'REJECTED' && (
+              <span className="mr-3 font-mono text-[10px] uppercase tracking-[0.14em] text-fx-rust">
+                {STAGE_COPY.REJECTED}
+              </span>
+            )}
             {tier?.canApply ? (
               <button onClick={() => void applyForUpgrade()} className="fx-btn-primary">
                 Upgrade to Premium →
               </button>
-            ) : tier?.application ? (
+            ) : tier?.application && tier.application.stage !== 'REJECTED' ? (
               <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-fx-brass">
                 {STAGE_COPY[tier.application.stage]}
               </span>
