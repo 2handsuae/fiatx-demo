@@ -42,6 +42,11 @@ export const PERMISSIONS = {
   // 终审补齐（2026-09-07）：查关联准入核准单状态——精确镜像 rbac.catalog.ts 同名 GET 路由。
   CUSTOMER_ONBOARDING_ACCEPTANCE_READ: 'api.get.admin_customers_customerno_onboarding_acceptance',
 
+  // 交易档位升级波三（Task 13）：升级核准提单——精确镜像 tier-upgrade.admin.controller.ts
+  // 的 buildPermissionCode('POST', '/admin/customers/:customerNo/tier-upgrade-acceptance')。
+  CUSTOMER_TIER_UPGRADE_ACCEPT_WRITE:
+    'api.post.admin_customers_customerno_tier_upgrade_acceptance',
+
   MATERIAL_REQUESTS_READ: 'api.get.admin_customers_customerno_material_requests',
   MATERIAL_REQUESTS_WRITE: 'api.post.admin_customers_customerno_material_requests',
   MATERIAL_REQUESTS_BY_ORDER_READ: 'api.get.admin_material_requests_by_order_orderdomain_orderref',

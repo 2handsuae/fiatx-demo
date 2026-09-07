@@ -618,6 +618,7 @@ const CustomerDetail = () => {
   const canVerdict = detail.lifecycle === 'IN_VERIFICATION' && detail.onboardingSubmittedAt != null;
   const canEscalate = canVerdict && detail.sumsubCurrentLevelName === 'basic-cdd-level';
   const canRequestAcceptance = hasPermission(PERMISSIONS.CUSTOMER_ONBOARDING_ACCEPT_WRITE);
+  const canRequestTierUpgradeAcceptance = hasPermission(PERMISSIONS.CUSTOMER_TIER_UPGRADE_ACCEPT_WRITE);
   // 「单子提了没」展示口径（spec §5）：PENDING_APPROVAL 待提/审批中、ACTIVE/REJECTED 是裁决后的落点；
   // 已有关联单（acceptanceCase 非空）时其余 lifecycle 也一并显示，不藏历史单据。
   const showAcceptanceStatus =
@@ -770,7 +771,7 @@ const CustomerDetail = () => {
                   : 'Not requested'}
               </span>
             </p>
-            {canSubmitTierUpgradeAcceptance && (
+            {canSubmitTierUpgradeAcceptance && canRequestTierUpgradeAcceptance && (
               <div className="mt-4">
                 <button
                   onClick={() => void submitTierUpgradeAcceptance()}
