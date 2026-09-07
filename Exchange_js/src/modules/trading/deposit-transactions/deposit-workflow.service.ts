@@ -227,10 +227,10 @@ export class DepositWorkflowService implements OnModuleInit {
     const belowMin = deposit.limitHoldReason === 'BELOW_MIN';
     const preChecks: L1Check[] = [
       belowMin
-        ? { code: 'SINGLE_LIMIT', outcome: 'FAIL', detail: '建单时判定金额低于 DEPOSIT 单笔下限（BELOW_MIN），等运营处置' }
-        : { code: 'SINGLE_LIMIT', outcome: 'PASS', detail: '建单时已过 DEPOSIT 单笔下限判定（充值是被动入金，只判下限、无上限）' },
-      { code: 'ACCOUNT_READINESS', outcome: 'PASS', detail: '建单时校验过收款钱包存在且资产匹配（不匹配则整单不建）' },
-      { code: 'TRADING_READINESS', outcome: 'SKIPPED', detail: '交易起始就绪（法币提现地址）由放行前的 assertTradingReadyOrHold 校验，本评估点在其之前' },
+        ? { code: 'SINGLE_LIMIT', outcome: 'FAIL', detail: 'At order creation, amount was below the DEPOSIT per-transaction minimum (BELOW_MIN) — awaiting ops disposition' }
+        : { code: 'SINGLE_LIMIT', outcome: 'PASS', detail: 'Passed the DEPOSIT per-transaction minimum check at order creation (deposit is passive inflow — only a minimum is checked, no maximum)' },
+      { code: 'ACCOUNT_READINESS', outcome: 'PASS', detail: 'Verified at order creation that the receiving wallet exists and the asset matches (order would not be created otherwise)' },
+      { code: 'TRADING_READINESS', outcome: 'SKIPPED', detail: 'Trading-readiness (fiat withdrawal address) is checked by assertTradingReadyOrHold before release — this evaluation point runs before that' },
     ];
     const l1 = await this.l1Gate.evaluate({
       domain: 'DEPOSIT',
@@ -818,7 +818,7 @@ export class DepositWorkflowService implements OnModuleInit {
     await this.depositAudit(deposit, {
       action: 'DEPOSIT_ONHOLD',
       reason: 'KYT verdict: onHold, awaiting officer review',
-      metadata: { note: 'onHold 不影响 SLA —— SLA 按状态计时,见 DEPOSIT_SLA_MINUTES_BY_STATUS' },
+      metadata: { note: 'onHold does not affect SLA — SLA is timed by status, see DEPOSIT_SLA_MINUTES_BY_STATUS' },
     });
   }
 
@@ -1920,23 +1920,23 @@ export class DepositWorkflowService implements OnModuleInit {
     const bal = await this.accountingService.getCustomerAvailableBalance(deposit.ownerId, deposit.asset.currency);
     if (bal.available < amountMinor) {
       const fmt = (v: bigint) => minorToMajor(v.toString(), decimals);
-      throw new BadRequestException(`客户可用余额不足以退汇（可用 ${fmt(bal.available)}，需要 ${fmt(amountMinor)} ${deposit.asset.currency}），先由金库在案子上「发起垫款」补足差额再认领`);
+      throw new BadRequestException(`Customer available balance is insufficient for the clawback (available ${fmt(bal.available)}, need ${fmt(amountMinor)} ${deposit.asset.currency}) — Treasury must first "initiate an advance" on the case to cover the shortfall before claiming`);
     }
   }
 
   async initiateClawback(depositNo: string, dto: { externalLineId: string; caseNo: string; dispositionNo: string; reason: string }, actor: ApprovalActorContext) {
     const line = await this.supplementEvidence.assertClaimable({ caseNo: dto.caseNo, externalLineId: dto.externalLineId, dispositionNo: dto.dispositionNo, kind: 'SUPPLEMENT_BOUNCE' });
     const deposit = await this.depositService.findOneByNo(depositNo);
-    if (deposit.status !== DepositTransactionStatus.SUCCESS) throw new BadRequestException(`充值单 ${depositNo} 不是 SUCCESS，不能退汇`);
-    if (deposit.toWalletId !== line.walletId) throw new BadRequestException(`充值单 ${depositNo} 不在该案子的钱包上`);
+    if (deposit.status !== DepositTransactionStatus.SUCCESS) throw new BadRequestException(`Deposit ${depositNo} is not SUCCESS — cannot claw back`);
+    if (deposit.toWalletId !== line.walletId) throw new BadRequestException(`Deposit ${depositNo} is not on this case's wallet`);
     const amountMinor = BigInt(line.amountMinor);
-    if (this.decimalToBigint(deposit.amount, line.decimals) !== amountMinor) throw new BadRequestException(`充值单 ${depositNo} 金额与账单行金额不符`);
-    if (deposit.clawbackExternalLineId) throw new BadRequestException(`充值单 ${depositNo} 已在退汇认领中`);
+    if (this.decimalToBigint(deposit.amount, line.decimals) !== amountMinor) throw new BadRequestException(`Deposit ${depositNo} amount does not match the statement line amount`);
+    if (deposit.clawbackExternalLineId) throw new BadRequestException(`Deposit ${depositNo} is already under clawback claim`);
     await this.assertClawbackBalance(deposit, amountMinor, line.decimals);
     const open = await this.approvalsService.list({ actionType: ApprovalActionTypes.DEPOSIT_CLAWBACK, entityRef: deposit.depositNo, status: ApprovalStatuses.PENDING, take: 1 });
-    if (open.total > 0) throw new ConflictException(`充值单 ${depositNo} 已有待批的退汇认领`);
+    if (open.total > 0) throw new ConflictException(`Deposit ${depositNo} already has a pending clawback claim awaiting approval`);
     const traceId = deposit.traceId || randomUUID();
-    const impact = `${line.ownerNo ?? deposit.ownerId} 的 ${line.amountMajor} ${line.currency} 充值将被退汇，余额相应减少（对账案 ${line.caseNo}，账单行 ${line.externalRef}）`;
+    const impact = `${line.ownerNo ?? deposit.ownerId}'s ${line.amountMajor} ${line.currency} deposit will be clawed back; balance decreases accordingly (case ${line.caseNo}, statement line ${line.externalRef})`;
     const approvalCase = await this.approvalsService.createAndSubmit(
       { actionType: ApprovalActionTypes.DEPOSIT_CLAWBACK, entityRef: deposit.depositNo, traceId,
         objectSnapshot: { depositNo: deposit.depositNo, caseNo: line.caseNo, dispositionNo: line.dispositionNo, externalLineId: line.externalLineId, externalRef: line.externalRef, customerNo: line.ownerNo, amount: line.amountMajor, currency: line.currency, impact } },
@@ -1982,7 +1982,7 @@ export class DepositWorkflowService implements OnModuleInit {
       if (dispositionNo) await this.reconDisposition.unlinkSupplement(dispositionNo, deposit.depositNo);
       return;
     }
-    await this.depositAudit(deposit, { action: 'DEPOSIT_CLAWBACK_STARTED', reason: 'CFO 批准退汇认领，落反向分录', approvalNo: event.approvalNo, causationId: event.approvalId, metadata: { externalLineId: line.externalLineId, externalRef: line.externalRef, effectiveDate: line.businessDate } });
+    await this.depositAudit(deposit, { action: 'DEPOSIT_CLAWBACK_STARTED', reason: 'CFO approved the clawback claim — reverse entry posted', approvalNo: event.approvalNo, causationId: event.approvalId, metadata: { externalLineId: line.externalLineId, externalRef: line.externalRef, effectiveDate: line.businessDate } });
     const ledger = asset.tbLedgerId;
     const debitAccountId = await this.accountingService.resolveTbAccountId({ code: TB_ACCOUNT_CODES.CLIENT_PAYABLE, ledger, ownerType: 'CUSTOMER', ownerUuid: deposit.ownerId });
     const creditAccountId = await this.accountingService.resolveTbAccountId({ code: TB_ACCOUNT_CODES.CLIENT_ASSET, ledger, ownerType: 'SYSTEM' });
@@ -1998,7 +1998,7 @@ export class DepositWorkflowService implements OnModuleInit {
       },
     });
     const row = await this.depositService.updateStatus(deposit.id, { action: DepositTransactionAction.CLAWBACK, reason: `Clawed back per approval ${event.approvalNo}` } as any);
-    await this.depositAudit(deposit, { action: 'DEPOSIT_CLAWED_BACK', reason: '入账后被银行/托管方退汇，客户余额已相应减少', fromStatus: DepositTransactionStatus.SUCCESS, toStatus: row.status, approvalNo: event.approvalNo,
+    await this.depositAudit(deposit, { action: 'DEPOSIT_CLAWED_BACK', reason: 'Clawed back by bank/custodian after posting — customer balance decreased accordingly', fromStatus: DepositTransactionStatus.SUCCESS, toStatus: row.status, approvalNo: event.approvalNo,
       metadata: { externalLineId: line.externalLineId, externalRef: line.externalRef, amount: String(deposit.amount), effectiveDate: line.businessDate, caseNo: line.caseNo } });
   }
 
@@ -2874,7 +2874,7 @@ export class DepositWorkflowService implements OnModuleInit {
         }
         if (alreadyFrozen) {
           this.logger.debug(
-            `In-flight deposit ${d.depositNo} already FROZEN when restriction ${event.restrictionNo} scan reached it — beaten by the triggering path (open() 广播早于本单主路径提交), not a real failure.`,
+            `In-flight deposit ${d.depositNo} already FROZEN when restriction ${event.restrictionNo} scan reached it — beaten by the triggering path (open()'s broadcast preceded this order's main-path commit), not a real failure.`,
           );
         } else {
           this.logger.warn(

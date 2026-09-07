@@ -758,7 +758,7 @@ describe('Recon supplement e2e (平账 B 批, Task 8)', () => {
     await walletRecon.run({ cutoff: CUTOFF });
     const kaseB = await openCaseFor(walletB.id);
     const dispB = await dispositions.record(kaseB.caseNo, { explainedExternalLineId: lineB.id, matchType: 'ORPHAN_EXTERNAL', causeCode: 'BOUNCED_FUNDS', externalDirection: 'OUT', findingNote: 'e2e 余额不足测试' } as any, ops());
-    await expect(depositWf.initiateClawback(depB.depositNo, { externalLineId: lineB.id, caseNo: kaseB.caseNo, dispositionNo: dispB.dispositionNo, reason: 'e2e 余额不足' }, ops())).rejects.toThrow(/余额不足/);
+    await expect(depositWf.initiateClawback(depB.depositNo, { externalLineId: lineB.id, caseNo: kaseB.caseNo, dispositionNo: dispB.dispositionNo, reason: 'e2e 余额不足' }, ops())).rejects.toThrow(/insufficient/);
 
     // (c) 二次发起：仍待决时二次发起 → 400——第一次发起时 linkSupplement 已经把
     // disposition.supplementNo 同步挂上了（不等 CFO 裁决），所以第二次撞的是

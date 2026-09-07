@@ -282,9 +282,9 @@ export class InboundTransferSignalsService {
   ): Promise<{ signalNo: string; approvalNo: string; status: 'SUPPLEMENT_PENDING' }> {
     const line = await this.supplementEvidence.assertClaimable({ caseNo: dto.caseNo, externalLineId: dto.externalLineId, dispositionNo: dto.dispositionNo, kind: 'SUPPLEMENT_DEPOSIT' });
     const isCrypto = line.assetType === 'CRYPTO';
-    if (isCrypto && !dto.fromAddress?.trim()) throw new BadRequestException('链上补录必须填来源地址');
-    if (!isCrypto && !dto.fromIban?.trim()) throw new BadRequestException('法币补录必须填来源 IBAN');
-    if (!line.externalRef) throw new BadRequestException('该账单行没有参考号，补录后对账配不回去——先在账单侧补参考号');
+    if (isCrypto && !dto.fromAddress?.trim()) throw new BadRequestException('On-chain supplement requires a source address');
+    if (!isCrypto && !dto.fromIban?.trim()) throw new BadRequestException('Fiat supplement requires a source IBAN');
+    if (!line.externalRef) throw new BadRequestException('This statement line has no reference number — after supplement it cannot be matched back in reconciliation; add the reference number on the statement side first');
     const channelType = isCrypto ? InboundTransferChannelType.CRYPTO : InboundTransferChannelType.FIAT;
     const dedupeKey = this.buildDedupeKey({ channelType, walletId: line.walletId, assetId: line.assetId, txHash: isCrypto ? line.externalRef : undefined, referenceNo: isCrypto ? undefined : line.externalRef });
     // spec §2.2：拒绝 / 超时 / 撤回后可再次发起（下方 processSignal 失败分支落的也是
@@ -321,7 +321,7 @@ export class InboundTransferSignalsService {
           },
         });
     const traceId = randomUUID();
-    const impact = `补录 ${line.ownerNo ?? line.ownerId} 的 ${line.amountMajor} ${line.currency} 入金（对账案 ${line.caseNo}，账单行 ${line.externalRef}）——充值单将照常过 KYT 与合规闸`;
+    const impact = `Supplement ${line.ownerNo ?? line.ownerId}'s ${line.amountMajor} ${line.currency} deposit (case ${line.caseNo}, statement line ${line.externalRef}) — the deposit order will go through KYT and compliance gates as usual`;
     const approvalCase = await this.approvalsService.createAndSubmit(
       { actionType: ApprovalActionTypes.DEPOSIT_SUPPLEMENT, entityRef: created.signalNo, traceId,
         objectSnapshot: { signalNo: created.signalNo, caseNo: line.caseNo, dispositionNo: line.dispositionNo, externalLineId: line.externalLineId,
@@ -362,7 +362,7 @@ export class InboundTransferSignalsService {
     if (event.decision !== 'APPROVED') {
       await (this.prisma as any).inboundTransferSignal.update({ where: { id: signal.id }, data: { status: InboundTransferSignalStatus.SUPPLEMENT_REJECTED, scanResult: `Supplement ${event.decision} (${event.approvalNo})` } });
       if (signal.supplementDispositionNo) await this.reconDisposition.unlinkSupplement(signal.supplementDispositionNo, signal.signalNo);
-      await this.recordSignalAudit({ action: AuditActions.DEPOSIT_SUPPLEMENT_REJECTED, signal, reason: `补录审批 ${event.decision}：${event.decisionReason ?? ''}`, approvalNo: event.approvalNo, metadata: { approvalNo: event.approvalNo, decision: event.decision }, sourcePlatform: 'SYSTEM' });
+      await this.recordSignalAudit({ action: AuditActions.DEPOSIT_SUPPLEMENT_REJECTED, signal, reason: `Supplement approval ${event.decision}: ${event.decisionReason ?? ''}`, approvalNo: event.approvalNo, metadata: { approvalNo: event.approvalNo, decision: event.decision }, sourcePlatform: 'SYSTEM' });
       return;
     }
     // 评审 Important 1（1）：这里不再把信号先翻 PENDING_SCAN 才调 processSignal。
@@ -373,7 +373,7 @@ export class InboundTransferSignalsService {
     // 一次自助扫描会把这条本该走 CFO 通道的信号误捡走，走的是不带 opts.effectiveDate 的
     // 调用点——「生效日=案子业务日」这条硬规矩当场失守且无人知晓。信号在 processSignal
     // 成功前继续停在 SUPPLEMENT_PENDING，自助扫描（只捡 PENDING_SCAN）天然捞不到它。
-    await this.recordSignalAudit({ action: AuditActions.DEPOSIT_SUPPLEMENT_STARTED, signal, reason: 'CFO 批准补录，信号进入正常充值通道', approvalNo: event.approvalNo, metadata: { approvalNo: event.approvalNo, caseNo: signal.supplementReconCaseNo }, sourcePlatform: 'SYSTEM' });
+    await this.recordSignalAudit({ action: AuditActions.DEPOSIT_SUPPLEMENT_STARTED, signal, reason: 'CFO approved the supplement — signal enters the normal deposit channel', approvalNo: event.approvalNo, metadata: { approvalNo: event.approvalNo, caseNo: signal.supplementReconCaseNo }, sourcePlatform: 'SYSTEM' });
     let result: { depositNo: string | null; [key: string]: unknown };
     try {
       result = await this.processSignal(signal, signal.wallet, InboundTransferScanMode.QUICK_DEMO, { effectiveDate: signal.supplementEffectiveDate ?? undefined });
@@ -388,7 +388,7 @@ export class InboundTransferSignalsService {
       this.logger.error(`Supplement ${signal.signalNo} processSignal failed: ${error.message}`);
       await (this.prisma as any).inboundTransferSignal.update({ where: { id: signal.id }, data: { status: InboundTransferSignalStatus.SUPPLEMENT_REJECTED, scanResult: `Supplement processing failed: ${error.message}` } });
       if (signal.supplementDispositionNo) await this.reconDisposition.unlinkSupplement(signal.supplementDispositionNo, signal.signalNo);
-      await this.recordSignalAudit({ action: AuditActions.DEPOSIT_SUPPLEMENT_REJECTED, signal, reason: `补录处理失败：${error.message}`, approvalNo: event.approvalNo, outcome: AuditOutcome.FAILED, reasonCode: 'PAYIN_FAILED', metadata: { approvalNo: event.approvalNo, caseNo: signal.supplementReconCaseNo, error: error.message }, sourcePlatform: 'SYSTEM' });
+      await this.recordSignalAudit({ action: AuditActions.DEPOSIT_SUPPLEMENT_REJECTED, signal, reason: `Supplement processing failed: ${error.message}`, approvalNo: event.approvalNo, outcome: AuditOutcome.FAILED, reasonCode: 'PAYIN_FAILED', metadata: { approvalNo: event.approvalNo, caseNo: signal.supplementReconCaseNo, error: error.message }, sourcePlatform: 'SYSTEM' });
       return;
     }
     // deposit 在 processSignal() 内部是无条件重读赋值（没有分支跳过它），depositNo 是
@@ -400,7 +400,7 @@ export class InboundTransferSignalsService {
     if (signal.supplementDispositionNo) {
       await this.reconDisposition.replaceSupplement(signal.supplementDispositionNo, signal.signalNo, depositNo as string);
     }
-    await this.recordSignalAudit({ action: AuditActions.DEPOSIT_SUPPLEMENTED, signal, reason: '补录完成：充值单已建，走正常 KYT / 合规', approvalNo: event.approvalNo, depositNo: depositNo as string, metadata: { depositNo, caseNo: signal.supplementReconCaseNo, effectiveDate: signal.supplementEffectiveDate }, sourcePlatform: 'SYSTEM' });
+    await this.recordSignalAudit({ action: AuditActions.DEPOSIT_SUPPLEMENTED, signal, reason: 'Supplement completed: deposit order created, proceeding through normal KYT / compliance', approvalNo: event.approvalNo, depositNo: depositNo as string, metadata: { depositNo, caseNo: signal.supplementReconCaseNo, effectiveDate: signal.supplementEffectiveDate }, sourcePlatform: 'SYSTEM' });
   }
 
   async scanForCustomer(

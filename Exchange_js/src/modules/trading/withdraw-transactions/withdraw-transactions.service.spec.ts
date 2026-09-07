@@ -264,7 +264,7 @@ describe('WithdrawTransactionsService', () => {
       const check = outcomeOf('ACCOUNT_READINESS');
       expect(check.outcome).toBe('SKIPPED');
       expect(check.outcome).not.toBe('PASS');
-      expect(check.detail).toContain('未提供出款目的地');
+      expect(check.detail).toContain('No payout destination provided');
     });
 
     it('带已注册 ACTIVE 地址 → ACCOUNT_READINESS 才是 PASS', async () => {
@@ -293,7 +293,7 @@ describe('WithdrawTransactionsService', () => {
       const check = outcomeOf('BALANCE_SUFFICIENCY');
       expect(check.outcome).toBe('SKIPPED');
       expect(check.outcome).not.toBe('PASS');
-      expect(check.detail).not.toContain('已通过');
+      expect(check.detail).not.toContain('already passed');
     });
 
     // ── B2 审查 Important 3：L1 闸必须与紧邻的 assertCapability / limitGate 一样

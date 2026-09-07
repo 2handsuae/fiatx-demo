@@ -119,7 +119,7 @@ export class WithdrawTransactionsController {
   }
 
   @Post(':withdrawNo/return-claim')
-  @ApiOperation({ summary: '平账 B 批 ③：认领出款成功后被银行退回（CFO maker-checker）' })
+  @ApiOperation({ summary: 'Recon Batch B ③: claim a payout returned by the bank after success (CFO maker-checker)' })
   @RequirePermissions(buildPermissionCode('POST', '/withdraw-transactions/:withdrawNo/return-claim'))
   initiateReturnClaim(@Param('withdrawNo') withdrawNo: string, @Body() dto: InitiateWithdrawReturnClaimDto, @Req() req: any) {
     this.assertAdmin(req);
@@ -127,7 +127,7 @@ export class WithdrawTransactionsController {
   }
 
   @Post(':withdrawNo/simulate-sla-timeout')
-  @ApiOperation({ summary: '演示用：把该单的 SLA 截止时间拨到过去，下次扫描即破线' })
+  @ApiOperation({ summary: 'Demo only: push this order\'s SLA deadline into the past so the next scan breaches it' })
   simulateSlaTimeout(@Req() req: any, @Param('withdrawNo') withdrawNo: string) {
     this.assertAdmin(req);
     return this.service.setSlaDeadlineByNo(withdrawNo, new Date(Date.now() - 1000), {

@@ -3295,9 +3295,9 @@ describe('WithdrawWorkflowService — 平账 B 批③：退回认领', () => {
     // 触发过——这里补上，status 留 SUCCESS（继承 w 默认值），只改 fromWalletId 使其
     // 与 line.walletId('w9') 不相等,确保命中的是钱包守卫而不是前一道状态守卫。
     withdrawService.findByNo.mockResolvedValue({ ...w, fromWalletId: 'w-other' });
-    await expect(workflow.initiateReturnClaim('WDR1', { externalLineId: 'line-3', caseNo: 'REC3', dispositionNo: 'RCD3', reason: 'x' }, actor)).rejects.toThrow(/钱包/);
+    await expect(workflow.initiateReturnClaim('WDR1', { externalLineId: 'line-3', caseNo: 'REC3', dispositionNo: 'RCD3', reason: 'x' }, actor)).rejects.toThrow(/wallet/);
     withdrawService.findByNo.mockResolvedValue({ ...w, netAmount: '850' });
-    await expect(workflow.initiateReturnClaim('WDR1', { externalLineId: 'line-3', caseNo: 'REC3', dispositionNo: 'RCD3', reason: 'x' }, actor)).rejects.toThrow(/净额/);
+    await expect(workflow.initiateReturnClaim('WDR1', { externalLineId: 'line-3', caseNo: 'REC3', dispositionNo: 'RCD3', reason: 'x' }, actor)).rejects.toThrow(/net amount/);
   });
 
   it('发起：审批单 + 三列 + 回挂 + 审计', async () => {
@@ -3338,7 +3338,7 @@ describe('WithdrawWorkflowService — 平账 B 批③：退回认领', () => {
     prisma.tbTransferEvidence.findMany.mockResolvedValue([]);
     await expect(
       workflow.onReturnClaimDecided({ decision: 'APPROVED', entityRef: 'WDR1', approvalId: 'ap3', approvalNo: 'APR3' } as any),
-    ).rejects.toThrow(/未 POST/);
+    ).rejects.toThrow(/not POSTed/);
     expect(accountingService.executeTransfer).not.toHaveBeenCalled();
     expect(withdrawService.updateStatus).not.toHaveBeenCalled();
   });

@@ -569,7 +569,7 @@ describe('Recon internal transfer e2e (平账二期, Task 9)', () => {
     expect(disp.deferredTarget).toBe('SUPPLEMENT_BOUNCE');
     const row0 = await rowByLine(kase.caseNo, line.id);
     expect(row0.nextStep).toMatchObject({ kind: 'ADVANCE', amount: '90000', externalLineId: line.id, available: '30000', lineAmount: '120000', customerNo: cust.customerNo });
-    await expect(depositWf.initiateClawback(deposit.depositNo, { externalLineId: line.id, caseNo: kase.caseNo, dispositionNo: disp.dispositionNo, reason: 'x' }, ops())).rejects.toThrow(/发起垫款/);
+    await expect(depositWf.initiateClawback(deposit.depositNo, { externalLineId: line.id, caseNo: kase.caseNo, dispositionNo: disp.dispositionNo, reason: 'x' }, ops())).rejects.toThrow(/initiate an advance/);
     // 垫款：金额锁定 = 差额 900
     const req = await transferWf.initiateAdvance({ caseNo: kase.caseNo, externalLineId: line.id, reason: '先垫后扣' }, treasury());
     const apr = await latestApprovalCase(ApprovalActionTypes.INTERNAL_TRANSFER_APPROVAL, req.transferNo);

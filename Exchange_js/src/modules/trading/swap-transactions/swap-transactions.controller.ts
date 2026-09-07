@@ -99,7 +99,7 @@ export class SwapTransactionsController {
   }
 
   @Post(':swapNo/simulate-sla-timeout')
-  @ApiOperation({ summary: '演示用：把该单的 SLA 截止时间拨到过去，下次扫描即破线' })
+  @ApiOperation({ summary: 'Demo only: push this order\'s SLA deadline into the past so the next scan breaches it' })
   @RequirePermissions(
     buildPermissionCode('POST', '/admin/swap-transactions/:swapNo/simulate-sla-timeout'),
   )

@@ -110,10 +110,10 @@ export class WithdrawalFeeLevelService {
     validTo?: string,
   ): void {
     if (isDefault && (requiredTags?.length ?? 0) > 0) {
-      throw new BadRequestException('默认级(isDefault)不可再设 requiredTags —— 二者语义冲突');
+      throw new BadRequestException('Default tier (isDefault) cannot also set requiredTags — the two are semantically conflicting');
     }
     if ((requiredTags?.length ?? 0) > 1) {
-      throw new BadRequestException('单个费率等级只能要求至多一个标签（或全体）');
+      throw new BadRequestException('A single fee level can require at most one tag (or everyone)');
     }
     for (const tag of requiredTags ?? []) {
       if (!isValidTag(tag)) {

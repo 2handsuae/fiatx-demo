@@ -365,14 +365,14 @@ export class WithdrawWorkflowService implements OnModuleInit {
     let l1: L1Snapshot | null = null;
     if (ownerType === 'CUSTOMER') {
       const preChecks: L1Check[] = [
-        { code: 'SINGLE_LIMIT', outcome: 'PASS', detail: `单笔上下限已过（${amount}）` },
-        { code: 'CUMULATIVE_LIMIT', outcome: 'PASS', detail: `累计额度已过（AED ${gateValuation?.grossAedValue ?? '—'}）` },
+        { code: 'SINGLE_LIMIT', outcome: 'PASS', detail: `Per-transaction limits passed (${amount})` },
+        { code: 'CUMULATIVE_LIMIT', outcome: 'PASS', detail: `Cumulative limit passed (AED ${gateValuation?.grossAedValue ?? '—'})` },
         destinationVerified
-          ? { code: 'ACCOUNT_READINESS', outcome: 'PASS', detail: '出款地址已注册且 ACTIVE' }
-          : { code: 'ACCOUNT_READINESS', outcome: 'SKIPPED', detail: '未提供出款目的地，本次未校验出款账户' },
-        { code: 'BALANCE_SUFFICIENCY', outcome: 'SKIPPED', detail: '余额在建单压 TB pending 时才校验，本次评估点在其之前' },
-        { code: 'QUOTE_VALIDITY', outcome: 'PASS', detail: '报价有效（建单事务内校验，未过则整单回滚）' },
-        { code: 'TRADING_READINESS', outcome: 'PASS', detail: '交易起始前置已满足（建单前 assertTradingEligibility 已过）' },
+          ? { code: 'ACCOUNT_READINESS', outcome: 'PASS', detail: 'Payout address is registered and ACTIVE' }
+          : { code: 'ACCOUNT_READINESS', outcome: 'SKIPPED', detail: 'No payout destination provided — payout account not checked this time' },
+        { code: 'BALANCE_SUFFICIENCY', outcome: 'SKIPPED', detail: 'Balance is checked only when the order posts a TB pending lock — this evaluation point runs before that' },
+        { code: 'QUOTE_VALIDITY', outcome: 'PASS', detail: 'Quote valid (checked inside the order-creation transaction; the whole order rolls back if it fails)' },
+        { code: 'TRADING_READINESS', outcome: 'PASS', detail: 'Trading-start preconditions satisfied (assertTradingEligibility passed before order creation)' },
       ];
       l1 = await this.l1Gate.evaluate({
         domain: 'WITHDRAW',
@@ -1911,16 +1911,16 @@ export class WithdrawWorkflowService implements OnModuleInit {
   async initiateReturnClaim(withdrawNo: string, dto: { externalLineId: string; caseNo: string; dispositionNo: string; reason: string }, actor: ApprovalActorContext) {
     const line = await this.supplementEvidence.assertClaimable({ caseNo: dto.caseNo, externalLineId: dto.externalLineId, dispositionNo: dto.dispositionNo, kind: 'SUPPLEMENT_PAYOUT_RETURN' });
     const w = await this.withdrawService.findByNo(withdrawNo);
-    if (!w) throw new NotFoundException(`提现单不存在：${withdrawNo}`);
-    if (w.status !== WithdrawTransactionStatus.SUCCESS) throw new BadRequestException(`提现单 ${withdrawNo} 不是 SUCCESS，出款中的退回走既有 bounce`);
-    if (w.fromWalletId !== line.walletId) throw new BadRequestException(`提现单 ${withdrawNo} 不在该案子的钱包上`);
+    if (!w) throw new NotFoundException(`Withdrawal ${withdrawNo} does not exist`);
+    if (w.status !== WithdrawTransactionStatus.SUCCESS) throw new BadRequestException(`Withdrawal ${withdrawNo} is not SUCCESS — an in-flight payout return goes through the existing bounce flow`);
+    if (w.fromWalletId !== line.walletId) throw new BadRequestException(`Withdrawal ${withdrawNo} is not on this case's wallet`);
     const netMinor = this.decimalToBigint(w.netAmount, line.decimals);
-    if (netMinor !== BigInt(line.amountMinor)) throw new BadRequestException(`提现单 ${withdrawNo} 净额与账单行金额不符`);
-    if (w.returnExternalLineId) throw new BadRequestException(`提现单 ${withdrawNo} 已在退回认领中`);
+    if (netMinor !== BigInt(line.amountMinor)) throw new BadRequestException(`Withdrawal ${withdrawNo} net amount does not match the statement line amount`);
+    if (w.returnExternalLineId) throw new BadRequestException(`Withdrawal ${withdrawNo} is already under return claim`);
     const open = await this.approvalsService.list({ actionType: ApprovalActionTypes.WITHDRAW_RETURN_CLAIM, entityRef: w.withdrawNo, status: ApprovalStatuses.PENDING, take: 1 });
-    if (open.total > 0) throw new ConflictException(`提现单 ${withdrawNo} 已有待批的退回认领`);
+    if (open.total > 0) throw new ConflictException(`Withdrawal ${withdrawNo} already has a pending return claim awaiting approval`);
     const traceId = w.traceId || randomUUID();
-    const impact = `${line.ownerNo ?? w.ownerId} 的 ${line.amountMajor} ${line.currency} 提现被银行退回，本金将重新记入余额，手续费不退（对账案 ${line.caseNo}，账单行 ${line.externalRef}）`;
+    const impact = `${line.ownerNo ?? w.ownerId}'s ${line.amountMajor} ${line.currency} withdrawal was returned by the bank; principal will be re-recorded to balance, fee is not refunded (case ${line.caseNo}, statement line ${line.externalRef})`;
     const approvalCase = await this.approvalsService.createAndSubmit(
       { actionType: ApprovalActionTypes.WITHDRAW_RETURN_CLAIM, entityRef: w.withdrawNo, traceId,
         objectSnapshot: { withdrawNo: w.withdrawNo, caseNo: line.caseNo, dispositionNo: line.dispositionNo, externalLineId: line.externalLineId, externalRef: line.externalRef, customerNo: line.ownerNo, netAmount: line.amountMajor, currency: line.currency, impact } },
@@ -1960,9 +1960,9 @@ export class WithdrawWorkflowService implements OnModuleInit {
       return;
     }
     const posted = await (this.prisma as any).tbTransferEvidence.findMany({ where: { sourceType: 'WITHDRAWAL', sourceNo: w.withdrawNo, eventCode: 'WITHDRAW_NET_POST' } });
-    if (posted.length === 0) throw new BadRequestException(`提现单 ${w.withdrawNo} 净额腿未 POST，没有可退回的钱`);
+    if (posted.length === 0) throw new BadRequestException(`Withdrawal ${w.withdrawNo}'s net-amount leg is not POSTed — no funds available to return`);
     const line = await this.supplementEvidence.describeLine(w.returnExternalLineId);
-    await this.withdrawAudit(w, { action: 'WITHDRAW_RETURN_CLAIM_STARTED', reason: 'CFO 批准退回认领，落重记分录', approvalNo: event.approvalNo, causationId: event.approvalId,
+    await this.withdrawAudit(w, { action: 'WITHDRAW_RETURN_CLAIM_STARTED', reason: 'CFO approved the return claim — re-record entry posted', approvalNo: event.approvalNo, causationId: event.approvalId,
       metadata: { externalLineId: line.externalLineId, externalRef: line.externalRef, effectiveDate: line.businessDate } });
     const decimals = w.asset?.decimals ?? 8;
     const netBigint = this.decimalToBigint(w.netAmount, decimals);
@@ -1981,7 +1981,7 @@ export class WithdrawWorkflowService implements OnModuleInit {
       },
     });
     const returnedRow = await this.withdrawService.updateStatus(w.id, { action: WithdrawTransactionAction.RETURN, reason: `Returned by bank per approval ${event.approvalNo}` }, this.systemCtx);
-    await this.withdrawAudit(w, { action: 'WITHDRAW_RETURNED_AFTER_SUCCESS', reason: '出款成功后被银行退回，本金已重新记入余额，手续费不退', fromStatus: WithdrawTransactionStatus.SUCCESS, toStatus: returnedRow.status, approvalNo: event.approvalNo,
+    await this.withdrawAudit(w, { action: 'WITHDRAW_RETURNED_AFTER_SUCCESS', reason: 'Returned by bank after successful payout — principal re-recorded to balance, fee not refunded', fromStatus: WithdrawTransactionStatus.SUCCESS, toStatus: returnedRow.status, approvalNo: event.approvalNo,
       metadata: { reversedNet: String(w.netAmount), externalLineId: line.externalLineId, externalRef: line.externalRef, effectiveDate: line.businessDate, caseNo: line.caseNo, feeDisposition: 'fee retained (collected)' } });
   }
 
@@ -2746,7 +2746,7 @@ export class WithdrawWorkflowService implements OnModuleInit {
     await this.withdrawAudit(w, {
       action: 'WITHDRAW_ONHOLD',
       reason: 'KYT verdict: onHold, awaiting officer review',
-      metadata: { note: 'onHold 不影响 SLA —— SLA 按状态计时,见 WITHDRAW_SLA_MINUTES_BY_STATUS' },
+      metadata: { note: 'onHold does not affect SLA — SLA is timed by status, see WITHDRAW_SLA_MINUTES_BY_STATUS' },
     });
   }
 
@@ -2948,7 +2948,7 @@ export class WithdrawWorkflowService implements OnModuleInit {
         }
         if (alreadyFrozen) {
           this.logger.debug(
-            `In-flight withdrawal ${w.withdrawNo} already FROZEN when restriction ${event.restrictionNo} scan reached it — beaten by the triggering path (open() 广播早于本单主路径提交), not a real failure.`,
+            `In-flight withdrawal ${w.withdrawNo} already FROZEN when restriction ${event.restrictionNo} scan reached it — beaten by the triggering path (open()'s broadcast preceded this order's main-path commit), not a real failure.`,
           );
         } else {
           this.logger.warn(

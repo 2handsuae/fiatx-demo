@@ -1996,13 +1996,13 @@ describe('DepositWorkflowService', () => {
       depositService.findOneByNo.mockResolvedValue({ ...deposit, status: 'COMPLIANCE_PENDING' });
       await expect(service.initiateClawback('DEP1', { externalLineId: 'line-2', caseNo: 'REC2', dispositionNo: 'RCD2', reason: 'x' }, actor)).rejects.toThrow(/SUCCESS/);
       depositService.findOneByNo.mockResolvedValue({ ...deposit, amount: '999' });
-      await expect(service.initiateClawback('DEP1', { externalLineId: 'line-2', caseNo: 'REC2', dispositionNo: 'RCD2', reason: 'x' }, actor)).rejects.toThrow(/金额/);
+      await expect(service.initiateClawback('DEP1', { externalLineId: 'line-2', caseNo: 'REC2', dispositionNo: 'RCD2', reason: 'x' }, actor)).rejects.toThrow(/amount/);
     });
     it('发起：可用余额不足 → 400，文案带可用与需要', async () => {
       supplementEvidence.assertClaimable.mockResolvedValue(line);
       depositService.findOneByNo.mockResolvedValue(deposit);
       accountingService.getCustomerAvailableBalance.mockResolvedValue({ available: 50000n });
-      await expect(service.initiateClawback('DEP1', { externalLineId: 'line-2', caseNo: 'REC2', dispositionNo: 'RCD2', reason: 'x' }, actor)).rejects.toThrow(/可用 500\.00，需要 1200\.00/);
+      await expect(service.initiateClawback('DEP1', { externalLineId: 'line-2', caseNo: 'REC2', dispositionNo: 'RCD2', reason: 'x' }, actor)).rejects.toThrow(/available 500\.00, need 1200\.00/);
     });
     it('发起：余额够 → 审批单 + 三列标记 + 回挂 + 审计 REQUESTED', async () => {
       supplementEvidence.assertClaimable.mockResolvedValue(line);

@@ -829,7 +829,7 @@ describe('InboundTransferSignalsService · 既有行为回归（钥匙改按网�
       supplementEvidence.assertClaimable.mockResolvedValue(line);
       await expect(service.initiateSupplement({ externalLineId: 'line-1', caseNo: 'REC1', dispositionNo: 'RCD1', reason: 'x' }, actor)).rejects.toThrow(/IBAN/);
       supplementEvidence.assertClaimable.mockResolvedValue({ ...line, assetType: 'CRYPTO', externalRef: '0xabc' });
-      await expect(service.initiateSupplement({ externalLineId: 'line-1', caseNo: 'REC1', dispositionNo: 'RCD1', reason: 'x' }, actor)).rejects.toThrow(/地址/);
+      await expect(service.initiateSupplement({ externalLineId: 'line-1', caseNo: 'REC1', dispositionNo: 'RCD1', reason: 'x' }, actor)).rejects.toThrow(/address/);
     });
 
     it('发起：建 SUPPLEMENT_PENDING 信号（参考号 = 账单行参考号、金额换业务单位、生效日 = 案子业务日）→ 审批单 → 回挂 → 审计', async () => {

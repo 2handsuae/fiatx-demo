@@ -99,8 +99,8 @@ export class L1GateService {
       code: 'CUSTOMER_ELIGIBILITY',
       outcome: lifecycleOk ? 'PASS' : 'FAIL',
       detail: lifecycleOk
-        ? '客户生命周期 ACTIVE'
-        : `客户生命周期为 ${access.lifecycle}，不可交易`,
+        ? 'Customer lifecycle ACTIVE'
+        : `Customer lifecycle is ${access.lifecycle} — cannot trade`,
     });
 
     // ② 客户限制 —— 只看卡不卡**本域**这个能力。
@@ -112,8 +112,8 @@ export class L1GateService {
       code: 'CUSTOMER_RESTRICTION',
       outcome: restricted ? 'FAIL' : 'PASS',
       detail: restricted
-        ? `客户被限制账摁住 ${capability} 能力（共 ${access.blocked.size} 项能力受限）`
-        : '限制账无卡住本域能力的 OPEN 便签',
+        ? `Customer restriction holds down ${capability} capability (${access.blocked.size} capability item(s) restricted in total)`
+        : 'No OPEN restriction note blocks this domain\'s capability',
     });
 
     // ③ 资产可用性 —— 波二第十项。资产 SUSPENDED = 三条路的硬门（决定 2026-09-05）。
@@ -131,11 +131,11 @@ export class L1GateService {
         code: 'ASSET_AVAILABILITY',
         outcome: ok ? 'PASS' : 'FAIL',
         detail: ok
-          ? `资产 ${assets.map((a) => a.currency).join(' / ')} 均 ACTIVE`
+          ? `Asset(s) ${assets.map((a) => a.currency).join(' / ')} all ACTIVE`
           : [
-              ...inactive.map((a) => `资产 ${a.assetNo ?? a.id}（${a.currency}）状态 ${a.status}，不可交易`),
-              ...missing.map((id) => `资产 ${id} 不存在`),
-            ].join('；'),
+              ...inactive.map((a) => `Asset ${a.assetNo ?? a.id} (${a.currency}) status ${a.status} — cannot trade`),
+              ...missing.map((id) => `Asset ${id} does not exist`),
+            ].join('; '),
       });
     }
 
@@ -154,9 +154,9 @@ export class L1GateService {
       const hit = provided.get(code);
       if (hit) return hit;
       if (na.has(code)) {
-        return { code, outcome: 'NA' as const, detail: '本域不适用' };
+        return { code, outcome: 'NA' as const, detail: 'Not applicable to this domain' };
       }
-      return { code, outcome: 'SKIPPED' as const, detail: '本次未评估' };
+      return { code, outcome: 'SKIPPED' as const, detail: 'Not evaluated this time' };
     });
 
     const failed = checks.filter((c) => c.outcome === 'FAIL');

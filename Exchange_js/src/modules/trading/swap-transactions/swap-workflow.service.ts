@@ -247,24 +247,24 @@ export class SwapWorkflowService {
     if (quotePeek) {
       preChecks.push({
         code: 'SINGLE_LIMIT', outcome: 'PASS',
-        detail: `单笔上下限已过（${quotePeek.amountIn}）`,
+        detail: `Per-transaction limits passed (${quotePeek.amountIn})`,
       });
       preChecks.push({
         code: 'CUMULATIVE_LIMIT', outcome: 'PASS',
-        detail: `累计额度已过（AED ${gateValuation?.grossAedValue ?? '—'}）`,
+        detail: `Cumulative limit passed (AED ${gateValuation?.grossAedValue ?? '—'})`,
       });
       preChecks.push({
         code: 'QUOTE_VALIDITY', outcome: 'PASS',
-        detail: '报价有效（建单事务内校验，未过则整单回滚）',
+        detail: 'Quote valid (checked inside the order-creation transaction; the whole order rolls back if it fails)',
       });
     }
     preChecks.push({
       code: 'ACCOUNT_READINESS', outcome: 'PASS',
-      detail: '双边收款账户已就绪（建单事务内校验，未过则整单回滚）',
+      detail: 'Both-side receiving accounts ready (checked inside the order-creation transaction; the whole order rolls back if it fails)',
     });
     preChecks.push({
       code: 'TRADING_READINESS', outcome: 'PASS',
-      detail: '交易起始前置已满足（建单前 assertTradingReady 已过）',
+      detail: 'Trading-start preconditions satisfied (assertTradingReady passed before order creation)',
     });
 
     // ── 建单前余额校验（第四批补）──
@@ -303,12 +303,12 @@ export class SwapWorkflowService {
           throw new BadRequestException({
             code: 'INSUFFICIENT_BALANCE',
             assetCode: sellAsset.currency,
-            message: `余额不足：需要 ${needed.toString()} ${sellAsset.currency}，可用 ${availableDecimal.toString()}`,
+            message: `Insufficient balance: need ${needed.toString()} ${sellAsset.currency}, available ${availableDecimal.toString()}`,
           });
         }
         preChecks.push({
           code: 'BALANCE_SUFFICIENCY', outcome: 'PASS',
-          detail: `卖出侧余额充足（需 ${needed.toString()} ${sellAsset.currency}，可用 ${availableDecimal.toString()}）`,
+          detail: `Sell-side balance sufficient (need ${needed.toString()} ${sellAsset.currency}, available ${availableDecimal.toString()})`,
         });
       }
     }
@@ -399,7 +399,7 @@ export class SwapWorkflowService {
             throw new BadRequestException({
               code: 'RECEIVING_ACCOUNT_REQUIRED',
               assetCode: asset.code,
-              message: `请先为 ${asset.code} 创建收款账户再兑换`,
+              message: `Create a receiving account for ${asset.code} first, then swap`,
             });
           }
           this.resolveLedger(assetRow?.currency || asset.code);
@@ -1879,7 +1879,7 @@ export class SwapWorkflowService {
         }
         if (alreadyFrozen) {
           this.logger.debug(
-            `In-flight swap ${sw.swapNo} already FROZEN when restriction ${event.restrictionNo} scan reached it — beaten by the triggering path (open() 广播早于本单主路径提交), not a real failure.`,
+            `In-flight swap ${sw.swapNo} already FROZEN when restriction ${event.restrictionNo} scan reached it — beaten by the triggering path (open()'s broadcast preceded this order's main-path commit), not a real failure.`,
           );
         } else {
           this.logger.warn(

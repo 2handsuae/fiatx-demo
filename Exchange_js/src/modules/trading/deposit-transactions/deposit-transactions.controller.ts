@@ -131,7 +131,7 @@ export class DepositTransactionsController {
   // 平账 B 批 ①：凭对账账单行补喂入站信号，CFO 批准后走正常充值通道。静态段路径，
   // 但仍按本文件惯例排在所有 `:id` 路由之前声明。
   @Post('supplement')
-  @ApiOperation({ summary: '平账 B 批 ①：凭对账账单行补录漏记入金（CFO maker-checker）' })
+  @ApiOperation({ summary: 'Recon Batch B ①: supplement a missed deposit using a statement line (CFO maker-checker)' })
   @RequirePermissions(buildPermissionCode('POST', '/deposit-transactions/supplement'))
   initiateSupplement(@Body() dto: InitiateDepositSupplementDto, @Req() req: any) {
     this.assertAdmin(req);
@@ -200,7 +200,7 @@ export class DepositTransactionsController {
   // 平账 B 批 ②：认领一笔已 SUCCESS 的入金被银行/托管方事后退汇——CFO maker-checker，
   // 与 supplement 同形状(静态段在前、:depositNo 段在后，排在 :id/return 之后按本文件惯例)。
   @Post(':depositNo/clawback')
-  @ApiOperation({ summary: '平账 B 批 ②：认领入金被银行退汇（CFO maker-checker）' })
+  @ApiOperation({ summary: 'Recon Batch B ②: claim a deposit clawed back by the bank (CFO maker-checker)' })
   @RequirePermissions(buildPermissionCode('POST', '/deposit-transactions/:depositNo/clawback'))
   initiateClawback(@Param('depositNo') depositNo: string, @Body() dto: InitiateDepositClawbackDto, @Req() req: any) {
     this.assertAdmin(req);
@@ -259,7 +259,7 @@ export class DepositTransactionsController {
   }
 
   @Post(':depositNo/simulate-sla-timeout')
-  @ApiOperation({ summary: '演示用：把该单的 SLA 截止时间拨到过去，下次扫描即破线' })
+  @ApiOperation({ summary: 'Demo only: push this order\'s SLA deadline into the past so the next scan breaches it' })
   simulateSlaTimeout(@Param('depositNo') depositNo: string, @Req() req: any) {
     this.assertAdmin(req);
     return this.service.setSlaDeadlineByNo(depositNo, new Date(Date.now() - 1000), {
