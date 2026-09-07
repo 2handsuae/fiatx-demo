@@ -186,7 +186,10 @@ const ROW_PRESENTATION: Record<string, RowPresentation> = {
     family: 'RECON_ADJUSTMENT',
     present: ({ legDirection, adjustment }) => {
       if (!adjustment) return { title: 'Balance adjustment', subtitle: null };
-      const title = `Balance correction · ${customerLabelFor(adjustment.reasonCode)}`;
+      const label = customerLabelFor(adjustment.reasonCode);
+      // Neutral labels already read as a full title — avoid the tautology
+      // "Balance correction · Balance adjustment" (final-review Minor #2).
+      const title = label === 'Balance adjustment' ? label : `Balance correction · ${label}`;
       if (adjustment.direction === 'REATTRIBUTE' && legDirection === 'IN') {
         return { title, subtitle: null };
       }

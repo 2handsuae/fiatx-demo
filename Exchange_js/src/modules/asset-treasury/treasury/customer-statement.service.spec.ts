@@ -190,7 +190,7 @@ describe('CustomerStatementService', () => {
         }),
       ];
       const { items } = await service.buildStatement(legs, { isFiat: true });
-      expect(items[0].title).toBe('Balance correction · Balance adjustment');
+      expect(items[0].title).toBe('Balance adjustment');
       const serialized = JSON.stringify(items);
       expect(serialized).not.toContain('资金已被上缴');
       expect(serialized.toLowerCase()).not.toContain('surrender');
@@ -207,7 +207,7 @@ describe('CustomerStatementService', () => {
         }),
       ];
       const { items } = await service.buildStatement(legs, { isFiat: true });
-      expect(items[0].title).toBe('Balance correction · Balance adjustment');
+      expect(items[0].title).toBe('Balance adjustment');
     });
   });
 
