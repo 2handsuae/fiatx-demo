@@ -226,6 +226,16 @@ const CustomerDetail = () => {
   const [simBusy, setSimBusy] = useState<string | null>(null);
   const [simError, setSimError] = useState<string | null>(null);
 
+  /* ── Tier upgrade + ⚡ simulation state（波三 Task 13，语义对齐上面入驻一段） ── */
+  const [tierUpgrade, setTierUpgrade] = useState<{
+    tradingTier: string;
+    application: { upgradeNo: string; status: string; materialsSubmittedAt: string | null; createdAt: string; decidedAt: string | null } | null;
+    acceptanceCase: { approvalNo: string; status: string } | null;
+  } | null>(null);
+  const [tierUpgradeSubmitting, setTierUpgradeSubmitting] = useState(false);
+  const [tierUpgradeSimBusy, setTierUpgradeSimBusy] = useState<string | null>(null);
+  const [tierUpgradeError, setTierUpgradeError] = useState<string | null>(null);
+
   /* ── Risk Assessment trigger state ── */
 
   /* ── Fetching ── */
@@ -333,6 +343,27 @@ const CustomerDetail = () => {
     if (canReadAcceptanceCase && detail?.customerNo) fetchAcceptanceCase(detail.customerNo);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [canReadAcceptanceCase, detail?.customerNo]);
+
+  /* ── Tier upgrade fetching（波三 Task 13：当前档 + 申请单 + 关联审批单，随详情加载） ── */
+  const fetchTierUpgrade = (customerNo: string) => {
+    adminFetch(`${import.meta.env.VITE_API_URL}/admin/customers/${customerNo}/tier-upgrade`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then(
+        (
+          d: {
+            tradingTier: string;
+            application: { upgradeNo: string; status: string; materialsSubmittedAt: string | null; createdAt: string; decidedAt: string | null } | null;
+            acceptanceCase: { approvalNo: string; status: string } | null;
+          } | null,
+        ) => setTierUpgrade(d),
+      )
+      .catch(() => {});
+  };
+
+  useEffect(() => {
+    if (detail?.customerNo) fetchTierUpgrade(detail.customerNo);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [detail?.customerNo]);
 
   const handleAddTag = async () => {
     if (!detail || !tagAddValue) return;
@@ -459,6 +490,60 @@ const CustomerDetail = () => {
     }
   };
 
+  /* ── Tier upgrade acceptance submit（运营提单，maker→checker，语义对齐上面 submitAcceptance） ── */
+  const submitTierUpgradeAcceptance = async () => {
+    if (!detail) return;
+    const reason = window.prompt('Reason for tier upgrade acceptance request');
+    if (!reason) return;
+    setTierUpgradeSubmitting(true);
+    setTierUpgradeError(null);
+    try {
+      const res = await adminFetch(
+        `${import.meta.env.VITE_API_URL}/admin/customers/${detail.customerNo}/tier-upgrade-acceptance`,
+        { method: 'POST', body: JSON.stringify({ reason }) },
+      );
+      if (!res.ok) throw new Error(await getApiErrorMessage(res, 'Failed to submit tier upgrade acceptance request.'));
+      await res.json();
+      fetchTierUpgrade(detail.customerNo);
+    } catch (e: unknown) {
+      if (e instanceof AdminSessionError) return;
+      if (e instanceof AdminPermissionError) {
+        setTierUpgradeError('Permission denied. You cannot submit this request.');
+      } else {
+        setTierUpgradeError(e instanceof Error ? e.message : 'Failed to submit tier upgrade acceptance request.');
+      }
+    } finally {
+      setTierUpgradeSubmitting(false);
+    }
+  };
+
+  /* ── ⚡ Tier upgrade simulation ── */
+  const runTierUpgradeVerdict = async (
+    reviewAnswer: 'GREEN' | 'RED',
+    reviewRejectType?: 'RETRY' | 'FINAL',
+  ) => {
+    if (!detail) return;
+    const key = reviewAnswer === 'GREEN' ? 'TIER_APPROVE' : `TIER_REJECT_${reviewRejectType}`;
+    setTierUpgradeSimBusy(key);
+    setTierUpgradeError(null);
+    try {
+      const res = await adminFetch(
+        `${import.meta.env.VITE_API_URL}/admin/sumsub/simulate/tier-upgrade-review-result`,
+        {
+          method: 'POST',
+          body: JSON.stringify({ customerNo: detail.customerNo, reviewAnswer, reviewRejectType }),
+        },
+      );
+      if (!res.ok) throw new Error(await getApiErrorMessage(res, 'Verdict run failed.'));
+      fetchTierUpgrade(detail.customerNo);
+    } catch (e: unknown) {
+      if (e instanceof AdminSessionError) return;
+      setTierUpgradeError(e instanceof Error ? e.message : 'Verdict run failed.');
+    } finally {
+      setTierUpgradeSimBusy(null);
+    }
+  };
+
   /* ── Derived booleans ── */
 
   const hasPeriodicReview = useMemo(
@@ -537,6 +622,14 @@ const CustomerDetail = () => {
   // 已有关联单（acceptanceCase 非空）时其余 lifecycle 也一并显示，不藏历史单据。
   const showAcceptanceStatus =
     ['PENDING_APPROVAL', 'ACTIVE', 'REJECTED'].includes(detail.lifecycle) || acceptanceCase !== null;
+  // ⚡ 档位升级模拟按钮可用性（task-13-brief.md Step 3，语义对齐上面 canVerdict）。
+  const canTierVerdict =
+    tierUpgrade?.application?.status === 'IN_REVIEW' && tierUpgrade.application.materialsSubmittedAt != null;
+  // 提单钮可用性：申请单已到 MATERIALS_CLEARED，且没有一张在批（DRAFT/PENDING）的关联审批单——
+  // 与后端 submitAcceptance 的 open-case 校验（tier-upgrade-workflow.service.ts）口径一致。
+  const canSubmitTierUpgradeAcceptance =
+    tierUpgrade?.application?.status === 'MATERIALS_CLEARED' &&
+    !(tierUpgrade?.acceptanceCase && ['DRAFT', 'PENDING'].includes(tierUpgrade.acceptanceCase.status));
 
   /* ── Render ── */
 
@@ -644,6 +737,52 @@ const CustomerDetail = () => {
             )}
           </section>
 
+          {/* Tier Upgrade —— 档位升级状态卡（第二幕波三 Task 13）。核准同样走
+              maker(运营)→checker(高管) 单步审批，语义与上面 Onboarding 完全对齐；
+              关联单状态经 GET :customerNo/tier-upgrade 推导展示。 */}
+          <section className="px-6 py-5">
+            <Cap>Tier Upgrade</Cap>
+            <div className="mt-3">
+              <FieldGrid>
+                <Field label="Current Tier" value={tierUpgrade?.tradingTier || '—'} mono />
+                <Field
+                  label="Application"
+                  value={
+                    tierUpgrade?.application
+                      ? `${tierUpgrade.application.upgradeNo} · ${tierUpgrade.application.status}`
+                      : 'No upgrade application'
+                  }
+                  mono
+                />
+                <Field label="Materials Submitted At" value={fmt(tierUpgrade?.application?.materialsSubmittedAt)} mono />
+              </FieldGrid>
+            </div>
+            {tierUpgradeError && (
+              <div className="mt-3 rounded border border-adm-red/30 bg-adm-red/10 px-3 py-2 font-mono text-[10px] text-adm-red">
+                {tierUpgradeError}
+              </div>
+            )}
+            <p className="mt-3 font-mono text-[10px] text-adm-t2">
+              Acceptance approval:{' '}
+              <span className="font-semibold text-adm-amber">
+                {tierUpgrade?.acceptanceCase
+                  ? `${tierUpgrade.acceptanceCase.approvalNo} (${tierUpgrade.acceptanceCase.status})`
+                  : 'Not requested'}
+              </span>
+            </p>
+            {canSubmitTierUpgradeAcceptance && (
+              <div className="mt-4">
+                <button
+                  onClick={() => void submitTierUpgradeAcceptance()}
+                  disabled={tierUpgradeSubmitting}
+                  className={adminButtonClass('workflowPrimary')}
+                >
+                  {tierUpgradeSubmitting ? 'Submitting…' : 'Submit for Approval'}
+                </button>
+              </div>
+            )}
+          </section>
+
           {/* ⚡ Onboarding Simulation —— 模拟 Sumsub 入驻回调；用色/字号/按钮态对齐
               三域交易详情共用 SimulationPanel（DepositTransactionDetail.tsx 等），
               但入驻的按钮集合、可用性条件都不一样，也没有对应的后端
@@ -706,6 +845,51 @@ const CustomerDetail = () => {
                     {simBusy === 'ESCALATE' ? 'Running…' : 'Escalate to EDD'}
                   </button>
                 </div>
+              </div>
+            </section>
+          )}
+
+          {/* ⚡ Tier Upgrade Simulation —— 模拟 Sumsub 档位升级回调；语义与
+              上面 ⚡ Onboarding Simulation 完全对齐（GREEN 转 MATERIALS_CLEARED，
+              RED+RETRY 停留 IN_REVIEW 重开会话，RED+FINAL 转 REJECTED）。 */}
+          {simEnabled && (
+            <section className="px-6 py-5">
+              <Cap>⚡ Tier Upgrade Simulation</Cap>
+              <p className="mt-1 mb-4 font-mono text-[9px] text-adm-t3">
+                Feed a simulated Sumsub applicant-review verdict for this customer's tier upgrade.
+              </p>
+              {tierUpgradeError && (
+                <div className="mb-3 rounded border border-adm-red/30 bg-adm-red/10 px-3 py-2 font-mono text-[10px] text-adm-red">
+                  {tierUpgradeError}
+                </div>
+              )}
+              {!canTierVerdict && (
+                <p className="mb-1.5 font-mono text-[9px] text-adm-amber">
+                  Verdict buttons are unavailable — the customer has no tier upgrade application under review or has not submitted materials yet.
+                </p>
+              )}
+              <div className="flex flex-wrap gap-2">
+                <button
+                  onClick={() => void runTierUpgradeVerdict('GREEN')}
+                  disabled={!canTierVerdict || tierUpgradeSimBusy !== null}
+                  className={adminButtonClass('simulationAction')}
+                >
+                  {tierUpgradeSimBusy === 'TIER_APPROVE' ? 'Running…' : 'Approve (GREEN)'}
+                </button>
+                <button
+                  onClick={() => void runTierUpgradeVerdict('RED', 'RETRY')}
+                  disabled={!canTierVerdict || tierUpgradeSimBusy !== null}
+                  className={adminButtonClass('simulationAction')}
+                >
+                  {tierUpgradeSimBusy === 'TIER_REJECT_RETRY' ? 'Running…' : 'Reject – Retry'}
+                </button>
+                <button
+                  onClick={() => void runTierUpgradeVerdict('RED', 'FINAL')}
+                  disabled={!canTierVerdict || tierUpgradeSimBusy !== null}
+                  className={adminButtonClass('simulationAction')}
+                >
+                  {tierUpgradeSimBusy === 'TIER_REJECT_FINAL' ? 'Running…' : 'Reject – Final'}
+                </button>
               </div>
             </section>
           )}
