@@ -103,6 +103,25 @@ export class CustomersService {
     return updated;
   }
 
+  /** 入驻实体字段的唯一显式写方法（波二）。workflow 不直写表（铁律③）。 */
+  async updateOnboardingData(
+    customerId: string,
+    data: Partial<{
+      firstName: string; lastName: string;
+      dateOfBirth: string; nationality: string; idDocType: string;
+      idDocNumber: string; residentialAddress: string;
+      onboardingSubmittedAt: Date | null;
+      onboardingFinalRejectedAt: Date | null;
+      eddRequired: boolean;
+      sumsubApplicantId: string;
+      sumsubCurrentLevelName: string;
+    }>,
+    tx?: Prisma.TransactionClient,
+  ) {
+    const db = (tx ?? this.prisma) as PrismaService;
+    return db.customerMain.update({ where: { id: customerId }, data });
+  }
+
   async remove(where: Prisma.CustomerMainWhereUniqueInput): Promise<CustomerMain> {
     const before = await this.prisma.customerMain.findUnique({ where });
     const deleted = await this.prisma.customerMain.delete({

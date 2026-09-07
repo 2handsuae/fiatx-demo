@@ -66,4 +66,33 @@ describe('CustomersService', () => {
     });
     expect((customer as any)?.id).toBe('c1');
   });
+
+  describe('updateOnboardingData', () => {
+    it('writes onboarding fields to customerMain by id, passing data through untouched', async () => {
+      const data = { firstName: 'A', sumsubCurrentLevelName: 'basic-cdd-level' };
+      mockPrismaService.customerMain.update.mockResolvedValue({ id: 'c1', ...data });
+
+      const updated = await service.updateOnboardingData('c1', data);
+
+      expect(mockPrismaService.customerMain.update).toHaveBeenCalledWith({
+        where: { id: 'c1' },
+        data,
+      });
+      expect((updated as any)?.id).toBe('c1');
+    });
+
+    it('writes through the tx client when one is supplied, not the injected prisma', async () => {
+      const data = { eddRequired: true };
+      const txCustomerMainUpdate = jest.fn().mockResolvedValue({ id: 'c1', ...data });
+      const tx = { customerMain: { update: txCustomerMainUpdate } } as any;
+
+      await service.updateOnboardingData('c1', data, tx);
+
+      expect(txCustomerMainUpdate).toHaveBeenCalledWith({
+        where: { id: 'c1' },
+        data,
+      });
+      expect(mockPrismaService.customerMain.update).not.toHaveBeenCalled();
+    });
+  });
 });
