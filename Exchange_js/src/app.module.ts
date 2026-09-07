@@ -31,6 +31,7 @@ import { GovernanceModule } from './modules/governance/governance.module';
 import { SumsubIngestionModule } from './modules/sumsub-ingestion/sumsub-ingestion.module';
 import { MaterialRequestsModule } from './modules/identity/material-requests/material-requests.module';
 import { OnboardingModule } from './modules/identity/onboarding/onboarding.module';
+import { TierUpgradeModule } from './modules/identity/tier-upgrade/tier-upgrade.module';
 import { ProfileBannersModule } from './modules/identity/profile-banners/profile-banners.module';
 import { FundsLayerModule } from './modules/funds-layer/funds-layer.module';
 import { FundsOrdersModule } from './modules/funds-orders/funds-orders.module';
@@ -88,6 +89,7 @@ import { TransactionLimitsModule as TransactionLimitRulesModule } from './module
     SumsubIngestionModule,
     MaterialRequestsModule,
     OnboardingModule,
+    TierUpgradeModule,
     ProfileBannersModule,
     FundsLayerModule,
     FundsOrdersModule,
