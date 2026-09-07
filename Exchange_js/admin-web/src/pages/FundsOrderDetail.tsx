@@ -683,7 +683,7 @@ const FundsOrderDetail = () => {
         </div>
       </div>
 
-      {/* ── Manual Confirm modal ── all three inputs required, POST /push/manual */}
+      {/* ── 人工确认弹层 / Manual Confirm modal ── 三输入全必填，POST /push/manual */}
       {manualOpen && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"

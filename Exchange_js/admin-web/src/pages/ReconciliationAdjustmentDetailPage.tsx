@@ -154,7 +154,7 @@ const ReconciliationAdjustmentDetailPage = () => {
             </div>
           </section>
 
-          {/* Adjustment Info */}
+          {/* 调账信息 / Adjustment Info */}
           <DetailCard title="Adjustment Info" columns={3}>
             <InfoField label="Reason" value={reasonLabel ? `${reasonLabel} · ${detail.reasonCode}` : detail.reasonCode} />
             <InfoField label="Direction" value={directionLabel} mono />
@@ -169,7 +169,7 @@ const ReconciliationAdjustmentDetailPage = () => {
             <InfoField label="Customer" value={detail.ownerNo ?? '— (firm book)'} />
           </DetailCard>
 
-          {/* Reasons */}
+          {/* 两版原因 / Reasons */}
           <DetailCard title="Reasons" columns={1}>
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
               <div>
@@ -190,7 +190,7 @@ const ReconciliationAdjustmentDetailPage = () => {
             </div>
           </DetailCard>
 
-          {/* Posting Preview */}
+          {/* 分录预览 / Posting Preview */}
           <DetailCard title="Posting Preview" columns={1}>
             <div className="flex flex-wrap items-center gap-3 font-mono text-[12px]">
               <span className="rounded border border-adm-border bg-adm-bg px-3 py-2">
@@ -220,7 +220,7 @@ const ReconciliationAdjustmentDetailPage = () => {
             )}
           </DetailCard>
 
-          {/* Approval */}
+          {/* 审批 / Approval */}
           <DetailCard title="Approval" columns={1}>
             {detail.approvalNo ? (
               <button
