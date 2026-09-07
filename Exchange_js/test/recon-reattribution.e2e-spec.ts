@@ -668,7 +668,7 @@ describe('Recon reattribution + disposition behaviour (e2e, Task 12)', () => {
     await expect(overwriteAttempt).rejects.toThrow(BadRequestException);
     // 拒绝理由必须点名那张单——只断言异常类型的话，案子状态闸、成因闸、锚缺失闸
     // 抛的是同一个 BadRequestException，挂单锁被删了照样绿。
-    await expect(overwriteAttempt).rejects.toThrow(new RegExp(`该行定性已挂调账单 ${adjustmentNo}`));
+    await expect(overwriteAttempt).rejects.toThrow(new RegExp(`already linked to adjustment ${adjustmentNo}`));
 
     // 定性没有被改掉：库里仍是当初那条结论，仍挂着那张单。
     const afterLock = await (prisma as any).reconciliationDisposition.findUnique({
@@ -786,7 +786,7 @@ describe('Recon reattribution + disposition behaviour (e2e, Task 12)', () => {
       makeActor('E2E_OPS_CREATOR_B', 'OPS_OFFICER'),
     );
     expect(disposition.outlet).toBe('HOLD_INVESTIGATING');
-    expect(disposition.outletLabel).toBe('挂起·调查中');
+    expect(disposition.outletLabel).toBe('Hold · Investigating');
     expect((disposition as any).reasonCode).toBeUndefined(); // 挂起不派调账 reason —— 它压根不开单
     expect((disposition as any).family).toBeUndefined();
 
@@ -832,7 +832,7 @@ describe('Recon reattribution + disposition behaviour (e2e, Task 12)', () => {
     expect(viewRow.disposition).toBeTruthy();
     expect(viewRow.disposition.causeCode).toBe('UNEXPLAINED');
     expect(viewRow.disposition.outlet).toBe('HOLD_INVESTIGATING');
-    expect(viewRow.disposition.outletLabel).toBe('挂起·调查中');
+    expect(viewRow.disposition.outletLabel).toBe('Hold · Investigating');
     expect(viewRow.disposition.adjustmentNo).toBeNull();
     expect(viewRow.explainedByAdjustmentNo).toBeNull();
   });

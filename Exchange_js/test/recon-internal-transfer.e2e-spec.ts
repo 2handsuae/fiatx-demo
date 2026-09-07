@@ -470,11 +470,11 @@ describe('Recon internal transfer e2e (平账二期, Task 9)', () => {
       explainedFlowId: row0.internalFlow!.id, explainedExternalLineId: row0.externalLine!.id,
       reasonInternal: 'e2e 客户池认损', reasonCustomer: '平台调整', dispositionNo: disp.dispositionNo,
     };
-    await expect(adjustments.createDraft({ ...woDto, reasonCode: 'UNEXPLAINED_WRITE_OFF' } as any, treasury())).rejects.toThrow(/客户池认损/);
+    await expect(adjustments.createDraft({ ...woDto, reasonCode: 'UNEXPLAINED_WRITE_OFF' } as any, treasury())).rejects.toThrow(/Client pool loss recognition/);
     const { adjustmentNo } = await adjustments.createDraft(woDto as any, treasury());
     await adjustments.submit(adjustmentNo, treasury());
     const apr = await latestApprovalCase(ApprovalActionTypes.RECON_ADJUSTMENT_POST, adjustmentNo);
-    expect(JSON.parse(apr.objectSnapshot).impact).toContain('客户池查无果认损');
+    expect(JSON.parse(apr.objectSnapshot).impact).toContain('Client pool unexplained loss recognition');
     await approvalsService.approve(apr.approvalNo, { reason: 'e2e CFO approve loss' }, cfo());
     await waitUntil(async () => (await adjRow(adjustmentNo)).status === 'POSTED');
     const ev = await tbEvidence.findBySource('RECON_ADJUSTMENT', adjustmentNo);
@@ -626,7 +626,7 @@ describe('Recon internal transfer e2e (平账二期, Task 9)', () => {
     const disp = await dispositions.record(kase.caseNo, { explainedExternalLineId: line.id, matchType: 'ORPHAN_EXTERNAL', causeCode: 'UNEXPLAINED', externalDirection: 'IN', findingNote: 'e2e：多出来 50，查不出' } as any, ops());
     await caseAging.simulateTimeout(kase.caseNo, ops()); await agingSweep.checkAgingBreaches(new Date());
     expect((await rowByLine(kase.caseNo, line.id)).nextStep).toEqual({ kind: 'CLIENT_SURPLUS' });
-    await expect(adjustments.createDraft({ caseNo: kase.caseNo, reasonCode: 'UNEXPLAINED_CLIENT_LOSS', direction: 'INCREASE', amount: '5000', effectiveDate: kase.businessDate, explainedExternalLineId: line.id, reasonInternal: 'x', reasonCustomer: 'x', dispositionNo: disp.dispositionNo } as any, treasury())).rejects.toThrow(/补录/);
+    await expect(adjustments.createDraft({ caseNo: kase.caseNo, reasonCode: 'UNEXPLAINED_CLIENT_LOSS', direction: 'INCREASE', amount: '5000', effectiveDate: kase.businessDate, explainedExternalLineId: line.id, reasonInternal: 'x', reasonCustomer: 'x', dispositionNo: disp.dispositionNo } as any, treasury())).rejects.toThrow(/deposit backfill/);
   });
 
   it('C2 · 腿失败 → FAILED(LEG_FAILED)、零分录；按钮回来、可重新发起', async () => {

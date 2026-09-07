@@ -728,7 +728,7 @@ describe('Recon supplement e2e (平账 B 批, Task 8)', () => {
     // (a) 方向不符：外部 OUT 行定性 MISSED_DEPOSIT（要求 IN）→ dispositions.record 抛 /方向不符/
     const txHashA = `0xe2esuppdiramis${randomUUID().replace(/-/g, '')}`;
     const { line: lineA, kase: kaseA } = await breakCase({ assetId: usdtAssetId, currency: usdtCode, decimals: usdtDecimals, direction: 'OUT', amountMinor: 2_000_000n, externalRef: txHashA, tag: 'RJA' });
-    await expect(dispositions.record(kaseA.caseNo, { explainedExternalLineId: lineA.id, matchType: 'ORPHAN_EXTERNAL', causeCode: 'MISSED_DEPOSIT', externalDirection: 'OUT', findingNote: 'e2e 方向不符测试' } as any, ops())).rejects.toThrow(/方向不符/);
+    await expect(dispositions.record(kaseA.caseNo, { explainedExternalLineId: lineA.id, matchType: 'ORPHAN_EXTERNAL', causeCode: 'MISSED_DEPOSIT', externalDirection: 'OUT', findingNote: 'e2e 方向不符测试' } as any, ops())).rejects.toThrow(/direction do not match/);
 
     // (b) 余额不足：用一个本文件专属的全新客户（lifecycle=ACTIVE、零历史），不碰 Bob 或
     // 任何种子客户的累计余额——也因此跟 (a)(c)(d) 完全独立，谁先跑都行，`-t` 单跑
@@ -782,7 +782,7 @@ describe('Recon supplement e2e (平账 B 批, Task 8)', () => {
     const { line: lineC, kase: kaseC } = await breakCase({ assetId: usdtAssetId, currency: usdtCode, decimals: usdtDecimals, direction: 'IN', amountMinor: 3_000_000n, externalRef: txHashC, tag: 'RJC' });
     const dispC = await dispositions.record(kaseC.caseNo, { explainedExternalLineId: lineC.id, matchType: 'ORPHAN_EXTERNAL', causeCode: 'MISSED_DEPOSIT', externalDirection: 'IN', findingNote: 'e2e 二次发起测试' } as any, ops());
     const reqC = await signals.initiateSupplement({ externalLineId: lineC.id, caseNo: kaseC.caseNo, dispositionNo: dispC.dispositionNo, fromAddress: 'TE2eSupplementDup', reason: 'e2e first attempt' }, ops());
-    await expect(signals.initiateSupplement({ externalLineId: lineC.id, caseNo: kaseC.caseNo, dispositionNo: dispC.dispositionNo, fromAddress: 'TE2eSupplementWhilePending', reason: 'e2e while first still pending' }, ops())).rejects.toThrow(/已转补单/);
+    await expect(signals.initiateSupplement({ externalLineId: lineC.id, caseNo: kaseC.caseNo, dispositionNo: dispC.dispositionNo, fromAddress: 'TE2eSupplementWhilePending', reason: 'e2e while first still pending' }, ops())).rejects.toThrow(/already linked to supplement/);
     await approvalsService.reject(reqC.approvalNo, { reason: 'e2e CFO reject supplement' }, cfo());
     await waitUntil(async () => (await (prisma as any).inboundTransferSignal.findUnique({ where: { signalNo: reqC.signalNo } })).status === 'SUPPLEMENT_REJECTED', 30000);
     expect((await (prisma as any).reconciliationDisposition.findUnique({ where: { dispositionNo: dispC.dispositionNo } })).supplementNo).toBeNull();

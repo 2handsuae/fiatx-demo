@@ -460,7 +460,7 @@ describe('Recon case aging → write-off e2e (平账 A 批, Task 12)', () => {
       explainedFlowId: row0.internalFlow!.id, explainedExternalLineId: row0.externalLine!.id,
       reasonInternal: 'e2e 核销', reasonCustomer: '（公司侧，客户不可见）', dispositionNo: disp.dispositionNo,
     };
-    await expect(adjustments.createDraft(woDto as any, treasury)).rejects.toThrow(/账龄/);
+    await expect(adjustments.createDraft(woDto as any, treasury)).rejects.toThrow(/aging threshold/);
     expect((await reconQuery.getCase(kase.caseNo)).flowComparison.find((r: any) => r.matchType === 'AMOUNT_MISMATCH')!.nextStep).toBeUndefined();
 
     // ⚡拨钟 + 扫描 → 超期 + 两条审计
@@ -478,7 +478,7 @@ describe('Recon case aging → write-off e2e (平账 A 批, Task 12)', () => {
     expect(row1.nextStep).toEqual({ kind: 'WRITE_OFF', reasonCode: 'UNEXPLAINED_WRITE_OFF', direction: 'REDUCE', amount: '7', effectiveDate: kase.businessDate });
 
     // 反例②：超线 → 400
-    await expect(adjustments.createDraft({ ...woDto, amount: '10001' } as any, treasury)).rejects.toThrow(/小额线/);
+    await expect(adjustments.createDraft({ ...woDto, amount: '10001' } as any, treasury)).rejects.toThrow(/small-amount threshold/);
 
     // 正路径
     const { adjustmentNo } = await adjustments.createDraft(woDto as any, treasury);
@@ -494,7 +494,7 @@ describe('Recon case aging → write-off e2e (平账 A 批, Task 12)', () => {
     // 的地方是 submit() 传给 createAndSubmit 的 objectSnapshot.impact——同目录
     // recon-reattribution.e2e-spec.ts:551 已经是读 objectSnapshot 的既有先例，
     // 这里照它改读那里（唯一偏离 brief 原文的一行，报告里也记了）。
-    expect(JSON.parse(approvalCase.objectSnapshot).impact).toContain('公司池查无果核销');
+    expect(JSON.parse(approvalCase.objectSnapshot).impact).toContain('Firm pool unexplained write-off');
     await approvalsService.approve(approvalCase.approvalNo, { reason: 'e2e CFO approve write-off' }, makeActor('E2E_CFO_APPROVER', 'CFO'));
     await waitUntil(async () => (await adjustmentRow(adjustmentNo)).status === AdjustmentStatus.POSTED);
 
@@ -528,7 +528,7 @@ describe('Recon case aging → write-off e2e (平账 A 批, Task 12)', () => {
     });
     const treasury = makeActor('E2E_TREASURY_C', 'TREASURY_OFFICER');
     const base = { caseNo: kase.caseNo, direction: 'REDUCE', amount: '7', effectiveDate: TODAY, explainedFlowId: flowId, reasonInternal: 'x', reasonCustomer: 'x' };
-    await expect(adjustments.createDraft({ ...base, reasonCode: 'UNEXPLAINED_WRITE_OFF' } as any, treasury)).rejects.toThrow(/客户池认损/);
+    await expect(adjustments.createDraft({ ...base, reasonCode: 'UNEXPLAINED_WRITE_OFF' } as any, treasury)).rejects.toThrow(/Client pool loss recognition/);
     const { adjustmentNo } = await adjustments.createDraft({ ...base, reasonCode: 'UNEXPLAINED_CLIENT_LOSS' } as any, treasury);
     expect((await adjustmentRow(adjustmentNo)).book).toBe('CLIENT');
   });
