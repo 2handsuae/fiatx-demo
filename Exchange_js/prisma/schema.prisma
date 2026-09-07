@@ -199,7 +199,7 @@ model CustomerMain {
   lastLoginAt       DateTime?
 
   // ═══ 唯一状态轴：客户关系生命周期 ═══
-  // 取值见 src/modules/identity/constants/customer-lifecycle.constant.ts（七态九边）。
+  // 取值见 src/modules/identity/constants/customer-lifecycle.constant.ts（七态十边）。
   // 「摁住客户」不在这根轴上——制裁/行政暂停/材料过期/等升级/交易审查未过一律进
   // customer_restrictions 限制账（一行 = 一次摁住），可多因并存、各撕各的。
   lifecycle            String    @default("PROSPECT")
@@ -223,6 +223,17 @@ model CustomerMain {
   // ═══ Sumsub 集成 ═══
   sumsubApplicantId                  String?   @unique
   sumsubCurrentLevelName             String?
+
+  // ── 波二入驻（2026-09-07）：CDD 基础信息——写方 = 客户端 CDD 表单，读方 = 客户详情 / 准入单快照
+  dateOfBirth        String?
+  nationality        String?
+  idDocType          String?
+  idDocNumber        String?
+  residentialAddress String?
+  // 当前认证会话「已提交待审」标记：提交端点落值；换档 / 重申时清空（spec §3）
+  onboardingSubmittedAt DateTime?
+  // Sumsub RED+FINAL 终拒标记：非空即堵死 REAPPLY（写方 = 裁决处理器）
+  onboardingFinalRejectedAt DateTime?
 
   // ═══ 时间戳 ═══
   createdAt DateTime @default(now())

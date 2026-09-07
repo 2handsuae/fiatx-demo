@@ -34,4 +34,6 @@ export const DETAIL_READ_GROUP_BY_POLICY: Record<string, string> = {
   // 平账三期（2026-09-06）：事故登记结案，两个动作类型都指向事故详情路由（entityRef = incidentNo）
   INCIDENT_CLOSE_SECURITY: 'INCIDENT_READ', // → /admin/governance/incidents/:incidentNo
   INCIDENT_CLOSE_FINANCIAL: 'INCIDENT_READ', // → /admin/governance/incidents/:incidentNo
+  // 客户域（entityRef = customerNo）
+  CUSTOMER_ONBOARDING_ACCEPTANCE: 'CUSTOMER_READ', // → /admin/customers/:customerNo（SMO 持 CUSTOMER_READ）
 };

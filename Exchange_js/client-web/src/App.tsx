@@ -10,6 +10,7 @@ const CustomerLogin = lazy(() => import('./pages/CustomerLogin'));
 const CustomerRegister = lazy(() => import('./pages/CustomerRegister'));
 const CustomerProfile = lazy(() => import('./pages/CustomerProfile'));
 const MaterialVerification = lazy(() => import('./pages/MaterialVerification'));
+const OnboardingVerification = lazy(() => import('./pages/OnboardingVerification'));
 const WalletManagement = lazy(() => import('./pages/WalletManagement'));
 const Deposit = lazy(() => import('./pages/Deposit'));
 const DepositDetail = lazy(() => import('./pages/DepositDetail'));
@@ -53,6 +54,7 @@ function App() {
                  <Route path="/withdraw" element={<AuthGuard><Withdraw /></AuthGuard>} />
                  <Route path="/withdraw/:withdrawNo" element={<AuthGuard><WithdrawDetail /></AuthGuard>} />
                  <Route path="/verification/:requestNo" element={<AuthGuard><MaterialVerification /></AuthGuard>} />
+                 <Route path="/onboarding/verify" element={<AuthGuard><OnboardingVerification /></AuthGuard>} />
                  <Route path="/transactions" element={<AuthGuard><TransactionHistory /></AuthGuard>} />
                  <Route path="/withdrawal-addresses" element={<AuthGuard><WithdrawalAddresses /></AuthGuard>} />
 

@@ -16,6 +16,9 @@ import { CustomerAccessService } from './customer-access.service';
  * tipping-off 红线（沿袭原实现头注）：响应只许 lifecycle / disclosedBlocked /
  * disclosed —— 含 SILENT（制裁）限制贡献的 blocked / openCount 出现在客户面
  * 即属通风报信。禁止在此处补字段。
+ *
+ * 波二加 submitted / canReapply 两个派生布尔（入驻会话事实，非限制账事实）；
+ * 原始时间戳不下发——内部术语不出客户面。
  */
 @ApiTags('Customer - Profile')
 @Controller('onboarding')
@@ -48,17 +51,22 @@ export class CustomerProfileController {
         eddRequired: true,
         createdAt: true,
         lastLoginAt: true,
+        onboardingSubmittedAt: true,
+        onboardingFinalRejectedAt: true,
       },
     });
     if (!customer) {
       throw new ForbiddenException('Customer not found');
     }
     const access = await this.customerAccess.resolve(customerId);
+    const { onboardingSubmittedAt, onboardingFinalRejectedAt, ...profile } = customer;
     return {
-      ...customer,
+      ...profile,
       lifecycle: access.lifecycle,
       disclosedBlocked: [...access.disclosedBlocked],
       disclosed: access.disclosed,
+      submitted: onboardingSubmittedAt !== null,
+      canReapply: onboardingFinalRejectedAt === null,
     };
   }
 }

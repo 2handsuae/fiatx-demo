@@ -8,9 +8,9 @@ import {
 } from './customer-lifecycle.constant';
 
 // 守则性测试（复刻充值域 28 边做法，见 deposit-transactions.service.spec.ts:1219-1300）：
-// 设计稿 2026-08-15-customer-lifecycle-restrictions-design.md §3.1 定稿的 9 条边逐条列出
-// ——多一条、少一条、边指向变了，这里都会红。再用穷举（7 状态 × 8 动作 = 56 组合）反向
-// 断言：凡不在这 9 条边名单里的组合一律抛 BadRequestException，即没有偷偷长出第 10 条边。
+// 设计稿 2026-08-15-customer-lifecycle-restrictions-design.md §3.1 定稿的 10 条边逐条列出
+// ——多一条、少一条、边指向变了，这里都会红。再用穷举（7 状态 × 9 动作 = 63 组合）反向
+// 断言：凡不在这 10 条边名单里的组合一律抛 BadRequestException，即没有偷偷长出第 11 条边。
 const ALL_LIFECYCLES: CustomerLifecycle[] = [
   'PROSPECT',
   'IN_VERIFICATION',
@@ -26,6 +26,7 @@ const ALL_ACTIONS: CustomerLifecycleAction[] = [
   'VERIFICATION_PASSED',
   'VERIFICATION_REJECTED',
   'WITHDRAW_APPLICATION',
+  'CDD_CLEARED',
   'FINAL_APPROVED',
   'FINAL_REJECTED',
   'REAPPLY',
@@ -42,6 +43,7 @@ const EXPECTED_EDGES: Array<{
   { from: 'IN_VERIFICATION', action: 'VERIFICATION_PASSED', to: 'PENDING_APPROVAL' },
   { from: 'IN_VERIFICATION', action: 'VERIFICATION_REJECTED', to: 'REJECTED' },
   { from: 'IN_VERIFICATION', action: 'WITHDRAW_APPLICATION', to: 'WITHDRAWN' },
+  { from: 'IN_VERIFICATION', action: 'CDD_CLEARED', to: 'ACTIVE' },
 
   { from: 'PENDING_APPROVAL', action: 'FINAL_APPROVED', to: 'ACTIVE' },
   { from: 'PENDING_APPROVAL', action: 'FINAL_REJECTED', to: 'REJECTED' },
@@ -52,14 +54,14 @@ const EXPECTED_EDGES: Array<{
   { from: 'WITHDRAWN', action: 'REAPPLY', to: 'IN_VERIFICATION' },
 ];
 
-describe('customer lifecycle transition table (9-edge guard)', () => {
-  it('table lists exactly 9 edges', () => {
-    expect(EXPECTED_EDGES).toHaveLength(9);
+describe('customer lifecycle transition table (10-edge guard)', () => {
+  it('table lists exactly 10 edges', () => {
+    expect(EXPECTED_EDGES).toHaveLength(10);
     const declared = ALL_LIFECYCLES.reduce(
       (sum, from) => sum + Object.keys(CUSTOMER_LIFECYCLE_TRANSITIONS[from]).length,
       0,
     );
-    expect(declared).toBe(9);
+    expect(declared).toBe(10);
   });
 
   it.each(
@@ -68,7 +70,7 @@ describe('customer lifecycle transition table (9-edge guard)', () => {
     expect(nextLifecycle(edge.from, edge.action)).toBe(edge.to);
   });
 
-  it('every (lifecycle, action) pair NOT in the 9-edge list throws (no undocumented edge exists)', () => {
+  it('every (lifecycle, action) pair NOT in the 10-edge list throws (no undocumented edge exists)', () => {
     const edgeKeys = new Set(EXPECTED_EDGES.map((e) => `${e.from}::${e.action}`));
     for (const from of ALL_LIFECYCLES) {
       for (const action of ALL_ACTIONS) {

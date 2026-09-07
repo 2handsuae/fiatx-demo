@@ -1,28 +1,65 @@
 import { ForbiddenException } from '@nestjs/common';
 import * as bcrypt from 'bcrypt';
 import { CustomerAuthService } from './customer-auth.service';
+import { AuditActions } from '../../audit-logging/constants/audit-actions.constant';
 
 describe('CustomerAuthService', () => {
   const prismaMock: any = {
     customerMain: {
       findFirst: jest.fn(),
+      findUnique: jest.fn(),
+      create: jest.fn(),
       update: jest.fn(),
     },
   };
   const jwtServiceMock: any = {
     sign: jest.fn(),
   };
+  const auditLogsServiceMock: any = {
+    recordByActor: jest.fn(),
+    recordSystem: jest.fn(),
+  };
 
   let service: CustomerAuthService;
 
   beforeEach(() => {
     jest.clearAllMocks();
-    service = new CustomerAuthService(prismaMock, jwtServiceMock);
+    service = new CustomerAuthService(prismaMock, jwtServiceMock, auditLogsServiceMock);
   });
 
-  it('第一批 · V1 域打点上收：customer-auth.service.ts 不再直接写审计', () => {
-    const src = require('fs').readFileSync(`${__dirname}/customer-auth.service.ts`, 'utf8');
-    expect(src).not.toMatch(/recordByActor|recordSystem/);
+  // 2026-08-26（812de117）裁定"客户登录流水归安全日志，本项目不做"，删的是
+  // CUSTOMER_REGISTERED/CUSTOMER_REGISTER_FAILED/CUSTOMER_LOGIN_FAILED 三个
+  // AUTH 域动作码（已连同常量一并退役，见 audit-actions.constant.ts 现无残留）。
+  // CUSTOMER_CREATED 是另一个仍在役的 CUSTOMER 域动作码——customers.service.ts
+  // 的管理台建户路径一直在写它，自助注册路径此前直接绕过 CustomersService.create
+  // 落库，从未补上同一条，是两条建户路径之间的留痕缺口（波二 Task 5 补齐）。
+  // 本条测试断言只收窄到"登录门不写审计"，不再断言"整份文件零审计调用"。
+  it('波二 Task 5：register 创建成功后写 CUSTOMER_CREATED 审计（与管理台建户路径同码，补齐自助注册留痕缺口）', async () => {
+    prismaMock.customerMain.findUnique.mockResolvedValue(null);
+    prismaMock.customerMain.create.mockResolvedValue({
+      id: 'c1', customerNo: 'CU250907001', email: 'new@example.com',
+      customerType: 'INDIVIDUAL', passwordHash: 'hashed',
+    });
+
+    await service.register({ email: 'new@example.com', password: '123456', customerType: 'INDIVIDUAL' });
+
+    expect(auditLogsServiceMock.recordByActor).toHaveBeenCalledTimes(1);
+    expect(auditLogsServiceMock.recordByActor).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: AuditActions.CUSTOMER_CREATED,
+        ownerCustomerNo: 'CU250907001',
+      }),
+      expect.objectContaining({ actorType: 'CUSTOMER', actorNo: 'CU250907001' }),
+    );
+  });
+
+  it('登录门（validateCustomer）仍不写任何审计——客户登录流水归安全日志，2026-08-26 裁定未变', async () => {
+    prismaMock.customerMain.findFirst.mockResolvedValue(null);
+
+    await service.validateCustomer('nobody@example.com', 'x');
+
+    expect(auditLogsServiceMock.recordByActor).not.toHaveBeenCalled();
+    expect(auditLogsServiceMock.recordSystem).not.toHaveBeenCalled();
   });
 
   // ★ 本轮语义反转（Task 5）：登录门只认关系是否终止。

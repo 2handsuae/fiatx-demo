@@ -21,6 +21,7 @@ export type PermissionGroup =
   | 'CUSTOMER_RESTRICTION_READ'
   | 'CUSTOMER_RESTRICTION_WRITE'
   | 'CUSTOMER_RESTRICTION_RELEASE'
+  | 'CUSTOMER_ONBOARDING_ACCEPT_WRITE'
   | 'DEMO_CLOCK_WRITE'
   | 'DEMO_VERDICT_WRITE'
   | 'SUMSUB_EVENT_VIEW'
@@ -246,6 +247,21 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
     ['CUSTOMER_RESTRICTION_RELEASE'],
   ),
 
+  // Onboarding acceptance（客户域波二·准入审批线，2026-09-07）
+  route(
+    'POST',
+    '/admin/customers/:customerNo/onboarding-acceptance',
+    'Open a senior-management acceptance approval for a high-risk onboarding customer',
+    ['CUSTOMER_ONBOARDING_ACCEPT_WRITE'],
+  ),
+  // 终审补齐（2026-09-07）：查关联准入核准单状态，挂既有 CUSTOMER_READ 组
+  route(
+    'GET',
+    '/admin/customers/:customerNo/onboarding-acceptance',
+    'Get the latest onboarding acceptance approval case for a customer',
+    ['CUSTOMER_READ'],
+  ),
+
   // Material requests
   route('GET', '/admin/customers/:customerNo/material-requests', 'List customer material requests', ['CUSTOMER_RESTRICTION_READ']),
   route('POST', '/admin/customers/:customerNo/material-requests', 'Issue material request', ['CUSTOMER_RESTRICTION_WRITE']),
@@ -259,7 +275,8 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
 
   // ── Sumsub 入站模拟（2026-09-01 收编：此前只查 type==='ADMIN'）──
   route('POST', '/admin/sumsub/simulate/applicant-action-result', 'Feed a simulated Sumsub applicant-action webhook (demo only)', ['DEMO_VERDICT_WRITE']),
-  route('POST', '/admin/sumsub/simulate/ongoing-doc-monitoring-fire', 'Fire a simulated ongoing-doc-monitoring event (demo only)', ['DEMO_VERDICT_WRITE']),
+  route('POST', '/admin/sumsub/simulate/onboarding-review-result', 'Feed a simulated Sumsub applicant-review verdict for onboarding (demo only)', ['DEMO_VERDICT_WRITE']),
+  route('POST', '/admin/sumsub/simulate/onboarding-level-change', 'Escalate a simulated onboarding applicant to the EDD level (demo only)', ['DEMO_VERDICT_WRITE']),
 
   // Risk assessments
 
@@ -792,6 +809,12 @@ export const ACTION_BUCKET_CATALOG: ActionDomain[] = [
         description: 'Request release of an existing restriction — deliberately split from opening one',
         groups: ['CUSTOMER_RESTRICTION_RELEASE'],
       },
+      {
+        key: 'customer.act_onboarding_acceptance',
+        label: 'Request onboarding acceptance',
+        description: 'Open a senior-management approval to accept a high-risk onboarding customer',
+        groups: ['CUSTOMER_ONBOARDING_ACCEPT_WRITE'],
+      },
     ],
   },
   // ─── Domain: Trading (split per concrete action) ──────
@@ -1040,7 +1063,7 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
     'LEDGER_ACCOUNT_READ', 'LEDGER_EVIDENCE_READ', 'LEDGER_FLOW_READ',
     'ASSET_CONFIG_READ', 'ASSET_CONFIG_WRITE', 'WALLET_READ', 'WITHDRAWAL_ADDRESS_READ',
     'TRANSACTION_LIMIT_READ', 'TRANSACTION_LIMIT_WRITE',
-    'CUSTOMER_READ', 'CUSTOMER_RESTRICTION_READ', 'CUSTOMER_TAG_VIEW',
+    'CUSTOMER_READ', 'CUSTOMER_RESTRICTION_READ', 'CUSTOMER_TAG_VIEW', 'CUSTOMER_ONBOARDING_ACCEPT_WRITE',
     'TRADING_DEPOSIT_READ', 'TRADING_WITHDRAW_READ', 'TRADING_SWAP_READ', 'SUMSUB_EVENT_VIEW',
     'DEPOSIT_WAIVE_WRITE', 'DEPOSIT_CONFISCATE_WRITE', 'DEPOSIT_RETURN_WRITE', 'DEPOSIT_SEIZE_WRITE', 'DEPOSIT_SUPPLEMENT_WRITE', 'DEPOSIT_CLAWBACK_WRITE',
     'TRADING_WITHDRAW_WRITE', 'WITHDRAW_BOUNCE_WRITE', 'WITHDRAW_REFUND_WRITE', 'WITHDRAW_RETURN_CLAIM_WRITE',
