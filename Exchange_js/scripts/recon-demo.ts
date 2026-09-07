@@ -145,7 +145,7 @@ function parseArgs(argv: string[]): { mode: Mode; cutoffIso: string | null } {
 type RootCause = CauseCode | 'IN_TRANSIT_TIMING';
 
 type LineType = 'IN_TRANSIT' | 'AMOUNT_MISMATCH' | 'ORPHAN_INTERNAL' | 'ORPHAN_EXTERNAL';
-type Bucket = 'IN_TRANSIT' | 'SOFT_FLAG' | 'BREAK';
+type Bucket = 'IN_TRANSIT' | 'COMPENSATING' | 'BREAK';
 
 /** 每个场景断言：我造出了哪些差异行。 */
 interface ScenarioExpectation {
@@ -780,15 +780,15 @@ async function injectScenarios(
   // A pre-existing non-terminal withdrawal seeded by the business roster
   // (e.g. #20, "卡在半路（对账用）") trips the same check the same way.
   // Scenarios ⑪⑫ only inject ghost ORPHAN_EXTERNAL lines expecting a
-  // SOFT_FLAG bucket — but a wallet that already carries a real non-terminal
+  // COMPENSATING bucket — but a wallet that already carries a real non-terminal
   // funds order also produces an IN_TRANSIT line, and the engine correctly
   // reclassifies "orphan + in-transit on the same wallet" as BREAK. That
   // 排除已带非终态资金单的 FIRM 钱包。理由**不是**"场景之间要互不重叠"
   // （那个 disjoint 前提已于 2026-08-30 废除，一个钱包现在可以挂多条场景），
   // 而是另一条独立的轴：**业务数据污染场景**。
-  // 场景 ⑪⑫ 只注入对冲的幽灵 ORPHAN_EXTERNAL 行、期望落在 SOFT_FLAG；但一个
+  // 场景 ⑪⑫ 只注入对冲的幽灵 ORPHAN_EXTERNAL 行、期望落在 COMPENSATING；但一个
   // 已经挂着真实非终态资金单的钱包会**额外**产生一条 IN_TRANSIT 行，引擎于是
-  // （正确地）把"孤儿 + 在途同处一个钱包"重判成 BREAK —— 答案键期望 SOFT_FLAG，
+  // （正确地）把"孤儿 + 在途同处一个钱包"重判成 BREAK —— 答案键期望 COMPENSATING，
   // 于是 #⑪/#⑫ 双双 MISSED，而引擎一点没错。
   // 这件事与一个钱包上挂几条场景无关：就算一钱包只挂一条，它照样会咬人。
   // 用的是引擎自己 Pass 3（在途匹配）判"还没了结"的同一套 TERMINAL_STATUSES。
@@ -818,7 +818,7 @@ async function injectScenarios(
         ? 'Need ≥1 FIRM wallet for scenarios ⑪⑫ — seed firm-side activity.'
         : `All ${firmCandidatesAll.length} FIRM wallet(s) already carry a non-terminal funds order ` +
           `(e.g. an in-transit withdraw fee leg) — none left clean for scenarios ⑪⑫. Refusing to ` +
-          `silently reuse a dirty wallet (it would mask #⑪/#⑫ as BREAK instead of SOFT_FLAG). Seed a ` +
+          `silently reuse a dirty wallet (it would mask #⑪/#⑫ as BREAK instead of COMPENSATING). Seed a ` +
           `FIRM wallet with crossing flows but no open funds_orders, or clear the stray non-terminal order.`,
     );
   }
@@ -1279,11 +1279,11 @@ async function injectScenarios(
     });
   }
 
-  // ── 场景 ⑪ — 银行杂费 (SOFT_FLAG，与场景 ⑫ 银行利息对冲，共用同一个公司钱包) ───
+  // ── 场景 ⑪ — 银行杂费 (COMPENSATING，与场景 ⑫ 银行利息对冲，共用同一个公司钱包) ───
   // Insert a ghost OUT line (bank charge) on the shared FIRM wallet, closing
   // moves down. Scenario 12 inserts an equal-amount IN (bank interest) that
   // exactly cancels this on closing, so the wallet's net delta stays 0
-  // (SOFT_FLAG) while both lines individually show up as orphanExternal.
+  // (COMPENSATING) while both lines individually show up as orphanExternal.
   const firmHedgedAmount = D('200');
   {
     const fakeRef = refFor(firmHedgedPlan.currency, 'CHARGE');
@@ -1371,13 +1371,13 @@ async function injectScenarios(
     });
   }
 
-  // ── ⑨ 跨日切 (SOFT_FLAG / ORPHAN_INTERNAL / 客户账簿) ────────────────────
+  // ── ⑨ 跨日切 (COMPENSATING / ORPHAN_INTERNAL / 客户账簿) ────────────────────
   // 对方按它的营业日切账、我方按 UTC：一笔真实发生的流水落在了对方的下一个
   // 营业日，本期对账单上没有它。→ 我方有、外部本期没有。
   //
   // ⚠️ **这是唯一不碰收盘的场景**：收盘是对方给的一个数、本来就含这笔；
   // 变的只是这笔出现在哪一期的明细里。于是 **余额分毫不差、流水配不上**
-  // → 残差 0 + 异常 1 + 无在途 → SOFT_FLAG。
+  // → 残差 0 + 异常 1 + 无在途 → COMPENSATING。
   // 这一条是"只看余额会漏掉什么"的活教材：只对余额的话，这个钱包会被判成
   // 完全正常，而实际上有一笔流水两边对不上。
   //
@@ -1412,10 +1412,10 @@ async function injectScenarios(
     wallets.push({
       walletRef: slotCutoff.walletRef,
       scenarioIds: [9],
-      expectedBucket: 'SOFT_FLAG',
+      expectedBucket: 'COMPENSATING',
       bucketRationale:
         '只挪了一条外部行的时间、**收盘一分没动** → 余额差 = 0；该行本期不参与匹配 → 它的内部对手成孤儿 → 异常数 1；' +
-        '无在途 → 命中「残差 0 且无在途 且 流水异常 > 0 → SOFT_FLAG」。',
+        '无在途 → 命中「残差 0 且无在途 且 流水异常 > 0 → COMPENSATING」。',
       hasNonTerminalFundsOrder: false,
     });
   }
@@ -1493,10 +1493,10 @@ async function injectScenarios(
     });
   }
 
-  // ── 场景 ⑫ — 银行利息 (SOFT_FLAG，与场景 ⑪ 银行杂费对冲，共用同一个公司钱包) ───
+  // ── 场景 ⑫ — 银行利息 (COMPENSATING，与场景 ⑪ 银行杂费对冲，共用同一个公司钱包) ───
   // Same FIRM wallet as scenario 11, same amount, opposite direction (IN).
   // Nets scenario 11's OUT to a 0 closing delta ⇒ same wallet, same case,
-  // bucket=SOFT_FLAG (balance ties, but 2 orphaned lines expose the wash).
+  // bucket=COMPENSATING (balance ties, but 2 orphaned lines expose the wash).
   {
     const fakeRef = refFor(firmHedgedPlan.currency, 'INTEREST');
     const created = await (prisma as any).externalStatementLine.create({
@@ -1535,8 +1535,8 @@ async function injectScenarios(
     wallets.push({
       walletRef: firmHedgedPlan.walletRef,
       scenarioIds: [11, 12],
-      expectedBucket: 'SOFT_FLAG',
-      bucketRationale: '杂费 −X 与利息 +X 金额相等方向相反 → 残差 = 0；两条孤儿外部行 → 异常数 2 > 0 → SOFT_FLAG',
+      expectedBucket: 'COMPENSATING',
+      bucketRationale: '杂费 −X 与利息 +X 金额相等方向相反 → 残差 = 0；两条孤儿外部行 → 异常数 2 > 0 → COMPENSATING',
       hasNonTerminalFundsOrder: false,
     });
   }

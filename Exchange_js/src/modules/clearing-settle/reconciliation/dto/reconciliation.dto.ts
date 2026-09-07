@@ -10,8 +10,8 @@ export class ReconCaseQueryDto {
   @IsOptional() @IsString() status?: string;
   @IsOptional() @IsString() assetCode?: string;
   @IsOptional() @IsString() runNo?: string;  // filter to cases touched by a specific run
-  // T6: filter by five-bucket classification (Round3) — IN_TRANSIT | SOFT_FLAG | BREAK.
-  @IsOptional() @IsIn(['IN_TRANSIT', 'SOFT_FLAG', 'BREAK']) bucket?: string;
+  // T6: filter by five-bucket classification (Round3) — IN_TRANSIT | COMPENSATING | BREAK.
+  @IsOptional() @IsIn(['IN_TRANSIT', 'COMPENSATING', 'BREAK']) bucket?: string;
 }
 export class ReconExternalBalanceQueryDto {
   @IsOptional() @IsString() cutoffDate?: string;
@@ -31,7 +31,7 @@ export class ReconExternalBalanceQueryDto {
 // open a Case; the other three do. Replaces the old three-tier
 // MATCH/FLOW_REVIEW/BREAK status (T6 — getRun now reads the run-wallet
 // snapshot table instead of recomputing via the balance checker).
-export type ReconWalletBucket = 'MATCHED' | 'IN_TRANSIT' | 'SOFT_FLAG' | 'BREAK';
+export type ReconWalletBucket = 'MATCHED' | 'IN_TRANSIT' | 'COMPENSATING' | 'BREAK';
 
 export interface AccountStatusRow {
   walletRef: string;

@@ -112,7 +112,7 @@ async function latestWalletRow(ctx: DemoCtx, runId: string, walletRef: string): 
  *
  * ⚠️ 关于 case 状态：钱包 delta 归零（余额已平）是 heal 的硬信号；但 demo 客户钱包是**跨轮复用**的，
  *   历史累积了多笔内部单腿（往轮 WITHDRAW_NET_POST 等），外部对账镜像每轮只喂一条行，故重对账时该钱包
- *   仍有 orphanInternal>0 → 落 SOFT_FLAG（余额平但逐行证据不全）而非 MATCHED，其 case 不自动 RESOLVED。
+ *   仍有 orphanInternal>0 → 落 COMPENSATING（余额平但逐行证据不全）而非 MATCHED，其 case 不自动 RESOLVED。
  *   case 自愈到 RESOLVED/AUTO_HEALED 需钱包干净（零异常达 MATCHED），已由单测
  *   wallet-recon-run.service.spec.ts（"breaks in run A then recovers in run B → RESOLVED/AUTO_HEALED"）证明。
  *   故本 e2e 断言 delta=0（真 heal 信号），并打印真实 case 状态，不在复用钱包上硬断言 AUTO_HEALED。
@@ -190,7 +190,7 @@ async function runVerify(
     wdRow2 ? `inTransitCount=${wdRow2.inTransitCount}` : 'no row');
   check('提现钱包 heal 后脱离 IN_TRANSIT', wdRow2 != null && wdRow2.bucket !== 'IN_TRANSIT',
     wdRow2 ? `bucket=${wdRow2.bucket}` : 'no row');
-  // case 状态如实打印（不硬断言 AUTO_HEALED——复用 demo 钱包有历史内部单腿 → SOFT_FLAG，见函数头注释）。
+  // case 状态如实打印（不硬断言 AUTO_HEALED——复用 demo 钱包有历史内部单腿 → COMPENSATING，见函数头注释）。
   const wdCase = wdRow2?.caseNo
     ? await (ctx.prisma as any).reconciliationCase.findFirst({ where: { caseNo: wdRow2.caseNo } })
     : null;

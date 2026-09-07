@@ -60,7 +60,7 @@ export function buildCaseConclusion(
   } else if (k.bucket === 'IN_TRANSIT') {
     // 规则4
     base = { text: `差额 ${fmt(k.deltaAmount)} 已被在途单全额解释，等待外部确认后自愈`, tone: 'blue' };
-  } else if (k.bucket === 'SOFT_FLAG') {
+  } else if (k.bucket === 'COMPENSATING') {
     // 规则5
     const n = (k.flowSummary?.orphanInternal ?? 0) + (k.flowSummary?.orphanExternal ?? 0) + (k.flowSummary?.mismatch ?? 0);
     base = { text: `余额已对平，但 ${n} 笔流水配不上 → 假匹配待核`, tone: 'amber' };

@@ -243,7 +243,7 @@ export class WalletReconRunService {
       );
       // ④ 已被落账调账单解释的差异，不计入异常数。
       // 业主 2026-08-29 裁定「甲」：调账单只改余额，造成差额的那条流水本身还在，
-      // 而桶规则是「残差=0 且 无在途 且 流水异常>0 → SOFT_FLAG」——SOFT_FLAG 不是
+      // 而桶规则是「残差=0 且 无在途 且 流水异常>0 → COMPENSATING」——COMPENSATING 不是
       // MATCHED，钱包仍在破口集合里，于是平了账的案子永远关不掉。把已解释的差异
       // 摘掉，案子才走得完最后一步。（差异行本身照写，只是标成 EXPLAINED，仍在
       // 案件页上看得见——「这条已被 ADJxxx 解释」是演示可见物。）
@@ -445,7 +445,7 @@ export class WalletReconRunService {
   ): void {
     if (bucket === 'MATCHED') counts.matched += 1;
     else if (bucket === 'IN_TRANSIT') counts.inTransit += 1;
-    else if (bucket === 'SOFT_FLAG') counts.softFlag += 1;
+    else if (bucket === 'COMPENSATING') counts.softFlag += 1;
     else counts.break += 1;
   }
 

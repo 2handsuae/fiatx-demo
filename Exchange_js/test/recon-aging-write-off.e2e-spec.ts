@@ -212,7 +212,7 @@ describe('Recon case aging → write-off e2e (平账 A 批, Task 12)', () => {
     /** Step 1 的外部参考号——matcher 按它与外部对账单行配对（Task 12 新增）。 */
     externalRef?: string;
     /** Step 1 是否算外部穿越（默认 false）。跨日切场景传 true —— 那才是
-     *  deposit-workflow.service.ts 生产里的真实形状，也是 SOFT_FLAG 那条路的入口。 */
+     *  deposit-workflow.service.ts 生产里的真实形状，也是 COMPENSATING 那条路的入口。 */
     crossing?: boolean;
     /** 分录的业务生效日（默认跟随写入时刻）。 */
     effectiveDate?: string;
@@ -546,7 +546,7 @@ describe('Recon case aging → write-off e2e (平账 A 批, Task 12)', () => {
 
     await walletRecon.run({ cutoff: runCutoff });
     const kase = await openCaseFor(wallet.id);
-    expect(kase.bucket).toBe('SOFT_FLAG');
+    expect(kase.bucket).toBe('COMPENSATING');
     const detail = await reconQuery.getCase(kase.caseNo);
     expect(detail.flowSummary.orphanInternal).toBe(1);   // 修前为 0：页面按日终重建，16:00 的行落回窗内
   });

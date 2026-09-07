@@ -34,7 +34,7 @@ import {
 } from '../components/compliance/DetailPageComponents';
 import { SidebarGroup, SidebarKV } from '../components/ui/SidebarPrimitives';
 import { StatusPill } from '../components/ui/StatusPill';
-import { BUCKET_LABELS, formatBucketBilingual, type ReconBucket } from '../utils/reconBucketMap';
+import { BUCKET_LABELS, formatBucket, type ReconBucket } from '../utils/reconBucketMap';
 // 平账二期：划转单状态人话——与列表 / 详情页同一份词表（Task 13）
 import { INTERNAL_TRANSFER_STATUS_LABEL as TRANSFER_STATUS_WORD } from '../utils/internalTransferStatusMap';
 import { buildCaseConclusion } from '../utils/caseConclusion';
@@ -305,7 +305,7 @@ const rowAdjustmentPrefill = (row: FlowComparisonRow): AdjustmentPrefill => {
 
   // ④ 两个解释锚一律按行原样带上——它们是这条差异的真实证据 id，后端据此在下一轮
   // 对账里把这条差异从异常数里摘掉（没有它们，调账只补得平余额，案子仍卡在
-  // SOFT_FLAG 关不掉）。哪类行带哪个锚由行自身决定，这里不做筛选。
+  // COMPENSATING 关不掉）。哪类行带哪个锚由行自身决定，这里不做筛选。
   const anchors = {
     explainedFlowId: intl?.id,
     explainedExternalLineId: ext?.id,
@@ -768,7 +768,7 @@ const ReconciliationCasesDetailPage = () => {
                   ].join(' ')}
                 >
                   {kase.bucket === 'MATCHED' ? <Check size={10} /> : <AlertTriangle size={10} />}
-                  {formatBucketBilingual(kase.bucket)}
+                  {formatBucket(kase.bucket)}
                 </span>
               )}
               {kase.severity && (
@@ -1355,7 +1355,7 @@ const ReconciliationCasesDetailPage = () => {
           <SidebarGroup title="Identity Summary">
             <SidebarKV label="Case No" value={kase.caseNo} mono />
             <SidebarKV label="Status" value={<StatusPill value={kase.status} />} />
-            <SidebarKV label="Bucket" value={kase.bucket ? formatBucketBilingual(kase.bucket) : '—'} />
+            <SidebarKV label="Bucket" value={kase.bucket ? formatBucket(kase.bucket) : '—'} />
             <SidebarKV label="Δ" value={deltaZero ? formatAmount(kase.deltaAmount, kase.decimals) : `${sign}${formatAmount(kase.deltaAmount, kase.decimals).replace(/^-/, '')}`} mono />
           </SidebarGroup>
 

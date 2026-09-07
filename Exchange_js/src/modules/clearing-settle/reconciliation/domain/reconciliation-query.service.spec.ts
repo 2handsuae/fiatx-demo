@@ -770,7 +770,7 @@ describe('getRun — reads reconciliationRunWallet snapshot rows (T6)', () => {
       },
       {
         walletRef: 'walletB', assetCode: 'AED', book: 'CUSTOMER', coaCode: 'L.CLIENT_PAYABLE+L.DEPOSIT_SUSPENSE',
-        ownerNo: 'CU-2', bucket: 'SOFT_FLAG',
+        ownerNo: 'CU-2', bucket: 'COMPENSATING',
         internalTotal: new Prisma.Decimal(500), externalClosing: new Prisma.Decimal(500), deltaAmount: new Prisma.Decimal(0),
         inTransitAmount: new Prisma.Decimal(0), matchedCount: 0, orphanInternal: 0, orphanExternal: 1, mismatchCount: 0,
         inTransitCount: 0, caseNo: 'REC20260703-001',
@@ -801,7 +801,7 @@ describe('getRun — reads reconciliationRunWallet snapshot rows (T6)', () => {
     expect(a.bucket).toBe('MATCHED');
     expect(a.caseNo).toBeNull();
     const b = result.accountStatusTable.find((r: any) => r.walletRef === 'walletB');
-    expect(b.bucket).toBe('SOFT_FLAG');
+    expect(b.bucket).toBe('COMPENSATING');
     expect(b.caseNo).toBe('REC20260703-001');
     expect(b.inTransitAmount).toBeDefined();
 

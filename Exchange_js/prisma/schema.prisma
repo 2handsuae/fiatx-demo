@@ -1493,7 +1493,7 @@ model ReconciliationCase {
   resolvedAt                DateTime?
   resolutionReason          String?  // 'AUTO_HEALED' | 'MANUAL_RESOLVED' | 'WAIVED'
   severity                  String?  // 'HIGH' | 'MEDIUM' | 'LOW'
-  bucket                    String?  // IN_TRANSIT | SOFT_FLAG | BREAK（Round3 起必填；历史行 null）
+  bucket                    String?  // IN_TRANSIT | COMPENSATING | BREAK（Round3 起必填；历史行 null）
   createdAt                 DateTime @default(now())
   updatedAt                 DateTime @updatedAt
   openedByRun               ReconciliationRun @relation("CaseOpenedByRun", fields: [openedByRunId], references: [id])
@@ -1690,7 +1690,7 @@ model ReconciliationRunWallet {
   book             String   // CUSTOMER | FIRM
   coaCode          String?
   ownerNo          String?
-  bucket           String   // MATCHED | IN_TRANSIT | SOFT_FLAG | BREAK
+  bucket           String   // MATCHED | IN_TRANSIT | COMPENSATING | BREAK
   internalTotal    Decimal  @default(0)
   externalClosing  Decimal  @default(0)
   deltaAmount      Decimal  @default(0)

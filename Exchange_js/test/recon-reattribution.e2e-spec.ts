@@ -750,7 +750,7 @@ describe('Recon reattribution + disposition behaviour (e2e, Task 12)', () => {
       externalRef: ref, description: 'Incoming (金额与我方所记不符)',
     });
     // ⚠ 收盘余额刻意与内部一致 → 余额差 = 0。于是这个案子**唯一**的存活理由就是
-    //   那条没被解释的差异行（桶 = SOFT_FLAG）。这一点是本条用例的锋利之处：
+    //   那条没被解释的差异行（桶 = COMPENSATING）。这一点是本条用例的锋利之处：
     //   哪天谁让「挂起」也算解释、把异常数抹掉，桶就会滑到 MATCHED、案子被自愈关掉，
     //   这条测试当场红。余额差不为零的写法测不出那种回归。
     await upsertExternalBalance({ walletId: wallet.id, currency: aedCode, book: 'FIRM', closingBalance: BOOKED });
@@ -763,7 +763,7 @@ describe('Recon reattribution + disposition behaviour (e2e, Task 12)', () => {
     expect(kase.book).toBe('FIRM');
     expect(kase.ownerNo).toBeNull();
     expect(String(kase.deltaAmount)).toBe('0');  // 余额平
-    expect(kase.bucket).toBe('SOFT_FLAG');       // 但流水配不上 → 假匹配，案子照开
+    expect(kase.bucket).toBe('COMPENSATING');    // 但流水配不上 → 假匹配，案子照开
 
     const items = await (prisma as any).reconciliationLineItem.findMany({ where: { caseId: kase.id } });
     const mismatchRow = items.find((l: any) => l.matchStatus === 'AMOUNT_MISMATCH');
@@ -822,7 +822,7 @@ describe('Recon reattribution + disposition behaviour (e2e, Task 12)', () => {
     expect(snap).toBeTruthy();
     expect(String(snap.deltaAmount)).toBe('0');   // 余额依然平 —— 案子不是靠余额差撑着的
     expect(snap.mismatchCount).toBe(1);           // 那条差异行还在，且仍未被解释
-    expect(snap.bucket).toBe('SOFT_FLAG');        // 桶没有滑到 MATCHED
+    expect(snap.bucket).toBe('COMPENSATING');     // 桶没有滑到 MATCHED
 
     // 案件页上这一行带得到定性注解：查证结论看得见，出口写着「挂起·调查中」，
     // 而且没有任何调账单解释它。

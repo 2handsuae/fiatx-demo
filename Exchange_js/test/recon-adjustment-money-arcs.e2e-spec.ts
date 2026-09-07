@@ -264,7 +264,7 @@ describe('Recon adjustment money arcs (e2e, Task 8)', () => {
   async function fundCustomerWallet(opts: {
     walletId: string; ownerId: string; assetId: string; ledger: number; currency: string; amount: bigint; tag: string;
     /** Step 1 是否算外部穿越（默认 false，见下方长注释）。场景 9 传 true —— 那才是
-     *  deposit-workflow.service.ts 生产里的真实形状，也是 SOFT_FLAG 那条路的入口。 */
+     *  deposit-workflow.service.ts 生产里的真实形状，也是 COMPENSATING 那条路的入口。 */
     crossing?: boolean;
     /** 分录的业务生效日（默认跟随写入时刻）。场景 9 需要把铺底流水放到一个**过去**的
      *  业务日上，才能让「截止日在过去、调账单今天才写」这个真实形状跑起来。 */
@@ -307,7 +307,7 @@ describe('Recon adjustment money arcs (e2e, Task 8)', () => {
         // thing under test: WalletFlowMatcherService treats every
         // isExternalCrossing:true / OWNED_CODES flow as needing a matching
         // external_statement_line, and this fixture doesn't create any — a
-        // "true" here would leave the wallet stuck at bucket=SOFT_FLAG
+        // "true" here would leave the wallet stuck at bucket=COMPENSATING
         // (orphan-internal > 0) forever, even after the balance delta hits
         // zero, and WalletReconRunService.autoHealCases() only heals wallets
         // that reach bucket=MATCHED.
@@ -1000,8 +1000,8 @@ describe('Recon adjustment money arcs (e2e, Task 8)', () => {
   //     内部余额一分没动、差额永远归不了零。
   //
   //   绕开点 B（流水异常）：铺底流水写成 isExternalCrossing:false，于是钱包上根本
-  //     没有差异行，anomalyCount 恒 0，永远碰不到 SOFT_FLAG。真实案子都有差异行；
-  //     调账只补余额、不摘差异行的话，桶停在 SOFT_FLAG，案子永远关不掉。
+  //     没有差异行，anomalyCount 恒 0，永远碰不到 COMPENSATING。真实案子都有差异行；
+  //     调账只补余额、不摘差异行的话，桶停在 COMPENSATING，案子永远关不掉。
   //
   // 这条用例断言的是业主真正要的那句话：**平完账，案子真的关掉了。**
   // ────────────────────────────────────────────────────────────────────────
@@ -1097,7 +1097,7 @@ describe('Recon adjustment money arcs (e2e, Task 8)', () => {
     expect(String(snapshot.deltaAmount)).toBe('0');
 
     // ④ 差异行还在（是证据，要给人看），但已标成被这张单解释、不再算异常
-    //    → 桶回到 MATCHED。修之前这里会停在 SOFT_FLAG，案子永远关不掉。
+    //    → 桶回到 MATCHED。修之前这里会停在 COMPENSATING，案子永远关不掉。
     expect(snapshot.orphanInternal).toBe(1);   // 差异行本身没有消失
     expect(snapshot.bucket).toBe('MATCHED');   // 但它已被解释，不算异常
 

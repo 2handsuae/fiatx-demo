@@ -7,7 +7,7 @@
 // MATCH/FLOW_REVIEW/BREAK three-tier status):
 //   • MATCHED    — balance OK AND flows OK                        (green)
 //   • IN_TRANSIT — delta fully explained by non-terminal funds_order (blue)
-//   • SOFT_FLAG  — balance OK but flow line-items have orphan/mismatch (amber)
+//   • COMPENSATING — balance OK but flow line-items have orphan/mismatch (amber)
 //   • BREAK      — residual delta unexplained after in-transit netting (red)
 //
 // Layout (top → bottom):
@@ -159,16 +159,16 @@ const StatusBadge = ({ value }: { value: ReconBucket }) => {
       className={`inline-flex items-center gap-1 rounded border px-2 py-0.5 font-mono text-[10px] font-semibold uppercase ${tone.border} ${tone.bg} ${tone.text}`}
     >
       {value === 'MATCHED' ? <Check size={10} /> : <AlertTriangle size={10} />}
-      {label.en} / {label.zh}
+      {label.en}
     </span>
   );
 };
 
-// Sort priority for status column — BREAK first (hard, act now), SOFT_FLAG
+// Sort priority for status column — BREAK first (hard, act now), COMPENSATING
 // and IN_TRANSIT next (investigate), MATCHED last (done).
 const STATUS_RANK: Record<ReconBucket, number> = {
   BREAK: 0,
-  SOFT_FLAG: 1,
+  COMPENSATING: 1,
   IN_TRANSIT: 2,
   MATCHED: 3,
 };
@@ -382,13 +382,13 @@ const ReconciliationRunsDetailPage = () => {
                 </div>
               </button>
 
-              {(['MATCHED', 'IN_TRANSIT', 'SOFT_FLAG', 'BREAK'] as const).map((bucket) => {
+              {(['MATCHED', 'IN_TRANSIT', 'COMPENSATING', 'BREAK'] as const).map((bucket) => {
                 const label = BUCKET_LABELS[bucket];
                 const tone = TONE_CLASSES[label.tone];
                 const count =
                   bucket === 'MATCHED' ? summary.matchedCount :
                   bucket === 'IN_TRANSIT' ? summary.inTransitCount :
-                  bucket === 'SOFT_FLAG' ? summary.softFlagCount :
+                  bucket === 'COMPENSATING' ? summary.softFlagCount :
                   summary.breakCount;
                 const active = bucketFilter === bucket;
                 const hasCount = count > 0;
@@ -410,7 +410,7 @@ const ReconciliationRunsDetailPage = () => {
                       className={`flex items-center gap-1.5 font-mono text-[9px] uppercase tracking-wider ${hasCount ? tone.text : 'text-adm-t3'}`}
                     >
                       {bucket === 'MATCHED' ? <Check size={11} /> : <AlertTriangle size={11} />}
-                      {label.en} / {label.zh}
+                      {label.en}
                     </div>
                     <div
                       className={`mt-1 text-[28px] font-bold leading-tight ${hasCount ? tone.text : 'text-adm-t1'}`}
@@ -478,7 +478,7 @@ const ReconciliationRunsDetailPage = () => {
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div className="font-mono text-[11px] text-adm-t3">
                     {bucketFilter
-                      ? `Filtered: ${BUCKET_LABELS[bucketFilter].en} / ${BUCKET_LABELS[bucketFilter].zh}`
+                      ? `Filtered: ${BUCKET_LABELS[bucketFilter].en}`
                       : `All buckets (${accountTable.length})`}
                   </div>
                   <button

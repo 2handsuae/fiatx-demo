@@ -11,7 +11,7 @@
 > **⭐ = 带同事走七幕时会当场看到或讲不圆的**，共 31 条。一行四要素：是什么 ｜ 哪来的 ｜ 落点 / 状态。做完就勾掉。
 > 分诊历史：2026-08-26 首次分流（加固类迁出）；2026-08-28 二次分诊——业务/技术彻底分家：8 条已完成或已作废销账、45 条迁 `PRODUCTION-NOTES`、4 条从 `PRODUCTION-NOTES` 判回业务；同日「演示装备」A 档 8 条逐条实跑复核，6 条实证已修当场销账。**2026-08-29 演示装备一期收官**——A 档剩下的 2 条（造数花名册、补料回炉）做完销账，A 档 8/8 全部完成、整节退役删除（原文见「本轮销账」章节与 git 历史）；导语并入 §B。分诊前全文见 git 历史（`649b4e88`）。
 
-Last Updated: 2026-09-06
+Last Updated: 2026-09-07
 
 
 ## B. 第一幕 · 开业（V1 治理底座 ｜ V3 财务配置 ｜ 账本）
@@ -185,7 +185,7 @@ Last Updated: 2026-09-06
   - **已交付**：推单 ｜ 冲正 ｜ 冲销 ｜ 补记（一期，2026-08-31）｜ 改记（第四族，借错记方应付 / 贷正主方应付、资产腿不动、一单双案同愈）｜ 挂起（等下期 / 调查中，零账务，案子仍红）｜ 核销（公司池；四前提 + CFO）｜ 补单（三入口：充值补录 / 退汇认领 / 退回认领，案子上发起、CFO 单步复核、业务域执行、重对账自愈，2026-09-03 平账 B 批）｜ **划转**（认损补款 / 退汇垫款，第四类订单，法币两腿经结算户 / 加密币一腿，2026-09-05 平账二期）｜ **事故登记**（未授权转出出口 / 大额到线升级 / 退汇欠款登记三类入口，五态生命周期 + 双类型结案审批，全程零账务，2026-09-06 平账三期）。入口统一为「先定性（从该格成因菜单选查证结论）→ 注册表判出口」，**「不该动账的行显示错误按钮」那个缺陷随之消失**——2026-08-31 记的「指出来、不点」演法已作废
   - 豁免 / 容差 **不做**（decisions 2026-09-02，精度一致）；aging 已做（3 天，标记 + 审计 + 解锁）
   - ~~**三期**：事故升级（`UNAUTHORIZED_OUTFLOW` 本轮只能留档）~~ —— 已解（2026-09-06 平账三期）：见下方「G. 三期 · 事故登记」已解条
-  - **仍 deferred**：SOFT_FLAG 里"真两侧对冲错"的调账（matcher 调优部分不算）；Finance 人工核实 → 结案 ｜来源: spec §9，2026-09-05 平账二期收尾更新
+  - **仍 deferred**：COMPENSATING 里"真两侧对冲错"的调账（matcher 调优部分不算）；Finance 人工核实 → 结案 ｜来源: spec §9，2026-09-05 平账二期收尾更新
 
 - [x] ~~**退汇认领·客户余额不足时系统直接拒，无法完成认领**~~ —— 已解（2026-09-05 平账二期）：行上直接给「发起垫款」——金库在案件页发起、CFO 单步批准，内部划转单把差额垫进客户钱包（金额锁定 = 账单行 − 客户可用，法币两腿经结算户），到账后「认领退汇」按钮回来，运营正常认领；~~客户欠公司的部分留三期追索登记，不入账~~ —— 三期已解（2026-09-06）：垫款按钮旁「登记欠款」登记为事故（`CLIENT_SHORTFALL`），只登记留痕、不建分录、无自动追偿机制 ｜来源: 2026-09-03 平账 B 批 spec §0-7；已解见 2026-09-05 平账二期 spec + 2026-09-06 平账三期
 
@@ -229,7 +229,7 @@ Last Updated: 2026-09-06
 
 - [x] ~~SUCCESS 后退汇无处理~~ —— 已解（2026-09-03 平账 B 批）：对账域「出金退回认领」补上了这个入口——第六幕对账案子上定性为 `PAYOUT_RETURNED`、发起「认领退回」、CFO 复核批准后 `WithdrawWorkflowService.onReturnAfterSuccess()` 复用 `onBounce()` 的重记分录（本金加回、手续费不退），`SUCCESS → RETURNED` 加一条边；入口仍在对账案子上（不是 withdraw workflow 自身），与原文建议的"归对账子系统匹配外部流水"方向一致 ｜来源: 2026-08-04 Task 12 truth 核对
 
-- [ ] **五桶命名 `SOFT_FLAG`→`COMPENSATING` 代码改名**：PRD 已改用专业名 `COMPENSATING`（抵销错误）；代码仍 `SOFT_FLAG`（`engine/v2/bucket-classifier.ts` 的 `ReconBucket`、`dto/reconciliation.dto.ts` 的 `ReconWalletBucket` + `ReconCaseQuery`），第六幕记分牌上观众看到的桶名与 PRD 对不上 ｜来源: 2026-08-26 分流迁入 PRODUCTION-NOTES，2026-08-28 判为业务缺口迁回（rubric #1 业务逻辑不符：PRD 说应该这样，页面不是这样）
+- [x] ~~**五桶命名 `SOFT_FLAG`→`COMPENSATING` 代码改名**~~ —— 已解（2026-09-07，平账收尾·界面收口轮 Task 1）：全仓改名 `SOFT_FLAG`→`COMPENSATING`（`bucket-classifier.ts` 的 `ReconBucket`、`reconciliation.dto.ts` 的 `ReconWalletBucket`/`ReconCaseQuery`、`wallet-recon-run.service.ts`、`recon-demo.ts` 场景 ⑨⑪⑫ 答案键、五处 e2e 断言、`prisma/schema.prisma` 两处列注释）；前端 `reconBucketMap.ts` 顺带删 `zh` 半边（`formatBucketBilingual`→`formatBucket` 只出英文，全站英文化）。真机走查（self 栈 `recon:demo:break` 铺出真实 COMPENSATING 案子）：Run/Case 详情页 Health Check 卡片、账户状态表徽标、`Filtered:` 提示均显示 `COMPENSATING`/`Compensating`，无残留 `SOFT_FLAG`/软标 ｜来源: 2026-08-26 分流迁入 PRODUCTION-NOTES，2026-08-28 判为业务缺口迁回（rubric #1 业务逻辑不符：PRD 说应该这样，页面不是这样）
 
 - [x] ~~🎯 **二期 · 内部划转单（第四类订单）**~~ —— 已解（2026-09-05 平账二期）：只做公司 → 客户两条路——**认损补款**（客户池核销的第二步：认损调账把客户应付减掉后，金库在案子上发起补款，金额锁定 = 认损额）与**退汇垫款**（退汇认领余额不够时，金库发起，金额锁定 = 差额）；**公司池内部调度不做**（备付 / 归集 / 冷热钱包调拨，理由见 decisions.md 2026-09-05「结算户是过渡户，备付归集没有触发它的业务」），`F_LIQ` 安置问题因此不适用。状态机六态六边（`PENDING_APPROVAL → EXECUTING → SUCCESS`，旁支 `FAILED`/`REJECTED`/`CANCELLED`），是订单不是纯资金单；在途有资金单（沿出金走法表，法币两腿经结算户、加密币一腿直达）｜来源: 2026-08-28 平账三期切分脑暴；范围由 2026-09-05 脑暴收窄
   ⤷ 落地时权限桶落在 Treasury 域下的 `treasury.view_transfers` / `treasury.act_client_funding`（原计划复用 `recon.act_adjust` 未采纳——该桶已归调账单一期专用）

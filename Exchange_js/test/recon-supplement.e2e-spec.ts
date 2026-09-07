@@ -428,7 +428,7 @@ describe('Recon supplement e2e (平账 B 批, Task 8)', () => {
    *  扫描 → 等 COMPLIANCE_PENDING → 真 KYT 通道（花名册 ⚡① 同一条通道）→ 等 SUCCESS；
    *  随后把这笔充值自己的外部对账镜像补上（同参考号的 IN 行）——不补的话，充值
    *  Step 1 那条 isExternalCrossing 内部流水在后续对账里找不到对应外部行，
-   *  永远是一条「我有外无」孤儿，桶判定卡在 SOFT_FLAG 而不是 MATCHED（哪怕总额
+   *  永远是一条「我有外无」孤儿，桶判定卡在 COMPENSATING 而不是 MATCHED（哪怕总额
    *  已经用退汇/退回冲平），调用方最后一步「案子该愈」的断言会等不到 RESOLVED——
    *  e2e 首次真实数据跑通时当场复现（brief Step 4 原文本就点名了这一步，是我
    *  实现时漏抄的，不是 brief 错）。customerId/customerNo 默认 Bob——Step 6(b)
@@ -459,7 +459,7 @@ describe('Recon supplement e2e (平账 B 批, Task 8)', () => {
    *  → 等 SUCCESS；随后把 NET_POST / FEE_POST 两条腿各自的外部对账镜像补上（两条
    *  evidence 都标了 isExternalCrossing=true，withdraw-money-arcs 既有的记账
    *  形状，本文件不改）——同 makeSuccessfulFiatDeposit 的道理，不补的话这两条
-   *  内部流水各是一条「我有外无」孤儿，桶判定卡在 SOFT_FLAG。TigerBeetle 在本系统
+   *  内部流水各是一条「我有外无」孤儿，桶判定卡在 COMPENSATING。TigerBeetle 在本系统
    *  没启用不可透支约束（C2，见 doc-final/PRODUCTION-NOTES.md），createWithdrawal
    *  本身不需要余额铺底就能成功——不为它单独铺底。 */
   async function makeSuccessfulFiatWithdraw(amount: string, customer: { id: string; customerNo: string }, toIban: string): Promise<any> {
