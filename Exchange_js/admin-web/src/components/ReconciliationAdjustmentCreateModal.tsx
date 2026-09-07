@@ -569,11 +569,11 @@ const ReconciliationAdjustmentCreateModal = ({
             className="mb-4 h-16 w-full resize-none rounded border border-adm-border bg-adm-bg px-2.5 py-2 text-xs text-adm-t1 outline-none transition-colors placeholder:text-adm-t3 focus:border-adm-amber"
           />
 
-          <label className={labelCls}>Customer-Visible Reason</label>
+          <label className={labelCls}>Internal Note</label>
           <textarea
             value={reasonCustomer}
             onChange={(e) => setReasonCustomer(e.target.value)}
-            placeholder="Not shown until the customer statement read-model ships, but still needs to be on record"
+            placeholder="Internal record only — the customer statement shows the standard wording for this reason type."
             disabled={submitting}
             className="w-full resize-none rounded border border-adm-border bg-adm-bg px-2.5 py-2 text-xs text-adm-t1 outline-none transition-colors placeholder:text-adm-t3 focus:border-adm-amber"
             rows={2}

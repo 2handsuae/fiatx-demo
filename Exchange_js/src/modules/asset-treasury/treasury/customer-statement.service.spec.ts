@@ -104,7 +104,7 @@ describe('CustomerStatementService', () => {
   describe('② adjustment row', () => {
     it('shows "Original order {no}" when relatedOrderNo is present', async () => {
       mockPrisma.reconciliationAdjustment.findMany.mockResolvedValue([
-        { adjustmentNo: 'ADJ-0001', reasonCustomer: 'Deposit amount correction', relatedOrderNo: 'DEP-0777', direction: 'INCREASE' },
+        { adjustmentNo: 'ADJ-0001', reasonCode: 'DEPOSIT_AMOUNT_CORRECTION', relatedOrderNo: 'DEP-0777', direction: 'INCREASE' },
       ]);
       const legs: StatementLeg[] = [
         leg({
@@ -123,7 +123,7 @@ describe('CustomerStatementService', () => {
 
     it('shows null subtitle when relatedOrderNo is absent', async () => {
       mockPrisma.reconciliationAdjustment.findMany.mockResolvedValue([
-        { adjustmentNo: 'ADJ-0002', reasonCustomer: 'Duplicate deposit reversal', relatedOrderNo: null, direction: 'REDUCE' },
+        { adjustmentNo: 'ADJ-0002', reasonCode: 'DEPOSIT_DUPLICATE_REVERSAL', relatedOrderNo: null, direction: 'REDUCE' },
       ]);
       const legs: StatementLeg[] = [
         leg({
@@ -138,7 +138,7 @@ describe('CustomerStatementService', () => {
 
     it('hides subtitle for the rightful-owner (INCREASE) side of a reattribution, even when relatedOrderNo is present', async () => {
       mockPrisma.reconciliationAdjustment.findMany.mockResolvedValue([
-        { adjustmentNo: 'ADJ-0003', reasonCustomer: 'Account correction', relatedOrderNo: 'DEP-0555', direction: 'REATTRIBUTE' },
+        { adjustmentNo: 'ADJ-0003', reasonCode: 'CUSTOMER_REATTRIBUTION', relatedOrderNo: 'DEP-0555', direction: 'REATTRIBUTE' },
       ]);
       const legs: StatementLeg[] = [
         leg({
@@ -153,7 +153,7 @@ describe('CustomerStatementService', () => {
 
     it('shows "Original order {no}" for the misattributed-owner (REDUCE) side of the SAME reattribution', async () => {
       mockPrisma.reconciliationAdjustment.findMany.mockResolvedValue([
-        { adjustmentNo: 'ADJ-0003', reasonCustomer: 'Account correction', relatedOrderNo: 'DEP-0555', direction: 'REATTRIBUTE' },
+        { adjustmentNo: 'ADJ-0003', reasonCode: 'CUSTOMER_REATTRIBUTION', relatedOrderNo: 'DEP-0555', direction: 'REATTRIBUTE' },
       ]);
       const legs: StatementLeg[] = [
         leg({
@@ -163,6 +163,51 @@ describe('CustomerStatementService', () => {
       ];
       const { items } = await service.buildStatement(legs, { isFiat: true });
       expect(items[0].subtitle).toBe('Original order DEP-0555');
+    });
+
+    // Fix round (opus review Critical): reasonCustomer is operator-typed free
+    // text with no controlled vocabulary — it must never reach the response.
+    // The title is looked up from REASON_SPECS.customerLabel by reasonCode
+    // instead. This reproduces the exact leak shape the reviewer found: a
+    // Chinese sentence plus an English sanctions-adjacent word typed into
+    // reasonCustomer by an operator.
+    it('never leaks reasonCustomer free text (Chinese + sensitive word) into the response — controlled title comes from reasonCode', async () => {
+      mockPrisma.reconciliationAdjustment.findMany.mockResolvedValue([
+        {
+          adjustmentNo: 'ADJ-EVIL',
+          reasonCode: 'UNEXPLAINED_CLIENT_LOSS',
+          // Present in the raw DB row (as it would be in production) but must
+          // never be read by the presentation layer.
+          reasonCustomer: '资金已被上缴 surrender',
+          relatedOrderNo: null,
+          direction: 'REDUCE',
+        },
+      ]);
+      const legs: StatementLeg[] = [
+        leg({
+          sourceType: 'RECON_ADJUSTMENT', sourceNo: 'ADJ-EVIL', eventCode: 'RECON_ADJUSTMENT_POSTED',
+          direction: 'OUT', amount: 4000, runningBalance: 96000,
+        }),
+      ];
+      const { items } = await service.buildStatement(legs, { isFiat: true });
+      expect(items[0].title).toBe('Balance correction · Balance adjustment');
+      const serialized = JSON.stringify(items);
+      expect(serialized).not.toContain('资金已被上缴');
+      expect(serialized.toLowerCase()).not.toContain('surrender');
+    });
+
+    it('falls back to "Balance adjustment" when reasonCode is missing or unrecognized', async () => {
+      mockPrisma.reconciliationAdjustment.findMany.mockResolvedValue([
+        { adjustmentNo: 'ADJ-UNKNOWN', reasonCode: 'SOME_FUTURE_CODE', relatedOrderNo: null, direction: 'REDUCE' },
+      ]);
+      const legs: StatementLeg[] = [
+        leg({
+          sourceType: 'RECON_ADJUSTMENT', sourceNo: 'ADJ-UNKNOWN', eventCode: 'RECON_ADJUSTMENT_POSTED',
+          direction: 'OUT', amount: 1000, runningBalance: 99000,
+        }),
+      ];
+      const { items } = await service.buildStatement(legs, { isFiat: true });
+      expect(items[0].title).toBe('Balance correction · Balance adjustment');
     });
   });
 

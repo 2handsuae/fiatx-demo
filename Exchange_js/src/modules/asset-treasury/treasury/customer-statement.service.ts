@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../../core/prisma/prisma.service';
+import { REASON_SPECS, type ReasonCode } from '../../clearing-settle/reconciliation/disposition/adjustment-rules';
 
 /**
  * Task 10: customer statement read model — aggregates the per-leg evidence
@@ -56,7 +57,7 @@ interface PresentCtx {
   /** Direction of the representative leg, from THIS customer's point of view. */
   legDirection: 'IN' | 'OUT';
   swapCurrencies: { from: string; to: string } | null;
-  adjustment: { reasonCustomer: string; relatedOrderNo: string | null; direction: string } | null;
+  adjustment: { reasonCode: string; relatedOrderNo: string | null; direction: string } | null;
 }
 
 interface RowPresentation {
@@ -67,6 +68,17 @@ interface RowPresentation {
    *  original credit vs its later clawback). */
   family: string;
   present: (ctx: PresentCtx) => { title: string; subtitle: string | null };
+}
+
+/** Controlled customer-facing wording for a reconciliation adjustment reason
+ *  code (Task 10 fix round: reasonCustomer is operator-typed free text with no
+ *  controlled vocabulary and must never reach a customer response — this reads
+ *  REASON_SPECS.customerLabel instead). Falls back to the same "Balance
+ *  adjustment" wording used elsewhere in this file when the code is missing,
+ *  unrecognized, or maps to a reason with no customer-facing label. */
+function customerLabelFor(reasonCode: string | null | undefined): string {
+  const spec = reasonCode ? REASON_SPECS[reasonCode as ReasonCode] : undefined;
+  return spec?.customerLabel ?? 'Balance adjustment';
 }
 
 /**
@@ -174,7 +186,7 @@ const ROW_PRESENTATION: Record<string, RowPresentation> = {
     family: 'RECON_ADJUSTMENT',
     present: ({ legDirection, adjustment }) => {
       if (!adjustment) return { title: 'Balance adjustment', subtitle: null };
-      const title = `Balance correction · ${adjustment.reasonCustomer}`;
+      const title = `Balance correction · ${customerLabelFor(adjustment.reasonCode)}`;
       if (adjustment.direction === 'REATTRIBUTE' && legDirection === 'IN') {
         return { title, subtitle: null };
       }
@@ -234,7 +246,7 @@ export class CustomerStatementService {
     }
     const groupList = [...groups.values()];
 
-    // Batch-fetch DB context needed by presentation (reasonCustomer/relatedOrderNo
+    // Batch-fetch DB context needed by presentation (reasonCode/relatedOrderNo
     // for adjustments, from/to currency for swaps) — one query per kind, no N+1.
     const adjustmentNos = new Set<string>();
     const swapNos = new Set<string>();
@@ -247,7 +259,7 @@ export class CustomerStatementService {
       adjustmentNos.size
         ? (this.prisma as any).reconciliationAdjustment.findMany({
             where: { adjustmentNo: { in: [...adjustmentNos] } },
-            select: { adjustmentNo: true, reasonCustomer: true, relatedOrderNo: true, direction: true },
+            select: { adjustmentNo: true, reasonCode: true, relatedOrderNo: true, direction: true },
           })
         : Promise.resolve([]),
       swapNos.size
