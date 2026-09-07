@@ -50,6 +50,8 @@ admin@fiatx.com 超管 ｜ sm@ 高管(SMO) ｜ ciso@ ｜ mlro@ ｜ dpo@ ｜ comp
 
 **现场登记用的合法 TRON 样例地址**：`bash -c 'npx ts-node -e "import(\"./src/common/utils/tron-address.util\").then(m=>console.log(m.fakeTronAddress(\"demo-register-1\")))"' 生成一枚（形态合法、不做校验和）。
 
+**档位升级站（第二幕⑤，波三新增）参数**：客户沿用②CDD 直通那位现场客户，不额外注册；充值 40000 USDT，卖出 30000 USDT→AED 撞 `BASIC · SWAP · DAILY` 上限 100000 AED（`GET /swap-transactions/rate` 实测 30000 USDT→AED 净额 ≈109944.65 AED，落在 BASIC 上限 100000 AED 之上、PREMIUM 上限 1000000 AED 之下，撞限不空转；充值量 = 卖出量 + 10000 缓冲）。两档限额对照（AED，Profile 页四行表）：SWAP DAILY 100000/1000000、SWAP MONTHLY 1000000/10000000、WITHDRAWAL DAILY 50000/500000、WITHDRAWAL MONTHLY 500000/5000000（BASIC/PREMIUM）。
+
 ## 各脚本造什么
 
 | 命令 | 产出 |
