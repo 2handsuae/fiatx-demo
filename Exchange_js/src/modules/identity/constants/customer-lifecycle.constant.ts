@@ -23,13 +23,15 @@ export type CustomerLifecycleAction =
   | 'VERIFICATION_PASSED'
   | 'VERIFICATION_REJECTED'
   | 'WITHDRAW_APPLICATION'
+  | 'CDD_CLEARED'
   | 'FINAL_APPROVED'
   | 'FINAL_REJECTED'
   | 'REAPPLY'
   | 'OFFBOARD';
 
 /**
- * 迁移表 —— 9 条边，唯一真相源。
+ * 迁移表 —— 10 条边（波二 +CDD_CLEARED：低风险直通，Sumsub GREEN 即终点；
+ * EDD 路径仍走 VERIFICATION_PASSED → FINAL_APPROVED 两段），唯一真相源。
  *
  * INV-1：ACTIVE 的唯一出口是 OFFBOARDED。表里不存在 ACTIVE → REJECTED|WITHDRAWN 的边。
  * 「Sumsub 复评判拒 / 升级审批被拒 / 客户长期不补材料」都不是关系终止，一律落到限制账上，
@@ -46,6 +48,7 @@ export const CUSTOMER_LIFECYCLE_TRANSITIONS: Record<
     VERIFICATION_PASSED: 'PENDING_APPROVAL',
     VERIFICATION_REJECTED: 'REJECTED',
     WITHDRAW_APPLICATION: 'WITHDRAWN',
+    CDD_CLEARED: 'ACTIVE',
   },
   PENDING_APPROVAL: {
     FINAL_APPROVED: 'ACTIVE',

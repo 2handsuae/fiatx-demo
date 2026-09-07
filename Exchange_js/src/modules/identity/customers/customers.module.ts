@@ -7,6 +7,7 @@ import { CustomerProfileController } from './customer-profile.controller';
 import { PrismaModule } from '../../../core/prisma/prisma.module';
 import { NotificationsModule } from '../../../core/notifications/notifications.module';
 import { CustomerRestrictionWorkflowService } from './customer-restriction-workflow.service';
+import { CustomerLifecycleService } from './customer-lifecycle.service';
 import { CustomerRestrictionReleaseMlroApprovalService } from './customer-restriction-release-mlro-approval.service';
 import { CustomerRestrictionReleaseOpsApprovalService } from './customer-restriction-release-ops-approval.service';
 import { MaterialRequestsModule } from '../material-requests/material-requests.module';
@@ -29,6 +30,7 @@ import { CustomerRestrictionsClientController } from './customer-restrictions.cl
     CustomerRestrictionWorkflowService,
     CustomerRestrictionReleaseMlroApprovalService,
     CustomerRestrictionReleaseOpsApprovalService,
+    CustomerLifecycleService,
     CustomersService,
     CustomerRestrictionsService,
     CustomerAccessService,
@@ -41,6 +43,7 @@ import { CustomerRestrictionsClientController } from './customer-restrictions.cl
   ],
   exports: [
     CustomerRestrictionWorkflowService,
+    CustomerLifecycleService,
     CustomersService,
     CustomerRestrictionsService,
     CustomerAccessService,
