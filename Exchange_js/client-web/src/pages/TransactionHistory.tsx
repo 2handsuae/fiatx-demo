@@ -1,17 +1,13 @@
-import { useEffect, useState, useCallback } from 'react';
-import { useSearchParams, useNavigate } from 'react-router-dom';
-import { useAuth } from '../context/AuthContext';
+import { useCallback, useEffect, useState } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
-  ArrowLeft, 
-  RefreshCw, 
-  ChevronLeft, 
-  ChevronRight, 
-  Calendar,
+  ArrowLeft,
+  RefreshCw,
+  ChevronLeft,
+  ChevronRight,
+  AlertCircle,
   History,
-  ArrowUpRight,
-  ArrowDownLeft,
-  Search,
-  AlertCircle
+  Briefcase,
 } from 'lucide-react';
 import { formatAssetAmount } from '../utils/number-format';
 import {
@@ -20,302 +16,371 @@ import {
   getCustomerApiErrorMessage,
 } from '../utils/customerFetch';
 
-interface TransactionItem {
-  id: string;
-  journalId: string;
-  lineNo: number;
-  accountCode: string;
-  drCr: 'DR' | 'CR';
-  amount: string;
+/* ────────────────────────────────────────────────────────────────
+ *  Transaction History — one row per order, fed by the Task 10
+ *  aggregated statement read-model. Entered only from the Overview
+ *  asset row's history icon; not a sidebar nav item.
+ * ──────────────────────────────────────────────────────────────── */
+
+const PAGE_SIZE = 20;
+
+interface PortfolioItem {
   assetId: string;
-  changeAmount: string;
-  postBalance: string;
-  description: string | null;
-  createdAt: string;
-  journal: {
-    eventCode: string;
-    sourceType: string;
-    sourceId: string;
-  };
-  asset: {
-    currency: string;
-    code: string;
-    decimals: number;
-  };
+  assetCode: string;
+  assetType: string;
+  currency: string;
+  available: string;
+  locked: string;
+  decimals: number;
 }
 
-interface AssetInfo {
-  code: string;
-  type: string;
-  name?: string;
+interface StatementRow {
+  postedAt: string;
+  kind: 'DEPOSIT' | 'WITHDRAWAL' | 'SWAP' | 'TRANSFER' | 'ADJUSTMENT';
+  title: string;
+  subtitle: string | null;
+  amount: string;
+  feeAmount: string | null;
+  balanceAfter: string;
+  // Back-office traceability only — deliberately not rendered on the client.
+  refs: { sourceType: string; sourceNo: string }[];
 }
+
+// Backend does a plain `<=` comparison on `to`; a bare end-date string parses to
+// that day's UTC midnight, which would exclude every event during the selected
+// end day. Push the boundary to the start of the next day so the whole selected
+// day is included.
+const toBoundary = (dateStr: string): string => {
+  const next = new Date(`${dateStr}T00:00:00.000Z`);
+  next.setUTCDate(next.getUTCDate() + 1);
+  return next.toISOString();
+};
 
 const TransactionHistory = () => {
-  const { user } = useAuth();
-  const [searchParams] = useSearchParams();
   const navigate = useNavigate();
-  const assetId = searchParams.get('assetId');
+  const [searchParams, setSearchParams] = useSearchParams();
 
-  const [items, setItems] = useState<TransactionItem[]>([]);
-  const [assetInfo, setAssetInfo] = useState<AssetInfo | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
-  
-  // Filters
+  const [portfolio, setPortfolio] = useState<PortfolioItem[]>([]);
+  const [portfolioLoading, setPortfolioLoading] = useState(true);
+  const [portfolioError, setPortfolioError] = useState('');
+
+  const [selectedAssetId, setSelectedAssetId] = useState<string | null>(
+    () => searchParams.get('assetId'),
+  );
+
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
-
-  // Pagination
   const [page, setPage] = useState(1);
-  const [pageSize] = useState(10);
-  const [total, setTotal] = useState(0);
 
-  const fetchAssetInfo = useCallback(async () => {
-    if (!assetId) return;
+  const [rows, setRows] = useState<StatementRow[]>([]);
+  const [total, setTotal] = useState(0);
+  const [statementCurrency, setStatementCurrency] = useState('');
+  const [decimals, setDecimals] = useState(2);
+  const [statementLoading, setStatementLoading] = useState(false);
+  const [statementError, setStatementError] = useState('');
+
+  const selectedAsset = portfolio.find((p) => p.assetId === selectedAssetId) ?? null;
+
+  const fetchPortfolio = useCallback(async () => {
+    setPortfolioLoading(true);
+    setPortfolioError('');
     try {
-      const response = await customerFetch(`${import.meta.env.VITE_API_URL}/assets?take=200`);
+      const response = await customerFetch(
+        `${import.meta.env.VITE_API_URL}/client/portfolio/balances`,
+      );
       if (response.ok) {
         const data = await response.json();
-        const found = (data.items || []).find((a: { id: string }) => a.id === assetId) ?? null;
-        setAssetInfo(found);
-      }
-    } catch (err) {
-      if (err instanceof CustomerSessionError) return;
-      console.error('Failed to fetch asset info', err);
-    }
-  }, [assetId]);
-
-  const fetchTransactions = useCallback(async () => {
-    if (!user || !assetId) return;
-
-    setLoading(true);
-    setError('');
-    try {
-      const params = new URLSearchParams();
-      params.append('customerId', user.customerNo);
-      params.append('assetId', assetId);
-      params.append('skip', ((page - 1) * pageSize).toString());
-      params.append('take', pageSize.toString());
-      
-      if (startDate) params.append('startDate', new Date(startDate).toISOString());
-      if (endDate) params.append('endDate', new Date(endDate).toISOString());
-      
-      const response = await customerFetch(
-        `${import.meta.env.VITE_API_URL}/journal-lines/customer-balance-history?${params.toString()}`,
-      );
-      
-      if (response.ok) {
-        const result = await response.json();
-        setItems(result.items || []);
-        setTotal(result.total || 0);
+        setPortfolio(data);
       } else {
-        setError(await getCustomerApiErrorMessage(response, 'Failed to fetch transaction history'));
+        setPortfolioError(
+          await getCustomerApiErrorMessage(response, 'Failed to load your assets'),
+        );
       }
     } catch (err) {
       if (err instanceof CustomerSessionError) return;
-      console.error('Failed to fetch transactions', err);
-      setError('Network connection error');
+      setPortfolioError(err instanceof Error ? err.message : 'Network connection error');
     } finally {
-      setLoading(false);
+      setPortfolioLoading(false);
     }
-  }, [user, assetId, page, pageSize, startDate, endDate]);
+  }, []);
 
   useEffect(() => {
-    fetchAssetInfo();
-    fetchTransactions();
-  }, [fetchAssetInfo, fetchTransactions]);
+    fetchPortfolio();
+  }, [fetchPortfolio]);
 
-  const formatAmount = (amount: string | number, decimals: number = 2) =>
-    formatAssetAmount(amount, decimals);
+  // Resolve the asset in play: keep the URL's/current selection if it's still a
+  // held asset, otherwise fall back to the first one in the portfolio.
+  useEffect(() => {
+    if (portfolio.length === 0) return;
+    setSelectedAssetId((current) =>
+      current && portfolio.some((p) => p.assetId === current) ? current : portfolio[0].assetId,
+    );
+  }, [portfolio]);
 
-  const totalPages = Math.ceil(total / pageSize);
+  useEffect(() => {
+    if (!selectedAssetId) return;
+    setSearchParams({ assetId: selectedAssetId }, { replace: true });
+  }, [selectedAssetId, setSearchParams]);
 
-  const assetCode = assetInfo?.code || (items.length > 0 ? items[0].asset.code : '');
+  const selectedCurrency = selectedAsset?.currency ?? null;
+
+  const fetchStatement = useCallback(async () => {
+    if (!selectedCurrency) return;
+    setStatementLoading(true);
+    setStatementError('');
+    try {
+      const params = new URLSearchParams({ assetCurrency: selectedCurrency });
+      if (startDate) params.set('from', startDate);
+      if (endDate) params.set('to', toBoundary(endDate));
+      params.set('skip', String((page - 1) * PAGE_SIZE));
+      params.set('take', String(PAGE_SIZE));
+
+      const response = await customerFetch(
+        `${import.meta.env.VITE_API_URL}/client/portfolio/statement?${params.toString()}`,
+      );
+      if (response.ok) {
+        const data = await response.json();
+        setRows(data.items ?? []);
+        setTotal(data.total ?? 0);
+        setStatementCurrency(data.assetCurrency ?? selectedCurrency);
+        setDecimals(data.decimals ?? 2);
+      } else {
+        setStatementError(
+          await getCustomerApiErrorMessage(response, 'Failed to load transaction history'),
+        );
+      }
+    } catch (err) {
+      if (err instanceof CustomerSessionError) return;
+      setStatementError(err instanceof Error ? err.message : 'Network connection error');
+    } finally {
+      setStatementLoading(false);
+    }
+  }, [selectedCurrency, startDate, endDate, page]);
+
+  useEffect(() => {
+    fetchStatement();
+  }, [fetchStatement]);
+
+  const handleSelectAsset = (assetId: string) => {
+    setSelectedAssetId(assetId);
+    setPage(1);
+  };
+
+  const handleClearDates = () => {
+    setStartDate('');
+    setEndDate('');
+    setPage(1);
+  };
+
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  const scale = Math.pow(10, decimals);
 
   return (
-    <div className="space-y-6 max-w-6xl mx-auto">
+    <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center gap-4">
-        <button 
-          onClick={() => navigate('/overview')}
-          className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition-colors text-gray-500"
+      <div className="flex items-start justify-between">
+        <div className="flex items-start gap-3.5">
+          <button
+            onClick={() => navigate('/overview')}
+            className="mt-1.5 text-fx-dust hover:text-fx-brass transition-colors"
+            aria-label="Back to Overview"
+          >
+            <ArrowLeft size={18} />
+          </button>
+          <div>
+            <h1 className="font-display text-[26px] font-normal text-fx-sand">
+              Transaction History
+            </h1>
+            <p className="mt-1.5 text-[12px] text-fx-dust">
+              Every balance change on your account — one row per order.
+            </p>
+          </div>
+        </div>
+        <button
+          onClick={fetchStatement}
+          className="mt-1 text-fx-dust hover:text-fx-brass transition-colors"
+          title="Refresh"
         >
-          <ArrowLeft size={24} />
+          <RefreshCw size={15} className={statementLoading ? 'animate-spin' : ''} />
         </button>
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Transaction History</h1>
-          <p className="text-sm text-gray-500 dark:text-gray-400">
-            {assetCode ? `${assetCode} Balance History` : 'View your balance changes'}
+      </div>
+
+      {portfolioLoading ? (
+        <div className="flex items-center justify-center py-24">
+          <RefreshCw className="animate-spin text-fx-dust" size={20} />
+        </div>
+      ) : portfolioError ? (
+        <div className="flex flex-col items-center gap-3 py-24 text-center">
+          <AlertCircle size={22} className="text-fx-rust" />
+          <p className="font-mono text-[12px] text-fx-rust">{portfolioError}</p>
+          <button
+            onClick={fetchPortfolio}
+            className="font-mono text-[10px] uppercase tracking-[0.12em] text-fx-dust hover:text-fx-brass transition-colors border border-fx-rule px-3 py-1.5"
+          >
+            Retry
+          </button>
+        </div>
+      ) : portfolio.length === 0 ? (
+        <div className="flex flex-col items-center gap-3 py-24 text-center">
+          <Briefcase size={22} className="text-fx-dust" />
+          <p className="font-mono text-[12px] text-fx-dust">
+            No assets available on this platform.
           </p>
         </div>
-        <div className="ml-auto">
-          <button 
-            onClick={fetchTransactions}
-            className="p-2 text-gray-400 hover:text-brand-primary transition-colors"
-            title="Refresh"
-          >
-            <RefreshCw size={20} className={loading ? 'animate-spin' : ''} />
-          </button>
-        </div>
-      </div>
-
-      {/* Filters */}
-      <div className="bg-white dark:bg-gray-800 p-4 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700">
-        <div className="flex flex-wrap items-end gap-4">
-          <div className="space-y-1.5">
-            <label className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase flex items-center gap-1.5">
-              <Calendar size={14} /> From Date
-            </label>
-            <input 
-              type="date"
-              value={startDate}
-              onChange={(e) => { setStartDate(e.target.value); setPage(1); }}
-              className="px-3 py-2 bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg text-sm focus:outline-none focus:border-brand-primary dark:text-white"
-            />
-          </div>
-
-          <div className="space-y-1.5">
-            <label className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase flex items-center gap-1.5">
-              <Calendar size={14} /> To Date
-            </label>
-            <input 
-              type="date"
-              value={endDate}
-              onChange={(e) => { setEndDate(e.target.value); setPage(1); }}
-              className="px-3 py-2 bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg text-sm focus:outline-none focus:border-brand-primary dark:text-white"
-            />
-          </div>
-
-          <button 
-            onClick={() => { setStartDate(''); setEndDate(''); setPage(1); }}
-            className="px-4 py-2 text-sm font-medium text-gray-500 hover:text-brand-primary transition-colors"
-          >
-            Clear Filters
-          </button>
-        </div>
-      </div>
-
-      {/* Transactions Table */}
-      <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden">
-        {error ? (
-          <div className="p-12 text-center">
-            <AlertCircle size={48} className="mx-auto text-red-400 mb-4" />
-            <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-1">Error Loading Data</h3>
-            <p className="text-gray-500 dark:text-gray-400">{error}</p>
-            <button 
-              onClick={fetchTransactions}
-              className="mt-4 px-6 py-2 bg-brand-primary text-white rounded-lg hover:bg-brand-primary/90 transition-colors"
-            >
-              Try Again
-            </button>
-          </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-sm">
-              <thead className="bg-gray-50 dark:bg-gray-900/50 border-b border-gray-100 dark:border-gray-700">
-                <tr>
-                  <th className="px-6 py-4 font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Date</th>
-                  <th className="px-6 py-4 font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Description</th>
-                  <th className="px-6 py-4 font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider text-right">Amount</th>
-                  <th className="px-6 py-4 font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider text-right">Balance</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
-                {loading && items.length === 0 ? (
-                  <tr>
-                    <td colSpan={4} className="px-6 py-12 text-center text-gray-500">
-                      <div className="flex flex-col items-center justify-center">
-                        <RefreshCw className="animate-spin mb-2 text-brand-primary" size={24} />
-                        Loading transactions...
-                      </div>
-                    </td>
-                  </tr>
-                ) : !assetId ? (
-                  <tr>
-                    <td colSpan={4} className="px-6 py-12 text-center text-gray-500 dark:text-gray-400">
-                      <div className="flex flex-col items-center justify-center opacity-40">
-                        <Search size={48} className="mb-2" />
-                        Please select an asset from the Overview page to view history
-                      </div>
-                    </td>
-                  </tr>
-                ) : items.length === 0 ? (
-                  <tr>
-                    <td colSpan={4} className="px-6 py-12 text-center text-gray-500 dark:text-gray-400">
-                      <div className="flex flex-col items-center justify-center opacity-40">
-                        <History size={48} className="mb-2" />
-                        No transactions found for this asset
-                      </div>
-                    </td>
-                  </tr>
-                ) : (
-                  items.map((item) => {
-                    const isPositive = Number(item.changeAmount) > 0;
-                    return (
-                      <tr key={item.id} className="hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors">
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <div className="text-gray-900 dark:text-white font-medium">
-                              {new Date(item.createdAt).toLocaleDateString()}
-                          </div>
-                          <div className="text-xs text-gray-500 dark:text-gray-400">
-                              {new Date(item.createdAt).toLocaleTimeString()}
-                          </div>
-                        </td>
-                        <td className="px-6 py-4">
-                          <div className="text-gray-900 dark:text-white font-medium">
-                            {item.description || item.journal.eventCode.replace('EVT_', '').replace(/_/g, ' ')}
-                          </div>
-                          <div className="text-[10px] text-gray-400 dark:text-gray-500 font-mono mt-1">
-                            Ref: {item.journal.sourceType}-{item.journal.sourceId.substring(0, 8)}
-                          </div>
-                        </td>
-                        <td className={`px-6 py-4 text-right font-bold ${isPositive ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
-                          <div className="flex items-center justify-end gap-1">
-                              {isPositive ? <ArrowDownLeft size={14} /> : <ArrowUpRight size={14} />}
-                              {isPositive ? '+' : ''}{formatAmount(item.changeAmount, item.asset.decimals)}
-                              <span className="text-[10px] ml-1 opacity-60">{item.asset.currency}</span>
-                          </div>
-                        </td>
-                        <td className="px-6 py-4 text-right font-mono font-bold text-gray-900 dark:text-white bg-gray-50/30 dark:bg-gray-900/30">
-                          {formatAmount(item.postBalance, item.asset.decimals)}
-                        </td>
-                      </tr>
-                    );
-                  })
-                )}
-              </tbody>
-            </table>
-          </div>
-        )}
-
-        {/* Pagination */}
-        {total > 0 && (
-          <div className="px-6 py-4 border-t border-gray-100 dark:border-gray-700 flex items-center justify-between bg-gray-50 dark:bg-gray-900/50">
-            <div className="text-sm text-gray-500 dark:text-gray-400">
-                Showing {items.length} of {total} entries
+      ) : (
+        <>
+          {/* Asset chips + date range filter */}
+          <div className="flex flex-wrap items-center justify-between gap-4">
+            <div className="flex flex-wrap gap-2">
+              {portfolio.map((item) => {
+                const active = item.assetId === selectedAssetId;
+                return (
+                  <button
+                    key={item.assetId}
+                    onClick={() => handleSelectAsset(item.assetId)}
+                    className={`border px-4 py-[5px] font-mono text-[11px] tracking-[0.08em] transition-colors ${
+                      active
+                        ? 'border-fx-brass/50 bg-fx-brass/[0.08] text-fx-brass'
+                        : 'border-fx-rule text-fx-dust hover:text-fx-dune'
+                    }`}
+                  >
+                    {item.assetCode}
+                  </button>
+                );
+              })}
             </div>
-            <div className="flex items-center gap-2">
-                <button 
-                    onClick={() => setPage(p => Math.max(1, p - 1))}
-                    disabled={page === 1}
-                    className="p-1 rounded hover:bg-white dark:hover:bg-gray-800 border border-transparent hover:border-gray-200 dark:hover:border-gray-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+            <div className="flex items-center gap-2.5">
+              <input
+                type="date"
+                value={startDate}
+                onChange={(e) => { setStartDate(e.target.value); setPage(1); }}
+                className="border border-fx-rule bg-fx-ink text-fx-dune font-mono text-[11px] px-3 py-1.5 focus:outline-none focus:border-fx-brass/50"
+              />
+              <span className="font-mono text-[11px] text-fx-dust">to</span>
+              <input
+                type="date"
+                value={endDate}
+                onChange={(e) => { setEndDate(e.target.value); setPage(1); }}
+                className="border border-fx-rule bg-fx-ink text-fx-dune font-mono text-[11px] px-3 py-1.5 focus:outline-none focus:border-fx-brass/50"
+              />
+              {(startDate || endDate) && (
+                <button
+                  onClick={handleClearDates}
+                  className="font-mono text-[11px] text-fx-dust hover:text-fx-brass transition-colors"
                 >
-                    <ChevronLeft size={20} className="text-gray-500" />
+                  Clear
                 </button>
-                <span className="text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 px-3 py-1 rounded border border-gray-200 dark:border-gray-700 shadow-sm">
-                    Page {page} of {totalPages || 1}
+              )}
+            </div>
+          </div>
+
+          {/* Statement table */}
+          <div className="border border-fx-rule bg-fx-ink">
+            <div className="hidden sm:grid grid-cols-[150px_minmax(0,1fr)_190px_170px] border-b border-fx-rule px-5 py-3">
+              <span className="font-mono text-[9px] uppercase tracking-[0.14em] text-fx-dust">Date</span>
+              <span className="font-mono text-[9px] uppercase tracking-[0.14em] text-fx-dust">Description</span>
+              <span className="font-mono text-[9px] uppercase tracking-[0.14em] text-fx-dust text-right">Amount</span>
+              <span className="font-mono text-[9px] uppercase tracking-[0.14em] text-fx-dust text-right">Balance</span>
+            </div>
+
+            {statementLoading ? (
+              <div className="flex items-center justify-center py-16">
+                <RefreshCw className="animate-spin text-fx-dust" size={20} />
+              </div>
+            ) : statementError ? (
+              <div className="flex flex-col items-center gap-3 py-16 text-center">
+                <AlertCircle size={22} className="text-fx-rust" />
+                <p className="font-mono text-[11px] text-fx-rust">{statementError}</p>
+                <button
+                  onClick={fetchStatement}
+                  className="font-mono text-[10px] uppercase tracking-[0.12em] text-fx-dust hover:text-fx-brass transition-colors border border-fx-rule px-3 py-1.5"
+                >
+                  Retry
+                </button>
+              </div>
+            ) : rows.length === 0 ? (
+              <div className="flex flex-col items-center gap-3 py-16 text-center">
+                <History size={22} className="text-fx-dust" />
+                <p className="font-mono text-[11px] text-fx-dust">
+                  No transactions in this range.
+                </p>
+              </div>
+            ) : (
+              <div className="divide-y divide-fx-rule">
+                {rows.map((row, idx) => {
+                  const netMinor = Number(row.amount);
+                  const net = netMinor / scale;
+                  const isNegative = netMinor < 0;
+                  const feeMinor = row.feeAmount ? Number(row.feeAmount) : 0;
+                  const balance = Number(row.balanceAfter) / scale;
+                  const posted = new Date(row.postedAt);
+                  const dayLabel = posted.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+                  const timeLabel = posted.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
+
+                  return (
+                    <div
+                      key={`${row.postedAt}-${idx}`}
+                      className="grid grid-cols-[150px_minmax(0,1fr)_190px_170px] items-start px-5 py-3.5"
+                    >
+                      <div>
+                        <div className="text-[12px] text-fx-sand">{dayLabel}</div>
+                        <div className="mt-0.5 font-mono text-[10px] text-fx-dust">{timeLabel}</div>
+                      </div>
+                      <div className="min-w-0">
+                        <div className="text-[13px] font-medium text-fx-sand">{row.title}</div>
+                        {row.subtitle && (
+                          <div className="mt-0.5 font-mono text-[10px] text-fx-dust">{row.subtitle}</div>
+                        )}
+                      </div>
+                      <div className="text-right">
+                        <div className={`font-mono text-[13px] font-medium ${isNegative ? 'text-fx-rust' : 'text-fx-sage'}`}>
+                          {isNegative ? '' : '+'}{formatAssetAmount(net, decimals)}{' '}
+                          <span className="text-[10px] opacity-60">{statementCurrency}</span>
+                        </div>
+                        {feeMinor !== 0 && (
+                          <div className="mt-0.5 font-mono text-[10px] text-fx-dust">
+                            fee {formatAssetAmount(feeMinor / scale, decimals)}
+                          </div>
+                        )}
+                      </div>
+                      <div className="text-right font-mono text-[13px] text-fx-sand">
+                        {formatAssetAmount(balance, decimals)}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            {!statementLoading && !statementError && rows.length > 0 && (
+              <div className="flex items-center justify-between border-t border-fx-rule px-5 py-3">
+                <span className="font-mono text-[10px] text-fx-dust">
+                  {rows.length} of {total} entries
                 </span>
-                <button 
-                    onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+                <div className="flex items-center gap-2.5 text-fx-dust">
+                  <button
+                    onClick={() => setPage((p) => Math.max(1, p - 1))}
+                    disabled={page <= 1}
+                    className="disabled:opacity-30 hover:text-fx-brass transition-colors"
+                  >
+                    <ChevronLeft size={14} />
+                  </button>
+                  <span className="font-mono text-[10px] text-fx-dune">
+                    Page {page} of {totalPages}
+                  </span>
+                  <button
+                    onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
                     disabled={page >= totalPages}
-                    className="p-1 rounded hover:bg-white dark:hover:bg-gray-800 border border-transparent hover:border-gray-200 dark:hover:border-gray-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
-                >
-                    <ChevronRight size={20} className="text-gray-500" />
-                </button>
-            </div>
+                    className="disabled:opacity-30 hover:text-fx-brass transition-colors"
+                  >
+                    <ChevronRight size={14} />
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
-        )}
-      </div>
+        </>
+      )}
     </div>
   );
 };

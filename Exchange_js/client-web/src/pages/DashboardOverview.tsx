@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import {
   RefreshCw,
@@ -6,10 +7,8 @@ import {
   History,
   AlertCircle,
   Briefcase,
-  X,
 } from 'lucide-react';
 import { formatAssetAmount } from '../utils/number-format';
-import { statementSourceLabel } from '../utils/statementSourceLabel';
 import {
   CustomerSessionError,
   customerFetch,
@@ -79,34 +78,14 @@ function TypeBadge({ type }: { type: string }) {
   );
 }
 
-/* ─── Statement types ─────────────────────────────────────────── */
-
-interface StatementRow {
-  tbTransferId: string;
-  sourceType: string;
-  sourceNo: string;
-  eventCode: string;
-  direction: 'IN' | 'OUT';
-  amount: number;
-  runningBalance: number;
-  assetCode: string;
-  memo: string | null;
-  createdAt: string;
-}
-
 /* ─── Page ─────────────────────────────────────────────────────── */
 
 const DashboardOverview = () => {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const [portfolio, setPortfolio] = useState<PortfolioItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-
-  const [statementAsset, setStatementAsset] = useState<{ code: string; currency: string; decimals: number } | null>(null);
-  const [statementRows, setStatementRows] = useState<StatementRow[]>([]);
-  const [statementBalance, setStatementBalance] = useState(0);
-  const [statementLoading, setStatementLoading] = useState(false);
-  const [statementError, setStatementError] = useState('');
 
   const fetchPortfolio = async () => {
     if (!user) return;
@@ -132,31 +111,6 @@ const DashboardOverview = () => {
       );
     } finally {
       setLoading(false);
-    }
-  };
-
-  const openStatement = async (item: PortfolioItem) => {
-    setStatementAsset({ code: item.assetCode, currency: item.currency, decimals: item.decimals });
-    setStatementRows([]);
-    setStatementBalance(0);
-    setStatementError('');
-    setStatementLoading(true);
-    try {
-      const res = await customerFetch(
-        `${import.meta.env.VITE_API_URL}/client/portfolio/statement?assetCurrency=${item.currency}`,
-      );
-      if (res.ok) {
-        const data = await res.json();
-        setStatementRows(data.items ?? []);
-        setStatementBalance(data.currentBalance ?? 0);
-      } else {
-        setStatementError(await getCustomerApiErrorMessage(res, 'Failed to load statement'));
-      }
-    } catch (err: unknown) {
-      if (err instanceof CustomerSessionError) return;
-      setStatementError(err instanceof Error ? err.message : 'Network error');
-    } finally {
-      setStatementLoading(false);
     }
   };
 
@@ -346,12 +300,9 @@ const DashboardOverview = () => {
                     {/* Statement link */}
                     <div className="col-span-1 flex justify-end">
                       <button
-                        onClick={() => {
-                          const item = portfolio.find((p) => p.assetId === row.assetId);
-                          if (item) openStatement(item);
-                        }}
+                        onClick={() => navigate(`/transactions?assetId=${row.assetId}`)}
                         className="text-fx-dust hover:text-fx-brass transition-colors"
-                        title={`${row.assetCode} statement`}
+                        title={`${row.assetCode} transaction history`}
                       >
                         <History size={12} />
                       </button>
@@ -409,108 +360,6 @@ const DashboardOverview = () => {
           <p className="mt-3 px-4 font-mono text-[9px] text-fx-dust/60 tracking-wide">
             Indicative only · AED pegged at 3.6725 AED/USD
           </p>
-        </div>
-      )}
-
-      {/* ── Statement Modal ──────────────────────────────────── */}
-      {statementAsset && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-          <div className="bg-fx-base border border-fx-rule w-full max-w-2xl max-h-[80vh] flex flex-col mx-4">
-            {/* Modal header */}
-            <div className="flex items-center justify-between px-5 py-3 border-b border-fx-rule shrink-0">
-              <div>
-                <h3 className="font-mono text-[14px] text-fx-sand font-medium">
-                  {statementAsset.code} Statement
-                </h3>
-                <p className="font-mono text-[10px] text-fx-dust mt-0.5">
-                  Account activity · {statementAsset.currency}
-                </p>
-              </div>
-              <button
-                onClick={() => setStatementAsset(null)}
-                className="text-fx-dust hover:text-fx-sand transition-colors"
-              >
-                <X size={16} />
-              </button>
-            </div>
-
-            {/* Modal body */}
-            <div className="flex-1 overflow-auto">
-              {statementLoading ? (
-                <div className="flex items-center justify-center py-16">
-                  <RefreshCw className="animate-spin text-fx-dust" size={18} />
-                </div>
-              ) : statementError ? (
-                <div className="flex items-center justify-center py-16">
-                  <p className="font-mono text-[11px] text-fx-rust">{statementError}</p>
-                </div>
-              ) : statementRows.length === 0 ? (
-                <div className="flex items-center justify-center py-16">
-                  <p className="font-mono text-[11px] text-fx-dust">No transactions yet.</p>
-                </div>
-              ) : (
-                <table className="w-full text-[11px]">
-                  <thead className="sticky top-0 bg-fx-base">
-                    <tr className="border-b border-fx-rule">
-                      <th className="px-3 py-2 text-left font-mono text-[9px] uppercase tracking-[0.12em] text-fx-dust/70">Date</th>
-                      <th className="px-3 py-2 text-left font-mono text-[9px] uppercase tracking-[0.12em] text-fx-dust/70">Type</th>
-                      <th className="px-3 py-2 text-left font-mono text-[9px] uppercase tracking-[0.12em] text-fx-dust/70">Ref</th>
-                      <th className="px-3 py-2 text-right font-mono text-[9px] uppercase tracking-[0.12em] text-fx-dust/70">In</th>
-                      <th className="px-3 py-2 text-right font-mono text-[9px] uppercase tracking-[0.12em] text-fx-dust/70">Out</th>
-                      <th className="px-3 py-2 text-right font-mono text-[9px] uppercase tracking-[0.12em] text-fx-dust/70">Balance</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-fx-rule/50">
-                    {statementRows.map((row) => {
-                      const scale = Math.pow(10, statementAsset.decimals);
-                      const fmtAmt = (v: number) => formatAssetAmount(v / scale, statementAsset.decimals);
-                      return (
-                        <tr key={row.tbTransferId} className="hover:bg-fx-sand/[0.02] transition-colors">
-                          <td className="px-3 py-2 font-mono text-[10px] text-fx-dust whitespace-nowrap">
-                            {new Date(row.createdAt).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false })}
-                          </td>
-                          <td className="px-3 py-2">
-                            <span className={`font-mono text-[9px] uppercase tracking-wide ${
-                              row.sourceType === 'DEPOSIT' ? 'text-emerald-400' :
-                              row.sourceType === 'WITHDRAWAL' ? 'text-blue-400' :
-                              row.sourceType === 'RECON_ADJUSTMENT' || row.sourceType === 'INTERNAL_TRANSFER' ? 'text-fx-sage' :
-                              'text-fx-brass'
-                            }`}>
-                              {statementSourceLabel(row)}
-                            </span>
-                          </td>
-                          <td className="px-3 py-2 font-mono text-[10px] text-fx-dune truncate max-w-[100px]" title={row.sourceNo}>
-                            {row.sourceNo}
-                          </td>
-                          <td className="px-3 py-2 text-right font-mono text-[11px] tabular-nums text-emerald-400 font-medium">
-                            {row.direction === 'IN' ? `+${fmtAmt(row.amount)}` : ''}
-                          </td>
-                          <td className="px-3 py-2 text-right font-mono text-[11px] tabular-nums text-fx-rust font-medium">
-                            {row.direction === 'OUT' ? `-${fmtAmt(row.amount)}` : ''}
-                          </td>
-                          <td className="px-3 py-2 text-right font-mono text-[11px] tabular-nums text-fx-sand font-medium">
-                            {fmtAmt(row.runningBalance)}
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              )}
-            </div>
-
-            {/* Modal footer */}
-            {statementRows.length > 0 && (
-              <div className="shrink-0 flex items-center justify-between px-5 py-2.5 border-t border-fx-rule">
-                <span className="font-mono text-[9px] text-fx-dust">
-                  {statementRows.length} transaction{statementRows.length !== 1 ? 's' : ''}
-                </span>
-                <span className="font-mono text-[11px] text-fx-sand font-medium">
-                  {formatAssetAmount(statementBalance / Math.pow(10, statementAsset.decimals), statementAsset.decimals)} {statementAsset.currency}
-                </span>
-              </div>
-            )}
-          </div>
         </div>
       )}
     </div>
