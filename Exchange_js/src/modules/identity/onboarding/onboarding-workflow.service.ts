@@ -10,6 +10,7 @@ import { ApprovalActionTypes, ApprovalActorContext } from '../../governance/appr
 import { ApprovalDecidedEvent } from '../../governance/approvals/approval-handler.base';
 import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import { AuditActions, AuditEntityTypes } from '../../audit-logging/constants/audit-actions.constant';
+import { CustomerLedgerProvisioningService } from '../../accounting/tigerbeetle/customer-ledger-provisioning.service';
 import {
   ONBOARDING_LEVELS,
   ONBOARDING_LEVEL_TEMPLATES,
@@ -35,6 +36,7 @@ export class OnboardingWorkflowService {
     private readonly sumsubClient: SumsubClient,
     private readonly approvalsService: ApprovalsService,
     private readonly auditLogsService: AuditLogsService,
+    private readonly ledgerProvisioning: CustomerLedgerProvisioningService,
   ) {}
 
   private async loadCustomer(customerId: string) {
@@ -57,6 +59,15 @@ export class OnboardingWorkflowService {
     return byCustomer
       ? this.auditLogsService.recordByActor(payload, customerActor(c))
       : this.auditLogsService.recordSystem(payload);
+  }
+
+  /** 首次进 ACTIVE 前开客户账本户（spec §7）。失败即激活失败——不吞（:155 病根）。 */
+  private async provisionLedgerIfFirstActive(c: { id: string; customerNo: string; onboardingApprovedAt: Date | null }) {
+    if (c.onboardingApprovedAt) return;
+    const r = await this.ledgerProvisioning.provisionCustomerAccounts({ id: c.id, customerNo: c.customerNo });
+    await this.audit(AuditActions.CUSTOMER_LEDGER_PROVISIONED, c, {
+      afterData: { created: r.created, accounts: r.accounts },
+    }, false);
   }
 
   /** 开始认证：建（或续用）Sumsub 申请人，绑 id + CDD 档，PROSPECT → IN_VERIFICATION。 */
@@ -172,6 +183,7 @@ export class OnboardingWorkflowService {
           ? 'VERIFICATION_PASSED'
           : 'CDD_CLEARED'
         : 'VERIFICATION_REJECTED';
+    if (action === 'CDD_CLEARED') await this.provisionLedgerIfFirstActive(c);
     let to = '';
     await this.prisma.$transaction(async (tx) => {
       const r = await this.lifecycle.applyAction(c.id, action, tx);
@@ -261,6 +273,7 @@ export class OnboardingWorkflowService {
     const c = await this.prisma.customerMain.findFirst({ where: { customerNo: event.entityRef } });
     if (!c) return;
     const action = event.decision === 'APPROVED' ? 'FINAL_APPROVED' : 'FINAL_REJECTED';
+    if (action === 'FINAL_APPROVED') await this.provisionLedgerIfFirstActive(c as any);
     let to = '';
     await this.prisma.$transaction(async (tx) => {
       const r = await this.lifecycle.applyAction(c.id, action, tx);

@@ -8,7 +8,13 @@ const customerRow = (over: Record<string, unknown> = {}) => ({
   onboardingSubmittedAt: null, onboardingFinalRejectedAt: null, eddRequired: false,
   firstName: 'Neo', lastName: 'One', dateOfBirth: null, nationality: null,
   idDocType: null, idDocNumber: null, residentialAddress: null, riskRating: 'LOW',
+  onboardingApprovedAt: null,
   ...over,
+});
+
+const inVerif = (over: Record<string, unknown> = {}) => customerRow({
+  lifecycle: 'IN_VERIFICATION', sumsubApplicantId: 'MOCK-CU250907001',
+  sumsubCurrentLevelName: ONBOARDING_LEVELS.CDD, onboardingSubmittedAt: new Date(), ...over,
 });
 
 const makeDeps = (row: ReturnType<typeof customerRow>) => {
@@ -25,10 +31,11 @@ const makeDeps = (row: ReturnType<typeof customerRow>) => {
   };
   const approvals = { createAndSubmit: jest.fn().mockResolvedValue({ approvalNo: 'APR0001' }) };
   const audit = { recordByActor: jest.fn().mockResolvedValue(undefined), recordSystem: jest.fn().mockResolvedValue(undefined) };
-  return { prisma, lifecycle, customers, sumsub, approvals, audit };
+  const provisioning = { provisionCustomerAccounts: jest.fn().mockResolvedValue({ created: 4, accounts: ['CLIENT_PAYABLE/AED'] }) };
+  return { prisma, lifecycle, customers, sumsub, approvals, audit, provisioning };
 };
 const build = (d: ReturnType<typeof makeDeps>) =>
-  new OnboardingWorkflowService(d.prisma as any, d.lifecycle as any, d.customers as any, d.sumsub as any, d.approvals as any, d.audit as any);
+  new OnboardingWorkflowService(d.prisma as any, d.lifecycle as any, d.customers as any, d.sumsub as any, d.approvals as any, d.audit as any, d.provisioning as any);
 
 describe('OnboardingWorkflowService 客户侧旅程', () => {
   it('startVerification: 建 applicant、绑 id + CDD 档、驱 START_VERIFICATION、留痕', async () => {
@@ -83,10 +90,6 @@ describe('OnboardingWorkflowService 客户侧旅程', () => {
 });
 
 describe('OnboardingWorkflowService 裁决与换档（webhook 侧）', () => {
-  const inVerif = (over: Record<string, unknown> = {}) => customerRow({
-    lifecycle: 'IN_VERIFICATION', sumsubApplicantId: 'MOCK-CU250907001',
-    sumsubCurrentLevelName: ONBOARDING_LEVELS.CDD, onboardingSubmittedAt: new Date(), ...over,
-  });
 
   it('CDD GREEN → CDD_CLEARED（直通 ACTIVE）', async () => {
     const d = makeDeps(inVerif());
@@ -182,5 +185,41 @@ describe('OnboardingWorkflowService 准入审批线', () => {
     const d2 = makeDeps(pending());
     d2.prisma.approvalCase.findFirst.mockResolvedValue(null);
     expect(await build(d2).getAcceptanceCase('CU250907001')).toBeNull();
+  });
+});
+
+describe('首次 ACTIVE 开账本户钩子（波三 spec §7）', () => {
+  it('CDD GREEN 且 onboardingApprovedAt 为 null → 先开户再迁移，且留 CUSTOMER_LEDGER_PROVISIONED 痕', async () => {
+    const d = makeDeps(inVerif({ onboardingApprovedAt: null }));
+    await build(d).applyReviewVerdict({ applicantId: 'MOCK-CU250907001', reviewAnswer: 'GREEN', reviewRejectType: 'RETRY' });
+    expect(d.provisioning.provisionCustomerAccounts).toHaveBeenCalledWith({ id: 'cid', customerNo: 'CU250907001' });
+    const order = d.provisioning.provisionCustomerAccounts.mock.invocationCallOrder[0];
+    expect(order).toBeLessThan(d.lifecycle.applyAction.mock.invocationCallOrder[0]); // 开户在迁移前
+    expect(d.audit.recordSystem.mock.calls.some(([p]: any[]) => p.action === 'CUSTOMER_LEDGER_PROVISIONED')).toBe(true);
+  });
+
+  it('onboardingApprovedAt 已有值（种子客户/重复进 ACTIVE）→ 钩子不触发', async () => {
+    const d = makeDeps(inVerif({ onboardingApprovedAt: new Date('2026-06-01') }));
+    await build(d).applyReviewVerdict({ applicantId: 'MOCK-CU250907001', reviewAnswer: 'GREEN', reviewRejectType: 'RETRY' });
+    expect(d.provisioning.provisionCustomerAccounts).not.toHaveBeenCalled();
+  });
+
+  it('高管准入批准路径（FINAL_APPROVED）同样触发钩子', async () => {
+    const d = makeDeps(customerRow({ lifecycle: 'PENDING_APPROVAL', onboardingApprovedAt: null }));
+    await build(d).onAcceptanceDecided({ decision: 'APPROVED', entityRef: 'CU250907001', approvalNo: 'APR0001' } as any);
+    expect(d.provisioning.provisionCustomerAccounts).toHaveBeenCalled();
+  });
+
+  it('TB 不可达 → 激活当场失败（客户停在原态，不产生无账户的 ACTIVE）', async () => {
+    const d = makeDeps(inVerif({ onboardingApprovedAt: null }));
+    d.provisioning.provisionCustomerAccounts.mockRejectedValue(new Error('TB down'));
+    await expect(build(d).applyReviewVerdict({ applicantId: 'MOCK-CU250907001', reviewAnswer: 'GREEN', reviewRejectType: 'RETRY' })).rejects.toThrow('TB down');
+    expect(d.lifecycle.applyAction).not.toHaveBeenCalled();
+  });
+
+  it('RED 裁决不触发钩子', async () => {
+    const d = makeDeps(inVerif({ onboardingApprovedAt: null }));
+    await build(d).applyReviewVerdict({ applicantId: 'MOCK-CU250907001', reviewAnswer: 'RED', reviewRejectType: 'RETRY' });
+    expect(d.provisioning.provisionCustomerAccounts).not.toHaveBeenCalled();
   });
 });

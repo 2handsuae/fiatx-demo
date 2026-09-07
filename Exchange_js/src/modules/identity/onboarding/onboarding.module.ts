@@ -4,6 +4,7 @@ import { AuditLogsModule } from '../../audit-logging/audit-logs.module';
 import { CustomersModule } from '../customers/customers.module';
 import { SumsubApplicantClientModule } from '../../sumsub-applicant-client/sumsub-applicant-client.module';
 import { ApprovalsModule } from '../../governance/approvals/approvals.module';
+import { TigerBeetleModule } from '../../accounting/tigerbeetle/tigerbeetle.module';
 import { OnboardingWorkflowService } from './onboarding-workflow.service';
 import { OnboardingAcceptanceApprovalService } from './onboarding-acceptance-approval.service';
 import { OnboardingClientController } from './onboarding.client.controller';
@@ -17,6 +18,8 @@ import { OnboardingAdminController } from './onboarding.admin.controller';
     CustomersModule,
     SumsubApplicantClientModule,
     ApprovalsModule,
+    // 单向依赖：onboarding → accounting/tigerbeetle（无环，不加 forwardRef）。
+    TigerBeetleModule,
   ],
   providers: [OnboardingWorkflowService, OnboardingAcceptanceApprovalService],
   controllers: [OnboardingClientController, OnboardingAdminController],
