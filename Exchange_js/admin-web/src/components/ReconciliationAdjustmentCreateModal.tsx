@@ -46,38 +46,38 @@ interface ReasonMeta {
 // 不是客户文案。
 // 导出给案件详情页复用（本案调账单列表要显示成因中文名），避免同一张表两处各抄一份。
 export const REASON_META: Record<string, ReasonMeta> = {
-  DEPOSIT_AMOUNT_CORRECTION: { book: 'CLIENT', directions: ['REDUCE', 'INCREASE'], label: '充值金额更正' },
-  DEPOSIT_DUPLICATE_REVERSAL: { book: 'CLIENT', directions: ['REDUCE'], label: '重复入账撤销' },
-  DEPOSIT_SIGNAL_VOID: { book: 'CLIENT', directions: ['REDUCE'], label: '充值撤销' },
-  WITHDRAW_AMOUNT_CORRECTION: { book: 'CLIENT', directions: ['INCREASE'], label: '提现金额更正' },
-  WITHDRAW_VOID_REFUND: { book: 'CLIENT', directions: ['INCREASE'], label: '提现撤销退回' },
-  BANK_INTEREST: { book: 'FIRM', directions: ['INCREASE'], label: '银行利息' },
-  BANK_CHARGE: { book: 'FIRM', directions: ['REDUCE'], label: '银行杂费' },
-  FIRM_ENTRY_REVERSAL: { book: 'FIRM', directions: ['REDUCE', 'INCREASE'], label: '公司账簿冲销' },
+  DEPOSIT_AMOUNT_CORRECTION: { book: 'CLIENT', directions: ['REDUCE', 'INCREASE'], label: 'Deposit amount correction' },
+  DEPOSIT_DUPLICATE_REVERSAL: { book: 'CLIENT', directions: ['REDUCE'], label: 'Duplicate deposit reversal' },
+  DEPOSIT_SIGNAL_VOID: { book: 'CLIENT', directions: ['REDUCE'], label: 'Deposit reversal' },
+  WITHDRAW_AMOUNT_CORRECTION: { book: 'CLIENT', directions: ['INCREASE'], label: 'Withdrawal amount correction' },
+  WITHDRAW_VOID_REFUND: { book: 'CLIENT', directions: ['INCREASE'], label: 'Withdrawal refund' },
+  BANK_INTEREST: { book: 'FIRM', directions: ['INCREASE'], label: 'Bank interest' },
+  BANK_CHARGE: { book: 'FIRM', directions: ['REDUCE'], label: 'Bank charges' },
+  FIRM_ENTRY_REVERSAL: { book: 'FIRM', directions: ['REDUCE', 'INCREASE'], label: 'Firm ledger reversal' },
 };
 
 // 展示用成因词表（超集）：详情页 / 本案调账单列表 / 锁定视图回显用。
 // 改记与核销刻意不在 REASON_META（下拉数据源）里：前者只走「先定性再开单」，后者只由账龄解锁。
 export const REASON_LABEL: Record<string, string> = {
   ...Object.fromEntries(Object.entries(REASON_META).map(([code, meta]) => [code, meta.label])),
-  CUSTOMER_REATTRIBUTION: '记错客户更正（改记）',
-  UNEXPLAINED_WRITE_OFF: '查无果核销',
-  UNEXPLAINED_CLIENT_LOSS: '客户池认损',
+  CUSTOMER_REATTRIBUTION: 'Customer reattribution',
+  UNEXPLAINED_WRITE_OFF: 'Unexplained write-off',
+  UNEXPLAINED_CLIENT_LOSS: 'Client loss recognition',
 };
 
 // T9：族的中文词——本文件内常量，不是共享注册表（唯一真相仍在后端
 // cause-registry.ts AdjustFamily；这里只是锁定视图要拼一句回显文案）。
 const FAMILY_WORD: Record<string, string> = {
-  CORRECT: '冲正', REVERSE: '冲销', RECORD: '补记', REATTRIBUTE: '改记', WRITE_OFF: '核销',
+  CORRECT: 'Correction', REVERSE: 'Reversal', RECORD: 'Record entry', REATTRIBUTE: 'Reattribution', WRITE_OFF: 'Write-off',
 };
 
 // T9：锁定视图的弹层标题——每族一句白话，说清这张单要干什么（不是简单复述族名）。
 const LOCKED_TITLE: Record<string, string> = {
-  CORRECT: '冲正 · 把金额改成对的',
-  REVERSE: '冲销 · 撤销这笔入账',
-  RECORD: '补记 · 记一笔公司自己的收支',
-  REATTRIBUTE: '改记 · 把钱改记到正主名下',
-  WRITE_OFF: '核销 · 查不出，公司认下来',
+  CORRECT: 'Correction · Fix the amount to the right figure',
+  REVERSE: 'Reversal · Undo this posting',
+  RECORD: 'Record entry · Book a firm-side receipt or charge',
+  REATTRIBUTE: 'Reattribution · Move the funds to the right owner',
+  WRITE_OFF: 'Write-off · Unexplained, the firm absorbs it',
 };
 
 // T9：处置弹层（Task 8）交回来的锁定态——成因/方向已由后端判死，这里只回显。
@@ -92,7 +92,7 @@ export interface AdjustmentLocked {
   direction?: AdjustmentDirection;
   directionNote: string;
   toCandidatesUrl?: string;
-  /** 平账 A 批：核销锁定视图——金额 / 生效日只读，说明预填查证结论。 */
+  /** Recon batch A: write-off locked view — amount / effective date are read-only, the reason is pre-filled from the finding note. */
   writeOff?: { findingNote: string };
 }
 
@@ -147,7 +147,7 @@ export interface AdjustmentPrefill {
 interface ReconciliationAdjustmentCreateModalProps {
   open: boolean;
   caseNo: string;
-  /** 案件业务日（YYYY-MM-DD）——生效日的默认值，见 effectiveDate 初值处注释。 */
+  /** Case business date (YYYY-MM-DD) — default value for the effective date, see the comment at effectiveDate's initial value. */
   caseBusinessDate: string;
   book: AdjustmentBook;
   assetCode: string;
@@ -157,7 +157,7 @@ interface ReconciliationAdjustmentCreateModalProps {
   ownerNo?: string | null;
   walletNo?: string | null;
   prefill: AdjustmentPrefill;
-  /** T9：处置弹层交回的锁定态；缺省 = Task 7 原样的自由选择表单。 */
+  /** T9: the locked state handed back from the disposition modal; when absent, falls back to Task 7's original free-choice form. */
   locked?: AdjustmentLocked;
   onClose: () => void;
   onCreated: (adjustmentNo: string) => void;
@@ -216,8 +216,8 @@ const ReconciliationAdjustmentCreateModal = ({
     setAmountDisplay(prefill.amountMinor ? minorToDisplay(prefill.amountMinor, decimals) : '');
     setEffectiveDate(caseBusinessDate);
     setRelatedOrderNo(prefill.relatedOrderNo ?? '');
-    setReasonInternal(locked?.writeOff ? `${locked.reasonCode === 'UNEXPLAINED_CLIENT_LOSS' ? '客户池认损' : '查无果核销'}：${locked.writeOff.findingNote}` : '');
-    setReasonCustomer(locked?.writeOff ? (locked.reasonCode === 'UNEXPLAINED_CLIENT_LOSS' ? '平台调整（托管差额认损，随后公司补款）' : '（公司侧核销，客户不可见）') : '');
+    setReasonInternal(locked?.writeOff ? `${locked.reasonCode === 'UNEXPLAINED_CLIENT_LOSS' ? 'Client pool loss recognition' : 'Firm pool unexplained write-off'}: ${locked.writeOff.findingNote}` : '');
+    setReasonCustomer(locked?.writeOff ? (locked.reasonCode === 'UNEXPLAINED_CLIENT_LOSS' ? 'Balance adjustment (custody shortfall recognized as loss; the firm will compensate)' : '(Firm-side write-off; not visible to the customer)') : '');
     setError('');
     setCandidates([]);
     setCandidatesError('');
@@ -361,7 +361,7 @@ const ReconciliationAdjustmentCreateModal = ({
       );
       if (!submitRes.ok) {
         throw new Error(
-          `已开单 ${adjustmentNo}，但提审失败：${await getApiErrorMessage(submitRes, 'Failed to submit for approval.')}`,
+          `Adjustment ${adjustmentNo} was created, but submission for approval failed: ${await getApiErrorMessage(submitRes, 'Failed to submit for approval.')}`,
         );
       }
       onCreated(adjustmentNo);
@@ -386,12 +386,12 @@ const ReconciliationAdjustmentCreateModal = ({
           <h2 className="text-base font-semibold text-adm-t1">
             {locked
               ? (locked.family === 'WRITE_OFF' && locked.reasonCode === 'UNEXPLAINED_CLIENT_LOSS'
-                ? '认损 · 让账跟着托管走，随后公司补款'
-                : (LOCKED_TITLE[locked.family] ?? '开调账单 / Open Adjustment'))
-              : '开调账单 / Open Adjustment'}
+                ? 'Recognize loss · Match the books to custody, firm compensates after'
+                : (LOCKED_TITLE[locked.family] ?? 'Open Adjustment'))
+              : 'Open Adjustment'}
           </h2>
           <p className="mt-1 font-mono text-[10px] text-adm-t3">
-            {caseNo} · {book === 'CLIENT' ? '客户账簿' : '公司账簿'} · {assetCode}
+            {caseNo} · {book === 'CLIENT' ? 'Client book' : 'Firm book'} · {assetCode}
           </p>
         </div>
 
@@ -402,12 +402,12 @@ const ReconciliationAdjustmentCreateModal = ({
             </div>
           )}
 
-          <label className={labelCls}>成因 / Reason</label>
+          <label className={labelCls}>Reason</label>
           {locked ? (
             // T9 锁定视图：成因由上一屏（处置弹层）判死，这里只回显——不给下拉。
             // 唯一真相在后端 cause-registry.ts，前端不猜、不改。
             <div className="mb-4 rounded border border-adm-border bg-adm-bg px-2.5 py-2 font-mono text-[11px] text-adm-t1">
-              【{locked.reasonCode === 'UNEXPLAINED_CLIENT_LOSS' ? '认损' : (FAMILY_WORD[locked.family] ?? locked.family)}】{REASON_LABEL[locked.reasonCode ?? ''] ?? locked.reasonCode}
+              [{locked.reasonCode === 'UNEXPLAINED_CLIENT_LOSS' ? 'Recognize loss' : (FAMILY_WORD[locked.family] ?? locked.family)}] {REASON_LABEL[locked.reasonCode ?? ''] ?? locked.reasonCode}
             </div>
           ) : (
             <select
@@ -416,7 +416,7 @@ const ReconciliationAdjustmentCreateModal = ({
               disabled={submitting}
               className={`mb-4 ${selectCls}`}
             >
-              <option value="">请选择成因…</option>
+              <option value="">Select a cause…</option>
               {reasonOptions.map(([code, meta]) => (
                 <option key={code} value={code}>
                   {meta.label} · {code}
@@ -427,13 +427,13 @@ const ReconciliationAdjustmentCreateModal = ({
 
           {!isReattribute && (
             <>
-              <label className={labelCls}>方向 / Direction</label>
+              <label className={labelCls}>Direction</label>
               {locked ? (
                 // T9：方向本来就能从行推出来（差额符号 / 内外部流水方向），给人改
                 // 是错的——只读文本 + 一句推导依据（directionNote 由后端行事实
                 // 算出，见 causeRegistry.ts directionNoteFor）。
                 <div className="mb-1 rounded border border-adm-border bg-adm-bg px-2.5 py-2 font-mono text-[11px] text-adm-t1">
-                  {direction === 'REDUCE' ? '减少 REDUCE' : direction === 'INCREASE' ? '增加 INCREASE' : '—'}
+                  {direction === 'REDUCE' ? 'Reduce' : direction === 'INCREASE' ? 'Increase' : '—'}
                 </div>
               ) : (
                 <select
@@ -442,10 +442,10 @@ const ReconciliationAdjustmentCreateModal = ({
                   disabled={submitting || directionOptions.length <= 1}
                   className={`mb-1 ${selectCls}`}
                 >
-                  {directionOptions.length === 0 && <option value="">请先选择成因</option>}
+                  {directionOptions.length === 0 && <option value="">Select a cause first</option>}
                   {directionOptions.map((d) => (
                     <option key={d} value={d}>
-                      {d === 'REDUCE' ? '减少 REDUCE' : '增加 INCREASE'}
+                      {d === 'REDUCE' ? 'Reduce' : 'Increase'}
                     </option>
                   ))}
                 </select>
@@ -455,7 +455,7 @@ const ReconciliationAdjustmentCreateModal = ({
               ) : (
                 <>
                   {reasonCode && directionOptions.length === 1 && (
-                    <p className="mb-4 font-mono text-[9px] text-adm-t3">该成因只允许这一个方向，已锁定。</p>
+                    <p className="mb-4 font-mono text-[9px] text-adm-t3">This cause only allows one direction — locked.</p>
                   )}
                   {(!reasonCode || directionOptions.length !== 1) && <div className="mb-4" />}
                 </>
@@ -465,14 +465,14 @@ const ReconciliationAdjustmentCreateModal = ({
 
           {isReattribute && (
             <div className="mb-4">
-              <label className={labelCls}>对端案件 / Counterparty Case（单选）</label>
+              <label className={labelCls}>Counterparty Case (single choice)</label>
               {candidatesLoading ? (
-                <p className="font-mono text-[11px] text-adm-t3">加载候选中…</p>
+                <p className="font-mono text-[11px] text-adm-t3">Loading candidates…</p>
               ) : candidatesError ? (
                 <p className="font-mono text-[11px] text-adm-red">{candidatesError}</p>
               ) : candidates.length === 0 ? (
                 <p className="font-mono text-[11px] text-adm-red">
-                  未找到同日同额的反向孤儿——先确认对端案件已跑出差异行
+                  No same-day, same-amount opposite orphan found — confirm the counterparty case has produced a difference row first
                 </p>
               ) : (
                 <div className="space-y-1.5">
@@ -492,7 +492,7 @@ const ReconciliationAdjustmentCreateModal = ({
                         className="mt-0.5"
                       />
                       <span className="flex-1 text-adm-t1">
-                        {c.caseNo} · 客户 {c.ownerNo ?? '—'} · 钱包 {c.walletNo ?? '—'} · ref {c.externalRef ?? '—'}
+                        {c.caseNo} · Customer {c.ownerNo ?? '—'} · Wallet {c.walletNo ?? '—'} · ref {c.externalRef ?? '—'}
                       </span>
                     </label>
                   ))}
@@ -500,14 +500,14 @@ const ReconciliationAdjustmentCreateModal = ({
               )}
               {selectedCandidate && (
                 <p className="mt-2 rounded border border-adm-blue/30 bg-adm-blue/10 px-2 py-1.5 font-mono text-[11px] text-adm-t2">
-                  从 {fromParty.ownerNo}（{fromParty.walletNo}）改记到 {toParty.ownerNo}（{toParty.walletNo}）·
-                  客户资产总额不变
+                  From {fromParty.ownerNo} ({fromParty.walletNo}) reattributed to {toParty.ownerNo} ({toParty.walletNo}) ·
+                  total customer assets unchanged
                 </p>
               )}
             </div>
           )}
 
-          <label className={labelCls}>金额 / Amount（{assetCode}）</label>
+          <label className={labelCls}>Amount ({assetCode})</label>
           {(isReattribute || isWriteOff) ? (
             // 改记金额只读——它就是这一行的金额，不是运营能改的数（改的是「谁的」，不是「多少」）。
             <div className="mb-4 w-full rounded border border-adm-border bg-adm-bg px-2.5 py-2 font-mono text-[11px] text-adm-t1">
@@ -524,14 +524,14 @@ const ReconciliationAdjustmentCreateModal = ({
               />
               {amountDisplay.trim() !== '' && !amountValid && (
                 <p className="mb-1 font-mono text-[9px] text-adm-red">
-                  金额格式不对，或超出 {assetCode} 的精度（最多 {decimals} 位小数）。
+                  Invalid amount format, or exceeds {assetCode}'s precision (max {decimals} decimal places).
                 </p>
               )}
               <div className="mb-4" />
             </>
           )}
 
-          <label className={labelCls}>生效日期 / Effective Date</label>
+          <label className={labelCls}>Effective Date</label>
           <input
             type="date"
             value={effectiveDate}
@@ -539,41 +539,41 @@ const ReconciliationAdjustmentCreateModal = ({
             disabled={submitting || isWriteOff}
             className="mb-4 w-full rounded border border-adm-border bg-adm-bg px-2.5 py-2 font-mono text-[11px] text-adm-t1 outline-none transition-colors focus:border-adm-amber"
           />
-          {isWriteOff && <p className="-mt-3 mb-4 font-mono text-[9px] text-adm-t3">核销修的是案件那一天的账，生效日 = 案件业务日，不可改。</p>}
+          {isWriteOff && <p className="-mt-3 mb-4 font-mono text-[9px] text-adm-t3">Write-off corrects the books for the case's business date — effective date = case business date, not editable.</p>}
 
           <label className={labelCls}>
-            关联原单号 / Related Order No{needsRelatedOrder ? '（必填）' : '（可选）'}
+            Related Order No{needsRelatedOrder ? ' (required)' : ' (optional)'}
           </label>
           <input
             value={relatedOrderNo}
             onChange={(e) => setRelatedOrderNo(e.target.value)}
-            placeholder={needsRelatedOrder ? '例如 DEP2608280001' : '（可留空）'}
+            placeholder={needsRelatedOrder ? 'e.g. DEP2608280001' : '(optional)'}
             disabled={submitting}
             className="mb-1 w-full rounded border border-adm-border bg-adm-bg px-2.5 py-2 font-mono text-[11px] text-adm-t1 outline-none transition-colors placeholder:text-adm-t3 focus:border-adm-amber"
           />
           {needsRelatedOrder && (
             <p className="mb-1 font-mono text-[9px] text-adm-t3">
               {isReattribute
-                ? '改记必须指向一张已存在的原单（记在错记方名下的那笔真实充值/提现）——KYT 已对这笔钱跑过才放行。'
-                : '客户账簿给客户加钱必须指向一张已存在的原单——无原单即凭空加钱，会绕过 KYT 与合规闸。'}
+                ? 'Reattribution must point to an existing original order (the real deposit/withdrawal booked under the misattributed owner) — KYT must have already cleared this money.'
+                : 'Crediting the client book must point to an existing original order — without one, funds appear out of nowhere and bypass KYT and compliance gates.'}
             </p>
           )}
           <div className="mb-4" />
 
-          <label className={labelCls}>内部原因 / Internal Reason</label>
+          <label className={labelCls}>Internal Reason</label>
           <textarea
             value={reasonInternal}
             onChange={(e) => setReasonInternal(e.target.value)}
-            placeholder="给审批人看的具体说明，例如：同一笔充值入账两次，需冲正"
+            placeholder="Specific explanation for the approver, e.g.: the same deposit was booked twice, needs correction"
             disabled={submitting}
             className="mb-4 h-16 w-full resize-none rounded border border-adm-border bg-adm-bg px-2.5 py-2 text-xs text-adm-t1 outline-none transition-colors placeholder:text-adm-t3 focus:border-adm-amber"
           />
 
-          <label className={labelCls}>客户可见原因 / Customer-Visible Reason</label>
+          <label className={labelCls}>Customer-Visible Reason</label>
           <textarea
             value={reasonCustomer}
             onChange={(e) => setReasonCustomer(e.target.value)}
-            placeholder="客户流水读模型任务上线前暂不展示，但仍需留痕"
+            placeholder="Not shown until the customer statement read-model ships, but still needs to be on record"
             disabled={submitting}
             className="w-full resize-none rounded border border-adm-border bg-adm-bg px-2.5 py-2 text-xs text-adm-t1 outline-none transition-colors placeholder:text-adm-t3 focus:border-adm-amber"
             rows={2}
@@ -585,7 +585,7 @@ const ReconciliationAdjustmentCreateModal = ({
             Cancel
           </button>
           <button onClick={() => void submit()} disabled={submitDisabled} className={adminButtonClass('modalConfirm')}>
-            {submitting ? '提交中… / Submitting…' : '开单并提审 / Open & Submit'}
+            {submitting ? 'Submitting…' : 'Open & Submit'}
           </button>
         </div>
       </div>

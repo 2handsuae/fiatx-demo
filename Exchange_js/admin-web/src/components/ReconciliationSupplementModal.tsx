@@ -15,7 +15,7 @@ interface LineFacts { externalLineId: string; caseNo: string; businessDate: stri
 interface Candidate { orderNo: string; amountMajor: string; createdAt: string; status: string }
 interface Props { open: boolean; caseNo: string; row: any | null; onClose: () => void; onDone: () => void }
 
-const TITLE: Record<Kind, string> = { SUPPLEMENT_DEPOSIT: '发起补录 · 漏记客户入金', SUPPLEMENT_BOUNCE: '认领退汇 · 入金被银行扣回', SUPPLEMENT_PAYOUT_RETURN: '认领退回 · 出款后被银行退回' };
+const TITLE: Record<Kind, string> = { SUPPLEMENT_DEPOSIT: 'Record missed deposit · Missed customer deposit', SUPPLEMENT_BOUNCE: 'Claim recall · Deposit recalled by bank', SUPPLEMENT_PAYOUT_RETURN: 'Claim return · Payout returned by bank' };
 const ENDPOINT = (kind: Kind, orderNo: string) => kind === 'SUPPLEMENT_DEPOSIT' ? '/deposit-transactions/supplement'
   : kind === 'SUPPLEMENT_BOUNCE' ? `/deposit-transactions/${encodeURIComponent(orderNo)}/clawback` : `/withdraw-transactions/${encodeURIComponent(orderNo)}/return-claim`;
 
@@ -33,11 +33,11 @@ const ReconciliationSupplementModal = ({ open, caseNo, row, onClose, onDone }: P
     (async () => {
       try {
         const res = await adminFetch(`${import.meta.env.VITE_API_URL}/admin/reconciliation/cases/${encodeURIComponent(caseNo)}/supplement-candidates?externalLineId=${encodeURIComponent(row.externalLine.id)}`);
-        if (!res.ok) { setError(await getApiErrorMessage(res, '读取账单行失败')); return; }
+        if (!res.ok) { setError(await getApiErrorMessage(res, 'Failed to read the statement line')); return; }
         const data = await res.json();
         setFacts(data.line); setKind(data.kind); setCandidates(data.candidates ?? []);
         if (data.candidates?.length === 1) setOrderNo(data.candidates[0].orderNo);
-      } catch (e) { if (e instanceof AdminSessionError) throw e; setError(e instanceof Error ? e.message : '读取账单行失败'); }
+      } catch (e) { if (e instanceof AdminSessionError) throw e; setError(e instanceof Error ? e.message : 'Failed to read the statement line'); }
     })();
   }, [open, caseNo, row]);
 
@@ -55,41 +55,41 @@ const ReconciliationSupplementModal = ({ open, caseNo, row, onClose, onDone }: P
       const body: Record<string, unknown> = { externalLineId: facts.externalLineId, caseNo, dispositionNo, reason: reason.trim() };
       if (needAddr) body.fromAddress = fromAddress.trim(); if (needIban) body.fromIban = fromIban.trim();
       const res = await adminFetch(`${import.meta.env.VITE_API_URL}${ENDPOINT(kind, orderNo)}`, { method: 'POST', body: JSON.stringify(body) });
-      if (!res.ok) { setError(await getApiErrorMessage(res, '发起失败')); return; }
+      if (!res.ok) { setError(await getApiErrorMessage(res, 'Failed to initiate')); return; }
       const r = await res.json();
       setResult({ approvalNo: r.approvalNo, no: r.signalNo ?? r.depositNo ?? r.withdrawNo });
-    } catch (e) { if (e instanceof AdminSessionError) throw e; setError(e instanceof Error ? e.message : '发起失败'); }
+    } catch (e) { if (e instanceof AdminSessionError) throw e; setError(e instanceof Error ? e.message : 'Failed to initiate'); }
     finally { setSubmitting(false); }
   };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={onClose}>
       <div className="w-[600px] max-h-[85vh] overflow-y-auto rounded-lg border border-adm-border bg-adm-panel p-5" onClick={(e) => e.stopPropagation()}>
-        <h3 className="mb-3 text-sm font-semibold text-adm-t1">{kind ? TITLE[kind] : '补单'}</h3>
+        <h3 className="mb-3 text-sm font-semibold text-adm-t1">{kind ? TITLE[kind] : 'Supplement'}</h3>
         {facts && (
           <dl className="mb-4 grid grid-cols-2 gap-x-4 gap-y-1 rounded border border-adm-border bg-adm-hover/40 p-3 text-xs">
-            <dt className="text-adm-t3">来源</dt><dd className="font-mono">{facts.source}</dd>
-            <dt className="text-adm-t3">方向 / 金额</dt><dd className="font-mono">{facts.direction} {facts.amountMajor} {facts.currency}</dd>
-            <dt className="text-adm-t3">入账时刻</dt><dd className="font-mono">{facts.datetime.replace('T', ' ').slice(0, 19)}</dd>
-            <dt className="text-adm-t3">参考号</dt><dd className="font-mono">{facts.externalRef ?? '—'}</dd>
-            <dt className="text-adm-t3">银行描述</dt><dd>{facts.description ?? '—'}</dd>
-            <dt className="text-adm-t3">钱包 / 客户</dt><dd className="font-mono">{facts.walletNo ?? '—'} · {facts.ownerNo ?? '—'}</dd>
-            <dt className="text-adm-t3">生效日（案子业务日）</dt><dd className="font-mono">{facts.businessDate}</dd>
+            <dt className="text-adm-t3">Source</dt><dd className="font-mono">{facts.source}</dd>
+            <dt className="text-adm-t3">Direction / Amount</dt><dd className="font-mono">{facts.direction} {facts.amountMajor} {facts.currency}</dd>
+            <dt className="text-adm-t3">Posted at</dt><dd className="font-mono">{facts.datetime.replace('T', ' ').slice(0, 19)}</dd>
+            <dt className="text-adm-t3">Reference</dt><dd className="font-mono">{facts.externalRef ?? '—'}</dd>
+            <dt className="text-adm-t3">Bank description</dt><dd>{facts.description ?? '—'}</dd>
+            <dt className="text-adm-t3">Wallet / Customer</dt><dd className="font-mono">{facts.walletNo ?? '—'} · {facts.ownerNo ?? '—'}</dd>
+            <dt className="text-adm-t3">Effective date (case business date)</dt><dd className="font-mono">{facts.businessDate}</dd>
           </dl>
         )}
         {result ? (
           <>
-            <p className="text-xs text-adm-t2">已发起，等待 CFO 复核。审批单 <span className="font-mono">{result.approvalNo}</span>，补单号 <span className="font-mono">{result.no}</span>。批准后由业务域执行，回案子点「重新对账」看自愈。</p>
-            <div className="mt-4 flex justify-end"><button type="button" onClick={onDone} className={adminButtonClass('modalConfirm')}>完成</button></div>
+            <p className="text-xs text-adm-t2">Initiated, awaiting CFO review. Approval <span className="font-mono">{result.approvalNo}</span>, supplement no. <span className="font-mono">{result.no}</span>. Once approved, the business domain executes it — go back to the case and click "Re-reconcile" to see it self-resolve.</p>
+            <div className="mt-4 flex justify-end"><button type="button" onClick={onDone} className={adminButtonClass('modalConfirm')}>Complete</button></div>
           </>
         ) : (
           <>
-            {needAddr && <label className="mb-3 block text-xs">来源地址<input value={fromAddress} onChange={(e) => setFromAddress(e.target.value)} className="mt-1 w-full rounded border border-adm-border bg-adm-panel px-2 py-1 font-mono text-xs" placeholder="链上付款方地址" /></label>}
-            {needIban && <label className="mb-3 block text-xs">来源 IBAN<input value={fromIban} onChange={(e) => setFromIban(e.target.value)} className="mt-1 w-full rounded border border-adm-border bg-adm-panel px-2 py-1 font-mono text-xs" placeholder="付款方 IBAN" /></label>}
+            {needAddr && <label className="mb-3 block text-xs">Source address<input value={fromAddress} onChange={(e) => setFromAddress(e.target.value)} className="mt-1 w-full rounded border border-adm-border bg-adm-panel px-2 py-1 font-mono text-xs" placeholder="On-chain payer address" /></label>}
+            {needIban && <label className="mb-3 block text-xs">Source IBAN<input value={fromIban} onChange={(e) => setFromIban(e.target.value)} className="mt-1 w-full rounded border border-adm-border bg-adm-panel px-2 py-1 font-mono text-xs" placeholder="Payer IBAN" /></label>}
             {needOrder && (
               <fieldset className="mb-3 text-xs">
-                <legend className="mb-1 text-adm-t3">原单（同钱包 · 已成功 · 同金额，最近的在前）</legend>
-                {candidates.length === 0 && <p className="text-adm-red">没有金额相符的原单，不能认领</p>}
+                <legend className="mb-1 text-adm-t3">Original order (same wallet · succeeded · same amount, most recent first)</legend>
+                {candidates.length === 0 && <p className="text-adm-red">No original order with a matching amount — cannot be claimed</p>}
                 {candidates.map((c) => (
                   <label key={c.orderNo} className="flex items-center gap-2 py-0.5">
                     <input type="radio" name="orderNo" checked={orderNo === c.orderNo} onChange={() => setOrderNo(c.orderNo)} />
@@ -98,11 +98,11 @@ const ReconciliationSupplementModal = ({ open, caseNo, row, onClose, onDone }: P
                 ))}
               </fieldset>
             )}
-            <label className="mb-3 block text-xs">原因<textarea value={reason} onChange={(e) => setReason(e.target.value)} rows={2} className="mt-1 w-full rounded border border-adm-border bg-adm-panel px-2 py-1 text-xs" placeholder="写清依据：银行回单 / 托管通知 / 客户申报" /></label>
+            <label className="mb-3 block text-xs">Reason<textarea value={reason} onChange={(e) => setReason(e.target.value)} rows={2} className="mt-1 w-full rounded border border-adm-border bg-adm-panel px-2 py-1 text-xs" placeholder="State the basis clearly: bank receipt / custody notice / customer report" /></label>
             {error && <p className="mb-2 text-xs text-adm-red">{error}</p>}
             <div className="flex justify-end gap-2">
-              <button type="button" onClick={onClose} className={adminButtonClass('modalCancel')}>取消</button>
-              <button type="button" disabled={!canSubmit || submitting} onClick={submit} className={adminButtonClass('modalConfirm')}>{submitting ? '提交中…' : '提交给 CFO 复核'}</button>
+              <button type="button" onClick={onClose} className={adminButtonClass('modalCancel')}>Cancel</button>
+              <button type="button" disabled={!canSubmit || submitting} onClick={submit} className={adminButtonClass('modalConfirm')}>{submitting ? 'Submitting…' : 'Submit for CFO review'}</button>
             </div>
           </>
         )}

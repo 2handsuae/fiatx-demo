@@ -73,7 +73,7 @@ const ReconciliationDispositionModal = ({
 
   const submit = async () => {
     if (!causeCode || !findingNote.trim()) {
-      setError('成因与查证说明都是必填——查证说明是这次调查的唯一留存物');
+      setError('Cause and finding note are both required — the finding note is the only record kept of this investigation');
       return;
     }
     setSubmitting(true);
@@ -125,7 +125,7 @@ const ReconciliationDispositionModal = ({
       >
         {!result ? (
           <>
-            <h3 className="mb-1 text-sm font-semibold text-adm-t1">处置 · 这条差异查下来的成因是？</h3>
+            <h3 className="mb-1 text-sm font-semibold text-adm-t1">Record finding · What caused this difference?</h3>
             <p className="mb-3 font-mono text-[11px] text-adm-t3">
               {caseNo} · {caseStatus} · {MATCH_LABEL[row.matchType]} ·{' '}
               {formatAmount((row.externalLine ?? row.internalFlow)?.amount, decimals)} · ref{' '}
@@ -149,18 +149,18 @@ const ReconciliationDispositionModal = ({
                   <span className="flex-1">
                     <span className="text-adm-t1">{m.label}</span>
                     <span className="ml-2 text-adm-t3">→ {m.outletLabel}</span>
-                    <div className="mt-0.5 text-[11px] text-adm-t3">线索：{m.clue}</div>
+                    <div className="mt-0.5 text-[11px] text-adm-t3">Clue: {m.clue}</div>
                   </span>
                 </label>
               ))}
             </div>
             {row.duplicateTwinRef && (
               <div className="mt-3 rounded border border-adm-amber/30 bg-adm-amber/10 p-2 text-[11px] text-adm-t2">
-                💡 机器线索：已匹配列表里有一条同参考号同金额的行（{row.duplicateTwinRef}）——银行只报一次、我方入了两次，指向「重复入账」。
+                💡 System clue: the matched list has a line with the same reference number and amount ({row.duplicateTwinRef}) — the bank reported it once but we booked it twice, pointing to "Duplicate posting".
               </div>
             )}
             <div className="mt-3">
-              <label className="mb-1 block text-[11px] text-adm-t3">查证说明（必填——写清查了什么、依据什么下的结论）</label>
+              <label className="mb-1 block text-[11px] text-adm-t3">Finding note (required — describe what was checked and the basis for the conclusion)</label>
               <textarea
                 value={findingNote}
                 onChange={(e) => setFindingNote(e.target.value)}
@@ -171,7 +171,7 @@ const ReconciliationDispositionModal = ({
             {error && <p className="mt-2 text-xs text-adm-red">{error}</p>}
             <div className="mt-4 flex justify-end gap-2">
               <button type="button" onClick={onClose} className={adminButtonClass('modalCancel')}>
-                取消
+                Cancel
               </button>
               <button
                 type="button"
@@ -179,19 +179,19 @@ const ReconciliationDispositionModal = ({
                 disabled={submitting}
                 className={adminButtonClass('modalConfirm')}
               >
-                {submitting ? '提交中…' : '下一步 →'}
+                {submitting ? 'Submitting…' : 'Next →'}
               </button>
             </div>
           </>
         ) : (
           <>
-            <h3 className="mb-2 text-sm font-semibold text-adm-t1">已定性 · {result.outletLabel}</h3>
+            <h3 className="mb-2 text-sm font-semibold text-adm-t1">Finding recorded · {result.outletLabel}</h3>
             <p className="text-xs text-adm-t2">
-              {result.outlet === 'HOLD_NEXT_PERIOD' && '不落任何分录。案子保持现状，下期对账自然配平后自动销案。'}
-              {result.outlet === 'HOLD_INVESTIGATING' && '不落任何分录。案子保持破口，标注「已定性 · 调查中」——查证记录已留档。账龄到线（3 天）后：公司池小额可核销；客户池「托管里少了」小额可认损（随后金库发起补款）、多出来的走补录；大额走「登记事故」。'}
-              {result.outlet === 'DEFERRED' && `不落任何分录。该差异的正确出口（${result.outletLabel.replace('留档·', '')}）本期未开放，结论已留档，案子继续挂。`}
-              {result.outlet === 'SUPPLEMENT' && `不落任何分录。这条差异要回业务域补单（${result.outletLabel.replace('补单·', '')}）：点「完成」后在定性行旁发起，CFO 复核通过由业务域执行，再回来「重新对账」。`}
-              {result.outlet === 'INCIDENT' && '不落任何分录。这是大额未授权转出，直接升级事故：点「完成」后在定性行旁「登记事故」，走调查 / 定损 / 善后 / 监管通报的完整流程，认损后才由金库补款。'}
+              {result.outlet === 'HOLD_NEXT_PERIOD' && 'No entry is posted. The case stays as-is; it self-resolves and auto-closes once next period’s reconciliation balances.'}
+              {result.outlet === 'HOLD_INVESTIGATING' && 'No entry is posted. The case stays open, marked "Finding recorded · Investigating" — the finding note is on file. Once the aging threshold (3 days) is reached: small firm-pool amounts can be written off; small client-pool shortfalls can be recognized as a loss (the treasury then initiates compensation), surpluses go through Record missed deposit; large amounts go through Register incident.'}
+              {result.outlet === 'DEFERRED' && `No entry is posted. The correct outlet for this difference (${result.outletLabel.replace('File only · ', '')}) is not yet available this period — the finding is on file and the case stays open.`}
+              {result.outlet === 'SUPPLEMENT' && `No entry is posted. This difference needs a supplement filed in the originating business domain (${result.outletLabel.replace('Supplement · ', '')}): click "Complete", then start it next to the finding row — once CFO review approves it, the business domain executes it; come back and re-reconcile.`}
+              {result.outlet === 'INCIDENT' && 'No entry is posted. This is a large unauthorized outflow — escalate straight to an incident: click "Complete", then "Register incident" next to the finding row and run the full investigation / loss assessment / remediation / regulatory notification flow; the treasury only compensates once the loss is recognized.'}
             </p>
             <p className="mt-2 font-mono text-[11px] text-adm-t3">{result.dispositionNo}</p>
             <div className="mt-4 flex justify-end">
@@ -200,7 +200,7 @@ const ReconciliationDispositionModal = ({
                 onClick={() => { onRecorded(); onClose(); }}
                 className={adminButtonClass('modalConfirm')}
               >
-                完成
+                Complete
               </button>
             </div>
           </>

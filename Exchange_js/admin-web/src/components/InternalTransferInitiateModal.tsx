@@ -25,42 +25,42 @@ const InternalTransferInitiateModal = ({ open, caseNo, row, assetCode, decimals,
         ? { caseNo, externalLineId: ns.externalLineId, reason: reason.trim() }
         : { adjustmentNo: ns.adjustmentNo, reason: reason.trim() };
       const res = await adminFetch(`${import.meta.env.VITE_API_URL}${path}`, { method: 'POST', body: JSON.stringify(body) });
-      if (!res.ok) { setError(await getApiErrorMessage(res, '发起失败')); return; }
+      if (!res.ok) { setError(await getApiErrorMessage(res, 'Failed to initiate')); return; }
       setResult(await res.json());
-    } catch (e) { if (e instanceof AdminSessionError) throw e; setError(e instanceof Error ? e.message : '发起失败'); }
+    } catch (e) { if (e instanceof AdminSessionError) throw e; setError(e instanceof Error ? e.message : 'Failed to initiate'); }
     finally { setSubmitting(false); }
   };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={onClose}>
       <div className="w-[560px] rounded-lg border border-adm-border bg-adm-panel p-5" onClick={(e) => e.stopPropagation()}>
-        <h3 className="mb-3 text-sm font-semibold text-adm-t1">{isAdvance ? '发起垫款 · 退汇差额由公司先垫' : '发起补款 · 认损后公司补齐客户'}</h3>
+        <h3 className="mb-3 text-sm font-semibold text-adm-t1">{isAdvance ? 'Initiate advance · The firm fronts the recall shortfall' : 'Initiate compensation · Firm compensates the customer after loss recognition'}</h3>
         <dl className="mb-4 grid grid-cols-2 gap-x-4 gap-y-1 rounded border border-adm-border bg-adm-hover/40 p-3 text-xs">
-          <dt className="text-adm-t3">客户 / 钱包</dt><dd className="font-mono">{ns.customerNo ?? '—'} · {ns.walletNo ?? '—'}</dd>
-          <dt className="text-adm-t3">金额（锁定，不可改）</dt><dd className="font-mono">{formatAmount(ns.amount, decimals)} {assetCode}</dd>
+          <dt className="text-adm-t3">Customer / Wallet</dt><dd className="font-mono">{ns.customerNo ?? '—'} · {ns.walletNo ?? '—'}</dd>
+          <dt className="text-adm-t3">Amount (locked, not editable)</dt><dd className="font-mono">{formatAmount(ns.amount, decimals)} {assetCode}</dd>
           {isAdvance ? (
-            <><dt className="text-adm-t3">退汇 / 客户可用</dt><dd className="font-mono">{formatAmount(ns.lineAmount, decimals)} / {formatAmount(ns.available, decimals)}</dd></>
+            <><dt className="text-adm-t3">Recalled / Customer available</dt><dd className="font-mono">{formatAmount(ns.lineAmount, decimals)} / {formatAmount(ns.available, decimals)}</dd></>
           ) : (
-            <><dt className="text-adm-t3">来源认损单</dt><dd className="font-mono">{ns.adjustmentNo}</dd></>
+            <><dt className="text-adm-t3">Source loss recognition no.</dt><dd className="font-mono">{ns.adjustmentNo}</dd></>
           )}
-          <dt className="text-adm-t3">对账案</dt><dd className="font-mono">{caseNo}</dd>
-          <dt className="text-adm-t3">路线</dt><dd>{assetCode === 'AED' ? '运营户 → 结算户 → 客户 vIBAN（法币两腿）' : '运营户 → 客户地址（一腿）'}</dd>
+          <dt className="text-adm-t3">Reconciliation case</dt><dd className="font-mono">{caseNo}</dd>
+          <dt className="text-adm-t3">Route</dt><dd>{assetCode === 'AED' ? 'Operating account → Settlement account → Customer vIBAN (2 fiat legs)' : 'Operating account → Customer address (1 leg)'}</dd>
         </dl>
         {result ? (
           <>
-            <p className="text-xs text-adm-t2">已发起，等待 CFO 复核。划转单 <span className="font-mono">{result.transferNo}</span>，审批单 <span className="font-mono">{result.approvalNo}</span>。批准后到资金单页 ⚡ 推腿，回案子「重新对账」看在途与自愈。</p>
-            <div className="mt-4 flex justify-end"><button type="button" onClick={onDone} className={adminButtonClass('modalConfirm')}>完成</button></div>
+            <p className="text-xs text-adm-t2">Initiated, awaiting CFO review. Transfer <span className="font-mono">{result.transferNo}</span>, approval <span className="font-mono">{result.approvalNo}</span>. Once approved, push the leg on the funds order page — then return to the case and click "Re-reconcile" to see it in transit and self-resolve.</p>
+            <div className="mt-4 flex justify-end"><button type="button" onClick={onDone} className={adminButtonClass('modalConfirm')}>Complete</button></div>
           </>
         ) : (
           <>
-            <label className="mb-3 block text-xs">理由
+            <label className="mb-3 block text-xs">Reason
               <textarea value={reason} onChange={(e) => setReason(e.target.value)} rows={3} className="mt-1 w-full rounded border border-adm-border bg-adm-panel px-2 py-1 text-xs"
-                placeholder={isAdvance ? '例：银行扣回 6500，客户已花掉部分，先垫后扣，垫款登记追索' : '例：托管差额查无可查，公司认赔补齐'} />
+                placeholder={isAdvance ? 'e.g.: Bank recalled 6,500, customer already spent part of it — front the funds now, recover later; the advance is logged for recovery' : 'e.g.: Custody shortfall cannot be traced — the firm recognizes the loss and compensates in full'} />
             </label>
             {error && <p className="mb-2 text-xs text-adm-red">{error}</p>}
             <div className="flex justify-end gap-2">
-              <button type="button" onClick={onClose} className={adminButtonClass('modalCancel')}>取消</button>
-              <button type="button" disabled={submitting || !reason.trim()} onClick={() => void submit()} className={adminButtonClass('modalConfirm')}>{submitting ? '提交中…' : '提交给 CFO'}</button>
+              <button type="button" onClick={onClose} className={adminButtonClass('modalCancel')}>Cancel</button>
+              <button type="button" disabled={submitting || !reason.trim()} onClick={() => void submit()} className={adminButtonClass('modalConfirm')}>{submitting ? 'Submitting…' : 'Submit to CFO'}</button>
             </div>
           </>
         )}
