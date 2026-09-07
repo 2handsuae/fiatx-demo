@@ -30,6 +30,9 @@ export interface CustomerProfileData {
   /** 仅 DISCLOSED 限制贡献的能力集。响应体里【没有】blocked —— 见 restrictedCapabilities.ts。 */
   disclosedBlocked: string[];
   disclosed: DisclosedRestrictionView[];
+  /** 入驻会话事实（波二派生布尔，原始时间戳不下发）。 */
+  submitted?: boolean;
+  canReapply?: boolean;
   actions?: Array<{ type: string; payload?: Record<string, unknown> }>;
   riskRating: string;
   eddRequired: boolean;

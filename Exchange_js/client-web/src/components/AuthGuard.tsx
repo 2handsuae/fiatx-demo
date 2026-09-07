@@ -11,6 +11,7 @@ import {
 } from '../utils/customerOnboarding';
 import { useTradingReadiness } from '../hooks/useTradingReadiness';
 import { isCapabilityRestricted } from '../utils/restrictedCapabilities';
+import { customerFetch } from '../utils/customerFetch';
 import TradingStartGuide from './TradingStartGuide';
 
 /* ────────────────────────────────────────────────────────────────
@@ -123,6 +124,9 @@ const AuthGuard = ({ children }: AuthGuardProps) => {
     return <>{children}</>;
   }
 
+  // 波二开门：认证页本身对未 ACTIVE 客户放行（照 readiness 门放行 /withdrawal-addresses 的先例）
+  if (location.pathname === '/onboarding/verify') return <>{children}</>;
+
   // lifecycle 未过的四步拦截页。OFFBOARDED 到不了这里——终态客户的会话在
   // jwt.strategy 就被拒，根本进不到路由。
   const lifecycle = normalizeLifecycle(user?.lifecycle) ?? 'PROSPECT';
@@ -147,9 +151,12 @@ const AuthGuard = ({ children }: AuthGuardProps) => {
     copy = {
       byline: '§ Access paused',
       title: isRejected ? 'Application declined.' : 'Application withdrawn.',
-      body: isRejected
-        ? 'Our compliance team could not approve this application. You may open a new one with updated supporting information.'
-        : 'This application was withdrawn. You may open a new application at any time.',
+      body:
+        user?.canReapply === false
+          ? 'This application cannot be reopened. Please contact support.'
+          : isRejected
+            ? 'Our compliance team could not approve this application. You may open a new one with updated supporting information.'
+            : 'This application was withdrawn. You may open a new application at any time.',
       cta: isRejected ? 'Retry verification' : 'Restart verification',
       tone: 'blocked',
     };
@@ -205,7 +212,20 @@ const AuthGuard = ({ children }: AuthGuardProps) => {
 
         {/* CTA + meta line */}
         <div className="mt-10 flex flex-wrap items-center gap-5">
-          {/* 站6：一期认证页拆除——IN_VERIFICATION 客户此屏只陈述状态,无跳转（重做接真 Sumsub 后再开门） */}
+          {(() => {
+            const goVerify = () => navigate('/onboarding/verify');
+            const post = (p: string) =>
+              customerFetch(`${import.meta.env.VITE_API_URL}/client/me/onboarding/${p}`, { method: 'POST' });
+            if (isBlocked && user?.canReapply === false) return null; // 终拒：无 CTA，中性文案
+            if (isBlocked) {
+              return <button className="fx-btn-primary" onClick={async () => { const r = await post('reapply'); if (r.ok) goVerify(); }}>{copy.cta}</button>;
+            }
+            if (isFinalPending) return null; // 等高管终审：陈述屏，无动作
+            if (lifecycle === 'IN_VERIFICATION') {
+              return <button className="fx-btn-primary" onClick={goVerify}>{copy.cta}</button>;
+            }
+            return <button className="fx-btn-primary" onClick={async () => { const r = await post('start'); if (r.ok) goVerify(); }}>{copy.cta}</button>;
+          })()}
           <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-fx-dust">
             Est. 3 min · VARA regulated
           </span>
