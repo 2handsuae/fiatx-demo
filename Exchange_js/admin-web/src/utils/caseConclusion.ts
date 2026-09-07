@@ -47,23 +47,31 @@ export function buildCaseConclusion(
       tone: 'red',
     };
   } else if (k.bucket === 'BREAK') {
-    // 规则2/3（Task 8 重写）：三模板逐字照抄 brief——残差非零时一律先说
-    // "no in-transit cover"，再按有无已解释行分叉；不再单独描述在途部分解释的
-    // 中间态（旧口径），避免与"已解释行"文案打架。
+    // 规则2/3（Task 8 重写；Fix round 修正方向口径）：dir 由 deltaAmount 符号定——
+    // 负数=外部少于账上=short of，正数=外部多于账上（盈余案）=in excess of；此前
+    // 三模板硬编码 "short of" 且 absStr 抹了符号，盈余案会说反话。coverPhrase 同样
+    // 改判据——inTransitSigned 非零时说"部分被在途覆盖"（旧版 rule3 口径译回来，
+    // 金额已在 In-Transit 格子展示，句子不重复数字），零时才说"无在途覆盖"；再按
+    // 有无已解释行分叉。
+    const dir = parseFloat(k.deltaAmount) < 0 ? 'short of' : 'in excess of';
+    const coverPhrase = isZeroStr(k.explain?.inTransitSigned)
+      ? 'no in-transit cover'
+      : 'partly covered by in-transit orders';
     if (!isZeroStr(k.explainedSum)) {
       base = {
-        text: `External balance is ${fmt(absStr(k.deltaAmount))} ${k.assetCode} short of our books — no in-transit cover; ${fmt(k.explainedSum as string)} explained, awaiting re-reconcile.`,
+        text: `External balance is ${fmt(absStr(k.deltaAmount))} ${k.assetCode} ${dir} our books — ${coverPhrase}; ${fmt(k.explainedSum as string)} explained, awaiting re-reconcile.`,
         tone: 'red',
       };
     } else {
       base = {
-        text: `External balance is ${fmt(absStr(k.deltaAmount))} ${k.assetCode} short of our books — no in-transit cover, full amount unexplained.`,
+        text: `External balance is ${fmt(absStr(k.deltaAmount))} ${k.assetCode} ${dir} our books — ${coverPhrase}, full amount unexplained.`,
         tone: 'red',
       };
     }
   } else if (k.bucket === 'IN_TRANSIT') {
-    // 规则4
-    base = { text: `External balance is ${fmt(absStr(k.deltaAmount))} ${k.assetCode} short of our books — fully covered by in-transit orders.`, tone: 'blue' };
+    // 规则4——同样按符号定方向，覆盖语义本身不变（该桶恒是"全覆盖"）。
+    const dir = parseFloat(k.deltaAmount) < 0 ? 'short of' : 'in excess of';
+    base = { text: `External balance is ${fmt(absStr(k.deltaAmount))} ${k.assetCode} ${dir} our books — fully covered by in-transit orders.`, tone: 'blue' };
   } else if (k.bucket === 'COMPENSATING') {
     // 规则5
     const n = (k.flowSummary?.orphanInternal ?? 0) + (k.flowSummary?.orphanExternal ?? 0) + (k.flowSummary?.mismatch ?? 0);

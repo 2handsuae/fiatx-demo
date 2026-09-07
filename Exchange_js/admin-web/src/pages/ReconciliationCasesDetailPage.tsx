@@ -422,11 +422,14 @@ const ShortRef = ({ value }: { value: string | null }) =>
 // approvalEntityRoutes.ts 的 ENTITY_ROUTE_BY_ACTION——那张表按审批 actionType 建键
 // （如 DEPOSIT_CONFISCATION），键空间与账务 sourceType（DEPOSIT/WITHDRAWAL/…）不
 // 重合；这里沿用它"能给详情页用详情页、不能给（deposit/withdraw 详情路由仍是内部
-// id）用列表页 + keyword 定位"的既有惯例，对 recon 场景会出现的 sourceType 逐条落地。
+// id）用列表页 + 单号定位"的既有惯例，对 recon 场景会出现的 sourceType 逐条落地。
+// Fix round：三个列表页此前都不读 `?keyword=`（全管理台无人读，死参数），改传各自
+// 列表页真正认识的单号过滤参数——depositNo / withdrawNo / swapNo（见三张列表页
+// FilterState 初始化处新增的 URL 参数读取，逐字仿写它们旁边既有的 ownerNo 写法）。
 const SOURCE_TYPE_HREF: Record<string, (no: string) => string> = {
-  DEPOSIT: (no) => `/admin/trading/deposits?keyword=${encodeURIComponent(no)}`,
-  WITHDRAWAL: (no) => `/admin/trading/withdrawals?keyword=${encodeURIComponent(no)}`,
-  SWAP: (no) => `/admin/trading/swaps?keyword=${encodeURIComponent(no)}`,
+  DEPOSIT: (no) => `/admin/trading/deposits?depositNo=${encodeURIComponent(no)}`,
+  WITHDRAWAL: (no) => `/admin/trading/withdrawals?withdrawNo=${encodeURIComponent(no)}`,
+  SWAP: (no) => `/admin/trading/swaps?swapNo=${encodeURIComponent(no)}`,
   INTERNAL_TRANSFER: (no) => `/admin/treasury/internal-transfers/${encodeURIComponent(no)}`,
   RECON_ADJUSTMENT: (no) => `/admin/reconciliation/adjustments/${encodeURIComponent(no)}`,
 };
@@ -437,7 +440,10 @@ const caseHistoryTime = (iso: string | null): string | null => {
   if (!iso) return null;
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return null;
-  return d.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false });
+  // Fix round：hour12:false 在午夜仍会把 00:xx 显示成 24:xx（Chrome/V8 已知行为，
+  // hour12:false 只关闭 AM/PM 后缀不改小时基数）——改用 hourCycle:'h23' 才是真正的
+  // 0–23 小时制,午夜正确显示 00:30 而不是 24:30。
+  return d.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
 };
 
 // 平账三期（Task 12）：案件页三入口共用——拼「登记事故」跳转的 query。铁律⑥：
@@ -742,7 +748,7 @@ const ReconciliationCasesDetailPage = () => {
   const renderFunding = (row: FlowComparisonRow) => (
     <>
       {row.transfer && (
-        <span className="whitespace-nowrap font-mono text-[10px] text-adm-t2">
+        <span className="max-w-[220px] font-mono text-[10px] text-adm-t2">
           {row.transfer.purpose === 'CLIENT_ADVANCE' ? 'Advance' : 'Compensation'}{' '}
           <Link to={`/admin/treasury/internal-transfers/${encodeURIComponent(row.transfer.transferNo)}`} className="text-adm-blue hover:underline">{row.transfer.transferNo}</Link>
           {' · '}{TRANSFER_STATUS_WORD[row.transfer.status] ?? row.transfer.status}
@@ -750,14 +756,14 @@ const ReconciliationCasesDetailPage = () => {
       )}
       {(row.nextStep?.kind === 'COMPENSATION' || row.nextStep?.kind === 'ADVANCE') && kase && (
         canFundClient ? (
-          <button type="button" onClick={() => setFundingRow(row)} className="inline-flex items-center gap-1 whitespace-nowrap font-mono text-[10px] font-medium text-adm-blue hover:underline">
+          <button type="button" onClick={() => setFundingRow(row)} className="inline-flex max-w-[220px] items-start gap-1 font-mono text-[10px] font-medium text-adm-blue hover:underline">
             <Plus size={10} />
             {row.nextStep.kind === 'COMPENSATION'
               ? `Initiate compensation ${formatAmount(row.nextStep.amount, kase.decimals)} ${kase.assetCode}`
-              : `Insufficient balance — initiate advance ${formatAmount(row.nextStep.amount, kase.decimals)} ${kase.assetCode}`}
+              : `Insufficient balance ${formatAmount(row.nextStep.amount, kase.decimals)} ${kase.assetCode} — Initiate advance`}
           </button>
         ) : (
-          <span className="whitespace-nowrap font-mono text-[10px] text-adm-amber">
+          <span className="max-w-[220px] font-mono text-[10px] text-adm-amber">
             {row.nextStep.kind === 'COMPENSATION' ? 'Pending compensation (initiated by treasury)' : `Insufficient balance ${formatAmount(row.nextStep.amount, kase.decimals)} — pending treasury advance`}
           </span>
         )
@@ -884,7 +890,11 @@ const ReconciliationCasesDetailPage = () => {
                   {kase.severity}
                 </span>
               )}
-              {kase.slaBreached && kase.slaDeadline && (
+              {/* Fix round：加 status === 'OPEN' 门控，对齐 CaseHistory 的 isOverdue
+                  判据（!isResolved && slaBreached && !!slaDeadline）——RESOLVED 后
+                  slaBreached 仍可能是 true（历史事实不回填），此前会同时出现红色
+                  OVERDUE 徽标和 Case History 里中性的 "day N" 格,两处各说各话。 */}
+              {kase.status === 'OPEN' && kase.slaBreached && kase.slaDeadline && (
                 <span className="inline-flex items-center gap-1 rounded border border-adm-red/30 bg-adm-red/10 px-2 py-0.5 font-mono text-[10px] font-semibold uppercase tracking-wider text-adm-red">
                   <Clock size={10} />
                   OVERDUE {Math.max(1, Math.floor((agingReferenceMs - new Date(kase.slaDeadline).getTime()) / 86_400_000))}D
@@ -1272,7 +1282,7 @@ const ReconciliationCasesDetailPage = () => {
                                   </button>
                                 )}
                                 {row.disposition.outlet === 'SUPPLEMENT' && row.disposition.supplementNo && (
-                                  <span className="whitespace-nowrap font-mono text-[10px] text-adm-t2">
+                                  <span className="max-w-[220px] font-mono text-[10px] text-adm-t2">
                                     Transferred ·{' '}
                                     {row.disposition.supplementRef?.kind === 'DEPOSIT' && row.disposition.supplementRef.id
                                       ? <Link to={`/admin/trading/deposits/${row.disposition.supplementRef.id}`} className="text-adm-blue hover:underline">{row.disposition.supplementNo}</Link>
@@ -1329,7 +1339,7 @@ const ReconciliationCasesDetailPage = () => {
                                     </button>
                                   ) : (
                                     // 出口 = INCIDENT（事故已定损公司承损）不是「超期」——那句话在这里是撒谎。
-                                    <span className="whitespace-nowrap font-mono text-[10px] text-adm-red">
+                                    <span className="max-w-[220px] font-mono text-[10px] text-adm-red">
                                       {row.disposition.outlet === 'INCIDENT' ? 'Incident assessed · eligible to recognize loss' : row.nextStep.reasonCode === 'UNEXPLAINED_CLIENT_LOSS' ? 'Overdue · eligible to recognize loss' : 'Overdue · eligible to write off'}
                                     </span>
                                   )
@@ -1356,11 +1366,11 @@ const ReconciliationCasesDetailPage = () => {
                                       Escalate to incident
                                     </button>
                                   ) : (
-                                    <span className="whitespace-nowrap font-mono text-[10px] text-adm-red">Overdue · pending escalation to incident</span>
+                                    <span className="max-w-[220px] font-mono text-[10px] text-adm-red">Overdue · pending escalation to incident</span>
                                   )
                                 )}
                                 {row.nextStep?.kind === 'CLIENT_SURPLUS' && (
-                                  <span className="whitespace-nowrap font-mono text-[10px] text-adm-amber">Overdue · surplus pending attribution, route via supplement</span>
+                                  <span className="max-w-[220px] font-mono text-[10px] text-adm-amber">Overdue · surplus pending attribution, route via supplement</span>
                                 )}
                                 {renderFunding(row)}
                               </div>

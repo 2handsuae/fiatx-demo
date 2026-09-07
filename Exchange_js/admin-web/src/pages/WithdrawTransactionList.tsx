@@ -79,9 +79,11 @@ const WithdrawTransactionList = () => {
   const [searchParams] = useSearchParams();
 
   // 客户详情页 → 三域交易跳转（第二幕波一）：深链 ?ownerNo= 初始化过滤，铁律⑥。
+  // Fix round：对账案 Differences 表 Source 列同样深链本页——?withdrawNo= 定位单据。
   const [filters, setFilters] = useState<FilterState>(() => ({
     ...DEFAULT_FILTERS,
     ownerNo: searchParams.get('ownerNo')?.trim() ?? '',
+    withdrawNo: searchParams.get('withdrawNo')?.trim() ?? '',
   }));
   const [items, setItems] = useState<WithdrawItem[]>([]);
   const [total, setTotal] = useState(0);

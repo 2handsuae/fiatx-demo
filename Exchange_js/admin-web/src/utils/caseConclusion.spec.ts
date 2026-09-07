@@ -58,6 +58,32 @@ describe('buildCaseConclusion', () => {
     expect(c?.text).not.toContain('full amount unexplained');
   });
 
+  it('BREAK + deltaAmount 正值（盈余案，外部多于账上）→ in excess of，不说反话', () => {
+    const c = buildCaseConclusion({ ...base, deltaAmount: '73550', explainedSum: '0' }, fmt);
+    expect(c).toEqual({
+      text: 'External balance is 735.50 AED in excess of our books — no in-transit cover, full amount unexplained.',
+      tone: 'red',
+    });
+    expect(c?.text).not.toContain('short of');
+  });
+
+  it('BREAK + 在途非零 → 部分覆盖措辞（不重复金额数字），且不已解释分支同样适用', () => {
+    const c = buildCaseConclusion({ ...base, explain: { inTransitSigned: '5000', residual: '0' }, explainedSum: '0' }, fmt);
+    expect(c).toEqual({
+      text: 'External balance is 735.50 AED short of our books — partly covered by in-transit orders, full amount unexplained.',
+      tone: 'red',
+    });
+    expect(c?.text).not.toContain('no in-transit cover');
+  });
+
+  it('BREAK + 在途非零 + 存在已解释行 → 部分覆盖措辞落已解释模板分支', () => {
+    const c = buildCaseConclusion({ ...base, explain: { inTransitSigned: '5000', residual: '0' }, explainedSum: '22800' }, fmt);
+    expect(c).toEqual({
+      text: 'External balance is 735.50 AED short of our books — partly covered by in-transit orders; 228.00 explained, awaiting re-reconcile.',
+      tone: 'red',
+    });
+  });
+
   it('IN_TRANSIT → 在途全覆盖模板', () => {
     const c = buildCaseConclusion({ ...base, bucket: 'IN_TRANSIT' }, fmt);
     expect(c).toEqual({
