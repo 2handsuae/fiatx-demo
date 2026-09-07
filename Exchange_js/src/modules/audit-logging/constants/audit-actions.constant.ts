@@ -154,6 +154,7 @@ export const AuditBusinessWorkflowTypes = {
   MATERIAL_REQUEST: 'MATERIAL_REQUEST',
   // 平账三期（2026-09-06）：事故登记（治理件，独立主体 Incident）
   INCIDENT: 'INCIDENT',
+  CUSTOMER_ONBOARDING_ACCEPTANCE: 'CUSTOMER_ONBOARDING_ACCEPTANCE',
 } as const;
 
 // Task 28：退役清单扫尾——原 15 键仅 2 键（REQUEST_CREATED/SUBMITTED）经
@@ -455,6 +456,15 @@ export const AuditActions = {
   MATERIAL_REQUEST_REJECTED: 'MATERIAL_REQUEST_REJECTED',
   MATERIAL_REQUEST_CANCELLED: 'MATERIAL_REQUEST_CANCELLED',
   MATERIAL_REQUEST_ORDER_UNBOUND: 'MATERIAL_REQUEST_ORDER_UNBOUND',
+  // ── 入驻（波二 2026-09-07）──────────────────────────
+  ONBOARDING_VERIFICATION_STARTED: 'ONBOARDING_VERIFICATION_STARTED',
+  ONBOARDING_SUBMITTED: 'ONBOARDING_SUBMITTED',
+  ONBOARDING_LEVEL_CHANGED: 'ONBOARDING_LEVEL_CHANGED',
+  ONBOARDING_VERDICT_APPLIED: 'ONBOARDING_VERDICT_APPLIED',
+  ONBOARDING_WITHDRAWN: 'ONBOARDING_WITHDRAWN',
+  ONBOARDING_REAPPLIED: 'ONBOARDING_REAPPLIED',
+  ONBOARDING_ACCEPTANCE_SUBMITTED: 'ONBOARDING_ACCEPTANCE_SUBMITTED',
+  ONBOARDING_ACCEPTANCE_DECIDED: 'ONBOARDING_ACCEPTANCE_DECIDED',
   // ── 平账三期（2026-09-06）：事故登记（治理件，域 GOVERNANCE）──
   INCIDENT_REGISTERED: 'INCIDENT_REGISTERED',
   INCIDENT_INVESTIGATION_STARTED: 'INCIDENT_INVESTIGATION_STARTED',
@@ -938,7 +948,7 @@ export const V8_RECON_AUDIT_ACTIONS: Record<string, AuditActionSpec> = {
 };
 
 /**
- * V2 客户域名册（站6-β，2026-08-27 业主方案2 后的存活面）——14 现役词，
+ * V2 客户域名册（站6-β，2026-08-27 业主方案2 后的存活面）——22 现役词（波二 2026-09-07 +8 入驻），
  * 现名全保守零改名。客户级件无订单旅程 → 全员 NONE；材料请求绑单时机会性携带
  * 父单旅程号（不设 INHERIT 硬闸：请求可无单发起，码的模式是固有属性不看场景）。
  * 便签四词双通道（系统命中 recordSystem / 运营贴撕 recordByActor）。
@@ -961,6 +971,15 @@ export const V2_CUSTOMER_AUDIT_ACTIONS: Record<string, AuditActionSpec> = {
   MATERIAL_REQUEST_REJECTED:     { domain: 'CUSTOMER', correlationMode: N, requiredFields: [], requiresCausation: false },
   MATERIAL_REQUEST_CANCELLED:    { domain: 'CUSTOMER', correlationMode: N, requiredFields: ['reason'], requiresCausation: false },
   MATERIAL_REQUEST_ORDER_UNBOUND:{ domain: 'CUSTOMER', correlationMode: N, requiredFields: [], requiresCausation: false },
+  // ── 入驻（8，波二 2026-09-07）：客户级件无订单旅程，correlationMode 全 N ──
+  ONBOARDING_VERIFICATION_STARTED: { domain: 'CUSTOMER', correlationMode: N, requiredFields: ['afterData'], requiresCausation: false },
+  ONBOARDING_SUBMITTED:            { domain: 'CUSTOMER', correlationMode: N, requiredFields: ['afterData'], requiresCausation: false },
+  ONBOARDING_LEVEL_CHANGED:        { domain: 'CUSTOMER', correlationMode: N, requiredFields: ['beforeData', 'afterData'], requiresCausation: false },
+  ONBOARDING_VERDICT_APPLIED:      { domain: 'CUSTOMER', correlationMode: N, requiredFields: ['afterData'], requiresCausation: false },
+  ONBOARDING_WITHDRAWN:            { domain: 'CUSTOMER', correlationMode: N, requiredFields: [], requiresCausation: false },
+  ONBOARDING_REAPPLIED:            { domain: 'CUSTOMER', correlationMode: N, requiredFields: [], requiresCausation: false },
+  ONBOARDING_ACCEPTANCE_SUBMITTED: { domain: 'CUSTOMER', correlationMode: N, requiredFields: ['approvalNo', 'reason'], requiresCausation: false },
+  ONBOARDING_ACCEPTANCE_DECIDED:   { domain: 'CUSTOMER', correlationMode: N, requiredFields: ['approvalNo'], requiresCausation: false },
 };
 
 /**

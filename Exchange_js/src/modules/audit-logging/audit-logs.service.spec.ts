@@ -125,6 +125,8 @@ describe('AuditLogsService', () => {
       V8_RECONCILIATION: 'clearing-settle/reconciliation',
       // 平账三期（2026-09-06）：事故登记
       INCIDENT: 'INCIDENT',
+      // 入驻波二（2026-09-07）：客户接受声明 maker-checker
+      CUSTOMER_ONBOARDING_ACCEPTANCE: 'CUSTOMER_ONBOARDING_ACCEPTANCE',
     });
 
     expect(AuditUserActions).toEqual({
