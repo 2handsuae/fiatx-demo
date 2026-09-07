@@ -106,7 +106,7 @@ describe('IncidentService (Task 5)', () => {
       const { svc, prisma } = makeService({ disposition: { outlet: 'INCIDENT', causeCode: 'UNAUTHORIZED_OUTFLOW', incidentNo: null } });
       const r = await svc.register({ type: T.UNAUTHORIZED_OUTFLOW, title: 't', description: 'd', sourceCaseNo: 'REC1', sourceDispositionNo: 'RCD1' }, ops);
       expect(r.incidentNo).toMatch(/^INC/);
-      expect(prisma.reconciliationDisposition.update).toBeUndefined(); // update isn't even mocked — the service must never call it
+      expect(prisma.reconciliationDisposition.update).toBeUndefined(); // 压根没 mock update——服务不许调它
     });
   });
 
@@ -501,9 +501,8 @@ describe('IncidentService (Task 5)', () => {
       const view = await svc.getView('INC1');
       expect(view.incidentNo).toBe('INC1');
       expect(view.notes).toEqual([{ kind: 'NOTE', escalatedTo: null, body: 'Logged a note', authorBy: 'ADM-OPS', createdAt: createdAt.toISOString() }]);
-      // Task 12: an ADJUSTMENT remediation must carry the adjustment's current status —
-      // the incident page's "Initiate compensation" button reads "posted (POSTED)" off this;
-      // the remediations table itself does not store this status, since it would go stale.
+      // Task 12：ADJUSTMENT 善后单要带上调账单现状——事故页「发起补款」按钮据此判断
+      // 「已落账（POSTED）」，remediations 表本身不存这个会过期的状态快照。
       expect(view.remediations).toEqual([{ kind: 'ADJUSTMENT', referenceNo: 'ADJ1', linkedBy: 'ADM-OPS', createdAt: createdAt.toISOString(), status: 'POSTED' }]);
       expect(view).not.toHaveProperty('id');
       expect(JSON.stringify(view)).not.toContain('uuid-inc');
