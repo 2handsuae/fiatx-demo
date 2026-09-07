@@ -1,6 +1,6 @@
 # V8 · 对账（账对不对得上）
 
-> 对应 PRD：待写 ｜ 技术节点 Last Verified：2026-09-06（平账三期：事故登记——未授权转出出口 / 大额到线升级 / 退汇欠款登记，重铺闸实跑）
+> 对应 PRD：待写 ｜ 技术节点 Last Verified：2026-09-07（平账收尾·界面收口轮：调账单菜单 / Run·Case 详情页重排 / 全站英文化 / 客户流水页重做，收尾闸重铺闸实跑）
 > 演示幕次：第六幕「账对」 ｜ 验收：第六幕走查（`demo/script.md`）+ 本篇 §4
 
 ## 0. 一句话定位
@@ -21,13 +21,13 @@
 
 **挂起不粉饰。** 「跨账期下期自平」「查不出、已穷尽调查」这两类的查证结论就是**我方账不动**，零分录；案子照旧红着——差异确实还在，只是知道了原因。
 
-**补单：钱真进出了，只是没走我方正常流程（2026-09-03 平账 B 批立）。** 漏记的客户入金、被银行退汇的入金、出款后又被银行退回的钱——这三类不是"我方账错了"，是**外面真有一笔钱进出，我方要回到对应的业务域把流程真正跑一遍**（decisions.md 2026-08-28：不许用调账凭空给客户加钱，那等于没跑 KYT、没过合规闸、没有客户单号）。入口摆在案子上，逻辑与数据都在业务域：定性行选中三个成因之一，冒出「发起补录 / 认领退汇 / 认领退回」按钮，运营发起 → **CFO 单步复核**（与调账、核销同一个裁决人）→ 业务域自己建单、走完整流程、记账、留痕 → 定性行的补单号回填 → 重对账自愈。三条路里唯一带前置条件的是「认领退汇」：客户可用余额必须够扣，不够走「发起垫款」（内部划转单，先垫后扣，2026-09-05 平账二期）；垫款之外仍要留痕追索的，案子上「登记欠款」登记为事故（`CLIENT_SHORTFALL`，2026-09-06 平账三期，见 `modules/v1-governance.md` §7）——只登记欠款、留痕备查，不建分录、没有自动追偿机制。**虚拟币没有退汇**——链上转账不可逆，退汇只发生在法币这条轨道上。
+**补单：钱真进出了，只是没走我方正常流程（2026-09-03 平账 B 批立）。** 漏记的客户入金、被银行退汇的入金、出款后又被银行退回的钱——这三类不是"我方账错了"，是**外面真有一笔钱进出，我方要回到对应的业务域把流程真正跑一遍**（decisions.md 2026-08-28：不许用调账凭空给客户加钱，那等于没跑 KYT、没过合规闸、没有客户单号）。入口摆在案子上，逻辑与数据都在业务域：定性行选中三个成因之一，冒出「Record missed deposit / Claim recall / Claim return」按钮，运营发起 → **CFO 单步复核**（与调账、核销同一个裁决人）→ 业务域自己建单、走完整流程、记账、留痕 → 定性行的补单号回填 → 重对账自愈。三条路里唯一带前置条件的是「Claim recall」：客户可用余额必须够扣，不够走「Initiate advance」（内部划转单，先垫后扣，2026-09-05 平账二期）；垫款之外仍要留痕追索的，案子上「Register shortfall」登记为事故（`CLIENT_SHORTFALL`，2026-09-06 平账三期，见 `modules/v1-governance.md` §7）——只登记欠款、留痕备查，不建分录、没有自动追偿机制。**虚拟币没有退汇**——链上转账不可逆，退汇只发生在法币这条轨道上。
 
-**悬着多久，悬太久怎么办（2026-09-02 立）。** 每张打开的案子一只钟：业务日日终起算，3 天到线标「超期」、记一条审计、列表醒目，状态不动。到线后按案子在等什么解锁下一步：等钱到账的去推单；等下期的重查；**查不出的**，公司池小额由金库开核销单、CFO 批、一笔分录进损益（少了认损进运营资金，多了计入其他收入）、重对账自愈；大额由运营在案件页点「升级事故」登记为事故（`LARGE_UNEXPLAINED`，2026-09-06 平账三期，见 `modules/v1-governance.md` §7），走独立的调查/定损/通报/结案流程善后，对账侧该行标「事故·待处置」；客户池要等二期划转（托管里真少了钱，先认损再由公司补款）。核销是唯一没有故事的出口，所以门最重：账龄 / 小额线 / CFO 三道锁少一道就是抹差异的后门。**豁免与容差不做**：本系统与服务商精度一致，尘埃差不存在，立场是一分不差、一分也追。
+**悬着多久，悬太久怎么办（2026-09-02 立）。** 每张打开的案子一只钟：业务日日终起算，3 天到线标「超期」、记一条审计、列表醒目，状态不动。到线后按案子在等什么解锁下一步：等钱到账的去推单；等下期的重查；**查不出的**，公司池小额由金库开核销单、CFO 批、一笔分录进损益（少了认损进运营资金，多了计入其他收入）、重对账自愈；大额由运营在案件页点「Escalate to incident」登记为事故（`LARGE_UNEXPLAINED`，2026-09-06 平账三期，见 `modules/v1-governance.md` §7），走独立的调查/定损/通报/结案流程善后，对账侧该行标「事故·待处置」；客户池要等二期划转（托管里真少了钱，先认损再由公司补款）。核销是唯一没有故事的出口，所以门最重：账龄 / 小额线 / CFO 三道锁少一道就是抹差异的后门。**豁免与容差不做**：本系统与服务商精度一致，尘埃差不存在，立场是一分不差、一分也追。
 
 **单位契约。** 内部一切金额按**最小单位（分）**的整数计，外部账单入库先洗成分，展示时才按资产精度转成元——曾经的假破口就是元、分混算造出来的。
 
-**客户池的短缺（2026-09-05 平账二期立）**：查不出的小额短缺到线后走**认损**（分录同核销、只许托管里少了的方向），案子愈；随后金库在案子上「发起补款」、CFO 批、真转账补齐客户。退汇认领余额不够不再只是拒：行上直接给「发起垫款」，先垫后扣。两条都是第四类订单「内部划转单」，见 `modules/v7-treasury.md`。
+**客户池的短缺（2026-09-05 平账二期立）**：查不出的小额短缺到线后走**认损**（分录同核销、只许托管里少了的方向），案子愈；随后金库在案子上「Initiate compensation」、CFO 批、真转账补齐客户。退汇认领余额不够不再只是拒：行上直接给「Initiate advance」，先垫后扣。两条都是第四类订单「内部划转单」，见 `modules/v7-treasury.md`。
 
 ## 2. 状态机
 
@@ -49,16 +49,16 @@
 | 一键重对账 | 运营 | 直接执行 | 处置后验证自愈 |
 | 推单（同步腿） | 运营 | 系统找唯一回执，找不到宁可不推 | 逐步推进，不直写账 |
 | 推单（人工腿） | 运营 | 强推需三件套证据 + 审计 | 人工也留痕 |
-| **开调账单（纠错）** | 运营（案件页点某条流水行，表单预填） | **审批中心单步 `CFO`** | 批准即落一笔账本分录；**无资金单、无真实转账、无在途**（判据见 decisions.md 2026-08-28「资金单看有没有在途要追」）。落完点「重对账」→ 差额归零 → 案子自愈 |
-| **定性（记查证结论）** | 运营（案件页点某条差异行「处置」，从该格成因菜单里选）| **注册表判出口**——人只选成因，冲正/冲销/补记/改记/挂起/留档由 `cause-registry.ts` 定死 | **成因菜单无兜底档**（「查不出」也是一条正式成因，要求说明里写清查过什么）；查证说明必填；同锚重定 = 覆盖 + 各记一条审计；**挂单后锁定**不可覆盖 |
+| **开调账单（纠错）** | 运营（案件页点某条流水行，表单预填） | **审批中心单步 `CFO`** | 批准即落一笔账本分录；**无资金单、无真实转账、无在途**（判据见 decisions.md 2026-08-28「资金单看有没有在途要追」）。落完点「Re-reconcile」→ 差额归零 → 案子自愈 |
+| **定性（记查证结论）** | 运营（案件页点某条差异行「Record finding」，从该格成因菜单里选）| **注册表判出口**——人只选成因，冲正/冲销/补记/改记/挂起/留档由 `cause-registry.ts` 定死 | **成因菜单无兜底档**（「查不出」也是一条正式成因，要求说明里写清查过什么）；查证说明必填；同锚重定 = 覆盖 + 各记一条审计；**挂单后锁定**不可覆盖 |
 | **改记（记错客户，换主）** | **金库开单**（`RECON_ADJUSTMENT_WRITE`，从对端候选清单里挑正主方）| **CFO 复核**（审批中心 `RECON_ADJUSTMENT_POST` 单步 `CFO`，复用既有策略未新增）| **一张单牵两个案件**（错记方 + 正主方各一个锚），**资产腿不动**（钱在托管里一分没动，只是主人记错了）；正主方加钱必填关联原单号；两侧业务日必须相同；**一次重对账两案齐愈** |
-| **核销（公司池查无果）** | 金库（超期后那行出现「核销」）| **CFO** | 四前提：超期 / 该行定性 = 挂起·调查中 / 公司账簿 / ≤ 小额线（AED 100 / USDT 30）；分录与补记同腿；定性挂单号锁定 |
-| **认损（客户池查无果，2026-09-05 新增）** | 金库（超期后那行出现「认损」）| **CFO** | 四前提同核销，账簿 × 成因码换客户池「客户池查无果认损」（`UNEXPLAINED_CLIENT_LOSS`）、只许 REDUCE（托管里少了，多出来的走补录）；分录同核销、客户应付相应减少；定性挂单号锁定；落账后案子 RESOLVED，行上挂「待补款」 |
+| **核销（公司池查无果）** | 金库（超期后那行出现「Write off」）| **CFO** | 四前提：超期 / 该行定性 = 挂起·调查中 / 公司账簿 / ≤ 小额线（AED 100 / USDT 30）；分录与补记同腿；定性挂单号锁定 |
+| **认损（客户池查无果，2026-09-05 新增）** | 金库（超期后那行出现「Recognize loss」）| **CFO** | 四前提同核销，账簿 × 成因码换客户池「客户池查无果认损」（`UNEXPLAINED_CLIENT_LOSS`）、只许 REDUCE（托管里少了，多出来的走补录）；分录同核销、客户应付相应减少；定性挂单号锁定；落账后案子 RESOLVED，行上挂「待补款」 |
 | **发起补款（客户池认损后，同批）** | 金库（案件页，认损落账后）| **审批中心单步 `CFO`** | 内部划转单（第四类订单）；金额锁定 = 认损额；同一认损单只能有一张未走完 / 已成功的划转单；批准后运营在资金单页 ⚡ 推腿，落账即客户余额复位、行上「待补款」清空 |
-| **发起补录（漏记客户入金，2026-09-03 平账 B 批）** | 运营（案件页定性行「发起补录」，链上填来源地址 / 法币填来源 IBAN）| **审批中心单步 `CFO`**（48h，可撤）| 充值域建入站信号（`SUPPLEMENT_PENDING`）→ 批准即走正常充值通道，KYT / 合规照跑到 SUCCESS；生效日 = 案子业务日，参考号取账单行；拒绝/撤回/超时原状态原样不动、可再次发起 |
-| **认领退汇（入金被退汇，同批）** | 运营（案件页定性行「认领退汇」，从候选原充值单里选）| **审批中心单步 `CFO`**（提交、批准各查一次客户可用余额）| 充值单 `SUCCESS → CLAWED_BACK`（新终态）；一笔分录借客户应付 / 贷客户资产；余额不够给『发起垫款』；不建资金单 |
-| **发起垫款（退汇余额不足，2026-09-05 新增）** | 金库（案件页，退汇行余额不足时）| **审批中心单步 `CFO`** | 内部划转单；金额锁定 = 账单行 − 客户可用；法币两腿经结算户；到账后行上「认领退汇」按钮回来，走既有流程 |
-| **认领退回（出金被退回，同批）** | 运营（案件页定性行「认领退回」，从候选原提现单里选）| **审批中心单步 `CFO`** | 提现单 `SUCCESS → RETURNED`（复用既有终态，加一条边）；重记分录本金加回、手续费不退；不建资金单 |
+| **发起补录（漏记客户入金，2026-09-03 平账 B 批）** | 运营（案件页定性行「Record missed deposit」，链上填来源地址 / 法币填来源 IBAN）| **审批中心单步 `CFO`**（48h，可撤）| 充值域建入站信号（`SUPPLEMENT_PENDING`）→ 批准即走正常充值通道，KYT / 合规照跑到 SUCCESS；生效日 = 案子业务日，参考号取账单行；拒绝/撤回/超时原状态原样不动、可再次发起 |
+| **认领退汇（入金被退汇，同批）** | 运营（案件页定性行「Claim recall」，从候选原充值单里选）| **审批中心单步 `CFO`**（提交、批准各查一次客户可用余额）| 充值单 `SUCCESS → CLAWED_BACK`（新终态）；一笔分录借客户应付 / 贷客户资产；余额不够给『Initiate advance』；不建资金单 |
+| **发起垫款（退汇余额不足，2026-09-05 新增）** | 金库（案件页，退汇行余额不足时）| **审批中心单步 `CFO`** | 内部划转单；金额锁定 = 账单行 − 客户可用；法币两腿经结算户；到账后行上「Claim recall」按钮回来，走既有流程 |
+| **认领退回（出金被退回，同批）** | 运营（案件页定性行「Claim return」，从候选原提现单里选）| **审批中心单步 `CFO`** | 提现单 `SUCCESS → RETURNED`（复用既有终态，加一条边）；重记分录本金加回、手续费不退；不建资金单 |
 | 人工核实 / 销案 | — | **未做**（deferred） | 账龄到线标记已做，升级通知不做（无通知中心） |
 
 ## 4. 演示脚本（第六幕 · 账对）
@@ -91,13 +91,13 @@
 > 公司池那两个落点由脚本按**当轮账本快照动态挑**（anchor-free：`firmHedgedPlan` 取第一个干净的公司钱包、`firmUnexplainedPlan` 取下一个有流水的），**不锚死某个具体公司户**——每次重铺可能换户，讲的时候看脚本当场打印的钱包号。
 
 4. **四条闭环各演一条**：
-   - **推单**（场景 1）：资金单详情页推单 → 一键重对账 → 差额归零、案子自愈
-   - **冲正**（场景 5 最干净——Bob AED 只挂这一条）：案件页点那行「处置」→ 选「银行轧差入账（手续费被扣净额）」→ 填查证说明 → 下一步（**成因回显不可选、方向只读**）→ 提交送审 → 审批中心批（单步 `CFO`，审批页显示的是后果原话）→ 重对账 → 案子 RESOLVED、那行显示「已解释 · ADJxxx」
-   - **改记**（场景 8）：Jack 那条「我有外无」选「记错客户——这笔钱是别人的」→ 系统给出对端候选（同业务日 · 同资产 · 同金额 · 反向孤儿）→ 确认 Kate → 一张单送审 → 批准 → 重对账 → **两张案子同时 RESOLVED**
-   - **核销**（场景 10）：定性查不出 → ⚡拨到超期 → 一分钟后「超期」→ 金库那行「核销」→ 锁定视图 → 送审 → CFO 批 → 重对账 → RESOLVED
-   - **补单**（场景 13/14/15，2026-09-03 平账 B 批）：案件页定性行选中三个成因之一 → 「发起补录 / 认领退汇 / 认领退回」→ 审批中心 CFO 批 → 业务域自己走完流程（补录走完整充值到 SUCCESS；退汇 / 退回落 `CLAWED_BACK` / `RETURNED`）→ 重对账，三条对应差异行自愈
-   - **事故登记**（场景 18，2026-09-06 平账三期）：定性「未授权转出」→ 定性行「登记事故」→ 事故详情页调查（记录+升级 MLRO）→ 定损（认损 + 需通报，选依据 TIR_K_H）→ 保存通报草案 → 标已通报 → 案件页「认损」开单（金额锁定=定损额，CFO 批落账）→ 重对账案愈 → 事故页挂载调账单 → 金库「发起补款」（CFO 批，⚡推腿到账）→ 事故页挂载划转单 → 「提结案」（未授权转出走 MLRO→CFO 两步）→ 事故 CLOSED
-5. **挂起要专门讲"不粉饰"**：场景 9 定性完案子**仍是红的**——差异确实还在，只是知道了原因、留下了查证记录，这是账实真不符时唯一诚实的呈现。**场景 13/14/15 不一样**（同批）：定性完之后还有「发起补录 / 认领退汇 / 认领退回」按钮可点，走完 CFO 复核 + 业务域执行的整条链路后案子是真能自愈的——挂起是"知道了原因但账不动"，补单是"知道了原因、而且这次真把账动完整了"，两者都不是给一个动作让案子好看，但结局不同
+   - **推单**（场景 1）：资金单详情页推单 → 「Re-reconcile」→ 差额归零、案子自愈
+   - **冲正**（场景 5 最干净——Bob AED 只挂这一条）：案件页点那行「Record finding」→ 选「Bank fee netted」→ 填查证说明 → 下一步（**成因回显不可选、方向只读**）→ 提交送审 → 审批中心批（单步 `CFO`，审批页显示的是后果原话）→「Re-reconcile」→ 案子 Resolved、那行显示「Explained · ADJxxx」
+   - **改记**（场景 8）：Jack 那条「我有外无」选「Misattributed customer」→ 系统给出对端候选（同业务日 · 同资产 · 同金额 · 反向孤儿）→ 确认 Kate → 一张单送审 → 批准 →「Re-reconcile」→ **两张案子同时 Resolved**
+   - **核销**（场景 10）：定性查不出 → ⚡「Fast-forward aging」→ 一分钟后「Overdue」→ 金库那行「Write off」→ 锁定视图 → 送审 → CFO 批 →「Re-reconcile」→ Resolved
+   - **补单**（场景 13/14/15，2026-09-03 平账 B 批）：案件页定性行选中三个成因之一 → 「Record missed deposit / Claim recall / Claim return」→ 审批中心 CFO 批 → 业务域自己走完流程（补录走完整充值到 SUCCESS；退汇 / 退回落 `CLAWED_BACK` / `RETURNED`）→「Re-reconcile」，三条对应差异行自愈
+   - **事故登记**（场景 18，2026-09-06 平账三期）：定性「Unauthorized outflow」→ 定性行「Register incident」→ 事故详情页调查（记录+升级 MLRO）→ 定损（认损 + 需通报，选依据 TIR_K_H）→ 保存通报草案 → 标已通报 → 案件页「Recognize loss」开单（金额锁定=定损额，CFO 批落账）→「Re-reconcile」案愈 → 事故页挂载调账单 → 金库「Initiate compensation」（CFO 批，⚡推腿到账）→ 事故页挂载划转单 → 「提结案」（未授权转出走 MLRO→CFO 两步）→ 事故 CLOSED
+5. **挂起要专门讲"不粉饰"**：场景 9 定性完案子**仍是红的**——差异确实还在，只是知道了原因、留下了查证记录，这是账实真不符时唯一诚实的呈现。**场景 13/14/15 不一样**（同批）：定性完之后还有「Record missed deposit / Claim recall / Claim return」按钮可点，走完 CFO 复核 + 业务域执行的整条链路后案子是真能自愈的——挂起是"知道了原因但账不动"，补单是"知道了原因、而且这次真把账动完整了"，两者都不是给一个动作让案子好看，但结局不同
 6. **展示位甲/乙是这一幕最值钱的一屏**：甲位（Grace AED）三条金额差、乙位（Frank AED）两条「我有外无」——**同一个格子、同一个形状，成因菜单一模一样，出口由人查出来的成因决定**。乙位那两条对照尤其鲜明：⑥ 有机器线索（已匹配列表里躺着同参考号同金额的双胞胎），⑦ 形状一模一样但屏幕上什么线索都没有
 7. 顺带讲内部恒等预门："对外之前先自证"，`verify:coa` 现场跑一遍全绿
 
@@ -114,7 +114,11 @@
 - 处置·定性（一期半，2026-09-01；2026-09-03 平账 B 批 +1 = 21 码；2026-09-05 平账二期 −1 = 20 码）：`disposition/cause-registry.ts`（**成因注册表单一来源**——20 个成因码铺满 6 格，纯常量无 IO；`menuFor(matchType, book)` 出该格菜单、`resolveOutlet(causeCode, row)` 判出口/族/调账 reason/方向；财务手册 `doc-final/reference/recon-cause-handbook.md`、界面菜单、种子答案键 `rootCause`、审计 `causeCode` 四处同码）｜ `disposition/disposition.service.ts → record()/linkAdjustment()/listReattributionCandidates()`（upsert 语义：同锚覆盖 + 各记一条审计；`adjustmentNo` 非空拒改 400）｜ `disposition/disposition.controller.ts`（2 端点：记定性 / 取改记对端候选）｜ 表 `reconciliation_dispositions`（锚 `explainedFlowId` / `explainedExternalLineId`，与调账单同款锚真实证据 id、跨轮稳定，**不锚每轮重建的 `ReconciliationLineItem.id`**）
 - 处置·改记（调账单**第四族**）：`adjustment-rules.ts` 第 8 码 `CUSTOMER_REATTRIBUTION`（`family: 'REATTRIBUTE'`、`directions: []`——**不走 book × direction 语义，分录由族直接定**）｜ `adjustment.service.ts` 第四族 `createDraft` 分支（两案守卫、双锚、同业务日校验、正主方加钱必填原单号）+ `direction` 落 `'REATTRIBUTE'` + 新字段 `toWalletRef`/`toOwnerNo` ｜ 第五种分录组合：借错记方 `CLIENT_PAYABLE` / 贷正主方 `CLIENT_PAYABLE`，**客户资产腿不动**，不新增科目、无资金单
 - 账龄（A 批）：workflow/case-aging.service.ts（算截止 / 找候选 / 置标记 / ⚡拨钟（`POST .../simulate-aging-timeout` 返回 201）+ 审计）｜ sweep/case-aging-sweep.service.ts（@Cron 每分钟迪拜时区，到线审计 RECON_CASE_AGING_BREACHED）｜ 常量 disposition/recon-thresholds.constant.ts（3 天 / 小额线两币种）｜ 读面 getCase 行注解 nextStep（`CLIENT_SURPLUS` / `INCIDENT_DEFERRED` / `WRITE_OFF` / `COMPENSATION` / `ADVANCE`——后两码为二期新增，`TRANSFER_DEFERRED` 已退役）｜ 核销 = 调账单第五族 WRITE_OFF（reason UNEXPLAINED_WRITE_OFF，守卫 adjustment.service.assertWriteOffAllowed）｜ 跑批 cutoffAt → 案件页按它重建 ｜ 审计 9 码（+AGING_BREACHED 系统 / +AGING_TIMEOUT_SIMULATED 操作员）
-- 前端 `pages/ReconciliationCasesDetailPage.tsx`（动作列六态：空 / 去推单 / 处置 / 已定性·待开单 / 已定性·终态 / 已解释）｜ `components/ReconciliationDispositionModal.tsx`（两屏：成因菜单 + 机器线索 + 必填查证说明 → 按出口分四种第二屏）｜ `components/ReconciliationAdjustmentCreateModal.tsx`（ADJUST 通道锁定视图：成因定死不给下拉、方向只读附推导依据；第四族对端确认视图）｜ `pages/ReconciliationCasesListPage.tsx`（定性进度列 `已定性/总差异行`）
+- 前端 `pages/ReconciliationCasesDetailPage.tsx`（2026-09-07 界面收口轮 Task 8 重排，全页英文化：Hero 只留案号 + 徽标（bucket/severity/OVERDUE nD/status）+ `buildCaseConclusion` 一句结论（RESOLVED 态前缀 `Resolved · `、已解释部分单独措辞不与"全额待排查"打架）｜ Account 五字段独立成节（钱包/客户/科目短语标签/资产·账簿/业务日）｜ Case History 三格 `OPENED BY`/`LAST RE-CHECKED`/`AGING`（复观察次数刻意不展示，见 §6）｜ Balance Explained 五格不变｜ Differences 表治横滚：Type/Dir/Amount/Reference/Source/Time/Disposition 七列，外部参考号截断+复制按钮+`title`全文，Source 直显业务单号可点进原单，Disposition 列固定约 250px 1280 视口内不横滚｜ 动作列六态英文词表：`Record finding`/`Open adjustment`/`Finding: <cause> → <outlet>`/`Explained · ADJxxx`/`Record missed deposit`·`Claim recall`·`Claim return`/`Write off`·`Recognize loss`/`Register incident`·`Escalate to incident`·`Register shortfall`/`Initiate compensation`·`Initiate advance`/`Push order`）｜ `components/ReconciliationDispositionModal.tsx`（两屏：成因菜单 + 机器线索 + 必填查证说明 → 按出口分四种第二屏，全英文）｜ `components/ReconciliationAdjustmentCreateModal.tsx`（ADJUST 通道锁定视图：成因定死不给下拉、方向只读附推导依据；第四族对端确认视图；`REASON_LABEL`/`REASON_META`/`FAMILY_WORD` 四张词表全英文，单一来源对齐后端 `cause-registry.ts`）｜ `pages/ReconciliationCasesListPage.tsx`（Task 15 治横滚：`table-fixed` + 逐列 truncate，COA 列复用短语标签、First/Last Run 并一列 `RUNxxx-1 → -2`，定性进度列 `已定性/总差异行`，1280×800 视口零横滚）｜ `pages/ReconciliationRunsDetailPage.tsx`（Task 6 重排：判词横幅一句人话 `BREAK — N wallets checked: ...`、Case Flow 三卡压成一条细条 `Opened/Re-observed/Closed` + 跳转链接、快照表 Flows 列废弃缩写改人话短语、Wallet 副行钱包角色码人话）
+- **调账单独立菜单**（2026-09-07 界面收口轮 Task 1）：后端 `GET /admin/reconciliation/adjustments` 列表端点（`adjustment.controller.ts`，权限复用 `RECON_CASE_READ`）｜ 前端 `pages/ReconciliationAdjustmentListPage.tsx`（Adjustment No/Case No/Customer/Asset/Reason/Dir/Amount/Status/Effective Date 九列，不暴露 UUID）｜ 路由 `reconciliation/adjustments` 注册在 `:adjustmentNo` 动态段之前；侧栏 Reconciliation 组第四项。菜单闭环：列表 → 点 Adjustment No 进详情 → 点 Case No 直接回案件详情页
+- **Demo Compare 页已退役**（2026-09-07 Task 6，业主拍板删，BACKLOG 销账）：`ReconciliationDemoComparePage.tsx`、路由、后端 `GET demo/compare` 端点与孤儿读块全部删除；`recon:demo` 答案键打印不受影响
+- **客户流水页与入口**（客户端，2026-09-07 Task 7/10/11）：Overview 资产行尾 History 图标从「打开对账单弹层」改为跳转 `pages/TransactionHistory.tsx?assetId=`（弹层组件与死码一并清除）；读模型复用扩展 `GET /client/portfolio/statement`，按订单聚合、金额最小单位出展示层按 `decimals` 换算；行格式：日期｜描述（主行业务话术+副行仅客户自见单号）｜金额（主行总额+副行费用 `fee x.xx`）｜余额；无下钻。**受控客户词表**（Task 10）：调账/改记客户可见文案由 `REASON_SPECS.customerLabel`/`FAMILY_LABEL` 受控词表提供，前端「Internal Note」输入框（对应后端 `reasonCustomer`）**不会**直通客户面——客户流水固定显示受控标签，自由文本止步于内部审计记录，逐场景实证见 §4 演示脚本证据链
+- **没收 / 制裁类 tipping-off 白名单**（Task 6/11 实证）：充值没收/上缴等资金若从未进客户可用余额（钱一直在 `DEPOSIT_SUSPENSE` 暂扣户、账本证据见 `account_flows` 只有 `*_REVERSE_SUSPENSE`/`*_TO_SUSPENSE` 事件，无 `CLIENT_PAYABLE` 腿），客户流水**天然无行**（非兜底文案，是读模型只投影触达 `CLIENT_PAYABLE` 的流水）；口径先例见 `client-web/src/utils/depositStatusView.ts` 头部注释
 - 数据 `account_flows`（账本流水投影，分口径）｜ `external_balances`+`external_statement_lines`（外部归一化两表）｜ `reconciliation_run_wallets`（快照表）
 - 触发 `sweep/reconciliation-sweep.service.ts → dailyRecon()`（@Cron 迪拜 02:30）；读面 `reconciliation-query.service.ts`（差异行随行下发 `menu` 该格成因清单、`disposition` 定性状态、`duplicateTwinRef` 双胞胎线索、`decimals`；列表下发定性进度）
 - 权限 `rbac.catalog.ts`：新组 `RECON_DISPOSITION_WRITE` **四处齐**（`PermissionGroup` 联合类型 / 端点 `route()` / 权限桶 `recon.act_dispose` / `OPS_OFFICER` 持有）——一期调账单当初只齐两处，结果是「没人能开单、自定义角色 UI 勾不到」。改完必须 `db:base:sync` **并重启后端**（`VALID_PERMISSION_GROUPS` 是进程启动时读进内存的）
@@ -133,7 +137,7 @@
 - **严重度分级跨资产不可比**（BACKLOG）：`computeSeverity` 仍按「最小单位 1 万」单一阈值判严重度，未按币种拆分；本批小额线另立 `recon-thresholds.constant.ts`，未借用它
 - **改记的两处边界**：① 只支持两侧**同业务日**（跨日改记不做，不同则 400）；② **换主后对正主的合规复核缺口**——本轮放行依据是「记在错记方名下的那张原始充值单 KYT 已经跑过」，换主之后没有对正主重跑 KYT，BACKLOG 在案
 - **冲正类成因遇 SWAP 流水无 reason 码**：调账 reason 按内部流水 `sourceType` 派生，只有 DEPOSIT / WITHDRAW 有码，SWAP 落留档（演示无此案）
-- **调账 / 改记的客户可见面仍缺**：错记方余额下降必须对客户可见，随「客户流水读模型」任务做（BACKLOG 在案，行设计已定稿：错记方减一行、正主方加一行，均可追溯回分录）
+- **调账 / 改记的客户可见面已落地**（2026-09-07 界面收口轮 Task 11，BACKLOG №290 销账）：客户流水读模型按订单聚合上线，调账（含核销/认损）与改记均对客户可见——主行 `Balance correction · <reasonCustomer 英文话术>`、有关联原单则副行 `Original order <单号>`；**不显示 `ADJxxx` 内部单号、行不可展开下钻**（业主 2026-09-07 裁定取代此前"详情十格"设计，decisions.md 同日条目 3）；改记两侧（错记方 / 正主方）各自可见、互不见对方客户，均可追溯回构成行（读模型内部字段，不进客户面）
 - **定性只许覆盖、不许删除**；挂单后锁定
 - **外部账单没有真实摄入管道**：演示的"银行对账单"由脚本铸造——讲清这是模拟件
-- **复核计数恒为 0**（已知实现限制，注释在案）
+- **复核计数恒为 0**（已知实现限制，注释在案；2026-09-07 界面收口轮 Task 8 起 Case History 三格改用 `OPENED BY`/`LAST RE-CHECKED`/`AGING`，**不再展示该数字**——绕开显示，计数器本身未修，decisions.md 同日条目 6）

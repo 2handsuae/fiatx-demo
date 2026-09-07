@@ -82,3 +82,10 @@
 - [2026-09-07] **经 Sumsub 采集的材料我方零存储（统一规矩）**：EDD 的 SoF/SoW 连名录都不落，真身在 Sumsub、我方只认 webhook 结果；与交易侧补料同律，波三补高级材料照此办理；CDD 基础信息（出生日期/国籍/证件/住址五列）例外入客户主表——那是客户主数据，写方表单、读方详情页与准入单 ｜ 业主拍板
 - [2026-09-07] **新客 = 首次进入 ACTIVE**，与走 CDD 还是 EDD 无关；专属标记 = `onboardingApprovedAt`（仅 null 时落值、永不覆盖，窗口只开一次，杜绝重复进 ACTIVE 重开窗口）；新客费率档本波铺（受众谓词照 VIP 档先例），种子客户回填数月前出窗 ｜ 业主拍板
 - [2026-09-07] **入驻演示客户现场注册、即用即弃**：两条路径都现场新注册客户走全程，重演再注册不依赖 reset；九位种子客户纯静态展示，只回填历史字段不赋新戏份 ｜ 业主拍板
+- [2026-09-07] **管理台 + 客户端全量英文化，不建 i18n；中文注释不动**：中文串原地改英文字面量，不建词表 / 语言切换机制；`'English / 中文'` 双拼串保留英文半边；管理台 1537 行含中文里约 694 行是注释——注释不是演示可见物，不在英文化范围内 ｜ 业主拍板
+- [2026-09-07] **Demo Compare 页直接删（不修）**：`reconciliation-query.service.ts` 解析 `demoManifest.breaks` 恒空的孤儿逻辑（`recon:gen` 退役遗留）不值得修，整页 + 路由 + 后端端点一并退役；`recon:demo` 的答案键打印（演示讲解工具）与该页无关、不受影响 ｜ 业主拍板
+- [2026-09-07] **客户流水：不做更正详情下钻、不显示 ADJ 内部单号**——取代 2026-08-27 BACKLOG「详情十格 + 行可点开」的已定稿设计：调账（含核销/认损落客户账的）行只显示 `Balance correction · <reasonCustomer 英文话术>` 主行 + 有关联原单则显示 `Original order <单号>` 副行，客户面从不出现 `ADJxxx` 编号，行不可展开 ｜ 业主拍板
+- [2026-09-07] **客户流水入口 = Overview 资产行尾图标跳转，不进侧栏菜单；对账单弹层退役**：Overview 资产行末尾原「打开对账单弹层」的 History 图标改为跳转 `/transactions?assetId=`；旧对账单弹层组件、Overview 内弹层 state、`statementSourceLabel` 等连带死码一并清除，不留幽灵 ｜ 业主拍板
+- [2026-09-07] **金额列两行制：主行总额、副行费用**：客户流水金额列主行显示订单净总额，若有费用则副行加一行 `fee <金额>`；无费则无副行 ｜ 业主拍板
+- [2026-09-07] **Case History 不展示复观察次数**（绕开恒 0 计数器，不修）：`ReconciliationCasesDetailPage.tsx` 的 Case History 三格改用 `OPENED BY`/`LAST RE-CHECKED`/`AGING`，不再展示复观察次数——该计数器恒 0 是 BACKLOG 在案 bug，本轮用改版式绕开、不修计数逻辑本身 ｜ 业主拍板
+- [2026-09-07] **补款 / 垫款客户措辞 `Credit from FiatX · balance restoration / advance`**（业主授权 agent 定，业主可后改一词）：客户流水里公司补款划转显示 `Credit from FiatX · balance restoration`、垫款划转显示 `Credit from FiatX · advance`，两者均无副行 ｜ 业主授权 agent 定稿
