@@ -129,4 +129,32 @@ export class TierUpgradeWorkflowService {
     await this.audit(AuditActions.TIER_UPGRADE_SUBMITTED, c, { afterData: { upgradeNo: app.upgradeNo } });
     return { ok: true };
   }
+
+  /** applicantReviewed 落轴（摄取分发器直调）。返回 null = 无在审升级单，调用方落回入驻线。 */
+  async applyReviewVerdict(input: { applicantId: string; reviewAnswer: 'GREEN' | 'RED'; reviewRejectType: 'RETRY' | 'FINAL' }) {
+    const c = await this.prisma.customerMain.findFirst({ where: { sumsubApplicantId: input.applicantId } });
+    if (!c) return null;
+    const app = await this.prisma.tierUpgradeApplication.findFirst({ where: { customerId: c.id, status: 'IN_REVIEW' } });
+    if (!app) return null;
+    if (!app.materialsSubmittedAt) {
+      throw new BadRequestException(`Verdict rejected: upgrade ${app.upgradeNo} is not awaiting review`);
+    }
+    let to: TierUpgradeStatus = 'IN_REVIEW';
+    if (input.reviewAnswer === 'GREEN') {
+      to = 'MATERIALS_CLEARED';
+      assertTierUpgradeTransition('IN_REVIEW', to);
+      await this.prisma.tierUpgradeApplication.update({ where: { id: app.id }, data: { status: to } });
+    } else if (input.reviewRejectType === 'FINAL') {
+      to = 'REJECTED';
+      assertTierUpgradeTransition('IN_REVIEW', to);
+      await this.prisma.tierUpgradeApplication.update({ where: { id: app.id }, data: { status: to, decidedAt: new Date() } });
+    } else {
+      // RED-RETRY：不是边——停留 IN_REVIEW，清 submittedAt 重开会话（spec §4）
+      await this.prisma.tierUpgradeApplication.update({ where: { id: app.id }, data: { materialsSubmittedAt: null } });
+    }
+    await this.audit(AuditActions.TIER_UPGRADE_VERDICT_APPLIED, c, {
+      afterData: { upgradeNo: app.upgradeNo, reviewAnswer: input.reviewAnswer, reviewRejectType: input.reviewRejectType, fromStatus: 'IN_REVIEW', toStatus: to },
+    }, false);
+    return { customerNo: c.customerNo, upgradeNo: app.upgradeNo, to };
+  }
 }

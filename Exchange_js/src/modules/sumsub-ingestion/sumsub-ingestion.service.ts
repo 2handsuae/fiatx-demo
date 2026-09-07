@@ -8,6 +8,7 @@ import { CustomerRestrictionsService } from '../identity/customers/customer-rest
 import { CustomerRestrictionWorkflowService } from '../identity/customers/customer-restriction-workflow.service';
 import { MaterialRequestReviewService } from '../identity/material-requests/material-request-review.service';
 import { OnboardingWorkflowService } from '../identity/onboarding/onboarding-workflow.service';
+import { TierUpgradeWorkflowService } from '../identity/tier-upgrade/tier-upgrade-workflow.service';
 import { DepositWorkflowService } from '../trading/deposit-transactions/deposit-workflow.service';
 import { WithdrawTransactionsService } from '../trading/withdraw-transactions/withdraw-transactions.service';
 import { DepositWebhookRouter } from '../deposit-sumsub/deposit-webhook.router';
@@ -35,6 +36,7 @@ export class SumsubIngestionService {
     private readonly restrictionWorkflowService: CustomerRestrictionWorkflowService,
     private readonly materialRequestReviewService: MaterialRequestReviewService,
     private readonly onboardingWorkflow: OnboardingWorkflowService,
+    private readonly tierUpgradeWorkflow: TierUpgradeWorkflowService,
   ) {}
 
   // ─── Main entry point (real webhook + simulation both call this) ──────────
@@ -193,14 +195,22 @@ export class SumsubIngestionService {
         }
       }
       else if (depositWebhookType === 'applicantReviewed' && applicantId) {
-        const verdict = await this.onboardingWorkflow.applyReviewVerdict({
+        // 波三：先问升档线（按「在审升级申请单存在性」认领，spec §4）；null 落回入驻线。
+        const upgraded = await this.tierUpgradeWorkflow.applyReviewVerdict({
           applicantId,
           reviewAnswer: reviewResult?.reviewAnswer === 'GREEN' ? 'GREEN' : 'RED',
           reviewRejectType: reviewResult?.reviewRejectType === 'FINAL' ? 'FINAL' : 'RETRY',
         });
-        if (verdict) {
-          result = { routedTo: 'onboarding', ...verdict };
-          dispatchedContext = 'ONBOARDING';
+        if (upgraded) {
+          result = { routedTo: 'tier-upgrade', ...upgraded };
+          dispatchedContext = 'TIER_UPGRADE';
+        } else {
+          const verdict = await this.onboardingWorkflow.applyReviewVerdict({
+            applicantId,
+            reviewAnswer: reviewResult?.reviewAnswer === 'GREEN' ? 'GREEN' : 'RED',
+            reviewRejectType: reviewResult?.reviewRejectType === 'FINAL' ? 'FINAL' : 'RETRY',
+          });
+          if (verdict) { result = { routedTo: 'onboarding', ...verdict }; dispatchedContext = 'ONBOARDING'; }
         }
       }
       // Clue 1（ongoingDocExpired）：材料刷新监控已随巡查退役（2026-09-06），

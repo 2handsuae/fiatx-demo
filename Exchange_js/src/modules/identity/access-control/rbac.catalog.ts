@@ -277,6 +277,7 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
   route('POST', '/admin/sumsub/simulate/applicant-action-result', 'Feed a simulated Sumsub applicant-action webhook (demo only)', ['DEMO_VERDICT_WRITE']),
   route('POST', '/admin/sumsub/simulate/onboarding-review-result', 'Feed a simulated Sumsub applicant-review verdict for onboarding (demo only)', ['DEMO_VERDICT_WRITE']),
   route('POST', '/admin/sumsub/simulate/onboarding-level-change', 'Escalate a simulated onboarding applicant to the EDD level (demo only)', ['DEMO_VERDICT_WRITE']),
+  route('POST', '/admin/sumsub/simulate/tier-upgrade-review-result', 'Feed a simulated Sumsub applicant-review verdict for tier upgrade (demo only)', ['DEMO_VERDICT_WRITE']),
 
   // Risk assessments
 

@@ -67,3 +67,43 @@ describe('TierUpgradeWorkflowService 申请侧', () => {
     await expect(build(makeDeps(customerRow(), appRow({ materialsSubmittedAt: new Date() }))).submitMaterials('cid')).rejects.toThrow(BadRequestException);
   });
 });
+
+describe('TierUpgradeWorkflowService 裁决路径（webhook 侧）', () => {
+  const submitted = () => appRow({ materialsSubmittedAt: new Date() });
+
+  it('GREEN → IN_REVIEW 沿边 MATERIALS_CLEARED + VERDICT_APPLIED 带 fromStatus/toStatus', async () => {
+    const d = makeDeps(customerRow(), submitted());
+    const r = await build(d).applyReviewVerdict({ applicantId: 'MOCK-CU250907001', reviewAnswer: 'GREEN', reviewRejectType: 'RETRY' });
+    expect(r).toMatchObject({ customerNo: 'CU250907001', to: 'MATERIALS_CLEARED' });
+    expect(d.prisma.tierUpgradeApplication.update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ status: 'MATERIALS_CLEARED' }) }));
+    const audited = d.audit.recordSystem.mock.calls.find(([p]: any[]) => p.action === 'TIER_UPGRADE_VERDICT_APPLIED');
+    expect(audited[0].afterData).toMatchObject({ fromStatus: 'IN_REVIEW', toStatus: 'MATERIALS_CLEARED', reviewAnswer: 'GREEN' });
+  });
+
+  it('RED+RETRY → 不迁移，清 materialsSubmittedAt 重开会话（spec §4 承接波二先例）', async () => {
+    const d = makeDeps(customerRow(), submitted());
+    const r = await build(d).applyReviewVerdict({ applicantId: 'MOCK-CU250907001', reviewAnswer: 'RED', reviewRejectType: 'RETRY' });
+    expect(r!.to).toBe('IN_REVIEW');
+    expect(d.prisma.tierUpgradeApplication.update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ materialsSubmittedAt: null }) }));
+  });
+
+  it('RED+FINAL → REJECTED + decidedAt；客户 lifecycle 全程不碰', async () => {
+    const d = makeDeps(customerRow(), submitted());
+    const r = await build(d).applyReviewVerdict({ applicantId: 'MOCK-CU250907001', reviewAnswer: 'RED', reviewRejectType: 'FINAL' });
+    expect(r!.to).toBe('REJECTED');
+    expect(d.prisma.customerMain.update).not.toHaveBeenCalled();
+  });
+
+  it('无在审升级单 → 返回 null（落回入驻线，两线隔离）', async () => {
+    const d = makeDeps(customerRow(), null);
+    expect(await build(d).applyReviewVerdict({ applicantId: 'MOCK-CU250907001', reviewAnswer: 'GREEN', reviewRejectType: 'RETRY' })).toBeNull();
+  });
+
+  it('未提交先裁决 → 显式拒（非法迁移不静默）', async () => {
+    const d = makeDeps(customerRow(), appRow()); // materialsSubmittedAt: null
+    await expect(build(d).applyReviewVerdict({ applicantId: 'MOCK-CU250907001', reviewAnswer: 'GREEN', reviewRejectType: 'RETRY' }))
+      .rejects.toThrow(BadRequestException);
+  });
+});

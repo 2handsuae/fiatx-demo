@@ -76,6 +76,7 @@ describe('SumsubIngestionService — deposit/withdraw/swap KYT cascade (Task 4/5
       { autoRelease: jest.fn().mockResolvedValue(undefined) } as any,
       materialRequestReviewService,
       {} as any, // onboardingWorkflow（波二开路新参，本文件不测申请人级分支）
+      { applyReviewVerdict: jest.fn().mockResolvedValue(null) } as any, // tierUpgradeWorkflow（波三开路新参，本文件不测申请人级分支）
     );
   });
 

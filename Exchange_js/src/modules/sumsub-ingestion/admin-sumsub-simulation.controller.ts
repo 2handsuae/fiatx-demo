@@ -101,6 +101,43 @@ export class AdminSumsubSimulationController {
     );
   }
 
+  @Post('tier-upgrade-review-result')
+  @ApiOperation({ summary: '模拟 applicantReviewed —— 档位升级 ⚡ 三个裁决按钮打这里' })
+  @RequirePermissions(buildPermissionCode('POST', '/admin/sumsub/simulate/tier-upgrade-review-result'))
+  async simulateTierUpgradeReviewResult(
+    @Req() req: any,
+    @Body() body: { customerNo: string; reviewAnswer: 'GREEN' | 'RED'; reviewRejectType?: 'RETRY' | 'FINAL' },
+  ) {
+    this.ensureAdmin(req);
+    if (!body.customerNo) throw new BadRequestException('customerNo is required');
+    if (body.reviewAnswer === 'RED' && !body.reviewRejectType) {
+      // 照 applicant-action-result 判例：不许默默当 FINAL 或 RETRY
+      throw new BadRequestException("RED must carry reviewRejectType 'RETRY' or 'FINAL'");
+    }
+    const customer = await this.prisma.customerMain.findUnique({
+      where: { customerNo: body.customerNo },
+      select: { sumsubApplicantId: true },
+    });
+    if (!customer?.sumsubApplicantId) {
+      throw new NotFoundException(`Customer has no Sumsub applicant: ${body.customerNo}`);
+    }
+    const application = await this.prisma.tierUpgradeApplication.findFirst({
+      where: { customer: { customerNo: body.customerNo }, status: 'IN_REVIEW' },
+    });
+    if (!application) {
+      throw new NotFoundException(`No tier-upgrade application in review for ${body.customerNo}`);
+    }
+    return this.ingestionService.ingest(
+      {
+        type: 'applicantReviewed',
+        applicantId: customer.sumsubApplicantId,
+        reviewResult: { reviewAnswer: body.reviewAnswer, reviewRejectType: body.reviewRejectType },
+        createdAtMs: String(Date.now()),
+      },
+      { isSimulated: true, simulatedByUserId: 'ADMIN_SIMULATION' },
+    );
+  }
+
   @Post('onboarding-level-change')
   @ApiOperation({ summary: '模拟 applicantLevelChanged —— CDD 提交后升 EDD' })
   @RequirePermissions(buildPermissionCode('POST', '/admin/sumsub/simulate/onboarding-level-change'))
