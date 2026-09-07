@@ -36,6 +36,7 @@ export interface CustomerProfileData {
   actions?: Array<{ type: string; payload?: Record<string, unknown> }>;
   riskRating: string;
   eddRequired: boolean;
+  tradingTier: string;
   activePeriodicReviewCycleId?: string | null;
   activePeriodicReviewCycle?: {
     id: string;
@@ -84,6 +85,7 @@ export const useCustomerProfile = () => {
           actions: Array.isArray(data.actions) ? data.actions : [],
           riskRating: data.riskRating || 'LOW',
           eddRequired: !!data.eddRequired,
+          tradingTier: data.tradingTier || 'BASIC',
           activePeriodicReviewCycleId: data.activePeriodicReviewCycleId || null,
           activePeriodicReviewCycle: data.activePeriodicReviewCycle || null,
         });

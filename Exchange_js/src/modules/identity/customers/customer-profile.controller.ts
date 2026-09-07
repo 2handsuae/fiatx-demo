@@ -49,6 +49,7 @@ export class CustomerProfileController {
         customerType: true,
         riskRating: true,
         eddRequired: true,
+        tradingTier: true,
         createdAt: true,
         lastLoginAt: true,
         onboardingSubmittedAt: true,

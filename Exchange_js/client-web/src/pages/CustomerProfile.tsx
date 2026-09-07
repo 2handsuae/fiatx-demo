@@ -1,6 +1,8 @@
 import { useNavigate } from 'react-router-dom';
 import { RefreshCw, ArrowRight } from 'lucide-react';
 import { useCustomerProfile } from '../hooks/useCustomerProfile';
+import { useTierUpgrade } from '../hooks/useTierUpgrade';
+import { customerFetch } from '../utils/customerFetch';
 import { ProfileBannerStack } from '../components/ProfileBannerStack';
 import {
   isCustomerApprovedForAccess,
@@ -19,6 +21,14 @@ import {
  * ──────────────────────────────────────────────────────────────── */
 
 type ProfileLike = ReturnType<typeof useCustomerProfile>['profile'];
+
+/** 档位升级在途单 stage → 文案（Task 10 brief）。 */
+const STAGE_COPY: Record<string, string> = {
+  SUBMIT_MATERIALS: 'Upgrade started — submit your documents',
+  UNDER_REVIEW: 'Documents under review',
+  PENDING_DECISION: 'Awaiting final decision',
+  REJECTED: 'Upgrade declined — you may apply again',
+};
 
 function getPrimaryStatus(profile: NonNullable<ProfileLike>) {
   // 徽章 = lifecycle，唯一例外是有「可告知」限制时压成 RESTRICTED。
@@ -116,7 +126,15 @@ function SectionTitle({ children, right }: { children: React.ReactNode; right?: 
 
 const CustomerProfile = () => {
   const { profile, loading, error } = useCustomerProfile();
+  const { data: tier } = useTierUpgrade();
   const navigate = useNavigate();
+
+  const applyForUpgrade = async () => {
+    const r = await customerFetch(`${import.meta.env.VITE_API_URL}/client/me/tier-upgrade/apply`, {
+      method: 'POST',
+    });
+    if (r.ok) navigate('/tier-upgrade/verify');
+  };
 
   if (loading) {
     return (
@@ -310,6 +328,48 @@ const CustomerProfile = () => {
           <Row label="EDD required" value={profile.eddRequired ? 'YES' : 'NO'} mono />
         </div>
       </section>
+
+      {/* ── Trading tier ────────────────────────────────────────── */}
+      {lifecycle === 'ACTIVE' && (
+        <section>
+          <SectionTitle>Trading tier</SectionTitle>
+          <div className="grid grid-cols-12 gap-x-6 gap-y-5 pt-5">
+            <Row label="Current tier" value={tier?.tradingTier ?? profile.tradingTier} mono accent />
+          </div>
+          {tier && tier.limits.length > 0 && (
+            <div className="mt-4 overflow-x-auto">
+              <table className="w-full max-w-xl text-left font-mono text-[11px] text-fx-dune">
+                <thead><tr className="text-fx-dust uppercase tracking-[0.12em] text-[9px]">
+                  <th className="py-1 pr-4">Cumulative limit (AED)</th><th className="py-1 pr-4">Basic</th><th className="py-1">Premium</th>
+                </tr></thead>
+                <tbody>
+                  {tier.limits.map((l) => (
+                    <tr key={`${l.operationType}-${l.period}`} className="border-t border-fx-rule">
+                      <td className="py-1.5 pr-4">{l.operationType} · {l.period}</td>
+                      <td className="py-1.5 pr-4 tabular-nums">{l.basicLimit ?? '—'}</td>
+                      <td className="py-1.5 tabular-nums text-fx-brass">{l.premiumLimit ?? '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+          <div className="mt-5">
+            {tier?.canApply ? (
+              <button onClick={() => void applyForUpgrade()} className="fx-btn-primary">
+                Upgrade to Premium →
+              </button>
+            ) : tier?.application ? (
+              <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-fx-brass">
+                {STAGE_COPY[tier.application.stage]}
+              </span>
+            ) : null}
+            {tier?.application?.stage === 'SUBMIT_MATERIALS' && (
+              <button onClick={() => navigate('/tier-upgrade/verify')} className="ml-3 fx-btn-ghost">Continue</button>
+            )}
+          </div>
+        </section>
+      )}
 
       {/* ── Current restrictions ───────────────────────────────── */}
       {/* 只列 disclosed —— SILENT 便签后端根本不下发。空则整节隐藏：一行
