@@ -8,7 +8,10 @@ import { PrismaService } from '../../../core/prisma/prisma.service';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
 import { Prisma } from '@prisma/client';
+import { randomUUID } from 'crypto';
 import { generateReferenceNo } from '../../../common/utils/no-generator.util';
+import { AuditLogsService } from '../../audit-logging/audit-logs.service';
+import { AuditActions, AuditEntityTypes } from '../../audit-logging/constants/audit-actions.constant';
 
 interface AuthRequestContext {
   requestId?: string;
@@ -21,6 +24,7 @@ export class CustomerAuthService {
   constructor(
     private prisma: PrismaService,
     private jwtService: JwtService,
+    private auditLogsService: AuditLogsService,
   ) {}
 
   async register(
@@ -55,6 +59,15 @@ export class CustomerAuthService {
         passwordUpdatedAt: new Date(),
       },
     });
+
+    await this.auditLogsService.recordByActor({
+      action: AuditActions.CUSTOMER_CREATED, actionDomain: 'CUSTOMER',
+      primarySubjectType: AuditEntityTypes.CUSTOMER, primarySubjectNo: customer.customerNo,
+      ownerCustomerNo: customer.customerNo,
+      afterData: { email: customer.email, customerType: customer.customerType },
+      requestId: `CUSTOMER_CREATED_${customer.customerNo}_${randomUUID()}`,
+      sourcePlatform: 'CLIENT_API',
+    } as any, { actorType: 'CUSTOMER', actorNo: customer.customerNo, actorDisplayName: customer.customerNo, actorRolesAtTime: ['CUSTOMER'] });
 
     const { passwordHash: _, ...result } = customer;
     return result;
