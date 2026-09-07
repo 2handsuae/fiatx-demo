@@ -521,3 +521,4 @@
 - [2026-09-06] **customers CRUD 请求体直透传 Prisma Input，任意 CustomerMain 标量字段可经 admin API 写入** ｜ `customers.controller.ts:58,146` 把 body 当 `Prisma.CustomerMainCreateInput/UpdateInput` 透传，`main.ts:34` 全局 `ValidationPipe({whitelist:true})` 对纯 TS 类型（非 class-validator 装饰类）不生效——理论上 PATCH 可直写 lifecycle/customerNo 等任何列绕开状态语义。管理员善意假设下无演示影响；属输入防御性校验（禁做清单），记账即止 ｜来源: 2026-09-06 V2 客户域体检
 - [2026-09-08] 入驻裁决处理器 `onAcceptanceDecided` 是 `@OnEvent({async:true})`：TB 不可达时开户异常死在事件总线，operator 侧无可见报错（客户停 PENDING_APPROVAL）——生产须让审批事件异常可观测（波三 Task 5 评审发现）
 - [2026-09-08] `PATCH /customers/:customerNo` 收裸 `Prisma.CustomerMainUpdateInput`，可直写 lifecycle 绕过状态机与首次 ACTIVE 开户钩子——生产须白名单化该端点字段（波三 Task 5 评审发现）
+- [2026-09-08] 同一 `PATCH /customers/:customerNo` 裸 UpdateInput 亦可直写 tradingTier 绕过升档 maker-checker（持 CUSTOMER_WRITE 即可）——生产收窄 DTO 白名单；演示章程「管理员善意」假设下接受，文档措辞避免绝对化「唯一写口」（波三 Task 8 评审发现）
