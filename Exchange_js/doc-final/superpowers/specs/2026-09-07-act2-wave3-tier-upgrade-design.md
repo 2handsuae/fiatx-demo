@@ -86,7 +86,7 @@ RED-RETRY 不迁移（停留 IN_REVIEW）。「审批中」不是状态：提没
 
 - **挂点**：入驻 workflow 驱动客户**首次进 ACTIVE** 的两处（`applyReviewVerdict` CDD_CLEARED 路径、`onAcceptanceDecided` FINAL_APPROVED 路径）——以「applyAction 前 `onboardingApprovedAt` 为 null」判首次，跨主体协作在 workflow 层（铁律③）
 - **动作**：按全部 ACTIVE 资产 × [CLIENT_PAYABLE, DEPOSIT_SUSPENSE]（与种子 `seed.business.ts:849-859` 同款行形状）建 `tb_account_registry` 行 + 真实 TB 账户；建 TB 户走既有 `AccountingService.createAccounts`（运行时零调用方，本波启用）
-- **registry 行 id 派生必须与种子同一实现**：抽共享 helper 供 `prisma/seed-tb.helper.ts` 与运行时 service 共用，**不许两处各写一份公式**（三处同加判例的预防面）
+- **与种子的一致性在行形状与查键，不在 id 派生**（写 plan 时按代码实况修正原「抽共享 id 派生 helper」预案）：解析（`resolveTbAccountId`）只按 `(code, ledger, ownerType, ownerUuid)` 查 registry、不重算 id，运行时走既有 `AccountingService.createAccounts` 整条路径（`tbId()` 随机 + registry 登记）即可；已存在行跳过，语义与种子 `ensureTbAccountRegistry` 的 findFirst 一致
 - **失败即流程失败**：TB 不可达时激活当场抛错，不 graceful skip（总纲级假设——外部系统总在（CLAUDE.md §3）；吞错正是 :155 卡单的病根）
 - 审计：`CUSTOMER_LEDGER_PROVISIONED`（recordSystem，afterData 带资产×科目行数）——「账户开好了」在审计里讲得出
 - 种子客户 `onboardingApprovedAt` 已回填 → 首次判定恒假，天然不重复开户；升档**不需要**新开户（账户按资产开，与档位无关）；现场客户即用即弃 + reset 重铺，无「后加资产补开户」缺口
