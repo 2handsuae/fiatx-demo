@@ -11,7 +11,7 @@ import {
   customerFetch,
   getCustomerApiErrorMessage,
 } from '../utils/customerFetch';
-import { resolveSubmitErrorMessage } from '../utils/limitErrorText';
+import { resolveSubmitErrorInfo, TIER_UPGRADE_HINT_CODES } from '../utils/limitErrorText';
 import { getWithdrawStatusView, type WithdrawStatusView } from '../utils/withdrawStatusView';
 
 interface Asset {
@@ -139,6 +139,7 @@ const Withdraw = () => {
   const [balanceError, setBalanceError] = useState<string | null>(null);
   const [quote, setQuote] = useState<WithdrawQuoteResult | null>(null);
   const [confirmModalOpen, setConfirmModalOpen] = useState(false);
+  const [limitBanner, setLimitBanner] = useState<{ message: string; upgradeHint: boolean } | null>(null);
   
   // History State
   const [transactions, setTransactions] = useState<WithdrawTransaction[]>([]);
@@ -387,6 +388,7 @@ const Withdraw = () => {
             setAmount('');
             setSelectedAddressNo('');
             setManualAddress('');
+            setLimitBanner(null);
             clearQuoteState();
             // Refresh balances
             const balancesResponse = await customerFetch(
@@ -397,13 +399,17 @@ const Withdraw = () => {
                 setBalances(data);
             }
         } else {
-            const message = await resolveSubmitErrorMessage(
+            const { message, limitCode } = await resolveSubmitErrorInfo(
               response,
               'Failed to submit withdrawal request',
             );
-            alert(message);
-            if (message.toLowerCase().includes('quote')) {
-              clearQuoteState();
+            if (limitCode) {
+              setLimitBanner({ message, upgradeHint: TIER_UPGRADE_HINT_CODES.has(limitCode) });
+            } else {
+              alert(message);
+              if (message.toLowerCase().includes('quote')) {
+                clearQuoteState();
+              }
             }
         }
     } catch (error: unknown) {
@@ -1041,6 +1047,18 @@ const Withdraw = () => {
                           </div>
                       </div>
                   </div>
+
+                  {limitBanner && (
+                    <div className="mx-6 mb-4 rounded-xl border border-fx-rust/30 bg-fx-rust/5 px-4 py-3 text-sm text-fx-rust">
+                      {limitBanner.message}
+                      {limitBanner.upgradeHint && (
+                        <span className="ml-2">
+                          Need more headroom?{' '}
+                          <a href="/profile" className="underline text-fx-brass">Upgrade your tier</a>
+                        </span>
+                      )}
+                    </div>
+                  )}
 
                   <div className="flex items-center justify-end gap-3 border-t border-fx-rule px-6 py-5">
                       <button

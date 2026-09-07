@@ -22,7 +22,7 @@ import {
   customerFetch,
   getCustomerApiErrorMessage,
 } from '../utils/customerFetch';
-import { resolveSubmitErrorMessage } from '../utils/limitErrorText';
+import { resolveSubmitErrorInfo, TIER_UPGRADE_HINT_CODES } from '../utils/limitErrorText';
 import { getSwapStatusView } from '../utils/swapStatusView';
 import { PendingActionBanner } from '../components/PendingActionBanner';
 import { RestrictionBanner } from '../components/RestrictionBanner';
@@ -168,6 +168,7 @@ const Swap = () => {
   const [quoteExpiresIn, setQuoteExpiresIn] = useState(0);
   const [showConfirm, setShowConfirm] = useState(false);
   const [swapping, setSwapping] = useState(false);
+  const [limitBanner, setLimitBanner] = useState<{ message: string; upgradeHint: boolean } | null>(null);
 
   // Live Rate State
   const [liveRate, setLiveRate] = useState<number | null>(null);
@@ -510,15 +511,15 @@ const Swap = () => {
         setFirmQuote(null);
         setQuoteExpiresIn(0);
         setActiveTab('history');
+        setLimitBanner(null);
         fetchBalances();
       } else {
-        const message = await resolveSubmitErrorMessage(response, 'Swap failed');
-        alert(message);
-
-        if (message.includes('Quote')) {
-          setShowConfirm(false);
-          setFirmQuote(null);
-          setQuoteExpiresIn(0);
+        const { message, limitCode } = await resolveSubmitErrorInfo(response, 'Swap failed');
+        if (limitCode) {
+          setLimitBanner({ message, upgradeHint: TIER_UPGRADE_HINT_CODES.has(limitCode) });
+        } else {
+          alert(message);
+          if (message.includes('Quote')) { setShowConfirm(false); setFirmQuote(null); setQuoteExpiresIn(0); }
         }
       }
     } catch (error) {
@@ -1079,6 +1080,18 @@ const Swap = () => {
                       </div>
                     </div>
                   </div>
+
+                  {limitBanner && (
+                    <div className="mb-4 rounded-xl border border-fx-rust/30 bg-fx-rust/5 px-4 py-3 text-sm text-fx-rust">
+                      {limitBanner.message}
+                      {limitBanner.upgradeHint && (
+                        <span className="ml-2">
+                          Need more headroom?{' '}
+                          <a href="/profile" className="underline text-fx-brass">Upgrade your tier</a>
+                        </span>
+                      )}
+                    </div>
+                  )}
 
                   <button
                     onClick={handleExecuteSwap}
