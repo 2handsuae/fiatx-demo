@@ -395,8 +395,9 @@ export const MATCH_LABEL: Record<FlowMatchType, string> = {
 const SUPPLEMENT_ACTION_LABEL: Record<string, string> = { SUPPLEMENT_DEPOSIT: 'Record missed deposit', SUPPLEMENT_BOUNCE: 'Claim recall', SUPPLEMENT_PAYOUT_RETURN: 'Claim return' };
 
 // Task 8（Account 节）：科目码 → 人话短语，缺映射不算错——原码原样显示，且始终把
-// 原码放 title（既给了兜底文本，也给了可核对的原始值）。
-const COA_PHRASE: Record<string, string> = {
+// 原码放 title（既给了兜底文本，也给了可核对的原始值）。Task 15：导出给 Cases 列表页
+// 复用（同一份映射，不重抄）。
+export const COA_PHRASE: Record<string, string> = {
   'L.CLIENT_PAYABLE': 'Client payable',
   'L.CLIENT_PAYABLE+L.DEPOSIT_SUSPENSE': 'Client payable + Deposit suspense',
   'E.FIRM_OPS': 'Firm operating',

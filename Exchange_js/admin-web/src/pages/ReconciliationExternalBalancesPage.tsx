@@ -63,7 +63,8 @@ const todayIso = () => new Date().toISOString().slice(0, 10);
 
 const ReconciliationExternalBalancesPage = () => {
   const [searchParams, setSearchParams] = useSearchParams();
-  const date = searchParams.get('date') ?? todayIso();
+  const dateFromUrl = searchParams.get('date');
+  const date = dateFromUrl ?? todayIso();
   const selectedWallet = searchParams.get('wallet');
 
   const [rows, setRows] = useState<ExternalBalanceRow[]>([]);
@@ -90,6 +91,37 @@ const ReconciliationExternalBalancesPage = () => {
   };
 
   useEffect(() => { void fetchList(date); }, [date]);
+
+  // Task 15：首载没带 ?date= 时，默认日期改成"最近一个有数据的账单日"（不再默认
+  // 今天——今天从无账单，打开即空页）。查询接口的 cutoffDate 本就是可选过滤
+  // （不传 = 全部日期），借这点不带日期查一次拿到全量行，取其中最大 cutoffDate
+  // 回填 URL；?date= 一旦已在地址栏出现（用户手选 / 带参进入）就不再覆盖。纯前端
+  // 解，后端零改动。
+  useEffect(() => {
+    if (dateFromUrl) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await adminFetch(`${import.meta.env.VITE_API_URL}/admin/reconciliation/external-balances`);
+        if (!res.ok) return;
+        const all = (await res.json()) as ExternalBalanceRow[];
+        const latest = all.reduce<string | null>(
+          (max, r) => (!max || r.cutoffDate > max ? r.cutoffDate : max),
+          null,
+        );
+        if (!cancelled && latest) {
+          const next = new URLSearchParams(searchParams);
+          next.set('date', latest);
+          setSearchParams(next, { replace: true });
+        }
+      } catch (e) {
+        if (e instanceof AdminSessionError) return;
+        console.error(e);
+      }
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const fetchDetail = async (walletNo: string, d: string) => {
     setLoadingDetail(true);

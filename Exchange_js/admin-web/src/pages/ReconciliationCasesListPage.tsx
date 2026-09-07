@@ -2,8 +2,10 @@
 //
 // T6 — Cases list = tracking view.
 //   - Default URL: ?status=OPEN&sort=aging.desc (server already sorts aging desc per T3).
-//   - Columns: Case ID | Wallet | COA | Owner | Asset | Aging | Δ | First Run | Last Run | 定性进度 | Status.
-//     (Wallet + COA were previously a single stacked "Account" column — split for clarity.)
+//   - Columns: Case ID | Wallet | COA | Owner | Asset | Aging | Δ | Run | 定性进度 | Status.
+//     (Wallet + COA were previously a single stacked "Account" column — split for clarity.
+//     Task 15: First Run + Last Run collapsed into one Run column — table-fixed layout
+//     to hold 1280×800 without horizontal scroll; see formatRunRange / table-fixed comment below.)
 //   - 定性进度 (disposition progress) = dispositionCount/anomalyLineCount, i.e. how many
 //     of the case's flagged lines already have a recorded finding vs. still untriaged.
 //   - Aging tiers visualise triage urgency (0-3 muted, 4-7 amber, 8+ red).
@@ -21,8 +23,9 @@ import { PageTitleBar } from '../components/ui/PageTitleBar';
 import Pagination from '../components/common/Pagination';
 // 分→元展示格式化：复用详情页既有的 formatAmount（带千分位，展示专用），
 // 不再造第三个同类工具（同类先例：ReconciliationAdjustmentCreateModal /
-// ReconciliationDispositionModal 都已这样引用）。
-import { formatAmount } from './ReconciliationCasesDetailPage';
+// ReconciliationDispositionModal 都已这样引用）。Task 15：COA 人话短语同理复用
+// 详情页已导出的 COA_PHRASE，不重抄一份映射。
+import { formatAmount, COA_PHRASE } from './ReconciliationCasesDetailPage';
 
 /* ── Interfaces ──────────────────────────────────────────────── */
 
@@ -90,6 +93,20 @@ const statusLabel = (status: string): string => {
   if (s === 'WAIVED') return 'Waived';
   if (s === 'PENDING_RECHECK') return 'Pending recheck';
   return status;
+};
+
+// Task 15：First Run / Last Run 两列并一列，治横滚。runNo 形如 'RUN20260907-1'
+// （日期前缀 + 序号）；同日多次跑批时前缀相同，只差序号——共同前缀部分只显一次，
+// 压成 'RUN20260907-1 → -2'。前缀不同（跨日）时没有压缩空间，原样显示两个全号。
+const formatRunRange = (first: string | null, last: string | null): string => {
+  if (!first) return '—';
+  if (!last || first === last) return first;
+  const cut = first.lastIndexOf('-');
+  const cutLast = last.lastIndexOf('-');
+  if (cut > 0 && cutLast > 0 && first.slice(0, cut) === last.slice(0, cutLast)) {
+    return `${first} → ${last.slice(cutLast)}`;
+  }
+  return `${first} → ${last}`;
 };
 
 /* ── Component ───────────────────────────────────────────────── */
@@ -196,22 +213,26 @@ const ReconciliationCasesListPage = () => {
 
       {/* ── Table ── */}
       <div className="flex-1 overflow-auto">
-        <table className="w-full border-collapse text-sm">
+        {/* table-fixed（Task 15 治横滚关键一步）：列宽由声明值硬钉，不再随最长单元格内容
+            撑宽——auto 布局下 11 列声明宽度加总原就等于 1280（视口整宽），但侧栏吃掉 240px
+            后实际可用只剩 1040px，单元格里任何不可断行的长值（caseNo/walletNo/COA 码等）都会
+            把某一列继续撑宽，逼出横向滚动条、切掉最右的 Status 列。改 table-fixed 后列宽=
+            声明值之和（现已降到约 1000px，留出安全边），配合下方逐列 truncate 兜底。 */}
+        <table className="w-full table-fixed border-collapse text-sm">
           <thead>
             <tr>
               {(
                 [
-                  ['Case ID', '150px', 'left'],
-                  ['Wallet', '130px', 'left'],
-                  ['COA', '230px', 'left'],
-                  ['Owner', '110px', 'left'],
-                  ['Asset', '80px', 'left'],
-                  ['Aging', '70px', 'right'],
-                  ['Δ', '120px', 'right'],
-                  ['First Run', '100px', 'left'],
-                  ['Last Run', '100px', 'left'],
-                  ['Disposition', '90px', 'left'],
-                  ['Status', '100px', 'left'],
+                  ['Case ID', '130px', 'left'],
+                  ['Wallet', '110px', 'left'],
+                  ['COA', '97px', 'left'],
+                  ['Owner', '106px', 'left'],
+                  ['Asset', '85px', 'left'],
+                  ['Aging', '60px', 'right'],
+                  ['Δ', '108px', 'right'],
+                  ['Run', '140px', 'left'],
+                  ['Disposition', '98px', 'left'],
+                  ['Status', '82px', 'left'],
                 ] as [string, string, string][]
               ).map(([label, w, align]) => (
                 <th
@@ -227,14 +248,14 @@ const ReconciliationCasesListPage = () => {
           <tbody>
             {loading && (
               <tr>
-                <td colSpan={11} className="px-4 py-10 text-center font-mono text-[11px] text-adm-t3">
+                <td colSpan={10} className="px-4 py-10 text-center font-mono text-[11px] text-adm-t3">
                   Loading…
                 </td>
               </tr>
             )}
             {!loading && cases.length === 0 && (
               <tr>
-                <td colSpan={11} className="px-4 py-10 text-center font-mono text-[11px] text-adm-t3">
+                <td colSpan={10} className="px-4 py-10 text-center font-mono text-[11px] text-adm-t3">
                   No {statusFromUrl === 'ALL' ? '' : statusLabel(statusFromUrl).toLowerCase() + ' '}
                   reconciliation cases found.
                 </td>
@@ -245,10 +266,6 @@ const ReconciliationCasesListPage = () => {
                 const deltaNum = Number(kase.deltaAmount ?? '0');
                 const hasDelta = Number.isFinite(deltaNum) && deltaNum !== 0;
                 const deltaSign = deltaNum > 0 ? '+' : '';
-                const sameRun =
-                  kase.firstSeenRunNo &&
-                  kase.lastUpdatedRunNo &&
-                  kase.firstSeenRunNo === kase.lastUpdatedRunNo;
                 return (
                   <tr
                     key={kase.id}
@@ -256,14 +273,14 @@ const ReconciliationCasesListPage = () => {
                     onClick={() => navigate(`/admin/reconciliation/cases/${kase.caseNo}`)}
                   >
                     {/* Case ID */}
-                    <td className="px-4 py-2.5">
+                    <td className="truncate px-4 py-2.5" title={kase.caseNo}>
                       <span className="font-mono text-[11px] font-semibold text-adm-amber">
                         {kase.caseNo}
                       </span>
                     </td>
 
                     {/* Wallet — business key (walletNo). Never expose raw UUIDs. */}
-                    <td className="px-4 py-2.5">
+                    <td className="truncate px-4 py-2.5" title={kase.walletNo ?? undefined}>
                       {kase.walletNo ? (
                         <span className="font-mono text-[11px] text-adm-t1">
                           {kase.walletNo}
@@ -273,23 +290,23 @@ const ReconciliationCasesListPage = () => {
                       )}
                     </td>
 
-                    {/* COA — accounting bucket (e.g. E.FIRM_FEE / L.CLIENT_PAYABLE+L.DEPOSIT_SUSPENSE). */}
-                    <td className="px-4 py-2.5">
-                      <span
-                        className="font-mono text-[10px] font-semibold text-adm-blue"
-                        title={kase.coaCode ?? undefined}
-                      >
-                        {kase.coaCode ?? '—'}
+                    {/* COA — human phrase via shared COA_PHRASE map (Task 8); unmapped codes
+                        fall back to the raw code. Truncated to hold the column's width (治横
+                        滚的关键一环，同 Task 8 Reference 列 ShortRef 的既有做法) — raw code
+                        always sits in title so nothing is actually lost. */}
+                    <td className="truncate px-4 py-2.5" title={kase.coaCode ?? undefined}>
+                      <span className="font-mono text-[10px] font-semibold text-adm-blue">
+                        {kase.coaCode ? (COA_PHRASE[kase.coaCode] ?? kase.coaCode) : '—'}
                       </span>
                     </td>
 
                     {/* Owner — ownerNo (name not on row; can drill into detail for full identity) */}
-                    <td className="px-4 py-2.5 font-mono text-[10px] text-adm-t2">
+                    <td className="truncate px-4 py-2.5 font-mono text-[10px] text-adm-t2" title={kase.ownerNo ?? undefined}>
                       {kase.ownerNo ?? '—'}
                     </td>
 
                     {/* Asset */}
-                    <td className="px-4 py-2.5">
+                    <td className="truncate px-4 py-2.5">
                       <span className="font-mono text-[10px] font-semibold text-adm-blue">
                         {kase.assetCode}
                       </span>
@@ -308,7 +325,10 @@ const ReconciliationCasesListPage = () => {
                     </td>
 
                     {/* Δ — bold+signed when non-zero; muted "balanced" when zero */}
-                    <td className="px-4 py-2.5 text-right">
+                    <td
+                      className="truncate px-4 py-2.5 text-right"
+                      title={hasDelta ? `${deltaSign}${formatAmount(kase.deltaAmount, kase.decimals)}` : undefined}
+                    >
                       {hasDelta ? (
                         <span className="font-mono text-[11px] font-semibold text-adm-amber">
                           {deltaSign}
@@ -319,24 +339,14 @@ const ReconciliationCasesListPage = () => {
                       )}
                     </td>
 
-                    {/* First Run */}
-                    <td className="px-4 py-2.5 font-mono text-[10px] text-adm-t2">
-                      <span>
-                        {kase.firstSeenRunNo ?? '—'}
-                      </span>
-                    </td>
-
-                    {/* Last Run — collapse to "(same)" when identical to First Run */}
-                    <td className="px-4 py-2.5 font-mono text-[10px]">
-                      {!kase.lastUpdatedRunNo ? (
-                        <span className="text-adm-t3">—</span>
-                      ) : sameRun ? (
-                        <span className="italic text-adm-t3">(same)</span>
-                      ) : (
-                        <span className="text-adm-t2">
-                          {kase.lastUpdatedRunNo}
-                        </span>
-                      )}
+                    {/* Run — Task 15: First Run + Last Run 并一列，同 run 只显一次
+                        （见 formatRunRange：共同日期前缀只留一次，压成 'RUNxxx-1 → -2'）。
+                        title 兜底两个全号（压缩显示偶尔换行截断时仍能核对）。*/}
+                    <td
+                      className="truncate px-4 py-2.5 font-mono text-[10px] text-adm-t2"
+                      title={kase.lastUpdatedRunNo && kase.lastUpdatedRunNo !== kase.firstSeenRunNo ? `${kase.firstSeenRunNo} → ${kase.lastUpdatedRunNo}` : undefined}
+                    >
+                      {formatRunRange(kase.firstSeenRunNo, kase.lastUpdatedRunNo)}
                     </td>
 
                     {/* 定性进度 — dispositionCount/anomalyLineCount; '—' when the case has

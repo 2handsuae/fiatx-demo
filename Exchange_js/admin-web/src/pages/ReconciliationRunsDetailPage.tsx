@@ -33,6 +33,9 @@ import {
   getApiErrorMessage,
 } from '../utils/adminFetch';
 import { triggerWalletReconRun } from '../utils/reconRunTrigger';
+// Task 15：钱包角色码人话——复用既有共享映射（CustodianWalletList / Detail 等页
+// 已在用），不新造一份；缺映射兜底原码+title 见下方用法。
+import { WALLET_ROLE_LABEL } from '../utils/walletRole.util';
 
 /* ── Types (mirrors ReconRunDetail / AccountStatusRow / RunDetailSummary
    in src/modules/clearing-settle/reconciliation/dto/reconciliation.dto.ts) ── */
@@ -559,8 +562,8 @@ const ReconciliationRunsDetailPage = () => {
                               <div className="font-mono text-[11px] font-semibold text-adm-t1">
                                 {displayWallet}
                               </div>
-                              <div className="font-mono text-[10px] text-adm-t3">
-                                {row.walletRole ?? '(unknown)'}
+                              <div className="font-mono text-[10px] text-adm-t3" title={row.walletRole ?? undefined}>
+                                {row.walletRole ? (WALLET_ROLE_LABEL[row.walletRole] ?? row.walletRole) : '(unknown)'}
                               </div>
                             </td>
                             {/* Owner — ownerNo if present, else book */}
