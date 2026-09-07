@@ -51,6 +51,8 @@ RED-RETRY 不迁移（停留 IN_REVIEW）。「审批中」不是状态：提没
 
 新模块 `src/modules/identity/tier-upgrade/`（与 onboarding 平级，铁律③各管各的）：workflow service（状态机唯一写入口）+ 审批 handler + 客户面 controller + admin controller。
 
+**迁移**：照常新增迁移文件（保证空库能建起；不写 backfill / 兼容层，改完 = reset 重铺闸⑧）。客户主表零新列（承接实证）。
+
 ## §3 Sumsub 侧：level 加一行 + 零材料清单
 
 - `ONBOARDING_LEVELS` 加 `PREMIUM: 'premium-tier-level'`；`ONBOARDING_LEVEL_TEMPLATES` 加对应上传模板（`PROOF_OF_ADDRESS` + `SOURCE_OF_FUNDS` 两个上传槽，照 EDD 模板样式）
@@ -62,6 +64,7 @@ RED-RETRY 不迁移（停留 IN_REVIEW）。「审批中」不是状态：提没
 
 - **分发开路**（`sumsub-ingestion.service.ts` 的 `applicantReviewed` 分支）：applicantId 反查客户后，**先查该客户有无 `IN_REVIEW` 升级申请单**——有则路由 `tierUpgradeWorkflow.applyReviewVerdict`，无则走既有入驻路径。入驻处理器的 lifecycle 守卫（`IN_VERIFICATION`）原样不动，两线用申请单存在性隔离（比按档名判稳）。`applicantLevelChanged` 分支不动（升档换档不经 webhook）。既有两路（三域 KYT 级联、材料请求裁决）与放行顺序原样
 - 升档裁决守卫：未提交（materialsSubmittedAt 空）或申请单非 IN_REVIEW 时到达的裁决显式拒；RED 必带 rejectType（缺了显式拒，波二判例）
+- **RED-RETRY 清 `materialsSubmittedAt`**（照波二换档清 `onboardingSubmittedAt` 先例）：会话重新开放提交，客户端从「等待审核」屏回到上传表单；rejectType 不下发客户面（白名单构造，§8），客户只见「请重新提交材料」中性文案
 - **⚡ 端点**（`admin-sumsub-simulation.controller.ts` 加一枚，与既有逐字同款语法：拼真形状 payload → `ingest(payload, {isSimulated: true, ...})`）：`POST tier-upgrade-review-result` {customerNo, reviewAnswer, reviewRejectType?}
 - **⚡ 面板**：admin 客户详情升级申请区块内三按钮（通过 / 拒绝-可重试 / 拒绝-终拒），模拟模式门控，仅申请单 IN_REVIEW 且已提交时亮
 
@@ -135,7 +138,7 @@ RBAC：新权限组 `CUSTOMER_TIER_UPGRADE_WRITE`（运营持），Customer Mana
 - `decisions.md` 已录（本次脑暴七条）；`CHANGELOG.md` 合并时一行；Thread 收尾按 `CLAUDE.md §9` 报层
 - **总纲归档**：波三是最后一波，合并后总纲随本 spec 一起移 `archive/`（总纲自定的生命周期）
 - 域事件：本波不新增（编排直调；审批 decided 二级事件走既有框架）
-- 清单触发行：动钱/金额——**本波不改任何记账代码**，但 TB 钩子首次让现场客户充值记账真实走通 → 收尾闸加跑 `verify:coa`（⑦）；交易三域改动——只动 Swap/Withdraw 错误展示层与分发器升档分支，交易状态机零改动
+- 清单触发行：动钱/金额——**本波不改任何记账代码、不新增科目**（TB 钩子用既有科目码开户，无分录），但钩子首次让现场客户充值记账真实走通 → 收尾闸加跑 `verify:coa`（⑦）；交易三域改动——只动 Swap/Withdraw 错误展示层与分发器升档分支，交易状态机零改动，充值域不改有实证理由（L1 HOLD 无拒单错误路径，§6）；退役业务动作——无；新事件——无
 
 ## §13 验收口径
 
