@@ -17,6 +17,7 @@ import { AdminBadge } from '../components/ui/AdminBadge';
 import { useAdminSession } from '../contexts/AdminSessionContext';
 import { PERMISSIONS } from '../rbac/permissions';
 import { scopeLabel, type AdminRestrictionRow } from '../utils/restrictionCauseMeta';
+import { useSimulationMode } from '../utils/simulationMode';
 
 /* ── Interfaces ──────────────────────────────────────────────── */
 
@@ -54,6 +55,14 @@ interface CustomerDetailData {
   // Verification (Sumsub) snapshot
   sumsubApplicantId?: string | null;
   sumsubCurrentLevelName?: string | null;
+  // CDD (入驻波二 Task 10)
+  dateOfBirth?: string | null;
+  nationality?: string | null;
+  idDocType?: string | null;
+  idDocNumber?: string | null;
+  residentialAddress?: string | null;
+  onboardingSubmittedAt?: string | null;
+  onboardingFinalRejectedAt?: string | null;
 }
 
 /* ── Customer Tags ───────────────────────────────────────────── */
@@ -206,6 +215,14 @@ const CustomerDetail = () => {
 
   const [tierMessage, setTierMessage] = useState<string | null>(null);
 
+  /* ── Onboarding acceptance + ⚡ simulation state ── */
+  const { enabled: simEnabled } = useSimulationMode();
+  const [acceptanceNo, setAcceptanceNo] = useState<string | null>(null);
+  const [acceptanceSubmitting, setAcceptanceSubmitting] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [simBusy, setSimBusy] = useState<string | null>(null);
+  const [simError, setSimError] = useState<string | null>(null);
+
   /* ── Risk Assessment trigger state ── */
 
   /* ── Fetching ── */
@@ -352,6 +369,80 @@ const CustomerDetail = () => {
     }
   };
 
+  /* ── Onboarding acceptance (maker→checker 提单) ── */
+  const submitAcceptance = async () => {
+    if (!detail) return;
+    const reason = window.prompt('Reason for acceptance request');
+    if (!reason) return;
+    setAcceptanceSubmitting(true);
+    setActionError(null);
+    try {
+      const res = await adminFetch(
+        `${import.meta.env.VITE_API_URL}/admin/customers/${detail.customerNo}/onboarding-acceptance`,
+        { method: 'POST', body: JSON.stringify({ reason }) },
+      );
+      if (!res.ok) throw new Error(await getApiErrorMessage(res, 'Failed to submit acceptance request.'));
+      const { approvalNo } = (await res.json()) as { approvalNo: string };
+      setAcceptanceNo(approvalNo);
+      void fetchDetail();
+    } catch (e: unknown) {
+      if (e instanceof AdminSessionError) return;
+      if (e instanceof AdminPermissionError) {
+        setActionError('Permission denied. You cannot submit this request.');
+      } else {
+        setActionError(e instanceof Error ? e.message : 'Failed to submit acceptance request.');
+      }
+    } finally {
+      setAcceptanceSubmitting(false);
+    }
+  };
+
+  /* ── ⚡ Onboarding simulation ── */
+  const runOnboardingVerdict = async (
+    reviewAnswer: 'GREEN' | 'RED',
+    reviewRejectType?: 'RETRY' | 'FINAL',
+  ) => {
+    if (!detail) return;
+    const key = reviewAnswer === 'GREEN' ? 'APPROVE' : `REJECT_${reviewRejectType}`;
+    setSimBusy(key);
+    setSimError(null);
+    try {
+      const res = await adminFetch(
+        `${import.meta.env.VITE_API_URL}/admin/sumsub/simulate/onboarding-review-result`,
+        {
+          method: 'POST',
+          body: JSON.stringify({ customerNo: detail.customerNo, reviewAnswer, reviewRejectType }),
+        },
+      );
+      if (!res.ok) throw new Error(await getApiErrorMessage(res, 'Verdict run failed.'));
+      void fetchDetail();
+    } catch (e: unknown) {
+      if (e instanceof AdminSessionError) return;
+      setSimError(e instanceof Error ? e.message : 'Verdict run failed.');
+    } finally {
+      setSimBusy(null);
+    }
+  };
+
+  const runEscalateToEdd = async () => {
+    if (!detail) return;
+    setSimBusy('ESCALATE');
+    setSimError(null);
+    try {
+      const res = await adminFetch(
+        `${import.meta.env.VITE_API_URL}/admin/sumsub/simulate/onboarding-level-change`,
+        { method: 'POST', body: JSON.stringify({ customerNo: detail.customerNo }) },
+      );
+      if (!res.ok) throw new Error(await getApiErrorMessage(res, 'Escalation failed.'));
+      void fetchDetail();
+    } catch (e: unknown) {
+      if (e instanceof AdminSessionError) return;
+      setSimError(e instanceof Error ? e.message : 'Escalation failed.');
+    } finally {
+      setSimBusy(null);
+    }
+  };
+
   /* ── Derived booleans ── */
 
   const hasPeriodicReview = useMemo(
@@ -422,6 +513,10 @@ const CustomerDetail = () => {
   // 材料终拒 = 离场出口（decisions.md 2026-09-06 业主拍板）：任一材料请求走到
   // REJECTED（RED · FINAL）即触发，RETRY 不算——见 material-request.constant.ts。
   const hasFinalMaterialRejection = materialRequestRows.some((r) => r.status === 'REJECTED');
+  // ⚡ 入驻模拟按钮可用性（task-10-brief.md Step 3）。
+  const canVerdict = detail.lifecycle === 'IN_VERIFICATION' && detail.onboardingSubmittedAt != null;
+  const canEscalate = canVerdict && detail.sumsubCurrentLevelName === 'basic-cdd-level';
+  const canRequestAcceptance = hasPermission(PERMISSIONS.CUSTOMER_ONBOARDING_ACCEPT_WRITE);
 
   /* ── Render ── */
 
@@ -478,11 +573,120 @@ const CustomerDetail = () => {
                   尽调未完成 · 待离场处理
                 </span>
               )}
+              {/* 入驻终拒（第二幕波二 Task 10）：与上面材料终拒同样式的只读徽章，
+                  语境不同——这是入驻裁决本身走到 FINAL，不可再申请。 */}
+              {detail.onboardingFinalRejectedAt && (
+                <span className="inline-flex items-center rounded border border-adm-red/25 bg-adm-red/10 px-1.5 py-px font-mono text-[9px] font-semibold text-adm-red">
+                  尽调终拒 · 不可重新申请
+                </span>
+              )}
             </div>
             <div className="mt-4 border-t border-adm-border pt-4">
               <p className="font-mono text-[11px] text-adm-t2">{name}</p>
             </div>
           </section>
+
+          {/* Onboarding —— 入驻状态卡（第二幕波二 Task 10）。准入核准走
+              maker(运营)→checker(高管) 单步审批；approvalNo 只在本次提交的
+              会话内临时展示，不做持久轮询。 */}
+          <section className="px-6 py-5">
+            <Cap>Onboarding</Cap>
+            <div className="mt-3">
+              <FieldGrid>
+                <Field label="Verification Level" value={detail.sumsubCurrentLevelName || '—'} mono />
+                <Field label="EDD Required" value={detail.eddRequired ? 'YES' : 'NO'} />
+                <Field label="Submitted At" value={fmt(detail.onboardingSubmittedAt)} mono />
+              </FieldGrid>
+            </div>
+            {actionError && (
+              <div className="mt-3 rounded border border-adm-red/30 bg-adm-red/10 px-3 py-2 font-mono text-[10px] text-adm-red">
+                {actionError}
+              </div>
+            )}
+            {acceptanceNo && (
+              <p className="mt-3 font-mono text-[10px] text-adm-t2">
+                Acceptance approval:{' '}
+                <span className="font-semibold text-adm-amber">{acceptanceNo}</span>
+              </p>
+            )}
+            {detail.lifecycle === 'PENDING_APPROVAL' && canRequestAcceptance && (
+              <div className="mt-4">
+                <button
+                  onClick={() => void submitAcceptance()}
+                  disabled={acceptanceSubmitting}
+                  className={adminButtonClass('workflowPrimary')}
+                >
+                  {acceptanceSubmitting ? 'Submitting…' : 'Submit for Approval'}
+                </button>
+              </div>
+            )}
+          </section>
+
+          {/* ⚡ Onboarding Simulation —— 模拟 Sumsub 入驻回调；用色/字号/按钮态对齐
+              三域交易详情共用 SimulationPanel（DepositTransactionDetail.tsx 等），
+              但入驻的按钮集合、可用性条件都不一样，也没有对应的后端
+              verdict-buttons 元数据端点，故本页直接写死四个按钮。 */}
+          {simEnabled && (
+            <section className="px-6 py-5">
+              <Cap>⚡ Onboarding Simulation</Cap>
+              <p className="mt-1 mb-4 font-mono text-[9px] text-adm-t3">
+                Feed a simulated Sumsub applicant-review verdict for this customer's onboarding.
+              </p>
+              {simError && (
+                <div className="mb-3 rounded border border-adm-red/30 bg-adm-red/10 px-3 py-2 font-mono text-[10px] text-adm-red">
+                  {simError}
+                </div>
+              )}
+              <div className="mb-3">
+                {!canVerdict && (
+                  <p className="mb-1.5 font-mono text-[9px] text-adm-amber">
+                    客户当前不在「入驻审核中」或尚未提交材料，裁决按钮不可用。
+                  </p>
+                )}
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    onClick={() => void runOnboardingVerdict('GREEN')}
+                    disabled={!canVerdict || simBusy !== null}
+                    className={adminButtonClass('simulationAction')}
+                  >
+                    {simBusy === 'APPROVE' ? 'Running…' : 'Approve (GREEN)'}
+                  </button>
+                  <button
+                    onClick={() => void runOnboardingVerdict('RED', 'RETRY')}
+                    disabled={!canVerdict || simBusy !== null}
+                    className={adminButtonClass('simulationAction')}
+                  >
+                    {simBusy === 'REJECT_RETRY' ? 'Running…' : 'Reject – Retry'}
+                  </button>
+                  <button
+                    onClick={() => void runOnboardingVerdict('RED', 'FINAL')}
+                    disabled={!canVerdict || simBusy !== null}
+                    className={adminButtonClass('simulationAction')}
+                  >
+                    {simBusy === 'REJECT_FINAL' ? 'Running…' : 'Reject – Final'}
+                  </button>
+                </div>
+              </div>
+              <div>
+                {!canEscalate && (
+                  <p className="mb-1.5 font-mono text-[9px] text-adm-amber">
+                    {canVerdict
+                      ? '客户当前不在 basic-cdd-level 档位，升级 EDD 按钮不可用。'
+                      : '客户当前不在「入驻审核中」或尚未提交材料，升级 EDD 按钮不可用。'}
+                  </p>
+                )}
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    onClick={() => void runEscalateToEdd()}
+                    disabled={!canEscalate || simBusy !== null}
+                    className={adminButtonClass('simulationAction')}
+                  >
+                    {simBusy === 'ESCALATE' ? 'Running…' : 'Escalate to EDD'}
+                  </button>
+                </div>
+              </div>
+            </section>
+          )}
 
           {/* Tags */}
           {canViewTags && (
@@ -588,6 +792,12 @@ const CustomerDetail = () => {
                     full
                   />
                 )}
+                {/* CDD 五字段（第二幕波二 Task 10）：空值显 — */}
+                <Field label="Date of Birth" value={detail.dateOfBirth || '—'} />
+                <Field label="Nationality" value={detail.nationality || '—'} />
+                <Field label="ID Type" value={detail.idDocType || '—'} />
+                <Field label="ID Number" value={detail.idDocNumber || '—'} mono />
+                <Field label="Residential Address" value={detail.residentialAddress || '—'} full />
               </FieldGrid>
             </div>
           </section>

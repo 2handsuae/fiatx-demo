@@ -36,6 +36,10 @@ export const PERMISSIONS = {
   CUSTOMER_RESTRICTIONS_RELEASE:
     'api.post.admin_customers_customerno_restrictions_restrictionno_release',
 
+  // 客户域波二（Task 10）：准入核准提单——精确镜像 rbac.catalog.ts 里 Task 8
+  // 已登记的 buildPermissionCode(method, path) 派生值。
+  CUSTOMER_ONBOARDING_ACCEPT_WRITE: 'api.post.admin_customers_customerno_onboarding_acceptance',
+
   MATERIAL_REQUESTS_READ: 'api.get.admin_customers_customerno_material_requests',
   MATERIAL_REQUESTS_WRITE: 'api.post.admin_customers_customerno_material_requests',
   MATERIAL_REQUESTS_BY_ORDER_READ: 'api.get.admin_material_requests_by_order_orderdomain_orderref',
