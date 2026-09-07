@@ -1,3 +1,4 @@
+import { BadRequestException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { PrismaService } from '../../../core/prisma/prisma.service';
 import { CustomersService } from './customers.service';
@@ -93,6 +94,24 @@ describe('CustomersService', () => {
         data,
       });
       expect(mockPrismaService.customerMain.update).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('applyTierUpgrade', () => {
+    it('applyTierUpgrade: BASIC→PREMIUM 唯一写口；非 BASIC 显式拒', async () => {
+      mockPrismaService.customerMain.findUnique.mockResolvedValueOnce({ tradingTier: 'BASIC' });
+      mockPrismaService.customerMain.update.mockResolvedValueOnce({ id: 'c1', tradingTier: 'PREMIUM' });
+
+      const r = await service.applyTierUpgrade('c1');
+
+      expect(r).toEqual({ fromTier: 'BASIC', toTier: 'PREMIUM' });
+      expect(mockPrismaService.customerMain.update).toHaveBeenCalledWith({
+        where: { id: 'c1' },
+        data: { tradingTier: 'PREMIUM' },
+      });
+
+      mockPrismaService.customerMain.findUnique.mockResolvedValueOnce({ tradingTier: 'PREMIUM' });
+      await expect(service.applyTierUpgrade('c1')).rejects.toThrow(BadRequestException);
     });
   });
 });

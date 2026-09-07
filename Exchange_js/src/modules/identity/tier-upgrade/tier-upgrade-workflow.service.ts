@@ -1,9 +1,12 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { OnEvent } from '@nestjs/event-emitter';
 import { randomUUID } from 'crypto';
 import { PrismaService } from '../../../core/prisma/prisma.service';
 import { CustomersService } from '../customers/customers.service';
 import { SumsubClient } from '../../sumsub-applicant-client/sumsub.client';
 import { ApprovalsService } from '../../governance/approvals/approvals.service';
+import { ApprovalActionTypes, ApprovalActorContext } from '../../governance/approvals/constants/approval.constants';
+import { ApprovalDecidedEvent } from '../../governance/approvals/approval-handler.base';
 import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import { AuditActions, AuditEntityTypes } from '../../audit-logging/constants/audit-actions.constant';
 import { ONBOARDING_LEVELS, ONBOARDING_LEVEL_TEMPLATES } from '../constants/onboarding-level.constant';
@@ -26,7 +29,6 @@ export class TierUpgradeWorkflowService {
     private readonly prisma: PrismaService,
     private readonly customers: CustomersService,
     private readonly sumsubClient: SumsubClient,
-    // 本任务用不到：裁决(Task 7)/审批(Task 8) 落地时接上，先占位注入。
     private readonly approvalsService: ApprovalsService,
     private readonly auditLogsService: AuditLogsService,
   ) {}
@@ -156,5 +158,102 @@ export class TierUpgradeWorkflowService {
       afterData: { upgradeNo: app.upgradeNo, reviewAnswer: input.reviewAnswer, reviewRejectType: input.reviewRejectType, fromStatus: 'IN_REVIEW', toStatus: to },
     }, false);
     return { customerNo: c.customerNo, upgradeNo: app.upgradeNo, to };
+  }
+
+  /** 运营提请档位升级核准（maker）。守卫：存在 MATERIALS_CLEARED 单（非 lifecycle）且无在批审批单。 */
+  async submitAcceptance(customerNo: string, reason: string, actor: ApprovalActorContext) {
+    const c = await this.prisma.customerMain.findFirst({ where: { customerNo } });
+    if (!c) throw new NotFoundException(`Customer not found: ${customerNo}`);
+    const app = await this.prisma.tierUpgradeApplication.findFirst({
+      where: { customerId: c.id, status: 'MATERIALS_CLEARED' },
+    });
+    if (!app || app.status !== 'MATERIALS_CLEARED') {
+      throw new BadRequestException(`Customer ${customerNo} has no upgrade application awaiting acceptance`);
+    }
+    const open = await this.prisma.approvalCase.findFirst({
+      where: { actionType: ApprovalActionTypes.CUSTOMER_TIER_UPGRADE, entityRef: customerNo, status: { in: ['DRAFT', 'PENDING'] } },
+    });
+    if (open) throw new BadRequestException(`Acceptance already pending approval: ${open.approvalNo}`);
+    const traceId = randomUUID();
+    const impact = `Trading tier upgrade acceptance: ${customerNo} / ${app.upgradeNo} — approving raises the trading tier BASIC -> PREMIUM; cumulative limits switch to the PREMIUM schedule immediately.`;
+    const approvalCase = await this.approvalsService.createAndSubmit(
+      {
+        actionType: ApprovalActionTypes.CUSTOMER_TIER_UPGRADE, entityRef: customerNo, traceId,
+        objectSnapshot: {
+          customerNo, upgradeNo: app.upgradeNo, fromTier: app.fromTier, toTier: app.toTier,
+          levelName: c.sumsubCurrentLevelName, riskRating: c.riskRating, impact,
+        },
+      },
+      { reason, traceId },
+      actor,
+    );
+    await this.auditLogsService.recordByActor({
+      action: AuditActions.TIER_UPGRADE_ACCEPTANCE_SUBMITTED, actionDomain: 'CUSTOMER',
+      primarySubjectType: AuditEntityTypes.CUSTOMER, primarySubjectNo: customerNo, ownerCustomerNo: customerNo,
+      subjects: [
+        { subjectType: AuditEntityTypes.CUSTOMER, subjectNo: customerNo, subjectRole: 'PRIMARY' },
+        { subjectType: AuditEntityTypes.APPROVAL_CASE, subjectNo: approvalCase.approvalNo, subjectRole: 'INSTRUMENT' },
+      ],
+      reason, approvalNo: approvalCase.approvalNo,
+      requestId: `TIER_UPGRADE_ACCEPTANCE_SUBMITTED_${customerNo}_${randomUUID()}`,
+      afterData: { approvalNo: approvalCase.approvalNo },
+      sourcePlatform: 'ADMIN_API',
+    } as any, { actorType: 'ADMIN', actorNo: actor.userNo ?? actor.userId ?? 'ADMIN', actorDisplayName: actor.userNo ?? actor.userId ?? 'ADMIN', actorRolesAtTime: actor.roleCodes ?? [] });
+    return { approvalNo: approvalCase.approvalNo };
+  }
+
+  /** 「单子提了没」从关联审批单推导展示（照 onboarding 波二版式）：查最近一条档位升级核准单，查不到 → null。 */
+  async getAcceptanceCase(customerNo: string): Promise<{ approvalNo: string; status: string } | null> {
+    const approvalCase = await this.prisma.approvalCase.findFirst({
+      where: { actionType: ApprovalActionTypes.CUSTOMER_TIER_UPGRADE, entityRef: customerNo },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (!approvalCase) return null;
+    return { approvalNo: approvalCase.approvalNo, status: approvalCase.status };
+  }
+
+  /** 管理台档位升级全貌：当前档 + 最近一条申请单 + 关联审批单（内部态合法外露给 admin）。 */
+  async getAdminView(customerNo: string) {
+    const c = await this.prisma.customerMain.findFirst({ where: { customerNo } });
+    if (!c) throw new NotFoundException(`Customer not found: ${customerNo}`);
+    const app = await this.prisma.tierUpgradeApplication.findFirst({
+      where: { customerId: c.id },
+      orderBy: { createdAt: 'desc' },
+    });
+    return {
+      tradingTier: c.tradingTier,
+      application: app
+        ? { upgradeNo: app.upgradeNo, status: app.status, materialsSubmittedAt: app.materialsSubmittedAt, createdAt: app.createdAt, decidedAt: app.decidedAt }
+        : null,
+      acceptanceCase: await this.getAcceptanceCase(customerNo),
+    };
+  }
+
+  /** 高管裁决落轴（handler 二级事件）。APPROVED → 申请单 APPROVED + 档位翻转（同事务）；DECLINED → REJECTED。 */
+  @OnEvent('workflow.customer-tier-upgrade.decided', { async: true })
+  async onAcceptanceDecided(event: ApprovalDecidedEvent) {
+    if (event.decision !== 'APPROVED' && event.decision !== 'DECLINED') return;
+    const c = await this.prisma.customerMain.findFirst({ where: { customerNo: event.entityRef } });
+    if (!c) return;
+    const app = await this.prisma.tierUpgradeApplication.findFirst({ where: { customerId: c.id, status: 'MATERIALS_CLEARED' } });
+    if (!app) return;
+    const to: TierUpgradeStatus = event.decision === 'APPROVED' ? 'APPROVED' : 'REJECTED';
+    assertTierUpgradeTransition('MATERIALS_CLEARED', to);
+    const result: { tiers: { fromTier: string; toTier: string } | null } = { tiers: null };
+    await this.prisma.$transaction(async (tx) => {
+      await tx.tierUpgradeApplication.update({ where: { id: app.id }, data: { status: to, decidedAt: new Date() } });
+      if (event.decision === 'APPROVED') result.tiers = await this.customers.applyTierUpgrade(c.id, tx);
+    });
+    await this.auditLogsService.recordByActor({
+      action: AuditActions.TIER_UPGRADE_ACCEPTANCE_DECIDED, actionDomain: 'CUSTOMER',
+      primarySubjectType: AuditEntityTypes.CUSTOMER, primarySubjectNo: c.customerNo, ownerCustomerNo: c.customerNo,
+      approvalNo: event.approvalNo,
+      requestId: `TIER_UPGRADE_ACCEPTANCE_DECIDED_${c.customerNo}_${randomUUID()}`,
+      afterData: {
+        decision: event.decision, upgradeNo: app.upgradeNo, fromStatus: 'MATERIALS_CLEARED', toStatus: to,
+        beforeTier: result.tiers?.fromTier ?? 'BASIC', afterTier: result.tiers?.toTier ?? 'BASIC',
+      },
+      sourcePlatform: 'ADMIN_API',
+    } as any, { actorType: 'ADMIN', actorNo: event.decisionByUserNo ?? 'ADMIN', actorDisplayName: event.decisionByUserNo ?? 'ADMIN', actorRolesAtTime: [event.decisionByRole ?? 'UNKNOWN'] });
   }
 }

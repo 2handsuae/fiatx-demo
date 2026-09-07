@@ -107,3 +107,41 @@ describe('TierUpgradeWorkflowService 裁决路径（webhook 侧）', () => {
       .rejects.toThrow(BadRequestException);
   });
 });
+
+describe('TierUpgradeWorkflowService 审批路径', () => {
+  const cleared = () => appRow({ status: 'MATERIALS_CLEARED', materialsSubmittedAt: new Date() });
+
+  it('submitAcceptance: MATERIALS_CLEARED 才可提；开单走正门并留痕带 approvalNo', async () => {
+    const d = makeDeps(customerRow(), cleared());
+    const r = await build(d).submitAcceptance('CU250907001', 'limits raise', { actorType: 'ADMIN', userNo: 'OP01', roleCodes: ['OPS_OFFICER'] } as any);
+    expect(r.approvalNo).toBe('APR0002');
+    const snap = d.approvals.createAndSubmit.mock.calls[0][0];
+    expect(snap).toMatchObject({ actionType: 'CUSTOMER_TIER_UPGRADE', entityRef: 'CU250907001' });
+    expect(snap.objectSnapshot).toMatchObject({ upgradeNo: 'TUP250907XXXX', fromTier: 'BASIC', toTier: 'PREMIUM' });
+    await expect(build(makeDeps(customerRow(), appRow())).submitAcceptance('CU250907001', 'x', {} as any)).rejects.toThrow(BadRequestException);
+  });
+
+  it('已有在批单 → 显式拒（不重复开单）', async () => {
+    const d = makeDeps(customerRow(), cleared());
+    d.prisma.approvalCase.findFirst.mockResolvedValue({ approvalNo: 'APR0001', status: 'PENDING' });
+    await expect(build(d).submitAcceptance('CU250907001', 'x', {} as any)).rejects.toThrow(/APR0001/);
+  });
+
+  it('onAcceptanceDecided APPROVED → 申请单沿边 APPROVED + 档位写口同事务调用 + 留痕', async () => {
+    const d = makeDeps(customerRow(), cleared());
+    await build(d).onAcceptanceDecided({ decision: 'APPROVED', entityRef: 'CU250907001', approvalNo: 'APR0002', decisionByUserNo: 'SM01' } as any);
+    expect(d.customers.applyTierUpgrade).toHaveBeenCalledWith('cid', expect.anything());
+    expect(d.prisma.tierUpgradeApplication.update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ status: 'APPROVED', decidedAt: expect.any(Date) }) }));
+    const audited = d.audit.recordByActor.mock.calls.find(([p]: any[]) => p.action === 'TIER_UPGRADE_ACCEPTANCE_DECIDED');
+    expect(audited[0].afterData).toMatchObject({ decision: 'APPROVED', beforeTier: 'BASIC', afterTier: 'PREMIUM', fromStatus: 'MATERIALS_CLEARED', toStatus: 'APPROVED' });
+  });
+
+  it('DECLINED → REJECTED，档位不动、lifecycle 不碰', async () => {
+    const d = makeDeps(customerRow(), cleared());
+    await build(d).onAcceptanceDecided({ decision: 'DECLINED', entityRef: 'CU250907001', approvalNo: 'APR0002' } as any);
+    expect(d.customers.applyTierUpgrade).not.toHaveBeenCalled();
+    expect(d.prisma.tierUpgradeApplication.update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ status: 'REJECTED' }) }));
+  });
+});

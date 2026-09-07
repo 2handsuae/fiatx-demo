@@ -5,7 +5,9 @@ import { CustomersModule } from '../customers/customers.module';
 import { SumsubApplicantClientModule } from '../../sumsub-applicant-client/sumsub-applicant-client.module';
 import { ApprovalsModule } from '../../governance/approvals/approvals.module';
 import { TierUpgradeWorkflowService } from './tier-upgrade-workflow.service';
+import { TierUpgradeApprovalService } from './tier-upgrade-approval.service';
 import { TierUpgradeClientController } from './tier-upgrade.client.controller';
+import { TierUpgradeAdminController } from './tier-upgrade.admin.controller';
 
 @Module({
   imports: [
@@ -16,8 +18,8 @@ import { TierUpgradeClientController } from './tier-upgrade.client.controller';
     SumsubApplicantClientModule,
     ApprovalsModule,
   ],
-  providers: [TierUpgradeWorkflowService],
-  controllers: [TierUpgradeClientController],
+  providers: [TierUpgradeWorkflowService, TierUpgradeApprovalService],
+  controllers: [TierUpgradeClientController, TierUpgradeAdminController],
   exports: [TierUpgradeWorkflowService],
 })
 export class TierUpgradeModule {}

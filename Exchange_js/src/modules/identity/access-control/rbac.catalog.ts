@@ -22,6 +22,7 @@ export type PermissionGroup =
   | 'CUSTOMER_RESTRICTION_WRITE'
   | 'CUSTOMER_RESTRICTION_RELEASE'
   | 'CUSTOMER_ONBOARDING_ACCEPT_WRITE'
+  | 'CUSTOMER_TIER_UPGRADE_WRITE'
   | 'DEMO_CLOCK_WRITE'
   | 'DEMO_VERDICT_WRITE'
   | 'SUMSUB_EVENT_VIEW'
@@ -259,6 +260,21 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
     'GET',
     '/admin/customers/:customerNo/onboarding-acceptance',
     'Get the latest onboarding acceptance approval case for a customer',
+    ['CUSTOMER_READ'],
+  ),
+
+  // Tier upgrade acceptance（交易档位升级波三，2026-09-08）
+  route(
+    'POST',
+    '/admin/customers/:customerNo/tier-upgrade-acceptance',
+    'Open a senior-management acceptance approval for a customer trading tier upgrade',
+    ['CUSTOMER_TIER_UPGRADE_WRITE'],
+  ),
+  // 管理台档位升级全貌（当前档 + 申请单 + 关联审批单），挂既有 CUSTOMER_READ 组
+  route(
+    'GET',
+    '/admin/customers/:customerNo/tier-upgrade',
+    'Get the trading tier upgrade admin view for a customer',
     ['CUSTOMER_READ'],
   ),
 
@@ -816,6 +832,12 @@ export const ACTION_BUCKET_CATALOG: ActionDomain[] = [
         description: 'Open a senior-management approval to accept a high-risk onboarding customer',
         groups: ['CUSTOMER_ONBOARDING_ACCEPT_WRITE'],
       },
+      {
+        key: 'customer.act_tier_upgrade_acceptance',
+        label: 'Request trading tier upgrade acceptance',
+        description: 'Open a senior-management approval to raise a customer trading tier BASIC -> PREMIUM',
+        groups: ['CUSTOMER_TIER_UPGRADE_WRITE'],
+      },
     ],
   },
   // ─── Domain: Trading (split per concrete action) ──────
@@ -1064,7 +1086,7 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
     'LEDGER_ACCOUNT_READ', 'LEDGER_EVIDENCE_READ', 'LEDGER_FLOW_READ',
     'ASSET_CONFIG_READ', 'ASSET_CONFIG_WRITE', 'WALLET_READ', 'WITHDRAWAL_ADDRESS_READ',
     'TRANSACTION_LIMIT_READ', 'TRANSACTION_LIMIT_WRITE',
-    'CUSTOMER_READ', 'CUSTOMER_RESTRICTION_READ', 'CUSTOMER_TAG_VIEW', 'CUSTOMER_ONBOARDING_ACCEPT_WRITE',
+    'CUSTOMER_READ', 'CUSTOMER_RESTRICTION_READ', 'CUSTOMER_TAG_VIEW', 'CUSTOMER_ONBOARDING_ACCEPT_WRITE', 'CUSTOMER_TIER_UPGRADE_WRITE',
     'TRADING_DEPOSIT_READ', 'TRADING_WITHDRAW_READ', 'TRADING_SWAP_READ', 'SUMSUB_EVENT_VIEW',
     'DEPOSIT_WAIVE_WRITE', 'DEPOSIT_CONFISCATE_WRITE', 'DEPOSIT_RETURN_WRITE', 'DEPOSIT_SEIZE_WRITE', 'DEPOSIT_SUPPLEMENT_WRITE', 'DEPOSIT_CLAWBACK_WRITE',
     'TRADING_WITHDRAW_WRITE', 'WITHDRAW_BOUNCE_WRITE', 'WITHDRAW_REFUND_WRITE', 'WITHDRAW_RETURN_CLAIM_WRITE',

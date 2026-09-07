@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { CustomerMain, Prisma } from '@prisma/client';
 import { PrismaService } from '../../../core/prisma/prisma.service';
 import { AuditLogsService } from '../../audit-logging/audit-logs.service';
@@ -157,6 +157,16 @@ export class CustomersService {
       select: { hardLineDispositionedAt: true },
     });
     return !!c?.hardLineDispositionedAt;
+  }
+
+  /** 档位唯一运行时写口（波三 spec §6）：只许 BASIC→PREMIUM，一切经升级申请单裁决处理器。 */
+  async applyTierUpgrade(customerId: string, tx?: Prisma.TransactionClient): Promise<{ fromTier: 'BASIC'; toTier: 'PREMIUM' }> {
+    const db = tx ?? this.prisma;
+    const c = await db.customerMain.findUnique({ where: { id: customerId }, select: { tradingTier: true } });
+    if (!c) throw new NotFoundException(`Customer not found: ${customerId}`);
+    if (c.tradingTier !== 'BASIC') throw new BadRequestException(`Tier transition not allowed: ${c.tradingTier} -> PREMIUM`);
+    await db.customerMain.update({ where: { id: customerId }, data: { tradingTier: 'PREMIUM' } });
+    return { fromTier: 'BASIC', toTier: 'PREMIUM' };
   }
 
   /** 盖 sticky 硬线章。只在命中制裁时盖 —— 「无 action 的硬线」不该造成永久沉默。 */
