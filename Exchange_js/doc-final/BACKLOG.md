@@ -344,6 +344,8 @@ Last Updated: 2026-09-08
 
 - [ ] **人工腿推单 + BREAK/异常处置 = 本期非目标**：本期只交付**同步腿推单**（外部回执验证、免审批）；人工强推腿（`push/manual` + `ManualPushDto`，代码已在）、真差异/异常处置本期不作为交付/验收范围 ｜来源: 2026-07-12 PRD 重写 Q1
 
+- [ ] **大额查不出（LARGE_UNEXPLAINED）事故定损后，钱这条腿没有出口——事故永远关不了**：查不出的差异超小额线 → 升级事故 → 调查 → 定损（口径=公司承损）都通，但之后开不出认损/核销调账单：案件行 `nextStep` 恒为 `INCIDENT_DEFERRED`（只渲染事故徽章，`reconciliation-query.service.ts:513`），后端两道闸也都拒——普通核销路卡小额线（`adjustment.service.ts:164` 报错还指路"register an incident instead"，成环）、事故路只认定性行出口 = `INCIDENT`（即只有未授权转出，`adjustment.service.ts:146`）；于是善后单挂不上、事故到不了 RESOLVING、结不了案，对账案子长红且无出路。spec 承诺的善后口径是"仍不明则认损 / 核销"（`archive/superpowers/specs/2026-09-03-incident-register-design.md` §型录表），机制没人建；18 个演示场景没有一个走这条路（10=公司池小额、16=客户池小额、18=未授权转出），故三期验收没照到。复现：main 上任一客户/公司钱包铺一条超线查不出差异 → 挂起 → ⚡拨钟超期 → Escalate to incident → 定损 FIRM_LOSS → 回案件页无「Recognize loss/Write off」按钮，事故页 Request Close 恒灰（2026-09-08 实跑 REC20260908-001 / INC260908436826 实证）｜来源: 2026-09-08 平账走查模拟
+
 
 ## K. 文档与验收用例
 

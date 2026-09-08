@@ -522,3 +522,4 @@
 - [2026-09-08] 入驻裁决处理器 `onAcceptanceDecided` 是 `@OnEvent({async:true})`：TB 不可达时开户异常死在事件总线，operator 侧无可见报错（客户停 PENDING_APPROVAL）——生产须让审批事件异常可观测（波三 Task 5 评审发现）
 - [2026-09-08] `PATCH /customers/:customerNo` 收裸 `Prisma.CustomerMainUpdateInput`，可直写 lifecycle 绕过状态机与首次 ACTIVE 开户钩子——生产须白名单化该端点字段（波三 Task 5 评审发现）
 - [2026-09-08] 同一 `PATCH /customers/:customerNo` 裸 UpdateInput 亦可直写 tradingTier 绕过升档 maker-checker（持 CUSTOMER_WRITE 即可）——生产收窄 DTO 白名单；演示章程「管理员善意」假设下接受，文档措辞避免绝对化「唯一写口」（波三 Task 8 评审发现）
+- [2026-09-08] **案件页「Re-reconcile」按钮不按权限门控显隐，TREASURY_OFFICER 点击恒 403** ｜ `ReconciliationCasesDetailPage.tsx` 的 Re-reconcile 对无 `POST /admin/reconciliation/runs/wallet` 权限的角色照常渲染，点了只在 console 记 AdminPermissionError、页面无反馈；同页其它动作按钮（Record finding / Recognize loss）都按权限显隐，唯此一枚漏网。前端观感 + 权限门控类，记账即止 ｜来源: 2026-09-08 平账走查模拟
