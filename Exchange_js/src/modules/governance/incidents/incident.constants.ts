@@ -66,6 +66,11 @@ export interface RegisterIncidentDto {
   customerNo?: string;
   assetCode?: string;
   amount?: string; // 元，字符串（对齐 CreateInternalTransferInput.amountMajor 口径）
+  // 平账三期 Task 3 续作（事故路原子落定性）：UNAUTHORIZED_OUTFLOW 未带 sourceDispositionNo
+  // 时的替代锚——workflow 拿这两个字段先调 DispositionService.record() 落定性，
+  // 见 incident-registration-workflow.service.ts。
+  explainedExternalLineId?: string;
+  findingNote?: string;
 }
 
 export interface EscalateIncidentDto {

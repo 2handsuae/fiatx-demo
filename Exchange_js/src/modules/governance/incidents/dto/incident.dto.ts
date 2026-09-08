@@ -23,6 +23,9 @@ export class RegisterIncidentBodyDto {
   @ApiPropertyOptional() @IsOptional() @IsString() customerNo?: string;
   @ApiPropertyOptional() @IsOptional() @IsString() assetCode?: string;
   @ApiPropertyOptional() @IsOptional() @IsString() amount?: string;
+  // 平账三期 Task 3 续作：事故登记原子入口两个新字段，见 incident.constants.ts RegisterIncidentDto 注释。
+  @ApiPropertyOptional() @IsOptional() @IsString() explainedExternalLineId?: string;
+  @ApiPropertyOptional() @IsOptional() @IsString() findingNote?: string;
 }
 
 export class AddIncidentNoteDto {

@@ -7,6 +7,7 @@ import { Inject, Injectable } from '@nestjs/common';
 import { IncidentTypes, RegisterIncidentDto } from './incident.constants';
 import { IncidentService } from './incident.service';
 import { ApprovalActorContext } from '../approvals/constants/approval.constants';
+import { RecordDispositionDto } from '../../clearing-settle/reconciliation/dto/disposition.dto';
 
 /**
  * Task 9 先行提供该方法签名（disposition.service.ts 新增）：
@@ -16,6 +17,14 @@ import { ApprovalActorContext } from '../approvals/constants/approval.constants'
  */
 export interface DispositionIncidentLink {
   attachIncident(dispositionNo: string, incidentNo: string): Promise<void>;
+  /**
+   * 平账三期 Task 3 续作（事故路原子落定性，控制方拍板提案 1）：UNAUTHORIZED_OUTFLOW
+   * 缺 sourceDispositionNo、但带 explainedExternalLineId+findingNote 时，workflow 先调
+   * 这个方法把定性落库，再拿 dispositionNo 顶上 sourceDispositionNo 走原有
+   * incidents.register() 流程。causeCode/matchType/disposition 三者在 register() 里定死
+   * （UNAUTHORIZED_OUTFLOW 是 INCIDENT 出口唯一码、只锚外部行），不开放调用方另传组合。
+   */
+  record(dto: RecordDispositionDto & { caseNo: string }, actor: ApprovalActorContext): Promise<{ dispositionNo: string }>;
 }
 
 export const DISPOSITION_INCIDENT_LINK = 'DISPOSITION_INCIDENT_LINK';
@@ -29,10 +38,35 @@ export class IncidentRegistrationWorkflowService {
 
   /** 事故登记的真正入口（HTTP 层调这个，不直接调 IncidentService.register）。 */
   async register(dto: RegisterIncidentDto, actor: ApprovalActorContext): Promise<{ incidentNo: string }> {
-    const { incidentNo } = await this.incidents.register(dto, actor);
-    if (dto.type === IncidentTypes.UNAUTHORIZED_OUTFLOW) {
-      // register() 里已校验 sourceDispositionNo 非空且定性行合法，这里必然存在。
-      await this.dispositionLink.attachIncident(dto.sourceDispositionNo as string, incidentNo);
+    let effectiveDto = dto;
+    // 原子路（Task 3 续作）：UNAUTHORIZED_OUTFLOW 且没带 sourceDispositionNo，但带了
+    // 定性所需的两个新字段——先落定性，再拿新出的 dispositionNo 顶上，走回原有校验/建单。
+    // 两者都没带则原样落到下面的 incidents.register()，走既有的 400（话术不变）。
+    if (
+      dto.type === IncidentTypes.UNAUTHORIZED_OUTFLOW &&
+      !dto.sourceDispositionNo &&
+      dto.explainedExternalLineId &&
+      dto.findingNote
+    ) {
+      const { dispositionNo } = await this.dispositionLink.record(
+        {
+          caseNo: dto.sourceCaseNo as string,
+          matchType: 'ORPHAN_EXTERNAL',
+          explainedExternalLineId: dto.explainedExternalLineId,
+          causeCode: 'UNAUTHORIZED_OUTFLOW',
+          disposition: 'INCIDENT',
+          findingNote: dto.findingNote,
+        },
+        actor,
+      );
+      effectiveDto = { ...dto, sourceDispositionNo: dispositionNo };
+    }
+
+    const { incidentNo } = await this.incidents.register(effectiveDto, actor);
+    if (effectiveDto.type === IncidentTypes.UNAUTHORIZED_OUTFLOW) {
+      // register() 里已校验 sourceDispositionNo 非空且定性行合法（原子路的 dispositionNo
+      // 刚从 record() 建出，天然满足），这里必然存在。
+      await this.dispositionLink.attachIncident(effectiveDto.sourceDispositionNo as string, incidentNo);
     }
     return { incidentNo };
   }
