@@ -217,7 +217,7 @@ Last Updated: 2026-09-08
 
 - [ ] ⭐ **对账复核签核未做**：应干净 run 自动认证 + 人工平账动作走复核签核(maker-checker 推≠批，可按 severity 分级)；复核挂"人工干预动作"、非挂"run 变 pass"。与「平账处置」推单读权限门控债协同(那条=权限粒度、本条=两人复核)｜来源: spec §6
 
-- [ ] **`rowAdjustmentPrefill().direction` 提现类 AMOUNT_MISMATCH 缺翻符号**：`ReconciliationCasesDetailPage.tsx:327` 的 AMOUNT_MISMATCH 分支按「符号即答案」的固定惯例推方向（`deltaAmount` 为负→REDUCE、为正→INCREASE），这条惯例只按存款语义推导，没有为提现类流水的方向语义翻符号；现状下这条分支够不到提现类 AMOUNT_MISMATCH 行（结构性死分支），先记一行留档，防止日后这个组合被激活时悄悄预填错方向 ｜来源: 2026-09-08 平账处置改版终审
+- [ ] **`rowAdjustmentPrefill().direction` 提现类 AMOUNT_MISMATCH 缺翻符号**：`ReconciliationCasesDetailPage.tsx:327` 的 AMOUNT_MISMATCH 分支按「符号即答案」的固定惯例推方向（`deltaAmount` 为负→REDUCE、为正→INCREASE），这条惯例只按存款语义推导，没有为提现类流水的方向语义翻符号；现状下当前种子数据未产出该组合（非结构性排除——`ADJUSTABLE_SOURCES` 收提现来源、差异行生成也不挑方向，真实数据可能凑出），先记一行留档，防止日后这个组合被激活时悄悄预填错方向 ｜来源: 2026-09-08 平账处置改版终审
 
 - [ ] **手续费归集不做，等报表层**（2026-09-05 平账二期 F1'）：账上等于收入结转进运营户，可做；但收入户兼作钱包位置，归集后余额清零，没有报表层时观众读不出本期收入 ｜来源: 平账二期 spec §0
 
