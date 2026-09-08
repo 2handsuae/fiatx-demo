@@ -5,37 +5,37 @@ describe('cause-registry —— six-cell cause menu (spec §4, registry is the s
   // Task 13：menuFor（唯一消费者是被删的 resolveOutlet/staticOutletLabel 反推链）已退役，
   // 覆盖面改用 causesFor（唯一真相仍是 CAUSE_REGISTRY，逐处置聚合）+ 下方「21 码无遗漏」
   // 的穷尽性断言，不重建一份平铺菜单。
-  const codesInCell = (mt: any, book: any) => new Set<string>(
+  // codesInCell 保序返回数组（声明顺序），六格断言用有序数组比较——挪行必须炸（见文件头注释）。
+  const codesInCell = (mt: any, book: any): string[] =>
     (Object.entries(CAUSE_REGISTRY) as Array<[CauseCode, any]>)
       .filter(([, s]) => s.cells.some((c: any) => c.matchType === mt && c.book === book))
-      .map(([code]) => code),
-  );
+      .map(([code]) => code);
 
   it('Mismatch × Client', () => {
-    expect(codesInCell('AMOUNT_MISMATCH', 'CLIENT')).toEqual(new Set(['AMT_MISBOOKED', 'AMT_FEE_NETTED', 'AMT_ROUNDING', 'UNEXPLAINED', 'OTHER']));
+    expect(codesInCell('AMOUNT_MISMATCH', 'CLIENT')).toEqual(['AMT_MISBOOKED', 'AMT_FEE_NETTED', 'AMT_ROUNDING', 'UNEXPLAINED', 'OTHER']);
   });
   it('Mismatch × Firm', () => {
-    expect(codesInCell('AMOUNT_MISMATCH', 'FIRM')).toEqual(new Set(['FIRM_AMT_UNDERBOOKED', 'FIRM_AMT_OVERBOOKED', 'UNEXPLAINED', 'OTHER']));
+    expect(codesInCell('AMOUNT_MISMATCH', 'FIRM')).toEqual(['FIRM_AMT_UNDERBOOKED', 'FIRM_AMT_OVERBOOKED', 'UNEXPLAINED', 'OTHER']);
   });
   it('Internal only × Client', () => {
-    expect(codesInCell('ORPHAN_INTERNAL', 'CLIENT')).toEqual(new Set([
+    expect(codesInCell('ORPHAN_INTERNAL', 'CLIENT')).toEqual([
       'DUP_BOOKING', 'PHANTOM_BOOKING', 'PAYOUT_NOT_EXECUTED', 'MISATTRIBUTED_FROM', 'CUTOFF_STRADDLE', 'UNEXPLAINED', 'OTHER',
-    ]));
+    ]);
   });
   it('Internal only × Firm', () => {
-    expect(codesInCell('ORPHAN_INTERNAL', 'FIRM')).toEqual(new Set([
+    expect(codesInCell('ORPHAN_INTERNAL', 'FIRM')).toEqual([
       'FIRM_MISBOOKED', 'UNEXPLAINED', 'OTHER',
-    ]));
+    ]);
   });
   it('External only × Client', () => {
-    expect(codesInCell('ORPHAN_EXTERNAL', 'CLIENT')).toEqual(new Set([
+    expect(codesInCell('ORPHAN_EXTERNAL', 'CLIENT')).toEqual([
       'MISSED_DEPOSIT', 'BOUNCED_FUNDS', 'PAYOUT_RETURNED', 'MISATTRIBUTED_TO', 'UNAUTHORIZED_OUTFLOW', 'UNEXPLAINED', 'OTHER',
-    ]));
+    ]);
   });
   it('External only × Firm', () => {
-    expect(codesInCell('ORPHAN_EXTERNAL', 'FIRM')).toEqual(new Set([
+    expect(codesInCell('ORPHAN_EXTERNAL', 'FIRM')).toEqual([
       'BANK_INTEREST_UNBOOKED', 'BANK_CHARGE_UNBOOKED', 'UNCLAIMED_INFLOW', 'UNEXPLAINED', 'OTHER',
-    ]));
+    ]);
   });
   it('21 codes assigned, none missing: every code appears in at least one cell (Task 1 adds OTHER, cells=ALL_CELLS)', () => {
     const all = new Set<string>();
@@ -93,7 +93,7 @@ describe('Recon batch B: supplement outlet (spec §6)', () => {
     expect(CAUSE_REGISTRY.BOUNCED_FUNDS.supplementLabel).toBe('Recall claim');
     expect(CAUSE_REGISTRY.PAYOUT_RETURNED.supplementLabel).toBe('Return claim');
   });
-  it('three supplement causes require the statement line direction — MISSED_DEPOSIT/PAYOUT_RETURNED are IN, BOUNCED_FUNDS is OUT (write-side direction check now lives in disposition.service.ts record(), not a resolveOutlet reduction)', () => {
+  it('three supplement causes require the statement line direction — MISSED_DEPOSIT/PAYOUT_RETURNED are IN, BOUNCED_FUNDS is OUT (requiredDirection is consumed by the read-side cause filter and the initiate-side assertClaimable — record() itself does not check it)', () => {
     expect(CAUSE_REGISTRY.MISSED_DEPOSIT.requiredDirection).toBe('IN');
     expect(CAUSE_REGISTRY.BOUNCED_FUNDS.requiredDirection).toBe('OUT');
     expect(CAUSE_REGISTRY.PAYOUT_RETURNED.requiredDirection).toBe('IN');
