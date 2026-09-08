@@ -88,13 +88,16 @@ describe('assertReasonAllowed —— cause × book × direction legal combinatio
     expect(() => assertReasonAllowed('WITHDRAW_VOID_REFUND', 'FIRM', 'INCREASE')).toThrow(BadRequestException);
   });
 
-  it('exactly eleven reason codes (fourth-family reattribution + two batch-A codes + wave-2 client pool loss recognition), no catch-all', () => {
+  it('exactly twenty-three reason codes (old eleven: fourth-family reattribution + two batch-A codes + wave-2 client pool loss recognition; plus single-code-system Task 2: eleven cause-registry codes + OTHER), no catch-all beyond OTHER', () => {
     const codes = Object.keys(REASON_SPECS).sort();
     expect(codes).toEqual([
-      'BANK_CHARGE', 'BANK_INTEREST',
+      'AMT_FEE_NETTED', 'AMT_MISBOOKED', 'AMT_ROUNDING',
+      'BANK_CHARGE', 'BANK_CHARGE_UNBOOKED', 'BANK_INTEREST', 'BANK_INTEREST_UNBOOKED',
       'CUSTOMER_REATTRIBUTION',
-      'DEPOSIT_AMOUNT_CORRECTION', 'DEPOSIT_DUPLICATE_REVERSAL', 'DEPOSIT_SIGNAL_VOID',
-      'FIRM_ENTRY_REVERSAL',
+      'DEPOSIT_AMOUNT_CORRECTION', 'DEPOSIT_DUPLICATE_REVERSAL', 'DEPOSIT_SIGNAL_VOID', 'DUP_BOOKING',
+      'FIRM_AMT_OVERBOOKED', 'FIRM_AMT_UNDERBOOKED', 'FIRM_ENTRY_REVERSAL', 'FIRM_MISBOOKED',
+      'OTHER',
+      'PAYOUT_NOT_EXECUTED', 'PHANTOM_BOOKING',
       'UNEXPLAINED_CLIENT_LOSS', 'UNEXPLAINED_WRITE_OFF',
       'WITHDRAW_AMOUNT_CORRECTION', 'WITHDRAW_VOID_REFUND',
     ]);
@@ -113,9 +116,10 @@ describe('Fourth family REATTRIBUTE (spec §6)', () => {
     for (const [code, spec] of Object.entries(REASON_SPECS)) {
       (byFamily[(spec as any).family] ??= []).push(code);
     }
-    expect(byFamily.CORRECT!.sort()).toEqual(['DEPOSIT_AMOUNT_CORRECTION', 'WITHDRAW_AMOUNT_CORRECTION']);
-    expect(byFamily.REVERSE!.sort()).toEqual(['DEPOSIT_DUPLICATE_REVERSAL', 'DEPOSIT_SIGNAL_VOID', 'FIRM_ENTRY_REVERSAL', 'WITHDRAW_VOID_REFUND']);
-    expect(byFamily.RECORD!.sort()).toEqual(['BANK_CHARGE', 'BANK_INTEREST']);
+    // Task 2（单码制）加了 11 个 cause-registry 同名码 + OTHER，都落进既有四族里，无第五族新增。
+    expect(byFamily.CORRECT!.sort()).toEqual(['AMT_FEE_NETTED', 'AMT_MISBOOKED', 'AMT_ROUNDING', 'DEPOSIT_AMOUNT_CORRECTION', 'OTHER', 'WITHDRAW_AMOUNT_CORRECTION']);
+    expect(byFamily.REVERSE!.sort()).toEqual(['DEPOSIT_DUPLICATE_REVERSAL', 'DEPOSIT_SIGNAL_VOID', 'DUP_BOOKING', 'FIRM_AMT_OVERBOOKED', 'FIRM_ENTRY_REVERSAL', 'FIRM_MISBOOKED', 'PAYOUT_NOT_EXECUTED', 'PHANTOM_BOOKING', 'WITHDRAW_VOID_REFUND']);
+    expect(byFamily.RECORD!.sort()).toEqual(['BANK_CHARGE', 'BANK_CHARGE_UNBOOKED', 'BANK_INTEREST', 'BANK_INTEREST_UNBOOKED', 'FIRM_AMT_UNDERBOOKED']);
     expect(byFamily.REATTRIBUTE).toEqual(['CUSTOMER_REATTRIBUTION']);
   });
   it('reattribution entry: debit the misattributed party payable / credit the rightful owner payable — the asset leg does not move (fifth combination)', () => {

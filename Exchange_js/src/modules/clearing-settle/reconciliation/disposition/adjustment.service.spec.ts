@@ -6,6 +6,7 @@ import { DispositionService } from './disposition.service';
 import { TB_ACCOUNT_CODES } from '../../../accounting/tigerbeetle/constants/tb-account-codes.constant';
 import { V8_RECON_AUDIT_ACTIONS } from '../../../audit-logging/constants/audit-actions.constant';
 import { AuditLogsService } from '../../../audit-logging/audit-logs.service';
+import { REASON_SPECS, assertReasonAllowed } from './adjustment-rules';
 
 describe('ReconciliationAdjustment schema', () => {
   const prisma = new PrismaClient();
@@ -1289,4 +1290,26 @@ describe('AdjustmentService.listAdjustments —— list read model (Task 4)', ()
     expect(page.items).toHaveLength(1);
     expect(page.items[0].adjustmentNo).toBe('ADJ_LIST_T4_2');
   });
+});
+
+describe('单码制 REASON_SPECS（spec §5）', () => {
+  it.each([
+    ['AMT_MISBOOKED', 'CLIENT', ['REDUCE', 'INCREASE']],
+    ['DUP_BOOKING', 'CLIENT', ['REDUCE']],
+    ['PAYOUT_NOT_EXECUTED', 'CLIENT', ['INCREASE']],
+    ['FIRM_AMT_UNDERBOOKED', 'FIRM', ['REDUCE', 'INCREASE']],
+    ['BANK_INTEREST_UNBOOKED', 'FIRM', ['INCREASE']],
+    ['BANK_CHARGE_UNBOOKED', 'FIRM', ['REDUCE']],
+  ] as const)('%s 落在 %s 簿、方向 %j', (code, book, dirs) => {
+    expect(REASON_SPECS[code].book).toBe(book);
+    expect(REASON_SPECS[code].directions).toEqual(dirs);
+    expect(REASON_SPECS[code].customerLabel !== undefined).toBe(true);
+  });
+  it('OTHER 双簿双向放行，客户话术受控', () => {
+    expect(REASON_SPECS.OTHER.book).toBe('ANY');
+    expect(() => assertReasonAllowed('OTHER', 'CLIENT', 'REDUCE')).not.toThrow();
+    expect(() => assertReasonAllowed('OTHER', 'FIRM', 'INCREASE')).not.toThrow();
+    expect(REASON_SPECS.OTHER.customerLabel).toBe('Balance correction');
+  });
+  it('旧码仍在（Task 13 才退役）', () => expect(REASON_SPECS.DEPOSIT_AMOUNT_CORRECTION).toBeDefined());
 });
