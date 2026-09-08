@@ -42,9 +42,15 @@ export class IncidentRegistrationWorkflowService {
     // 原子路（Task 3 续作）：UNAUTHORIZED_OUTFLOW 且没带 sourceDispositionNo，但带了
     // 定性所需的两个新字段——先落定性，再拿新出的 dispositionNo 顶上，走回原有校验/建单。
     // 两者都没带则原样落到下面的 incidents.register()，走既有的 400（话术不变）。
+    //
+    // 评审修复（Important 2）：补 `dto.sourceCaseNo` 合取——此前守卫没查它，缺
+    // sourceCaseNo 但带了 explainedExternalLineId+findingNote 时会把 `caseNo: undefined`
+    // 喂进 dispositionLink.record()，在 reconciliationCase.findUnique 上炸出一个裸
+    // Prisma 错误。补上这一条，缺 sourceCaseNo 就落回下面既有的干净 400（话术不变）。
     if (
       dto.type === IncidentTypes.UNAUTHORIZED_OUTFLOW &&
       !dto.sourceDispositionNo &&
+      dto.sourceCaseNo &&
       dto.explainedExternalLineId &&
       dto.findingNote
     ) {

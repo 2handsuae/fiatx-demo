@@ -350,7 +350,11 @@ describe('createDraft atomic finding (Task 3: write-side flip) — causeCode + f
 
     await svc.createDraft({ ...draftDto, causeCode: 'AMT_FEE_NETTED', findingNote: 'bank receipt shows net' } as any, ACTOR);
     const actions = audit.recordByActor.mock.calls.map((c: any) => c[0].action);
-    expect(actions).toEqual(expect.arrayContaining(['RECON_DISPOSITION_RECORDED', 'RECON_ADJUSTMENT_DRAFTED']));
+    // 评审修复（Minor 4）：换成两码各自的调用次数断言（各恰一次）——原先的
+    // arrayContaining 只查"至少各出现一次"，两条审计中任一条被意外重复写（双写）
+    // 也照样通过，逮不到这类缺陷。
+    expect(actions.filter((a: string) => a === 'RECON_DISPOSITION_RECORDED')).toHaveLength(1);
+    expect(actions.filter((a: string) => a === 'RECON_ADJUSTMENT_DRAFTED')).toHaveLength(1);
   });
 
   it('行已挂未走完的单 → 原子路径拒 400（沿用挂单锁）', async () => {
@@ -367,6 +371,42 @@ describe('createDraft atomic finding (Task 3: write-side flip) — causeCode + f
 
     await expect(svc.createDraft({ ...draftDto, causeCode: 'AMT_FEE_NETTED', findingNote: 'x' } as any, ACTOR))
       .rejects.toThrow(/already linked to adjustment ADJ_OLD/);
+  });
+
+  // 评审修复（Important 1）：残缺对不再静默跳过定性——只带 causeCode 或只带
+  // findingNote 都必须 400，且 record() 绝不能被调用（不能先斩后奏地半落定性）。
+  it('评审修复：只带 causeCode 不带 findingNote → 400，record() 不被调用', async () => {
+    const prisma: any = { reconciliationCase: { findUnique: jest.fn().mockResolvedValue(kase) } };
+    const record = jest.fn();
+    const svc = new AdjustmentService(prisma, {} as any, {} as any, { recordByActor: jest.fn() } as any, { record } as any);
+
+    await expect(svc.createDraft({ ...draftDto, causeCode: 'AMT_FEE_NETTED' } as any, ACTOR))
+      .rejects.toThrow(/requires both causeCode and findingNote/);
+    expect(record).not.toHaveBeenCalled();
+  });
+
+  it('评审修复：只带 findingNote 不带 causeCode → 400，record() 不被调用', async () => {
+    const prisma: any = { reconciliationCase: { findUnique: jest.fn().mockResolvedValue(kase) } };
+    const record = jest.fn();
+    const svc = new AdjustmentService(prisma, {} as any, {} as any, { recordByActor: jest.fn() } as any, { record } as any);
+
+    await expect(svc.createDraft({ ...draftDto, findingNote: 'bank receipt shows net' } as any, ACTOR))
+      .rejects.toThrow(/requires both causeCode and findingNote/);
+    expect(record).not.toHaveBeenCalled();
+  });
+
+  // 评审修复（Minor 3，单码制一致闸）：CORRECT/REVERSE/RECORD 三族下 causeCode 必须
+  // 等于 reasonCode——防审计里一件事记两个因。
+  it('评审修复：causeCode ≠ reasonCode（CORRECT 族）→ 400，record() 不被调用', async () => {
+    const prisma: any = { reconciliationCase: { findUnique: jest.fn().mockResolvedValue(kase) } };
+    const record = jest.fn();
+    const svc = new AdjustmentService(prisma, {} as any, {} as any, { recordByActor: jest.fn() } as any, { record } as any);
+
+    // draftDto.reasonCode = 'AMT_FEE_NETTED'（family=CORRECT）；causeCode 换成同族
+    // 但不同码的 'AMT_MISBOOKED'——单码制下这必须拒。
+    await expect(svc.createDraft({ ...draftDto, causeCode: 'AMT_MISBOOKED', findingNote: 'x' } as any, ACTOR))
+      .rejects.toThrow(/finding cause and the adjustment reason code must be the same code/);
+    expect(record).not.toHaveBeenCalled();
   });
 });
 

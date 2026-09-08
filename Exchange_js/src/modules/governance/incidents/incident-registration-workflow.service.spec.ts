@@ -69,4 +69,17 @@ describe('IncidentRegistrationWorkflowService (Task 5, Rule 3 orchestration poin
     expect(dispositionLink.record).not.toHaveBeenCalled();
     expect(dispositionLink.attachIncident).not.toHaveBeenCalled();
   });
+
+  // 评审修复（Important 2）：explainedExternalLineId+findingNote 齐了，但 sourceCaseNo
+  // 缺——原子路的守卫此前没查这一项，会把 caseNo: undefined 喂进 dispositionLink.record()
+  // 炸出裸错误；补上合取后应落回既有的干净 400，record() 绝不能被调用。
+  it('UNAUTHORIZED_OUTFLOW atomic path: explainedExternalLineId+findingNote present but sourceCaseNo missing — record() is never called, falls straight through to the original 400', async () => {
+    const { wf, incidents, dispositionLink } = makeWorkflow();
+    incidents.register.mockRejectedValueOnce(new Error('An unauthorized-outflow incident requires a source case number and disposition line number'));
+    await expect(
+      wf.register({ type: T.UNAUTHORIZED_OUTFLOW, title: 't', description: 'd', explainedExternalLineId: 'EXT-1', findingNote: 'found it' } as any, ops),
+    ).rejects.toThrow(/source case number and disposition line number/);
+    expect(dispositionLink.record).not.toHaveBeenCalled();
+    expect(dispositionLink.attachIncident).not.toHaveBeenCalled();
+  });
 });

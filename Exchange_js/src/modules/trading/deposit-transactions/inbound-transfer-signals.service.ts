@@ -280,7 +280,7 @@ export class InboundTransferSignalsService {
     const recorded = await this.reconDisposition.record({
       caseNo: dto.caseNo, explainedExternalLineId: dto.externalLineId,
       matchType: 'ORPHAN_EXTERNAL', causeCode: dto.causeCode, disposition: 'SUPPLEMENT', findingNote: dto.findingNote,
-    } as any, actor);
+    }, actor);
     return recorded.dispositionNo;
   }
 

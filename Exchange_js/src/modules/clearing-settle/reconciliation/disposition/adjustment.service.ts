@@ -266,22 +266,47 @@ export class AdjustmentService {
     // （两处审计各一条：RECON_DISPOSITION_RECORDED + RECON_ADJUSTMENT_DRAFTED）。
     // 核销路（heldDispositionNo 已锁定）与老调用方（已传 dispositionNo）都不重复走这条；
     // record() 自身的挂单锁（该锚已挂调账单）在这里原样生效——不重复判定。
+    //
+    // 评审修复（Important 1）：此前守卫是 `causeCode && findingNote`——只带其一时
+    // 静默跳过定性、草稿照建，前端漏填一个字段就悄悄退化成"无定性开单"、财务毫无
+    // 感知。改成显式配对校验：恰好只带其一 → 400；两个都不带才是既有的合法「无
+    // 定性开单」路径，原样放行不动。
     let atomicDispositionNo: string | undefined;
-    if (!heldDispositionNo && !dto.dispositionNo && dto.causeCode && dto.findingNote) {
-      const recorded = await this.dispositions.record({
-        caseNo: dto.caseNo,
-        explainedFlowId: dto.explainedFlowId,
-        explainedExternalLineId: dto.explainedExternalLineId,
-        matchType: dto.matchType,
-        causeCode: dto.causeCode,
-        disposition: this.kindOfFamily(dto.reasonCode as ReasonCode),
-        findingNote: dto.findingNote,
-        deltaSign: dto.deltaSign,
-        internalDirection: dto.internalDirection,
-        internalSourceType: dto.internalSourceType,
-        externalDirection: dto.externalDirection,
-      } as any, actor);
-      atomicDispositionNo = recorded.dispositionNo;
+    if (!heldDispositionNo && !dto.dispositionNo) {
+      if (Boolean(dto.causeCode) !== Boolean(dto.findingNote)) {
+        throw new BadRequestException('Recording a finding with the adjustment requires both causeCode and findingNote');
+      }
+      if (dto.causeCode && dto.findingNote) {
+        const family = this.kindOfFamily(dto.reasonCode as ReasonCode);
+        // 评审修复（Minor 3，单码制一致闸）：防审计里一件事记两个因。只对
+        // CORRECT/REVERSE/RECORD 三族生效——REATTRIBUTE 族的 reasonCode 恒为
+        // CUSTOMER_REATTRIBUTION，而 cause 是 MISATTRIBUTED_FROM/MISATTRIBUTED_TO，
+        // 两者必然不同码（且该族其实走不到这里：createDraft 顶部已把它分流到
+        // createReattributionDraft，这条按族判断只是不依赖那条分流也站得住）。
+        if ((family === 'CORRECT' || family === 'REVERSE' || family === 'RECORD') && dto.causeCode !== dto.reasonCode) {
+          throw new BadRequestException('Under the single-code regime the finding cause and the adjustment reason code must be the same code');
+        }
+        // 评审修复（Minor 6）：record() 的 matchType 是必填列——CreateAdjustmentDto 上它
+        // 是可选字段，不能让 undefined 溜进 NOT NULL 列；进 record() 前显式拒绝，给一句
+        // 人话 400，而不是靠 as any 掩盖类型缺口、让数据库层报一个不可读的错误。
+        if (!dto.matchType) {
+          throw new BadRequestException('Recording a finding requires the row facts (matchType)');
+        }
+        const recorded = await this.dispositions.record({
+          caseNo: dto.caseNo,
+          explainedFlowId: dto.explainedFlowId,
+          explainedExternalLineId: dto.explainedExternalLineId,
+          matchType: dto.matchType,
+          causeCode: dto.causeCode,
+          disposition: family,
+          findingNote: dto.findingNote,
+          deltaSign: dto.deltaSign,
+          internalDirection: dto.internalDirection,
+          internalSourceType: dto.internalSourceType,
+          externalDirection: dto.externalDirection,
+        }, actor);
+        atomicDispositionNo = recorded.dispositionNo;
+      }
     }
 
     // 闸一：成因 × 账簿 × 方向 合法性

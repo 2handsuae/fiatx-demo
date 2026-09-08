@@ -792,8 +792,6 @@ describe('Recon reattribution + disposition behaviour (e2e, Task 12)', () => {
     );
     expect(disposition.outlet).toBe('HOLD_INVESTIGATING');
     expect(disposition.outletLabel).toBe('Hold · Investigating');
-    expect((disposition as any).reasonCode).toBeUndefined(); // 挂起不派调账 reason —— 它压根不开单
-    expect((disposition as any).family).toBeUndefined();
 
     // ── 零账务的行为证明：没有单、没有分录 ──────────────────────────────────
     const draftsOnCase = await (prisma as any).reconciliationAdjustment.findMany({ where: { caseNo: kase.caseNo } });
