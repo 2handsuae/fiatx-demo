@@ -742,12 +742,17 @@ const ReconciliationCasesDetailPage = () => {
   const [createPrefill, setCreatePrefill] = useState<AdjustmentPrefill | null>(null);
   // T9：调账弹层的锁定态——非 null 时弹层渲染锁定视图（成因/方向只读，改记额外
   // 换对端确认屏）；与 createPrefill 成对开关（弹层用哪套字段預填不受它是否为
-  // null 影响，锁定态只决定「能不能改」）。
+  // null 影响，锁定态只决定「能不能改」）。REATTRIBUTE/WRITE_OFF 两族用它。
   const [adjustLocked, setAdjustLocked] = useState<AdjustmentLocked | null>(null);
-  // Task 7（差异行按钮组）：六个非挂起处置（CORRECT/REVERSE/RECORD/REATTRIBUTE/
-  // SUPPLEMENT/INCIDENT）共用的「选成因 + 查证说明」小弹层——null = 关闭；非 null =
-  // 打开且带着被点击的那一行 + 那一个处置种类。取代旧两屏处置弹层的入口
-  // （ReconciliationDispositionModal 已断线，Task 13 删文件）。
+  // Task 8（调账四族一窗到底）：CORRECT/REVERSE/RECORD 三族的「按处置进入」态——
+  // 点差异行按钮直接带 kind+row 开调账弹层，不再先记一遍定性（拆两段流，交接清单
+  // ①）。与 createPrefill 成对开关，和 adjustLocked 互斥（一次只会有一个非 null）。
+  const [adjustKind, setAdjustKind] = useState<{ kind: 'CORRECT' | 'REVERSE' | 'RECORD'; row: FlowComparisonRow } | null>(null);
+  // Task 7（差异行按钮组）：REATTRIBUTE/SUPPLEMENT/INCIDENT 共用的「选成因 + 查证
+  // 说明」小弹层——null = 关闭；非 null = 打开且带着被点击的那一行 + 那一个处置种类。
+  // CORRECT/REVERSE/RECORD 从 Task 8 起不再经这一步（见 adjustKind），三族原子提交
+  // 直连调账弹层。取代旧两屏处置弹层的入口（ReconciliationDispositionModal 已断线，
+  // Task 13 删文件）。
   const [findingPicker, setFindingPicker] = useState<{ row: FlowComparisonRow; kind: string; label: string } | null>(null);
   // Task 7：挂起两弹窗（Hold · Next period / Hold · Investigating）共用一个组件，按 kind 切。
   const [holdPicker, setHoldPicker] = useState<{ row: FlowComparisonRow; kind: 'HOLD_NEXT_PERIOD' | 'HOLD_INVESTIGATING' } | null>(null);
@@ -831,28 +836,38 @@ const ReconciliationCasesDetailPage = () => {
   const handleAdjustmentCreated = (adjustmentNo: string) => {
     setCreatePrefill(null);
     setAdjustLocked(null);
+    setAdjustKind(null); // Task 8：kind 模式也走这条收尾，成对清空
     navigate(`/admin/reconciliation/adjustments/${encodeURIComponent(adjustmentNo)}`);
   };
 
+  // Task 8（调账四族一窗到底）：CORRECT/REVERSE/RECORD 三族点按钮直接开调账弹层的
+  // kind 模式——不经 findingPicker/DispositionFindingModal，不预先 POST
+  // /dispositions（拆两段流，交接清单①）。弹层一次提交走原子端点：body 里带
+  // causeCode/findingNote/disposition + 行事实（modal 内部拼装，见
+  // ReconciliationAdjustmentCreateModal.tsx submit()），后端 createDraft 先落定性、
+  // 再开单、再挂号（Task 3 已建）。若这一行早已有未挂单的定性（旧数据/被取消的），
+  // 后端沿用 heldDispositionNo 路径覆盖——前端无需特判（交接清单⑤）。
+  const openAdjustKind = (row: FlowComparisonRow, kind: 'CORRECT' | 'REVERSE' | 'RECORD') => {
+    setCreatePrefill(rowAdjustmentPrefill(row));
+    setAdjustLocked(null);
+    setAdjustKind({ kind, row });
+  };
+
   // Task 7（差异行按钮组）：DispositionFindingModal 记完一条定性后交回——按 kind 分流：
-  //   CORRECT/REVERSE/RECORD → 开既有调账弹层，自由选择表单（Task 8 改造它，接手
-  //     把 kind 落到成因范围的选择上；本任务只把入口接通，reasonCode/direction 现在
-  //     是「开单」这一步才由人选定的执行细节，写端不再从成因反推，见
-  //     reconciliation-query.service.ts §Task5 读面注释——曾经因两个权限码不在
-  //     同一角色手上而绕开重放 POST 的顾虑（见本文件历史版本），随金库双持
-  //     RECON_DISPOSITION_WRITE + RECON_ADJUSTMENT_WRITE（Task 6 权限迁移）已不成立）。
-  //   REATTRIBUTE → 同样开调账弹层，但走锁定视图（改记族的 reasonCode 恒为
+  //   REATTRIBUTE → 开既有调账弹层，走锁定视图（改记族的 reasonCode 恒为
   //     CUSTOMER_REATTRIBUTION，不随成因变化，前端可直接给定，不需要后端回传）。
   //   SUPPLEMENT → 刷新案件后直接开既有补单弹层（ReconciliationSupplementModal，
   //     Task 9）——那个弹层认 row.disposition.dispositionNo，必须用刷新后的最新行
   //     （旧的 row 闭包变量此刻还没有这个号），按 explainedFlowId/explainedExternalLineId
   //     锚在新拉回的 flowComparison 里把它找回来。
   //   INCIDENT → 直接跳转事故登记（带上刚落库的 dispositionNo），不再要求二次点击。
+  // CORRECT/REVERSE/RECORD 从 Task 8 起不再经这个函数——按钮 onClick 直接调
+  // openAdjustKind（见下方渲染处），不再预记一遍定性。
   // 评审修复（Minor-2）：kind 在这里窄化成字面量联合，配底部的穷尽收口——
   // findingPicker.kind／DispositionFindingModalProps.kind 仍是 string 不变（同一处
   // 已有取舍，见上方组件注释「更不容易读错」，不在那处引入联合类型），只在这个
   // 函数的入参收口，调用处相应加一个 as 断言。
-  type FindingKind = 'REATTRIBUTE' | 'CORRECT' | 'REVERSE' | 'RECORD' | 'SUPPLEMENT' | 'INCIDENT';
+  type FindingKind = 'REATTRIBUTE' | 'SUPPLEMENT' | 'INCIDENT';
   const handleFindingRecorded = async (
     row: FlowComparisonRow,
     kind: FindingKind,
@@ -867,17 +882,10 @@ const ReconciliationCasesDetailPage = () => {
         { dispositionNo: result.dispositionNo, family: 'REATTRIBUTE', reasonCode: 'CUSTOMER_REATTRIBUTION', direction: undefined, directionNote: directionNoteFor(row.matchType), row },
         kase.caseNo,
       ));
-      return;
-    }
-    if (kind === 'CORRECT' || kind === 'REVERSE' || kind === 'RECORD') {
-      setCreatePrefill(rowAdjustmentPrefill(row));
-      setAdjustLocked(null); // 自由选择表单——Task 8 收窄前的过渡态
-      // 评审修复：定性此刻已经落库，只是调账单还没提交；上面两行已经同步打开了
-      // 弹层，这里不 await——fetchCase 放后台刷新 kase.flowComparison，既不阻塞
-      // 弹层出现也不会关掉它（弹层开关只认 createPrefill/adjustLocked，不认
-      // kase）。取消这张弹层时行上就已经是刷新过的「Finding: ...」结论 chip，不用
-      // 再手动刷新页面（同 HOLD 分支 onDone 的既有模式：先动弹层状态，fetchCase
-      // 不参与其中）。
+      // Task 8 交接④（Task 7 评审修复漏的兄弟缺口）：定性已经落库，锁定视图弹层已经
+      // 同步打开——这里不 await，后台刷新 kase.flowComparison，行上的「Finding: ...」
+      // 结论 chip 与解锁的 nextStep 才不会停在刷新前的旧快照（同 CORRECT/REVERSE/
+      // RECORD 三族此前的既有修复同一处境，此前只补了那三族、漏了 REATTRIBUTE）。
       void fetchCase();
       return;
     }
@@ -905,7 +913,8 @@ const ReconciliationCasesDetailPage = () => {
       return;
     }
     // 穷尽收口（评审 Minor-2，对齐后端 cause-registry.ts 的 _exhaustive: never 风格）：
-    // 上面四支已经覆盖 FindingKind 全部 6 个值；新增第 7 个 kind 时这里编译期报红。
+    // 上面两支已经覆盖 FindingKind 全部 3 个值（Task 8 起 CORRECT/REVERSE/RECORD
+    // 不再经这个函数，见 openAdjustKind）；新增第 4 个 kind 时这里编译期报红。
     const _exhaustive: never = kind;
     throw new Error(`Unknown finding kind: ${_exhaustive}`);
   };
@@ -1509,6 +1518,9 @@ const ReconciliationCasesDetailPage = () => {
                                           type="button"
                                           onClick={() => {
                                             if (isHold) setHoldPicker({ row, kind: d.kind as 'HOLD_NEXT_PERIOD' | 'HOLD_INVESTIGATING' });
+                                            // Task 8：CORRECT/REVERSE/RECORD 三族原子一窗——直接开调账
+                                            // 弹层的 kind 模式，不再先记一遍定性（拆两段流）。
+                                            else if (d.kind === 'CORRECT' || d.kind === 'REVERSE' || d.kind === 'RECORD') openAdjustKind(row, d.kind);
                                             else setFindingPicker({ row, kind: d.kind, label: d.label });
                                           }}
                                           className={[
@@ -1777,7 +1789,9 @@ const ReconciliationCasesDetailPage = () => {
           walletNo={kase.walletNo}
           prefill={createPrefill}
           locked={adjustLocked ?? undefined}
-          onClose={() => { setCreatePrefill(null); setAdjustLocked(null); }}
+          kind={adjustKind?.kind}
+          row={adjustKind?.row}
+          onClose={() => { setCreatePrefill(null); setAdjustLocked(null); setAdjustKind(null); }}
           onCreated={handleAdjustmentCreated}
         />
       )}

@@ -408,6 +408,45 @@ describe('createDraft atomic finding (Task 3: write-side flip) — causeCode + f
       .rejects.toThrow(/finding cause and the adjustment reason code must be the same code/);
     expect(record).not.toHaveBeenCalled();
   });
+
+  // Task 8 评审修复：family 判定此前只有 kindOfFamily(reasonCode) 一条回落——
+  // reasonCode='OTHER' 时 REASON_SPECS.OTHER.family 是占位 'CORRECT'（cause-registry.ts
+  // 顶部注释：OTHER 不真的属于冲正族，只是留痕分组要有个桶放）。财务点「Reversal」按钮、
+  // 选 Other 码时，旧逻辑会把定性判死成 ADJUST_CORRECT，与财务实际点的按钮对不上。
+  // 修复：createDraft 优先信前端随按钮带上的 dto.disposition。
+  it('Task 8：OTHER 码 + disposition=REVERSE → 定性落 ADJUST_REVERSE（不因占位族误判成 ADJUST_CORRECT）', async () => {
+    const audit = { recordByActor: jest.fn() };
+    const dispositionPrisma: any = {
+      reconciliationCase: { findUnique: jest.fn().mockResolvedValue(kase) },
+      reconciliationDisposition: {
+        findFirst: jest.fn().mockResolvedValue(null), // 无既有定性
+        create: jest.fn().mockImplementation(({ data }: any) => Promise.resolve({ ...data, id: 'd-other' })),
+        findUnique: jest.fn().mockImplementation(({ where }: any) =>
+          Promise.resolve({ dispositionNo: where.dispositionNo, outlet: 'ADJUST_REVERSE', adjustmentNo: null })),
+        update: jest.fn().mockImplementation(({ data }: any) => Promise.resolve({ ...data })),
+      },
+      wallet: { findUnique: jest.fn() },
+    };
+    const dispositions = new DispositionService(dispositionPrisma, audit as any);
+    const prisma: any = {
+      reconciliationCase: { findUnique: jest.fn().mockResolvedValue(kase) },
+      customerMain: { findUnique: jest.fn().mockResolvedValue({ id: 'uuid-cu-atomic' }) },
+      reconciliationAdjustment: { create: jest.fn().mockImplementation(({ data }: any) => Promise.resolve({ ...data, adjustmentNo: 'ADJ_OTHER' })) },
+    };
+    const svc = new AdjustmentService(prisma, {} as any, {} as any, audit as any, dispositions as any);
+
+    // cell = ORPHAN_INTERNAL × CLIENT，sourceAdjustable('DEPOSIT') → dispositionsFor
+    // 里包含 REVERSE；causesFor('REVERSE', ...) 对任意格都包含 OTHER（cells=ALL_CELLS）。
+    await svc.createDraft({
+      ...draftDto, reasonCode: 'OTHER', direction: 'REDUCE',
+      matchType: 'ORPHAN_INTERNAL', internalSourceType: 'DEPOSIT', internalDirection: 'IN',
+      causeCode: 'OTHER', findingNote: 'Other: manual review note', disposition: 'REVERSE',
+    } as any, ACTOR);
+
+    expect(dispositionPrisma.reconciliationDisposition.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ outlet: 'ADJUST_REVERSE', causeCode: 'OTHER' }) }),
+    );
+  });
 });
 
 // Recon wave 3 Task 10: the loss-recognition adjustment incident branch. When the anchored finding

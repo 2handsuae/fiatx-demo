@@ -1,7 +1,7 @@
 import { Type } from 'class-transformer';
 import { IsIn, IsNotEmpty, IsOptional, IsString, Matches } from 'class-validator';
 import { REASON_SPECS } from '../disposition/adjustment-rules';
-import { CAUSE_REGISTRY } from '../disposition/cause-registry';
+import { CAUSE_REGISTRY, DISPOSITION_LABEL, DispositionKind } from '../disposition/cause-registry';
 
 export class CreateAdjustmentDto {
   @IsString() @IsNotEmpty() caseNo!: string;
@@ -28,6 +28,10 @@ export class CreateAdjustmentDto {
   // 落一条定性，再照常开单、挂号，两处均复用既有 linkAdjustment；record() 自己的矩阵
   // 校验需要下面这组行事实（与 RecordDispositionDto 同一套约定，前端从被点的那一行原样带上）。
   @IsOptional() @IsIn(Object.keys(CAUSE_REGISTRY)) causeCode?: keyof typeof CAUSE_REGISTRY;
+  // Task 8 评审修复：财务点的是哪个处置按钮（CORRECT/REVERSE/RECORD…），前端原样带上——
+  // createDraft 据此判 family，优先于 kindOfFamily(reasonCode) 回落（OTHER 码的
+  // REASON_SPECS.family 是占位 'CORRECT'，纯回落会把 OTHER+REVERSE/RECORD 都误判成冲正）。
+  @IsOptional() @IsIn(Object.keys(DISPOSITION_LABEL)) disposition?: DispositionKind;
   @IsOptional() @IsString() findingNote?: string;
   @IsOptional() @IsIn(['AMOUNT_MISMATCH', 'ORPHAN_INTERNAL', 'ORPHAN_EXTERNAL']) matchType?: 'AMOUNT_MISMATCH' | 'ORPHAN_INTERNAL' | 'ORPHAN_EXTERNAL';
   @IsOptional() @IsIn([1, -1]) deltaSign?: 1 | -1;

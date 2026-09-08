@@ -91,18 +91,18 @@
 | # | 讲什么 | 点什么 | 观众看到什么 |
 |---|---|---|---|
 | 1 | 钱在路上，不是差异 | Alice AED 案 → 资金单详情页「Push order」→ 回案件页「Re-reconcile」 | 差额归零、案子自愈——处置闭环的实感 |
-| 2 | 小数点错位：我方录错了 | Grace AED 案（展示位甲）那行「Record finding」→ 成因菜单 | 菜单第一条「Amount misbooked」→ 出口**Correction** |
-| 3 | 我方少记：形状和 2 一模一样 | 甲位第二行「Record finding」 | **同一个菜单**——机器分不出 2 和 3，是人查出来的 |
-| 4 | 舍入精度差：钱其实已经到位 | 甲位第三行「Record finding」 | 还是同一个菜单；选「Rounding difference」照样是**Correction**（外部说 35.02 就是 35.02） |
-| 5 | 手续费轧差：银行按净额入账 | **Bob AED 案（最干净，只挂这一条）**：「Record finding」→ 选「Bank fee netted」→ 填查证说明 → 下一步 | 第二屏**成因回显不可选、方向只读**（附推导依据一句）→ 提交送审 |
+| 2 | 小数点错位：我方录错了 | Grace AED 案（展示位甲）那行点「**Correction**」按钮 → 原因单选 | 单选第一条「Amount misbooked」（方向/金额/生效日只读推导）→ 填 Investigation note → **Submit for CFO review** |
+| 3 | 我方少记：形状和 2 一模一样 | 甲位第二行点「**Correction**」按钮 | **同一份原因单选**——机器分不出 2 和 3，是人查出来的 |
+| 4 | 舍入精度差：钱其实已经到位 | 甲位第三行点「**Correction**」按钮 | 还是同一份原因单选；选「Rounding difference」→ Submit for CFO review（外部说 35.02 就是 35.02） |
+| 5 | 手续费轧差：银行按净额入账 | **Bob AED 案（最干净，只挂这一条）**：点「**Correction**」按钮 → 选「Bank fee netted」 | **原子一窗**（Task 8 起不再分两屏）：证据区只读（行金额/参考号/原单号）→ 方向/金额/生效日只读推导（附依据一句）→ Investigation note + Customer-facing note（已按成因预填，可改）→ **Submit for CFO review** |
 | 5 续 | **冲正闭环走完** | 审批中心批准（单步 `CFO`，审批页显示的是后果原话）→ 回案件页「Re-reconcile」（⚠️ 若场景 9 还没演过，这次重对账会把它一并自愈——先演步骤 9 再点这里）| 案子 **Resolved**、那行变成「**Explained · ADJxxx**」链接 |
-| 6 | 重复入账：唯一一条机器认得出的 | Frank AED 案（展示位乙）那行「Record finding」 | 菜单下方多出 💡 **机器线索**：「The matched list has a twin entry with the same reference number and amount.」→ 指向「Duplicate posting (twin)」→ 出口**Reversal** |
-| 7 | 假信号入账：形状和 6 一模一样，**但一条线索都没有** | 乙位第二行「Record finding」 | **同格同形状、菜单相同、线索区空白**——这一对是整幕最值钱的对照：证据有就给，没有就不编 |
+| 6 | 重复入账：唯一一条机器认得出的 | Frank AED 案（展示位乙）那行点「**Reversal**」按钮 → 选「Duplicate posting (twin)」 | 选中该项时下方多出 💡 **机器线索**：「The matched list has a twin entry with the same reference number and amount.」→ Submit for CFO review |
+| 7 | 假信号入账：形状和 6 一模一样，**但一条线索都没有** | 乙位第二行点「**Reversal**」按钮 | **同格同形状、原因单选相同、线索区空白**——这一对是整幕最值钱的对照：证据有就给，没有就不编 |
 | 8 | 记错客户：钱没动，主人记错了 | Jack AED 案那条「External only」→「Record finding」→ 选「Misattributed customer」→ 系统给出**对端候选**（同业务日 · 同资产 · 同金额 · 反向孤儿）→ 确认 Kate → 开单送审 → 批准 →「Re-reconcile」 | **一张单、两个案子同时 Resolved**；账上是两个客户的**应付对转**，**客户资产腿一分没动**——因为钱在托管里根本没动过 |
 | 9 | 跨日切：时机没到 | Grace USDT 案那行「Record finding」→ 选「Cross-period timing」 | 徽标「Finding: Cross-period timing → Hold · Next period」；案子仍红。可顺带点「Re-reconcile」：日终截止把那条外部行收进来 → 案子自愈，这就是"下期自然平" |
 | 10 | 查不出：已穷尽调查 → 账龄到线 → 核销 | 公司池那张案子（钱包号看脚本打印）→「Record finding」→「Unexplained (exhausted)」→ 说明写清查过什么 → 徽标「Finding: Unexplained (exhausted) → Hold · Investigating」，案子仍红 → 侧栏 **⚡ 「Fast-forward aging」**（模拟模式）→ 一分钟后刷新，hero「Overdue by 1 day」、列表红标「Overdue」→ 切金库账号，同一行出现「**Write off**」→ 锁定视图（成因固定、方向 / 金额 / 生效日只读）→ 开单并提审 → 切 CFO，审批页读后果原话「Firm-pool unexplained write-off: wallet … 差额 0.07 认损进运营资金；案件 … 已超期 1 天；查证结论：…」→ 批准 → 回案件页「Re-reconcile」（⚠️ 若场景 9 还没演过，这次重对账会把它一并自愈——先演步骤 9 再点这里）→ Resolved，那行「Explained · ADJxxx」 | **讲三道锁**：账龄 / 小额线 / CFO，少一道就是抹差异的后门 |
-| 11 | 银行杂费：外面真扣了、我方没记 | 公司池费用那张案子那行「Record finding」→ 选「Bank charges unbooked」 | 出口**Record entry**（公司自己的真实收支，只落账本分录、**不建资金单**——已完成的转账没有在途可追） |
-| 12 | 银行利息：同一张案子的另一条 | 同案第二行「Record finding」→ 选「Bank interest unbooked」 | 两条补记把这张案子的异常全解释掉 → 直接回**已匹配**（11 与 12 在收盘上本来就对冲，残差是 0） |
+| 11 | 银行杂费：外面真扣了、我方没记 | 公司池费用那张案子那行点「**Record entry**」按钮 → 选「Bank charges unbooked」 | 公司自己的真实收支，只落账本分录、**不建资金单**——已完成的转账没有在途可追 |
+| 12 | 银行利息：同一张案子的另一条 | 同案第二行点「**Record entry**」按钮 → 选「Bank interest unbooked」 | 两条补记把这张案子的异常全解释掉 → 直接回**已匹配**（11 与 12 在收盘上本来就对冲，残差是 0） |
 | 13 | 漏监听的客户入金 | Bob USDT 案那行「Record finding」→ 选「Missed customer deposit」→ 提交 → 定性行旁「Record missed deposit」→ 填来源地址（链上格式）→ 理由 → 提交给 CFO | 徽标「Supplement · Deposit backfill · SIG…（pending CFO review）」；审批中心 CFO 批 → 充值列表多一张带「补录」小标的单，照常过 KYT / 合规筛查（⚠️ 这笔金额往往落在下限以下，会多一步运营「PASS · Waive Min-Limit」才到 SUCCESS——见下方注①）|
 | 14 | 入金被退汇（法币） | Kate AED 案那行 OUT「Record finding」→ 选「Deposit recalled」→ 提交 →「Claim recall」→ 候选原单唯一命中（自动选中）→ 理由 → 提交给 CFO | 徽标「Supplement · Recall claim · DEP…（pending CFO review）」；CFO 批 → Kate 那笔充值变「CLAWED BACK」，客户余额减；余额不够时系统直接拒、指路「Initiate advance」（场景 17 演）|
 | 15 | 出金被银行退回（法币） | Grace AED 案第四行 IN「Record finding」→ 选「Payout returned by bank」→ 提交 →「Claim return」→ 候选原单唯一命中 → 理由 → 提交给 CFO | 徽标「Supplement · Return claim · WD…（pending CFO review）」；CFO 批 → Grace 那笔提现变「RETURNED」，本金 898（净额；毛额 900、手续费 2）重新记入余额，手续费不退（承接第五幕「钱出去了还能被银行退回来」那句话头）|

@@ -301,7 +301,12 @@ export class AdjustmentService {
         throw new BadRequestException('Recording a finding with the adjustment requires both causeCode and findingNote');
       }
       if (dto.causeCode && dto.findingNote) {
-        const family = this.kindOfFamily(dto.reasonCode as ReasonCode);
+        // Task 8 评审修复：优先信 dto.disposition（前端随处置按钮原样带上）——
+        // kindOfFamily(reasonCode) 只在旧调用方不传 disposition 时兜底。OTHER 码的
+        // REASON_SPECS.OTHER.family 是占位 'CORRECT'（cause-registry.ts 顶部注释：
+        // OTHER 不真的属于冲正族，只是留痕分组要有个桶放）——纯靠回落会把 OTHER 配
+        // REVERSE/RECORD 处置时也判死成 CORRECT，定性出口写错。
+        const family = dto.disposition ?? this.kindOfFamily(dto.reasonCode as ReasonCode);
         // 评审修复（Minor 3，单码制一致闸）：防审计里一件事记两个因。只对
         // CORRECT/REVERSE/RECORD 三族生效——REATTRIBUTE 族的 reasonCode 恒为
         // CUSTOMER_REATTRIBUTION，而 cause 是 MISATTRIBUTED_FROM/MISATTRIBUTED_TO，
