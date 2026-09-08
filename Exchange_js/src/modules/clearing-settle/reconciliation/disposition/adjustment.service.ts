@@ -19,7 +19,7 @@ import {
   Book, Direction, ReasonCode, REASON_SPECS,
   assertReasonAllowed, requiresRelatedOrder, resolvePostingLegs, resolveReattributionLegs,
 } from './adjustment-rules';
-import { AdjustFamily, CauseCode, staticOutletLabel } from './cause-registry';
+import { AdjustFamily, CauseCode, DispositionKind, staticOutletLabel } from './cause-registry';
 import { isSmallAmount, SMALL_AMOUNT_LINE_MINOR } from './recon-thresholds.constant';
 import { DispositionService } from './disposition.service';
 
@@ -228,6 +228,19 @@ export class AdjustmentService {
     return held.dispositionNo;
   }
 
+  /**
+   * 写端翻转（Task 3）：createDraft 原子入口的处置映射——单码制下 dto.reasonCode 直接
+   * 落 cause-registry.ts 的 CauseCode 同名码（adjustment-rules.ts 头注释），它的
+   * family 与 DispositionKind 四个非核销/非改记值同名同值，直接当处置用。
+   * WRITE_OFF/REATTRIBUTE 两族各自另有专门的前置分支（assertWriteOffAllowed /
+   * createReattributionDraft），走不到这个原子路径——调用点在那两支分流之后。
+   */
+  private kindOfFamily(reasonCode: ReasonCode): DispositionKind {
+    const family = REASON_SPECS[reasonCode]?.family;
+    if (family === 'CORRECT' || family === 'REVERSE' || family === 'RECORD' || family === 'REATTRIBUTE') return family;
+    throw new BadRequestException(`Reason ${reasonCode} has no matching disposition for the atomic finding path`);
+  }
+
   async createDraft(dto: CreateAdjustmentDto, actor: ApprovalActorContext) {
     const kase = await (this.prisma as any).reconciliationCase.findUnique({ where: { caseNo: dto.caseNo } });
     if (!kase) throw new NotFoundException(`Reconciliation case not found: ${dto.caseNo}`);
@@ -246,6 +259,29 @@ export class AdjustmentService {
     let heldDispositionNo: string | null = null;
     if (dto.reasonCode === 'UNEXPLAINED_WRITE_OFF' || dto.reasonCode === 'UNEXPLAINED_CLIENT_LOSS') {
       heldDispositionNo = (await this.assertWriteOffAllowed(dto, kase, book)).dispositionNo;
+    }
+
+    // 写端翻转（Task 3）：行未定性（无 dispositionNo）+ dto 带 causeCode/findingNote →
+    // 原子先 record 再开单，afterDraftCreated 收尾时复用既有 linkAdjustment 挂号
+    // （两处审计各一条：RECON_DISPOSITION_RECORDED + RECON_ADJUSTMENT_DRAFTED）。
+    // 核销路（heldDispositionNo 已锁定）与老调用方（已传 dispositionNo）都不重复走这条；
+    // record() 自身的挂单锁（该锚已挂调账单）在这里原样生效——不重复判定。
+    let atomicDispositionNo: string | undefined;
+    if (!heldDispositionNo && !dto.dispositionNo && dto.causeCode && dto.findingNote) {
+      const recorded = await this.dispositions.record({
+        caseNo: dto.caseNo,
+        explainedFlowId: dto.explainedFlowId,
+        explainedExternalLineId: dto.explainedExternalLineId,
+        matchType: dto.matchType,
+        causeCode: dto.causeCode,
+        disposition: this.kindOfFamily(dto.reasonCode as ReasonCode),
+        findingNote: dto.findingNote,
+        deltaSign: dto.deltaSign,
+        internalDirection: dto.internalDirection,
+        internalSourceType: dto.internalSourceType,
+        externalDirection: dto.externalDirection,
+      } as any, actor);
+      atomicDispositionNo = recorded.dispositionNo;
     }
 
     // 闸一：成因 × 账簿 × 方向 合法性
@@ -320,8 +356,9 @@ export class AdjustmentService {
         status: AdjustmentStatus.DRAFT,
       },
     });
-    // 核销：优先挂守卫刚验过的那条定性，不信客户端传来的号（Task 7 评审）
-    await this.afterDraftCreated(row, { ...dto, dispositionNo: heldDispositionNo ?? dto.dispositionNo ?? undefined }, actor);
+    // 核销：优先挂守卫刚验过的那条定性；原子路径挂刚才 record() 建出的那条；都没有才信
+    // 客户端传来的号（Task 7 评审 + Task 3 写端翻转，三者互斥，取值顺序即优先级）。
+    await this.afterDraftCreated(row, { ...dto, dispositionNo: heldDispositionNo ?? atomicDispositionNo ?? dto.dispositionNo ?? undefined }, actor);
     return { adjustmentNo: row.adjustmentNo };
   }
 

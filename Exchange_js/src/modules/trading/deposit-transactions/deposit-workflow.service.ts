@@ -51,6 +51,7 @@ import { L1GateService } from '../shared/l1-gate/l1-gate.service';
 import type { L1Check, L1Snapshot } from '../shared/l1-gate/l1-gate.types';
 import { SupplementEvidenceService, minorToMajor } from '../../clearing-settle/reconciliation/disposition/supplement-evidence.service';
 import { DispositionService as ReconDispositionService } from '../../clearing-settle/reconciliation/disposition/disposition.service';
+import type { CauseCode } from '../../clearing-settle/reconciliation/disposition/cause-registry';
 
 interface FundsOrderStatusChangedEvent {
   fundsOrderId: string;
@@ -1924,8 +1925,33 @@ export class DepositWorkflowService implements OnModuleInit {
     }
   }
 
-  async initiateClawback(depositNo: string, dto: { externalLineId: string; caseNo: string; dispositionNo: string; reason: string }, actor: ApprovalActorContext) {
-    const line = await this.supplementEvidence.assertClaimable({ caseNo: dto.caseNo, externalLineId: dto.externalLineId, dispositionNo: dto.dispositionNo, kind: 'SUPPLEMENT_BOUNCE' });
+  /**
+   * 写端翻转（Task 3）：与 initiateSupplement 同构（inbound-transfer-signals.service.ts
+   * 那份注释有完整论证，这里不重复）——已有定性（dispositionNo）照旧直通；无定性但带了
+   * causeCode+findingNote 则先落一条 outlet=SUPPLEMENT 的定性；两者都没有则 400。
+   */
+  private async resolveClawbackDispositionNo(
+    dto: { caseNo: string; externalLineId: string; dispositionNo?: string; causeCode?: CauseCode; findingNote?: string },
+    actor: ApprovalActorContext,
+  ): Promise<string> {
+    if (dto.dispositionNo) return dto.dispositionNo;
+    if (!dto.causeCode || !dto.findingNote) {
+      throw new BadRequestException('A finding must already be recorded for this statement line (dispositionNo), or provide causeCode + findingNote to record one now');
+    }
+    const recorded = await this.reconDisposition.record({
+      caseNo: dto.caseNo, explainedExternalLineId: dto.externalLineId,
+      matchType: 'ORPHAN_EXTERNAL', causeCode: dto.causeCode, disposition: 'SUPPLEMENT', findingNote: dto.findingNote,
+    } as any, actor);
+    return recorded.dispositionNo;
+  }
+
+  async initiateClawback(
+    depositNo: string,
+    dto: { externalLineId: string; caseNo: string; dispositionNo?: string; causeCode?: CauseCode; findingNote?: string; reason: string },
+    actor: ApprovalActorContext,
+  ) {
+    const dispositionNo = await this.resolveClawbackDispositionNo(dto, actor);
+    const line = await this.supplementEvidence.assertClaimable({ caseNo: dto.caseNo, externalLineId: dto.externalLineId, dispositionNo, kind: 'SUPPLEMENT_BOUNCE' });
     const deposit = await this.depositService.findOneByNo(depositNo);
     if (deposit.status !== DepositTransactionStatus.SUCCESS) throw new BadRequestException(`Deposit ${depositNo} is not SUCCESS — cannot claw back`);
     if (deposit.toWalletId !== line.walletId) throw new BadRequestException(`Deposit ${depositNo} is not on this case's wallet`);

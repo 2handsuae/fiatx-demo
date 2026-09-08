@@ -8,7 +8,10 @@ import { AuditLogsService } from '../../../audit-logging/audit-logs.service';
 import { AuditEntityTypes } from '../../../audit-logging/constants/audit-actions.constant';
 import { ApprovalActorContext } from '../../../governance/approvals/constants/approval.constants';
 import { RecordDispositionDto } from '../dto/disposition.dto';
-import { AdjustFamily, CAUSE_REGISTRY, CauseBook, DeferredTarget, resolveOutlet } from './cause-registry';
+import {
+  AdjustFamily, CAUSE_REGISTRY, CauseBook, DeferredTarget, DISPOSITION_LABEL, RowFacts,
+  causesFor, dispositionsFor, outletOf,
+} from './cause-registry';
 
 export interface ReattributionCandidate {
   caseNo: string; walletNo: string | null; ownerNo: string | null;
@@ -22,7 +25,8 @@ export class DispositionService {
     private readonly auditLogs: AuditLogsService,
   ) {}
 
-  async record(caseNo: string, dto: RecordDispositionDto, actor: ApprovalActorContext) {
+  async record(dto: RecordDispositionDto & { caseNo: string }, actor: ApprovalActorContext) {
+    const { caseNo } = dto;
     const kase = await (this.prisma as any).reconciliationCase.findUnique({ where: { caseNo } });
     if (!kase) throw new NotFoundException(`Reconciliation case not found: ${caseNo}`);
     if (kase.status !== 'OPEN') throw new BadRequestException('Findings can only be recorded on open cases');
@@ -31,12 +35,26 @@ export class DispositionService {
     }
 
     const book: CauseBook = kase.book === 'FIRM' ? 'FIRM' : 'CLIENT';
-    // 出口判定（含「成因不属于该格」的显式拒绝）——唯一真相在注册表
-    const resolved = resolveOutlet(dto.causeCode as any, {
+    // 写端翻转（Task 3）：出口不再由成因单独推导——财务先选处置，成因只用来配对校验。
+    // 校验序：矩阵（这一格允许哪些处置）→ 码（该码是否归属所选处置）→ 存 outletOf。
+    const facts: RowFacts = {
       matchType: dto.matchType, book,
       deltaSign: dto.deltaSign, internalDirection: dto.internalDirection,
       internalSourceType: dto.internalSourceType, externalDirection: dto.externalDirection,
-    });
+    };
+    if (!dispositionsFor(facts).includes(dto.disposition)) {
+      throw new BadRequestException(`Disposition ${dto.disposition} is not available for this line`);
+    }
+    const causeSpec = CAUSE_REGISTRY[dto.causeCode];
+    if (!causesFor(dto.disposition, facts.matchType, book).some((c) => c.code === dto.causeCode)) {
+      throw new BadRequestException(`Cause ${dto.causeCode} does not belong to disposition ${dto.disposition}`);
+    }
+    const outlet = outletOf(dto.disposition);
+    // 补单三路的具体去向仍由成因定（哪一路补单）——processed later by
+    // SupplementEvidenceService.assertClaimable，那里独立复核 deferredTarget/方向；
+    // 所选处置这一步只管「这格能不能挂补单这个大类」。
+    const deferredTarget = outlet === 'SUPPLEMENT' ? (causeSpec.supplementTarget ?? null) : null;
+    const outletLabel = outlet === 'SUPPLEMENT' ? `Supplement · ${causeSpec.supplementLabel}` : DISPOSITION_LABEL[dto.disposition];
 
     // 同锚查找：一条差异行至多一条有效定性；挂了调账单就锁死（400）。
     // ⚠ 必须按字段独立 OR，不能把两个锚 AND 联合成一个 where——锚集会跨轮次
@@ -67,8 +85,8 @@ export class DispositionService {
       explainedFlowId: dto.explainedFlowId ?? null,
       explainedExternalLineId: dto.explainedExternalLineId ?? null,
       matchType: dto.matchType, book,
-      causeCode: dto.causeCode, outlet: resolved.outlet,
-      deferredTarget: resolved.deferredTarget ?? null,
+      causeCode: dto.causeCode, outlet,
+      deferredTarget,
       findingNote: dto.findingNote,
     };
     // createdByUserId 只在建档时写：这条记录的价值之一就是「这次查证是谁做的」，
@@ -93,7 +111,7 @@ export class DispositionService {
         primarySubjectNo: dispositionNo,
         ownerCustomerNo: kase.ownerNo ?? undefined,
         causeCode: dto.causeCode,          // requiredFields 顶层
-        outlet: resolved.outlet,
+        outlet,
         subjects: [
           { subjectType: AuditEntityTypes.RECON_DISPOSITION, subjectNo: dispositionNo, subjectRole: 'PRIMARY' },
           { subjectType: 'RECONCILIATION_CASE', subjectNo: caseNo, subjectRole: 'RELATED' },
@@ -102,8 +120,8 @@ export class DispositionService {
         reason: dto.findingNote,
         requestId: `RECON_DISPOSITION_RECORDED_${dispositionNo}_${randomUUID()}`, // 漏了会被静默去重
         metadata: {
-          causeCode: dto.causeCode, outlet: resolved.outlet,
-          deferredTarget: resolved.deferredTarget ?? null,
+          causeCode: dto.causeCode, disposition: dto.disposition, outlet,
+          deferredTarget,
           matchType: dto.matchType, overwrite: !!existing,
         },
         sourcePlatform: 'ADMIN',
@@ -111,7 +129,7 @@ export class DispositionService {
       { actorType: 'ADMIN', actorNo: actorDisplay, actorDisplayName: actorDisplay, actorRolesAtTime: actor.roleCodes ?? [] },
     );
 
-    return { dispositionNo, ...resolved };
+    return { dispositionNo, outlet, outletLabel, deferredTarget };
   }
 
   /**

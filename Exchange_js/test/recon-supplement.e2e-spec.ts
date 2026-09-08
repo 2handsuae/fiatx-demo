@@ -577,7 +577,7 @@ describe('Recon supplement e2e (平账 B 批, Task 8)', () => {
     // 直接 no-op 掉、永远到不了 SUCCESS——e2e 首次真实数据跑通时当场复现（brief 那个
     // 数字只在 mock 下测过，没有下限门这回事）。
     const { wallet, line, kase } = await breakCase({ assetId: usdtAssetId, currency: usdtCode, decimals: usdtDecimals, direction: 'IN', amountMinor: 150_000_000n, externalRef: txHash, tag: 'A1' });
-    const disp = await dispositions.record(kase.caseNo, { explainedExternalLineId: line.id, matchType: 'ORPHAN_EXTERNAL', causeCode: 'MISSED_DEPOSIT', externalDirection: 'IN', findingNote: '托管账单有、我方监听漏了' } as any, ops());
+    const disp = await dispositions.record({ caseNo: kase.caseNo, explainedExternalLineId: line.id, matchType: 'ORPHAN_EXTERNAL', causeCode: 'MISSED_DEPOSIT', disposition: 'SUPPLEMENT', externalDirection: 'IN', findingNote: '托管账单有、我方监听漏了' } as any, ops());
     expect(disp.outlet).toBe('SUPPLEMENT'); expect(disp.deferredTarget).toBe('SUPPLEMENT_DEPOSIT');
 
     const req = await signals.initiateSupplement({ externalLineId: line.id, caseNo: kase.caseNo, dispositionNo: disp.dispositionNo, fromAddress: 'TE2eSupplementSender', reason: '补录漏记入金' }, ops());
@@ -606,7 +606,7 @@ describe('Recon supplement e2e (平账 B 批, Task 8)', () => {
   it('①b 法币补录：案子 → 定性漏记入金 → 发起（来源 IBAN）→ CFO 批 → 信号进通道 → 充值单 SUCCESS → 重跑愈', async () => {
     const ref = `E2E-BANK-REF-${randomUUID().slice(0, 12)}`;
     const { wallet, line, kase } = await breakCase({ assetId: aedAssetId, currency: 'AED', decimals: aedDecimals, direction: 'IN', amountMinor: 120_000n, externalRef: ref, tag: 'B1' });
-    const disp = await dispositions.record(kase.caseNo, { explainedExternalLineId: line.id, matchType: 'ORPHAN_EXTERNAL', causeCode: 'MISSED_DEPOSIT', externalDirection: 'IN', findingNote: '托管账单有、我方监听漏了（法币）' } as any, ops());
+    const disp = await dispositions.record({ caseNo: kase.caseNo, explainedExternalLineId: line.id, matchType: 'ORPHAN_EXTERNAL', causeCode: 'MISSED_DEPOSIT', disposition: 'SUPPLEMENT', externalDirection: 'IN', findingNote: '托管账单有、我方监听漏了（法币）' } as any, ops());
     expect(disp.outlet).toBe('SUPPLEMENT'); expect(disp.deferredTarget).toBe('SUPPLEMENT_DEPOSIT');
 
     const req = await signals.initiateSupplement({ externalLineId: line.id, caseNo: kase.caseNo, dispositionNo: disp.dispositionNo, fromIban: 'AE070331234567890123456', reason: '补录漏记入金（法币）' }, ops());
@@ -658,7 +658,7 @@ describe('Recon supplement e2e (平账 B 批, Task 8)', () => {
     await upsertExternalBalance({ walletId: wallet.id, currency: 'AED', book: 'CLIENT', closingBalance: 0n }); // 外部：1200 进又 1200 出
     expect((await walletRecon.run({ cutoff: CUTOFF })).status).toBe('BREAK');
     const kase = await openCaseFor(wallet.id);
-    const disp = await dispositions.record(kase.caseNo, { explainedExternalLineId: line.id, matchType: 'ORPHAN_EXTERNAL', causeCode: 'BOUNCED_FUNDS', externalDirection: 'OUT', findingNote: '银行撤回' } as any, ops());
+    const disp = await dispositions.record({ caseNo: kase.caseNo, explainedExternalLineId: line.id, matchType: 'ORPHAN_EXTERNAL', causeCode: 'BOUNCED_FUNDS', disposition: 'SUPPLEMENT', externalDirection: 'OUT', findingNote: '银行撤回' } as any, ops());
     const cands = await supplementEvidence.listCandidates(kase.caseNo, line.id);
     expect(cands.kind).toBe('SUPPLEMENT_BOUNCE'); expect(cands.candidates.map((c) => c.orderNo)).toContain(deposit.depositNo);
 
@@ -704,7 +704,7 @@ describe('Recon supplement e2e (平账 B 批, Task 8)', () => {
     await upsertExternalBalance({ walletId: w.fromWalletId, currency: 'AED', book: 'CLIENT', closingBalance: seedMinor - feeMinor });
     expect((await walletRecon.run({ cutoff: CUTOFF })).status).toBe('BREAK');
     const kase = await openCaseFor(w.fromWalletId);
-    const disp = await dispositions.record(kase.caseNo, { explainedExternalLineId: line.id, matchType: 'ORPHAN_EXTERNAL', causeCode: 'PAYOUT_RETURNED', externalDirection: 'IN', findingNote: '银行退回提现' } as any, ops());
+    const disp = await dispositions.record({ caseNo: kase.caseNo, explainedExternalLineId: line.id, matchType: 'ORPHAN_EXTERNAL', causeCode: 'PAYOUT_RETURNED', disposition: 'SUPPLEMENT', externalDirection: 'IN', findingNote: '银行退回提现' } as any, ops());
     expect(disp.outlet).toBe('SUPPLEMENT'); expect(disp.deferredTarget).toBe('SUPPLEMENT_PAYOUT_RETURN');
 
     const feeEvidenceBefore = (await tbEvidence.findBySource('WITHDRAWAL', w.withdrawNo)).filter((e: any) => String(e.eventCode).includes('FEE'));
@@ -725,10 +725,14 @@ describe('Recon supplement e2e (平账 B 批, Task 8)', () => {
   });
 
   it('拒绝路径：方向不符 400；余额不足 400；同一行仍待决时二次发起 400，CFO 拒绝后可再发起（复用同一信号）；② 拒绝后原状态不动、supplementNo 清空、可再发起', async () => {
-    // (a) 方向不符：外部 OUT 行定性 MISSED_DEPOSIT（要求 IN）→ dispositions.record 抛 /方向不符/
+    // (a) 方向不符：外部 OUT 行定性 MISSED_DEPOSIT（要求 IN）。写端翻转（Task 3）后
+    // record() 只按矩阵+码校验（不再管方向——同一格三个补单成因都在 causesFor 名单里，
+    // 选哪个由财务判断），方向复核搬到 SupplementEvidenceService.assertClaimable
+    // （initiateSupplement 的第一步）——record() 本身会成功，发起认领才 400。
     const txHashA = `0xe2esuppdiramis${randomUUID().replace(/-/g, '')}`;
     const { line: lineA, kase: kaseA } = await breakCase({ assetId: usdtAssetId, currency: usdtCode, decimals: usdtDecimals, direction: 'OUT', amountMinor: 2_000_000n, externalRef: txHashA, tag: 'RJA' });
-    await expect(dispositions.record(kaseA.caseNo, { explainedExternalLineId: lineA.id, matchType: 'ORPHAN_EXTERNAL', causeCode: 'MISSED_DEPOSIT', externalDirection: 'OUT', findingNote: 'e2e 方向不符测试' } as any, ops())).rejects.toThrow(/direction do not match/);
+    const dispA = await dispositions.record({ caseNo: kaseA.caseNo, explainedExternalLineId: lineA.id, matchType: 'ORPHAN_EXTERNAL', causeCode: 'MISSED_DEPOSIT', disposition: 'SUPPLEMENT', externalDirection: 'OUT', findingNote: 'e2e 方向不符测试' } as any, ops());
+    await expect(signals.initiateSupplement({ externalLineId: lineA.id, caseNo: kaseA.caseNo, dispositionNo: dispA.dispositionNo, fromAddress: 'TE2eDirMismatch', reason: 'e2e 方向不符测试' }, ops())).rejects.toThrow(/does not match the statement line's direction/);
 
     // (b) 余额不足：用一个本文件专属的全新客户（lifecycle=ACTIVE、零历史），不碰 Bob 或
     // 任何种子客户的累计余额——也因此跟 (a)(c)(d) 完全独立，谁先跑都行，`-t` 单跑
@@ -757,7 +761,7 @@ describe('Recon supplement e2e (平账 B 批, Task 8)', () => {
     await upsertExternalBalance({ walletId: walletB.id, currency: 'AED', book: 'CLIENT', closingBalance: 0n });
     await walletRecon.run({ cutoff: CUTOFF });
     const kaseB = await openCaseFor(walletB.id);
-    const dispB = await dispositions.record(kaseB.caseNo, { explainedExternalLineId: lineB.id, matchType: 'ORPHAN_EXTERNAL', causeCode: 'BOUNCED_FUNDS', externalDirection: 'OUT', findingNote: 'e2e 余额不足测试' } as any, ops());
+    const dispB = await dispositions.record({ caseNo: kaseB.caseNo, explainedExternalLineId: lineB.id, matchType: 'ORPHAN_EXTERNAL', causeCode: 'BOUNCED_FUNDS', disposition: 'SUPPLEMENT', externalDirection: 'OUT', findingNote: 'e2e 余额不足测试' } as any, ops());
     await expect(depositWf.initiateClawback(depB.depositNo, { externalLineId: lineB.id, caseNo: kaseB.caseNo, dispositionNo: dispB.dispositionNo, reason: 'e2e 余额不足' }, ops())).rejects.toThrow(/insufficient/);
 
     // (c) 二次发起：仍待决时二次发起 → 400——第一次发起时 linkSupplement 已经把
@@ -780,7 +784,7 @@ describe('Recon supplement e2e (平账 B 批, Task 8)', () => {
     // 下面断言改成断言 spec 的行为，不再断言"永久占用"。
     const txHashC = `0xe2esuppdup${randomUUID().replace(/-/g, '')}`;
     const { line: lineC, kase: kaseC } = await breakCase({ assetId: usdtAssetId, currency: usdtCode, decimals: usdtDecimals, direction: 'IN', amountMinor: 3_000_000n, externalRef: txHashC, tag: 'RJC' });
-    const dispC = await dispositions.record(kaseC.caseNo, { explainedExternalLineId: lineC.id, matchType: 'ORPHAN_EXTERNAL', causeCode: 'MISSED_DEPOSIT', externalDirection: 'IN', findingNote: 'e2e 二次发起测试' } as any, ops());
+    const dispC = await dispositions.record({ caseNo: kaseC.caseNo, explainedExternalLineId: lineC.id, matchType: 'ORPHAN_EXTERNAL', causeCode: 'MISSED_DEPOSIT', disposition: 'SUPPLEMENT', externalDirection: 'IN', findingNote: 'e2e 二次发起测试' } as any, ops());
     const reqC = await signals.initiateSupplement({ externalLineId: lineC.id, caseNo: kaseC.caseNo, dispositionNo: dispC.dispositionNo, fromAddress: 'TE2eSupplementDup', reason: 'e2e first attempt' }, ops());
     await expect(signals.initiateSupplement({ externalLineId: lineC.id, caseNo: kaseC.caseNo, dispositionNo: dispC.dispositionNo, fromAddress: 'TE2eSupplementWhilePending', reason: 'e2e while first still pending' }, ops())).rejects.toThrow(/already linked to supplement/);
     await approvalsService.reject(reqC.approvalNo, { reason: 'e2e CFO reject supplement' }, cfo());
@@ -815,7 +819,7 @@ describe('Recon supplement e2e (平账 B 批, Task 8)', () => {
     await upsertExternalBalance({ walletId: walletD.id, currency: 'AED', book: 'CLIENT', closingBalance: 0n });
     await walletRecon.run({ cutoff: CUTOFF });
     const kaseD = await openCaseFor(walletD.id);
-    const dispD = await dispositions.record(kaseD.caseNo, { explainedExternalLineId: lineD.id, matchType: 'ORPHAN_EXTERNAL', causeCode: 'BOUNCED_FUNDS', externalDirection: 'OUT', findingNote: 'e2e 拒绝后可再发起测试' } as any, ops());
+    const dispD = await dispositions.record({ caseNo: kaseD.caseNo, explainedExternalLineId: lineD.id, matchType: 'ORPHAN_EXTERNAL', causeCode: 'BOUNCED_FUNDS', disposition: 'SUPPLEMENT', externalDirection: 'OUT', findingNote: 'e2e 拒绝后可再发起测试' } as any, ops());
     const reqD = await depositWf.initiateClawback(depD.depositNo, { externalLineId: lineD.id, caseNo: kaseD.caseNo, dispositionNo: dispD.dispositionNo, reason: 'e2e clawback then reject' }, ops());
     await approvalsService.reject(reqD.approvalNo, { reason: 'e2e CFO reject clawback' }, cfo());
     await waitUntil(async () => (await (prisma as any).reconciliationDisposition.findUnique({ where: { dispositionNo: dispD.dispositionNo } })).supplementNo === null, 30000);

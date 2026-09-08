@@ -304,6 +304,72 @@ describe('AdjustmentService.createDraft two gates —— where the gate cannot b
   });
 });
 
+// 写端翻转（Task 3）：createDraft 原子入口——行未定性（无 dispositionNo）+ dto 带
+// causeCode/findingNote → 先调 DispositionService.record()（真实实例 + 独立 prisma
+// mock，同"Incident-path loss recognition"那组的范式，不用假 stub 盖住 record() 自己
+// 的矩阵/挂单锁校验）落一条定性，再照常开单、挂号；两个描述块共用一个 audit mock，
+// 让 record() 与 afterDraftCreated 的两条审计落进同一个 mock.calls 数组里能一并断言。
+describe('createDraft atomic finding (Task 3: write-side flip) — causeCode + findingNote with no existing disposition', () => {
+  const ACTOR = { actorType: 'ADMIN' as const, userId: 'U_ATOMIC', userNo: 'U_ATOMIC', roleCodes: ['ADMIN'] };
+  const kase = {
+    caseNo: 'CASE_ATOMIC', status: 'OPEN', book: 'CUSTOMER',
+    walletRef: 'W_ATOMIC', assetCode: 'AED', ownerNo: 'C0099', traceId: null,
+    businessDate: '2026-09-08',
+  };
+  // AMT_FEE_NETTED：单码制下 causeCode 与 reasonCode 同码（family=CORRECT），cell
+  // AMOUNT_MISMATCH×CLIENT——internalSourceType='DEPOSIT' 满足 dispositionsFor 的
+  // sourceAdjustable 门槛（否则 CORRECT 连矩阵都进不了）；direction=REDUCE 免闸二
+  // 边界线（只有 CLIENT×INCREASE 才要求 relatedOrderNo）。
+  const draftDto = {
+    caseNo: 'CASE_ATOMIC', reasonCode: 'AMT_FEE_NETTED', direction: 'REDUCE',
+    amount: '500', effectiveDate: '2026-09-08', reasonInternal: 'x', reasonCustomer: 'y',
+    explainedFlowId: 'FLOW_ATOMIC_1', explainedExternalLineId: 'EXT_ATOMIC_1',
+    matchType: 'AMOUNT_MISMATCH', internalSourceType: 'DEPOSIT',
+  };
+
+  it('createDraft 带 causeCode+findingNote 且行无定性 → 先 record 再 draft 再 link，两审计各一条', async () => {
+    const audit = { recordByActor: jest.fn() };
+    const dispositionPrisma: any = {
+      reconciliationCase: { findUnique: jest.fn().mockResolvedValue(kase) },
+      reconciliationDisposition: {
+        findFirst: jest.fn().mockResolvedValue(null), // 无既有定性
+        create: jest.fn().mockImplementation(({ data }: any) => Promise.resolve({ ...data, id: 'd-atomic' })),
+        findUnique: jest.fn().mockImplementation(({ where }: any) =>
+          Promise.resolve({ dispositionNo: where.dispositionNo, outlet: 'ADJUST_CORRECT', adjustmentNo: null })),
+        update: jest.fn().mockImplementation(({ data }: any) => Promise.resolve({ ...data })),
+      },
+      wallet: { findUnique: jest.fn() },
+    };
+    const dispositions = new DispositionService(dispositionPrisma, audit as any);
+    const prisma: any = {
+      reconciliationCase: { findUnique: jest.fn().mockResolvedValue(kase) },
+      customerMain: { findUnique: jest.fn().mockResolvedValue({ id: 'uuid-cu-atomic' }) },
+      reconciliationAdjustment: { create: jest.fn().mockImplementation(({ data }: any) => Promise.resolve({ ...data, adjustmentNo: 'ADJ_ATOMIC' })) },
+    };
+    const svc = new AdjustmentService(prisma, {} as any, {} as any, audit as any, dispositions as any);
+
+    await svc.createDraft({ ...draftDto, causeCode: 'AMT_FEE_NETTED', findingNote: 'bank receipt shows net' } as any, ACTOR);
+    const actions = audit.recordByActor.mock.calls.map((c: any) => c[0].action);
+    expect(actions).toEqual(expect.arrayContaining(['RECON_DISPOSITION_RECORDED', 'RECON_ADJUSTMENT_DRAFTED']));
+  });
+
+  it('行已挂未走完的单 → 原子路径拒 400（沿用挂单锁）', async () => {
+    // held.adjustmentNo 非空：这条证据的定性早已挂了另一张单，record() 自己的挂单锁
+    // （与标准两步流程同一条校验）在原子路径里原样生效，不被 createDraft 绕过。
+    const held = { dispositionNo: 'RCD-HELD', explainedFlowId: 'FLOW_ATOMIC_1', explainedExternalLineId: 'EXT_ATOMIC_1', adjustmentNo: 'ADJ_OLD' };
+    const dispositionPrisma: any = {
+      reconciliationCase: { findUnique: jest.fn().mockResolvedValue(kase) },
+      reconciliationDisposition: { findFirst: jest.fn().mockResolvedValue(held) },
+    };
+    const dispositions = new DispositionService(dispositionPrisma, { recordByActor: jest.fn() } as any);
+    const prisma: any = { reconciliationCase: { findUnique: jest.fn().mockResolvedValue(kase) } };
+    const svc = new AdjustmentService(prisma, {} as any, {} as any, { recordByActor: jest.fn() } as any, dispositions as any);
+
+    await expect(svc.createDraft({ ...draftDto, causeCode: 'AMT_FEE_NETTED', findingNote: 'x' } as any, ACTOR))
+      .rejects.toThrow(/already linked to adjustment ADJ_OLD/);
+  });
+});
+
 // Recon wave 3 Task 10: the loss-recognition adjustment incident branch. When the anchored finding
 // line's outlet='INCIDENT' (cause-registry UNAUTHORIZED_OUTFLOW, a large unauthorized outflow), it
 // skips the "unexplained" four preconditions and instead checks the incident's assessment conclusion —

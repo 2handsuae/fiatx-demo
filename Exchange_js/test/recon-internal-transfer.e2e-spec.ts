@@ -456,9 +456,10 @@ describe('Recon internal transfer e2e (平账二期, Task 9)', () => {
     const kase = await openCaseFor(wallet.id);
     expect(kase.book).toBe('CUSTOMER');
     const row0 = (await reconQuery.getCase(kase.caseNo)).flowComparison.find((r: any) => r.matchType === 'AMOUNT_MISMATCH')!;
-    const disp = await dispositions.record(kase.caseNo, {
+    const disp = await dispositions.record({
+      caseNo: kase.caseNo,
       matchType: 'AMOUNT_MISMATCH', explainedFlowId: row0.internalFlow!.id, explainedExternalLineId: row0.externalLine!.id,
-      causeCode: 'UNEXPLAINED', findingNote: 'e2e：托管少 7.5 USDT，翻遍凭证查无可查', deltaSign: -1, internalDirection: 'IN', internalSourceType: 'DEPOSIT',
+      causeCode: 'UNEXPLAINED', disposition: 'HOLD_INVESTIGATING', findingNote: 'e2e：托管少 7.5 USDT，翻遍凭证查无可查', deltaSign: -1, internalDirection: 'IN', internalSourceType: 'DEPOSIT',
     } as any, ops());
     expect(disp.outlet).toBe('HOLD_INVESTIGATING');
     await caseAging.simulateTimeout(kase.caseNo, ops());
@@ -565,7 +566,7 @@ describe('Recon internal transfer e2e (平账二期, Task 9)', () => {
     await upsertExternalBalance({ walletId: wallet.id, currency: 'AED', book: 'CLIENT', closingBalance: 30_000n - 120_000n }); // 300 − 1200 = −900
     expect((await runNow()).status).toBe('BREAK');
     const kase = await openCaseFor(wallet.id);
-    const disp = await dispositions.record(kase.caseNo, { explainedExternalLineId: line.id, matchType: 'ORPHAN_EXTERNAL', causeCode: 'BOUNCED_FUNDS', externalDirection: 'OUT', findingNote: '银行撤回，客户已花掉一部分' } as any, ops());
+    const disp = await dispositions.record({ caseNo: kase.caseNo, explainedExternalLineId: line.id, matchType: 'ORPHAN_EXTERNAL', causeCode: 'BOUNCED_FUNDS', disposition: 'SUPPLEMENT', externalDirection: 'OUT', findingNote: '银行撤回，客户已花掉一部分' } as any, ops());
     expect(disp.deferredTarget).toBe('SUPPLEMENT_BOUNCE');
     const row0 = await rowByLine(kase.caseNo, line.id);
     expect(row0.nextStep).toMatchObject({ kind: 'ADVANCE', amount: '90000', externalLineId: line.id, available: '30000', lineAmount: '120000', customerNo: cust.customerNo });
@@ -623,7 +624,7 @@ describe('Recon internal transfer e2e (平账二期, Task 9)', () => {
     await upsertExternalBalance({ walletId: wallet.id, currency: 'AED', book: 'CLIENT', closingBalance: 5_000n });
     expect((await runNow()).status).toBe('BREAK');
     const kase = await openCaseFor(wallet.id);
-    const disp = await dispositions.record(kase.caseNo, { explainedExternalLineId: line.id, matchType: 'ORPHAN_EXTERNAL', causeCode: 'UNEXPLAINED', externalDirection: 'IN', findingNote: 'e2e：多出来 50，查不出' } as any, ops());
+    const disp = await dispositions.record({ caseNo: kase.caseNo, explainedExternalLineId: line.id, matchType: 'ORPHAN_EXTERNAL', causeCode: 'UNEXPLAINED', disposition: 'HOLD_INVESTIGATING', externalDirection: 'IN', findingNote: 'e2e：多出来 50，查不出' } as any, ops());
     await caseAging.simulateTimeout(kase.caseNo, ops()); await agingSweep.checkAgingBreaches(new Date());
     expect((await rowByLine(kase.caseNo, line.id)).nextStep).toEqual({ kind: 'CLIENT_SURPLUS' });
     await expect(adjustments.createDraft({ caseNo: kase.caseNo, reasonCode: 'UNEXPLAINED_CLIENT_LOSS', direction: 'INCREASE', amount: '5000', effectiveDate: kase.businessDate, explainedExternalLineId: line.id, reasonInternal: 'x', reasonCustomer: 'x', dispositionNo: disp.dispositionNo } as any, treasury())).rejects.toThrow(/deposit backfill/);

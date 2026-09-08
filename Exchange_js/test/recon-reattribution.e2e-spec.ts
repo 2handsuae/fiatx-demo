@@ -502,21 +502,23 @@ describe('Recon reattribution + disposition behaviour (e2e, Task 12)', () => {
     expect(toOrphan.externalTxId).toBe(toLine.id);
 
     // ── ② 定性：错记方这一行是「记错客户——这笔钱是别人的」 ──────────────
+    // 写端翻转（Task 3）：处置现在是财务手选（disposition:'REATTRIBUTE'），成因只用来
+    // 配对校验；出口 = outletOf(disposition) = ADJUST_REATTRIBUTE。family/reasonCode
+    // 不再是 record() 的返回字段——那是调账开单时才定的东西（reasonCode 由 createDraft
+    // 的 dto 直接指定，family 走 REASON_SPECS 反查，见 adjustment.service.ts）。
     const disposition = await dispositions.record(
-      fromCase.caseNo,
       {
+        caseNo: fromCase.caseNo,
         matchType: 'ORPHAN_INTERNAL',
         explainedFlowId: fromOrphan.internalSourceId,      // 锚在真实内部流水上
         causeCode: 'MISATTRIBUTED_FROM',
+        disposition: 'REATTRIBUTE',
         findingNote: 'e2e：对端钱包同日同额「外有我无」成对，银行回单收款人是另一位客户',
         internalDirection: fromOrphan.internalDirection as 'IN' | 'OUT',
       } as any,
       makeActor('E2E_OPS_CREATOR_A', 'OPS_OFFICER'),
     );
-    // 出口由注册表机器判定，不是人手挑的：改记族 → ADJUST_REATTRIBUTE。
     expect(disposition.outlet).toBe('ADJUST_REATTRIBUTE');
-    expect(disposition.family).toBe('REATTRIBUTE');
-    expect(disposition.reasonCode).toBe('CUSTOMER_REATTRIBUTION');
 
     // ── ③ 对端候选：同业务日 · 同资产 · 同金额 · 反向孤儿的开放案件 ────────
     const candidates = await dispositions.listReattributionCandidates(fromCase.caseNo, 'FROM', String(X));
@@ -655,13 +657,15 @@ describe('Recon reattribution + disposition behaviour (e2e, Task 12)', () => {
     //   所以下面断言的是**具体的拒绝理由**，不是「抛了 BadRequest 就算过」。
     expect((await (prisma as any).reconciliationCase.findUnique({ where: { id: fromCase.id } })).status).toBe('OPEN');
     const overwriteAttempt = dispositions.record(
-      fromCase.caseNo,
       {
+        caseNo: fromCase.caseNo,
         matchType: 'ORPHAN_INTERNAL',
         explainedFlowId: fromOrphan.internalSourceId, // 同一个锚
         causeCode: 'PHANTOM_BOOKING',                 // 换个结论想覆盖
+        disposition: 'REVERSE',
         findingNote: 'e2e：单已开出后想改口，必须被拒',
         internalDirection: fromOrphan.internalDirection as 'IN' | 'OUT',
+        internalSourceType: 'DEPOSIT', // fundCustomerWallet 落的 evidence.sourceType（矩阵门槛，见 cause-registry.ts sourceAdjustable）
       } as any,
       makeActor('E2E_OPS_CREATOR_A2', 'OPS_OFFICER'),
     );
@@ -774,12 +778,13 @@ describe('Recon reattribution + disposition behaviour (e2e, Task 12)', () => {
 
     // ── 财务查证结论：查不出（已穷尽调查）→ 挂起·调查中 ─────────────────────
     const disposition = await dispositions.record(
-      kase.caseNo,
       {
+        caseNo: kase.caseNo,
         matchType: 'AMOUNT_MISMATCH',
         explainedFlowId: mismatchRow.internalSourceId,
         explainedExternalLineId: mismatchRow.externalTxId,
         causeCode: 'UNEXPLAINED',
+        disposition: 'HOLD_INVESTIGATING',
         findingNote: 'e2e：查过银行回单原件、通道费率表、同日同通道其他笔，都对不上；已穷尽调查',
         deltaSign: -1,
       } as any,

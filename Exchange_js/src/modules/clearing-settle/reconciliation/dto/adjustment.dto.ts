@@ -1,6 +1,7 @@
 import { Type } from 'class-transformer';
 import { IsIn, IsNotEmpty, IsOptional, IsString, Matches } from 'class-validator';
 import { REASON_SPECS } from '../disposition/adjustment-rules';
+import { CAUSE_REGISTRY } from '../disposition/cause-registry';
 
 export class CreateAdjustmentDto {
   @IsString() @IsNotEmpty() caseNo!: string;
@@ -19,8 +20,20 @@ export class CreateAdjustmentDto {
   @IsString() @IsNotEmpty() reasonInternal!: string;
   @IsString() @IsNotEmpty() reasonCustomer!: string;
   @IsOptional() @IsString() relatedOrderNo?: string;
-  // 定性联动（spec §3.3）：带上则开单成功后回填 disposition.adjustmentNo 并锁定该定性
+  // 定性联动（spec §3.3）：带上则开单成功后回填 disposition.adjustmentNo 并锁定该定性——
+  // 已有定性（标准两步：先 POST .../dispositions 再开单）时用这个字段。
   @IsOptional() @IsString() dispositionNo?: string;
+  // 写端翻转（Task 3）：行无定性时的原子入口——带上 causeCode+findingNote，createDraft
+  // 会先调 DispositionService.record()（disposition = REASON_SPECS[reasonCode].family）
+  // 落一条定性，再照常开单、挂号，两处均复用既有 linkAdjustment；record() 自己的矩阵
+  // 校验需要下面这组行事实（与 RecordDispositionDto 同一套约定，前端从被点的那一行原样带上）。
+  @IsOptional() @IsIn(Object.keys(CAUSE_REGISTRY)) causeCode?: keyof typeof CAUSE_REGISTRY;
+  @IsOptional() @IsString() findingNote?: string;
+  @IsOptional() @IsIn(['AMOUNT_MISMATCH', 'ORPHAN_INTERNAL', 'ORPHAN_EXTERNAL']) matchType?: 'AMOUNT_MISMATCH' | 'ORPHAN_INTERNAL' | 'ORPHAN_EXTERNAL';
+  @IsOptional() @IsIn([1, -1]) deltaSign?: 1 | -1;
+  @IsOptional() @IsIn(['IN', 'OUT']) internalDirection?: 'IN' | 'OUT';
+  @IsOptional() @IsString() internalSourceType?: string;
+  @IsOptional() @IsIn(['IN', 'OUT']) externalDirection?: 'IN' | 'OUT';
   // 第四族改记：正主方案件号（caseNo = 错记方案件）
   @IsOptional() @IsString() toCaseNo?: string;
 }

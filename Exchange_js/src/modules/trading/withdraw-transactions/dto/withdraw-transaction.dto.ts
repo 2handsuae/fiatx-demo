@@ -1,5 +1,6 @@
-import { IsOptional, IsString, IsEnum, IsNumber, IsNotEmpty } from 'class-validator';
+import { IsIn, IsOptional, IsString, IsEnum, IsNumber, IsNotEmpty } from 'class-validator';
 import { Type, Transform } from 'class-transformer';
+import { CAUSE_REGISTRY } from '../../../clearing-settle/reconciliation/disposition/cause-registry';
 
 // 状态机收窄(10 状态/13 动作/20 边,定稿于 .superpowers/sdd/task-1-brief.md)。
 // CREATED/CANCELLED/UNDER_REVIEW/HELD/APPROVED/PENDING_COMPLIANCE 已删除——这些字符串
@@ -85,7 +86,11 @@ export class SanctionRefundWithdrawTransactionDto {
 export class InitiateWithdrawReturnClaimDto {
   @IsString() externalLineId!: string;
   @IsString() caseNo!: string;
-  @IsString() dispositionNo!: string;
+  // 写端翻转（Task 3）：行已有定性（标准两步：先 POST .../dispositions）时用这个字段；
+  // 无定性时改传下面两个字段，服务端原子先 record(outlet=SUPPLEMENT) 再走认领。
+  @IsOptional() @IsString() dispositionNo?: string;
+  @IsOptional() @IsIn(Object.keys(CAUSE_REGISTRY)) causeCode?: keyof typeof CAUSE_REGISTRY;
+  @IsOptional() @IsString() findingNote?: string;
   @IsString() @IsNotEmpty() reason!: string;
 }
 

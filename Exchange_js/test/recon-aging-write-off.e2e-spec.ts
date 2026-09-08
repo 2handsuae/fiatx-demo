@@ -446,9 +446,10 @@ describe('Recon case aging → write-off e2e (平账 A 批, Task 12)', () => {
     const detail0 = await reconQuery.getCase(kase.caseNo);
     const row0 = detail0.flowComparison.find((r: any) => r.matchType === 'AMOUNT_MISMATCH')!;
     const ops = makeActor('E2E_OPS_DISPOSER', 'OPS_OFFICER');
-    const disp = await dispositions.record(kase.caseNo, {
+    const disp = await dispositions.record({
+      caseNo: kase.caseNo,
       matchType: 'AMOUNT_MISMATCH', explainedFlowId: row0.internalFlow!.id, explainedExternalLineId: row0.externalLine!.id,
-      causeCode: 'UNEXPLAINED', findingNote: 'e2e：对了回单，差额 7 分无规律，已穷尽调查',
+      causeCode: 'UNEXPLAINED', disposition: 'HOLD_INVESTIGATING', findingNote: 'e2e：对了回单，差额 7 分无规律，已穷尽调查',
       deltaSign: -1, internalDirection: 'IN', internalSourceType: 'DEPOSIT',
     } as any, ops);
     expect(disp.outlet).toBe('HOLD_INVESTIGATING');
