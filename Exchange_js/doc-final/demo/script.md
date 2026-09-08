@@ -4,7 +4,7 @@
 > 本文件是**人读的剧本，不是测试**——永远不会"挂"。
 > 运行三原则：① 剧本不跑，造数脚本只在模块收尾闸跑；② 脚本挂了 = 代码删多了 → 改代码，**禁止改脚本迁就**；③ 造数一律走真实流程重放（模拟按钮同一套端点），**禁止直接插表**——直插中间态会把账本扣负、对账全是假破口（实证教训）。
 
-**环境**：main 栈（API 3000 ｜ 管理台 3001 ｜ 客户端 3002）。开演前重铺：`bash scripts/stack.sh reset-main` → `bash scripts/on-stack.sh main demo:all`。管理台 admin@fiatx.com / 123456；客户端用 demo_* 种子客户（见 data.md）。
+**环境**：main 栈（API 3000 ｜ 管理台 3001 ｜ 客户端 3002）。开演前重铺：`bash scripts/stack.sh reset-main` → `bash scripts/on-stack.sh main demo:all`。管理台 admin@fiatx.com / 123456（登录页 Quick Login 面板可一键切 8 职务）；客户端用 demo_* 种子客户（见 data.md）——客户端登录页同样有 Quick login 面板，11 位种子客户一键登录，剧本里所有「切客户端 demo_*」步骤都可走它。
 
 ---
 

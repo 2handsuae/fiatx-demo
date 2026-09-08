@@ -9,7 +9,7 @@
 > 边界一条：挡住**开演**（铺不出数据、剧本讲错）算业务，记 BACKLOG；挡住**开发**（端口、PATH、worktree）算技术，进 PRODUCTION-NOTES。
 >
 
-> **⭐ = 带同事走七幕时会当场看到或讲不圆的**，共 16 条。一行四要素：是什么 ｜ 哪来的 ｜ 落点 / 状态。做完就勾掉，重排 / 分诊时统一归档到文末销账。
+> **⭐ = 带同事走七幕时会当场看到或讲不圆的**，共 15 条。一行四要素：是什么 ｜ 哪来的 ｜ 落点 / 状态。做完就勾掉，重排 / 分诊时统一归档到文末销账。
 > 分诊历史：2026-08-26 首次分流（加固类迁出）；2026-08-28 二次分诊——业务/技术彻底分家：8 条已完成或已作废销账、45 条迁 `PRODUCTION-NOTES`、4 条从 `PRODUCTION-NOTES` 判回业务；同日「演示装备」A 档 8 条逐条实跑复核，6 条实证已修当场销账。**2026-08-29 演示装备一期收官**——A 档剩下的 2 条（造数花名册、补料回炉）做完销账，A 档 8/8 全部完成、整节退役删除（原文见「本轮销账」章节与 git 历史）；导语并入 §B。分诊前全文见 git 历史（`649b4e88`）。
 > **2026-09-08 按演示动线重排**——章节改为七幕行进顺序（幕内按站 / 场景），43 条已勾条目整批归档文末「本轮销账」；「Material Refresh 状态名」1 条作废（所指代码已随子系统退役，`grep -rln "NUDGE_ONLY" src admin-web/src client-web/src` 零命中）。重排前全文见 git 历史（`f27e8312`）。
 
@@ -73,11 +73,9 @@ Last Updated: 2026-09-08
 
 ## C. 第二幕 · 迎客（V2 客户与合规）
 
-> 讲「客户是谁、能不能交易由合规说了算」这一幕的缺口。入驻（波二）与档位升级（波三）已重建完成销账；剩销户清退与客户可见面。
+> 讲「客户是谁、能不能交易由合规说了算」这一幕的缺口。入驻（波二）与档位升级（波三）已重建完成销账；2026-09-08 收尾轮清掉客户可见面小账（快捷登录上线、横幅重复实证已修、坏路由删除），两条挂起可见性缺口归订单域（§D/§F）。剩销户清退挂账（业主裁定暂不做）。
 
 **① 静态矩阵（客户列表）**
-
-- [ ] **客户列表的「限制」筛选只作用于当前页(2026-08-16，设计已知取舍)**：`CustomerManagement.tsx` 的 Restrictions 列与 `Restricted/Unrestricted/Sanction only` 筛选，数据来自当页 20 行各拉一次 `GET /admin/customers/:customerNo/restrictions`（服务端列表 `GET /customers` 没有限制聚合字段，也没有批量端点）。因此筛选是**客户端**过滤，只筛当前页；翻页会得到"每页筛出的条数不一"的观感，footer 已明写 `(restriction filter applies to this page)`。真做法二选一：① `GET /customers` 的返回体加 `openRestrictionCount` / `hasSanction` 两个聚合字段并支持 `restriction=` 服务端筛选；② 加一个批量摘要端点 `POST /admin/customers/restrictions/summary` 收 customerNo 数组。demo 规模（8 客户）下当前实现够用，登记为账 ｜来源: 2026-08-16 客户生命周期轴+限制账 Task 12
 
 - [ ] **机构客户 stub（现状口径已更正，非本波动作）**：`CorporateProfile`/`UboProfile` 两表已随站6（2026-08-27 一期拆除）整体删除——不是"表在逻辑无"，是表已不存在；`customerType='CORPORATE'` 现仅剩 `CustomerManagement.tsx` 筛选下拉与 `CustomerDetail.tsx` 两处死注释占位（`⑫ Corporate Profile`/`⑪ UBO List`，无渲染内容），入口仍是禁用状态。若要支持机构客户需从零设计数据模型，不是"接回"旧表 ｜来源: 2026-07-04 V2 体检 ｜ 2026-09-06 波一复核现状口径更正
 
@@ -86,18 +84,6 @@ Last Updated: 2026-09-08
 - [ ] ⭐ **Q2 销户流程只落了轴上位置**（`assertOffboardable()` 三条不变量断言已随 2026-09-06 波一死码清扫删除——零调用方死码，重建销户时按新 spec 立）：`OFFBOARDED` 是 `lifecycle` 终态。真正的销户流程——余额清退、材料归档留存期、审批链、客户侧发起入口——全部未做；管理台 Offboard 按钮当前是 disabled 占位（与下方「材料终拒 → 离场清退流程未接」并链——材料终拒是触发销户清退的另一条路径；波二（2026-09-07）新增第三条触发路径——高管拒收（`FINAL_REJECTED`）后客户滞留 `REJECTED` 未再重申，清退承接同归此缺口，三条记录指向同一个未做的销户流程）｜来源: 2026-08-15 设计稿 §8 Q2 ｜ 2026-09-07 波二追加高管拒收触发路径
 
 - [ ] ⭐ **材料终拒 → 离场清退流程未接**（原「REJECTED 材料请求便签长期无人清理」缺口并入，背景见下）：2026-09-06 业主拍板"材料终拒出口 = 离场"（decisions.md 同日，行业口径 FATF 建议10——无法完成尽调即退出客户关系，条子挂着不处理本身是合规瑕疵）；本轮（波一）管理台客户详情页已展示「尽调未完成 · 待离场处理」文字提示（`CustomerDetail.tsx`，走查已验：Bob 的 EMIRATES_ID 材料请求打到终拒后文字出现），但实际的销户清退动作（余额清退 / 材料归档留存期 / 审批链）未做——与上方「Q2 销户流程只落了轴上位置」并链，是同一个未做缺口的两条触发路径（一条走 `OFFBOARD` 边、一条走材料终拒）。**背景（原条目内容）**：材料请求走到 `REJECTED`（RED·FINAL）是终态，但它挂着的便签不会自动撕（`MaterialRequestReviewService.applyReview()` 只有 GREEN 才 `autoRelease()`，两种 RED 都不撕是设计刻意），FINAL 是死路——客户唯一解法是靠运营再下发一次新材料请求或手工去限制账页面撕票，此前无 SLA/看板提醒运营处理 ｜来源: 设计稿 `superpowers/specs/2026-08-17-material-request-ledger-design.md` §9 Q3 ｜ 2026-09-06 波一并入销户缺口，管理台文字展示已补
-
-- [ ] **Swap/Withdraw 页 `PendingActionBanner` 与 `RestrictionBanner` 对同一条挂限制的材料请求各显示一张卡，重复(2026-08-18 Task 14 真机截图发现)**：`PendingActionBanner.tsx`（本轮改读 `/client/me/material-requests`，按 G6 显示「挂了限制的」∪「没绑单的」）与 `RestrictionBanner.tsx`（读 `/client/me/restrictions`，显示所有 `visibility=DISCLOSED` 的 OPEN 限制便签，含 `PENDING_DOCUMENT`/`MATERIAL_EXPIRED` 因由）两个组件都挂在 Swap.tsx/Withdraw.tsx 顶部，对**同一张**挂了限制的材料请求各自渲染一张卡（真机截图实测：demo_alice 挂 `Source of Wealth`/`Liveness` 两条 BLOCKING 材料请求时，Withdraw 页顶部先出现 PendingActionBanner 的两张卡，紧接着 RestrictionBanner 又各出一张「DOCUMENT REQUIRED」卡，共四张卡描述两件事）。CustomerProfile.tsx 一侧的同类重复（`ProfileBannerStack` vs 旧 `PendingActionBanner`）已在本轮直接摘掉 Profile 页的 `<PendingActionBanner />`（该页material request 覆盖已在 Task 11 并入 `ProfileBannerStack`）；但 Swap/Withdraw 页没有 `ProfileBannerStack`，`PendingActionBanner` 仍是这两页材料请求的唯一入口，不能照样摘掉。`RestrictionBanner.tsx` 文件头注释明确写着"本组件只做一件事……禁止在这里补任何……推导逻辑"，本轮未touch该文件。修法待定，需要业主拍板：①`RestrictionBanner` 增加"跳过 cause∈{PENDING_DOCUMENT,MATERIAL_EXPIRED} 且已被材料请求覆盖"的过滤（对称于 Task 11 给 `profile-banners.service.ts` 加的 `claimedRestrictionNos` 去重，但这次要挪到 client 组件或后端 `/client/me/restrictions` 端点)；②或反过来让 `PendingActionBanner` 只处理未绑限制的提醒行，把"挂了限制"的展示职责完全交给 `RestrictionBanner` ｜来源: 2026-08-18 材料请求账 Task 14 真机截图验收发现
-
-- [ ] **豁免位有效期**：poa/questionnaires 字段是否含提交时间戳待验；无时间戳则该档退回 tag + 我方管期限｜来源: 同上
-
-**便签联动（tipping-off）**
-
-- [ ] **Q1 制裁客户的订单级折叠未做**：本轮贴 `scope=ALL` 便签只把在途单打成 `FROZEN`，客户面靠服务端脱敏白名单收敛成 `COMPLIANCE_PENDING`；设计稿讨论过的「收单后一律挂 `PROCESSING`、连状态变化都不产生」的订单级折叠没做。与「提现域 tipping-off 未对齐」同源，一并排期 ｜来源: 2026-08-15 设计稿 §8 Q1
-
-- [ ] **`CAPABILITY_RESTRICTED` 挂起原因区分不出 SANCTION 与 ADMIN_SUSPENSION，客户面一律藏**：`holdReasonOf()` 只按**哪一格 FAIL** 映射原因，拿不到便签的 `cause`；而客户面的可见性判据是「`limitHoldReason` 非空即整单不可见」，于是行政级挂起在**挂着的时候**对客户是零记录（退回落地才清、才可见，见 `modules/v4-deposit.md` §4.8）。保守是刻意的——tipping-off 的代价不对称（藏错了客户少看见一条记录，露错了是刑事风险）。要精确区分需让 `holdReasonOf()` 带上 `cause`，并给客户面定一套「哪些 cause 可见」的白名单 ｜来源: 2026-08-22 第四批 B4
-
-- [ ] ⭐ **`AuthGuard` 里 `/wallet/send` 的受限重定向守着一条不存在的路由**：`client-web/src/components/AuthGuard.tsx` 有一段「WITHDRAW 受限时把 `/wallet/send` 重定向到 `/profile`」，但 `/wallet/send` 这条路由全仓不存在——受限客户真走到这一步会落到空路由。演示第二幕「现场给一位客户开限制」时是可能被点到的 ｜来源: 2026-08-16；2026-08-26 分流迁入 PRODUCTION-NOTES，2026-08-28 判为业务缺口迁回
 
 ## D. 第三幕 · 钱进（V4 充值）
 
@@ -124,6 +110,8 @@ Last Updated: 2026-09-08
 - [ ] **Internal Approvals 深链只到列表页（新，2026-07-30）**：详情页 "Internal Approvals" 块点击只跳审批列表 `/admin/governance/approvals`，无法深链到具体审批单——因 `findOneForAdmin` 的 `approvals[]` 投影只 pick `{approvalNo,actionType,status,createdAt}`（业主定"仅单头"），丢了审批 case `id`；审批详情路由/列表筛选又都按 `id`/不读 `approvalNo` query。修法：投影补回 `id`（`id` 是 case 主键、非 step，不违背"仅单头不含 step"），前端深链 `/admin/governance/approvals/<id>`｜来源: 2026-07-30 Sumsub 详情增强 Task 6 review
 
 - [ ] **`LIFECYCLE_NOT_ACTIVE` 挂起的单，若客户还没有 `sumsubApplicantId`，永远等不到裁决**：`submitSumsubTxns()`（`deposit-workflow.service.ts:345-351`）在 `deposit.customer?.sumsubApplicantId` 为空时直接 `logger.warn` 后 `return`——单子留在 `COMPLIANCE_PENDING`，但从未真正提交 Sumsub，也就永远不会收到裁决 webhook。这类单唯一的出路是运营在详情页用 ⚡ 面板对着 `COMPLIANCE_PENDING` 的单直接喂一个「① Approved」裁决（`decideVerdictLanding`/`applyKytApproved` 只按当前状态判定是否派发，不检查是否真的送过检）——裁决落地时 `limitHoldReason` 仍是 `LIFECYCLE_NOT_ACTIVE`（行政级，在 `ADMINISTRATIVE_HOLD_REASONS` 里），经 `holdIfHeld` 转 `OPERATION_PENDING`、挂起原样保留，交还运营再处置。"客户还没在 Sumsub 开户"不是刁钻边界，是会正常发生的客户状态，值得配一条脚本或至少讲清"这条路只能靠运营手动喂裁决" ｜来源: 2026-09-05 V3 财务配置治愈波二 Task 13 文档收口核对 L1 挂起链路时发现
+
+- [ ] **`CAPABILITY_RESTRICTED` 挂起原因区分不出 SANCTION 与 ADMIN_SUSPENSION，客户面一律藏**：`holdReasonOf()` 只按**哪一格 FAIL** 映射原因，拿不到便签的 `cause`；而客户面的可见性判据是「`limitHoldReason` 非空即整单不可见」，于是行政级挂起在**挂着的时候**对客户是零记录（退回落地才清、才可见，见 `modules/v4-deposit.md` §4.8）。保守是刻意的——tipping-off 的代价不对称（藏错了客户少看见一条记录，露错了是刑事风险）。要精确区分需让 `holdReasonOf()` 带上 `cause`，并给客户面定一套「哪些 cause 可见」的白名单 ｜来源: 2026-08-22 第四批 B4；2026-09-08 业主裁定归订单域，自第二幕迁入
 
 - [ ] **TR 适用判定未自动计算**：充值 PRD 定义 Travel Rule 适用 = 虚拟币 且 来源地址为 VASP 托管 且 单笔 ≥ 3,500 AED（三条件 AND，否则 NOT_REQUIRED）；现状仅条件①法币→NOT_REQUIRED 落地，条件②(hosted/unhosted VASP 分类，依赖 roadmap V3 地址打标)+③(3,500 阈值判定)**代码未自动计算** → crypto TR 结果当前由 demo 模拟端点注入 ｜来源: 2026-07-11 充值 PRD v2
 
@@ -158,6 +146,8 @@ Last Updated: 2026-09-08
 > 讲「出金门最多、客户永远看不到调查原因」这一幕的缺口。⭐ 那条正是这一幕的卖点本身在提现域没落实。
 
 - [ ] ⭐ **规则 A（tipping-off 防线）只在充值域落实，提现域有一模一样的洞未堵**：`withdraw-transactions.service.ts → toCustomerWithdrawView()`（约 L357-380）原样返回 `status: item.status`/`completedAt: item.completedAt`——一笔被 `adminFreeze` 打成 `FROZEN` 的提现，客户端 DevTools → Network 面板可直接读到裸 `'FROZEN'` 字符串（对照充值域 `deposit-transactions.service.ts → toCustomerDepositView()` 已有的 `CUSTOMER_STATUS_PASSTHROUGH` 白名单收敛 + `CUSTOMER_COMPLETED_STATUSES` completedAt 独立白名单，见 modules/v4-deposit.md §4.6）；`findAllForCustomer()`（约 L333-339）把客户传入的 `query.status` 直接转发进 `findAll()` 的 where 条件，无 customerScope 收窄——`GET /client/withdraw-transactions?status=FROZEN` 本身就是一个可用的冻结预言机（对照充值域 `findAll()` 在 `customerScope` 下已静默忽略原始 `status` 参数）；前端 `client-web/src/pages/Withdraw.tsx → HISTORY_STATUS_FILTERS`（约 L105-115）仍是裸 status 列表式筛选（`statuses: ['PENDING_APPROVAL','COMPLIANCE_PENDING','MANUAL_CHECKING','FROZEN','PAYOUT_PENDING']`），未跟进充值域已切换的 `bucket` 补集式设计（§4.6）。本条不是回归——提现域这套字段白名单本就早于充值域上线（Task 11 只做了字段裁剪，未含 status/completedAt 收敛），deposit-action-embed 分支只是把充值域这道防线补完，两域因此出现不对称：modules/v4-deposit.md 与代码注释里写的"规则 A"读起来像平台级不变量，实际只在充值域落实。仅登记，本分支未改提现代码 ｜来源: 2026-08-05 deposit-action-embed 分支终审 Important 3
+
+- [ ] **Q1 制裁客户的订单级折叠未做**：本轮贴 `scope=ALL` 便签只把在途单打成 `FROZEN`，客户面靠服务端脱敏白名单收敛成 `COMPLIANCE_PENDING`；设计稿讨论过的「收单后一律挂 `PROCESSING`、连状态变化都不产生」的订单级折叠没做。与「提现域 tipping-off 未对齐」同源，一并排期 ｜来源: 2026-08-15 设计稿 §8 Q1；2026-09-08 业主裁定归订单域，自第二幕迁入
 
 - [ ] **提现报价审计未落地**：报价流程（`WithdrawQuoteService.createQuote/consumeQuote/cancelQuote`）零打点——常量 `WITHDRAW_PRICING_QUOTE_CREATED/_USED/_CANCELLED`（entityType `WITHDRAW_PRICING_QUOTE`）已定义但 `withdraw-quote.service.ts` 从不调用（grep 实证 0 命中，该文件无任何 audit 引用）；对比兑换 `SWAP_QUOTE_CREATED/USED/CANCELLED` 已在 `swap-quote.service.ts:249/319/364` 落地。应补打 QUOTE_CREATED/USED/CANCELLED（workflowType `WITHDRAW_QUOTE`），与兑换对齐 ｜来源: 2026-07-11 提现报价单文档 v2 §4.1.3
 
@@ -302,6 +292,13 @@ Last Updated: 2026-09-08
 - [~] roadmap **V3/V4 已按三层新格式重排 + truth 外置**（2026-07-03）；V1/V2/V5-V9 待同款处理
 
 ---
+
+## 本轮销账（2026-09-08 第二幕收尾轮）
+
+- [x] ⭐ `AuthGuard` 里 `/wallet/send` 的受限重定向守着一条不存在的路由 —— 死代码随本轮删除；实证：路由表无注册、全仓无入口（`grep -rn "wallet/send" client-web/src` 仅 AuthGuard 一处命中）
+- [x] Swap/Withdraw 页 `PendingActionBanner` 与 `RestrictionBanner` 重复卡 —— 陈账：实际早已修复于 `f67a9629`（RestrictionBanner 按 `claimedByMaterialRequestNo` 过滤被材料请求认领的便签，余下行一律 Contact support），本轮 Ivy 走查截图复证后销账
+- [x] 豁免位有效期（poa/questionnaires 提交时间戳待验）—— 2026-09-08 业主裁定作废：材料收取与画像评分都在 Sumsub 侧，豁免机制不归我方系统
+- [x] 客户列表「限制」筛选只作用于当前页 —— 2026-09-08 业主裁定清理：demo 规模下的已知取舍成立（footer 已明示范围），不再挂账
 
 ## 本轮销账（2026-09-08 按演示动线重排，已勾条目整批归档）
 

@@ -11,9 +11,9 @@ admin@fiatx.com 超管 ｜ sm@ 高管(SMO) ｜ ciso@ ｜ mlro@ ｜ dpo@ ｜ comp
 
 邀请新成员时的四个演示细节：邮箱现场编一个，不必真实可达；MFA 绑定用任意 TOTP 认证器 App 扫码，不挑牌子；新人视角必须开一个浏览器隐身窗，与批准人的会话分开；邀请没有真发信——激活链接不走邮件，直接显示在管理台「成员详情」卡片上，复制过去就是新人要点的那个链接（通知本就是空壳，这是演示装置，讲清）。
 
-## 客户矩阵（business seed，9 位，覆盖 8 种状态位）
+## 客户矩阵（business seed，11 位，覆盖 8 种状态位）
 
-7 位 ACTIVE 客户开户日已回填 `onboardingApprovedAt = 2026-06-15T09:00:00Z`、CDD 五列（生日/国籍/证件类型/证件号/住址）已铺——早出新客窗（NEW_CUSTOMER 衍生标签 30 天窗）。Carol、Frank 落 `edd-sof-sow-level`（EDD 档）；其余 5 位 ACTIVE 客户落 `basic-cdd-level`（CDD 档）。Dave（认证中）、Eve（刚注册）本身就是"开户流程中段/起点"的演示位，故意不回填。第二幕②③现场开户走查用的是当场新注册客户，不是这张表；现场注册客户即用即弃，重演换一个新邮箱，不依赖 reset。
+9 位 ACTIVE 客户开户日已回填 `onboardingApprovedAt = 2026-06-15T09:00:00Z`、CDD 五列（生日/国籍/证件类型/证件号/住址）已铺——早出新客窗（NEW_CUSTOMER 衍生标签 30 天窗）。Carol、Frank 落 `edd-sof-sow-level`（EDD 档）；其余 7 位 ACTIVE 客户落 `basic-cdd-level`（CDD 档）。Dave（认证中）、Eve（刚注册）本身就是"开户流程中段/起点"的演示位，故意不回填。第二幕②③现场开户走查用的是当场新注册客户，不是这张表；现场注册客户即用即弃，重演换一个新邮箱，不依赖 reset。
 
 | 客户 | 状态位 | 用来演什么 |
 |---|---|---|
@@ -26,6 +26,10 @@ admin@fiatx.com 超管 ｜ sm@ 高管(SMO) ｜ ciso@ ｜ mlro@ ｜ dpo@ ｜ comp
 | Grace Premium | VIP 费率标签（手打 STATIC，与 PREMIUM 交易档位解绑，2026-09-06） | 费率受众谓词（命中 VIP-USDT-AED） |
 | Henry Acme | 企业客户 | 企业形态占位 |
 | Ivy Restricted | **材料过期 · 明示受限** | 与 Carol 对照：明示 vs 静默 |
+| Jack Trader | 快乐路径（对账素材） | 第六幕破口场景的钱包与流水素材 |
+| Kate Trader | 快乐路径（对账素材） | 同上——MATCHED 桶的干净代表 |
+
+客户密码统一 123456；客户端登录页 Quick login 面板列全 11 位、点击一键登录（2026-09-08 第二幕收尾轮，演示选角不再手输邮箱）。
 
 ## 资产、网络与钱包地址行
 
