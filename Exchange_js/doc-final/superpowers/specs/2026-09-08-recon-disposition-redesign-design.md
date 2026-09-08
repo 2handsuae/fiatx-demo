@@ -72,14 +72,15 @@
 
 - `disposition.service.record()`：入参从「成因（推出口）」改为「成因 + 财务所选处置」，仍写 `reconciliation_dispositions`（覆盖式、同锚、挂单锁定不变）；挂起路径由此一次落定性。动钱路径改为**弹窗提交时与开单原子落**（定性 + 单一次写，锚/回填/清锁机制沿用）。
 - `adjustment.service`：四族 createDraft 按新注册表取码；事故分支闸改（§1-7）：`row 挂已定损事故` ⇒ 放行认损/核销、金额 = 定损额、跳过小额线；原「定性出口 = INCIDENT 才放行」删除。
-- 权限迁移：定性写权限组（现 `RECON_DISPOSITION_WRITE`，OPS 持有）迁 `TREASURY_OFFICER`；补单三审批类型（补录/退汇/退回）发起角色运营→金库；推单/重对账入口权限同迁。**权限四处齐 + `db:base:sync` + 重启后端**（老坑）。
-- 审计：码不加不减；`RECON_DISPOSITION_RECORDED` 的 `outlet` 语义变为「财务所选处置」，`causeCode` 照录。
+- 权限迁移：定性写权限组（现 `RECON_DISPOSITION_WRITE`，OPS 持有）迁 `TREASURY_OFFICER`；补单三审批类型（补录/退汇/退回）发起角色运营→金库，**三路同改、改完互查**（防"三处同加长成四处"）；推单/重对账入口权限同迁。**权限四处齐 + `db:base:sync` + 重启后端**（老坑）。
+- **`scripts/verify-rbac.ts` 的 `MAKER_GROUP_BY_POLICY` 人工表同步改**（delivery-checklist 行 6）：补单三策略的 maker 组 OPS→金库，调账/核销既有策略行核对——S5 自批死锁闸只遍历这张表，表不改 = 闸照不到新分工；改完 CFO 仍不得出现在任何 maker 组。
+- 审计：码不加不减；`RECON_DISPOSITION_RECORDED` 的 `outlet` 语义变为「财务所选处置」，`causeCode` 照录；**定性与开单原子落时两码照写不合并**（`RECON_DISPOSITION_RECORDED` + `RECON_ADJUSTMENT_DRAFTED` 各一条，显式 `requestId`——漏了会被静默去重）。
 - 读面 `reconciliation-query.service`：差异行下发从 `menu`（成因菜单）改为 `dispositions`（合法处置清单）+ 每处置的原因码子清单；`demoRecommendedCause` 数据线保留（并行会话 2026-09-08 所建），气泡复用之。
 
 ## 7. 前端改动面
 
 - 案件详情页：Disposition 列 = 状态徽标 + 按钮组（换行不横滚，1280 视口铁规）；`ReconciliationDispositionModal` 两屏退役，按钮直连各弹窗；调账/补单/核销弹窗以现组件为骨架改造（字段布局见 artifact M 节）。
-- Case 列表页（L1）：Disposition 列加 ⚡ 徽标，悬浮气泡出该案全部演示场景（场景号 = `demo/script.md` 走查号 + 场景名 + 一句话 + 预期处置）；数据 = break 轮 `demoManifest` 案子级聚合，与差异行 `demoRecommendedCause` 同源；真实/pass 轮无答案键即无徽标。
+- Case 列表页（L1）：Disposition 列加 ⚡ 徽标，悬浮气泡出该案全部演示场景（场景号 = `demo/script.md` 走查号 + 场景名 + 一句话 + 预期处置）；数据 = break 轮 `demoManifest` 案子级聚合，与差异行 `demoRecommendedCause` 同源；真实/pass 轮无答案键即无徽标。**气泡只渲染业务键**（walletNo / 客户号）——manifest 的 `walletRef` 是 UUID（已登记 BACKLOG 的坑），进气泡前必须换投影，铁律⑥。
 - 词表：按钮/弹窗全英文，沿用 FAMILY_LABEL / 现行 outlet 词汇；样机为准。
 
 ## 8. 数据与重铺
@@ -96,10 +97,11 @@
 1. `recon:demo:break` 铺 18 场景，按 artifact 编号走查：六格按钮显隐（含 A1b SWAP 行、A5 方向切）、全部弹窗开单送审落账、挂起覆盖与挂单锁定、超期三岔口、死胡同场景（大额查不出→事故→定损→认损开出、金额=定损额）走通。
 2. 列表页气泡：模拟模式悬浮可见、真实模式无徽标（截图）。
 3. 权限：金库账号见全部按钮，运营账号案件页零动作入口（截图）。
-4. 收尾闸按 delivery-checklist：⑥ demo:all ｜ ⑦ verify:coa ｜ ⑧ 重铺闸（动了码值域与种子）。
+4. 收尾闸按 delivery-checklist：⑥ demo:all ｜ ⑦ verify:coa ｜ ⑧ 重铺闸（动了码值域与种子）｜ verify:rbac（权限与 maker 组迁移后 S5 全绿）。
 5. 前端改动必须 preview 渲染 + 截图，tsc 不算数。
+6. 退役零残余：`Record finding` 两屏与旧「先定性再开单」入口全仓 grep 零引用（防幽灵按钮，附复现命令）。
 
 ## 11. 连带文档与协同
 
-- 收尾时更新：`modules/v8-recon.md`（§1 处置叙事、§3 角色表、§5 技术节点）、`reference/recon-cause-handbook.md`（出口列改「常见处置」、单码制）、`demo/script.md`（第六幕走查词）、`decisions.md` 三条新目（覆盖 2026-09-01 判出口、2026-09-02 三人链；新增单码制）、BACKLOG（销死胡同条 + 新增兑换冲正码条）。
+- 收尾时更新：`modules/v8-recon.md`（§1 处置叙事、§3 角色表、§5 技术节点）、`reference/recon-cause-handbook.md`（出口列改「常见处置」、单码制）、`demo/script.md`（第六幕走查词）+ `demo/data.md`（生成区由 demo:all 重写，手改区核对角色词）、`decisions.md` 三条新目（覆盖 2026-09-01 判出口、2026-09-02 三人链；新增单码制）、BACKLOG（销死胡同条 + 新增兑换冲正码条）、`CHANGELOG.md` 一行。
 - **并行会话协同**：工作树现有未提交 WIP 触及 `ReconciliationDispositionModal.tsx` / `reconciliation-query.service.ts` / `demo/script.md` 等（⚡Recommended 徽标与走查登记）；本 spec 落地必须在独立 worktree 分支进行，合并前先并 main 解冲突（既定规矩），气泡与 demoRecommendedCause 对齐不另造数据线。
