@@ -893,8 +893,8 @@ describe('getCase — 案件级调账单列表 adjustments（Task 7）', () => {
   it('返回体含案件级 adjustments 数组，形状 { adjustmentNo, status, reasonCode, direction, amount }；查询按 caseNo 过滤（Fix 6 之后 getCase 只发这一条 reconciliationAdjustment 查询——Task 6 的 lineItemId IN 查询已随 decoratedLineItems 一并删除）', async () => {
     const prisma = mkPrismaBase();
     const rows = [
-      { adjustmentNo: 'ADJ20260828001', status: 'POSTED', reasonCode: 'BANK_INTEREST', direction: 'INCREASE', amount: '500' },
-      { adjustmentNo: 'ADJ20260828002', status: 'PENDING_APPROVAL', reasonCode: 'DEPOSIT_AMOUNT_CORRECTION', direction: 'REDUCE', amount: '1200' },
+      { adjustmentNo: 'ADJ20260828001', status: 'POSTED', reasonCode: 'BANK_INTEREST_UNBOOKED', direction: 'INCREASE', amount: '500' },
+      { adjustmentNo: 'ADJ20260828002', status: 'PENDING_APPROVAL', reasonCode: 'AMT_MISBOOKED', direction: 'REDUCE', amount: '1200' },
     ];
     prisma.reconciliationAdjustment = {
       findMany: jest.fn().mockResolvedValue(rows),
@@ -912,7 +912,7 @@ describe('getCase — 案件级调账单列表 adjustments（Task 7）', () => {
   it('lineItemId 为 null 的行（新表单开单的常态）照样出现在 adjustments 里——这是本任务要解决的核心问题，旧的 lineItemId 标记查询做不到这一点', async () => {
     const prisma = mkPrismaBase();
     const rowWithNullLineItemId = {
-      adjustmentNo: 'ADJ20260828004', status: 'DRAFT', reasonCode: 'WITHDRAW_AMOUNT_CORRECTION',
+      adjustmentNo: 'ADJ20260828004', status: 'DRAFT', reasonCode: 'AMT_MISBOOKED',
       direction: 'INCREASE', amount: '900',
     };
     prisma.reconciliationAdjustment = {
@@ -926,7 +926,7 @@ describe('getCase — 案件级调账单列表 adjustments（Task 7）', () => {
   it('案件没有任何行项目时：案件级 caseNo 查询照常发——不依赖 lineItems 是否为空', async () => {
     const prisma = mkPrismaBase({ lineItems: [] });
     const rows = [
-      { adjustmentNo: 'ADJ20260828003', status: 'DRAFT', reasonCode: 'BANK_CHARGE', direction: 'REDUCE', amount: '300' },
+      { adjustmentNo: 'ADJ20260828003', status: 'DRAFT', reasonCode: 'BANK_CHARGE_UNBOOKED', direction: 'REDUCE', amount: '300' },
     ];
     const findMany = jest.fn().mockResolvedValue(rows);
     prisma.reconciliationAdjustment = { findMany };
@@ -1311,12 +1311,12 @@ describe('getCase 行注解（spec §3/§8）', () => {
       createdAt: new Date('2026-06-27T12:30:00Z'),
       updatedAt: new Date('2026-06-27T13:00:00Z'),
     };
-    // 调账单本身按 DEPOSIT_AMOUNT_CORRECTION/INCREASE 开出——跟这条定性记录的成因
+    // 调账单本身按 AMT_MISBOOKED/INCREASE 开出——跟这条定性记录的成因
     // （PHANTOM_BOOKING → REVERSE 族）刻意不一致，用来证明读的是单上的字段而不是
     // 从 causeCode 反推出来的族。
     const linkedAdjustment = {
       adjustmentNo: 'ADJ-2026-000001', status: 'POSTED',
-      reasonCode: 'DEPOSIT_AMOUNT_CORRECTION', direction: 'INCREASE', amount: '6000',
+      reasonCode: 'AMT_MISBOOKED', direction: 'INCREASE', amount: '6000',
     };
     const prisma = mkBasePrisma({
       externalBalance: { findMany: jest.fn().mockResolvedValue([]) },
@@ -1334,8 +1334,8 @@ describe('getCase 行注解（spec §3/§8）', () => {
     const result: any = await svc.getCase(baseKase.caseNo);
 
     const row = result.flowComparison.find((r: any) => r.internalFlow?.id === 'int-anchor2');
-    expect(row.disposition.family).toBe(REASON_SPECS.DEPOSIT_AMOUNT_CORRECTION.family); // 'CORRECT'
-    expect(row.disposition.reasonCode).toBe('DEPOSIT_AMOUNT_CORRECTION');
+    expect(row.disposition.family).toBe(REASON_SPECS.AMT_MISBOOKED.family); // 'CORRECT'
+    expect(row.disposition.reasonCode).toBe('AMT_MISBOOKED');
     expect(row.disposition.direction).toBe('INCREASE');
     expect(row.disposition.adjustmentNo).toBe('ADJ-2026-000001');
   });

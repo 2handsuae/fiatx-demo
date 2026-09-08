@@ -17,7 +17,7 @@ describe('ReconciliationAdjustment schema', () => {
       data: {
         adjustmentNo: 'ADJ_SCHEMA_SMOKE_1',
         caseNo: 'CASE_SMOKE', walletRef: 'W_SMOKE', book: 'CLIENT',
-        direction: 'REDUCE', reasonCode: 'DEPOSIT_DUPLICATE_REVERSAL',
+        direction: 'REDUCE', reasonCode: 'DUP_BOOKING',
         assetCode: 'AED', amount: '1500', effectiveDate: '2026-08-28',
         reasonInternal: 'smoke', reasonCustomer: 'smoke',
         createdByUserId: 'U_SMOKE',
@@ -47,10 +47,10 @@ describe('AdjustmentService.assertTransition', () => {
 
 describe('AdjustmentService.describeImpact —— the approval page sees the consequence, not the order number', () => {
   const svc = new AdjustmentService(null as any, null as any, null as any, null as any, null as any);
-  it('client-book reduction: states who, how much, and why — amount scaled by decimals to a human-readable number, cause shows the customer-facing label rather than the raw enum', () => {
+  it('client-book reduction: states who, how much, and why — amount scaled by decimals to a human-readable number, cause shows the internal label rather than the raw enum', () => {
     const text = svc.describeImpact({
       book: 'CLIENT', ownerNo: 'C0042', amount: '1500', assetCode: 'AED',
-      direction: 'REDUCE', reasonCode: 'DEPOSIT_DUPLICATE_REVERSAL', reasonInternal: 'Same deposit recorded twice',
+      direction: 'REDUCE', reasonCode: 'DUP_BOOKING', reasonInternal: 'Same deposit recorded twice',
     } as any, 2);
     expect(text).toContain('C0042');
     expect(text).toContain('decrease');
@@ -58,29 +58,33 @@ describe('AdjustmentService.describeImpact —— the approval page sees the con
     // the latter is a two-order-of-magnitude misread on the one screen where the approver reads the amount (200.00 AED read as 20000).
     expect(text).toContain('15.00');
     expect(text).not.toContain('1500');
-    // customerLabel ("Duplicate deposit reversal") replaces the raw enum DEPOSIT_DUPLICATE_REVERSAL.
-    expect(text).toContain('Duplicate deposit reversal');
-    expect(text).not.toContain('DEPOSIT_DUPLICATE_REVERSAL');
+    // describeImpact's generic branch always uses internalLabel, never customerLabel (adjustment.service.ts
+    // comment: customerLabel is null for the two firm-side causes, so borrowing it here would print the
+    // raw enum for those). DUP_BOOKING's internalLabel is "Duplicate posting (twin)" — unlike the retired
+    // DEPOSIT_DUPLICATE_REVERSAL code this test used to carry, where customerLabel and internalLabel happened
+    // to share the same text, masking that this branch never reads customerLabel at all.
+    expect(text).toContain('Duplicate posting (twin)');
+    expect(text).not.toContain('DUP_BOOKING');
     expect(text).toContain('Same deposit recorded twice');
   });
   it('firm book: copy reads "the firm\'s balance"', () => {
     const text = svc.describeImpact({
       book: 'FIRM', ownerNo: null, amount: '500', assetCode: 'AED',
-      direction: 'REDUCE', reasonCode: 'BANK_CHARGE', reasonInternal: 'Bank fee deduction',
+      direction: 'REDUCE', reasonCode: 'BANK_CHARGE_UNBOOKED', reasonInternal: 'Bank fee deduction',
     } as any, 2);
     expect(text).toContain("the firm's balance");
     expect(text).toContain('5.00'); // 500 minor → 5.00 AED
     // Final-stage Minor 1: the two firm-side causes have customerLabel deliberately null (customer
     // cannot see firm-side adjustments) — reusing it here used to fall back to printing the raw enum
-    // "cause: BANK_CHARGE" (the five client-side causes were all in Chinese, only the firm side was
+    // "cause: BANK_CHARGE_UNBOOKED" (the five client-side causes were all in Chinese, only the firm side was
     // half English half Chinese). Now uses internalLabel.
     expect(text).toContain('Bank charges');
-    expect(text).not.toContain('BANK_CHARGE');
+    expect(text).not.toContain('BANK_CHARGE_UNBOOKED');
   });
   it('direction INCREASE: copy reads "increase"', () => {
     const text = svc.describeImpact({
       book: 'CLIENT', ownerNo: 'C0099', amount: '800', assetCode: 'USDT',
-      direction: 'INCREASE', reasonCode: 'WITHDRAW_VOID_REFUND', reasonInternal: 'Withdrawal rejected, balance refunded',
+      direction: 'INCREASE', reasonCode: 'PAYOUT_NOT_EXECUTED', reasonInternal: 'Withdrawal rejected, balance refunded',
     } as any, 6);
     expect(text).toContain('increase');
     expect(text).toContain('0.000800'); // 800 minor units → USDT at 6 decimals
@@ -126,7 +130,7 @@ describe('AdjustmentService.createDraft two gates —— where the gate cannot b
   it('gate 2 · boundary line: adding funds to a client-book account without a related order number → rejected', async () => {
     const { svc } = makeSvc(openClientCase);
     await expect(svc.createDraft({
-      caseNo: 'CASE_GATE', lineItemId: 'LI_1', reasonCode: 'DEPOSIT_AMOUNT_CORRECTION',
+      caseNo: 'CASE_GATE', lineItemId: 'LI_1', reasonCode: 'AMT_MISBOOKED',
       direction: 'INCREASE', amount: '1000', effectiveDate: '2026-08-28',
       reasonInternal: 'Deposit amount recorded incorrectly, needs correcting upward', reasonCustomer: 'Deposit amount correction',
     } as any, OP)).rejects.toThrow(BadRequestException);
@@ -136,7 +140,7 @@ describe('AdjustmentService.createDraft two gates —— where the gate cannot b
     const { svc, create, prisma } = makeSvc(openClientCase);
     prisma.depositTransaction.findUnique.mockResolvedValue({ id: 'dep-uuid' });
     await svc.createDraft({
-      caseNo: 'CASE_GATE', lineItemId: 'LI_1', reasonCode: 'DEPOSIT_AMOUNT_CORRECTION',
+      caseNo: 'CASE_GATE', lineItemId: 'LI_1', reasonCode: 'AMT_MISBOOKED',
       direction: 'INCREASE', amount: '1000', effectiveDate: '2026-08-28',
       reasonInternal: 'Deposit amount recorded incorrectly, needs correcting upward', reasonCustomer: 'Deposit amount correction',
       relatedOrderNo: 'DEP2608280001',
@@ -154,7 +158,7 @@ describe('AdjustmentService.createDraft two gates —— where the gate cannot b
     const { svc, create, prisma } = makeSvc(openClientCase);
     prisma.withdrawTransaction.findUnique.mockResolvedValue({ id: 'wd-uuid' });
     await svc.createDraft({
-      caseNo: 'CASE_GATE', reasonCode: 'WITHDRAW_VOID_REFUND',
+      caseNo: 'CASE_GATE', reasonCode: 'PAYOUT_NOT_EXECUTED',
       direction: 'INCREASE', amount: '1000', effectiveDate: '2026-08-28',
       reasonInternal: 'Withdrawal was voided but the books were not reversed', reasonCustomer: 'Withdrawal refund',
       relatedOrderNo: 'WD2608280001',
@@ -167,7 +171,7 @@ describe('AdjustmentService.createDraft two gates —— where the gate cannot b
   it('gate 2 · boundary line (Fix 3): relatedOrderNo is non-empty, but none of the deposit/withdrawal/swap tables have it → rejected — a made-up order number cannot bypass the boundary-line guard', async () => {
     const { svc, create, prisma } = makeSvc(openClientCase);
     await expect(svc.createDraft({
-      caseNo: 'CASE_GATE', reasonCode: 'DEPOSIT_AMOUNT_CORRECTION',
+      caseNo: 'CASE_GATE', reasonCode: 'AMT_MISBOOKED',
       direction: 'INCREASE', amount: '1000', effectiveDate: '2026-08-28',
       reasonInternal: 'Deposit amount recorded incorrectly, needs correcting upward', reasonCustomer: 'Deposit amount correction',
       relatedOrderNo: 'DEP_DOES_NOT_EXIST',
@@ -183,7 +187,7 @@ describe('AdjustmentService.createDraft two gates —— where the gate cannot b
   it('gate 1 · illegal cause combination: a FIRM-only cause paired with a case on the CLIENT book → rejected', async () => {
     const { svc } = makeSvc(openClientCase);
     await expect(svc.createDraft({
-      caseNo: 'CASE_GATE', lineItemId: 'LI_1', reasonCode: 'BANK_INTEREST',
+      caseNo: 'CASE_GATE', lineItemId: 'LI_1', reasonCode: 'BANK_INTEREST_UNBOOKED',
       direction: 'INCREASE', amount: '1000', effectiveDate: '2026-08-28',
       reasonInternal: 'Bank interest', reasonCustomer: 'Bank interest', relatedOrderNo: 'X',
     } as any, OP)).rejects.toThrow(BadRequestException);
@@ -192,7 +196,7 @@ describe('AdjustmentService.createDraft two gates —— where the gate cannot b
   it('gate 1 · anti-bypass: the persisted book comes from the case, stuffing a book into the request does not get through', async () => {
     const { svc, create } = makeSvc(openClientCase);
     await svc.createDraft({
-      caseNo: 'CASE_GATE', lineItemId: 'LI_1', reasonCode: 'DEPOSIT_DUPLICATE_REVERSAL',
+      caseNo: 'CASE_GATE', lineItemId: 'LI_1', reasonCode: 'DUP_BOOKING',
       direction: 'REDUCE', amount: '1000', effectiveDate: '2026-08-28',
       reasonInternal: 'Same deposit recorded twice', reasonCustomer: 'Duplicate deposit reversal',
       book: 'FIRM',
@@ -209,7 +213,7 @@ describe('AdjustmentService.createDraft two gates —— where the gate cannot b
   it('opening from a difference line: both explanation anchors are persisted as-is', async () => {
     const { svc, create } = makeSvc(openClientCase);
     await svc.createDraft({
-      caseNo: 'CASE_GATE', reasonCode: 'DEPOSIT_DUPLICATE_REVERSAL',
+      caseNo: 'CASE_GATE', reasonCode: 'DUP_BOOKING',
       direction: 'REDUCE', amount: '1000', effectiveDate: '2026-08-28',
       reasonInternal: 'Same deposit recorded twice', reasonCustomer: 'Duplicate deposit reversal',
       explainedFlowId: 'FLOW_9', explainedExternalLineId: 'EXTLINE_9',
@@ -223,7 +227,7 @@ describe('AdjustmentService.createDraft two gates —— where the gate cannot b
   it('no explanation anchor (case-level entry point): createDraft opens the adjustment as usual, both anchors land null', async () => {
     const { svc, create } = makeSvc(openClientCase);
     await svc.createDraft({
-      caseNo: 'CASE_GATE', reasonCode: 'DEPOSIT_DUPLICATE_REVERSAL',
+      caseNo: 'CASE_GATE', reasonCode: 'DUP_BOOKING',
       direction: 'REDUCE', amount: '1000', effectiveDate: '2026-08-28',
       reasonInternal: 'Same deposit recorded twice', reasonCustomer: 'Duplicate deposit reversal',
     } as any, OP);
@@ -238,7 +242,7 @@ describe('AdjustmentService.createDraft two gates —— where the gate cannot b
   it('effective date later than the case business date → 400, no adjustment opened', async () => {
     const { svc, create } = makeSvc(openClientCase);   // openClientCase.businessDate = '2026-08-28'
     await expect(svc.createDraft({
-      caseNo: 'CASE_GATE', reasonCode: 'DEPOSIT_DUPLICATE_REVERSAL',
+      caseNo: 'CASE_GATE', reasonCode: 'DUP_BOOKING',
       direction: 'REDUCE', amount: '1000', effectiveDate: '2026-08-29',
       reasonInternal: 'Same deposit recorded twice', reasonCustomer: 'Duplicate deposit reversal',
     } as any, OP)).rejects.toThrow(BadRequestException);
@@ -249,7 +253,7 @@ describe('AdjustmentService.createDraft two gates —— where the gate cannot b
     for (const effectiveDate of ['2026-08-28', '2026-08-01']) {
       const { svc, create } = makeSvc(openClientCase);
       await svc.createDraft({
-        caseNo: 'CASE_GATE', reasonCode: 'DEPOSIT_DUPLICATE_REVERSAL',
+        caseNo: 'CASE_GATE', reasonCode: 'DUP_BOOKING',
         direction: 'REDUCE', amount: '1000', effectiveDate,
         reasonInternal: 'Same deposit recorded twice', reasonCustomer: 'Duplicate deposit reversal',
       } as any, OP);
@@ -695,7 +699,7 @@ describe('AdjustmentService.onApproved posting', () => {
 
   const clientRow = {
     adjustmentNo: 'ADJ2608280001', status: 'PENDING_APPROVAL', book: 'CLIENT',
-    direction: 'REDUCE', reasonCode: 'DEPOSIT_DUPLICATE_REVERSAL',
+    direction: 'REDUCE', reasonCode: 'DUP_BOOKING',
     walletRef: 'W_CUST_1', assetCode: 'AED', amount: '1500', effectiveDate: '2026-08-15',
     ownerNo: 'C0042', ownerId: 'uuid-cust', caseNo: 'RC26082800001',
     reasonInternal: 'Same deposit recorded twice', traceId: 'T1', relatedOrderNo: 'DP2608150042',
@@ -746,7 +750,7 @@ describe('AdjustmentService.onApproved posting', () => {
   });
 
   // 补测（业主要求）：四种分录组合里，上面三条只端到端断言过 CLIENT 账簿一种；
-  // 公司账簿两种（BANK_CHARGE 减/BANK_INTEREST 加）在本任务完全没被覆盖，而它们正是
+  // 公司账簿两种（BANK_CHARGE_UNBOOKED 减/BANK_INTEREST_UNBOOKED 加）在本任务完全没被覆盖，而它们正是
   // 演示破口场景 5/7（银行杂费/银行利息）要走的路。这条覆盖 FIRM+INCREASE。
   // 一并断言 ownerType：自审时发现公司科目（FIRM_ASSET/INCOME_OTHER）在 TbAccountRegistry
   // 里的真实登记值是 'SYSTEM'（见 asset-provisioning.service.ts:46、
@@ -757,7 +761,7 @@ describe('AdjustmentService.onApproved posting', () => {
     const resolveTbAccountId = jest.fn().mockResolvedValue(1n);
     const accounting = { executeTransfer: jest.fn().mockResolvedValue({ tbTransferId: 1n }), resolveTbAccountId };
     const firmRow = {
-      ...clientRow, book: 'FIRM', direction: 'INCREASE', reasonCode: 'BANK_INTEREST',
+      ...clientRow, book: 'FIRM', direction: 'INCREASE', reasonCode: 'BANK_INTEREST_UNBOOKED',
       ownerNo: null, ownerId: null, walletRef: 'W_FIRM_AED',
     };
     await makeSvc(firmRow, accounting).onApproved('ADJ2608280001', 'U_OPS');
@@ -773,7 +777,7 @@ describe('AdjustmentService.onApproved posting', () => {
   it('posting-legs coverage · CLIENT/INCREASE: posts "debit client asset / credit client payable" (withdrawal-refund scenario)', async () => {
     const resolveTbAccountId = jest.fn().mockResolvedValue(1n);
     const accounting = { executeTransfer: jest.fn().mockResolvedValue({ tbTransferId: 1n }), resolveTbAccountId };
-    const row = { ...clientRow, direction: 'INCREASE', reasonCode: 'WITHDRAW_VOID_REFUND' };
+    const row = { ...clientRow, direction: 'INCREASE', reasonCode: 'PAYOUT_NOT_EXECUTED' };
     await makeSvc(row, accounting).onApproved('ADJ2608280001', 'U_OPS');
     const codes = resolveTbAccountId.mock.calls.map((c: any[]) => c[0].code);
     expect(codes).toEqual([TB_ACCOUNT_CODES.CLIENT_ASSET, TB_ACCOUNT_CODES.CLIENT_PAYABLE]);
@@ -783,7 +787,7 @@ describe('AdjustmentService.onApproved posting', () => {
     const resolveTbAccountId = jest.fn().mockResolvedValue(1n);
     const accounting = { executeTransfer: jest.fn().mockResolvedValue({ tbTransferId: 1n }), resolveTbAccountId };
     const row = {
-      ...clientRow, book: 'FIRM', direction: 'REDUCE', reasonCode: 'BANK_CHARGE',
+      ...clientRow, book: 'FIRM', direction: 'REDUCE', reasonCode: 'BANK_CHARGE_UNBOOKED',
       ownerNo: null, ownerId: null, walletRef: 'W_FIRM_AED',
     };
     await makeSvc(row, accounting).onApproved('ADJ2608280001', 'U_OPS');
@@ -861,7 +865,7 @@ describe('AdjustmentService.getAdjustment —— detail read model (Task 7)', ()
   const baseRow = {
     id: 'uuid-row', adjustmentNo: 'ADJ2608280002', caseNo: 'RC26082800001',
     explainedFlowId: null, explainedExternalLineId: null, walletRef: 'W_CUST_1', book: 'CLIENT', direction: 'REDUCE',
-    reasonCode: 'DEPOSIT_DUPLICATE_REVERSAL', assetCode: 'AED', amount: '1500',
+    reasonCode: 'DUP_BOOKING', assetCode: 'AED', amount: '1500',
     effectiveDate: '2026-08-15', reasonInternal: 'Same deposit recorded twice', reasonCustomer: 'Duplicate deposit reversal',
     status: 'DRAFT', approvalCaseId: null, approvalNo: null, ownerNo: 'C0042', ownerId: 'uuid-cust',
     traceId: null, createdByUserId: 'U_OP', decidedByUserId: null, postedAt: null, tbTransferId: null,
@@ -887,15 +891,15 @@ describe('AdjustmentService.getAdjustment —— detail read model (Task 7)', ()
     expect((await svcMiss.getAdjustment('ADJ2608280002') as any).decimals).toBe(0);
   });
 
-  it('client-book reduction (DEPOSIT_DUPLICATE_REVERSAL/REDUCE): the posting preview is "debit L.CLIENT_PAYABLE / credit A.CLIENT_ASSET"', async () => {
+  it('client-book reduction (DUP_BOOKING/REDUCE): the posting preview is "debit L.CLIENT_PAYABLE / credit A.CLIENT_ASSET"', async () => {
     const svc = makeSvc(baseRow);
     const result: any = await svc.getAdjustment('ADJ2608280002');
     expect(result.debitAccountCode).toBe('L.CLIENT_PAYABLE');
     expect(result.creditAccountCode).toBe('A.CLIENT_ASSET');
   });
 
-  it('firm-book increase (BANK_INTEREST/INCREASE): the posting preview is "debit A.FIRM_ASSET / credit E.INCOME_OTHER" — matches the account pair in the onApproved posting-legs test, the two must not disagree', async () => {
-    const firmRow = { ...baseRow, book: 'FIRM', direction: 'INCREASE', reasonCode: 'BANK_INTEREST', ownerNo: null, ownerId: null };
+  it('firm-book increase (BANK_INTEREST_UNBOOKED/INCREASE): the posting preview is "debit A.FIRM_ASSET / credit E.INCOME_OTHER" — matches the account pair in the onApproved posting-legs test, the two must not disagree', async () => {
+    const firmRow = { ...baseRow, book: 'FIRM', direction: 'INCREASE', reasonCode: 'BANK_INTEREST_UNBOOKED', ownerNo: null, ownerId: null };
     const svc = makeSvc(firmRow);
     const result: any = await svc.getAdjustment('ADJ2608280002');
     expect(result.debitAccountCode).toBe('A.FIRM_ASSET');
@@ -1039,7 +1043,7 @@ describe('createDraft fourth family (reattribution, spec §6) + finding link-bac
     // afterDraftCreated 读的是 create() 落库后拿回的 row，不是 dto——
     // mock 只需给出审计信封会用到的那几列。
     const createdRow = {
-      adjustmentNo: 'ADJ2608280099', reasonCode: 'DEPOSIT_DUPLICATE_REVERSAL', amount: '1000',
+      adjustmentNo: 'ADJ2608280099', reasonCode: 'DUP_BOOKING', amount: '1000',
       ownerNo: 'C0042', caseNo: 'CASE_DRAFTED_1', direction: 'REDUCE', book: 'CLIENT',
       reasonInternal: 'Same deposit recorded twice',
     };
@@ -1053,7 +1057,7 @@ describe('createDraft fourth family (reattribution, spec §6) + finding link-bac
     );
 
     await service.createDraft({
-      caseNo: 'CASE_DRAFTED_1', reasonCode: 'DEPOSIT_DUPLICATE_REVERSAL',
+      caseNo: 'CASE_DRAFTED_1', reasonCode: 'DUP_BOOKING',
       direction: 'REDUCE', amount: '1000', effectiveDate: '2026-08-28',
       reasonInternal: 'Same deposit recorded twice', reasonCustomer: 'Duplicate deposit reversal',
     } as any, ACTOR);
@@ -1062,7 +1066,7 @@ describe('createDraft fourth family (reattribution, spec §6) + finding link-bac
     const envelope = recordByActor.mock.calls[0][0];
     expect(envelope.action).toBe('RECON_ADJUSTMENT_DRAFTED');
     // requiredFields 顶层——assertActionSpec 读的是信封顶层字段，不是 metadata。
-    expect(envelope.reasonCode).toBe('DEPOSIT_DUPLICATE_REVERSAL');
+    expect(envelope.reasonCode).toBe('DUP_BOOKING');
     expect(envelope.amount).toBe('1000');
     // 漏了显式 requestId 会被静默去重、审计直接消失（本仓踩过）。
     expect(envelope.requestId).toMatch(/^RECON_ADJUSTMENT_DRAFTED_ADJ/);
@@ -1536,17 +1540,17 @@ describe('AdjustmentService.listAdjustments —— list read model (Task 4)', ()
       data: [
         {
           ...baseRow, adjustmentNo: 'ADJ_LIST_T4_1', ownerNo: 'C_LIST_T4_1',
-          direction: 'REDUCE', reasonCode: 'DEPOSIT_DUPLICATE_REVERSAL', assetCode: 'AED', amount: '1000',
+          direction: 'REDUCE', reasonCode: 'DUP_BOOKING', assetCode: 'AED', amount: '1000',
           effectiveDate: '2031-01-01', status: 'DRAFT', createdAt: new Date('2031-01-01T00:00:00Z'),
         },
         {
           ...baseRow, adjustmentNo: 'ADJ_LIST_T4_2', ownerNo: 'C_LIST_T4_2',
-          direction: 'INCREASE', reasonCode: 'WITHDRAW_VOID_REFUND', assetCode: 'USDT-TRON', amount: '2000000',
+          direction: 'INCREASE', reasonCode: 'PAYOUT_NOT_EXECUTED', assetCode: 'USDT-TRON', amount: '2000000',
           effectiveDate: '2031-01-02', status: 'DRAFT', createdAt: new Date('2031-01-02T00:00:00Z'),
         },
         {
           ...baseRow, adjustmentNo: 'ADJ_LIST_T4_3', ownerNo: null,
-          direction: 'REDUCE', reasonCode: 'BANK_CHARGE', assetCode: 'AED', amount: '3000',
+          direction: 'REDUCE', reasonCode: 'BANK_CHARGE_UNBOOKED', assetCode: 'AED', amount: '3000',
           effectiveDate: '2031-01-03', status: 'REJECTED', createdAt: new Date('2031-01-03T00:00:00Z'),
         },
       ],

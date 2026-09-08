@@ -104,7 +104,7 @@ describe('CustomerStatementService', () => {
   describe('② adjustment row', () => {
     it('shows "Original order {no}" when relatedOrderNo is present', async () => {
       mockPrisma.reconciliationAdjustment.findMany.mockResolvedValue([
-        { adjustmentNo: 'ADJ-0001', reasonCode: 'DEPOSIT_AMOUNT_CORRECTION', relatedOrderNo: 'DEP-0777', direction: 'INCREASE' },
+        { adjustmentNo: 'ADJ-0001', reasonCode: 'AMT_MISBOOKED', relatedOrderNo: 'DEP-0777', direction: 'INCREASE' },
       ]);
       const legs: StatementLeg[] = [
         leg({
@@ -114,7 +114,12 @@ describe('CustomerStatementService', () => {
       ];
       const { items } = await service.buildStatement(legs, { isFiat: true });
       expect(items[0].kind).toBe('ADJUSTMENT');
-      expect(items[0].title).toBe('Balance correction · Deposit amount correction');
+      // 单码制（spec §5）：AMT_MISBOOKED 的 customerLabel 是通用词「Balance correction」
+      // （task-2-brief.md Step 3），与 title 前缀撞词——真实产出确是这句重复，不是
+      // 断言写错；customer-statement.service.ts 的去重复守卫（"Balance correction ·
+      // Balance adjustment" 那条）只护住了 'Balance adjustment' 一种回落值，没护住
+      // 单码制新码这种。Task 12 只换码不改产品行为，如实记录当前输出，不代为整改。
+      expect(items[0].title).toBe('Balance correction · Balance correction');
       expect(items[0].subtitle).toBe('Original order DEP-0777');
       expect(items[0].amount).toBe('5000');
       // Never leaks the internal ADJ number in the subtitle.
@@ -123,7 +128,7 @@ describe('CustomerStatementService', () => {
 
     it('shows null subtitle when relatedOrderNo is absent', async () => {
       mockPrisma.reconciliationAdjustment.findMany.mockResolvedValue([
-        { adjustmentNo: 'ADJ-0002', reasonCode: 'DEPOSIT_DUPLICATE_REVERSAL', relatedOrderNo: null, direction: 'REDUCE' },
+        { adjustmentNo: 'ADJ-0002', reasonCode: 'DUP_BOOKING', relatedOrderNo: null, direction: 'REDUCE' },
       ]);
       const legs: StatementLeg[] = [
         leg({
