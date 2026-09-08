@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
-import { motion } from 'framer-motion';
-import { Eye, EyeOff } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { Eye, EyeOff, Zap, X } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 
@@ -10,6 +10,24 @@ import { useAuth } from '../context/AuthContext';
  * ──────────────────────────────────────────────────────────────── */
 
 const MASTHEAD = ['F', 'I', 'A', 'T', 'X'];
+
+/* 演示选角面板的账号清单——与 prisma/seed.business.ts DEMO_CUSTOMERS 对齐（11 位，密码全 123456）。
+ * 人设标签是给演示者看的选角信息（与 admin 登录页 Quick Login 同一先例），不是客户面业务文案。 */
+type SeedCustomer = { name: string; email: string; persona: string };
+
+const SEED_CUSTOMERS: SeedCustomer[] = [
+  { name: 'Alice Happy',    email: 'demo_alice@example.com', persona: 'Active · happy path' },
+  { name: 'Bob Happy',      email: 'demo_bob@example.com',   persona: 'Active · happy path' },
+  { name: 'Carol Silent',   email: 'demo_carol@example.com', persona: 'Sanctioned · silent' },
+  { name: 'Dave Pending',   email: 'demo_dave@example.com',  persona: 'In verification' },
+  { name: 'Eve New',        email: 'demo_eve@example.com',   persona: 'Just registered' },
+  { name: 'Frank HighRisk', email: 'demo_frank@example.com', persona: 'High risk · EDD' },
+  { name: 'Grace Premium',  email: 'demo_grace@example.com', persona: 'Premium tier · VIP fees' },
+  { name: 'Henry Acme',     email: 'demo_acme@example.com',  persona: 'Corporate · Acme Trading LLC' },
+  { name: 'Ivy Restricted', email: 'demo_ivy@example.com',   persona: 'Material expired · restricted' },
+  { name: 'Jack Trader',    email: 'demo_jack@example.com',  persona: 'Active trader' },
+  { name: 'Kate Trader',    email: 'demo_kate@example.com',  persona: 'Active trader' },
+];
 
 function MiniMasthead() {
   return (
@@ -32,6 +50,7 @@ const CustomerLogin = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
   const [toastMessage, setToastMessage] = useState('');
+  const [quickOpen, setQuickOpen] = useState(false);
   const navigate = useNavigate();
   const { refreshProfile } = useAuth();
 
@@ -57,25 +76,21 @@ const CustomerLogin = () => {
     }
   }, []);
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setQuickOpen(false); };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, []);
+
+  const doLogin = async (loginData: Record<string, string>) => {
     setIsLoading(true);
     setError('');
-
     try {
-      const loginData: Record<string, string> = { password: formData.password };
-      if (method === 'email') {
-        loginData.email = formData.email.trim();
-      } else {
-        loginData.phone = formData.phone.trim();
-      }
-
       const response = await fetch(`${import.meta.env.VITE_API_URL}/auth/customer/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(loginData),
       });
-
       if (response.ok) {
         const data = await response.json();
         localStorage.setItem('customer_token', data.access_token);
@@ -98,6 +113,24 @@ const CustomerLogin = () => {
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const loginData: Record<string, string> = { password: formData.password };
+    if (method === 'email') {
+      loginData.email = formData.email.trim();
+    } else {
+      loginData.phone = formData.phone.trim();
+    }
+    await doLogin(loginData);
+  };
+
+  const handleQuickLogin = async (account: SeedCustomer) => {
+    setQuickOpen(false);
+    setMethod('email');
+    setFormData((prev) => ({ ...prev, email: account.email, password: '123456' }));
+    await doLogin({ email: account.email, password: '123456' });
   };
 
   return (
@@ -243,9 +276,19 @@ const CustomerLogin = () => {
               <div>
                 <div className="flex items-center justify-between mb-3">
                   <label className="fx-cap">Password</label>
-                  <a href="#" className="fx-cap text-fx-dust hover:text-fx-brass transition-colors">
-                    Forgot?
-                  </a>
+                  <div className="flex items-center gap-5">
+                    <button
+                      type="button"
+                      onClick={() => setQuickOpen(true)}
+                      className="fx-cap inline-flex items-center gap-1.5 text-fx-brass hover:text-fx-ember transition-colors"
+                    >
+                      <Zap size={10} />
+                      Quick login
+                    </button>
+                    <a href="#" className="fx-cap text-fx-dust hover:text-fx-brass transition-colors">
+                      Forgot?
+                    </a>
+                  </div>
                 </div>
                 <div className="relative">
                   <input
@@ -313,6 +356,71 @@ const CustomerLogin = () => {
           </motion.div>
         </div>
       </main>
+
+      {/* ── Demo quick login（演示选角面板，与 admin 登录页 Quick Login 同一先例）── */}
+      <AnimatePresence>
+        {quickOpen && (
+          <>
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.18 }}
+              className="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm"
+              onClick={() => setQuickOpen(false)}
+            />
+            <motion.div
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 10 }}
+              transition={{ duration: 0.22, ease: [0.19, 1, 0.22, 1] }}
+              className="fixed inset-0 z-50 flex items-center justify-center pointer-events-none"
+            >
+              <div className="pointer-events-auto w-full max-w-md mx-4 bg-fx-obsidian border border-fx-rule">
+                <div className="h-[2px] bg-fx-brass" />
+                <div className="flex items-center justify-between px-6 py-4 border-b border-fx-rule">
+                  <div className="flex items-center gap-2">
+                    <Zap size={11} className="text-fx-brass" />
+                    <span className="fx-cap text-fx-sand">Demo quick login</span>
+                  </div>
+                  <button
+                    onClick={() => setQuickOpen(false)}
+                    className="text-fx-dust hover:text-fx-sand transition-colors"
+                    aria-label="Close quick login"
+                  >
+                    <X size={14} />
+                  </button>
+                </div>
+                <div className="px-6 py-2 border-b border-fx-rule bg-fx-brass/5">
+                  <span className="fx-cap text-fx-brass/80">All accounts · password 123456</span>
+                </div>
+                <div className="p-2 max-h-[60vh] overflow-y-auto">
+                  {SEED_CUSTOMERS.map((account) => (
+                    <button
+                      key={account.email}
+                      onClick={() => void handleQuickLogin(account)}
+                      className="w-full flex items-center justify-between gap-4 px-4 py-3 text-left hover:bg-fx-rule/20 transition-colors group"
+                    >
+                      <div className="min-w-0">
+                        <div className="flex items-baseline gap-3">
+                          <span className="fx-serif text-[14px] text-fx-sand">{account.name}</span>
+                          <span className="font-mono text-[9px] uppercase tracking-[0.14em] text-fx-brass">
+                            {account.persona}
+                          </span>
+                        </div>
+                        <div className="font-mono text-[10px] text-fx-dust truncate mt-0.5">{account.email}</div>
+                      </div>
+                      <span className="shrink-0 font-mono text-[10px] text-fx-dust group-hover:text-fx-brass transition-colors">
+                        →
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
     </div>
   );
 };
