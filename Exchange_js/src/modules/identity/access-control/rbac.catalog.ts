@@ -1062,6 +1062,9 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
     // CFO 复核出口（补单/追回/追偿）一并从 OPS_OFFICER 迁入；maker（金库）≠ checker（CFO）。
     'RECON_RUN_WRITE', 'RECON_DISPOSITION_WRITE',
     'DEPOSIT_SUPPLEMENT_WRITE', 'DEPOSIT_CLAWBACK_WRITE', 'WITHDRAW_RETURN_CLAIM_WRITE',
+    // 评审 Imp-1（Task6 2026-09-08）：补单 maker 得点开自己发起的充值/提现单——CFO 批完补单，
+    // 案件页出现单号链接，金库没有这两个读权点进去就 403，是全仓唯一看不到自己所开订单的职务。
+    'TRADING_DEPOSIT_READ', 'TRADING_WITHDRAW_READ',
     // 平账二期：补款 / 垫款开单归金库——maker（金库）≠ checker（CFO），verify:rbac S5 守着；READ 走到列表 / 详情入口。
     'INTERNAL_TRANSFER_READ', 'INTERNAL_TRANSFER_WRITE',
     'INCIDENT_WRITE',
