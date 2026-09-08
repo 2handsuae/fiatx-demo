@@ -907,21 +907,24 @@ const PROBES: DirectionalProbe[] = [
     role: 'ops_officer', expect: 'DENY', body: { reason: 'verify:rbac probe' },
   },
 
-  // ── 推单跑批只在运营（V4 后半 + 矩阵头条）────────────────
+  // ── 推资金单只在运营（V4 后半 + 矩阵头条）────────────────
   {
-    section: '推单跑批只在运营', name: '运营 可以 推资金单', method: 'POST',
+    section: '推单只在运营', name: '运营 可以 推资金单', method: 'POST',
     routePattern: '/admin/funds-orders/:fundsOrderNo/push/sync', path: `/admin/funds-orders/${NOPE}/push/sync`,
     role: 'ops_officer', expect: 'ALLOW',
   },
+
+  // ── 重对账触发只在金库（平账处置改版第 6 任务：RECON_RUN_WRITE 随处置权一并迁出 OPS，
+  //    运营退出案件页）────────────────────────────────────
   {
-    section: '推单跑批只在运营', name: '运营 可以 跑对账批次', method: 'POST',
+    section: '重对账触发只在金库', name: '金库官 可以 跑对账批次', method: 'POST',
     routePattern: '/admin/reconciliation/runs/wallet', path: '/admin/reconciliation/runs/wallet',
-    role: 'ops_officer', expect: 'ALLOW', body: { cutoff: new Date().toISOString() },
+    role: 'treasury', expect: 'ALLOW', body: { cutoff: new Date().toISOString() },
   },
   {
-    section: '推单跑批只在运营', name: '金库官 不得 跑对账批次', method: 'POST',
+    section: '重对账触发只在金库', name: '运营 不得 跑对账批次', method: 'POST',
     routePattern: '/admin/reconciliation/runs/wallet', path: '/admin/reconciliation/runs/wallet',
-    role: 'treasury', expect: 'DENY',
+    role: 'ops_officer', expect: 'DENY',
   },
 
   // ── V4 前半：只持 FUNDS_ORDER_VIEW 的职务看得见、推不动 ──
