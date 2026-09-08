@@ -121,6 +121,9 @@ const BUSINESS_DELEGATES_FK_SAFE: string[] = [
   // 加表时都没有同步更新本清单。**以后加任何 FK → customer_main 的表，必须回来加一行。**
   'materialRequest',
   'customerExplicitTag',
+  // tier_upgrade_applications：FK → customer_main，本波（交易档位升级）加表时漏登记
+  // 本清单，重铺撞 P2003 才被逮到（TOOLING-DEBT）。
+  'tierUpgradeApplication',
   'customerMain',
   'asset',
 ];
