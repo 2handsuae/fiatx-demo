@@ -971,6 +971,38 @@ async function runDirectionalProbe(tokens: Record<string, string>, p: Directiona
   check(`[${p.section}] ${p.name}`, ok, `${p.role}@ ${p.method} ${p.path} → ${status}（期望 ${expectLabel}）`);
 }
 
+// ══════════════════════ 档位升级读安全（波三终审修三）══════════════════════
+//
+// GET .../tier-upgrade 对不存在的客户抛 404（getAdminView 真查 CustomerMain），静态
+// PROBES 表的 NOPE 占位 id 撑不起 ALLOW 分支必须拿 2xx 的判据，故不进静态表——单独一
+// 个函数，先用真实 HTTP（GET /customers?take=1，CUSTOMER_READ 组，运营/超管均持有）
+// 取一个真实种子客户号，再用同一个 customerNo 跑下面两条：都不写数据——ALLOW 纯读；
+// DENY 落在 AdminPermissionGuard（controller 方法体之前），压根碰不到业务层。
+async function verifyTierUpgradeReadDenyPair(tokens: Record<string, string>): Promise<void> {
+  const label = '档位升级读安全 · 取种子客户号';
+  const { status: listStatus, json: listBody } = await call('GET', '/customers?take=1', tokens.admin);
+  const seedCustomerNo = listBody?.data?.[0]?.customerNo;
+  if (listStatus !== 200 || !seedCustomerNo) {
+    check(label, false, `GET /customers?take=1 → ${listStatus}，拿不到真实 customerNo，无法继续`);
+    return;
+  }
+  check(label, true, `取到 ${seedCustomerNo}`);
+
+  const readPath = `/admin/customers/${seedCustomerNo}/tier-upgrade`;
+  const { status: readStatus } = await call('GET', readPath, tokens.ops_officer);
+  check(
+    '[档位升级读安全] 运营 可以 看档位升级全貌', readStatus >= 200 && readStatus < 300,
+    `ops_officer@ GET ${readPath} → ${readStatus}（期望 2xx）`,
+  );
+
+  const submitPath = `/admin/customers/${seedCustomerNo}/tier-upgrade-acceptance`;
+  const { status: submitStatus } = await call('POST', submitPath, tokens.sm, { reason: 'verify:rbac probe' });
+  check(
+    '[档位升级读安全] 高管 不得 提档位升级核准', submitStatus === 403,
+    `sm@ POST ${submitPath} → ${submitStatus}（期望 403，maker 是运营不是高管）`,
+  );
+}
+
 // ══════════════════════ V2：改角色不丢权限 ══════════════════════
 //
 // 对每个内建角色：技术官提交「原样重提当前 permissionGroups」的 modify 请求 → CISO
@@ -1156,6 +1188,9 @@ async function main(): Promise<void> {
     { section: '支撑调用', name: '提交改角色请求', method: 'POST', routePattern: '/admin/iam/role-definitions/:roleId/modify' },
     { section: '支撑调用', name: '批准审批案', method: 'POST', routePattern: '/admin/control-gates/approvals/:approvalNo/approve' },
     { section: '支撑调用', name: '资产列表', method: 'GET', routePattern: '/assets' },
+    { section: '支撑调用', name: '客户列表', method: 'GET', routePattern: '/customers' },
+    { section: '档位升级读安全', name: '看档位升级全貌', method: 'GET', routePattern: '/admin/customers/:customerNo/tier-upgrade' },
+    { section: '档位升级读安全', name: '提档位升级核准', method: 'POST', routePattern: '/admin/customers/:customerNo/tier-upgrade-acceptance' },
   ];
   const missing = findUnregisteredRoutes(liveRoutes, usages);
   if (missing.length > 0) {
@@ -1171,6 +1206,10 @@ async function main(): Promise<void> {
   for (const p of PROBES) {
     await runDirectionalProbe(tokens, p);
   }
+  console.log('');
+
+  console.log('── 档位升级读安全（运营可读 / 高管不可提，零写入）──');
+  await verifyTierUpgradeReadDenyPair(tokens);
   console.log('');
 
   console.log('── V3 裁决只认审批策略 + 费率只在CFO(ALLOW半) ──');

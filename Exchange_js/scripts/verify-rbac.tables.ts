@@ -36,4 +36,5 @@ export const DETAIL_READ_GROUP_BY_POLICY: Record<string, string> = {
   INCIDENT_CLOSE_FINANCIAL: 'INCIDENT_READ', // → /admin/governance/incidents/:incidentNo
   // 客户域（entityRef = customerNo）
   CUSTOMER_ONBOARDING_ACCEPTANCE: 'CUSTOMER_READ', // → /admin/customers/:customerNo（SMO 持 CUSTOMER_READ）
+  CUSTOMER_TIER_UPGRADE: 'CUSTOMER_READ', // → /admin/customers/:customerNo（SMO 持 CUSTOMER_READ）
 };

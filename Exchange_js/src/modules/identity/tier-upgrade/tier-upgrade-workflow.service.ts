@@ -175,7 +175,7 @@ export class TierUpgradeWorkflowService {
     });
     if (open) throw new BadRequestException(`Acceptance already pending approval: ${open.approvalNo}`);
     const traceId = randomUUID();
-    const impact = `Trading tier upgrade acceptance: ${customerNo} / ${app.upgradeNo} — approving raises the trading tier BASIC -> PREMIUM; cumulative limits switch to the PREMIUM schedule immediately.`;
+    const impact = `Trading tier upgrade acceptance: ${customerNo} / ${app.upgradeNo} — materials cleared GREEN in Sumsub; approving raises the trading tier BASIC -> PREMIUM; cumulative limits switch to the PREMIUM schedule immediately.`;
     const approvalCase = await this.approvalsService.createAndSubmit(
       {
         actionType: ApprovalActionTypes.CUSTOMER_TIER_UPGRADE, entityRef: customerNo, traceId,
