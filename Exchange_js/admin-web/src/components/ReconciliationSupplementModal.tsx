@@ -86,6 +86,7 @@ const ReconciliationSupplementModal = ({ open, caseNo, row, onClose, onDone }: P
           <>
             {needAddr && <label className="mb-3 block text-xs">Source address<input value={fromAddress} onChange={(e) => setFromAddress(e.target.value)} className="mt-1 w-full rounded border border-adm-border bg-adm-panel px-2 py-1 font-mono text-xs" placeholder="On-chain payer address" /></label>}
             {needIban && <label className="mb-3 block text-xs">Source IBAN<input value={fromIban} onChange={(e) => setFromIban(e.target.value)} className="mt-1 w-full rounded border border-adm-border bg-adm-panel px-2 py-1 font-mono text-xs" placeholder="Payer IBAN" /></label>}
+            {kind === 'SUPPLEMENT_DEPOSIT' && <p className="mb-3 text-xs text-adm-t3">Amounts below this asset's single-deposit minimum will pause at OPERATION_PENDING after approval — release it on the deposit detail page.</p>}
             {needOrder && (
               <fieldset className="mb-3 text-xs">
                 <legend className="mb-1 text-adm-t3">Original order (same wallet · succeeded · same amount, most recent first)</legend>

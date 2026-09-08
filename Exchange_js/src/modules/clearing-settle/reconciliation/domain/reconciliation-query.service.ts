@@ -538,7 +538,13 @@ export class ReconciliationQueryService {
       };
       r.dispositions = dispositionsFor(rowFacts).map((kind) => ({
         kind, label: DISPOSITION_LABEL[kind],
-        causes: causesFor(kind, rowFacts.matchType, rowFacts.book),
+        // SUPPLEMENT 三码不分方向全出会让 IN 行选中 OUT 专属成因（如 BOUNCED_FUNDS），
+        // 一路填到发起才被 assertClaimable 拒——按行方向过滤，判据即 CAUSE_REGISTRY
+        // 里登记的 requiredDirection（写端 resolveOutlet 用的同一份）。
+        causes: kind === 'SUPPLEMENT'
+          ? causesFor(kind, rowFacts.matchType, rowFacts.book)
+            .filter((c) => CAUSE_REGISTRY[c.code].requiredDirection === rowFacts.externalDirection)
+          : causesFor(kind, rowFacts.matchType, rowFacts.book),
       }));
       // 平账 A 批（spec §2.6）+ 二期（spec §7.1）：超期解锁——判据全在服务端。
       // 公司池：小额 → 核销，大额 → 事故（三期）；客户池：多出来的不论大小 → 指路补录

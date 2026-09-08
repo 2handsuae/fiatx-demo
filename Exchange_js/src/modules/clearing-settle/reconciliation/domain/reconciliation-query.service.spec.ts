@@ -1070,7 +1070,12 @@ describe('getCase 行注解（spec §3/§8）', () => {
     facts: { internalDirection?: 'IN' | 'OUT'; internalSourceType?: string; externalDirection?: 'IN' | 'OUT' } = {},
   ) =>
     dispositionsFor({ matchType, book, ...facts }).map((kind) => ({
-      kind, label: DISPOSITION_LABEL[kind], causes: causesFor(kind, matchType, book),
+      kind, label: DISPOSITION_LABEL[kind],
+      // Task 9（缺口 1）：SUPPLEMENT 三码按账单行方向过滤——镜像实现里的同一条
+      // requiredDirection 判据，不许测试用例自己重复一份独立口径。
+      causes: kind === 'SUPPLEMENT'
+        ? causesFor(kind, matchType, book).filter((c) => CAUSE_REGISTRY[c.code].requiredDirection === facts.externalDirection)
+        : causesFor(kind, matchType, book),
     }));
 
   it('三类差异行带 dispositions（该格合法处置清单 + 组内成因，Task 5 读面翻转）；MATCHED/IN_TRANSIT 不带；r.menu 不再下发', async () => {
@@ -1142,6 +1147,58 @@ describe('getCase 行注解（spec §3/§8）', () => {
     expect(inTransitRow).toBeDefined();
     expect(inTransitRow.dispositions).toBeUndefined();
     expect(inTransitRow.menu).toBeUndefined();
+  });
+
+  // 缺口 1（Task 9）：SUPPLEMENT 三码（MISSED_DEPOSIT/BOUNCED_FUNDS/PAYOUT_RETURNED）
+  // 此前不分方向全出——IN 行能选中 OUT 专属的「退汇认领」，一路填到发起才被
+  // assertClaimable 400。读面按 externalLine.direction 过滤，判据 = CAUSE_REGISTRY
+  // 里的 requiredDirection（写端 resolveOutlet 用的同一份注册表字段）。
+  it('ORPHAN_EXTERNAL × CLIENT：IN 行 SUPPLEMENT causes 只出 MISSED_DEPOSIT/PAYOUT_RETURNED，不含 OUT 专属的 BOUNCED_FUNDS（Task 9 缺口 1）', async () => {
+    const externalLines = [
+      { id: 'ext-supp-in', direction: 'IN', amount: new Prisma.Decimal(200), externalRef: 'REF-SUPP-IN', datetime: new Date('2026-06-27T09:00:00Z'), description: null },
+    ];
+    const prisma = mkBasePrisma({
+      externalBalance: { findMany: jest.fn().mockResolvedValue([{ accountRef: 'ACC-ANNO' }]) },
+      externalStatementLine: { findMany: jest.fn().mockResolvedValue(externalLines) },
+      accountFlow: { findMany: jest.fn().mockResolvedValue([]) },
+    });
+    const flowMatcher = {
+      matchFlows: jest.fn().mockResolvedValue({
+        matched: [], orphanInternal: [],
+        orphanExternal: [{ externalLineId: 'ext-supp-in' }],
+        mismatch: [],
+      }),
+    };
+    const svc = mkSvc(prisma, { flowMatcher });
+    const result: any = await svc.getCase(baseKase.caseNo);
+
+    const row = result.flowComparison.find((r: any) => r.externalLine?.id === 'ext-supp-in');
+    const supplement = row.dispositions.find((d: any) => d.kind === 'SUPPLEMENT');
+    expect(supplement.causes.map((c: any) => c.code)).toEqual(['MISSED_DEPOSIT', 'PAYOUT_RETURNED']);
+  });
+
+  it('ORPHAN_EXTERNAL × CLIENT：OUT 行 SUPPLEMENT causes 只出 BOUNCED_FUNDS，不含 IN 专属的 MISSED_DEPOSIT/PAYOUT_RETURNED（Task 9 缺口 1）', async () => {
+    const externalLines = [
+      { id: 'ext-supp-out', direction: 'OUT', amount: new Prisma.Decimal(300), externalRef: 'REF-SUPP-OUT', datetime: new Date('2026-06-27T09:30:00Z'), description: null },
+    ];
+    const prisma = mkBasePrisma({
+      externalBalance: { findMany: jest.fn().mockResolvedValue([{ accountRef: 'ACC-ANNO' }]) },
+      externalStatementLine: { findMany: jest.fn().mockResolvedValue(externalLines) },
+      accountFlow: { findMany: jest.fn().mockResolvedValue([]) },
+    });
+    const flowMatcher = {
+      matchFlows: jest.fn().mockResolvedValue({
+        matched: [], orphanInternal: [],
+        orphanExternal: [{ externalLineId: 'ext-supp-out' }],
+        mismatch: [],
+      }),
+    };
+    const svc = mkSvc(prisma, { flowMatcher });
+    const result: any = await svc.getCase(baseKase.caseNo);
+
+    const row = result.flowComparison.find((r: any) => r.externalLine?.id === 'ext-supp-out');
+    const supplement = row.dispositions.find((d: any) => d.kind === 'SUPPLEMENT');
+    expect(supplement.causes.map((c: any) => c.code)).toEqual(['BOUNCED_FUNDS']);
   });
 
   it('AMOUNT_MISMATCH × CLIENT 行 internalSourceType=SWAP → dispositions 不含 CORRECT（A1b 甲，读面联调）', async () => {
