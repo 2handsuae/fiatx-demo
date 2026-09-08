@@ -19,9 +19,17 @@ import {
   Book, Direction, ReasonCode, REASON_SPECS,
   assertReasonAllowed, requiresRelatedOrder, resolvePostingLegs, resolveReattributionLegs,
 } from './adjustment-rules';
-import { AdjustFamily, CauseCode, DispositionKind, staticOutletLabel } from './cause-registry';
+import { AdjustFamily, DISPOSITION_LABEL, DispositionKind, OUTLET_OF, StoredOutlet } from './cause-registry';
 import { isSmallAmount, SMALL_AMOUNT_LINE_MINOR } from './recon-thresholds.constant';
 import { DispositionService } from './disposition.service';
+
+// Task 13：结论文案改走「存储 outlet → 处置种类 → DISPOSITION_LABEL」反查（同
+// reconciliation-query.service.ts 读面 KIND_OF_OUTLET 的路子，唯一来源都是
+// cause-registry.ts 导出的 OUTLET_OF），取代已退役的 staticOutletLabel(causeCode) 反推
+// ——那条路径靠成因码重算 kind，单码制下 causeCode 已经不带这层信息了。
+const KIND_OF_OUTLET = new Map<StoredOutlet, DispositionKind>(
+  (Object.entries(OUTLET_OF) as Array<[DispositionKind, StoredOutlet]>).map(([kind, outlet]) => [outlet, kind]),
+);
 
 @Injectable()
 export class AdjustmentService {
@@ -176,7 +184,7 @@ export class AdjustmentService {
       throw new BadRequestException('The case has not yet reached the aging threshold — unexplained differences stay on hold until then; write-off can only be discussed after that');
     }
     if (!held || held.outlet !== 'HOLD_INVESTIGATING') {
-      const conclusion = held ? staticOutletLabel(held.causeCode as CauseCode) : 'not yet found';
+      const conclusion = held ? DISPOSITION_LABEL[KIND_OF_OUTLET.get(held.outlet as StoredOutlet)!] : 'not yet found';
       throw new BadRequestException(`Write-off only applies to a difference line found as "Hold · Investigating"; this line's conclusion is ${conclusion}`);
     }
     if (held.adjustmentNo) {

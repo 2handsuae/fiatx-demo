@@ -350,11 +350,15 @@ const rowAdjustmentPrefill = (row: FlowComparisonRow): AdjustmentPrefill => {
 };
 
 // Task 7（差异行按钮组）：记完一条定性 → 调账弹层锁定态所需的最小信息。取代旧的
-// 两屏处置弹层（ReconciliationDispositionModal，已断线，Task 13 删文件）导出的同形
+// 两屏处置弹层（ReconciliationDispositionModal，已断线，Task 13 已删文件）导出的同形
 // AdjustHandoff 类型——本页不再引用那个文件。
 interface AdjustHandoff {
   dispositionNo: string;
-  family: 'CORRECT' | 'REVERSE' | 'RECORD' | 'REATTRIBUTE' | 'WRITE_OFF';
+  // Task 13：CORRECT/REVERSE/RECORD 三族已不经这个类型（Task 8 起改走 kind 模式，见
+  // openAdjustKind）；本页唯一的 buildAdjustLocked 调用点只传 'REATTRIBUTE'，
+  // 'WRITE_OFF' 走 openWriteOff 直接拼 AdjustmentLocked、不经这个类型（两个成员都留着
+  // 是给 buildAdjustLocked 这个通用小函数的类型面，不是说它俩当下各有一处真调用）。
+  family: 'REATTRIBUTE' | 'WRITE_OFF';
   reasonCode?: string;
   direction?: 'REDUCE' | 'INCREASE';
   directionNote: string;
@@ -561,7 +565,7 @@ const CaseHistory = ({ kase, agingReferenceMs }: { kase: ReconCaseDetail; agingR
 
 // Task 7（差异行按钮组）：CORRECT/REVERSE/RECORD/REATTRIBUTE/SUPPLEMENT/INCIDENT
 // 六个非挂起处置共用的「选成因 + 查证说明」小弹层——取代旧两屏处置弹层
-// （ReconciliationDispositionModal，已断线、读 row.menu 这个死字段，Task 13 删文件）
+// （ReconciliationDispositionModal，已断线、读 row.menu 这个死字段，Task 13 已删文件）
 // 的第一屏，数据源换成 row.dispositions（Task 5 读面）。不导出、不另开文件：
 // 与 HOLD_NEXT_PERIOD/HOLD_INVESTIGATING 两个挂起 kind 用的
 // ReconciliationHoldModal 结构相近但提交后的下一步完全不同（挂起是终态，这六个
@@ -752,7 +756,7 @@ const ReconciliationCasesDetailPage = () => {
   // 说明」小弹层——null = 关闭；非 null = 打开且带着被点击的那一行 + 那一个处置种类。
   // CORRECT/REVERSE/RECORD 从 Task 8 起不再经这一步（见 adjustKind），三族原子提交
   // 直连调账弹层。取代旧两屏处置弹层的入口（ReconciliationDispositionModal 已断线，
-  // Task 13 删文件）。
+  // Task 13 已删文件）。
   const [findingPicker, setFindingPicker] = useState<{ row: FlowComparisonRow; kind: string; label: string } | null>(null);
   // Task 7：挂起两弹窗（Hold · Next period / Hold · Investigating）共用一个组件，按 kind 切。
   const [holdPicker, setHoldPicker] = useState<{ row: FlowComparisonRow; kind: 'HOLD_NEXT_PERIOD' | 'HOLD_INVESTIGATING' } | null>(null);

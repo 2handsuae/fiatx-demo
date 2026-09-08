@@ -56,7 +56,7 @@ export class IncidentRegistrationWorkflowService {
     ) {
       const { dispositionNo } = await this.dispositionLink.record(
         {
-          caseNo: dto.sourceCaseNo as string,
+          caseNo: dto.sourceCaseNo,
           matchType: 'ORPHAN_EXTERNAL',
           explainedExternalLineId: dto.explainedExternalLineId,
           causeCode: 'UNAUTHORIZED_OUTFLOW',

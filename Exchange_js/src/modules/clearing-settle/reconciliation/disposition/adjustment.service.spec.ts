@@ -1618,5 +1618,4 @@ describe('单码制 REASON_SPECS（spec §5）', () => {
     expect(() => assertReasonAllowed('OTHER', 'FIRM', 'INCREASE')).not.toThrow();
     expect(REASON_SPECS.OTHER.customerLabel).toBe('Balance correction');
   });
-  it('旧码仍在（Task 13 才退役）', () => expect(REASON_SPECS.DEPOSIT_AMOUNT_CORRECTION).toBeDefined());
 });

@@ -48,29 +48,33 @@ interface ReasonMeta {
 }
 
 // 前端镜像 backend REASON_SPECS（src/modules/clearing-settle/reconciliation/
-// disposition/adjustment-rules.ts）的**前七码**，是「运营自己选成因」那条老通道的
-// 下拉数据源。⚠ 第 8 码 CUSTOMER_REATTRIBUTION（改记）**刻意不在这里**：它只走
-// 「先定性、再开单」的锁定视图，成因由后端 resolveOutlet 定死、不给下拉。把它补
-// 进这张表 = 它会出现在非锁定态的成因下拉里，运营能凭空手选改记——那是回归，别补。
-// customerLabel 与 backend 一致（5 个客户侧成因原样照抄）；FIRM 两个 backend 没有
-// customerLabel（客户看不到公司侧调账），这里的 label 只是运营选择用的中文名，
-// 不是客户文案。
-// 导出给案件详情页复用（本案调账单列表要显示成因中文名），避免同一张表两处各抄一份。
-export const REASON_META: Record<string, ReasonMeta> = {
-  DEPOSIT_AMOUNT_CORRECTION: { book: 'CLIENT', directions: ['REDUCE', 'INCREASE'], label: 'Deposit amount correction' },
-  DEPOSIT_DUPLICATE_REVERSAL: { book: 'CLIENT', directions: ['REDUCE'], label: 'Duplicate deposit reversal' },
-  DEPOSIT_SIGNAL_VOID: { book: 'CLIENT', directions: ['REDUCE'], label: 'Deposit reversal' },
-  WITHDRAW_AMOUNT_CORRECTION: { book: 'CLIENT', directions: ['INCREASE'], label: 'Withdrawal amount correction' },
-  WITHDRAW_VOID_REFUND: { book: 'CLIENT', directions: ['INCREASE'], label: 'Withdrawal refund' },
-  BANK_INTEREST: { book: 'FIRM', directions: ['INCREASE'], label: 'Bank interest' },
-  BANK_CHARGE: { book: 'FIRM', directions: ['REDUCE'], label: 'Bank charges' },
-  FIRM_ENTRY_REVERSAL: { book: 'FIRM', directions: ['REDUCE', 'INCREASE'], label: 'Firm ledger reversal' },
-};
+// disposition/adjustment-rules.ts）**旧八码**下拉数据源——「运营自己选成因」那条
+// 老通道（!locked && !isKindMode 分支，见下方 reasonOptions）。Task 8 起
+// CORRECT/REVERSE/RECORD 三族改走 kind 模式（原因码来自 row.dispositions[kind].causes，
+// 不读这张表）、REATTRIBUTE/WRITE_OFF 两族走锁定视图（同样不读）——现存调用点已无人
+// 传空 locked+空 kind 打开这条自由选择分支，故它结构性地留空（Task 13 退役旧八码时
+// 未见真实消费者，见 task-13-report.md 零残余证明）。留着这张空表 + 下方分支只是不
+// 越界删掉一整个表单模式；若以后要接一个新的「自由选成因」入口，往这里加条目即可。
+export const REASON_META: Record<string, ReasonMeta> = {};
 
-// 展示用成因词表（超集）：详情页 / 本案调账单列表 / 锁定视图回显用。
-// 改记与核销刻意不在 REASON_META（下拉数据源）里：前者只走「先定性再开单」，后者只由账龄解锁。
+// 展示用成因词表（超集，铁律⑥ demo-visible：详情页 / 调账单列表 / 锁定视图回显用）。
+// Task 13：REASON_META 旧八码清空后不能再从它派生——直接列出单码制 11 码（词取
+// cause-registry.ts CAUSE_REGISTRY 同名 label）+ OTHER + 第四/五族三码，与
+// adjustment-rules.ts REASON_SPECS 的 15 个 ReasonCode 一一对应，缺一个这里就会有
+// 一行调账单 Reason 列显示裸码（Task 12 发现的真实回归）。
 export const REASON_LABEL: Record<string, string> = {
-  ...Object.fromEntries(Object.entries(REASON_META).map(([code, meta]) => [code, meta.label])),
+  AMT_MISBOOKED: 'Amount misbooked',
+  AMT_FEE_NETTED: 'Bank fee netted',
+  AMT_ROUNDING: 'Rounding difference',
+  DUP_BOOKING: 'Duplicate posting (twin)',
+  PHANTOM_BOOKING: 'Phantom posting',
+  PAYOUT_NOT_EXECUTED: 'Payout not executed',
+  FIRM_AMT_UNDERBOOKED: 'Firm amount underbooked',
+  FIRM_AMT_OVERBOOKED: 'Firm amount overbooked',
+  FIRM_MISBOOKED: 'Firm entry error',
+  BANK_INTEREST_UNBOOKED: 'Bank interest unbooked',
+  BANK_CHARGE_UNBOOKED: 'Bank charges unbooked',
+  OTHER: 'Other',
   CUSTOMER_REATTRIBUTION: 'Customer reattribution',
   UNEXPLAINED_WRITE_OFF: 'Unexplained write-off',
   UNEXPLAINED_CLIENT_LOSS: 'Client loss recognition',
@@ -355,7 +359,8 @@ const ReconciliationAdjustmentCreateModal = ({
     ? { ownerNo: selectedCandidate?.ownerNo ?? '—', walletNo: selectedCandidate?.walletNo ?? '—' }
     : { ownerNo: ownerNo ?? '—', walletNo: walletNo ?? '—' };
 
-  // 只列当前案件账簿下的成因——客户账簿案件不该看到 BANK_INTEREST/BANK_CHARGE，反之亦然。
+  // 只列当前案件账簿下的成因——客户账簿案件不该看到公司侧成因，反之亦然。
+  // Task 13：REASON_META 现为空表（头注释），这条分支结构性地渲染不出任何选项。
   const reasonOptions = Object.entries(REASON_META).filter(([, meta]) => meta.book === book);
   // 改记族锁定态把 reasonCode 初始化成 'CUSTOMER_REATTRIBUTION'——它不在这份前端
   // 镜像表里（改记走独立视图，不用「成因下拉→方向下拉」这条老路），直接下标会

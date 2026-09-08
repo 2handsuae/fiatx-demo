@@ -17,11 +17,11 @@ import {
   CauseMatchType,
   DispositionKind,
   DISPOSITION_LABEL,
+  OUTLET_OF,
   RowFacts,
   StoredOutlet,
   causesFor,
   dispositionsFor,
-  outletOf,
   resolveWriteOff,
 } from '../disposition/cause-registry';
 import { REASON_SPECS, ReasonCode } from '../disposition/adjustment-rules';
@@ -38,14 +38,12 @@ import {
   RunDetailSummary,
 } from '../dto/reconciliation.dto';
 
-// Task 5（读面翻转）：出口 → 处置种类反向表——outletOf 是单射（cause-registry.ts），
-// 读面用它把落库的 outlet 反查回处置种类再取 DISPOSITION_LABEL，取代旧的
-// resolveOutlet(causeCode) 反推（那条路径连成因都不该再管出口文案）。
-const ALL_DISPOSITION_KINDS: DispositionKind[] = [
-  'CORRECT', 'REVERSE', 'RECORD', 'REATTRIBUTE', 'SUPPLEMENT', 'INCIDENT', 'HOLD_NEXT_PERIOD', 'HOLD_INVESTIGATING',
-];
+// Task 5（读面翻转）：出口 → 处置种类反向表——OUTLET_OF 是单射（cause-registry.ts 单一
+// 来源，Task 13 起直接导出，这里不再手抄一份处置种类键表），读面用它反查回处置种类
+// 再取 DISPOSITION_LABEL，取代旧的 resolveOutlet(causeCode) 反推（Task 13 已随旧两层
+// 折叠码退役——那条路径连成因都不该再管出口文案）。
 const KIND_OF_OUTLET = new Map<StoredOutlet, DispositionKind>(
-  ALL_DISPOSITION_KINDS.map((kind) => [outletOf(kind), kind]),
+  (Object.entries(OUTLET_OF) as Array<[DispositionKind, StoredOutlet]>).map(([kind, outlet]) => [outlet, kind]),
 );
 
 // Task 5（读面翻转）：案件列表气泡——demo 答案键场景条目，业务键（scenarioId/

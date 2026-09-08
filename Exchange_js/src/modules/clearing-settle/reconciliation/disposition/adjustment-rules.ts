@@ -9,19 +9,11 @@ export type Book = 'CLIENT' | 'FIRM';
 export type Direction = 'REDUCE' | 'INCREASE';
 
 export type ReasonCode =
-  | 'DEPOSIT_AMOUNT_CORRECTION'
-  | 'DEPOSIT_DUPLICATE_REVERSAL'
-  | 'DEPOSIT_SIGNAL_VOID'
-  | 'WITHDRAW_AMOUNT_CORRECTION'
-  | 'WITHDRAW_VOID_REFUND'
-  | 'BANK_INTEREST'
-  | 'BANK_CHARGE'
   | 'CUSTOMER_REATTRIBUTION'
-  | 'FIRM_ENTRY_REVERSAL'
   | 'UNEXPLAINED_WRITE_OFF'
   | 'UNEXPLAINED_CLIENT_LOSS'
   // 单码制（spec §5）：以下 11 码 + OTHER 直接沿用 cause-registry.ts 的 CauseCode 同名码，
-  // 不再经旧两层「成因 → 调账 reason」折叠映射。旧 11 码保留（Task 13 才退役）。
+  // 不再经旧两层「成因 → 调账 reason」折叠映射（旧 8 码已 Task 13 退役）。
   | 'AMT_MISBOOKED'
   | 'AMT_FEE_NETTED'
   | 'AMT_ROUNDING'
@@ -45,9 +37,9 @@ export const REASON_SPECS: Record<ReasonCode, {
   book: Book | 'ANY'; directions: Direction[];
   /** 客户口径词——公司账簿成因为 null（客户看不到公司侧调账）。 */
   customerLabel: string | null;
-  /** 内部口径词（审批页、管理台、审计摘要用）。**八个成因都必须有**——
-   *  末站发现审批页对公司侧两个成因回落成裸枚举「成因：BANK_CHARGE」，而客户侧
-   *  五个都是中文，同一屏半英半中。`customerLabel` 的 null 是刻意的（客户不可见），
+  /** 内部口径词（审批页、管理台、审计摘要用）。**每个成因都必须有**——
+   *  末站发现审批页对公司侧成因回落成裸枚举「成因：BANK_CHARGE」，而客户侧
+   *  都是中文，同一屏半英半中。`customerLabel` 的 null 是刻意的（客户不可见），
    *  不该被借用来当内部展示词，故另立此列。 */
   internalLabel: string;
   /** 族——直接用 cause-registry.ts 的 AdjustFamily，不另抄一份字面量联合：
@@ -55,19 +47,10 @@ export const REASON_SPECS: Record<ReasonCode, {
    *  只用于留痕/统计分组，不参与 assertReasonAllowed 的合法性判定。 */
   family: AdjustFamily;
 }> = {
-  DEPOSIT_AMOUNT_CORRECTION:  { book: 'CLIENT', directions: ['REDUCE', 'INCREASE'], customerLabel: 'Deposit amount correction', internalLabel: 'Deposit amount correction', family: 'CORRECT' },
-  DEPOSIT_DUPLICATE_REVERSAL: { book: 'CLIENT', directions: ['REDUCE'],             customerLabel: 'Duplicate deposit reversal', internalLabel: 'Duplicate deposit reversal', family: 'REVERSE' },
-  DEPOSIT_SIGNAL_VOID:        { book: 'CLIENT', directions: ['REDUCE'],             customerLabel: 'Deposit reversal',     internalLabel: 'Deposit reversal',     family: 'REVERSE' },
-  WITHDRAW_AMOUNT_CORRECTION: { book: 'CLIENT', directions: ['INCREASE'],           customerLabel: 'Withdrawal amount correction', internalLabel: 'Withdrawal amount correction', family: 'CORRECT' },
-  WITHDRAW_VOID_REFUND:       { book: 'CLIENT', directions: ['INCREASE'],           customerLabel: 'Withdrawal refund', internalLabel: 'Withdrawal refund', family: 'REVERSE' },
-  BANK_INTEREST:              { book: 'FIRM',   directions: ['INCREASE'],           customerLabel: null,           internalLabel: 'Bank interest',     family: 'RECORD' },
-  BANK_CHARGE:                { book: 'FIRM',   directions: ['REDUCE'],             customerLabel: null,           internalLabel: 'Bank charges',     family: 'RECORD' },
   // 第四族（spec §6）：钱在托管里一分没动，主人记错了。不走 book×direction
   // 语义（directions 空 = assertReasonAllowed 对它恒拒），分录由
   // resolveReattributionLegs 直接定；两个客户的应付对转，资产腿不动。
   CUSTOMER_REATTRIBUTION:     { book: 'CLIENT', directions: [],                     customerLabel: 'Account correction', internalLabel: 'Customer reattribution', family: 'REATTRIBUTE' },
-  // 平账 A 批（spec §5）：公司账簿冲销定码——一期半留档的「公司收支记多 / 误记」有了码。
-  FIRM_ENTRY_REVERSAL:        { book: 'FIRM',   directions: ['REDUCE', 'INCREASE'], customerLabel: null, internalLabel: 'Firm ledger reversal', family: 'REVERSE' },
   // 平账 A 批（spec §3）：第五族核销——查无果 + 账龄到线 + 小额，公司认下来。
   // 不是成因表里的成因：触发它的是账龄，开单守卫在 adjustment.service.assertWriteOffAllowed。
   UNEXPLAINED_WRITE_OFF:      { book: 'FIRM',   directions: ['REDUCE', 'INCREASE'], customerLabel: null, internalLabel: 'Unexplained write-off', family: 'WRITE_OFF' },
@@ -78,7 +61,7 @@ export const REASON_SPECS: Record<ReasonCode, {
   UNEXPLAINED_CLIENT_LOSS:    { book: 'CLIENT', directions: ['REDUCE'],             customerLabel: 'Balance adjustment',     internalLabel: 'Client loss recognition', family: 'WRITE_OFF' },
 
   // ═══ 单码制（spec §5）：cause-registry.ts 的 CauseCode 直落调账 reason，不再经旧的
-  // 「成因 → 折叠码」映射（旧 resolveOutlet 那套八码 REASON_CODE 折叠留给 Task 13 退役）。
+  // 「成因 → 折叠码」映射（旧 resolveOutlet 那套八码 REASON_CODE 折叠已 Task 13 退役）。
   // customerLabel/internalLabel/family 取值见 task-2-brief.md Step 3；directions 见测试表。
   AMT_MISBOOKED:          { book: 'CLIENT', directions: ['REDUCE', 'INCREASE'], customerLabel: 'Balance correction', internalLabel: 'Amount misbooked', family: 'CORRECT' },
   AMT_FEE_NETTED:         { book: 'CLIENT', directions: ['REDUCE', 'INCREASE'], customerLabel: 'Balance correction', internalLabel: 'Bank fee netted', family: 'CORRECT' },
