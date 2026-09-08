@@ -517,20 +517,34 @@ export class ReconciliationQueryService {
           r.nextStep = { kind: 'WRITE_OFF', reasonCode: wo.reasonCode, direction: wo.direction, amount: wo.amountMinor, effectiveDate: kase.businessDate };
         }
       }
-      // 平账三期（Task 12）：出口 = INCIDENT（未授权转出）且事故已定损「公司承损」——
-      // 认损开单入口对该行可用，与上面的账龄线判断互斥（INCIDENT 出口从不是
-      // HOLD_INVESTIGATING，本就走不进上面那个 if），不受账龄线/小额线约束——这正是
-      // assertIncidentWriteOffAllowed 的三重闸（状态 ASSESSED/RESOLVING + 口径
-      // FIRM_LOSS + 未挂单），前端按钮只是不让人白点，真闸仍在后端。复用 WRITE_OFF
-      // 这个 nextStep 形状——案件页 openWriteOff/「认损」按钮已经是通用实现，不必
-      // 另开一种 kind。金额锁定为定损额（元→最小单位，惯例同 receipt-lookup.service.ts）。
-      if (kase.status === 'OPEN' && d && d.outlet === 'INCIDENT' && d.incidentNo && !d.adjustmentNo) {
+      // 平账三期（Task 12）：定性行挂着事故且事故已定损「公司承损」——认损开单入口对该行
+      // 可用，不受账龄线/小额线约束——这正是 assertIncidentWriteOffAllowed 的三重闸（状态
+      // ASSESSED/RESOLVING + 口径 FIRM_LOSS + 未挂单），前端按钮只是不让人白点，真闸仍在
+      // 后端。复用 WRITE_OFF 这个 nextStep 形状——案件页 openWriteOff/「认损」按钮已经是
+      // 通用实现，不必另开一种 kind。金额锁定为定损额（元→最小单位，惯例同
+      // receipt-lookup.service.ts）。
+      //
+      // Task 4（死胡同修复）：判据从 `d.outlet === 'INCIDENT'` 改成只看 `d.incidentNo`——
+      // 「大额查不出→挂起·调查中→超期→升级事故」（LARGE_UNEXPLAINED）那条路
+      // attachIncident 只写 incidentNo 一列，outlet 原地留在 HOLD_INVESTIGATING（不是
+      // UNAUTHORIZED_OUTFLOW 专用的静态出口 INCIDENT）；按 outlet 分流会让这类行永远出不了
+      // WRITE_OFF nextStep，事故定了损也没有入口开认损单。块位置仍在上面的账龄块之后——
+      // 大额行会先被账龄块判成 INCIDENT_DEFERRED，事故一旦定损，这里原地覆盖成 WRITE_OFF；
+      // reasonCode/direction 按簿现算而不是硬编码客户池的码——公司池升级事故同样要解锁核销。
+      if (kase.status === 'OPEN' && d && d.incidentNo && !d.adjustmentNo) {
         const incident = incidentByNo.get(d.incidentNo);
         if (incident && (incident.status === 'ASSESSED' || incident.status === 'RESOLVING')
           && incident.assessmentBasis === 'FIRM_LOSS' && incident.assessedAmount != null) {
           const decimals = assetRow?.decimals ?? 0;
           const assessedMinor = new Prisma.Decimal(incident.assessedAmount).mul(new Prisma.Decimal(10).pow(decimals)).toFixed(0);
-          r.nextStep = { kind: 'WRITE_OFF', reasonCode: 'UNEXPLAINED_CLIENT_LOSS', direction: 'REDUCE', amount: assessedMinor, effectiveDate: kase.businessDate };
+          const reasonCode = caseBook === 'FIRM' ? 'UNEXPLAINED_WRITE_OFF' : 'UNEXPLAINED_CLIENT_LOSS';
+          const direction = caseBook === 'CLIENT' ? 'REDUCE' : resolveWriteOff({
+            matchType: r.matchType as any, book: caseBook,
+            deltaSign: r.deltaAmount != null ? ((r.deltaAmount.startsWith('-') ? -1 : 1) as 1 | -1) : undefined,
+            internalDirection: r.internalFlow?.direction, externalDirection: r.externalLine?.direction,
+            internalAmount: r.internalFlow?.amount, externalAmount: r.externalLine?.amount, deltaAmount: r.deltaAmount,
+          }).direction;
+          r.nextStep = { kind: 'WRITE_OFF', reasonCode, direction, amount: assessedMinor, effectiveDate: kase.businessDate };
         }
       }
       // 平账二期：补款 / 垫款——案子 RESOLVED 之后也要给（认损让案子愈了，补款是对客户的交代）

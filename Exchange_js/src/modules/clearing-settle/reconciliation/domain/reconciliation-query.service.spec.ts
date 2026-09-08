@@ -1468,6 +1468,32 @@ describe('平账 A 批：超期后的下一步 nextStep（spec §2.6）', () => 
     const linked = await mkSvc(prismaFor({ book: 'FIRM', slaBreached: true, disposition: { ...held, adjustmentNo: 'ADJ1' } }), { flowMatcher: mismatchMatcher }).getCase('REC-A');
     expect(linked.flowComparison.find((r: any) => r.matchType === 'AMOUNT_MISMATCH')!.nextStep).toBeUndefined();
   });
+
+  // Recon disposition rework Task 4 (dead-end fix): attachIncident() never changes outlet away
+  // from HOLD_INVESTIGATING — it only writes the incidentNo column (disposition.service.ts).
+  // Before this fix, the WRITE_OFF-via-incident block below only fired for outlet==='INCIDENT'
+  // (a different static outlet, used only by the UNAUTHORIZED_OUTFLOW cause), so an escalated
+  // LARGE_UNEXPLAINED row stayed stuck at INCIDENT_DEFERRED forever even once the incident was
+  // assessed — the case page never offered a "Recognize loss" entry. The fix drops the outlet
+  // check (any incidentNo routes here); this block sits after the aging block above, so its
+  // WRITE_OFF verdict overrides the aging block's own INCIDENT_DEFERRED once the incident is
+  // assessed FIRM_LOSS.
+  it('公司池 + 超期 + 调查中 + 大额（先判 INCIDENT_DEFERRED）+ 已挂事故且已定损 FIRM_LOSS → nextStep 改判 WRITE_OFF：reasonCode 按簿选码（公司池=UNEXPLAINED_WRITE_OFF）、direction 现算（非硬编码 REDUCE）、金额锁定为定损额而非原始差额', async () => {
+    const prisma = prismaFor({ book: 'FIRM', slaBreached: true, disposition: { ...held, incidentNo: 'INC-ESC-1' } });
+    // 原始差额 20000 最小单位（200.00 AED），过小额线（100.00 AED）——若无本次修复，
+    // 这一行会停在账龄块判出的 INCIDENT_DEFERRED。外部方向 IN、内部为 0 → resolveWriteOff
+    // 现算 direction=INCREASE，与客户池硬编码的 REDUCE 不同——证明公司池这里不是硬编码。
+    prisma.externalStatementLine.findMany.mockResolvedValue([{ id: extId, direction: 'IN', amount: new Prisma.Decimal(20_000), externalRef: 'R1', datetime: new Date(), description: null }]);
+    prisma.accountFlow.findMany.mockResolvedValue([{ id: flowId, direction: 'IN', amount: new Prisma.Decimal(0), externalRef: 'R1', eventCode: 'E', sourceType: 'DEPOSIT', sourceNo: 'S', createdAt: new Date() }]);
+    prisma.incident.findMany.mockResolvedValue([
+      { incidentNo: 'INC-ESC-1', status: 'ASSESSED', type: 'LARGE_UNEXPLAINED', assessedAmount: new Prisma.Decimal('500.00'), assessmentBasis: 'FIRM_LOSS' },
+    ]);
+    const res = await mkSvc(prisma, { flowMatcher: mismatchMatcher }).getCase('REC-A');
+    const row = res.flowComparison.find((r: any) => r.matchType === 'AMOUNT_MISMATCH')!;
+    // 金额锁定为定损额 50000（500.00 AED，decimals=2），不是原始差额 20000——证明金额来自
+    // 事故定损结论，不是 resolveWriteOff 按行差额算出来的那个数。
+    expect(row.nextStep).toEqual({ kind: 'WRITE_OFF', reasonCode: 'UNEXPLAINED_WRITE_OFF', direction: 'INCREASE', amount: '50000', effectiveDate: '2026-09-02' });
+  });
 });
 
 // 评审 Finding 2（平账二期 Task 8 评审补测）：此前全部 14 组既有 fixture 把

@@ -132,6 +132,23 @@ export class AdjustmentService {
    * 「查无果」），分流到 assertIncidentWriteOffAllowed——那条路不受账龄线/小额线约束
    * （大额正是走事故的理由），改查事故侧的定损结论。anchors/held 的查法两条路共用，
    * 提到分流点之前；账龄线检查留在原位——它只对「查无果」路径有意义。
+   *
+   * Task 4（死胡同修复）：分流判据从单看 `outlet === 'INCIDENT'` 改成
+   * `outlet === 'INCIDENT' || incidentNo`——两路都要落进事故三重闸，判据不能是互斥的
+   * 单一条件：
+   *   · outlet='INCIDENT'（UNAUTHORIZED_OUTFLOW 专用静态出口，record() 建档时就定死）
+   *     incidentNo 在事故真正登记前一直是 null——这期间仍要落进三重闸，好让守卫吐出
+   *     「先去登记事故」而不是」案子还没到账龄线」这句文不对题的错误（回归证据：
+   *     若把判据单纯换成 `held?.incidentNo`，本文件已有的一条固定测试——outlet=INCIDENT
+   *     但 incidentNo 为空 → 期待 400 "no incident number attached"——会改口吐出旧路的
+   *     账龄线错误，是真实回归，不是测试写法问题）。
+   *   · outlet 仍是 HOLD_INVESTIGATING、只是被 DispositionService.attachIncident 挂了
+   *     incidentNo（「大额查不出→挂起·调查中→超期→升级事故」LARGE_UNEXPLAINED 那条路——
+   *     attachIncident 只写 incidentNo 一列，outlet 原地不动，见 disposition.service.ts
+   *     注释）。按旧的纯 outlet 判据这条路永远走不进这个分支——事故定了损也开不出认损单，
+   *     是已登记 BACKLOG 的死胡同，本任务要解的就是这一支。
+   * assertIncidentWriteOffAllowed 本体不读 outlet，只读 incidentNo/adjustmentNo/事故表，两条
+   * 路径天然通用，加宽判据零风险。
    */
   private async assertWriteOffAllowed(dto: CreateAdjustmentDto, kase: any, book: Book): Promise<{ dispositionNo: string }> {
     const anchors = [
@@ -143,7 +160,7 @@ export class AdjustmentService {
     }
     const held = await (this.prisma as any).reconciliationDisposition.findFirst({ where: { caseNo: dto.caseNo, OR: anchors } });
 
-    if (held?.outlet === 'INCIDENT') {
+    if (held?.outlet === 'INCIDENT' || held?.incidentNo) {
       const dispositionNo = await this.assertIncidentWriteOffAllowed(dto, held, kase, book);
       return { dispositionNo };
     }

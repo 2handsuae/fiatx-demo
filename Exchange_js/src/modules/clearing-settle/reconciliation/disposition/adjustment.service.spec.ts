@@ -538,6 +538,73 @@ describe('Incident-path loss recognition (recon wave 3 Task 10) —— outlet=IN
   });
 });
 
+// Recon disposition rework Task 4 (dead-end fix): the LARGE_UNEXPLAINED escalation path
+// (Hold · Investigating → aged out → Escalate → incident registered via
+// DispositionService.attachIncident) never changes the finding line's outlet away from
+// HOLD_INVESTIGATING — attachIncident only ever writes the incidentNo column (see
+// disposition.service.ts). Before this fix, assertWriteOffAllowed only routed to the incident
+// three-gate check when outlet==='INCIDENT' (a different, static outlet used solely by the
+// UNAUTHORIZED_OUTFLOW cause registered directly at record() time) — so an escalated
+// HOLD_INVESTIGATING+incidentNo row fell straight through to the old "unexplained" four
+// preconditions, which reject it on the aging/small-amount lines a large assessed loss can never
+// pass. Loss recognition could never be opened for this path — the registered BACKLOG dead end.
+// The fix reroutes on `held?.incidentNo` regardless of outlet; assertIncidentWriteOffAllowed
+// itself is unchanged (it never reads `outlet`), so both paths share the same three-gate check.
+describe('Incident-path loss recognition also covers the LARGE_UNEXPLAINED escalation path (outlet stays HOLD_INVESTIGATING, only incidentNo is attached)', () => {
+  const treasury = { actorType: 'ADMIN' as const, userId: 'U_TREASURY', userNo: 'U_TREASURY', roleCodes: ['TREASURY_OFFICER'] };
+  const kase = {
+    caseNo: 'REC-ESC-1', status: 'OPEN', book: 'CUSTOMER', assetCode: 'AED',
+    walletRef: 'w-esc-1', ownerNo: 'CU-9', slaBreached: false, businessDate: '2026-09-06',
+  };
+  // outlet stays HOLD_INVESTIGATING — attachIncident() only ever writes the incidentNo column.
+  const disposition = { dispositionNo: 'RCD-ESC-1', outlet: 'HOLD_INVESTIGATING', incidentNo: 'INC-ESC-1', adjustmentNo: null };
+  const dto = {
+    caseNo: 'REC-ESC-1', reasonCode: 'UNEXPLAINED_CLIENT_LOSS', direction: 'REDUCE',
+    amount: '123456', // well past the small-amount threshold (100.00 AED) — precisely why it escalated
+    effectiveDate: '2026-09-06', explainedFlowId: 'f-esc-1',
+    reasonInternal: 'Large unexplained difference, assessed via incident', reasonCustomer: '(firm side, not visible to customer)',
+  };
+  const makeSvc = (opts: { disposition?: any; incident: any }) => {
+    const dispositionRow = opts.disposition ?? disposition;
+    const create = jest.fn(({ data }: any) => Promise.resolve({ ...data, adjustmentNo: 'ADJ_ESC' }));
+    const prisma: any = {
+      reconciliationCase: { findUnique: jest.fn().mockResolvedValue(kase) },
+      reconciliationDisposition: { findFirst: jest.fn().mockResolvedValue(dispositionRow) },
+      incident: { findUnique: jest.fn().mockResolvedValue(opts.incident) },
+      asset: { findUnique: jest.fn().mockResolvedValue({ currency: 'AED', decimals: 2 }) },
+      customerMain: { findUnique: jest.fn().mockResolvedValue({ id: 'uuid-cu-9' }) },
+      reconciliationAdjustment: { create },
+    };
+    const dispositionPrisma: any = {
+      reconciliationDisposition: {
+        findUnique: jest.fn().mockResolvedValue(dispositionRow),
+        update: jest.fn().mockImplementation(({ data }: any) => Promise.resolve({ ...dispositionRow, ...data })),
+      },
+    };
+    const dispositions = new DispositionService(dispositionPrisma, { recordByActor: jest.fn() } as any);
+    jest.spyOn(dispositions, 'linkAdjustment');
+    const svc = new AdjustmentService(prisma, {} as any, {} as any, { recordByActor: jest.fn() } as any, dispositions as any);
+    return { svc, prisma, create, dispositions };
+  };
+
+  it('HOLD_INVESTIGATING row with an already-assessed incident (LARGE_UNEXPLAINED escalation) → loss recognition is allowed, amount locked to the assessed amount, the small-amount/aging lines are never checked (kase.slaBreached is false here)', async () => {
+    const { svc, create, dispositions } = makeSvc({
+      incident: { incidentNo: 'INC-ESC-1', status: 'ASSESSED', assessmentBasis: 'FIRM_LOSS', assessedAmount: new Prisma.Decimal('1234.56') },
+    });
+    const r = await svc.createDraft(dto as any, treasury);
+    expect(r.adjustmentNo).toBe('ADJ_ESC');
+    expect(create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ book: 'CLIENT', reasonCode: 'UNEXPLAINED_CLIENT_LOSS', direction: 'REDUCE', amount: '123456' }),
+    }));
+    expect(dispositions.linkAdjustment).toHaveBeenCalledWith('RCD-ESC-1', 'ADJ_ESC', { family: 'WRITE_OFF' });
+  });
+
+  it('the incident is attached but not yet assessed (still INVESTIGATING) → 400 "has not been assessed yet" (incident three-gate ①, not the old aging-threshold rejection)', async () => {
+    const { svc } = makeSvc({ incident: { incidentNo: 'INC-ESC-1', status: 'INVESTIGATING', assessmentBasis: null, assessedAmount: null } });
+    await expect(svc.createDraft(dto as any, treasury)).rejects.toThrow(/has not been assessed/);
+  });
+});
+
 describe('AdjustmentService.onRejected —— rejection persistence + terminal-state gate (Task 4 supplementary test B)', () => {
   it('a PENDING_APPROVAL adjustment is rejected: status becomes REJECTED, decidedByUserId is the person passed in', async () => {
     const update = jest.fn().mockResolvedValue({});
