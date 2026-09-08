@@ -14,11 +14,17 @@ import {
 import {
   CAUSE_REGISTRY,
   CauseCode,
-  menuFor,
-  resolveOutlet,
+  CauseMatchType,
+  DispositionKind,
+  DISPOSITION_LABEL,
+  RowFacts,
+  StoredOutlet,
+  causesFor,
+  dispositionsFor,
+  outletOf,
   resolveWriteOff,
-  staticOutletLabel,
 } from '../disposition/cause-registry';
+import { REASON_SPECS, ReasonCode } from '../disposition/adjustment-rules';
 import { isSmallAmount } from '../disposition/recon-thresholds.constant';
 import { deriveFundingNextStep } from '../disposition/funding-next-step';
 import {
@@ -31,6 +37,22 @@ import {
   ReconRunDetail,
   RunDetailSummary,
 } from '../dto/reconciliation.dto';
+
+// Task 5（读面翻转）：出口 → 处置种类反向表——outletOf 是单射（cause-registry.ts），
+// 读面用它把落库的 outlet 反查回处置种类再取 DISPOSITION_LABEL，取代旧的
+// resolveOutlet(causeCode) 反推（那条路径连成因都不该再管出口文案）。
+const ALL_DISPOSITION_KINDS: DispositionKind[] = [
+  'CORRECT', 'REVERSE', 'RECORD', 'REATTRIBUTE', 'SUPPLEMENT', 'INCIDENT', 'HOLD_NEXT_PERIOD', 'HOLD_INVESTIGATING',
+];
+const KIND_OF_OUTLET = new Map<StoredOutlet, DispositionKind>(
+  ALL_DISPOSITION_KINDS.map((kind) => [outletOf(kind), kind]),
+);
+
+// Task 5（读面翻转）：案件列表气泡——demo 答案键场景条目，业务键（scenarioId/
+// causeCode），不带 walletRef（铁律⑥）。
+interface DemoScenarioEntry {
+  scenarioId: number; causeCode: string; causeLabel: string; dispositionLabel: string;
+}
 
 @Injectable()
 export class ReconciliationQueryService {
@@ -288,10 +310,18 @@ export class ReconciliationQueryService {
       if (BigInt(line.amount.toString()) > available) fundingByCase.set(b.caseNo, { kind: 'ADVANCE', status: 'PENDING' });
     }
 
+    // Task 5（读面翻转）：气泡数据源——最近一轮带 demoManifest 的跑批，按业务键
+    // walletRef 聚合到本页在列的案件上；真实/pass 轮（demoManifest 恒 null）不
+    // 参与，命中不到任何案件，字段天然不下发。空列表不必发这次查询。
+    const demoScenariosByWallet = rows.length
+      ? await this.loadDemoScenariosByWalletRef()
+      : new Map<string, DemoScenarioEntry[]>();
+
     const now = Date.now();
     const decorated = rows.map((r: any) => {
       const ref = r.createdAt instanceof Date ? r.createdAt.getTime() : new Date(r.createdAt).getTime();
       const aging = Number.isFinite(ref) ? Math.floor((now - ref) / 86_400_000) : 0;
+      const demoScenarios = r.walletRef ? demoScenariosByWallet.get(r.walletRef) : undefined;
       return {
         ...r,
         aging,
@@ -304,6 +334,7 @@ export class ReconciliationQueryService {
         anomalyLineCount: anomalyByCaseId.get(r.id) ?? 0,
         decimals: decimalsByCode.get(r.assetCode) ?? 0,
         pendingFunding: fundingByCase.get(r.caseNo) ?? null,
+        ...(demoScenarios ? { demoScenarios } : {}),
       };
     });
     decorated.sort((a, b) => b.aging - a.aging);
@@ -468,24 +499,23 @@ export class ReconciliationQueryService {
     for (const r of flowComparison) {
       if (r.matchType === 'MATCHED' || r.matchType === 'IN_TRANSIT') continue;
       const d = (r.internalFlow && dByFlow.get(r.internalFlow.id!)) || (r.externalLine && dByExt.get(r.externalLine.id!)) || null;
-      // 出口的三个可执行字段（族 / 调账 reason / 方向）随读面下发：金库拿它们
-      // 直接开调账单，不必先替运营重发一次定性——「开单」是只读动作，让它去打
-      // 写端点会跨角色边界（定性写权归运营、调账写权归金库，没有角色两者兼有），
-      // 也会把徽标里「查证是谁做的」改成写单人。判定仍只有 resolveOutlet 一处。
-      // 格（matchType × book）取定性当时存下来的那一对：成因是在那一格里选的，
-      // 用行的当前格重判，跨轮次重分类的行会抛「成因不属于该格」把读面打挂。
-      const resolved = d ? resolveOutlet(d.causeCode as CauseCode, {
-        matchType: d.matchType, book: d.book === 'FIRM' ? 'FIRM' : 'CLIENT',
-        deltaSign: r.deltaAmount != null ? ((r.deltaAmount.startsWith('-') ? -1 : 1) as 1 | -1) : undefined,
-        internalDirection: r.internalFlow?.direction,
-        internalSourceType: r.internalFlow?.sourceType,
-        externalDirection: r.externalLine?.direction,
-      }) : null;
+      // Task 5（读面翻转）：outletLabel 不再靠 resolveOutlet 从成因反推——写端（Task
+      // 1-4）已经把 outlet 存成 outletOf(处置) 的结果，这里用 KIND_OF_OUTLET 反查
+      // 处置种类再取 DISPOSITION_LABEL。family/reasonCode/direction 也不再现算：
+      // 那三个是「开调账单」这个动作才真正定下来的执行细节（reasonCode 由财务在
+      // 开单表单上选，不是成因单射推出来的），行上挂着单就从单上读（adjustmentByNo
+      // 已在上面建好）；没开单说明这一步还没做，省略这三个字段，不让读面替一个
+      // 还没发生的决定编答案。
+      const linkedAdjustment = d?.adjustmentNo ? (adjustmentByNo.get(d.adjustmentNo) ?? null) : null;
       r.disposition = d ? {
         dispositionNo: d.dispositionNo, causeCode: d.causeCode,
         causeLabel: CAUSE_REGISTRY[d.causeCode as CauseCode]?.label ?? d.causeCode,
-        outlet: d.outlet, outletLabel: staticOutletLabel(d.causeCode as CauseCode),
-        family: resolved!.family, reasonCode: resolved!.reasonCode, direction: resolved!.direction,
+        outlet: d.outlet, outletLabel: DISPOSITION_LABEL[KIND_OF_OUTLET.get(d.outlet as StoredOutlet)!],
+        ...(linkedAdjustment ? {
+          family: REASON_SPECS[linkedAdjustment.reasonCode as ReasonCode]?.family,
+          reasonCode: linkedAdjustment.reasonCode,
+          direction: linkedAdjustment.direction as 'REDUCE' | 'INCREASE',
+        } : {}),
         findingNote: d.findingNote, adjustmentNo: d.adjustmentNo ?? null,
         deferredTarget: d.deferredTarget ?? null,
         supplementNo: d.supplementNo ?? null,
@@ -496,7 +526,20 @@ export class ReconciliationQueryService {
       r.duplicateTwinRef = (r.matchType === 'ORPHAN_INTERNAL' && r.internalFlow?.externalRef
         && matchedKeys.has(`${r.internalFlow.externalRef}|${r.internalFlow.amount}`))
         ? r.internalFlow.externalRef : null;
-      r.menu = menuFor(r.matchType as any, caseBook);
+      // Task 5（读面翻转）：这一格（matchType × book）当下合法的处置清单——按处置
+      // 分组，组内带该处置在这一格可选的成因，供前端两级选择（先选处置、再选成
+      // 因）。取代旧的一格一份平铺成因菜单 `r.menu`（本任务起不再下发）。
+      const rowFacts: RowFacts = {
+        matchType: r.matchType as CauseMatchType, book: caseBook,
+        deltaSign: r.deltaAmount != null ? ((r.deltaAmount.startsWith('-') ? -1 : 1) as 1 | -1) : undefined,
+        internalDirection: r.internalFlow?.direction,
+        internalSourceType: r.internalFlow?.sourceType,
+        externalDirection: r.externalLine?.direction,
+      };
+      r.dispositions = dispositionsFor(rowFacts).map((kind) => ({
+        kind, label: DISPOSITION_LABEL[kind],
+        causes: causesFor(kind, rowFacts.matchType, rowFacts.book),
+      }));
       // 平账 A 批（spec §2.6）+ 二期（spec §7.1）：超期解锁——判据全在服务端。
       // 公司池：小额 → 核销，大额 → 事故（三期）；客户池：多出来的不论大小 → 指路补录
       // （这一判断排在金额判断之前，见下方 if 顺序）；「托管里少了」再看金额——
@@ -698,6 +741,45 @@ export class ReconciliationQueryService {
       return { kind: 'WITHDRAW', no, id: w?.id ?? null };
     }
     return { kind: 'SIGNAL', no, id: null };
+  }
+
+  /**
+   * Task 5（读面翻转）：气泡数据源——最近一轮带 demoManifest 的跑批（真实/pass
+   * 轮 demoManifest 恒 null，`findFirst` 落空即返回空表），按
+   * scenarios[].expectedLines[].walletRef 聚合成 walletRef → 场景清单。
+   * causeLabel/dispositionLabel 取自成因注册表（唯一真相），不重抄 manifest 里
+   * 的展示文案。场景①（在途）的 rootCause 是种子专用字面量 'IN_TRANSIT_TIMING'，
+   * 天生不在 CAUSE_REGISTRY 里——查不到即跳过（在途不是差异，不走定性菜单，见
+   * recon-demo.ts 的 RootCause 类型注释）。铁律⑥：产出里不带 walletRef，它只是
+   * 这里的聚合键，不进对外字段。
+   */
+  private async loadDemoScenariosByWalletRef(): Promise<Map<string, DemoScenarioEntry[]>> {
+    const byWallet = new Map<string, DemoScenarioEntry[]>();
+    const demoRun = await this.prisma.reconciliationRun.findFirst({
+      where: { demoManifest: { not: null } },
+      orderBy: { startedAt: 'desc' },
+      select: { demoManifest: true },
+    });
+    if (!demoRun?.demoManifest) return byWallet;
+    const manifest = JSON.parse(demoRun.demoManifest) as {
+      scenarios?: Array<{ scenarioId: number; rootCause: string; expectedLines?: Array<{ walletRef: string }> }>;
+    };
+    for (const scenario of manifest.scenarios ?? []) {
+      const causeSpec = CAUSE_REGISTRY[scenario.rootCause as CauseCode];
+      if (!causeSpec) continue; // 场景①在途——成因表里没有它的条目
+      const entry: DemoScenarioEntry = {
+        scenarioId: scenario.scenarioId,
+        causeCode: scenario.rootCause,
+        causeLabel: causeSpec.label,
+        dispositionLabel: DISPOSITION_LABEL[causeSpec.usableIn[0]],
+      };
+      const walletRefs = new Set((scenario.expectedLines ?? []).map((l) => l.walletRef));
+      for (const walletRef of walletRefs) {
+        const list = byWallet.get(walletRef);
+        if (list) list.push(entry); else byWallet.set(walletRef, [entry]);
+      }
+    }
+    return byWallet;
   }
 
   async listExternalBalances(q: { cutoffDate?: string; book?: string; source?: string; currency?: string }) {
