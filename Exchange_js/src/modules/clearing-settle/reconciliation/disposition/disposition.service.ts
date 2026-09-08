@@ -184,6 +184,21 @@ export class DispositionService {
   }
 
   /**
+   * 终审修复批 Item 1：调账路驳回/取消/超时清锁——镜像上面的 unlinkSupplement。
+   * adjustmentNo 无唯一索引（不是每张调账单都走核销/事故认损这条挂号路，见
+   * linkAdjustment 的白名单），按它反查挂着的定性行；查不到就是这张调账单本来
+   * 就没挂号，不动。查到了只清 adjustmentNo 这一列——causeCode/findingNote/outlet
+   * 定性本体原样保留，「查证结论」是交付物，不随单亡；清空后 record() 的挂单锁
+   * （existing?.adjustmentNo 非空即拒）与 linkAdjustment 的挂单锁一起解开，行上
+   * 按钮组回来，可以再次 record() 改口径或重新开单。
+   */
+  async unlinkAdjustment(adjustmentNo: string): Promise<void> {
+    const row = await (this.prisma as any).reconciliationDisposition.findFirst({ where: { adjustmentNo } });
+    if (!row) return;
+    await (this.prisma as any).reconciliationDisposition.update({ where: { dispositionNo: row.dispositionNo }, data: { adjustmentNo: null } });
+  }
+
+  /**
    * 平账三期（Task 9）：事故登记回挂——铁律③本主体自己的方法，写自己的表一列。
    * 原为 incidents.module.ts 的 InterimDispositionIncidentLink 占位实现（Task 5 为
    * 打通 DI 先立的桩），落地后接线切到这里，占位类随之删除；行为原样保留

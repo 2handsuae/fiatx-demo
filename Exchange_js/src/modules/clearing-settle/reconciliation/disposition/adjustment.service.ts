@@ -707,6 +707,12 @@ export class AdjustmentService {
       where: { adjustmentNo },
       data: { status: AdjustmentStatus.REJECTED, decidedByUserId: deciderNo ?? deciderId },
     });
+    // 终审修复批 Item 1：驳回/取消/超时（三者都路由到这里，见
+    // adjustment-approval.service.ts routeToRejected）清锁——镜像补单路
+    // unlinkSupplement 的做法，把该单挂着的定性行 adjustmentNo 清空，行解锁、
+    // 按钮组回来（前端已是数据驱动，无需改）。没挂号的调账单（如未走核销/
+    // 事故认损挂号路）unlinkAdjustment 内部 no-op。
+    await this.dispositions.unlinkAdjustment(adjustmentNo);
   }
 
   /**

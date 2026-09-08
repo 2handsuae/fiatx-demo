@@ -11,11 +11,16 @@ describe('cause-registry —— six-cell cause menu (spec §4, registry is the s
       .filter(([, s]) => s.cells.some((c: any) => c.matchType === mt && c.book === book))
       .map(([code]) => code);
 
+  // 终审修复批 Item 7：CUTOFF_STRADDLE 的 cells 从单格扩到 ALL_CELLS（跨日切六格都可能
+  // 发生），codesInCell 是按 CAUSE_REGISTRY 声明顺序穷尽某格全部合法码（不按 usableIn
+  // 过滤），CUTOFF_STRADDLE 声明在文件靠前位置（Internal×Client 段落内），扩到 ALL_CELLS
+  // 后在其余五格里也按这个声明位置插入——不是这五格"专属"码变了，只是同一个声明顺序
+  // 规则如实反映了它现在也合法。
   it('Mismatch × Client', () => {
-    expect(codesInCell('AMOUNT_MISMATCH', 'CLIENT')).toEqual(['AMT_MISBOOKED', 'AMT_FEE_NETTED', 'AMT_ROUNDING', 'UNEXPLAINED', 'OTHER']);
+    expect(codesInCell('AMOUNT_MISMATCH', 'CLIENT')).toEqual(['AMT_MISBOOKED', 'AMT_FEE_NETTED', 'AMT_ROUNDING', 'CUTOFF_STRADDLE', 'UNEXPLAINED', 'OTHER']);
   });
   it('Mismatch × Firm', () => {
-    expect(codesInCell('AMOUNT_MISMATCH', 'FIRM')).toEqual(['FIRM_AMT_UNDERBOOKED', 'FIRM_AMT_OVERBOOKED', 'UNEXPLAINED', 'OTHER']);
+    expect(codesInCell('AMOUNT_MISMATCH', 'FIRM')).toEqual(['FIRM_AMT_UNDERBOOKED', 'FIRM_AMT_OVERBOOKED', 'CUTOFF_STRADDLE', 'UNEXPLAINED', 'OTHER']);
   });
   it('Internal only × Client', () => {
     expect(codesInCell('ORPHAN_INTERNAL', 'CLIENT')).toEqual([
@@ -24,17 +29,17 @@ describe('cause-registry —— six-cell cause menu (spec §4, registry is the s
   });
   it('Internal only × Firm', () => {
     expect(codesInCell('ORPHAN_INTERNAL', 'FIRM')).toEqual([
-      'FIRM_MISBOOKED', 'UNEXPLAINED', 'OTHER',
+      'CUTOFF_STRADDLE', 'FIRM_MISBOOKED', 'UNEXPLAINED', 'OTHER',
     ]);
   });
   it('External only × Client', () => {
     expect(codesInCell('ORPHAN_EXTERNAL', 'CLIENT')).toEqual([
-      'MISSED_DEPOSIT', 'BOUNCED_FUNDS', 'PAYOUT_RETURNED', 'MISATTRIBUTED_TO', 'UNAUTHORIZED_OUTFLOW', 'UNEXPLAINED', 'OTHER',
+      'CUTOFF_STRADDLE', 'MISSED_DEPOSIT', 'BOUNCED_FUNDS', 'PAYOUT_RETURNED', 'MISATTRIBUTED_TO', 'UNAUTHORIZED_OUTFLOW', 'UNEXPLAINED', 'OTHER',
     ]);
   });
   it('External only × Firm', () => {
     expect(codesInCell('ORPHAN_EXTERNAL', 'FIRM')).toEqual([
-      'BANK_INTEREST_UNBOOKED', 'BANK_CHARGE_UNBOOKED', 'UNCLAIMED_INFLOW', 'UNEXPLAINED', 'OTHER',
+      'CUTOFF_STRADDLE', 'BANK_INTEREST_UNBOOKED', 'BANK_CHARGE_UNBOOKED', 'UNCLAIMED_INFLOW', 'UNEXPLAINED', 'OTHER',
     ]);
   });
   it('21 codes assigned, none missing: every code appears in at least one cell (Task 1 adds OTHER, cells=ALL_CELLS)', () => {
@@ -138,8 +143,16 @@ describe('causesFor —— 按处置出码 + OTHER（spec §4/§5）', () => {
     expect(codes('SUPPLEMENT', 'ORPHAN_EXTERNAL', 'CLIENT')).toEqual(['MISSED_DEPOSIT', 'BOUNCED_FUNDS', 'PAYOUT_RETURNED']);
     expect(codes('INCIDENT', 'ORPHAN_EXTERNAL', 'CLIENT')).toEqual(['UNAUTHORIZED_OUTFLOW']);
   });
-  it('挂起等下期 = 跨账期(+OTHER)；调查中@公司外有我无 = 归属排查+查无果+OTHER', () => {
-    expect(codes('HOLD_NEXT_PERIOD', 'ORPHAN_INTERNAL', 'CLIENT')).toEqual(['CUTOFF_STRADDLE', 'OTHER']);
+  // 终审修复批 Item 7：CUTOFF_STRADDLE cells 扩到 ALL_CELLS 后，「挂起·等下期」在
+  // 六格里菜单都该是 [CUTOFF_STRADDLE, OTHER]（此前只有 Internal×Client 一格有
+  // CUTOFF_STRADDLE，其余五格挂起·等下期只剩 OTHER 一个选项，与样机 M8 不符）；
+  // 调查中@公司外有我无 = 归属排查+查无果+OTHER 不受本项改动影响，原样保留同一断言。
+  it('挂起等下期 = 跨账期(+OTHER)，六格一致（终审修复批 Item 7）；调查中@公司外有我无 = 归属排查+查无果+OTHER', () => {
+    (['AMOUNT_MISMATCH', 'ORPHAN_INTERNAL', 'ORPHAN_EXTERNAL'] as const).forEach((matchType) => {
+      (['CLIENT', 'FIRM'] as const).forEach((book) => {
+        expect(codes('HOLD_NEXT_PERIOD', matchType, book)).toEqual(['CUTOFF_STRADDLE', 'OTHER']);
+      });
+    });
     expect(codes('HOLD_INVESTIGATING', 'ORPHAN_EXTERNAL', 'FIRM')).toEqual(['UNCLAIMED_INFLOW', 'UNEXPLAINED', 'OTHER']);
   });
 });

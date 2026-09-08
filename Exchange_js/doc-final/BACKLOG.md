@@ -195,7 +195,7 @@ Last Updated: 2026-09-08
 
 **场景 18 · 事故登记**
 
-- ~~**大额查不出（LARGE_UNEXPLAINED）事故定损后，钱这条腿没有出口——事故永远关不了**~~ —— 已解（2026-09-08 平账处置改版 Task 4，commit `aad897a2`）：写闸判据从「定性行 outlet==='INCIDENT'」改成「行挂着 `incidentNo`」（`adjustment.service.ts → assertWriteOffAllowed`），读面 `nextStep` 同款改判（`reconciliation-query.service.ts`）；升级路（LARGE_UNEXPLAINED）事故定损（`FIRM_LOSS`）后，案件行重新出现「Recognize loss / Write off」按钮，金额锁定 = 定损额、跳过小额线，走通认损/核销 → CFO 批 → Re-reconcile → 案子自愈 → 事故页可挂载、可提结案；见文末销账「死胡同修复」，走查实证见 `superpowers/sdd/task-10-report.md` 链②（case REC20260908-010 / INC260908635950）｜来源: 2026-09-08 平账走查模拟
+- ~~**大额查不出（LARGE_UNEXPLAINED）事故定损后，钱这条腿没有出口——事故永远关不了**~~ —— 已解（2026-09-08 平账处置改版 Task 4，commit `aad897a2`）：写闸判据从「定性行 outlet==='INCIDENT'」改成「行挂着 `incidentNo`」（`adjustment.service.ts → assertWriteOffAllowed`），读面 `nextStep` 同款改判（`reconciliation-query.service.ts`）；升级路（LARGE_UNEXPLAINED）事故定损（`FIRM_LOSS`）后，案件行重新出现「Recognize loss / Write off」按钮，金额锁定 = 定损额、跳过小额线，走通认损/核销 → CFO 批 → Re-reconcile → 案子自愈 → 事故页可挂载、可提结案；见文末销账「死胡同修复」，走查实证：case REC20260908-010 / INC260908635950 ｜来源: 2026-09-08 平账走查模拟
 
 - [ ] **事故通报超时无持久软标与审计**：spec §2 曾承诺超时软标+审计，实现为界面倒计时徽标（前端算），十一码名册（业主拍板）无超时码位，补齐须业主扩名册；演示不演超时，缺口不影响本波验收 ｜来源: 2026-09-06 平账三期终审
 
@@ -216,6 +216,8 @@ Last Updated: 2026-09-08
   - **仍 deferred**：COMPENSATING 里"真两侧对冲错"的调账（matcher 调优部分不算）；Finance 人工核实 → 结案 ｜来源: spec §9，2026-09-05 平账二期收尾更新
 
 - [ ] ⭐ **对账复核签核未做**：应干净 run 自动认证 + 人工平账动作走复核签核(maker-checker 推≠批，可按 severity 分级)；复核挂"人工干预动作"、非挂"run 变 pass"。与「平账处置」推单读权限门控债协同(那条=权限粒度、本条=两人复核)｜来源: spec §6
+
+- [ ] **`rowAdjustmentPrefill().direction` 提现类 AMOUNT_MISMATCH 缺翻符号**：`ReconciliationCasesDetailPage.tsx:327` 的 AMOUNT_MISMATCH 分支按「符号即答案」的固定惯例推方向（`deltaAmount` 为负→REDUCE、为正→INCREASE），这条惯例只按存款语义推导，没有为提现类流水的方向语义翻符号；现状下这条分支够不到提现类 AMOUNT_MISMATCH 行（结构性死分支），先记一行留档，防止日后这个组合被激活时悄悄预填错方向 ｜来源: 2026-09-08 平账处置改版终审
 
 - [ ] **手续费归集不做，等报表层**（2026-09-05 平账二期 F1'）：账上等于收入结转进运营户，可做；但收入户兼作钱包位置，归集后余额清零，没有报表层时观众读不出本期收入 ｜来源: 平账二期 spec §0
 
@@ -356,7 +358,7 @@ Last Updated: 2026-09-08
 
 ## 本轮销账（2026-09-08 平账处置改版收官）
 
-> 处置入口翻转（行上直接按钮）/ 单码制 / 金库全线开单 CFO 复核 / 死胡同修复 / 列表页场景气泡，14 任务 subagent-driven，spec/plan 见 `superpowers/specs/specs/2026-09-08-recon-disposition-redesign-design.md`。
+> 处置入口翻转（行上直接按钮）/ 单码制 / 金库全线开单 CFO 复核 / 死胡同修复 / 列表页场景气泡，14 任务 subagent-driven，spec/plan 见 `superpowers/specs/2026-09-08-recon-disposition-redesign-design.md`。
 
 - [x] **死胡同修复**：大额查不出（LARGE_UNEXPLAINED）事故定损后认损 / 核销开不出单，事故永远关不了 —— 2026-09-08 Task 4（commit `aad897a2`），闸改挂事故定损判定（`incidentNo` 而非静态 `outlet`），金额锁定 = 定损额、跳过小额线；原条目改判见上方「场景 18」小节的划线记录
 

@@ -657,7 +657,8 @@ describe('AdjustmentService.onRejected —— rejection persistence + terminal-s
         update,
       },
     };
-    const svc = new AdjustmentService(prisma, null as any, null as any, null as any, null as any);
+    const dispositions = { unlinkAdjustment: jest.fn().mockResolvedValue(undefined) };
+    const svc = new AdjustmentService(prisma, null as any, null as any, null as any, dispositions as any);
     await svc.onRejected('ADJ_R1', 'U_OPS_7');
     expect(update).toHaveBeenCalledWith({
       where: { adjustmentNo: 'ADJ_R1' },
@@ -673,9 +674,31 @@ describe('AdjustmentService.onRejected —— rejection persistence + terminal-s
         update,
       },
     };
-    const svc = new AdjustmentService(prisma, null as any, null as any, null as any, null as any);
+    const dispositions = { unlinkAdjustment: jest.fn() };
+    const svc = new AdjustmentService(prisma, null as any, null as any, null as any, dispositions as any);
     await expect(svc.onRejected('ADJ_R2', 'U_OPS_7')).rejects.toThrow(BadRequestException);
     expect(update).not.toHaveBeenCalled();
+    // 末站修复项 1 回归锁：闸门拒绝时不许摸到定性行——POSTED 不是合法驳回起点，
+    // 清锁动作不该被这条非法迁移触发。
+    expect(dispositions.unlinkAdjustment).not.toHaveBeenCalled();
+  });
+
+  // 终审修复批 Item 1：驳回清锁——之前 onRejected 只改调账单自己的状态，挂着的
+  // 定性行 adjustmentNo 永远清不掉，行永久锁死（record()/linkAdjustment 都靠
+  // adjustmentNo 非空判定挂单锁）。先红：这条断言在补 unlinkAdjustment 调用前
+  // 会失败（dispositions.unlinkAdjustment 从未被调用）。
+  it('rejection also unlinks the finding line it was anchored to (mirrors unlinkSupplement) — the row unlocks', async () => {
+    const update = jest.fn().mockResolvedValue({});
+    const prisma: any = {
+      reconciliationAdjustment: {
+        findUnique: jest.fn().mockResolvedValue({ adjustmentNo: 'ADJ_R3', status: 'PENDING_APPROVAL' }),
+        update,
+      },
+    };
+    const dispositions = { unlinkAdjustment: jest.fn().mockResolvedValue(undefined) };
+    const svc = new AdjustmentService(prisma, null as any, null as any, null as any, dispositions as any);
+    await svc.onRejected('ADJ_R3', 'U_OPS_7');
+    expect(dispositions.unlinkAdjustment).toHaveBeenCalledWith('ADJ_R3');
   });
 });
 

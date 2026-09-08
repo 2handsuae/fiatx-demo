@@ -268,6 +268,55 @@ describe('Recon batch B: supplementNo link-back and overwrite lock', () => {
   });
 });
 
+// 终审修复批 Item 1：调账驳回/取消/超时清锁——镜像 unlinkSupplement。挂着的定性行
+// 按 adjustmentNo 反查（无唯一索引，可能查不到），清空该列后行解锁；定性本体
+// （causeCode/findingNote/outlet）原样保留。先红：unlinkAdjustment 补上前这三条
+// 断言（尤其第三条 acceptance ②）都会失败。
+describe('DispositionService.unlinkAdjustment (终审修复批 Item 1: reject/cancel/timeout clears the lock)', () => {
+  it('finds the row by adjustmentNo and clears only that column — causeCode/findingNote/outlet stay untouched', async () => {
+    const row = { dispositionNo: 'RCD-REJ-1', adjustmentNo: 'ADJ_REJ_1', causeCode: 'DUP_BOOKING', findingNote: 'twin entry confirmed', outlet: 'ADJUST_REVERSE' };
+    const prisma: any = {
+      reconciliationDisposition: {
+        findFirst: jest.fn().mockResolvedValue(row),
+        update: jest.fn().mockResolvedValue({ ...row, adjustmentNo: null }),
+      },
+    };
+    const svc = new DispositionService(prisma, { recordByActor: jest.fn() } as any);
+    await svc.unlinkAdjustment('ADJ_REJ_1');
+    expect(prisma.reconciliationDisposition.findFirst).toHaveBeenCalledWith({ where: { adjustmentNo: 'ADJ_REJ_1' } });
+    expect(prisma.reconciliationDisposition.update).toHaveBeenCalledWith({
+      where: { dispositionNo: 'RCD-REJ-1' }, data: { adjustmentNo: null },
+    });
+  });
+
+  it('no disposition row is linked to this adjustment (e.g. a plain adjustment that never went through record()) — no-op, no write', async () => {
+    const prisma: any = {
+      reconciliationDisposition: { findFirst: jest.fn().mockResolvedValue(null), update: jest.fn() },
+    };
+    const svc = new DispositionService(prisma, { recordByActor: jest.fn() } as any);
+    await svc.unlinkAdjustment('ADJ_NONE');
+    expect(prisma.reconciliationDisposition.update).not.toHaveBeenCalled();
+  });
+
+  it('acceptance ②: after unlink, the same anchor can record() again without hitting "already linked to adjustment" (400)', async () => {
+    // Simulates the post-unlinkAdjustment row state: adjustmentNo is already null —
+    // record()'s lock check (existing?.adjustmentNo) must let a re-finding through.
+    const { svc, prisma } = build({
+      reconciliationDisposition: {
+        findFirst: jest.fn().mockResolvedValue({ dispositionNo: 'RCD-REJ-1', adjustmentNo: null, supplementNo: null }),
+        update: jest.fn().mockImplementation(({ data }) => Promise.resolve({ dispositionNo: 'RCD-REJ-1', ...data })),
+        create: jest.fn(),
+      },
+    });
+    const r = await svc.record({
+      caseNo: 'REC-1', matchType: 'ORPHAN_INTERNAL', explainedFlowId: 'f1',
+      causeCode: 'DUP_BOOKING', disposition: 'REVERSE', findingNote: 'reopened after rejection', internalDirection: 'IN', internalSourceType: 'DEPOSIT',
+    } as any, ACTOR);
+    expect(r.dispositionNo).toBe('RCD-REJ-1');
+    expect(prisma.reconciliationDisposition.update).toHaveBeenCalled();
+  });
+});
+
 // Recon wave 3 (Task 9): three behavioral tests migrated from the placeholder
 // InterimDispositionIncidentLink class in incidents.module.ts — the placeholder class was
 // deleted, and the behavior is locked here as-is (404/409/writes only the incidentNo column).

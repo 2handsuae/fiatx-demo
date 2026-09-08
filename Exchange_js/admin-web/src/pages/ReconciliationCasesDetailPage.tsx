@@ -1587,7 +1587,13 @@ const ReconciliationCasesDetailPage = () => {
                                     // 大额升级路的定性行 outlet 一直留在 HOLD_INVESTIGATING，只有 incidentNo
                                     // 会被 attachIncident 写上，纯 outlet 判据永远照不到那条路。
                                     <span className="max-w-[220px] font-mono text-[10px] text-adm-red">
-                                      {row.disposition?.incidentNo ? 'Incident assessed · eligible to recognize loss' : row.nextStep.reasonCode === 'UNEXPLAINED_CLIENT_LOSS' ? 'Overdue · eligible to recognize loss' : 'Overdue · eligible to write off'}
+                                      {row.disposition?.incidentNo
+                                        // 终审修复批 Item 6：事故已定损（公司簿也有事故升级路，见
+                                        // adjustment.service.ts assertIncidentWriteOffAllowed）不代表
+                                        // 一定是"认损"——公司池事故定损后走的是核销，「eligible to
+                                        // recognize loss」是客户簿专属措辞，公司簿讲"认损"文不对题。
+                                        ? (row.nextStep.reasonCode === 'UNEXPLAINED_CLIENT_LOSS' ? 'Incident assessed · eligible to recognize loss' : 'Incident assessed · eligible to write off')
+                                        : (row.nextStep.reasonCode === 'UNEXPLAINED_CLIENT_LOSS' ? 'Overdue · eligible to recognize loss' : 'Overdue · eligible to write off')}
                                     </span>
                                   )
                                 )}

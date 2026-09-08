@@ -57,6 +57,7 @@ interface ReconCase {
     causeCode: string;
     causeLabel: string;
     dispositionLabel: string;
+    clue: string;
   }>;
 }
 
@@ -388,10 +389,16 @@ const ReconciliationCasesListPage = () => {
                             <p className="mb-1.5 font-mono text-[10px] font-semibold text-adm-amber">
                               ⚡ Demo scenarios on this case
                             </p>
-                            <ul className="space-y-1">
+                            <ul className="space-y-1.5">
                               {kase.demoScenarios.map((s) => (
                                 <li key={s.scenarioId} className="font-mono text-[10px] leading-snug text-adm-t2">
-                                  #{s.scenarioId} {s.causeLabel} — {s.dispositionLabel}
+                                  <div>#{s.scenarioId} {s.causeLabel} — {s.dispositionLabel}</div>
+                                  {/* Minor 4（终审修复批）：业主原始诉求"悬浮出现场景说明"——场景号 +
+                                      成因标题只说了"是什么"，没说"怎么查证得出这个结论"；补一行
+                                      成因注册表自带的 clue，与成因菜单同一个词表来源，不另造文案。 */}
+                                  <div className="mt-0.5 text-[9px] font-normal normal-case leading-snug text-adm-t3">
+                                    {s.clue}
+                                  </div>
                                 </li>
                               ))}
                             </ul>

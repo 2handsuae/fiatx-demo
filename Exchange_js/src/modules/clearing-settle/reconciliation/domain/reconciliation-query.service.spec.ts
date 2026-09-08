@@ -1811,12 +1811,12 @@ describe('listCases — demoScenarios（Task 5：读面翻转，气泡数据源�
     const rows = await mkSvc(prisma).listCases({});
     const row: any = rows.find((r: any) => r.caseNo === 'REC-B');
     expect(row.demoScenarios).toEqual([
-      { scenarioId: 6, causeCode: 'DUP_BOOKING', causeLabel: CAUSE_REGISTRY.DUP_BOOKING.label, dispositionLabel: DISPOSITION_LABEL.REVERSE },
-      { scenarioId: 7, causeCode: 'PHANTOM_BOOKING', causeLabel: CAUSE_REGISTRY.PHANTOM_BOOKING.label, dispositionLabel: DISPOSITION_LABEL.REVERSE },
+      { scenarioId: 6, causeCode: 'DUP_BOOKING', causeLabel: CAUSE_REGISTRY.DUP_BOOKING.label, dispositionLabel: DISPOSITION_LABEL.REVERSE, clue: CAUSE_REGISTRY.DUP_BOOKING.clue },
+      { scenarioId: 7, causeCode: 'PHANTOM_BOOKING', causeLabel: CAUSE_REGISTRY.PHANTOM_BOOKING.label, dispositionLabel: DISPOSITION_LABEL.REVERSE, clue: CAUSE_REGISTRY.PHANTOM_BOOKING.clue },
     ]);
     // 铁律⑥：不得输出 walletRef / 任何 UUID——字段集合逐一核对，不是「碰巧没写」。
     for (const entry of row.demoScenarios) {
-      expect(Object.keys(entry).sort()).toEqual(['causeCode', 'causeLabel', 'dispositionLabel', 'scenarioId']);
+      expect(Object.keys(entry).sort()).toEqual(['causeCode', 'causeLabel', 'clue', 'dispositionLabel', 'scenarioId']);
     }
   });
 

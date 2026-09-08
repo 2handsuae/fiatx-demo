@@ -72,7 +72,12 @@ export const CAUSE_REGISTRY: Record<CauseCode, CauseSpec> = {
   PHANTOM_BOOKING:     { cells: [C('ORPHAN_INTERNAL', 'CLIENT')], label: 'Phantom posting', clue: 'No record of this transaction at the bank or on-chain.', usableIn: ['REVERSE'] },
   PAYOUT_NOT_EXECUTED: { cells: [C('ORPHAN_INTERNAL', 'CLIENT')], label: 'Payout not executed', clue: 'No receipt on file, or a failure notice was received.', usableIn: ['REVERSE'] },
   MISATTRIBUTED_FROM:  { cells: [C('ORPHAN_INTERNAL', 'CLIENT')], label: 'Misattributed customer', clue: 'A same-day, same-amount "external only" entry exists on the counterparty wallet.', usableIn: ['REATTRIBUTE'] },
-  CUTOFF_STRADDLE:     { cells: [C('ORPHAN_INTERNAL', 'CLIENT')], label: 'Cross-period timing', clue: "The external line's timestamp falls in the next accounting period; the balance is not actually short.", usableIn: ['HOLD_NEXT_PERIOD'] },
+  // 终审修复批 Item 7：cells 从单格 ORPHAN_INTERNAL×CLIENT 扩到 ALL_CELLS——跨日切
+  // 是「记账时点 vs 外部上报时点」的时序问题，六格（三 matchType × 两 book）任何一格
+  // 都可能撞上，不是客户池"我有外无"独有；此前只放一格，「挂起·等下期」在其余五格
+  // 只剩 OTHER 一个选项，与样机 M8（六格 HOLD_NEXT_PERIOD 菜单一致含 CUTOFF_STRADDLE）
+  // 不符。
+  CUTOFF_STRADDLE:     { cells: ALL_CELLS, label: 'Cross-period timing', clue: "The external line's timestamp falls in the next accounting period; the balance is not actually short.", usableIn: ['HOLD_NEXT_PERIOD'] },
   // ── 我有外无 × 公司 ──
   FIRM_MISBOOKED:          { cells: [C('ORPHAN_INTERNAL', 'FIRM')], label: 'Firm entry error', clue: 'No matching entry on the bank statement.', usableIn: ['REVERSE'] },
   // ── 外有我无 × 客户 ──

@@ -32,7 +32,7 @@ export class DispositionController {
   }
 
   @Post('dispositions')
-  @ApiOperation({ summary: 'Record finding: log the investigation conclusion (chosen disposition + cause + note); outlet is determined by the chosen disposition' })
+  @ApiOperation({ summary: 'Record disposition finding: log the investigation conclusion (chosen disposition + cause + note); outlet is determined by the chosen disposition' })
   @RequirePermissions(buildPermissionCode('POST', '/admin/reconciliation/cases/:caseNo/dispositions'))
   record(@Param('caseNo') caseNo: string, @Body() dto: RecordDispositionDto, @Req() req: any) {
     return this.disposition.record({ ...dto, caseNo }, this.buildActor(req));

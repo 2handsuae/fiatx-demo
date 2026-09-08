@@ -49,7 +49,7 @@ const KIND_OF_OUTLET = new Map<StoredOutlet, DispositionKind>(
 // Task 5（读面翻转）：案件列表气泡——demo 答案键场景条目，业务键（scenarioId/
 // causeCode），不带 walletRef（铁律⑥）。
 interface DemoScenarioEntry {
-  scenarioId: number; causeCode: string; causeLabel: string; dispositionLabel: string;
+  scenarioId: number; causeCode: string; causeLabel: string; dispositionLabel: string; clue: string;
 }
 
 @Injectable()
@@ -776,6 +776,10 @@ export class ReconciliationQueryService {
         causeCode: scenario.rootCause,
         causeLabel: causeSpec.label,
         dispositionLabel: DISPOSITION_LABEL[causeSpec.usableIn[0]],
+        // Minor 4（终审修复批）：业主原始诉求"悬浮出现场景说明"——气泡此前只有场景号
+        // + 成因标题，没有说明这条差异该怎么查证；同一来源（注册表该码 clue）
+        // 已经喂给成因菜单的辅助文案，气泡这里原样带上，不另造一份文案。
+        clue: causeSpec.clue,
       };
       const walletRefs = new Set((scenario.expectedLines ?? []).map((l) => l.walletRef));
       for (const walletRef of walletRefs) {
