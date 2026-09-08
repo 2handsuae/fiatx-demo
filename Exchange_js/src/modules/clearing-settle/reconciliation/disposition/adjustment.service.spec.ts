@@ -1385,6 +1385,97 @@ describe('AdjustmentService.describeImpact —— client pool loss recognition\'
   });
 });
 
+// 评审修复（I1，铁律⑥审批文案）：公司簿同样有事故升级路（LARGE_UNEXPLAINED，公司池
+// 版）——事故已经定损，继续说「悬了多久、查过什么」是文不对题；对齐客户簿既有事故
+// 句式，带上事故单号 + 金额锁定的依据。
+describe("AdjustmentService.describeImpact —— firm pool write-off's incident path also gets its own copy (I1 review fix)", () => {
+  const svc = new AdjustmentService(null as any, null as any, null as any, null as any, null as any);
+  const baseRow = {
+    book: 'FIRM', ownerNo: null, amount: '7', assetCode: 'AED',
+    direction: 'REDUCE', reasonCode: 'UNEXPLAINED_WRITE_OFF',
+  } as any;
+
+  it('HOLD_INVESTIGATING old path unaffected: copy keeps "unexplained" + days overdue (no incidentNo passed)', () => {
+    const text = svc.describeImpact(
+      { ...baseRow, reasonInternal: 'Unexplained write-off', caseNo: 'REC-HOLD-2' },
+      2,
+      { walletNo: 'WA2', agedDays: 3, findingNote: 'Checked receipts for three days running' },
+    );
+    expect(text).toContain('Firm pool unexplained write-off');
+    expect(text).toContain('overdue 3 days');
+    expect(text).not.toContain('incident');
+  });
+
+  it('INCIDENT path: does not say "unexplained", carries no days-overdue, carries the incident number and states the amount is locked to the assessed loss', () => {
+    const text = svc.describeImpact(
+      { ...baseRow, reasonInternal: 'Unauthorized outflow write-off', caseNo: 'REC-INC-2' },
+      2,
+      // agedDays is deliberately still passed a value (30) — to prove the incident path genuinely
+      // does not read it, not that it merely failed to compute a days-overdue figure to show.
+      { walletNo: 'WA2', agedDays: 30, findingNote: 'Large unauthorized outflow; incident has been assessed', incidentNo: 'INC-FIRM-01' },
+    );
+    expect(text).toContain('INC-FIRM-01');
+    expect(text).toContain('Firm pool write-off');
+    expect(text).not.toContain('unexplained');
+    expect(text).not.toContain('overdue');
+    expect(text).not.toContain('30');
+    expect(text).toContain("locked to the incident's assessed loss");
+  });
+});
+
+// 评审修复（C1 挂接链）：submit() 端到端验证——大额升级路的定性行 outlet 停在
+// HOLD_INVESTIGATING、只有 incidentNo 被 attachIncident 写上；submit() 读的是同一行
+// 的 incidentNo（不再看 outlet），审批快照的 impact 文案里必须真的带上事故号，
+// 不是只有 describeImpact 单测过了这个字符串拼接就算数。
+describe('AdjustmentService.submit —— escalation path (outlet stays HOLD_INVESTIGATING, incidentNo attached) carries the incident number all the way into the approval impact copy (C1 挂接链评审修复)', () => {
+  const actor = { actorType: 'ADMIN' as const, userId: 'U_OPS', userNo: 'U_OPS', roleCodes: ['OPS_OFFICER'] };
+  const row = {
+    adjustmentNo: 'ADJ_ESC_SUBMIT', status: AdjustmentStatus.DRAFT, caseNo: 'REC-ESC-SUB',
+    book: 'CLIENT', direction: 'REDUCE', reasonCode: 'UNEXPLAINED_CLIENT_LOSS',
+    amount: '123456', assetCode: 'AED', ownerNo: 'CU-9', toOwnerNo: null,
+    walletRef: 'w-esc-sub', reasonInternal: 'Large unexplained difference, assessed via incident',
+    traceId: null,
+  };
+
+  const makeSvc = () => {
+    const prisma: any = {
+      reconciliationAdjustment: {
+        findUnique: jest.fn().mockResolvedValue(row),
+        update: jest.fn().mockResolvedValue({}),
+      },
+      asset: { findUnique: jest.fn().mockResolvedValue({ decimals: 2 }) },
+      reconciliationCase: { findUnique: jest.fn().mockResolvedValue({ slaDeadline: null }) },
+      wallet: { findUnique: jest.fn().mockResolvedValue({ walletNo: 'WA-ESC' }) },
+      // outlet 仍是 HOLD_INVESTIGATING——attachIncident 只写 incidentNo 一列（disposition.service.ts）。
+      reconciliationDisposition: {
+        findFirst: jest.fn().mockResolvedValue({ findingNote: 'Escalated, incident assessed', outlet: 'HOLD_INVESTIGATING', incidentNo: 'INC-ESC-SUB' }),
+      },
+    };
+    let capturedSnapshot: any;
+    const approvals: any = {
+      createAndSubmit: jest.fn((createDto: any) => {
+        capturedSnapshot = createDto.objectSnapshot;
+        return Promise.resolve({ id: 'appr-1', approvalNo: 'AP-ESC-SUB' });
+      }),
+    };
+    const svc = new AdjustmentService(prisma, approvals, null as any, null as any, null as any);
+    return { svc, prisma, approvals, getSnapshot: () => capturedSnapshot };
+  };
+
+  it("submit() reads incidentNo off the linked disposition line (regardless of outlet) and the approval snapshot's impact text carries the incident number", async () => {
+    const { svc, prisma, approvals, getSnapshot } = makeSvc();
+    await svc.submit('ADJ_ESC_SUBMIT', actor);
+    expect(approvals.createAndSubmit).toHaveBeenCalled();
+    const snapshot = getSnapshot();
+    expect(snapshot.impact).toContain('INC-ESC-SUB');
+    expect(snapshot.impact).not.toContain('unexplained');
+    expect(prisma.reconciliationAdjustment.update).toHaveBeenCalledWith(expect.objectContaining({
+      where: { adjustmentNo: 'ADJ_ESC_SUBMIT' },
+      data: expect.objectContaining({ status: AdjustmentStatus.PENDING_APPROVAL, approvalNo: 'AP-ESC-SUB' }),
+    }));
+  });
+});
+
 // Task 4（调账单列表端点）: real DB, no mocks — the schema-smoke test at the top of this
 // file already establishes the convention of hitting a live PrismaClient for behaviour
 // that has to come from an actual query (ordering / filtering / a join), not from a mock

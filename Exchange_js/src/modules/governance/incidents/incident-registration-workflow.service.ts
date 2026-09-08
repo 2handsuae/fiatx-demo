@@ -69,10 +69,15 @@ export class IncidentRegistrationWorkflowService {
     }
 
     const { incidentNo } = await this.incidents.register(effectiveDto, actor);
-    if (effectiveDto.type === IncidentTypes.UNAUTHORIZED_OUTFLOW) {
-      // register() 里已校验 sourceDispositionNo 非空且定性行合法（原子路的 dispositionNo
-      // 刚从 record() 建出，天然满足），这里必然存在。
-      await this.dispositionLink.attachIncident(effectiveDto.sourceDispositionNo as string, incidentNo);
+    // 评审修复（C1 挂接链）：此前只罩 UNAUTHORIZED_OUTFLOW 一种类型——LARGE_UNEXPLAINED
+    // 升级路（案件页 Escalate to incident 带 sourceDispositionNo）从头到尾没人把事故号
+    // 写回定性行，Task 4 放宽的读/写闸（union 条件）在运行系统里永远触发不到。放宽成
+    // 「带了 sourceDispositionNo 就 attach」——register() 已经按类型校验过它指向的定性
+    // 行合法（UNAUTHORIZED_OUTFLOW 走 assertUnauthorizedOutflow，LARGE_UNEXPLAINED 若
+    // 带了它走 assertLargeUnexplained 新增的可选行级校验，见 incident.service.ts），
+    // attachIncident 自带存在性 + 重复挂接校验，这里零改动、直接复用。
+    if (effectiveDto.sourceDispositionNo) {
+      await this.dispositionLink.attachIncident(effectiveDto.sourceDispositionNo, incidentNo);
     }
     return { incidentNo };
   }

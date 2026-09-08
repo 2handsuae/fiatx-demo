@@ -537,13 +537,17 @@ export class ReconciliationQueryService {
           && incident.assessmentBasis === 'FIRM_LOSS' && incident.assessedAmount != null) {
           const decimals = assetRow?.decimals ?? 0;
           const assessedMinor = new Prisma.Decimal(incident.assessedAmount).mul(new Prisma.Decimal(10).pow(decimals)).toFixed(0);
-          const reasonCode = caseBook === 'FIRM' ? 'UNEXPLAINED_WRITE_OFF' : 'UNEXPLAINED_CLIENT_LOSS';
-          const direction = caseBook === 'CLIENT' ? 'REDUCE' : resolveWriteOff({
+          // 评审收（Minor）：公司簿 reasonCode 直接取 resolveWriteOff 已经按 book 算好的
+          // 结果，别再本地重抄一遍同一条公式；客户池只有 REDUCE 一种方向（spec §7.1），
+          // 仍本地判，不必为它多绕一次 resolveWriteOff。
+          const wo = caseBook === 'FIRM' ? resolveWriteOff({
             matchType: r.matchType as any, book: caseBook,
             deltaSign: r.deltaAmount != null ? ((r.deltaAmount.startsWith('-') ? -1 : 1) as 1 | -1) : undefined,
             internalDirection: r.internalFlow?.direction, externalDirection: r.externalLine?.direction,
             internalAmount: r.internalFlow?.amount, externalAmount: r.externalLine?.amount, deltaAmount: r.deltaAmount,
-          }).direction;
+          }) : null;
+          const reasonCode = caseBook === 'FIRM' ? wo!.reasonCode : 'UNEXPLAINED_CLIENT_LOSS';
+          const direction = caseBook === 'CLIENT' ? 'REDUCE' : wo!.direction;
           r.nextStep = { kind: 'WRITE_OFF', reasonCode, direction, amount: assessedMinor, effectiveDate: kase.businessDate };
         }
       }

@@ -84,9 +84,16 @@ export class AdjustmentService {
            + `case ${row.caseNo ?? '(unknown)'} has been overdue ${extra?.agedDays ?? '?'} days; investigation conclusion: ${extra?.findingNote ?? row.reasonInternal}; a compensation transfer will follow to restore the balance`;
     }
     // 第五族核销（spec §3.7）：审批人要读到的是「哪个池子、哪个钱包、差额往哪去、悬了多久、查过什么」。
+    // 评审修复（I1）：公司簿同样有事故升级路（LARGE_UNEXPLAINED，公司池版）——事故已经
+    // 定损，继续说「悬了多久、查过什么」是文不对题；对齐客户簿既有事故句式，带上事故
+    // 单号 + 金额锁定的依据。
     if (row.reasonCode === 'UNEXPLAINED_WRITE_OFF') {
       const majorAmount = bigintToDecimal(BigInt(row.amount), decimals).toFixed(decimals);
       const outlet = row.direction === 'REDUCE' ? 'recognized into operating funds' : 'recorded as other income';
+      if (extra?.incidentNo) {
+        return `Firm pool write-off (incident ${extra.incidentNo} assessed ${majorAmount} ${row.assetCode}): wallet ${extra?.walletNo ?? '(unknown)'} ${row.assetCode} difference ${majorAmount} ${outlet}; `
+             + `amount is locked to the incident's assessed loss; investigation conclusion: ${extra?.findingNote ?? row.reasonInternal}`;
+      }
       return `Firm pool unexplained write-off: wallet ${extra?.walletNo ?? '(unknown)'} ${row.assetCode} difference ${majorAmount} ${outlet}; `
            + `case ${row.caseNo ?? '(unknown)'} has been overdue ${extra?.agedDays ?? '?'} days; investigation conclusion: ${extra?.findingNote ?? row.reasonInternal}`;
     }
@@ -517,9 +524,13 @@ export class AdjustmentService {
         where: { adjustmentNo }, select: { findingNote: true, outlet: true, incidentNo: true },
       });
       const agedDays = kase?.slaDeadline ? Math.max(1, Math.floor((Date.now() - new Date(kase.slaDeadline).getTime()) / 86_400_000)) : null;
+      // C1 挂接链评审修复：判据从单看 outlet==='INCIDENT' 改成看 incidentNo 是否存在——
+      // LARGE_UNEXPLAINED 升级路的定性行 outlet 一直留在 HOLD_INVESTIGATING，只有
+      // incidentNo 会被 attachIncident 写上，纯 outlet 判据永远照不到那条路，审批页
+      // 就读不到"金额锁定的依据 = 事故定损"。
       extra = {
         walletNo: wallet?.walletNo ?? null, agedDays, findingNote: held?.findingNote ?? null,
-        incidentNo: held?.outlet === 'INCIDENT' ? held?.incidentNo ?? null : null,
+        incidentNo: held?.incidentNo ?? null,
       };
     }
     const impact = this.describeImpact(row, assetRow?.decimals ?? 0, extra);

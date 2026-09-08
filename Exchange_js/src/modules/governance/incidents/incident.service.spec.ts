@@ -128,6 +128,35 @@ describe('IncidentService (Task 5)', () => {
       const r = await svc.register({ type: T.LARGE_UNEXPLAINED, title: 't', description: 'd', sourceCaseNo: 'REC2' }, ops);
       expect(r.incidentNo).toMatch(/^INC/);
     });
+
+    // 评审修复（C1 挂接链）：assertLargeUnexplained 新增可选行级校验——只在
+    // dto.sourceDispositionNo 给了才查；不给则维持上面既有案级用例的行为（零破坏）。
+    it('sourceDispositionNo given but not found → 404', async () => {
+      const { svc } = makeService({ kase: { caseNo: 'REC2', slaBreached: true }, disposition: null });
+      await expect(svc.register({ type: T.LARGE_UNEXPLAINED, title: 't', description: 'd', sourceCaseNo: 'REC2', sourceDispositionNo: 'RCD1' }, ops)).rejects.toBeInstanceOf(NotFoundException);
+    });
+    it('sourceDispositionNo given but the line belongs to a different case → 400', async () => {
+      const { svc } = makeService({
+        kase: { caseNo: 'REC2', slaBreached: true },
+        disposition: { dispositionNo: 'RCD1', caseNo: 'REC-OTHER', outlet: 'HOLD_INVESTIGATING' },
+      });
+      await expect(svc.register({ type: T.LARGE_UNEXPLAINED, title: 't', description: 'd', sourceCaseNo: 'REC2', sourceDispositionNo: 'RCD1' }, ops)).rejects.toThrow(/does not belong to case/);
+    });
+    it('sourceDispositionNo given but outlet is not HOLD_INVESTIGATING → 400', async () => {
+      const { svc } = makeService({
+        kase: { caseNo: 'REC2', slaBreached: true },
+        disposition: { dispositionNo: 'RCD1', caseNo: 'REC2', outlet: 'DEFERRED' },
+      });
+      await expect(svc.register({ type: T.LARGE_UNEXPLAINED, title: 't', description: 'd', sourceCaseNo: 'REC2', sourceDispositionNo: 'RCD1' }, ops)).rejects.toThrow(/not classified as "Hold · Investigating"/);
+    });
+    it('happy path with sourceDispositionNo: line belongs to the case and outlet=HOLD_INVESTIGATING → allowed', async () => {
+      const { svc } = makeService({
+        kase: { caseNo: 'REC2', slaBreached: true },
+        disposition: { dispositionNo: 'RCD1', caseNo: 'REC2', outlet: 'HOLD_INVESTIGATING' },
+      });
+      const r = await svc.register({ type: T.LARGE_UNEXPLAINED, title: 't', description: 'd', sourceCaseNo: 'REC2', sourceDispositionNo: 'RCD1' }, ops);
+      expect(r.incidentNo).toMatch(/^INC/);
+    });
   });
 
   describe('register — CLIENT_SHORTFALL', () => {

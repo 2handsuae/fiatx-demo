@@ -29,6 +29,19 @@ describe('IncidentRegistrationWorkflowService (Task 5, Rule 3 orchestration poin
     expect(dispositionLink.attachIncident).not.toHaveBeenCalled();
   });
 
+  // 评审修复（C1 挂接链）：大额升级路（案件页 Escalate to incident 带 sourceDispositionNo）
+  // 此前从头到尾没人把事故号写到定性行上——attachIncident 的唯一调用点被
+  // type===UNAUTHORIZED_OUTFLOW 罩死。放宽成「带了 sourceDispositionNo 就 attach」后，
+  // LARGE_UNEXPLAINED 也要真正挂接。
+  it('LARGE_UNEXPLAINED with sourceDispositionNo: after creation, also writes the disposition line back with attachIncident(dispositionNo, incidentNo) — C1 挂接链评审修复', async () => {
+    const { wf, incidents, dispositionLink } = makeWorkflow('INC4');
+    const dto = { type: T.LARGE_UNEXPLAINED, title: 't', description: 'd', sourceCaseNo: 'REC2', sourceDispositionNo: 'RCD2' };
+    const r = await wf.register(dto as any, ops);
+    expect(r).toEqual({ incidentNo: 'INC4' });
+    expect(incidents.register).toHaveBeenCalledWith(dto, ops);
+    expect(dispositionLink.attachIncident).toHaveBeenCalledWith('RCD2', 'INC4');
+  });
+
   it('when IncidentService.register validation fails, attachIncident is not created (the exception passes straight through, not swallowed)', async () => {
     const { wf, incidents, dispositionLink } = makeWorkflow();
     incidents.register.mockRejectedValueOnce(new Error('An unauthorized-outflow incident requires a source case number and disposition line number'));

@@ -1339,9 +1339,12 @@ const ReconciliationCasesDetailPage = () => {
                                       {row.nextStep.reasonCode === 'UNEXPLAINED_CLIENT_LOSS' ? 'Recognize loss' : 'Write off'}
                                     </button>
                                   ) : (
-                                    // 出口 = INCIDENT（事故已定损公司承损）不是「超期」——那句话在这里是撒谎。
+                                    // 行挂了事故号（事故已定损公司承损）不是「超期」——那句话在这里是撒谎。
+                                    // C1 挂接链评审修复：判据从单看 outlet==='INCIDENT' 改成看 incidentNo——
+                                    // 大额升级路的定性行 outlet 一直留在 HOLD_INVESTIGATING，只有 incidentNo
+                                    // 会被 attachIncident 写上，纯 outlet 判据永远照不到那条路。
                                     <span className="max-w-[220px] font-mono text-[10px] text-adm-red">
-                                      {row.disposition.outlet === 'INCIDENT' ? 'Incident assessed · eligible to recognize loss' : row.nextStep.reasonCode === 'UNEXPLAINED_CLIENT_LOSS' ? 'Overdue · eligible to recognize loss' : 'Overdue · eligible to write off'}
+                                      {row.disposition.incidentNo ? 'Incident assessed · eligible to recognize loss' : row.nextStep.reasonCode === 'UNEXPLAINED_CLIENT_LOSS' ? 'Overdue · eligible to recognize loss' : 'Overdue · eligible to write off'}
                                     </span>
                                   )
                                 )}
@@ -1354,6 +1357,11 @@ const ReconciliationCasesDetailPage = () => {
                                       onClick={() => navigate(buildIncidentHref({
                                         type: 'LARGE_UNEXPLAINED',
                                         sourceCaseNo: kase.caseNo,
+                                        // C1 挂接链评审修复：不带这个号，后端 attachIncident 的唯一
+                                        // 调用点（前提是 dto.sourceDispositionNo 存在）永远不会触发——
+                                        // 事故定了损也回写不到这行上。该按钮出现的前提本就是行已定性
+                                        // 挂起·调查中（INCIDENT_DEFERRED），disposition 必在。
+                                        sourceDispositionNo: row.disposition!.dispositionNo,
                                         customerNo: kase.ownerNo,
                                         assetCode: kase.assetCode,
                                         amount: minorToMajorPlain(row.nextStep!.amount, kase.decimals),
