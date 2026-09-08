@@ -58,6 +58,9 @@ export const PERMISSIONS = {
 
   RECON_RUN_READ: 'api.get.admin_reconciliation_runs',
   RECON_RUN_DETAIL_READ: 'api.get.admin_reconciliation_runs_runno',
+  // Task 7（差异行处置按钮）：Re-reconcile 此前无权限门——OPS 点了 403；这里补上，
+  // 精确镜像 rbac.catalog.ts 里 RECON_RUN_WRITE 组的 buildPermissionCode 派生值。
+  RECON_RUN_WRITE: 'api.post.admin_reconciliation_runs_wallet',
   RECON_CASE_READ: 'api.get.admin_reconciliation_cases',
   RECON_CASE_DETAIL_READ: 'api.get.admin_reconciliation_cases_caseno',
   RECON_EXTERNAL_BALANCE_READ: 'api.get.admin_reconciliation_external_balances',

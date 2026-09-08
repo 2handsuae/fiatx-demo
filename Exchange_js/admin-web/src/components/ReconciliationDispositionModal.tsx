@@ -1,9 +1,17 @@
 // admin-web/src/components/ReconciliationDispositionModal.tsx
 //
-// 处置弹层第一屏（spec §3.2，平账一期半 T8）：选成因（该格菜单，后端下发）→ 出口自动定。
-// 机器只出线索不出结论：双胞胎线索仅在 row.duplicateTwinRef 命中时显示；菜单本身
-// （文案 + 出口词）也由后端 FlowComparisonRow.menu 下发——前端不镜像成因表，唯一
-// 真相在后端 cause-registry.ts。
+// ⚠ 已断线（Task 7，平账处置改版）：案件详情页不再挂载本组件，入口（旧的
+// 「Record finding」按钮）已被差异行按钮组 + 挂起两弹窗取代
+// （admin-web/src/pages/ReconciliationCasesDetailPage.tsx 的
+// DispositionFindingModal / ReconciliationHoldModal）。本文件保留但不再是唯一
+// 真相——它读的 FlowComparisonRow.menu 字段后端早已停发（Task 5 读面翻转），下面
+// `row.menu` 现在恒为 undefined。按 Task 7 brief「本任务只断线不删文件」不删除，
+// Task 13 才物理删除；这里只做了保持 tsc 通过的最小改动（menu 硬编码空数组），
+// 不恢复功能。
+//
+// 处置弹层第一屏（spec §3.2，平账一期半 T8，历史设计）：选成因（该格菜单，后端
+// 下发）→ 出口自动定。机器只出线索不出结论：双胞胎线索仅在 row.duplicateTwinRef
+// 命中时显示。
 // 保存定性 = POST /admin/reconciliation/cases/:caseNo/dispositions；ADJUST 类出口
 // 把 handoff 交回父组件（父组件复用既有调账弹层，Task 9 补锁定视图）；挂起/留档类
 // 出口不落任何分录，就地显示确认屏收尾——文案必须讲清"不落分录"，不能读成"已解决"。
@@ -69,7 +77,9 @@ const ReconciliationDispositionModal = ({
   }, [open, row]);
 
   if (!open || !row) return null;
-  const menu = row.menu ?? [];
+  // 断线说明见文件头——FlowComparisonRow.menu 已停发，本组件不再被挂载，这里
+  // 硬编码空数组只是保持 tsc 通过，不是恢复功能。
+  const menu: Array<{ code: string; label: string; clue: string; outletLabel: string }> = [];
 
   const submit = async () => {
     if (!causeCode || !findingNote.trim()) {
