@@ -146,8 +146,14 @@ export interface AdjustmentLocked {
   direction?: AdjustmentDirection;
   directionNote: string;
   toCandidatesUrl?: string;
-  /** 平账 A 批：核销锁定视图——金额 / 生效日只读，说明预填查证结论。 */
-  writeOff?: { findingNote: string };
+  /** 平账 A 批：核销锁定视图——金额 / 生效日只读，说明预填查证结论。
+   *  平账处置改版 Task 10：source 区分解锁来源——账龄超期（既有四前提：超期 /
+   *  定性=挂起·调查中 / ≤ 小额线 / 账簿）vs 事故已定损（spec §4 M12 三前提：
+   *  事故号+FIRM_LOSS / 金额锁定损额 / 小额线不适用）。判定来源 = 行上
+   *  disposition.incidentNo 是否非空（父组件 openWriteOff 判），本组件只按
+   *  source 渲染对应文案，不重新判断来源。incidentNo/assessedDisplay 只在
+   *  source === 'INCIDENT' 时有值。 */
+  writeOff?: { findingNote: string; source: 'AGING' | 'INCIDENT'; incidentNo?: string; assessedDisplay?: string };
 }
 
 // 改记对端候选——GET reattribution-candidates 的返回行（disposition.service.ts
@@ -519,6 +525,33 @@ const ReconciliationAdjustmentCreateModal = ({
               <div>Reference: <span className="text-adm-t1">{(row.externalLine?.externalRef ?? row.internalFlow?.externalRef) ?? '—'}</span></div>
               {row.internalFlow?.sourceNo && (
                 <div>Original order: <span className="text-adm-t1">{row.internalFlow.sourceNo}</span></div>
+              )}
+            </div>
+          )}
+
+          {/* 平账处置改版 Task 10（M10–M12）：核销/认损锁定视图的前提清单区——
+              账龄路四前提（v8-recon.md §核销/认损行）原样保留；事故路（spec §4
+              M12）换成三前提，说明这张单为什么此刻能开、金额为什么锁定在这个数。
+              纯展示，不参与提交体——闸真正卡在后端（assertWriteOffAllowed /
+              assertIncidentWriteOffAllowed），这里只是让人看懂门是怎么开的。 */}
+          {locked?.writeOff && (
+            <div className="mb-4 space-y-1 rounded border border-adm-border bg-adm-bg px-2.5 py-2 font-mono text-[11px] text-adm-t2">
+              <div className="mb-0.5 font-mono text-[9px] font-semibold uppercase tracking-[0.12em] text-adm-t3">
+                {locked.writeOff.source === 'INCIDENT' ? 'Unlocked by · Incident loss assessment' : 'Unlocked by · Aging'}
+              </div>
+              {locked.writeOff.source === 'INCIDENT' ? (
+                <>
+                  <div>✓ Incident {locked.writeOff.incidentNo ?? '—'} · loss assessed (FIRM_LOSS)</div>
+                  <div>✓ Amount locked = {locked.writeOff.assessedDisplay ?? `${formatAmount(prefill.amountMinor, decimals)} ${assetCode}`}</div>
+                  <div>✓ Small-amount threshold not applicable (incident process is the large-amount control)</div>
+                </>
+              ) : (
+                <>
+                  <div>✓ Case overdue</div>
+                  <div>✓ Finding = Hold · Investigating</div>
+                  <div>✓ Amount ≤ small-amount threshold</div>
+                  <div>✓ {book === 'CLIENT' ? 'Client book' : 'Firm book'}</div>
+                </>
               )}
             </div>
           )}

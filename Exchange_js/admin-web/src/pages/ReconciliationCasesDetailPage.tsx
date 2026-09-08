@@ -920,9 +920,15 @@ const ReconciliationCasesDetailPage = () => {
   };
 
   // 平账 A 批：核销——用读面算好的 nextStep 四项预填，锁定视图（成因固定、方向 / 金额 / 生效日只读）。
+  // 平账处置改版 Task 10：source 判定 = 行上 disposition.incidentNo 是否非空——
+  // 非空说明这一步的解锁走的是事故定损（读面 reconciliation-query.service.ts
+  // 的事故判定块，见 :583），不是账龄超期（同一份判据前端不重算，只读行上已有
+  // 的字段）。incidentNo/assessedDisplay 只在事故来源时给值，供锁定视图前提区
+  // （M12）展示；账龄来源两个字段留空，锁定视图走既有四前提文案（M10/M11）。
   const openWriteOff = (row: FlowComparisonRow) => {
     if (!kase || !row.disposition || row.nextStep?.kind !== 'WRITE_OFF') return;
     const ns = row.nextStep;
+    const incidentNo = row.disposition.incidentNo ?? undefined;
     setCreatePrefill({
       amountMinor: ns.amount ?? '0', direction: ns.direction ?? '', relatedOrderNo: '',
       explainedFlowId: row.internalFlow?.id, explainedExternalLineId: row.externalLine?.id,
@@ -931,7 +937,12 @@ const ReconciliationCasesDetailPage = () => {
       dispositionNo: row.disposition.dispositionNo,
       family: 'WRITE_OFF', reasonCode: ns.reasonCode, direction: ns.direction,
       directionNote: `Direction makes internal equal external — ${directionNoteFor(row.matchType)}`,
-      writeOff: { findingNote: row.disposition.findingNote },
+      writeOff: {
+        findingNote: row.disposition.findingNote,
+        source: incidentNo ? 'INCIDENT' : 'AGING',
+        incidentNo,
+        assessedDisplay: incidentNo ? `${formatAmount(ns.amount, kase.decimals)} ${kase.assetCode}` : undefined,
+      },
     });
   };
 
