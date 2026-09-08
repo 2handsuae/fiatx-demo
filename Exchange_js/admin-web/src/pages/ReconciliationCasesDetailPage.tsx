@@ -848,9 +848,14 @@ const ReconciliationCasesDetailPage = () => {
   //     （旧的 row 闭包变量此刻还没有这个号），按 explainedFlowId/explainedExternalLineId
   //     锚在新拉回的 flowComparison 里把它找回来。
   //   INCIDENT → 直接跳转事故登记（带上刚落库的 dispositionNo），不再要求二次点击。
+  // 评审修复（Minor-2）：kind 在这里窄化成字面量联合，配底部的穷尽收口——
+  // findingPicker.kind／DispositionFindingModalProps.kind 仍是 string 不变（同一处
+  // 已有取舍，见上方组件注释「更不容易读错」，不在那处引入联合类型），只在这个
+  // 函数的入参收口，调用处相应加一个 as 断言。
+  type FindingKind = 'REATTRIBUTE' | 'CORRECT' | 'REVERSE' | 'RECORD' | 'SUPPLEMENT' | 'INCIDENT';
   const handleFindingRecorded = async (
     row: FlowComparisonRow,
-    kind: string,
+    kind: FindingKind,
     result: DispositionRecordResult,
     findingNote: string,
   ) => {
@@ -867,6 +872,13 @@ const ReconciliationCasesDetailPage = () => {
     if (kind === 'CORRECT' || kind === 'REVERSE' || kind === 'RECORD') {
       setCreatePrefill(rowAdjustmentPrefill(row));
       setAdjustLocked(null); // 自由选择表单——Task 8 收窄前的过渡态
+      // 评审修复：定性此刻已经落库，只是调账单还没提交；上面两行已经同步打开了
+      // 弹层，这里不 await——fetchCase 放后台刷新 kase.flowComparison，既不阻塞
+      // 弹层出现也不会关掉它（弹层开关只认 createPrefill/adjustLocked，不认
+      // kase）。取消这张弹层时行上就已经是刷新过的「Finding: ...」结论 chip，不用
+      // 再手动刷新页面（同 HOLD 分支 onDone 的既有模式：先动弹层状态，fetchCase
+      // 不参与其中）。
+      void fetchCase();
       return;
     }
     if (kind === 'SUPPLEMENT') {
@@ -890,7 +902,12 @@ const ReconciliationCasesDetailPage = () => {
           + `amount ${minorToMajorPlain(row.externalLine?.amount ?? row.internalFlow?.amount, kase.decimals)} ${kase.assetCode}. `
           + `Finding: ${findingNote}`,
       }));
+      return;
     }
+    // 穷尽收口（评审 Minor-2，对齐后端 cause-registry.ts 的 _exhaustive: never 风格）：
+    // 上面四支已经覆盖 FindingKind 全部 6 个值；新增第 7 个 kind 时这里编译期报红。
+    const _exhaustive: never = kind;
+    throw new Error(`Unknown finding kind: ${_exhaustive}`);
   };
 
   // 平账 A 批：核销——用读面算好的 nextStep 四项预填，锁定视图（成因固定、方向 / 金额 / 生效日只读）。
@@ -1785,7 +1802,7 @@ const ReconciliationCasesDetailPage = () => {
         label={findingPicker?.label ?? ''}
         onClose={() => setFindingPicker(null)}
         onRecorded={(result, findingNote) => {
-          if (findingPicker) void handleFindingRecorded(findingPicker.row, findingPicker.kind, result, findingNote);
+          if (findingPicker) void handleFindingRecorded(findingPicker.row, findingPicker.kind as FindingKind, result, findingNote);
         }}
       />
 
