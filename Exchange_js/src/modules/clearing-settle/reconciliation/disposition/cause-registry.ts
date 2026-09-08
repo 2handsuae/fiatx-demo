@@ -28,11 +28,16 @@ export type CauseCode =
   | 'FIRM_MISBOOKED'
   | 'MISSED_DEPOSIT' | 'BOUNCED_FUNDS' | 'PAYOUT_RETURNED' | 'MISATTRIBUTED_TO' | 'UNAUTHORIZED_OUTFLOW'
   | 'BANK_INTEREST_UNBOOKED' | 'BANK_CHARGE_UNBOOKED' | 'UNCLAIMED_INFLOW'
-  | 'UNEXPLAINED';
+  | 'UNEXPLAINED'
+  | 'OTHER';
 
 type Cell = { matchType: CauseMatchType; book: CauseBook };
 const ALL_CELLS: Cell[] = (['AMOUNT_MISMATCH', 'ORPHAN_INTERNAL', 'ORPHAN_EXTERNAL'] as const)
   .flatMap((matchType) => (['CLIENT', 'FIRM'] as const).map((book) => ({ matchType, book })));
+
+export type DispositionKind =
+  | 'CORRECT' | 'REVERSE' | 'RECORD' | 'REATTRIBUTE'
+  | 'SUPPLEMENT' | 'INCIDENT' | 'HOLD_NEXT_PERIOD' | 'HOLD_INVESTIGATING';
 
 export interface CauseSpec {
   cells: Cell[];
@@ -40,6 +45,8 @@ export interface CauseSpec {
   label: string;
   /** 查证线索一句（手册「查证怎么做」的浓缩版） */
   clue: string;
+  /** 该码归属哪个/哪些处置（causesFor 按此过滤，声明顺序输出） */
+  usableIn: DispositionKind[];
   kind: 'ADJUST' | 'HOLD_NEXT_PERIOD' | 'HOLD_INVESTIGATING' | 'DEFERRED' | 'SUPPLEMENT' | 'INCIDENT';
   family?: AdjustFamily;           // kind=ADJUST 必有
   deferredTarget?: DeferredTarget; // kind=DEFERRED 必有
@@ -55,32 +62,34 @@ const C = (matchType: CauseMatchType, book: CauseBook): Cell => ({ matchType, bo
 // 手册与截图验收都按这个顺序对——挪行等于改菜单。
 export const CAUSE_REGISTRY: Record<CauseCode, CauseSpec> = {
   // ── 金额不对 × 客户 ──
-  AMT_MISBOOKED:   { cells: [C('AMOUNT_MISMATCH', 'CLIENT')], label: 'Amount misbooked', clue: 'Check the original bank receipt; the difference follows no pattern.', kind: 'ADJUST', family: 'CORRECT' },
-  AMT_FEE_NETTED:  { cells: [C('AMOUNT_MISMATCH', 'CLIENT')], label: 'Bank fee netted', clue: 'The difference matches a fixed fee or rate, consistent across every transaction on this channel.', kind: 'ADJUST', family: 'CORRECT' },
-  AMT_ROUNDING:    { cells: [C('AMOUNT_MISMATCH', 'CLIENT')], label: 'Rounding difference', clue: 'The difference is at the smallest precision unit.', kind: 'ADJUST', family: 'CORRECT' },
+  AMT_MISBOOKED:   { cells: [C('AMOUNT_MISMATCH', 'CLIENT')], label: 'Amount misbooked', clue: 'Check the original bank receipt; the difference follows no pattern.', usableIn: ['CORRECT'], kind: 'ADJUST', family: 'CORRECT' },
+  AMT_FEE_NETTED:  { cells: [C('AMOUNT_MISMATCH', 'CLIENT')], label: 'Bank fee netted', clue: 'The difference matches a fixed fee or rate, consistent across every transaction on this channel.', usableIn: ['CORRECT'], kind: 'ADJUST', family: 'CORRECT' },
+  AMT_ROUNDING:    { cells: [C('AMOUNT_MISMATCH', 'CLIENT')], label: 'Rounding difference', clue: 'The difference is at the smallest precision unit.', usableIn: ['CORRECT'], kind: 'ADJUST', family: 'CORRECT' },
   // ── 金额不对 × 公司 ──
-  FIRM_AMT_UNDERBOOKED: { cells: [C('AMOUNT_MISMATCH', 'FIRM')], label: 'Firm amount underbooked', clue: 'Compare the bank receipt against our own books.', kind: 'ADJUST', family: 'RECORD' },
-  FIRM_AMT_OVERBOOKED:  { cells: [C('AMOUNT_MISMATCH', 'FIRM')], label: 'Firm amount overbooked', clue: 'Compare the bank receipt against our own books.', kind: 'ADJUST', family: 'REVERSE' },
+  FIRM_AMT_UNDERBOOKED: { cells: [C('AMOUNT_MISMATCH', 'FIRM')], label: 'Firm amount underbooked', clue: 'Compare the bank receipt against our own books.', usableIn: ['RECORD'], kind: 'ADJUST', family: 'RECORD' },
+  FIRM_AMT_OVERBOOKED:  { cells: [C('AMOUNT_MISMATCH', 'FIRM')], label: 'Firm amount overbooked', clue: 'Compare the bank receipt against our own books.', usableIn: ['REVERSE'], kind: 'ADJUST', family: 'REVERSE' },
   // ── 我有外无 × 客户 ──
-  DUP_BOOKING:         { cells: [C('ORPHAN_INTERNAL', 'CLIENT')], label: 'Duplicate posting (twin)', clue: 'The matched list has a twin entry with the same reference number and amount.', kind: 'ADJUST', family: 'REVERSE' },
-  PHANTOM_BOOKING:     { cells: [C('ORPHAN_INTERNAL', 'CLIENT')], label: 'Phantom posting', clue: 'No record of this transaction at the bank or on-chain.', kind: 'ADJUST', family: 'REVERSE' },
-  PAYOUT_NOT_EXECUTED: { cells: [C('ORPHAN_INTERNAL', 'CLIENT')], label: 'Payout not executed', clue: 'No receipt on file, or a failure notice was received.', kind: 'ADJUST', family: 'REVERSE' },
-  MISATTRIBUTED_FROM:  { cells: [C('ORPHAN_INTERNAL', 'CLIENT')], label: 'Misattributed customer', clue: 'A same-day, same-amount "external only" entry exists on the counterparty wallet.', kind: 'ADJUST', family: 'REATTRIBUTE' },
-  CUTOFF_STRADDLE:     { cells: [C('ORPHAN_INTERNAL', 'CLIENT')], label: 'Cross-period timing', clue: "The external line's timestamp falls in the next accounting period; the balance is not actually short.", kind: 'HOLD_NEXT_PERIOD' },
+  DUP_BOOKING:         { cells: [C('ORPHAN_INTERNAL', 'CLIENT')], label: 'Duplicate posting (twin)', clue: 'The matched list has a twin entry with the same reference number and amount.', usableIn: ['REVERSE'], kind: 'ADJUST', family: 'REVERSE' },
+  PHANTOM_BOOKING:     { cells: [C('ORPHAN_INTERNAL', 'CLIENT')], label: 'Phantom posting', clue: 'No record of this transaction at the bank or on-chain.', usableIn: ['REVERSE'], kind: 'ADJUST', family: 'REVERSE' },
+  PAYOUT_NOT_EXECUTED: { cells: [C('ORPHAN_INTERNAL', 'CLIENT')], label: 'Payout not executed', clue: 'No receipt on file, or a failure notice was received.', usableIn: ['REVERSE'], kind: 'ADJUST', family: 'REVERSE' },
+  MISATTRIBUTED_FROM:  { cells: [C('ORPHAN_INTERNAL', 'CLIENT')], label: 'Misattributed customer', clue: 'A same-day, same-amount "external only" entry exists on the counterparty wallet.', usableIn: ['REATTRIBUTE'], kind: 'ADJUST', family: 'REATTRIBUTE' },
+  CUTOFF_STRADDLE:     { cells: [C('ORPHAN_INTERNAL', 'CLIENT')], label: 'Cross-period timing', clue: "The external line's timestamp falls in the next accounting period; the balance is not actually short.", usableIn: ['HOLD_NEXT_PERIOD'], kind: 'HOLD_NEXT_PERIOD' },
   // ── 我有外无 × 公司 ──
-  FIRM_MISBOOKED:          { cells: [C('ORPHAN_INTERNAL', 'FIRM')], label: 'Firm entry error', clue: 'No matching entry on the bank statement.', kind: 'ADJUST', family: 'REVERSE' },
+  FIRM_MISBOOKED:          { cells: [C('ORPHAN_INTERNAL', 'FIRM')], label: 'Firm entry error', clue: 'No matching entry on the bank statement.', usableIn: ['REVERSE'], kind: 'ADJUST', family: 'REVERSE' },
   // ── 外有我无 × 客户 ──
-  MISSED_DEPOSIT:   { cells: [C('ORPHAN_EXTERNAL', 'CLIENT')], label: 'Missed customer deposit', clue: 'The external line carries customer attribution (VIBAN / on-chain address).', kind: 'SUPPLEMENT', supplementTarget: 'SUPPLEMENT_DEPOSIT', supplementLabel: 'Deposit backfill', requiredDirection: 'IN' },
-  BOUNCED_FUNDS:    { cells: [C('ORPHAN_EXTERNAL', 'CLIENT')], label: 'Deposit recalled', clue: 'The external OUT line traces back to an earlier successful deposit.', kind: 'SUPPLEMENT', supplementTarget: 'SUPPLEMENT_BOUNCE', supplementLabel: 'Recall claim', requiredDirection: 'OUT' },
-  PAYOUT_RETURNED:  { cells: [C('ORPHAN_EXTERNAL', 'CLIENT')], label: 'Payout returned by bank', clue: 'The external IN line matches a successful withdrawal in amount and carries the original payout reference.', kind: 'SUPPLEMENT', supplementTarget: 'SUPPLEMENT_PAYOUT_RETURN', supplementLabel: 'Return claim', requiredDirection: 'IN' },
-  MISATTRIBUTED_TO:     { cells: [C('ORPHAN_EXTERNAL', 'CLIENT')], label: 'Misattributed customer', clue: 'A same-day, same-amount "internal only" entry exists on the counterparty wallet.', kind: 'ADJUST', family: 'REATTRIBUTE' },
-  UNAUTHORIZED_OUTFLOW: { cells: [C('ORPHAN_EXTERNAL', 'CLIENT')], label: 'Unauthorized outflow', clue: 'We hold no order for it, and the customer did not initiate it.', kind: 'INCIDENT' },
+  MISSED_DEPOSIT:   { cells: [C('ORPHAN_EXTERNAL', 'CLIENT')], label: 'Missed customer deposit', clue: 'The external line carries customer attribution (VIBAN / on-chain address).', usableIn: ['SUPPLEMENT'], kind: 'SUPPLEMENT', supplementTarget: 'SUPPLEMENT_DEPOSIT', supplementLabel: 'Deposit backfill', requiredDirection: 'IN' },
+  BOUNCED_FUNDS:    { cells: [C('ORPHAN_EXTERNAL', 'CLIENT')], label: 'Deposit recalled', clue: 'The external OUT line traces back to an earlier successful deposit.', usableIn: ['SUPPLEMENT'], kind: 'SUPPLEMENT', supplementTarget: 'SUPPLEMENT_BOUNCE', supplementLabel: 'Recall claim', requiredDirection: 'OUT' },
+  PAYOUT_RETURNED:  { cells: [C('ORPHAN_EXTERNAL', 'CLIENT')], label: 'Payout returned by bank', clue: 'The external IN line matches a successful withdrawal in amount and carries the original payout reference.', usableIn: ['SUPPLEMENT'], kind: 'SUPPLEMENT', supplementTarget: 'SUPPLEMENT_PAYOUT_RETURN', supplementLabel: 'Return claim', requiredDirection: 'IN' },
+  MISATTRIBUTED_TO:     { cells: [C('ORPHAN_EXTERNAL', 'CLIENT')], label: 'Misattributed customer', clue: 'A same-day, same-amount "internal only" entry exists on the counterparty wallet.', usableIn: ['REATTRIBUTE'], kind: 'ADJUST', family: 'REATTRIBUTE' },
+  UNAUTHORIZED_OUTFLOW: { cells: [C('ORPHAN_EXTERNAL', 'CLIENT')], label: 'Unauthorized outflow', clue: 'We hold no order for it, and the customer did not initiate it.', usableIn: ['INCIDENT'], kind: 'INCIDENT' },
   // ── 外有我无 × 公司 ──
-  BANK_INTEREST_UNBOOKED: { cells: [C('ORPHAN_EXTERNAL', 'FIRM')], label: 'Bank interest unbooked', clue: 'The bank statement line item is interest.', kind: 'ADJUST', family: 'RECORD' },
-  BANK_CHARGE_UNBOOKED:   { cells: [C('ORPHAN_EXTERNAL', 'FIRM')], label: 'Bank charges unbooked', clue: 'The bank statement line item is a fee.', kind: 'ADJUST', family: 'RECORD' },
-  UNCLAIMED_INFLOW:       { cells: [C('ORPHAN_EXTERNAL', 'FIRM')], label: 'Unclaimed inflow', clue: "Trace the account owner: if it's a customer, route to Supplement; if it's the firm, route to Record entry.", kind: 'HOLD_INVESTIGATING' },
+  BANK_INTEREST_UNBOOKED: { cells: [C('ORPHAN_EXTERNAL', 'FIRM')], label: 'Bank interest unbooked', clue: 'The bank statement line item is interest.', usableIn: ['RECORD'], kind: 'ADJUST', family: 'RECORD' },
+  BANK_CHARGE_UNBOOKED:   { cells: [C('ORPHAN_EXTERNAL', 'FIRM')], label: 'Bank charges unbooked', clue: 'The bank statement line item is a fee.', usableIn: ['RECORD'], kind: 'ADJUST', family: 'RECORD' },
+  UNCLAIMED_INFLOW:       { cells: [C('ORPHAN_EXTERNAL', 'FIRM')], label: 'Unclaimed inflow', clue: "Trace the account owner: if it's a customer, route to Supplement; if it's the firm, route to Record entry.", usableIn: ['HOLD_INVESTIGATING'], kind: 'HOLD_INVESTIGATING' },
   // ── 每格通用收尾 ──
-  UNEXPLAINED: { cells: ALL_CELLS, label: 'Unexplained (exhausted)', clue: 'State clearly in the notes what was investigated.', kind: 'HOLD_INVESTIGATING' },
+  UNEXPLAINED: { cells: ALL_CELLS, label: 'Unexplained (exhausted)', clue: 'State clearly in the notes what was investigated.', usableIn: ['HOLD_INVESTIGATING'], kind: 'HOLD_INVESTIGATING' },
+  // ── 统一注册表新增（Task 1）：所有处置通用的自由文本兜底 ──
+  OTHER: { cells: ALL_CELLS, label: 'Other', clue: 'State the reason in your own words; it is recorded verbatim.', usableIn: ['CORRECT', 'REVERSE', 'RECORD', 'HOLD_NEXT_PERIOD', 'HOLD_INVESTIGATING'], kind: 'ADJUST' /* 占位，新径不读 kind */ },
 };
 
 export const FAMILY_LABEL: Record<AdjustFamily, string> = {
@@ -112,6 +121,49 @@ export interface RowFacts {
   internalDirection?: 'IN' | 'OUT';        // ORPHAN_INTERNAL；AMOUNT_MISMATCH 也要——见 signedDeltaSign
   internalSourceType?: string;             // AMOUNT_MISMATCH：内部流水 sourceType
   externalDirection?: 'IN' | 'OUT';        // ORPHAN_EXTERNAL
+}
+
+// ═══ 统一注册表（Task 1，spec §2/§4/§5/§8）：合法处置矩阵 + 按处置出码菜单 ═══
+export const DISPOSITION_LABEL: Record<DispositionKind, string> = {
+  CORRECT: 'Correction', REVERSE: 'Reversal', RECORD: 'Record entry', REATTRIBUTE: 'Reattribute',
+  SUPPLEMENT: 'Supplement', INCIDENT: 'Register incident',
+  HOLD_NEXT_PERIOD: 'Hold · Next period', HOLD_INVESTIGATING: 'Hold · Investigating',
+};
+// 冲正/冲销只对 DEPOSIT/WITHDRAW 系来源开放（A1b 甲：SWAP 等无调账码，按钮不出现）。
+// 注意流水投影里的提现 sourceType 字面量既有 'WITHDRAW' 也有 'WITHDRAWAL'（account_flows
+// 表实测为 WITHDRAWAL，resolveOutlet 旧码用 WITHDRAW）——两者都收，执行时先
+// `grep -rn "sourceType" src/modules/clearing-settle/reconciliation/projector/` 复核投影字面量。
+const ADJUSTABLE_SOURCES = new Set(['DEPOSIT', 'WITHDRAW', 'WITHDRAWAL']);
+const sourceAdjustable = (t?: string) => t != null && ADJUSTABLE_SOURCES.has(t);
+export function dispositionsFor(facts: RowFacts): DispositionKind[] {
+  const out: DispositionKind[] = [];
+  if (facts.matchType === 'AMOUNT_MISMATCH') {
+    if (facts.book === 'CLIENT') { if (sourceAdjustable(facts.internalSourceType)) out.push('CORRECT'); }
+    else out.push('RECORD', 'REVERSE');
+  } else if (facts.matchType === 'ORPHAN_INTERNAL') {
+    if (sourceAdjustable(facts.internalSourceType)) out.push('REVERSE');
+    if (facts.book === 'CLIENT') out.push('REATTRIBUTE');
+  } else { // ORPHAN_EXTERNAL
+    if (facts.book === 'CLIENT') out.push('SUPPLEMENT', 'REATTRIBUTE', 'INCIDENT');
+    else out.push('RECORD');
+  }
+  out.push('HOLD_NEXT_PERIOD', 'HOLD_INVESTIGATING');
+  return out;
+}
+
+export function causesFor(kind: DispositionKind, matchType: CauseMatchType, book: CauseBook): Array<{ code: CauseCode; label: string; clue: string }> {
+  return (Object.entries(CAUSE_REGISTRY) as Array<[CauseCode, CauseSpec]>)
+    .filter(([, s]) => s.usableIn.includes(kind) && s.cells.some((c) => c.matchType === matchType && c.book === book))
+    .map(([code, s]) => ({ code, label: s.label, clue: s.clue }));
+}
+
+const OUTLET_OF: Record<DispositionKind, StoredOutlet> = {
+  CORRECT: 'ADJUST_CORRECT', REVERSE: 'ADJUST_REVERSE', RECORD: 'ADJUST_RECORD', REATTRIBUTE: 'ADJUST_REATTRIBUTE',
+  SUPPLEMENT: 'SUPPLEMENT', INCIDENT: 'INCIDENT',
+  HOLD_NEXT_PERIOD: 'HOLD_NEXT_PERIOD', HOLD_INVESTIGATING: 'HOLD_INVESTIGATING',
+};
+export function outletOf(kind: DispositionKind): StoredOutlet {
+  return OUTLET_OF[kind];
 }
 
 /**

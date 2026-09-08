@@ -1,35 +1,36 @@
 import { menuFor, resolveOutlet, staticOutletLabel, CAUSE_REGISTRY, CauseCode, FAMILY_LABEL, resolveWriteOff } from './cause-registry';
+import { dispositionsFor, causesFor, outletOf } from './cause-registry';
 
 describe('cause-registry —— six-cell cause menu (spec §4, registry is the single source of truth)', () => {
   const codes = (mt: any, book: any) => menuFor(mt, book).map((m) => m.code);
 
   it('Mismatch × Client', () => {
-    expect(codes('AMOUNT_MISMATCH', 'CLIENT')).toEqual(['AMT_MISBOOKED', 'AMT_FEE_NETTED', 'AMT_ROUNDING', 'UNEXPLAINED']);
+    expect(codes('AMOUNT_MISMATCH', 'CLIENT')).toEqual(['AMT_MISBOOKED', 'AMT_FEE_NETTED', 'AMT_ROUNDING', 'UNEXPLAINED', 'OTHER']);
   });
   it('Mismatch × Firm', () => {
-    expect(codes('AMOUNT_MISMATCH', 'FIRM')).toEqual(['FIRM_AMT_UNDERBOOKED', 'FIRM_AMT_OVERBOOKED', 'UNEXPLAINED']);
+    expect(codes('AMOUNT_MISMATCH', 'FIRM')).toEqual(['FIRM_AMT_UNDERBOOKED', 'FIRM_AMT_OVERBOOKED', 'UNEXPLAINED', 'OTHER']);
   });
   it('Internal only × Client', () => {
     expect(codes('ORPHAN_INTERNAL', 'CLIENT')).toEqual([
-      'DUP_BOOKING', 'PHANTOM_BOOKING', 'PAYOUT_NOT_EXECUTED', 'MISATTRIBUTED_FROM', 'CUTOFF_STRADDLE', 'UNEXPLAINED',
+      'DUP_BOOKING', 'PHANTOM_BOOKING', 'PAYOUT_NOT_EXECUTED', 'MISATTRIBUTED_FROM', 'CUTOFF_STRADDLE', 'UNEXPLAINED', 'OTHER',
     ]);
   });
   it('Internal only × Firm', () => {
     expect(codes('ORPHAN_INTERNAL', 'FIRM')).toEqual([
-      'FIRM_MISBOOKED', 'UNEXPLAINED',
+      'FIRM_MISBOOKED', 'UNEXPLAINED', 'OTHER',
     ]);
   });
   it('External only × Client', () => {
     expect(codes('ORPHAN_EXTERNAL', 'CLIENT')).toEqual([
-      'MISSED_DEPOSIT', 'BOUNCED_FUNDS', 'PAYOUT_RETURNED', 'MISATTRIBUTED_TO', 'UNAUTHORIZED_OUTFLOW', 'UNEXPLAINED',
+      'MISSED_DEPOSIT', 'BOUNCED_FUNDS', 'PAYOUT_RETURNED', 'MISATTRIBUTED_TO', 'UNAUTHORIZED_OUTFLOW', 'UNEXPLAINED', 'OTHER',
     ]);
   });
   it('External only × Firm', () => {
     expect(codes('ORPHAN_EXTERNAL', 'FIRM')).toEqual([
-      'BANK_INTEREST_UNBOOKED', 'BANK_CHARGE_UNBOOKED', 'UNCLAIMED_INFLOW', 'UNEXPLAINED',
+      'BANK_INTEREST_UNBOOKED', 'BANK_CHARGE_UNBOOKED', 'UNCLAIMED_INFLOW', 'UNEXPLAINED', 'OTHER',
     ]);
   });
-  it('20 codes assigned, none missing: every code appears in at least one cell menu', () => {
+  it('21 codes assigned, none missing: every code appears in at least one cell menu (Task 1 adds OTHER, cells=ALL_CELLS)', () => {
     const all = new Set<string>();
     (['AMOUNT_MISMATCH', 'ORPHAN_INTERNAL', 'ORPHAN_EXTERNAL'] as const).forEach((mt) =>
       (['CLIENT', 'FIRM'] as const).forEach((book) => codes(mt, book).forEach((c) => all.add(c))));
@@ -203,8 +204,8 @@ describe('Recon batch A: firm-book reversal codes + write-off determination (spe
 });
 
 describe('Recon batch B: supplement outlet (spec §6)', () => {
-  it('20 cause codes; three route through the SUPPLEMENT outlet', () => {
-    expect(Object.keys(CAUSE_REGISTRY)).toHaveLength(20);
+  it('21 cause codes (Task 1 adds OTHER); three route through the SUPPLEMENT outlet', () => {
+    expect(Object.keys(CAUSE_REGISTRY)).toHaveLength(21);
     expect(CAUSE_REGISTRY.MISSED_DEPOSIT.kind).toBe('SUPPLEMENT');
     expect(CAUSE_REGISTRY.BOUNCED_FUNDS.kind).toBe('SUPPLEMENT');
     expect(CAUSE_REGISTRY.PAYOUT_RETURNED.kind).toBe('SUPPLEMENT');
@@ -222,8 +223,53 @@ describe('Recon batch B: supplement outlet (spec §6)', () => {
     expect(() => resolveOutlet('MISSED_DEPOSIT', { matchType: 'ORPHAN_EXTERNAL', book: 'CLIENT', externalDirection: 'OUT' })).toThrow(/do not match/);
     expect(() => resolveOutlet('BOUNCED_FUNDS', { matchType: 'ORPHAN_EXTERNAL', book: 'CLIENT', externalDirection: 'IN' })).toThrow(/do not match/);
   });
-  it('menu order: external only × client = missed / recall / return / misattributed / unauthorized / unexplained', () => {
+  it('menu order: external only × client = missed / recall / return / misattributed / unauthorized / unexplained / other', () => {
     expect(menuFor('ORPHAN_EXTERNAL', 'CLIENT').map((m) => m.code))
-      .toEqual(['MISSED_DEPOSIT', 'BOUNCED_FUNDS', 'PAYOUT_RETURNED', 'MISATTRIBUTED_TO', 'UNAUTHORIZED_OUTFLOW', 'UNEXPLAINED']);
+      .toEqual(['MISSED_DEPOSIT', 'BOUNCED_FUNDS', 'PAYOUT_RETURNED', 'MISATTRIBUTED_TO', 'UNAUTHORIZED_OUTFLOW', 'UNEXPLAINED', 'OTHER']);
   });
+});
+
+const base = { deltaSign: 1 as const, internalDirection: 'IN' as const };
+describe('dispositionsFor —— 六格硬边界（spec §2）', () => {
+  it('金额不对×客户 = 冲正+两挂起', () => expect(dispositionsFor({ matchType: 'AMOUNT_MISMATCH', book: 'CLIENT', ...base, internalSourceType: 'DEPOSIT' }))
+    .toEqual(['CORRECT', 'HOLD_NEXT_PERIOD', 'HOLD_INVESTIGATING']));
+  it('金额不对×客户 SWAP 行无冲正（A1b 甲）', () => expect(dispositionsFor({ matchType: 'AMOUNT_MISMATCH', book: 'CLIENT', ...base, internalSourceType: 'SWAP' }))
+    .toEqual(['HOLD_NEXT_PERIOD', 'HOLD_INVESTIGATING']));
+  it('金额不对×公司 = 补记+冲销+两挂起', () => expect(dispositionsFor({ matchType: 'AMOUNT_MISMATCH', book: 'FIRM', ...base, internalSourceType: 'DEPOSIT' }))
+    .toEqual(['RECORD', 'REVERSE', 'HOLD_NEXT_PERIOD', 'HOLD_INVESTIGATING']));
+  it('我有外无×客户 = 冲销+改记+两挂起；SWAP 行只剩挂起+改记外还去掉冲销', () => {
+    expect(dispositionsFor({ matchType: 'ORPHAN_INTERNAL', book: 'CLIENT', ...base, internalSourceType: 'DEPOSIT' }))
+      .toEqual(['REVERSE', 'REATTRIBUTE', 'HOLD_NEXT_PERIOD', 'HOLD_INVESTIGATING']);
+    expect(dispositionsFor({ matchType: 'ORPHAN_INTERNAL', book: 'CLIENT', ...base, internalSourceType: 'SWAP' }))
+      .toEqual(['REATTRIBUTE', 'HOLD_NEXT_PERIOD', 'HOLD_INVESTIGATING']);
+  });
+  it('我有外无×公司 = 冲销+两挂起', () => expect(dispositionsFor({ matchType: 'ORPHAN_INTERNAL', book: 'FIRM', ...base, internalSourceType: 'DEPOSIT' }))
+    .toEqual(['REVERSE', 'HOLD_NEXT_PERIOD', 'HOLD_INVESTIGATING']));
+  it('外有我无×客户 = 补单+改记+事故+两挂起', () => expect(dispositionsFor({ matchType: 'ORPHAN_EXTERNAL', book: 'CLIENT', externalDirection: 'IN' }))
+    .toEqual(['SUPPLEMENT', 'REATTRIBUTE', 'INCIDENT', 'HOLD_NEXT_PERIOD', 'HOLD_INVESTIGATING']));
+  it('外有我无×公司 = 补记+两挂起', () => expect(dispositionsFor({ matchType: 'ORPHAN_EXTERNAL', book: 'FIRM', externalDirection: 'IN' }))
+    .toEqual(['RECORD', 'HOLD_NEXT_PERIOD', 'HOLD_INVESTIGATING']));
+});
+describe('causesFor —— 按处置出码 + OTHER（spec §4/§5）', () => {
+  const codes = (k: any, m: any, b: any) => causesFor(k, m, b).map((c) => c.code);
+  it('冲正@金额不对×客户 = 三码+OTHER', () => expect(codes('CORRECT', 'AMOUNT_MISMATCH', 'CLIENT'))
+    .toEqual(['AMT_MISBOOKED', 'AMT_FEE_NETTED', 'AMT_ROUNDING', 'OTHER']));
+  it('冲销@我有外无×客户 = 三码+OTHER', () => expect(codes('REVERSE', 'ORPHAN_INTERNAL', 'CLIENT'))
+    .toEqual(['DUP_BOOKING', 'PHANTOM_BOOKING', 'PAYOUT_NOT_EXECUTED', 'OTHER']));
+  it('补记@外有我无×公司 = 利息+杂费+OTHER', () => expect(codes('RECORD', 'ORPHAN_EXTERNAL', 'FIRM'))
+    .toEqual(['BANK_INTEREST_UNBOOKED', 'BANK_CHARGE_UNBOOKED', 'OTHER']));
+  it('改记/补单/事故的码固定、无 OTHER', () => {
+    expect(codes('REATTRIBUTE', 'ORPHAN_INTERNAL', 'CLIENT')).toEqual(['MISATTRIBUTED_FROM']);
+    expect(codes('SUPPLEMENT', 'ORPHAN_EXTERNAL', 'CLIENT')).toEqual(['MISSED_DEPOSIT', 'BOUNCED_FUNDS', 'PAYOUT_RETURNED']);
+    expect(codes('INCIDENT', 'ORPHAN_EXTERNAL', 'CLIENT')).toEqual(['UNAUTHORIZED_OUTFLOW']);
+  });
+  it('挂起等下期 = 跨账期(+OTHER)；调查中@公司外有我无 = 归属排查+查无果+OTHER', () => {
+    expect(codes('HOLD_NEXT_PERIOD', 'ORPHAN_INTERNAL', 'CLIENT')).toEqual(['CUTOFF_STRADDLE', 'OTHER']);
+    expect(codes('HOLD_INVESTIGATING', 'ORPHAN_EXTERNAL', 'FIRM')).toEqual(['UNCLAIMED_INFLOW', 'UNEXPLAINED', 'OTHER']);
+  });
+});
+it('outletOf 存储映射稳定（spec §8 值域沿用）', () => {
+  expect(outletOf('CORRECT')).toBe('ADJUST_CORRECT');
+  expect(outletOf('REATTRIBUTE')).toBe('ADJUST_REATTRIBUTE');
+  expect(outletOf('HOLD_NEXT_PERIOD')).toBe('HOLD_NEXT_PERIOD');
 });
