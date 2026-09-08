@@ -977,7 +977,7 @@ async function seedMaterialRequest(prisma: PrismaClient): Promise<void> {
 // ─────────────────────────────────────────────────────────────
 
 const SEED_FIRM_CAPITAL: Record<string, string> = {
-  AED: '100000',
+  AED: '1000000',
   USDT: '100000',
 };
 
