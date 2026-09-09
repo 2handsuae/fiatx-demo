@@ -272,6 +272,21 @@ const Withdraw = () => {
     setConfirmModalOpen(false);
   };
 
+  const handleCloseConfirm = async () => {
+    if (quote && new Date(quote.expiresAt).getTime() > Date.now()) {
+      try {
+        await customerFetch(`${import.meta.env.VITE_API_URL}/withdraw-transactions/quotes/${quote.quoteId}/cancel`, {
+          method: 'POST',
+          body: JSON.stringify({}),
+        });
+      } catch (error) {
+        if (error instanceof CustomerSessionError) return;
+        console.error('Quote cancel failed', error);
+      }
+    }
+    clearQuoteState();
+  };
+
   const validateWithdrawRequest = (): string | null => {
     if (!selectedAssetId || !amount || Number(amount) <= 0) {
       return 'Please input a valid amount before continuing.';
@@ -838,7 +853,7 @@ const Withdraw = () => {
                                             </span>
                                         </div>
                                         <div className="text-[10px] text-fx-dust/60 font-mono">
-                                            Quote: {quote.quoteId}
+                                            Quote: {quote.quoteNo}
                                         </div>
                                     </div>
                                 )}
@@ -987,7 +1002,7 @@ const Withdraw = () => {
                           </p>
                       </div>
                       <button
-                          onClick={clearQuoteState}
+                          onClick={handleCloseConfirm}
                           className="rounded-full p-2 text-fx-dust transition-colors hover:bg-fx-charcoal"
                       >
                           <X size={18} />
@@ -1062,7 +1077,7 @@ const Withdraw = () => {
 
                   <div className="flex items-center justify-end gap-3 border-t border-fx-rule px-6 py-5">
                       <button
-                          onClick={clearQuoteState}
+                          onClick={handleCloseConfirm}
                           className="rounded-xl border border-fx-rule px-4 py-2 text-sm font-medium text-fx-dust transition-colors hover:text-fx-sand"
                       >
                           Cancel

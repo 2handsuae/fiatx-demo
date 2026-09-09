@@ -83,6 +83,7 @@ interface SwapPricingSourceInfo {
 
 interface FirmQuoteResult {
   quoteId: string;
+  quoteNo: string;
   quoteType: 'FIRM' | 'INDICATIVE';
   status: 'ACTIVE' | 'USED' | 'EXPIRED' | 'CANCELLED';
   createdAt: string;
@@ -1045,8 +1046,8 @@ const Swap = () => {
                         <span className="font-mono text-fx-sand">{formatRate8(firmQuote.marketRate)} / {firmQuote.spreadPercent}%</span>
                       </div>
                       <div className="flex justify-between text-sm">
-                        <span className="text-fx-dune font-medium">Quote ID</span>
-                        <span className="font-mono text-fx-sand">{firmQuote.quoteId}</span>
+                        <span className="text-fx-dune font-medium">Quote No</span>
+                        <span className="font-mono text-fx-sand">{firmQuote.quoteNo}</span>
                       </div>
                       {firmQuote.matched && (
                         <div className="flex justify-between text-sm">
