@@ -55,9 +55,10 @@
 
 ### C. 提现报价审计三码（对齐兑换侧）
 
-- 新增 `WITHDRAW_QUOTE_CREATED / WITHDRAW_QUOTE_USED / WITHDRAW_QUOTE_CANCELLED`，照 `swap-quote.service.ts:247,320,368` 三处 `recordByActor` 写法逐一对称落点（创建 / 下单消费 / 客户取消）
-- 名册登记照 SWAP_QUOTE 前例：扁平键 + V5 分域名册（domain WITHDRAW、correlationMode N，对照 `audit-actions.constant.ts:875-877`）+ 新增 `WITHDRAW_QUOTE` 主体类型 + 审计界面主体路由映射（照 `:13` `SWAP_QUOTES` 前例，路由值用新 `:quoteNo` 形态）
+- 新增 `WITHDRAW_QUOTE_CREATED / WITHDRAW_QUOTE_USED / WITHDRAW_QUOTE_CANCELLED`，照 `swap-quote.service.ts:247,320,368` 三处 `recordByActor` 写法逐一对称落点（创建 / 下单消费 / 客户取消）；**每次带显式 `requestId`**（照 swap 侧 `SWAP_QUOTE_CREATED_${quoteNo}_${uuid}` 模式，漏了会被静默去重）
+- 名册登记照 SWAP_QUOTE 前例：扁平键 + V5 分域名册，**四属性出生即冻结**（含义 / domain WITHDRAW / correlationMode N / 特有必填，`assertActionSpec` 机器校验，对照 `audit-actions.constant.ts:875-877`）+ 新增 `WITHDRAW_QUOTE` 主体类型 + 审计界面主体路由映射（照 `:13` `SWAP_QUOTES` 前例，路由值用新 `:quoteNo` 形态）
 - V5 名册 30→33 码；文档码数同步 2 处：`modules/v5-withdraw.md:64`、`demo/script.md:139`（第七幕缺口段 47/30/22 → 47/33/22）；若执行中名册实数有出入，以删/增后实数为准末尾统一复数（波一判例）
+- **三域对称答卷**（delivery-checklist「改了交易三域」行）：充值域无报价概念，不涉及；本波即提现↔兑换报价对称化本身，收口后两域报价三码 / 取消 / 号规全对称，仅 TTL 刻意不对称（300s vs 30s，理由见 §1-5）
 - 懒过期不加 EXPIRED 码——兑换侧就三码，对齐即止，不加戏
 
 ### D. 取消对齐 + TTL
@@ -65,12 +66,19 @@
 - `Withdraw.tsx` 确认框关闭动作（现 `clearQuoteState`，`:269-272`，只清前端状态）加调已有端点 `POST withdraw-transactions/quotes/:id/cancel`（`withdraw-quote-customer.controller.ts:84`），仅报价仍 ACTIVE 且未过期时调，照 `Swap.tsx:471-486` `handleCloseConfirm` 写法；载荷继续用 `quoteId`（客户端 API 载荷本就走内部 id，兑换同款——铁律⑥管屏上与链接，不管载荷）
 - `pricing.types.ts:151` `WITHDRAW_QUOTE_TTL_SECONDS` 30 → 300；执行时 grep 客户端有无写死 30 的倒计时/文案随常量走
 
-### E. 收尾账目
+### E. 文档同步（modules 层真相补录）
+
+- `modules/v5-withdraw.md`：**现文对报价零着墨**（2026-09-09 复核 grep 零命中）——本波给提现报价加了审计三码 / TTL 300 / 取消入口后，按现状真相补一段报价生命周期（创建→消费/取消/懒过期，锚点 `withdraw-quote.service.ts`），并同步 §5 实现锚点；码数 30→33 见 C
+- `modules/v6-swap.md`：TTL 30 秒提法不动（`:14/:52/:66`）；若 §5 锚点提及 `QUO` 号规则随 `SQT` 更新（执行时 grep 确认）
+- `demo/data.md:75`、`demo/script.md:108` 前缀例子见 A；`script.md` 走查步骤无报价页操作变化，不动
+- 各改到的文档 Last Verified 随改随更
+
+### F. 收尾账目
 
 - **BACKLOG 销账**：F3（提现报价零审计——本波 C 补齐）；零消费端点第 3 条（报价取消端点——本波 D 接入消费方）
 - **decisions.md 登记**：§1 五条拍板（前缀终定 / 取消对齐 / TTL 300 及「报价必须有时限」口径）
+- **立波三骨架 + 写承接记录**（delivery-checklist「多波中的一波」行）：`specs/` 新立波三骨架（总纲链接 / 空「承接上一波」节 / 已定事实 / 待定岔口），收尾时把本波实际偏差、执行中新事实、波三前提变化写进骨架承接节；**只写承接，不展开波三 spec**——那是波三新会话跟业主脑暴的活
 - **CHANGELOG**：合并后一行（收尾时）
-- 各改到的文档 Last Verified 随改随更
 
 ## 3. 换号判例纪律（执行任务硬前提）
 
