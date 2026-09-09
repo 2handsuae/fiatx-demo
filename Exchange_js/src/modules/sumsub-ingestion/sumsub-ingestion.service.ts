@@ -276,7 +276,7 @@ export class SumsubIngestionService {
         this.logger.error(
           `Event ${event.eventNo} is DEAD after ${newRetryCount} attempts: ${message}`,
         );
-        // TODO Wave 9: write system alert for dead events
+        // dead events 的系统告警属通知本体缺口——见 doc-final/BACKLOG.md §I 通知 send/retry STUB 条，本轮战役不做
       }
 
       throw err;

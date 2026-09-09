@@ -1,3 +1,4 @@
+// 测的是 WithdrawWorkflowService 的费腿记账行为——按行为命名；曾名 withdraw-fee-income.service.spec.ts（无同名 service，2026-09-09 波一更正）
 /**
  * withdraw-fee-income.service.spec.ts
  *
