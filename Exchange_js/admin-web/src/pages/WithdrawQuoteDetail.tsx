@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams } from 'react-router-dom';
 import { RefreshCw } from 'lucide-react';
 import {
   DetailPageHeader,
@@ -18,8 +18,9 @@ import { formatAssetAmount } from '../utils/number-format';
 
 /* ── Types ──────────────────────────────────────────────────── */
 /* 后端 `GET admin/withdrawal-fee-levels/quotes/:quoteNo` 返回扁平
- * WithdrawPricingQuote 行（+ include asset），无 `withdrawal` 嵌套、
- * 无 linkedWithdrawals 关联（controller 未 include）。Task 9 实证响应。 */
+ * WithdrawPricingQuote 行（+ include asset, withdrawals）。
+ * withdrawals 是 schema 上的 WithdrawTransaction[] 关系，但
+ * pricingQuoteId 唯一约束保证一张报价最多被一笔提现消费。 */
 
 interface FeeLine {
   itemCode: string;
@@ -48,6 +49,12 @@ interface WithdrawQuoteDetailData {
   usedAt: string | null;
   cancelledAt: string | null;
   asset?: { code: string; decimals?: number | null; network?: string | null } | null;
+  withdrawals?: {
+    id: string;
+    withdrawNo: string;
+    status: string;
+    createdAt: string;
+  }[];
 }
 
 /* ── Helpers ─────────────────────────────────────────────────── */
@@ -122,6 +129,7 @@ const WithdrawQuoteDetail = () => {
   const w = data;
   const fees: FeeLine[] = JSON.parse(data.feeBreakdown);
   const totals: Record<string, string> = JSON.parse(data.totalsJson);
+  const linkedWithdrawal = data.withdrawals?.[0];
 
   return (
     <div className="flex h-full flex-col">
@@ -223,6 +231,46 @@ const WithdrawQuoteDetail = () => {
               </div>
             ) : (
               <p className="font-mono text-[11px] text-adm-t3">No fee items</p>
+            )}
+          </DetailCard>
+
+          {/* Linked Withdrawal */}
+          <DetailCard title="Linked Withdrawal" columns={1}>
+            {linkedWithdrawal ? (
+              <table className="w-full text-left text-xs">
+                <thead>
+                  <tr className="border-b border-adm-border">
+                    {['Withdraw No', 'Status', 'Created'].map((h) => (
+                      <th
+                        key={h}
+                        className="px-3 py-2 font-mono text-[9px] font-semibold uppercase tracking-[0.1em] text-adm-t3"
+                      >
+                        {h}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-adm-border">
+                  <tr>
+                    <td className="px-3 py-2 font-mono text-[11px] text-adm-t2">
+                      <Link
+                        to={`/admin/trading/withdrawals/${linkedWithdrawal.id}`}
+                        className="text-adm-blue hover:underline"
+                      >
+                        {linkedWithdrawal.withdrawNo}
+                      </Link>
+                    </td>
+                    <td className="px-3 py-2">
+                      <AdminBadge value={linkedWithdrawal.status} />
+                    </td>
+                    <td className="px-3 py-2 font-mono text-[10px] text-adm-t3">
+                      {fmt(linkedWithdrawal.createdAt)}
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            ) : (
+              <p className="font-mono text-[11px] text-adm-t3">—</p>
             )}
           </DetailCard>
 

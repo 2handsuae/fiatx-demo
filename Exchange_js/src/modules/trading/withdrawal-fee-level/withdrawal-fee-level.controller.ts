@@ -103,7 +103,7 @@ export class WithdrawalFeeLevelController {
   async findOneQuote(@Param('quoteNo') quoteNo: string) {
     const quote = await (this.prisma as any).withdrawPricingQuote.findUnique({
       where: { quoteNo },
-      include: { asset: true },
+      include: { asset: true, withdrawals: true },
     });
     if (!quote) throw new NotFoundException(`Quote ${quoteNo} not found`);
     return quote;
