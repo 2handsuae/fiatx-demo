@@ -1,5 +1,3 @@
-export type PricingBusiness = 'SWAP' | 'WITHDRAWAL';
-
 export type LpCode = 'LP_A';
 export type RoundingMode = 'ROUND' | 'FLOOR' | 'CEIL';
 export type FeeCalcType = 'FLAT' | 'PERCENT';

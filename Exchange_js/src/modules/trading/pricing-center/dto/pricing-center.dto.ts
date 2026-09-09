@@ -26,8 +26,3 @@ export class CreateWithdrawPricingQuoteDto extends WithdrawalSimulatorDto {
   @IsString()
   overrideReason?: string;
 }
-
-export enum PricingQuoteBusiness {
-  SWAP = 'SWAP',
-  WITHDRAWAL = 'WITHDRAWAL',
-}
