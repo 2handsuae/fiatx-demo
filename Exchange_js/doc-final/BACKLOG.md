@@ -123,6 +123,10 @@ Last Updated: 2026-09-08
 
 - [ ] 充值挂起（`DEPOSIT_HELD_NOT_TRADING_READY`）无自动重驱：客户补齐法币地址后，挂 COMPLIANCE_PENDING 的充值不会自动重跑 checkAutoApproval → 需 hook `ADDRESS_ACTIVATED` 重驱该客户挂起充值，否则要人工 ｜来源: 2026-07-11 Task 4b
 
+**客户可见面**
+
+- [ ] **客户端充值页缺受限横幅**（`Deposit.tsx` 未导入 `RestrictionBanner`/`PendingActionBanner`，Withdraw/Swap 两页均有）：2026-09-09 业主拍板补充；口径见 decisions 同日条——兑换/提现事前可拦（建单闸拒），充值本质不可拦（钱会到，收下后处置），横幅措辞按此口径写，不能照抄另两页「动作被禁」话术 ｜来源: 2026-09-09 三四五幕体检轴⑤ + 业主裁定
+
 ## E. 第四幕 · 钱换（V6 兑换）
 
 > 讲「一次兑换四条腿原子记账」这一幕的缺口。
