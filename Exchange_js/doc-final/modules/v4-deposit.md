@@ -1,6 +1,6 @@
 # V4 · 充值（钱怎么进来）
 
-> 对应 PRD：待写 ｜ 技术节点 Last Verified：2026-09-03（平账 B 批：补录 + 退汇认领两条补单路接入，新增 `CLAWED_BACK` 终态）
+> 对应 PRD：待写 ｜ 技术节点 Last Verified：2026-09-09（三域文档同步：审计码实数/PATCH 已删/删过时缺口行）
 > 演示幕次：第三幕「钱进」 ｜ 验收：第三幕走查（`demo/script.md`）+ 本篇 §4
 
 ## 0. 一句话定位
@@ -60,14 +60,14 @@
 5. 对冻结单走处置（**只有两条路**）：发起**上缴** → 换 MLRO 账号批准 → 资金单腿步进 → 终态 `SEIZED`，钱政府移交出平台；或演**解冻**平反回炉。讲明红线：冻结单**不能没收、不能退回**（见 §1）
 6. 小额：充一笔低于下限的 → 挂起 `OPERATION_PENDING` → 演豁免放行或**没收**二选一——没收的正确舞台在这里，终态 `CONFISCATED` 账本看钱进公司户
 7. 退回：再来一笔，⚡喂"拒绝（退回标签）" → 人工复核 → 发起**原路退回** → MLRO 批准 → `RETURNED`（强调目的地=原发款方，不可改）
-8. 全程任一步，审计页按单号查——每步谁、何时、依据什么（垫第七幕）。留痕词表 31 码封闭（站1b-β）：单在建单时铸「旅程号」，此后每条留痕继承同号——按单号/按客户/按旅程三种查法都成立；失败不起名（outcome+原因码），状态变化写从/到两列
+8. 全程任一步，审计页按单号查——每步谁、何时、依据什么（垫第七幕）。留痕词表 47 码（=V4_DEPOSIT_AUDIT_ACTIONS 名册键数，扩码时同步本数）（站1b-β）：单在建单时铸「旅程号」，此后每条留痕继承同号——按单号/按客户/按旅程三种查法都成立；失败不起名（outcome+原因码），状态变化写从/到两列
 9. 漏记的客户入金与已成功入金被银行退汇，入口都不在这一幕——从**第六幕对账案子**上发起（`modules/v8-recon.md` §4 场景 13/14），CFO 复核后回落到这一域：补录照常走 KYT/合规到 SUCCESS，退汇认领落 `CLAWED_BACK`
 
 ## 5. 关键技术节点（≤30 行）
 
 - 工作流 `trading/deposit-transactions/deposit-workflow.service.ts`：`evaluateL1()`（L1：执法级 FREEZE / 其余 FAIL 打标不换状态照常送检 / PASS 送检）｜ `applyKytVerdict()+decideVerdictLanding()`（四裁决落地路由）｜ `initiate{Confiscation,Return,Seize,Unfreeze}()` + `{confiscation,return,seize}Spec()`（三弧处置说明书）+ 对应 `on*Decided/settle*`（业务判断与留痕层）｜ `executeDepositAccounting()`（两步入账 + 客户级科目懒解析）
 - **处置动词** `funds-orders/disposition.service.ts → DispositionService`（地基站 2026-08-26）：initiate / rebuild / settle / voidAttempt / clearLeg——三弧的建腿、锁账、落账、重试三级梯、腿收口收敛为一份实现，工作流按说明书一句话调用
-- 状态机 `deposit-transactions.service.ts → getNextStatus()`（29 边迁移表 + 守则单测锁边数）；PATCH 侧门黑名单在 controller `updateStatus()`
+- 状态机 `deposit-transactions.service.ts → getNextStatus()`（29 边迁移表 + 守则单测锁边数）；状态直改侧门已物理删除——`PATCH :id/status` 端点 2026-08-30（00b0eb83）连黑名单守卫一并移除，controller 注释自证
 - L1 闸门 `trading/shared/` `L1GateService`（十项快照，三域共用求值器；判定结果整包落单上 l1Snapshot）
 - KYT 类型判定 `kyt-txn-type.resolver.ts → resolveKytTxnType()`（crypto ∧ VASP ∧ 金额≥阈值 → travelRule；阈值写死：AED 3500 / USDT 1000，边界取 ≥）
 - SLA `deposit-sla.service.ts`（按"进入状态"计时；COMPLIANCE_PENDING 5 分钟硬线 / ACTION_PENDING 7 天）
@@ -82,5 +82,4 @@
 - **法币一个分支仍没做**：汇款人名义不符无入口，讲法币异常还只能讲这一类走不通；**银行退汇（bounce）已由平账 B 批的「入金退汇认领」补上**（对账案子上认领 → CFO 批 → `SUCCESS → CLAWED_BACK`，见 `modules/v8-recon.md` 第六幕场景 14）
 - **小额的计次自动冻结、自动没收 cron 未做**——现在都是手动处置
 - **CONFISCATING 重试耗尽后无手动重触发出口**——红旗standing但只能等 Phase 4 补口子
-- **三条弧在客户流水里都误标成"没收"**（kind 字段未分弧）——演示退回/上缴时别开客户流水页对照
 - **翻案后原命中证据被覆写无历史留档**（原命中即拒的按钮不再单独占一格——⚡ 面板已统一成三域同码同义的 11 键表，见 `modules/v6-swap.md` 与 `PRODUCTION-NOTES.md`）

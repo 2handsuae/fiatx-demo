@@ -1,6 +1,6 @@
 # V5 · 提现（钱怎么出去）
 
-> 对应 PRD：待写 ｜ 技术节点 Last Verified：2026-09-03（平账 B 批：出金退回认领接入，SUCCESS 新增一条出边）
+> 对应 PRD：待写 ｜ 技术节点 Last Verified：2026-09-09（三域文档同步：审计码实数/getWithdrawStatusView 函数归属）
 > 演示幕次：第五幕「钱出」 ｜ 验收：第五幕走查（`demo/script.md`）+ 本篇 §4
 
 ## 0. 一句话定位
@@ -61,14 +61,14 @@
 5. 冻结两出口各演一笔：解冻（填文书号 → MLRO 批 → 回炉重查）；退款（MLRO 批 → 看客户余额**全额回来**）
 6. 大额：发一笔超阈值提现 → 出生即落审批 → 高管批准才进筛查
 7. 退汇：⚡触发 bounce → 单落 RETURNED → 账本看反向分录（这是出款广播中途被打回；**SUCCESS 之后才发生的退回见第六幕场景 15**——对账案子上「认领退回」，同样落 RETURNED）
-8. 全程任一步，审计页按单号查——留痕词表 25 码封闭（站2-β）：建单铸「旅程号」全链继承，按单号/按客户/按旅程三查成立；失败进 outcome+原因码，状态变化写从/到两列（垫第七幕）
+8. 全程任一步，审计页按单号查——留痕词表 30 码（=V5_WITHDRAW_AUDIT_ACTIONS 名册键数）（站2-β）：建单铸「旅程号」全链继承，按单号/按客户/按旅程三查成立；失败进 outcome+原因码，状态变化写从/到两列（垫第七幕）
 
 ## 5. 关键技术节点（≤30 行）
 
-- 工作流 `trading/withdraw-transactions/withdraw-workflow.service.ts`：`initiatePayoutPhase()`（两腿创建：本金 legSeq=1 / 费 legSeq=2）｜ `decideVerdictLanding()` 三档（IGNORE / EVIDENCE_ONLY / DISPATCH——FROZEN 一律 IGNORE 保护制裁证据；PAYOUT_PENDING 只留证据）｜ `initiateUnfreeze()/initiateRefund()`（双弧开案）+ `on*Approved()`（执行）｜ `onBounce()`（退汇，先账后状态）｜ `assertCustomerComplianceOrFreeze()`（客户级合规闸，三处接入）｜ `withdrawAudit()`（站2-β 统一留痕信封：25 码名册见 audit-actions.constant V5 表）
+- 工作流 `trading/withdraw-transactions/withdraw-workflow.service.ts`：`initiatePayoutPhase()`（两腿创建：本金 legSeq=1 / 费 legSeq=2）｜ `decideVerdictLanding()` 三档（IGNORE / EVIDENCE_ONLY / DISPATCH——FROZEN 一律 IGNORE 保护制裁证据；PAYOUT_PENDING 只留证据）｜ `initiateUnfreeze()/initiateRefund()`（双弧开案）+ `on*Approved()`（执行）｜ `onBounce()`（退汇，先账后状态）｜ `assertCustomerComplianceOrFreeze()`（客户级合规闸，三处接入）｜ `withdrawAudit()`（站2-β 统一留痕信封：30 码名册见 audit-actions.constant V5 表）
 - 状态机 `withdraw-transactions.service.ts → transitions`（23 边 + 守则单测）；大额出生路由是表外钦定写（注释成文）
 - 解锁原语 `releaseLock()`（净额+费两笔 pending 一起 void——"拒绝即解锁"的物理形态，提现/退款/失败三处共用）
-- 客户面防线 `getWithdrawStatusView()`（FROZEN/MANUAL_CHECKING/PENDING_APPROVAL 逐字段收敛成 PROCESSING）+ `toCustomerWithdrawView()`（调查性字段白名单裁剪）+ 违禁词单测全态零命中
+- 客户面防线 `getWithdrawStatusView()`（client-web 前端函数，`client-web/src/utils/withdrawStatusView.ts`；FROZEN/MANUAL_CHECKING/PENDING_APPROVAL 逐字段收敛成 PROCESSING）+ 后端 `toCustomerWithdrawView()`（只做字段白名单裁剪）+ 违禁词单测全态零命中
 - SLA `WITHDRAW_SLA_MINUTES_BY_STATUS` 四格（5 分钟/7 天硬；3 天/1 天软）｜ `withdraw-sumsub/withdraw-sla.service.ts`
 - 资金腿迁移表 `funds-order-transitions.constant.ts → FIAT_OUT/CRYPTO_OUT_TRANSITIONS`；费腿三级梯 `onFeeLegFailed()`
 - L1 `L1GateService`（提现十项全适用，含资产可用性；BLOCK 留 `*_L1_BLOCKED` 痕）；限额/大额阈值读 `transaction_limit_rules`（V3 篇）

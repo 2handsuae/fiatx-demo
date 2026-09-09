@@ -1,6 +1,6 @@
 # 资金单（跨模块共享域）
 
-> 对应 PRD：待写 ｜ 技术节点 Last Verified：2026-08-26（底稿 truth 2026-08-07 版）
+> 对应 PRD：待写 ｜ 技术节点 Last Verified：2026-09-09（三域文档同步：directionOf 函数归属/删过时权限包表述）
 > 演示位置：三、四、五幕的"腿"视角 + 第六幕在途识别 ｜ 验收：随三、四、五、六幕走查（`demo/script.md`）
 
 ## 0. 一句话定位
@@ -52,14 +52,14 @@
 
 - **处置动词** `disposition.service.ts → DispositionService`（地基站 2026-08-26）：带账本两阶段锁定的资金移动执行器——initiate（找/建腿+挂锁）/ settle（post+补记+腿收口，3× 重试）/ voidAttempt / rebuild（新 attempt 新单，历史留档）；充值三弧首个消费者，提现/兑换按同一图纸复用
 - 执行引擎 `funds-orders/funds-order.service.ts`：`create()`（挂父单+腿号，初态按资产类型）｜ `advance()/advanceByNo()`（逐步推进+记账+生效日透传）｜ `findNonTerminalByWallet()`（对账在途识别）｜ `resolveExternalRef()/buildExternalRefPatch()`（参考号统一铸/读）
-- 迁移表 `constants/funds-order-transitions.constant.ts`（四套 + `getTransitionMap()`）；方向判定 `directionOf()`（**四个父 FK**：`depositTransactionId`/`withdrawTransactionId`/`swapTransactionId`/`internalTransferId`（二期新增第四个）+ 腿号：充值腿 1=入金、腿>1=内部；提现=出金；兑换=内部；**内部划转=内部**）
+- 迁移表 `constants/funds-order-transitions.constant.ts`（四套 + `getTransitionMap()`）；方向判定 `directionOf()`（`funds-order.service.ts:36`；迁移表在 constants 文件，方向判定在 service）（**四个父 FK**：`depositTransactionId`/`withdrawTransactionId`/`swapTransactionId`/`internalTransferId`（二期新增第四个）+ 腿号：充值腿 1=入金、腿>1=内部；提现=出金；兑换=内部；**内部划转=内部**）
 - 消费方分流：`deposit-workflow.service.ts → handleFundsOrderChanged()`（腿 1/2/3/4 各自 handler）；`withdraw-workflow` 本金/费腿分流；腿收口 `clearDispositionLeg()` + 守则测试（扫全部 settle* 必含收口调用）
 - 参考号铸造 `common/utils/fake-external-refs.util.ts`（演示假值，见 demo/simulated-externals）
 - admin `funds-orders.admin.controller.ts` + `FundsOrderList/Detail.tsx`（⚡模拟推进 + 推单按钮）
 
 ## 6. 演示缺口（BACKLOG 有账）
 
-- **命名债**：代码与权限包仍用旧名 INTERNAL_FUND_*（页面不受影响，Phase 4 统一）
+- **命名债**：代码仍用旧名 INTERNAL_FUND_*（页面不受影响，Phase 4 统一）
 - **兑换腿不支持通用推单**（走兑换详情页自己的推腿，无生效日回填）
 - **参考号是铸造值且网络格式不真**（TRON 资产配了以太坊格式哈希）——已在 simulated-externals 声明
 - **内部划转腿的外部账单由模拟托管方在提交时写**（本波唯一新演示装置，见 `demo/simulated-externals.md`）
