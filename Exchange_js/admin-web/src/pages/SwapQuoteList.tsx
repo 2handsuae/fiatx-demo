@@ -28,6 +28,8 @@ interface SwapQuoteListItem {
   amountIn: string | null;
   amountOut: string | null;
   rateAllIn: string | null;
+  feeTotal: string;
+  feeCurrency: string;
   createdAt: string;
   expiresAt: string;
   usedAt: string | null;
@@ -206,7 +208,7 @@ const SwapQuoteList = () => {
         <table className="w-full text-left text-xs">
           <thead className="sticky top-0 z-10 border-b border-adm-border bg-adm-card">
             <tr>
-              {['Quote No', 'Status', 'Owner No', 'Pair', 'Amount In', 'Amount Out', 'Rate', 'Created'].map(
+              {['Quote No', 'Status', 'Owner No', 'Pair', 'Amount In', 'Amount Out', 'Rate', 'Fee', 'Created'].map(
                 (h) => (
                   <th
                     key={h}
@@ -221,14 +223,14 @@ const SwapQuoteList = () => {
           <tbody className="divide-y divide-adm-border">
             {loading && items.length === 0 ? (
               <tr>
-                <td colSpan={8} className="px-5 py-12 text-center text-adm-t3">
+                <td colSpan={9} className="px-5 py-12 text-center text-adm-t3">
                   <RefreshCw className="mx-auto mb-2 animate-spin text-adm-amber" size={20} />
                   Loading...
                 </td>
               </tr>
             ) : items.length === 0 ? (
               <tr>
-                <td colSpan={8} className="px-5 py-12 text-center font-mono text-xs text-adm-t3">
+                <td colSpan={9} className="px-5 py-12 text-center font-mono text-xs text-adm-t3">
                   No swap quotes found
                 </td>
               </tr>
@@ -270,6 +272,9 @@ const SwapQuoteList = () => {
                   </td>
                   <td className="px-5 py-3 font-mono text-adm-t2">
                     {item.rateAllIn ? formatRate8(item.rateAllIn) : '—'}
+                  </td>
+                  <td className="px-5 py-3 font-mono text-adm-t2">
+                    {formatAssetAmount(item.feeTotal)} {item.feeCurrency}
                   </td>
                   <td className="px-5 py-3 font-mono text-[10px] text-adm-t3">
                     {fmt(item.createdAt)}
