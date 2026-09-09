@@ -479,7 +479,7 @@ export class SwapQuoteService {
     data: Omit<Prisma.SwapQuoteUncheckedCreateInput, 'quoteNo'>,
   ): Promise<SwapQuote> {
     for (let attempt = 1; attempt <= QUOTE_NO_MAX_RETRIES; attempt += 1) {
-      const quoteNo = generateReferenceNo('QUO');
+      const quoteNo = generateReferenceNo('SQT');
       try {
         return await this.prisma.swapQuote.create({
           data: { ...data, quoteNo },

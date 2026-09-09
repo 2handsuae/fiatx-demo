@@ -55,7 +55,7 @@ export class FundsOrderService {
     const status = input.initialStatus ?? FundsOrderStatus.CREATED;
     const row = await client.fundsOrder.create({
       data: {
-        fundsOrderNo: generateReferenceNo('FO'),
+        fundsOrderNo: generateReferenceNo('FDO'),
         depositTransactionId: input.depositTransactionId ?? null,
         withdrawTransactionId: input.withdrawTransactionId ?? null,
         swapTransactionId: input.swapTransactionId ?? null,

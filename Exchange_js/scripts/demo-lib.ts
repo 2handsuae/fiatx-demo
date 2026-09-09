@@ -1026,9 +1026,10 @@ async function driveWithdrawVerdict(ctx: DemoCtx, withdrawId: string, buttonKey:
 }
 
 /** Creates one withdrawal via the real quote+createWithdrawal path, retrying on
- *  the known WD-number collision (generateReferenceNo('WD') only draws a
- *  4-digit random — a crowded same-day namespace can collide on withdrawNo;
- *  underlying weakness is production-side, flagged separately). Returns as soon
+ *  the known WDR-number collision (generateReferenceNo('WDR') draws a
+ *  6-digit random (as of 2026-09-01) — a crowded same-day namespace can still
+ *  collide on withdrawNo, just far less often now; underlying weakness is
+ *  production-side, flagged separately). Returns as soon
  *  as the row exists ("born" at COMPLIANCE_PENDING) — callers drive it the rest
  *  of the way per their roster row's target status. */
 async function createRosterWithdraw(

@@ -367,7 +367,7 @@ export class AdjustmentService {
     // 闸二：§4 边界线——客户账簿加钱必须指向一张已存在的原单。
     // Fix 3（末站整改）：此前只查非空，不查存在——任意非空字符串都放行，等于
     // 边界线守卫本身可以被一个假单号绕过（本分支自己的 e2e 场景 2 就传了个
-    // 不存在的 'WD-E2E-ADJ-C2-0001' 并成功过账，是这条缺口的现成实证）。
+    // 不存在的 'WDR-E2E-ADJ-C2-0001' 并成功过账，是这条缺口的现成实证）。
     if (requiresRelatedOrder(book, direction)) {
       const relatedOrderNo = dto.relatedOrderNo?.trim();
       if (!relatedOrderNo) {

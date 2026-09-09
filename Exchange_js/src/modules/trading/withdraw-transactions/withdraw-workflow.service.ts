@@ -674,7 +674,7 @@ export class WithdrawWorkflowService implements OnModuleInit {
   }
 
   private generateWithdrawNo(): string {
-    return generateReferenceNo('WD');
+    return generateReferenceNo('WDR');
   }
 
   // ── Event Handlers ──

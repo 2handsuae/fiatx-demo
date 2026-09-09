@@ -863,7 +863,7 @@ describe('AuditLogsService', () => {
         swapNo: 'SWP2603260001',
         quoteId: 'quote-1',
         quoteSnapshotRef: 'quote-1',
-        quoteNo: 'QUO2603260001',
+        quoteNo: 'SQT2603260001',
         ownerType: 'CUSTOMER',
         ownerId: 'cust-1',
         ownerNo: 'CU2603260001',
@@ -905,7 +905,7 @@ describe('AuditLogsService', () => {
     prisma.swapQuote.findMany.mockResolvedValue([
       {
         id: 'quote-1',
-        quoteNo: 'QUO2603260001',
+        quoteNo: 'SQT2603260001',
         ownerType: 'CUSTOMER',
         ownerId: 'cust-1',
         ownerNo: 'CU2603260001',
@@ -1106,7 +1106,7 @@ describe('AuditLogsService', () => {
         expect.objectContaining({
           swapId: 'swap-1',
           quoteId: 'quote-1',
-          quoteNo: 'QUO2603260001',
+          quoteNo: 'SQT2603260001',
           decisionRecordIds: ['dr-swap-1'],
           alertIds: ['alert-swap-1'],
           caseIds: ['case-swap-1'],
@@ -1116,7 +1116,7 @@ describe('AuditLogsService', () => {
       expect(snapshots.swapQuotes).toEqual([
         expect.objectContaining({
           id: 'quote-1',
-          quoteNo: 'QUO2603260001',
+          quoteNo: 'SQT2603260001',
         }),
       ]);
       expect(snapshots.swapTransactions).toEqual([
@@ -1141,7 +1141,7 @@ describe('AuditLogsService', () => {
         action: 'WITHDRAW_COMPLIANCE_PASSED',
         entityType: AuditEntityTypes.WITHDRAW_TRANSACTION,
         entityId: 'withdraw-1',
-        entityNo: 'WD2603270001',
+        entityNo: 'WDR2603270001',
         actorType: 'ADMIN',
         actorId: 'admin-1',
         workflowType: 'WITHDRAW',
@@ -1154,7 +1154,7 @@ describe('AuditLogsService', () => {
     prisma.withdrawTransaction.findMany.mockResolvedValue([
       {
         id: 'withdraw-1',
-        withdrawNo: 'WD2603270001',
+        withdrawNo: 'WDR2603270001',
         ownerType: 'CUSTOMER',
         ownerId: 'cust-1',
         ownerNo: 'CU2603270001',
@@ -1264,7 +1264,7 @@ describe('AuditLogsService', () => {
         alertNo: 'ALT2603270001',
         sourceType: 'WITHDRAW',
         sourceId: 'withdraw-1',
-        sourceNo: 'WD2603270001',
+        sourceNo: 'WDR2603270001',
         stage: 'REVIEW_WITHDRAW_FINAL',
         ruleCode: 'TX_WITHDRAW_FINAL_REVIEW_REQUIRED',
         severity: 'MEDIUM',
@@ -1287,7 +1287,7 @@ describe('AuditLogsService', () => {
         alertNo: 'ALT2603270002',
         sourceType: 'WITHDRAW',
         sourceId: 'withdraw-1',
-        sourceNo: 'WD2603270001',
+        sourceNo: 'WDR2603270001',
         stage: 'REVIEW_WITHDRAW_RECONCILIATION',
         ruleCode: 'TX_RECONCILIATION_BREAK_DETECTED',
         severity: 'HIGH',
@@ -1316,7 +1316,7 @@ describe('AuditLogsService', () => {
         primaryAlertId: 'alert-final-1',
         primaryAlertNo: 'ALT2603270001',
         entityId: 'withdraw-1',
-        entityNo: 'WD2603270001',
+        entityNo: 'WDR2603270001',
         sourceType: 'WITHDRAW',
         stage: 'REVIEW_WITHDRAW_FINAL',
         ruleCode: 'TX_WITHDRAW_FINAL_REVIEW_REQUIRED',
@@ -1338,7 +1338,7 @@ describe('AuditLogsService', () => {
         journalNo: 'JO2603270001',
         sourceType: 'WITHDRAW',
         sourceId: 'withdraw-1',
-        sourceNo: 'WD2603270001',
+        sourceNo: 'WDR2603270001',
         eventCode: 'EVT_WITHDRAW_SUCCESS__CRYPTO',
         postingStatus: 'POSTED',
         postedAt: new Date('2026-03-27T10:05:10.000Z'),
@@ -1429,14 +1429,14 @@ describe('AuditLogsService', () => {
         id: 'swap-1',
         swapNo: 'SWP2603260001',
         quoteId: 'quote-1',
-        quoteNo: 'QUO2603260001',
+        quoteNo: 'SQT2603260001',
         quoteSnapshotRef: 'quote-1',
       },
     ]);
     prisma.swapQuote.findMany.mockResolvedValue([
       {
         id: 'quote-1',
-        quoteNo: 'QUO2603260001',
+        quoteNo: 'SQT2603260001',
       },
     ]);
     prisma.auditLogEvent.findMany.mockResolvedValue([
@@ -1478,7 +1478,7 @@ describe('AuditLogsService', () => {
         action: AuditActions.SWAP_QUOTE_CREATED,
         entityType: AuditEntityTypes.SWAP_QUOTE,
         entityId: 'quote-1',
-        entityNo: 'QUO2603260999',
+        entityNo: 'SQT2603260999',
         actorType: 'CUSTOMER',
         actorId: 'customer-1',
         workflowType: 'SWAP',

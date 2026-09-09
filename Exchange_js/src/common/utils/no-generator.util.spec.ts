@@ -23,7 +23,7 @@ describe('generateReferenceNo —— 单号随机位宽（业主 2026-09-01 定�
   });
 
   it('随机段恰好 6 位——改窄回 4 位会在这里被抓住', () => {
-    for (const prefix of ['DEP', 'WD', 'SWP', 'FO']) {
+    for (const prefix of ['DEP', 'WDR', 'SWP', 'FDO']) {
       const suffix = generateReferenceNo(prefix).slice(prefix.length + 6);
       expect(suffix).toHaveLength(6);
     }
@@ -32,8 +32,8 @@ describe('generateReferenceNo —— 单号随机位宽（业主 2026-09-01 定�
   it('前导零不被吃掉（padStart 生效）', () => {
     // 直接断言小值也补满 6 位：随机段永远是 6 个字符，不会因为数值小而变短
     const lengths = new Set(
-      // 随机段起点 = 前缀长度 + 6 位日期（'FO' 是 2 字符，不是 3——原写死 slice(9) 会多切一位）
-      Array.from({ length: 500 }, () => generateReferenceNo('FO').slice('FO'.length + 6).length),
+      // 随机段起点 = 前缀长度 + 6 位日期（前缀长度不固定，如 'CU'/'WA' 是 2 字符——原写死 slice(9) 对这些前缀会多切一位）
+      Array.from({ length: 500 }, () => generateReferenceNo('FDO').slice('FDO'.length + 6).length),
     );
     expect([...lengths]).toEqual([6]);
   });
@@ -43,7 +43,7 @@ describe('generateReferenceNo —— 单号随机位宽（业主 2026-09-01 定�
     // 断言「零撞号」本身每三轮就假红一轮（2026-09-02 十连跑实测 2 红）。
     // 阈值 5 两边都远离期望：6 位下 P(撞>5)≈2×10⁻⁵，4 位下 P(撞≤5)≈10⁻¹⁵——
     // 抓「改窄位宽」的判别力不变，假红率降到可忽略。
-    const nos = Array.from({ length: 1000 }, () => generateReferenceNo('FO'));
+    const nos = Array.from({ length: 1000 }, () => generateReferenceNo('FDO'));
     const collisions = nos.length - new Set(nos).size;
     expect(collisions).toBeLessThanOrEqual(5);
   });

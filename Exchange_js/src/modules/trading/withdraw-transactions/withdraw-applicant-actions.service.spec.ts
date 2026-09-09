@@ -20,7 +20,7 @@ function build() {
   const prisma = {
     withdrawTransaction: {
       findUnique: jest.fn().mockResolvedValue({
-        id: 'wd-1', withdrawNo: 'WD2608170001', ownerId: 'c1',
+        id: 'wd-1', withdrawNo: 'WDR2608170001', ownerId: 'c1',
       }),
       update: jest.fn().mockResolvedValue({}),
     },
@@ -43,7 +43,7 @@ describe('WithdrawApplicantActionsService', () => {
     await svc.syncApplicantActions('wd-1', [{ applicantActionId: 'a1', externalActionId: 'e1' }]);
     expect(issuer.register).toHaveBeenCalledWith(
       expect.objectContaining({
-        orderDomain: 'WITHDRAW', orderRef: 'WD2608170001',
+        orderDomain: 'WITHDRAW', orderRef: 'WDR2608170001',
         origin: 'SUMSUB_PUSHED', restrict: false,
         applicantActionId: 'a1', externalActionId: 'e1',
       }),
@@ -163,7 +163,7 @@ describe('WithdrawApplicantActionsService', () => {
         materialType: 'SOURCE_OF_FUNDS',
         levelName: 'wave3-action-sof-refresh',
         orderDomain: 'WITHDRAW',
-        orderRef: 'WD2608170001',
+        orderRef: 'WDR2608170001',
         origin: 'SUMSUB_PUSHED',
         // 2026-08-29：便签挂谁由 tag 决定——本用例不传 sceneTag（普通 SOF 补料），
         // restrict 恒 false，见下方『便签挂谁由 tag 决定』describe 块。
@@ -237,7 +237,7 @@ describe('便签挂谁由 tag 决定', () => {
     const materialRequests: any[] = [];
     const customerRestrictions: any[] = [];
     const customer = { id: CUSTOMER_ID, customerNo: 'CUS-TAG-0002', sumsubApplicantId: 'app-tag-2' };
-    const withdraw = { id: WITHDRAW_ID, withdrawNo: 'WD2608290099', ownerId: CUSTOMER_ID };
+    const withdraw = { id: WITHDRAW_ID, withdrawNo: 'WDR2608290099', ownerId: CUSTOMER_ID };
 
     const prisma: any = {
       withdrawTransaction: {

@@ -166,7 +166,7 @@ export async function createStuckWithdraw(
   const toIban = isCrypto ? undefined : (viban?.iban ?? undefined);
   const toAddress = isCrypto ? `Tstuckwd${c.customerNo}`.slice(0, 34) : undefined;
 
-  // generateReferenceNo('WD') 只用 4 位随机，繁忙同日命名空间可能 P2002 撞号 → 重试几次。
+  // generateReferenceNo('WDR') 用 6 位随机（2026-09-01 起），繁忙同日命名空间仍可能 P2002 撞号（概率已远低于此前）→ 重试几次。
   let wd: any;
   for (let attempt = 1; ; attempt++) {
     try {

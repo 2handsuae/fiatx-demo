@@ -792,7 +792,7 @@ export class ReconciliationQueryService {
       const d = await (this.prisma as any).depositTransaction.findUnique({ where: { depositNo: no }, select: { id: true } });
       return { kind: 'DEPOSIT', no, id: d?.id ?? null };
     }
-    if (no.startsWith('WD')) {
+    if (no.startsWith('WDR')) {
       const w = await (this.prisma as any).withdrawTransaction.findUnique({ where: { withdrawNo: no }, select: { id: true } });
       return { kind: 'WITHDRAW', no, id: w?.id ?? null };
     }

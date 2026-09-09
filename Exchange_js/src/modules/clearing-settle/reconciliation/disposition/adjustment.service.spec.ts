@@ -161,10 +161,10 @@ describe('AdjustmentService.createDraft two gates —— where the gate cannot b
       caseNo: 'CASE_GATE', reasonCode: 'PAYOUT_NOT_EXECUTED',
       direction: 'INCREASE', amount: '1000', effectiveDate: '2026-08-28',
       reasonInternal: 'Withdrawal was voided but the books were not reversed', reasonCustomer: 'Withdrawal refund',
-      relatedOrderNo: 'WD2608280001',
+      relatedOrderNo: 'WDR2608280001',
     } as any, OP);
     expect(create).toHaveBeenCalledWith(expect.objectContaining({
-      data: expect.objectContaining({ relatedOrderNo: 'WD2608280001' }),
+      data: expect.objectContaining({ relatedOrderNo: 'WDR2608280001' }),
     }));
   });
 
