@@ -972,7 +972,7 @@ model InternalFundAuditLog {
 
 model SwapQuote {
   id              String           @id @default(uuid())
-  quoteNo         String?          @unique
+  quoteNo         String           @unique
   quoteType       String           @default("FIRM")
   status          String           @default("ACTIVE")
   ownerType       String
