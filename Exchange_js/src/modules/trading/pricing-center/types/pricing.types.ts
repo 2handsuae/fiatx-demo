@@ -148,4 +148,4 @@ export interface WithdrawalPricingResult {
   };
 }
 
-export const WITHDRAW_QUOTE_TTL_SECONDS = 30;
+export const WITHDRAW_QUOTE_TTL_SECONDS = 300;

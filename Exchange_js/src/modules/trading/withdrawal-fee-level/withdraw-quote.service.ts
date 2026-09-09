@@ -10,6 +10,7 @@ import { WithdrawalFeeLevelService } from './withdrawal-fee-level.service';
 import { FeeLevelTiersConfig } from './types/fee-level.types';
 import { CustomerTagService } from '../../identity/customer-tags/customer-tag.service';
 import { matchesAudience } from '../shared/fee-audience.util';
+import { generateReferenceNo } from '../../../common/utils/no-generator.util';
 
 interface ResolvedQuote {
   feeLevelId: string;
@@ -117,7 +118,7 @@ export class WithdrawQuoteService {
 
     const now = new Date();
     const expiresAt = new Date(now.getTime() + WITHDRAW_QUOTE_TTL_SECONDS * 1000);
-    const quoteNo = `WQ-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const quoteNo = generateReferenceNo('WQT');
 
     const quote = await this.prisma.withdrawPricingQuote.create({
       data: {

@@ -35,6 +35,15 @@ describe('WithdrawQuoteService.resolveBestLevel (audience predicate)', () => {
     }),
   };
 
+  const validInput = {
+    ownerType: 'WITHDRAWAL',
+    ownerId: 'wd-1',
+    assetId: 'asset-1',
+    assetCode: 'USDT',
+    amount: new Prisma.Decimal('100'),
+    customerId: 'cust-1',
+  };
+
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -44,6 +53,11 @@ describe('WithdrawQuoteService.resolveBestLevel (audience predicate)', () => {
           useValue: {
             asset: {
               findUnique: jest.fn().mockResolvedValue({ currency: 'USDT', decimals: 8 }),
+            },
+            withdrawPricingQuote: {
+              create: jest.fn(({ data }: { data: Record<string, unknown> }) =>
+                Promise.resolve({ ...data, id: 'quote-test-id', createdAt: new Date() }),
+              ),
             },
           },
         },
@@ -102,5 +116,24 @@ describe('WithdrawQuoteService.resolveBestLevel (audience predicate)', () => {
     expect(resolved).not.toBeNull();
     expect(resolved!.feeLevelId).toBe('lvl-default');
     expect(feeLevelService.findActiveByAsset).toHaveBeenCalledWith('asset-1');
+  });
+
+  it('generates quoteNo via unified generator with WQT prefix', async () => {
+    (customerTagService.effectiveTags as jest.Mock).mockResolvedValue(new Set());
+
+    const quote = await service.createQuote(validInput);
+    expect(quote.quoteNo).toMatch(/^WQT\d{12}$/); // WQT + yyMMdd + 6位随机
+  });
+
+  it('quote expires 300 seconds after creation', async () => {
+    try {
+      jest.useFakeTimers().setSystemTime(new Date('2026-01-01T00:00:00.000Z'));
+      (customerTagService.effectiveTags as jest.Mock).mockResolvedValue(new Set());
+
+      const quote = await service.createQuote(validInput);
+      expect(quote.expiresAt.getTime() - quote.createdAt.getTime()).toBe(300_000);
+    } finally {
+      jest.useRealTimers();
+    }
   });
 });
