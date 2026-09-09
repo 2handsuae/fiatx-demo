@@ -11,6 +11,7 @@ export const AuditModules = {
   DEPOSIT_TRANSACTIONS: 'trading/deposit-transactions',
   SWAP_TRANSACTIONS: 'trading/swap-transactions',
   SWAP_QUOTES: 'trading/swap-quotes',
+  WITHDRAW_QUOTES: 'trading/withdraw-quotes',
   PRICING_CENTER: 'trading/pricing-center',
   WITHDRAW_TRANSACTIONS: 'trading/withdraw-transactions',
   PAYOUTS: 'asset-treasury/payouts',
@@ -58,6 +59,7 @@ export const AuditEntityTypes = {
   CUSTOMER: 'CUSTOMER',
   INBOUND_TRANSFER_SIGNAL: 'INBOUND_TRANSFER_SIGNAL',
   SWAP_QUOTE: 'SWAP_QUOTE',
+  WITHDRAW_QUOTE: 'WITHDRAW_QUOTE',
   ADMIN_USER: 'ADMIN_USER',
   APPROVAL_POLICY: 'APPROVAL_POLICY',
   TB_ACCOUNT: 'TB_ACCOUNT',
@@ -360,6 +362,10 @@ export const AuditActions = {
   // 重跑合规——镜像充值域 A7 的 DEPOSIT_MATERIAL_APPROVED_RESUMED（见 withdraw-workflow
   // .service.ts 的 onMaterialRequestReviewed）。
   WITHDRAW_MATERIAL_APPROVED_RESUMED: 'WITHDRAW_MATERIAL_APPROVED_RESUMED',
+  // 波二 Task 4：提现报价三码——对齐兑换侧 SWAP_QUOTE_{CREATED,USED,CANCELLED}
+  WITHDRAW_QUOTE_CREATED: 'WITHDRAW_QUOTE_CREATED',
+  WITHDRAW_QUOTE_USED: 'WITHDRAW_QUOTE_USED',
+  WITHDRAW_QUOTE_CANCELLED: 'WITHDRAW_QUOTE_CANCELLED',
   LP_CONFIG_UPDATED: 'LP_CONFIG_UPDATED',
   CUSTOMER_CREATED: 'CUSTOMER_CREATED',
   CUSTOMER_UPDATED: 'CUSTOMER_UPDATED',
@@ -834,6 +840,10 @@ export const V5_WITHDRAW_AUDIT_ACTIONS: Record<string, AuditActionSpec> = {
   WITHDRAW_SLA_BREACHED:          { domain: 'WITHDRAW', correlationMode: I, requiredFields: ['fromStatus'], requiresCausation: false },
   WITHDRAW_SLA_TIMEOUT_SIMULATED: { domain: 'WITHDRAW', correlationMode: I, requiredFields: [], requiresCausation: false },
   WITHDRAW_DEMO_SCENARIO_RUN:     { domain: 'WITHDRAW', correlationMode: I, requiredFields: [], requiresCausation: false },
+  // 波二 Task 4：报价三码（报价先于提现单出生，无旅程可继承→NONE），对齐兑换侧 :875-877
+  WITHDRAW_QUOTE_CREATED:         { domain: 'WITHDRAW', correlationMode: N, requiredFields: [], requiresCausation: false },
+  WITHDRAW_QUOTE_USED:            { domain: 'WITHDRAW', correlationMode: N, requiredFields: [], requiresCausation: false },
+  WITHDRAW_QUOTE_CANCELLED:       { domain: 'WITHDRAW', correlationMode: N, requiredFields: [], requiresCausation: false },
 };
 
 /**

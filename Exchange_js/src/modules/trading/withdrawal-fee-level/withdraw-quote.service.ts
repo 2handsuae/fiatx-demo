@@ -1,5 +1,6 @@
 import { Injectable, Inject, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
+import { randomUUID } from 'crypto';
 import { PrismaService } from '../../../core/prisma/prisma.service';
 import { PricingEngineService } from '../pricing-center/pricing-engine.service';
 import {
@@ -11,6 +12,12 @@ import { FeeLevelTiersConfig } from './types/fee-level.types';
 import { CustomerTagService } from '../../identity/customer-tags/customer-tag.service';
 import { matchesAudience } from '../shared/fee-audience.util';
 import { generateReferenceNo } from '../../../common/utils/no-generator.util';
+import { AuditLogsService } from '../../audit-logging/audit-logs.service';
+import {
+  AuditActions,
+  AuditEntityTypes,
+} from '../../audit-logging/constants/audit-actions.constant';
+import { AuditOutcome } from '../../audit-logging/dto/audit-log.dto';
 
 interface ResolvedQuote {
   feeLevelId: string;
@@ -31,6 +38,7 @@ export class WithdrawQuoteService {
     private readonly feeLevelService: WithdrawalFeeLevelService,
     private readonly customerTagService: CustomerTagService,
     private readonly engineService: PricingEngineService,
+    private readonly auditLogsService: AuditLogsService,
   ) {}
 
   async resolveBestLevel(input: {
@@ -105,6 +113,7 @@ export class WithdrawQuoteService {
     assetCode: string;
     amount: Prisma.Decimal;
     customerId: string;
+    sourcePlatform?: string;
   }) {
     const resolved = await this.resolveBestLevel({
       assetId: input.assetId,
@@ -143,6 +152,32 @@ export class WithdrawQuoteService {
         feeLevelCode: resolved.feeLevelCode,
       },
     });
+
+    const platform = input.sourcePlatform || (input.ownerType === 'CUSTOMER' ? 'CUSTOMER_API' : 'SYSTEM');
+
+    await this.auditLogsService.recordByActor(
+      {
+        action: AuditActions.WITHDRAW_QUOTE_CREATED,
+        actionDomain: 'WITHDRAW',
+        primarySubjectType: AuditEntityTypes.WITHDRAW_QUOTE,
+        primarySubjectNo: quote.quoteNo || undefined,
+        ownerCustomerNo: quote.ownerNo || undefined,
+        subjects: quote.quoteNo ? [
+          { subjectType: AuditEntityTypes.WITHDRAW_QUOTE, subjectNo: quote.quoteNo, subjectRole: 'PRIMARY' as any },
+          ...(quote.ownerNo ? [{ subjectType: 'CUSTOMER', subjectNo: quote.ownerNo, subjectRole: 'OWNER' as any }] : []),
+        ] : undefined,
+        requestId: `WITHDRAW_QUOTE_CREATED_${quote.quoteNo}_${randomUUID()}`,
+        outcome: AuditOutcome.SUCCESS,
+        reason: 'Withdrawal quote created',
+        sourcePlatform: platform,
+      },
+      {
+        actorType: input.ownerType === 'CUSTOMER' ? 'CUSTOMER' : input.ownerType === 'ADMIN' ? 'ADMIN' : 'SYSTEM',
+        actorNo: quote.ownerNo || 'UNKNOWN',
+        actorDisplayName: quote.ownerNo || 'UNKNOWN',
+        actorRolesAtTime: [input.ownerType === 'CUSTOMER' ? 'CUSTOMER' : input.ownerType === 'ADMIN' ? 'ADMIN' : 'SYSTEM'],
+      },
+    );
 
     return quote;
   }
@@ -190,10 +225,37 @@ export class WithdrawQuoteService {
       );
     }
 
-    return db.withdrawPricingQuote.update({
+    const updated = await db.withdrawPricingQuote.update({
       where: { id: quoteId },
       data: { status: 'USED', usedAt: now },
     });
+
+    // 方法带可选 tx 参数（调用方可能在事务里推进主流程），但审计照常用注入的 service
+    // 写、不进事务——与 swap 侧同律，演示系统不做事务兜底。
+    await this.auditLogsService.recordByActor(
+      {
+        action: AuditActions.WITHDRAW_QUOTE_USED,
+        actionDomain: 'WITHDRAW',
+        primarySubjectType: AuditEntityTypes.WITHDRAW_QUOTE,
+        primarySubjectNo: updated.quoteNo || undefined,
+        ownerCustomerNo: updated.ownerNo || undefined,
+        subjects: updated.quoteNo ? [
+          { subjectType: AuditEntityTypes.WITHDRAW_QUOTE, subjectNo: updated.quoteNo, subjectRole: 'PRIMARY' as any },
+          ...(updated.ownerNo ? [{ subjectType: 'CUSTOMER', subjectNo: updated.ownerNo, subjectRole: 'OWNER' as any }] : []),
+        ] : undefined,
+        requestId: `WITHDRAW_QUOTE_USED_${updated.quoteNo}_${randomUUID()}`,
+        outcome: AuditOutcome.SUCCESS,
+        reason: 'Withdrawal quote used',
+      },
+      {
+        actorType: ownerType === 'CUSTOMER' ? 'CUSTOMER' : ownerType === 'ADMIN' ? 'ADMIN' : 'SYSTEM',
+        actorNo: updated.ownerNo || 'UNKNOWN',
+        actorDisplayName: updated.ownerNo || 'UNKNOWN',
+        actorRolesAtTime: [ownerType === 'CUSTOMER' ? 'CUSTOMER' : ownerType === 'ADMIN' ? 'ADMIN' : 'SYSTEM'],
+      },
+    );
+
+    return updated;
   }
 
   async cancelQuote(
@@ -211,9 +273,34 @@ export class WithdrawQuoteService {
     if (quote.status !== 'ACTIVE') {
       throw new BadRequestException(`Quote is ${quote.status}, cannot cancel`);
     }
-    return db.withdrawPricingQuote.update({
+    const updated = await db.withdrawPricingQuote.update({
       where: { id: quoteId },
       data: { status: 'CANCELLED', cancelledAt: new Date() },
     });
+
+    await this.auditLogsService.recordByActor(
+      {
+        action: AuditActions.WITHDRAW_QUOTE_CANCELLED,
+        actionDomain: 'WITHDRAW',
+        primarySubjectType: AuditEntityTypes.WITHDRAW_QUOTE,
+        primarySubjectNo: updated.quoteNo || undefined,
+        ownerCustomerNo: updated.ownerNo || undefined,
+        subjects: updated.quoteNo ? [
+          { subjectType: AuditEntityTypes.WITHDRAW_QUOTE, subjectNo: updated.quoteNo, subjectRole: 'PRIMARY' as any },
+          ...(updated.ownerNo ? [{ subjectType: 'CUSTOMER', subjectNo: updated.ownerNo, subjectRole: 'OWNER' as any }] : []),
+        ] : undefined,
+        requestId: `WITHDRAW_QUOTE_CANCELLED_${updated.quoteNo}_${randomUUID()}`,
+        outcome: AuditOutcome.SUCCESS,
+        reason: 'Withdrawal quote cancelled',
+      },
+      {
+        actorType: ownerType === 'CUSTOMER' ? 'CUSTOMER' : ownerType === 'ADMIN' ? 'ADMIN' : 'SYSTEM',
+        actorNo: updated.ownerNo || 'UNKNOWN',
+        actorDisplayName: updated.ownerNo || 'UNKNOWN',
+        actorRolesAtTime: [ownerType === 'CUSTOMER' ? 'CUSTOMER' : ownerType === 'ADMIN' ? 'ADMIN' : 'SYSTEM'],
+      },
+    );
+
+    return updated;
   }
 }

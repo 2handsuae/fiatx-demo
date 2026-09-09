@@ -5,11 +5,14 @@ import { PrismaService } from '../../../core/prisma/prisma.service';
 import { WithdrawalFeeLevelService } from './withdrawal-fee-level.service';
 import { CustomerTagService } from '../../identity/customer-tags/customer-tag.service';
 import { PricingEngineService } from '../pricing-center/pricing-engine.service';
+import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 
 describe('WithdrawQuoteService.resolveBestLevel (audience predicate)', () => {
   let service: WithdrawQuoteService;
+  let prisma: PrismaService;
   let feeLevelService: WithdrawalFeeLevelService;
   let customerTagService: CustomerTagService;
+  let auditMock: { recordByActor: jest.Mock };
 
   const defaultLevel = {
     id: 'lvl-default',
@@ -58,6 +61,8 @@ describe('WithdrawQuoteService.resolveBestLevel (audience predicate)', () => {
               create: jest.fn(({ data }: { data: Record<string, unknown> }) =>
                 Promise.resolve({ ...data, id: 'quote-test-id', createdAt: new Date() }),
               ),
+              findUnique: jest.fn(),
+              update: jest.fn(),
             },
           },
         },
@@ -83,12 +88,18 @@ describe('WithdrawQuoteService.resolveBestLevel (audience predicate)', () => {
             })),
           },
         },
+        {
+          provide: AuditLogsService,
+          useValue: { recordByActor: jest.fn() },
+        },
       ],
     }).compile();
 
     service = module.get<WithdrawQuoteService>(WithdrawQuoteService);
+    prisma = module.get<PrismaService>(PrismaService);
     feeLevelService = module.get<WithdrawalFeeLevelService>(WithdrawalFeeLevelService);
     customerTagService = module.get<CustomerTagService>(CustomerTagService);
+    auditMock = module.get<AuditLogsService>(AuditLogsService) as any;
   });
 
   it('includes the VIP level as a candidate and picks it as cheapest when customer has the VIP tag', async () => {
@@ -135,5 +146,79 @@ describe('WithdrawQuoteService.resolveBestLevel (audience predicate)', () => {
     } finally {
       jest.useRealTimers();
     }
+  });
+
+  describe('审计三码（波二 Task 4，对齐兑换侧 SWAP_QUOTE_{CREATED,USED,CANCELLED}）', () => {
+    const activeQuote = {
+      id: 'quote-active-1',
+      quoteNo: 'WQT260909123456',
+      status: 'ACTIVE',
+      ownerType: 'CUSTOMER',
+      ownerId: 'cust-1',
+      ownerNo: 'C0000001',
+      assetId: 'asset-1',
+      amount: new Prisma.Decimal('100'),
+      expiresAt: new Date(Date.now() + 60_000),
+    };
+
+    it('writes WITHDRAW_QUOTE_CREATED with explicit requestId on create', async () => {
+      (customerTagService.effectiveTags as jest.Mock).mockResolvedValue(new Set());
+
+      const quote = await service.createQuote(validInput);
+
+      expect(auditMock.recordByActor).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: 'WITHDRAW_QUOTE_CREATED',
+          primarySubjectNo: quote.quoteNo,
+          requestId: expect.stringContaining(`WITHDRAW_QUOTE_CREATED_${quote.quoteNo}`),
+        }),
+        expect.anything(),
+      );
+    });
+
+    it('writes WITHDRAW_QUOTE_USED with explicit requestId on consume', async () => {
+      (prisma.withdrawPricingQuote.findUnique as jest.Mock).mockResolvedValue(activeQuote);
+      (prisma.withdrawPricingQuote.update as jest.Mock).mockImplementation(
+        ({ data }: { data: Record<string, unknown> }) => Promise.resolve({ ...activeQuote, ...data }),
+      );
+
+      const updated = await service.consumeQuote(
+        activeQuote.id,
+        activeQuote.ownerType,
+        activeQuote.ownerId,
+        activeQuote.amount,
+      );
+
+      expect(auditMock.recordByActor).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: 'WITHDRAW_QUOTE_USED',
+          primarySubjectNo: updated.quoteNo,
+          requestId: expect.stringContaining(`WITHDRAW_QUOTE_USED_${updated.quoteNo}`),
+        }),
+        expect.anything(),
+      );
+    });
+
+    it('writes WITHDRAW_QUOTE_CANCELLED with explicit requestId on cancel', async () => {
+      (prisma.withdrawPricingQuote.findUnique as jest.Mock).mockResolvedValue(activeQuote);
+      (prisma.withdrawPricingQuote.update as jest.Mock).mockImplementation(
+        ({ data }: { data: Record<string, unknown> }) => Promise.resolve({ ...activeQuote, ...data }),
+      );
+
+      const updated = await service.cancelQuote(
+        activeQuote.id,
+        activeQuote.ownerType,
+        activeQuote.ownerId,
+      );
+
+      expect(auditMock.recordByActor).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: 'WITHDRAW_QUOTE_CANCELLED',
+          primarySubjectNo: updated.quoteNo,
+          requestId: expect.stringContaining(`WITHDRAW_QUOTE_CANCELLED_${updated.quoteNo}`),
+        }),
+        expect.anything(),
+      );
+    });
   });
 });
