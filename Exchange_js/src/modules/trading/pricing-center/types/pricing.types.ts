@@ -5,11 +5,6 @@ export type RoundingMode = 'ROUND' | 'FLOOR' | 'CEIL';
 export type FeeCalcType = 'FLAT' | 'PERCENT';
 export type PricingSourceSide = 'BID' | 'INVERSE_ASK';
 
-export type SwapFeeItemCode = 'SWAP_SERVICE_FEE' | 'COMPLIANCE_FEE';
-export type WithdrawalFeeItemCode =
-  | 'WITHDRAW_SERVICE_FEE'
-  | 'NETWORK_FEE_EST';
-
 export interface PricingRounding {
   dp: number;
   mode: RoundingMode;
@@ -90,56 +85,6 @@ export interface WithdrawalPolicyRestrictions {
   reason: string | null;
 }
 
-export interface SwapPricingPolicyConfig {
-  policyId: string;
-  policyName: string;
-  business: 'SWAP';
-  channel: {
-    online: boolean;
-    storeComingSoon: boolean;
-  };
-  pairs: SwapPairEntry[];
-}
-
-export interface WithdrawalPricingPolicyConfig {
-  policyId: string;
-  policyName: string;
-  business: 'WITHDRAWAL';
-  channel: {
-    online: boolean;
-    storeComingSoon: boolean;
-  };
-  restrictions?: WithdrawalPolicyRestrictions;
-  assets: WithdrawalAssetEntry[];
-}
-
-export interface PricingPolicyListItem {
-  policyCode: string;
-  policyName: string;
-  policyId: string;
-  business: PricingBusiness;
-  channel: {
-    online: boolean;
-    storeComingSoon: boolean;
-  };
-  lastUpdatedAt: string;
-  lastUpdatedBy: string | null;
-}
-
-export interface ProviderRateQuote {
-  provider: LpCode;
-  providerName: 'BINANCE';
-  baseRate: string;
-  fetchedAt: string;
-  symbol: string;
-  bid: string;
-  ask: string;
-  sideUsed: PricingSourceSide;
-  aedPegApplied: boolean;
-  aedPegRate: string;
-  formula: string;
-}
-
 export interface CalculatedFeeLine {
   itemCode: string;
   calcType: FeeCalcType;
@@ -205,6 +150,4 @@ export interface WithdrawalPricingResult {
   };
 }
 
-export const SWAP_POLICY_CODE = 'SWAP_PRICING';
-export const WITHDRAWAL_POLICY_CODE = 'WITHDRAWAL_PRICING';
 export const WITHDRAW_QUOTE_TTL_SECONDS = 30;

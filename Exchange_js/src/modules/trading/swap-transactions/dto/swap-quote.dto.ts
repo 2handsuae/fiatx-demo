@@ -9,11 +9,6 @@ export enum SwapQuoteStatus {
   CANCELLED = 'CANCELLED',
 }
 
-export enum SwapSide {
-  SELL_BASE = 'SELL_BASE',
-  BUY_BASE = 'BUY_BASE',
-}
-
 export class CreateSwapQuoteDto {
   @ApiProperty({ description: 'Source asset ID' })
   @IsUUID()

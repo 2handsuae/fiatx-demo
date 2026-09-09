@@ -81,15 +81,6 @@ export interface SwapExecutableRateResult {
   };
 }
 
-export interface SwapQuoteComputationResult extends SwapExecutableRateResult {
-  fromAmount: number;
-  toAmount: number;
-  exchangeRate: number;
-  amountOut: number;
-  createdAt: string;
-  expiresAt: string;
-}
-
 /**
  * 「单据生命周期已结束」—— 材料请求作废监听器（material-request-order-cancel.
  * listener.ts）与 admin 材料请求列表读这一份。

@@ -123,26 +123,6 @@ export enum WithdrawOwnerType {
   LP = 'LP',
 }
 
-export enum ComplianceStatus {
-  // Compatibility snapshot only. Withdraw UI should prefer derivedComplianceStatus.
-  PENDING = 'PENDING',
-  CLEAR = 'CLEAR',
-  HOLD = 'HOLD',
-  REJECT = 'REJECT',
-}
-
-export enum KytStatus {
-  CREATED = 'CREATED',
-  RECEIVED = 'RECEIVED',
-  FINAL = 'FINAL',
-}
-
-export enum TravelRuleStatus {
-  CREATED = 'CREATED',
-  RECEIVED = 'RECEIVED',
-  FINAL = 'FINAL',
-}
-
 export class WithdrawTransactionQueryDto {
   @IsOptional()
   @IsNumber()
