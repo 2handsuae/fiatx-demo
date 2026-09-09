@@ -852,10 +852,8 @@ export class WithdrawTransactionsService {
   /**
    * 按 id 直接改写一条 withdrawal 的 slaDeadline；不碰状态。
    *
-   * 目前零调用方——Task 3 把计时收拢到进入状态时统一设（见
-   * WithdrawTransactionsService.resolveSlaFields，挂在 updateStatus 等状态
-   * 机收口处）之后，业务流程里再没人调它。留着是给后面「模拟超时」端点
-   * 用的（按 id 直接推 deadline 演示破线），不是死代码。**不要**在业务
+   * 唯一调用方是 setSlaDeadlineByNo（⚡ 模拟超时端点）；计时主路径见
+   * resolveSlaFields（按 id 直接推 deadline 演示破线），不是死代码。**不要**在业务
    * 流程里用它设 deadline，会绕开收口处、重新制造"漏计时"的窗口。
    */
   async setSlaDeadline(id: string, slaDeadline: Date) {

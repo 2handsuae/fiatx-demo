@@ -38,8 +38,8 @@ const VERDICT_BY_TYPE: Record<string, 'approved' | 'rejected' | 'ignore'> = {
  * applicantKytTxn{Approved,Rejected,AwaitingUser,Reviewed,Created} +
  * applicantKytOnHold(注意:onHold 官方命名没有 `Txn`)webhook:先按
  * sumsubTxnIdOut 认领归属,再映射 → 归一 verdict(+ 仅 rejected 时读
- * detail/typedTags)→ 调 SwapWorkflowService.applyKytVerdict(Task 6 落地状态机;
- * 本任务只定调用契约 + 打桩)。
+ * detail/typedTags)→ 调 SwapWorkflowService.applyKytVerdict（getTxn 详情拉取、
+ * sceneTag 归约、dispoTag 识别均已实现）。
  *
  * 认领顺序与充值/提现相反:这里先认领后判类型 —— 认领不到就是级联要继续找
  * 下一域,无论事件类型是否会推进状态机都一样是"不是我的"。

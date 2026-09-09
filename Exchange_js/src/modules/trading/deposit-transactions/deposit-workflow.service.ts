@@ -2171,9 +2171,9 @@ export class DepositWorkflowService implements OnModuleInit {
 
   /**
    * RETURN decided (A2): the V1 approval opened by initiateReturn reached a decision.
-   * APPROVED → delegate to the onReturnApproved stub (real settlement lands in A3). Any
-   * other outcome → the approvals engine already owns the rejection/cancel/expire audit
-   * trail; this is a no-op log, deposit stays MANUAL_CHECKING.
+   * APPROVED → delegate to onReturnApproved (settlement lives there: disposition leg +
+   * status transition + audit). Any other outcome → the approvals engine already owns
+   * the rejection/cancel/expire audit trail; this is a no-op log, deposit stays MANUAL_CHECKING.
    */
   @OnEvent('workflow.deposit-return.decided', { async: true })
   async onReturnDecided(event: ApprovalDecidedEvent) {
@@ -2440,9 +2440,9 @@ export class DepositWorkflowService implements OnModuleInit {
 
   /**
    * SEIZE decided (A2): the V1 approval opened by initiateSeize reached a decision.
-   * APPROVED → delegate to the onSeizeApproved stub (real settlement lands in A4). Any
-   * other outcome → the approvals engine already owns the rejection/cancel/expire audit
-   * trail; this is a no-op log, deposit stays FROZEN.
+   * APPROVED → delegate to onSeizeApproved (settlement lives there: disposition leg +
+   * status transition + audit). Any other outcome → the approvals engine already owns
+   * the rejection/cancel/expire audit trail; this is a no-op log, deposit stays FROZEN.
    */
   @OnEvent('workflow.deposit-seize.decided', { async: true })
   async onSeizeDecided(event: ApprovalDecidedEvent) {
@@ -2697,8 +2697,8 @@ export class DepositWorkflowService implements OnModuleInit {
 
   /**
    * UNFREEZE decided (A2): the V1 approval opened by initiateUnfreeze reached a decision.
-   * APPROVED → delegate to the onUnfreezeApproved stub (real resume-into-compliance-flow
-   * lands in A5). Any other outcome → the approvals engine already owns the
+   * APPROVED → delegate to onUnfreezeApproved (resume-into-compliance-flow lives there:
+   * status transition + audit). Any other outcome → the approvals engine already owns the
    * rejection/cancel/expire audit trail; this is a no-op log, deposit stays FROZEN.
    */
   @OnEvent('workflow.deposit-unfreeze.decided', { async: true })

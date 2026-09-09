@@ -621,7 +621,7 @@ export class SwapWorkflowService {
    *              buildLegContext + createLeg 建 leg1,随后补提买入腿到 Sumsub
    *              (纯数据腿,不承载裁决,失败不阻断已放行的兑换)。
    *   rejected → markStatus(KYT_REJECTED, {rejectReason: 'KYT_REJECTED'}) →
-   *              REJECTED,零记账(不建任何 leg、不碰 TB)——移交处置(Task 7 打桩)。
+   *              REJECTED,零记账(不建任何 leg、不碰 TB)——移交处置（handleRejectDisposition，已落地且幂等）。
    *
    * 事务边界:裁决证据字段(complianceVerdict/sumsubDetailJson)和 markStatus
    * 落在同一个 $transaction 里,而不是先落库再开事务(Task 4 终审教训)——否则
@@ -1098,10 +1098,10 @@ export class SwapWorkflowService {
       // 排列）：如果崩在两次写入之间，客户已经被限制、只是单子还没显示冻结，
       // 比反过来更安全。
       if (willFreeze && swap.status === SwapTransactionStatus.COMPLIANCE_PENDING) {
-        // 2026-08-20（Review Important Fix）：swap 是 applyKytVerdict 顶部（:501）
+        // 2026-08-20（Review Important Fix）：swap 是 applyKytVerdict 顶部
         // 一次性读出、随后一路传下来的陈旧快照 —— 从那一刻到这里之间，
         // onCustomerRestrictionOpened 广播 handler（由上面 open() 同步 emit 出的
-        // 同一次事件触发，:1624 附近）可能已经抢先把这一行冻上了。若这里对
+        // 同一次事件触发）可能已经抢先把这一行冻上了。若这里对
         // markStatus 的失败毫无防备，Invalid transition 会被下面外层大 try 的
         // catch（:1108）当成整段处置失败：不仅误判这次 FREEZE，还连带跳过下面
         // 本该照常执行的 markHardLineDisposition sticky 标记与
@@ -1109,11 +1109,11 @@ export class SwapWorkflowService {
         // SWAP_KYT_REJECTED_DISPOSITION_FAILED + rethrow，函数直接退出）——而
         // sticky 标记正是永久防 tipping-off 的唯一凭据，一旦跳过，下次软线裁决
         // 会重新对该客户暴露补料入口。外层 catch 的 rethrow 还会让 webhook 标
-        // FAILED 重投，重投一进门就撞上 :517 的 FROZEN 幂等闸被 IGNORE，
+        // FAILED 重投，重投一进门就撞上 applyKytVerdict 入口的 FROZEN 幂等闸被 IGNORE，
         // sticky 标记与处置审计从此再也没有机会补跑。
         //
-        // 判据镜像本文件 onCustomerRestrictionOpened 侧已有的范式（:1679 附
-        // 近）：捕获失败后重读当前状态，已经是 FROZEN 就是被广播抢先的良性
+        // 判据镜像本文件 onCustomerRestrictionOpened 侧已有的范式（onCustomerRestrictionOpened
+        // 侧的良性抢跑判据）：捕获失败后重读当前状态，已经是 FROZEN 就是被广播抢先的良性
         // 竞态 —— 降级 debug、绝不 return/rethrow，让下面的 sticky 标记与处置
         // 审计照常往下执行；不是 FROZEN 才是真失败，照旧上抛交给外层 catch
         // （needsReview + SWAP_KYT_REJECTED_DISPOSITION_FAILED + rethrow）。不靠
