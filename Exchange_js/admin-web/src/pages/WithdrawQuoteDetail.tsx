@@ -70,19 +70,19 @@ const fmt = (v?: string | null): string => {
 /* ── Component ──────────────────────────────────────────────── */
 
 const WithdrawQuoteDetail = () => {
-  const { id } = useParams<{ id: string }>();
+  const { quoteNo } = useParams<{ quoteNo: string }>();
   const navigate = useNavigate();
   const [data, setData] = useState<WithdrawQuoteDetailData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
   const fetchDetail = async () => {
-    if (!id) return;
+    if (!quoteNo) return;
     setLoading(true);
     setError('');
     try {
       const res = await adminFetch(
-        `${import.meta.env.VITE_API_URL}/admin/withdrawal-fee-levels/quotes/${id}`,
+        `${import.meta.env.VITE_API_URL}/admin/withdrawal-fee-levels/quotes/${quoteNo}`,
       );
       if (!res.ok) throw new Error(await getApiErrorMessage(res, 'Failed to load quote detail'));
       setData(await res.json());
@@ -97,7 +97,7 @@ const WithdrawQuoteDetail = () => {
 
   useEffect(() => {
     void fetchDetail();
-  }, [id]);
+  }, [quoteNo]);
 
   /* Loading state */
   if (loading) {

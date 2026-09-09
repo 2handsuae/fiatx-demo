@@ -98,14 +98,14 @@ export class WithdrawalFeeLevelController {
     return { items, total };
   }
 
-  @Get('quotes/:id')
-  @RequirePermissions(buildPermissionCode('GET', '/admin/withdrawal-fee-levels/quotes/:id'))
-  async findOneQuote(@Param('id') id: string) {
+  @Get('quotes/:quoteNo')
+  @RequirePermissions(buildPermissionCode('GET', '/admin/withdrawal-fee-levels/quotes/:quoteNo'))
+  async findOneQuote(@Param('quoteNo') quoteNo: string) {
     const quote = await (this.prisma as any).withdrawPricingQuote.findUnique({
-      where: { id },
+      where: { quoteNo },
       include: { asset: true },
     });
-    if (!quote) throw new NotFoundException(`Quote ${id} not found`);
+    if (!quote) throw new NotFoundException(`Quote ${quoteNo} not found`);
     return quote;
   }
 

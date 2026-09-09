@@ -374,7 +374,7 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
   route('POST', '/admin/swap-transactions', 'Create admin swap transaction', ['TRADING_SWAP_WRITE']),
   route('GET', '/admin/swap-transactions', 'List swap transactions', ['TRADING_SWAP_READ']),
   route('GET', '/admin/swap-transactions/quotes', 'List swap quotes', ['TRADING_SWAP_READ']),
-  route('GET', '/admin/swap-transactions/quotes/:id', 'Get swap quote detail', ['TRADING_SWAP_READ']),
+  route('GET', '/admin/swap-transactions/quotes/:quoteNo', 'Get swap quote detail', ['TRADING_SWAP_READ']),
   route('GET', '/admin/swap-transactions/:id', 'Get swap transaction detail', ['TRADING_SWAP_READ']),
   route('POST', '/admin/swap-transactions/:swapNo/legs/:legSeq/advance', 'Advance swap settlement leg', ['TRADING_SWAP_WRITE']),
   route('POST', '/admin/swap-transactions/:swapNo/legs/:legSeq/resume', 'Resume a stuck swap leg', ['TRADING_SWAP_WRITE']),
@@ -564,7 +564,7 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
   route('GET', '/admin/withdrawal-fee-levels/quotes', 'List withdrawal quotes', [
     'WITHDRAWAL_FEE_LEVEL_READ',
   ]),
-  route('GET', '/admin/withdrawal-fee-levels/quotes/:id', 'Get withdrawal quote detail', [
+  route('GET', '/admin/withdrawal-fee-levels/quotes/:quoteNo', 'Get withdrawal quote detail', [
     'WITHDRAWAL_FEE_LEVEL_READ',
   ]),
 

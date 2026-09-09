@@ -59,10 +59,10 @@ export class SwapTransactionsController {
     return this.swapQuoteService.findAllForAdmin(query);
   }
 
-  @Get('quotes/:id')
+  @Get('quotes/:quoteNo')
   @ApiOperation({ summary: 'Get swap quote detail' })
-  findOneQuote(@Param('id') id: string) {
-    return this.swapQuoteService.findOneForAdmin(id);
+  findOneQuote(@Param('quoteNo') quoteNo: string) {
+    return this.swapQuoteService.findOneForAdmin(quoteNo);
   }
 
   @Post(':swapNo/legs/:legSeq/advance')

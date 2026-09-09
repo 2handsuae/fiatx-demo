@@ -247,7 +247,7 @@ const SwapQuoteList = () => {
                       type="button"
                       className={adminButtonClass('rowKeyLink')}
                       onClick={() =>
-                        navigate(`/admin/trading/swap-quotes/SWAP/${item.quoteId}`)
+                        navigate(`/admin/trading/swap-quotes/${item.quoteNo}`)
                       }
                     >
                       {item.quoteNo || '—'}

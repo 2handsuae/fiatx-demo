@@ -426,16 +426,16 @@ export class SwapQuoteService {
     return { items, total };
   }
 
-  async findOneForAdmin(id: string) {
+  async findOneForAdmin(quoteNo: string) {
     const quote = await this.prisma.swapQuote.findUnique({
-      where: { id },
+      where: { quoteNo },
       include: {
         fromAsset: true,
         toAsset: true,
         swapTransaction: true,
       },
     });
-    if (!quote) throw new NotFoundException(`SwapQuote ${id} not found`);
+    if (!quote) throw new NotFoundException(`SwapQuote ${quoteNo} not found`);
     return quote;
   }
 

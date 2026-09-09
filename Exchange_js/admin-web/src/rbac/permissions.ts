@@ -52,7 +52,9 @@ export const PERMISSIONS = {
   MATERIAL_REQUESTS_BY_ORDER_READ: 'api.get.admin_material_requests_by_order_orderdomain_orderref',
 
   SWAP_QUOTES_READ: 'api.get.admin_swap_transactions_quotes',
-  SWAP_QUOTES_DETAIL_READ: 'api.get.admin_swap_transactions_quotes_id',
+  // 报价换键（波二 Task 5）：详情端点改按 quoteNo 查询后，rbac.catalog.ts 的
+  // quotes/:id → quotes/:quoteNo 一起漂——同 47 行注释的镜像约定。
+  SWAP_QUOTES_DETAIL_READ: 'api.get.admin_swap_transactions_quotes_quoteno',
   SWAP_TRANSACTIONS_READ: 'api.get.admin_swap_transactions',
   SWAP_TRANSACTION_DETAIL_READ: 'api.get.admin_swap_transactions_id',
 
@@ -163,7 +165,9 @@ export const PERMISSIONS = {
   SWAP_FEE_LEVEL_RETIRE: 'api.post.admin_swap_fee_levels_levelcode_retire',
   WITHDRAWAL_FEE_LEVEL_RETIRE: 'api.post.admin_withdrawal_fee_levels_levelcode_retire',
   WITHDRAW_QUOTES_READ: 'api.get.admin_withdrawal_fee_levels_quotes',
-  WITHDRAW_QUOTES_DETAIL_READ: 'api.get.admin_withdrawal_fee_levels_quotes_id',
+  // 报价换键（波二 Task 5）：详情端点改按 quoteNo 查询后，rbac.catalog.ts 的
+  // quotes/:id → quotes/:quoteNo 一起漂——同 47 行注释的镜像约定。
+  WITHDRAW_QUOTES_DETAIL_READ: 'api.get.admin_withdrawal_fee_levels_quotes_quoteno',
 } as const;
 
 export type PermissionCode = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];
