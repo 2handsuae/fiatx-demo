@@ -100,7 +100,7 @@ const AuthGuard = ({ children }: AuthGuardProps) => {
     // standalone guide page (its CTA routes to /withdrawal-addresses to add one).
     // Business paths blocked; /withdrawal-addresses (the setup page) intentionally NOT blocked.
     // Segment-boundary match: '/withdraw' must NOT catch '/withdrawal-addresses' (its own destination).
-    const readinessBlockedPaths = ['/deposit', '/withdraw', '/swap', '/wallet'];
+    const readinessBlockedPaths = ['/deposit', '/withdraw', '/swap'];
     if (
       !tradingReadinessLoading &&
       !tradingReady &&

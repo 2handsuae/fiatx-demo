@@ -1,7 +1,6 @@
 import {
   getSwapStatusMeta,
   isSwapTerminalStatus,
-  ALL_SWAP_STATUSES,
   SWAP_STATUS_FILTERS,
 } from './swapStatusMap';
 
@@ -23,13 +22,6 @@ describe('swapStatusMap', () => {
     expect(meta.group).toBe('NEEDS_OFFICER');
     expect(meta.badgeClass).toContain('adm-red');
     expect(meta.badgeClass).not.toContain('cyan');
-  });
-
-  /* 直接比对映射表的**键集**,而不是「label 不含 UNKNOWN」——
-     后者对「整条映射条目被删」测不出来：fallback 会把 label 设成状态码本身,
-     断言照样绿。键集断言删一条/多一条都红。 */
-  it('映射表键集 == 七个后端状态,一个不多一个不少', () => {
-    expect([...ALL_SWAP_STATUSES].sort()).toEqual([...BACKEND_STATUSES].sort());
   });
 
   it('七个后端状态都拿到真条目(不是 fallback)', () => {

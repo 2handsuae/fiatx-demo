@@ -120,13 +120,6 @@ export function getWithdrawStatusMeta(status: string): WithdrawStatusMeta {
   );
 }
 
-/**
- * All 10 backend withdraw statuses, derived from the map above so this
- * stays the single source of truth (consumers must not keep a second,
- * independently-maintained status list).
- */
-export const ALL_WITHDRAW_STATUSES: string[] = Object.keys(WITHDRAW_STATUS_MAP);
-
 export interface WithdrawStatusFilterGroup {
   label: string;
   /** Raw backend statuses this filter option maps to (>1 means a merged filter). */

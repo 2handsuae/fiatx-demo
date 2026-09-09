@@ -1,9 +1,8 @@
 // admin-web/src/utils/depositActionMap.ts
 
 /* ── Deposit Action Map ─────────────────────────────────────────
-   Compliance-layer styling + payin simulation action availability
-   shared by the Deposit Detail page (and, for getComplianceLayerStyle,
-   the Withdraw Detail page).
+   Compliance-layer styling shared by the Deposit Detail page (and,
+   for getComplianceLayerStyle, the Withdraw Detail page).
    ────────────────────────────────────────────────────────────── */
 
 /* ── Compliance Layer Styling ──────────────────────────────────── */
@@ -56,40 +55,6 @@ export function getComplianceLayerStyle(value: string | null | undefined): Layer
   return { borderColor: 'border-adm-border', textColor: 'text-adm-t3', label: v };
 }
 
-/* ── Payin Simulation Action Map ──────────────────────────────── */
-
-export interface PayinSimAction {
-  event: string;
-  label: string;
-  enabledStatuses: Set<string>;
-}
-
-const CRYPTO_SIM_ACTIONS: PayinSimAction[] = [
-  { event: 'MEMPOOL_SEEN',    label: '⚡ Mempool Seen',            enabledStatuses: new Set(['DETECTED']) },
-  { event: 'CHAIN_CONFIRMED', label: '⚡ Chain Confirmed',         enabledStatuses: new Set(['CONFIRMING']) },
-  { event: 'DROPPED',         label: '⚡ Dropped / RBF Replaced',  enabledStatuses: new Set(['DETECTED', 'CONFIRMING']) },
-  { event: 'REORG',           label: '⚡ Reorg — back to mempool', enabledStatuses: new Set(['CONFIRMING']) },
-];
-
-const FIAT_SIM_ACTIONS: PayinSimAction[] = [
-  { event: 'FIAT_CONFIRMED',   label: '⚡ Bank Received',    enabledStatuses: new Set(['DETECTED']) },
-  { event: 'FIAT_FAILED',      label: '⚡ Fiat Failed',      enabledStatuses: new Set(['DETECTED']) },
-];
-
-const PAYIN_TERMINAL = new Set(['CLEARED', 'FAILED']);
-
-export function getPayinSimActionsForStatus(
-  currentStatus: string,
-  type: string,
-): Array<PayinSimAction & { enabled: boolean }> {
-  const isTerminal = PAYIN_TERMINAL.has(currentStatus.toUpperCase());
-  const actions = type.toUpperCase() === 'FIAT' ? FIAT_SIM_ACTIONS : CRYPTO_SIM_ACTIONS;
-  return actions.map((a) => ({
-    ...a,
-    enabled: !isTerminal && a.enabledStatuses.has(currentStatus.toUpperCase()),
-  }));
-}
-
 /* ── Deposit Status Badge Colors ──────────────────────────────── */
 
 const DEPOSIT_BADGE_MAP: Record<string, string> = {
@@ -105,18 +70,4 @@ const DEPOSIT_BADGE_MAP: Record<string, string> = {
 
 export function getDepositStatusBadgeClass(status: string): string {
   return DEPOSIT_BADGE_MAP[status.toUpperCase()] || 'bg-gray-100 text-gray-800';
-}
-
-/* ── Payin Status Badge Colors ────────────────────────────────── */
-
-const PAYIN_BADGE_MAP: Record<string, string> = {
-  DETECTED:   'bg-blue-100 text-blue-800',
-  CONFIRMING: 'bg-amber-100 text-amber-800',
-  CONFIRMED:  'bg-indigo-100 text-indigo-800',
-  CLEARED:    'bg-green-100 text-green-800',
-  FAILED:     'bg-red-100 text-red-800',
-};
-
-export function getPayinStatusBadgeClass(status: string): string {
-  return PAYIN_BADGE_MAP[status.toUpperCase()] || 'bg-gray-100 text-gray-800';
 }

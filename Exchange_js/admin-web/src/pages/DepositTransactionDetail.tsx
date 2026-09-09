@@ -96,7 +96,6 @@ interface DepositDetail {
   fromAddress: string | null;
   fromIban: string | null;
   txHash: string | null;
-  confirmations: number;
   referenceNo: string | null;
   createdAt: string;
   updatedAt: string;
@@ -114,7 +113,6 @@ interface DepositDetail {
   sumsubScore?: number | null;
   slaDeadline?: string | null;
   slaBreached?: boolean | null;
-  sumsubActionId?: string | null;
   l1Snapshot?: string | null;
   /** 平账 B 批 Task 10：补录才有值（案子业务归属日）。 */
   effectiveDate?: string | null;
@@ -598,7 +596,6 @@ const DepositTransactionDetail = () => {
             <InfoField label="Fee" value={formatAssetAmount(data.feeAmount, data.asset.decimals)} />
             <InfoField label="Net Amount" value={formatAssetAmount(data.netAmount, data.asset.decimals)} accent />
             <InfoField label="Tx Hash" value={data.txHash} copyable onCopy={(v) => handleCopy(v, 'txHash')} isCopied={copiedField === 'txHash'} mono link={data.txHash ? explorerTxUrl(data.asset.network, data.txHash) : undefined} />
-            <InfoField label="Confirmations" value={data.confirmations ?? null} />
             <InfoField label="From Address" value={data.fromAddress} copyable onCopy={(v) => handleCopy(v, 'fromAddr')} isCopied={copiedField === 'fromAddr'} mono />
             <InfoField label="To Wallet" value={data.toWalletNo} mono />
             <InfoField label="To Address" value={data.toAddress} copyable onCopy={(v) => handleCopy(v, 'toAddr')} isCopied={copiedField === 'toAddr'} mono />
@@ -666,7 +663,6 @@ const DepositTransactionDetail = () => {
                 label="Received At"
                 value={data.latestSumsubWebhook?.receivedAt ? new Date(data.latestSumsubWebhook.receivedAt).toLocaleString() : null}
               />
-              <InfoField label="Applicant Action ID" value={data.sumsubActionId} mono />
             </div>
           </DetailCard>
 

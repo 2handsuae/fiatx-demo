@@ -12,7 +12,6 @@ const CustomerProfile = lazy(() => import('./pages/CustomerProfile'));
 const MaterialVerification = lazy(() => import('./pages/MaterialVerification'));
 const OnboardingVerification = lazy(() => import('./pages/OnboardingVerification'));
 const TierUpgradeVerification = lazy(() => import('./pages/TierUpgradeVerification'));
-const WalletManagement = lazy(() => import('./pages/WalletManagement'));
 const Deposit = lazy(() => import('./pages/Deposit'));
 const DepositDetail = lazy(() => import('./pages/DepositDetail'));
 const Withdraw = lazy(() => import('./pages/Withdraw'));
@@ -47,7 +46,6 @@ function App() {
               <Route element={<CustomerDashboardLayout />}>
                  {/* Protected Routes */}
                  <Route path="/overview" element={<AuthGuard><DashboardOverview /></AuthGuard>} />
-                 <Route path="/wallet" element={<AuthGuard><WalletManagement /></AuthGuard>} />
                  <Route path="/deposit" element={<AuthGuard><Deposit /></AuthGuard>} />
                  <Route path="/deposit/:depositNo" element={<AuthGuard><DepositDetail /></AuthGuard>} />
                  <Route path="/swap" element={<AuthGuard><Swap /></AuthGuard>} />

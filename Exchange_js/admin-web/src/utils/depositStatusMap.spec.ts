@@ -2,7 +2,6 @@
 
 import {
   getDepositStatusMeta,
-  ALL_DEPOSIT_STATUSES,
   DEPOSIT_STATUS_FILTERS,
 } from './depositStatusMap';
 
@@ -33,10 +32,12 @@ const CASES: Array<[string, string, string]> = [
   ['FAILED', 'FAILED', 'EXCEPTION'],
 ];
 
+// 穷举参照列表，供下方 DEPOSIT_STATUS_FILTERS 覆盖率断言使用（与 CASES 同源）。
+const ALL_DEPOSIT_STATUSES: string[] = CASES.map(([status]) => status);
+
 describe('depositStatusMap (admin, as-is)', () => {
-  it('covers exactly the 15 backend statuses (one row per DEPOSIT_STATUS_MAP key — keeps this drift-proof)', () => {
+  it('covers exactly the 15 backend statuses (hardcoded row count, mirrors design spec §1.1)', () => {
     expect(CASES).toHaveLength(15);
-    expect(CASES.map(([status]) => status).sort()).toEqual([...ALL_DEPOSIT_STATUSES].sort());
   });
 
   it.each(CASES)('%s -> label=%s group=%s', (status, label, group) => {

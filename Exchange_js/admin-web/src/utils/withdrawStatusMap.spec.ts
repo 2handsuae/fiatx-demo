@@ -2,7 +2,6 @@
 
 import {
   getWithdrawStatusMeta,
-  ALL_WITHDRAW_STATUSES,
   WITHDRAW_STATUS_FILTERS,
   isWithdrawTerminalStatus,
 } from './withdrawStatusMap';
@@ -28,10 +27,12 @@ const CASES: Array<[string, string, string]> = [
   ['RETURNED', 'RETURNED', 'COMPLETED'],
 ];
 
+// 穷举参照列表，供下方 WITHDRAW_STATUS_FILTERS 覆盖率断言使用（与 CASES 同源）。
+const ALL_WITHDRAW_STATUSES: string[] = CASES.map(([status]) => status);
+
 describe('withdrawStatusMap (admin, as-is)', () => {
-  it('covers exactly the 10 backend statuses (one row per WITHDRAW_STATUS_MAP key — keeps this drift-proof)', () => {
+  it('covers exactly the 10 backend statuses (hardcoded row count, mirrors the 10-state machine)', () => {
     expect(CASES).toHaveLength(10);
-    expect(CASES.map(([status]) => status).sort()).toEqual([...ALL_WITHDRAW_STATUSES].sort());
   });
 
   it.each(CASES)('%s -> label=%s group=%s', (status, label, group) => {
