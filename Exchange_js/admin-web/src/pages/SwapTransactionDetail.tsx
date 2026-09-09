@@ -78,7 +78,6 @@ interface InternalFundLeg {
 interface SwapTransactionDetailData {
   id: string;
   swapNo: string;
-  quoteId: string | null;
   quoteNo: string | null;
   ownerType: string;
   ownerId: string;
