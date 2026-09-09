@@ -72,7 +72,7 @@ admin@fiatx.com 超管 ｜ sm@ 高管(SMO) ｜ ciso@ ｜ mlro@ ｜ dpo@ ｜ comp
 
 <!-- GENERATED:BEGIN -->
 > 本段由 `demo:all` 收尾自动写入（`scripts/demo-lib.ts → renderDataMdSnapshot`），别手改——下次跑会整段覆盖。
-> **只收录跨重铺稳定的列**：单号（`DEP…`/`SWP…`/`WD…`）内嵌日期+随机后缀、每次跑都变，收录进来会让 `git diff data.md` 永远有噪音、失去"行为有没有变"的判据作用（也让工作树无故变脏）。**要当次的真实单号，看 `demo:all` 运行时打印的花名册**——那份是当场的、准的。
+> **只收录跨重铺稳定的列**：单号（`DEP…`/`SWP…`/`WDR…`）内嵌日期+随机后缀、每次跑都变，收录进来会让 `git diff data.md` 永远有噪音、失去"行为有没有变"的判据作用（也让工作树无故变脏）。**要当次的真实单号，看 `demo:all` 运行时打印的花名册**——那份是当场的、准的。
 
 ### 充值（18 笔）
 

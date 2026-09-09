@@ -151,8 +151,6 @@ Last Updated: 2026-09-08
 
 - [ ] **Q1 制裁客户的订单级折叠未做**：本轮贴 `scope=ALL` 便签只把在途单打成 `FROZEN`，客户面靠服务端脱敏白名单收敛成 `COMPLIANCE_PENDING`；设计稿讨论过的「收单后一律挂 `PROCESSING`、连状态变化都不产生」的订单级折叠没做。与「提现域 tipping-off 未对齐」同源，一并排期 ｜来源: 2026-08-15 设计稿 §8 Q1；2026-09-08 业主裁定归订单域，自第二幕迁入
 
-- [ ] **提现报价审计未落地**：报价流程（`WithdrawQuoteService.createQuote/consumeQuote/cancelQuote`）零打点——常量 `WITHDRAW_PRICING_QUOTE_CREATED/_USED/_CANCELLED` 该三常量全仓不存在（2026-09-09 复核）；`withdraw-quote.service.ts` 全文件零 audit 引用、V5 名册零 QUOTE 码——缺口本体成立，实施归波二报价单收口；对比兑换 `SWAP_QUOTE_CREATED/USED/CANCELLED` 已在 `swap-quote.service.ts:249/319/364` 落地。应补打 QUOTE_CREATED/USED/CANCELLED（workflowType `WITHDRAW_QUOTE`），与兑换对齐 ｜来源: 2026-07-11 提现报价单文档 v2 §4.1.3
-
 - [ ] 提现成功通知未接：SUCCESS 时不调 `NotificationsGateway`（基础设施在、workflow 没调）｜来源: 2026-07-03 V5 体检
 
 ## G. 第六幕 · 账对（V8 对账 ｜ 平账处置）
@@ -298,6 +296,11 @@ Last Updated: 2026-09-08
 - [~] roadmap **V3/V4 已按三层新格式重排 + truth 外置**（2026-07-03）；V1/V2/V5-V9 待同款处理
 
 ---
+
+## 本轮销账（2026-09-09 波二报价单收口）
+
+- [x] F3 提现报价审计未落地（`WithdrawQuoteService.createQuote/consumeQuote/cancelQuote` 零打点）—— 已销账：`WITHDRAW_QUOTE_CREATED/USED/CANCELLED` 三码接入（对齐兑换侧写法，均带显式 requestId），V5 名册 30→33；commit `8cf7d41d`（三码落地）+ `f12b644c`（评审修正 consume/cancel 审计传 tx，对齐 swap 先例）
+- [x] 零消费端点第 3 条 `POST withdraw-transactions/quotes/:id/cancel`（体检 2026-09-09-acts345-trading-domains.md「零消费端点」清单：兑换页有同款取消调用、提现页从不调）—— 已销账：提现确认框关闭即调用该端点取消报价，对齐兑换页流程；commit `21b929e4`
 
 ## 本轮销账（2026-09-09 三四五幕波一）
 
