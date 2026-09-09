@@ -21,10 +21,11 @@ interface DepositDetailData {
  * orderRef===depositNo` 过滤（G6：绑了单的行只在它绑定的订单页露）。
  *
  * `本单非终态` 这道闸门是必须的，不是多余的防御：订单进终态后自动解绑
- * 材料请求的监听器（`material-request-order-cancel.listener.ts`）目前只有
- * SWAP 域端到端走得通，DEPOSIT/WITHDRAW 域接的事件在真实链路上从未被
- * emit 过（见该 commit 说明）——一条未挂限制的材料请求可能在单子已经
- * SUCCESS/FAILED/RETURNED/CLAWED_BACK 之后仍然"活"在账上，客户端必须自己
+ * 材料请求的监听器（`material-request-order-cancel.listener.ts`）三域（含
+ * DEPOSIT/WITHDRAW）事件契约已修复（listener 接错事件契约那次修复，2026-08-17）
+ * 并经真库探针验证——但它是异步 `{ async: true }` handler，订单落库到监听器
+ * 把材料请求解绑/作废之间有一段处理窗口，一条未挂限制的材料请求仍可能在单子已经
+ * SUCCESS/FAILED/RETURNED/CLAWED_BACK 之后短暂"活"在账上，客户端必须自己
  * 兜底不显示。
  */
 interface MaterialRequestEntry {

@@ -20,7 +20,8 @@ interface WithdrawDetailData {
  * `/client/me/material-requests`，按 `orderDomain==='WITHDRAW' &&
  * orderRef===withdrawNo` 过滤（G6：绑了单的行只在它绑定的订单页露）。
  * "本单非终态"闸门理由见 DepositDetail.tsx 同址注释——订单终态解绑监听器
- * 目前只有 SWAP 域端到端走得通。
+ * 三域事件契约均已修复（2026-08-17），闸门是防异步 handler 处理窗口的兜底，
+ * 不是补一条从未接通的死链路。
  */
 interface MaterialRequestEntry {
   requestNo: string;

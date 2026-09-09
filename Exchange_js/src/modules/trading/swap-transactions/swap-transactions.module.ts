@@ -27,17 +27,15 @@ import { L1GateModule } from '../shared/l1-gate/l1-gate.module';
     AuditLogsModule,
     FundsLayerModule,
     FundsOrdersModule,
-    // Task 5: forwardRef — SwapSumsubModule → SwapTransactionsModule is now
-    // reachable via a deep require chain that starts inside WalletsModule's own
-    // file (AppModule → AssetsModule/WalletsModule → OnboardingModule → ... →
-    // SumsubIngestionModule → SwapSumsubModule → here), i.e. before
-    // wallets.module.ts finishes executing and exports its WalletsModule class.
-    // A plain (non-forwardRef) reference here captures `undefined` at
-    // @Module() decoration time in that ordering and fails at bootstrap ("The
-    // module at index [n] ... is undefined") — TypeScript compiles clean, this
-    // only surfaces when the app/DI graph actually boots. forwardRef defers
-    // reading the binding until Nest's scanner runs, by which point the
-    // (shared, live) module.exports object has been fully populated.
+    // Task 5：曾经 forwardRef —— SwapSumsubModule → SwapTransactionsModule 曾经
+    // 可经一条深层 require 链到达 WalletsModule 自己的文件（AppModule →
+    // AssetsModule/WalletsModule → OnboardingModule → ... → SumsubIngestionModule
+    // → SwapSumsubModule → here），早于 wallets.module.ts 执行完并导出
+    // WalletsModule 类；当时若用 plain reference 会在 @Module() 装饰期捕获到
+    // `undefined`，编译期不报错、启动期才炸（"module at index [n] is
+    // undefined"）。
+    // 站3-α2（2026-08-27）：那条深层 require 链已断根（演示件摘入 SwapDemoModule，
+    // 模块↔ingestion 环就地解开），此处已改回 plain reference，不再是 forwardRef。
     WalletsModule,
     TransactionLimitsModule,
     // Task 4: SwapWorkflowService injects SUMSUB_TXN_CLIENT (submitSumsubTxnOut)
@@ -50,16 +48,20 @@ import { L1GateModule } from '../shared/l1-gate/l1-gate.module';
     // Task 7: SwapWorkflowService injects CustomerRestrictionsService +
     // CustomersService (handleRejectDisposition; Task 12 moved the hard-line
     // marker here from the now-deleted customer-pending-action service).
-    // forwardRef kept defensively — CustomersModule pulls in ApprovalsModule
+    // 曾经 forwardRef kept defensively — CustomersModule pulls in ApprovalsModule
     // and FundsOrdersModule, either of which could plausibly cycle back to
-    // this module through the app's deep import graph; same defensive
-    // stance as the (Wallets/此处) pair below.
+    // this module through the app's deep import graph.
+    // 站3-α2（2026-08-27）：这条防御性 forwardRef 已随两条装载链断根一并拆除并
+    // 通过开机考——顾虑的环路未真实存在，此处已改回 plain reference。
     CustomersModule,
     // Task 10: SwapWorkflowService injects MaterialRequestsService +
     // MaterialRequestIssuerService (handleRejectDisposition 改走材料账).
-    // forwardRef: MaterialRequestsModule 反过来 import SwapSumsubModule（拿
+    // 曾经 forwardRef：MaterialRequestsModule 反过来 import SwapSumsubModule（拿
     // SwapApplicantActionHandler 的 GREEN 回调），而 SwapSumsubModule 又
     // forwardRef 本模块 —— 同一条环上再加一段，同样必须 forwardRef。
+    // 站3-α2（2026-08-27）：材料复核→兑换的直调已事件化（SwapApplicantActionHandler
+    // 改听 MATERIAL_REQUEST_REVIEWED 域事件），MaterialRequestsModule 不再 import
+    // SwapSumsubModule，上述环路已不存在；此处已改回 plain reference。
     MaterialRequestsModule,
     // B2（第四批）：SwapWorkflowService 注入 L1GateService（三域共用的 L1 快照求值器）。
     L1GateModule,

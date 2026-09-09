@@ -160,5 +160,5 @@ export class AdminSumsubSimulationController {
   // withdraw-kyt/withdraw-tr endpoints retired with the old preKyt/travelRule mock
   // pipeline (Task 5 — real Sumsub single-txn submit + applyKytVerdict replaces it;
   // see WithdrawWorkflowService). Frontend cleanup (SumsubEventsPage kyt/travelRule
-  // simulate tabs) is Task 10-11's scope.
+  // simulate buttons) already done — removed as dead 404 buttons.
 }

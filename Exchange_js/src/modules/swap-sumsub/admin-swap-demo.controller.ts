@@ -12,8 +12,8 @@ import { SWAP_VERDICT_BUTTONS } from './fixtures/verdict-buttons';
  * handler/workflow 决定,operator 自由串联多个按钮。
  *
  * 安全闸同充值/提现版:本 controller 只在 SUMSUB_MOCK_MODE=true 时才被
- * SwapSumsubModule 注册(见 swap-sumsub.module.ts 的条件 `controllers` 数组)——
- * 生产环境下这个路由压根不存在,不是靠 guard 拦。
+ * SwapDemoModule 注册(见 swap-demo.module.ts 的条件 `controllers` 数组——演示件
+ * 已随站3-α2 从 SwapSumsubModule 摘出)——生产环境下这个路由压根不存在,不是靠 guard 拦。
  */
 @ApiTags('Admin - Swap Demo Scenarios')
 @ApiBearerAuth()

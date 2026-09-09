@@ -299,7 +299,8 @@ export class SwapTransactionsService {
       if (options?.customerScope) {
         // 早前（Task 10）这里是「customerScope 下完全忽略 status」——堵住了
         // ?status=FROZEN 的 tipping-off 探测面，但也打哑了 client-web 真在用
-        // 的 History 筛选下拉（Swap.tsx:868-886，SUCCESS/REJECTED 两档）：客户
+        // 的 History 筛选下拉（Swap.tsx 的 Transaction History 状态筛选
+        // <select>，SUCCESS/REJECTED 两档）：客户
         // 选「Completed」，列表照旧吐出全部，控件形同虚设且无任何提示。
         //
         // 正确语义：客户面筛选问的是「客户可见状态 = X」，不是「原始

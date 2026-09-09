@@ -149,9 +149,11 @@ const STATUS_TONE_CLASS: Record<DepositStatusView['tone'], string> = {
  * pointing at different status sets). 2026-08-06 简化：ACTION_PENDING 不再
  * 按是否已提交拆成两半，ACTION_REQUIRED 桶恒装全部 ACTION_PENDING，PROCESSING
  * 桶不再需要额外接住"已提交的 ACTION_PENDING"这个特例。REJECTED / EXPIRED
- * intentionally excluded — those two statuses are slated for removal
- * (BACKLOG d7b4456e / design decision #5) and get no new filter UI, mirroring
- * admin's DEPOSIT_STATUS_FILTERS (admin-web/src/utils/depositStatusMap.ts).
+ * intentionally excluded — those two statuses no longer exist at all (state
+ * machine narrowing, owner decision 2026-07-31; the BACKLOG item that tracked
+ * their removal, d7b4456e, has since been actioned and cleared), so there is
+ * no filter UI for them, mirroring admin's DEPOSIT_STATUS_FILTERS
+ * (admin-web/src/utils/depositStatusMap.ts).
  */
 const HISTORY_STATUS_FILTERS: Array<{ label: string; bucket: string }> = [
   { label: 'PROCESSING', bucket: 'PROCESSING' },

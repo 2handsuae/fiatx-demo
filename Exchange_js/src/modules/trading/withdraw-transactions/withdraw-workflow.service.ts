@@ -1153,7 +1153,8 @@ export class WithdrawWorkflowService implements OnModuleInit {
    * CONFIRMED and is picked up later by onPayoutLegConfirmed's 回捞.
    *
    * Concurrent re-entry guard (Task 6): re-checks the fee leg's own current
-   * status after loading it (line 1061). If already terminal (CLEARED, FAILED, etc.)
+   * status right after loading it via `findById` (below, inside this same
+   * method's try block). If already terminal (CLEARED, FAILED, etc.)
    * or missing, logs idempotent skip and returns without entering the settlement
    * body — prevents concurrent double-invocations from both racing loser's
    * "already terminal" error and false incrementFeeSettleAttempts counters.
@@ -2086,8 +2087,10 @@ export class WithdrawWorkflowService implements OnModuleInit {
    * SANCTION REFUND disposition (initiate side, Task 8): ops proposes refunding a
    * FROZEN withdrawal back to its sender under a sanctions disposition (the
    * FINAL_REJECTED tag arriving while a withdrawal was already FROZEN is ignored —
-   * see applyKytRejected's WITHDRAW_REFUND_TAG_ON_FROZEN_IGNORED guard — so this is
-   * the only legal path to that exit). Routed through V1 maker-checker approval
+   * decideVerdictLanding routes any verdict on a FROZEN withdrawal to IGNORE
+   * before applyKytRejected is ever reached, so it lands as a generic
+   * WITHDRAW_KYT_VERDICT_IGNORED audit — so this is the only legal path to that
+   * exit). Routed through V1 maker-checker approval
    * (single-step MLRO). Only opens the approval case + audits the request; the
    * actual reject_refund→REJECTED transition lands in Task 9's decided-event handler.
    */
@@ -2865,7 +2868,8 @@ export class WithdrawWorkflowService implements OnModuleInit {
       // letting this tag drive it here would let a single system-applied tag exit
       // a sanctions freeze with NO maker-checker — defeating the entire point of
       // freezing. A FROZEN withdrawal must exit ONLY via the WITHDRAW_UNFREEZE /
-      // WITHDRAW_SANCTION_REFUND double-approval arcs (Task 8-9, not yet built).
+      // WITHDRAW_SANCTION_REFUND double-approval arcs (initiateUnfreeze/
+      // onUnfreezeDecided and initiateRefund/onRefundApproved, Task 8-9 — both built).
       // Ignore the tag: no status change, no releaseLock — just an audit trail so
       // an officer can see the attempt and route it through the approval flow.
       if (w.status === WithdrawTransactionStatus.FROZEN) {

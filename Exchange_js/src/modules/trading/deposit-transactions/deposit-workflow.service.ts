@@ -1833,9 +1833,9 @@ export class DepositWorkflowService implements OnModuleInit {
   // V1 approval case, audits the request — and writes NOTHING to the deposit
   // table (Rule 5: initiate reads only). Each on*Decided listener mirrors
   // onConfiscationDecided's routing (APPROVED → execute, else → audit trail
-  // already owned by the approvals engine, deposit stays put) but the "execute"
-  // side is a stub for this task — real settlement (out-leg posting, status
-  // transitions) lands in A3 (return) / A4 (seize) / A5 (unfreeze).
+  // already owned by the approvals engine, deposit stays put); the "execute"
+  // side (out-leg posting, status transitions) has landed in onReturnApproved
+  // (A3) / onSeizeApproved (A4) / onUnfreezeApproved (A5) below.
   // ═══════════════════════════════════════════════════════════════════════
 
   /**

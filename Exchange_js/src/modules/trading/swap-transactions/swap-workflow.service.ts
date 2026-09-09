@@ -279,7 +279,8 @@ export class SwapWorkflowService {
     // A 用 60 过闸落 COMPLIANCE_PENDING,A 裁决未回时 B 又用 60 —— 可用仍读到 100,
     // B 也过闸;两笔都 kyt_approved → PROCESSING,A 抽干余额,B 的第一条腿失败 →
     // B 永久卡在 PROCESSING + needsReview,正是这道闸想防的那个洞。
-    // 真正的修法是建单即压 TB pending、与提现同形状,已登记 BACKLOG,本批未做。
+    // 真正的修法是建单即压 TB pending、与提现同形状——并发锁类问题按 CLAUDE.md
+    // §4 走 PRODUCTION-NOTES.md（已登记，2026-08-22 终审 I2），不进 BACKLOG，本批未做。
     //
     // 在 Decimal 空间比,不在 bigint 空间比：`decimalToBigint` 是
     // swap-leg-accounting.ts 的**私有**方法,本文件拿不到;而
@@ -928,8 +929,11 @@ export class SwapWorkflowService {
    * here must be independently idempotent and safe to re-run (webhook
    * redelivery, retry, or a manual replay must never duplicate restrictions
    * or corrupt state):
-   *   - customerRestrictionsService.add is dedup'd per capability (Task 1) —
-   *     re-adding SWAP/WITHDRAW is a no-op on repeat calls.
+   *   - customerRestrictionsService.open() is idempotent per (customerId, cause,
+   *     caseRef) — see openWithin's existing-OPEN-row lookup — so a repeat call
+   *     for the same restriction returns created:false instead of duplicating
+   *     it. (Task 8 replaced the old .add(capability[]) call this note used to
+   *     describe with open({cause}); the idempotency guarantee still holds.)
    *   - 2026-08-17 材料请求账：materialRequestIssuer.register() is NOT
    *     naturally idempotent — externalActionId is @unique, so re-registering
    *     an action already on the books throws P2002 instead of no-op'ing like
@@ -1067,8 +1071,9 @@ export class SwapWorkflowService {
       // 均为 false，由注册表带出。caseRef=swapNo，便于按单撕。
       //
       // Review Fix 5 (Minor): 下面这两次写入（限制账 open /
+      // materialRequestIssuer.register 材料请求登记，2026-08-17 前是
       // customerPendingActionService.set）不在同一事务里，中途崩溃会留下不
-      // 一致状态。当前顺序（先 restrict 再写 pendingAction）是故意的
+      // 一致状态。当前顺序（先 restrict 再登记材料请求）是故意的
       // fail-safe 排列：如果崩在两次写入之间，客户已经被限制、只是暂时看不到
       // 补料入口（偏保守，不出事）；反过来的顺序会在中途崩溃时出现"入口已经
       // 暴露但限制还没落地"的窗口，更危险。不要因为"看起来能合并成一次"把这
@@ -1319,13 +1324,6 @@ export class SwapWorkflowService {
   }
 
   /**
-   * Rebuild the leg-accounting context (SwapSettleCtx) from a persisted swap
-   * row. Moved verbatim out of the old executeSwap transaction (Task 4) —
-   * legs are no longer built at initiateSwap time, so applyKytVerdict
-   * (Task 6) calls this once the sell leg clears Sumsub KYT to reconstruct
-   * the same ctx that used to be computed inline before the swap row existed.
-   */
-  /**
    * 出生锁擦圈（站3）：把下单时画的腿1/attempt=1 预占退还客户余额。
    * best-effort——拒绝/冻结已成立后调用，失败只以 CRITICAL 现身，绝不回滚状态
    * （镜像提现 releaseLock 的口径）；两处冻结点竞态时输家跳过（赢家已擦）。
@@ -1411,6 +1409,13 @@ export class SwapWorkflowService {
     }
   }
 
+  /**
+   * Rebuild the leg-accounting context (SwapSettleCtx) from a persisted swap
+   * row. Moved verbatim out of the old executeSwap transaction (Task 4) —
+   * legs are no longer built at initiateSwap time, so applyKytVerdict
+   * (Task 6) calls this once the sell leg clears Sumsub KYT to reconstruct
+   * the same ctx that used to be computed inline before the swap row existed.
+   */
   private async buildLegContext(swap: any, tx: any): Promise<SwapSettleCtx> {
     const [fromAsset, toAsset] = await Promise.all([
       tx.asset.findUnique({ where: { id: swap.fromAssetId }, select: { decimals: true, currency: true, type: true } }),

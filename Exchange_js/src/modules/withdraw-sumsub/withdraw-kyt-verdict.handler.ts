@@ -41,8 +41,8 @@ const DISPO_TAGS = DISPO_TAGS_BY_DOMAIN.WITHDRAW;
  * 提现域 KYT 裁决落地 handler——mirror of DepositKytVerdictHandler(deliberate
  * fork,不泛化抽象)。翻译 applicantKytTxn{Approved,Rejected,AwaitingUser,
  * Reviewed,Created} + applicantKytOnHold webhook:映射 → 归一 verdict(+ 按需读
- * tag)→ 调 WithdrawWorkflowService.applyKytVerdict(Task 5 落地状态机;本任务
- * 只打桩)。
+ * tag)→ 调 WithdrawWorkflowService.applyKytVerdict（getTxn 详情拉取、sceneTag
+ * 归约、dispoTag 识别均已实现）。
  *
  * 返回布尔 = "一笔 withdraw 行拥有这个 kytTxnId"——ignore 类型也做同一次查询
  * (indexed,便宜)只为回答归属,不触发工作流。orphan(两域都不认领)在这里 warn:

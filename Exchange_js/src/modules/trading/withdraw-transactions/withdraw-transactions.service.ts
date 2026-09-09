@@ -100,7 +100,7 @@ export class WithdrawTransactionsService {
     return String(assetType || '').toUpperCase() === 'FIAT' ? 'fiat' : 'crypto';
   }
 
-  // 状态机收窄(10 状态/13 动作/22 边,定稿于 .superpowers/sdd/task-1-brief.md Step 1;
+  // 状态机收窄(10 状态/13 动作/20 边,定稿于 .superpowers/sdd/task-1-brief.md Step 1;
   // 2026-08-13 补 PENDING_APPROVAL --freeze--> FROZEN 一条,20→21;2026-08-29 补
   // ACTION_PENDING --resume--> COMPLIANCE_PENDING 一条(补料回炉),21→22;2026-09-03
   // 平账 B 批③补 SUCCESS --return--> RETURNED 一条(出款成功后被银行退回的认领,
@@ -673,9 +673,12 @@ export class WithdrawTransactionsService {
    * 进入 nextStatus 时该带的 SLA 字段。有配置就起新计时，没配置就清空。
    * slaBreached 一律归 false —— 换了状态就是换了等待对象，旧的破线记录不该跟过来。
    *
-   * 公开的原因：reissue 路径（Sumsub 重发 applicant actions，客户要重新交材料）
-   * 状态不变、不走 updateStatus，收口处盖不到它，只能由调用方显式取一次。
-   * 这是**唯一**的例外出口 —— 不要因为"方便"从别处调它绕过收口处。
+   * 曾经公开的原因：reissue 路径（Sumsub 重发 applicant actions，客户要重新交
+   * 材料）状态不变、不走 updateStatus，收口处盖不到它，需要调用方显式取一次——
+   * 该路径已随旧 I2 清缓存弧一并删除（见 WithdrawWorkflowService#applyKytAwaitUser
+   * 内"已在 ACTION_PENDING"分支的注释），当前三个调用点（insertRecord/
+   * updateStatus/landOnPendingApproval）全部在本类内部。不要因为"方便"从别处
+   * 调它绕过收口处。
    */
   resolveSlaFields(nextStatus: WithdrawTransactionStatus) {
     const minutes = WITHDRAW_SLA_MINUTES_BY_STATUS[nextStatus];
@@ -1058,7 +1061,7 @@ export class WithdrawTransactionsService {
    * is linked. This is NOT a business state transition — every withdrawal is BORN
    * on COMPLIANCE_PENDING (Task 2, "出生即着陆"); a large-value one is routed up to
    * PENDING_APPROVAL right after birth once the gate confirms it needs approval.
-   * The 10-state/20-edge `transitions` table deliberately has no edge for this, so
+   * The 10-state `transitions` table deliberately has no edge for this, so
    * this bypasses updateStatus/transitions and writes status + statusHistory
    * directly. No audit here — the workflow owns WITHDRAW_APPROVAL_REQUESTED.
    */
@@ -1098,7 +1101,8 @@ export class WithdrawTransactionsService {
 
   /**
    * 某客户名下所有非终态单（供客户级限制冻结在途单用，Task 9）。
-   * 终态集合：提现终态（10 态中后 4 个零出边）。
+   * 终态集合：WITHDRAW_TERMINAL_STATUSES 那 4 个（平账 B 批③起 SUCCESS 已非
+   * 严格零出边，见该常量上方的说明；这里仍按"材料请求是否已终结"语义整组排除）。
    */
   async findNonTerminalByOwner(ownerId: string) {
     return this.prisma.withdrawTransaction.findMany({
