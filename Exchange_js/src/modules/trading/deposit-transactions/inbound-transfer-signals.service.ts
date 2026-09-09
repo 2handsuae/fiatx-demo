@@ -335,7 +335,7 @@ export class InboundTransferSignalsService {
             status: InboundTransferSignalStatus.SUPPLEMENT_PENDING,
             fromAddress: dto.fromAddress ?? null, fromIban: dto.fromIban ?? null,
             supplementReconCaseNo: line.caseNo, supplementDispositionNo: line.dispositionNo,
-            supplementEffectiveDate: line.businessDate, supplementRequestedByUserId: actor.userId ?? null,
+            supplementEffectiveDate: line.businessDate,
           },
         })
       : await (this.prisma as any).inboundTransferSignal.create({
@@ -349,7 +349,6 @@ export class InboundTransferSignalsService {
             status: InboundTransferSignalStatus.SUPPLEMENT_PENDING, dedupeKey, submittedAt: new Date(),
             supplementOfExternalLineId: line.externalLineId, supplementReconCaseNo: line.caseNo,
             supplementDispositionNo: line.dispositionNo, supplementEffectiveDate: line.businessDate,
-            supplementRequestedByUserId: actor.userId ?? null,
           },
         });
     const traceId = randomUUID();
@@ -524,7 +523,6 @@ export class InboundTransferSignalsService {
           where: { id: signal.id },
           data: {
             status: InboundTransferSignalStatus.FAILED,
-            lastScannedAt: new Date(),
             scanResult: failureReason,
           },
         });
@@ -594,7 +592,6 @@ export class InboundTransferSignalsService {
       where: { id: signal.id },
       data: {
         status: InboundTransferSignalStatus.PAYIN_CREATED,
-        lastScannedAt: new Date(),
         scanResult: deposit
           ? `Matched to funds order ${fundsOrder?.fundsOrderNo} and deposit ${deposit.depositNo}`
           : `Matched to funds order ${fundsOrder?.fundsOrderNo}`,
@@ -869,7 +866,6 @@ export class InboundTransferSignalsService {
       where: { id: signal.id },
       data: {
         status: InboundTransferSignalStatus.IGNORED,
-        lastScannedAt: new Date(),
         scanResult: reason,
       },
     });

@@ -245,8 +245,6 @@ describe('customer-facing tipping-off whitelist (findOneForCustomer / findOneFor
     feeCurrency: 'AED',
     feeBreakdown: '[]',
     exchangeRate: '3.67',
-    riskDecisionRef: 'risk-ref-1',
-    failureCode: null,
     failureReason: null,
     statusHistory: '[]',
     sumsubTxnIdOut: 'txn-out-1',
@@ -304,7 +302,6 @@ describe('customer-facing tipping-off whitelist (findOneForCustomer / findOneFor
       expect(result.traceId).toBeUndefined();
       expect(result.ownerId).toBeUndefined();
       expect(result.ownerNo).toBeUndefined();
-      expect(result.riskDecisionRef).toBeUndefined();
       expect(result.statusHistory).toBeUndefined();
       expect(result.internalFunds).toBeUndefined();
       expect(result.customer).toBeUndefined();

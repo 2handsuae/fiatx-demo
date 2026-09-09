@@ -784,14 +784,12 @@ model InboundTransferSignal {
   status               String       @default("PENDING_SCAN")
   dedupeKey            String       @unique
   submittedAt          DateTime     @default(now())
-  lastScannedAt        DateTime?
   scanResult           String?
   // 平账 B 批 ①：运营凭外部账单行补录（spec §3）。一行只补一次 → 唯一。
   supplementOfExternalLineId  String?   @unique
   supplementReconCaseNo       String?
   supplementDispositionNo     String?
   supplementEffectiveDate     String?   // 案子业务日 YYYY-MM-DD，两步记账都写它
-  supplementRequestedByUserId String?
   createdAt            DateTime     @default(now())
   updatedAt            DateTime     @updatedAt
   customer             CustomerMain @relation(fields: [ownerId], references: [id], onDelete: Cascade)
@@ -824,9 +822,7 @@ model DepositTransaction {
   txHash               String?
   referenceNo          String?
   expiresAt            DateTime?
-  travelRuleTransferId String?
   counterpartyVasp     String?
-  travelRuleCheckedAt  DateTime?
   /// 审计旅程号（站1b-β）：CREATED=START 铸号落此列，本单其余留痕 INHERIT 继承
   correlationId       String?
   traceId              String?
@@ -839,8 +835,6 @@ model DepositTransaction {
   clawbackDispositionNo    String?
   needsReview          Boolean           @default(false)
   l1Snapshot           String?
-  aggregatedAt         DateTime?
-  aggregatedTransferId String?
   createdAt            DateTime          @default(now())
   updatedAt            DateTime          @updatedAt
   completedAt          DateTime?
@@ -855,7 +849,6 @@ model DepositTransaction {
   slaDeadline           DateTime?
   slaBreached           Boolean   @default(false)
   sumsubActionId          String?
-  sumsubExternalActionId  String?
   asset                Asset             @relation(fields: [assetId], references: [id])
   wallet               Wallet            @relation(fields: [toWalletId], references: [id])
   fromWallet           Wallet?           @relation("DepositFromWallet", fields: [fromWalletId], references: [id])
@@ -866,7 +859,7 @@ model DepositTransaction {
   @@index([ownerType, ownerId])
   @@index([status])
   @@index([createdAt])
-  @@index([toWalletId, status, aggregatedAt])
+  @@index([toWalletId, status])
   @@map("deposit_transactions")
 }
 
@@ -1052,8 +1045,6 @@ model SwapTransaction {
   feeCurrency      String?
   feeBreakdown     String?
   exchangeRate     Decimal
-  riskDecisionRef  String?
-  failureCode      String?
   failureReason    String?
   statusHistory    String?
   sumsubTxnIdOut      String?  @map("sumsub_txn_id_out")
@@ -1365,7 +1356,6 @@ model WithdrawalFeeLevel {
   approvalCaseId   String?
   approvalCaseNo   String?
   createdByUserId  String
-  updatedByUserId  String?
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @updatedAt
 
@@ -1416,7 +1406,6 @@ model SwapFeeLevel {
   approvalCaseId   String?
   approvalCaseNo   String?
   createdByUserId  String
-  updatedByUserId  String?
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @updatedAt
 
