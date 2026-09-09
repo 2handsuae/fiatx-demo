@@ -37,9 +37,9 @@ function whereMatches(row: any, where: any): boolean {
 describe('DispositionService.record (spec §3.2/§7)', () => {
   it('hold: writes a finding record + audit with an explicit requestId, touches no ledger', async () => {
     const { svc, prisma, audit } = build();
-    const r = await svc.record('REC-1', {
-      matchType: 'ORPHAN_INTERNAL', explainedFlowId: 'f1',
-      causeCode: 'CUTOFF_STRADDLE', findingNote: 'External line timestamp falls in the next period', internalDirection: 'IN',
+    const r = await svc.record({
+      caseNo: 'REC-1', matchType: 'ORPHAN_INTERNAL', explainedFlowId: 'f1',
+      causeCode: 'CUTOFF_STRADDLE', disposition: 'HOLD_NEXT_PERIOD', findingNote: 'External line timestamp falls in the next period', internalDirection: 'IN',
     } as any, ACTOR);
     expect(r.outlet).toBe('HOLD_NEXT_PERIOD');
     const created = prisma.reconciliationDisposition.create.mock.calls[0][0].data;
@@ -60,9 +60,9 @@ describe('DispositionService.record (spec §3.2/§7)', () => {
         create: jest.fn(),
       },
     });
-    await svc.record('REC-1', {
-      matchType: 'ORPHAN_INTERNAL', explainedFlowId: 'f1',
-      causeCode: 'DUP_BOOKING', findingNote: 'Twin entry confirmed', internalDirection: 'IN',
+    await svc.record({
+      caseNo: 'REC-1', matchType: 'ORPHAN_INTERNAL', explainedFlowId: 'f1',
+      causeCode: 'DUP_BOOKING', disposition: 'REVERSE', findingNote: 'Twin entry confirmed', internalDirection: 'IN', internalSourceType: 'DEPOSIT',
     } as any, ACTOR);
     expect(prisma.reconciliationDisposition.update).toHaveBeenCalled();
     expect(prisma.reconciliationDisposition.create).not.toHaveBeenCalled();
@@ -74,9 +74,9 @@ describe('DispositionService.record (spec §3.2/§7)', () => {
         findFirst: jest.fn().mockResolvedValue({ dispositionNo: 'RCD000', adjustmentNo: 'ADJ001' }),
       },
     });
-    await expect(svc.record('REC-1', {
-      matchType: 'ORPHAN_INTERNAL', explainedFlowId: 'f1',
-      causeCode: 'DUP_BOOKING', findingNote: 'x', internalDirection: 'IN',
+    await expect(svc.record({
+      caseNo: 'REC-1', matchType: 'ORPHAN_INTERNAL', explainedFlowId: 'f1',
+      causeCode: 'DUP_BOOKING', disposition: 'REVERSE', findingNote: 'x', internalDirection: 'IN', internalSourceType: 'DEPOSIT',
     } as any, ACTOR)).rejects.toThrow(BadRequestException);
   });
   it('same-anchor lookup uses OR not AND — an anchor set that drifts across runs still hits the existing record and keeps the link lock (regression: the old AND wording would miss it)', async () => {
@@ -93,9 +93,9 @@ describe('DispositionService.record (spec §3.2/§7)', () => {
       reconciliationDisposition: { findFirst: findFirstMock, update: jest.fn(), create: jest.fn() },
     });
 
-    await expect(svc.record('REC-1', {
-      matchType: 'AMOUNT_MISMATCH', explainedFlowId: 'f1', explainedExternalLineId: 'x-new',
-      causeCode: 'AMT_MISBOOKED', findingNote: 'Both anchors present after reclassification', deltaSign: 1, internalSourceType: 'DEPOSIT',
+    await expect(svc.record({
+      caseNo: 'REC-1', matchType: 'AMOUNT_MISMATCH', explainedFlowId: 'f1', explainedExternalLineId: 'x-new',
+      causeCode: 'AMT_MISBOOKED', disposition: 'CORRECT', findingNote: 'Both anchors present after reclassification', deltaSign: 1, internalSourceType: 'DEPOSIT',
     } as any, ACTOR)).rejects.toThrow(/ADJ001/); // only hits existing (and reports its linked order) when the lookup matches
 
     // Assert the call params: the two anchors must be independent OR clauses, not AND-ed
@@ -110,13 +110,44 @@ describe('DispositionService.record (spec §3.2/§7)', () => {
   });
   it('both anchors missing → 400; case not OPEN → 400', async () => {
     const { svc } = build();
-    await expect(svc.record('REC-1', {
-      matchType: 'ORPHAN_INTERNAL', causeCode: 'DUP_BOOKING', findingNote: 'x', internalDirection: 'IN',
+    await expect(svc.record({
+      caseNo: 'REC-1', matchType: 'ORPHAN_INTERNAL', causeCode: 'DUP_BOOKING', findingNote: 'x', internalDirection: 'IN',
     } as any, ACTOR)).rejects.toThrow(/anchored/);
     const closed = build({ reconciliationCase: { findUnique: jest.fn().mockResolvedValue({ ...CASE_ROW, status: 'RESOLVED' }) } });
-    await expect(closed.svc.record('REC-1', {
-      matchType: 'ORPHAN_INTERNAL', explainedFlowId: 'f1', causeCode: 'DUP_BOOKING', findingNote: 'x', internalDirection: 'IN',
+    await expect(closed.svc.record({
+      caseNo: 'REC-1', matchType: 'ORPHAN_INTERNAL', explainedFlowId: 'f1', causeCode: 'DUP_BOOKING', findingNote: 'x', internalDirection: 'IN',
     } as any, ACTOR)).rejects.toThrow(/open/i);
+  });
+});
+
+// 写端翻转（Task 3）：财务先选处置，record() 按矩阵（这一格允许哪些处置）+ 码（该码是否
+// 归属所选处置）两道校验，出口 = outletOf(disposition)，不再单靠成因反推。
+describe('DispositionService.record — disposition matrix (Task 3: write-side flip)', () => {
+  // AMOUNT_MISMATCH × CLIENT（CASE_ROW.book='CUSTOMER'→CLIENT）：矩阵只放行 CORRECT
+  // （dispositionsFor 对这一格的 REVERSE 恒不放行——REVERSE 在这一格只对 FIRM 账簿开放）。
+  const baseDto = {
+    caseNo: 'REC-1', matchType: 'AMOUNT_MISMATCH' as const,
+    explainedFlowId: 'f1', explainedExternalLineId: 'e1',
+    findingNote: 'Investigated against the bank receipt', internalSourceType: 'DEPOSIT',
+  };
+
+  it('矩阵外处置拒 400：金额不对×客户 选 REVERSE', async () => {
+    const { svc } = build();
+    await expect(svc.record({ ...baseDto, causeCode: 'AMT_MISBOOKED', disposition: 'REVERSE' } as any, ACTOR))
+      .rejects.toThrow(/not available for this line/);
+  });
+  it('码不配处置拒 400：CORRECT 配 DUP_BOOKING', async () => {
+    const { svc } = build();
+    await expect(svc.record({ ...baseDto, causeCode: 'DUP_BOOKING', disposition: 'CORRECT' } as any, ACTOR))
+      .rejects.toThrow(/does not belong/);
+  });
+  it('合法组合落库：outlet=outletOf(disposition)，审计 RECON_DISPOSITION_RECORDED 带 requestId', async () => {
+    const { svc, prisma, audit } = build();
+    await svc.record({ ...baseDto, causeCode: 'AMT_FEE_NETTED', disposition: 'CORRECT' } as any, ACTOR);
+    expect(prisma.reconciliationDisposition.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ outlet: 'ADJUST_CORRECT' }) }));
+    // recordByActor(envelope, actorContext) 是两参签名（同文件既有写点，见 :106 一带）——
+    // 加 expect.anything() 补第二参，避免 toHaveBeenCalledWith 因参数个数不齐而误判。
+    expect(audit.recordByActor).toHaveBeenCalledWith(expect.objectContaining({ action: 'RECON_DISPOSITION_RECORDED', requestId: expect.any(String) }), expect.anything());
   });
 });
 
@@ -224,9 +255,9 @@ describe('Recon batch B: supplementNo link-back and overwrite lock', () => {
         findFirst: jest.fn().mockResolvedValue({ dispositionNo: 'RCD1', adjustmentNo: null, supplementNo: 'SIG1' }),
       },
     });
-    await expect(service.record('REC-1', {
-      matchType: 'ORPHAN_INTERNAL', explainedFlowId: 'f1',
-      causeCode: 'DUP_BOOKING', findingNote: 'x', internalDirection: 'IN',
+    await expect(service.record({
+      caseNo: 'REC-1', matchType: 'ORPHAN_INTERNAL', explainedFlowId: 'f1',
+      causeCode: 'DUP_BOOKING', disposition: 'REVERSE', findingNote: 'x', internalDirection: 'IN', internalSourceType: 'DEPOSIT',
     } as any, ACTOR)).rejects.toThrow(/already linked to supplement/);
   });
   it('unlinkSupplement: leaves the row untouched if the linked value is not the expected one', async () => {
@@ -234,6 +265,55 @@ describe('Recon batch B: supplementNo link-back and overwrite lock', () => {
     prisma.reconciliationDisposition.findUnique.mockResolvedValueOnce({ dispositionNo: 'RCD1', supplementNo: 'DEP9' });
     await service.unlinkSupplement('RCD1', 'SIG1');
     expect(prisma.reconciliationDisposition.update).not.toHaveBeenCalled();
+  });
+});
+
+// 终审修复批 Item 1：调账驳回/取消/超时清锁——镜像 unlinkSupplement。挂着的定性行
+// 按 adjustmentNo 反查（无唯一索引，可能查不到），清空该列后行解锁；定性本体
+// （causeCode/findingNote/outlet）原样保留。先红：unlinkAdjustment 补上前这三条
+// 断言（尤其第三条 acceptance ②）都会失败。
+describe('DispositionService.unlinkAdjustment (终审修复批 Item 1: reject/cancel/timeout clears the lock)', () => {
+  it('finds the row by adjustmentNo and clears only that column — causeCode/findingNote/outlet stay untouched', async () => {
+    const row = { dispositionNo: 'RCD-REJ-1', adjustmentNo: 'ADJ_REJ_1', causeCode: 'DUP_BOOKING', findingNote: 'twin entry confirmed', outlet: 'ADJUST_REVERSE' };
+    const prisma: any = {
+      reconciliationDisposition: {
+        findFirst: jest.fn().mockResolvedValue(row),
+        update: jest.fn().mockResolvedValue({ ...row, adjustmentNo: null }),
+      },
+    };
+    const svc = new DispositionService(prisma, { recordByActor: jest.fn() } as any);
+    await svc.unlinkAdjustment('ADJ_REJ_1');
+    expect(prisma.reconciliationDisposition.findFirst).toHaveBeenCalledWith({ where: { adjustmentNo: 'ADJ_REJ_1' } });
+    expect(prisma.reconciliationDisposition.update).toHaveBeenCalledWith({
+      where: { dispositionNo: 'RCD-REJ-1' }, data: { adjustmentNo: null },
+    });
+  });
+
+  it('no disposition row is linked to this adjustment (e.g. a plain adjustment that never went through record()) — no-op, no write', async () => {
+    const prisma: any = {
+      reconciliationDisposition: { findFirst: jest.fn().mockResolvedValue(null), update: jest.fn() },
+    };
+    const svc = new DispositionService(prisma, { recordByActor: jest.fn() } as any);
+    await svc.unlinkAdjustment('ADJ_NONE');
+    expect(prisma.reconciliationDisposition.update).not.toHaveBeenCalled();
+  });
+
+  it('acceptance ②: after unlink, the same anchor can record() again without hitting "already linked to adjustment" (400)', async () => {
+    // Simulates the post-unlinkAdjustment row state: adjustmentNo is already null —
+    // record()'s lock check (existing?.adjustmentNo) must let a re-finding through.
+    const { svc, prisma } = build({
+      reconciliationDisposition: {
+        findFirst: jest.fn().mockResolvedValue({ dispositionNo: 'RCD-REJ-1', adjustmentNo: null, supplementNo: null }),
+        update: jest.fn().mockImplementation(({ data }) => Promise.resolve({ dispositionNo: 'RCD-REJ-1', ...data })),
+        create: jest.fn(),
+      },
+    });
+    const r = await svc.record({
+      caseNo: 'REC-1', matchType: 'ORPHAN_INTERNAL', explainedFlowId: 'f1',
+      causeCode: 'DUP_BOOKING', disposition: 'REVERSE', findingNote: 'reopened after rejection', internalDirection: 'IN', internalSourceType: 'DEPOSIT',
+    } as any, ACTOR);
+    expect(r.dispositionNo).toBe('RCD-REJ-1');
+    expect(prisma.reconciliationDisposition.update).toHaveBeenCalled();
   });
 });
 

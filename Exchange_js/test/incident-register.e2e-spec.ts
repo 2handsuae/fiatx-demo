@@ -388,9 +388,10 @@ describe('Incident register e2e (平账三期 · 事故登记, Task 13)', () => 
     expect(kase.book).toBe('CUSTOMER');
     mainCaseNo = kase.caseNo; mainCaseId = kase.id;
 
-    const disp = await dispositions.record(mainCaseNo, {
+    const disp = await dispositions.record({
+      caseNo: mainCaseNo,
       matchType: 'ORPHAN_EXTERNAL', explainedExternalLineId: outLine.id,
-      causeCode: 'UNAUTHORIZED_OUTFLOW', externalDirection: 'OUT',
+      causeCode: 'UNAUTHORIZED_OUTFLOW', disposition: 'INCIDENT', externalDirection: 'OUT',
       findingNote: 'e2e：外部托管方对账单出现一笔我方无任何内部记录的转出，疑似盗转',
     } as any, ops());
     expect(disp.outlet).toBe('INCIDENT');
@@ -593,9 +594,10 @@ describe('Incident register e2e (平账三期 · 事故登记, Task 13)', () => 
     await upsertExternalBalance({ walletId: wallet.id, currency: 'AED', book: 'CLIENT', closingBalance: 30_000n - 120_000n }); // 300 − 1200 = −900
     expect((await runNow()).status).toBe('BREAK');
     const kase = await openCaseFor(wallet.id);
-    const disp = await dispositions.record(kase.caseNo, {
+    const disp = await dispositions.record({
+      caseNo: kase.caseNo,
       explainedExternalLineId: line.id, matchType: 'ORPHAN_EXTERNAL', causeCode: 'BOUNCED_FUNDS',
-      externalDirection: 'OUT', findingNote: 'e2e：银行撤回，客户已花掉一部分',
+      disposition: 'SUPPLEMENT', externalDirection: 'OUT', findingNote: 'e2e：银行撤回，客户已花掉一部分',
     } as any, ops());
     expect(disp.deferredTarget).toBe('SUPPLEMENT_BOUNCE');
 

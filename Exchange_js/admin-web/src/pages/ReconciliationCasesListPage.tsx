@@ -50,6 +50,15 @@ interface ReconCase {
   decimals: number;           // T7: asset decimals — scales deltaAmount (分→元)
   // 平账二期：这个案子挂着的补款 / 垫款——PENDING = 还没发起，IN_PROGRESS = 已发起未到账
   pendingFunding: { kind: 'COMPENSATION' | 'ADVANCE'; status: 'PENDING' | 'IN_PROGRESS' } | null;
+  // Task 11：列表页演示场景气泡——仅 break 轮答案键在场时下发（Task 5），业务键，
+  // 无 walletRef/UUID；真实/pass 轮字段不出现（undefined，不是空数组）。
+  demoScenarios?: Array<{
+    scenarioId: number;
+    causeCode: string;
+    causeLabel: string;
+    dispositionLabel: string;
+    clue: string;
+  }>;
 }
 
 /* ── Constants ───────────────────────────────────────────────── */
@@ -358,6 +367,42 @@ const ReconciliationCasesListPage = () => {
                           {kase.pendingFunding.kind === 'COMPENSATION'
                             ? (kase.pendingFunding.status === 'PENDING' ? 'Compensation pending' : 'Compensation in progress')
                             : (kase.pendingFunding.status === 'PENDING' ? 'Advance pending' : 'Advance in progress')}
+                        </span>
+                      )}
+                      {/* Task 11：演示场景气泡——只在答案键在场（demoScenarios 非空数组）
+                          时渲染；真实/pass 轮字段 undefined，此处零渲染（不是隐藏）。
+                          hover 出纯 CSS tooltip（不引库、不用 title 属性）；group-focus-within
+                          兼作截图工具点击/聚焦触发的兜底路径。业务键展示，不含 walletRef/UUID。 */}
+                      {kase.demoScenarios && kase.demoScenarios.length > 0 && (
+                        <span className="group relative ml-1 inline-block align-middle">
+                          <button
+                            type="button"
+                            onClick={(e) => e.stopPropagation()}
+                            className="inline-flex cursor-default rounded border border-adm-amber/40 bg-adm-amber/10 px-1 py-0.5 font-mono text-[9px] font-semibold text-adm-amber focus:outline-none focus:ring-1 focus:ring-adm-amber"
+                          >
+                            ⚡{kase.demoScenarios.map((s) => s.scenarioId).join('·')}
+                          </button>
+                          {/* 定位：right-0 令卡片从触发点右边缘向左展开——本列越靠视口右侧
+                              越需要这样防溢出（Disposition 列右边只剩 Status 列，卡片宽
+                              380px 若向右展开会冲出 1280 视口）。 */}
+                          <div className="pointer-events-none absolute right-0 top-full z-50 mt-1 hidden w-[380px] rounded border border-adm-border bg-adm-card p-3 text-left shadow-lg group-hover:block group-focus-within:block">
+                            <p className="mb-1.5 font-mono text-[10px] font-semibold text-adm-amber">
+                              ⚡ Demo scenarios on this case
+                            </p>
+                            <ul className="space-y-1.5">
+                              {kase.demoScenarios.map((s) => (
+                                <li key={s.scenarioId} className="font-mono text-[10px] leading-snug text-adm-t2">
+                                  <div>#{s.scenarioId} {s.causeLabel} — {s.dispositionLabel}</div>
+                                  {/* Minor 4（终审修复批）：业主原始诉求"悬浮出现场景说明"——场景号 +
+                                      成因标题只说了"是什么"，没说"怎么查证得出这个结论"；补一行
+                                      成因注册表自带的 clue，与成因菜单同一个词表来源，不另造文案。 */}
+                                  <div className="mt-0.5 text-[9px] font-normal normal-case leading-snug text-adm-t3">
+                                    {s.clue}
+                                  </div>
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
                         </span>
                       )}
                     </td>

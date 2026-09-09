@@ -198,6 +198,19 @@ export class IncidentService {
     const kase = await (this.prisma as any).reconciliationCase.findUnique({ where: { caseNo: dto.sourceCaseNo } });
     if (!kase) throw new NotFoundException(`Reconciliation case not found: ${dto.sourceCaseNo}`);
     if (!kase.slaBreached) throw new BadRequestException(`Case ${dto.sourceCaseNo} has not yet breached its aging deadline — it does not qualify for escalation to an incident`);
+    // 评审修复（C1 挂接链）：可选行级校验——案件页 Escalate to incident 按钮带了
+    // sourceDispositionNo 时，额外核实这行确实属于该案、且出口是「挂起·调查中」
+    // （未带 sourceDispositionNo 的既有案级升级调用方维持原有行为，零破坏）。
+    if (dto.sourceDispositionNo) {
+      const disp = await (this.prisma as any).reconciliationDisposition.findUnique({ where: { dispositionNo: dto.sourceDispositionNo } });
+      if (!disp) throw new NotFoundException(`Disposition line not found: ${dto.sourceDispositionNo}`);
+      if (disp.caseNo !== dto.sourceCaseNo) {
+        throw new BadRequestException(`Disposition line ${dto.sourceDispositionNo} does not belong to case ${dto.sourceCaseNo} — this incident type cannot be registered against it`);
+      }
+      if (disp.outlet !== 'HOLD_INVESTIGATING') {
+        throw new BadRequestException(`Disposition line ${dto.sourceDispositionNo} is not classified as "Hold · Investigating" (outlet=${disp.outlet}) — this incident type cannot be registered against it`);
+      }
+    }
   }
 
   private async assertClientShortfall(dto: RegisterIncidentDto): Promise<void> {

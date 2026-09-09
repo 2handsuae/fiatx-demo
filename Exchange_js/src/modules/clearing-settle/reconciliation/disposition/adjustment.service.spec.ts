@@ -6,6 +6,7 @@ import { DispositionService } from './disposition.service';
 import { TB_ACCOUNT_CODES } from '../../../accounting/tigerbeetle/constants/tb-account-codes.constant';
 import { V8_RECON_AUDIT_ACTIONS } from '../../../audit-logging/constants/audit-actions.constant';
 import { AuditLogsService } from '../../../audit-logging/audit-logs.service';
+import { REASON_SPECS, assertReasonAllowed } from './adjustment-rules';
 
 describe('ReconciliationAdjustment schema', () => {
   const prisma = new PrismaClient();
@@ -16,7 +17,7 @@ describe('ReconciliationAdjustment schema', () => {
       data: {
         adjustmentNo: 'ADJ_SCHEMA_SMOKE_1',
         caseNo: 'CASE_SMOKE', walletRef: 'W_SMOKE', book: 'CLIENT',
-        direction: 'REDUCE', reasonCode: 'DEPOSIT_DUPLICATE_REVERSAL',
+        direction: 'REDUCE', reasonCode: 'DUP_BOOKING',
         assetCode: 'AED', amount: '1500', effectiveDate: '2026-08-28',
         reasonInternal: 'smoke', reasonCustomer: 'smoke',
         createdByUserId: 'U_SMOKE',
@@ -46,10 +47,10 @@ describe('AdjustmentService.assertTransition', () => {
 
 describe('AdjustmentService.describeImpact —— the approval page sees the consequence, not the order number', () => {
   const svc = new AdjustmentService(null as any, null as any, null as any, null as any, null as any);
-  it('client-book reduction: states who, how much, and why — amount scaled by decimals to a human-readable number, cause shows the customer-facing label rather than the raw enum', () => {
+  it('client-book reduction: states who, how much, and why — amount scaled by decimals to a human-readable number, cause shows the internal label rather than the raw enum', () => {
     const text = svc.describeImpact({
       book: 'CLIENT', ownerNo: 'C0042', amount: '1500', assetCode: 'AED',
-      direction: 'REDUCE', reasonCode: 'DEPOSIT_DUPLICATE_REVERSAL', reasonInternal: 'Same deposit recorded twice',
+      direction: 'REDUCE', reasonCode: 'DUP_BOOKING', reasonInternal: 'Same deposit recorded twice',
     } as any, 2);
     expect(text).toContain('C0042');
     expect(text).toContain('decrease');
@@ -57,29 +58,33 @@ describe('AdjustmentService.describeImpact —— the approval page sees the con
     // the latter is a two-order-of-magnitude misread on the one screen where the approver reads the amount (200.00 AED read as 20000).
     expect(text).toContain('15.00');
     expect(text).not.toContain('1500');
-    // customerLabel ("Duplicate deposit reversal") replaces the raw enum DEPOSIT_DUPLICATE_REVERSAL.
-    expect(text).toContain('Duplicate deposit reversal');
-    expect(text).not.toContain('DEPOSIT_DUPLICATE_REVERSAL');
+    // describeImpact's generic branch always uses internalLabel, never customerLabel (adjustment.service.ts
+    // comment: customerLabel is null for the two firm-side causes, so borrowing it here would print the
+    // raw enum for those). DUP_BOOKING's internalLabel is "Duplicate posting (twin)" — unlike the retired
+    // DEPOSIT_DUPLICATE_REVERSAL code this test used to carry, where customerLabel and internalLabel happened
+    // to share the same text, masking that this branch never reads customerLabel at all.
+    expect(text).toContain('Duplicate posting (twin)');
+    expect(text).not.toContain('DUP_BOOKING');
     expect(text).toContain('Same deposit recorded twice');
   });
   it('firm book: copy reads "the firm\'s balance"', () => {
     const text = svc.describeImpact({
       book: 'FIRM', ownerNo: null, amount: '500', assetCode: 'AED',
-      direction: 'REDUCE', reasonCode: 'BANK_CHARGE', reasonInternal: 'Bank fee deduction',
+      direction: 'REDUCE', reasonCode: 'BANK_CHARGE_UNBOOKED', reasonInternal: 'Bank fee deduction',
     } as any, 2);
     expect(text).toContain("the firm's balance");
     expect(text).toContain('5.00'); // 500 minor → 5.00 AED
     // Final-stage Minor 1: the two firm-side causes have customerLabel deliberately null (customer
     // cannot see firm-side adjustments) — reusing it here used to fall back to printing the raw enum
-    // "cause: BANK_CHARGE" (the five client-side causes were all in Chinese, only the firm side was
+    // "cause: BANK_CHARGE_UNBOOKED" (the five client-side causes were all in Chinese, only the firm side was
     // half English half Chinese). Now uses internalLabel.
     expect(text).toContain('Bank charges');
-    expect(text).not.toContain('BANK_CHARGE');
+    expect(text).not.toContain('BANK_CHARGE_UNBOOKED');
   });
   it('direction INCREASE: copy reads "increase"', () => {
     const text = svc.describeImpact({
       book: 'CLIENT', ownerNo: 'C0099', amount: '800', assetCode: 'USDT',
-      direction: 'INCREASE', reasonCode: 'WITHDRAW_VOID_REFUND', reasonInternal: 'Withdrawal rejected, balance refunded',
+      direction: 'INCREASE', reasonCode: 'PAYOUT_NOT_EXECUTED', reasonInternal: 'Withdrawal rejected, balance refunded',
     } as any, 6);
     expect(text).toContain('increase');
     expect(text).toContain('0.000800'); // 800 minor units → USDT at 6 decimals
@@ -125,7 +130,7 @@ describe('AdjustmentService.createDraft two gates —— where the gate cannot b
   it('gate 2 · boundary line: adding funds to a client-book account without a related order number → rejected', async () => {
     const { svc } = makeSvc(openClientCase);
     await expect(svc.createDraft({
-      caseNo: 'CASE_GATE', lineItemId: 'LI_1', reasonCode: 'DEPOSIT_AMOUNT_CORRECTION',
+      caseNo: 'CASE_GATE', lineItemId: 'LI_1', reasonCode: 'AMT_MISBOOKED',
       direction: 'INCREASE', amount: '1000', effectiveDate: '2026-08-28',
       reasonInternal: 'Deposit amount recorded incorrectly, needs correcting upward', reasonCustomer: 'Deposit amount correction',
     } as any, OP)).rejects.toThrow(BadRequestException);
@@ -135,7 +140,7 @@ describe('AdjustmentService.createDraft two gates —— where the gate cannot b
     const { svc, create, prisma } = makeSvc(openClientCase);
     prisma.depositTransaction.findUnique.mockResolvedValue({ id: 'dep-uuid' });
     await svc.createDraft({
-      caseNo: 'CASE_GATE', lineItemId: 'LI_1', reasonCode: 'DEPOSIT_AMOUNT_CORRECTION',
+      caseNo: 'CASE_GATE', lineItemId: 'LI_1', reasonCode: 'AMT_MISBOOKED',
       direction: 'INCREASE', amount: '1000', effectiveDate: '2026-08-28',
       reasonInternal: 'Deposit amount recorded incorrectly, needs correcting upward', reasonCustomer: 'Deposit amount correction',
       relatedOrderNo: 'DEP2608280001',
@@ -153,7 +158,7 @@ describe('AdjustmentService.createDraft two gates —— where the gate cannot b
     const { svc, create, prisma } = makeSvc(openClientCase);
     prisma.withdrawTransaction.findUnique.mockResolvedValue({ id: 'wd-uuid' });
     await svc.createDraft({
-      caseNo: 'CASE_GATE', reasonCode: 'WITHDRAW_VOID_REFUND',
+      caseNo: 'CASE_GATE', reasonCode: 'PAYOUT_NOT_EXECUTED',
       direction: 'INCREASE', amount: '1000', effectiveDate: '2026-08-28',
       reasonInternal: 'Withdrawal was voided but the books were not reversed', reasonCustomer: 'Withdrawal refund',
       relatedOrderNo: 'WD2608280001',
@@ -166,7 +171,7 @@ describe('AdjustmentService.createDraft two gates —— where the gate cannot b
   it('gate 2 · boundary line (Fix 3): relatedOrderNo is non-empty, but none of the deposit/withdrawal/swap tables have it → rejected — a made-up order number cannot bypass the boundary-line guard', async () => {
     const { svc, create, prisma } = makeSvc(openClientCase);
     await expect(svc.createDraft({
-      caseNo: 'CASE_GATE', reasonCode: 'DEPOSIT_AMOUNT_CORRECTION',
+      caseNo: 'CASE_GATE', reasonCode: 'AMT_MISBOOKED',
       direction: 'INCREASE', amount: '1000', effectiveDate: '2026-08-28',
       reasonInternal: 'Deposit amount recorded incorrectly, needs correcting upward', reasonCustomer: 'Deposit amount correction',
       relatedOrderNo: 'DEP_DOES_NOT_EXIST',
@@ -182,7 +187,7 @@ describe('AdjustmentService.createDraft two gates —— where the gate cannot b
   it('gate 1 · illegal cause combination: a FIRM-only cause paired with a case on the CLIENT book → rejected', async () => {
     const { svc } = makeSvc(openClientCase);
     await expect(svc.createDraft({
-      caseNo: 'CASE_GATE', lineItemId: 'LI_1', reasonCode: 'BANK_INTEREST',
+      caseNo: 'CASE_GATE', lineItemId: 'LI_1', reasonCode: 'BANK_INTEREST_UNBOOKED',
       direction: 'INCREASE', amount: '1000', effectiveDate: '2026-08-28',
       reasonInternal: 'Bank interest', reasonCustomer: 'Bank interest', relatedOrderNo: 'X',
     } as any, OP)).rejects.toThrow(BadRequestException);
@@ -191,7 +196,7 @@ describe('AdjustmentService.createDraft two gates —— where the gate cannot b
   it('gate 1 · anti-bypass: the persisted book comes from the case, stuffing a book into the request does not get through', async () => {
     const { svc, create } = makeSvc(openClientCase);
     await svc.createDraft({
-      caseNo: 'CASE_GATE', lineItemId: 'LI_1', reasonCode: 'DEPOSIT_DUPLICATE_REVERSAL',
+      caseNo: 'CASE_GATE', lineItemId: 'LI_1', reasonCode: 'DUP_BOOKING',
       direction: 'REDUCE', amount: '1000', effectiveDate: '2026-08-28',
       reasonInternal: 'Same deposit recorded twice', reasonCustomer: 'Duplicate deposit reversal',
       book: 'FIRM',
@@ -208,7 +213,7 @@ describe('AdjustmentService.createDraft two gates —— where the gate cannot b
   it('opening from a difference line: both explanation anchors are persisted as-is', async () => {
     const { svc, create } = makeSvc(openClientCase);
     await svc.createDraft({
-      caseNo: 'CASE_GATE', reasonCode: 'DEPOSIT_DUPLICATE_REVERSAL',
+      caseNo: 'CASE_GATE', reasonCode: 'DUP_BOOKING',
       direction: 'REDUCE', amount: '1000', effectiveDate: '2026-08-28',
       reasonInternal: 'Same deposit recorded twice', reasonCustomer: 'Duplicate deposit reversal',
       explainedFlowId: 'FLOW_9', explainedExternalLineId: 'EXTLINE_9',
@@ -222,7 +227,7 @@ describe('AdjustmentService.createDraft two gates —— where the gate cannot b
   it('no explanation anchor (case-level entry point): createDraft opens the adjustment as usual, both anchors land null', async () => {
     const { svc, create } = makeSvc(openClientCase);
     await svc.createDraft({
-      caseNo: 'CASE_GATE', reasonCode: 'DEPOSIT_DUPLICATE_REVERSAL',
+      caseNo: 'CASE_GATE', reasonCode: 'DUP_BOOKING',
       direction: 'REDUCE', amount: '1000', effectiveDate: '2026-08-28',
       reasonInternal: 'Same deposit recorded twice', reasonCustomer: 'Duplicate deposit reversal',
     } as any, OP);
@@ -237,7 +242,7 @@ describe('AdjustmentService.createDraft two gates —— where the gate cannot b
   it('effective date later than the case business date → 400, no adjustment opened', async () => {
     const { svc, create } = makeSvc(openClientCase);   // openClientCase.businessDate = '2026-08-28'
     await expect(svc.createDraft({
-      caseNo: 'CASE_GATE', reasonCode: 'DEPOSIT_DUPLICATE_REVERSAL',
+      caseNo: 'CASE_GATE', reasonCode: 'DUP_BOOKING',
       direction: 'REDUCE', amount: '1000', effectiveDate: '2026-08-29',
       reasonInternal: 'Same deposit recorded twice', reasonCustomer: 'Duplicate deposit reversal',
     } as any, OP)).rejects.toThrow(BadRequestException);
@@ -248,7 +253,7 @@ describe('AdjustmentService.createDraft two gates —— where the gate cannot b
     for (const effectiveDate of ['2026-08-28', '2026-08-01']) {
       const { svc, create } = makeSvc(openClientCase);
       await svc.createDraft({
-        caseNo: 'CASE_GATE', reasonCode: 'DEPOSIT_DUPLICATE_REVERSAL',
+        caseNo: 'CASE_GATE', reasonCode: 'DUP_BOOKING',
         direction: 'REDUCE', amount: '1000', effectiveDate,
         reasonInternal: 'Same deposit recorded twice', reasonCustomer: 'Duplicate deposit reversal',
       } as any, OP);
@@ -300,6 +305,151 @@ describe('AdjustmentService.createDraft two gates —— where the gate cannot b
       const { svc: svcFirm } = makeSvc({ kase: { caseNo: 'REC-C4', status: 'OPEN', book: 'FIRM', assetCode: 'AED', walletRef: 'w-4', ownerNo: null, slaBreached: true, businessDate: '2026-09-05' }, disposition: { dispositionNo: 'RCD-4', outlet: 'HOLD_INVESTIGATING', adjustmentNo: null }, asset: { currency: 'AED', decimals: 2 } });
       await expect(svcFirm.createDraft({ caseNo: 'REC-C4', reasonCode: 'UNEXPLAINED_CLIENT_LOSS', direction: 'REDUCE', amount: '100', effectiveDate: '2026-09-05', explainedFlowId: 'f-4', reasonInternal: 'x', reasonCustomer: 'x' } as any, treasury)).rejects.toThrow(/Firm pool unexplained differences use/);
     });
+  });
+});
+
+// 写端翻转（Task 3）：createDraft 原子入口——行未定性（无 dispositionNo）+ dto 带
+// causeCode/findingNote → 先调 DispositionService.record()（真实实例 + 独立 prisma
+// mock，同"Incident-path loss recognition"那组的范式，不用假 stub 盖住 record() 自己
+// 的矩阵/挂单锁校验）落一条定性，再照常开单、挂号；两个描述块共用一个 audit mock，
+// 让 record() 与 afterDraftCreated 的两条审计落进同一个 mock.calls 数组里能一并断言。
+describe('createDraft atomic finding (Task 3: write-side flip) — causeCode + findingNote with no existing disposition', () => {
+  const ACTOR = { actorType: 'ADMIN' as const, userId: 'U_ATOMIC', userNo: 'U_ATOMIC', roleCodes: ['ADMIN'] };
+  const kase = {
+    caseNo: 'CASE_ATOMIC', status: 'OPEN', book: 'CUSTOMER',
+    walletRef: 'W_ATOMIC', assetCode: 'AED', ownerNo: 'C0099', traceId: null,
+    businessDate: '2026-09-08',
+  };
+  // AMT_FEE_NETTED：单码制下 causeCode 与 reasonCode 同码（family=CORRECT），cell
+  // AMOUNT_MISMATCH×CLIENT——internalSourceType='DEPOSIT' 满足 dispositionsFor 的
+  // sourceAdjustable 门槛（否则 CORRECT 连矩阵都进不了）；direction=REDUCE 免闸二
+  // 边界线（只有 CLIENT×INCREASE 才要求 relatedOrderNo）。
+  const draftDto = {
+    caseNo: 'CASE_ATOMIC', reasonCode: 'AMT_FEE_NETTED', direction: 'REDUCE',
+    amount: '500', effectiveDate: '2026-09-08', reasonInternal: 'x', reasonCustomer: 'y',
+    explainedFlowId: 'FLOW_ATOMIC_1', explainedExternalLineId: 'EXT_ATOMIC_1',
+    matchType: 'AMOUNT_MISMATCH', internalSourceType: 'DEPOSIT',
+  };
+
+  it('createDraft 带 causeCode+findingNote 且行无定性 → 先 record 再 draft 再 link，两审计各一条', async () => {
+    const audit = { recordByActor: jest.fn() };
+    const dispositionPrisma: any = {
+      reconciliationCase: { findUnique: jest.fn().mockResolvedValue(kase) },
+      reconciliationDisposition: {
+        findFirst: jest.fn().mockResolvedValue(null), // 无既有定性
+        create: jest.fn().mockImplementation(({ data }: any) => Promise.resolve({ ...data, id: 'd-atomic' })),
+        findUnique: jest.fn().mockImplementation(({ where }: any) =>
+          Promise.resolve({ dispositionNo: where.dispositionNo, outlet: 'ADJUST_CORRECT', adjustmentNo: null })),
+        update: jest.fn().mockImplementation(({ data }: any) => Promise.resolve({ ...data })),
+      },
+      wallet: { findUnique: jest.fn() },
+    };
+    const dispositions = new DispositionService(dispositionPrisma, audit as any);
+    const prisma: any = {
+      reconciliationCase: { findUnique: jest.fn().mockResolvedValue(kase) },
+      customerMain: { findUnique: jest.fn().mockResolvedValue({ id: 'uuid-cu-atomic' }) },
+      reconciliationAdjustment: { create: jest.fn().mockImplementation(({ data }: any) => Promise.resolve({ ...data, adjustmentNo: 'ADJ_ATOMIC' })) },
+    };
+    const svc = new AdjustmentService(prisma, {} as any, {} as any, audit as any, dispositions as any);
+
+    await svc.createDraft({ ...draftDto, causeCode: 'AMT_FEE_NETTED', findingNote: 'bank receipt shows net' } as any, ACTOR);
+    const actions = audit.recordByActor.mock.calls.map((c: any) => c[0].action);
+    // 评审修复（Minor 4）：换成两码各自的调用次数断言（各恰一次）——原先的
+    // arrayContaining 只查"至少各出现一次"，两条审计中任一条被意外重复写（双写）
+    // 也照样通过，逮不到这类缺陷。
+    expect(actions.filter((a: string) => a === 'RECON_DISPOSITION_RECORDED')).toHaveLength(1);
+    expect(actions.filter((a: string) => a === 'RECON_ADJUSTMENT_DRAFTED')).toHaveLength(1);
+  });
+
+  it('行已挂未走完的单 → 原子路径拒 400（沿用挂单锁）', async () => {
+    // held.adjustmentNo 非空：这条证据的定性早已挂了另一张单，record() 自己的挂单锁
+    // （与标准两步流程同一条校验）在原子路径里原样生效，不被 createDraft 绕过。
+    const held = { dispositionNo: 'RCD-HELD', explainedFlowId: 'FLOW_ATOMIC_1', explainedExternalLineId: 'EXT_ATOMIC_1', adjustmentNo: 'ADJ_OLD' };
+    const dispositionPrisma: any = {
+      reconciliationCase: { findUnique: jest.fn().mockResolvedValue(kase) },
+      reconciliationDisposition: { findFirst: jest.fn().mockResolvedValue(held) },
+    };
+    const dispositions = new DispositionService(dispositionPrisma, { recordByActor: jest.fn() } as any);
+    const prisma: any = { reconciliationCase: { findUnique: jest.fn().mockResolvedValue(kase) } };
+    const svc = new AdjustmentService(prisma, {} as any, {} as any, { recordByActor: jest.fn() } as any, dispositions as any);
+
+    await expect(svc.createDraft({ ...draftDto, causeCode: 'AMT_FEE_NETTED', findingNote: 'x' } as any, ACTOR))
+      .rejects.toThrow(/already linked to adjustment ADJ_OLD/);
+  });
+
+  // 评审修复（Important 1）：残缺对不再静默跳过定性——只带 causeCode 或只带
+  // findingNote 都必须 400，且 record() 绝不能被调用（不能先斩后奏地半落定性）。
+  it('评审修复：只带 causeCode 不带 findingNote → 400，record() 不被调用', async () => {
+    const prisma: any = { reconciliationCase: { findUnique: jest.fn().mockResolvedValue(kase) } };
+    const record = jest.fn();
+    const svc = new AdjustmentService(prisma, {} as any, {} as any, { recordByActor: jest.fn() } as any, { record } as any);
+
+    await expect(svc.createDraft({ ...draftDto, causeCode: 'AMT_FEE_NETTED' } as any, ACTOR))
+      .rejects.toThrow(/requires both causeCode and findingNote/);
+    expect(record).not.toHaveBeenCalled();
+  });
+
+  it('评审修复：只带 findingNote 不带 causeCode → 400，record() 不被调用', async () => {
+    const prisma: any = { reconciliationCase: { findUnique: jest.fn().mockResolvedValue(kase) } };
+    const record = jest.fn();
+    const svc = new AdjustmentService(prisma, {} as any, {} as any, { recordByActor: jest.fn() } as any, { record } as any);
+
+    await expect(svc.createDraft({ ...draftDto, findingNote: 'bank receipt shows net' } as any, ACTOR))
+      .rejects.toThrow(/requires both causeCode and findingNote/);
+    expect(record).not.toHaveBeenCalled();
+  });
+
+  // 评审修复（Minor 3，单码制一致闸）：CORRECT/REVERSE/RECORD 三族下 causeCode 必须
+  // 等于 reasonCode——防审计里一件事记两个因。
+  it('评审修复：causeCode ≠ reasonCode（CORRECT 族）→ 400，record() 不被调用', async () => {
+    const prisma: any = { reconciliationCase: { findUnique: jest.fn().mockResolvedValue(kase) } };
+    const record = jest.fn();
+    const svc = new AdjustmentService(prisma, {} as any, {} as any, { recordByActor: jest.fn() } as any, { record } as any);
+
+    // draftDto.reasonCode = 'AMT_FEE_NETTED'（family=CORRECT）；causeCode 换成同族
+    // 但不同码的 'AMT_MISBOOKED'——单码制下这必须拒。
+    await expect(svc.createDraft({ ...draftDto, causeCode: 'AMT_MISBOOKED', findingNote: 'x' } as any, ACTOR))
+      .rejects.toThrow(/finding cause and the adjustment reason code must be the same code/);
+    expect(record).not.toHaveBeenCalled();
+  });
+
+  // Task 8 评审修复：family 判定此前只有 kindOfFamily(reasonCode) 一条回落——
+  // reasonCode='OTHER' 时 REASON_SPECS.OTHER.family 是占位 'CORRECT'（cause-registry.ts
+  // 顶部注释：OTHER 不真的属于冲正族，只是留痕分组要有个桶放）。财务点「Reversal」按钮、
+  // 选 Other 码时，旧逻辑会把定性判死成 ADJUST_CORRECT，与财务实际点的按钮对不上。
+  // 修复：createDraft 优先信前端随按钮带上的 dto.disposition。
+  it('Task 8：OTHER 码 + disposition=REVERSE → 定性落 ADJUST_REVERSE（不因占位族误判成 ADJUST_CORRECT）', async () => {
+    const audit = { recordByActor: jest.fn() };
+    const dispositionPrisma: any = {
+      reconciliationCase: { findUnique: jest.fn().mockResolvedValue(kase) },
+      reconciliationDisposition: {
+        findFirst: jest.fn().mockResolvedValue(null), // 无既有定性
+        create: jest.fn().mockImplementation(({ data }: any) => Promise.resolve({ ...data, id: 'd-other' })),
+        findUnique: jest.fn().mockImplementation(({ where }: any) =>
+          Promise.resolve({ dispositionNo: where.dispositionNo, outlet: 'ADJUST_REVERSE', adjustmentNo: null })),
+        update: jest.fn().mockImplementation(({ data }: any) => Promise.resolve({ ...data })),
+      },
+      wallet: { findUnique: jest.fn() },
+    };
+    const dispositions = new DispositionService(dispositionPrisma, audit as any);
+    const prisma: any = {
+      reconciliationCase: { findUnique: jest.fn().mockResolvedValue(kase) },
+      customerMain: { findUnique: jest.fn().mockResolvedValue({ id: 'uuid-cu-atomic' }) },
+      reconciliationAdjustment: { create: jest.fn().mockImplementation(({ data }: any) => Promise.resolve({ ...data, adjustmentNo: 'ADJ_OTHER' })) },
+    };
+    const svc = new AdjustmentService(prisma, {} as any, {} as any, audit as any, dispositions as any);
+
+    // cell = ORPHAN_INTERNAL × CLIENT，sourceAdjustable('DEPOSIT') → dispositionsFor
+    // 里包含 REVERSE；causesFor('REVERSE', ...) 对任意格都包含 OTHER（cells=ALL_CELLS）。
+    await svc.createDraft({
+      ...draftDto, reasonCode: 'OTHER', direction: 'REDUCE',
+      matchType: 'ORPHAN_INTERNAL', internalSourceType: 'DEPOSIT', internalDirection: 'IN',
+      causeCode: 'OTHER', findingNote: 'Other: manual review note', disposition: 'REVERSE',
+    } as any, ACTOR);
+
+    expect(dispositionPrisma.reconciliationDisposition.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ outlet: 'ADJUST_REVERSE', causeCode: 'OTHER' }) }),
+    );
   });
 });
 
@@ -431,6 +581,73 @@ describe('Incident-path loss recognition (recon wave 3 Task 10) —— outlet=IN
   });
 });
 
+// Recon disposition rework Task 4 (dead-end fix): the LARGE_UNEXPLAINED escalation path
+// (Hold · Investigating → aged out → Escalate → incident registered via
+// DispositionService.attachIncident) never changes the finding line's outlet away from
+// HOLD_INVESTIGATING — attachIncident only ever writes the incidentNo column (see
+// disposition.service.ts). Before this fix, assertWriteOffAllowed only routed to the incident
+// three-gate check when outlet==='INCIDENT' (a different, static outlet used solely by the
+// UNAUTHORIZED_OUTFLOW cause registered directly at record() time) — so an escalated
+// HOLD_INVESTIGATING+incidentNo row fell straight through to the old "unexplained" four
+// preconditions, which reject it on the aging/small-amount lines a large assessed loss can never
+// pass. Loss recognition could never be opened for this path — the registered BACKLOG dead end.
+// The fix reroutes on `held?.incidentNo` regardless of outlet; assertIncidentWriteOffAllowed
+// itself is unchanged (it never reads `outlet`), so both paths share the same three-gate check.
+describe('Incident-path loss recognition also covers the LARGE_UNEXPLAINED escalation path (outlet stays HOLD_INVESTIGATING, only incidentNo is attached)', () => {
+  const treasury = { actorType: 'ADMIN' as const, userId: 'U_TREASURY', userNo: 'U_TREASURY', roleCodes: ['TREASURY_OFFICER'] };
+  const kase = {
+    caseNo: 'REC-ESC-1', status: 'OPEN', book: 'CUSTOMER', assetCode: 'AED',
+    walletRef: 'w-esc-1', ownerNo: 'CU-9', slaBreached: false, businessDate: '2026-09-06',
+  };
+  // outlet stays HOLD_INVESTIGATING — attachIncident() only ever writes the incidentNo column.
+  const disposition = { dispositionNo: 'RCD-ESC-1', outlet: 'HOLD_INVESTIGATING', incidentNo: 'INC-ESC-1', adjustmentNo: null };
+  const dto = {
+    caseNo: 'REC-ESC-1', reasonCode: 'UNEXPLAINED_CLIENT_LOSS', direction: 'REDUCE',
+    amount: '123456', // well past the small-amount threshold (100.00 AED) — precisely why it escalated
+    effectiveDate: '2026-09-06', explainedFlowId: 'f-esc-1',
+    reasonInternal: 'Large unexplained difference, assessed via incident', reasonCustomer: '(firm side, not visible to customer)',
+  };
+  const makeSvc = (opts: { disposition?: any; incident: any }) => {
+    const dispositionRow = opts.disposition ?? disposition;
+    const create = jest.fn(({ data }: any) => Promise.resolve({ ...data, adjustmentNo: 'ADJ_ESC' }));
+    const prisma: any = {
+      reconciliationCase: { findUnique: jest.fn().mockResolvedValue(kase) },
+      reconciliationDisposition: { findFirst: jest.fn().mockResolvedValue(dispositionRow) },
+      incident: { findUnique: jest.fn().mockResolvedValue(opts.incident) },
+      asset: { findUnique: jest.fn().mockResolvedValue({ currency: 'AED', decimals: 2 }) },
+      customerMain: { findUnique: jest.fn().mockResolvedValue({ id: 'uuid-cu-9' }) },
+      reconciliationAdjustment: { create },
+    };
+    const dispositionPrisma: any = {
+      reconciliationDisposition: {
+        findUnique: jest.fn().mockResolvedValue(dispositionRow),
+        update: jest.fn().mockImplementation(({ data }: any) => Promise.resolve({ ...dispositionRow, ...data })),
+      },
+    };
+    const dispositions = new DispositionService(dispositionPrisma, { recordByActor: jest.fn() } as any);
+    jest.spyOn(dispositions, 'linkAdjustment');
+    const svc = new AdjustmentService(prisma, {} as any, {} as any, { recordByActor: jest.fn() } as any, dispositions as any);
+    return { svc, prisma, create, dispositions };
+  };
+
+  it('HOLD_INVESTIGATING row with an already-assessed incident (LARGE_UNEXPLAINED escalation) → loss recognition is allowed, amount locked to the assessed amount, the small-amount/aging lines are never checked (kase.slaBreached is false here)', async () => {
+    const { svc, create, dispositions } = makeSvc({
+      incident: { incidentNo: 'INC-ESC-1', status: 'ASSESSED', assessmentBasis: 'FIRM_LOSS', assessedAmount: new Prisma.Decimal('1234.56') },
+    });
+    const r = await svc.createDraft(dto as any, treasury);
+    expect(r.adjustmentNo).toBe('ADJ_ESC');
+    expect(create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ book: 'CLIENT', reasonCode: 'UNEXPLAINED_CLIENT_LOSS', direction: 'REDUCE', amount: '123456' }),
+    }));
+    expect(dispositions.linkAdjustment).toHaveBeenCalledWith('RCD-ESC-1', 'ADJ_ESC', { family: 'WRITE_OFF' });
+  });
+
+  it('the incident is attached but not yet assessed (still INVESTIGATING) → 400 "has not been assessed yet" (incident three-gate ①, not the old aging-threshold rejection)', async () => {
+    const { svc } = makeSvc({ incident: { incidentNo: 'INC-ESC-1', status: 'INVESTIGATING', assessmentBasis: null, assessedAmount: null } });
+    await expect(svc.createDraft(dto as any, treasury)).rejects.toThrow(/has not been assessed/);
+  });
+});
+
 describe('AdjustmentService.onRejected —— rejection persistence + terminal-state gate (Task 4 supplementary test B)', () => {
   it('a PENDING_APPROVAL adjustment is rejected: status becomes REJECTED, decidedByUserId is the person passed in', async () => {
     const update = jest.fn().mockResolvedValue({});
@@ -440,7 +657,8 @@ describe('AdjustmentService.onRejected —— rejection persistence + terminal-s
         update,
       },
     };
-    const svc = new AdjustmentService(prisma, null as any, null as any, null as any, null as any);
+    const dispositions = { unlinkAdjustment: jest.fn().mockResolvedValue(undefined) };
+    const svc = new AdjustmentService(prisma, null as any, null as any, null as any, dispositions as any);
     await svc.onRejected('ADJ_R1', 'U_OPS_7');
     expect(update).toHaveBeenCalledWith({
       where: { adjustmentNo: 'ADJ_R1' },
@@ -456,9 +674,31 @@ describe('AdjustmentService.onRejected —— rejection persistence + terminal-s
         update,
       },
     };
-    const svc = new AdjustmentService(prisma, null as any, null as any, null as any, null as any);
+    const dispositions = { unlinkAdjustment: jest.fn() };
+    const svc = new AdjustmentService(prisma, null as any, null as any, null as any, dispositions as any);
     await expect(svc.onRejected('ADJ_R2', 'U_OPS_7')).rejects.toThrow(BadRequestException);
     expect(update).not.toHaveBeenCalled();
+    // 末站修复项 1 回归锁：闸门拒绝时不许摸到定性行——POSTED 不是合法驳回起点，
+    // 清锁动作不该被这条非法迁移触发。
+    expect(dispositions.unlinkAdjustment).not.toHaveBeenCalled();
+  });
+
+  // 终审修复批 Item 1：驳回清锁——之前 onRejected 只改调账单自己的状态，挂着的
+  // 定性行 adjustmentNo 永远清不掉，行永久锁死（record()/linkAdjustment 都靠
+  // adjustmentNo 非空判定挂单锁）。先红：这条断言在补 unlinkAdjustment 调用前
+  // 会失败（dispositions.unlinkAdjustment 从未被调用）。
+  it('rejection also unlinks the finding line it was anchored to (mirrors unlinkSupplement) — the row unlocks', async () => {
+    const update = jest.fn().mockResolvedValue({});
+    const prisma: any = {
+      reconciliationAdjustment: {
+        findUnique: jest.fn().mockResolvedValue({ adjustmentNo: 'ADJ_R3', status: 'PENDING_APPROVAL' }),
+        update,
+      },
+    };
+    const dispositions = { unlinkAdjustment: jest.fn().mockResolvedValue(undefined) };
+    const svc = new AdjustmentService(prisma, null as any, null as any, null as any, dispositions as any);
+    await svc.onRejected('ADJ_R3', 'U_OPS_7');
+    expect(dispositions.unlinkAdjustment).toHaveBeenCalledWith('ADJ_R3');
   });
 });
 
@@ -482,7 +722,7 @@ describe('AdjustmentService.onApproved posting', () => {
 
   const clientRow = {
     adjustmentNo: 'ADJ2608280001', status: 'PENDING_APPROVAL', book: 'CLIENT',
-    direction: 'REDUCE', reasonCode: 'DEPOSIT_DUPLICATE_REVERSAL',
+    direction: 'REDUCE', reasonCode: 'DUP_BOOKING',
     walletRef: 'W_CUST_1', assetCode: 'AED', amount: '1500', effectiveDate: '2026-08-15',
     ownerNo: 'C0042', ownerId: 'uuid-cust', caseNo: 'RC26082800001',
     reasonInternal: 'Same deposit recorded twice', traceId: 'T1', relatedOrderNo: 'DP2608150042',
@@ -533,7 +773,7 @@ describe('AdjustmentService.onApproved posting', () => {
   });
 
   // 补测（业主要求）：四种分录组合里，上面三条只端到端断言过 CLIENT 账簿一种；
-  // 公司账簿两种（BANK_CHARGE 减/BANK_INTEREST 加）在本任务完全没被覆盖，而它们正是
+  // 公司账簿两种（BANK_CHARGE_UNBOOKED 减/BANK_INTEREST_UNBOOKED 加）在本任务完全没被覆盖，而它们正是
   // 演示破口场景 5/7（银行杂费/银行利息）要走的路。这条覆盖 FIRM+INCREASE。
   // 一并断言 ownerType：自审时发现公司科目（FIRM_ASSET/INCOME_OTHER）在 TbAccountRegistry
   // 里的真实登记值是 'SYSTEM'（见 asset-provisioning.service.ts:46、
@@ -544,7 +784,7 @@ describe('AdjustmentService.onApproved posting', () => {
     const resolveTbAccountId = jest.fn().mockResolvedValue(1n);
     const accounting = { executeTransfer: jest.fn().mockResolvedValue({ tbTransferId: 1n }), resolveTbAccountId };
     const firmRow = {
-      ...clientRow, book: 'FIRM', direction: 'INCREASE', reasonCode: 'BANK_INTEREST',
+      ...clientRow, book: 'FIRM', direction: 'INCREASE', reasonCode: 'BANK_INTEREST_UNBOOKED',
       ownerNo: null, ownerId: null, walletRef: 'W_FIRM_AED',
     };
     await makeSvc(firmRow, accounting).onApproved('ADJ2608280001', 'U_OPS');
@@ -560,7 +800,7 @@ describe('AdjustmentService.onApproved posting', () => {
   it('posting-legs coverage · CLIENT/INCREASE: posts "debit client asset / credit client payable" (withdrawal-refund scenario)', async () => {
     const resolveTbAccountId = jest.fn().mockResolvedValue(1n);
     const accounting = { executeTransfer: jest.fn().mockResolvedValue({ tbTransferId: 1n }), resolveTbAccountId };
-    const row = { ...clientRow, direction: 'INCREASE', reasonCode: 'WITHDRAW_VOID_REFUND' };
+    const row = { ...clientRow, direction: 'INCREASE', reasonCode: 'PAYOUT_NOT_EXECUTED' };
     await makeSvc(row, accounting).onApproved('ADJ2608280001', 'U_OPS');
     const codes = resolveTbAccountId.mock.calls.map((c: any[]) => c[0].code);
     expect(codes).toEqual([TB_ACCOUNT_CODES.CLIENT_ASSET, TB_ACCOUNT_CODES.CLIENT_PAYABLE]);
@@ -570,7 +810,7 @@ describe('AdjustmentService.onApproved posting', () => {
     const resolveTbAccountId = jest.fn().mockResolvedValue(1n);
     const accounting = { executeTransfer: jest.fn().mockResolvedValue({ tbTransferId: 1n }), resolveTbAccountId };
     const row = {
-      ...clientRow, book: 'FIRM', direction: 'REDUCE', reasonCode: 'BANK_CHARGE',
+      ...clientRow, book: 'FIRM', direction: 'REDUCE', reasonCode: 'BANK_CHARGE_UNBOOKED',
       ownerNo: null, ownerId: null, walletRef: 'W_FIRM_AED',
     };
     await makeSvc(row, accounting).onApproved('ADJ2608280001', 'U_OPS');
@@ -648,7 +888,7 @@ describe('AdjustmentService.getAdjustment —— detail read model (Task 7)', ()
   const baseRow = {
     id: 'uuid-row', adjustmentNo: 'ADJ2608280002', caseNo: 'RC26082800001',
     explainedFlowId: null, explainedExternalLineId: null, walletRef: 'W_CUST_1', book: 'CLIENT', direction: 'REDUCE',
-    reasonCode: 'DEPOSIT_DUPLICATE_REVERSAL', assetCode: 'AED', amount: '1500',
+    reasonCode: 'DUP_BOOKING', assetCode: 'AED', amount: '1500',
     effectiveDate: '2026-08-15', reasonInternal: 'Same deposit recorded twice', reasonCustomer: 'Duplicate deposit reversal',
     status: 'DRAFT', approvalCaseId: null, approvalNo: null, ownerNo: 'C0042', ownerId: 'uuid-cust',
     traceId: null, createdByUserId: 'U_OP', decidedByUserId: null, postedAt: null, tbTransferId: null,
@@ -674,15 +914,15 @@ describe('AdjustmentService.getAdjustment —— detail read model (Task 7)', ()
     expect((await svcMiss.getAdjustment('ADJ2608280002') as any).decimals).toBe(0);
   });
 
-  it('client-book reduction (DEPOSIT_DUPLICATE_REVERSAL/REDUCE): the posting preview is "debit L.CLIENT_PAYABLE / credit A.CLIENT_ASSET"', async () => {
+  it('client-book reduction (DUP_BOOKING/REDUCE): the posting preview is "debit L.CLIENT_PAYABLE / credit A.CLIENT_ASSET"', async () => {
     const svc = makeSvc(baseRow);
     const result: any = await svc.getAdjustment('ADJ2608280002');
     expect(result.debitAccountCode).toBe('L.CLIENT_PAYABLE');
     expect(result.creditAccountCode).toBe('A.CLIENT_ASSET');
   });
 
-  it('firm-book increase (BANK_INTEREST/INCREASE): the posting preview is "debit A.FIRM_ASSET / credit E.INCOME_OTHER" — matches the account pair in the onApproved posting-legs test, the two must not disagree', async () => {
-    const firmRow = { ...baseRow, book: 'FIRM', direction: 'INCREASE', reasonCode: 'BANK_INTEREST', ownerNo: null, ownerId: null };
+  it('firm-book increase (BANK_INTEREST_UNBOOKED/INCREASE): the posting preview is "debit A.FIRM_ASSET / credit E.INCOME_OTHER" — matches the account pair in the onApproved posting-legs test, the two must not disagree', async () => {
+    const firmRow = { ...baseRow, book: 'FIRM', direction: 'INCREASE', reasonCode: 'BANK_INTEREST_UNBOOKED', ownerNo: null, ownerId: null };
     const svc = makeSvc(firmRow);
     const result: any = await svc.getAdjustment('ADJ2608280002');
     expect(result.debitAccountCode).toBe('A.FIRM_ASSET');
@@ -826,7 +1066,7 @@ describe('createDraft fourth family (reattribution, spec §6) + finding link-bac
     // afterDraftCreated 读的是 create() 落库后拿回的 row，不是 dto——
     // mock 只需给出审计信封会用到的那几列。
     const createdRow = {
-      adjustmentNo: 'ADJ2608280099', reasonCode: 'DEPOSIT_DUPLICATE_REVERSAL', amount: '1000',
+      adjustmentNo: 'ADJ2608280099', reasonCode: 'DUP_BOOKING', amount: '1000',
       ownerNo: 'C0042', caseNo: 'CASE_DRAFTED_1', direction: 'REDUCE', book: 'CLIENT',
       reasonInternal: 'Same deposit recorded twice',
     };
@@ -840,7 +1080,7 @@ describe('createDraft fourth family (reattribution, spec §6) + finding link-bac
     );
 
     await service.createDraft({
-      caseNo: 'CASE_DRAFTED_1', reasonCode: 'DEPOSIT_DUPLICATE_REVERSAL',
+      caseNo: 'CASE_DRAFTED_1', reasonCode: 'DUP_BOOKING',
       direction: 'REDUCE', amount: '1000', effectiveDate: '2026-08-28',
       reasonInternal: 'Same deposit recorded twice', reasonCustomer: 'Duplicate deposit reversal',
     } as any, ACTOR);
@@ -849,7 +1089,7 @@ describe('createDraft fourth family (reattribution, spec §6) + finding link-bac
     const envelope = recordByActor.mock.calls[0][0];
     expect(envelope.action).toBe('RECON_ADJUSTMENT_DRAFTED');
     // requiredFields 顶层——assertActionSpec 读的是信封顶层字段，不是 metadata。
-    expect(envelope.reasonCode).toBe('DEPOSIT_DUPLICATE_REVERSAL');
+    expect(envelope.reasonCode).toBe('DUP_BOOKING');
     expect(envelope.amount).toBe('1000');
     // 漏了显式 requestId 会被静默去重、审计直接消失（本仓踩过）。
     expect(envelope.requestId).toMatch(/^RECON_ADJUSTMENT_DRAFTED_ADJ/);
@@ -1211,6 +1451,97 @@ describe('AdjustmentService.describeImpact —— client pool loss recognition\'
   });
 });
 
+// 评审修复（I1，铁律⑥审批文案）：公司簿同样有事故升级路（LARGE_UNEXPLAINED，公司池
+// 版）——事故已经定损，继续说「悬了多久、查过什么」是文不对题；对齐客户簿既有事故
+// 句式，带上事故单号 + 金额锁定的依据。
+describe("AdjustmentService.describeImpact —— firm pool write-off's incident path also gets its own copy (I1 review fix)", () => {
+  const svc = new AdjustmentService(null as any, null as any, null as any, null as any, null as any);
+  const baseRow = {
+    book: 'FIRM', ownerNo: null, amount: '7', assetCode: 'AED',
+    direction: 'REDUCE', reasonCode: 'UNEXPLAINED_WRITE_OFF',
+  } as any;
+
+  it('HOLD_INVESTIGATING old path unaffected: copy keeps "unexplained" + days overdue (no incidentNo passed)', () => {
+    const text = svc.describeImpact(
+      { ...baseRow, reasonInternal: 'Unexplained write-off', caseNo: 'REC-HOLD-2' },
+      2,
+      { walletNo: 'WA2', agedDays: 3, findingNote: 'Checked receipts for three days running' },
+    );
+    expect(text).toContain('Firm pool unexplained write-off');
+    expect(text).toContain('overdue 3 days');
+    expect(text).not.toContain('incident');
+  });
+
+  it('INCIDENT path: does not say "unexplained", carries no days-overdue, carries the incident number and states the amount is locked to the assessed loss', () => {
+    const text = svc.describeImpact(
+      { ...baseRow, reasonInternal: 'Unauthorized outflow write-off', caseNo: 'REC-INC-2' },
+      2,
+      // agedDays is deliberately still passed a value (30) — to prove the incident path genuinely
+      // does not read it, not that it merely failed to compute a days-overdue figure to show.
+      { walletNo: 'WA2', agedDays: 30, findingNote: 'Large unauthorized outflow; incident has been assessed', incidentNo: 'INC-FIRM-01' },
+    );
+    expect(text).toContain('INC-FIRM-01');
+    expect(text).toContain('Firm pool write-off');
+    expect(text).not.toContain('unexplained');
+    expect(text).not.toContain('overdue');
+    expect(text).not.toContain('30');
+    expect(text).toContain("locked to the incident's assessed loss");
+  });
+});
+
+// 评审修复（C1 挂接链）：submit() 端到端验证——大额升级路的定性行 outlet 停在
+// HOLD_INVESTIGATING、只有 incidentNo 被 attachIncident 写上；submit() 读的是同一行
+// 的 incidentNo（不再看 outlet），审批快照的 impact 文案里必须真的带上事故号，
+// 不是只有 describeImpact 单测过了这个字符串拼接就算数。
+describe('AdjustmentService.submit —— escalation path (outlet stays HOLD_INVESTIGATING, incidentNo attached) carries the incident number all the way into the approval impact copy (C1 挂接链评审修复)', () => {
+  const actor = { actorType: 'ADMIN' as const, userId: 'U_OPS', userNo: 'U_OPS', roleCodes: ['OPS_OFFICER'] };
+  const row = {
+    adjustmentNo: 'ADJ_ESC_SUBMIT', status: AdjustmentStatus.DRAFT, caseNo: 'REC-ESC-SUB',
+    book: 'CLIENT', direction: 'REDUCE', reasonCode: 'UNEXPLAINED_CLIENT_LOSS',
+    amount: '123456', assetCode: 'AED', ownerNo: 'CU-9', toOwnerNo: null,
+    walletRef: 'w-esc-sub', reasonInternal: 'Large unexplained difference, assessed via incident',
+    traceId: null,
+  };
+
+  const makeSvc = () => {
+    const prisma: any = {
+      reconciliationAdjustment: {
+        findUnique: jest.fn().mockResolvedValue(row),
+        update: jest.fn().mockResolvedValue({}),
+      },
+      asset: { findUnique: jest.fn().mockResolvedValue({ decimals: 2 }) },
+      reconciliationCase: { findUnique: jest.fn().mockResolvedValue({ slaDeadline: null }) },
+      wallet: { findUnique: jest.fn().mockResolvedValue({ walletNo: 'WA-ESC' }) },
+      // outlet 仍是 HOLD_INVESTIGATING——attachIncident 只写 incidentNo 一列（disposition.service.ts）。
+      reconciliationDisposition: {
+        findFirst: jest.fn().mockResolvedValue({ findingNote: 'Escalated, incident assessed', outlet: 'HOLD_INVESTIGATING', incidentNo: 'INC-ESC-SUB' }),
+      },
+    };
+    let capturedSnapshot: any;
+    const approvals: any = {
+      createAndSubmit: jest.fn((createDto: any) => {
+        capturedSnapshot = createDto.objectSnapshot;
+        return Promise.resolve({ id: 'appr-1', approvalNo: 'AP-ESC-SUB' });
+      }),
+    };
+    const svc = new AdjustmentService(prisma, approvals, null as any, null as any, null as any);
+    return { svc, prisma, approvals, getSnapshot: () => capturedSnapshot };
+  };
+
+  it("submit() reads incidentNo off the linked disposition line (regardless of outlet) and the approval snapshot's impact text carries the incident number", async () => {
+    const { svc, prisma, approvals, getSnapshot } = makeSvc();
+    await svc.submit('ADJ_ESC_SUBMIT', actor);
+    expect(approvals.createAndSubmit).toHaveBeenCalled();
+    const snapshot = getSnapshot();
+    expect(snapshot.impact).toContain('INC-ESC-SUB');
+    expect(snapshot.impact).not.toContain('unexplained');
+    expect(prisma.reconciliationAdjustment.update).toHaveBeenCalledWith(expect.objectContaining({
+      where: { adjustmentNo: 'ADJ_ESC_SUBMIT' },
+      data: expect.objectContaining({ status: AdjustmentStatus.PENDING_APPROVAL, approvalNo: 'AP-ESC-SUB' }),
+    }));
+  });
+});
+
 // Task 4（调账单列表端点）: real DB, no mocks — the schema-smoke test at the top of this
 // file already establishes the convention of hitting a live PrismaClient for behaviour
 // that has to come from an actual query (ordering / filtering / a join), not from a mock
@@ -1232,17 +1563,17 @@ describe('AdjustmentService.listAdjustments —— list read model (Task 4)', ()
       data: [
         {
           ...baseRow, adjustmentNo: 'ADJ_LIST_T4_1', ownerNo: 'C_LIST_T4_1',
-          direction: 'REDUCE', reasonCode: 'DEPOSIT_DUPLICATE_REVERSAL', assetCode: 'AED', amount: '1000',
+          direction: 'REDUCE', reasonCode: 'DUP_BOOKING', assetCode: 'AED', amount: '1000',
           effectiveDate: '2031-01-01', status: 'DRAFT', createdAt: new Date('2031-01-01T00:00:00Z'),
         },
         {
           ...baseRow, adjustmentNo: 'ADJ_LIST_T4_2', ownerNo: 'C_LIST_T4_2',
-          direction: 'INCREASE', reasonCode: 'WITHDRAW_VOID_REFUND', assetCode: 'USDT-TRON', amount: '2000000',
+          direction: 'INCREASE', reasonCode: 'PAYOUT_NOT_EXECUTED', assetCode: 'USDT-TRON', amount: '2000000',
           effectiveDate: '2031-01-02', status: 'DRAFT', createdAt: new Date('2031-01-02T00:00:00Z'),
         },
         {
           ...baseRow, adjustmentNo: 'ADJ_LIST_T4_3', ownerNo: null,
-          direction: 'REDUCE', reasonCode: 'BANK_CHARGE', assetCode: 'AED', amount: '3000',
+          direction: 'REDUCE', reasonCode: 'BANK_CHARGE_UNBOOKED', assetCode: 'AED', amount: '3000',
           effectiveDate: '2031-01-03', status: 'REJECTED', createdAt: new Date('2031-01-03T00:00:00Z'),
         },
       ],
@@ -1288,5 +1619,26 @@ describe('AdjustmentService.listAdjustments —— list read model (Task 4)', ()
     expect(page.total).toBe(3);
     expect(page.items).toHaveLength(1);
     expect(page.items[0].adjustmentNo).toBe('ADJ_LIST_T4_2');
+  });
+});
+
+describe('单码制 REASON_SPECS（spec §5）', () => {
+  it.each([
+    ['AMT_MISBOOKED', 'CLIENT', ['REDUCE', 'INCREASE']],
+    ['DUP_BOOKING', 'CLIENT', ['REDUCE']],
+    ['PAYOUT_NOT_EXECUTED', 'CLIENT', ['INCREASE']],
+    ['FIRM_AMT_UNDERBOOKED', 'FIRM', ['REDUCE', 'INCREASE']],
+    ['BANK_INTEREST_UNBOOKED', 'FIRM', ['INCREASE']],
+    ['BANK_CHARGE_UNBOOKED', 'FIRM', ['REDUCE']],
+  ] as const)('%s 落在 %s 簿、方向 %j', (code, book, dirs) => {
+    expect(REASON_SPECS[code].book).toBe(book);
+    expect(REASON_SPECS[code].directions).toEqual(dirs);
+    expect(REASON_SPECS[code].customerLabel !== undefined).toBe(true);
+  });
+  it('OTHER 双簿双向放行，客户话术受控', () => {
+    expect(REASON_SPECS.OTHER.book).toBe('ANY');
+    expect(() => assertReasonAllowed('OTHER', 'CLIENT', 'REDUCE')).not.toThrow();
+    expect(() => assertReasonAllowed('OTHER', 'FIRM', 'INCREASE')).not.toThrow();
+    expect(REASON_SPECS.OTHER.customerLabel).toBe('Balance correction');
   });
 });

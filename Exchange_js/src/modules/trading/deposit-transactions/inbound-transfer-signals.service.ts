@@ -41,6 +41,7 @@ import { ApprovalActionTypes, ApprovalActorContext } from '../../governance/appr
 import { ApprovalDecidedEvent } from '../../governance/approvals/approval-handler.base';
 import { SupplementEvidenceService } from '../../clearing-settle/reconciliation/disposition/supplement-evidence.service';
 import { DispositionService as ReconDispositionService } from '../../clearing-settle/reconciliation/disposition/disposition.service';
+import type { CauseCode } from '../../clearing-settle/reconciliation/disposition/cause-registry';
 
 export interface ScanSummaryRecord {
   signalId: string;
@@ -260,6 +261,29 @@ export class InboundTransferSignalsService {
     }
   }
 
+  /**
+   * 写端翻转（Task 3）：补单三路共用的原子入口——已有定性（dispositionNo）照旧直通；
+   * 无定性但带了 causeCode+findingNote 则先落一条 outlet=SUPPLEMENT 的定性再往下走；
+   * 两者都没有则 400（错误话术照旧径：assertClaimable 随后会因锚不到定性行而拒，
+   * 这里提前给一句更直白的话，不等它绕一圈才报错）。matchType 固定 ORPHAN_EXTERNAL——
+   * 补单三路要认领的向来是「外有我无」的账单行，方向复核交给下面 assertClaimable
+   * （DIRECTION_BY_KIND），record() 自己的矩阵/成因校验不重复判方向。
+   */
+  private async resolveDispositionNo(
+    dto: { caseNo: string; externalLineId: string; dispositionNo?: string; causeCode?: CauseCode; findingNote?: string },
+    actor: ApprovalActorContext,
+  ): Promise<string> {
+    if (dto.dispositionNo) return dto.dispositionNo;
+    if (!dto.causeCode || !dto.findingNote) {
+      throw new BadRequestException('A finding must already be recorded for this statement line (dispositionNo), or provide causeCode + findingNote to record one now');
+    }
+    const recorded = await this.reconDisposition.record({
+      caseNo: dto.caseNo, explainedExternalLineId: dto.externalLineId,
+      matchType: 'ORPHAN_EXTERNAL', causeCode: dto.causeCode, disposition: 'SUPPLEMENT', findingNote: dto.findingNote,
+    }, actor);
+    return recorded.dispositionNo;
+  }
+
   // ═══ 平账 B 批 ①：运营凭账单行补录（spec §3）═══════════════════════════════
   // 与 createForCustomer 的区别：① 不做 assertTradingEligibility——那是拦客户「发起」的，
   // 钱已经物理进了，该冻该退由充值域自己的闸决定；② 金额 / 币种 / 钱包 / 参考号全从账单行来，
@@ -277,10 +301,18 @@ export class InboundTransferSignalsService {
   // 顺带：Wallet 表在波一 T5 已砍掉 assetId 列与 asset 关联（钱包按 vault × network × 归属人
   // 开地址行，一个地址行不再绑死单一资产），所以本路径一律不从 wallet 取资产，只从案子取。
   async initiateSupplement(
-    dto: { externalLineId: string; caseNo: string; dispositionNo: string; fromAddress?: string; fromIban?: string; reason: string },
+    dto: {
+      externalLineId: string; caseNo: string; dispositionNo?: string;
+      // 写端翻转（Task 3）：行未定性时的原子入口——带上 causeCode+findingNote，先
+      // record(outlet=SUPPLEMENT) 落一条定性，再照常走认领；已带 dispositionNo（标准
+      // 两步流程：先 POST .../dispositions）照常直通下面的 assertClaimable。
+      causeCode?: CauseCode; findingNote?: string;
+      fromAddress?: string; fromIban?: string; reason: string;
+    },
     actor: ApprovalActorContext,
   ): Promise<{ signalNo: string; approvalNo: string; status: 'SUPPLEMENT_PENDING' }> {
-    const line = await this.supplementEvidence.assertClaimable({ caseNo: dto.caseNo, externalLineId: dto.externalLineId, dispositionNo: dto.dispositionNo, kind: 'SUPPLEMENT_DEPOSIT' });
+    const dispositionNo = await this.resolveDispositionNo(dto, actor);
+    const line = await this.supplementEvidence.assertClaimable({ caseNo: dto.caseNo, externalLineId: dto.externalLineId, dispositionNo, kind: 'SUPPLEMENT_DEPOSIT' });
     const isCrypto = line.assetType === 'CRYPTO';
     if (isCrypto && !dto.fromAddress?.trim()) throw new BadRequestException('On-chain supplement requires a source address');
     if (!isCrypto && !dto.fromIban?.trim()) throw new BadRequestException('Fiat supplement requires a source IBAN');

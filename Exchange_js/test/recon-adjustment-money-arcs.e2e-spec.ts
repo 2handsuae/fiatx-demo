@@ -509,7 +509,7 @@ describe('Recon adjustment money arcs (e2e, Task 8)', () => {
     const { adjustmentNo } = await adjustments.createDraft(
       {
         caseNo: kase.caseNo,
-        reasonCode: 'DEPOSIT_DUPLICATE_REVERSAL',
+        reasonCode: 'DUP_BOOKING',
         direction: 'REDUCE',
         amount: '20000',
         effectiveDate: TODAY,
@@ -577,7 +577,7 @@ describe('Recon adjustment money arcs (e2e, Task 8)', () => {
     // 里）——adjustment.service.ts onApproved() 里 requiredFields 读的正是这
     // 一层，assertActionSpec 拒写空值。此前只在代码里论证过"这三个字段会落到
     // 真实列"，这里把它锁成断言：真的非空，而且值就是这一单开单时传的那三个。
-    expect(auditRows[0].reasonCode).toBe('DEPOSIT_DUPLICATE_REVERSAL');
+    expect(auditRows[0].reasonCode).toBe('DUP_BOOKING');
     expect(auditRows[0].amount).toBe('20000');
     expect(auditRows[0].effectiveDate).not.toBeNull();
 
@@ -620,7 +620,7 @@ describe('Recon adjustment money arcs (e2e, Task 8)', () => {
     const { adjustmentNo } = await adjustments.createDraft(
       {
         caseNo: kase.caseNo,
-        reasonCode: 'WITHDRAW_VOID_REFUND',
+        reasonCode: 'PAYOUT_NOT_EXECUTED',
         direction: 'INCREASE',
         amount: '15000',
         effectiveDate: TODAY,
@@ -673,7 +673,7 @@ describe('Recon adjustment money arcs (e2e, Task 8)', () => {
     const { adjustmentNo } = await adjustments.createDraft(
       {
         caseNo: kase.caseNo,
-        reasonCode: 'BANK_INTEREST',
+        reasonCode: 'BANK_INTEREST_UNBOOKED',
         direction: 'INCREASE',
         amount: '2000',
         effectiveDate: TODAY,
@@ -715,7 +715,7 @@ describe('Recon adjustment money arcs (e2e, Task 8)', () => {
     const { adjustmentNo } = await adjustments.createDraft(
       {
         caseNo: kase.caseNo,
-        reasonCode: 'DEPOSIT_DUPLICATE_REVERSAL',
+        reasonCode: 'DUP_BOOKING',
         direction: 'REDUCE',
         amount: '1000',
         effectiveDate: TODAY,
@@ -752,7 +752,7 @@ describe('Recon adjustment money arcs (e2e, Task 8)', () => {
       adjustments.createDraft(
         {
           caseNo: kase.caseNo,
-          reasonCode: 'WITHDRAW_VOID_REFUND',
+          reasonCode: 'PAYOUT_NOT_EXECUTED',
           direction: 'INCREASE',
           amount: '1000',
           effectiveDate: TODAY,
@@ -812,7 +812,7 @@ describe('Recon adjustment money arcs (e2e, Task 8)', () => {
     const { adjustmentNo } = await adjustments.createDraft(
       {
         caseNo: kase.caseNo,
-        reasonCode: 'DEPOSIT_DUPLICATE_REVERSAL',
+        reasonCode: 'DUP_BOOKING',
         direction: 'REDUCE',
         amount: X.toString(),
         effectiveDate: TODAY,
@@ -871,7 +871,7 @@ describe('Recon adjustment money arcs (e2e, Task 8)', () => {
       adjustments.createDraft(
         {
           caseNo: kase.caseNo,
-          reasonCode: 'BANK_INTEREST', // 只允许 FIRM 账簿
+          reasonCode: 'BANK_INTEREST_UNBOOKED', // 只允许 FIRM 账簿
           direction: 'INCREASE',
           amount: '1000',
           effectiveDate: TODAY,
@@ -907,7 +907,7 @@ describe('Recon adjustment money arcs (e2e, Task 8)', () => {
     const { adjustmentNo } = await adjustments.createDraft(
       {
         caseNo: kase.caseNo,
-        reasonCode: 'BANK_CHARGE',
+        reasonCode: 'BANK_CHARGE_UNBOOKED',
         direction: 'REDUCE',
         amount: '2000',
         effectiveDate: TODAY,
@@ -961,7 +961,7 @@ describe('Recon adjustment money arcs (e2e, Task 8)', () => {
     const { adjustmentNo } = await adjustments.createDraft(
       {
         caseNo: kase.caseNo,
-        reasonCode: 'DEPOSIT_DUPLICATE_REVERSAL',
+        reasonCode: 'DUP_BOOKING',
         direction: 'REDUCE',
         amount: '1000',
         effectiveDate: TODAY,
@@ -1055,7 +1055,7 @@ describe('Recon adjustment money arcs (e2e, Task 8)', () => {
     const { adjustmentNo } = await adjustments.createDraft(
       {
         caseNo: kase.caseNo,
-        reasonCode: 'DEPOSIT_SIGNAL_VOID',
+        reasonCode: 'PHANTOM_BOOKING',
         direction: 'REDUCE',
         amount: String(X),
         effectiveDate: PAST_DATE,               // ① 案件那天，不是今天

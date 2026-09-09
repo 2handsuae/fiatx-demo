@@ -81,6 +81,18 @@ function customerLabelFor(reasonCode: string | null | undefined): string {
   return spec?.customerLabel ?? 'Balance adjustment';
 }
 
+/** customerLabel values that already read as a complete, standalone title — prefixing
+ *  "Balance correction · " in front of one of these produces a literal repeated word
+ *  ("Balance correction · Balance correction", the single-code system's customerLabel
+ *  for AMT_MISBOOKED/AMT_FEE_NETTED/AMT_ROUNDING/OTHER — Task 12 brief step 3) or a
+ *  mismatched pairing ("Balance correction · Balance adjustment", customerLabelFor's
+ *  own fallback and UNEXPLAINED_CLIENT_LOSS's explicit customerLabel). Generalized
+ *  (Task 13) from a guard that only special-cased the 'Balance adjustment' string —
+ *  the single-code migration introduced the second collision and the old guard missed
+ *  it (final-review Minor #2 covered one case, not both).
+ */
+const STANDALONE_ADJUSTMENT_TITLES = new Set(['Balance adjustment', 'Balance correction']);
+
 /**
  * Tipping-off judgment table (spec §6, Task 10 Step 1) — keyed by eventCode,
  * except RECON_ADJUSTMENT which is keyed by sourceType (its eventCode is
@@ -187,9 +199,8 @@ const ROW_PRESENTATION: Record<string, RowPresentation> = {
     present: ({ legDirection, adjustment }) => {
       if (!adjustment) return { title: 'Balance adjustment', subtitle: null };
       const label = customerLabelFor(adjustment.reasonCode);
-      // Neutral labels already read as a full title — avoid the tautology
-      // "Balance correction · Balance adjustment" (final-review Minor #2).
-      const title = label === 'Balance adjustment' ? label : `Balance correction · ${label}`;
+      // Generalized dedup guard (Task 13) — see STANDALONE_ADJUSTMENT_TITLES above.
+      const title = STANDALONE_ADJUSTMENT_TITLES.has(label) ? label : `Balance correction · ${label}`;
       if (adjustment.direction === 'REATTRIBUTE' && legDirection === 'IN') {
         return { title, subtitle: null };
       }

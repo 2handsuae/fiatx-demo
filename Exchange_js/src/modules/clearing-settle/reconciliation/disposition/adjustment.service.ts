@@ -19,9 +19,17 @@ import {
   Book, Direction, ReasonCode, REASON_SPECS,
   assertReasonAllowed, requiresRelatedOrder, resolvePostingLegs, resolveReattributionLegs,
 } from './adjustment-rules';
-import { AdjustFamily, CauseCode, staticOutletLabel } from './cause-registry';
+import { AdjustFamily, DISPOSITION_LABEL, DispositionKind, OUTLET_OF, StoredOutlet } from './cause-registry';
 import { isSmallAmount, SMALL_AMOUNT_LINE_MINOR } from './recon-thresholds.constant';
 import { DispositionService } from './disposition.service';
+
+// Task 13：结论文案改走「存储 outlet → 处置种类 → DISPOSITION_LABEL」反查（同
+// reconciliation-query.service.ts 读面 KIND_OF_OUTLET 的路子，唯一来源都是
+// cause-registry.ts 导出的 OUTLET_OF），取代已退役的 staticOutletLabel(causeCode) 反推
+// ——那条路径靠成因码重算 kind，单码制下 causeCode 已经不带这层信息了。
+const KIND_OF_OUTLET = new Map<StoredOutlet, DispositionKind>(
+  (Object.entries(OUTLET_OF) as Array<[DispositionKind, StoredOutlet]>).map(([kind, outlet]) => [outlet, kind]),
+);
 
 @Injectable()
 export class AdjustmentService {
@@ -84,9 +92,16 @@ export class AdjustmentService {
            + `case ${row.caseNo ?? '(unknown)'} has been overdue ${extra?.agedDays ?? '?'} days; investigation conclusion: ${extra?.findingNote ?? row.reasonInternal}; a compensation transfer will follow to restore the balance`;
     }
     // 第五族核销（spec §3.7）：审批人要读到的是「哪个池子、哪个钱包、差额往哪去、悬了多久、查过什么」。
+    // 评审修复（I1）：公司簿同样有事故升级路（LARGE_UNEXPLAINED，公司池版）——事故已经
+    // 定损，继续说「悬了多久、查过什么」是文不对题；对齐客户簿既有事故句式，带上事故
+    // 单号 + 金额锁定的依据。
     if (row.reasonCode === 'UNEXPLAINED_WRITE_OFF') {
       const majorAmount = bigintToDecimal(BigInt(row.amount), decimals).toFixed(decimals);
       const outlet = row.direction === 'REDUCE' ? 'recognized into operating funds' : 'recorded as other income';
+      if (extra?.incidentNo) {
+        return `Firm pool write-off (incident ${extra.incidentNo} assessed ${majorAmount} ${row.assetCode}): wallet ${extra?.walletNo ?? '(unknown)'} ${row.assetCode} difference ${majorAmount} ${outlet}; `
+             + `amount is locked to the incident's assessed loss; investigation conclusion: ${extra?.findingNote ?? row.reasonInternal}`;
+      }
       return `Firm pool unexplained write-off: wallet ${extra?.walletNo ?? '(unknown)'} ${row.assetCode} difference ${majorAmount} ${outlet}; `
            + `case ${row.caseNo ?? '(unknown)'} has been overdue ${extra?.agedDays ?? '?'} days; investigation conclusion: ${extra?.findingNote ?? row.reasonInternal}`;
     }
@@ -132,6 +147,23 @@ export class AdjustmentService {
    * 「查无果」），分流到 assertIncidentWriteOffAllowed——那条路不受账龄线/小额线约束
    * （大额正是走事故的理由），改查事故侧的定损结论。anchors/held 的查法两条路共用，
    * 提到分流点之前；账龄线检查留在原位——它只对「查无果」路径有意义。
+   *
+   * Task 4（死胡同修复）：分流判据从单看 `outlet === 'INCIDENT'` 改成
+   * `outlet === 'INCIDENT' || incidentNo`——两路都要落进事故三重闸，判据不能是互斥的
+   * 单一条件：
+   *   · outlet='INCIDENT'（UNAUTHORIZED_OUTFLOW 专用静态出口，record() 建档时就定死）
+   *     incidentNo 在事故真正登记前一直是 null——这期间仍要落进三重闸，好让守卫吐出
+   *     「先去登记事故」而不是」案子还没到账龄线」这句文不对题的错误（回归证据：
+   *     若把判据单纯换成 `held?.incidentNo`，本文件已有的一条固定测试——outlet=INCIDENT
+   *     但 incidentNo 为空 → 期待 400 "no incident number attached"——会改口吐出旧路的
+   *     账龄线错误，是真实回归，不是测试写法问题）。
+   *   · outlet 仍是 HOLD_INVESTIGATING、只是被 DispositionService.attachIncident 挂了
+   *     incidentNo（「大额查不出→挂起·调查中→超期→升级事故」LARGE_UNEXPLAINED 那条路——
+   *     attachIncident 只写 incidentNo 一列，outlet 原地不动，见 disposition.service.ts
+   *     注释）。按旧的纯 outlet 判据这条路永远走不进这个分支——事故定了损也开不出认损单，
+   *     是已登记 BACKLOG 的死胡同，本任务要解的就是这一支。
+   * assertIncidentWriteOffAllowed 本体不读 outlet，只读 incidentNo/adjustmentNo/事故表，两条
+   * 路径天然通用，加宽判据零风险。
    */
   private async assertWriteOffAllowed(dto: CreateAdjustmentDto, kase: any, book: Book): Promise<{ dispositionNo: string }> {
     const anchors = [
@@ -143,7 +175,7 @@ export class AdjustmentService {
     }
     const held = await (this.prisma as any).reconciliationDisposition.findFirst({ where: { caseNo: dto.caseNo, OR: anchors } });
 
-    if (held?.outlet === 'INCIDENT') {
+    if (held?.outlet === 'INCIDENT' || held?.incidentNo) {
       const dispositionNo = await this.assertIncidentWriteOffAllowed(dto, held, kase, book);
       return { dispositionNo };
     }
@@ -152,7 +184,7 @@ export class AdjustmentService {
       throw new BadRequestException('The case has not yet reached the aging threshold — unexplained differences stay on hold until then; write-off can only be discussed after that');
     }
     if (!held || held.outlet !== 'HOLD_INVESTIGATING') {
-      const conclusion = held ? staticOutletLabel(held.causeCode as CauseCode) : 'not yet found';
+      const conclusion = held ? DISPOSITION_LABEL[KIND_OF_OUTLET.get(held.outlet as StoredOutlet)!] : 'not yet found';
       throw new BadRequestException(`Write-off only applies to a difference line found as "Hold · Investigating"; this line's conclusion is ${conclusion}`);
     }
     if (held.adjustmentNo) {
@@ -228,6 +260,19 @@ export class AdjustmentService {
     return held.dispositionNo;
   }
 
+  /**
+   * 写端翻转（Task 3）：createDraft 原子入口的处置映射——单码制下 dto.reasonCode 直接
+   * 落 cause-registry.ts 的 CauseCode 同名码（adjustment-rules.ts 头注释），它的
+   * family 与 DispositionKind 四个非核销/非改记值同名同值，直接当处置用。
+   * WRITE_OFF/REATTRIBUTE 两族各自另有专门的前置分支（assertWriteOffAllowed /
+   * createReattributionDraft），走不到这个原子路径——调用点在那两支分流之后。
+   */
+  private kindOfFamily(reasonCode: ReasonCode): DispositionKind {
+    const family = REASON_SPECS[reasonCode]?.family;
+    if (family === 'CORRECT' || family === 'REVERSE' || family === 'RECORD' || family === 'REATTRIBUTE') return family;
+    throw new BadRequestException(`Reason ${reasonCode} has no matching disposition for the atomic finding path`);
+  }
+
   async createDraft(dto: CreateAdjustmentDto, actor: ApprovalActorContext) {
     const kase = await (this.prisma as any).reconciliationCase.findUnique({ where: { caseNo: dto.caseNo } });
     if (!kase) throw new NotFoundException(`Reconciliation case not found: ${dto.caseNo}`);
@@ -246,6 +291,59 @@ export class AdjustmentService {
     let heldDispositionNo: string | null = null;
     if (dto.reasonCode === 'UNEXPLAINED_WRITE_OFF' || dto.reasonCode === 'UNEXPLAINED_CLIENT_LOSS') {
       heldDispositionNo = (await this.assertWriteOffAllowed(dto, kase, book)).dispositionNo;
+    }
+
+    // 写端翻转（Task 3）：行未定性（无 dispositionNo）+ dto 带 causeCode/findingNote →
+    // 原子先 record 再开单，afterDraftCreated 收尾时复用既有 linkAdjustment 挂号
+    // （两处审计各一条：RECON_DISPOSITION_RECORDED + RECON_ADJUSTMENT_DRAFTED）。
+    // 核销路（heldDispositionNo 已锁定）与老调用方（已传 dispositionNo）都不重复走这条；
+    // record() 自身的挂单锁（该锚已挂调账单）在这里原样生效——不重复判定。
+    //
+    // 评审修复（Important 1）：此前守卫是 `causeCode && findingNote`——只带其一时
+    // 静默跳过定性、草稿照建，前端漏填一个字段就悄悄退化成"无定性开单"、财务毫无
+    // 感知。改成显式配对校验：恰好只带其一 → 400；两个都不带才是既有的合法「无
+    // 定性开单」路径，原样放行不动。
+    let atomicDispositionNo: string | undefined;
+    if (!heldDispositionNo && !dto.dispositionNo) {
+      if (Boolean(dto.causeCode) !== Boolean(dto.findingNote)) {
+        throw new BadRequestException('Recording a finding with the adjustment requires both causeCode and findingNote');
+      }
+      if (dto.causeCode && dto.findingNote) {
+        // Task 8 评审修复：优先信 dto.disposition（前端随处置按钮原样带上）——
+        // kindOfFamily(reasonCode) 只在旧调用方不传 disposition 时兜底。OTHER 码的
+        // REASON_SPECS.OTHER.family 是占位 'CORRECT'（cause-registry.ts 顶部注释：
+        // OTHER 不真的属于冲正族，只是留痕分组要有个桶放）——纯靠回落会把 OTHER 配
+        // REVERSE/RECORD 处置时也判死成 CORRECT，定性出口写错。
+        const family = dto.disposition ?? this.kindOfFamily(dto.reasonCode as ReasonCode);
+        // 评审修复（Minor 3，单码制一致闸）：防审计里一件事记两个因。只对
+        // CORRECT/REVERSE/RECORD 三族生效——REATTRIBUTE 族的 reasonCode 恒为
+        // CUSTOMER_REATTRIBUTION，而 cause 是 MISATTRIBUTED_FROM/MISATTRIBUTED_TO，
+        // 两者必然不同码（且该族其实走不到这里：createDraft 顶部已把它分流到
+        // createReattributionDraft，这条按族判断只是不依赖那条分流也站得住）。
+        if ((family === 'CORRECT' || family === 'REVERSE' || family === 'RECORD') && dto.causeCode !== dto.reasonCode) {
+          throw new BadRequestException('Under the single-code regime the finding cause and the adjustment reason code must be the same code');
+        }
+        // 评审修复（Minor 6）：record() 的 matchType 是必填列——CreateAdjustmentDto 上它
+        // 是可选字段，不能让 undefined 溜进 NOT NULL 列；进 record() 前显式拒绝，给一句
+        // 人话 400，而不是靠 as any 掩盖类型缺口、让数据库层报一个不可读的错误。
+        if (!dto.matchType) {
+          throw new BadRequestException('Recording a finding requires the row facts (matchType)');
+        }
+        const recorded = await this.dispositions.record({
+          caseNo: dto.caseNo,
+          explainedFlowId: dto.explainedFlowId,
+          explainedExternalLineId: dto.explainedExternalLineId,
+          matchType: dto.matchType,
+          causeCode: dto.causeCode,
+          disposition: family,
+          findingNote: dto.findingNote,
+          deltaSign: dto.deltaSign,
+          internalDirection: dto.internalDirection,
+          internalSourceType: dto.internalSourceType,
+          externalDirection: dto.externalDirection,
+        }, actor);
+        atomicDispositionNo = recorded.dispositionNo;
+      }
     }
 
     // 闸一：成因 × 账簿 × 方向 合法性
@@ -320,8 +418,9 @@ export class AdjustmentService {
         status: AdjustmentStatus.DRAFT,
       },
     });
-    // 核销：优先挂守卫刚验过的那条定性，不信客户端传来的号（Task 7 评审）
-    await this.afterDraftCreated(row, { ...dto, dispositionNo: heldDispositionNo ?? dto.dispositionNo ?? undefined }, actor);
+    // 核销：优先挂守卫刚验过的那条定性；原子路径挂刚才 record() 建出的那条；都没有才信
+    // 客户端传来的号（Task 7 评审 + Task 3 写端翻转，三者互斥，取值顺序即优先级）。
+    await this.afterDraftCreated(row, { ...dto, dispositionNo: heldDispositionNo ?? atomicDispositionNo ?? dto.dispositionNo ?? undefined }, actor);
     return { adjustmentNo: row.adjustmentNo };
   }
 
@@ -438,9 +537,13 @@ export class AdjustmentService {
         where: { adjustmentNo }, select: { findingNote: true, outlet: true, incidentNo: true },
       });
       const agedDays = kase?.slaDeadline ? Math.max(1, Math.floor((Date.now() - new Date(kase.slaDeadline).getTime()) / 86_400_000)) : null;
+      // C1 挂接链评审修复：判据从单看 outlet==='INCIDENT' 改成看 incidentNo 是否存在——
+      // LARGE_UNEXPLAINED 升级路的定性行 outlet 一直留在 HOLD_INVESTIGATING，只有
+      // incidentNo 会被 attachIncident 写上，纯 outlet 判据永远照不到那条路，审批页
+      // 就读不到"金额锁定的依据 = 事故定损"。
       extra = {
         walletNo: wallet?.walletNo ?? null, agedDays, findingNote: held?.findingNote ?? null,
-        incidentNo: held?.outlet === 'INCIDENT' ? held?.incidentNo ?? null : null,
+        incidentNo: held?.incidentNo ?? null,
       };
     }
     const impact = this.describeImpact(row, assetRow?.decimals ?? 0, extra);
@@ -604,6 +707,12 @@ export class AdjustmentService {
       where: { adjustmentNo },
       data: { status: AdjustmentStatus.REJECTED, decidedByUserId: deciderNo ?? deciderId },
     });
+    // 终审修复批 Item 1：驳回/取消/超时（三者都路由到这里，见
+    // adjustment-approval.service.ts routeToRejected）清锁——镜像补单路
+    // unlinkSupplement 的做法，把该单挂着的定性行 adjustmentNo 清空，行解锁、
+    // 按钮组回来（前端已是数据驱动，无需改）。没挂号的调账单（如未走核销/
+    // 事故认损挂号路）unlinkAdjustment 内部 no-op。
+    await this.dispositions.unlinkAdjustment(adjustmentNo);
   }
 
   /**

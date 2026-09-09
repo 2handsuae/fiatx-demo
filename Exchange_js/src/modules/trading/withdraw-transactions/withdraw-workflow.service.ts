@@ -71,6 +71,7 @@ import { resolveKytTxnType } from '../../deposit-sumsub/kyt-txn-type.resolver';
 import { WithdrawApplicantActionsService } from './withdraw-applicant-actions.service';
 import { SupplementEvidenceService } from '../../clearing-settle/reconciliation/disposition/supplement-evidence.service';
 import { DispositionService as ReconDispositionService } from '../../clearing-settle/reconciliation/disposition/disposition.service';
+import type { CauseCode } from '../../clearing-settle/reconciliation/disposition/cause-registry';
 
 /**
  * Payload of `funds_order.status.changed` — emitted by FundsOrderService on
@@ -1907,9 +1908,34 @@ export class WithdrawWorkflowService implements OnModuleInit {
     }
   }
 
+  /**
+   * 写端翻转（Task 3）：与 initiateSupplement 同构（inbound-transfer-signals.service.ts
+   * 那份注释有完整论证，这里不重复）——已有定性（dispositionNo）照旧直通；无定性但带了
+   * causeCode+findingNote 则先落一条 outlet=SUPPLEMENT 的定性；两者都没有则 400。
+   */
+  private async resolveReturnClaimDispositionNo(
+    dto: { caseNo: string; externalLineId: string; dispositionNo?: string; causeCode?: CauseCode; findingNote?: string },
+    actor: ApprovalActorContext,
+  ): Promise<string> {
+    if (dto.dispositionNo) return dto.dispositionNo;
+    if (!dto.causeCode || !dto.findingNote) {
+      throw new BadRequestException('A finding must already be recorded for this statement line (dispositionNo), or provide causeCode + findingNote to record one now');
+    }
+    const recorded = await this.reconDisposition.record({
+      caseNo: dto.caseNo, explainedExternalLineId: dto.externalLineId,
+      matchType: 'ORPHAN_EXTERNAL', causeCode: dto.causeCode, disposition: 'SUPPLEMENT', findingNote: dto.findingNote,
+    }, actor);
+    return recorded.dispositionNo;
+  }
+
   // ═══ 平账 B 批③：出款成功后被银行退回的认领（spec §5）═══════════════════════
-  async initiateReturnClaim(withdrawNo: string, dto: { externalLineId: string; caseNo: string; dispositionNo: string; reason: string }, actor: ApprovalActorContext) {
-    const line = await this.supplementEvidence.assertClaimable({ caseNo: dto.caseNo, externalLineId: dto.externalLineId, dispositionNo: dto.dispositionNo, kind: 'SUPPLEMENT_PAYOUT_RETURN' });
+  async initiateReturnClaim(
+    withdrawNo: string,
+    dto: { externalLineId: string; caseNo: string; dispositionNo?: string; causeCode?: CauseCode; findingNote?: string; reason: string },
+    actor: ApprovalActorContext,
+  ) {
+    const dispositionNo = await this.resolveReturnClaimDispositionNo(dto, actor);
+    const line = await this.supplementEvidence.assertClaimable({ caseNo: dto.caseNo, externalLineId: dto.externalLineId, dispositionNo, kind: 'SUPPLEMENT_PAYOUT_RETURN' });
     const w = await this.withdrawService.findByNo(withdrawNo);
     if (!w) throw new NotFoundException(`Withdrawal ${withdrawNo} does not exist`);
     if (w.status !== WithdrawTransactionStatus.SUCCESS) throw new BadRequestException(`Withdrawal ${withdrawNo} is not SUCCESS — an in-flight payout return goes through the existing bounce flow`);

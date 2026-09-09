@@ -54,14 +54,15 @@ import ReconciliationAdjustmentCreateModal, {
   type AdjustmentPrefill,
   type AdjustmentLocked,
 } from '../components/ReconciliationAdjustmentCreateModal';
-import ReconciliationDispositionModal, {
-  type AdjustHandoff,
-} from '../components/ReconciliationDispositionModal';
 import ReconciliationSupplementModal from '../components/ReconciliationSupplementModal';
+import ReconciliationHoldModal, {
+  type DispositionRecordResult,
+} from '../components/ReconciliationHoldModal';
 import InternalTransferInitiateModal from '../components/InternalTransferInitiateModal';
 import { useAdminSession } from '../contexts/AdminSessionContext';
 import { PERMISSIONS } from '../rbac/permissions';
-import { OUTLET_TONE, directionNoteFor } from '../utils/causeRegistry';
+import { OUTLET_TONE, directionNoteFor, rowFacts } from '../utils/causeRegistry';
+import { adminButtonClass } from '../components/common/adminButtonStyles';
 
 /* ── Types ──────────────────────────────────────────────────── */
 
@@ -95,7 +96,7 @@ interface FlowInternalSide {
   sourceNo: string;
 }
 
-// Exported — T8 (平账一期半) 前端复用件（causeRegistry.ts / ReconciliationDispositionModal.tsx）
+// Exported — T8 (平账一期半) 前端复用件（causeRegistry.ts / ReconciliationHoldModal.tsx）
 // 从这里 import type，而不是另建一份镜像类型（页面现状即唯一真相的最小改法，见 T8 brief）。
 export interface FlowComparisonRow {
   externalLine: FlowExternalSide | null;
@@ -127,7 +128,13 @@ export interface FlowComparisonRow {
     incidentNo?: string | null;
   } | null;
   duplicateTwinRef?: string | null;
-  menu?: Array<{ code: string; label: string; clue: string; outletLabel: string }>;
+  // Task 5（读面翻转）取代旧的一格一份平铺成因菜单 `menu`（本任务起不再下发）：
+  // 这一格（matchType × book）当下合法的处置清单，按处置分组，组内带该处置在这
+  // 一格可选的成因——Task 7 差异行按钮组 + 挂起弹窗的唯一数据源。
+  dispositions?: Array<{
+    kind: string; label: string;
+    causes: Array<{ code: string; label: string; clue: string }>;
+  }>;
   // 平账 A 批（spec §2.6）：超期后的下一步（服务端判）
   nextStep?: {
     kind: 'WRITE_OFF' | 'INCIDENT_DEFERRED' | 'CLIENT_SURPLUS' | 'COMPENSATION' | 'ADVANCE';
@@ -342,10 +349,25 @@ const rowAdjustmentPrefill = (row: FlowComparisonRow): AdjustmentPrefill => {
   return { amountMinor: ext?.amount ?? intl?.amount ?? '0', direction: '', relatedOrderNo: '', ...anchors };
 };
 
-// T9：处置弹层交回（或「开单」按钮重放定性后）的 ADJUST 结论 → 调账弹层的锁定态。
-// 改记族（REATTRIBUTE）额外拼一个候选查询路径——side 由行的 matchType 决定
-// （ORPHAN_INTERNAL=我有外无=错记方=FROM，其余=正主方=TO，与
-// disposition.service.ts listReattributionCandidates 的约定同源）；amount 用同一份
+// Task 7（差异行按钮组）：记完一条定性 → 调账弹层锁定态所需的最小信息。取代旧的
+// 两屏处置弹层（ReconciliationDispositionModal，已断线，Task 13 已删文件）导出的同形
+// AdjustHandoff 类型——本页不再引用那个文件。
+interface AdjustHandoff {
+  dispositionNo: string;
+  // Task 13：CORRECT/REVERSE/RECORD 三族已不经这个类型（Task 8 起改走 kind 模式，见
+  // openAdjustKind）；本页唯一的 buildAdjustLocked 调用点只传 'REATTRIBUTE'，
+  // 'WRITE_OFF' 走 openWriteOff 直接拼 AdjustmentLocked、不经这个类型（两个成员都留着
+  // 是给 buildAdjustLocked 这个通用小函数的类型面，不是说它俩当下各有一处真调用）。
+  family: 'REATTRIBUTE' | 'WRITE_OFF';
+  reasonCode?: string;
+  direction?: 'REDUCE' | 'INCREASE';
+  directionNote: string;
+  row: FlowComparisonRow;
+}
+
+// T9：处置结论 → 调账弹层的锁定态。改记族（REATTRIBUTE）额外拼一个候选查询路径——
+// side 由行的 matchType 决定（ORPHAN_INTERNAL=我有外无=错记方=FROM，其余=正主方=TO，
+// 与 disposition.service.ts listReattributionCandidates 的约定同源）；amount 用同一份
 // rowAdjustmentPrefill 算出的金额——与调账弹层最终提交给后端的金额同一个数，
 // 避免「查候选用一个数、开单用另一个数」两处各算一遍出现分歧。
 const buildAdjustLocked = (handoff: AdjustHandoff, currentCaseNo: string): AdjustmentLocked => {
@@ -389,10 +411,6 @@ export const MATCH_LABEL: Record<FlowMatchType, string> = {
   ORPHAN_EXTERNAL: 'External only',
   AMOUNT_MISMATCH: 'Mismatch',
 };
-
-// 平账 B 批（Task 9）：SUPPLEMENT 出口按 deferredTarget 给按钮文案——三路一个弹层，
-// 按钮词区分去向，弹层内部再按 kind 切表单。共享动作词表（Task 8 环境说明）逐词抄。
-const SUPPLEMENT_ACTION_LABEL: Record<string, string> = { SUPPLEMENT_DEPOSIT: 'Record missed deposit', SUPPLEMENT_BOUNCE: 'Claim recall', SUPPLEMENT_PAYOUT_RETURN: 'Claim return' };
 
 // Task 8（Account 节）：科目码 → 人话短语，缺映射不算错——原码原样显示，且始终把
 // 原码放 title（既给了兜底文本，也给了可核对的原始值）。Task 15：导出给 Cases 列表页
@@ -545,6 +563,154 @@ const CaseHistory = ({ kase, agingReferenceMs }: { kase: ReconCaseDetail; agingR
   );
 };
 
+// Task 7（差异行按钮组）：CORRECT/REVERSE/RECORD/REATTRIBUTE/SUPPLEMENT/INCIDENT
+// 六个非挂起处置共用的「选成因 + 查证说明」小弹层——取代旧两屏处置弹层
+// （ReconciliationDispositionModal，已断线、读 row.menu 这个死字段，Task 13 已删文件）
+// 的第一屏，数据源换成 row.dispositions（Task 5 读面）。不导出、不另开文件：
+// 与 HOLD_NEXT_PERIOD/HOLD_INVESTIGATING 两个挂起 kind 用的
+// ReconciliationHoldModal 结构相近但提交后的下一步完全不同（挂起是终态，这六个
+// 都要接力到别处——调账弹层 / 补单弹层 / 事故登记），拆开两个组件比硬塞一个通用
+// kind 联合类型更不容易读错。
+interface DispositionFindingModalProps {
+  open: boolean;
+  caseNo: string;
+  row: FlowComparisonRow | null;
+  kind: string;
+  label: string;
+  onClose: () => void;
+  onRecorded: (result: DispositionRecordResult, findingNote: string) => void;
+}
+
+const DispositionFindingModal = ({ open, caseNo, row, kind, label, onClose, onRecorded }: DispositionFindingModalProps) => {
+  const [causeCode, setCauseCode] = useState('');
+  const [otherReason, setOtherReason] = useState('');
+  const [note, setNote] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState('');
+
+  const causes = row?.dispositions?.find((d) => d.kind === kind)?.causes ?? [];
+
+  useEffect(() => {
+    if (!open) return;
+    setCauseCode(causes.length === 1 ? causes[0].code : '');
+    setOtherReason('');
+    setNote('');
+    setError('');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, row, kind]);
+
+  if (!open || !row) return null;
+  const isOther = causeCode === 'OTHER';
+  const canSubmit = !!causeCode && note.trim().length > 0 && (!isOther || otherReason.trim().length > 0);
+
+  const submit = async () => {
+    if (!canSubmit) return;
+    setSubmitting(true);
+    setError('');
+    try {
+      const findingNote = isOther ? `Other: ${otherReason.trim()}\n${note.trim()}` : note.trim();
+      const res = await adminFetch(
+        `${import.meta.env.VITE_API_URL}/admin/reconciliation/cases/${encodeURIComponent(caseNo)}/dispositions`,
+        {
+          method: 'POST',
+          body: JSON.stringify({
+            matchType: row.matchType,
+            explainedFlowId: row.internalFlow?.id,
+            explainedExternalLineId: row.externalLine?.id,
+            causeCode,
+            disposition: kind,
+            findingNote,
+            ...rowFacts(row),
+          }),
+        },
+      );
+      if (!res.ok) {
+        throw new Error(await getApiErrorMessage(res, 'Failed to record finding.'));
+      }
+      const result = (await res.json()) as DispositionRecordResult;
+      onRecorded(result, findingNote);
+    } catch (e) {
+      if (e instanceof AdminSessionError) throw e;
+      setError(e instanceof Error ? e.message : 'Failed to record finding.');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={onClose}>
+      <div
+        className="w-[520px] max-h-[80vh] overflow-y-auto rounded-lg border border-adm-border bg-adm-panel p-5"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <h3 className="mb-1 text-sm font-semibold text-adm-t1">{label} · What caused this difference?</h3>
+        <p className="mb-3 font-mono text-[11px] text-adm-t3">{caseNo}</p>
+
+        <div className="space-y-1.5">
+          {causes.map((c) => (
+            <label
+              key={c.code}
+              className={`flex cursor-pointer items-start gap-2 rounded border p-2 text-xs ${
+                causeCode === c.code ? 'border-adm-blue/50 bg-adm-blue/10' : 'border-adm-border'
+              }`}
+            >
+              <input
+                type="radio"
+                name="finding-cause"
+                checked={causeCode === c.code}
+                onChange={() => setCauseCode(c.code)}
+                className="mt-0.5"
+              />
+              <span className="flex-1">
+                <span className="text-adm-t1">{c.label}</span>
+                <div className="mt-0.5 text-[11px] text-adm-t3">Clue: {c.clue}</div>
+              </span>
+            </label>
+          ))}
+        </div>
+
+        {isOther && (
+          <div className="mt-3">
+            <label className="mb-1 block text-[11px] text-adm-t3">Describe the cause (required for Other)</label>
+            <textarea
+              value={otherReason}
+              onChange={(e) => setOtherReason(e.target.value)}
+              rows={2}
+              className="w-full rounded border border-adm-border bg-adm-bg p-2 text-xs text-adm-t1"
+            />
+          </div>
+        )}
+
+        <div className="mt-3">
+          <label className="mb-1 block text-[11px] text-adm-t3">Finding note (required — describe what was checked and the basis for the conclusion)</label>
+          <textarea
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+            rows={3}
+            className="w-full rounded border border-adm-border bg-adm-bg p-2 text-xs text-adm-t1"
+          />
+        </div>
+
+        {error && <p className="mt-2 text-xs text-adm-red">{error}</p>}
+
+        <div className="mt-4 flex justify-end gap-2">
+          <button type="button" onClick={onClose} className={adminButtonClass('modalCancel')}>
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={() => void submit()}
+            disabled={!canSubmit || submitting}
+            className={adminButtonClass('modalConfirm')}
+          >
+            {submitting ? 'Submitting…' : 'Continue'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 /* ── Page Component ─────────────────────────────────────────── */
 
 const ReconciliationCasesDetailPage = () => {
@@ -565,6 +731,8 @@ const ReconciliationCasesDetailPage = () => {
   const canFundClient = hasAnyPermission([PERMISSIONS.INTERNAL_TRANSFER_COMPENSATION_WRITE, PERMISSIONS.INTERNAL_TRANSFER_ADVANCE_WRITE]);
   // 平账三期（Task 12）：案件页三入口共用——登记事故写权。
   const canRegisterIncident = hasPermission(PERMISSIONS.INCIDENT_WRITE);
+  // Task 7 承接①：Re-reconcile 此前无权限门（OPS 点了 403）——与后端端点一致的门控。
+  const canReReconcile = hasPermission(PERMISSIONS.RECON_RUN_WRITE);
   const [fundingRow, setFundingRow] = useState<FlowComparisonRow | null>(null);
   const [searchParams] = useSearchParams();
   const [kase, setKase] = useState<ReconCaseDetail | null>(null);
@@ -578,10 +746,20 @@ const ReconciliationCasesDetailPage = () => {
   const [createPrefill, setCreatePrefill] = useState<AdjustmentPrefill | null>(null);
   // T9：调账弹层的锁定态——非 null 时弹层渲染锁定视图（成因/方向只读，改记额外
   // 换对端确认屏）；与 createPrefill 成对开关（弹层用哪套字段預填不受它是否为
-  // null 影响，锁定态只决定「能不能改」）。
+  // null 影响，锁定态只决定「能不能改」）。REATTRIBUTE/WRITE_OFF 两族用它。
   const [adjustLocked, setAdjustLocked] = useState<AdjustmentLocked | null>(null);
-  // T8: 处置弹层——null = 关闭；非 null = 打开且带着被点击的那一行。
-  const [dispositionRow, setDispositionRow] = useState<FlowComparisonRow | null>(null);
+  // Task 8（调账四族一窗到底）：CORRECT/REVERSE/RECORD 三族的「按处置进入」态——
+  // 点差异行按钮直接带 kind+row 开调账弹层，不再先记一遍定性（拆两段流，交接清单
+  // ①）。与 createPrefill 成对开关，和 adjustLocked 互斥（一次只会有一个非 null）。
+  const [adjustKind, setAdjustKind] = useState<{ kind: 'CORRECT' | 'REVERSE' | 'RECORD'; row: FlowComparisonRow } | null>(null);
+  // Task 7（差异行按钮组）：REATTRIBUTE/SUPPLEMENT/INCIDENT 共用的「选成因 + 查证
+  // 说明」小弹层——null = 关闭；非 null = 打开且带着被点击的那一行 + 那一个处置种类。
+  // CORRECT/REVERSE/RECORD 从 Task 8 起不再经这一步（见 adjustKind），三族原子提交
+  // 直连调账弹层。取代旧两屏处置弹层的入口（ReconciliationDispositionModal 已断线，
+  // Task 13 已删文件）。
+  const [findingPicker, setFindingPicker] = useState<{ row: FlowComparisonRow; kind: string; label: string } | null>(null);
+  // Task 7：挂起两弹窗（Hold · Next period / Hold · Investigating）共用一个组件，按 kind 切。
+  const [holdPicker, setHoldPicker] = useState<{ row: FlowComparisonRow; kind: 'HOLD_NEXT_PERIOD' | 'HOLD_INVESTIGATING' } | null>(null);
   // 平账 B 批（Task 9）：补单弹层——null = 关闭；非 null = 打开且带着被点击的那一行。
   const [supplementRow, setSupplementRow] = useState<FlowComparisonRow | null>(null);
   // 平账 A 批（spec §2.4）：⚡拨钟——只在模拟模式下出现；已超期 / 已结案就不再需要它。
@@ -591,22 +769,29 @@ const ReconciliationCasesDetailPage = () => {
 
   const tableRef = useRef<HTMLTableElement | null>(null);
 
-  const fetchCase = async () => {
-    if (!caseNo) return;
+  // Task 7: 返回刚拉到的案件（不只是 setKase）——handleFindingRecorded 的
+  // SUPPLEMENT 分支需要刷新后「这一行」的最新 disposition.dispositionNo 才能
+  // 接着开补单弹层（该弹层认 row.disposition.dispositionNo，见 T9 既有约定），
+  // React state 更新是异步的，闭包里的 kase 变量等不到；直接用返回值找那一行。
+  const fetchCase = async (): Promise<ReconCaseDetail | null> => {
+    if (!caseNo) return null;
     setLoading(true);
     try {
       const res = await adminFetch(
         `${import.meta.env.VITE_API_URL}/admin/reconciliation/cases/${encodeURIComponent(caseNo)}`,
       );
       if (res.ok) {
-        setKase((await res.json()) as ReconCaseDetail);
-      } else {
-        alert(await getApiErrorMessage(res, 'Failed to load reconciliation case'));
-        navigate('/admin/reconciliation/cases');
+        const data = (await res.json()) as ReconCaseDetail;
+        setKase(data);
+        return data;
       }
+      alert(await getApiErrorMessage(res, 'Failed to load reconciliation case'));
+      navigate('/admin/reconciliation/cases');
+      return null;
     } catch (error) {
-      if (error instanceof AdminSessionError) return;
+      if (error instanceof AdminSessionError) return null;
       console.error('Failed to fetch reconciliation case', error);
+      return null;
     } finally {
       setLoading(false);
     }
@@ -655,45 +840,99 @@ const ReconciliationCasesDetailPage = () => {
   const handleAdjustmentCreated = (adjustmentNo: string) => {
     setCreatePrefill(null);
     setAdjustLocked(null);
+    setAdjustKind(null); // Task 8：kind 模式也走这条收尾，成对清空
     navigate(`/admin/reconciliation/adjustments/${encodeURIComponent(adjustmentNo)}`);
   };
 
-  // T9：已定性、出口是 ADJUST 但还没挂调账单的行——「开单」直接用读面随行下发的
-  // family/reasonCode/direction 组锁定态，不发任何请求。
-  //
-  // 为什么不重放一次 POST /dispositions 换回这三个字段（初版就是那么写的）：
-  // 那个端点要 RECON_DISPOSITION_WRITE（定性写权，归运营），而「开单」是金库的
-  // 动作、只有 RECON_ADJUSTMENT_WRITE——本仓没有任何角色两者兼有，金库点必 403，
-  // 两人制在这一步就断了。而且重放会把一个只读动作变成写动作：upsert 会重记一条
-  // RECON_DISPOSITION_RECORDED 审计。判定逻辑仍只有后端 cause-registry.ts 一处，
-  // 前端不反推——三个字段是后端 resolveOutlet 算好随 disposition 注解发下来的。
-  const openAdjustFromDisposition = (row: FlowComparisonRow) => {
-    if (!row.disposition || !kase) return;
+  // Task 8（调账四族一窗到底）：CORRECT/REVERSE/RECORD 三族点按钮直接开调账弹层的
+  // kind 模式——不经 findingPicker/DispositionFindingModal，不预先 POST
+  // /dispositions（拆两段流，交接清单①）。弹层一次提交走原子端点：body 里带
+  // causeCode/findingNote/disposition + 行事实（modal 内部拼装，见
+  // ReconciliationAdjustmentCreateModal.tsx submit()），后端 createDraft 先落定性、
+  // 再开单、再挂号（Task 3 已建）。若这一行早已有未挂单的定性（旧数据/被取消的），
+  // 后端沿用 heldDispositionNo 路径覆盖——前端无需特判（交接清单⑤）。
+  const openAdjustKind = (row: FlowComparisonRow, kind: 'CORRECT' | 'REVERSE' | 'RECORD') => {
     setCreatePrefill(rowAdjustmentPrefill(row));
-    setAdjustLocked(buildAdjustLocked(
-      {
-        dispositionNo: row.disposition.dispositionNo,
-        family: row.disposition.family!, // ADJUST_* 出口的 family 由后端 resolveOutlet 保证必有
-        reasonCode: row.disposition.reasonCode,
-        direction: row.disposition.direction,
-        directionNote: directionNoteFor(row.matchType), row,
-      },
-      kase.caseNo,
-    ));
+    setAdjustLocked(null);
+    setAdjustKind({ kind, row });
   };
 
-  // T9：处置弹层交回的 ADJUST 类结论——关掉处置弹层，带着锁定态打开调账弹层。
-  const handleAdjustHandoff = (handoff: AdjustHandoff) => {
+  // Task 7（差异行按钮组）：DispositionFindingModal 记完一条定性后交回——按 kind 分流：
+  //   REATTRIBUTE → 开既有调账弹层，走锁定视图（改记族的 reasonCode 恒为
+  //     CUSTOMER_REATTRIBUTION，不随成因变化，前端可直接给定，不需要后端回传）。
+  //   SUPPLEMENT → 刷新案件后直接开既有补单弹层（ReconciliationSupplementModal，
+  //     Task 9）——那个弹层认 row.disposition.dispositionNo，必须用刷新后的最新行
+  //     （旧的 row 闭包变量此刻还没有这个号），按 explainedFlowId/explainedExternalLineId
+  //     锚在新拉回的 flowComparison 里把它找回来。
+  //   INCIDENT → 直接跳转事故登记（带上刚落库的 dispositionNo），不再要求二次点击。
+  // CORRECT/REVERSE/RECORD 从 Task 8 起不再经这个函数——按钮 onClick 直接调
+  // openAdjustKind（见下方渲染处），不再预记一遍定性。
+  // 评审修复（Minor-2）：kind 在这里窄化成字面量联合，配底部的穷尽收口——
+  // findingPicker.kind／DispositionFindingModalProps.kind 仍是 string 不变（同一处
+  // 已有取舍，见上方组件注释「更不容易读错」，不在那处引入联合类型），只在这个
+  // 函数的入参收口，调用处相应加一个 as 断言。
+  type FindingKind = 'REATTRIBUTE' | 'SUPPLEMENT' | 'INCIDENT';
+  const handleFindingRecorded = async (
+    row: FlowComparisonRow,
+    kind: FindingKind,
+    result: DispositionRecordResult,
+    findingNote: string,
+  ) => {
+    setFindingPicker(null);
     if (!kase) return;
-    setDispositionRow(null);
-    setCreatePrefill(rowAdjustmentPrefill(handoff.row));
-    setAdjustLocked(buildAdjustLocked(handoff, kase.caseNo));
+    if (kind === 'REATTRIBUTE') {
+      setCreatePrefill(rowAdjustmentPrefill(row));
+      setAdjustLocked(buildAdjustLocked(
+        { dispositionNo: result.dispositionNo, family: 'REATTRIBUTE', reasonCode: 'CUSTOMER_REATTRIBUTION', direction: undefined, directionNote: directionNoteFor(row.matchType), row },
+        kase.caseNo,
+      ));
+      // Task 8 交接④（Task 7 评审修复漏的兄弟缺口）：定性已经落库，锁定视图弹层已经
+      // 同步打开——这里不 await，后台刷新 kase.flowComparison，行上的「Finding: ...」
+      // 结论 chip 与解锁的 nextStep 才不会停在刷新前的旧快照（同 CORRECT/REVERSE/
+      // RECORD 三族此前的既有修复同一处境，此前只补了那三族、漏了 REATTRIBUTE）。
+      void fetchCase();
+      return;
+    }
+    if (kind === 'SUPPLEMENT') {
+      const fresh = await fetchCase();
+      const freshRow = fresh?.flowComparison?.find((r) =>
+        (row.internalFlow?.id && r.internalFlow?.id === row.internalFlow.id)
+        || (row.externalLine?.id && r.externalLine?.id === row.externalLine.id));
+      if (freshRow) setSupplementRow(freshRow);
+      return;
+    }
+    if (kind === 'INCIDENT') {
+      navigate(buildIncidentHref({
+        type: 'UNAUTHORIZED_OUTFLOW',
+        sourceCaseNo: kase.caseNo,
+        sourceDispositionNo: result.dispositionNo,
+        customerNo: kase.ownerNo,
+        assetCode: kase.assetCode,
+        amount: minorToMajorPlain(row.externalLine?.amount ?? row.internalFlow?.amount, kase.decimals),
+        title: `Unauthorized outflow · case ${kase.caseNo}`,
+        description: `Wallet ${kase.walletNo ?? '—'} shows an unauthorized outflow, statement line reference ${row.externalLine?.externalRef ?? '—'}, `
+          + `amount ${minorToMajorPlain(row.externalLine?.amount ?? row.internalFlow?.amount, kase.decimals)} ${kase.assetCode}. `
+          + `Finding: ${findingNote}`,
+      }));
+      return;
+    }
+    // 穷尽收口（评审 Minor-2，对齐后端 cause-registry.ts 的 _exhaustive: never 风格）：
+    // 上面两支已经覆盖 FindingKind 全部 3 个值（Task 8 起 CORRECT/REVERSE/RECORD
+    // 不再经这个函数，见 openAdjustKind）；新增第 4 个 kind 时这里编译期报红。
+    const _exhaustive: never = kind;
+    throw new Error(`Unknown finding kind: ${_exhaustive}`);
   };
 
   // 平账 A 批：核销——用读面算好的 nextStep 四项预填，锁定视图（成因固定、方向 / 金额 / 生效日只读）。
+  // 平账处置改版 Task 10：source 判定 = 行上 disposition.incidentNo 是否非空——
+  // 非空说明这一步的解锁走的是事故定损（读面 reconciliation-query.service.ts
+  // 的事故判定块，见 :583），不是账龄超期（同一份判据前端不重算，只读行上已有
+  // 的字段）。incidentNo/assessedDisplay 只在事故来源时给值，供锁定视图前提区
+  // （M12）展示；账龄来源两个字段留空，锁定视图走既有四前提文案（M10/M11）。
   const openWriteOff = (row: FlowComparisonRow) => {
     if (!kase || !row.disposition || row.nextStep?.kind !== 'WRITE_OFF') return;
     const ns = row.nextStep;
+    const incidentNo = row.disposition.incidentNo ?? undefined;
     setCreatePrefill({
       amountMinor: ns.amount ?? '0', direction: ns.direction ?? '', relatedOrderNo: '',
       explainedFlowId: row.internalFlow?.id, explainedExternalLineId: row.externalLine?.id,
@@ -702,7 +941,12 @@ const ReconciliationCasesDetailPage = () => {
       dispositionNo: row.disposition.dispositionNo,
       family: 'WRITE_OFF', reasonCode: ns.reasonCode, direction: ns.direction,
       directionNote: `Direction makes internal equal external — ${directionNoteFor(row.matchType)}`,
-      writeOff: { findingNote: row.disposition.findingNote },
+      writeOff: {
+        findingNote: row.disposition.findingNote,
+        source: incidentNo ? 'INCIDENT' : 'AGING',
+        incidentNo,
+        assessedDisplay: incidentNo ? `${formatAmount(ns.amount, kase.decimals)} ${kase.assetCode}` : undefined,
+      },
     });
   };
 
@@ -1240,49 +1484,74 @@ const ReconciliationCasesDetailPage = () => {
                               ) : (
                                 <span className="text-[10px] text-adm-t3">In-transit · no funds order</span>
                               )
-                            ) : row.disposition ? (
-                              // ④ 已定性——查证结论已经落库；出口是 ADJUST 且还没挂单时，
-                              // 额外给「开单」入口（同样按权限 + 案件 OPEN 门控整个按钮）。
-                              // 徽标文案 "Finding: X → Y" 逐字对齐 design/Main.dc.html §4
-                              // Row B 的既有词汇（该行是设计稿唯一给出的已定性视觉参照）。
-                              <div className="flex flex-col gap-1">
-                                <span
-                                  title={row.disposition.findingNote}
-                                  className={[
-                                    // 与设计稿同款 max-width 换行（design/Main.dc.html §4
-                                    // Row B 该徽标就带 max-width: 230px）——不用 nowrap，
-                                    // 否则长成因/长操作者名会把 250px 定宽的 Disposition
-                                    // 列撑宽，Differences 表就横滚了（治横滚是本任务判据）。
-                                    'inline-flex max-w-[220px] items-start gap-1 rounded border px-1.5 py-0.5 font-mono text-[10px] leading-snug',
-                                    TONE_CLASSES[OUTLET_TONE[row.disposition.outlet]].border,
-                                    TONE_CLASSES[OUTLET_TONE[row.disposition.outlet]].bg,
-                                    TONE_CLASSES[OUTLET_TONE[row.disposition.outlet]].text,
-                                  ].join(' ')}
-                                >
-                                  Finding: {row.disposition.causeLabel} → {row.disposition.outletLabel} · {row.disposition.createdBy} {row.disposition.createdAt.slice(5, 10)}
-                                </span>
-                                {row.disposition.outlet.startsWith('ADJUST') && !row.disposition.adjustmentNo
-                                  && canCreateAdjustment && kase.status === 'OPEN' && (
-                                  <button
-                                    type="button"
-                                    onClick={() => openAdjustFromDisposition(row)}
-                                    className="inline-flex items-center gap-1 whitespace-nowrap font-mono text-[10px] font-medium text-adm-blue hover:underline"
+                            ) : (
+                              // ④/⑤/⑥ 统一渲染（Task 7 差异行按钮组，取代旧的「已定性 vs
+                              // 未定性」两分支）：结论 chip（如有）+ 处置按钮组（未锁定时）。
+                              // 覆盖/重定语义——挂起是临时状态：已定性也照样给全套按钮，
+                              // 再点一次就是换一个结论（承接④）。锁定 = 行上已经挂着一张
+                              // 走不掉的单（调账单 / 补单）——那条单号本身就是唯一出口，
+                              // 不该再给别的按钮制造「两条并行结论」的假象；未挂单（含
+                              // 从未定性）都不锁。按钮词 = 后端下发的 label（row.dispositions，
+                              // Task 5 读面），不前端另编。
+                              <div className="flex flex-col gap-1.5">
+                                {row.disposition && (
+                                  <span
+                                    title={row.disposition.findingNote}
+                                    className={[
+                                      // 与设计稿同款 max-width 换行（design/Main.dc.html §4
+                                      // Row B 该徽标就带 max-width: 230px）——不用 nowrap，
+                                      // 否则长成因/长操作者名会把 250px 定宽的 Disposition
+                                      // 列撑宽，Differences 表就横滚了（治横滚是本任务判据）。
+                                      'inline-flex max-w-[220px] items-start gap-1 rounded border px-1.5 py-0.5 font-mono text-[10px] leading-snug',
+                                      TONE_CLASSES[OUTLET_TONE[row.disposition.outlet]].border,
+                                      TONE_CLASSES[OUTLET_TONE[row.disposition.outlet]].bg,
+                                      TONE_CLASSES[OUTLET_TONE[row.disposition.outlet]].text,
+                                    ].join(' ')}
                                   >
-                                    <Plus size={10} />
-                                    Open adjustment
-                                  </button>
+                                    Finding: {row.disposition.causeLabel} → {row.disposition.outletLabel} · {row.disposition.createdBy} {row.disposition.createdAt.slice(5, 10)}
+                                  </span>
                                 )}
-                                {row.disposition.outlet === 'SUPPLEMENT' && !row.disposition.supplementNo && canSupplement && kase.status === 'OPEN' && row.nextStep?.kind !== 'ADVANCE' && (
-                                  <button
-                                    type="button"
-                                    onClick={() => setSupplementRow(row)}
-                                    className="inline-flex items-center gap-1 whitespace-nowrap font-mono text-[10px] font-medium text-adm-blue hover:underline"
-                                  >
-                                    <Plus size={10} />
-                                    {SUPPLEMENT_ACTION_LABEL[row.disposition.deferredTarget ?? ''] ?? 'Start supplement'}
-                                  </button>
+
+                                {!(row.disposition?.adjustmentNo || row.disposition?.supplementNo)
+                                  && kase.status === 'OPEN' && canRecordDisposition && (row.dispositions?.length ?? 0) > 0 && (
+                                  <div className="flex flex-wrap gap-1">
+                                    {row.dispositions!.map((d) => {
+                                      const isHold = d.kind === 'HOLD_NEXT_PERIOD' || d.kind === 'HOLD_INVESTIGATING';
+                                      // 每个处置种类跟进动作各自的写权限——按钮组本身已被
+                                      // canRecordDisposition 整体门控，这里只筛后续动作走
+                                      // 不通的那几种（同既有 canCreateAdjustment/canSupplement/
+                                      // canRegisterIncident 三个变量的既有约定，不新开权限口径）。
+                                      const allowed = d.kind === 'SUPPLEMENT' ? canSupplement
+                                        : d.kind === 'INCIDENT' ? canRegisterIncident
+                                        : isHold ? true
+                                        : canCreateAdjustment; // CORRECT/REVERSE/RECORD/REATTRIBUTE
+                                      if (!allowed) return null;
+                                      const tone: 'amber' | 'red' | 'blue' = d.kind === 'INCIDENT' ? 'red' : isHold || d.kind === 'SUPPLEMENT' ? 'amber' : 'blue';
+                                      return (
+                                        <button
+                                          key={d.kind}
+                                          type="button"
+                                          onClick={() => {
+                                            if (isHold) setHoldPicker({ row, kind: d.kind as 'HOLD_NEXT_PERIOD' | 'HOLD_INVESTIGATING' });
+                                            // Task 8：CORRECT/REVERSE/RECORD 三族原子一窗——直接开调账
+                                            // 弹层的 kind 模式，不再先记一遍定性（拆两段流）。
+                                            else if (d.kind === 'CORRECT' || d.kind === 'REVERSE' || d.kind === 'RECORD') openAdjustKind(row, d.kind);
+                                            else setFindingPicker({ row, kind: d.kind, label: d.label });
+                                          }}
+                                          className={[
+                                            'inline-flex items-center gap-1 whitespace-nowrap rounded border px-1.5 py-0.5 font-mono text-[10px] font-medium',
+                                            TONE_CLASSES[tone].border, TONE_CLASSES[tone].bg, TONE_CLASSES[tone].text,
+                                          ].join(' ')}
+                                        >
+                                          <PenLine size={9} />
+                                          {d.label}
+                                        </button>
+                                      );
+                                    })}
+                                  </div>
                                 )}
-                                {row.disposition.outlet === 'SUPPLEMENT' && row.disposition.supplementNo && (
+
+                                {row.disposition?.outlet === 'SUPPLEMENT' && row.disposition.supplementNo && (
                                   <span className="max-w-[220px] font-mono text-[10px] text-adm-t2">
                                     Transferred ·{' '}
                                     {row.disposition.supplementRef?.kind === 'DEPOSIT' && row.disposition.supplementRef.id
@@ -1292,42 +1561,16 @@ const ReconciliationCasesDetailPage = () => {
                                         : <span>{row.disposition.supplementNo} (Pending CFO review)</span>}
                                   </span>
                                 )}
+
                                 {/* Recon phase 3 (Task 12): outlet = INCIDENT
-                                    (unauthorized outflow) — not yet registered
-                                    shows a "Register incident" button (prefilled
-                                    type/wallet/customer/amount/case no/statement
-                                    line reference, opens the new-incident form);
-                                    once registered it becomes a clickable badge
-                                    to the incident detail. One row maps to one
-                                    incident — doesn't check the case-level
-                                    kase.incidents list. */}
-                                {row.disposition.outlet === 'INCIDENT' && (
-                                  row.disposition.incidentNo ? (
-                                    <IncidentBadge incidentNo={row.disposition.incidentNo} />
-                                  ) : canRegisterIncident && kase.status === 'OPEN' ? (
-                                    <button
-                                      type="button"
-                                      onClick={() => navigate(buildIncidentHref({
-                                        type: 'UNAUTHORIZED_OUTFLOW',
-                                        sourceCaseNo: kase.caseNo,
-                                        sourceDispositionNo: row.disposition!.dispositionNo,
-                                        customerNo: kase.ownerNo,
-                                        assetCode: kase.assetCode,
-                                        amount: minorToMajorPlain(row.externalLine?.amount ?? row.internalFlow?.amount, kase.decimals),
-                                        title: `Unauthorized outflow · case ${kase.caseNo}`,
-                                        description: `Wallet ${kase.walletNo ?? '—'} shows an unauthorized outflow, statement line reference ${row.externalLine?.externalRef ?? '—'}, `
-                                          + `amount ${minorToMajorPlain(row.externalLine?.amount ?? row.internalFlow?.amount, kase.decimals)} ${kase.assetCode}. `
-                                          + `Finding: ${row.disposition!.findingNote}`,
-                                      }))}
-                                      className="inline-flex items-center gap-1 whitespace-nowrap font-mono text-[10px] font-medium text-adm-red hover:underline"
-                                    >
-                                      <Plus size={10} />
-                                      Register incident
-                                    </button>
-                                  ) : (
-                                    <span className="whitespace-nowrap font-mono text-[10px] text-adm-red">Pending incident registration</span>
-                                  )
+                                    (unauthorized outflow), already registered — badge
+                                    to the incident detail. incidentNo does NOT lock the
+                                    row (承接④：only adjustmentNo/supplementNo do), so this
+                                    renders alongside the button group, not instead of it. */}
+                                {row.disposition?.outlet === 'INCIDENT' && row.disposition.incidentNo && (
+                                  <IncidentBadge incidentNo={row.disposition.incidentNo} />
                                 )}
+
                                 {row.nextStep?.kind === 'WRITE_OFF' && kase.status === 'OPEN' && (
                                   canCreateAdjustment ? (
                                     <button
@@ -1339,9 +1582,18 @@ const ReconciliationCasesDetailPage = () => {
                                       {row.nextStep.reasonCode === 'UNEXPLAINED_CLIENT_LOSS' ? 'Recognize loss' : 'Write off'}
                                     </button>
                                   ) : (
-                                    // 出口 = INCIDENT（事故已定损公司承损）不是「超期」——那句话在这里是撒谎。
+                                    // 行挂了事故号（事故已定损公司承损）不是「超期」——那句话在这里是撒谎。
+                                    // C1 挂接链评审修复：判据从单看 outlet==='INCIDENT' 改成看 incidentNo——
+                                    // 大额升级路的定性行 outlet 一直留在 HOLD_INVESTIGATING，只有 incidentNo
+                                    // 会被 attachIncident 写上，纯 outlet 判据永远照不到那条路。
                                     <span className="max-w-[220px] font-mono text-[10px] text-adm-red">
-                                      {row.disposition.outlet === 'INCIDENT' ? 'Incident assessed · eligible to recognize loss' : row.nextStep.reasonCode === 'UNEXPLAINED_CLIENT_LOSS' ? 'Overdue · eligible to recognize loss' : 'Overdue · eligible to write off'}
+                                      {row.disposition?.incidentNo
+                                        // 终审修复批 Item 6：事故已定损（公司簿也有事故升级路，见
+                                        // adjustment.service.ts assertIncidentWriteOffAllowed）不代表
+                                        // 一定是"认损"——公司池事故定损后走的是核销，「eligible to
+                                        // recognize loss」是客户簿专属措辞，公司簿讲"认损"文不对题。
+                                        ? (row.nextStep.reasonCode === 'UNEXPLAINED_CLIENT_LOSS' ? 'Incident assessed · eligible to recognize loss' : 'Incident assessed · eligible to write off')
+                                        : (row.nextStep.reasonCode === 'UNEXPLAINED_CLIENT_LOSS' ? 'Overdue · eligible to recognize loss' : 'Overdue · eligible to write off')}
                                     </span>
                                   )
                                 )}
@@ -1354,6 +1606,11 @@ const ReconciliationCasesDetailPage = () => {
                                       onClick={() => navigate(buildIncidentHref({
                                         type: 'LARGE_UNEXPLAINED',
                                         sourceCaseNo: kase.caseNo,
+                                        // C1 挂接链评审修复：不带这个号，后端 attachIncident 的唯一
+                                        // 调用点（前提是 dto.sourceDispositionNo 存在）永远不会触发——
+                                        // 事故定了损也回写不到这行上。该按钮出现的前提本就是行已定性
+                                        // 挂起·调查中（INCIDENT_DEFERRED），disposition 必在。
+                                        sourceDispositionNo: row.disposition!.dispositionNo,
                                         customerNo: kase.ownerNo,
                                         assetCode: kase.assetCode,
                                         amount: minorToMajorPlain(row.nextStep!.amount, kase.decimals),
@@ -1375,21 +1632,6 @@ const ReconciliationCasesDetailPage = () => {
                                 )}
                                 {renderFunding(row)}
                               </div>
-                            ) : (
-                              // ⑤/⑥ 未定性——这条差异还没人查过，给处置入口（按既有约定
-                              // 以权限门控整个按钮的显隐，不是禁用态；案件已 RESOLVED 时
-                              // 同样不给入口）。视觉升级为设计稿 Row A 的实心边框 chip——
-                              // 那是设计稿唯一给出的未定性状态视觉参照，逐字落地。
-                              canRecordDisposition && kase.status === 'OPEN' && (
-                                <button
-                                  type="button"
-                                  onClick={() => setDispositionRow(row)}
-                                  className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-md border border-adm-blue/40 bg-adm-blue/5 px-3 py-1.5 font-mono text-[11px] font-semibold text-adm-blue hover:bg-adm-blue/10"
-                                >
-                                  <PenLine size={11} />
-                                  Record finding
-                                </button>
-                              )
                             )}
                           </td>
                         </tr>
@@ -1512,15 +1754,17 @@ const ReconciliationCasesDetailPage = () => {
           {/* ACTIONS — Re-reconcile (fires a fresh wallet run so a
               pushed-then-CLEARED funds order gets re-observed and this case closed). */}
           <SidebarGroup title="Actions">
-            <button
-              type="button"
-              disabled={reconciling}
-              onClick={handleReReconcile}
-              className="flex w-full items-center justify-center gap-1.5 rounded border border-adm-blue/40 bg-adm-blue/10 px-3 py-2 font-mono text-[12px] font-semibold text-adm-blue transition-colors hover:bg-adm-blue/20 disabled:opacity-50"
-            >
-              <RefreshCw size={12} className={reconciling ? 'animate-spin' : ''} />
-              Re-reconcile
-            </button>
+            {canReReconcile && (
+              <button
+                type="button"
+                disabled={reconciling}
+                onClick={handleReReconcile}
+                className="flex w-full items-center justify-center gap-1.5 rounded border border-adm-blue/40 bg-adm-blue/10 px-3 py-2 font-mono text-[12px] font-semibold text-adm-blue transition-colors hover:bg-adm-blue/20 disabled:opacity-50"
+              >
+                <RefreshCw size={12} className={reconciling ? 'animate-spin' : ''} />
+                Re-reconcile
+              </button>
+            )}
             {simEnabled && kase.status === 'OPEN' && kase.slaDeadline && !kase.slaBreached && (
               <button
                 type="button"
@@ -1566,24 +1810,35 @@ const ReconciliationCasesDetailPage = () => {
           walletNo={kase.walletNo}
           prefill={createPrefill}
           locked={adjustLocked ?? undefined}
-          onClose={() => { setCreatePrefill(null); setAdjustLocked(null); }}
+          kind={adjustKind?.kind}
+          row={adjustKind?.row}
+          onClose={() => { setCreatePrefill(null); setAdjustLocked(null); setAdjustKind(null); }}
           onCreated={handleAdjustmentCreated}
         />
       )}
 
-      {/* T8: the disposition modal is likewise mounted at the page's outer
-          level, its internal state keyed only by row. caseNo here is
-          kase.caseNo (not the route param caseNo, which is typed
-          string | undefined). */}
-      <ReconciliationDispositionModal
-        open={!!dispositionRow}
+      {/* Task 7: 挂起两弹窗（一个组件按 kind 切），页面外层挂载，内部状态只认 row。 */}
+      <ReconciliationHoldModal
+        open={!!holdPicker}
         caseNo={kase.caseNo}
-        row={dispositionRow}
-        caseStatus={kase.status}
-        decimals={kase.decimals}
-        onClose={() => setDispositionRow(null)}
-        onRecorded={fetchCase}
-        onProceedToAdjust={handleAdjustHandoff}
+        row={holdPicker?.row ?? null}
+        kind={holdPicker?.kind ?? 'HOLD_NEXT_PERIOD'}
+        onClose={() => setHoldPicker(null)}
+        onDone={() => { setHoldPicker(null); void fetchCase(); }}
+      />
+
+      {/* Task 7: 六个非挂起处置（CORRECT/REVERSE/RECORD/REATTRIBUTE/SUPPLEMENT/
+          INCIDENT）共用的「选成因 + 查证说明」小弹层——取代旧两屏处置弹层的入口。 */}
+      <DispositionFindingModal
+        open={!!findingPicker}
+        caseNo={kase.caseNo}
+        row={findingPicker?.row ?? null}
+        kind={findingPicker?.kind ?? ''}
+        label={findingPicker?.label ?? ''}
+        onClose={() => setFindingPicker(null)}
+        onRecorded={(result, findingNote) => {
+          if (findingPicker) void handleFindingRecorded(findingPicker.row, findingPicker.kind as FindingKind, result, findingNote);
+        }}
       />
 
       {/* Recon batch B (Task 9): the supplement modal is likewise mounted at

@@ -76,60 +76,60 @@
 
 ## 第六幕 · 账对（V8 对账）
 
-**讲什么**：内部账和外部世界对不对得上；对不上的**怎么查、查完怎么处置**。
+**讲什么**：内部账和外部世界对不对得上；对不上的**怎么查、怎么处置**。
 **造数**：pass 场景 `recon:demo:pass`；break 场景 `recon:demo:break`（**18 个场景 / 12 张案子** + **答案键**——脚本铺完打印每条的钱包、成因码、预期桶，你手里有标准答案）。
 
 **开场先立公理（一句话，别跳）**：**外部资料是权威。** 银行对账单、托管方余额说是多少就是多少——所以**没有「对方错了」这一档**，一切不平只有三种性质：我方账**错了** / 我方账**缺了** / **时机没到**。
-**第二句**：屏幕上能看见的只有 6 个格子（三种不平形状 × 客户/公司两个池子），**成因是表象背后的东西，得财务去查才知道**。20 个成因里机器只认得出一个（重复入账的同参考号双胞胎）。所以界面不猜——**人先选成因，系统再定出口**。
-**第三句**：查的人、开单的人、批的人是三个人——运营定性、金库开单、CFO 裁决。二期起补款 / 垫款也是三人分立：运营查证、金库开单发起、CFO 裁决。
+**第二句（2026-09-08 处置改版，责任模型翻转）**：屏幕上能看见的只有 6 个格子（三种不平形状 × 客户/公司两个池子），**差异行上直接长着处置按钮**——按格出、按记账事实过滤（账务上开不出单的选项按钮天生不出现，比如兑换来源的行没有冲正 / 冲销按钮）。**错误责任归财务，系统流程不担责**：点按钮出一个弹窗，原因码 + 单据字段 + 查证说明一次填完；20 个成因里机器只认得出一个（重复入账的同参考号双胞胎），其余全靠人判断，但**判断的是财务，不是系统替他判**。
+**第三句（过渡语）**：冲正 / 冲销 / 补记 / 改记 / 补单三路 / 挂起两种——这些处置本身现在是**金库一人一窗完成**（选按钮、选原因码、填说明，动钱的一次提交即原子开单）；送 **CFO** 单步复核，挂起零账务不送审。运营已退出案件页的处置类业务动作，只留只读；账龄 ⚡ 拨钟与资金单页 ⚡ 推腿仍是运营的活；差异行上"登记事故"选完成因之后，调查 / 升级 / 定损 / 通报 / 结案仍由运营接手到底（登记权 `INCIDENT_WRITE` 运营与金库双持，未随本轮迁移）。
 
 **走查步骤**：
 ① `recon:demo:pass` 跑一遍 → 记分牌全绿，先让观众看到"平"长什么样
-② `recon:demo:break` 跑一遍 → 记分牌红：12 张案子（破口 9 ｜ 抵销 2 ｜ 在途 1）
+② `recon:demo:break` 跑一遍 → 记分牌红：12 张案子（破口 9 ｜ 抵销 2 ｜ 在途 1）；案件**列表页**先扫一眼 **⚡ 场景气泡**——Disposition 列尾徽标悬浮出该案全部演示场景（场景号 + 成因 + 一句话 + 预期处置），仅模拟模式答案键在场时可见，讲的人手里那张标准答案就长在界面上
 ③ **按场景号 1→18 顺着走**——编号顺序就是处置家族顺序，一路走下来正好把本轮的处置全集演一遍：
 
 | # | 讲什么 | 点什么 | 观众看到什么 |
 |---|---|---|---|
-| 1 | 钱在路上，不是差异 | Alice AED 案 → 资金单详情页「Push order」→ 回案件页「Re-reconcile」 | 差额归零、案子自愈——处置闭环的实感 |
-| 2 | 小数点错位：我方录错了 | Grace AED 案（展示位甲）那行「Record finding」→ 成因菜单 | 菜单第一条「Amount misbooked」→ 出口**Correction** |
-| 3 | 我方少记：形状和 2 一模一样 | 甲位第二行「Record finding」 | **同一个菜单**——机器分不出 2 和 3，是人查出来的 |
-| 4 | 舍入精度差：钱其实已经到位 | 甲位第三行「Record finding」 | 还是同一个菜单；选「Rounding difference」照样是**Correction**（外部说 35.02 就是 35.02） |
-| 5 | 手续费轧差：银行按净额入账 | **Bob AED 案（最干净，只挂这一条）**：「Record finding」→ 选「Bank fee netted」→ 填查证说明 → 下一步 | 第二屏**成因回显不可选、方向只读**（附推导依据一句）→ 提交送审 |
-| 5 续 | **冲正闭环走完** | 审批中心批准（单步 `CFO`，审批页显示的是后果原话）→ 回案件页「Re-reconcile」（⚠️ 若场景 9 还没演过，这次重对账会把它一并自愈——先演步骤 9 再点这里）| 案子 **Resolved**、那行变成「**Explained · ADJxxx**」链接 |
-| 6 | 重复入账：唯一一条机器认得出的 | Frank AED 案（展示位乙）那行「Record finding」 | 菜单下方多出 💡 **机器线索**：「The matched list has a twin entry with the same reference number and amount.」→ 指向「Duplicate posting (twin)」→ 出口**Reversal** |
-| 7 | 假信号入账：形状和 6 一模一样，**但一条线索都没有** | 乙位第二行「Record finding」 | **同格同形状、菜单相同、线索区空白**——这一对是整幕最值钱的对照：证据有就给，没有就不编 |
-| 8 | 记错客户：钱没动，主人记错了 | Jack AED 案那条「External only」→「Record finding」→ 选「Misattributed customer」→ 系统给出**对端候选**（同业务日 · 同资产 · 同金额 · 反向孤儿）→ 确认 Kate → 开单送审 → 批准 →「Re-reconcile」 | **一张单、两个案子同时 Resolved**；账上是两个客户的**应付对转**，**客户资产腿一分没动**——因为钱在托管里根本没动过 |
-| 9 | 跨日切：时机没到 | Grace USDT 案那行「Record finding」→ 选「Cross-period timing」 | 徽标「Finding: Cross-period timing → Hold · Next period」；案子仍红。可顺带点「Re-reconcile」：日终截止把那条外部行收进来 → 案子自愈，这就是"下期自然平" |
-| 10 | 查不出：已穷尽调查 → 账龄到线 → 核销 | 公司池那张案子（钱包号看脚本打印）→「Record finding」→「Unexplained (exhausted)」→ 说明写清查过什么 → 徽标「Finding: Unexplained (exhausted) → Hold · Investigating」，案子仍红 → 侧栏 **⚡ 「Fast-forward aging」**（模拟模式）→ 一分钟后刷新，hero「Overdue by 1 day」、列表红标「Overdue」→ 切金库账号，同一行出现「**Write off**」→ 锁定视图（成因固定、方向 / 金额 / 生效日只读）→ 开单并提审 → 切 CFO，审批页读后果原话「Firm-pool unexplained write-off: wallet … 差额 0.07 认损进运营资金；案件 … 已超期 1 天；查证结论：…」→ 批准 → 回案件页「Re-reconcile」（⚠️ 若场景 9 还没演过，这次重对账会把它一并自愈——先演步骤 9 再点这里）→ Resolved，那行「Explained · ADJxxx」 | **讲三道锁**：账龄 / 小额线 / CFO，少一道就是抹差异的后门 |
-| 11 | 银行杂费：外面真扣了、我方没记 | 公司池费用那张案子那行「Record finding」→ 选「Bank charges unbooked」 | 出口**Record entry**（公司自己的真实收支，只落账本分录、**不建资金单**——已完成的转账没有在途可追） |
-| 12 | 银行利息：同一张案子的另一条 | 同案第二行「Record finding」→ 选「Bank interest unbooked」 | 两条补记把这张案子的异常全解释掉 → 直接回**已匹配**（11 与 12 在收盘上本来就对冲，残差是 0） |
-| 13 | 漏监听的客户入金 | Bob USDT 案那行「Record finding」→ 选「Missed customer deposit」→ 提交 → 定性行旁「Record missed deposit」→ 填来源地址（链上格式）→ 理由 → 提交给 CFO | 徽标「Supplement · Deposit backfill · SIG…（pending CFO review）」；审批中心 CFO 批 → 充值列表多一张带「补录」小标的单，照常过 KYT / 合规筛查（⚠️ 这笔金额往往落在下限以下，会多一步运营「PASS · Waive Min-Limit」才到 SUCCESS——见下方注①）|
-| 14 | 入金被退汇（法币） | Kate AED 案那行 OUT「Record finding」→ 选「Deposit recalled」→ 提交 →「Claim recall」→ 候选原单唯一命中（自动选中）→ 理由 → 提交给 CFO | 徽标「Supplement · Recall claim · DEP…（pending CFO review）」；CFO 批 → Kate 那笔充值变「CLAWED BACK」，客户余额减；余额不够时系统直接拒、指路「Initiate advance」（场景 17 演）|
-| 15 | 出金被银行退回（法币） | Grace AED 案第四行 IN「Record finding」→ 选「Payout returned by bank」→ 提交 →「Claim return」→ 候选原单唯一命中 → 理由 → 提交给 CFO | 徽标「Supplement · Return claim · WD…（pending CFO review）」；CFO 批 → Grace 那笔提现变「RETURNED」，本金 898（净额；毛额 900、手续费 2）重新记入余额，手续费不退（承接第五幕「钱出去了还能被银行退回来」那句话头）|
-| 16 | 客户池小额查不出：认损 + 补款（二期） | Alice USDT 案那行「Record finding」→「Unexplained (exhausted)」→ 说明写清查过什么 → 徽标「Finding: Unexplained (exhausted) → Hold · Investigating」→ ⚡「Fast-forward aging」→ 一分钟后刷新「Overdue」→ 切 `treasury@` 同一行「**Recognize loss**」→ 锁定视图（成因固定「Client loss recognition」、方向 / 金额 7.5 / 生效日只读）→ 提审 → 切 `cfo@` 批（后果原话「Client-pool unexplained loss: customer CU… 差额 7.5 USDT 认损，客户余额相应减少……认损后由公司补款划转补齐」）→ 回案件页「Re-reconcile」→ **Resolved**，那行「Explained · ADJ…」旁出现「**Initiate compensation 7.5 USDT**」→ `treasury@` 点开（客户 / 钱包 / 金额全预填、不可改）→ 填理由 → 提交 → `cfo@` 批 → 切 `ops_officer@` 资金单页找那张腿 ⚡ **SUBMIT** → 回案件页「Re-reconcile」→ Alice USDT 与运营户 TRON 各开一张**在途**案（琥珀，不红）→ ⚡ OBSERVE_CONFIRMING → ⚡ CONFIRM → 划转单 SUCCESS →「Re-reconcile」两张在途案自愈 → 客户端登 Alice 看 USDT 流水 | **两步都有单、都有人批**：认损让账跟着外面走（案子愈），补款是对客户的交代（余额复位）。客户端两行：−7.5「Balance correction · Client loss recognition」、+7.5「Credit from FiatX · balance restoration」 |
-| 17 | 入金被退汇、余额不足：垫款 + 认领（二期，法币两腿） | Grace AED 案第五行 OUT 6500「Record finding」→「Deposit recalled」→ 提交 → 行上显示「**Insufficient balance ≈X — Initiate advance**」（不是「Claim recall」）→ 切 `treasury@` 点开（差额预填、不可改）→ 提交 → `cfo@` 批 → 切 `ops_officer@` 资金单页：腿 1（运营户 → 结算户）⚡ SUBMIT / CONFIRM → 腿 2 自动出现（结算户 → Grace vIBAN）⚡ SUBMIT / CONFIRM → 划转单 SUCCESS，Grace 余额 = 6500 → 回案件页，那行「Claim recall」回来 → `ops_officer@` 认领（候选原单唯一命中）→ `cfo@` 批 → 充值单 CLAWED BACK，Grace AED 归零 →「Re-reconcile」那行已匹配，整案看其它行 | **先垫后扣**：银行扣走的是 6500，她账上只剩几千（铺场时点约 3300，演到时以案件页显示为准），差额公司先垫、她欠公司（三期追索）。法币必须经结算户，所以是两腿；讲一句「结算户是过渡户，兑换的钱也这么走」 |
-| 18 | 未授权转出：钱包被幽灵转出，无任何单据（三期开门） | Jack USDT 案那行 OUT「Record finding」→ 选「Unauthorized outflow」→ 填查证说明 → 下一步 → 完成 → 定性行旁出现「**Register incident**」→ 点开（类型 / 来源案号 / 定性行号 / 客户 / 资产 / 金额已预填）→「登记」→ 跳事故详情页 → `ops_officer@`「开始调查」→ 添加两条调查记录 → 「记录升级」选 MLRO → 提交定损（口径选**认损**、勾"需要监管通报"、依据勾 TIR Rulebook K+H，72 小时倒计时随之出现）→ 保存草案 → 「已通报」填对外编号 → 回**案件页**，该行变回「**Recognize loss**」按钮（同 ⑯ 手法，金额锁定 = 定损额）→ 切 `treasury@` 点开（成因 / 方向 / 金额只读）→ 提审 → `cfo@` 批 → 回案件页「Re-reconcile」→ 案子自愈 **Resolved** → 回事故详情页「**Initiate compensation**」（认损单已落账，按钮自动出现）→ 跳回案件页 → `treasury@` 点开（客户 / 钱包 / 金额全预填、不可改）→ 提交 → `cfo@` 批 → 切 `ops_officer@` 资金单页找那张腿 ⚡ **SUBMIT** → 回案件页「Re-reconcile」→ Jack USDT 与运营户 TRON 各开一张**在途**案（琥珀，不红）→ ⚡ OBSERVE_CONFIRMING → ⚡ CONFIRM → 划转单 SUCCESS →「Re-reconcile」两张在途案自愈、Jack 余额复位 → 回事故详情页把两张单挂上去（先挂认损调账单——状态自动转「处置中」；再挂补款划转单）→ 右栏「**提结案**」→ 两步审批：`mlro@` 先批 → `cfo@` 终批 → 事故 **CLOSED** | 事故走完一生六步——登记 / 调查 / 定损 / 通报 / 善后 / 结案；认损让账跟着外面走（案子愈），补款是对客户的交代（余额复位，客户没错、公司担责）；结案是两个人的审批（MLRO + CFO），不是一人拍板 |
-| 18 续 | 误登记也要走门：登记 → 撤回 | 事故列表页「**登记事故**」→ 类型选「人工登记」→ 随手填一条"以为是差异其实是正常波动" → 提交 → 事故详情页右栏「**撤回（误登记）**」→ 弹窗必填理由 → 提交 | 撤回不是删除：状态变 **已撤回**、理由留痕在基本信息卡「撤回理由」——误登记也是走门，不能悄悄消失 |
-| 收尾 | 三笔补单批完后重对账 | 回任一案件页点「Re-reconcile」 | Bob USDT 案（场景 13）整案 **Resolved**；Kate AED、Grace AED 两案各自那一行差异都已匹配消失（补单确认生效），但两案还挂着本幕其它未处置的场景（8、2·3·4），**整案仍 Open**——不是补单没生效，是同一张案子还有别的差异没处置完，这正是"逐钱包逐笔看、不看总数"的活教材 |
+| 1 | 钱在路上，不是差异 | `ops_officer@` Alice AED 案 → 资金单详情页「Push order」→ 切 `treasury@` 回案件页「Re-reconcile」 | 差额归零、案子自愈——处置闭环的实感 |
+| 2 | 小数点错位：我方录错了 | `treasury@` Grace AED 案（展示位甲）那行点「**Correction**」按钮 → 原因单选 | 单选第一条「Amount misbooked」（方向/金额/生效日只读推导）→ 填 Investigation note → **Submit for CFO review** |
+| 3 | 我方少记：形状和 2 一模一样 | 甲位第二行点「**Correction**」按钮 | **同一份原因单选**——机器分不出 2 和 3，是人查出来的 |
+| 4 | 舍入精度差：钱其实已经到位 | 甲位第三行点「**Correction**」按钮 | 还是同一份原因单选；选「Rounding difference」→ Submit for CFO review（外部说 35.02 就是 35.02） |
+| 5 | 手续费轧差：银行按净额入账 | **Bob AED 案（最干净，只挂这一条）**：`treasury@` 点「**Correction**」按钮 → 选「Bank fee netted」 | **原子一窗**：证据区只读（行金额/参考号/原单号）→ 方向/金额/生效日只读推导（附依据一句）→ Investigation note + Customer-facing note（已按成因预填，可改）→ **Submit for CFO review** |
+| 5 续 | **冲正闭环走完** | `cfo@` 审批中心批准（单步，审批页显示的是后果原话）→ 切回 `treasury@` 回案件页「Re-reconcile」（⚠️ 若场景 9 还没演过，这次重对账会把它一并自愈——先演步骤 9 再点这里）| 案子 **Resolved**、那行变成「**Explained · ADJxxx**」链接 |
+| 6 | 重复入账：唯一一条机器认得出的 | `treasury@` Frank AED 案（展示位乙）那行点「**Reversal**」按钮 → 选「Duplicate posting (twin)」 | 选中该项时下方多出 💡 **机器线索**：「The matched list has a twin entry with the same reference number and amount.」→ Submit for CFO review |
+| 7 | 假信号入账：形状和 6 一模一样，**但一条线索都没有** | 乙位第二行点「**Reversal**」按钮 | **同格同形状、原因单选相同、线索区空白**——这一对是整幕最值钱的对照：证据有就给，没有就不编 |
+| 8 | 记错客户：钱没动，主人记错了 | `treasury@` Jack AED 案那条「External only」行点「**Reattribute**」按钮 → 系统给出**对端候选**（同业务日 · 同资产 · 同金额 · 反向孤儿）→ 确认 Kate → 填查证说明 → 开单送审 → `cfo@` 批准 → 切回 `treasury@`「Re-reconcile」 | **一张单、两个案子同时 Resolved**；账上是两个客户的**应付对转**，**客户资产腿一分没动**——因为钱在托管里根本没动过 |
+| 9 | 跨日切：时机没到 | `treasury@` Grace USDT 案那行点「**Hold · Next period**」按钮 → 选「Cross-period timing」→ 填查证说明 → 确认 | 徽标「Finding: Cross-period timing → Hold · Next period」；**不送审，零账务**，案子仍红。可顺带点「Re-reconcile」：日终截止把那条外部行收进来 → 案子自愈，这就是"下期自然平" |
+| 10 | 查不出：已穷尽调查 → 账龄到线 → 核销 | `treasury@` 公司池那张案子（钱包号看脚本打印）那行点「**Hold · Investigating**」按钮 → 选「Unexplained (exhausted)」→ 填查证说明 → 确认 → 徽标「Finding: Unexplained (exhausted) → Hold · Investigating」，案子仍红 → 切 `ops_officer@` 侧栏 **⚡ 「Fast-forward aging」**（模拟模式）→ 一分钟后刷新，hero「Overdue by 1 day」、列表红标「Overdue」→ 切回 `treasury@`，同一行出现「**Write off**」→ 锁定视图（成因固定、方向 / 金额 / 生效日只读）→ 开单并提审 → 切 `cfo@`，审批页读后果原话「Firm-pool unexplained write-off: wallet … 差额 0.07 认损进运营资金；案件 … 已超期 1 天；查证结论：…」→ 批准 → 切回 `treasury@` 回案件页「Re-reconcile」（⚠️ 若场景 9 还没演过，这次重对账会把它一并自愈——先演步骤 9 再点这里）→ Resolved，那行「Explained · ADJxxx」 | **讲三道锁**：账龄 / 小额线 / CFO，少一道就是抹差异的后门 |
+| 11 | 银行杂费：外面真扣了、我方没记 | `treasury@` 公司池费用那张案子那行点「**Record entry**」按钮 → 选「Bank charges unbooked」 | 公司自己的真实收支，只落账本分录、**不建资金单**——已完成的转账没有在途可追 |
+| 12 | 银行利息：同一张案子的另一条 | 同案第二行点「**Record entry**」按钮 → 选「Bank interest unbooked」 | 两条补记把这张案子的异常全解释掉 → 直接回**已匹配**（11 与 12 在收盘上本来就对冲，残差是 0） |
+| 13 | 漏监听的客户入金 | `treasury@` Bob USDT 案那行点「**Supplement**」按钮 → 选「Missed customer deposit」→ 填来源地址（链上格式）与理由 → 提交给 CFO | 徽标「Supplement · Deposit backfill · SIG…（pending CFO review）」；`cfo@` 批 → 充值列表多一张带「补录」小标的单，照常过 KYT / 合规筛查（⚠️ 这笔金额往往落在下限以下，会多一步 `ops_officer@` 在充值详情页「PASS · Waive Min-Limit」才到 SUCCESS——见下方注①）|
+| 14 | 入金被退汇（法币） | `treasury@` Kate AED 案那行 OUT 点「**Supplement**」按钮 → 选「Deposit recalled」→「Claim recall」候选原单唯一命中（自动选中）→ 理由 → 提交给 CFO | 徽标「Supplement · Recall claim · DEP…（pending CFO review）」；`cfo@` 批 → Kate 那笔充值变「CLAWED BACK」，客户余额减；余额不够时系统直接拒、指路「Initiate advance」（场景 17 演）|
+| 15 | 出金被银行退回（法币） | `treasury@` Grace AED 案第四行 IN 点「**Supplement**」按钮 → 选「Payout returned by bank」→「Claim return」候选原单唯一命中 → 理由 → 提交给 CFO | 徽标「Supplement · Return claim · WD…（pending CFO review）」；`cfo@` 批 → Grace 那笔提现变「RETURNED」，本金 898（净额；毛额 900、手续费 2）重新记入余额，手续费不退（承接第五幕「钱出去了还能被银行退回来」那句话头）|
+| 16 | 客户池小额查不出：认损 + 补款（二期） | `treasury@` Alice USDT 案那行点「**Hold · Investigating**」按钮 → 选「Unexplained (exhausted)」→ 填查证说明 → 确认 → 徽标「Finding: Unexplained (exhausted) → Hold · Investigating」→ 切 `ops_officer@` ⚡「Fast-forward aging」→ 一分钟后刷新「Overdue」→ 切回 `treasury@` 同一行「**Recognize loss**」→ 锁定视图（成因固定「Client loss recognition」、方向 / 金额 7.5 / 生效日只读）→ 提审 → 切 `cfo@` 批（后果原话「Client-pool unexplained loss: customer CU… 差额 7.5 USDT 认损，客户余额相应减少……认损后由公司补款划转补齐」）→ 切回 `treasury@` 回案件页「Re-reconcile」→ **Resolved**，那行「Explained · ADJ…」旁出现「**Initiate compensation 7.5 USDT**」→ 点开（客户 / 钱包 / 金额全预填、不可改）→ 填理由 → 提交 → `cfo@` 批 → 切 `ops_officer@` 资金单页找那张腿 ⚡ **SUBMIT** → 切回 `treasury@` 回案件页「Re-reconcile」→ Alice USDT 与运营户 TRON 各开一张**在途**案（琥珀，不红）→ `ops_officer@` ⚡ OBSERVE_CONFIRMING → ⚡ CONFIRM → 划转单 SUCCESS → `treasury@`「Re-reconcile」两张在途案自愈 → 客户端登 Alice 看 USDT 流水 | **两步都有单、都有人批**：认损让账跟着外面走（案子愈），补款是对客户的交代（余额复位）。客户端两行：−7.5「Balance correction · Client loss recognition」、+7.5「Credit from FiatX · balance restoration」 |
+| 17 | 入金被退汇、余额不足：垫款 + 认领（二期，法币两腿） | `treasury@` Grace AED 案第五行 OUT 6500 点「**Supplement**」按钮 → 选「Deposit recalled」→ 提交 → 行上显示「**Insufficient balance ≈X — Initiate advance**」（不是「Claim recall」）→ 点开（差额预填、不可改）→ 提交 → `cfo@` 批 → 切 `ops_officer@` 资金单页：腿 1（运营户 → 结算户）⚡ SUBMIT / CONFIRM → 腿 2 自动出现（结算户 → Grace vIBAN）⚡ SUBMIT / CONFIRM → 划转单 SUCCESS，Grace 余额 = 6500 → 切回 `treasury@` 回案件页，那行「Claim recall」回来 → 认领（候选原单唯一命中）→ `cfo@` 批 → 充值单 CLAWED BACK，Grace AED 归零 → `treasury@`「Re-reconcile」那行已匹配，整案看其它行 | **先垫后扣**：银行扣走的是 6500，她账上只剩几千（铺场时点约 3300，演到时以案件页显示为准），差额公司先垫、她欠公司（三期追索）。法币必须经结算户，所以是两腿；讲一句「结算户是过渡户，兑换的钱也这么走」 |
+| 18 | 未授权转出：钱包被幽灵转出，无任何单据（三期开门） | `treasury@` Jack USDT 案那行 OUT 点「**Register incident**」按钮 → 选「Unauthorized outflow」→ 填查证说明 → 提交 → **自动跳转事故登记表单**（类型 / 来源案号 / 定性行号 / 客户 / 资产 / 金额已预填）→ 切 `ops_officer@`「登记」→ 事故详情页「开始调查」→ 添加两条调查记录 → 「记录升级」选 MLRO → 提交定损（口径选**认损**、勾"需要监管通报"、依据勾 TIR Rulebook K+H，72 小时倒计时随之出现）→ 保存草案 → 「已通报」填对外编号 → 回**案件页**，该行变回「**Recognize loss**」按钮（同 ⑯ 手法，金额锁定 = 定损额）→ 切 `treasury@` 点开（成因 / 方向 / 金额只读）→ 提审 → `cfo@` 批 → 切回 `treasury@` 回案件页「Re-reconcile」→ 案子自愈 **Resolved** → 切 `ops_officer@` 回事故详情页「**Initiate compensation**」（认损单已落账，按钮自动出现）→ 跳回案件页 → `treasury@` 点开（客户 / 钱包 / 金额全预填、不可改）→ 提交 → `cfo@` 批 → 切 `ops_officer@` 资金单页找那张腿 ⚡ **SUBMIT** → 切回 `treasury@` 回案件页「Re-reconcile」→ Jack USDT 与运营户 TRON 各开一张**在途**案（琥珀，不红）→ `ops_officer@` ⚡ OBSERVE_CONFIRMING → ⚡ CONFIRM → 划转单 SUCCESS → `treasury@`「Re-reconcile」两张在途案自愈、Jack 余额复位 → 切回 `ops_officer@` 回事故详情页把两张单挂上去（先挂认损调账单——状态自动转「处置中」；再挂补款划转单）→ 右栏「**提结案**」→ 两步审批：`mlro@` 先批 → `cfo@` 终批 → 事故 **CLOSED** | 事故走完一生六步——登记 / 调查 / 定损 / 通报 / 善后 / 结案；差异行上选处置这一步归金库（与其它处置同律），登记进事故域之后调查到结案仍是运营的活（`INCIDENT_WRITE` 运营与金库双持，未随本轮迁移）；认损让账跟着外面走（案子愈），补款是对客户的交代（余额复位，客户没错、公司担责）；结案是两个人的审批（MLRO + CFO），不是一人拍板 |
+| 18 续 | 误登记也要走门：登记 → 撤回 | `ops_officer@` 事故列表页「**登记事故**」→ 类型选「人工登记」→ 随手填一条"以为是差异其实是正常波动" → 提交 → 事故详情页右栏「**撤回（误登记）**」→ 弹窗必填理由 → 提交 | 撤回不是删除：状态变 **已撤回**、理由留痕在基本信息卡「撤回理由」——误登记也是走门，不能悄悄消失 |
+| 收尾 | 三笔补单批完后重对账 | `treasury@` 回任一案件页点「Re-reconcile」 | Bob USDT 案（场景 13）整案 **Resolved**；Kate AED、Grace AED 两案各自那一行差异都已匹配消失（补单确认生效），但两案还挂着本幕其它未处置的场景（8、2·3·4），**整案仍 Open**——不是补单没生效，是同一张案子还有别的差异没处置完，这正是"逐钱包逐笔看、不看总数"的活教材 |
 
-⚠️ **场景 9 必须排在当天任何「Re-reconcile」之前演**：案件页「Re-reconcile」按当天日终截止重跑，会把 Grace USDT 那条跨账期的外部行收回窗口内、案子直接自愈——这正是场景 9 讲的"下期自然平"的真实触发机制。所以场景 9 的「Record finding → Hold · Next period」要排在步骤 5 续的冲正闭环重对账、步骤 10 的核销闭环重对账、以及步骤 13-15 补单批完后的重对账**之前**演；顺序乱了也没关系，照实讲——"这条差异刚才被重对账自愈了，这就是下期自然平"。种子须在当天 UTC 18:00（迪拜 22:00）前铺；否则那条外部行落到次日，日终重跑收不回来，案子照旧红——照实讲。
+⚠️ **场景 9 必须排在当天任何「Re-reconcile」之前演**：案件页「Re-reconcile」按当天日终截止重跑，会把 Grace USDT 那条跨账期的外部行收回窗口内、案子直接自愈——这正是场景 9 讲的"下期自然平"的真实触发机制。所以场景 9 的「Hold · Next period」定性要排在步骤 5 续的冲正闭环重对账、步骤 10 的核销闭环重对账、以及步骤 13-15 补单批完后的重对账**之前**演；顺序乱了也没关系，照实讲——"这条差异刚才被重对账自愈了，这就是下期自然平"。种子须在当天 UTC 18:00（迪拜 22:00）前铺；否则那条外部行落到次日，日终重跑收不回来，案子照旧红——照实讲。
 
-⚠️ **注①：场景 13 的补录常撞金额下限门**：漏记入金往往是零头小额，容易落在该资产 DEPOSIT 单笔下限（AED / USDT 现都是 100）以下——CFO 批完补录后，新充值单不会直接到 SUCCESS，会先停在「小额挂起」，需要运营在充值详情页再点一次既有的「放行下限挂起」（PASS · Waive Min-Limit）才继续走完。这不是缺陷：低于下限的钱本来就该过这道门，补录不享有绕开它的特权。
+⚠️ **注①：场景 13 的补录常撞金额下限门**：漏记入金往往是零头小额，容易落在该资产 DEPOSIT 单笔下限（AED / USDT 现都是 100）以下——CFO 批完补录后，新充值单不会直接到 SUCCESS，会先停在「小额挂起」，需要 `ops_officer@` 在充值详情页再点一次既有的「放行下限挂起」（PASS · Waive Min-Limit）才继续走完。这不是缺陷：低于下限的钱本来就该过这道门，补录不享有绕开它的特权。
 
-⚠️ **注②：⚡ 裁决按钮要切账号**：场景 13 补录出来的新充值单若还要现场喂 KYT 裁决，用的 ⚡ 面板需要切到 `compliance_lead@fiatx.com`（持 `DEMO_VERDICT_WRITE`）——`ops_officer@` / `cfo@` 都没有这个权限，用它们点会被 403 拒绝。
+⚠️ **注②：⚡ 裁决按钮要切账号**：场景 13 补录出来的新充值单若还要现场喂 KYT 裁决，用的 ⚡ 面板需要切到 `compliance_lead@fiatx.com`（持 `DEMO_VERDICT_WRITE`）——`ops_officer@` / `treasury@` / `cfo@` 都没有这个权限，用它们点会被 403 拒绝。
 
-⚠️ **注③：二期两场景的账号切换**：定性 / ⚡ 拨钟 / ⚡ 推腿 / Claim recall = `ops_officer@`；Recognize loss 开单 / Initiate compensation / Initiate advance / 撤回 = `treasury@`；批准 = `cfo@`。金库看到按钮，运营只看到「Pending compensation」「Insufficient balance — pending advance」的只读文字。
+⚠️ **注③：全幕账号切换总表（2026-09-08 处置改版）**：案件页**全部处置类按钮**（Correction / Reversal / Record entry / Reattribute / Supplement / Register incident / Hold · Next period / Hold · Investigating）与 **Re-reconcile / 一键重对账** = `treasury@`（运营已退出这些按钮，只剩只读——案件页 / 案件列表页仍看得到，但点不出任何处置动作）；⚡ Fast-forward aging（账龄拨钟）与资金单页 ⚡ 推腿（SUBMIT / CONFIRM / OBSERVE_CONFIRMING）= `ops_officer@`（这两项权限未随本轮迁移）；核销 / 认损开单（Write off / Recognize loss）、发起补款 / 发起垫款（Initiate compensation / Initiate advance）本就是金库的活，仍是 `treasury@`；所有审批批准 = `cfo@`。事故域（登记之后的调查 / 升级 / 定损 / 通报 / 挂载 / 提结案 / 撤回）仍是 `ops_officer@`——见注⑤。
 
 ⚠️ **注④：铺场前不得有在途划转**：`recon:demo:break` 会先清空全部外部账单再从账本流水重铸，划转结清后的流水会被一并重铸；但一张还在路上的划转（待批 / 执行中）铺场会当场报错——先 ⚡ 推到确认或撤回。演划转在途的那几分钟里不要去重对账公司池的案子（在途会把同钱包的抵销案暂判为破口，结清即回）。同一天内演完 16 / 17 / 18；跨日照实讲，次日 cron 会把两侧一起收进去。
 
-⚠️ **注⑤：三期事故登记的账号切换**：登记 / 开始调查 / 添加记录 / 记录升级 / 提交定损 / 保存草案 / 标记已通报 / 挂载善后单 / 提结案 = `ops_officer@`（同一人从头跟到尾，事故不是分段接力）；案件页认损开单 / 发起补款 = `treasury@`；认损与补款的批准 = `cfo@`；**唯独结案是新的两步门**——`mlro@` 先批、`cfo@` 终批，运营自己提的结案单自己批不了（拿 `GOV_APPROVAL_READ` 能点到按钮，角色不在候选人里，403）。「撤回（误登记）」也是 `ops_officer@`——撤回权与登记权是同一把钥匙，不是额外授权。
+⚠️ **注⑤：三期事故登记的账号切换**：差异行上点「Register incident」按钮、选「Unauthorized outflow」成因、填查证说明提交 = `treasury@`（与其它处置按钮同律，这一步只是把行定性为"要走事故"）；提交后自动跳转的登记表单起，登记 / 开始调查 / 添加记录 / 记录升级 / 提交定损 / 保存草案 / 标记已通报 / 挂载善后单 / 提结案 = `ops_officer@`（同一人从登记接手到底，事故不是分段接力；`INCIDENT_WRITE` 运营与金库双持，登记这一步谁做都行，本剧本延续"运营管事故域"的惯例）；案件页认损开单 / 发起补款 = `treasury@`；认损与补款的批准 = `cfo@`；**唯独结案是新的两步门**——`mlro@` 先批、`cfo@` 终批，运营自己提的结案单自己批不了（拿 `GOV_APPROVAL_READ` 能点到按钮，角色不在候选人里，403）。「撤回（误登记）」也是 `ops_officer@`——撤回权与登记权是同一把钥匙，不是额外授权。
 
 ④ 案件**列表页**扫一眼「**Disposition**」列（`3/5` = 已定性差异行 / 总差异行）——一屏就能看出哪些案子查过了、哪些还没人碰
 ⑤ 顺带讲内部恒等预门："对外之前先自证"，`verify:coa` 现场跑一遍全绿
 
-**期望**：观众看懂三件事——① 对账不是对总数，是逐钱包逐笔找破口、开案、有下文；② **同一个形状底下成因可以完全相反，机器分不出、必须人去查**，所以第一屏是"选成因"不是"选按钮"；③ **查完不一定就能平**——挂起和留档同样是正经交付物（结论、查证说明、谁查的、什么时候），案子照旧红着；查完悬着的也不会永远悬着，账龄到线后系统逼出一个结论。
+**期望**：观众看懂三件事——① 对账不是对总数，是逐钱包逐笔找破口、开案、有下文；② **同一个形状底下成因可以完全相反，机器分不出、必须人去查**，所以按钮弹出的是"选原因码"不是系统自己判死；③ **查完不一定就能平**——挂起和留档同样是正经交付物（结论、查证说明、谁查的、什么时候），案子照旧红着；查完悬着的也不会永远悬着，账龄到线后系统逼出一个结论。
 
-**已知缺口**：本轮做到**十件处置**（推单 / 冲正 / 冲销 / 补记 / 改记 / 挂起 / 核销 / 补单 / 划转 / **事故登记**）；豁免 / 容差不做（精度一致）。18 条里能平 **17** 条，场景 9 长红——**不许粉饰**。⚠️ 2026-08-31 那版剧本里「不该动账的行会显示一个错误按钮、正确演法是指出来别点」的警告**已经作废**：现在所有差异行的按钮都是同一个「Record finding」，出口由人选完成因后由注册表判定，不存在"给错按钮"这回事。
+**已知缺口**：本轮做到**十件处置**（推单 / 冲正 / 冲销 / 补记 / 改记 / 挂起 / 核销 / 补单 / 划转 / **事故登记**）；豁免 / 容差不做（精度一致）；SWAP 来源的行没有冲正 / 冲销按钮（A1b 甲，账务上开不出单，BACKLOG 在案）。18 条里能平 **17** 条，场景 9 长红——**不许粉饰**。⚠️ 2026-08-31 那版剧本里「不该动账的行会显示一个错误按钮、正确演法是指出来别点」的警告早已作废；**2026-09-08 处置改版起「Record finding」两屏定性弹窗也退役**——现在每条差异行上直接是按格 × 记账事实过滤过的处置按钮组，点哪个按钮就是选哪个处置，不存在"先选成因再等系统判"这一步。
 
 ## 第七幕 · 事后说得清（V1 审计追溯）
 

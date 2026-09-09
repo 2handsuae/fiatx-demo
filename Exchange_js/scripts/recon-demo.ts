@@ -1059,6 +1059,31 @@ async function injectScenarios(
       },
     });
 
+    // ⚠️ 本地订正 #3（Task 12 追根，跨轮 rerun 才现形，比订正 #1/#2 更隐蔽）：
+    // 上面两次 executeTransfer 靠确定性 sourceNo 去重——不重置直接重跑
+    // recon:demo:break 时，Frank 这笔重复流水在 account_flows 里只有一份，
+    // 不会二次插入。但 Phase 1 planWallets 是**无状态重算**：它按「当前
+    // account_flows 里有什么」现算 internalTotal/lines，上一轮遗留的这笔重复
+    // flow 已经算在内；Phase 2 writeMirror 又是「plan.lines 里每一条内部行
+    // 原样镜像成一条外部行」的纯函数（1:1，见本文件 writeMirror 里 `p.lines`
+    // 的用法）。于是本轮一开跑（还没走到这里），Phase 2 就已经替上一轮的
+    // 遗留重复流水多镜像出一条同 externalRef 的外部行——银行"也报了两次"，
+    // 内外部重新对平，⑥ 想演的"内部两笔、外部一笔"缺口被悄悄填平，
+    // MISSED（case 探不出来）而非"钉错行"。
+    // 实测：`git log main..HEAD -- engine/scripts/recon-demo.ts` 零命中，
+    // 这不是本分支引入的——是 planWallets/writeMirror 对"重跑不清账本"这个
+    // 既有设计假设的一个既有缺口，只在 ⑥ 这个「故意留内外部不对称」的场景
+    // 上会真正现形（其余场景要么没有跨轮残留 fixture，要么残留后镜像仍然
+    // 1:1，不产生这种"自我抵消"）。
+    // 不动 planWallets/writeMirror（17 个场景共用，改了影响面太大，且
+    // "不回滚账本"是既有设计选择，不是本任务能推翻的决定）；只在 ⑥ 自己
+    // 这一步收尾，把 Phase 2 替上一轮遗留行误镜像出的多余外部行裁掉，只留
+    // lDup 自己这一条——保证外部真相回到"银行只报一次"，与本场景要演的
+    // 缺口一致，不管这是第几轮重跑。
+    await (prisma as any).externalStatementLine.deleteMany({
+      where: { subAccount: slotShowcaseB.walletRef, externalRef: lDup.externalRef, id: { not: lDup.id } },
+    });
+
     // ⚠️⚠️ 排他钉行键——**不加这个，本任务交付的那一刻就把 Task 5 刚堵上的洞
     // 在 Frank 的钱包上原样重挖一遍**（2026-08-30 复审拿真实库数据实测：Frank
     // 的 AED 钱包三笔充值共用同一个 `externalRef = ZB20260830275C7FCE5B`，
