@@ -18,17 +18,13 @@ import { formatAssetAmount } from '../utils/number-format';
 /* ── Types ──────────────────────────────────────────────────── */
 
 interface WithdrawQuoteListItem {
-  quoteId: string;
+  id: string;
   quoteNo: string | null;
-  business: 'WITHDRAWAL';
   status: string;
   ownerType: string;
   ownerNo: string | null;
-  primaryAssetCurrency: string;
+  assetCode: string;
   amount: string | null;
-  feeTotal: string;
-  feeCurrency: string;
-  linkedBusinessNo: string | null;
   createdAt: string;
   expiresAt: string;
   usedAt: string | null;
@@ -207,7 +203,7 @@ const WithdrawQuoteList = () => {
         <table className="w-full text-left text-xs">
           <thead className="sticky top-0 z-10 border-b border-adm-border bg-adm-card">
             <tr>
-              {['Quote No', 'Status', 'Owner No', 'Asset', 'Amount', 'Fee', 'Linked Withdraw', 'Created'].map(
+              {['Quote No', 'Status', 'Owner No', 'Asset', 'Amount', 'Created'].map(
                 (h) => (
                   <th
                     key={h}
@@ -222,21 +218,21 @@ const WithdrawQuoteList = () => {
           <tbody className="divide-y divide-adm-border">
             {loading && items.length === 0 ? (
               <tr>
-                <td colSpan={8} className="px-5 py-12 text-center text-adm-t3">
+                <td colSpan={6} className="px-5 py-12 text-center text-adm-t3">
                   <RefreshCw className="mx-auto mb-2 animate-spin text-adm-amber" size={20} />
                   Loading...
                 </td>
               </tr>
             ) : items.length === 0 ? (
               <tr>
-                <td colSpan={8} className="px-5 py-12 text-center font-mono text-xs text-adm-t3">
+                <td colSpan={6} className="px-5 py-12 text-center font-mono text-xs text-adm-t3">
                   No withdraw quotes found
                 </td>
               </tr>
             ) : (
               items.map((item) => (
                 <tr
-                  key={item.quoteId}
+                  key={item.id}
                   className="transition-colors hover:bg-adm-hover"
                 >
                   <td className="px-5 py-3">
@@ -257,18 +253,12 @@ const WithdrawQuoteList = () => {
                     {item.ownerNo || '—'}
                   </td>
                   <td className="px-5 py-3 font-mono text-adm-t2">
-                    {item.primaryAssetCurrency || '—'}
+                    {item.assetCode || '—'}
                   </td>
                   <td className="px-5 py-3 font-mono text-adm-t2">
                     {item.amount
-                      ? `${formatAssetAmount(item.amount)} ${item.primaryAssetCurrency}`
+                      ? `${formatAssetAmount(item.amount)} ${item.assetCode}`
                       : '—'}
-                  </td>
-                  <td className="px-5 py-3 font-mono text-adm-t2">
-                    {formatAssetAmount(item.feeTotal)} {item.feeCurrency}
-                  </td>
-                  <td className="px-5 py-3 font-mono text-adm-t2">
-                    {item.linkedBusinessNo || '—'}
                   </td>
                   <td className="px-5 py-3 font-mono text-[10px] text-adm-t3">
                     {fmt(item.createdAt)}

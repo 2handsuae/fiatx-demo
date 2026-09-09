@@ -17,56 +17,63 @@ import {
 import { formatAssetAmount, formatRate8 } from '../utils/number-format';
 
 /* ── Types ──────────────────────────────────────────────────── */
+/* 后端 `GET admin/swap-transactions/quotes/:quoteNo` 返回扁平 SwapQuote
+ * 行（+ include fromAsset/toAsset/swapTransaction），无 `swap` 嵌套。
+ * totalsJson 实测含 amountIn/amountOutGross/amountOutNet/feeTotal/
+ * feeCurrency（Task 9 curl 实证），feeBreakdown 是单元素数组，內层
+ * `.matched.tierName` / `.fees` 才是命中档位与费用明细行。 */
 
-interface FeeItem {
-  code: string;
-  label: string;
+interface FeeLine {
+  itemCode: string;
+  calcType: string;
   amount: string;
   currency: string;
 }
 
+interface FeeBreakdownSnapshot {
+  matched?: { tierName?: string };
+  fees?: FeeLine[];
+}
+
 interface SwapQuoteDetailData {
-  quoteId: string;
+  id: string;
   quoteNo: string | null;
-  business: 'SWAP';
+  quoteType: string;
   status: string;
   ownerType: string;
   ownerNo: string | null;
+  fromAssetCode: string;
+  toAssetCode: string;
+  fromAsset?: { code: string; decimals?: number | null } | null;
+  toAsset?: { code: string; decimals?: number | null } | null;
+  side: string;
+  amountType: string;
+  amountIn: string;
+  currencyIn: string;
+  amountOut: string;
+  currencyOut: string;
+  rateDisplay: string;
+  rateAllIn: string;
+  marketRate: string;
+  spreadPercent: string;
+  spreadBps: number;
+  rateSource: string;
+  fetchedAt: string;
+  feeTotal: string;
+  feeCurrency: string;
+  feeLevelCode: string | null;
+  feeBreakdown: string | null;
+  totalsJson: string;
+  policyRef: string;
   createdAt: string;
   expiresAt: string;
   usedAt: string | null;
   cancelledAt: string | null;
-  fees: FeeItem[];
-  totals: Record<string, string>;
-  policyRef: Record<string, unknown>;
-  swap: {
-    quoteType: string;
-    fromAssetCode: string;
-    toAssetCode: string;
-    fromAsset?: { code: string; decimals?: number | null } | null;
-    toAsset?: { code: string; decimals?: number | null } | null;
-    side: string;
-    amountType: string;
-    amountIn: string;
-    currencyIn: string;
-    amountOut: string;
-    currencyOut: string;
-    rateDisplay: string;
-    rateAllIn: string;
-    marketRate: string;
-    spreadPercent: string;
-    spreadBps: number;
-    rateSource: string;
-    fetchedAt: string;
-    pricingSource?: Record<string, unknown> | null;
-    matched?: Record<string, unknown> | null;
-    linkedSwap?: {
-      swapNo: string | null;
-      quoteNo: string | null;
-      status: string;
-      createdAt: string;
-    } | null;
-  };
+  swapTransaction?: {
+    swapNo: string | null;
+    status: string;
+    createdAt: string;
+  } | null;
 }
 
 /* ── Helpers ─────────────────────────────────────────────────── */
@@ -138,20 +145,25 @@ const SwapQuoteDetail = () => {
 
   if (!data) return null;
 
-  const swap = data.swap;
-  const fees: FeeItem[] = Array.isArray(data.fees) ? data.fees : [];
-  const totals = data.totals ?? {};
+  const swap = data;
+  const totals: Record<string, string> = JSON.parse(data.totalsJson);
   const grossAmountOut = totals.amountOutGross || swap.amountOut;
   const netAmountOut = totals.amountOutNet || swap.amountOut;
-  const feeTotal = totals.feeTotal || '0';
-  const feeCurrency = totals.feeCurrency || swap.currencyOut;
+  const feeTotal = totals.feeTotal || swap.feeTotal;
+  const feeCurrency = totals.feeCurrency || swap.feeCurrency;
   const feeDecimals =
     !feeCurrency
       ? undefined
       : feeCurrency === swap.fromAssetCode
         ? swap.fromAsset?.decimals
         : swap.toAsset?.decimals;
-  const linkedSwap = swap.linkedSwap;
+  const linkedSwap = swap.swapTransaction;
+
+  const feeSnapshot: FeeBreakdownSnapshot | undefined = data.feeBreakdown
+    ? (JSON.parse(data.feeBreakdown) as FeeBreakdownSnapshot[])[0]
+    : undefined;
+  const fees: FeeLine[] = feeSnapshot?.fees ?? [];
+  const matchedTierName = feeSnapshot?.matched?.tierName;
 
   return (
     <div className="flex h-full flex-col">
@@ -210,6 +222,10 @@ const SwapQuoteDetail = () => {
             />
             <InfoField label="Rate Source" value={swap.rateSource} />
             <InfoField label="Fetched At" value={fmt(swap.fetchedAt)} mono />
+            <InfoField
+              label="Fee Level / Tier"
+              value={`${swap.feeLevelCode ?? '—'} / ${matchedTierName ?? '—'}`}
+            />
           </DetailCard>
 
           {/* Fee Breakdown */}
@@ -219,7 +235,7 @@ const SwapQuoteDetail = () => {
                 <table className="w-full text-left text-xs">
                   <thead>
                     <tr className="border-b border-adm-border">
-                      {['Code', 'Label', 'Amount', 'Currency'].map((h) => (
+                      {['Item Code', 'Calc Type', 'Amount', 'Currency'].map((h) => (
                         <th
                           key={h}
                           className="px-3 py-2 font-mono text-[9px] font-semibold uppercase tracking-[0.1em] text-adm-t3"
@@ -233,9 +249,9 @@ const SwapQuoteDetail = () => {
                     {fees.map((fee, i) => (
                       <tr key={i}>
                         <td className="px-3 py-2 font-mono text-[11px] text-adm-t2">
-                          {fee.code}
+                          {fee.itemCode}
                         </td>
-                        <td className="px-3 py-2 text-[11px] text-adm-t1">{fee.label}</td>
+                        <td className="px-3 py-2 text-[11px] text-adm-t1">{fee.calcType}</td>
                         <td className="px-3 py-2 font-mono text-[11px] text-adm-t1">
                           {formatAssetAmount(fee.amount)}
                         </td>
@@ -246,24 +262,6 @@ const SwapQuoteDetail = () => {
                     ))}
                   </tbody>
                 </table>
-                {/* Totals */}
-                {Object.keys(totals).length > 0 ? (
-                  <div className="mt-2 border-t border-adm-border pt-2">
-                    <p className="font-mono text-[9px] uppercase tracking-[0.1em] text-adm-t3">
-                      Totals
-                    </p>
-                    <div className="mt-1 flex flex-wrap gap-4">
-                      {Object.entries(totals).map(([key, amount]) => (
-                        <span
-                          key={key}
-                          className="font-mono text-[11px] font-semibold text-adm-amber"
-                        >
-                          {key}: {amount}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                ) : null}
               </div>
             ) : (
               <p className="font-mono text-[11px] text-adm-t3">No fee items</p>
@@ -306,11 +304,8 @@ const SwapQuoteDetail = () => {
           {/* Technical Detail */}
           <DetailCard title="Technical Detail" columns={1}>
             <JsonBlock title="Policy Reference" value={data.policyRef} />
-            {swap.matched || swap.pricingSource ? (
-              <JsonBlock
-                title="Matched / Pricing Source"
-                value={{ matched: swap.matched, pricingSource: swap.pricingSource }}
-              />
+            {feeSnapshot ? (
+              <JsonBlock title="Pricing Snapshot (Raw)" value={feeSnapshot} />
             ) : null}
           </DetailCard>
         </div>

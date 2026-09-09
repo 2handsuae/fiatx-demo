@@ -17,46 +17,37 @@ import {
 import { formatAssetAmount } from '../utils/number-format';
 
 /* ── Types ──────────────────────────────────────────────────── */
+/* 后端 `GET admin/withdrawal-fee-levels/quotes/:quoteNo` 返回扁平
+ * WithdrawPricingQuote 行（+ include asset），无 `withdrawal` 嵌套、
+ * 无 linkedWithdrawals 关联（controller 未 include）。Task 9 实证响应。 */
 
-interface FeeItem {
-  code: string;
-  label: string;
+interface FeeLine {
+  itemCode: string;
+  calcType: string;
   amount: string;
   currency: string;
 }
 
-interface LinkedWithdrawal {
-  withdrawNo: string | null;
-  status: string;
-  createdAt: string;
-}
-
 interface WithdrawQuoteDetailData {
-  quoteId: string;
+  id: string;
   quoteNo: string | null;
-  business: 'WITHDRAWAL';
   status: string;
   ownerType: string;
   ownerNo: string | null;
+  assetCode: string;
+  amount: string;
+  segment: string;
+  riskTier: string;
+  matchedTierName: string;
+  feeLevelCode: string | null;
+  feeBreakdown: string;
+  totalsJson: string;
+  policyRef: string;
   createdAt: string;
   expiresAt: string;
   usedAt: string | null;
   cancelledAt: string | null;
-  fees: FeeItem[];
-  totals: Record<string, string>;
-  policyRef: Record<string, unknown>;
-  withdrawal: {
-    assetId: string;
-    assetCode: string;
-    asset?: { code: string; decimals?: number | null; network?: string | null } | null;
-    amount: string;
-    segment: string;
-    riskTier: string;
-    matchedAssetEntryId: string;
-    matchedTierId: string;
-    matchedTierName: string;
-    linkedWithdrawals: LinkedWithdrawal[];
-  };
+  asset?: { code: string; decimals?: number | null; network?: string | null } | null;
 }
 
 /* ── Helpers ─────────────────────────────────────────────────── */
@@ -128,10 +119,9 @@ const WithdrawQuoteDetail = () => {
 
   if (!data) return null;
 
-  const w = data.withdrawal;
-  const fees: FeeItem[] = Array.isArray(data.fees) ? data.fees : [];
-  const totals = data.totals ?? {};
-  const linkedWithdrawals: LinkedWithdrawal[] = w?.linkedWithdrawals ?? [];
+  const w = data;
+  const fees: FeeLine[] = JSON.parse(data.feeBreakdown);
+  const totals: Record<string, string> = JSON.parse(data.totalsJson);
 
   return (
     <div className="flex h-full flex-col">
@@ -173,13 +163,8 @@ const WithdrawQuoteDetail = () => {
             <InfoField label="Segment" value={w.segment} />
             <InfoField label="Risk Tier" value={w.riskTier} />
             <InfoField
-              label="Matched Tier"
-              value={
-                w.matchedTierName
-                  ? `${w.matchedTierName} (${w.matchedTierId})`
-                  : w.matchedTierId
-              }
-              mono
+              label="Fee Level / Tier"
+              value={`${w.feeLevelCode ?? '—'} / ${w.matchedTierName}`}
             />
           </DetailCard>
 
@@ -190,7 +175,7 @@ const WithdrawQuoteDetail = () => {
                 <table className="w-full text-left text-xs">
                   <thead>
                     <tr className="border-b border-adm-border">
-                      {['Code', 'Label', 'Amount', 'Currency'].map((h) => (
+                      {['Item Code', 'Calc Type', 'Amount', 'Currency'].map((h) => (
                         <th
                           key={h}
                           className="px-3 py-2 font-mono text-[9px] font-semibold uppercase tracking-[0.1em] text-adm-t3"
@@ -204,9 +189,9 @@ const WithdrawQuoteDetail = () => {
                     {fees.map((fee, i) => (
                       <tr key={i}>
                         <td className="px-3 py-2 font-mono text-[11px] text-adm-t2">
-                          {fee.code}
+                          {fee.itemCode}
                         </td>
-                        <td className="px-3 py-2 text-[11px] text-adm-t1">{fee.label}</td>
+                        <td className="px-3 py-2 text-[11px] text-adm-t1">{fee.calcType}</td>
                         <td className="px-3 py-2 font-mono text-[11px] text-adm-t1">
                           {formatAssetAmount(fee.amount)}
                         </td>
@@ -240,41 +225,6 @@ const WithdrawQuoteDetail = () => {
               <p className="font-mono text-[11px] text-adm-t3">No fee items</p>
             )}
           </DetailCard>
-
-          {/* Linked Withdrawals */}
-          {linkedWithdrawals.length > 0 ? (
-            <DetailCard title="Linked Withdrawals" columns={1}>
-              <table className="w-full text-left text-xs">
-                <thead>
-                  <tr className="border-b border-adm-border">
-                    {['Withdraw No', 'Status', 'Created'].map((h) => (
-                      <th
-                        key={h}
-                        className="px-3 py-2 font-mono text-[9px] font-semibold uppercase tracking-[0.1em] text-adm-t3"
-                      >
-                        {h}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-adm-border">
-                  {linkedWithdrawals.map((lw, i) => (
-                    <tr key={i}>
-                      <td className="px-3 py-2 font-mono text-[11px] text-adm-t2">
-                        {lw.withdrawNo || '—'}
-                      </td>
-                      <td className="px-3 py-2">
-                        <AdminBadge value={lw.status} />
-                      </td>
-                      <td className="px-3 py-2 font-mono text-[10px] text-adm-t3">
-                        {fmt(lw.createdAt)}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </DetailCard>
-          ) : null}
 
           {/* Technical Detail */}
           <DetailCard title="Technical Detail" columns={1}>
