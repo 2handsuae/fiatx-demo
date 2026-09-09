@@ -14,7 +14,8 @@
   1. `pricing-engine.service.ts:273` `buildWithdrawalQuote` 零调用死码（带 30s TTL 旧默认）——删码活，评审已证零调用方
   2. 审计页对所有 entityType 均无实体跳转（`AuditModules` 路由映射全仓零消费，SWAP_QUOTES 前例亦然）——是否补跳转属业务岔口，脑暴时问业主
   3. `BACKLOG.md` 头部「⭐ 共 15 条」实数 14（陈年漂移）——文档对账顺手项
-  4. 六组验收截图未落盘归档（渲染验证发生过、有 DB 级实证兜底）——若波二收官走查已补拍则销此条
+  4. ~~六组验收截图未落盘归档~~——已销：波二收官在主栈补拍归档（`.superpowers/sdd/shots/wave2-final-*` 8 张 + `wave2-final-shots.md`），五组全成立
+  5. 兑换报价详情「Linked Swap Transaction」卡的 SWP 号是纯文本非链接（提现侧同卡已是链接，两侧不对称；根因 `SwapQuoteDetail.tsx` 的 swapTransaction DTO 未带 id）——收官走查逮到，合并后不重开，波三顺手项
 - 环境判例照旧：worktree jest 须 `export DATABASE_URL`；Node 20 显式切；jest 不接管道尾
 
 ## 已定事实（总纲阶段）
