@@ -196,6 +196,7 @@ describe('WithdrawQuoteService.resolveBestLevel (audience predicate)', () => {
           requestId: expect.stringContaining(`WITHDRAW_QUOTE_USED_${updated.quoteNo}`),
         }),
         expect.anything(),
+        undefined,
       );
     });
 
@@ -218,6 +219,7 @@ describe('WithdrawQuoteService.resolveBestLevel (audience predicate)', () => {
           requestId: expect.stringContaining(`WITHDRAW_QUOTE_CANCELLED_${updated.quoteNo}`),
         }),
         expect.anything(),
+        undefined,
       );
     });
   });

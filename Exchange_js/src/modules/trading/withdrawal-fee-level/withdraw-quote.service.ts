@@ -230,8 +230,7 @@ export class WithdrawQuoteService {
       data: { status: 'USED', usedAt: now },
     });
 
-    // 方法带可选 tx 参数（调用方可能在事务里推进主流程），但审计照常用注入的 service
-    // 写、不进事务——与 swap 侧同律，演示系统不做事务兜底。
+    // 与 swap 侧同律：方法收到的 tx 按原样传给 recordByActor 第三参（未传时为 undefined）。
     await this.auditLogsService.recordByActor(
       {
         action: AuditActions.WITHDRAW_QUOTE_USED,
@@ -253,6 +252,7 @@ export class WithdrawQuoteService {
         actorDisplayName: updated.ownerNo || 'UNKNOWN',
         actorRolesAtTime: [ownerType === 'CUSTOMER' ? 'CUSTOMER' : ownerType === 'ADMIN' ? 'ADMIN' : 'SYSTEM'],
       },
+      tx as any,
     );
 
     return updated;
@@ -299,6 +299,7 @@ export class WithdrawQuoteService {
         actorDisplayName: updated.ownerNo || 'UNKNOWN',
         actorRolesAtTime: [ownerType === 'CUSTOMER' ? 'CUSTOMER' : ownerType === 'ADMIN' ? 'ADMIN' : 'SYSTEM'],
       },
+      tx as any,
     );
 
     return updated;
