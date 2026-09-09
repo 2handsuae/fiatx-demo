@@ -1160,7 +1160,7 @@ describe('DepositWorkflowService', () => {
         'dep-admin-below-min',
         { action: DepositTransactionAction.APPROVE },
       );
-      // 写 DEPOSIT_HELD_BELOW_MIN 审计,不写 DEPOSIT_APPROVED/DEPOSIT_COMPLETED
+      // 写 DEPOSIT_HELD_BELOW_MIN 审计,不写 DEPOSIT_APPROVED
       expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
         expect.objectContaining({ action: 'DEPOSIT_HELD', reasonCode: 'BELOW_MIN' }),
       );

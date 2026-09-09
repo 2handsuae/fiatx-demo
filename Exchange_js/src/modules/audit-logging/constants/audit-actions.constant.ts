@@ -336,7 +336,7 @@ export const AuditActions = {
   // mirrors DEPOSIT_KYT_VERDICT_IGNORED。
   WITHDRAW_KYT_VERDICT_IGNORED: 'WITHDRAW_KYT_VERDICT_IGNORED',
   // 终审必修(2026-08-20):IGNORE 分支撞上迟到的 SANCTION_APPLICANT 裁决 ——
-  // 单据状态不该决定"人"要不要被限制。mirrors DEPOSIT_SANCTION_HIT_ON_IGNORED_VERDICT。
+  // 单据状态不该决定"人"要不要被限制。mirrors the deposit-domain twin（该镜像码已随 2026-09-09 波一死码清理退役）。
   WITHDRAW_SANCTION_HIT_ON_IGNORED_VERDICT: 'WITHDRAW_SANCTION_HIT_ON_IGNORED_VERDICT',
   // Review Fix 2 (Important): a KYT verdict arriving after the payout already
   // broadcast (PAYOUT_PENDING) — evidence recorded, no state-machine action.
