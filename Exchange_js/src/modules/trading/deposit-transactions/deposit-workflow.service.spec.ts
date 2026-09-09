@@ -968,7 +968,7 @@ describe('DepositWorkflowService', () => {
       );
     });
 
-    it('holds when limitHoldReason=BELOW_MIN — audits DEPOSIT_HELD_BELOW_MIN, transitions to OPERATION_PENDING, never approves (2026-07-31 口径反转: 金额闸移到 approved 之后; 2026-07-31 闸下沉到 approveDeposit 唯一出口后,断言改为验可观测结果而非"approveDeposit 未被调用"这一实现细节——闸下沉后 checkAutoApproval 仍会调用 approveDeposit,只是 approveDeposit 自己在记账前拦下)', async () => {
+    it('holds when limitHoldReason=BELOW_MIN — audits DEPOSIT_HELD (reasonCode=BELOW_MIN), transitions to OPERATION_PENDING, never approves (2026-07-31 口径反转: 金额闸移到 approved 之后; 2026-07-31 闸下沉到 approveDeposit 唯一出口后,断言改为验可观测结果而非"approveDeposit 未被调用"这一实现细节——闸下沉后 checkAutoApproval 仍会调用 approveDeposit,只是 approveDeposit 自己在记账前拦下)', async () => {
       depositService.findOne.mockResolvedValue({
         id: 'dep-1',
         depositNo: 'DEP001',
@@ -1135,7 +1135,7 @@ describe('DepositWorkflowService', () => {
   });
 
   describe('approveDeposit — 金额闸下沉到唯一出口(admin 直调 PATCH /status 也必须过闸)', () => {
-    it('直调 approveDeposit 于 BELOW_MIN 单 → 转 OPERATION_PENDING + 审计 DEPOSIT_HELD_BELOW_MIN,不记账(缺口本身——admin 绕过 applyKytApproved/checkAutoApproval 直接 PATCH 状态接口时曾完整复现漏洞)', async () => {
+    it('直调 approveDeposit 于 BELOW_MIN 单 → 转 OPERATION_PENDING + 审计 DEPOSIT_HELD(reasonCode=BELOW_MIN),不记账(缺口本身——admin 绕过 applyKytApproved/checkAutoApproval 直接 PATCH 状态接口时曾完整复现漏洞)', async () => {
       depositService.findOne.mockResolvedValue({
         id: 'dep-admin-below-min',
         depositNo: 'DEP-ADMIN-BM-001',
@@ -1160,7 +1160,7 @@ describe('DepositWorkflowService', () => {
         'dep-admin-below-min',
         { action: DepositTransactionAction.APPROVE },
       );
-      // 写 DEPOSIT_HELD_BELOW_MIN 审计,不写 DEPOSIT_APPROVED
+      // 写 DEPOSIT_HELD(reasonCode=BELOW_MIN)审计,不写 DEPOSIT_APPROVED
       expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
         expect.objectContaining({ action: 'DEPOSIT_HELD', reasonCode: 'BELOW_MIN' }),
       );
@@ -2541,7 +2541,7 @@ describe('DepositWorkflowService', () => {
       );
     });
 
-    it('I1: approved but customer has no active fiat withdrawal address → held in COMPLIANCE_PENDING, DEPOSIT_HELD_NOT_TRADING_READY audit, NOT SUCCESS (trading-ready gate shared with checkAutoApproval)', async () => {
+    it('I1: approved but customer has no active fiat withdrawal address → held in COMPLIANCE_PENDING, DEPOSIT_HELD (reasonCode=NOT_TRADING_READY) audit, NOT SUCCESS (trading-ready gate shared with checkAutoApproval)', async () => {
       const deposit = {
         id: 'dep-2c',
         depositNo: 'DEP002C',
