@@ -4,7 +4,7 @@
 
 ## 承接上一波（波一清地基收尾时填写）
 
-- 波一合并基线 commit：<收尾时填>
+- 波一合并基线 commit：`4151ea91`（2026-09-09 ff 合入 main；主栈已 prisma:generate + rm dev.db + reset main + up + db:base:sync + demo:all 验绿）
 - 审计名册基线：V4/V5/V6 = 47/30/22 码（波一删的是旧扁平对象死键，分域名册零触碰；文档码数已同步）
 - 波一遗留给波二的：报价取消端点 `POST withdraw-transactions/quotes/:id/cancel` 去留（波一按裁定未动）；A3 死码处置无「在册未删」项（全部干净）
 - 环境判例：全新 worktree 跑 jest 须 `export DATABASE_URL`（TOOLING-DEBT 在案）；树名连字符会被 stack.sh 归一为下划线
