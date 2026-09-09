@@ -1,4 +1,5 @@
 import { IsIn, IsOptional, IsString } from 'class-validator';
+import type { DispositionKind } from '../disposition/cause-registry';
 export class ReconRunQueryDto {
   @IsOptional() @IsString() businessDate?: string;
   @IsOptional() @IsString() layer?: string;
@@ -189,6 +190,15 @@ export interface FlowComparisonRow {
     kind: string; label: string;
     causes: Array<{ code: string; label: string; clue: string }>;
   }>;
+  // ⚡ 差异行级推荐操作（平账处置改版承接）：按该案所属最近 break 轮 run.demoManifest
+  // 反查这一行的种子成因，取该成因 usableIn[0] 的处置种类——仅当推荐的处置真的在
+  // 上面 `dispositions` 清单里、且成因也在该处置的 causes 里才下发（宁缺勿错，见
+  // reconciliation-query.service.ts）。真实/pass 轮（无 manifest）恒不下发。展示与否
+  // 由前端模拟开关门控，后端只给事实。
+  demoRecommended?: {
+    scenarioId: number; causeCode: string; causeLabel: string;
+    disposition: DispositionKind; dispositionLabel: string;
+  };
   // 平账 A 批（spec §2.6）：超期后的下一步——只在「案件超期 + 该行已定性为挂起·调查中 + 未挂单」时出现。
   // 服务端算（前端不自己拼真相）：WRITE_OFF 带开单预填四项；另外两种只是只读标签。
   nextStep?: {

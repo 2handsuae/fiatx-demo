@@ -135,6 +135,12 @@ export interface FlowComparisonRow {
     kind: string; label: string;
     causes: Array<{ code: string; label: string; clue: string }>;
   }>;
+  // ⚡ 差异行级推荐（模拟开关门控）：唯一真相在后端 reconciliation-query.service.ts
+  // ——已经校验过推荐真的在上面 dispositions 清单里，前端只管展示，不自己算。
+  demoRecommended?: {
+    scenarioId: number; causeCode: string; causeLabel: string;
+    disposition: string; dispositionLabel: string;
+  };
   // 平账 A 批（spec §2.6）：超期后的下一步（服务端判）
   nextStep?: {
     kind: 'WRITE_OFF' | 'INCIDENT_DEFERRED' | 'CLIENT_SURPLUS' | 'COMPENSATION' | 'ADVANCE';
@@ -587,6 +593,8 @@ const DispositionFindingModal = ({ open, caseNo, row, kind, label, onClose, onRe
   const [note, setNote] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
+  // ⚡ 演示推荐徽标只在模拟模式下显示——与本页其它 ⚡ 件同一开关。
+  const { enabled: simEnabled } = useSimulationMode();
 
   const causes = row?.dispositions?.find((d) => d.kind === kind)?.causes ?? [];
 
@@ -663,6 +671,9 @@ const DispositionFindingModal = ({ open, caseNo, row, kind, label, onClose, onRe
               />
               <span className="flex-1">
                 <span className="text-adm-t1">{c.label}</span>
+                {simEnabled && row?.demoRecommended?.causeCode === c.code && (
+                  <span className="ml-2 rounded border border-adm-amber/30 bg-adm-amber/10 px-1.5 py-0.5 text-[10px] font-medium text-adm-amber">⚡ Recommended</span>
+                )}
                 <div className="mt-0.5 text-[11px] text-adm-t3">Clue: {c.clue}</div>
               </span>
             </label>
@@ -1514,41 +1525,53 @@ const ReconciliationCasesDetailPage = () => {
 
                                 {!(row.disposition?.adjustmentNo || row.disposition?.supplementNo)
                                   && kase.status === 'OPEN' && canRecordDisposition && (row.dispositions?.length ?? 0) > 0 && (
-                                  <div className="flex flex-wrap gap-1">
-                                    {row.dispositions!.map((d) => {
-                                      const isHold = d.kind === 'HOLD_NEXT_PERIOD' || d.kind === 'HOLD_INVESTIGATING';
-                                      // 每个处置种类跟进动作各自的写权限——按钮组本身已被
-                                      // canRecordDisposition 整体门控，这里只筛后续动作走
-                                      // 不通的那几种（同既有 canCreateAdjustment/canSupplement/
-                                      // canRegisterIncident 三个变量的既有约定，不新开权限口径）。
-                                      const allowed = d.kind === 'SUPPLEMENT' ? canSupplement
-                                        : d.kind === 'INCIDENT' ? canRegisterIncident
-                                        : isHold ? true
-                                        : canCreateAdjustment; // CORRECT/REVERSE/RECORD/REATTRIBUTE
-                                      if (!allowed) return null;
-                                      const tone: 'amber' | 'red' | 'blue' = d.kind === 'INCIDENT' ? 'red' : isHold || d.kind === 'SUPPLEMENT' ? 'amber' : 'blue';
-                                      return (
-                                        <button
-                                          key={d.kind}
-                                          type="button"
-                                          onClick={() => {
-                                            if (isHold) setHoldPicker({ row, kind: d.kind as 'HOLD_NEXT_PERIOD' | 'HOLD_INVESTIGATING' });
-                                            // Task 8：CORRECT/REVERSE/RECORD 三族原子一窗——直接开调账
-                                            // 弹层的 kind 模式，不再先记一遍定性（拆两段流）。
-                                            else if (d.kind === 'CORRECT' || d.kind === 'REVERSE' || d.kind === 'RECORD') openAdjustKind(row, d.kind);
-                                            else setFindingPicker({ row, kind: d.kind, label: d.label });
-                                          }}
-                                          className={[
-                                            'inline-flex items-center gap-1 whitespace-nowrap rounded border px-1.5 py-0.5 font-mono text-[10px] font-medium',
-                                            TONE_CLASSES[tone].border, TONE_CLASSES[tone].bg, TONE_CLASSES[tone].text,
-                                          ].join(' ')}
-                                        >
-                                          <PenLine size={9} />
-                                          {d.label}
-                                        </button>
-                                      );
-                                    })}
-                                  </div>
+                                  <>
+                                    {/* ⚡ 差异行级推荐（本任务）：仅模拟开关开启时展示——关掉模拟
+                                        开关即消失，与列表页气泡同一开关（useSimulationMode）。 */}
+                                    {simEnabled && row.demoRecommended && (
+                                      <div className="font-mono text-[10px] font-medium text-adm-amber">
+                                        ⚡ #{row.demoRecommended.scenarioId} Recommended: {row.demoRecommended.dispositionLabel} — {row.demoRecommended.causeLabel}
+                                      </div>
+                                    )}
+                                    <div className="flex flex-wrap gap-1">
+                                      {row.dispositions!.map((d) => {
+                                        const isHold = d.kind === 'HOLD_NEXT_PERIOD' || d.kind === 'HOLD_INVESTIGATING';
+                                        // 每个处置种类跟进动作各自的写权限——按钮组本身已被
+                                        // canRecordDisposition 整体门控，这里只筛后续动作走
+                                        // 不通的那几种（同既有 canCreateAdjustment/canSupplement/
+                                        // canRegisterIncident 三个变量的既有约定，不新开权限口径）。
+                                        const allowed = d.kind === 'SUPPLEMENT' ? canSupplement
+                                          : d.kind === 'INCIDENT' ? canRegisterIncident
+                                          : isHold ? true
+                                          : canCreateAdjustment; // CORRECT/REVERSE/RECORD/REATTRIBUTE
+                                        if (!allowed) return null;
+                                        const tone: 'amber' | 'red' | 'blue' = d.kind === 'INCIDENT' ? 'red' : isHold || d.kind === 'SUPPLEMENT' ? 'amber' : 'blue';
+                                        // ⚡ 推荐的那颗处置按钮加轻量高亮——非推荐按钮不动。
+                                        const isRecommended = simEnabled && row.demoRecommended?.disposition === d.kind;
+                                        return (
+                                          <button
+                                            key={d.kind}
+                                            type="button"
+                                            onClick={() => {
+                                              if (isHold) setHoldPicker({ row, kind: d.kind as 'HOLD_NEXT_PERIOD' | 'HOLD_INVESTIGATING' });
+                                              // Task 8：CORRECT/REVERSE/RECORD 三族原子一窗——直接开调账
+                                              // 弹层的 kind 模式，不再先记一遍定性（拆两段流）。
+                                              else if (d.kind === 'CORRECT' || d.kind === 'REVERSE' || d.kind === 'RECORD') openAdjustKind(row, d.kind);
+                                              else setFindingPicker({ row, kind: d.kind, label: d.label });
+                                            }}
+                                            className={[
+                                              'inline-flex items-center gap-1 whitespace-nowrap rounded border px-1.5 py-0.5 font-mono text-[10px] font-medium',
+                                              TONE_CLASSES[tone].border, TONE_CLASSES[tone].bg, TONE_CLASSES[tone].text,
+                                              isRecommended ? 'ring-1 ring-adm-amber ring-offset-1 ring-offset-adm-panel' : '',
+                                            ].join(' ')}
+                                          >
+                                            <PenLine size={9} />
+                                            {d.label}
+                                          </button>
+                                        );
+                                      })}
+                                    </div>
+                                  </>
                                 )}
 
                                 {row.disposition?.outlet === 'SUPPLEMENT' && row.disposition.supplementNo && (

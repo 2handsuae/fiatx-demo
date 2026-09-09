@@ -26,6 +26,9 @@ import Pagination from '../components/common/Pagination';
 // ReconciliationDispositionModal 都已这样引用）。Task 15：COA 人话短语同理复用
 // 详情页已导出的 COA_PHRASE，不重抄一份映射。
 import { formatAmount, COA_PHRASE } from './ReconciliationCasesDetailPage';
+// 门控一致性小补（本任务）：气泡此前只按数据在场显示——补上与详情页行级推荐同一个
+// 模拟开关（业主原话「依然是模拟开关下展示」）。
+import { useSimulationMode } from '../utils/simulationMode';
 
 /* ── Interfaces ──────────────────────────────────────────────── */
 
@@ -126,6 +129,9 @@ const ReconciliationCasesListPage = () => {
   // URL is the source of truth; missing/empty status param means OPEN (server default).
   const statusFromUrl = searchParams.get('status') ?? 'OPEN';
   const runNo = searchParams.get('runNo');
+  // 门控一致性小补（本任务）：⚡ 演示场景气泡只在模拟模式下展示——与详情页行级
+  // 推荐同一个开关。
+  const { enabled: simEnabled } = useSimulationMode();
 
   const [cases, setCases] = useState<ReconCase[]>([]);
   const [loading, setLoading] = useState(true);
@@ -372,8 +378,10 @@ const ReconciliationCasesListPage = () => {
                       {/* Task 11：演示场景气泡——只在答案键在场（demoScenarios 非空数组）
                           时渲染；真实/pass 轮字段 undefined，此处零渲染（不是隐藏）。
                           hover 出纯 CSS tooltip（不引库、不用 title 属性）；group-focus-within
-                          兼作截图工具点击/聚焦触发的兜底路径。业务键展示，不含 walletRef/UUID。 */}
-                      {kase.demoScenarios && kase.demoScenarios.length > 0 && (
+                          兼作截图工具点击/聚焦触发的兜底路径。业务键展示，不含 walletRef/UUID。
+                          门控一致性小补（本任务）：补上 simEnabled 门控——此前只按数据在场
+                          显示，与详情页行级推荐（仅模拟开关开启时展示）不一致。 */}
+                      {simEnabled && kase.demoScenarios && kase.demoScenarios.length > 0 && (
                         <span className="group relative ml-1 inline-block align-middle">
                           <button
                             type="button"

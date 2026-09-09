@@ -37,6 +37,7 @@ import { formatAmount, type FlowComparisonRow } from '../pages/ReconciliationCas
 // Task 8：kind 模式复用行事实推导（deltaSign/internalDirection/…）与方向依据文案，
 // 与案件页 DispositionFindingModal 同一份工具，不另抄一份。
 import { directionNoteFor, rowFacts } from '../utils/causeRegistry';
+import { useSimulationMode } from '../utils/simulationMode';
 
 export type AdjustmentBook = 'CLIENT' | 'FIRM';
 export type AdjustmentDirection = 'REDUCE' | 'INCREASE';
@@ -267,6 +268,8 @@ const ReconciliationAdjustmentCreateModal = ({
   const [reasonCustomer, setReasonCustomer] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
+  // ⚡ 演示推荐徽标只在模拟模式下显示——与案件页其它 ⚡ 件同一开关。
+  const { enabled: simEnabled } = useSimulationMode();
   // T9 改记视图：对端候选（GET reattribution-candidates）+ 单选状态。用下标而不是
   // caseNo 当选中键——候选理论上可能同案件多行命中同金额（同一对端案子里凑巧有
   // 两笔孤儿同额），caseNo 不保证唯一，下标总唯一。
@@ -590,6 +593,9 @@ const ReconciliationAdjustmentCreateModal = ({
                   />
                   <span className="flex-1">
                     <span className="text-adm-t1">{c.label}</span>
+                    {simEnabled && row?.demoRecommended?.causeCode === c.code && (
+                      <span className="ml-2 rounded border border-adm-amber/30 bg-adm-amber/10 px-1.5 py-0.5 text-[10px] font-medium text-adm-amber">⚡ Recommended</span>
+                    )}
                     <div className="mt-0.5 text-adm-t3">Clue: {c.clue}</div>
                   </span>
                 </label>

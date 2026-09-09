@@ -52,6 +52,16 @@ interface DemoScenarioEntry {
   scenarioId: number; causeCode: string; causeLabel: string; dispositionLabel: string; clue: string;
 }
 
+// 差异行级推荐（本任务）：按 break 铺场轮 run.demoManifest 反查单行成因用的最小
+// 形状——只取 scenarios[].{scenarioId,rootCause,expectedLines[].{walletRef,externalRef}}。
+interface DemoManifestShape {
+  scenarios?: Array<{
+    scenarioId: number;
+    rootCause: string;
+    expectedLines?: Array<{ walletRef: string; externalRef?: string | null }>;
+  }>;
+}
+
 @Injectable()
 export class ReconciliationQueryService {
   constructor(
@@ -493,6 +503,13 @@ export class ReconciliationQueryService {
         .filter((r) => r.matchType === 'MATCHED' && r.externalLine?.externalRef)
         .map((r) => `${r.externalLine!.externalRef}|${r.externalLine!.amount}`),
     );
+    // ⚡ 差异行级推荐（本任务）：只有真实钱包案件（非 XREF、非 legacy）才可能挂着
+    // break 铺场答案键——与上面 flowComparison 的构建同一个门控条件，XREF/legacy
+    // 案件不发这次查询（真实/pass 轮无 manifest 时 loadDemoLineCausesForWallet 内部
+    // 的 findFirst 落空，返回空表，同样零命中）。
+    const demoLineCauses = (kase.walletRef && !kase.walletRef.startsWith('XREF:'))
+      ? await this.loadDemoLineCausesForWallet(kase.walletRef)
+      : new Map<string, { scenarioId: number; rootCause: string }>();
     const caseBook = kase.book === 'FIRM' ? 'FIRM' : 'CLIENT';
     for (const r of flowComparison) {
       if (r.matchType === 'MATCHED' || r.matchType === 'IN_TRANSIT') continue;
@@ -544,6 +561,41 @@ export class ReconciliationQueryService {
             .filter((c) => CAUSE_REGISTRY[c.code].requiredDirection === rowFacts.externalDirection)
           : causesFor(kind, rowFacts.matchType, rowFacts.book),
       }));
+      // ⚡ 差异行级推荐（本任务）：按行的匹配键（externalLine.externalRef ??
+      // internalFlow.externalRef，旧 WIP 同款）反查种子成因，取该成因 usableIn[0]
+      // 的处置种类作为推荐。MISATTRIBUTED_FROM/TO 同一 rootCause 铺两侧（发出端
+      // ORPHAN_INTERNAL 用 FROM、接收端 ORPHAN_EXTERNAL 只认 TO）——种子成因在本行
+      // 不合法时试一次对端码（旧 WIP 同款 sibling 逻辑）。最终必须同时满足：推荐的
+      // 处置种类在上面刚算出的 r.dispositions 里、且成因也在该处置的 causes 清单
+      // 里——两者任一不满足就不下发（宁缺勿错，例如 SWAP 行/方向过滤后该成因已被
+      // 摘掉）。真实/pass 轮 demoLineCauses 恒空表，天然不命中。
+      const seedRef = r.externalLine?.externalRef ?? r.internalFlow?.externalRef;
+      const seedEntry = seedRef ? demoLineCauses.get(seedRef) : undefined;
+      const tryDemoCause = (code: string): { code: CauseCode; kind: DispositionKind } | null => {
+        const spec = CAUSE_REGISTRY[code as CauseCode];
+        if (!spec) return null; // 如 IN_TRANSIT_TIMING——不在成因表里，不是差异
+        const kind = spec.usableIn[0];
+        const dispEntry = r.dispositions!.find((entry) => entry.kind === kind);
+        if (!dispEntry || !dispEntry.causes.some((c) => c.code === code)) return null;
+        return { code: code as CauseCode, kind };
+      };
+      if (seedEntry) {
+        let hit = tryDemoCause(seedEntry.rootCause);
+        if (!hit) {
+          const sibling = seedEntry.rootCause === 'MISATTRIBUTED_FROM' ? 'MISATTRIBUTED_TO'
+            : seedEntry.rootCause === 'MISATTRIBUTED_TO' ? 'MISATTRIBUTED_FROM' : null;
+          if (sibling) hit = tryDemoCause(sibling);
+        }
+        if (hit) {
+          r.demoRecommended = {
+            scenarioId: seedEntry.scenarioId,
+            causeCode: hit.code,
+            causeLabel: CAUSE_REGISTRY[hit.code].label,
+            disposition: hit.kind,
+            dispositionLabel: DISPOSITION_LABEL[hit.kind],
+          };
+        }
+      }
       // 平账 A 批（spec §2.6）+ 二期（spec §7.1）：超期解锁——判据全在服务端。
       // 公司池：小额 → 核销，大额 → 事故（三期）；客户池：多出来的不论大小 → 指路补录
       // （这一判断排在金额判断之前，见下方 if 顺序）；「托管里少了」再看金额——
@@ -759,15 +811,8 @@ export class ReconciliationQueryService {
    */
   private async loadDemoScenariosByWalletRef(): Promise<Map<string, DemoScenarioEntry[]>> {
     const byWallet = new Map<string, DemoScenarioEntry[]>();
-    const demoRun = await this.prisma.reconciliationRun.findFirst({
-      where: { demoManifest: { not: null } },
-      orderBy: { startedAt: 'desc' },
-      select: { demoManifest: true },
-    });
-    if (!demoRun?.demoManifest) return byWallet;
-    const manifest = JSON.parse(demoRun.demoManifest) as {
-      scenarios?: Array<{ scenarioId: number; rootCause: string; expectedLines?: Array<{ walletRef: string }> }>;
-    };
+    const manifest = await this.loadLatestDemoManifest();
+    if (!manifest) return byWallet;
     for (const scenario of manifest.scenarios ?? []) {
       const causeSpec = CAUSE_REGISTRY[scenario.rootCause as CauseCode];
       if (!causeSpec) continue; // 场景①在途——成因表里没有它的条目
@@ -788,6 +833,42 @@ export class ReconciliationQueryService {
       }
     }
     return byWallet;
+  }
+
+  /**
+   * 差异行级推荐（本任务）：最近一轮带 demoManifest 的跑批——与 loadDemoScenariosByWalletRef
+   * 同一份查询，抽成共用私有方法，getCase 的行级反查不再另发一次 findFirst。
+   * 真实/pass 轮（demoManifest 恒 null）返回 null。
+   */
+  private async loadLatestDemoManifest(): Promise<DemoManifestShape | null> {
+    const demoRun = await this.prisma.reconciliationRun.findFirst({
+      where: { demoManifest: { not: null } },
+      orderBy: { startedAt: 'desc' },
+      select: { demoManifest: true },
+    });
+    if (!demoRun?.demoManifest) return null;
+    return JSON.parse(demoRun.demoManifest) as DemoManifestShape;
+  }
+
+  /**
+   * 差异行级推荐（本任务）：按本案钱包过滤出 externalRef → {scenarioId, rootCause}
+   * 映射——getCase 行注解循环按行的匹配键（externalLine.externalRef ??
+   * internalFlow.externalRef，旧 WIP 同款）查这张表，取种子成因推出推荐处置。
+   * 同一钱包上不同场景撞了同一个 externalRef 的情况本答案键不产生（每条种子行的
+   * externalRef 在铺场脚本里各自生成），后写覆盖先写即可，不必特殊处理。
+   */
+  private async loadDemoLineCausesForWallet(walletRef: string): Promise<Map<string, { scenarioId: number; rootCause: string }>> {
+    const byExternalRef = new Map<string, { scenarioId: number; rootCause: string }>();
+    const manifest = await this.loadLatestDemoManifest();
+    if (!manifest) return byExternalRef;
+    for (const scenario of manifest.scenarios ?? []) {
+      for (const line of scenario.expectedLines ?? []) {
+        if (line.walletRef === walletRef && line.externalRef) {
+          byExternalRef.set(line.externalRef, { scenarioId: scenario.scenarioId, rootCause: scenario.rootCause });
+        }
+      }
+    }
+    return byExternalRef;
   }
 
   async listExternalBalances(q: { cutoffDate?: string; book?: string; source?: string; currency?: string }) {

@@ -109,7 +109,9 @@ describe('getCase — flowComparison (T3)', () => {
       externalStatementLine: { findMany: jest.fn().mockResolvedValue(externalLines) },
       accountFlow: { findMany: jest.fn().mockResolvedValue(internalFlows) },
       wallet: { findUnique: jest.fn().mockResolvedValue(null) },
-      reconciliationRun: { findUnique: jest.fn().mockResolvedValue({ id: 'run-fc', runNo: 'REC-FC' }) },
+      // ⚡ 差异行级推荐（本任务）：getCase 现在无条件发一次 findFirst 反查 demoManifest
+      // （真实钱包案件）——真实/pass 轮场景，返回 null 即可，本组用例不关心推荐字段。
+      reconciliationRun: { findUnique: jest.fn().mockResolvedValue({ id: 'run-fc', runNo: 'REC-FC' }), findFirst: jest.fn().mockResolvedValue(null) },
       // T4/T1: getCase (unconditional) + buildFlowComparison both look up
       // asset.decimals by assetCode via findUnique. decimals=2 here.
       asset: { findUnique: jest.fn().mockResolvedValue({ decimals: 2 }) },
@@ -289,6 +291,9 @@ describe('getCase — walletNo / linkedRunNo / slaDeadline / book', () => {
       },
       reconciliationRun: {
         findUnique: jest.fn().mockResolvedValue(run),
+        // ⚡ 差异行级推荐（本任务）：真实钱包案件会无条件发一次 findFirst 反查
+        // demoManifest——真实/pass 轮场景，返回 null 即可。
+        findFirst: jest.fn().mockResolvedValue(null),
       },
       // buildFlowComparison path (walletRef is a real wallet, not XREF):
       externalBalance: { findMany: jest.fn().mockResolvedValue([]) },
@@ -763,6 +768,9 @@ describe('getCase — explain / observation / bucket (T6)', () => {
           if (where.id === 'run-last') return Promise.resolve(lastObservedRun);
           return Promise.resolve(null);
         }),
+        // ⚡ 差异行级推荐（本任务）：真实钱包案件会无条件发一次 findFirst 反查
+        // demoManifest——真实/pass 轮场景，返回 null 即可。
+        findFirst: jest.fn().mockResolvedValue(null),
       },
       externalBalance: { findMany: jest.fn().mockResolvedValue([]) },
       externalStatementLine: { findMany: jest.fn().mockResolvedValue([]) },
@@ -875,7 +883,9 @@ describe('getCase — 案件级调账单列表 adjustments（Task 7）', () => {
     return {
       reconciliationCase: { findUnique: jest.fn().mockResolvedValue(mkKase(kaseOverrides)) },
       wallet: { findUnique: jest.fn().mockResolvedValue(null) },
-      reconciliationRun: { findUnique: jest.fn().mockResolvedValue(run) },
+      // ⚡ 差异行级推荐（本任务）：真实钱包案件会无条件发一次 findFirst 反查
+      // demoManifest——真实/pass 轮场景，返回 null 即可。
+      reconciliationRun: { findUnique: jest.fn().mockResolvedValue(run), findFirst: jest.fn().mockResolvedValue(null) },
       externalBalance: { findMany: jest.fn().mockResolvedValue([]) },
       externalStatementLine: { findMany: jest.fn().mockResolvedValue([]) },
       accountFlow: { findMany: jest.fn().mockResolvedValue([]) },
@@ -995,7 +1005,9 @@ describe('getCase 行注解（spec §3/§8）', () => {
     return {
       reconciliationCase: { findUnique: jest.fn().mockResolvedValue(baseKase) },
       wallet: { findUnique: jest.fn().mockResolvedValue(null) },
-      reconciliationRun: { findUnique: jest.fn().mockResolvedValue({ id: 'run-anno', runNo: 'REC-ANNO-RUN' }) },
+      // ⚡ 差异行级推荐（本任务）：真实钱包案件会无条件发一次 findFirst 反查
+      // demoManifest——默认无 manifest（真实/pass 轮），个别用例按需 override。
+      reconciliationRun: { findUnique: jest.fn().mockResolvedValue({ id: 'run-anno', runNo: 'REC-ANNO-RUN' }), findFirst: jest.fn().mockResolvedValue(null) },
       asset: { findUnique: jest.fn().mockResolvedValue({ decimals: 2 }) },
       reconciliationAdjustment: { findMany: jest.fn().mockResolvedValue([]) },
       reconciliationDisposition: { findMany: jest.fn().mockResolvedValue([]) },
@@ -1526,7 +1538,9 @@ describe('平账 A 批：案件页按跑批截止时刻重建差异行（spec §
     };
     return {
       reconciliationCase: { findUnique: jest.fn().mockResolvedValue(kase) },
-      reconciliationRun: { findUnique: jest.fn().mockResolvedValue({ runNo: 'RUN20260902-1', businessDate: '2026-09-02', cutoffAt, startedAt: new Date(), completedAt: new Date() }) },
+      // ⚡ 差异行级推荐（本任务）：真实钱包案件会无条件发一次 findFirst 反查
+      // demoManifest——真实/pass 轮场景，返回 null 即可。
+      reconciliationRun: { findUnique: jest.fn().mockResolvedValue({ runNo: 'RUN20260902-1', businessDate: '2026-09-02', cutoffAt, startedAt: new Date(), completedAt: new Date() }), findFirst: jest.fn().mockResolvedValue(null) },
       reconciliationDisposition: { findMany: jest.fn().mockResolvedValue([]) },
       reconciliationAdjustment: { findMany: jest.fn().mockResolvedValue([]) },
       externalBalance: { findMany: jest.fn().mockResolvedValue([]) },
@@ -1570,7 +1584,9 @@ describe('平账 A 批：超期后的下一步 nextStep（spec §2.6）', () => 
     };
     return {
       reconciliationCase: { findUnique: jest.fn().mockResolvedValue(kase) },
-      reconciliationRun: { findUnique: jest.fn().mockResolvedValue({ runNo: 'RUN-1', businessDate: '2026-09-02', cutoffAt: new Date('2026-09-02T10:00:00Z'), startedAt: new Date(), completedAt: new Date() }) },
+      // ⚡ 差异行级推荐（本任务）：真实钱包案件会无条件发一次 findFirst 反查
+      // demoManifest——真实/pass 轮场景，返回 null 即可。
+      reconciliationRun: { findUnique: jest.fn().mockResolvedValue({ runNo: 'RUN-1', businessDate: '2026-09-02', cutoffAt: new Date('2026-09-02T10:00:00Z'), startedAt: new Date(), completedAt: new Date() }), findFirst: jest.fn().mockResolvedValue(null) },
       reconciliationDisposition: { findMany: jest.fn().mockResolvedValue(opts.disposition ? [opts.disposition] : []) },
       reconciliationAdjustment: { findMany: jest.fn().mockResolvedValue([]) },
       externalBalance: { findMany: jest.fn().mockResolvedValue([]) },
@@ -1681,7 +1697,9 @@ describe('getCase — 补款 / 垫款回挂行为覆盖（平账二期 Task 8 �
     };
     return {
       reconciliationCase: { findUnique: jest.fn().mockResolvedValue(kase) },
-      reconciliationRun: { findUnique: jest.fn().mockResolvedValue({ runNo: 'RUN-1', businessDate: '2026-09-05', cutoffAt: new Date('2026-09-05T10:00:00Z'), startedAt: new Date(), completedAt: new Date() }) },
+      // ⚡ 差异行级推荐（本任务）：真实钱包案件会无条件发一次 findFirst 反查
+      // demoManifest——真实/pass 轮场景，返回 null 即可。
+      reconciliationRun: { findUnique: jest.fn().mockResolvedValue({ runNo: 'RUN-1', businessDate: '2026-09-05', cutoffAt: new Date('2026-09-05T10:00:00Z'), startedAt: new Date(), completedAt: new Date() }), findFirst: jest.fn().mockResolvedValue(null) },
       reconciliationDisposition: { findMany: jest.fn().mockResolvedValue([opts.disposition]) },
       reconciliationAdjustment: { findMany: jest.fn().mockResolvedValue(opts.adjustments ?? []) },
       externalBalance: { findMany: jest.fn().mockResolvedValue([]) },
@@ -1842,6 +1860,126 @@ describe('listCases — demoScenarios（Task 5：读面翻转，气泡数据源�
     const rows = await mkSvc(prisma).listCases({});
     const row: any = rows.find((r: any) => r.caseNo === 'REC-B2');
     expect(row.demoScenarios).toBeUndefined();
+    expect((prisma.reconciliationRun.findFirst as jest.Mock).mock.calls[0][0]).toEqual(
+      expect.objectContaining({ where: { demoManifest: { not: null } } }),
+    );
+  });
+});
+
+// 差异行级推荐（本任务）：案件详情页每条差异行按行的匹配键（externalLine.externalRef
+// ?? internalFlow.externalRef，旧 WIP 同款）反查该案所属最近 break 轮 run.demoManifest，
+// 推荐 = 种子成因 usableIn[0] 的处置种类——与 loadDemoScenariosByWalletRef 共用同一份
+// loadLatestDemoManifest（不另发一次 findFirst）。四条覆盖：①命中行结构与值
+// ②推荐不在合法清单时不下发 ③MISATTRIBUTED 两侧各取本格码 ④无 manifest 不下发。
+describe('getCase — ⚡ 差异行级推荐 demoRecommended（平账处置改版承接）', () => {
+  function mkKase(overrides: Record<string, unknown> = {}) {
+    return {
+      id: 'c-rec', caseNo: 'REC-RECO', businessDate: '2026-09-09', assetCode: 'AED',
+      walletRef: 'w-demo-1', status: 'OPEN', book: 'CLIENT',
+      lastObservedRunId: 'run-x', firstSeenRunId: 'run-x', closedByRunId: null, openedByRunId: 'run-x',
+      tbAmount: new Prisma.Decimal(0), actualExternal: new Prisma.Decimal(0), deltaAmount: new Prisma.Decimal(0),
+      createdAt: new Date(), lineItems: [],
+      ...overrides,
+    };
+  }
+
+  function prismaFor(opts: {
+    kaseOverrides?: Record<string, unknown>;
+    externalLines?: any[];
+    internalFlows?: any[];
+    demoRun: { demoManifest: string | null } | null;
+  }) {
+    return {
+      reconciliationCase: { findUnique: jest.fn().mockResolvedValue(mkKase(opts.kaseOverrides)) },
+      reconciliationRun: {
+        findUnique: jest.fn().mockResolvedValue({ runNo: 'RUN-1', businessDate: '2026-09-09', cutoffAt: new Date('2026-09-09T10:00:00Z'), startedAt: new Date(), completedAt: new Date() }),
+        // ⚡ 本组用例的核心开关——命中 vs 不命中 demoManifest。
+        findFirst: jest.fn().mockResolvedValue(opts.demoRun),
+      },
+      reconciliationDisposition: { findMany: jest.fn().mockResolvedValue([]) },
+      reconciliationAdjustment: { findMany: jest.fn().mockResolvedValue([]) },
+      externalBalance: { findMany: jest.fn().mockResolvedValue([]) },
+      externalStatementLine: { findMany: jest.fn().mockResolvedValue(opts.externalLines ?? []) },
+      accountFlow: { findMany: jest.fn().mockResolvedValue(opts.internalFlows ?? []) },
+      asset: { findUnique: jest.fn().mockResolvedValue({ decimals: 2, currency: 'AED' }) },
+      wallet: { findUnique: jest.fn().mockResolvedValue({ walletNo: 'WA1' }) },
+      fundsOrder: { findMany: jest.fn().mockResolvedValue([]) },
+      internalTransfer: { findMany: jest.fn().mockResolvedValue([]) },
+      incident: { findMany: jest.fn().mockResolvedValue([]) },
+    } as any;
+  }
+
+  const flowMatcherFor = (m: { matched?: any[]; orphanInternal?: any[]; orphanExternal?: any[]; mismatch?: any[] }) => ({
+    matchFlows: jest.fn().mockResolvedValue({
+      matched: m.matched ?? [], orphanInternal: m.orphanInternal ?? [], orphanExternal: m.orphanExternal ?? [], mismatch: m.mismatch ?? [],
+    }),
+  });
+
+  it('① 命中行：demoRecommended 结构与值——按行 externalRef 反查种子成因，推荐取该成因 usableIn[0]（DUP_BOOKING → REVERSE）', async () => {
+    const internalFlows = [{ id: 'int-dup', direction: 'OUT', amount: new Prisma.Decimal(100), externalRef: 'REF-DUP', eventCode: 'WITHDRAW_OUT', sourceType: 'WITHDRAW', sourceNo: 'WD-DUP', createdAt: new Date() }];
+    const manifest = { scenarios: [{ scenarioId: 6, rootCause: 'DUP_BOOKING', expectedLines: [{ walletRef: 'w-demo-1', externalRef: 'REF-DUP' }] }] };
+    const prisma = prismaFor({ internalFlows, demoRun: { demoManifest: JSON.stringify(manifest) } });
+    const flowMatcher = flowMatcherFor({ orphanInternal: [{ internalFlowId: 'int-dup' }] });
+    const res: any = await mkSvc(prisma, { flowMatcher }).getCase('REC-RECO');
+    const row = res.flowComparison.find((r: any) => r.internalFlow?.id === 'int-dup');
+    expect(row.demoRecommended).toEqual({
+      scenarioId: 6, causeCode: 'DUP_BOOKING', causeLabel: CAUSE_REGISTRY.DUP_BOOKING.label,
+      disposition: 'REVERSE', dispositionLabel: DISPOSITION_LABEL.REVERSE,
+    });
+  });
+
+  it('② 推荐处置不在该行当下合法清单里（SWAP 来源无冲正码，A1b 甲）→ 宁缺勿错，不下发', async () => {
+    const internalFlows = [{ id: 'int-swap-dup', direction: 'OUT', amount: new Prisma.Decimal(100), externalRef: 'REF-DUP-SWAP', eventCode: 'SWAP_OUT', sourceType: 'SWAP', sourceNo: 'SWP-1', createdAt: new Date() }];
+    const manifest = { scenarios: [{ scenarioId: 6, rootCause: 'DUP_BOOKING', expectedLines: [{ walletRef: 'w-demo-1', externalRef: 'REF-DUP-SWAP' }] }] };
+    const prisma = prismaFor({ internalFlows, demoRun: { demoManifest: JSON.stringify(manifest) } });
+    const flowMatcher = flowMatcherFor({ orphanInternal: [{ internalFlowId: 'int-swap-dup' }] });
+    const res: any = await mkSvc(prisma, { flowMatcher }).getCase('REC-RECO');
+    const row = res.flowComparison.find((r: any) => r.internalFlow?.id === 'int-swap-dup');
+    expect(row.dispositions.some((d: any) => d.kind === 'REVERSE')).toBe(false); // SWAP 来源不可冲正——推荐的处置压根不在这一行的按钮组里
+    expect(row.demoRecommended).toBeUndefined();
+  });
+
+  it('③ MISATTRIBUTED_FROM/TO 同一 rootCause 铺两侧——发出端（ORPHAN_INTERNAL）直取 FROM 码，接收端（ORPHAN_EXTERNAL）FROM 码在该格不合法、改取 sibling TO 码', async () => {
+    const manifest = {
+      scenarios: [{
+        scenarioId: 8, rootCause: 'MISATTRIBUTED_FROM',
+        expectedLines: [
+          { walletRef: 'w-from', externalRef: 'REF-FROM' },
+          { walletRef: 'w-to', externalRef: 'REF-TO' },
+        ],
+      }],
+    };
+    const demoRun = { demoManifest: JSON.stringify(manifest) };
+
+    // 发出端：我有外无
+    const internalFlows = [{ id: 'int-from', direction: 'IN', amount: new Prisma.Decimal(500), externalRef: 'REF-FROM', eventCode: 'DEPOSIT_IN', sourceType: 'DEPOSIT', sourceNo: 'PAY-FROM', createdAt: new Date() }];
+    const prismaFrom = prismaFor({ kaseOverrides: { walletRef: 'w-from' }, internalFlows, demoRun });
+    const fromRes: any = await mkSvc(prismaFrom, { flowMatcher: flowMatcherFor({ orphanInternal: [{ internalFlowId: 'int-from' }] }) }).getCase('REC-RECO');
+    const fromRow = fromRes.flowComparison.find((r: any) => r.internalFlow?.id === 'int-from');
+    expect(fromRow.demoRecommended).toEqual({
+      scenarioId: 8, causeCode: 'MISATTRIBUTED_FROM', causeLabel: CAUSE_REGISTRY.MISATTRIBUTED_FROM.label,
+      disposition: 'REATTRIBUTE', dispositionLabel: DISPOSITION_LABEL.REATTRIBUTE,
+    });
+
+    // 接收端：外有我无——种子字面量仍是 MISATTRIBUTED_FROM，但这一格（ORPHAN_EXTERNAL×
+    // CLIENT）只认 MISATTRIBUTED_TO；直取失败后回落 sibling。
+    const externalLines = [{ id: 'ext-to', direction: 'IN', amount: new Prisma.Decimal(500), externalRef: 'REF-TO', datetime: new Date(), description: null }];
+    const prismaTo = prismaFor({ kaseOverrides: { walletRef: 'w-to' }, externalLines, demoRun });
+    const toRes: any = await mkSvc(prismaTo, { flowMatcher: flowMatcherFor({ orphanExternal: [{ externalLineId: 'ext-to' }] }) }).getCase('REC-RECO');
+    const toRow = toRes.flowComparison.find((r: any) => r.externalLine?.id === 'ext-to');
+    expect(toRow.demoRecommended).toEqual({
+      scenarioId: 8, causeCode: 'MISATTRIBUTED_TO', causeLabel: CAUSE_REGISTRY.MISATTRIBUTED_TO.label,
+      disposition: 'REATTRIBUTE', dispositionLabel: DISPOSITION_LABEL.REATTRIBUTE,
+    });
+  });
+
+  it('④ 无 demoManifest（真实/pass 轮）→ demoRecommended 恒不下发，即便行的 externalRef 字面量与别处场景撞了也不误报', async () => {
+    const internalFlows = [{ id: 'int-dup-real', direction: 'OUT', amount: new Prisma.Decimal(100), externalRef: 'REF-DUP', eventCode: 'WITHDRAW_OUT', sourceType: 'WITHDRAW', sourceNo: 'WD-DUP', createdAt: new Date() }];
+    const prisma = prismaFor({ internalFlows, demoRun: null }); // findFirst 落空——本轮没有带 demoManifest 的跑批
+    const flowMatcher = flowMatcherFor({ orphanInternal: [{ internalFlowId: 'int-dup-real' }] });
+    const res: any = await mkSvc(prisma, { flowMatcher }).getCase('REC-RECO');
+    const row = res.flowComparison.find((r: any) => r.internalFlow?.id === 'int-dup-real');
+    expect(row.demoRecommended).toBeUndefined();
     expect((prisma.reconciliationRun.findFirst as jest.Mock).mock.calls[0][0]).toEqual(
       expect.objectContaining({ where: { demoManifest: { not: null } } }),
     );
