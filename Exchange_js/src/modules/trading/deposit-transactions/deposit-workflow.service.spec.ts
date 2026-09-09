@@ -1167,9 +1167,6 @@ describe('DepositWorkflowService', () => {
       expect(auditLogsService.recordSystem).not.toHaveBeenCalledWith(
         expect.objectContaining({ action: AuditActions.DEPOSIT_APPROVED }),
       );
-      expect(auditLogsService.recordSystem).not.toHaveBeenCalledWith(
-        expect.objectContaining({ action: AuditActions.DEPOSIT_COMPLETED }),
-      );
       // 不记账:资金层完全没被碰
       expect(fundsOrders.findByParent).not.toHaveBeenCalled();
       expect(executeAccountingSpy).not.toHaveBeenCalled();
@@ -1293,9 +1290,6 @@ describe('DepositWorkflowService', () => {
       expect(fundsOrders.findByParent).not.toHaveBeenCalled();
       expect(auditLogsService.recordSystem).not.toHaveBeenCalledWith(
         expect.objectContaining({ action: AuditActions.DEPOSIT_APPROVED }),
-      );
-      expect(auditLogsService.recordSystem).not.toHaveBeenCalledWith(
-        expect.objectContaining({ action: AuditActions.DEPOSIT_COMPLETED }),
       );
       // 审计动作名按真实原因走：不是 BELOW_MIN 就别写 BELOW_MIN 的 reasonCode
       // （硬写会是伪证据）——归一 DEPOSIT_HELD，reasonCode 说真话，从/到列携迁移。
@@ -2488,9 +2482,6 @@ describe('DepositWorkflowService', () => {
       expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
         expect.objectContaining({ action: 'DEPOSIT_APPROVED' }),
       );
-      expect(auditLogsService.recordSystem).not.toHaveBeenCalledWith(
-        expect.objectContaining({ action: 'DEPOSIT_MANUAL_APPROVED' }),
-      );
     });
 
     it('approved from MANUAL_CHECKING → 归一 DEPOSIT_APPROVED（fromStatus=MANUAL_CHECKING，人工翻案語义在从/到列里）→ SUCCESS', async () => {
@@ -2548,9 +2539,6 @@ describe('DepositWorkflowService', () => {
       expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
         expect.objectContaining({ action: 'DEPOSIT_APPROVED', fromStatus: DepositTransactionStatus.ACTION_PENDING }),
       );
-      expect(auditLogsService.recordSystem).not.toHaveBeenCalledWith(
-        expect.objectContaining({ action: 'DEPOSIT_MANUAL_APPROVED' }),
-      );
     });
 
     it('I1: approved but customer has no active fiat withdrawal address → held in COMPLIANCE_PENDING, DEPOSIT_HELD_NOT_TRADING_READY audit, NOT SUCCESS (trading-ready gate shared with checkAutoApproval)', async () => {
@@ -2578,9 +2566,6 @@ describe('DepositWorkflowService', () => {
       );
       expect(auditLogsService.recordSystem).not.toHaveBeenCalledWith(
         expect.objectContaining({ action: 'DEPOSIT_APPROVED' }),
-      );
-      expect(auditLogsService.recordSystem).not.toHaveBeenCalledWith(
-        expect.objectContaining({ action: 'DEPOSIT_COMPLETED' }),
       );
     });
 
@@ -2612,9 +2597,6 @@ describe('DepositWorkflowService', () => {
       );
       expect(auditLogsService.recordSystem).not.toHaveBeenCalledWith(
         expect.objectContaining({ action: 'DEPOSIT_APPROVED' }),
-      );
-      expect(auditLogsService.recordSystem).not.toHaveBeenCalledWith(
-        expect.objectContaining({ action: 'DEPOSIT_COMPLETED' }),
       );
     });
 
@@ -3072,9 +3054,6 @@ describe('DepositWorkflowService', () => {
 
       expect(customerRestrictionsService.open).not.toHaveBeenCalled();
       expect(depositService.updateStatus).not.toHaveBeenCalled();
-      expect(auditLogsService.recordSystem).not.toHaveBeenCalledWith(
-        expect.objectContaining({ action: AuditActions.DEPOSIT_SANCTION_HIT_ON_IGNORED_VERDICT }),
-      );
     });
 
     it('FROZEN 单 + 迟到普通 rejected(无 sceneTag)→ 不冻人', async () => {
@@ -3091,9 +3070,6 @@ describe('DepositWorkflowService', () => {
 
       expect(customerRestrictionsService.open).not.toHaveBeenCalled();
       expect(depositService.updateStatus).not.toHaveBeenCalled();
-      expect(auditLogsService.recordSystem).not.toHaveBeenCalledWith(
-        expect.objectContaining({ action: AuditActions.DEPOSIT_SANCTION_HIT_ON_IGNORED_VERDICT }),
-      );
     });
 
     it('recordVerdictIgnored 的 metadata 里能查到 sceneTag(取证链不再断)', async () => {

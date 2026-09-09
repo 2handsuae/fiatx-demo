@@ -988,9 +988,6 @@ describe('WithdrawWorkflowService.applyKytVerdict (Task 5: verdict-driven state 
         expect.objectContaining({ verdict: 'approved', score: 3 }),
       );
       expect(initiateSpy).toHaveBeenCalledWith('wd-sumsub-1');
-      expect(auditLogsService.recordSystem).not.toHaveBeenCalledWith(
-        expect.objectContaining({ action: AuditActions.WITHDRAW_MANUAL_APPROVED }),
-      );
     });
 
     it('from ACTION_PENDING (re-evaluated after补料) → delegates to initiatePayoutPhase, no manual-approved audit', async () => {
@@ -1005,9 +1002,6 @@ describe('WithdrawWorkflowService.applyKytVerdict (Task 5: verdict-driven state 
       await workflow.applyKytVerdict('wd-sumsub-1', { verdict: 'approved', riskScore: 3 });
 
       expect(initiateSpy).toHaveBeenCalledWith('wd-sumsub-1');
-      expect(auditLogsService.recordSystem).not.toHaveBeenCalledWith(
-        expect.objectContaining({ action: AuditActions.WITHDRAW_MANUAL_APPROVED }),
-      );
     });
 
     it('from MANUAL_CHECKING → 翻案不再单独留痕(语义在 COMPLIANCE_PASSED 的 from 列)，直接进付款阶段', async () => {
@@ -1021,9 +1015,6 @@ describe('WithdrawWorkflowService.applyKytVerdict (Task 5: verdict-driven state 
 
       await workflow.applyKytVerdict('wd-sumsub-1', { verdict: 'approved', riskScore: 3 });
 
-      expect(auditLogsService.recordSystem).not.toHaveBeenCalledWith(
-        expect.objectContaining({ action: 'WITHDRAW_MANUAL_APPROVED' }),
-      );
       expect(initiateSpy).toHaveBeenCalledWith('wd-sumsub-1');
     });
   });
@@ -1369,12 +1360,6 @@ describe('WithdrawWorkflowService.applyKytVerdict (Task 5: verdict-driven state 
 
       expect(withdrawService.updateStatus).not.toHaveBeenCalled();
       expect(accountingService.voidPendingTransferBestEffort).not.toHaveBeenCalled();
-      expect(auditLogsService.recordSystem).not.toHaveBeenCalledWith(
-        expect.objectContaining({ action: AuditActions.WITHDRAW_REFUNDED_BY_TAG }),
-      );
-      expect(auditLogsService.recordSystem).not.toHaveBeenCalledWith(
-        expect.objectContaining({ action: AuditActions.WITHDRAW_LOCK_RELEASED }),
-      );
       // 第一批 (2026-08-19)：FROZEN + 任意 verdict 一律判 IGNORE（含 REJECT_REFUND
       // 标签），判定层在到达 applyKytRejected 内部那段专属 FROZEN 守卫之前就已
       // 拦截并 return，不再穿透到 WITHDRAW_REFUND_TAG_ON_FROZEN_IGNORED，统一走

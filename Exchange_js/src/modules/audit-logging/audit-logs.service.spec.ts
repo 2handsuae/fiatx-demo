@@ -604,7 +604,7 @@ describe('AuditLogsService', () => {
       {
         id: 'audit-1',
         auditNo: 'AUD2603240001',
-        action: AuditActions.DEPOSIT_COMPLETED,
+        action: AuditActions.DEPOSIT_APPROVED,
         entityType: AuditEntityTypes.DEPOSIT_TRANSACTION,
         entityId: 'dep-1',
         entityNo: 'DEP2603240001',
