@@ -620,8 +620,8 @@ export class SwapTransactionsService {
    * sumsubDetailJson (the raw Sumsub getTxn payload), rejectReason,
    * sumsubTxnIdOut/sumsubTxnIdIn, plus internal bookkeeping (traceId,
    * ownerId/ownerNo, quoteSnapshotRef, tbFromTransferId/tbToTransferId/
-   * tbFeeTransferId/tbSpreadTransferId, grossAedValue, riskDecisionRef,
-   * failureCode/failureReason, statusHistory, needsReview, currentStage) —
+   * tbFeeTransferId/tbSpreadTransferId, grossAedValue,
+   * failureReason, statusHistory, needsReview, currentStage) —
    * that must never reach a customer's browser: a DevTools inspection of the
    * JSON response would be enough to tip off a person under sanctions
    * investigation. Only whitelisted fields are returned; this list must stay
