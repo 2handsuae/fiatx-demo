@@ -147,6 +147,14 @@ interface WithdrawDetail {
   approvals?: WithdrawApproval[];
   /** 平账 B 批 Task 10：出款后被银行退回的认领来源（补单三路③）。 */
   returnOrigin?: { reconCaseNo: string | null; externalRef: string | null } | null;
+  /** 波二 Task 7：订单↔报价互链——只放摘要四样，不铺 feeBreakdown（业主拍板）。 */
+  pricingQuote?: {
+    quoteNo: string;
+    matchedTierName: string;
+    feeLevelCode: string | null;
+    totalsJson: string;
+    createdAt: string;
+  } | null;
 }
 
 /** Internal-approval `actionType` → English action label shown in the
@@ -449,6 +457,32 @@ const WithdrawTransactionDetail = () => {
             <InfoField label="From Wallet" value={data.fromWalletNo} mono />
             <InfoField label="Reference No" value={data.referenceNo} mono />
           </DetailCard>
+
+          {/* Pricing Quote — summary only (quote linkage, fee tier, fee total,
+              quoted-at); no feeBreakdown here (业主拍板 §1-4，见 spec)。波二 Task 7。 */}
+          {data.pricingQuote && (
+            <DetailCard title="Pricing Quote" columns={2}>
+              <InfoField
+                label="Quote No"
+                value={data.pricingQuote.quoteNo}
+                mono
+                link={`/admin/trading/withdraw-quotes/${encodeURIComponent(data.pricingQuote.quoteNo)}`}
+              />
+              <InfoField
+                label="Fee Level / Tier"
+                value={`${data.pricingQuote.feeLevelCode ?? '—'} / ${data.pricingQuote.matchedTierName}`}
+              />
+              <InfoField
+                label="Fee Total"
+                value={
+                  Object.entries(JSON.parse(data.pricingQuote.totalsJson || '{}'))
+                    .map(([c, v]) => `${v} ${c}`)
+                    .join(' + ') || '—'
+                }
+              />
+              <InfoField label="Quoted At" value={new Date(data.pricingQuote.createdAt).toLocaleString()} />
+            </DetailCard>
+          )}
 
           {/* 3. Compliance Layers */}
           <DetailCard title="Compliance" columns={1}>

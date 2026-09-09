@@ -791,6 +791,44 @@ describe('WithdrawTransactionsService', () => {
     expect(result.counterpartyIsVasp).toBe(true);
   });
 
+  // 波二 Task 7：订单↔报价互链——findOne 的 include 加 pricingQuote，落地页读
+  // result.pricingQuote 渲染摘要卡（quoteNo/matchedTierName/feeLevelCode/
+  // totalsJson/createdAt）。
+  it('should include the linked pricing quote in findOne payload', async () => {
+    prisma.withdrawTransaction.findUnique.mockResolvedValue({
+      id: 'wd-quote-1',
+      withdrawNo: 'WDQUOTE1',
+      status: WithdrawTransactionStatus.SUCCESS,
+      asset: { type: 'CRYPTO', code: 'USDT', network: 'TRON' },
+      customer: null,
+      pricingQuote: {
+        id: 'quote-uuid-1',
+        quoteNo: 'WQT20260909001',
+        matchedTierName: 'Tier 1',
+        feeLevelCode: 'STD',
+        totalsJson: '{"USDT":"0.85"}',
+        createdAt: '2026-09-08T10:00:00.000Z',
+      },
+    });
+    prisma.auditLogEvent.findMany.mockResolvedValue([]);
+
+    const result = await service.findOne('wd-quote-1');
+
+    expect(result.pricingQuote).toEqual(
+      expect.objectContaining({
+        quoteNo: 'WQT20260909001',
+        matchedTierName: 'Tier 1',
+        feeLevelCode: 'STD',
+        totalsJson: '{"USDT":"0.85"}',
+      }),
+    );
+    expect(prisma.withdrawTransaction.findUnique).toHaveBeenCalledWith(
+      expect.objectContaining({
+        include: expect.objectContaining({ pricingQuote: true }),
+      }),
+    );
+  });
+
   // Task 10: admin detail enrichment — mirrors
   // DepositTransactionsService#findOneForAdmin's parseDetail null-defense +
   // verdict fallback + approvals[] reverse lookup.

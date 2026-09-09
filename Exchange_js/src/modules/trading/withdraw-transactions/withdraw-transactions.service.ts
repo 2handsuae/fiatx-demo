@@ -570,6 +570,7 @@ export class WithdrawTransactionsService {
         asset: true,
         customer: true,
         fundsOrders: { include: { asset: true } },
+        pricingQuote: true,
       },
     });
     if (!item) throw new NotFoundException('Withdraw transaction not found');

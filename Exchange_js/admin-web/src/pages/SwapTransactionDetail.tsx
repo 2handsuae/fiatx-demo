@@ -438,8 +438,12 @@ const SwapTransactionDetail = () => {
 
           {/* 7. Technical */}
           <DetailCard title="Technical" columns={2}>
-            <InfoField label="Quote No" value={data.quoteNo} mono />
-            <InfoField label="Quote ID" value={data.quoteId} mono />
+            <InfoField
+              label="Quote No"
+              value={data.quoteNo}
+              mono
+              link={data.quoteNo ? `/admin/trading/swap-quotes/${encodeURIComponent(data.quoteNo)}` : undefined}
+            />
             <InfoField label="Trace ID" value={data.traceId} mono />
             <InfoField label="From Asset ID" value={data.fromAssetId} mono />
             <InfoField label="To Asset ID" value={data.toAssetId} mono />
