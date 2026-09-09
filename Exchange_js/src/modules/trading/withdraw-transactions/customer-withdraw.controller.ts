@@ -65,11 +65,4 @@ export class CustomerWithdrawController {
     const userId = this.assertCustomer(req);
     return this.service.findOneForCustomerByWithdrawNo(withdrawNo, userId);
   }
-
-  @Get(':id')
-  @ApiOperation({ summary: 'Get my withdraw transaction detail (customer)' })
-  findOne(@Req() req: any, @Param('id') id: string) {
-    const userId = this.assertCustomer(req);
-    return this.service.findOneForCustomer(id, userId);
-  }
 }

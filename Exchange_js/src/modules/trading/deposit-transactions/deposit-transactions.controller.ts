@@ -267,17 +267,4 @@ export class DepositTransactionsController {
       actorRole: req.user?.role,
     });
   }
-
-  @Get('export')
-  @ApiOperation({ summary: 'Export deposit transactions' })
-  @UsePipes(new ValidationPipe({ transform: true }))
-  async export(@Query() query: DepositTransactionQueryDto) {
-    // For simplicity, reusing findAll. In production, use stream/csv generator.
-    // Front-end usually expects JSON or CSV file.
-    // Requirement says "Add data export interface".
-    // I will return the data and let frontend handle CSV conversion or return CSV string.
-    // Returning JSON is easiest for now.
-    const result = await this.service.findAll({ ...query, take: 10000 }); // Limit export
-    return result.items;
-  }
 }
