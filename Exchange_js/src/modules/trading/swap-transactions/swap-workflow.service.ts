@@ -1103,7 +1103,7 @@ export class SwapWorkflowService {
         // onCustomerRestrictionOpened 广播 handler（由上面 open() 同步 emit 出的
         // 同一次事件触发）可能已经抢先把这一行冻上了。若这里对
         // markStatus 的失败毫无防备，Invalid transition 会被下面外层大 try 的
-        // catch（:1108）当成整段处置失败：不仅误判这次 FREEZE，还连带跳过下面
+        // catch 当成整段处置失败：不仅误判这次 FREEZE，还连带跳过下面
         // 本该照常执行的 markHardLineDisposition sticky 标记与
         // SWAP_KYT_REJECTED_DISPOSED 审计（外层 catch 只 setNeedsReview + 记
         // SWAP_KYT_REJECTED_DISPOSITION_FAILED + rethrow，函数直接退出）——而

@@ -852,8 +852,8 @@ export class WithdrawTransactionsService {
   /**
    * 按 id 直接改写一条 withdrawal 的 slaDeadline；不碰状态。
    *
-   * 唯一调用方是 setSlaDeadlineByNo（⚡ 模拟超时端点）；计时主路径见
-   * resolveSlaFields（按 id 直接推 deadline 演示破线），不是死代码。**不要**在业务
+   * 唯一调用方是 setSlaDeadlineByNo（⚡ 模拟超时端点，按 id 直接推 deadline 演示破线）；
+   * 计时主路径见 resolveSlaFields，不是死代码。**不要**在业务
    * 流程里用它设 deadline，会绕开收口处、重新制造"漏计时"的窗口。
    */
   async setSlaDeadline(id: string, slaDeadline: Date) {
