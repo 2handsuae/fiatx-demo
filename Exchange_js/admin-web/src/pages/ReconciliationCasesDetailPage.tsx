@@ -775,6 +775,11 @@ const ReconciliationCasesDetailPage = () => {
   const [supplementRow, setSupplementRow] = useState<FlowComparisonRow | null>(null);
   // 平账 A 批（spec §2.4）：⚡拨钟——只在模拟模式下出现；已超期 / 已结案就不再需要它。
   const { enabled: simEnabled } = useSimulationMode();
+  // 评审修复（对账两角色收权，2026-09-10）：⚡ Fast-forward aging 此前只按
+  // 模拟模式/状态显隐，不查权限码——合规/审计/高管/TECH/CFO 持 RECON_CASE_READ
+  // 能进案件页，会看见幽灵按钮。补门控，同款见 Deposit/Swap/WithdrawTransactionDetail.tsx、
+  // ApprovalDetailPage.tsx。
+  const canSimulateAging = hasPermission(PERMISSIONS.DEMO_CLOCK_WRITE);
   const [agingSubmitting, setAgingSubmitting] = useState(false);
   const [agingNotice, setAgingNotice] = useState('');
 
@@ -1788,7 +1793,7 @@ const ReconciliationCasesDetailPage = () => {
                 Re-reconcile
               </button>
             )}
-            {simEnabled && kase.status === 'OPEN' && kase.slaDeadline && !kase.slaBreached && (
+            {simEnabled && canSimulateAging && kase.status === 'OPEN' && kase.slaDeadline && !kase.slaBreached && (
               <button
                 type="button"
                 disabled={agingSubmitting}
