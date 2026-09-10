@@ -144,8 +144,10 @@ export const RBAC_ROLE_DEFINITIONS: RbacRoleDefinition[] = [
     // 2026-08-31：原文写 'Treasury operations, ...'，但金库（钱包/收款账户/提现地址）
     // 已划归 TREASURY_OFFICER 独有，这句话在第一幕职权重划后变成了假话——描述是演示
     // 观众会读到的人话，不能和绑定表打架。
+    // 2026-09-10：对账平账两角色定案——业主裁定对账/平账只留金库与 CFO，运营整组清零、
+    // 不拆组不双持，"pushes funds orders, runs reconciliation" 这半句再次变成假话，一并重写。
     description:
-      'Day-to-day money movement: releases below-minimum holds, raises deposit and withdrawal dispositions, pushes funds orders, runs reconciliation. Never unfreezes — that sits with compliance.',
+      'Day-to-day money movement: releases below-minimum holds, raises deposit and withdrawal dispositions. Never unfreezes — that sits with compliance. Reconciliation, funds order actions, incident registration and demo clock fast-forwards all sit with treasury.',
   },
   {
     code: 'INTERNAL_AUDITOR',
@@ -160,7 +162,10 @@ export const RBAC_ROLE_DEFINITIONS: RbacRoleDefinition[] = [
   {
     code: 'TREASURY_OFFICER',
     name: 'Treasury Officer',
-    description: 'Owns where the money sits: custodian wallets, customer receiving accounts and withdrawal addresses.',
+    // 2026-09-10：对账平账两角色定案——对账全线（运行/案件/外部余额/处置/调账/事故）与
+    // 资金单推单动作从运营整组并入金库，运营零能力，补一句职责说明。
+    description:
+      'Owns where the money sits: custodian wallets, customer receiving accounts and withdrawal addresses. Also runs reconciliation and pushes funds orders end to end — cases, adjustments, incidents, and demo clock fast-forwards.',
   },
 ];
 
@@ -1051,11 +1056,16 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
     'ASSET_CONFIG_READ',
     'WALLET_READ',
     'WITHDRAWAL_ADDRESS_READ', 'WITHDRAWAL_ADDRESS_WRITE',
-    'FUNDS_ORDER_VIEW',
+    // 对账平账两角色定案（2026-09-10）：业主裁定对账/平账只留金库与 CFO，运营整组清零、
+    // 不拆组不双持——FUNDS_ORDER_ACT（推单）随本组从 OPS_OFFICER 整体迁入。
+    'FUNDS_ORDER_VIEW', 'FUNDS_ORDER_ACT',
     // 调账单裁决人是 CFO（平账 A 批起，原 OPS_OFFICER）；开单权 RECON_ADJUSTMENT_WRITE
     // 归金库——maker（金库）≠ checker（CFO），verify:rbac S5c 守着这条。RECON_CASE_READ 是
     // 走到入口的必需品：侧栏 Cases 与调账单详情路由都要它。
-    'RECON_CASE_READ', 'RECON_ADJUSTMENT_WRITE',
+    // 对账平账两角色定案（2026-09-10）：RECON_RUN_READ、RECON_EXTERNAL_BALANCE_READ 随本组
+    // 一并整体迁入——此前金库只读 Cases，Runs 记分牌 / External Balances 两页对金库是 403，
+    // 是个隐藏缺口，本次一并补上（对账侧栏三页全开）。
+    'RECON_RUN_READ', 'RECON_CASE_READ', 'RECON_EXTERNAL_BALANCE_READ', 'RECON_ADJUSTMENT_WRITE',
     // 平账处置改版第 6 任务(2026-09-08)：案件页处置全线金库开单、CFO 复核，运营退出案件页——
     // 推单/重对账（RECON_RUN_WRITE）、处置结论（RECON_DISPOSITION_WRITE）、以及处置牵出的三种
     // CFO 复核出口（补单/追回/追偿）一并从 OPS_OFFICER 迁入；maker（金库）≠ checker（CFO）。
@@ -1067,6 +1077,9 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
     // 平账二期：补款 / 垫款开单归金库——maker（金库）≠ checker（CFO），verify:rbac S5 守着；READ 走到列表 / 详情入口。
     'INTERNAL_TRANSFER_READ', 'INTERNAL_TRANSFER_WRITE',
     'INCIDENT_WRITE',
+    // 对账平账两角色定案（2026-09-10）：DEMO_CLOCK_WRITE 随本组整体迁入——案件页 ⚡Fast-forward
+    // aging 按钮，以及充值/提现/兑换 SLA 超时与审批超时的演示拨钟，运营不再持有。
+    'DEMO_CLOCK_WRITE',
   ],
 
   TECH_OFFICER: [
@@ -1098,13 +1111,14 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
     'DEPOSIT_WAIVE_WRITE', 'DEPOSIT_CONFISCATE_WRITE', 'DEPOSIT_RETURN_WRITE', 'DEPOSIT_SEIZE_WRITE',
     'TRADING_WITHDRAW_WRITE', 'WITHDRAW_BOUNCE_WRITE', 'WITHDRAW_REFUND_WRITE',
     'TRADING_SWAP_WRITE',
-    'FUNDS_ORDER_VIEW', 'FUNDS_ORDER_ACT',
-    // 平账处置改版第 6 任务：处置/推单/重对账/补单/追回/追偿六项开单权迁金库(见 TREASURY_OFFICER
-    // 行内注释)，运营退出案件页；本行只留只读，案件列表 / 对账详情仍读得到。
-    'RECON_RUN_READ', 'RECON_CASE_READ', 'RECON_EXTERNAL_BALANCE_READ', 'INTERNAL_TRANSFER_READ',
+    // 对账平账两角色定案（2026-09-10）：业主裁定对账/平账只留金库与 CFO，运营整组清零、不
+    // 拆组不双持——FUNDS_ORDER_ACT（推单）、RECON_RUN_READ / RECON_CASE_READ /
+    // RECON_EXTERNAL_BALANCE_READ（对账三页只读）、INCIDENT_WRITE（事故登记）、
+    // DEMO_CLOCK_WRITE（拨钟）六组整体迁往 TREASURY_OFFICER，详见该角色行内注释。本行只留
+    // FUNDS_ORDER_VIEW（资金单只读，业主未点名，不动）。
+    'FUNDS_ORDER_VIEW',
+    'INTERNAL_TRANSFER_READ',
     'WITHDRAWAL_FEE_LEVEL_READ', 'SWAP_FEE_LEVEL_READ',
-    'DEMO_CLOCK_WRITE',
-    'INCIDENT_WRITE',
   ],
 };
 

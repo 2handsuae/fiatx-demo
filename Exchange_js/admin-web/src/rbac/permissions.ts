@@ -145,6 +145,13 @@ export const PERMISSIONS = {
   // payins / payouts / internal-funds read permissions.
   FUNDS_ORDERS_READ: 'api.get.admin_funds_orders',
   FUNDS_ORDER_DETAIL_READ: 'api.get.admin_funds_orders_fundsorderno',
+  // 对账平账两角色定案（2026-09-10）：FundsOrderDetail.tsx 的 Sync / Manual Confirm / ⚡
+  // Simulation 三个写动作此前没有任何权限码门控（只按订单状态判断），全靠后端 403 兜底——
+  // OPS_OFFICER 迁移前恰好三个端点都在，从没露出过。运营现在只持 FUNDS_ORDER_VIEW，这个缺口
+  // 才第一次会露出「按钮在、一点就 403」。三个端点（advance / push/sync / push/manual）同挂
+  // rbac.catalog.ts 的 FUNDS_ORDER_ACT 组，按本文件既有代表码惯例（见上方事故登记注释）只登记
+  // push/sync 这一个，三个按钮统一用它判断。
+  FUNDS_ORDER_PUSH_WRITE: 'api.post.admin_funds_orders_fundsorderno_push_sync',
 
 
   TB_ACCOUNTS_READ: 'api.get.admin_tb_accounts',

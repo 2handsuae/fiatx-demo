@@ -28,6 +28,8 @@ import {
 } from '../utils/fundsOrderStatusMap';
 import { useSimulationMode } from '../utils/simulationMode';
 import { getFundsOrderSimActions } from '../utils/fundsOrderSimActionMap';
+import { useAdminSession } from '../contexts/AdminSessionContext';
+import { PERMISSIONS } from '../rbac/permissions';
 
 /* ── Types ──────────────────────────────────────────────────── */
 
@@ -194,6 +196,11 @@ const FundsOrderDetail = () => {
   const [copiedField, setCopiedField] = useState<string | null>(null);
   const { enabled: simEnabled } = useSimulationMode();
   const [simSubmitting, setSimSubmitting] = useState(false);
+  const { hasPermission } = useAdminSession();
+  // 对账平账两角色定案（2026-09-10）：advance / push/sync / push/manual 三个端点都挂
+  // FUNDS_ORDER_ACT 组，运营迁移后只剩 FUNDS_ORDER_VIEW——本页此前从没查过权限码（见
+  // permissions.ts 里 FUNDS_ORDER_PUSH_WRITE 的登记注释），门 Sync/Manual Confirm/⚡模拟三块。
+  const canAct = hasPermission(PERMISSIONS.FUNDS_ORDER_PUSH_WRITE);
 
   // 平账·推单处置（Task 4）——与 ⚡模拟面板独立，不受 simEnabled 门控。
   const [pushSubmitting, setPushSubmitting] = useState(false);
@@ -366,7 +373,7 @@ const FundsOrderDetail = () => {
   const isTerminalStatus = ['CLEARED', 'FAILED', 'TIMEOUT'].includes(
     String(data.status || '').toUpperCase(),
   );
-  const canPush = !isSwapLeg && !isTerminalStatus;
+  const canPush = canAct && !isSwapLeg && !isTerminalStatus;
 
   const decimals = data.asset?.decimals;
   const assetCode = data.asset?.code || data.asset?.currency || '—';
@@ -481,7 +488,7 @@ const FundsOrderDetail = () => {
           </DetailCard>
 
           {/* 2.5 Simulation panel (dev/ops only — gated by simulation mode) */}
-          {simEnabled && (
+          {simEnabled && canAct && (
             <div className="bg-adm-card px-6 py-5">
               <div className="rounded-lg border border-amber-200 bg-amber-50 p-4">
                 <div className="mb-2 text-sm font-semibold text-amber-800">

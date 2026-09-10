@@ -907,11 +907,17 @@ const PROBES: DirectionalProbe[] = [
     role: 'ops_officer', expect: 'DENY', body: { reason: 'verify:rbac probe' },
   },
 
-  // ── 推资金单只在运营（V4 后半 + 矩阵头条）────────────────
+  // ── 推资金单只在金库（对账平账两角色定案 2026-09-10：FUNDS_ORDER_ACT 随对账整组从
+  //    OPS_OFFICER 迁入 TREASURY_OFFICER，原 V4 后半 + 矩阵头条断言翻向）─────
   {
-    section: '推单只在运营', name: '运营 可以 推资金单', method: 'POST',
+    section: '推单只在金库', name: '金库官 可以 推资金单', method: 'POST',
     routePattern: '/admin/funds-orders/:fundsOrderNo/push/sync', path: `/admin/funds-orders/${NOPE}/push/sync`,
-    role: 'ops_officer', expect: 'ALLOW',
+    role: 'treasury', expect: 'ALLOW',
+  },
+  {
+    section: '推单只在金库', name: '运营 不得 推资金单', method: 'POST',
+    routePattern: '/admin/funds-orders/:fundsOrderNo/push/sync', path: `/admin/funds-orders/${NOPE}/push/sync`,
+    role: 'ops_officer', expect: 'DENY',
   },
 
   // ── 重对账触发只在金库（平账处置改版第 6 任务：RECON_RUN_WRITE 随处置权一并迁出 OPS，
@@ -928,7 +934,9 @@ const PROBES: DirectionalProbe[] = [
   },
 
   // ── V4 前半：只持 FUNDS_ORDER_VIEW 的职务看得见、推不动 ──
-  ...(['auditor', 'cfo', 'treasury', 'sm', 'mlro', 'tech_admin'].flatMap((role): DirectionalProbe[] => [
+  // 对账平账两角色定案（2026-09-10）：治理不再是「treasury 只读、ops 能推」——名单里
+  // 'treasury' 换成 'ops_officer'（金库现持 FUNDS_ORDER_ACT，反倒是运营只剩 FUNDS_ORDER_VIEW）。
+  ...(['auditor', 'cfo', 'ops_officer', 'sm', 'mlro', 'tech_admin'].flatMap((role): DirectionalProbe[] => [
     {
       section: 'V4 资金单看推分离', name: `${role} 可以 看资金单列表`, method: 'GET',
       routePattern: '/admin/funds-orders', path: '/admin/funds-orders?take=1',
