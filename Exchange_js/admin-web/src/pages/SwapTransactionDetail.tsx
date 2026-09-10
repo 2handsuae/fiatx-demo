@@ -9,6 +9,8 @@ import {
 import { SidebarGroup, SidebarKV } from '../components/ui/SidebarPrimitives';
 import { getSwapStatusMeta, isSwapTerminalStatus } from '../utils/swapStatusMap';
 import { AdminBadge } from '../components/ui/AdminBadge';
+import { useAdminSession } from '../contexts/AdminSessionContext';
+import { PERMISSIONS } from '../rbac/permissions';
 import { AdminSessionError, adminFetch, getApiErrorMessage } from '../utils/adminFetch';
 import { formatAssetAmount, formatRate8 } from '../utils/number-format';
 import { formatSlaRemaining } from '../utils/slaDisplay';
@@ -167,6 +169,12 @@ const SwapTransactionDetail = () => {
   const [notice, setNotice] = useState('');
   const [slaSubmitting, setSlaSubmitting] = useState(false);
   const [slaError, setSlaError] = useState('');
+  const { hasPermission } = useAdminSession();
+  // 评审修复（对账两角色收权，2026-09-10）：⚡ Simulate SLA Timeout 此前只按
+  // slaDeadline/slaBreached 显隐，不查权限码——运营丢了 DEMO_CLOCK_WRITE 后按钮
+  // 仍在、一点即 403；补门控，代表码见 permissions.ts。同款见 Deposit/
+  // WithdrawTransactionDetail.tsx、ApprovalDetailPage.tsx。
+  const canSimulateSlaTimeout = hasPermission(PERMISSIONS.DEMO_CLOCK_WRITE);
 
   const fetchData = async () => {
     if (!id) return;
@@ -619,7 +627,7 @@ const SwapTransactionDetail = () => {
           {/* SLA — 演示用「模拟超时」，不是 ⚡ Simulation 面板那个模拟 Sumsub
               webhook 的东西。data.slaDeadline 非空 = 该单当前处于计时状态；
               已破线（slaBreached）就不再需要这个按钮了。 */}
-          {data.slaDeadline && !data.slaBreached && (
+          {data.slaDeadline && !data.slaBreached && canSimulateSlaTimeout && (
             <SidebarGroup title="SLA">
               {slaError && <p className="mb-2 text-[11px] text-adm-red">{slaError}</p>}
               <button
