@@ -2,7 +2,7 @@ import { BadRequestException } from '@nestjs/common';
 import { IncidentCloseWorkflowService } from './incident-close-workflow.service';
 import { IncidentStatus as S, IncidentTypes as T } from './incident.constants';
 
-const ops = { actorType: 'ADMIN' as const, userId: 'uuid-ops', userNo: 'ADM-OPS', roleCodes: ['OPS_OFFICER'] };
+const treasury = { actorType: 'ADMIN' as const, userId: 'uuid-treasury', userNo: 'ADM-TRS', roleCodes: ['TREASURY_OFFICER'] };
 
 function makeWorkflow(o: Partial<Record<'incidentRow' | 'remediations', any>> = {}) {
   const incidentRow = o.incidentRow ?? {
@@ -27,22 +27,22 @@ describe('IncidentCloseWorkflowService (Task 7)', () => {
   describe('requestClose — preconditions', () => {
     it('REGISTERED → 400 (mutation target 1: removing this guard must turn this case red)', async () => {
       const { wf } = makeWorkflow({ incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', type: T.MANUAL, status: S.REGISTERED, traceId: 't' } });
-      await expect(wf.requestClose('INC1', ops)).rejects.toThrow(BadRequestException);
+      await expect(wf.requestClose('INC1', treasury)).rejects.toThrow(BadRequestException);
     });
 
     it('INVESTIGATING → 400 (mutation target 1)', async () => {
       const { wf } = makeWorkflow({ incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', type: T.MANUAL, status: S.INVESTIGATING, traceId: 't' } });
-      await expect(wf.requestClose('INC1', ops)).rejects.toThrow(BadRequestException);
+      await expect(wf.requestClose('INC1', treasury)).rejects.toThrow(BadRequestException);
     });
 
     it('CLOSED (already terminal) → 400', async () => {
       const { wf } = makeWorkflow({ incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', type: T.MANUAL, status: S.CLOSED, traceId: 't' } });
-      await expect(wf.requestClose('INC1', ops)).rejects.toThrow(BadRequestException);
+      await expect(wf.requestClose('INC1', treasury)).rejects.toThrow(BadRequestException);
     });
 
     it('ASSESSED but assessment basis is not NO_LOSS → 400 (must enter Resolving first)', async () => {
       const { wf } = makeWorkflow({ incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', type: T.MANUAL, status: S.ASSESSED, assessmentBasis: 'FIRM_LOSS', traceId: 't' } });
-      await expect(wf.requestClose('INC1', ops)).rejects.toThrow(/enter Resolving/);
+      await expect(wf.requestClose('INC1', treasury)).rejects.toThrow(/enter Resolving/);
     });
 
     it('ASSESSED and NO_LOSS but already has remediation linked → 400', async () => {
@@ -50,12 +50,12 @@ describe('IncidentCloseWorkflowService (Task 7)', () => {
         incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', type: T.MANUAL, status: S.ASSESSED, assessmentBasis: 'NO_LOSS', traceId: 't' },
         remediations: ['ADJ1'],
       });
-      await expect(wf.requestClose('INC1', ops)).rejects.toThrow(/enter Resolving/);
+      await expect(wf.requestClose('INC1', treasury)).rejects.toThrow(/enter Resolving/);
     });
 
     it('ASSESSED + NO_LOSS + zero remediation → allowed (the CLOSE_NO_ACTION path)', async () => {
       const { wf } = makeWorkflow({ incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', type: T.MANUAL, status: S.ASSESSED, assessmentBasis: 'NO_LOSS', reportRequired: false, traceId: 't' } });
-      await expect(wf.requestClose('INC1', ops)).resolves.toBeDefined();
+      await expect(wf.requestClose('INC1', treasury)).resolves.toBeDefined();
     });
 
     it('RESOLVING → allowed (assessmentBasis/remediation links are not checked)', async () => {
@@ -63,30 +63,30 @@ describe('IncidentCloseWorkflowService (Task 7)', () => {
         incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', type: T.MANUAL, status: S.RESOLVING, assessmentBasis: 'FIRM_LOSS', reportRequired: false, traceId: 't' },
         remediations: ['ADJ1'],
       });
-      await expect(wf.requestClose('INC1', ops)).resolves.toBeDefined();
+      await expect(wf.requestClose('INC1', treasury)).resolves.toBeDefined();
     });
 
     it('reportRequired=true but not yet markReported → 400 (cannot close without a reporting trace)', async () => {
       const { wf } = makeWorkflow({ incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', type: T.MANUAL, status: S.RESOLVING, reportRequired: true, reportedAt: null, traceId: 't' } });
-      await expect(wf.requestClose('INC1', ops)).rejects.toThrow(/regulator reporting/);
+      await expect(wf.requestClose('INC1', treasury)).rejects.toThrow(/regulator reporting/);
     });
 
     it('reportRequired=true and already markReported → allowed', async () => {
       const { wf } = makeWorkflow({ incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', type: T.MANUAL, status: S.RESOLVING, reportRequired: true, reportedAt: new Date(), traceId: 't' } });
-      await expect(wf.requestClose('INC1', ops)).resolves.toBeDefined();
+      await expect(wf.requestClose('INC1', treasury)).resolves.toBeDefined();
     });
   });
 
   describe('requestClose — type → action type routing', () => {
     it('UNAUTHORIZED_OUTFLOW → INCIDENT_CLOSE_SECURITY', async () => {
       const { wf, approvals } = makeWorkflow({ incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', type: T.UNAUTHORIZED_OUTFLOW, status: S.RESOLVING, traceId: 't' } });
-      await wf.requestClose('INC1', ops);
+      await wf.requestClose('INC1', treasury);
       expect(approvals.createAndSubmit.mock.calls[0][0].actionType).toBe('INCIDENT_CLOSE_SECURITY');
     });
 
     it.each([T.LARGE_UNEXPLAINED, T.CLIENT_SHORTFALL, T.MANUAL])('%s → INCIDENT_CLOSE_FINANCIAL', async (type) => {
       const { wf, approvals } = makeWorkflow({ incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', type, status: S.RESOLVING, traceId: 't' } });
-      await wf.requestClose('INC1', ops);
+      await wf.requestClose('INC1', treasury);
       expect(approvals.createAndSubmit.mock.calls[0][0].actionType).toBe('INCIDENT_CLOSE_FINANCIAL');
     });
   });
@@ -101,7 +101,7 @@ describe('IncidentCloseWorkflowService (Task 7)', () => {
         },
         remediations: ['ITR9'],
       });
-      const r = await wf.requestClose('INC1', ops);
+      const r = await wf.requestClose('INC1', treasury);
       expect(r).toEqual({ incidentNo: 'INC1', approvalNo: 'AC1' });
 
       const call = approvals.createAndSubmit.mock.calls[0][0];
@@ -129,7 +129,7 @@ describe('IncidentCloseWorkflowService (Task 7)', () => {
         },
         remediations: ['ADJ2'],
       });
-      await wf.requestClose('INC1', ops);
+      await wf.requestClose('INC1', treasury);
       const call = approvals.createAndSubmit.mock.calls[0][0];
       expect(call.objectSnapshot.impact).toBe('Closing incident INC1 (Unauthorized outflow): Assessment: loss recognized 400 USDT-TRON, 1 remediation item(s), no reporting required');
     });

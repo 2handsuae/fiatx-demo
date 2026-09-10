@@ -46,7 +46,7 @@
 **第一幕**（管理台 3001，11 职务账号见 demo/data.md ｜ 完整 6 站剧本见 `demo/script.md`）：本模块对应**站 0「进人」**、**站 1「谁能动手」**与**站 3「门自己也要过门」**，此处只补 script.md 未展开的技术细节，不重复整段走查：
 - 站 0：`tech_admin@`（技术官，maker）邀请新成员 → `ciso@`（checker）批准 → 新人隐身窗完成身份确认 + 绑 TOTP，首登上岗；停用/恢复换另一对——`ciso@`（maker）提停用/恢复 → `sm@`（checker）批准，停用后新人下次请求即被登出。五步全程没人自批自己那单，第一幕开场即产生第一批审计记录（此前"重铺后需垫一笔治理动作"的缺口自此已解）
 - 站 1：`tech_admin@`（技术官）提交角色定义修改（给运营加一个它没有的包）→ `ciso@` 批准 → 生效（角色详情页可见 13 域 58 桶全在场）；`auditor@`（内审）调业务写接口（如跑对账批次 `POST /admin/reconciliation/runs/wallet`）→ 403。⚠️ 内审**并非零写**：它持 `AUDIT_EXPORT_CREATE`（建证据包），那是刻意给的——监管上门他得能打包，且导出仍要 MLRO 背书。演示别拿证据包接口当 403 的例子
-- 站 3：`sm@` 提交审批策略变更 → `ciso@` 批准，生效；再用 `ciso@` 自己提、自己批 → 当场被拒（同一账号不能既提又批）；给已持 CISO 的成员加 MLRO → 拒绝（三对硬互斥本轮未动）；`sm@` 再提一张策略变更，换 `ops_officer@`（11 职务里唯一持 `DEMO_CLOCK_WRITE` 的账号）点 ⚡ 模拟超时 → 一分钟内刷新，状态转 EXPIRED，审计按单号查得到 `APPROVAL_EXPIRED`——批准 / 当场拒绝 / 超时作废三种结局站 3 一次演全
+- 站 3：`sm@` 提交审批策略变更 → `ciso@` 批准，生效；再用 `ciso@` 自己提、自己批 → 当场被拒（同一账号不能既提又批）；给已持 CISO 的成员加 MLRO → 拒绝（三对硬互斥本轮未动）；`sm@` 再提一张策略变更，换 `treasury@`（11 职务里唯一持 `DEMO_CLOCK_WRITE` 的账号，2026-09-10 对账平账两角色定案后归金库）点 ⚡ 模拟超时 → 一分钟内刷新，状态转 EXPIRED，审计按单号查得到 `APPROVAL_EXPIRED`——批准 / 当场拒绝 / 超时作废三种结局站 3 一次演全
 
 **第七幕**：审计日志页 → 按单号（primarySubjectNo）查站 3 那条 SoD 拒绝与站 1 那笔角色定义修改 → 全链拉出（谁、何时、结果、依据）；按 correlationId 看"一次邀请"的完整旅程。
 
@@ -96,6 +96,6 @@
 
 **四入口。** ① 对账案件页「登记事故」——定性行出口 = `INCIDENT`（未授权转出）时出现；② 对账案件页「升级事故」——公司池差异超小额线、账龄到线时出现（`LARGE_UNEXPLAINED`）；③ 对账案件页「登记欠款」——退汇认领后客户余额不足、已走「发起垫款」时出现（`CLIENT_SHORTFALL`）；④ 事故列表页「登记事故」——人工登记（`MANUAL`），不锚任何案子。四个入口共用同一套登记表单、同一条生命周期；登记后定性行 / 案件回填事故号可点回跳。
 
-**权限。** 两枚权限组：`INCIDENT_READ`（只读，MLRO / CFO / 内审 / DPO / 高管持有）、`INCIDENT_WRITE`（登记 + 全部动作，运营 / 金库专员持有）；`Incident Register` 域两桶（查看 / 登记与处置），13 域 58 桶（较三期前 12 域 56 桶新增本域）。
+**权限。** 两枚权限组：`INCIDENT_READ`（只读，MLRO / CFO / 内审 / DPO / 高管持有）、`INCIDENT_WRITE`（登记 + 全部动作，2026-09-10 对账平账两角色定案起金库专员独持，运营清零）；`Incident Register` 域两桶（查看 / 登记与处置），13 域 58 桶（较三期前 12 域 56 桶新增本域）。
 
 **关键代码**：`governance/incidents/`：`incident.service.ts`（登记/调查/升级/撤回/善后挂载）｜ `incident-close-workflow.service.ts`（定损后结案，双类型路由）｜ `incidents.controller.ts`（12 端点）｜ 常量 `incident.constants.ts`（类型 / 状态 / 迁移表 / 通报依据目录）；对账侧接线 `clearing-settle/reconciliation/disposition/cause-registry.ts`（`UNAUTHORIZED_OUTFLOW` 出口 = `INCIDENT`）+ `disposition.service.ts → attachIncident()`（定性行回填 `incidentNo`）；认损调账事故分支 `disposition/adjustment.service.ts → assertIncidentWriteOffAllowed()`（锁定金额=定损额，免账龄线/小额线）；审计 11 码（`INCIDENT_*`，见 `audit-actions.constant.ts`）；前端 `pages/IncidentListPage.tsx` / `IncidentDetailPage.tsx`，案件页三入口在 `pages/ReconciliationCasesDetailPage.tsx`。

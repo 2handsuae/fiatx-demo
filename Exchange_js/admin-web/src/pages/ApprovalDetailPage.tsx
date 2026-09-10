@@ -171,13 +171,15 @@ const SidebarKV = ({
 const ApprovalDetailPage = () => {
   const { approvalNo } = useParams<{ approvalNo: string }>();
   const navigate = useNavigate();
-  const { hasAnyPermission } = useAdminSession();
+  const { hasAnyPermission, hasPermission } = useAdminSession();
 
   const canDecide          = hasAnyPermission([
     PERMISSIONS.GOV_APPROVAL_APPROVE,
     PERMISSIONS.GOV_APPROVAL_REJECT,
   ]);
   const canCancelPermission = hasAnyPermission([PERMISSIONS.GOV_APPROVAL_CANCEL]);
+  // 评审修复：⚡ 拨钟此前不挂 RBAC 判断，只按 PENDING 状态显隐——见下方按钮注释。
+  const canSimulateTimeout = hasPermission(PERMISSIONS.DEMO_CLOCK_WRITE);
 
   const [detail,  setDetail]  = useState<ApprovalDetail | null>(null);
   const [loading, setLoading] = useState(true);
@@ -600,11 +602,14 @@ const ApprovalDetailPage = () => {
             </div>
           )}
 
-          {/* ⚡ Demo: 拨超时——与 canApprove/canReject/canCancel 那组
-              RBAC 判断无关（权限走 DEMO_CLOCK_WRITE），所以不挂在
-              showActionsBlock 下面，独立按 PENDING 状态显示。同款见
-              SwapTransactionDetail.tsx「Simulate SLA Timeout」。 */}
-          {detail.status === 'PENDING' && (
+          {/* ⚡ Demo: 拨超时——独立按 PENDING 状态显示，不挂在
+              showActionsBlock（canApprove/canReject/canCancel）下面。
+              评审修复（2026-09-10）：此前只按状态显隐、不查权限码，
+              运营两角色定案后丢了 DEMO_CLOCK_WRITE，按钮仍在、一点即
+              403；补 canSimulateTimeout 门控，代表码见 permissions.ts。
+              同款见 SwapTransactionDetail.tsx「Simulate SLA Timeout」
+              （该处未在本轮评审范围内，未同步门控）。 */}
+          {detail.status === 'PENDING' && canSimulateTimeout && (
             <SidebarGroup title="Demo">
               <button
                 onClick={() => void simulateTimeout()}

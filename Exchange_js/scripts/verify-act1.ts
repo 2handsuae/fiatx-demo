@@ -246,7 +246,7 @@ async function main(): Promise<void> {
   });
 
   precheckRoute('POST', '/admin/control-gates/approvals/:approvalNo/simulate-timeout');
-  const b0 = await call('POST', `/admin/control-gates/approvals/${caseA.approvalNo}/simulate-timeout`, tokens.ops_officer);
+  const b0 = await call('POST', `/admin/control-gates/approvals/${caseA.approvalNo}/simulate-timeout`, tokens.treasury);
   judge('B0', b0.status === 200 || b0.status === 201, `POST simulate-timeout(caseA) → ${b0.status}${b0.status >= 300 ? ' ' + b0.text : ''}`);
 
   console.log('  …轮询 caseA 转 EXPIRED（cron 每分钟一次，预算 90s）');
@@ -263,7 +263,7 @@ async function main(): Promise<void> {
   const caseBRow = await prisma.approvalCase.findUnique({ where: { id: caseB.id } });
   judge('B2', caseBRow?.status === 'PENDING', `caseB（未到期）同轮状态=${caseBRow?.status}`);
 
-  const b3 = await call('POST', `/admin/control-gates/approvals/${caseA.approvalNo}/simulate-timeout`, tokens.ops_officer);
+  const b3 = await call('POST', `/admin/control-gates/approvals/${caseA.approvalNo}/simulate-timeout`, tokens.treasury);
   judge('B3', b3.status === 400, `POST simulate-timeout(已过期 caseA) → ${b3.status}（期望 400，不是 500）`);
 
   // ══════════════════════ B4–B5：审批详情对外用业务键（铁律⑥，Task 17）══════════════════════

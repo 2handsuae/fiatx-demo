@@ -1080,6 +1080,9 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
     // 对账平账两角色定案（2026-09-10）：DEMO_CLOCK_WRITE 随本组整体迁入——案件页 ⚡Fast-forward
     // aging 按钮，以及充值/提现/兑换 SLA 超时与审批超时的演示拨钟，运营不再持有。
     'DEMO_CLOCK_WRITE',
+    // 评审逮回：业主裁定拨钟整组归金库,兑换 SLA 钟的入口页读权连带,否则唯一持有者进不去页面——
+    // 金库拿到 DEMO_CLOCK_WRITE 却没有 TRADING_SWAP_READ，Swap Transactions 列表/详情本身先 403。
+    'TRADING_SWAP_READ',
   ],
 
   TECH_OFFICER: [

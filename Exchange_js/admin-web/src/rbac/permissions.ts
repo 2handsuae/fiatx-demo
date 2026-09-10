@@ -108,6 +108,14 @@ export const PERMISSIONS = {
   GOV_APPROVAL_REJECT: 'api.post.admin_control_gates_approvals_approvalno_reject',
   GOV_APPROVAL_CANCEL: 'api.post.admin_control_gates_approvals_approvalno_cancel',
 
+  // 评审修复（对账两角色收权，2026-09-10）：DEMO_CLOCK_WRITE 组挂 5 条路由（充值/提现/兑换
+  // 各自的 simulate-sla-timeout、对账案件 aging 超时、本组 approvals/simulate-timeout）；
+  // Deposit/WithdrawTransactionDetail.tsx 与 ApprovalDetailPage.tsx 三处 ⚡ 拨钟按钮此前从
+  // 未查权限码，只按订单/审批状态显隐（运营 2026-09-10 两角色定案后不再持有该组，按钮却仍在、
+  // 一点即 403）。按本文件既有代表码惯例（见上方 FUNDS_ORDER_PUSH_WRITE 注释）只登记
+  // approvals/simulate-timeout 这一个，同组路由绑定角色一致，三处按钮统一用它判断。
+  DEMO_CLOCK_WRITE: 'api.post.admin_control_gates_approvals_approvalno_simulate_timeout',
+
   IAM_ROLE_DEFINITIONS_CREATE: 'api.post.admin_iam_role_definitions',
   IAM_ROLE_DEFINITIONS_PERMISSION_GROUPS: 'api.get.admin_iam_role_definitions_permission_groups',
   IAM_ROLE_DEFINITIONS_MODIFY: 'api.post.admin_iam_role_definitions_roleid_modify',

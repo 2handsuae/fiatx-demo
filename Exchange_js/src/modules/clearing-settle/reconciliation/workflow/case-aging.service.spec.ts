@@ -1,7 +1,7 @@
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { CaseAgingService } from './case-aging.service';
 
-const ACTOR = { actorType: 'ADMIN', userId: 'uuid-1', userNo: 'ADM010', roleCodes: ['OPS_OFFICER'] } as any;
+const ACTOR = { actorType: 'ADMIN', userId: 'uuid-1', userNo: 'ADM010', roleCodes: ['TREASURY_OFFICER'] } as any;
 
 function build(kase: any) {
   const prisma: any = {
