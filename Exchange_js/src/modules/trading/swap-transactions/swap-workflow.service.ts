@@ -396,7 +396,7 @@ export class SwapWorkflowService {
             where: { id: asset.id },
             select: { currency: true, network: true },
           });
-          if (!(await this.walletQuery.hasReceivingAccount(ownerId, assetRow?.network ?? ''))) {
+          if (!(await this.walletQuery.hasReceivingAccount(ownerId, assetRow?.network ?? '', tx))) {
             throw new BadRequestException({
               code: 'RECEIVING_ACCOUNT_REQUIRED',
               assetCode: asset.code,
@@ -1472,7 +1472,7 @@ export class SwapWorkflowService {
     // R1: resolve the leg's from/to wallets per role + assert invariants before
     // we persist the funds_order row. Throws InvalidInternalFundError if a
     // customer/firm wallet for the leg's roles is missing.
-    const { fromWalletId, toWalletId } = await this.swapLegAccounting.resolveLegWallets(spec, ctx);
+    const { fromWalletId, toWalletId } = await this.swapLegAccounting.resolveLegWallets(spec, ctx, tx);
     assertInternalFundLegRules(spec, fromWalletId, toWalletId, ctx.swapNo);
     const leg = await this.fundsOrders.create(
       {
@@ -1614,13 +1614,13 @@ export class SwapWorkflowService {
     client: any,
   ): Promise<void> {
     // Task 9：推下一腿之前查客户级能力闸。三域里兑换是唯一漏掉这道的。
-    if (!(await this.assertSwapCustomerAccessOrHalt(swap, 'leg-confirmed'))) return;
+    if (!(await this.assertSwapCustomerAccessOrHalt(swap, 'leg-confirmed', client))) return;
     const legSeq = event.legSeq;
     // The TB pending id is derived per-(swap, leg, attempt). Use THIS attempt so
     // post hits the right transfer (matches initiateLegPending's id).
     // 铸号已在 advance()→CONFIRMED 落到 leg funds_order(事件先于此提交)。读回真实号
     // 传入 postLeg,由 enrichForPost 盖进 evidence + account_flows。
-    const legFo = await this.fundsOrders.findById(event.fundsOrderId);
+    const legFo = await this.fundsOrders.findById(event.fundsOrderId, client);
     const externalRef = legFo ? this.fundsOrders.resolveExternalRef(legFo) : null;
     await this.swapLegAccounting.postLeg(
       { ...ctx, attempt: event.attempt },
@@ -1777,19 +1777,19 @@ export class SwapWorkflowService {
    * PROCESSING 等人工处置。COMPLIANCE_PENDING 单的冻结走
    * onCustomerRestrictionOpened 的另一支（直接 markStatus(FREEZE)）。
    */
-  private async assertSwapCustomerAccessOrHalt(swap: any, stage: string): Promise<boolean> {
-    const access = await this.customerAccessService.resolve(swap.ownerId);
+  private async assertSwapCustomerAccessOrHalt(swap: any, stage: string, client?: any): Promise<boolean> {
+    const access = await this.customerAccessService.resolve(swap.ownerId, client);
     if (!access.blocked.has('SWAP')) return true;
 
     this.logger.warn(
       `Swap capability gate FAIL at ${stage}: swap ${swap.swapNo} — SWAP blocked → halting leg progression`,
     );
-    await this.swapTransactionsService.setNeedsReview(swap.id, true).catch(() => undefined);
+    await this.swapTransactionsService.setNeedsReview(swap.id, true, client).catch(() => undefined);
     await this.swapAudit(swap, {
       action: 'SWAP_LEG_HALTED_BY_RESTRICTION',
       reason: `Customer SWAP capability restricted at ${stage} — in-flight swap leg progression halted`,
       metadata: { stage },
-    });
+    }, client);
     return false;
   }
 

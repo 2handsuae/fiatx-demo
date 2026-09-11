@@ -396,13 +396,16 @@ export class AccountingService {
 
   // ── Account Resolution ──
 
-  async resolveTbAccountId(params: {
-    code: number;
-    ledger: number;
-    ownerType: string;
-    ownerUuid?: string;
-  }): Promise<bigint> {
-    const entry = await this.registryService.resolve(params);
+  async resolveTbAccountId(
+    params: {
+      code: number;
+      ledger: number;
+      ownerType: string;
+      ownerUuid?: string;
+    },
+    tx?: Prisma.TransactionClient,
+  ): Promise<bigint> {
+    const entry = await this.registryService.resolve(params, tx);
     if (!entry) {
       throw new NotFoundException({
         code: 'TB_ACCOUNT_REGISTRY_NOT_FOUND',

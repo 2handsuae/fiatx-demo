@@ -1,4 +1,5 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../core/prisma/prisma.service';
 import { NETWORKS, isNetworkCode } from '../../../config/manifests/networks.manifest';
 
@@ -23,8 +24,9 @@ export class WalletQueryService {
   }
 
   /** R4：客户在该网络上有没有 ACTIVE 的收款行（CLIENT_DEPOSIT vault） */
-  async hasReceivingAccount(customerId: string, network: string): Promise<boolean> {
-    const n = await this.prisma.wallet.count({
+  async hasReceivingAccount(customerId: string, network: string, tx?: Prisma.TransactionClient): Promise<boolean> {
+    const client = tx ?? this.prisma;
+    const n = await client.wallet.count({
       where: { ownerType: 'CUSTOMER', ownerId: customerId, vaultCode: 'CLIENT_DEPOSIT', network, status: 'ACTIVE' },
     });
     return n > 0;
