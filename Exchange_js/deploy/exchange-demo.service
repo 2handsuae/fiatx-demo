@@ -1,0 +1,22 @@
+# deploy/exchange-demo.service — 演示服务：TigerBeetle + API，每次启动从零铺数据（spec 2026-09-11 §3）
+[Unit]
+Description=Exchange demo (TigerBeetle + API, fresh data on every start)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/opt/exchange-demo/app
+EnvironmentFile=/opt/exchange-demo/demo.env
+Environment=PATH=/opt/node20/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=/opt/exchange-demo/deploy/demo-run.sh
+Restart=on-failure
+RestartSec=5
+# TigerBeetle 官方 systemd 部署文档：io_uring 初始化需要锁内存（服务器默认只给 8 MB）
+LimitMEMLOCK=infinity
+KillMode=control-group
+TimeoutStopSec=20
+
+[Install]
+WantedBy=multi-user.target
