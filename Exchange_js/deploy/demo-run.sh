@@ -2,6 +2,7 @@
 # deploy/demo-run.sh — 演示服务启动序列（exchange-demo.service 的 ExecStart；spec 2026-09-11 §3）
 # 每次启动：清空 → 账本 → 建表 → 底座 → 业务数据 → 接口 → demo:all → recon:demo:break → READY
 # 状态写 run/status（STARTING… / READY / FAILED:<步骤>），全量输出同时进 journal 与 run/boot.log。
+# 账本文件在 data/（这里清空）；SQLite 在 /run/exchange-demo（exchange-demo.service 的 RuntimeDirectory，systemd 每次启动新建）。
 set -uo pipefail
 
 ROOT=/opt/exchange-demo

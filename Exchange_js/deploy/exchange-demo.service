@@ -10,6 +10,9 @@ User=ubuntu
 WorkingDirectory=/opt/exchange-demo/app
 EnvironmentFile=/opt/exchange-demo/demo.env
 Environment=PATH=/opt/node20/bin:/usr/local/bin:/usr/bin:/bin
+# SQLite 放内存盘 /run/exchange-demo（systemd 启动时建、停止时删 = 每次从零）：这块云硬盘同步写约 4 ms/次，
+# SQLite 放盘上时 demo:all 撞 Prisma P1008 超时（2026-09-11 实测：放内存盘后建表 55s→3s、71s 到 READY）
+RuntimeDirectory=exchange-demo
 ExecStart=/opt/exchange-demo/deploy/demo-run.sh
 Restart=on-failure
 RestartSec=5
