@@ -3,6 +3,8 @@
 Description=Exchange demo (TigerBeetle + API, fresh data on every start)
 After=network-online.target
 Wants=network-online.target
+# 账本数据目录是 /etc/fstab 里的内存盘（开服脚本第 6 步装）：等它挂好再启动
+RequiresMountsFor=/opt/exchange-demo/data
 
 [Service]
 Type=simple

@@ -2,7 +2,7 @@
 # deploy/demo-run.sh — 演示服务启动序列（exchange-demo.service 的 ExecStart；spec 2026-09-11 §3）
 # 每次启动：清空 → 账本 → 建表 → 底座 → 业务数据 → 接口 → demo:all → recon:demo:break → READY
 # 状态写 run/status（STARTING… / READY / FAILED:<步骤>），全量输出同时进 journal 与 run/boot.log。
-# 账本文件在 data/（这里清空）；SQLite 在 /run/exchange-demo（exchange-demo.service 的 RuntimeDirectory，systemd 每次启动新建）。
+# 账本文件在 data/（内存盘，这里清空内容）；SQLite 在 /run/exchange-demo（exchange-demo.service 的 RuntimeDirectory，systemd 每次启动新建）。
 set -uo pipefail
 
 ROOT=/opt/exchange-demo
@@ -41,7 +41,7 @@ run_step() {    # $1=步骤名，其余=命令
 
 mark "STARTING"
 say "清空数据目录 ${DATA}（每次启动都从零来）"
-rm -rf "${DATA}" && mkdir -p "${DATA}"
+mkdir -p "${DATA}" && find "${DATA}" -mindepth 1 -delete   # data/ 是内存盘挂载点：清内容，不删目录本身
 
 run_step "1 格式化账本" tigerbeetle format --development --cluster=0 --replica=0 --replica-count=1 "${DATA}/0_0.tigerbeetle"
 
