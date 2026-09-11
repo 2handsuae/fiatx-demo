@@ -15,6 +15,18 @@ export interface SeedAuditInput {
   ownerCustomerNo?: string | null;
 }
 
+// 审计单号 = AUD + 日期 + 6 位随机数，同一天内会撞（生日问题）。服务侧
+// AuditLogsService.createEventWithUniqueNo 撞 eventNo 就换号重写、上限 MAX_NO_RETRIES=10，这里照抄同一取号法。
+const MAX_EVENT_NO_ATTEMPTS = 10;
+
+function isEventNoConflict(error: unknown): boolean {
+  const e = error as { code?: string; meta?: { target?: string[] | string } };
+  if (e?.code !== 'P2002') return false;
+  const target = e.meta?.target;
+  if (Array.isArray(target)) return target.includes('eventNo');
+  return typeof target === 'string' && target.includes('eventNo');
+}
+
 let cachedCommit: string | null = null;
 function currentCommit(): string {
   if (cachedCommit) return cachedCommit;
@@ -68,39 +80,47 @@ export async function writeSeedAudit(prisma: PrismaClient, input: SeedAuditInput
     retainedUntil: retainedUntil.toISOString(),
   });
 
-  return prisma.auditLogEvent.create({
-    data: {
-      eventNo: generateReferenceNo('AUD'),
-      category: 'SYSTEM',
-      occurredAt,
-      recordedAt: occurredAt,
-      action: input.action,
-      actionDomain: 'CONFIG',
-      actorType: 'SYSTEM',
-      actorNo: input.actorNo,
-      actorDisplayName: input.actorNo,
-      actorRolesAtTime: JSON.stringify(['SYSTEM']),
-      sourcePlatform: 'SYSTEM',
-      requestId,
-      primarySubjectType: input.subjectType,
-      primarySubjectNo: input.subjectNo,
-      ownerCustomerNo: input.ownerCustomerNo ?? null,
-      outcome: 'SUCCESS',
-      afterData,
-      correlationId,
-      traceId: correlationId,
-      payloadDigest,
-      retainedUntil,
-      idempotencyKey,
-      metadata,
-      subjects: {
-        create: [
-          { subjectType: input.subjectType, subjectNo: input.subjectNo, subjectRole: 'PRIMARY', occurredAt },
-          ...(input.ownerCustomerNo
-            ? [{ subjectType: 'CUSTOMER', subjectNo: input.ownerCustomerNo, subjectRole: 'OWNER', occurredAt }]
-            : []),
-        ],
-      },
-    },
-  });
+  for (let attempt = 0; attempt < MAX_EVENT_NO_ATTEMPTS; attempt += 1) {
+    try {
+      return await prisma.auditLogEvent.create({
+        data: {
+          eventNo: generateReferenceNo('AUD'),
+          category: 'SYSTEM',
+          occurredAt,
+          recordedAt: occurredAt,
+          action: input.action,
+          actionDomain: 'CONFIG',
+          actorType: 'SYSTEM',
+          actorNo: input.actorNo,
+          actorDisplayName: input.actorNo,
+          actorRolesAtTime: JSON.stringify(['SYSTEM']),
+          sourcePlatform: 'SYSTEM',
+          requestId,
+          primarySubjectType: input.subjectType,
+          primarySubjectNo: input.subjectNo,
+          ownerCustomerNo: input.ownerCustomerNo ?? null,
+          outcome: 'SUCCESS',
+          afterData,
+          correlationId,
+          traceId: correlationId,
+          payloadDigest,
+          retainedUntil,
+          idempotencyKey,
+          metadata,
+          subjects: {
+            create: [
+              { subjectType: input.subjectType, subjectNo: input.subjectNo, subjectRole: 'PRIMARY', occurredAt },
+              ...(input.ownerCustomerNo
+                ? [{ subjectType: 'CUSTOMER', subjectNo: input.ownerCustomerNo, subjectRole: 'OWNER', occurredAt }]
+                : []),
+            ],
+          },
+        },
+      });
+    } catch (error) {
+      if (isEventNoConflict(error)) continue;
+      throw error;
+    }
+  }
+  throw new Error(`writeSeedAudit: eventNo collided ${MAX_EVENT_NO_ATTEMPTS} times (${input.action} ${input.subjectNo})`);
 }

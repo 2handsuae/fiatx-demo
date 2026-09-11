@@ -355,7 +355,8 @@ export class CustomerRestrictionWorkflowService {
     // 站6：resolveEntityNo 机制已随审计改表退场——此前主对象号写的是 customerId
     // (UUID)，运营贴/撕便签在审计页按客户号查不到（铁律⑥）。现由本服务解出
     // customerNo 落业务键并落子表行。
-    const customer = await this.prisma.customerMain.findUnique({
+    const client = (tx ?? this.prisma) as Record<string, any>;
+    const customer = await client.customerMain.findUnique({
       where: { id: row.customerId },
       select: { customerNo: true },
     });
