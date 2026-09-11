@@ -72,6 +72,7 @@
     "test:e2e": "jest --config ./test/jest-e2e.json",
     "test:client": "npm test --prefix client-web",
     "db:setup": "bash scripts/db-setup.sh",
+    "cloud:bootstrap": "bash scripts/cloud-bootstrap.sh",
     "package:release": "bash scripts/package-release.sh",
     "stack:test": "bash scripts/stack-env.test.sh",
     "sumsub:smoke": "ts-node -r tsconfig-paths/register scripts/sumsub-deposit-smoke.ts"

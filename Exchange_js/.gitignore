@@ -18,3 +18,4 @@ admin_token.txt
 # release packages
 Exchange_js-release-*.zip
 Exchange-demo-*.zip
+.cloud.env
