@@ -116,7 +116,15 @@
 
 动 swap workflow 期间（§5、§6-E3/E5）`demo:all` 判红**先按 BACKLOG §A 取证姿势抓现场再 reset**——1/13 记账失衡悬案头号嫌疑就在 swap 腿路径上。
 
-## 12. 文档交付（对照 `rules/delivery-checklist.md` 触发项）
+## 12. Plan 阶段勘误（2026-09-12 现场取证，三处修正 + 两处新发现）
+
+1. **§5 E1「前端按钮同判置灰 + tooltip」作废**：SwapTransactionDetail 无 Resume 按钮——业主 2026-08-22 已裁定「兑换单不给修复入口，后端 resume 端点留命令行路」（该页 :690-693 注释自证），不翻案不重造按钮。Resume 门控只落后端 `resumeLeg` 入口断言（命令行路同样被挡，铁律②）；前端交付改为「Customer frozen」标识。
+2. **§6 D8「投影补 id」过时**：审批详情路由已按业务号收参（App.tsx `governance/approvals/:approvalNo`，客户域业务键收口后换的），投影现有的 `approvalNo` 即够——修法降级为纯前端深链（deposit/withdraw 两详情页 navigate 补 `${a.approvalNo}`），零后端改动。
+3. **§7 `AuditModules` 死码坐实**：`grep -rn "AuditModules\." src scripts test` 零命中——5 处引用 = 1 定义 + 4 个未使用 import，随 F 任务删除。
+4. **新发现 · 审计页幽灵字段**：`audit_log_events` 表 2026-08-25 重建后只有 `primarySubjectType/No`，但 DTO/mapEvent 仍拼 `entityType/entityId/entityNo`（恒 undefined、JSON 序列化即丢），前端两页渲染的正是 `entityType`——**审计页 Entity Type 列在生产恒空**。F 任务顺带：前端切 `primarySubjectType`、DTO/mapEvent 三死字段删除。
+5. **新发现 · profile-banners 死路由 CTA**：`profile-banners.service.ts` 对 `DOCUMENT_CTA_CAUSES` 类未认领条子下发 `ctaPath: '/verification'`，而客户端只有 `/verification/:requestNo` 路由（点击落空白页）——G 任务合并形态翻面时该分支整体退役，bug 随之消亡。
+
+## 13. 文档交付（对照 `rules/delivery-checklist.md` 触发项）
 
 - `modules/v4-deposit.md`（冻结留痕、横幅）、`v5-withdraw.md`（tipping-off 三处）、`v6-swap.md`（E1 定案、operator、SLA resubmit）、审计篇（实体跳转）相应节
 - `decisions.md`：横幅五规则定案（含推翻 G6 两点与合并形态翻面）｜ E1 原地冻定案 ｜ 审计跳转甲案
