@@ -15,7 +15,4 @@ dist/
 admin_token.txt
 .superpowers/
 
-# release packages
-Exchange_js-release-*.zip
-Exchange-demo-*.zip
 .cloud.env
