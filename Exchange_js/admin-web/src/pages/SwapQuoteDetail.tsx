@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams } from 'react-router-dom';
 import { RefreshCw } from 'lucide-react';
 import {
   DetailPageHeader,
@@ -70,6 +70,7 @@ interface SwapQuoteDetailData {
   usedAt: string | null;
   cancelledAt: string | null;
   swapTransaction?: {
+    id: string;
     swapNo: string | null;
     status: string;
     createdAt: string;
@@ -287,7 +288,11 @@ const SwapQuoteDetail = () => {
                 <tbody className="divide-y divide-adm-border">
                   <tr>
                     <td className="px-3 py-2 font-mono text-[11px] text-adm-t2">
-                      {linkedSwap.swapNo || '—'}
+                      {linkedSwap.swapNo ? (
+                        <Link to={`/admin/trading/swaps/${linkedSwap.id}`} className="text-adm-blue hover:underline">
+                          {linkedSwap.swapNo}
+                        </Link>
+                      ) : ('—')}
                     </td>
                     <td className="px-3 py-2">
                       <AdminBadge value={linkedSwap.status} />

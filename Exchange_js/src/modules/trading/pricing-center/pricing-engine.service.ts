@@ -6,7 +6,6 @@ import {
   RoundingMode,
   SwapPricingResult,
   SwapTier,
-  WithdrawalPricingResult,
   WithdrawalTier,
 } from './types/pricing.types';
 
@@ -38,21 +37,6 @@ interface SwapQuoteBuildInput {
   baseProvider: string;
   policyCode: string;
   policyId: string;
-}
-
-interface WithdrawalQuoteBuildInput {
-  amount: Prisma.Decimal;
-  fees: FeeItem[];
-  feeCurrency: string;
-  feeDecimals: number;
-  createdAt: Date;
-  quoteLockSeconds: number;
-  policyCode: string;
-  policyId: string;
-  assetEntryId: string;
-  assetId: string;
-  tierId: string;
-  tierName: string;
 }
 
 @Injectable()
@@ -270,33 +254,4 @@ export class PricingEngineService {
     };
   }
 
-  buildWithdrawalQuote(input: WithdrawalQuoteBuildInput): WithdrawalPricingResult {
-    const quoteLockSeconds = Math.max(1, Math.floor(input.quoteLockSeconds || 30));
-    const expiresAt = new Date(input.createdAt.getTime() + quoteLockSeconds * 1000);
-    const { lines, totals } = this.calculateFeeLines(
-      input.amount,
-      input.fees || [],
-      input.feeCurrency,
-      input.feeDecimals,
-    );
-
-    return {
-      createdAt: input.createdAt.toISOString(),
-      expiresAt: expiresAt.toISOString(),
-      matched: {
-        assetEntryId: input.assetEntryId,
-        assetId: input.assetId,
-        tierId: input.tierId,
-        tierName: input.tierName,
-      },
-      fees: lines,
-      totals,
-      policyRef: {
-        policyCode: input.policyCode,
-        policyId: input.policyId,
-        business: 'WITHDRAWAL',
-        channel: 'ONLINE',
-      },
-    };
-  }
 }

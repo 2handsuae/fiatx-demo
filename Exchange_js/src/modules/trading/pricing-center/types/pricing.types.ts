@@ -129,23 +129,4 @@ export interface SwapPricingResult {
   };
 }
 
-export interface WithdrawalPricingResult {
-  createdAt: string;
-  expiresAt: string;
-  matched: {
-    assetEntryId: string;
-    assetId: string;
-    tierId: string;
-    tierName: string;
-  };
-  fees: CalculatedFeeLine[];
-  totals: Record<string, string>;
-  policyRef: {
-    policyCode: string;
-    policyId: string;
-    business: 'WITHDRAWAL';
-    channel: 'ONLINE';
-  };
-}
-
 export const WITHDRAW_QUOTE_TTL_SECONDS = 300;
