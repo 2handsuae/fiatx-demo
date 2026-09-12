@@ -1,6 +1,6 @@
 # V5 · 提现（钱怎么出去）
 
-> 对应 PRD：待写 ｜ 技术节点 Last Verified：2026-09-09（波二：报价生命周期补录 + 审计码 30→33）
+> 对应 PRD：待写 ｜ 技术节点 Last Verified：2026-09-12（波三红项修复：tipping-off 三防线补齐，与充值域对齐）
 > 演示幕次：第五幕「钱出」 ｜ 验收：第五幕走查（`demo/script.md`）+ 本篇 §4
 
 ## 0. 一句话定位
@@ -21,7 +21,7 @@
 
 **出了门之后。** 本金腿失败 → 终态失败 + 全额解锁（客户看得见钱回来了）；银行 / 链上**退汇（bounce）** → 反向分录入账、单落"已退回"终态（只有本金确实出过账才能走这条）；**费腿失败不拖累本金**——本金照常到账，费腿自己重试三级梯，耗尽后标红旗等运营，不动客户的钱。
 
-**客户永远看不到调查。** 冻结、人工复核、待审批在客户端全部收敛成同一个"处理中"，无任何备注；调查性字段（裁决报文、人工原因、SLA、状态历史）被白名单整体裁掉——渲染层与字段层双防，有违禁词单测守着。
+**客户永远看不到调查。** 冻结、人工复核、待审批在客户端全部收敛成同一个"处理中"，无任何备注；调查性字段（裁决报文、人工原因、SLA、状态历史）被白名单整体裁掉——渲染层与字段层双防，有违禁词单测守着。`status`/`completedAt` 两个字段本身也已收敛（2026-09-12 波三红项修复，此前原样透传，DevTools 能读到裸 `FROZEN`）：客户面 `status` 先经白名单收敛（不在白名单内一律映射成 `COMPLIANCE_PENDING`），`completedAt` 只在收敛后落在终态集合才原样输出；客户身份下 `?status=` 查询参数被忽略（改走 `bucket` 补集），客户端筛选器同步改成 bucket 间接式——DOM 里不再出现任何原始状态码，与充值域已有防线对齐。
 
 **SLA 四格，两硬两软。** 等 Sumsub 裁决 5 分钟、等客户补料 7 天——到点硬转人工复核；人工复核 3 天、大额待审批 1 天——**到点只标红不推状态**："等自己人"的单不该被系统自动毙掉，红标是给运营看的催办信号。
 
@@ -71,7 +71,7 @@
 - 报价 `withdrawal-fee-level/withdraw-quote.service.ts`（`generateReferenceNo('WQT')`；TTL 300s 懒过期）：`createQuote()/consumeQuote()/cancelQuote()` 三动作对应 `WITHDRAW_QUOTE_{CREATED,USED,CANCELLED}` 三码（波二 2026-09-09，对齐 `swap-quote.service.ts` 写法，均带显式 `requestId`）；客户端确认框关闭即调用取消端点（`POST withdraw-transactions/quotes/:id/cancel`）
 - 状态机 `withdraw-transactions.service.ts → transitions`（23 边 + 守则单测）；大额出生路由是表外钦定写（注释成文）
 - 解锁原语 `releaseLock()`（净额+费两笔 pending 一起 void——"拒绝即解锁"的物理形态，提现/退款/失败三处共用）
-- 客户面防线 `getWithdrawStatusView()`（client-web 前端函数，`client-web/src/utils/withdrawStatusView.ts`；FROZEN/MANUAL_CHECKING/PENDING_APPROVAL 逐字段收敛成 PROCESSING）+ 后端 `toCustomerWithdrawView()`（只做字段白名单裁剪）+ 违禁词单测全态零命中
+- 客户面防线（2026-09-12 波三红项修复补齐三道，与充值域 `modules/v4-deposit.md` §4.6 镜像达成）：`getWithdrawStatusView()`（client-web 前端函数，`client-web/src/utils/withdrawStatusView.ts`；FROZEN/MANUAL_CHECKING/PENDING_APPROVAL 逐字段收敛成 PROCESSING）+ 后端 `toCustomerWithdrawView()`（`status` 白名单收敛 + `completedAt` 独立终态白名单，镜像 `toCustomerDepositView`）+ `findAll(..., {customerScope:true})` 下忽略原始 `status` 查询参数、改走 `bucket` 补集筛选（`WITHDRAW_CUSTOMER_BUCKETS`，`PROCESSING` 是补集档）+ 客户端 `Withdraw.tsx` 筛选器改发 bucket 名，DOM 里不再出现原始状态码 + 违禁词单测全态零命中
 - SLA `WITHDRAW_SLA_MINUTES_BY_STATUS` 四格（5 分钟/7 天硬；3 天/1 天软）｜ `withdraw-sumsub/withdraw-sla.service.ts`
 - 资金腿迁移表 `funds-order-transitions.constant.ts → FIAT_OUT/CRYPTO_OUT_TRANSITIONS`；费腿三级梯 `onFeeLegFailed()`
 - L1 `L1GateService`（提现十项全适用，含资产可用性；BLOCK 留 `*_L1_BLOCKED` 痕）；限额/大额阈值读 `transaction_limit_rules`（V3 篇）
@@ -80,7 +80,7 @@
 
 ## 6. 演示缺口（BACKLOG 有账）
 
-- **创建接口的响应还带真实状态**（DevTools 可见 FROZEN；业主拍板缓做、两域一起收口）——演示时讲页面不讲网络面板
+- **建单接口（`POST /client/withdraw-transactions`）的响应仍原样返回内部实体、未过白名单**——2026-09-12 已把列表 / 详情两个读面（`findAllForCustomer`/`findOneForCustomer`/`findOneForCustomerByWithdrawNo`）的 `status`/`completedAt` 收敛，建单响应这条独立路径未跟进（新建单不可能立即是 FROZEN，风险面小于读面，未在本轮范围内）——演示时讲页面不讲网络面板
 - **热钱包余额不查**：公司侧没钱也放行出金指令——演示别构造这个场景
 - **提现成功通知未接**；**费腿卡死后的视图残留**（Linked 卡片看着像在途，红旗只在单上）
 - **全新 worktree 跑 demo:withdraw 会炸**（seed 无提现地址种子；main 栈已种好不受影响）

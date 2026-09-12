@@ -1,6 +1,6 @@
 # V6 · 兑换（钱怎么换）
 
-> 对应 PRD：待写 ｜ 技术节点 Last Verified：2026-09-09（三域文档同步：审计码实数/resolveBestLevel 函数归属）
+> 对应 PRD：待写 ｜ 技术节点 Last Verified：2026-09-12（波三红项修复：E1 原地冻定案 + operator 语义化 + SLA 重提推窗）
 > 演示幕次：第四幕「钱换」 ｜ 验收：第四幕走查（`demo/script.md`）+ 本篇 §4
 
 ## 0. 一句话定位
@@ -44,7 +44,7 @@ COMPLIANCE_PENDING（出生态，零记账）
 | KYT 裁决 | Sumsub（演示=⚡按钮） | 合规规则 / 合规官 | 唯一的门；兑换没有人工复核态、没有审批门——三域里最自动化的一条 |
 | 拒绝后的客户处置 | 系统自动 | 按处置标签开客户便签 | 限制的是人（V2 限制账），单只是证据 |
 | SLA 超时 | 系统扫描 | 无人裁决 | 只关单，不动客户 |
-| 卡单恢复 resume | 运营 | 直接执行 | 对红旗单重推腿 |
+| 卡单恢复 resume | 运营 | 直接执行 | 对红旗单重推腿；2026-09-12 起冻人期间调用直接 400（`SWAP_CUSTOMER_RESTRICTED`）——原地冻定案，命令行路与界面同一道闸 |
 | 模拟超时 | 管理员按钮 | — | 演示加速用 |
 
 ## 4. 演示脚本（第四幕 · 钱换）
@@ -64,13 +64,14 @@ COMPLIANCE_PENDING（出生态，零记账）
 - ⚡ 模拟裁决按钮：三域共享表 `sumsub-shared/verdict-buttons.shared.ts`（11 键）的 8 键子集（`swap-sumsub/fixtures/verdict-buttons.ts`）；缺的三键各有真实理由——④/⑧ PEP·Sanctions 对手方（兑换是账内换币，没有对手方）、⑩ 处置标签（FROZEN 是零出边终态，没有没收/退回弧可挂）。**材料审核（认证复核 GREEN/RED）不在这张表里**：那是另一个 webhook（`applicantActionReviewed`），入口在客户详情页 Verification Requests 区块，收 `requestNo` 不收订单 id，三域共用同一入口，不属交易面板——2026-08-29 前兑换域曾在这张表里另开⑦⑧两键直接投材料复核（缺"先交材料"前置，真按会 500），本轮已删
 - 记账 `swap-leg-accounting.ts`（四腿实时逐腿 post）；腿=挂 swapTransactionId 的资金单（见 funds-orders 篇）；腿 1 特殊：圈在下单时已画（createLeg 对 legSeq=1&attempt=1 跳过画圈只落笔），重试 attempt≥2 恢复按次画圈
 - 报价 `swap-fee-level/swap-quote.service.ts`（TTL 30s 懒过期）+ `pricing-center/pricing-engine.service.ts` + Binance 价源（3s 缓存，AED 钉 3.6725）+ `swap-quote.service.ts → resolveBestLevel()`（内部调 `fee-audience.util.ts → matchesAudience()`）
-- SLA `swap-sumsub/swap-sla.service.ts → sweep()`（30s cron；超时推 REJECTED、不做客户处置；txnId 为空的单是漏提交，重提不判死）
+- SLA `swap-sumsub/swap-sla.service.ts → sweep()`（30s cron；超时推 REJECTED、不做客户处置；txnId 为空的单是漏提交，重提不判死——2026-09-12 起重提成功即调 `extendComplianceSla()` 把 `slaDeadline` 拉满一个完整窗口，此前不推死线，下一轮 sweep 30 秒内就会误判超时）
+- 冻人标识（2026-09-12 波三红项修复，E1 原地冻定案）：`SwapTransactionsService` 按 `customerAccessService.resolve().blocked.has('SWAP')` 派生 `ownerRestricted`（只在 admin 侧计算，列表批量查、详情单笔查；customerScope 一律不带，tipping-off）；管理台列表 / 详情页据此渲染独立的 `CUSTOMER_FROZEN` 徽章，与 `needsReview`（技术卡单）分开——不落库，随解冻自动消失
+- 时间线 operator 语义化（2026-09-12，六个 `markStatus()` 写点）：`SUMSUB_KYT`（KYT 通过 / 拒绝 / 制裁裁决冻结三处）、`LEG_SETTLEMENT`（四腿清算成功）、`RESTRICTION_BROADCAST`（客户级限制广播冻单）、`SLA_SWEEP`（超时拒单）——此前全部硬编码 `'SYSTEM'` 字面量，时间线看不出是哪条机制在动单
 - L1 `L1GateService`（十项，含资产可用性；BLOCK 留 `*_L1_BLOCKED` 痕）／限额 `TransactionLimitGateService.evaluate()`（建单前；AED 估值快照落单供累计取数）
 
 ## 6. 演示缺口（BACKLOG 有账）
 
 - **KYT 规则自动裁决未真机验证**（命门）：无人工介入时 Sumsub 会不会自动发裁决 webhook 未实测——不发则真集成下每笔兑换都会超时死
 - **成功通知未接**：换完客户收不到通知，演示别承诺
-- **运营分不出"技术卡单"与"人被冻结"**：两种情况共用同一面红旗
 - **报价过期无定时清扫**（只懒过期）：列表里可能躺着过期报价，讲解时说明
 - 命名债：代码里 swap 腿仍用旧名 InternalFund*（不影响演示，Phase 4 清）

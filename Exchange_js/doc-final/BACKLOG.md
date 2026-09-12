@@ -9,27 +9,27 @@
 > 边界一条：挡住**开演**（铺不出数据、剧本讲错）算业务，记 BACKLOG；挡住**开发**（端口、PATH、worktree）算技术，进 PRODUCTION-NOTES。
 >
 
-> **⭐ = 带同事走七幕时会当场看到或讲不圆的**，共 14 条。一行四要素：是什么 ｜ 哪来的 ｜ 落点 / 状态。做完就勾掉，重排 / 分诊时统一归档到文末销账。
+> **⭐ = 带同事走七幕时会当场看到或讲不圆的**，共 8 条。一行四要素：是什么 ｜ 哪来的 ｜ 落点 / 状态。做完就勾掉，重排 / 分诊时统一归档到文末销账。
 > 分诊历史：2026-08-26 首次分流（加固类迁出）；2026-08-28 二次分诊——业务/技术彻底分家：8 条已完成或已作废销账、45 条迁 `PRODUCTION-NOTES`、4 条从 `PRODUCTION-NOTES` 判回业务；同日「演示装备」A 档 8 条逐条实跑复核，6 条实证已修当场销账。**2026-08-29 演示装备一期收官**——A 档剩下的 2 条（造数花名册、补料回炉）做完销账，A 档 8/8 全部完成、整节退役删除（原文见「本轮销账」章节与 git 历史）；导语并入 §B。分诊前全文见 git 历史（`649b4e88`）。
 > **2026-09-08 按演示动线重排**——章节改为七幕行进顺序（幕内按站 / 场景），43 条已勾条目整批归档文末「本轮销账」；「Material Refresh 状态名」1 条作废（所指代码已随子系统退役，`grep -rln "NUDGE_ONLY" src admin-web/src client-web/src` 零命中）。重排前全文见 git 历史（`f27e8312`）。
 
-Last Updated: 2026-09-08
+Last Updated: 2026-09-13
 
 ## A. 开演前（重铺 + 造数判据）
 
 > 还没开讲就可能踩的：开演前重铺（`reset-main` → `demo:all`）与造数判据网、答案键、铺场工具的缺口。
 
-- [ ] 🔴 **`demo:all` 偶发客户侧记账失衡（约 1/13，触碰铁律⑤「钱动必过账」）**：全新库上跑 `reset self` → `demo:all`，29 笔订单全部走到预期终态、**花名册断言全绿**，但 COA 客户侧两条恒等式静默不平——实测 `CLIENT_ASSET(AED) 12346594 ≠ CLIENT_PAYABLE+DEPOSIT_SUSPENSE 4266547`（差 80,800.47 AED），`USDT` 同向差 8,992.57 USDT，**两个币种资产 side 均约为负债 side 的 2.88 倍**；公司侧两条恒等式同时全绿。**非确定性**：同一提交同一命令连跑 13 次，12 次干净、1 次失衡。已用实证排除"本批引入"——在 `git merge-base main HEAD`、在新增客户提交的前一刻、在该提交本身、在 HEAD 上分别跑过，且逐提交核对确认 `demo:all` 实际执行到的 `demo-lib.ts`/`demo-roster.ts` 在这些提交间**逐字节相同**。花名册从 21 行加到 29 行只是把单次记账笔数从 ~14 提到 ~21，**提高了撞上的概率、不是原因**。
+- [ ] 🔴 **`demo:all` 偶发客户侧记账失衡（约 1/13，触碰铁律⑤「钱动必过账」）——2026-09-13 现场取证已坐实：写镜像 id 补零归一未做，非真丢账**：全新库上跑 `reset self` → `demo:all`，29 笔订单全部走到预期终态、**花名册断言全绿**，但 COA 客户侧两条恒等式静默不平——实测 `CLIENT_ASSET(AED) 12346594 ≠ CLIENT_PAYABLE+DEPOSIT_SUSPENSE 4266547`（差 80,800.47 AED），`USDT` 同向差 8,992.57 USDT，**两个币种资产 side 均约为负债 side 的 2.88 倍**；公司侧两条恒等式同时全绿。**非确定性**：同一提交同一命令连跑 13 次，12 次干净、1 次失衡。已用实证排除"本批引入"——在 `git merge-base main HEAD`、在新增客户提交的前一刻、在该提交本身、在 HEAD 上分别跑过，且逐提交核对确认 `demo:all` 实际执行到的 `demo-lib.ts`/`demo-roster.ts` 在这些提交间**逐字节相同**。花名册从 21 行加到 29 行只是把单次记账笔数从 ~14 提到 ~21，**提高了撞上的概率、不是原因**。
 
-  **头号怀疑（未坐实，把握中等偏低）**：`src/modules/trading/swap-transactions/swap-workflow.service.ts:1529` 的 `handleFundsOrderChanged()` 在腿失败/超时时走 `:1636` 的 `onLegFailedSelfHeal`——void 当前 attempt、重建 attempt+1。而 `swap-leg-accounting.ts` 的 `deterministicTransferId(..., attempt)` 把 attempt 编进转账 ID，**TigerBeetle 的 ID 去重因此只挡得住同一 attempt 内的重复，挡不住"这一 attempt 其实已经落账成功却被误判 FAILED/TIMEOUT"**；且 `postLeg`/`advance`/`createLeg` 整套包在 SQL `$transaction` 里，**TigerBeetle 的落账不受该事务回滚保护**。已排查并排除：充值 SUCCESS 路径（成对转账，重复调用不破坏恒等式）、几个 SLA 类 `@Cron`（阈值 30 秒~5 分钟，远长于 demo:all 实测 ~18 秒全程）。
+  **头号怀疑（2026-09-13 现场取证已排除——普查零重复落账、零单边转账，无证据支持）**：`src/modules/trading/swap-transactions/swap-workflow.service.ts:1529` 的 `handleFundsOrderChanged()` 在腿失败/超时时走 `:1636` 的 `onLegFailedSelfHeal`——void 当前 attempt、重建 attempt+1。而 `swap-leg-accounting.ts` 的 `deterministicTransferId(..., attempt)` 把 attempt 编进转账 ID，**TigerBeetle 的 ID 去重因此只挡得住同一 attempt 内的重复，挡不住"这一 attempt 其实已经落账成功却被误判 FAILED/TIMEOUT"**；且 `postLeg`/`advance`/`createLeg` 整套包在 SQL `$transaction` 里，**TigerBeetle 的落账不受该事务回滚保护**。已排查并排除：充值 SUCCESS 路径（成对转账，重复调用不破坏恒等式）、几个 SLA 类 `@Cron`（阈值 30 秒~5 分钟，远长于 demo:all 实测 ~18 秒全程）。
 
   🔴 **2026-08-31 订正：此前把"单个客户钱包净额变 0"记成本条的第二个症状，是并错了。** 那个现象读的是另一条代码路径（对账引擎的 `WalletBalanceCheckerService`），而本条 COA 断言走的是 `demo-lib.ts` 的 `buildCoaBalanceMap`（遍历注册表 → `lookupBalance`），两者不共享出错点。**"钱包净额变 0"已另有更好的解释**：`PRODUCTION-NOTES.md` 那条「`WalletBalanceCheckerService` 查注册表未套用十六进制补零，随机丢一笔分录」——概率约 1/16、症状正是"少算一整条 PAYABLE 分录"、且一旦命中会在该 reset 周期内**稳定**复现。
 
-  ⚠️ **但这条 COA 失衡本身仍未销账**，而且新线索提高了它的嫌疑度：那个补零缺陷丢的是**负债侧**分录，方向与本条实测的"资产 side 约为负债 side 的 2.88 倍"**一致**。下次取证时值得先排除它——如果 `buildCoaBalanceMap` 那条路上也有类似的 id 匹配（而不是纯 registry 遍历），两条可能就是同一个根因。
+  ⚠️ **2026-09-13 现场取证：数据层已坐实根因，代码层待修（业主排期，非波三范围）**——详见 `.superpowers/sdd/coa-evidence-20260913/findings.md`。**幻影失衡，不是真丢账**：`account_flows` 全局普查每个 `tbTransferId` 恰好 2 行，TB 与镜像双边齐全、零重复；真正的问题是**写镜像时 id 十六进制拼写未补零**（`tbAccountId`/`tbTransferId` 每个 id 约 1/16 概率丢前导零），而 `tb_account_registry` 存的是补零后的 32 位拼写——按字符串 `LEFT JOIN` 的读面因此把这些行判成孤儿、丢出恒等式。封存库（`.superpowers/sdd/coa-evidence-20260913/dev.db.imbalanced`）上普查到 18 行 registry-join 孤儿，按 registry join 复算 AED 差额与三笔充值（`DEP260913138750`/`187996`/`730931`）落入孤儿行的 PAYABLE 侧金额恰好吻合（940,000 minor）；USDT 判定同病同因（镜像侧完全平，FAIL 必是读面丢行）。与既往记录全部吻合：1/13 出现率 ｜ 资产 side 大于负债 side（丢的多为 PAYABLE/SUSPENSE 侧）｜ 与 `PRODUCTION-NOTES.md` 已登记的「`WalletBalanceCheckerService` 查注册表未套用十六进制补零」同病先例、方向线索一致。**复现**（在封存副本上）：`sqlite3 dev.db.imbalanced "SELECT length(tbAccountId), length(tbTransferId), count(*) FROM account_flows GROUP BY 1,2;"`（看到 30/31 位混长即坐实）；孤儿行：`SELECT f.sourceNo, f.eventCode, f.direction, f.amount FROM account_flows f LEFT JOIN tb_account_registry r ON f.tbAccountId=r.tbAccountId WHERE r.tbAccountId IS NULL;`。**修复方向**：写镜像处（`account_flows` 落行时的 id 十六进制化）统一 `padStart(32,'0')`，顺带排查同工地的 `tbTransferId` 拼写与所有按字符串比对 id 的读面（`buildCoaBalanceMap` / `WalletBalanceCheckerService` / 对账引擎）；修好后连跑 `demo:all` 若干次验证 FAIL 率归零，历史库不用管（重铺解决存量）。
 
   **下次取证的正确姿势（关键，别错过现场）**：判红后**先别 reset**，在失衡的库上按 `sourceType/sourceNo` 分组，数 `account_flows` 里每个 `swapNo`/`depositNo` 名下 `CLIENT_ASSET` 方向的转账笔数是否 >1（正常恒为 1）——比继续读代码猜更快锁到是哪类单、第几次 attempt。
 
-  ⚠️ **归 BACKLOG 不归 PRODUCTION-NOTES**：它动的是「钱动必过账」这条不可违反规则，一旦坐实会动摇账本可信度，不是纯技术兜底 ｜来源: 2026-08-30 破口场景批次 Task 5 收尾时撞见，专项调查报告见 `.superpowers/sdd/coa-imbalance-report.md`
+  ⚠️ **归 BACKLOG 不归 PRODUCTION-NOTES**：它动的是「钱动必过账」这条不可违反规则，一旦坐实会动摇账本可信度，不是纯技术兜底 ｜来源: 2026-08-30 破口场景批次 Task 5 收尾时撞见，专项调查报告见 `.superpowers/sdd/coa-imbalance-report.md`；2026-09-13 波三红项修复收尾闸复现 + 现场取证坐实根因，见 `.superpowers/sdd/coa-evidence-20260913/findings.md`
 
 - [ ] **`demo:all` 花名册断言只看订单终态，不校验命中费率档——Grace 命中 VIP 档还是回落 STD 档，花名册分不出**：`demo-lib.ts` 的花名册比对逐笔只断言"预期终态 == 实到状态"（如 SUCCESS/FROZEN），不读订单实际结算用的费率等级或费用金额。VIP 与交易档位解绑后（2026-09-06 客户域波一，VIP 改手打 STATIC 标签），Grace 的 VIP 标签是否真的命中 `VIP-USDT-AED` 费率档、还是意外回落到 `STD-USDT-AED` 默认档，两种结局订单终态都是 SUCCESS——花名册测不出区别，是判据网缺口，不是已知业务功能缺失 ｜来源: 2026-09-06 第二幕客户域波一评审发现
 
@@ -89,23 +89,7 @@ Last Updated: 2026-09-08
 
 > 讲「钱进来要闯几道门、闯不过去有四种下场」这一幕的缺口。最大一族是冻结动作的审计留痕——第七幕按单号拉链会当场露馅。
 
-**冻结留痕（同族五条）**
-
-- [ ] ⭐ **客户级冻结不留痕：两条独立路径都会漏审计，补 `select` 字段只治得了一条**：`findNonTerminalByOwner()`（`deposit-transactions.service.ts:1279`、`withdraw-transactions.service.ts:1053`，同一提交 `e198d11d7` 引入）供 `onCustomerRestrictionOpened()` 批量扫描客户名下在途单用，其 `select` 只挑了 `{id, xxxNo, ownerType, ownerId, status, traceId}`——**没选 `correlationId`**。这批对象随后原样传进 `depositAudit()`/`withdrawAudit()`，两者都读 `xxx.correlationId ?? undefined`（恒 undefined）；而 `DEPOSIT_FROZEN`/`WITHDRAW_FROZEN` 在名册里都注册成 `correlationMode: I`（INHERIT，必须继承旅程号），校验命中就抛 `BadRequestException`。**本轮 `demo:all` 实跑（2026-08-29）当场复现**：花名册 #7 制裁冻结那笔（`DEP2608292314`）被 `onCustomerRestrictionOpened` 扫到时，日志原样是 `Failed to write DEPOSIT_FROZEN audit for DEP2608292314 (restriction RST2608297325): Audit action DEPOSIT_FROZEN is INHERIT and must inherit an existing correlationId`——订单本身照常冻上（FREEZE 与审计各自独立 catch，冻结动作不受影响），但**这一冻结动作在审计链上永久查不到**。`withdraw-transactions.service.ts` 的同名方法字面同一个坑（同一提交引入），只是花名册没有任何一行经 `onCustomerRestrictionOpened` 批量扫到提现单（#19 MLRO 冻结是单笔 `dispoTag` 直冻，不走这条广播），所以本轮没有实跑复现，判定为静态确认。**对照**：`swap-transactions.service.ts:942` 的同名方法 `select` 里明确带了 `correlationId`，注释直接写"SWAP_FROZEN 是 INHERIT 码，信封不带旅程号会被机器闸拒收"——三域里唯一修对的是兑换域，充值/提现两个原地留坑。**后果**：任何客户级 ALL-scope 限制（制裁、行政停用……）广播冻单时，只要 `onCustomerRestrictionOpened` 扫到非终态单去执行 FREEZE，对应的 `DEPOSIT_FROZEN`/`WITHDRAW_FROZEN` 事件就写不进审计表——踩铁律①（操作必留痕），第七幕按单号拉全链会当场露馅（这一步"谁冻的、依据什么"查不到）。**路径一修法**：两处 `select` 各加一个 `correlationId: true`（对齐 swap 域已有的写法）。**路径二 · L1 单笔判定直接冻结时压根没调审计（静默，连 error 日志都没有，2026-08-29 合并前终审新查出）**：`deposit-workflow.service.ts` 的 `evaluateL1()`（由 `deposit.status.changed` 事件驱动，每笔充值单进入 `COMPLIANCE_PENDING` 时跑一次的客户级闸）判定客户命中执法级限制（`enforcement` 分支）后，直接 `updateStatus(FREEZE)`（`:292-299`），**全程没有任何 `depositAudit()` 调用**——不是调了失败，是压根没写这行代码；同一文件里结构对称的 `markL1Hold()`（行政级 `OPERATION_PENDING` 分支）就有配套的 `depositAudit({action:'DEPOSIT_HELD', ...})`，两个分支待遇不对称，独漏 FREEZE 这半边。**路径一的修法对路径二零作用**——给 `select` 加 `correlationId` 只能让路径一里已经存在的 `depositAudit()` 调用不再抛错，路径二从未走到 `depositAudit()` 这一步，没有调用可失败，必须在 `evaluateL1()` 的 FREEZE 分支单独补一次 `depositAudit()`（可照抄 `markL1Hold()` 的写法）。**比路径一更难发现**：路径一好歹在日志里留了一条 `Failed to write ... audit` 的 error，路径二连这行都没有——`FREEZE` 状态跃迁本身成功、`statusHistory` 正常记录，唯独审计表那一步凭空消失，日志层面没有任何异常信号。**本轮花名册 #10 实跑复现**（`DEP2608295862`）：`statusHistory` 能看到 `COMPLIANCE_PENDING → FROZEN`（operator `L1_GATE`），但按该单号查 `audit_log_events`，事件链从 `DEPOSIT_PAYIN_COMPLETED` 直接跳到 `DEPOSIT_SEIZE_REQUESTED`——中间这次冻结完全不在审计链上。**两条都是既有缺陷，本分支（`feat/demo-kit-sumsub-panel`）均未引入**：路径一根因 `e198d11d7`（2026-08-16）+ 审计调用 `250ec138e`/`a9c723d5e`（2026-08-20）；路径二根因 `1b06ed36d`（2026-08-22）；`git blame` 确认本分支在这些位置一行未碰——花名册 #10 只是第一次让路径二在标准演示动线里被真实触发（此前没有花名册用例走到"客户已被限制、新单进 L1 直接判 enforcement 冻结"这个分支）。**后果**：任何客户级 ALL-scope 限制（制裁、行政停用……）触发的冻结，不管是广播扫在途单（路径一）还是单笔 L1 直判（路径二），审计链都可能缺这一步——踩铁律①（操作必留痕）。第七幕按单号拉全链会当场露馅：花名册 #10 这条线是"客户被制裁冻结、资金随后上缴"，主持人讲完冻结接着讲上缴，中间那步冻结在审计链上直接跳过去。 ｜来源: 2026-08-29 演示装备一期复审 + `demo:all` 实跑复现（路径一）；路径二为 2026-08-29 合并前终审新查出、静态确认
-
-- [ ] 🔴 **制裁冻结那笔充值的 `DEPOSIT_FROZEN` 审计写入失败（铁律①）**（2026-09-03 平账 A 批合并前跑 `demo:all` 逮到，main 四模块治愈批之后的现状）：Nest 日志 `ERROR [DepositWorkflowService] Failed to write DEPOSIT_FROZEN audit for DEP…（restriction RST…）: Audit action DEPOSIT_FROZEN is INHERIT and must inherit an existing correlationId`——`deposit-workflow.service.ts` 冻结分支（约 :2842 一带）的审计信封没带 `correlationId`，四模块批把 INHERIT 码的合同收紧后这条写入当场被拒；业务终态仍对（花名册 29/29 过），但"人被冻了、单被冻了，审计里查不到冻结"。**复现**：`reset self → up → on-stack self demo:all`，看后端日志或 demo:all 输出里的 ERROR 行；修法 = 冻结分支把 deposit 的 correlationId（同一文件其他 DEPOSIT_* 写点的取法）带进信封 ｜来源: 2026-09-03 平账 A 批收尾闸门（非本批引入，登记不修）
-
-- [ ] ⭐ **`evaluateL1` 冻单零审计**：`deposit-workflow.service.ts → evaluateL1()` 命中限制账（`customerAccessService.resolve().blocked.has('DEPOSIT')`）直接 `updateStatus(FREEZE)`，只有 `logger.warn`，全程无 `auditLogsService` 调用——无论是否存在并发竞态都不写。与同一文件的 `onCustomerRestrictionOpened()`（批量冻单广播，本批已补审计）和提现域对应的 `assertCustomerComplianceOrFreeze()`（三处调用点均写 `WITHDRAW_FROZEN`）不对称，是充值域独有的缺口。**非本批引入**，实证发现于本批 ｜来源: 2026-08-20 制裁分主体批次
-
-- [ ] ⭐ **L1 的 `FROZEN` 分支不写审计，与本批新增的挂起分支不对称**：`evaluateL1()` 的执法级分支（`releasePolicy === 'MLRO_APPROVAL'`）只有 `logger.warn` + `updateStatus(FREEZE)`，无 `auditLogsService` 调用；而本批新增的 `markL1Hold()` 走 `recordStateTransitionAudit()`、放行分支写 `DEPOSIT_GATE0_PASSED`——三条分支里**只有冻结这条没有审计**。**非本批引入**（既有缺口已登记在上方「制裁命中分主体」节的「`evaluateL1` 冻单零审计」条），但本批把不对称放得更明显了，一并在此交叉引用，归审计专项那一轮统一清 ｜来源: 2026-08-22 第四批 B4
-
-- [ ] **上面两条记的是「压根没调审计」，这条是「调了但静默写失败」——同样查不到，根因不同**：`onCustomerRestrictionOpened()`（`deposit-workflow.service.ts:2812`，批量冻单广播）**确实**调用了 `depositAudit({action:'DEPOSIT_FROZEN', ...})`（:2841），但那次调用被自己的 `.catch()`（:2848-2854）单独包住，失败只打 `logger.error`、不抛出、不影响主流程——2026-08-20 的记录把这条算作"本批已补审计"，实际只是"补了调用点"，**没有验证过这次调用真的成功落库**。2026-09-02 `demo:all` 花名册 #7（充值·制裁冻结）真机实测复现：backend 日志一条 `ERROR [DepositWorkflowService] Failed to write DEPOSIT_FROZEN audit for DEP...: Audit action DEPOSIT_FROZEN is INHERIT and must inherit an existing correlationId`——`depositAudit()`（:1889）把 `correlationId` 直接读自传入的 deposit 行对象 `deposit.correlationId`，这次为空，撞上 `audit-logs.service.ts:933-937` 的 INHERIT 校验直接 400，被外层 `.catch` 吞掉。后果：这笔冻结审计页按单号查不到 `DEPOSIT_FROZEN` 记录（状态确实是 FROZEN，只是留痕断了）。**复现**：`bash scripts/on-stack.sh self demo:all` 后 grep 后端日志 `Failed to write DEPOSIT_FROZEN audit`，或按 `depositNo` 查审计页确认该记录缺失 ｜来源: 2026-09-02 Task 31 收尾闸/走查前置的 `demo:all` 基线跑批实测
-
 **四条弧与详情页**
-
-- [ ] ⭐ **`linkedFundOrders` 的 `kind` 把没收/退回/上缴三条弧全部误标成同一个 `CONFISCATION`（Task 8 真机渲染发现的真 bug）**：`deposit-transactions.service.ts`（约 L201）`isConfiscation = fo.legSeq != null && fo.legSeq > 1` 只按"是否 legSeq>1"二分，把 legSeq=2（没收动腿）/legSeq=3（**计划2·A3 退回**动腿）/legSeq=4（**计划2·A4 上缴**动腿）全部归为 `kind: 'CONFISCATION'`；前端 `DepositTransactionDetail.tsx:543` 相应把三者的 "Linked Funds Orders" 卡片全部渲染成 `Fee · Confiscation`。Task 8 真机渲染验证时在一笔真实 SEIZE（政府上缴）流程里截图证实：legSeq=4 的资金单被标成"Fee · Confiscation"，对 operator 是误导性文案（这是政府移交，不是没收手续费）。**渲染层已把关的其它维度不受影响**（状态徽章/门控/Sumsub 引用区/演示面板均正确，只有这一处 kind 标签是历史遗留，早于本轮但被本轮新增的 legSeq=3/4 弧放大暴露）。修法：`LinkedFundOrder.kind` 类型 + 后端判定逻辑改按 legSeq 精确映射（2→CONFISCATION，3→RETURN，4→SEIZE），前端 `cap` 文案随之加 `RETURN`/`SEIZE` 两个新分支 ｜来源: 2026-07-29 Task 8 真机渲染验证发现，按硬约束未修（渲染暴露的真 bug，停手报告）
-
-- [ ] **Internal Approvals 深链只到列表页（新，2026-07-30）**：详情页 "Internal Approvals" 块点击只跳审批列表 `/admin/governance/approvals`，无法深链到具体审批单——因 `findOneForAdmin` 的 `approvals[]` 投影只 pick `{approvalNo,actionType,status,createdAt}`（业主定"仅单头"），丢了审批 case `id`；审批详情路由/列表筛选又都按 `id`/不读 `approvalNo` query。修法：投影补回 `id`（`id` 是 case 主键、非 step，不违背"仅单头不含 step"），前端深链 `/admin/governance/approvals/<id>`｜来源: 2026-07-30 Sumsub 详情增强 Task 6 review
 
 - [ ] **`LIFECYCLE_NOT_ACTIVE` 挂起的单，若客户还没有 `sumsubApplicantId`，永远等不到裁决**：`submitSumsubTxns()`（`deposit-workflow.service.ts:345-351`）在 `deposit.customer?.sumsubApplicantId` 为空时直接 `logger.warn` 后 `return`——单子留在 `COMPLIANCE_PENDING`，但从未真正提交 Sumsub，也就永远不会收到裁决 webhook。这类单唯一的出路是运营在详情页用 ⚡ 面板对着 `COMPLIANCE_PENDING` 的单直接喂一个「① Approved」裁决（`decideVerdictLanding`/`applyKytApproved` 只按当前状态判定是否派发，不检查是否真的送过检）——裁决落地时 `limitHoldReason` 仍是 `LIFECYCLE_NOT_ACTIVE`（行政级，在 `ADMINISTRATIVE_HOLD_REASONS` 里），经 `holdIfHeld` 转 `OPERATION_PENDING`、挂起原样保留，交还运营再处置。"客户还没在 Sumsub 开户"不是刁钻边界，是会正常发生的客户状态，值得配一条脚本或至少讲清"这条路只能靠运营手动喂裁决" ｜来源: 2026-09-05 V3 财务配置治愈波二 Task 13 文档收口核对 L1 挂起链路时发现
 
@@ -121,23 +105,13 @@ Last Updated: 2026-09-08
 
 - [ ] 充值挂起（`DEPOSIT_HELD_NOT_TRADING_READY`）无自动重驱：客户补齐法币地址后，挂 COMPLIANCE_PENDING 的充值不会自动重跑 checkAutoApproval → 需 hook `ADDRESS_ACTIVATED` 重驱该客户挂起充值，否则要人工 ｜来源: 2026-07-11 Task 4b
 
-**客户可见面**
-
-- [ ] **客户端充值页缺受限横幅**（`Deposit.tsx` 未导入 `RestrictionBanner`/`PendingActionBanner`，Withdraw/Swap 两页均有）：2026-09-09 业主拍板补充；口径见 decisions 同日条——兑换/提现事前可拦（建单闸拒），充值本质不可拦（钱会到，收下后处置），横幅措辞按此口径写，不能照抄另两页「动作被禁」话术 ｜来源: 2026-09-09 三四五幕体检轴⑤ + 业主裁定
-
 ## E. 第四幕 · 钱换（V6 兑换）
 
 > 讲「一次兑换四条腿原子记账」这一幕的缺口。
 
-- [ ] ⭐ **兑换 `PROCESSING` 在途单碰冻人广播仍走 `needsReview` 旗，运营分不出"技术卡单"与"人被冻结"**：`onCustomerRestrictionOpened()` 对处于 `PROCESSING`（腿已开跑）的兑换单只调用 `assertSwapCustomerAccessOrHalt()` 停腿 + 打 `needsReview`，与腿失败自愈耗尽的 STUCK 单共用同一面旗子、混在同一个卡单堆里，旁边挂的还是同一个 Resume 按钮——运营在列表页无法区分"这单是技术卡住待人工重试"还是"这个人被制裁冻结了，Resume 是错误动作" ｜来源: 2026-08-20 制裁分主体批次
-
 - [ ] 无自动 FAILED 状态机：腿失败走自愈→STUCK(needsReview)+手动 resume，swap 留 PROCESSING，无终态失败（设计 deferred）｜来源: 2026-07-04 V6 体检
 
-- [ ] **兑换时间线 `operator` 恒为 `'SYSTEM'` 字面量**（`swap-transactions.service.ts` 的 statusHistory 写入点硬编码），时间线永远看不到是谁操作的 ｜来源: 2026-08-23 第五批 Task 3
-
 - [ ] 兑换成功通知未接（SUCCESS 时不调 Notification）｜来源: 2026-07-04 V6 体检
-
-- [ ] **兑换 resubmit 分支给重提的单子近乎零宽限（唯一没遵守"计的是在这个状态待了多久"的地方）**：`swap-sla.service.ts:73-78`——`sumsubTxnIdOut` 为空时补提交一次然后 `continue`，**不动 `slaDeadline`**（此刻它已经是过去时刻）。下一轮 sweep（30 秒后）看到 `sumsubTxnIdOut` 已有值，直接判超时拒单——Sumsub 实际只拿到 30 秒而不是 5 分钟。旧的 `createdAt` 口径下形态相同，**不是本批引入的回归**；但本批刚立了"deadline 计的是在这个状态待了多久"的模型，这个分支是三域里唯一没遵守它的地方。修法一行：补提交成功后顺手把 `slaDeadline` 往后推一个完整窗口（`resolveSlaFields(COMPLIANCE_PENDING)` 或等价写法）｜来源: 2026-08-21 SLA 批次
 
 - [ ] **兑换域规则清单与阈值**：另起规则目录文档，含排雷（含 rejected 计数 / 缺 .notRejected 的聚合规则会造成
       「被拒→加分→再被拒」死循环）｜来源: 同上 §7
@@ -145,11 +119,9 @@ Last Updated: 2026-09-08
 
 ## F. 第五幕 · 钱出（V5 提现）
 
-> 讲「出金门最多、客户永远看不到调查原因」这一幕的缺口。⭐ 那条正是这一幕的卖点本身在提现域没落实。
+> 讲「出金门最多、客户永远看不到调查原因」这一幕的缺口。tipping-off 三防线已于 2026-09-12 波三红项修复补齐（status/completedAt 白名单 + customerScope 忽略 status 改走 bucket + 客户端筛选改 bucket 间接式，见文末销账）；剩订单级折叠（Q1）待波五。
 
-- [ ] ⭐ **规则 A（tipping-off 防线）只在充值域落实，提现域有一模一样的洞未堵**：`withdraw-transactions.service.ts → toCustomerWithdrawView()`（约 L357-380）原样返回 `status: item.status`/`completedAt: item.completedAt`——一笔被 `adminFreeze` 打成 `FROZEN` 的提现，客户端 DevTools → Network 面板可直接读到裸 `'FROZEN'` 字符串（对照充值域 `deposit-transactions.service.ts → toCustomerDepositView()` 已有的 `CUSTOMER_STATUS_PASSTHROUGH` 白名单收敛 + `CUSTOMER_COMPLETED_STATUSES` completedAt 独立白名单，见 modules/v4-deposit.md §4.6）；`findAllForCustomer()`（约 L333-339）把客户传入的 `query.status` 直接转发进 `findAll()` 的 where 条件，无 customerScope 收窄——`GET /client/withdraw-transactions?status=FROZEN` 本身就是一个可用的冻结预言机（对照充值域 `findAll()` 在 `customerScope` 下已静默忽略原始 `status` 参数）；前端 `client-web/src/pages/Withdraw.tsx → HISTORY_STATUS_FILTERS`（约 L105-115）仍是裸 status 列表式筛选（`statuses: ['PENDING_APPROVAL','COMPLIANCE_PENDING','MANUAL_CHECKING','FROZEN','PAYOUT_PENDING']`），未跟进充值域已切换的 `bucket` 补集式设计（§4.6）。本条不是回归——提现域这套字段白名单本就早于充值域上线（Task 11 只做了字段裁剪，未含 status/completedAt 收敛），deposit-action-embed 分支只是把充值域这道防线补完，两域因此出现不对称：modules/v4-deposit.md 与代码注释里写的"规则 A"读起来像平台级不变量，实际只在充值域落实。仅登记，本分支未改提现代码 ｜来源: 2026-08-05 deposit-action-embed 分支终审 Important 3
-
-- [ ] **Q1 制裁客户的订单级折叠未做**：本轮贴 `scope=ALL` 便签只把在途单打成 `FROZEN`，客户面靠服务端脱敏白名单收敛成 `COMPLIANCE_PENDING`；设计稿讨论过的「收单后一律挂 `PROCESSING`、连状态变化都不产生」的订单级折叠没做。与「提现域 tipping-off 未对齐」同源，一并排期 ｜来源: 2026-08-15 设计稿 §8 Q1；2026-09-08 业主裁定归订单域，自第二幕迁入
+- [ ] **Q1 制裁客户的订单级折叠未做**：本轮贴 `scope=ALL` 便签只把在途单打成 `FROZEN`，客户面靠服务端脱敏白名单收敛成 `COMPLIANCE_PENDING`；设计稿讨论过的「收单后一律挂 `PROCESSING`、连状态变化都不产生」的订单级折叠没做。与「提现域 tipping-off 未对齐」同源，一并排期 ｜来源: 2026-08-15 设计稿 §8 Q1；2026-09-08 业主裁定归订单域，自第二幕迁入；2026-09-12 波三红项修复已堵上同源的「提现域 tipping-off 未对齐」半边（见文末销账），本条订单级折叠单独留待波五
 
 - [ ] 提现成功通知未接：SUCCESS 时不调 `NotificationsGateway`（基础设施在、workflow 没调）｜来源: 2026-07-03 V5 体检
 
@@ -247,13 +219,15 @@ Last Updated: 2026-09-08
 
 - [ ] **`InternalFundAuditLog` 有读无写 → 资金单详情页审计列表永远空**：Round 2 后零写入方，读取链还在——运营点开任何一张资金单，审计栏都是空的（踩铁律①「操作必留痕」的可见面）。补写状态变更 or 改读中央审计日志 ｜来源: 2026-07-03 死码 D6 改判（勿删表，有活读取链）；2026-08-26 分流迁入 PRODUCTION-NOTES，2026-08-28 判为业务缺口迁回
 
+- [ ] **广播路径冻结审计（`DEPOSIT_FROZEN`/`WITHDRAW_FROZEN`）无 OWNER subject——按客户号查不到，按单号可查**：`findNonTerminalByOwner()`（`deposit-transactions.service.ts`/`withdraw-transactions.service.ts`）的 `select` 没有 `ownerNo`（也没 join `customer`），而 `depositAudit()`/`withdrawAudit()` 的 OWNER subject 取自 `deposit.customer?.customerNo ?? deposit.ownerNo`——两者都拿不到，`if (customerNo)` 分支直接跳过，这批广播冻结事件永远不会往 `audit_log_subjects` 写 OWNER 行。**对照**：`swap-transactions.service.ts` 的同名方法 `select` 里明确带了 `ownerNo: true`——三域里唯一选对的是兑换域。后果：这条与 §H「`audit_log_subjects` 子表覆盖面远小于设计前提」同源，但触发条件更窄——`DEPOSIT_FROZEN`/`WITHDRAW_FROZEN` 事件按 `primarySubjectNo`（单号）查得到，按客户号查不到该行。修法：两处 `select` 各加 `ownerNo: true`（对齐 swap 域写法）｜来源: 2026-09-13 波三 Task 1 评审域外观察
+
+- [ ] **审计证据包导出的 deposit/withdraw 证据链构建函数引用 5 个不存在的 Prisma 模型，从出生起未工作；波三 Task 9 切换输入后仍不可见**：`audit-logs.service.ts → buildDepositSnapshots()`/`buildWithdrawSnapshots()`（约多处）调用 `db.kytCase?.findMany`/`db.travelRuleCase?.findMany`/`db.workflowDecisionRecord?.findMany`/`db.complianceAlert?.findMany`/`db.complianceIncident?.findMany`——这 5 个模型在 `schema.prisma` 里根本不存在，`?.findMany` 恒为 `undefined`，三元表达式恒走 fallback 空数组分支，从未真正查询过。**波三 Task 9（审计跳转甲案）把这两个函数的 `workflowIds` 输入从已删除的幽灵字段 `entityId` 切到真实存在的 `primarySubjectNo` 后**，`workflowIds` 从近乎恒空变成真的装着业务号，随后 `db.depositTransaction.findMany({where:{id:{in: workflowIds}}})`/`db.withdrawTransaction.findMany({...})` 这两条查询**会真执行**（不再被 `!workflowIds.length` 短路），但 `where` 按的是内部 `id`（UUID）列，`workflowIds` 装的却是业务号字符串（如 `DEP2601011234`），永远匹配不上——**最终可见结果仍是空**，只是从查询从未执行变成查询执行了但按业务号匹配内部 id 列而落空。**不是完全死代码，勿写成可放心大改**——将来要修，除了给 5 个 ghost 模型立表（或整段退役），`depositTransaction`/`withdrawTransaction` 两处 `where` 也得从 `id` 改成 `depositNo`/`withdrawNo`。**对照**：`buildSwapSnapshots()` 走 `resolveSwapExportSelectionContext()` 先把业务号解析成真实内部 id 再查询，SWAP 链已随 Task 9 真修复，充值/提现两域未跟进这层转换 ｜来源: 2026-09-13 波三 Task 9
+
 ## I. 贯穿多幕（通知 ｜ SLA ｜ 杂项）
 
 > 多幕都会碰到的横切项——改一处多幕同时受益。
 
 - [ ] ⭐ 🔴 **通知 send/retry = STUB**：`core/notifications/` 只有 WebSocket `NotificationsGateway`，无 email/webhook/失败重试实现——roadmap 标 Notification send/retry ✅ MVP 为过度声明；这是 V4-V6 各版本"通知未接"的根因（本体没做，不是没调）｜来源: 2026-07-04 V1 体检
-
-- [ ] **`approvalEntityRoutes.ts` 的 `?keyword=` 查询参数是死参数**：交易域（deposit/withdraw）entityRef 回链落地到 `/admin/trading/deposits?keyword=<entityRef>` / `.../withdrawals?keyword=...`，但 `DepositTransactionList.tsx`/`WithdrawTransactionList.tsx` 只读 `ownerNo`/`depositNo`/`withdrawNo` 三个查询参数、从不读 `keyword`（`grep -n "searchParams.get" 两文件`核对）——链接落地到正确页面，但不会自动预填任何筛选框，审批回链点不到具体那一笔单。Task 8 当轮只修了 Case 详情三链，此为既有债、非本轮引入 ｜来源: 2026-09-07 界面收口轮 Task 16 收尾闸考古
 
 - [ ] **列表页「仅看已超时」是前端过滤，只对当前页生效**：三域 `{Deposit,Withdraw,Swap}TransactionList.tsx` 的「仅看已超时」复选框均在 `useMemo` 里对当前页 `items` 客户端过滤（`formatSlaRemaining(...).tone === 'breached'`），后端列表查询无对应的 `slaBreached`/`slaBreachedOnly` 参数——勾选后只在当前分页内筛选，翻页/换页大小会丢失筛选效果，与既有 `needsReviewOnly` 同款局限（三域列表页均有——充值列表页 `DepositTransactionList.tsx:242` 的注释就自述"与下方 needsReviewOnly 同类局限"）。代码注释已自述该限制（"Backend has no slaBreached query filter yet; apply client-side over the current page only"）｜来源: 2026-08-21 SLA 批次
 
@@ -296,6 +270,24 @@ Last Updated: 2026-09-08
 - [~] roadmap **V3/V4 已按三层新格式重排 + truth 外置**（2026-07-03）；V1/V2/V5-V9 待同款处理
 
 ---
+
+## 本轮销账（2026-09-13 波三红项修复）
+
+> 十三任务 subagent-driven（冻结留痕 / tipping-off / 徽章标识 / 深链跳转 / 审计跳转甲案 / 横幅矩阵 / 本文档收口），spec/plan 见 `superpowers/specs/2026-09-12-wave3-red-fixes-*`。BACKLOG §A COA 悬案条目现场取证坐实根因（未修，见该条）。
+
+- [x] ⭐ 客户级冻结不留痕（两条独立路径：广播扫描 `select` 漏 `correlationId` / `evaluateL1()` FREEZE 分支零审计）—— 已修：两处 `select` 各补 `correlationId: true`（对齐 swap 域写法）+ `evaluateL1()` FREEZE 分支补 `depositAudit({action:'DEPOSIT_FROZEN', ...})`；commit `9fca16e0`
+- [x] 🔴 制裁冻结那笔充值的 `DEPOSIT_FROZEN` 审计写入失败 —— 已修：与上条同一修法根治（`select` 补 `correlationId` 消除 INHERIT 校验拒收）；commit `9fca16e0`
+- [x] ⭐ `evaluateL1` 冻单零审计 —— 已修：FREEZE 分支补 `depositAudit()` 调用；commit `9fca16e0`
+- [x] ⭐ L1 的 `FROZEN` 分支不写审计，与挂起分支不对称 —— 已修：冻/标/放行三分支审计对齐；commit `9fca16e0`
+- [x] `onCustomerRestrictionOpened()` 调了审计但被 `.catch` 静默吞掉写入失败 —— 已修：`select` 补 `correlationId` 后 INHERIT 校验不再拒收，调用真正落库；commit `9fca16e0`
+- [x] ⭐ `linkedFundOrders` 的 `kind` 把没收/退回/上缴三条弧全部误标成 `CONFISCATION` —— 已修：按 `legSeq` 精确映射（2→CONFISCATION/3→RETURN/4→SEIZE），详情页 `cap` 文案加 RETURN/SEIZE 两分支；commit `acd4c72c`
+- [x] Internal Approvals 深链只到列表页 —— 已修：审批卡片深链改跳 `/admin/governance/approvals/:approvalNo`；commit `78ff7642`
+- [x] 客户端充值页缺受限横幅 —— 已修：`Deposit.tsx` 挂 `RestrictionBanner(capability=DEPOSIT)` + `PendingActionBanner(domain=DEPOSIT)`，措辞「钱仍会到账，收下后处置」；commit `e8598ab6`
+- [x] ⭐ 兑换 `PROCESSING` 在途单碰冻人广播仍走 `needsReview` 旗，运营分不出「技术卡单」与「人被冻结」—— 已修：管理台按 `blocked.has('SWAP')` 派生 `ownerRestricted` 标识 + 独立 `CUSTOMER_FROZEN` 徽章，与 `needsReview` 分开展示；commit `705fca3b` + `e1566a8c`
+- [x] 兑换时间线 `operator` 恒为 `'SYSTEM'` 字面量 —— 已修：六个 `markStatus()` 写点语义化（`SUMSUB_KYT`/`LEG_SETTLEMENT`/`RESTRICTION_BROADCAST`/`SLA_SWEEP`）；commit `7a89a103`
+- [x] 兑换 resubmit 分支给重提的单子近乎零宽限 —— 已修：补提交成功后调 `extendComplianceSla()` 把 `slaDeadline` 拉满一个完整窗口；commit `7a89a103`
+- [x] ⭐ 规则 A（tipping-off 防线）只在充值域落实，提现域有一模一样的洞未堵 —— 已修：`status`/`completedAt` 白名单收敛（镜像 `toCustomerDepositView`）+ `customerScope` 下忽略 `status` 查询参数改走 `bucket` 补集 + 客户端 `Withdraw.tsx` 筛选改 bucket 间接式；commit `7567e2c5` + `8d2f395d`
+- [x] `approvalEntityRoutes.ts` 的 `?keyword=` 查询参数是死参数 —— 已修：三张列表页（deposit/withdraw/swap）接住 `keyword` 参数预填筛选框；commit `78ff7642`
 
 ## 本轮销账（2026-09-09 波二报价单收口）
 

@@ -1,6 +1,6 @@
 # V4 · 充值（钱怎么进来）
 
-> 对应 PRD：待写 ｜ 技术节点 Last Verified：2026-09-09（三域文档同步：审计码实数/PATCH 已删/删过时缺口行）
+> 对应 PRD：待写 ｜ 技术节点 Last Verified：2026-09-12（波三红项修复：冻结留痕补齐 + 客户端受限横幅）
 > 演示幕次：第三幕「钱进」 ｜ 验收：第三幕走查（`demo/script.md`）+ 本篇 §4
 
 ## 0. 一句话定位
@@ -62,10 +62,12 @@
 7. 退回：再来一笔，⚡喂"拒绝（退回标签）" → 人工复核 → 发起**原路退回** → MLRO 批准 → `RETURNED`（强调目的地=原发款方，不可改）
 8. 全程任一步，审计页按单号查——每步谁、何时、依据什么（垫第七幕）。留痕词表 47 码（=V4_DEPOSIT_AUDIT_ACTIONS 名册键数，扩码时同步本数）（站1b-β）：单在建单时铸「旅程号」，此后每条留痕继承同号——按单号/按客户/按旅程三种查法都成立；失败不起名（outcome+原因码），状态变化写从/到两列
 9. 漏记的客户入金与已成功入金被银行退汇，入口都不在这一幕——从**第六幕对账案子**上发起（`modules/v8-recon.md` §4 场景 13/14），CFO 复核后回落到这一域：补录照常走 KYT/合规到 SUCCESS，退汇认领落 `CLAWED_BACK`
+10. 客户端充值页顶部新增受限横幅（`RestrictionBanner`，2026-09-12 波三红项修复上线）：只对**非静默**类限制显示——制裁命中这类 SILENT 原因结构上进不了这张表，第 4 步的 tipping-off 不受影响；出现时**不拦动作**，措辞"钱仍会到账，收下后按受限处置"——这是与提现/兑换两页"动作被禁"横幅口径的刻意区别（业主 2026-09-09 裁定，见 `decisions.md` 同日条）
 
 ## 5. 关键技术节点（≤30 行）
 
 - 工作流 `trading/deposit-transactions/deposit-workflow.service.ts`：`evaluateL1()`（L1：执法级 FREEZE / 其余 FAIL 打标不换状态照常送检 / PASS 送检）｜ `applyKytVerdict()+decideVerdictLanding()`（四裁决落地路由）｜ `initiate{Confiscation,Return,Seize,Unfreeze}()` + `{confiscation,return,seize}Spec()`（三弧处置说明书）+ 对应 `on*Decided/settle*`（业务判断与留痕层）｜ `executeDepositAccounting()`（两步入账 + 客户级科目懒解析）
+- **冻结留痕（2026-09-12 波三红项修复已补齐）**：客户级限制冻单有两条独立代码路径——广播扫描 `onCustomerRestrictionOpened() → findNonTerminalByOwner()` 与单笔判定 `evaluateL1()` 的执法级分支，此前各留一处审计缺口（前者 `select` 漏 `correlationId`，`depositAudit()` 的 INHERIT 校验直接拒收写入；后者压根没调 `depositAudit()`）。现两处均已补齐：`select` 补 `correlationId: true`（对齐 swap 域已有写法）、`evaluateL1()` 的 FREEZE 分支照抄 `markL1Hold()` 的写法补一次 `depositAudit({action:'DEPOSIT_FROZEN', ...})`——第七幕按单号拉链两条冻结路径都能查到这一步，不再断链
 - **处置动词** `funds-orders/disposition.service.ts → DispositionService`（地基站 2026-08-26）：initiate / rebuild / settle / voidAttempt / clearLeg——三弧的建腿、锁账、落账、重试三级梯、腿收口收敛为一份实现，工作流按说明书一句话调用
 - 状态机 `deposit-transactions.service.ts → getNextStatus()`（29 边迁移表 + 守则单测锁边数）；状态直改侧门已物理删除——`PATCH :id/status` 端点 2026-08-30（00b0eb83）连黑名单守卫一并移除，controller 注释自证
 - L1 闸门 `trading/shared/` `L1GateService`（十项快照，三域共用求值器；判定结果整包落单上 l1Snapshot）
