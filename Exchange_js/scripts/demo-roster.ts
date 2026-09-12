@@ -58,7 +58,9 @@ const FRANK = 'demo_frank@example.com';
 
 export const DEMO_ROSTER: RosterEntry[] = [
   { seq: 1,  domain: 'DEPOSIT',  label: '充值 · 正常入账 USDT',      expectedStatus: 'SUCCESS',           customerEmail: ALICE, amount: '3000',   currency: 'USDT', driver: '⚡①' },
-  { seq: 2,  domain: 'DEPOSIT',  label: '充值 · 正常入账 AED',       expectedStatus: 'SUCCESS',           customerEmail: BOB,   amount: '8000',   currency: 'AED',  driver: '⚡①' },
+  // seq2 本金 260,000(非 8,000):BOB 的 #18 是 250,000 大额提现(> 200k 审批门,故意演审批),
+  // 提现单一建就在账本锁定 250,000。本金须盖过锁定额,否则客户「可用余额」= 已结 − 锁定为负。
+  { seq: 2,  domain: 'DEPOSIT',  label: '充值 · 正常入账 AED',       expectedStatus: 'SUCCESS',           customerEmail: BOB,   amount: '260000', currency: 'AED',  driver: '⚡①' },
   { seq: 3,  domain: 'DEPOSIT',  label: '充值 · 正常入账 AED（二）',  expectedStatus: 'SUCCESS',           customerEmail: GRACE, amount: '6500',   currency: 'AED',  driver: '⚡①' },
   { seq: 4,  domain: 'DEPOSIT',  label: '充值 · 等客户补料',         expectedStatus: 'ACTION_PENDING',    customerEmail: ALICE, amount: '4200',   currency: 'AED',  driver: '⚡②' },
   { seq: 5,  domain: 'DEPOSIT',  label: '充值 · 转人工复核',         expectedStatus: 'MANUAL_CHECKING',   customerEmail: BOB,   amount: '5100',   currency: 'AED',  driver: '⚡⑪' },
@@ -68,7 +70,9 @@ export const DEMO_ROSTER: RosterEntry[] = [
   { seq: 9,  domain: 'DEPOSIT',  label: '充值 · 退回原发款方',       expectedStatus: 'RETURNED',          customerEmail: ALICE, amount: '2600',   currency: 'AED',  driver: '⚡⑪ → 退回 → MLRO 批' },
   { seq: 10, domain: 'DEPOSIT',  label: '充值 · 上缴（政府移交）',    expectedStatus: 'SEIZED',            customerEmail: FRANK, amount: '9100',   currency: 'AED',  driver: '⚡⑦ → 上缴 → MLRO 批' },
 
-  { seq: 11, domain: 'SWAP',     label: '兑换 · USDT→AED 成功',      expectedStatus: 'SUCCESS',           customerEmail: ALICE, amount: '1000',   currency: 'USDT', driver: '⚡①' },
+  // seq11 换 1,400 USDT(非 1,000):Alice 账上的 AED 全靠这笔兑换——她的两笔 AED 充值 #4/#9
+  // 分别停在「等补料」「已退回」都不入账。须盖过她三笔锁定(#17 1,800 + #20 500 + recon 注入 500),否则可用为负。
+  { seq: 11, domain: 'SWAP',     label: '兑换 · USDT→AED 成功',      expectedStatus: 'SUCCESS',           customerEmail: ALICE, amount: '1400',   currency: 'USDT', driver: '⚡①' },
   { seq: 12, domain: 'SWAP',     label: '兑换 · AED→USDT 成功',      expectedStatus: 'SUCCESS',           customerEmail: BOB,   amount: '2900',   currency: 'AED',  driver: '⚡①' },
   { seq: 13, domain: 'SWAP',     label: '兑换 · 制裁冻结（零出边）',  expectedStatus: 'FROZEN',            customerEmail: FRANK, amount: '600',    currency: 'AED',  driver: '连坐冻结（#7 制裁广播）' },
 

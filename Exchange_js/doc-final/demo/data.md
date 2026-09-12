@@ -79,7 +79,7 @@ admin@fiatx.com 超管 ｜ sm@ 高管(SMO) ｜ ciso@ ｜ mlro@ ｜ dpo@ ｜ comp
 | # | 场景 | 客户 | 金额 | 预期终态 | 实到状态 | 结果 |
 |---|---|---|---|---|---|---|
 | 1 | 充值 · 正常入账 USDT | demo_alice@example.com | 3000 USDT | SUCCESS | SUCCESS | ✓ |
-| 2 | 充值 · 正常入账 AED | demo_bob@example.com | 8000 AED | SUCCESS | SUCCESS | ✓ |
+| 2 | 充值 · 正常入账 AED | demo_bob@example.com | 260000 AED | SUCCESS | SUCCESS | ✓ |
 | 3 | 充值 · 正常入账 AED（二） | demo_grace@example.com | 6500 AED | SUCCESS | SUCCESS | ✓ |
 | 4 | 充值 · 等客户补料 | demo_alice@example.com | 4200 AED | ACTION_PENDING | ACTION_PENDING | ✓ |
 | 5 | 充值 · 转人工复核 | demo_bob@example.com | 5100 AED | MANUAL_CHECKING | MANUAL_CHECKING | ✓ |
@@ -101,7 +101,7 @@ admin@fiatx.com 超管 ｜ sm@ 高管(SMO) ｜ ciso@ ｜ mlro@ ｜ dpo@ ｜ comp
 
 | # | 场景 | 客户 | 金额 | 预期终态 | 实到状态 | 结果 |
 |---|---|---|---|---|---|---|
-| 11 | 兑换 · USDT→AED 成功 | demo_alice@example.com | 1000 USDT | SUCCESS | SUCCESS | ✓ |
+| 11 | 兑换 · USDT→AED 成功 | demo_alice@example.com | 1400 USDT | SUCCESS | SUCCESS | ✓ |
 | 12 | 兑换 · AED→USDT 成功 | demo_bob@example.com | 2900 AED | SUCCESS | SUCCESS | ✓ |
 | 13 | 兑换 · 制裁冻结（零出边） | demo_frank@example.com | 600 AED | FROZEN | FROZEN | ✓ |
 | 23 | 兑换 · 素材（Grace AED→USDT） | demo_grace@example.com | 800 AED | SUCCESS | SUCCESS | ✓ |
@@ -124,8 +124,8 @@ admin@fiatx.com 超管 ｜ sm@ 高管(SMO) ｜ ciso@ ｜ mlro@ ｜ dpo@ ｜ comp
 
 | 恒等式 | 结果 |
 |---|---|
-| COA CLIENT(AED): CLIENT_ASSET == Σ(CLIENT_PAYABLE+DEPOSIT_SUSPENSE) | ✓ 4266547 == 4266547 |
-| COA FIRM(AED): FIRM_ASSET == Σ(FIRM_OPS+FIRM_SET+INCOME_SWAP_FEE+INCOME_WITHDRAW_FEE+INCOME_OTHER) | ✓ 100016353 == 100016353 |
-| COA CLIENT(USDT): CLIENT_ASSET == Σ(CLIENT_PAYABLE+DEPOSIT_SUSPENSE) | ✓ 4792571811 == 4792571811 |
-| COA FIRM(USDT): FIRM_ASSET == Σ(FIRM_OPS+FIRM_SET+INCOME_SWAP_FEE+INCOME_WITHDRAW_FEE+INCOME_OTHER) | ✓ 100013428189 == 100013428189 |
+| COA CLIENT(AED): CLIENT_ASSET == Σ(CLIENT_PAYABLE+DEPOSIT_SUSPENSE) | ✓ 29612565 == 29612565 |
+| COA FIRM(AED): FIRM_ASSET == Σ(FIRM_OPS+FIRM_SET+INCOME_SWAP_FEE+INCOME_WITHDRAW_FEE+INCOME_OTHER) | ✓ 99870335 == 99870335 |
+| COA CLIENT(USDT): CLIENT_ASSET == Σ(CLIENT_PAYABLE+DEPOSIT_SUSPENSE) | ✓ 4392571811 == 4392571811 |
+| COA FIRM(USDT): FIRM_ASSET == Σ(FIRM_OPS+FIRM_SET+INCOME_SWAP_FEE+INCOME_WITHDRAW_FEE+INCOME_OTHER) | ✓ 100413428189 == 100413428189 |
 <!-- GENERATED:END -->
