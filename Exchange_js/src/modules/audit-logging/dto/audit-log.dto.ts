@@ -97,9 +97,6 @@ export interface AuditLogView {
   userAction: string | null;
   userActionLabel: string | null;
   action: string;
-  entityType: string;
-  entityId: string | null;
-  entityNo: string | null;
   primarySubjectType: string | null;
   primarySubjectNo: string | null;
   workflowType: string | null;

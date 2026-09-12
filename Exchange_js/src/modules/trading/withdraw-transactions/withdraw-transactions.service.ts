@@ -20,7 +20,6 @@ import { AuditCategory, AuditSubjectRole } from '../../audit-logging/dto/audit-l
 import {
   AuditActions,
   AuditEntityTypes,
-  AuditModules,
 } from '../../audit-logging/constants/audit-actions.constant';
 import { ApprovalsService } from '../../governance/approvals/approvals.service';
 import { DomainEventNames } from '../../../common/events/domain-events.constants';

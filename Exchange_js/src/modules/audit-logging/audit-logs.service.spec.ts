@@ -8,7 +8,6 @@ import {
 import {
   AuditActions,
   AuditEntityTypes,
-  AuditModules,
   AuditBusinessWorkflowTypes,
   AuditUserActions,
   mapRawAuditActionToUserAction,
@@ -605,9 +604,8 @@ describe('AuditLogsService', () => {
         id: 'audit-1',
         auditNo: 'AUD2603240001',
         action: AuditActions.DEPOSIT_APPROVED,
-        entityType: AuditEntityTypes.DEPOSIT_TRANSACTION,
-        entityId: 'dep-1',
-        entityNo: 'DEP2603240001',
+        primarySubjectType: AuditEntityTypes.DEPOSIT_TRANSACTION,
+        primarySubjectNo: 'DEP2603240001',
         actorType: 'SYSTEM',
         actorId: 'SYSTEM',
         workflowType: 'DEPOSIT',
@@ -830,9 +828,8 @@ describe('AuditLogsService', () => {
         id: 'audit-swap-1',
         auditNo: 'AUD2603260001',
         action: AuditActions.SWAP_CREATED,
-        entityType: AuditEntityTypes.SWAP_TRANSACTION,
-        entityId: 'swap-1',
-        entityNo: 'SWP2603260001',
+        primarySubjectType: AuditEntityTypes.SWAP_TRANSACTION,
+        primarySubjectNo: 'SWP2603260001',
         actorType: 'CUSTOMER',
         actorId: 'customer-1',
         workflowType: 'SWAP',
@@ -845,9 +842,8 @@ describe('AuditLogsService', () => {
         id: 'audit-swap-2',
         auditNo: 'AUD2603260002',
         action: 'SWAP_KYT_APPROVED',
-        entityType: AuditEntityTypes.SWAP_TRANSACTION,
-        entityId: 'swap-1',
-        entityNo: 'SWP2603260001',
+        primarySubjectType: AuditEntityTypes.SWAP_TRANSACTION,
+        primarySubjectNo: 'SWP2603260001',
         actorType: 'SYSTEM',
         actorId: 'SYSTEM',
         workflowType: 'SWAP',
@@ -1139,9 +1135,8 @@ describe('AuditLogsService', () => {
         id: 'audit-withdraw-1',
         auditNo: 'AUD2603270001',
         action: 'WITHDRAW_COMPLIANCE_PASSED',
-        entityType: AuditEntityTypes.WITHDRAW_TRANSACTION,
-        entityId: 'withdraw-1',
-        entityNo: 'WDR2603270001',
+        primarySubjectType: AuditEntityTypes.WITHDRAW_TRANSACTION,
+        primarySubjectNo: 'WDR2603270001',
         actorType: 'ADMIN',
         actorId: 'admin-1',
         workflowType: 'WITHDRAW',
@@ -1423,7 +1418,7 @@ describe('AuditLogsService', () => {
     }
   });
 
-  it('should resolve swap export workflow summary from entityNo when a linked swap is present', async () => {
+  it('should resolve swap export workflow summary from primarySubjectNo when a linked swap is present', async () => {
     prisma.swapTransaction.findMany.mockResolvedValue([
       {
         id: 'swap-1',
@@ -1444,9 +1439,8 @@ describe('AuditLogsService', () => {
         id: 'audit-swap-1',
         auditNo: 'AUD2603260101',
         action: AuditActions.SWAP_CREATED,
-        entityType: AuditEntityTypes.SWAP_TRANSACTION,
-        entityId: 'swap-1',
-        entityNo: 'SWP2603260001',
+        primarySubjectType: AuditEntityTypes.SWAP_TRANSACTION,
+        primarySubjectNo: 'SWP2603260001',
         actorType: 'CUSTOMER',
         actorId: 'customer-1',
         workflowType: 'SWAP',

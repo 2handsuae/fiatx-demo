@@ -9,6 +9,7 @@ import {
 import { AdminSessionError, adminFetch, getApiErrorMessage } from '../utils/adminFetch';
 import { AdminBadge } from '../components/ui/AdminBadge';
 import { PageTitleBar } from '../components/ui/PageTitleBar';
+import { AUDIT_ENTITY_ROUTE_BY_SUBJECT_TYPE } from './auditEntityRoutes';
 
 type AuditOutcome = 'SUCCESS' | 'DENIED' | 'FAILED' | 'PARTIAL';
 
@@ -16,7 +17,7 @@ interface AuditLogItem {
   id: string;
   eventNo: string;
   action: string;
-  entityType: string;
+  primarySubjectType?: string | null;
   primarySubjectNo?: string | null;
   entityOwnerNo?: string | null;
   actorType: string;
@@ -519,11 +520,27 @@ const AuditLogsPage = () => {
                     </td>
                     {/* Entity No */}
                     <td className="px-3 py-2.5 font-mono text-[11px] text-adm-amber">
-                      {item.primarySubjectNo ?? <span className="text-adm-t3">—</span>}
+                      {item.primarySubjectNo ? (
+                        AUDIT_ENTITY_ROUTE_BY_SUBJECT_TYPE[item.primarySubjectType ?? ''] ? (
+                          <span
+                            className="cursor-pointer text-adm-blue hover:underline"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              navigate(AUDIT_ENTITY_ROUTE_BY_SUBJECT_TYPE[item.primarySubjectType!]!(item.primarySubjectNo!));
+                            }}
+                          >
+                            {item.primarySubjectNo}
+                          </span>
+                        ) : (
+                          item.primarySubjectNo
+                        )
+                      ) : (
+                        <span className="text-adm-t3">—</span>
+                      )}
                     </td>
                     {/* Entity Type */}
                     <td className="px-3 py-2.5 font-mono text-[11px] text-adm-t2">
-                      {item.entityType}
+                      {item.primarySubjectType ?? <span className="text-adm-t3">—</span>}
                     </td>
                     {/* Trace ID */}
                     <td className="px-3 py-2.5 font-mono text-[10px] text-adm-t2">

@@ -6,7 +6,6 @@ import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import {
   AuditActions,
   AuditEntityTypes,
-  AuditModules,
 } from '../../audit-logging/constants/audit-actions.constant';
 import { AuditOutcome } from '../../audit-logging/dto/audit-log.dto';
 

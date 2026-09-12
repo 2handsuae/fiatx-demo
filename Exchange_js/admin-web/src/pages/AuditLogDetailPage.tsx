@@ -8,6 +8,7 @@ import {
 } from '../components/compliance/DetailPageComponents';
 import { adminButtonClass } from '../components/common/adminButtonStyles';
 import { AdminBadge } from '../components/ui/AdminBadge';
+import { AUDIT_ENTITY_ROUTE_BY_SUBJECT_TYPE } from './auditEntityRoutes';
 
 type AuditOutcome = 'SUCCESS' | 'DENIED' | 'FAILED' | 'PARTIAL';
 
@@ -16,7 +17,7 @@ interface AuditLogDetail {
   eventNo: string;
   triggerType: string;
   action: string;
-  entityType: string;
+  primarySubjectType?: string | null;
   primarySubjectNo?: string | null;
   entityOwnerType?: string | null;
   entityOwnerId?: string | null;
@@ -329,10 +330,25 @@ const AuditLogDetailPage = () => {
             <Cap>Entity</Cap>
             <div className="mt-2">
               <p className="font-mono text-[9px] uppercase tracking-[0.1em] text-adm-t3">
-                {detail.entityType}
+                {detail.primarySubjectType ?? '—'}
               </p>
               <p className="mt-1 font-mono text-[14px] font-semibold text-adm-amber">
-                {detail.primarySubjectNo ?? '—'}
+                {detail.primarySubjectNo ? (
+                  AUDIT_ENTITY_ROUTE_BY_SUBJECT_TYPE[detail.primarySubjectType ?? ''] ? (
+                    <span
+                      className="cursor-pointer text-adm-blue hover:underline"
+                      onClick={() =>
+                        navigate(AUDIT_ENTITY_ROUTE_BY_SUBJECT_TYPE[detail.primarySubjectType!]!(detail.primarySubjectNo!))
+                      }
+                    >
+                      {detail.primarySubjectNo}
+                    </span>
+                  ) : (
+                    detail.primarySubjectNo
+                  )
+                ) : (
+                  '—'
+                )}
               </p>
             </div>
 
@@ -411,7 +427,7 @@ const AuditLogDetailPage = () => {
           {/* Identity Summary */}
           <SidebarGroup title="Identity Summary">
             <SidebarKV label="Trigger"      value={detail.triggerType} />
-            <SidebarKV label="Entity Type"  value={detail.entityType}  />
+            <SidebarKV label="Entity Type"  value={detail.primarySubjectType}  />
             <SidebarKV label="Actor Type"   value={detail.actorType}   />
           </SidebarGroup>
 

@@ -10,7 +10,6 @@ import { generateReferenceNo } from '../../common/utils/no-generator.util';
 import {
   AuditActions,
   AuditEntityTypes,
-  AuditModules,
   mapRawAuditActionToUserAction,
   AuditWorkflowTypes,
   V1_AUDIT_ACTIONS,
@@ -330,9 +329,6 @@ export class AuditLogsService {
       userAction,
       userActionLabel: this.toDisplayLabel(userAction),
       action: raw.action,
-      entityType: raw.entityType,
-      entityId: raw.entityId ?? null,
-      entityNo: raw.entityNo ?? null,
       primarySubjectType: raw.primarySubjectType ?? null,
       primarySubjectNo: raw.primarySubjectNo ?? null,
       workflowType: raw.workflowType ?? null,
@@ -425,11 +421,11 @@ export class AuditLogsService {
     const candidateNos = this.toSortedUniqueStrings(
       records
         .filter((item) =>
-          item.entityNo &&
-          (item.entityType === AuditEntityTypes.SWAP_TRANSACTION ||
-           item.entityType === AuditEntityTypes.SWAP_QUOTE),
+          item.primarySubjectNo &&
+          (item.primarySubjectType === AuditEntityTypes.SWAP_TRANSACTION ||
+           item.primarySubjectType === AuditEntityTypes.SWAP_QUOTE),
         )
-        .map((item) => this.normalizeOptionalString(item.entityNo)) as Array<string | null>,
+        .map((item) => this.normalizeOptionalString(item.primarySubjectNo)) as Array<string | null>,
     );
 
     if (!candidateNos.length) {
@@ -1356,8 +1352,8 @@ export class AuditLogsService {
           : [],
       ) as Array<string | null>,
       ...depositRecords
-        .filter((item) => item.entityType === AuditEntityTypes.DEPOSIT_TRANSACTION)
-        .map((item) => this.normalizeOptionalString(item.entityId)) as Array<string | null>,
+        .filter((item) => item.primarySubjectType === AuditEntityTypes.DEPOSIT_TRANSACTION)
+        .map((item) => this.normalizeOptionalString(item.primarySubjectNo)) as Array<string | null>,
     ]);
 
     if (!workflowIds.length || !db?.depositTransaction?.findMany) {
@@ -1615,8 +1611,8 @@ export class AuditLogsService {
           : [],
       ) as Array<string | null>,
       ...withdrawRecords
-        .filter((item) => item.entityType === AuditEntityTypes.WITHDRAW_TRANSACTION)
-        .map((item) => this.normalizeOptionalString(item.entityId)) as Array<string | null>,
+        .filter((item) => item.primarySubjectType === AuditEntityTypes.WITHDRAW_TRANSACTION)
+        .map((item) => this.normalizeOptionalString(item.primarySubjectNo)) as Array<string | null>,
     ]);
 
     if (!workflowIds.length || !db?.withdrawTransaction?.findMany) {
