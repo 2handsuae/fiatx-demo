@@ -11,6 +11,8 @@ import {
   getCustomerApiErrorMessage,
 } from '../utils/customerFetch';
 import { getDepositStatusView, type DepositStatusView } from '../utils/depositStatusView';
+import { RestrictionBanner } from '../components/RestrictionBanner';
+import { PendingActionBanner } from '../components/PendingActionBanner';
 
 interface Asset {
   id: string;
@@ -769,6 +771,12 @@ const Deposit = () => {
             <p className="text-fx-dune mt-1">Fund your account with Crypto or Fiat</p>
         </div>
       </div>
+
+      <RestrictionBanner
+        capability="DEPOSIT"
+        supplement="Funds you send will still arrive. Once received, this deposit will be held under the restriction and processed after it is lifted."
+      />
+      <PendingActionBanner domain="DEPOSIT" />
 
       {/* Main Card */}
       <div className="bg-fx-ink/40 rounded-3xl border border-fx-rule shadow-sm overflow-hidden min-h-[600px]">

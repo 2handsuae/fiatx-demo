@@ -10,6 +10,8 @@ export interface DisclosedRestrictionView {
   restrictionNo: string;
   /** 非 null = 这张便签已由某条活着的材料请求在讲（那条带「去认证」入口），本条不再重复显示 */
   claimedByMaterialRequestNo: string | null;
+  /** 认领本便签那条材料请求的状态（未认领时 null）——决定 CTA 借哪种文案 */
+  claimedMaterialStatus: 'PENDING_SUBMISSION' | 'SUBMITTED' | null;
   cause: string;
   scopes: string[];
   label: string;

@@ -24,7 +24,6 @@ import {
 } from '../utils/customerFetch';
 import { resolveSubmitErrorInfo, TIER_UPGRADE_HINT_CODES } from '../utils/limitErrorText';
 import { getSwapStatusView } from '../utils/swapStatusView';
-import { PendingActionBanner } from '../components/PendingActionBanner';
 import { RestrictionBanner } from '../components/RestrictionBanner';
 import { isCapabilityRestricted } from '../utils/restrictedCapabilities';
 
@@ -584,10 +583,10 @@ const Swap = () => {
 
   return (
     <div className="space-y-6">
-      {/* 认证入口横幅：置顶跨全宽（业主拍板：入口放 swap/withdraw 页面顶部）。
-          显隐由 /client/me/material-requests 决定，按 G6 过滤+分档（PendingActionBanner.tsx）。 */}
-      <PendingActionBanner />
-      <RestrictionBanner />
+      {/* 业主 2026-09-12 矩阵：撤掉本页的 PendingActionBanner——兑换订单材料的
+          客户端唯一入口是 Overview/Profile（ProfileBannerStack）；这里只留
+          RestrictionBanner，绑了材料的条子会借材料状态换 CTA 自己出。 */}
+      <RestrictionBanner capability="SWAP" />
       <div className="flex justify-between items-center">
         <div>
           <h1 className="text-2xl font-bold text-fx-sand">Swap</h1>

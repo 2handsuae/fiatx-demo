@@ -1,12 +1,13 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { AlertCircle, AlertTriangle, Clock } from 'lucide-react';
+import { AlertCircle, Clock } from 'lucide-react';
 import { CustomerSessionError, customerFetch } from '../utils/customerFetch';
-import { useAuth } from '../context/AuthContext';
 
 /* ────────────────────────────────────────────────────────────────
  *  PendingActionBanner — entry point for a customer's outstanding
- *  material requests, mounted at the top of Swap / Withdraw / Profile.
+ *  material requests that are NOT tied to a restriction, mounted at
+ *  the top of Deposit / Withdraw (domain-scoped via the required
+ *  `domain` prop).
  *
  *  Whether to show anything is decided ONCE, on the backend write side
  *  (each domain's disposition/issuance path): a customer under sanctions
@@ -20,18 +21,12 @@ import { useAuth } from '../context/AuthContext';
  *  else — that would put the tipping-off decision in two places, and the
  *  failure mode is a customer being told about a sanctions investigation.
  *
- *  2026-08-18 材料请求账：数据源从客户级单指针端点
- *  （/client/me/pending-action，已被 Task 12 物理删除）改成材料账的
- *  /client/me/material-requests——单指针只能装一条，现在一条 action 一行。
- *
- *  G6 过滤（与后台横幅规则相反，后台按 customerNo 全量看，客户端只看
- *  "跟我有关且我能做点什么的"）：
- *    客户级横幅 = 活行里「挂了限制的」∪「没绑单的」
- *  绑了单又没挂限制的不在这里出现——那种行只在它绑定的那个订单详情页露
- *  （见 DepositDetail.tsx / WithdrawDetail.tsx）。
- *
- *  分档：挂了摁人的限制 → 红（blocking）；其余（提醒性质）→ 黄。
- *  status === 'SUBMITTED' 的不给 CTA，文案换成"审核中"。
+ *  波三G（业主矩阵，推翻 2026-08-18 G6 两点）：本组件只剩「没绑条子 + 绑本域
+ *  订单」的材料行——绑条子的已并进 RestrictionBanner 的条子形态（借材料状态
+ *  换 CTA 文案，见 RestrictionBanner.tsx）；单独材料（无单无条子）收拢到
+ *  Overview/Profile（ProfileBannerStack），不再在这里露出。domain 过滤同时
+ *  取代了旧的「没绑单的」分支——绑了本域订单又没挂限制的行，才是本组件仅剩
+ *  的职责。
  *
  *  Fetch-on-mount + refetch-on-visibilitychange mirrors
  *  ProfileBannerStack.tsx's existing pattern.
@@ -48,18 +43,10 @@ interface ClientMaterialRequestRow {
   reason: string;
 }
 
-export function PendingActionBanner() {
+export function PendingActionBanner({ domain }: { domain: 'DEPOSIT' | 'WITHDRAW' }) {
   const [rows, setRows] = useState<ClientMaterialRequestRow[]>([]);
   const navigate = useNavigate();
   const location = useLocation();
-  const { refreshProfile } = useAuth();
-  // 记住上一次是否有"挂了限制"的行：从「有」翻到「无」= 限制大概率已解除
-  // （officer GREEN 清了材料请求 + 限制账），此刻刷新 AuthContext 的共享
-  // user，让 Swap/Withdraw 页的禁用按钮当场解禁——否则要整页刷新
-  // （AuthContext 只在挂载时拉一次 profile，见 useCustomerProfile.ts）。
-  // 只跟踪 blocking 行的存亡：非阻断的提醒行来去不影响任何按钮的禁用态，
-  // 不需要触发这次刷新。
-  const hadBlockingRef = useRef(false);
 
   const load = async () => {
     try {
@@ -68,14 +55,12 @@ export function PendingActionBanner() {
       );
       if (!res.ok) throw new Error(`material-requests fetch failed with status ${res.status}`);
       const data = (await res.json()) as ClientMaterialRequestRow[];
+      // 波三G（业主矩阵，推翻 2026-08-18 G6 两点）：本组件只剩「没绑条子 + 绑本域
+      // 订单」的材料行——绑条子的已并进 RestrictionBanner 的条子形态；单独材料
+      // （无单无条子）收拢到 Overview/Profile（ProfileBannerStack）。
       const visible = Array.isArray(data)
-        ? data.filter((r) => r.blocking || r.orderDomain === null)
+        ? data.filter((r) => !r.blocking && r.orderDomain === domain)
         : [];
-      const blockingNow = visible.some((r) => r.blocking);
-      if (hadBlockingRef.current && !blockingNow) {
-        void refreshProfile?.();
-      }
-      hadBlockingRef.current = blockingNow;
       setRows(visible);
     } catch (error) {
       if (error instanceof CustomerSessionError) return;
@@ -105,23 +90,20 @@ export function PendingActionBanner() {
   return (
     <div className="space-y-2 mb-4">
       {rows.map((r) => {
+        // 走到这里的行已被 load() 的过滤挡掉 blocking===true——本组件只剩
+        // 提醒性质的材料行，样式固定用 brass（不再按 blocking 切红/黄）。
         const submitted = r.status === 'SUBMITTED';
-        const borderCls = r.blocking ? 'border-l-fx-rust' : 'border-l-fx-brass';
-        const bgCls = r.blocking ? 'bg-fx-rust/[0.03]' : 'bg-fx-brass/[0.03]';
-        const iconCls = r.blocking ? 'text-fx-rust' : 'text-fx-brass';
 
         return (
           <div
             key={r.requestNo}
-            className={`border-l-4 ${borderCls} ${bgCls} px-4 py-3 flex items-start justify-between gap-4`}
+            className="border-l-4 border-l-fx-brass bg-fx-brass/[0.03] px-4 py-3 flex items-start justify-between gap-4"
           >
             <div className="flex items-start gap-3 min-w-0 flex-1">
               {submitted ? (
-                <Clock size={14} className={`shrink-0 mt-[1px] ${iconCls}`} />
-              ) : r.blocking ? (
-                <AlertTriangle size={14} className={`shrink-0 mt-[1px] ${iconCls}`} />
+                <Clock size={14} className="shrink-0 mt-[1px] text-fx-brass" />
               ) : (
-                <AlertCircle size={14} className={`shrink-0 mt-[1px] ${iconCls}`} />
+                <AlertCircle size={14} className="shrink-0 mt-[1px] text-fx-brass" />
               )}
               <p className="font-sans text-[12px] text-fx-dune leading-snug">
                 {submitted

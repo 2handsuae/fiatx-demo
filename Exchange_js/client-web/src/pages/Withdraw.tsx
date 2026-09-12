@@ -456,10 +456,11 @@ const Withdraw = () => {
 
   return (
     <div className="space-y-6">
-      {/* 认证入口横幅：置顶跨全宽（业主拍板：入口放 swap/withdraw 页面顶部）。
-          显隐由 /client/me/material-requests 决定，按 G6 过滤+分档（PendingActionBanner.tsx）。 */}
-      <PendingActionBanner />
-      <RestrictionBanner />
+      {/* 条子在上、材料在下（业主 2026-09-12 矩阵：受限是因，材料是解法）。
+          RestrictionBanner 按 capability 过滤，绑了材料的条子借材料状态换 CTA；
+          PendingActionBanner 按 domain 过滤，只剩没绑条子的本域材料行。 */}
+      <RestrictionBanner capability="WITHDRAW" />
+      <PendingActionBanner domain="WITHDRAW" />
       <div>
         <h1 className="text-2xl font-bold text-fx-sand">Withdraw</h1>
         <p className="mt-1 text-sm text-fx-dust">Send funds to your wallet or bank account</p>

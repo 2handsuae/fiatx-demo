@@ -1,6 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { AlertCircle } from 'lucide-react';
 import { CustomerSessionError, customerFetch } from '../utils/customerFetch';
+import { useAuth } from '../context/AuthContext';
 import type { DisclosedRestrictionView } from '../hooks/useCustomerProfile';
 
 /* ────────────────────────────────────────────────────────────────
@@ -21,19 +23,36 @@ import type { DisclosedRestrictionView } from '../hooks/useCustomerProfile';
  * ──────────────────────────────────────────────────────────────── */
 
 /*
- *  本组件【一律不带 CTA】。理由：限制如果能自助解，就一定挂着一条活的材料请求，
- *  「去认证」的入口由那条材料横幅出（它有 requestNo，能跳到具体那份材料）；
- *  挂了材料请求的行在下面被 claimedByMaterialRequestNo 过滤掉，本组件根本不会
- *  渲染它。所以走到这里的行，按定义就是**没有自助动作**的 —— 管理员停用、
- *  升级审批中、材料终拒之后限制仍在，客户只能联系客服。
+ *  按域过滤（业主 2026-09-12 横幅矩阵）：本组件必填 capability prop，只渲染
+ *  scopes 命中本能力（或 'ALL'）的条子——一条便签可能同时限住多个域，页面
+ *  只应看见跟自己相关的那部分。
  *
- *  这一刀顺带修掉一个真 bug：原先自助类 cause 的 CTA 跳的是 `/verification`
- *  （首次 KYC 主页的老路由），而材料流程早已改成 `/verification/:requestNo`
- *  —— 客户点「Resolve」会掉到 KYC 主页，不是他要交的那份材料。
+ *  合并形态（同一次矩阵定案）：绑了材料请求的条子行【在这儿渲染】，按钮借用
+ *  材料请求的状态——PENDING_SUBMISSION 给「Submit material」跳转
+ *  /verification/:requestNo；SUBMITTED 改说「审核中」，不给可点动作。没绑材料
+ *  的条子按定义没有自助动作，维持 Contact support。（PendingActionBanner 那边
+ *  对称地不再渲染绑了限制的材料行，两个组件合起来才是完整的一屏，互不重复。）
  */
 
-export function RestrictionBanner() {
+export function RestrictionBanner({
+  capability,
+  supplement,
+}: {
+  /** 本页对应的交易能力——只渲染 scopes 命中本能力（或 ALL）的条子（业主 2026-09-12 矩阵）。 */
+  capability: 'DEPOSIT' | 'WITHDRAW' | 'SWAP';
+  /** 页面级补充行（如充值页「入金仍会到账」口径），逐条横幅尾部渲染。 */
+  supplement?: string;
+}) {
   const [rows, setRows] = useState<DisclosedRestrictionView[]>([]);
+  const navigate = useNavigate();
+  const location = useLocation();
+  const { refreshProfile } = useAuth();
+  // 记住上一次本域是否有条子：从「有」翻到「无」= 限制大概率已解除，此刻刷新
+  // AuthContext 的共享 user，让本页的禁用按钮当场解禁——否则要整页刷新
+  // （AuthContext 只在挂载时拉一次 profile，见 useCustomerProfile.ts）。
+  // 该钩子自 PendingActionBanner 移植：blocking 材料行翻面后不再在那边渲染，
+  // 钩子必须跟着限制行走，否则解冻后按钮要整页刷新才解禁。
+  const hadScopedRef = useRef(false);
 
   const load = async () => {
     try {
@@ -68,16 +87,20 @@ export function RestrictionBanner() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // 已被材料请求认领的便签不在这儿出 —— 同一件事出两条（「你被摁住了」+
-  // 「去交材料」）是重复，留带入口的那条。判定由后端给（claimedByMaterialRequestNo），
-  // 本组件不自己推导，见文件头约束。
-  const unclaimed = rows.filter((r) => r.claimedByMaterialRequestNo === null);
+  const scoped = rows.filter((r) => r.scopes.includes(capability) || r.scopes.includes('ALL'));
 
-  if (!unclaimed.length) return null;
+  useEffect(() => {
+    const has = scoped.length > 0;
+    if (hadScopedRef.current && !has) void refreshProfile?.();
+    hadScopedRef.current = has;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scoped.length]);
+
+  if (!scoped.length) return null;
 
   return (
     <div className="space-y-2 mb-4">
-      {unclaimed.map((row) => (
+      {scoped.map((row) => (
         <div
           key={row.restrictionNo}
           className="border-l-4 border-l-fx-rust bg-fx-rust/[0.04] px-4 py-3 flex items-start justify-between gap-4"
@@ -94,11 +117,33 @@ export function RestrictionBanner() {
               <div className="mt-1 font-mono text-[10px] text-fx-dust tabular-nums">
                 {row.scopes.join(' · ')}
               </div>
+              {supplement && (
+                <p className="mt-1 font-sans text-[11px] text-fx-dust leading-snug">{supplement}</p>
+              )}
             </div>
           </div>
-          <span className="shrink-0 font-mono text-[10px] uppercase tracking-[0.16em] text-fx-dust">
-            Contact support
-          </span>
+          {row.claimedByMaterialRequestNo ? (
+            row.claimedMaterialStatus === 'SUBMITTED' ? (
+              <span className="shrink-0 font-mono text-[10px] uppercase tracking-[0.16em] text-fx-dust">
+                Submitted · under review
+              </span>
+            ) : (
+              <button
+                onClick={() =>
+                  navigate(
+                    `/verification/${row.claimedByMaterialRequestNo}?from=${encodeURIComponent(location.pathname)}`,
+                  )
+                }
+                className="shrink-0 font-mono text-[10px] uppercase tracking-[0.16em] text-fx-brass hover:text-fx-ember transition-colors"
+              >
+                Submit material
+              </button>
+            )
+          ) : (
+            <span className="shrink-0 font-mono text-[10px] uppercase tracking-[0.16em] text-fx-dust">
+              Contact support
+            </span>
+          )}
         </div>
       ))}
     </div>

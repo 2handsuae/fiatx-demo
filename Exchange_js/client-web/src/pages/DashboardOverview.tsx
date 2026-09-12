@@ -14,7 +14,7 @@ import {
   customerFetch,
   getCustomerApiErrorMessage,
 } from '../utils/customerFetch';
-import { RestrictionBanner } from '../components/RestrictionBanner';
+import { ProfileBannerStack } from '../components/ProfileBannerStack';
 
 /* ────────────────────────────────────────────────────────────────
  *  Overview — FIATX Terminal dialect.
@@ -145,7 +145,7 @@ const DashboardOverview = () => {
 
   return (
     <div className="space-y-10">
-      <RestrictionBanner />
+      <ProfileBannerStack />
       {/* ── Portfolio Value ────────────────────────────────────── */}
       <div>
         <SectionTitle

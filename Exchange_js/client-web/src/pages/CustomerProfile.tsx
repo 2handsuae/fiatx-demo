@@ -208,12 +208,12 @@ const CustomerProfile = () => {
     <div className="space-y-10">
       {/* ── Compliance banners ─────────────────────────────────── */}
       <ProfileBannerStack />
-      {/* 2026-08-18 材料请求账：这里曾经还挂一个 <PendingActionBanner />。
-          它现在和 ProfileBannerStack 读的是同一个底层数据源
-          （材料请求账，按 G6 过滤），继续两个都挂会在本页把每一行材料请求
-          重复渲染两遍。PendingActionBanner 保留给 Swap/Withdraw 页——那两页
-          没有 ProfileBannerStack，需要它做入口；Profile 页已经被
-          ProfileBannerStack 覆盖，不再需要它。 */}
+      {/* 波三G（业主 2026-09-12 横幅矩阵，推翻 2026-08-18 G6）：本页不挂
+          <PendingActionBanner />——绑了条子的材料行已并进 RestrictionBanner
+          的条子形态，单独材料（无单无条子）与条子行统一收拢进
+          ProfileBannerStack（Overview 页同款）。PendingActionBanner 现在只留给
+          Deposit/Withdraw 页，渲染「没绑条子、绑了本域订单」的材料行——那类行
+          不在 ProfileBannerStack 的范围里。 */}
 
       {/* ── Compact header ─────────────────────────────────────── */}
       <header>
