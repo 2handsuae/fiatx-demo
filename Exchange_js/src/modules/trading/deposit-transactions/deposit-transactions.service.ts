@@ -1405,7 +1405,7 @@ export class DepositTransactionsService {
       // 已退汇的单被当"在途"捞出来去 FREEZE，抛 BadRequest 后被上面调用方的
       // catch 吞成一条"冻结失败"的 warn——单其实早就不在途了，不是真失败。
       where: { ownerId, status: { notIn: ['SUCCESS', 'FAILED', 'CONFISCATED', 'RETURNED', 'SEIZED', 'FROZEN', 'CLAWED_BACK'] } },
-      select: { id: true, depositNo: true, ownerType: true, ownerId: true, status: true, traceId: true },
+      select: { id: true, depositNo: true, ownerType: true, ownerId: true, status: true, traceId: true, correlationId: true },
     });
   }
 

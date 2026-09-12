@@ -256,6 +256,15 @@ export class DepositWorkflowService implements OnModuleInit {
             actor: { actorType: 'SYSTEM', actorId: 'L1_GATE' },
           },
         );
+        // 铁律①：三分支（冻/标/放行）中独漏冻结这半边的审计（BACKLOG 五连缺路径二）。
+        // 复用现役 DEPOSIT_FROZEN 码；correlationId 由 depositAudit 从单上继承（INHERIT）。
+        await this.depositAudit(deposit, {
+          action: 'DEPOSIT_FROZEN',
+          fromStatus: deposit.status,
+          toStatus: DepositTransactionStatus.FROZEN,
+          reason: 'Frozen by L1 gate — customer DEPOSIT capability is restricted (enforcement)',
+          metadata: { source: 'L1_GATE', blockers: depositBlockers.map((row) => row.restrictionNo) },
+        });
         return;
       }
     }

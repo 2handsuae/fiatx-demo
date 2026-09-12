@@ -348,6 +348,21 @@ describe('DepositWorkflowService', () => {
       );
     });
 
+    it('evaluateL1 enforcement freeze writes DEPOSIT_FROZEN audit inheriting correlationId（BACKLOG 五连缺路径二：此前三分支独漏冻结这半边的审计）', async () => {
+      customerAccessService.resolve.mockResolvedValue(accessBlocking('DEPOSIT', 'WITHDRAW', 'SWAP'));
+      customerRestrictionsService.listOpen.mockResolvedValue([openRestriction('SANCTION')]);
+      depositService.findOne.mockResolvedValue(
+        l1Deposit({ status: 'COMPLIANCE_PENDING', correlationId: 'corr-1' }),
+      );
+
+      await service.handleDepositStatusChanged(l1Event());
+
+      expect(depositService.updateStatus).toHaveBeenCalled();
+      expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
+        expect.objectContaining({ action: 'DEPOSIT_FROZEN', correlationId: 'corr-1', primarySubjectNo: 'DEP001' }),
+      );
+    });
+
     // ── B4（第四批）· 分流 / lifecycle / 快照 ───────────────────────────────
     // 业主 2026-08-22 裁定一：执法级（MLRO_APPROVAL）→ FROZEN，非执法级
     // （OPS_APPROVAL）→ OPERATION_PENDING。判据按 releasePolicy 派生，不写死

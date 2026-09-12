@@ -1554,6 +1554,18 @@ describe('WithdrawTransactionsService', () => {
     });
   });
 
+  describe('findNonTerminalByOwner（制裁冻结在途单扫描）', () => {
+    it('select 带 correlationId，INHERIT 审计码（WITHDRAW_FROZEN）才能继承旅程号（BACKLOG 五连缺路径一，对照 deposit 域同名方法）', async () => {
+      prisma.withdrawTransaction.findMany = jest.fn().mockResolvedValue([]);
+      await service.findNonTerminalByOwner('cust-1');
+      expect(prisma.withdrawTransaction.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          select: expect.objectContaining({ correlationId: true }),
+        }),
+      );
+    });
+  });
+
   describe('SLA deadline 在状态机收口处统一设', () => {
     const mockId = 'wd-sla-1';
 

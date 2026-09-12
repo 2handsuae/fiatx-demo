@@ -1382,6 +1382,15 @@ describe('DepositTransactionsService', () => {
         }),
       );
     });
+    it('findNonTerminalByOwner 的 select 带 correlationId，INHERIT 审计码（DEPOSIT_FROZEN）才能继承旅程号（BACKLOG 五连缺路径一）', async () => {
+      (prisma as any).depositTransaction.findMany.mockResolvedValue([]);
+      await service.findNonTerminalByOwner('cust-1');
+      expect((prisma as any).depositTransaction.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          select: expect.objectContaining({ correlationId: true }),
+        }),
+      );
+    });
   });
 
   describe('setSlaDeadlineByNo (演示用「模拟超时」端点)', () => {

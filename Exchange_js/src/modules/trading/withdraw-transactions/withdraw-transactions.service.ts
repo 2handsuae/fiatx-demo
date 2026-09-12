@@ -1109,7 +1109,7 @@ export class WithdrawTransactionsService {
     return this.prisma.withdrawTransaction.findMany({
       // FROZEN 在排除之列 —— 理由见 deposit-transactions.service.ts 同名方法。
       where: { ownerId, status: { notIn: ['SUCCESS', 'REJECTED', 'FAILED', 'RETURNED', 'FROZEN'] } },
-      select: { id: true, withdrawNo: true, ownerType: true, ownerId: true, status: true, traceId: true },
+      select: { id: true, withdrawNo: true, ownerType: true, ownerId: true, status: true, traceId: true, correlationId: true },
     });
   }
 
