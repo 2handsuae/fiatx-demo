@@ -19,13 +19,13 @@ admin@fiatx.com 超管 ｜ sm@ 高管(SMO) ｜ ciso@ ｜ mlro@ ｜ dpo@ ｜ comp
 |---|---|---|
 | Alice Happy | 快乐路径（真 Sumsub 沙盒 applicant） | 三条交易流程的主角 |
 | Bob Happy | 快乐路径（mock applicant） | 备用主角/并行单 |
-| Carol Silent | **制裁便签 · 静默**（lifecycle 仍 ACTIVE） | 零痕迹：管理台可见、客户端无感 |
+| Carol Silent | **制裁便签 · 静默**（lifecycle 仍 ACTIVE） | 零痕迹：管理台可见、客户端无感（横幅矩阵下四页零横幅=tipping-off 反证位，2026-09-13 波三） |
 | Dave Pending | 认证中 | 开户流程中段 |
 | Eve New | 刚注册未认证 | 开户起点 |
 | Frank HighRisk | 高风险 | 风险分层 |
 | Grace Premium | VIP 费率标签（手打 STATIC，与 PREMIUM 交易档位解绑，2026-09-06） | 费率受众谓词（命中 VIP-USDT-AED） |
 | Henry Acme | 企业客户 | 企业形态占位 |
-| Ivy Restricted | **材料过期 · 明示受限** | 与 Carol 对照：明示 vs 静默 |
+| Ivy Restricted | **材料过期 · 明示受限**（scopes 仅 WITHDRAW/SWAP，不含 DEPOSIT） | 与 Carol 对照：明示 vs 静默；横幅矩阵下提现/兑换页出条子形态合并横幅、充值页不出（按域过滤演示位，2026-09-13 波三；充值页横幅走第三幕⑥现场限制） |
 | Jack Trader | 快乐路径（对账素材） | 第六幕破口场景的钱包与流水素材 |
 | Kate Trader | 快乐路径（对账素材） | 同上——MATCHED 桶的干净代表 |
 
