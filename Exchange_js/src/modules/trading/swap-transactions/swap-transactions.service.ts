@@ -25,6 +25,7 @@ import {
   AuditEntityTypes,
   AuditWorkflowTypes,
 } from '../../audit-logging/constants/audit-actions.constant';
+import { CustomerAccessService } from '../../identity/customers/customer-access.service';
 
 interface SwapMatchedInfo {
   pairId: string;
@@ -143,6 +144,7 @@ export class SwapTransactionsService {
     private readonly binanceRateProvider: BinanceRateProvider,
     private readonly eventEmitter: EventEmitter2,
     private readonly auditLogsService: AuditLogsService,
+    private readonly customerAccessService: CustomerAccessService,
   ) {}
 
   private async getSwapAssetsOrThrow(fromAssetId: string, toAssetId: string) {
@@ -336,6 +338,19 @@ export class SwapTransactionsService {
       }),
       (this.prisma as any).swapTransaction.count({ where }),
     ]);
+
+    // E1（2026-09-12 定案）：管理台标「人被冻」——派生不落库。「被冻」是客户
+    // 属性不是单属性，读时派生随解冻自动消失，零状态同步。blocked 含 SILENT，
+    // 只许 admin 面出现；customerScope 一律不带（tipping-off）。
+    if (!options?.customerScope) {
+      const ownerIds = [...new Set(items.map((i: any) => i.ownerId).filter(Boolean))] as string[];
+      const restrictedOwners = new Set<string>();
+      for (const ownerId of ownerIds) {
+        const access = await this.customerAccessService.resolve(ownerId);
+        if (access.blocked.has('SWAP')) restrictedOwners.add(ownerId);
+      }
+      for (const it of items as any[]) it.ownerRestricted = restrictedOwners.has(it.ownerId);
+    }
 
     return { items, total };
   }
@@ -775,7 +790,8 @@ export class SwapTransactionsService {
         })
       : [];
 
-    return { ...item, sumsubDetail, materialRequests };
+    const access = await this.customerAccessService.resolve(item.ownerId);
+    return { ...item, sumsubDetail, materialRequests, ownerRestricted: access.blocked.has('SWAP') };
   }
 
   /**

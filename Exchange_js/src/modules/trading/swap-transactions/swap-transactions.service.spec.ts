@@ -27,6 +27,7 @@ describe('SwapTransactionsService', () => {
       {} as any,
       { emit: jest.fn() } as any,
       { recordByActor: jest.fn() } as any,
+      { resolve: jest.fn().mockResolvedValue({ blocked: new Set() }) } as any,
     );
   });
 
@@ -102,7 +103,7 @@ describe('markStatus transitions', () => {
   let service: SwapTransactionsService;
 
   beforeEach(() => {
-    service = new SwapTransactionsService({} as any, {} as any, {} as any, { emit: jest.fn() } as any, { recordByActor: jest.fn() } as any);
+    service = new SwapTransactionsService({} as any, {} as any, {} as any, { emit: jest.fn() } as any, { recordByActor: jest.fn() } as any, { resolve: jest.fn().mockResolvedValue({ blocked: new Set() }) } as any);
   });
 
   it('COMPLIANCE_PENDING + kyt_approved → PROCESSING', async () => {
@@ -164,7 +165,7 @@ describe('SLA deadline 在状态机收口处统一设', () => {
   let service: SwapTransactionsService;
 
   beforeEach(() => {
-    service = new SwapTransactionsService({} as any, {} as any, {} as any, { emit: jest.fn() } as any, { recordByActor: jest.fn() } as any);
+    service = new SwapTransactionsService({} as any, {} as any, {} as any, { emit: jest.fn() } as any, { recordByActor: jest.fn() } as any, { resolve: jest.fn().mockResolvedValue({ blocked: new Set() }) } as any);
   });
 
   it('建单进入 COMPLIANCE_PENDING 时设 5 分钟 deadline', async () => {
@@ -280,7 +281,7 @@ describe('customer-facing tipping-off whitelist (findOneForCustomer / findOneFor
         findMany: jest.fn().mockResolvedValue([]),
       },
     };
-    service = new SwapTransactionsService(prisma as any, {} as any, {} as any, { emit: jest.fn() } as any, { recordByActor: jest.fn() } as any);
+    service = new SwapTransactionsService(prisma as any, {} as any, {} as any, { emit: jest.fn() } as any, { recordByActor: jest.fn() } as any, { resolve: jest.fn().mockResolvedValue({ blocked: new Set() }) } as any);
   });
 
   describe('findOneForCustomer', () => {
@@ -447,7 +448,7 @@ describe('Task 10: 客户面三层防线', () => {
       },
       fundsOrder: { findMany: jest.fn().mockResolvedValue([]) },
     };
-    service = new SwapTransactionsService(prisma as any, {} as any, {} as any, { emit: jest.fn() } as any, { recordByActor: jest.fn() } as any);
+    service = new SwapTransactionsService(prisma as any, {} as any, {} as any, { emit: jest.fn() } as any, { recordByActor: jest.fn() } as any, { resolve: jest.fn().mockResolvedValue({ blocked: new Set() }) } as any);
   });
 
   describe('响应体：FROZEN 收敛成 REJECTED（不原样透传）', () => {
@@ -562,7 +563,7 @@ describe('findOneForAdmin', () => {
       // 第四批：admin 投影补材料请求活行（侧栏那格此前读一个不存在的列，恒 `—`）
       materialRequest: { findMany: jest.fn().mockResolvedValue([]) },
     };
-    service = new SwapTransactionsService(prisma as any, {} as any, {} as any, { emit: jest.fn() } as any, { recordByActor: jest.fn() } as any);
+    service = new SwapTransactionsService(prisma as any, {} as any, {} as any, { emit: jest.fn() } as any, { recordByActor: jest.fn() } as any, { resolve: jest.fn().mockResolvedValue({ blocked: new Set() }) } as any);
   });
 
   it('well-formed official-shape payload: parseDetail 输出提现同源形状（parity 2026-08-14）', async () => {
@@ -735,7 +736,7 @@ describe('markStatus · FROZEN 迁移边', () => {
   let service: SwapTransactionsService;
 
   beforeEach(() => {
-    service = new SwapTransactionsService({} as any, {} as any, {} as any, { emit: jest.fn() } as any, { recordByActor: jest.fn() } as any);
+    service = new SwapTransactionsService({} as any, {} as any, {} as any, { emit: jest.fn() } as any, { recordByActor: jest.fn() } as any, { resolve: jest.fn().mockResolvedValue({ blocked: new Set() }) } as any);
   });
 
   it('COMPLIANCE_PENDING + freeze → FROZEN（唯一合法入边）', async () => {
@@ -813,6 +814,7 @@ describe('setSlaDeadlineByNo (演示用「模拟超时」端点)', () => {
       {} as any,
       { emit: jest.fn() } as any,
       auditLogsService as any,
+      { resolve: jest.fn().mockResolvedValue({ blocked: new Set() }) } as any,
     );
   });
 
@@ -886,5 +888,46 @@ describe('setSlaDeadlineByNo (演示用「模拟超时」端点)', () => {
     const calls = auditLogsService.recordByActor.mock.calls;
     expect(calls).toHaveLength(2);
     expect(calls[0][0].requestId).not.toBe(calls[1][0].requestId);
+  });
+});
+
+// E1（2026-09-12 业主定案）：管理台标「人被冻」——findAll 读时派生 ownerRestricted，
+// 不落库（「被冻」是客户属性不是单属性）。blocked 含 SILENT，只许 admin 面出现；
+// customerScope 一律不带（漏给客户即 tipping-off）。
+describe('findAll — E1 ownerRestricted derivation (admin vs customerScope)', () => {
+  let service: SwapTransactionsService;
+  let customerAccessService: any;
+
+  beforeEach(() => {
+    customerAccessService = { resolve: jest.fn().mockResolvedValue({ blocked: new Set() }) };
+    service = new SwapTransactionsService(
+      {} as any,
+      {} as any,
+      {} as any,
+      { emit: jest.fn() } as any,
+      { recordByActor: jest.fn() } as any,
+      customerAccessService as any,
+    );
+  });
+
+  it('admin findAll derives ownerRestricted; customerScope path never carries it', async () => {
+    // 派生是就地改写 items 里的行对象（读时派生、不落库）。用 mockImplementation
+    // 而不是 mockResolvedValue 常量数组，保证 admin 调用与 customerScope 调用
+    // 各拿一份全新的行对象——否则两次调用会共享同一批对象引用，第一次调用
+    // 写下的 ownerRestricted 会“泄漏”进第二次调用，把测试的假阴性误判成
+    // 实现缺陷（真正的生产路径里每次请求都是全新的 Prisma 查询结果，不会
+    // 共享对象引用，这纯粹是本测试双次复用同一个 mock 返回值的假象）。
+    const findMany = jest.fn().mockImplementation(() =>
+      Promise.resolve([{ id: 's1', ownerId: 'o1' }, { id: 's2', ownerId: 'o2' }]),
+    );
+    const count = jest.fn().mockResolvedValue(2);
+    (service as any).prisma = { swapTransaction: { findMany, count } };
+    customerAccessService.resolve.mockImplementation(async (oid: string) => ({
+      blocked: new Set(oid === 'o1' ? ['SWAP'] : []),
+    }));
+    const adminOut = await service.findAll({} as any);
+    expect(adminOut.items.map((i: any) => i.ownerRestricted)).toEqual([true, false]);
+    const customerOut = await service.findAll({} as any, { customerScope: true });
+    expect(customerOut.items[0].ownerRestricted).toBeUndefined();
   });
 });

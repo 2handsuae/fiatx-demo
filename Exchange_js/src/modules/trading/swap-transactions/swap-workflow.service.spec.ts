@@ -802,6 +802,12 @@ function buildAdvanceLegMocks(opts: {
     $transaction: jest.fn((cb: (tx: any) => Promise<any>) => cb(txClient)),
   };
 
+  // E1（波三 Task 5）：resumeLeg 客户限制门。默认不受限，个别用例覆写 resolve。
+  const customerAccessService = {
+    resolve: jest.fn(() => Promise.resolve({ lifecycle: 'ACTIVE', blocked: new Set(), disclosedBlocked: new Set(), disclosed: [], openCount: 0 })),
+    assertCapability: jest.fn(),
+  };
+
   return {
     swapNo,
     swapRow,
@@ -817,6 +823,7 @@ function buildAdvanceLegMocks(opts: {
     eventEmitter,
     fundsOrders,
     legAccounting,
+    customerAccessService,
   };
 }
 
@@ -838,7 +845,7 @@ function makeAdvanceLegService(mocks: ReturnType<typeof buildAdvanceLegMocks>) {
     {} as any,
     {} as any, // customerRestrictionsService — not on this path (advanceLeg never rejects)
     {} as any, // pendingActionService — not on this path
-    { resolve: jest.fn().mockResolvedValue({ lifecycle: 'ACTIVE', blocked: new Set(), disclosedBlocked: new Set(), disclosed: [], openCount: 0 }), assertCapability: jest.fn() } as any, // customerAccessService
+    mocks.customerAccessService as any, // customerAccessService — E1 resumeLeg 门读这个
     {} as any, // materialRequests — not on this path
     {} as any, // materialRequestIssuer — not on this path
     {} as any, // l1Gate — not on this path (advanceLeg 不建单)
@@ -1157,6 +1164,25 @@ describe('SwapWorkflowService.resumeLeg', () => {
 
     await expect(svc.resumeLeg('SWP0001', 2, 'ADMIN-OP')).rejects.toThrow(/Leg 2 not found/);
     expect(mocks.fundsOrders.create).not.toHaveBeenCalled();
+  });
+
+  // E1（2026-09-12 业主定案）：兑换在途单碰客户冻结 = 原地冻住等结论。resumeLeg
+  // 是唯一能替被冻客户重新推腿的入口（前端无 Resume 按钮，业主 2026-08-22
+  // 裁定），命令行/API 这条路同样要过客户限制门（铁律②：门不可绕）。
+  it('resumeLeg refuses while the owner is restricted (E1 gate, CLI path included)', async () => {
+    const mocks = buildAdvanceLegMocks({
+      legs: [
+        { legSeq: 1, status: FundsOrderStatus.CLEARED, attempt: 1 },
+        { legSeq: 2, status: FundsOrderStatus.TIMEOUT, attempt: 3 },
+      ],
+    });
+    mocks.customerAccessService.resolve.mockResolvedValue({ blocked: new Set(['SWAP']) } as any);
+    const svc = makeAdvanceLegService(mocks);
+
+    await expect(svc.resumeLeg('SWP0001', 2, 'ADMIN-OP')).rejects.toThrow('SWAP_CUSTOMER_RESTRICTED');
+    expect(mocks.fundsOrders.create).not.toHaveBeenCalled();
+    // 断言在事务内执行,resolve() 拿到的是 tx client,不是顶层 prisma。
+    expect(mocks.customerAccessService.resolve).toHaveBeenCalledWith('cust-1', mocks.txClient);
   });
 });
 

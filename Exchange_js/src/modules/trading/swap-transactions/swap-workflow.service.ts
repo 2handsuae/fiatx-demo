@@ -1733,6 +1733,15 @@ export class SwapWorkflowService {
         );
       }
 
+      // E1（2026-09-12 业主定案：原地冻是正解）：冻人期间 Resume = 替被冻客户动钱，
+      // 命令行路同样要过这道门（铁律②）。解除限制后断言自然放行。
+      const access = await this.customerAccessService.resolve(swap.ownerId, client);
+      if (access.blocked.has('SWAP')) {
+        throw new BadRequestException(
+          'SWAP_CUSTOMER_RESTRICTED: customer SWAP capability is restricted — resume is blocked until the restriction is lifted',
+        );
+      }
+
       const active = await this.swapTransactionsService.activeLegsBySeq(swap.id, client);
       const target = active.find((l: any) => l.legSeq === legSeq);
       if (!target) throw new NotFoundException(`Leg ${legSeq} not found for swap ${swapNo}`);
