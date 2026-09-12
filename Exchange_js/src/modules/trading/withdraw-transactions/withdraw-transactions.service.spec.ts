@@ -1026,7 +1026,11 @@ describe('WithdrawTransactionsService', () => {
     const EXPECTED_VIEW = {
       id: 'w-sensitive-1',
       withdrawNo: 'WDR-SENS-1',
-      status: 'FROZEN',
+      // 波三B（红项修复）：FROZEN 不在 WITHDRAW_CUSTOMER_STATUS_PASSTHROUGH
+      // 白名单里，toCustomerWithdrawView 收敛成 COMPLIANCE_PENDING——此前这里
+      // 断言原样值 'FROZEN'，编码的正是本轮要修的 tipping-off 洞（见上方新增
+      // 的「customerScope status 白名单收敛 + bucket 补集（波三B）」describe）。
+      status: 'COMPLIANCE_PENDING',
       amount: '500.00',
       feeAmount: '5.00',
       netAmount: '495.00',
@@ -1123,6 +1127,80 @@ describe('WithdrawTransactionsService', () => {
         }
         expect(result).toEqual(EXPECTED_VIEW);
       });
+    });
+  });
+
+  // 波三B：提现 tipping-off 三处——客户面 status/completedAt 白名单收敛（此前
+  // toCustomerWithdrawView 原样透传 status/completedAt，充值域已有的防线在
+  // 提现域漏做了）+ customerScope 忽略 status 改走 bucket 补集。镜像
+  // deposit-transactions.service.spec.ts 同名机制的测试写法。
+  describe('customerScope status 白名单收敛 + bucket 补集（波三B）', () => {
+    it('toCustomerWithdrawView collapses FROZEN to COMPLIANCE_PENDING and nulls completedAt', async () => {
+      prisma.withdrawTransaction.findMany = jest.fn().mockResolvedValue([
+        {
+          id: 'w1',
+          withdrawNo: 'WDR1',
+          status: 'FROZEN',
+          amount: '1',
+          feeAmount: '0',
+          netAmount: '1',
+          createdAt: new Date(),
+          completedAt: new Date(),
+          txHash: null,
+          referenceNo: null,
+          toAddress: null,
+          toIban: null,
+          asset: null,
+        },
+      ]);
+      prisma.withdrawTransaction.count = jest.fn().mockResolvedValue(1);
+
+      const result = await service.findAllForCustomer('c1', {} as any);
+
+      expect(result.items[0].status).toBe('COMPLIANCE_PENDING');
+      expect(result.items[0].completedAt).toBeNull();
+    });
+
+    // 评审 Important 1(a) 同款（镜像 deposit-transactions 的
+    // 「customerScope 下传 status=FROZEN 不会进 where 条件」）：直接断言真实
+    // where 子句里没有 status，而不是只断言 findAll 被以哪些参数调用——后者
+    // 测的是调用方式，不是行为本身。
+    it('findAllForCustomer ignores raw status param (freeze oracle closed)', async () => {
+      prisma.withdrawTransaction.findMany = jest.fn().mockResolvedValue([]);
+      prisma.withdrawTransaction.count = jest.fn().mockResolvedValue(0);
+
+      await service.findAllForCustomer('c1', { status: 'FROZEN' } as any);
+
+      const calls = (prisma.withdrawTransaction.findMany as jest.Mock).mock.calls;
+      const where = calls[calls.length - 1][0].where;
+      expect(where.status).toBeUndefined();
+    });
+
+    it('findAll drops status under customerScope and maps bucket instead', async () => {
+      prisma.withdrawTransaction.findMany = jest.fn().mockResolvedValue([]);
+      prisma.withdrawTransaction.count = jest.fn().mockResolvedValue(0);
+
+      await service.findAll(
+        { status: 'FROZEN', bucket: 'PROCESSING' } as any,
+        { customerScope: true },
+      );
+
+      const calls = (prisma.withdrawTransaction.findMany as jest.Mock).mock.calls;
+      const where = calls[calls.length - 1][0].where;
+      expect(where.status).toBeUndefined();
+      expect(where.NOT).toBeDefined(); // PROCESSING 桶 = 补集
+    });
+
+    it('admin scope 不受桶映射影响，仍按 status 参数过滤（bucket 参数被忽略）', async () => {
+      prisma.withdrawTransaction.findMany = jest.fn().mockResolvedValue([]);
+      prisma.withdrawTransaction.count = jest.fn().mockResolvedValue(0);
+
+      await service.findAll({ status: 'FROZEN', bucket: 'PROCESSING' } as any);
+
+      const calls = (prisma.withdrawTransaction.findMany as jest.Mock).mock.calls;
+      const where = calls[calls.length - 1][0].where;
+      expect(where.status).toBe('FROZEN');
+      expect(where.NOT).toBeUndefined();
     });
   });
 

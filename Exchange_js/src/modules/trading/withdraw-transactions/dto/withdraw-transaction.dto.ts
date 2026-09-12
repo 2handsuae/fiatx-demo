@@ -173,4 +173,12 @@ export class WithdrawTransactionQueryDto {
   @IsOptional()
   @IsString()
   endDate?: string;
+
+  // Customer-facing filter bucket (see WithdrawTransactionsService.findAll's
+  // WITHDRAW_CUSTOMER_BUCKETS). Ignored on the admin scope — admin keeps
+  // filtering by the raw `status` param above. Mirrors
+  // DepositTransactionQueryDto#bucket.
+  @IsOptional()
+  @IsString()
+  bucket?: string;
 }

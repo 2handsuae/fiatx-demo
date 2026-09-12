@@ -24,6 +24,30 @@ import {
 } from '../../audit-logging/constants/audit-actions.constant';
 import { ApprovalsService } from '../../governance/approvals/approvals.service';
 import { DomainEventNames } from '../../../common/events/domain-events.constants';
+
+// 客户面筛选桶（波三B，镜像 deposit CUSTOMER_BUCKETS）：客户端只发桶名，
+// 原始状态码不再出现在客户可见的任何 option/query 里。PROCESSING = 补集，
+// 未来新增状态默认收进"处理中"，不会漏出去。
+const WITHDRAW_ACTION_REQUIRED_WHERE = { status: 'ACTION_PENDING' };
+const WITHDRAW_SUCCESS_WHERE = { status: 'SUCCESS' };
+const WITHDRAW_REJECTED_WHERE = { status: 'REJECTED' };
+const WITHDRAW_FAILED_WHERE = { status: 'FAILED' };
+const WITHDRAW_RETURNED_WHERE = { status: 'RETURNED' };
+export const WITHDRAW_CUSTOMER_BUCKETS: Record<string, any> = {
+  PROCESSING: { NOT: { OR: [WITHDRAW_ACTION_REQUIRED_WHERE, WITHDRAW_SUCCESS_WHERE, WITHDRAW_REJECTED_WHERE, WITHDRAW_FAILED_WHERE, WITHDRAW_RETURNED_WHERE] } },
+  ACTION_REQUIRED: WITHDRAW_ACTION_REQUIRED_WHERE,
+  SUCCESS: WITHDRAW_SUCCESS_WHERE,
+  REJECTED: WITHDRAW_REJECTED_WHERE,
+  FAILED: WITHDRAW_FAILED_WHERE,
+  RETURNED: WITHDRAW_RETURNED_WHERE,
+};
+// 客户面 status 白名单（镜像 deposit CUSTOMER_STATUS_PASSTHROUGH 的白名单哲学：
+// 宁可错杀不可放过——不在名单里的态一律收敛成 COMPLIANCE_PENDING）。
+const WITHDRAW_CUSTOMER_STATUS_PASSTHROUGH = new Set<string>([
+  'COMPLIANCE_PENDING', 'ACTION_PENDING', 'SUCCESS', 'REJECTED', 'FAILED', 'RETURNED',
+]);
+const WITHDRAW_CUSTOMER_COMPLETED_STATUSES = new Set<string>(['SUCCESS', 'REJECTED', 'FAILED', 'RETURNED']);
+
 export type WithdrawStatusUpdateSource = 'ADMIN_API' | 'WORKFLOW' | 'SYSTEM';
 
 /**
@@ -292,7 +316,7 @@ export class WithdrawTransactionsService {
     }
   }
 
-  async findAll(query: WithdrawTransactionQueryDto) {
+  async findAll(query: WithdrawTransactionQueryDto, options?: { customerScope?: boolean }) {
     const {
       skip,
       take,
@@ -304,6 +328,7 @@ export class WithdrawTransactionsService {
       status,
       startDate,
       endDate,
+      bucket,
     } = query;
     const where: any = {};
 
@@ -313,12 +338,27 @@ export class WithdrawTransactionsService {
     if (ownerNo) where.ownerNo = ownerNo;
     if (ownerType) where.ownerType = ownerType;
     if (assetId) where.assetId = assetId;
-    if (status) where.status = Array.isArray(status) ? { in: status } : status;
+    // 波三B（评审 Important 1(a) 同款，镜像 deposit :232-239）：customerScope 下
+    // 完全忽略 status 查询参数（客户面只认 bucket）。不这样做的话
+    // GET /client/withdraw-transactions?status=FROZEN 直接把状态过滤器交给
+    // 客户操控——返回非空就等于确认自己被冻，是比响应体里原样输出 status
+    // （见 toCustomerWithdrawView）更直接的一个探测面。静默忽略、不报错——
+    // 报错本身又是一个可探测面。admin 侧行为不受影响。
+    if (status && !options?.customerScope) {
+      where.status = Array.isArray(status) ? { in: status } : status;
+    }
 
     if (startDate || endDate) {
       where.createdAt = {};
       if (startDate) where.createdAt.gte = new Date(startDate);
       if (endDate) where.createdAt.lte = new Date(endDate);
+    }
+
+    // 客户面筛选桶，仅 customerScope 生效。未知桶名 → 忽略（等同 All
+    // Status），不报错——报错本身又是一个可探测面。
+    if (options?.customerScope && bucket) {
+      const bucketWhere = WITHDRAW_CUSTOMER_BUCKETS[bucket];
+      if (bucketWhere) Object.assign(where, bucketWhere);
     }
 
     const [items, total] = await Promise.all([
@@ -349,7 +389,10 @@ export class WithdrawTransactionsService {
 
   /** Customer-facing list: same query, scoped to the caller's own withdrawals. */
   async findAllForCustomer(customerId: string, query: WithdrawTransactionQueryDto) {
-    const result = await this.findAll({ ...query, ownerId: customerId });
+    const result = await this.findAll(
+      { ...query, ownerId: customerId },
+      { customerScope: true },
+    );
     return {
       ...result,
       items: result.items.map((item: any) => this.toCustomerWithdrawView(item)),
@@ -376,17 +419,31 @@ export class WithdrawTransactionsService {
    * （`client-web/src/pages/Withdraw.tsx` 的 `WithdrawTransaction` 接口里
    * 没有它），"补料交齐没交齐"这件事现在只活在材料请求账自己的读面
    * （`client/me/material-requests`），不再走这个端点。
+   *
+   * 2026-09-12 波三B（红项修复）：本方法此前把 `status`/`completedAt` 原样
+   * 透传——充值域早在 Task 11/复审 Important 1/Critical 1 就补上的白名单
+   * 收敛，提现域一直没做，客户开 DevTools 能直接读到 FROZEN/MANUAL_CHECKING
+   * 这类执法态字符串，且被冻单解冻后 `completedAt` 也会把冻结期间写下的
+   * 时间戳原样漏出去。现改为镜像 `toCustomerDepositView` 的两道白名单：
+   * `status` 先经 `toCustomerWithdrawStatus` 收敛（`WITHDRAW_CUSTOMER_STATUS_
+   * PASSTHROUGH` 白名单外的一切态一律映射成 `COMPLIANCE_PENDING`）；
+   * `completedAt` 只在收敛后的 status 落在 `WITHDRAW_CUSTOMER_COMPLETED_
+   * STATUSES`（SUCCESS/REJECTED/FAILED/RETURNED）时才原样输出，否则一律
+   * `null`——判据用收敛后的 status 而不是「status 是否被改写过」，原因同
+   * `toCustomerDepositView` 文档注释：后者在单子解冻回 COMPLIANCE_PENDING
+   * 后会失效（此时收敛前后的值恰好相同）。
    */
   private toCustomerWithdrawView(item: any) {
+    const customerStatus = this.toCustomerWithdrawStatus(item.status);
     return {
       id: item.id,
       withdrawNo: item.withdrawNo,
-      status: item.status,
+      status: customerStatus,
       amount: item.amount,
       feeAmount: item.feeAmount,
       netAmount: item.netAmount,
       createdAt: item.createdAt,
-      completedAt: item.completedAt,
+      completedAt: WITHDRAW_CUSTOMER_COMPLETED_STATUSES.has(customerStatus) ? item.completedAt : null,
       txHash: item.txHash,
       referenceNo: item.referenceNo,
       toAddress: item.toAddress,
@@ -400,6 +457,14 @@ export class WithdrawTransactionsService {
           }
         : null,
     };
+  }
+
+  /**
+   * `status` 收敛的具体实现（白名单放行制），见上方 `toCustomerWithdrawView`
+   * 文档注释。镜像 `DepositTransactionsService#toCustomerStatus`。
+   */
+  private toCustomerWithdrawStatus(status: string): string {
+    return WITHDRAW_CUSTOMER_STATUS_PASSTHROUGH.has(status) ? status : 'COMPLIANCE_PENDING';
   }
 
   async findOneInternal(id: string) {
