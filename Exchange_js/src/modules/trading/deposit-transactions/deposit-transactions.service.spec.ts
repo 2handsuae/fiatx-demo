@@ -1886,6 +1886,25 @@ describe('DepositTransactionsService', () => {
         expect(a).not.toHaveProperty('step');
       }
     });
+
+    // D6（波三）：三条弧分弧——2=没收 / 3=退回 / 4=上缴，不再一律标 CONFISCATION。
+    it('linkedFundOrders maps legSeq 2/3/4 to CONFISCATION/RETURN/SEIZE', async () => {
+      ((prisma as any).depositTransaction.findUnique as jest.Mock).mockResolvedValue({
+        id: 'dep-1',
+        depositNo: 'DP001',
+        fundsOrders: [
+          { id: 'fo-1', fundsOrderNo: 'FO-1', legSeq: 1, status: 'COMPLETED', amount: '100' },
+          { id: 'fo-2', fundsOrderNo: 'FO-2', legSeq: 2, status: 'COMPLETED', amount: '20' },
+          { id: 'fo-3', fundsOrderNo: 'FO-3', legSeq: 3, status: 'COMPLETED', amount: '20' },
+          { id: 'fo-4', fundsOrderNo: 'FO-4', legSeq: 4, status: 'COMPLETED', amount: '20' },
+        ],
+      });
+
+      const result: any = await service.findOneForAdmin('dep-1');
+
+      const kinds = result.linkedFundOrders.map((o: any) => o.kind);
+      expect(kinds).toEqual(['PAYIN', 'CONFISCATION', 'RETURN', 'SEIZE']);
+    });
   });
 
   describe('needsReview 红标', () => {

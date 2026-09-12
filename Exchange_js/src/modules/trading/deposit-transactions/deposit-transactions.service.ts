@@ -490,22 +490,27 @@ export class DepositTransactionsService {
     const fundsOrders = deposit.fundsOrders ?? [];
     const payinOrder =
       fundsOrders.find((f: any) => !f.legSeq || f.legSeq === 1) ?? null;
+    // D6（波三）：三条弧分弧——2=没收 / 3=退回 / 4=上缴，不再一律标 CONFISCATION。
+    const KIND_BY_LEG_SEQ: Record<number, 'CONFISCATION' | 'RETURN' | 'SEIZE'> = {
+      2: 'CONFISCATION', 3: 'RETURN', 4: 'SEIZE',
+    };
     const linkedFundOrders: Array<{
-      kind: 'PAYIN' | 'CONFISCATION';
+      kind: 'PAYIN' | 'CONFISCATION' | 'RETURN' | 'SEIZE';
       no: string;
       id: string;
       status: string;
       amount: string;
       role: 'principal' | 'fee';
     }> = fundsOrders.map((fo: any) => {
-      const isConfiscation = fo.legSeq != null && fo.legSeq > 1;
+      const isConfiscationLeg = fo.legSeq != null && fo.legSeq > 1;
+      const kind = isConfiscationLeg ? (KIND_BY_LEG_SEQ[fo.legSeq] ?? 'CONFISCATION') : 'PAYIN';
       return {
-        kind: isConfiscation ? 'CONFISCATION' : 'PAYIN',
+        kind,
         no: fo.fundsOrderNo,
         id: fo.id,
         status: fo.status,
         amount: String(fo.amount),
-        role: isConfiscation ? 'fee' : 'principal',
+        role: isConfiscationLeg ? 'fee' : 'principal',
       };
     });
 

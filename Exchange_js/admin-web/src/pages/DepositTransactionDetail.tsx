@@ -69,7 +69,7 @@ const isDepositVerdictIgnored = (status: string): boolean =>
   DEPOSIT_KYT_VERDICT_IGNORED_STATUSES.has(status) || status === 'FROZEN';
 
 interface LinkedFundOrder {
-  kind: 'PAYOUT' | 'INTERNAL_FUND' | 'PAYIN' | 'CONFISCATION';
+  kind: 'PAYOUT' | 'INTERNAL_FUND' | 'PAYIN' | 'CONFISCATION' | 'RETURN' | 'SEIZE';
   no: string;
   id: string;
   status: string;
@@ -708,7 +708,7 @@ const DepositTransactionDetail = () => {
                 {data.linkedFundOrders.map((o) => (
                   <LinkedRelationCard
                     key={o.no}
-                    cap={o.kind === 'CONFISCATION' ? 'Fee · Confiscation' : 'Principal · Payin'}
+                    cap={({ CONFISCATION: 'Fee · Confiscation', RETURN: 'Principal · Return', SEIZE: 'Principal · Seizure' } as Record<string, string>)[o.kind] ?? 'Principal · Payin'}
                     identifier={o.no}
                     statusValue={normalizeRailDisplayStatus(o.status)}
                     meta={`${formatAssetAmount(o.amount, data.asset.decimals)} ${data.asset.code}`}
