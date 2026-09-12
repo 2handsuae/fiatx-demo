@@ -97,24 +97,15 @@ const STATUS_TONE_CLASS: Record<WithdrawStatusView['tone'], string> = {
   neutral: 'bg-fx-dust/20 text-fx-dust',
 };
 
-/**
- * History filter groups, customer-facing wording. Labels come from
- * getWithdrawStatusView so filter text always matches the badge text;
- * `statuses` are the raw backend codes sent as a comma-separated `status`
- * query value. PROCESSING merges every non-terminal, non-action-required
- * status (PENDING_APPROVAL/COMPLIANCE_PENDING/MANUAL_CHECKING/FROZEN/
- * PAYOUT_PENDING) — all of them render identically to the customer.
- */
-const HISTORY_STATUS_FILTERS: Array<{ label: string; statuses: string[] }> = [
-  {
-    label: getWithdrawStatusView('COMPLIANCE_PENDING').label,
-    statuses: ['PENDING_APPROVAL', 'COMPLIANCE_PENDING', 'MANUAL_CHECKING', 'FROZEN', 'PAYOUT_PENDING'],
-  },
-  { label: getWithdrawStatusView('ACTION_PENDING').label, statuses: ['ACTION_PENDING'] },
-  { label: getWithdrawStatusView('SUCCESS').label, statuses: ['SUCCESS'] },
-  { label: getWithdrawStatusView('REJECTED').label, statuses: ['REJECTED'] },
-  { label: getWithdrawStatusView('FAILED').label, statuses: ['FAILED'] },
-  { label: getWithdrawStatusView('RETURNED').label, statuses: ['RETURNED'] },
+/** 桶名间接式（波三B，照 Deposit.tsx 同名常量）：option value 只暴露桶名，
+ *  原始后端状态码（FROZEN/MANUAL_CHECKING…）不再出现在客户可见的 DOM 里。 */
+const HISTORY_STATUS_FILTERS: Array<{ label: string; bucket: string }> = [
+  { label: getWithdrawStatusView('COMPLIANCE_PENDING').label, bucket: 'PROCESSING' },
+  { label: getWithdrawStatusView('ACTION_PENDING').label, bucket: 'ACTION_REQUIRED' },
+  { label: getWithdrawStatusView('SUCCESS').label, bucket: 'SUCCESS' },
+  { label: getWithdrawStatusView('REJECTED').label, bucket: 'REJECTED' },
+  { label: getWithdrawStatusView('FAILED').label, bucket: 'FAILED' },
+  { label: getWithdrawStatusView('RETURNED').label, bucket: 'RETURNED' },
 ];
 
 const Withdraw = () => {
@@ -240,7 +231,7 @@ const Withdraw = () => {
               skip: ((page - 1) * 10).toString(),
               take: '10',
           });
-          if (historyStatus) params.append('status', historyStatus);
+          if (historyStatus) params.append('bucket', historyStatus);
           if (historyAssetId) params.append('assetId', historyAssetId);
 
           const response = await customerFetch(
@@ -548,7 +539,7 @@ const Withdraw = () => {
                           >
                               <option value="">All Status</option>
                               {HISTORY_STATUS_FILTERS.map((filter) => (
-                                  <option key={filter.label} value={filter.statuses.join(',')}>
+                                  <option key={filter.bucket} value={filter.bucket}>
                                       {filter.label}
                                   </option>
                               ))}
