@@ -24,6 +24,7 @@ const STATUS_MAP: Record<string, BadgeVariant> = {
   USED:                 'info',
   EXPIRED:              'deleted',
   RETIRED:              'retired',
+  CUSTOMER_FROZEN:      'failed',
 };
 
 // Note: `active` and `success` intentionally use the same green colour — both represent "positive/live" states.

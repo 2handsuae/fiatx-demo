@@ -35,6 +35,7 @@ interface SwapTransactionListItem {
   status: string;
   currentStage: string | null;
   needsReview: boolean;
+  ownerRestricted?: boolean;
   fromAsset: SwapAsset;
   fromAmount: string;
   toAsset: SwapAsset;
@@ -413,7 +414,11 @@ const SwapTransactionList = () => {
                     })()}
                   </td>
                   <td className="px-4 py-2.5">
-                    {item.needsReview ? <AdminBadge value="NEEDS_REVIEW" /> : <span className="text-adm-t3">—</span>}
+                    <span className="inline-flex items-center gap-1">
+                      {item.ownerRestricted && <AdminBadge value="CUSTOMER_FROZEN" />}
+                      {item.needsReview && <AdminBadge value="NEEDS_REVIEW" />}
+                      {!item.ownerRestricted && !item.needsReview && <span className="text-adm-t3">—</span>}
+                    </span>
                   </td>
                   <td className="px-4 py-2.5 font-mono text-[10px] text-adm-t2 whitespace-nowrap">
                     {fmt(item.createdAt)}

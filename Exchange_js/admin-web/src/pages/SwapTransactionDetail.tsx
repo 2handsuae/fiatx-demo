@@ -87,6 +87,7 @@ interface SwapTransactionDetailData {
   status: string;
   currentStage: string | null;
   needsReview: boolean;
+  ownerRestricted?: boolean;
   fromAssetId: string;
   fromAssetCode: string | null;
   fromAmount: string;
@@ -309,6 +310,12 @@ const SwapTransactionDetail = () => {
       {notice && (
         <div className="border-b border-adm-border bg-adm-green/10 px-6 py-2 font-mono text-[11px] text-adm-green">
           {notice}
+        </div>
+      )}
+
+      {data.ownerRestricted && (
+        <div className="border-l-4 border-l-adm-red bg-adm-red/[0.04] px-4 py-3 font-mono text-[11px] text-adm-red">
+          CUSTOMER FROZEN — this swap's owner is under an active restriction. Leg resume is refused by the API until the restriction is lifted; do not attempt recovery on this order.
         </div>
       )}
 
