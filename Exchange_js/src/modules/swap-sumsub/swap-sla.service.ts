@@ -76,6 +76,8 @@ export class SwapSlaService {
           // 单已存在、quote 已消费，但从未真正提交给 Sumsub —— 重试提交，
           // 别浪费这笔本可恢复的单子。
           await this.workflow.submitSumsubTxnOut(swap.id);
+          // E5：重提成功 → 死线拉满一个完整窗口（三域「计的是在这个状态待了多久」模型归队）。
+          await this.swapService.extendComplianceSla(swap.id);
           resubmitted += 1;
           continue;
         }
@@ -85,7 +87,7 @@ export class SwapSlaService {
             swap.id,
             SwapTransactionAction.SLA_BREACH,
             tx,
-            { rejectReason: 'TIMEOUT' },
+            { rejectReason: 'TIMEOUT', operator: 'SLA_SWEEP' },
           );
           // 防重复扫：不需要在这里额外置 slaBreached=true。markStatus 已把状态推
           // 到 REJECTED，而 REJECTED 不在 SWAP_SLA_MINUTES_BY_STATUS 配置表里 →

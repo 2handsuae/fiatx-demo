@@ -8,7 +8,7 @@ import { BadRequestException } from '@nestjs/common';
 
 describe('SwapSlaService', () => {
   let prisma: any;
-  let swapService: jest.Mocked<Pick<SwapTransactionsService, 'markStatus' | 'findSlaBreachCandidates'>>;
+  let swapService: jest.Mocked<Pick<SwapTransactionsService, 'markStatus' | 'findSlaBreachCandidates' | 'extendComplianceSla'>>;
   let workflow: jest.Mocked<Pick<SwapWorkflowService, 'submitSumsubTxnOut'>>;
   let auditLogsService: jest.Mocked<Pick<AuditLogsService, 'recordSystem'>>;
   let markStatusSpy: jest.Mock;
@@ -19,6 +19,7 @@ describe('SwapSlaService', () => {
     swapService = {
       markStatus: markStatusSpy,
       findSlaBreachCandidates: jest.fn().mockResolvedValue([]),
+      extendComplianceSla: jest.fn().mockResolvedValue(undefined),
     } as any;
     workflow = { submitSumsubTxnOut: jest.fn().mockResolvedValue(undefined), releaseBirthLock: jest.fn().mockResolvedValue('100') } as any;
     auditLogsService = { recordSystem: jest.fn().mockResolvedValue(undefined) } as any;
@@ -57,7 +58,7 @@ describe('SwapSlaService', () => {
       's1',
       SwapTransactionAction.SLA_BREACH,
       expect.anything(),
-      { rejectReason: 'TIMEOUT' },
+      { rejectReason: 'TIMEOUT', operator: 'SLA_SWEEP' },
     );
   });
 
@@ -82,6 +83,25 @@ describe('SwapSlaService', () => {
     expect(workflow.submitSumsubTxnOut).toHaveBeenCalledWith('s2');
     // 重试提交不是"判死"——不能顺手把这单也标 SLA_BREACH。
     expect(markStatusSpy).not.toHaveBeenCalled();
+  });
+
+  it('resubmit branch pushes the SLA window after a successful re-submit (E5)', async () => {
+    const swap = {
+      id: 's2',
+      swapNo: 'SWP002',
+      status: 'COMPLIANCE_PENDING',
+      sumsubTxnIdOut: null,
+      ownerType: 'CUSTOMER',
+      ownerId: 'cust-2',
+      traceId: null,
+      createdAt: new Date(Date.now() - 120_000),
+    };
+    (swapService.findSlaBreachCandidates as jest.Mock).mockResolvedValue([swap]);
+
+    await service.sweep();
+
+    expect(workflow.submitSumsubTxnOut).toHaveBeenCalledWith('s2');
+    expect(swapService.extendComplianceSla).toHaveBeenCalledWith(swap.id);
   });
 
   it('超时判死会写一条 SWAP_SLA_BREACHED 审计（markStatus 本身不写审计，调用方负责）', async () => {
@@ -166,7 +186,7 @@ describe('SwapSlaService', () => {
       's2',
       SwapTransactionAction.SLA_BREACH,
       expect.anything(),
-      { rejectReason: 'TIMEOUT' },
+      { rejectReason: 'TIMEOUT', operator: 'SLA_SWEEP' },
     );
     expect(r.timedOut).toBe(1);
     expect(r.resubmitted).toBe(0); // s1 的重试抛错了，不计入成功

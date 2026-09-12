@@ -431,6 +431,16 @@ export class SwapTransactionsService {
       : { slaDeadline: new Date(Date.now() + minutes * 60_000), slaBreached: false };
   }
 
+  /** E5（波三）：补提交成功后把 COMPLIANCE_PENDING 的 SLA 窗口重新拉满——
+   *  此刻 slaDeadline 已是过去时，不推的话 30 秒后下一轮 sweep 直接判超时拒单，
+   *  Sumsub 实际只拿到 30 秒而不是完整窗口。 */
+  async extendComplianceSla(swapId: string): Promise<void> {
+    await (this.prisma as any).swapTransaction.update({
+      where: { id: swapId },
+      data: this.resolveSlaFields(SwapTransactionStatus.COMPLIANCE_PENDING),
+    });
+  }
+
   /**
    * SLA 破线候选扫描。兑换**没有软 SLA** —— 它没有「等自己人」的状态。
    * 扫出来的一律是硬破线（COMPLIANCE_PENDING → REJECTED）。
@@ -509,7 +519,7 @@ export class SwapTransactionsService {
     swapId: string,
     action: SwapTransactionAction,
     tx: Prisma.TransactionClient,
-    opts?: { rejectReason?: SwapRejectReason },
+    opts?: { rejectReason?: SwapRejectReason; operator?: string },
   ): Promise<string> {
     const swap = await (tx as any).swapTransaction.findUnique({ where: { id: swapId } });
     if (!swap) throw new NotFoundException(`Swap not found: ${swapId}`);
@@ -530,7 +540,9 @@ export class SwapTransactionsService {
     statusHistory.push({
       status: next,
       timestamp: new Date().toISOString(),
-      operator: 'SYSTEM',
+      // E3（波三）：时间线写清是哪条机制在动单——语义标签照充值域 L1_GATE 先例，
+      // 不假装有人；真人驱动的路径将来传真名即可。
+      operator: opts?.operator ?? 'SYSTEM',
       note: `Swap settlement status → ${next}`,
     });
 

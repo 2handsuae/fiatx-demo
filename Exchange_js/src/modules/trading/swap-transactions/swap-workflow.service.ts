@@ -756,7 +756,7 @@ export class SwapWorkflowService {
     if (input.verdict === 'approved') {
       await this.prisma.$transaction(async (tx) => {
         await this.swapTransactionsService.saveSumsubVerdict(swapId, verdictEvidence, tx);
-        const approvedNext = await this.swapTransactionsService.markStatus(swapId, SwapTransactionAction.KYT_APPROVED, tx);
+        const approvedNext = await this.swapTransactionsService.markStatus(swapId, SwapTransactionAction.KYT_APPROVED, tx, { operator: 'SUMSUB_KYT' });
         await this.swapAudit(swap, {
           action: 'SWAP_KYT_APPROVED',
           reason: 'Swap KYT verdict approved — proceeding to settlement',
@@ -799,6 +799,7 @@ export class SwapWorkflowService {
       if (willFreeze) return;
       const rejectedNext = await this.swapTransactionsService.markStatus(swapId, SwapTransactionAction.KYT_REJECTED, tx, {
         rejectReason: 'KYT_REJECTED',
+        operator: 'SUMSUB_KYT',
       });
       await this.swapAudit(swap, {
         action: 'SWAP_KYT_REJECTED',
@@ -1130,7 +1131,7 @@ export class SwapWorkflowService {
               swap.id,
               SwapTransactionAction.FREEZE,
               tx,
-              { rejectReason: hasSanction ? 'SANCTION_APPLICANT' : 'FROZEN_BY_MLRO' },
+              { rejectReason: hasSanction ? 'SANCTION_APPLICANT' : 'FROZEN_BY_MLRO', operator: 'SUMSUB_KYT' },
             );
           });
         } catch (freezeErr) {
@@ -1645,7 +1646,7 @@ export class SwapWorkflowService {
 
     const isLast = legSeq >= SwapWorkflowService.TOTAL_LEGS;
     if (isLast) {
-      const succeededNext = await this.swapTransactionsService.markStatus(swap.id, SwapTransactionAction.SUCCESS, client);
+      const succeededNext = await this.swapTransactionsService.markStatus(swap.id, SwapTransactionAction.SUCCESS, client, { operator: 'LEG_SETTLEMENT' });
       await this.swapAudit(swap, {
         action: 'SWAP_SUCCEEDED',
         reason: 'Swap settlement completed — all legs cleared',
@@ -1841,7 +1842,7 @@ export class SwapWorkflowService {
               sw.id,
               SwapTransactionAction.FREEZE,
               tx,
-              { rejectReason: 'SANCTION_APPLICANT' },
+              { rejectReason: 'SANCTION_APPLICANT', operator: 'RESTRICTION_BROADCAST' },
             );
           });
           // 出生锁擦圈（业主裁定：冻结终态不押钱——押人靠限制账，本事件正是冻人广播）。

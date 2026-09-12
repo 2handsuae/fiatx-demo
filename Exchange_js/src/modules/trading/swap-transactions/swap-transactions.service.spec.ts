@@ -159,6 +159,24 @@ describe('markStatus transitions', () => {
       }),
     );
   });
+
+  it('markStatus stamps opts.operator into statusHistory (defaults SYSTEM)', async () => {
+    const swap = { id: 's1', status: 'COMPLIANCE_PENDING' };
+    const tx = {
+      swapTransaction: {
+        findUnique: jest.fn().mockResolvedValue(swap),
+        update: jest.fn().mockResolvedValue({ ...swap, status: 'PROCESSING' }),
+      },
+    } as any;
+
+    await service.markStatus('s1', SwapTransactionAction.KYT_APPROVED, tx, { operator: 'SLA_SWEEP' });
+    const taggedHistory = JSON.parse(tx.swapTransaction.update.mock.calls[0][0].data.statusHistory);
+    expect(taggedHistory[taggedHistory.length - 1].operator).toBe('SLA_SWEEP');
+
+    await service.markStatus('s1', SwapTransactionAction.KYT_APPROVED, tx);
+    const defaultHistory = JSON.parse(tx.swapTransaction.update.mock.calls[1][0].data.statusHistory);
+    expect(defaultHistory[defaultHistory.length - 1].operator).toBe('SYSTEM');
+  });
 });
 
 describe('SLA deadline 在状态机收口处统一设', () => {

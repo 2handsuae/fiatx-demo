@@ -1575,6 +1575,7 @@ describe('SwapWorkflowService.applyKytVerdict', () => {
       's1',
       SwapTransactionAction.KYT_APPROVED,
       expect.anything(),
+      { operator: 'SUMSUB_KYT' },
     );
     expect(createLegSpy).toHaveBeenCalledTimes(1);
     // leg1 is the SELL leg — its asset must be the FROM asset (proves the ctx
@@ -1608,7 +1609,7 @@ describe('SwapWorkflowService.applyKytVerdict', () => {
       's1',
       SwapTransactionAction.KYT_REJECTED,
       expect.anything(),
-      { rejectReason: 'KYT_REJECTED' },
+      { rejectReason: 'KYT_REJECTED', operator: 'SUMSUB_KYT' },
     );
     expect(mocks.accountingService.executePendingTransfer).not.toHaveBeenCalled();
     expect(mocks.accountingService.voidPendingTransfer).not.toHaveBeenCalled();
@@ -1973,6 +1974,7 @@ describe('SwapWorkflowService.applyKytVerdict', () => {
       's1',
       SwapTransactionAction.KYT_APPROVED,
       expect.anything(),
+      { operator: 'SUMSUB_KYT' },
     );
     expect(mocks.fundsOrders.create).toHaveBeenCalledTimes(1);
   });
@@ -2363,7 +2365,7 @@ describe('SwapWorkflowService.applyKytVerdict', () => {
         's1',
         SwapTransactionAction.FREEZE,
         expect.anything(),
-        { rejectReason: 'SANCTION_APPLICANT' },
+        { rejectReason: 'SANCTION_APPLICANT', operator: 'SUMSUB_KYT' },
       );
       // Exactly the FREEZE transition, never KYT_REJECTED for a sanction hit —
       // proves the tail's own KYT_REJECTED branch was skipped, not just that
@@ -2490,7 +2492,7 @@ describe('SwapWorkflowService.applyKytVerdict', () => {
         's1',
         SwapTransactionAction.FREEZE,
         expect.anything(),
-        { rejectReason: 'FROZEN_BY_MLRO' },
+        { rejectReason: 'FROZEN_BY_MLRO', operator: 'SUMSUB_KYT' },
       );
       // 与 SANCTION_APPLICANT 一样：跳过自己的 KYT_REJECTED，不是「先 REJECTED 再补冻」。
       expect(mocks.swapTransactionsService.markStatus).not.toHaveBeenCalledWith(
@@ -2539,7 +2541,7 @@ describe('SwapWorkflowService.applyKytVerdict', () => {
         's1',
         SwapTransactionAction.KYT_REJECTED,
         expect.anything(),
-        { rejectReason: 'KYT_REJECTED' },
+        { rejectReason: 'KYT_REJECTED', operator: 'SUMSUB_KYT' },
       );
       expect(mocks.swapTransactionsService.markStatus).not.toHaveBeenCalledWith(
         's1',
@@ -2580,7 +2582,7 @@ describe('SwapWorkflowService.applyKytVerdict', () => {
         's1',
         SwapTransactionAction.KYT_REJECTED,
         expect.anything(),
-        { rejectReason: 'KYT_REJECTED' },
+        { rejectReason: 'KYT_REJECTED', operator: 'SUMSUB_KYT' },
       );
       expect(mocks.materialRequestIssuer.register).toHaveBeenCalledTimes(3);
       const registeredIds = (mocks.materialRequestIssuer.register as jest.Mock).mock.calls.map(
@@ -2674,7 +2676,7 @@ describe('SwapWorkflowService.onCustomerRestrictionOpened (Task 9 — FROZEN 落
       's1',
       SwapTransactionAction.FREEZE,
       mocks.txClient,
-      { rejectReason: 'SANCTION_APPLICANT' },
+      { rejectReason: 'SANCTION_APPLICANT', operator: 'RESTRICTION_BROADCAST' },
     );
     const frozenAudit = (mocks.auditLogsService.recordSystem as jest.Mock).mock.calls
       .map((c) => c[0])
