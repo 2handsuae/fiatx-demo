@@ -42,11 +42,15 @@ export class CustomerRestrictionsClientController {
     // 为一个展示决策依赖材料账会引入模块环。
     const live = await this.materialRequests.listLiveByCustomer(customerId);
     const claimedBy = new Map(
-      live.filter((r) => r.restrictionNo).map((r) => [r.restrictionNo as string, r.requestNo]),
+      live.filter((r) => r.restrictionNo).map((r) => [r.restrictionNo as string, { requestNo: r.requestNo, status: r.status }]),
     );
-    return access.disclosed.map((row) => ({
-      ...row,
-      claimedByMaterialRequestNo: claimedBy.get(row.restrictionNo) ?? null,
-    }));
+    return access.disclosed.map((row) => {
+      const claim = claimedBy.get(row.restrictionNo);
+      return {
+        ...row,
+        claimedByMaterialRequestNo: claim?.requestNo ?? null,
+        claimedMaterialStatus: (claim?.status as 'PENDING_SUBMISSION' | 'SUBMITTED' | undefined) ?? null,
+      };
+    });
   }
 }

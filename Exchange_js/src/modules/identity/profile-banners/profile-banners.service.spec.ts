@@ -51,7 +51,9 @@ describe('ProfileBannerService', () => {
     expect(banners).toEqual([]);
   });
 
-  it('MATERIAL_EXPIRED 客户返回一条 RESTRICTION banner，CTA 指向 /verification', async () => {
+  // 2026-09-12 翻面：无绑定材料请求时 RESTRICTION banner 不再有 CTA —— 旧行为
+  // （DOCUMENT_CTA_CAUSES 命中就发死路由 /verification）随该分支一并退役。
+  it('MATERIAL_EXPIRED 客户无绑定材料请求 → RESTRICTION banner 但无 CTA（死路由已退役）', async () => {
     customerAccessServiceMock.resolve.mockResolvedValue(
       buildAccess({
         disclosedBlocked: new Set(['WITHDRAW', 'SWAP']),
@@ -78,8 +80,8 @@ describe('ProfileBannerService', () => {
         severity: 'WARNING',
         title: 'Document expired',
         description: 'Emirates ID expired on 2026-08-01',
-        ctaLabel: 'Go to verification',
-        ctaPath: '/verification',
+        ctaLabel: null,
+        ctaPath: null,
         dismissible: false,
       },
     ]);
@@ -133,29 +135,57 @@ describe('ProfileBannerService', () => {
     ]);
   });
 
-  it('挂了限制 → BLOCKING 红档', async () => {
+  // 2026-09-12 翻面：挂了限制的材料行让位给条子行——BLOCKING 现在由 scopes 含
+  // ALL 的 RESTRICTION banner 表达（材料请求提供 CTA 目标），不再由材料行本身独立判红。
+  it('挂了限制 → 条子行升级 BLOCKING、按钮借材料', async () => {
     materialRequestsMock.listLiveByCustomer.mockResolvedValue([
       buildRequest({ restrictionNo: 'RST2608170001' }),
     ]);
+    customerAccessServiceMock.resolve.mockResolvedValue(
+      buildAccess({
+        disclosedBlocked: new Set(['DEPOSIT', 'WITHDRAW', 'SWAP']),
+        disclosed: [
+          {
+            restrictionNo: 'RST2608170001',
+            cause: 'PENDING_DOCUMENT',
+            scopes: ['ALL'],
+            label: 'Passport required',
+            reason: 'Passport expired',
+            openedAt: '2026-08-17T02:00:00.000Z',
+          },
+        ],
+        openCount: 1,
+      }),
+    );
 
     const banners = await service.getBannersFor('c1');
 
     expect(banners).toHaveLength(1);
     expect(banners[0]).toMatchObject({
+      type: 'RESTRICTION',
       severity: 'BLOCKING',
       title: 'Passport required',
+      ctaLabel: 'Submit material',
+      ctaPath: '/verification/MRQ1',
       dismissible: false,
     });
   });
 
-  it('绑了单又没挂限制 → 横幅上不露（订单页管它，G6）', async () => {
+  // 2026-09-12 业主定案推翻 2026-08-18 G6 的该分支：Overview/Profile 是全量面，
+  // 绑订单与否不再排除——只要没挂条子（restrictionNo === null）材料行就发。
+  it('绑了单又没挂限制 → 横幅照常显示（G6 已翻案，全量面）', async () => {
     materialRequestsMock.listLiveByCustomer.mockResolvedValue([
       buildRequest({ materialType: 'SOURCE_OF_FUNDS', orderDomain: 'DEPOSIT', orderRef: 'DP2608170001' }),
     ]);
 
     const banners = await service.getBannersFor('c1');
 
-    expect(banners).toEqual([]);
+    expect(banners).toHaveLength(1);
+    expect(banners[0]).toMatchObject({
+      id: 'material-request:MRQ1',
+      type: 'MATERIAL_REFRESH',
+      title: 'Source of Funds needs refreshing',
+    });
   });
 
   it('已提交的行不给 CTA（客户没什么可点的）', async () => {
@@ -170,7 +200,9 @@ describe('ProfileBannerService', () => {
     expect(banners[0].ctaPath).toBeNull();
   });
 
-  it('同一张便签不同时出两条横幅（材料横幅优先，它带 CTA）', async () => {
+  // 2026-09-12 翻面：合并方向反过来了——留条子行（先说「你受限了」+原因），
+  // 材料行让位，按钮借绑定材料的入口。
+  it('同一张便签不同时出两条横幅（条子行优先，材料行让位——翻面）', async () => {
     materialRequestsMock.listLiveByCustomer.mockResolvedValue([
       buildRequest({ restrictionNo: 'RST2608170001' }),
     ]);
@@ -194,6 +226,40 @@ describe('ProfileBannerService', () => {
     const banners = await service.getBannersFor('c1');
 
     expect(banners).toHaveLength(1);
-    expect(banners[0].type).toBe('MATERIAL_REFRESH');
+    expect(banners[0].type).toBe('RESTRICTION');
+    expect(banners[0]).toMatchObject({
+      ctaLabel: 'Submit material',
+      ctaPath: '/verification/MRQ1',
+    });
+  });
+
+  // ── 2026-09-12 业主定案（波三§8）：合并形态翻面——留条子行，按钮借材料 ──
+
+  it('claimed restriction surfaces as RESTRICTION banner borrowing the material CTA (翻面)', async () => {
+    materialRequestsMock.listLiveByCustomer.mockResolvedValue([
+      { requestNo: 'MRQ1', restrictionNo: 'RST1', status: 'PENDING_SUBMISSION', orderDomain: null, orderRef: null, materialType: 'PROOF_OF_ADDRESS', reason: 'expired' },
+    ]);
+    customerAccessServiceMock.resolve.mockResolvedValue(buildAccess({
+      disclosed: [
+        { restrictionNo: 'RST1', cause: 'MATERIAL_EXPIRED', scopes: ['WITHDRAW'], label: 'Account restricted', reason: 'PoA expired', openedAt: '2026-09-12T00:00:00.000Z', claimedByMaterialRequestNo: null },
+      ],
+    }));
+
+    const banners = await service.getBannersFor('c1');
+    const restriction = banners.find((b) => b.type === 'RESTRICTION');
+
+    expect(restriction?.ctaPath).toBe('/verification/MRQ1');
+    expect(banners.some((b) => b.id === 'material-request:MRQ1')).toBe(false); // 材料行让位
+  });
+
+  it('order-bound unclaimed material now appears (Overview/Profile 全量面)', async () => {
+    materialRequestsMock.listLiveByCustomer.mockResolvedValue([
+      { requestNo: 'MRQ2', restrictionNo: null, status: 'PENDING_SUBMISSION', orderDomain: 'SWAP', orderRef: 'SWP1', materialType: 'SOURCE_OF_FUNDS', reason: 'kyt' },
+    ]);
+    customerAccessServiceMock.resolve.mockResolvedValue(buildAccess());
+
+    const banners = await service.getBannersFor('c1');
+
+    expect(banners.some((b) => b.id === 'material-request:MRQ2')).toBe(true);
   });
 });

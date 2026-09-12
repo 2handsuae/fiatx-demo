@@ -22,6 +22,11 @@ export interface DisclosedRestrictionView {
    * tipping-off 相关的显示决策放到两个地方。
    */
   claimedByMaterialRequestNo: string | null;
+  /**
+   * 认领本便签那条材料请求的状态（未认领时 null）。同 claimedByMaterialRequestNo
+   * 由客户面出口回填 —— resolve() 不查材料账，理由同上。
+   */
+  claimedMaterialStatus: 'PENDING_SUBMISSION' | 'SUBMITTED' | null;
   cause: RestrictionCause;
   scopes: RestrictionScope[];
   label: string;
@@ -106,6 +111,7 @@ export class CustomerAccessService {
         // 由 CustomerRestrictionsClientController 在客户面出口回填 —— resolve()
         // 同时服务执法侧，不该为了一个展示决策去依赖材料账（会引入模块环）。
         claimedByMaterialRequestNo: null,
+        claimedMaterialStatus: null,
         cause: row.cause,
         scopes: row.scopes,
         label: RESTRICTION_CAUSE_POLICY[row.cause].customerLabel,
