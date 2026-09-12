@@ -19,7 +19,7 @@
 ## 1. 业主拍板清单（2026-09-11，全部已定）
 
 1. **上云替代 zip 交付。**
-2. **服务器**：腾讯云轻量应用服务器（国际站），**新加坡**（从迪拜实测 TCP 建连 107 ms，候选地域中最低：香港 143 / 法兰克福 155 / 东京 174）；Starter 2 核 4 GB、60 GB SSD、30 Mbps、月流量 1536 GB；**Ubuntu 26.04 LTS**。不用大陆地域：需 ICP 备案，且银发〔2026〕42 号明令"法定货币与虚拟货币兑换业务"属非法金融活动、互联网企业不得为其提供网络经营场所——备案过不了，还有被停机风险。
+2. **服务器**：腾讯云轻量应用服务器（国际站），**新加坡**（从迪拜实测 TCP 建连 107 ms，候选地域中最低：香港 143 / 法兰克福 155 / 东京 174）；Starter 2 核 8 GB、80 GB SSD、30 Mbps、月流量 2560 GB（2026-09-11 由 2 核 4 GB 升级：账本要放内存盘，4 GB 装不下，见 §2）；**Ubuntu 26.04 LTS**。不用大陆地域：需 ICP 备案，且银发〔2026〕42 号明令"法定货币与虚拟货币兑换业务"属非法金融活动、互联网企业不得为其提供网络经营场所——备案过不了，还有被停机风险。
 3. **不加门锁**：网址公开可达、Quick Login 可一键进超管——业主接受（内部演示、数据全假）。
 4. **数据不重要**：每次启动都换一套全新数据（部署 / 手动重铺 / 服务器重启一律如此）；不做定时重铺。
 5. **部署要快**：业主 Mac 上一条命令（或双击）完成；常规更新目标 ≤ 5 分钟。
@@ -34,10 +34,10 @@
                             └─> 演示服务 exchange-demo（系统服务）：TigerBeetle + 后端 API，本机直接跑
 ```
 
-- **开服时一次装好**（不装 Docker）：Node 20（官方二进制包，与 `.nvmrc` 一致）、TigerBeetle 0.17.3 Linux 程序（与 `tigerbeetle-node` 版本一致）、Caddy。已核：后端唯一需要编译的原生依赖 `bcrypt@6.0.0` 自带 linux-x64 预编译包，服务器无需编译工具；Prisma 引擎按 `binaryTargets` 在服务器 `npm ci` 时取 Linux 版。
+- **开服时一次装好**（不装 Docker）：Node 20（官方二进制包，与 `.nvmrc` 一致）、TigerBeetle 0.17.3 Linux 程序（与 `tigerbeetle-node` 版本一致）、Caddy；并给账本数据目录挂 1400 MB 内存盘（`/etc/fstab` tmpfs）。已核：后端唯一需要编译的原生依赖 `bcrypt@6.0.0` 自带 linux-x64 预编译包，服务器无需编译工具；Prisma 引擎按 `binaryTargets` 在服务器 `npm ci` 时取 Linux 版。
 - **演示服务**：一个 systemd 服务，执行 §3 的启动顺序；API 与账本只监听 `127.0.0.1`（`TB_ADDRESS=127.0.0.1:3003`，账本客户端只认 IP 的老问题自然不存在）。按 TigerBeetle 官方 systemd 文档调高锁内存上限（`LimitMEMLOCK`），io_uring 初始化需要。开机自启；进程崩溃时自动重启（= 新数据）。
 - **Caddy**：443 = 管理台，8443 = 客户端。前端构建时 `VITE_API_URL=/api`——已核：前端全部按 `${VITE_API_URL}/path` 拼接，无 WebSocket / SSE，**前端零代码改动**。浏览器只对 Caddy 同源请求；后端 CORS 白名单由 `ADMIN_URL=https://<IP>`、`CLIENT_URL=https://<IP>:8443` 覆盖。
-- **无持久数据**：SQLite 与账本文件放在服务器上的数据目录，演示服务每次启动先清空（§3 第 1 步）。
+- **无持久数据、全部在内存**：SQLite 放 `/run/exchange-demo`（systemd `RuntimeDirectory=`，服务每次重启由 systemd 清空）；账本文件放 `/opt/exchange-demo/data`，该目录挂 1400 MB 内存盘（`/etc/fstab` tmpfs），演示服务每次启动先清空（§3 第 1 步）。2026-09-11 对照实验：这块云硬盘同步写约 4 ms/次（Mac 约 0.1 ms），SQLite 放盘上 `demo:all` 必撞 Prisma `P1008`，挪进内存盘后解决。之后仍有约一半开机失败，当时判断为"卡在账本落盘"，于是把账本也挪进内存、升级到 8 GB；账本进内存后失败照旧（10 次成 4 次）——与磁盘无关。真因是两条，2026-09-11/12 查清并修掉（见 `2026-09-11-tx-leak-fix-design.md`）：① 业务代码 8 处事务漏传；② "制裁连带冻结"广播那一步，同一进程里主流程与三个域的监听器同时写库、多条连接抢 SQLite 唯一写锁，故服务配置改成每进程 1 条连接（§3）。8 GB 只能升不能降；账本留在内存盘开机更快，保持现状。
 - **端口**（2026-09-11 实测）：22 / 80 已放通；**443 与 8443 被腾讯云控制台防火墙拦截**（服务器自身 ufw 未启用、iptables 全放行，已排除），需业主在控制台加两条 TCP 允许。3000 / 3003 只在本机，不对外。
 - **文件布局**：服务器侧文件放 `Exchange_js/deploy/`（`exchange-demo.service`、`demo-run.sh`、`Caddyfile`）；业主侧命令放 `Exchange_js/scripts/cloud-*.sh`，并挂 npm 脚本与仓库根双击入口。
 
@@ -55,7 +55,7 @@
 
 - 失败：打印 **FAILED @ 第 N 步** + 该步输出；API 若已起则保持在线（便于排查）；状态标记为失败 → 部署 / 重铺命令红。
 - 守护：TigerBeetle 或 API 任一进程退出，服务即退出，由 systemd 按上文规则重启，不留半死状态。
-- 环境变量（写在服务配置里）：`DATABASE_URL`、`TB_ADDRESS=127.0.0.1:3003`、`RECON_DEMO_MANIFEST_PATH`、`API_PORT`、`ADMIN_URL` / `CLIENT_URL`、`SUMSUB_MOCK_MODE=true`、`GOVERNANCE_DEMO_ENABLED=true`、`MFA_*`（沿用原 compose 的演示值）。
+- 环境变量（写在服务配置里）：`DATABASE_URL`（末尾带 `?connection_limit=1` —— 每进程只开 1 条数据库连接，业主 2026-09-12 拍板；理由与实测见 tx-leak spec §0 更正与 §5）、`TB_ADDRESS=127.0.0.1:3003`、`RECON_DEMO_MANIFEST_PATH`、`API_PORT`、`ADMIN_URL` / `CLIENT_URL`、`SUMSUB_MOCK_MODE=true`、`GOVERNANCE_DEMO_ENABLED=true`、`MFA_*`（沿用原 compose 的演示值）、`TS_NODE_TRANSPILE_ONLY=true`（服务器上的种子 / 演示脚本只转译不做类型检查：实测启动约 70 s → 40 s；类型由 Mac 端闸①与部署时的 tsc 把关）。
 
 ## 4. 业主的三条命令（业主、同事的电脑都不用装 Docker，也不用装任何新软件）
 
@@ -109,7 +109,7 @@
 - 构建提速（先实测，常规部署超 5 分钟再议）
 - Node 升级（项目锁定 20，见 §10）
 - 域名、CDN、监控告警、CI
-- 业务代码改动。唯一例外：`scripts/demo-lib.ts` 的 `writeDataMdSnapshot` 在 `data.md` 不存在时打印一行"跳过"并返回（服务器上不传 `doc-final`；main 上文件在，行为不变）
+- 业务代码改动。例外两处：① `scripts/demo-lib.ts` 的 `writeDataMdSnapshot` 在 `data.md` 不存在时打印一行"跳过"并返回（服务器上不传 `doc-final`；main 上文件在，行为不变）；② 事务漏传修复 + 种子留痕撞号——2 核服务器上开机铺数据约一半失败的根因，单独立 spec 经业主审批（`2026-09-11-tx-leak-fix-design.md`）
 
 ## 9. 验收口径（全部满足才算完成）
 
@@ -128,6 +128,6 @@
 - **服务器重启 = 新数据**（§1-4 的直接后果）。
 - **软件装在系统里**：不像容器那样一删就干净；恢复手段是在控制台重装系统后重跑开服脚本。
 - **Node 20 已于 2026-04-30 停止维护**：项目锁定 20（`.nvmrc`），服务器与本机保持一致；升级不在本任务。
-- **4 GB 内存**：TigerBeetle 1.44 GiB + API + 铺数据时的峰值；开服时实测峰值，超过 3.2 GB 则加 swap。
+- **8 GB 内存**：账本进程 1.44 GiB + 账本内存盘文件 1.1 GB + API 与铺数据进程。2026-09-11 升级到 Starter 2 核 8 GB（每月 $10，只能升不能降）时的依据"账本落盘拖出失败"事后被证伪——真因是事务漏传 + 制裁广播那一步多条连接抢 SQLite 写锁（见 tx-leak spec §0 更正）；账本放内存盘开机更快，保持现状。
 - **Ubuntu 26.04 较新**：开服若遇 Node / Prisma / Caddy 不兼容，改 24.04 需在控制台重装系统（Lighthouse 支持）。
 - **平台内容政策**：新加坡地域无备案要求；演示内容是虚拟资产交易所（假数据、无真实交易）。

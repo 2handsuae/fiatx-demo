@@ -862,7 +862,9 @@ git commit -m "docs(事务): backend.md 补'事务里调别的服务必须把事
 
 ### Task 5（主会话执行）：云端验收
 
-**Files:** Create `$SCR/txleak-cloud.sh`（不入库）
+**Files:** Create `$SCR/txleak-cloud.sh`（不入库）；Modify `deploy/demo.env.template`（2026-09-12 变更，见下）
+
+> **2026-09-12 变更（业主拍板"甲"）**：云端 `DATABASE_URL` 常驻加 `?connection_limit=1`（写进 `deploy/demo.env.template`）。原因：8 处漏传修完后，默认每进程 3 条连接在"制裁连带冻结"广播那一步仍撞锁（3 次开机挂 1 次，P1008 在 `deposit-workflow.service.ts:876`），限 1 条连接连开 10 次全过（实测记录在台账与 spec §0 更正）。因此 Step 4 的 10 连开机按**新默认**（每进程 1 条连接）跑，判据不变：10/10，每次 cloud-verify 6/6。
 
 - [ ] **Step 1：写云端脚本**
 
