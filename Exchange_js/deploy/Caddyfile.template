@@ -1,0 +1,43 @@
+# deploy/Caddyfile.template — remote-apply.sh 把 __HOST__ 换成公网 IP 后装到 /etc/caddy/Caddyfile
+# IP 证书：Let's Encrypt shortlived（6 天）档，Caddy 自动续期（2026-09-11 staging 实测 v2.11.4 可签）
+# acme_ca 只指 Let's Encrypt 一家：profile 要求所有 CA 都支持它
+{
+	acme_ca https://acme-v02.api.letsencrypt.org/directory
+	default_sni __HOST__
+}
+
+(ip_cert) {
+	tls {
+		issuer acme {
+			profile shortlived
+		}
+	}
+}
+
+(api_proxy) {
+	handle_path /api/* {
+		reverse_proxy 127.0.0.1:3000
+	}
+}
+
+# 管理台
+https://__HOST__ {
+	import ip_cert
+	import api_proxy
+	handle {
+		root * /opt/exchange-demo/web/admin
+		try_files {path} /index.html
+		file_server
+	}
+}
+
+# 客户端
+https://__HOST__:8443 {
+	import ip_cert
+	import api_proxy
+	handle {
+		root * /opt/exchange-demo/web/client
+		try_files {path} /index.html
+		file_server
+	}
+}

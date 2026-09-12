@@ -1,0 +1,27 @@
+# deploy/exchange-demo.service — 演示服务：TigerBeetle + API，每次启动从零铺数据（spec 2026-09-11 §3）
+[Unit]
+Description=Exchange demo (TigerBeetle + API, fresh data on every start)
+After=network-online.target
+Wants=network-online.target
+# 账本数据目录是 /etc/fstab 里的内存盘（开服脚本第 6 步装）：等它挂好再启动
+RequiresMountsFor=/opt/exchange-demo/data
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/opt/exchange-demo/app
+EnvironmentFile=/opt/exchange-demo/demo.env
+Environment=PATH=/opt/node20/bin:/usr/local/bin:/usr/bin:/bin
+# SQLite 放内存盘 /run/exchange-demo（systemd 启动时建、停止时删 = 每次从零）：这块云硬盘同步写约 4 ms/次，
+# SQLite 放盘上时 demo:all 撞 Prisma P1008 超时（2026-09-11 实测：放内存盘后建表 55s→3s、71s 到 READY）
+RuntimeDirectory=exchange-demo
+ExecStart=/opt/exchange-demo/deploy/demo-run.sh
+Restart=on-failure
+RestartSec=5
+# TigerBeetle 官方 systemd 部署文档：io_uring 初始化需要锁内存（服务器默认只给 8 MB）
+LimitMEMLOCK=infinity
+KillMode=control-group
+TimeoutStopSec=20
+
+[Install]
+WantedBy=multi-user.target

@@ -80,11 +80,12 @@ export class SwapLegAccounting {
     code: number,
     ledger: number,
     ownerId: string,
+    client?: any,
   ): Promise<bigint> {
     if (code === TB_ACCOUNT_CODES.CLIENT_PAYABLE) {
-      return this.accounting.resolveTbAccountId({ code, ledger, ownerType: 'CUSTOMER', ownerUuid: ownerId });
+      return this.accounting.resolveTbAccountId({ code, ledger, ownerType: 'CUSTOMER', ownerUuid: ownerId }, client);
     }
-    return this.accounting.resolveTbAccountId({ code, ledger, ownerType: 'SYSTEM' });
+    return this.accounting.resolveTbAccountId({ code, ledger, ownerType: 'SYSTEM' }, client);
   }
 
   // ── Evidence builder ──
@@ -135,14 +136,14 @@ export class SwapLegAccounting {
 
   // ── Wallet resolution (best-effort, informational only) ──
 
-  private async resolveWallet(assetId: string, role: string, ownerId: string): Promise<string | null> {
+  private async resolveWallet(assetId: string, role: string, ownerId: string, client?: any): Promise<string | null> {
     try {
       const customerRoles = ['C_DEP', 'C_VIBAN'];
       if (customerRoles.includes(role)) {
-        const w = await this.wallets.resolveCustomer(assetId, role, ownerId);
+        const w = await this.wallets.resolveCustomer(assetId, role, ownerId, client);
         return w?.id ?? null;
       }
-      const w = await this.wallets.resolve(assetId, role);
+      const w = await this.wallets.resolve(assetId, role, client);
       return w?.id ?? null;
     } catch {
       return null;
@@ -171,6 +172,7 @@ export class SwapLegAccounting {
     counterpartCode: number,
     spec: SwapLegSpec,
     ctx: SwapSettleCtx,
+    client?: any,
   ): Promise<string | null> {
     const assetId = spec.side === 'from' ? ctx.fromAssetId : ctx.toAssetId;
 
@@ -186,7 +188,7 @@ export class SwapLegAccounting {
         ? spec.toRole
         : null;
       if (!customerRole) return null;
-      return this.resolveWallet(assetId, customerRole, ctx.ownerId);
+      return this.resolveWallet(assetId, customerRole, ctx.ownerId, client);
     }
 
     // Firm equity side: direct mapping to the role
@@ -196,12 +198,12 @@ export class SwapLegAccounting {
       [TB_ACCOUNT_CODES.INCOME_SWAP_FEE]: 'F_FEE',
     };
     if (equityRoleMap[code]) {
-      return this.resolveWallet(assetId, equityRoleMap[code], ctx.ownerId);
+      return this.resolveWallet(assetId, equityRoleMap[code], ctx.ownerId, client);
     }
 
     // FIRM_ASSET (aggregate): inherit the counterpart equity's wallet for audit
     if (code === TB_ACCOUNT_CODES.FIRM_ASSET && equityRoleMap[counterpartCode]) {
-      return this.resolveWallet(assetId, equityRoleMap[counterpartCode], ctx.ownerId);
+      return this.resolveWallet(assetId, equityRoleMap[counterpartCode], ctx.ownerId, client);
     }
 
     return null;
@@ -212,9 +214,10 @@ export class SwapLegAccounting {
     a: LegAccounting,
     spec: SwapLegSpec,
     ctx: SwapSettleCtx,
+    client?: any,
   ): Promise<{ debitWalletRef: string | null; creditWalletRef: string | null }> {
-    const debitWalletRef = await this.walletRefForCode(a.debitCode, a.creditCode, spec, ctx);
-    const creditWalletRef = await this.walletRefForCode(a.creditCode, a.debitCode, spec, ctx);
+    const debitWalletRef = await this.walletRefForCode(a.debitCode, a.creditCode, spec, ctx, client);
+    const creditWalletRef = await this.walletRefForCode(a.creditCode, a.debitCode, spec, ctx, client);
     return { debitWalletRef, creditWalletRef };
   }
 
@@ -243,10 +246,11 @@ export class SwapLegAccounting {
   async resolveLegWallets(
     spec: SwapLegSpec,
     ctx: SwapSettleCtx,
+    client?: any,
   ): Promise<{ fromWalletId: string | null; toWalletId: string | null }> {
     const assetId = spec.side === 'from' ? ctx.fromAssetId : ctx.toAssetId;
-    const fromWalletId = await this.resolveWallet(assetId, spec.fromRole, ctx.ownerId);
-    const toWalletId = await this.resolveWallet(assetId, spec.toRole, ctx.ownerId);
+    const fromWalletId = await this.resolveWallet(assetId, spec.fromRole, ctx.ownerId, client);
+    const toWalletId = await this.resolveWallet(assetId, spec.toRole, ctx.ownerId, client);
     return { fromWalletId, toWalletId };
   }
 
@@ -301,9 +305,9 @@ export class SwapLegAccounting {
       const amt = this.amountBigint(a.amountRef, ctx);
       if (amt <= 0n) continue;
       const ledger = this.ledgerFor(a.side, ctx);
-      const debitId = await this.resolveAcct(a.debitCode, ledger, ctx.ownerId);
-      const creditId = await this.resolveAcct(a.creditCode, ledger, ctx.ownerId);
-      const { debitWalletRef, creditWalletRef } = await this.resolveLegWalletRefs(a, spec, ctx);
+      const debitId = await this.resolveAcct(a.debitCode, ledger, ctx.ownerId, client);
+      const creditId = await this.resolveAcct(a.creditCode, ledger, ctx.ownerId, client);
+      const { debitWalletRef, creditWalletRef } = await this.resolveLegWalletRefs(a, spec, ctx, client);
       await this.accounting.executePendingTransfer({
         debitAccountId: debitId,
         creditAccountId: creditId,

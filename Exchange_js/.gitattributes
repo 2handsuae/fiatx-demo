@@ -1,4 +1,0 @@
-# 交付包（git archive HEAD:Exchange_js）排除项 —— 内部资料，对面跑 demo 用不上
-doc-final/ export-ignore
-.claude/ export-ignore
-docs/ export-ignore

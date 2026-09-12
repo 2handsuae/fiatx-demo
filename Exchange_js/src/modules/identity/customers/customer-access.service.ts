@@ -1,4 +1,5 @@
 import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../core/prisma/prisma.service';
 import { CustomerLifecycle } from '../constants/customer-lifecycle.constant';
 import {
@@ -74,8 +75,9 @@ export class CustomerAccessService {
     private readonly restrictionsService: CustomerRestrictionsService,
   ) {}
 
-  async resolve(customerId: string): Promise<CustomerAccess> {
-    const customer = await this.prisma.customerMain.findUnique({
+  async resolve(customerId: string, tx?: Prisma.TransactionClient): Promise<CustomerAccess> {
+    const client = tx ?? this.prisma;
+    const customer = await client.customerMain.findUnique({
       where: { id: customerId },
       select: { id: true, customerNo: true, lifecycle: true },
     });
@@ -83,7 +85,7 @@ export class CustomerAccessService {
       throw new NotFoundException(`Customer not found: ${customerId}`);
     }
 
-    const openRows = await this.restrictionsService.listOpen(customerId);
+    const openRows = await this.restrictionsService.listOpen(customerId, tx);
 
     const blocked = new Set<Capability>();
     const disclosedBlocked = new Set<Capability>();

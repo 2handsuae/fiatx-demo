@@ -355,8 +355,10 @@ export class CustomerRestrictionsService {
     return this.toRows(rows)[0];
   }
 
-  async listOpen(customerId: string): Promise<RestrictionRow[]> {
-    const rows = await this.prisma.customerRestriction.findMany({
+  /** @param tx 传了就用它读（事务里查客户能力时用，见 CustomerAccessService.resolve），不传照旧读事务外的 base client。 */
+  async listOpen(customerId: string, tx?: Record<string, any>): Promise<RestrictionRow[]> {
+    const client = (tx ?? this.prisma) as Record<string, any>;
+    const rows = await client.customerRestriction.findMany({
       where: { customerId, status: 'OPEN' },
       orderBy: [{ openedAt: 'desc' }, { scope: 'asc' }],
     });

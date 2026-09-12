@@ -483,6 +483,7 @@ export class ApprovalsService {
     actor: ApprovalActorContext,
     requestedRole?: string,
     stepCandidateRoles?: string[],
+    tx?: ApprovalWriteClient,
   ): Promise<string> {
     const normalizedRequestedRole = this.normalizeOptionalString(requestedRole);
     const allowedRoles = stepCandidateRoles || [];
@@ -499,7 +500,7 @@ export class ApprovalsService {
     if (
       !superAdminBypass &&
       actor.userId === approval.createdByUserId &&
-      (await this.approvalPolicyService.isSameUserMakerCheckerDenied())
+      (await this.approvalPolicyService.isSameUserMakerCheckerDenied(tx))
     ) {
       // 不在这里写审计再抛异常：resolveDecisionRole 是从 approve()/reject() 一个
       // 还开着的 $transaction(tx) 回调里调用的。实测过"就地用 this.prisma（非 tx）
@@ -698,7 +699,7 @@ export class ApprovalsService {
 
         const stepCandidateRoles = splitRoleCsv(currentStep.checkerRoleCandidates);
         allowedRoles = stepCandidateRoles;
-        const decisionRole = await this.resolveDecisionRole(approval, actor, dto.checkerRole, stepCandidateRoles);
+        const decisionRole = await this.resolveDecisionRole(approval, actor, dto.checkerRole, stepCandidateRoles, tx);
         const now = new Date();
 
         await tx.approvalStep.update({
@@ -819,7 +820,7 @@ export class ApprovalsService {
 
         const stepCandidateRoles = splitRoleCsv(currentStep.checkerRoleCandidates);
         allowedRoles = stepCandidateRoles;
-        const decisionRole = await this.resolveDecisionRole(approval, actor, dto.checkerRole, stepCandidateRoles);
+        const decisionRole = await this.resolveDecisionRole(approval, actor, dto.checkerRole, stepCandidateRoles, tx);
         const now = new Date();
 
         // Reject the current step

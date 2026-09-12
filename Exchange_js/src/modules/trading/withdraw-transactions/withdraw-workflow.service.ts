@@ -512,12 +512,12 @@ export class WithdrawWorkflowService implements OnModuleInit {
               ledger,
               ownerType: 'CUSTOMER',
               ownerUuid: userId,
-            });
+            }, tx);
             const clientAssetId = await this.accountingService.resolveTbAccountId({
               code: TB_ACCOUNT_CODES.CLIENT_ASSET,
               ledger,
               ownerType: 'SYSTEM',
-            });
+            }, tx);
 
             const netBigint = this.decimalToBigint(netAmount, asset.decimals);
             const feeBigint = this.decimalToBigint(quoteFeeAmount, asset.decimals);

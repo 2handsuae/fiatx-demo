@@ -1,0 +1,16 @@
+──────── Forward this to colleagues ────────
+Exchange demo — all data is fake, click freely.
+  Admin console : __ADMIN_URL__
+  Customer app  : __CLIENT_URL__
+Admin sign-in (password for every account: 123456). The Quick Login panel on the
+sign-in page switches roles in one click, or type any of these:
+  Super Admin          admin@fiatx.com
+  Compliance Officer   compliance_lead@fiatx.com
+  MLRO                 mlro@fiatx.com
+  Ops Officer          ops_officer@fiatx.com
+  CFO                  cfo@fiatx.com
+  Treasury Officer     treasury@fiatx.com
+  Internal Auditor     auditor@fiatx.com (read-only)
+Customer app: click "Demo quick login" and pick a customer.
+Note: everyone shares one dataset; every redeploy or reset starts over with fresh data.
+────────────────────────────────────────────

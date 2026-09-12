@@ -64,6 +64,7 @@ import { WITHDRAW_VERDICT_BUTTONS } from '../src/modules/withdraw-sumsub/fixture
 import { SCENE_TAGS, DISPO_TAGS_BY_DOMAIN, type SceneTag, type DispoTag } from '../src/modules/sumsub-shared/scene-tags';
 import { DEMO_ROSTER, printAnswerKey, RosterDomain } from './demo-roster';
 import { loginAsMlro, loginAsSmo, loginAsCfo, approveApproval } from './demo-mlro';
+import { writeDataMdSnapshot } from './demo-data-md';
 import { createStuckWithdraw } from './demo-fixtures';
 
 // Deposit channel discriminator (crypto vs fiat) — the legacy PayinType enum is gone;
@@ -1188,14 +1189,8 @@ async function buildCoaBalanceMap(ctx: DemoCtx): Promise<Map<number, Map<number,
 
 // ── data.md snapshot (docs generation) ────────────────────────────────────
 // doc-final/demo/data.md:3 declares this file's generated section is written
-// by demo:all — this is that write. Only the text between the GENERATED
-// markers is touched; everything else in data.md is hand-maintained and left
-// alone. If the markers are missing (someone hand-edited them out), skip
-// silently rather than corrupting the file — data.md's own git history is
-// the recovery path, not this script.
-const DATA_MD_PATH = path.resolve(__dirname, '../doc-final/demo/data.md');
-const GENERATED_BEGIN = '<!-- GENERATED:BEGIN -->';
-const GENERATED_END = '<!-- GENERATED:END -->';
+// by demo:all — renderDataMdSnapshot builds the body; ./demo-data-md writes it
+// (split out so it can be unit-tested — this file runs requireStackEnv on import).
 
 function renderDataMdSnapshot(
   rosterResults: Array<{ seq: number; orderNo: string; status: string }>,
@@ -1236,20 +1231,6 @@ function renderDataMdSnapshot(
     lines.push(`| ${row.label} | ${row.ok ? '✓' : '✗'} ${row.detail} |`);
   }
   return lines.join('\n');
-}
-
-function writeDataMdSnapshot(body: string): void {
-  const original = fs.readFileSync(DATA_MD_PATH, 'utf8');
-  const beginIdx = original.indexOf(GENERATED_BEGIN);
-  const endIdx = original.indexOf(GENERATED_END);
-  if (beginIdx === -1 || endIdx === -1 || endIdx < beginIdx) {
-    console.warn(`  ⚠ data.md 缺 GENERATED 标记，跳过生成区写入（${DATA_MD_PATH}）`);
-    return;
-  }
-  const before = original.slice(0, beginIdx + GENERATED_BEGIN.length);
-  const after = original.slice(endIdx);
-  fs.writeFileSync(DATA_MD_PATH, `${before}\n${body}\n${after}`, 'utf8');
-  console.log(`  ✓ data.md 生成区已更新`);
 }
 
 // ── verification (spec §6) ───────────────────────────────────────────────────

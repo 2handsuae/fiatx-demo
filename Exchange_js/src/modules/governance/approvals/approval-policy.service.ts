@@ -144,8 +144,9 @@ export class ApprovalPolicyService {
     });
   }
 
-  async isSameUserMakerCheckerDenied(): Promise<boolean> {
-    const rule = await this.prisma.approvalSodRule.findUnique({
+  async isSameUserMakerCheckerDenied(tx?: any): Promise<boolean> {
+    const db = tx || this.prisma;
+    const rule = await db.approvalSodRule.findUnique({
       where: { ruleCode: ApprovalSoDRuleCodes.DENY_SAME_USER_MAKER_CHECKER },
     });
     return rule?.enabled ?? true;

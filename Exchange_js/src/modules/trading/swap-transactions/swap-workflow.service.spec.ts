@@ -629,8 +629,8 @@ describe('SwapWorkflowService.initiateSwap — COMPLIANCE_PENDING, no legs', () 
 
     await service.initiateSwap('cust-1', 'q-1');
 
-    expect((mocks as any).walletQuery.hasReceivingAccount).toHaveBeenCalledWith('cust-1', 'TRON');
-    expect((mocks as any).walletQuery.hasReceivingAccount).toHaveBeenCalledWith('cust-1', 'AED_ZAND');
+    expect((mocks as any).walletQuery.hasReceivingAccount).toHaveBeenCalledWith('cust-1', 'TRON', expect.anything());
+    expect((mocks as any).walletQuery.hasReceivingAccount).toHaveBeenCalledWith('cust-1', 'AED_ZAND', expect.anything());
     expect(mocks.swapTransactionsService.create).toHaveBeenCalledTimes(1);
   });
 
@@ -2687,8 +2687,8 @@ describe('SwapWorkflowService.onCustomerRestrictionOpened (Task 9 — FROZEN 落
     expect(mocks.swapTransactionsService.markStatus).not.toHaveBeenCalled();
     expect(mocks.prisma.$transaction).not.toHaveBeenCalled();
     // Routed through the existing capability gate (assertSwapCustomerAccessOrHalt) instead.
-    expect(mocks.customerAccessService.resolve).toHaveBeenCalledWith('cust-1');
-    expect(mocks.swapTransactionsService.setNeedsReview).toHaveBeenCalledWith('s2', true);
+    expect(mocks.customerAccessService.resolve).toHaveBeenCalledWith('cust-1', undefined);
+    expect(mocks.swapTransactionsService.setNeedsReview).toHaveBeenCalledWith('s2', true, undefined);
     expect(mocks.auditLogsService.recordSystem).not.toHaveBeenCalledWith(
       expect.objectContaining({ action: AuditActions.SWAP_FROZEN }),
     );
@@ -2711,8 +2711,8 @@ describe('SwapWorkflowService.onCustomerRestrictionOpened (Task 9 — FROZEN 落
 
     expect(mocks.swapTransactionsService.markStatus).not.toHaveBeenCalled();
     expect(mocks.prisma.$transaction).not.toHaveBeenCalled();
-    expect(mocks.customerAccessService.resolve).toHaveBeenCalledWith('cust-1');
-    expect(mocks.swapTransactionsService.setNeedsReview).toHaveBeenCalledWith('s1', true);
+    expect(mocks.customerAccessService.resolve).toHaveBeenCalledWith('cust-1', undefined);
+    expect(mocks.swapTransactionsService.setNeedsReview).toHaveBeenCalledWith('s1', true, undefined);
     expect(mocks.auditLogsService.recordSystem).not.toHaveBeenCalledWith(
       expect.objectContaining({ action: AuditActions.SWAP_FROZEN }),
     );
