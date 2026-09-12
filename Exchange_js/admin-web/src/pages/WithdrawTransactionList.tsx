@@ -83,7 +83,7 @@ const WithdrawTransactionList = () => {
   const [filters, setFilters] = useState<FilterState>(() => ({
     ...DEFAULT_FILTERS,
     ownerNo: searchParams.get('ownerNo')?.trim() ?? '',
-    withdrawNo: searchParams.get('withdrawNo')?.trim() ?? '',
+    withdrawNo: (searchParams.get('withdrawNo') ?? searchParams.get('keyword'))?.trim() ?? '',
   }));
   const [items, setItems] = useState<WithdrawItem[]>([]);
   const [total, setTotal] = useState(0);

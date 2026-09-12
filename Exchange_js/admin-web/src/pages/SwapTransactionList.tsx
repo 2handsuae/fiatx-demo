@@ -87,7 +87,7 @@ const SwapTransactionList = () => {
   // 客户详情页 → 三域交易跳转（第二幕波一）：深链 ?ownerNo= 初始化过滤，铁律⑥。
   // Fix round：对账案 Differences 表 Source 列同样深链本页——?swapNo= 定位单据。
   const [filters, setFilters] = useState<FilterState>(() => ({
-    swapNo: searchParams.get('swapNo')?.trim() ?? '',
+    swapNo: (searchParams.get('swapNo') ?? searchParams.get('keyword'))?.trim() ?? '',
     ownerNo: searchParams.get('ownerNo')?.trim() ?? '',
     startDate: '',
     endDate: '',

@@ -692,7 +692,7 @@ const DepositTransactionDetail = () => {
                     identifier={a.approvalNo}
                     statusValue={a.status}
                     meta={new Date(a.createdAt).toLocaleString()}
-                    onClick={() => navigate('/admin/governance/approvals')}
+                    onClick={() => navigate(`/admin/governance/approvals/${a.approvalNo}`)}
                   />
                 ))}
               </div>

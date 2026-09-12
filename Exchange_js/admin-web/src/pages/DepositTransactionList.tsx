@@ -87,7 +87,7 @@ const DepositTransactionList = () => {
   const [filters, setFilters] = useState<FilterState>(() => ({
     ...DEFAULT_FILTERS,
     ownerNo: searchParams.get('ownerNo')?.trim() ?? '',
-    depositNo: searchParams.get('depositNo')?.trim() ?? '',
+    depositNo: (searchParams.get('depositNo') ?? searchParams.get('keyword'))?.trim() ?? '',
   }));
   const [items, setItems] = useState<DepositItem[]>([]);
   const [total, setTotal] = useState(0);
