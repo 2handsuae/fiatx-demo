@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Node >= 20 的唯一垫片副本。
 #
-# 为什么需要：本仓库声明层全部指向 Node 20（.nvmrc / Dockerfile ×3 /
+# 为什么需要：本仓库声明层全部指向 Node 20（.nvmrc / package.json engines /
 # @nestjs/core 的 engines.node = ">= 20"），但从 2026-04-08 起实际跑在 18 上，
 # 靠 21 个文件手写 webcrypto 垫片绕过 `globalThis.crypto`（Node ≥19 才有）。
 # 此前这段逻辑只在 stack-up.sh 里、且只对服务生效，于是形成
