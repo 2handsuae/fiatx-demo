@@ -1,256 +1,52 @@
-import { Injectable, BadRequestException, Logger } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { OnEvent } from '@nestjs/event-emitter';
 import { PrismaService } from '../../../core/prisma/prisma.service';
 import { AuditLogsService } from '../../audit-logging/audit-logs.service';
-import {
-  AuditEntityTypes,
-} from '../../audit-logging/constants/audit-actions.constant';
-import { AuditOutcome } from '../../audit-logging/dto/audit-log.dto';
+import { AuditEntityTypes } from '../../audit-logging/constants/audit-actions.constant';
 import { ApprovalsService } from '../../governance/approvals/approvals.service';
-import {
-  ApprovalActionTypes,
-  ApprovalActorContext,
-} from '../../governance/approvals/constants/approval.constants';
+import { ApprovalActionTypes } from '../../governance/approvals/constants/approval.constants';
 import { WithdrawalFeeLevelService } from './withdrawal-fee-level.service';
+import { FeeLevelCreationWorkflowBase, FeeLevelCreationDtoBase } from '../shared/fee-level-workflow.base';
 
 const SECONDARY_EVENT = 'workflow.withdrawal-fee-level-creation.decided';
 
+type WithdrawalFeeLevelCreateDto = FeeLevelCreationDtoBase & {
+  assetId: string;
+};
+
 @Injectable()
-export class WithdrawalFeeLevelCreationWorkflowService {
-  private readonly logger = new Logger(WithdrawalFeeLevelCreationWorkflowService.name);
-
+export class WithdrawalFeeLevelCreationWorkflowService extends FeeLevelCreationWorkflowBase<WithdrawalFeeLevelCreateDto> {
   constructor(
-    private readonly prisma: PrismaService,
-    private readonly feeLevelService: WithdrawalFeeLevelService,
-    private readonly approvalsService: ApprovalsService,
-    private readonly auditLogsService: AuditLogsService,
-  ) {}
-
-  async initiateCreate(
-    dto: {
-      levelCode: string;
-      name: string;
-      assetId: string;
-      isDefault: boolean;
-      tiersJson: string;
-      reason: string;
-      requiredTags?: string[];
-      validFrom?: string;
-      validTo?: string;
-    },
-    actor: ApprovalActorContext,
+    prisma: PrismaService,
+    feeLevelService: WithdrawalFeeLevelService,
+    approvalsService: ApprovalsService,
+    auditLogsService: AuditLogsService,
   ) {
-    const { levelCode, name, assetId, isDefault, tiersJson, reason, requiredTags, validFrom, validTo } = dto;
+    super(prisma, feeLevelService, approvalsService, auditLogsService);
+  }
 
-    if (!reason?.trim()) {
-      throw new BadRequestException('reason is required');
-    }
+  protected get entityType() {
+    return AuditEntityTypes.WITHDRAWAL_FEE_LEVEL;
+  }
 
-    // INSERT with PENDING_APPROVAL (uniqueness + tiersJson validation in L1)
-    const level = await this.feeLevelService.createLevel({
-      levelCode,
-      name,
-      assetId,
-      isDefault,
-      tiersJson,
-      createdByUserId: actor.userId,
-      requiredTags,
-      validFrom,
-      validTo,
-    });
+  protected get approvalActionType() {
+    return ApprovalActionTypes.WITHDRAWAL_FEE_LEVEL_CREATION;
+  }
 
-    // Create approval case
-    // START：本次创建旅程的 correlationId，同一个值同事务写进 ApprovalCase.traceId
-    // （经 createAndSubmit 的 traceId 入参），供下游 executeActivation/executeCancellation
-    // 经 ApprovalDecidedEvent.traceId INHERIT 读回——与角色定义创建工作流同款模式。
-    const correlationId = crypto.randomUUID();
-    let approvalCase: any;
-    try {
-      approvalCase = await this.approvalsService.createAndSubmit(
-        {
-          actionType: ApprovalActionTypes.WITHDRAWAL_FEE_LEVEL_CREATION,
-          entityRef: level.levelCode,
-          traceId: correlationId,
-          objectSnapshot: {
-            levelId: level.id,
-            levelCode,
-            name,
-            assetId,
-            isDefault,
-            tiersJson,
-            reason,
-            requiredTags: requiredTags ?? [],
-            validFrom: validFrom ?? null,
-            validTo: validTo ?? null,
-          },
-        },
-        { reason, traceId: correlationId },
-        actor,
-      );
-    } catch (err) {
-      // Rollback: delete the inserted row
-      await this.feeLevelService.deleteById(level.id);
-      throw err;
-    }
+  protected get domainLabel() {
+    return 'Withdrawal';
+  }
 
-    // Link approval case to level
-    await this.feeLevelService.linkApprovalCase(levelCode, approvalCase.id, approvalCase.approvalNo);
+  protected get levelModel() {
+    return this.prisma.withdrawalFeeLevel;
+  }
 
-    // afterData：CREATE 没有「前」态，只存提案身份本身——不存 status/id/createdAt 等机械字段。
-    const afterData = {
-      levelCode,
-      name,
-      assetId,
-      isDefault,
-      tiersJson,
-      requiredTags: requiredTags ?? [],
-      validFrom: validFrom ?? null,
-      validTo: validTo ?? null,
-    };
-
-    // Audit
-    await this.auditLogsService.recordByActor(
-      {
-        action: 'WITHDRAWAL_FEE_LEVEL_CREATION_REQUESTED',
-        actionDomain: 'CONFIG',
-        primarySubjectType: AuditEntityTypes.WITHDRAWAL_FEE_LEVEL,
-        primarySubjectNo: level.levelCode,
-        correlationId,
-        outcome: AuditOutcome.SUCCESS,
-        reason,
-        afterData,
-        metadata: {
-          approvalNo: approvalCase.approvalNo,
-        },
-        requestId: `WITHDRAWAL_FEE_LEVEL_CREATION_REQUESTED_${level.levelCode}`,
-        sourcePlatform: 'ADMIN_API',
-      },
-      {
-        actorType: 'ADMIN',
-        actorNo: actor.userNo || 'UNKNOWN',
-        actorDisplayName: actor.userNo || 'UNKNOWN',
-        actorRolesAtTime: [actor.role || actor.roleCodes[0] || 'UNKNOWN'],
-      },
-    );
-
-    return {
-      levelCode: level.levelCode,
-      approvalNo: approvalCase.approvalNo,
-      status: 'PENDING_APPROVAL',
-    };
+  protected assetFields(source: any) {
+    return { assetId: source.assetId };
   }
 
   @OnEvent(SECONDARY_EVENT, { async: true })
   async onDecided(payload: any) {
-    const decision = payload?.decision;
-    const approvalId = payload?.approvalId;
-    const entityRef = payload?.entityRef;
-
-    if (!approvalId || !entityRef) {
-      this.logger.warn('Withdrawal fee level creation decided event missing approvalId or entityRef');
-      return;
-    }
-
-    if (decision === 'APPROVED') {
-      await this.executeActivation(approvalId, entityRef, payload);
-    } else {
-      await this.executeCancellation(approvalId, entityRef, decision, payload);
-    }
-  }
-
-  private async executeActivation(approvalId: string, levelCode: string, event: any) {
-    let level: any;
-    try {
-      level = await this.prisma.withdrawalFeeLevel.findUnique({
-        where: { levelCode },
-      });
-      if (!level || level.status !== 'PENDING_APPROVAL') {
-        this.logger.warn(`Level ${levelCode} not found or not in PENDING_APPROVAL status`);
-        return;
-      }
-
-      await this.feeLevelService.activateLevel(level.levelCode);
-
-      await this.auditLogsService.recordSystem({
-        action: 'WITHDRAWAL_FEE_LEVEL_CREATION_APPLIED',
-        actionDomain: 'CONFIG',
-        primarySubjectType: AuditEntityTypes.WITHDRAWAL_FEE_LEVEL,
-        primarySubjectNo: level.levelCode,
-        // INHERIT：读 ApprovalDecidedEvent.traceId——它就是 initiateCreate 铸造的
-        // correlationId 原样传播过来的（经 ApprovalCase.traceId）。
-        correlationId: event?.traceId,
-        // 异步驱动：这条记录是被"审批已批准"这个决定触发的。
-        causationId: approvalId,
-        outcome: AuditOutcome.SUCCESS,
-        fromStatus: 'PENDING_APPROVAL',
-        toStatus: 'ACTIVE',
-        afterData: {
-          levelCode: level.levelCode,
-          name: level.name,
-          assetId: level.assetId,
-          isDefault: level.isDefault,
-          tiersJson: level.tiersJson,
-        },
-        approvalNo: event?.approvalNo,
-        requestId: `WITHDRAWAL_FEE_LEVEL_CREATION_APPLIED_${level.levelCode}`,
-        sourcePlatform: 'SYSTEM',
-      });
-
-      this.logger.log(`Level ${level.levelCode} activated`);
-    } catch (err: any) {
-      this.logger.error(`Failed to activate level ${levelCode}: ${err.message}`);
-
-      await this.auditLogsService.recordSystem({
-        action: 'WITHDRAWAL_FEE_LEVEL_CREATION_APPLY_FAILED',
-        actionDomain: 'CONFIG',
-        primarySubjectType: AuditEntityTypes.WITHDRAWAL_FEE_LEVEL,
-        primarySubjectNo: level?.levelCode,
-        correlationId: event?.traceId,
-        causationId: approvalId,
-        outcome: AuditOutcome.FAILED,
-        reasonCode: 'EXECUTION_FAILED',
-        reason: err.message,
-        requestId: `WITHDRAWAL_FEE_LEVEL_CREATION_APPLY_FAILED_${levelCode}`,
-        sourcePlatform: 'SYSTEM',
-      });
-    }
-  }
-
-  private async executeCancellation(
-    approvalId: string,
-    levelCode: string,
-    decision: string,
-    event: any,
-  ) {
-    try {
-      const level = await this.prisma.withdrawalFeeLevel.findUnique({
-        where: { levelCode },
-      });
-      if (!level) {
-        this.logger.warn(`Level ${levelCode} not found for cancellation`);
-        return;
-      }
-
-      if (decision === 'DECLINED') await this.feeLevelService.declineLevel(level.levelCode);
-      else await this.feeLevelService.cancelLevel(level.levelCode);
-
-      await this.auditLogsService.recordSystem({
-        action: 'WITHDRAWAL_FEE_LEVEL_CREATION_CANCELLED',
-        actionDomain: 'CONFIG',
-        primarySubjectType: AuditEntityTypes.WITHDRAWAL_FEE_LEVEL,
-        primarySubjectNo: level.levelCode,
-        correlationId: event?.traceId,
-        causationId: approvalId,
-        outcome: AuditOutcome.SUCCESS,
-        reason: event?.decisionReason || `Withdrawal fee level creation request ${String(decision).toLowerCase()}`,
-        metadata: { decision },
-        requestId: `WITHDRAWAL_FEE_LEVEL_CREATION_CANCELLED_${level.levelCode}`,
-        sourcePlatform: 'SYSTEM',
-      });
-
-      this.logger.log(`Level ${level.levelCode} creation cancelled (${decision}), row marked ${decision === 'DECLINED' ? 'REJECTED' : 'CANCELLED'}`);
-    } catch (err: any) {
-      this.logger.error(`Failed to cancel level creation ${levelCode}: ${err.message}`);
-    }
+    return this.onDecidedCore(payload);
   }
 }
