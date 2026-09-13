@@ -6,7 +6,7 @@
 
 **做**：后端 demo-ops 模块（环境变量门控，仅云端注册）三接口 ｜ admin 前端 Simulation 门控下的 Demo Data 面板两按钮（重铺数据 / 重摆对账场景）｜ `deploy/demo.env.template` 加门控变量 ｜ 文档收口（CLAUDE.md §10 云端段 + `deploy/colleague-message.txt` 同步）
 
-**不做**（对照项目总纲 §2）：并发锁 / 双击防抖（单人顺序操作假设）｜ 按钮权限细分（登录即可用，管理 API 权限加固在禁做清单）｜ 重铺失败自动补救（FAILED 停驻排查走 boot.log，现状同款）｜ **demo:all 单独按钮**（定案 ②）｜ **本地主栈按钮**（定案 ①）｜ 重铺触发的审计留痕（重铺本身会清掉审计表，留痕无意义；操作痕迹在 journal）
+**不做**（对照项目总纲 §2）：并发锁 / 双击防抖（单人顺序操作假设）｜ 按钮权限细分（登录即可用，管理 API 权限加固在禁做清单）｜ 重铺失败自动补救（FAILED 停驻排查走 boot.log，现状同款）｜ **demo:all 单独按钮**（定案 ②）｜ **本地主栈按钮**（定案 ①）｜ 重铺触发的审计留痕（重铺本身会清掉审计表，留痕无意义；操作痕迹在 journal）｜ RBAC catalog 登记与权限组绑定（勘误，见 §3 登记条）
 
 ## 1. 背景事实（2026-09-13 现场查实）
 
@@ -29,7 +29,7 @@
   1. `POST /demo-ops/reset`——先把状态文件覆写为 `STARTING:reset-requested`（消除「点击后 status 仍是 READY」的窗口期），应答 202，随后 `process.exit(1)` → systemd 全量重铺。零编排代码，复用开机序列。
   2. `POST /demo-ops/recon-break`——子进程 `npm run recon:demo:break`（云端有 ts-node，开机序列本就在用；环境变量继承主进程 demo.env）。返回 202；进程态记内存（idle / running / done / fail + 输出尾巴），单人假设下不做排队与去重。
   3. `GET /demo-ops/status`——合并两个状态源返回：status 文件内容（重铺进度；`DEMO_STATUS_PATH` 未设或文件缺失时返回 `UNKNOWN`，本地验收即此形态）+ recon-break 内存态。**免登录**：重铺会重建用户表、旧 token 失效，轮询必须跨越登录态；泄露面只有启动步骤名，演示系统可接受。
-- **登记**：两个 POST 照仓内现有 admin demo 控制器门径（route() 登记 RBAC catalog；云端每次开机 `db:base:sync` 全新铺，无本地 403 陷阱）。
+- **登记（2026-09-13 写 plan 时勘误）**：demo-ops **不进 RBAC catalog、不挂 AdminPermissionGuard**——两个 POST 只挂 `AuthGuard('jwt')`（登录即可用），status 无守卫。原文「照 admin demo 控制器门径 route() 登记」在查实角色绑定后推翻：同事按 `colleague-message.txt` 用 Quick Login 在 7 个角色间随意切换，而现有 DEMO_* 权限组都是单角色绑定（DEMO_VERDICT_WRITE→合规、DEMO_CLOCK_WRITE→金库），任何权限组绑定都会让部分角色按不了还原按钮，与定案「登录即可用」矛盾；绑全部角色则要动 10+ 处角色绑定清单，为一个反特性买单。且舞台机械进权限目录会污染 RBAC 演示本身（action-bucket 目录冒出与业务无关条目）。`rules/backend.md` 第 45 行「新增 admin 端点必须登记」的立法目的是防 AdminPermissionGuard 的 403 陷阱——本控制器不挂该 guard，陷阱不存在；rules 与总纲冲突以总纲为准，总纲 §2 禁做「管理 API 权限加固」。
 
 ## 4. 前端 · Demo Data 面板
 
