@@ -1,6 +1,6 @@
 # V6 · 兑换（钱怎么换）
 
-> 对应 PRD：待写 ｜ 技术节点 Last Verified：2026-09-12（波三红项修复：E1 原地冻定案 + operator 语义化 + SLA 重提推窗）
+> 对应 PRD：待写 ｜ 技术节点 Last Verified：2026-09-13（波四共享抽离：`FAILED`/`REVERSED` 死枚举清除、fee-level 双树合一，行为零变化）
 > 演示幕次：第四幕「钱换」 ｜ 验收：第四幕走查（`demo/script.md`）+ 本篇 §4
 
 ## 0. 一句话定位
@@ -23,7 +23,7 @@
 
 **卡住是旗不是状态。** 记账腿失败自动重试，耗尽后单子留在"处理中"+ 红旗（needsReview）等运营 resume；兑换刻意没有"失败"终态。
 
-## 2. 状态机（枚举 7 态、可达 5 态 / 5 动作 / 5 边）
+## 2. 状态机（5 态 / 5 动作 / 5 边）
 
 ```
 COMPLIANCE_PENDING（出生态，零记账）
@@ -35,7 +35,7 @@ COMPLIANCE_PENDING（出生态，零记账）
 
 - `PROCESSING` **刻意没有冻结入边**：钱已经在动，中途冻结会造半截账。冻人广播碰到在途单只落旗与审计，不打断结算
 - 迟到的裁决（单已进 PROCESSING 才收到）**不驱动状态机**，只留证据与红旗——但拒绝类照样跑客户处置
-- `FAILED` / `REVERSED` 两个枚举值是**不可达死码**（无入边、无写入方），讲解时不要把它们当真状态
+- `FAILED` / `REVERSED` 两个不可达死枚举值已随波四共享抽离清除（2026-09-13，实扫零写入点、零入边）：后端 4 处读面（本域终态集与迁移表空行、swap-workflow 终态集、`transaction-limit-gate` 排除集）+ admin-web 2 处（`swapStatusMap.ts` 映射条目 + Exception 筛选组两项）+ client-web 1 处（`Swap.tsx` 终态集）一并摘除；管理台兑换筛选 Exception 组自此少两个永远筛不到的选项
 
 ## 3. 决策点与角色
 
@@ -68,6 +68,7 @@ COMPLIANCE_PENDING（出生态，零记账）
 - 冻人标识（2026-09-12 波三红项修复，E1 原地冻定案）：`SwapTransactionsService` 按 `customerAccessService.resolve().blocked.has('SWAP')` 派生 `ownerRestricted`（只在 admin 侧计算，列表批量查、详情单笔查；customerScope 一律不带，tipping-off）；管理台列表 / 详情页据此渲染独立的 `CUSTOMER_FROZEN` 徽章，与 `needsReview`（技术卡单）分开——不落库，随解冻自动消失
 - 时间线 operator 语义化（2026-09-12，六个 `markStatus()` 写点）：`SUMSUB_KYT`（KYT 通过 / 拒绝 / 制裁裁决冻结三处）、`LEG_SETTLEMENT`（四腿清算成功）、`RESTRICTION_BROADCAST`（客户级限制广播冻单）、`SLA_SWEEP`（超时拒单）——此前全部硬编码 `'SYSTEM'` 字面量，时间线看不出是哪条机制在动单
 - L1 `L1GateService`（十项，含资产可用性；BLOCK 留 `*_L1_BLOCKED` 痕）／限额 `TransactionLimitGateService.evaluate()`（建单前；AED 估值快照落单供累计取数）
+- **共享层现状（波四共享抽离，2026-09-13，行为零变化）**：`sumsub-shared/` 的四个公共基类（`SlaSweepBase`/`KytVerdictHandlerBase`/`DemoScenarioControllerBase`/demo-scenario 服务侧公共件）只服务充值↔提现镜像对，**兑换零接入、五件套全部独立演进**（SLA `swap-sla.service.ts`、webhook router、KYT 裁决落地、demo 场景仿真、admin demo 控制器均不继承任何基类）；`swap-webhook.router.ts` 头注已改口径为"充提共底座、兑换独立演进"。但 `trading/shared/` 的三个纯函数工具本域**照常复用**：资产投影 `toCustomerAssetView()`（from/to 两资产各调一次）、SLA 字段计算 `resolveSlaFields()`（`resolveSlaFields()` 薄壳委托）、客户级限制冻结扫描信封 `freezeScanQueryArgs()`（本域走 `ownerNoSource: 'column'` + `extraSelect: { fromAmount: true }`——出生锁退还金额需要这一列，是甲案信封里唯一的域专属额外列）。**fee-level 双树合一本域全程参与**：`swap-fee-level.service.ts`/`*-change-workflow.service.ts`/`*-retire-workflow.service.ts`/`*-creation-workflow.service.ts` 分别继承 `trading/shared/fee-level.base.ts`（`FeeLevelServiceBase`）与 `fee-level-workflow.base.ts`（`FeeLevelCreationWorkflowBase<TDto>`/`FeeLevelChangeWorkflowBase`/`FeeLevelRetireWorkflowBase`）——14 族逐字同方法（=18 个具体方法）收进基类，8 个真分叉（资产对双列 `fromAssetId`+`toAssetId` 贯穿查询/建档校验、`findActiveByPair` 命名与入参、`validateTiersJson` 校验规则本身不同）留域内子类；与 `withdrawal-fee-level`（见 `modules/v5-withdraw.md` §5）对称的 3 个审批薄壳文件因 `actionType`/`workflowType` 不同**不合并**、原样两份
 
 ## 6. 演示缺口（BACKLOG 有账）
 

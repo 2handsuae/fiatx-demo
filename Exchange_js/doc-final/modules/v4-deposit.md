@@ -1,6 +1,6 @@
 # V4 · 充值（钱怎么进来）
 
-> 对应 PRD：待写 ｜ 技术节点 Last Verified：2026-09-12（波三红项修复：冻结留痕补齐 + 客户端受限横幅）
+> 对应 PRD：待写 ｜ 技术节点 Last Verified：2026-09-13（波四共享抽离：充提镜像五件抽公共底座，行为零变化）
 > 演示幕次：第三幕「钱进」 ｜ 验收：第三幕走查（`demo/script.md`）+ 本篇 §4
 
 ## 0. 一句话定位
@@ -71,12 +71,13 @@
 - **处置动词** `funds-orders/disposition.service.ts → DispositionService`（地基站 2026-08-26）：initiate / rebuild / settle / voidAttempt / clearLeg——三弧的建腿、锁账、落账、重试三级梯、腿收口收敛为一份实现，工作流按说明书一句话调用
 - 状态机 `deposit-transactions.service.ts → getNextStatus()`（29 边迁移表 + 守则单测锁边数）；状态直改侧门已物理删除——`PATCH :id/status` 端点 2026-08-30（00b0eb83）连黑名单守卫一并移除，controller 注释自证
 - L1 闸门 `trading/shared/` `L1GateService`（十项快照，三域共用求值器；判定结果整包落单上 l1Snapshot）
-- KYT 类型判定 `kyt-txn-type.resolver.ts → resolveKytTxnType()`（crypto ∧ VASP ∧ 金额≥阈值 → travelRule；阈值写死：AED 3500 / USDT 1000，边界取 ≥）
+- KYT 类型判定 `sumsub-shared/kyt-txn-type.resolver.ts → resolveKytTxnType()`（crypto ∧ VASP ∧ 金额≥阈值 → travelRule；阈值写死：AED 3500 / USDT 1000，边界取 ≥；波四已从本域迁至 `sumsub-shared/`，消掉此前 withdraw 跨域 import 本域文件的唯一环外依赖）
 - SLA `deposit-sla.service.ts`（按"进入状态"计时；COMPLIANCE_PENDING 5 分钟硬线 / ACTION_PENDING 7 天）
 - 补料 `material_requests` 材料账驱动（下发/提交/裁决闭环，见 V2 篇）；客户端独立补料页内嵌 Sumsub SDK
 - Sumsub 接入 `sumsub-ingestion/ → ingest()/dispatch()`（webhook 统一入口按事件×域路由）；演示裁决 `SUMSUB_MOCK_MODE=true` 时注册的 verdict runner（⚡11 按钮，三域同源共享表 `sumsub-shared/verdict-buttons.shared.ts`）
 - 补单（B 批，2026-09-03）：`effectiveDate String?` 新列（补录才有值，`executeDepositAccounting` 的 STEP_1/STEP_2 都读它，列优先于资金单 CONFIRM 步同名参数——后者对这条路径是死代码）｜ 新终态 `CLAWED_BACK` + 动作 `CLAWBACK`，新转账码 `DEPOSIT_CLAWBACK`（分录借客户应付 / 贷客户资产）｜ 入口、审批与守卫见 `modules/v8-recon.md` §3/§5
 - 资金单镜像与逐腿记账机制 → 见 funds-orders 篇 / accounting-coa 篇
+- **共享层现状（波四共享抽离，2026-09-13，行为零变化）**：`deposit-sla.service.ts`/`deposit-kyt-verdict.handler.ts`/`admin-deposit-demo.controller.ts` 分别继承 `sumsub-shared/` 的公共基类 `SlaSweepBase`/`KytVerdictHandlerBase`/`DemoScenarioControllerBase`（与提现域同构镜像，**兑换域不参与、独立演进**，见 `modules/v6-swap.md` §5）；三域共用的资产投影 `toCustomerAssetView()`、SLA 字段计算 `resolveSlaFields()` 薄壳委托、客户级限制冻结扫描信封 `freezeScanQueryArgs()` 均收进 `trading/shared/`——本域走 `ownerNoSource: 'customerRelation'`（`DepositTransaction` 无 `ownerNo` 列，取数改走 `customer.customerNo` 关系，与 withdraw/swap 走原生列不同）
 
 ## 6. 演示缺口（BACKLOG 有账，挑演示可见的）
 

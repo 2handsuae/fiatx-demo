@@ -19,18 +19,6 @@ Last Updated: 2026-09-13
 
 > 还没开讲就可能踩的：开演前重铺（`reset-main` → `demo:all`）与造数判据网、答案键、铺场工具的缺口。
 
-- [ ] 🔴 **`demo:all` 偶发客户侧记账失衡（约 1/13，触碰铁律⑤「钱动必过账」）——2026-09-13 现场取证已坐实：写镜像 id 补零归一未做，非真丢账；同日业主拍板修复归波四**：全新库上跑 `reset self` → `demo:all`，29 笔订单全部走到预期终态、**花名册断言全绿**，但 COA 客户侧两条恒等式静默不平——实测 `CLIENT_ASSET(AED) 12346594 ≠ CLIENT_PAYABLE+DEPOSIT_SUSPENSE 4266547`（差 80,800.47 AED），`USDT` 同向差 8,992.57 USDT，**两个币种资产 side 均约为负债 side 的 2.88 倍**；公司侧两条恒等式同时全绿。**非确定性**：同一提交同一命令连跑 13 次，12 次干净、1 次失衡。已用实证排除"本批引入"——在 `git merge-base main HEAD`、在新增客户提交的前一刻、在该提交本身、在 HEAD 上分别跑过，且逐提交核对确认 `demo:all` 实际执行到的 `demo-lib.ts`/`demo-roster.ts` 在这些提交间**逐字节相同**。花名册从 21 行加到 29 行只是把单次记账笔数从 ~14 提到 ~21，**提高了撞上的概率、不是原因**。
-
-  **头号怀疑（2026-09-13 现场取证已排除——普查零重复落账、零单边转账，无证据支持）**：`src/modules/trading/swap-transactions/swap-workflow.service.ts:1529` 的 `handleFundsOrderChanged()` 在腿失败/超时时走 `:1636` 的 `onLegFailedSelfHeal`——void 当前 attempt、重建 attempt+1。而 `swap-leg-accounting.ts` 的 `deterministicTransferId(..., attempt)` 把 attempt 编进转账 ID，**TigerBeetle 的 ID 去重因此只挡得住同一 attempt 内的重复，挡不住"这一 attempt 其实已经落账成功却被误判 FAILED/TIMEOUT"**；且 `postLeg`/`advance`/`createLeg` 整套包在 SQL `$transaction` 里，**TigerBeetle 的落账不受该事务回滚保护**。已排查并排除：充值 SUCCESS 路径（成对转账，重复调用不破坏恒等式）、几个 SLA 类 `@Cron`（阈值 30 秒~5 分钟，远长于 demo:all 实测 ~18 秒全程）。
-
-  🔴 **2026-08-31 订正：此前把"单个客户钱包净额变 0"记成本条的第二个症状，是并错了。** 那个现象读的是另一条代码路径（对账引擎的 `WalletBalanceCheckerService`），而本条 COA 断言走的是 `demo-lib.ts` 的 `buildCoaBalanceMap`（遍历注册表 → `lookupBalance`），两者不共享出错点。**"钱包净额变 0"已另有更好的解释**：`PRODUCTION-NOTES.md` 那条「`WalletBalanceCheckerService` 查注册表未套用十六进制补零，随机丢一笔分录」——概率约 1/16、症状正是"少算一整条 PAYABLE 分录"、且一旦命中会在该 reset 周期内**稳定**复现。
-
-  ⚠️ **2026-09-13 现场取证：数据层已坐实根因，代码层待修（业主排期，非波三范围）**——详见 `.superpowers/sdd/coa-evidence-20260913/findings.md`。**幻影失衡，不是真丢账**：`account_flows` 全局普查每个 `tbTransferId` 恰好 2 行，TB 与镜像双边齐全、零重复；真正的问题是**写镜像时 id 十六进制拼写未补零**（`tbAccountId`/`tbTransferId` 每个 id 约 1/16 概率丢前导零），而 `tb_account_registry` 存的是补零后的 32 位拼写——按字符串 `LEFT JOIN` 的读面因此把这些行判成孤儿、丢出恒等式。封存库（`.superpowers/sdd/coa-evidence-20260913/dev.db.imbalanced`）上普查到 18 行 registry-join 孤儿，按 registry join 复算 AED 差额与三笔充值（`DEP260913138750`/`187996`/`730931`）落入孤儿行的 PAYABLE 侧金额恰好吻合（940,000 minor）；USDT 判定同病同因（镜像侧完全平，FAIL 必是读面丢行）。与既往记录全部吻合：1/13 出现率 ｜ 资产 side 大于负债 side（丢的多为 PAYABLE/SUSPENSE 侧）｜ 与 `PRODUCTION-NOTES.md` 已登记的「`WalletBalanceCheckerService` 查注册表未套用十六进制补零」同病先例、方向线索一致。**复现**（在封存副本上）：`sqlite3 dev.db.imbalanced "SELECT length(tbAccountId), length(tbTransferId), count(*) FROM account_flows GROUP BY 1,2;"`（看到 30/31 位混长即坐实）；孤儿行：`SELECT f.sourceNo, f.eventCode, f.direction, f.amount FROM account_flows f LEFT JOIN tb_account_registry r ON f.tbAccountId=r.tbAccountId WHERE r.tbAccountId IS NULL;`。**修复方向**：写镜像处（`account_flows` 落行时的 id 十六进制化）统一 `padStart(32,'0')`，顺带排查同工地的 `tbTransferId` 拼写与所有按字符串比对 id 的读面（`buildCoaBalanceMap` / `WalletBalanceCheckerService` / 对账引擎）；修好后连跑 `demo:all` 若干次验证 FAIL 率归零，历史库不用管（重铺解决存量）。
-
-  **下次取证的正确姿势（关键，别错过现场）**：判红后**先别 reset**，在失衡的库上按 `sourceType/sourceNo` 分组，数 `account_flows` 里每个 `swapNo`/`depositNo` 名下 `CLIENT_ASSET` 方向的转账笔数是否 >1（正常恒为 1）——比继续读代码猜更快锁到是哪类单、第几次 attempt。
-
-  ⚠️ **归 BACKLOG 不归 PRODUCTION-NOTES**：它动的是「钱动必过账」这条不可违反规则，一旦坐实会动摇账本可信度，不是纯技术兜底 ｜来源: 2026-08-30 破口场景批次 Task 5 收尾时撞见，专项调查报告见 `.superpowers/sdd/coa-imbalance-report.md`；2026-09-13 波三红项修复收尾闸复现 + 现场取证坐实根因，见 `.superpowers/sdd/coa-evidence-20260913/findings.md`
-
 - [ ] **`demo:all` 花名册断言只看订单终态，不校验命中费率档——Grace 命中 VIP 档还是回落 STD 档，花名册分不出**：`demo-lib.ts` 的花名册比对逐笔只断言"预期终态 == 实到状态"（如 SUCCESS/FROZEN），不读订单实际结算用的费率等级或费用金额。VIP 与交易档位解绑后（2026-09-06 客户域波一，VIP 改手打 STATIC 标签），Grace 的 VIP 标签是否真的命中 `VIP-USDT-AED` 费率档、还是意外回落到 `STD-USDT-AED` 默认档，两种结局订单终态都是 SUCCESS——花名册测不出区别，是判据网缺口，不是已知业务功能缺失 ｜来源: 2026-09-06 第二幕客户域波一评审发现
 
 - [ ] **答案键的 `expectedLines[].amount` 是装饰性的、没人读**（2026-08-31 终审）：`verifyManifest` 的 select 和匹配谓词都不碰它，且语义在场景间不统一（有的存注入后的新值、有的存差额）。升级方向是把它变成载荷（谓词里断言外部金额），这样"注入跑了但 delta 算错"也能被抓到——现在的钉行只能抓"整条没了"。⚠️ 终审的判断是**这条优先级低于已完成的完整性断言**（`casesOpened == manifest.wallets.length`，已于 `2e74d6d4` 落地）：金额算错已被 `bumpClosing` 连到桶断言上，而"多报破口"那一侧才是当时完全没人看的 ｜来源: 2026-08-31 整支终审
@@ -219,8 +207,6 @@ Last Updated: 2026-09-13
 
 - [ ] **`InternalFundAuditLog` 有读无写 → 资金单详情页审计列表永远空**：Round 2 后零写入方，读取链还在——运营点开任何一张资金单，审计栏都是空的（踩铁律①「操作必留痕」的可见面）。补写状态变更 or 改读中央审计日志 ｜来源: 2026-07-03 死码 D6 改判（勿删表，有活读取链）；2026-08-26 分流迁入 PRODUCTION-NOTES，2026-08-28 判为业务缺口迁回
 
-- [ ] **广播路径冻结审计（`DEPOSIT_FROZEN`/`WITHDRAW_FROZEN`）无 OWNER subject——按客户号查不到，按单号可查**：`findNonTerminalByOwner()`（`deposit-transactions.service.ts`/`withdraw-transactions.service.ts`）的 `select` 没有 `ownerNo`（也没 join `customer`），而 `depositAudit()`/`withdrawAudit()` 的 OWNER subject 取自 `deposit.customer?.customerNo ?? deposit.ownerNo`——两者都拿不到，`if (customerNo)` 分支直接跳过，这批广播冻结事件永远不会往 `audit_log_subjects` 写 OWNER 行。**对照**：`swap-transactions.service.ts` 的同名方法 `select` 里明确带了 `ownerNo: true`——三域里唯一选对的是兑换域。后果：这条与 §H「`audit_log_subjects` 子表覆盖面远小于设计前提」同源，但触发条件更窄——`DEPOSIT_FROZEN`/`WITHDRAW_FROZEN` 事件按 `primarySubjectNo`（单号）查得到，按客户号查不到该行。修法：两处 `select` 各加 `ownerNo: true`（对齐 swap 域写法）｜来源: 2026-09-13 波三 Task 1 评审域外观察；同日业主拍板归波四（与 §A id 补零修复同批）
-
 - [ ] **审计证据包导出的 deposit/withdraw 证据链构建函数引用 5 个不存在的 Prisma 模型，从出生起未工作；波三 Task 9 切换输入后仍不可见**：`audit-logs.service.ts → buildDepositSnapshots()`/`buildWithdrawSnapshots()`（约多处）调用 `db.kytCase?.findMany`/`db.travelRuleCase?.findMany`/`db.workflowDecisionRecord?.findMany`/`db.complianceAlert?.findMany`/`db.complianceIncident?.findMany`——这 5 个模型在 `schema.prisma` 里根本不存在，`?.findMany` 恒为 `undefined`，三元表达式恒走 fallback 空数组分支，从未真正查询过。**波三 Task 9（审计跳转甲案）把这两个函数的 `workflowIds` 输入从已删除的幽灵字段 `entityId` 切到真实存在的 `primarySubjectNo` 后**，`workflowIds` 从近乎恒空变成真的装着业务号，随后 `db.depositTransaction.findMany({where:{id:{in: workflowIds}}})`/`db.withdrawTransaction.findMany({...})` 这两条查询**会真执行**（不再被 `!workflowIds.length` 短路），但 `where` 按的是内部 `id`（UUID）列，`workflowIds` 装的却是业务号字符串（如 `DEP2601011234`），永远匹配不上——**最终可见结果仍是空**，只是从查询从未执行变成查询执行了但按业务号匹配内部 id 列而落空。**不是完全死代码，勿写成可放心大改**——将来要修，除了给 5 个 ghost 模型立表（或整段退役），`depositTransaction`/`withdrawTransaction` 两处 `where` 也得从 `id` 改成 `depositNo`/`withdrawNo`。**对照**：`buildSwapSnapshots()` 走 `resolveSwapExportSelectionContext()` 先把业务号解析成真实内部 id 再查询，SWAP 链已随 Task 9 真修复，充值/提现两域未跟进这层转换 ｜来源: 2026-09-13 波三 Task 9；同日业主拍板归第七幕（审计追溯）轮修
 
 ## I. 贯穿多幕（通知 ｜ SLA ｜ 杂项）
@@ -270,6 +256,14 @@ Last Updated: 2026-09-13
 - [~] roadmap **V3/V4 已按三层新格式重排 + truth 外置**（2026-07-03）；V1/V2/V5-V9 待同款处理
 
 ---
+
+## 本轮销账（2026-09-13 波四共享抽离）
+
+> 十二任务 subagent-driven（充提镜像五件抽公共底座 / 三份函数甲案收编 + 广播冻结审计补 OWNER / fee-level 双树合一 / kyt-txn-type 归位 / §A 幻影失衡修复 / 兑换死枚举清除，行为零变化），spec/plan 见 `superpowers/specs/2026-09-13-wave4-shared-extraction-*`；五项定案见 `decisions.md` 同日条。
+
+- [x] 🔴 **`demo:all` 偶发客户侧记账失衡（§A 幻影失衡，约 1/13，触碰铁律⑤）** —— 已修：根因是 `account_flows` 落行 id 十六进制拼写未补零（约 1/16 概率丢前导零）导致按字符串比对的读面把该行判成孤儿、丢出恒等式（幻影失衡，非真丢账，TB 与镜像双边齐全）；落行处统一 `id.padStart(32,'0')`，连带排查 `tbTransferId` 同病 + `buildCoaBalanceMap`/`WalletBalanceCheckerService`/对账引擎三处按字符串比对 id 的读面；重铺闸 10 连跑全绿验证，历史库不管（重铺解决存量）
+- [x] **广播路径冻结审计（`DEPOSIT_FROZEN`/`WITHDRAW_FROZEN`）无 OWNER subject——按客户号查不到，按单号可查** —— 已修：`findNonTerminalByOwner()` 甲案信封收编进 `trading/shared/freeze-scan.util.ts`，新增必选参数 `ownerNoSource: 'column' | 'customerRelation'`——执行期实测 `DepositTransaction` 无 `ownerNo` 列（withdraw/swap 有），deposit 走 `customer.customerNo` 关系取号、withdraw/swap 走原生列（对齐既有 swap 写法）；两域广播冻结审计自此按客户号可查
+- [x] ~~**V6 兑换 FAILED/REVERSED 死枚举**~~ —— 核实：本台账从未登记过此条目（全文 grep 零命中），说法只出现在 swap dto 头注释里、从未入账；随死枚举本体清除（后端 4 处 + admin-web 2 处 + client-web 1 处引用一并摘除，见 `decisions.md` 2026-09-13 条）一并了结，此处记一笔备查，不造假行
 
 ## 本轮销账（2026-09-13 波三红项修复）
 

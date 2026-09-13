@@ -1,6 +1,6 @@
 # V5 · 提现（钱怎么出去）
 
-> 对应 PRD：待写 ｜ 技术节点 Last Verified：2026-09-12（波三红项修复：tipping-off 三防线补齐，与充值域对齐）
+> 对应 PRD：待写 ｜ 技术节点 Last Verified：2026-09-13（波四共享抽离：充提镜像五件抽公共底座 + fee-level 双树合一，行为零变化）
 > 演示幕次：第五幕「钱出」 ｜ 验收：第五幕走查（`demo/script.md`）+ 本篇 §4
 
 ## 0. 一句话定位
@@ -77,6 +77,7 @@
 - L1 `L1GateService`（提现十项全适用，含资产可用性；BLOCK 留 `*_L1_BLOCKED` 痕）；限额/大额阈值读 `transaction_limit_rules`（V3 篇）
 - 补单（B 批，2026-09-03）：`withdraw-workflow.service.ts → initiateReturnClaim()+onReturnAfterSuccess()`（复用 `onBounce()` 的重记分录，evidence 的 `externalRef`/`effectiveDate` 改用传入值，**跳过**费腿分支——SUCCESS 时费腿早已结清、手续费不退）｜ 新列 `returnExternalLineId String? @unique`/`returnReconCaseNo String?`｜ 入口、审批与守卫见 `modules/v8-recon.md` §3/§5
 - 补料与材料账、Sumsub 接入同充值（V4 篇 §5），两域同构
+- **共享层现状（波四共享抽离，2026-09-13，行为零变化）**：`withdraw-sla.service.ts`/`withdraw-kyt-verdict.handler.ts`/`admin-withdraw-demo.controller.ts` 分别继承 `sumsub-shared/` 的公共基类 `SlaSweepBase`/`KytVerdictHandlerBase`/`DemoScenarioControllerBase`（与充值域同构镜像，**兑换域不参与、独立演进**，见 `modules/v6-swap.md` §5）；三域共用的资产投影 `toCustomerAssetView()`、SLA 字段计算 `resolveSlaFields()` 薄壳委托、客户级限制冻结扫描信封 `freezeScanQueryArgs()` 均收进 `trading/shared/`——本域走 `ownerNoSource: 'column'`（`WithdrawTransaction` 自带 `ownerNo` 列，与 deposit 走 customer 关系不同）。`withdrawal-fee-level/` 与 `swap-fee-level/`（V6 篇 §5）双树同期合一：本域 `withdrawal-fee-level.service.ts`/`*-change-workflow.service.ts`/`*-retire-workflow.service.ts`/`*-creation-workflow.service.ts` 均改继承 `trading/shared/fee-level.base.ts`/`fee-level-workflow.base.ts`——14 族逐字同方法进基类，单资产列（`assetId`）贯穿的查询与建档校验等 8 个真分叉留域内子类；3 个审批薄壳文件因 `actionType`/`workflowType` 与兑换域不同，不合并、原样保留两份
 
 ## 6. 演示缺口（BACKLOG 有账）
 
