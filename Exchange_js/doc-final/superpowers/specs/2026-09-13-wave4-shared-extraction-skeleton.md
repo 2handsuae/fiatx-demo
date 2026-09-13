@@ -48,7 +48,8 @@
 
 **先补后收，同文件同批：**
 
-1. **补 OWNER**（业主拍板并入，BACKLOG 在册条）：deposit/withdraw 两域 `findNonTerminalByOwner` 的 select 补 `ownerNo: true`，对齐 swap；连带核对两域 `onCustomerRestrictionOpened` 广播路径的审计调用把 ownerNo 真传进信封（select 有、审计不传=白补）。
+1. **补 OWNER**（业主拍板并入，BACKLOG 在册条）：deposit/withdraw 两域 `findNonTerminalByOwner` 的取数面补客户号，使广播冻结审计按客户号可查；连带核对两域 `onCustomerRestrictionOpened` 广播路径的审计调用把客户号真传进信封（select 有、审计不传=白补）。
+   **执行期勘误（2026-09-13 栈级检查逮回）**："select 补 ownerNo 对齐 swap"的原提法在 schema 层不成立——DepositTransaction **没有 ownerNo 列**（withdraw/swap 有且全填充）。终态实现：信封必选参数 `ownerNoSource: 'column' | 'customerRelation'`，deposit 走 `customer.customerNo` 关系取数（depositAudit 现成读法天然兼容），withdraw/swap 走原生列；业主意图（按客户号可查）不变。
 2. **asset 投影块** → 共享纯函数 `toCustomerAssetView(asset)`（`{currency, code, network, decimals} | null` 8 行），三域调用（swap 双资产调两次）。
 3. **resolveSlaFields** → 共享泛型 `resolveSlaFields(minutesByStatus, nextStatus)`，域内保留原签名薄壳委托（deposit 的是公开方法有外部调用方，签名不动）。
 4. **findNonTerminalByOwner** → 甲案（定案 4）：共享 helper 锁死信封（where 形状 + select 必带键 id/单号/ownerType/ownerId/**ownerNo**/status/traceId/**correlationId**），各域参数传：Prisma delegate、单号字段名、终态排除集、额外列（仅 swap `fromAmount`）。各域业务注释（终态排除的两段为什么）留在域侧调用点。
