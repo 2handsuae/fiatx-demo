@@ -4,7 +4,7 @@
 
 ## 0. 本任务做 / 不做
 
-**做**：A 充提镜像五件抽公共底座（兑换零接入）｜ B 三份逐字函数收编 + 广播冻结审计补 OWNER（同文件同批）｜ C fee-level 双树合一 ｜ D kyt-txn-type.resolver 归位 ｜ E §A 幻影失衡修复 ｜ 顺手项四条（§8）
+**做**：A 充提镜像五件抽公共底座（兑换零接入）｜ B 三份函数收编（甲案信封式）+ 广播冻结审计补 OWNER（同文件同批）｜ C fee-level 双树合一 ｜ D kyt-txn-type.resolver 归位 ｜ E §A 幻影失衡修复 ｜ F 兑换 FAILED/REVERSED 死枚举清除（业主 2026-09-13 拍板并入）｜ 顺手项五条（§9）
 
 **不做**（对照项目总纲 §2 与战役总纲 §3）：幂等/去重/重试/并发锁/防御校验等 §2 全清单 ｜ 三个 workflow 本体（业务分叉真实）｜ SwapLegAccounting↔DispositionService 双胞胎引擎（业主已裁）｜ **兑换接底座**（今日定案 1）｜ **客户可见性常量抽共享**（今日定案 2，骨架"第三份镜像件候选"假设被 diff 证伪）｜ **16 审批薄封装收敛**（今日定案 3，与总纲原文出入，收尾记 decisions.md）｜ 域外债：审计证据包导出 deposit/withdraw 链恒空（业主拍板归第七幕轮，BACKLOG §H 在册）
 
@@ -29,6 +29,8 @@
 1. **兑换零接入**：公共底座只服务充值↔提现镜像对，兑换五件全部保持独立演进。证据：归一化相似度 充↔提 68–92% vs 兑换↔另两域 22–53%（SLA 仅 22%：无软 SLA 结构整体不同；verdict 45%：applicant-action 方法名完全不同；router 53% 且兑换是三级级联最后一棒、独担孤儿兜底 warn，职责本身不同）；唯一 84% 的 demo 控制器仅 50 行，省约 40 行不值三域耦合。零接入让边界一句话讲清：**充提共底座，兑换独立演进**。
 2. **客户可见性常量不抽**：deposit `CUSTOMER_BUCKETS`/`CUSTOMER_STATUS_PASSTHROUGH`/`CUSTOMER_COMPLETED_STATUSES` 与 withdraw `WITHDRAW_CUSTOMER_*` 是**同款设计、不同内容**（桶名单分叉：充值有 RETURNING/CLAWED_BACK、提现有 REJECTED；透传集 8 vs 6；完成态集合不同），且充值侧带成段域内合规注释（CLAWED_BACK 与 tipping-off 关系）。抽共享只得空壳形状类型，一行重复内容省不掉。两域各留各的。
 3. **16 审批薄封装不收敛**：实数全仓 **36** 个类继承 `ApprovalHandlerBase`（16 纯薄壳散布身份/金库/交易/治理/审计/清结算），工厂化触面横跨 20+ 模块超出交易域波次边界；只收交易域内会造成同家族两种写法。净省约 160 行买不回全仓审批链的行为零变化验证成本；且类名即 NestJS DI 令牌、可 grep 直达。**记明确不做，防后人重提。**
+4. **findNonTerminalByOwner 收编取甲案（信封式）**：plan 前实测推翻"三份逐字"前提——swap 的 select 多 `fromAmount`（站3 出生锁：冻结留痕携退还金额），三域终态排除集、单号字段名本就不同。甲案 = 共享 helper 锁死审计信封必带键（ownerNo/correlationId/traceId），各域传自己的终态集/单号字段/额外列——防的正是本波修的"swap 有、充提漏"漂移病（correlationId、ownerNo 已连漂两回）。
+5. **兑换 FAILED/REVERSED 死枚举并入本波清除**：2026-09-13 实扫零写入点（迁移表两行空 `{}`、零入边；复现命令 `grep -rn "REVERSED" src/ admin-web/src client-web/src --include="*.ts" --include="*.tsx" | grep -v spec`，命中全为读侧防御性包含）。"历史行兼容"的保留理由与重铺教义冲突已不成立；且甲案的终态集参数化正好要它先死干净。
 
 ## 3. A · 充提镜像五件抽公共底座（兑换零接入）
 
@@ -40,15 +42,26 @@
 - **兑换五件零改动**（定案 1）；唯一例外是注释更新：swap-webhook.router 头注 "deliberate fork，三域各自演进不共享基类" 的历史口径改为 "充提共底座、兑换独立演进"，防注释说谎。
 - demo 两件的切分线：DemoScenarioActor/VERDICT_OF 等逐字部分进基类，剧本内容（各域状态机专属步骤）留域内。
 
-## 4. B · 三份逐字函数收编 + 广播冻结审计补 OWNER
+## 4. B · 三份函数收编（甲案）+ 广播冻结审计补 OWNER
+
+**前提勘误**（2026-09-13 实测，修正总纲与体检的"三份逐字"提法）：三份中只有 asset 投影块真字节级相同；`resolveSlaFields` 仅差各域时长表常量；`findNonTerminalByOwner` **非逐字**——swap select 多 `fromAmount`，三域终态排除集、单号字段名不同。
 
 **先补后收，同文件同批：**
 
-1. **补 OWNER**（业主拍板并入，BACKLOG 在册条）：deposit/withdraw 两域 `findNonTerminalByOwner` 的 select 补 `ownerNo: true`，对齐 swap 域写法——使 `DEPOSIT_FROZEN`/`WITHDRAW_FROZEN` 广播冻结审计行按客户号可查。
-2. **收编**：补完后三份 `findNonTerminalByOwner` 完全一致，与 `resolveSlaFields`（归一化 diff=0）、`toCustomer*View` asset 投影块（字节级相同）同批收编为共享单份。
-3. 收编涉兑换文件，但**零抽象强加**（三份本来就一模一样），与定案 1 不冲突——定案 1 拒的是把分叉结构硬塞进底座，不是拒碰兑换文件。
+1. **补 OWNER**（业主拍板并入，BACKLOG 在册条）：deposit/withdraw 两域 `findNonTerminalByOwner` 的 select 补 `ownerNo: true`，对齐 swap；连带核对两域 `onCustomerRestrictionOpened` 广播路径的审计调用把 ownerNo 真传进信封（select 有、审计不传=白补）。
+2. **asset 投影块** → 共享纯函数 `toCustomerAssetView(asset)`（`{currency, code, network, decimals} | null` 8 行），三域调用（swap 双资产调两次）。
+3. **resolveSlaFields** → 共享泛型 `resolveSlaFields(minutesByStatus, nextStatus)`，域内保留原签名薄壳委托（deposit 的是公开方法有外部调用方，签名不动）。
+4. **findNonTerminalByOwner** → 甲案（定案 4）：共享 helper 锁死信封（where 形状 + select 必带键 id/单号/ownerType/ownerId/**ownerNo**/status/traceId/**correlationId**），各域参数传：Prisma delegate、单号字段名、终态排除集、额外列（仅 swap `fromAmount`）。各域业务注释（终态排除的两段为什么）留在域侧调用点。
+5. 落点：`src/modules/trading/shared/`（新建或沿用现有共享层，plan 时按现场定）。
 
 **专项验收**：demo:all 后按 Frank 客户号在审计页查到广播冻结行。**销账**：BACKLOG 广播冻结审计条。
+
+## 4-bis. F · 兑换 FAILED/REVERSED 死枚举清除（业主拍板并入，定案 5）
+
+- 删 `SwapTransactionStatus.FAILED/REVERSED` 两枚举成员 + 全部 8 处读面引用：后端 4（swap-transactions 终态集与迁移表空行、swap-workflow 终态集、transaction-limit-gate `SWAP_COUNTED_EXCLUDE`）｜ admin-web 2（`swapStatusMap.ts` 映射条目 + Exception 筛选组两项）｜ client-web 1（`Swap.tsx` 终态集）；相关"死枚举"注释同步清。
+- 甲案的 swap 终态集参数在清除**之后**定稿（不把死枚举抄进共享参数）。
+- **可见变化**：管理台兑换筛选 Exception 组少两个永远筛不到的选项——触发⑤截图闸（本波唯一前端改动）。
+- **销账**：BACKLOG「V6 兑换 FAILED/REVERSED 死枚举」条。
 
 ## 5. C · fee-level 双树合一
 
@@ -69,20 +82,20 @@ withdrawal-fee-level 1673 行 / swap-fee-level 1844 行：24 同名同序方法�
 - 历史库不管（重铺解决存量）；无 schema 迁移、无 backfill。
 - **专项验收**：demo:all 连跑零幻影失衡（次数 plan 定，下限 10——历史失衡率 1/13，10 连绿才有判别力）+ 封存副本的复现命令在新库上零孤儿行。**销账**：BACKLOG §A 🔴 条。
 
-## 8. 顺手项（动到同文件时清，四条，见 §1 承接原文）
+## 8. 顺手项（动到同文件时清，五条）
 
-swap-workflow 双重注入合并 ｜ swap spec 补 LEG_SETTLEMENT operator 断言 ｜ audit-logs.service.spec mock 残留清理 ｜ deposit-workflow.service.spec 冻结审计断言补 fromStatus/toStatus。
+swap-workflow 双重注入合并 ｜ swap spec 补 LEG_SETTLEMENT operator 断言 ｜ audit-logs.service.spec mock 残留清理 ｜ deposit-workflow.service.spec 冻结审计断言补 fromStatus/toStatus（前四条见 §1 承接原文）｜ withdraw dto 头注"20 边"改 23（2026-09-13 实扫逮到的文档锈：迁移表实为 23 边，注释停在 task-1 定稿时点）。
 
 ## 9. 验收口径
 
 - 随手闸：三处 tsc + **jest 全量**（本波触面广，不做目录级豁免）。
 - **行为零变化主判据**：demo:all 重构前后输出一致——volatile 字段（时间戳/单号/uuid）归一化后 diff；**净减行数**为唯一正向指标。
 - 收尾闸：⑥ `on-stack demo:all` 断言终态 ｜ ⑦ `verify:coa`（§A 动了钱的读写面，永不豁免②）｜ ⑧ **重铺闸**：§A 改落行格式虽非 schema，其验收本身要求从零建库连跑——按重铺闸走（`stack.sh reset` + demo:all，判据对照 `demo/baseline.md` 全绿）。
-- 无前端文件改动预期；若执行中动到前端文件，当场触发⑤截图闸。
+- 前端改动仅限 F 死枚举清除两文件（admin `swapStatusMap.ts`、client `Swap.tsx`）——⑤截图闸对兑换列表筛选面各截一张；其余任务不得动前端文件。
 - 测试的绿必须来自行为；禁止「扫源码文本」型断言。
 
 ## 10. 收尾交付（delivery-checklist 命中行，plan 写死）
 
 - **「多波中的一波」**：立**波五骨架**（总纲链接/空承接节/已定事实/待定岔口）+ 承接记录写进波五骨架开头（实际偏差/新事实/波五前提变化——波五前提之一"号规已在波二定妥"仍真，需确认共享抽离未动路由）；不代写波五 spec。
-- **「每轮收尾」**：CHANGELOG 一行 ｜ BACKLOG 销账（§A 🔴 幻影失衡条、广播冻结审计 OWNER 条）｜ decisions.md 记 §2 三定案 ｜ modules 文档同步（v4/v5/v6 及 overview 涉共享层结构处）｜ §9 报告行。
+- **「每轮收尾」**：CHANGELOG 一行 ｜ BACKLOG 销账（§A 🔴 幻影失衡条、广播冻结审计 OWNER 条、V6 死枚举条）｜ decisions.md 记 §2 五定案 ｜ modules 文档同步（v4/v5/v6 及 overview 涉共享层结构处；v6 状态机数字随 F 更新：7 枚举→5 态）｜ §9 报告行。
 - worktree 隔离执行，合并后清 worktree+分支；合并进 main 后重启后端 + `db:base:sync`（例行）。
