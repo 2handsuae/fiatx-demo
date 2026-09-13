@@ -38,13 +38,13 @@ describe('tb-id.util', () => {
       expect(back).toBe(original);
     });
 
-    it('should produce lowercase hex string', () => {
+    it('should produce lowercase hex string, padded to 32 digits', () => {
       const hex = bigintToHex(255n);
-      expect(hex).toBe('ff');
+      expect(hex).toBe('0'.repeat(30) + 'ff');
     });
 
     it('should handle zero', () => {
-      expect(bigintToHex(0n)).toBe('0');
+      expect(bigintToHex(0n)).toBe('0'.repeat(32));
       expect(hexToBigint('0')).toBe(0n);
     });
   });
@@ -63,5 +63,23 @@ describe('bigintToRegistryHex —— 注册表账户号恒 32 位（平账二期
   it('已是 32 位的不动', () => {
     const id = BigInt('0xfabc0000000000000000000000000001');
     expect(bigintToRegistryHex(id)).toBe(id.toString(16));
+  });
+});
+
+describe('tb-id hex padding (§A 幻影失衡根修)', () => {
+  it('bigintToHex pads to 32 hex digits', () => {
+    expect(bigintToHex(0x1n)).toBe('0'.repeat(31) + '1');
+    expect(bigintToHex(0x1n)).toHaveLength(32);
+  });
+  it('full-width u128 stays 32 digits', () => {
+    const full = (1n << 128n) - 1n;
+    expect(bigintToHex(full)).toBe('f'.repeat(32));
+  });
+  it('roundtrips through hexToBigint', () => {
+    const id = deterministicTransferId('DEPOSIT', 'DEP1', 'E1', 0);
+    expect(hexToBigint(bigintToHex(id))).toBe(id);
+  });
+  it('bigintToRegistryHex agrees with bigintToHex now', () => {
+    expect(bigintToRegistryHex(0x1n)).toBe(bigintToHex(0x1n));
   });
 });
