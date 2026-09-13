@@ -31,6 +31,7 @@ import { AuditCategory, AuditSubjectRole } from '../audit-logging/dto/audit-log.
 @Injectable()
 export class DepositSlaService extends SlaSweepBase {
   protected readonly domainLabel = 'deposit';
+  protected readonly rowNoun = 'deposit';
   protected readonly softStatuses = DEPOSIT_SLA_SOFT_STATUSES;
 
   constructor(

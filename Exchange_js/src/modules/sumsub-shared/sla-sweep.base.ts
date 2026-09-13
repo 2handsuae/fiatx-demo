@@ -7,8 +7,10 @@ import { Logger } from '@nestjs/common';
  * 抽出的是「遍历候选 + 软/硬分流 + 单笔错误隔离」——这段两域逐字一致。
  * 域差异（候选查询、软状态集、硬破线动作、软破线审计）留给子类通过下面几个
  * abstract 成员实现；@Cron 入口与 checkSlaBreaches() 包装留在子类（不提到
- * 基类），避免装饰器元数据跨原型链失真的风险，也让两域现有 spec 能继续直接
- * 调用 `service.checkSlaBreaches()`。
+ * 基类）——基类合同只暴露 sweep(now) 一个公共方法，这是照合同做，不是库的
+ * 限制（NestJS MetadataScanner 的 getAllMethodNames 会沿原型链上溯，父类
+ * @Cron 也扫得到——2026-09-13 评审读 node_modules 源码证实）；留子类同时让
+ * 两域现有 spec 能继续直接调用 `service.checkSlaBreaches()`。
  *
  * 单笔候选处理失败（含 updateStatus 与 webhook 并发撞车时抛出的 Invalid
  * transition ——对方已经把单子推进了别的状态，是正常的竞态吸收，不是故障）
@@ -17,8 +19,10 @@ import { Logger } from '@nestjs/common';
 export abstract class SlaSweepBase {
   protected readonly logger = new Logger(this.constructor.name);
 
-  /** 'deposit' | 'withdrawal'——仅用于日志文案 */
+  /** 'deposit' | 'withdraw'——日志文案首词，与改前逐字一致 */
   protected abstract readonly domainLabel: string;
+  /** 'deposit' | 'withdrawal'——日志里 id 前的名词，与改前逐字一致 */
+  protected abstract readonly rowNoun: string;
   /** 软 SLA 状态集：等自己人处理超时，只标记不迁移状态 */
   protected abstract readonly softStatuses: ReadonlySet<string>;
 
@@ -37,7 +41,7 @@ export abstract class SlaSweepBase {
         await this.breach(row);
       } catch (err) {
         this.logger.error(
-          `${this.domainLabel} SLA sweep failed for ${row.id}: ${err instanceof Error ? err.message : String(err)}`,
+          `${this.domainLabel} SLA sweep failed for ${this.rowNoun} ${row.id}: ${err instanceof Error ? err.message : String(err)}`,
         );
       }
     }

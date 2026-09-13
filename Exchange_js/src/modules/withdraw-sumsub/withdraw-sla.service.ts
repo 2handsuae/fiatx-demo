@@ -30,7 +30,8 @@ import {
  */
 @Injectable()
 export class WithdrawSlaService extends SlaSweepBase {
-  protected readonly domainLabel = 'withdrawal';
+  protected readonly domainLabel = 'withdraw';
+  protected readonly rowNoun = 'withdrawal';
   protected readonly softStatuses = WITHDRAW_SLA_SOFT_STATUSES;
 
   constructor(
