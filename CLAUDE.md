@@ -128,3 +128,4 @@ npm run cloud:bootstrap   # 开服（一次性；控制台重装系统后重跑�
 - 服务的环境变量由 `Exchange_js/deploy/demo.env.template` 渲染；其中 `DATABASE_URL` 末尾带 `?connection_limit=1`（每进程 1 条数据库连接，业主 2026-09-12 拍板；原委见 `superpowers/specs/2026-09-11-tx-leak-fix-design.md`）
 - 实测（2026-09-12 最终配置）：常规部署 74 秒 ｜ 重铺 47 秒 ｜ 开机 37 秒 ｜ 内存峰值 3623 MB（8 GB 机器，swap 0）
 - 绝不删 `/var/lib/caddy`（证书存储；重签会撞 Let's Encrypt 频率上限）
+- 同事自助还原：管理台顶栏 Simulation 开关 → Demo Data 面板（重铺数据=整服务自退重启约 1 分钟；重摆对账场景=recon:demo:break 秒级）；`DEMO_OPS=1` 门控，仅云端 demo.env 有，本地无此入口

@@ -33,6 +33,7 @@ import { Link, useLocation, useNavigate, Outlet } from 'react-router-dom';
 import { useAdminSession } from '../contexts/AdminSessionContext';
 import { PERMISSIONS } from '../rbac/permissions';
 import { useSimulationMode } from '../utils/simulationMode';
+import DemoOpsPanel from './DemoOpsPanel';
 
 interface MenuLink {
   path: string;
@@ -87,6 +88,18 @@ const DashboardLayout = () => {
   const { session, clearSession, hasAnyPermission } = useAdminSession();
   const { enabled: simulationModeEnabled, setEnabled: setSimulationModeEnabled } =
     useSimulationMode();
+  const [demoOpsAvailable, setDemoOpsAvailable] = useState(false);
+  const [demoOpsPanelOpen, setDemoOpsPanelOpen] = useState(false);
+
+  // 探测 demo-ops 是否可达（DEMO_OPS=1 才注册路由）：404/网络错误 = 本地，隐藏入口。
+  useEffect(() => {
+    if (!simulationModeEnabled || demoOpsAvailable) return;
+    let cancelled = false;
+    void fetch(`${import.meta.env.VITE_API_URL}/demo-ops/status`)
+      .then((res) => { if (!cancelled && res.ok) setDemoOpsAvailable(true); })
+      .catch(() => undefined);
+    return () => { cancelled = true; };
+  }, [simulationModeEnabled, demoOpsAvailable]);
   const location = useLocation();
   const navigate = useNavigate();
 
@@ -521,6 +534,17 @@ const DashboardLayout = () => {
               </button>
             </label>
 
+            {/* Demo Data（仅云端：DEMO_OPS 探测可达才显示） */}
+            {simulationModeEnabled && demoOpsAvailable && (
+              <button
+                type="button"
+                onClick={() => setDemoOpsPanelOpen(true)}
+                className="rounded border border-adm-amber/60 px-2.5 py-1 font-mono text-[9px] uppercase tracking-[0.1em] text-adm-amber transition-colors hover:bg-adm-amber/10"
+              >
+                Demo Data
+              </button>
+            )}
+
             {/* Theme toggle */}
             <button
               onClick={toggleTheme}
@@ -563,6 +587,8 @@ const DashboardLayout = () => {
           onClick={() => setIsSidebarOpen(false)}
         />
       )}
+
+      <DemoOpsPanel open={demoOpsPanelOpen} onClose={() => setDemoOpsPanelOpen(false)} />
     </div>
   );
 };
