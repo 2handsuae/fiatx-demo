@@ -67,7 +67,7 @@ import {
   SUMSUB_TXN_CLIENT,
   SumsubTxnClient,
 } from '../../sumsub-shared/sumsub-txn-client.interface';
-import { resolveKytTxnType } from '../../deposit-sumsub/kyt-txn-type.resolver';
+import { resolveKytTxnType } from '../../sumsub-shared/kyt-txn-type.resolver';
 import { WithdrawApplicantActionsService } from './withdraw-applicant-actions.service';
 import { SupplementEvidenceService } from '../../clearing-settle/reconciliation/disposition/supplement-evidence.service';
 import { DispositionService as ReconDispositionService } from '../../clearing-settle/reconciliation/disposition/disposition.service';
