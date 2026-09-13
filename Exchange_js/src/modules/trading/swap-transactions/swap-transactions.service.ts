@@ -946,6 +946,7 @@ export class SwapTransactionsService {
       freezeScanQueryArgs({
         ownerId,
         noField: 'swapNo',
+        ownerNoSource: 'column',
         terminalStatuses: [...SWAP_FREEZE_SCAN_EXCLUDED],
         // ownerNo：Review Fix 4（Minor，2026-08-20）—— 监听器驱动的 SWAP_FROZEN
         // 审计要带业务键（entityOwnerNo），与本单裁决驱动那条对齐，同时满足铁律③

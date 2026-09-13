@@ -1397,6 +1397,10 @@ export class DepositTransactionsService {
       freezeScanQueryArgs({
         ownerId,
         noField: 'depositNo',
+        // DepositTransaction 无 ownerNo 列——走 customer 关系取 customerNo
+        // （depositAudit 现成读法 deposit.customer?.customerNo ?? deposit.ownerNo
+        // 天然兼容这个形状，见 deposit-workflow.service.ts）。
+        ownerNoSource: 'customerRelation',
         // FROZEN 在排除之列（2026-08-20）：本方法唯一的调用方是
         // onCustomerRestrictionOpened，已经冻了的单不需要再冻一次。不排除的话
         // 制裁路径「先冻人→广播→自己的监听器扫到自己刚冻的这笔」会走到无 FREEZE

@@ -1167,6 +1167,7 @@ export class WithdrawTransactionsService {
       freezeScanQueryArgs({
         ownerId,
         noField: 'withdrawNo',
+        ownerNoSource: 'column',
         // FROZEN 在排除之列 —— 理由见 deposit-transactions.service.ts 同名方法。
         terminalStatuses: ['SUCCESS', 'REJECTED', 'FAILED', 'RETURNED', 'FROZEN'],
       }),

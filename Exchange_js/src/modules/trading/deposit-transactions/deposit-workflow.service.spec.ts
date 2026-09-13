@@ -3850,7 +3850,10 @@ describe('DepositWorkflowService', () => {
       depositNo: 'DEP-INFLIGHT-1',
       ownerType: 'CUSTOMER',
       ownerId: 'cust-1',
-      ownerNo: 'CU-INFLIGHT-1',
+      // 真实形状（回归修复，2026-09-13）：DepositTransaction 无 ownerNo 列，
+      // findNonTerminalByOwner 走 customer 关系取 customerNo（freeze-scan.util
+      // 的 ownerNoSource: 'customerRelation'），mock 必须对齐否则测不出回归。
+      customer: { customerNo: 'CU-INFLIGHT-1' },
       status: DepositTransactionStatus.COMPLIANCE_PENDING,
       traceId: 'trace-dep-1',
     };
@@ -3873,8 +3876,9 @@ describe('DepositWorkflowService', () => {
           action: AuditActions.DEPOSIT_FROZEN,
           primarySubjectNo: inflightDeposit.depositNo,
           // 补 OWNER（甲案信封收编落地点）：findNonTerminalByOwner 的 select 一旦
-          // 带 ownerNo，广播冻结的审计就该按客户业务键可查（Frank 类客户号）。
-          ownerCustomerNo: inflightDeposit.ownerNo,
+          // 带客户号来源（deposit 走 customer.customerNo），广播冻结的审计就该
+          // 按客户业务键可查（Frank 类客户号）。
+          ownerCustomerNo: inflightDeposit.customer.customerNo,
           // 顺手项④：INHERIT 闸 requiredFields 硬要求 fromStatus/toStatus 两键。
           fromStatus: DepositTransactionStatus.COMPLIANCE_PENDING,
           toStatus: DepositTransactionStatus.FROZEN,
