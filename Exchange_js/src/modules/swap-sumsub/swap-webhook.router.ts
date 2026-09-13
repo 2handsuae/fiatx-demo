@@ -4,7 +4,9 @@ import { KYT_VERDICT_TYPES } from '../sumsub-shared/kyt-webhook-types';
 
 /**
  * 兑换 Sumsub webhook 强类型路由:与 DepositWebhookRouter / WithdrawWebhookRouter
- * 同构(deliberate fork,不是泛化抽象——三域各自演进,不共享基类)。复用同一份
+ * 同构(充提共底座、兑换独立演进——业主 2026-09-13 定案:充值/提现两域的 KYT
+ * 裁决落地逻辑已抽 sumsub-shared/kyt-verdict-handler.base.ts,本 router 与
+ * SwapKytVerdictHandler 逻辑不参与、保持独立演进,零改动)。复用同一份
  * KYT_VERDICT_TYPES 显式集合(sumsub-shared/kyt-webhook-types.ts,含官方无 `Txn`
  * 的 applicantKytOnHold 注意事项)。
  *
