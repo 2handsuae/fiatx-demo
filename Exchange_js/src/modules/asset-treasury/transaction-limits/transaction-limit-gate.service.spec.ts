@@ -105,11 +105,11 @@ describe('TransactionLimitGateService', () => {
     expect(r.grossAedValue).toBeNull();
   });
 
-  it('SWAP 用量查 swapTransaction 聚合、排除 FAILED/REVERSED', async () => {
+  it('SWAP 用量查 swapTransaction 聚合、不排除任何状态（FAILED/REVERSED 死枚举已清除）', async () => {
     rules.getCumulativeRules.mockResolvedValue([{ ruleNo: 'TLR-3', period: 'DAILY', defaultLimit: D('1000') }]);
     await gate.evaluate({ ...input, operationType: 'SWAP' });
     expect(prisma.swapTransaction.aggregate).toHaveBeenCalledWith(
-      expect.objectContaining({ where: expect.objectContaining({ status: { notIn: ['FAILED', 'REVERSED'] } }) }),
+      expect.objectContaining({ where: expect.objectContaining({ status: { notIn: [] } }) }),
     );
   });
 });

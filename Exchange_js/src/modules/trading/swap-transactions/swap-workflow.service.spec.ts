@@ -1643,8 +1643,6 @@ describe('SwapWorkflowService.applyKytVerdict', () => {
   it.each([
     SwapTransactionStatus.SUCCESS,
     SwapTransactionStatus.REJECTED,
-    SwapTransactionStatus.FAILED,
-    SwapTransactionStatus.REVERSED,
   ])('already-terminal (%s) → no-op, idempotent against webhook redelivery', async (status) => {
     const mocks = buildApplyKytVerdictMocks({ status });
     const service = makeApplyKytVerdictService(mocks);

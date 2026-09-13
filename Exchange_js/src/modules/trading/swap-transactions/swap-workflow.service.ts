@@ -607,8 +607,6 @@ export class SwapWorkflowService {
   private static readonly KYT_VERDICT_TERMINAL_STATUSES = new Set([
     SwapTransactionStatus.SUCCESS,
     SwapTransactionStatus.REJECTED,
-    SwapTransactionStatus.FAILED,
-    SwapTransactionStatus.REVERSED,
   ]);
 
   /**

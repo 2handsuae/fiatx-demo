@@ -2,7 +2,7 @@ import { IsIn, IsOptional, IsString, IsEnum, IsNumber, IsNotEmpty } from 'class-
 import { Type, Transform } from 'class-transformer';
 import { CAUSE_REGISTRY } from '../../../clearing-settle/reconciliation/disposition/cause-registry';
 
-// 状态机收窄(10 状态/13 动作/20 边,定稿于 .superpowers/sdd/task-1-brief.md)。
+// 状态机收窄(10 状态/13 动作/23 边,定稿于 .superpowers/sdd/task-1-brief.md)。
 // CREATED/CANCELLED/UNDER_REVIEW/HELD/APPROVED/PENDING_COMPLIANCE 已删除——这些字符串
 // 仅存在于历史落库行(旧行的 status 列),数据库迁移由后续 Task 处理;本次改动只管
 // 枚举/转移表/调用点编译通过。PENDING_COMPLIANCE 由 COMPLIANCE_PENDING 取代(对齐充值

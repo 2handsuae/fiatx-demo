@@ -20,9 +20,6 @@ export enum SwapTransactionStatus {
   // 会把账本劈成两半。
   // ⚠️ FROZEN 是活态、可达，不属于下面那段死枚举。
   FROZEN = 'FROZEN',
-  // 不可达死枚举，保留仅为历史行兼容 —— 见 BACKLOG「V6 兑换 FAILED/REVERSED 死枚举」
-  FAILED = 'FAILED',
-  REVERSED = 'REVERSED',
 }
 
 export enum SwapTransactionAction {

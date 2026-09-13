@@ -91,8 +91,6 @@ export interface SwapExecutableRateResult {
 export const SWAP_TERMINAL_STATUSES: ReadonlySet<string> = new Set<string>([
   SwapTransactionStatus.SUCCESS,
   SwapTransactionStatus.REJECTED,
-  SwapTransactionStatus.FAILED,
-  SwapTransactionStatus.REVERSED,
 ]);
 
 /**
@@ -399,8 +397,6 @@ export class SwapTransactionsService {
    * 或 COMPLIANCE_PENDING → REJECTED(终态)，或 COMPLIANCE_PENDING → FROZEN(终态)。
    * FROZEN 零出边：制裁冻结只能由 MLRO 撕便签后人工处理，系统不提供解冻边。
    * PROCESSING 刻意没有 FREEZE 出边（腿已开跑，冻结会留半截账）。
-   * FAILED/REVERSED 是不可达死枚举（历史行兼容，见 BACKLOG「V6 兑换
-   * FAILED/REVERSED 死枚举」），不出现在此表中。
    */
   private readonly transitions: Record<string, Partial<Record<SwapTransactionAction, SwapTransactionStatus>>> = {
     [SwapTransactionStatus.COMPLIANCE_PENDING]: {
@@ -416,8 +412,6 @@ export class SwapTransactionsService {
     [SwapTransactionStatus.REJECTED]: {},
     // 零出边是**故意的**，不是忘了写。
     [SwapTransactionStatus.FROZEN]: {},
-    [SwapTransactionStatus.FAILED]: {},
-    [SwapTransactionStatus.REVERSED]: {},
   };
 
   /**
@@ -960,7 +954,6 @@ export class SwapTransactionsService {
   }
   /**
    * 某客户名下所有非终态单（供客户级限制冻结在途单用，Task 9）。
-   * 终态集合：兑换终态（FAILED/REVERSED 是不可达死枚举）。
    */
   async findNonTerminalByOwner(ownerId: string) {
     return this.prisma.swapTransaction.findMany({

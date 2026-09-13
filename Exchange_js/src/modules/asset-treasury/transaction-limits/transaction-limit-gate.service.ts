@@ -10,7 +10,7 @@ import { TransactionLimitRulesService } from './transaction-limit-rules.service'
 import { dubaiWindowStart } from './dubai-window.util';
 
 const WITHDRAW_COUNTED_EXCLUDE = ['FAILED', 'REJECTED', 'CANCELLED', 'RETURNED'];
-const SWAP_COUNTED_EXCLUDE = ['FAILED', 'REVERSED'];
+const SWAP_COUNTED_EXCLUDE: string[] = [];
 
 export interface GateInput {
   operationType: 'WITHDRAWAL' | 'SWAP';

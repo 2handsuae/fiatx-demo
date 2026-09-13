@@ -4,7 +4,7 @@ import {
   SWAP_STATUS_FILTERS,
 } from './swapStatusMap';
 
-/* 七个后端状态,来源：
+/* 五个后端状态,来源：
    src/modules/trading/swap-transactions/dto/swap-transaction.dto.ts */
 const BACKEND_STATUSES = [
   'COMPLIANCE_PENDING',
@@ -12,8 +12,6 @@ const BACKEND_STATUSES = [
   'SUCCESS',
   'REJECTED',
   'FROZEN',
-  'FAILED',
-  'REVERSED',
 ];
 
 describe('swapStatusMap', () => {
@@ -24,7 +22,7 @@ describe('swapStatusMap', () => {
     expect(meta.badgeClass).not.toContain('cyan');
   });
 
-  it('七个后端状态都拿到真条目(不是 fallback)', () => {
+  it('五个后端状态都拿到真条目(不是 fallback)', () => {
     for (const s of BACKEND_STATUSES) {
       const meta = getSwapStatusMeta(s);
       // fallback 的 badgeClass 恒为 WARNING(adm-yellow);真条目一律不是它
@@ -45,7 +43,7 @@ describe('swapStatusMap', () => {
   });
 
   it('终态判定 == 转移表里出边为空的那几行,一个不多一个不少', () => {
-    const terminal = ['SUCCESS', 'REJECTED', 'FROZEN', 'FAILED', 'REVERSED'];
+    const terminal = ['SUCCESS', 'REJECTED', 'FROZEN'];
     for (const s of BACKEND_STATUSES) {
       expect(isSwapTerminalStatus(s)).toBe(terminal.includes(s));
     }

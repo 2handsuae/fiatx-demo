@@ -31,8 +31,8 @@ import { isCapabilityRestricted } from '../utils/restrictedCapabilities';
 // 落地。提交成功后直接跳 History 列表（不再弹等待面板）；列表在存在非终态单时
 // 每 3s 轻量自刷，全部终态即停——客户在列表里看着 Processing 翻到终态。
 const HISTORY_REFRESH_INTERVAL_MS = 3000;
-// 终态集合与 swapStatusView 的口径一致（FAILED/REVERSED 是历史枚举，一并视为终态）。
-const SWAP_TERMINAL_STATUSES = new Set(['SUCCESS', 'REJECTED', 'FAILED', 'REVERSED']);
+// 终态集合与 swapStatusView 的口径一致。
+const SWAP_TERMINAL_STATUSES = new Set(['SUCCESS', 'REJECTED']);
 
 interface Asset {
   id: string;
@@ -885,8 +885,7 @@ const Swap = () => {
                         className="bg-transparent text-sm text-fx-sand focus:outline-none"
                       >
                           {/* Real backend statuses are COMPLIANCE_PENDING/PROCESSING/
-                              SUCCESS/REJECTED (dead FAILED/REVERSED aside — see
-                              swapStatusView.ts). No filter option for "processing":
+                              SUCCESS/REJECTED. No filter option for "processing":
                               the query only matches one exact status and two
                               different backend values both read "Processing" to
                               the customer, so a single option would silently miss
