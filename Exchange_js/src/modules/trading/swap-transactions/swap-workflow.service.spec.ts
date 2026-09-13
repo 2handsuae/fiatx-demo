@@ -224,7 +224,6 @@ function makeService(mocks: ReturnType<typeof buildMocks>) {
   (mocks as any).fundsOrders = stubFundsOrders;
   return new SwapWorkflowService(
     mocks.prisma,
-    mocks.onboardingService as any,
     mocks.swapQuoteService as any,
     mocks.swapTransactionsService as any,
     mocks.accountingService as any,
@@ -237,7 +236,10 @@ function makeService(mocks: ReturnType<typeof buildMocks>) {
     mocks.sumsubTxnClient as any,
     {} as any, // customerRestrictionsService — not on this path (initiateSwap never rejects)
     {} as any, // pendingActionService — not on this path
-    { resolve: jest.fn().mockResolvedValue({ lifecycle: 'ACTIVE', blocked: new Set(), disclosedBlocked: new Set(), disclosed: [], openCount: 0 }), assertCapability: jest.fn() } as any, // customerAccessService
+    // customerAccessService — 顺手项①收编后唯一注入：合并原 customerAccess 的
+    // assertTradingEligibility（L1 eligibility gate）与原 customerAccessService
+    // 的 resolve/assertCapability，同一个 mock 满足两处调用点。
+    { ...mocks.onboardingService, resolve: jest.fn().mockResolvedValue({ lifecycle: 'ACTIVE', blocked: new Set(), disclosedBlocked: new Set(), disclosed: [], openCount: 0 }), assertCapability: jest.fn() } as any,
     {} as any, // materialRequests — not on this path
     {} as any, // materialRequestIssuer — not on this path
     mocks.l1Gate as any,
@@ -786,7 +788,6 @@ function buildAdvanceLegMocks(opts: {
   };
 
   const eventEmitter = { emit: jest.fn() };
-  const onboardingService = { assertTradingEligibility: jest.fn(() => Promise.resolve()) };
   const walletQuery = { hasReceivingAccount: jest.fn(() => Promise.resolve(true)) };
   const swapQuoteService = { getActiveQuoteOrThrow: jest.fn(), consumeQuote: jest.fn() };
   const accountingService = {
@@ -814,7 +815,6 @@ function buildAdvanceLegMocks(opts: {
     legState,
     txClient,
     prisma,
-    onboardingService,
     walletQuery,
     swapQuoteService,
     swapTransactionsService,
@@ -832,7 +832,6 @@ function makeAdvanceLegService(mocks: ReturnType<typeof buildAdvanceLegMocks>) {
   // are never invoked here.
   return new SwapWorkflowService(
     mocks.prisma,
-    mocks.onboardingService as any,
     mocks.swapQuoteService as any,
     mocks.swapTransactionsService as any,
     mocks.accountingService as any,
@@ -991,6 +990,7 @@ describe('SwapWorkflowService.handleFundsOrderChanged — CONFIRMED chaining', (
     // markStatus(SUCCESS).
     expect(mocks.swapTransactionsService.markStatus).toHaveBeenCalledTimes(1);
     expect((mocks.swapTransactionsService.markStatus as jest.Mock).mock.calls[0][1]).toBe(SwapTransactionAction.SUCCESS);
+    expect((mocks.swapTransactionsService.markStatus as jest.Mock).mock.calls[0][3]).toEqual({ operator: 'LEG_SETTLEMENT' });
 
     // SWAP_LEG_POSTED + SWAP_SUCCEEDED audits.
     const recorded = (mocks.auditLogsService.recordSystem as jest.Mock).mock.calls.map((c) => c[0].action);
@@ -1544,7 +1544,6 @@ describe('SwapWorkflowService.applyKytVerdict', () => {
   function makeApplyKytVerdictService(mocks: ReturnType<typeof buildApplyKytVerdictMocks>) {
     return new SwapWorkflowService(
       mocks.prisma,
-      {} as any, // onboardingService — not on this path
       {} as any, // swapQuoteService — not on this path
       mocks.swapTransactionsService as any,
       mocks.accountingService as any,
@@ -2636,7 +2635,6 @@ describe('SwapWorkflowService.onCustomerRestrictionOpened (Task 9 — FROZEN 落
   function makeListenerService(mocks: ReturnType<typeof buildListenerMocks>) {
     return new SwapWorkflowService(
       mocks.prisma,
-      {} as any, // onboardingService — not on this path
       {} as any, // swapQuoteService — not on this path
       mocks.swapTransactionsService as any,
       {} as any, // accountingService — not on this path

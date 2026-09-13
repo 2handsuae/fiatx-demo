@@ -26,6 +26,9 @@ import {
   AuditWorkflowTypes,
 } from '../../audit-logging/constants/audit-actions.constant';
 import { CustomerAccessService } from '../../identity/customers/customer-access.service';
+import { toCustomerAssetView } from '../shared/customer-view.util';
+import { resolveSlaFields as resolveSlaFieldsShared } from '../shared/sla-fields.util';
+import { freezeScanQueryArgs } from '../shared/freeze-scan.util';
 
 interface SwapMatchedInfo {
   pairId: string;
@@ -419,10 +422,7 @@ export class SwapTransactionsService {
    * slaBreached 一律归 false —— 换了状态就是换了等待对象，旧的破线记录不该跟过来。
    */
   private resolveSlaFields(nextStatus: SwapTransactionStatus) {
-    const minutes = SWAP_SLA_MINUTES_BY_STATUS[nextStatus];
-    return minutes === undefined
-      ? { slaDeadline: null, slaBreached: false }
-      : { slaDeadline: new Date(Date.now() + minutes * 60_000), slaBreached: false };
+    return resolveSlaFieldsShared(SWAP_SLA_MINUTES_BY_STATUS, nextStatus);
   }
 
   /** E5（波三）：补提交成功后把 COMPLIANCE_PENDING 的 SLA 窗口重新拉满——
@@ -674,22 +674,8 @@ export class SwapTransactionsService {
       exchangeRate: item.exchangeRate,
       createdAt: item.createdAt,
       completedAt: item.completedAt,
-      fromAsset: item.fromAsset
-        ? {
-            currency: item.fromAsset.currency,
-            code: item.fromAsset.code,
-            network: item.fromAsset.network,
-            decimals: item.fromAsset.decimals,
-          }
-        : null,
-      toAsset: item.toAsset
-        ? {
-            currency: item.toAsset.currency,
-            code: item.toAsset.code,
-            network: item.toAsset.network,
-            decimals: item.toAsset.decimals,
-          }
-        : null,
+      fromAsset: toCustomerAssetView(item.fromAsset),
+      toAsset: toCustomerAssetView(item.toAsset),
     };
   }
 
@@ -956,15 +942,19 @@ export class SwapTransactionsService {
    * 某客户名下所有非终态单（供客户级限制冻结在途单用，Task 9）。
    */
   async findNonTerminalByOwner(ownerId: string) {
-    return this.prisma.swapTransaction.findMany({
-      where: { ownerId, status: { notIn: [...SWAP_FREEZE_SCAN_EXCLUDED] } },
-      // ownerNo：Review Fix 4（Minor，2026-08-20）—— 监听器驱动的 SWAP_FROZEN
-      // 审计要带业务键（entityOwnerNo），与本单裁决驱动那条对齐，同时满足铁律③
-      // （有业务键就别只用 id）。
-      // 站3·出生锁：+fromAmount——批量冻单的 SWAP_FROZEN 留痕要携退还金额。
-      // 站3·词表：+correlationId——SWAP_FROZEN 是 INHERIT 码，信封不带旅程号会被机器闸拒收。
-      select: { id: true, swapNo: true, ownerType: true, ownerId: true, ownerNo: true, status: true, traceId: true, fromAmount: true, correlationId: true },
-    });
+    return (this.prisma.swapTransaction.findMany as any)(
+      freezeScanQueryArgs({
+        ownerId,
+        noField: 'swapNo',
+        terminalStatuses: [...SWAP_FREEZE_SCAN_EXCLUDED],
+        // ownerNo：Review Fix 4（Minor，2026-08-20）—— 监听器驱动的 SWAP_FROZEN
+        // 审计要带业务键（entityOwnerNo），与本单裁决驱动那条对齐，同时满足铁律③
+        // （有业务键就别只用 id）——现由信封恒带，此处仅保留 fromAmount 额外列。
+        // 站3·出生锁：+fromAmount——批量冻单的 SWAP_FROZEN 留痕要携退还金额。
+        // 站3·词表：+correlationId——SWAP_FROZEN 是 INHERIT 码，信封不带旅程号会被机器闸拒收（现由信封恒带）。
+        extraSelect: { fromAmount: true },
+      }),
+    );
   }
 
 }

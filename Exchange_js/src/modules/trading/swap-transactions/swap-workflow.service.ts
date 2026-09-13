@@ -173,7 +173,6 @@ export class SwapWorkflowService {
 
   constructor(
     private readonly prisma: PrismaService,
-    private readonly customerAccess: CustomerAccessService,
     private readonly swapQuoteService: SwapQuoteService,
     private readonly swapTransactionsService: SwapTransactionsService,
     private readonly accountingService: AccountingService,
@@ -203,7 +202,7 @@ export class SwapWorkflowService {
   async initiateSwap(ownerId: string, quoteId: string) {
     // ── L1 Eligibility gate (synchronous) ──
     const customer = await this.prisma.customerMain.findUnique({ where: { id: ownerId } });
-    await this.customerAccess.assertTradingEligibility(ownerId, 'SWAP');
+    await this.customerAccessService.assertTradingEligibility(ownerId, 'SWAP');
 
     // ── L1 Transaction Limit gate (A + B) — evaluate BEFORE quote consumption ──
     // Peek the quote OUTSIDE the transaction only to get the from-asset + amount

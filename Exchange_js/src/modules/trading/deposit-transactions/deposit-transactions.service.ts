@@ -26,6 +26,9 @@ import {
 import { AuditCategory, AuditSubjectRole } from '../../audit-logging/dto/audit-log.dto';
 import { TransactionLimitRulesService } from '../../asset-treasury/transaction-limits/transaction-limit-rules.service';
 import { ApprovalsService } from '../../governance/approvals/approvals.service';
+import { toCustomerAssetView } from '../shared/customer-view.util';
+import { resolveSlaFields as resolveSlaFieldsShared } from '../shared/sla-fields.util';
+import { freezeScanQueryArgs } from '../shared/freeze-scan.util';
 
 type DepositWriteClient = Prisma.TransactionClient | PrismaService;
 
@@ -422,14 +425,7 @@ export class DepositTransactionsService {
       referenceNo: item.referenceNo,
       fromAddress: item.fromAddress,
       fromIban: item.fromIban,
-      asset: item.asset
-        ? {
-            currency: item.asset.currency,
-            code: item.asset.code,
-            network: item.asset.network,
-            decimals: item.asset.decimals,
-          }
-        : null,
+      asset: toCustomerAssetView(item.asset),
     };
   }
 
@@ -743,10 +739,7 @@ export class DepositTransactionsService {
    * 这是**唯一**的例外出口 —— 不要因为"方便"从别处调它绕过收口处。
    */
   resolveSlaFields(nextStatus: DepositTransactionStatus) {
-    const minutes = DEPOSIT_SLA_MINUTES_BY_STATUS[nextStatus];
-    return minutes === undefined
-      ? { slaDeadline: null, slaBreached: false }
-      : { slaDeadline: new Date(Date.now() + minutes * 60_000), slaBreached: false };
+    return resolveSlaFieldsShared(DEPOSIT_SLA_MINUTES_BY_STATUS, nextStatus);
   }
 
   async updateStatus(
@@ -1400,18 +1393,21 @@ export class DepositTransactionsService {
    * 终态集合：充值终态（v4-deposit truth §2）。
    */
   async findNonTerminalByOwner(ownerId: string) {
-    return this.prisma.depositTransaction.findMany({
-      // FROZEN 在排除之列（2026-08-20）：本方法唯一的调用方是
-      // onCustomerRestrictionOpened，已经冻了的单不需要再冻一次。不排除的话
-      // 制裁路径「先冻人→广播→自己的监听器扫到自己刚冻的这笔」会走到无 FREEZE
-      // 自环边的 FROZEN 行上抛 BadRequest，被吞成一条与事实不符的 warn。
-      // CLAWED_BACK 同理（平账 B 批②，评审 Minor）：零出边终态，FREEZE 在
-      // getNextStatus 里无边可查，不排除会让同一客户后续若再被制裁命中时，
-      // 已退汇的单被当"在途"捞出来去 FREEZE，抛 BadRequest 后被上面调用方的
-      // catch 吞成一条"冻结失败"的 warn——单其实早就不在途了，不是真失败。
-      where: { ownerId, status: { notIn: ['SUCCESS', 'FAILED', 'CONFISCATED', 'RETURNED', 'SEIZED', 'FROZEN', 'CLAWED_BACK'] } },
-      select: { id: true, depositNo: true, ownerType: true, ownerId: true, status: true, traceId: true, correlationId: true },
-    });
+    return (this.prisma.depositTransaction.findMany as any)(
+      freezeScanQueryArgs({
+        ownerId,
+        noField: 'depositNo',
+        // FROZEN 在排除之列（2026-08-20）：本方法唯一的调用方是
+        // onCustomerRestrictionOpened，已经冻了的单不需要再冻一次。不排除的话
+        // 制裁路径「先冻人→广播→自己的监听器扫到自己刚冻的这笔」会走到无 FREEZE
+        // 自环边的 FROZEN 行上抛 BadRequest，被吞成一条与事实不符的 warn。
+        // CLAWED_BACK 同理（平账 B 批②，评审 Minor）：零出边终态，FREEZE 在
+        // getNextStatus 里无边可查，不排除会让同一客户后续若再被制裁命中时，
+        // 已退汇的单被当"在途"捞出来去 FREEZE，抛 BadRequest 后被上面调用方的
+        // catch 吞成一条"冻结失败"的 warn——单其实早就不在途了，不是真失败。
+        terminalStatuses: ['SUCCESS', 'FAILED', 'CONFISCATED', 'RETURNED', 'SEIZED', 'FROZEN', 'CLAWED_BACK'],
+      }),
+    );
   }
 
   /** 平账 B 批②：退汇认领申请的三列标记（域服务写自己的表；workflow 不直写）。 */

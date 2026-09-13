@@ -23,6 +23,9 @@ import {
 } from '../../audit-logging/constants/audit-actions.constant';
 import { ApprovalsService } from '../../governance/approvals/approvals.service';
 import { DomainEventNames } from '../../../common/events/domain-events.constants';
+import { toCustomerAssetView } from '../shared/customer-view.util';
+import { resolveSlaFields as resolveSlaFieldsShared } from '../shared/sla-fields.util';
+import { freezeScanQueryArgs } from '../shared/freeze-scan.util';
 
 // 客户面筛选桶（波三B，镜像 deposit CUSTOMER_BUCKETS）：客户端只发桶名，
 // 原始状态码不再出现在客户可见的任何 option/query 里。PROCESSING = 补集，
@@ -447,14 +450,7 @@ export class WithdrawTransactionsService {
       referenceNo: item.referenceNo,
       toAddress: item.toAddress,
       toIban: item.toIban,
-      asset: item.asset
-        ? {
-            currency: item.asset.currency,
-            code: item.asset.code,
-            network: item.asset.network,
-            decimals: item.asset.decimals,
-          }
-        : null,
+      asset: toCustomerAssetView(item.asset),
     };
   }
 
@@ -746,10 +742,7 @@ export class WithdrawTransactionsService {
    * 调它绕过收口处。
    */
   resolveSlaFields(nextStatus: WithdrawTransactionStatus) {
-    const minutes = WITHDRAW_SLA_MINUTES_BY_STATUS[nextStatus];
-    return minutes === undefined
-      ? { slaDeadline: null, slaBreached: false }
-      : { slaDeadline: new Date(Date.now() + minutes * 60_000), slaBreached: false };
+    return resolveSlaFieldsShared(WITHDRAW_SLA_MINUTES_BY_STATUS, nextStatus);
   }
 
   async updateStatus(
@@ -1170,11 +1163,14 @@ export class WithdrawTransactionsService {
    * 严格零出边，见该常量上方的说明；这里仍按"材料请求是否已终结"语义整组排除）。
    */
   async findNonTerminalByOwner(ownerId: string) {
-    return this.prisma.withdrawTransaction.findMany({
-      // FROZEN 在排除之列 —— 理由见 deposit-transactions.service.ts 同名方法。
-      where: { ownerId, status: { notIn: ['SUCCESS', 'REJECTED', 'FAILED', 'RETURNED', 'FROZEN'] } },
-      select: { id: true, withdrawNo: true, ownerType: true, ownerId: true, status: true, traceId: true, correlationId: true },
-    });
+    return (this.prisma.withdrawTransaction.findMany as any)(
+      freezeScanQueryArgs({
+        ownerId,
+        noField: 'withdrawNo',
+        // FROZEN 在排除之列 —— 理由见 deposit-transactions.service.ts 同名方法。
+        terminalStatuses: ['SUCCESS', 'REJECTED', 'FAILED', 'RETURNED', 'FROZEN'],
+      }),
+    );
   }
 
   /** 平账 B 批③：退回认领申请的三列标记（域服务写自己的表；workflow 不直写）。 */

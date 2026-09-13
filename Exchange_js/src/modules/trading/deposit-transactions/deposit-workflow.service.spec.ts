@@ -3850,6 +3850,7 @@ describe('DepositWorkflowService', () => {
       depositNo: 'DEP-INFLIGHT-1',
       ownerType: 'CUSTOMER',
       ownerId: 'cust-1',
+      ownerNo: 'CU-INFLIGHT-1',
       status: DepositTransactionStatus.COMPLIANCE_PENDING,
       traceId: 'trace-dep-1',
     };
@@ -3871,6 +3872,12 @@ describe('DepositWorkflowService', () => {
         expect.objectContaining({
           action: AuditActions.DEPOSIT_FROZEN,
           primarySubjectNo: inflightDeposit.depositNo,
+          // 补 OWNER（甲案信封收编落地点）：findNonTerminalByOwner 的 select 一旦
+          // 带 ownerNo，广播冻结的审计就该按客户业务键可查（Frank 类客户号）。
+          ownerCustomerNo: inflightDeposit.ownerNo,
+          // 顺手项④：INHERIT 闸 requiredFields 硬要求 fromStatus/toStatus 两键。
+          fromStatus: DepositTransactionStatus.COMPLIANCE_PENDING,
+          toStatus: DepositTransactionStatus.FROZEN,
         }),
       );
     });
