@@ -80,6 +80,6 @@ describe('tb-id hex padding (§A 幻影失衡根修)', () => {
     expect(hexToBigint(bigintToHex(id))).toBe(id);
   });
   it('bigintToRegistryHex agrees with bigintToHex now', () => {
-    expect(bigintToRegistryHex(0x1n)).toBe(bigintToHex(0x1n));
+    expect(bigintToRegistryHex(0x1n)).toBe('0'.repeat(31) + '1');
   });
 });
