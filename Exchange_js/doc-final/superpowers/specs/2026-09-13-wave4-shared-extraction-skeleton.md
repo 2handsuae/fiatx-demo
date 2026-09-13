@@ -68,7 +68,7 @@
 
 withdrawal-fee-level 1673 行 / swap-fee-level 1844 行：24 同名同序方法、`moveLevel` 仅 model 名不同、3 对 approval 归一化 diff=0、三对 workflow diff 仅 16–45 行。
 
-**执行期勘误（2026-09-13 Task 9 实测，体检"24 同名同序"系近似）**：真逐字可收编 **14 个**（computeHash/validateAudienceFields/linkApprovalCase/activate·decline·cancel·retireLevel/moveLevel/clearApprovalCase/deleteById/createChangeRequest/linkApprovalCaseToRequest/executeChange/reject·cancel·expireChangeRequest/moveChangeRequest/findChangeRequestById 族）；**8 个真分叉留子类**：单资产列（WithdrawalFeeLevel.assetId）vs 资产对双列（SwapFeeLevel.fromAssetId+toAssetId）贯穿三个 include 查询与 createLevel/assertNotLastActiveDefault；`findActiveByAsset` vs `findActiveByPair` 名参均不同；`validateTiersJson` 是真实校验规则分叉（feeItems 必填 vs rateMarkupBps 非负）——业务规则不进共享层，与定案 1/2/4 同教义。基类按 14 个收，方法数少于总纲设想属实测修正。
+**执行期勘误（2026-09-13 Task 9 实测，体检"24 同名同序"系近似）**：真逐字可收编 **14 个**（computeHash/validateAudienceFields/linkApprovalCase/activate·decline·cancel·retireLevel/moveLevel/clearApprovalCase/deleteById/createChangeRequest/linkApprovalCaseToRequest/executeChange/reject·cancel·expireChangeRequest/moveChangeRequest/findChangeRequestById 族）；**8 个真分叉留子类**：单资产列（WithdrawalFeeLevel.assetId）vs 资产对双列（SwapFeeLevel.fromAssetId+toAssetId）贯穿三个 include 查询与 createLevel/assertNotLastActiveDefault；`findActiveByAsset` vs `findActiveByPair` 名参均不同；`validateTiersJson` 是真实校验规则分叉（feeItems 必填 vs rateMarkupBps 非负）——业务规则不进共享层，与定案 1/2/4 同教义。基类按 14 族收（14 族 = 18 个具体方法，两族各含 3 个 delegate 单行）；分叉计数口径=并集 8 / 每域 7（findActiveByAsset/Pair 算两名）。方法数少于总纲设想属实测修正。
 
 - **性质界定**：这对是真镜像（照抄出身），不属"兑换工作流分叉"——与定案 1 不冲突（定案 1 管的是 sumsub 侧五件套）。
 - **形态**：同 §3 基类模式；Prisma model 差异（withdrawalFeeLevel vs swapFeeLevel 表）经域侧薄层收口；**controller/路由/权限码零变动**。
