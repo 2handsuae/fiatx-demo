@@ -1,30 +1,15 @@
 import { BadRequestException, Inject, Injectable } from '@nestjs/common';
-import { createHash, randomUUID } from 'crypto';
+import { randomUUID } from 'crypto';
 import { DepositTransactionsService } from '../trading/deposit-transactions/deposit-transactions.service';
 import { SUMSUB_TXN_CLIENT, SumsubTxnClient } from '../sumsub-shared/sumsub-txn-client.interface';
 import { MockSumsubTxnClient } from '../sumsub-shared/sumsub-txn-client.mock';
 import { DEPOSIT_VERDICT_BUTTONS, DepositVerdictButton } from './fixtures/verdict-buttons';
 import { buildTxnReport } from '../sumsub-shared/txn-report.builder';
-import { KYT_ONHOLD_TYPE } from '../sumsub-shared/kyt-webhook-types';
-import { KytVerdict } from '../sumsub-shared/sumsub-txn.types';
+import { DemoScenarioActor, VERDICT_OF, mintDemoTxnId } from '../sumsub-shared/demo-scenario.base';
 import { SumsubIngestionService } from '../sumsub-ingestion/sumsub-ingestion.service';
 import { AuditLogsService } from '../audit-logging/audit-logs.service';
 import { AuditActions, AuditEntityTypes } from '../audit-logging/constants/audit-actions.constant';
 import { AuditOutcome, AuditCategory, AuditSubjectRole } from '../audit-logging/dto/audit-log.dto';
-
-export interface DemoScenarioActor {
-  actorId: string;
-  actorNo?: string;
-  actorRole?: string;
-}
-
-/** webhookType → 归一 verdict,与 DepositKytVerdictHandler 的 VERDICT_BY_TYPE 同源同值 */
-const VERDICT_OF: Record<string, KytVerdict> = {
-  applicantKytTxnApproved: 'approved',
-  applicantKytTxnRejected: 'rejected',
-  applicantKytTxnAwaitingUser: 'awaitUser',
-  [KYT_ONHOLD_TYPE]: 'onHold',
-};
 
 /**
  * Task 4(计划「充值仿真裁决按钮」):把此前 8 个多步场景剧本改成 9 个**单步**裁决按钮。
@@ -69,7 +54,7 @@ export class DepositDemoScenarioService {
     const statusBefore = deposit.status;
 
     // 该单已过 L1 → 用它自己的真号;还没过 → 现铸一个并 prime,等 L1 取用。
-    const txnId = deposit.sumsubTxnId ?? this.mintTxnId(deposit, button.key);
+    const txnId = deposit.sumsubTxnId ?? mintDemoTxnId(deposit.depositNo, deposit.createdAt, button.key);
     if (!deposit.sumsubTxnId) mockClient.primeSubmit(deposit.depositNo, txnId);
 
     const txnType = (deposit.sumsubTxnType as 'finance' | 'travelRule') ?? 'finance';
@@ -151,31 +136,6 @@ export class DepositDemoScenarioService {
       statusBefore,
       statusAfter: refreshed.status,
     };
-  }
-
-  /**
-   * 把 fixture 的槽位名铸成一个真实形态的 Sumsub KYT txnId。
-   *
-   * Sumsub 的 txnId 是 24 位小写 hex(MongoDB ObjectId 形态:4 字节时间戳 + 8 字节
-   * 随机/计数),不是 `T3` 这种。这里 4 字节时间戳取该 deposit 的创建时刻(报送时点
-   * 就在建单之后,时间上也说得通),后 8 字节由 (depositNo, 槽位) 哈希而来。
-   *
-   * 三个性质缺一不可:
-   *   ① **形态真实** —— 界面/日志/客服工单里贴出去和真 Sumsub 控制台对得上号;
-   *   ② **同单同槽稳定** —— 同一按钮重复喂是幂等重放,不会每次换号;
-   *   ③ **跨单绝不重号** —— 此前 fixture 把 `T3` 当真 id 直接用,第二笔单跑同一场景时
-   *      `findBySumsubTxnId('T3')` 会匹到**上一笔**单,端点照样返回 201 且事件全部
-   *      PROCESSED、零报错,但驱动的是错误的单(2026-07-29 live demo 实测踩中)。
-   *
-   * ⚠️ 本方法与 runVerdict() 里的 createdAtIso 同样依赖「createdAt 是非空且带
-   * @default(now()) 的 DB 列」这一不变量(prisma/schema.prisma 保证),所以不做
-   * 运行时兜底;若将来该列变可空,两处要一起改。
-   */
-  private mintTxnId(deposit: { depositNo: string; createdAt: Date | string }, slot: string): string {
-    const digest = createHash('sha1').update(`${deposit.depositNo}:${slot}`).digest('hex');
-    const ms = new Date(deposit.createdAt).getTime();
-    const tsHex = Math.floor(ms / 1000).toString(16).padStart(8, '0').slice(-8);
-    return `${tsHex}${digest.slice(0, 16)}`;
   }
 
   /**

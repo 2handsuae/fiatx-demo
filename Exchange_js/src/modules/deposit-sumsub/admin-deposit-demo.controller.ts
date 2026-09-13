@@ -1,7 +1,8 @@
-import { BadRequestException, Body, Controller, Get, Post, Req, UseGuards } from '@nestjs/common';
+import { Controller, UseGuards } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
-import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { AdminPermissionGuard } from '../identity/access-control/admin-permission.guard';
+import { DemoScenarioControllerBase } from '../sumsub-shared/demo-scenario.base';
 import { DepositDemoScenarioService } from './demo-scenario.service';
 import { DEPOSIT_VERDICT_BUTTONS } from './fixtures/verdict-buttons';
 
@@ -13,38 +14,19 @@ import { DEPOSIT_VERDICT_BUTTONS } from './fixtures/verdict-buttons';
  * 三道安全闸之一:本 controller 只在 SUMSUB_MOCK_MODE=true 时才被
  * DepositSumsubModule 注册(见 deposit-sumsub.module.ts 的条件 `controllers` 数组)——
  * 生产环境下这个路由压根不存在,不是靠 guard 拦。
+ *
+ * run-verdict / verdict-buttons 两个路由的方法体收进 DemoScenarioControllerBase
+ * (与提现域逐字一致,见该基类注释);本类只留路由前缀 / 权限守卫 / 域专属字段。
  */
 @ApiTags('Admin - Deposit Demo Scenarios')
 @ApiBearerAuth()
 @Controller('admin/deposit-sumsub/demo')
 @UseGuards(AuthGuard('jwt'), AdminPermissionGuard)
-export class AdminDepositDemoController {
-  constructor(private readonly demoScenarioService: DepositDemoScenarioService) {}
+export class AdminDepositDemoController extends DemoScenarioControllerBase {
+  protected readonly idField = 'depositId';
+  protected readonly verdictButtons = DEPOSIT_VERDICT_BUTTONS;
 
-  @Post('run-verdict')
-  @ApiOperation({ summary: 'Feed one Sumsub KYT verdict webhook into this deposit (demo only)' })
-  async runVerdict(
-    @Body() body: { depositId?: string; verdict?: string },
-    @Req() req: any,
-  ) {
-    if (!body?.depositId) throw new BadRequestException('depositId is required');
-    if (!body?.verdict) throw new BadRequestException('verdict is required');
-
-    const actor = {
-      actorId: req.user?.userId,
-      actorNo: req.user?.userNo,
-      actorRole: req.user?.role,
-    };
-    return this.demoScenarioService.runVerdict(body.depositId, body.verdict, actor);
-  }
-
-  @Get('verdict-buttons')
-  @ApiOperation({ summary: '列出本域可用的裁决按钮（demo only）—— 前端据此渲染 ⚡ 面板' })
-  listVerdictButtons(@Req() req: any) {
-    return {
-      buttons: Object.values(DEPOSIT_VERDICT_BUTTONS).map((b) => ({
-        key: b.key, label: b.label, source: b.source,
-      })),
-    };
+  constructor(protected readonly demoScenarioService: DepositDemoScenarioService) {
+    super();
   }
 }

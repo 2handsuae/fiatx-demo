@@ -1,12 +1,11 @@
 import { BadRequestException, Inject, Injectable } from '@nestjs/common';
-import { createHash, randomUUID } from 'crypto';
+import { randomUUID } from 'crypto';
 import { WithdrawTransactionsService } from '../trading/withdraw-transactions/withdraw-transactions.service';
 import { SUMSUB_TXN_CLIENT, SumsubTxnClient } from '../sumsub-shared/sumsub-txn-client.interface';
 import { MockSumsubTxnClient } from '../sumsub-shared/sumsub-txn-client.mock';
 import { WITHDRAW_VERDICT_BUTTONS, WithdrawVerdictButton } from './fixtures/verdict-buttons';
 import { buildTxnReport } from '../sumsub-shared/txn-report.builder';
-import { KYT_ONHOLD_TYPE } from '../sumsub-shared/kyt-webhook-types';
-import { KytVerdict } from '../sumsub-shared/sumsub-txn.types';
+import { DemoScenarioActor, VERDICT_OF, mintDemoTxnId } from '../sumsub-shared/demo-scenario.base';
 import { SumsubIngestionService } from '../sumsub-ingestion/sumsub-ingestion.service';
 import { AuditLogsService } from '../audit-logging/audit-logs.service';
 import {
@@ -15,20 +14,6 @@ import {
   AuditWorkflowTypes,
 } from '../audit-logging/constants/audit-actions.constant';
 import { AuditOutcome, AuditCategory, AuditSubjectRole } from '../audit-logging/dto/audit-log.dto';
-
-export interface DemoScenarioActor {
-  actorId: string;
-  actorNo?: string;
-  actorRole?: string;
-}
-
-/** webhookType → 归一 verdict,与 WithdrawKytVerdictHandler 的 VERDICT_BY_TYPE 同源同值 */
-const VERDICT_OF: Record<string, KytVerdict> = {
-  applicantKytTxnApproved: 'approved',
-  applicantKytTxnRejected: 'rejected',
-  applicantKytTxnAwaitingUser: 'awaitUser',
-  [KYT_ONHOLD_TYPE]: 'onHold',
-};
 
 /**
  * 提现域场景仿真器 —— mirror of DepositDemoScenarioService(deliberate fork,
@@ -72,7 +57,7 @@ export class WithdrawDemoScenarioService {
     const statusBefore = withdraw.status;
 
     // 该单已过提交 → 用它自己的真号;还没过 → 现铸一个并 prime,等提交时取用。
-    const txnId = withdraw.sumsubTxnId ?? this.mintTxnId(withdraw, button.key);
+    const txnId = withdraw.sumsubTxnId ?? mintDemoTxnId(withdraw.withdrawNo, withdraw.createdAt, button.key);
     if (!withdraw.sumsubTxnId) mockClient.primeSubmit(withdraw.withdrawNo, txnId);
 
     const txnType = (withdraw.sumsubTxnType as 'finance' | 'travelRule') ?? 'finance';
@@ -155,17 +140,6 @@ export class WithdrawDemoScenarioService {
       statusBefore,
       statusAfter: refreshed.status,
     };
-  }
-
-  /**
-   * 把 fixture 的槽位名铸成一个真实形态的 Sumsub txnId(与
-   * DepositDemoScenarioService#mintTxnId 逐字同源 —— 见该方法注释的三条性质)。
-   */
-  private mintTxnId(withdraw: { withdrawNo: string; createdAt: Date | string }, slot: string): string {
-    const digest = createHash('sha1').update(`${withdraw.withdrawNo}:${slot}`).digest('hex');
-    const ms = new Date(withdraw.createdAt).getTime();
-    const tsHex = Math.floor(ms / 1000).toString(16).padStart(8, '0').slice(-8);
-    return `${tsHex}${digest.slice(0, 16)}`;
   }
 
   /**
