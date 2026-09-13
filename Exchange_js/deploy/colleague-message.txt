@@ -12,5 +12,8 @@ sign-in page switches roles in one click, or type any of these:
   Treasury Officer     treasury@fiatx.com
   Internal Auditor     auditor@fiatx.com (read-only)
 Customer app: click "Demo quick login" and pick a customer.
+Self-service restore (top bar, turn on "Simulation" → "Demo Data"):
+  Full reset          — wipes everything, fresh demo data in ~1 minute (sign in again after)
+  Restore recon       — re-stages the 18 reconciliation scenarios only, takes seconds
 Note: everyone shares one dataset; every redeploy or reset starts over with fresh data.
 ────────────────────────────────────────────
