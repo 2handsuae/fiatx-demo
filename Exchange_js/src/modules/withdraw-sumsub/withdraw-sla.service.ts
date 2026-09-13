@@ -1,7 +1,8 @@
 // src/modules/withdraw-sumsub/withdraw-sla.service.ts
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { randomUUID } from 'crypto';
+import { SlaSweepBase } from '../sumsub-shared/sla-sweep.base';
 import {
   WithdrawTransactionsService,
   WITHDRAW_SLA_SOFT_STATUSES,
@@ -12,12 +13,12 @@ import { AuditCategory, AuditSubjectRole } from '../audit-logging/dto/audit-log.
 import {
   AuditActions,
   AuditEntityTypes,
-  AuditWorkflowTypes,
 } from '../audit-logging/constants/audit-actions.constant';
 
 /**
  * SLA 破线扫描 —— DepositSlaService 的镜像实现（2026-08-21 扩容至硬/软两
- * 类）。扫描 findSlaBreachCandidates 返回的四个状态，按状态分流：
+ * 类；公共分流逻辑抽到 SlaSweepBase）。扫描 findSlaBreachCandidates 返回的
+ * 四个状态，按状态分流：
  *   硬 SLA（COMPLIANCE_PENDING / ACTION_PENDING，等外部）→ 推 MANUAL_CHECKING
  *   软 SLA（MANUAL_CHECKING / PENDING_APPROVAL，等自己人）→ 只置 slaBreached，状态不动
  *
@@ -28,13 +29,16 @@ import {
  * SLA 逻辑再绑回任何 webhook 上。
  */
 @Injectable()
-export class WithdrawSlaService {
-  private readonly logger = new Logger(WithdrawSlaService.name);
+export class WithdrawSlaService extends SlaSweepBase {
+  protected readonly domainLabel = 'withdrawal';
+  protected readonly softStatuses = WITHDRAW_SLA_SOFT_STATUSES;
 
   constructor(
     private readonly withdrawService: WithdrawTransactionsService,
     private readonly auditLogsService: AuditLogsService,
-  ) {}
+  ) {
+    super();
+  }
 
   @Cron('*/1 * * * *', { timeZone: 'Asia/Dubai' })
   async handleCron(): Promise<void> {
@@ -43,40 +47,22 @@ export class WithdrawSlaService {
 
   // Core scan logic, kept separate from the @Cron wrapper so it's directly
   // callable in tests without waiting on a real clock.
-  //
-  // 单笔候选单处理失败（含 updateStatus 与 webhook 并发撞车时抛出的 Invalid
-  // transition ——对方已经把单子推进了别的状态，是正常的竞态吸收，不是故障）
-  // 都不能拖垮整轮扫描：逐笔 try/catch，记录后继续下一单。
   async checkSlaBreaches(): Promise<void> {
-    const now = new Date();
-    const candidates = await this.withdrawService.findSlaBreachCandidates(now);
-
-    for (const withdraw of candidates) {
-      try {
-        await this.breach(withdraw);
-      } catch (err) {
-        this.logger.error(
-          `withdraw SLA sweep failed for withdrawal ${withdraw.id}: ${err instanceof Error ? err.message : String(err)}`,
-        );
-      }
-    }
+    await this.sweep(new Date());
   }
 
-  private async breach(w: any): Promise<void> {
-    const oldStatus = w.status;
+  protected async findCandidates(now: Date): Promise<any[]> {
+    return this.withdrawService.findSlaBreachCandidates(now);
+  }
 
-    if (WITHDRAW_SLA_SOFT_STATUSES.has(oldStatus)) {
-      await this.softBreach(w);
-      return;
-    }
-    await this.hardBreach(w);
+  protected async markSlaBreached(id: string): Promise<void> {
+    await this.withdrawService.markSlaBreached(id);
   }
 
   /**
    * 软 SLA：等自己人（合规官 / 审批人）超时。只置标记 + 写审计，**状态一步不动**。
    */
-  private async softBreach(w: any): Promise<void> {
-    await this.withdrawService.markSlaBreached(w.id);
+  protected async auditSoftBreach(w: any): Promise<void> {
     this.logger.warn(
       `Withdrawal ${w.withdrawNo} soft SLA breached in ${w.status} (deadline ${w.slaDeadline?.toISOString?.() ?? w.slaDeadline}) — flagged only, status unchanged`,
     );
@@ -106,7 +92,7 @@ export class WithdrawSlaService {
   /**
    * 硬 SLA：等外部（客户交材料 / Sumsub 回裁决）超时。我方有权处置 → 推状态。
    */
-  private async hardBreach(w: any): Promise<void> {
+  protected async hardBreach(w: any): Promise<void> {
     const oldStatus = w.status;
 
     const breachedRow = await this.withdrawService.updateStatus(
