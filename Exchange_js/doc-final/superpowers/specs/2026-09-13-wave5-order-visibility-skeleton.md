@@ -134,7 +134,7 @@ F. 剧本站级细化 + 三幕完整走查截图收官
 ## 6. E · 前端收口杂项
 
 - **分页统一**：三域交易 List 之外 6 个裸用 `Pagination` 的域内列表换 `ListFooter`（`ListFooter.tsx:7-12` 注释自述的分裂收口）。
-- **恒空展示位**：`DepositTransactionDetail.tsx:99,601` 渲染表里不存在的 `confirmations` 列——删；`:117,669` "Applicant Action ID" 恒空——删；`FundsOrderDetail.tsx` 7 个链上字段（sentAt/nonce/blockNo…）后端零赋值——**默认删展示**（模拟器补写=新增行为，与收口性质不符）；执行时若发现某字段存在真实赋值路径则保留并在评审报告点名。
+- **恒空展示位**（2026-09-14 plan 前复核勘误：体检 :43 行把字段误记在 `DepositTransactionDetail.tsx`，实测该页已无 `confirmations`/"Applicant Action ID"，复现 `grep -n "Applicant Action\|confirmations" admin-web/src/pages/DepositTransactionDetail.tsx` 零命中）：真实恒空面只有 `FundsOrderDetail.tsx` 7 个链上字段（confirmations/blockNo/nonce/gasUsed/effectiveGasPrice/sentAt/confirmedAt，类型 :82-91、渲染 :550-570 与 :675-682，后端零赋值）——**删展示**；执行时若发现某字段存在真实赋值路径则保留并在评审报告点名。
 - **顺手项**："0m"→"<1m" 等展示零头，plan 时枚举成清单逐项销。
 
 ## 7. F · 站级剧本 + 三幕走查
