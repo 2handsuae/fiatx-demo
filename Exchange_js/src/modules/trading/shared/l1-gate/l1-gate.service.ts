@@ -106,13 +106,20 @@ export class L1GateService {
     // ② 客户限制 —— 只看卡不卡**本域**这个能力。
     //    七种因由里只有 SANCTION / ADMIN_SUSPENSION 的 scope 是 ALL（含 DEPOSIT）,
     //    其余五种只卡 WITHDRAW+SWAP —— 材料过期不该挡住别人给你打钱。
+    //    D10（业主裁定,波五 T7）：管理台要看具体因由+限制便签号,不能只说
+    //    「被限制(N项)」。detail 消费 blockingNotes（含 SILENT 行）而不是
+    //    disclosed —— 后者滤掉了 SILENT,会让管理台看不到制裁类因由。客户面
+    //    不读这份快照（三域客户视图白名单零暴露,见各自 toCustomer*View）。
     const capability = DOMAIN_CAPABILITY[input.domain];
     const restricted = access.blocked.has(capability);
+    const restrictionNotes = restricted
+      ? access.blockingNotes.filter((n) => n.capability === capability)
+      : [];
     own.push({
       code: 'CUSTOMER_RESTRICTION',
       outcome: restricted ? 'FAIL' : 'PASS',
       detail: restricted
-        ? `Customer restriction holds down ${capability} capability (${access.blocked.size} capability item(s) restricted in total)`
+        ? `Customer restriction holds down ${capability} — ${restrictionNotes.map((n) => `${n.cause} (${n.restrictionNo})`).join('; ')}`
         : 'No OPEN restriction note blocks this domain\'s capability',
     });
 

@@ -58,6 +58,16 @@ const accessBlocking = (...caps: string[]) => ({
   disclosedBlocked: new Set<string>(),
   disclosed: [],
   openCount: 1,
+  // D10（波五 T7）：L1GateService 现在读 blockingNotes 拼 detail 文案（因由+
+  // 便签号），真求值器跑到这里需要有值可读——本 fixture 大多数用例走的是
+  // mock 的 l1Gate.evaluate（不触达这段），只有下面「B4 修复轮」那一例接的
+  // 是真 L1GateService，caus/restrictionNo 具体取值对那例的断言无关紧要。
+  blockingNotes: caps.map((capability) => ({
+    capability,
+    restrictionNo: 'CR-1',
+    cause: 'ADMIN_SUSPENSION' as const,
+    visibility: 'DISCLOSED' as const,
+  })),
 });
 /** B4：lifecycle 非 ACTIVE、且**一张便签都没贴**（§4 补的那个真缺口）。 */
 const accessLifecycle = (lifecycle: string) => ({

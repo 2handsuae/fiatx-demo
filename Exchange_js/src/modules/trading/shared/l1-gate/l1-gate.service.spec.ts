@@ -50,6 +50,11 @@ describe('L1GateService', () => {
       lifecycle: 'ACTIVE',
       blocked: new Set(['DEPOSIT', 'WITHDRAW', 'SWAP']),
       disclosed: [],
+      blockingNotes: [
+        { capability: 'DEPOSIT', restrictionNo: 'RST-1', cause: 'SANCTION', visibility: 'SILENT' },
+        { capability: 'WITHDRAW', restrictionNo: 'RST-1', cause: 'SANCTION', visibility: 'SILENT' },
+        { capability: 'SWAP', restrictionNo: 'RST-1', cause: 'SANCTION', visibility: 'SILENT' },
+      ],
     });
     prisma.customerMain.findUnique.mockResolvedValue({ tradingTier: 'BASIC' });
 
@@ -60,18 +65,66 @@ describe('L1GateService', () => {
     expect(snap.checks.find((c) => c.code === 'CUSTOMER_RESTRICTION')?.outcome).toBe('FAIL');
   });
 
-  it('便签只卡 WITHDRAW/SWAP 时,充值域该项判 PASS', async () => {
+  it('便签只卡 WITHDRAW/SWAP 时,充值域该项判 PASS,detail 文案原样不变', async () => {
     customerAccess.resolve.mockResolvedValue({
       lifecycle: 'ACTIVE',
       blocked: new Set(['WITHDRAW', 'SWAP']),
       disclosed: [],
+      blockingNotes: [
+        { capability: 'WITHDRAW', restrictionNo: 'RST-1', cause: 'MATERIAL_EXPIRED', visibility: 'DISCLOSED' },
+        { capability: 'SWAP', restrictionNo: 'RST-1', cause: 'MATERIAL_EXPIRED', visibility: 'DISCLOSED' },
+      ],
     });
     prisma.customerMain.findUnique.mockResolvedValue({ tradingTier: 'BASIC' });
 
     const snap = await service.evaluate({ domain: 'DEPOSIT', customerId: 'c1' });
 
     expect(snap.verdict).toBe('PASS');
-    expect(snap.checks.find((c) => c.code === 'CUSTOMER_RESTRICTION')?.outcome).toBe('PASS');
+    const restriction = snap.checks.find((c) => c.code === 'CUSTOMER_RESTRICTION');
+    expect(restriction?.outcome).toBe('PASS');
+    expect(restriction?.detail).toBe('No OPEN restriction note blocks this domain\'s capability');
+  });
+
+  // D10（业主裁定，波五 T7）：管理台 L1 快照②格此前只说"被限制(N项)",不说为什么。
+  // 现在必须露出具体因由(cause)+限制便签号(restrictionNo,铁律⑥业务键) ——
+  // 必须消费 blockingNotes(含 SILENT 行),不能用 disclosed(制裁因由不在里面,
+  // 管理台会看不全)。客户面继续走 toCustomer*View 白名单,零暴露(见下方专项断言)。
+  it('D10：②格 FAIL detail 带具体因由 + 限制便签号（制裁客户,SILENT 行也要露给管理台）', async () => {
+    customerAccess.resolve.mockResolvedValue({
+      lifecycle: 'ACTIVE',
+      blocked: new Set(['WITHDRAW']),
+      disclosed: [],
+      blockingNotes: [
+        { capability: 'WITHDRAW', restrictionNo: 'RST2601010001', cause: 'SANCTION', visibility: 'SILENT' },
+      ],
+    });
+    prisma.customerMain.findUnique.mockResolvedValue({ tradingTier: 'BASIC' });
+
+    const snap = await service.evaluate({ domain: 'WITHDRAW', customerId: 'c1' });
+
+    const restriction = snap.checks.find((c) => c.code === 'CUSTOMER_RESTRICTION');
+    expect(restriction?.outcome).toBe('FAIL');
+    expect(restriction?.detail).toBe('Customer restriction holds down WITHDRAW — SANCTION (RST2601010001)');
+  });
+
+  it('D10：同一能力被多条便签同卡 → detail 逐条列出因由+便签号,分号分隔', async () => {
+    customerAccess.resolve.mockResolvedValue({
+      lifecycle: 'ACTIVE',
+      blocked: new Set(['WITHDRAW']),
+      disclosed: [],
+      blockingNotes: [
+        { capability: 'WITHDRAW', restrictionNo: 'RST2601010001', cause: 'SANCTION', visibility: 'SILENT' },
+        { capability: 'WITHDRAW', restrictionNo: 'RST2601010002', cause: 'ADMIN_SUSPENSION', visibility: 'DISCLOSED' },
+      ],
+    });
+    prisma.customerMain.findUnique.mockResolvedValue({ tradingTier: 'BASIC' });
+
+    const snap = await service.evaluate({ domain: 'WITHDRAW', customerId: 'c1' });
+
+    const restriction = snap.checks.find((c) => c.code === 'CUSTOMER_RESTRICTION');
+    expect(restriction?.detail).toBe(
+      'Customer restriction holds down WITHDRAW — SANCTION (RST2601010001); ADMIN_SUSPENSION (RST2601010002)',
+    );
   });
 
   it('调用方传进来的 preChecks 原样进快照,FAIL 会影响 verdict', async () => {
@@ -103,6 +156,9 @@ describe('L1GateService', () => {
       lifecycle: 'ACTIVE',
       blocked: new Set(['WITHDRAW']),
       disclosed: [],
+      blockingNotes: [
+        { capability: 'WITHDRAW', restrictionNo: 'RST-1', cause: 'ADMIN_SUSPENSION', visibility: 'DISCLOSED' },
+      ],
     });
     prisma.customerMain.findUnique.mockResolvedValue({ tradingTier: 'BASIC' });
 

@@ -583,6 +583,85 @@ describe('Task 10: 客户面三层防线', () => {
     });
   });
 
+  // D10（波五 T7）附带断言：L1 快照带具体因由+便签号后,管理台②格明文变多了
+  // （SANCTION/ADMIN_SUSPENSION + restrictionNo）,客户面必须仍然一个字都拿不到——
+  // toCustomerSwapView 是构造式白名单（不是 `...item` 再删字段）,新增列天生不
+  // 外泄,这条测试把它钉死。镜像 deposit-transactions.service.spec.ts 的
+  // SENSITIVE_FULL_ROW/SENSITIVE_KEYS 写法。
+  describe('客户视图零暴露：toCustomerSwapView 不透出 l1Snapshot 等执法态字段（D10 附带断言）', () => {
+    it('FROZEN 行带完整执法态字段（含 SANCTION 细节的 l1Snapshot）→ 客户视图只剩白名单字段', () => {
+      const sensitiveRow: any = {
+        id: 'swap-sens-1',
+        swapNo: 'SWP-SENS-1',
+        status: 'FROZEN',
+        fromAmount: '100',
+        toAmount: '365',
+        netToAmount: '360',
+        feeAmount: '5',
+        feeCurrency: 'AED',
+        exchangeRate: '3.6725',
+        createdAt: new Date('2026-01-01T00:00:00Z'),
+        completedAt: null,
+        fromAsset: { currency: 'USDT', code: 'USDT', network: 'TRON', decimals: 6 },
+        toAsset: { currency: 'AED', code: 'AED', network: null, decimals: 2 },
+        // 执法态字段——白名单外，绝不能漏出客户视图
+        statusHistory: '[]',
+        needsReview: true,
+        currentStage: 'MLRO_REVIEW',
+        traceId: 'trace-1',
+        ownerId: 'cust-1',
+        ownerNo: 'CU0001',
+        quoteSnapshotRef: 'quote-1',
+        tbFromTransferId: 'tb-1',
+        tbToTransferId: 'tb-2',
+        tbFeeTransferId: 'tb-3',
+        tbSpreadTransferId: 'tb-4',
+        grossAedValue: '365.00',
+        failureReason: null,
+        rejectReason: null,
+        sumsubTxnIdOut: 'txn-out-1',
+        sumsubTxnIdIn: 'txn-in-1',
+        sumsubDetailJson: '{}',
+        // D10：便签因由+号码明文写在这里——客户视图连这个字段本身都不能有
+        l1Snapshot: JSON.stringify({
+          evaluatedAt: '2026-01-01T00:00:00.000Z',
+          domain: 'SWAP',
+          verdict: 'BLOCK',
+          holdReason: null,
+          tradingTier: 'BASIC',
+          checks: [
+            {
+              code: 'CUSTOMER_RESTRICTION',
+              outcome: 'FAIL',
+              detail: 'Customer restriction holds down SWAP — SANCTION (RST2601010001)',
+            },
+          ],
+        }),
+      };
+
+      const view: any = service.toCustomerSwapView(sensitiveRow);
+
+      expect(view).toEqual({
+        id: 'swap-sens-1',
+        swapNo: 'SWP-SENS-1',
+        status: 'COMPLIANCE_PENDING', // FROZEN 不在白名单,收敛
+        fromAmount: '100',
+        toAmount: '365',
+        netToAmount: '360',
+        feeAmount: '5',
+        feeCurrency: 'AED',
+        exchangeRate: '3.6725',
+        createdAt: sensitiveRow.createdAt,
+        completedAt: null,
+        fromAsset: { currency: 'USDT', code: 'USDT', network: 'TRON', decimals: 6 },
+        toAsset: { currency: 'AED', code: 'AED', network: null, decimals: 2 },
+      });
+      // 逐字符串扫描兜底：序列化结果里不能出现任何执法态词汇或 l1 字样的痕迹
+      const serialized = JSON.stringify(view);
+      expect(serialized).not.toMatch(/l1|CUSTOMER_RESTRICTION|SANCTION|needsReview|statusHistory|traceId/i);
+    });
+  });
+
   describe('admin 不受影响：非 customerScope 下 status 参数照常按原始值精确过滤', () => {
     it('admin 侧 findAll 传 status 时 where.status 照常写入原始值（非 { in: [...] } 展开形式）', async () => {
       await service.findAll({ status: 'FROZEN' } as any);
