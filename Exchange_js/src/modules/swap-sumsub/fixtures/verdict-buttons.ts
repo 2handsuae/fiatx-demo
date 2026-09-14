@@ -7,7 +7,8 @@ export type SwapVerdictButton = OrderVerdictButton;
  *
  * 缺的三个各有真实理由，不得为了凑数补：
  *   ④ PEP 对手方 / ⑧ Sanctions 对手方 —— 兑换是客户账内换币，没有对手方；
- *   ⑩ 处置标签 —— 兑换的 FROZEN 是零出边终态，没有没收/退回/上缴那类弧。
+ *   ⑩ 处置标签 —— 兑换没有没收/退回/上缴那类处置弧（FROZEN 的出路是解冻/拒退
+ *     两条审批边，2026-09-14 中间态改造，不经处置标签驱动）。
  *
  * 2026-08-29 删掉旧的「⑦认证通过 / ⑧认证不通过」：材料审核是另一个 webhook
  * （applicantActionReviewed），入口在客户详情页 Verification Requests 区块的
