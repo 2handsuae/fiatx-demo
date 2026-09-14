@@ -56,11 +56,11 @@ F. 剧本站级细化 + 三幕完整走查截图收官
 
 | 域 | 现状 | 改动 |
 |---|---|---|
-| 充值 | 收进来→L1 FREEZE 分支入冻，展示 PROCESSING | **零改动**（验证即可） |
+| 充值 | 收进来→L1 FREEZE 分支入冻，展示 PROCESSING | 客户自报进单口 fold（见下方 2026-09-14 勘误；detected() 链路零改动） |
 | 提现 | 报价/建单在 `assertTradingEligibility` 抛中性 403（`withdraw-quote-customer.controller.ts:42` / `customer-withdraw.controller.ts:46`）；workflow L1 BLOCK 再拦一道（`withdraw-workflow.service.ts:384`） | SILENT-only 客户放行报价与建单；建单照常压 TB pending 锁；入库后立即走既有 FREEZE 边转 FROZEN（提现冻结不放锁=现状，`releaseLock` 只在拒/败/退终态路径）；原 `WITHDRAW_L1_BLOCKED` 审计对该客户不再发生，改为建单+`WITHDRAW_FROZEN` 两条审计，L1 快照照记 `CUSTOMER_RESTRICTION FAIL`（供 §4 展示） |
 | 兑换 | 同提现，报价闸 `swap-transactions-customer.controller.ts:46` | 同提现：放行报价与建单；`initiateSwap` 建单（COMPLIANCE_PENDING+出生锁）后立即 FREEZE（既有唯一入边）；建单响应给客户的是收敛后视图（FROZEN→COMPLIANCE_PENDING→Processing） |
 
-2026-09-14 执行期勘误（Task 4 评审）：充值"零改动"前提失准——客户自报入口 inbound-signals 也是进单口（Deposit.tsx Simulate 按钮），已按裁定 1 统一 fold；detected() 链路零改动的判断仍真。（补充：客户自助入口实为两步连打——`createForCustomer`(:132) 自报预通知 + `scanForCustomer`(:470，同一份 Deposit.tsx 点击链路自动跟着打) 落地扫描；两处 `assertTradingEligibility` 都换成了 `assertTradingIntake`，否则第一步放行、第二步仍照旧拒的话，信号会卡在 IGNORED，永远到不了 `detected()`。）
+2026-09-14 执行期勘误（Task 4 评审）：充值"零改动"前提失准——客户自报入口 inbound-signals 也是进单口（Deposit.tsx Simulate 按钮），已按裁定 1 统一 fold；detected() 链路零改动的判断仍真。（补充：客户自助入口实为两步连打——`createForCustomer`(:138，改动后行号) 自报预通知 + `scanForCustomer`(:478，同一份 Deposit.tsx 点击链路自动跟着打) 落地扫描；两处 `assertTradingEligibility` 都换成了 `assertTradingIntake`，否则第一步放行、第二步仍照旧拒的话，信号会卡在 IGNORED，永远到不了 `detected()`。）
 
 - 建单与冻结**两步落库、审计各写各的**（镜像既有冻人广播路径的形状），不追求同事务原子——中途崩溃留下"已建未冻"的单会被下一次广播/L1 补冻（技术兜底不做，语义上先建后冻即可）。
 - 提现建单余额不足 → TB 拒绝报普通错误，与普通客户同款，无泄密，不特殊处理。
