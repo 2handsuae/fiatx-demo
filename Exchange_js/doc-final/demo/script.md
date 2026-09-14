@@ -68,7 +68,8 @@
 判据：单转 SUCCESS，客户余额同步变化
 
 **站 3.3 · 制裁命中**（先冻人再冻单）
-走查：⚡ 按钮喂「⑦ Rejected · Sanctions（客户本人）」
+账号：切客户端登录 `demo_jack@example.com`（此前完全无限制的种子客户；**不用 frank**——frank 在 base seed 里已经是永久 SANCTION 客户，拿他做本站只会复现"创建即冻"，验证不了本站要的"先正常入 KYT 排队、再被裁决打回"这段两截式因果）
+走查：充值页现场 Simulate Deposit（资产 USDT-TRON，金额随意）→ 链上确认后单据正常进 COMPLIANCE_PENDING → ⚡ 按钮喂「⑦ Rejected · Sanctions（客户本人）」
 判据：客户先被打上制裁限制、单据随之冻结（FROZEN）——人和单是两笔账，先后可见
 
 **站 3.4 · Carol（SILENT）创建即冻**
@@ -126,7 +127,7 @@
 **造数**：`demo:withdraw` + ⚡模拟面板。
 
 **站 5.1 · 正常提现放行到账**
-账号：客户端 `demo_alice`
+账号：客户端 `demo_bob`（⚠️ alice 在本幕站 4.3 已被「⑦ Rejected · Sanctions」连坐打上客户级 SANCTION 限制，她的新提现会被同一限制折叠冻结、演不出"正常放行"——勿用 alice，换 bob）
 走查：提现到已绑定地址
 判据：单正常放行、余额到账
 
@@ -140,10 +141,10 @@
 判据：单转 **FROZEN** 后，客户端列表仍只显示"处理中"（PROCESSING）中性文案（tipping-off 双防），看不出被冻结、也看不出在被调查——与她其它正常单据观感一致
 （⚠️ 不要点 demo:all 预铺的 #19——那张单 `demo:all` 铺场时已经被驱到 **FROZEN** 终态，SimulationPanel 对 FROZEN 单据的裁决按钮会置灰点不动；#19 留着当"现成的冻结单+审计链"范例翻给观众看即可，现场喂裁决要用本站新建的这张）
 
-**站 5.4 · Carol（SILENT）创建即冻**
-账号：切客户端登录 Carol（`demo_carol@example.com`）
-走查：提现页拿报价 → 提交（金额随意，地址用她已登记的一条）
-判据：客户端列表该单立即显示 **PROCESSING**（无横幅，与正常单据观感一致）；切管理台该提现详情，状态已是 **FROZEN**，L1 GATE 面板如实记 `CUSTOMER_RESTRICTION FAIL`（其余项 PASS），状态历史卡片一行 `FROZEN — created by SILENT-restricted customer — folded at intake`——建单入库即冻，不是先放行再追冻
+**站 5.4 · Frank（SANCTION）创建即冻**
+账号：切客户端登录 Frank（`demo_frank@example.com`）（⚠️ **不用 Carol**——她种子即 SANCTION、充值恒被"创建即冻"折叠、从不进可用余额，标准预铺态下她两种资产可用余额永远是 0，提现表单填额度点提交会静默无网络请求、演不出本站；Frank 走的是花名册自己的模式：`demo:setup` 种子表 #21 在他被制裁**前**先垫了本金、#7 才把他打成 SANCTION，所以预铺完他仍有约 1,400 AED 可用余额）
+走查：提现页拿报价 → 提交（金额约 200 AED 级，地址用他已登记的一条）
+判据：客户端列表该单立即显示 **PROCESSING**（无横幅，与正常单据观感一致）；切管理台该提现详情，状态已是 **FROZEN**，L1 GATE 面板如实记 `CUSTOMER_RESTRICTION FAIL`（其余项 PASS）——建单入库即冻，不是先放行再追冻；讲一句：Frank 的钱是制裁前存入的（#21），制裁后新提现照收即冻——这正是"资产冻结"（人被冻、钱冻在账上）的真实形态，跟"从未有过钱"不是一回事
 
 **站 5.5 · 大额审批门**
 走查：大额单过 SMO 审批门
