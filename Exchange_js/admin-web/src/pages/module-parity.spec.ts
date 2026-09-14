@@ -186,17 +186,24 @@ describe('规则③ 侧栏结构必须一样（Task 4）', () => {
     }
   });
 
-  it('兑换操作段为空 —— 侧栏只有信息段三组', () => {
-    expect(sidebarGroupsOf(DETAIL_PAGES.SWAP)).toEqual(['SLA', 'Identity', 'Lifecycle']);
+  /* 2026-09-14 裁定翻案：FROZEN 从零出边终态改成押锁不放的中间态（两条出边
+     RESUME/REJECT_REFUND，见 swap-transactions.service.ts 的 transitions 表），
+     波五 Task 6 补上对应的 Frozen Disposition 操作段——"兑换操作段恒空"这条
+     旧口径本身作废，不是删断言，是把钉子重新瞄准翻案后仍然成立的顺序事实。 */
+  it('兑换侧栏 2026-09-14 起有操作段：FROZEN 专属的 Frozen Disposition，排在信息段前面', () => {
+    expect(sidebarGroupsOf(DETAIL_PAGES.SWAP)).toEqual(
+      ['Frozen Disposition', 'SLA', 'Identity', 'Lifecycle']);
   });
 
-  /* 反面断言：兑换的 Ops Disposition 装的是客户合规信息（Restrictions / Hard Line），
-     业主裁定「客户合规信息不放在订单里」。这条钉住它不会被谁"顺手加回来"。 */
+  /* 反面断言：兑换侧栏不该装客户级合规信息（Restrictions / Hard Line ——业主裁定
+     「客户合规信息不放在订单里」）。Frozen Disposition 不违反这条红线：它是订单
+     自己状态机的出边（unfreeze/refund 对应 swap 自身 status），不是客户主体字段——
+     原钉子曾把它跟"操作段恒空"混在一条断言里一起钉死，2026-09-14 翻案后从这里
+     挪出，红线本身没变。 */
   it('兑换侧栏不再出现客户级合规信息', () => {
     const swap = srcOf(DETAIL_PAGES.SWAP);
     expect(swap).not.toContain('label="Restrictions"');
     expect(swap).not.toContain('label="Hard Line"');
-    expect(swap).not.toContain('<SidebarGroup title="Frozen Disposition">');
   });
 
   it('三域 Identity 都是纯身份 4 行，且第 4 行按域给（充值/提现 Asset、兑换 Pair）', () => {

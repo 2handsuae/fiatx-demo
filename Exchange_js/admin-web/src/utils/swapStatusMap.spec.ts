@@ -38,12 +38,12 @@ describe('swapStatusMap', () => {
     expect(meta.badgeClass).toContain('adm-yellow');
   });
 
-  it('FROZEN 算终态 —— 兑换域零出边(与提现的 FROZEN 刻意相反)', () => {
-    expect(isSwapTerminalStatus('FROZEN')).toBe(true);
+  it('FROZEN 不算终态 —— 2026-09-14 裁定翻案：押锁不放,两条出边 RESUME/REJECT_REFUND,与提现同口径', () => {
+    expect(isSwapTerminalStatus('FROZEN')).toBe(false);
   });
 
   it('终态判定 == 转移表里出边为空的那几行,一个不多一个不少', () => {
-    const terminal = ['SUCCESS', 'REJECTED', 'FROZEN'];
+    const terminal = ['SUCCESS', 'REJECTED'];
     for (const s of BACKEND_STATUSES) {
       expect(isSwapTerminalStatus(s)).toBe(terminal.includes(s));
     }
