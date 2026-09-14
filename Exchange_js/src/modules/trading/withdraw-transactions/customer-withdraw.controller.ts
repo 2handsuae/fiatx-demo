@@ -46,7 +46,14 @@ export class CustomerWithdrawController {
     // 波五 T4：SILENT 便签放行建单——真正的折叠+冻结在 workflow.createWithdrawal
     // 内落地（纵深闸，本调用只挡 DISCLOSED 客户）。
     await this.customerAccess.assertTradingIntake(userId, 'WITHDRAW');
-    return this.workflow.createWithdrawal(dto, userId);
+    const created = await this.workflow.createWithdrawal(dto, userId);
+    // 波五 T4 评审 Critical：workflow.createWithdrawal() 返回的是整行（含
+    // l1Snapshot/needsReview/sumsub* 等执法态字段——fold 客户的响应里会明文
+    // 带 CUSTOMER_RESTRICTION FAIL 详情，tipping-off 泄露）。不收窄 service
+    // 返回值本身——demo-lib.ts/demo-fixtures.ts 与多份 e2e 直接消费那个整行；
+    // 在控制器这一层收口：建单后过与 GET 详情端点同一条客户白名单路径重取一次
+    // （不复用 created——那行可能缺 asset include），逐字节对齐 findOneForCustomer。
+    return this.service.findOneForCustomer(created.id, userId);
   }
 
   @Get()

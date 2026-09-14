@@ -28,7 +28,7 @@ describe('InboundTransferSignalsService · 按网络与合约找钥匙（波一�
     inboundTransferSignal: { findUnique: jest.fn(), create: jest.fn() },
   };
   const audit = { recordSystem: jest.fn(), recordByActor: jest.fn() };
-  const access = { assertTradingEligibility: jest.fn() };
+  const access = { assertTradingIntake: jest.fn() };
   let service: InboundTransferSignalsService;
 
   const wallet = { id: 'w1', walletNo: 'WA1', ownerType: 'CUSTOMER', ownerId: 'c1', vaultCode: 'CLIENT_DEPOSIT', walletRole: 'C_DEP', network: 'TRON', address: 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t', status: 'ACTIVE' };
@@ -217,7 +217,7 @@ describe('InboundTransferSignalsService · 既有行为回归（钥匙改按网�
     });
 
     customerAccess = {
-      assertTradingEligibility: jest.fn(),
+      assertTradingIntake: jest.fn(),
     };
 
     depositService = {
@@ -285,7 +285,7 @@ describe('InboundTransferSignalsService · 既有行为回归（钥匙改按网�
   });
 
   it('should create a pending inbound transfer signal for customer deposit wallet', async () => {
-    customerAccess.assertTradingEligibility.mockResolvedValue(undefined);
+    customerAccess.assertTradingIntake.mockResolvedValue({ fold: false });
     prisma.wallet.findFirst.mockResolvedValue(cryptoWallet);
     prisma.asset.findFirst.mockResolvedValue(usdtAsset);
     prisma.inboundTransferSignal.findUnique.mockResolvedValueOnce(null);
@@ -330,8 +330,68 @@ describe('InboundTransferSignalsService · 既有行为回归（钥匙改按网�
     expect(result.id).toBe('sig-1');
   });
 
+  // 波五 T4 评审 Important（执行期勘误）：客户自报预通知这道闸也是进单口——
+  // SILENT 客户之前被硬拒，连"模拟到账信号"都提交不了。改用 assertTradingIntake
+  // 后，SILENT 客户（fold=true）照收信号，DISCLOSED 客户仍中性 403。
+  it('波五 T4：SILENT 客户（fold=true）模拟到账信号照收，不因折叠被拒', async () => {
+    customerAccess.assertTradingIntake.mockResolvedValue({ fold: true });
+    prisma.wallet.findFirst.mockResolvedValue(cryptoWallet);
+    prisma.asset.findFirst.mockResolvedValue(usdtAsset);
+    prisma.inboundTransferSignal.findUnique.mockResolvedValueOnce(null);
+    prisma.inboundTransferSignal.create.mockResolvedValue({
+      id: 'sig-silent-1',
+      signalNo: 'SIG0002',
+      ownerId: 'cust-1',
+      walletId: cryptoWallet.id,
+      assetId: usdtAsset.id,
+      status: InboundTransferSignalStatus.PENDING_SCAN,
+    });
+    prisma.inboundTransferSignal.findUnique.mockResolvedValueOnce({
+      id: 'sig-silent-1',
+      signalNo: 'SIG0002',
+      ownerId: 'cust-1',
+      walletId: cryptoWallet.id,
+      assetId: usdtAsset.id,
+      status: InboundTransferSignalStatus.PENDING_SCAN,
+    });
+
+    const result = await service.createForCustomer('cust-1', {
+      network: 'TRON',
+      toAddress: cryptoWallet.address,
+      contractAddress: usdtAsset.contractAddress,
+      amount: '12.50',
+      txHash: '0xabc',
+      fromAddress: '0xfrom',
+      counterpartyIsVasp: true,
+    } as any);
+
+    expect(customerAccess.assertTradingIntake).toHaveBeenCalledWith('cust-1', 'DEPOSIT');
+    expect(prisma.inboundTransferSignal.create).toHaveBeenCalled();
+    expect(result.id).toBe('sig-silent-1');
+  });
+
+  it('波五 T4：DISCLOSED 客户（assertTradingIntake 抛 DENY）模拟到账信号仍中性拒绝，不落信号行', async () => {
+    const denial = { response: { code: 'CAPABILITY_RESTRICTED', message: 'This operation is not available for your account at the moment.' } };
+    customerAccess.assertTradingIntake.mockRejectedValue(denial);
+    prisma.wallet.findFirst.mockResolvedValue(cryptoWallet);
+
+    await expect(
+      service.createForCustomer('cust-1', {
+        network: 'TRON',
+        toAddress: cryptoWallet.address,
+        contractAddress: usdtAsset.contractAddress,
+        amount: '12.50',
+        txHash: '0xabc',
+        fromAddress: '0xfrom',
+        counterpartyIsVasp: true,
+      } as any),
+    ).rejects.toBe(denial);
+
+    expect(prisma.inboundTransferSignal.create).not.toHaveBeenCalled();
+  });
+
   it('should reject a crypto inbound signal missing counterpartyIsVasp', async () => {
-    customerAccess.assertTradingEligibility.mockResolvedValue(undefined);
+    customerAccess.assertTradingIntake.mockResolvedValue({ fold: false });
     prisma.wallet.findFirst.mockResolvedValue(cryptoWallet);
     prisma.asset.findFirst.mockResolvedValue(usdtAsset);
 
@@ -349,7 +409,7 @@ describe('InboundTransferSignalsService · 既有行为回归（钥匙改按网�
   });
 
   it('should reject a crypto inbound signal with counterpartyIsVasp explicitly null', async () => {
-    customerAccess.assertTradingEligibility.mockResolvedValue(undefined);
+    customerAccess.assertTradingIntake.mockResolvedValue({ fold: false });
     prisma.wallet.findFirst.mockResolvedValue(cryptoWallet);
     prisma.asset.findFirst.mockResolvedValue(usdtAsset);
 
@@ -368,7 +428,7 @@ describe('InboundTransferSignalsService · 既有行为回归（钥匙改按网�
   });
 
   it('should reject a fiat inbound signal that provides counterpartyIsVasp', async () => {
-    customerAccess.assertTradingEligibility.mockResolvedValue(undefined);
+    customerAccess.assertTradingIntake.mockResolvedValue({ fold: false });
     prisma.wallet.findFirst.mockResolvedValue(fiatWallet);
     prisma.asset.findFirst.mockResolvedValue(aedAsset);
 
@@ -386,7 +446,7 @@ describe('InboundTransferSignalsService · 既有行为回归（钥匙改按网�
   });
 
   it('should return existing inbound signal when dedupe key already exists', async () => {
-    customerAccess.assertTradingEligibility.mockResolvedValue(undefined);
+    customerAccess.assertTradingIntake.mockResolvedValue({ fold: false });
     prisma.wallet.findFirst.mockResolvedValue(fiatWallet);
     prisma.asset.findFirst.mockResolvedValue(aedAsset);
     prisma.inboundTransferSignal.findUnique.mockResolvedValue({
@@ -408,7 +468,7 @@ describe('InboundTransferSignalsService · 既有行为回归（钥匙改按网�
   });
 
   it('should accept fiat medium risk with large deposit profile mismatch', async () => {
-    customerAccess.assertTradingEligibility.mockResolvedValue(undefined);
+    customerAccess.assertTradingIntake.mockResolvedValue({ fold: false });
     prisma.wallet.findFirst.mockResolvedValue(fiatWallet);
     prisma.asset.findFirst.mockResolvedValue(aedAsset);
     prisma.inboundTransferSignal.findUnique.mockResolvedValueOnce(null);
@@ -456,7 +516,7 @@ describe('InboundTransferSignalsService · 既有行为回归（钥匙改按网�
   });
 
   it('should reject fiat medium risk reasons that rely on crypto-only enums', async () => {
-    customerAccess.assertTradingEligibility.mockResolvedValue(undefined);
+    customerAccess.assertTradingIntake.mockResolvedValue({ fold: false });
     prisma.wallet.findFirst.mockResolvedValue(fiatWallet);
     prisma.asset.findFirst.mockResolvedValue(aedAsset);
 
@@ -476,7 +536,7 @@ describe('InboundTransferSignalsService · 既有行为回归（钥匙改按网�
   });
 
   it('should accept fiat high risk with sanctions hit', async () => {
-    customerAccess.assertTradingEligibility.mockResolvedValue(undefined);
+    customerAccess.assertTradingIntake.mockResolvedValue({ fold: false });
     prisma.wallet.findFirst.mockResolvedValue(fiatWallet);
     prisma.asset.findFirst.mockResolvedValue(aedAsset);
     prisma.inboundTransferSignal.findUnique.mockResolvedValueOnce(null);
@@ -516,7 +576,7 @@ describe('InboundTransferSignalsService · 既有行为回归（钥匙改按网�
 
   it('should mark signals ignored when deposit trading gate is blocked during scan', async () => {
     prisma.wallet.findFirst.mockResolvedValue(cryptoWallet);
-    customerAccess.assertTradingEligibility.mockRejectedValue(
+    customerAccess.assertTradingIntake.mockRejectedValue(
       new Error('DEPOSIT is blocked by onboarding gate'),
     );
     prisma.inboundTransferSignal.findMany.mockResolvedValue([
@@ -549,7 +609,7 @@ describe('InboundTransferSignalsService · 既有行为回归（钥匙改按网�
 
   it('should create and advance a crypto funds order to deposit compliance pending during scan', async () => {
     prisma.wallet.findFirst.mockResolvedValue(cryptoWallet);
-    customerAccess.assertTradingEligibility.mockResolvedValue(undefined);
+    customerAccess.assertTradingIntake.mockResolvedValue({ fold: false });
     prisma.inboundTransferSignal.findMany.mockResolvedValue([
       {
         id: 'sig-1',
@@ -622,6 +682,63 @@ describe('InboundTransferSignalsService · 既有行为回归（钥匙改按网�
     );
   });
 
+  // 波五 T4 评审 Important（执行期勘误）：Simulate Deposit 是"自报→扫描"两步
+  // 连打（client-web Deposit.tsx），SILENT 客户在 createForCustomer 放行后，
+  // 若 scanForCustomer 这里仍旧拒，signal 会被打成 IGNORED，永远到不了
+  // processSignal()→detected()，上一步的折叠就白改了。本用例证明 fold=true
+  // 时 scanForCustomer 正常处理信号（不进 blockedCount，走到 detected()）。
+  it('波五 T4：SILENT 客户（fold=true）扫描信号照常处理，不进 blockedCount', async () => {
+    prisma.wallet.findFirst.mockResolvedValue(cryptoWallet);
+    customerAccess.assertTradingIntake.mockResolvedValue({ fold: true });
+    prisma.inboundTransferSignal.findMany.mockResolvedValue([
+      {
+        id: 'sig-1',
+        signalNo: 'SIG0001',
+        ownerId: 'cust-1',
+        walletId: cryptoWallet.id,
+        assetId: usdtAsset.id,
+        amount: { toString: () => '100.00' },
+        channelType: 'CRYPTO',
+        txHash: '0xabc',
+        fromAddress: '0xfrom',
+        counterpartyIsVasp: true,
+        submittedAt: new Date(),
+      },
+    ]);
+    prisma.fundsOrder.findFirst
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(null);
+    depositService.detected.mockResolvedValue({
+      deposit: { id: 'dep-1', depositNo: 'DEP0001', status: 'PAYIN_PENDING' },
+      fundsOrder: { id: 'fo-1', fundsOrderNo: 'FO0001', status: FundsOrderStatus.SUBMITTED },
+    });
+    fundsOrderService.findById
+      .mockResolvedValueOnce({ id: 'fo-1', fundsOrderNo: 'FO0001', status: FundsOrderStatus.SUBMITTED })
+      .mockResolvedValueOnce({ id: 'fo-1', fundsOrderNo: 'FO0001', status: FundsOrderStatus.CONFIRMING })
+      .mockResolvedValueOnce({ id: 'fo-1', fundsOrderNo: 'FO0001', status: FundsOrderStatus.CONFIRMED });
+    fundsOrderService.advance.mockResolvedValue({});
+    // fold 客户建的单最终会被既有 L1 FREEZE 分支冻住——这里只证明 scan 没有把
+    // 它拦在 blockedCount 里，不是重复测 L1 FREEZE 本身（充值域零改动，那条
+    // 分支既有覆盖）。
+    prisma.depositTransaction.findUnique.mockResolvedValue({
+      id: 'dep-1',
+      depositNo: 'DEP0001',
+      status: 'FROZEN',
+    });
+    prisma.inboundTransferSignal.update.mockResolvedValue({});
+
+    const result = await service.scanForCustomer('cust-1', {
+      network: 'TRON',
+      toAddress: cryptoWallet.address,
+    } as any);
+
+    expect(customerAccess.assertTradingIntake).toHaveBeenCalledWith('cust-1', 'DEPOSIT');
+    expect(result.blockedCount).toBe(0);
+    expect(result.scannedCount).toBe(1);
+    expect(result.createdPayinCount).toBe(1);
+    expect(depositService.detected).toHaveBeenCalled();
+  });
+
   // 复审 Critical 2（规则 A，tipping-off 防线）：POST
   // /deposit-transactions/my/inbound-signals/scan 直接面向客户浏览器。驱动
   // 后重读拿到的 deposit 行如果真实状态是 FROZEN（例如驱动过程中撞上了
@@ -631,7 +748,7 @@ describe('InboundTransferSignalsService · 既有行为回归（钥匙改按网�
   // {summary.depositStatus}` 裸显，完全绕开视图层）。
   it('scan 返回的 depositStatus 必须经收敛——重读到的 FROZEN 不能原样下发', async () => {
     prisma.wallet.findFirst.mockResolvedValue(cryptoWallet);
-    customerAccess.assertTradingEligibility.mockResolvedValue(undefined);
+    customerAccess.assertTradingIntake.mockResolvedValue({ fold: false });
     prisma.inboundTransferSignal.findMany.mockResolvedValue([
       {
         id: 'sig-frozen-1',
@@ -682,7 +799,7 @@ describe('InboundTransferSignalsService · 既有行为回归（钥匙改按网�
 
   it('should reuse an existing deposit funds order on repeated scan without creating duplicates', async () => {
     prisma.wallet.findFirst.mockResolvedValue(fiatWallet);
-    customerAccess.assertTradingEligibility.mockResolvedValue(undefined);
+    customerAccess.assertTradingIntake.mockResolvedValue({ fold: false });
     prisma.inboundTransferSignal.findMany.mockResolvedValue([
       {
         id: 'sig-1',
@@ -731,7 +848,7 @@ describe('InboundTransferSignalsService · 既有行为回归（钥匙改按网�
 
   it('should stop at SUBMITTED funds order and PAYIN_PENDING deposit during interactive scan', async () => {
     prisma.wallet.findFirst.mockResolvedValue(cryptoWallet);
-    customerAccess.assertTradingEligibility.mockResolvedValue(undefined);
+    customerAccess.assertTradingIntake.mockResolvedValue({ fold: false });
     prisma.inboundTransferSignal.findMany.mockResolvedValue([
       {
         id: 'sig-interactive-1',
@@ -776,7 +893,7 @@ describe('InboundTransferSignalsService · 既有行为回归（钥匙改按网�
   });
 
   it('should accept C_VIBAN wallet role for fiat deposit signal creation', async () => {
-    customerAccess.assertTradingEligibility.mockResolvedValue(undefined);
+    customerAccess.assertTradingIntake.mockResolvedValue({ fold: false });
     prisma.wallet.findFirst.mockResolvedValue(vibanWallet);
     prisma.asset.findFirst.mockResolvedValue(aedAsset);
     prisma.inboundTransferSignal.findUnique.mockResolvedValueOnce(null);

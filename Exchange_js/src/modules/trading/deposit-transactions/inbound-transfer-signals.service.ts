@@ -129,7 +129,13 @@ export class InboundTransferSignalsService {
     customerId: string,
     dto: CreateInboundTransferSignalDto,
   ) {
-    await this.customerAccess.assertTradingEligibility(customerId, 'DEPOSIT');
+    // 波五 T4 评审 Important（执行期勘误）：充值"零改动"前提失准——客户自报
+    // 预通知这道闸同样是进单口，SILENT 客户之前被这里的 assertTradingEligibility
+    // 硬拒，连"模拟到账信号"都提交不了，走不到 detected()→L1 FREEZE 那条既有
+    // 分支。改用 assertTradingIntake：DISCLOSED 客户仍中性拒绝；SILENT 客户放行，
+    // 信号照收，后续 processSignal()→detected() 的既有 L1 FREEZE 分支接住，
+    // 充值域本身不需要任何折叠/冻结代码。
+    await this.customerAccess.assertTradingIntake(customerId, 'DEPOSIT');
     const customer = await (this.prisma as any).customerMain.findUnique({
       where: { id: customerId },
     });
@@ -285,7 +291,7 @@ export class InboundTransferSignalsService {
   }
 
   // ═══ 平账 B 批 ①：运营凭账单行补录（spec §3）═══════════════════════════════
-  // 与 createForCustomer 的区别：① 不做 assertTradingEligibility——那是拦客户「发起」的，
+  // 与 createForCustomer 的区别：① 不做 assertTradingIntake——那是拦客户「发起」的，
   // 钱已经物理进了，该冻该退由充值域自己的闸决定；② 金额 / 币种 / 钱包 / 参考号全从账单行来，
   // 运营只补来源地址或来源 IBAN；③ 先挂「待复核」，CFO 批了才进通道。
   //
@@ -459,9 +465,17 @@ export class InboundTransferSignalsService {
     };
     const depositIds = new Set<string>();
 
+    // 波五 T4 评审 Important（执行期勘误，随 createForCustomer 同款改动一并处理）：
+    // 客户端 Simulate Deposit 是"自报预通知→扫描落地"两步连打（client-web
+    // Deposit.tsx 提交信号后紧接着调本方法），这里若仍用 assertTradingEligibility，
+    // SILENT 客户在上一步（createForCustomer）放行后，会在这一步被同一道闸拦
+    // 下——信号被打成 IGNORED（见下方 tradingGateError 分支），永远到不了
+    // processSignal()→detected()，createForCustomer 那处的折叠就白改了。改用
+    // assertTradingIntake：DISCLOSED 客户仍走 IGNORED 分支（行为不变）；SILENT
+    // 客户不再抛错，往下正常处理，detected() 建的单交给既有 L1 FREEZE 分支冻。
     let tradingGateError: unknown = null;
     try {
-      await this.customerAccess.assertTradingEligibility(customerId, 'DEPOSIT');
+      await this.customerAccess.assertTradingIntake(customerId, 'DEPOSIT');
     } catch (error) {
       tradingGateError = error;
     }
