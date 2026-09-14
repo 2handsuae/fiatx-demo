@@ -654,7 +654,9 @@ export class SwapWorkflowService {
     // 「终态所以忽略」，这里的语义是「冻了所以忽略」，两者混在一起以后没人
     // 分得清。
     // ⚠️ 这一行是防死信的：不写则 Sumsub 重投同一条 rejected webhook 会一路
-    // 走到 markStatus(FREEZE)，打在零出边的 FROZEN 上抛 Invalid transition，
+    // 走到 markStatus(FREEZE)——FREEZE 不是 FROZEN 的合法出边（2026-09-14 起
+    // FROZEN 是中间态，出边只有 RESUME/REJECT_REFUND，两条都要走 Task 3 的
+    // 审批消费，不归迟到的 KYT webhook 驱动）——照样抛 Invalid transition，
     // 异常未捕获 → 事件标 FAILED → 三次重试后进死信。
     if (status === SwapTransactionStatus.FROZEN) {
       this.logger.debug(`applyKytVerdict no-op: swap ${swapId} is FROZEN`);
@@ -810,8 +812,15 @@ export class SwapWorkflowService {
         },
       }, tx);
     });
-    // 出生锁擦圈：拒绝=终局，卖出侧预占退还客户余额（业主裁定：终态不押钱）。
-    await this.releaseBirthLock(swap, 'KYT rejected');
+    // 出生锁擦圈：拒绝=终局，卖出侧预占退还客户余额。
+    // willFreeze 时不放——2026-09-14 裁定翻案：FROZEN 押锁不放，这次裁决没有
+    // 落到 REJECTED（上面 $transaction 内 `if (willFreeze) return;` 跳过了
+    // KYT_REJECTED 迁移），锁不该在这里被这条"拒绝=终局"的擦圈规则误放；
+    // FREEZE 落地边（handleRejectDisposition 内）现在也不放，锁的释放交给
+    // RESUME 解冻续审后的正常结算，或 Task 3 的 REJECT_REFUND 拒退落地。
+    if (!willFreeze) {
+      await this.releaseBirthLock(swap, 'KYT rejected');
+    }
     await this.handleRejectDisposition(swap, input);
   }
 
@@ -1147,11 +1156,9 @@ export class SwapWorkflowService {
             `Swap ${swap.swapNo} already FROZEN when this disposition tried to freeze it — beaten by onCustomerRestrictionOpened broadcast (same open() call), not a real failure. Continuing to sticky mark + disposition audit.`,
           );
         }
-        let released: string | null = null;
-        if (frozeHere) {
-          // 出生锁擦圈（业主裁定：冻结终态不押钱——押人靠限制账，本场景人已被冻）。
-          released = await this.releaseBirthLock(swap, hasSanction ? 'sanction freeze' : 'MLRO freeze');
-        }
+        // 押锁不放（2026-09-14 裁定翻案：FROZEN 从"冻结即放锁"的零出边终态改成
+        // 中间态）——不再调用 releaseBirthLock。锁要放，走 RESUME 解冻续审后的
+        // 正常结算，或 Task 3 的 REJECT_REFUND 拒退落地，不在这里擦圈。
         // 审计调用独立 catch（与本文件 onCustomerRestrictionOpened 侧的孪生
         // SWAP_FROZEN 审计同款）：不能和上面的 markStatus 共享外层大 try —— 若
         // 共享，这里抛出会被外层 catch 当成整段处置失败重跑，把已经成功的
@@ -1164,16 +1171,15 @@ export class SwapWorkflowService {
           await this.swapAudit(swap, {
               action: 'SWAP_FROZEN',
               // Task A6：两条因由靠这里的 reason 文案 + metadata.sceneTag/dispoTag
-              // 分辨，不靠状态分辨——状态都是同一个 FROZEN（零出边终态）。
+              // 分辨，不靠状态分辨——状态都是同一个 FROZEN。
               reason: hasSanction
-                ? `KYT verdict rejected: SANCTION_APPLICANT hit (order frozen + customer restricted) — sell-side birth lock released to balance`
-                : `KYT verdict rejected: FROZEN_BY_MLRO disposition (order frozen + customer restricted) — sell-side birth lock released to balance`,
+                ? `KYT verdict rejected: SANCTION_APPLICANT hit (order frozen + customer restricted) — sell-side birth lock HELD pending disposition`
+                : `KYT verdict rejected: FROZEN_BY_MLRO disposition (order frozen + customer restricted) — sell-side birth lock HELD pending disposition`,
               fromStatus: swap.status,
               toStatus: SwapTransactionStatus.FROZEN,
               metadata: {
                 sceneTag: input.sceneTag ?? null,
                 dispoTag: input.dispoTag ?? null,
-                releasedFromAmount: released ?? undefined,
               },
             })
             .catch((err) => {
@@ -1842,8 +1848,9 @@ export class SwapWorkflowService {
               { rejectReason: 'SANCTION_APPLICANT', operator: 'RESTRICTION_BROADCAST' },
             );
           });
-          // 出生锁擦圈（业主裁定：冻结终态不押钱——押人靠限制账，本事件正是冻人广播）。
-          await this.releaseBirthLock(sw, `customer restriction ${event.restrictionNo}`);
+          // 押锁不放（2026-09-14 裁定翻案：FROZEN 从"冻结即放锁"的零出边终态改成
+          // 中间态）——不再调用 releaseBirthLock。锁要放，走 RESUME 解冻续审后的
+          // 正常结算，或 Task 3 的 REJECT_REFUND 拒退落地，不在这里擦圈。
           // 铁律①：有持久状态、operator 可见 → 必须写审计。
           //
           // 审计调用独立 catch（与 deposit/withdraw 的 onCustomerRestrictionOpened
@@ -1853,10 +1860,10 @@ export class SwapWorkflowService {
           // 这里失败只以 logger.error 现身，绝不让一笔已经冻结成功的单被判成失败。
           await this.swapAudit(sw, {
               action: 'SWAP_FROZEN',
-              reason: `Frozen by customer restriction ${event.restrictionNo} (${event.cause}) — sell-side birth lock released to balance`,
+              reason: `Frozen by customer restriction ${event.restrictionNo} (${event.cause}) — sell-side birth lock HELD pending disposition`,
               fromStatus: SwapTransactionStatus.COMPLIANCE_PENDING,
               toStatus: SwapTransactionStatus.FROZEN,
-              metadata: { restrictionNo: event.restrictionNo, cause: event.cause, releasedFromAmount: String(sw.fromAmount) },
+              metadata: { restrictionNo: event.restrictionNo, cause: event.cause },
             })
             .catch((err) => {
               this.logger.error(

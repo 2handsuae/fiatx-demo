@@ -113,7 +113,9 @@ const SWAP_SLA_MINUTES_BY_STATUS: Partial<Record<SwapTransactionStatus, number>>
 
 /**
  * 「不需要再被冻结广播捞起」—— findNonTerminalByOwner 专用。
- * ⚠️ FROZEN **在**内：已经冻了的单不需要再冻一次。
+ * ⚠️ FROZEN **在**内：已冻无需再冻——即便 2026-09-14 起 FROZEN 从零出边终态
+ * 改成有 RESUME/REJECT_REFUND 两条出边的中间态，"要不要被自动冻结广播再捞
+ * 一次"与"能不能靠人工审批边走出去"是两个不同问题，这条排除集只回答前者。
  * 与上面那份的 FROZEN 归属**故意相反**，两个判据回答的是不同问题，
  * 不要因为"看起来能合并成一个"就合并。
  */
@@ -133,6 +135,18 @@ export const SWAP_FREEZE_SCAN_EXCLUDED: ReadonlySet<string> = new Set<string>([
 const SWAP_CUSTOMER_STATUS_PASSTHROUGH = new Set<string>([
   SwapTransactionStatus.COMPLIANCE_PENDING,
   SwapTransactionStatus.PROCESSING,
+  SwapTransactionStatus.SUCCESS,
+  SwapTransactionStatus.REJECTED,
+]);
+
+/**
+ * completedAt 白名单（2026-09-14，镜像 withdraw-transactions.service.ts:51/448）。
+ * 只有这两个客户可见态才算"真落地"，completedAt 才原样透传；其余一律 null——
+ * 判据用**收敛后**的客户可见 status，不是"status 是否被改写过"：FROZEN 单
+ * 钱押着、处置未定，即便行上意外带了 completedAt 也不能漏给客户（tipping-off，
+ * 客户能从"有没有完成时间"反推自己被冻结）。
+ */
+const SWAP_CUSTOMER_COMPLETED_STATUSES = new Set<string>([
   SwapTransactionStatus.SUCCESS,
   SwapTransactionStatus.REJECTED,
 ]);
@@ -397,9 +411,13 @@ export class SwapTransactionsService {
 
   /**
    * 5 态状态机的合法迁移表：COMPLIANCE_PENDING(出生态) → PROCESSING → SUCCESS，
-   * 或 COMPLIANCE_PENDING → REJECTED(终态)，或 COMPLIANCE_PENDING → FROZEN(终态)。
-   * FROZEN 零出边：制裁冻结只能由 MLRO 撕便签后人工处理，系统不提供解冻边。
+   * 或 COMPLIANCE_PENDING → REJECTED(终态)，或 COMPLIANCE_PENDING → FROZEN(中间态)。
    * PROCESSING 刻意没有 FREEZE 出边（腿已开跑，冻结会留半截账）。
+   *
+   * 2026-09-14 裁定翻案：FROZEN 不再是零出边终态——押锁不放，两条出边
+   * RESUME（解冻续审，回 COMPLIANCE_PENDING）/ REJECT_REFUND（拒退，落地
+   * REJECTED）。两条边的审批消费方是 Task 3 的事，本状态机只开边、不建审批、
+   * 不加权限。
    */
   private readonly transitions: Record<string, Partial<Record<SwapTransactionAction, SwapTransactionStatus>>> = {
     [SwapTransactionStatus.COMPLIANCE_PENDING]: {
@@ -413,8 +431,10 @@ export class SwapTransactionsService {
     },
     [SwapTransactionStatus.SUCCESS]: {},
     [SwapTransactionStatus.REJECTED]: {},
-    // 零出边是**故意的**，不是忘了写。
-    [SwapTransactionStatus.FROZEN]: {},
+    [SwapTransactionStatus.FROZEN]: {
+      [SwapTransactionAction.RESUME]: SwapTransactionStatus.COMPLIANCE_PENDING,
+      [SwapTransactionAction.REJECT_REFUND]: SwapTransactionStatus.REJECTED,
+    },
   };
 
   /**
@@ -617,20 +637,19 @@ export class SwapTransactionsService {
   /**
    * 客户面状态收敛。
    *
-   * FROZEN 显式收敛成 REJECTED —— 与充值收敛成 COMPLIANCE_PENDING 的选择
-   * **故意不同**：充值的 FROZEN 是可逆的（RESUME → COMPLIANCE_PENDING），
-   * 收敛成"处理中"是诚实的；兑换的 FROZEN 是零出边终态，收敛成"处理中"就是
-   * 一个永远不会兑现的谎，还会让客户端的自刷定时器（client-web/src/pages/
-   * Swap.tsx:543 的 hasNonTerminal）永不停止。收敛成 REJECTED 后客户看到
-   * 'Unsuccessful'，与普通 KYT 拒绝**逐字相同**，分不出 —— 这正是 tipping-off
-   * 要求的。
+   * FROZEN 显式收敛成 COMPLIANCE_PENDING —— 2026-09-14 裁定翻案：此前收敛成
+   * REJECTED 的理由是"兑换的 FROZEN 是零出边终态，收敛成'处理中'就是一个
+   * 永远不会兑现的谎"；现在 FROZEN 改成押锁不放的中间态（RESUME 解冻续审 /
+   * REJECT_REFUND 拒退两条出边），钱还押着、结局未定，"处理中"不再是谎言，
+   * 反而与充值/提现三域"状态跟钱走"的口径对齐——钱押着就显示 Processing。
    *
-   * 其余未列入白名单的状态（含未来新增）一律收敛成 COMPLIANCE_PENDING，
-   * 与充值同一条「宁可错杀」的兜底。
+   * 其余未列入白名单的状态（含未来新增）同样收敛成 COMPLIANCE_PENDING，
+   * 与充值同一条「宁可错杀」的兜底；FROZEN 走独立分支只是为了让理由留痕，
+   * 不代表它需要与兜底分支不同的落点。
    */
   toCustomerSwapStatus(status: string): string {
     if (SWAP_CUSTOMER_STATUS_PASSTHROUGH.has(status)) return status;
-    if (status === SwapTransactionStatus.FROZEN) return SwapTransactionStatus.REJECTED;
+    if (status === SwapTransactionStatus.FROZEN) return SwapTransactionStatus.COMPLIANCE_PENDING;
     return SwapTransactionStatus.COMPLIANCE_PENDING;
   }
 
@@ -651,9 +670,16 @@ export class SwapTransactionsService {
    * client reads. Mirrors WithdrawTransactionsService#toCustomerWithdrawView.
    *
    * ⚠️ 2026-08-20 订正：上面这段曾说 swap 的可达状态集里没有 FROZEN 之类会
-   * tipping-off 的字面量，所以 status 原样透传——Task 8 加了 FROZEN（零出边
-   * 终态，客户本人命中制裁）之后这句话已经过期。status 现在必须经
-   * `toCustomerSwapStatus` 收敛，见该方法上的注释。
+   * tipping-off 的字面量，所以 status 原样透传——Task 8 加了 FROZEN（客户本人
+   * 命中制裁）之后这句话已经过期。status 现在必须经 `toCustomerSwapStatus`
+   * 收敛，见该方法上的注释。
+   *
+   * `completedAt` 只在收敛后的 status 落在 `SWAP_CUSTOMER_COMPLETED_STATUSES`
+   * （SUCCESS/REJECTED）时才原样输出，否则一律 null（2026-09-14，镜像
+   * withdraw-transactions.service.ts:448）——判据用收敛后的 status 而不是
+   * "status 是否被改写过"：FROZEN 单钱押着、处置未定，即便行上带了脏
+   * completedAt 也不能漏给客户，那是另一条 tipping-off 信道（"有没有完成
+   * 时间"反推是否被冻结）。
    *
    * Public (not private): Task 11 defence-in-depth — SwapWorkflowService
    * .initiateSwap also routes its create-response through this allow-list
@@ -662,10 +688,11 @@ export class SwapTransactionsService {
    * can't silently reopen a leak on that route.
    */
   toCustomerSwapView(item: any) {
+    const customerStatus = this.toCustomerSwapStatus(item.status);
     return {
       id: item.id,
       swapNo: item.swapNo,
-      status: this.toCustomerSwapStatus(item.status),
+      status: customerStatus,
       fromAmount: item.fromAmount,
       toAmount: item.toAmount,
       netToAmount: item.netToAmount,
@@ -673,7 +700,7 @@ export class SwapTransactionsService {
       feeCurrency: item.feeCurrency,
       exchangeRate: item.exchangeRate,
       createdAt: item.createdAt,
-      completedAt: item.completedAt,
+      completedAt: SWAP_CUSTOMER_COMPLETED_STATUSES.has(customerStatus) ? item.completedAt : null,
       fromAsset: toCustomerAssetView(item.fromAsset),
       toAsset: toCustomerAssetView(item.toAsset),
     };

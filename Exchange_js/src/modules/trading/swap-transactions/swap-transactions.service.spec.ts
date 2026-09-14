@@ -469,12 +469,15 @@ describe('Task 10: 客户面三层防线', () => {
     service = new SwapTransactionsService(prisma as any, {} as any, {} as any, { emit: jest.fn() } as any, { recordByActor: jest.fn() } as any, { resolve: jest.fn().mockResolvedValue({ blocked: new Set() }) } as any);
   });
 
-  describe('响应体：FROZEN 收敛成 REJECTED（不原样透传）', () => {
-    it('toCustomerSwapStatus(FROZEN) === REJECTED', () => {
-      expect(service.toCustomerSwapStatus('FROZEN')).toBe('REJECTED');
+  describe('响应体：FROZEN 收敛成 COMPLIANCE_PENDING（不原样透传）', () => {
+    // 2026-09-14 裁定翻案：FROZEN 从零出边终态改成押锁不放的中间态，客户面
+    // 收敛目标从 REJECTED 改成 COMPLIANCE_PENDING —— 与充值/提现一致
+    // （"状态跟钱走"：钱押着就显示处理中），不再谎报"已拒绝"。
+    it('toCustomerSwapStatus(FROZEN) === COMPLIANCE_PENDING', () => {
+      expect(service.toCustomerSwapStatus('FROZEN')).toBe('COMPLIANCE_PENDING');
     });
 
-    it('findOneForCustomer 对一笔 FROZEN 单返回 status: REJECTED，客户视图里看不到 FROZEN 字面量', async () => {
+    it('findOneForCustomer 对一笔 FROZEN 单返回 status: COMPLIANCE_PENDING，客户视图里看不到 FROZEN 字面量', async () => {
       prisma.swapTransaction.findUnique.mockResolvedValue({
         id: 'swap-frozen-1',
         swapNo: 'SWP0999',
@@ -484,7 +487,7 @@ describe('Task 10: 客户面三层防线', () => {
 
       const result: any = await service.findOneForCustomer('swap-frozen-1', 'cust-1');
 
-      expect(result.status).toBe('REJECTED');
+      expect(result.status).toBe('COMPLIANCE_PENDING');
       expect(result.status).not.toBe('FROZEN');
     });
 
@@ -505,15 +508,15 @@ describe('Task 10: 客户面三层防线', () => {
   });
 
   describe('筛选面：customerScope 下 status 查询参数按客户可见值展开成原始状态集合过滤', () => {
-    it('客户传 REJECTED → where.status.in 同时含 REJECTED 与 FROZEN（两者客户可见值都是 REJECTED）', async () => {
-      await service.findAllForCustomer('cust-1', { status: 'REJECTED' } as any);
+    it('客户传 COMPLIANCE_PENDING → where.status.in 同时含 COMPLIANCE_PENDING 与 FROZEN（两者客户可见值都是 COMPLIANCE_PENDING；2026-09-14 裁定翻案后 FROZEN 离开了 REJECTED 桶）', async () => {
+      await service.findAllForCustomer('cust-1', { status: 'COMPLIANCE_PENDING' } as any);
 
       const where = prisma.swapTransaction.findMany.mock.calls[0][0].where;
-      expect(where.status.in.slice().sort()).toEqual(['FROZEN', 'REJECTED']);
-      // 展开集合里每一个原始状态，客户可见值都必须真的等于客户传入的 REJECTED——
-      // 不是巧合命中，是收敛函数本身保证的。
+      expect(where.status.in.slice().sort()).toEqual(['COMPLIANCE_PENDING', 'FROZEN']);
+      // 展开集合里每一个原始状态，客户可见值都必须真的等于客户传入的
+      // COMPLIANCE_PENDING —— 不是巧合命中，是收敛函数本身保证的。
       for (const raw of where.status.in) {
-        expect(service.toCustomerSwapStatus(raw)).toBe('REJECTED');
+        expect(service.toCustomerSwapStatus(raw)).toBe('COMPLIANCE_PENDING');
       }
     });
 
@@ -535,16 +538,48 @@ describe('Task 10: 客户面三层防线', () => {
       expect(where).toHaveProperty('status');
     });
 
-    it('防漂移：展开集合必须是从 toCustomerSwapStatus 派生的——FROZEN 与 REJECTED 恒落同一个桶', () => {
-      const rejectedBucket = Object.values(SwapTransactionStatus).filter(
-        (raw) => service.toCustomerSwapStatus(raw) === 'REJECTED',
+    it('防漂移：展开集合必须是从 toCustomerSwapStatus 派生的——FROZEN 与 COMPLIANCE_PENDING 恒落同一个桶（不再是 REJECTED 桶）', () => {
+      const compliancePendingBucket = Object.values(SwapTransactionStatus).filter(
+        (raw) => service.toCustomerSwapStatus(raw) === 'COMPLIANCE_PENDING',
       );
-      expect(rejectedBucket).toEqual(expect.arrayContaining(['REJECTED', 'FROZEN']));
+      expect(compliancePendingBucket).toEqual(expect.arrayContaining(['COMPLIANCE_PENDING', 'FROZEN']));
 
       // 非空性护栏：若把展开逻辑换回「原始值精确匹配」（不展开），这条断言必须翻红——
       // 见任务报告里贴的红/绿输出，这里只钉住不变量本身。
-      const naiveExactMatchOnly = ['REJECTED'];
+      const naiveExactMatchOnly = ['COMPLIANCE_PENDING'];
       expect(naiveExactMatchOnly).not.toEqual(expect.arrayContaining(['FROZEN']));
+
+      // FROZEN 已经离开 REJECTED 桶——这是本轮翻案的核心断言，钉死不让它漂回去。
+      const rejectedBucket = Object.values(SwapTransactionStatus).filter(
+        (raw) => service.toCustomerSwapStatus(raw) === 'REJECTED',
+      );
+      expect(rejectedBucket).not.toEqual(expect.arrayContaining(['FROZEN']));
+    });
+  });
+
+  // 2026-09-14：completedAt 白名单（镜像 withdraw-transactions.service.ts:51/448）。
+  // FROZEN 单钱押着、处置还没定，即便行上带了脏 completedAt（不该有，但防御一下
+  // 万一），客户视图也必须强制 null —— 否则客户能从"有没有完成时间"反推自己
+  // 被冻结（tipping-off）。SUCCESS/REJECTED 是真终态，completedAt 照常透传。
+  describe('客户视图 completedAt 白名单：只有 SUCCESS/REJECTED 落地态才透传 completedAt', () => {
+    it('FROZEN 行带脏 completedAt → 客户视图强制 null；SUCCESS/REJECTED 正常透传', () => {
+      const frozenAt = new Date('2026-01-01T00:00:00Z');
+      const successAt = new Date('2026-01-02T00:00:00Z');
+      const rejectedAt = new Date('2026-01-03T00:00:00Z');
+
+      const frozenView: any = service.toCustomerSwapView({
+        id: 'swap-x', swapNo: 'SWP0300', status: 'FROZEN', completedAt: frozenAt,
+      });
+      const successView: any = service.toCustomerSwapView({
+        id: 'swap-y', swapNo: 'SWP0301', status: 'SUCCESS', completedAt: successAt,
+      });
+      const rejectedView: any = service.toCustomerSwapView({
+        id: 'swap-z', swapNo: 'SWP0302', status: 'REJECTED', completedAt: rejectedAt,
+      });
+
+      expect(frozenView.completedAt).toBeNull();
+      expect(successView.completedAt).toBe(successAt);
+      expect(rejectedView.completedAt).toBe(rejectedAt);
     });
   });
 
@@ -767,17 +802,34 @@ describe('markStatus · FROZEN 迁移边', () => {
     expect(await service.markStatus('s1', SwapTransactionAction.FREEZE, tx)).toBe('FROZEN');
   });
 
-  it('FROZEN 零出边：对已冻结的单施加任何动作都抛 Invalid transition', async () => {
-    const tx = {
+  // 2026-09-14 裁定翻案：FROZEN 不再是零出边终态，改成押锁不放的中间态——
+  // 唯一两条合法出边 RESUME（回 COMPLIANCE_PENDING，解冻续审）/ REJECT_REFUND
+  // （落地终态 REJECTED，拒退）。审批消费方是 Task 3 的事，这里只钉状态机边。
+  it('FROZEN 仅 RESUME/REJECT_REFUND 两条合法出边，其余动作抛 Invalid transition', async () => {
+    const makeTx = () => ({
+      swapTransaction: {
+        findUnique: jest.fn().mockResolvedValue({ id: 's1', status: 'FROZEN' }),
+        update: jest.fn().mockResolvedValue({ id: 's1' }),
+      },
+    }) as any;
+
+    // 两条合法出边：落地目标与迁移表 FROZEN 行逐字一致。
+    expect(await service.markStatus('s1', SwapTransactionAction.RESUME, makeTx()))
+      .toBe('COMPLIANCE_PENDING');
+    expect(await service.markStatus('s1', SwapTransactionAction.REJECT_REFUND, makeTx()))
+      .toBe('REJECTED');
+
+    // 其余动作仍非法——FROZEN 不会退化回真·零出边，也不会开放成任意跃迁。
+    const txNoUpdate = {
       swapTransaction: { findUnique: jest.fn().mockResolvedValue({ id: 's1', status: 'FROZEN' }) },
     } as any;
-    await expect(service.markStatus('s1', SwapTransactionAction.KYT_APPROVED, tx))
+    await expect(service.markStatus('s1', SwapTransactionAction.KYT_APPROVED, txNoUpdate))
       .rejects.toThrow(/Invalid transition/);
-    await expect(service.markStatus('s1', SwapTransactionAction.KYT_REJECTED, tx))
+    await expect(service.markStatus('s1', SwapTransactionAction.KYT_REJECTED, txNoUpdate))
       .rejects.toThrow(/Invalid transition/);
-    await expect(service.markStatus('s1', SwapTransactionAction.SUCCESS, tx))
+    await expect(service.markStatus('s1', SwapTransactionAction.SUCCESS, txNoUpdate))
       .rejects.toThrow(/Invalid transition/);
-    await expect(service.markStatus('s1', SwapTransactionAction.FREEZE, tx))
+    await expect(service.markStatus('s1', SwapTransactionAction.FREEZE, txNoUpdate))
       .rejects.toThrow(/Invalid transition/);
   });
 

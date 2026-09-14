@@ -367,27 +367,23 @@ describe('第二批 · 制裁命中分主体 (e2e)', () => {
 
   // ── ④ 兑换 FROZEN 客户面三层防线 ──────────────────────────────────────
   // swap-transactions.service.ts 三层：
-  //   ⅰ toCustomerSwapStatus：FROZEN 显式收敛成 REJECTED（与充值收敛成
-  //      COMPLIANCE_PENDING 不同——FROZEN 是兑换域的零出边终态，收敛成"处理中"
-  //      会让客户端自刷定时器永不停止）。
+  //   ⅰ toCustomerSwapStatus：FROZEN 显式收敛成 COMPLIANCE_PENDING（2026-09-14
+  //      裁定翻案——此前收敛成 REJECTED 的理由是"FROZEN 是兑换域零出边终态，
+  //      收敛成'处理中'是永远不会兑现的谎"；现在 FROZEN 改成押锁不放的中间态
+  //      （RESUME 解冻续审 / REJECT_REFUND 拒退两条出边），钱还押着、结局未定，
+  //      "处理中"不再是谎言，反而与充值/提现三域"状态跟钱走"的口径对齐）。
   //   ⅱ findAll 的 customerScope 分支：客户传的 status 先按收敛函数反推展开成
   //      「会被收敛成这个值」的原始状态集合，再拿这个集合去过滤——不是简单地
   //      忽略 status，也不是直接按字面值查。FROZEN 本身没有任何原始状态会收敛
-  //      成它自己（它只会被收敛成 REJECTED），所以展开集合恒为空，
-  //      `status: {in: []}` 精确返回零行；REJECTED 的展开集合是
-  //      [REJECTED, FROZEN] 两个原始值都在内。
+  //      成它自己（它只会被收敛成 COMPLIANCE_PENDING），所以传 FROZEN 时展开
+  //      集合恒为空，`status: {in: []}` 精确返回零行；COMPLIANCE_PENDING 的
+  //      展开集合是 [COMPLIANCE_PENDING, FROZEN] 两个原始值都在内。
   //   ⅲ SWAP_FROZEN 审计留痕，供运营/合规取证（客户面看不到，但审计线可查）。
-  //
-  // ⚠️ 这条断言与 task-11-brief.md 里给的示例代码不同：brief 断言
-  // 「probe(status=FROZEN).length === view.length（即 status 被完全忽略）」——
-  // 那是 Task 10 早期的实现（commit e68062d2），Task 10 收尾（2be83c58）时改成了
-  // 「按收敛后的值展开」，FROZEN 展开集合为空≠忽略。已用上面读到的源码逐行核实，
-  // 不是盲抄 brief。
-  it('④ 兑换 FROZEN 客户面三层：响应体收敛成 REJECTED、筛选器精确展开、审计可查', async () => {
+  it('④ 兑换 FROZEN 客户面三层：响应体收敛成 COMPLIANCE_PENDING、筛选器精确展开、审计可查', async () => {
     const c = await makeCustomer('swap-frozen');
 
     // 一笔普通硬线拒绝（无 action，非制裁）留在 REJECTED，作为「筛 REJECTED 时
-    // 普通拒绝单也在」的对照组。
+    // 只有真正落地的拒绝单在、FROZEN 那笔不再混进来」的对照组。
     const swPlain = await makeSwap(c, '400');
     await swapWorkflow.applyKytVerdict(swPlain.id, { verdict: 'rejected' });
     expect(
@@ -405,24 +401,32 @@ describe('第二批 · 制裁命中分主体 (e2e)', () => {
     ).toBe(SwapTransactionStatus.FROZEN);
 
     // ⅰ 响应体收敛：不筛 status 时，两笔单都在，FROZEN 那笔的 status 字段被
-    // 收敛成了 'REJECTED'，客户面看不到 'FROZEN' 这个字面量。
+    // 收敛成了 'COMPLIANCE_PENDING'，客户面看不到 'FROZEN' 这个字面量；普通
+    // 拒绝单原样透传 'REJECTED'，两者不再逐字相同。
     const view = await swapService.findAllForCustomer(c.id, {} as any);
     expect(view.items).toHaveLength(2);
-    const statuses = view.items.map((i: any) => i.status);
-    expect(statuses).not.toContain('FROZEN');
-    expect(statuses.every((s: string) => s === 'REJECTED')).toBe(true);
+    const statusByNo = new Map(view.items.map((i: any) => [i.swapNo, i.status]));
+    expect(statusByNo.get(swPlain.swapNo)).toBe('REJECTED');
+    expect(statusByNo.get(sw.swapNo)).toBe('COMPLIANCE_PENDING');
+    expect(Array.from(statusByNo.values())).not.toContain('FROZEN');
 
     // ⅱ-a 筛选器传 FROZEN：展开集合为空，精确返回零行——不是报错，也不是
     // 退化成全量（那本身就是另一种可探测信号）。
     const probeFrozen = await swapService.findAllForCustomer(c.id, { status: 'FROZEN' } as any);
     expect(probeFrozen.items).toHaveLength(0);
 
-    // ⅱ-b 筛选器传 REJECTED：展开集合是 [REJECTED, FROZEN]，两笔单都命中。
+    // ⅱ-b 筛选器传 REJECTED：只精确命中真正落地拒绝的 swPlain，FROZEN 那笔
+    // 不再混进来（它已经离开 REJECTED 桶）。
     const probeRejected = await swapService.findAllForCustomer(c.id, { status: 'REJECTED' } as any);
-    expect(probeRejected.items).toHaveLength(2);
-    expect(probeRejected.items.map((i: any) => i.swapNo).sort()).toEqual(
-      [swPlain.swapNo, sw.swapNo].sort(),
+    expect(probeRejected.items.map((i: any) => i.swapNo)).toEqual([swPlain.swapNo]);
+
+    // ⅱ-c 筛选器传 COMPLIANCE_PENDING：展开集合是 [COMPLIANCE_PENDING, FROZEN]，
+    // 只命中 FROZEN 那笔（本用例里没有真正原地 COMPLIANCE_PENDING 的单）。
+    const probeCompliancePending = await swapService.findAllForCustomer(
+      c.id,
+      { status: 'COMPLIANCE_PENDING' } as any,
     );
+    expect(probeCompliancePending.items.map((i: any) => i.swapNo)).toEqual([sw.swapNo]);
 
     // ⅲ 审计留痕：客户面看不到的东西，运营/合规必须查得到。
     expect(

@@ -1402,6 +1402,10 @@ describe('SwapWorkflowService.applyKytVerdict', () => {
     const legAccounting = {
       resolveLegWallets: jest.fn(() => Promise.resolve({ fromWalletId: 'w-from', toWalletId: 'w-to' })),
       initiateLegPending: jest.fn(() => Promise.resolve()),
+      // 2026-09-14：voidLeg 是 releaseBirthLock 的落地调用（出生锁擦圈）。
+      // 加这个 mock 只为了能断言"没被调用"——押锁不放之后 FROZEN 落地路径不
+      // 该再擦圈，见下方 'FROZEN 落地' 用例。
+      voidLeg: jest.fn(() => Promise.resolve()),
     };
 
     const fundsOrders = {
@@ -1427,6 +1431,13 @@ describe('SwapWorkflowService.applyKytVerdict', () => {
 
     const prisma: any = {
       $transaction: jest.fn((cb: (tx: any) => Promise<any>) => cb(txClient)),
+      // 2026-09-14：releaseBirthLock 走的是 this.prisma（顶层，不是 markStatus
+      // 那个 tx），buildLegContext 里要查 asset —— 补这个 mock 只为了让"押锁
+      // 不放"的 voidLeg-not-called 断言真的能测出東西：若少了这个 mock，
+      // releaseBirthLock 会在 asset.findUnique 这步就静默抛错被自己的 catch
+      // 吞掉，voidLeg 永远不会被调用，断言会在"调用点该删没删"两种情况下都
+      // 通过——测不出回归。
+      asset: { findUnique: jest.fn(({ where }: any) => Promise.resolve(assetMap[where.id] ?? null)) },
       // submitSumsubTxnIn (buy leg) reads/writes the swap row directly,
       // outside the markStatus transaction — mirrors submitSumsubTxnOut.
       swapTransaction: {
@@ -2381,6 +2392,14 @@ describe('SwapWorkflowService.applyKytVerdict', () => {
       expect(frozenAudit).toBeDefined();
       expect(frozenAudit.primarySubjectNo).toBe('SWP0001');
       expect(frozenAudit.ownerCustomerNo).toBe('C0001');
+
+      // 2026-09-14 裁定翻案：押锁不放——冻结点不再擦圈，审计 reason 从
+      // "released to balance" 翻成 "HELD pending disposition"，metadata 不再
+      // 带 releasedFromAmount。
+      expect(mocks.legAccounting.voidLeg).not.toHaveBeenCalled();
+      expect(frozenAudit.reason).toMatch(/HELD pending disposition/);
+      expect(frozenAudit.reason).not.toMatch(/released to balance/);
+      expect(frozenAudit.metadata.releasedFromAmount).toBeUndefined();
     });
 
     // 2026-08-20 Review Important Fix：applyKytVerdict 顶部（:501）读出的 swap
@@ -2602,6 +2621,15 @@ describe('SwapWorkflowService.onCustomerRestrictionOpened (Task 9 — FROZEN 落
         ownerNo: 'C0001',
         status: SwapTransactionStatus.COMPLIANCE_PENDING,
         traceId: 'TRACE-1',
+        // 2026-09-14：这几个字段本来这条 fixture 用不上，补上是为了让
+        // releaseBirthLock（若被误调用）能走完 buildLegContext 全程真正碰到
+        // voidLeg，而不是在 asset 字段缺失处静默抛错自己吞掉——否则下面
+        // "voidLeg 不再被调用" 断言测不出回归（见 asset mock 旁的同款注释）。
+        fromAssetId: 'asset-usdt',
+        toAssetId: 'asset-aed',
+        fromAmount: '100',
+        toAmount: '0.05',
+        feeAmount: '0.01',
       },
     ];
 
@@ -2622,6 +2650,11 @@ describe('SwapWorkflowService.onCustomerRestrictionOpened (Task 9 — FROZEN 落
 
     const prisma: any = {
       $transaction: jest.fn((cb: (tx: any) => Promise<any>) => cb(txClient)),
+      // 2026-09-14：同上（buildApplyKytVerdictMocks 里那份注释）——
+      // releaseBirthLock 走 this.prisma，没有这个 mock 时它会在
+      // asset.findUnique 这步静默抛错被自己吞掉，voidLeg-not-called 断言测
+      // 不出回归。
+      asset: { findUnique: jest.fn(({ where }: any) => Promise.resolve(assetMap[where.id] ?? null)) },
     };
 
     // Simulates the restriction having just landed — SWAP capability blocked.
@@ -2629,7 +2662,11 @@ describe('SwapWorkflowService.onCustomerRestrictionOpened (Task 9 — FROZEN 落
       resolve: jest.fn(() => Promise.resolve({ blocked: new Set(['SWAP', 'WITHDRAW']) })),
     };
 
-    return { inflight, txClient, swapTransactionsService, auditLogsService, prisma, customerAccessService };
+    // 2026-09-14：voidLeg 是 releaseBirthLock 的落地调用（出生锁擦圈）。加这个
+    // mock 只为了能断言"没被调用"——押锁不放之后广播冻结路径不该再擦圈。
+    const swapLegAccounting = { voidLeg: jest.fn(() => Promise.resolve()) };
+
+    return { inflight, txClient, swapTransactionsService, auditLogsService, prisma, customerAccessService, swapLegAccounting };
   }
 
   function makeListenerService(mocks: ReturnType<typeof buildListenerMocks>) {
@@ -2640,7 +2677,7 @@ describe('SwapWorkflowService.onCustomerRestrictionOpened (Task 9 — FROZEN 落
       {} as any, // accountingService — not on this path
       mocks.auditLogsService as any,
       { emit: jest.fn() } as any, // eventEmitter — not on this path
-      {} as any, // swapLegAccounting — not on this path
+      mocks.swapLegAccounting as any,
       {} as any, // fundsOrders — not on this path
       {} as any, // walletQuery — not on this path
       {} as any, // limitGateService — not on this path
@@ -2683,6 +2720,14 @@ describe('SwapWorkflowService.onCustomerRestrictionOpened (Task 9 — FROZEN 落
     // disposition-driven SWAP_FROZEN audit in handleRejectDisposition.
     expect(frozenAudit.ownerCustomerNo).toBe('C0001');
     expect(frozenAudit.reason).toMatch(/RST2608200001/);
+
+    // 2026-09-14 裁定翻案：押锁不放——广播冻结点也不再擦圈，reason 从
+    // "released to balance" 翻成 "HELD pending disposition"，metadata 不再带
+    // releasedFromAmount。
+    expect(mocks.swapLegAccounting.voidLeg).not.toHaveBeenCalled();
+    expect(frozenAudit.reason).toMatch(/HELD pending disposition/);
+    expect(frozenAudit.reason).not.toMatch(/released to balance/);
+    expect(frozenAudit.metadata.releasedFromAmount).toBeUndefined();
   });
 
   // The load-bearing negative case: PROCESSING has no FREEZE edge in the
