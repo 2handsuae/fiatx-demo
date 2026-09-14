@@ -15,8 +15,8 @@ import { formatAssetAmount, formatRate8 } from '../utils/number-format';
  * 多一分泄漏面。改这个页面时不要"顺手"从别处补字段；那几个键名连出现在本文件
  * 的注释里都不行，白名单守卫是一条机械 grep。
  *
- * status 已在服务端经 `toCustomerSwapStatus()` 收敛（FROZEN → REJECTED，与普通
- * KYT 拒绝逐字相同，这是 tipping-off 防线），这里拿到的就是可以直接显示的值，
+ * status 已在服务端经 `toCustomerSwapStatus()` 收敛（FROZEN → COMPLIANCE_PENDING，
+ * 与普通「处理中」逐字相同，这是 tipping-off 防线），这里拿到的就是可以直接显示的值，
  * 前端不做二次判断。徽章与 DepositDetail/WithdrawDetail 一样走中性配色，不按
  * tone 上色——详情页上让不同状态在视觉上一致，是同一条防线的延续。
  */
@@ -73,8 +73,9 @@ const SwapDetail = () => {
 
   // 只有真正成交的单子才敢用断言句（下方 You sold / You received）。判据只读
   // 已收敛的 tx.status —— 服务端 toCustomerSwapStatus() 已把制裁冻结单收敛成
-  // 与普通 KYT 拒绝逐字相同的 REJECTED，这里跟着一起走同一个分支，绝不再按
-  // 别的字段二次判断（那等于把两类失败在页面上分辨出来，破 tipping-off 防线）。
+  // 与普通「处理中」逐字相同的 COMPLIANCE_PENDING，这里跟着一起走同一个分支，
+  // 绝不再按别的字段二次判断（那等于把冻结单在页面上单独分辨出来，破 tipping-off
+  // 防线）。
   const settled = tx.status === 'SUCCESS';
 
   // 费用币种在白名单里是独立字段（可能既不是卖出腿也不是买入腿的币种）。
@@ -104,7 +105,7 @@ const SwapDetail = () => {
           </div>
         </div>
         <span className="rounded-xl px-3 py-1 text-xs font-semibold border border-fx-rule text-fx-sand">
-          {view.text}
+          {view.label}
         </span>
       </div>
 

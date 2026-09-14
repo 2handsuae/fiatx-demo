@@ -5,7 +5,7 @@ import { getSwapStatusView } from './swapStatusView';
 /**
  * Client-facing swap status view — the tipping-off-safe table.
  * COMPLIANCE_PENDING and PROCESSING must be INDISTINGUISHABLE to the
- * customer: same text, same tone. Mirrors withdrawStatusView.spec.ts /
+ * customer: same label, same tone. Mirrors withdrawStatusView.spec.ts /
  * depositStatusView.spec.ts.
  */
 
@@ -15,16 +15,16 @@ import { getSwapStatusView } from './swapStatusView';
 // The backend is actually 5-state reachable as of 2026-08-20 (FROZEN added
 // alongside COMPLIANCE_PENDING/PROCESSING/SUCCESS/REJECTED); the client only
 // ever sees these 4 because the service layer's `toCustomerSwapStatus()`
-// (swap-transactions.service.ts:552) collapses FROZEN into REJECTED before
-// it ever reaches this view — that convergence, not a gap here, is why.
+// (swap-transactions.service.ts:652) collapses FROZEN into COMPLIANCE_PENDING
+// before it ever reaches this view — that convergence, not a gap here, is why.
 const ALL_STATUSES = ['COMPLIANCE_PENDING', 'PROCESSING', 'SUCCESS', 'REJECTED'];
 
-// [status, expected text]
-const TEXT_CASES: Array<[string, string]> = [
-  ['COMPLIANCE_PENDING', 'Processing'],
-  ['PROCESSING', 'Processing'],
-  ['SUCCESS', 'Completed'],
-  ['REJECTED', 'Unsuccessful'],
+// [status, expected label] — 客户端三域词表统一（业主裁定）
+const LABEL_CASES: Array<[string, string]> = [
+  ['COMPLIANCE_PENDING', 'PROCESSING'],
+  ['PROCESSING', 'PROCESSING'],
+  ['SUCCESS', 'SUCCESS'],
+  ['REJECTED', 'DECLINED'],
 ];
 
 describe('swapStatusView (client, tipping-off safe)', () => {
@@ -32,11 +32,11 @@ describe('swapStatusView (client, tipping-off safe)', () => {
     expect(ALL_STATUSES).toHaveLength(4);
   });
 
-  it.each(TEXT_CASES)('%s -> text=%s', (status, text) => {
-    expect(getSwapStatusView(status).text).toBe(text);
+  it.each(LABEL_CASES)('%s -> label=%s', (status, label) => {
+    expect(getSwapStatusView(status).label).toBe(label);
   });
 
-  // 只断言 text 相同是不够的：tone 不同，客户端上这一单就"看着不一样"（颜色/图标
+  // 只断言 label 相同是不够的：tone 不同，客户端上这一单就"看着不一样"（颜色/图标
   // 不同），正在被合规审查的人照样能辨认出自己这单与"普通处理中"不同。所以这里
   // 断言**整个 view 对象逐字段等同**——将来谁把 COMPLIANCE_PENDING 单独调个颜色，
   // 本条即红。
@@ -44,10 +44,10 @@ describe('swapStatusView (client, tipping-off safe)', () => {
     expect(getSwapStatusView('COMPLIANCE_PENDING')).toEqual(getSwapStatusView('PROCESSING'));
   });
 
-  it('unknown statuses fall back to Processing (never a bare/raw status code)', () => {
+  it('unknown statuses fall back to PROCESSING (never a bare/raw status code)', () => {
     expect(getSwapStatusView('SOME_FUTURE_STATUS')).toEqual({
-      text: 'Processing',
-      tone: 'pending',
+      label: 'PROCESSING',
+      tone: 'neutral',
     });
   });
 
@@ -56,17 +56,17 @@ describe('swapStatusView (client, tipping-off safe)', () => {
   // default as any other unmapped status. Not a gap: the brief's mapping is
   // exactly the 4 reachable cases + a safe default.
   it.each(['FAILED', 'REVERSED'])(
-    'dead enum value %s also falls back to Processing (never surfaced as its own state)',
+    'dead enum value %s also falls back to PROCESSING (never surfaced as its own state)',
     (status) => {
-      expect(getSwapStatusView(status)).toEqual({ text: 'Processing', tone: 'pending' });
+      expect(getSwapStatusView(status)).toEqual({ label: 'PROCESSING', tone: 'neutral' });
     },
   );
 
-  it('every status text is title case, never a raw/uppercase status code', () => {
+  // 充提现同款：徽章一律全大写（业主裁定的客户端三域词表统一）。
+  it('every badge label is fully uppercase', () => {
     for (const status of ALL_STATUSES) {
       const v = getSwapStatusView(status);
-      expect(v.text).not.toBe(status);
-      expect(v.text).not.toBe(v.text.toUpperCase());
+      expect(v.label).toBe(v.label.toUpperCase());
     }
   });
 
@@ -80,7 +80,7 @@ describe('swapStatusView (client, tipping-off safe)', () => {
     'forbidden-word sweep: %s output contains no sanction/enforcement/investigative language',
     (status) => {
       const v = getSwapStatusView(status);
-      expect(v.text).not.toMatch(FORBIDDEN);
+      expect(v.label).not.toMatch(FORBIDDEN);
     },
   );
 });

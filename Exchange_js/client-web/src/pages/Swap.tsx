@@ -25,6 +25,7 @@ import {
 import { resolveSubmitErrorInfo, TIER_UPGRADE_HINT_CODES } from '../utils/limitErrorText';
 import { getSwapStatusView } from '../utils/swapStatusView';
 import { RestrictionBanner } from '../components/RestrictionBanner';
+import { StatusBadge } from '../components/StatusBadge';
 import { isCapabilityRestricted } from '../utils/restrictedCapabilities';
 
 // 兑换不再是提交即成交：建单落 COMPLIANCE_PENDING 后，Sumsub 裁决靠 webhook 异步
@@ -563,22 +564,14 @@ const Swap = () => {
   }, [activeTab, history]);
 
   // Routed through getSwapStatusView so this list can never render a raw
-  // status code — COMPLIANCE_PENDING/PROCESSING both read "Processing" here
+  // status code — COMPLIANCE_PENDING/PROCESSING both read "PROCESSING" here
   // too, same as the post-submit panel (this table is the customer's other
-  // window into a swap that's still under KYT review).
-  const STATUS_TONE_CLASSES: Record<string, string> = {
-    pending: 'bg-fx-brass/10 text-fx-brass',
-    success: 'bg-fx-sage/15 text-fx-sage',
-    failed: 'bg-fx-rust/15 text-fx-rust',
-  };
-
+  // window into a swap that's still under KYT review). Badge now shares
+  // Deposit.tsx/Withdraw.tsx's StatusBadge component — swap's own local
+  // tone-class map is retired, 客户端三域词表统一（业主裁定）.
   const renderStatusBadge = (status: string) => {
     const view = getSwapStatusView(status);
-    return (
-      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${STATUS_TONE_CLASSES[view.tone] || 'bg-fx-ink/40 text-fx-dune'}`}>
-        {view.text}
-      </span>
-    );
+    return <StatusBadge view={view} />;
   };
 
   return (
@@ -887,12 +880,12 @@ const Swap = () => {
                           {/* Real backend statuses are COMPLIANCE_PENDING/PROCESSING/
                               SUCCESS/REJECTED. No filter option for "processing":
                               the query only matches one exact status and two
-                              different backend values both read "Processing" to
+                              different backend values both read "PROCESSING" to
                               the customer, so a single option would silently miss
                               half of them rather than filter correctly. */}
                           <option value="">All Status</option>
-                          <option value="SUCCESS">Completed</option>
-                          <option value="REJECTED">Unsuccessful</option>
+                          <option value="SUCCESS">SUCCESS</option>
+                          <option value="REJECTED">DECLINED</option>
                       </select>
                   </div>
                   <button 

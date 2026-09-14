@@ -53,7 +53,7 @@ const WITHDRAW_STATUS_MAP: Record<string, WithdrawStatusMeta> = {
     badgeClass: NEUTRAL,
   },
   ACTION_PENDING: {
-    label: 'ACTION PENDING',
+    label: 'AWAITING CUSTOMER',
     description: 'Awaiting the customer to supply additional information.',
     group: 'WAITING',
     badgeClass: AMBER,

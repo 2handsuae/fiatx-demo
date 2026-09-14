@@ -12,7 +12,8 @@ import {
   getCustomerApiErrorMessage,
 } from '../utils/customerFetch';
 import { resolveSubmitErrorInfo, TIER_UPGRADE_HINT_CODES } from '../utils/limitErrorText';
-import { getWithdrawStatusView, type WithdrawStatusView } from '../utils/withdrawStatusView';
+import { getWithdrawStatusView } from '../utils/withdrawStatusView';
+import { StatusBadge } from '../components/StatusBadge';
 
 interface Asset {
   id: string;
@@ -86,15 +87,6 @@ interface WithdrawQuoteResult {
 const WITHDRAW_FEE_LABELS: Record<string, string> = {
   WITHDRAW_SERVICE_FEE: 'Service Fee',
   NETWORK_FEE_EST: 'Network Fee',
-};
-
-/* Client-facing badge tone -> fx-* color classes (rules/frontend-client.md
-   forbids raw Tailwind colors). Kept in sync with WithdrawStatusView['tone']. */
-const STATUS_TONE_CLASS: Record<WithdrawStatusView['tone'], string> = {
-  positive: 'bg-fx-sage/20 text-fx-sage',
-  warning: 'bg-fx-brass/20 text-fx-brass',
-  danger: 'bg-fx-rust/20 text-fx-rust',
-  neutral: 'bg-fx-dust/20 text-fx-dust',
 };
 
 /** 桶名间接式（波三B，照 Deposit.tsx 同名常量）：option value 只暴露桶名，
@@ -445,13 +437,7 @@ const Withdraw = () => {
 
   const renderStatusBadge = (status: string) => {
     const view = getWithdrawStatusView(status);
-    return (
-      <span
-        className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold uppercase ${STATUS_TONE_CLASS[view.tone]}`}
-      >
-        {view.label}
-      </span>
-    );
+    return <StatusBadge view={view} />;
   };
 
   return (

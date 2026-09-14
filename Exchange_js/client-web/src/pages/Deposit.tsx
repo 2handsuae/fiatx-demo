@@ -10,9 +10,10 @@ import {
   customerFetch,
   getCustomerApiErrorMessage,
 } from '../utils/customerFetch';
-import { getDepositStatusView, type DepositStatusView } from '../utils/depositStatusView';
+import { getDepositStatusView } from '../utils/depositStatusView';
 import { RestrictionBanner } from '../components/RestrictionBanner';
 import { PendingActionBanner } from '../components/PendingActionBanner';
+import { StatusBadge } from '../components/StatusBadge';
 
 interface Asset {
   id: string;
@@ -127,15 +128,6 @@ interface CreateInboundTransferSignalPayload {
 const normalizeSimulationAssetType = (
   assetType: string | null | undefined,
 ): DepositAssetType => (assetType === 'FIAT' ? 'FIAT' : 'CRYPTO');
-
-/* Client-facing badge tone -> fx-* color classes (rules/frontend-client.md
-   forbids raw Tailwind colors). Kept in sync with DepositStatusView['tone']. */
-const STATUS_TONE_CLASS: Record<DepositStatusView['tone'], string> = {
-  positive: 'bg-fx-sage/20 text-fx-sage',
-  warning: 'bg-fx-brass/20 text-fx-brass',
-  danger: 'bg-fx-rust/20 text-fx-rust',
-  neutral: 'bg-fx-dust/20 text-fx-dust',
-};
 
 /**
  * History filter groups, customer-facing wording. `bucket` is sent as the
@@ -368,13 +360,7 @@ const Deposit = () => {
 
   const renderStatusBadge = (tx: Transaction) => {
     const view = viewOf(tx);
-    return (
-      <span
-        className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold uppercase ${STATUS_TONE_CLASS[view.tone]}`}
-      >
-        {view.label}
-      </span>
-    );
+    return <StatusBadge view={view} />;
   };
 
   const buildHexMockValue = (seed: string, length: number) => {
