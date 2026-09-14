@@ -23,6 +23,7 @@ import { SumsubDetailSection } from '../components/compliance/SumsubDetailSectio
 import { StatusTimeline } from '../components/compliance/StatusTimeline';
 import { NeedsReviewBanner } from '../components/compliance/NeedsReviewBanner';
 import MaterialRequestPanel from '../components/MaterialRequestPanel';
+import { adminButtonClass } from '../components/common/adminButtonStyles';
 
 /* ── Types ──────────────────────────────────────────────────── */
 
@@ -168,6 +169,13 @@ const SwapTransactionDetail = () => {
   const { enabled: simEnabled } = useSimulationMode();
   // 喂裁决成功后的顶部回显条（对齐充值/提现详情页的 notice 形态）。
   const [notice, setNotice] = useState('');
+  const [dispositionSubmitting, setDispositionSubmitting] = useState(false);
+  const [dispositionError, setDispositionError] = useState('');
+  const [isUnfreezeModalOpen, setIsUnfreezeModalOpen] = useState(false);
+  const [unfreezeReason, setUnfreezeReason] = useState('');
+  const [unfreezeOrderRef, setUnfreezeOrderRef] = useState('');
+  const [isRefundModalOpen, setIsRefundModalOpen] = useState(false);
+  const [refundReason, setRefundReason] = useState('');
   const [slaSubmitting, setSlaSubmitting] = useState(false);
   const [slaError, setSlaError] = useState('');
   const { hasPermission } = useAdminSession();
@@ -201,6 +209,73 @@ const SwapTransactionDetail = () => {
   useEffect(() => {
     if (id) void fetchData();
   }, [id]);
+
+  /* ── Frozen disposition handlers (unfreeze / sanction refund — maker-checker) ──
+     逐字镜像 WithdrawTransactionDetail.tsx 的两个提交处理器。 */
+
+  const handleUnfreezeSubmit = async () => {
+    if (!id || !unfreezeReason.trim() || !unfreezeOrderRef.trim()) return;
+    setDispositionSubmitting(true);
+    setDispositionError('');
+    try {
+      const response = await adminFetch(
+        `${import.meta.env.VITE_API_URL}/admin/swap-transactions/${id}/unfreeze`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            reason: unfreezeReason.trim(),
+            orderRef: unfreezeOrderRef.trim(),
+          }),
+        },
+      );
+      if (!response.ok) {
+        setDispositionError(await getApiErrorMessage(response, 'Failed to submit unfreeze request.'));
+        return;
+      }
+      const result = await response.json();
+      setNotice(`Unfreeze submitted for approval — ${result.approvalNo}`);
+      setIsUnfreezeModalOpen(false);
+      setUnfreezeReason('');
+      setUnfreezeOrderRef('');
+      await fetchData();
+    } catch (error) {
+      if (error instanceof AdminSessionError) return;
+      setDispositionError(error instanceof Error ? error.message : 'Failed to submit unfreeze request.');
+    } finally {
+      setDispositionSubmitting(false);
+    }
+  };
+
+  const handleRefundSubmit = async () => {
+    if (!id || !refundReason.trim()) return;
+    setDispositionSubmitting(true);
+    setDispositionError('');
+    try {
+      const response = await adminFetch(
+        `${import.meta.env.VITE_API_URL}/admin/swap-transactions/${id}/refund`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ reason: refundReason.trim() }),
+        },
+      );
+      if (!response.ok) {
+        setDispositionError(await getApiErrorMessage(response, 'Failed to submit refund request.'));
+        return;
+      }
+      const result = await response.json();
+      setNotice(`Reject & refund submitted for approval — ${result.approvalNo}`);
+      setIsRefundModalOpen(false);
+      setRefundReason('');
+      await fetchData();
+    } catch (error) {
+      if (error instanceof AdminSessionError) return;
+      setDispositionError(error instanceof Error ? error.message : 'Failed to submit refund request.');
+    } finally {
+      setDispositionSubmitting(false);
+    }
+  };
 
   /* ── SLA (演示用「模拟超时」——不是 ⚡ Simulation 面板那个模拟 Sumsub
       webhook 的东西；见 SidebarGroup title="SLA") ── */
@@ -274,9 +349,10 @@ const SwapTransactionDetail = () => {
      根本不是裁决 —— 三域都该读顶层列。 */
   const l2Style = getComplianceLayerStyle(data.complianceVerdict || 'PENDING');
 
-  // 第四批修复轮：此前手写 `SUCCESS || REJECTED`,漏了 FROZEN —— 它是转移表里
+  // 第四批修复轮：此前手写 `SUCCESS || REJECTED`,漏了 FROZEN —— 当时它是转移表里
   // 明写的零出边终态,却不显示 Terminal 提示。改走 isSwapTerminalStatus（本域自己
-  // 那一份,不与提现共用：提现的 FROZEN 有合法出边,不是终态）。
+  // 那一份）。2026-09-14 裁定翻案后 FROZEN 已从该集合摘除（见 swapStatusMap.ts）——
+  // 现在与提现同口径：FROZEN 有 unfreeze/refund 两条合法出边,不是终态。
   const isTerminal = isSwapTerminalStatus(data.status);
 
   /* Group internalFunds by legSeq, then sort attempts ascending. */
@@ -628,9 +704,47 @@ const SwapTransactionDetail = () => {
           )}
         </div>
 
-        {/* ── Sidebar (no compliance disposition actions — that happens in
-            Sumsub, read-only here; SLA 演示用「模拟超时」按钮是唯一的例外) ── */}
+        {/* ── Sidebar (compliance verdict itself stays read-only — that happens
+            in Sumsub; Frozen Disposition below is the maker-checker exit out of
+            FROZEN, not a verdict override) ── */}
         <div className="w-[272px] min-w-[272px] overflow-y-auto border-l border-adm-border bg-adm-panel px-4">
+          {/* Frozen Disposition — 逐字镜像 WithdrawTransactionDetail.tsx 的同名区：
+              initiate unfreeze / reject & refund，都是 maker-checker 审批（不是立即
+              执行）：unfreeze 开一个单步 MLRO 审批（批准后 resume→COMPLIANCE_PENDING）；
+              refund 开一个单步 MLRO 审批（批准后 reject_refund→REJECTED，资金退回
+              发起方）。FROZEN 只能走这条 maker-checker 出边（见
+              swap-transactions.service.ts 的 transitions 表）。 */}
+          {data.status === 'FROZEN' && (
+            <SidebarGroup title="Frozen Disposition">
+              {dispositionError && <p className="mb-2 text-[11px] text-adm-red">{dispositionError}</p>}
+              <div className="flex flex-col gap-2">
+                <button
+                  onClick={() => {
+                    setDispositionError('');
+                    setUnfreezeReason('');
+                    setUnfreezeOrderRef('');
+                    setIsUnfreezeModalOpen(true);
+                  }}
+                  disabled={dispositionSubmitting}
+                  className={adminButtonClass('workflowSecondary')}
+                >
+                  Initiate Unfreeze
+                </button>
+                <button
+                  onClick={() => {
+                    setDispositionError('');
+                    setRefundReason('');
+                    setIsRefundModalOpen(true);
+                  }}
+                  disabled={dispositionSubmitting}
+                  className={adminButtonClass('workflowNegative')}
+                >
+                  Reject &amp; Refund
+                </button>
+              </div>
+            </SidebarGroup>
+          )}
+
           {/* SLA — 演示用「模拟超时」，不是 ⚡ Simulation 面板那个模拟 Sumsub
               webhook 的东西。data.slaDeadline 非空 = 该单当前处于计时状态；
               已破线（slaBreached）就不再需要这个按钮了。 */}
@@ -673,6 +787,104 @@ const SwapTransactionDetail = () => {
           )}
         </div>
       </div>
+
+      {/* ── Unfreeze Modal ── */}
+      {isUnfreezeModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-md overflow-hidden rounded-xl border border-adm-border bg-adm-panel shadow-xl">
+            <div className="border-b border-adm-border bg-adm-card px-5 py-4">
+              <p className="font-mono text-[11px] font-semibold text-adm-t1">Initiate Unfreeze</p>
+            </div>
+            <div className="px-5 py-4 space-y-3">
+              {dispositionError && <p className="text-[11px] text-adm-red">{dispositionError}</p>}
+              <div>
+                <label className="mb-1 block font-mono text-[9px] uppercase tracking-wider text-adm-t3">
+                  Reason
+                </label>
+                <textarea
+                  className="w-full rounded border border-adm-border bg-adm-bg px-3 py-2 font-mono text-[11px] text-adm-t1 placeholder:text-adm-t3 focus:border-adm-amber focus:outline-none"
+                  rows={3}
+                  placeholder="Enter reason for unfreezing this swap (required)..."
+                  value={unfreezeReason}
+                  onChange={(e) => setUnfreezeReason(e.target.value)}
+                />
+              </div>
+              <div>
+                <label className="mb-1 block font-mono text-[9px] uppercase tracking-wider text-adm-t3">
+                  Delisting/unfreeze order reference
+                </label>
+                <input
+                  type="text"
+                  className="w-full rounded border border-adm-border bg-adm-bg px-3 py-2 font-mono text-[11px] text-adm-t1 placeholder:text-adm-t3 focus:border-adm-amber focus:outline-none"
+                  placeholder="e.g. delisting or release order number"
+                  value={unfreezeOrderRef}
+                  onChange={(e) => setUnfreezeOrderRef(e.target.value)}
+                />
+              </div>
+            </div>
+            <div className="border-t border-adm-border bg-adm-card px-5 py-4 flex justify-end gap-2">
+              <button
+                onClick={() => {
+                  setIsUnfreezeModalOpen(false);
+                  setUnfreezeReason('');
+                  setUnfreezeOrderRef('');
+                  setDispositionError('');
+                }}
+                className={adminButtonClass('modalCancel')}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleUnfreezeSubmit}
+                disabled={dispositionSubmitting || !unfreezeReason.trim() || !unfreezeOrderRef.trim()}
+                className={adminButtonClass('modalConfirm')}
+              >
+                {dispositionSubmitting ? 'Processing...' : 'Confirm'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Refund Modal ── */}
+      {isRefundModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-md overflow-hidden rounded-xl border border-adm-border bg-adm-panel shadow-xl">
+            <div className="border-b border-adm-border bg-adm-card px-5 py-4">
+              <p className="font-mono text-[11px] font-semibold text-adm-t1">Reject &amp; Refund</p>
+            </div>
+            <div className="px-5 py-4 space-y-3">
+              {dispositionError && <p className="text-[11px] text-adm-red">{dispositionError}</p>}
+              <textarea
+                className="w-full rounded border border-adm-border bg-adm-bg px-3 py-2 font-mono text-[11px] text-adm-t1 placeholder:text-adm-t3 focus:border-adm-amber focus:outline-none"
+                rows={3}
+                placeholder="Enter reason for rejecting this swap and refunding the sender (required)..."
+                value={refundReason}
+                onChange={(e) => setRefundReason(e.target.value)}
+              />
+            </div>
+            <div className="border-t border-adm-border bg-adm-card px-5 py-4 flex justify-end gap-2">
+              <button
+                onClick={() => {
+                  setIsRefundModalOpen(false);
+                  setRefundReason('');
+                  setDispositionError('');
+                }}
+                className={adminButtonClass('modalCancel')}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleRefundSubmit}
+                disabled={dispositionSubmitting || !refundReason.trim()}
+                className={adminButtonClass('modalConfirm')}
+              >
+                {dispositionSubmitting ? 'Processing...' : 'Confirm'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

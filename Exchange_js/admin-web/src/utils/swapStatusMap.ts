@@ -36,7 +36,8 @@ const SWAP_STATUS_MAP: Record<string, SwapStatusMeta> = {
   PROCESSING: { label: 'PROCESSING', group: 'IN_PROGRESS', badgeClass: NEUTRAL },
   SUCCESS: { label: 'SUCCESS', group: 'COMPLETED', badgeClass: GREEN },
   REJECTED: { label: 'REJECTED', group: 'EXCEPTION', badgeClass: GRAYRED },
-  /* 制裁/MLRO 冻结 —— 零出边终态。红色,与充值/提现的 FROZEN 同色。 */
+  /* 制裁/MLRO 冻结 —— 中间态（2026-09-14 起,见下方 SWAP_TERMINAL_STATUSES 注）。
+     红色,与充值/提现的 FROZEN 同色。 */
   FROZEN: { label: 'FROZEN', group: 'NEEDS_OFFICER', badgeClass: RED },
 };
 
@@ -53,14 +54,13 @@ export function getSwapStatusMeta(status: string): SwapStatusMeta {
 
 /* 兑换转移表里**零出边**的终态全集,来源逐字对照：
    src/modules/trading/swap-transactions/swap-transactions.service.ts 的 TRANSITIONS
-   —— SUCCESS / REJECTED / FROZEN 三行都是 `{}`。
-   FROZEN 的零出边是**故意的**（服务里原话）,不是忘了写:制裁/MLRO 冻结在兑换域
-   不可逆,与提现的 FROZEN（有 unfreeze/refund 两条合法出边,故那边**不**算终态）
-   刻意相反 —— 所以这份不能跟 isWithdrawTerminalStatus 合并。 */
+   —— SUCCESS / REJECTED 两行是 `{}`。
+   ⚠️ 2026-09-14 裁定翻案：FROZEN 不再零出边——押锁不放，改成中间态，两条出边
+   RESUME（解冻续审,回 COMPLIANCE_PENDING）/ REJECT_REFUND（拒退,落地 REJECTED），
+   与提现的 FROZEN（同样有 unfreeze/refund 两条合法出边,不算终态）口径统一了。 */
 const SWAP_TERMINAL_STATUSES = new Set([
   'SUCCESS',
   'REJECTED',
-  'FROZEN',
 ]);
 
 /**
