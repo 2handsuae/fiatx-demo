@@ -148,3 +148,46 @@ describe('CustomerAccessService.assertCapability', () => {
     await expect(svc.assertCapability('cust-1', 'DEPOSIT')).resolves.toBeUndefined();
   });
 });
+
+describe('CustomerAccessService.resolve — blockingNotes（准入判定地基）', () => {
+  it('blockingNotes 含 SILENT 行，逐能力展开后 cause/restrictionNo/visibility 齐全', async () => {
+    const { svc } = build({ openRows: [SANCTION_ROW] });
+    const access = await svc.resolve('cust-1');
+
+    // SANCTION_ROW scopes=['ALL'] 展开三能力，三条 blockingNotes 全部来自这一张 SILENT 便签
+    expect(access.blockingNotes).toHaveLength(3);
+    expect([...access.blockingNotes].sort((a, b) => a.capability.localeCompare(b.capability))).toEqual([
+      { capability: 'DEPOSIT', restrictionNo: 'RST-1', cause: 'SANCTION', visibility: 'SILENT' },
+      { capability: 'SWAP', restrictionNo: 'RST-1', cause: 'SANCTION', visibility: 'SILENT' },
+      { capability: 'WITHDRAW', restrictionNo: 'RST-1', cause: 'SANCTION', visibility: 'SILENT' },
+    ]);
+  });
+});
+
+describe('CustomerAccessService.intakeDecision', () => {
+  it('① SILENT-only（Carol 型：单张 SANCTION）→ ACCEPT_FREEZE', async () => {
+    const { svc } = build({ openRows: [SANCTION_ROW] });
+    await expect(svc.intakeDecision('cust-1', 'WITHDRAW')).resolves.toBe('ACCEPT_FREEZE');
+  });
+
+  it('② DISCLOSED-only（Ivy 型：MATERIAL_EXPIRED）→ DENY', async () => {
+    const { svc } = build({ openRows: [MATERIAL_ROW] });
+    await expect(svc.intakeDecision('cust-1', 'WITHDRAW')).resolves.toBe('DENY');
+  });
+
+  it('③ SILENT+DISCLOSED 混合同卡一域 → DENY', async () => {
+    const { svc } = build({ openRows: [SANCTION_ROW, MATERIAL_ROW] });
+    // WITHDRAW 同时被 SANCTION（SILENT，ALL 展开）与 MATERIAL_EXPIRED（DISCLOSED）卡住
+    await expect(svc.intakeDecision('cust-1', 'WITHDRAW')).resolves.toBe('DENY');
+  });
+
+  it('④ 无便签 → ALLOW', async () => {
+    const { svc } = build({ openRows: [] });
+    await expect(svc.intakeDecision('cust-1', 'WITHDRAW')).resolves.toBe('ALLOW');
+  });
+
+  it('⑤ lifecycle 非 ACTIVE（如 OFFBOARDED）→ DENY，不看限制账', async () => {
+    const { svc } = build({ lifecycle: 'OFFBOARDED', openRows: [] });
+    await expect(svc.intakeDecision('cust-1', 'WITHDRAW')).resolves.toBe('DENY');
+  });
+});
