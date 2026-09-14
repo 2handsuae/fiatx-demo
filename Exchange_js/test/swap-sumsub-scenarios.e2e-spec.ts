@@ -442,6 +442,24 @@ describe('Swap Sumsub verdict buttons (e2e, Task 12)', () => {
     expect(customer!.hardLineDispositionedAt).toBeNull(); // no-actions hard line is per-verdict, not sticky
   });
 
+  // 2026-09-14 考古（波五 Task 5 收尾）：本用例必须排在 ⑦ 之前——⑦ 的制裁
+  // 广播会把客户当时所有还在 COMPLIANCE_PENDING 的在途单一并冻结（下面
+  // "sticky hard-line silences..." 那条用例的注释里已经写明这条广播语义：
+  // "人冻了，他的在途单全冻"）。"on hold=我方等同拒绝"这条用例的本意是测
+  // 一笔未被波及的单，若排在 ⑦ 之后，v5Swap 会在自己的裁决送达前就被广播
+  // 冻上，断言的 REJECTED 永远等不到。这个顺序矛盾自 2026-08-20 制裁分主体
+  // 批引入即存在——v3b（下面那条 sticky 用例）当时补了对应注释并把断言改成
+  // FROZEN，v5 这条漏改，一直红到现在；该 e2e 不在随手闸覆盖范围内（jest
+  // roots 不含 test/），所以没人发现。本波两个任务都碰过这份文件，按"全绿"
+  // 纪律收掉，不留红出波——移位置是测试设计角度的正解（让"on hold=普通拒绝"
+  // 这条用例名副其实地测在一笔干净单上），不是改断言凑绿。
+  it('⑥ on hold（我方等同拒绝）: REJECTED, no material request issued', async () => {
+    await deliver(v5Swap.id, 'V6_ONHOLD');
+
+    expect(await statusOf(v5Swap.id)).toBe(SwapTransactionStatus.REJECTED);
+    expect(await materialRequests.listLiveByOrder('SWAP', v5Swap.swapNo)).toHaveLength(0);
+  });
+
   it('⑦ rejected · Sanctions: FROZEN, sticky hard-line set, no material request issued (tipping-off)', async () => {
     // 2026-08-20 (Task 3)：本用例断言的是「客户本人命中制裁 → 硬线/sticky/静默」——
     // 这只在 SANCTION_APPLICANT 下成立。V4B_REJECTED_SANCTION_COUNTERPARTY
@@ -480,13 +498,6 @@ describe('Swap Sumsub verdict buttons (e2e, Task 12)', () => {
     // 摁住的能力集就是这一张 scope=ALL 的便签本身，三样全禁。
     const access = await app.get(CustomerAccessService).resolve(customerId);
     expect([...access.blocked].sort()).toEqual(['DEPOSIT', 'SWAP', 'WITHDRAW']);
-  });
-
-  it('⑥ on hold（我方等同拒绝）: REJECTED, no material request issued', async () => {
-    await deliver(v5Swap.id, 'V6_ONHOLD');
-
-    expect(await statusOf(v5Swap.id)).toBe(SwapTransactionStatus.REJECTED);
-    expect(await materialRequests.listLiveByOrder('SWAP', v5Swap.swapNo)).toHaveLength(0);
   });
 
   it('sticky hard-line silences a later, otherwise-soft-line verdict（V7 制裁后送达的 V2：单已被客户级冻结广播冻住,裁决被幂等闸吞,沉默依旧零材料请求）', async () => {
