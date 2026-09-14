@@ -38,6 +38,19 @@ const ROLE_SEED_ACCOUNTS: RoleSeedAccount[] = [
   { roleCode: 'INTERNAL_AUDITOR', email: 'auditor@fiatx.com', userNo: 'ADM2501010009' },
   { roleCode: 'CFO', email: 'cfo@fiatx.com', userNo: 'ADM2501010010' },
   { roleCode: 'TREASURY_OFFICER', email: 'treasury@fiatx.com', userNo: 'ADM2501010011' },
+  // 2026-09-14 迪拜团队个人超管号：都给 SUPER_ADMIN，密码 123456（DEFAULT_ROLE_ADMIN_PASSWORD）、
+  // MFA 默认关（不写 mfa 字段，login 见 mfaEnabledAt=null 直接发令牌）。各人一号是为审计留痕（铁律①）——
+  // 共用一个号分不清谁操作。加进本数组即随 db:base:sync 一起注入；不在数组里的号会被
+  // deleteObsoleteRoleAdminAccounts 当过期删掉，所以新号必须挂在这里、配唯一 userNo。
+  { roleCode: 'SUPER_ADMIN', email: 'roger@fiatx.com', userNo: 'ADM2501010012' },
+  { roleCode: 'SUPER_ADMIN', email: 'jimsa@fiatx.com', userNo: 'ADM2501010013' },
+  { roleCode: 'SUPER_ADMIN', email: 'riyas@fiatx.com', userNo: 'ADM2501010014' },
+  { roleCode: 'SUPER_ADMIN', email: 'shaik@fiatx.com', userNo: 'ADM2501010015' },
+  { roleCode: 'SUPER_ADMIN', email: 'nusrat@fiatx.com', userNo: 'ADM2501010016' },
+  { roleCode: 'SUPER_ADMIN', email: 'shaista@fiatx.com', userNo: 'ADM2501010017' },
+  { roleCode: 'SUPER_ADMIN', email: 'syedhadi@fiatx.com', userNo: 'ADM2501010018' },
+  { roleCode: 'SUPER_ADMIN', email: 'steven@fiatx.com', userNo: 'ADM2501010019' },
+  { roleCode: 'SUPER_ADMIN', email: 'rhea@fiatx.com', userNo: 'ADM2501010020' },
 ];
 
 export async function seedBase(prisma: PrismaClient): Promise<void> {

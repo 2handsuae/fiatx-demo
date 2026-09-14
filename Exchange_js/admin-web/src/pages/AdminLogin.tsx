@@ -13,6 +13,16 @@ const SEED_ACCOUNTS = [
   { role: 'COMPLIANCE_OFFICER',         label: 'Compliance Officer',         email: 'compliance_lead@fiatx.com', userNo: 'ADMIN-COMP', color: '#22C55E', bg: '#F0FDF4' },
   { role: 'TECH_OFFICER',              label: 'Tech Officer',               email: 'tech_admin@fiatx.com',       userNo: 'ADMIN-TECH', color: '#0EA5E9', bg: '#F0F9FF' },
   { role: 'OPS_OFFICER',              label: 'Ops Officer',                email: 'ops_officer@fiatx.com',      userNo: 'ADMIN-OPS',  color: '#F97316', bg: '#FFF7ED' },
+  // 迪拜团队个人超管号（2026-09-14，seed.base.ts ROLE_SEED_ACCOUNTS 同步注入）：都是 SUPER_ADMIN，密码 123456。
+  { role: 'SUPER_ADMIN', label: 'Roger',     email: 'roger@fiatx.com',    userNo: 'ADM…012', color: '#64748B', bg: '#F1F5F9' },
+  { role: 'SUPER_ADMIN', label: 'Jimsa',     email: 'jimsa@fiatx.com',    userNo: 'ADM…013', color: '#64748B', bg: '#F1F5F9' },
+  { role: 'SUPER_ADMIN', label: 'Riyas',     email: 'riyas@fiatx.com',    userNo: 'ADM…014', color: '#64748B', bg: '#F1F5F9' },
+  { role: 'SUPER_ADMIN', label: 'Shaik',     email: 'shaik@fiatx.com',    userNo: 'ADM…015', color: '#64748B', bg: '#F1F5F9' },
+  { role: 'SUPER_ADMIN', label: 'Nusrat',    email: 'nusrat@fiatx.com',   userNo: 'ADM…016', color: '#64748B', bg: '#F1F5F9' },
+  { role: 'SUPER_ADMIN', label: 'Shaista',   email: 'shaista@fiatx.com',  userNo: 'ADM…017', color: '#64748B', bg: '#F1F5F9' },
+  { role: 'SUPER_ADMIN', label: 'Syed Hadi', email: 'syedhadi@fiatx.com', userNo: 'ADM…018', color: '#64748B', bg: '#F1F5F9' },
+  { role: 'SUPER_ADMIN', label: 'Steven',    email: 'steven@fiatx.com',   userNo: 'ADM…019', color: '#64748B', bg: '#F1F5F9' },
+  { role: 'SUPER_ADMIN', label: 'Rhea',      email: 'rhea@fiatx.com',     userNo: 'ADM…020', color: '#64748B', bg: '#F1F5F9' },
 ];
 
 const AdminLogin = () => {
@@ -760,7 +770,7 @@ const AdminLogin = () => {
                 <div className="p-2 space-y-0.5 max-h-[60vh] overflow-y-auto">
                   {SEED_ACCOUNTS.map((account, i) => (
                     <motion.button
-                      key={account.role}
+                      key={account.email}
                       initial={{ opacity: 0, x: -6 }}
                       animate={{ opacity: 1, x: 0 }}
                       transition={{ delay: i * 0.03, duration: 0.15 }}
@@ -771,7 +781,8 @@ const AdminLogin = () => {
                         className="w-7 h-7 rounded flex-shrink-0 flex items-center justify-center font-mono text-[9px] font-bold"
                         style={{ backgroundColor: account.color + '20', color: account.color }}
                       >
-                        {account.role === 'SUPER_ADMIN' ? 'SA'
+                        {account.role === 'SUPER_ADMIN'
+                          ? (account.email === 'admin@fiatx.com' ? 'SA' : account.label.slice(0, 2).toUpperCase())
                           : account.role === 'SENIOR_MANAGEMENT_OFFICER' ? 'SM'
                           : account.role.replace('_OFFICER', '').slice(0, 2)}
                       </div>
