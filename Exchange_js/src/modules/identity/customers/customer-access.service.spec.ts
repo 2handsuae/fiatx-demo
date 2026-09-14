@@ -1,5 +1,5 @@
 import { ForbiddenException, NotFoundException } from '@nestjs/common';
-import { CustomerAccessService } from './customer-access.service';
+import { CustomerAccessService, NEUTRAL_DENIAL } from './customer-access.service';
 
 /**
  * 全部依赖用手写 mock 直接构造（本仓单测惯例，见 customer-restrictions.service.spec.ts）。
@@ -42,6 +42,8 @@ const MATERIAL_ROW = row({
 function build(opts: {
   lifecycle?: string | null;
   openRows?: any[];
+  /** assertTradingReady 内 withdrawalAddress.count 的返回值；不传默认 1（有激活地址）。 */
+  withdrawalAddressCount?: number;
 } = {}) {
   const prisma = {
     customerMain: {
@@ -50,6 +52,9 @@ function build(opts: {
           ? null
           : { id: 'cust-1', customerNo: 'C-001', lifecycle: opts.lifecycle ?? 'ACTIVE' },
       ),
+    },
+    withdrawalAddress: {
+      count: jest.fn().mockResolvedValue(opts.withdrawalAddressCount ?? 1),
     },
   } as any;
   const restrictions = { listOpen: jest.fn().mockResolvedValue(opts.openRows ?? []) } as any;
@@ -189,5 +194,39 @@ describe('CustomerAccessService.intakeDecision', () => {
   it('⑤ lifecycle 非 ACTIVE（如 OFFBOARDED）→ DENY，不看限制账', async () => {
     const { svc } = build({ lifecycle: 'OFFBOARDED', openRows: [] });
     await expect(svc.intakeDecision('cust-1', 'WITHDRAW')).resolves.toBe('DENY');
+  });
+});
+
+describe('CustomerAccessService.assertTradingIntake', () => {
+  it('①DISCLOSED 卡该域 → 抛 ForbiddenException，响应体恰好两字段 {code, message}', async () => {
+    const { svc } = build({ openRows: [MATERIAL_ROW] });
+    const body = await catchForbidden(svc.assertTradingIntake('cust-1', 'WITHDRAW'));
+    // 形状断言而非只 instanceof：多一个字段、错一个字都算泄密或偏离既有契约
+    expect(body).toEqual({ code: 'CAPABILITY_RESTRICTED', message: NEUTRAL_DENIAL });
+  });
+
+  it('②SILENT-only 卡该域（非 DEPOSIT，WITHDRAW）且有激活法币地址 → {fold:true}，assertTradingReady 链路真被走到', async () => {
+    const { svc, prisma } = build({ openRows: [SANCTION_ROW], withdrawalAddressCount: 1 });
+    await expect(svc.assertTradingIntake('cust-1', 'WITHDRAW')).resolves.toEqual({ fold: true });
+    expect(prisma.withdrawalAddress.count).toHaveBeenCalledWith({
+      where: { customerId: 'cust-1', status: 'ACTIVE', addressType: 'BANK' },
+    });
+  });
+
+  it('②b SILENT-only 但无激活法币地址（count=0）→ 抛 NO_ACTIVE_FIAT_WITHDRAWAL_ADDRESS，证明 assertTradingReady 链没断——与普通客户同款报错，无泄密', async () => {
+    const { svc } = build({ openRows: [SANCTION_ROW], withdrawalAddressCount: 0 });
+    const body = await catchForbidden(svc.assertTradingIntake('cust-1', 'WITHDRAW'));
+    expect(body.code).toBe('NO_ACTIVE_FIAT_WITHDRAWAL_ADDRESS');
+  });
+
+  it('③无便签 → {fold:false}', async () => {
+    const { svc } = build({ openRows: [], withdrawalAddressCount: 1 });
+    await expect(svc.assertTradingIntake('cust-1', 'WITHDRAW')).resolves.toEqual({ fold: false });
+  });
+
+  it('④capability=DEPOSIT → 不查 withdrawalAddress.count（assertTradingReady 不跑）', async () => {
+    const { svc, prisma } = build({ openRows: [SANCTION_ROW] });
+    await expect(svc.assertTradingIntake('cust-1', 'DEPOSIT')).resolves.toEqual({ fold: true });
+    expect(prisma.withdrawalAddress.count).not.toHaveBeenCalled();
   });
 });
