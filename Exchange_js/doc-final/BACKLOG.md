@@ -81,7 +81,7 @@ Last Updated: 2026-09-14
 
 - [ ] **`LIFECYCLE_NOT_ACTIVE` 挂起的单，若客户还没有 `sumsubApplicantId`，永远等不到裁决**：`submitSumsubTxns()`（`deposit-workflow.service.ts:345-351`）在 `deposit.customer?.sumsubApplicantId` 为空时直接 `logger.warn` 后 `return`——单子留在 `COMPLIANCE_PENDING`，但从未真正提交 Sumsub，也就永远不会收到裁决 webhook。这类单唯一的出路是运营在详情页用 ⚡ 面板对着 `COMPLIANCE_PENDING` 的单直接喂一个「① Approved」裁决（`decideVerdictLanding`/`applyKytApproved` 只按当前状态判定是否派发，不检查是否真的送过检）——裁决落地时 `limitHoldReason` 仍是 `LIFECYCLE_NOT_ACTIVE`（行政级，在 `ADMINISTRATIVE_HOLD_REASONS` 里），经 `holdIfHeld` 转 `OPERATION_PENDING`、挂起原样保留，交还运营再处置。"客户还没在 Sumsub 开户"不是刁钻边界，是会正常发生的客户状态，值得配一条脚本或至少讲清"这条路只能靠运营手动喂裁决" ｜来源: 2026-09-05 V3 财务配置治愈波二 Task 13 文档收口核对 L1 挂起链路时发现
 
-- [x] ~~`CAPABILITY_RESTRICTED` 挂起原因区分不出 SANCTION 与 ADMIN_SUSPENSION，客户面一律藏~~ —— **管理台侧已解**（2026-09-14 波五 D10）：`L1GateService` ②格 detail 从"holds down X capability"升级为带具体因由 + 限制便签号（`l1-gate.service.ts:115` `restrictionNotes` 携带 `{cause, restrictionNo}`），管理台按此渲染因由与可点便签号；**客户面部分维持刻意藏**——2026-09-14 业主裁定「D10 只做展示」，客户面继续不区分 SANCTION 与 ADMIN_SUSPENSION（tipping-off 代价不对称：藏错了客户少看见一条记录，露错了是刑事风险），不再是待办、是设计决定，见 `decisions.md` 2026-09-14 条 ｜来源: 2026-08-22 第四批 B4；2026-09-08 业主裁定归订单域；2026-09-14 波五销账
+- [x] ~~`CAPABILITY_RESTRICTED` 挂起原因区分不出 SANCTION 与 ADMIN_SUSPENSION，客户面一律藏~~ —— **管理台侧已解**（2026-09-14 波五 D10）：`L1GateService` ②格 detail 从"holds down X capability"升级为带具体因由 + 限制便签号（`l1-gate.service.ts:115` `restrictionNotes` 携带 `{cause, restrictionNo}`），管理台按此渲染因由与便签号（文本展示；终审 2026-09-15 勘误：便签号链接到客户详情为 spec 撰写期外延，业主裁定「只做展示」，不建链接）；**客户面部分维持刻意藏**——2026-09-14 业主裁定「D10 只做展示」，客户面继续不区分 SANCTION 与 ADMIN_SUSPENSION（tipping-off 代价不对称：藏错了客户少看见一条记录，露错了是刑事风险），不再是待办、是设计决定，见 `decisions.md` 2026-09-14 条 ｜来源: 2026-08-22 第四批 B4；2026-09-08 业主裁定归订单域；2026-09-14 波五销账
 
 - [ ] **TR 适用判定未自动计算**：充值 PRD 定义 Travel Rule 适用 = 虚拟币 且 来源地址为 VASP 托管 且 单笔 ≥ 3,500 AED（三条件 AND，否则 NOT_REQUIRED）；现状条件①法币→NOT_REQUIRED 已落地，条件③金额阈值已实现（`kyt-txn-type.resolver.ts` `TR_THRESHOLD_BY_CURRENCY`，USDT 1000 / AED 3500，边界取 ≥）；仅剩条件②（对手方 VASP 打标靠 DTO 自报）未自动化 ｜来源: 2026-07-11 充值 PRD v2
 
@@ -210,6 +210,8 @@ Last Updated: 2026-09-14
 - [ ] **审计证据包导出的 deposit/withdraw 证据链构建函数引用 5 个不存在的 Prisma 模型，从出生起未工作；波三 Task 9 切换输入后仍不可见**：`audit-logs.service.ts → buildDepositSnapshots()`/`buildWithdrawSnapshots()`（约多处）调用 `db.kytCase?.findMany`/`db.travelRuleCase?.findMany`/`db.workflowDecisionRecord?.findMany`/`db.complianceAlert?.findMany`/`db.complianceIncident?.findMany`——这 5 个模型在 `schema.prisma` 里根本不存在，`?.findMany` 恒为 `undefined`，三元表达式恒走 fallback 空数组分支，从未真正查询过。**波三 Task 9（审计跳转甲案）把这两个函数的 `workflowIds` 输入从已删除的幽灵字段 `entityId` 切到真实存在的 `primarySubjectNo` 后**，`workflowIds` 从近乎恒空变成真的装着业务号，随后 `db.depositTransaction.findMany({where:{id:{in: workflowIds}}})`/`db.withdrawTransaction.findMany({...})` 这两条查询**会真执行**（不再被 `!workflowIds.length` 短路），但 `where` 按的是内部 `id`（UUID）列，`workflowIds` 装的却是业务号字符串（如 `DEP2601011234`），永远匹配不上——**最终可见结果仍是空**，只是从查询从未执行变成查询执行了但按业务号匹配内部 id 列而落空。**不是完全死代码，勿写成可放心大改**——将来要修，除了给 5 个 ghost 模型立表（或整段退役），`depositTransaction`/`withdrawTransaction` 两处 `where` 也得从 `id` 改成 `depositNo`/`withdrawNo`。**对照**：`buildSwapSnapshots()` 走 `resolveSwapExportSelectionContext()` 先把业务号解析成真实内部 id 再查询，SWAP 链已随 Task 9 真修复，充值/提现两域未跟进这层转换 ｜来源: 2026-09-13 波三 Task 9；同日业主拍板归第七幕（审计追溯）轮修
 
 ## I. 贯穿多幕（通知 ｜ SLA ｜ 杂项）
+
+- [ ] **`assertTradingEligibility` 生产码零调用方**（波五创建即冻把三处入口换成 `assertTradingIntake` 后成孤儿，仅 e2e 与注释引用）：零引用纪律先登记不删 ｜来源: 2026-09-15 波五终审 Minor#3
 
 > 多幕都会碰到的横切项——改一处多幕同时受益。
 

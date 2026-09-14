@@ -123,7 +123,7 @@ F. 剧本站级细化 + 三幕完整走查截图收官
 
 - `CustomerAccessService.resolve` 的 `blocked` 今天是 `Set<Capability>`，拿不到因由——扩展返回结构，携带每个被卡能力的 `{cause, restrictionNo}`（SILENT/DISCLOSED 都带；这是服务端内部结构，客户面序列化仍只走 `disclosed`，铁律不破）。
 - `L1GateService` ②格 detail（`l1-gate.service.ts:114` 附近）从"holds down X capability (N item(s))"升级为带具体因由+限制便签号；便签号照铁律⑥用业务号。
-- 管理台 L1 快照面板渲染因由+便签号，便签号链接到客户详情限制区块。
+- 管理台 L1 快照面板渲染因由+便签号，便签号链接到客户详情限制区块。（2026-09-15 终审勘误：便签号为**文本展示**，"链接到客户详情"系 spec 撰写期外延、非业主裁定内容——业主原话「只做展示」，不建链接，BACKLOG 措辞已同步改实。）
 - 客户面：L1 快照本就不出客户端（字段白名单已挡），验证即可；`holdReasonOf()` 客户面行为不动。
 
 ## 5. D · 三域详情路由换业务号 + 审计直达
