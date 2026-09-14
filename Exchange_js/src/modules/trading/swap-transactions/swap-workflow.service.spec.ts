@@ -2115,7 +2115,7 @@ describe('SwapWorkflowService.applyKytVerdict', () => {
   // describe) so it can reuse buildApplyKytVerdictMocks/makeApplyKytVerdictService
   // via closure.
   describe('→ handleRejectDisposition (Task 7 disposition split, Task 10 material requests)', () => {
-    it('软线（有 applicantActions，无 SANCTION）→ 写 restrictions(SWAP,WITHDRAW) + 登记材料请求', async () => {
+    it('软线（有 applicantActions，无 SANCTION）→ 不开便签，只登记材料请求（2026-09-14 收敛：只有制裁·客户本人动人）', async () => {
       const mocks = buildApplyKytVerdictMocks();
       const service = makeApplyKytVerdictService(mocks);
 
@@ -2124,22 +2124,12 @@ describe('SwapWorkflowService.applyKytVerdict', () => {
         applicantActions: [{ applicantActionId: 'A1', externalActionId: 'EA1' }],
       });
 
-      // Task 8：软线 → KYT_REJECTED_SOFT（DISCLOSED，客户看得见 "Verification required"）。
-      // caseRef=swapNo，便于按单撕。scopes 不传，由注册表带出 SWAP+WITHDRAW。
-      expect(mocks.customerRestrictionsService.open).toHaveBeenCalledWith(
-        expect.objectContaining({
-          customerId: 'cust-1',
-          cause: 'KYT_REJECTED_SOFT',
-          caseRef: 'SWP0001',
-          openedBy: 'system',
-        }),
-      );
+      // 2026-09-14 裁定：三域对同一套裁决按钮统一为"只有制裁·客户本人动
+      // 人"——软线不再顺手开 KYT_REJECTED_SOFT 便签，open() 零调用。
+      expect(mocks.customerRestrictionsService.open).not.toHaveBeenCalled();
       // Task 10：不再写 customer_main 单指针，改登记材料账一行——restrict:false
-      // 因为限制便签已经在上面 open() 过了，这里不重复开。
-      // 2026-08-18 修复：restrict:false 不代表"不接便签"——existingRestrictionNo
-      // 必须等于 open() 刚刚返回的那个 restrictionNo，否则 GREEN 复核时
-      // autoRelease 永远读不到便签、客户交齐材料后限制原地不动、永久卡死
-      // （本次要修的 Critical）。
+      // 且 existingRestrictionNo 为 undefined，因为这条路径不再开任何便签，
+      // 这一行材料请求不挂在任何限制便签下面。
       expect(mocks.materialRequestIssuer.register).toHaveBeenCalledTimes(1);
       expect(mocks.materialRequestIssuer.register).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -2152,7 +2142,7 @@ describe('SwapWorkflowService.applyKytVerdict', () => {
           orderRef: 'SWP0001',
           origin: 'SUMSUB_PUSHED',
           restrict: false,
-          existingRestrictionNo: 'RST2608160001',
+          existingRestrictionNo: undefined,
         }),
       );
 
@@ -2185,9 +2175,10 @@ describe('SwapWorkflowService.applyKytVerdict', () => {
       expect(mocks.materialRequestIssuer.register).toHaveBeenCalledTimes(3);
       const registeredCalls = (mocks.materialRequestIssuer.register as jest.Mock).mock.calls.map((c) => c[0]);
       expect(registeredCalls.map((c: any) => c.externalActionId)).toEqual(['EA1', 'EA2', 'EA3']);
-      // 三条都必须接同一张便签（open() 只开了一次）——不是三张便签各配一条。
+      // 软线不再开便签（2026-09-14 收敛）——三条都不挂在任何限制便签下面。
+      expect(mocks.customerRestrictionsService.open).not.toHaveBeenCalled();
       for (const call of registeredCalls) {
-        expect(call.existingRestrictionNo).toBe('RST2608160001');
+        expect(call.existingRestrictionNo).toBeUndefined();
       }
 
       const dispositionAudit = (mocks.auditLogsService.recordSystem as jest.Mock).mock.calls
@@ -2215,13 +2206,13 @@ describe('SwapWorkflowService.applyKytVerdict', () => {
       expect(await mocks.pendingActionService.hasHardLineDisposition('cust-1')).toBe(true);
     });
 
-    it('硬线（无 applicantActions）→ 写 restrictions，不登记材料请求，也不盖 sticky 章（没有可做的动作，不给入口）', async () => {
+    it('⑪ 硬线（无 applicantActions，no tag）→ 不开便签，不登记材料请求，也不盖 sticky 章（2026-09-14 收敛：普通拒绝只拒单，不动人）', async () => {
       const mocks = buildApplyKytVerdictMocks();
       const service = makeApplyKytVerdictService(mocks);
 
       await service.applyKytVerdict('s1', { verdict: 'rejected', applicantActions: [] });
 
-      expect(mocks.customerRestrictionsService.open).toHaveBeenCalled();
+      expect(mocks.customerRestrictionsService.open).not.toHaveBeenCalled();
       expect(mocks.materialRequestIssuer.register).not.toHaveBeenCalled();
       // 无 action 的硬线不是制裁，不该永久沉默这个客户（Finding 3）。
       expect(await mocks.pendingActionService.hasHardLineDisposition('cust-1')).toBe(false);
@@ -2251,7 +2242,7 @@ describe('SwapWorkflowService.applyKytVerdict', () => {
       expect(mocks.materialRequestIssuer.register).toHaveBeenCalledTimes(1);
     });
 
-    it('幂等：webhook 重投/人工重放 handleRejectDisposition 两次，restrictions 每次都调（Task 1 已证幂等），材料请求只登记一次（不撞 externalActionId 唯一键）', async () => {
+    it('幂等：webhook 重投/人工重放 handleRejectDisposition 两次（软线，不开便签），材料请求只登记一次（不撞 externalActionId 唯一键）', async () => {
       const mocks = buildApplyKytVerdictMocks();
       const service = makeApplyKytVerdictService(mocks);
       const input = {
@@ -2267,20 +2258,8 @@ describe('SwapWorkflowService.applyKytVerdict', () => {
       await (service as any).handleRejectDisposition(mocks.swapRow, input);
       await (service as any).handleRejectDisposition(mocks.swapRow, input);
 
-      expect(mocks.customerRestrictionsService.open).toHaveBeenCalledTimes(2);
-      // 两次都调 open —— 幂等由限制账自己保证（同 customerId+cause+caseRef
-      // 第二次返回 created:false，不会贴出第二张，已在 Task 3 的 spec 里证过）。
-      for (const nth of [1, 2]) {
-        expect(mocks.customerRestrictionsService.open).toHaveBeenNthCalledWith(
-          nth,
-          expect.objectContaining({
-            customerId: 'cust-1',
-            cause: 'KYT_REJECTED_SOFT',
-            caseRef: 'SWP0001',
-            openedBy: 'system',
-          }),
-        );
-      }
+      // 软线（无 SANCTION）2026-09-14 起不开便签——两次都不调 open。
+      expect(mocks.customerRestrictionsService.open).not.toHaveBeenCalled();
       // register() 不像旧 set() 天然幂等——externalActionId 撞了会抛 P2002。
       // 第二次重放必须被 listLiveByOrder 的 dedup 挡掉，不能再调 register。
       expect(mocks.materialRequestIssuer.register).toHaveBeenCalledTimes(1);
@@ -2380,23 +2359,6 @@ describe('SwapWorkflowService.applyKytVerdict', () => {
       );
     });
 
-    // ── fail-safe 顺序（load-bearing，不许调换）：登记材料请求 = 暴露入口，
-    // ── 必须排在限制便签 open() 之后。崩在中间时客户「已被限制、只是暂时看不到
-    // ── 入口」是保守的；反过来会出现「入口已暴露但限制没落地」的危险窗口。
-    it('fail-safe 顺序：open 便签的调用发生在 register 之前', async () => {
-      const mocks = buildApplyKytVerdictMocks();
-      const service = makeApplyKytVerdictService(mocks);
-
-      await service.applyKytVerdict('s1', {
-        verdict: 'rejected',
-        applicantActions: [{ applicantActionId: 'A1', externalActionId: 'EA1' }],
-      });
-
-      const openOrder = (mocks.customerRestrictionsService.open as jest.Mock).mock.invocationCallOrder[0];
-      const registerOrder = (mocks.materialRequestIssuer.register as jest.Mock).mock.invocationCallOrder[0];
-      expect(openOrder).toBeLessThan(registerOrder);
-    });
-
     // ── Review Fix 1 (Important): a throw inside disposition must be visible
     // ── (audit + needsReview) AND still propagate so the caller's retry path
     // ── (the terminal-status guard carve-out proven above) actually gets a
@@ -2454,7 +2416,7 @@ describe('SwapWorkflowService.applyKytVerdict', () => {
       expect(mocks.materialRequestIssuer.register).not.toHaveBeenCalled();
     });
 
-    it('SANCTION_COUNTERPARTY → 不是硬线制裁，走软线（有 action 时暴露补料入口）', async () => {
+    it('SANCTION_COUNTERPARTY → 不是硬线制裁，走普通拒绝路径（不开便签，有 action 时仍暴露补料入口）', async () => {
       const mocks = buildApplyKytVerdictMocks();
       const service = makeApplyKytVerdictService(mocks);
 
@@ -2464,8 +2426,11 @@ describe('SwapWorkflowService.applyKytVerdict', () => {
         applicantActions: [{ applicantActionId: 'a1', externalActionId: 'e1' }],
       });
 
-      expect(mocks.customerRestrictionsService.open).toHaveBeenCalledWith(
-        expect.objectContaining({ cause: 'KYT_REJECTED_SOFT' }),
+      // 命门断言：若 hasApplicantSanctionHit 被写错、把 COUNTERPARTY 误判成
+      // APPLICANT，这里会变成 open() 调了、register() 没调——两行都会翻红。
+      expect(mocks.customerRestrictionsService.open).not.toHaveBeenCalled();
+      expect(mocks.materialRequestIssuer.register).toHaveBeenCalledWith(
+        expect.objectContaining({ externalActionId: 'e1' }),
       );
     });
   });
@@ -2645,13 +2610,11 @@ describe('SwapWorkflowService.applyKytVerdict', () => {
       expect(frozenAudit.metadata.dispoTag).toBe('FROZEN_BY_MLRO');
       expect(frozenAudit.metadata.sceneTag ?? null).toBeNull();
 
-      // MLRO 冻结不是制裁：限制便签走 KYT_REJECTED_HARD（SILENT + 只锁
-      // SWAP/WITHDRAW），不是 SANCTION（SILENT + 卡全部能力）；也不盖 sticky
-      // 硬线章——那是制裁专属的永久 tipping-off 沉默，MLRO 冻结的是这一笔单
-      // 的处置，不是这个人的永久状态（sceneTag/dispoTag 概念区分见文件头）。
-      expect(mocks.customerRestrictionsService.open).toHaveBeenCalledWith(
-        expect.objectContaining({ cause: 'KYT_REJECTED_HARD' }),
-      );
+      // 2026-09-14 收敛：MLRO 冻结不是制裁——只冻单，不动人。不再顺手开
+      // KYT_REJECTED_HARD 便签，open() 零调用；也不盖 sticky 硬线章——那是制裁
+      // 专属的永久 tipping-off 沉默，MLRO 冻结的是这一笔单的处置，不是这个人
+      // 的永久状态（sceneTag/dispoTag 概念区分见文件头）。
+      expect(mocks.customerRestrictionsService.open).not.toHaveBeenCalled();
       expect(await mocks.pendingActionService.hasHardLineDisposition('cust-1')).toBe(false);
       // 冻单终态：零材料入口。
       expect(mocks.materialRequestIssuer.register).not.toHaveBeenCalled();
@@ -2683,17 +2646,15 @@ describe('SwapWorkflowService.applyKytVerdict', () => {
         expect.anything(),
       );
 
-      // 下发材料 + 开客户级便签：existingRestrictionNo 等于 open() 刚开出的
-      // 那张便签号，材料请求挂在它下面（对应验收口径"req.restrictionNo 非空"）。
-      expect(mocks.customerRestrictionsService.open).toHaveBeenCalledWith(
-        expect.objectContaining({ customerId: 'cust-1', cause: 'KYT_REJECTED_SOFT' }),
-      );
+      // 2026-09-14 收敛：软线不再顺手开便签——open() 零调用，材料请求不挂在
+      // 任何限制便签下面（existingRestrictionNo undefined）。
+      expect(mocks.customerRestrictionsService.open).not.toHaveBeenCalled();
       expect(mocks.materialRequestIssuer.register).toHaveBeenCalledWith(
         expect.objectContaining({
           externalActionId: 'EA1',
           orderDomain: 'SWAP',
           orderRef: 'SWP0001',
-          existingRestrictionNo: 'RST2608160001',
+          existingRestrictionNo: undefined,
         }),
       );
     });
@@ -2722,6 +2683,8 @@ describe('SwapWorkflowService.applyKytVerdict', () => {
         (c: any) => c[0].externalActionId,
       );
       expect(registeredIds).toEqual(['EXT-MULTI-1', 'EXT-MULTI-2', 'EXT-MULTI-3']);
+      // 软线不再顺手开便签（2026-09-14 收敛）。
+      expect(mocks.customerRestrictionsService.open).not.toHaveBeenCalled();
     });
   });
 });

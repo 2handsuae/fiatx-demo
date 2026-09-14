@@ -1111,11 +1111,12 @@ export class SwapWorkflowService {
       //
       // ⚠️ hasApplicantSanctionHit 现在读的是类型化的 sceneTag（不再是
       // string[] 上的 .includes），写错标签名会被 TS 挡在编译期；但这条判据
-      // 依旧是命门——把它删掉或改错，同样会让 hasSanction 恒 false →
-      // restrictionCause 掉进 KYT_REJECTED_SOFT → markHardLineDisposition
-      // 不盖章 → 走软线开出面向客户的补料请求 → 客户被告知"请补充材料" =
-      // tipping-off，而构建和测试全绿、零日志。swap-workflow.service.spec.ts
-      // 的「命门」用例组就是为钉死这个判据存在的，改这里必须同步看那组测试。
+      // 依旧是命门——把它删掉或改错，同样会让 hasSanction 恒 false → 真正命中
+      // 制裁的客户既不冻单也不贴 SANCTION 便签（2026-09-14 起 open() 只在
+      // hasSanction 时调用）；这次裁决若恰好带 action，还会经软线材料请求把
+      // 入口暴露给一个本该被制裁沉默的客户 = tipping-off，而构建和测试全绿、
+      // 零日志。swap-workflow.service.spec.ts 的「命门」用例组就是为钉死这个
+      // 判据存在的，改这里必须同步看那组测试。
       const hasSanction = this.hasApplicantSanctionHit(input.sceneTag);
       // Task A6：MLRO 手工冻结与制裁命中客户本人共享同一条 FREEZE 落地边——
       // 见 applyKytVerdict 顶部同名变量的注释。冻单终态没有材料可交、也没有
@@ -1134,36 +1135,28 @@ export class SwapWorkflowService {
       );
       const exposeToCustomer = !alreadyHardLined && !isHardLineThisVerdict;
 
-      // 收紧方向、免事前审批：无论软硬线都限制 SWAP/WITHDRAW。DEPOSIT 故意不
-      // 限制 —— 链上资金已经到账，拒收解决不了任何问题，只会制造资金卡死。
+      // 命中制裁才限制（SWAP/WITHDRAW，注册表 SANCTION 的 scopes；DEPOSIT 故意
+      // 不限制——链上资金已到账，拒收解决不了任何问题，只会制造资金卡死）。
       //
-      // Task 8：从 restrictions.add(capability[]) 换成限制账 open({cause})。
-      // cause 三分：命中制裁 → SANCTION（SILENT / 卡全部能力 / 只能 MLRO 解）；
-      // 否则按本次是否暴露补料入口分 KYT_REJECTED_SOFT（DISCLOSED）与
-      // KYT_REJECTED_HARD（SILENT）。scope 不传 —— 三个 cause 的 scopeSelectable
-      // 均为 false，由注册表带出。caseRef=swapNo，便于按单撕。
-      //
-      // Review Fix 5 (Minor): 下面这两次写入（限制账 open /
-      // materialRequestIssuer.register 材料请求登记，2026-08-17 前是
-      // customerPendingActionService.set）不在同一事务里，中途崩溃会留下不
-      // 一致状态。当前顺序（先 restrict 再登记材料请求）是故意的
-      // fail-safe 排列：如果崩在两次写入之间，客户已经被限制、只是暂时看不到
-      // 补料入口（偏保守，不出事）；反过来的顺序会在中途崩溃时出现"入口已经
-      // 暴露但限制还没落地"的窗口，更危险。不要因为"看起来能合并成一次"把这
-      // 个顺序调换——它是 load-bearing 的。
-      const restrictionCause = hasSanction
-        ? ('SANCTION' as const)
-        : exposeToCustomer
-          ? ('KYT_REJECTED_SOFT' as const)
-          : ('KYT_REJECTED_HARD' as const);
-      const { restrictionNo, created: restrictionCreated } =
-        await this.customerRestrictionsService.open({
+      // 2026-09-14 裁定：三域对同一套裁决按钮统一为"只有制裁·客户本人动
+      // 人"——⑨ MLRO 冻结只冻单、⑪ 无标签的普通拒绝只拒单，都不再顺手贴便签
+      // （兑换此前是唯一在这两路上开 KYT_REJECTED_SOFT/KYT_REJECTED_HARD 便签
+      // 的域，收敛后与充提两域同型）。两个 cause 仍留在注册表里（手工下拉等
+      // 别处还用），只是这条调用路径不再传。caseRef=swapNo，便于按单撕；
+      // scope 不传，由注册表带出。
+      let restrictionNo: string | undefined;
+      let restrictionCreated: boolean | undefined;
+      if (hasSanction) {
+        const opened = await this.customerRestrictionsService.open({
           customerId: swap.ownerId,
-          cause: restrictionCause,
+          cause: 'SANCTION',
           reason: `Swap ${swap.swapNo} KYT rejected`,
           caseRef: swap.swapNo,
           openedBy: 'system',
         });
+        restrictionNo = opened.restrictionNo;
+        restrictionCreated = opened.created;
+      }
 
       // 2026-08-20（Task 9）：客户本人命中制裁 → 把这笔单打到 FROZEN。
       // 2026-08-29（Task A6）：MLRO 手工冻结（dispoTag=FROZEN_BY_MLRO）共享
@@ -1172,9 +1165,11 @@ export class SwapWorkflowService {
       // 用 status 判据先过滤，不靠异常控流 —— PROCESSING 分支走的是另一条路径
       // （assertSwapCustomerAccessOrHalt 停腿），REJECTED/SUCCESS carve-out 只
       // 重跑处置，不重跑状态迁移。
-      // 顺序刻意在 open() 之后（先冻人、再冻单，与充值/提现一致的 fail-safe
-      // 排列）：如果崩在两次写入之间，客户已经被限制、只是单子还没显示冻结，
-      // 比反过来更安全。
+      // 顺序刻意排在"命中制裁才 open()"之后（先冻人、再冻单，与充值/提现一致
+      // 的 fail-safe 排列）：hasSanction 时若崩在 open() 与这里之间，客户已经
+      // 被限制、只是单子还没显示冻结，比反过来更安全。MLRO 冻结
+      // （dispoTag=FROZEN_BY_MLRO 但非制裁）不经过 open()，直接冻单——冻的是
+      // 这一笔单，不摁人（2026-09-14 裁定，见上方 restrictionNo 声明处注释）。
       if (willFreeze && swap.status === SwapTransactionStatus.COMPLIANCE_PENDING) {
         // 2026-08-20（Review Important Fix）：swap 是 applyKytVerdict 顶部
         // 一次性读出、随后一路传下来的陈旧快照 —— 从那一刻到这里之间，
@@ -1295,11 +1290,12 @@ export class SwapWorkflowService {
               origin: 'SUMSUB_PUSHED',
               reason: `Swap ${swap.swapNo} KYT rejected — additional materials required`,
               issuedBy: 'SYSTEM',
-              // 便签上面已经开好了（restrictionNo 在手），这里不重复开 ——
-              // register 的 restrict=false 表示「不要再开一张」，不表示「不摁人」。
-              // existingRestrictionNo 把已经开好的那张便签接进这一行，否则
-              // restrictionNo 恒为 null，GREEN 复核时 autoRelease 永远不会被调用
-              // （2026-08-18 修复：客户交齐材料后限制原地不动、永久卡死）。
+              // 2026-09-14 起 open() 只在 hasSanction 时调用，走到这个分支
+              // （exposeToCustomer=true）hasSanction 必为 false——restrictionNo
+              // 恒是 undefined，这里没有便签可接，纯粹落一行材料请求。
+              // restrict:false 依旧表示「不要开新便签」；existingRestrictionNo
+              // 缺省时 register() 本身也不会开一张（见 material-request-issuer
+              // persist() 的 cause=null 分支）。
               restrict: false,
               existingRestrictionNo: restrictionNo,
               actor: { actorType: 'SYSTEM', userId: 'SYSTEM', userNo: 'SYSTEM', role: 'SYSTEM', roleCodes: ['SYSTEM'] } as any,
@@ -1318,13 +1314,15 @@ export class SwapWorkflowService {
 
       await this.swapAudit(swap, {
         action: 'SWAP_KYT_REJECTED_DISPOSED',
+        // 2026-09-14 裁定：只有命中制裁才真正限制客户——其余三支不再说
+        // "Restricted"，避免审计留痕和实际动作对不上（项目规则①：操作必留痕）。
         reason: hasSanction
-          ? 'Sanction hit — customer not notified (tipping-off)'
+          ? 'Sanction hit — customer restricted, not notified (tipping-off)'
           : alreadyHardLined
-          ? 'Restricted; customer previously hard-lined on another swap — not notified (sticky silence)'
+          ? 'Customer previously hard-lined on another swap — not notified (sticky silence); no restriction opened this time'
           : exposeToCustomer
-          ? 'Restricted; re-verification action exposed to customer'
-          : 'Restricted; no action available — customer not notified',
+          ? 'Re-verification action exposed to customer; no restriction opened (only a sanction hit restricts)'
+          : 'No action available — customer not notified; no restriction opened (only a sanction hit restricts)',
         metadata: {
           hasSanction,
           actionCount: actions.length,
@@ -1337,7 +1335,7 @@ export class SwapWorkflowService {
           // full list, not just the first row).
           actionIds: exposeToCustomer ? actions.map((a) => a.externalActionId) : undefined,
           restrictionNo,
-          restrictionCause,
+          restrictionCause: hasSanction ? ('SANCTION' as const) : undefined,
           restrictionCreated,
         },
       });

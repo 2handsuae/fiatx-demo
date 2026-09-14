@@ -384,14 +384,16 @@ describe('Swap Sumsub verdict buttons (e2e, Task 12)', () => {
     expect(actions).toContain(AuditActions.SWAP_KYT_APPROVED);
   });
 
-  it('② awaiting user（下发认证）: REJECTED, zero legs, restrictions SWAP+WITHDRAW, material request issued with restrictionNo attached', async () => {
+  it('② awaiting user（下发认证）: REJECTED, zero legs, no restriction opened, material request issued (2026-09-14: soft line no longer stamps a 便签)', async () => {
     await deliver(v3aSwap.id, 'V2_AWAIT_USER');
 
     expect(await statusOf(v3aSwap.id)).toBe(SwapTransactionStatus.REJECTED);
     const legs = await fundsOrders.findByParent({ swapTransactionId: v3aSwap.id }, {});
     expect(legs).toHaveLength(0);
 
-    expect(await openScopes(customerId)).toEqual(['SWAP', 'WITHDRAW']);
+    // 2026-09-14 裁定：三域对同一套裁决按钮统一为"只有制裁·客户本人动
+    // 人"——软线不再顺手开限制便签，open() 零调用。
+    expect(await openScopes(customerId)).toEqual([]);
 
     // 2026-08-17 材料请求账：旧客户级单指针列已在 Task 12 随其专属 service 整体
     // 物理删除——软线暴露的事实现在只活在材料账里：该单上有几条活的材料请求、
@@ -403,35 +405,19 @@ describe('Swap Sumsub verdict buttons (e2e, Task 12)', () => {
     expect(live[0].externalActionId).toBeTruthy();
     expect(live[0].status).toBe('PENDING_SUBMISSION');
 
-    // 2026-08-18 修复验收（本次要修的 Critical）：register() 之前没有任何字段
-    // 能把 open() 刚开好的便签接进这一行，restrictionNo 恒为 null，GREEN 复核
-    // 时 autoRelease 永远读不到便签——客户交齐材料后限制原地不动、永久卡死。
-    // 这里直接断言非 null，并且与刚才 open() 出来的那张便签是同一张（不是另开
-    // 的第二张）。
-    expect(live[0].restrictionNo).not.toBeNull();
-    const openRows = await restrictionsService.listOpen(customerId);
-    const softRestriction = openRows.find((r) => r.cause === 'KYT_REJECTED_SOFT' && r.caseRef === v3aSwap.swapNo);
-    expect(softRestriction).toBeDefined();
-    expect(live[0].restrictionNo).toBe(softRestriction!.restrictionNo);
+    // 2026-09-14 收敛：软线不再顺手开便签，这一行材料请求不挂在任何限制便签
+    // 下面——restrictionNo 恒为 null。
+    expect(live[0].restrictionNo).toBeNull();
 
     const actions = await auditActionsFor(v3aSwap.id, AuditEntityTypes.SWAP_TRANSACTION);
     expect(actions).toContain(AuditActions.SWAP_KYT_REJECTED_DISPOSED);
-
-    // 2026-08-29 (Task A5)：旧 ⑦（webhookType applicantActionReviewed，GREEN）
-    // 曾在这里投一次复核，把上面刚开的软线便签撕掉，让下一个场景（v6Swap 那条
-    // ②）从干净状态开始。⑦ 已从 swap 面板删除——材料复核作用于人，是另一个
-    // webhook，真实入口在客户详情页 Verification Requests 面板
-    // （POST /admin/sumsub/simulate/applicant-action-result），这个 demo
-    // service 不再提供任何清便签的路径。这里直接绕过面板用 Prisma 清场，与
-    // beforeAll 已经在用的测试卫生手法同款，只是为了不让下一条继承这张便签。
-    await prisma.customerRestriction.deleteMany({ where: { customerId } });
   });
 
-  it('② awaiting user（我方等同拒绝）: REJECTED, restrictions re-added, material request issued (ext-3) with restrictionNo attached', async () => {
+  it('② awaiting user（我方等同拒绝）: REJECTED, no restriction opened, material request issued (ext-3, 2026-09-14: soft line no longer stamps a 便签)', async () => {
     await deliver(v6Swap.id, 'V2_AWAIT_USER');
 
     expect(await statusOf(v6Swap.id)).toBe(SwapTransactionStatus.REJECTED);
-    expect(await openScopes(customerId)).toEqual(['SWAP', 'WITHDRAW']);
+    expect(await openScopes(customerId)).toEqual([]);
 
     // 同上一条 ②：软线暴露的事实只活在材料账里，旧单指针列已随 Task 12 物理删除。
     const live = await materialRequests.listLiveByOrder('SWAP', v6Swap.swapNo);
@@ -440,12 +426,8 @@ describe('Swap Sumsub verdict buttons (e2e, Task 12)', () => {
     // 'demo-ext-3' —— 只断言"有值"，具体值不该也不能预测。
     expect(live[0].externalActionId).toBeTruthy();
     expect(live[0].status).toBe('PENDING_SUBMISSION');
-    expect(live[0].restrictionNo).not.toBeNull();
-
-    // 2026-08-29 (Task A5)：旧 ⑧（applicantActionReviewed RED）曾在这里投一次
-    // 复核升级、断言这张便签不被撕掉。⑧ 与 ⑦ 一起从 swap 面板整体删除（同一个
-    // 已搬走的 webhook），这条单的便签本就不会被任何东西自动清掉（下一条 ⑪ 用
-    // 的是另一笔单 v2Swap），不需要额外动作来保持这个事实。
+    // 2026-09-14 收敛：软线不再顺手开便签，restrictionNo 恒为 null。
+    expect(live[0].restrictionNo).toBeNull();
   });
 
   it('⑪ rejected · no disposition tag: REJECTED, no material request issued, no sticky hard-line', async () => {
@@ -491,17 +473,11 @@ describe('Swap Sumsub verdict buttons (e2e, Task 12)', () => {
     const customer = await prisma.customerMain.findUnique({ where: { id: customerId }, select: { hardLineDispositionedAt: true } });
     expect(customer!.hardLineDispositionedAt).toBeTruthy();
 
-    // 三轴收敛前这里断言的是 ['SWAP','WITHDRAW'] —— 那是单列 restrictions 的语义：
-    // 制裁裁决到来会把前面软线留下的那份**覆盖**掉，客户身上永远只有一份限制。
-    // 限制账是一因一张、互不覆盖，所以这单制裁落下来之后，本 suite 前序用例
-    // 留下的软线便签仍然在（v3aSwap 那张已在自己测试收尾时用 Prisma 清场——
-    // 见 Task A5 的类注释；v6Swap 那张没有任何东西清它，⑧被删也不影响这一点，
-    // RED 复核本来就不撕便签），制裁自己另起一张 scope=ALL。这正是这次改造要
-    // 的行为，断言随之改成「制裁那张在 + 前序那些没被抹掉」。
+    // 2026-09-14 裁定：软线不再顺手开便签——前面 v3aSwap/v6Swap 的两条 ② 场景
+    // 都没留下 KYT_REJECTED_SOFT 那张，这里只有制裁自己开的这一张 scope=ALL。
     const openRows = await restrictionsService.listOpen(customerId);
     expect(openRows.some((r) => r.cause === 'SANCTION' && r.scopes.includes('ALL'))).toBe(true);
-    expect(openRows.some((r) => r.cause === 'KYT_REJECTED_SOFT')).toBe(true);
-    // 摁住的能力集是所有 OPEN 便签的并集，制裁的 ALL 让三样全禁。
+    // 摁住的能力集就是这一张 scope=ALL 的便签本身，三样全禁。
     const access = await app.get(CustomerAccessService).resolve(customerId);
     expect([...access.blocked].sort()).toEqual(['DEPOSIT', 'SWAP', 'WITHDRAW']);
   });
