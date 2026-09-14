@@ -28,6 +28,7 @@ import {
   Moon,
   Database,
   FileEdit,
+  ChevronDown,
 } from 'lucide-react';
 import { Link, useLocation, useNavigate, Outlet } from 'react-router-dom';
 import { useAdminSession } from '../contexts/AdminSessionContext';
@@ -90,6 +91,29 @@ const DashboardLayout = () => {
     useSimulationMode();
   const [demoOpsAvailable, setDemoOpsAvailable] = useState(false);
   const [demoOpsPanelOpen, setDemoOpsPanelOpen] = useState(false);
+
+  // 一级菜单分组折叠状态：存的是"已折叠"的分组名，默认空 = 全展开（保持现状）。存 localStorage 存活刷新。
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(() => {
+    try {
+      const raw = localStorage.getItem('admin_sidebar_collapsed_groups');
+      return raw ? new Set(JSON.parse(raw) as string[]) : new Set();
+    } catch {
+      return new Set();
+    }
+  });
+  const toggleGroup = (label: string) => {
+    setCollapsedGroups((prev) => {
+      const next = new Set(prev);
+      if (next.has(label)) next.delete(label);
+      else next.add(label);
+      try {
+        localStorage.setItem('admin_sidebar_collapsed_groups', JSON.stringify([...next]));
+      } catch {
+        /* 无痕/隐私模式下写不了，忽略——只丢失记忆，不影响功能 */
+      }
+      return next;
+    });
+  };
 
   // 探测 demo-ops 是否可达（DEMO_OPS=1 才注册路由）：404/网络错误 = 本地，隐藏入口。
   useEffect(() => {
@@ -454,32 +478,46 @@ const DashboardLayout = () => {
               ) : (
                 /* ── Group ── */
                 <div className="mb-1 mt-3 first:mt-1">
-                  {/* Group header — section label style */}
-                  <div className="mb-1 flex items-center gap-1.5 px-2.5 py-1">
+                  {/* Group header — 可点折叠/展开 */}
+                  <button
+                    type="button"
+                    onClick={() => toggleGroup(item.label)}
+                    aria-expanded={!collapsedGroups.has(item.label)}
+                    className="mb-1 flex w-full items-center gap-1.5 rounded px-2.5 py-1 text-left transition-colors hover:bg-adm-hover"
+                  >
                     <span className="shrink-0 text-adm-t3">{item.icon}</span>
-                    <span className="font-mono text-[8.5px] font-semibold uppercase tracking-[0.16em] text-adm-t3">
+                    <span className="flex-1 font-mono text-[8.5px] font-semibold uppercase tracking-[0.16em] text-adm-t3">
                       {item.label}
                     </span>
-                  </div>
-                  {/* Children */}
-                  <div className="space-y-0.5 pl-2">
-                    {item.children.map((child, cIndex) => (
-                      <Link
-                        key={`${child.path}-${cIndex}`}
-                        to={child.path}
-                        className={[
-                          'flex items-center gap-2 rounded px-2.5 py-1.5 transition-colors',
-                          'font-mono text-[11px]',
-                          isPathActive(location.pathname, child.path)
-                            ? 'bg-adm-card font-medium text-adm-amber'
-                            : 'text-adm-t2 hover:bg-adm-hover hover:text-adm-t1',
-                        ].join(' ')}
-                      >
-                        <span className="shrink-0 text-current">{child.icon}</span>
-                        {child.label}
-                      </Link>
-                    ))}
-                  </div>
+                    <ChevronDown
+                      size={12}
+                      className={[
+                        'shrink-0 text-adm-t3 transition-transform duration-150',
+                        collapsedGroups.has(item.label) ? '-rotate-90' : '',
+                      ].join(' ')}
+                    />
+                  </button>
+                  {/* Children — 折叠时不渲染 */}
+                  {!collapsedGroups.has(item.label) && (
+                    <div className="space-y-0.5 pl-2">
+                      {item.children.map((child, cIndex) => (
+                        <Link
+                          key={`${child.path}-${cIndex}`}
+                          to={child.path}
+                          className={[
+                            'flex items-center gap-2 rounded px-2.5 py-1.5 transition-colors',
+                            'font-mono text-[11px]',
+                            isPathActive(location.pathname, child.path)
+                              ? 'bg-adm-card font-medium text-adm-amber'
+                              : 'text-adm-t2 hover:bg-adm-hover hover:text-adm-t1',
+                          ].join(' ')}
+                        >
+                          <span className="shrink-0 text-current">{child.icon}</span>
+                          {child.label}
+                        </Link>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
             </div>
