@@ -3065,7 +3065,15 @@ describe('SwapWorkflowService — 波五 Task 3：FROZEN 执行侧', () => {
   } = {}) {
     const swapTransactionsService = {
       findByNoInternal: jest.fn().mockResolvedValue(frozenSwap),
-      markStatus: jest.fn().mockResolvedValue('MOCKED'),
+      // 评审修法③：toStatus 现在读 markStatus 的真实返回值而非写死字面量——
+      // mock 必须按 action 回不同的目标态，否则测出来的是 mock 造的假值。
+      markStatus: jest.fn((_id: string, action: SwapTransactionAction) =>
+        Promise.resolve(
+          action === SwapTransactionAction.RESUME
+            ? SwapTransactionStatus.COMPLIANCE_PENDING
+            : SwapTransactionStatus.REJECTED,
+        ),
+      ),
       ...overrides.swapTransactionsService,
     };
     const auditLogsService = { recordSystem: jest.fn().mockResolvedValue({}) };
@@ -3112,8 +3120,9 @@ describe('SwapWorkflowService — 波五 Task 3：FROZEN 执行侧', () => {
   }
 
   describe('onUnfreezeDecided / onUnfreezeApproved', () => {
-    it('APPROVED + FROZEN: RESUME → COMPLIANCE_PENDING, rejectReason 被清空, 审计带 orderRef/approvalNo/causationId, rescore 被调', async () => {
+    it('APPROVED + FROZEN: RESUME → COMPLIANCE_PENDING, rejectReason 被清空, 审计带 orderRef/approvalNo/causationId, rescore 被调, releaseBirthLock 不调（解冻不放锁）', async () => {
       const { workflow, swapTransactionsService, auditLogsService, sumsubTxnClient, txUpdate } = buildWorkflow();
+      const releaseBirthLockSpy = jest.spyOn(workflow, 'releaseBirthLock').mockResolvedValue('90');
 
       await workflow.onUnfreezeDecided({
         decision: 'APPROVED',
@@ -3143,6 +3152,8 @@ describe('SwapWorkflowService — 波五 Task 3：FROZEN 执行侧', () => {
         }),
       );
       expect(sumsubTxnClient.rescore).toHaveBeenCalledWith('sumsub-txn-9');
+      // 硬约束①：解冻=回到普通合规审，零记账——出生锁全程没动过，不许放锁。
+      expect(releaseBirthLockSpy).not.toHaveBeenCalled();
     });
 
     it('orderRef missing on the APPROVED case → throws BEFORE markStatus', async () => {

@@ -1686,14 +1686,15 @@ export class SwapWorkflowService {
 
     const orderRef = await this.fetchApprovedOrderRef(swap.swapNo, ApprovalActionTypes.SWAP_UNFREEZE);
 
-    await this.prisma.$transaction(async (tx: any) => {
-      await this.swapTransactionsService.markStatus(
+    const nextStatus = await this.prisma.$transaction(async (tx: any) => {
+      const next = await this.swapTransactionsService.markStatus(
         swap.id,
         SwapTransactionAction.RESUME,
         tx,
         { operator: 'MLRO_APPROVAL' },
       );
       await tx.swapTransaction.update({ where: { id: swap.id }, data: { rejectReason: null } });
+      return next;
     });
 
     await this.swapAudit(swap, {
@@ -1702,7 +1703,7 @@ export class SwapWorkflowService {
       approvalNo,
       causationId,
       fromStatus: SwapTransactionStatus.FROZEN,
-      toStatus: SwapTransactionStatus.COMPLIANCE_PENDING,
+      toStatus: nextStatus,
       metadata: { orderRef },
     });
 
@@ -1745,8 +1746,8 @@ export class SwapWorkflowService {
       return;
     }
 
-    await this.prisma.$transaction(async (tx: any) => {
-      await this.swapTransactionsService.markStatus(
+    const nextStatus = await this.prisma.$transaction(async (tx: any) => {
+      return this.swapTransactionsService.markStatus(
         swap.id,
         SwapTransactionAction.REJECT_REFUND,
         tx,
@@ -1762,7 +1763,7 @@ export class SwapWorkflowService {
       approvalNo,
       causationId,
       fromStatus: SwapTransactionStatus.FROZEN,
-      toStatus: SwapTransactionStatus.REJECTED,
+      toStatus: nextStatus,
       metadata: { releasedFromAmount },
     });
   }

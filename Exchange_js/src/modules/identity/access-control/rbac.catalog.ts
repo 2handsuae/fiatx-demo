@@ -874,7 +874,7 @@ export const ACTION_BUCKET_CATALOG: ActionDomain[] = [
       { key: 'trading.act_withdraw_unfreeze', label: 'Request withdrawal unfreeze', description: 'Open an unfreeze approval — compliance line only, never operations', groups: ['WITHDRAW_UNFREEZE_WRITE'] },
       { key: 'trading.act_withdraw_return_claim', label: 'Request payout-return claim', description: 'Open a CFO approval to re-credit a completed payout that bounced back', groups: ['WITHDRAW_RETURN_CLAIM_WRITE'] },
       { key: 'trading.act_swap', label: 'Handle swaps', description: 'Raise and progress swap orders', groups: ['TRADING_SWAP_WRITE'] },
-      { key: 'trading.act_swap_refund', label: 'Request sanction refund', description: 'Open a sanction-refund approval on a frozen swap', groups: ['SWAP_REFUND_WRITE'] },
+      { key: 'trading.act_swap_refund', label: 'Request swap sanction refund', description: 'Open a sanction-refund approval on a frozen swap', groups: ['SWAP_REFUND_WRITE'] },
       { key: 'trading.act_swap_unfreeze', label: 'Request swap unfreeze', description: 'Open an unfreeze approval — compliance line only, never operations', groups: ['SWAP_UNFREEZE_WRITE'] },
     ],
   },
