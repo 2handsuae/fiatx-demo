@@ -268,10 +268,17 @@ export class WithdrawWorkflowService implements OnModuleInit {
     if (!asset) throw new NotFoundException('Asset not found');
 
     // Task 5：客户级 lifecycle + 限制账闸门。全仓唯一实现在 CustomerAccessService；
-    // 本服务是 exports 出去的 workflow，customer controller 的 assertTradingEligibility
+    // 本服务是 exports 出去的 workflow，customer controller 的 assertTradingIntake
     // 不是唯一入口，出金不可逆 —— 这道纵深防御保留。
+    //
+    // 波五 T4（创建即冻）：改用 assertTradingIntake——DISCLOSED 客户仍在这里被中性
+    // 拒绝（响应体与旧 assertCapability 逐字一致）；SILENT-only（制裁）客户改为放行
+    // 并回 fold=true，订单照常建、建完立即冻（见下方"建单后冻结段"），不在这里报错
+    // 拦截——拒单本身就是向客户泄露"你被盯上了"。
+    let fold = false;
     if (ownerType === 'CUSTOMER') {
-      await this.customerAccessService.assertCapability(userId, 'WITHDRAW');
+      const intake = await this.customerAccessService.assertTradingIntake(userId, 'WITHDRAW');
+      fold = intake.fold;
     }
 
     // ── Address-registration guard + VASP derivation (Task 3) ──
@@ -343,11 +350,14 @@ export class WithdrawWorkflowService implements OnModuleInit {
       });
     }
 
-    // ── L1 闸门收口（第四批）── assertCapability 已在上面快速失败过一轮,
+    // ── L1 闸门收口（第四批）── assertTradingIntake 已在上面快速失败过一轮,
     // 这里重跑一次是为了拿到**可回显的快照**（不是重复校验：上面抛的是中性错误,
-    // 拿不到逐项结果）。verdict 到这里必然 PASS,除非并发窗口内便签刚被开出来。
+    // 拿不到逐项结果）。DISCLOSED 客户到不了这里（上面已抛）；普通客户 verdict
+    // 到这里必然 PASS，除非并发窗口内便签刚被开出来。**fold 客户是例外**——上面
+    // 特意放行了 SILENT-only 命中，这里的快照会如实再算出一次 CUSTOMER_RESTRICTION
+    // FAIL（BLOCK），不是竞态，是必然——下面 BLOCK 分支据此判断是否放行。
     //
-    // 收窄到 ownerType==='CUSTOMER'，与紧邻的 assertCapability / limitGate 两道闸
+    // 收窄到 ownerType==='CUSTOMER'，与紧邻的 assertTradingIntake / limitGate 两道闸
     // 一致：L1 的判定全部是客户级的，非客户主体走进去 CustomerAccessService.resolve()
     // 只会抛 `Customer not found: <id>`（既不是中性拒绝，还把内部 id 原样回显），
     // 且此时 limitGate 从未执行、下面的限额两格无从谈起。今日零行为变化 ——
@@ -362,7 +372,7 @@ export class WithdrawWorkflowService implements OnModuleInit {
     //  · QUOTE_VALIDITY —— 报价有效性由建单事务内的 getActiveQuoteOrThrow 把关，
     //    未过则整单回滚不留单：能落库的快照这一格必然为真。
     //  · TRADING_READINESS —— 唯一入口 CustomerWithdrawController 在调本方法前
-    //    assertTradingEligibility('WITHDRAW') 已跑过 assertTradingReady。
+    //    assertTradingIntake('WITHDRAW') 已跑过 assertTradingReady。
     let l1: L1Snapshot | null = null;
     if (ownerType === 'CUSTOMER') {
       const preChecks: L1Check[] = [
@@ -373,7 +383,7 @@ export class WithdrawWorkflowService implements OnModuleInit {
           : { code: 'ACCOUNT_READINESS', outcome: 'SKIPPED', detail: 'No payout destination provided — payout account not checked this time' },
         { code: 'BALANCE_SUFFICIENCY', outcome: 'SKIPPED', detail: 'Balance is checked only when the order posts a TB pending lock — this evaluation point runs before that' },
         { code: 'QUOTE_VALIDITY', outcome: 'PASS', detail: 'Quote valid (checked inside the order-creation transaction; the whole order rolls back if it fails)' },
-        { code: 'TRADING_READINESS', outcome: 'PASS', detail: 'Trading-start preconditions satisfied (assertTradingEligibility passed before order creation)' },
+        { code: 'TRADING_READINESS', outcome: 'PASS', detail: 'Trading-start preconditions satisfied (assertTradingIntake passed before order creation)' },
       ];
       l1 = await this.l1Gate.evaluate({
         domain: 'WITHDRAW',
@@ -382,35 +392,44 @@ export class WithdrawWorkflowService implements OnModuleInit {
         preChecks,
       });
       if (l1.verdict === 'BLOCK') {
-        // 波二·法一：被拦下也留痕。单未建、无单号——主体是客户，资产当次主体（第七幕按资产号能拉出被它拦下的单）。
         const failed = l1.checks.filter((c) => c.outcome === 'FAIL');
-        const actorNo = ownerNo ?? userId;
-        await this.auditLogsService.recordByActor(
-          {
-            action: 'WITHDRAW_L1_BLOCKED',
-            actionDomain: 'WITHDRAW',
-            category: AuditCategory.BUSINESS,
-            primarySubjectType: 'CUSTOMER',
-            primarySubjectNo: actorNo,
-            ownerCustomerNo: ownerNo ?? undefined,
-            outcome: AuditOutcome.DENIED,
-            reasonCode: failed[0] ? l1ReasonCodeOf(failed[0].code) : 'L1_BLOCK',
-            reason: `L1 blocked withdrawal: ${failed.map((c) => `${c.code} — ${c.detail}`).join('; ')}`,
-            subjects: [
-              ...(ownerNo ? [{ subjectType: 'CUSTOMER', subjectNo: ownerNo, subjectRole: AuditSubjectRole.OWNER }] : []),
-              ...(asset.assetNo ? [{ subjectType: AuditEntityTypes.ASSET, subjectNo: asset.assetNo, subjectRole: AuditSubjectRole.RELATED }] : []),
-            ],
-            metadata: { assetId, amount: String(amount), l1Snapshot: l1 },
-            requestId: `WITHDRAW_L1_BLOCKED_${actorNo}_${randomUUID()}`,
-            sourcePlatform: 'CUSTOMER_API',
-          } as any,
-          { actorType: 'CUSTOMER', actorNo, actorDisplayName: actorNo, actorRolesAtTime: ['CUSTOMER'] },
-        );
-        throw new ForbiddenException({
-          code: 'L1_GATE_BLOCKED',
-          // 中性文案 —— 直接引用 CustomerAccessService 的那一份（禁止手抄副本）。
-          message: NEUTRAL_DENIAL,
-        });
+        // 波五 T4：fold 客户放行的唯一条件——CUSTOMER_RESTRICTION 是这一刻快照里
+        // **唯一**的 FAIL。还有别的 FAIL（资产停用等）与 tipping-off 无关，走原
+        // BLOCK 路——普通客户同款报错，不因 SILENT 而额外放行。
+        const isFoldOnlyRestriction =
+          fold && failed.length === 1 && failed[0].code === 'CUSTOMER_RESTRICTION';
+        if (!isFoldOnlyRestriction) {
+          // 波二·法一：被拦下也留痕。单未建、无单号——主体是客户，资产当次主体（第七幕按资产号能拉出被它拦下的单）。
+          const actorNo = ownerNo ?? userId;
+          await this.auditLogsService.recordByActor(
+            {
+              action: 'WITHDRAW_L1_BLOCKED',
+              actionDomain: 'WITHDRAW',
+              category: AuditCategory.BUSINESS,
+              primarySubjectType: 'CUSTOMER',
+              primarySubjectNo: actorNo,
+              ownerCustomerNo: ownerNo ?? undefined,
+              outcome: AuditOutcome.DENIED,
+              reasonCode: failed[0] ? l1ReasonCodeOf(failed[0].code) : 'L1_BLOCK',
+              reason: `L1 blocked withdrawal: ${failed.map((c) => `${c.code} — ${c.detail}`).join('; ')}`,
+              subjects: [
+                ...(ownerNo ? [{ subjectType: 'CUSTOMER', subjectNo: ownerNo, subjectRole: AuditSubjectRole.OWNER }] : []),
+                ...(asset.assetNo ? [{ subjectType: AuditEntityTypes.ASSET, subjectNo: asset.assetNo, subjectRole: AuditSubjectRole.RELATED }] : []),
+              ],
+              metadata: { assetId, amount: String(amount), l1Snapshot: l1 },
+              requestId: `WITHDRAW_L1_BLOCKED_${actorNo}_${randomUUID()}`,
+              sourcePlatform: 'CUSTOMER_API',
+            } as any,
+            { actorType: 'CUSTOMER', actorNo, actorDisplayName: actorNo, actorRolesAtTime: ['CUSTOMER'] },
+          );
+          throw new ForbiddenException({
+            code: 'L1_GATE_BLOCKED',
+            // 中性文案 —— 直接引用 CustomerAccessService 的那一份（禁止手抄副本）。
+            message: NEUTRAL_DENIAL,
+          });
+        }
+        // fold 路径：不写 WITHDRAW_L1_BLOCKED（那是真 BLOCK 的留痕），L1 快照
+        // 照记 CUSTOMER_RESTRICTION FAIL（l1 变量不改，供 §4 管理台展示），继续建单。
       }
     }
 
@@ -654,6 +673,45 @@ export class WithdrawWorkflowService implements OnModuleInit {
         }
       }
       throw err;
+    }
+
+    // 波五 T4（创建即冻）：建单事务已提交——SILENT-restricted 客户的单现在立即
+    // 冻结（建单与冻结两步落库、审计各写各的，不追求同事务原子，spec §2.1）。
+    // 放在 emit(WITHDRAWAL_CREATED) 之前：让下面的异步监听器（handleWithdrawalCreated
+    // → assertCustomerComplianceOrFreeze）在读到这行时已经看见 FROZEN，走它自己的
+    // "status !== COMPLIANCE_PENDING → 跳过" 分支，不与本段抢跑二次冻结。
+    //
+    // 不复用 assertCustomerComplianceOrFreeze——那个方法的审计文案是"事后扫描发现
+    // 冻结"（in-flight withdrawal frozen at ${stage}），语义是"单建好之后才发现客户
+    // 被限制"；这里是"建单当时就知道要冻"，reason 需要不同措辞（spec §2.1 原文）。
+    if (fold) {
+      const frozenRow = await this.withdrawService.updateStatus(
+        created.id,
+        {
+          action: WithdrawTransactionAction.FREEZE,
+          reason: 'created by SILENT-restricted customer — folded at intake',
+        },
+        this.systemCtx,
+      );
+      // 审计调用独立 catch（与 assertCustomerComplianceOrFreeze 同款，2026-08-20
+      // 修订沿用）：审计失败不该让一笔已经成功建好+冻好的单在这里向上抛出、把
+      // HTTP 响应变成 500——状态跃迁已经落库成功，只以 logger.error 现身。
+      await this.withdrawAudit(created, {
+        action: 'WITHDRAW_FROZEN',
+        reason: 'created by SILENT-restricted customer — folded at intake',
+        fromStatus: created.status,
+        toStatus: frozenRow.status,
+      }).catch((err) => {
+        this.logger.error(
+          `Failed to write WITHDRAW_FROZEN audit for ${created.withdrawNo} (create-time fold): ${
+            err instanceof Error ? err.message : String(err)
+          }`,
+        );
+      });
+      // 返回体（下方 return）故意不回写 frozenRow——客户面收敛后 FROZEN 与建单
+      // 时刻的 COMPLIANCE_PENDING 是同一个值（toCustomerWithdrawStatus 白名单外
+      // 一律收敛成 COMPLIANCE_PENDING），`created.status` 本就是要吐给客户的那个
+      // 收敛值，不需要再映射一次。
     }
 
     this.eventEmitter.emit(DomainEventNames.WITHDRAWAL_CREATED, {

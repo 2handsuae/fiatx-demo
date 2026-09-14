@@ -39,7 +39,10 @@ export class WithdrawQuoteCustomerController {
     }
 
     if (ownerType === 'CUSTOMER') {
-      await this.customerAccess.assertTradingEligibility(ownerId, 'WITHDRAW');
+      // 波五 T4：SILENT 便签放行报价（本端点只出价不建单，折叠+冻结语义在建单
+      // 端点 CustomerWithdrawController#create → WithdrawWorkflowService
+      // #createWithdrawal 内落地）；DISCLOSED 客户仍在这里中性拒绝。
+      await this.customerAccess.assertTradingIntake(ownerId, 'WITHDRAW');
     }
 
     // Resolve owner number inline (no PricingCenterService dependency)

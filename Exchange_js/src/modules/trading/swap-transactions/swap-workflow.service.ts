@@ -210,7 +210,12 @@ export class SwapWorkflowService {
   async initiateSwap(ownerId: string, quoteId: string) {
     // ── L1 Eligibility gate (synchronous) ──
     const customer = await this.prisma.customerMain.findUnique({ where: { id: ownerId } });
-    await this.customerAccessService.assertTradingEligibility(ownerId, 'SWAP');
+    // 波五 T4（创建即冻）：改用 assertTradingIntake——DISCLOSED 客户仍在这里被中性
+    // 拒绝（响应体与旧 assertTradingEligibility 逐字一致）；SILENT-only（制裁）客户
+    // 改为放行并回 fold=true，订单照常建、建完立即冻（见下方"建单后冻结段"）——
+    // 拒单本身就是向客户泄露"你被盯上了"。
+    const intake = await this.customerAccessService.assertTradingIntake(ownerId, 'SWAP');
+    const fold = intake.fold;
 
     // ── L1 Transaction Limit gate (A + B) — evaluate BEFORE quote consumption ──
     // Peek the quote OUTSIDE the transaction only to get the from-asset + amount
@@ -235,12 +240,15 @@ export class SwapWorkflowService {
     // ── L1 闸门收口（第四批）── 与提现侧同口径：**上面已经快速失败过一轮**，
     // 这里重跑一次是为了拿到逐项**可回显的快照**（上面抛的是中性错误，拿不到明细）。
     //
-    // ⚠️ 订正（B2 审查）：兑换域并非「此前完全没查资格/限制」—— :210 的
-    // assertTradingEligibility(ownerId,'SWAP') 内部就是 assertCapability(资格+限制)，
+    // ⚠️ 订正（B2 审查）：兑换域并非「此前完全没查资格/限制」—— 上面的
+    // assertTradingIntake(ownerId,'SWAP') 内部就是 intakeDecision(资格+限制)，
     // 且对非 DEPOSIT 还多跑一层 assertTradingReady，**严格强于** L1 这两项判定；
-    // 该调用自 04433cdd(2026-05-31) 起就在，B2 之前便签摁住 SWAP 的客户拿到的是
-    // 403 CAPABILITY_RESTRICTED，从来不能兑换。故下面的 BLOCK 分支逻辑上不可达，
-    // 只在 :210 与本行之间的毫秒级竞态窗口（便签刚被开出来）才触发 —— 兜底保留。
+    // 对 DISCLOSED 客户，下面的 BLOCK 分支逻辑上不可达，只在上面与本行之间的
+    // 毫秒级竞态窗口（便签刚被开出来）才触发——兜底保留。
+    //
+    // ⚠️ 波五 T4 订正：**fold 客户是这条"不可达"结论的例外**——上面特意放行了
+    // SILENT-only 命中，这里的快照会如实再算出一次 CUSTOMER_RESTRICTION FAIL
+    // （BLOCK），不是竞态，是必然。下面 BLOCK 分支据此判断是否放行建单继续走。
     //
     // 快照口径（**逐格只写这一刻真判过的**，写不实的 PASS = 伪证据）：
     //  · SINGLE/CUMULATIVE_LIMIT、QUOTE_VALIDITY —— 限额闸已在上面按 quotePeek 跑过；
@@ -271,7 +279,7 @@ export class SwapWorkflowService {
     });
     preChecks.push({
       code: 'TRADING_READINESS', outcome: 'PASS',
-      detail: 'Trading-start preconditions satisfied (assertTradingReady passed before order creation)',
+      detail: 'Trading-start preconditions satisfied (assertTradingIntake passed before order creation)',
     });
 
     // ── 建单前余额校验（第四批补）──
@@ -329,39 +337,48 @@ export class SwapWorkflowService {
       preChecks,
     });
     if (l1.verdict === 'BLOCK') {
-      // 波二·法一：被拦下也留痕。单未建、无单号——主体是客户，兑换涉及的两侧资产当次主体。
       const failed = l1.checks.filter((c) => c.outcome === 'FAIL');
-      const actorNo = customer?.customerNo ?? ownerId;
-      const blockedAssets: Array<{ assetNo: string | null }> = swapAssetIds.length
-        ? await this.prisma.asset.findMany({ where: { id: { in: swapAssetIds } }, select: { assetNo: true } })
-        : [];
-      await this.auditLogsService.recordByActor(
-        {
-          action: 'SWAP_L1_BLOCKED',
-          actionDomain: 'SWAP',
-          category: AuditCategory.BUSINESS,
-          primarySubjectType: 'CUSTOMER',
-          primarySubjectNo: actorNo,
-          ownerCustomerNo: customer?.customerNo ?? undefined,
-          outcome: AuditOutcome.DENIED,
-          reasonCode: failed[0] ? l1ReasonCodeOf(failed[0].code) : 'L1_BLOCK',
-          reason: `L1 blocked swap: ${failed.map((c) => `${c.code} — ${c.detail}`).join('; ')}`,
-          subjects: [
-            ...(customer?.customerNo ? [{ subjectType: 'CUSTOMER', subjectNo: customer.customerNo, subjectRole: AuditSubjectRole.OWNER }] : []),
-            ...blockedAssets.filter((a) => a.assetNo).map((a) => ({ subjectType: AuditEntityTypes.ASSET, subjectNo: a.assetNo as string, subjectRole: AuditSubjectRole.RELATED })),
-          ],
-          metadata: { quoteId, assetIds: swapAssetIds, l1Snapshot: l1 },
-          requestId: `SWAP_L1_BLOCKED_${actorNo}_${randomUUID()}`,
-          sourcePlatform: 'CUSTOMER_API',
-        } as any,
-        { actorType: 'CUSTOMER', actorNo, actorDisplayName: actorNo, actorRolesAtTime: ['CUSTOMER'] },
-      );
-      throw new ForbiddenException({
-        code: 'L1_GATE_BLOCKED',
-        // 中性文案 —— 直接引用 CustomerAccessService 的那一份（禁止手抄副本：
-        // 拒绝理由有差异即可被指纹识别）。绝不透出 cause / visibility。
-        message: NEUTRAL_DENIAL,
-      });
+      // 波五 T4：fold 客户放行的唯一条件——CUSTOMER_RESTRICTION 是这一刻快照里
+      // **唯一**的 FAIL。还有别的 FAIL（资产停用等）与 tipping-off 无关，走原
+      // BLOCK 路——普通客户同款报错，不因 SILENT 而额外放行。
+      const isFoldOnlyRestriction =
+        fold && failed.length === 1 && failed[0].code === 'CUSTOMER_RESTRICTION';
+      if (!isFoldOnlyRestriction) {
+        // 波二·法一：被拦下也留痕。单未建、无单号——主体是客户，兑换涉及的两侧资产当次主体。
+        const actorNo = customer?.customerNo ?? ownerId;
+        const blockedAssets: Array<{ assetNo: string | null }> = swapAssetIds.length
+          ? await this.prisma.asset.findMany({ where: { id: { in: swapAssetIds } }, select: { assetNo: true } })
+          : [];
+        await this.auditLogsService.recordByActor(
+          {
+            action: 'SWAP_L1_BLOCKED',
+            actionDomain: 'SWAP',
+            category: AuditCategory.BUSINESS,
+            primarySubjectType: 'CUSTOMER',
+            primarySubjectNo: actorNo,
+            ownerCustomerNo: customer?.customerNo ?? undefined,
+            outcome: AuditOutcome.DENIED,
+            reasonCode: failed[0] ? l1ReasonCodeOf(failed[0].code) : 'L1_BLOCK',
+            reason: `L1 blocked swap: ${failed.map((c) => `${c.code} — ${c.detail}`).join('; ')}`,
+            subjects: [
+              ...(customer?.customerNo ? [{ subjectType: 'CUSTOMER', subjectNo: customer.customerNo, subjectRole: AuditSubjectRole.OWNER }] : []),
+              ...blockedAssets.filter((a) => a.assetNo).map((a) => ({ subjectType: AuditEntityTypes.ASSET, subjectNo: a.assetNo as string, subjectRole: AuditSubjectRole.RELATED })),
+            ],
+            metadata: { quoteId, assetIds: swapAssetIds, l1Snapshot: l1 },
+            requestId: `SWAP_L1_BLOCKED_${actorNo}_${randomUUID()}`,
+            sourcePlatform: 'CUSTOMER_API',
+          } as any,
+          { actorType: 'CUSTOMER', actorNo, actorDisplayName: actorNo, actorRolesAtTime: ['CUSTOMER'] },
+        );
+        throw new ForbiddenException({
+          code: 'L1_GATE_BLOCKED',
+          // 中性文案 —— 直接引用 CustomerAccessService 的那一份（禁止手抄副本：
+          // 拒绝理由有差异即可被指纹识别）。绝不透出 cause / visibility。
+          message: NEUTRAL_DENIAL,
+        });
+      }
+      // fold 路径：不写 SWAP_L1_BLOCKED（那是真 BLOCK 的留痕），L1 快照照记
+      // CUSTOMER_RESTRICTION FAIL（l1 变量不改，供 §4 管理台展示），继续建单。
     }
 
     const now = new Date();
@@ -518,6 +535,47 @@ export class SwapWorkflowService {
         } as any)
         .catch(() => undefined);
       throw error;
+    }
+
+    // 波五 T4（创建即冻）：建单事务已提交——SILENT-restricted 客户的单现在立即
+    // 冻结（建单与冻结两步落库、审计各写各的，不追求同事务原子，spec §2.1）。
+    // 放在 submitSumsubTxnOut 之前：被冻的单不该再送一轮白跑的 KYT 打分——Task 3
+    // 的 triggerUnfreezeRescore 早为"FROZEN 单从未提交过 Sumsub"留好退路
+    // （sumsubTxnIdOut 为空时 warn+return，解冻续审时不炸），解冻那一刻自然会
+    // 补上这一轮打分。冻结动作本身逐字镜像 onCustomerRestrictionOpened 的
+    // COMPLIANCE_PENDING+SANCTION 分支（:2197 附近）——押锁不放，不调
+    // releaseBirthLock。
+    if (fold) {
+      await this.prisma.$transaction(async (tx: any) => {
+        await this.swapTransactionsService.markStatus(
+          swap.id,
+          SwapTransactionAction.FREEZE,
+          tx,
+          { rejectReason: 'SANCTION_APPLICANT', operator: 'INTAKE_FOLD' },
+        );
+      });
+      // 审计调用独立 catch（与 onCustomerRestrictionOpened 同款，2026-08-20
+      // 修订沿用）：审计失败不该让一笔已经成功建好+冻好的单在这里向上抛出、把
+      // HTTP 响应变成 500——状态跃迁已经落库成功，只以 logger.error 现身。
+      await this.swapAudit(swap, {
+        action: 'SWAP_FROZEN',
+        reason: 'created by SILENT-restricted customer — folded at intake',
+        fromStatus: SwapTransactionStatus.COMPLIANCE_PENDING,
+        toStatus: SwapTransactionStatus.FROZEN,
+      }).catch((err) => {
+        this.logger.error(
+          `Failed to write SWAP_FROZEN audit for ${swap.swapNo} (create-time fold): ${
+            err instanceof Error ? err.message : String(err)
+          }`,
+        );
+      });
+      // 返回前重取视图：内存里的 `swap`（建单事务的落库结果）没有 fromAsset/
+      // toAsset 关系（create() 建单时未 include），toCustomerSwapView 拼资产
+      // 投影需要它们；findByIdInternal 带齐客户面需要的全部关系。status 收敛
+      // 不受影响——COMPLIANCE_PENDING 与 FROZEN 收敛后是同一个值，重取只为了
+      // 资产字段完整。
+      const frozenView = await this.swapTransactionsService.findByIdInternal(swap.id);
+      return this.swapTransactionsService.toCustomerSwapView(frozenView);
     }
 
     // Submit the sell leg to Sumsub KYT. The order stays COMPLIANCE_PENDING —

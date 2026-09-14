@@ -115,6 +115,13 @@ function buildMocks(quote: ReturnType<typeof baseQuote>) {
     // this allow-list. Pass-through mock — the allow-list's own field
     // selection is covered by swap-transactions.service.spec.ts, not here.
     toCustomerSwapView: jest.fn((item: any) => item),
+    // 波五 Task 4：创建即冻——fold 路径调用，非 fold 路径（既有全部用例）不触碰。
+    markStatus: jest.fn(() => Promise.resolve('FROZEN')),
+    findByIdInternal: jest.fn(() => Promise.resolve({
+      id: 'swap-1', swapNo: 'SWP0001', status: 'FROZEN', ownerNo: 'C0001',
+      fromAsset: { currency: quote.fromAssetCode, code: quote.fromAssetCode, network: null, decimals: 6 },
+      toAsset: { currency: quote.toAssetCode, code: quote.toAssetCode, network: null, decimals: 2 },
+    })),
   };
 
   const auditLogsService = {
@@ -129,8 +136,10 @@ function buildMocks(quote: ReturnType<typeof baseQuote>) {
 
   const eventEmitter = { emit: jest.fn() };
 
+  // 波五 Task 4：assertTradingEligibility → assertTradingIntake（fold=false 默认，
+  // 即既有全部用例照旧走"放行、不折叠"这条老路；fold=true 场景见专属 describe）。
   const onboardingService = {
-    assertTradingEligibility: jest.fn(() => Promise.resolve()),
+    assertTradingIntake: jest.fn(() => Promise.resolve({ fold: false })),
   };
 
   const walletQuery = {
@@ -241,9 +250,9 @@ function makeService(mocks: ReturnType<typeof buildMocks>) {
     {} as any, // customerRestrictionsService — not on this path (initiateSwap never rejects)
     {} as any, // pendingActionService — not on this path
     // customerAccessService — 顺手项①收编后唯一注入：合并原 customerAccess 的
-    // assertTradingEligibility（L1 eligibility gate）与原 customerAccessService
-    // 的 resolve/assertCapability，同一个 mock 满足两处调用点。
-    { ...mocks.onboardingService, resolve: jest.fn().mockResolvedValue({ lifecycle: 'ACTIVE', blocked: new Set(), disclosedBlocked: new Set(), disclosed: [], openCount: 0 }), assertCapability: jest.fn() } as any,
+    // assertTradingIntake（波五 T4：L1 eligibility gate + 创建即冻判定）与原
+    // customerAccessService 的 resolve，同一个 mock 满足两处调用点。
+    { ...mocks.onboardingService, resolve: jest.fn().mockResolvedValue({ lifecycle: 'ACTIVE', blocked: new Set(), disclosedBlocked: new Set(), disclosed: [], openCount: 0 }) } as any,
     {} as any, // materialRequests — not on this path
     {} as any, // materialRequestIssuer — not on this path
     mocks.l1Gate as any,
@@ -255,11 +264,13 @@ function makeService(mocks: ReturnType<typeof buildMocks>) {
 
 // B2（第四批）：把兑换的逐项 L1 判定落成可回显的快照。
 // ⚠️ 订正（B2 审查）：兑换域**并非**此前没有资格 / 限制判定 —— initiateSwap 起手
-// 的 assertTradingEligibility(:210) 内部就是 assertCapability(资格+限制)，且对非
-// DEPOSIT 还多跑一层 assertTradingReady，严格强于 L1 这两项；该调用自 04433cdd
-// (2026-05-31) 起就在。被便签摁住 SWAP 的客户拿到的一直是 403 CAPABILITY_RESTRICTED，
-// 从来兑换不了。下面 BLOCK 分支覆盖的是 :210 与 :249 之间的毫秒级竞态窗口（兜底），
-// 与提现侧完全同构。
+// 的 assertTradingIntake（波五 T4，原 assertTradingEligibility）内部就是
+// intakeDecision(资格+限制)，且对非 DEPOSIT 还多跑一层 assertTradingReady，
+// 严格强于 L1 这两项；该调用自 04433cdd(2026-05-31) 起就在（原名
+// assertTradingEligibility，波五 T4 换成 SILENT-aware 版本）。DISCLOSED 客户拿到
+// 的一直是 403 CAPABILITY_RESTRICTED，从来兑换不了。下面 BLOCK 分支覆盖的是
+// 毫秒级竞态窗口（兜底），与提现侧完全同构——**fold（SILENT-only）客户是例外**，
+// 见本文件"波五 Task 4"专属 describe。
 describe('B2 · 兑换 L1 资格闸', () => {
   it('L1 verdict=BLOCK 时不建单、不消费报价', async () => {
     const mocks = buildMocks(makeQuote());
@@ -546,7 +557,7 @@ describe('SwapWorkflowService.initiateSwap — COMPLIANCE_PENDING, no legs', () 
 
     await service.initiateSwap('cust-1', 'q-1');
 
-    expect(mocks.onboardingService.assertTradingEligibility).toHaveBeenCalledWith('cust-1', 'SWAP');
+    expect(mocks.onboardingService.assertTradingIntake).toHaveBeenCalledWith('cust-1', 'SWAP');
     expect(mocks.swapQuoteService.consumeQuote).toHaveBeenCalledTimes(1);
 
     const createdAudit = (mocks.auditLogsService.recordByActor as jest.Mock).mock.calls
@@ -673,6 +684,97 @@ describe('SwapWorkflowService.initiateSwap — COMPLIANCE_PENDING, no legs', () 
     expect(failAudit.traceId).toBe(TRACE);
 
     expect(mocks.eventEmitter.emit).not.toHaveBeenCalled();
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+// 波五 Task 4：创建即冻（兑换）——SILENT 客户放行报价+建单，建完立即冻；
+// DISCLOSED 客户维持中性拒绝；fold 放行仅当 CUSTOMER_RESTRICTION 是唯一 FAIL。
+// ═══════════════════════════════════════════════════════════════════════
+describe('SwapWorkflowService.initiateSwap — 波五 Task 4：创建即冻', () => {
+  it('① SILENT 客户建单成功、建单后立即冻结（域内 SWAP_FROZEN 审计，不调 releaseBirthLock）、响应回收敛值 COMPLIANCE_PENDING', async () => {
+    const mocks = buildMocks(makeQuote());
+    (mocks.onboardingService.assertTradingIntake as jest.Mock).mockResolvedValue({ fold: true });
+    const service = makeService(mocks);
+    const releaseBirthLockSpy = jest.spyOn(service, 'releaseBirthLock');
+
+    const result = await service.initiateSwap('cust-1', 'q-1');
+
+    // 建单照常成功
+    expect(mocks.swapTransactionsService.create).toHaveBeenCalledTimes(1);
+
+    // 建单后立即冻结：markStatus(FREEZE) 被调
+    expect(mocks.swapTransactionsService.markStatus).toHaveBeenCalledWith(
+      'swap-1',
+      SwapTransactionAction.FREEZE,
+      expect.anything(),
+      expect.objectContaining({ rejectReason: 'SANCTION_APPLICANT' }),
+    );
+
+    // 押锁不放（Task 2 翻案）—— fold 冻结不调 releaseBirthLock
+    expect(releaseBirthLockSpy).not.toHaveBeenCalled();
+
+    // 审计两条：建单族 SWAP_CREATED（recordByActor）+ SWAP_FROZEN（recordSystem），
+    // reason 是 spec §2.1 原文
+    const byActorActions = mocks.auditLogsService.recordByActor.mock.calls.map((c: any[]) => c[0].action);
+    const systemActions = mocks.auditLogsService.recordSystem.mock.calls
+      .map((c: any[]) => c[0])
+      .filter(Boolean);
+    expect(byActorActions).toContain('SWAP_CREATED');
+    const frozenAudit = systemActions.find((a: any) => a.action === 'SWAP_FROZEN');
+    expect(frozenAudit).toBeDefined();
+    expect(frozenAudit.reason).toBe('created by SILENT-restricted customer — folded at intake');
+    // fold 路径不写 SWAP_L1_BLOCKED（那是真 BLOCK 的留痕）
+    expect(byActorActions).not.toContain('SWAP_L1_BLOCKED');
+
+    // 建单未提交到 Sumsub KYT（被冻的单不该再送一轮白跑的打分——解冻续审时补）
+    expect(mocks.sumsubTxnClient.submitTxn).not.toHaveBeenCalled();
+
+    // 返回前重取视图（findByIdInternal），response 回收敛值
+    expect(mocks.swapTransactionsService.findByIdInternal).toHaveBeenCalledWith('swap-1');
+    expect(result.status).toBe('FROZEN'); // toCustomerSwapView mock 是 pass-through，真实收敛由 swap-transactions.service.spec.ts 覆盖
+  });
+
+  it('② DISCLOSED 客户建单仍抛中性拒绝，不建单', async () => {
+    const mocks = buildMocks(makeQuote());
+    (mocks.onboardingService.assertTradingIntake as jest.Mock).mockRejectedValue(
+      new (require('@nestjs/common').ForbiddenException)({
+        code: 'CAPABILITY_RESTRICTED',
+        message: 'This operation is not available for your account at the moment.',
+      }),
+    );
+    const service = makeService(mocks);
+
+    const err: any = await service.initiateSwap('cust-1', 'q-1').catch((e) => e);
+    const body = err?.getResponse ? err.getResponse() : err;
+
+    expect(body.code).toBe('CAPABILITY_RESTRICTED');
+    expect(body.message).toBe('This operation is not available for your account at the moment.');
+    expect(mocks.swapTransactionsService.create).not.toHaveBeenCalled();
+  });
+
+  it('③ SILENT 客户但资产同时 SUSPENDED（非唯一 FAIL）→ 仍走原 BLOCK 路，不放行、不建单', async () => {
+    const mocks = buildMocks(makeQuote());
+    (mocks.onboardingService.assertTradingIntake as jest.Mock).mockResolvedValue({ fold: true });
+    mocks.l1Gate.evaluate.mockResolvedValue({
+      evaluatedAt: '2026-09-14T00:00:00.000Z',
+      domain: 'SWAP', verdict: 'BLOCK', holdReason: null, tradingTier: 'BASIC',
+      checks: [
+        { code: 'CUSTOMER_RESTRICTION', outcome: 'FAIL', detail: 'blocked' },
+        { code: 'ASSET_AVAILABILITY', outcome: 'FAIL', detail: 'SUSPENDED' },
+      ],
+    });
+    const service = makeService(mocks);
+
+    const err: any = await service.initiateSwap('cust-1', 'q-1').catch((e) => e);
+    const body = err?.getResponse ? err.getResponse() : err;
+
+    expect(body.code).toBe('L1_GATE_BLOCKED');
+    expect(mocks.auditLogsService.recordByActor).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'SWAP_L1_BLOCKED' }),
+      expect.anything(),
+    );
+    expect(mocks.swapTransactionsService.create).not.toHaveBeenCalled();
   });
 });
 

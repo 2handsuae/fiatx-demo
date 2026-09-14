@@ -43,7 +43,9 @@ export class CustomerWithdrawController {
   @ApiOperation({ summary: 'Create a withdrawal request (customer)' })
   async create(@Req() req: any, @Body() dto: CreateWithdrawTransactionDto) {
     const userId = this.assertCustomer(req);
-    await this.customerAccess.assertTradingEligibility(userId, 'WITHDRAW');
+    // 波五 T4：SILENT 便签放行建单——真正的折叠+冻结在 workflow.createWithdrawal
+    // 内落地（纵深闸，本调用只挡 DISCLOSED 客户）。
+    await this.customerAccess.assertTradingIntake(userId, 'WITHDRAW');
     return this.workflow.createWithdrawal(dto, userId);
   }
 

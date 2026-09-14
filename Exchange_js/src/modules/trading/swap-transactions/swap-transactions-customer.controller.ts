@@ -43,7 +43,9 @@ export class SwapTransactionsCustomerController {
   @Post('quotes')
   @ApiOperation({ summary: 'Create a firm quote for customer swap' })
   async createQuote(@Request() req: any, @Body() dto: CreateSwapQuoteDto) {
-    await this.customerAccess.assertTradingEligibility(req.user.userId, 'SWAP');
+    // 波五 T4：SILENT 便签放行报价（本端点只出价不建单，折叠+冻结语义在
+    // SwapWorkflowService#initiateSwap 内落地）；DISCLOSED 客户仍在这里中性拒绝。
+    await this.customerAccess.assertTradingIntake(req.user.userId, 'SWAP');
     const fromAmount = new Prisma.Decimal(dto.fromAmount);
     if (fromAmount.lte(0)) {
       throw new BadRequestException('fromAmount must be greater than 0');

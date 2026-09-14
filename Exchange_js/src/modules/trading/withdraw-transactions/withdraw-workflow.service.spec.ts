@@ -3387,7 +3387,7 @@ describe('波二 · L1 BLOCK 留痕（提现）', () => {
       {} as any, // limitRulesService
       {} as any, // sumsubTxnClient
       {} as any, // applicantActions
-      { assertCapability: jest.fn(), resolve: jest.fn().mockResolvedValue({ lifecycle: 'ACTIVE', blocked: new Set(), disclosedBlocked: new Set(), disclosed: [], openCount: 0 }) } as any, // customerAccessService
+      { assertTradingIntake: jest.fn().mockResolvedValue({ fold: false }), resolve: jest.fn().mockResolvedValue({ lifecycle: 'ACTIVE', blocked: new Set(), disclosedBlocked: new Set(), disclosed: [], openCount: 0 }) } as any, // customerAccessService
       { open: jest.fn().mockResolvedValue({ restrictionNo: 'CR-TEST', created: true }) } as any, // customerRestrictionsService
       l1Gate as any,
       {} as any, // supplementEvidence
@@ -3416,5 +3416,182 @@ describe('波二 · L1 BLOCK 留痕（提现）', () => {
       expect.objectContaining({ actorType: 'CUSTOMER' }),
     );
     expect(l1Gate.evaluate).toHaveBeenCalledWith(expect.objectContaining({ assetIds: ['a-usdt'] }));
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+// 波五 Task 4：创建即冻（提现）——SILENT 客户放行报价+建单，建完立即冻；
+// DISCLOSED 客户维持中性拒绝；fold 放行仅当 CUSTOMER_RESTRICTION 是唯一 FAIL。
+// ═══════════════════════════════════════════════════════════════════════
+describe('WithdrawWorkflowService.createWithdrawal — 波五 Task 4：创建即冻', () => {
+  const asset = { id: 'asset-usdt', assetNo: 'AS0001', currency: 'USDT', decimals: 6, type: 'CRYPTO', network: 'TRON' };
+  const quote = {
+    id: 'q-1', ownerType: 'CUSTOMER', ownerId: 'cust-1', assetId: 'asset-usdt',
+    amount: new Prisma.Decimal('10'), status: 'ACTIVE',
+    expiresAt: new Date(Date.now() + 60_000), totalsJson: JSON.stringify({ USDT: '0.5' }),
+  };
+  const createdRecord = {
+    id: 'wd-new', withdrawNo: 'WDR0001', ownerId: 'cust-1', ownerNo: 'C0001', ownerType: 'CUSTOMER',
+    status: 'COMPLIANCE_PENDING', assetId: 'asset-usdt', traceId: 'trace-1', correlationId: 'corr-1',
+    fromWalletId: null,
+  };
+
+  function buildFoldMocks(opts: { intake: 'ALLOW' | 'FOLD' | 'DENY'; l1Checks?: Array<{ code: string; outcome: string; detail: string }> }) {
+    const auditLogsService = {
+      recordByActor: jest.fn(() => Promise.resolve()),
+      recordSystem: jest.fn(() => Promise.resolve()),
+    };
+    const accountingService = {
+      resolveTbAccountId: jest.fn(() => Promise.resolve(1n)),
+      executePendingTransfer: jest.fn(() => Promise.resolve({ tbTransferId: 1n })),
+      voidPendingTransferBestEffort: jest.fn(() => Promise.resolve()),
+    };
+    const withdrawQuoteService = {
+      getActiveQuoteOrThrow: jest.fn(() => Promise.resolve(quote)),
+      consumeQuote: jest.fn(() => Promise.resolve({})),
+    };
+    const withdrawService = {
+      insertRecord: jest.fn((_tx: any, data: Record<string, any>) => Promise.resolve({ ...createdRecord, ...data })),
+      setPendingIds: jest.fn(() => Promise.resolve({})),
+      updateStatus: jest.fn(() => Promise.resolve({ ...createdRecord, status: 'FROZEN' })),
+    };
+    const eventEmitter = { emit: jest.fn() };
+    const customerAccessService = {
+      assertTradingIntake: jest.fn(() => {
+        if (opts.intake === 'DENY') {
+          const { ForbiddenException } = require('@nestjs/common');
+          return Promise.reject(new ForbiddenException({
+            code: 'CAPABILITY_RESTRICTED',
+            message: 'This operation is not available for your account at the moment.',
+          }));
+        }
+        return Promise.resolve({ fold: opts.intake === 'FOLD' });
+      }),
+    };
+    const checks = opts.l1Checks ?? [];
+    const l1Gate = {
+      evaluate: jest.fn(() => Promise.resolve({
+        evaluatedAt: '2026-09-14T00:00:00.000Z',
+        domain: 'WITHDRAW',
+        verdict: checks.some((c) => c.outcome === 'FAIL') ? 'BLOCK' : 'PASS',
+        holdReason: null,
+        tradingTier: 'BASIC',
+        checks,
+      })),
+    };
+    const limitGateService = {
+      evaluate: jest.fn(() => Promise.resolve({ grossAedValue: null, aedRate: null, rateFetchedAt: null, rateFetchFailed: false })),
+    };
+    const prisma: any = {
+      asset: { findUnique: jest.fn(() => Promise.resolve(asset)) },
+      customerMain: { findUnique: jest.fn(() => Promise.resolve({ customerNo: 'C0001' })) },
+      withdrawalAddress: { findFirst: jest.fn(() => Promise.resolve({ addressType: 'SELF_CUSTODY' })) },
+      $transaction: jest.fn((cb: any) => cb({ asset: { findUnique: jest.fn(() => Promise.resolve(asset)) } })),
+    };
+
+    return { auditLogsService, accountingService, withdrawQuoteService, withdrawService, eventEmitter, customerAccessService, l1Gate, limitGateService, prisma };
+  }
+
+  function makeService(mocks: ReturnType<typeof buildFoldMocks>) {
+    return new WithdrawWorkflowService(
+      mocks.prisma,
+      mocks.eventEmitter as any,
+      mocks.withdrawService as any,
+      mocks.withdrawQuoteService as any,
+      mocks.auditLogsService as any,
+      mocks.accountingService as any,
+      {} as any, // fundsOrders
+      {} as any, // approvalsService
+      {} as any, // binanceRateProvider
+      {} as any, // systemWalletResolver
+      {} as any, // tbEvidenceService
+      mocks.limitGateService as any,
+      {} as any, // limitRulesService
+      {} as any, // sumsubTxnClient
+      {} as any, // applicantActions
+      mocks.customerAccessService as any,
+      {} as any, // customerRestrictionsService
+      mocks.l1Gate as any,
+      {} as any, // supplementEvidence
+      {} as any, // reconDisposition
+    );
+  }
+
+  const dto = { assetId: 'asset-usdt', amount: 10, toAddress: 'TXYZ', quoteId: 'q-1' } as any;
+
+  it('① SILENT 客户建单成功、建单后立即冻结（域内 WITHDRAW_FROZEN 审计）、响应回收敛值 COMPLIANCE_PENDING', async () => {
+    const mocks = buildFoldMocks({ intake: 'FOLD' });
+    const service = makeService(mocks);
+
+    const result = await service.createWithdrawal(dto, 'cust-1', 'CUSTOMER');
+
+    // 建单照常成功（insertRecord 被调）
+    expect(mocks.withdrawService.insertRecord).toHaveBeenCalledTimes(1);
+
+    // 建单后立即冻结，reason 是 spec §2.1 原文
+    expect(mocks.withdrawService.updateStatus).toHaveBeenCalledWith(
+      'wd-new',
+      expect.objectContaining({
+        action: WithdrawTransactionAction.FREEZE,
+        reason: 'created by SILENT-restricted customer — folded at intake',
+      }),
+      expect.anything(),
+    );
+
+    // 审计两条：建单族 WITHDRAW_CREATED（recordByActor）+ WITHDRAW_FROZEN（recordSystem）
+    const byActorActions = mocks.auditLogsService.recordByActor.mock.calls.map((c: any[]) => c[0].action);
+    const systemActions = mocks.auditLogsService.recordSystem.mock.calls.map((c: any[]) => c[0]?.action);
+    expect(byActorActions).toContain('WITHDRAW_CREATED');
+    expect(systemActions).toContain('WITHDRAW_FROZEN');
+    // fold 路径不写 WITHDRAW_L1_BLOCKED（那是真 BLOCK 的留痕）
+    expect(byActorActions).not.toContain('WITHDRAW_L1_BLOCKED');
+
+    // 响应回收敛值（客户面 FROZEN→COMPLIANCE_PENDING），不是原始内部态
+    expect(result.status).toBe('COMPLIANCE_PENDING');
+  });
+
+  it('② DISCLOSED 客户建单仍抛中性拒绝（CAPABILITY_RESTRICTED），不建单', async () => {
+    const mocks = buildFoldMocks({ intake: 'DENY' });
+    const service = makeService(mocks);
+
+    const err: any = await service.createWithdrawal(dto, 'cust-1', 'CUSTOMER').catch((e) => e);
+    const body = err?.getResponse ? err.getResponse() : err;
+
+    expect(body.code).toBe('CAPABILITY_RESTRICTED');
+    expect(body.message).toBe('This operation is not available for your account at the moment.');
+    expect(mocks.withdrawService.insertRecord).not.toHaveBeenCalled();
+  });
+
+  it('③ SILENT 客户但资产同时 SUSPENDED（非唯一 FAIL）→ 仍走原 BLOCK 路，不放行、不建单', async () => {
+    const mocks = buildFoldMocks({
+      intake: 'FOLD',
+      l1Checks: [
+        { code: 'CUSTOMER_RESTRICTION', outcome: 'FAIL', detail: 'blocked' },
+        { code: 'ASSET_AVAILABILITY', outcome: 'FAIL', detail: 'SUSPENDED' },
+      ],
+    });
+    const service = makeService(mocks);
+
+    const err: any = await service.createWithdrawal(dto, 'cust-1', 'CUSTOMER').catch((e) => e);
+    const body = err?.getResponse ? err.getResponse() : err;
+
+    expect(body.code).toBe('L1_GATE_BLOCKED');
+    expect(mocks.auditLogsService.recordByActor).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'WITHDRAW_L1_BLOCKED' }),
+      expect.anything(),
+    );
+    expect(mocks.withdrawService.insertRecord).not.toHaveBeenCalled();
+  });
+
+  it('④ TB pending 两笔（net+fee）照压，fold 冻结不触发 voidPendingTransferBestEffort（不放锁）', async () => {
+    const mocks = buildFoldMocks({ intake: 'FOLD' });
+    const service = makeService(mocks);
+
+    await service.createWithdrawal(dto, 'cust-1', 'CUSTOMER');
+
+    // net + fee 两笔 pending 锁都压了（quote 的 totalsJson 给了 USDT fee=0.5 > 0）
+    expect(mocks.accountingService.executePendingTransfer).toHaveBeenCalledTimes(2);
+    // fold 冻结不放锁——releaseLock/voidPendingTransferBestEffort 全程未被调用
+    expect(mocks.accountingService.voidPendingTransferBestEffort).not.toHaveBeenCalled();
   });
 });
