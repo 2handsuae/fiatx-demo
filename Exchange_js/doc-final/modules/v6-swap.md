@@ -1,6 +1,6 @@
 # V6 · 兑换（钱怎么换）
 
-> 对应 PRD：待写 ｜ 技术节点 Last Verified：2026-09-13（波四共享抽离：`FAILED`/`REVERSED` 死枚举清除、fee-level 双树合一，行为零变化）
+> 对应 PRD：待写 ｜ 技术节点 Last Verified：2026-09-14（波五：FROZEN 终态→中间态 + 新单创建即冻 + 硬/软线便签退役，见 §2/§3/§6 与 `decisions.md` 2026-09-14 条）
 > 演示幕次：第四幕「钱换」 ｜ 验收：第四幕走查（`demo/script.md`）+ 本篇 §4
 
 ## 0. 一句话定位
@@ -15,25 +15,28 @@
 
 **四道门都在建单前。** 资格门（客户能力没被摁住）→ 限额门（单笔 + 周期累计，AED 口径）→ 余额门（卖出侧够不够——这道是后补的：早先要等合规通过、建腿时才发现钱不够，单子会永久卡死在中途）→ 双边收款账户门（买卖两侧都得有收款账户，缺哪侧提示先去开）。四道全过才建单、才耗报价。
 
-**裁决三分支。** 通过 → 四腿记账 → 成功；拒绝 → 终态，顺带按处置标签给**客户**开便签（限制的是人，不是单）；**客户本人命中制裁 / MLRO 手工冻结**（合规官在 Sumsub 台上手工判定，不依赖自动命中）→ 冻结（零出边终态）——注意判据只认"申请人命中"：兑换是平台内交换，没有真正的对手方，对手方命中不冻单。
+**裁决三分支。** 通过 → 四腿记账 → 成功；拒绝 → 终态（**2026-09-14 裁定收窄**：只有客户本人命中制裁才顺带给**客户**开便签，限制的是人不是单；MLRO 手工冻结与普通拒绝均**不再**开人级便签，见下）；**客户本人命中制裁 / MLRO 手工冻结**（合规官在 Sumsub 台上手工判定，不依赖自动命中，判定为"调查扣审"而非制裁）→ 冻结（**中间态**，押锁不放，两条出边见 §2）——注意判据只认"申请人命中"：兑换是平台内交换，没有真正的对手方，对手方命中不冻单。
 
-**冻结对客户必须零痕迹。** 客户端把冻结显示成一次普通的"未成功"，与 KYT 拒绝的响应**逐字相同**；连筛选器都按"客户看到的值"展开查询——客户拿 `?status=FROZEN` 探测不到自己被冻（tipping-off 三层防线）。
+**冻结对客户必须零痕迹。** 客户端把冻结显示成"Processing"（2026-09-14 翻案：此前收敛成与 KYT 拒绝逐字相同的"未成功"；FROZEN 改判押锁不放的中间态后，钱还押着、结局未定，"处理中"才是诚实的说法，也与充值/提现"状态跟钱走"的口径对齐）；连筛选器都按"客户看到的值"展开查询——客户拿 `?status=FROZEN` 探测不到自己被冻（tipping-off 三层防线）。
 
 **超时不迁怒客户。** 兑换只有一格 SLA：等裁决 5 分钟。超时单转"未成功"，但**不做客户处置**——超时说明 Sumsub 没回话，不说明客户可疑；把平台的技术问题算到客户头上是被明令禁止的。
 
 **卡住是旗不是状态。** 记账腿失败自动重试，耗尽后单子留在"处理中"+ 红旗（needsReview）等运营 resume；兑换刻意没有"失败"终态。
 
-## 2. 状态机（5 态 / 5 动作 / 5 边）
+## 2. 状态机（5 态 / 7 动作 / 7 边）
 
 ```
-COMPLIANCE_PENDING（出生态，零记账）
+COMPLIANCE_PENDING（出生态，零记账；SILENT-only 客户新单也从这里出生，见 §1「创建即冻」）
   ├─ 裁决通过 ──→ PROCESSING ──四腿全清──→ SUCCESS
   │                └─ 腿失败 → 自愈重试 → 耗尽 = 红旗留 PROCESSING（人工 resume）
   ├─ 裁决拒绝 / SLA 超时 ──→ REJECTED（终态，零记账）
-  └─ 客户本人命中制裁 / MLRO 手工冻结 ──→ FROZEN（终态，零出边，零记账）
+  └─ 客户本人命中制裁 / MLRO 手工冻结 / 创建即冻 ──→ FROZEN（中间态，押锁不放，2026-09-14 翻案）
+       ├─ 解冻审批通过 RESUME ──→ COMPLIANCE_PENDING（清 rejectReason，重新过一轮 KYT 裁决）
+       └─ 拒退审批通过 REJECT_REFUND ──→ REJECTED（出生锁放锁回可用余额）
 ```
 
 - `PROCESSING` **刻意没有冻结入边**：钱已经在动，中途冻结会造半截账。冻人广播碰到在途单只落旗与审计，不打断结算
+- **FROZEN 不再是零出边终态**（2026-09-14 裁定翻案，覆盖 2026-08-20「兑换加 FROZEN 零出边终态」）：押锁不放，两条出边——`RESUME` 解冻续审（合规官提、**MLRO 单步批**，48h）回 `COMPLIANCE_PENDING`；`REJECT_REFUND` 拒退（运营提、**MLRO 单步批**，48h）落 `REJECTED`、放锁回余额。翻案依据见 `decisions.md` 2026-09-14 条（新事实=「创建即冻」落地后终态放钱的前提不复存在 + 行业锚：调查扣审天然限时、有两种结局）
 - 迟到的裁决（单已进 PROCESSING 才收到）**不驱动状态机**，只留证据与红旗——但拒绝类照样跑客户处置
 - `FAILED` / `REVERSED` 两个不可达死枚举值已随波四共享抽离清除（2026-09-13，实扫零写入点、零入边）：后端 4 处读面（本域终态集与迁移表空行、swap-workflow 终态集、`transaction-limit-gate` 排除集）+ admin-web 2 处（`swapStatusMap.ts` 映射条目 + Exception 筛选组两项）+ client-web 1 处（`Swap.tsx` 终态集）一并摘除；管理台兑换筛选 Exception 组自此少两个永远筛不到的选项
 
@@ -42,9 +45,11 @@ COMPLIANCE_PENDING（出生态，零记账）
 | 动作 | 谁发起 | 谁裁决 | 要点 |
 |---|---|---|---|
 | KYT 裁决 | Sumsub（演示=⚡按钮） | 合规规则 / 合规官 | 唯一的门；兑换没有人工复核态、没有审批门——三域里最自动化的一条 |
-| 拒绝后的客户处置 | 系统自动 | 按处置标签开客户便签 | 限制的是人（V2 限制账），单只是证据 |
-| SLA 超时 | 系统扫描 | 无人裁决 | 只关单，不动客户 |
-| 卡单恢复 resume | 运营 | 直接执行 | 对红旗单重推腿；2026-09-12 起冻人期间调用直接 400（`SWAP_CUSTOMER_RESTRICTED`）——原地冻定案，命令行路与界面同一道闸 |
+| 拒绝后的客户处置 | 系统自动 | 按处置标签开客户便签 | **2026-09-14 裁定收窄**：只有客户本人命中制裁（⑦）才开便签（`SANCTION`）；⑨ MLRO freeze 改判"调查扣审"——落 FROZEN 但不再开人级便签（三域冻单不冻人）；⑪ no tag 普通拒绝只动单（不开便签），硬/软线便签退役，详见 `decisions.md` 2026-09-14 条 4 |
+| FROZEN 解冻（RESUME） | 合规官（`SWAP_UNFREEZE_WRITE`） | **MLRO 单步批（48h）** | 批准后回 `COMPLIANCE_PENDING`、清 `rejectReason`、重新过一轮 KYT 裁决（同构提现 `resume` 后 rescore） |
+| FROZEN 拒退（REJECT_REFUND） | 运营（`SWAP_REFUND_WRITE`） | **MLRO 单步批（48h）** | 批准后落 `REJECTED`，出生锁放锁回可用余额 |
+| SLA 超时 | 系统扫描 | 无人裁决 | 只关单，不动客户；FROZEN 不计时（对齐充提两域 FROZEN 现状口径） |
+| 卡单恢复 resume | 运营 | 直接执行 | 对红旗单重推腿；2026-09-12 起冻人期间调用直接 400（`SWAP_CUSTOMER_RESTRICTED`）——原地冻定案，命令行路与界面同一道闸（与「FROZEN 解冻 RESUME」是两件事：一个是单据卡在结算中途的腿推进，一个是被冻单据走出 FROZEN） |
 | 模拟超时 | 管理员按钮 | — | 演示加速用 |
 
 ## 4. 演示脚本（第四幕 · 钱换）
@@ -53,15 +58,18 @@ COMPLIANCE_PENDING（出生态，零记账）
 2. 管理台看单：`COMPLIANCE_PENDING`，**账本上卖出侧已画圈锁定全额**（出生锁：下单即锁，与提现同律；可用余额当场减少——再想拿同一笔钱发提现会被挡）
 3. ⚡喂"通过" → 看四条腿依次清算 → SUCCESS → 账本页看四腿分录、客户两侧余额变
 4. 再来一笔，⚡喂"拒绝" → REJECTED，**出生圈擦除、金额退回可用余额**（账本留圈+擦圈两笔痕，净额归零）；客户端显示"未成功"
-5. 再来一笔，⚡喂"制裁命中（申请人）" → 管理台红色 FROZEN + 客户被冻（V2 便签）；**出生圈同样擦除退回**（业主裁定：终态不押钱，押人靠限制账——客户整个人被冻，钱不用再押在单上）；**切客户端：显示与第 4 步逐字相同的"未成功"**——第二幕 tipping-off 的交易域版本
-6. 缺收款账户预检：用没有买入侧账户的客户试兑换 → 提交被禁 + 引导去开户
+5. 再来一笔，⚡喂"制裁命中（申请人）" → 管理台红色 FROZEN + 客户被冻（V2 便签）；**出生圈押着不擦**（2026-09-14 翻案：FROZEN 从零出边终态改成押锁不放的中间态——钱还押着、结局未定，"没收/退回哪种都不做"的原判不再适用）；**切客户端：显示与第 2/3 步一致的 PROCESSING**——不再是"未成功"，钱押着就显示处理中，与充值/提现"状态跟钱走"的口径对齐；第二幕 tipping-off 的交易域版本
+6. FROZEN 两出口各演一笔：**解冻**（合规官发起 → 换 MLRO 账号批准 → 单回炉 `COMPLIANCE_PENDING`，重新过一轮 KYT 裁决）；**拒退**（运营发起 → 换 MLRO 账号批准 → 出生圈擦除、金额退回可用余额、单落 `REJECTED`）——两条弧的开案人碰不到钱，与充值/提现冻结处置同律
+7. 缺收款账户预检：用没有买入侧账户的客户试兑换 → 提交被禁 + 引导去开户
+8. 制裁客户（SILENT 便签）试兑换：报价与建单均放行 → 建单入库后立即转 FROZEN（不再是中性 403 拦截）；客户端全程只见 PROCESSING，横幅不亮——「新单创建即冻」，见 `decisions.md` 2026-09-14 条 1
 
 ## 5. 关键技术节点（≤30 行）
 
-- 工作流 `trading/swap-transactions/swap-workflow.service.ts`：`initiateSwap()`（四道门 → 耗报价 → 建单**同事务画出生圈**（腿1/attempt1 预占卖出全额）→ 同步铸 Sumsub 出账交易号；旅程号 correlationId 在此铸造全链继承）｜`swapAudit()`（域信封助手：PRIMARY=兑换单号/OWNER=客户号/RELATED=资金单号，22 码（=V6_SWAP_AUDIT_ACTIONS 名册键数）见 audit-actions.constant.ts V6 段）｜`releaseBirthLock()`（擦圈四出口：KYT 拒绝/制裁冻单/批量冻单/SLA 破线拒单）｜ `applyKytVerdict()`（三分支落地；顶部终态守卫，兑换**没有** decideVerdictLanding，勿照抄充值写法）｜ `handleRejectDisposition()`（拒绝→客户便签）
-- 状态机 `swap-transactions.service.ts → transitions`（5 边穷举）；四个 FROZEN 判据常量**答案刻意不同**：终态集合不含 FROZEN（防撕材料卡片=tipping-off）、冻结扫描排除含 FROZEN（不重复冻）、客户面白名单不含 FROZEN（收敛成 REJECTED）——同一问题四处四答，是本域最易做错处
+- 工作流 `trading/swap-transactions/swap-workflow.service.ts`：`initiateSwap()`（四道门 → `assertTradingIntake` 判 SILENT-only 放行/DISCLOSED 中性拒绝 → 耗报价 → 建单**同事务画出生圈**（腿1/attempt1 预占卖出全额）→ SILENT-only 客户建单后立即转 FROZEN（创建即冻，跳过提交 Sumsub）→ 否则同步铸 Sumsub 出账交易号；旅程号 correlationId 在此铸造全链继承）｜`swapAudit()`（域信封助手：PRIMARY=兑换单号/OWNER=客户号/RELATED=资金单号，26 码（=V6_SWAP_AUDIT_ACTIONS 名册键数，波五 Task 3 新增 4 码 22→26：`SWAP_UNFREEZE_REQUESTED`/`SWAP_UNFROZEN`/`SWAP_REFUND_REQUESTED`/`SWAP_REFUNDED`）见 audit-actions.constant.ts V6 段）｜`releaseBirthLock()`（擦圈三出口：KYT 拒绝/SLA 破线拒单/拒退 REJECT_REFUND 落地——2026-09-14 起制裁冻单与批量冻单广播**不再**调用它，押锁不放，出边改走 RESUME/REJECT_REFUND）｜ `applyKytVerdict()`（三分支落地；顶部终态守卫，兑换**没有** decideVerdictLanding，勿照抄充值写法）｜ `handleRejectDisposition()`（2026-09-14 改判：只有客户本人命中制裁 ⑦ 才开 `SANCTION` 便签，⑨ MLRO freeze/⑪ no tag 均不再开人级便签，硬/软线 `open()` 退役见 `decisions.md` 2026-09-14 条 4）｜ `initiateUnfreeze()`/`initiateRefund()`（Task 3，双弧开案）+ `onUnfreezeApproved()`/`onRefundApproved()`（执行：前者清 `rejectReason`+触发 KYT rescore，后者放锁回余额）
+- 状态机 `swap-transactions.service.ts → transitions`（7 边穷举，FROZEN 两条出边 `RESUME`/`REJECT_REFUND`）；四个 FROZEN 判据常量**答案刻意不同**（2026-09-14 起 FROZEN 从零出边终态改押锁不放的中间态，四处各自随之调整，"同一问题四处四答"结构不变）：迁移表里 FROZEN **不再零出边**（新增两条出边）；材料请求终态集合仍**不含** FROZEN（防撕材料卡片=tipping-off，未变）；冻结扫描排除集仍**含** FROZEN（理由从"零出边终态"改成"已冻无需再捞"，答案不变理由变了）；客户面白名单仍**不含** FROZEN，但收敛目标从 REJECTED 改成 **COMPLIANCE_PENDING**（钱押着显示处理中，不再是"未成功"）——是本域最易做错处
 - 客户面防线 `toCustomerSwapStatus()` 白名单收敛 + 筛选按收敛值反向展开（派生自收敛函数，无平行表）
-- ⚡ 模拟裁决按钮：三域共享表 `sumsub-shared/verdict-buttons.shared.ts`（11 键）的 8 键子集（`swap-sumsub/fixtures/verdict-buttons.ts`）；缺的三键各有真实理由——④/⑧ PEP·Sanctions 对手方（兑换是账内换币，没有对手方）、⑩ 处置标签（FROZEN 是零出边终态，没有没收/退回弧可挂）。**材料审核（认证复核 GREEN/RED）不在这张表里**：那是另一个 webhook（`applicantActionReviewed`），入口在客户详情页 Verification Requests 区块，收 `requestNo` 不收订单 id，三域共用同一入口，不属交易面板——2026-08-29 前兑换域曾在这张表里另开⑦⑧两键直接投材料复核（缺"先交材料"前置，真按会 500），本轮已删
+- FROZEN 解冻 / 拒退审批（Task 3，2026-09-14）：`SWAP_UNFREEZE`（合规官提，权限 `SWAP_UNFREEZE_WRITE`）/`SWAP_SANCTION_REFUND`（运营提，权限 `SWAP_REFUND_WRITE`）两条策略，`approval.constants.ts` 均 `steps:[{roles:['MLRO']}]`、`timeoutHours:48`、`allowCancel:true`，镜像提现同名先例；`scripts/verify-rbac.ts` 的 `MAKER_GROUP_BY_POLICY` 已补两行；`rbac.catalog.ts`：`PermissionGroup` 联合类型新增两个键、两条 `route()`（`POST /admin/swap-transactions/:id/unfreeze`/`:id/refund`）、`ACTION_BUCKET_CATALOG` Trading 域新增两桶（`Request swap unfreeze`/`Request swap sanction refund`）、`COMPLIANCE_OFFICER`/`OPS_OFFICER` 两职务各持一组
+- ⚡ 模拟裁决按钮：三域共享表 `sumsub-shared/verdict-buttons.shared.ts`（11 键）的 8 键子集（`swap-sumsub/fixtures/verdict-buttons.ts`）；缺的三键各有真实理由——④/⑧ PEP·Sanctions 对手方（兑换是账内换币，没有对手方）、⑩ 处置标签（驱动的是 KYT 拒绝落地时**自动**附带的处置标签，如充值 `RETURN_TO_SENDER`／提现 `FINAL_REJECTED`；兑换的解冻/拒退是冻结**之后**单独发起的 maker-checker 审批，不是拒绝裁决自带的标签，两者不是一回事，⑩ 依旧不适用——⚠️ `swap-sumsub/fixtures/verdict-buttons.ts:10` 注释仍写着"FROZEN 是零出边终态"未随本波翻案更新，理由陈旧但结论未变）。**材料审核（认证复核 GREEN/RED）不在这张表里**：那是另一个 webhook（`applicantActionReviewed`），入口在客户详情页 Verification Requests 区块，收 `requestNo` 不收订单 id，三域共用同一入口，不属交易面板——2026-08-29 前兑换域曾在这张表里另开⑦⑧两键直接投材料复核（缺"先交材料"前置，真按会 500），本轮已删
 - 记账 `swap-leg-accounting.ts`（四腿实时逐腿 post）；腿=挂 swapTransactionId 的资金单（见 funds-orders 篇）；腿 1 特殊：圈在下单时已画（createLeg 对 legSeq=1&attempt=1 跳过画圈只落笔），重试 attempt≥2 恢复按次画圈
 - 报价 `swap-fee-level/swap-quote.service.ts`（TTL 30s 懒过期）+ `pricing-center/pricing-engine.service.ts` + Binance 价源（3s 缓存，AED 钉 3.6725）+ `swap-quote.service.ts → resolveBestLevel()`（内部调 `fee-audience.util.ts → matchesAudience()`）
 - SLA `swap-sumsub/swap-sla.service.ts → sweep()`（30s cron；超时推 REJECTED、不做客户处置；txnId 为空的单是漏提交，重提不判死——2026-09-12 起重提成功即调 `extendComplianceSla()` 把 `slaDeadline` 拉满一个完整窗口，此前不推死线，下一轮 sweep 30 秒内就会误判超时）

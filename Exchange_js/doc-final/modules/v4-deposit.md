@@ -1,6 +1,6 @@
 # V4 · 充值（钱怎么进来）
 
-> 对应 PRD：待写 ｜ 技术节点 Last Verified：2026-09-13（波四共享抽离：充提镜像五件抽公共底座，行为零变化）
+> 对应 PRD：待写 ｜ 技术节点 Last Verified：2026-09-14（波五：客户自报入口改 `assertTradingIntake`，与「新单创建即冻」裁定对齐，见 §1）
 > 演示幕次：第三幕「钱进」 ｜ 验收：第三幕走查（`demo/script.md`）+ 本篇 §4
 
 ## 0. 一句话定位
@@ -17,6 +17,8 @@
 - **冻结单（制裁/官方冻结）只有两条出路：上缴或解冻**——上缴 = 政府移交、钱出平台；解冻 = 误伤平反、回炉重查。**不能没收**（把被制裁资产收进公司收入 = 据赃为己有），**不能退回**（退给被制裁对象 = 资助他）；
 - **没收**（钱进公司户）只对**挂起单**开放：小额违规、行政处置；
 - **原路退回**对**人工复核单与挂起单**开放，且只退原发款方——退第三方等于开洗白通道。
+
+**充值本就是"创建即冻"的活样本，波五「新单创建即冻」裁定（`decisions.md` 2026-09-14 条 1）对本域是补齐一处遗漏而非新增机制**：真实入金扫描 `detected()` 从来没有权限闸（钱已到账不能拒收），本就是"收进来先落单、L1 执法级分支立即冻"；本轮补上的是客户**自报**入口（`inboundTransferSignalsService.createForCustomer`/`scanForCustomer`，客户端 Simulate Deposit 点击链路）——此前与提现/兑换建单闸同款直接对 SILENT 客户中性拒绝，2026-09-14 起统一改用 `assertTradingIntake`：DISCLOSED 客户仍中性拒绝，SILENT-only 放行、信号照常流入 `detected()`，走上面同一条"收进来即冻"的路。
 
 **卡住不是一个状态，是一面旗。** 处置腿失败自动重试三次，耗尽后单子**原地不动 + 标红旗**（needsReview），运营看得见、能接手——不发明"失败态"来收容卡单。
 
@@ -68,6 +70,7 @@
 
 - 工作流 `trading/deposit-transactions/deposit-workflow.service.ts`：`evaluateL1()`（L1：执法级 FREEZE / 其余 FAIL 打标不换状态照常送检 / PASS 送检）｜ `applyKytVerdict()+decideVerdictLanding()`（四裁决落地路由）｜ `initiate{Confiscation,Return,Seize,Unfreeze}()` + `{confiscation,return,seize}Spec()`（三弧处置说明书）+ 对应 `on*Decided/settle*`（业务判断与留痕层）｜ `executeDepositAccounting()`（两步入账 + 客户级科目懒解析）
 - **冻结留痕（2026-09-12 波三红项修复已补齐）**：客户级限制冻单有两条独立代码路径——广播扫描 `onCustomerRestrictionOpened() → findNonTerminalByOwner()` 与单笔判定 `evaluateL1()` 的执法级分支，此前各留一处审计缺口（前者 `select` 漏 `correlationId`，`depositAudit()` 的 INHERIT 校验直接拒收写入；后者压根没调 `depositAudit()`）。现两处均已补齐：`select` 补 `correlationId: true`（对齐 swap 域已有写法）、`evaluateL1()` 的 FREEZE 分支照抄 `markL1Hold()` 的写法补一次 `depositAudit({action:'DEPOSIT_FROZEN', ...})`——第七幕按单号拉链两条冻结路径都能查到这一步，不再断链
+- **创建即冻（2026-09-14 波五）**：`inbound-transfer-signals.service.ts → createForCustomer()`/`scanForCustomer()`（客户自报预通知 + 落地扫描，客户端 Simulate Deposit 两步连打的链路）均从 `assertTradingEligibility` 改调 `assertTradingIntake`——DISCLOSED 客户仍中性拒绝，SILENT-only 放行、信号继续流入 `detected()`；`detected()` 本体（真实链上/银行扫描）零改动，它从出生起就没有权限闸
 - **处置动词** `funds-orders/disposition.service.ts → DispositionService`（地基站 2026-08-26）：initiate / rebuild / settle / voidAttempt / clearLeg——三弧的建腿、锁账、落账、重试三级梯、腿收口收敛为一份实现，工作流按说明书一句话调用
 - 状态机 `deposit-transactions.service.ts → getNextStatus()`（29 边迁移表 + 守则单测锁边数）；状态直改侧门已物理删除——`PATCH :id/status` 端点 2026-08-30（00b0eb83）连黑名单守卫一并移除，controller 注释自证
 - L1 闸门 `trading/shared/` `L1GateService`（十项快照，三域共用求值器；判定结果整包落单上 l1Snapshot）

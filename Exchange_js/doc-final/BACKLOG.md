@@ -13,7 +13,7 @@
 > 分诊历史：2026-08-26 首次分流（加固类迁出）；2026-08-28 二次分诊——业务/技术彻底分家：8 条已完成或已作废销账、45 条迁 `PRODUCTION-NOTES`、4 条从 `PRODUCTION-NOTES` 判回业务；同日「演示装备」A 档 8 条逐条实跑复核，6 条实证已修当场销账。**2026-08-29 演示装备一期收官**——A 档剩下的 2 条（造数花名册、补料回炉）做完销账，A 档 8/8 全部完成、整节退役删除（原文见「本轮销账」章节与 git 历史）；导语并入 §B。分诊前全文见 git 历史（`649b4e88`）。
 > **2026-09-08 按演示动线重排**——章节改为七幕行进顺序（幕内按站 / 场景），43 条已勾条目整批归档文末「本轮销账」；「Material Refresh 状态名」1 条作废（所指代码已随子系统退役，`grep -rln "NUDGE_ONLY" src admin-web/src client-web/src` 零命中）。重排前全文见 git 历史（`f27e8312`）。
 
-Last Updated: 2026-09-13
+Last Updated: 2026-09-14
 
 ## A. 开演前（重铺 + 造数判据）
 
@@ -81,7 +81,7 @@ Last Updated: 2026-09-13
 
 - [ ] **`LIFECYCLE_NOT_ACTIVE` 挂起的单，若客户还没有 `sumsubApplicantId`，永远等不到裁决**：`submitSumsubTxns()`（`deposit-workflow.service.ts:345-351`）在 `deposit.customer?.sumsubApplicantId` 为空时直接 `logger.warn` 后 `return`——单子留在 `COMPLIANCE_PENDING`，但从未真正提交 Sumsub，也就永远不会收到裁决 webhook。这类单唯一的出路是运营在详情页用 ⚡ 面板对着 `COMPLIANCE_PENDING` 的单直接喂一个「① Approved」裁决（`decideVerdictLanding`/`applyKytApproved` 只按当前状态判定是否派发，不检查是否真的送过检）——裁决落地时 `limitHoldReason` 仍是 `LIFECYCLE_NOT_ACTIVE`（行政级，在 `ADMINISTRATIVE_HOLD_REASONS` 里），经 `holdIfHeld` 转 `OPERATION_PENDING`、挂起原样保留，交还运营再处置。"客户还没在 Sumsub 开户"不是刁钻边界，是会正常发生的客户状态，值得配一条脚本或至少讲清"这条路只能靠运营手动喂裁决" ｜来源: 2026-09-05 V3 财务配置治愈波二 Task 13 文档收口核对 L1 挂起链路时发现
 
-- [ ] **`CAPABILITY_RESTRICTED` 挂起原因区分不出 SANCTION 与 ADMIN_SUSPENSION，客户面一律藏**：`holdReasonOf()` 只按**哪一格 FAIL** 映射原因，拿不到便签的 `cause`；而客户面的可见性判据是「`limitHoldReason` 非空即整单不可见」，于是行政级挂起在**挂着的时候**对客户是零记录（退回落地才清、才可见，见 `modules/v4-deposit.md` §4.8）。保守是刻意的——tipping-off 的代价不对称（藏错了客户少看见一条记录，露错了是刑事风险）。要精确区分需让 `holdReasonOf()` 带上 `cause`，并给客户面定一套「哪些 cause 可见」的白名单 ｜来源: 2026-08-22 第四批 B4；2026-09-08 业主裁定归订单域，自第二幕迁入
+- [x] ~~`CAPABILITY_RESTRICTED` 挂起原因区分不出 SANCTION 与 ADMIN_SUSPENSION，客户面一律藏~~ —— **管理台侧已解**（2026-09-14 波五 D10）：`L1GateService` ②格 detail 从"holds down X capability"升级为带具体因由 + 限制便签号（`l1-gate.service.ts:115` `restrictionNotes` 携带 `{cause, restrictionNo}`），管理台按此渲染因由与可点便签号；**客户面部分维持刻意藏**——2026-09-14 业主裁定「D10 只做展示」，客户面继续不区分 SANCTION 与 ADMIN_SUSPENSION（tipping-off 代价不对称：藏错了客户少看见一条记录，露错了是刑事风险），不再是待办、是设计决定，见 `decisions.md` 2026-09-14 条 ｜来源: 2026-08-22 第四批 B4；2026-09-08 业主裁定归订单域；2026-09-14 波五销账
 
 - [ ] **TR 适用判定未自动计算**：充值 PRD 定义 Travel Rule 适用 = 虚拟币 且 来源地址为 VASP 托管 且 单笔 ≥ 3,500 AED（三条件 AND，否则 NOT_REQUIRED）；现状条件①法币→NOT_REQUIRED 已落地，条件③金额阈值已实现（`kyt-txn-type.resolver.ts` `TR_THRESHOLD_BY_CURRENCY`，USDT 1000 / AED 3500，边界取 ≥）；仅剩条件②（对手方 VASP 打标靠 DTO 自报）未自动化 ｜来源: 2026-07-11 充值 PRD v2
 
@@ -109,7 +109,7 @@ Last Updated: 2026-09-13
 
 > 讲「出金门最多、客户永远看不到调查原因」这一幕的缺口。tipping-off 三防线已于 2026-09-12 波三红项修复补齐（status/completedAt 白名单 + customerScope 忽略 status 改走 bucket + 客户端筛选改 bucket 间接式，见文末销账）；剩订单级折叠（Q1）待波五。
 
-- [ ] **Q1 制裁客户的订单级折叠未做**：本轮贴 `scope=ALL` 便签只把在途单打成 `FROZEN`，客户面靠服务端脱敏白名单收敛成 `COMPLIANCE_PENDING`；设计稿讨论过的「收单后一律挂 `PROCESSING`、连状态变化都不产生」的订单级折叠没做。与「提现域 tipping-off 未对齐」同源，一并排期 ｜来源: 2026-08-15 设计稿 §8 Q1；2026-09-08 业主裁定归订单域，自第二幕迁入；2026-09-12 波三红项修复已堵上同源的「提现域 tipping-off 未对齐」半边（见文末销账），本条订单级折叠单独留待波五
+- [x] ~~Q1 制裁客户的订单级折叠未做~~ —— **已实现**（2026-09-14 波五「创建即冻」）：提现/兑换报价与建单从中性 403 改为对 SILENT-only 客户放行，建单入库后立即走既有 FREEZE 边转 FROZEN，客户面收敛成 `COMPLIANCE_PENDING`／`PROCESSING`（`toCustomerWithdrawStatus`/`toCustomerSwapStatus` 白名单收敛）；充值域 `detected()` 链路本就零改动（早已是"收进来即冻、显示 PROCESSING"），客户自报入口随本轮统一 fold。「收单后一律挂 PROCESSING、连状态变化都不产生」的订单级折叠三域自此一致落地；DISCLOSED 客户维持中性拒绝不受影响。见 `decisions.md` 2026-09-14 条 1 ｜来源: 2026-08-15 设计稿 §8 Q1；2026-09-08 业主裁定归订单域；2026-09-14 波五销账
 
 - [ ] 提现成功通知未接：SUCCESS 时不调 `NotificationsGateway`（基础设施在、workflow 没调）｜来源: 2026-07-03 V5 体检
 
@@ -226,6 +226,10 @@ Last Updated: 2026-09-13
 - [ ] **「按键 × 按状态」置灰精度**：充值/提现的 ⑧ On hold 在非 `COMPLIANCE_PENDING` 上是纯 no-op（后端 `decideVerdictLanding` 有 `verdict==='onHold' && status!==COMPLIANCE_PENDING → IGNORE`）却仍可点。方向安全（不误灰），修法需要引入「按键 × 按状态」矩阵 ｜来源: 2026-08-23 第五批 Task 7 审查
 
 - [ ] **`tags: string[]` 三域 Sumsub DTO 都声明、全 admin-web 零渲染**（后端 `parseDetail` 确实在填）｜来源: 2026-08-23 第五批 Task 2 审查
+
+- [ ] **`UpdateInternalFundStatusDto` 零引用死 DTO**：`src/modules/funds-layer/dto/internal-fund.dto.ts:82` 声明的 DTO 全仓零消费方（`grep -rn "UpdateInternalFundStatusDto" src admin-web/src client-web/src` 仅命中声明本身一处）；波五 Task 10（前端收口）扫描资金单详情页字段时顺带发现，本波未删——零引用纪律先登记，下次动 funds-layer/`InternalFund*` 命名债（见 `modules/v6-swap.md` §6）时一并清理 ｜来源: 2026-09-14 波五 Task 10
+
+- [ ] **列表页分页收口后仍有 13 个未套 `ListFooter`**：波五 Task 10 把 10 个"重影"（手写 Showing 计数 + 裸 `Pagination` 自带计数打架）形状的列表页换成 `ListFooter`（全仓累计 13 个在用）后，另有 13 个维持原状——9 个本身不是重影形状（裸 `Pagination`、无手写计数打架：`WithdrawQuoteList`/`SumsubEventsPage`/`SwapQuoteList`/`InternalTransferList`/`ReconciliationCasesListPage`/`AuditLogsPage`/`ReconciliationRunsListPage`/`IncidentListPage`/`ReconciliationAdjustmentListPage`）、4 个有重影但 props 映不上现有模板（`SwapFeeLevelList`/`WithdrawalFeeLevelList`：`defaultOnly` 筛选态总数改口径、整页隐藏分页；`CustomerManagement`：命中 `restriction` 筛选带额外提示后缀；`WithdrawalAddressList`：address→addresses 不规则复数，模板计数文案固定只加一个 `s`）——后 4 个要收口须先扩展 `ListFooter` 模板（后缀槽位 / 不规则复数 / 子集总数口径）。清单详见 `admin-web/src/components/common/ListFooter.tsx` 头注 ｜来源: 2026-09-14 波五 Task 10
 
 ## J. 待业主拍板（是问题不是任务，定了才排期）
 

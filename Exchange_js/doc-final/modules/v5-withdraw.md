@@ -1,6 +1,6 @@
 # V5 · 提现（钱怎么出去）
 
-> 对应 PRD：待写 ｜ 技术节点 Last Verified：2026-09-13（波四共享抽离：充提镜像五件抽公共底座 + fee-level 双树合一，行为零变化）
+> 对应 PRD：待写 ｜ 技术节点 Last Verified：2026-09-14（波五：SILENT 客户新单创建即冻，报价/建单闸从中性拒绝改放行，见 §1/§5）
 > 演示幕次：第五幕「钱出」 ｜ 验收：第五幕走查（`demo/script.md`）+ 本篇 §4
 
 ## 0. 一句话定位
@@ -18,6 +18,8 @@
 **裁决四分支**（与充值同构）：通过 → 两腿并行结算（本金腿 + 费腿）；要求补料 → 等客户（独立补料页）；拒绝无标签 → 人工复核（翻案、转补料、退款拒绝都在这站可走）；制裁命中 → **先冻人再冻单**。
 
 **冻结只有两条出口，都要 MLRO 审批**：**解冻**——必须附解冻令文书号，批准后零记账回炉重新筛查（钱从未离开锁，无账可退）；**退款**——拒绝处置，批准后全额解锁退回客户。两条弧发起侧只开案不动单，执行侧等审批落地才动——开案的人碰不到钱。
+
+**制裁客户新单创建即冻（2026-09-14 波五）**：SILENT 便签客户报价与建单不再被拦截——`assertTradingIntake` 放行，建单照常压 TB pending 锁；入库后立即走既有 FREEZE 边转 FROZEN（提现冻结不放锁，钱始终押着）。原 `WITHDRAW_L1_BLOCKED` 审计对该客户不再发生，改为建单 + `WITHDRAW_FROZEN` 两条审计成对留痕。DISCLOSED 客户（已被横幅告知）维持中性 403 拒绝不变——持续报错本身就是信号，不算通风报信；收单后折叠成 PROCESSING 才是防线所在，见 `decisions.md` 2026-09-14 条 1。
 
 **出了门之后。** 本金腿失败 → 终态失败 + 全额解锁（客户看得见钱回来了）；银行 / 链上**退汇（bounce）** → 反向分录入账、单落"已退回"终态（只有本金确实出过账才能走这条）；**费腿失败不拖累本金**——本金照常到账，费腿自己重试三级梯，耗尽后标红旗等运营，不动客户的钱。
 
@@ -61,13 +63,14 @@
 3. 演补料：⚡要求补料 → 客户端补料入口 → 交齐回炉
 4. 演冻结（高光）：⚡制裁命中 → 管理台 FROZEN + 客户被冻；**切客户端：只见"处理中"**——把 DevTools 关掉讲这页（见 §6 第一条）
 5. 冻结两出口各演一笔：解冻（填文书号 → MLRO 批 → 回炉重查）；退款（MLRO 批 → 看客户余额**全额回来**）
-6. 大额：发一笔超阈值提现 → 出生即落审批 → 高管批准才进筛查
-7. 退汇：⚡触发 bounce → 单落 RETURNED → 账本看反向分录（这是出款广播中途被打回；**SUCCESS 之后才发生的退回见第六幕场景 15**——对账案子上「认领退回」，同样落 RETURNED）
-8. 全程任一步，审计页按单号查——留痕词表 33 码（=V5_WITHDRAW_AUDIT_ACTIONS 名册键数，波二 30→33 新增报价三码）（站2-β）：建单铸「旅程号」全链继承，按单号/按客户/按旅程三查成立；失败进 outcome+原因码，状态变化写从/到两列（垫第七幕）
+6. 制裁客户（SILENT 便签）试提现：报价与建单均放行 → 建单入库后立即转 FROZEN（不再是中性 403 拦截）；客户端全程只见 PROCESSING，横幅不亮——「新单创建即冻」，见 `decisions.md` 2026-09-14 条 1
+7. 大额：发一笔超阈值提现 → 出生即落审批 → 高管批准才进筛查
+8. 退汇：⚡触发 bounce → 单落 RETURNED → 账本看反向分录（这是出款广播中途被打回；**SUCCESS 之后才发生的退回见第六幕场景 15**——对账案子上「认领退回」，同样落 RETURNED）
+9. 全程任一步，审计页按单号查——留痕词表 33 码（=V5_WITHDRAW_AUDIT_ACTIONS 名册键数，波二 30→33 新增报价三码）（站2-β）：建单铸「旅程号」全链继承，按单号/按客户/按旅程三查成立；失败进 outcome+原因码，状态变化写从/到两列（垫第七幕）
 
 ## 5. 关键技术节点（≤30 行）
 
-- 工作流 `trading/withdraw-transactions/withdraw-workflow.service.ts`：`initiatePayoutPhase()`（两腿创建：本金 legSeq=1 / 费 legSeq=2）｜ `decideVerdictLanding()` 三档（IGNORE / EVIDENCE_ONLY / DISPATCH——FROZEN 一律 IGNORE 保护制裁证据；PAYOUT_PENDING 只留证据）｜ `initiateUnfreeze()/initiateRefund()`（双弧开案）+ `on*Approved()`（执行）｜ `onBounce()`（退汇，先账后状态）｜ `assertCustomerComplianceOrFreeze()`（客户级合规闸，三处接入）｜ `withdrawAudit()`（站2-β 统一留痕信封：33 码名册见 audit-actions.constant V5 表，波二新增报价三码）
+- 工作流 `trading/withdraw-transactions/withdraw-workflow.service.ts`：`createWithdrawal()`（2026-09-14 波五：`assertCapability` 改 `assertTradingIntake` 取 `fold` 标志；L1 BLOCK 分支加 `isFoldOnlyRestriction` 判据——`fold && failed.length===1 && failed[0].code==='CUSTOMER_RESTRICTION'` 才放行继续建单，别的 FAIL 仍真 BLOCK；建单事务提交后、`emit(WITHDRAWAL_CREATED)` 之前，`fold` 为真时调 `updateStatus(FREEZE)` + `withdrawAudit({action:'WITHDRAW_FROZEN', ...})`）｜ `initiatePayoutPhase()`（两腿创建：本金 legSeq=1 / 费 legSeq=2）｜ `decideVerdictLanding()` 三档（IGNORE / EVIDENCE_ONLY / DISPATCH——FROZEN 一律 IGNORE 保护制裁证据；PAYOUT_PENDING 只留证据）｜ `initiateUnfreeze()/initiateRefund()`（双弧开案）+ `on*Approved()`（执行）｜ `onBounce()`（退汇，先账后状态）｜ `assertCustomerComplianceOrFreeze()`（客户级合规闸，三处接入）｜ `withdrawAudit()`（站2-β 统一留痕信封：33 码名册见 audit-actions.constant V5 表，波二新增报价三码；波五无新增码——创建即冻复用既有 `WITHDRAW_FROZEN`）
 - 报价 `withdrawal-fee-level/withdraw-quote.service.ts`（`generateReferenceNo('WQT')`；TTL 300s 懒过期）：`createQuote()/consumeQuote()/cancelQuote()` 三动作对应 `WITHDRAW_QUOTE_{CREATED,USED,CANCELLED}` 三码（波二 2026-09-09，对齐 `swap-quote.service.ts` 写法，均带显式 `requestId`）；客户端确认框关闭即调用取消端点（`POST withdraw-transactions/quotes/:id/cancel`）
 - 状态机 `withdraw-transactions.service.ts → transitions`（23 边 + 守则单测）；大额出生路由是表外钦定写（注释成文）
 - 解锁原语 `releaseLock()`（净额+费两笔 pending 一起 void——"拒绝即解锁"的物理形态，提现/退款/失败三处共用）
