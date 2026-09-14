@@ -4,7 +4,7 @@ import { RefreshCw } from 'lucide-react';
 import { adminIconButtonClass, adminButtonClass } from '../components/common/adminButtonStyles';
 import { AdminBadge } from '../components/ui/AdminBadge';
 import { PageTitleBar } from '../components/ui/PageTitleBar';
-import Pagination from '../components/common/Pagination';
+import { ListFooter } from '../components/common/ListFooter';
 import {
   AdminSessionError,
   adminFetch,
@@ -471,17 +471,14 @@ const AccountFlowList = () => {
       </div>
 
       {/* ─── Zone 4: Footer ─── */}
-      <div className="shrink-0 flex items-center justify-between border-t border-adm-border px-5 py-2">
-        <span className="font-mono text-[10px] text-adm-t3">
-          {total > 0 ? `Showing ${items.length} / ${total} flows` : 'No flows'}
-        </span>
-        <Pagination
-          currentPage={page}
-          totalItems={total}
-          pageSize={PAGE_SIZE}
-          onPageChange={(p: number) => void fetchData(p, filters)}
-        />
-      </div>
+      <ListFooter
+        filteredCount={items.length}
+        total={total}
+        noun="flow"
+        currentPage={page}
+        pageSize={PAGE_SIZE}
+        onPageChange={(p: number) => void fetchData(p, filters)}
+      />
     </div>
   );
 };

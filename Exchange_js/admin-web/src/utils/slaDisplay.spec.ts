@@ -30,4 +30,9 @@ describe('formatSlaRemaining', () => {
     const future = new Date(Date.now() + 4 * 60_000 + 30_000).toISOString();
     expect(formatSlaRemaining(future, false).text).toBe('4m');
   });
+
+  it('不足 1 分钟 → <1m（而非 0m）', () => {
+    const future = new Date(Date.now() + 30_000).toISOString();
+    expect(formatSlaRemaining(future, false).text).toBe('<1m');
+  });
 });

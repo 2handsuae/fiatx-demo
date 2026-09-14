@@ -7,7 +7,7 @@ import {
 } from '../components/common/adminButtonStyles';
 import { AdminBadge } from '../components/ui/AdminBadge';
 import { PageTitleBar } from '../components/ui/PageTitleBar';
-import Pagination from '../components/common/Pagination';
+import { ListFooter } from '../components/common/ListFooter';
 import {
   AdminSessionError,
   adminFetch,
@@ -381,18 +381,14 @@ const LedgerAccountList = () => {
       </div>
 
       {/* ─── Zone 4: Footer ─── */}
-      <div className="flex shrink-0 items-center justify-between border-t border-adm-border px-4 py-2 text-[10px] text-adm-t3">
-        <span>
-          Showing {items.length} / {total} accounts
-        </span>
-        <Pagination
-          currentPage={page}
-          totalItems={total}
-          pageSize={PAGE_SIZE}
-          onPageChange={(p: number) => setPage(p)}
-        />
-      </div>
-
+      <ListFooter
+        filteredCount={items.length}
+        total={total}
+        noun="account"
+        currentPage={page}
+        pageSize={PAGE_SIZE}
+        onPageChange={(p: number) => setPage(p)}
+      />
     </div>
   );
 };

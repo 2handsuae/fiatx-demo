@@ -79,16 +79,9 @@ interface FundsOrderDetail {
   toAddress?: string | null;
   toIban?: string | null;
   txHash?: string | null;
-  confirmations?: number | null;
-  blockNo?: string | number | null;
-  nonce?: string | number | null;
-  gasUsed?: string | null;
-  effectiveGasPrice?: string | null;
   referenceNo?: string | null;
   providerTxnId?: string | null;
   statusHistory?: string | null;
-  sentAt?: string | null;
-  confirmedAt?: string | null;
   completedAt?: string | null;
   createdAt: string;
   asset: FoAsset | null;
@@ -547,27 +540,6 @@ const FundsOrderDetail = () => {
                     : undefined
                 }
               />
-              <InfoField
-                label="Confirmations"
-                value={data.confirmations != null ? String(data.confirmations) : null}
-                mono
-              />
-              <InfoField
-                label="Block No"
-                value={data.blockNo != null ? String(data.blockNo) : null}
-                mono
-              />
-              <InfoField
-                label="Nonce"
-                value={data.nonce != null ? String(data.nonce) : null}
-                mono
-              />
-              <InfoField label="Gas Used" value={data.gasUsed ?? null} mono />
-              <InfoField
-                label="Effective Gas Price"
-                value={data.effectiveGasPrice ?? null}
-                mono
-              />
             </DetailCard>
           )}
 
@@ -671,16 +643,6 @@ const FundsOrderDetail = () => {
           {/* LIFECYCLE */}
           <SidebarGroup title="Lifecycle">
             <SidebarKV label="Created" value={new Date(data.createdAt).toLocaleString()} mono />
-            <SidebarKV
-              label="Sent"
-              value={data.sentAt ? new Date(data.sentAt).toLocaleString() : null}
-              mono
-            />
-            <SidebarKV
-              label="Confirmed"
-              value={data.confirmedAt ? new Date(data.confirmedAt).toLocaleString() : null}
-              mono
-            />
             <SidebarKV
               label="Completed"
               value={data.completedAt ? new Date(data.completedAt).toLocaleString() : null}

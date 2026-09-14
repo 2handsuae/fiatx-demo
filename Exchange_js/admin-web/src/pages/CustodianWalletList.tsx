@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { RefreshCw, Search } from 'lucide-react';
-import Pagination from '../components/common/Pagination';
+import { ListFooter } from '../components/common/ListFooter';
 import {
   adminButtonClass,
   adminIconButtonClass,
@@ -383,23 +383,14 @@ const CustodianWalletList = () => {
       </div>
 
       {/* ── Footer ── */}
-      <div className="shrink-0 border-t border-adm-border bg-adm-panel px-5 py-2.5">
-        <div className="flex items-center justify-between">
-          <span className="font-mono text-[10px] text-adm-t3">
-            {total > 0
-              ? `Showing ${items.length} / ${total} wallet${total === 1 ? '' : 's'}`
-              : 'No wallets'}
-          </span>
-          {total > PAGE_SIZE && (
-            <Pagination
-              currentPage={currentPage}
-              totalItems={total}
-              pageSize={PAGE_SIZE}
-              onPageChange={(page) => void fetchItems(page)}
-            />
-          )}
-        </div>
-      </div>
+      <ListFooter
+        filteredCount={items.length}
+        total={total}
+        noun="wallet"
+        currentPage={currentPage}
+        pageSize={PAGE_SIZE}
+        onPageChange={(page) => void fetchItems(page)}
+      />
     </div>
   );
 };

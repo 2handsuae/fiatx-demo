@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Download, RefreshCw, Search } from 'lucide-react';
-import Pagination from '../components/common/Pagination';
+import { ListFooter } from '../components/common/ListFooter';
 import {
   adminButtonClass,
   adminIconButtonClass,
@@ -336,25 +336,14 @@ const EvidenceExportsPage = () => {
       </div>
 
       {/* ── Footer ── */}
-      {total > PAGE_SIZE ? (
-        <div className="shrink-0">
-          <Pagination
-            currentPage={currentPage}
-            totalItems={total}
-            pageSize={PAGE_SIZE}
-            onPageChange={(page) => void fetchExports(page)}
-          />
-        </div>
-      ) : (
-        <div className="shrink-0 border-t border-adm-border bg-adm-panel px-5 py-2.5">
-          <span className="font-mono text-[10px] text-adm-t3">
-            {total > 0
-              ? `Showing ${items.length} / ${total} package${total === 1 ? '' : 's'}`
-              : 'No packages'}
-          </span>
-        </div>
-      )}
-
+      <ListFooter
+        filteredCount={items.length}
+        total={total}
+        noun="package"
+        currentPage={currentPage}
+        pageSize={PAGE_SIZE}
+        onPageChange={(page) => void fetchExports(page)}
+      />
     </div>
   );
 };

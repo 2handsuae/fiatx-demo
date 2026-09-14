@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { RefreshCw } from 'lucide-react';
-import Pagination from '../components/common/Pagination';
+import { ListFooter } from '../components/common/ListFooter';
 import {
   adminButtonClass,
   adminIconButtonClass,
@@ -254,17 +254,14 @@ const AssetList = () => {
       </div>
 
       {/* ─── Zone 4: Footer ─── */}
-      <div className="flex shrink-0 items-center justify-between border-t border-adm-border px-4 py-2 text-[10px] text-adm-t3">
-        <span>
-          Showing {items.length} / {total} assets
-        </span>
-        <Pagination
-          currentPage={currentPage}
-          totalItems={total}
-          pageSize={PAGE_SIZE}
-          onPageChange={(p: number) => void fetchItems(p, filters)}
-        />
-      </div>
+      <ListFooter
+        filteredCount={items.length}
+        total={total}
+        noun="asset"
+        currentPage={currentPage}
+        pageSize={PAGE_SIZE}
+        onPageChange={(p: number) => void fetchItems(p, filters)}
+      />
     </div>
   );
 };

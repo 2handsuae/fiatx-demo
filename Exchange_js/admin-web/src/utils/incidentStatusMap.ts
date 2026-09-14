@@ -94,7 +94,7 @@ export function reportDeadlineDisplay(
   const minutes = totalMinutes % 60;
   if (days > 0) return { text: `${days}d ${hours}h`, tone: 'normal' };
   if (hours > 0) return { text: `${hours}h ${minutes}m`, tone: 'normal' };
-  return { text: `${minutes}m`, tone: 'normal' };
+  return { text: totalMinutes <= 0 ? '<1m' : `${minutes}m`, tone: 'normal' };
 }
 
 export const REPORT_DEADLINE_TONE_CLASS: Record<ReportDeadlineTone, string> = {

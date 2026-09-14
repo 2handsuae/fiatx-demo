@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { RefreshCw, Search } from 'lucide-react';
-import Pagination from '../components/common/Pagination';
+import { ListFooter } from '../components/common/ListFooter';
 import {
   adminButtonClass,
   adminIconButtonClass,
@@ -203,23 +203,14 @@ export default function RoleDefinitionModifyRequestsPage() {
         </table>
       </div>
 
-      <div className="shrink-0 border-t border-adm-border bg-adm-panel px-5 py-2.5">
-        <div className="flex items-center justify-between">
-          <span className="font-mono text-[10px] text-adm-t3">
-            {total > 0
-              ? `Showing ${items.length} / ${total} request${total === 1 ? '' : 's'}`
-              : 'No requests'}
-          </span>
-          {total > PAGE_SIZE && (
-            <Pagination
-              currentPage={currentPage}
-              totalItems={total}
-              pageSize={PAGE_SIZE}
-              onPageChange={(page) => void fetchData(page)}
-            />
-          )}
-        </div>
-      </div>
+      <ListFooter
+        filteredCount={items.length}
+        total={total}
+        noun="request"
+        currentPage={currentPage}
+        pageSize={PAGE_SIZE}
+        onPageChange={(page) => void fetchData(page)}
+      />
     </div>
   );
 }

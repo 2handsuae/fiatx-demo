@@ -15,8 +15,11 @@ import Pagination from './Pagination';
  * 这里把「页脚外壳 + 计数」收成一个承载物，翻页器走 `<Pagination bare />`（只出按钮、
  * 不出外壳与自带计数），页脚因此**恒显示**、且只有一条边框一个计数。
  *
- * ⚠️ 全仓另有 12 个列表页是同一个「手写页脚套 Pagination」的形状（同款重影），
- * 本批只收口三个交易域，其余已登记 BACKLOG —— 迁移时把它们也换成本组件即可。
+ * ⚠️ 波五 T10（2026-09-14）批量收口了另外 10 个同形状列表页，全仓累计 13 个在用本组件。
+ * 仍有 4 个列表页维持「手写页脚套 Pagination」的重影形状、未强套本组件（props 映不上）：
+ * `SwapFeeLevelList` / `WithdrawalFeeLevelList`（defaultOnly 筛选态整页隐藏分页且总数改口径）、
+ * `CustomerManagement`（筛选命中时有额外提示后缀）、`WithdrawalAddressList`（address→addresses
+ * 不规则复数，本组件的计数文案只会加 s）——迁移前需先扩展本组件或改造各自逻辑，见任务报告。
  */
 export const ListFooter = ({
   filteredCount,
