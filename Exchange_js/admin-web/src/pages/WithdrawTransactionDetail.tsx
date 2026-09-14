@@ -170,7 +170,7 @@ const APPROVAL_ACTION_LABELS: Record<string, string> = {
 /* ── Page Component ─────────────────────────────────────────── */
 
 const WithdrawTransactionDetail = () => {
-  const { id } = useParams<{ id: string }>();
+  const { withdrawNo } = useParams<{ withdrawNo: string }>();
   const navigate = useNavigate();
   const [data, setData] = useState<WithdrawDetail | null>(null);
   const [loading, setLoading] = useState(true);
@@ -198,7 +198,7 @@ const WithdrawTransactionDetail = () => {
     setLoading(true);
     try {
       const response = await adminFetch(
-        `${import.meta.env.VITE_API_URL}/withdraw-transactions/${id}`,
+        `${import.meta.env.VITE_API_URL}/withdraw-transactions/${withdrawNo}`,
       );
       if (response.ok) {
         setData(await response.json());
@@ -215,8 +215,8 @@ const WithdrawTransactionDetail = () => {
   };
 
   useEffect(() => {
-    if (id) fetchData();
-  }, [id]);
+    if (withdrawNo) fetchData();
+  }, [withdrawNo]);
 
   const handleCopy = (text: string, field: string) => {
     copyToClipboard(text);
@@ -227,12 +227,12 @@ const WithdrawTransactionDetail = () => {
   /* ── Frozen disposition handlers (unfreeze / sanction refund — maker-checker) ── */
 
   const handleUnfreezeSubmit = async () => {
-    if (!id || !unfreezeReason.trim() || !unfreezeOrderRef.trim()) return;
+    if (!data?.id || !unfreezeReason.trim() || !unfreezeOrderRef.trim()) return;
     setDispositionSubmitting(true);
     setDispositionError('');
     try {
       const response = await adminFetch(
-        `${import.meta.env.VITE_API_URL}/withdraw-transactions/${id}/unfreeze`,
+        `${import.meta.env.VITE_API_URL}/withdraw-transactions/${data.id}/unfreeze`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -261,12 +261,12 @@ const WithdrawTransactionDetail = () => {
   };
 
   const handleRefundSubmit = async () => {
-    if (!id || !refundReason.trim()) return;
+    if (!data?.id || !refundReason.trim()) return;
     setDispositionSubmitting(true);
     setDispositionError('');
     try {
       const response = await adminFetch(
-        `${import.meta.env.VITE_API_URL}/withdraw-transactions/${id}/refund`,
+        `${import.meta.env.VITE_API_URL}/withdraw-transactions/${data.id}/refund`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -293,12 +293,12 @@ const WithdrawTransactionDetail = () => {
   /* ── Bounce handler (PAYOUT_PENDING → RETURNED, no approval — immediate) ── */
 
   const handleBounceSubmit = async () => {
-    if (!id || !bounceReason.trim()) return;
+    if (!data?.id || !bounceReason.trim()) return;
     setDispositionSubmitting(true);
     setDispositionError('');
     try {
       const response = await adminFetch(
-        `${import.meta.env.VITE_API_URL}/withdraw-transactions/${id}/bounce`,
+        `${import.meta.env.VITE_API_URL}/withdraw-transactions/${data.id}/bounce`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },

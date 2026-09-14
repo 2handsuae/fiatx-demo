@@ -8,6 +8,7 @@ import {
   Req,
   UseGuards,
   ForbiddenException,
+  NotFoundException,
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { AdminPermissionGuard } from '../../../modules/identity/access-control/admin-permission.guard';
@@ -52,6 +53,14 @@ export class SwapTransactionsController {
       role: req.user?.role,
       roleCodes: req.user?.roleCodes || (req.user?.role ? [req.user.role] : []),
     };
+  }
+
+  /** 铁律⑥ 对外用业务键：详情端点的路由参数是 swapNo，这里换成内部 id
+   *  再传给 service（同 customers.controller.ts resolveCustomerId 的镜像约定）。 */
+  private async resolveSwapId(swapNo: string): Promise<string> {
+    const row = await this.swapTransactionsService.findByNo(swapNo);
+    if (!row) throw new NotFoundException('Swap transaction not found');
+    return row.id;
   }
 
   @Post()
@@ -160,12 +169,13 @@ export class SwapTransactionsController {
     );
   }
 
-  @Get(':id')
-  @ApiOperation({ summary: 'Get swap transaction by ID' })
-  findOne(@Param('id') id: string) {
+  @Get(':swapNo')
+  @ApiOperation({ summary: 'Get swap transaction by swap number' })
+  async findOne(@Param('swapNo') swapNo: string) {
     // Admin detail — includes parsed Sumsub compliance fields (Task 10);
     // customer-facing detail stays on the plain findOne (see that method's
     // customer controller usage) so those fields never leak to the client.
+    const id = await this.resolveSwapId(swapNo);
     return this.swapTransactionsService.findOneForAdmin(id);
   }
 }

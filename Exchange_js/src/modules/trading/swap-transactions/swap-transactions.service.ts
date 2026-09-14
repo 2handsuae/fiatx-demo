@@ -588,6 +588,20 @@ export class SwapTransactionsService {
     return this.prisma.swapTransaction.findFirst({ where: { sumsubTxnIdOut: txnId } });
   }
 
+  /**
+   * 按业务键 swapNo 查单（铁律⑥：详情端点认业务号，不认内部 id）。找不到返回
+   * null（不抛），由调用方决定要不要 404。镜像 DepositTransactionsService#findByNo /
+   * WithdrawTransactionsService#findByNo。
+   */
+  async findByNo(swapNo: string) {
+    const row = await (this.prisma as any).swapTransaction.findUnique({
+      where: { swapNo },
+      select: { id: true },
+    });
+    if (!row) return null;
+    return this.findOne(row.id);
+  }
+
   async findOne(id: string) {
     const item = await (this.prisma as any).swapTransaction.findUnique({
       where: { id },

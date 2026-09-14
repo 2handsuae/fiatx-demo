@@ -56,7 +56,9 @@ export const PERMISSIONS = {
   // quotes/:id → quotes/:quoteNo 一起漂——同 47 行注释的镜像约定。
   SWAP_QUOTES_DETAIL_READ: 'api.get.admin_swap_transactions_quotes_quoteno',
   SWAP_TRANSACTIONS_READ: 'api.get.admin_swap_transactions',
-  SWAP_TRANSACTION_DETAIL_READ: 'api.get.admin_swap_transactions_id',
+  // 单号换键（波五 Task 9）：详情端点改按 swapNo 查询后，rbac.catalog.ts 的
+  // :id → :swapNo 一起漂——同 55-56 行注释的镜像约定。
+  SWAP_TRANSACTION_DETAIL_READ: 'api.get.admin_swap_transactions_swapno',
 
   RECON_RUN_READ: 'api.get.admin_reconciliation_runs',
   RECON_RUN_DETAIL_READ: 'api.get.admin_reconciliation_runs_runno',
@@ -140,9 +142,11 @@ export const PERMISSIONS = {
   ASSET_SUSPEND: 'api.post.admin_assets_assetno_suspend',
   ASSET_REACTIVATE: 'api.post.admin_assets_assetno_reactivate',
   DEPOSIT_TRANSACTIONS_READ: 'api.get.deposit_transactions',
-  DEPOSIT_TRANSACTION_DETAIL_READ: 'api.get.deposit_transactions_id',
+  // 单号换键（波五 Task 9）：详情端点改按 depositNo 查询后，rbac.catalog.ts 的
+  // :id → :depositNo 一起漂——同 55-56 行注释的镜像约定。
+  DEPOSIT_TRANSACTION_DETAIL_READ: 'api.get.deposit_transactions_depositno',
   WITHDRAW_TRANSACTIONS_READ: 'api.get.withdraw_transactions',
-  WITHDRAW_TRANSACTION_DETAIL_READ: 'api.get.withdraw_transactions_id',
+  WITHDRAW_TRANSACTION_DETAIL_READ: 'api.get.withdraw_transactions_withdrawno',
 
   // 平账 B 批（Task 9）——三条补单路的写权限码，精确镜像 rbac.catalog.ts 里
   // Task 5/6/7 已登记的 buildPermissionCode(method, path) 派生值。

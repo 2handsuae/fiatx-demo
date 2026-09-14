@@ -156,7 +156,7 @@ const resolveParent = (
       kind: 'Deposit',
       no: data.depositNo,
       status: data.deposit?.status ?? '',
-      route: '/admin/trading/deposits/' + (data.deposit?.id ?? ''),
+      route: '/admin/trading/deposits/' + data.depositNo,
     };
   }
   if (data.withdrawNo) {
@@ -164,7 +164,7 @@ const resolveParent = (
       kind: 'Withdrawal',
       no: data.withdrawNo,
       status: data.withdrawTransaction?.status ?? '',
-      route: '/admin/trading/withdrawals/' + (data.withdrawTransaction?.id ?? ''),
+      route: '/admin/trading/withdrawals/' + data.withdrawNo,
     };
   }
   if (data.swapNo) {
@@ -172,7 +172,7 @@ const resolveParent = (
       kind: 'Swap',
       no: data.swapNo,
       status: data.swapTransaction?.status ?? '',
-      route: '/admin/trading/swaps/' + (data.swapTransaction?.id ?? ''),
+      route: '/admin/trading/swaps/' + data.swapNo,
     };
   }
   if (data.internalTransfer?.transferNo) {

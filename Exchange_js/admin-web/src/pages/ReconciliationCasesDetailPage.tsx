@@ -1583,9 +1583,9 @@ const ReconciliationCasesDetailPage = () => {
                                   <span className="max-w-[220px] font-mono text-[10px] text-adm-t2">
                                     Transferred ·{' '}
                                     {row.disposition.supplementRef?.kind === 'DEPOSIT' && row.disposition.supplementRef.id
-                                      ? <Link to={`/admin/trading/deposits/${row.disposition.supplementRef.id}`} className="text-adm-blue hover:underline">{row.disposition.supplementNo}</Link>
+                                      ? <Link to={`/admin/trading/deposits/${row.disposition.supplementRef.no}`} className="text-adm-blue hover:underline">{row.disposition.supplementNo}</Link>
                                       : row.disposition.supplementRef?.kind === 'WITHDRAW' && row.disposition.supplementRef.id
-                                        ? <Link to={`/admin/trading/withdrawals/${row.disposition.supplementRef.id}`} className="text-adm-blue hover:underline">{row.disposition.supplementNo}</Link>
+                                        ? <Link to={`/admin/trading/withdrawals/${row.disposition.supplementRef.no}`} className="text-adm-blue hover:underline">{row.disposition.supplementNo}</Link>
                                         : <span>{row.disposition.supplementNo} (Pending CFO review)</span>}
                                   </span>
                                 )}

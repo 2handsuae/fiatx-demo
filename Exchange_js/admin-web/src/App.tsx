@@ -203,11 +203,11 @@ function App() {
 
             {/* trading */}
             <Route path="trading/deposits" element={withPermission(<DepositTransactionList />, [PERMISSIONS.DEPOSIT_TRANSACTIONS_READ])} />
-            <Route path="trading/deposits/:id" element={withPermission(<DepositTransactionDetail />, [PERMISSIONS.DEPOSIT_TRANSACTION_DETAIL_READ])} />
+            <Route path="trading/deposits/:depositNo" element={withPermission(<DepositTransactionDetail />, [PERMISSIONS.DEPOSIT_TRANSACTION_DETAIL_READ])} />
             <Route path="trading/withdrawals" element={withPermission(<WithdrawTransactionList />, [PERMISSIONS.WITHDRAW_TRANSACTIONS_READ])} />
-            <Route path="trading/withdrawals/:id" element={withPermission(<WithdrawTransactionDetail />, [PERMISSIONS.WITHDRAW_TRANSACTION_DETAIL_READ])} />
+            <Route path="trading/withdrawals/:withdrawNo" element={withPermission(<WithdrawTransactionDetail />, [PERMISSIONS.WITHDRAW_TRANSACTION_DETAIL_READ])} />
             <Route path="trading/swaps" element={withPermission(<SwapTransactionList />, [PERMISSIONS.SWAP_TRANSACTIONS_READ])} />
-            <Route path="trading/swaps/:id" element={withPermission(<SwapTransactionDetail />, [PERMISSIONS.SWAP_TRANSACTION_DETAIL_READ])} />
+            <Route path="trading/swaps/:swapNo" element={withPermission(<SwapTransactionDetail />, [PERMISSIONS.SWAP_TRANSACTION_DETAIL_READ])} />
             <Route path="trading/withdraw-quotes" element={withPermission(<WithdrawQuoteList />, [PERMISSIONS.WITHDRAW_QUOTES_READ])} />
             <Route path="trading/withdraw-quotes/:quoteNo" element={withPermission(<WithdrawQuoteDetail />, [PERMISSIONS.WITHDRAW_QUOTES_DETAIL_READ])} />
             <Route path="trading/swap-quotes" element={withPermission(<SwapQuoteList />, [PERMISSIONS.SWAP_QUOTES_READ])} />

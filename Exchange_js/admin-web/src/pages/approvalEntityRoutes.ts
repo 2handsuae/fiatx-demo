@@ -3,9 +3,10 @@
    详情/列表路由。逐条核对现状路由参数得出（App.tsx + 各消费端 controller/
    service 实证，非直接照抄 brief 草案）：
    - 资产/限额/费率创建：详情路由已按业务号收参（assetNo/ruleNo/levelCode）。
-   - 交易域（deposit/withdraw）详情路由仍是内部 id，用列表页 + keyword 定位；
-     3 张列表页已消费该 query 参数（波三 I2：keyword 退位给各自显式单号参数），
-     此链接落地后会自动预填筛选框。
+   - 交易域（deposit/withdraw/swap）详情路由已换业务号（波五 Task 9）：7 条
+     deposit/withdraw entityRef 逐类型核对写入方（deposit-workflow.service.ts /
+     withdraw-workflow.service.ts 的 entityRef: deposit.depositNo / w.withdrawNo）
+     确认存的就是业务单号，全部直达详情页。
    - 治理域仍有 2 类（审批策略变更/证据包导出）entityRef 虽已是业务号
      （requestNo/packageNo），但其唯一详情端点仍按内部 UUID 查询
      （ParseUUIDPipe 或 where:{id}），映射会 404——不硬造，留纯文本。角色
@@ -15,16 +16,14 @@
      levelCode，无可寻址详情页——同样留纯文本。
    映射缺席 = Field 保持纯文本展示（原状）。 */
 export const ENTITY_ROUTE_BY_ACTION: Record<string, (ref: string) => string | null> = {
-  // 交易域——详情路由参数以现状为准（内部 id），列表页 + keyword 定位已足够演示
-  WITHDRAW_LARGE_VALUE_APPROVAL: (r) => `/admin/trading/withdrawals?keyword=${r}`,
-  WITHDRAW_UNFREEZE: (r) => `/admin/trading/withdrawals?keyword=${r}`,
-  WITHDRAW_SANCTION_REFUND: (r) => `/admin/trading/withdrawals?keyword=${r}`,
-  DEPOSIT_CONFISCATION: (r) => `/admin/trading/deposits?keyword=${r}`,
-  DEPOSIT_RETURN: (r) => `/admin/trading/deposits?keyword=${r}`,
-  DEPOSIT_SEIZE: (r) => `/admin/trading/deposits?keyword=${r}`,
-  DEPOSIT_UNFREEZE: (r) => `/admin/trading/deposits?keyword=${r}`,
-  // 波五 Task 3：swap 详情路由直达业务号（Task 9 三域详情路由换业务号后
-  // r=swapNo 天然成立；本条先按目标形状落地，不等 Task 9）。
+  // 交易域——详情路由已换业务号（波五 Task 9），直达详情页
+  WITHDRAW_LARGE_VALUE_APPROVAL: (r) => `/admin/trading/withdrawals/${r}`,
+  WITHDRAW_UNFREEZE: (r) => `/admin/trading/withdrawals/${r}`,
+  WITHDRAW_SANCTION_REFUND: (r) => `/admin/trading/withdrawals/${r}`,
+  DEPOSIT_CONFISCATION: (r) => `/admin/trading/deposits/${r}`,
+  DEPOSIT_RETURN: (r) => `/admin/trading/deposits/${r}`,
+  DEPOSIT_SEIZE: (r) => `/admin/trading/deposits/${r}`,
+  DEPOSIT_UNFREEZE: (r) => `/admin/trading/deposits/${r}`,
   SWAP_UNFREEZE: (r) => `/admin/trading/swaps/${r}`,
   SWAP_SANCTION_REFUND: (r) => `/admin/trading/swaps/${r}`,
   // 资产域（entityRef = assetNo / ruleNo）

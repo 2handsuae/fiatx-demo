@@ -306,7 +306,7 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
 
   // Deposit
   route('GET', '/deposit-transactions', 'List deposit transactions', ['TRADING_DEPOSIT_READ']),
-  route('GET', '/deposit-transactions/:id', 'Get deposit transaction detail', ['TRADING_DEPOSIT_READ']),
+  route('GET', '/deposit-transactions/:depositNo', 'Get deposit transaction detail', ['TRADING_DEPOSIT_READ']),
   route(
     'GET',
     '/deposit-transactions/my/inbound-signals',
@@ -354,7 +354,7 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
 
   // Withdraw
   route('GET', '/withdraw-transactions', 'List withdraw transactions', ['TRADING_WITHDRAW_READ']),
-  route('GET', '/withdraw-transactions/:id', 'Get withdraw transaction detail', ['TRADING_WITHDRAW_READ']),
+  route('GET', '/withdraw-transactions/:withdrawNo', 'Get withdraw transaction detail', ['TRADING_WITHDRAW_READ']),
   route('POST', '/withdraw-transactions/:id/bounce', 'Bounce (return) withdraw transaction payout', ['WITHDRAW_BOUNCE_WRITE']),
   route('POST', '/withdraw-transactions/:id/unfreeze', 'Unfreeze a FROZEN withdraw transaction', ['WITHDRAW_UNFREEZE_WRITE']),
   route('POST', '/withdraw-transactions/:id/refund', 'Sanction-refund a FROZEN withdraw transaction', ['WITHDRAW_REFUND_WRITE']),
@@ -382,7 +382,7 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
   route('GET', '/admin/swap-transactions', 'List swap transactions', ['TRADING_SWAP_READ']),
   route('GET', '/admin/swap-transactions/quotes', 'List swap quotes', ['TRADING_SWAP_READ']),
   route('GET', '/admin/swap-transactions/quotes/:quoteNo', 'Get swap quote detail', ['TRADING_SWAP_READ']),
-  route('GET', '/admin/swap-transactions/:id', 'Get swap transaction detail', ['TRADING_SWAP_READ']),
+  route('GET', '/admin/swap-transactions/:swapNo', 'Get swap transaction detail', ['TRADING_SWAP_READ']),
   // 波五 Task 3：FROZEN 解冻/拒退审批全链——逐字镜像 withdraw-transactions 的 :id/unfreeze、:id/refund
   route('POST', '/admin/swap-transactions/:id/unfreeze', 'Unfreeze a FROZEN swap transaction', ['SWAP_UNFREEZE_WRITE']),
   route('POST', '/admin/swap-transactions/:id/refund', 'Sanction-refund a FROZEN swap transaction', ['SWAP_REFUND_WRITE']),

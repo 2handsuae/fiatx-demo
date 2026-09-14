@@ -10,6 +10,7 @@ import {
   UseGuards,
   Req,
   ForbiddenException,
+  NotFoundException,
 } from '@nestjs/common';
 import { DepositTransactionsService } from './deposit-transactions.service';
 import {
@@ -51,6 +52,14 @@ export class DepositTransactionsController {
     if (req.user?.type !== 'ADMIN') {
       throw new ForbiddenException('Admin only');
     }
+  }
+
+  /** 铁律⑥ 对外用业务键：详情端点的路由参数是 depositNo，这里换成内部 id
+   *  再传给 service（同 customers.controller.ts resolveCustomerId 的镜像约定）。 */
+  private async resolveDepositId(depositNo: string): Promise<string> {
+    const row = await this.service.findByNo(depositNo);
+    if (!row) throw new NotFoundException('Deposit transaction not found');
+    return row.id;
   }
 
   @Get('my')
@@ -111,9 +120,10 @@ export class DepositTransactionsController {
     return this.service.findAll(query);
   }
 
-  @Get(':id')
+  @Get(':depositNo')
   @ApiOperation({ summary: 'Get deposit transaction details' })
-  findOne(@Param('id') id: string, @Req() req: any) {
+  async findOne(@Param('depositNo') depositNo: string, @Req() req: any) {
+    const id = await this.resolveDepositId(depositNo);
     if (req.user?.type === 'ADMIN') {
       return this.service.findOneForAdmin(id);
     }

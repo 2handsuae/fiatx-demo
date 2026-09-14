@@ -289,7 +289,7 @@ const SwapQuoteDetail = () => {
                   <tr>
                     <td className="px-3 py-2 font-mono text-[11px] text-adm-t2">
                       {linkedSwap.swapNo ? (
-                        <Link to={`/admin/trading/swaps/${linkedSwap.id}`} className="text-adm-blue hover:underline">
+                        <Link to={`/admin/trading/swaps/${linkedSwap.swapNo}`} className="text-adm-blue hover:underline">
                           {linkedSwap.swapNo}
                         </Link>
                       ) : ('—')}

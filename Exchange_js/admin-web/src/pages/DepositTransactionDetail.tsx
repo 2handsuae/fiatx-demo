@@ -201,7 +201,7 @@ const APPROVAL_ACTION_LABELS: Record<string, string> = {
 /* ── Page Component ─────────────────────────────────────────── */
 
 const DepositTransactionDetail = () => {
-  const { id } = useParams<{ id: string }>();
+  const { depositNo } = useParams<{ depositNo: string }>();
   const navigate = useNavigate();
   const [data, setData] = useState<DepositDetail | null>(null);
   const [loading, setLoading] = useState(true);
@@ -232,7 +232,7 @@ const DepositTransactionDetail = () => {
     setLoading(true);
     try {
       const response = await adminFetch(
-        `${import.meta.env.VITE_API_URL}/deposit-transactions/${id}`,
+        `${import.meta.env.VITE_API_URL}/deposit-transactions/${depositNo}`,
       );
       if (response.ok) {
         setData(await response.json());
@@ -249,8 +249,8 @@ const DepositTransactionDetail = () => {
   };
 
   useEffect(() => {
-    if (id) fetchData();
-  }, [id]);
+    if (depositNo) fetchData();
+  }, [depositNo]);
 
   const handleCopy = (text: string, field: string) => {
     copyToClipboard(text);
@@ -261,7 +261,7 @@ const DepositTransactionDetail = () => {
   /* ── Below-min disposition handlers ── */
 
   const handleWaiveLimit = async () => {
-    if (!id) return;
+    if (!data?.id) return;
     // 文案跟着挂起原因走：同一个端点在 BELOW_MIN 上解的是金额下限，在 L1 的
     // 行政级挂起上解的是「客户被停用 / 生命周期非 ACTIVE」——写死「below-minimum」
     // 会让运营以为自己只在解除账户暂停。
@@ -281,7 +281,7 @@ const DepositTransactionDetail = () => {
     setDispositionError('');
     try {
       const response = await adminFetch(
-        `${import.meta.env.VITE_API_URL}/deposit-transactions/${id}/waive-limit`,
+        `${import.meta.env.VITE_API_URL}/deposit-transactions/${data.id}/waive-limit`,
         { method: 'POST' },
       );
       if (!response.ok) {
@@ -303,12 +303,12 @@ const DepositTransactionDetail = () => {
   };
 
   const handleConfiscateSubmit = async () => {
-    if (!id || !confiscateReason.trim()) return;
+    if (!data?.id || !confiscateReason.trim()) return;
     setDispositionSubmitting(true);
     setDispositionError('');
     try {
       const response = await adminFetch(
-        `${import.meta.env.VITE_API_URL}/deposit-transactions/${id}/confiscate`,
+        `${import.meta.env.VITE_API_URL}/deposit-transactions/${data.id}/confiscate`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -335,12 +335,12 @@ const DepositTransactionDetail = () => {
   // 第四批 C1：OPERATION_PENDING 的第四条出路 —— 原路退回汇款人。与没收/没入同形状,
   // 打的是「开审批案」的端点,返回 approvalNo,钱不会立刻退。
   const handleReturnSubmit = async () => {
-    if (!id || !returnReason.trim()) return;
+    if (!data?.id || !returnReason.trim()) return;
     setDispositionSubmitting(true);
     setDispositionError('');
     try {
       const response = await adminFetch(
-        `${import.meta.env.VITE_API_URL}/deposit-transactions/${id}/return`,
+        `${import.meta.env.VITE_API_URL}/deposit-transactions/${data.id}/return`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -369,12 +369,12 @@ const DepositTransactionDetail = () => {
   /* ── Frozen disposition handlers (seize / unfreeze — maker-checker) ── */
 
   const handleSeizeSubmit = async () => {
-    if (!id || !seizeReason.trim() || !seizeOrderRef.trim()) return;
+    if (!data?.id || !seizeReason.trim() || !seizeOrderRef.trim()) return;
     setDispositionSubmitting(true);
     setDispositionError('');
     try {
       const response = await adminFetch(
-        `${import.meta.env.VITE_API_URL}/deposit-transactions/${id}/seize`,
+        `${import.meta.env.VITE_API_URL}/deposit-transactions/${data.id}/seize`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -403,12 +403,12 @@ const DepositTransactionDetail = () => {
   };
 
   const handleUnfreezeSubmit = async () => {
-    if (!id || !unfreezeReason.trim() || !unfreezeOrderRef.trim()) return;
+    if (!data?.id || !unfreezeReason.trim() || !unfreezeOrderRef.trim()) return;
     setDispositionSubmitting(true);
     setDispositionError('');
     try {
       const response = await adminFetch(
-        `${import.meta.env.VITE_API_URL}/deposit-transactions/${id}/unfreeze`,
+        `${import.meta.env.VITE_API_URL}/deposit-transactions/${data.id}/unfreeze`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },

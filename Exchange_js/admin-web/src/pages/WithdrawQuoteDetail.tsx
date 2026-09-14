@@ -254,7 +254,7 @@ const WithdrawQuoteDetail = () => {
                   <tr>
                     <td className="px-3 py-2 font-mono text-[11px] text-adm-t2">
                       <Link
-                        to={`/admin/trading/withdrawals/${linkedWithdrawal.id}`}
+                        to={`/admin/trading/withdrawals/${linkedWithdrawal.withdrawNo}`}
                         className="text-adm-blue hover:underline"
                       >
                         {linkedWithdrawal.withdrawNo}

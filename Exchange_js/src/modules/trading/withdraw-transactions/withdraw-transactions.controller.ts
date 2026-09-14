@@ -10,6 +10,7 @@ import {
   UseGuards,
   Req,
   ForbiddenException,
+  NotFoundException,
 } from '@nestjs/common';
 import { WithdrawTransactionsService } from './withdraw-transactions.service';
 import { WithdrawWorkflowService } from './withdraw-workflow.service';
@@ -47,6 +48,14 @@ export class WithdrawTransactionsController {
     }
   }
 
+  /** 铁律⑥ 对外用业务键：详情端点的路由参数是 withdrawNo，这里换成内部 id
+   *  再传给 service（同 customers.controller.ts resolveCustomerId 的镜像约定）。 */
+  private async resolveWithdrawId(withdrawNo: string): Promise<string> {
+    const row = await this.service.findByNo(withdrawNo);
+    if (!row) throw new NotFoundException('Withdraw transaction not found');
+    return row.id;
+  }
+
   @Get()
   @ApiOperation({ summary: 'List withdraw transactions' })
   @UsePipes(new ValidationPipe({ transform: true }))
@@ -55,10 +64,11 @@ export class WithdrawTransactionsController {
     return this.service.findAll(query);
   }
 
-  @Get(':id')
+  @Get(':withdrawNo')
   @ApiOperation({ summary: 'Get withdraw transaction details' })
-  findOne(@Req() req: any, @Param('id') id: string) {
+  async findOne(@Req() req: any, @Param('withdrawNo') withdrawNo: string) {
     this.assertAdmin(req);
+    const id = await this.resolveWithdrawId(withdrawNo);
     return this.service.findOneForAdmin(id);
   }
 

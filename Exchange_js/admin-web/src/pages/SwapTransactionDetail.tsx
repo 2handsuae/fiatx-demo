@@ -162,7 +162,7 @@ const LEG_STAGE: Record<number, string> = {
 /* ── Page Component ─────────────────────────────────────────── */
 
 const SwapTransactionDetail = () => {
-  const { id } = useParams<{ id: string }>();
+  const { swapNo } = useParams<{ swapNo: string }>();
   const navigate = useNavigate();
   const [data, setData] = useState<SwapTransactionDetailData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -186,11 +186,11 @@ const SwapTransactionDetail = () => {
   const canSimulateSlaTimeout = hasPermission(PERMISSIONS.DEMO_CLOCK_WRITE);
 
   const fetchData = async () => {
-    if (!id) return;
+    if (!swapNo) return;
     setLoading(true);
     try {
       const response = await adminFetch(
-        `${import.meta.env.VITE_API_URL}/admin/swap-transactions/${id}`,
+        `${import.meta.env.VITE_API_URL}/admin/swap-transactions/${swapNo}`,
       );
       if (response.ok) {
         setData(await response.json());
@@ -207,19 +207,19 @@ const SwapTransactionDetail = () => {
   };
 
   useEffect(() => {
-    if (id) void fetchData();
-  }, [id]);
+    if (swapNo) void fetchData();
+  }, [swapNo]);
 
   /* ── Frozen disposition handlers (unfreeze / sanction refund — maker-checker) ──
      逐字镜像 WithdrawTransactionDetail.tsx 的两个提交处理器。 */
 
   const handleUnfreezeSubmit = async () => {
-    if (!id || !unfreezeReason.trim() || !unfreezeOrderRef.trim()) return;
+    if (!data?.id || !unfreezeReason.trim() || !unfreezeOrderRef.trim()) return;
     setDispositionSubmitting(true);
     setDispositionError('');
     try {
       const response = await adminFetch(
-        `${import.meta.env.VITE_API_URL}/admin/swap-transactions/${id}/unfreeze`,
+        `${import.meta.env.VITE_API_URL}/admin/swap-transactions/${data.id}/unfreeze`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -248,12 +248,12 @@ const SwapTransactionDetail = () => {
   };
 
   const handleRefundSubmit = async () => {
-    if (!id || !refundReason.trim()) return;
+    if (!data?.id || !refundReason.trim()) return;
     setDispositionSubmitting(true);
     setDispositionError('');
     try {
       const response = await adminFetch(
-        `${import.meta.env.VITE_API_URL}/admin/swap-transactions/${id}/refund`,
+        `${import.meta.env.VITE_API_URL}/admin/swap-transactions/${data.id}/refund`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
