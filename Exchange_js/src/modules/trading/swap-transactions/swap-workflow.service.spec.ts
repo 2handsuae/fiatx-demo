@@ -1629,6 +1629,14 @@ describe('SwapWorkflowService.applyKytVerdict', () => {
     // The buy-leg is never submitted for a rejected swap.
     expect(mocks.sumsubTxnClient.submitTxn).not.toHaveBeenCalled();
 
+    // 2026-09-14：这是 `!willFreeze` 门控的"放锁"臂——普通拒绝（非冻结）仍然
+    // 是终局，出生锁必须照旧擦圈。只测"冻结时不放"那一臂（见 'FROZEN 落地' /
+    // 'onCustomerRestrictionOpened' 两组）不够：门控写反（判成 `willFreeze`）
+    // 会让两组冻结用例继续绿（它们只断言"不调用"，冻结路径本来就不该调），
+    // 却在这条最常见的普通拒绝路径上把锁误锁一辈子——必须在这里补上"确实调了"
+    // 的正向断言，两臂都测到，回归才堵得住。
+    expect(mocks.legAccounting.voidLeg).toHaveBeenCalledTimes(1);
+
     const rejectedAudit = (mocks.auditLogsService.recordSystem as jest.Mock).mock.calls
       .map((c) => c[0])
       .find((a: any) => a.action === AuditActions.SWAP_KYT_REJECTED);

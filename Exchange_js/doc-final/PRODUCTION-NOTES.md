@@ -119,8 +119,6 @@
 
 ## 其他
 
-- [2026-09-14] `releaseBirthLock`（swap 出生锁擦圈）对普通 KYT 拒绝路径调 `voidLeg` 时，e2e（sanction-subject-split）实跑记到一次 TigerBeetle "void pending transfer failed" status 25，被 best-effort catch 吞掉、只打 CRITICAL 日志，不影响该用例断言；未查明是否双重 void 或其他根因。与本轮 FROZEN 中间态改造无关——命中它的那笔单走的是未命中制裁的 plain-reject 分支，此调用点行为本轮未动 ｜ `swap-workflow.service.ts releaseBirthLock`/`SwapLegAccounting.voidLeg` ｜ 波五 Task 2 跑 `test:e2e sanction-subject-split` 顺手发现
-
 **原 BACKLOG §演示/测试环境卫生（2026-08-13 A1-A6 收官实跑发现，均为既存问题非本轮引入）**
 
 - [ ] **4 个 e2e suite 共库串跑时 `withdrawNo` 唯一约束偶发冲突**：`--runInBand` 全量跑偶现 `Unique constraint failed on the fields: (withdrawNo)`（`withdraw-sumsub-scenarios` ③ PEP 用例），单跑该 suite 连续 2 次均通过。根因是 `generateReferenceNo('WD')` 只带 4 位随机、同日命名空间拥挤时撞车（`demo-lib.ts:401` 注释已知此事并对 demo 侧加了重试，测试侧没有）｜来源: 2026-08-13 T11
