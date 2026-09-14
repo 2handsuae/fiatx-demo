@@ -419,7 +419,10 @@ export async function ensureSetup(ctx: DemoCtx): Promise<void> {
 // (scope=ALL) — that broadcast (CUSTOMER_RESTRICTION_OPENED) is the ONLY way
 // #13 ever reaches FROZEN: SwapWorkflowService.onCustomerRestrictionOpened
 // sweeps every COMPLIANCE_PENDING swap belonging to the just-restricted
-// customer straight to FROZEN (swap-workflow.service.ts:1783). Two hard
+// customer straight to FROZEN (swap-workflow.service.ts:2243 — drifted from
+// the pre-wave5 :1783 as the file grew). 2026-09-14 裁定翻案：FROZEN 从"冻结
+// 即放锁"的零出边终态改成押锁待处置的中间态，不再调用 releaseBirthLock；
+// runSwaps() 对 #13 的押锁断言见下方。Two hard
 // preconditions block getting there any other way, both confirmed dead ends
 // (task-C3-report.md / task-C3b-report.md):
 //
@@ -911,6 +914,25 @@ export async function runSwaps(ctx: DemoCtx): Promise<Array<{ seq: number; order
         return s?.status === 'FROZEN' ? s : null;
       }, 8000);
       console.log(`  #${entry.seq} ${entry.label}: ${swap.swapNo} → ${swap.status}（pre-stage 建单，#7 广播连坐冻结）`);
+
+      // 2026-09-14 裁定翻案断言：FROZEN 从"冻结即放锁"的零出边终态改成押锁待
+      // 处置的中间态——onCustomerRestrictionOpened 冻单时不再调用
+      // releaseBirthLock（swap-workflow.service.ts:2262-2264 "押锁不放"）。
+      // 光断言 status===FROZEN 逮不到这条翻案：把冻结改回放锁，上面的 waitFor
+      // 照样绿。这里额外断言出生锁仍押着——FRANK 的 AED 可用余额里，该单卖出
+      // 金额仍算作 held（同 initiateSwap 建单前余额闸的换算手法：bigint 除以
+      // 10^decimals 换回业务单位，见 swap-workflow.service.ts:300-316）。
+      const frankAedBalance = await ctx.accounting.getCustomerAvailableBalance(c.id, 'AED');
+      const heldDecimal = new Prisma.Decimal(frankAedBalance.held.toString()).div(
+        new Prisma.Decimal(10).pow(ctx.aed.decimals),
+      );
+      const lockedAmount = new Prisma.Decimal(entry.amount);
+      if (heldDecimal.lt(lockedAmount)) {
+        throw new Error(
+          `#${entry.seq} ${entry.label}: 出生锁应仍押着——FRANK AED held=${heldDecimal.toString()}，应 ≥ ${lockedAmount.toString()}（FROZEN 是押锁待处置的中间态，不是放锁的零出边终态）`,
+        );
+      }
+      console.log(`  #${entry.seq} ${entry.label}: 押锁校验通过 — FRANK AED held=${heldDecimal.toString()}（≥ 冻结单本金 ${lockedAmount.toString()}，锁未随冻结释放）`);
     } else {
       const sellUsdt = entry.currency === 'USDT';
       const from = sellUsdt ? ctx.usdt : ctx.aed;

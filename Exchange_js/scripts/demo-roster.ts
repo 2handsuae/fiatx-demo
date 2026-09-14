@@ -74,7 +74,7 @@ export const DEMO_ROSTER: RosterEntry[] = [
   // 分别停在「等补料」「已退回」都不入账。须盖过她三笔锁定(#17 1,800 + #20 500 + recon 注入 500),否则可用为负。
   { seq: 11, domain: 'SWAP',     label: '兑换 · USDT→AED 成功',      expectedStatus: 'SUCCESS',           customerEmail: ALICE, amount: '1400',   currency: 'USDT', driver: '⚡①' },
   { seq: 12, domain: 'SWAP',     label: '兑换 · AED→USDT 成功',      expectedStatus: 'SUCCESS',           customerEmail: BOB,   amount: '2900',   currency: 'AED',  driver: '⚡①' },
-  { seq: 13, domain: 'SWAP',     label: '兑换 · 制裁冻结（零出边）',  expectedStatus: 'FROZEN',            customerEmail: FRANK, amount: '600',    currency: 'AED',  driver: '连坐冻结（#7 制裁广播）' },
+  { seq: 13, domain: 'SWAP',     label: '兑换 · 制裁冻结（押锁待处置）', expectedStatus: 'FROZEN',         customerEmail: FRANK, amount: '600',    currency: 'AED',  driver: '连坐冻结（#7 制裁广播）' },
 
   { seq: 14, domain: 'WITHDRAW', label: '提现 · 法币成功',           expectedStatus: 'SUCCESS',           customerEmail: ALICE, amount: '1200',   currency: 'AED',  driver: '⚡①' },
   { seq: 15, domain: 'WITHDRAW', label: '提现 · 虚拟币成功',         expectedStatus: 'SUCCESS',           customerEmail: BOB,   amount: '150',    currency: 'USDT', driver: '⚡①' },

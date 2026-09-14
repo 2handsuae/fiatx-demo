@@ -19,7 +19,7 @@ admin@fiatx.com 超管 ｜ sm@ 高管(SMO) ｜ ciso@ ｜ mlro@ ｜ dpo@ ｜ comp
 |---|---|---|
 | Alice Happy | 快乐路径（真 Sumsub 沙盒 applicant） | 三条交易流程的主角 |
 | Bob Happy | 快乐路径（mock applicant） | 备用主角/并行单 |
-| Carol Silent | **制裁便签 · 静默**（lifecycle 仍 ACTIVE） | 零痕迹：管理台可见、客户端无感（横幅矩阵下四页零横幅=tipping-off 反证位，2026-09-13 波三） |
+| Carol Silent | **制裁便签 · 静默**（lifecycle 仍 ACTIVE） | 零痕迹：管理台可见、客户端无感（横幅矩阵下四页零横幅=tipping-off 反证位，2026-09-13 波三）；三/五幕站 3.4/5.4 演"创建即冻"——种子即受限，充值/提现建单入库那一刻就是 FROZEN（2026-09-14 波五T11） |
 | Dave Pending | 认证中 | 开户流程中段 |
 | Eve New | 刚注册未认证 | 开户起点 |
 | Frank HighRisk | 高风险 | 风险分层 |
@@ -103,7 +103,7 @@ admin@fiatx.com 超管 ｜ sm@ 高管(SMO) ｜ ciso@ ｜ mlro@ ｜ dpo@ ｜ comp
 |---|---|---|---|---|---|---|
 | 11 | 兑换 · USDT→AED 成功 | demo_alice@example.com | 1400 USDT | SUCCESS | SUCCESS | ✓ |
 | 12 | 兑换 · AED→USDT 成功 | demo_bob@example.com | 2900 AED | SUCCESS | SUCCESS | ✓ |
-| 13 | 兑换 · 制裁冻结（零出边） | demo_frank@example.com | 600 AED | FROZEN | FROZEN | ✓ |
+| 13 | 兑换 · 制裁冻结（押锁待处置） | demo_frank@example.com | 600 AED | FROZEN | FROZEN | ✓ |
 | 23 | 兑换 · 素材（Grace AED→USDT） | demo_grace@example.com | 800 AED | SUCCESS | SUCCESS | ✓ |
 
 ### 提现（7 笔）
