@@ -43,6 +43,8 @@ export type PermissionGroup =
   | 'WITHDRAW_RETURN_CLAIM_WRITE'
   | 'TRADING_SWAP_READ'
   | 'TRADING_SWAP_WRITE'
+  | 'SWAP_UNFREEZE_WRITE'
+  | 'SWAP_REFUND_WRITE'
   | 'WALLET_READ'
   | 'FUNDS_ORDER_VIEW'
   | 'FUNDS_ORDER_ACT'
@@ -381,6 +383,9 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
   route('GET', '/admin/swap-transactions/quotes', 'List swap quotes', ['TRADING_SWAP_READ']),
   route('GET', '/admin/swap-transactions/quotes/:quoteNo', 'Get swap quote detail', ['TRADING_SWAP_READ']),
   route('GET', '/admin/swap-transactions/:id', 'Get swap transaction detail', ['TRADING_SWAP_READ']),
+  // 波五 Task 3：FROZEN 解冻/拒退审批全链——逐字镜像 withdraw-transactions 的 :id/unfreeze、:id/refund
+  route('POST', '/admin/swap-transactions/:id/unfreeze', 'Unfreeze a FROZEN swap transaction', ['SWAP_UNFREEZE_WRITE']),
+  route('POST', '/admin/swap-transactions/:id/refund', 'Sanction-refund a FROZEN swap transaction', ['SWAP_REFUND_WRITE']),
   route('POST', '/admin/swap-transactions/:swapNo/legs/:legSeq/advance', 'Advance swap settlement leg', ['TRADING_SWAP_WRITE']),
   route('POST', '/admin/swap-transactions/:swapNo/legs/:legSeq/resume', 'Resume a stuck swap leg', ['TRADING_SWAP_WRITE']),
   // Task 6 (SLA 批次)：管理台「模拟超时」按钮 —— 演示用,把 slaDeadline 拨到过去
@@ -869,6 +874,8 @@ export const ACTION_BUCKET_CATALOG: ActionDomain[] = [
       { key: 'trading.act_withdraw_unfreeze', label: 'Request withdrawal unfreeze', description: 'Open an unfreeze approval — compliance line only, never operations', groups: ['WITHDRAW_UNFREEZE_WRITE'] },
       { key: 'trading.act_withdraw_return_claim', label: 'Request payout-return claim', description: 'Open a CFO approval to re-credit a completed payout that bounced back', groups: ['WITHDRAW_RETURN_CLAIM_WRITE'] },
       { key: 'trading.act_swap', label: 'Handle swaps', description: 'Raise and progress swap orders', groups: ['TRADING_SWAP_WRITE'] },
+      { key: 'trading.act_swap_refund', label: 'Request sanction refund', description: 'Open a sanction-refund approval on a frozen swap', groups: ['SWAP_REFUND_WRITE'] },
+      { key: 'trading.act_swap_unfreeze', label: 'Request swap unfreeze', description: 'Open an unfreeze approval — compliance line only, never operations', groups: ['SWAP_UNFREEZE_WRITE'] },
     ],
   },
   // ─── Domain: Funds Orders ────────────────────────────
@@ -1016,7 +1023,7 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
     'CUSTOMER_WRITE', 'CUSTOMER_TAG_MANAGE',
     'CUSTOMER_RESTRICTION_WRITE', 'CUSTOMER_RESTRICTION_RELEASE',
     'TRADING_DEPOSIT_READ', 'TRADING_WITHDRAW_READ', 'TRADING_SWAP_READ', 'SUMSUB_EVENT_VIEW',
-    'DEPOSIT_UNFREEZE_WRITE', 'WITHDRAW_UNFREEZE_WRITE',
+    'DEPOSIT_UNFREEZE_WRITE', 'WITHDRAW_UNFREEZE_WRITE', 'SWAP_UNFREEZE_WRITE',
     'DEMO_VERDICT_WRITE',
     'ASSET_CONFIG_READ', 'WITHDRAWAL_ADDRESS_READ', 'TRANSACTION_LIMIT_READ',
     'RECON_RUN_READ', 'RECON_CASE_READ', 'RECON_EXTERNAL_BALANCE_READ',
@@ -1113,7 +1120,7 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
     'TRADING_DEPOSIT_READ', 'TRADING_WITHDRAW_READ', 'TRADING_SWAP_READ', 'SUMSUB_EVENT_VIEW',
     'DEPOSIT_WAIVE_WRITE', 'DEPOSIT_CONFISCATE_WRITE', 'DEPOSIT_RETURN_WRITE', 'DEPOSIT_SEIZE_WRITE',
     'TRADING_WITHDRAW_WRITE', 'WITHDRAW_BOUNCE_WRITE', 'WITHDRAW_REFUND_WRITE',
-    'TRADING_SWAP_WRITE',
+    'TRADING_SWAP_WRITE', 'SWAP_REFUND_WRITE',
     // 对账平账两角色定案（2026-09-10）：业主裁定对账/平账只留金库与 CFO，运营整组清零、不
     // 拆组不双持——FUNDS_ORDER_ACT（推单）、RECON_RUN_READ / RECON_CASE_READ /
     // RECON_EXTERNAL_BALANCE_READ（对账三页只读）、INCIDENT_WRITE（事故登记）、

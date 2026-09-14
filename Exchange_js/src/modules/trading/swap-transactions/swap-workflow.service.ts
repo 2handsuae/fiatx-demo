@@ -1,11 +1,17 @@
 import { randomUUID } from 'crypto';
-import { BadRequestException, ForbiddenException, Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { EventEmitter2, OnEvent } from '@nestjs/event-emitter';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../core/prisma/prisma.service';
 import { generateReferenceNo } from '../../../common/utils/no-generator.util';
 import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import { AuditEntityTypes } from '../../audit-logging/constants/audit-actions.constant';
+import { ApprovalsService } from '../../governance/approvals/approvals.service';
+import {
+  ApprovalActionTypes,
+  ApprovalActorContext,
+  ApprovalStatuses,
+} from '../../governance/approvals/constants/approval.constants';
 import { AuditOutcome, AuditCategory, AuditSubjectRole, AuditSubjectInput, AuditActorContext } from '../../audit-logging/dto/audit-log.dto';
 import { SwapQuoteService } from '../swap-fee-level/swap-quote.service';
 import { AccountingService } from '../../accounting/tigerbeetle/accounting.service';
@@ -189,6 +195,8 @@ export class SwapWorkflowService {
     private readonly materialRequests: MaterialRequestsService,
     private readonly materialRequestIssuer: MaterialRequestIssuerService,
     private readonly l1Gate: L1GateService,
+    // 波五 Task 3：initiateUnfreeze/initiateRefund 走 maker-checker 正门。
+    private readonly approvalsService: ApprovalsService,
   ) {}
 
   private resolveLedger(currency: string): number {
@@ -1366,6 +1374,8 @@ export class SwapWorkflowService {
       reason?: string;
       fromStatus?: string;
       toStatus?: string;
+      approvalNo?: string;
+      causationId?: string;
       fundsOrderNo?: string;
       metadata?: Record<string, unknown>;
       actor?: AuditActorContext;
@@ -1382,6 +1392,11 @@ export class SwapWorkflowService {
     if (customerNo) {
       subjects.push({ subjectType: 'CUSTOMER', subjectNo: customerNo, subjectRole: AuditSubjectRole.OWNER });
     }
+    // 波五 Task 3：审批消费方审计（SWAP_UNFROZEN/SWAP_REFUNDED）逐字镜像
+    // withdrawAudit —— 审批单作为 INSTRUMENT 子主体挂进来。
+    if (patch.approvalNo) {
+      subjects.push({ subjectType: AuditEntityTypes.APPROVAL_CASE, subjectNo: patch.approvalNo, subjectRole: AuditSubjectRole.INSTRUMENT });
+    }
     if (patch.fundsOrderNo) {
       subjects.push({ subjectType: 'FUNDS_ORDER', subjectNo: patch.fundsOrderNo, subjectRole: AuditSubjectRole.RELATED });
     }
@@ -1393,11 +1408,13 @@ export class SwapWorkflowService {
       primarySubjectNo: swapNo,
       ownerCustomerNo: customerNo ?? undefined,
       correlationId: swap.correlationId ?? undefined,
+      causationId: patch.causationId,
       outcome: patch.outcome ?? AuditOutcome.SUCCESS,
       reasonCode: patch.reasonCode,
       reason: patch.reason,
       fromStatus: patch.fromStatus,
       toStatus: patch.toStatus,
+      approvalNo: patch.approvalNo,
       subjects,
       traceId: swap.traceId || undefined,
       metadata: patch.metadata,
@@ -1411,6 +1428,343 @@ export class SwapWorkflowService {
       if (client) await this.auditLogsService.recordSystem(input as any, client);
       else await this.auditLogsService.recordSystem(input as any);
     }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // 波五 Task 3 — FROZEN maker-checker 解冻/拒退全链。逐字镜像
+  // WithdrawWorkflowService.initiateUnfreeze/onUnfreezeDecided/onUnfreezeApproved/
+  // fetchApprovedOrderRef/triggerUnfreezeRescore/initiateRefund/onRefundDecided/
+  // onRefundApproved（withdraw-workflow.service.ts Task 8/9 段落）。两条出边
+  // （resume→COMPLIANCE_PENDING / reject_refund→REJECTED）已在 Task 2 的迁移表
+  // 开好，本节只接审批消费方。
+  // ═══════════════════════════════════════════════════════════════════════
+
+  private toAuditActor(actor: ApprovalActorContext): AuditActorContext {
+    return {
+      actorType: actor.actorType,
+      actorNo: actor.userNo || 'UNKNOWN',
+      actorDisplayName: actor.userNo || 'UNKNOWN',
+      actorRolesAtTime: [actor.role || actor.roleCodes[0] || 'UNKNOWN'],
+    };
+  }
+
+  /**
+   * UNFREEZE disposition（提出侧）：ops 对一笔 FROZEN 的 swap 提出解冻（名单命中
+   * 更正 / MLRO 澄清等），走 V1 单步 MLRO maker-checker。只开审批案 + 写请求
+   * 审计，不写 swap 表任何字段；真正的 resume→COMPLIANCE_PENDING 落地在
+   * onUnfreezeApproved（Task 9 型决策事件驱动）。
+   */
+  async initiateUnfreeze(
+    swapId: string,
+    dto: { orderRef: string; reason: string },
+    actor: ApprovalActorContext,
+  ) {
+    if (!dto.orderRef?.trim()) {
+      throw new BadRequestException('Delisting/unfreeze order reference is required');
+    }
+    if (!dto.reason?.trim()) {
+      throw new BadRequestException('Unfreeze reason is required');
+    }
+
+    const swap = await this.swapTransactionsService.findByIdInternal(swapId);
+    if (!swap || swap.status !== SwapTransactionStatus.FROZEN) {
+      throw new BadRequestException('Swap is not FROZEN, cannot open an unfreeze approval');
+    }
+
+    // 防重：一张单不能同时挂两个待批的解冻审批。
+    const openUnfreezes = await this.approvalsService.list({
+      actionType: ApprovalActionTypes.SWAP_UNFREEZE,
+      entityRef: swap.swapNo,
+      status: ApprovalStatuses.PENDING,
+      take: 1,
+    });
+    if (openUnfreezes.total > 0) {
+      throw new ConflictException(
+        `Swap ${swap.swapNo} already has a pending unfreeze approval; resolve it before submitting another.`,
+      );
+    }
+
+    const traceId = swap.traceId || randomUUID();
+    const approvalCase = await this.approvalsService.createAndSubmit(
+      {
+        actionType: ApprovalActionTypes.SWAP_UNFREEZE,
+        entityRef: swap.swapNo,
+        traceId,
+        objectSnapshot: {
+          swapNo: swap.swapNo,
+          ownerType: swap.ownerType,
+          ownerId: swap.ownerId,
+          orderRef: dto.orderRef,
+          reason: dto.reason,
+        },
+      },
+      { reason: dto.reason, traceId },
+      actor,
+    );
+
+    await this.swapAudit(swap, {
+      action: 'SWAP_UNFREEZE_REQUESTED',
+      reason: dto.reason,
+      approvalNo: approvalCase.approvalNo,
+      metadata: { orderRef: dto.orderRef },
+      actor: this.toAuditActor(actor),
+      sourcePlatform: 'ADMIN_API',
+    });
+
+    return {
+      swapNo: swap.swapNo,
+      approvalNo: approvalCase.approvalNo,
+      status: 'PENDING_APPROVAL',
+    };
+  }
+
+  /**
+   * SANCTION REFUND disposition（提出侧）：ops 对一笔 FROZEN 的 swap 提出拒退，
+   * 走 V1 单步 MLRO maker-checker。只开审批案 + 写请求审计；真正的
+   * reject_refund→REJECTED 落地在 onRefundApproved。
+   */
+  async initiateRefund(
+    swapId: string,
+    dto: { reason: string },
+    actor: ApprovalActorContext,
+  ) {
+    if (!dto.reason?.trim()) {
+      throw new BadRequestException('Refund reason is required');
+    }
+
+    const swap = await this.swapTransactionsService.findByIdInternal(swapId);
+    if (!swap || swap.status !== SwapTransactionStatus.FROZEN) {
+      throw new BadRequestException('Swap is not FROZEN, cannot open a sanction-refund approval');
+    }
+
+    const openRefunds = await this.approvalsService.list({
+      actionType: ApprovalActionTypes.SWAP_SANCTION_REFUND,
+      entityRef: swap.swapNo,
+      status: ApprovalStatuses.PENDING,
+      take: 1,
+    });
+    if (openRefunds.total > 0) {
+      throw new ConflictException(
+        `Swap ${swap.swapNo} already has a pending sanction-refund approval; resolve it before submitting another.`,
+      );
+    }
+
+    const traceId = swap.traceId || randomUUID();
+    const approvalCase = await this.approvalsService.createAndSubmit(
+      {
+        actionType: ApprovalActionTypes.SWAP_SANCTION_REFUND,
+        entityRef: swap.swapNo,
+        traceId,
+        objectSnapshot: {
+          swapNo: swap.swapNo,
+          ownerType: swap.ownerType,
+          ownerId: swap.ownerId,
+          reason: dto.reason,
+        },
+      },
+      { reason: dto.reason, traceId },
+      actor,
+    );
+
+    await this.swapAudit(swap, {
+      action: 'SWAP_REFUND_REQUESTED',
+      reason: dto.reason,
+      approvalNo: approvalCase.approvalNo,
+      actor: this.toAuditActor(actor),
+      sourcePlatform: 'ADMIN_API',
+    });
+
+    return {
+      swapNo: swap.swapNo,
+      approvalNo: approvalCase.approvalNo,
+      status: 'PENDING_APPROVAL',
+    };
+  }
+
+  /**
+   * UNFREEZE decided：SwapUnfreezeApprovalService（ApprovalHandlerBase 子类）
+   * 把 governance.approval.* 过滤到 SWAP_UNFREEZE 后转发的
+   * workflow.swap-unfreeze.decided。APPROVED → onUnfreezeApproved；其余结局
+   * （DECLINED/CANCELLED/EXPIRED）只记日志，swap 原地不动（继续 FROZEN）。
+   */
+  @OnEvent('workflow.swap-unfreeze.decided', { async: true })
+  async onUnfreezeDecided(payload: {
+    decision: 'APPROVED' | 'DECLINED' | 'CANCELLED' | 'EXPIRED';
+    entityRef: string;
+    approvalId: string;
+    approvalNo: string;
+    decisionReason?: string | null;
+  }) {
+    if (payload.decision !== 'APPROVED') {
+      this.logger.log(
+        `Swap ${payload.entityRef} unfreeze ${payload.decision} (case ${payload.approvalNo}) — original state intact, no unfreeze executed.`,
+      );
+      return;
+    }
+    await this.onUnfreezeApproved(payload.entityRef, payload.approvalNo, payload.approvalId);
+  }
+
+  /**
+   * 从最近一个 APPROVED 的 SWAP_UNFREEZE 审批件 objectSnapshot 里回取
+   * orderRef —— ApprovalDecidedEvent.metadata 恒为 {}（approval-handler.base.ts
+   * 的 emitDecidedEvent 里如此），故必须在这里重新查一次，不能靠事件负载携带。
+   * 抛出而非静默兜底：initiateUnfreeze 已在开审批时校验过 orderRef 非空，这里
+   * 查不到就是数据损坏而非正常路径——且这次查询发生在任何状态变更之前
+   * （guard-before-mutate），抛出时 swap 原样未动（仍是 FROZEN）。
+   */
+  private async fetchApprovedOrderRef(swapNo: string, actionType: string): Promise<string> {
+    const { items } = await this.approvalsService.list({
+      actionType,
+      entityRef: swapNo,
+      status: ApprovalStatuses.APPROVED,
+      take: 1,
+    });
+    const snapshot = items[0]?.objectSnapshot as { orderRef?: string } | null;
+    const orderRef = snapshot?.orderRef;
+    if (!orderRef) {
+      throw new Error(
+        `Swap ${swapNo}: no APPROVED ${actionType} case with an orderRef found in objectSnapshot`,
+      );
+    }
+    return orderRef;
+  }
+
+  /**
+   * Best-effort：解冻回 COMPLIANCE_PENDING 后重新送一次 Sumsub KYT 打分（卖出腿
+   * sumsubTxnIdOut）——解冻的意义就在于用新裁决驱动状态机，而不是继续挂着冻结
+   * 前的旧裁决。rescore 是外部 HTTP 调用——必须 try/catch：跑到这一步时 resume
+   * 已经落库、SWAP_UNFROZEN 审计已经写完，rescore 失败只能警告，绝不能让已经
+   * 提交的状态回滚（镜像 withdraw 同名方法的 I2 教训：外部 HTTP 调用绝不许回滚
+   * 已提交状态）。
+   */
+  private async triggerUnfreezeRescore(swap: { id: string; sumsubTxnIdOut?: string | null }): Promise<void> {
+    if (!swap.sumsubTxnIdOut) {
+      this.logger.warn(
+        `Unfreeze rescore skip: swap ${swap.id} has no sumsubTxnIdOut — never submitted to Sumsub`,
+      );
+      return;
+    }
+
+    try {
+      await this.sumsubTxnClient.rescore(swap.sumsubTxnIdOut);
+    } catch (err) {
+      this.logger.warn(
+        `Unfreeze rescore failed for swap ${swap.id}: ${(err as Error).message} — ` +
+          `swap remains COMPLIANCE_PENDING for webhook/manual re-submit`,
+      );
+    }
+  }
+
+  /**
+   * UNFREEZE approved：解冻回 COMPLIANCE_PENDING 续审。零记账——2026-09-14 裁定
+   * 翻案后 FROZEN 押锁不放，卖出侧出生锁全程没动过，没有反向腿要冲。顺序：
+   *   1. 只在 FROZEN 上生效——重放的 decided 事件若这时 swap 已经离开 FROZEN，
+   *      判为 no-op 而不是崩。
+   *   2. 变更任何东西之前先取 orderRef（fetchApprovedOrderRef）——APPROVED 件
+   *      没 orderRef 就抛出，swap 原样不动。
+   *   3. RESUME → COMPLIANCE_PENDING（markStatus），同一事务内顺手清掉冻结时
+   *      打上的 rejectReason —— markStatus 本身只在 opts.rejectReason 存在时
+   *      才写、从不清空（见 swap-transactions.service.ts markStatus 的 opts
+   *      写入逻辑），解冻回普通合规审的单不该继续带着 'SANCTION_APPLICANT' 之
+   *      类的陈旧拒绝因由（管理台会显示"待审但已有拒绝因由"）。选择在同一事务
+   *      内补一笔 tx.swapTransaction.update 而非改 markStatus 本身的签名——
+   *      markStatus 有十余个调用点，改共享方法的写入语义影响面太大，这里补一
+   *      笔窄范围的收尾更新是更小的改动。
+   *   4. 审计 SWAP_UNFROZEN，reason 里带 orderRef，approvalNo/causationId 满足
+   *      词表 requiredFields/requiresCausation。
+   *   5. Best-effort rescore（triggerUnfreezeRescore）——绝不上抛。
+   * 全程零记账调用——锁维持原样。
+   */
+  private async onUnfreezeApproved(swapNo: string, approvalNo?: string, causationId?: string) {
+    const swap = await this.swapTransactionsService.findByNoInternal(swapNo);
+    if (swap.status !== SwapTransactionStatus.FROZEN) {
+      this.logger.warn(
+        `onUnfreezeApproved no-op: swap ${swapNo} not in FROZEN (status=${swap.status})`,
+      );
+      return;
+    }
+
+    const orderRef = await this.fetchApprovedOrderRef(swap.swapNo, ApprovalActionTypes.SWAP_UNFREEZE);
+
+    await this.prisma.$transaction(async (tx: any) => {
+      await this.swapTransactionsService.markStatus(
+        swap.id,
+        SwapTransactionAction.RESUME,
+        tx,
+        { operator: 'MLRO_APPROVAL' },
+      );
+      await tx.swapTransaction.update({ where: { id: swap.id }, data: { rejectReason: null } });
+    });
+
+    await this.swapAudit(swap, {
+      action: 'SWAP_UNFROZEN',
+      reason: `Unfreeze order ${orderRef} — swap resumed to COMPLIANCE_PENDING`,
+      approvalNo,
+      causationId,
+      fromStatus: SwapTransactionStatus.FROZEN,
+      toStatus: SwapTransactionStatus.COMPLIANCE_PENDING,
+      metadata: { orderRef },
+    });
+
+    await this.triggerUnfreezeRescore(swap);
+  }
+
+  /**
+   * SANCTION REFUND decided：SwapSanctionRefundApprovalService 转发的
+   * workflow.swap-sanction-refund.decided。APPROVED → onRefundApproved；其余
+   * 结局只记日志，swap 原地不动。
+   */
+  @OnEvent('workflow.swap-sanction-refund.decided', { async: true })
+  async onRefundDecided(payload: {
+    decision: 'APPROVED' | 'DECLINED' | 'CANCELLED' | 'EXPIRED';
+    entityRef: string;
+    approvalId: string;
+    approvalNo: string;
+    decisionReason?: string | null;
+  }) {
+    if (payload.decision !== 'APPROVED') {
+      this.logger.log(
+        `Swap ${payload.entityRef} sanction-refund ${payload.decision} (case ${payload.approvalNo}) — original state intact, no refund executed.`,
+      );
+      return;
+    }
+    await this.onRefundApproved(payload.entityRef, payload.approvalNo, payload.approvalId);
+  }
+
+  /**
+   * SANCTION REFUND approved：拒绝这笔 swap 并把卖出侧出生锁放回客户可用余额。
+   * 顺序镜像 withdraw 的 onRefundApproved：先落状态迁移，再放锁
+   * （releaseBirthLock —— Task 2 保留至今、专等本方法调用的落地点），最后审计。
+   */
+  private async onRefundApproved(swapNo: string, approvalNo?: string, causationId?: string) {
+    const swap = await this.swapTransactionsService.findByNoInternal(swapNo);
+    if (swap.status !== SwapTransactionStatus.FROZEN) {
+      this.logger.warn(
+        `onRefundApproved no-op: swap ${swapNo} not in FROZEN (status=${swap.status})`,
+      );
+      return;
+    }
+
+    await this.prisma.$transaction(async (tx: any) => {
+      await this.swapTransactionsService.markStatus(
+        swap.id,
+        SwapTransactionAction.REJECT_REFUND,
+        tx,
+        { operator: 'MLRO_APPROVAL' },
+      );
+    });
+
+    const releasedFromAmount = await this.releaseBirthLock(swap, 'Sanction refund approved (SWAP_SANCTION_REFUND)');
+
+    await this.swapAudit(swap, {
+      action: 'SWAP_REFUNDED',
+      reason: 'Sanction refund approved — swap rejected and sell-side lock released to customer balance',
+      approvalNo,
+      causationId,
+      fromStatus: SwapTransactionStatus.FROZEN,
+      toStatus: SwapTransactionStatus.REJECTED,
+      metadata: { releasedFromAmount },
+    });
   }
 
   /**

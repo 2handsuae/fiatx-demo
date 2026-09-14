@@ -95,6 +95,9 @@ export const AuditBusinessWorkflowTypes = {
   // Withdraw FROZEN Unfreeze/Sanction-Refund maker-checker approvals (Task 8, 2026-08-03) — 复刻 DEPOSIT_UNFREEZE
   WITHDRAW_UNFREEZE: 'WITHDRAW_UNFREEZE',
   WITHDRAW_SANCTION_REFUND: 'WITHDRAW_SANCTION_REFUND',
+  // Swap FROZEN Unfreeze/Sanction-Refund maker-checker approvals（波五 Task 3，2026-09-14）— 复刻 WITHDRAW_UNFREEZE
+  SWAP_UNFREEZE: 'SWAP_UNFREEZE',
+  SWAP_SANCTION_REFUND: 'SWAP_SANCTION_REFUND',
   // 平账 B 批（2026-09-03）：出款后被银行退回的认领
   WITHDRAW_RETURN_CLAIM: 'WITHDRAW_RETURN_CLAIM',
   // Withdrawal Fee Level (2026-05-30)
@@ -833,6 +836,11 @@ export const V6_SWAP_AUDIT_ACTIONS: Record<string, AuditActionSpec> = {
   SWAP_KYT_REJECTED_DISPOSED:{ domain: 'SWAP', correlationMode: I, requiredFields: ['reason'], requiresCausation: false },
   // ── 冻结（1）────────────────────────────────────────────
   SWAP_FROZEN:               { domain: 'SWAP', correlationMode: I, requiredFields: ['fromStatus', 'toStatus'], requiresCausation: false },
+  // ── 冻结处置（4，波五 Task 3）—— 逐字镜像 WITHDRAW 侧同名码 ──────
+  SWAP_UNFREEZE_REQUESTED:   { domain: 'SWAP', correlationMode: I, requiredFields: [], requiresCausation: false },
+  SWAP_UNFROZEN:             { domain: 'SWAP', correlationMode: I, requiredFields: ['approvalNo'], requiresCausation: true },
+  SWAP_REFUND_REQUESTED:     { domain: 'SWAP', correlationMode: I, requiredFields: [], requiresCausation: false },
+  SWAP_REFUNDED:             { domain: 'SWAP', correlationMode: I, requiredFields: ['fromStatus', 'toStatus'], requiresCausation: false },
   // ── 结算四腿（5）────────────────────────────────────────
   SWAP_LEG_POSTED:           { domain: 'SWAP', correlationMode: I, requiredFields: [], requiresCausation: false },
   SWAP_LEG_RETRIED:          { domain: 'SWAP', correlationMode: I, requiredFields: [], requiresCausation: false },

@@ -23,6 +23,10 @@ export const ENTITY_ROUTE_BY_ACTION: Record<string, (ref: string) => string | nu
   DEPOSIT_RETURN: (r) => `/admin/trading/deposits?keyword=${r}`,
   DEPOSIT_SEIZE: (r) => `/admin/trading/deposits?keyword=${r}`,
   DEPOSIT_UNFREEZE: (r) => `/admin/trading/deposits?keyword=${r}`,
+  // 波五 Task 3：swap 详情路由直达业务号（Task 9 三域详情路由换业务号后
+  // r=swapNo 天然成立；本条先按目标形状落地，不等 Task 9）。
+  SWAP_UNFREEZE: (r) => `/admin/trading/swaps/${r}`,
+  SWAP_SANCTION_REFUND: (r) => `/admin/trading/swaps/${r}`,
   // 资产域（entityRef = assetNo / ruleNo）
   ASSET_SUSPENSION: (r) => `/admin/assets/${r}`,
   ASSET_REACTIVATION: (r) => `/admin/assets/${r}`,

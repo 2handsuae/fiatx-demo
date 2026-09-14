@@ -1,12 +1,13 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import {
   IsEnum,
+  IsNotEmpty,
   IsNumber,
   IsOptional,
   IsString,
   IsUUID,
 } from 'class-validator';
-import { Type } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import { InternalFundAction } from '../../../funds-layer/dto/internal-fund.dto';
 
 export enum SwapTransactionStatus {
@@ -78,6 +79,27 @@ export class AdvanceSwapLegDto {
   @ApiProperty({ enum: InternalFundAction, description: 'Action to apply to the swap settlement leg' })
   @IsEnum(InternalFundAction)
   action!: InternalFundAction;
+}
+
+// 波五 Task 3：FROZEN 解冻/拒退审批全链入参——逐字镜像
+// withdraw-transaction.dto.ts 的 UnfreezeWithdrawTransactionDto / SanctionRefundWithdrawTransactionDto。
+export class UnfreezeSwapTransactionDto {
+  @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
+  @IsNotEmpty()
+  @IsString()
+  orderRef!: string;
+
+  @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
+  @IsNotEmpty()
+  @IsString()
+  reason!: string;
+}
+
+export class SanctionRefundSwapTransactionDto {
+  @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
+  @IsNotEmpty()
+  @IsString()
+  reason!: string;
 }
 
 export class SwapTransactionQueryDto {

@@ -17,6 +17,9 @@ import { SumsubTxnClientModule } from '../../sumsub-shared/sumsub-txn-client.mod
 import { CustomersModule } from '../../identity/customers/customers.module';
 import { MaterialRequestsModule } from '../../identity/material-requests/material-requests.module';
 import { L1GateModule } from '../shared/l1-gate/l1-gate.module';
+import { ApprovalsModule } from '../../governance/approvals/approvals.module';
+import { SwapUnfreezeApprovalService } from './swap-unfreeze-approval.service';
+import { SwapSanctionRefundApprovalService } from './swap-sanction-refund-approval.service';
 
 @Module({
   imports: [
@@ -65,9 +68,18 @@ import { L1GateModule } from '../shared/l1-gate/l1-gate.module';
     MaterialRequestsModule,
     // B2（第四批）：SwapWorkflowService 注入 L1GateService（三域共用的 L1 快照求值器）。
     L1GateModule,
+    // 波五 Task 3：SwapWorkflowService 注入 ApprovalsService（initiateUnfreeze/
+    // initiateRefund 走 maker-checker 正门），同 WithdrawTransactionsModule 的引法。
+    ApprovalsModule,
   ],
   controllers: [SwapTransactionsController, SwapTransactionsCustomerController],
-  providers: [SwapTransactionsService, SwapWorkflowService, SwapLegAccounting],
+  providers: [
+    SwapTransactionsService,
+    SwapWorkflowService,
+    SwapLegAccounting,
+    SwapUnfreezeApprovalService,
+    SwapSanctionRefundApprovalService,
+  ],
   exports: [SwapTransactionsService, SwapWorkflowService],
 })
 export class SwapTransactionsModule {}

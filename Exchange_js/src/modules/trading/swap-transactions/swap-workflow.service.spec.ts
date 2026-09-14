@@ -21,6 +21,10 @@ import { Prisma } from '@prisma/client';
 import { FundsOrderStatus } from '../../funds-orders/dto/funds-order.dto';
 import { SwapTransactionAction, SwapTransactionStatus } from './dto/swap-transaction.dto';
 import { buildSwapLegPlan } from '../../funds-layer/constants/swap-leg-plan.constant';
+import {
+  ApprovalActionTypes,
+  ApprovalStatuses,
+} from '../../governance/approvals/constants/approval.constants';
 import type { L1Snapshot } from '../shared/l1-gate/l1-gate.types';
 
 // ── helpers ─────────────────────────────────────────────────────────────────
@@ -243,6 +247,7 @@ function makeService(mocks: ReturnType<typeof buildMocks>) {
     {} as any, // materialRequests — not on this path
     {} as any, // materialRequestIssuer — not on this path
     mocks.l1Gate as any,
+    {} as any, // approvalsService — not on this path (initiateSwap never opens FROZEN unfreeze/refund)
   );
 }
 
@@ -848,6 +853,7 @@ function makeAdvanceLegService(mocks: ReturnType<typeof buildAdvanceLegMocks>) {
     {} as any, // materialRequests — not on this path
     {} as any, // materialRequestIssuer — not on this path
     {} as any, // l1Gate — not on this path (advanceLeg 不建单)
+    {} as any, // approvalsService — not on this path
   );
 }
 
@@ -1571,6 +1577,7 @@ describe('SwapWorkflowService.applyKytVerdict', () => {
       mocks.materialRequests as any,
       mocks.materialRequestIssuer as any,
       {} as any, // l1Gate — not on this path (applyKytVerdict 不建单)
+      {} as any, // approvalsService — not on this path
     );
   }
 
@@ -2696,6 +2703,7 @@ describe('SwapWorkflowService.onCustomerRestrictionOpened (Task 9 — FROZEN 落
       {} as any, // materialRequests — not on this path
       {} as any, // materialRequestIssuer — not on this path
       {} as any, // l1Gate — not on this path (限制便签监听器不建单)
+      {} as any, // approvalsService — not on this path
     );
   }
 
@@ -2793,5 +2801,510 @@ describe('SwapWorkflowService.onCustomerRestrictionOpened (Task 9 — FROZEN 落
     expect(mocks.auditLogsService.recordSystem).not.toHaveBeenCalledWith(
       expect.objectContaining({ action: AuditActions.SWAP_FROZEN }),
     );
+  });
+});
+
+// ─────────────────────────────────────────────────────────────
+// 波五 Task 3：FROZEN 解冻/拒退审批全链——逐字镜像
+// WithdrawWorkflowService.initiateUnfreeze/initiateRefund 的测试形状（非
+// FROZEN → BadRequest，重复 PENDING → Conflict，happy path → createAndSubmit
+// 带正确 actionType + objectSnapshot，不写 swap 表）。
+// ─────────────────────────────────────────────────────────────
+
+describe('SwapWorkflowService.initiateUnfreeze / initiateRefund（波五 Task 3）', () => {
+  const actor = {
+    actorType: 'ADMIN' as const,
+    userId: 'admin-1',
+    userNo: 'A0001',
+    role: 'MLRO',
+    roleCodes: ['MLRO'],
+  };
+
+  const frozenSwap = {
+    id: 'swap-frozen-1',
+    swapNo: 'SWP-FROZEN-1',
+    status: SwapTransactionStatus.FROZEN,
+    ownerType: 'CUSTOMER',
+    ownerId: 'cust-frozen-1',
+    traceId: 'trace-frozen-1',
+  };
+
+  function buildFrozenWorkflow(overrides: {
+    swapTransactionsService?: Partial<Record<string, jest.Mock>>;
+    approvalsService?: Partial<Record<string, jest.Mock>>;
+  } = {}) {
+    const swapTransactionsService = {
+      findByIdInternal: jest.fn().mockResolvedValue(frozenSwap),
+      findByNoInternal: jest.fn().mockResolvedValue(frozenSwap),
+      markStatus: jest.fn().mockResolvedValue('MOCKED'),
+      ...overrides.swapTransactionsService,
+    };
+    const auditLogsService = {
+      recordByActor: jest.fn().mockResolvedValue({}),
+      recordSystem: jest.fn().mockResolvedValue({}),
+    };
+    const approvalsService = {
+      list: jest.fn().mockResolvedValue({ total: 0 }),
+      createAndSubmit: jest.fn().mockResolvedValue({ id: 'ap-1', approvalNo: 'AP-FROZEN-1' }),
+      ...overrides.approvalsService,
+    };
+    const prisma: any = {
+      $transaction: jest.fn((cb: (tx: any) => Promise<any>) =>
+        cb({ swapTransaction: { update: jest.fn(() => Promise.resolve({})) } }),
+      ),
+    };
+
+    const workflow = new SwapWorkflowService(
+      prisma,
+      {} as any, // swapQuoteService
+      swapTransactionsService as any,
+      {} as any, // accountingService
+      auditLogsService as any,
+      { emit: jest.fn() } as any, // eventEmitter
+      {} as any, // swapLegAccounting
+      {} as any, // fundsOrders
+      {} as any, // walletQuery
+      {} as any, // limitGateService
+      { rescore: jest.fn().mockResolvedValue(undefined) } as any, // sumsubTxnClient
+      {} as any, // customerRestrictionsService
+      {} as any, // customersService
+      {} as any, // customerAccessService
+      {} as any, // materialRequests
+      {} as any, // materialRequestIssuer
+      {} as any, // l1Gate
+      approvalsService as any,
+    );
+
+    return { workflow, swapTransactionsService, auditLogsService, approvalsService, prisma };
+  }
+
+  describe('initiateUnfreeze', () => {
+    it('non-FROZEN swap → BadRequestException, no approval case opened', async () => {
+      const { workflow, approvalsService } = buildFrozenWorkflow({
+        swapTransactionsService: {
+          findByIdInternal: jest.fn().mockResolvedValue({
+            ...frozenSwap,
+            status: SwapTransactionStatus.COMPLIANCE_PENDING,
+          }),
+        },
+      });
+
+      await expect(
+        workflow.initiateUnfreeze('swap-frozen-1', { orderRef: 'ORDER-1', reason: 'delisted' }, actor),
+      ).rejects.toThrow('not FROZEN');
+      expect(approvalsService.createAndSubmit).not.toHaveBeenCalled();
+    });
+
+    it('empty orderRef → BadRequestException, no approval case opened', async () => {
+      const { workflow, approvalsService } = buildFrozenWorkflow();
+
+      await expect(
+        workflow.initiateUnfreeze('swap-frozen-1', { orderRef: '  ', reason: 'delisted' }, actor),
+      ).rejects.toThrow('order reference is required');
+      expect(approvalsService.createAndSubmit).not.toHaveBeenCalled();
+    });
+
+    it('empty reason → BadRequestException, no approval case opened', async () => {
+      const { workflow, approvalsService } = buildFrozenWorkflow();
+
+      await expect(
+        workflow.initiateUnfreeze('swap-frozen-1', { orderRef: 'ORDER-1', reason: '' }, actor),
+      ).rejects.toThrow('reason is required');
+      expect(approvalsService.createAndSubmit).not.toHaveBeenCalled();
+    });
+
+    it('duplicate open PENDING unfreeze approval → ConflictException', async () => {
+      const { workflow, approvalsService } = buildFrozenWorkflow({
+        approvalsService: { list: jest.fn().mockResolvedValue({ total: 1 }) },
+      });
+
+      await expect(
+        workflow.initiateUnfreeze('swap-frozen-1', { orderRef: 'ORDER-1', reason: 'delisted' }, actor),
+      ).rejects.toThrow('already has a pending unfreeze approval');
+      expect(approvalsService.list).toHaveBeenCalledWith(
+        expect.objectContaining({
+          actionType: ApprovalActionTypes.SWAP_UNFREEZE,
+          entityRef: 'SWP-FROZEN-1',
+          status: ApprovalStatuses.PENDING,
+        }),
+      );
+      expect(approvalsService.createAndSubmit).not.toHaveBeenCalled();
+    });
+
+    it('happy path: opens a SWAP_UNFREEZE approval case with orderRef/swapNo in the snapshot, no write to the swap row', async () => {
+      const { workflow, swapTransactionsService, approvalsService, auditLogsService } = buildFrozenWorkflow();
+
+      const result = await workflow.initiateUnfreeze(
+        'swap-frozen-1',
+        { orderRef: 'ORDER-REF-42', reason: 'Sanction list correction' },
+        actor,
+      );
+
+      expect(approvalsService.createAndSubmit).toHaveBeenCalledWith(
+        expect.objectContaining({
+          actionType: ApprovalActionTypes.SWAP_UNFREEZE,
+          entityRef: 'SWP-FROZEN-1',
+          objectSnapshot: expect.objectContaining({
+            swapNo: 'SWP-FROZEN-1',
+            ownerType: 'CUSTOMER',
+            ownerId: 'cust-frozen-1',
+            orderRef: 'ORDER-REF-42',
+          }),
+        }),
+        expect.objectContaining({ reason: 'Sanction list correction' }),
+        actor,
+      );
+      // 铁律③：initiate 只读不写——写单据是 onUnfreezeApproved 的事。
+      expect(swapTransactionsService.markStatus).not.toHaveBeenCalled();
+      expect(auditLogsService.recordByActor).toHaveBeenCalledTimes(1);
+      expect(result).toEqual(
+        expect.objectContaining({ swapNo: 'SWP-FROZEN-1', approvalNo: 'AP-FROZEN-1', status: 'PENDING_APPROVAL' }),
+      );
+    });
+  });
+
+  describe('initiateRefund', () => {
+    it('non-FROZEN swap → BadRequestException, no approval case opened', async () => {
+      const { workflow, approvalsService } = buildFrozenWorkflow({
+        swapTransactionsService: {
+          findByIdInternal: jest.fn().mockResolvedValue({
+            ...frozenSwap,
+            status: SwapTransactionStatus.PROCESSING,
+          }),
+        },
+      });
+
+      await expect(
+        workflow.initiateRefund('swap-frozen-1', { reason: 'sanction hit' }, actor),
+      ).rejects.toThrow('not FROZEN');
+      expect(approvalsService.createAndSubmit).not.toHaveBeenCalled();
+    });
+
+    it('empty reason → BadRequestException, no approval case opened', async () => {
+      const { workflow, approvalsService } = buildFrozenWorkflow();
+
+      await expect(
+        workflow.initiateRefund('swap-frozen-1', { reason: '   ' }, actor),
+      ).rejects.toThrow('reason is required');
+      expect(approvalsService.createAndSubmit).not.toHaveBeenCalled();
+    });
+
+    it('duplicate open PENDING sanction-refund approval → ConflictException', async () => {
+      const { workflow, approvalsService } = buildFrozenWorkflow({
+        approvalsService: { list: jest.fn().mockResolvedValue({ total: 1 }) },
+      });
+
+      await expect(
+        workflow.initiateRefund('swap-frozen-1', { reason: 'sanction hit' }, actor),
+      ).rejects.toThrow('already has a pending sanction-refund approval');
+      expect(approvalsService.list).toHaveBeenCalledWith(
+        expect.objectContaining({
+          actionType: ApprovalActionTypes.SWAP_SANCTION_REFUND,
+          entityRef: 'SWP-FROZEN-1',
+          status: ApprovalStatuses.PENDING,
+        }),
+      );
+      expect(approvalsService.createAndSubmit).not.toHaveBeenCalled();
+    });
+
+    it('happy path: opens a SWAP_SANCTION_REFUND approval case with swapNo in the snapshot, no write to the swap row', async () => {
+      const { workflow, swapTransactionsService, approvalsService, auditLogsService } = buildFrozenWorkflow();
+
+      const result = await workflow.initiateRefund(
+        'swap-frozen-1',
+        { reason: 'Sanctions hit confirmed — refund to sender' },
+        actor,
+      );
+
+      expect(approvalsService.createAndSubmit).toHaveBeenCalledWith(
+        expect.objectContaining({
+          actionType: ApprovalActionTypes.SWAP_SANCTION_REFUND,
+          entityRef: 'SWP-FROZEN-1',
+          objectSnapshot: expect.objectContaining({
+            swapNo: 'SWP-FROZEN-1',
+            ownerType: 'CUSTOMER',
+            ownerId: 'cust-frozen-1',
+          }),
+        }),
+        expect.objectContaining({ reason: 'Sanctions hit confirmed — refund to sender' }),
+        actor,
+      );
+      expect(swapTransactionsService.markStatus).not.toHaveBeenCalled();
+      expect(auditLogsService.recordByActor).toHaveBeenCalledTimes(1);
+      expect(result).toEqual(
+        expect.objectContaining({ swapNo: 'SWP-FROZEN-1', approvalNo: 'AP-FROZEN-1', status: 'PENDING_APPROVAL' }),
+      );
+    });
+  });
+});
+
+// ─────────────────────────────────────────────────────────────
+// 波五 Task 3（执行侧）：onUnfreezeDecided/onUnfreezeApproved/onRefundDecided/
+// onRefundApproved。逐字镜像 WithdrawWorkflowService 同名测试的形状：
+// guard-before-mutate（orderRef 缺失必须在 markStatus 之前抛）、rescore 失败
+// 不上抛、非 FROZEN 是 no-op、DECLINED/CANCELLED/EXPIRED 不动行。
+// ─────────────────────────────────────────────────────────────
+
+describe('SwapWorkflowService — 波五 Task 3：FROZEN 执行侧', () => {
+  const frozenSwap = {
+    id: 'swap-frozen-9',
+    swapNo: 'SWP-FROZEN-9',
+    status: SwapTransactionStatus.FROZEN,
+    ownerType: 'CUSTOMER',
+    ownerId: 'cust-frozen-9',
+    traceId: 'trace-frozen-9',
+    sumsubTxnIdOut: 'sumsub-txn-9',
+    rejectReason: 'SANCTION_APPLICANT',
+    fromAmount: new Prisma.Decimal(90),
+  };
+
+  function buildWorkflow(overrides: {
+    swapTransactionsService?: Partial<Record<string, jest.Mock>>;
+    approvalsService?: Partial<Record<string, jest.Mock>>;
+    sumsubTxnClient?: Partial<Record<string, jest.Mock>>;
+  } = {}) {
+    const swapTransactionsService = {
+      findByNoInternal: jest.fn().mockResolvedValue(frozenSwap),
+      markStatus: jest.fn().mockResolvedValue('MOCKED'),
+      ...overrides.swapTransactionsService,
+    };
+    const auditLogsService = { recordSystem: jest.fn().mockResolvedValue({}) };
+    const approvalsService = {
+      list: jest.fn().mockResolvedValue({
+        items: [{ objectSnapshot: { orderRef: 'ORDER-REF-9' } }],
+        total: 1,
+      }),
+      ...overrides.approvalsService,
+    };
+    const sumsubTxnClient = {
+      rescore: jest.fn().mockResolvedValue(undefined),
+      ...overrides.sumsubTxnClient,
+    };
+    const txUpdate = jest.fn(() => Promise.resolve({}));
+    const prisma: any = {
+      $transaction: jest.fn((cb: (tx: any) => Promise<any>) =>
+        cb({ swapTransaction: { update: txUpdate } }),
+      ),
+    };
+
+    const workflow = new SwapWorkflowService(
+      prisma,
+      {} as any, // swapQuoteService
+      swapTransactionsService as any,
+      {} as any, // accountingService
+      auditLogsService as any,
+      { emit: jest.fn() } as any, // eventEmitter
+      {} as any, // swapLegAccounting
+      {} as any, // fundsOrders
+      {} as any, // walletQuery
+      {} as any, // limitGateService
+      sumsubTxnClient as any,
+      {} as any, // customerRestrictionsService
+      {} as any, // customersService
+      {} as any, // customerAccessService
+      {} as any, // materialRequests
+      {} as any, // materialRequestIssuer
+      {} as any, // l1Gate
+      approvalsService as any,
+    );
+
+    return { workflow, swapTransactionsService, auditLogsService, approvalsService, sumsubTxnClient, prisma, txUpdate };
+  }
+
+  describe('onUnfreezeDecided / onUnfreezeApproved', () => {
+    it('APPROVED + FROZEN: RESUME → COMPLIANCE_PENDING, rejectReason 被清空, 审计带 orderRef/approvalNo/causationId, rescore 被调', async () => {
+      const { workflow, swapTransactionsService, auditLogsService, sumsubTxnClient, txUpdate } = buildWorkflow();
+
+      await workflow.onUnfreezeDecided({
+        decision: 'APPROVED',
+        entityRef: frozenSwap.swapNo,
+        approvalId: 'apr-id-1',
+        approvalNo: 'AP-UNFREEZE-1',
+      });
+
+      expect(swapTransactionsService.markStatus).toHaveBeenCalledWith(
+        frozenSwap.id,
+        SwapTransactionAction.RESUME,
+        expect.anything(),
+        expect.objectContaining({ operator: 'MLRO_APPROVAL' }),
+      );
+      // 硬约束②：RESUME 落地顺手清掉冻结时打上的 rejectReason。
+      expect(txUpdate).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { id: frozenSwap.id }, data: { rejectReason: null } }),
+      );
+      expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: 'SWAP_UNFROZEN',
+          approvalNo: 'AP-UNFREEZE-1',
+          causationId: 'apr-id-1',
+          fromStatus: SwapTransactionStatus.FROZEN,
+          toStatus: SwapTransactionStatus.COMPLIANCE_PENDING,
+          reason: expect.stringContaining('ORDER-REF-9'),
+        }),
+      );
+      expect(sumsubTxnClient.rescore).toHaveBeenCalledWith('sumsub-txn-9');
+    });
+
+    it('orderRef missing on the APPROVED case → throws BEFORE markStatus', async () => {
+      const { workflow, swapTransactionsService } = buildWorkflow({
+        approvalsService: {
+          list: jest.fn().mockResolvedValue({ items: [{ objectSnapshot: {} }], total: 1 }),
+        },
+      });
+
+      await expect(
+        workflow.onUnfreezeDecided({
+          decision: 'APPROVED',
+          entityRef: frozenSwap.swapNo,
+          approvalId: 'apr-id-1',
+          approvalNo: 'AP-UNFREEZE-2',
+        }),
+      ).rejects.toThrow('no APPROVED');
+      expect(swapTransactionsService.markStatus).not.toHaveBeenCalled();
+    });
+
+    it('rescore throws → resume 状态已提交，不上抛', async () => {
+      const { workflow, swapTransactionsService, auditLogsService, sumsubTxnClient } = buildWorkflow({
+        sumsubTxnClient: { rescore: jest.fn().mockRejectedValue(new Error('sumsub down')) },
+      });
+
+      await expect(
+        workflow.onUnfreezeDecided({
+          decision: 'APPROVED',
+          entityRef: frozenSwap.swapNo,
+          approvalId: 'apr-id-1',
+          approvalNo: 'AP-UNFREEZE-3',
+        }),
+      ).resolves.not.toThrow();
+
+      expect(swapTransactionsService.markStatus).toHaveBeenCalledTimes(1);
+      expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
+        expect.objectContaining({ action: 'SWAP_UNFROZEN' }),
+      );
+      expect(sumsubTxnClient.rescore).toHaveBeenCalledWith('sumsub-txn-9');
+    });
+
+    it('empty sumsubTxnIdOut → rescore skipped', async () => {
+      const { workflow, sumsubTxnClient } = buildWorkflow({
+        swapTransactionsService: {
+          findByNoInternal: jest.fn().mockResolvedValue({ ...frozenSwap, sumsubTxnIdOut: null }),
+          markStatus: jest.fn().mockResolvedValue('MOCKED'),
+        },
+      });
+
+      await workflow.onUnfreezeDecided({
+        decision: 'APPROVED',
+        entityRef: frozenSwap.swapNo,
+        approvalId: 'apr-id-1',
+        approvalNo: 'AP-UNFREEZE-4',
+      });
+
+      expect(sumsubTxnClient.rescore).not.toHaveBeenCalled();
+    });
+
+    it('non-FROZEN swap → no-op（markStatus 不调，orderRef 不查）', async () => {
+      const { workflow, swapTransactionsService, approvalsService } = buildWorkflow({
+        swapTransactionsService: {
+          findByNoInternal: jest.fn().mockResolvedValue({
+            ...frozenSwap,
+            status: SwapTransactionStatus.COMPLIANCE_PENDING,
+          }),
+          markStatus: jest.fn().mockResolvedValue('MOCKED'),
+        },
+      });
+
+      await workflow.onUnfreezeDecided({
+        decision: 'APPROVED',
+        entityRef: frozenSwap.swapNo,
+        approvalId: 'apr-id-1',
+        approvalNo: 'AP-UNFREEZE-5',
+      });
+
+      expect(swapTransactionsService.markStatus).not.toHaveBeenCalled();
+      expect(approvalsService.list).not.toHaveBeenCalled();
+    });
+
+    it('DECLINED → 什么都不执行，单不动', async () => {
+      const { workflow, swapTransactionsService, approvalsService } = buildWorkflow();
+
+      await workflow.onUnfreezeDecided({
+        decision: 'DECLINED',
+        entityRef: frozenSwap.swapNo,
+        approvalId: 'apr-id-1',
+        approvalNo: 'AP-UNFREEZE-6',
+      });
+
+      expect(swapTransactionsService.findByNoInternal).not.toHaveBeenCalled();
+      expect(swapTransactionsService.markStatus).not.toHaveBeenCalled();
+      expect(approvalsService.list).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('onRefundDecided / onRefundApproved', () => {
+    it('APPROVED + FROZEN: REJECT_REFUND → REJECTED, releaseBirthLock 恰被调一次（且晚于 markStatus）, 审计带 fromStatus/toStatus', async () => {
+      const { workflow, swapTransactionsService, auditLogsService } = buildWorkflow();
+      const releaseBirthLockSpy = jest.spyOn(workflow, 'releaseBirthLock').mockResolvedValue('90');
+
+      await workflow.onRefundDecided({
+        decision: 'APPROVED',
+        entityRef: frozenSwap.swapNo,
+        approvalId: 'apr-id-1',
+        approvalNo: 'AP-REFUND-1',
+      });
+
+      expect(swapTransactionsService.markStatus).toHaveBeenCalledWith(
+        frozenSwap.id,
+        SwapTransactionAction.REJECT_REFUND,
+        expect.anything(),
+        expect.objectContaining({ operator: 'MLRO_APPROVAL' }),
+      );
+      expect(releaseBirthLockSpy).toHaveBeenCalledTimes(1);
+      expect(releaseBirthLockSpy).toHaveBeenCalledWith(frozenSwap, expect.stringContaining('Sanction refund approved'));
+      expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: 'SWAP_REFUNDED',
+          approvalNo: 'AP-REFUND-1',
+          causationId: 'apr-id-1',
+          fromStatus: SwapTransactionStatus.FROZEN,
+          toStatus: SwapTransactionStatus.REJECTED,
+          metadata: expect.objectContaining({ releasedFromAmount: '90' }),
+        }),
+      );
+    });
+
+    it('non-FROZEN swap → no-op, releaseBirthLock 不调', async () => {
+      const { workflow, swapTransactionsService } = buildWorkflow({
+        swapTransactionsService: {
+          findByNoInternal: jest.fn().mockResolvedValue({ ...frozenSwap, status: SwapTransactionStatus.REJECTED }),
+          markStatus: jest.fn().mockResolvedValue('MOCKED'),
+        },
+      });
+      const releaseBirthLockSpy = jest.spyOn(workflow, 'releaseBirthLock').mockResolvedValue('90');
+
+      await workflow.onRefundDecided({
+        decision: 'APPROVED',
+        entityRef: frozenSwap.swapNo,
+        approvalId: 'apr-id-1',
+        approvalNo: 'AP-REFUND-2',
+      });
+
+      expect(swapTransactionsService.markStatus).not.toHaveBeenCalled();
+      expect(releaseBirthLockSpy).not.toHaveBeenCalled();
+    });
+
+    it('CANCELLED → 什么都不执行，单不动', async () => {
+      const { workflow, swapTransactionsService } = buildWorkflow();
+      const releaseBirthLockSpy = jest.spyOn(workflow, 'releaseBirthLock').mockResolvedValue('90');
+
+      await workflow.onRefundDecided({
+        decision: 'CANCELLED',
+        entityRef: frozenSwap.swapNo,
+        approvalId: 'apr-id-1',
+        approvalNo: 'AP-REFUND-3',
+      });
+
+      expect(swapTransactionsService.findByNoInternal).not.toHaveBeenCalled();
+      expect(releaseBirthLockSpy).not.toHaveBeenCalled();
+    });
   });
 });
