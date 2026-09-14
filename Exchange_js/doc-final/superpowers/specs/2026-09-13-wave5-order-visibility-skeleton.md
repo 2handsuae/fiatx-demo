@@ -74,7 +74,8 @@ F. 剧本站级细化 + 三幕完整走查截图收官
 |---|---|
 | 迁移表 | FROZEN 加两条出边：`RESUME → COMPLIANCE_PENDING`（解冻审批通过后系统驱动）、`REJECT_REFUND → REJECTED`（拒了退钱）。入边维持唯一 `COMPLIANCE_PENDING --freeze-->` 不变；PROCESSING 仍无冻结入边（停腿路线不动） |
 | 钱 | 两个冻结点撤 `releaseBirthLock` 调用（含审计 reason 里 "birth lock released to balance" 措辞同步改写）；`REJECT_REFUND` 边落地时放锁回余额；`RESUME` 不放锁，押着走完后续流程 |
-| 解冻审批 | 新审批类型（命名照充提解冻先例），合规官提（新权限码进 Trading 域"兑换"桶，对齐充提"提解冻"两桶的持有人口径）、**MLRO 裁决**；批准→RESUME 落地→照提现 resume 后的既有样子重新过一轮 KYT 裁决（`withdraw-workflow.service.ts:2218` rescore 同构）。判例「审批类型三处同加」（2026-09-05）适用 |
+| 解冻审批 | 新审批类型（命名照充提解冻先例），合规官提（新权限码进 Trading 域"兑换"桶，对齐充提"提解冻"两桶的持有人口径）、**MLRO 裁决**；批准→RESUME 落地→照提现 resume 后的既有样子重新过一轮 KYT 裁决（`withdraw-workflow.service.ts:2218` rescore 同构）。判例「审批类型三处同加」（2026-09-05）适用；**新审批策略必须往 `scripts/verify-rbac.ts` 的 `MAKER_GROUP_BY_POLICY` 加一行**（delivery-checklist：表外策略不受自批死锁闸保护）；**新权限组四处同时出现**（`PermissionGroup` 联合类型 / 至少一条 `route()` / `ACTION_BUCKET_CATALOG` 桶 / 至少一个职务持有） |
+| SLA 计时 | FROZEN 从终态变活态，按 delivery-checklist"新结局要回答要不要计时"：**对齐充提两域 FROZEN 的现状口径**（充提冻结态是否计 SLA，plan 时核对后 swap 照抄，不自创） |
 | REJECT_REFUND | 与提现域 FROZEN 的同名出边同构；发起面/权限码/是否免审批，plan 阶段逐字核对提现实现后照抄，不自创 |
 | 客户面 | `toCustomerSwapStatus`：FROZEN→`COMPLIANCE_PENDING`（替换现在的→REJECTED）；`toCustomerSwapView` 补 `completedAt` 显式白名单（现状靠"只有 SUCCESS 写它"的结构性偶然） |
 | 管理台 | `swapStatusMap.ts`：FROZEN 移出 `SWAP_TERMINAL_STATUSES`、动作行从 `{}` 补 Resume（发起解冻审批）/Reject 两动作；详情页接按钮 |
@@ -95,7 +96,9 @@ F. 剧本站级细化 + 三幕完整走查截图收官
 - `decisions.md` 五条：裁定台账 §1 之 1/2/3/4/6（翻案条必须写明被翻案的 2026-08-20 原裁定与新事实）
 - `BACKLOG.md`：§F Q1 订单级折叠——**以"已实现"销**（创建即冻+统一 processing 展示即折叠的落地形态）；§D `CAPABILITY_RESTRICTED` 原因不可辨条——管理台侧随 §4 解决后改写该条（客户面细分部分保留为"刻意不做"表述）；G1 相关表述按向下拉平改写
 - `modules/` v4/v5/v6 三篇：状态机图（swap 5 态 5 边→5 态 7 边）、客户可见性节、模拟面板按钮语义（⑨ 写实为"调查扣审（非制裁）"与 ⑦"制裁冻结"分讲两种制度）
-- 审计码计数同步（新增解冻审批族、退役无、文档 4 处计数位）
+- 审计码计数同步（新增解冻审批族、退役无、文档 4 处计数位）；新增审计码出生即四属性齐全、过 `assertActionSpec`
+- `CHANGELOG.md` 一合并一行
+- **战役收官归档**（波五是末波，无下一波承接）：合并后本波 spec 与总纲 `2026-09-09-acts345-trading-campaign-charter.md` 及历波 spec 一并移 `doc-final/archive/`（总纲 §5）；worktree+分支清理
 
 ## 3. B · 客户端词表统一
 
