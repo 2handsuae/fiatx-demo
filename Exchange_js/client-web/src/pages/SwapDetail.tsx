@@ -1,9 +1,12 @@
 import { useEffect, useState } from 'react';
-import { useLocation, useNavigate, useParams } from 'react-router-dom';
+import { useParams } from 'react-router-dom';
 import { ArrowLeft } from 'lucide-react';
 import { CustomerSessionError, customerFetch } from '../utils/customerFetch';
 import { getSwapStatusView } from '../utils/swapStatusView';
 import { formatAssetAmount, formatRate8 } from '../utils/number-format';
+import Field from '../components/detail/Field';
+import { useGoBack } from '../components/detail/useGoBack';
+import { Timeline } from '../components/detail/Timeline';
 
 /**
  * 客户面兑换详情页（第四批新增 —— 此前三域里唯一没有详情页的域：成交价、
@@ -19,6 +22,16 @@ import { formatAssetAmount, formatRate8 } from '../utils/number-format';
  * 与普通「处理中」逐字相同，这是 tipping-off 防线），这里拿到的就是可以直接显示的值，
  * 前端不做二次判断。徽章与 DepositDetail/WithdrawDetail 一样走中性配色，不按
  * tone 上色——详情页上让不同状态在视觉上一致，是同一条防线的延续。
+ *
+ * 本轮（Task 8）新增五键，同样出自 toCustomerSwapView() 白名单，逐一交代安全边界：
+ * quoteNo——报价业务号，规则⑥允许对外的业务键，不是内部 id；
+ * feeLines——服务端 toCustomerPricingFacts() 已从 feeBreakdown 拆净的业务费用行
+ *   （itemCode/amount/currency），fx 技术字段（endpoint/symbol/bid/ask）在服务端就
+ *   被滤掉了，这里只是逐行渲染，不会把技术字段带上桌；
+ * marketRate / spreadPercent——报价页下单前就已经给客户看过的同一口径市场价与点差，
+ *   详情页只是把它留痕，不是新泄漏面；
+ * timeline——buildCustomerTimeline() 的收敛产物，逐条状态已经过 toCustomerSwapStatus()
+ *   同一条 tipping-off 防线映射，不是原始 statusHistory。
  */
 interface SwapDetailData {
   swapNo: string; status: string;
@@ -26,22 +39,25 @@ interface SwapDetailData {
   netToAmount: string | null;
   feeAmount: string | null; feeCurrency: string | null;
   exchangeRate: string | null;
+  quoteNo: string | null;
+  feeLines: { itemCode: string; amount: string; currency: string }[];
+  marketRate: string | null; spreadPercent: number | null;
   createdAt: string; completedAt: string | null;
+  timeline: { status: string; at: string }[];
   fromAsset: { code: string; currency: string; network: string | null; decimals: number } | null;
   toAsset: { code: string; currency: string; network: string | null; decimals: number } | null;
 }
 
+// Pricing 区块费用行的 itemCode 词化——就地小函数，不建映射表：
+// SERVICE_FEE -> Service fee。
+const formatFeeLineLabel = (itemCode: string) => {
+  const words = itemCode.replace(/_/g, ' ').toLowerCase();
+  return words.charAt(0).toUpperCase() + words.slice(1);
+};
+
 const SwapDetail = () => {
   const { swapNo } = useParams();
-  const navigate = useNavigate();
-  const location = useLocation();
-
-  // 返回「从哪来回哪去」——镜像 DepositDetail/WithdrawDetail 同一条判据：
-  // react-router 在本次会话的第一个历史条目上把 location.key 置为 'default'
-  // （直接输 URL/刷新/外部链接进来都是这种），此时 navigate(-1) 会把人送出本站，
-  // 只有这种情况才退回列表兜底。
-  const goBack = () =>
-    location.key === 'default' ? navigate('/swap') : navigate(-1);
+  const goBack = useGoBack('/swap');
   const [tx, setTx] = useState<SwapDetailData | null>(null);
   const [err, setErr] = useState('');
 
@@ -70,13 +86,6 @@ const SwapDetail = () => {
 
   // 徽章纯按 status 查表（单参纯查表）——同 DepositDetail/WithdrawDetail。
   const view = getSwapStatusView(tx.status);
-
-  // 只有真正成交的单子才敢用断言句（下方 You sold / You received）。判据只读
-  // 已收敛的 tx.status —— 服务端 toCustomerSwapStatus() 已把制裁冻结单收敛成
-  // 与普通「处理中」逐字相同的 COMPLIANCE_PENDING，这里跟着一起走同一个分支，
-  // 绝不再按别的字段二次判断（那等于把冻结单在页面上单独分辨出来，破 tipping-off
-  // 防线）。
-  const settled = tx.status === 'SUCCESS';
 
   // 费用币种在白名单里是独立字段（可能既不是卖出腿也不是买入腿的币种）。
   // 详情页不像 Swap.tsx 那样持有全量资产表，只能拿本单两条腿去对；对不上就
@@ -110,9 +119,24 @@ const SwapDetail = () => {
       </div>
 
       <section className="mt-8">
-        <h2 className="text-sm font-semibold text-fx-sand mb-3">Details</h2>
+        <h2 className="text-sm font-semibold text-fx-sand mb-3">Amounts</h2>
         <dl className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <Field label="Submitted" value={new Date(tx.createdAt).toLocaleString()} />
+          <Field
+            label="You sold"
+            value={`${formatAssetAmount(tx.fromAmount, tx.fromAsset?.decimals)} ${tx.fromAsset?.currency ?? ''}`.trim()}
+          />
+          <Field
+            label="Gross receive"
+            value={`${formatAssetAmount(tx.toAmount, tx.toAsset?.decimals)} ${tx.toAsset?.currency ?? ''}`.trim()}
+          />
+          <Field
+            label="Fee"
+            value={tx.feeAmount ? `− ${formatAssetAmount(tx.feeAmount, feeDecimals)} ${tx.feeCurrency ?? ''}`.trim() : '—'}
+          />
+          <Field
+            label="Net received"
+            value={`${formatAssetAmount(tx.netToAmount ?? tx.toAmount, tx.toAsset?.decimals)} ${tx.toAsset?.currency ?? ''}`.trim()}
+          />
           <Field
             label="Exchange rate"
             value={
@@ -122,34 +146,36 @@ const SwapDetail = () => {
             }
             mono
           />
-          {/* 未成交的单子上写「You received X」是客户面财务页上的事实性错误：
-              失败单的钱原路退回、他一分没收到，卖出腿同样没扣；处理中的单子
-              也还没到账。非 SUCCESS 一律降级成中性名词（对齐列表页那一列
-              中性的 Amount 表头，不断言收付）。 */}
-          <Field
-            label={settled ? 'You sold' : 'Sell amount'}
-            value={`${formatAssetAmount(tx.fromAmount, tx.fromAsset?.decimals)} ${tx.fromAsset?.currency ?? ''}`.trim()}
-          />
-          <Field
-            label={settled ? 'You received' : 'Quoted amount'}
-            value={`${formatAssetAmount(tx.netToAmount ?? tx.toAmount, tx.toAsset?.decimals)} ${tx.toAsset?.currency ?? ''}`.trim()}
-          />
-          <Field
-            label="Fee"
-            value={tx.feeAmount ? `${formatAssetAmount(tx.feeAmount, feeDecimals)} ${tx.feeCurrency ?? ''}`.trim() : '—'}
-          />
+          {tx.marketRate && (
+            <Field label="Market / Spread" value={`${tx.marketRate} · ${tx.spreadPercent}%`} />
+          )}
+          <Field label="Submitted" value={new Date(tx.createdAt).toLocaleString()} />
           {tx.completedAt && <Field label="Completed" value={new Date(tx.completedAt).toLocaleString()} />}
         </dl>
+      </section>
+
+      {tx.quoteNo && (
+        <section className="mt-8">
+          <h2 className="text-sm font-semibold text-fx-sand mb-3">Pricing</h2>
+          <dl className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <Field label="Quote No" value={tx.quoteNo} mono />
+            {tx.feeLines.map((f, i) => (
+              <Field
+                key={`${f.itemCode}-${i}`}
+                label={formatFeeLineLabel(f.itemCode)}
+                value={`${f.amount} ${f.currency}`.trim()}
+              />
+            ))}
+          </dl>
+        </section>
+      )}
+
+      <section className="mt-8">
+        <h2 className="text-sm font-semibold text-fx-sand mb-3">Timeline</h2>
+        <Timeline items={tx.timeline.map((t) => ({ label: getSwapStatusView(t.status).label, at: t.at }))} />
       </section>
     </div>
   );
 };
-
-const Field = ({ label, value, mono, wide }: { label: string; value: string; mono?: boolean; wide?: boolean }) => (
-  <div className={`rounded-xl bg-fx-charcoal/40 px-4 py-3 ${wide ? 'sm:col-span-2' : ''}`}>
-    <dt className="text-xs text-fx-dust">{label}</dt>
-    <dd className={`text-sm text-fx-sand mt-1 break-all ${mono ? 'font-mono' : ''}`}>{value}</dd>
-  </div>
-);
 
 export default SwapDetail;
