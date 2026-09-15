@@ -999,28 +999,10 @@ describe('AuditLogsService', () => {
         occurredAt: new Date('2026-03-27T10:00:00.000Z'),
       },
     ]);
-    prisma.withdrawTransaction.findMany.mockResolvedValue([
+    prisma.withdrawTransaction.findMany = mockFindManyByWhere([
       {
-        id: 'withdraw-1',
+        id: 'wd-1',
         withdrawNo: 'WDR2603270001',
-        ownerType: 'CUSTOMER',
-        ownerId: 'cust-1',
-        ownerNo: 'CU2603270001',
-        status: 'SUCCESS',
-        amount: '101.00',
-        netAmount: '100.00',
-        feeAmount: '1.00',
-        feeCurrency: 'BTC',
-        destinationLabel: 'Ledger cold wallet',
-        createdAt: new Date('2026-03-27T09:50:00.000Z'),
-        completedAt: new Date('2026-03-27T10:05:00.000Z'),
-        asset: {
-          id: 'asset-btc',
-          code: 'BTC',
-          type: 'CRYPTO',
-          network: 'BTC',
-          decimals: 8,
-        },
         customer: {
           id: 'cust-1',
           customerNo: 'CU2603270001',
@@ -1029,193 +1011,13 @@ describe('AuditLogsService', () => {
           email: 'ada@example.com',
           riskRating: 'LOW',
         },
-      },
-    ]);
-    prisma.kytCase.findMany.mockResolvedValue([
-      {
-        id: 'kyt-pre-1',
-        caseNo: 'KYT2603270001',
-        sourceId: 'withdraw-1',
-        screeningStage: 'PRE_TXN',
-        status: 'PASS',
-        provider: 'CHAINALYSIS',
-        providerCaseId: 'provider-pre-1',
-        checkedAt: new Date('2026-03-27T09:52:00.000Z'),
-        riskScore: '5',
-      },
-      {
-        id: 'kyt-main-1',
-        caseNo: 'KYT2603270002',
-        sourceId: 'withdraw-1',
-        screeningStage: 'MAIN',
-        status: 'PASS',
-        provider: 'CHAINALYSIS',
-        providerCaseId: 'provider-main-1',
-        checkedAt: new Date('2026-03-27T09:57:00.000Z'),
-        riskScore: '6',
-      },
-    ]);
-    prisma.travelRuleCase.findMany.mockResolvedValue([
-      {
-        id: 'tr-1',
-        caseNo: 'TR2603270001',
-        sourceId: 'withdraw-1',
-        status: 'ACCEPTED',
-        required: true,
-        provider: 'NOTABENE',
-        providerTransferId: 'provider-tr-1',
-        checkedAt: new Date('2026-03-27T09:58:00.000Z'),
-        counterpartyVasp: 'VASP-B',
-      },
-    ]);
-    prisma.workflowDecisionRecord.findMany.mockResolvedValue([
-      {
-        id: 'dr-pre-1',
-        customerId: 'cust-1',
-        contextType: 'TX_WITHDRAW_PRECHECK',
-        subjectId: 'withdraw-1',
-        policyVersion: 'transaction-risk-policy/v1',
-        status: 'COMPLETED',
-        inputPayload: JSON.stringify({ trigger: 'PRECHECK' }),
-        inputHash: 'h-pre-1',
-        outputDecision: 'CLEAR',
-        recommendedActions: JSON.stringify([]),
-        outputs: JSON.stringify({ severity: 'LOW' }),
-        reasonCodes: JSON.stringify([]),
-        errorMessage: null,
-        createdAt: new Date('2026-03-27T09:51:00.000Z'),
-        completedAt: new Date('2026-03-27T09:51:10.000Z'),
-        updatedAt: new Date('2026-03-27T09:51:10.000Z'),
-      },
-      {
-        id: 'dr-final-1',
-        customerId: 'cust-1',
-        contextType: 'TX_WITHDRAW_FINAL',
-        subjectId: 'withdraw-1',
-        policyVersion: 'transaction-risk-policy/v1',
-        status: 'COMPLETED',
-        inputPayload: JSON.stringify({ trigger: 'FINAL' }),
-        inputHash: 'h-final-1',
-        outputDecision: 'REVIEW',
-        recommendedActions: JSON.stringify(['UPSERT_ALERT']),
-        outputs: JSON.stringify({ severity: 'MEDIUM' }),
-        reasonCodes: JSON.stringify(['TX_WITHDRAW_FINAL_REVIEW_REQUIRED']),
-        errorMessage: null,
-        createdAt: new Date('2026-03-27T09:59:00.000Z'),
-        completedAt: new Date('2026-03-27T09:59:10.000Z'),
-        updatedAt: new Date('2026-03-27T09:59:10.000Z'),
-      },
-    ]);
-    prisma.complianceAlert.findMany.mockResolvedValue([
-      {
-        id: 'alert-final-1',
-        alertNo: 'ALT2603270001',
-        sourceType: 'WITHDRAW',
-        sourceId: 'withdraw-1',
-        sourceNo: 'WDR2603270001',
-        stage: 'REVIEW_WITHDRAW_FINAL',
-        ruleCode: 'TX_WITHDRAW_FINAL_REVIEW_REQUIRED',
-        severity: 'MEDIUM',
-        status: 'CLOSED',
-        decisionRecommendation: 'REVIEW',
-        decision: 'FALSE_POSITIVE',
-        decisionRecordIds: JSON.stringify(['dr-final-1']),
-        linkedCaseIds: JSON.stringify(['case-1']),
-        currentDispositionCode: 'FALSE_POSITIVE',
-        finalDispositionCode: 'FALSE_POSITIVE',
-        hitCount: 1,
-        metadata: JSON.stringify({ sourceType: 'WITHDRAW' }),
-        firstOccurredAt: new Date('2026-03-27T09:59:20.000Z'),
-        lastOccurredAt: new Date('2026-03-27T10:00:00.000Z'),
-        createdAt: new Date('2026-03-27T09:59:20.000Z'),
-        updatedAt: new Date('2026-03-27T10:01:00.000Z'),
-      },
-      {
-        id: 'alert-recon-1',
-        alertNo: 'ALT2603270002',
-        sourceType: 'WITHDRAW',
-        sourceId: 'withdraw-1',
-        sourceNo: 'WDR2603270001',
-        stage: 'REVIEW_WITHDRAW_RECONCILIATION',
-        ruleCode: 'TX_RECONCILIATION_BREAK_DETECTED',
-        severity: 'HIGH',
-        status: 'OPEN',
-        decisionRecommendation: null,
-        decision: null,
-        decisionRecordIds: JSON.stringify([]),
-        linkedCaseIds: JSON.stringify([]),
-        currentDispositionCode: null,
-        finalDispositionCode: null,
-        hitCount: 1,
-        metadata: JSON.stringify({ breakId: 'break-1' }),
-        firstOccurredAt: new Date('2026-03-27T12:00:00.000Z'),
-        lastOccurredAt: new Date('2026-03-27T12:00:00.000Z'),
-        createdAt: new Date('2026-03-27T12:00:00.000Z'),
-        updatedAt: new Date('2026-03-27T12:00:00.000Z'),
-      },
-    ]);
-    prisma.complianceIncident.findMany.mockResolvedValue([
-      {
-        id: 'case-1',
-        incidentNo: 'INC2603270001',
-        caseType: 'TRANSACTION',
-        status: 'CLOSED',
-        severity: 'MEDIUM',
-        primaryAlertId: 'alert-final-1',
-        primaryAlertNo: 'ALT2603270001',
-        entityId: 'withdraw-1',
-        entityNo: 'WDR2603270001',
-        sourceType: 'WITHDRAW',
-        stage: 'REVIEW_WITHDRAW_FINAL',
-        ruleCode: 'TX_WITHDRAW_FINAL_REVIEW_REQUIRED',
-        decision: 'CLEAR',
-        proposedWorkflowDecision: 'CLEAR',
-        mlroReviewOutcome: 'APPROVED',
-        currentDispositionCode: 'CLEAR',
-        finalDispositionCode: 'CLEAR',
-        decisionRecordIds: JSON.stringify(['dr-final-1']),
-        linkedCaseIds: JSON.stringify([]),
-        metadata: JSON.stringify({ sourceType: 'WITHDRAW' }),
-        createdAt: new Date('2026-03-27T10:01:30.000Z'),
-        updatedAt: new Date('2026-03-27T10:03:00.000Z'),
-      },
-    ]);
-    prisma.journal.findMany.mockResolvedValue([
-      {
-        id: 'journal-withdraw-1',
-        journalNo: 'JO2603270001',
-        sourceType: 'WITHDRAW',
-        sourceId: 'withdraw-1',
-        sourceNo: 'WDR2603270001',
-        eventCode: 'EVT_WITHDRAW_SUCCESS__CRYPTO',
-        postingStatus: 'POSTED',
-        postedAt: new Date('2026-03-27T10:05:10.000Z'),
-        reversalOfJournalId: null,
-        baseAssetId: 'asset-btc',
-        totalAmount: '100.00',
-        description: 'Withdraw success',
-        createdAt: new Date('2026-03-27T10:05:10.000Z'),
-        updatedAt: new Date('2026-03-27T10:05:10.000Z'),
-      },
-    ]);
-    prisma.clearing.findMany.mockResolvedValue([
-      {
-        id: 'clearing-1',
-        clearingNo: 'CLR2603270001',
-        sourceType: 'WITHDRAWAL',
-        sourceId: 'withdraw-1',
-        outAssetId: 'asset-btc',
-        outAmount: '100.00',
-        inAssetId: 'asset-btc',
-        inAmount: '100.00',
-        feeAssetId: 'asset-btc',
-        feeAmount: '1.00',
-        feeMethod: 'DEDUCT',
-        outPayoutId: 'payout-1',
-        clearingStatus: 'CLEAR',
-        memo: 'withdraw clearing',
-        createdAt: new Date('2026-03-27T10:05:05.000Z'),
-        updatedAt: new Date('2026-03-27T10:05:05.000Z'),
+        asset: {
+          id: 'asset-btc',
+          code: 'BTC',
+          type: 'CRYPTO',
+          network: 'BTC',
+          decimals: 8,
+        },
       },
     ]);
 
@@ -1231,41 +1033,30 @@ describe('AuditLogsService', () => {
           actorDisplayName: 'admin-1',
         },
       );
-      const snapshots = (artifacts.packageBody as any).snapshots;
+      const body: any = artifacts.packageBody;
 
       expect(artifacts.manifest.workflowSummary).toEqual({
         workflowType: 'WITHDRAW',
         workflowNos: [],
       });
-      expect(snapshots).toEqual(
-        expect.objectContaining({
-          withdrawTransactions: expect.any(Array),
-          payouts: expect.any(Array),
-          preKytCases: expect.any(Array),
-          mainKytCases: expect.any(Array),
-          travelRuleCases: expect.any(Array),
-          riskDecisionRecords: expect.any(Array),
-          alerts: expect.any(Array),
-          cases: expect.any(Array),
-          journals: expect.any(Array),
-          clearings: expect.any(Array),
-          withdrawEvidenceChain: expect.any(Array),
-        }),
-      );
-      expect(snapshots.withdrawEvidenceChain).toEqual([
-        expect.objectContaining({
-          withdrawId: 'withdraw-1',
-          payoutId: null,
-          decisionRecordIds: ['dr-final-1', 'dr-pre-1'],
-          preKytCaseIds: ['kyt-pre-1'],
-          mainKytCaseIds: ['kyt-main-1'],
-          travelRuleCaseIds: ['tr-1'],
-          alertIds: ['alert-final-1', 'alert-recon-1'],
-          caseIds: ['case-1'],
-          journalIds: ['journal-withdraw-1'],
-          clearingIds: ['clearing-1'],
-        }),
-      ]);
+      expect(body.snapshots.withdrawTransactions).toHaveLength(1);
+      expect(body.snapshots.withdrawEvidenceChain[0]).toEqual({
+        withdrawId: 'wd-1',
+        withdrawNo: expect.any(String),
+      });
+      for (const ghost of [
+        'payouts',
+        'preKytCases',
+        'mainKytCases',
+        'travelRuleCases',
+        'riskDecisionRecords',
+        'alerts',
+        'cases',
+        'journals',
+        'clearings',
+      ]) {
+        expect(body.snapshots).not.toHaveProperty(ghost);
+      }
     } finally {
       jest.useRealTimers();
     }
