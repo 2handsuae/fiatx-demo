@@ -212,6 +212,7 @@ Last Updated: 2026-09-14
 ## I. 贯穿多幕（通知 ｜ SLA ｜ 杂项）
 
 - [ ] **`assertTradingEligibility` 生产码零调用方**（波五创建即冻把三处入口换成 `assertTradingIntake` 后成孤儿，仅 e2e 与注释引用）：零引用纪律先登记不删 ｜来源: 2026-09-15 波五终审 Minor#3
+- [ ] **订单列表页去轮询、改"信号+拉取"推送（小专项，脑暴已完成待立 spec）**：现症=Frank 兑换历史每 3 秒闪一次（`Swap.tsx:913` 后台刷新把表体换成 Loading 行；`:554` 自刷对波五后永久非终态的冻结单永不停，10 秒 4 次 GET 实测复现）。业主 2026-09-15 拍板方案=三页统一"进页拉一次 + 手动刷新 + 订单状态更新信号触发拉"，Swap 3 秒定时器整段退役。已定设计三点：①信号零内容、数据永远走既有客户面白名单 REST（invalidate-on-signal，推送通道零新增 tipping-off 面）；②**只在客户面收敛后状态变化时发信号**（判据 `toCustomerXStatus(from)≠toCustomerXStatus(to)`——冻结落地收敛前后都是"处理中"不发，信号时序也不泄露执法动作）；③握手验 JWT 按 token 身份入房（门不可绕，现孤儿 gateway 是客户端自报 customerId），断线交 socket.io 自带重连不加兜底。地基现成：三域 `*_STATUS_CHANGED` 域事件字段对称（`domain-events.constants.ts:11-64`）+ 孤儿 `notifications.gateway.ts`（socket.io 房间机制，零调用方零消费，接活它）。附带收益=走查"⚡喂完切客户端看"各站三域客户屏自动翻页。边界：I1 通知本体（消息中心）仍不做，这是传输层信号 ｜来源: 2026-09-15 Frank 兑换列表闪烁排查（根因三段链：FROZEN 收敛"处理中"永非终态 × 3 秒自刷 × loading 换表），业主裁定不做止血直接专项
 
 > 多幕都会碰到的横切项——改一处多幕同时受益。
 
