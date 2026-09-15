@@ -71,24 +71,10 @@ export interface BuiltEvidencePackageArtifacts {
 export interface DepositEvidenceChainItem {
   depositId: string;
   depositNo: string | null;
-  payinId: string | null;
-  payinNo: string | null;
-  decisionRecordIds: string[];
-  kytCaseIds: string[];
-  travelRuleCaseIds: string[];
-  alertIds: string[];
-  caseIds: string[];
-  journalIds: string[];
 }
 
 export interface DepositEvidenceSnapshots {
   deposits: any[];
-  kytCases: any[];
-  travelRuleCases: any[];
-  riskDecisionRecords: any[];
-  alerts: any[];
-  cases: any[];
-  journals: any[];
   depositEvidenceChain: DepositEvidenceChainItem[];
 }
 
@@ -1136,70 +1122,6 @@ export class AuditLogsService {
     return mapped;
   }
 
-  private buildDepositEvidenceChain(params: {
-    deposits: any[];
-    riskDecisionRecords: any[];
-    kytCases: any[];
-    travelRuleCases: any[];
-    alerts: any[];
-    cases: any[];
-    journals: any[];
-  }): DepositEvidenceChainItem[] {
-    const {
-      deposits,
-      riskDecisionRecords,
-      kytCases,
-      travelRuleCases,
-      alerts,
-      cases,
-      journals,
-    } = params;
-
-    return deposits.map((deposit) => {
-      const depositId = String(deposit.id);
-      const depositDecisionRecords = riskDecisionRecords.filter(
-        (item) => String(item.subjectId) === depositId,
-      );
-      const depositKytCases = kytCases.filter(
-        (item) => String(item.sourceId) === depositId,
-      );
-      const depositTravelRuleCases = travelRuleCases.filter(
-        (item) => String(item.sourceId) === depositId,
-      );
-      const depositAlerts = alerts.filter(
-        (item) => String(item.sourceId) === depositId,
-      );
-      const depositCases = cases.filter(
-        (item) => String(item.sourceId) === depositId,
-      );
-      const depositJournals = journals.filter(
-        (item) => String(item.sourceId) === depositId,
-      );
-      return {
-        depositId,
-        depositNo: deposit.depositNo || null,
-        payinId: null,
-        payinNo: null,
-        decisionRecordIds: this.toSortedUniqueStrings([
-          ...depositDecisionRecords.map((item) => item.id),
-          ...depositAlerts.flatMap((item) => item.decisionRecordIds || []),
-          ...depositCases.flatMap((item) => item.decisionRecordIds || []),
-        ]),
-        kytCaseIds: this.toSortedUniqueStrings(
-          depositKytCases.map((item) => item.id),
-        ),
-        travelRuleCaseIds: this.toSortedUniqueStrings(
-          depositTravelRuleCases.map((item) => item.id),
-        ),
-        alertIds: this.toSortedUniqueStrings(depositAlerts.map((item) => item.id)),
-        caseIds: this.toSortedUniqueStrings(depositCases.map((item) => item.id)),
-        journalIds: this.toSortedUniqueStrings(
-          depositJournals.map((item) => item.id),
-        ),
-      };
-    });
-  }
-
   private buildSwapEvidenceChain(params: {
     swapTransactions: any[];
     swapQuotes: any[];
@@ -1340,259 +1262,39 @@ export class AuditLogsService {
   }
 
   private async buildDepositSnapshots(records: any[], db: any): Promise<DepositEvidenceSnapshots> {
-    const depositRecords = records.filter(
-      (item) => item.workflowType === AuditWorkflowTypes.DEPOSIT,
-    );
-    const workflowIds = this.toSortedUniqueStrings([
-      ...depositRecords.flatMap((item) =>
-        Array.isArray(item.subjectNos)
-          ? item.subjectNos
-              .filter((s: any) => s.subjectType === 'DEPOSIT' && s.subjectId)
-              .map((s: any) => this.normalizeOptionalString(s.subjectId))
-          : [],
-      ) as Array<string | null>,
-      ...depositRecords
-        .filter((item) => item.primarySubjectType === AuditEntityTypes.DEPOSIT_TRANSACTION)
+    const candidateNos = this.toSortedUniqueStrings(
+      records
+        .filter(
+          (item) =>
+            item.primarySubjectNo &&
+            item.primarySubjectType === AuditEntityTypes.DEPOSIT_TRANSACTION,
+        )
         .map((item) => this.normalizeOptionalString(item.primarySubjectNo)) as Array<string | null>,
-    ]);
+    );
 
-    if (!workflowIds.length || !db?.depositTransaction?.findMany) {
-      return {
-        deposits: [],
-        kytCases: [],
-        travelRuleCases: [],
-        riskDecisionRecords: [],
-        alerts: [],
-        cases: [],
-        journals: [],
-        depositEvidenceChain: [],
-      };
+    if (!candidateNos.length || !db?.depositTransaction?.findMany) {
+      return { deposits: [], depositEvidenceChain: [] };
     }
 
-    const [deposits, kytCases, travelRuleCases, riskDecisionRecords, alerts, cases, journals] = await Promise.all([
-      db.depositTransaction.findMany({
-        where: { id: { in: workflowIds } },
-        orderBy: { depositNo: 'asc' },
-        include: {
-          customer: {
-            select: {
-              id: true,
-              customerNo: true,
-              firstName: true,
-              lastName: true,
-              email: true,
-            },
-          },
-          asset: {
-            select: {
-              id: true,
-              code: true,
-              type: true,
-              network: true,
-              decimals: true,
-            },
-          },
+    const deposits = await db.depositTransaction.findMany({
+      where: { depositNo: { in: candidateNos } },
+      orderBy: { depositNo: 'asc' },
+      include: {
+        customer: {
+          select: { id: true, customerNo: true, firstName: true, lastName: true, email: true },
         },
-      }),
-      db.kytCase?.findMany
-        ? db.kytCase.findMany({
-            where: {
-              sourceType: AuditWorkflowTypes.DEPOSIT,
-              sourceId: { in: workflowIds },
-            },
-            orderBy: [{ sourceId: 'asc' }, { screeningStage: 'asc' }],
-            select: {
-              id: true,
-              caseNo: true,
-              sourceId: true,
-              screeningStage: true,
-              status: true,
-              provider: true,
-              providerCaseId: true,
-              checkedAt: true,
-              riskScore: true,
-            },
-          })
-        : Promise.resolve([]),
-      db.travelRuleCase?.findMany
-        ? db.travelRuleCase.findMany({
-            where: {
-              sourceType: AuditWorkflowTypes.DEPOSIT,
-              sourceId: { in: workflowIds },
-            },
-            orderBy: [{ sourceId: 'asc' }, { caseNo: 'asc' }],
-            select: {
-              id: true,
-              caseNo: true,
-              sourceId: true,
-              status: true,
-              required: true,
-              provider: true,
-              providerTransferId: true,
-              checkedAt: true,
-              counterpartyVasp: true,
-            },
-          })
-        : Promise.resolve([]),
-      db.workflowDecisionRecord?.findMany
-        ? db.workflowDecisionRecord.findMany({
-            where: {
-              subjectId: { in: workflowIds },
-            },
-            orderBy: [{ subjectId: 'asc' }, { createdAt: 'asc' }],
-            select: {
-              id: true,
-              customerId: true,
-              contextType: true,
-              subjectId: true,
-              policyVersion: true,
-              status: true,
-              inputPayload: true,
-              inputHash: true,
-              outputDecision: true,
-              recommendedActions: true,
-              outputs: true,
-              reasonCodes: true,
-              errorMessage: true,
-              createdAt: true,
-              completedAt: true,
-              updatedAt: true,
-            },
-          })
-        : Promise.resolve([]),
-      db.complianceAlert?.findMany
-        ? db.complianceAlert.findMany({
-            where: {
-              sourceType: AuditWorkflowTypes.DEPOSIT,
-              sourceId: { in: workflowIds },
-            },
-            orderBy: [{ sourceId: 'asc' }, { firstOccurredAt: 'asc' }],
-            select: {
-              id: true,
-              alertNo: true,
-              sourceType: true,
-              sourceId: true,
-              sourceNo: true,
-              stage: true,
-              ruleCode: true,
-              severity: true,
-              status: true,
-              decisionRecommendation: true,
-              decision: true,
-              decisionRecordIds: true,
-              linkedCaseIds: true,
-              currentDispositionCode: true,
-              finalDispositionCode: true,
-              hitCount: true,
-              metadata: true,
-              firstOccurredAt: true,
-              lastOccurredAt: true,
-              createdAt: true,
-              updatedAt: true,
-            },
-          })
-        : Promise.resolve([]),
-      db.complianceIncident?.findMany
-        ? db.complianceIncident.findMany({
-            where: {
-              sourceType: AuditWorkflowTypes.DEPOSIT,
-              entityId: { in: workflowIds },
-            },
-            orderBy: [{ entityId: 'asc' }, { createdAt: 'asc' }],
-            select: {
-              id: true,
-              incidentNo: true,
-              caseType: true,
-              status: true,
-              severity: true,
-              primaryAlertId: true,
-              primaryAlertNo: true,
-              entityId: true,
-              entityNo: true,
-              sourceType: true,
-              stage: true,
-              ruleCode: true,
-              decision: true,
-              proposedWorkflowDecision: true,
-              mlroReviewOutcome: true,
-              currentDispositionCode: true,
-              finalDispositionCode: true,
-              decisionRecordIds: true,
-              linkedCaseIds: true,
-              metadata: true,
-              createdAt: true,
-              updatedAt: true,
-            },
-          })
-        : Promise.resolve([]),
-      db.journal?.findMany
-        ? db.journal.findMany({
-            where: {
-              sourceType: 'DEPOSIT',
-              sourceId: { in: workflowIds },
-            },
-            orderBy: [{ sourceId: 'asc' }, { createdAt: 'asc' }],
-            select: {
-              id: true,
-              journalNo: true,
-              sourceType: true,
-              sourceId: true,
-              sourceNo: true,
-              eventCode: true,
-              postingStatus: true,
-              postedAt: true,
-              reversalOfJournalId: true,
-              baseAssetId: true,
-              totalAmount: true,
-              description: true,
-              createdAt: true,
-              updatedAt: true,
-            },
-          })
-        : Promise.resolve([]),
-    ]);
-
-    const mappedRiskDecisionRecords = riskDecisionRecords.map((row: any) => ({
-      ...row,
-      inputPayload: this.parseJson(row.inputPayload),
-      recommendedActions: this.parseJson(row.recommendedActions),
-      outputs: this.parseJson(row.outputs),
-      reasonCodes: this.parseJson(row.reasonCodes),
-    }));
-    const mappedAlerts = alerts.map((row: any) => ({
-      ...row,
-      decisionRecordIds: this.parseStringArray(row.decisionRecordIds),
-      linkedCaseIds: this.parseStringArray(row.linkedCaseIds),
-      metadata: this.parseJson(row.metadata),
-    }));
-    const mappedCases = cases.map((row: any) => ({
-      ...row,
-      sourceId: row.entityId,
-      sourceNo: row.entityNo,
-      decisionRecordIds: this.parseStringArray(row.decisionRecordIds),
-      linkedCaseIds: this.parseStringArray(row.linkedCaseIds),
-      metadata: this.parseJson(row.metadata),
-    }));
-    const depositEvidenceChain = this.buildDepositEvidenceChain({
-      deposits,
-      riskDecisionRecords: mappedRiskDecisionRecords,
-      kytCases,
-      travelRuleCases,
-      alerts: mappedAlerts,
-      cases: mappedCases,
-      journals,
+        asset: {
+          select: { id: true, code: true, type: true, network: true, decimals: true },
+        },
+      },
     });
 
-    return {
-      deposits,
-      kytCases,
-      travelRuleCases,
-      riskDecisionRecords: mappedRiskDecisionRecords,
-      alerts: mappedAlerts,
-      cases: mappedCases,
-      journals,
-      depositEvidenceChain,
-    };
+    const depositEvidenceChain: DepositEvidenceChainItem[] = deposits.map((row: any) => ({
+      depositId: String(row.id),
+      depositNo: row.depositNo ?? null,
+    }));
+
+    return { deposits, depositEvidenceChain };
   }
 
   private async buildWithdrawSnapshots(

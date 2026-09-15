@@ -13,6 +13,22 @@ import {
   mapRawAuditActionToUserAction,
 } from './constants/audit-actions.constant';
 
+/** 行为化 findMany mock：按 where 的 {field:{in:[...]}}、等值与 {OR:[...]} 真过滤——
+ * 杜绝"mock 无视 where 直接吐行"的假绿(波一测试反转,2026-09-15)。 */
+const mockFindManyByWhere = (rows: any[]) =>
+  jest.fn(async (args: any = {}) => {
+    const matches = (row: any, where: any): boolean => {
+      if (!where) return true;
+      if (Array.isArray(where.OR)) return where.OR.some((w: any) => matches(row, w));
+      return Object.entries(where).every(([field, cond]: [string, any]) =>
+        cond && typeof cond === 'object' && Array.isArray(cond.in)
+          ? cond.in.includes(row[field])
+          : row[field] === cond,
+      );
+    };
+    return rows.filter((row) => matches(row, args.where));
+  });
+
 describe('AuditLogsService', () => {
   let service: AuditLogsService;
   let prisma: any;
@@ -598,7 +614,7 @@ describe('AuditLogsService', () => {
         occurredAt: new Date('2026-03-24T08:00:00.000Z'),
       },
     ]);
-    prisma.depositTransaction.findMany.mockResolvedValue([
+    prisma.depositTransaction.findMany = mockFindManyByWhere([
       {
         id: 'dep-1',
         depositNo: 'DEP2603240001',
@@ -618,137 +634,6 @@ describe('AuditLogsService', () => {
         },
       },
     ]);
-    prisma.kytCase.findMany.mockResolvedValue([
-      {
-        id: 'kyt-1',
-        caseNo: 'KYT2603240001',
-        sourceId: 'dep-1',
-        screeningStage: 'MAIN',
-        status: 'PASS',
-        provider: 'CHAINALYSIS',
-        providerCaseId: 'provider-kyt-1',
-        checkedAt: new Date('2026-03-24T08:02:00.000Z'),
-        riskScore: '10',
-      },
-    ]);
-    prisma.travelRuleCase.findMany.mockResolvedValue([
-      {
-        id: 'tr-1',
-        caseNo: 'TR2603240001',
-        sourceId: 'dep-1',
-        status: 'ACCEPTED',
-        required: true,
-        provider: 'NOTABENE',
-        providerTransferId: 'provider-tr-1',
-        checkedAt: new Date('2026-03-24T08:03:00.000Z'),
-        counterpartyVasp: 'VASP-A',
-      },
-    ]);
-    prisma.workflowDecisionRecord.findMany.mockResolvedValue([
-      {
-        id: 'dr-1',
-        customerId: 'cust-1',
-        contextType: 'TX_DEPOSIT_KYT_MAIN',
-        subjectId: 'dep-1',
-        policyVersion: 'transaction-risk-policy/v1',
-        status: 'COMPLETED',
-        inputPayload: JSON.stringify({ trigger: 'KYT' }),
-        inputHash: 'h1',
-        outputDecision: 'REVIEW',
-        recommendedActions: JSON.stringify(['UPSERT_ALERT']),
-        outputs: JSON.stringify({ severity: 'MEDIUM' }),
-        reasonCodes: JSON.stringify(['KYT_REVIEW']),
-        errorMessage: null,
-        createdAt: new Date('2026-03-24T08:02:00.000Z'),
-        completedAt: new Date('2026-03-24T08:02:10.000Z'),
-        updatedAt: new Date('2026-03-24T08:02:10.000Z'),
-      },
-    ]);
-    prisma.complianceAlert.findMany.mockResolvedValue([
-      {
-        id: 'alert-1',
-        alertNo: 'ALT2603240001',
-        sourceType: 'DEPOSIT',
-        sourceId: 'dep-1',
-        sourceNo: 'DEP2603240001',
-        stage: 'REVIEW_KYT',
-        ruleCode: 'TX_KYT_REVIEW_REQUIRED',
-        severity: 'MEDIUM',
-        status: 'CLOSED',
-        decisionRecommendation: 'ESCALATE_TO_CASE',
-        decision: 'FALSE_POSITIVE',
-        decisionRecordIds: JSON.stringify(['dr-1']),
-        linkedCaseIds: JSON.stringify(['case-1']),
-        currentDispositionCode: 'FALSE_POSITIVE',
-        finalDispositionCode: 'FALSE_POSITIVE',
-        hitCount: 1,
-        metadata: JSON.stringify({ reason: 'manual clear' }),
-        firstOccurredAt: new Date('2026-03-24T08:02:30.000Z'),
-        lastOccurredAt: new Date('2026-03-24T08:03:00.000Z'),
-        createdAt: new Date('2026-03-24T08:02:30.000Z'),
-        updatedAt: new Date('2026-03-24T08:04:00.000Z'),
-      },
-    ]);
-    prisma.complianceIncident.findMany.mockResolvedValue([
-      {
-        id: 'case-1',
-        incidentNo: 'INC2603240001',
-        caseType: 'TRANSACTION',
-        status: 'CLOSED',
-        severity: 'MEDIUM',
-        primaryAlertId: 'alert-1',
-        primaryAlertNo: 'ALT2603240001',
-        entityId: 'dep-1',
-        entityNo: 'DEP2603240001',
-        sourceType: 'DEPOSIT',
-        stage: 'REVIEW_KYT',
-        ruleCode: 'TX_KYT_REVIEW_REQUIRED',
-        decision: 'CLEAR',
-        proposedWorkflowDecision: 'CLEAR',
-        mlroReviewOutcome: 'APPROVED',
-        currentDispositionCode: 'CLEAR',
-        finalDispositionCode: 'CLEAR',
-        decisionRecordIds: JSON.stringify(['dr-1']),
-        linkedCaseIds: JSON.stringify([]),
-        metadata: JSON.stringify({ note: 'approved' }),
-        createdAt: new Date('2026-03-24T08:03:30.000Z'),
-        updatedAt: new Date('2026-03-24T08:05:00.000Z'),
-      },
-    ]);
-    prisma.journal.findMany.mockResolvedValue([
-      {
-        id: 'journal-1',
-        journalNo: 'JO2603240001',
-        sourceType: 'DEPOSIT',
-        sourceId: 'dep-1',
-        sourceNo: 'DEP2603240001',
-        eventCode: 'EVT_DEPOSIT_CONFIRMED__CRYPTO',
-        postingStatus: 'POSTED',
-        postedAt: new Date('2026-03-24T08:01:30.000Z'),
-        reversalOfJournalId: null,
-        baseAssetId: 'asset-1',
-        totalAmount: '100.00',
-        description: 'Deposit confirmed',
-        createdAt: new Date('2026-03-24T08:01:30.000Z'),
-        updatedAt: new Date('2026-03-24T08:01:30.000Z'),
-      },
-      {
-        id: 'journal-2',
-        journalNo: 'JO2603240002',
-        sourceType: 'DEPOSIT',
-        sourceId: 'dep-1',
-        sourceNo: 'DEP2603240001',
-        eventCode: 'EVT_DEPOSIT_SUCCESS__CRYPTO',
-        postingStatus: 'POSTED',
-        postedAt: new Date('2026-03-24T08:05:30.000Z'),
-        reversalOfJournalId: null,
-        baseAssetId: 'asset-1',
-        totalAmount: '100.00',
-        description: 'Deposit success',
-        createdAt: new Date('2026-03-24T08:05:30.000Z'),
-        updatedAt: new Date('2026-03-24T08:05:30.000Z'),
-      },
-    ]);
     try {
       const artifacts = await service.buildEvidencePackageArtifacts(
         {
@@ -761,30 +646,18 @@ describe('AuditLogsService', () => {
           actorDisplayName: 'admin-1',
         },
       );
-      const snapshots = (artifacts.packageBody as any).snapshots;
+      const body: any = artifacts.packageBody;
 
-      expect(snapshots).toEqual(
-        expect.objectContaining({
-          deposits: expect.any(Array),
-          riskDecisionRecords: expect.any(Array),
-          alerts: expect.any(Array),
-          cases: expect.any(Array),
-          journals: expect.any(Array),
-          depositEvidenceChain: expect.any(Array),
-        }),
-      );
-      expect(snapshots.depositEvidenceChain).toEqual([
-        expect.objectContaining({
-          depositId: 'dep-1',
-          payinId: null,
-          decisionRecordIds: ['dr-1'],
-          kytCaseIds: ['kyt-1'],
-          travelRuleCaseIds: ['tr-1'],
-          alertIds: ['alert-1'],
-          caseIds: ['case-1'],
-          journalIds: ['journal-1', 'journal-2'],
-        }),
+      expect(body.snapshots.deposits).toHaveLength(1);
+      expect(body.snapshots.deposits[0].depositNo).toBe('DEP2603240001');
+      expect(body.snapshots.depositEvidenceChain).toEqual([
+        { depositId: 'dep-1', depositNo: 'DEP2603240001' },
       ]);
+      // 注:travelRuleCases/riskDecisionRecords/alerts/cases/journals 未列入本循环——
+      // 它们是 WithdrawEvidenceSnapshots 的合法字段(本任务未动 withdraw),merge 进
+      // packageBody.snapshots 后仍会以空数组出现,不是 deposit 幽灵段复活。kytCases
+      // 是唯一只属于旧 deposit 幽灵形状、不与 withdraw/swap 撞名的键,可安全断言消失。
+      expect(body.snapshots).not.toHaveProperty('kytCases');
 
       const artifactsAgain = await service.buildEvidencePackageArtifacts(
         {
