@@ -16,6 +16,7 @@ import { AdminBadge } from '../components/ui/AdminBadge';
 import { PERMISSIONS } from '../rbac/permissions';
 import { useAdminSession } from '../contexts/AdminSessionContext';
 import { stripInternalIds } from '../utils/stripInternalIds';
+import { AUDIT_ENTITY_ROUTE_BY_SUBJECT_TYPE } from './auditEntityRoutes';
 
 /* ── Interfaces ──────────────────────────────────────────────── */
 
@@ -415,6 +416,46 @@ const EvidenceExportDetailPage = () => {
                 <FieldGrid>
                   <Field label="File Name"      value={detail.fileName}  mono full />
                   <Field label="SHA-256 Digest" value={detail.digest}    mono full />
+                </FieldGrid>
+              </div>
+            </section>
+          )}
+
+          {(detail.approvalCase || detail.approvalCaseNo) && (
+            <section className="px-6 py-5">
+              <Cap>Approval</Cap>
+              <p className="mt-1 mb-4 font-mono text-[9px] text-adm-t3">
+                MLRO endorsement — download is gated on this approval
+              </p>
+              <div className="mt-3">
+                <FieldGrid>
+                  <div>
+                    <p className="mb-1 font-mono text-[8.5px] uppercase tracking-[0.14em] text-adm-t3">Approval No</p>
+                    {(detail.approvalCase?.approvalNo ?? detail.approvalCaseNo) ? (
+                      <span
+                        className="cursor-pointer font-mono text-[11px] font-semibold text-adm-blue hover:underline"
+                        onClick={() =>
+                          navigate(
+                            AUDIT_ENTITY_ROUTE_BY_SUBJECT_TYPE.APPROVAL_CASE!(
+                              (detail.approvalCase?.approvalNo ?? detail.approvalCaseNo)!,
+                            ),
+                          )
+                        }
+                      >
+                        {detail.approvalCase?.approvalNo ?? detail.approvalCaseNo}
+                      </span>
+                    ) : (
+                      <p className="font-mono text-[11px] text-adm-t2">—</p>
+                    )}
+                  </div>
+                  <div>
+                    <p className="mb-1 font-mono text-[8.5px] uppercase tracking-[0.14em] text-adm-t3">Approval Status</p>
+                    {detail.approvalCase
+                      ? <AdminBadge value={detail.approvalCase.status} />
+                      : <p className="font-mono text-[11px] text-adm-t2">—</p>}
+                  </div>
+                  <Field label="Decided By Role" value={detail.approvalCase?.decisionByRole} />
+                  <Field label="Decided At" value={detail.approvalCase?.decidedAt ? fmt(detail.approvalCase.decidedAt) : undefined} mono />
                 </FieldGrid>
               </div>
             </section>
