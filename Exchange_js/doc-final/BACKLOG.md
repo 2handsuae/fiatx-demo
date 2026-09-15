@@ -13,7 +13,7 @@
 > 分诊历史：2026-08-26 首次分流（加固类迁出）；2026-08-28 二次分诊——业务/技术彻底分家：8 条已完成或已作废销账、45 条迁 `PRODUCTION-NOTES`、4 条从 `PRODUCTION-NOTES` 判回业务；同日「演示装备」A 档 8 条逐条实跑复核，6 条实证已修当场销账。**2026-08-29 演示装备一期收官**——A 档剩下的 2 条（造数花名册、补料回炉）做完销账，A 档 8/8 全部完成、整节退役删除（原文见「本轮销账」章节与 git 历史）；导语并入 §B。分诊前全文见 git 历史（`649b4e88`）。
 > **2026-09-08 按演示动线重排**——章节改为七幕行进顺序（幕内按站 / 场景），43 条已勾条目整批归档文末「本轮销账」；「Material Refresh 状态名」1 条作废（所指代码已随子系统退役，`grep -rln "NUDGE_ONLY" src admin-web/src client-web/src` 零命中）。重排前全文见 git 历史（`f27e8312`）。
 
-Last Updated: 2026-09-14
+Last Updated: 2026-09-15（战役收官后复检记账：销 3 腐烂、订正 5 表述、新登记 6——依据 `superpowers/checkups/2026-09-15-acts345-post-campaign.md`）
 
 ## A. 开演前（重铺 + 造数判据）
 
@@ -23,11 +23,11 @@ Last Updated: 2026-09-14
 
 - [ ] **答案键的 `expectedLines[].amount` 是装饰性的、没人读**（2026-08-31 终审）：`verifyManifest` 的 select 和匹配谓词都不碰它，且语义在场景间不统一（有的存注入后的新值、有的存差额）。升级方向是把它变成载荷（谓词里断言外部金额），这样"注入跑了但 delta 算错"也能被抓到——现在的钉行只能抓"整条没了"。⚠️ 终审的判断是**这条优先级低于已完成的完整性断言**（`casesOpened == manifest.wallets.length`，已于 `2e74d6d4` 落地）：金额算错已被 `bumpClosing` 连到桶断言上，而"多报破口"那一侧才是当时完全没人看的 ｜来源: 2026-08-31 整支终审
 
-- [ ] **`recon-demo.ts` 报错文案里的钱包 UUID 至少 5 处**（`:727/831/898/947/1295` + ⑫⑬ 两处同形）：commit `7aeeec7d` 专门为前置闸做过"报错改用钱包号 + 客户号"的清扫，同形的兄弟没跟上。**开发者面报错、不是管理台，不破铁律⑥**，纯可读性 ｜来源: 2026-08-31 整支终审
+- [ ] **`recon-demo.ts` 报错文案里的钱包 UUID 现存 8 处**（2026-09-15 复检订正行号：`:759/880/947/998/1189/1419/1461/1683`，原 5 行号仅 947 仍命中）：commit `7aeeec7d` 专门为前置闸做过"报错改用钱包号 + 客户号"的清扫，同形的兄弟没跟上。**开发者面报错、不是管理台，不破铁律⑥**，纯可读性 ｜来源: 2026-08-31 整支终审 ｜ 2026-09-15 复检重锚
 
 - [ ] **`recon-demo.ts` 报错文案里的钱包 UUID：根治办法是给 `WalletPlan` 加 `walletNo` 字段**（Task 11 评审顺带发现）：上一条「至少 5 处」逐处手改治标不治本——`WalletPlan`（本文件 `planWallets` 的返回类型）从来没有 `walletNo` 这个字段，只有内部 `walletRef`（UUID），所以每处新写的报错都只能选 UUID 或者改用 `currency`/`coaCode` 之类的替代信息绕开（T11 场景 10 的报错就是这么绕的）。根治：`planWallets` 查询 `wallet` 表时顺手 `select` 上 `walletNo`（真实值例如公司运营户 `WA2601017168`），`WalletPlan` 接口加一个 `walletNo: string` 字段，那样「至少 5 处」+ 本轮新绕开的这处能一次性全部改成 `${plan.walletNo}`，之后也不会再有人被迫在两个坏选项（UUID / 绕着说）里选 ｜来源: 2026-09-02 平账一期半 Task 11 评审顺带发现
 
-- [ ] **几处注释与实现对不上**（2026-08-31 终审，同属"脚本不消费、没有机制会发现它错"那一类）：① `wallet-recon-run.service.ts:824-826` 称已解释差异行"标成 EXPLAINED，仍在案件页上看得见"——**案件页读的是 `flowComparison[].explainedByAdjustmentNo`，全仓没有任何一处读 `ReconciliationLineItem.status === 'EXPLAINED'`**（除 e2e 断言外无消费者），注释把展示来源说反了；② `adjustment.service.ts:368` 注释错引行号（说 `:181`，实为 `:323`），单测用例名抄了同一个错；③ `adjustment.service.spec.ts:46/57` 说走 `customerLabel`、实现走 `internalLabel`（对该成因恰好同值，所以断言绿着、描述是错的）；④ `adjustment-approval.service.ts:2` 与 `reconciliation.module.ts:23,26` 还写着"onApproved 本任务只留桩"，早已落地 ｜来源: 2026-08-31 整支终审
+- [ ] **几处注释与实现对不上**（2026-08-31 终审，同属"脚本不消费、没有机制会发现它错"那一类；2026-09-15 复检重锚：③已修销账，①②④仍真）：① `clearing-settle/reconciliation/workflow/wallet-recon-run.service.ts:838` 一带（文件已迁目录）称已解释差异行"标成 EXPLAINED，仍在案件页上看得见"——**案件页读的是 `flowComparison[].explainedByAdjustmentNo`，全仓零处读 `status === 'EXPLAINED'`**（`grep -rn "'EXPLAINED'" src/` 仅此一处写），注释把展示来源说反了；② 错引行号问题已搬家：`adjustment.service.ts:842` 注释写"evidence.traceId（上面 :181）"，实际落点在 `:793`（`:978` 同款注释已被清过行号、这处漏了）；④ `adjustment-approval.service.ts:2` 与 `reconciliation.module.ts:23` 还写着"onApproved 本任务只留桩"，实际早已是完整落账方法（spec 里有成套 onApproved posting 测试）｜来源: 2026-08-31 整支终审 ｜ 2026-09-15 复检重锚
 
 ## B. 第一幕 · 开业（V1 治理底座 ｜ V3 财务配置 ｜ 账本）
 
@@ -37,7 +37,7 @@ Last Updated: 2026-09-14
 
 - [ ] **报价落"资格快照"**：现 quote 仅存 `policyRef=LEVEL:code`；V3 要求成交时落 命中集合 + 选中级 + 选中理由(最低费) + 客户此刻标签快照（可解释/可申诉）｜来源: 2026-07-11 费率 V3 §4.4/§5.5
 
-- [ ] **费率两族现网创建/落地审计的 afterData 仍写裸资产 UUID（种子三块 2026-09-06 小轮已换业务键，这两处是残余的另一半）**：`swap-fee-level-creation-workflow.service.ts:103-111`（CREATION_REQUESTED 与 :191 APPLIED 的 afterData 带 `fromAssetId/toAssetId`）、`withdrawal-fee-level-creation-workflow.service.ts:100-108` 同款带 `assetId`——管理台审计页按字面量渲染，触铁律⑥。修法同种子侧：落 afterData 前把资产 id 映射成 currency ｜来源: 2026-09-06 第一幕小轮 Task 6 复查（原合并条目销账时拆出）
+- [ ] **费率两族现网创建/落地审计的 afterData 仍写裸资产 UUID（种子三块 2026-09-06 小轮已换业务键，这两处是残余的另一半）**（2026-09-15 复检重锚：原两个 workflow 文件已被波四收编，问题现住共享基类）：`trading/shared/fee-level-workflow.base.ts:268/:354` 的 afterData 经 `assetShape` 参数带入 `{assetId}` 或 `{fromAssetId,toAssetId}` 裸 UUID——管理台审计页按字面量渲染，触铁律⑥。修法同种子侧：落 afterData 前把资产 id 映射成 currency（基类单点改、两族同愈）｜来源: 2026-09-06 第一幕小轮 Task 6 复查 ｜ 2026-09-15 复检重锚
 
 **站 3 · 门自己也要过门（审批策略）**
 
@@ -57,7 +57,9 @@ Last Updated: 2026-09-14
 
 **账本与报表**
 
-- [ ] **账本报表层四张视图待落地(2026-08-13，设计已定稿业主缓做)**：spec 见 `superpowers/specs/2026-08-13-ledger-reports-design.md`（暂扣构成日报/收入分类日报/在途冻结登记簿/VARA 收盘快照 + 通用快照表 + 对账 cron 前置步 + `LEDGER_REPORT_READ/WRITE` 权限）。业主 2026-08-13 拍板本轮只做 COA 更新（plan `superpowers/plans/2026-08-13-coa-v2-rollout.md`），报表层整体缓做；其中 B2 依赖 COA v2 先落、B4 依赖下条迪拜 COB 修正 ｜来源: 2026-08-13 账务深化脑暴，业主二次收窄
+- [ ] **账本域两条详情路由仍用内部 id**（铁律⑥尾巴，三域交易 + 其余 8 模块共 42 条已换装后的残余）：`ledger/accounts/:id` 与 `ledger/transfer-evidence/:tbTransferId`（后者是 TB u128 hex、非 DB UUID，是否算暴露可议）｜来源: 2026-09-15 战役收官后复检（取数员 D 全量路由清点）
+
+- [ ] **账本报表层四张视图待落地(2026-08-13，设计已定稿业主缓做)**：spec 见 `archive/specs/2026-08-13-ledger-reports-design.md`（2026-09-15 复检订正：已归档）（暂扣构成日报/收入分类日报/在途冻结登记簿/VARA 收盘快照 + 通用快照表 + 对账 cron 前置步 + `LEDGER_REPORT_READ/WRITE` 权限）。业主 2026-08-13 拍板本轮只做 COA 更新（plan `superpowers/plans/2026-08-13-coa-v2-rollout.md`），报表层整体缓做；其中 B2 依赖 COA v2 先落、B4 依赖下条迪拜 COB 修正 ｜来源: 2026-08-13 账务深化脑暴，业主二次收窄
 
 ## C. 第二幕 · 迎客（V2 客户与合规）
 
@@ -71,7 +73,7 @@ Last Updated: 2026-09-14
 
 - [ ] ⭐ **Q2 销户流程只落了轴上位置**（`assertOffboardable()` 三条不变量断言已随 2026-09-06 波一死码清扫删除——零调用方死码，重建销户时按新 spec 立）：`OFFBOARDED` 是 `lifecycle` 终态。真正的销户流程——余额清退、材料归档留存期、审批链、客户侧发起入口——全部未做；管理台 Offboard 按钮当前是 disabled 占位（与下方「材料终拒 → 离场清退流程未接」并链——材料终拒是触发销户清退的另一条路径；波二（2026-09-07）新增第三条触发路径——高管拒收（`FINAL_REJECTED`）后客户滞留 `REJECTED` 未再重申，清退承接同归此缺口，三条记录指向同一个未做的销户流程）｜来源: 2026-08-15 设计稿 §8 Q2 ｜ 2026-09-07 波二追加高管拒收触发路径
 
-- [ ] ⭐ **材料终拒 → 离场清退流程未接**（原「REJECTED 材料请求便签长期无人清理」缺口并入，背景见下）：2026-09-06 业主拍板"材料终拒出口 = 离场"（decisions.md 同日，行业口径 FATF 建议10——无法完成尽调即退出客户关系，条子挂着不处理本身是合规瑕疵）；本轮（波一）管理台客户详情页已展示「尽调未完成 · 待离场处理」文字提示（`CustomerDetail.tsx`，走查已验：Bob 的 EMIRATES_ID 材料请求打到终拒后文字出现），但实际的销户清退动作（余额清退 / 材料归档留存期 / 审批链）未做——与上方「Q2 销户流程只落了轴上位置」并链，是同一个未做缺口的两条触发路径（一条走 `OFFBOARD` 边、一条走材料终拒）。**背景（原条目内容）**：材料请求走到 `REJECTED`（RED·FINAL）是终态，但它挂着的便签不会自动撕（`MaterialRequestReviewService.applyReview()` 只有 GREEN 才 `autoRelease()`，两种 RED 都不撕是设计刻意），FINAL 是死路——客户唯一解法是靠运营再下发一次新材料请求或手工去限制账页面撕票，此前无 SLA/看板提醒运营处理 ｜来源: 设计稿 `superpowers/specs/2026-08-17-material-request-ledger-design.md` §9 Q3 ｜ 2026-09-06 波一并入销户缺口，管理台文字展示已补
+- [ ] ⭐ **材料终拒 → 离场清退流程未接**（原「REJECTED 材料请求便签长期无人清理」缺口并入，背景见下）：2026-09-06 业主拍板"材料终拒出口 = 离场"（decisions.md 同日，行业口径 FATF 建议10——无法完成尽调即退出客户关系，条子挂着不处理本身是合规瑕疵）；本轮（波一）管理台客户详情页已展示待离场文字提示（`CustomerDetail.tsx`，现为英文 "Due diligence incomplete · pending offboarding"——2026-09-15 复检订正：原中文文案已随全站英文化改英文；走查已验：Bob 的 EMIRATES_ID 材料请求打到终拒后文字出现），但实际的销户清退动作（余额清退 / 材料归档留存期 / 审批链）未做——与上方「Q2 销户流程只落了轴上位置」并链，是同一个未做缺口的两条触发路径（一条走 `OFFBOARD` 边、一条走材料终拒）。**背景（原条目内容）**：材料请求走到 `REJECTED`（RED·FINAL）是终态，但它挂着的便签不会自动撕（`MaterialRequestReviewService.applyReview()` 只有 GREEN 才 `autoRelease()`，两种 RED 都不撕是设计刻意），FINAL 是死路——客户唯一解法是靠运营再下发一次新材料请求或手工去限制账页面撕票，此前无 SLA/看板提醒运营处理 ｜来源: 设计稿 `superpowers/specs/2026-08-17-material-request-ledger-design.md` §9 Q3 ｜ 2026-09-06 波一并入销户缺口，管理台文字展示已补
 
 ## D. 第三幕 · 钱进（V4 充值）
 
@@ -96,6 +98,8 @@ Last Updated: 2026-09-14
 ## E. 第四幕 · 钱换（V6 兑换）
 
 > 讲「一次兑换四条腿原子记账」这一幕的缺口。
+
+- [ ] 🔴 **客户端兑换页「Matched」行渲染内部 UUID，且同名字段两条路径语义不一致（铁律⑥客户屏首犯）**：client `Swap.tsx:738`（实时预览 `rateMeta.matched`）与 `:1047`（firm quote「Matched Pair / Tier」行）mono 渲染 `pairId / tierId`——firm quote 路径 `swap-fee-level/swap-quote.service.ts:172` 造的 `pairId` = `${fromAssetId}_${toAssetId}`（两个资产 UUID 拼串）、`tierId` = 费率档 tier 行内部 id；预览路径 `swap-transactions.service.ts:245-253` 的 `pairId` 却 = `feeLevelCode`（业务码）。客户屏上时而业务码时而 UUID 串。修法：两路统一业务语义（feeLevelCode + tierName）或整行只显 `pairName / tierName` ｜来源: 2026-09-15 战役收官后复检（取数员 D + 主会话复现）
 
 - [ ] 无自动 FAILED 状态机：腿失败走自愈→STUCK(needsReview)+手动 resume，swap 留 PROCESSING，无终态失败（设计 deferred）｜来源: 2026-07-04 V6 体检
 
@@ -143,6 +147,8 @@ Last Updated: 2026-09-14
 
 - [ ] **法币补款腿 2 失败后款项停在结算户**（2026-09-05）：腿 1 已落账、账与钱一致，订单 FAILED，人工处理，不做自动退回 ｜来源: 平账二期 spec §3
 
+- [ ] 🔴 **划转工作流一处绕过 FundsOrderService 直写 `fundsOrder` 表（铁律③）**：`asset-treasury/internal-transfers/internal-transfer-workflow.service.ts:223` `(this.prisma as any).fundsOrder.update(...)` 给腿补写模拟 txHash/referenceNo，带 `as any` 逃逸类型检查；已注入的 `FundsOrderService` 没有对应方法所以绕了。全仓其余 `fundsOrder` 写点全在 funds-layer 正主（`grep -rn "fundsOrder.update" src` 复现）。引入于平账二期 Task 7（`ddf23e91`），存量违例按「pre-existing 不豁免」照登。修法：`FundsOrderService` 补一个 stampExternalRef 类方法，workflow 改调 ｜来源: 2026-09-15 战役收官后复检（取数员 A + 主会话复现）
+
 **场景 18 · 事故登记**
 
 - ~~**大额查不出（LARGE_UNEXPLAINED）事故定损后，钱这条腿没有出口——事故永远关不了**~~ —— 已解（2026-09-08 平账处置改版 Task 4，commit `aad897a2`）：写闸判据从「定性行 outlet==='INCIDENT'」改成「行挂着 `incidentNo`」（`adjustment.service.ts → assertWriteOffAllowed`），读面 `nextStep` 同款改判（`reconciliation-query.service.ts`）；升级路（LARGE_UNEXPLAINED）事故定损（`FIRM_LOSS`）后，案件行重新出现「Recognize loss / Write off」按钮，金额锁定 = 定损额、跳过小额线，走通认损/核销 → CFO 批 → Re-reconcile → 案子自愈 → 事故页可挂载、可提结案；见文末销账「死胡同修复」，走查实证：case REC20260908-010 / INC260908635950 ｜来源: 2026-09-08 平账走查模拟
@@ -187,8 +193,6 @@ Last Updated: 2026-09-14
 
 - [ ] **严重度分级跨资产不可比**（2026-09-02 平账 A 批发现）：`wallet-recon-run.service.ts` `computeSeverity` 用「最小单位 1 万」一个数——AED 是 100 元、USDT 是 0.01 元。本批「金额小」另立小额线（`recon-thresholds.constant.ts` 按币种），未借用严重度；修法：severity 阈值按币种进同一张常量表 ｜来源: 2026-09-02 平账 A 批 spec §0-12
 
-- [ ] **canonical-minor 展示层 re-pairing 未传 decimals**：`reconciliation-query.service.ts` `buildFlowComparison()` 的 `matchFlows` 调用暂传 `decimals: 0`（identity 换算，保持 Case 详情流水比对页现状不变），TODO 标记待 Task B 补该 case 资产 `asset.decimals`｜来源: 2026-07-04 canonical-minor Task A（Task B 收口）
-
 **留痕与手册**
 
 - [ ] **`RECON_CASE_OPENED` 审计 metadata 仍带 `walletRef`（内部 UUID）**（2026-09-03 平账 A 批终审）：`wallet-recon-run.service.ts` 开案审计的 metadata 直接放 walletRef；本批新增的两条账龄审计已改用 `walletNo` 业务键，开案这条应对齐（子主体已是业务键，只是 metadata 漏了）｜来源: 平账 A 批终审 triage
@@ -201,9 +205,11 @@ Last Updated: 2026-09-14
 
 > 讲「这笔事谁批的、依据什么、钱去哪了」这一幕的缺口。三域词表已换装，剩子表覆盖面与资金单审计栏。
 
-- [ ] ⭐ 🔴 **`audit_log_subjects` 子表覆盖面远小于设计前提，45 码里只有 ~7 码真正在用子表**：设计稿 §5.1 的立论前提是"一对 primarySubjectType+primarySubjectNo 装不下多主体，需要子表"，但 Task 11 端到端实测（真实 API 驱动 admin 停用/恢复/角色定义创建等流程）坐实：只有横切的 6 个 `APPROVAL_*` 码（经 `approvals.service.ts`）与 `AUDIT_LOG_QUERIED`（且仅当查询带 `ownerCustomerNo` 参数时）会调用 `persistSubjects` 写子表；其余 IAM（`ADMIN_INVITE_*`/`ADMIN_FIRST_LOGIN_*`/`ADMIN_ROLE_CHANGE_*`/`ADMIN_SUSPENSION_*`/`ADMIN_REACTIVATION_*`/`ADMIN_PASSWORD_RESET_*`/`ADMIN_MFA_RESET_*`/`ADMIN_ACCOUNT_LOCK_*`，共 25 码）与 CONFIG（`ROLE_DEFINITION_*`/`APPROVAL_POLICY_CHANGE_*`，共 8 码）、以及 `AUDIT_EVIDENCE_EXPORT_*`（3 码）在各自的 workflow service 里 `recordByActor`/`recordSystem` 调用**从不传 `subjects:` 数组**——只设置主表扁平字段。实测复现：`admin-suspension-workflow.service.ts` 让 `ADM2501010008` 挂了 4 条事件（`ADMIN_SUSPENSION_REQUESTED`/`APPLIED`、`ADMIN_REACTIVATION_REQUESTED`/`APPLIED`）的 `primarySubjectNo`，但 `SELECT COUNT(*) FROM audit_log_subjects WHERE subjectNo='ADM2501010008'` = 0，`GET /admin/audit-logs?subjectNo=ADM2501010008` 实测返回 `total:0`（必须改用 `primarySubjectNo=` 才能查到同样 4 条）。**验收标准 #6"按依据查得到"字面上仍算通过**（该标准原文限定的是"按审批单号"，approvals.service.ts 那 7 个码确实覆盖了），但设计稿 §5.1 举的例子（"充值单"为 PRIMARY、审批单只是其中一个 INSTRUMENT）说明子表原意是覆盖**所有** V1 主体，不是只覆盖审批单号——按这个更完整的意图，"某个 admin 用户/某条角色定义从生到死被谁碰过"这条监管索档能力目前并不成立。修法：把这 36 个码所在的 8 个 workflow service 补上 `subjects:` 数组（多数只需 1-2 行，模式已有 `approvals.service.ts` 可抄）｜Task 11 端到端验收实测新发现，无历史来源
+- [ ] ⭐ 🔴 **`audit_log_subjects` 子表覆盖面远小于设计前提，45 码里只有 ~7 码真正在用子表**：设计稿 §5.1 的立论前提是"一对 primarySubjectType+primarySubjectNo 装不下多主体，需要子表"，但 Task 11 端到端实测（真实 API 驱动 admin 停用/恢复/角色定义创建等流程）坐实：只有横切的 6 个 `APPROVAL_*` 码（经 `approvals.service.ts`）与 `AUDIT_LOG_QUERIED`（且仅当查询带 `ownerCustomerNo` 参数时）会调用 `persistSubjects` 写子表；其余 IAM（`ADMIN_INVITE_*`/`ADMIN_FIRST_LOGIN_*`/`ADMIN_ROLE_CHANGE_*`/`ADMIN_SUSPENSION_*`/`ADMIN_REACTIVATION_*`/`ADMIN_PASSWORD_RESET_*`/`ADMIN_MFA_RESET_*`/`ADMIN_ACCOUNT_LOCK_*`，共 25 码）与 CONFIG（`ROLE_DEFINITION_*`/`APPROVAL_POLICY_CHANGE_*`，共 8 码）、以及 `AUDIT_EVIDENCE_EXPORT_*`（3 码）在各自的 workflow service 里 `recordByActor`/`recordSystem` 调用**从不传 `subjects:` 数组**——只设置主表扁平字段。实测复现：`admin-suspension-workflow.service.ts` 让 `ADM2501010008` 挂了 4 条事件（`ADMIN_SUSPENSION_REQUESTED`/`APPLIED`、`ADMIN_REACTIVATION_REQUESTED`/`APPLIED`）的 `primarySubjectNo`，但 `SELECT COUNT(*) FROM audit_log_subjects WHERE subjectNo='ADM2501010008'` = 0，`GET /admin/audit-logs?subjectNo=ADM2501010008` 实测返回 `total:0`（必须改用 `primarySubjectNo=` 才能查到同样 4 条）。**验收标准 #6"按依据查得到"字面上仍算通过**（该标准原文限定的是"按审批单号"，approvals.service.ts 那 7 个码确实覆盖了），但设计稿 §5.1 举的例子（"充值单"为 PRIMARY、审批单只是其中一个 INSTRUMENT）说明子表原意是覆盖**所有** V1 主体，不是只覆盖审批单号——按这个更完整的意图，"某个 admin 用户/某条角色定义从生到死被谁碰过"这条监管索档能力目前并不成立。修法：把这 36 个码所在的 8 个 workflow service 补上 `subjects:` 数组（多数只需 1-2 行，模式已有 `approvals.service.ts` 可抄）。**澄清（2026-09-15 复检）**：波三~五给交易域新补的审计（冻结留痕 / 广播 OWNER subject / 报价三码）全在 V4/V5/V6 交易域，不在本条圈定的 V1 治理域 36 码范围内——本条数字不因此变化，勿误读为"已部分修复"｜Task 11 端到端验收实测新发现，无历史来源
 
 - [ ] **Q4"按客户查全部"目前唯一的数据来源是查询动作自证**：`verify:audit` 的 Q4 判据（`M>0`）能通过，靠的是 `GET /admin/audit-logs?ownerCustomerNo=X` 这个查询动作自己把 `AUDIT_LOG_QUERIED` 记成 `OWNER=CUSTOMER`，即"查询这个动作本身构成了它所验证的证据"。这不是 `verify-audit.ts` 脚本的缺陷（脚本按 brief 逐字实现，且经变异测试证明能正确识别数据缺陷），而是**V1 治理域现实中没有任何其它场景会把 CUSTOMER 设为某条治理事件的 OWNER**（V1 域本身不直接操作客户实体，客户只会通过"查询时按客户号过滤"这一条路径进子表）。换言之，Q4 目前只证明了"查询行为自身可追溯"，不能证明"客户被牵连在其他 V1 治理动作里时可追溯"——因为 V1 域里后一种场景目前不存在，等三个交易域（充值/提现/兑换，这些才会有 `ownerCustomerNo` 意义下的客户关联事件）接入 `subjects` 后，Q4 式的验证才有更丰富的场景可测｜Task 11 端到端验收实测新发现，无历史来源
+
+- [ ] **审计域两条详情路由仍用数据库 UUID，且两表明明有业务号没用**（铁律⑥正犯）：`audit/logs/:id`（表有 `eventNo`）与 `audit/evidence-packages/:id`（表有 `packageNo`）；另 `AuditLogDetailPage.tsx:362` 在 Owner No 旁冗余渲染 Owner ID（内部 UUID）。换装照三域交易前例 ｜来源: 2026-09-15 战役收官后复检（取数员 D 全量路由清点）
 
 - [ ] **`InternalFundAuditLog` 有读无写 → 资金单详情页审计列表永远空**：Round 2 后零写入方，读取链还在——运营点开任何一张资金单，审计栏都是空的（踩铁律①「操作必留痕」的可见面）。补写状态变更 or 改读中央审计日志 ｜来源: 2026-07-03 死码 D6 改判（勿删表，有活读取链）；2026-08-26 分流迁入 PRODUCTION-NOTES，2026-08-28 判为业务缺口迁回
 
@@ -224,11 +230,13 @@ Last Updated: 2026-09-14
 
 - [ ] **时长是硬编码常量，无 admin 配置界面**：`DEPOSIT_SLA_MINUTES_BY_STATUS`/`WITHDRAW_SLA_MINUTES_BY_STATUS`/`SWAP_SLA_MINUTES_BY_STATUS` 均是各自 service 文件里的 TS 字面量常量，改时长需改代码重新部署；三域此前各有一套不同的可配置性历史（兑换曾经有 `SWAP_COMPLIANCE_TIMEOUT_MS` env 覆盖，本批已删除该开关，统一成与另外两域同款的纯代码常量），现状是**三域一致地**没有任何 env/DB 层面的运行时可配置项。BACKLOG 旧条目「60 秒合规超时未经真实 Sumsub 延迟校准」的具体诉求②（"改成可配置项"）实质上仍未完成，只是数字来源换成了业主裁定的业务口径而非未标定的技术猜测 ｜来源: 2026-08-21 SLA 批次
 
-- [ ] **`formatSlaRemaining` 对不足 1 分钟显示 `"0m"` 而非 `"<1m"`**：`admin-web/src/utils/slaDisplay.ts` 的分级逻辑（`days>0`/`hours>0`/否则 `${minutes}m`）在剩余时间落在 0-59 秒区间时 `totalMinutes=Math.floor(ms/60_000)=0`，直接显示 `"0m"`——对运营而言"0m"容易误读成"已经到期"（虽然 tone 仍是 `normal` 不是 `breached`），比显示 `"<1m"` 更容易造成误判 ｜来源: 2026-08-21 SLA 批次
-
 - [ ] **「按键 × 按状态」置灰精度**：充值/提现的 ⑧ On hold 在非 `COMPLIANCE_PENDING` 上是纯 no-op（后端 `decideVerdictLanding` 有 `verdict==='onHold' && status!==COMPLIANCE_PENDING → IGNORE`）却仍可点。方向安全（不误灰），修法需要引入「按键 × 按状态」矩阵 ｜来源: 2026-08-23 第五批 Task 7 审查
 
 - [ ] **`tags: string[]` 三域 Sumsub DTO 都声明、全 admin-web 零渲染**（后端 `parseDetail` 确实在填）｜来源: 2026-08-23 第五批 Task 2 审查
+
+- [ ] **管理台兑换详情屏上三处内部 ID**：`SwapTransactionDetail.tsx:537-539` 三个 InfoField 渲染 Trace ID / From Asset ID / To Asset ID（均内部 id，mono 直显）——资产该显 currency，traceId 是否保留待业主定（排障用 vs 铁律⑥）｜来源: 2026-09-15 战役收官后复检
+
+- [ ] **`pricing.types.ts` 三个零引用死接口**：`SwapPairEntry`/`WithdrawalAssetEntry`/`WithdrawalPolicyRestrictions` 声明后全仓零引用（含本文件；`grep -rn "\bSwapPairEntry\b" src admin-web/src client-web/src scripts test` 仅声明行）——战役前老残留，零引用纪律先登记，下次动 pricing-center 顺手清 ｜来源: 2026-09-15 战役收官后复检（取数员 B，主会话复现）
 
 - [ ] **`UpdateInternalFundStatusDto` 零引用死 DTO**：`src/modules/funds-layer/dto/internal-fund.dto.ts:82` 声明的 DTO 全仓零消费方（`grep -rn "UpdateInternalFundStatusDto" src admin-web/src client-web/src` 仅命中声明本身一处）；波五 Task 10（前端收口）扫描资金单详情页字段时顺带发现，本波未删——零引用纪律先登记，下次动 funds-layer/`InternalFund*` 命名债（见 `modules/v6-swap.md` §6）时一并清理 ｜来源: 2026-09-14 波五 Task 10
 
@@ -262,7 +270,17 @@ Last Updated: 2026-09-14
 
 - [~] roadmap **V3/V4 已按三层新格式重排 + truth 外置**（2026-07-03）；V1/V2/V5-V9 待同款处理
 
+- [ ] **战役收官后复检攒下的文档/注释小账（一次收口，全部一行级）**：① 波五两件功能文档零覆盖——「客户面词表 SUCCESS/DECLINED」与「D10 L1②格因由+便签号」在 modules 三篇 + script.md 全零命中（grep DECLINED / restrictionNo 均空）；② `demo/script.md:217` 仍写「兑换 22 码」，实数 26（v4/v5/v6 三篇的 47/33/26 已对）；③ `modules/v4-deposit.md:54` 表格摘要仍留「黑名单直接拒绝」旧措辞（:75 详情行已更新）；④ `modules/funds-orders.md:62` 残留 INTERNAL_FUND_* 旧名句（代码已无此名）；⑤ 失真注释 1 条：`swap-kyt-verdict.handler.ts:15-19` 仍写「兑换 FROZEN 是零出边终态」，与波五 FROZEN 中间态矛盾（行为本身仍对，解冻走管理台审批不走 KYT tag）；⑥ `audit-actions.constant.ts` V4/V5/V6 三块头注释仍写 31/25/18（实数 47/33/26）｜来源: 2026-09-15 战役收官后复检（取数员 C，主会话逐条复现）
+
 ---
+
+## 本轮销账（2026-09-15 战役收官后复检）
+
+> 六取数员全台账腐烂检测 + 主会话逐条复现，报告见 `superpowers/checkups/2026-09-15-acts345-post-campaign.md`。70 条未勾里腐烂 3、表述过期 5（过期 5 条已原地重锚，见各条「2026-09-15 复检重锚/订正」标记）；两条已勾（D10 因由 / Q1 创建即冻）实证支持勾选。
+
+- [x] **`formatSlaRemaining` 不足 1 分钟显 "0m"** —— 已修未销，本轮销账：`admin-web/src/utils/slaDisplay.ts:27` 现返回 `'<1m'`
+- [x] **canonical-minor 展示层 re-pairing 未传 decimals** —— 已修未销，本轮销账：`clearing-settle/reconciliation/domain/reconciliation-query.service.ts:147-165` 已真查 `asset.decimals` 逐行下发，TODO 注释已清
+- [x] **§A5③ `adjustment.service.spec.ts` 描述走 customerLabel 实为 internalLabel** —— 已修未销，本轮销账：spec :61-80 注释与断言已对齐（明写 generic branch 恒用 internalLabel），矛盾不存在；母条目 ①②④ 仍真已原地重锚
 
 ## 本轮销账（2026-09-13 波四共享抽离）
 
