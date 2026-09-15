@@ -29,6 +29,7 @@ import { ApprovalsService } from '../../governance/approvals/approvals.service';
 import { toCustomerAssetView } from '../shared/customer-view.util';
 import { resolveSlaFields as resolveSlaFieldsShared } from '../shared/sla-fields.util';
 import { freezeScanQueryArgs } from '../shared/freeze-scan.util';
+import { buildCustomerTimeline } from '../shared/customer-timeline.util';
 
 type DepositWriteClient = Prisma.TransactionClient | PrismaService;
 
@@ -411,6 +412,14 @@ export class DepositTransactionsService {
    * `RETURNED`）：只有这几个态,「完成时间」对客户才是真实且应当可见的
    * 事实，其余情况（含"仍在敏感态"与"被冻过又解冻回 COMPLIANCE_PENDING"
    * 这两类）一律输出 null，不能把正常的完成时间也吞掉。
+   *
+   * 2026-09-15 详情增强新增四键：`toAddress`/`toIban`（客户自己这笔充值汇
+   * 入的收款账户，客户本来就知道自己往哪儿转的钱，不是调查态信息）、
+   * `effectiveDate`（对账用业务日，同样是客户自己这笔交易的事实、不涉及
+   * 处置弧）、`timeline`（不是原始 `statusHistory` 透传——经
+   * `buildCustomerTimeline` 收敛构建，逐条 toStatus 先过 `toCustomerStatus`
+   * 再去重同态折叠，FROZEN/SEIZED 等处置态在时间线里与正常单不可区分，
+   * 和上面 `status`/`completedAt` 遵守同一条规则 A）。
    */
   private toCustomerDepositView(item: any) {
     const customerStatus = this.toCustomerStatus(item.status);
@@ -425,6 +434,12 @@ export class DepositTransactionsService {
       referenceNo: item.referenceNo,
       fromAddress: item.fromAddress,
       fromIban: item.fromIban,
+      toAddress: item.toAddress,
+      toIban: item.toIban,
+      effectiveDate: item.effectiveDate,
+      timeline: buildCustomerTimeline(item.statusHistory, 'PAYIN_PENDING', item.createdAt, (s) =>
+        this.toCustomerStatus(s),
+      ),
       asset: toCustomerAssetView(item.asset),
     };
   }

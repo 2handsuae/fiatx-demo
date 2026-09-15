@@ -287,6 +287,10 @@ describe('DepositTransactionsService', () => {
         referenceNo: 'REF-1',
         fromAddress: 'T_FROM',
         fromIban: null,
+        // 同下方 findOneForCustomer 同名测试的注释：SENSITIVE_FULL_ROW 的三条
+        // statusHistory 都缺 timestamp，被 buildCustomerTimeline 逐条跳过，
+        // 只剩出生态。
+        timeline: [{ status: 'PAYIN_PENDING', at: '2026-01-01T00:00:00.000Z' }],
         asset: { currency: 'USDT', code: 'USDT', network: 'TRON', decimals: 6 },
       });
       // 2026-08-06 减法：顶层 actionSubmittedAt 已从白名单删除（前端已无消费者）。
@@ -506,7 +510,13 @@ describe('DepositTransactionsService', () => {
         asset: { currency: 'EUR', code: 'EUR', network: null, decimals: 2, type: 'FIAT' },
         limitHoldReason: null,
         actionSubmittedAt: null,
-        statusHistory: null,
+        // 真实生产路径里，单子进 COMPLIANCE_PENDING 前已经过一次真实
+        // updateStatus 落过一条 statusHistory——留白(null)会让下面的冻结分支
+        // 因为多出这一条真实转态记录而在 timeline 上"看起来"跟对照组不同，
+        // 不是因为泄漏，而是对照组的 fixture 本身不真实。
+        statusHistory: JSON.stringify([
+          { status: 'COMPLIANCE_PENDING', timestamp: '2026-01-01T00:00:01.000Z' },
+        ]),
       };
 
       // 甲：一笔真正在处理中的单，从未被冻。
@@ -566,7 +576,11 @@ describe('DepositTransactionsService', () => {
         asset: { currency: 'EUR', code: 'EUR', network: null, decimals: 2, type: 'FIAT' },
         limitHoldReason: null,
         actionSubmittedAt: null,
-        statusHistory: null,
+        // 同上一测试的理由：留白会让对照组(从未冻结)与冻结→解冻组在
+        // timeline 上产生一条与泄漏无关的假性差异。
+        statusHistory: JSON.stringify([
+          { status: 'COMPLIANCE_PENDING', timestamp: '2026-01-01T00:00:01.000Z' },
+        ]),
       };
 
       // 甲：一笔真正从未被冻的处理中单。
@@ -784,6 +798,11 @@ describe('DepositTransactionsService', () => {
         referenceNo: 'REF-1',
         fromAddress: 'T_FROM',
         fromIban: null,
+        // SENSITIVE_FULL_ROW 的 statusHistory 三条都只带 reason、不带
+        // timestamp（构造式白名单/L1 快照那份夹带的是 detail 文案，不是可用
+        // 时间戳）——buildCustomerTimeline 逐条要求 timestamp 字符串，缺失即
+        // 跳过，三条全被跳过，只剩出生态。
+        timeline: [{ status: 'PAYIN_PENDING', at: '2026-01-01T00:00:00.000Z' }],
         asset: { currency: 'USDT', code: 'USDT', network: 'TRON', decimals: 6 },
       });
       // 2026-08-06 减法：顶层 actionSubmittedAt 已从白名单删除；2026-08-18
