@@ -99,9 +99,8 @@ export const PERMISSIONS = {
   AUDIT_LOGS_READ: 'api.get.admin_audit_logs',
   AUDIT_EXPORT_CREATE: 'api.post.admin_audit_evidence_packages',
   AUDIT_EVIDENCE_EXPORTS_READ: 'api.get.admin_audit_evidence_packages',
-  AUDIT_EVIDENCE_EXPORT_DETAIL_READ: 'api.get.admin_audit_evidence_packages_id',
   AUDIT_EVIDENCE_EXPORT_DOWNLOAD:
-    'api.get.admin_audit_evidence_packages_id_download',
+    'api.get.admin_audit_evidence_packages_packageno_download',
   GOV_APPROVALS_READ: 'api.get.admin_control_gates_approvals',
   // Task 17：对外识别改 approvalNo 后，四码随 rbac.catalog.ts 的 :id → :approvalNo
   // 一起漂——buildPermissionCode(method, path) 派生值，同 47 行注释的镜像约定。

@@ -142,12 +142,12 @@ export class AuditEvidenceExportWorkflowService {
       this.toAuditActor(actor),
     );
 
-    return this.auditLogsService.findEvidencePackage(evidencePackage.id);
+    return this.auditLogsService.findEvidencePackage(evidencePackage.packageNo);
   }
 
-  async downloadEvidencePackage(id: string, actor: ApprovalActorContext, sourceIp?: string) {
-    const found = await this.auditLogsService.findEvidencePackage(id);
-    if (!found) throw new NotFoundException(`Evidence package not found: ${id}`);
+  async downloadEvidencePackage(packageNo: string, actor: ApprovalActorContext, sourceIp?: string) {
+    const found = await this.auditLogsService.findEvidencePackage(packageNo);
+    if (!found) throw new NotFoundException(`Evidence package not found: ${packageNo}`);
     if (!found.approvalCaseId) throw new BadRequestException('Evidence export is missing approval binding');
 
     await this.approvalsService.requireApproved({
@@ -165,7 +165,7 @@ export class AuditEvidenceExportWorkflowService {
       throw new BadRequestException('Export package is not ready');
     }
 
-    const downloaded = await this.auditLogsService.downloadEvidencePackage(id);
+    const downloaded = await this.auditLogsService.downloadEvidencePackage(packageNo);
 
     await this.auditLogsService.recordByActor(
       {

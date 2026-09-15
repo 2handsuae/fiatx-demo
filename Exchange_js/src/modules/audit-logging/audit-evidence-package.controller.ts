@@ -60,19 +60,19 @@ export class AuditEvidencePackageController {
     return this.auditLogsService.findEvidencePackages(query);
   }
 
-  @Get(':id')
+  @Get(':packageNo')
   @ApiOperation({ summary: 'Get evidence package detail' })
-  findOne(@Req() req: any, @Param('id') id: string) {
+  findOne(@Req() req: any, @Param('packageNo') packageNo: string) {
     this.ensureApprovalAdmin(req);
-    return this.auditLogsService.findEvidencePackage(id);
+    return this.auditLogsService.findEvidencePackage(packageNo);
   }
 
-  @Get(':id/download')
+  @Get(':packageNo/download')
   @ApiOperation({ summary: 'Download evidence package content' })
-  download(@Req() req: any, @Param('id') id: string) {
+  download(@Req() req: any, @Param('packageNo') packageNo: string) {
     // AUDIT_EVIDENCE_EXPORT_DOWNLOADED 词表声明必填 sourceIp——只能从这里的 req 拿，
     // 往下游 workflow 方法多传一个参数，不是在 controller 里另写一条 recordByActor
     // （唯一允许 controller 直接写审计的例外是 AUDIT_LOG_QUERIED，见 audit-logs.controller.ts）。
-    return this.workflowService.downloadEvidencePackage(id, this.ensureApprovalAdmin(req), req.ip);
+    return this.workflowService.downloadEvidencePackage(packageNo, this.ensureApprovalAdmin(req), req.ip);
   }
 }

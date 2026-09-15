@@ -458,6 +458,14 @@ describe('AuditLogsService', () => {
     await expect(service.findOne('missing')).rejects.toThrow(NotFoundException);
   });
 
+  it('finds audit log detail by eventNo (business key, 铁律⑥)', async () => {
+    prisma.auditLogEvent.findUnique.mockResolvedValue(null);
+    await service.findOne('AUD2603240001').catch(() => undefined);
+    expect(prisma.auditLogEvent.findUnique).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { eventNo: 'AUD2603240001' } }),
+    );
+  });
+
   it('should list and parse persisted evidence packages', async () => {
     prisma.auditEvidencePackage.count.mockResolvedValue(1);
     prisma.auditEvidencePackage.findMany.mockResolvedValue([
@@ -506,6 +514,17 @@ describe('AuditLogsService', () => {
     await expect(service.findEvidencePackage('pkg-deleted')).rejects.toThrow(NotFoundException);
     await expect(service.downloadEvidencePackage('pkg-deleted')).rejects.toThrow(
       NotFoundException,
+    );
+  });
+
+  it('finds evidence package by packageNo (business key, 铁律⑥)', async () => {
+    prisma.auditEvidencePackage.findUnique.mockResolvedValue(null);
+    // brief 给的示例代码此行无 .catch()；findEvidencePackage 在 found 为空时会
+    // throw NotFoundException（同下方 detail 场景),不接住会变成未处理 rejection
+    // 让本测试恒红——按 findOne 姊妹测试同款 .catch() 补上,断言的仍是 where 子句。
+    await service.findEvidencePackage('PKG2603240001').catch(() => undefined);
+    expect(prisma.auditEvidencePackage.findUnique).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { packageNo: 'PKG2603240001' } }),
     );
   });
 

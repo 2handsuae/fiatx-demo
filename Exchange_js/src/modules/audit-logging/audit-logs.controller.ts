@@ -90,10 +90,10 @@ export class AuditLogsController {
     return result;
   }
 
-  @Get(':id')
-  @ApiOperation({ summary: 'Get audit log detail by id' })
-  findOne(@Req() req: any, @Param('id') id: string) {
+  @Get(':eventNo')
+  @ApiOperation({ summary: 'Get audit log detail by event no' })
+  findOne(@Req() req: any, @Param('eventNo') eventNo: string) {
     this.ensureAdmin(req);
-    return this.auditLogsService.findOne(id);
+    return this.auditLogsService.findOne(eventNo);
   }
 }

@@ -1064,20 +1064,20 @@ export class AuditLogsService {
     };
   }
 
-  async findOne(id: string) {
+  async findOne(eventNo: string) {
     const db = this.getDb() as any;
     if (!this.canOperateAuditLogEvent(db)) {
       throw this.auditStorageUnavailable('Audit log event storage');
     }
     const found = await db.auditLogEvent.findUnique({
-      where: { id },
+      where: { eventNo },
       include: {
         subjects: { select: { subjectType: true, subjectNo: true, subjectRole: true } },
       },
     });
 
     if (!found) {
-      throw new NotFoundException(`Audit log not found: ${id}`);
+      throw new NotFoundException(`Audit log not found: ${eventNo}`);
     }
 
     const mapped: any = this.mapEvent(found);
@@ -1340,14 +1340,14 @@ export class AuditLogsService {
     };
   }
 
-  async findEvidencePackage(id: string) {
+  async findEvidencePackage(packageNo: string) {
     const db = this.getDb() as any;
     if (!this.canOperateAuditEvidencePackage(db)) {
       throw this.auditStorageUnavailable('Audit evidence package storage');
     }
 
     const found = await db.auditEvidencePackage.findUnique({
-      where: { id },
+      where: { packageNo },
       include: {
         approvalCase: {
           select: {
@@ -1364,14 +1364,14 @@ export class AuditLogsService {
       },
     });
     if (!found || found.deletedAt) {
-      throw new NotFoundException(`Evidence package not found: ${id}`);
+      throw new NotFoundException(`Evidence package not found: ${packageNo}`);
     }
 
     return this.mapEvidencePackage(found);
   }
 
-  async downloadEvidencePackage(id: string) {
-    const found = await this.findEvidencePackage(id);
+  async downloadEvidencePackage(packageNo: string) {
+    const found = await this.findEvidencePackage(packageNo);
     return {
       id: found.id,
       packageNo: found.packageNo,
