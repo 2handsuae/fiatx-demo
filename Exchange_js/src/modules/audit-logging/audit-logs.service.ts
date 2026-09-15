@@ -83,19 +83,11 @@ export interface SwapEvidenceChainItem {
   swapNo: string | null;
   quoteId: string | null;
   quoteNo: string | null;
-  decisionRecordIds: string[];
-  alertIds: string[];
-  caseIds: string[];
-  journalIds: string[];
 }
 
 export interface SwapEvidenceSnapshots {
   swapTransactions: any[];
   swapQuotes: any[];
-  swapRiskDecisionRecords: any[];
-  swapAlerts: any[];
-  swapCases: any[];
-  swapJournals: any[];
   swapEvidenceChain: SwapEvidenceChainItem[];
 }
 
@@ -162,12 +154,6 @@ export class AuditLogsService {
           .filter(Boolean),
       ),
     ).sort();
-  }
-
-  private parseStringArray(value?: string | null): string[] {
-    const parsed = this.parseJson(value);
-    if (!Array.isArray(parsed)) return [];
-    return this.toSortedUniqueStrings(parsed.map((item) => String(item ?? '')));
   }
 
   private serializeJson(value: unknown): string | null {
@@ -1103,63 +1089,6 @@ export class AuditLogsService {
     return mapped;
   }
 
-  private buildSwapEvidenceChain(params: {
-    swapTransactions: any[];
-    swapQuotes: any[];
-    riskDecisionRecords: any[];
-    alerts: any[];
-    cases: any[];
-    journals: any[];
-  }): SwapEvidenceChainItem[] {
-    const {
-      swapTransactions,
-      swapQuotes,
-      riskDecisionRecords,
-      alerts,
-      cases,
-      journals,
-    } = params;
-
-    return swapTransactions.map((swap) => {
-      const swapId = String(swap.id);
-      const quoteId = this.normalizeOptionalString(swap.quoteId);
-      const linkedQuote = swapQuotes.find(
-        (item) => String(item.id) === quoteId,
-      );
-      const swapDecisionRecords = riskDecisionRecords.filter(
-        (item) => String(item.subjectId) === swapId,
-      );
-      const swapAlerts = alerts.filter(
-        (item) => String(item.sourceId) === swapId,
-      );
-      const swapCases = cases.filter(
-        (item) => String(item.sourceId) === swapId,
-      );
-      const swapJournals = journals.filter(
-        (item) => String(item.sourceId) === swapId,
-      );
-      return {
-        swapId,
-        swapNo: swap.swapNo || null,
-        quoteId: quoteId || linkedQuote?.id || null,
-        quoteNo:
-          this.normalizeOptionalString(swap.quoteNo) ||
-          this.normalizeOptionalString(linkedQuote?.quoteNo) ||
-          null,
-        decisionRecordIds: this.toSortedUniqueStrings([
-          ...swapDecisionRecords.map((item) => item.id),
-          ...swapAlerts.flatMap((item) => item.decisionRecordIds || []),
-          ...swapCases.flatMap((item) => item.decisionRecordIds || []),
-        ]),
-        alertIds: this.toSortedUniqueStrings(swapAlerts.map((item) => item.id)),
-        caseIds: this.toSortedUniqueStrings(swapCases.map((item) => item.id)),
-        journalIds: this.toSortedUniqueStrings(
-          swapJournals.map((item) => item.id),
-        ),
-      };
-    });
-  }
-
   private async buildDepositSnapshots(records: any[], db: any): Promise<DepositEvidenceSnapshots> {
     const candidateNos = this.toSortedUniqueStrings(
       records
@@ -1250,10 +1179,6 @@ export class AuditLogsService {
       return {
         swapTransactions: [],
         swapQuotes: [],
-        swapRiskDecisionRecords: [],
-        swapAlerts: [],
-        swapCases: [],
-        swapJournals: [],
         swapEvidenceChain: [],
       };
     }
@@ -1357,185 +1282,14 @@ export class AuditLogsService {
         })
       : [];
 
-    const swapIds = this.toSortedUniqueStrings(
-      swapTransactions.map((item: any) => item.id),
-    );
-    if (!swapIds.length) {
-      return {
-        swapTransactions,
-        swapQuotes,
-        swapRiskDecisionRecords: [],
-        swapAlerts: [],
-        swapCases: [],
-        swapJournals: [],
-        swapEvidenceChain: [],
-      };
-    }
-
-    const [
-      riskDecisionRecords,
-      alerts,
-      cases,
-      journals,
-    ] = await Promise.all([
-      db.workflowDecisionRecord?.findMany
-        ? db.workflowDecisionRecord.findMany({
-            where: {
-              subjectId: { in: swapIds },
-              contextType: 'TX_SWAP_FINAL',
-            },
-            orderBy: [{ subjectId: 'asc' }, { createdAt: 'asc' }],
-            select: {
-              id: true,
-              customerId: true,
-              contextType: true,
-              subjectId: true,
-              policyVersion: true,
-              status: true,
-              inputPayload: true,
-              inputHash: true,
-              outputDecision: true,
-              recommendedActions: true,
-              outputs: true,
-              reasonCodes: true,
-              errorMessage: true,
-              createdAt: true,
-              completedAt: true,
-              updatedAt: true,
-            },
-          })
-        : Promise.resolve([]),
-      db.complianceAlert?.findMany
-        ? db.complianceAlert.findMany({
-            where: {
-              sourceType: AuditWorkflowTypes.SWAP,
-              sourceId: { in: swapIds },
-            },
-            orderBy: [{ sourceId: 'asc' }, { firstOccurredAt: 'asc' }],
-            select: {
-              id: true,
-              alertNo: true,
-              sourceType: true,
-              sourceId: true,
-              sourceNo: true,
-              stage: true,
-              ruleCode: true,
-              severity: true,
-              status: true,
-              decisionRecommendation: true,
-              decision: true,
-              decisionRecordIds: true,
-              linkedCaseIds: true,
-              currentDispositionCode: true,
-              finalDispositionCode: true,
-              hitCount: true,
-              metadata: true,
-              firstOccurredAt: true,
-              lastOccurredAt: true,
-              createdAt: true,
-              updatedAt: true,
-            },
-          })
-        : Promise.resolve([]),
-      db.complianceIncident?.findMany
-        ? db.complianceIncident.findMany({
-            where: {
-              sourceType: AuditWorkflowTypes.SWAP,
-              entityId: { in: swapIds },
-            },
-            orderBy: [{ entityId: 'asc' }, { createdAt: 'asc' }],
-            select: {
-              id: true,
-              incidentNo: true,
-              caseType: true,
-              status: true,
-              severity: true,
-              primaryAlertId: true,
-              primaryAlertNo: true,
-              entityId: true,
-              entityNo: true,
-              sourceType: true,
-              stage: true,
-              ruleCode: true,
-              decision: true,
-              proposedWorkflowDecision: true,
-              mlroReviewOutcome: true,
-              currentDispositionCode: true,
-              finalDispositionCode: true,
-              decisionRecordIds: true,
-              linkedCaseIds: true,
-              metadata: true,
-              createdAt: true,
-              updatedAt: true,
-            },
-          })
-        : Promise.resolve([]),
-      db.journal?.findMany
-        ? db.journal.findMany({
-            where: {
-              sourceType: 'SWAP',
-              sourceId: { in: swapIds },
-            },
-            orderBy: [{ sourceId: 'asc' }, { createdAt: 'asc' }],
-            select: {
-              id: true,
-              journalNo: true,
-              sourceType: true,
-              sourceId: true,
-              sourceNo: true,
-              eventCode: true,
-              postingStatus: true,
-              postedAt: true,
-              reversalOfJournalId: true,
-              baseAssetId: true,
-              totalAmount: true,
-              description: true,
-              createdAt: true,
-              updatedAt: true,
-            },
-          })
-        : Promise.resolve([]),
-    ]);
-
-    const mappedRiskDecisionRecords = riskDecisionRecords.map((row: any) => ({
-      ...row,
-      inputPayload: this.parseJson(row.inputPayload),
-      recommendedActions: this.parseJson(row.recommendedActions),
-      outputs: this.parseJson(row.outputs),
-      reasonCodes: this.parseJson(row.reasonCodes),
+    const swapEvidenceChain: SwapEvidenceChainItem[] = selectionContext.swapTransactions.map((row) => ({
+      swapId: String(row.id),
+      swapNo: row.swapNo ?? null,
+      quoteId: row.quoteId ?? row.quoteSnapshotRef ?? null,
+      quoteNo: row.quoteNo ?? null,
     }));
-    const mappedAlerts = alerts.map((row: any) => ({
-      ...row,
-      decisionRecordIds: this.parseStringArray(row.decisionRecordIds),
-      linkedCaseIds: this.parseStringArray(row.linkedCaseIds),
-      metadata: this.parseJson(row.metadata),
-    }));
-    const mappedCases = cases.map((row: any) => ({
-      ...row,
-      sourceId: row.entityId,
-      sourceNo: row.entityNo,
-      decisionRecordIds: this.parseStringArray(row.decisionRecordIds),
-      linkedCaseIds: this.parseStringArray(row.linkedCaseIds),
-      metadata: this.parseJson(row.metadata),
-    }));
-    const swapEvidenceChain = this.buildSwapEvidenceChain({
-      swapTransactions,
-      swapQuotes,
-      riskDecisionRecords: mappedRiskDecisionRecords,
-      alerts: mappedAlerts,
-      cases: mappedCases,
-      journals,
-    });
 
-    return {
-      swapTransactions,
-      swapQuotes,
-      swapRiskDecisionRecords: mappedRiskDecisionRecords,
-      swapAlerts: mappedAlerts,
-      swapCases: mappedCases,
-      swapJournals: journals,
-      swapEvidenceChain,
-    };
+    return { swapTransactions, swapQuotes, swapEvidenceChain };
   }
 
   async findEvidencePackages(query: EvidencePackageQueryDto) {
