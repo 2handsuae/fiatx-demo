@@ -44,6 +44,7 @@ Verification journey (`/verification`) MUST:
 - Amount, asset code, rate, fee, and timing formats MUST stay consistent.
 - Statuses MUST be translated into customer-meaningful language while preserving backend truth.
 - CTA targets MUST point to real active routes; marketing copy MUST NOT disagree with actual route availability.
+- Colors MUST come from the `fx-*` tokens (single source: CSS variables in `index.css` — `:root` light / `.dark` dark, 2026-09-15). No hex literals in `.tsx`; new colors are added as token pairs (both palettes), never one-off values. Default theme is dark (owner ruling — no OS-preference fallback); the only toggle is the status-bar sun/moon button.
 
 ---
 
