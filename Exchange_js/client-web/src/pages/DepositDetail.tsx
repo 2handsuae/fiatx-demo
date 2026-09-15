@@ -1,63 +1,32 @@
 import { useEffect, useState } from 'react';
-import { useLocation, useNavigate, useParams } from 'react-router-dom';
+import { useParams } from 'react-router-dom';
 import { ArrowLeft } from 'lucide-react';
 import { CustomerSessionError, customerFetch } from '../utils/customerFetch';
 import { getDepositStatusView } from '../utils/depositStatusView';
 import { formatAssetAmount } from '../utils/number-format';
+import Field from '../components/detail/Field';
+import { useGoBack } from '../components/detail/useGoBack';
+import { MaterialRequestSection } from '../components/detail/MaterialRequestSection';
+import { Timeline } from '../components/detail/Timeline';
 
 interface DepositDetailData {
   depositNo: string; status: string; amount: string;
   createdAt: string; completedAt: string | null;
   txHash: string | null; referenceNo: string | null;
   fromAddress: string | null; fromIban: string | null;
+  toAddress: string | null; toIban: string | null;
+  effectiveDate: string | null;
+  timeline: { status: string; at: string }[];
   asset: { code: string; currency: string; network: string | null; decimals: number } | null;
-}
-
-/**
- * 2026-08-18 材料请求账：本页曾经开的 `actions`（充值单专属子表逐条 action）
- * 口子已被 Task 12 随子表一起物理删除——那个字段现在客户端拿到的是
- * `undefined`，`tx.actions.length` 会直接抛错。改成独立打
- * `/client/me/material-requests`，按 `orderDomain==='DEPOSIT' &&
- * orderRef===depositNo` 过滤（G6：绑了单的行只在它绑定的订单页露）。
- *
- * `本单非终态` 这道闸门是必须的，不是多余的防御：订单进终态后自动解绑
- * 材料请求的监听器（`material-request-order-cancel.listener.ts`）三域（含
- * DEPOSIT/WITHDRAW）事件契约已修复（listener 接错事件契约那次修复，2026-08-17）
- * 并经真库探针验证——但它是异步 `{ async: true }` handler，订单落库到监听器
- * 把材料请求解绑/作废之间有一段处理窗口，一条未挂限制的材料请求仍可能在单子已经
- * SUCCESS/FAILED/RETURNED/CLAWED_BACK 之后短暂"活"在账上，客户端必须自己
- * 兜底不显示。
- */
-interface MaterialRequestEntry {
-  requestNo: string;
-  materialLabel: string;
-  status: 'PENDING_SUBMISSION' | 'SUBMITTED';
-  orderDomain: 'DEPOSIT' | 'WITHDRAW' | 'SWAP' | null;
-  orderRef: string | null;
 }
 
 const DEPOSIT_TERMINAL_STATUSES = new Set(['SUCCESS', 'FAILED', 'RETURNED', 'CLAWED_BACK']);
 
 const DepositDetail = () => {
   const { depositNo } = useParams();
-  const navigate = useNavigate();
-  const location = useLocation();
-
-  /**
-   * 返回「从哪来回哪去」。
-   *
-   * 不能写死 navigate('/deposit')——这个页面可以从充值列表、也可以从认证页
-   * （提交后）到达，将来还可能从别处深链进来，写死会把人送到一个他没来过的地方。
-   *
-   * react-router 在本次会话的**第一个**历史条目上会把 location.key 置为
-   * 'default'（直接输 URL、刷新、外部链接进来都是这种）——此时栈里没有站内
-   * 上一页，navigate(-1) 会把人送出本站，所以退回列表兜底。
-   */
-  const goBack = () =>
-    location.key === 'default' ? navigate('/deposit') : navigate(-1);
+  const goBack = useGoBack('/deposit');
   const [tx, setTx] = useState<DepositDetailData | null>(null);
   const [err, setErr] = useState('');
-  const [materials, setMaterials] = useState<MaterialRequestEntry[]>([]);
 
   useEffect(() => {
     let alive = true;
@@ -74,24 +43,6 @@ const DepositDetail = () => {
         // 别在跳转前的一瞬间闪出一条误导性的错误文案（与页面内其它拉取一致）。
         if (error instanceof CustomerSessionError) return;
         if (alive) setErr('This deposit is not available.');
-      }
-    })();
-    return () => { alive = false; };
-  }, [depositNo]);
-
-  useEffect(() => {
-    let alive = true;
-    (async () => {
-      try {
-        const r = await customerFetch(`${import.meta.env.VITE_API_URL}/client/me/material-requests`);
-        if (!r.ok) return;
-        const rows = (await r.json()) as MaterialRequestEntry[];
-        if (alive && Array.isArray(rows)) {
-          setMaterials(rows.filter((m) => m.orderDomain === 'DEPOSIT' && m.orderRef === depositNo));
-        }
-      } catch (error) {
-        if (error instanceof CustomerSessionError) return;
-        // 拉不到就当没有——这块区域本来就是"有就显示"，静默降级比崩页面安全。
       }
     })();
     return () => { alive = false; };
@@ -124,56 +75,39 @@ const DepositDetail = () => {
         </span>
       </div>
 
-      {/* 2026-08-18 材料请求账：区块显示条件从"ACTION_PENDING 且有 action 行"
-          改成"这单有绑定的活材料请求 且本单非终态"——数据源换了（见文件头
-          注释），但"状态就是状态、按钮归按钮"这条业主原则不变：区块是否
-          出现只看有没有材料请求，交没交齐由每张卡自己的 status 决定按钮
-          是否可点，不再整条从 DOM 里消失。 */}
-      {materials.length > 0 && !DEPOSIT_TERMINAL_STATUSES.has(tx.status.toUpperCase()) && (
-        <section className="mt-8">
-          <h2 className="text-sm font-semibold text-fx-sand mb-3">Outstanding verification</h2>
-          <div className="space-y-2">
-            {materials.map((m) => (
-              <div key={m.requestNo} className="flex items-center gap-3 rounded-xl border border-fx-rule bg-fx-charcoal/40 px-4 py-3">
-                <div className="flex-1 min-w-0">
-                  <div className="text-sm text-fx-sand">{m.materialLabel}</div>
-                  <div className="text-xs text-fx-dust">
-                    {m.status === 'SUBMITTED' ? 'Received · under review' : 'Awaiting your documents'}
-                  </div>
-                </div>
-                <button
-                  onClick={() => navigate(`/verification/${m.requestNo}?from=${encodeURIComponent(location.pathname)}`)}
-                  disabled={m.status === 'SUBMITTED'}
-                  className="rounded-xl border border-fx-brass/40 bg-fx-brass/10 px-4 py-2 text-sm font-semibold text-fx-brass hover:bg-fx-brass/20 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-fx-brass/10"
-                >
-                  Provide documents
-                </button>
-              </div>
-            ))}
-          </div>
-        </section>
-      )}
+      <MaterialRequestSection
+        domain="DEPOSIT"
+        orderRef={depositNo!}
+        orderIsTerminal={DEPOSIT_TERMINAL_STATUSES.has(tx.status.toUpperCase())}
+      />
 
       <section className="mt-8">
-        <h2 className="text-sm font-semibold text-fx-sand mb-3">Details</h2>
+        <h2 className="text-sm font-semibold text-fx-sand mb-3">Amounts</h2>
         <dl className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <Field label="Submitted" value={new Date(tx.createdAt).toLocaleString()} />
-          <Field label="Reference" value={tx.referenceNo || '—'} mono />
+          {tx.effectiveDate && <Field label="Value date" value={new Date(tx.effectiveDate).toLocaleString()} />}
           {tx.completedAt && <Field label="Completed" value={new Date(tx.completedAt).toLocaleString()} />}
+        </dl>
+      </section>
+
+      <section className="mt-8">
+        <h2 className="text-sm font-semibold text-fx-sand mb-3">Route</h2>
+        <dl className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <Field label="Reference" value={tx.referenceNo || '—'} mono />
           {tx.fromAddress && <Field label="From address" value={tx.fromAddress} mono wide />}
           {tx.fromIban && <Field label="From IBAN" value={tx.fromIban} mono wide />}
+          {tx.toAddress && <Field label="Received at" value={tx.toAddress} mono wide />}
+          {tx.toIban && <Field label="Received at (IBAN)" value={tx.toIban} mono wide />}
           {tx.txHash && <Field label="Transaction hash" value={tx.txHash} mono wide />}
         </dl>
+      </section>
+
+      <section className="mt-8">
+        <h2 className="text-sm font-semibold text-fx-sand mb-3">Timeline</h2>
+        <Timeline items={tx.timeline.map((t) => ({ label: getDepositStatusView(t.status).label, at: t.at }))} />
       </section>
     </div>
   );
 };
-
-const Field = ({ label, value, mono, wide }: { label: string; value: string; mono?: boolean; wide?: boolean }) => (
-  <div className={`rounded-xl bg-fx-charcoal/40 px-4 py-3 ${wide ? 'sm:col-span-2' : ''}`}>
-    <dt className="text-xs text-fx-dust">{label}</dt>
-    <dd className={`text-sm text-fx-sand mt-1 break-all ${mono ? 'font-mono' : ''}`}>{value}</dd>
-  </div>
-);
 
 export default DepositDetail;
