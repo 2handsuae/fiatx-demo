@@ -636,7 +636,7 @@ const CustomerRegister = () => {
                           >
                             <path
                               d="M1 5L4 8L9 2"
-                              stroke="#0B0908"
+                              stroke="rgb(var(--fx-obsidian))"
                               strokeWidth="2"
                               strokeLinecap="round"
                               strokeLinejoin="round"
