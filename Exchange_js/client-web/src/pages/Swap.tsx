@@ -58,6 +58,12 @@ interface SwapTransaction {
   exchangeRate: string;
   createdAt: string;
   completedAt: string | null;
+  // lockstep：后端 toCustomerSwapView 白名单镜像（详情页在用，本页只声明契约）
+  quoteNo: string | null;
+  feeLines: { itemCode: string; amount: string; currency: string }[];
+  marketRate: string | null;
+  spreadPercent: number | null;
+  timeline: { status: string; at: string }[];
 }
 
 interface SwapMatchedInfo {

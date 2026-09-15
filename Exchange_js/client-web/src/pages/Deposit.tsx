@@ -62,6 +62,11 @@ interface Transaction {
     referenceNo: string | null;
     fromAddress: string | null;
     fromIban: string | null;
+    // lockstep：后端 toCustomerDepositView 白名单镜像（详情页在用，本页只声明契约）
+    toAddress: string | null;
+    toIban: string | null;
+    effectiveDate: string | null;
+    timeline: { status: string; at: string }[];
 }
 
 interface ScanInboundSignalsResult {

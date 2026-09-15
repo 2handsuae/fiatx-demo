@@ -85,7 +85,10 @@ const DepositDetail = () => {
         <h2 className="text-sm font-semibold text-fx-sand mb-3">Amounts</h2>
         <dl className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <Field label="Submitted" value={new Date(tx.createdAt).toLocaleString()} />
-          {tx.effectiveDate && <Field label="Value date" value={new Date(tx.effectiveDate).toLocaleString()} />}
+          {/* effectiveDate 是 YYYY-MM-DD 纯业务日字符串，没有时刻；走 Date 解析
+              会按本地时区折算出一个"9/15/2026, 4:00:00 AM"式的伪时刻，直接显示
+              原串即可。 */}
+          {tx.effectiveDate && <Field label="Value date" value={tx.effectiveDate} />}
           {tx.completedAt && <Field label="Completed" value={new Date(tx.completedAt).toLocaleString()} />}
         </dl>
       </section>

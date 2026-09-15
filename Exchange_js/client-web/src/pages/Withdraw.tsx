@@ -60,6 +60,8 @@ interface WithdrawTransaction {
   toAddress: string | null;
   toIban: string | null;
   txHash: string | null;
+  // lockstep：后端 toCustomerWithdrawView 白名单镜像（详情页在用，本页只声明契约）
+  timeline: { status: string; at: string }[];
 }
 
 interface WithdrawQuoteFeeLine {
