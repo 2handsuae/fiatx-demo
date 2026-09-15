@@ -12,7 +12,24 @@
 
 ## Global Constraints
 
+- 通用交付清单见 `rules/delivery-checklist.md`，全部适用
+- 本轮特有：权限码随路径参数名连动（catalog / 前端权限表 / 合并后 `db:base:sync`+重启）；下载文件保持全量、只滤屏上渲染；不新增快照段
 - 演示系统：禁做幂等/并发/重试/防御/性能（CLAUDE.md §2）；铁律①留痕、⑥业务键。
+
+## 收尾过哪几条（plan 写死，执行者不得自行增删）
+
+对 `rules/delivery-checklist.md` 逐行核过（2026-09-15 计划期），本波**命中 6 行**：
+
+| 命中行 | 落在哪 |
+|---|---|
+| 改了前端 → preview 截图（永不豁免①） | Task 5/6/7 各预览步 + Task 8 四页截图落盘 |
+| 新增/变更 admin 端点 → catalog 登记 + `db:base:sync` + 重启 | Task 4 改 route() + Task 8 合并注意 |
+| 对外识别 → 业务键、不暴露 UUID | 本波主题（Task 4/5/6） |
+| 改了交易三域任一 → 问另外两域 | 三域快照 Task 1/2/3 同改，对称内建 |
+| 多波中的一波 → 承接写进下一波 spec 开头 | Task 8 波二骨架 |
+| 每轮收尾 → 文档分层收口 + CHANGELOG 一行 + BACKLOG 销账 | Task 8（CHANGELOG 随合并写；收尾报告按 CLAUDE.md §9 报层） |
+
+**判定留痕**：「改页面 → 同步 demo/data.md + script.md」字面触发但不成立——script.md 不引用 URL/字段级细节，data.md 不涉种子；证据包新演示步骤系业主 2026-09-15 拍板**归波三剧本收口**（总纲波三第 7 项），本波只预演不改文。其余各行（新审计码/新状态/动钱+verify:coa/新审批策略/新权限组/新业务动作/客户面/金额/新事件/schema）**未触发**：本波零新码、零新状态边、不动钱、零 schema、零客户面改动。
 - 本波**不动 schema / seed**；不动写入面 subjects；不动筛选与深链。
 - Node 20：每条命令前置 `PATH="$(ls -d ~/.nvm/versions/node/v20*/bin | tail -1):$PATH"`；jest 必须在 `Exchange_js/` 根下跑（缺 DATABASE_URL 假红判例）。
 - 报错/断言禁止管道吞码（zsh 用 `${pipestatus[1]}` 或不走管道）。
@@ -607,7 +624,8 @@ Expected: 全绿；demo:all 花名册全 PASS。
 - BACKLOG §H 销：幽灵模型条、UUID 路由条、UUID 落屏三处条、证据包背书条（各附「已修·波一」+ commit 号）；小账条①（死常量）划去并注明随 Task 4 连带删除
 - 总纲状态行：波一 → 已完成（日期 + 分支/commit）
 - 立波二骨架：总纲链接 + 空「承接上一波」节 + 已定事实（subjects 样板位置、~29 码清单、岔口②删 CRUD、verify:audit 升级方向）+ 待定岔口（无）
-- 按 `rules/delivery-checklist.md` 过一遍触发条件
+- 对照本计划「收尾过哪几条」节逐条勾验（该节已把 delivery-checklist 的判定写死，执行者不再自行判）
+- 收尾报告按 CLAUDE.md §9 报文档层：本波预期 `Documentation updated: none`（modules/demo 均归波三收口，BACKLOG/总纲/骨架属台账动作）
 
 - [ ] **Step 4: 收官提交 + 合并注意**
 
@@ -615,7 +633,7 @@ Expected: 全绿；demo:all 花名册全 PASS。
 git add doc-final/BACKLOG.md doc-final/superpowers/specs/2026-09-15-act7-audit-campaign-charter.md doc-final/superpowers/specs/2026-09-15-act7-wave2-audit-attribution-skeleton.md
 git commit -m "docs(第七幕波一): 收尾记账——BACKLOG销4+小账①,总纲状态回写,波二骨架立"
 ```
-合并进 main 后必做（**权限码变了**）：重启后端 + `npm run db:base:sync`；再 `bash scripts/on-stack.sh main demo:all` 复验。合并走 superpowers:finishing-a-development-branch。
+合并进 main 后必做（**权限码变了**）：重启后端 + `npm run db:base:sync`；再 `bash scripts/on-stack.sh main demo:all` 复验；**`doc-final/CHANGELOG.md` 追加一行**（一合并一行，写清波一交付物）。合并走 superpowers:finishing-a-development-branch。
 
 ---
 
