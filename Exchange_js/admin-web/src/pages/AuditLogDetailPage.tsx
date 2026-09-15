@@ -170,17 +170,17 @@ const RawRecordBlock = ({ detail }: { detail: AuditLogDetail }) => {
 /* ─────────────────────────────────────────────────────────────── */
 
 const AuditLogDetailPage = () => {
-  const { id } = useParams<{ id: string }>();
+  const { eventNo } = useParams<{ eventNo: string }>();
   const navigate = useNavigate();
   const [detail, setDetail] = useState<AuditLogDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
   const fetchDetail = async () => {
-    if (!id) { setError('Audit log id is required.'); setLoading(false); return; }
+    if (!eventNo) { setError('Audit event no is required.'); setLoading(false); return; }
     setLoading(true); setError('');
     try {
-      const res = await adminFetch(`${import.meta.env.VITE_API_URL}/admin/audit-logs/${id}`);
+      const res = await adminFetch(`${import.meta.env.VITE_API_URL}/admin/audit-logs/${eventNo}`);
       if (!res.ok) throw new Error(await getApiErrorMessage(res, 'Failed to load audit log detail.'));
       setDetail((await res.json()) as AuditLogDetail);
     } catch (e: unknown) {
@@ -191,7 +191,7 @@ const AuditLogDetailPage = () => {
     }
   };
 
-  useEffect(() => { void fetchDetail(); }, [id]);
+  useEffect(() => { void fetchDetail(); }, [eventNo]);
 
   if (loading) {
     return (

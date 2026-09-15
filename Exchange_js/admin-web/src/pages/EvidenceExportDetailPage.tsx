@@ -190,7 +190,7 @@ const RawRecordBlock = ({ detail }: { detail: EvidenceExportDetail }) => {
 /* ─────────────────────────────────────────────────────────────── */
 
 const EvidenceExportDetailPage = () => {
-  const { id } = useParams<{ id: string }>();
+  const { packageNo } = useParams<{ packageNo: string }>();
   const navigate = useNavigate();
   const { hasPermission } = useAdminSession();
 
@@ -215,11 +215,11 @@ const EvidenceExportDetailPage = () => {
   };
 
   const fetchDetail = async () => {
-    if (!id) { setError('Package ID is required.'); setLoading(false); return; }
+    if (!packageNo) { setError('Package no is required.'); setLoading(false); return; }
     setLoading(true); setError('');
     try {
       const payload = await fetchJson<EvidenceExportDetail>(
-        `${import.meta.env.VITE_API_URL}/admin/audit/evidence-packages/${id}`,
+        `${import.meta.env.VITE_API_URL}/admin/audit/evidence-packages/${packageNo}`,
       );
       setDetail(payload);
     } catch (e: unknown) {
@@ -234,7 +234,7 @@ const EvidenceExportDetailPage = () => {
     }
   };
 
-  useEffect(() => { void fetchDetail(); }, [id]);
+  useEffect(() => { void fetchDetail(); }, [packageNo]);
 
   /* Auto-dismiss notice */
   useEffect(() => {
@@ -249,13 +249,13 @@ const EvidenceExportDetailPage = () => {
   /* ── Download ── */
 
   const handleDownload = async () => {
-    if (!id) return;
+    if (!packageNo) return;
     const seq = downloadSeqRef.current + 1;
     downloadSeqRef.current = seq;
     setDownloading(true); setError('');
     try {
       const data = await fetchJson<DownloadResponse>(
-        `${import.meta.env.VITE_API_URL}/admin/audit/evidence-packages/${id}/download`,
+        `${import.meta.env.VITE_API_URL}/admin/audit/evidence-packages/${packageNo}/download`,
       );
       if (downloadSeqRef.current !== seq) return;
       const blob = new Blob([JSON.stringify(data.content, null, 2)], { type: 'application/json' });

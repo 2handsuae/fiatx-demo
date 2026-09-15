@@ -266,9 +266,9 @@ function App() {
 
             {/* audit */}
             <Route path="audit/logs" element={withPermission(<AuditLogsPage />, [PERMISSIONS.AUDIT_LOGS_READ])} />
-            <Route path="audit/logs/:id" element={withPermission(<AuditLogDetailPage />, [PERMISSIONS.AUDIT_LOGS_READ])} />
+            <Route path="audit/logs/:eventNo" element={withPermission(<AuditLogDetailPage />, [PERMISSIONS.AUDIT_LOGS_READ])} />
             <Route path="audit/evidence-packages" element={withPermission(<EvidenceExportsPage />, [PERMISSIONS.AUDIT_EVIDENCE_EXPORTS_READ])} />
-            <Route path="audit/evidence-packages/:id" element={withPermission(<EvidenceExportDetailPage />, [PERMISSIONS.AUDIT_EVIDENCE_EXPORTS_READ])} />
+            <Route path="audit/evidence-packages/:packageNo" element={withPermission(<EvidenceExportDetailPage />, [PERMISSIONS.AUDIT_EVIDENCE_EXPORTS_READ])} />
           </Route>
 
         </Route>

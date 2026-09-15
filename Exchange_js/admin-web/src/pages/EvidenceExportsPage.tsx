@@ -127,11 +127,11 @@ const EvidenceExportsPage = () => {
   /* ── Download ── */
 
   const downloadPackage = async (item: EvidenceExportItem) => {
-    setDownloading(item.id);
+    setDownloading(item.packageNo);
     setError(null);
     try {
       const res = await adminFetch(
-        `${import.meta.env.VITE_API_URL}/admin/audit/evidence-packages/${item.id}/download`,
+        `${import.meta.env.VITE_API_URL}/admin/audit/evidence-packages/${item.packageNo}/download`,
       );
       if (!res.ok) throw new Error(await getApiErrorMessage(res, 'Download failed.'));
 
@@ -271,7 +271,7 @@ const EvidenceExportsPage = () => {
               <tr
                 key={item.id}
                 className="cursor-pointer border-b border-adm-border transition-colors hover:bg-adm-hover"
-                onClick={() => navigate(`/admin/audit/evidence-packages/${item.id}`)}
+                onClick={() => navigate(`/admin/audit/evidence-packages/${item.packageNo}`)}
               >
                 {/* Package No */}
                 <td className="px-4 py-2.5">
@@ -321,11 +321,11 @@ const EvidenceExportsPage = () => {
                   {item.status === 'READY' && canDownload && (
                     <button
                       onClick={() => void downloadPackage(item)}
-                      disabled={downloading === item.id}
+                      disabled={downloading === item.packageNo}
                       className="inline-flex items-center gap-1 font-mono text-[10px] font-medium text-adm-t3 transition-colors hover:text-adm-t2 disabled:pointer-events-none disabled:opacity-40"
                     >
                       <Download size={12} />
-                      {downloading === item.id ? 'Downloading…' : 'Download'}
+                      {downloading === item.packageNo ? 'Downloading…' : 'Download'}
                     </button>
                   )}
                 </td>

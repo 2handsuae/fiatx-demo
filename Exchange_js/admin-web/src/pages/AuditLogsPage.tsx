@@ -94,7 +94,7 @@ const AuditLogsPage = () => {
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
-  const [lastExportId, setLastExportId] = useState<string | null>(null);
+  const [lastExportPackageNo, setLastExportPackageNo] = useState<string | null>(null);
 
   const [showAdvanced, setShowAdvanced] = useState(false);
 
@@ -172,7 +172,7 @@ const AuditLogsPage = () => {
   const handleReset = async () => {
     setFilters(DEFAULT_FILTERS);
     setSelectedIds([]);
-    setLastExportId(null);
+    setLastExportPackageNo(null);
     setMessage('');
     await fetchLogs(1, DEFAULT_FILTERS);
   };
@@ -213,7 +213,7 @@ const AuditLogsPage = () => {
       }
 
       const data = (await response.json()) as EvidencePackageExportResponse;
-      setLastExportId(data.id);
+      setLastExportPackageNo(data.packageNo);
       setMessage(
         `Evidence package request created: ${data.packageNo} (${data.itemCount} records). Approval is pending before the package can be downloaded.`,
       );
@@ -369,7 +369,7 @@ const AuditLogsPage = () => {
       {message && (
         <div className="shrink-0 border-b border-adm-green/20 bg-adm-green/6 px-5 py-2.5 font-mono text-[11px] text-adm-green">
           {message}
-          {lastExportId && (
+          {lastExportPackageNo && (
             <button
               onClick={() => navigate('/admin/audit/evidence-packages')}
               className={adminButtonClass('rowLink', 'ml-3')}
@@ -478,7 +478,7 @@ const AuditLogsPage = () => {
                   <tr
                     key={item.id}
                     className="cursor-pointer border-b border-adm-border transition-colors hover:bg-adm-hover"
-                    onClick={() => navigate(`/admin/audit/logs/${item.id}`)}
+                    onClick={() => navigate(`/admin/audit/logs/${item.eventNo}`)}
                   >
                     {/* Checkbox */}
                     <td className="px-3 py-2.5">
