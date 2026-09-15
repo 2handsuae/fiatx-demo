@@ -342,6 +342,13 @@ describe('customer-facing tipping-off whitelist (findOneForCustomer / findOneFor
         completedAt: null,
         fromAsset: { currency: 'USDT', code: 'USDT', network: 'TRON', decimals: 6 },
         toAsset: { currency: 'AED', code: 'AED', network: null, decimals: 2 },
+        // Task 4：详情增强新增字段（feeBreakdown 为 '[]' → 三键空/null 兜底；
+        // statusHistory 为 '[]' → timeline 只剩出生一条）。
+        quoteNo: 'QT001',
+        feeLines: [],
+        marketRate: null,
+        spreadPercent: null,
+        timeline: [{ status: 'COMPLIANCE_PENDING', at: fullRow.createdAt.toISOString() }],
       });
     });
 
@@ -483,6 +490,7 @@ describe('Task 10: 客户面三层防线', () => {
         swapNo: 'SWP0999',
         status: 'FROZEN',
         ownerId: 'cust-1',
+        createdAt: new Date('2026-09-15T00:00:00.000Z'),
       });
 
       const result: any = await service.findOneForCustomer('swap-frozen-1', 'cust-1');
@@ -567,14 +575,15 @@ describe('Task 10: 客户面三层防线', () => {
       const successAt = new Date('2026-01-02T00:00:00Z');
       const rejectedAt = new Date('2026-01-03T00:00:00Z');
 
+      const createdAt = new Date('2025-12-31T00:00:00Z');
       const frozenView: any = service.toCustomerSwapView({
-        id: 'swap-x', swapNo: 'SWP0300', status: 'FROZEN', completedAt: frozenAt,
+        id: 'swap-x', swapNo: 'SWP0300', status: 'FROZEN', completedAt: frozenAt, createdAt,
       });
       const successView: any = service.toCustomerSwapView({
-        id: 'swap-y', swapNo: 'SWP0301', status: 'SUCCESS', completedAt: successAt,
+        id: 'swap-y', swapNo: 'SWP0301', status: 'SUCCESS', completedAt: successAt, createdAt,
       });
       const rejectedView: any = service.toCustomerSwapView({
-        id: 'swap-z', swapNo: 'SWP0302', status: 'REJECTED', completedAt: rejectedAt,
+        id: 'swap-z', swapNo: 'SWP0302', status: 'REJECTED', completedAt: rejectedAt, createdAt,
       });
 
       expect(frozenView.completedAt).toBeNull();
@@ -655,6 +664,13 @@ describe('Task 10: 客户面三层防线', () => {
         completedAt: null,
         fromAsset: { currency: 'USDT', code: 'USDT', network: 'TRON', decimals: 6 },
         toAsset: { currency: 'AED', code: 'AED', network: null, decimals: 2 },
+        // Task 4：新增字段——quoteNo/feeBreakdown 未设 → 三键空/null 兜底；
+        // timeline 只剩收敛后的出生一条（FROZEN → COMPLIANCE_PENDING）。
+        quoteNo: null,
+        feeLines: [],
+        marketRate: null,
+        spreadPercent: null,
+        timeline: [{ status: 'COMPLIANCE_PENDING', at: sensitiveRow.createdAt.toISOString() }],
       });
       // 逐字符串扫描兜底：序列化结果里不能出现任何执法态词汇或 l1 字样的痕迹
       const serialized = JSON.stringify(view);

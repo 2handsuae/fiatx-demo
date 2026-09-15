@@ -29,6 +29,7 @@ import { CustomerAccessService } from '../../identity/customers/customer-access.
 import { toCustomerAssetView } from '../shared/customer-view.util';
 import { resolveSlaFields as resolveSlaFieldsShared } from '../shared/sla-fields.util';
 import { freezeScanQueryArgs } from '../shared/freeze-scan.util';
+import { buildCustomerTimeline } from '../shared/customer-timeline.util';
 
 interface SwapMatchedInfo {
   pairId: string;
@@ -718,7 +719,33 @@ export class SwapTransactionsService {
       completedAt: SWAP_CUSTOMER_COMPLETED_STATUSES.has(customerStatus) ? item.completedAt : null,
       fromAsset: toCustomerAssetView(item.fromAsset),
       toAsset: toCustomerAssetView(item.toAsset),
+      quoteNo: item.quoteNo ?? null,
+      ...this.toCustomerPricingFacts(item.feeBreakdown),
+      timeline: buildCustomerTimeline(item.statusHistory, 'COMPLIANCE_PENDING', item.createdAt, (s) =>
+        this.toCustomerSwapStatus(s),
+      ),
     };
+  }
+
+  /** feeBreakdown 原包含 fx 技术字段（endpoint/symbol/bid/ask），只拆业务事实下发（spec §2.3）。 */
+  private toCustomerPricingFacts(rawFeeBreakdown: string | null): {
+    feeLines: Array<{ itemCode: string; amount: string; currency: string }>;
+    marketRate: string | null;
+    spreadPercent: number | null;
+  } {
+    try {
+      const head = rawFeeBreakdown ? JSON.parse(rawFeeBreakdown)?.[0] : null;
+      const fees = Array.isArray(head?.fees) ? head.fees : [];
+      return {
+        feeLines: fees
+          .filter((f: any) => typeof f?.itemCode === 'string' && f?.amount != null)
+          .map((f: any) => ({ itemCode: f.itemCode, amount: String(f.amount), currency: String(f.currency ?? '') })),
+        marketRate: typeof head?.fx?.baseRate === 'string' ? head.fx.baseRate : null,
+        spreadPercent: typeof head?.fx?.markupBps === 'number' ? head.fx.markupBps / 100 : null,
+      };
+    } catch {
+      return { feeLines: [], marketRate: null, spreadPercent: null };
+    }
   }
 
   /**
