@@ -1282,7 +1282,7 @@ export class AuditLogsService {
         })
       : [];
 
-    const swapEvidenceChain: SwapEvidenceChainItem[] = selectionContext.swapTransactions.map((row) => ({
+    const swapEvidenceChain: SwapEvidenceChainItem[] = swapTransactions.map((row: any) => ({
       swapId: String(row.id),
       swapNo: row.swapNo ?? null,
       quoteId: row.quoteId ?? row.quoteSnapshotRef ?? null,

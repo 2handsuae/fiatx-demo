@@ -651,11 +651,9 @@ describe('AuditLogsService', () => {
       expect(body.snapshots.depositEvidenceChain).toEqual([
         { depositId: 'dep-1', depositNo: 'DEP2603240001' },
       ]);
-      // 注:travelRuleCases/riskDecisionRecords/alerts/cases/journals 未列入本循环——
-      // 它们是 WithdrawEvidenceSnapshots 的合法字段(本任务未动 withdraw),merge 进
-      // packageBody.snapshots 后仍会以空数组出现,不是 deposit 幽灵段复活。kytCases
-      // 是唯一只属于旧 deposit 幽灵形状、不与 withdraw/swap 撞名的键,可安全断言消失。
-      expect(body.snapshots).not.toHaveProperty('kytCases');
+      for (const ghost of ['kytCases', 'travelRuleCases', 'riskDecisionRecords', 'alerts', 'cases', 'journals']) {
+        expect(body.snapshots).not.toHaveProperty(ghost);
+      }
 
       const artifactsAgain = await service.buildEvidencePackageArtifacts(
         {
@@ -835,7 +833,7 @@ describe('AuditLogsService', () => {
         workflowNos: ['SWP2603260001'],
       });
       expect(snapshots.swapTransactions).toHaveLength(1);
-      expect(snapshots.swapQuotes.length).toBeGreaterThanOrEqual(0);
+      expect(snapshots.swapQuotes).toHaveLength(1);
       expect(snapshots.swapEvidenceChain[0]).toEqual({
         swapId: expect.any(String),
         swapNo: expect.any(String),
