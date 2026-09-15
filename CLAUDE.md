@@ -115,7 +115,7 @@ bash scripts/stack.sh status       # 看各栈端口与状态
 - **并行任务一律 worktree 隔离**：一会话 = 一 worktree（统一放 `.claude/worktrees/<名>/`）= 一分支 = 一套自动分的栈；要为某分支起服务只在它的 worktree 里 `stack.sh up`，绝不在主工作树切分支跑服务；合并后清 worktree + 分支
 - **合并进 main 后必做**：重启后端 + `npm run db:base:sync`（权限字典与内存 `RBAC_PERMISSION_DEFINITIONS` 都是旧的会 403）；动过 schema / seed 再 `stack.sh reset main`
 
-**云端演示环境**（2026-09-12 起，给同事自助看）：腾讯云新加坡轻量服务器 `101.32.141.97`（Ubuntu 26.04 / 2 核 8 GB）｜管理台 `https://101.32.141.97` ｜客户端 `https://101.32.141.97:8443`
+**云端演示环境**（2026-09-12 起，给同事自助看）：腾讯云新加坡轻量服务器 `101.32.141.97`（Ubuntu 26.04 / 2 核 8 GB）｜管理台 `https://admin-fiatx-demo.duckdns.org` ｜客户端 `https://fiatx-demo.duckdns.org`（2026-09-15 起用 DuckDNS 免费域名替代裸 IP，两域名都解析到该 IP、都走 443；SSH 仍连 IP。域名/IP 拆分见 `.cloud.env` 的 `CLOUD_HOST`(SSH) vs `CLOUD_ADMIN_HOST`/`CLOUD_CLIENT_HOST`(对外)）
 
 ```bash
 npm run cloud:deploy      # 部署本机已提交版本（= 新数据）；或双击仓库根「部署.command」

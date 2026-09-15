@@ -43,7 +43,7 @@ cloud_rsync "${STAGE}/web/" "${CLOUD_USER}@${CLOUD_HOST}:${CLOUD_ROOT}/web/"
 cloud_rsync "${CLOUD_APP_DIR}/deploy/" "${CLOUD_USER}@${CLOUD_HOST}:${CLOUD_ROOT}/deploy/"
 
 echo "[deploy] 4/5 服务器：装依赖 / 刷新配置 / 重启演示服务"
-cloud_ssh "bash ${CLOUD_ROOT}/deploy/remote-apply.sh ${CLOUD_HOST}"
+cloud_ssh "bash ${CLOUD_ROOT}/deploy/remote-apply.sh ${CLOUD_ADMIN_HOST} ${CLOUD_CLIENT_HOST}"
 
 echo "[deploy] 5/5 等 READY + 验收"
 bash "${SCRIPT_DIR}/cloud-verify.sh"

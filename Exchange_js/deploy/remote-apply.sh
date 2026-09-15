@@ -2,7 +2,8 @@
 # deploy/remote-apply.sh — 每次部署在服务器上跑（由 scripts/cloud-deploy.sh 经 ssh 调用）
 # 依赖清单变了才 npm ci → prisma generate → 渲染配置、装服务单元 → 启 / 重载 Caddy → 重启演示服务（= 新数据）
 set -euo pipefail
-HOST="${1:?用法: remote-apply.sh <公网IP>}"
+ADMIN_HOST="${1:?用法: remote-apply.sh <管理台域名> <客户端域名>}"
+CLIENT_HOST="${2:?用法: remote-apply.sh <管理台域名> <客户端域名>}"
 ROOT=/opt/exchange-demo
 APP="${ROOT}/app"
 export PATH=/opt/node20/bin:/usr/local/bin:/usr/bin:/bin
@@ -20,8 +21,8 @@ echo "[apply] prisma generate"
 npx prisma generate --schema ./prisma/schema.prisma >/dev/null
 
 echo "[apply] 渲染配置 + 装服务单元"
-sed "s/__HOST__/${HOST}/g" "${ROOT}/deploy/demo.env.template" > "${ROOT}/demo.env"
-sed "s/__HOST__/${HOST}/g" "${ROOT}/deploy/Caddyfile.template" | sudo tee /etc/caddy/Caddyfile.new >/dev/null
+sed -e "s/__ADMIN_HOST__/${ADMIN_HOST}/g" -e "s/__CLIENT_HOST__/${CLIENT_HOST}/g" "${ROOT}/deploy/demo.env.template" > "${ROOT}/demo.env"
+sed -e "s/__ADMIN_HOST__/${ADMIN_HOST}/g" -e "s/__CLIENT_HOST__/${CLIENT_HOST}/g" "${ROOT}/deploy/Caddyfile.template" | sudo tee /etc/caddy/Caddyfile.new >/dev/null
 sudo -u caddy /usr/local/bin/caddy validate --config /etc/caddy/Caddyfile.new --adapter caddyfile >/dev/null
 sudo mv /etc/caddy/Caddyfile.new /etc/caddy/Caddyfile
 sudo install -m 0644 "${ROOT}/deploy/exchange-demo.service" /etc/systemd/system/exchange-demo.service
