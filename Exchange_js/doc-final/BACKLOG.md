@@ -252,6 +252,12 @@ Last Updated: 2026-09-15（战役收官后复检记账：销 3 腐烂、订正 5
 
 - [ ] **`pricing.types.ts` 三个零引用死接口**：`SwapPairEntry`/`WithdrawalAssetEntry`/`WithdrawalPolicyRestrictions` 声明后全仓零引用（含本文件；`grep -rn "\bSwapPairEntry\b" src admin-web/src client-web/src scripts test` 仅声明行）——战役前老残留，零引用纪律先登记，下次动 pricing-center 顺手清 ｜来源: 2026-09-15 战役收官后复检（取数员 B，主会话复现）
 
+- [ ] **`fx-rule-strong` 从未注册进 tailwind 具名色，两处工具类靠兜底渲染**（预存量，黑白模式终审机制订正后表述）：`CustomerDashboardLayout.tsx:259` 面包屑 `text-fx-rule-strong` 靠 currentColor 兜底（观感可用）；`CustomerRegister.tsx:647` 未勾选框 `border-fx-rule-strong` 兜的是 preflight `#e5e7eb`——**浅色白底上近乎隐形**（黑白模式上线后该影响从理论变实际）。修法：tailwind colors 注册 `'fx-rule-strong': 'var(--fx-rule-strong)'`（变量双色板已备好）｜来源: 2026-09-15 黑白模式 T1 评审发现、终审机制订正
+
+- [ ] **滚动条 thumb 常态色未 token 化**：`client-web/src/index.css` `::-webkit-scrollbar-thumb` 常态 `rgba(245,237,224,0.1)` 是深色板暖白值——浅色下近不可见（功能可用，观感不完整）。收进 `--fx-*` 双色板 ｜来源: 2026-09-15 黑白模式 T1 评审
+
+- [ ] **客户端日期走浏览器 locale 渲染，中文系统上 UI 出中文**（如 Profile 页 "Member since 2026年9月15日"）：`toLocaleDateString/toLocaleString` 无显式 locale，演示机中文 macOS 即显年月日——源码中文扫描抓不到的形态，历代英文化轮全部漏网。如需恒英文须全站钉 `'en-US'`/`'en-GB'`（涉及三端多处调用点，单独一次收）｜来源: 2026-09-15 黑白模式走查顺带发现
+
 - [ ] **三域客户面 payload 仍带内部 `id` 键**（铁律⑥尾巴·payload 层，屏上不渲染）：`toCustomerDepositView`/`toCustomerWithdrawView`/`toCustomerSwapView` 首键均为 `id: item.id`——客户端三个列表页仍拿它当 React row key（`Withdraw.tsx:588`/`Deposit.tsx:885` 等），摘除需前后端双改（key 换业务号）。2026-09-15 详情增强终审裁定本支不修留账：DevTools 可见但屏上零渲染，演示零收益；下次动客户面契约时连坐收掉 ｜来源: 2026-09-15 详情增强 Task 7 评审发现、终审裁量
 
 - [ ] **`UpdateInternalFundStatusDto` 零引用死 DTO**：`src/modules/funds-layer/dto/internal-fund.dto.ts:82` 声明的 DTO 全仓零消费方（`grep -rn "UpdateInternalFundStatusDto" src admin-web/src client-web/src` 仅命中声明本身一处）；波五 Task 10（前端收口）扫描资金单详情页字段时顺带发现，本波未删——零引用纪律先登记，下次动 funds-layer/`InternalFund*` 命名债（见 `modules/v6-swap.md` §6）时一并清理 ｜来源: 2026-09-14 波五 Task 10
