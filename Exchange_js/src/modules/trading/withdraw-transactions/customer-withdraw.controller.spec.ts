@@ -24,6 +24,11 @@ const CUSTOMER_WHITELIST_KEYS = [
   'toAddress',
   'toIban',
   'asset',
+  // Task 3（详情增强）：timeline 进 toCustomerWithdrawView（建单响应也走这条
+  // 路径复用）；quote/addressLabel 是 findOneForCustomer 详情专属富化。
+  'timeline',
+  'quote',
+  'addressLabel',
 ].sort();
 
 // 建单事务落库的原始行（withdraw-workflow.service.ts#createWithdrawal 的真实返回
@@ -81,6 +86,11 @@ function buildController(rawRow: any) {
   const prisma: any = {
     withdrawTransaction: {
       findUnique: jest.fn(() => Promise.resolve(rawRow)),
+    },
+    // findOneForCustomer 详情富化（Task 3）反查地址标签；本测试关心的是白名单
+    // 键集合本身，地址查不到即可（addressLabel: null，不影响本用例断言）。
+    withdrawalAddress: {
+      findFirst: jest.fn(() => Promise.resolve(null)),
     },
   };
   const service = new WithdrawTransactionsService(

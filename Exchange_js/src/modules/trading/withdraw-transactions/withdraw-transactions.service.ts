@@ -26,6 +26,7 @@ import { DomainEventNames } from '../../../common/events/domain-events.constants
 import { toCustomerAssetView } from '../shared/customer-view.util';
 import { resolveSlaFields as resolveSlaFieldsShared } from '../shared/sla-fields.util';
 import { freezeScanQueryArgs } from '../shared/freeze-scan.util';
+import { buildCustomerTimeline } from '../shared/customer-timeline.util';
 
 // 客户面筛选桶（波三B，镜像 deposit CUSTOMER_BUCKETS）：客户端只发桶名，
 // 原始状态码不再出现在客户可见的任何 option/query 里。PROCESSING = 补集，
@@ -451,14 +452,19 @@ export class WithdrawTransactionsService {
       toAddress: item.toAddress,
       toIban: item.toIban,
       asset: toCustomerAssetView(item.asset),
+      timeline: buildCustomerTimeline(item.statusHistory, 'COMPLIANCE_PENDING', item.createdAt, (s) =>
+        this.toCustomerWithdrawStatus(s),
+      ),
     };
   }
 
   /**
    * `status` 收敛的具体实现（白名单放行制），见上方 `toCustomerWithdrawView`
-   * 文档注释。镜像 `DepositTransactionsService#toCustomerStatus`。
+   * 文档注释。镜像 `DepositTransactionsService#toCustomerStatus`。刻意不是
+   * `private`——`timeline` 的收敛回调（`buildCustomerTimeline` 的
+   * `collapse` 参数）需要复用同一份状态白名单，避免另抄一份会漂移。
    */
-  private toCustomerWithdrawStatus(status: string): string {
+  toCustomerWithdrawStatus(status: string): string {
     return WITHDRAW_CUSTOMER_STATUS_PASSTHROUGH.has(status) ? status : 'COMPLIANCE_PENDING';
   }
 
@@ -468,6 +474,7 @@ export class WithdrawTransactionsService {
       include: {
         asset: true,
         customer: true,
+        pricingQuote: true,
       },
     });
     if (!item) throw new NotFoundException('Withdraw transaction not found');
@@ -503,7 +510,25 @@ export class WithdrawTransactionsService {
     if (item.ownerId !== customerId) {
       throw new ForbiddenException('Not your withdrawal');
     }
-    return this.toCustomerWithdrawView(item);
+    const view: any = this.toCustomerWithdrawView(item);
+    view.quote = item.pricingQuote
+      ? {
+          quoteNo: item.pricingQuote.quoteNo,
+          feeLevelCode: item.pricingQuote.feeLevelCode,
+          tierName: item.pricingQuote.matchedTierName,
+        }
+      : null;
+    // 地址标签：值匹配反查（无 FK；查不到 → null，前端整行不渲染）。改名跟着变，
+    // demo 语义可接受，同 deposit 域先例。
+    const addr = await (this.prisma as any).withdrawalAddress.findFirst({
+      where: {
+        customerId,
+        OR: [{ address: item.toAddress ?? '__none__' }, { iban: item.toIban ?? '__none__' }],
+      },
+      select: { label: true },
+    });
+    view.addressLabel = addr?.label ?? null;
+    return view;
   }
 
   /**

@@ -1044,7 +1044,16 @@ describe('WithdrawTransactionsService', () => {
       // Task 3 (action-embed) 开的 `actions` 口子已在 2026-08-18 材料请求账
       // Task 12 随专属子表一起物理删除，见 toCustomerWithdrawView 的文档注释——
       // 不再列出这个键就是在断言它已经不在客户面响应体里。
+      // Task 3（详情增强）：timeline 进 toCustomerWithdrawView，列表/详情都带。
+      // SENSITIVE_FULL_ROW 的 statusHistory 那一条只带 reason、不带
+      // timestamp，buildCustomerTimeline 要求 timestamp 字符串，缺失即跳过，
+      // 只剩出生态一条。
+      timeline: [{ status: 'COMPLIANCE_PENDING', at: '2026-01-01T00:00:00.000Z' }],
     };
+    // 详情路径（findOneForCustomer / findOneForCustomerByWithdrawNo）专属富化：
+    // SENSITIVE_FULL_ROW 没有 pricingQuote 关联（undefined）→ quote: null；
+    // withdrawalAddress.findFirst 默认 mock 无返回值 → addressLabel: null。
+    const EXPECTED_DETAIL_VIEW = { ...EXPECTED_VIEW, quote: null, addressLabel: null };
 
     describe('findAllForCustomer', () => {
       it('scopes the list query to the caller (ownerId)', async () => {
@@ -1093,7 +1102,7 @@ describe('WithdrawTransactionsService', () => {
         for (const key of SENSITIVE_KEYS) {
           expect(result).not.toHaveProperty(key);
         }
-        expect(result).toEqual(EXPECTED_VIEW);
+        expect(result).toEqual(EXPECTED_DETAIL_VIEW);
       });
     });
 
@@ -1125,7 +1134,7 @@ describe('WithdrawTransactionsService', () => {
         for (const key of SENSITIVE_KEYS) {
           expect(result).not.toHaveProperty(key);
         }
-        expect(result).toEqual(EXPECTED_VIEW);
+        expect(result).toEqual(EXPECTED_DETAIL_VIEW);
       });
     });
   });
