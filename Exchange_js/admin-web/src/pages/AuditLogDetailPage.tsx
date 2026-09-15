@@ -9,6 +9,7 @@ import {
 import { adminButtonClass } from '../components/common/adminButtonStyles';
 import { AdminBadge } from '../components/ui/AdminBadge';
 import { AUDIT_ENTITY_ROUTE_BY_SUBJECT_TYPE } from './auditEntityRoutes';
+import { stripInternalIds } from '../utils/stripInternalIds';
 
 type AuditOutcome = 'SUCCESS' | 'DENIED' | 'FAILED' | 'PARTIAL';
 
@@ -20,10 +21,8 @@ interface AuditLogDetail {
   primarySubjectType?: string | null;
   primarySubjectNo?: string | null;
   entityOwnerType?: string | null;
-  entityOwnerId?: string | null;
   entityOwnerNo?: string | null;
   actorType: string;
-  actorId: string;
   actorNo?: string | null;
   actorRole?: string | null;
   outcome: AuditOutcome;
@@ -137,7 +136,7 @@ const SidebarKV = ({
 
 const RawRecordBlock = ({ detail }: { detail: AuditLogDetail }) => {
   const [copied, setCopied] = useState(false);
-  const json = JSON.stringify(detail, null, 2);
+  const json = JSON.stringify(stripInternalIds(detail), null, 2);
 
   const handleCopy = () => {
     void navigator.clipboard.writeText(json).then(() => {
@@ -233,7 +232,7 @@ const AuditLogDetailPage = () => {
   }
 
   const hasStateChange = !!(detail.statusFrom || detail.statusTo);
-  const hasOwner      = !!(detail.entityOwnerType || detail.entityOwnerId || detail.entityOwnerNo);
+  const hasOwner      = !!(detail.entityOwnerType || detail.entityOwnerNo);
   const hasPayload    = detail.metadata != null || detail.beforeData != null || detail.afterData != null;
   const hasWorkflow   = !!(detail.workflowType || detail.traceId);
 
@@ -310,7 +309,7 @@ const AuditLogDetailPage = () => {
           <section className="px-6 py-5">
             <Cap>Actor</Cap>
             <p className="mt-1.5 font-mono text-[15px] font-semibold leading-snug text-adm-amber">
-              {detail.actorNo ?? detail.actorId}
+              {detail.actorNo ?? '—'}
             </p>
             <p className="mt-1 font-mono text-[10px] text-adm-t3">
               {[detail.actorType, detail.actorRole].filter(Boolean).join(' · ') || '—'}
@@ -359,7 +358,6 @@ const AuditLogDetailPage = () => {
                   <FieldGrid>
                     <Field label="Owner Type" value={detail.entityOwnerType} />
                     <Field label="Owner No"   value={detail.entityOwnerNo}   mono />
-                    <Field label="Owner ID"   value={detail.entityOwnerId}   mono full />
                   </FieldGrid>
                 </div>
               </div>

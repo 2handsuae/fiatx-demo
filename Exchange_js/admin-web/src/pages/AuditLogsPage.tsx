@@ -21,7 +21,6 @@ interface AuditLogItem {
   primarySubjectNo?: string | null;
   entityOwnerNo?: string | null;
   actorType: string;
-  actorId: string;
   actorNo?: string | null;
   outcome: AuditOutcome;
   occurredAt: string;
@@ -548,7 +547,7 @@ const AuditLogsPage = () => {
                     </td>
                     {/* Actor No */}
                     <td className="px-3 py-2.5 font-mono text-[11px] text-adm-amber">
-                      {item.actorNo ?? item.actorId.slice(0, 8) + '…'}
+                      {item.actorNo ?? <span className="text-adm-t3">—</span>}
                     </td>
                   </tr>
                 );

@@ -15,6 +15,7 @@ import { adminButtonClass } from '../components/common/adminButtonStyles';
 import { AdminBadge } from '../components/ui/AdminBadge';
 import { PERMISSIONS } from '../rbac/permissions';
 import { useAdminSession } from '../contexts/AdminSessionContext';
+import { stripInternalIds } from '../utils/stripInternalIds';
 
 /* ── Interfaces ──────────────────────────────────────────────── */
 
@@ -45,7 +46,6 @@ interface EvidenceExportDetail {
     updatedAt: string;
   } | null;
   filterSnapshot?: unknown;
-  selectedEventIdsSnapshot?: string[];
   manifest?: unknown;
   packageBody?: unknown;
   createdAt: string;
@@ -157,7 +157,7 @@ const SidebarKV = ({
 
 const RawRecordBlock = ({ detail }: { detail: EvidenceExportDetail }) => {
   const [copied, setCopied] = useState(false);
-  const json = JSON.stringify(detail, null, 2);
+  const json = JSON.stringify(stripInternalIds(detail), null, 2);
 
   const handleCopy = () => {
     void navigator.clipboard.writeText(json).then(() => {
@@ -340,8 +340,14 @@ const EvidenceExportDetailPage = () => {
 
   /* ── Derived ── */
 
+  const recordDigests: Array<{ eventNo?: string }> =
+    ((detail.manifest as any)?.recordDigests as Array<{ eventNo?: string }>) ?? [];
+  const selectedEventNos = recordDigests
+    .map((r) => r.eventNo)
+    .filter((v): v is string => !!v);
+
   const hasSelectionCriteria =
-    detail.filterSnapshot != null || (detail.selectedEventIdsSnapshot?.length ?? 0) > 0;
+    detail.filterSnapshot != null || selectedEventNos.length > 0;
   const hasManifest    = detail.manifest != null;
   const hasPackageBody = detail.packageBody != null;
 
@@ -435,21 +441,21 @@ const EvidenceExportDetailPage = () => {
 
               <div className="rounded border border-adm-border bg-adm-bg p-4 space-y-4">
                 {detail.filterSnapshot != null && (
-                  <JsonBlock title="Filter Snapshot" value={detail.filterSnapshot} />
+                  <JsonBlock title="Filter Snapshot" value={stripInternalIds(detail.filterSnapshot)} />
                 )}
 
-                {(detail.selectedEventIdsSnapshot?.length ?? 0) > 0 && (
+                {selectedEventNos.length > 0 && (
                   <div>
                     <p className="mb-2 font-mono text-[8.5px] uppercase tracking-[0.14em] text-adm-t3">
-                      Selected Event IDs ({detail.selectedEventIdsSnapshot!.length})
+                      Selected Events ({selectedEventNos.length})
                     </p>
                     <div className="flex flex-wrap gap-1.5">
-                      {detail.selectedEventIdsSnapshot!.map((eid) => (
+                      {selectedEventNos.map((eventNo) => (
                         <span
-                          key={eid}
+                          key={eventNo}
                           className="inline-flex items-center rounded border border-adm-border bg-adm-card px-2 py-1 font-mono text-[9px] text-adm-t2"
                         >
-                          {eid}
+                          {eventNo}
                         </span>
                       ))}
                     </div>
@@ -467,7 +473,7 @@ const EvidenceExportDetailPage = () => {
                 Table of contents for the evidence package
               </p>
               <div className="rounded border border-adm-border bg-adm-bg p-4">
-                <JsonBlock title="Package Manifest" value={detail.manifest} />
+                <JsonBlock title="Package Manifest" value={stripInternalIds(detail.manifest)} />
               </div>
             </section>
           )}
@@ -480,7 +486,7 @@ const EvidenceExportDetailPage = () => {
                 Full evidence payload — may be large
               </p>
               <div className="rounded border border-adm-border bg-adm-bg p-4">
-                <JsonBlock title="Evidence Data" value={detail.packageBody} />
+                <JsonBlock title="Evidence Data" value={stripInternalIds(detail.packageBody)} />
               </div>
             </section>
           )}
