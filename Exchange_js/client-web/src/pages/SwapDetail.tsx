@@ -165,7 +165,7 @@ const SwapDetail = () => {
             mono
           />
           {tx.marketRate && (
-            <Field label="Market · Spread" value={`${tx.marketRate} · ${tx.spreadPercent}%`} />
+            <Field label="Market · Spread" value={`${formatRate8(tx.marketRate)} · ${tx.spreadPercent}%`} />
           )}
           <Field label="Submitted" value={new Date(tx.createdAt).toLocaleString()} />
           {tx.completedAt && <Field label="Completed" value={new Date(tx.completedAt).toLocaleString()} />}
