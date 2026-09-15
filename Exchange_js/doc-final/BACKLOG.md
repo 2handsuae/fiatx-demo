@@ -292,7 +292,7 @@ Last Updated: 2026-09-15（战役收官后复检记账：销 3 腐烂、订正 5
 
 - [~] roadmap **V3/V4 已按三层新格式重排 + truth 外置**（2026-07-03）；V1/V2/V5-V9 待同款处理
 
-- [ ] **战役收官后复检攒下的文档/注释小账（一次收口，全部一行级）**：① 波五两件功能文档零覆盖——「客户面词表 SUCCESS/DECLINED」与「D10 L1②格因由+便签号」在 modules 三篇 + script.md 全零命中（grep DECLINED / restrictionNo 均空）；② `demo/script.md:217` 仍写「兑换 22 码」，实数 26（v4/v5/v6 三篇的 47/33/26 已对）；③ `modules/v4-deposit.md:54` 表格摘要仍留「黑名单直接拒绝」旧措辞（:75 详情行已更新）；④ `modules/funds-orders.md:62` 残留 INTERNAL_FUND_* 旧名句（代码已无此名）；⑤ 失真注释 1 条：`swap-kyt-verdict.handler.ts:15-19` 仍写「兑换 FROZEN 是零出边终态」，与波五 FROZEN 中间态矛盾（行为本身仍对，解冻走管理台审批不走 KYT tag）；⑥ `audit-actions.constant.ts` V4/V5/V6 三块头注释仍写 31/25/18（实数 47/33/26）｜来源: 2026-09-15 战役收官后复检（取数员 C，主会话逐条复现）
+- [ ] **战役收官后复检攒下的文档/注释小账（一次收口，全部一行级）**：① 波五两件功能文档零覆盖——「客户面词表 SUCCESS/DECLINED」与「D10 L1②格因由+便签号」在 modules 三篇 + script.md 全零命中（grep DECLINED / restrictionNo 均空）；② `demo/script.md:217` 仍写「兑换 22 码」，实数 26（v4/v5/v6 三篇的 47/33/26 已对）；③ `modules/v4-deposit.md:54` 表格摘要仍留「黑名单直接拒绝」旧措辞（:75 详情行已更新）；④ `modules/funds-orders.md:62` 残留 INTERNAL_FUND_* 旧名句（代码已无此名）；⑤ 失真注释 1 条：`swap-kyt-verdict.handler.ts:15-19` 仍写「兑换 FROZEN 是零出边终态」，与波五 FROZEN 中间态矛盾（行为本身仍对，解冻走管理台审批不走 KYT tag）；⑥ `audit-actions.constant.ts` V4/V5/V6 三块头注释仍写 31/25/18（实数 47/33/26）；⑦ 审计码总数两处过期（2026-09-15 词表导出程序化实测）：`modules/v1-governance.md` §5 写「V1 合同 101 码 / 退役 97 码」，名册实测 V1 102 码、退役 113 码（`V1_AUDIT_ACTIONS` 键数 + `DEPRECATED_AUDIT_ACTIONS.length`，脚本 import 真名册数出）；同文件 §6 的「7/101」分母连动 ｜来源: 2026-09-15 战役收官后复检（取数员 C，主会话逐条复现）+ 同日第七幕词表导出
 
 ---
 
