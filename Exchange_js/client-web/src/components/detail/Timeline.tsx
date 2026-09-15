@@ -1,16 +1,19 @@
+import { dedupeTimelineItems } from '../../utils/timelineDisplay';
+
 export interface TimelineItem {
   label: string;
   at: string;
 }
 
 export const Timeline = ({ items }: { items: TimelineItem[] }) => {
-  if (items.length === 0) return null;
+  const visible = dedupeTimelineItems(items);
+  if (visible.length === 0) return null;
 
   return (
     <ol>
-      {items.map((item, index) => (
+      {visible.map((item, index) => (
         <li key={`${item.label}-${item.at}`} className="relative pl-6 pb-4 last:pb-0">
-          {index < items.length - 1 && (
+          {index < visible.length - 1 && (
             <span className="absolute left-[3px] top-3 bottom-0 border-l border-fx-rule" />
           )}
           <span className="absolute left-0 top-1.5 h-[7px] w-[7px] rounded-full bg-fx-brass" />
