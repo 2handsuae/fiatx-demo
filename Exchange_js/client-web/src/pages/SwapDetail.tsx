@@ -87,6 +87,15 @@ const SwapDetail = () => {
   // 徽章纯按 status 查表（单参纯查表）——同 DepositDetail/WithdrawDetail。
   const view = getSwapStatusView(tx.status);
 
+  // 只有真正成交的单子才敢用断言句（下方 You sold / Gross receive / Net received）。
+  // 判据只读已收敛的 tx.status —— 服务端 toCustomerSwapStatus() 已把制裁冻结单收敛成
+  // 与普通「处理中」逐字相同的 COMPLIANCE_PENDING，这里跟着一起走同一个分支，
+  // 绝不再按别的字段二次判断（那等于把冻结单在页面上单独分辨出来，破 tipping-off
+  // 防线）。未成交的单子上写「You received X」是客户面财务页上的事实性错误：
+  // 失败单的钱原路退回、他一分没收到，卖出腿同样没扣；处理中的单子也还没到账。
+  // 非 SUCCESS 一律降级成中性名词（对齐列表页那一列中性的 Amount 表头，不断言收付）。
+  const settled = tx.status.toUpperCase() === 'SUCCESS';
+
   // 费用币种在白名单里是独立字段（可能既不是卖出腿也不是买入腿的币种）。
   // 详情页不像 Swap.tsx 那样持有全量资产表，只能拿本单两条腿去对；对不上就
   // 交给 formatAssetAmount 的默认精度，不为此再拉一次资产接口。
@@ -94,6 +103,15 @@ const SwapDetail = () => {
     tx.feeCurrency && tx.feeCurrency === tx.toAsset?.currency
       ? tx.toAsset?.decimals
       : tx.feeCurrency && tx.feeCurrency === tx.fromAsset?.currency
+        ? tx.fromAsset?.decimals
+        : undefined;
+
+  // Pricing 区块费用行同法推精度——feeLines 里每条的币种同样可能既不是卖出腿
+  // 也不是买入腿，就地按 f.currency 对本单两条腿，对不上回落 undefined。
+  const feeLineDecimals = (currency: string) =>
+    currency === tx.toAsset?.currency
+      ? tx.toAsset?.decimals
+      : currency === tx.fromAsset?.currency
         ? tx.fromAsset?.decimals
         : undefined;
 
@@ -122,11 +140,11 @@ const SwapDetail = () => {
         <h2 className="text-sm font-semibold text-fx-sand mb-3">Amounts</h2>
         <dl className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <Field
-            label="You sold"
+            label={settled ? 'You sold' : 'Sell amount'}
             value={`${formatAssetAmount(tx.fromAmount, tx.fromAsset?.decimals)} ${tx.fromAsset?.currency ?? ''}`.trim()}
           />
           <Field
-            label="Gross receive"
+            label={settled ? 'Gross receive' : 'Quoted gross'}
             value={`${formatAssetAmount(tx.toAmount, tx.toAsset?.decimals)} ${tx.toAsset?.currency ?? ''}`.trim()}
           />
           <Field
@@ -134,7 +152,7 @@ const SwapDetail = () => {
             value={tx.feeAmount ? `− ${formatAssetAmount(tx.feeAmount, feeDecimals)} ${tx.feeCurrency ?? ''}`.trim() : '—'}
           />
           <Field
-            label="Net received"
+            label={settled ? 'Net received' : 'Quoted amount'}
             value={`${formatAssetAmount(tx.netToAmount ?? tx.toAmount, tx.toAsset?.decimals)} ${tx.toAsset?.currency ?? ''}`.trim()}
           />
           <Field
@@ -147,7 +165,7 @@ const SwapDetail = () => {
             mono
           />
           {tx.marketRate && (
-            <Field label="Market / Spread" value={`${tx.marketRate} · ${tx.spreadPercent}%`} />
+            <Field label="Market · Spread" value={`${tx.marketRate} · ${tx.spreadPercent}%`} />
           )}
           <Field label="Submitted" value={new Date(tx.createdAt).toLocaleString()} />
           {tx.completedAt && <Field label="Completed" value={new Date(tx.completedAt).toLocaleString()} />}
@@ -163,7 +181,7 @@ const SwapDetail = () => {
               <Field
                 key={`${f.itemCode}-${i}`}
                 label={formatFeeLineLabel(f.itemCode)}
-                value={`${f.amount} ${f.currency}`.trim()}
+                value={`${formatAssetAmount(f.amount, feeLineDecimals(f.currency))} ${f.currency}`.trim()}
               />
             ))}
           </dl>
