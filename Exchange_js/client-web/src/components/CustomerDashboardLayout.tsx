@@ -10,9 +10,12 @@ import {
   ArrowLeftRight,
   LineChart,
   ChevronRight,
+  Sun,
+  Moon,
 } from 'lucide-react';
 import { Link, useLocation, useNavigate, Outlet } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { useTheme } from '../context/ThemeContext';
 
 /* ────────────────────────────────────────────────────────────────
  *  FIATX member shell — Terminal dialect.
@@ -104,6 +107,7 @@ const CustomerDashboardLayout = () => {
   const location = useLocation();
   const navigate = useNavigate();
   const { user } = useAuth();
+  const { theme, toggleTheme } = useTheme();
 
   const [collapsed, setCollapsed] = useState(() => {
     const saved = localStorage.getItem('fx_rail_collapsed');
@@ -265,6 +269,13 @@ const CustomerDashboardLayout = () => {
           {/* Right cluster */}
           <div className="flex items-center gap-5">
             <DubaiClock />
+            <button
+              onClick={toggleTheme}
+              className="text-fx-dust hover:text-fx-brass transition-colors"
+              aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+            >
+              {theme === 'dark' ? <Sun size={14} /> : <Moon size={14} />}
+            </button>
             <div className="hidden md:block h-5 w-[1px] bg-fx-rule" />
 
             {/* Member chip */}
