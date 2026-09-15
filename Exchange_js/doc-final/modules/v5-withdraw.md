@@ -75,6 +75,7 @@
 - 状态机 `withdraw-transactions.service.ts → transitions`（23 边 + 守则单测）；大额出生路由是表外钦定写（注释成文）
 - 解锁原语 `releaseLock()`（净额+费两笔 pending 一起 void——"拒绝即解锁"的物理形态，提现/退款/失败三处共用）
 - 客户面防线（2026-09-12 波三红项修复补齐三道，与充值域 `modules/v4-deposit.md` §4.6 镜像达成）：`getWithdrawStatusView()`（client-web 前端函数，`client-web/src/utils/withdrawStatusView.ts`；FROZEN/MANUAL_CHECKING/PENDING_APPROVAL 逐字段收敛成 PROCESSING）+ 后端 `toCustomerWithdrawView()`（`status` 白名单收敛 + `completedAt` 独立终态白名单，镜像 `toCustomerDepositView`）+ `findAll(..., {customerScope:true})` 下忽略原始 `status` 查询参数、改走 `bucket` 补集筛选（`WITHDRAW_CUSTOMER_BUCKETS`，`PROCESSING` 是补集档）+ 客户端 `Withdraw.tsx` 筛选器改发 bucket 名，DOM 里不再出现原始状态码 + 违禁词单测全态零命中
+- **客户端详情页**（`WithdrawDetail.tsx`，2026-09-15 详情增强）：Amounts（Submitted/Fee/Net amount/Completed）+ Route（Destination address·IBAN/Address label/Reference/Transaction hash）+ Pricing（报价号 `quote.quoteNo`(WQT) + `feeLevelCode`·`tierName` 费率档）+ Timeline；Timeline 走三域共用机制（`buildCustomerTimeline()` 收敛去重 + 客户端展示层 `timelineDisplay.ts` 同词连续去重）——FROZEN 先经上面 §1 的白名单收敛成 PROCESSING，两层去重叠加下冻结单与普通在途单时间线不可区分，同 §1 tipping-off 口径（详述见 `modules/v6-swap.md` §5）
 - SLA `WITHDRAW_SLA_MINUTES_BY_STATUS` 四格（5 分钟/7 天硬；3 天/1 天软）｜ `withdraw-sumsub/withdraw-sla.service.ts`
 - 资金腿迁移表 `funds-order-transitions.constant.ts → FIAT_OUT/CRYPTO_OUT_TRANSITIONS`；费腿三级梯 `onFeeLegFailed()`
 - L1 `L1GateService`（提现十项全适用，含资产可用性；BLOCK 留 `*_L1_BLOCKED` 痕）；限额/大额阈值读 `transaction_limit_rules`（V3 篇）

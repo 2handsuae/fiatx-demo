@@ -77,6 +77,7 @@
 - KYT 类型判定 `sumsub-shared/kyt-txn-type.resolver.ts → resolveKytTxnType()`（crypto ∧ VASP ∧ 金额≥阈值 → travelRule；阈值写死：AED 3500 / USDT 1000，边界取 ≥；波四已从本域迁至 `sumsub-shared/`，消掉此前 withdraw 跨域 import 本域文件的唯一环外依赖）
 - SLA `deposit-sla.service.ts`（按"进入状态"计时；COMPLIANCE_PENDING 5 分钟硬线 / ACTION_PENDING 7 天）
 - 补料 `material_requests` 材料账驱动（下发/提交/裁决闭环，见 V2 篇）；客户端独立补料页内嵌 Sumsub SDK
+- **客户端详情页**（`DepositDetail.tsx`，2026-09-15 详情增强）：Amounts（Submitted/Value date`effectiveDate`/Completed）+ Route（Reference/From address·From IBAN/Received at 平台收款地址`toAddress`·IBAN`toIban`/Transaction hash）+ Timeline；字段均出自既有客户视图白名单，无新增泄漏面。Timeline 走三域共用机制：`trading/shared/customer-timeline.util.ts → buildCustomerTimeline()` 按客户面收敛词表构建 + 连续去重（冻结/执法态被吞，不留痕），客户端展示层 `timelineDisplay.ts → dedupeTimelineItems()` 再按同词连续去重一次——两层去重叠加下，冻结单时间线与普通在途单肉眼不可区分，tipping-off 口径详见 `modules/v6-swap.md` §1/§5
 - Sumsub 接入 `sumsub-ingestion/ → ingest()/dispatch()`（webhook 统一入口按事件×域路由）；演示裁决 `SUMSUB_MOCK_MODE=true` 时注册的 verdict runner（⚡11 按钮，三域同源共享表 `sumsub-shared/verdict-buttons.shared.ts`）
 - 补单（B 批，2026-09-03）：`effectiveDate String?` 新列（补录才有值，`executeDepositAccounting` 的 STEP_1/STEP_2 都读它，列优先于资金单 CONFIRM 步同名参数——后者对这条路径是死代码）｜ 新终态 `CLAWED_BACK` + 动作 `CLAWBACK`，新转账码 `DEPOSIT_CLAWBACK`（分录借客户应付 / 贷客户资产）｜ 入口、审批与守卫见 `modules/v8-recon.md` §3/§5
 - 资金单镜像与逐腿记账机制 → 见 funds-orders 篇 / accounting-coa 篇
