@@ -735,7 +735,7 @@ const Swap = () => {
                           <div className="flex items-center justify-between text-fx-dust">
                             <span>Matched:</span>
                             <span className="font-mono">
-                              {rateMeta.matched.pairId} / {rateMeta.matched.tierId}
+                              {rateMeta.matched.pairName} / {rateMeta.matched.tierName}
                             </span>
                           </div>
                         )}
@@ -1044,7 +1044,7 @@ const Swap = () => {
                         <div className="flex justify-between text-sm">
                           <span className="text-fx-dune font-medium">Matched Pair / Tier</span>
                           <span className="font-mono text-fx-sand">
-                            {firmQuote.matched.pairId} / {firmQuote.matched.tierId}
+                            {firmQuote.matched.pairName} / {firmQuote.matched.tierName}
                           </span>
                         </div>
                       )}

@@ -199,6 +199,18 @@ export class FundsOrderService {
     return { referenceNo: fakeBankRef(row.fundsOrderNo, row.createdAt ?? new Date()) };
   }
 
+  /** 划转腿 SUBMITTED 期预铸外部参考号——镜像行与落账必须同号(对账 Pass 1 精确
+   *  配对)，等不到 CONFIRMED 的 stamp。铸法/幂等同 buildExternalRefPatch；写回
+   *  后返回 patch(无需铸则 null)，调用方用它拼铸后行、不依赖 update 返回形状。 */
+  async stampExternalRef(id: string): Promise<{ txHash: string } | { referenceNo: string } | null> {
+    const row = await this.prisma.fundsOrder.findUnique({ where: { id }, include: { asset: true } });
+    if (!row) throw new NotFoundException(`FundsOrder ${id} not found`);
+    const assetType = (row.asset?.type ?? 'CRYPTO').toUpperCase() as FundsOrderAssetType;
+    const patch = this.buildExternalRefPatch(row, assetType);
+    if (patch) await this.prisma.fundsOrder.update({ where: { id }, data: patch });
+    return patch;
+  }
+
   /** Thin business-key finder — raw row (+ asset) by fundsOrderNo. Recon push-order
    *  orchestrator needs id/status/FKs/wallets/referenceNo/amount/createdAt on the row. */
   async findByNo(fundsOrderNo: string, tx?: Tx) {

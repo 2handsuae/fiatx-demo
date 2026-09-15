@@ -22,7 +22,6 @@ function makeWorkflow(o: Partial<Record<'adjustment' | 'asset' | 'wallet' | 'dis
     asset: { findUnique: jest.fn(async () => asset) },
     wallet: { findUnique: jest.fn(async ({ where }: any) => walletsById[where.id] ?? null) },
     internalTransfer: { update: jest.fn(async () => transferRow), findUnique: jest.fn(async () => transferRow) },
-    fundsOrder: { update: jest.fn(async ({ where, data }: any) => ({ id: where.id, ...data })) },
   };
   const transfers: any = {
     findBlockingBySource: jest.fn(async () => null),
@@ -42,6 +41,7 @@ function makeWorkflow(o: Partial<Record<'adjustment' | 'asset' | 'wallet' | 'dis
     create: jest.fn(async (input: any) => ({ id: `fo-${input.legSeq}`, fundsOrderNo: `FO${input.legSeq}`, ...input })),
     findById: jest.fn(async (id: string) => ({ id, fundsOrderNo: id === 'fo-1' ? 'FO1' : 'FO2', legSeq: id === 'fo-1' ? 1 : 2, amount: '7.5', txHash: null, referenceNo: null, createdAt: new Date(), fromWalletId: id === 'fo-1' ? 'w-ops' : 'w-set', toWalletId: id === 'fo-1' && asset.type === 'FIAT' ? 'w-set' : 'w-cust' })),
     advance: jest.fn(async () => ({})),
+    stampExternalRef: jest.fn(async () => null),
     resolveExternalRef: jest.fn((row: any) => (row.asset?.type === 'CRYPTO' ? row.txHash ?? null : row.referenceNo ?? null)),
   };
   const systemWallets: any = { resolve: jest.fn(async (_assetId: string, vault: string) => (vault === 'F_OPS' ? walletsById['w-ops'] : walletsById['w-set'])) };
@@ -151,9 +151,10 @@ describe('InternalTransferWorkflowService (Task 7)', () => {
       expect(custodianStatement.recordLegMovement).not.toHaveBeenCalled();
     });
     it('SUBMITTED: the reference number is minted at submission (crypto txHash), then the simulated custodian writes two lines', async () => {
-      const { wf, prisma, custodianStatement } = makeWorkflow({ transferRow: executing(USDT) });
+      const { wf, fundsOrders, custodianStatement } = makeWorkflow({ transferRow: executing(USDT) });
+      fundsOrders.stampExternalRef.mockResolvedValueOnce({ txHash: `0x${'ab'.repeat(32)}` });
       await wf.handleFundsOrderChanged(evt(1, 'SUBMITTED') as any);
-      expect(prisma.fundsOrder.update).toHaveBeenCalledWith(expect.objectContaining({ where: { id: 'fo-1' }, data: { txHash: expect.stringMatching(/^0x/) } }));
+      expect(fundsOrders.stampExternalRef).toHaveBeenCalledWith('fo-1');
       expect(custodianStatement.recordLegMovement).toHaveBeenCalledWith(expect.objectContaining({ fundsOrderNo: 'FO1', fromWalletId: 'w-ops', toWalletId: 'w-cust', assetCode: 'USDT-TRON', assetType: 'CRYPTO', amountMinor: 7_500_000n, externalRef: expect.stringMatching(/^0x/) }));
     });
     it('CONFIRMED · fiat leg 1: debit operating account / credit settlement account (81) → cleared → creates leg 2 (settlement account → customer)', async () => {

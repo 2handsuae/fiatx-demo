@@ -99,7 +99,7 @@ Last Updated: 2026-09-15（战役收官后复检记账：销 3 腐烂、订正 5
 
 > 讲「一次兑换四条腿原子记账」这一幕的缺口。
 
-- [ ] 🔴 **客户端兑换页「Matched」行渲染内部 UUID，且同名字段两条路径语义不一致（铁律⑥客户屏首犯）**：client `Swap.tsx:738`（实时预览 `rateMeta.matched`）与 `:1047`（firm quote「Matched Pair / Tier」行）mono 渲染 `pairId / tierId`——firm quote 路径 `swap-fee-level/swap-quote.service.ts:172` 造的 `pairId` = `${fromAssetId}_${toAssetId}`（两个资产 UUID 拼串）、`tierId` = 费率档 tier 行内部 id；预览路径 `swap-transactions.service.ts:245-253` 的 `pairId` 却 = `feeLevelCode`（业务码）。客户屏上时而业务码时而 UUID 串。修法：两路统一业务语义（feeLevelCode + tierName）或整行只显 `pairName / tierName` ｜来源: 2026-09-15 战役收官后复检（取数员 D + 主会话复现）
+- [x] ~~🔴 客户端兑换页「Matched」行渲染内部 UUID（铁律⑥客户屏首犯）~~ —— **已修**（2026-09-15 复检当日）：两处渲染改 `pairName / tierName`（`Swap.tsx:738/:1047`），payload/报价快照形状不动（`matched` 里的 id 只存证不落屏，admin 侧本就只读 tierName）。走查实证：预览行显 `STD-USDT-AED / Tier 1 (0-500)`，firm quote 确认框零 UUID（其 `matched` 响应本为空、该行系防御性条件渲染）；vitest 87/87 绿。两条路径 `pairId` 语义不一致随字段停用而失效 ｜来源: 2026-09-15 战役收官后复检，当日销账
 
 - [ ] 无自动 FAILED 状态机：腿失败走自愈→STUCK(needsReview)+手动 resume，swap 留 PROCESSING，无终态失败（设计 deferred）｜来源: 2026-07-04 V6 体检
 
@@ -147,7 +147,7 @@ Last Updated: 2026-09-15（战役收官后复检记账：销 3 腐烂、订正 5
 
 - [ ] **法币补款腿 2 失败后款项停在结算户**（2026-09-05）：腿 1 已落账、账与钱一致，订单 FAILED，人工处理，不做自动退回 ｜来源: 平账二期 spec §3
 
-- [ ] 🔴 **划转工作流一处绕过 FundsOrderService 直写 `fundsOrder` 表（铁律③）**：`asset-treasury/internal-transfers/internal-transfer-workflow.service.ts:223` `(this.prisma as any).fundsOrder.update(...)` 给腿补写模拟 txHash/referenceNo，带 `as any` 逃逸类型检查；已注入的 `FundsOrderService` 没有对应方法所以绕了。全仓其余 `fundsOrder` 写点全在 funds-layer 正主（`grep -rn "fundsOrder.update" src` 复现）。引入于平账二期 Task 7（`ddf23e91`），存量违例按「pre-existing 不豁免」照登。修法：`FundsOrderService` 补一个 stampExternalRef 类方法，workflow 改调 ｜来源: 2026-09-15 战役收官后复检（取数员 A + 主会话复现）
+- [x] ~~🔴 划转工作流一处绕过 FundsOrderService 直写 `fundsOrder` 表（铁律③）~~ —— **已修**（2026-09-15 复检当日）：`FundsOrderService` 新增 `stampExternalRef(id)`（铸法/幂等委托既有 `buildExternalRefPatch`，SUBMITTED 期预铸语义不变），workflow `onLegSubmitted` 改调、`as any` 直写与本地重复铸号逻辑删除（连 `fakeChainTxHash/fakeBankRef` 孤儿 import 一并摘）。全仓 `fundsOrder` 写点复归 funds-layer 独占。闸：jest 77/77（SUBMITTED 铸号用例改断言服务方法）+ 重铺闸 demo:all 29/29 + verify:coa 全绿 ｜来源: 2026-09-15 战役收官后复检，当日销账
 
 **场景 18 · 事故登记**
 

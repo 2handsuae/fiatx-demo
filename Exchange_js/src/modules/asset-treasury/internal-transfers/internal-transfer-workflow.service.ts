@@ -6,7 +6,6 @@ import { OnEvent } from '@nestjs/event-emitter';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../core/prisma/prisma.service';
 import { DomainEventNames } from '../../../common/events/domain-events.constants';
-import { fakeBankRef, fakeChainTxHash } from '../../../common/utils/fake-external-refs.util';
 import { AccountingService } from '../../accounting/tigerbeetle/accounting.service';
 import { TB_ACCOUNT_CODES, TB_CODE_TO_COA } from '../../accounting/tigerbeetle/constants/tb-account-codes.constant';
 import { TB_LEDGERS } from '../../accounting/tigerbeetle/constants/tb-ledgers.constant';
@@ -217,11 +216,9 @@ export class InternalTransferWorkflowService {
   /** 提交那一步就铸参考号（镜像行与落账同号，对账 Pass 1 精确配对），随后模拟托管方写两行对账单。 */
   private async onLegSubmitted(row: any, leg: any) {
     const isCrypto = (row.asset.type ?? 'CRYPTO').toUpperCase() === 'CRYPTO';
-    const patch = isCrypto
-      ? (leg.txHash ? {} : { txHash: fakeChainTxHash(leg.fundsOrderNo) })
-      : (leg.referenceNo ? {} : { referenceNo: fakeBankRef(leg.fundsOrderNo, leg.createdAt ?? new Date()) });
-    if (Object.keys(patch).length) await (this.prisma as any).fundsOrder.update({ where: { id: leg.id }, data: patch });
-    const stamped = { ...leg, ...patch }; // 不依赖 update 的返回形状——真 Prisma 回整行，mock 未必
+    // 铁律③：资金单只许 FundsOrderService 写，铸号也走它（铸法/幂等在 stampExternalRef 一处）
+    const patch = await this.fundsOrders.stampExternalRef(leg.id);
+    const stamped = { ...leg, ...(patch ?? {}) };
     const externalRef = this.fundsOrders.resolveExternalRef({ ...stamped, asset: row.asset }) ?? stamped.fundsOrderNo;
     await this.custodianStatement.recordLegMovement({
       fundsOrderNo: stamped.fundsOrderNo, fromWalletId: stamped.fromWalletId, toWalletId: stamped.toWalletId,
