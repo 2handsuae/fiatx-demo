@@ -334,7 +334,7 @@ const DashboardOverview = () => {
       {portfolio.length > 0 && (
         <div>
           <SectionTitle>Indicative Rates</SectionTitle>
-          <div className="mt-4 space-y-0 divide-y divide-fx-rule/50">
+          <div className="mt-4 space-y-0 divide-y divide-fx-sand/50">
             {portfolio.map((item) => {
               const rate = getAedRate(item.assetCode, item.currency);
               return (

@@ -399,7 +399,7 @@ const CustomerLogin = () => {
                     <button
                       key={account.email}
                       onClick={() => void handleQuickLogin(account)}
-                      className="w-full flex items-center justify-between gap-4 px-4 py-3 text-left hover:bg-fx-rule/20 transition-colors group"
+                      className="w-full flex items-center justify-between gap-4 px-4 py-3 text-left hover:bg-fx-sand/20 transition-colors group"
                     >
                       <div className="min-w-0">
                         <div className="flex items-baseline gap-3">
