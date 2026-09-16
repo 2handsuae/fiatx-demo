@@ -273,7 +273,7 @@ export class AdminInviteWorkflowService {
           category: AuditCategory.GOVERNANCE,
           primarySubjectType: AuditEntityTypes.ACCESS_CONTROL,
           primarySubjectNo: user.userNo,
-          subjects: this.inviteSubjects(user.userNo),
+          subjects: this.inviteSubjects(user.userNo, event.approvalNo),
           correlationId: event.traceId,
           outcome: AuditOutcome.FAILED,
           reason: error instanceof Error ? error.message : 'Failed to dispatch invite',
@@ -283,8 +283,8 @@ export class AdminInviteWorkflowService {
         },
         {
           actorType: 'ADMIN',
-          actorNo: event.decisionByUserId || 'SYSTEM',
-          actorDisplayName: event.decisionByUserId || 'SYSTEM',
+          actorNo: event.decisionByUserNo || 'SYSTEM',
+          actorDisplayName: event.decisionByUserNo || 'SYSTEM',
           actorRolesAtTime: [event.decisionByRole || 'SYSTEM'],
         },
       );

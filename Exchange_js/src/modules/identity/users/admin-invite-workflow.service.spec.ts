@@ -200,6 +200,43 @@ describe('AdminInviteWorkflowService', () => {
       ]);
     });
 
+    it('派发失败也带 INSTRUMENT 行与业务号 actor：审批单号在手不丢、actorNo 不落 UUID', async () => {
+      usersDomainService.findByUserNo.mockResolvedValue({
+        id: 'user-1',
+        userNo: 'ADM-001',
+        email: 'new@fiatx.com',
+        status: 'PENDING_INVITE_APPROVAL',
+      });
+      adminInvitationsService.createInvitationForUser.mockRejectedValue(new Error('smtp down'));
+
+      const event: ApprovalDecidedEvent = {
+        decision: 'APPROVED',
+        actionType: 'ADMIN_INVITE_APPROVAL',
+        entityRef: 'user-1',
+        approvalId: 'apr-uuid-1',
+        approvalNo: 'APR-1',
+        traceId: 'trace-invite-fail-1',
+        workflowType: 'ADMIN_INVITE',
+        decisionByUserId: 'uuid-ciso-1',
+        decisionByUserNo: 'ADM-CISO',
+        decisionByRole: 'CISO',
+        metadata: {},
+      };
+
+      await expect(service.handleApprovalDecided(event)).rejects.toThrow('smtp down');
+
+      const call = auditLogsService.recordByActor.mock.calls.find(
+        (c: any[]) => c[0].action === 'ADMIN_INVITE_DISPATCHED' && c[0].outcome === 'FAILED',
+      );
+      expect(call).toBeDefined();
+      expect(call[0].subjects).toEqual([
+        { subjectType: 'ACCESS_CONTROL', subjectNo: 'ADM-001', subjectRole: 'PRIMARY' },
+        { subjectType: 'APPROVAL_CASE', subjectNo: 'APR-1', subjectRole: 'INSTRUMENT' },
+      ]);
+      expect(call[1].actorNo).toBe('ADM-CISO');
+      expect(call[1].actorDisplayName).toBe('ADM-CISO');
+    });
+
     it('审批被驳回/取消/超时都物理删除 provisional user 并写 ADMIN_INVITE_CANCELLED + reason', async () => {
       usersDomainService.findByUserNo.mockResolvedValue({
         id: 'user-1',
