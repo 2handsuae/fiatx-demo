@@ -121,6 +121,7 @@ export class AdminPasswordResetWorkflowService {
         category: AuditCategory.GOVERNANCE,
         primarySubjectType: AuditEntityTypes.ADMIN_USER,
         primarySubjectNo: targetUserNo,
+        subjects: this.adminSubjects(targetUserNo, officerRef?.approvalNo),
         // INHERIT：tokenRecord.traceId 就是 REQUESTED 铸造、经 JWT（SELF）或
         // ApprovalCase.traceId（OFFICER，见 executeAdminReset）原样传播过来的那个值。
         correlationId: tokenRecord.traceId,

@@ -387,6 +387,10 @@ describe('AdminPasswordResetWorkflowService', () => {
           action: 'ADMIN_PASSWORD_RESET_SELF_COMPLETED',
           primarySubjectNo: 'ADM001',
           correlationId: 'trace-1',
+          // SELF 径 officerRef 恒 null——单行数组，不伪造 INSTRUMENT 行。
+          subjects: [
+            { subjectType: 'ADMIN_USER', subjectNo: 'ADM001', subjectRole: 'PRIMARY' },
+          ],
         }),
         expect.objectContaining({
           actorType: 'ADMIN',
@@ -421,6 +425,11 @@ describe('AdminPasswordResetWorkflowService', () => {
           onBehalfOfNo: 'ADM002',
           approvalNo: 'APR002',
           causationId: 'apr-2',
+          // officerRef.approvalNo 在手（resolveOfficerApprovalRef 查到 apr-2）——双行数组。
+          subjects: [
+            { subjectType: 'ADMIN_USER', subjectNo: 'ADM002', subjectRole: 'PRIMARY' },
+            { subjectType: 'APPROVAL_CASE', subjectNo: 'APR002', subjectRole: 'INSTRUMENT' },
+          ],
         }),
         expect.objectContaining({
           actorType: 'ADMIN',
