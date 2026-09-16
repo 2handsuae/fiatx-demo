@@ -17,15 +17,18 @@ interface AuditLogItem {
   id: string;
   eventNo: string;
   action: string;
+  userActionLabel?: string | null;
+  actionDomain?: string | null;
   primarySubjectType?: string | null;
   primarySubjectNo?: string | null;
-  entityOwnerNo?: string | null;
+  ownerCustomerNo?: string | null;
   actorType: string;
   actorNo?: string | null;
+  actorDisplayName?: string | null;
   outcome: AuditOutcome;
   occurredAt: string;
-  traceId?: string | null;
-  workflowType?: string | null;
+  amount?: string | null;
+  currency?: string | null;
 }
 
 interface AuditLogListResponse {
@@ -57,7 +60,6 @@ interface FilterState {
   outcome: '' | AuditOutcome;
   actionDomain: string;
   action: string;
-  workflowType: string;
   correlationId: string;
   startAt: string;
   endAt: string;
@@ -74,7 +76,6 @@ const DEFAULT_FILTERS: FilterState = {
   outcome: '',
   actionDomain: '',
   action: '',
-  workflowType: '',
   correlationId: '',
   startAt: '',
   endAt: '',
@@ -89,7 +90,7 @@ const ACTION_DOMAINS = [
 
 const URL_FILTER_KEYS = [
   'keyword', 'primarySubjectNo', 'subjectNo', 'actorNo', 'ownerCustomerNo', 'traceId',
-  'outcome', 'actionDomain', 'action', 'workflowType', 'correlationId', 'startAt', 'endAt',
+  'outcome', 'actionDomain', 'action', 'correlationId', 'startAt', 'endAt',
 ] as const;
 
 const PAGE_SIZE = 20;
@@ -167,9 +168,6 @@ const AuditLogsPage = () => {
     if (activeFilters.outcome) params.set('outcome', activeFilters.outcome);
     if (activeFilters.actionDomain) params.set('actionDomain', activeFilters.actionDomain);
     if (activeFilters.action.trim()) params.set('action', activeFilters.action.trim());
-    if (activeFilters.workflowType.trim()) {
-      params.set('workflowType', activeFilters.workflowType.trim());
-    }
     if (activeFilters.correlationId.trim()) {
       params.set('correlationId', activeFilters.correlationId.trim());
     }
@@ -296,7 +294,7 @@ const AuditLogsPage = () => {
     // 深链带进来的高级栏字段要看得见，否则预填了也不知道在筛什么
     if (
       initial.primarySubjectNo || initial.subjectNo || initial.ownerCustomerNo ||
-      initial.action || initial.workflowType || initial.correlationId ||
+      initial.action || initial.correlationId ||
       initial.startAt || initial.endAt || initial.includeArchived
     ) {
       setShowAdvanced(true);
@@ -431,12 +429,6 @@ const AuditLogsPage = () => {
             className={`${fi} w-40`}
           />
           <input
-            value={filters.workflowType}
-            onChange={(e) => setFilters((p) => ({ ...p, workflowType: e.target.value }))}
-            placeholder="Workflow Type"
-            className={`${fi} w-36`}
-          />
-          <input
             value={filters.correlationId}
             onChange={(e) => setFilters((p) => ({ ...p, correlationId: e.target.value }))}
             placeholder="Correlation ID"
@@ -524,21 +516,24 @@ const AuditLogsPage = () => {
               </th>
               {(
                 [
-                  ['Time',           '140px'],
-                  ['Audit No',       '152px'],
-                  ['Result',         '84px'],
-                  ['Workflow Type',  '130px'],
-                  ['Action',         '180px'],
-                  ['Entity No',      '140px'],
-                  ['Entity Type',    '120px'],
-                  ['Trace ID',       '160px'],
-                  ['Actor No',       'auto'],
+                  ['Time',     '140px'],
+                  ['Audit No', '152px'],
+                  ['Result',   '84px'],
+                  ['Domain',   '96px'],
+                  ['Action',   'auto'],
+                  ['Entity',   '150px'],
+                  ['Owner',    '120px'],
+                  ['Actor',    '140px'],
+                  ['Amount',   '110px'],
                 ] as [string, string][]
               ).map(([label, w]) => (
                 <th
                   key={label}
                   style={{ width: w === 'auto' ? undefined : w }}
-                  className="border-b border-adm-border bg-adm-panel px-3 py-2 text-left font-mono text-[9px] font-semibold uppercase tracking-[0.12em] text-adm-t3 whitespace-nowrap"
+                  className={[
+                    'border-b border-adm-border bg-adm-panel px-3 py-2 font-mono text-[9px] font-semibold uppercase tracking-[0.12em] text-adm-t3 whitespace-nowrap',
+                    label === 'Amount' ? 'text-right' : 'text-left',
+                  ].join(' ')}
                 >
                   {label}
                 </th>
@@ -612,45 +607,59 @@ const AuditLogsPage = () => {
                     <td className="px-3 py-2.5">
                       <AdminBadge value={item.outcome} />
                     </td>
-                    {/* Workflow Type */}
-                    <td className="px-3 py-2.5 font-mono text-[11px] text-adm-t2">
-                      {item.workflowType ?? <span className="text-adm-t3">—</span>}
+                    {/* Domain */}
+                    <td className="px-3 py-2.5 font-mono text-[10px] text-adm-t2">
+                      {item.actionDomain ?? <span className="text-adm-t3">—</span>}
                     </td>
-                    {/* Action */}
-                    <td className="max-w-[200px] px-3 py-2.5">
-                      <span className="truncate text-[11px] text-adm-t1">{item.action}</span>
+                    {/* Action — 人话标签为主、码为辅（label 就是码的 Title Case 时不重复显示） */}
+                    <td className="max-w-[240px] px-3 py-2.5">
+                      <p className="truncate text-[11px] text-adm-t1">{item.userActionLabel ?? item.action}</p>
+                      {item.userActionLabel &&
+                        item.userActionLabel.replace(/ /g, '_').toUpperCase() !== item.action && (
+                          <p className="truncate font-mono text-[9px] text-adm-t3">{item.action}</p>
+                        )}
                     </td>
-                    {/* Entity No */}
-                    <td className="px-3 py-2.5 font-mono text-[11px] text-adm-amber">
+                    {/* Entity — No + Type 合一格 */}
+                    <td className="px-3 py-2.5">
                       {item.primarySubjectNo ? (
-                        AUDIT_ENTITY_ROUTE_BY_SUBJECT_TYPE[item.primarySubjectType ?? ''] ? (
-                          <span
-                            className="cursor-pointer text-adm-blue hover:underline"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              navigate(AUDIT_ENTITY_ROUTE_BY_SUBJECT_TYPE[item.primarySubjectType!]!(item.primarySubjectNo!));
-                            }}
-                          >
-                            {item.primarySubjectNo}
-                          </span>
-                        ) : (
-                          item.primarySubjectNo
-                        )
+                        <>
+                          {AUDIT_ENTITY_ROUTE_BY_SUBJECT_TYPE[item.primarySubjectType ?? ''] ? (
+                            <span
+                              className="cursor-pointer font-mono text-[11px] text-adm-blue hover:underline"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                navigate(AUDIT_ENTITY_ROUTE_BY_SUBJECT_TYPE[item.primarySubjectType!]!(item.primarySubjectNo!));
+                              }}
+                            >
+                              {item.primarySubjectNo}
+                            </span>
+                          ) : (
+                            <span className="font-mono text-[11px] text-adm-amber">{item.primarySubjectNo}</span>
+                          )}
+                          <p className="font-mono text-[9px] uppercase tracking-[0.08em] text-adm-t3">
+                            {item.primarySubjectType ?? ''}
+                          </p>
+                        </>
                       ) : (
                         <span className="text-adm-t3">—</span>
                       )}
                     </td>
-                    {/* Entity Type */}
+                    {/* Owner */}
                     <td className="px-3 py-2.5 font-mono text-[11px] text-adm-t2">
-                      {item.primarySubjectType ?? <span className="text-adm-t3">—</span>}
+                      {item.ownerCustomerNo ?? <span className="text-adm-t3">—</span>}
                     </td>
-                    {/* Trace ID */}
-                    <td className="px-3 py-2.5 font-mono text-[10px] text-adm-t2">
-                      {item.traceId ?? <span className="text-adm-t3">—</span>}
+                    {/* Actor — 人名 + 号合一格 */}
+                    <td className="px-3 py-2.5">
+                      <p className="truncate text-[11px] text-adm-t1">
+                        {item.actorDisplayName ?? item.actorNo ?? '—'}
+                      </p>
+                      {item.actorNo && item.actorDisplayName && item.actorNo !== item.actorDisplayName && (
+                        <p className="truncate font-mono text-[9px] text-adm-t3">{item.actorNo}</p>
+                      )}
                     </td>
-                    {/* Actor No */}
-                    <td className="px-3 py-2.5 font-mono text-[11px] text-adm-amber">
-                      {item.actorNo ?? <span className="text-adm-t3">—</span>}
+                    {/* Amount */}
+                    <td className="px-3 py-2.5 text-right font-mono text-[11px] text-adm-t2 whitespace-nowrap">
+                      {item.amount ? `${item.amount} ${item.currency ?? ''}`.trim() : <span className="text-adm-t3">—</span>}
                     </td>
                   </tr>
                 );
