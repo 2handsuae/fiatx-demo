@@ -60,7 +60,7 @@ Rule: **amber is reserved for identity and primary action**. Do not use amber fo
 ### 2.4 Typography
 
 - **Primary font**: JetBrains Mono (`font-mono`). Apply to identifiers, meta, labels, table cells, and nearly everything in an admin page.
-- **Sans font**: reserved for large headlines only (e.g. the `detail.action` text in audit-log hero, `AuditLogDetailPage.tsx:263-265`).
+- **Sans font**: reserved for large headlines only (e.g. the `detail.action` text in audit-log hero, `AuditLogDetailPage.tsx:282-284`).
 - **Size scale** — use these exact sizes, do not invent new ones:
   - `text-[22px]` — detail hero action headline
   - `text-[19px]` — detail hero identifier (the dominant ID)
@@ -102,7 +102,7 @@ Rules:
 - Scrollable region has `flex-1 overflow-auto` (list table) or `flex-1 overflow-y-auto` (detail main column).
 - Header, filter bar, banners, and footer are all `shrink-0`.
 
-See `ApprovalsPage.tsx:152`, `PlatformMembers.tsx:214`, `EvidenceExportsPage.tsx:170`, `AuditLogsPage.tsx:248` for the outer shell; `ApprovalDetailPage.tsx:401`, `PlatformMemberDetailPage.tsx:484`, `EvidenceExportDetailPage.tsx:362`, `AuditLogDetailPage.tsx:218` for the detail shell.
+See `ApprovalsPage.tsx:152`, `PlatformMembers.tsx:214`, `EvidenceExportsPage.tsx:170`, `AuditLogsPage.tsx:310` for the outer shell; `ApprovalDetailPage.tsx:401`, `PlatformMemberDetailPage.tsx:484`, `EvidenceExportDetailPage.tsx:362`, `AuditLogDetailPage.tsx:259` for the detail shell.
 
 ---
 
@@ -151,21 +151,21 @@ All of these live under `admin-web/src/components/` and must be **imported** rat
 All four detail pages declare these inline, verbatim. They are effectively part of the contract — **use the same shape** when writing a new detail page, or (preferred) extract them into `DetailPageComponents.tsx` — see §12 for the extraction TODO:
 
 ```tsx
-// Dim ALL-CAPS section label — AuditLogDetailPage.tsx:72-76
+// Dim ALL-CAPS section label — AuditLogDetailPage.tsx:66-70
 const Cap = ({ children }) => (
   <p className="font-mono text-[8.5px] font-semibold uppercase tracking-[0.16em] text-adm-t3">
     {children}
   </p>
 );
 
-// 2-col (default) / 1-col field grid — AuditLogDetailPage.tsx:79-83
+// 2-col (default) / 1-col field grid — AuditLogDetailPage.tsx:73-77
 const FieldGrid = ({ children, cols = 2 }) => (
   <div className={['grid gap-x-8 gap-y-4', cols === 1 ? 'grid-cols-1' : 'grid-cols-2'].join(' ')}>
     {children}
   </div>
 );
 
-// Labeled field — renders nothing if value absent — AuditLogDetailPage.tsx:86-114
+// Labeled field — renders nothing if value absent — AuditLogDetailPage.tsx:80-108
 const Field = ({ label, value, mono, amber, full }) => {
   if (!value) return null;
   return (
@@ -180,7 +180,7 @@ const Field = ({ label, value, mono, amber, full }) => {
   );
 };
 
-// Sidebar group + label-right-aligned KV — AuditLogDetailPage.tsx:118-143
+// Sidebar group + label-right-aligned KV — AuditLogDetailPage.tsx:112-137
 const SidebarGroup = ({ title, children }) => (
   <div className="border-b border-adm-border py-4 last:border-b-0">
     <Cap>{title}</Cap>

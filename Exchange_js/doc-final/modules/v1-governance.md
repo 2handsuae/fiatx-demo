@@ -50,6 +50,8 @@
 
 **第七幕**：审计日志页 → 按单号（primarySubjectNo）查站 3 那条 SoD 拒绝与站 1 那笔角色定义修改 → 全链拉出（谁、何时、结果、依据）；按 correlationId 看"一次邀请"的完整旅程——已兑现（2026-09-16 波三）：事件详情页有 `Correlation ID (Journey)` 字段 + `View journey →` 按钮，一键跳转该旅程全部事件，不用手抄 correlationId 去筛选框粘贴。
 
+- **审计两页按后端真实字段重设计**（2026-09-16）：响应补齐组 G/组 H 有货列（fromStatus/toStatus、amount/currency、approvalNo/policyCode、category/actionDomain、before/afterData），摘除全库零值的 workflowType 死派生链；列表页 9 列换血（Domain/Owner/Amount + 人话标签 + 操作人名，摘 Workflow Type/Trace ID 死列），详情页复活状态迁移块与 Owner、新增 Authorization 区（Approval No 蓝链跳审批中心——"谁批的、依据什么"详情页自此答得出）；Payload 三块与 Raw Record 统一过 stripInternalIds、causationId 摘出放行名单（UUID 残口收口）。DEPOSIT_CREATED 审计 currency 由资产 UUID 改落币种码（写入点拆雷）。物证 `superpowers/checkups/2026-09-16-audit-pages-walkthrough/`。
+
 ## 5. 关键技术节点（≤30 行）
 
 - 审批引擎 `governance/approvals/`：`approval-handler.base.ts → ApprovalHandlerBase`（30 个审批子流程的统一基类，1 个钦定例外 onboarding 终审）｜ `approvals.service.ts → approve()/reject()`（SoD same-user deny + 跨步骤已审校验）｜ `approval-policy.service.ts → getPolicy()`（stepsConfig 回退链 + 自审防篡改）
