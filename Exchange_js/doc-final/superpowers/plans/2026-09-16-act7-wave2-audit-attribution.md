@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 让"人和事都查得到"成立——V1 治理域 9 文件 49 处审计调用补 subjects 镜像、材料下发带操作人、MFA 锁定补打点、删 customers 裸 CRUD、verify:audit 升级名册断言。
+**Goal:** 让"人和事都查得到"成立——V1 治理域 9 文件存量 48 处审计调用补 subjects 镜像(+2 新打点=50)、材料下发带操作人、MFA 锁定补打点、删 customers 裸 CRUD、verify:audit 升级名册断言。
 
-**Architecture:** 纯后端写入面。每个 workflow 文件加一个私有 subjects helper（镜像主表 primary 进子表 + 审批单 INSTRUMENT 行），49 处调用每处 diff 一行；verify:audit 从"任取一条自证"升级为按名册逐码断言覆盖面。
+**Architecture:** 纯后端写入面。每个 workflow 文件加一个私有 subjects helper（镜像主表 primary 进子表 + 审批单 INSTRUMENT 行），48 处存量调用每处 diff 一行；verify:audit 从"任取一条自证"升级为按名册逐码断言覆盖面。
 
 **Tech Stack:** NestJS + Prisma + SQLite ｜ jest 单测（mock 服务依赖）｜ ts-node 验证脚本
 
@@ -750,7 +750,7 @@ git commit -m "docs(第七幕波二): 收尾记账——§H 销2重锚1新登3,�
 
 ## Self-Review 记录（写毕自查）
 
-- **Spec 覆盖**：§1→Task 1-6（49 处逐文件）；§2→Task 7；§3→Task 4；§4→Task 8；§5→Task 9；§6 验收→Task 9 Step 4-5 + Task 10 Step 1-2；§6 收尾→Task 10 Step 3-5。无缺口。
+- **Spec 覆盖**：§1→Task 1-6（存量 48 处逐文件）；§2→Task 7；§3→Task 4；§4→Task 8；§5→Task 9；§6 验收→Task 9 Step 4-5 + Task 10 Step 1-2；§6 收尾→Task 10 Step 3-5。无缺口。
 - **占位符**：Task 9 Step 2 的 `MIN_EXERCISED_ROSTER_ACTIONS = 0` 是显式"Step 4 实测后钉数"流程，非 TBD；Task 1/5 的 mock 字面量注明以 spec 既有 fixture 为准，属现场对位不属含糊。
 - **类型一致**：`adminSubjects/inviteSubjects/roleSubjects/policySubjects/packageSubjects` 五个 helper 签名同构 `(no: string, approvalNo?: string | null) => AuditSubjectInput[]`（policySubjects 多一中位参）；`create(input, actor, tx?)` 与 Task 7 Interfaces 一致。
 - **判据咬合**：jest 断言（每文件）+ Q2 名册（库级）+ 变异红绿（闸自身）三层互证，无单点自证。

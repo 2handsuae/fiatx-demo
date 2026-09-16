@@ -6,7 +6,7 @@
 ## 承接上一波（波二，2026-09-16 收官）
 
 **实际偏差**：
-- 清册计数 48 → 49 处（34 码不变）：`admin-password-reset-workflow.service.ts:105` 的 `recordConsumeOutcome` 写点，其 `action` 是运行时变量（`OFFICER_APPLIED`/`SELF_COMPLETED` 二选一），字面 `grep "action: '"` 逃了这一处——九文件逐处复扫对账时被实现者逮回，是"零引用/漏点 grep"的又一形态（字面量断言漏运行时变量），波三改查找键/清点范围前先留意这类假阴性
+- 清册计数两次订正后终值 = 存量 48 处 34 码（+§3 两新打点，现况 50 处带 subjects）：一漏——`admin-password-reset-workflow.service.ts:105` 的 `recordConsumeOutcome` 写点 `action` 是运行时变量（`OFFICER_APPLIED`/`SELF_COMPLETED` 二选一），字面 `grep "action: '"` 逃了这一处（假阴性，实现者逮回）；一多——mfa-binding `:657` 的 where 查询字面量被同一把 grep 误计为调用（假阳性，终审逮回，曾误记 49）。**同一把字面 grep 一漏一多两种形态都要防**：清点写点以 `grep -c "recordByActor(\|recordSystem("` 的调用形态为准，别数 action 字面量
 - `admin-invite-workflow.service.ts:138` 一带的 SoD 硬互斥分支：`approvalCase` 变量在该分支恒为 `null`（异常发生在 `approvalsService.createAndSubmit` 之前），故该分支写审计时只传 `inviteSubjects(user.userNo)` 单参、不传凭据行（无 approvalNo 可镜像）——不是漏写，是这条路径结构性没有凭据可传，波三如果扩展该文件不要误判为遗漏
 - `audit-evidence-export-workflow.service.ts` 的 `DOWNLOADED` 码处：`approvalCaseNo` 在当前作用域顶层变量里已经在手（评审逮回的判例，见 Task 6 review），补 subjects 时直接复用、未新查库——提醒波三补跳转映射时，凡涉及"审批单号是否在手"的判断，先看顶层变量再决定要不要新查询
 
