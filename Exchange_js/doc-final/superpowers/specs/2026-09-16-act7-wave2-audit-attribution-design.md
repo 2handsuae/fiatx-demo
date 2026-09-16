@@ -9,7 +9,7 @@
 
 **做**：① V1 治理域 9 个 workflow 文件 48 处审计调用补 `subjects:`（33 码）② `MATERIAL_REQUEST_ISSUED` 改带操作人 ③ `verifyMfaCode` 锁定路径补 `ADMIN_ACCOUNT_LOCK_*` 打点 ④ 删 customers 裸 CRUD 三端点 + 三服务方法（含 RBAC 三连动、词表退役连带）⑤ `verify:audit` Q2/Q4 升级名册断言。
 
-**不做**（对照总纲 §2 与 CLAUDE.md §2）：前端页面零改动（仅 `admin-web/src/rbac/permissions.ts` 权限键随端点删除机械连动，承接记录第 3 条明文的三连动之一）｜ schema / seed 零触碰（⑧ 不触发）｜ `ADMIN_ACCESS_DENIED` 不加 subjects（总纲明文：按 actorNo 已可查）｜ 登录留痕 ｜ 审计→账本跳转 ｜ 检索前端与深链（波三）｜ InternalFundAuditLog。
+**不做**（对照总纲 §2 与 CLAUDE.md §2）：前端零改动（plan 阶段实测：`admin-web/src/rbac/permissions.ts` 从未声明过三写端点的键，只有 CUSTOMERS_READ/DETAIL_READ 两读键——三连动里前端这环天然为空）｜ schema / seed 零触碰（⑧ 不触发）｜ `ADMIN_ACCESS_DENIED` 不加 subjects（总纲明文：按 actorNo 已可查）｜ 登录留痕 ｜ 审计→账本跳转 ｜ 检索前端与深链（波三）｜ InternalFundAuditLog。
 
 ## 1. subjects 补齐（9 文件 48 处 33 码）
 
@@ -58,7 +58,7 @@ subjects = ① 镜像行：{ subjectType: 该调用 primarySubjectType 原值, s
 
 **现状实测**（比 BACKLOG 记的轻）：`actor: ApprovalActorContext` 在 `issue()`/`register()` 两径都是**必传**（`material-request-issuer.service.ts:28/:41`），穿进 `persist(:120-126)` 只用于开限制；审计写点在 `material-requests.service.ts:146` 的 `recordSystem`——subjects / ownerCustomerNo / correlationId 都齐，**唯独没人**。
 
-**修法**：把 actor 穿进 `requests.create(...)`（签名加参），`MATERIAL_REQUEST_ISSUED` 由 `recordSystem` 改 `recordByActor(actor, {...})`；其余字段（含 `sourcePlatform: 'SYSTEM'`）一律不动——本条修的是"没人"，不动来源语义。两径（合规官手发 / 处置流程连带下发）actor 都是真实裁决人，无系统径兜底问题。
+**修法**：把 actor 穿进 `requests.create(...)`（签名加参），`MATERIAL_REQUEST_ISSUED` 由 `recordSystem` 改 `recordByActor(input, actor)`（实际签名 input 在前；actor 映射照 `internal-transfer-workflow.service.ts:358` 先例）；其余字段（含 `sourcePlatform: 'SYSTEM'`）一律不动——本条修的是"没人"，不动来源语义。两径（合规官手发 / 处置流程连带下发）actor 都是真实裁决人，无系统径兜底问题。
 
 ## 3. `verifyMfaCode` 锁定路径补打点
 
@@ -78,7 +78,7 @@ actor = 被锁定管理员本人（`recordByActor`）；subjects 按 §1.2 镜�
 |---|---|---|
 | controller | `identity/customers/customers.controller.ts` `@Post`(:56) / `@Patch(':customerNo')`(:137) / `@Delete(':customerNo')`(:152) | 删三 handler；两条 GET(:63/:129) 保留 |
 | service | `customers.service.ts` `create`(:19) / `update`(:76) / `remove`(:124) | 删三方法；`updateOnboardingData` / `applyTierUpgrade` / `markHardLineDisposition` / `hasHardLineDisposition` / `find*` 保留 |
-| RBAC 三连动 | `rbac.catalog.ts:236/:239/:240` 三条 route 删登记 → `admin-web/src/rbac/permissions.ts` 对应键删 → 合 main 后重启 + `db:base:sync` | 承接记录第 3 条流程 |
+| RBAC 三连动 | `rbac.catalog.ts:236/:239/:240` 三条 route 删登记 → 前端 permissions.ts 实测无三写键（零改动）→ 合 main 后重启 + `db:base:sync` | 承接记录第 3 条流程；`CUSTOMER_WRITE` 权限组随删后零路由但仍被角色绑定引用（:824/:1023），保留并登记 BACKLOG 观察 |
 | 词表连带 | `CUSTOMER_UPDATED` / `CUSTOMER_DELETED` 全仓唯一写点即上述两方法 → 按退役协议迁 `DEPRECATED_AUDIT_ACTIONS`（不变量③自动看守零新写入）。**`CUSTOMER_CREATED` 保留**——真实写点在注册链 `customer-auth.service.ts:64`，勿误伤（总纲明文） | |
 | 测试/DTO 孤儿 | controller.spec / service.spec 对应用例删；create/update DTO 零其余引用则一并删（删前复核） | 连带孤儿判例 |
 
@@ -101,7 +101,7 @@ actor = 被锁定管理员本人（`recordByActor`）；subjects 按 §1.2 镜�
 **判据 2 走查**（demo 数据不含管理员生命周期——实测 demo 脚本零 invite/suspension 命中，故**现场实走**）：起栈 → 管理台完整走 邀请→首登→停用→恢复 一个真实 ADM → 审计页 Advanced · Related No 输该 ADM 号 → 一生全链拉出（沿波一「按 Related No 查审批链」同款走查手法）；截图落盘 `doc-final/superpowers/...`（物证写明落盘路径）。
 **判据 5**：升级版 `verify:audit` 全绿，含变异测试红/绿双证。
 
-**闸**：① 后端 tsc + ② admin-web tsc（permissions.ts 连带）+ ④ jest（identity/users、identity/access-control、identity/customers、identity/material-requests、governance/approvals、audit-logging）+ `npm run verify:audit`（升级版，经包装器对栈库跑）+ ⑥ `on-stack demo:all`。不动 schema/seed，⑧ 不触发；⑤ 截图仅判据 2 走查件。
+**闸**：① 后端 tsc（前端零改动，②③ 不触发）+ ④ jest（identity/users、identity/access-control、identity/customers、identity/material-requests、governance/approvals、audit-logging）+ `npm run verify:audit`（升级版，经包装器对栈库跑）+ ⑥ `on-stack demo:all`。不动 schema/seed，⑧ 不触发；⑤ 截图仅判据 2 走查件。
 
 **收尾**（对照 `rules/delivery-checklist.md`）：BACKLOG §H 销「⭐🔴 subjects 覆盖」「有痕无人」两条、Q4 条重锚、invite 类型遗留 + modify 不镜像观察各登记一行；波三骨架立 + 承接记录；总纲状态行回写；CHANGELOG 一行；合 main 后重启 + `db:base:sync`（权限字典变了）。
 
