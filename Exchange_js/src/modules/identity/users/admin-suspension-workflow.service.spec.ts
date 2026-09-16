@@ -75,6 +75,10 @@ describe('AdminSuspensionWorkflowService', () => {
       expect(req[0].actionDomain).toBe('IAM');
       expect(req[0].primarySubjectNo).toBe(targetUser.userNo);
       expect(req[0].reason).toBe('policy breach');
+      expect(req[0].subjects).toEqual([
+        { subjectType: 'ADMIN_USER', subjectNo: targetUser.userNo, subjectRole: 'PRIMARY' },
+        { subjectType: 'APPROVAL_CASE', subjectNo: 'APR2608260001', subjectRole: 'INSTRUMENT' },
+      ]);
 
       usersDomainService.suspendUser.mockResolvedValue({
         id: 'user-2', userNo: targetUser.userNo, status: 'SUSPENDED',
@@ -91,6 +95,10 @@ describe('AdminSuspensionWorkflowService', () => {
       expect(app[0].approvalNo).toBe('APR2608260001');
       expect(app[0].causationId).toBe('apr-1');
       expect(app[0].correlationId).toBe(req[0].correlationId);
+      expect(app[0].subjects).toEqual([
+        { subjectType: 'ADMIN_USER', subjectNo: targetUser.userNo, subjectRole: 'PRIMARY' },
+        { subjectType: 'APPROVAL_CASE', subjectNo: 'APR2608260001', subjectRole: 'INSTRUMENT' },
+      ]);
     });
 
     it('执行失败时仍写 APPLIED(outcome=FAILED)，带 fromStatus/toStatus 意图值', async () => {
@@ -108,6 +116,10 @@ describe('AdminSuspensionWorkflowService', () => {
       expect(app[0].fromStatus).toBe('ACTIVE');
       expect(app[0].toStatus).toBe('SUSPENDED');
       expect(app[0].correlationId).toBe('trace-x');
+      expect(app[0].subjects).toEqual([
+        { subjectType: 'ADMIN_USER', subjectNo: targetUser.userNo, subjectRole: 'PRIMARY' },
+        { subjectType: 'APPROVAL_CASE', subjectNo: 'APR2608260001', subjectRole: 'INSTRUMENT' },
+      ]);
     });
 
     it('刻意没有 CANCELLED 码——代码里无取消路径', () => {

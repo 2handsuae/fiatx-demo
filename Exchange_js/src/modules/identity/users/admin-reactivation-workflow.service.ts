@@ -11,7 +11,7 @@ import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import {
   AuditEntityTypes,
 } from '../../audit-logging/constants/audit-actions.constant';
-import { AuditCategory, AuditOutcome } from '../../audit-logging/dto/audit-log.dto';
+import { AuditCategory, AuditOutcome, AuditSubjectInput, AuditSubjectRole } from '../../audit-logging/dto/audit-log.dto';
 import { ApprovalsService } from '../../governance/approvals/approvals.service';
 import { ApprovalDecidedEvent } from '../../governance/approvals/approval-handler.base';
 import {
@@ -44,6 +44,18 @@ export class AdminReactivationWorkflowService {
       actorDisplayName: actor.userNo || 'UNKNOWN',
       actorRolesAtTime: [actor.role || actor.roleCodes[0] || 'UNKNOWN'],
     };
+  }
+
+  /** 波二 §1.2：镜像主表 PRIMARY 进子表（Related No 检索只查子表，audit-logs.service.ts:1031-1036）
+   *  + 审批单凭据行。形状照 approvals.service.ts approvalSubjects 先例。 */
+  private adminSubjects(userNo: string, approvalNo?: string | null): AuditSubjectInput[] {
+    const rows: AuditSubjectInput[] = [
+      { subjectType: AuditEntityTypes.ADMIN_USER, subjectNo: userNo, subjectRole: AuditSubjectRole.PRIMARY },
+    ];
+    if (approvalNo) {
+      rows.push({ subjectType: AuditEntityTypes.APPROVAL_CASE, subjectNo: approvalNo, subjectRole: AuditSubjectRole.INSTRUMENT });
+    }
+    return rows;
   }
 
   async initiateReactivation(dto: InitiateReactivationDto, actor: ApprovalActorContext) {
@@ -112,6 +124,7 @@ export class AdminReactivationWorkflowService {
         category: AuditCategory.GOVERNANCE,
         primarySubjectType: AuditEntityTypes.ADMIN_USER,
         primarySubjectNo: targetUser.userNo,
+        subjects: this.adminSubjects(targetUser.userNo, approvalCase.approvalNo),
         correlationId,
         outcome: AuditOutcome.SUCCESS,
         reason: dto.reason,
@@ -154,6 +167,7 @@ export class AdminReactivationWorkflowService {
         category: AuditCategory.GOVERNANCE,
         primarySubjectType: AuditEntityTypes.ADMIN_USER,
         primarySubjectNo: result.userNo,
+        subjects: this.adminSubjects(result.userNo, event.approvalNo),
         // INHERIT：读 ApprovalDecidedEvent.traceId——就是 initiateReactivation 铸造的
         // correlationId 原样传播过来的（经 ApprovalCase.traceId）。
         correlationId: event.traceId,
@@ -178,6 +192,7 @@ export class AdminReactivationWorkflowService {
         category: AuditCategory.GOVERNANCE,
         primarySubjectType: AuditEntityTypes.ADMIN_USER,
         primarySubjectNo: before?.userNo ?? event.entityRef,
+        subjects: this.adminSubjects(before?.userNo ?? event.entityRef, event.approvalNo),
         correlationId: event.traceId,
         causationId: event.approvalId,
         outcome: AuditOutcome.FAILED,
