@@ -16,7 +16,7 @@ async function main() {
   // 途经（confiscation/大额提现等 maker-checker 场景）。其余 45 码是治理域（邀请/MFA/
   // 角色/证据导出等），要靠管理台操作或 e2e 才会产生事件，demo:all 摸不到——阈值按可
   // 复现的这条路径实测值钉 2，不取更小值；45 码的"从未被 demo 验证过"是环境缺口，见
-  // task-9-report.md 疑虑一节，不在本任务改动范围内。
+  // BACKLOG.md §H「治理域 demo 脚本缺位」观察条，不在本任务改动范围内。
   const MIN_EXERCISED_ROSTER_ACTIONS = 2;
   const rosterEvents = await prisma.auditLogEvent.findMany({
     where: { action: { in: [...SUBJECTS_COVERED_ACTIONS] } },

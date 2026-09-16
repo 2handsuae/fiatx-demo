@@ -167,9 +167,11 @@ describe('第一批 · V1 词表守则', () => {
     + 'DEPOSIT_WALLET_CREATED 六码随托管钱包创建整条路 + 钱包状态开关 + 客户充值地址供给改名'
     + '新入闸，得 109'
     + ' + 4 波一(2026-09-04)T10：TRANSACTION_LIMIT_CREATION_REQUESTED/APPLIED/APPLY_FAILED/'
-    + 'CANCELLED 四码随创建流整条退役新入闸，得 113），'
+    + 'CANCELLED 四码随创建流整条退役新入闸，得 113'
+    + ' + 2 波二(2026-09-16)Task8：CUSTOMER_UPDATED/CUSTOMER_DELETED 随客户主表裸 CRUD 三端点删除'
+    + '（岔口②）退役新入闸，CUSTOMER_CREATED 保留（真实写点在注册链），得 115），'
     + '且与五本在用名册零交集', () => {
-    expect(DEPRECATED_AUDIT_ACTIONS).toHaveLength(113);
+    expect(DEPRECATED_AUDIT_ACTIONS).toHaveLength(115);
     expect(DEPRECATED_AUDIT_ACTIONS.filter((d) => codes.includes(d))).toEqual([]);
     expect(DEPRECATED_AUDIT_ACTIONS.filter((d) => d in V4_DEPOSIT_AUDIT_ACTIONS)).toEqual([]);
     expect(DEPRECATED_AUDIT_ACTIONS.filter((d) => d in V5_WITHDRAW_AUDIT_ACTIONS)).toEqual([]);
