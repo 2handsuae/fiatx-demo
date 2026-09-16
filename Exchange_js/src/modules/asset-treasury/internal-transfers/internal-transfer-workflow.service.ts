@@ -335,7 +335,7 @@ export class InternalTransferWorkflowService {
     ];
     if (row.sourceAdjustmentNo) subjects.push({ subjectType: AuditEntityTypes.RECON_ADJUSTMENT, subjectNo: row.sourceAdjustmentNo, subjectRole: AuditSubjectRole.RELATED });
     if (patch.approvalNo) subjects.push({ subjectType: AuditEntityTypes.APPROVAL_CASE, subjectNo: patch.approvalNo, subjectRole: AuditSubjectRole.INSTRUMENT });
-    if (patch.fundsOrderNo) subjects.push({ subjectType: 'FUNDS_ORDER', subjectNo: patch.fundsOrderNo, subjectRole: AuditSubjectRole.RELATED });
+    if (patch.fundsOrderNo) subjects.push({ subjectType: AuditEntityTypes.FUNDS_ORDER, subjectNo: patch.fundsOrderNo, subjectRole: AuditSubjectRole.RELATED });
     const decimals = row.asset?.decimals ?? 0;
     const input: any = {
       action: patch.action, actionDomain: 'TREASURY', category: AuditCategory.BUSINESS,

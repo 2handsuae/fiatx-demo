@@ -44,10 +44,10 @@ export class FundsOrderAdvanceWorkflowService {
       {
         action: AuditActions.FUNDS_ORDER_ADVANCED,
         actionDomain: 'CONFIG',
-        primarySubjectType: 'FUNDS_ORDER',
+        primarySubjectType: AuditEntityTypes.FUNDS_ORDER,
         primarySubjectNo: fundsOrderNo,
         subjects: [
-          { subjectType: 'FUNDS_ORDER', subjectNo: fundsOrderNo, subjectRole: 'PRIMARY' },
+          { subjectType: AuditEntityTypes.FUNDS_ORDER, subjectNo: fundsOrderNo, subjectRole: 'PRIMARY' },
         ],
         fromStatus: before.status,
         toStatus: updated.status,

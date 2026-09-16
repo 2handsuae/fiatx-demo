@@ -1,8 +1,6 @@
 /* 审计页实体跳转（波三F，业主拍甲案）：按 primarySubjectType 把 primarySubjectNo
    （业务号，铁律⑥）映射到详情/列表路由。逐条对照 App.tsx 现状路由实证。
-   映射缺席 = 保持纯文本——照 approvalEntityRoutes 的纪律，不硬造。
-   FUNDS_ORDER 不在 AuditEntityTypes 常量里但真实落库（push-order/advance-workflow
-   两处字面量），必须收编。 */
+   映射缺席 = 保持纯文本——照 approvalEntityRoutes 的纪律，不硬造。 */
 export const AUDIT_ENTITY_ROUTE_BY_SUBJECT_TYPE: Record<string, (no: string) => string> = {
   // 交易三单详情路由已换业务号（波五 Task 9）：直达详情页，不再绕列表页 keyword。
   DEPOSIT_TRANSACTION: (no) => `/admin/trading/deposits/${no}`,
@@ -23,4 +21,6 @@ export const AUDIT_ENTITY_ROUTE_BY_SUBJECT_TYPE: Record<string, (no: string) => 
   RECONCILIATION_RUN_V8: (no) => `/admin/reconciliation/runs/${no}`,
   RECONCILIATION_CASE: (no) => `/admin/reconciliation/cases/${no}`,
   RECON_ADJUSTMENT: (no) => `/admin/reconciliation/adjustments/${no}`,
+  WITHDRAWAL_FEE_LEVEL: (no) => `/admin/pricing/withdrawal-fee-levels/${no}`,
+  SWAP_FEE_LEVEL: (no) => `/admin/pricing/swap-fee-levels/${no}`,
 };

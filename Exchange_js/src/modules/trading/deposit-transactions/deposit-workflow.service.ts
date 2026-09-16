@@ -1804,7 +1804,7 @@ export class DepositWorkflowService implements OnModuleInit {
       subjects.push({ subjectType: AuditEntityTypes.APPROVAL_CASE, subjectNo: patch.approvalNo, subjectRole: AuditSubjectRole.INSTRUMENT });
     }
     if (patch.fundsOrderNo) {
-      subjects.push({ subjectType: 'FUNDS_ORDER', subjectNo: patch.fundsOrderNo, subjectRole: AuditSubjectRole.RELATED });
+      subjects.push({ subjectType: AuditEntityTypes.FUNDS_ORDER, subjectNo: patch.fundsOrderNo, subjectRole: AuditSubjectRole.RELATED });
     }
     subjects.push(...(patch.extraSubjects ?? []));
     const input = {

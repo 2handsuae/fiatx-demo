@@ -239,7 +239,7 @@ export class PushOrderService {
   ) {
     const parent = await this.resolveParent(order);
     const subjects: any[] = [
-      { subjectType: 'FUNDS_ORDER', subjectNo: order.fundsOrderNo, subjectRole: 'PRIMARY' },
+      { subjectType: AuditEntityTypes.FUNDS_ORDER, subjectNo: order.fundsOrderNo, subjectRole: 'PRIMARY' },
     ];
     if (parent.customerNo) subjects.push({ subjectType: 'CUSTOMER', subjectNo: parent.customerNo, subjectRole: 'OWNER' });
     if (parent.parentNo) subjects.push({ subjectType: parent.parentType, subjectNo: parent.parentNo, subjectRole: 'RELATED' });
@@ -247,7 +247,7 @@ export class PushOrderService {
       {
         action: entry.action,
         actionDomain: 'RECON',
-        primarySubjectType: 'FUNDS_ORDER',
+        primarySubjectType: AuditEntityTypes.FUNDS_ORDER,
         primarySubjectNo: order.fundsOrderNo,
         ownerCustomerNo: parent.customerNo,
         correlationId: parent.correlationId,

@@ -1313,7 +1313,7 @@ export class DepositTransactionsService {
         ...(ownerCustomer?.customerNo
           ? [{ subjectType: 'CUSTOMER', subjectNo: ownerCustomer.customerNo, subjectRole: AuditSubjectRole.OWNER }]
           : []),
-        { subjectType: 'FUNDS_ORDER', subjectNo: fundsOrder.fundsOrderNo, subjectRole: AuditSubjectRole.RELATED },
+        { subjectType: AuditEntityTypes.FUNDS_ORDER, subjectNo: fundsOrder.fundsOrderNo, subjectRole: AuditSubjectRole.RELATED },
       ],
       traceId: resolvedTraceId,
       reason: 'Deposit created from inbound transfer detection',
