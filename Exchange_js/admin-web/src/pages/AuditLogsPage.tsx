@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { CheckSquare, FileUp, RefreshCw, Search, Square, X } from 'lucide-react';
-import Pagination from '../components/common/Pagination';
+import { ListFooter } from '../components/common/ListFooter';
 import {
   adminButtonClass,
   adminIconButtonClass,
@@ -55,6 +55,10 @@ interface FilterState {
   ownerCustomerNo: string;
   traceId: string;
   outcome: '' | AuditOutcome;
+  actionDomain: string;
+  action: string;
+  workflowType: string;
+  correlationId: string;
   startAt: string;
   endAt: string;
   includeArchived: boolean;
@@ -68,10 +72,25 @@ const DEFAULT_FILTERS: FilterState = {
   ownerCustomerNo: '',
   traceId: '',
   outcome: '',
+  actionDomain: '',
+  action: '',
+  workflowType: '',
+  correlationId: '',
   startAt: '',
   endAt: '',
   includeArchived: false,
 };
+
+/** 与词表 11 域一致（+落库默认值 UNCLASSIFIED）。域清单几年不变一次，不值得建接口。 */
+const ACTION_DOMAINS = [
+  'APPROVAL', 'IAM', 'CONFIG', 'AUDIT', 'CUSTOMER', 'DEPOSIT',
+  'WITHDRAW', 'SWAP', 'TREASURY', 'RECON', 'GOVERNANCE', 'UNCLASSIFIED',
+] as const;
+
+const URL_FILTER_KEYS = [
+  'keyword', 'primarySubjectNo', 'subjectNo', 'actorNo', 'ownerCustomerNo', 'traceId',
+  'outcome', 'actionDomain', 'action', 'workflowType', 'correlationId', 'startAt', 'endAt',
+] as const;
 
 const PAGE_SIZE = 20;
 
@@ -84,6 +103,7 @@ const toIsoString = (value: string): string | undefined => {
 
 const AuditLogsPage = () => {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [filters, setFilters] = useState<FilterState>(DEFAULT_FILTERS);
   const [items, setItems] = useState<AuditLogItem[]>([]);
   const [total, setTotal] = useState(0);
@@ -102,6 +122,33 @@ const AuditLogsPage = () => {
   const allCurrentPageSelected =
     currentPageIds.length > 0 && currentPageIds.every((id) => selectedIdSet.has(id));
 
+  const filtersFromUrl = (params: URLSearchParams): { initial: FilterState; hasAny: boolean } => {
+    const initial: FilterState = { ...DEFAULT_FILTERS };
+    let hasAny = false;
+    URL_FILTER_KEYS.forEach((key) => {
+      const value = params.get(key);
+      if (value) {
+        (initial as unknown as Record<string, unknown>)[key] = value;
+        hasAny = true;
+      }
+    });
+    if (params.get('includeArchived') === 'true') {
+      initial.includeArchived = true;
+      hasAny = true;
+    }
+    return { initial, hasAny };
+  };
+
+  const filtersToUrl = (f: FilterState): URLSearchParams => {
+    const params = new URLSearchParams();
+    URL_FILTER_KEYS.forEach((key) => {
+      const value = String((f as unknown as Record<string, unknown>)[key] ?? '').trim();
+      if (value) params.set(key, value);
+    });
+    if (f.includeArchived) params.set('includeArchived', 'true');
+    return params;
+  };
+
   const buildSearchParams = (activeFilters: FilterState, targetPage: number) => {
     const params = new URLSearchParams();
     params.set('skip', String((targetPage - 1) * PAGE_SIZE));
@@ -118,6 +165,14 @@ const AuditLogsPage = () => {
     }
     if (activeFilters.traceId.trim()) params.set('traceId', activeFilters.traceId.trim());
     if (activeFilters.outcome) params.set('outcome', activeFilters.outcome);
+    if (activeFilters.actionDomain) params.set('actionDomain', activeFilters.actionDomain);
+    if (activeFilters.action.trim()) params.set('action', activeFilters.action.trim());
+    if (activeFilters.workflowType.trim()) {
+      params.set('workflowType', activeFilters.workflowType.trim());
+    }
+    if (activeFilters.correlationId.trim()) {
+      params.set('correlationId', activeFilters.correlationId.trim());
+    }
 
     const startAt = toIsoString(activeFilters.startAt);
     const endAt = toIsoString(activeFilters.endAt);
@@ -168,11 +223,17 @@ const AuditLogsPage = () => {
     setSelectedIds((prev) => Array.from(new Set([...prev, ...currentPageIds])));
   };
 
+  const handleSearch = () => {
+    setSearchParams(filtersToUrl(filters), { replace: true });
+    void fetchLogs(1, filters);
+  };
+
   const handleReset = async () => {
     setFilters(DEFAULT_FILTERS);
     setSelectedIds([]);
     setLastExportPackageNo(null);
     setMessage('');
+    setSearchParams(new URLSearchParams(), { replace: true });
     await fetchLogs(1, DEFAULT_FILTERS);
   };
 
@@ -226,7 +287,21 @@ const AuditLogsPage = () => {
   };
 
   useEffect(() => {
-    void fetchLogs(1, DEFAULT_FILTERS);
+    const { initial, hasAny } = filtersFromUrl(searchParams);
+    if (!hasAny) {
+      void fetchLogs(1, DEFAULT_FILTERS);
+      return;
+    }
+    setFilters(initial);
+    // 深链带进来的高级栏字段要看得见，否则预填了也不知道在筛什么
+    if (
+      initial.primarySubjectNo || initial.subjectNo || initial.ownerCustomerNo ||
+      initial.action || initial.workflowType || initial.correlationId ||
+      initial.startAt || initial.endAt || initial.includeArchived
+    ) {
+      setShowAdvanced(true);
+    }
+    void fetchLogs(1, initial);
   }, []);
 
   /* ── Shared input className for filter inputs ── */
@@ -288,6 +363,16 @@ const AuditLogsPage = () => {
           <option value="FAILED">FAILED</option>
           <option value="PARTIAL">PARTIAL</option>
         </select>
+        <select
+          value={filters.actionDomain}
+          onChange={(e) => setFilters((p) => ({ ...p, actionDomain: e.target.value }))}
+          className={`${fi} w-36`}
+        >
+          <option value="">All Domains</option>
+          {ACTION_DOMAINS.map((d) => (
+            <option key={d} value={d}>{d}</option>
+          ))}
+        </select>
         <input
           value={filters.actorNo}
           onChange={(e) => setFilters((p) => ({ ...p, actorNo: e.target.value }))}
@@ -301,7 +386,7 @@ const AuditLogsPage = () => {
           className={`${fi} w-32`}
         />
         <button
-          onClick={() => void fetchLogs(1, filters)}
+          onClick={handleSearch}
           className={adminButtonClass('listPrimary')}
         >
           <Search size={13} />
@@ -338,6 +423,24 @@ const AuditLogsPage = () => {
             onChange={(e) => setFilters((p) => ({ ...p, ownerCustomerNo: e.target.value }))}
             placeholder="Entity Owner No"
             className={`${fi} w-36`}
+          />
+          <input
+            value={filters.action}
+            onChange={(e) => setFilters((p) => ({ ...p, action: e.target.value }))}
+            placeholder="Action Code"
+            className={`${fi} w-40`}
+          />
+          <input
+            value={filters.workflowType}
+            onChange={(e) => setFilters((p) => ({ ...p, workflowType: e.target.value }))}
+            placeholder="Workflow Type"
+            className={`${fi} w-36`}
+          />
+          <input
+            value={filters.correlationId}
+            onChange={(e) => setFilters((p) => ({ ...p, correlationId: e.target.value }))}
+            placeholder="Correlation ID"
+            className={`${fi} w-40`}
           />
           <input
             type="datetime-local"
@@ -556,15 +659,14 @@ const AuditLogsPage = () => {
         </table>
       </div>
 
-      {/* ── Pagination footer ── */}
-      <div className="shrink-0">
-        <Pagination
-          currentPage={currentPage}
-          totalItems={total}
-          pageSize={PAGE_SIZE}
-          onPageChange={(page) => void fetchLogs(page, filters)}
-        />
-      </div>
+      <ListFooter
+        filteredCount={items.length}
+        total={total}
+        noun="record"
+        currentPage={currentPage}
+        pageSize={PAGE_SIZE}
+        onPageChange={(page) => void fetchLogs(page, filters)}
+      />
     </div>
   );
 };
