@@ -126,7 +126,7 @@ export class MaterialRequestIssuerService {
     existingRestrictionNo?: string,
   ): Promise<{ requestNo: string; restrictionNo: string | null }> {
     return this.prisma.$transaction(async (tx: Record<string, any>) => {
-      const created = await this.requests.create(row, tx);
+      const created = await this.requests.create(row, actor, tx);
 
       if (existingRestrictionNo) {
         // 便签已经在调用方开好了（RegisterInput.existingRestrictionNo）——只登记

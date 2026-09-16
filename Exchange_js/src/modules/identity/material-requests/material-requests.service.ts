@@ -15,6 +15,7 @@ import {
 import { AuditOutcome } from '../../audit-logging/dto/audit-log.dto';
 import { generateReferenceNo } from '../../../common/utils/no-generator.util';
 import { SumsubClient } from '../../sumsub-applicant-client/sumsub.client';
+import { ApprovalActorContext } from '../../governance/approvals/constants/approval.constants';
 import {
   MATERIAL_REQUEST_LIVE_STATUSES,
   nextMaterialRequestStatus,
@@ -89,6 +90,7 @@ export class MaterialRequestsService {
 
   async create(
     input: IssueMaterialRequestInput,
+    actor: ApprovalActorContext,
     tx?: Record<string, any>,
   ): Promise<MaterialRequestRow> {
     // spec I3：半绑状态无法判定展示位置，直接拒
@@ -143,7 +145,8 @@ export class MaterialRequestsService {
     }
 
     const issuedCtx = await this.auditContext({ customerId: input.customerId, orderDomain: input.orderDomain, orderRef: input.orderRef }, client);
-    await this.auditLogsService.recordSystem({
+    const actorDisplay = actor.userNo ?? actor.userId;
+    await this.auditLogsService.recordByActor({
       action: AuditActions.MATERIAL_REQUEST_ISSUED,
       actionDomain: 'CUSTOMER',
       primarySubjectType: AuditEntityTypes.MATERIAL_REQUEST,
@@ -164,6 +167,11 @@ export class MaterialRequestsService {
         applicantActionId: input.applicantActionId,
       },
       sourcePlatform: 'SYSTEM',
+    }, {
+      actorType: 'ADMIN',
+      actorNo: actorDisplay,
+      actorDisplayName: actorDisplay,
+      actorRolesAtTime: actor.roleCodes ?? [],
     }, client);
 
     return this.project(created);

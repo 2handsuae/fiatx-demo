@@ -2,6 +2,7 @@ import { MaterialRequestsService } from './material-requests.service';
 import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
 
 const ACTOR = { actorType: 'ADMIN' as const, actorId: 'u1', actorNo: 'ADM001', actorRole: 'MLRO' };
+const ISSUE_ACTOR = { actorType: 'ADMIN' as const, userId: 'u-1', userNo: 'ADM2601010001', roleCodes: ['COMPLIANCE_OFFICER'] };
 
 function baseRow(over: Record<string, any> = {}) {
   return {
@@ -60,7 +61,7 @@ describe('MaterialRequestsService.create', () => {
   it('落库带 requestNo / traceId，status 起于 PENDING_SUBMISSION', async () => {
     const { prisma } = createPrismaMock();
     const svc = new MaterialRequestsService(prisma, audit(), sumsub());
-    const row = await svc.create(INPUT);
+    const row = await svc.create(INPUT, ISSUE_ACTOR);
     expect(row.requestNo).toMatch(/^MRQ\d{12}$/);
     expect(row.status).toBe('PENDING_SUBMISSION');
     expect(row.traceId).toMatch(/^MATERIAL_REQUEST:/);
@@ -73,7 +74,7 @@ describe('MaterialRequestsService.create', () => {
       .mockRejectedValueOnce(p2002)
       .mockImplementationOnce(async ({ data }: any) => ({ ...baseRow(), ...data }));
     const svc = new MaterialRequestsService(prisma, audit(), sumsub());
-    await expect(svc.create(INPUT)).resolves.toMatchObject({ status: 'PENDING_SUBMISSION' });
+    await expect(svc.create(INPUT, ISSUE_ACTOR)).resolves.toMatchObject({ status: 'PENDING_SUBMISSION' });
     expect(prisma.materialRequest.create).toHaveBeenCalledTimes(2);
     const first = prisma.materialRequest.create.mock.calls[0][0].data.requestNo;
     const second = prisma.materialRequest.create.mock.calls[1][0].data.requestNo;
@@ -83,9 +84,9 @@ describe('MaterialRequestsService.create', () => {
   it('spec I3：orderDomain 与 orderRef 半绑 → BadRequest', async () => {
     const { prisma } = createPrismaMock();
     const svc = new MaterialRequestsService(prisma, audit(), sumsub());
-    await expect(svc.create({ ...INPUT, orderDomain: 'DEPOSIT', orderRef: null } as any))
+    await expect(svc.create({ ...INPUT, orderDomain: 'DEPOSIT', orderRef: null } as any, ISSUE_ACTOR))
       .rejects.toThrow(BadRequestException);
-    await expect(svc.create({ ...INPUT, orderDomain: null, orderRef: 'DP1' } as any))
+    await expect(svc.create({ ...INPUT, orderDomain: null, orderRef: 'DP1' } as any, ISSUE_ACTOR))
       .rejects.toThrow(BadRequestException);
   });
 
@@ -97,18 +98,22 @@ describe('MaterialRequestsService.create', () => {
     });
     prisma.materialRequest.create.mockRejectedValueOnce(p2002);
     const svc = new MaterialRequestsService(prisma, audit(), sumsub());
-    await expect(svc.create(INPUT)).rejects.toBe(p2002);
+    await expect(svc.create(INPUT, ISSUE_ACTOR)).rejects.toBe(p2002);
     expect(prisma.materialRequest.create).toHaveBeenCalledTimes(1);
   });
 
-  it('写一条 MATERIAL_REQUEST_ISSUED 审计，走当前 client（未传 tx 时即 base prisma）', async () => {
+  it('写一条 MATERIAL_REQUEST_ISSUED 审计，走 recordByActor 带操作人（不再走 recordSystem）', async () => {
     const { prisma } = createPrismaMock();
     const a = audit();
-    await new MaterialRequestsService(prisma, a, sumsub()).create(INPUT);
-    expect(a.recordSystem).toHaveBeenCalledWith(
-      expect.objectContaining({ action: 'MATERIAL_REQUEST_ISSUED', primarySubjectType: 'MATERIAL_REQUEST' }),
-      prisma,
+    await new MaterialRequestsService(prisma, a, sumsub()).create(INPUT, ISSUE_ACTOR);
+    const issued = a.recordByActor.mock.calls.find(
+      (c: any[]) => c[0].action === 'MATERIAL_REQUEST_ISSUED',
     );
+    expect(issued).toBeDefined();
+    expect(issued[1].actorNo).toBe(ISSUE_ACTOR.userNo);
+    expect(a.recordSystem.mock.calls.find(
+      (c: any[]) => c[0].action === 'MATERIAL_REQUEST_ISSUED',
+    )).toBeUndefined();
   });
 });
 

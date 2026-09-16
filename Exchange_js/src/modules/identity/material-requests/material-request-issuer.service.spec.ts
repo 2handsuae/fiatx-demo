@@ -121,7 +121,7 @@ describe('MaterialRequestIssuerService.issue', () => {
     // 光断言 $transaction 被调用一次测不出「贴便签是不是真在这个事务里跑」——
     // openRestriction 收到的 tx 必须与 requests.create 收到的是同一个引用，
     // 否则贴便签实际是在一个独立的第二事务里提交的（本条曾是假阳性）。
-    const txPassedToCreate = d.requests.create.mock.calls[0][1];
+    const txPassedToCreate = d.requests.create.mock.calls[0][2];
     const txPassedToOpenRestriction = d.restrictionWorkflow.openRestriction.mock.calls[0][2];
     expect(txPassedToOpenRestriction).toBeDefined();
     expect(txPassedToOpenRestriction).toBe(txPassedToCreate);
@@ -211,7 +211,10 @@ describe('MaterialRequestIssuerService.register（路径 1：Sumsub 已建好 ac
       },
       $transaction: jest.fn((cb: any) => cb(prisma)),
     } as any;
-    const auditLogsService = { recordSystem: jest.fn().mockResolvedValue(undefined) } as any;
+    const auditLogsService = {
+      recordSystem: jest.fn().mockResolvedValue(undefined),
+      recordByActor: jest.fn().mockResolvedValue(undefined),
+    } as any;
     const sumsubClient = {} as any;
     const requests = new MaterialRequestsService(prisma, auditLogsService, sumsubClient);
 
