@@ -85,6 +85,10 @@ describe('AuditEvidenceExportWorkflowService', () => {
       expect(auditLogsService.recordByActor).toHaveBeenCalledWith(
         expect.objectContaining({
           action: 'AUDIT_EVIDENCE_EXPORT_REQUESTED',
+          subjects: [
+            { subjectType: 'AUDIT_EVIDENCE_PACKAGE', subjectNo: 'EVP-1', subjectRole: 'PRIMARY' },
+            { subjectType: 'APPROVAL_CASE', subjectNo: 'APR2603140001', subjectRole: 'INSTRUMENT' },
+          ],
         }),
         expect.objectContaining({ actorNo: 'USR-1' }),
       );
@@ -102,13 +106,18 @@ describe('AuditEvidenceExportWorkflowService', () => {
       });
       auditLogsService.downloadEvidencePackage.mockResolvedValue({ id: 'pkg-1', packageNo: 'EVP-1' });
 
-      const result = await service.downloadEvidencePackage('pkg-1', actor);
+      const result = await service.downloadEvidencePackage('EVP-1', actor);
 
       expect(approvalsService.requireApproved).toHaveBeenCalledWith(
         expect.objectContaining({ approvalCaseId: 'approval-1', entityRef: 'EVP-1' }),
       );
       expect(auditLogsService.recordByActor).toHaveBeenCalledWith(
-        expect.objectContaining({ action: 'AUDIT_EVIDENCE_EXPORT_DOWNLOADED' }),
+        expect.objectContaining({
+          action: 'AUDIT_EVIDENCE_EXPORT_DOWNLOADED',
+          subjects: [
+            { subjectType: 'AUDIT_EVIDENCE_PACKAGE', subjectNo: 'EVP-1', subjectRole: 'PRIMARY' },
+          ],
+        }),
         expect.any(Object),
       );
       expect(result.packageNo).toBe('EVP-1');
@@ -123,7 +132,7 @@ describe('AuditEvidenceExportWorkflowService', () => {
         approvalCase: { traceId: 'trace-1' },
       });
 
-      await expect(service.downloadEvidencePackage('pkg-1', actor)).rejects.toThrow(BadRequestException);
+      await expect(service.downloadEvidencePackage('EVP-1', actor)).rejects.toThrow(BadRequestException);
     });
   });
 
@@ -131,7 +140,7 @@ describe('AuditEvidenceExportWorkflowService', () => {
     const baseEvent: ApprovalDecidedEvent = {
       decision: 'APPROVED',
       actionType: 'AUDIT_EVIDENCE_EXPORT_APPROVAL',
-      entityRef: 'pkg-1',
+      entityRef: 'EVP-1',
       approvalId: 'approval-1',
       approvalNo: 'APR-1',
       traceId: 'trace-1',
@@ -169,7 +178,13 @@ describe('AuditEvidenceExportWorkflowService', () => {
         expect.objectContaining({ status: 'READY', digest: 'd'.repeat(64) }),
       );
       expect(auditLogsService.recordByActor).toHaveBeenCalledWith(
-        expect.objectContaining({ action: 'AUDIT_EVIDENCE_EXPORT_GENERATED' }),
+        expect.objectContaining({
+          action: 'AUDIT_EVIDENCE_EXPORT_GENERATED',
+          subjects: [
+            { subjectType: 'AUDIT_EVIDENCE_PACKAGE', subjectNo: 'EVP-1', subjectRole: 'PRIMARY' },
+            { subjectType: 'APPROVAL_CASE', subjectNo: 'APR-1', subjectRole: 'INSTRUMENT' },
+          ],
+        }),
         expect.any(Object),
       );
       expect(approvalsService.markExecutionResult).not.toHaveBeenCalled();
@@ -190,22 +205,33 @@ describe('AuditEvidenceExportWorkflowService', () => {
       await service.handleApprovalDecided(baseEvent);
 
       expect(auditLogsService.markEvidencePackageFailed).toHaveBeenCalledWith('pkg-1');
+      expect(auditLogsService.recordByActor).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: 'AUDIT_EVIDENCE_EXPORT_GENERATED',
+          outcome: 'FAILED',
+          subjects: [
+            { subjectType: 'AUDIT_EVIDENCE_PACKAGE', subjectNo: 'EVP-1', subjectRole: 'PRIMARY' },
+            { subjectType: 'APPROVAL_CASE', subjectNo: 'APR-1', subjectRole: 'INSTRUMENT' },
+          ],
+        }),
+        expect.any(Object),
+      );
       expect(approvalsService.markExecutionResult).not.toHaveBeenCalled();
     });
 
     it('bulk marks REJECTED on DECLINED', async () => {
       await service.handleApprovalDecided({ ...baseEvent, decision: 'DECLINED' });
-      expect(auditLogsService.bulkMarkEvidencePackagesStatus).toHaveBeenCalledWith('approval-1', 'pkg-1', 'REJECTED');
+      expect(auditLogsService.bulkMarkEvidencePackagesStatus).toHaveBeenCalledWith('approval-1', 'EVP-1', 'REJECTED');
     });
 
     it('bulk marks CANCELLED on CANCELLED', async () => {
       await service.handleApprovalDecided({ ...baseEvent, decision: 'CANCELLED' });
-      expect(auditLogsService.bulkMarkEvidencePackagesStatus).toHaveBeenCalledWith('approval-1', 'pkg-1', 'CANCELLED');
+      expect(auditLogsService.bulkMarkEvidencePackagesStatus).toHaveBeenCalledWith('approval-1', 'EVP-1', 'CANCELLED');
     });
 
     it('bulk marks EXPIRED on EXPIRED', async () => {
       await service.handleApprovalDecided({ ...baseEvent, decision: 'EXPIRED' });
-      expect(auditLogsService.bulkMarkEvidencePackagesStatus).toHaveBeenCalledWith('approval-1', 'pkg-1', 'EXPIRED');
+      expect(auditLogsService.bulkMarkEvidencePackagesStatus).toHaveBeenCalledWith('approval-1', 'EVP-1', 'EXPIRED');
     });
   });
 });

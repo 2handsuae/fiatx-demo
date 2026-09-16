@@ -9,6 +9,8 @@ import {
   AuditCategory,
   AuditEvidencePackageStatus,
   AuditOutcome,
+  AuditSubjectInput,
+  AuditSubjectRole,
   ExportEvidencePackageDto,
 } from './dto/audit-log.dto';
 import { sha256Hex } from './utils/audit-digest.util';
@@ -46,6 +48,18 @@ export class AuditEvidenceExportWorkflowService {
     } catch {
       return null;
     }
+  }
+
+  /** 波二 §1.2：镜像主表 PRIMARY 进子表（Related No 检索只查子表）+ 审批单凭据行。
+   *  形状照 admin-suspension-workflow.service.ts adminSubjects 先例。 */
+  private packageSubjects(packageNo: string, approvalNo?: string | null): AuditSubjectInput[] {
+    const rows: AuditSubjectInput[] = [
+      { subjectType: AuditEntityTypes.AUDIT_EVIDENCE_PACKAGE, subjectNo: packageNo, subjectRole: AuditSubjectRole.PRIMARY },
+    ];
+    if (approvalNo) {
+      rows.push({ subjectType: AuditEntityTypes.APPROVAL_CASE, subjectNo: approvalNo, subjectRole: AuditSubjectRole.INSTRUMENT });
+    }
+    return rows;
   }
 
   private toAuditActor(actor: ApprovalActorContext) {
@@ -138,6 +152,7 @@ export class AuditEvidenceExportWorkflowService {
         metadata: { dateRangeFrom, dateRangeTo, itemCount: selection.itemCount, approvalNo: submitted.approvalNo },
         requestId: randomUUID(),
         sourcePlatform: 'ADMIN_API',
+        subjects: this.packageSubjects(evidencePackage.packageNo, submitted.approvalNo || null),
       },
       this.toAuditActor(actor),
     );
@@ -181,6 +196,7 @@ export class AuditEvidenceExportWorkflowService {
         sourceIp,
         requestId: randomUUID(),
         sourcePlatform: 'ADMIN_API',
+        subjects: this.packageSubjects(found.packageNo),
       },
       this.toAuditActor(actor),
     );
@@ -273,6 +289,7 @@ export class AuditEvidenceExportWorkflowService {
           metadata: { fileSize, fileCount: artifacts.itemCount, payloadDigest: artifacts.digest },
           requestId: randomUUID(),
           sourcePlatform: 'ADMIN_API',
+          subjects: this.packageSubjects(evidencePackage.packageNo, this.normalizeOptionalString(event.approvalNo)),
         },
         this.toAuditActor(exporterActor),
       );
@@ -297,6 +314,7 @@ export class AuditEvidenceExportWorkflowService {
           reasonCode: 'GENERATION_ERROR',
           reason: `Evidence package generation failed: ${(error as Error)?.message ?? 'unknown'}`,
           sourcePlatform: 'SYSTEM',
+          subjects: this.packageSubjects(evidencePackage.packageNo, this.normalizeOptionalString(event.approvalNo)),
         },
         this.toAuditActor(exporterActor),
       );
