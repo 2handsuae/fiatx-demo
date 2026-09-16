@@ -360,7 +360,6 @@ export class FundsOrderService {
         },
         swapTransaction: { select: { id: true, swapNo: true, status: true } },
         internalTransfer: { select: { id: true, transferNo: true, status: true } },
-        auditLogs: { orderBy: { createdAt: 'desc' } },
       },
     });
     if (!item) {

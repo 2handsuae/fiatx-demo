@@ -14,6 +14,8 @@ import {
 } from '../components/compliance/DetailPageComponents';
 import { LinkedRelationCard } from '../components/ui/LinkedRelationCard';
 import { SidebarGroup, SidebarKV } from '../components/ui/SidebarPrimitives';
+import { AdminBadge } from '../components/ui/AdminBadge';
+import { adminButtonClass } from '../components/common/adminButtonStyles';
 import { formatAssetAmount } from '../utils/number-format';
 import { copyToClipboard } from '../utils/clipboard';
 import { explorerTxUrl } from '../utils/explorer';
@@ -56,15 +58,6 @@ interface FoParent {
   status: string;
 }
 
-interface FoAuditLog {
-  id: string;
-  operatorId: string;
-  oldStatus: string;
-  newStatus: string;
-  reason?: string | null;
-  createdAt: string;
-}
-
 interface FundsOrderDetail {
   id: string;
   fundsOrderNo: string;
@@ -96,7 +89,6 @@ interface FundsOrderDetail {
   depositNo?: string | null;
   withdrawNo?: string | null;
   swapNo?: string | null;
-  auditLogs?: FoAuditLog[];
 }
 
 /* ── Wallet field (main-area, internal navigation) ──────────── */
@@ -573,9 +565,10 @@ const FundsOrderDetail = () => {
             <StatusHistoryTimeline historyJson={data.statusHistory ?? null} />
           </DetailCard>
 
-          {/* 6. Audit Log */}
-          <DetailCard title="Audit Log" columns={1}>
-            <AuditLogList logs={data.auditLogs ?? []} />
+          {/* 6. Audit Trail —— 波三甲案：直调中央审计日志（subjectNo=本单号），
+              死表 InternalFundAuditLog 读取链已摘。 */}
+          <DetailCard title="Audit Trail" columns={1}>
+            <CentralAuditTrail fundsOrderNo={data.fundsOrderNo} />
           </DetailCard>
         </div>
 
@@ -779,37 +772,76 @@ const StatusHistoryTimeline = ({ historyJson }: { historyJson: string | null }) 
   );
 };
 
-/* ── Audit Log list ── */
+/* ── Central Audit Trail (波三甲案：直调中央审计日志) ── */
 
-const AuditLogList = ({ logs }: { logs: FundsOrderDetail['auditLogs'] }) => {
-  if (!logs || logs.length === 0) {
-    return <p className="py-2 font-mono text-[11px] text-adm-t3">No audit records.</p>;
+interface CentralAuditRow {
+  id: string;
+  eventNo: string;
+  action: string;
+  outcome: string;
+  actorNo?: string | null;
+  occurredAt: string;
+}
+
+const CentralAuditTrail = ({ fundsOrderNo }: { fundsOrderNo: string }) => {
+  const navigate = useNavigate();
+  const [rows, setRows] = useState<CentralAuditRow[] | null>(null);
+  const [denied, setDenied] = useState(false);
+
+  useEffect(() => {
+    void (async () => {
+      try {
+        const res = await adminFetch(
+          `${import.meta.env.VITE_API_URL}/admin/audit-logs?subjectNo=${encodeURIComponent(fundsOrderNo)}&take=10`,
+        );
+        if (res.status === 403) {
+          setDenied(true);
+          setRows([]);
+          return;
+        }
+        if (!res.ok) throw new Error(await getApiErrorMessage(res, 'Failed to load audit trail.'));
+        const data = (await res.json()) as { items?: CentralAuditRow[] };
+        setRows(Array.isArray(data.items) ? data.items : []);
+      } catch (e: unknown) {
+        if (e instanceof AdminSessionError) return;
+        setRows([]);
+      }
+    })();
+  }, [fundsOrderNo]);
+
+  if (denied) {
+    return <p className="py-2 font-mono text-[11px] text-adm-t3">Audit log access is not granted for this role.</p>;
+  }
+  if (rows === null) {
+    return <p className="py-2 font-mono text-[11px] text-adm-t3">Loading…</p>;
   }
   return (
     <div className="space-y-2">
-      {logs.map((log) => (
+      {rows.length === 0 && <p className="py-2 font-mono text-[11px] text-adm-t3">No audit records.</p>}
+      {rows.map((row) => (
         <div
-          key={log.id}
-          className="rounded border border-adm-border bg-adm-bg px-3 py-2"
+          key={row.id}
+          className="cursor-pointer rounded border border-adm-border bg-adm-bg px-3 py-2 transition-colors hover:bg-adm-hover"
+          onClick={() => navigate(`/admin/audit/logs/${row.eventNo}`)}
         >
           <div className="flex items-center gap-2 font-mono text-[10px]">
-            <span className="text-adm-t3">{log.oldStatus || '—'}</span>
-            <span className="text-adm-t3">→</span>
-            <span className="font-semibold text-adm-t1">{log.newStatus}</span>
+            <span className="font-semibold text-adm-amber">{row.eventNo}</span>
+            <span className="text-adm-t1">{row.action}</span>
+            <AdminBadge value={row.outcome} />
           </div>
-          {log.reason ? (
-            <p className="mt-1 text-[11px] text-adm-t2">{log.reason}</p>
-          ) : null}
           <div className="mt-1 flex items-center gap-2 text-[10px] text-adm-t3">
-            <User size={10} />
-            <span className="font-mono">{log.operatorId}</span>
+            <span className="font-mono">{row.actorNo ?? 'SYSTEM'}</span>
             <span>·</span>
-            <time className="font-mono">
-              {new Date(log.createdAt).toLocaleString()}
-            </time>
+            <time className="font-mono">{new Date(row.occurredAt).toLocaleString()}</time>
           </div>
         </div>
       ))}
+      <button
+        onClick={() => navigate(`/admin/audit/logs?subjectNo=${encodeURIComponent(fundsOrderNo)}`)}
+        className={adminButtonClass('rowLink')}
+      >
+        View full trail →
+      </button>
     </div>
   );
 };
