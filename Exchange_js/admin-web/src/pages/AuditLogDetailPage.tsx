@@ -16,41 +16,42 @@ type AuditOutcome = 'SUCCESS' | 'DENIED' | 'FAILED' | 'PARTIAL';
 interface AuditLogDetail {
   id: string;
   eventNo: string;
-  triggerType: string;
   action: string;
+  userActionLabel?: string | null;
+  category?: string | null;
+  actionDomain?: string | null;
   primarySubjectType?: string | null;
   primarySubjectNo?: string | null;
-  entityOwnerType?: string | null;
-  entityOwnerNo?: string | null;
+  ownerCustomerNo?: string | null;
   actorType: string;
   actorNo?: string | null;
-  actorRole?: string | null;
+  actorDisplayName?: string | null;
+  actorRolesAtTime?: string[];
+  isReadOnly?: boolean;
   outcome: AuditOutcome;
   reason?: string | null;
-  statusFrom?: string | null;
-  statusTo?: string | null;
+  reasonCode?: string | null;
+  fromStatus?: string | null;
+  toStatus?: string | null;
+  amount?: string | null;
+  currency?: string | null;
+  approvalNo?: string | null;
+  policyCode?: string | null;
+  policyVersion?: number | null;
   occurredAt: string;
+  recordedAt?: string | null;
   traceId?: string | null;
-  workflowType?: string | null;
+  correlationId?: string | null;
   requestId?: string | null;
   sourceIp?: string | null;
   sourcePlatform?: string | null;
   metadata?: unknown;
   beforeData?: unknown;
   afterData?: unknown;
-  idempotencyKey?: string | null;
   payloadDigest?: string | null;
-  maskVersion?: string | null;
   retainedUntil?: string | null;
   archivedAt?: string | null;
-  createdAt?: string | null;
-  updatedAt?: string | null;
-  correlationId?: string | null;
-  causationId?: string | null;
-  userActionLabel?: string | null;
-  businessWorkflowLabel?: string | null;
   subjects?: { subjectType: string; subjectNo: string; subjectRole: string }[];
-
 }
 
 const fmt = (v?: string | null): string => {
@@ -236,20 +237,22 @@ const AuditLogDetailPage = () => {
     );
   }
 
-  const hasStateChange = !!(detail.statusFrom || detail.statusTo);
-  const hasOwner      = !!(detail.entityOwnerType || detail.entityOwnerNo);
-  const hasPayload    = detail.metadata != null || detail.beforeData != null || detail.afterData != null;
+  const hasStateChange = !!(detail.fromStatus || detail.toStatus);
+  const hasAuthorization = !!(detail.approvalNo || detail.policyCode || detail.reasonCode);
+  const hasPayload = detail.metadata != null || detail.beforeData != null || detail.afterData != null;
   /** PRIMARY 镜像行与上方 Entity 区重复，不进本区；角色固定顺序展示 */
   const ROLE_ORDER = ['OWNER', 'INSTRUMENT', 'RELATED', 'COUNTERPARTY'];
   const relatedSubjects = ROLE_ORDER.flatMap((role) =>
     (detail.subjects ?? []).filter((s) => s.subjectRole === role),
   );
-  const hasWorkflow = !!(detail.workflowType || detail.traceId || detail.correlationId || detail.causationId);
+  const hasTrace = !!(detail.traceId || detail.correlationId);
 
+  // 铁律⑥：Payload 三块与 Raw Record 同款过 strip——此前只有 Raw Record 过滤，
+  // metadata 里的 approvalId/suspendedByUserId 等内部 id 键从这里裸落屏（残口②）。
   const payloadBlocks = [
-    detail.metadata   != null && { title: 'Metadata',    value: detail.metadata },
-    detail.beforeData != null && { title: 'Before Data', value: detail.beforeData },
-    detail.afterData  != null && { title: 'After Data',  value: detail.afterData },
+    detail.metadata   != null && { title: 'Metadata',    value: stripInternalIds(detail.metadata) },
+    detail.beforeData != null && { title: 'Before Data', value: stripInternalIds(detail.beforeData) },
+    detail.afterData  != null && { title: 'After Data',  value: stripInternalIds(detail.afterData) },
   ].filter(Boolean) as { title: string; value: unknown }[];
 
   return (
@@ -278,9 +281,9 @@ const AuditLogDetailPage = () => {
               <div className="col-span-2">
                 <p className="mb-1 font-mono text-[8.5px] uppercase tracking-[0.14em] text-adm-t3">Action</p>
                 <p className="text-[15px] font-semibold leading-tight text-adm-t1">{detail.action}</p>
-                {(detail.userActionLabel || detail.businessWorkflowLabel) && (
+                {detail.userActionLabel && (
                   <p className="mt-1 text-[11px] text-adm-t2">
-                    {[detail.userActionLabel, detail.businessWorkflowLabel].filter(Boolean).join(' · ')}
+                    {detail.userActionLabel}
                   </p>
                 )}
               </div>
@@ -298,13 +301,21 @@ const AuditLogDetailPage = () => {
                   <p className="font-mono text-[10px] text-adm-t2">{detail.reason}</p>
                 </div>
               )}
+              {detail.amount && (
+                <div>
+                  <p className="mb-1 font-mono text-[8.5px] uppercase tracking-[0.14em] text-adm-t3">Amount</p>
+                  <p className="font-mono text-[15px] font-semibold text-adm-amber">
+                    {detail.amount} {detail.currency ?? ''}
+                  </p>
+                </div>
+              )}
             </div>
             {hasStateChange && (
               <div className="mt-5 flex items-stretch gap-0">
                 {/* Before */}
                 <div className="flex flex-1 flex-col justify-center rounded-l border border-adm-border bg-adm-bg px-5 py-3">
                   <p className="font-mono text-[8px] uppercase tracking-[0.14em] text-adm-t3">Before</p>
-                  <p className="mt-1 font-mono text-[12px] text-adm-t2">{detail.statusFrom ?? '—'}</p>
+                  <p className="mt-1 font-mono text-[12px] text-adm-t2">{detail.fromStatus ?? '—'}</p>
                 </div>
                 {/* Arrow */}
                 <div className="flex items-center border-y border-adm-border bg-adm-bg px-3 text-adm-t3">
@@ -313,7 +324,7 @@ const AuditLogDetailPage = () => {
                 {/* After */}
                 <div className="flex flex-1 flex-col justify-center rounded-r border border-adm-amber bg-adm-card px-5 py-3">
                   <p className="font-mono text-[8px] uppercase tracking-[0.14em] text-adm-t3">After</p>
-                  <p className="mt-1 font-mono text-[12px] font-semibold text-adm-amber">{detail.statusTo ?? '—'}</p>
+                  <p className="mt-1 font-mono text-[12px] font-semibold text-adm-amber">{detail.toStatus ?? '—'}</p>
                 </div>
               </div>
             )}
@@ -324,10 +335,13 @@ const AuditLogDetailPage = () => {
           <section className="px-6 py-5">
             <Cap>Actor</Cap>
             <p className="mt-1.5 font-mono text-[15px] font-semibold leading-snug text-adm-amber">
-              {detail.actorNo ?? '—'}
+              {detail.actorDisplayName ?? detail.actorNo ?? '—'}
             </p>
+            {detail.actorNo && detail.actorNo !== detail.actorDisplayName && (
+              <p className="mt-0.5 font-mono text-[10px] text-adm-t2">{detail.actorNo}</p>
+            )}
             <p className="mt-1 font-mono text-[10px] text-adm-t3">
-              {[detail.actorType, detail.actorRole].filter(Boolean).join(' · ') || '—'}
+              {[detail.actorType, ...(detail.actorRolesAtTime ?? [])].filter(Boolean).join(' · ') || '—'}
             </p>
             {(detail.sourcePlatform || detail.sourceIp) && (
               <p className="mt-0.5 font-mono text-[9px] text-adm-t3">
@@ -366,15 +380,17 @@ const AuditLogDetailPage = () => {
               </p>
             </div>
 
-            {hasOwner && (
+            {detail.ownerCustomerNo && (
               <div className="mt-4 pt-4 border-t border-adm-border">
                 <Cap>Owner</Cap>
-                <div className="mt-3">
-                  <FieldGrid>
-                    <Field label="Owner Type" value={detail.entityOwnerType} />
-                    <Field label="Owner No"   value={detail.entityOwnerNo}   mono />
-                  </FieldGrid>
-                </div>
+                <p className="mt-2 font-mono text-[13px] font-semibold">
+                  <span
+                    className="cursor-pointer text-adm-blue hover:underline"
+                    onClick={() => navigate(`/admin/customers/${detail.ownerCustomerNo}`)}
+                  >
+                    {detail.ownerCustomerNo}
+                  </span>
+                </p>
               </div>
             )}
           </section>
@@ -411,17 +427,47 @@ const AuditLogDetailPage = () => {
             </section>
           )}
 
-          {/* ── 4 · WORKFLOW CONTEXT ───────────────────────────────
-               Where in the business process did this event occur?
-               Only rendered when at least one workflow field is populated. ── */}
-          {hasWorkflow && (
+          {/* ── 4 · AUTHORIZATION ──────────────────────────────────
+               依据什么：审批单（蓝链跳审批中心）/ 策略 / 原因码。
+               组 H 授权依据此前整组不进响应，第七幕"谁批的、依据什么"详情页答不出。 ── */}
+          {hasAuthorization && (
             <section className="px-6 py-5">
-              <Cap>Workflow</Cap>
+              <Cap>Authorization</Cap>
               <div className="mt-3">
                 <FieldGrid>
-                  <Field label="Type"         value={detail.workflowType} />
+                  {detail.approvalNo && (
+                    <div>
+                      <p className="mb-1 font-mono text-[8.5px] uppercase tracking-[0.14em] text-adm-t3">Approval No</p>
+                      <p
+                        className="cursor-pointer font-mono text-[11px] font-semibold text-adm-blue hover:underline"
+                        onClick={() => navigate(`/admin/governance/approvals/${detail.approvalNo}`)}
+                      >
+                        {detail.approvalNo}
+                      </p>
+                    </div>
+                  )}
+                  <Field
+                    label="Policy"
+                    value={detail.policyCode
+                      ? `${detail.policyCode}${detail.policyVersion != null ? ` · v${detail.policyVersion}` : ''}`
+                      : null}
+                    mono
+                  />
+                  <Field label="Reason Code" value={detail.reasonCode} mono />
+                </FieldGrid>
+              </div>
+            </section>
+          )}
+
+          {/* ── 5 · TRACE & JOURNEY ────────────────────────────────
+               Where in the business process did this event occur?
+               Only rendered when at least one trace field is populated. ── */}
+          {hasTrace && (
+            <section className="px-6 py-5">
+              <Cap>Trace & Journey</Cap>
+              <div className="mt-3">
+                <FieldGrid>
                   <Field label="Trace ID"     value={detail.traceId}     mono full />
-                  <Field label="Causation ID" value={detail.causationId} mono full />
                 </FieldGrid>
                 {detail.correlationId && (
                   <div className="mt-4">
@@ -445,7 +491,7 @@ const AuditLogDetailPage = () => {
             </section>
           )}
 
-          {/* ── 5 · PAYLOAD ── */}
+          {/* ── 6 · PAYLOAD ── */}
           {hasPayload && (
             <section className="px-6 py-5">
               <Cap>Payload</Cap>
@@ -466,21 +512,23 @@ const AuditLogDetailPage = () => {
             </section>
           )}
 
-          {/* ── 6 · INTEGRITY ── */}
+          {/* ── 7 · INTEGRITY ── */}
           <section className="px-6 py-5">
             <Cap>Integrity</Cap>
             <div className="mt-3">
               <FieldGrid>
-                <Field label="Trigger Type"    value={detail.triggerType}                      />
-                <Field label="Request ID"      value={detail.requestId}              mono      />
-                <Field label="Idempotency Key" value={detail.idempotencyKey}         mono full />
-                <Field label="Payload Digest"  value={detail.payloadDigest}          mono full />
-                <Field label="Mask Version"    value={detail.maskVersion}                      />
+                <Field label="Request ID"     value={detail.requestId}     mono      />
+                <Field label="Payload Digest" value={detail.payloadDigest} mono full />
               </FieldGrid>
+              {detail.isReadOnly && (
+                <div className="mt-3">
+                  <AdminBadge value="READ_ONLY" />
+                </div>
+              )}
             </div>
           </section>
 
-          {/* ── 7 · RAW RECORD ── */}
+          {/* ── 8 · RAW RECORD ── */}
           <RawRecordBlock detail={detail} />
 
         </div>
@@ -490,17 +538,18 @@ const AuditLogDetailPage = () => {
 
           {/* Identity Summary */}
           <SidebarGroup title="Identity Summary">
-            <SidebarKV label="Trigger"      value={detail.triggerType} />
-            <SidebarKV label="Entity Type"  value={detail.primarySubjectType}  />
-            <SidebarKV label="Actor Type"   value={detail.actorType}   />
+            <SidebarKV label="Category"    value={detail.category} />
+            <SidebarKV label="Domain"      value={detail.actionDomain} />
+            <SidebarKV label="Actor Type"  value={detail.actorType} />
+            <SidebarKV label="Entity Type" value={detail.primarySubjectType} />
           </SidebarGroup>
 
-          {/* Lifecycle */}
+          {/* Lifecycle — 真实时间线 */}
           <SidebarGroup title="Lifecycle">
+            <SidebarKV label="Occurred"       value={fmt(detail.occurredAt)}    mono />
+            <SidebarKV label="Recorded"       value={fmt(detail.recordedAt)}    mono />
             <SidebarKV label="Retained Until" value={fmt(detail.retainedUntil)} mono />
-            <SidebarKV label="Archived At"    value={fmt(detail.archivedAt)}    mono />
-            <SidebarKV label="Created At"     value={fmt(detail.createdAt)}     mono />
-            <SidebarKV label="Updated At"     value={fmt(detail.updatedAt)}     mono />
+            <SidebarKV label="Archived"       value={fmt(detail.archivedAt)}    mono />
           </SidebarGroup>
 
         </div>
