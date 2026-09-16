@@ -1,11 +1,7 @@
 import {
   Controller,
   Get,
-  Post,
-  Body,
-  Patch,
   Param,
-  Delete,
   Query,
   UseGuards,
   Request,
@@ -51,13 +47,6 @@ export class CustomersController {
     const customer = await this.customersService.findByCustomerNo(customerNo);
     if (!customer) throw new NotFoundException('Customer not found');
     return customer.id;
-  }
-
-  @Post()
-  @ApiOperation({ summary: 'Create a new customer' })
-  create(@Request() req: any, @Body() createCustomerDto: Prisma.CustomerMainCreateInput) {
-    this.ensureAdmin(req);
-    return this.customersService.create(createCustomerDto);
   }
 
   @Get()
@@ -132,28 +121,5 @@ export class CustomersController {
     this.ensureAdmin(req);
     const id = await this.resolveCustomerId(customerNo);
     return this.customersService.findOne(id);
-  }
-
-  @Patch(':customerNo')
-  @ApiOperation({ summary: 'Update a customer' })
-  async update(
-    @Request() req: any,
-    @Param('customerNo') customerNo: string,
-    @Body() updateCustomerDto: Prisma.CustomerMainUpdateInput,
-  ) {
-    this.ensureAdmin(req);
-    const id = await this.resolveCustomerId(customerNo);
-    return this.customersService.update({
-      where: { id },
-      data: updateCustomerDto,
-    });
-  }
-
-  @Delete(':customerNo')
-  @ApiOperation({ summary: 'Delete a customer' })
-  async remove(@Request() req: any, @Param('customerNo') customerNo: string) {
-    this.ensureAdmin(req);
-    const id = await this.resolveCustomerId(customerNo);
-    return this.customersService.remove({ id });
   }
 }

@@ -2,7 +2,6 @@ import { BadRequestException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { PrismaService } from '../../../core/prisma/prisma.service';
 import { CustomersService } from './customers.service';
-import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 
 const mockPrismaService = {
   customerMain: {
@@ -10,10 +9,6 @@ const mockPrismaService = {
     update: jest.fn(),
   },
   $transaction: jest.fn(),
-};
-
-const auditLogsServiceMock = {
-  recordSystem: jest.fn(),
 };
 
 describe('CustomersService', () => {
@@ -24,7 +19,6 @@ describe('CustomersService', () => {
       providers: [
         CustomersService,
         { provide: PrismaService, useValue: mockPrismaService },
-        { provide: AuditLogsService, useValue: auditLogsServiceMock },
       ],
     }).compile();
 

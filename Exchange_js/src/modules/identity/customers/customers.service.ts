@@ -1,43 +1,10 @@
-import { randomUUID } from 'node:crypto';
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { CustomerMain, Prisma } from '@prisma/client';
 import { PrismaService } from '../../../core/prisma/prisma.service';
-import { AuditLogsService } from '../../audit-logging/audit-logs.service';
-import {
-  AuditActions,
-  AuditEntityTypes,
-} from '../../audit-logging/constants/audit-actions.constant';
-import { AuditOutcome } from '../../audit-logging/dto/audit-log.dto';
 
 @Injectable()
 export class CustomersService {
-  constructor(
-    private readonly prisma: PrismaService,
-    private readonly auditLogsService: AuditLogsService,
-  ) {}
-
-  async create(data: Prisma.CustomerMainCreateInput): Promise<CustomerMain> {
-    const created = await this.prisma.customerMain.create({
-      data,
-    });
-
-    await this.auditLogsService.recordSystem({
-      action: AuditActions.CUSTOMER_CREATED,
-      actionDomain: 'CUSTOMER',
-      primarySubjectType: AuditEntityTypes.CUSTOMER,
-      primarySubjectNo: created.customerNo,
-      ownerCustomerNo: created.customerNo,
-      subjects: [
-        { subjectType: AuditEntityTypes.CUSTOMER, subjectNo: created.customerNo, subjectRole: 'PRIMARY' as any },
-      ],
-      outcome: AuditOutcome.SUCCESS,
-      reason: 'Customer created',
-      requestId: `CUSTOMER_CREATED_${created.customerNo}_${randomUUID()}`,
-      sourcePlatform: 'ADMIN_API',
-    });
-
-    return created;
-  }
+  constructor(private readonly prisma: PrismaService) {}
 
   async findAll(params: {
     skip?: number;
@@ -73,35 +40,6 @@ export class CustomersService {
     });
   }
 
-  async update(params: {
-    where: Prisma.CustomerMainWhereUniqueInput;
-    data: Prisma.CustomerMainUpdateInput;
-  }): Promise<CustomerMain> {
-    const { where, data } = params;
-    const before = await this.prisma.customerMain.findUnique({ where });
-    const updated = await this.prisma.customerMain.update({
-      data,
-      where,
-    });
-
-    await this.auditLogsService.recordSystem({
-      action: AuditActions.CUSTOMER_UPDATED,
-      actionDomain: 'CUSTOMER',
-      primarySubjectType: AuditEntityTypes.CUSTOMER,
-      primarySubjectNo: updated.customerNo,
-      ownerCustomerNo: updated.customerNo,
-      subjects: [
-        { subjectType: AuditEntityTypes.CUSTOMER, subjectNo: updated.customerNo, subjectRole: 'PRIMARY' as any },
-      ],
-      outcome: AuditOutcome.SUCCESS,
-      reason: 'Customer updated',
-      requestId: `CUSTOMER_UPDATED_${updated.customerNo}_${randomUUID()}`,
-      sourcePlatform: 'ADMIN_API',
-    });
-
-    return updated;
-  }
-
   /** 入驻实体字段的唯一显式写方法（波二）。workflow 不直写表（铁律③）。 */
   async updateOnboardingData(
     customerId: string,
@@ -119,30 +57,6 @@ export class CustomersService {
   ) {
     const db = (tx ?? this.prisma) as PrismaService;
     return db.customerMain.update({ where: { id: customerId }, data });
-  }
-
-  async remove(where: Prisma.CustomerMainWhereUniqueInput): Promise<CustomerMain> {
-    const before = await this.prisma.customerMain.findUnique({ where });
-    const deleted = await this.prisma.customerMain.delete({
-      where,
-    });
-
-    await this.auditLogsService.recordSystem({
-      action: AuditActions.CUSTOMER_DELETED,
-      actionDomain: 'CUSTOMER',
-      primarySubjectType: AuditEntityTypes.CUSTOMER,
-      primarySubjectNo: deleted.customerNo,
-      ownerCustomerNo: deleted.customerNo,
-      subjects: [
-        { subjectType: AuditEntityTypes.CUSTOMER, subjectNo: deleted.customerNo, subjectRole: 'PRIMARY' as any },
-      ],
-      outcome: AuditOutcome.SUCCESS,
-      reason: 'Customer deleted',
-      requestId: `CUSTOMER_DELETED_${deleted.customerNo}_${randomUUID()}`,
-      sourcePlatform: 'ADMIN_API',
-    });
-
-    return deleted;
   }
 
   /**

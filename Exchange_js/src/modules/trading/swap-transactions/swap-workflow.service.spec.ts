@@ -1611,7 +1611,7 @@ describe('SwapWorkflowService.applyKytVerdict', () => {
         }),
       },
     };
-    const pendingActionService = new CustomersService(pendingActionPrisma, { recordByActor: jest.fn(), recordSystem: jest.fn() } as any);
+    const pendingActionService = new CustomersService(pendingActionPrisma);
 
     // Task 10: materialRequests/materialRequestIssuer are wired together
     // through a shared in-memory array so listLiveByOrder() actually reflects

@@ -233,11 +233,8 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
   route('GET', '/admin/iam/action-buckets', 'List action bucket catalog', ['IAM_ROLE_READ']),
 
   // Customer domain
-  route('POST', '/customers', 'Create customer', ['CUSTOMER_WRITE']),
   route('GET', '/customers', 'List customers', ['CUSTOMER_READ']),
   route('GET', '/customers/:customerNo', 'Get customer detail', ['CUSTOMER_READ']),
-  route('PATCH', '/customers/:customerNo', 'Update customer', ['CUSTOMER_WRITE']),
-  route('DELETE', '/customers/:customerNo', 'Delete customer', ['CUSTOMER_WRITE']),
 
   // Customer tags
   route('GET', '/admin/customer-tags/catalog', 'List customer tag registry', ['CUSTOMER_TAG_VIEW']),

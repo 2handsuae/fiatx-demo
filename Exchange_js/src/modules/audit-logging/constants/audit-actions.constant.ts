@@ -337,10 +337,8 @@ export const AuditActions = {
   WITHDRAW_QUOTE_CANCELLED: 'WITHDRAW_QUOTE_CANCELLED',
   LP_CONFIG_UPDATED: 'LP_CONFIG_UPDATED',
   CUSTOMER_CREATED: 'CUSTOMER_CREATED',
-  CUSTOMER_UPDATED: 'CUSTOMER_UPDATED',
   CUSTOMER_FROZEN: 'CUSTOMER_FROZEN',
   CUSTOMER_UNFROZEN: 'CUSTOMER_UNFROZEN',
-  CUSTOMER_DELETED: 'CUSTOMER_DELETED',
   // Capability-scoped trading restrictions (2026-08-13) — written by CustomerRestrictionsService
   CUSTOMER_RESTRICTION_ADDED: 'CUSTOMER_RESTRICTION_ADDED',
   CUSTOMER_RESTRICTION_CLEARED: 'CUSTOMER_RESTRICTION_CLEARED',
@@ -899,10 +897,8 @@ export const V8_RECON_AUDIT_ACTIONS: Record<string, AuditActionSpec> = {
  * 便签四词双通道（系统命中 recordSystem / 运营贴撕 recordByActor）。
  */
 export const V2_CUSTOMER_AUDIT_ACTIONS: Record<string, AuditActionSpec> = {
-  // ── 客户主档（3）──────────────────────────────────────
+  // ── 客户主档（1）──────────────────────────────────────
   CUSTOMER_CREATED:              { domain: 'CUSTOMER', correlationMode: N, requiredFields: ['ownerCustomerNo'], requiresCausation: false },
-  CUSTOMER_UPDATED:              { domain: 'CUSTOMER', correlationMode: N, requiredFields: [], requiresCausation: false },
-  CUSTOMER_DELETED:              { domain: 'CUSTOMER', correlationMode: N, requiredFields: [], requiresCausation: false },
   // ── 限制便签（4）──────────────────────────────────────
   CUSTOMER_RESTRICTION_ADDED:    { domain: 'CUSTOMER', correlationMode: N, requiredFields: [], requiresCausation: false },
   CUSTOMER_RESTRICTION_CLEARED:  { domain: 'CUSTOMER', correlationMode: N, requiredFields: [], requiresCausation: false },
@@ -1060,4 +1056,7 @@ export const DEPRECATED_AUDIT_ACTIONS: readonly string[] = [
   // 2026-09-04 波一（V3 治愈）：限额只改不建不删——创建流整条退役，四码登退役闸
   'TRANSACTION_LIMIT_CREATION_REQUESTED', 'TRANSACTION_LIMIT_CREATION_APPLIED',
   'TRANSACTION_LIMIT_CREATION_APPLY_FAILED', 'TRANSACTION_LIMIT_CREATION_CANCELLED',
+  // ── 客户主表裸 CRUD 退役（第七幕波二，2026-09-16 岔口②：三端点删除，
+  //    CUSTOMER_CREATED 保留——真实写点在注册链 customer-auth.service.ts）──
+  'CUSTOMER_UPDATED', 'CUSTOMER_DELETED',
 ] as const;
