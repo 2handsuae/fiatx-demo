@@ -45,6 +45,11 @@ interface AuditLogDetail {
   archivedAt?: string | null;
   createdAt?: string | null;
   updatedAt?: string | null;
+  correlationId?: string | null;
+  causationId?: string | null;
+  userActionLabel?: string | null;
+  businessWorkflowLabel?: string | null;
+  subjects?: { subjectType: string; subjectNo: string; subjectRole: string }[];
 
 }
 
@@ -234,7 +239,12 @@ const AuditLogDetailPage = () => {
   const hasStateChange = !!(detail.statusFrom || detail.statusTo);
   const hasOwner      = !!(detail.entityOwnerType || detail.entityOwnerNo);
   const hasPayload    = detail.metadata != null || detail.beforeData != null || detail.afterData != null;
-  const hasWorkflow   = !!(detail.workflowType || detail.traceId);
+  /** PRIMARY 镜像行与上方 Entity 区重复，不进本区；角色固定顺序展示 */
+  const ROLE_ORDER = ['OWNER', 'INSTRUMENT', 'RELATED', 'COUNTERPARTY'];
+  const relatedSubjects = ROLE_ORDER.flatMap((role) =>
+    (detail.subjects ?? []).filter((s) => s.subjectRole === role),
+  );
+  const hasWorkflow = !!(detail.workflowType || detail.traceId || detail.correlationId || detail.causationId);
 
   const payloadBlocks = [
     detail.metadata   != null && { title: 'Metadata',    value: detail.metadata },
@@ -268,6 +278,11 @@ const AuditLogDetailPage = () => {
               <div className="col-span-2">
                 <p className="mb-1 font-mono text-[8.5px] uppercase tracking-[0.14em] text-adm-t3">Action</p>
                 <p className="text-[15px] font-semibold leading-tight text-adm-t1">{detail.action}</p>
+                {(detail.userActionLabel || detail.businessWorkflowLabel) && (
+                  <p className="mt-1 text-[11px] text-adm-t2">
+                    {[detail.userActionLabel, detail.businessWorkflowLabel].filter(Boolean).join(' · ')}
+                  </p>
+                )}
               </div>
               <div>
                 <p className="mb-1 font-mono text-[8.5px] uppercase tracking-[0.14em] text-adm-t3">Result</p>
@@ -364,6 +379,38 @@ const AuditLogDetailPage = () => {
             )}
           </section>
 
+          {/* ── 3b · RELATED SUBJECTS ──────────────────────────────
+               波二写进子表的"这件事牵连了谁"。此前只能在 Raw Record 的 JSON 里肉眼扒。
+               映射命中的号可点跳转（甲案：映射缺席保持纯文本，不硬造）。 ── */}
+          {relatedSubjects.length > 0 && (
+            <section className="px-6 py-5">
+              <Cap>Related Subjects</Cap>
+              <div className="mt-3 flex flex-col gap-2">
+                {relatedSubjects.map((s) => {
+                  const route = AUDIT_ENTITY_ROUTE_BY_SUBJECT_TYPE[s.subjectType];
+                  return (
+                    <div key={`${s.subjectRole}-${s.subjectType}-${s.subjectNo}`} className="flex items-center gap-3">
+                      <span className="w-[110px] shrink-0"><AdminBadge value={s.subjectRole} /></span>
+                      <span className="w-[180px] shrink-0 font-mono text-[9px] uppercase tracking-[0.1em] text-adm-t3">
+                        {s.subjectType}
+                      </span>
+                      {route ? (
+                        <span
+                          className="cursor-pointer break-all font-mono text-[11px] font-semibold text-adm-blue hover:underline"
+                          onClick={() => navigate(route(s.subjectNo))}
+                        >
+                          {s.subjectNo}
+                        </span>
+                      ) : (
+                        <span className="break-all font-mono text-[11px] font-semibold text-adm-amber">{s.subjectNo}</span>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </section>
+          )}
+
           {/* ── 4 · WORKFLOW CONTEXT ───────────────────────────────
                Where in the business process did this event occur?
                Only rendered when at least one workflow field is populated. ── */}
@@ -372,9 +419,28 @@ const AuditLogDetailPage = () => {
               <Cap>Workflow</Cap>
               <div className="mt-3">
                 <FieldGrid>
-                  <Field label="Type"        value={detail.workflowType} />
-                  <Field label="Trace ID"    value={detail.traceId}      mono full />
+                  <Field label="Type"         value={detail.workflowType} />
+                  <Field label="Trace ID"     value={detail.traceId}     mono full />
+                  <Field label="Causation ID" value={detail.causationId} mono full />
                 </FieldGrid>
+                {detail.correlationId && (
+                  <div className="mt-4">
+                    <p className="mb-1 font-mono text-[8.5px] uppercase tracking-[0.14em] text-adm-t3">
+                      Correlation ID (Journey)
+                    </p>
+                    <div className="flex flex-wrap items-center gap-3">
+                      <p className="break-all font-mono text-[10px] text-adm-t2">{detail.correlationId}</p>
+                      <button
+                        onClick={() =>
+                          navigate(`/admin/audit/logs?correlationId=${encodeURIComponent(detail.correlationId!)}`)
+                        }
+                        className={adminButtonClass('rowLink')}
+                      >
+                        View journey →
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
             </section>
           )}
