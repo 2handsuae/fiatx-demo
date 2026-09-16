@@ -3,7 +3,7 @@
 > 立于 2026-09-15 ｜ 基线 main `8a6390fa` ｜ 依据：`superpowers/checkups/2026-09-15-act7-audit-traceability.md`（主检 + 二问补检，红级与否定性结论均经主会话复现）
 > **本文件活到最后一波**；各波 spec 逐波归档，回看以此为锚。每波收尾按 `rules/delivery-checklist.md` 往下一波 spec 骨架写承接记录，并回写本文件状态行。
 
-**状态**：波一 **已完成**（2026-09-16，分支 worktree-act7-wave1，7463a48e..5999512b，SDD 7 任务+终审修复波，闸全绿+剧本预演实证）｜ 波二 未开（骨架已立：`2026-09-16-act7-wave2-audit-attribution-skeleton.md`）｜ 波三 未开
+**状态**：波一 **已完成**（2026-09-16，分支 worktree-act7-wave1，7463a48e..5999512b，SDD 7 任务+终审修复波，闸全绿+剧本预演实证）｜ 波二 spec 已立（`2026-09-16-act7-wave2-audit-attribution-design.md`，2026-09-16 业主确认照总纲原样不加不减）｜ 波三 未开
 
 ## 0. 目标
 
