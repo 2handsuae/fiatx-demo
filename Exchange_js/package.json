@@ -45,6 +45,7 @@
     "audit:retention:dry": "ts-node scripts/audit-retention-job.ts --dry-run",
     "audit:retention:apply": "ts-node scripts/audit-retention-job.ts --apply",
     "backfill:account-flow-balance": "ts-node scripts/backfill-account-flow-balance.ts",
+    "audit:vocab": "ts-node -r tsconfig-paths/register scripts/export-audit-vocab.ts",
     "recon:demo": "ts-node -r tsconfig-paths/register scripts/recon-demo.ts",
     "recon:demo:pass": "ts-node -r tsconfig-paths/register scripts/recon-demo.ts --mode=pass",
     "recon:demo:break": "ts-node -r tsconfig-paths/register scripts/recon-demo.ts --mode=break",
