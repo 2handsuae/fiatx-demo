@@ -48,21 +48,21 @@
 - 站 1：`tech_admin@`（技术官）提交角色定义修改（给运营加一个它没有的包）→ `ciso@` 批准 → 生效（角色详情页可见 13 域 58 桶全在场）；`auditor@`（内审）调业务写接口（如跑对账批次 `POST /admin/reconciliation/runs/wallet`）→ 403。⚠️ 内审**并非零写**：它持 `AUDIT_EXPORT_CREATE`（建证据包），那是刻意给的——监管上门他得能打包，且导出仍要 MLRO 背书。演示别拿证据包接口当 403 的例子
 - 站 3：`sm@` 提交审批策略变更 → `ciso@` 批准，生效；再用 `ciso@` 自己提、自己批 → 当场被拒（同一账号不能既提又批）；给已持 CISO 的成员加 MLRO → 拒绝（三对硬互斥本轮未动）；`sm@` 再提一张策略变更，换 `treasury@`（11 职务里唯一持 `DEMO_CLOCK_WRITE` 的账号，2026-09-10 对账平账两角色定案后归金库）点 ⚡ 模拟超时 → 一分钟内刷新，状态转 EXPIRED，审计按单号查得到 `APPROVAL_EXPIRED`——批准 / 当场拒绝 / 超时作废三种结局站 3 一次演全
 
-**第七幕**：审计日志页 → 按单号（primarySubjectNo）查站 3 那条 SoD 拒绝与站 1 那笔角色定义修改 → 全链拉出（谁、何时、结果、依据）；按 correlationId 看"一次邀请"的完整旅程。
+**第七幕**：审计日志页 → 按单号（primarySubjectNo）查站 3 那条 SoD 拒绝与站 1 那笔角色定义修改 → 全链拉出（谁、何时、结果、依据）；按 correlationId 看"一次邀请"的完整旅程——已兑现（2026-09-16 波三）：事件详情页有 `Correlation ID (Journey)` 字段 + `View journey →` 按钮，一键跳转该旅程全部事件，不用手抄 correlationId 去筛选框粘贴。
 
 ## 5. 关键技术节点（≤30 行）
 
 - 审批引擎 `governance/approvals/`：`approval-handler.base.ts → ApprovalHandlerBase`（30 个审批子流程的统一基类，1 个钦定例外 onboarding 终审）｜ `approvals.service.ts → approve()/reject()`（SoD same-user deny + 跨步骤已审校验）｜ `approval-policy.service.ts → getPolicy()`（stepsConfig 回退链 + 自审防篡改）
 - 管理员生命周期 `identity/users/`：`admin-invite-workflow.service.ts` ｜ `mfa-binding-workflow.service.ts → verifyMfaBind()`（首登四步）｜ `admin-{suspension,reactivation,password-reset}-workflow.service.ts` ｜ `jwt.strategy.ts`（SUSPENDED 拦截，下次请求生效）
 - 权限 `identity/access-control/`：`rbac.catalog.ts`（165 条路由×权限组登记、**13 域 58 桶**目录、3 对硬互斥、**66 个权限组**——2026-09-06 平账三期实测数字，收口时核对更正；较 2026-09-02 四模块治愈那版 12 域 51 桶/59 组，中间跨若干波多次加域加组，本轮新增 `Incident Register` 域 2 桶 + `INCIDENT_READ`/`INCIDENT_WRITE` 2 组是最后一次变动）｜ `admin-permission.guard.ts`（每 API 运行时校验）｜ `access-control.service.ts → validateHardMutex()`
-- 审计 `audit-logging/`：`audit-logs.service.ts → recordByActor()/recordSystem()/assertActionSpec()`（写入前机器校验）/`persistSubjects()`（五角色子表）｜ `constants/audit-actions.constant.ts`（V1 合同 **101 码**（S26 起始/I65 继承/N10 独立），含 V3 财务配置域限额/费率/资产/托管钱包/提现地址/客户标签约 60 写点——随本轮换名册四批一并入册，此前"未入册"缺口已解；退役 **97 码**进拒写闸——2026-09-02 收官实测；原撞名嵌套结构 `AuditGovernanceActions` 已全部拆平退役）｜ `audit-evidence-export-workflow.service.ts`（审批背书导出）｜ 校验器 `npm run verify:audit`
+- 审计 `audit-logging/`：`audit-logs.service.ts → recordByActor()/recordSystem()/assertActionSpec()`（写入前机器校验）/`persistSubjects()`（五角色子表）｜ `constants/audit-actions.constant.ts`（V1 合同 **102 码**（S30 起始/I62 继承/N10 独立，2026-09-16 波三重数订正），含 V3 财务配置域限额/费率/资产/托管钱包/提现地址/客户标签约 60 写点——随本轮换名册四批一并入册，此前"未入册"缺口已解；退役 **115 码**进拒写闸（2026-09-16 波三重数订正，历史版本号不动；含波二新退役 `CUSTOMER_UPDATED`/`CUSTOMER_DELETED` 2 码）；原撞名嵌套结构 `AuditGovernanceActions` 已全部拆平退役）｜ `audit-evidence-export-workflow.service.ts`（审批背书导出）｜ 校验器 `npm run verify:audit`
 - **审计页实体跳转甲案**（2026-09-12 波三红项修复）：`admin-web/src/pages/auditEntityRoutes.ts` 按 `primarySubjectType` 建路由映射表（18 类主体，含不在 `AuditEntityTypes` 常量里但真实落库的 `FUNDS_ORDER`），命中即把审计列表 / 详情页的 `primarySubjectNo` 渲成可点链接；映射缺席的主体类型保留纯文本，不硬造（治理域两类 entityRef 虽已是业务号但唯一详情端点仍按内部 UUID 查询，映射了也是 404）；交易域三单跳转落地到「列表页 + `?keyword=`」，`keyword` 由三张列表页各自的显式单号参数接住预填。**同批清除幽灵字段**：审计 DTO / 服务层的 `entityType`/`entityId`/`entityNo`（2026-08-25 审计表重建后已无列支撑）全部改用真实存在的 `primarySubjectType`/`primarySubjectNo`；确证零调用方的 `AuditModules` 常量随之物理删除
 - 通知 `core/notifications/`：仅 WebSocket 推送，email/webhook/retry 为空壳（见 §6）
 
 ## 6. 演示缺口（均在 BACKLOG 有账）
 
 - **通知是空壳**：邀请邮件、审批通知不会真发——演示靠页面自查待办，别承诺"你会收到邮件"
-- **按业务号经子表检索只覆盖 7/101 码**：其余 94 码要用 primarySubjectNo 精确过滤才查得到——第七幕检索按此口径演。（分母随 2026-09-02 换名册四批收官从 48→101 更新；分子 7 未变——BACKLOG §H 记的那 7 码是 6 个 `APPROVAL_*` 加 `AUDIT_LOG_QUERIED`，退役码不计入分母）
+- ~~按业务号经子表检索只覆盖 7/101 码~~ **已解（2026-09-16 波三 OR 语义）**：这条限制的前提（子表检索是主表检索的窄子集）已被波三废除——Related No 检索改为「主表 `primarySubjectNo` ∨ 子表 `subjectNo`」，全码覆盖，不再有覆盖不到的码；子表另有自己的五角色名册 47 码（`SUBJECTS_COVERED_ACTIONS`，记录事件涉及的次要主体，与主表检索覆盖率是两回事），第七幕检索按新口径演
 - **停用非即时**：下次请求才失效——演示时刷一下页面再看效果
 - ADVANCED 8 项未做（Break-Glass、定期权限复审、审批超时预警等），演示不承诺
 
