@@ -78,6 +78,11 @@ describe('AdminMfaResetWorkflowService', () => {
       expect(req[0].actionDomain).toBe('IAM');
       expect(req[0].primarySubjectNo).toBe(targetUser.userNo);
       expect(req[0].onBehalfOfNo).toBe(targetUser.userNo);
+      // approvalCase.approvalNo 在手（createAndSubmit 刚返回）——双行数组。
+      expect(req[0].subjects).toEqual([
+        { subjectType: 'ADMIN_USER', subjectNo: targetUser.userNo, subjectRole: 'PRIMARY' },
+        { subjectType: 'APPROVAL_CASE', subjectNo: 'APR2608260003', subjectRole: 'INSTRUMENT' },
+      ]);
 
       usersDomainService.resetMfa.mockResolvedValue({
         id: 'user-2', userNo: targetUser.userNo, email: targetUser.email, role: targetUser.role,
@@ -94,6 +99,10 @@ describe('AdminMfaResetWorkflowService', () => {
       expect(app[0].approvalNo).toBe('APR2608260003');
       expect(app[0].causationId).toBe('apr-3');
       expect(app[0].correlationId).toBe(req[0].correlationId);
+      expect(app[0].subjects).toEqual([
+        { subjectType: 'ADMIN_USER', subjectNo: targetUser.userNo, subjectRole: 'PRIMARY' },
+        { subjectType: 'APPROVAL_CASE', subjectNo: 'APR2608260003', subjectRole: 'INSTRUMENT' },
+      ]);
     });
 
     it('执行失败时仍写 APPLIED(outcome=FAILED)', async () => {
@@ -109,6 +118,10 @@ describe('AdminMfaResetWorkflowService', () => {
       expect(app).toBeDefined();
       expect(app[0].outcome).toBe('FAILED');
       expect(app[0].correlationId).toBe('trace-z');
+      expect(app[0].subjects).toEqual([
+        { subjectType: 'ADMIN_USER', subjectNo: targetUser.userNo, subjectRole: 'PRIMARY' },
+        { subjectType: 'APPROVAL_CASE', subjectNo: 'APR2608260003', subjectRole: 'INSTRUMENT' },
+      ]);
     });
 
     it('驳回/取消/超时写 CANCELLED，带 reason 与 causationId', async () => {
@@ -122,6 +135,10 @@ describe('AdminMfaResetWorkflowService', () => {
       expect(cancelled[0].causationId).toBe('apr-3');
       expect(cancelled[0].correlationId).toBe('trace-cancel');
       expect(cancelled[0].primarySubjectNo).toBe(targetUser.userNo);
+      expect(cancelled[0].subjects).toEqual([
+        { subjectType: 'ADMIN_USER', subjectNo: targetUser.userNo, subjectRole: 'PRIMARY' },
+        { subjectType: 'APPROVAL_CASE', subjectNo: 'APR2608260003', subjectRole: 'INSTRUMENT' },
+      ]);
     });
   });
 

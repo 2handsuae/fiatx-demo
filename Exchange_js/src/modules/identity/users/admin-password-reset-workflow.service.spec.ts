@@ -5,6 +5,7 @@ import { UsersService } from './users.service';
 import { PrismaService } from '../../../core/prisma/prisma.service';
 import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import { ApprovalsService } from '../../governance/approvals/approvals.service';
+import { ApprovalDecidedEvent } from '../../governance/approvals/approval-handler.base';
 import { JwtService } from '@nestjs/jwt';
 import { ConflictException, ForbiddenException } from '@nestjs/common';
 
@@ -138,6 +139,10 @@ describe('AdminPasswordResetWorkflowService', () => {
           primarySubjectType: 'ADMIN_USER',
           primarySubjectNo: 'ADM001',
           correlationId: expect.any(String),
+          // SELF 径无审批单——单行数组，不伪造 INSTRUMENT 行。
+          subjects: [
+            { subjectType: 'ADMIN_USER', subjectNo: 'ADM001', subjectRole: 'PRIMARY' },
+          ],
         }),
         expect.objectContaining({
           actorType: 'ADMIN',
@@ -205,6 +210,11 @@ describe('AdminPasswordResetWorkflowService', () => {
           primarySubjectNo: 'ADM002',
           onBehalfOfNo: 'ADM002',
           correlationId: expect.any(String),
+          // approvalCase.approvalNo 在手（createAndSubmit 刚返回）——双行数组。
+          subjects: [
+            { subjectType: 'ADMIN_USER', subjectNo: 'ADM002', subjectRole: 'PRIMARY' },
+            { subjectType: 'APPROVAL_CASE', subjectNo: 'APR001', subjectRole: 'INSTRUMENT' },
+          ],
         }),
         expect.objectContaining({ onBehalfOfNo: 'ADM002' }),
       );
@@ -229,6 +239,10 @@ describe('AdminPasswordResetWorkflowService', () => {
           primarySubjectNo: 'ADM001',
           correlationId: 'trace-abc',
           outcome: 'SUCCESS',
+          // SELF 径无审批单——单行数组。
+          subjects: [
+            { subjectType: 'ADMIN_USER', subjectNo: 'ADM001', subjectRole: 'PRIMARY' },
+          ],
         }),
         expect.objectContaining({
           actorType: 'ADMIN',
@@ -253,6 +267,10 @@ describe('AdminPasswordResetWorkflowService', () => {
       expect(call[0].action).toBe('ADMIN_PASSWORD_RESET_SELF_TOKEN_ISSUED');
       expect(call[0].reasonCode).toBe('RATE_LIMITED');
       expect(call[0].correlationId).toBe('trace-abc');
+      // SELF 径无审批单——单行数组。
+      expect(call[0].subjects).toEqual([
+        { subjectType: 'ADMIN_USER', subjectNo: 'ADM001', subjectRole: 'PRIMARY' },
+      ]);
     });
   });
 
@@ -439,6 +457,61 @@ describe('AdminPasswordResetWorkflowService', () => {
       await expect(
         service.consumeResetToken('bad-token', 'NewPassword123!'),
       ).rejects.toThrow();
+    });
+  });
+
+  describe('第二批 · executeAdminReset 失败 / 审批被拒的 CANCELLED', () => {
+    const buildEvent = (
+      decision: ApprovalDecidedEvent['decision'],
+      traceId: string,
+    ): ApprovalDecidedEvent => ({
+      decision,
+      actionType: 'ADMIN_PASSWORD_RESET',
+      entityRef: 'ADM002',
+      approvalId: 'apr-9',
+      approvalNo: 'APR2608260009',
+      traceId,
+      workflowType: 'ADMIN_PASSWORD_RESET',
+      decisionByUserId: 'admin-1',
+      decisionByUserNo: 'ADM001',
+      decisionByRole: 'CISO',
+      decisionReason: 'reviewed',
+      metadata: {},
+    });
+
+    it('token 创建失败时写 OFFICER_APPLIED(outcome=FAILED)，subjects 双行镜像审批单', async () => {
+      // target 查不到（target?.userNo ?? event.entityRef 落到 event.entityRef 分支）。
+      mockPrisma.user.findFirst.mockResolvedValue(null);
+      const event = buildEvent('APPROVED', 'trace-fail');
+
+      await expect(service.handleApprovalDecided(event)).rejects.toThrow();
+
+      const app = mockAuditLogsService.recordSystem.mock.calls.find(
+        (c: any[]) => c[0].action === 'ADMIN_PASSWORD_RESET_OFFICER_APPLIED',
+      );
+      expect(app).toBeDefined();
+      expect(app[0].outcome).toBe('FAILED');
+      expect(app[0].subjects).toEqual([
+        { subjectType: 'ADMIN_USER', subjectNo: 'ADM002', subjectRole: 'PRIMARY' },
+        { subjectType: 'APPROVAL_CASE', subjectNo: 'APR2608260009', subjectRole: 'INSTRUMENT' },
+      ]);
+    });
+
+    it('审批被驳回时写 CANCELLED，subjects 双行镜像审批单', async () => {
+      // target 查不到（target?.userNo ?? event.entityRef 落到 event.entityRef 分支）。
+      mockUsersDomainService.findByUserNo.mockResolvedValue(null);
+      const event = buildEvent('DECLINED', 'trace-cancel');
+
+      await service.handleApprovalDecided(event);
+
+      const cancelled = mockAuditLogsService.recordSystem.mock.calls.find(
+        (c: any[]) => c[0].action === 'ADMIN_PASSWORD_RESET_CANCELLED',
+      );
+      expect(cancelled).toBeDefined();
+      expect(cancelled[0].subjects).toEqual([
+        { subjectType: 'ADMIN_USER', subjectNo: 'ADM002', subjectRole: 'PRIMARY' },
+        { subjectType: 'APPROVAL_CASE', subjectNo: 'APR2608260009', subjectRole: 'INSTRUMENT' },
+      ]);
     });
   });
 });

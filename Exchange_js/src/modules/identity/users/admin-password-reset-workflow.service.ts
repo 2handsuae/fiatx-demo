@@ -27,7 +27,7 @@ import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import {
   AuditEntityTypes,
 } from '../../audit-logging/constants/audit-actions.constant';
-import { AuditCategory, AuditOutcome } from '../../audit-logging/dto/audit-log.dto';
+import { AuditCategory, AuditOutcome, AuditSubjectInput, AuditSubjectRole } from '../../audit-logging/dto/audit-log.dto';
 import { ApprovalsService } from '../../governance/approvals/approvals.service';
 import { ApprovalDecidedEvent } from '../../governance/approvals/approval-handler.base';
 import {
@@ -53,6 +53,18 @@ export class AdminPasswordResetWorkflowService {
 
   private hashToken(token: string): string {
     return createHash('sha256').update(token).digest('hex');
+  }
+
+  /** 波二 §1.2：镜像主表 PRIMARY 进子表（Related No 检索只查子表，audit-logs.service.ts:1031-1036）
+   *  + 审批单凭据行。形状照 approvals.service.ts approvalSubjects 先例。 */
+  private adminSubjects(userNo: string, approvalNo?: string | null): AuditSubjectInput[] {
+    const rows: AuditSubjectInput[] = [
+      { subjectType: AuditEntityTypes.ADMIN_USER, subjectNo: userNo, subjectRole: AuditSubjectRole.PRIMARY },
+    ];
+    if (approvalNo) {
+      rows.push({ subjectType: AuditEntityTypes.APPROVAL_CASE, subjectNo: approvalNo, subjectRole: AuditSubjectRole.INSTRUMENT });
+    }
+    return rows;
   }
 
   private toAuditActor(
@@ -165,6 +177,7 @@ export class AdminPasswordResetWorkflowService {
         category: AuditCategory.GOVERNANCE,
         primarySubjectType: AuditEntityTypes.ADMIN_USER,
         primarySubjectNo: user.userNo,
+        subjects: this.adminSubjects(user.userNo),
         correlationId,
         outcome: AuditOutcome.SUCCESS,
         metadata: { email: user.email, requestSource: 'SELF' },
@@ -268,6 +281,7 @@ export class AdminPasswordResetWorkflowService {
         category: AuditCategory.GOVERNANCE,
         primarySubjectType: AuditEntityTypes.ADMIN_USER,
         primarySubjectNo: target.userNo,
+        subjects: this.adminSubjects(target.userNo, approvalCase.approvalNo),
         correlationId,
         onBehalfOfNo: target.userNo,
         outcome: AuditOutcome.SUCCESS,
@@ -353,6 +367,7 @@ export class AdminPasswordResetWorkflowService {
         category: AuditCategory.GOVERNANCE,
         primarySubjectType: AuditEntityTypes.ADMIN_USER,
         primarySubjectNo: target?.userNo ?? event.entityRef,
+        subjects: this.adminSubjects(target?.userNo ?? event.entityRef, event.approvalNo),
         correlationId: event.traceId,
         causationId: event.approvalId,
         outcome: AuditOutcome.FAILED,
@@ -377,6 +392,7 @@ export class AdminPasswordResetWorkflowService {
       category: AuditCategory.GOVERNANCE,
       primarySubjectType: AuditEntityTypes.ADMIN_USER,
       primarySubjectNo: target?.userNo ?? event.entityRef,
+      subjects: this.adminSubjects(target?.userNo ?? event.entityRef, event.approvalNo),
       correlationId: event.traceId,
       causationId: event.approvalId,
       outcome: AuditOutcome.SUCCESS,
@@ -420,6 +436,7 @@ export class AdminPasswordResetWorkflowService {
             category: AuditCategory.GOVERNANCE,
             primarySubjectType: AuditEntityTypes.ADMIN_USER,
             primarySubjectNo: userNo,
+            subjects: this.adminSubjects(userNo),
             correlationId: externalTraceId,
             outcome: AuditOutcome.DENIED,
             reasonCode: 'RATE_LIMITED',
@@ -491,6 +508,7 @@ export class AdminPasswordResetWorkflowService {
           category: AuditCategory.GOVERNANCE,
           primarySubjectType: AuditEntityTypes.ADMIN_USER,
           primarySubjectNo: userNo,
+          subjects: this.adminSubjects(userNo),
           correlationId: traceId,
           outcome: AuditOutcome.SUCCESS,
           metadata: { resetNo, requestSource: 'SELF' },
