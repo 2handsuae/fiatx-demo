@@ -101,6 +101,7 @@ describe('AuditEvidenceExportWorkflowService', () => {
         id: 'pkg-1',
         packageNo: 'EVP-1',
         approvalCaseId: 'approval-1',
+        approvalCaseNo: 'APR-1',
         status: 'READY',
         approvalCase: { approvalNo: 'APR-1', traceId: 'trace-1' },
       });
@@ -116,6 +117,7 @@ describe('AuditEvidenceExportWorkflowService', () => {
           action: 'AUDIT_EVIDENCE_EXPORT_DOWNLOADED',
           subjects: [
             { subjectType: 'AUDIT_EVIDENCE_PACKAGE', subjectNo: 'EVP-1', subjectRole: 'PRIMARY' },
+            { subjectType: 'APPROVAL_CASE', subjectNo: 'APR-1', subjectRole: 'INSTRUMENT' },
           ],
         }),
         expect.any(Object),

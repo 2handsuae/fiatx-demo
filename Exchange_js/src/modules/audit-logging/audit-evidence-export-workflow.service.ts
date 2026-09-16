@@ -196,7 +196,7 @@ export class AuditEvidenceExportWorkflowService {
         sourceIp,
         requestId: randomUUID(),
         sourcePlatform: 'ADMIN_API',
-        subjects: this.packageSubjects(found.packageNo),
+        subjects: this.packageSubjects(found.packageNo, found.approvalCaseNo),
       },
       this.toAuditActor(actor),
     );
