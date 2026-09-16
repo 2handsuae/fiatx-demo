@@ -17,7 +17,7 @@
 - **不动 schema / seed / 前端**（前端零文件改动，②③⑧ 闸均不触发）
 - **随手闸**：每任务收尾 `npx tsc --noEmit -p tsconfig.json` + 本任务相关 jest 全绿
 - **测试纪律**：禁止「扫源码文本」型断言；涉 audit-logging 查询侧 mock 一律用 `audit-logs.service.spec.ts` 顶层的 `mockFindManyByWhere`（行为化，按 where 真过滤），禁止 `mockResolvedValue` 无视 where
-- **subjects 统一规则（spec §1.2）**：镜像行 subjectType/subjectNo = 该调用主表 `primarySubjectType`/`primarySubjectNo` **原值**，role PRIMARY；该调用已有顶层 `approvalNo:` 字段时加 `{ APPROVAL_CASE, <同一值>, INSTRUMENT }`，没有就不加、不查库凑行
+- **subjects 统一规则（spec §1.2 原文）**：镜像行 subjectType/subjectNo = 该调用主表 `primarySubjectType`/`primarySubjectNo` **原值**，role PRIMARY；该调用点已有 approvalNo **在手（本地变量）或已写进顶层/metadata** 时加 `{ APPROVAL_CASE, <同一值>, INSTRUMENT }`，没有就不加、不查库凑行（Task 1 评审裁定 2026-09-16：REQUESTED 处 `approvalCase.approvalNo` 属"在手"，加行正确）
 - **派发模型**（项目 CLAUDE.md §6）：任务执行与任务级评审 → sonnet；终审 → 主会话 Fable；子代理 prompt 须带项目 CLAUDE.md §0–§5 要点
 - **commit**：每任务一 commit，只 add 具名文件
 
