@@ -7,17 +7,17 @@
 
 ## 0. 本波做 / 不做
 
-**做**：① V1 治理域 9 个 workflow 文件 48 处审计调用补 `subjects:`（33 码）② `MATERIAL_REQUEST_ISSUED` 改带操作人 ③ `verifyMfaCode` 锁定路径补 `ADMIN_ACCOUNT_LOCK_*` 打点 ④ 删 customers 裸 CRUD 三端点 + 三服务方法（含 RBAC 三连动、词表退役连带）⑤ `verify:audit` Q2/Q4 升级名册断言。
+**做**：① V1 治理域 9 个 workflow 文件 49 处审计调用补 `subjects:`（34 码，执行中订正：变量 action 一处逃字面 grep）② `MATERIAL_REQUEST_ISSUED` 改带操作人 ③ `verifyMfaCode` 锁定路径补 `ADMIN_ACCOUNT_LOCK_*` 打点 ④ 删 customers 裸 CRUD 三端点 + 三服务方法（含 RBAC 三连动、词表退役连带）⑤ `verify:audit` Q2/Q4 升级名册断言。
 
 **不做**（对照总纲 §2 与 CLAUDE.md §2）：前端零改动（plan 阶段实测：`admin-web/src/rbac/permissions.ts` 从未声明过三写端点的键，只有 CUSTOMERS_READ/DETAIL_READ 两读键——三连动里前端这环天然为空）｜ schema / seed 零触碰（⑧ 不触发）｜ `ADMIN_ACCESS_DENIED` 不加 subjects（总纲明文：按 actorNo 已可查）｜ 登录留痕 ｜ 审计→账本跳转 ｜ 检索前端与深链（波三）｜ InternalFundAuditLog。
 
-## 1. subjects 补齐（9 文件 48 处 33 码）
+## 1. subjects 补齐（9 文件 49 处 34 码）
 
 ### 1.1 关键设计事实：PRIMARY 必须镜像进子表
 
 列表查询的 `subjectNo` 过滤（前端 Advanced · Related No）**只查子表**：`audit-logs.service.ts:1031-1036` 是 `subjects: { some: { subjectNo } }`，不 OR 主表 `primarySubjectNo`；`verify-audit.ts` Q2 同样只查子表。所以战役判据 2「输 ADM 号拉一生」成立的前提，是把主表 primary **镜像**成一条子表行。
 
-在库两个先例打架：`approvals.service.ts:131-144`（`approvalSubjects`）镜像 PRIMARY 行；`role-definition-modify-workflow.service.ts:50-53` 注释明言「PRIMARY 已在主表两列上，只补 RELATED 不重复传」。**本波按总纲钉死的 approvals 先例 = 镜像**。modify 那套导致它的 primary（requestNo）按 Related No 查不到——既有事实、不在本波 33 码清单内，不回改，登记 BACKLOG 观察一行。
+在库两个先例打架：`approvals.service.ts:131-144`（`approvalSubjects`）镜像 PRIMARY 行；`role-definition-modify-workflow.service.ts:50-53` 注释明言「PRIMARY 已在主表两列上，只补 RELATED 不重复传」。**本波按总纲钉死的 approvals 先例 = 镜像**。modify 那套导致它的 primary（requestNo）按 Related No 查不到——既有事实、不在本波 34 码清单内，不回改，登记 BACKLOG 观察一行。
 
 ### 1.2 统一构造规则（每处调用）
 
@@ -29,7 +29,7 @@ subjects = ① 镜像行：{ subjectType: 该调用 primarySubjectType 原值, s
              ——只用现成变量，不为凑行数去查库
 ```
 
-- 每文件立一个私有 helper（照同域先例 `admin-role-binding-change-workflow.service.ts` 的 `roleRelatedSubjects` 形状），48 处调用每处 diff 压到 1 行。
+- 每文件立一个私有 helper（照同域先例 `admin-role-binding-change-workflow.service.ts` 的 `roleRelatedSubjects` 形状），49 处调用每处 diff 压到 1 行。
 - 不变量①（每事件至多一个 PRIMARY）不许破——helper 保证镜像行是唯一 PRIMARY。
 - **invite 家族遗留**：其主表 `primarySubjectType` 是 `ACCESS_CONTROL` 而号是 userNo（其余五家均 `ADMIN_USER`，`admin-invite-workflow.service.ts:413` 注释自认"对齐同旅程"）。镜像**按主表原值**，主表类型不动——改类型是展示面/跳转面变化，越出纯写入面边界；登记 BACKLOG 小账观察。判据 2 按 subjectNo 匹配，不受类型影响。
 
@@ -40,13 +40,13 @@ subjects = ① 镜像行：{ subjectType: 该调用 primarySubjectType 原值, s
 | `identity/users/admin-invite-workflow.service.ts` | 9 | INVITE_REQUESTED / DISPATCHED / CANCELLED / ACCEPTED / EXPIRED（5） |
 | `identity/users/admin-suspension-workflow.service.ts` | 3 | SUSPENSION_REQUESTED / APPLIED（2） |
 | `identity/users/admin-reactivation-workflow.service.ts` | 3 | REACTIVATION_REQUESTED / APPLIED（2） |
-| `identity/users/admin-password-reset-workflow.service.ts` | 6 | SELF_REQUESTED / OFFICER_REQUESTED / OFFICER_APPLIED / CANCELLED / SELF_TOKEN_ISSUED（5） |
+| `identity/users/admin-password-reset-workflow.service.ts` | 7 | SELF_REQUESTED / OFFICER_REQUESTED / OFFICER_APPLIED / CANCELLED / SELF_TOKEN_ISSUED / **SELF_COMPLETED**（6）——**订正 2026-09-16 执行中**：`recordConsumeOutcome(:105)` 的 action 是运行时变量（OFFICER_APPLIED/SELF_COMPLETED 二选一），字面 `grep "action: '"` 漏网；Task 3 实现者逮回，九文件复扫对账确认仅此一处 |
 | `identity/users/admin-mfa-reset-workflow.service.ts` | 4 | MFA_RESET_REQUESTED / APPLIED / CANCELLED（3） |
 | `identity/users/mfa-binding-workflow.service.ts` | 12 | FIRST_LOGIN_IDENTITY_CONFIRMED / MFA_INITIATED / MFA_BOUND / COMPLETED、MFA_LOGIN_VERIFY_FAILED / VERIFIED、ACCOUNT_LOCK_APPLIED / RELEASED（8） |
 | `identity/access-control/role-definition-create-workflow.service.ts` | 4 | CREATE_REQUESTED / APPLIED / CANCELLED（3） |
 | `governance/approvals/approval-policy-change-workflow.service.ts` | 3 | POLICY_CHANGE_REQUESTED / APPLIED（2） |
 | `audit-logging/audit-evidence-export-workflow.service.ts` | 4 | EXPORT_REQUESTED / GENERATED / DOWNLOADED（3） |
-| **合计** | **48** | **33** |
+| **合计** | **49** | **34** |
 
 复现：六 users/ 文件 `grep -c "subjects"` 全 0；后三文件同 0；各文件 `grep -n "action: '"` 得上表码。
 
@@ -91,7 +91,7 @@ actor = 被锁定管理员本人（`recordByActor`）；subjects 按 §1.2 镜�
 **病灶**：Q2 `findFirst` 任取一条 PRIMARY 自证（`verify-audit.ts:14-23`）；Q4 任取一条 OWNER=CUSTOMER，而其唯一来源就是查询动作自证（:26-39）。两条都咬不了"某个 workflow 忘了写 subjects"。
 
 **升级设计**：
-1. **名册常量**：`SUBJECTS_COVERED_ACTIONS` 落 `audit-actions.constant.ts`，脚本 import（照 `DEPRECATED_AUDIT_ACTIONS` 先例，`verify-audit.ts:2`）。内容 = §1.3 的 33 码 **+ 既有覆盖一并锁进闸**：`APPROVAL_*` 7 码、`ROLE_DEFINITION_MODIFY_*` 族 3 码、`ADMIN_ROLE_CHANGE_*` 族 3 码——防已修的复发。三族入册前提已实测：调用数 = 带 subjects 数（approvals 7/7、modify 4/4、role-binding 4/4），入册不会误红（§H 记"6 个 APPROVAL_*"为旧数，实测 7）。
+1. **名册常量**：`SUBJECTS_COVERED_ACTIONS` 落 `audit-actions.constant.ts`，脚本 import（照 `DEPRECATED_AUDIT_ACTIONS` 先例，`verify-audit.ts:2`）。内容 = §1.3 的 34 码 **+ 既有覆盖一并锁进闸**：`APPROVAL_*` 7 码、`ROLE_DEFINITION_MODIFY_*` 族 3 码、`ADMIN_ROLE_CHANGE_*` 族 3 码——防已修的复发。三族入册前提已实测：调用数 = 带 subjects 数（approvals 7/7、modify 4/4、role-binding 4/4），入册不会误红（§H 记"6 个 APPROVAL_*"为旧数，实测 7）。
 2. **Q2 新形态（按码断言覆盖面）**：对名册内每码，库中该码事件数 N>0 时断言「该码全部事件都有 ≥1 子表行」（violations=0 才绿）；逐码输出 checked / 库中未见事件 两个清单。另设前置硬断言「名册中有事件的码数 ≥ 阈值」防空库假绿——阈值由 plan 阶段对重铺后 `demo:all` 库实测定数。
 3. **Q4 新形态**：改为「`AUDIT_LOG_QUERIED` 且带 ownerCustomerNo 参数的事件**全部**携带 OWNER=CUSTOMER 子表行」；"V1 域无其他 OWNER=CUSTOMER 场景"的结构性说明降为脚本注释保留（BACKLOG Q4 条按此重锚）。
 4. **变异测试（防新自证）**：临时抽掉任一 workflow 的 subjects → `verify:audit` 必须转红；恢复转绿。红/绿双证进物证。
@@ -107,7 +107,7 @@ actor = 被锁定管理员本人（`recordByActor`）；subjects 按 §1.2 镜�
 
 ## 7. 风险与开口
 
-- 最大工作量 = 48 处调用逐处补行，机械但量大——helper 化后评审重点收敛到"每文件 helper 正确 + 33 码无漏"，名册断言当场兜底漏网。
+- 最大工作量 = 49 处调用逐处补行，机械但量大——helper 化后评审重点收敛到"每文件 helper 正确 + 34 码无漏"，名册断言当场兜底漏网。
 - customers 删除唯一暴露面是隐藏调用方（波一 `findEvidencePackage` 判例）——§4 零引用证据在 plan 执行前原样重跑，绿了才动手。
 - 名册阈值依赖 demo:all 实测：plan 第一个任务先重铺定基数，防"名册全空也绿"；未被 demo 演到的码（如 CANCELLED/EXPIRED/LOCK 族）走条件断言，不硬造场景。
 - `requests.create` 签名加参波及其 spec 与两个调用方（issue/register 同穿），范围小且 tsc 兜底。
