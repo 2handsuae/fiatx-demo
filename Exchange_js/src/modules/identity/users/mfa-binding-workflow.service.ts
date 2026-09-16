@@ -44,7 +44,12 @@ import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import {
   AuditEntityTypes,
 } from '../../audit-logging/constants/audit-actions.constant';
-import { AuditCategory, AuditOutcome } from '../../audit-logging/dto/audit-log.dto';
+import {
+  AuditCategory,
+  AuditOutcome,
+  AuditSubjectInput,
+  AuditSubjectRole,
+} from '../../audit-logging/dto/audit-log.dto';
 import { UsersDomainService } from './users.domain.service';
 
 const MFA_ISSUER = process.env.MFA_ISSUER || 'Exchange Admin';
@@ -118,6 +123,18 @@ export class MfaBindingWorkflowService {
     };
   }
 
+  /** 波二 §1.2：镜像主表 PRIMARY 进子表（Related No 检索只查子表，audit-logs.service.ts:1031-1036）
+   *  + 审批单凭据行。形状照 approvals.service.ts approvalSubjects 先例。 */
+  private adminSubjects(userNo: string, approvalNo?: string | null): AuditSubjectInput[] {
+    const rows: AuditSubjectInput[] = [
+      { subjectType: AuditEntityTypes.ADMIN_USER, subjectNo: userNo, subjectRole: AuditSubjectRole.PRIMARY },
+    ];
+    if (approvalNo) {
+      rows.push({ subjectType: AuditEntityTypes.APPROVAL_CASE, subjectNo: approvalNo, subjectRole: AuditSubjectRole.INSTRUMENT });
+    }
+    return rows;
+  }
+
   private retryAfterSeconds(lockedUntil: Date | null | undefined): number {
     if (!lockedUntil) return 0;
     return Math.max(0, Math.ceil((lockedUntil.getTime() - Date.now()) / 1000));
@@ -174,6 +191,7 @@ export class MfaBindingWorkflowService {
         outcome: AuditOutcome.SUCCESS,
         fromStatus: 'PENDING_IDENTITY_CONFIRM',
         toStatus: 'MFA_BINDING',
+        subjects: this.adminSubjects(user.userNo),
         requestId: randomUUID(),
         sourcePlatform: 'ADMIN_API',
       },
@@ -217,6 +235,7 @@ export class MfaBindingWorkflowService {
         correlationId: user.firstLoginTraceId || undefined,
         outcome: AuditOutcome.SUCCESS,
         metadata: { issuer: MFA_ISSUER },
+        subjects: this.adminSubjects(user.userNo),
         // 每次调用独立 nonce——这一步允许重复触发（例如用户刷新二维码页面重新生成密钥），
         // 若沿用固定的 correlationId 系 requestId，幂等键会撞车、第二次调用被静默吞掉。
         requestId: randomUUID(),
@@ -243,6 +262,30 @@ export class MfaBindingWorkflowService {
       throw new ForbiddenException('MFA not bound');
     }
 
+    // 波二 §3：对齐 verifyMfaBind 的惰性解封——过期锁的首次尝试先清计数并留痕再继续。
+    // correlationId 回查最近一条 APPLIED（applied/released 配对共享旅程，
+    // 同 findLatestLockAppliedCorrelationId 的既有模式；本流程没有 firstLoginTraceId 可借）。
+    if (user.mfaVerifyLockedUntil && user.mfaVerifyLockedUntil <= new Date()) {
+      await this.usersDomainService.clearMfaVerifyFail(userId);
+      await this.auditLogsService.recordByActor(
+        {
+          action: 'ADMIN_ACCOUNT_LOCK_RELEASED',
+          actionDomain: 'IAM',
+          category: AuditCategory.GOVERNANCE,
+          primarySubjectType: AuditEntityTypes.ADMIN_USER,
+          primarySubjectNo: user.userNo,
+          correlationId: await this.findLatestLockAppliedCorrelationId(user.userNo),
+          fromStatus: 'LOCKED',
+          toStatus: 'ACTIVE',
+          reason: 'MFA verify lockout expired',
+          subjects: this.adminSubjects(user.userNo),
+          requestId: randomUUID(),
+          sourcePlatform: 'ADMIN_API',
+        },
+        this.buildActor(user),
+      );
+    }
+
     if (user.mfaVerifyLockedUntil && user.mfaVerifyLockedUntil > new Date()) {
       throw new TooManyRequestsException({
         message: 'MFA verification temporarily locked',
@@ -259,6 +302,26 @@ export class MfaBindingWorkflowService {
       const { newCount, locked } = await this.usersDomainService.incrementMfaVerifyFail(userId);
 
       if (locked) {
+        // 波二 §3：锁定被施加是独立事件，对齐 verifyMfaBind 同款模板（START 现铸 correlationId）。
+        // 留痕失败即流程失败：审计写入不吞错。
+        await this.auditLogsService.recordByActor(
+          {
+            action: 'ADMIN_ACCOUNT_LOCK_APPLIED',
+            actionDomain: 'IAM',
+            category: AuditCategory.GOVERNANCE,
+            primarySubjectType: AuditEntityTypes.ADMIN_USER,
+            primarySubjectNo: user.userNo,
+            correlationId: randomUUID(),
+            reasonCode: 'MFA_VERIFY_LOCKOUT',
+            fromStatus: 'ACTIVE',
+            toStatus: 'LOCKED',
+            metadata: { failCount: newCount },
+            subjects: this.adminSubjects(user.userNo),
+            requestId: randomUUID(),
+            sourcePlatform: 'ADMIN_API',
+          },
+          this.buildActor(user, 'TOTP'),
+        );
         throw new TooManyRequestsException({
           message: 'MFA verification locked due to too many failed attempts',
           retryAfterSeconds: 15 * 60,
@@ -308,6 +371,7 @@ export class MfaBindingWorkflowService {
           fromStatus: 'LOCKED',
           toStatus: 'ACTIVE',
           reason: 'MFA verify lockout expired',
+          subjects: this.adminSubjects(user.userNo),
           requestId: randomUUID(),
           sourcePlatform: 'ADMIN_API',
         },
@@ -344,6 +408,7 @@ export class MfaBindingWorkflowService {
           outcome: AuditOutcome.FAILED,
           reasonCode: 'INVALID_CODE',
           metadata: { failCount: newCount, locked },
+          subjects: this.adminSubjects(user.userNo),
           requestId: randomUUID(),
           sourcePlatform: 'ADMIN_API',
         },
@@ -368,6 +433,7 @@ export class MfaBindingWorkflowService {
             fromStatus: 'ACTIVE',
             toStatus: 'LOCKED',
             metadata: { failCount: newCount },
+            subjects: this.adminSubjects(user.userNo),
             requestId: randomUUID(),
             sourcePlatform: 'ADMIN_API',
           },
@@ -398,6 +464,7 @@ export class MfaBindingWorkflowService {
         correlationId: user.firstLoginTraceId || undefined,
         authnMethod: 'TOTP',
         outcome: AuditOutcome.SUCCESS,
+        subjects: this.adminSubjects(user.userNo),
         requestId: randomUUID(),
         sourcePlatform: 'ADMIN_API',
       },
@@ -416,6 +483,7 @@ export class MfaBindingWorkflowService {
         fromStatus: 'MFA_BINDING',
         toStatus: 'COMPLETED',
         metadata: { userNo: user.userNo, role: user.role },
+        subjects: this.adminSubjects(user.userNo),
         requestId: randomUUID(),
         sourcePlatform: 'ADMIN_API',
       },
@@ -487,6 +555,7 @@ export class MfaBindingWorkflowService {
           // 落 metadata 不拆码（见 audit-actions.constant.ts 的 MFA_LOGIN_VERIFY_FAILED 声明）。
           reasonCode: 'INVALID_MFA_CODE',
           metadata: { failCount: newCount, locked },
+          subjects: this.adminSubjects(user.userNo),
           requestId: ctx.requestId,
           sourceIp: ctx.sourceIp,
           sourcePlatform: 'ADMIN_API',
@@ -520,6 +589,7 @@ export class MfaBindingWorkflowService {
         authnMethod: 'TOTP',
         outcome: AuditOutcome.SUCCESS,
         metadata: { userNo },
+        subjects: this.adminSubjects(user.userNo),
         requestId: ctx.requestId,
         sourceIp: ctx.sourceIp,
         sourcePlatform: 'ADMIN_API',
@@ -568,6 +638,7 @@ export class MfaBindingWorkflowService {
         fromStatus: 'ACTIVE',
         toStatus: 'LOCKED',
         metadata: { failedLoginAttempts: event.failedLoginAttempts },
+        subjects: this.adminSubjects(event.userNo),
         requestId: randomUUID(),
         sourcePlatform: 'ADMIN_AUTH_API',
       });
@@ -615,6 +686,7 @@ export class MfaBindingWorkflowService {
       fromStatus: 'LOCKED',
       toStatus: 'ACTIVE',
       reason: 'Consecutive auth failure lockout expired',
+      subjects: this.adminSubjects(event.userNo),
       requestId: `ADMIN_ACCOUNT_LOCK_RELEASED_${event.userNo}_${randomUUID()}`,
       sourcePlatform: 'ADMIN_AUTH_API',
     });

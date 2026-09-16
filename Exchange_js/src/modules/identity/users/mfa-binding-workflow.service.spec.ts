@@ -89,6 +89,10 @@ describe('MfaBindingWorkflowService', () => {
       expect(call[0].toStatus).toBe('MFA_BINDING');
       // authnMethod 同时落到 actor 快照（第二个参数），不是只满足 DTO 校验就完事。
       expect(call[1].authnMethod).toBe('PASSWORD');
+      // 波二 §1.2：镜像主表 PRIMARY 进子表（Related No 检索只查子表）。
+      expect(call[0].subjects).toEqual([
+        { subjectType: 'ADMIN_USER', subjectNo: 'ADM-001', subjectRole: 'PRIMARY' },
+      ]);
     });
 
     // ADMIN_FIRST_LOGIN_MFA_INITIATED / ADMIN_FIRST_LOGIN_MFA_BOUND / ADMIN_FIRST_LOGIN_COMPLETED
@@ -152,6 +156,10 @@ describe('MfaBindingWorkflowService', () => {
       expect(call[0].correlationId).toBe('trace-first-login');
       expect(call[0].fromStatus).toBe('LOCKED');
       expect(call[0].toStatus).toBe('ACTIVE');
+      // 波二 §1.2：镜像主表 PRIMARY 进子表（Related No 检索只查子表）。
+      expect(call[0].subjects).toEqual([
+        { subjectType: 'ADMIN_USER', subjectNo: 'ADM-001', subjectRole: 'PRIMARY' },
+      ]);
     });
 
     it('mfaVerifyLockedUntil 仍在未来时不触发解锁写入', async () => {
@@ -199,6 +207,10 @@ describe('MfaBindingWorkflowService', () => {
       expect(call[0].primarySubjectNo).toBe('ADM-001');
       // START：与 verifyMfaBind() 里 MFA 锁定同款，现铸新 UUID，不复用任何实体列。
       expect(call[0].correlationId).toBeTruthy();
+      // 波二 §1.2：镜像主表 PRIMARY 进子表（Related No 检索只查子表）。
+      expect(call[0].subjects).toEqual([
+        { subjectType: 'ADMIN_USER', subjectNo: 'ADM-001', subjectRole: 'PRIMARY' },
+      ]);
     });
 
     it('留痕失败即流程失败（2026-09-01 法一纪律3）：审计写入失败会向上抛，不再静默吞掉', async () => {
@@ -234,6 +246,10 @@ describe('MfaBindingWorkflowService', () => {
       expect(call[0].correlationId).toBe('trace-lock-applied-1');
       expect(call[0].fromStatus).toBe('LOCKED');
       expect(call[0].toStatus).toBe('ACTIVE');
+      // 波二 §1.2：镜像主表 PRIMARY 进子表（Related No 检索只查子表）。
+      expect(call[0].subjects).toEqual([
+        { subjectType: 'ADMIN_USER', subjectNo: 'ADM-001', subjectRole: 'PRIMARY' },
+      ]);
     });
 
     it('回查不到 ADMIN_ACCOUNT_LOCK_APPLIED 事件时 correlationId 原样传 undefined——不 ?? randomUUID() 冒充 INHERIT', async () => {
@@ -255,6 +271,50 @@ describe('MfaBindingWorkflowService', () => {
       await expect(
         service.handleAutoUnlock({ userId: 'u1', userNo: 'ADM-001' }),
       ).rejects.toThrow('db down');
+    });
+  });
+
+  describe('verifyMfaCode 锁定路径打点（波二 §3）', () => {
+    // ADMIN_ACCOUNT_LOCK_APPLIED 的写入点在 getOtp() 之后（!isValid 分支、locked===true
+    // 那一支内），同本文件"第一批 · 账号锁定 2 码"块顶部注释里 verifyMfaBind 的
+    // ADMIN_ACCOUNT_LOCK_APPLIED 精确同款，阻于同一堵 ESM 动态 import 墙——2026-09-16
+    // 本任务实测复现：即便 mfaSecret 换成 encryptMfaSecret() 产出的合法密文，
+    // decryptMfaSecret 通过后 otp.verifySync() 内部的 getOtp() 仍会抛
+    // "TypeError: A dynamic import callback was invoked without --experimental-vm-modules"，
+    // incrementMfaVerifyFail 永远调用不到，本 jest 配置下不可测。已按同一模板人工复核
+    // （见 mfa-binding-workflow.service.ts verifyMfaCode 内该分支的注释：actionDomain/
+    // category 与姊妹方法一致、reasonCode/fromStatus/toStatus 三个必填字段全给、
+    // subjects 同一 helper）——如实记 todo，不假装用一个测不到真实分支的用例把它盖住。
+    it.todo('连续失败触发锁定时写 ADMIN_ACCOUNT_LOCK_APPLIED — 阻于 getOtp() 动态 import，本 jest 配置下不可测（见上方注释）');
+
+    it('过期锁的首次尝试惰性解封并写 ADMIN_ACCOUNT_LOCK_RELEASED，同时清空计数', async () => {
+      usersDomainService.findFirstLoginState.mockResolvedValue({
+        ...baseState,
+        mfaSecret: 'enc:tag:ct',
+        mfaVerifyFailCount: 5,
+        mfaVerifyLockedUntil: new Date(Date.now() - 1000),
+      });
+      prisma.auditLogEvent.findFirst.mockResolvedValue({ correlationId: 'trace-lock-applied-mfa-code' });
+
+      // RELEASED 写入发生在 decryptMfaSecret/getOtp() 之前——本用例只关心这段是否正确
+      // 触发；再往后（getOtp 的 ESM 墙）必然会抛出一个不相关的异常，吞掉即可（同本文件
+      // "第一批 · 账号锁定 2 码"块里 verifyMfaBind 对应用例的既有写法）。
+      await service.verifyMfaCode('u1', '123456').catch(() => undefined);
+
+      expect(usersDomainService.clearMfaVerifyFail).toHaveBeenCalledWith('u1');
+
+      const rel = auditLogsService.recordByActor.mock.calls.find(
+        (c: any[]) => c[0].action === 'ADMIN_ACCOUNT_LOCK_RELEASED',
+      );
+      expect(rel).toBeDefined();
+      expect(rel[0].primarySubjectNo).toBe('ADM-001');
+      expect(rel[0].correlationId).toBe('trace-lock-applied-mfa-code');
+      expect(rel[0].fromStatus).toBe('LOCKED');
+      expect(rel[0].toStatus).toBe('ACTIVE');
+      // 波二 §1.2：镜像主表 PRIMARY 进子表（Related No 检索只查子表）。
+      expect(rel[0].subjects).toEqual([
+        { subjectType: 'ADMIN_USER', subjectNo: 'ADM-001', subjectRole: 'PRIMARY' },
+      ]);
     });
   });
 });
