@@ -123,7 +123,7 @@ const deltaClause = toleratedRetired.length > 0
   ? `（较 ${seedDateLabel} 版少 ${toleratedRetired.length}：${toleratedRetired.join('、')} 已退役，进拒写闸）`
   : '';
 out.push(`> 现役 **${total} 码**${deltaClause}，另有退役 ${DEPRECATED_AUDIT_ACTIONS.length} 码进拒写闸（附录全列）。`);
-out.push('> **旅程**列：S 起点=该码铸 correlationId 开启一段旅程 ｜ I 继承=延续同一旅程 ｜ N 单步=无旅程可挂（守卫拒绝、单步动作、报价先于订单等）。**异步**=✓ 表示由审批/事件驱动、必须带 causationId。**subjects**=✓ 表示该码已落五角色子表，Related No 可直接检索。⚡=演示装置。');
+out.push('> **旅程**列：S 起点=该码铸 correlationId 开启一段旅程 ｜ I 继承=延续同一旅程 ｜ N 单步=无旅程可挂（守卫拒绝、单步动作、报价先于订单等）。**异步**=✓ 表示由审批/事件驱动、必须带 causationId。**subjects**=✓ 表示该码在 SUBJECTS_COVERED_ACTIONS 名册（治理域+横切审批 47 码，verify:audit Q2 断言面）；交易域码运行时也写子表行但不在名册故留白；Related No 检索走 OR 语义（主表∨子表）不受此列影响。⚡=演示装置。');
 out.push('');
 out.push(`**分域计数**：${domains.map((d) => `${d.key} ${domainCounts[d.key] ?? 0}`).join(' ｜ ')} ｜ 合计 ${total}`);
 out.push('');

@@ -90,7 +90,7 @@
 
 1. **证据链非空**：充值/提现证据包 builder 换业务号→内部 id 解析（照 swap 先例），5 个幽灵 Prisma 模型分支整段退役 —— 波一完成，走查实证真实包 `EVP260915143063` 下载后 deposits 2 + withdraws 1 非空（本文件状态行「波一」段）
 2. **人和事都查得到**：Related No 输一个 ADM 号 → 拉出该管理员邀请→首登→停用→恢复一生全链 19 条事件（含 `APPROVAL_SUBMITTED`/`GRANTED` INSTRUMENT 行）—— 波二完成，物证见 `BACKLOG.md` §H subjects 覆盖条「已修」记录（本文件状态行「波二」段）
-3. **检索一键可达**：第七幕五步走查全程「从实体页一键进审计」，零人肉抄号切页——波三完成，`demo/script.md` 第七幕节已改写深链版（①②⑤ View audit trail 深链，③④ 保留非深链项），12 张截图物证在 `doc-final/superpowers/checkups/act7-wave3-walkthrough/`（Task 8 走查报告：`.superpowers/sdd/task-8-report.md`）
+3. **检索一键可达**：第七幕五步走查全程「从实体页一键进审计」，零人肉抄号切页——波三完成，`demo/script.md` 第七幕节已改写深链版（①②⑤ View audit trail 深链，③④ 保留非深链项），物证即入库目录 `doc-final/superpowers/checkups/act7-wave3-walkthrough/`（12 张截图，无独立走查报告文件）
 4. **零内部 UUID 落屏**：审计四页（列表/详情/证据包列表/详情）Raw Record 按岔口①乙案过滤，Owner ID / actorId 兜底 / Selected Event IDs 三处 UUID 落屏清除——波一完成（本文件状态行「波一」段；`BACKLOG.md` §H UUID 相关条「已修」记录）
 5. **`verify:audit` 升级判据全绿**：Q2 名册断言、Q4 全称量化、Q5 拒绝有痕——波二完成升级；波三走查后复跑（含 Q4/Q5/Q6）全绿，见 Task 8 报告 Step 3
 6. **词表最全版交业主**：`doc-final/lark/2026-09-16-audit-actions-catalog-full.md`（`npm run audit:vocab` 程序化重导，现役 261 码/退役 115 码，对账乙案：波二新退役 2 码容忍+种子入库）—— 波三 Task 7 完成

@@ -1,8 +1,8 @@
 # 审计动作码全量导出 —— 按域 × 按工作流（最全版）
 
-> 生成于 2026-09-16 ｜ 基线 main `bb408fd8` ｜ 机器列来源 `src/modules/audit-logging/constants/audit-actions.constant.ts`（8 份名册程序化导出）｜ 说明列来源 `doc-final/lark/2026-09-15-audit-actions-catalog-by-domain-workflow.md`
+> 生成于 2026-09-16 ｜ 基线 main `f2bfeffb` ｜ 机器列来源 `src/modules/audit-logging/constants/audit-actions.constant.ts`（8 份名册程序化导出）｜ 说明列来源 `doc-final/lark/2026-09-15-audit-actions-catalog-by-domain-workflow.md`
 > 现役 **261 码**（较 2026-09-15 版少 2：CUSTOMER_DELETED、CUSTOMER_UPDATED 已退役，进拒写闸），另有退役 115 码进拒写闸（附录全列）。
-> **旅程**列：S 起点=该码铸 correlationId 开启一段旅程 ｜ I 继承=延续同一旅程 ｜ N 单步=无旅程可挂（守卫拒绝、单步动作、报价先于订单等）。**异步**=✓ 表示由审批/事件驱动、必须带 causationId。**subjects**=✓ 表示该码已落五角色子表，Related No 可直接检索。⚡=演示装置。
+> **旅程**列：S 起点=该码铸 correlationId 开启一段旅程 ｜ I 继承=延续同一旅程 ｜ N 单步=无旅程可挂（守卫拒绝、单步动作、报价先于订单等）。**异步**=✓ 表示由审批/事件驱动、必须带 causationId。**subjects**=✓ 表示该码在 SUBJECTS_COVERED_ACTIONS 名册（治理域+横切审批 47 码，verify:audit Q2 断言面）；交易域码运行时也写子表行但不在名册故留白；Related No 检索走 OR 语义（主表∨子表）不受此列影响。⚡=演示装置。
 
 **分域计数**：APPROVAL 8 ｜ IAM 30 ｜ CONFIG 60 ｜ AUDIT 4 ｜ CUSTOMER 26 ｜ DEPOSIT 47 ｜ WITHDRAW 33 ｜ SWAP 26 ｜ TREASURY 7 ｜ RECON 9 ｜ GOVERNANCE 11 ｜ 合计 261
 
