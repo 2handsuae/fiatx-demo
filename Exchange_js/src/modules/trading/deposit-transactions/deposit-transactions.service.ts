@@ -1220,7 +1220,7 @@ export class DepositTransactionsService {
   }) {
     const wallet = await (this.prisma as any).wallet.findUnique({ where: { id: input.toWalletId } });
     if (!wallet) throw new NotFoundException('Wallet not found');
-    const asset = await (this.prisma as any).asset.findUnique({ where: { id: input.assetId }, select: { id: true, type: true, network: true } });
+    const asset = await (this.prisma as any).asset.findUnique({ where: { id: input.assetId }, select: { id: true, type: true, network: true, currency: true } });
     if (!asset) throw new NotFoundException('Asset not found');
     if (asset.network !== wallet.network) {
       throw new BadRequestException(`Wallet is on ${wallet.network} but asset is on ${asset.network}`);
@@ -1307,7 +1307,7 @@ export class DepositTransactionsService {
       ownerCustomerNo: ownerCustomer?.customerNo,
       correlationId,
       amount: input.amount,
-      currency: input.assetId,
+      currency: asset.currency,
       subjects: [
         { subjectType: AuditEntityTypes.DEPOSIT_TRANSACTION, subjectNo: deposit.depositNo, subjectRole: AuditSubjectRole.PRIMARY },
         ...(ownerCustomer?.customerNo

@@ -1506,6 +1506,7 @@ describe('DepositTransactionsService', () => {
         id: 'a1',
         type: 'FIAT',
         network: 'AED_ZAND',
+        currency: 'AED',
       });
       ((prisma as any).depositTransaction.create as jest.Mock).mockImplementation(
         ({ data }: any) => Promise.resolve({ id: 'dep-1', ...data }),
@@ -1559,6 +1560,16 @@ describe('DepositTransactionsService', () => {
       expect(prisma.depositTransaction.create).toHaveBeenCalledWith(
         expect.objectContaining({ data: expect.objectContaining({ counterpartyIsVasp: false }) }),
       );
+    });
+
+    it('detected(): DEPOSIT_CREATED 审计 currency 落币种码，不落资产 UUID（铁律⑥）', async () => {
+      limitRules.getSingleRule.mockResolvedValue(null);
+      await service.detected({ assetId: 'a1', toWalletId: 'w1', amount: '100' });
+      const call = ((auditLogsService as any).recordSystem as jest.Mock).mock.calls.find(
+        (c: any[]) => c[0].action === 'DEPOSIT_CREATED',
+      );
+      expect(call).toBeDefined();
+      expect(call[0].currency).toBe('AED');
     });
   });
 
