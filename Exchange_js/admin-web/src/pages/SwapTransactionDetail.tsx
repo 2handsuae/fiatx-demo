@@ -6,6 +6,7 @@ import {
   DetailCard,
   InfoField,
 } from '../components/compliance/DetailPageComponents';
+import { ViewAuditTrailButton } from '../components/common/ViewAuditTrailButton';
 import { SidebarGroup, SidebarKV } from '../components/ui/SidebarPrimitives';
 import { getSwapStatusMeta, isSwapTerminalStatus } from '../utils/swapStatusMap';
 import { AdminBadge } from '../components/ui/AdminBadge';
@@ -380,7 +381,9 @@ const SwapTransactionDetail = () => {
         onRefresh={fetchData}
         refreshing={loading}
         backLabel="Swaps"
-      />
+      >
+        <ViewAuditTrailButton params={{ subjectNo: swapNo! }} />
+      </DetailPageHeader>
 
       {/* ── Notice banner（喂裁决成功后的回显，对齐充值/提现）── */}
       {notice && (

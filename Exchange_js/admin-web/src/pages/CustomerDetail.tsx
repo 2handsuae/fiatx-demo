@@ -6,6 +6,7 @@ import RestrictionReleaseModal from '../components/RestrictionReleaseModal';
 import MaterialRequestPanel, { type AdminMaterialRequestRow } from '../components/MaterialRequestPanel';
 import MaterialRequestIssueModal from '../components/MaterialRequestIssueModal';
 import { DetailPageHeader } from '../components/compliance/DetailPageComponents';
+import { ViewAuditTrailButton } from '../components/common/ViewAuditTrailButton';
 import { adminButtonClass } from '../components/common/adminButtonStyles';
 import {
   AdminPermissionError,
@@ -644,7 +645,9 @@ const CustomerDetail = () => {
         onRefresh={() => void fetchDetail()}
         refreshing={loading}
         backLabel="Customer Management"
-      />
+      >
+        <ViewAuditTrailButton params={{ ownerCustomerNo: customerNo! }} />
+      </DetailPageHeader>
 
       {/* ── Inline notices ── */}
       {(notice || error) && (

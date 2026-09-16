@@ -11,6 +11,7 @@ import {
   DetailPageHeader,
   JsonBlock,
 } from '../components/compliance/DetailPageComponents';
+import { ViewAuditTrailButton } from '../components/common/ViewAuditTrailButton';
 import { adminButtonClass } from '../components/common/adminButtonStyles';
 import { AdminBadge } from '../components/ui/AdminBadge';
 import { PERMISSIONS } from '../rbac/permissions';
@@ -427,7 +428,9 @@ const ApprovalDetailPage = () => {
         onRefresh={() => void fetchDetail()}
         refreshing={loading}
         backLabel="Approvals"
-      />
+      >
+        <ViewAuditTrailButton params={{ subjectNo: approvalNo! }} />
+      </DetailPageHeader>
 
       {/* ── Inline notices ── */}
       {(notice || error) && (

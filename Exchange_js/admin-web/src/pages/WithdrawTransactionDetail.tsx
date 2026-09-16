@@ -7,6 +7,7 @@ import {
   DetailCard,
   InfoField,
 } from '../components/compliance/DetailPageComponents';
+import { ViewAuditTrailButton } from '../components/common/ViewAuditTrailButton';
 import { SidebarGroup, SidebarKV } from '../components/ui/SidebarPrimitives';
 import {
   LinkedRelationCard,
@@ -379,7 +380,9 @@ const WithdrawTransactionDetail = () => {
         onRefresh={fetchData}
         refreshing={loading}
         backLabel="Withdrawals"
-      />
+      >
+        <ViewAuditTrailButton params={{ subjectNo: withdrawNo! }} />
+      </DetailPageHeader>
 
       {/* ── Notice ── */}
       {notice && (

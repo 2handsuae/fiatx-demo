@@ -4,6 +4,7 @@ import { X, ShieldOff, ShieldCheck } from 'lucide-react';
 import { AdminSessionError, adminFetch, getApiErrorMessage } from '../utils/adminFetch';
 import { copyToClipboard } from '../utils/clipboard';
 import { adminButtonClass } from '../components/common/adminButtonStyles';
+import { ViewAuditTrailButton } from '../components/common/ViewAuditTrailButton';
 import { DetailPageHeader, InfoField } from '../components/compliance/DetailPageComponents';
 import { AdminBadge } from '../components/ui/AdminBadge';
 import { useAdminSession } from '../contexts/AdminSessionContext';
@@ -217,7 +218,9 @@ export default function AssetDetail() {
         onBack={() => navigate('/admin/assets')}
         onRefresh={() => void fetchDetail()}
         refreshing={loading}
-      />
+      >
+        <ViewAuditTrailButton params={{ subjectNo: assetNo! }} />
+      </DetailPageHeader>
 
       {/* ── Inline notices ── */}
       {(notice || error) && (

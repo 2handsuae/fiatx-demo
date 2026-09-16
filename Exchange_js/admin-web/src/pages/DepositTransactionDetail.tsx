@@ -7,6 +7,7 @@ import {
   DetailCard,
   InfoField,
 } from '../components/compliance/DetailPageComponents';
+import { ViewAuditTrailButton } from '../components/common/ViewAuditTrailButton';
 import { SidebarGroup, SidebarKV } from '../components/ui/SidebarPrimitives';
 import {
   LinkedRelationCard,
@@ -517,7 +518,9 @@ const DepositTransactionDetail = () => {
         onRefresh={fetchData}
         refreshing={loading}
         backLabel="Deposits"
-      />
+      >
+        <ViewAuditTrailButton params={{ subjectNo: depositNo! }} />
+      </DetailPageHeader>
 
       {/* ── Notice ── */}
       {notice && (
