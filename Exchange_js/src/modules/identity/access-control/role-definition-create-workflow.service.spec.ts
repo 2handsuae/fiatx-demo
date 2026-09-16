@@ -83,6 +83,10 @@ describe('RoleDefinitionCreateWorkflowService', () => {
       expect(call[0].beforeData).toBeUndefined();
       expect(call[0].correlationId).toEqual(expect.any(String));
       expect(call[0].correlationId).not.toHaveLength(0);
+      expect(call[0].subjects).toEqual([
+        { subjectType: 'ACCESS_CONTROL', subjectNo: 'OPS_VIEWER', subjectRole: 'PRIMARY' },
+        { subjectType: 'APPROVAL_CASE', subjectNo: 'APR2608260001', subjectRole: 'INSTRUMENT' },
+      ]);
     });
 
     it('审批通过后写 APPLIED(INHERIT+因果)，correlationId/causationId/approvalNo 正确传播', async () => {
@@ -104,6 +108,10 @@ describe('RoleDefinitionCreateWorkflowService', () => {
       expect(call[0].approvalNo).toBe('APR2608260001');
       expect(call[0].afterData).toEqual({ permissionGroupCodes: ['BASE_ACCESS'] });
       expect(call[0].outcome).toBe('SUCCESS');
+      expect(call[0].subjects).toEqual([
+        { subjectType: 'ACCESS_CONTROL', subjectNo: 'OPS_VIEWER', subjectRole: 'PRIMARY' },
+        { subjectType: 'APPROVAL_CASE', subjectNo: 'APR2608260001', subjectRole: 'INSTRUMENT' },
+      ]);
     });
 
     it('激活失败仍写同一个 APPLIED(outcome=FAILED)，不是退役码 ROLE_ACTIVATE_FAILED', async () => {
@@ -127,6 +135,10 @@ describe('RoleDefinitionCreateWorkflowService', () => {
       // 铁律1·操作必留痕：非成功记录被合同闸(assertActionSpec)强制要求 reasonCode，
       // 漏带就会在运行时被拒收——状态已变但审计零留痕。这里断言调用入参真的带上了。
       expect(applied[0][0].reasonCode).toBe('EXECUTION_FAILED');
+      expect(applied[0][0].subjects).toEqual([
+        { subjectType: 'ACCESS_CONTROL', subjectNo: 'OPS_VIEWER', subjectRole: 'PRIMARY' },
+        { subjectType: 'APPROVAL_CASE', subjectNo: 'APR2608260001', subjectRole: 'INSTRUMENT' },
+      ]);
     });
 
     it('驳回/取消/超时写 CANCELLED(INHERIT+因果，新增码)', async () => {
@@ -146,6 +158,10 @@ describe('RoleDefinitionCreateWorkflowService', () => {
       expect(call[0].correlationId).toBe('trace-77');
       expect(call[0].causationId).toBe('apr-1');
       expect(call[0].reason).toBeTruthy();
+      expect(call[0].subjects).toEqual([
+        { subjectType: 'ACCESS_CONTROL', subjectNo: 'OPS_VIEWER', subjectRole: 'PRIMARY' },
+        { subjectType: 'APPROVAL_CASE', subjectNo: 'APR2608260001', subjectRole: 'INSTRUMENT' },
+      ]);
     });
 
     it('已终态的创建申请不能再取消（裸 delete 有守卫，法二·取消守卫）', async () => {

@@ -10,7 +10,7 @@ import {
 import {
   AuditEntityTypes,
 } from '../../audit-logging/constants/audit-actions.constant';
-import { AuditCategory, AuditOutcome } from '../../audit-logging/dto/audit-log.dto';
+import { AuditCategory, AuditOutcome, AuditSubjectInput, AuditSubjectRole } from '../../audit-logging/dto/audit-log.dto';
 import { RBAC_PERMISSION_DEFINITIONS } from './rbac.catalog';
 
 const ROLE_CODE_REGEX = /^[A-Z][A-Z0-9_]{1,48}$/;
@@ -39,6 +39,18 @@ export class RoleDefinitionCreateWorkflowService {
     private readonly approvalsService: ApprovalsService,
     private readonly auditLogsService: AuditLogsService,
   ) {}
+
+  /** 波二 §1.2：镜像主表 PRIMARY 进子表（Related No 检索只查子表，audit-logs.service.ts:1031-1036）
+   *  + 审批单凭据行。形状照 approvals.service.ts approvalSubjects 先例。 */
+  private roleSubjects(roleCode: string, approvalNo?: string | null): AuditSubjectInput[] {
+    const rows: AuditSubjectInput[] = [
+      { subjectType: AuditEntityTypes.ACCESS_CONTROL, subjectNo: roleCode, subjectRole: AuditSubjectRole.PRIMARY },
+    ];
+    if (approvalNo) {
+      rows.push({ subjectType: AuditEntityTypes.APPROVAL_CASE, subjectNo: approvalNo, subjectRole: AuditSubjectRole.INSTRUMENT });
+    }
+    return rows;
+  }
 
   async initiateCreate(dto: CreateRoleDefinitionDto, actor: ApprovalActorContext) {
     const roleCode = dto.roleCode.trim().toUpperCase();
@@ -136,6 +148,7 @@ export class RoleDefinitionCreateWorkflowService {
         outcome: AuditOutcome.SUCCESS,
         reason: changeReason,
         afterData,
+        subjects: this.roleSubjects(roleCode, approvalCase.approvalNo),
         metadata: {
           approvalNo: approvalCase.approvalNo,
         },
@@ -240,6 +253,7 @@ export class RoleDefinitionCreateWorkflowService {
         outcome: AuditOutcome.SUCCESS,
         afterData,
         approvalNo: event?.approvalNo,
+        subjects: this.roleSubjects(role.code, event?.approvalNo),
         metadata: {
           permissionsWritten: uniqueCodes.length,
         },
@@ -266,6 +280,7 @@ export class RoleDefinitionCreateWorkflowService {
         reason: err.message,
         afterData,
         approvalNo: event?.approvalNo,
+        subjects: this.roleSubjects(role.code, event?.approvalNo),
         metadata: { error: err.message },
         requestId: crypto.randomUUID(),
         sourcePlatform: 'ADMIN_API',
@@ -300,6 +315,7 @@ export class RoleDefinitionCreateWorkflowService {
         causationId: approvalId,
         outcome: AuditOutcome.SUCCESS,
         reason: event?.decisionReason || `Role definition create request ${String(decision).toLowerCase()}`,
+        subjects: this.roleSubjects(role.code, event?.approvalNo),
         metadata: { decision },
         requestId: crypto.randomUUID(),
         sourcePlatform: 'ADMIN_API',

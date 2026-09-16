@@ -23,7 +23,7 @@ import {
 import {
   AuditEntityTypes,
 } from '../../audit-logging/constants/audit-actions.constant';
-import { AuditCategory, AuditOutcome } from '../../audit-logging/dto/audit-log.dto';
+import { AuditCategory, AuditOutcome, AuditSubjectInput, AuditSubjectRole } from '../../audit-logging/dto/audit-log.dto';
 import { generateReferenceNo } from '../../../common/utils/no-generator.util';
 
 const SECONDARY_EVENT = 'workflow.approval-policy.decided';
@@ -47,6 +47,19 @@ export class ApprovalPolicyChangeWorkflowService {
       actorDisplayName: actor.userNo || 'UNKNOWN',
       actorRolesAtTime: [actor.role || actor.roleCodes[0] || 'UNKNOWN'],
     };
+  }
+
+  /** 波二 §1.2 规则②：镜像主表 PRIMARY + 被动目标策略 RELATED 进子表（Related No 检索只查
+   *  子表，audit-logs.service.ts:1031-1036）+ 审批单凭据行。 */
+  private policySubjects(requestNo: string, targetActionType: string, approvalNo?: string | null): AuditSubjectInput[] {
+    const rows: AuditSubjectInput[] = [
+      { subjectType: AuditEntityTypes.APPROVAL_POLICY, subjectNo: requestNo, subjectRole: AuditSubjectRole.PRIMARY },
+      { subjectType: AuditEntityTypes.APPROVAL_POLICY, subjectNo: targetActionType, subjectRole: AuditSubjectRole.RELATED },
+    ];
+    if (approvalNo) {
+      rows.push({ subjectType: AuditEntityTypes.APPROVAL_CASE, subjectNo: approvalNo, subjectRole: AuditSubjectRole.INSTRUMENT });
+    }
+    return rows;
   }
 
   // ─── Create Change Request ────────────────────────
@@ -174,6 +187,7 @@ export class ApprovalPolicyChangeWorkflowService {
         // 是从 steps 派生出的同一份信息，不重复存。
         beforeData: { steps: currentPolicy.steps },
         afterData: { steps: proposedSteps },
+        subjects: this.policySubjects(requestNo, targetActionType, approvalCase.approvalNo),
         metadata: {
           targetActionType,
           currentCheckerRoles: currentPolicy.checkerRoles,
@@ -263,6 +277,7 @@ export class ApprovalPolicyChangeWorkflowService {
           // 见该处大段注释与 BACKLOG「技术债 — V1 审计底座」。
           policyVersion: 1,
           approvalNo: event.approvalNo,
+          subjects: this.policySubjects(request.requestNo, request.targetActionType, event.approvalNo),
           metadata: {
             targetActionType: request.targetActionType,
             appliedCheckerRoles: deriveCheckerRoles(proposedSteps),
@@ -306,6 +321,7 @@ export class ApprovalPolicyChangeWorkflowService {
           afterData: { steps: proposedSteps },
           policyVersion: 1,
           approvalNo: event.approvalNo,
+          subjects: this.policySubjects(request.requestNo, request.targetActionType, event.approvalNo),
           metadata: {
             targetActionType: request.targetActionType,
           },

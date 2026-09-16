@@ -67,7 +67,7 @@ describe('ApprovalPolicyChangeWorkflowService', () => {
 
   describe('第一批 · 审批策略 2 码', () => {
     it('发起变更写独立的 REQUESTED 码，不复用 APPROVAL_SUBMITTED，PRIMARY 是审批策略', async () => {
-      await service.requestChange(targetActionType, proposedSteps, 'widen approver pool', actor);
+      const result = await service.requestChange(targetActionType, proposedSteps, 'widen approver pool', actor);
 
       const call = auditLogsService.recordByActor.mock.calls.find(
         (c: any[]) => c[0].action === 'APPROVAL_POLICY_CHANGE_REQUESTED',
@@ -79,6 +79,11 @@ describe('ApprovalPolicyChangeWorkflowService', () => {
       expect(call[0].beforeData).toEqual({ steps: currentSteps });
       expect(call[0].afterData).toEqual({ steps: proposedSteps });
       expect(call[0].correlationId).toEqual(expect.any(String));
+      expect(call[0].subjects).toEqual([
+        { subjectType: 'APPROVAL_POLICY', subjectNo: result.requestNo, subjectRole: 'PRIMARY' },
+        { subjectType: 'APPROVAL_POLICY', subjectNo: targetActionType, subjectRole: 'RELATED' },
+        { subjectType: 'APPROVAL_CASE', subjectNo: 'APR2608260003', subjectRole: 'INSTRUMENT' },
+      ]);
     });
 
     it('审批通过后写 APPLIED(INHERIT+因果)，带 policyVersion 与 approvalNo', async () => {
@@ -105,6 +110,11 @@ describe('ApprovalPolicyChangeWorkflowService', () => {
       expect(call[0].beforeData).toEqual({ steps: currentSteps });
       expect(call[0].afterData).toEqual({ steps: proposedSteps });
       expect(policyService.upsertStepsConfig).toHaveBeenCalledWith(targetActionType, proposedSteps, expect.anything());
+      expect(call[0].subjects).toEqual([
+        { subjectType: 'APPROVAL_POLICY', subjectNo: 'APC260826001', subjectRole: 'PRIMARY' },
+        { subjectType: 'APPROVAL_POLICY', subjectNo: targetActionType, subjectRole: 'RELATED' },
+        { subjectType: 'APPROVAL_CASE', subjectNo: 'APR2608260003', subjectRole: 'INSTRUMENT' },
+      ]);
     });
 
     it('落库失败仍写同一个 APPLIED(outcome=FAILED)，不是退役码 MODIFICATION_APPLY_FAILED', async () => {
@@ -127,6 +137,11 @@ describe('ApprovalPolicyChangeWorkflowService', () => {
       expect(applied[0][0].outcome).toBe('FAILED');
       expect(applied[0][0].reason).toContain('db down');
       expect(applied[0][0].causationId).toBe('apr-1');
+      expect(applied[0][0].subjects).toEqual([
+        { subjectType: 'APPROVAL_POLICY', subjectNo: 'APC260826001', subjectRole: 'PRIMARY' },
+        { subjectType: 'APPROVAL_POLICY', subjectNo: targetActionType, subjectRole: 'RELATED' },
+        { subjectType: 'APPROVAL_CASE', subjectNo: 'APR2608260003', subjectRole: 'INSTRUMENT' },
+      ]);
     });
 
     it('刻意没有 CANCELLED 码——只声明了 2 码，驳回/取消/超时不写审计', async () => {
