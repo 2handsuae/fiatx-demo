@@ -1177,16 +1177,38 @@ describe('AuditLogsService', () => {
       prisma.auditLogEvent.findMany.mockResolvedValue([]);
     });
 
-    it('传 subjectNo 时用子表关系过滤', async () => {
+    it('subjectNo 单给时 OR 命中主表 primarySubjectNo 或子表 subjectNo（波三扩语义）', async () => {
       await service.findAll({ subjectNo: 'CUS889' } as any);
-      expect(prisma.auditLogEvent.findMany.mock.calls[0][0].where.subjects)
-        .toEqual({ some: { subjectNo: 'CUS889' } });
+      const where = prisma.auditLogEvent.findMany.mock.calls[0][0].where;
+      expect(where.subjects).toBeUndefined();
+      expect(where.AND).toEqual(
+        expect.arrayContaining([
+          {
+            OR: [
+              { primarySubjectNo: 'CUS889' },
+              { subjects: { some: { subjectNo: 'CUS889' } } },
+            ],
+          },
+        ]),
+      );
     });
 
     it('subjectNo 与 subjectRole 同传时落在同一个 some 里', async () => {
       await service.findAll({ subjectNo: 'CUS889', subjectRole: AuditSubjectRole.OWNER } as any);
       expect(prisma.auditLogEvent.findMany.mock.calls[0][0].where.subjects)
         .toEqual({ some: { subjectNo: 'CUS889', subjectRole: 'OWNER' } });
+    });
+
+    it('keyword 命中 eventNo（Audit No 假承诺修复）', async () => {
+      await service.findAll({ keyword: 'AUD2609' } as any);
+      const where = prisma.auditLogEvent.findMany.mock.calls[0][0].where;
+      const orClause = (where.AND as any[]).find((c) => Array.isArray(c.OR));
+      expect(orClause.OR).toContainEqual({ eventNo: { contains: 'AUD2609' } });
+    });
+
+    it('action 精确过滤', async () => {
+      await service.findAll({ action: 'DEPOSIT_FROZEN' } as any);
+      expect(prisma.auditLogEvent.findMany.mock.calls[0][0].where.action).toBe('DEPOSIT_FROZEN');
     });
 
     it('两个都不传时不加 subjects 条件', async () => {

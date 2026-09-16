@@ -288,7 +288,7 @@ export class AuditLogQueryDto {
   @Max(200)
   take?: number;
 
-  @ApiPropertyOptional({ description: '按主体业务键检索（经子表）——监管索档的主入口' })
+  @ApiPropertyOptional({ description: '按主体业务键检索——命中主对象（primarySubjectNo）或任一相关主体（子表），监管索档的主入口；与 subjectRole 同传时只查子表' })
   @IsOptional() @IsString()
   subjectNo?: string;
 
@@ -307,6 +307,11 @@ export class AuditLogQueryDto {
 
   @ApiPropertyOptional() @IsOptional() @IsString()
   actionDomain?: string;
+
+  @ApiPropertyOptional({ description: '动作码精确过滤，例如 DEPOSIT_FROZEN' })
+  @IsOptional()
+  @IsString()
+  action?: string;
 
   @ApiPropertyOptional({ enum: AuditOutcome }) @IsOptional() @IsEnum(AuditOutcome)
   outcome?: AuditOutcome;
@@ -345,7 +350,7 @@ export class AuditLogQueryDto {
   @IsDateString()
   endAt?: string;
 
-  @ApiPropertyOptional({ description: '关键字，匹配 action/module/entity/reason' })
+  @ApiPropertyOptional({ description: '关键字，OR 匹配 eventNo/action/primarySubjectType/primarySubjectNo/actorNo/ownerCustomerNo/traceId/reason' })
   @IsOptional()
   @IsString()
   keyword?: string;

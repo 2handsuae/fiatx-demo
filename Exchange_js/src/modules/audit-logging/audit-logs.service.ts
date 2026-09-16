@@ -478,6 +478,7 @@ export class AuditLogsService {
     if (query.keyword) {
       andClauses.push({
         OR: [
+          { eventNo: { contains: query.keyword } },   // ← 新增：Audit No 假承诺修复（波三）
           { action: { contains: query.keyword } },
           { primarySubjectType: { contains: query.keyword } },
           { primarySubjectNo: { contains: query.keyword } },
@@ -1020,6 +1021,7 @@ export class AuditLogsService {
     const where = await this.buildWhere(query, db);
 
     if (query.actionDomain) (where as any).actionDomain = query.actionDomain;
+    if (query.action) (where as any).action = query.action;
     if (query.outcome) (where as any).outcome = query.outcome;
     if (query.correlationId) (where as any).correlationId = query.correlationId;
     if (query.causationId) (where as any).causationId = query.causationId;
@@ -1028,7 +1030,22 @@ export class AuditLogsService {
     if (query.primarySubjectNo) (where as any).primarySubjectNo = query.primarySubjectNo;
     if (query.isReadOnly !== undefined) (where as any).isReadOnly = query.isReadOnly;
 
-    if (query.subjectNo || query.subjectRole) {
+    if (query.subjectNo && !query.subjectRole) {
+      // 波三扩语义：Related No = 主对象或任一相关主体。subjects 子表只覆盖名册码
+      // （SUBJECTS_COVERED_ACTIONS），交易域主链事件只在主表列上，纯子表查询拉不全。
+      // 不直接挂 where.OR——buildWhere 可能已把 keyword 的 OR 返回为顶层子句，会被覆写。
+      const subjectClause = {
+        OR: [
+          { primarySubjectNo: query.subjectNo },
+          { subjects: { some: { subjectNo: query.subjectNo } } },
+        ],
+      };
+      (where as any).AND = Array.isArray((where as any).AND)
+        ? [...(where as any).AND, subjectClause]
+        : (where as any).AND
+          ? [(where as any).AND, subjectClause]
+          : [subjectClause];
+    } else if (query.subjectNo || query.subjectRole) {
       const some: Record<string, string> = {};
       if (query.subjectNo) some.subjectNo = query.subjectNo;
       if (query.subjectRole) some.subjectRole = query.subjectRole;
