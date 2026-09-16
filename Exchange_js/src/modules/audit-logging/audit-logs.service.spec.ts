@@ -145,14 +145,13 @@ describe('AuditLogsService', () => {
   });
 
 
-  it('should map evidence export request actions into the audit evidence export workflow', async () => {
+  it('should map evidence export request actions to the user-layer action (workflow derivation retired)', async () => {
     prisma.auditLogEvent.count.mockResolvedValue(1);
     prisma.auditLogEvent.findMany.mockResolvedValue([
       {
         id: 'wf-exp-req-1',
         auditNo: 'AUD2604051001',
         action: AuditActions.AUDIT_EVIDENCE_EXPORT_REQUESTED,
-        workflowType: AuditBusinessWorkflowTypes.AUDIT_EVIDENCE_EXPORT,
         actorType: 'ADMIN',
         actorNo: 'ADMIN-001',
         outcome: AuditOutcome.SUCCESS,
@@ -166,9 +165,11 @@ describe('AuditLogsService', () => {
     const result = await service.findAll({ take: 20 });
 
     expect(result.items[0]).toMatchObject({
-      businessWorkflow: AuditBusinessWorkflowTypes.AUDIT_EVIDENCE_EXPORT,
       userAction: AuditUserActions.REQUEST_CREATED,
+      userActionLabel: 'Request Created',
     });
+    expect(result.items[0]).not.toHaveProperty('businessWorkflow');
+    expect(result.items[0]).not.toHaveProperty('workflowType');
   });
 
 
@@ -324,62 +325,62 @@ describe('AuditLogsService', () => {
     expect(result.total).toBe(1);
     expect(result.items[0].metadata).toEqual({ source: 'api' });
     expect(result.items[0]).not.toHaveProperty('dbOnlyShadowField');
+    expect(result.items[0].beforeData).toEqual({ status: 'CREATED' });
+    expect(result.items[0].afterData).toEqual({ status: 'SUCCESS' });
   });
 
-  it('should derive business workflow and user action display fields for governed and export logs', async () => {
-    prisma.auditLogEvent.count.mockResolvedValue(2);
+  it('should pass through group-G/H columns (state transition, money, authorization basis)', async () => {
+    prisma.auditLogEvent.count.mockResolvedValue(1);
     prisma.auditLogEvent.findMany.mockResolvedValue([
       {
-        id: 'wf-ct-1',
+        id: 'gh-1',
         auditNo: 'AUD2604010001',
         action: AuditActions.APPROVAL_SUBMITTED,
-        workflowType: AuditBusinessWorkflowTypes.ADMIN_ROLE_BINDING_CHANGE,
         actorType: 'ADMIN',
         outcome: AuditOutcome.SUCCESS,
+        category: 'BUSINESS',
+        actionDomain: 'DEPOSIT',
+        fromStatus: 'COMPLIANCE_PENDING',
+        toStatus: 'SUCCESS',
+        amount: '2000',
+        currency: 'AED',
+        approvalNo: 'APR2609160001',
+        policyCode: 'DEPOSIT_SEIZE',
+        policyVersion: 3,
         metadata: null,
         beforeData: null,
         afterData: null,
         occurredAt: new Date('2026-04-01T10:00:00.000Z'),
-      },
-      {
-        id: 'wf-exp-1',
-        auditNo: 'AUD2604010004',
-        action: AuditActions.AUDIT_EVIDENCE_EXPORT_REQUESTED,
-        workflowType: AuditBusinessWorkflowTypes.AUDIT_EVIDENCE_EXPORT,
-        actorType: 'ADMIN',
-        outcome: AuditOutcome.SUCCESS,
-        metadata: null,
-        beforeData: null,
-        afterData: null,
-        occurredAt: new Date('2026-04-01T10:03:00.000Z'),
       },
     ]);
 
     const result = await service.findAll({ take: 20 });
 
     expect(result.items[0]).toMatchObject({
-      businessWorkflow: AuditBusinessWorkflowTypes.ADMIN_ROLE_BINDING_CHANGE,
-      businessWorkflowLabel: 'Admin Role Binding Change',
+      category: 'BUSINESS',
+      actionDomain: 'DEPOSIT',
+      fromStatus: 'COMPLIANCE_PENDING',
+      toStatus: 'SUCCESS',
+      amount: '2000',
+      currency: 'AED',
+      approvalNo: 'APR2609160001',
+      policyCode: 'DEPOSIT_SEIZE',
+      policyVersion: 3,
       userAction: AuditUserActions.SUBMITTED,
       userActionLabel: 'Submitted',
-      action: AuditActions.APPROVAL_SUBMITTED,
-    });
-    expect(result.items[1]).toMatchObject({
-      businessWorkflow: AuditBusinessWorkflowTypes.AUDIT_EVIDENCE_EXPORT,
-      businessWorkflowLabel: 'Audit Evidence Export',
-      userAction: AuditUserActions.REQUEST_CREATED,
-      userActionLabel: 'Request Created',
     });
   });
 
 
-  it('should expose derived display fields on audit log detail while preserving raw tuple fields', async () => {
+  it('should expose the same aligned shape on detail as on list', async () => {
     prisma.auditLogEvent.findUnique.mockResolvedValue({
       id: 'detail-1',
       auditNo: 'AUD2604010100',
       action: AuditActions.APPROVAL_SUBMITTED,
-      workflowType: AuditBusinessWorkflowTypes.ADMIN_ROLE_BINDING_CHANGE,
       traceId: 'trace-role-binding-1',
+      actionDomain: 'APPROVAL',
+      category: 'GOVERNANCE',
+      approvalNo: 'APR2604010001',
       actorType: 'ADMIN',
       outcome: AuditOutcome.SUCCESS,
       metadata: null,
@@ -391,14 +392,15 @@ describe('AuditLogsService', () => {
     const result = await service.findOne('detail-1');
 
     expect(result).toMatchObject({
-      businessWorkflow: AuditBusinessWorkflowTypes.ADMIN_ROLE_BINDING_CHANGE,
-      businessWorkflowLabel: 'Admin Role Binding Change',
       userAction: AuditUserActions.SUBMITTED,
       userActionLabel: 'Submitted',
       action: AuditActions.APPROVAL_SUBMITTED,
-      workflowType: AuditBusinessWorkflowTypes.ADMIN_ROLE_BINDING_CHANGE,
+      actionDomain: 'APPROVAL',
+      category: 'GOVERNANCE',
+      approvalNo: 'APR2604010001',
       traceId: 'trace-role-binding-1',
     });
+    expect(result).not.toHaveProperty('businessWorkflowLabel');
   });
 
   it('should build time-window and keyword filters correctly', async () => {

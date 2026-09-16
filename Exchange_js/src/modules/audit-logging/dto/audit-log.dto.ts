@@ -92,14 +92,13 @@ export enum AuditEvidenceExportMode {
 export interface AuditLogView {
   id: string;
   eventNo: string;
-  businessWorkflow: string | null;
-  businessWorkflowLabel: string | null;
   userAction: string | null;
   userActionLabel: string | null;
   action: string;
+  category: string | null;
+  actionDomain: string | null;
   primarySubjectType: string | null;
   primarySubjectNo: string | null;
-  workflowType: string | null;
   traceId: string | null;
   correlationId: string | null;
   causationId: string | null;
@@ -110,6 +109,13 @@ export interface AuditLogView {
   /** 当时的角色快照数组（JSON 反序列化）。取代旧单值 actorRole —— 一个人当时可能兼多角色 */
   actorRolesAtTime: string[];
   isReadOnly: boolean;
+  fromStatus: string | null;
+  toStatus: string | null;
+  amount: string | null;
+  currency: string | null;
+  approvalNo: string | null;
+  policyCode: string | null;
+  policyVersion: number | null;
   reasonCode: string | null;
   requestId: string | null;
   sourceIp: string | null;
@@ -117,6 +123,8 @@ export interface AuditLogView {
   outcome: string | null;
   reason: string | null;
   metadata: unknown;
+  beforeData: unknown;
+  afterData: unknown;
   payloadDigest: string | null;
   retainedUntil: Date | string | null;
   occurredAt: Date | string;

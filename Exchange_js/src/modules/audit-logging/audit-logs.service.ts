@@ -271,20 +271,18 @@ export class AuditLogsService {
 
   private mapEvent(raw: any): AuditLogView {
     const metadata = this.parseJson(raw.metadata);
-    const businessWorkflow = this.deriveBusinessWorkflow(raw);
-    const userAction = this.deriveUserAction(raw.action, businessWorkflow);
+    const userAction = this.deriveUserAction(raw.action);
 
     return {
       id: raw.id,
       eventNo: raw.eventNo,
-      businessWorkflow,
-      businessWorkflowLabel: this.toDisplayLabel(businessWorkflow),
       userAction,
       userActionLabel: this.toDisplayLabel(userAction),
       action: raw.action,
+      category: raw.category ?? null,
+      actionDomain: raw.actionDomain ?? null,
       primarySubjectType: raw.primarySubjectType ?? null,
       primarySubjectNo: raw.primarySubjectNo ?? null,
-      workflowType: raw.workflowType ?? null,
       traceId: raw.traceId ?? null,
       correlationId: raw.correlationId ?? null,
       causationId: raw.causationId ?? null,
@@ -296,6 +294,13 @@ export class AuditLogsService {
         try { return JSON.parse(raw.actorRolesAtTime ?? '[]'); } catch { return []; }
       })(),
       isReadOnly: raw.isReadOnly ?? false,
+      fromStatus: raw.fromStatus ?? null,
+      toStatus: raw.toStatus ?? null,
+      amount: raw.amount ?? null,
+      currency: raw.currency ?? null,
+      approvalNo: raw.approvalNo ?? null,
+      policyCode: raw.policyCode ?? null,
+      policyVersion: raw.policyVersion ?? null,
       reasonCode: raw.reasonCode ?? null,
       requestId: raw.requestId ?? null,
       sourceIp: raw.sourceIp ?? null,
@@ -303,6 +308,8 @@ export class AuditLogsService {
       outcome: raw.outcome ?? null,
       reason: raw.reason ?? null,
       metadata,
+      beforeData: this.parseJson(raw.beforeData),
+      afterData: this.parseJson(raw.afterData),
       payloadDigest: raw.payloadDigest ?? null,
       retainedUntil: raw.retainedUntil ?? null,
       occurredAt: raw.occurredAt,
@@ -311,24 +318,7 @@ export class AuditLogsService {
     };
   }
 
-  private deriveBusinessWorkflow(raw: {
-    workflowType?: string | null;
-    action?: string | null;
-  }): string | null {
-    const workflowType = this.normalizeOptionalString(raw.workflowType);
-    if (workflowType && workflowType !== AuditWorkflowTypes.APPROVAL) {
-      return workflowType;
-    }
-
-    // 站7：登录四码死支路清除——登录流水地基站已裁归安全日志不做,四名死于本站
-    //（锁定阈值的业务审计走 ADMIN_ACCOUNT_LOCK_APPLIED/RELEASED,不经此表）。
-    return workflowType === AuditWorkflowTypes.APPROVAL ? null : workflowType;
-  }
-
-  private deriveUserAction(
-    action?: string | null,
-    businessWorkflow?: string | null,
-  ): string | null {
+  private deriveUserAction(action?: string | null): string | null {
     const normalizedAction = this.normalizeOptionalString(action)?.toUpperCase() || null;
     if (!normalizedAction) {
       return null;
