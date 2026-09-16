@@ -12,7 +12,7 @@ import {
   AuditBusinessWorkflowTypes,
   AuditEntityTypes,
 } from '../../audit-logging/constants/audit-actions.constant';
-import { AuditCategory, AuditOutcome } from '../../audit-logging/dto/audit-log.dto';
+import { AuditCategory, AuditOutcome, AuditSubjectInput, AuditSubjectRole } from '../../audit-logging/dto/audit-log.dto';
 import { ApprovalsService } from '../../governance/approvals/approvals.service';
 import { ApprovalDecidedEvent } from '../../governance/approvals/approval-handler.base';
 import {
@@ -51,6 +51,19 @@ export class AdminInviteWorkflowService {
       actorDisplayName: actor.userNo || 'UNKNOWN',
       actorRolesAtTime: [actor.role || actor.roleCodes[0] || 'UNKNOWN'],
     };
+  }
+
+  /** 波二 §1.2 镜像主表原值。本家族 primarySubjectType 历史上是 ACCESS_CONTROL 而号是 userNo
+   *  （:413 注释自认"对齐同旅程"）——波二只镜像不改型（改型是展示/跳转面变化，越界；
+   *  已登记 BACKLOG 观察）。判据按 subjectNo 匹配，不受类型影响。 */
+  private inviteSubjects(userNo: string, approvalNo?: string | null): AuditSubjectInput[] {
+    const rows: AuditSubjectInput[] = [
+      { subjectType: AuditEntityTypes.ACCESS_CONTROL, subjectNo: userNo, subjectRole: AuditSubjectRole.PRIMARY },
+    ];
+    if (approvalNo) {
+      rows.push({ subjectType: AuditEntityTypes.APPROVAL_CASE, subjectNo: approvalNo, subjectRole: AuditSubjectRole.INSTRUMENT });
+    }
+    return rows;
   }
 
   /**
@@ -140,6 +153,9 @@ export class AdminInviteWorkflowService {
             category: AuditCategory.GOVERNANCE,
             primarySubjectType: AuditEntityTypes.ACCESS_CONTROL,
             primarySubjectNo: user.userNo,
+            // 硬互斥冲突由 accessControlService.replaceUserRoles 在 approvalsService.createAndSubmit
+            // 之前抛出，approvalCase 此刻恒为 null——无 approvalNo 可镜像，只传第一参。
+            subjects: this.inviteSubjects(user.userNo),
             correlationId,
             outcome: AuditOutcome.DENIED,
             reasonCode: 'SOD_CONFLICT',
@@ -162,6 +178,7 @@ export class AdminInviteWorkflowService {
         category: AuditCategory.GOVERNANCE,
         primarySubjectType: AuditEntityTypes.ACCESS_CONTROL,
         primarySubjectNo: user.userNo,
+        subjects: this.inviteSubjects(user.userNo, approvalCase.approvalNo),
         correlationId,
         outcome: AuditOutcome.SUCCESS,
         afterData,
@@ -227,6 +244,7 @@ export class AdminInviteWorkflowService {
           category: AuditCategory.GOVERNANCE,
           primarySubjectType: AuditEntityTypes.ACCESS_CONTROL,
           primarySubjectNo: user.userNo,
+          subjects: this.inviteSubjects(user.userNo, event.approvalNo),
           // INHERIT：读 ApprovalDecidedEvent.traceId——它就是 initiateInvite 铸造的
           // correlationId 原样传播过来的（经 ApprovalCase.traceId），不是另起一份。
           correlationId: event.traceId,
@@ -255,6 +273,7 @@ export class AdminInviteWorkflowService {
           category: AuditCategory.GOVERNANCE,
           primarySubjectType: AuditEntityTypes.ACCESS_CONTROL,
           primarySubjectNo: user.userNo,
+          subjects: this.inviteSubjects(user.userNo),
           correlationId: event.traceId,
           outcome: AuditOutcome.FAILED,
           reason: error instanceof Error ? error.message : 'Failed to dispatch invite',
@@ -288,6 +307,7 @@ export class AdminInviteWorkflowService {
           category: AuditCategory.GOVERNANCE,
           primarySubjectType: AuditEntityTypes.ACCESS_CONTROL,
           primarySubjectNo: user.userNo,
+          subjects: this.inviteSubjects(user.userNo, event.approvalNo),
           correlationId: event.traceId,
           outcome: AuditOutcome.SUCCESS,
           reason: event.decisionReason || `Admin invite ${event.decision.toLowerCase()}`,
@@ -355,6 +375,7 @@ export class AdminInviteWorkflowService {
         category: AuditCategory.GOVERNANCE,
         primarySubjectType: AuditEntityTypes.ACCESS_CONTROL,
         primarySubjectNo: user.userNo,
+        subjects: this.inviteSubjects(user.userNo),
         correlationId,
         outcome: AuditOutcome.SUCCESS,
         metadata: {
@@ -414,6 +435,7 @@ export class AdminInviteWorkflowService {
           // CANCELLED 都用 ACCESS_CONTROL）。
           primarySubjectType: AuditEntityTypes.ACCESS_CONTROL,
           primarySubjectNo: accepted.userNo,
+          subjects: this.inviteSubjects(accepted.userNo),
           outcome: AuditOutcome.SUCCESS,
           correlationId: accepted.correlationId,
           fromStatus: accepted.fromStatus,
@@ -449,6 +471,7 @@ export class AdminInviteWorkflowService {
             category: AuditCategory.GOVERNANCE,
             primarySubjectType: AuditEntityTypes.ACCESS_CONTROL,
             primarySubjectNo: targetUserNo || 'UNKNOWN',
+            subjects: this.inviteSubjects(targetUserNo || 'UNKNOWN'),
             outcome: AuditOutcome.DENIED,
             reasonCode: this.extractReasonCode(error),
             reason: error instanceof Error ? error.message : 'Admin invitation accept failed',
@@ -505,6 +528,7 @@ export class AdminInviteWorkflowService {
         category: AuditCategory.GOVERNANCE,
         primarySubjectType: AuditEntityTypes.ACCESS_CONTROL,
         primarySubjectNo: invitation.user.userNo,
+        subjects: this.inviteSubjects(invitation.user.userNo),
         // INHERIT：读邀请记录自己的 traceId——executeInviteDispatch 建邀请记录时写入的
         // 那份 correlationId。读不到就是有问题（没走 dispatch 就不该有过期链接），不兜底。
         correlationId: invitation.traceId ?? undefined,

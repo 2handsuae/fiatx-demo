@@ -92,6 +92,15 @@ describe('AdminInviteWorkflowService', () => {
       expect(call[0].correlationId).toBeTruthy();
       expect(call[0].afterData).toBeDefined();
       expect(call[0].outcome).toBe('SUCCESS');
+      expect(call[0].subjects).toEqual(
+        expect.arrayContaining([
+          { subjectType: 'ACCESS_CONTROL', subjectNo: 'ADM-001', subjectRole: 'PRIMARY' },
+        ]),
+      );
+      expect(call[0].subjects).toEqual([
+        { subjectType: 'ACCESS_CONTROL', subjectNo: 'ADM-001', subjectRole: 'PRIMARY' },
+        { subjectType: 'APPROVAL_CASE', subjectNo: 'APR-1', subjectRole: 'INSTRUMENT' },
+      ]);
 
       // correlationId 写回了同一次 createAndSubmit 调用的 traceId（ApprovalCase.traceId
       // 是过渡期承载列），后续 DISPATCHED/CANCELLED 靠 ApprovalDecidedEvent.traceId 原样继承。
@@ -130,6 +139,16 @@ describe('AdminInviteWorkflowService', () => {
       expect(call).toBeDefined();
       expect(call[0].action).toBe('ADMIN_INVITE_REQUESTED');
       expect(call[0].reasonCode).toBe('SOD_CONFLICT');
+      expect(call[0].subjects).toEqual(
+        expect.arrayContaining([
+          { subjectType: 'ACCESS_CONTROL', subjectNo: 'ADM-001', subjectRole: 'PRIMARY' },
+        ]),
+      );
+      // 硬互斥冲突发生在 approvalsService.createAndSubmit 之前（approvalCase 恒为 null），
+      // 此刻确无 approvalNo 可镜像——单行数组，不伪造 INSTRUMENT 行。
+      expect(call[0].subjects).toEqual([
+        { subjectType: 'ACCESS_CONTROL', subjectNo: 'ADM-001', subjectRole: 'PRIMARY' },
+      ]);
     });
 
     it('批准后派发邀请，写 ADMIN_INVITE_DISPATCHED 并 INHERIT 审批单的 correlationId', async () => {
@@ -170,6 +189,15 @@ describe('AdminInviteWorkflowService', () => {
       expect(call[0].actionDomain).toBe('IAM');
       expect(call[0].correlationId).toBe('trace-invite-1');
       expect(call[0].outcome).toBe('SUCCESS');
+      expect(call[0].subjects).toEqual(
+        expect.arrayContaining([
+          { subjectType: 'ACCESS_CONTROL', subjectNo: 'ADM-001', subjectRole: 'PRIMARY' },
+        ]),
+      );
+      expect(call[0].subjects).toEqual([
+        { subjectType: 'ACCESS_CONTROL', subjectNo: 'ADM-001', subjectRole: 'PRIMARY' },
+        { subjectType: 'APPROVAL_CASE', subjectNo: 'APR-1', subjectRole: 'INSTRUMENT' },
+      ]);
     });
 
     it('审批被驳回/取消/超时都物理删除 provisional user 并写 ADMIN_INVITE_CANCELLED + reason', async () => {
@@ -202,6 +230,15 @@ describe('AdminInviteWorkflowService', () => {
       expect(call).toBeDefined();
       expect(call[0].correlationId).toBe('trace-invite-1');
       expect(call[0].reason).toBeTruthy();
+      expect(call[0].subjects).toEqual(
+        expect.arrayContaining([
+          { subjectType: 'ACCESS_CONTROL', subjectNo: 'ADM-001', subjectRole: 'PRIMARY' },
+        ]),
+      );
+      expect(call[0].subjects).toEqual([
+        { subjectType: 'ACCESS_CONTROL', subjectNo: 'ADM-001', subjectRole: 'PRIMARY' },
+        { subjectType: 'APPROVAL_CASE', subjectNo: 'APR-1', subjectRole: 'INSTRUMENT' },
+      ]);
     });
 
     it('链接过期由 sweepExpiredInvites 用 recordSystem 写 ADMIN_INVITE_EXPIRED，sourcePlatform=CRON', async () => {
@@ -232,6 +269,14 @@ describe('AdminInviteWorkflowService', () => {
       expect(call[0].actionDomain).toBe('IAM');
       expect(call[0].sourcePlatform).toBe('CRON');
       expect(call[0].correlationId).toBe('trace-invite-1');
+      expect(call[0].subjects).toEqual(
+        expect.arrayContaining([
+          { subjectType: 'ACCESS_CONTROL', subjectNo: 'ADM-001', subjectRole: 'PRIMARY' },
+        ]),
+      );
+      expect(call[0].subjects).toEqual([
+        { subjectType: 'ACCESS_CONTROL', subjectNo: 'ADM-001', subjectRole: 'PRIMARY' },
+      ]);
     });
   });
 
@@ -268,6 +313,16 @@ describe('AdminInviteWorkflowService', () => {
       expect(call[0].correlationId).toBe('trace-invite-1');
       expect(call[0].outcome).toBe('SUCCESS');
       expect(call[0].requestId).toEqual(expect.stringContaining('ADMIN_INVITE_DISPATCHED_ADM-001_'));
+      expect(call[0].subjects).toEqual(
+        expect.arrayContaining([
+          { subjectType: 'ACCESS_CONTROL', subjectNo: 'ADM-001', subjectRole: 'PRIMARY' },
+        ]),
+      );
+      // 重发没有审批单概念（resendInvitation 函数签名里根本没有 approvalNo 变量）——
+      // 单行数组,不查库凑一个来源不明的 approvalNo。
+      expect(call[0].subjects).toEqual([
+        { subjectType: 'ACCESS_CONTROL', subjectNo: 'ADM-001', subjectRole: 'PRIMARY' },
+      ]);
     });
   });
 
@@ -305,6 +360,14 @@ describe('AdminInviteWorkflowService', () => {
       expect(call[0].correlationId).toBe('trace-invite-1');
       expect(call[0].fromStatus).toBe('INVITE_SENT');
       expect(call[0].toStatus).toBe('ACTIVE');
+      expect(call[0].subjects).toEqual(
+        expect.arrayContaining([
+          { subjectType: 'ACCESS_CONTROL', subjectNo: 'ADM-001', subjectRole: 'PRIMARY' },
+        ]),
+      );
+      expect(call[0].subjects).toEqual([
+        { subjectType: 'ACCESS_CONTROL', subjectNo: 'ADM-001', subjectRole: 'PRIMARY' },
+      ]);
       expect(call[1]).toEqual(
         expect.objectContaining({ actorNo: 'ADM-001', actorRolesAtTime: ['OPS'] }),
       );
@@ -333,6 +396,14 @@ describe('AdminInviteWorkflowService', () => {
       expect(call).toBeDefined();
       expect(call[0].reasonCode).toBe('INVITATION_EXPIRED');
       expect(call[0].primarySubjectNo).toBe('ADM-002');
+      expect(call[0].subjects).toEqual(
+        expect.arrayContaining([
+          { subjectType: 'ACCESS_CONTROL', subjectNo: 'ADM-002', subjectRole: 'PRIMARY' },
+        ]),
+      );
+      expect(call[0].subjects).toEqual([
+        { subjectType: 'ACCESS_CONTROL', subjectNo: 'ADM-002', subjectRole: 'PRIMARY' },
+      ]);
       expect(call[1]).toEqual(expect.objectContaining({ actorNo: 'ADM-002' }));
     });
 
