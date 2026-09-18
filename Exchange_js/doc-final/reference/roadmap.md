@@ -1,7 +1,7 @@
 # Product Roadmap
 
-> ⚠️ **2026-08-27 时点注**：Phase 4 代码回收七站已全部合 main（词表封册收官）。其间**一期客户流程（入驻/风评/升级案）整体拆除待接真 Sumsub 重做**（业主方案2，BACKLOG 在案）——本文涉及这三块的实现状态行已过时，实现现状以 doc-final/CHANGELOG.md 与 modules/ 为准；本文其余部分为产品应然层，不随代码回收改写。
-Last Updated: 2026-08-10（上一轮 08-07 只动 V4/V5 两段——V5 提现全流转升级（12 任务，2026-08-04 合 main）+ 提现补料 Embed（6 任务，2026-08-07 合 main）+ V4 补料 Embed（2026-08-06 合 main）落地后逐条回代码核状态：V5 MVP 新增两条 `[x]`；P0 制裁冻结 `[ ]→[x]`、P0 TR 发送/KYT-MLRO `[ ]→[~]`；P1 stuck 追踪/法币退回/tipping-off `[ ]→[~]`；V4 P1 补材料闭环 `[ ]→[x]`。**未做的照旧标未做**，且对每条 `[~]` 明写"还差什么"；goAML/STR、对手方 VASP 尽调门、通知本体三处经 grep 实证仍零代码。V1/V2/V3/V6-V9 本轮未复核，状态可能滞后）
+> ⚠️ **2026-09-17 时点注**：原「2026-08-27 一期客户流程（入驻/风评/升级案）整体拆除待重做」已**部分了结**——入驻与档位升级于 2026-09-06/07/08 第二幕三波**重建完毕**（见 V2 MVP），**风评（CRA）经业主 2026-09-06 拍板永久不做**、**材料时效巡查子系统整体退役**。本文为产品应然层；实现现状以 `doc-final/modules/` 为准（现状唯一真相），`CHANGELOG.md` 记每次合并。
+Last Updated: 2026-09-17（距上次核对 38 天、main 上 50+ 次合并后的全九版复核：三路扫描取数 + 主会话逐条抽查复现。本轮动作——**翻勾 8 条**（V2 入驻/档位升级/冻结解冻 `[~]→[x]`；V3 提现地址停用归档 `[ ]→[x]`；V4 制裁冻结闭环 `[~]→[x]`、法币退汇 `[ ]→[~]`；V8 其余平账处置 `[ ]→[x]`）；**新设 `[-]` 已否决/已退役档并归入 6 条**（V2 CRA Review、V2 Material Refresh、V3 资产上线与激活、V5+V6 费率 30 日生效闸、V6 swap 失败终态治理）——这 6 条此前一直以「待做/部分」的面貌挂着，会诱导后续会话去做已被业主砍掉的事；**改描述不动标记 12 处**。⚠️ 未做的照旧标未做：V9 全部 37 条、V7 ADVANCED 全部 25 条经实跑命令复核仍零代码）
 
 **2026-08-10 补完**：接上一轮「V1/V2/V3/V6-V9 未复核」的自陈，本轮把**全九版**对照 07-17 以来 main 上 230 个 commit 补齐——新增下方进度总览表；**V4 五条回代码翻勾**（P0 已记账异常终态收口 / P0 制裁冻结闭环转 `[~]` / P0 KYT FAILED 转 `[~]` / P1 TR 阈值闸转 `[~]` / P2 EXPIRED 条目作废）+ 支撑项补三项；**V3 一条**（地址 hosted/unhosted 分类转 `[~]`）；**V6–V9 经模块级 commit 计数实证零改动**，状态与 07-17 相同。
 
@@ -10,27 +10,27 @@ Last Updated: 2026-08-10（上一轮 08-07 只动 V4/V5 两段——V5 提现全
 - **ADVANCED** — VARA gap 补齐（rulebook 理论要有）+ 低频逆向操作（上线 MVP、下线 ADVANCED）。`⚖️` = 有具体条款号，rulebook 变版时逐条复查
 - **OPTIMIZED** — VARA 不强制、行业多半这么做的未来优化
 
-**每条标注**：`来源:`（领导/VARA 条款/行业）｜ `配对:`（正逆操作互链，防逆向遗忘）｜ 状态 `[x]`交付 `[~]`部分 `[ ]`待做 + 日期。
+**每条标注**：`来源:`（领导/VARA 条款/行业）｜ `配对:`（正逆操作互链，防逆向遗忘）｜ 状态 `[x]`交付 `[~]`部分 `[ ]`待做 `[-]`**已否决/已退役**（业主拍板不做，或设计已换轨——**不是待办，不要翻案**，出处均在 `decisions.md`）+ 日期。
 **实现细节与当前真相** → `modules/`（改代码同步那里，不改这里）｜ **技术债/死码/待决策** → `../BACKLOG.md`。
 > ⚠️ 三层分类 + truth 外置已应用于 **V1–V6**；深度调研级 P0/P1/P2 + `⚖️P0` 重排 + `superpowers/specs/` 调研留底已覆盖 **V1–V9 全部九版**（2026-07-06 收官；各版 spec 见 `superpowers/specs/2026-07-0*-v*-research.md`）。
 
-### 📊 版本进度总览（2026-08-10 全九版体检）
+### 📊 版本进度总览（2026-09-17 全九版复核）
 
-> 依据：07-17 以来 main 上 230 个 commit 的**模块级归属计数** + 已验证的 `modules/`（**不取 commit message**——本项目出现过多次 commit 写「落地」而 truth 记「仍是桩」）。
+> 依据：`doc-final/modules/`（现状唯一真相）+ 逐条 grep/读代码实证（**不取 commit message**——本项目出现过多次 commit 写「落地」而 truth 记「仍是桩」）。本窗口 = 2026-08-10 → 2026-09-17，main 上 50+ 次合并。
 
 | 版本 | MVP | ADVANCED · P0 现状 | 本窗口（07-17 → 08-10） |
 |---|---|---|---|
-| V1 审计底座 | 10/10 ✅ | 8 条 ⚖️P0 **全未做** | — |
-| V2 客户合规 | 1 ✅ + 5 `[~]` | 3 条 ⚖️P0 **全未做** | — |
-| V3 财务配置 | 7 ✅ + 1 `[~]` | 全未做 | 地址 hosted/unhosted 分类 `[ ]→[~]` |
-| **V4 充值** | 3/3 ✅ | 3 条 P0：**1 收口** + 2 转 `[~]` | **204 commit**：Sumsub KYT 真集成 · 四条异常动钱弧 · 状态机收窄 14 态 · 补料闭环 |
-| **V5 提现** | 4/4 ✅ + 2 新增 | 5 条 P0：**1 收口** + 2 转 `[~]`；TR 发送 / 对手方尽调仍空白 | **74 commit**：全流转重写（10 态 20 边）· FROZEN 双审批弧 · bounce 退汇 · 补料闭环 |
-| V6 兑换 | 3/3 ✅ | 3 根 P0 支柱**全未做** | **0 commit** |
-| V7 财资 | 无 MVP（已被实时 1:1 吸收） | 全未做 | **0 commit** |
-| V8 对账 | 7/7 ✅ | 全 deferred | **0 commit** |
-| V9 合规治理 | **14 条 P0 全未做** | 全未做 | **0 commit** |
+| V1 审计底座 | 10/10 ✅ | 8 条 ⚖️P0 **全未做** | 第一幕职权重划（**13 域 62 桶 70 组**）· 第七幕审计三波（证据包快照修通 20 键→7 真键 · 审计域换业务号 · `AuditLogSubject` 子表铺到 34 码 · 六页检索动线 · 两页按后端真实字段重设计）｜⚠️`audit-retention-job.ts` 实跑仍报 `PrismaClientValidationError`（查已删列），P0 那条脚注仍准确 |
+| **V2 客户合规** | **4/6 ✅** + 2 归 `[-]` | 3 条 ⚖️P0 **全未做** | **第二幕三波重建**：波一清地基（客户主档 48→24 字段，净删约 4000 行）· 波二入驻重建（CDD 直通 + EDD 准入门 + 重申/终拒/撤回）· 波三档位升级（含 TB 客户户运行时开户）；**CRA Review 与 Material Refresh 经业主拍板否决/退役**（不是没做完，是不做了） |
+| V3 财务配置 | 6 ✅ + 1 `[~]` + **1 `[-]`** | 地址停用归档 `[ ]→[x]` | V3 治愈两波：**资产上线/激活整条路退役**（上币走开发流程）· 托管钱包 Admin 侧退役为种子 · 账本开户换轨（系统户随版本装载 / 客户户首次 ACTIVE 运行时开）· 资产暂停升为 L1 第十项 · Gate 0 退役 |
+| V4 充值 | 3/3 ✅ | 3 条 P0：**2 收口**（制裁冻结闭环 `[~]→[x]`）+ 1 `[~]` | 三四五幕战役五波（清地基 · 单号统一 · 红项修复 · 共享抽离 · 创建即冻）；`PATCH :id/status` 裸改状态的绕门口子已**物理删除**，`@Patch` 计数归零 |
+| V5 提现 | 6/6 ✅ | 5 条 P0：1 收口 + 2 `[~]`；**TR 发送 / 对手方尽调仍空白** | 同上五波；SUCCESS 后退汇入口已由平账 B 批 `return-claim` 补上；**费率 30 日生效闸经业主裁定不做**（转 `[-]`） |
+| V6 兑换 | 3/3 ✅ | 3 根 P0 支柱**全未做** | 报价单收口 + 单号三字母制 · 共享抽离清掉 `FAILED`/`REVERSED` 两个死枚举 · 波五 `FROZEN` 翻案成中间态（5 态 7 边）；**「swap 失败终态治理」方案换轨作废**（转 `[-]`） |
+| **V7 财资** | **首次有活体：内部划转单 ✅** | 25 条 ADVANCED 仍全未做 | 2026-09-05 平账二期新建第四类订单（公司→客户补款 / 垫款，CFO 审批，`asset-treasury/internal-transfers/`）——本表上一版写「无 MVP / 0 commit」已不成立 |
+| **V8 对账** | 7/7 ✅ | **十件处置全交付**（原表「全 deferred」已不成立） | 平账六批（一期调账单 · 一期半成因驱动 · A 批账龄核销 · B 批补单三入口 · 二期内部划转 · 三期事故登记）+ 处置改版 + 两角色定案；`recon:demo` 场景 9→18 |
+| V9 合规治理 | **14 条 P0 全未做** | 全未做 | **0 commit**（37 个 checkbox 逐子块实跑命令复核，含 Prisma schema 55 model 扫描 + admin-web 页面名扫描两种独立搜法，零命中） |
 
-> **两句话结论**：① 这三周把**充值与提现两条主干做深了**——合规裁决 → 异常处置 → 客户补料全线打通，两域现已同构；② 但 **V9 那 14 条牌照级 P0 一条没动**，且它们**不依赖前面任何版本**（不是「等 V1-V8 做完才能做」），是当前最大且最独立的合规敞口。次大是 V1 的 8 条 ⚖️P0（审计留存 8 年 / 权限复审 / 密钥治理 / WORM），同样上线前必须。
+> **三句话结论**：① **这 38 天的重心是 V2 重建与 V8 平账**——客户域拆了重盖（入驻/档位升级全弧线可现场走），对账把十件处置全交齐，V7 也因内部划转单第一次有了活体；② **但 V9 那 14 条牌照级 P0 仍一条没动**，且它们**不依赖前面任何版本**，仍是当前最大且最独立的合规敞口，次大是 V1 的 8 条 ⚖️P0（审计留存 8 年 / 权限复审 / 密钥治理 / WORM）；③ **本轮最该记住的不是翻勾，是新设的 `[-]` 档**——6 条曾以「待做/部分完成」面貌挂在表上的条目，其实早被业主拍板砍掉或设计换轨（CRA 定期风评、材料时效巡查、资产上线审批路、两条费率 30 日生效闸、swap reverse 方案），**继续挂着就是在诱导后续会话去做已经不做的事**。
 
 ---
 
@@ -66,7 +66,7 @@ V7（财资运营）已脱离交易链——旧 EOD 结算/内部转账被实时
 - [x] Admin Account Reactivation — 恢复审批，3 层 ｜来源:业务 ｜配对:停用 ✅2026-05-06
 - [x] Admin Password Reset — 自助(邮箱→MFA→链接)+CISO 代操作；15min token+SHA-256+速率限制+反枚举 ｜VARA TIR III.A ✅2026-05-06
 - [x] Admin MFA Reset — CISO/TECH_OFFICER 发起，IAM_CREDENTIAL_RESET，重走首登 ｜VARA TIR III.A ✅2026-05-06
-- [x] Role Definition CRUD — 自定义角色 + Action Bucket Catalog(2026-08-31 第一幕职权重划后：**12 域 50 bucket、零空域**) ｜来源:业务 ✅2026-05-10
+- [x] Role Definition CRUD — 自定义角色 + Action Bucket Catalog(**2026-09-17 以代码为准实测：13 域 62 桶、70 个 PermissionGroup、零空域**；`rbac.catalog.ts` 的 `ACTION_BUCKET_CATALOG`。⚠️注意 `modules/v1-governance.md` 写「58 桶 66 组」、`modules/overview.md` §4 脚注写「60 桶 68 组」均已滞后) ｜来源:业务 ✅2026-05-10
 - [x] Audit Evidence Export — 证据包导出审批(approval-backed)+manifest+SHA-256 digest ｜VARA CRM III.A ✅2026-05-05
 - [x] Approval Policy Management — 多步骤审批链(stepsConfig 每步多角色 OR)+自审防篡改 ｜VARA CRM II.B ✅2026-05-07
 
@@ -102,7 +102,7 @@ V7（财资运营）已脱离交易链——旧 EOD 结算/内部转账被实时
 
 ### Supporting Features（非 workflow）
 
-- **审批引擎(maker-checker)** ✅ ｜ **审计 write/query** ✅ ｜ **RBAC 权限校验** ✅ ｜ **SoD 互斥(3 对硬编码，⚠️应扩容见上 P0)** ✅ ｜ **审计 SubjectNo 移除** ✅2026-05-19
+- **审批引擎(maker-checker)** ✅ ｜ **审计 write/query** ✅ ｜ **RBAC 权限校验** ✅ ｜ **SoD 互斥(3 对硬编码，⚠️应扩容见上 P0)** ✅ ｜ ~~**审计 SubjectNo 移除** ✅2026-05-19~~ → **已反向**：旧 `audit_log_subject_nos` 表确于 2026-05-19 删除，但 2026-08-25 `audit_log_redesign` 迁移新建了 `AuditLogSubject` 子表，2026-09-16 第七幕波二把它铺到 9 文件 50 处调用、34 码写入 + 名册 47 码，是**审计按主体检索的现役地基**（`verify:audit` 覆盖）。这行别再当「已移除」读
 - ⚠️ **通知 send/retry** — roadmap 原标 ✅，**实为 STUB**（只 WebSocket gateway，无 email/webhook/retry）——是"实时告警""生命周期通知""超时预警"三个 P0/P1 的共同前置，见 truth + BACKLOG
 - **Approval delegation / Login anomaly detection** — ADVANCED 未做
 
@@ -114,18 +114,18 @@ V7（财资运营）已脱离交易链——旧 EOD 结算/内部转账被实时
 > **前置**：V1（审批引擎）｜**被依赖**：V4-V6 交易门。
 > 📖 **实现真相** → [`modules/v2-customer-compliance.md`](../modules/v2-customer-compliance.md)
 > 📖 **调研留底** → `superpowers/specs/2026-07-06-v2-customer-compliance-research.md`（V2 首次深度审计）
-> ⚠️ 三轴状态模型 ✅2026-05-09（onboardingStatus/adminStatus/complianceStatus + restrictions JSON + investorTier/tradingTier/riskRating）。
+> ⚠️ 三轴状态模型 ✅2026-05-09（onboardingStatus/adminStatus/complianceStatus + restrictions JSON + tradingTier/riskRating）。⚠️ 原文所列 `investorTier` 已在 2026-09-06 第二幕波一「清地基」作为零消费列物理删除（客户主档 48→24 字段）；投资者分类要做需从零建，见下 ADVANCED。
 
 ### MVP（领导定义的基础必须）
 
 > ⚠️ **重大订正（2026-07-04 体检）**：下列 Onboarding/CRA/材料时效原 roadmap 标 [ ] 未做，**实测均已建可用、模块注册在 AppModule 在跑**——Onboarding 更是 V4-V6 交易门的依赖（若真没做平台无法交易）。故 [ ]→[~]。
 
 - [x] Sumsub Webhook 翻译层 — 签名验证→ingest→dispatch(按 eventType 路由)+retry/dead-letter+Admin 页 ｜来源:业务 ✅2026-05-23
-- [~] 客户 Onboarding — CDD via Sumsub(真实集成)+状态机+FINAL_APPROVAL MLRO 门+assertTradingEligibility 交易门(V4-V6 依赖) ｜VARA CRM II.A ｜实测~80% 可用(原 [ ] 系漂移)
-- [~] CRA Review — Sumsub AML→6 规则策略→自动/MLRO 签署+EDD(HIGH→RISK_RATING_MLRO_REVIEW)+制裁冻结+月度 cron re-KYC ｜VARA CRM II.C/III.B ｜实测~85% 可用
-- [~] Material Refresh — 每日 cron→NUDGE/URGENT/BLOCKING 阶段→BLOCKING 冻结+补件解冻 ｜VARA CRM II.A.3 ｜实测~95%(状态名代码作 NUDGE_ONLY/CLEARED)
-- [~] Trading Tier Upgrade — CRA HIGH→Sumsub Level2→MLRO+SMO 审批→升级 ｜来源:业务 ｜后端全建，⛔缺客户端材料提交 UI
-- [~] 客户冻结/解冻 — 自动冻结在(material/tier/制裁触发)，⚠️缺统一 workflow + MLRO 解冻审批门 + freeze API ｜VARA CRM IV.A ｜见 BACKLOG
+- [x] 客户 Onboarding — **2026-09-07 第二幕波二整体重建**：CDD 经 Sumsub 直通（低风险全程零我方人工）、EDD 走审批中心「高风险客户准入核准」单步高管批（`CUSTOMER_ONBOARDING_ACCEPTANCE`）、重申/终拒/撤回三出口齐备；客户端 5 端点（start/session/submit/withdraw/reapply） ｜VARA CRM II.A ｜设计依据 `decisions.md` 2026-09-07「入驻 CDD 直通、EDD 才设我方准入门」｜⚠️ 原标「~80% 可用」是 2026-07-04 体检数字，早于拆除与重建两轮，已作废 ✅2026-09-07
+- [-] ~~CRA Review — Sumsub AML→6 规则策略→自动/MLRO 签署+EDD+制裁冻结+月度 cron re-KYC~~ — **⛔ 业主 2026-09-06 拍板：定期风评（CRA）不做**（`decisions.md`：`nextReviewAt` 字段删，持续尽调的演示表达 = 材料请求 + 便签）。原设计的三块已各自改嫁：EDD 换档并入入驻准入门（见上条）、制裁冻结并入客户限制条子（见下「客户冻结/解冻」）、月度 cron re-KYC **永久不做**。**「CRA Review」作为独立工作流已不对应任何现存代码**（`grep -rl "CRA_REVIEW\|CraReview\|RISK_RATING_MLRO_REVIEW\|nextReviewAt" src` 活码零命中，9 处命中全在 `prisma/migrations/` 历史 SQL）｜下方 ADVANCED「CRA 补法定四维因子」的锚点随之失效，要做须另立新锚
+- [-] ~~Material Refresh — 每日 cron→NUDGE/URGENT/BLOCKING 阶段→BLOCKING 冻结+补件解冻~~ — **⛔ 业主 2026-09-06 拍板整体退役**（`decisions.md`：主库 0 行、造数链断头、cron 每日扫空表、状态值失配，四证俱在；2 表 + 后端目录 + 4 前端页 + 6 路由 + 1 审计码全删）。`grep -rl NUDGE_ONLY src admin-web/src client-web/src` 活码零命中（3 处命中全在 migrations SQL）。**但不是「留下空白」——换了形**：持续尽调现由**材料请求**（`src/modules/identity/material-requests/`，issuer/review/客户端+管理台双 controller，17 文件）+ **Profile 便签**（`profile-banners` 的 `MATERIAL_REFRESH` 横幅）+ 每材料 `enforceRestriction` 开关承担，材料目录仍读 `config/material-refresh-policy.json` ｜VARA CRM II.A.3 的义务本身仍在，只是不再靠定时巡查表达
+- [x] Trading Tier Upgrade — **2026-09-08 第二幕波三全弧线交付**：客户 Profile 档位卡片发起 → 客户端补料页（`TierUpgradeVerification.tsx`，真实上传位 Proof of Address / Source of Funds）→ **运营提、高管单步批**（`CUSTOMER_TIER_UPGRADE`）→ `tradingTier` BASIC→PREMIUM 单向翻转 + 限额即刻生效；同批接上 TB 客户账本户运行时开户钩子 ｜来源:业务 ｜⚠️ **原描述「CRA HIGH→Sumsub Level2→MLRO+SMO 审批」已作废**：`decisions.md` 2026-09-07 明确「旧制 MLRO+SMO 双审不复用」（MLRO 不进升档线，尽调复核 100% 在 Sumsub）；同日另拍板「档位不做降级」（两个天然触发器定期风评与材料巡查均已裁掉） ✅2026-09-08
+- [x] 客户冻结/解冻 — **三项原缺口（统一 workflow / MLRO 解冻审批门 / freeze API）已全部补齐**：`customer-restriction-workflow.service.ts` 单文件统一编排 `openRestriction()`（贴条子，立即生效）与 `initiateRelease()`/`onReleaseDecided()`（撕条子，按原因分流 `CUSTOMER_RESTRICTION_RELEASE_MLRO` / `..._OPS` 两条审批门）；`customer-restrictions.admin.controller.ts` 暴露 GET/POST restrictions + POST `:no/release` ｜VARA CRM IV.A ｜权限包「开限制」与「解限制」故意分离两个桶 ✅2026-09（第二幕客户域三波）
 
 ### ADVANCED（全部未做）
 
@@ -172,24 +172,24 @@ V7（财资运营）已脱离交易链——旧 EOD 结算/内部转账被实时
 
 ### MVP（领导定义的基础必须）
 
-- [x] 资产上线与激活 — 直接创建→PROVISIONING→CISO 审批+就绪检查→ACTIVE ｜来源:领导 ｜配对:资产下架(ADV) ✅2026-05-15
+- [-] ~~资产上线与激活 — 直接创建→PROVISIONING→CISO 审批+就绪检查→ACTIVE~~ — **⛔ 整条路 2026-09-04 V3 治愈波一退役**，依据 `decisions.md` 2026-09-03「**上币走开发流程，运营只开启 / 暂停**」：资产的技术身份与上币包随版本装载（种子 `ASSET_SEEDED`），管理台**无上线/激活/编辑入口**。实测：`ASSET_TRANSITIONS` 只剩 `ACTIVE:{SUSPEND}` / `SUSPENDED:{REACTIVATE}` 两行，`asset-admin.controller.ts` 只剩 `POST :assetNo/suspend` 与 `:assetNo/reactivate` 两个路由，`PROVISIONING` 只存在于 `DEPRECATED_AUDIT_ACTIONS` 名册 ｜配对项「资产下架(ADV)」随之失去对偶 ｜「新资产上线整条流程（未来）」的设计已记 `BACKLOG.md` §B
 - [x] 资产暂停/恢复 — 双向独立 CISO 审批门 ｜来源:领导+VARA TIR IV.C ✅2026-05-15
-- [x] 托管钱包创建 — Crypto — Admin 系统钱包 / Client 充值地址双入口 ｜来源:领导 ✅2026-05-13
-- [x] 托管钱包创建 — Fiat — Admin 系统账户 / Client VIBAN 双入口 ｜来源:领导 ✅2026-05-13
-- [x] 账本账户开设 — 随资产同事务开系统账户，客户账户首笔懒解析+手动兜底 ｜来源:领导 ✅2026-05-15
+- [x] 托管钱包创建 — Crypto — ~~Admin 系统钱包 /~~ **Client 充值地址**（双入口已变单入口）｜来源:领导 ✅2026-05-13 ｜⚠️**2026-09-17 复核**：Admin 侧运行时入口已随 V3 波一退役——`wallets.controller.ts`（管理台）全程只有 `@Get`，平台侧 7 行钱包只从 `prisma/seed.business.ts` 来（`CUSTODIAN_WALLET_SEEDED`，actorNo=RELEASE）；`createWalletRecord()` 唯一运行时调用方是客户侧 `customer-deposit-wallet.service.ts`
+- [x] 托管钱包创建 — Fiat — ~~Admin 系统账户 /~~ **Client VIBAN**（同上，Admin 侧已退役为种子）｜来源:领导 ✅2026-05-13 ｜⚠️ crypto/fiat 共用同一份 `createWalletRecord`，未分叉，复核证据同上条
+- [x] 账本账户开设 — **机制已两处换轨（2026-09-17 复核）**：① 系统账户不再「随资产同事务开」，改随版本装载时由种子调 `ensureTbAccountRegistry`（`asset-provisioning.service.ts` 的 `systemAccountCodesFor()` 注释原文「波一起只有种子调用它，当下零运行时调用方」）；② 客户账户不再「首笔懒解析+手动兜底」，改为 **onboarding 首次进 ACTIVE 即运行时开户**（`customer-ledger-provisioning.service.ts`，唯一调用方 `onboarding-workflow.service.ts:67`，**失败即激活失败、不吞**）——2026-09-08 第二幕波三补，销掉了「现场注册客户无 TB 账本户」那条缺口 ｜来源:领导 ✅2026-05-15（机制 2026-09 重写）
 - [x] 提现地址登记 — Crypto — 24h 安全冷却 ｜来源:领导+**行业惯例**(⚠️2026-07-06 审计:查遍各册无地址冷却法定条款,原 TIR III.A 误引——那是保密信息条款) ｜配对:地址停用归档(ADV) ✅2026-05-13
-- [x] 提现地址登记 — Bank — 同冷却机制 ｜来源:领导+**行业惯例**(同上,无法定锚) ｜配对:地址停用归档(ADV) ✅2026-05-13
-- [~] 金额闸门体系 — 统一 `transaction_limit_rules`（A 单笔 / B 等级累计 / D1 大额审批 三 gateType）**✅2026-07-16 接入 L1**：A/B 提现+兑换建单前拦截、D1 提现大额审批读规则行；旧 `TransactionLimitPolicy`/`TransactionLimitChangeRequest` 两表退役。**✅2026-07-17 充值执行接入**（V4 below-min 挂起，见下）。仍欠（defer）：**客户微调层**（cap 列占位）+ **DEPOSIT 累计限额（B 档）**；**TR 阈值 3,500 属合规域、不并入本体** ｜来源:领导 ｜配对:充值限额接入(V4，✅已交付) ｜现状见 modules/v3-financial-config §5
+- [x] 提现地址登记 — Bank — 同冷却机制，**但有一条演示会用到的例外：首个法币账户即时生效**（登记时余额为零、无盗提风险），第 2 条起才走 24h（`withdrawal-address.service.ts` 的 `createBankAccount()`：`activatesAt = isFirst ? now : now+24h`）｜来源:领导+**行业惯例**(同上,无法定锚) ｜配对:地址停用归档(ADV，**✅已交付**，见下) ✅2026-05-13
+- [~] 金额闸门体系 — 统一 `transaction_limit_rules`（A 单笔 / B 等级累计 / D1 大额审批 三 gateType）**✅2026-07-16 接入 L1**：A/B 提现+兑换建单前拦截、D1 提现大额审批读规则行；旧 `TransactionLimitPolicy`/`TransactionLimitChangeRequest` 两表退役。**✅2026-07-17 充值执行接入**（V4 below-min 挂起，见下）。**仍欠的两件 2026-09-17 复核订正**：① **客户微调层**——原文「cap 列占位」**不确**，Customer 表压根没建这一列（`grep -n "model Customer " -A60 prisma/schema.prisma | grep -ni "cap\|limit"` 零命中），要做是从零加列而非接线；② **DEPOSIT 累计限额（B 档）**——**已被业主 2026-08-22 裁定不做**（`decisions.md` 第四批不做清单含「充值累计额度」「充值大额审批」），不是 defer，**看到别顺手补上**；**TR 阈值 3,500 属合规域、不并入本体** ｜来源:领导 ｜配对:充值限额接入(V4，✅已交付) ｜现状见 modules/v3-financial-config §5
 
 ### ADVANCED（VARA gap + 低频逆向）
 
 - [ ] ⚖️ 资产对外披露信息页 — 每资产公开摘要（符号/发行日/市值/流通量/合约审计/最大回撤）｜VARA BD I.B.1(c) ｜挂靠资产上线，下架联动摘除
 - [ ] ⚖️ 资产下架 — 在途订单清退 + 持仓清退 + 披露页摘除 + 审批 ｜来源:VARA(披露一致性)+行业(Coinbase/Kraken) ｜配对:资产上线(MVP)
-- [ ] ⚖️ 阈值参数配置治理 — 归集/dust/大额线/TR 阈值走 Maker-Checker，出硬编码 ｜VARA Company(职责分离，硬编码绕过四眼) ｜自 V7 移入
+- [ ] ⚖️ 阈值参数配置治理 — 归集/dust/大额线 走 Maker-Checker，出硬编码 ｜VARA Company(职责分离，硬编码绕过四眼) ｜自 V7 移入 ｜⚠️**2026-09-17 收窄**：原文含的「TR 阈值」这一项**已被业主 2026-07-31 裁定不做**（`decisions.md`：TR 阈值按币种写死代码 AED 3500 / USDT 1000，**不做管理台可配**——监管数值的改动应走发版评审，不该是运营旋钮），本条剩余三项照旧待做
 - [ ] ⚖️P1 稳定币兑换对 CBUAE 牌照门 — AED↔支付型代币(USDT/USDC)兑换对**开通前**登记 CBUAE 授权/非异议注册状态,无则禁开该对——央行 2024 条例明文"含 VARA 持牌人",VARA 牌照不覆盖法币↔支付代币换汇 ｜CBUAE Payment Token Services Regulation(Circular 2/2024,条款原文待核) ｜来源:2026-07-06 V6 复查分拣归 V3
 - [ ] ⚖️P1 VA Standards 存续复审+币对急停 — 上线尽调只是"prior to"半句,"**at all times during**"要求在售币对存续符合:跌出标准(列禁/失监管认可)→暂停该币对报价成交+留痕;VA Standards 文本挂官网随修订更新;V6 报价引擎消费暂停标记 ｜Market Conduct VIII.A.2/A.3/A.4(n) ｜来源:2026-07-06 V6 复查分拣归 V3
 - [~] ⚖️P1 提现地址所有权验证 + hosted/unhosted 分类打标记 — 登记时验证客户控制自托管钱包(验一次永久) + 分类 hosted/unhosted + 对手方 VASP 初次尽调 → 打标记供 V5 每笔消费；TravelRuleAdapter 归因已有地基 ｜CRM III.G.7 + FATF(2026-07-04 V5 调研确认，原"待核"已坐实) ｜**地址级一次性控制归 V3**；交易级(制裁重筛/TR 发送/差异化 EDD)在 V5 ｜**分类打标记这半边已被消费（2026-08-04）**：提现建单时 `withdraw-workflow.service.ts` 由 `registeredAddress.addressType === 'VASP'` 推导 `counterpartyIsVasp` 落库，并被 V4/V5 的 TR 类型判定器实际读取——标记链路已通。**仍差两件**：① **所有权验证零实现**（登记时不验证客户是否真控制该自托管钱包）；② 分类值是**客户自报**，无外部 VASP 名录/归属服务校验（modules/v5-withdraw §9「真实 VASP 归因服务未接」）——自报 false 即可让整笔交易绕开 TR 判定
-- [ ] 提现地址停用归档 — 确认无在途提现→停用（8 年保留，不物理删）｜来源:领导 ｜配对:地址登记(MVP)
+- [x] 提现地址停用归档 — **已交付（2026-09-17 复核翻勾）**：`withdrawal-address.service.ts:207` 的 `deactivate()` 两道守卫——`LAST_ACTIVE_FIAT_ADDRESS`（最后一个可用法币地址不许停）+ 按 `toIban`/`toAddress` 匹配在途 `FundsOrder` 抛 `ADDRESS_HAS_INFLIGHT_WITHDRAWAL`（正是「确认无在途提现→停用」）；落库 `deactivatedAt`/`deactivatedBy`，**不物理删**；客户端 `WithdrawalAddresses.tsx` 有完整停用 UI（确认弹窗 + 必填原因 + 错误码映射），可现场演示 ｜来源:领导 ｜配对:地址登记(MVP) ｜⚠️唯一未证实的是描述里的「8 年保留」字面——不物理删隐含满足，但无专门保留期字段可查
 - [ ] ⚖️P1 第三方银行客户资金确认函 — 存客户法币前须取银行书面确认(资金以 agent 身份持有/银行无抵销·扣押权/账户名可区分自有资金)；不出函则不许再存并撤出已存(IV.C.4 有牙齿) ｜CRM IV.C.3/C.4(一手核) ｜来源:2026-07-06 V8 审计分拣归 V3(账户配置门；V8 只消费"该账户已挂确认函证据")
 
 #### 🔄 2026-07-06 遗漏审计追补（fable-5，13 候选/9 存活/4 驳回；条款均一手核 rulebooks.vara.ae）
@@ -235,9 +235,9 @@ V7（财资运营）已脱离交易链——旧 EOD 结算/内部转账被实时
 ### ADVANCED（VARA gap + 异常分支；括号内 P0/P1/P2 = 实施优先级）
 
 **P0（硬条款欠账 + 已上线按钮钱路未通）：**
-- [~] ⚖️ 制裁冻结完整闭环 — KYT/制裁命中→FROZEN→MLRO 审批门→放行/没收(CONFISCATE 治理化) ｜VARA CRM III.H(命中即冻结、记录 8 年) ｜(P0) ｜**2026-07-28 大幅兑现**：四段链条全建成、执行侧全是真结算——命中（`rejected` 带 SANCTION tag／officer 打 `FROZEN_BY_MLRO`）→ `FROZEN` → 三道 maker-checker 正门（`:id/seize` SMO→MLRO 双步／`:id/unfreeze` MLRO 单步／`:id/confiscate` OPS 两步）→ 放行（A5 解冻回炉，零记账 + 触发 Sumsub rescore）或没收（A4 上缴单腿真结算／没收异步两阶段两腿）；`CONFISCATED`/`CONFISCATING` 已进 `ACCOUNTING_TERMINALS`，挡住 PATCH 裸拍终态。**仍差**：`freeze`/`return`/`seize` 三个 PATCH 动作未进 controller allowlist，admin 仍可裸 PATCH 绕过这三道门直改状态（`return`/`seize` 绕过还会造出无资金单、永远结不了的幽灵在途态）——**门可绕就不算闭环**，故记 `[~]` 不记 `[x]` ｜modules/v4-deposit §7 + BACKLOG
+- [x] ⚖️ 制裁冻结完整闭环 — KYT/制裁命中→FROZEN→MLRO 审批门→放行/没收(CONFISCATE 治理化) ｜VARA CRM III.H(命中即冻结、记录 8 年) ｜(P0) ｜**2026-07-28 大幅兑现**：四段链条全建成、执行侧全是真结算——命中（`rejected` 带 SANCTION tag／officer 打 `FROZEN_BY_MLRO`）→ `FROZEN` → 三道 maker-checker 正门（`:id/seize` SMO→MLRO 双步／`:id/unfreeze` MLRO 单步／`:id/confiscate` OPS 两步）→ 放行（A5 解冻回炉，零记账 + 触发 Sumsub rescore）或没收（A4 上缴单腿真结算／没收异步两阶段两腿）。**✅2026-09-17 翻勾**：原记 `[~]` 的唯一理由是「`freeze`/`return`/`seize` 三个 PATCH 动作未进 allowlist、admin 可裸 PATCH 绕门」——该缺口已被**物理消除**而非补票：`PATCH :id/status` 端点整条于 2026-08-30(`00b0eb83`) 删除，今日 `deposit-transactions.controller.ts` 实测 **`@Patch` 计数 = 0、10 个动作全是 `@Post`**，`adminFreeze()` 函数体已删只剩注释，BACKLOG/PRODUCTION-NOTES 对应债务行同批清空。**门不可绕，故转 `[x]`** ｜modules/v4-deposit §7
 - [x] ⚖️ 已记账异常终态 TB 回退 — REJECTED/FAILED/EXPIRED 若已过 Step1 须反向 SUSPENSE→CLIENT_ASSET ｜VARA BD(禁止不当处置客户资产) ✅**2026-07-31 收口** ｜收口方式不是「给这三个态补回退分录」，而是**把答不出资金去向的终态删掉**：状态机收窄时立下不变量「**每个终态都必须回答钱去哪了**」，`REJECTED`/`EXPIRED`（钱已到账却「拒绝」/「过期」、资金悬空）双双删除；`FAILED` 的唯一入口收窄为 `PAYIN_PENDING`——该阶段 Step1 尚未记账，是「从未入账」而非「已入账无法回退」。剩下三条已入账后的出口全部带真反向分录：没收两腿(§6 Leg1)／退回单腿 `DEPOSIT_SUSPENSE→CLIENT_ASSET`(A3)／上缴单腿(A4)。原临时守卫卡片 task_16af8187 可关 ｜锚点 `deposit-transactions.service.ts → getNextStatus()` 注释 + modules/v4-deposit §2/§6/§7
-- [~] KYT FAILED 消化路径 — 失败不能永挂 COMPLIANCE_PENDING ｜来源:业务 ｜(P0) ｜**新管道已消化、老管道仍是死胡同**：Sumsub 裁决管道下 `rejected` 有明确去处（带 SANCTION tag → `FROZEN`；无 tag → `MANUAL_CHECKING` 人工复核，翻案/冻结/退回三条出边齐全），不再永挂。但 §4.2 **老 mock 路径未碰**——`checkAutoApproval()` 仍只在 `financeStatus==='PASSED'` 才继续，`FAILED` 既不转 FROZEN 也不转终态，仍永挂 `COMPLIANCE_PENDING`；该路径退役或补出口前，这条 P0 不能记 `[x]` ｜modules/v4-deposit §7 末行
+- [~] KYT FAILED 消化路径 — 失败不能永挂 COMPLIANCE_PENDING ｜来源:业务 ｜(P0) ｜**新管道已消化**：`applyKytVerdict → decideVerdictLanding → applyKytRejected` 单一路径，`rejected` 去处明确（带 SANCTION tag → `FROZEN`；无 tag → `MANUAL_CHECKING`，翻案/冻结/退回三条出边齐全）。⚠️**2026-09-17 复核：原「差哪里」整段已失效**——原文写的是「老 mock 路径 `checkAutoApproval()` 仍只在 `financeStatus==='PASSED'` 才继续」，实测两处都不成立：① `financeStatus` **全仓零活码命中**（5 处全在 `prisma/migrations/` 历史 SQL，含 2026-07-30 的改名与后续删列迁移）；② `checkAutoApproval()`（`deposit-workflow.service.ts:979`）读的是 `sumsubVerdict !== 'approved'`，且**唯一生产调用方是 `waiveLimitHold():1189`**——它是 waive 后的重评估入口，根本不是「接收所有裁决的老管道」（该文件 :1138-1147 的 JSDoc 记着 2026-08-22 终审已订正过同一误解）。**但 `[~]` 仍成立，换了病根**：另有一条实证的永挂路径——`submitSumsubTxns()`（同文件 :355）在客户没有 `sumsubApplicantId` 时直接 `logger.warn` 后 `return`，单子留在 `COMPLIANCE_PENDING` 却**从未送检 Sumsub**，永远等不到裁决 webhook；唯一出路是运营拿 ⚡ 面板硬喂一个 Approved。缺口在案：`BACKLOG.md` §D 首条 ｜modules/v4-deposit §7
 
 **P1（有具体数字/字段的条款欠账）：**
 - [~] ⚖️ TR 阈值 3,500 闸门 + 数据缺失分支 — 单笔/分方向；缺对手方数据→等待时限→处置 ｜VARA CRM III.G ｜(P1，并入金额闸门矩阵) ｜**阈值闸已落 2026-07-31**：`kyt-txn-type.resolver.ts → resolveKytTxnType()` 三条件判定（`assetType==CRYPTO` ∧ `counterpartyIsVasp===true` ∧ `amount >= 阈值`）决定这笔报 Sumsub 的 `finance` 还是 `travelRule` 类型；阈值按币种写死代码（**AED 3500 / USDT 1000**，业主定：监管数值不做管理台可配，改动须走发版 + review），漏配币种回落 `finance` 但打 warn（静默漏报比报错危险）。⚠️**边界口径已变更**：本条原写「严格大于」，代码实取 **`>=`**（正好 3500 AED 要走 TR，业主 2026-07-31 定）——两处不一致**以代码为准**，条款原文待复核。**仍差**：① 数据缺失分支（缺对手方数据→等待时限→处置）零实现；② `counterpartyIsVasp` 是**客户自报**（充值靠弹窗自选、提现靠地址 `addressType` 推导），无外部 VASP 名录校验——自报 false 即可绕开整个 TR 判定
@@ -248,7 +248,7 @@ V7（财资运营）已脱离交易链——旧 EOD 结算/内部转账被实时
 
 **P2（依赖真实银行集成或低频）：**
 - [ ] ⚖️ 稳定币发行方冻结应对 — USDT 黑名单事件 runbook + 资产暂停联动 ｜FATF 2025(非法活动多涉稳定币) ｜(P2)
-- [ ] 法币银行退汇/冲正 — bounce→FAILED；到账后 reversal→扣回/催收 ｜来源:业务 ｜(P2)
+- [~] 法币银行退汇/冲正 — ~~bounce→FAILED~~；**到账后 reversal→扣回已交付（2026-09-03 平账 B 批②）**：`POST :depositNo/clawback`（CFO maker-checker）+ 状态边 `SUCCESS ──CLAWBACK──> CLAWED_BACK`，注释原文「银行/托管方事后退汇」。⚠️**机制与原设想不同**：不是充值域内的 bounce 端点（`grep -n "bounce" src/modules/trading/deposit-transactions/*.ts` 零命中），而是**从 V8 对账认领侧发起**——差异行上点处置，回业务域执行。**仍差**：催收无出口 ｜来源:业务 ｜(P2)
 - [x] ~~EXPIRED 超时回退 — 补材料超时→回退~~ → **2026-07-31 条目作废**：`EXPIRED` 状态已随状态机收窄删除（理由同上「已记账异常终态」——它答不出钱去哪了）。补材料超时现走 `SLA_BREACH → MANUAL_CHECKING` 转人工，不再有「过期」这个终态，本条无对象可做 ｜来源:业务 ｜(原 P2)
 - [ ] 孤儿充值处理 — 无主资金→suspense→人工归属/MLRO；VIBAN 归属校验建议先补 ｜VARA CRM III.A ｜(P2)
 - [ ] 充值渠道暂停/恢复 — 指定链/token/法币渠道 + 审批 ｜来源:业务 ｜(P2)
@@ -269,7 +269,7 @@ V7（财资运营）已脱离交易链——旧 EOD 结算/内部转账被实时
 
 ### OPTIMIZED（VARA 不强制、行业惯例）
 
-- [ ] 充值成功通知 — 到账推送客户，复用 V1 Notification ｜来源:行业(UX)
+- [ ] 充值成功通知 — 到账推送客户，复用 V1 Notification ｜来源:行业(UX) ｜🔴**2026-09-17 复核订正根因**：不是「基础设施在、没接」——`src/core/notifications/` 只有 2 个文件，唯一方法 `notifyComplianceUpdated()` **全仓零调用方**（`grep -rn "notifyComplianceUpdated" src` 唯一命中是它自己的定义行；`NotificationsGateway` 只在自身与自己的 module 出现）。**整层是死码**，V4/V5/V6 三条「成功通知」是同一个根因，见 `BACKLOG.md` ⭐🔴 条
 
 > **支撑项**（事件驱动编排 / **Sumsub KYT 单笔交易引擎（真集成，2026-07-31 取代老 mock 管道：Gate 0 提交存 txnId + webhook 强类型路由 + `applyKytVerdict` 四裁决驱动 + SLA 定时器 + getTxn 报文存证）** / **`SUMSUB_MOCK_MODE` 开关 + 10 个原子裁决按钮的场景一键喂端点**（业主 2026-07-29 定的甲方案：sandbox 演不出制裁/PEP/慢 case，故 fixture 驱动）/ **四条异常动钱弧（没收异步两阶段 / 退回 A3 / 上缴 A4 / 解冻回炉 A5，均真结算 + maker-checker 正门）** / KYT-TR 模拟端点 / Admin 充值页 / Client 三 Tab / Tipping-off 映射 / Overview 读 TB）均已交付；现状见 [modules/v4-deposit.md](../modules/v4-deposit.md)。**技术债**（txHash 去重、repair surface、emit vs emitAsync、PATCH 绕过等）见 [BACKLOG.md](../BACKLOG.md)。**TransactionComplianceService 废弃** — 已确认全仓 0 命中（删干净）。
 
@@ -299,7 +299,7 @@ V7（财资运营）已脱离交易链——旧 EOD 结算/内部转账被实时
 
 - [~] ⚖️P0 Travel Rule 发起方**发送** — **单笔或关联交易累计 >AED 3,500**（按 VARA 口径，2026-07-06 甲方定；非"按自然日"，关联交易合并沿用 III.G.9 拆单监控）发起前向受益方 VASP 发送 originator(name+钱包地址+住址)+beneficiary(name+钱包地址) payload ｜CRM III.G.2/4/5 ｜**部分兑现 2026-08-04**：判定器 `resolveKytTxnType()` 已按 crypto ∧ 收款方 VASP ∧ 金额≥阈值 判 `travelRule` 类型单笔报送 Sumsub（协议层报文收发由 Sumsub 承担，我方"提交+持有引用"），阈值写死 `USDT=1000/AED=3500`；⚠️**三处未收口**：① 边界用 `>=`（正好 3,500 走 TR），与本条"严格大于"措辞有出入，需业主统一口径；② 真实租户须先把 Sumsub 规则作用域挂 `types:["finance","travelRule"]` 才可翻开 `SUMSUB_SINGLE_TXN_SUBMIT`（否则最大额那批反而不进筛查规则，见 truth §4）；③ **关联交易累计**（拆单合并判定）未做，仍是单笔口径
 - [ ] ⚖️P0 对手方 VASP 尽调 — 新对手方 VASP 首次交易前风险尽调(核受监管+能收 TR)，pre-send gating；⚠️2026-02-24 VARA Circular **禁止向未受监管对手方转账** ｜CRM III.G.6 ｜⚠️2026-08-04 起 `counterpartyIsVasp` 已能从提现地址 `addressType` 派生（地址登记时经 `TravelRuleAdapter` 归因），但**归因源仍是 mock、且无尽调门**：判出是 VASP 只影响报 TR 类型，不拦截未受监管对手方——本条实质未做
-- [x] ⚖️P0 制裁命中→BLOCK/FROZEN — ⚠️纠偏:命中 BLOCK 须**冻结原地+拒绝各方访问+上报**，**非取消退回客户**(与 block 义务冲突) ｜CRM III.H + OFAC FAQ 646 ✅2026-08-04：`FROZEN` 半终态已建（`rejected`+SANCTION/FROZEN_BY_MLRO tag 免审批即冻，钱原地锁在 TB pending 不反转不释放）；**出口仅双 maker-checker 审批弧**（`WITHDRAW_UNFREEZE` 解冻回炉+rescore / `WITHDRAW_SANCTION_REFUND` 坐实退回+releaseLock，均 MLRO 单步 48h），officer tag 无法单方面解冻（`WITHDRAW_REFUND_TAG_ON_FROZEN_IGNORED` 守卫）；迟到 approved 裁决跳过写回保护制裁证据 ｜现状见 modules/v5-withdraw.md §6 ｜⚠️剩余：**上报（goAML/STR）仍未接**（见下条 + V9）；客户账户层面升级冻结仅审计留痕（V2 freeze API 未建）
+- [x] ⚖️P0 制裁命中→BLOCK/FROZEN — ⚠️纠偏:命中 BLOCK 须**冻结原地+拒绝各方访问+上报**，**非取消退回客户**(与 block 义务冲突) ｜CRM III.H + OFAC FAQ 646 ✅2026-08-04：`FROZEN` 半终态已建（`rejected`+SANCTION/FROZEN_BY_MLRO tag 免审批即冻，钱原地锁在 TB pending 不反转不释放）；**出口仅双 maker-checker 审批弧**（`WITHDRAW_UNFREEZE` 解冻回炉+rescore / `WITHDRAW_SANCTION_REFUND` 坐实退回+releaseLock，均 MLRO 单步 48h），officer tag 无法单方面解冻（`WITHDRAW_REFUND_TAG_ON_FROZEN_IGNORED` 守卫）；迟到 approved 裁决跳过写回保护制裁证据 ｜现状见 modules/v5-withdraw.md §6 ｜⚠️剩余：**上报（goAML/STR）仍未接**（见下条 + V9）；客户账户层面升级冻结仅审计留痕（V2 freeze API 未建） ｜**✅2026-09-14 波五补强**：制裁（SILENT）客户**新建单即冻**——`assertTradingIntake()`/`isFoldOnlyRestriction()` 放行建单、建完立刻走既有 FREEZE 边转 `FROZEN`（此前是建单阶段直接拒，客户看不到自己的单），见 `modules/v5-withdraw.md` §1
 - [ ] ⚖️P0 失败/未授权提现处置+退回 — 未授权/偏离指示→尽快退款或恢复账户；⚠️2026-07-06 牌照订正:平台仅 BD(无 T&S),II.C.2 硬 24h 约束的是执行转账的 HexTrust——平台侧=合同传导 24h SLA+监督跟踪 ｜CRM I.E.4(客户资产保护) + BD I.A.1.c ｜HexTrust 合同(原锚 T&S II.C.2 撤)
 - [~] ⚖️P0 KYT 高风险/可疑→MLRO→STR — 挂起→MLRO 门→goAML **立即上报**(联动 V9 STR) ｜CRM III.F.3.a ｜**部分兑现 2026-08-04**：挂起与人工门已全建——`rejected` 无 tag → `MANUAL_CHECKING`（officer 在 Sumsub 侧调查处置）、`onHold` 原地留+SLA 到期转人工、制裁类 → `FROZEN` + MLRO 双审批弧；⚠️**goAML/STR 上报整段未做**（全仓零 goAML/STR 集成代码，实测 grep 零命中），MLRO 裁定后只有内部审计留痕，无监管报送通道——收口依赖 V9
 
@@ -308,7 +308,7 @@ V7（财资运营）已脱离交易链——旧 EOD 结算/内部转账被实时
 - [~] ⚖️P1 stuck/failed→追踪-定因-通知 — 转账未达须追踪+查因+通知客户；⚠️2026-07-06 牌照订正:II.C.3 直接义务方是 HexTrust,平台侧=合同要求追踪+对客通知与留痕 ｜CRM I.E.1 + HexTrust 合同(原锚 T&S II.C.3 撤) ｜**部分兑现 2026-08-03**：卡单可见性已建——本金腿 FAILED→整单 `FAILED`+双锁 void 归还；费腿失败三级梯（重建 ≤3 次→耗尽打 `needsReview` 旗 + `WITHDRAW_FEE_SETTLE_STUCK` 审计，单留 `PAYOUT_PENDING` 等人工，SUCCESS 结算自动清旗）；⚠️**缺**：无专用 repair admin 端点（现靠资金单 ⚡ 步进恢复）、无对客通知（通知本体仍是 stub，见 OPTIMIZED）、无自动追踪/定因（链上/银行侧查因未接）
 - [ ] ⚖️P1 自托管钱包差异化 EDD/限额 — **消费 V3 打的自托管标记**，按金额应用 EDD/额度限制(所有权验证已在 V3 登记时做) ｜FATF/VARA III.G.7
 - [ ] ⚖️P1 大额提现增强审查(EDD) — 超阈值强制 SOF/SOW→Sumsub 增强→MLRO 门(阈值按 tradingTier) ｜CRM III.B
-- [~] 法币银行退回(bounced) — 退汇→void 恢复→通知→审计(绑 24h) ｜来源:业务 ｜配对:V4 充值 bounce ｜**主体兑现 2026-08-03**：admin `POST :id/bounce`（理由必填）——守卫仅 `PAYOUT_PENDING` 且本金已 POST（未发出的失败走 `FAIL` 不走 bounce）→ 反向分录 `DR CLIENT_ASSET/CR CLIENT_PAYABLE`（先账后状态）→ `RETURNED`；费腿双支处置（已 POST=归公司 / 未 POST=void 退还客户，防孤儿锁）｜⚠️**缺**：无对客通知、24h SLA 无计时器、**SUCCESS 后退汇无入口**（终态零出边，须走对账子系统匹配外部退汇流水，见 truth §7/§9）
+- [~] 法币银行退回(bounced) — 退汇→void 恢复→通知→审计(绑 24h) ｜来源:业务 ｜配对:V4 充值 bounce ｜**主体兑现 2026-08-03**：admin `POST :id/bounce`（理由必填）——守卫仅 `PAYOUT_PENDING` 且本金已 POST（未发出的失败走 `FAIL` 不走 bounce）→ 反向分录 `DR CLIENT_ASSET/CR CLIENT_PAYABLE`（先账后状态）→ `RETURNED`；费腿双支处置（已 POST=归公司 / 未 POST=void 退还客户，防孤儿锁）｜⚠️**缺**：无对客通知（根因见 V4「充值成功通知」条：通知层零调用方）、24h SLA 无计时器。~~SUCCESS 后退汇无入口~~ **已推翻（2026-09-17 复核）**：`POST :withdrawNo/return-claim`（`initiateReturnClaim`，守卫 `status!==SUCCESS` 即拒，专收 SUCCESS 态）于 2026-09-03 平账 B 批交付，`modules/v5-withdraw.md` §2 记「SUCCESS──退回(B批)──→RETURNED」｜⚠️原文引用的「truth §7/§9」章节号已失效，该篇现只到 §6
 
 > 🔄 **2026-07-06 遗漏复查追补**（fable-5，11 存活→分拣后 9 留 V5、对账单归 V2）。下列 Client Money(CRM Part IV) 条款号系 gap-audit 溯源，**一手复核前当"很可能对"**（见 spec caveat）。
 - [ ] ⚖️P1 🔄 提现划账授权 + 指令绑定存证 — 客户账户每笔划出须绑客户提现指令(指令ID+客户ID+收款账户/地址+白名单肢分类)方可打款；付第三方须留客户指令原文 ｜CRM IV.B.10
@@ -316,7 +316,7 @@ V7（财资运营）已脱离交易链——旧 EOD 结算/内部转账被实时
 - [ ] ⚖️P1 🔄 Client Money 违规 1 日报 VARA — 无凭据划账/退回超1日未回存/跨客户垫付 任一→提现流内检测→**1 个自然日内**书面报 VARA(发函走 V9 通道) ｜CRM IV.F.1
 - [ ] ⚖️P1 🔄 提现暂停牌照级窄化约束 — "客户极端行情也须能提"→暂停须选法定事由+限范围/时限+**禁行情异动全面停提**+每年政策有效性复查；违约经 CRM I.2 通报 VARA（P2 渠道暂停功能须套此护栏）｜BD I.A.1.c + I.A.2
 - [~] ⚖️P1 🔄 合规冻结 tipping-off 内外双轨 — 制裁/KYT 卡住的提现：内部原因码(SANCTIONS_HIT/KYT_STR)仅合规可见，客户端统一映射中性文案("处理中")，对客话术 MLRO 预审；**禁客户可见渠道输出真实冻结原因(刑事红线)** ｜CRM III.F.1/F.3.d + 联邦法 20/2018 Art.25 ｜**部分兑现 2026-08-04**：渲染层与字段层已双防——`getWithdrawStatusView()` 把 `FROZEN`/`MANUAL_CHECKING`/`PENDING_APPROVAL` **逐字段收敛**成与 `COMPLIANCE_PENDING` 完全一致的中性 `PROCESSING`（无 note，违禁词单测全态零命中 + 三态 `toEqual` 防回退）；`toCustomerWithdrawView()` 白名单裁掉全部调查性字段（sumsub*/manualReason/slaDeadline/needsReview/statusHistory 等）；⚠️**接口层未收口（业主 2026-08-07 拍板缓做，两域一起）**：客户端 JSON 响应体仍原样携带真实 `status` 值（开 DevTools 可见 `"status":"FROZEN"`），且 `?status=` 查询参数未忽略（可当冻结预言机）——与充值域同一设计缺口，待充值那套定稿后两域对齐；另 `POST /client/withdraw-transactions` 创建响应未过白名单（见 BACKLOG）
-- [ ] ⚖️P1 🔄 提现费率 30 日历日生效闸 — WithdrawalFeeLevel 变更强制生效日 ≥T+30 + 通知客户(费率属协议内容、改即改协议)；现"即改即生效"撞线 ｜MC II.A.7/8 + II.B.1(e) ｜与 V6 markup 同源
+- [-] ~~⚖️P1 🔄 提现费率 30 日历日生效闸 — WithdrawalFeeLevel 变更强制生效日 ≥T+30 + 通知客户~~ — **⛔ 业主 2026-09-05 裁定不做**（`decisions.md`：该义务不在平台职责内，费率即改即生效；BACKLOG 该待办同批删除）｜MC II.A.7/8 + II.B.1(e) ｜**与 V6 markup 同源，两条同批否决**
 - [ ] ⚖️P1 🔄 提现记录法定字段集 — 提现单落库固化 CRM I.F.1 最低字段(金额/时间戳/支付指令/费用总额/客户+居住国快照/收款账户或地址/HexTrust 执行方)，native 格式 ≥8y、VARA 索取即出；供 V2 对账单取数 ｜CRM I.F.1-3 ｜与 V6 swap 同源
 - [ ] ⚖️P1 🔄 Sunrise 分支(对手方受监管但收不了 TR) — 非"禁转"：尝试替代安全通道→留 best-efforts 证据→合规风险相称放行/拒绝决策留痕→同对手方持续失败触发关系复评(回写 V3 尽调档) ｜Circular 2026-02-24 §2.c + CRM III.G.8
 - [ ] ⚖️P1 🔄 Post-KYT 报告后持续监控 — 出过 STR 的提现：payout 上链确认后对目标地址近实时追踪(订阅链上分析告警)，异常回流 MLRO 复评，直至 case 关闭 ｜CRM III.F.5
@@ -328,7 +328,7 @@ V7（财资运营）已脱离交易链——旧 EOD 结算/内部转账被实时
 
 ### OPTIMIZED（VARA 不强制、行业惯例）
 
-- [ ] 提现成功通知 — SUCCESS 推送客户，复用 V1 Notification（基础设施在、未接）｜来源:行业(UX)
+- [ ] 提现成功通知 — SUCCESS 推送客户，复用 V1 Notification ｜来源:行业(UX) ｜🔴根因同 V4「充值成功通知」：通知层非「基础设施在、未接」而是**全仓零调用方的死码**，2026-09-17 复核订正
 
 > **支撑项**（事件驱动编排 / TB pending-post-void 记账 / Admin+Client 页 / Tipping-off 映射 / WithdrawQuote 取最优 / 费率 seed）均已交付；**2026-08-03~07 新增**：`withdraw-sumsub/` 真实引擎（router/handler/SLA/demo-scenario）、admin 详情页 9 区块 + Frozen/Payout Disposition 组 + ⚡Simulation 10 按钮、client 详情/认证独立页、e2e（money-arcs 7 + scenarios 13）；~~模拟端点~~ 老 mock kyt/tr simulate 端点已随真实引擎退役删除。现状见 [modules/v5-withdraw.md](../modules/v5-withdraw.md)。
 > **技术债**（~~Sumsub 真集成~~ ✅2026-08-04 已接 / 热钱包校验 / 通知 / repair surface / STUCK 无自动重触发 / slaBreached 不复位 / 创建响应未白名单）见 [BACKLOG.md](../BACKLOG.md)。
@@ -373,24 +373,25 @@ V7（财资运营）已脱离交易链——旧 EOD 结算/内部转账被实时
 - [ ] ⚖️P1 卡单重大事件 72h 上报判定 — STUCK 严重度分级→达档起 72h 计时 + VARA 通报草案 ｜Tech K.1 + I.H.1
 - [ ] ⚖️P1 卡单期间客户资金保护 SLA — leg1 已扣、买入腿卡→最长停留 SLA、超时强制修复 or 全额回滚释放 + 客户侧可见 ｜CRM I.E.4/I.E.1
 - [ ] ⚖️P1 本金交易 vs 自营禁令边界 — 出「仅即时轧平、禁投机」政策 + 存货敞口台账 ≥8y ｜Market Conduct VII.A.1/A.3 + BD II.B.1
-- [ ] ⚖️P1 费率/点差变更 30 日历日生效闸 — markup/费率变更审批后强制生效日 ≥T+30 并触发全体客户通知(通知发送走 V2 协议管理);执行政策重大变更(换价源/调 best-ex 阈值/TTL)同触发通知——⚠️上 P0 best-ex gate 当天即触发本条 ｜MC II.A.7/8+II.B.1(e) + BD II.A.16 ｜来源:2026-07-06 复查
+- [-] ~~⚖️P1 费率/点差变更 30 日历日生效闸 — markup/费率变更审批后强制生效日 ≥T+30 并触发全体客户通知~~ — **⛔ 业主 2026-09-05 裁定不做**（`decisions.md`：该义务不在平台职责内，费率即改即生效）｜MC II.A.7/8+II.B.1(e) + BD II.A.16 ｜**与 V5 提现费率闸同批否决**。⚠️后半句「执行政策重大变更（换价源/调 best-ex 阈值/TTL）同触发通知」**未被该决定覆盖，仍待做**，需要时请另立一行
 - [ ] ⚖️P1 员工账户抢跑侦测规则 — P0① 监控引擎加一类规则:员工打标账户的兑换 vs 同向客户大单/markup·价源变更事件做 ±时间窗关联→合规 Case(员工 PA 审批制度本体在 V9) ｜VA&RA Regs 2023 VIII §C/§E/§J ｜来源:2026-07-06 复查
 - [ ] ⚖️P1 划账指令存证 — 客户接受报价=Client Money 划出指令:quoteId+操作时间戳+借记流水三绑定留痕 ≥8y;Client Money 违规须 1 日历日内报 VARA ｜CRM IV.B.10 ｜来源:2026-07-06 复查
 - [ ] ⚖️P1 卡单 3 日资金再隔离 — STUCK 超 **3 个日历日**(已收客户 AED、币未交付)→该笔自动划回客户资金桶重新隔离(与修复/回滚 SLA、72h 上报**并行不互替**) ｜CRM IV.B.6.b/B.7 ｜来源:2026-07-06 复查 ｜挂靠:卡单 SLA
 - [ ] ⚖️P1 成交记录法定字段集 — SwapCompleted 落不可变原始记录(金额/币对/时间戳/客户+customerNo/居住国快照/费用与点差总额/支付指令/报价快照),native 格式 ≥8y、VARA 索取即出 ｜CRM I.F.1-3 ｜来源:2026-07-06 复查
-- [ ] swap 失败终态治理 — 接 reverse 端点(整笔冲正→REVERSED) + 自动 FAILED 状态机；现死枚举、失败仅自愈→STUCK 留 PROCESSING ｜来源:业务/技术债(**非合规洞**) ｜配对:成交 Happy Path
+- [-] ~~swap 失败终态治理 — 接 reverse 端点(整笔冲正→REVERSED) + 自动 FAILED 状态机；现死枚举、失败仅自愈→STUCK 留 PROCESSING~~ — **⛔ 方案已换轨作废（2026-09-17 复核）**：① 前提没了——`FAILED`/`REVERSED` 两个**不可达死枚举**已于 2026-09-13 波四共享抽离**物理删除**（`grep -n "'FAILED'\|'REVERSED'" src/modules/trading/swap-transactions/` 活码零命中），兑换域枚举与可达状态数首次一致；② reverse 端点**从未被采纳**（同目录 `reverse` 零命中）；③ 卡单问题改由**完全不同的设计**解决——2026-09-14 波五把 `FROZEN` 从零出边终态**翻案成押锁不放的中间态**，补 `RESUME`（解冻续审→COMPLIANCE_PENDING）/ `REJECT_REFUND`（拒退→REJECTED）两条出边，5 态 5 边→5 态 7 边（`decisions.md` 2026-09-14，`modules/v6-swap.md` §2）｜**直接翻 `[x]` 会掩盖设计换轨，故归 `[-]`**
 
 **P2（低频 / 治理 / 辩护）：**
 
 - [ ] 拆单/结构化兑换聚合监控(既有客户非 occasional，列低) ｜CRM III.E.4(b)
 - [ ] 兑换链路容量保障 — 报价→L1→4 腿记账容量基线+过载**明确拒单**(拒绝优于静默吞单) ｜BD II.A.15 ｜来源:2026-07-06 复查
-- [ ] ✅ **可保留辩护**：Travel Rule 不适用内部兑换(III.G 需对手方/transfer)——须存证依据 + 护栏(将来支持转出/跨客户则立即触发) ｜CRM III.G
+> ✅ **可保留辩护（这是结论，不是待办）**：Travel Rule 不适用内部兑换——III.G 要求存在对手方 / transfer，平台内兑换是同一客户两个余额科目之间的交换，资金不出境、无外部对手方 ｜CRM III.G ｜⚠️2026-09-17 记账订正：本条此前占着一个未勾复选框，永远关不掉——结论不该有勾态，下面那条护栏才是待办
+- [ ] ⚖️ 内部兑换 TR 豁免的**存证依据 + 护栏** — 把上述辩护固化成可出示的存证（条款引用 + 判定记录），并加护栏：**将来一旦支持兑换转出 / 跨客户兑换，TR 判定立即触发**（现无任何守卫，改成支持转出时会静默绕过 TR） ｜CRM III.G ｜配对:上方辩护结论
 - [ ] 交易暂停/恢复 ｜ 货币对上下线(关联 TB Account+默认费率+审批) ｜ 批量兑换(机构 CSV) ｜来源:业务
 
 ### OPTIMIZED（VARA 不强制、行业惯例）
 
 - [ ] Quote TTL cron sweep — 过期 Quote 自动标 EXPIRED(现仅懒过期) ｜来源:行业
-- [ ] 兑换成功通知 — SUCCESS 推送客户，复用 V1 Notification ｜来源:行业(UX)
+- [ ] 兑换成功通知 — SUCCESS 推送客户，复用 V1 Notification ｜来源:行业(UX) ｜🔴根因同 V4/V5 两条「成功通知」：通知层全仓零调用方的死码，2026-09-17 复核订正
 
 > **支撑项**（SwapQuoteService 拆分 / PricingCenterService 删除 −3500 行 / 4 腿声明式记账 / Client 兑换页 / Swap Quotes admin 页 / 审批策略 6 类简化 OPS_OFFICER / legacy swap config 已清）均已交付；现状见 [modules/v6-swap.md](../modules/v6-swap.md)。**技术债**（Sumsub TM / repair surface / InternalFund 命名债）见 [BACKLOG.md](../BACKLOG.md)。
 > ⚠️ **措辞订正（2026-07-04 体检）**：① reverse 整笔冲正 / REVERSED / FAILED 实为**死枚举 + 无 reverse 端点**（原 2026-06-26 ✅ 过度声明，降为 ADVANCED 待做）；② 编排类名实为 `SwapWorkflowService`+`SwapLegAccounting`，**无 `SwapSettlementService`**；③ swap 腿 = funds_order（代码仍用 InternalFund 旧名，命名债）。
@@ -403,12 +404,13 @@ V7（财资运营）已脱离交易链——旧 EOD 结算/内部转账被实时
 > 管**公司自有资金与流动性**（客户的钱由 V4-V6 管，实时1:1 safeguarding）。
 > ⚠️ **旧 V7「内部转账 / 延迟结算」整套已废弃**：随实时1:1 重构，通用内部转账工作流 / EOD 轧差结算 / 充值归集 cron / 手续费归集 / 法币交割 / Outstanding / SettlementBatch / FeeAccrual / 白名单 全部删除（C5b）。每笔交易现**自己就地记账**（V4 两步 / V5 payout+fee / V6 四腿）。资金单（funds_orders）是**跨版本共享原语**（V4 起在用），归 `modules/funds-orders.md`（待建），不属于本版本。
 > **前置**：V3（账户模型）。
-> 📖 无独立 truth（无活体 V7 业务）；共享资金原语见 `modules/funds-orders.md`。旧「内部转账 / 延迟结算」设计已删，仅存于历史 spec（`superpowers/specs/2026-06-*-v7-*`，只读追溯，勿当现状）。
+> 📖 **实现真相** → [`modules/v7-treasury.md`](../modules/v7-treasury.md)（**2026-09-05 起有活体**：内部划转单）。旧「内部转账 / 延迟结算」设计已删，仅存于历史 spec（`superpowers/specs/2026-06-*-v7-*`，只读追溯，勿当现状）。
 > 📖 **调研留底** → `superpowers/specs/2026-07-06-v7-treasury-research.md`（首次遗漏审计——deferred 清单的法定约束补全）
 
 ### MVP
 
-- 无。原 MVP（通用内部转账 / 充值归集 / EOD 结算 / 法币交割 / 手续费归集）已被实时1:1 吸收进 V4-V6 或删除。
+- [x] **内部划转单（第四类订单）** — 公司自有资金 → 客户：**认损补款 / 退汇垫款**两条路；法币两腿经结算户、加密币一腿；金库专员开单 + **CFO 单步裁决**；从对账案件上发起，是「十件处置」之一 ｜来源:业务（2026-09-05 平账二期）｜代码 `src/modules/asset-treasury/internal-transfers/`，已接线 `app.module.ts` ｜⚠️`decisions.md` 2026-09-05 同时拍板：**公司池调拨（备付 / 归集 / 同池搬家）不做、手续费归集不做** ✅2026-09-05
+- ~~原 MVP（通用内部转账 / 充值归集 / EOD 结算 / 法币交割 / 手续费归集）~~ 已被实时 1:1 吸收进 V4-V6 或删除。
 
 ### ADVANCED（全部未做，平台跑起量、自有资金进出多了才痛）
 
@@ -453,13 +455,13 @@ V7（财资运营）已脱离交易链——旧 EOD 结算/内部转账被实时
 - [x] Run 编排 + 快照 + 审计 — 每日 cron(02:30 Dubai)→逐钱包→开 case(每钱包跨日唯一 OPEN)+auto-heal+run 快照(根治历史漂移)+审计三打点 ｜来源:领导 ✅Round3
 - [x] Run/Case 驾驶舱 admin — Run(结论条+五桶过滤+三元组跳转+快照表)/Case(桶徽章+差额五格+观察历史+流水混排) ｜来源:领导 ✅Round3
 - [x] effectiveDate 平账准备 — 双表加列+等价保真切换(effectiveCutoffFilter)+回填透传链(advance→writeEvidence→account_flows)+recon:rerun 工具 ｜来源:领导 ✅2026-07-03
-- [x] 推单处置(7 平账动作第 1 个) — 同步腿(唯一回执匹配)+人工腿(三件套)，逐步 advance 不直写 TB+回填生效日；双端点+审计 ｜来源:领导 ✅2026-07-03
-- [x] recon:demo 九场景 — anchor-free pass/break + manifest 答案键(9 类平账根因)+恒等式自验 ｜来源:领导 ✅2026-07-03
+- [x] 推单处置（**处置全集十件的第 1 件**，原文「7 平账动作」数字已过时——`modules/v8-recon.md` §6 现记十件） — 同步腿(唯一回执匹配)+人工腿(三件套)，逐步 advance 不直写 TB+回填生效日；双端点+审计 ｜来源:领导 ✅2026-07-03
+- [x] recon:demo **十八场景**（原文「九场景」已过时：`scripts/recon-demo.ts` 实测 `scenarioId` 最大 = 18，走查顺序 1→18 = 处置家族顺序） — anchor-free pass/break + manifest 答案键 + 恒等式自验 ｜来源:领导 ✅2026-07-03（09-02 A 批 / 09-03 B 批 / 09-05 二期 / 09-06 三期 逐批扩到 18）
 
 ### ADVANCED（差异处置闭环 + 监管报送，全 deferred）
 
 - [~] ⚖️P1 差异处理人工闭环 + **未平差异报 VARA** — Finance 人工核实/补录→RESOLVED + 24h SLA 升级 MLRO/CFO；**重大差异未纠正→末级终态生成 VARA 通报工单(REPORTED_TO_VARA)+审计打点**(现止于内部 RESOLVED、无对外出口) ｜CRM IV.E.5(Client Money)+V.D.2(Client VAs) 一手核 ｜三路 3:0 ｜**部分兑现 2026-09-06（平账三期）**：人工闭环已由成因定性 + 十处置动词体系落地；通报载体落在**事故单**而非当年构想的案子终态——大额未平差异到线「升级事故」，定损时勾「需通报」引依据（本条两款即 `CRM_IV_E_5`/`CRM_V_D_2` 依据码，无法定钟不设倒计时）、草案 + 「已通报」人工标记 + 对外编号，`INCIDENT_REGULATOR_REPORTED` 审计打点；**仍缺**：真实对外出口（发送）不做（decisions 2026-09-06 通报只留痕），通报超时无持久软标（BACKLOG 在案，扩审计码名册待业主）
-- [ ] 其余 6 平账处置动作 — 补单/冲正/冲销/豁免/偿付/…(推单已做) ｜来源:业务
+- [x] **其余平账处置动作——十件全交付**（2026-09-17 复核翻勾；原文「其余 6 个…(推单已做)」**数字与状态双错**）：`modules/v8-recon.md` §6 原文「处置全集**十件**，本轮全覆盖」＝ 推单 ｜ 冲正 ｜ 冲销 ｜ 补记 ｜ 改记 ｜ 挂起（两子类：等下期 / 调查中，零账务）｜ 核销（公司池，四前提 + CFO 批）｜ 补单（三入口：充值补录 / 退汇认领 / 退回认领，2026-09-03 B 批）｜ 划转（第四类订单，认损补款 / 退汇垫款，2026-09-05 二期）｜ 事故登记（五态 + 双类型结案审批，全程零账务，2026-09-06 三期）。代码侧 `DispositionKind` 8 种 + 三条独立链，`DispositionController`/`IncidentsController`/`InternalTransfersModule` **均已接线到 `app.module.ts`**（非孤儿码）。⚠️两处订正：① 原文列的「**豁免**」**已被业主 2026-09-02 裁定不做**（`decisions.md`：豁免与容差不做，本系统与服务商精度一致）；② 原文列的「**偿付**」仍真未做，见下一行独立条目。**仍 deferred 两窄口**：COMPENSATING 里「真两侧对冲错」的调账、Finance 人工核实→结案（见 `BACKLOG.md` ⭐ 条）｜来源:业务
 - [ ] 偿付义务工作流(Reimbursement) — 从 V7 移入；OPEN→审批(CFO/MLRO)→REIMBURSED；表已 drop 留 hook；两触发源(对账差异/event 失败)共出口 ｜来源:业务+VARA
 - [ ] ⚖️ Proof of Reserves（**改写：非单纯季度**）— 真实义务四件：储备资产**每日对账** + **≥每半年独立第三方审计** + 审计报告随**季报**交 VARA + **VARA 随时索取即须能出**(on-demand)；口径 Sum(客户 VA 负债)≤HexTrust 储备 ｜CRM V.C.1 + Company Rulebook 储备资产节 Rule 3(一手核) ｜⚠️2026-07-06 订正:原"季度"既漏半年审计、又把 on-demand 窄成定时任务
 - [ ] 对账报告导出 — 日期范围摘要(余额差/匹配率/未决 Case)，VARA 审计 / 半年独立审计输入 ｜VARA
@@ -467,7 +469,7 @@ V7（财资运营）已脱离交易链——旧 EOD 结算/内部转账被实时
 
 #### 🔄 2026-07-06 遗漏审计追补（fable-5 精简版；差异闭环/PoR 已就地改写、银行确认函→V3、枚举坑→BACKLOG）
 
-- [ ] ⚖️P1 对账流程利益冲突隔离 — 跑对账/重对账、执行平账动作(推单等)、RESOLVED 关 case 的角色须互斥、不得同时是能制造差异的资金操作方(≠V1 公司级 SoD，本条是对账域专条) ｜CRM IV.E.4(一手核)
+- [~] ⚖️P1 对账流程利益冲突隔离 — 跑对账/重对账、执行平账动作(推单等)、RESOLVED 关 case 的角色须互斥、不得同时是能制造差异的资金操作方(≠V1 公司级 SoD，本条是对账域专条) ｜CRM IV.E.4(一手核) ｜**⚠️2026-09-17 记账订正 `[ ]`→`[~]`：一半已满足**——2026-09-10「对账平账两角色定案」（`decisions.md`）把**能制造差异的资金操作方隔离掉了**：运营（`OPS_OFFICER`，建提现单/处理兑换/放行充值的那只手）在对账域**零写权**，只留 `FUNDS_ORDER_VIEW`/`RECON_*_READ` 只读；开单归金库（`TREASURY_OFFICER`）、裁决归 CFO，maker≠checker 成立。**仍差**：跑对账（`RECON_RUN_WRITE`）与推单/执行处置（`FUNDS_ORDER_ACT`）**仍同属金库一人**，本条要求的这两者互斥未做。⚠️**注意这不是排期问题**：两角色定案是**刻意**把三职能集中给金库的（`decisions.md` 2026-09-08 L101 + 2026-09-10 L110），要做这剩下的一半，须**重开两角色定案**，不能当普通待办排
 - [ ] ⚖️P1 对账底稿+外部原件 8 年原生留存 — run 结果/匹配明细 + **银行/HexTrust 原始对账单原件**按 native 格式存 ≥8y、随 VARA 索取即出(现归一化入库后原件无留存、DB 在 /tmp) ｜CRM I.F.1-3(一手核) ｜与 V5/V6 记录字段集同源
 - [ ] P2 成文对账政策 — 五桶阈值/差异分级/SLA/处置权限/升级路径写成受治理政策文档 + 定期复审 ｜CRM I.B.3/4
 
