@@ -1,7 +1,21 @@
 .DS_Store
 .codex/
-.env
 .superpowers/
 .stackports
 .vite/
 .upd.json
+
+node_modules
+dist/
+.trae/
+
+# Keep environment variables out of version control
+.env
+.cloud.env
+
+*.bak
+/generated/prisma
+*.db
+*.db.*
+*.log
+admin_token.txt
