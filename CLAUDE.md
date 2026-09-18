@@ -80,6 +80,7 @@ cd client-web && npx tsc -b --noEmit && cd ..    # ③ 客户端
 | 时机 | 读什么 |
 |---|---|
 | 会话开始 | `modules/overview.md` |
+| 本文件在哪 | 仓库根 `CLAUDE.md`（真身）＝ `AGENTS.md`（软链，Codex 读它）——两个名字同一份内容 |
 | 改某模块 | `prd/<篇>`（未写则跳过）→ `modules/<篇>` |
 | 动任何设计决定前 | `decisions.md` —— 已否决的方案不翻案 |
 | 写后端 / 前端代码 | `rules/backend.md` ｜ `rules/frontend-admin.md` / `rules/frontend-client.md`（UI 契约见 `ui-contract/`） |
