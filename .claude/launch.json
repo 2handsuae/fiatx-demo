@@ -6,7 +6,7 @@
       "runtimeExecutable": "/bin/sh",
       "runtimeArgs": [
         "-c",
-        "cd /Users/songshengwei/Documents/codex/projects/重做版/admin-web && exec /Users/songshengwei/.nvm/versions/node/v20.20.2/bin/node ./node_modules/.bin/vite --port 3001 --host 127.0.0.1"
+        "cd /Users/songshengwei/Documents/Project/fiatx.com/admin-web && exec /Users/songshengwei/.nvm/versions/node/v20.20.2/bin/node ./node_modules/.bin/vite --port 3001 --host 127.0.0.1"
       ],
       "port": 3001,
       "autoPort": false
@@ -16,7 +16,7 @@
       "runtimeExecutable": "/bin/sh",
       "runtimeArgs": [
         "-c",
-        "cd /Users/songshengwei/Documents/codex/projects/重做版/admin-web && exec /opt/homebrew/bin/node ./node_modules/.bin/vite --port 3103 --host 127.0.0.1"
+        "cd /Users/songshengwei/Documents/Project/fiatx.com/admin-web && exec /opt/homebrew/bin/node ./node_modules/.bin/vite --port 3103 --host 127.0.0.1"
       ],
       "port": 3103
     },
@@ -25,7 +25,7 @@
       "runtimeExecutable": "/bin/sh",
       "runtimeArgs": [
         "-c",
-        "cd /Users/songshengwei/Documents/codex/projects/重做版 && API_PORT=3010 ADMIN_URL=http://localhost:3103 CLIENT_URL=http://localhost:3102 exec /opt/homebrew/bin/node dist/main"
+        "cd /Users/songshengwei/Documents/Project/fiatx.com && API_PORT=3010 ADMIN_URL=http://localhost:3103 CLIENT_URL=http://localhost:3102 exec /opt/homebrew/bin/node dist/main"
       ],
       "port": 3010
     },
@@ -34,7 +34,7 @@
       "runtimeExecutable": "/bin/sh",
       "runtimeArgs": [
         "-c",
-        "cd /Users/songshengwei/Documents/codex/projects/重做版/client-web && exec /Users/songshengwei/.nvm/versions/node/v20.20.2/bin/node ./node_modules/.bin/vite --port 3102 --host 127.0.0.1"
+        "cd /Users/songshengwei/Documents/Project/fiatx.com/client-web && exec /Users/songshengwei/.nvm/versions/node/v20.20.2/bin/node ./node_modules/.bin/vite --port 3102 --host 127.0.0.1"
       ],
       "port": 3102
     }
