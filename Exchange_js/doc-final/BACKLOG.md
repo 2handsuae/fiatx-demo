@@ -419,7 +419,7 @@ Last Updated: 2026-09-16（审计两页按后端真实字段重设计·文档收
 
 ## 本轮销账（2026-09-08 平账处置改版收官）
 
-> 处置入口翻转（行上直接按钮）/ 单码制 / 金库全线开单 CFO 复核 / 死胡同修复 / 列表页场景气泡，14 任务 subagent-driven，spec/plan 见 `superpowers/specs/2026-09-08-recon-disposition-redesign-design.md`。
+> 处置入口翻转（行上直接按钮）/ 单码制 / 金库全线开单 CFO 复核 / 死胡同修复 / 列表页场景气泡，14 任务 subagent-driven，spec/plan 见 `archive/superpowers/specs/2026-09-08-recon-disposition-redesign-design.md`。
 
 - [x] **死胡同修复**：大额查不出（LARGE_UNEXPLAINED）事故定损后认损 / 核销开不出单，事故永远关不了 —— 2026-09-08 Task 4（commit `aad897a2`），闸改挂事故定损判定（`incidentNo` 而非静态 `outlet`），金额锁定 = 定损额、跳过小额线；原条目改判见上方「场景 18」小节的划线记录
 

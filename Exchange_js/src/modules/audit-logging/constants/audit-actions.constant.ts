@@ -673,7 +673,7 @@ export const V1_AUDIT_ACTIONS: Record<string, AuditActionSpec> = {
  */
 /**
  * 充值域名册（站1b-β，2026-08-26，业主终审版 31 码；2026-09-16 波三订正，历史版本号不动：现役 47 码）。
- * 设计稿：doc-final/superpowers/specs/2026-08-26-deposit-audit-vocab-design.md
+ * 设计稿：doc-final/archive/superpowers/specs/2026-08-26-deposit-audit-vocab-design.md
  * 要点：*_FAILED 不铸码（outcome+reasonCode 表达）；「放行」一码四态
  * （成功/翻案走 from 列/冻结拒批 DENIED/记账失败 FAILED）；动态迁移码族废除
  * （状态变化进 from/to 两列）；三停摆一名三因；一笔充值一段旅程
@@ -748,7 +748,7 @@ export const V4_DEPOSIT_AUDIT_ACTIONS: Record<string, AuditActionSpec> = {
  * 失败不起名（outcome+reasonCode）｜同动作不因语境拆名｜动态迁移族废除（从/到两列）｜
  * CREATED=旅程起点铸 correlationId，其余全 INHERIT｜锁释放并入落地行（metadata 携解锁金额）。
  * 与充值的结构差（钱后动拆三码/大额前置闸/费用尾巴/退票/在途裁决窗口）见
- * doc-final/superpowers/specs/2026-08-27-withdraw-audit-vocab-design.md。
+ * doc-final/archive/superpowers/specs/2026-08-27-withdraw-audit-vocab-design.md。
  */
 export const V5_WITHDRAW_AUDIT_ACTIONS: Record<string, AuditActionSpec> = {
   // ── 出生（1）────────────────────────────────────────────
@@ -805,7 +805,7 @@ export const V5_WITHDRAW_AUDIT_ACTIONS: Record<string, AuditActionSpec> = {
  * 兑换无 maker-checker 弧故全册 requiresCausation=false。三处 *_FAILED 并入
  * 各自动作的一码双结局；tipping-off 决策留痕（REJECTED_DISPOSED）为独立业务事件保留。
  * 出生锁联动：CREATED 携 lockedFromAmount，REJECTED/FROZEN 携 releasedFromAmount
- * （metadata，非机器必填）。设计稿见 doc-final/superpowers/specs/2026-08-27-swap-audit-vocab-design.md。
+ * （metadata，非机器必填）。设计稿见 doc-final/archive/superpowers/specs/2026-08-27-swap-audit-vocab-design.md。
  */
 export const V6_SWAP_AUDIT_ACTIONS: Record<string, AuditActionSpec> = {
   // ── 出生（1）────────────────────────────────────────────

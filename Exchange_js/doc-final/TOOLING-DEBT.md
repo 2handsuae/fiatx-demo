@@ -1,6 +1,6 @@
 # 工具与环境债
 
-> 建立：2026-08-31（环境收口）｜ 设计稿：`superpowers/specs/2026-08-31-environment-and-tooling-debt-design.md`
+> 建立：2026-08-31（环境收口）｜ 设计稿：`archive/superpowers/specs/2026-08-31-environment-and-tooling-debt-design.md`
 
 ## 这个文件装什么
 
