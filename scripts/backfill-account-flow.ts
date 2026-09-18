@@ -6,7 +6,7 @@
 //
 // Run after the new schema is deployed:
 //   DATABASE_URL=... npx ts-node -r tsconfig-paths/register \
-//     Exchange_js/scripts/backfill-account-flow.ts
+//     scripts/backfill-account-flow.ts
 
 import 'tsconfig-paths/register';
 import { PrismaClient } from '@prisma/client';

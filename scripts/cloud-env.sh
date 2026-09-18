@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # scripts/cloud-env.sh — 云端演示环境公共设置（被 scripts/cloud-*.sh source）。兼容 bash 3.2。
-# 读 Exchange_js/.cloud.env（本机、未入库）：CLOUD_HOST(SSH 的 IP) / CLOUD_USER / CLOUD_KEY / CLOUD_ADMIN_HOST / CLOUD_CLIENT_HOST(对外域名)。
+# 读 .cloud.env（本机、未入库）：CLOUD_HOST(SSH 的 IP) / CLOUD_USER / CLOUD_KEY / CLOUD_ADMIN_HOST / CLOUD_CLIENT_HOST(对外域名)。
 set -euo pipefail
 
-CLOUD_APP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"   # = Exchange_js/
+CLOUD_APP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"   # = 仓库根
 CLOUD_ENV_FILE="${CLOUD_APP_DIR}/.cloud.env"
 if [[ ! -f "${CLOUD_ENV_FILE}" ]]; then
   echo "✖ 缺 ${CLOUD_ENV_FILE}：照 .cloud.env.example 复制一份（CLOUD_HOST / CLOUD_USER / CLOUD_KEY / CLOUD_ADMIN_HOST / CLOUD_CLIENT_HOST）" >&2

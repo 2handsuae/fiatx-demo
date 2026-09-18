@@ -11,7 +11,7 @@ ensure_node20
 cd "${CLOUD_APP_DIR}"
 TOP="$(git rev-parse --show-toplevel)"
 REL="$(git rev-parse --show-prefix)"
-REL="${REL%/}"   # = Exchange_js
+REL="${REL%/}"   # 仓库根运行时为空串；git archive "HEAD:" 即根树（已实测合法）
 RUNTIME_PATHS=(src prisma scripts config admin-web client-web deploy package.json package-lock.json .npmrc tsconfig.json tsconfig.build.json)
 
 echo "[deploy] 1/5 预检：运行相关文件必须已提交"
