@@ -69,6 +69,18 @@ echo "memory 文件数=$(ls ~/.claude/projects/-Users-songshengwei-Documents-cod
 ```
 把三个数字记进报告——Task 5 逐项核对。
 
+- [ ] **Step 5: 停掉运行中的栈（必做，否则进程会跑在消失的路径上）**
+
+迁移时栈是**开着**的（复核发现：backend/admin/client/tb 四个进程正跑在旧路径下）。`mv` 之后这些进程的可执行文件路径即失效，且它们持有端口，会干扰迁后重建。
+
+```bash
+cd "/Users/songshengwei/Documents/codex/projects/重做版"
+bash scripts/stack.sh down main 2>&1 | tail -6
+lsof -ti:3000,3001,3002,3003 2>/dev/null | wc -l
+bash scripts/stack.sh status 2>&1 | sed -n '3p'
+```
+Expected: 四个服务停止；端口占用数 `0`；status 显示 `down`
+
 ---
 
 ### Task 2: 改 Codex 授信路径（仓库尚在原地，改完暂不生效但无害）
@@ -233,16 +245,20 @@ Expected: 条目数与 memory 文件数**与 Task 1 Step 4 记录的完全一致
 
 - [ ] **Step 3: 依赖与随手闸**
 
+先清可能嵌死旧绝对路径的构建缓存（复核发现三处 vite 缓存目录），再跑闸门：
+
 ```bash
 cd /Users/songshengwei/Documents/Project/fiatx.com
 export PATH="$HOME/.nvm/versions/node/v20.20.2/bin:$PATH"
+rm -rf node_modules/.vite admin-web/node_modules/.vite client-web/node_modules/.vite
+find . -name '*.tsbuildinfo' -not -path './node_modules/*' -delete 2>/dev/null
 npx prisma generate 2>&1 | tail -2
 npx tsc --noEmit -p tsconfig.json && echo '① 后端绿'
 (cd admin-web && npx tsc -b --noEmit) && echo '② 管理台绿'
 (cd client-web && npx tsc -b --noEmit) && echo '③ 客户端绿'
 ```
 Expected: 三绿
-注：`node_modules` 随目录整体移动，无需重装；若 `npx` 报找不到模块，再跑 `npm i`。
+注：`node_modules` 随目录整体移动（同一文件系统，`mv` 是原子改名），无需重装；但 vite 缓存与 tsbuildinfo 可能记录了旧绝对路径，故先清。若 `npx` 报找不到模块，再跑 `npm i`。
 
 - [ ] **Step 4: 从零重建 ＋ 主线端到端 ＋ 领域不变量**
 
