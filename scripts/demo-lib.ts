@@ -190,7 +190,7 @@ export type DemoCtx = {
 // the backend HTTP port is that base value. The main stack has no such file and
 // always uses the fixed port 3000 (scripts/stack-common.sh#load_stack_config).
 export function resolveApiBase(): string {
-  const stackportsPath = path.resolve(__dirname, '../../.stackports');
+  const stackportsPath = path.resolve(__dirname, '../.stackports');
   try {
     const base = parseInt(fs.readFileSync(stackportsPath, 'utf8').trim(), 10);
     if (Number.isFinite(base)) return `http://localhost:${base}`;

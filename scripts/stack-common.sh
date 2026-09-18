@@ -6,7 +6,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/db-env.sh"
 CURRENT_WT_DIR="$(git -C "${SCRIPT_DIR}" rev-parse --show-toplevel 2>/dev/null || true)"
 if [[ -z "${CURRENT_WT_DIR}" ]]; then
-  CURRENT_WT_DIR="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+  CURRENT_WT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 fi
 
 GIT_COMMON_DIR="$(
@@ -101,7 +101,7 @@ load_stack_config() {
       # 之后显式调用。只读调用方（如 runtime-diagnose.sh）不调用它，因此可以从
       # 任意 worktree 解析 main 的配置，用于只读查询 main 栈的状态。
       WT_DIR="${ROOT_DIR}"
-      APP_DIR="${ROOT_DIR}/Exchange_js"
+      APP_DIR="${ROOT_DIR}"
       BRANCH_RULE="main"
       BACKEND_PORT="3000"
       ADMIN_PORT="3001"
@@ -122,7 +122,7 @@ load_stack_config() {
       wt_name="$(sanitize_db_scope "$(basename "${CURRENT_WT_DIR}")")"
       STACK="wt_${wt_name}"
       WT_DIR="${CURRENT_WT_DIR}"
-      APP_DIR="${WT_DIR}/Exchange_js"
+      APP_DIR="${WT_DIR}"
       BRANCH_RULE="*"
       base="$(allocate_worktree_ports "${WT_DIR}")" || return 1
       BACKEND_PORT="${base}"

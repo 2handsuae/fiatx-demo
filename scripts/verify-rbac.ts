@@ -45,7 +45,7 @@ import * as path from 'node:path';
 function resolveApiBase(): string {
   if (process.env.API_BASE) return process.env.API_BASE;
   try {
-    const stackportsPath = path.resolve(__dirname, '../../.stackports');
+    const stackportsPath = path.resolve(__dirname, '../.stackports');
     const port = parseInt(fs.readFileSync(stackportsPath, 'utf8').trim(), 10);
     if (Number.isFinite(port)) return `http://localhost:${port}`;
   } catch {
