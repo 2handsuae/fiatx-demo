@@ -123,15 +123,15 @@ export class AdjustmentService {
    * 其中一张）。
    */
   private async relatedOrderExists(orderNo: string): Promise<boolean> {
-    const deposit = await (this.prisma as any).depositTransaction.findUnique({
+    const deposit = await this.prisma.depositTransaction.findUnique({
       where: { depositNo: orderNo }, select: { id: true },
     });
     if (deposit) return true;
-    const withdraw = await (this.prisma as any).withdrawTransaction.findUnique({
+    const withdraw = await this.prisma.withdrawTransaction.findUnique({
       where: { withdrawNo: orderNo }, select: { id: true },
     });
     if (withdraw) return true;
-    const swap = await (this.prisma as any).swapTransaction.findUnique({
+    const swap = await this.prisma.swapTransaction.findUnique({
       where: { swapNo: orderNo }, select: { id: true },
     });
     return !!swap;
@@ -169,11 +169,11 @@ export class AdjustmentService {
     const anchors = [
       dto.explainedFlowId ? { explainedFlowId: dto.explainedFlowId } : null,
       dto.explainedExternalLineId ? { explainedExternalLineId: dto.explainedExternalLineId } : null,
-    ].filter(Boolean);
+    ].filter((c): c is NonNullable<typeof c> => c !== null);
     if (anchors.length === 0) {
       throw new BadRequestException('Write-off must be anchored to a difference line already found as "Hold · Investigating"');
     }
-    const held = await (this.prisma as any).reconciliationDisposition.findFirst({ where: { caseNo: dto.caseNo, OR: anchors } });
+    const held = await this.prisma.reconciliationDisposition.findFirst({ where: { caseNo: dto.caseNo, OR: anchors } });
 
     if (held?.outlet === 'INCIDENT' || held?.incidentNo) {
       const dispositionNo = await this.assertIncidentWriteOffAllowed(dto, held, kase, book);
@@ -191,7 +191,7 @@ export class AdjustmentService {
       throw new BadRequestException(`This line's finding is already linked to adjustment ${held.adjustmentNo} — cannot open another write-off`);
     }
     this.assertReasonPairing(dto, book);
-    const asset = await (this.prisma as any).asset.findUnique({ where: { code: kase.assetCode }, select: { currency: true, decimals: true } });
+    const asset = await this.prisma.asset.findUnique({ where: { code: kase.assetCode }, select: { currency: true, decimals: true } });
     const currency: string = asset?.currency ?? kase.assetCode;
     if (!isSmallAmount(currency, BigInt(dto.amount))) {
       const line = bigintToDecimal(SMALL_AMOUNT_LINE_MINOR[currency], asset?.decimals ?? 0).toFixed(asset?.decimals ?? 0);
@@ -242,7 +242,7 @@ export class AdjustmentService {
     if (held.adjustmentNo) {
       throw new BadRequestException(`This line's finding is already linked to adjustment ${held.adjustmentNo} — cannot open another loss-recognition adjustment`);
     }
-    const incident = await (this.prisma as any).incident.findUnique({ where: { incidentNo: held.incidentNo } });
+    const incident = await this.prisma.incident.findUnique({ where: { incidentNo: held.incidentNo } });
     if (!incident || !['ASSESSED', 'RESOLVING'].includes(incident.status)) {
       throw new BadRequestException(`Incident ${held.incidentNo} has not been assessed yet — wait for the assessment before opening a loss-recognition adjustment`);
     }
@@ -250,9 +250,15 @@ export class AdjustmentService {
       throw new BadRequestException(`Incident ${held.incidentNo}'s assessment is "${incident.assessmentBasis}", not "Firm bears the loss" — only a firm-bears-the-loss assessment can open a loss-recognition adjustment`);
     }
     this.assertReasonPairing(dto, book);
-    const asset = await (this.prisma as any).asset.findUnique({ where: { code: kase.assetCode }, select: { decimals: true } });
+    const asset = await this.prisma.asset.findUnique({ where: { code: kase.assetCode }, select: { decimals: true } });
     const decimals = asset?.decimals ?? 0;
     const amt = bigintToDecimal(BigInt(dto.amount), decimals).toFixed(decimals);
+    // 事故未定损时 assessedAmount 为 null，此处直接 .toFixed() 会抛 TypeError（不是人话 400）。
+    // 剧本场景 18 的顺序是「定损 → 回案件页认损」，所以正常路径走不到这儿；但守卫本就该显式拒，
+    // 而不是靠调用顺序碰运气。这是把既有语义显式化，不是新增业务规则。
+    if (incident.assessedAmount === null) {
+      throw new BadRequestException(`Incident ${held.incidentNo} has not been assessed yet — record the assessed loss before raising the write-off`);
+    }
     const assessed = incident.assessedAmount.toFixed(decimals);
     if (amt !== assessed) {
       throw new BadRequestException(`Adjustment amount ${amt} does not match incident ${held.incidentNo}'s assessed amount ${assessed} — the loss-recognition amount must exactly equal the assessed amount`);
@@ -274,7 +280,7 @@ export class AdjustmentService {
   }
 
   async createDraft(dto: CreateAdjustmentDto, actor: ApprovalActorContext) {
-    const kase = await (this.prisma as any).reconciliationCase.findUnique({ where: { caseNo: dto.caseNo } });
+    const kase = await this.prisma.reconciliationCase.findUnique({ where: { caseNo: dto.caseNo } });
     if (!kase) throw new NotFoundException(`Reconciliation case not found: ${dto.caseNo}`);
     if (kase.status !== 'OPEN') throw new BadRequestException('Adjustments can only be opened on open cases');
 
@@ -389,10 +395,14 @@ export class AdjustmentService {
     // 原写法在真实 Prisma Client 上是 undefined.findUnique，单测用的 mock 按调用方
     // 写死了 customer 键所以没测出来，任何客户账簿（ownerNo 非空）案件一开单就 500。
     const owner = kase.ownerNo
-      ? await (this.prisma as any).customerMain.findUnique({ where: { customerNo: kase.ownerNo }, select: { id: true } })
+      ? await this.prisma.customerMain.findUnique({ where: { customerNo: kase.ownerNo }, select: { id: true } })
       : null;
 
-    const row = await (this.prisma as any).reconciliationAdjustment.create({
+    if (kase.walletRef === null) {
+      throw new BadRequestException(`Case ${dto.caseNo} has no wallet reference — adjustments can only be raised on wallet-anchored cases`);
+    }
+
+    const row = await this.prisma.reconciliationAdjustment.create({
       data: {
         adjustmentNo: generateReferenceNo('ADJ'),
         caseNo: dto.caseNo,
@@ -433,7 +443,7 @@ export class AdjustmentService {
    */
   private async createReattributionDraft(dto: CreateAdjustmentDto, fromCase: any, actor: ApprovalActorContext) {
     if (!dto.toCaseNo) throw new BadRequestException('Reattribution must specify the rightful-owner case number (toCaseNo)');
-    const toCase = await (this.prisma as any).reconciliationCase.findUnique({ where: { caseNo: dto.toCaseNo } });
+    const toCase = await this.prisma.reconciliationCase.findUnique({ where: { caseNo: dto.toCaseNo } });
     if (!toCase) throw new NotFoundException(`Rightful-owner case not found: ${dto.toCaseNo}`);
     if (toCase.status !== 'OPEN') throw new BadRequestException('The rightful-owner case is not open');
     if (fromCase.book === 'FIRM' || toCase.book === 'FIRM') throw new BadRequestException('Reattribution can only happen between client-book cases');
@@ -449,9 +459,9 @@ export class AdjustmentService {
       throw new BadRequestException('Reattribution must reference an existing order (the real deposit/withdrawal recorded under the misattributed owner) — it is only allowed once KYT has cleared that money');
     }
     const owner = fromCase.ownerNo
-      ? await (this.prisma as any).customerMain.findUnique({ where: { customerNo: fromCase.ownerNo }, select: { id: true } })
+      ? await this.prisma.customerMain.findUnique({ where: { customerNo: fromCase.ownerNo }, select: { id: true } })
       : null;
-    const row = await (this.prisma as any).reconciliationAdjustment.create({
+    const row = await this.prisma.reconciliationAdjustment.create({
       data: {
         adjustmentNo: generateReferenceNo('ADJ'),
         caseNo: dto.caseNo,
@@ -510,7 +520,7 @@ export class AdjustmentService {
   }
 
   async submit(adjustmentNo: string, actor: ApprovalActorContext) {
-    const row = await (this.prisma as any).reconciliationAdjustment.findUnique({ where: { adjustmentNo } });
+    const row = await this.prisma.reconciliationAdjustment.findUnique({ where: { adjustmentNo } });
     if (!row) throw new NotFoundException(`Adjustment not found: ${adjustmentNo}`);
     this.assertTransition(row.status, AdjustmentStatus.PENDING_APPROVAL);
 
@@ -520,7 +530,7 @@ export class AdjustmentService {
     //   ApprovalActorContext = { actorType: 'ADMIN', userId, userNo?, role?, roleCodes }
     // Fix 1b：describeImpact 要按资产 decimals 把最小单位缩放成人看得懂的金额——
     // 查法照抄 getAdjustment()/getCase() 的资产查询（同一张 asset 表，同一个字段）。
-    const assetRow = await (this.prisma as any).asset.findUnique({
+    const assetRow = await this.prisma.asset.findUnique({
       where: { code: row.assetCode }, select: { decimals: true },
     });
     // 第五族核销：后果原话要带钱包号 / 超期天数 / 查证结论（spec §3.7），三样都不在单上，现查。
@@ -529,11 +539,11 @@ export class AdjustmentService {
     // 分流出事故路文案（不带超期天数、不说查无果）。
     let extra: { walletNo?: string | null; agedDays?: number | null; findingNote?: string | null; incidentNo?: string | null } | undefined;
     if (row.reasonCode === 'UNEXPLAINED_WRITE_OFF' || row.reasonCode === 'UNEXPLAINED_CLIENT_LOSS') {
-      const kase = await (this.prisma as any).reconciliationCase.findUnique({ where: { caseNo: row.caseNo }, select: { slaDeadline: true } });
+      const kase = await this.prisma.reconciliationCase.findUnique({ where: { caseNo: row.caseNo }, select: { slaDeadline: true } });
       const wallet = row.walletRef && !String(row.walletRef).startsWith('XREF:')
-        ? await (this.prisma as any).wallet.findUnique({ where: { id: row.walletRef }, select: { walletNo: true } })
+        ? await this.prisma.wallet.findUnique({ where: { id: row.walletRef }, select: { walletNo: true } })
         : null;
-      const held = await (this.prisma as any).reconciliationDisposition.findFirst({
+      const held = await this.prisma.reconciliationDisposition.findFirst({
         where: { adjustmentNo }, select: { findingNote: true, outlet: true, incidentNo: true },
       });
       const agedDays = kase?.slaDeadline ? Math.max(1, Math.floor((Date.now() - new Date(kase.slaDeadline).getTime()) / 86_400_000)) : null;
@@ -576,7 +586,7 @@ export class AdjustmentService {
       actor,
     );
 
-    await (this.prisma as any).reconciliationAdjustment.update({
+    await this.prisma.reconciliationAdjustment.update({
       where: { adjustmentNo },
       data: {
         status: AdjustmentStatus.PENDING_APPROVAL,
@@ -606,7 +616,7 @@ export class AdjustmentService {
     const skip = Number(q.skip ?? 0);
     const take = Number(q.take ?? 20);
     const [rows, total] = await Promise.all([
-      (this.prisma as any).reconciliationAdjustment.findMany({
+      this.prisma.reconciliationAdjustment.findMany({
         where, skip, take, orderBy: { createdAt: 'desc' },
         select: {
           adjustmentNo: true, caseNo: true, ownerNo: true, assetCode: true,
@@ -614,11 +624,11 @@ export class AdjustmentService {
           effectiveDate: true, createdAt: true,
         },
       }),
-      (this.prisma as any).reconciliationAdjustment.count({ where }),
+      this.prisma.reconciliationAdjustment.count({ where }),
     ]);
     const assetCodes = [...new Set(rows.map((r: any) => r.assetCode as string))];
     const assets = assetCodes.length
-      ? await (this.prisma as any).asset.findMany({ where: { code: { in: assetCodes } }, select: { code: true, decimals: true } })
+      ? await this.prisma.asset.findMany({ where: { code: { in: assetCodes } }, select: { code: true, decimals: true } })
       : [];
     const decimalsByCode = new Map<string, number>(assets.map((a: any) => [a.code, a.decimals]));
     return {
@@ -650,13 +660,13 @@ export class AdjustmentService {
    * walletRef——改记单一被查询，正主方钱包的内部 UUID 就随返回体吐出去了。
    */
   async getAdjustment(adjustmentNo: string) {
-    const row = await (this.prisma as any).reconciliationAdjustment.findUnique({ where: { adjustmentNo } });
+    const row = await this.prisma.reconciliationAdjustment.findUnique({ where: { adjustmentNo } });
     if (!row) throw new NotFoundException(`Adjustment not found: ${adjustmentNo}`);
 
     // 两侧钱包同一个查法（跨钱包合成案件的 'XREF:' 前缀不是真 Wallet.id，查了必空）。
     const walletNoOf = async (ref: string | null | undefined): Promise<string | null> => {
       if (!ref || String(ref).startsWith('XREF:')) return null;
-      const wallet = await (this.prisma as any).wallet.findUnique({ where: { id: ref }, select: { walletNo: true } });
+      const wallet = await this.prisma.wallet.findUnique({ where: { id: ref }, select: { walletNo: true } });
       return wallet?.walletNo ?? null;
     };
 
@@ -664,7 +674,7 @@ export class AdjustmentService {
     // getCase 同款查法，前端不得自建 code→名字映射表——见
     // tb-account-codes.constant.ts:38）；分录预览的借/贷助记码由 (book, direction)
     // 纯函数推导，不落库、不改行为，复用 onApproved 已经在用的同一对工具函数。
-    const assetRow = await (this.prisma as any).asset.findUnique({
+    const assetRow = await this.prisma.asset.findUnique({
       where: { code: row.assetCode }, select: { decimals: true },
     });
     // 第四族走第五种组合。落回 resolvePostingLegs 会把 REATTRIBUTE 当成非 REDUCE
@@ -700,10 +710,10 @@ export class AdjustmentService {
   // 本身就是 'SYSTEM' 兜底）。不收 deciderRole——本方法不写审计，没有落点，
   // 收了也是死参数。
   async onRejected(adjustmentNo: string, deciderId: string, deciderNo?: string | null) {
-    const row = await (this.prisma as any).reconciliationAdjustment.findUnique({ where: { adjustmentNo } });
+    const row = await this.prisma.reconciliationAdjustment.findUnique({ where: { adjustmentNo } });
     if (!row) throw new NotFoundException(`Adjustment not found: ${adjustmentNo}`);
     this.assertTransition(row.status, AdjustmentStatus.REJECTED);
-    await (this.prisma as any).reconciliationAdjustment.update({
+    await this.prisma.reconciliationAdjustment.update({
       where: { adjustmentNo },
       data: { status: AdjustmentStatus.REJECTED, decidedByUserId: deciderNo ?? deciderId },
     });
@@ -730,7 +740,7 @@ export class AdjustmentService {
    * 事实不符的角色。
    */
   async onApproved(adjustmentNo: string, deciderId: string, deciderNo?: string | null, deciderRole?: string | null): Promise<void> {
-    const row = await (this.prisma as any).reconciliationAdjustment.findUnique({ where: { adjustmentNo } });
+    const row = await this.prisma.reconciliationAdjustment.findUnique({ where: { adjustmentNo } });
     if (!row) throw new NotFoundException(`Adjustment not found: ${adjustmentNo}`);
 
     // 第四族改记（spec §6）：分录不由 book × direction 推导，两腿是同一个科目、
@@ -755,7 +765,7 @@ export class AdjustmentService {
     // 而 handler 的异常本仓库现状不外传（PRODUCTION-NOTES 2026-08-28），
     // 于是调账单永远停在 PENDING_APPROVAL、无人被告知。走查时真踩到过。
     // 全仓惯例见 withdraw-workflow.service.ts:471/1158/1662，都是 asset.currency。
-    const assetRow = await (this.prisma as any).asset.findUnique({
+    const assetRow = await this.prisma.asset.findUnique({
       where: { code: row.assetCode }, select: { currency: true },
     });
     const ledger = TB_LEDGERS[assetRow?.currency as keyof typeof TB_LEDGERS];
@@ -812,7 +822,7 @@ export class AdjustmentService {
       },
     });
 
-    await (this.prisma as any).reconciliationAdjustment.update({
+    await this.prisma.reconciliationAdjustment.update({
       where: { adjustmentNo },
       data: {
         status: AdjustmentStatus.POSTED,
@@ -890,7 +900,7 @@ export class AdjustmentService {
     this.assertTransition(row.status, AdjustmentStatus.POSTED);
     const deciderDisplay = deciderNo ?? deciderId;
 
-    const assetRow = await (this.prisma as any).asset.findUnique({
+    const assetRow = await this.prisma.asset.findUnique({
       where: { code: row.assetCode }, select: { currency: true },
     });
     const ledger = TB_LEDGERS[assetRow?.currency as keyof typeof TB_LEDGERS];
@@ -902,7 +912,7 @@ export class AdjustmentService {
 
     // 正主方单上只有业务号（铁律⑥ 落库口径），落账要 UUID 才定位得到它的负债户。
     const toOwner = row.toOwnerNo
-      ? await (this.prisma as any).customerMain.findUnique({ where: { customerNo: row.toOwnerNo }, select: { id: true } })
+      ? await this.prisma.customerMain.findUnique({ where: { customerNo: row.toOwnerNo }, select: { id: true } })
       : null;
     if (!row.ownerId || !toOwner?.id) {
       throw new NotFoundException(
@@ -941,7 +951,7 @@ export class AdjustmentService {
       },
     });
 
-    await (this.prisma as any).reconciliationAdjustment.update({
+    await this.prisma.reconciliationAdjustment.update({
       where: { adjustmentNo: row.adjustmentNo },
       data: {
         status: AdjustmentStatus.POSTED,
