@@ -627,10 +627,14 @@ Expected：5 行错误（`:80` `:99` `:138` `:165` `:167`）。
     const SUPPLEMENT_KINDS: readonly SupplementKind[] = ['SUPPLEMENT_DEPOSIT', 'SUPPLEMENT_BOUNCE', 'SUPPLEMENT_PAYOUT_RETURN'];
     const isSupplementKind = (v: unknown): v is SupplementKind =>
       typeof v === 'string' && (SUPPLEMENT_KINDS as readonly string[]).includes(v);
-    const kind: SupplementKind | null = d?.outlet === 'SUPPLEMENT' && isSupplementKind(d.deferredTarget)
-      ? d.deferredTarget
+    // 校验嵌在 SUPPLEMENT 分支**内部**：出口是 SUPPLEMENT 时 kind 只能来自 deferredTarget
+    // （无效或为空 → null），绝不落到方向兜底——保持旧代码的分支结构。
+    const kind: SupplementKind | null = d?.outlet === 'SUPPLEMENT'
+      ? (isSupplementKind(d.deferredTarget) ? d.deferredTarget : null)
       : (line.direction === 'OUT' ? 'SUPPLEMENT_BOUNCE' : null);
 ```
+
+⚠️ **禁止写成 `d?.outlet === 'SUPPLEMENT' && isSupplementKind(d.deferredTarget)` 整体判断**（本 plan 初稿就是这么写的，2026-09-19 复判查出并改掉）：那种写法下，出口是 SUPPLEMENT 但 target 无效/为空的行会**落进方向兜底、凭空得到 `SUPPLEMENT_BOUNCE`**，而旧代码给的是 null——语义漂移。按 `cause-registry.ts` 现状（仅 3 个成因走 SUPPLEMENT 出口、各自带死合法 target，写入点 `disposition.service.ts:56`）该分支不可达，**栈级 diff 闸恰好抓不到它**，所以必须靠结构保真而不是靠闸门兜底。
 
 - [ ] **Step 4: 修 `:138` —— `kase.walletRef` 可空塞进 wallet 复合唯一键的 `where`**
 
@@ -791,7 +795,7 @@ Expected：**两个 diff 都为空**（时间戳 / 单号这类天然变动的�
 在 `doc-final/CHANGELOG.md` 顶部追加（照既有文风，业务视角一句话开头）：
 
 ```markdown
-- [2026-09-19] **对账这块代码的"报错开关"修好了** —— 观众感知不到（零行为变更），但从此改错了会当场被拦住：对账 / 事故 / 划转三域 180 处「让检查工具别管」的写法全部摘掉，连带修好 13 个被它盖住的类型问题（其中 1 处可空值塞进数据库查询键，真撞上会在运行期炸）；域里 3 条**永远不会失败**的假测试换成真断言（一条是"断言返回值是合法桶名"而返回类型就是那几个桶名，另两条是自建 mock 原样回显再断言回显值）。物证：故意改错一个数据库列名，检查工具当场报红——同样的操作在这一波之前是绿的。**下一波**：清死字段与幽灵入口，并补上闸门咬不住的那道防线（断言写进去的行长什么样）
+- [2026-09-19] **对账这块代码的"报错开关"修好了（数据库读写这一层）** —— 观众感知不到（零行为变更），但从此改错了会当场被拦住：对账 / 事故 / 划转三域 180 处「让检查工具别管」的写法全部摘掉，连带修好 13 个被它盖住的类型问题（其中 1 处可空值塞进数据库查询键，真撞上会在运行期炸）；域里 3 条**永远不会失败**的假测试换成真断言（一条是"断言返回值是合法桶名"而返回类型就是那几个桶名，另两条是自建 mock 原样回显再断言回显值）。物证：故意改错一个数据库列名，检查工具当场报红——同样的操作在这一波之前是绿的。**边界如实说**：本波只覆盖数据库读写这一层；同三域还剩 26 处别的「别管」写法（审计留痕的写入参数、记账边界调用等），已登记 `TOOLING-DEBT.md`，另册待清。**下一波**：清死字段与幽灵入口，并补上闸门咬不住的那道防线（断言写进去的行长什么样）
 ```
 
 - [ ] **Step 8: 提交并报告**
