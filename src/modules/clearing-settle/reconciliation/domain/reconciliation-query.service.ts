@@ -700,7 +700,7 @@ export class ReconciliationQueryService {
           externalRef: li.externalRef ?? null,
           amount: li.externalAmount != null ? li.externalAmount.toString() : '0',
           direction: (li.externalDirection ?? 'IN') as 'IN' | 'OUT',
-          timestamp: li.externalTimestamp ? li.externalTimestamp.toISOString() : new Date(0).toISOString(),
+          timestamp: li.externalTimestamp ? li.externalTimestamp.toISOString() : null,
           description: null,
         },
         internalFlow: null,

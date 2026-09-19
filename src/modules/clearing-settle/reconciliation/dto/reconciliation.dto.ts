@@ -131,7 +131,7 @@ export interface FlowComparisonExternalSide {
   externalRef: string | null;
   amount: string;
   direction: 'IN' | 'OUT';
-  timestamp: string;                // ISO
+  timestamp: string | null;        // ISO；在途行无外部时间时如实 null（红3甲，2026-09-20）
   description?: string | null;
 }
 
