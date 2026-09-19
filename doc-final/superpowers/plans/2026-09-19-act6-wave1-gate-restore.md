@@ -54,6 +54,73 @@
 
 ---
 
+### Task 0: 采波前基线物证（**必须最先，过时不候**）
+
+**Files:**
+- Create: `doc-final/superpowers/checkups/2026-09-19-act6-wave1-evidence/` 目录
+
+**Interfaces:**
+- Consumes: 无
+- Produces: `gate-before.txt`（闸门反证）、`demoall-before.txt` / `break-before.txt`（栈级输出基线）——Task 9 的两条硬判据全靠它们做对照组
+
+**为什么必须最先**：本波四条硬判据里有两条是**对照实验**——「闸门现在咬不动 / 改完能咬动」「行为改前改后一模一样」。对照组只能在动手之前采，**动完就永远补不回来了**。
+
+- [ ] **Step 1: 建物证目录**
+
+```bash
+cd /Users/songshengwei/Documents/Project/fiatx.com
+mkdir -p doc-final/superpowers/checkups/2026-09-19-act6-wave1-evidence
+E=doc-final/superpowers/checkups/2026-09-19-act6-wave1-evidence
+# 钉死基线 SHA——收尾检查表 E 段的三条 git diff 全靠它，别到时候靠回忆
+git rev-parse HEAD > "$E/BASELINE_SHA"
+cat "$E/BASELINE_SHA"
+```
+
+Expected：打印一个 40 位 SHA，并落盘到 `$E/BASELINE_SHA`。后续所有 `git diff $(cat $E/BASELINE_SHA)..HEAD` 都以它为准。
+
+- [ ] **Step 2: 采「闸门现在咬不动」的反证**
+
+故意把一个 Prisma 列名改错，确认**闸①照样是绿的**（这就是本波要消灭的状态）：
+
+```bash
+sed -i '' 's/slaBreached: false, slaDeadline: { lt: now }/slaBreachedTYPO: false, slaDeadline: { lt: now }/' \
+  src/modules/clearing-settle/reconciliation/workflow/case-aging.service.ts
+npx tsc --noEmit -p tsconfig.json > "$E/gate-before.txt" 2>&1; echo "波前 EXIT=$?" | tee -a "$E/gate-before.txt"
+git checkout -- src/modules/clearing-settle/reconciliation/workflow/case-aging.service.ts
+```
+
+Expected：`gate-before.txt` 里 **`波前 EXIT=0`、零错误行** —— 列名写错了闸门却不吭声。**这份文件是本波唯一不可替代的物证**，Task 9 Step 1 会拿同一个改法产出 `gate-after.txt` 与它对照。
+
+- [ ] **Step 3: 确认还原干净**
+
+```bash
+git status --short
+```
+
+Expected：只有 `?? doc-final/superpowers/checkups/2026-09-19-act6-wave1-evidence/`，**`src/` 下不得有任何改动**。
+
+- [ ] **Step 4: 采栈级输出基线**
+
+起本工作树自己的栈（worktree 内用 `self`，主工作树用 `main`；**两次采样之间不许换栈**）：
+
+```bash
+bash scripts/stack.sh up            # worktree 内 = self；主树用 `bash scripts/stack.sh up main`
+bash scripts/on-stack.sh self demo:all         > "$E/demoall-before.txt" 2>&1
+bash scripts/on-stack.sh self recon:demo:break > "$E/break-before.txt"   2>&1
+tail -5 "$E/demoall-before.txt"; tail -5 "$E/break-before.txt"
+```
+
+Expected：两份都跑通（`demo:all` 终态断言通过、`recon:demo:break` 打印 18 场景 / 12 案）。**若这里就红了，停手回主会话**——基线不绿，后面「行为零变更」无从谈起。
+
+- [ ] **Step 5: 提交物证**
+
+```bash
+git add doc-final/superpowers/checkups/2026-09-19-act6-wave1-evidence/
+git commit -m "test(波一物证): 采波前基线——闸门反证(改错列名 tsc 仍 EXIT=0)+ demo:all 与 recon:demo:break 栈级输出基线,供收尾对照"
+```
+
+---
+
 ### Task 1: 网格断言换真断言
 
 **Files:**
@@ -640,9 +707,11 @@ git commit -m "refactor(补单证据): 摘 16 处类型逃逸,补 5 条显式守
 故意把一个 Prisma 列名改错：
 
 ```bash
+E=doc-final/superpowers/checkups/2026-09-19-act6-wave1-evidence
 sed -i '' 's/slaBreached: false, slaDeadline: { lt: now }/slaBreachedTYPO: false, slaDeadline: { lt: now }/' \
   src/modules/clearing-settle/reconciliation/workflow/case-aging.service.ts
-npx tsc --noEmit -p tsconfig.json 2>&1 | grep case-aging; echo "EXIT=$?"
+npx tsc --noEmit -p tsconfig.json > "$E/gate-after.txt" 2>&1; echo "波后 EXIT=$?" | tee -a "$E/gate-after.txt"
+grep case-aging "$E/gate-after.txt"
 ```
 
 Expected：**报错**，指出 `slaBreachedTYPO` 不存在于 `ReconciliationCaseWhereInput`。**把这次输出原样保存**——它是本波唯一的、不可替代的物证（同样的操作在波前是**绿的**）。
@@ -672,11 +741,12 @@ Expected：三个 `EXIT=0`；jest 28 suites passed。（②③ 本波无改动�
 在本 worktree 的 self 栈上跑，波前波后各一次（波前那次若未留存，用 `git stash` 回到基线再跑一次）：
 
 ```bash
-bash scripts/stack.sh up
-bash scripts/on-stack.sh self demo:all        > /tmp/wave1-after-demoall.txt 2>&1
-bash scripts/on-stack.sh self recon:demo:break > /tmp/wave1-after-break.txt 2>&1
-diff /tmp/wave1-before-demoall.txt /tmp/wave1-after-demoall.txt
-diff /tmp/wave1-before-break.txt  /tmp/wave1-after-break.txt
+E=doc-final/superpowers/checkups/2026-09-19-act6-wave1-evidence
+bash scripts/stack.sh up            # 必须与 Task 0 Step 4 同一个栈
+bash scripts/on-stack.sh self demo:all         > "$E/demoall-after.txt" 2>&1
+bash scripts/on-stack.sh self recon:demo:break > "$E/break-after.txt"   2>&1
+diff "$E/demoall-before.txt" "$E/demoall-after.txt" | tee "$E/demoall-diff.txt"
+diff "$E/break-before.txt"   "$E/break-after.txt"   | tee "$E/break-diff.txt"
 ```
 
 Expected：**两个 diff 都为空**（时间戳 / 单号这类天然变动的行可用 `sed` 归一后再比，归一规则写进收尾记录）。这是本波「零行为变更」的硬证据——`as any` 与 mock 逃逸之下，栈级输出 diff 是唯一咬得住的闸（判例 2026-09-13 波四）。
@@ -751,3 +821,60 @@ git commit -m "docs(波一收尾): CHANGELOG 一行 + 总纲状态回写 + 波�
 | §5 四条硬判据 | ①Task 8 Step 7 ②Task 9 Step 1 ③Task 1 Step 4 ④Task 9 Step 4 |
 | §6 风险「用新逃逸压回去」 | Global Constraints + Task 4-8 每个 Step 的 Expected 里点名 |
 | §6 风险「#6 牵出业务问题」 | Task 6 Step 6（记 BACKLOG，不改业务） |
+
+---
+
+## 波一收尾检查表（合并前逐条打勾，一页收齐）
+
+> 这张表存在的理由：判据散在三处（步骤在本文件各任务、硬判据在 spec §5、交付清单映射在 spec §4、禁令在本文件 Global Constraints）。**子代理模式下每个子代理只看得到自己那一个任务**，看不到全局判据——没有这张表，等 Task 9 才发现前面某步物证没留，就得回头重跑。
+> 用法：合并前从上到下逐条打勾，**任何一条打不上就不许合**。
+
+### A. 物证清单（四份，缺一不可）
+
+| 物证 | 谁产出 | 落盘路径 | 判据 |
+|---|---|---|---|
+| `gate-before.txt` | **Task 0 Step 2** | `doc-final/superpowers/checkups/2026-09-19-act6-wave1-evidence/` | 改错 Prisma 列名，闸① **仍 `EXIT=0`、零错误行**（这是本波要消灭的状态） |
+| `gate-after.txt` | Task 9 Step 1 | 同上 | 同一个改法，闸① **报错**，指出 `slaBreachedTYPO` 不存在 |
+| `demoall-diff.txt` / `break-diff.txt` | Task 9 Step 4 | 同上 | **两份 diff 均为空**（时间戳 / 单号类天然变动若需归一，归一规则写进收尾记录） |
+| 网格断言变异前后输出 | Task 1 Step 1 与 Step 4 | 同上，建议命名 `grid-mutation-before.txt` / `-after.txt` | 改坏 `COMPENSATING` 分支：**改断言前那条网格用例是绿的，改后是红的** |
+
+⚠️ **前两类的「before」只能在动手之前采**（Task 0、Task 1 Step 1），动完永远补不回来。
+
+### B. 四条硬判据（spec §5，缺一不算过）
+
+- [ ] **① 逃逸归零**
+  `grep -rn "this\.prisma as any" src/modules/clearing-settle src/modules/governance/incidents src/modules/asset-treasury/internal-transfers --include='*.ts' | grep -v '\.spec\.ts' | wc -l` → **`0`**
+- [ ] **② 闸门能咬人** —— `gate-before.txt` 绿 vs `gate-after.txt` 红，两份都在物证目录
+- [ ] **③ 网格断言能咬人** —— 变异前后两份输出都在物证目录，且「180 组确定性网格」那条用例由绿转红
+- [ ] **④ 行为零变更** —— 两份 diff 为空
+
+### C. 闸门（CLAUDE.md §7 随手闸；收尾闸本波按条件**全未触发**）
+
+- [ ] ① `npx tsc --noEmit -p tsconfig.json` → `EXIT=0`
+- [ ] ② `cd admin-web && npx tsc -b --noEmit` → `EXIT=0`（本波无前端改动，跑一遍确认没误伤）
+- [ ] ③ `cd client-web && npx tsc -b --noEmit` → `EXIT=0`（同上）
+- [ ] ④ `DATABASE_URL="file:/tmp/exchange_js_main/dev.db" npx jest src/modules/clearing-settle src/modules/governance/incidents src/modules/asset-treasury/internal-transfers` → **28 suites passed**（基线 29，Task 2 删掉 1 个孤儿 suite；tests 数比基线 555 少 2）
+- [ ] ⑤ 起 preview 截图 → **未触发**（零前端改动）
+- [ ] ⑥ `demo:all` 走通 → 已由判据④ 的两次实跑覆盖
+- [ ] ⑦ `verify:coa` → **未触发**（未动钱）
+- [ ] ⑧ 重铺闸 → **未触发**（未动 schema / seed / 迁移）
+
+### D. 交付清单命中项（`rules/delivery-checklist.md`，20 行里命中 2 行）
+
+- [ ] **本任务是多波中的一波** → 承接记录写进 `2026-09-19-act6-wave2-skeleton.md` 开头（Task 9 Step 5），**只写承接、不展开波二 spec**
+- [ ] **每轮收尾** → `CHANGELOG` 一行（Task 9 Step 7）+ 回写总纲状态行（Task 9 Step 6）+ 按 `CLAUDE.md §9` 报一行文档层
+
+> 其余 18 行**全未触发**，逐条确认过：持久状态变化 / 新审计码 / 新状态或结局 / 动了钱 / maker-checker / 新审批策略 / 新权限组 / 新 admin 端点 / 新业务动作 / 退役业务动作 / 改交易三域 / 新字段到客户面 / 涉及金额 / 对外识别 / 新事件 / 改 schema / 改页面或种子 / 改了前端。**未触发 ≠ 跳过**，是根本没碰到。
+
+### E. 禁令复查（Global Constraints，评审逐条问）
+
+- [ ] 全波 diff 里**零新增** `as any`：`git diff $(cat doc-final/superpowers/checkups/2026-09-19-act6-wave1-evidence/BASELINE_SHA)..HEAD -- src/ | grep '^+' | grep -c 'as any'` → **`0`**
+- [ ] 全波 diff 里**零新增**非空断言与 ts-ignore：`git diff $(cat doc-final/superpowers/checkups/2026-09-19-act6-wave1-evidence/BASELINE_SHA)..HEAD -- src/ | grep '^+' | grep -cE '@ts-ignore|@ts-expect-error'` → **`0`**；`!` 断言人工扫一遍（无法用 grep 可靠区分逻辑非）
+- [ ] **没有为了让测试通过而改测试断言**：`git diff $(cat doc-final/superpowers/checkups/2026-09-19-act6-wave1-evidence/BASELINE_SHA)..HEAD -- '*.spec.ts'` 只应出现 Task 1（网格换真断言）与 Task 2（删文件）两处改动，**其余 spec 文件零改动**；若 Task 4-8 改过任何 mock 造型，须逐处说明「改的是造型不是断言」
+- [ ] **零行为变更**自述：全波 diff 里没有删 schema 列、没有改 UI、没有动业务分支、没有新增/退役状态与边
+
+### F. 新发现的去处（本波预期会产出，别漏登记）
+
+- [ ] Task 6 Step 6 那行 BACKLOG（跨钱包合成案件 `walletRef` 为空时不能记定性/开单）已写入 `doc-final/BACKLOG.md` §G
+- [ ] Task 5 Step 3 若连带暴露快照字段问题 → 已按「停手记 BACKLOG 回主会话」处理，**没有顺手改业务**
+- [ ] 其余执行中发现的新事实 → 已进波二骨架的「承接上一波」节
