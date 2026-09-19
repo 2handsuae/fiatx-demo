@@ -1,0 +1,9 @@
+src/modules/clearing-settle/reconciliation/workflow/case-aging.service.ts(29,49): error TS2561: Object literal may only specify known properties, but 'slaBreachedTYPO' does not exist in type 'ReconciliationCaseWhereInput'. Did you mean to write 'slaBreached'?
+src/modules/clearing-settle/reconciliation/workflow/case-aging.service.ts(34,5): error TS2322: Type '{ id: string; caseNo: string; businessDate: string; assetId: string; assetCode: string; layer: string; book: string | null; tbAmount: Decimal; inTransitAmount: Decimal; expectedExternal: Decimal; ... 20 more ...; updatedAt: Date; }[]' is not assignable to type 'AgingBreachCandidate[]'.
+  Type '{ id: string; caseNo: string; businessDate: string; assetId: string; assetCode: string; layer: string; book: string | null; tbAmount: Decimal; inTransitAmount: Decimal; expectedExternal: Decimal; ... 20 more ...; updatedAt: Date; }' is not assignable to type 'AgingBreachCandidate'.
+    Types of property 'slaDeadline' are incompatible.
+      Type 'Date | null' is not assignable to type 'Date'.
+        Type 'null' is not assignable to type 'Date'.
+src/modules/clearing-settle/reconciliation/workflow/case-aging.service.ts(34,34): error TS2677: A type predicate's type must be assignable to its parameter's type.
+  Type 'AgingBreachCandidate' is missing the following properties from type '{ id: string; caseNo: string; businessDate: string; assetId: string; assetCode: string; layer: string; book: string | null; tbAmount: Decimal; inTransitAmount: Decimal; expectedExternal: Decimal; ... 20 more ...; updatedAt: Date; }': businessDate, assetId, assetCode, layer, and 19 more.
+波后 EXIT=2
