@@ -149,7 +149,7 @@ export class WalletReconRunService {
     // "unattributed" external accounts (no internal wallet claims them) and
     // must surface as BREAK cases instead of being silently skipped.
     const cutoffDate = this.toBusinessDate(cutoff);
-    const externalBalances = (await (this.prisma as any).externalBalance.findMany({
+    const externalBalances = (await this.prisma.externalBalance.findMany({
       where: { cutoffDate },
       select: { walletRef: true, closingBalance: true, book: true, currency: true, accountRef: true },
     })) as ExternalBalanceRow[];
@@ -170,7 +170,7 @@ export class WalletReconRunService {
     const runCurrencies = Array.from(new Set(attributedBalances.map((b) => b.currency)));
     const assetsForDecimals = runCurrencies.length === 0
       ? []
-      : ((await (this.prisma as any).asset.findMany({
+      : ((await this.prisma.asset.findMany({
           where: { code: { in: runCurrencies } },
           select: { code: true, decimals: true },
         })) as Array<{ code: string; decimals: number }>);
@@ -197,7 +197,9 @@ export class WalletReconRunService {
     // Round3: per-wallet snapshot rows — written for EVERY processed wallet
     // (all four buckets, matched included) so the run-detail page has a
     // single source of truth to render from (T6 reads this table only).
-    const snapshotRows: Array<Record<string, unknown>> = [];
+    // 快照载荷此前是 Record<string, unknown>——等于对这张表的写入完全没类型，写错列名
+    // tsc 也不知道。改用 Prisma 生成的入参类型(`Prisma` 已在本文件 :20 导入)。
+    const snapshotRows: Prisma.ReconciliationRunWalletCreateManyInput[] = [];
     const bucketCounts = { matched: 0, inTransit: 0, softFlag: 0, break: 0 };
 
     for (const walletRef of walletRefs) {
@@ -386,7 +388,7 @@ export class WalletReconRunService {
 
     // ── 3. Persist per-wallet snapshot rows — single write, all buckets.
     if (snapshotRows.length > 0) {
-      await (this.prisma as any).reconciliationRunWallet.createMany({ data: snapshotRows });
+      await this.prisma.reconciliationRunWallet.createMany({ data: snapshotRows });
     }
 
     // ── 4. Auto-heal: 本轮**查过**且**没破口**的钱包，其 OPEN 案件视为已恢复
@@ -451,14 +453,14 @@ export class WalletReconRunService {
 
   // ── run row helpers ────────────────────────────────────────────────────────
   private async createRun(businessDate: string, manifest: unknown, triggerType: 'MANUAL' | 'SCHEDULED', cutoff: Date) {
-    const prior = await (this.prisma as any).reconciliationRun.count({
+    const prior = await this.prisma.reconciliationRun.count({
       where: { businessDate, layer: RUN_LAYER },
     });
     const seq = prior + 1;
     // Format: RUN{YYYYMMDD}-{seq} — single engine, so no engine tag in the
     // no. Sequence scoped to layer=WALLET per day.
     const runNo = `RUN${businessDate.replace(/-/g, '')}-${seq}`;
-    return (this.prisma as any).reconciliationRun.create({
+    return this.prisma.reconciliationRun.create({
       data: {
         runNo,
         businessDate,
@@ -491,7 +493,7 @@ export class WalletReconRunService {
     // Round3: also persist the five-bucket wallet counts (walletCount/
     // matchedCount/inTransitCount/softFlagCount/breakCount) — the run-detail
     // page (T6) reads these instead of recomputing from line items.
-    await (this.prisma as any).reconciliationRun.update({
+    await this.prisma.reconciliationRun.update({
       where: { id: runId },
       data: {
         status: 'COMPLETED',
@@ -525,7 +527,7 @@ export class WalletReconRunService {
    * cutoff via account_flows.)
    */
   protected async computeInternalIdentity(_cutoff: Date): Promise<InternalIdentityResult> {
-    const registry = (await (this.prisma as any).tbAccountRegistry.findMany({
+    const registry = (await this.prisma.tbAccountRegistry.findMany({
       where: { status: 'ACTIVE' },
       select: { tbAccountId: true, code: true, ledger: true },
     })) as Array<{ tbAccountId: string; code: number; ledger: number }>;
@@ -613,7 +615,7 @@ export class WalletReconRunService {
     accountRef: string,
     cutoff: Date,
   ): Promise<ExternalStatementLineInput[]> {
-    const lines = (await (this.prisma as any).externalStatementLine.findMany({
+    const lines = (await this.prisma.externalStatementLine.findMany({
       where: {
         OR: [{ subAccount: walletRef }, { subAccount: null, accountRef }],
         datetime: { lte: cutoff },
@@ -630,7 +632,7 @@ export class WalletReconRunService {
   }
 
   protected async resolveAssetId(currency: string): Promise<string | null> {
-    const asset = await (this.prisma as any).asset.findFirst({
+    const asset = await this.prisma.asset.findFirst({
       where: { code: currency },
       select: { id: true },
     });
@@ -684,7 +686,7 @@ export class WalletReconRunService {
         ownerNo: balanceCheck.ownerNo,
       };
     }
-    const wallet = (await (this.prisma as any).wallet.findUnique({
+    const wallet = (await this.prisma.wallet.findUnique({
       where: { id: walletRef },
       select: { walletRole: true, ownerType: true, ownerNo: true },
     })) as { walletRole: string | null; ownerType: string | null; ownerNo: string | null } | null;
@@ -733,7 +735,7 @@ export class WalletReconRunService {
     // Round3 T5 Step③: businessDate intentionally dropped from the probe so
     // an OPEN case persists across reruns on later days (re-observation
     // refreshes the same row instead of forking a new one per day).
-    const existing = await (this.prisma as any).reconciliationCase.findFirst({
+    const existing = await this.prisma.reconciliationCase.findFirst({
       where: {
         walletRef: input.walletRef,
         status: 'OPEN',
@@ -745,7 +747,7 @@ export class WalletReconRunService {
     let caseNo: string;
     let created: boolean;
     if (existing) {
-      await (this.prisma as any).reconciliationCase.update({
+      await this.prisma.reconciliationCase.update({
         where: { id: existing.id },
         data: {
           // Snapshot fields → reflect THIS run's measurement, not history.
@@ -773,17 +775,17 @@ export class WalletReconRunService {
       created = false;
       // Replace line items: drop prior + insert current. ON DELETE CASCADE
       // is set on the FK so this is atomic to the lineItems table.
-      await (this.prisma as any).reconciliationLineItem.deleteMany({
+      await this.prisma.reconciliationLineItem.deleteMany({
         where: { caseId: existing.id },
       });
     } else {
       // Format: REC{YYYYMMDD}-{nnn}. Sequence counts ALL cases for the
       // businessDate — collision-safe. Asset/wallet info is in the detail page.
-      const priorToday = await (this.prisma as any).reconciliationCase.count({
+      const priorToday = await this.prisma.reconciliationCase.count({
         where: { businessDate: input.businessDate },
       });
       const newCaseNo = `REC${input.businessDate.replace(/-/g, '')}-${String(priorToday + 1).padStart(3, '0')}`;
-      const createdRow = await (this.prisma as any).reconciliationCase.create({
+      const createdRow = await this.prisma.reconciliationCase.create({
         data: {
           caseNo: newCaseNo,
           businessDate: input.businessDate,
@@ -840,7 +842,7 @@ export class WalletReconRunService {
     };
     for (const oi of matcherResult.orphanInternal) {
       lineNo += 1;
-      await (this.prisma as any).reconciliationLineItem.create({
+      await this.prisma.reconciliationLineItem.create({
         data: {
           caseId,
           foundByRunId: runId,
@@ -857,7 +859,7 @@ export class WalletReconRunService {
     }
     for (const oe of matcherResult.orphanExternal) {
       lineNo += 1;
-      await (this.prisma as any).reconciliationLineItem.create({
+      await this.prisma.reconciliationLineItem.create({
         data: {
           caseId,
           foundByRunId: runId,
@@ -874,7 +876,7 @@ export class WalletReconRunService {
     }
     for (const m of matcherResult.mismatch) {
       lineNo += 1;
-      await (this.prisma as any).reconciliationLineItem.create({
+      await this.prisma.reconciliationLineItem.create({
         data: {
           caseId,
           foundByRunId: runId,
@@ -892,7 +894,7 @@ export class WalletReconRunService {
     }
     for (const it of matcherResult.inTransit) {
       lineNo += 1;
-      await (this.prisma as any).reconciliationLineItem.create({
+      await this.prisma.reconciliationLineItem.create({
         data: {
           caseId,
           foundByRunId: runId,
@@ -941,7 +943,7 @@ export class WalletReconRunService {
     );
     if (healable.length === 0) return 0;
 
-    const stale = (await (this.prisma as any).reconciliationCase.findMany({
+    const stale = (await this.prisma.reconciliationCase.findMany({
       where: {
         status: 'OPEN',
         layer: RUN_LAYER,
@@ -954,7 +956,7 @@ export class WalletReconRunService {
     if (stale.length === 0) return 0;
     const now = new Date();
     for (const c of stale) {
-      await (this.prisma as any).reconciliationCase.update({
+      await this.prisma.reconciliationCase.update({
         where: { id: c.id },
         data: {
           status: 'RESOLVED',
