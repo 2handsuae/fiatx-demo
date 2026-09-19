@@ -1122,9 +1122,9 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
     // 拆组不双持——FUNDS_ORDER_ACT（推单）、RECON_RUN_READ / RECON_CASE_READ /
     // RECON_EXTERNAL_BALANCE_READ（对账三页只读）、INCIDENT_WRITE（事故登记）、
     // DEMO_CLOCK_WRITE（拨钟）六组整体迁往 TREASURY_OFFICER，详见该角色行内注释。本行只留
-    // FUNDS_ORDER_VIEW（资金单只读，业主未点名，不动）。
+    // FUNDS_ORDER_VIEW（资金单只读，业主未点名，不动）。2026-09-19 业主补刀：INTERNAL_TRANSFER_READ
+    // 同收（「他不需要知道」）——补齐两角色定案的漏网一组，剧本注③「运营只剩 Funds Orders」自此成立。
     'FUNDS_ORDER_VIEW',
-    'INTERNAL_TRANSFER_READ',
     'WITHDRAWAL_FEE_LEVEL_READ', 'SWAP_FEE_LEVEL_READ',
   ],
 };
