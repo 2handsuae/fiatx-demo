@@ -153,8 +153,8 @@ export class SupplementEvidenceService {
     // Wallet 改成按 vault × network × 归属人开的「地址行」，砍掉了 assetId 列与 asset
     // 关联——一个地址行不再绑死单一资产，从钱包问"这是什么币"已经问不出来了。案子本身
     // 带 assetId（引擎按币种开案时写入，见 wallet-recon-run.service.ts 的 resolveAssetId），
-    // 那才是这条账单行所属资产的权威来源。⚠️ 这段原本走 `wallet.asset`，因整份文件用
-    // `this.prisma` 取数，tsc 照不到，合并后会在运行期才炸成
+    // 那才是这条账单行所属资产的权威来源。⚠️ 这段原本走 `wallet.asset`，因整份文件当时用
+    // `(this.prisma as any)` 取数（2026-09-19 波一已摘净），tsc 照不到，合并后会在运行期才炸成
     // PrismaClientValidationError（Unknown field `asset`）。
     const asset = await this.prisma.asset.findUnique({ where: { id: kase.assetId } });
     if (!asset) throw new BadRequestException(`Case ${caseNo}'s asset was not found`);
