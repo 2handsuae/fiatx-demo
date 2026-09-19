@@ -51,8 +51,16 @@ NestJS + Prisma + SQLite 后端 ｜ React 管理台 ｜ React 客户端 ｜ 会�
 - 任务收尾对照 `doc-final/rules/delivery-checklist.md`——按触发条件列出必须交付的东西；plan 引用它，不重抄
 - 评审按 `doc-final/rules/review-rubric.md`，只判三件事，其余不算缺陷
 - 派 subagent 时，任务 prompt 必须带上本文件 §0–§5 的要点
-- 派 subagent 的模型分层（判断密度高且一次性的不降档，重复且有终审兜底的降档）：任务执行（含随码写的测试）/ 任务级 code review / 走查截图 / 文档收口 → `sonnet`；纯批量机械活（导表 / 批量扫描 / 重命名）→ `haiku`；spec 评审、终审、变异测试 → **Fable 5**（不用 5.1：更烧额度、无质量增益证据）不降档，额度不够时降 `opus`，不再往下——落地：主会话保持 `/model claude-fable-5`，派发时**省略 model 字段**走继承（model 参数只收别名，钉不住版本）；plan 给动钱 / 动状态机的高危任务点名升档评审 → `opus`。闸门红了诊断不动 → 回主会话，不让便宜模型死磕
-- 代码体检 / 现状摸底：扫描取数 → `sonnet`（纯计数可 `haiku`），判读与结论 → 主会话不降档——体检输出是后续轮次的地图，判错会被逐轮放大。扫描子代理交「数字 + 复现命令」、不交裸结论；否定性结论（零引用 / 没有 / 不存在）九成错在搜法不在事实，主会话抽查复现后才采信
+- **派发分层**——原则住在各工具的全局配置里（判断密度高且一次性的不降档；重复且有终审兜底的降档）。本表只放**本项目的映射**，按工具分行，**各工具只看自己那行**，具体模型名与 harness 坑位见文末附录：
+
+| 工具 | 主会话 | 执行降档 | 评审 / 终审 |
+|---|---|---|---|
+| Claude Code | 不降档 | 任务执行（含随码写的测试）/ 任务级 code review / 走查截图 / 文档收口 → 执行档；纯批量机械活（导表 / 批量扫描 / 重命名）→ 最低档 | spec 评审、终审、变异测试**不降档**；动钱 / 动状态机的高危任务由 plan 点名升档 |
+| Codex | 不降档 | **当前无机制**，见附录 B | 同主会话 |
+
+- **证据交接合同**（与工具无关）：扫描子代理只交「数字 + 复现命令」、不交裸结论；否定性结论（零引用 / 没有 / 不存在）九成错在搜法不在事实，主会话抽查复现后才采信
+- 代码体检 / 现状摸底：**扫描取数可降档，判读与结论回主会话不降档**——体检输出是后续轮次的地图，判错会被逐轮放大
+- 闸门红了诊断不动 → 回主会话，不让便宜模型死磕
 
 ## 7. 闸门（分两档）
 
@@ -130,3 +138,26 @@ npm run cloud:bootstrap   # 开服（一次性；控制台重装系统后重跑�
 - 实测（2026-09-12 最终配置）：常规部署 74 秒 ｜ 重铺 47 秒 ｜ 开机 37 秒 ｜ 内存峰值 3623 MB（8 GB 机器，swap 0）
 - 绝不删 `/var/lib/caddy`（证书存储；重签会撞 Let's Encrypt 频率上限）
 - 同事自助还原：管理台顶栏 Simulation 开关 → Demo Data 面板（重铺数据=整服务自退重启约 1 分钟；重摆对账场景=recon:demo:break 秒级）；`DEMO_OPS=1` 门控，仅云端 demo.env 有，本地无此入口
+
+
+---
+
+## 附录 A：Claude Code 的模型映射与 harness 坑位
+
+> 仅 Claude Code 读；Codex 跳过本节。
+
+- 主会话保持 `/model claude-fable-5`——**不用 5.1**：更烧额度、无质量增益证据
+- 执行档 = `sonnet`；纯批量机械活 = `haiku`
+- 评审 / 终审 = **Fable 5 不降档**，额度不够时降 `opus`，不再往下
+- 高危（动钱 / 动状态机）由 plan 点名升档评审 → `opus`
+- **坑位**：派发时**省略 model 字段**走继承——`model` 参数只收别名，钉不住版本
+
+## 附录 B：Codex 的模型与档位
+
+> 仅 Codex 读；Claude Code 跳过本节。核查日期 2026-09-19，codex-cli 0.155.0。
+
+- 全局默认在 `~/.codex/config.toml`：`model` + `model_reasoning_effort`（本机现为 `gpt-5.6-terra` / `high`）
+- **Codex 目前没有「给子代理指定模型」的机制**：`codex features list` 里 `multi_agent` 已 stable/true（能派子代理），但 `step_model_switching` 与 `reasoning_effort_override` 均为 under development/false。故上表 Codex 行的「执行降档」暂时无处落地——**不要照搬附录 A 的模型名，那些模型 Codex 没有**
+- 今天能换档的只有两条，都是**整次调用**级别：`codex exec -m <MODEL> …` ｜ `-c model_reasoning_effort=<low|medium|high>`
+- **本机可见模型 id**：`gpt-5.6-terra`（当前）、`gpt-5.6-sol`、`gpt-6-astra`。三者强弱档位**未在本机数据中确立**（`availableModels` / `modelConfigurations` 等键不存在），故上表不填具体映射；档位以 App 模型选择器所示为准，确认后回填本节
+- `step_model_switching` 转 stable 时，回来补上表 Codex 行
