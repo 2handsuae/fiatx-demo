@@ -45,7 +45,7 @@
 | 波 | 边界（做） | 明确不做 | 验收口径 |
 |---|---|---|---|
 | **一 · 闸门复位** | 对账域 137 处 `(this.prisma as any)` 摘净（`src/modules/clearing-settle/**` + `governance/incidents/**` + `asset-treasury/internal-transfers/**`）｜ 3 条恒真断言换真断言（`bucket-classifier.spec.ts` 的 180 组网格 + `reconciliation-case-idempotent-fields.spec.ts` 两个用例，后者 67 行零 import、整份考虑删） | **零行为变更**——不删列、不改 UI、不动业务分支；trading 等其它域的 `as any`（223 处）不在本波 | 闸①②③ 全绿 ＋ **变异实证**：随便改一个对账域 Prisma 列名，闸① 必红；3 条断言各做一次变异（破坏被测行为 → 断言必红）｜ jest 对账域全绿 ｜ `demo:all` + `recon:demo:break` 栈级输出与波前逐字节 diff = 空 |
-| **二 · 清死物** | 红 3 `externalTimestamp`（写或退役，二选一，不做兼容）｜ 12 根死列 ｜ 3 个彻底死导出 + 35 个多余 `export` ｜ 两个幽灵筛选项（`WAIVED` / `PENDING_RECHECK`）｜ 运营侧栏多一页（`INTERNAL_TRANSFER_READ` 与剧本注③ 对不上，**二选一：收权限或改剧本，需业主一句话**）｜ External Balances 被划转回单劫持到「今天」 | 不重构结构、不动 Case 主体、不碰业务日 | 第六幕五页逐页截图：无 epoch 时间 / 无恒空字段 / 无点了必空的筛选项 / External Balances 打开即是铺场那天的全量 ｜ 重铺闸（动了 schema）｜ `verify:coa` |
+| **二 · 清死物** | 红 3 `externalTimestamp`（写或退役，二选一，不做兼容）｜ 12 根死列 ｜ 3 个彻底死导出 + 35 个多余 `export` ｜ 两个幽灵筛选项（`WAIVED` / `PENDING_RECHECK`）｜ **运营收回 `INTERNAL_TRANSFER_READ`**（业主 2026-09-19 定）＋ 同改 `FundsOrderDetail.tsx:163-168` 那条无条件渲染的关联链接（否则造幽灵链接，见 §5）｜ External Balances 被划转回单劫持到「今天」 | 不重构结构、不动 Case 主体、不碰业务日 | 第六幕五页逐页截图：无 epoch 时间 / 无恒空字段 / 无点了必空的筛选项 / External Balances 打开即是铺场那天的全量 ｜ 重铺闸（动了 schema）｜ `verify:coa` ｜ 权限改动三件套：`db:base:sync` ＋ **重启后端** ＋ `verify:rbac` 全绿；并以 `ops_officer@` 实登一次核验——侧栏无 Internal Transfers、资金单详情页无那条关联链接 |
 | **三 · 主体分层** | Case 立主体服务 + 显式迁移表（照 `adjustment-transitions.constant.ts` 先例），`status` 写点从 3 文件收敛 ｜ 拆 `getCase()` 414 行、`run()` 329 行、`buildFlowComparison()` 198 行 ｜ 铁律③ 直写一处（`internal-transfer-workflow.service.ts:130`）｜ `dispositionsFor()` 六格补齐硬边界（`AMOUNT_MISMATCH×FIRM` 漏查 `sourceAdjustable`）｜ 抽 `walletRef→walletNo`、`decimals` Map 两个重复 helper | 不动前端、不动业务日、不新增任何状态或边 | `demo:all` + `recon:demo:break` 栈级输出 diff = 空（**行为零差异是本波唯一硬判据**）｜ `verify:coa` ｜ 新迁移表被真实调用（不是摆设）——变异实证：构造一次非法跃迁必须被显式拒 |
 | **四 · 前端拆分** | `ReconciliationCasesDetailPage.tsx` 1893 行拆分 ｜ `ReconciliationAdjustmentCreateModal.tsx` 821 行 ｜ 前端自算业务判断收回后端（含 `rowAdjustmentPrefill().direction` 提现类缺翻符号，行号已漂到 `:330-337`）｜ 3 组重复块收敛 | 不改任何交互与文案、不改按钮矩阵的业务含义 | 第六幕五页 + 三个弹窗**逐页截图与波前比对，像素级同构**（文案 / 列 / 按钮组一个不差）｜ 闸②全绿 |
 | **五 · 业务日迪拜 COB + 文档收口** | 业务日按迪拜 COB 切，**7 处**：两份 `toBusinessDate`（共享 util `business-date.util.ts:2` ＋ 对账编排私有重复件 `wallet-recon-run.service.ts:1055`——只改前者会留暗坑）＋ 四处硬写 UTC 日终（`recon-thresholds.constant.ts:26` / `effective-cutoff.ts:23` / `reconciliation-query.service.ts:923` / `push-order.service.ts:204,206`）｜ §G 剩余演示可见项：`INTERNAL_BREAK` run 详情空表、严重度跨资产不可比、推单页划转腿方向标签、`RECON_CASE_OPENED` metadata 的 UUID、`treasury/` vs `custody/` 前缀 ｜ 文档 5 处数字腐烂 + 手册附录重排（15 场景 10 案 → 18 场景 12 案）+ `CHANGELOG` 第 41/43 行去重 | 不引入倒计时 / 时限数字（条文未载，`decisions.md` 2026-09-06「不杜撰」）｜ 不做历史存量口径评估（§3 重铺） | **重铺闸**：`stack.sh reset main` 从零建库 → `demo:all` → `recon:demo:break`，判据对照 `demo/baseline.md` 全绿 ｜ `verify:coa`（恒等式 + 负余额）｜ 跨日切场景 9 按剧本实走，确认「下期自然平」的触发时点随 COB 移动 ｜ `modules/v8-recon.md` 与代码逐数复核 |
@@ -59,9 +59,10 @@
 - **三在四之前**：前端拆分要依赖后端读面契约稳定下来
 - **五压最后**：它是全战役唯一**改变行为**的一波（记账日期口径），必须等前四波把地基弄干净、闸门能咬人之后再动；且它是唯一必须走重铺闸的一波
 
-## 5. 待业主一句话（不阻塞开工，波二前给即可）
+## 5. 业主已决（2026-09-19，无遗留待答）
 
-- **运营侧栏那一页**：运营现持 `INTERNAL_TRANSFER_READ`，侧栏 Custody 组会出现 Internal Transfers（= 场景 16/17 的划转单页），与剧本注③「运营只剩 Funds Orders 一个只读列表页」对不上。**二选一**：① 收回该权限，让剧本成立；② 改剧本那句话，承认运营还能只读看划转单。2026-09-10 那条两角色定案只点名了六个组，没点这个，所以两条路都不算翻案
+- **运营侧栏那一页 → 收回权限**（业主原话「他不需要知道」）：`INTERNAL_TRANSFER_READ` 从 `OPS_OFFICER` 摘除，让剧本注③ 成立。补齐 2026-09-10 两角色定案的漏网一组。**已并入波二边界**
+- **连带（同波必改，落笔前实扫得到）**：`FundsOrderDetail.tsx:163-168` 的「Internal transfer」关联链接**无条件渲染、无权限判断**，而运营持 `FUNDS_ORDER_VIEW`、场景 16/17/18 的划转腿他打得开——只收权限不改这里就是造一个新幽灵链接（点得到、点了被 `RequirePermission` 拒），正是 `delivery-checklist`「退役业务动作 → 前端入口同步删」那条。改法：该链接按权限条件渲染
 
 ## 6. 每波收尾必做（`rules/delivery-checklist.md` 多波行）
 
