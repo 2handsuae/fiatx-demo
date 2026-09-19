@@ -1,0 +1,50 @@
+[33m[Nest] 75603  - [39m09/20/2026, 3:06:23 AM [33m   WARN[39m [38;5;3m[WalletReconRunService] [39m[33m[wallet-recon] internal identity break — skipping per-wallet checks. breaks=[{"ledger":1,"side":"CLIENT","asset":"1000","liab":"900","delta":"100"}][39m
+FAIL src/modules/clearing-settle/reconciliation/workflow/wallet-recon-run.service.spec.ts
+  WalletReconRunService
+    ✓ internal balanced + no wallets to check → run.status=PASS, walletsChecked=0 (3 ms)
+    ✓ internal NOT balanced → status=INTERNAL_BREAK, no per-wallet processing (1 ms)
+    ✓ one wallet balance mismatch → 1 case opened, status=BREAK (1 ms)
+    ✓ wallet has flow orphan_internal → case opened with line items (1 ms)
+    ✕ in-transit line item payload: externalTimestamp 透传 + 键集合逐键相等（红3甲·写行防线） (2 ms)
+    traceId format and inheritance rules
+      ✓ mints UUID v4 traceId at run creation (1 ms)
+      ✓ mints UUID v4 traceId at case creation
+      ✓ does NOT overwrite traceId when updating an existing case (1 ms)
+    T2 idempotent upsert + auto-heal
+      ✓ same wallet breaks in 3 sequential runs → 1 OPEN case; firstSeenRunId pins run 1; lastUpdatedRunId follows (1 ms)
+      ✓ wallet breaks in run A then recovers in run B → run A case RESOLVED with AUTO_HEALED (1 ms)
+      ✓ 查了 0 个钱包的 run（当天没有外部对账单）→ 一个案件都不许关 (1 ms)
+      ✓ 更早业务日的 run 不许关掉更晚业务日的案件（时间只能往前走） (1 ms)
+      ✓ case 唯一性跨日：昨日 OPEN case（不同 businessDate）今日复观察——不新建、firstSeenRunId 不变、bucket 刷新
+      ✓ severity bucketing: delta>=10000 → HIGH, >=100 → MEDIUM, else LOW (1 ms)
+    Round3 orchestrator: run-wallet snapshot + unattributed accounts
+      ✓ 每钱包快照落库：matched 钱包也有 run_wallets 行，run 四桶计数 = 快照聚合 (1 ms)
+      ✓ 无主外部余额头（walletRef=null）→ 开 BREAK case（caseReason=unattributed_external_account、walletRef=accountRef）+ 快照行，不再静默跳过
+  平账 A 批：开案设账龄截止（spec §2.1）
+    ✓ 新开案件 slaDeadline = 业务日日终 + 3 天；开案审计 metadata 带 slaDeadline (1 ms)
+    ✓ 既有 OPEN 案件被复观察——update 的 data 不带 slaDeadline、也不新建 case（spec §2.1 复观察不重置）
+  平账 A 批：跑批完成审计带截止时刻（spec §6.1 / §2.8）
+    ✓ RECON_RUN_COMPLETED metadata.cutoffAt = 本轮截止
+
+  ● WalletReconRunService › in-transit line item payload: externalTimestamp 透传 + 键集合逐键相等（红3甲·写行防线）
+
+    expect(received).toEqual(expected) // deep equality
+
+    Expected: 2026-06-25T16:00:00.000Z
+    Received: undefined
+
+      271 |     expect(payload).toBeDefined();
+      272 |     // 值断言：写库载荷的时间 = 上游外部行时间（不是 mock 回显——mock 只当捕获器，值是生产代码算的）
+    > 273 |     expect(payload.externalTimestamp).toEqual(at);
+          |                                       ^
+      274 |     // 形状断言：多写一键、少写一键都红——这是「省略可选字段」类缺陷的唯一防线（闸①不咬）
+      275 |     expect(Object.keys(payload).sort()).toEqual([
+      276 |       'caseId', 'externalAmount', 'externalDirection', 'externalRef', 'externalTimestamp',
+
+      at Object.<anonymous> (src/modules/clearing-settle/reconciliation/workflow/wallet-recon-run.service.spec.ts:273:39)
+
+Test Suites: 1 failed, 1 total
+Tests:       1 failed, 18 passed, 19 total
+Snapshots:   0 total
+Time:        1.882 s, estimated 3 s
+Ran all test suites matching src/modules/clearing-settle/reconciliation/workflow/wallet-recon-run.service.spec.ts.

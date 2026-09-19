@@ -1,0 +1,23 @@
+FAIL src/modules/clearing-settle/reconciliation/engine/v2/wallet-flow-matcher.service.spec.ts
+  ● Test suite failed to run
+
+    [96msrc/modules/clearing-settle/reconciliation/engine/v2/wallet-flow-matcher.service.ts[0m:[93m302[0m:[93m24[0m - [91merror[0m[90m TS2345: [0mArgument of type '{ externalLineId: string; fundsOrderId: string; fundsOrderNo: string; orderStatus: string; amount: string; direction: "IN" | "OUT"; externalRef: string | null; }' is not assignable to parameter of type 'InTransitMatch'.
+      Property 'externalTimestamp' is missing in type '{ externalLineId: string; fundsOrderId: string; fundsOrderNo: string; orderStatus: string; amount: string; direction: "IN" | "OUT"; externalRef: string | null; }' but required in type 'InTransitMatch'.
+
+    [7m302[0m         inTransit.push({ externalLineId: ext.id, fundsOrderId: c.id, fundsOrderNo: c.fundsOrderNo,
+    [7m   [0m [91m                       ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~[0m
+    [7m303[0m           orderStatus: c.status, amount: extMinor(ext.amount).toString(),
+    [7m   [0m [91m~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~[0m
+    [7m304[0m           direction: ext.direction as 'IN' | 'OUT', externalRef: ext.externalRef });
+    [7m   [0m [91m~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~[0m
+
+      [96msrc/modules/clearing-settle/reconciliation/engine/v2/wallet-flow-matcher.service.ts[0m:[93m128[0m:[93m3[0m
+        [7m128[0m   externalTimestamp: Date;
+        [7m   [0m [96m  ~~~~~~~~~~~~~~~~~[0m
+        'externalTimestamp' is declared here.
+
+Test Suites: 1 failed, 1 total
+Tests:       0 total
+Snapshots:   0 total
+Time:        1.567 s, estimated 3 s
+Ran all test suites matching src/modules/clearing-settle/reconciliation/engine/v2/wallet-flow-matcher.service.spec.ts.
