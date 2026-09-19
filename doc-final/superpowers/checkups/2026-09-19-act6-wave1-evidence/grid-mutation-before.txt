@@ -1,0 +1,36 @@
+ts-jest[ts-compiler] (WARN) Got a `.js` file to compile while `allowJs` option is not set to `true` (file: /Users/songshengwei/Documents/Project/fiatx.com/.claude/worktrees/act6-wave1/scripts/require-node.js). To fix this:
+  - if you want TypeScript to process JS files, set `allowJs` to `true` in your TypeScript config (usually tsconfig.json)
+  - if you do not want TypeScript to process your `.js` files, in your Jest config change the `transform` key which value is `ts-jest` so that it does not match `.js` files anymore
+FAIL src/modules/clearing-settle/reconciliation/engine/v2/bucket-classifier.spec.ts
+  computeBucket
+    ✓ break: 残差非零（在途解释不干净） (1 ms)
+    ✓ break: 无在途且余额差非零
+    ✓ in-transit: 差额被在途完全解释
+    ✓ in-transit: 对冲在途（差额0但有在途行）
+    ✓ in-transit 优先于 compensating：残差0+在途+流水异常并存
+    ✕ compensating: 余额平但流水脏 (2 ms)
+    ✓ matched: 全净
+    ✓ 恒等式：任意输入必落且只落一桶 (6 ms)
+
+  ● computeBucket › compensating: 余额平但流水脏
+
+    expect(received).toBe(expected) // Object.is equality
+
+    Expected: "COMPENSATING"
+    Received: "MATCHED"
+
+      12 |   ];
+      13 |   it.each(cases)('%s', (_name, input, want) => {
+    > 14 |     expect(computeBucket(input)).toBe(want);
+         |                                  ^
+      15 |   });
+      16 |
+      17 |   it('恒等式：任意输入必落且只落一桶', () => {
+
+      at src/modules/clearing-settle/reconciliation/engine/v2/bucket-classifier.spec.ts:14:34
+
+Test Suites: 1 failed, 1 total
+Tests:       1 failed, 7 passed, 8 total
+Snapshots:   0 total
+Time:        2.005 s
+Ran all test suites matching src/modules/clearing-settle/reconciliation/engine/v2/bucket-classifier.spec.ts.

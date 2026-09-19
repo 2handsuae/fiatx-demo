@@ -14,18 +14,31 @@ describe('computeBucket', () => {
     expect(computeBucket(input)).toBe(want);
   });
 
-  it('恒等式：任意输入必落且只落一桶', () => {
-    const buckets = new Set(['MATCHED', 'IN_TRANSIT', 'COMPENSATING', 'BREAK']);
-    // 确定性穷举网格（不用 Math.random，保证可复现）：
+  // 期望值由**独立的**判定函数算出——规则抄自 modules/v8-recon.md §1「差异分桶，命中即止」，
+  // 不是从 computeBucket 复制的实现。两边各写一遍，改了任何一边网格就红：这正是本断言的作用。
+  // （旧写法 `expect(buckets.has(b)).toBe(true)` 在 TS 下恒真——computeBucket 的返回类型
+  //  就是那 4 个字面量的联合、每条分支都返回字面量，它不可能红。）
+  const expectedBucket = (i: Parameters<typeof computeBucket>[0]): string => {
+    const residual = i.delta - i.inTransitSigned;
+    if (residual !== 0n) return 'BREAK';
+    if (i.inTransitCount > 0) return 'IN_TRANSIT';
+    if (i.anomalyCount > 0) return 'COMPENSATING';
+    return 'MATCHED';
+  };
+
+  it('180 组确定性网格：逐组落到期望的那一个桶', () => {
     const deltas = [-600n, -100n, 0n, 1n, 500n];
     const transits = [-600n, -100n, 0n, 500n];
     const counts = [0, 1, 2];
+    let checked = 0;
     for (const delta of deltas)
       for (const inTransitSigned of transits)
         for (const inTransitCount of counts)
           for (const anomalyCount of counts) {
-            const b = computeBucket({ delta, inTransitSigned, inTransitCount, anomalyCount });
-            expect(buckets.has(b)).toBe(true);
+            const input = { delta, inTransitSigned, inTransitCount, anomalyCount };
+            expect(computeBucket(input)).toBe(expectedBucket(input));
+            checked += 1;
           }
+    expect(checked).toBe(180);
   });
 });
