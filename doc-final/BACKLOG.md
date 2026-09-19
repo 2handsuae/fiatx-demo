@@ -133,7 +133,7 @@ Last Updated: 2026-09-16（审计两页按后端真实字段重设计·文档收
 
 **场景 9 · 跨日切（业务日口径）**
 
-- [ ] **业务日期按 UTC 切、非迪拜 COB(2026-08-13，财务硬需求)**：`src/modules/accounting/tigerbeetle/utils/business-date.util.ts:2` 的 `toBusinessDate` = `toISOString().slice(0,10)`（UTC 日历日 = 迪拜凌晨 4 点切日），迪拜时间 1 月 5 日 02:00 的交易记成 1 月 4 日的账。业务方邮件明确要求"固定迪拜 close-of-business 截止、对前一日收盘位"。须定义迪拜 COB 时点并改切日逻辑，影响 effectiveDate 盖章与对账截止过滤（`effective-cutoff.ts`）；历史 effectiveDate 存量口径切换需评估。不依赖 COA v2，可单独先修 ｜来源: 2026-08-13 COA v2 设计对话中代码实证（spec §7）
+- [ ] **业务日期按 UTC 切、非迪拜 COB(2026-08-13，财务硬需求)**：`src/modules/accounting/tigerbeetle/utils/business-date.util.ts:2` 的 `toBusinessDate` = `toISOString().slice(0,10)`（UTC 日历日 = 迪拜凌晨 4 点切日），迪拜时间 1 月 5 日 02:00 的交易记成 1 月 4 日的账。业务方邮件明确要求"固定迪拜 close-of-business 截止、对前一日收盘位"。**业主 2026-09-19 拍板：做，改按迪拜 COB 切**（`decisions.md` 同日条目）。**存量不评估**——§3 数据随时可重铺，改完 reset 重铺、不写 backfill（原「历史 effectiveDate 存量口径切换需评估」作废）。**改动面实测 7 处**（2026-09-19 体检实扫）：`toBusinessDate` 有**两份实现**——共享 util `business-date.util.ts:2` ＋ 对账编排私有重复件 `wallet-recon-run.service.ts:1055`，**只改前者会留下「引擎仍按 UTC 切」的暗坑**；另四处硬写 UTC 日终：`recon-thresholds.constant.ts:26`（账龄起算）/ `effective-cutoff.ts:23`（生效日过滤）/ `reconciliation-query.service.ts:923` / `push-order.service.ts:204,206`（「今天」判断）。对照：cron 早已跑 `Asia/Dubai`（对账 02:30、账龄每分钟），只有算出来的日期还是 UTC。不依赖 COA v2，可单独先修 ｜来源: 2026-08-13 COA v2 设计对话中代码实证（spec §7）
 
 - [ ] **effectiveDate 语义待核**：应 date(价值日) + 独立 createdAt(datetime) 两字段两用途；需核 `effectiveDate` 是否 date-only、截止边界卡点是否用 createdAt ｜来源: spec §2.4
 
@@ -171,7 +171,7 @@ Last Updated: 2026-09-16（审计两页按后端真实字段重设计·文档收
   - ~~**三期**：事故升级（`UNAUTHORIZED_OUTFLOW` 本轮只能留档）~~ —— 已解（2026-09-06 平账三期）：见文末销账「三期 · 事故登记」
   - **仍 deferred**：COMPENSATING 里"真两侧对冲错"的调账（matcher 调优部分不算）；Finance 人工核实 → 结案 ｜来源: spec §9，2026-09-05 平账二期收尾更新
 
-- [ ] ⭐ **对账复核签核未做**：应干净 run 自动认证 + 人工平账动作走复核签核(maker-checker 推≠批，可按 severity 分级)；复核挂"人工干预动作"、非挂"run 变 pass"。与「平账处置」推单读权限门控债协同(那条=权限粒度、本条=两人复核)｜来源: spec §6
+- [x] ~~⭐ **对账复核签核未做**：应干净 run 自动认证 + 人工平账动作走复核签核(maker-checker 推≠批，可按 severity 分级)~~ —— **业主裁定不做**（2026-09-19 第六幕体检后拍板，`decisions.md` 同日条目）：人手就这些，不再往流程里加人。**现状即终态**——动钱的八类处置（冲正/冲销/补记/改记/核销/认损/补单三路/划转）本就是金库开单 → CFO 批两个人，事故结案是 MLRO → CFO 两步；本条要加的是在这之上再挂一层。**推单与挂起两种维持一人完成、不送审**（挂起零账务；推单只推状态机不直写账）。捆绑的「干净 run 自动认证」一并不做。⚠️ 别再当待办翻出来 ｜来源: spec §6
 
 - [ ] **`rowAdjustmentPrefill().direction` 提现类 AMOUNT_MISMATCH 缺翻符号**：`ReconciliationCasesDetailPage.tsx:327` 的 AMOUNT_MISMATCH 分支按「符号即答案」的固定惯例推方向（`deltaAmount` 为负→REDUCE、为正→INCREASE），这条惯例只按存款语义推导，没有为提现类流水的方向语义翻符号；现状下当前种子数据未产出该组合（非结构性排除——`ADJUSTABLE_SOURCES` 收提现来源、差异行生成也不挑方向，真实数据可能凑出），先记一行留档，防止日后这个组合被激活时悄悄预填错方向 ｜来源: 2026-09-08 平账处置改版终审
 
