@@ -237,6 +237,48 @@ describe('WalletReconRunService', () => {
     );
   });
 
+  it('in-transit line item payload: externalTimestamp 透传 + 键集合逐键相等（红3甲·写行防线）', async () => {
+    const deps = makeDeps();
+    deps.prisma.reconciliationRun.create.mockResolvedValue({ id: 'run-7', runNo: 'RUN-WALLET-7' });
+    deps.prisma.externalBalance.findMany.mockResolvedValue([
+      { walletRef: 'w-cust-7', closingBalance: D(100), book: 'CLIENT', currency: 'USDT', accountRef: 'acc-7' },
+    ]);
+    deps.balanceChecker.checkBalance.mockResolvedValue({
+      pass: false, walletRef: 'w-cust-7', walletKind: 'CUSTOMER',
+      coaCode: 'L.CLIENT_PAYABLE+L.DEPOSIT_SUSPENSE', ownerNo: 'c-007',
+      internal: { total: 0n }, external: 100n, delta: 100n,
+    });
+    const at = new Date('2026-06-25T16:00:00Z');
+    deps.flowMatcher.matchFlows.mockResolvedValue({
+      matched: [], orphanInternal: [], orphanExternal: [], mismatch: [],
+      inTransit: [{
+        externalLineId: 'ext-7', fundsOrderId: 'fo7', fundsOrderNo: 'FO-7',
+        orderStatus: 'CONFIRMING', amount: '100', direction: 'IN',
+        externalRef: '0xabc', externalTimestamp: at,
+      }],
+    });
+
+    const svc = new WalletReconRunService(deps.prisma, deps.balanceChecker as any, deps.flowMatcher as any, deps.tigerBeetle as any, deps.auditLogs as any, deps.explainedDifferences as any);
+    (svc as any).computeInternalIdentity = jest.fn().mockResolvedValue({ balanced: true, breaks: [] });
+    (svc as any).resolveAssetId = jest.fn().mockResolvedValue('a-usdt');
+
+    const result = await svc.run({ cutoff });
+
+    expect(result.casesOpened).toBeGreaterThanOrEqual(1);
+    const payload = deps.prisma.reconciliationLineItem.create.mock.calls
+      .map(([arg]: any[]) => arg.data)
+      .find((d: any) => d.matchStatus === 'IN_TRANSIT');
+    expect(payload).toBeDefined();
+    // 值断言：写库载荷的时间 = 上游外部行时间（不是 mock 回显——mock 只当捕获器，值是生产代码算的）
+    expect(payload.externalTimestamp).toEqual(at);
+    // 形状断言：多写一键、少写一键都红——这是「省略可选字段」类缺陷的唯一防线（闸①不咬）
+    expect(Object.keys(payload).sort()).toEqual([
+      'caseId', 'externalAmount', 'externalDirection', 'externalRef', 'externalTimestamp',
+      'externalTxId', 'foundByRunId', 'internalSourceId', 'internalSourceNo',
+      'internalSourceType', 'lineNo', 'matchStatus', 'walletRef',
+    ]);
+  });
+
   // (removed) "cross-wallet same-ref invariant" test — feature retired. The
   // old algorithm produced false-positive CROSS_REF cases by grouping flows
   // naively per externalRef without netting same-wallet two-leg projections

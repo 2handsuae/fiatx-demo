@@ -906,6 +906,7 @@ export class WalletReconRunService {
           externalTxId: it.externalLineId,
           externalAmount: new Prisma.Decimal(it.amount),
           externalDirection: it.direction,
+          externalTimestamp: it.externalTimestamp,
           walletRef,
           externalRef: it.externalRef,
         },

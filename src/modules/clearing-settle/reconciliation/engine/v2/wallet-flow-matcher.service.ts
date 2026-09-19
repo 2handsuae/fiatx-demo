@@ -125,6 +125,7 @@ export interface InTransitMatch {
   amount: string;
   direction: 'IN' | 'OUT';
   externalRef: string | null;
+  externalTimestamp: Date;
 }
 
 export interface MatcherResult {
@@ -300,7 +301,8 @@ export class WalletFlowMatcherService {
         usedOrders.add(c.id); usedExternal.add(ext.id);
         inTransit.push({ externalLineId: ext.id, fundsOrderId: c.id, fundsOrderNo: c.fundsOrderNo,
           orderStatus: c.status, amount: extMinor(ext.amount).toString(),
-          direction: ext.direction as 'IN' | 'OUT', externalRef: ext.externalRef });
+          direction: ext.direction as 'IN' | 'OUT', externalRef: ext.externalRef,
+          externalTimestamp: ext.datetime });
       };
       // 子轮 A：单号精确
       for (const ext of leftovers) {
