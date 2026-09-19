@@ -4,7 +4,7 @@
 > 体检做在 `c14cc1b7`，其后 6 个 commit 全是仓库迁址与 CLAUDE.md 改稿（`git diff --name-only c14cc1b7..e7a8a1b1` 对 `clearing-settle` / `incidents` / `internal-transfers` / `admin-web` / `prisma` / `scripts/recon` **零命中**），故体检的每条结论在本基线上原样成立。
 > **本文件活到最后一波**；各波 spec 逐波归档，回看以此为锚。每波收尾按 `rules/delivery-checklist.md` 往下一波 spec 骨架写承接记录，并回写本文件状态行。
 
-**状态**：波一 **已完成**（2026-09-19，worktree-act6-wave1 分支自 `0a7c9b82` 起 Task 0–9 共 11 commits，9 任务 + 1 处主会话注释还原；闸①②③ + 对账三域 jest 28 suites/553 tests 全绿；变异实证闸① 能红（gate-before 绿 vs gate-after 红）、栈级输出归一 diff 两份均空——物证在 `checkups/2026-09-19-act6-wave1-evidence/`）｜ 波二 待开（骨架与承接已立：`2026-09-19-act6-wave2-skeleton.md`）｜ 波三 待开 ｜ 波四 待开 ｜ 波五 待开
+**状态**：波一 **已完成**（2026-09-19，worktree-act6-wave1 分支自 `0a7c9b82` 起 Task 0–9 共 12 commits（含收尾文档），9 任务 + 1 处主会话注释还原；闸①②③ + 对账三域 jest 28 suites/553 tests 全绿；变异实证闸① 能红（gate-before 绿 vs gate-after 红）、栈级输出归一 diff 两份均空——物证在 `checkups/2026-09-19-act6-wave1-evidence/`）｜ 波二 待开（骨架与承接已立：`2026-09-19-act6-wave2-skeleton.md`）｜ 波三 待开 ｜ 波四 待开 ｜ 波五 待开
 
 ## 0. 目标
 

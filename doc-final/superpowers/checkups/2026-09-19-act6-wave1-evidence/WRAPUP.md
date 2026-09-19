@@ -17,7 +17,7 @@
 
 ## B. 四条硬判据（spec §5）
 
-1. **逃逸归零** ✅：`grep -rn "this\.prisma as any" src/modules/clearing-settle src/modules/governance/incidents src/modules/asset-treasury/internal-transfers --include='*.ts' | grep -v '\.spec\.ts' | wc -l` → **0**（Task 8 评审独立复现）
+1. **逃逸归零** ✅：`grep -rn "this\.prisma as any" src/modules/clearing-settle src/modules/governance/incidents src/modules/asset-treasury/internal-transfers --include='*.ts' | grep -v '\.spec\.ts' | wc -l` → 在 c48a9fe0 上 **0**（Task 8 评审独立复现）；在最终 HEAD 上命令字面返回 **1**——那一行是 394b9f59 **还原的历史注释**（`supplement-evidence.service.ts` 前人事故记录里引用的 `(this.prisma as any)` 字面，见 D 段），**代码逃逸 = 0**（终审逐行核实）
 2. **闸门能咬人** ✅：gate-before（绿）vs gate-after（红），见上
 3. **网格断言能咬人** ✅：grid-mutation 两份物证，见上
 4. **行为零变更** ✅：两份归一化 diff 为空
