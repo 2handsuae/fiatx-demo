@@ -57,7 +57,7 @@ const RUN_LAYER = 'WALLET';
 // across runs for that asset.
 const SEVERITY_HIGH_THRESHOLD = 10_000n;
 const SEVERITY_MED_THRESHOLD = 100n;
-export type CaseSeverity = 'HIGH' | 'MEDIUM' | 'LOW';
+type CaseSeverity = 'HIGH' | 'MEDIUM' | 'LOW';
 
 export function computeSeverity(delta: bigint): CaseSeverity {
   const mag = delta < 0n ? -delta : delta;
@@ -66,7 +66,7 @@ export function computeSeverity(delta: bigint): CaseSeverity {
   return 'LOW';
 }
 
-export interface WalletReconRunInput {
+interface WalletReconRunInput {
   cutoff: Date;
   manifest?: unknown;
 }

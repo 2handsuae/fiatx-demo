@@ -54,7 +54,7 @@ const AGGREGATE_CODES: ReadonlySet<number> = new Set<number>([
   TB_ACCOUNT_CODES.FIRM_ASSET,    // 50
 ]);
 
-export type WalletKind = 'CUSTOMER' | 'FIRM' | 'UNKNOWN';
+type WalletKind = 'CUSTOMER' | 'FIRM' | 'UNKNOWN';
 
 export interface WalletBalanceCheckResult {
   pass: boolean;

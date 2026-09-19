@@ -5,7 +5,7 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../core/prisma/prisma.service';
 
-export type SupplementKind = 'SUPPLEMENT_DEPOSIT' | 'SUPPLEMENT_BOUNCE' | 'SUPPLEMENT_PAYOUT_RETURN';
+type SupplementKind = 'SUPPLEMENT_DEPOSIT' | 'SUPPLEMENT_BOUNCE' | 'SUPPLEMENT_PAYOUT_RETURN';
 
 const DIRECTION_BY_KIND: Record<SupplementKind, 'IN' | 'OUT'> = {
   SUPPLEMENT_DEPOSIT: 'IN', SUPPLEMENT_BOUNCE: 'OUT', SUPPLEMENT_PAYOUT_RETURN: 'IN',

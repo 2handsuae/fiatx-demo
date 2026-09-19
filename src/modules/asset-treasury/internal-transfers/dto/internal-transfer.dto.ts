@@ -12,9 +12,8 @@ export enum InternalTransferStatus {
   CANCELLED = 'CANCELLED',
 }
 
-export const INTERNAL_TRANSFER_PURPOSES = ['CLIENT_COMPENSATION', 'CLIENT_ADVANCE'] as const;
-export type InternalTransferPurpose = (typeof INTERNAL_TRANSFER_PURPOSES)[number];
-export type InternalTransferFailureReason = 'INSUFFICIENT_FIRM_BALANCE' | 'LEG_FAILED' | 'POSTING_FAILED';
+const INTERNAL_TRANSFER_PURPOSES = ['CLIENT_COMPENSATION', 'CLIENT_ADVANCE'] as const;
+type InternalTransferPurpose = (typeof INTERNAL_TRANSFER_PURPOSES)[number];
 
 export class InitiateCompensationDto {
   @ApiProperty() @IsString() @IsNotEmpty() adjustmentNo!: string;
@@ -38,7 +37,7 @@ export class InternalTransferListQueryDto {
 }
 
 /** 对外投影（铁律⑥）：没有 id / walletId / customerId / externalLineId，只有业务键。 */
-export interface InternalTransferLegView {
+interface InternalTransferLegView {
   fundsOrderNo: string; legSeq: number; status: string;
   fromWalletNo: string | null; toWalletNo: string | null; externalRef: string | null;
 }

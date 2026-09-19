@@ -6,7 +6,7 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../core/prisma/prisma.service';
 import { toBusinessDate } from '../../../accounting/tigerbeetle/utils/business-date.util';
 
-export type ReceiptLookupResult =
+type ReceiptLookupResult =
   | { kind: 'HIT'; lineId: string; effectiveDate: string }
   | { kind: 'MISS'; candidates: number };
 

@@ -80,7 +80,7 @@ export interface ExternalStatementLineInput {
   datetime: Date;
 }
 
-export interface MatcherInput {
+interface MatcherInput {
   walletRef: string;
   externalLines: ExternalStatementLineInput[];   // pre-filtered to this wallet by caller
   cutoff: Date;
@@ -88,13 +88,13 @@ export interface MatcherInput {
   timeWindowMinutes?: number;                    // default 60
 }
 
-export interface MatchedPair {
+interface MatchedPair {
   internalFlowId: string;
   externalLineId: string;
   via: 'ref' | 'fuzzy';
 }
 
-export interface OrphanInternal {
+interface OrphanInternal {
   internalFlowId: string;
   eventCode: string;
   amount: string;
@@ -102,14 +102,14 @@ export interface OrphanInternal {
   externalRef: string | null;
 }
 
-export interface OrphanExternal {
+interface OrphanExternal {
   externalLineId: string;
   amount: string;
   direction: 'IN' | 'OUT';
   externalRef: string | null;
 }
 
-export interface AmountMismatch {
+interface AmountMismatch {
   internalFlowId: string;
   externalLineId: string;
   internalAmount: string;
@@ -117,7 +117,7 @@ export interface AmountMismatch {
   ref: string;
 }
 
-export interface InTransitMatch {
+interface InTransitMatch {
   externalLineId: string;
   fundsOrderId: string;
   fundsOrderNo: string;
@@ -128,7 +128,7 @@ export interface InTransitMatch {
   externalTimestamp: Date;
 }
 
-export interface MatcherResult {
+interface MatcherResult {
   matched: MatchedPair[];
   orphanInternal: OrphanInternal[];
   orphanExternal: OrphanExternal[];

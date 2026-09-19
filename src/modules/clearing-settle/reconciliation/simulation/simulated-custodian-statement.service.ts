@@ -8,7 +8,7 @@ import { PrismaService } from '../../../../core/prisma/prisma.service';
 import { toBusinessDate } from '../../../accounting/tigerbeetle/utils/business-date.util';
 import { WalletBalanceCheckerService } from '../engine/v2/wallet-balance-checker.service';
 
-export interface LegMovementInput {
+interface LegMovementInput {
   fundsOrderNo: string;
   fromWalletId: string;
   toWalletId: string;
