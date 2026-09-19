@@ -32,7 +32,7 @@ export class IncidentService {
   }
 
   async findByNo(incidentNo: string) {
-    const row = await (this.prisma as any).incident.findUnique({ where: { incidentNo } });
+    const row = await this.prisma.incident.findUnique({ where: { incidentNo } });
     if (!row) throw new NotFoundException(`Incident not found: ${incidentNo}`);
     return row;
   }
@@ -50,8 +50,8 @@ export class IncidentService {
     const skip = Number(q.skip ?? 0);
     const take = Number(q.take ?? 20);
     const [rows, total] = await Promise.all([
-      (this.prisma as any).incident.findMany({ where, skip, take, orderBy: { createdAt: 'desc' } }),
-      (this.prisma as any).incident.count({ where }),
+      this.prisma.incident.findMany({ where, skip, take, orderBy: { createdAt: 'desc' } }),
+      this.prisma.incident.count({ where }),
     ]);
     return { items: rows.map((r: any) => this.toListItem(r)), total };
   }
@@ -72,11 +72,11 @@ export class IncidentService {
   async getView(incidentNo: string) {
     const row = await this.findByNo(incidentNo);
     const [notes, remediations, wallet] = await Promise.all([
-      (this.prisma as any).incidentNote.findMany({ where: { incidentId: row.id }, orderBy: { createdAt: 'asc' } }),
-      (this.prisma as any).incidentRemediation.findMany({ where: { incidentId: row.id }, orderBy: { createdAt: 'asc' } }),
+      this.prisma.incidentNote.findMany({ where: { incidentId: row.id }, orderBy: { createdAt: 'asc' } }),
+      this.prisma.incidentRemediation.findMany({ where: { incidentId: row.id }, orderBy: { createdAt: 'asc' } }),
       // walletRef 落的是 Wallet.id（内部 UUID，客户/平台户共用一张表，见 schema Wallet 注释）——
       // 铁律⑥翻译成 walletNo 业务键，惯例同 reconciliation-query.service.ts 的 walletRef→walletNo 投影。
-      row.walletRef ? (this.prisma as any).wallet.findUnique({ where: { id: row.walletRef }, select: { walletNo: true } }) : null,
+      row.walletRef ? this.prisma.wallet.findUnique({ where: { id: row.walletRef }, select: { walletNo: true } }) : null,
     ]);
     // Task 12：ADJUSTMENT 善后单要带上调账单状态——事故页「发起补款」按钮要判
     // 「挂载里有已落账（POSTED）认损调账单」，remediations 表本身不存这个状态
@@ -84,7 +84,7 @@ export class IncidentService {
     const adjustmentNos = remediations.filter((r: any) => r.kind === 'ADJUSTMENT').map((r: any) => r.referenceNo);
     const adjustmentStatusByNo = new Map<string, string>();
     if (adjustmentNos.length > 0) {
-      const adjustments = await (this.prisma as any).reconciliationAdjustment.findMany({
+      const adjustments = await this.prisma.reconciliationAdjustment.findMany({
         where: { adjustmentNo: { in: adjustmentNos } }, select: { adjustmentNo: true, status: true },
       });
       for (const a of adjustments) adjustmentStatusByNo.set(a.adjustmentNo, a.status);
@@ -124,7 +124,7 @@ export class IncidentService {
   private async transition(incidentNo: string, to: string, patch: Record<string, unknown> = {}) {
     const row = await this.findByNo(incidentNo);
     this.assertTransition(row.status, to);
-    const updated = await (this.prisma as any).incident.update({ where: { incidentNo }, data: { status: to, ...patch } });
+    const updated = await this.prisma.incident.update({ where: { incidentNo }, data: { status: to, ...patch } });
     return { row, updated };
   }
 
@@ -153,7 +153,7 @@ export class IncidentService {
     }
 
     const traceId = randomUUID();
-    const row = await (this.prisma as any).incident.create({
+    const row = await this.prisma.incident.create({
       data: {
         incidentNo: generateReferenceNo('INC'),
         type: dto.type,
@@ -183,7 +183,7 @@ export class IncidentService {
     if (!dto.sourceCaseNo || !dto.sourceDispositionNo) {
       throw new BadRequestException('An unauthorized-outflow incident requires a source case number and disposition line number');
     }
-    const disp = await (this.prisma as any).reconciliationDisposition.findUnique({ where: { dispositionNo: dto.sourceDispositionNo } });
+    const disp = await this.prisma.reconciliationDisposition.findUnique({ where: { dispositionNo: dto.sourceDispositionNo } });
     if (!disp) throw new NotFoundException(`Disposition line not found: ${dto.sourceDispositionNo}`);
     if (disp.outlet !== 'INCIDENT' || disp.causeCode !== 'UNAUTHORIZED_OUTFLOW') {
       throw new BadRequestException(`Disposition line ${dto.sourceDispositionNo} is not classified as unauthorized outflow (outlet=${disp.outlet}/causeCode=${disp.causeCode}) — this incident type cannot be registered against it`);
@@ -195,14 +195,14 @@ export class IncidentService {
 
   private async assertLargeUnexplained(dto: RegisterIncidentDto): Promise<void> {
     if (!dto.sourceCaseNo) throw new BadRequestException('A large-unexplained incident requires a source case number');
-    const kase = await (this.prisma as any).reconciliationCase.findUnique({ where: { caseNo: dto.sourceCaseNo } });
+    const kase = await this.prisma.reconciliationCase.findUnique({ where: { caseNo: dto.sourceCaseNo } });
     if (!kase) throw new NotFoundException(`Reconciliation case not found: ${dto.sourceCaseNo}`);
     if (!kase.slaBreached) throw new BadRequestException(`Case ${dto.sourceCaseNo} has not yet breached its aging deadline — it does not qualify for escalation to an incident`);
     // 评审修复（C1 挂接链）：可选行级校验——案件页 Escalate to incident 按钮带了
     // sourceDispositionNo 时，额外核实这行确实属于该案、且出口是「挂起·调查中」
     // （未带 sourceDispositionNo 的既有案级升级调用方维持原有行为，零破坏）。
     if (dto.sourceDispositionNo) {
-      const disp = await (this.prisma as any).reconciliationDisposition.findUnique({ where: { dispositionNo: dto.sourceDispositionNo } });
+      const disp = await this.prisma.reconciliationDisposition.findUnique({ where: { dispositionNo: dto.sourceDispositionNo } });
       if (!disp) throw new NotFoundException(`Disposition line not found: ${dto.sourceDispositionNo}`);
       if (disp.caseNo !== dto.sourceCaseNo) {
         throw new BadRequestException(`Disposition line ${dto.sourceDispositionNo} does not belong to case ${dto.sourceCaseNo} — this incident type cannot be registered against it`);
@@ -216,7 +216,7 @@ export class IncidentService {
   private async assertClientShortfall(dto: RegisterIncidentDto): Promise<void> {
     if (!dto.customerNo || !dto.amount) throw new BadRequestException('A client-shortfall incident requires a customer number and an amount');
     if (dto.sourceAdvanceTransferNo) {
-      const transfer = await (this.prisma as any).internalTransfer.findUnique({ where: { transferNo: dto.sourceAdvanceTransferNo } });
+      const transfer = await this.prisma.internalTransfer.findUnique({ where: { transferNo: dto.sourceAdvanceTransferNo } });
       if (!transfer) throw new NotFoundException(`Advance transfer not found: ${dto.sourceAdvanceTransferNo}`);
       if (transfer.purpose !== 'CLIENT_ADVANCE') throw new BadRequestException(`Transfer ${dto.sourceAdvanceTransferNo} is not an advance transfer (purpose=${transfer.purpose}) — it cannot anchor a shortfall incident`);
     }
@@ -236,7 +236,7 @@ export class IncidentService {
   async addNote(incidentNo: string, body: string, actor: ApprovalActorContext): Promise<{ incidentNo: string }> {
     if (!body) throw new BadRequestException('An investigation note requires content');
     const row = await this.findByNo(incidentNo);
-    await (this.prisma as any).incidentNote.create({
+    await this.prisma.incidentNote.create({
       data: { incidentId: row.id, kind: 'NOTE', body, authorUserId: actor.userNo ?? actor.userId },
     });
     await this.recordAudit(row, AuditActions.INCIDENT_NOTE_ADDED, actor, { reason: body, extra: { body } });
@@ -246,7 +246,7 @@ export class IncidentService {
   async escalate(incidentNo: string, dto: EscalateIncidentDto, actor: ApprovalActorContext): Promise<{ incidentNo: string }> {
     if (!dto.to) throw new BadRequestException('Escalation requires a target');
     const row = await this.findByNo(incidentNo);
-    await (this.prisma as any).incidentNote.create({
+    await this.prisma.incidentNote.create({
       data: { incidentId: row.id, kind: 'ESCALATION', escalatedTo: dto.to, body: dto.note, authorUserId: actor.userNo ?? actor.userId },
     });
     // escalatedTo 既是审计必填顶层字段（assertActionSpec 校验），也放进 metadata 便于审计台直接展示。
@@ -287,7 +287,7 @@ export class IncidentService {
     }
     const row = await this.findByNo(incidentNo);
     this.assertTransition(row.status, IncidentStatus.ASSESSED);
-    const updated = await (this.prisma as any).incident.update({
+    const updated = await this.prisma.incident.update({
       where: { incidentNo },
       data: {
         status: IncidentStatus.ASSESSED,
@@ -325,7 +325,7 @@ export class IncidentService {
     const isFirst = !row.reportDraft;
     const patch: Record<string, unknown> = { reportDraft: draft };
     if (isFirst) patch.reportDraftedAt = new Date();
-    const updated = await (this.prisma as any).incident.update({ where: { incidentNo }, data: patch });
+    const updated = await this.prisma.incident.update({ where: { incidentNo }, data: patch });
     if (isFirst) {
       await this.recordAudit(updated, AuditActions.INCIDENT_REGULATOR_REPORT_DRAFTED, actor, {
         reason: 'Drafted regulator report',
@@ -340,7 +340,7 @@ export class IncidentService {
     if (!row.reportRequired || !row.reportDraft) {
       throw new BadRequestException('Reporting must be determined required, and a report draft must already exist, before marking as reported');
     }
-    const updated = await (this.prisma as any).incident.update({
+    const updated = await this.prisma.incident.update({
       where: { incidentNo },
       data: { reportedAt: new Date(), reportedByUserId: actor.userNo ?? actor.userId, reportReference: dto.reference ?? null },
     });
@@ -379,11 +379,11 @@ export class IncidentService {
     let statusAdvanced: string | undefined;
     if (row.status === IncidentStatus.ASSESSED) {
       this.assertTransition(row.status, IncidentStatus.RESOLVING);
-      updated = await (this.prisma as any).incident.update({ where: { incidentNo }, data: { status: IncidentStatus.RESOLVING } });
+      updated = await this.prisma.incident.update({ where: { incidentNo }, data: { status: IncidentStatus.RESOLVING } });
       statusAdvanced = `${IncidentStatus.ASSESSED}→${IncidentStatus.RESOLVING}`;
     }
 
-    await (this.prisma as any).incidentRemediation.create({
+    await this.prisma.incidentRemediation.create({
       data: { incidentId: row.id, kind: dto.kind, referenceNo: dto.referenceNo, linkedByUserId: actor.userNo ?? actor.userId },
     });
     // 发生迁移时按 assess() 样板同填 fromStatus/toStatus（本仓库记录状态边的规范列）；
@@ -399,19 +399,19 @@ export class IncidentService {
   private async assertRemediationReferenceExists(kind: string, referenceNo: string): Promise<void> {
     switch (kind) {
       case IncidentRemediationKinds.ADJUSTMENT: {
-        const row = await (this.prisma as any).reconciliationAdjustment.findUnique({ where: { adjustmentNo: referenceNo } });
+        const row = await this.prisma.reconciliationAdjustment.findUnique({ where: { adjustmentNo: referenceNo } });
         if (!row) throw new NotFoundException(`Adjustment not found: ${referenceNo}`);
         return;
       }
       case IncidentRemediationKinds.TRANSFER: {
-        const row = await (this.prisma as any).internalTransfer.findUnique({ where: { transferNo: referenceNo } });
+        const row = await this.prisma.internalTransfer.findUnique({ where: { transferNo: referenceNo } });
         if (!row) throw new NotFoundException(`Internal transfer not found: ${referenceNo}`);
         return;
       }
       case IncidentRemediationKinds.SUPPLEMENT:
       case IncidentRemediationKinds.CLAIM: {
         // 补录 / 退汇认领落地后都是一张充值单（depositNo）——B 批 disposition.supplementNo 回填的即此号。
-        const row = await (this.prisma as any).depositTransaction.findUnique({ where: { depositNo: referenceNo } });
+        const row = await this.prisma.depositTransaction.findUnique({ where: { depositNo: referenceNo } });
         if (!row) throw new NotFoundException(`Deposit not found: ${referenceNo}`);
         return;
       }
@@ -429,13 +429,13 @@ export class IncidentService {
   /** 结案前置校验要用到的善后单号清单（只读，spec §7"善后单号清单"字段的数据来源）。 */
   async findRemediations(incidentNo: string): Promise<string[]> {
     const row = await this.findByNo(incidentNo);
-    const rows = await (this.prisma as any).incidentRemediation.findMany({ where: { incidentId: row.id } });
+    const rows = await this.prisma.incidentRemediation.findMany({ where: { incidentId: row.id } });
     return rows.map((r: any) => r.referenceNo as string);
   }
 
   /** 结案审批提交后回填 approvalNo——不推状态、不审计（workflow 记 INCIDENT_CLOSE_REQUESTED）。 */
   async markCloseRequested(incidentNo: string, approvalNo: string): Promise<void> {
-    await (this.prisma as any).incident.update({ where: { incidentNo }, data: { approvalNo } });
+    await this.prisma.incident.update({ where: { incidentNo }, data: { approvalNo } });
   }
 
   /** ASSESSED/RESOLVING → CLOSED + closedAt——不审计（workflow 记 INCIDENT_CLOSED）。 */

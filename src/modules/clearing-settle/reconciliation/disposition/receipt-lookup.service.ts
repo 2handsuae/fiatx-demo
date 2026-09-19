@@ -33,7 +33,7 @@ export class ReceiptLookupService {
 
   async findUniqueReceipt(order: PushableOrderView): Promise<ReceiptLookupResult> {
     // 钱包 → 外部账户定位（与 run 服务 fetchExternalLinesForWallet 同思路）
-    const bal = await (this.prisma as any).externalBalance.findFirst({
+    const bal = await this.prisma.externalBalance.findFirst({
       where: { walletRef: order.walletId },
       orderBy: { cutoffDate: 'desc' },
     });
@@ -41,7 +41,7 @@ export class ReceiptLookupService {
 
     // 档1：参考号精配（对 order 的 ref 集合做 membership 匹配，与 matcher refsOf 同源）
     if (order.externalRefs.length > 0) {
-      const hits = await (this.prisma as any).externalStatementLine.findMany({
+      const hits = await this.prisma.externalStatementLine.findMany({
         where: { source: bal.source, accountRef: bal.accountRef, externalRef: { in: order.externalRefs } },
       });
       if (hits.length === 1) {
@@ -58,14 +58,14 @@ export class ReceiptLookupService {
     // 直接取整成 BigInt，不 ×10^decimals；funds_order.amount 本轮仍存「元」→ 必须先 元→分
     // (×10^decimals) 才能与外部分行相等比。decimals 来自 asset 表(按币种)，禁硬编码。
     // 推单动钱：币种小数位查不到 = 无法安全换算，宁可 MISS 也不在错口径上假配（避免误命中）。
-    const asset = await (this.prisma as any).asset.findFirst({
+    const asset = await this.prisma.asset.findFirst({
       where: { currency: bal.currency },
       select: { decimals: true },
     });
     if (!asset || asset.decimals == null) return { kind: 'MISS', candidates: 0 };
     const decimals: number = asset.decimals;
 
-    const all = await (this.prisma as any).externalStatementLine.findMany({
+    const all = await this.prisma.externalStatementLine.findMany({
       where: { source: bal.source, accountRef: bal.accountRef, direction: order.direction },
     });
     // funds_order 元 → 分（BigInt 整数，避免 JS 浮点）

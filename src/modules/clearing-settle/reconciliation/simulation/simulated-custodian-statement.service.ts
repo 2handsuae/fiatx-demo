@@ -41,7 +41,7 @@ export class SimulatedCustodianStatementService {
   }
 
   private async walletBook(walletId: string): Promise<Book> {
-    const w = await (this.prisma as any).wallet.findUnique({ where: { id: walletId }, select: { ownerType: true } });
+    const w = await this.prisma.wallet.findUnique({ where: { id: walletId }, select: { ownerType: true } });
     if (!w) throw new NotFoundException(`钱包不存在：${walletId}`);
     return w.ownerType === 'CUSTOMER' ? 'CLIENT' : 'FIRM';
   }
@@ -54,7 +54,7 @@ export class SimulatedCustodianStatementService {
       amount: new Prisma.Decimal(input.amountMinor.toString()), externalRef: input.externalRef,
       datetime: input.at, description: input.description,
     };
-    const row = await (this.prisma as any).externalStatementLine.upsert({
+    const row = await this.prisma.externalStatementLine.upsert({
       where: { dedupKey }, update: data, create: { ...data, dedupKey }, select: { id: true },
     });
     return { id: row.id as string, book };
@@ -63,9 +63,9 @@ export class SimulatedCustodianStatementService {
   private async bumpClosing(input: LegMovementInput, source: string, cutoffDate: string, walletId: string, deltaMinor: bigint, book: Book): Promise<void> {
     const delta = new Prisma.Decimal(deltaMinor.toString());
     const where = { source_accountRef_cutoffDate: { source, accountRef: walletId, cutoffDate } };
-    const eb = await (this.prisma as any).externalBalance.findUnique({ where });
+    const eb = await this.prisma.externalBalance.findUnique({ where });
     if (eb) {
-      await (this.prisma as any).externalBalance.update({
+      await this.prisma.externalBalance.update({
         where: { id: eb.id },
         data: { closingBalance: new Prisma.Decimal(eb.closingBalance).plus(delta), lineCount: (eb.lineCount ?? 0) + 1 },
       });
@@ -73,7 +73,7 @@ export class SimulatedCustodianStatementService {
     }
     // 当日无余额行（e2e 或铺场之前）：以引擎算出的内部余额为基准，「托管方与我们一致，只差这一笔」。
     const check = await this.balanceChecker.checkBalance({ walletRef: walletId, externalClosing: 0n, cutoff: input.at });
-    await (this.prisma as any).externalBalance.create({
+    await this.prisma.externalBalance.create({
       data: {
         source, accountRef: walletId, currency: input.assetCode, book, cutoffDate,
         closingBalance: new Prisma.Decimal(check.internal.total.toString()).plus(delta),

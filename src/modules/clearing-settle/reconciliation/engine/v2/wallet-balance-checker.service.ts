@@ -97,7 +97,7 @@ export class WalletBalanceCheckerService {
     const { walletRef, externalClosing, cutoff } = input;
 
     // 1. Pull flows landing on this walletRef up to cutoff (POSTED only).
-    const flows = (await (this.prisma as any).accountFlow.findMany({
+    const flows = (await this.prisma.accountFlow.findMany({
       where: {
         walletRef,
         transferType: 'POSTED',
@@ -128,7 +128,7 @@ export class WalletBalanceCheckerService {
     const padTbId = (id: string) => (id.length < 32 ? id.padStart(32, '0') : id);
     const accountIds = Array.from(new Set(flows.map((f) => padTbId(f.tbAccountId))));
     const registries: RegistryRow[] = accountIds.length
-      ? await (this.prisma as any).tbAccountRegistry.findMany({
+      ? await this.prisma.tbAccountRegistry.findMany({
           where: { tbAccountId: { in: accountIds } },
           select: { tbAccountId: true, code: true, ownerType: true, ownerNo: true },
         })

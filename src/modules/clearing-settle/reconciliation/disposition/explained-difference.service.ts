@@ -65,7 +65,7 @@ export class ExplainedDifferenceService {
    * 「外有我无」永远算不上已解释，双案同愈就断掉一半。
    */
   async indexForWallet(walletRef: string): Promise<ExplainedIndex> {
-    const rows = (await (this.prisma as any).reconciliationAdjustment.findMany({
+    const rows = (await this.prisma.reconciliationAdjustment.findMany({
       where: { OR: [{ walletRef }, { toWalletRef: walletRef }], status: AdjustmentStatus.POSTED },
       select: { adjustmentNo: true, explainedFlowId: true, explainedExternalLineId: true },
     })) as Array<{

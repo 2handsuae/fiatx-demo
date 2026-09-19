@@ -171,7 +171,7 @@ export class WalletFlowMatcherService {
     const toMinor = (d: Prisma.Decimal): bigint =>
       BigInt(d.mul(new Prisma.Decimal(10).pow(decimals)).toFixed(0));
 
-    const rawInternal = (await (this.prisma as any).accountFlow.findMany({
+    const rawInternal = (await this.prisma.accountFlow.findMany({
       where: {
         walletRef,
         isExternalCrossing: true,
@@ -205,7 +205,7 @@ export class WalletFlowMatcherService {
       new Set(rawInternal.map((f) => padTbId(f.tbAccountId))),
     );
     const regs = tbAccountIds.length
-      ? ((await (this.prisma as any).tbAccountRegistry.findMany({
+      ? ((await this.prisma.tbAccountRegistry.findMany({
           where: { tbAccountId: { in: tbAccountIds } },
           select: { tbAccountId: true, code: true },
         })) as Array<{ tbAccountId: string; code: number }>)

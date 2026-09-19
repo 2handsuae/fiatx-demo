@@ -54,16 +54,16 @@ export class InternalTransferWorkflowService {
 
   /** 认损补款：来源 = 已落账的客户池认损调账单；金额锁定 = 认损额。 */
   async initiateCompensation(dto: { adjustmentNo: string; reason: string }, actor: ApprovalActorContext) {
-    const adj = await (this.prisma as any).reconciliationAdjustment.findUnique({ where: { adjustmentNo: dto.adjustmentNo } });
+    const adj = await this.prisma.reconciliationAdjustment.findUnique({ where: { adjustmentNo: dto.adjustmentNo } });
     if (!adj) throw new NotFoundException(`Adjustment not found: ${dto.adjustmentNo}`);
     if (adj.status !== 'POSTED') throw new BadRequestException(`Loss-recognition adjustment ${dto.adjustmentNo} is not yet posted (${adj.status}) — the books must reflect it before compensation can be paid`);
     if (adj.reasonCode !== 'UNEXPLAINED_CLIENT_LOSS' || adj.book !== 'CLIENT') throw new BadRequestException(`Adjustment ${dto.adjustmentNo} is not a client-pool loss-recognition adjustment — compensation cannot be paid`);
     if (!adj.ownerId || !adj.ownerNo || !adj.walletRef) throw new BadRequestException(`Loss-recognition adjustment ${dto.adjustmentNo} is missing customer or wallet information`);
     const blocking = await this.transfers.findBlockingBySource({ sourceAdjustmentNo: dto.adjustmentNo });
     if (blocking) throw new ConflictException(`Loss-recognition adjustment ${dto.adjustmentNo} already has transfer ${blocking.transferNo} (${blocking.status}) — another cannot be opened`);
-    const asset = await (this.prisma as any).asset.findUnique({ where: { code: adj.assetCode } });
+    const asset = await this.prisma.asset.findUnique({ where: { code: adj.assetCode } });
     if (!asset) throw new NotFoundException(`Asset not found: ${adj.assetCode}`);
-    const wallet = await (this.prisma as any).wallet.findUnique({ where: { id: adj.walletRef }, select: { id: true, ownerId: true } });
+    const wallet = await this.prisma.wallet.findUnique({ where: { id: adj.walletRef }, select: { id: true, ownerId: true } });
     if (!wallet || wallet.ownerId !== adj.ownerId) throw new BadRequestException("The loss-recognition adjustment's wallet does not belong to this customer");
     const amountMinor = BigInt(adj.amount);
     await this.transfers.assertFirmOpsBalance(asset.currency, amountMinor);
@@ -80,7 +80,7 @@ export class InternalTransferWorkflowService {
 
   /** 退汇垫款：来源 = 定性为「入金被退汇」且尚未认领的账单行；金额锁定 = 账单行 − 客户可用。 */
   async initiateAdvance(dto: { caseNo: string; externalLineId: string; reason: string }, actor: ApprovalActorContext) {
-    const disp = await (this.prisma as any).reconciliationDisposition.findFirst({ where: { caseNo: dto.caseNo, explainedExternalLineId: dto.externalLineId } });
+    const disp = await this.prisma.reconciliationDisposition.findFirst({ where: { caseNo: dto.caseNo, explainedExternalLineId: dto.externalLineId } });
     if (!disp || disp.outlet !== 'SUPPLEMENT' || disp.deferredTarget !== 'SUPPLEMENT_BOUNCE') throw new BadRequestException('Only a statement line classified as "Deposit recalled" needs an advance — classify it first');
     if (disp.supplementNo) throw new BadRequestException(`This statement line has already been converted to supplement ${disp.supplementNo} — no advance is needed`);
     const line = await this.supplementEvidence.assertClaimable({ caseNo: dto.caseNo, externalLineId: dto.externalLineId, dispositionNo: disp.dispositionNo, kind: 'SUPPLEMENT_BOUNCE' });
@@ -89,7 +89,7 @@ export class InternalTransferWorkflowService {
     if (shortfall <= 0n) throw new BadRequestException("The customer's available balance already covers the shortfall — no advance is needed, claim the recall directly");
     const blocking = await this.transfers.findBlockingBySource({ sourceExternalLineId: dto.externalLineId });
     if (blocking) throw new ConflictException(`This statement line already has advance ${blocking.transferNo} (${blocking.status}) — another cannot be opened`);
-    const asset = await (this.prisma as any).asset.findUnique({ where: { id: line.assetId } });
+    const asset = await this.prisma.asset.findUnique({ where: { id: line.assetId } });
     if (!asset) throw new NotFoundException(`Asset not found: ${line.assetId}`);
     await this.transfers.assertFirmOpsBalance(asset.currency, shortfall);
     const route = await this.resolveRoute(asset, line.walletId);
@@ -127,7 +127,7 @@ export class InternalTransferWorkflowService {
       { reason: impact, traceId: row.traceId },
       actor,
     );
-    await (this.prisma as any).internalTransfer.update({ where: { transferNo: row.transferNo }, data: { approvalNo: approval.approvalNo } });
+    await this.prisma.internalTransfer.update({ where: { transferNo: row.transferNo }, data: { approvalNo: approval.approvalNo } });
     await this.transferAudit({ ...row, approvalNo: approval.approvalNo }, {
       action: AuditActions.INTERNAL_TRANSFER_REQUESTED, reason, approvalNo: approval.approvalNo,
       metadata: { impact, sourceExternalRef: (extra as any).externalRef ?? null }, actor,
@@ -183,8 +183,8 @@ export class InternalTransferWorkflowService {
     const fromId = legSeq === 1 ? row.fromWalletId : row.viaWalletId;
     const toId = isFiat && legSeq === 1 ? row.viaWalletId : row.toWalletId;
     const [from, to] = await Promise.all([
-      (this.prisma as any).wallet.findUnique({ where: { id: fromId } }),
-      (this.prisma as any).wallet.findUnique({ where: { id: toId } }),
+      this.prisma.wallet.findUnique({ where: { id: fromId } }),
+      this.prisma.wallet.findUnique({ where: { id: toId } }),
     ]);
     return this.fundsOrders.create({
       internalTransferId: row.id, legSeq, initialStatus: FundsOrderStatus.CREATED,
@@ -200,7 +200,7 @@ export class InternalTransferWorkflowService {
   @OnEvent(DomainEventNames.FUNDS_ORDER_STATUS_CHANGED)
   async handleFundsOrderChanged(event: FundsOrderStatusChangedEvent) {
     if (!event.parent.internalTransferId) return;
-    const row = await (this.prisma as any).internalTransfer.findUnique({ where: { id: event.parent.internalTransferId }, include: { asset: true } });
+    const row = await this.prisma.internalTransfer.findUnique({ where: { id: event.parent.internalTransferId }, include: { asset: true } });
     if (!row) return;
     const leg = await this.fundsOrders.findById(event.fundsOrderId);
     if (!leg) return;

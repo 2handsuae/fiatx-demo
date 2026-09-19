@@ -107,7 +107,7 @@ export class ReconciliationQueryService {
       },
     });
 
-    const runWallets = (await (this.prisma as any).reconciliationRunWallet.findMany({
+    const runWallets = (await this.prisma.reconciliationRunWallet.findMany({
       where: { runId: run.id },
       orderBy: [{ assetCode: 'asc' }, { book: 'asc' }],
     })) as Array<{
@@ -137,7 +137,7 @@ export class ReconciliationQueryService {
       runWallets.map((w) => w.walletRef).filter((w) => !w.startsWith('XREF:')),
     ));
     const wallets = realWalletRefs.length
-      ? ((await (this.prisma as any).wallet.findMany({
+      ? ((await this.prisma.wallet.findMany({
           where: { id: { in: realWalletRefs } },
           select: { id: true, walletNo: true, walletRole: true },
         })) as Array<{ id: string; walletNo: string | null; walletRole: string | null }>)
@@ -150,7 +150,7 @@ export class ReconciliationQueryService {
     // asset table by currency code, never hardcoded.
     const runAssetCodes = Array.from(new Set(runWallets.map((w) => w.assetCode)));
     const runAssets = runAssetCodes.length
-      ? ((await (this.prisma as any).asset.findMany({
+      ? ((await this.prisma.asset.findMany({
           where: { code: { in: runAssetCodes } },
           select: { code: true, decimals: true },
         })) as Array<{ code: string; decimals: number }>)
@@ -238,14 +238,14 @@ export class ReconciliationQueryService {
     // 有几条已经定过性、还剩几条异常行没人看过。
     const caseNos = rows.map((r: any) => r.caseNo);
     const dispositionCounts = caseNos.length
-      ? await (this.prisma as any).reconciliationDisposition.groupBy({
+      ? await this.prisma.reconciliationDisposition.groupBy({
           by: ['caseNo'], where: { caseNo: { in: caseNos } }, _count: { _all: true },
         })
       : [];
     const dispCountByCase = new Map<string, number>(dispositionCounts.map((g: any) => [g.caseNo, g._count._all]));
     const caseIds = rows.map((r: any) => r.id);
     const anomalyCounts = caseIds.length
-      ? await (this.prisma as any).reconciliationLineItem.groupBy({
+      ? await this.prisma.reconciliationLineItem.groupBy({
           by: ['caseId'],
           where: { caseId: { in: caseIds }, matchStatus: { in: ['AMOUNT_MISMATCH', 'ORPHAN_INTERNAL', 'ORPHAN_EXTERNAL'] } },
           _count: { _all: true },
@@ -255,7 +255,7 @@ export class ReconciliationQueryService {
     // Δ 分→元（BACKLOG 在案）：decimals 随行下发，前端按行缩放
     const assetCodes = Array.from(new Set(rows.map((r: any) => r.assetCode)));
     const assets = assetCodes.length
-      ? ((await (this.prisma as any).asset.findMany({ where: { code: { in: assetCodes } }, select: { code: true, decimals: true } })) as Array<{ code: string; decimals: number }>)
+      ? ((await this.prisma.asset.findMany({ where: { code: { in: assetCodes } }, select: { code: true, decimals: true } })) as Array<{ code: string; decimals: number }>)
       : [];
     const decimalsByCode = new Map(assets.map((a) => [a.code, a.decimals]));
 
@@ -268,7 +268,7 @@ export class ReconciliationQueryService {
       rows.map((r: any) => r.walletRef).filter((w: string | null): w is string => !!w && !w.startsWith('XREF:'))
     ));
     const wallets = realWalletRefs.length
-      ? ((await (this.prisma as any).wallet.findMany({
+      ? ((await this.prisma.wallet.findMany({
           where: { id: { in: realWalletRefs } },
           select: { id: true, walletNo: true },
         })) as Array<{ id: string; walletNo: string | null }>)
@@ -290,13 +290,13 @@ export class ReconciliationQueryService {
 
     // 平账二期：列表徽标——待补款 / 待垫款 / 进行中，金库一眼找到活
     const lossAdjustments = caseNos.length
-      ? ((await (this.prisma as any).reconciliationAdjustment.findMany({ where: { caseNo: { in: caseNos }, status: 'POSTED', reasonCode: 'UNEXPLAINED_CLIENT_LOSS' }, select: { caseNo: true, adjustmentNo: true } })) as Array<{ caseNo: string; adjustmentNo: string }>)
+      ? ((await this.prisma.reconciliationAdjustment.findMany({ where: { caseNo: { in: caseNos }, status: 'POSTED', reasonCode: 'UNEXPLAINED_CLIENT_LOSS' }, select: { caseNo: true, adjustmentNo: true } })) as Array<{ caseNo: string; adjustmentNo: string }>)
       : [];
     const bounceDispositions = caseNos.length
-      ? ((await (this.prisma as any).reconciliationDisposition.findMany({ where: { caseNo: { in: caseNos }, outlet: 'SUPPLEMENT', deferredTarget: 'SUPPLEMENT_BOUNCE', supplementNo: null }, select: { caseNo: true, explainedExternalLineId: true, walletRef: true } })) as Array<{ caseNo: string; explainedExternalLineId: string | null; walletRef: string }>)
+      ? ((await this.prisma.reconciliationDisposition.findMany({ where: { caseNo: { in: caseNos }, outlet: 'SUPPLEMENT', deferredTarget: 'SUPPLEMENT_BOUNCE', supplementNo: null }, select: { caseNo: true, explainedExternalLineId: true, walletRef: true } })) as Array<{ caseNo: string; explainedExternalLineId: string | null; walletRef: string }>)
       : [];
     const liveTransfers = caseNos.length
-      ? ((await (this.prisma as any).internalTransfer.findMany({ where: { sourceCaseNo: { in: caseNos }, status: { in: ['PENDING_APPROVAL', 'EXECUTING', 'SUCCESS'] } }, select: { sourceCaseNo: true, purpose: true, status: true, sourceAdjustmentNo: true, sourceExternalLineId: true } })) as Array<{ sourceCaseNo: string; purpose: string; status: string; sourceAdjustmentNo: string | null; sourceExternalLineId: string | null }>)
+      ? ((await this.prisma.internalTransfer.findMany({ where: { sourceCaseNo: { in: caseNos }, status: { in: ['PENDING_APPROVAL', 'EXECUTING', 'SUCCESS'] } }, select: { sourceCaseNo: true, purpose: true, status: true, sourceAdjustmentNo: true, sourceExternalLineId: true } })) as Array<{ sourceCaseNo: string; purpose: string; status: string; sourceAdjustmentNo: string | null; sourceExternalLineId: string | null }>)
       : [];
     const fundingByCase = new Map<string, { kind: 'COMPENSATION' | 'ADVANCE'; status: 'PENDING' | 'IN_PROGRESS' }>();
     for (const a of lossAdjustments) {
@@ -309,10 +309,10 @@ export class ReconciliationQueryService {
       const t = liveTransfers.find((x) => x.sourceExternalLineId === b.explainedExternalLineId);
       if (t?.status === 'SUCCESS') continue;
       if (t) { fundingByCase.set(b.caseNo, { kind: 'ADVANCE', status: 'IN_PROGRESS' }); continue; }
-      const line = await (this.prisma as any).externalStatementLine.findUnique({ where: { id: b.explainedExternalLineId }, select: { amount: true } });
-      const wallet = await (this.prisma as any).wallet.findUnique({ where: { id: b.walletRef }, select: { ownerId: true } });
+      const line = await this.prisma.externalStatementLine.findUnique({ where: { id: b.explainedExternalLineId }, select: { amount: true } });
+      const wallet = await this.prisma.wallet.findUnique({ where: { id: b.walletRef }, select: { ownerId: true } });
       const row = rows.find((r: any) => r.caseNo === b.caseNo);
-      const currency = row ? (await (this.prisma as any).asset.findUnique({ where: { code: row.assetCode }, select: { currency: true } }))?.currency : null;
+      const currency = row ? (await this.prisma.asset.findUnique({ where: { code: row.assetCode }, select: { currency: true } }))?.currency : null;
       if (!line || !wallet?.ownerId || !currency) continue;
       const available = (await this.accounting.getCustomerAvailableBalance(wallet.ownerId, currency)).available;
       if (BigInt(line.amount.toString()) > available) fundingByCase.set(b.caseNo, { kind: 'ADVANCE', status: 'PENDING' });
@@ -371,7 +371,7 @@ export class ReconciliationQueryService {
    *     made cases cross-day; this closes the resulting cutoff drift).
    */
   async getCase(caseNo: string) {
-    const kase = await (this.prisma as any).reconciliationCase.findUnique({
+    const kase = await this.prisma.reconciliationCase.findUnique({
       where: { caseNo }, include: { lineItems: true },
     });
     if (!kase) throw new NotFoundException(`Case ${caseNo} not found`);
@@ -429,7 +429,7 @@ export class ReconciliationQueryService {
     // 原始 lineItems）。按 CLAUDE.md §3 视为本分支自产的孤儿，随 Task 6 的
     // lineItemId 查询与 decoratedLineItems 一并删除；下方 return 里的
     // `lineItems` 字段回落到 `...kase` 展开自带的原始值（Task 6 之前的行为）。
-    const caseAdjustments = (await (this.prisma as any).reconciliationAdjustment.findMany({
+    const caseAdjustments = (await this.prisma.reconciliationAdjustment.findMany({
       where: { caseNo: kase.caseNo },
       select: { adjustmentNo: true, status: true, reasonCode: true, direction: true, amount: true },
       orderBy: { createdAt: 'desc' },
@@ -439,14 +439,14 @@ export class ReconciliationQueryService {
     // and buildFlowComparison — asset table by currency code, never hardcoded.
     // 平账 A 批：也是 nextStep 判小额线要用的币种（按 currency，不按 code）——提前
     // 到这里查一次，下文用同一个变量，不查两次。
-    const assetRow = (await (this.prisma as any).asset.findUnique({
+    const assetRow = (await this.prisma.asset.findUnique({
       where: { code: kase.assetCode }, select: { decimals: true, currency: true },
     })) as { decimals: number; currency: string } | null;
     const caseCurrency = assetRow?.currency ?? kase.assetCode;
     // 平账二期（spec §7.2/§7.3）：补款 / 垫款回挂——读本案的划转单（直查 internal_transfers，
     // 与 resolveSupplementRef 读业务域表同款先例），按来源锚回贴到行上。
     const adjustmentByNo = new Map(caseAdjustments.map((a) => [a.adjustmentNo, a]));
-    const caseTransfers = (await (this.prisma as any).internalTransfer.findMany({
+    const caseTransfers = (await this.prisma.internalTransfer.findMany({
       where: { sourceCaseNo: kase.caseNo }, orderBy: { createdAt: 'desc' },
       select: { transferNo: true, purpose: true, status: true, sourceAdjustmentNo: true, sourceExternalLineId: true },
     })) as Array<{ transferNo: string; purpose: string; status: string; sourceAdjustmentNo: string | null; sourceExternalLineId: string | null }>;
@@ -457,7 +457,7 @@ export class ReconciliationQueryService {
       if (t.sourceExternalLineId && !transferByLine.has(t.sourceExternalLineId)) transferByLine.set(t.sourceExternalLineId, t);
     }
     const walletOwner = kase.walletRef && !kase.walletRef.startsWith('XREF:')
-      ? await (this.prisma as any).wallet.findUnique({ where: { id: kase.walletRef }, select: { walletNo: true, ownerId: true } })
+      ? await this.prisma.wallet.findUnique({ where: { id: kase.walletRef }, select: { walletNo: true, ownerId: true } })
       : null;
     let availableMinorCache: bigint | null = null;
     const availableMinor = async (): Promise<bigint> => {
@@ -471,7 +471,7 @@ export class ReconciliationQueryService {
     // 跑在 IN_TRANSIT 追加段之前：此刻 flowComparison 只有 built.rows 的四类
     // 行，IN_TRANSIT 行还没生成，天然不会被这段行注解处理（它们不是差异）。
     // ① 定性记录：按锚（flowId / externalLineId）回贴到行上。
-    const dispositions = (await (this.prisma as any).reconciliationDisposition.findMany({
+    const dispositions = (await this.prisma.reconciliationDisposition.findMany({
       where: { caseNo },
     })) as any[];
     // 平账三期（Task 9）：案件级事故列表——按 sourceCaseNo 查询，覆盖全部事故类型
@@ -483,7 +483,7 @@ export class ReconciliationQueryService {
     // Task 12 消费：额外带上定损结论（assessedAmount/assessmentBasis）——只用于
     // 下面按 disposition.incidentNo 反查「该行事故是否已定损 FIRM_LOSS」，不进
     // 对外的 `incidents` 投影（那份契约仍是 {incidentNo,status,type}[]，见下方 map）。
-    const caseIncidentRows = (await (this.prisma as any).incident.findMany({
+    const caseIncidentRows = (await this.prisma.incident.findMany({
       where: { sourceCaseNo: caseNo },
       orderBy: { createdAt: 'desc' },
       select: { incidentNo: true, status: true, type: true, assessedAmount: true, assessmentBasis: true },
@@ -685,7 +685,7 @@ export class ReconciliationQueryService {
     ));
     const fundsOrderStatusByNo = new Map<string, string>();
     if (inTransitFundsOrderNos.length > 0) {
-      const fundsOrders = (await (this.prisma as any).fundsOrder.findMany({
+      const fundsOrders = (await this.prisma.fundsOrder.findMany({
         where: { fundsOrderNo: { in: inTransitFundsOrderNos } },
         select: { fundsOrderNo: true, status: true },
       })) as Array<{ fundsOrderNo: string; status: string }>;
@@ -711,7 +711,7 @@ export class ReconciliationQueryService {
     }
 
     const walletRow = kase.walletRef && !kase.walletRef.startsWith('XREF:')
-      ? await (this.prisma as any).wallet.findUnique({
+      ? await this.prisma.wallet.findUnique({
           where: { id: kase.walletRef },
           select: { walletNo: true },
         })
@@ -789,11 +789,11 @@ export class ReconciliationQueryService {
   private async resolveSupplementRef(no: string | null): Promise<{ kind: 'SIGNAL' | 'DEPOSIT' | 'WITHDRAW'; no: string; id: string | null } | null> {
     if (!no) return null;
     if (no.startsWith('DEP')) {
-      const d = await (this.prisma as any).depositTransaction.findUnique({ where: { depositNo: no }, select: { id: true } });
+      const d = await this.prisma.depositTransaction.findUnique({ where: { depositNo: no }, select: { id: true } });
       return { kind: 'DEPOSIT', no, id: d?.id ?? null };
     }
     if (no.startsWith('WDR')) {
-      const w = await (this.prisma as any).withdrawTransaction.findUnique({ where: { withdrawNo: no }, select: { id: true } });
+      const w = await this.prisma.withdrawTransaction.findUnique({ where: { withdrawNo: no }, select: { id: true } });
       return { kind: 'WITHDRAW', no, id: w?.id ?? null };
     }
     return { kind: 'SIGNAL', no, id: null };
@@ -967,12 +967,12 @@ export class ReconciliationQueryService {
     const cutoff = kase.cutoff;
 
     // 1. Source datasets.
-    const accountRefs = (await (this.prisma as any).externalBalance.findMany({
+    const accountRefs = (await this.prisma.externalBalance.findMany({
       where: { walletRef: kase.walletRef, cutoffDate: kase.businessDate },
       select: { accountRef: true },
     })) as Array<{ accountRef: string }>;
 
-    const externalRowsRaw = (await (this.prisma as any).externalStatementLine.findMany({
+    const externalRowsRaw = (await this.prisma.externalStatementLine.findMany({
       where: {
         OR: [
           { subAccount: kase.walletRef },
@@ -1006,7 +1006,7 @@ export class ReconciliationQueryService {
     }));
     const extById = new Map(externalRowsRaw.map((r) => [r.id, r]));
 
-    const internalRows = (await (this.prisma as any).accountFlow.findMany({
+    const internalRows = (await this.prisma.accountFlow.findMany({
       where: {
         walletRef: kase.walletRef,
         isExternalCrossing: true,
@@ -1041,7 +1041,7 @@ export class ReconciliationQueryService {
     // line, so this display re-run would drop every in-transit pairing and show
     // the line as a hard orphan. Same source as the run service: asset table by
     // currency code (never hardcoded).
-    const assetForDecimals = (await (this.prisma as any).asset.findUnique({
+    const assetForDecimals = (await this.prisma.asset.findUnique({
       where: { code: kase.assetCode },
       select: { decimals: true },
     })) as { decimals: number } | null;

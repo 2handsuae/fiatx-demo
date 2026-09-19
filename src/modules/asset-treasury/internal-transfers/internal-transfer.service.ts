@@ -24,7 +24,7 @@ export class InternalTransferService {
   }
 
   async create(input: CreateInternalTransferInput) {
-    return (this.prisma as any).internalTransfer.create({
+    return this.prisma.internalTransfer.create({
       data: {
         transferNo: generateReferenceNo('ITR'),
         purpose: input.purpose,
@@ -48,14 +48,14 @@ export class InternalTransferService {
   }
 
   async findByNo(transferNo: string) {
-    const row = await (this.prisma as any).internalTransfer.findUnique({ where: { transferNo }, include: { asset: true } });
+    const row = await this.prisma.internalTransfer.findUnique({ where: { transferNo }, include: { asset: true } });
     if (!row) throw new NotFoundException(`Internal transfer not found: ${transferNo}`);
     return row;
   }
 
   /** 同一来源上「未走完或已成功」的划转单——出生守卫②。 */
   async findBlockingBySource(source: { sourceAdjustmentNo?: string; sourceExternalLineId?: string }) {
-    return (this.prisma as any).internalTransfer.findFirst({
+    return this.prisma.internalTransfer.findFirst({
       where: { ...source, status: { in: [...INTERNAL_TRANSFER_BLOCKING_STATUSES] } },
       orderBy: { createdAt: 'desc' },
     });
@@ -64,7 +64,7 @@ export class InternalTransferService {
   async transition(transferNo: string, to: InternalTransferStatus, patch: Record<string, unknown> = {}) {
     const row = await this.findByNo(transferNo);
     this.assertTransition(row.status, to);
-    return (this.prisma as any).internalTransfer.update({ where: { transferNo }, data: { status: to, ...patch }, include: { asset: true } });
+    return this.prisma.internalTransfer.update({ where: { transferNo }, data: { status: to, ...patch }, include: { asset: true } });
   }
 
   /** 出生守卫③ / 批准时复核：运营户该币种可用（贷 − 借 − 待过账借）≥ 金额（最小单位）。 */
@@ -91,8 +91,8 @@ export class InternalTransferService {
     const skip = Number(q.skip ?? 0);
     const take = Number(q.take ?? 20);
     const [rows, total] = await Promise.all([
-      (this.prisma as any).internalTransfer.findMany({ where, skip, take, orderBy: { createdAt: 'desc' }, include: { asset: true } }),
-      (this.prisma as any).internalTransfer.count({ where }),
+      this.prisma.internalTransfer.findMany({ where, skip, take, orderBy: { createdAt: 'desc' }, include: { asset: true } }),
+      this.prisma.internalTransfer.count({ where }),
     ]);
     const items = await Promise.all(rows.map((r: any) => this.toView(r, [])));
     return { items, total };
@@ -100,7 +100,7 @@ export class InternalTransferService {
 
   async getView(transferNo: string): Promise<InternalTransferView> {
     const row = await this.findByNo(transferNo);
-    const legs = await (this.prisma as any).fundsOrder.findMany({
+    const legs = await this.prisma.fundsOrder.findMany({
       where: { internalTransferId: row.id },
       orderBy: [{ legSeq: 'asc' }, { attempt: 'asc' }],
       include: { fromWallet: { select: { walletNo: true } }, toWallet: { select: { walletNo: true } }, asset: { select: { type: true } } },
@@ -111,10 +111,10 @@ export class InternalTransferService {
   /** 铁律⑥：投影里没有任何 id / walletId / customerId / externalLineId。 */
   private async toView(row: any, legs: any[]): Promise<InternalTransferView> {
     const ids = [row.fromWalletId, row.viaWalletId, row.toWalletId].filter(Boolean);
-    const wallets = (await (this.prisma as any).wallet.findMany({ where: { id: { in: ids } }, select: { id: true, walletNo: true } })) as Array<{ id: string; walletNo: string | null }>;
+    const wallets = (await this.prisma.wallet.findMany({ where: { id: { in: ids } }, select: { id: true, walletNo: true } })) as Array<{ id: string; walletNo: string | null }>;
     const noOf = (id: string | null) => (id ? (wallets.find((w) => w.id === id)?.walletNo ?? null) : null);
     const sourceLine = row.sourceExternalLineId
-      ? await (this.prisma as any).externalStatementLine.findUnique({ where: { id: row.sourceExternalLineId }, select: { externalRef: true } })
+      ? await this.prisma.externalStatementLine.findUnique({ where: { id: row.sourceExternalLineId }, select: { externalRef: true } })
       : null;
     return {
       transferNo: row.transferNo, purpose: row.purpose, status: row.status,
