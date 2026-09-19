@@ -1,6 +1,6 @@
 // admin-web/src/pages/IncidentDetailPage.tsx
 // 平账三期 · 事故登记：详情页六块（spec §6）——基本信息｜调查时间线｜定损｜善后单｜通报留痕｜结案/撤回。
-// 铁律⑥：后端投影已无 UUID（walletRef 已译 walletNo），本页类型里也不出现。
+// 铁律⑥：后端投影全走业务键、零 UUID。（walletRef 恒空管线已于波二退役——表单从无输入框。）
 // 时间线块参照 ApprovalDetailPage.tsx 的步骤渲染（rounded border 卡片 + badge）。
 import { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
@@ -53,7 +53,6 @@ interface Detail {
   sourceCaseNo: string | null;
   sourceDispositionNo: string | null;
   sourceAdvanceTransferNo: string | null;
-  walletNo: string | null;
   customerNo: string | null;
   assetCode: string | null;
   amount: string | null;
@@ -268,7 +267,6 @@ const IncidentDetailPage = () => {
                 link={`/admin/treasury/internal-transfers/${encodeURIComponent(detail.sourceAdvanceTransferNo)}`}
               />
             )}
-            {detail.walletNo && <InfoField label="Wallet" value={detail.walletNo} mono />}
             <InfoField
               label="Customer"
               value={detail.customerNo}

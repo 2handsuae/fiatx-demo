@@ -19,7 +19,6 @@ export class RegisterIncidentBodyDto {
   @ApiPropertyOptional() @IsOptional() @IsString() sourceCaseNo?: string;
   @ApiPropertyOptional() @IsOptional() @IsString() sourceDispositionNo?: string;
   @ApiPropertyOptional() @IsOptional() @IsString() sourceAdvanceTransferNo?: string;
-  @ApiPropertyOptional() @IsOptional() @IsString() walletRef?: string;
   @ApiPropertyOptional() @IsOptional() @IsString() customerNo?: string;
   @ApiPropertyOptional() @IsOptional() @IsString() assetCode?: string;
   @ApiPropertyOptional() @IsOptional() @IsString() amount?: string;

@@ -62,7 +62,6 @@ export interface RegisterIncidentDto {
   sourceCaseNo?: string;
   sourceDispositionNo?: string;
   sourceAdvanceTransferNo?: string;
-  walletRef?: string;
   customerNo?: string;
   assetCode?: string;
   amount?: string; // 元，字符串（对齐 CreateInternalTransferInput.amountMajor 口径）
