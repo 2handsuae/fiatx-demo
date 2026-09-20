@@ -12,7 +12,7 @@
 - **执行中发现的新事实**：
   - 重扫「去 export」候选用的 `grep -rlw` 检索脚本，`refs` 检索范围只覆盖 `src` + `admin-web`，`client-web` 与 `test/` 目录不在扫描范围内——本波靠闸①②③ + jest 三域兜底验证零漏网（tsc 编译期会咬到跨包引用），但**这只是本波幸运过关，不是脚本本身覆盖了这两侧**；未来若要单独拿这套脚本对某个符号下"零消费者"结论，必须先确认是否需要补测这两侧，否则是覆盖不到的盲区，不能写成"零引用"。
   - 写行防线已就位并通过三向变异实证：`wallet-flow-matcher.service.spec.ts` 的值断言（matcher 层 `take()` push 携带 `externalTimestamp`）+ `wallet-recon-run.service.spec.ts` 的值透传断言与 **13 键白名单**（`Object.keys(payload).sort()` 逐键相等）——不携带 / 不落列 / 多一键三种变异各自独立触红，还原后复绿，物证在 `checkups/2026-09-20-act6-wave2-evidence/mutation-{a,b,c}.txt`。
-  - 对账三域 jest 基线现为 **28 suites / 556 tests**（波一收官时 553 → 波二净变化 +4 新增（Task 1 两条写行防线测试 + 其余任务收尾夹具调整）−1 删（Task 3 清 `incident.service.spec.ts` 里「walletRef → walletNo 翻译」整条已退役测试））。
+  - 对账三域 jest 基线现为 **28 suites / 556 tests**（波一收官时 553 → 波二净变化 +4 新增（Task 1 两条写行防线测试 + Task 2 两条读端测试）−1 删（Task 3 清 `incident.service.spec.ts` 里「walletRef → walletNo 翻译」整条已退役测试））。
 
 - **波三前提有无变化**：总纲 §3 波三行范围本身不变——Case 立主体服务 + 显式迁移表、拆 `getCase()` 414 行 / `run()` 329 行 / `buildFlowComparison()` 198 行、铁律③ 直写一处（`internal-transfer-workflow.service.ts:130`）、`dispositionsFor()` 六格补齐硬边界（`AMOUNT_MISMATCH×FIRM` 漏查 `sourceAdjustable`）、抽 `walletRef→walletNo` / `decimals` Map 两个重复 helper。但波二交棒三条新地基事实，波三动手前必须知道：
   1. **死列已清**——11 根死列（含 `Incident.walletRef` 恒空管线）已随一次迁移出清，波三重构 Case / Incident 相关代码时不会再遇到它们，也不需要为它们兼容。
