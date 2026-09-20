@@ -71,7 +71,6 @@ interface ReconCase {
 const STATUS_OPTIONS: Array<{ value: string; label: string }> = [
   { value: 'OPEN', label: 'Open' },
   { value: 'RESOLVED', label: 'Resolved' },
-  { value: 'WAIVED', label: 'Waived' },
   { value: 'ALL', label: 'All' },
 ];
 
@@ -88,13 +87,11 @@ const agingClass = (days: number): string => {
 };
 
 // Status badge palette: amber for OPEN (needs attention), green for RESOLVED
-// (clean), muted gray for WAIVED (acknowledged, no action). Anything else falls
-// back to neutral.
+// (clean). Anything else falls back to neutral.
 const statusBadgeClass = (status: string): string => {
   const s = status.toUpperCase();
-  if (s === 'OPEN' || s === 'PENDING_RECHECK') return 'bg-amber-100 text-amber-800';
+  if (s === 'OPEN') return 'bg-amber-100 text-amber-800';
   if (s === 'RESOLVED') return 'bg-green-100 text-green-800';
-  if (s === 'WAIVED') return 'bg-gray-100 text-gray-500';
   return 'bg-gray-100 text-gray-800';
 };
 
@@ -102,8 +99,6 @@ const statusLabel = (status: string): string => {
   const s = status.toUpperCase();
   if (s === 'OPEN') return 'Open';
   if (s === 'RESOLVED') return 'Resolved';
-  if (s === 'WAIVED') return 'Waived';
-  if (s === 'PENDING_RECHECK') return 'Pending recheck';
   return status;
 };
 

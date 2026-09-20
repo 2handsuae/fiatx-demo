@@ -816,6 +816,30 @@ describe('getCase — explain / observation / bucket (T6)', () => {
     expect(inTransitRow.fundsOrderNo).toBe('FO-2026-000123');
   });
 
+  it('IN_TRANSIT line item 带 externalTimestamp → 下发真实 ISO 串（红3甲·读端）', async () => {
+    const at = new Date('2026-06-25T16:00:00Z');
+    const prisma = mkPrismaCase({
+      bucket: 'IN_TRANSIT',
+      lineItems: [{
+        id: 'li-ts', matchStatus: 'IN_TRANSIT', externalDirection: 'IN',
+        externalAmount: new Prisma.Decimal(200), internalSourceNo: 'FO-2026-000123',
+        foundByRunId: 'run-last', externalTimestamp: at,
+      }],
+    });
+    const svc = mkSvc(prisma);
+    const result: any = await svc.getCase('REC20260630-005');
+    const row = result.flowComparison.find((r: any) => r.matchType === 'IN_TRANSIT');
+    expect(row.externalLine.timestamp).toBe('2026-06-25T16:00:00.000Z');
+  });
+
+  it('IN_TRANSIT line item 无 externalTimestamp → 下发 null 而非 epoch（红3甲·读端）', async () => {
+    const prisma = mkPrismaCase(); // 既有夹具 li-1 不带 externalTimestamp
+    const svc = mkSvc(prisma);
+    const result: any = await svc.getCase('REC20260630-005');
+    const row = result.flowComparison.find((r: any) => r.matchType === 'IN_TRANSIT');
+    expect(row.externalLine.timestamp).toBeNull();
+  });
+
   it('observation.closedByRunNo 在 status=RESOLVED 时解析 closedByRunId', async () => {
     const closedRun = { id: 'run-closed', runNo: 'RUN20260703-3' };
     const prisma = mkPrismaCase({ status: 'RESOLVED', closedByRunId: 'run-closed' });

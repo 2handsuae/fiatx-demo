@@ -81,7 +81,7 @@ interface FlowExternalSide {
   externalRef: string | null;
   amount: string;
   direction: 'IN' | 'OUT';
-  timestamp: string;
+  timestamp: string | null;
   description?: string | null;
 }
 

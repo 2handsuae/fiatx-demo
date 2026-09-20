@@ -32,7 +32,7 @@ const TERMINAL = new Set<string>([
   FundsOrderStatus.TIMEOUT,
 ]);
 
-export interface ManualPushEvidence {
+interface ManualPushEvidence {
   receiptRef: string;
   externalDate: string;
   reason: string;

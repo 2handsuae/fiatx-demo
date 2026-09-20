@@ -1,13 +1,13 @@
 // 平账二期（spec §7.2 / §7.3）：案件行上的「补款 / 垫款」下一步——纯函数，读面喂事实。
-export interface FundingTransferRef { transferNo: string; purpose: string; status: string }
-export interface FundingFacts {
+interface FundingTransferRef { transferNo: string; purpose: string; status: string }
+interface FundingFacts {
   book: 'CLIENT' | 'FIRM';
   customerNo: string | null; walletNo: string | null;
   adjustment?: { adjustmentNo: string; status: string; reasonCode: string; amount: string } | null;
   transfer?: FundingTransferRef | null;
   bounce?: { externalLineId: string; lineAmountMinor: bigint; availableMinor: bigint; supplementNo: string | null } | null;
 }
-export type FundingNextStep =
+type FundingNextStep =
   | { kind: 'COMPENSATION'; adjustmentNo: string; amount: string; customerNo: string | null; walletNo: string | null }
   | { kind: 'ADVANCE'; amount: string; externalLineId: string; customerNo: string | null; walletNo: string | null; available: string; lineAmount: string };
 

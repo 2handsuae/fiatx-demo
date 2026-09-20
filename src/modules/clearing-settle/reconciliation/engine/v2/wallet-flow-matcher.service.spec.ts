@@ -535,5 +535,22 @@ describe('WalletFlowMatcherService', () => {
       expect(result.inTransit).toHaveLength(1);
       expect(result.inTransit[0].amount).toBe('438056');
     });
+
+    it('third pass: in-transit entry carries the external line timestamp (红3甲·防线上半)', async () => {
+      const at = new Date('2026-06-25T16:00:00Z');
+      const fundsOrderService = {
+        findNonTerminalByWallet: jest.fn().mockResolvedValue([
+          {
+            id: 'fo-ts', fundsOrderNo: 'FO-TS', status: 'CONFIRMING', direction: 'IN',
+            amount: D(100), netAmount: D(100),
+            txHash: '0xts', referenceNo: null, providerTxnId: null, createdAt: at,
+          },
+        ]),
+      };
+      const matcher = makeMatcherWithFundsOrders(fundsOrderService);
+      const res = await matcher.matchFlows({ walletRef: 'W1', externalLines: [extLine('IN', 100, '0xts', at)], cutoff: now, decimals: 0 });
+      expect(res.inTransit).toHaveLength(1);
+      expect(res.inTransit[0].externalTimestamp).toEqual(at);
+    });
   });
 });

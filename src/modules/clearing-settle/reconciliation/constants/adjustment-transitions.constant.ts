@@ -7,8 +7,6 @@ export const AdjustmentStatus = {
   REJECTED: 'REJECTED',
 } as const;
 
-export type AdjustmentStatusValue = (typeof AdjustmentStatus)[keyof typeof AdjustmentStatus];
-
 export const ADJUSTMENT_TRANSITIONS: Record<string, string[]> = {
   [AdjustmentStatus.DRAFT]: [AdjustmentStatus.PENDING_APPROVAL],
   [AdjustmentStatus.PENDING_APPROVAL]: [AdjustmentStatus.POSTED, AdjustmentStatus.REJECTED],

@@ -8,7 +8,7 @@ export const IncidentTypes = {
   CLIENT_SHORTFALL: 'CLIENT_SHORTFALL',
   MANUAL: 'MANUAL',
 } as const;
-export type IncidentType = (typeof IncidentTypes)[keyof typeof IncidentTypes];
+type IncidentType = (typeof IncidentTypes)[keyof typeof IncidentTypes];
 
 /** 五态 + 旁支 WITHDRAWN（spec §2）。 */
 export const IncidentStatus = {
@@ -19,7 +19,6 @@ export const IncidentStatus = {
   CLOSED: 'CLOSED',
   WITHDRAWN: 'WITHDRAWN',
 } as const;
-export type IncidentStatusType = (typeof IncidentStatus)[keyof typeof IncidentStatus];
 
 /**
  * 显式迁移表（spec §2）：状态 → 允许直达的下一状态集合。终态零出边。
@@ -43,7 +42,7 @@ export const IncidentEscalationTargets = {
   CFO: 'CFO',
   SENIOR_MANAGEMENT: 'SENIOR_MANAGEMENT',
 } as const;
-export type IncidentEscalationTarget = (typeof IncidentEscalationTargets)[keyof typeof IncidentEscalationTargets];
+type IncidentEscalationTarget = (typeof IncidentEscalationTargets)[keyof typeof IncidentEscalationTargets];
 
 /** 善后单类型（IncidentRemediation.kind，spec §5）。 */
 export const IncidentRemediationKinds = {
@@ -52,7 +51,7 @@ export const IncidentRemediationKinds = {
   ADJUSTMENT: 'ADJUSTMENT',
   TRANSFER: 'TRANSFER',
 } as const;
-export type IncidentRemediationKind = (typeof IncidentRemediationKinds)[keyof typeof IncidentRemediationKinds];
+type IncidentRemediationKind = (typeof IncidentRemediationKinds)[keyof typeof IncidentRemediationKinds];
 
 /** 登记入参（dto，plan Task 5 Interfaces）。按类型的额外必填见 incident.service.ts 的校验。 */
 export interface RegisterIncidentDto {
@@ -62,7 +61,6 @@ export interface RegisterIncidentDto {
   sourceCaseNo?: string;
   sourceDispositionNo?: string;
   sourceAdvanceTransferNo?: string;
-  walletRef?: string;
   customerNo?: string;
   assetCode?: string;
   amount?: string; // 元，字符串（对齐 CreateInternalTransferInput.amountMajor 口径）

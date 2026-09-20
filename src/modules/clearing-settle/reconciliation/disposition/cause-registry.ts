@@ -42,7 +42,7 @@ export type DispositionKind =
   | 'CORRECT' | 'REVERSE' | 'RECORD' | 'REATTRIBUTE'
   | 'SUPPLEMENT' | 'INCIDENT' | 'HOLD_NEXT_PERIOD' | 'HOLD_INVESTIGATING';
 
-export interface CauseSpec {
+interface CauseSpec {
   cells: Cell[];
   /** 菜单文案 = 手册同词 */
   label: string;
@@ -164,7 +164,7 @@ function signedDeltaSign(facts: RowFacts): 1 | -1 {
   return facts.internalDirection === 'OUT' ? (raw === 1 ? -1 : 1) : raw;
 }
 
-export interface WriteOffFacts extends RowFacts {
+interface WriteOffFacts extends RowFacts {
   internalAmount?: string;   // ORPHAN_INTERNAL：内部行金额（最小单位）
   externalAmount?: string;   // ORPHAN_EXTERNAL：外部行金额（最小单位）
   deltaAmount?: string;      // AMOUNT_MISMATCH：外部 − 内部（最小单位，带符号）

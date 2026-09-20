@@ -1495,7 +1495,6 @@ model ReconciliationCase {
   // 到线由 case-aging-sweep 置 true，状态不动（软破线）。结案后标记随行保留。
   slaBreached               Boolean  @default(false)
   traceId                   String?
-  reimbursementObligationId String?
   // Phase B locator — pinpoints which physical wallet / COA bucket / owner this case belongs to
   // (T7 wallet-level engine fills these; legacy V8_FORMULA cases leave them null).
   walletRef                 String?
@@ -1541,10 +1540,7 @@ model ReconciliationLineItem {
   internalSourceNo   String?
   internalAmount     Decimal?
   internalDirection  String?
-  internalTxHash     String?
-  externalSource     String?
   externalTxId       String?
-  externalTxHash     String?
   externalAmount     Decimal?
   externalDirection  String?
   externalTimestamp  DateTime?
@@ -1556,7 +1552,6 @@ model ReconciliationLineItem {
   walletRef          String?
   status             String  @default("OPEN")
   resolution         String?
-  resolutionMemo     String?
   createdAt          DateTime @default(now())
   case               ReconciliationCase @relation(fields: [caseId], references: [id], onDelete: Cascade)
   run                ReconciliationRun  @relation(fields: [foundByRunId], references: [id])
@@ -1644,10 +1639,7 @@ model Incident {
   description        String
   sourceCaseNo       String?
   sourceDispositionNo String?
-  sourceExternalLineId String? // 内部 id，任何界面不得展示
   sourceAdvanceTransferNo String? // CLIENT_SHORTFALL：欠条锚定的垫款单
-  walletRef          String?
-  customerId         String?
   customerNo         String?
   assetCode          String?
   amount             Decimal?  // 元（对齐 InternalTransfer.amount 口径）
@@ -1737,11 +1729,9 @@ model ExternalBalance {
   closingBalance Decimal  @map("closing_balance") // 核这个；Zand 取最新行 Balance
   openingBalance Decimal? @map("opening_balance") // 连续性 + roll-forward 自检
   asOfAt         DateTime? @map("as_of_at") // 外部余额精确时点（可能 ≠ cutoff）
-  statementId    String?  @map("statement_id") // 关联原始对账单
   lineCount      Int?     @map("line_count")
   ingestedAt     DateTime @default(now()) @map("ingested_at")
   status         String?
-  rawRef         String?  @map("raw_ref")
   // Phase B locator — which physical wallet / COA bucket this balance attests to
   // (T7 wallet-level engine matches per-wallet; legacy V8_FORMULA rows leave them null).
   walletRef      String?
@@ -1771,7 +1761,6 @@ model ExternalStatementLine {
   datetime     DateTime // 精确入账时刻
   balanceAfter Decimal? @map("balance_after") // 行后余额（法币=主账户级）
   description  String?  // 分类（Incoming/Outgoing/Return/Intra…）
-  statementId  String?  @map("statement_id")
   raw          String?  // 原始 json
   ingestedAt   DateTime @default(now()) @map("ingested_at")
   dedupKey     String   @map("dedup_key") // 内容组合键或来源 booking id（见 §2.4）

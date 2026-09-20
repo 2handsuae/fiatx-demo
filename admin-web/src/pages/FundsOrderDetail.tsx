@@ -351,6 +351,10 @@ const FundsOrderDetail = () => {
   const assetType = data.asset?.type?.toUpperCase() ?? null;
   const isFiat = assetType === 'FIAT';
   const parent = resolveParent(data);
+  // 波二（2026-09-19 业主定）：运营无划转读权——Internal transfer 的关联跳转按权限渲染，
+  // 单号照显（业务键本就在资金单读面内），只收「点得到、点了被拒」的幽灵链接。
+  const parentLinkAllowed =
+    !parent || parent.kind !== 'Internal transfer' || hasPermission(PERMISSIONS.INTERNAL_TRANSFERS_READ);
 
   // 平账·推单处置门控（Task 4）：swap 腿走 Swap 详情页逐腿推进（顺序守卫），
   // 本区不渲染；终态无可推进。两条件与后端 loadPushable 拒绝语义一致。
@@ -555,7 +559,7 @@ const FundsOrderDetail = () => {
                     ? `Leg ${data.legSeq}`
                     : undefined
                 }
-                onClick={() => navigate(parent.route)}
+                onClick={parentLinkAllowed ? () => navigate(parent.route) : undefined}
               />
             </DetailCard>
           )}
@@ -612,12 +616,16 @@ const FundsOrderDetail = () => {
               <SidebarKV
                 label={parent.kind}
                 value={
-                  <button
-                    onClick={() => navigate(parent.route)}
-                    className="font-mono text-[11px] text-adm-amber underline-offset-2 hover:underline"
-                  >
-                    {parent.no}
-                  </button>
+                  parentLinkAllowed ? (
+                    <button
+                      onClick={() => navigate(parent.route)}
+                      className="font-mono text-[11px] text-adm-amber underline-offset-2 hover:underline"
+                    >
+                      {parent.no}
+                    </button>
+                  ) : (
+                    <span className="font-mono text-[11px]">{parent.no}</span>
+                  )
                 }
               />
             )}

@@ -119,23 +119,23 @@ export interface CaseAdjustmentSummary {
   amount: string;       // 最小单位（分）整数字符串
 }
 
-export type FlowComparisonMatchType =
+type FlowComparisonMatchType =
   | 'MATCHED'
   | 'ORPHAN_EXTERNAL'
   | 'ORPHAN_INTERNAL'
   | 'AMOUNT_MISMATCH'
   | 'IN_TRANSIT';        // T6: sourced from the case's persisted IN_TRANSIT line items
 
-export interface FlowComparisonExternalSide {
+interface FlowComparisonExternalSide {
   id?: string;
   externalRef: string | null;
   amount: string;
   direction: 'IN' | 'OUT';
-  timestamp: string;                // ISO
+  timestamp: string | null;        // ISO；在途行无外部时间时如实 null（红3甲，2026-09-20）
   description?: string | null;
 }
 
-export interface FlowComparisonInternalSide {
+interface FlowComparisonInternalSide {
   id?: string;
   externalRef: string | null;
   amount: string;
