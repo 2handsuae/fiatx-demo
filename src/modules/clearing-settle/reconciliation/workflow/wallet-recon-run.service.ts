@@ -629,7 +629,7 @@ export class WalletReconRunService {
     const tbIds = registry.map((r) => BigInt('0x' + r.tbAccountId));
     let accounts: Array<{ id: bigint; code: number; debits_posted: bigint; credits_posted: bigint }> = [];
     try {
-      accounts = (await this.tigerBeetle.lookupAccounts(tbIds)) as any;
+      accounts = await this.tigerBeetle.lookupAccounts(tbIds);
     } catch (err) {
       this.logger.warn(`[wallet-recon] TigerBeetle lookup failed (${(err as Error).message}) — treating identity as broken`);
       return {
@@ -1079,8 +1079,8 @@ export class WalletReconRunService {
         casesAutoHealed: input.casesAutoHealed,
         cutoffAt: input.cutoffAt.toISOString(),
       },
-    } as any;
-    if (input.actor) await this.auditLogs.recordByActor(envelope, input.actor as any);
+    };
+    if (input.actor) await this.auditLogs.recordByActor(envelope, input.actor);
     else await this.auditLogs.recordSystem(envelope);
   }
 

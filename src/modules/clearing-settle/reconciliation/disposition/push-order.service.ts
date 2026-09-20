@@ -258,7 +258,7 @@ export class PushOrderService {
         requestId: `RECON_PUSH_ORDER_${order.fundsOrderNo}_${randomUUID()}`,
         metadata: entry.metadata,
         sourcePlatform: 'ADMIN',
-      } as any,
+      },
       { actorType: 'ADMIN', actorNo: operatorId, actorDisplayName: operatorId, actorRolesAtTime: ['ADMIN'] },
     );
   }

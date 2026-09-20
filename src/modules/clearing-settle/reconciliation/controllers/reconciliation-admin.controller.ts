@@ -33,7 +33,7 @@ export class ReconciliationAdminController {
     const operatorId = req.user?.userNo || req.user?.sub || 'ADMIN';
     return this.walletReconRun.run(
       { cutoff },
-      { actorType: 'ADMIN', actorNo: operatorId, actorDisplayName: operatorId, actorRolesAtTime: ['ADMIN'] } as any,
+      { actorType: 'ADMIN', actorNo: operatorId, actorDisplayName: operatorId, actorRolesAtTime: ['ADMIN'] },
     );
   }
 

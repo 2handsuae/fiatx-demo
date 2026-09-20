@@ -189,6 +189,14 @@ export class CreateAuditLogEventDto {
   @ApiPropertyOptional() @IsOptional() @IsString()
   payloadDigest?: string;
 
+  /** 词表 requiredFields 顶层声明（同 authnMethod/payloadDigest 先例）：
+   *  RECON_DISPOSITION_RECORDED 声明 causeCode/outlet 必填，assertActionSpec 只查 input 顶层。 */
+  @ApiPropertyOptional() @IsOptional() @IsString()
+  causeCode?: string;
+
+  @ApiPropertyOptional() @IsOptional() @IsString()
+  outlet?: string;
+
   @ApiPropertyOptional() @IsOptional() @IsString()
   reasonCode?: string;
 

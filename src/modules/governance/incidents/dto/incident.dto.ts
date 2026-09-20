@@ -13,7 +13,7 @@ const REMEDIATION_KIND_VALUES = Object.values(IncidentRemediationKinds);
 export const ASSESSMENT_BASIS_VALUES = ['RECOVERED', 'FIRM_LOSS', 'CLIENT_COLLECTION', 'NO_LOSS'] as const;
 
 export class RegisterIncidentBodyDto {
-  @ApiProperty({ enum: INCIDENT_TYPE_VALUES }) @IsIn(INCIDENT_TYPE_VALUES) type!: string;
+  @ApiProperty({ enum: INCIDENT_TYPE_VALUES }) @IsIn(INCIDENT_TYPE_VALUES) type!: (typeof INCIDENT_TYPE_VALUES)[number];
   @ApiProperty() @IsString() @IsNotEmpty() title!: string;
   @ApiProperty() @IsString() @IsNotEmpty() description!: string;
   @ApiPropertyOptional() @IsOptional() @IsString() sourceCaseNo?: string;
@@ -32,19 +32,19 @@ export class AddIncidentNoteDto {
 }
 
 export class EscalateIncidentBodyDto {
-  @ApiProperty({ enum: ESCALATION_TARGET_VALUES }) @IsIn(ESCALATION_TARGET_VALUES) to!: string;
+  @ApiProperty({ enum: ESCALATION_TARGET_VALUES }) @IsIn(ESCALATION_TARGET_VALUES) to!: (typeof ESCALATION_TARGET_VALUES)[number];
   @ApiProperty() @IsString() @IsNotEmpty() note!: string;
 }
 
 export class AssessIncidentBodyDto {
   @ApiProperty() @IsString() @IsNotEmpty() assessedAmount!: string;
-  @ApiProperty({ enum: ASSESSMENT_BASIS_VALUES }) @IsIn(ASSESSMENT_BASIS_VALUES) assessmentBasis!: string;
+  @ApiProperty({ enum: ASSESSMENT_BASIS_VALUES }) @IsIn(ASSESSMENT_BASIS_VALUES) assessmentBasis!: (typeof ASSESSMENT_BASIS_VALUES)[number];
   @ApiProperty() @IsBoolean() reportRequired!: boolean;
   @ApiPropertyOptional({ type: [String] }) @IsOptional() @IsArray() @IsString({ each: true }) reportBasisCodes?: string[];
 }
 
 export class LinkRemediationBodyDto {
-  @ApiProperty({ enum: REMEDIATION_KIND_VALUES }) @IsIn(REMEDIATION_KIND_VALUES) kind!: string;
+  @ApiProperty({ enum: REMEDIATION_KIND_VALUES }) @IsIn(REMEDIATION_KIND_VALUES) kind!: (typeof REMEDIATION_KIND_VALUES)[number];
   @ApiProperty() @IsString() @IsNotEmpty() referenceNo!: string;
 }
 

@@ -6,6 +6,7 @@ import { generateReferenceNo } from '../../../../common/utils/no-generator.util'
 import { PrismaService } from '../../../../core/prisma/prisma.service';
 import { AuditLogsService } from '../../../audit-logging/audit-logs.service';
 import { AuditEntityTypes } from '../../../audit-logging/constants/audit-actions.constant';
+import { AuditSubjectRole } from '../../../audit-logging/dto/audit-log.dto';
 import { ApprovalActorContext } from '../../../governance/approvals/constants/approval.constants';
 import { RecordDispositionDto } from '../dto/disposition.dto';
 import { resolveWalletNo } from '../domain/wallet-no.util';
@@ -119,9 +120,9 @@ export class DispositionService {
         causeCode: dto.causeCode,          // requiredFields 顶层
         outlet,
         subjects: [
-          { subjectType: AuditEntityTypes.RECON_DISPOSITION, subjectNo: dispositionNo, subjectRole: 'PRIMARY' },
-          { subjectType: 'RECONCILIATION_CASE', subjectNo: caseNo, subjectRole: 'RELATED' },
-          ...(walletNo ? [{ subjectType: AuditEntityTypes.WALLET, subjectNo: walletNo, subjectRole: 'RELATED' }] : []),
+          { subjectType: AuditEntityTypes.RECON_DISPOSITION, subjectNo: dispositionNo, subjectRole: AuditSubjectRole.PRIMARY },
+          { subjectType: AuditEntityTypes.RECONCILIATION_CASE, subjectNo: caseNo, subjectRole: AuditSubjectRole.RELATED },
+          ...(walletNo ? [{ subjectType: AuditEntityTypes.WALLET, subjectNo: walletNo, subjectRole: AuditSubjectRole.RELATED }] : []),
         ],
         reason: dto.findingNote,
         requestId: `RECON_DISPOSITION_RECORDED_${dispositionNo}_${randomUUID()}`, // 漏了会被静默去重
@@ -131,7 +132,7 @@ export class DispositionService {
           matchType: dto.matchType, overwrite: !!existing,
         },
         sourcePlatform: 'ADMIN',
-      } as any,
+      },
       { actorType: 'ADMIN', actorNo: actorDisplay, actorDisplayName: actorDisplay, actorRolesAtTime: actor.roleCodes ?? [] },
     );
 

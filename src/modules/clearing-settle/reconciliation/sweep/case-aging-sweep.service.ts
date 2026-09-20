@@ -64,6 +64,6 @@ export class CaseAgingSweepService {
       metadata: {
         slaDeadline: c.slaDeadline.toISOString(), ageDays, bucket: c.bucket, book: c.book, severity: c.severity, caseNo: c.caseNo,
       },
-    } as any);
+    });
   }
 }

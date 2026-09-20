@@ -9,6 +9,7 @@ import { ApprovalActorContext } from '../../../governance/approvals/constants/ap
 import { AccountingService } from '../../../accounting/tigerbeetle/accounting.service';
 import { AuditLogsService } from '../../../audit-logging/audit-logs.service';
 import { AuditEntityTypes } from '../../../audit-logging/constants/audit-actions.constant';
+import { AuditSubjectRole } from '../../../audit-logging/dto/audit-log.dto';
 import { TB_ACCOUNT_CODES, TB_CODE_TO_COA } from '../../../accounting/tigerbeetle/constants/tb-account-codes.constant';
 import { TB_LEDGERS } from '../../../accounting/tigerbeetle/constants/tb-ledgers.constant';
 import { TB_TRANSFER_CODES } from '../../../accounting/tigerbeetle/constants/tb-transfer-codes.constant';
@@ -333,7 +334,7 @@ export class AdjustmentService {
         }
         // 评审修复（Minor 6）：record() 的 matchType 是必填列——CreateAdjustmentDto 上它
         // 是可选字段，不能让 undefined 溜进 NOT NULL 列；进 record() 前显式拒绝，给一句
-        // 人话 400，而不是靠 as any 掩盖类型缺口、让数据库层报一个不可读的错误。
+        // 人话 400，而不是靠 `any` 断言掩盖类型缺口、让数据库层报一个不可读的错误。
         if (!dto.matchType) {
           throw new BadRequestException('Recording a finding requires the row facts (matchType)');
         }
@@ -505,14 +506,14 @@ export class AdjustmentService {
         reasonCode: row.reasonCode,        // requiredFields 顶层
         amount: row.amount,
         subjects: [
-          { subjectType: AuditEntityTypes.RECON_ADJUSTMENT, subjectNo: row.adjustmentNo, subjectRole: 'PRIMARY' },
-          { subjectType: 'RECONCILIATION_CASE', subjectNo: row.caseNo, subjectRole: 'RELATED' },
+          { subjectType: AuditEntityTypes.RECON_ADJUSTMENT, subjectNo: row.adjustmentNo, subjectRole: AuditSubjectRole.PRIMARY },
+          { subjectType: AuditEntityTypes.RECONCILIATION_CASE, subjectNo: row.caseNo, subjectRole: AuditSubjectRole.RELATED },
         ],
         reason: row.reasonInternal,
         requestId: `RECON_ADJUSTMENT_DRAFTED_${row.adjustmentNo}_${randomUUID()}`,
         metadata: { reasonCode: row.reasonCode, direction: row.direction, amount: row.amount, book: row.book, toOwnerNo: row.toOwnerNo ?? null },
         sourcePlatform: 'ADMIN',
-      } as any,
+      },
       { actorType: 'ADMIN', actorNo: actorDisplay, actorDisplayName: actorDisplay, actorRolesAtTime: actor.roleCodes ?? [] },
     );
     if (dto.dispositionNo) {
@@ -654,7 +655,7 @@ export class AdjustmentService {
    * 铁律⑥ 对外用业务键——排除 id/ownerId/approvalCaseId/walletRef/toWalletRef 与
    * 两个解释锚（explainedFlowId / explainedExternalLineId 是 account_flows /
    * external_statement_lines 的内部 UUID，界面不得展示）；两个 walletRef 各换成
-   * walletNo / toWalletNo（同 reconciliation-query.service.ts getCase 里 walletRow 的查法）。
+   * walletNo / toWalletNo（同 reconciliation-query.service.ts getCase 的 resolveWalletNo 查法）。
    *
    * ⚠ toWalletRef 是 T6 顺手收的口：Task 5 让它真正落库之后，排除清单还只剔
    * walletRef——改记单一被查询，正主方钱包的内部 UUID 就随返回体吐出去了。
@@ -777,11 +778,11 @@ export class AdjustmentService {
     // ownerType，这类问题不会被测出来——账户找错了，测试却是绿的）。
     const ownerFor = (code: number) =>
       code === TB_ACCOUNT_CODES.CLIENT_PAYABLE || code === TB_ACCOUNT_CODES.DEPOSIT_SUSPENSE
-        ? { ownerType: 'CUSTOMER' as const, ownerUuid: row.ownerId }
+        ? { ownerType: 'CUSTOMER' as const, ownerUuid: row.ownerId ?? undefined }
         : { ownerType: 'SYSTEM' as const };
 
-    const debitAccountId = await this.accounting.resolveTbAccountId({ code: legs.debitCode, ledger, ...ownerFor(legs.debitCode) } as any);
-    const creditAccountId = await this.accounting.resolveTbAccountId({ code: legs.creditCode, ledger, ...ownerFor(legs.creditCode) } as any);
+    const debitAccountId = await this.accounting.resolveTbAccountId({ code: legs.debitCode, ledger, ...ownerFor(legs.debitCode) });
+    const creditAccountId = await this.accounting.resolveTbAccountId({ code: legs.creditCode, ledger, ...ownerFor(legs.creditCode) });
 
     const { tbTransferId } = await this.accounting.executeTransfer({
       debitAccountId,
@@ -840,7 +841,7 @@ export class AdjustmentService {
         actionDomain: 'RECON',
         primarySubjectType: AuditEntityTypes.RECON_ADJUSTMENT,
         primarySubjectNo: row.adjustmentNo,
-        ownerCustomerNo: row.ownerNo,
+        ownerCustomerNo: row.ownerNo ?? undefined,
         // INHERIT 码，assertActionSpec 对空 correlationId 直接拒写——回落表达式与
         // evidence.traceId（上面 :181）保持一致，两侧不许各写各的。
         correlationId: row.traceId || row.adjustmentNo,
@@ -860,7 +861,7 @@ export class AdjustmentService {
           effectiveDate: row.effectiveDate, relatedOrderNo: row.relatedOrderNo, book: row.book,
         },
         sourcePlatform: 'ADMIN',
-      } as any,
+      },
       {
         actorType: 'ADMIN', actorNo: deciderDisplay, actorDisplayName: deciderDisplay,
         // 真实审批角色取代硬编码 ['ADMIN']——RECON_ADJUSTMENT_POST 是单步
@@ -914,8 +915,8 @@ export class AdjustmentService {
     }
 
     const legs = resolveReattributionLegs();
-    const debitAccountId = await this.accounting.resolveTbAccountId({ code: legs.debitCode, ledger, ownerType: 'CUSTOMER', ownerUuid: row.ownerId } as any);
-    const creditAccountId = await this.accounting.resolveTbAccountId({ code: legs.creditCode, ledger, ownerType: 'CUSTOMER', ownerUuid: toOwner.id } as any);
+    const debitAccountId = await this.accounting.resolveTbAccountId({ code: legs.debitCode, ledger, ownerType: 'CUSTOMER', ownerUuid: row.ownerId });
+    const creditAccountId = await this.accounting.resolveTbAccountId({ code: legs.creditCode, ledger, ownerType: 'CUSTOMER', ownerUuid: toOwner.id });
 
     const { tbTransferId } = await this.accounting.executeTransfer({
       debitAccountId,
@@ -997,7 +998,7 @@ export class AdjustmentService {
           toOwnerNo: row.toOwnerNo ?? null,
         },
         sourcePlatform: 'ADMIN',
-      } as any,
+      },
       {
         actorType: 'ADMIN', actorNo: deciderDisplay, actorDisplayName: deciderDisplay,
         actorRolesAtTime: [deciderRole ?? 'ADMIN'],
