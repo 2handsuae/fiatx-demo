@@ -47,6 +47,7 @@ import {
   AuditActions,
   AuditEntityTypes,
 } from '../../../audit-logging/constants/audit-actions.constant';
+import { ReconciliationCaseService } from '../domain/reconciliation-case.service';
 
 const RUN_LAYER = 'WALLET';
 
@@ -107,6 +108,7 @@ export class WalletReconRunService {
     private readonly tigerBeetle: TigerBeetleService,
     private readonly auditLogs: AuditLogsService,
     private readonly explainedDifferences: ExplainedDifferenceService,
+    private readonly caseService: ReconciliationCaseService,
   ) {}
 
   async run(input: WalletReconRunInput, actor?: AuditActorContext): Promise<WalletReconRunResult> {
@@ -293,10 +295,10 @@ export class WalletReconRunService {
           explained,
           caseReason,
           slaDeadline,
+          traceId: run.traceId ?? null,
         });
         if (created) {
           casesCreated += 1;
-          await this.auditCaseOpened({ traceId: run.traceId ?? null, walletRef, bucket, delta: balanceCheck.delta, caseNo: openedCaseNo, slaDeadline });
         } else {
           casesUpdated += 1;
         }
@@ -355,10 +357,10 @@ export class WalletReconRunService {
         explained: EMPTY_EXPLAINED_INDEX,
         caseReason: 'unattributed_external_account',
         slaDeadline,
+        traceId: run.traceId ?? null,
       });
       if (created) {
         casesCreated += 1;
-        await this.auditCaseOpened({ traceId: run.traceId ?? null, walletRef, bucket: 'BREAK', delta: closing, caseNo, slaDeadline });
       } else {
         casesUpdated += 1;
       }
@@ -723,6 +725,7 @@ export class WalletReconRunService {
     explained: ExplainedIndex;
     caseReason: string;
     slaDeadline: Date;
+    traceId: string | null;
   }): Promise<{ caseId: string; caseNo: string; created: boolean }> {
     const deltaDecimal = new Prisma.Decimal(input.delta.toString());
     const tbDecimal = new Prisma.Decimal(input.tbAmount.toString());
@@ -735,88 +738,62 @@ export class WalletReconRunService {
     // Round3 T5 Step③: businessDate intentionally dropped from the probe so
     // an OPEN case persists across reruns on later days (re-observation
     // refreshes the same row instead of forking a new one per day).
-    const existing = await this.prisma.reconciliationCase.findFirst({
-      where: {
-        walletRef: input.walletRef,
-        status: 'OPEN',
-      },
-      select: { id: true, caseNo: true },
-    });
+    // 第六幕波三 T2：探针与写点全部经 ReconciliationCaseService（唯一写点）。
+    const existing = await this.caseService.findOpenByWallet(input.walletRef);
 
     let caseId: string;
     let caseNo: string;
     let created: boolean;
     if (existing) {
-      await this.prisma.reconciliationCase.update({
-        where: { id: existing.id },
-        data: {
-          // Snapshot fields → reflect THIS run's measurement, not history.
-          tbAmount: tbDecimal,
-          inTransitAmount: inTransitDecimal,
-          expectedExternal: expectedDecimal,
-          actualExternal: externalDecimal,
-          deltaAmount: deltaDecimal,
-          severity,
-          bucket: input.bucket,
-          // Locator fields can drift if a wallet's owner/coa changes
-          // mid-stream; keep them current for the cockpit.
-          assetId: input.assetId,
-          assetCode: input.assetCode,
-          book: input.book,
-          coaCode: input.coaCode,
-          ownerNo: input.ownerNo,
-          // Bookkeeping. firstSeenRunId stays as-is (pin the original observer).
-          lastUpdatedRunId: input.runId,
-          lastObservedRunId: input.runId,
-        },
+      await this.caseService.reObserve({
+        caseId: existing.id,
+        runId: input.runId,
+        tbAmount: tbDecimal,
+        inTransitAmount: inTransitDecimal,
+        expectedExternal: expectedDecimal,
+        actualExternal: externalDecimal,
+        deltaAmount: deltaDecimal,
+        severity,
+        bucket: input.bucket,
+        assetId: input.assetId,
+        assetCode: input.assetCode,
+        book: input.book,
+        coaCode: input.coaCode,
+        ownerNo: input.ownerNo,
       });
       caseId = existing.id;
       caseNo = existing.caseNo;
       created = false;
       // Replace line items: drop prior + insert current. ON DELETE CASCADE
       // is set on the FK so this is atomic to the lineItems table.
+      // （行明细留在 recon-run 原地——它是 run 的证据写点，不是 Case 表。）
       await this.prisma.reconciliationLineItem.deleteMany({
         where: { caseId: existing.id },
       });
     } else {
-      // Format: REC{YYYYMMDD}-{nnn}. Sequence counts ALL cases for the
-      // businessDate — collision-safe. Asset/wallet info is in the detail page.
-      const priorToday = await this.prisma.reconciliationCase.count({
-        where: { businessDate: input.businessDate },
+      const opened = await this.caseService.openCase({
+        runId: input.runId,
+        businessDate: input.businessDate,
+        assetId: input.assetId,
+        assetCode: input.assetCode,
+        layer: RUN_LAYER,
+        book: input.book,
+        walletRef: input.walletRef,
+        coaCode: input.coaCode,
+        ownerNo: input.ownerNo,
+        tbAmount: tbDecimal,
+        inTransitAmount: inTransitDecimal,
+        expectedExternal: expectedDecimal,
+        actualExternal: externalDecimal,
+        deltaAmount: deltaDecimal,
+        severity,
+        bucket: input.bucket,
+        slaDeadline: input.slaDeadline,
+        traceId: input.traceId,
+        delta: input.delta,
       });
-      const newCaseNo = `REC${input.businessDate.replace(/-/g, '')}-${String(priorToday + 1).padStart(3, '0')}`;
-      const createdRow = await this.prisma.reconciliationCase.create({
-        data: {
-          caseNo: newCaseNo,
-          businessDate: input.businessDate,
-          assetId: input.assetId,
-          assetCode: input.assetCode,
-          layer: RUN_LAYER,
-          book: input.book,
-          tbAmount: tbDecimal,
-          inTransitAmount: inTransitDecimal,
-          expectedExternal: expectedDecimal,
-          actualExternal: externalDecimal,
-          deltaAmount: deltaDecimal,
-          status: 'OPEN',
-          openedByRunId: input.runId,
-          lastObservedRunId: input.runId,
-          // T1 fields: pin the first observer + last updater (initially same).
-          firstSeenRunId: input.runId,
-          lastUpdatedRunId: input.runId,
-          severity,
-          bucket: input.bucket,
-          traceId: randomUUID(),
-          walletRef: input.walletRef,
-          coaCode: input.coaCode,
-          ownerNo: input.ownerNo,
-          // 平账 A 批（spec §2.1）：账龄起算只在开案这一刻——复观察（上面 existing 分支）
-          // 不重置，故 slaDeadline 只在这个 create 分支写。
-          slaDeadline: input.slaDeadline,
-        },
-      });
-      caseId = createdRow.id;
-      caseNo = newCaseNo;
+      caseId = opened.caseId;
+      caseNo = opened.caseNo;
       created = true;
     }
 
@@ -957,60 +934,22 @@ export class WalletReconRunService {
     if (stale.length === 0) return 0;
     const now = new Date();
     for (const c of stale) {
-      await this.prisma.reconciliationCase.update({
-        where: { id: c.id },
-        data: {
-          status: 'RESOLVED',
-          resolutionReason: 'AUTO_HEALED',
-          resolvedAt: now,
-          lastUpdatedRunId: input.runId,
-          closedByRunId: input.runId,
-        },
+      await this.caseService.resolveAutoHealed({
+        caseId: c.id,
+        caseNo: c.caseNo,
+        walletRef: c.walletRef,
+        runId: input.runId,
+        traceId: input.traceId,
+        resolvedAt: now,
       });
-      await this.auditCaseAutoHealed({ traceId: input.traceId, walletRef: c.walletRef, caseNo: c.caseNo });
     }
     return stale.length;
   }
 
   // ── Audit (DI — never `new AuditLogsService`) ─────────────────────────────
-  private async auditCaseOpened(input: { traceId: string | null; walletRef: string; bucket: ReconBucket; delta: bigint; caseNo: string; slaDeadline: Date }): Promise<void> {
-    await this.auditLogs.recordSystem({
-      action: 'RECON_CASE_OPENED',
-      actionDomain: 'RECON',
-      category: AuditCategory.BUSINESS,
-      primarySubjectType: AuditEntityTypes.RECONCILIATION_CASE,
-      primarySubjectNo: input.caseNo,
-      subjects: [
-        { subjectType: AuditEntityTypes.RECONCILIATION_CASE, subjectNo: input.caseNo, subjectRole: AuditSubjectRole.PRIMARY },
-      ],
-      traceId: input.traceId ?? undefined,
-      requestId: `RECON_CASE_OPENED_${input.caseNo}_${randomUUID()}`,
-      metadata: {
-        walletRef: input.walletRef,
-        bucket: input.bucket,
-        deltaAmount: input.delta.toString(),
-        caseNo: input.caseNo,
-        slaDeadline: input.slaDeadline.toISOString(),
-      },
-    } as any);
-  }
-
-  private async auditCaseAutoHealed(input: { traceId: string | null; walletRef: string; caseNo: string }): Promise<void> {
-    await this.auditLogs.recordSystem({
-      action: 'RECON_CASE_AUTO_HEALED',
-      actionDomain: 'RECON',
-      category: AuditCategory.BUSINESS,
-      primarySubjectType: AuditEntityTypes.RECONCILIATION_CASE,
-      primarySubjectNo: input.caseNo,
-      subjects: [
-        { subjectType: AuditEntityTypes.RECONCILIATION_CASE, subjectNo: input.caseNo, subjectRole: AuditSubjectRole.PRIMARY },
-      ],
-      traceId: input.traceId ?? undefined,
-      requestId: `RECON_CASE_AUTO_HEALED_${input.caseNo}_${randomUUID()}`,
-      metadata: { walletRef: input.walletRef, caseNo: input.caseNo },
-    } as any);
-  }
-
+  // 第六幕波三 T2：RECON_CASE_OPENED / RECON_CASE_AUTO_HEALED 两条审计已随写点
+  // 搬进 ReconciliationCaseService（openCase / resolveAutoHealed 内部发），
+  // 本文件不再重复留痕。auditRunCompleted 是跑批级留痕，留在这里不动。
   private async auditRunCompleted(input: {
     runNo: string;
     traceId: string | null;
