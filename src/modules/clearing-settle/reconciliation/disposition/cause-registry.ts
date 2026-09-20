@@ -120,7 +120,7 @@ export function dispositionsFor(facts: RowFacts): DispositionKind[] {
   const out: DispositionKind[] = [];
   if (facts.matchType === 'AMOUNT_MISMATCH') {
     if (facts.book === 'CLIENT') { if (sourceAdjustable(facts.internalSourceType)) out.push('CORRECT'); }
-    else out.push('RECORD', 'REVERSE');
+    else { out.push('RECORD'); if (sourceAdjustable(facts.internalSourceType)) out.push('REVERSE'); }
   } else if (facts.matchType === 'ORPHAN_INTERNAL') {
     if (sourceAdjustable(facts.internalSourceType)) out.push('REVERSE');
     if (facts.book === 'CLIENT') out.push('REATTRIBUTE');

@@ -1,0 +1,47 @@
+PASS src/modules/clearing-settle/reconciliation/disposition/cause-registry.spec.ts
+  ○ skipped outletOf 存储映射稳定（spec §8 值域沿用）
+  cause-registry —— six-cell cause menu (spec §4, registry is the single source of truth)
+    ○ skipped Mismatch × Client
+    ○ skipped Mismatch × Firm
+    ○ skipped Internal only × Client
+    ○ skipped Internal only × Firm
+    ○ skipped External only × Client
+    ○ skipped External only × Firm
+    ○ skipped 21 codes assigned, none missing: every code appears in at least one cell (Task 1 adds OTHER, cells=ALL_CELLS)
+  Recon batch A: firm-book reversal codes + write-off determination (spec §3.3 / §5)
+    ○ skipped precision-dust cause removed (exempted, decisions 2026-09-02)
+    ○ skipped FIRM_TRANSFER_UNTRACKED retired (wave 2 does not do firm-pool reallocation, this outlet never lights up)
+    resolveWriteOff: one principle — "make internal equal external"
+      ○ skipped mismatch: external < internal (booked) → REDUCE, amount = |delta|
+      ○ skipped mismatch: outbound flow flips sign — internal OUT records 90, external deducted 100, raw delta +10 → REDUCE
+      ○ skipped internal only: internal IN → REDUCE, OUT → INCREASE, amount = internal line amount
+      ○ skipped external only: external IN → INCREASE, OUT → REDUCE, amount = external line amount
+      ○ skipped client pool: reason code is UNEXPLAINED_CLIENT_LOSS, direction still follows "make internal equal external"
+      ○ skipped firm pool is still UNEXPLAINED_WRITE_OFF
+  Recon batch B: supplement outlet (spec §6)
+    ○ skipped 21 cause codes (Task 1 adds OTHER); three carry supplementTarget/supplementLabel (the SUPPLEMENT route)
+    ○ skipped three supplement causes require the statement line direction — MISSED_DEPOSIT/PAYOUT_RETURNED are IN, BOUNCED_FUNDS is OUT (requiredDirection is consumed by the read-side cause filter and the initiate-side assertClaimable — record() itself does not check it)
+    ○ skipped causesFor menu order: external only × client = missed / recall / return / misattributed / unauthorized / unexplained / other
+  dispositionsFor —— 六格硬边界（spec §2）
+    ○ skipped 金额不对×客户 = 冲正+两挂起
+    ○ skipped 金额不对×客户 SWAP 行无冲正（A1b 甲）
+    ○ skipped 金额不对×公司 = 补记+冲销+两挂起
+    ○ skipped 我有外无×客户 = 冲销+改记+两挂起；SWAP 行只剩挂起+改记外还去掉冲销
+    ○ skipped 我有外无×公司 = 冲销+两挂起
+    ○ skipped 外有我无×客户 = 补单+改记+事故+两挂起
+    ○ skipped 外有我无×公司 = 补记+两挂起
+  causesFor —— 按处置出码 + OTHER（spec §4/§5）
+    ○ skipped 冲正@金额不对×客户 = 三码+OTHER
+    ○ skipped 冲销@我有外无×客户 = 三码+OTHER
+    ○ skipped 补记@外有我无×公司 = 利息+杂费+OTHER
+    ○ skipped 改记/补单/事故的码固定、无 OTHER
+    ○ skipped 挂起等下期 = 跨账期(+OTHER)，六格一致（终审修复批 Item 7）；调查中@公司外有我无 = 归属排查+查无果+OTHER
+  dispositionsFor — AMOUNT_MISMATCH×FIRM 硬边界（波三，spec §2.4）
+    ✓ 可调账来源（WITHDRAWAL）：RECORD 与 REVERSE 都给 (1 ms)
+    ✓ 不可调账来源（SWAP）：只给 RECORD——冲销只对 DEPOSIT/WITHDRAW 系开放（A1b 甲）
+
+Test Suites: 1 passed, 1 total
+Tests:       31 skipped, 2 passed, 33 total
+Snapshots:   0 total
+Time:        1.493 s, estimated 2 s
+Ran all test suites matching src/modules/clearing-settle/reconciliation/disposition/cause-registry.spec.ts with tests matching "AMOUNT_MISMATCH×FIRM".
