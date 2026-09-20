@@ -111,7 +111,7 @@ export class InternalTransferWorkflowService {
     return { fromWalletId: from.id as string, viaWalletId: (via?.id as string | undefined) ?? null, toWalletId };
   }
 
-  private async submitForApproval(row: any, impact: string, reason: string, actor: ApprovalActorContext, extra: Record<string, unknown>) {
+  private async submitForApproval(row: any, impact: string, reason: string, actor: ApprovalActorContext, extra: Record<string, unknown> & { externalRef?: string | null }) {
     const approval = await this.approvals.createAndSubmit(
       {
         actionType: ApprovalActionTypes.INTERNAL_TRANSFER_APPROVAL,
@@ -127,10 +127,10 @@ export class InternalTransferWorkflowService {
       { reason: impact, traceId: row.traceId },
       actor,
     );
-    await this.prisma.internalTransfer.update({ where: { transferNo: row.transferNo }, data: { approvalNo: approval.approvalNo } });
+    await this.transfers.stampApprovalNo(row.transferNo, approval.approvalNo);
     await this.transferAudit({ ...row, approvalNo: approval.approvalNo }, {
       action: AuditActions.INTERNAL_TRANSFER_REQUESTED, reason, approvalNo: approval.approvalNo,
-      metadata: { impact, sourceExternalRef: (extra as any).externalRef ?? null }, actor,
+      metadata: { impact, sourceExternalRef: extra.externalRef ?? null }, actor,
     });
     return { transferNo: row.transferNo as string, approvalNo: approval.approvalNo as string, status: InternalTransferStatus.PENDING_APPROVAL };
   }
@@ -140,7 +140,7 @@ export class InternalTransferWorkflowService {
   async cancel(transferNo: string, dto: { reason: string }, actor: ApprovalActorContext) {
     const row = await this.transfers.findByNo(transferNo);
     if (row.status !== InternalTransferStatus.PENDING_APPROVAL) throw new BadRequestException(`Transfer ${transferNo} is already in ${row.status} — funds are in flight or settled, it cannot be cancelled`);
-    if (row.approvalNo) await this.approvals.cancel(row.approvalNo, { reason: dto.reason } as any, actor);
+    if (row.approvalNo) await this.approvals.cancel(row.approvalNo, { reason: dto.reason }, actor);
     const updated = await this.transfers.transition(transferNo, InternalTransferStatus.CANCELLED, { failureNote: dto.reason });
     await this.transferAudit(row, { action: AuditActions.INTERNAL_TRANSFER_CANCELLED, reason: dto.reason, fromStatus: row.status, toStatus: updated.status, actor });
     return { transferNo, status: updated.status as string };

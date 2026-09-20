@@ -29,6 +29,7 @@ function makeWorkflow(o: Partial<Record<'adjustment' | 'asset' | 'wallet' | 'dis
     create: jest.fn(async (input: any) => ({ ...transferRow, ...input, amount: input.amountMajor })),
     findByNo: jest.fn(async () => transferRow),
     transition: jest.fn(async (_no: string, to: string, patch: any) => ({ ...transferRow, status: to, ...patch })),
+    stampApprovalNo: jest.fn(async () => undefined),
   };
   const approvals: any = { createAndSubmit: jest.fn(async () => ({ approvalNo: 'APR1' })), cancel: jest.fn(async () => ({})) };
   const accounting: any = {
@@ -76,6 +77,8 @@ describe('InternalTransferWorkflowService (Task 7)', () => {
       const r = await wf.initiateCompensation({ adjustmentNo: 'ADJ1', reason: 'Loss recognized' }, treasury);
       expect(r).toEqual({ transferNo: 'ITR1', approvalNo: 'APR1', status: 'PENDING_APPROVAL' });
       expect(transfers.create).toHaveBeenCalledWith(expect.objectContaining({ purpose: 'CLIENT_COMPENSATION', amountMajor: '7.500000', fromWalletId: 'w-ops', viaWalletId: null, toWalletId: 'w-cust', customerNo: 'CU1', sourceAdjustmentNo: 'ADJ1', sourceCaseNo: 'REC1' }));
+      // 铁律③：approvalNo 回填改走主体服务(不再直写 prisma.internalTransfer.update)
+      expect(transfers.stampApprovalNo).toHaveBeenCalledWith('ITR1', 'APR1');
       const snapshot = approvals.createAndSubmit.mock.calls[0][0];
       expect(snapshot.actionType).toBe('INTERNAL_TRANSFER_APPROVAL');
       expect(snapshot.entityRef).toBe('ITR1');
