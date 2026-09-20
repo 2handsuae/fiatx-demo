@@ -11,6 +11,7 @@ import { AuditEntityTypes } from '../../../audit-logging/constants/audit-actions
 import { AuditCategory, AuditSubjectRole } from '../../../audit-logging/dto/audit-log.dto';
 import { AgingBreachCandidate, CaseAgingService } from '../workflow/case-aging.service';
 import { resolveWalletNo } from '../domain/wallet-no.util';
+import { ReconciliationCaseService } from '../domain/reconciliation-case.service';
 
 @Injectable()
 export class CaseAgingSweepService {
@@ -18,6 +19,7 @@ export class CaseAgingSweepService {
 
   constructor(
     private readonly caseAging: CaseAgingService,
+    private readonly caseService: ReconciliationCaseService,
     private readonly auditLogs: AuditLogsService,
     private readonly prisma: PrismaService,
   ) {}
@@ -33,7 +35,7 @@ export class CaseAgingSweepService {
     let breached = 0;
     for (const c of candidates) {
       try {
-        await this.caseAging.markBreached(c.id);
+        await this.caseService.markSlaBreached(c.id);
         await this.auditBreached(c, now);
         breached += 1;
       } catch (err) {

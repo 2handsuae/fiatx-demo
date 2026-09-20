@@ -3,11 +3,13 @@ import { CaseAgingSweepService } from './case-aging-sweep.service';
 function build(candidates: any[]) {
   const caseAging: any = {
     findBreachCandidates: jest.fn().mockResolvedValue(candidates),
-    markBreached: jest.fn().mockResolvedValue(undefined),
+  };
+  const caseService: any = {
+    markSlaBreached: jest.fn().mockResolvedValue(undefined),
   };
   const audit: any = { recordSystem: jest.fn().mockResolvedValue(undefined) };
   const prisma: any = { wallet: { findUnique: jest.fn().mockResolvedValue({ walletNo: 'WA2601017168' }) } };
-  return { svc: new CaseAgingSweepService(caseAging, audit, prisma), caseAging, audit, prisma };
+  return { svc: new CaseAgingSweepService(caseAging, caseService, audit, prisma), caseAging, caseService, audit, prisma };
 }
 
 const CAND = {
@@ -17,10 +19,10 @@ const CAND = {
 
 describe('CaseAgingSweepService（spec §2.1 / §2.8）', () => {
   it('到线：置标记 + 一条系统审计（显式 requestId、ageDays、业务键）', async () => {
-    const { svc, caseAging, audit } = build([CAND]);
+    const { svc, caseService, audit } = build([CAND]);
     const n = await svc.checkAgingBreaches(new Date('2026-09-07T10:00:00Z'));
     expect(n).toBe(1);
-    expect(caseAging.markBreached).toHaveBeenCalledWith('c1');
+    expect(caseService.markSlaBreached).toHaveBeenCalledWith('c1');
     const env = audit.recordSystem.mock.calls[0][0];
     expect(env.action).toBe('RECON_CASE_AGING_BREACHED');
     expect(env.actionDomain).toBe('RECON');
@@ -31,15 +33,15 @@ describe('CaseAgingSweepService（spec §2.1 / §2.8）', () => {
     expect(JSON.stringify(env)).not.toContain('w-uuid');
   });
   it('没到线的案子什么都不发生', async () => {
-    const { svc, caseAging, audit } = build([]);
+    const { svc, caseService, audit } = build([]);
     expect(await svc.checkAgingBreaches(new Date())).toBe(0);
-    expect(caseAging.markBreached).not.toHaveBeenCalled();
+    expect(caseService.markSlaBreached).not.toHaveBeenCalled();
     expect(audit.recordSystem).not.toHaveBeenCalled();
   });
   it('逐案失败不拖垮整轮：第一案抛错，第二案照常处理', async () => {
-    const { svc, caseAging } = build([CAND, { ...CAND, id: 'c2', caseNo: 'REC-2' }]);
-    caseAging.markBreached.mockRejectedValueOnce(new Error('boom'));
+    const { svc, caseService } = build([CAND, { ...CAND, id: 'c2', caseNo: 'REC-2' }]);
+    caseService.markSlaBreached.mockRejectedValueOnce(new Error('boom'));
     expect(await svc.checkAgingBreaches(new Date('2026-09-07T10:00:00Z'))).toBe(1);
-    expect(caseAging.markBreached).toHaveBeenCalledTimes(2);
+    expect(caseService.markSlaBreached).toHaveBeenCalledTimes(2);
   });
 });

@@ -21,7 +21,7 @@ import { AppModule } from '../src/app.module';
 import { PrismaService } from '../src/core/prisma/prisma.service';
 import { AdjustmentService } from '../src/modules/clearing-settle/reconciliation/disposition/adjustment.service';
 import { DispositionService } from '../src/modules/clearing-settle/reconciliation/disposition/disposition.service';
-import { CaseAgingService } from '../src/modules/clearing-settle/reconciliation/workflow/case-aging.service';
+import { ReconciliationCaseService } from '../src/modules/clearing-settle/reconciliation/domain/reconciliation-case.service';
 import { CaseAgingSweepService } from '../src/modules/clearing-settle/reconciliation/sweep/case-aging-sweep.service';
 import { AdjustmentStatus } from '../src/modules/clearing-settle/reconciliation/constants/adjustment-transitions.constant';
 import { WalletReconRunService } from '../src/modules/clearing-settle/reconciliation/workflow/wallet-recon-run.service';
@@ -39,7 +39,7 @@ import { ensureTbAccountRegistry, provisionTbAccounts } from '../prisma/seed-tb.
  * 平账 A 批（spec §2/§3）e2e（Task 12）：案件账龄 → 公司池核销 全链路，真 AppModule
  * 零 mock。夹具搭法（fresh wallet、真 TB 转账铺底、外部对账单、waitUntil 轮询）照抄
  * 同目录 recon-adjustment-money-arcs.e2e-spec.ts；账龄拨钟/扫描/核销是本文件新增的
- * 三个真实服务：CaseAgingService.simulateTimeout（⚡拨钟，留一条操作员审计）→
+ * 三个真实服务：ReconciliationCaseService.simulateTimeout（⚡拨钟，留一条操作员审计）→
  * CaseAgingSweepService.checkAgingBreaches（真扫描，置 slaBreached + 一条系统审计）→
  * AdjustmentService.createDraft 的核销四前提守卫（超期 / 已定性挂起·调查中 / 公司账簿 /
  * 小额线）→ 真审批中心（RECON_ADJUSTMENT_POST，单步 CFO）→ 真 onApproved →
@@ -58,7 +58,7 @@ describe('Recon case aging → write-off e2e (平账 A 批, Task 12)', () => {
   let prisma: PrismaService;
   let adjustments: AdjustmentService;
   let dispositions: DispositionService;
-  let caseAging: CaseAgingService;
+  let caseService: ReconciliationCaseService;
   let agingSweep: CaseAgingSweepService;
   let walletRecon: WalletReconRunService;
   let reconQuery: ReconciliationQueryService;
@@ -88,7 +88,7 @@ describe('Recon case aging → write-off e2e (平账 A 批, Task 12)', () => {
     prisma = app.get(PrismaService);
     adjustments = app.get(AdjustmentService);
     dispositions = app.get(DispositionService);
-    caseAging = app.get(CaseAgingService);
+    caseService = app.get(ReconciliationCaseService);
     agingSweep = app.get(CaseAgingSweepService);
     walletRecon = app.get(WalletReconRunService);
     reconQuery = app.get(ReconciliationQueryService);
@@ -465,7 +465,7 @@ describe('Recon case aging → write-off e2e (平账 A 批, Task 12)', () => {
     expect((await reconQuery.getCase(kase.caseNo)).flowComparison.find((r: any) => r.matchType === 'AMOUNT_MISMATCH')!.nextStep).toBeUndefined();
 
     // ⚡拨钟 + 扫描 → 超期 + 两条审计
-    await caseAging.simulateTimeout(kase.caseNo, ops);
+    await caseService.simulateTimeout(kase.caseNo, ops);
     expect(await agingSweep.checkAgingBreaches(new Date())).toBeGreaterThanOrEqual(1);
     const breached = await (prisma as any).reconciliationCase.findUnique({ where: { id: kase.id } });
     expect(breached.slaBreached).toBe(true);

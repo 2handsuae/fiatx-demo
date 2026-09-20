@@ -1,8 +1,8 @@
 // src/modules/clearing-settle/reconciliation/domain/reconciliation-case.service.ts
 //
 // 第六幕波三（主体分层，判据 4 本体）：Case 主体的唯一写点。
-// recon-run / case-aging 现有对 reconciliationCase 表的直写，由 Task 2/4 换线到
-// 这里——本任务只建服务与测试，不接线，新旧写点短暂并存是预期状态。
+// recon-run（T2）/ case-aging（T4）原有对 reconciliationCase 表的直写均已换线到
+// 这里——对该表的 create / update / upsert / delete，全仓只在本文件出现。
 import { randomUUID } from 'node:crypto';
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
@@ -12,6 +12,8 @@ import { AuditCategory, AuditSubjectRole } from '../../../audit-logging/dto/audi
 import { AuditEntityTypes } from '../../../audit-logging/constants/audit-actions.constant';
 import { ReconBucket } from '../engine/v2/bucket-classifier';
 import { CaseStatus, CASE_TRANSITIONS } from '../constants/case-transitions.constant';
+import { ApprovalActorContext } from '../../../governance/approvals/constants/approval.constants';
+import { resolveWalletNo } from './wallet-no.util';
 
 export interface OpenCaseInput {
   runId: string; businessDate: string; assetId: string; assetCode: string; layer: string;
@@ -157,6 +159,43 @@ export class ReconciliationCaseService {
   /** 软破线：只置标记，不碰 status（三域 SLA 同款，decisions.md 2026-08-21）。= case-aging markBreached 原样。 */
   async markSlaBreached(id: string): Promise<void> {
     await this.prisma.reconciliationCase.update({ where: { id }, data: { slaBreached: true } });
+  }
+
+  /**
+   * ⚡拨钟（spec §2.4）：把截止拨到过去，下一分钟扫描即超期。端点本身**不置标记**——
+   * 「到线」事件只有扫描一处来源。拨钟是 operator 的持久化动作（铁律①），记操作员审计，
+   * 镜像充值域 DEPOSIT_SLA_TIMEOUT_SIMULATED。= case-aging simulateTimeout 原样。
+   */
+  async simulateTimeout(caseNo: string, actor: ApprovalActorContext): Promise<{ caseNo: string; slaDeadline: string }> {
+    const kase = await this.prisma.reconciliationCase.findUnique({ where: { caseNo } });
+    if (!kase) throw new NotFoundException(`对账案件不存在：${caseNo}`);
+    if (kase.status !== 'OPEN') throw new BadRequestException('已结案的案子没有账龄，拨不了钟');
+    const previous: Date | null = kase.slaDeadline ?? null;
+    const past = new Date(Date.now() - 1000);
+    await this.prisma.reconciliationCase.update({ where: { id: kase.id }, data: { slaDeadline: past } });
+
+    const walletNo = await resolveWalletNo(this.prisma, kase.walletRef);
+    const actorDisplay = actor.userNo ?? actor.userId;
+    await this.auditLogs.recordByActor(
+      {
+        action: 'RECON_AGING_TIMEOUT_SIMULATED',
+        actionDomain: 'RECON',
+        category: AuditCategory.BUSINESS,
+        primarySubjectType: AuditEntityTypes.RECONCILIATION_CASE,
+        primarySubjectNo: caseNo,
+        subjects: [
+          { subjectType: AuditEntityTypes.RECONCILIATION_CASE, subjectNo: caseNo, subjectRole: AuditSubjectRole.PRIMARY },
+          ...(walletNo ? [{ subjectType: AuditEntityTypes.WALLET, subjectNo: walletNo, subjectRole: AuditSubjectRole.RELATED }] : []),
+        ],
+        traceId: kase.traceId ?? undefined,
+        reason: '演示：把案件账龄截止拨到过去，下一分钟扫描即超期',
+        requestId: `RECON_AGING_TIMEOUT_SIMULATED_${caseNo}_${randomUUID()}`,
+        metadata: { previousSlaDeadline: previous ? previous.toISOString() : null, newSlaDeadline: past.toISOString() },
+        sourcePlatform: 'ADMIN',
+      },
+      { actorType: 'ADMIN', actorNo: actorDisplay, actorDisplayName: actorDisplay, actorRolesAtTime: actor.roleCodes ?? [] },
+    );
+    return { caseNo, slaDeadline: past.toISOString() };
   }
 
   // ── Audit (DI — never `new AuditLogsService`) ─────────────────────────────

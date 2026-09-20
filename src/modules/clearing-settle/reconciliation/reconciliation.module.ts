@@ -33,7 +33,7 @@ import { DispositionService } from './disposition/disposition.service';
 import { DispositionController } from './disposition/disposition.controller';
 // 平账 B 批 Task 4：补单证据守卫 + 候选原单读接口（只读，Task 5/6/7 的守卫入口）。
 import { SupplementEvidenceService } from './disposition/supplement-evidence.service';
-// 平账 A 批：案件账龄主体（算截止 / 找候选 / 置标记 / ⚡拨钟）+ 每分钟扫描。
+// 平账 A 批：案件账龄候选扫描（置标记 / ⚡拨钟已于波三 T4 搬进 ReconciliationCaseService）+ 每分钟扫描。
 import { CaseAgingService } from './workflow/case-aging.service';
 import { CaseAgingSweepService } from './sweep/case-aging-sweep.service';
 // 平账二期：模拟托管方回单——划转工作流在腿提交时调用。
