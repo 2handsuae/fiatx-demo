@@ -116,7 +116,7 @@ outlet?: string;
 
 ## 四、熔断触发情况
 
-**零**。全波（T0–T10）逐任务自查 + 评审复核，无一处触发 spec §6 熔断条款（DTO 放宽 / 载荷字段规整 / 新增未知键）。T9 report 明确记录"无一处把 `as any` 换成等价逃逸（如 `as unknown as X`），无一处把顶层字段塞进 metadata，无熔断触发"；incidents controller 4 处属性收窄未出现"不在 Body 也不在服务侧 interface 的键"。**限定**：该结论指本波 T9 那 18 处修复动作本身——摘 cast 时未顺手造出新的等价逃逸。它不等于"仓库里没有等价逃逸形态"：修复过程中改用的 `const subjects: any[]` 局部变量声明与波二遗留的一处 `as unknown as string[]` 二段式断言仍然存在，属于 `" as any"` 字面量 grep 判据本身照不到的既有/新增形态，详见 §六。
+**零**。全波（T0–T10）逐任务自查 + 评审复核，无一处触发 spec §6 熔断条款（DTO 放宽 / 载荷字段规整 / 新增未知键）。T9 report 明确记录"无一处把 `as any` 换成等价逃逸（如 `as unknown as X`），无一处把顶层字段塞进 metadata，无熔断触发"；incidents controller 4 处属性收窄未出现"不在 Body 也不在服务侧 interface 的键"。本波 T9 那 18 处修复动作零新增逃逸、熔断零触发——终审用 `git grep "subjects: any\[" fcaa9929` 复核波三改动前的基线，`const subjects: any[]` 三处与波二遗留的一处 `as unknown as string[]` 二段式断言均原样存在，是波前既有、`as any` 清零后仍然残留的逃逸面（非本波修复动作催生），属于 `" as any"` 字面量 grep 判据本身照不到的既有形态，详见 §六。
 
 ## 五、`this.prisma as any` 次级探针——1 行注释命中如实登记
 
