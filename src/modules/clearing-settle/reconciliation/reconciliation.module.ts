@@ -10,6 +10,8 @@ import { FundsOrdersModule } from '../../funds-orders/funds-orders.module';
 // Task 4: 调账单接审批中心 — needs ApprovalsService for submit()/createAndSubmit().
 import { ApprovalsModule } from '../../governance/approvals/approvals.module';
 import { ReconciliationQueryService } from './domain/reconciliation-query.service';
+// 第六幕波三：Case 主体服务——全仓唯一的 reconciliationCase 表写点（判据 4 本体）。
+import { ReconciliationCaseService } from './domain/reconciliation-case.service';
 import { WalletReconRunService } from './workflow/wallet-recon-run.service';
 import { WalletBalanceCheckerService } from './engine/v2/wallet-balance-checker.service';
 import { WalletFlowMatcherService } from './engine/v2/wallet-flow-matcher.service';
@@ -42,6 +44,7 @@ import { SimulatedCustodianStatementService } from './simulation/simulated-custo
   controllers: [ReconciliationAdminController, PushOrderController, AdjustmentController, DispositionController],
   providers: [
     ReconciliationQueryService,
+    ReconciliationCaseService,
     ReconciliationSweepService,
     // Phase B / T7 — per-wallet engine (sole live recon path; V8 chain removed in Phase C/A.1).
     WalletBalanceCheckerService, WalletFlowMatcherService, WalletReconRunService,

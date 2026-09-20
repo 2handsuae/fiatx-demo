@@ -1,0 +1,29 @@
+FAIL src/modules/clearing-settle/reconciliation/domain/reconciliation-case.service.spec.ts
+  ReconciliationCaseService（波三判据 4）
+    ✓ openCase：按 businessDate 序号铸 caseNo，状态落 OPEN，发 RECON_CASE_OPENED (2 ms)
+    ✓ resolveAutoHealed：OPEN → RESOLVED 落 AUTO_HEALED 五字段，发 RECON_CASE_AUTO_HEALED (1 ms)
+    ✕ resolveAutoHealed：已 RESOLVED 的案再 resolve 被显式拒（迁移表真调用） (1 ms)
+
+  ● ReconciliationCaseService（波三判据 4） › resolveAutoHealed：已 RESOLVED 的案再 resolve 被显式拒（迁移表真调用）
+
+    expect(received).rejects.toThrow()
+
+    Received promise resolved instead of rejected
+    Resolved to value: undefined
+
+      52 |     d.reconciliationCase.findUnique.mockResolvedValue({ status: 'RESOLVED' });
+      53 |     const svc = new ReconciliationCaseService(d.prisma, d.auditLogs);
+    > 54 |     await expect(svc.resolveAutoHealed({ caseId: 'c1', caseNo: 'REC1', walletRef: 'w-1', runId: 'run-2', traceId: null, resolvedAt: new Date() }))
+         |           ^
+      55 |       .rejects.toThrow(BadRequestException);
+      56 |     expect(d.reconciliationCase.update).not.toHaveBeenCalled();
+      57 |   });
+
+      at expect (node_modules/expect/build/index.js:2116:15)
+      at Object.<anonymous> (src/modules/clearing-settle/reconciliation/domain/reconciliation-case.service.spec.ts:54:11)
+
+Test Suites: 1 failed, 1 total
+Tests:       1 failed, 2 passed, 3 total
+Snapshots:   0 total
+Time:        1.988 s, estimated 3 s
+Ran all test suites matching src/modules/clearing-settle/reconciliation/domain/reconciliation-case.service.spec.ts.
