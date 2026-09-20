@@ -116,7 +116,7 @@ outlet?: string;
 
 ## 四、熔断触发情况
 
-**零**。全波（T0–T10）逐任务自查 + 评审复核，无一处触发 spec §6 熔断条款（DTO 放宽 / 载荷字段规整 / 新增未知键）。T9 report 明确记录"无一处把 `as any` 换成等价逃逸（如 `as unknown as X`），无一处把顶层字段塞进 metadata，无熔断触发"；incidents controller 4 处属性收窄未出现"不在 Body 也不在服务侧 interface 的键"。
+**零**。全波（T0–T10）逐任务自查 + 评审复核，无一处触发 spec §6 熔断条款（DTO 放宽 / 载荷字段规整 / 新增未知键）。T9 report 明确记录"无一处把 `as any` 换成等价逃逸（如 `as unknown as X`），无一处把顶层字段塞进 metadata，无熔断触发"；incidents controller 4 处属性收窄未出现"不在 Body 也不在服务侧 interface 的键"。**限定**：该结论指本波 T9 那 18 处修复动作本身——摘 cast 时未顺手造出新的等价逃逸。它不等于"仓库里没有等价逃逸形态"：修复过程中改用的 `const subjects: any[]` 局部变量声明与波二遗留的一处 `as unknown as string[]` 二段式断言仍然存在，属于 `" as any"` 字面量 grep 判据本身照不到的既有/新增形态，详见 §六。
 
 ## 五、`this.prisma as any` 次级探针——1 行注释命中如实登记
 
@@ -138,6 +138,8 @@ src/modules/clearing-settle/reconciliation/disposition/supplement-evidence.servi
 2. **`recon-demo.ts` break 清单落盘路径写死 main 栈**：`/tmp/exchange_js_main/recon-demo-manifest.json`，self 栈跑批也写 main 路径（T0 对照组采样时发现，既有脚本行为，非本波引入）。**提不修**。
 
 两条均只登记复现命令与来源，不修、不讨论、不进 plan（`CLAUDE.md §4` 技术兜底出口规矩）。
+
+另有一处**只提不改**、留终审分诊的死码线索（Ruling R3 第③项）：`recon-run` 顶部的 `AuditActions` import 系波前既有死导入（base 侧零使用点，T2 评审经 `git show` 复现），按"别人的死码只提不删"原则未清；不新登记 `TOOLING-DEBT.md`（未达该文件的登记门槛，只是一行未使用的死 import），仅在此存档以免线索随波三 spec 归档而失踪。
 
 ## 七、对照 `rules/delivery-checklist.md` 逐条
 
