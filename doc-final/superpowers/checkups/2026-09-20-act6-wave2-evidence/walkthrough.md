@@ -66,7 +66,7 @@ main 上已经存在、已被此前波次登记在案的既有工具/RBAC 债，
 |---|---|
 | `p1-runs.png` | Reconciliation Runs：2 条运行，Business Date 均 `2026-09-19`，无 epoch 时间；RUN…-1 Cases +12/✓0，RUN…-2 +0/✓0（复跑无新案）。 |
 | `p2-cases.png` | 12 条 Open 案件，STATUS 筛选框当前值 `Open`；源码核验 `grep -c "WAIVED\|PENDING_RECHECK" admin-web/src/pages/ReconciliationCasesListPage.tsx` = 0（无匹配），页面截图各行 Disposition/Status 列亦无 Waived 字样——判据 4 达标。 |
-| `p3-case-detail-scene1.png` | 深链 `REC20260919-004`（recon:demo:break 场景 #1 IN_TRANSIT_TIMING，bucket=IN_TRANSIT）。Differences 表在途行 **Time = `09-20 03:17`**（真实时间，非 `01-01 04:00` 占位），Source `FD0260920298730`，Disposition `Push order →`。红3 判据（真实时间落库+下发）达标；该案当前只有 1 条在途差异行，"不再恒排最旧"的排序判据由 Task 1/2 的单测覆盖（`reconciliation-query.service.spec.ts` 新增 24 行）。 |
+| `p3-case-detail-scene1.png` | 深链 `REC20260919-004`（recon:demo:break 场景 #1 IN_TRANSIT_TIMING，bucket=IN_TRANSIT）。Differences 表在途行 **Time = `09-20 03:17`**（真实时间，非 `01-01 04:00` 占位），Source `FD0260920298730`，Disposition `Push order →`。红3 判据（真实时间落库+下发）达标；该案当前只有 1 条在途差异行，排序修复（不再恒排最旧）基于 Task 1/2 单测覆盖的后端真值/null 下发机制的推论（`reconciliation-query.service.spec.ts` 新增 24 行）。 |
 | `p4-external-balances.png` | 默认日 `2026/09/19`，19 wallets（Crypto 9 + Fiat 10）——Step 4 划转前基线快照。 |
 | `p5-adjustments.png` | 0 adjustments（Step 4 尚未开单前的真实空态，非误筛）。 |
 | `p6-eb-after-transfer.png` | 见 Step 4。 |
