@@ -19,6 +19,7 @@ import { randomUUID } from 'node:crypto';
 import { Injectable, Logger } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../core/prisma/prisma.service';
+import { decimalsMapOf } from '../domain/asset-decimals.util';
 import {
   WalletBalanceCheckerService,
   WalletBalanceCheckResult,
@@ -47,6 +48,7 @@ import {
   AuditActions,
   AuditEntityTypes,
 } from '../../../audit-logging/constants/audit-actions.constant';
+import { ReconciliationCaseService } from '../domain/reconciliation-case.service';
 
 const RUN_LAYER = 'WALLET';
 
@@ -107,6 +109,7 @@ export class WalletReconRunService {
     private readonly tigerBeetle: TigerBeetleService,
     private readonly auditLogs: AuditLogsService,
     private readonly explainedDifferences: ExplainedDifferenceService,
+    private readonly caseService: ReconciliationCaseService,
   ) {}
 
   async run(input: WalletReconRunInput, actor?: AuditActorContext): Promise<WalletReconRunResult> {
@@ -174,9 +177,7 @@ export class WalletReconRunService {
           where: { code: { in: runCurrencies } },
           select: { code: true, decimals: true },
         })) as Array<{ code: string; decimals: number }>);
-    const decimalsByCurrency = new Map<string, number>(
-      assetsForDecimals.map((a) => [a.code, a.decimals]),
-    );
+    const decimalsByCurrency = decimalsMapOf(assetsForDecimals);
 
     let casesCreated = 0;
     let casesUpdated = 0;
@@ -204,186 +205,47 @@ export class WalletReconRunService {
 
     for (const walletRef of walletRefs) {
       const bal = attributedBalances.find((b) => b.walletRef === walletRef)!;
-      const currency = bal.currency;
-      const assetId = await this.resolveAssetId(currency);
-      if (!assetId) continue;
-      // 查到这里就算「本轮真的看过这个钱包」——③ 自愈的前提。
-      observedWallets.add(walletRef);
-
-      // 2a. Balance check (T6)
-      const balanceCheck: WalletBalanceCheckResult = await this.balanceChecker.checkBalance({
+      const outcome = await this.processAttributedWallet({
         walletRef,
-        externalClosing: BigInt(bal.closingBalance.toString()),
+        bal,
         cutoff,
-      });
-
-      // 2a'. Enrich UNKNOWN — when the checker can't classify (firm wallet
-      // whose flows landed only on aggregate FIRM_ASSET legs, or a fresh
-      // wallet with zero activity), look up walletRole + ownerType + ownerNo
-      // from the wallet table so the case row gets meaningful coaCode/book/
-      // owner instead of empty strings + 'CUSTOMER' book.
-      const enriched = await this.enrichIfUnknown(walletRef, balanceCheck);
-
-      // 2b. Flow match
-      const externalLines = await this.fetchExternalLinesForWallet(walletRef, bal.accountRef, cutoff);
-      const matcherResult = await this.flowMatcher.matchFlows({
-        walletRef,
-        externalLines,
-        cutoff,
+        runId: run.id,
+        traceId: run.traceId ?? null,
+        businessDate,
+        slaDeadline,
         decimals: decimalsByCurrency.get(bal.currency) ?? 0,
       });
-      orphanInternal += matcherResult.orphanInternal.length;
-      orphanExternal += matcherResult.orphanExternal.length;
-      mismatch += matcherResult.mismatch.length;
-
-      // Round3: five-bucket classification — replaces the old binary
-      // (balance-pass && no-flow-break) gate. In-transit flows explain part
-      // of the delta before we decide whether the residual is a real break.
-      const inTransitSigned = matcherResult.inTransit.reduce(
-        (s, it) => s + (it.direction === 'IN' ? BigInt(it.amount) : -BigInt(it.amount)),
-        0n,
-      );
-      // ④ 已被落账调账单解释的差异，不计入异常数。
-      // 业主 2026-08-29 裁定「甲」：调账单只改余额，造成差额的那条流水本身还在，
-      // 而桶规则是「残差=0 且 无在途 且 流水异常>0 → COMPENSATING」——COMPENSATING 不是
-      // MATCHED，钱包仍在破口集合里，于是平了账的案子永远关不掉。把已解释的差异
-      // 摘掉，案子才走得完最后一步。（差异行本身照写，只是标成 EXPLAINED，仍在
-      // 案件页上看得见——「这条已被 ADJxxx 解释」是演示可见物。）
-      const explained = await this.explainedDifferences.indexForWallet(walletRef);
-      const isUnexplained = (a: { internalFlowId?: string; externalLineId?: string }) =>
-        explainedBy(explained, a) === null;
-      const anomalyCount =
-        matcherResult.orphanInternal.filter(isUnexplained).length +
-        matcherResult.orphanExternal.filter(isUnexplained).length +
-        matcherResult.mismatch.filter(isUnexplained).length;
-      const bucket = computeBucket({
-        delta: balanceCheck.delta,
-        inTransitSigned,
-        inTransitCount: matcherResult.inTransit.length,
-        anomalyCount,
-      });
-      this.bumpBucketCount(bucketCounts, bucket);
-
-      let caseNo: string | null = null;
-      // T2/Round3: one wallet-level Case per non-MATCHED wallet — upsert by
-      // walletRef (cross-day unique, see upsertCaseForWallet). Whether the
-      // break is balance, flow, or in-transit residual, we land on the same
-      // Case row; line items reflect the current run's findings.
-      if (bucket !== 'MATCHED') {
-        const caseReason = !balanceCheck.pass && anomalyCount > 0
-          ? 'wallet_balance_and_flow_break'
-          : !balanceCheck.pass
-            ? 'wallet_balance_mismatch'
-            : 'wallet_flow_break';
-        const { created, caseNo: openedCaseNo } = await this.upsertCaseForWallet({
-          runId: run.id,
-          businessDate,
-          assetId,
-          assetCode: currency,
-          book: enriched.book,
-          walletRef,
-          coaCode: enriched.coaCode,
-          ownerNo: enriched.ownerNo,
-          delta: balanceCheck.delta,
-          tbAmount: balanceCheck.internal.total,
-          actualExternal: balanceCheck.external,
-          inTransitSigned,
-          bucket,
-          matcherResult,
-          explained,
-          caseReason,
-          slaDeadline,
-        });
-        if (created) {
-          casesCreated += 1;
-          await this.auditCaseOpened({ traceId: run.traceId ?? null, walletRef, bucket, delta: balanceCheck.delta, caseNo: openedCaseNo, slaDeadline });
-        } else {
-          casesUpdated += 1;
-        }
-        currentBreakingWallets.add(walletRef);
-        caseNo = openedCaseNo;
-      }
-
-      snapshotRows.push({
-        runId: run.id,
-        walletRef,
-        assetCode: currency,
-        book: enriched.book,
-        coaCode: enriched.coaCode,
-        ownerNo: enriched.ownerNo,
-        bucket,
-        internalTotal: new Prisma.Decimal(balanceCheck.internal.total.toString()),
-        externalClosing: new Prisma.Decimal(balanceCheck.external.toString()),
-        deltaAmount: new Prisma.Decimal(balanceCheck.delta.toString()),
-        inTransitAmount: new Prisma.Decimal(inTransitSigned.toString()),
-        matchedCount: matcherResult.matched.length,
-        orphanInternal: matcherResult.orphanInternal.length,
-        orphanExternal: matcherResult.orphanExternal.length,
-        mismatchCount: matcherResult.mismatch.length,
-        inTransitCount: matcherResult.inTransit.length,
-        caseNo,
-      });
+      if (!outcome.observed) continue;
+      observedWallets.add(walletRef);
+      orphanInternal += outcome.orphanInternal;
+      orphanExternal += outcome.orphanExternal;
+      mismatch += outcome.mismatch;
+      if (outcome.bucket) this.bumpBucketCount(bucketCounts, outcome.bucket);
+      if (outcome.caseOutcome === 'CREATED') casesCreated += 1;
+      else if (outcome.caseOutcome === 'REOBSERVED') casesUpdated += 1;
+      if (outcome.breaking) currentBreakingWallets.add(walletRef);
+      if (outcome.snapshotRow) snapshotRows.push(outcome.snapshotRow);
     }
 
     // ── 2c. Unattributed external heads (walletRef=null) — no internal face
     // to compare against, so neither engine runs. Always BREAK; case keyed
     // on accountRef standing in for walletRef.
     for (const bal of unattributedBalances) {
-      const currency = bal.currency;
-      const assetId = await this.resolveAssetId(currency);
-      if (!assetId) continue;
-      const closing = BigInt(bal.closingBalance.toString());
-      const walletRef = bal.accountRef;
-      observedWallets.add(walletRef);
-
-      const { created, caseNo } = await this.upsertCaseForWallet({
+      const outcome = await this.processUnattributedHead({
+        bal,
         runId: run.id,
+        traceId: run.traceId ?? null,
         businessDate,
-        assetId,
-        assetCode: currency,
-        book: 'FIRM',
-        walletRef,
-        coaCode: null,
-        ownerNo: null,
-        delta: closing,
-        tbAmount: 0n,
-        actualExternal: closing,
-        inTransitSigned: 0n,
-        bucket: 'BREAK',
-        matcherResult: { matched: [], orphanInternal: [], orphanExternal: [], mismatch: [], inTransit: [] },
-        // 未归属外部账户没有内部钱包、也就没有调账单挂得上去，空索引。
-        explained: EMPTY_EXPLAINED_INDEX,
-        caseReason: 'unattributed_external_account',
         slaDeadline,
       });
-      if (created) {
-        casesCreated += 1;
-        await this.auditCaseOpened({ traceId: run.traceId ?? null, walletRef, bucket: 'BREAK', delta: closing, caseNo, slaDeadline });
-      } else {
-        casesUpdated += 1;
-      }
+      if (!outcome.observed) continue;
+      const walletRef = bal.accountRef;
+      observedWallets.add(walletRef);
+      if (outcome.caseOutcome === 'CREATED') casesCreated += 1;
+      else if (outcome.caseOutcome === 'REOBSERVED') casesUpdated += 1;
       currentBreakingWallets.add(walletRef);
       this.bumpBucketCount(bucketCounts, 'BREAK');
-
-      snapshotRows.push({
-        runId: run.id,
-        walletRef,
-        assetCode: currency,
-        book: 'FIRM',
-        coaCode: null,
-        ownerNo: null,
-        bucket: 'BREAK',
-        internalTotal: new Prisma.Decimal(0),
-        externalClosing: new Prisma.Decimal(closing.toString()),
-        deltaAmount: new Prisma.Decimal(closing.toString()),
-        inTransitAmount: new Prisma.Decimal(0),
-        matchedCount: 0,
-        orphanInternal: 0,
-        orphanExternal: 0,
-        mismatchCount: 0,
-        inTransitCount: 0,
-        caseNo,
-      });
+      if (outcome.snapshotRow) snapshotRows.push(outcome.snapshotRow);
     }
 
     // ── 3. Persist per-wallet snapshot rows — single write, all buckets.
@@ -438,6 +300,237 @@ export class WalletReconRunService {
       orphanInternal,
       orphanExternal,
       mismatch,
+    };
+  }
+
+  // ── 波三 T5：归属钱包循环体（剪切粘贴自 run()，行为零差异）────────────────
+  private async processAttributedWallet(args: {
+    walletRef: string;
+    bal: ExternalBalanceRow;
+    cutoff: Date;
+    runId: string;
+    traceId: string | null;
+    businessDate: string;
+    slaDeadline: Date;
+    decimals: number;
+  }): Promise<{
+    observed: boolean;
+    snapshotRow: Prisma.ReconciliationRunWalletCreateManyInput | null;
+    bucket: ReconBucket | null;
+    caseOutcome: 'CREATED' | 'REOBSERVED' | null;
+    breaking: boolean;
+    orphanInternal: number;
+    orphanExternal: number;
+    mismatch: number;
+  }> {
+    const { walletRef, bal, cutoff, runId, traceId, businessDate, slaDeadline, decimals } = args;
+    const currency = bal.currency;
+    const assetId = await this.resolveAssetId(currency);
+    if (!assetId) {
+      return {
+        observed: false,
+        snapshotRow: null,
+        bucket: null,
+        caseOutcome: null,
+        breaking: false,
+        orphanInternal: 0,
+        orphanExternal: 0,
+        mismatch: 0,
+      };
+    }
+    // 查到这里就算「本轮真的看过这个钱包」——③ 自愈的前提。outcome.observed=true，
+    // 由 run() 据此 add 进 observedWallets。
+
+    // 2a. Balance check (T6)
+    const balanceCheck: WalletBalanceCheckResult = await this.balanceChecker.checkBalance({
+      walletRef,
+      externalClosing: BigInt(bal.closingBalance.toString()),
+      cutoff,
+    });
+
+    // 2a'. Enrich UNKNOWN — when the checker can't classify (firm wallet
+    // whose flows landed only on aggregate FIRM_ASSET legs, or a fresh
+    // wallet with zero activity), look up walletRole + ownerType + ownerNo
+    // from the wallet table so the case row gets meaningful coaCode/book/
+    // owner instead of empty strings + 'CUSTOMER' book.
+    const enriched = await this.enrichIfUnknown(walletRef, balanceCheck);
+
+    // 2b. Flow match
+    const externalLines = await this.fetchExternalLinesForWallet(walletRef, bal.accountRef, cutoff);
+    const matcherResult = await this.flowMatcher.matchFlows({
+      walletRef,
+      externalLines,
+      cutoff,
+      decimals,
+    });
+    const orphanInternal = matcherResult.orphanInternal.length;
+    const orphanExternal = matcherResult.orphanExternal.length;
+    const mismatch = matcherResult.mismatch.length;
+
+    // Round3: five-bucket classification — replaces the old binary
+    // (balance-pass && no-flow-break) gate. In-transit flows explain part
+    // of the delta before we decide whether the residual is a real break.
+    const inTransitSigned = matcherResult.inTransit.reduce(
+      (s, it) => s + (it.direction === 'IN' ? BigInt(it.amount) : -BigInt(it.amount)),
+      0n,
+    );
+    // ④ 已被落账调账单解释的差异，不计入异常数。
+    // 业主 2026-08-29 裁定「甲」：调账单只改余额，造成差额的那条流水本身还在，
+    // 而桶规则是「残差=0 且 无在途 且 流水异常>0 → COMPENSATING」——COMPENSATING 不是
+    // MATCHED，钱包仍在破口集合里，于是平了账的案子永远关不掉。把已解释的差异
+    // 摘掉，案子才走得完最后一步。（差异行本身照写，只是标成 EXPLAINED，仍在
+    // 案件页上看得见——「这条已被 ADJxxx 解释」是演示可见物。）
+    const explained = await this.explainedDifferences.indexForWallet(walletRef);
+    const isUnexplained = (a: { internalFlowId?: string; externalLineId?: string }) =>
+      explainedBy(explained, a) === null;
+    const anomalyCount =
+      matcherResult.orphanInternal.filter(isUnexplained).length +
+      matcherResult.orphanExternal.filter(isUnexplained).length +
+      matcherResult.mismatch.filter(isUnexplained).length;
+    const bucket = computeBucket({
+      delta: balanceCheck.delta,
+      inTransitSigned,
+      inTransitCount: matcherResult.inTransit.length,
+      anomalyCount,
+    });
+
+    let caseNo: string | null = null;
+    let caseOutcome: 'CREATED' | 'REOBSERVED' | null = null;
+    let breaking = false;
+    // T2/Round3: one wallet-level Case per non-MATCHED wallet — upsert by
+    // walletRef (cross-day unique, see upsertCaseForWallet). Whether the
+    // break is balance, flow, or in-transit residual, we land on the same
+    // Case row; line items reflect the current run's findings.
+    if (bucket !== 'MATCHED') {
+      const caseReason = !balanceCheck.pass && anomalyCount > 0
+        ? 'wallet_balance_and_flow_break'
+        : !balanceCheck.pass
+          ? 'wallet_balance_mismatch'
+          : 'wallet_flow_break';
+      const { created, caseNo: openedCaseNo } = await this.upsertCaseForWallet({
+        runId,
+        businessDate,
+        assetId,
+        assetCode: currency,
+        book: enriched.book,
+        walletRef,
+        coaCode: enriched.coaCode,
+        ownerNo: enriched.ownerNo,
+        delta: balanceCheck.delta,
+        tbAmount: balanceCheck.internal.total,
+        actualExternal: balanceCheck.external,
+        inTransitSigned,
+        bucket,
+        matcherResult,
+        explained,
+        caseReason,
+        slaDeadline,
+        traceId,
+      });
+      caseOutcome = created ? 'CREATED' : 'REOBSERVED';
+      breaking = true;
+      caseNo = openedCaseNo;
+    }
+
+    const snapshotRow: Prisma.ReconciliationRunWalletCreateManyInput = {
+      runId,
+      walletRef,
+      assetCode: currency,
+      book: enriched.book,
+      coaCode: enriched.coaCode,
+      ownerNo: enriched.ownerNo,
+      bucket,
+      internalTotal: new Prisma.Decimal(balanceCheck.internal.total.toString()),
+      externalClosing: new Prisma.Decimal(balanceCheck.external.toString()),
+      deltaAmount: new Prisma.Decimal(balanceCheck.delta.toString()),
+      inTransitAmount: new Prisma.Decimal(inTransitSigned.toString()),
+      matchedCount: matcherResult.matched.length,
+      orphanInternal: matcherResult.orphanInternal.length,
+      orphanExternal: matcherResult.orphanExternal.length,
+      mismatchCount: matcherResult.mismatch.length,
+      inTransitCount: matcherResult.inTransit.length,
+      caseNo,
+    };
+
+    return {
+      observed: true,
+      snapshotRow,
+      bucket,
+      caseOutcome,
+      breaking,
+      orphanInternal,
+      orphanExternal,
+      mismatch,
+    };
+  }
+
+  // ── 波三 T5：未归属外部头循环体（剪切粘贴自 run()，行为零差异）────────────
+  private async processUnattributedHead(args: {
+    bal: ExternalBalanceRow;
+    runId: string;
+    traceId: string | null;
+    businessDate: string;
+    slaDeadline: Date;
+  }): Promise<{
+    observed: boolean;
+    snapshotRow: Prisma.ReconciliationRunWalletCreateManyInput | null;
+    caseOutcome: 'CREATED' | 'REOBSERVED' | null;
+  }> {
+    const { bal, runId, traceId, businessDate, slaDeadline } = args;
+    const currency = bal.currency;
+    const assetId = await this.resolveAssetId(currency);
+    if (!assetId) {
+      return { observed: false, snapshotRow: null, caseOutcome: null };
+    }
+    const closing = BigInt(bal.closingBalance.toString());
+    const walletRef = bal.accountRef;
+
+    const { created, caseNo } = await this.upsertCaseForWallet({
+      runId,
+      businessDate,
+      assetId,
+      assetCode: currency,
+      book: 'FIRM',
+      walletRef,
+      coaCode: null,
+      ownerNo: null,
+      delta: closing,
+      tbAmount: 0n,
+      actualExternal: closing,
+      inTransitSigned: 0n,
+      bucket: 'BREAK',
+      matcherResult: { matched: [], orphanInternal: [], orphanExternal: [], mismatch: [], inTransit: [] },
+      // 未归属外部账户没有内部钱包、也就没有调账单挂得上去，空索引。
+      explained: EMPTY_EXPLAINED_INDEX,
+      caseReason: 'unattributed_external_account',
+      slaDeadline,
+      traceId,
+    });
+
+    const snapshotRow: Prisma.ReconciliationRunWalletCreateManyInput = {
+      runId,
+      walletRef,
+      assetCode: currency,
+      book: 'FIRM',
+      coaCode: null,
+      ownerNo: null,
+      bucket: 'BREAK',
+      internalTotal: new Prisma.Decimal(0),
+      externalClosing: new Prisma.Decimal(closing.toString()),
+      deltaAmount: new Prisma.Decimal(closing.toString()),
+      inTransitAmount: new Prisma.Decimal(0),
+      matchedCount: 0,
+      orphanInternal: 0,
+      orphanExternal: 0,
+      mismatchCount: 0,
+      inTransitCount: 0,
+      caseNo,
+    };
+
+    return {
+      observed: true,
+      snapshotRow,
+      caseOutcome: created ? 'CREATED' : 'REOBSERVED',
     };
   }
 
@@ -536,7 +629,7 @@ export class WalletReconRunService {
     const tbIds = registry.map((r) => BigInt('0x' + r.tbAccountId));
     let accounts: Array<{ id: bigint; code: number; debits_posted: bigint; credits_posted: bigint }> = [];
     try {
-      accounts = (await this.tigerBeetle.lookupAccounts(tbIds)) as any;
+      accounts = await this.tigerBeetle.lookupAccounts(tbIds);
     } catch (err) {
       this.logger.warn(`[wallet-recon] TigerBeetle lookup failed (${(err as Error).message}) — treating identity as broken`);
       return {
@@ -723,6 +816,7 @@ export class WalletReconRunService {
     explained: ExplainedIndex;
     caseReason: string;
     slaDeadline: Date;
+    traceId: string | null;
   }): Promise<{ caseId: string; caseNo: string; created: boolean }> {
     const deltaDecimal = new Prisma.Decimal(input.delta.toString());
     const tbDecimal = new Prisma.Decimal(input.tbAmount.toString());
@@ -735,88 +829,62 @@ export class WalletReconRunService {
     // Round3 T5 Step③: businessDate intentionally dropped from the probe so
     // an OPEN case persists across reruns on later days (re-observation
     // refreshes the same row instead of forking a new one per day).
-    const existing = await this.prisma.reconciliationCase.findFirst({
-      where: {
-        walletRef: input.walletRef,
-        status: 'OPEN',
-      },
-      select: { id: true, caseNo: true },
-    });
+    // 第六幕波三 T2：探针与写点全部经 ReconciliationCaseService（唯一写点）。
+    const existing = await this.caseService.findOpenByWallet(input.walletRef);
 
     let caseId: string;
     let caseNo: string;
     let created: boolean;
     if (existing) {
-      await this.prisma.reconciliationCase.update({
-        where: { id: existing.id },
-        data: {
-          // Snapshot fields → reflect THIS run's measurement, not history.
-          tbAmount: tbDecimal,
-          inTransitAmount: inTransitDecimal,
-          expectedExternal: expectedDecimal,
-          actualExternal: externalDecimal,
-          deltaAmount: deltaDecimal,
-          severity,
-          bucket: input.bucket,
-          // Locator fields can drift if a wallet's owner/coa changes
-          // mid-stream; keep them current for the cockpit.
-          assetId: input.assetId,
-          assetCode: input.assetCode,
-          book: input.book,
-          coaCode: input.coaCode,
-          ownerNo: input.ownerNo,
-          // Bookkeeping. firstSeenRunId stays as-is (pin the original observer).
-          lastUpdatedRunId: input.runId,
-          lastObservedRunId: input.runId,
-        },
+      await this.caseService.reObserve({
+        caseId: existing.id,
+        runId: input.runId,
+        tbAmount: tbDecimal,
+        inTransitAmount: inTransitDecimal,
+        expectedExternal: expectedDecimal,
+        actualExternal: externalDecimal,
+        deltaAmount: deltaDecimal,
+        severity,
+        bucket: input.bucket,
+        assetId: input.assetId,
+        assetCode: input.assetCode,
+        book: input.book,
+        coaCode: input.coaCode,
+        ownerNo: input.ownerNo,
       });
       caseId = existing.id;
       caseNo = existing.caseNo;
       created = false;
       // Replace line items: drop prior + insert current. ON DELETE CASCADE
       // is set on the FK so this is atomic to the lineItems table.
+      // （行明细留在 recon-run 原地——它是 run 的证据写点，不是 Case 表。）
       await this.prisma.reconciliationLineItem.deleteMany({
         where: { caseId: existing.id },
       });
     } else {
-      // Format: REC{YYYYMMDD}-{nnn}. Sequence counts ALL cases for the
-      // businessDate — collision-safe. Asset/wallet info is in the detail page.
-      const priorToday = await this.prisma.reconciliationCase.count({
-        where: { businessDate: input.businessDate },
+      const opened = await this.caseService.openCase({
+        runId: input.runId,
+        businessDate: input.businessDate,
+        assetId: input.assetId,
+        assetCode: input.assetCode,
+        layer: RUN_LAYER,
+        book: input.book,
+        walletRef: input.walletRef,
+        coaCode: input.coaCode,
+        ownerNo: input.ownerNo,
+        tbAmount: tbDecimal,
+        inTransitAmount: inTransitDecimal,
+        expectedExternal: expectedDecimal,
+        actualExternal: externalDecimal,
+        deltaAmount: deltaDecimal,
+        severity,
+        bucket: input.bucket,
+        slaDeadline: input.slaDeadline,
+        traceId: input.traceId,
+        delta: input.delta,
       });
-      const newCaseNo = `REC${input.businessDate.replace(/-/g, '')}-${String(priorToday + 1).padStart(3, '0')}`;
-      const createdRow = await this.prisma.reconciliationCase.create({
-        data: {
-          caseNo: newCaseNo,
-          businessDate: input.businessDate,
-          assetId: input.assetId,
-          assetCode: input.assetCode,
-          layer: RUN_LAYER,
-          book: input.book,
-          tbAmount: tbDecimal,
-          inTransitAmount: inTransitDecimal,
-          expectedExternal: expectedDecimal,
-          actualExternal: externalDecimal,
-          deltaAmount: deltaDecimal,
-          status: 'OPEN',
-          openedByRunId: input.runId,
-          lastObservedRunId: input.runId,
-          // T1 fields: pin the first observer + last updater (initially same).
-          firstSeenRunId: input.runId,
-          lastUpdatedRunId: input.runId,
-          severity,
-          bucket: input.bucket,
-          traceId: randomUUID(),
-          walletRef: input.walletRef,
-          coaCode: input.coaCode,
-          ownerNo: input.ownerNo,
-          // 平账 A 批（spec §2.1）：账龄起算只在开案这一刻——复观察（上面 existing 分支）
-          // 不重置，故 slaDeadline 只在这个 create 分支写。
-          slaDeadline: input.slaDeadline,
-        },
-      });
-      caseId = createdRow.id;
-      caseNo = newCaseNo;
+      caseId = opened.caseId;
+      caseNo = opened.caseNo;
       created = true;
     }
 
@@ -957,60 +1025,22 @@ export class WalletReconRunService {
     if (stale.length === 0) return 0;
     const now = new Date();
     for (const c of stale) {
-      await this.prisma.reconciliationCase.update({
-        where: { id: c.id },
-        data: {
-          status: 'RESOLVED',
-          resolutionReason: 'AUTO_HEALED',
-          resolvedAt: now,
-          lastUpdatedRunId: input.runId,
-          closedByRunId: input.runId,
-        },
+      await this.caseService.resolveAutoHealed({
+        caseId: c.id,
+        caseNo: c.caseNo,
+        walletRef: c.walletRef,
+        runId: input.runId,
+        traceId: input.traceId,
+        resolvedAt: now,
       });
-      await this.auditCaseAutoHealed({ traceId: input.traceId, walletRef: c.walletRef, caseNo: c.caseNo });
     }
     return stale.length;
   }
 
   // ── Audit (DI — never `new AuditLogsService`) ─────────────────────────────
-  private async auditCaseOpened(input: { traceId: string | null; walletRef: string; bucket: ReconBucket; delta: bigint; caseNo: string; slaDeadline: Date }): Promise<void> {
-    await this.auditLogs.recordSystem({
-      action: 'RECON_CASE_OPENED',
-      actionDomain: 'RECON',
-      category: AuditCategory.BUSINESS,
-      primarySubjectType: AuditEntityTypes.RECONCILIATION_CASE,
-      primarySubjectNo: input.caseNo,
-      subjects: [
-        { subjectType: AuditEntityTypes.RECONCILIATION_CASE, subjectNo: input.caseNo, subjectRole: AuditSubjectRole.PRIMARY },
-      ],
-      traceId: input.traceId ?? undefined,
-      requestId: `RECON_CASE_OPENED_${input.caseNo}_${randomUUID()}`,
-      metadata: {
-        walletRef: input.walletRef,
-        bucket: input.bucket,
-        deltaAmount: input.delta.toString(),
-        caseNo: input.caseNo,
-        slaDeadline: input.slaDeadline.toISOString(),
-      },
-    } as any);
-  }
-
-  private async auditCaseAutoHealed(input: { traceId: string | null; walletRef: string; caseNo: string }): Promise<void> {
-    await this.auditLogs.recordSystem({
-      action: 'RECON_CASE_AUTO_HEALED',
-      actionDomain: 'RECON',
-      category: AuditCategory.BUSINESS,
-      primarySubjectType: AuditEntityTypes.RECONCILIATION_CASE,
-      primarySubjectNo: input.caseNo,
-      subjects: [
-        { subjectType: AuditEntityTypes.RECONCILIATION_CASE, subjectNo: input.caseNo, subjectRole: AuditSubjectRole.PRIMARY },
-      ],
-      traceId: input.traceId ?? undefined,
-      requestId: `RECON_CASE_AUTO_HEALED_${input.caseNo}_${randomUUID()}`,
-      metadata: { walletRef: input.walletRef, caseNo: input.caseNo },
-    } as any);
-  }
-
+  // 第六幕波三 T2：RECON_CASE_OPENED / RECON_CASE_AUTO_HEALED 两条审计已随写点
+  // 搬进 ReconciliationCaseService（openCase / resolveAutoHealed 内部发），
+  // 本文件不再重复留痕。auditRunCompleted 是跑批级留痕，留在这里不动。
   private async auditRunCompleted(input: {
     runNo: string;
     traceId: string | null;
@@ -1049,8 +1079,8 @@ export class WalletReconRunService {
         casesAutoHealed: input.casesAutoHealed,
         cutoffAt: input.cutoffAt.toISOString(),
       },
-    } as any;
-    if (input.actor) await this.auditLogs.recordByActor(envelope, input.actor as any);
+    };
+    if (input.actor) await this.auditLogs.recordByActor(envelope, input.actor);
     else await this.auditLogs.recordSystem(envelope);
   }
 

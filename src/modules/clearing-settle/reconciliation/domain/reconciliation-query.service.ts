@@ -2,17 +2,14 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../core/prisma/prisma.service';
 import { AccountingService } from '../../../accounting/tigerbeetle/accounting.service';
-import {
-  WalletFlowMatcherService,
-  ExternalStatementLineInput,
-} from '../engine/v2/wallet-flow-matcher.service';
-import { effectiveCutoffFilter } from '../engine/v2/effective-cutoff';
-import {
-  ExplainedDifferenceService,
-  explainedBy,
-} from '../disposition/explained-difference.service';
+import { resolveWalletNo } from './wallet-no.util';
+import { decimalsMapOf } from './asset-decimals.util';
+// 波三 T6：flowComparison 的四段查询/匹配全部搬进 FlowComparisonBuilder——本文件
+// 只留 getCase 的编排调用，不再直接依赖 WalletFlowMatcherService / ExplainedDifferenceService。
+import { FlowComparisonBuilder } from './flow-comparison.builder';
 import {
   CAUSE_REGISTRY,
+  CauseBook,
   CauseCode,
   CauseMatchType,
   DispositionKind,
@@ -66,9 +63,8 @@ interface DemoManifestShape {
 export class ReconciliationQueryService {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly walletFlowMatcher: WalletFlowMatcherService,
-    private readonly explainedDifferences: ExplainedDifferenceService,
     private readonly accounting: AccountingService,
+    private readonly flowComparisonBuilder: FlowComparisonBuilder,
   ) {}
 
   listRuns(q: { businessDate?: string; layer?: string }) {
@@ -155,7 +151,7 @@ export class ReconciliationQueryService {
           select: { code: true, decimals: true },
         })) as Array<{ code: string; decimals: number }>)
       : [];
-    const decimalsByCode = new Map(runAssets.map((a) => [a.code, a.decimals]));
+    const decimalsByCode = decimalsMapOf(runAssets);
 
     const accountStatusTable: AccountStatusRow[] = legacy ? [] : runWallets.map((w) => ({
       walletRef: w.walletRef,
@@ -257,7 +253,7 @@ export class ReconciliationQueryService {
     const assets = assetCodes.length
       ? ((await this.prisma.asset.findMany({ where: { code: { in: assetCodes } }, select: { code: true, decimals: true } })) as Array<{ code: string; decimals: number }>)
       : [];
-    const decimalsByCode = new Map(assets.map((a) => [a.code, a.decimals]));
+    const decimalsByCode = decimalsMapOf(assets);
 
     // Resolve walletRef (UUID) → walletNo (business key) so the cockpit
     // never exposes raw IDs. Legacy XREF synthetic walletRefs (start with
@@ -402,13 +398,8 @@ export class ReconciliationQueryService {
     let flowComparison: FlowComparisonRow[] = [];
     let flowSummary: FlowComparisonSummary = { matched: 0, orphanInternal: 0, orphanExternal: 0, mismatch: 0 };
     if (kase.walletRef && !kase.walletRef.startsWith('XREF:')) {
-      // 平账 A 批（spec §6.1）：截止 = 最近一次观察它的那轮跑批**实际用的截止时刻**，
-      // 不再是当天 23:59:59——跑批用精确时刻（演示传的 cutoff / 手动触发的 ISO），
-      // 页面按日终重建会把「截止点后 6 小时」的跨日切外部行落回窗内，孤儿消失、无行可处置。
-      // 历史 run 没记 cutoffAt 时回落日终（改动前的行为）。
-      const cutoffBusinessDate = lastObservedRun?.businessDate ?? kase.businessDate;
-      const cutoff: Date = lastObservedRun?.cutoffAt ?? new Date(`${cutoffBusinessDate}T23:59:59.999Z`);
-      const built = await this.buildFlowComparison({ walletRef: kase.walletRef, cutoff, businessDate: cutoffBusinessDate, assetCode: kase.assetCode });
+      const { cutoffBusinessDate, cutoff } = this.resolveCaseCutoff(kase, lastObservedRun);
+      const built = await this.flowComparisonBuilder.build({ walletRef: kase.walletRef, cutoff, businessDate: cutoffBusinessDate, assetCode: kase.assetCode });
       flowComparison = built.rows;
       flowSummary = built.summary;
     }
@@ -443,279 +434,15 @@ export class ReconciliationQueryService {
       where: { code: kase.assetCode }, select: { decimals: true, currency: true },
     })) as { decimals: number; currency: string } | null;
     const caseCurrency = assetRow?.currency ?? kase.assetCode;
-    // 平账二期（spec §7.2/§7.3）：补款 / 垫款回挂——读本案的划转单（直查 internal_transfers，
-    // 与 resolveSupplementRef 读业务域表同款先例），按来源锚回贴到行上。
-    const adjustmentByNo = new Map(caseAdjustments.map((a) => [a.adjustmentNo, a]));
-    const caseTransfers = (await this.prisma.internalTransfer.findMany({
-      where: { sourceCaseNo: kase.caseNo }, orderBy: { createdAt: 'desc' },
-      select: { transferNo: true, purpose: true, status: true, sourceAdjustmentNo: true, sourceExternalLineId: true },
-    })) as Array<{ transferNo: string; purpose: string; status: string; sourceAdjustmentNo: string | null; sourceExternalLineId: string | null }>;
-    const transferByAdjustment = new Map<string, (typeof caseTransfers)[number]>();
-    const transferByLine = new Map<string, (typeof caseTransfers)[number]>();
-    for (const t of caseTransfers) { // 最新在前，只留每个来源最新的一张
-      if (t.sourceAdjustmentNo && !transferByAdjustment.has(t.sourceAdjustmentNo)) transferByAdjustment.set(t.sourceAdjustmentNo, t);
-      if (t.sourceExternalLineId && !transferByLine.has(t.sourceExternalLineId)) transferByLine.set(t.sourceExternalLineId, t);
-    }
-    const walletOwner = kase.walletRef && !kase.walletRef.startsWith('XREF:')
-      ? await this.prisma.wallet.findUnique({ where: { id: kase.walletRef }, select: { walletNo: true, ownerId: true } })
-      : null;
-    let availableMinorCache: bigint | null = null;
-    const availableMinor = async (): Promise<bigint> => {
-      if (availableMinorCache === null) {
-        availableMinorCache = walletOwner?.ownerId ? (await this.accounting.getCustomerAvailableBalance(walletOwner.ownerId, caseCurrency)).available : 0n;
-      }
-      return availableMinorCache;
-    };
 
-    // ── 平账一期半（spec §3/§8）：行注解——定性回贴 / 双胞胎线索 / 成因菜单 ──
-    // 跑在 IN_TRANSIT 追加段之前：此刻 flowComparison 只有 built.rows 的四类
-    // 行，IN_TRANSIT 行还没生成，天然不会被这段行注解处理（它们不是差异）。
-    // ① 定性记录：按锚（flowId / externalLineId）回贴到行上。
-    const dispositions = (await this.prisma.reconciliationDisposition.findMany({
-      where: { caseNo },
-    })) as any[];
-    // 平账三期（Task 9）：案件级事故列表——按 sourceCaseNo 查询，覆盖全部事故类型
-    // （UNAUTHORIZED_OUTFLOW 建单时同样带 sourceCaseNo，见 IncidentService.register
-    // :151 + assertUnauthorizedOutflow :171，并非只有 LARGE_UNEXPLAINED/
-    // CLIENT_SHORTFALL 两类落在这里）。这条是案件级全量列表，不是对行级
-    // disposition.incidentNo 的互补——案子上的「升级事故」/「登记欠款」按钮
-    // 看这个列表判断是否已经登记过。按创建倒序，空数组表示该案从未挂过事故。
-    // Task 12 消费：额外带上定损结论（assessedAmount/assessmentBasis）——只用于
-    // 下面按 disposition.incidentNo 反查「该行事故是否已定损 FIRM_LOSS」，不进
-    // 对外的 `incidents` 投影（那份契约仍是 {incidentNo,status,type}[]，见下方 map）。
-    const caseIncidentRows = (await this.prisma.incident.findMany({
-      where: { sourceCaseNo: caseNo },
-      orderBy: { createdAt: 'desc' },
-      select: { incidentNo: true, status: true, type: true, assessedAmount: true, assessmentBasis: true },
-    })) as Array<{ incidentNo: string; status: string; type: string; assessedAmount: Prisma.Decimal | null; assessmentBasis: string | null }>;
-    const caseIncidents = caseIncidentRows.map(({ incidentNo, status, type }) => ({ incidentNo, status, type }));
-    const incidentByNo = new Map(caseIncidentRows.map((i) => [i.incidentNo, i]));
-    const dByFlow = new Map<string, any>();
-    const dByExt = new Map<string, any>();
-    for (const d of dispositions) {
-      if (d.explainedFlowId) dByFlow.set(d.explainedFlowId, d);
-      if (d.explainedExternalLineId) dByExt.set(d.explainedExternalLineId, d);
-    }
-    // ② 双胞胎线索（15 个成因里唯一机器认得出的证据，spec §0.3）：
-    //    已匹配行的 (externalRef, amount) 集合——ORPHAN_INTERNAL 行命中即标。
-    const matchedKeys = new Set(
-      flowComparison
-        .filter((r) => r.matchType === 'MATCHED' && r.externalLine?.externalRef)
-        .map((r) => `${r.externalLine!.externalRef}|${r.externalLine!.amount}`),
-    );
-    // ⚡ 差异行级推荐（本任务）：只有真实钱包案件（非 XREF、非 legacy）才可能挂着
-    // break 铺场答案键——与上面 flowComparison 的构建同一个门控条件，XREF/legacy
-    // 案件不发这次查询（真实/pass 轮无 manifest 时 loadDemoLineCausesForWallet 内部
-    // 的 findFirst 落空，返回空表，同样零命中）。
-    const demoLineCauses = (kase.walletRef && !kase.walletRef.startsWith('XREF:'))
-      ? await this.loadDemoLineCausesForWallet(kase.walletRef)
-      : new Map<string, { scenarioId: number; rootCause: string }>();
-    const caseBook = kase.book === 'FIRM' ? 'FIRM' : 'CLIENT';
+    const ctx = await this.loadAnnotationContext(kase, caseNo, caseAdjustments, caseCurrency, flowComparison);
     for (const r of flowComparison) {
-      if (r.matchType === 'MATCHED' || r.matchType === 'IN_TRANSIT') continue;
-      const d = (r.internalFlow && dByFlow.get(r.internalFlow.id!)) || (r.externalLine && dByExt.get(r.externalLine.id!)) || null;
-      // Task 5（读面翻转）：outletLabel 不再靠 resolveOutlet 从成因反推——写端（Task
-      // 1-4）已经把 outlet 存成 outletOf(处置) 的结果，这里用 KIND_OF_OUTLET 反查
-      // 处置种类再取 DISPOSITION_LABEL。family/reasonCode/direction 也不再现算：
-      // 那三个是「开调账单」这个动作才真正定下来的执行细节（reasonCode 由财务在
-      // 开单表单上选，不是成因单射推出来的），行上挂着单就从单上读（adjustmentByNo
-      // 已在上面建好）；没开单说明这一步还没做，省略这三个字段，不让读面替一个
-      // 还没发生的决定编答案。
-      const linkedAdjustment = d?.adjustmentNo ? (adjustmentByNo.get(d.adjustmentNo) ?? null) : null;
-      r.disposition = d ? {
-        dispositionNo: d.dispositionNo, causeCode: d.causeCode,
-        causeLabel: CAUSE_REGISTRY[d.causeCode as CauseCode]?.label ?? d.causeCode,
-        outlet: d.outlet, outletLabel: DISPOSITION_LABEL[KIND_OF_OUTLET.get(d.outlet as StoredOutlet)!],
-        ...(linkedAdjustment ? {
-          family: REASON_SPECS[linkedAdjustment.reasonCode as ReasonCode]?.family,
-          reasonCode: linkedAdjustment.reasonCode,
-          direction: linkedAdjustment.direction as 'REDUCE' | 'INCREASE',
-        } : {}),
-        findingNote: d.findingNote, adjustmentNo: d.adjustmentNo ?? null,
-        deferredTarget: d.deferredTarget ?? null,
-        supplementNo: d.supplementNo ?? null,
-        supplementRef: await this.resolveSupplementRef(d.supplementNo ?? null),
-        incidentNo: d.incidentNo ?? null,
-        createdBy: d.createdByUserId, createdAt: (d.updatedAt ?? d.createdAt).toISOString(),
-      } : null;
-      r.duplicateTwinRef = (r.matchType === 'ORPHAN_INTERNAL' && r.internalFlow?.externalRef
-        && matchedKeys.has(`${r.internalFlow.externalRef}|${r.internalFlow.amount}`))
-        ? r.internalFlow.externalRef : null;
-      // Task 5（读面翻转）：这一格（matchType × book）当下合法的处置清单——按处置
-      // 分组，组内带该处置在这一格可选的成因，供前端两级选择（先选处置、再选成
-      // 因）。取代旧的一格一份平铺成因菜单 `r.menu`（本任务起不再下发）。
-      const rowFacts: RowFacts = {
-        matchType: r.matchType as CauseMatchType, book: caseBook,
-        deltaSign: r.deltaAmount != null ? ((r.deltaAmount.startsWith('-') ? -1 : 1) as 1 | -1) : undefined,
-        internalDirection: r.internalFlow?.direction,
-        internalSourceType: r.internalFlow?.sourceType,
-        externalDirection: r.externalLine?.direction,
-      };
-      r.dispositions = dispositionsFor(rowFacts).map((kind) => ({
-        kind, label: DISPOSITION_LABEL[kind],
-        // SUPPLEMENT 三码不分方向全出会让 IN 行选中 OUT 专属成因（如 BOUNCED_FUNDS），
-        // 一路填到发起才被 assertClaimable 拒——按行方向过滤，判据即 CAUSE_REGISTRY
-        // 里登记的 requiredDirection（写端 resolveOutlet 用的同一份）。
-        causes: kind === 'SUPPLEMENT'
-          ? causesFor(kind, rowFacts.matchType, rowFacts.book)
-            .filter((c) => CAUSE_REGISTRY[c.code].requiredDirection === rowFacts.externalDirection)
-          : causesFor(kind, rowFacts.matchType, rowFacts.book),
-      }));
-      // ⚡ 差异行级推荐（本任务）：按行的匹配键（externalLine.externalRef ??
-      // internalFlow.externalRef，旧 WIP 同款）反查种子成因，取该成因 usableIn[0]
-      // 的处置种类作为推荐。MISATTRIBUTED_FROM/TO 同一 rootCause 铺两侧（发出端
-      // ORPHAN_INTERNAL 用 FROM、接收端 ORPHAN_EXTERNAL 只认 TO）——种子成因在本行
-      // 不合法时试一次对端码（旧 WIP 同款 sibling 逻辑）。最终必须同时满足：推荐的
-      // 处置种类在上面刚算出的 r.dispositions 里、且成因也在该处置的 causes 清单
-      // 里——两者任一不满足就不下发（宁缺勿错，例如 SWAP 行/方向过滤后该成因已被
-      // 摘掉）。真实/pass 轮 demoLineCauses 恒空表，天然不命中。
-      const seedRef = r.externalLine?.externalRef ?? r.internalFlow?.externalRef;
-      const seedEntry = seedRef ? demoLineCauses.get(seedRef) : undefined;
-      const tryDemoCause = (code: string): { code: CauseCode; kind: DispositionKind } | null => {
-        const spec = CAUSE_REGISTRY[code as CauseCode];
-        if (!spec) return null; // 如 IN_TRANSIT_TIMING——不在成因表里，不是差异
-        const kind = spec.usableIn[0];
-        const dispEntry = r.dispositions!.find((entry) => entry.kind === kind);
-        if (!dispEntry || !dispEntry.causes.some((c) => c.code === code)) return null;
-        return { code: code as CauseCode, kind };
-      };
-      if (seedEntry) {
-        let hit = tryDemoCause(seedEntry.rootCause);
-        if (!hit) {
-          const sibling = seedEntry.rootCause === 'MISATTRIBUTED_FROM' ? 'MISATTRIBUTED_TO'
-            : seedEntry.rootCause === 'MISATTRIBUTED_TO' ? 'MISATTRIBUTED_FROM' : null;
-          if (sibling) hit = tryDemoCause(sibling);
-        }
-        if (hit) {
-          r.demoRecommended = {
-            scenarioId: seedEntry.scenarioId,
-            causeCode: hit.code,
-            causeLabel: CAUSE_REGISTRY[hit.code].label,
-            disposition: hit.kind,
-            dispositionLabel: DISPOSITION_LABEL[hit.kind],
-          };
-        }
-      }
-      // 平账 A 批（spec §2.6）+ 二期（spec §7.1）：超期解锁——判据全在服务端。
-      // 公司池：小额 → 核销，大额 → 事故（三期）；客户池：多出来的不论大小 → 指路补录
-      // （这一判断排在金额判断之前，见下方 if 顺序）；「托管里少了」再看金额——
-      // 小额 → 认损，大额 → 事故。
-      if (kase.status === 'OPEN' && kase.slaBreached && d && d.outlet === 'HOLD_INVESTIGATING' && !d.adjustmentNo) {
-        const wo = resolveWriteOff({
-          matchType: r.matchType as any, book: caseBook,
-          deltaSign: r.deltaAmount != null ? ((r.deltaAmount.startsWith('-') ? -1 : 1) as 1 | -1) : undefined,
-          internalDirection: r.internalFlow?.direction, externalDirection: r.externalLine?.direction,
-          internalAmount: r.internalFlow?.amount, externalAmount: r.externalLine?.amount, deltaAmount: r.deltaAmount,
-        });
-        if (caseBook === 'CLIENT' && wo.direction === 'INCREASE') {
-          r.nextStep = { kind: 'CLIENT_SURPLUS' };
-        } else if (!isSmallAmount(caseCurrency, BigInt(wo.amountMinor))) {
-          // Task 12：带上金额——「升级事故」按钮要用它预填 LARGE_UNEXPLAINED 的金额。
-          r.nextStep = { kind: 'INCIDENT_DEFERRED', amount: wo.amountMinor };
-        } else {
-          r.nextStep = { kind: 'WRITE_OFF', reasonCode: wo.reasonCode, direction: wo.direction, amount: wo.amountMinor, effectiveDate: kase.businessDate };
-        }
-      }
-      // 平账三期（Task 12）：定性行挂着事故且事故已定损「公司承损」——认损开单入口对该行
-      // 可用，不受账龄线/小额线约束——这正是 assertIncidentWriteOffAllowed 的三重闸（状态
-      // ASSESSED/RESOLVING + 口径 FIRM_LOSS + 未挂单），前端按钮只是不让人白点，真闸仍在
-      // 后端。复用 WRITE_OFF 这个 nextStep 形状——案件页 openWriteOff/「认损」按钮已经是
-      // 通用实现，不必另开一种 kind。金额锁定为定损额（元→最小单位，惯例同
-      // receipt-lookup.service.ts）。
-      //
-      // Task 4（死胡同修复）：判据从 `d.outlet === 'INCIDENT'` 改成只看 `d.incidentNo`——
-      // 「大额查不出→挂起·调查中→超期→升级事故」（LARGE_UNEXPLAINED）那条路
-      // attachIncident 只写 incidentNo 一列，outlet 原地留在 HOLD_INVESTIGATING（不是
-      // UNAUTHORIZED_OUTFLOW 专用的静态出口 INCIDENT）；按 outlet 分流会让这类行永远出不了
-      // WRITE_OFF nextStep，事故定了损也没有入口开认损单。块位置仍在上面的账龄块之后——
-      // 大额行会先被账龄块判成 INCIDENT_DEFERRED，事故一旦定损，这里原地覆盖成 WRITE_OFF；
-      // reasonCode/direction 按簿现算而不是硬编码客户池的码——公司池升级事故同样要解锁核销。
-      if (kase.status === 'OPEN' && d && d.incidentNo && !d.adjustmentNo) {
-        const incident = incidentByNo.get(d.incidentNo);
-        if (incident && (incident.status === 'ASSESSED' || incident.status === 'RESOLVING')
-          && incident.assessmentBasis === 'FIRM_LOSS' && incident.assessedAmount != null) {
-          const decimals = assetRow?.decimals ?? 0;
-          const assessedMinor = new Prisma.Decimal(incident.assessedAmount).mul(new Prisma.Decimal(10).pow(decimals)).toFixed(0);
-          // 评审收（Minor）：公司簿 reasonCode 直接取 resolveWriteOff 已经按 book 算好的
-          // 结果，别再本地重抄一遍同一条公式；客户池只有 REDUCE 一种方向（spec §7.1），
-          // 仍本地判，不必为它多绕一次 resolveWriteOff。
-          const wo = caseBook === 'FIRM' ? resolveWriteOff({
-            matchType: r.matchType as any, book: caseBook,
-            deltaSign: r.deltaAmount != null ? ((r.deltaAmount.startsWith('-') ? -1 : 1) as 1 | -1) : undefined,
-            internalDirection: r.internalFlow?.direction, externalDirection: r.externalLine?.direction,
-            internalAmount: r.internalFlow?.amount, externalAmount: r.externalLine?.amount, deltaAmount: r.deltaAmount,
-          }) : null;
-          const reasonCode = caseBook === 'FIRM' ? wo!.reasonCode : 'UNEXPLAINED_CLIENT_LOSS';
-          const direction = caseBook === 'CLIENT' ? 'REDUCE' : wo!.direction;
-          r.nextStep = { kind: 'WRITE_OFF', reasonCode, direction, amount: assessedMinor, effectiveDate: kase.businessDate };
-        }
-      }
-      // 平账二期：补款 / 垫款——案子 RESOLVED 之后也要给（认损让案子愈了，补款是对客户的交代）
-      if (d && caseBook === 'CLIENT') {
-        const adj = d.adjustmentNo ? (adjustmentByNo.get(d.adjustmentNo) ?? null) : null;
-        const bounce = d.outlet === 'SUPPLEMENT' && d.deferredTarget === 'SUPPLEMENT_BOUNCE' && r.externalLine?.id
-          ? { externalLineId: r.externalLine.id, lineAmountMinor: BigInt(r.externalLine.amount), availableMinor: await availableMinor(), supplementNo: d.supplementNo ?? null }
-          : null;
-        const transfer = (d.adjustmentNo ? transferByAdjustment.get(d.adjustmentNo) : undefined) ?? (r.externalLine?.id ? transferByLine.get(r.externalLine.id) : undefined) ?? null;
-        const funding = deriveFundingNextStep({
-          book: 'CLIENT', customerNo: kase.ownerNo ?? null, walletNo: walletOwner?.walletNo ?? null,
-          adjustment: adj ? { adjustmentNo: adj.adjustmentNo, status: adj.status, reasonCode: adj.reasonCode, amount: adj.amount } : null,
-          transfer, bounce,
-        });
-        if (funding.transfer) r.transfer = funding.transfer;
-        if (funding.nextStep) r.nextStep = funding.nextStep;
-      }
+      await this.annotateRow(r, kase, assetRow, caseCurrency, ctx);
     }
 
-    // T6: append persisted IN_TRANSIT line items — these aren't reconstructed
-    // by buildFlowComparison's live matcher re-run (that only replays
-    // matched/orphan/mismatch); IN_TRANSIT is sourced straight from the
-    // case's own lineItems, which T5 already writes with internalSourceNo =
-    // the explaining funds order's business number.
-    const inTransitLineItems = (kase.lineItems ?? []).filter((li: any) => li.matchStatus === 'IN_TRANSIT');
+    const inTransitLineItems = await this.appendInTransitRows(kase, flowComparison);
 
-    // T4 (push disposition): decorate each in-transit row with the explaining
-    // funds order's current status so the cockpit can badge "已推进·待重对账"
-    // (funds order已 CLEARED but the case is still OPEN — a rerun will close it).
-    // ONE batched `in` query keyed on the collected fundsOrderNos — no N+1.
-    const inTransitFundsOrderNos = Array.from(new Set(
-      inTransitLineItems
-        .map((li: any) => li.internalSourceNo)
-        .filter((no: string | null): no is string => !!no),
-    ));
-    const fundsOrderStatusByNo = new Map<string, string>();
-    if (inTransitFundsOrderNos.length > 0) {
-      const fundsOrders = (await this.prisma.fundsOrder.findMany({
-        where: { fundsOrderNo: { in: inTransitFundsOrderNos } },
-        select: { fundsOrderNo: true, status: true },
-      })) as Array<{ fundsOrderNo: string; status: string }>;
-      for (const fo of fundsOrders) fundsOrderStatusByNo.set(fo.fundsOrderNo, fo.status);
-    }
-
-    for (const li of inTransitLineItems) {
-      const fundsOrderNo = li.internalSourceNo ?? null;
-      flowComparison.push({
-        externalLine: {
-          id: li.externalTxId ?? undefined,
-          externalRef: li.externalRef ?? null,
-          amount: li.externalAmount != null ? li.externalAmount.toString() : '0',
-          direction: (li.externalDirection ?? 'IN') as 'IN' | 'OUT',
-          timestamp: li.externalTimestamp ? li.externalTimestamp.toISOString() : null,
-          description: null,
-        },
-        internalFlow: null,
-        matchType: 'IN_TRANSIT',
-        fundsOrderNo,
-        fundsOrderStatus: fundsOrderNo ? (fundsOrderStatusByNo.get(fundsOrderNo) ?? null) : null,
-      });
-    }
-
-    const walletRow = kase.walletRef && !kase.walletRef.startsWith('XREF:')
-      ? await this.prisma.wallet.findUnique({
-          where: { id: kase.walletRef },
-          select: { walletNo: true },
-        })
-      : null;
+    const walletNo = await resolveWalletNo(this.prisma, kase.walletRef);
 
     const linkedRunId = kase.lastUpdatedRunId ?? kase.openedByRunId ?? null;
     const linkedRunRow = linkedRunId
@@ -772,7 +499,7 @@ export class ReconciliationQueryService {
 
     return {
       ...kase,
-      walletNo: walletRow?.walletNo ?? null,
+      walletNo,
       linkedRunNo: linkedRunRow?.runNo ?? null,
       decimals: assetRow?.decimals ?? 0,
       bucket: kase.bucket ?? null,
@@ -781,8 +508,356 @@ export class ReconciliationQueryService {
       explain,
       observation,
       adjustments: caseAdjustments,
-      incidents: caseIncidents,
+      incidents: ctx.caseIncidents,
     };
+  }
+
+  /**
+   * 波三 T6（getCase 就地拆）：截止/业务日决策段。lastObservedRun 优先给出
+   * 该轮跑批实际用的精确截止时刻；历史 run 没记 cutoffAt 时回落日终（改动前的行为）。
+   */
+  private resolveCaseCutoff(
+    kase: { businessDate: string },
+    lastObservedRun: { businessDate: string; cutoffAt: Date | null } | null,
+  ): { cutoffBusinessDate: string; cutoff: Date } {
+    // 平账 A 批（spec §6.1）：截止 = 最近一次观察它的那轮跑批**实际用的截止时刻**，
+    // 不再是当天 23:59:59——跑批用精确时刻（演示传的 cutoff / 手动触发的 ISO），
+    // 页面按日终重建会把「截止点后 6 小时」的跨日切外部行落回窗内，孤儿消失、无行可处置。
+    // 历史 run 没记 cutoffAt 时回落日终（改动前的行为）。
+    const cutoffBusinessDate = lastObservedRun?.businessDate ?? kase.businessDate;
+    const cutoff: Date = lastObservedRun?.cutoffAt ?? new Date(`${cutoffBusinessDate}T23:59:59.999Z`);
+    return { cutoffBusinessDate, cutoff };
+  }
+
+  /**
+   * 波三 T6（getCase 就地拆）：行注解装载段——补款/垫款回挂 Map、定性记录索引、
+   * 事故索引、双胞胎线索集合、demo 成因表，一次性查完返回给 annotateRow 逐行消费的 ctx。
+   */
+  private async loadAnnotationContext(
+    kase: { caseNo: string; walletRef: string | null; book: string | null },
+    caseNo: string,
+    caseAdjustments: CaseAdjustmentSummary[],
+    caseCurrency: string,
+    flowComparison: FlowComparisonRow[],
+  ) {
+    // 平账二期（spec §7.2/§7.3）：补款 / 垫款回挂——读本案的划转单（直查 internal_transfers，
+    // 与 resolveSupplementRef 读业务域表同款先例），按来源锚回贴到行上。
+    const adjustmentByNo = new Map(caseAdjustments.map((a) => [a.adjustmentNo, a]));
+    const caseTransfers = (await this.prisma.internalTransfer.findMany({
+      where: { sourceCaseNo: kase.caseNo }, orderBy: { createdAt: 'desc' },
+      select: { transferNo: true, purpose: true, status: true, sourceAdjustmentNo: true, sourceExternalLineId: true },
+    })) as Array<{ transferNo: string; purpose: string; status: string; sourceAdjustmentNo: string | null; sourceExternalLineId: string | null }>;
+    const transferByAdjustment = new Map<string, (typeof caseTransfers)[number]>();
+    const transferByLine = new Map<string, (typeof caseTransfers)[number]>();
+    for (const t of caseTransfers) { // 最新在前，只留每个来源最新的一张
+      if (t.sourceAdjustmentNo && !transferByAdjustment.has(t.sourceAdjustmentNo)) transferByAdjustment.set(t.sourceAdjustmentNo, t);
+      if (t.sourceExternalLineId && !transferByLine.has(t.sourceExternalLineId)) transferByLine.set(t.sourceExternalLineId, t);
+    }
+    const walletOwner = kase.walletRef && !kase.walletRef.startsWith('XREF:')
+      ? await this.prisma.wallet.findUnique({ where: { id: kase.walletRef }, select: { walletNo: true, ownerId: true } })
+      : null;
+    let availableMinorCache: bigint | null = null;
+    const availableMinor = async (): Promise<bigint> => {
+      if (availableMinorCache === null) {
+        availableMinorCache = walletOwner?.ownerId ? (await this.accounting.getCustomerAvailableBalance(walletOwner.ownerId, caseCurrency)).available : 0n;
+      }
+      return availableMinorCache;
+    };
+
+    // ── 平账一期半（spec §3/§8）：行注解——定性回贴 / 双胞胎线索 / 成因菜单 ──
+    // 跑在 IN_TRANSIT 追加段之前：此刻 flowComparison 只有 built.rows 的四类
+    // 行，IN_TRANSIT 行还没生成，天然不会被这段行注解处理（它们不是差异）。
+    // ① 定性记录：按锚（flowId / externalLineId）回贴到行上。
+    const dispositions = (await this.prisma.reconciliationDisposition.findMany({
+      where: { caseNo },
+    })) as Array<{
+      explainedFlowId: string | null;
+      explainedExternalLineId: string | null;
+      dispositionNo: string;
+      causeCode: string;
+      outlet: string;
+      findingNote: string;
+      adjustmentNo: string | null;
+      deferredTarget: string | null;
+      supplementNo: string | null;
+      incidentNo: string | null;
+      createdByUserId: string;
+      createdAt: Date;
+      updatedAt: Date;
+    }>;
+    // 平账三期（Task 9）：案件级事故列表——按 sourceCaseNo 查询，覆盖全部事故类型
+    // （UNAUTHORIZED_OUTFLOW 建单时同样带 sourceCaseNo，见 IncidentService.register
+    // :151 + assertUnauthorizedOutflow :171，并非只有 LARGE_UNEXPLAINED/
+    // CLIENT_SHORTFALL 两类落在这里）。这条是案件级全量列表，不是对行级
+    // disposition.incidentNo 的互补——案子上的「升级事故」/「登记欠款」按钮
+    // 看这个列表判断是否已经登记过。按创建倒序，空数组表示该案从未挂过事故。
+    // Task 12 消费：额外带上定损结论（assessedAmount/assessmentBasis）——只用于
+    // 下面按 disposition.incidentNo 反查「该行事故是否已定损 FIRM_LOSS」，不进
+    // 对外的 `incidents` 投影（那份契约仍是 {incidentNo,status,type}[]，见下方 map）。
+    const caseIncidentRows = (await this.prisma.incident.findMany({
+      where: { sourceCaseNo: caseNo },
+      orderBy: { createdAt: 'desc' },
+      select: { incidentNo: true, status: true, type: true, assessedAmount: true, assessmentBasis: true },
+    })) as Array<{ incidentNo: string; status: string; type: string; assessedAmount: Prisma.Decimal | null; assessmentBasis: string | null }>;
+    const caseIncidents = caseIncidentRows.map(({ incidentNo, status, type }) => ({ incidentNo, status, type }));
+    const incidentByNo = new Map(caseIncidentRows.map((i) => [i.incidentNo, i]));
+    const dByFlow = new Map<string, any>();
+    const dByExt = new Map<string, any>();
+    for (const d of dispositions) {
+      if (d.explainedFlowId) dByFlow.set(d.explainedFlowId, d);
+      if (d.explainedExternalLineId) dByExt.set(d.explainedExternalLineId, d);
+    }
+    // ② 双胞胎线索（15 个成因里唯一机器认得出的证据，spec §0.3）：
+    //    已匹配行的 (externalRef, amount) 集合——ORPHAN_INTERNAL 行命中即标。
+    const matchedKeys = new Set(
+      flowComparison
+        .filter((r) => r.matchType === 'MATCHED' && r.externalLine?.externalRef)
+        .map((r) => `${r.externalLine!.externalRef}|${r.externalLine!.amount}`),
+    );
+    // ⚡ 差异行级推荐（本任务）：只有真实钱包案件（非 XREF、非 legacy）才可能挂着
+    // break 铺场答案键——与上面 flowComparison 的构建同一个门控条件，XREF/legacy
+    // 案件不发这次查询（真实/pass 轮无 manifest 时 loadDemoLineCausesForWallet 内部
+    // 的 findFirst 落空，返回空表，同样零命中）。
+    const demoLineCauses = (kase.walletRef && !kase.walletRef.startsWith('XREF:'))
+      ? await this.loadDemoLineCausesForWallet(kase.walletRef)
+      : new Map<string, { scenarioId: number; rootCause: string }>();
+    // 波三 T6：显式标注为 CauseBook——不标注的话，这个字面量联合在跨函数返回
+    // （下方 ctx 对象字面量）时会被 TS 泛化成 string，annotateRow 里传给
+    // causesFor/resolveWriteOff 就要另加断言。字面量与判据本身不变。
+    const caseBook: CauseBook = kase.book === 'FIRM' ? 'FIRM' : 'CLIENT';
+
+    return {
+      adjustmentByNo, transferByAdjustment, transferByLine, walletOwner, availableMinor,
+      caseIncidents, incidentByNo, dByFlow, dByExt, matchedKeys, demoLineCauses, caseBook,
+    };
+  }
+
+  /**
+   * 波三 T6（getCase 就地拆）：单行注解——处置菜单 / demo 成因推荐 / 账龄核销 /
+   * 事故认损 / funding nextStep 全家。原地 mutate `r`（flowComparison 的行对象
+   * 引用），不返回值——与原 for 循环体逐行执行同一顺序。
+   */
+  private async annotateRow(
+    r: FlowComparisonRow,
+    kase: { status: string; slaBreached: boolean; businessDate: string; ownerNo: string | null },
+    assetRow: { decimals: number; currency: string } | null,
+    caseCurrency: string,
+    ctx: Awaited<ReturnType<ReconciliationQueryService['loadAnnotationContext']>>,
+  ): Promise<void> {
+    const {
+      adjustmentByNo, transferByAdjustment, transferByLine, walletOwner, availableMinor,
+      incidentByNo, dByFlow, dByExt, matchedKeys, demoLineCauses, caseBook,
+    } = ctx;
+    if (r.matchType === 'MATCHED' || r.matchType === 'IN_TRANSIT') return;
+    const matchType: CauseMatchType = r.matchType;
+    const d = (r.internalFlow && dByFlow.get(r.internalFlow.id!)) || (r.externalLine && dByExt.get(r.externalLine.id!)) || null;
+    // Task 5（读面翻转）：outletLabel 不再靠 resolveOutlet 从成因反推——写端（Task
+    // 1-4）已经把 outlet 存成 outletOf(处置) 的结果，这里用 KIND_OF_OUTLET 反查
+    // 处置种类再取 DISPOSITION_LABEL。family/reasonCode/direction 也不再现算：
+    // 那三个是「开调账单」这个动作才真正定下来的执行细节（reasonCode 由财务在
+    // 开单表单上选，不是成因单射推出来的），行上挂着单就从单上读（adjustmentByNo
+    // 已在上面建好）；没开单说明这一步还没做，省略这三个字段，不让读面替一个
+    // 还没发生的决定编答案。
+    const linkedAdjustment = d?.adjustmentNo ? (adjustmentByNo.get(d.adjustmentNo) ?? null) : null;
+    r.disposition = d ? {
+      dispositionNo: d.dispositionNo, causeCode: d.causeCode,
+      causeLabel: CAUSE_REGISTRY[d.causeCode as CauseCode]?.label ?? d.causeCode,
+      outlet: d.outlet, outletLabel: DISPOSITION_LABEL[KIND_OF_OUTLET.get(d.outlet as StoredOutlet)!],
+      ...(linkedAdjustment ? {
+        family: REASON_SPECS[linkedAdjustment.reasonCode as ReasonCode]?.family,
+        reasonCode: linkedAdjustment.reasonCode,
+        direction: linkedAdjustment.direction as 'REDUCE' | 'INCREASE',
+      } : {}),
+      findingNote: d.findingNote, adjustmentNo: d.adjustmentNo ?? null,
+      deferredTarget: d.deferredTarget ?? null,
+      supplementNo: d.supplementNo ?? null,
+      supplementRef: await this.resolveSupplementRef(d.supplementNo ?? null),
+      incidentNo: d.incidentNo ?? null,
+      createdBy: d.createdByUserId, createdAt: (d.updatedAt ?? d.createdAt).toISOString(),
+    } : null;
+    r.duplicateTwinRef = (r.matchType === 'ORPHAN_INTERNAL' && r.internalFlow?.externalRef
+      && matchedKeys.has(`${r.internalFlow.externalRef}|${r.internalFlow.amount}`))
+      ? r.internalFlow.externalRef : null;
+    // Task 5（读面翻转）：这一格（matchType × book）当下合法的处置清单——按处置
+    // 分组，组内带该处置在这一格可选的成因，供前端两级选择（先选处置、再选成
+    // 因）。取代旧的一格一份平铺成因菜单 `r.menu`（本任务起不再下发）。
+    const rowFacts: RowFacts = {
+      matchType, book: caseBook,
+      deltaSign: r.deltaAmount != null ? ((r.deltaAmount.startsWith('-') ? -1 : 1) as 1 | -1) : undefined,
+      internalDirection: r.internalFlow?.direction,
+      internalSourceType: r.internalFlow?.sourceType,
+      externalDirection: r.externalLine?.direction,
+    };
+    r.dispositions = dispositionsFor(rowFacts).map((kind) => ({
+      kind, label: DISPOSITION_LABEL[kind],
+      // SUPPLEMENT 三码不分方向全出会让 IN 行选中 OUT 专属成因（如 BOUNCED_FUNDS），
+      // 一路填到发起才被 assertClaimable 拒——按行方向过滤，判据即 CAUSE_REGISTRY
+      // 里登记的 requiredDirection（写端 resolveOutlet 用的同一份）。
+      causes: kind === 'SUPPLEMENT'
+        ? causesFor(kind, rowFacts.matchType, rowFacts.book)
+          .filter((c) => CAUSE_REGISTRY[c.code].requiredDirection === rowFacts.externalDirection)
+        : causesFor(kind, rowFacts.matchType, rowFacts.book),
+    }));
+    // ⚡ 差异行级推荐（本任务）：按行的匹配键（externalLine.externalRef ??
+    // internalFlow.externalRef，旧 WIP 同款）反查种子成因，取该成因 usableIn[0]
+    // 的处置种类作为推荐。MISATTRIBUTED_FROM/TO 同一 rootCause 铺两侧（发出端
+    // ORPHAN_INTERNAL 用 FROM、接收端 ORPHAN_EXTERNAL 只认 TO）——种子成因在本行
+    // 不合法时试一次对端码（旧 WIP 同款 sibling 逻辑）。最终必须同时满足：推荐的
+    // 处置种类在上面刚算出的 r.dispositions 里、且成因也在该处置的 causes 清单
+    // 里——两者任一不满足就不下发（宁缺勿错，例如 SWAP 行/方向过滤后该成因已被
+    // 摘掉）。真实/pass 轮 demoLineCauses 恒空表，天然不命中。
+    const seedRef = r.externalLine?.externalRef ?? r.internalFlow?.externalRef;
+    const seedEntry = seedRef ? demoLineCauses.get(seedRef) : undefined;
+    const tryDemoCause = (code: string): { code: CauseCode; kind: DispositionKind } | null => {
+      const spec = CAUSE_REGISTRY[code as CauseCode];
+      if (!spec) return null; // 如 IN_TRANSIT_TIMING——不在成因表里，不是差异
+      const kind = spec.usableIn[0];
+      const dispEntry = r.dispositions!.find((entry) => entry.kind === kind);
+      if (!dispEntry || !dispEntry.causes.some((c) => c.code === code)) return null;
+      return { code: code as CauseCode, kind };
+    };
+    if (seedEntry) {
+      let hit = tryDemoCause(seedEntry.rootCause);
+      if (!hit) {
+        const sibling = seedEntry.rootCause === 'MISATTRIBUTED_FROM' ? 'MISATTRIBUTED_TO'
+          : seedEntry.rootCause === 'MISATTRIBUTED_TO' ? 'MISATTRIBUTED_FROM' : null;
+        if (sibling) hit = tryDemoCause(sibling);
+      }
+      if (hit) {
+        r.demoRecommended = {
+          scenarioId: seedEntry.scenarioId,
+          causeCode: hit.code,
+          causeLabel: CAUSE_REGISTRY[hit.code].label,
+          disposition: hit.kind,
+          dispositionLabel: DISPOSITION_LABEL[hit.kind],
+        };
+      }
+    }
+    // 平账 A 批（spec §2.6）+ 二期（spec §7.1）：超期解锁——判据全在服务端。
+    // 公司池：小额 → 核销，大额 → 事故（三期）；客户池：多出来的不论大小 → 指路补录
+    // （这一判断排在金额判断之前，见下方 if 顺序）；「托管里少了」再看金额——
+    // 小额 → 认损，大额 → 事故。
+    if (kase.status === 'OPEN' && kase.slaBreached && d && d.outlet === 'HOLD_INVESTIGATING' && !d.adjustmentNo) {
+      const wo = resolveWriteOff({
+        matchType, book: caseBook,
+        deltaSign: r.deltaAmount != null ? ((r.deltaAmount.startsWith('-') ? -1 : 1) as 1 | -1) : undefined,
+        internalDirection: r.internalFlow?.direction, externalDirection: r.externalLine?.direction,
+        internalAmount: r.internalFlow?.amount, externalAmount: r.externalLine?.amount, deltaAmount: r.deltaAmount,
+      });
+      if (caseBook === 'CLIENT' && wo.direction === 'INCREASE') {
+        r.nextStep = { kind: 'CLIENT_SURPLUS' };
+      } else if (!isSmallAmount(caseCurrency, BigInt(wo.amountMinor))) {
+        // Task 12：带上金额——「升级事故」按钮要用它预填 LARGE_UNEXPLAINED 的金额。
+        r.nextStep = { kind: 'INCIDENT_DEFERRED', amount: wo.amountMinor };
+      } else {
+        r.nextStep = { kind: 'WRITE_OFF', reasonCode: wo.reasonCode, direction: wo.direction, amount: wo.amountMinor, effectiveDate: kase.businessDate };
+      }
+    }
+    // 平账三期（Task 12）：定性行挂着事故且事故已定损「公司承损」——认损开单入口对该行
+    // 可用，不受账龄线/小额线约束——这正是 assertIncidentWriteOffAllowed 的三重闸（状态
+    // ASSESSED/RESOLVING + 口径 FIRM_LOSS + 未挂单），前端按钮只是不让人白点，真闸仍在
+    // 后端。复用 WRITE_OFF 这个 nextStep 形状——案件页 openWriteOff/「认损」按钮已经是
+    // 通用实现，不必另开一种 kind。金额锁定为定损额（元→最小单位，惯例同
+    // receipt-lookup.service.ts）。
+    //
+    // Task 4（死胡同修复）：判据从 `d.outlet === 'INCIDENT'` 改成只看 `d.incidentNo`——
+    // 「大额查不出→挂起·调查中→超期→升级事故」（LARGE_UNEXPLAINED）那条路
+    // attachIncident 只写 incidentNo 一列，outlet 原地留在 HOLD_INVESTIGATING（不是
+    // UNAUTHORIZED_OUTFLOW 专用的静态出口 INCIDENT）；按 outlet 分流会让这类行永远出不了
+    // WRITE_OFF nextStep，事故定了损也没有入口开认损单。块位置仍在上面的账龄块之后——
+    // 大额行会先被账龄块判成 INCIDENT_DEFERRED，事故一旦定损，这里原地覆盖成 WRITE_OFF；
+    // reasonCode/direction 按簿现算而不是硬编码客户池的码——公司池升级事故同样要解锁核销。
+    if (kase.status === 'OPEN' && d && d.incidentNo && !d.adjustmentNo) {
+      const incident = incidentByNo.get(d.incidentNo);
+      if (incident && (incident.status === 'ASSESSED' || incident.status === 'RESOLVING')
+        && incident.assessmentBasis === 'FIRM_LOSS' && incident.assessedAmount != null) {
+        const decimals = assetRow?.decimals ?? 0;
+        const assessedMinor = new Prisma.Decimal(incident.assessedAmount).mul(new Prisma.Decimal(10).pow(decimals)).toFixed(0);
+        // 评审收（Minor）：公司簿 reasonCode 直接取 resolveWriteOff 已经按 book 算好的
+        // 结果，别再本地重抄一遍同一条公式；客户池只有 REDUCE 一种方向（spec §7.1），
+        // 仍本地判，不必为它多绕一次 resolveWriteOff。
+        const wo = caseBook === 'FIRM' ? resolveWriteOff({
+          matchType, book: caseBook,
+          deltaSign: r.deltaAmount != null ? ((r.deltaAmount.startsWith('-') ? -1 : 1) as 1 | -1) : undefined,
+          internalDirection: r.internalFlow?.direction, externalDirection: r.externalLine?.direction,
+          internalAmount: r.internalFlow?.amount, externalAmount: r.externalLine?.amount, deltaAmount: r.deltaAmount,
+        }) : null;
+        const reasonCode = caseBook === 'FIRM' ? wo!.reasonCode : 'UNEXPLAINED_CLIENT_LOSS';
+        const direction = caseBook === 'CLIENT' ? 'REDUCE' : wo!.direction;
+        r.nextStep = { kind: 'WRITE_OFF', reasonCode, direction, amount: assessedMinor, effectiveDate: kase.businessDate };
+      }
+    }
+    // 平账二期：补款 / 垫款——案子 RESOLVED 之后也要给（认损让案子愈了，补款是对客户的交代）
+    if (d && caseBook === 'CLIENT') {
+      const adj = d.adjustmentNo ? (adjustmentByNo.get(d.adjustmentNo) ?? null) : null;
+      const bounce = d.outlet === 'SUPPLEMENT' && d.deferredTarget === 'SUPPLEMENT_BOUNCE' && r.externalLine?.id
+        ? { externalLineId: r.externalLine.id, lineAmountMinor: BigInt(r.externalLine.amount), availableMinor: await availableMinor(), supplementNo: d.supplementNo ?? null }
+        : null;
+      const transfer = (d.adjustmentNo ? transferByAdjustment.get(d.adjustmentNo) : undefined) ?? (r.externalLine?.id ? transferByLine.get(r.externalLine.id) : undefined) ?? null;
+      const funding = deriveFundingNextStep({
+        book: 'CLIENT', customerNo: kase.ownerNo ?? null, walletNo: walletOwner?.walletNo ?? null,
+        adjustment: adj ? { adjustmentNo: adj.adjustmentNo, status: adj.status, reasonCode: adj.reasonCode, amount: adj.amount } : null,
+        transfer, bounce,
+      });
+      if (funding.transfer) r.transfer = funding.transfer;
+      if (funding.nextStep) r.nextStep = funding.nextStep;
+    }
+  }
+
+  /**
+   * 波三 T6（getCase 就地拆）：IN_TRANSIT 追加段——持久化的在途行不是
+   * flowComparisonBuilder.build 的实时匹配器重跑产物（那只回放 matched/orphan/
+   * mismatch），直接从本案 lineItems 取；原地 push 进 flowComparison，返回
+   * inTransitLineItems 供尾部 explain 的 inTransitSigned 计算复用。
+   */
+  private async appendInTransitRows(
+    kase: { lineItems: any[] },
+    flowComparison: FlowComparisonRow[],
+  ) {
+    // T6: append persisted IN_TRANSIT line items — these aren't reconstructed
+    // by buildFlowComparison's live matcher re-run (that only replays
+    // matched/orphan/mismatch); IN_TRANSIT is sourced straight from the
+    // case's own lineItems, which T5 already writes with internalSourceNo =
+    // the explaining funds order's business number.
+    const inTransitLineItems = (kase.lineItems ?? []).filter((li: any) => li.matchStatus === 'IN_TRANSIT');
+
+    // T4 (push disposition): decorate each in-transit row with the explaining
+    // funds order's current status so the cockpit can badge "已推进·待重对账"
+    // (funds order已 CLEARED but the case is still OPEN — a rerun will close it).
+    // ONE batched `in` query keyed on the collected fundsOrderNos — no N+1.
+    const inTransitFundsOrderNos = Array.from(new Set(
+      inTransitLineItems
+        .map((li: any) => li.internalSourceNo)
+        .filter((no: string | null): no is string => !!no),
+    ));
+    const fundsOrderStatusByNo = new Map<string, string>();
+    if (inTransitFundsOrderNos.length > 0) {
+      const fundsOrders = (await this.prisma.fundsOrder.findMany({
+        where: { fundsOrderNo: { in: inTransitFundsOrderNos } },
+        select: { fundsOrderNo: true, status: true },
+      })) as Array<{ fundsOrderNo: string; status: string }>;
+      for (const fo of fundsOrders) fundsOrderStatusByNo.set(fo.fundsOrderNo, fo.status);
+    }
+
+    for (const li of inTransitLineItems) {
+      const fundsOrderNo = li.internalSourceNo ?? null;
+      flowComparison.push({
+        externalLine: {
+          id: li.externalTxId ?? undefined,
+          externalRef: li.externalRef ?? null,
+          amount: li.externalAmount != null ? li.externalAmount.toString() : '0',
+          direction: (li.externalDirection ?? 'IN') as 'IN' | 'OUT',
+          timestamp: li.externalTimestamp ? li.externalTimestamp.toISOString() : null,
+          description: null,
+        },
+        internalFlow: null,
+        matchType: 'IN_TRANSIT',
+        fundsOrderNo,
+        fundsOrderStatus: fundsOrderNo ? (fundsOrderStatusByNo.get(fundsOrderNo) ?? null) : null,
+      });
+    }
+
+    return inTransitLineItems;
   }
 
   /** 补单回挂的单号 → 详情页链接用的 { kind, no, id }。SIG… 没有页面，id 为 null。 */
@@ -897,7 +972,7 @@ export class ReconciliationQueryService {
           where: { code: { in: currencies } },
           select: { code: true, decimals: true },
         });
-    const decimalsByCode = new Map(assets.map(a => [a.code, a.decimals]));
+    const decimalsByCode = decimalsMapOf(assets);
 
     return rows.map(r => ({
       ...r,
@@ -943,219 +1018,5 @@ export class ReconciliationQueryService {
       decimals: asset?.decimals ?? 0,
       lines,
     };
-  }
-
-  // ─── T3 builders ───────────────────────────────────────────────────────────
-
-  /**
-   * Build the per-case flow comparison rows for the cockpit Case detail page.
-   * Two-pass reconstruction:
-   *   1. matched pairs → recompute via WalletFlowMatcherService (re-run the
-   *      same pairing the engine did)
-   *   2. orphans + mismatches → enrich the matched output with line-item
-   *      details (source/dest IDs come from the matcher; we hydrate the
-   *      original rows for display fields)
-   *
-   * This produces one FlowComparisonRow per pair OR orphan — i.e. the union
-   * of matched + matcherResult anomalies. Matched rows have both sides
-   * populated; orphan rows have one side null.
-   */
-  private async buildFlowComparison(
-    kase: { walletRef: string; cutoff: Date; businessDate: string; assetCode: string },
-  ): Promise<{ rows: FlowComparisonRow[]; summary: FlowComparisonSummary }> {
-    // cutoff 由 getCase 决定（run.cutoffAt 优先，历史行回落日终），本函数不再自算。
-    const cutoff = kase.cutoff;
-
-    // 1. Source datasets.
-    const accountRefs = (await this.prisma.externalBalance.findMany({
-      where: { walletRef: kase.walletRef, cutoffDate: kase.businessDate },
-      select: { accountRef: true },
-    })) as Array<{ accountRef: string }>;
-
-    const externalRowsRaw = (await this.prisma.externalStatementLine.findMany({
-      where: {
-        OR: [
-          { subAccount: kase.walletRef },
-          { subAccount: null, accountRef: { in: accountRefs.map((a) => a.accountRef) } },
-        ],
-        datetime: { lte: cutoff },
-      },
-      select: {
-        id: true,
-        direction: true,
-        amount: true,
-        externalRef: true,
-        datetime: true,
-        description: true,
-      },
-    })) as Array<{
-      id: string;
-      direction: string;
-      amount: Prisma.Decimal;
-      externalRef: string | null;
-      datetime: Date;
-      description: string | null;
-    }>;
-
-    const externalLines: ExternalStatementLineInput[] = externalRowsRaw.map((r) => ({
-      id: r.id,
-      direction: r.direction as 'IN' | 'OUT',
-      amount: r.amount,
-      externalRef: r.externalRef,
-      datetime: r.datetime,
-    }));
-    const extById = new Map(externalRowsRaw.map((r) => [r.id, r]));
-
-    const internalRows = (await this.prisma.accountFlow.findMany({
-      where: {
-        walletRef: kase.walletRef,
-        isExternalCrossing: true,
-        ...effectiveCutoffFilter(cutoff),
-      },
-      select: {
-        id: true,
-        direction: true,
-        amount: true,
-        externalRef: true,
-        eventCode: true,
-        sourceType: true,
-        sourceNo: true,
-        createdAt: true,
-      },
-    })) as Array<{
-      id: string;
-      direction: string;
-      amount: Prisma.Decimal;
-      externalRef: string | null;
-      eventCode: string;
-      sourceType: string;
-      sourceNo: string;
-      createdAt: Date;
-    }>;
-    const intById = new Map(internalRows.map((r) => [r.id, r]));
-
-    // 2. Re-pair via the matcher (uses the same precedence as the engine).
-    // Pass this case's real asset.decimals so Pass 3 can convert its funds_order
-    // (元) candidates to 分 and correctly claim in-transit external lines. With
-    // decimals=0 the funds_order 元 would never scale to match a 分 external
-    // line, so this display re-run would drop every in-transit pairing and show
-    // the line as a hard orphan. Same source as the run service: asset table by
-    // currency code (never hardcoded).
-    const assetForDecimals = (await this.prisma.asset.findUnique({
-      where: { code: kase.assetCode },
-      select: { decimals: true },
-    })) as { decimals: number } | null;
-    const matcher = await this.walletFlowMatcher.matchFlows({
-      walletRef: kase.walletRef,
-      externalLines,
-      cutoff,
-      decimals: assetForDecimals?.decimals ?? 0,
-    });
-
-    // ④ 案件页要看得见「这条差异已被 ADJxxx 解释」——与对账引擎算桶时用的是
-    // 同一份索引（explained-difference.service.ts），不各写一套判断。
-    const explained = await this.explainedDifferences.indexForWallet(kase.walletRef);
-
-    const rows: FlowComparisonRow[] = [];
-    for (const m of matcher.matched) {
-      const ext = extById.get(m.externalLineId);
-      const intl = intById.get(m.internalFlowId);
-      if (!ext || !intl) continue;
-      rows.push({
-        externalLine: {
-          id: ext.id,
-          externalRef: ext.externalRef,
-          amount: ext.amount.toString(),
-          direction: ext.direction as 'IN' | 'OUT',
-          timestamp: ext.datetime.toISOString(),
-          description: ext.description,
-        },
-        internalFlow: {
-          id: intl.id,
-          externalRef: intl.externalRef,
-          amount: intl.amount.toString(),
-          direction: intl.direction as 'IN' | 'OUT',
-          timestamp: intl.createdAt.toISOString(),
-          eventCode: intl.eventCode,
-          sourceType: intl.sourceType,
-          sourceNo: intl.sourceNo,
-        },
-        matchType: 'MATCHED',
-      });
-    }
-    for (const oi of matcher.orphanInternal) {
-      const intl = intById.get(oi.internalFlowId);
-      if (!intl) continue;
-      rows.push({
-        externalLine: null,
-        internalFlow: {
-          id: intl.id,
-          externalRef: intl.externalRef,
-          amount: intl.amount.toString(),
-          direction: intl.direction as 'IN' | 'OUT',
-          timestamp: intl.createdAt.toISOString(),
-          eventCode: intl.eventCode,
-          sourceType: intl.sourceType,
-          sourceNo: intl.sourceNo,
-        },
-        matchType: 'ORPHAN_INTERNAL',
-        explainedByAdjustmentNo: explainedBy(explained, oi),
-      });
-    }
-    for (const oe of matcher.orphanExternal) {
-      const ext = extById.get(oe.externalLineId);
-      if (!ext) continue;
-      rows.push({
-        externalLine: {
-          id: ext.id,
-          externalRef: ext.externalRef,
-          amount: ext.amount.toString(),
-          direction: ext.direction as 'IN' | 'OUT',
-          timestamp: ext.datetime.toISOString(),
-          description: ext.description,
-        },
-        internalFlow: null,
-        matchType: 'ORPHAN_EXTERNAL',
-        explainedByAdjustmentNo: explainedBy(explained, oe),
-      });
-    }
-    for (const m of matcher.mismatch) {
-      const ext = extById.get(m.externalLineId);
-      const intl = intById.get(m.internalFlowId);
-      if (!ext || !intl) continue;
-      const delta = ext.amount.minus(intl.amount);
-      rows.push({
-        externalLine: {
-          id: ext.id,
-          externalRef: ext.externalRef,
-          amount: ext.amount.toString(),
-          direction: ext.direction as 'IN' | 'OUT',
-          timestamp: ext.datetime.toISOString(),
-          description: ext.description,
-        },
-        internalFlow: {
-          id: intl.id,
-          externalRef: intl.externalRef,
-          amount: intl.amount.toString(),
-          direction: intl.direction as 'IN' | 'OUT',
-          timestamp: intl.createdAt.toISOString(),
-          eventCode: intl.eventCode,
-          sourceType: intl.sourceType,
-          sourceNo: intl.sourceNo,
-        },
-        matchType: 'AMOUNT_MISMATCH',
-        deltaAmount: delta.toString(),
-        explainedByAdjustmentNo: explainedBy(explained, m),
-      });
-    }
-
-    const summary: FlowComparisonSummary = {
-      matched: matcher.matched.length,
-      orphanInternal: matcher.orphanInternal.length,
-      orphanExternal: matcher.orphanExternal.length,
-      mismatch: matcher.mismatch.length,
-    };
-
-    return { rows, summary };
   }
 }

@@ -43,7 +43,7 @@ import { DEPOSIT_VERDICT_BUTTONS } from '../src/modules/deposit-sumsub/fixtures/
 import { fakeBankRef, fakeChainTxHash } from '../src/common/utils/fake-external-refs.util';
 import { ConflictException } from '@nestjs/common';
 import { AdjustmentService } from '../src/modules/clearing-settle/reconciliation/disposition/adjustment.service';
-import { CaseAgingService } from '../src/modules/clearing-settle/reconciliation/workflow/case-aging.service';
+import { ReconciliationCaseService } from '../src/modules/clearing-settle/reconciliation/domain/reconciliation-case.service';
 import { CaseAgingSweepService } from '../src/modules/clearing-settle/reconciliation/sweep/case-aging-sweep.service';
 import { ReconciliationQueryService } from '../src/modules/clearing-settle/reconciliation/domain/reconciliation-query.service';
 import { InternalTransferWorkflowService } from '../src/modules/asset-treasury/internal-transfers/internal-transfer-workflow.service';
@@ -63,7 +63,7 @@ import { toBusinessDate } from '../src/modules/accounting/tigerbeetle/utils/busi
 describe('Recon internal transfer e2e (平账二期, Task 9)', () => {
   jest.setTimeout(120000);
   let app: INestApplication; let prisma: PrismaService;
-  let dispositions: DispositionService; let adjustments: AdjustmentService; let caseAging: CaseAgingService; let agingSweep: CaseAgingSweepService;
+  let dispositions: DispositionService; let adjustments: AdjustmentService; let caseService: ReconciliationCaseService; let agingSweep: CaseAgingSweepService;
   let reconQuery: ReconciliationQueryService; let walletRecon: WalletReconRunService; let approvalsService: ApprovalsService;
   let transferWf: InternalTransferWorkflowService; let fundsOrders: FundsOrderService; let tbEvidence: TbEvidenceService; let accounting: AccountingService;
   let signals: InboundTransferSignalsService; let depositWf: DepositWorkflowService; let deposits: DepositTransactionsService;
@@ -83,7 +83,7 @@ describe('Recon internal transfer e2e (平账二期, Task 9)', () => {
     await app.init();
     prisma = app.get(PrismaService);
     dispositions = app.get(DispositionService); adjustments = app.get(AdjustmentService);
-    caseAging = app.get(CaseAgingService); agingSweep = app.get(CaseAgingSweepService);
+    caseService = app.get(ReconciliationCaseService); agingSweep = app.get(CaseAgingSweepService);
     reconQuery = app.get(ReconciliationQueryService); walletRecon = app.get(WalletReconRunService); approvalsService = app.get(ApprovalsService);
     transferWf = app.get(InternalTransferWorkflowService); fundsOrders = app.get(FundsOrderService);
     tbEvidence = app.get(TbEvidenceService); accounting = app.get(AccountingService);
@@ -462,7 +462,7 @@ describe('Recon internal transfer e2e (平账二期, Task 9)', () => {
       causeCode: 'UNEXPLAINED', disposition: 'HOLD_INVESTIGATING', findingNote: 'e2e：托管少 7.5 USDT，翻遍凭证查无可查', deltaSign: -1, internalDirection: 'IN', internalSourceType: 'DEPOSIT',
     } as any, ops());
     expect(disp.outlet).toBe('HOLD_INVESTIGATING');
-    await caseAging.simulateTimeout(kase.caseNo, ops());
+    await caseService.simulateTimeout(kase.caseNo, ops());
     expect(await agingSweep.checkAgingBreaches(new Date())).toBeGreaterThanOrEqual(1);
     const row1 = (await reconQuery.getCase(kase.caseNo)).flowComparison.find((r: any) => r.matchType === 'AMOUNT_MISMATCH')!;
     expect(row1.nextStep).toEqual({ kind: 'WRITE_OFF', reasonCode: 'UNEXPLAINED_CLIENT_LOSS', direction: 'REDUCE', amount: '7500000', effectiveDate: kase.businessDate });
@@ -625,7 +625,7 @@ describe('Recon internal transfer e2e (平账二期, Task 9)', () => {
     expect((await runNow()).status).toBe('BREAK');
     const kase = await openCaseFor(wallet.id);
     const disp = await dispositions.record({ caseNo: kase.caseNo, explainedExternalLineId: line.id, matchType: 'ORPHAN_EXTERNAL', causeCode: 'UNEXPLAINED', disposition: 'HOLD_INVESTIGATING', externalDirection: 'IN', findingNote: 'e2e：多出来 50，查不出' } as any, ops());
-    await caseAging.simulateTimeout(kase.caseNo, ops()); await agingSweep.checkAgingBreaches(new Date());
+    await caseService.simulateTimeout(kase.caseNo, ops()); await agingSweep.checkAgingBreaches(new Date());
     expect((await rowByLine(kase.caseNo, line.id)).nextStep).toEqual({ kind: 'CLIENT_SURPLUS' });
     await expect(adjustments.createDraft({ caseNo: kase.caseNo, reasonCode: 'UNEXPLAINED_CLIENT_LOSS', direction: 'INCREASE', amount: '5000', effectiveDate: kase.businessDate, explainedExternalLineId: line.id, reasonInternal: 'x', reasonCustomer: 'x', dispositionNo: disp.dispositionNo } as any, treasury())).rejects.toThrow(/deposit backfill/);
   });

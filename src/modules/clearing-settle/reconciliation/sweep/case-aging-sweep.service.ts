@@ -5,10 +5,13 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { randomUUID } from 'node:crypto';
+import { PrismaService } from '../../../../core/prisma/prisma.service';
 import { AuditLogsService } from '../../../audit-logging/audit-logs.service';
 import { AuditEntityTypes } from '../../../audit-logging/constants/audit-actions.constant';
 import { AuditCategory, AuditSubjectRole } from '../../../audit-logging/dto/audit-log.dto';
 import { AgingBreachCandidate, CaseAgingService } from '../workflow/case-aging.service';
+import { resolveWalletNo } from '../domain/wallet-no.util';
+import { ReconciliationCaseService } from '../domain/reconciliation-case.service';
 
 @Injectable()
 export class CaseAgingSweepService {
@@ -16,7 +19,9 @@ export class CaseAgingSweepService {
 
   constructor(
     private readonly caseAging: CaseAgingService,
+    private readonly caseService: ReconciliationCaseService,
     private readonly auditLogs: AuditLogsService,
+    private readonly prisma: PrismaService,
   ) {}
 
   @Cron('*/1 * * * *', { timeZone: 'Asia/Dubai' })
@@ -30,7 +35,7 @@ export class CaseAgingSweepService {
     let breached = 0;
     for (const c of candidates) {
       try {
-        await this.caseAging.markBreached(c.id);
+        await this.caseService.markSlaBreached(c.id);
         await this.auditBreached(c, now);
         breached += 1;
       } catch (err) {
@@ -41,7 +46,7 @@ export class CaseAgingSweepService {
   }
 
   private async auditBreached(c: AgingBreachCandidate, now: Date): Promise<void> {
-    const walletNo = await this.caseAging.walletNoOf(c.walletRef);
+    const walletNo = await resolveWalletNo(this.prisma, c.walletRef);
     const ageDays = Math.max(1, Math.floor((now.getTime() - c.slaDeadline.getTime()) / 86_400_000));
     await this.auditLogs.recordSystem({
       action: 'RECON_CASE_AGING_BREACHED',
@@ -59,6 +64,6 @@ export class CaseAgingSweepService {
       metadata: {
         slaDeadline: c.slaDeadline.toISOString(), ageDays, bucket: c.bucket, book: c.book, severity: c.severity, caseNo: c.caseNo,
       },
-    } as any);
+    });
   }
 }

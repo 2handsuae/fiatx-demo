@@ -49,7 +49,7 @@ export class IncidentsController {
   @RequirePermissions(buildPermissionCode('POST', '/admin/incidents'))
   register(@Body() dto: RegisterIncidentBodyDto, @Req() req: any) {
     this.assertAdmin(req);
-    return this.registrationWorkflow.register(dto as any, this.buildActor(req));
+    return this.registrationWorkflow.register(dto, this.buildActor(req));
   }
 
   @Get()
@@ -87,7 +87,7 @@ export class IncidentsController {
   @RequirePermissions(buildPermissionCode('POST', '/admin/incidents/:incidentNo/escalate'))
   escalate(@Param('incidentNo') incidentNo: string, @Body() dto: EscalateIncidentBodyDto, @Req() req: any) {
     this.assertAdmin(req);
-    return this.incidents.escalate(incidentNo, dto as any, this.buildActor(req));
+    return this.incidents.escalate(incidentNo, dto, this.buildActor(req));
   }
 
   @Post(':incidentNo/assess')
@@ -95,7 +95,7 @@ export class IncidentsController {
   @RequirePermissions(buildPermissionCode('POST', '/admin/incidents/:incidentNo/assess'))
   assess(@Param('incidentNo') incidentNo: string, @Body() dto: AssessIncidentBodyDto, @Req() req: any) {
     this.assertAdmin(req);
-    return this.incidents.assess(incidentNo, dto as any, this.buildActor(req));
+    return this.incidents.assess(incidentNo, dto, this.buildActor(req));
   }
 
   @Post(':incidentNo/remediations')
@@ -103,7 +103,7 @@ export class IncidentsController {
   @RequirePermissions(buildPermissionCode('POST', '/admin/incidents/:incidentNo/remediations'))
   linkRemediation(@Param('incidentNo') incidentNo: string, @Body() dto: LinkRemediationBodyDto, @Req() req: any) {
     this.assertAdmin(req);
-    return this.incidents.linkRemediation(incidentNo, dto as any, this.buildActor(req));
+    return this.incidents.linkRemediation(incidentNo, dto, this.buildActor(req));
   }
 
   @Post(':incidentNo/regulator-report')

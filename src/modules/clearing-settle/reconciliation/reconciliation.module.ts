@@ -10,6 +10,10 @@ import { FundsOrdersModule } from '../../funds-orders/funds-orders.module';
 // Task 4: 调账单接审批中心 — needs ApprovalsService for submit()/createAndSubmit().
 import { ApprovalsModule } from '../../governance/approvals/approvals.module';
 import { ReconciliationQueryService } from './domain/reconciliation-query.service';
+// 波三 T6：flowComparison 的四段查询/匹配挪出 query service，独立成 builder。
+import { FlowComparisonBuilder } from './domain/flow-comparison.builder';
+// 第六幕波三：Case 主体服务——全仓唯一的 reconciliationCase 表写点（判据 4 本体）。
+import { ReconciliationCaseService } from './domain/reconciliation-case.service';
 import { WalletReconRunService } from './workflow/wallet-recon-run.service';
 import { WalletBalanceCheckerService } from './engine/v2/wallet-balance-checker.service';
 import { WalletFlowMatcherService } from './engine/v2/wallet-flow-matcher.service';
@@ -31,7 +35,7 @@ import { DispositionService } from './disposition/disposition.service';
 import { DispositionController } from './disposition/disposition.controller';
 // 平账 B 批 Task 4：补单证据守卫 + 候选原单读接口（只读，Task 5/6/7 的守卫入口）。
 import { SupplementEvidenceService } from './disposition/supplement-evidence.service';
-// 平账 A 批：案件账龄主体（算截止 / 找候选 / 置标记 / ⚡拨钟）+ 每分钟扫描。
+// 平账 A 批：案件账龄候选扫描（置标记 / ⚡拨钟已于波三 T4 搬进 ReconciliationCaseService）+ 每分钟扫描。
 import { CaseAgingService } from './workflow/case-aging.service';
 import { CaseAgingSweepService } from './sweep/case-aging-sweep.service';
 // 平账二期：模拟托管方回单——划转工作流在腿提交时调用。
@@ -42,6 +46,9 @@ import { SimulatedCustodianStatementService } from './simulation/simulated-custo
   controllers: [ReconciliationAdminController, PushOrderController, AdjustmentController, DispositionController],
   providers: [
     ReconciliationQueryService,
+    // 波三 T6：getCase 的 flowComparison 构建器——query service 唯一消费者。
+    FlowComparisonBuilder,
+    ReconciliationCaseService,
     ReconciliationSweepService,
     // Phase B / T7 — per-wallet engine (sole live recon path; V8 chain removed in Phase C/A.1).
     WalletBalanceCheckerService, WalletFlowMatcherService, WalletReconRunService,

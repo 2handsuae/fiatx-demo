@@ -8,7 +8,7 @@ import { ApprovalActorContext } from '../../../governance/approvals/constants/ap
 import { ReconciliationQueryService } from '../domain/reconciliation-query.service';
 import { ReconRunQueryDto, ReconCaseQueryDto, ReconExternalBalanceQueryDto } from '../dto/reconciliation.dto';
 import { WalletReconRunService } from '../workflow/wallet-recon-run.service';
-import { CaseAgingService } from '../workflow/case-aging.service';
+import { ReconciliationCaseService } from '../domain/reconciliation-case.service';
 
 @ApiTags('Admin - Reconciliation (V8)')
 @ApiBearerAuth()
@@ -19,7 +19,7 @@ export class ReconciliationAdminController {
   constructor(
     private readonly query: ReconciliationQueryService,
     private readonly walletReconRun: WalletReconRunService,
-    private readonly caseAging: CaseAgingService,
+    private readonly caseService: ReconciliationCaseService,
   ) {}
 
   @Post('runs/wallet')
@@ -33,7 +33,7 @@ export class ReconciliationAdminController {
     const operatorId = req.user?.userNo || req.user?.sub || 'ADMIN';
     return this.walletReconRun.run(
       { cutoff },
-      { actorType: 'ADMIN', actorNo: operatorId, actorDisplayName: operatorId, actorRolesAtTime: ['ADMIN'] } as any,
+      { actorType: 'ADMIN', actorNo: operatorId, actorDisplayName: operatorId, actorRolesAtTime: ['ADMIN'] },
     );
   }
 
@@ -69,7 +69,7 @@ export class ReconciliationAdminController {
       role: user.role,
       roleCodes: user.roleCodes || (user.role ? [user.role] : []),
     };
-    return this.caseAging.simulateTimeout(caseNo, actor);
+    return this.caseService.simulateTimeout(caseNo, actor);
   }
 
   @Get('external-balances')

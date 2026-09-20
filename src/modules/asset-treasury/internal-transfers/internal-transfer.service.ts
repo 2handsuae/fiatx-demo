@@ -67,6 +67,11 @@ export class InternalTransferService {
     return this.prisma.internalTransfer.update({ where: { transferNo }, data: { status: to, ...patch }, include: { asset: true } });
   }
 
+  /** 铁律③：approvalNo 回填走主体服务，workflow 不直写自己域外……的表。 */
+  async stampApprovalNo(transferNo: string, approvalNo: string): Promise<void> {
+    await this.prisma.internalTransfer.update({ where: { transferNo }, data: { approvalNo } });
+  }
+
   /** 出生守卫③ / 批准时复核：运营户该币种可用（贷 − 借 − 待过账借）≥ 金额（最小单位）。 */
   async assertFirmOpsBalance(currency: string, amountMinor: bigint): Promise<void> {
     const ledger = TB_LEDGERS[currency as keyof typeof TB_LEDGERS];

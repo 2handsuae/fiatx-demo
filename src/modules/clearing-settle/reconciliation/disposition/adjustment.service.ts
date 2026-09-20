@@ -9,6 +9,7 @@ import { ApprovalActorContext } from '../../../governance/approvals/constants/ap
 import { AccountingService } from '../../../accounting/tigerbeetle/accounting.service';
 import { AuditLogsService } from '../../../audit-logging/audit-logs.service';
 import { AuditEntityTypes } from '../../../audit-logging/constants/audit-actions.constant';
+import { AuditSubjectRole } from '../../../audit-logging/dto/audit-log.dto';
 import { TB_ACCOUNT_CODES, TB_CODE_TO_COA } from '../../../accounting/tigerbeetle/constants/tb-account-codes.constant';
 import { TB_LEDGERS } from '../../../accounting/tigerbeetle/constants/tb-ledgers.constant';
 import { TB_TRANSFER_CODES } from '../../../accounting/tigerbeetle/constants/tb-transfer-codes.constant';
@@ -22,6 +23,8 @@ import {
 import { AdjustFamily, DISPOSITION_LABEL, DispositionKind, OUTLET_OF, StoredOutlet } from './cause-registry';
 import { isSmallAmount, SMALL_AMOUNT_LINE_MINOR } from './recon-thresholds.constant';
 import { DispositionService } from './disposition.service';
+import { resolveWalletNo } from '../domain/wallet-no.util';
+import { decimalsMapOf } from '../domain/asset-decimals.util';
 
 // Task 13：结论文案改走「存储 outlet → 处置种类 → DISPOSITION_LABEL」反查（同
 // reconciliation-query.service.ts 读面 KIND_OF_OUTLET 的路子，唯一来源都是
@@ -331,7 +334,7 @@ export class AdjustmentService {
         }
         // 评审修复（Minor 6）：record() 的 matchType 是必填列——CreateAdjustmentDto 上它
         // 是可选字段，不能让 undefined 溜进 NOT NULL 列；进 record() 前显式拒绝，给一句
-        // 人话 400，而不是靠 as any 掩盖类型缺口、让数据库层报一个不可读的错误。
+        // 人话 400，而不是靠 `any` 断言掩盖类型缺口、让数据库层报一个不可读的错误。
         if (!dto.matchType) {
           throw new BadRequestException('Recording a finding requires the row facts (matchType)');
         }
@@ -503,14 +506,14 @@ export class AdjustmentService {
         reasonCode: row.reasonCode,        // requiredFields 顶层
         amount: row.amount,
         subjects: [
-          { subjectType: AuditEntityTypes.RECON_ADJUSTMENT, subjectNo: row.adjustmentNo, subjectRole: 'PRIMARY' },
-          { subjectType: 'RECONCILIATION_CASE', subjectNo: row.caseNo, subjectRole: 'RELATED' },
+          { subjectType: AuditEntityTypes.RECON_ADJUSTMENT, subjectNo: row.adjustmentNo, subjectRole: AuditSubjectRole.PRIMARY },
+          { subjectType: AuditEntityTypes.RECONCILIATION_CASE, subjectNo: row.caseNo, subjectRole: AuditSubjectRole.RELATED },
         ],
         reason: row.reasonInternal,
         requestId: `RECON_ADJUSTMENT_DRAFTED_${row.adjustmentNo}_${randomUUID()}`,
         metadata: { reasonCode: row.reasonCode, direction: row.direction, amount: row.amount, book: row.book, toOwnerNo: row.toOwnerNo ?? null },
         sourcePlatform: 'ADMIN',
-      } as any,
+      },
       { actorType: 'ADMIN', actorNo: actorDisplay, actorDisplayName: actorDisplay, actorRolesAtTime: actor.roleCodes ?? [] },
     );
     if (dto.dispositionNo) {
@@ -540,9 +543,7 @@ export class AdjustmentService {
     let extra: { walletNo?: string | null; agedDays?: number | null; findingNote?: string | null; incidentNo?: string | null } | undefined;
     if (row.reasonCode === 'UNEXPLAINED_WRITE_OFF' || row.reasonCode === 'UNEXPLAINED_CLIENT_LOSS') {
       const kase = await this.prisma.reconciliationCase.findUnique({ where: { caseNo: row.caseNo }, select: { slaDeadline: true } });
-      const wallet = row.walletRef && !String(row.walletRef).startsWith('XREF:')
-        ? await this.prisma.wallet.findUnique({ where: { id: row.walletRef }, select: { walletNo: true } })
-        : null;
+      const walletNo = await resolveWalletNo(this.prisma, row.walletRef);
       const held = await this.prisma.reconciliationDisposition.findFirst({
         where: { adjustmentNo }, select: { findingNote: true, outlet: true, incidentNo: true },
       });
@@ -552,7 +553,7 @@ export class AdjustmentService {
       // incidentNo 会被 attachIncident 写上，纯 outlet 判据永远照不到那条路，审批页
       // 就读不到"金额锁定的依据 = 事故定损"。
       extra = {
-        walletNo: wallet?.walletNo ?? null, agedDays, findingNote: held?.findingNote ?? null,
+        walletNo, agedDays, findingNote: held?.findingNote ?? null,
         incidentNo: held?.incidentNo ?? null,
       };
     }
@@ -630,7 +631,7 @@ export class AdjustmentService {
     const assets = assetCodes.length
       ? await this.prisma.asset.findMany({ where: { code: { in: assetCodes } }, select: { code: true, decimals: true } })
       : [];
-    const decimalsByCode = new Map<string, number>(assets.map((a: any) => [a.code, a.decimals]));
+    const decimalsByCode = decimalsMapOf(assets);
     return {
       items: rows.map((r: any): AdjustmentListRow => ({
         adjustmentNo: r.adjustmentNo,
@@ -654,7 +655,7 @@ export class AdjustmentService {
    * 铁律⑥ 对外用业务键——排除 id/ownerId/approvalCaseId/walletRef/toWalletRef 与
    * 两个解释锚（explainedFlowId / explainedExternalLineId 是 account_flows /
    * external_statement_lines 的内部 UUID，界面不得展示）；两个 walletRef 各换成
-   * walletNo / toWalletNo（同 reconciliation-query.service.ts getCase 里 walletRow 的查法）。
+   * walletNo / toWalletNo（同 reconciliation-query.service.ts getCase 的 resolveWalletNo 查法）。
    *
    * ⚠ toWalletRef 是 T6 顺手收的口：Task 5 让它真正落库之后，排除清单还只剔
    * walletRef——改记单一被查询，正主方钱包的内部 UUID 就随返回体吐出去了。
@@ -662,13 +663,6 @@ export class AdjustmentService {
   async getAdjustment(adjustmentNo: string) {
     const row = await this.prisma.reconciliationAdjustment.findUnique({ where: { adjustmentNo } });
     if (!row) throw new NotFoundException(`Adjustment not found: ${adjustmentNo}`);
-
-    // 两侧钱包同一个查法（跨钱包合成案件的 'XREF:' 前缀不是真 Wallet.id，查了必空）。
-    const walletNoOf = async (ref: string | null | undefined): Promise<string | null> => {
-      if (!ref || String(ref).startsWith('XREF:')) return null;
-      const wallet = await this.prisma.wallet.findUnique({ where: { id: ref }, select: { walletNo: true } });
-      return wallet?.walletNo ?? null;
-    };
 
     // Task 7（admin 详情页）：decimals 供前端 分→元 缩放显示（T4 canon2 惯例，与
     // getCase 同款查法，前端不得自建 code→名字映射表——见
@@ -696,8 +690,8 @@ export class AdjustmentService {
     } = row;
     return {
       ...rest,
-      walletNo: await walletNoOf(row.walletRef),
-      toWalletNo: await walletNoOf(row.toWalletRef),
+      walletNo: await resolveWalletNo(this.prisma, row.walletRef),
+      toWalletNo: await resolveWalletNo(this.prisma, row.toWalletRef),
       decimals: assetRow?.decimals ?? 0,
       debitAccountCode: TB_CODE_TO_COA[legs.debitCode] ?? null,
       creditAccountCode: TB_CODE_TO_COA[legs.creditCode] ?? null,
@@ -784,11 +778,11 @@ export class AdjustmentService {
     // ownerType，这类问题不会被测出来——账户找错了，测试却是绿的）。
     const ownerFor = (code: number) =>
       code === TB_ACCOUNT_CODES.CLIENT_PAYABLE || code === TB_ACCOUNT_CODES.DEPOSIT_SUSPENSE
-        ? { ownerType: 'CUSTOMER' as const, ownerUuid: row.ownerId }
+        ? { ownerType: 'CUSTOMER' as const, ownerUuid: row.ownerId ?? undefined }
         : { ownerType: 'SYSTEM' as const };
 
-    const debitAccountId = await this.accounting.resolveTbAccountId({ code: legs.debitCode, ledger, ...ownerFor(legs.debitCode) } as any);
-    const creditAccountId = await this.accounting.resolveTbAccountId({ code: legs.creditCode, ledger, ...ownerFor(legs.creditCode) } as any);
+    const debitAccountId = await this.accounting.resolveTbAccountId({ code: legs.debitCode, ledger, ...ownerFor(legs.debitCode) });
+    const creditAccountId = await this.accounting.resolveTbAccountId({ code: legs.creditCode, ledger, ...ownerFor(legs.creditCode) });
 
     const { tbTransferId } = await this.accounting.executeTransfer({
       debitAccountId,
@@ -847,7 +841,7 @@ export class AdjustmentService {
         actionDomain: 'RECON',
         primarySubjectType: AuditEntityTypes.RECON_ADJUSTMENT,
         primarySubjectNo: row.adjustmentNo,
-        ownerCustomerNo: row.ownerNo,
+        ownerCustomerNo: row.ownerNo ?? undefined,
         // INHERIT 码，assertActionSpec 对空 correlationId 直接拒写——回落表达式与
         // evidence.traceId（上面 :181）保持一致，两侧不许各写各的。
         correlationId: row.traceId || row.adjustmentNo,
@@ -867,7 +861,7 @@ export class AdjustmentService {
           effectiveDate: row.effectiveDate, relatedOrderNo: row.relatedOrderNo, book: row.book,
         },
         sourcePlatform: 'ADMIN',
-      } as any,
+      },
       {
         actorType: 'ADMIN', actorNo: deciderDisplay, actorDisplayName: deciderDisplay,
         // 真实审批角色取代硬编码 ['ADMIN']——RECON_ADJUSTMENT_POST 是单步
@@ -921,8 +915,8 @@ export class AdjustmentService {
     }
 
     const legs = resolveReattributionLegs();
-    const debitAccountId = await this.accounting.resolveTbAccountId({ code: legs.debitCode, ledger, ownerType: 'CUSTOMER', ownerUuid: row.ownerId } as any);
-    const creditAccountId = await this.accounting.resolveTbAccountId({ code: legs.creditCode, ledger, ownerType: 'CUSTOMER', ownerUuid: toOwner.id } as any);
+    const debitAccountId = await this.accounting.resolveTbAccountId({ code: legs.debitCode, ledger, ownerType: 'CUSTOMER', ownerUuid: row.ownerId });
+    const creditAccountId = await this.accounting.resolveTbAccountId({ code: legs.creditCode, ledger, ownerType: 'CUSTOMER', ownerUuid: toOwner.id });
 
     const { tbTransferId } = await this.accounting.executeTransfer({
       debitAccountId,
@@ -1004,7 +998,7 @@ export class AdjustmentService {
           toOwnerNo: row.toOwnerNo ?? null,
         },
         sourcePlatform: 'ADMIN',
-      } as any,
+      },
       {
         actorType: 'ADMIN', actorNo: deciderDisplay, actorDisplayName: deciderDisplay,
         actorRolesAtTime: [deciderRole ?? 'ADMIN'],

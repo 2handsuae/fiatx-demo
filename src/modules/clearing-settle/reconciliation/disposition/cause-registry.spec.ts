@@ -161,3 +161,15 @@ it('outletOf 存储映射稳定（spec §8 值域沿用）', () => {
   expect(outletOf('REATTRIBUTE')).toBe('ADJUST_REATTRIBUTE');
   expect(outletOf('HOLD_NEXT_PERIOD')).toBe('HOLD_NEXT_PERIOD');
 });
+
+describe('dispositionsFor — AMOUNT_MISMATCH×FIRM 硬边界（波三，spec §2.4）', () => {
+  it('可调账来源（WITHDRAWAL）：RECORD 与 REVERSE 都给', () => {
+    const kinds = dispositionsFor({ matchType: 'AMOUNT_MISMATCH', book: 'FIRM', internalSourceType: 'WITHDRAWAL' });
+    expect(kinds).toEqual(expect.arrayContaining(['RECORD', 'REVERSE']));
+  });
+  it('不可调账来源（SWAP）：只给 RECORD——冲销只对 DEPOSIT/WITHDRAW 系开放（A1b 甲）', () => {
+    const kinds = dispositionsFor({ matchType: 'AMOUNT_MISMATCH', book: 'FIRM', internalSourceType: 'SWAP' });
+    expect(kinds).toContain('RECORD');
+    expect(kinds).not.toContain('REVERSE');
+  });
+});

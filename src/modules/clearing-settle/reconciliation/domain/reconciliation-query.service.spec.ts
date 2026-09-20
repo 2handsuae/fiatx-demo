@@ -1,5 +1,6 @@
 import { Prisma } from '@prisma/client';
 import { ReconciliationQueryService } from './reconciliation-query.service';
+import { FlowComparisonBuilder } from './flow-comparison.builder';
 import { CAUSE_REGISTRY, DISPOSITION_LABEL, causesFor, dispositionsFor } from '../disposition/cause-registry';
 import { REASON_SPECS } from '../disposition/adjustment-rules';
 
@@ -8,6 +9,9 @@ import { REASON_SPECS } from '../disposition/adjustment-rules';
 // T6: walletBalanceChecker was dropped from the constructor — getRun no
 // longer recomputes via the balance checker (it reads the run-wallet
 // snapshot table instead), and no other method in this service used it.
+// 波三 T6：buildFlowComparison 挪进独立 FlowComparisonBuilder——query service
+// 不再直接持有 flowMatcher/explainedDifferences，改注入 builder 实例。这里在
+// 同一套 mock 上现构一个真 builder（同 T2 buildSvc 手法），既有断言零改动。
 function mkSvc(
   prisma: any,
   opts: { flowMatcher?: any; explainedDifferences?: any; accounting?: any } = {},
@@ -26,7 +30,8 @@ function mkSvc(
   const accounting = opts.accounting ?? {
     getCustomerAvailableBalance: jest.fn(async () => ({ available: 0n })),
   };
-  return new ReconciliationQueryService(prisma, flowMatcher, explainedDifferences, accounting);
+  const flowComparisonBuilder = new FlowComparisonBuilder(prisma, flowMatcher as any, explainedDifferences as any);
+  return new ReconciliationQueryService(prisma, accounting, flowComparisonBuilder);
 }
 
 describe('listRuns — single engine surface', () => {

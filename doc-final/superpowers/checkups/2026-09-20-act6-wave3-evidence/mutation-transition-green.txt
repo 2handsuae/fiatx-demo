@@ -1,0 +1,11 @@
+PASS src/modules/clearing-settle/reconciliation/domain/reconciliation-case.service.spec.ts
+  ReconciliationCaseService（波三判据 4）
+    ✓ openCase：按 businessDate 序号铸 caseNo，状态落 OPEN，发 RECON_CASE_OPENED (2 ms)
+    ✓ resolveAutoHealed：OPEN → RESOLVED 落 AUTO_HEALED 五字段，发 RECON_CASE_AUTO_HEALED (1 ms)
+    ✓ resolveAutoHealed：已 RESOLVED 的案再 resolve 被显式拒（迁移表真调用） (6 ms)
+
+Test Suites: 1 passed, 1 total
+Tests:       3 passed, 3 total
+Snapshots:   0 total
+Time:        1.919 s, estimated 2 s
+Ran all test suites matching src/modules/clearing-settle/reconciliation/domain/reconciliation-case.service.spec.ts.

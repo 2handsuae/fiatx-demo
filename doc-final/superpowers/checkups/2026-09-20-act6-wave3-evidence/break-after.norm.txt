@@ -1,0 +1,95 @@
+[on-stack/self] DATABASE_URL=file:/tmp/exchange_js_wt_act6_wave3/dev.db
+[on-stack/self] TB_ADDRESS=127.0.0.1:3103
+[on-stack/self] TB_DATA_FILE=/tmp/exchange_js_wt_act6_wave3/0_0.tigerbeetle
+[on-stack/self] script 'recon:demo:break' -> ts-node -r tsconfig-paths/register scripts/recon-demo.ts --mode=break 
+════════ recon:demo  mode=break  cutoff=<ISO> ════════
+(node:PID) MaxListenersExceededWarning: (node) warning: possible EventEmitter memory leak detected. 11 listeners added. Use emitter.setMaxListeners() to increase limit.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:PID) MaxListenersExceededWarning: (node) warning: possible EventEmitter memory leak detected. 11 listeners added. Use emitter.setMaxListeners() to increase limit.
+(node:PID) MaxListenersExceededWarning: (node) warning: possible EventEmitter memory leak detected. 11 listeners added. Use emitter.setMaxListeners() to increase limit.
+(node:PID) MaxListenersExceededWarning: (node) warning: possible EventEmitter memory leak detected. 11 listeners added. Use emitter.setMaxListeners() to increase limit.
+self-clean: runs=0 cases=0 line_items=0 balances=1 lines=1 fundsOrders=1
+planned 19 wallet(s):
+  <UUID>  USDT-TRON  book=FIRM  internal=100399428189  lines=4  coa=E.FIRM_OPS  owner=PLATFORM
+  <UUID>  AED  book=FIRM  internal=99858935  lines=4  coa=E.FIRM_OPS  owner=PLATFORM
+  <UUID>  AED  book=FIRM  internal=0  lines=6  coa=E.FIRM_SET  owner=PLATFORM
+  <UUID>  USDT-TRON  book=FIRM  internal=14000000  lines=3  coa=E.INCOME_SWAP_FEE  owner=PLATFORM
+  <UUID>  AED  book=FIRM  internal=11400  lines=3  coa=E.INCOME_OTHER  owner=PLATFORM
+  <UUID>  USDT-TRON  book=FIRM  internal=0  lines=0  coa=  owner=PLATFORM
+  <UUID>  AED  book=FIRM  internal=0  lines=0  coa=  owner=PLATFORM
+  <UUID>  USDT-TRON  book=CLIENT  internal=1600000000  lines=2  coa=L.CLIENT_PAYABLE+L.DEPOSIT_SUSPENSE  owner=CU2601019430
+  <UUID>  AED  book=CLIENT  internal=809065  lines=7  coa=L.CLIENT_PAYABLE+L.DEPOSIT_SUSPENSE  owner=CU2601019430
+  <UUID>  USDT-TRON  book=CLIENT  internal=629914899  lines=4  coa=L.CLIENT_PAYABLE+L.DEPOSIT_SUSPENSE  owner=CU2601017625
+  <UUID>  AED  book=CLIENT  internal=26220000  lines=3  coa=L.CLIENT_PAYABLE+L.DEPOSIT_SUSPENSE  owner=CU2601017625
+  <UUID>  USDT-TRON  book=CLIENT  internal=1412656912  lines=3  coa=L.CLIENT_PAYABLE+L.DEPOSIT_SUSPENSE  owner=CU2601014381
+  <UUID>  AED  book=CLIENT  internal=483500  lines=6  coa=L.CLIENT_PAYABLE+L.DEPOSIT_SUSPENSE  owner=CU2601014381
+  <UUID>  USDT-TRON  book=CLIENT  internal=400000000  lines=1  coa=L.CLIENT_PAYABLE+L.DEPOSIT_SUSPENSE  owner=CU2601010403
+  <UUID>  AED  book=CLIENT  internal=650000  lines=2  coa=L.CLIENT_PAYABLE+L.DEPOSIT_SUSPENSE  owner=CU2601010403
+  <UUID>  USDT-TRON  book=CLIENT  internal=350000000  lines=1  coa=L.CLIENT_PAYABLE+L.DEPOSIT_SUSPENSE  owner=CU2601016170
+  <UUID>  AED  book=CLIENT  internal=520000  lines=2  coa=L.CLIENT_PAYABLE+L.DEPOSIT_SUSPENSE  owner=CU2601016170
+  <UUID>  USDT-TRON  book=CLIENT  internal=0  lines=0  coa=  owner=CU2601010484
+  <UUID>  AED  book=CLIENT  internal=930000  lines=4  coa=L.CLIENT_PAYABLE+L.DEPOSIT_SUSPENSE  owner=CU2601010484
+mirror written: external_balances=19  external_statement_lines=55
+  场景 17：Grace AED 当刻可用 3300.00，退汇 6500.00，差额 3200.00（铺场时点；演到 17 时以案件页显示为准）
+manifest written to /tmp/exchange_js_main/recon-demo-manifest.json  (18 scenarios, 12 wallets)
+  [#1 IN_TRANSIT_TIMING] wallet=<UUID>
+  [#5 AMT_FEE_NETTED] wallet=<UUID>
+  [#6 DUP_BOOKING] wallet=<UUID>
+  [#7 PHANTOM_BOOKING] wallet=<UUID>
+  [#2 AMT_MISBOOKED] wallet=<UUID>
+  [#3 AMT_MISBOOKED] wallet=<UUID>
+  [#4 AMT_ROUNDING] wallet=<UUID>
+  [#10 UNEXPLAINED] wallet=<UUID>
+  [#11 BANK_CHARGE_UNBOOKED] wallet=<UUID>
+  [#13 MISSED_DEPOSIT] wallet=<UUID>
+  [#9 CUTOFF_STRADDLE] wallet=<UUID>
+  [#8 MISATTRIBUTED_FROM] wallet=<UUID>,<UUID>
+  [#12 BANK_INTEREST_UNBOOKED] wallet=<UUID>
+  [#14 BOUNCED_FUNDS] wallet=<UUID>
+  [#15 PAYOUT_RETURNED] wallet=<UUID>
+  [#16 UNEXPLAINED] wallet=<UUID>
+  [#17 BOUNCED_FUNDS] wallet=<UUID>
+  [#18 UNAUTHORIZED_OUTFLOW] wallet=<UUID>
+balanceAfter populated on 62 line(s)
+
+──── engine result ────
+runId=<UUID>
+status=BREAK  walletsChecked=19  casesOpened=12
+orphanInternal=4  orphanExternal=8  mismatch=6
+
+──── manifest verification ────
+  # 1  IN_TRANSIT_TIMING          wallet=<W>  DETECTED
+  # 5  AMT_FEE_NETTED             wallet=<W>  DETECTED
+  # 6  DUP_BOOKING                wallet=<W>  DETECTED
+  # 7  PHANTOM_BOOKING            wallet=<W>  DETECTED
+  # 2  AMT_MISBOOKED              wallet=<W>  DETECTED
+  # 3  AMT_MISBOOKED              wallet=<W>  DETECTED
+  # 4  AMT_ROUNDING               wallet=<W>  DETECTED
+  #10  UNEXPLAINED                wallet=<W>  DETECTED
+  #11  BANK_CHARGE_UNBOOKED       wallet=<W>  DETECTED
+  #13  MISSED_DEPOSIT             wallet=<W>  DETECTED
+  # 9  CUTOFF_STRADDLE            wallet=<W>  DETECTED
+  # 8  MISATTRIBUTED_FROM         wallet=<W>  DETECTED
+  #12  BANK_INTEREST_UNBOOKED     wallet=<W>  DETECTED
+  #14  BOUNCED_FUNDS              wallet=<W>  DETECTED
+  #15  PAYOUT_RETURNED            wallet=<W>  DETECTED
+  #16  UNEXPLAINED                wallet=<W>  DETECTED
+  #17  BOUNCED_FUNDS              wallet=<W>  DETECTED
+  #18  UNAUTHORIZED_OUTFLOW       wallet=<W>  DETECTED
+  scenarios: 18/18 DETECTED
+  wallets:   12/12 bucket OK
+
+──── identity self-check ────
+  OK  identity① walletCount(19) == matched(7) + inTransit(1) + softFlag(2) + break(9)
+  OK  identity② opened(12) + reObserved(0) == inTransit+softFlag+break(12)
+
+──── break-mode asserts ────
+  OK  status==BREAK
+  OK  scenarios 18/18
+  OK  wallets 12/12
+  OK  casesOpened 12/12
+  OK  identities OK
+
+ALL 18 SCENARIOS DETECTED PER MANIFEST
+
+════════ recon:demo break DONE — OK ════════
