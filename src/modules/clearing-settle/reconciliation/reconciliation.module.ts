@@ -10,6 +10,8 @@ import { FundsOrdersModule } from '../../funds-orders/funds-orders.module';
 // Task 4: 调账单接审批中心 — needs ApprovalsService for submit()/createAndSubmit().
 import { ApprovalsModule } from '../../governance/approvals/approvals.module';
 import { ReconciliationQueryService } from './domain/reconciliation-query.service';
+// 波三 T6：flowComparison 的四段查询/匹配挪出 query service，独立成 builder。
+import { FlowComparisonBuilder } from './domain/flow-comparison.builder';
 // 第六幕波三：Case 主体服务——全仓唯一的 reconciliationCase 表写点（判据 4 本体）。
 import { ReconciliationCaseService } from './domain/reconciliation-case.service';
 import { WalletReconRunService } from './workflow/wallet-recon-run.service';
@@ -44,6 +46,8 @@ import { SimulatedCustodianStatementService } from './simulation/simulated-custo
   controllers: [ReconciliationAdminController, PushOrderController, AdjustmentController, DispositionController],
   providers: [
     ReconciliationQueryService,
+    // 波三 T6：getCase 的 flowComparison 构建器——query service 唯一消费者。
+    FlowComparisonBuilder,
     ReconciliationCaseService,
     ReconciliationSweepService,
     // Phase B / T7 — per-wallet engine (sole live recon path; V8 chain removed in Phase C/A.1).
