@@ -8,6 +8,7 @@ import { AuditLogsService } from '../../../audit-logging/audit-logs.service';
 import { AuditEntityTypes } from '../../../audit-logging/constants/audit-actions.constant';
 import { ApprovalActorContext } from '../../../governance/approvals/constants/approval.constants';
 import { RecordDispositionDto } from '../dto/disposition.dto';
+import { resolveWalletNo } from '../domain/wallet-no.util';
 import {
   AdjustFamily, CAUSE_REGISTRY, CauseBook, DeferredTarget, DISPOSITION_LABEL, RowFacts,
   causesFor, dispositionsFor, outletOf,
@@ -106,9 +107,7 @@ export class DispositionService {
     const dispositionNo = existing?.dispositionNo ?? row.dispositionNo;
 
     // 铁律①：定性是持久化动作。子主体带案件 + 钱包（业务键，spec §8）。
-    const wallet = kase.walletRef && !String(kase.walletRef).startsWith('XREF:')
-      ? await this.prisma.wallet.findUnique({ where: { id: kase.walletRef }, select: { walletNo: true } })
-      : null;
+    const walletNo = await resolveWalletNo(this.prisma, kase.walletRef);
     const actorDisplay = actor.userNo ?? actor.userId;
     await this.auditLogs.recordByActor(
       {
@@ -122,7 +121,7 @@ export class DispositionService {
         subjects: [
           { subjectType: AuditEntityTypes.RECON_DISPOSITION, subjectNo: dispositionNo, subjectRole: 'PRIMARY' },
           { subjectType: 'RECONCILIATION_CASE', subjectNo: caseNo, subjectRole: 'RELATED' },
-          ...(wallet?.walletNo ? [{ subjectType: AuditEntityTypes.WALLET, subjectNo: wallet.walletNo, subjectRole: 'RELATED' }] : []),
+          ...(walletNo ? [{ subjectType: AuditEntityTypes.WALLET, subjectNo: walletNo, subjectRole: 'RELATED' }] : []),
         ],
         reason: dto.findingNote,
         requestId: `RECON_DISPOSITION_RECORDED_${dispositionNo}_${randomUUID()}`, // 漏了会被静默去重
@@ -244,11 +243,9 @@ export class DispositionService {
         // 锚：外部孤儿 → externalTxId（external_statement_lines.id）；内部孤儿 → internalSourceId（account_flows.id）
         const anchorId = wantStatus === 'ORPHAN_EXTERNAL' ? li.externalTxId : li.internalSourceId;
         if (!anchorId) continue;
-        const wallet = peer.walletRef && !String(peer.walletRef).startsWith('XREF:')
-          ? await this.prisma.wallet.findUnique({ where: { id: peer.walletRef }, select: { walletNo: true } })
-          : null;
+        const walletNo = await resolveWalletNo(this.prisma, peer.walletRef);
         out.push({
-          caseNo: peer.caseNo, walletNo: wallet?.walletNo ?? null, ownerNo: peer.ownerNo ?? null,
+          caseNo: peer.caseNo, walletNo, ownerNo: peer.ownerNo ?? null,
           anchorId, externalRef: li.externalRef ?? null, amount: liAmount,
         });
       }

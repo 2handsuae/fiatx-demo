@@ -4,10 +4,10 @@ function build(candidates: any[]) {
   const caseAging: any = {
     findBreachCandidates: jest.fn().mockResolvedValue(candidates),
     markBreached: jest.fn().mockResolvedValue(undefined),
-    walletNoOf: jest.fn().mockResolvedValue('WA2601017168'),
   };
   const audit: any = { recordSystem: jest.fn().mockResolvedValue(undefined) };
-  return { svc: new CaseAgingSweepService(caseAging, audit), caseAging, audit };
+  const prisma: any = { wallet: { findUnique: jest.fn().mockResolvedValue({ walletNo: 'WA2601017168' }) } };
+  return { svc: new CaseAgingSweepService(caseAging, audit, prisma), caseAging, audit, prisma };
 }
 
 const CAND = {

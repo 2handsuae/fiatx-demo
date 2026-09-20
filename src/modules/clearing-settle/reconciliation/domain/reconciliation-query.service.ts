@@ -2,6 +2,8 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../core/prisma/prisma.service';
 import { AccountingService } from '../../../accounting/tigerbeetle/accounting.service';
+import { resolveWalletNo } from './wallet-no.util';
+import { decimalsMapOf } from './asset-decimals.util';
 import {
   WalletFlowMatcherService,
   ExternalStatementLineInput,
@@ -155,7 +157,7 @@ export class ReconciliationQueryService {
           select: { code: true, decimals: true },
         })) as Array<{ code: string; decimals: number }>)
       : [];
-    const decimalsByCode = new Map(runAssets.map((a) => [a.code, a.decimals]));
+    const decimalsByCode = decimalsMapOf(runAssets);
 
     const accountStatusTable: AccountStatusRow[] = legacy ? [] : runWallets.map((w) => ({
       walletRef: w.walletRef,
@@ -257,7 +259,7 @@ export class ReconciliationQueryService {
     const assets = assetCodes.length
       ? ((await this.prisma.asset.findMany({ where: { code: { in: assetCodes } }, select: { code: true, decimals: true } })) as Array<{ code: string; decimals: number }>)
       : [];
-    const decimalsByCode = new Map(assets.map((a) => [a.code, a.decimals]));
+    const decimalsByCode = decimalsMapOf(assets);
 
     // Resolve walletRef (UUID) → walletNo (business key) so the cockpit
     // never exposes raw IDs. Legacy XREF synthetic walletRefs (start with
@@ -710,12 +712,7 @@ export class ReconciliationQueryService {
       });
     }
 
-    const walletRow = kase.walletRef && !kase.walletRef.startsWith('XREF:')
-      ? await this.prisma.wallet.findUnique({
-          where: { id: kase.walletRef },
-          select: { walletNo: true },
-        })
-      : null;
+    const walletNo = await resolveWalletNo(this.prisma, kase.walletRef);
 
     const linkedRunId = kase.lastUpdatedRunId ?? kase.openedByRunId ?? null;
     const linkedRunRow = linkedRunId
@@ -772,7 +769,7 @@ export class ReconciliationQueryService {
 
     return {
       ...kase,
-      walletNo: walletRow?.walletNo ?? null,
+      walletNo,
       linkedRunNo: linkedRunRow?.runNo ?? null,
       decimals: assetRow?.decimals ?? 0,
       bucket: kase.bucket ?? null,
@@ -897,7 +894,7 @@ export class ReconciliationQueryService {
           where: { code: { in: currencies } },
           select: { code: true, decimals: true },
         });
-    const decimalsByCode = new Map(assets.map(a => [a.code, a.decimals]));
+    const decimalsByCode = decimalsMapOf(assets);
 
     return rows.map(r => ({
       ...r,

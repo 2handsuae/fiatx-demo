@@ -22,6 +22,8 @@ import {
 import { AdjustFamily, DISPOSITION_LABEL, DispositionKind, OUTLET_OF, StoredOutlet } from './cause-registry';
 import { isSmallAmount, SMALL_AMOUNT_LINE_MINOR } from './recon-thresholds.constant';
 import { DispositionService } from './disposition.service';
+import { resolveWalletNo } from '../domain/wallet-no.util';
+import { decimalsMapOf } from '../domain/asset-decimals.util';
 
 // Task 13：结论文案改走「存储 outlet → 处置种类 → DISPOSITION_LABEL」反查（同
 // reconciliation-query.service.ts 读面 KIND_OF_OUTLET 的路子，唯一来源都是
@@ -540,9 +542,7 @@ export class AdjustmentService {
     let extra: { walletNo?: string | null; agedDays?: number | null; findingNote?: string | null; incidentNo?: string | null } | undefined;
     if (row.reasonCode === 'UNEXPLAINED_WRITE_OFF' || row.reasonCode === 'UNEXPLAINED_CLIENT_LOSS') {
       const kase = await this.prisma.reconciliationCase.findUnique({ where: { caseNo: row.caseNo }, select: { slaDeadline: true } });
-      const wallet = row.walletRef && !String(row.walletRef).startsWith('XREF:')
-        ? await this.prisma.wallet.findUnique({ where: { id: row.walletRef }, select: { walletNo: true } })
-        : null;
+      const walletNo = await resolveWalletNo(this.prisma, row.walletRef);
       const held = await this.prisma.reconciliationDisposition.findFirst({
         where: { adjustmentNo }, select: { findingNote: true, outlet: true, incidentNo: true },
       });
@@ -552,7 +552,7 @@ export class AdjustmentService {
       // incidentNo 会被 attachIncident 写上，纯 outlet 判据永远照不到那条路，审批页
       // 就读不到"金额锁定的依据 = 事故定损"。
       extra = {
-        walletNo: wallet?.walletNo ?? null, agedDays, findingNote: held?.findingNote ?? null,
+        walletNo, agedDays, findingNote: held?.findingNote ?? null,
         incidentNo: held?.incidentNo ?? null,
       };
     }
@@ -630,7 +630,7 @@ export class AdjustmentService {
     const assets = assetCodes.length
       ? await this.prisma.asset.findMany({ where: { code: { in: assetCodes } }, select: { code: true, decimals: true } })
       : [];
-    const decimalsByCode = new Map<string, number>(assets.map((a: any) => [a.code, a.decimals]));
+    const decimalsByCode = decimalsMapOf(assets);
     return {
       items: rows.map((r: any): AdjustmentListRow => ({
         adjustmentNo: r.adjustmentNo,
@@ -663,13 +663,6 @@ export class AdjustmentService {
     const row = await this.prisma.reconciliationAdjustment.findUnique({ where: { adjustmentNo } });
     if (!row) throw new NotFoundException(`Adjustment not found: ${adjustmentNo}`);
 
-    // 两侧钱包同一个查法（跨钱包合成案件的 'XREF:' 前缀不是真 Wallet.id，查了必空）。
-    const walletNoOf = async (ref: string | null | undefined): Promise<string | null> => {
-      if (!ref || String(ref).startsWith('XREF:')) return null;
-      const wallet = await this.prisma.wallet.findUnique({ where: { id: ref }, select: { walletNo: true } });
-      return wallet?.walletNo ?? null;
-    };
-
     // Task 7（admin 详情页）：decimals 供前端 分→元 缩放显示（T4 canon2 惯例，与
     // getCase 同款查法，前端不得自建 code→名字映射表——见
     // tb-account-codes.constant.ts:38）；分录预览的借/贷助记码由 (book, direction)
@@ -696,8 +689,8 @@ export class AdjustmentService {
     } = row;
     return {
       ...rest,
-      walletNo: await walletNoOf(row.walletRef),
-      toWalletNo: await walletNoOf(row.toWalletRef),
+      walletNo: await resolveWalletNo(this.prisma, row.walletRef),
+      toWalletNo: await resolveWalletNo(this.prisma, row.toWalletRef),
       decimals: assetRow?.decimals ?? 0,
       debitAccountCode: TB_CODE_TO_COA[legs.debitCode] ?? null,
       creditAccountCode: TB_CODE_TO_COA[legs.creditCode] ?? null,

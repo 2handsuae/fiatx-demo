@@ -19,6 +19,7 @@ import { randomUUID } from 'node:crypto';
 import { Injectable, Logger } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../core/prisma/prisma.service';
+import { decimalsMapOf } from '../domain/asset-decimals.util';
 import {
   WalletBalanceCheckerService,
   WalletBalanceCheckResult,
@@ -176,9 +177,7 @@ export class WalletReconRunService {
           where: { code: { in: runCurrencies } },
           select: { code: true, decimals: true },
         })) as Array<{ code: string; decimals: number }>);
-    const decimalsByCurrency = new Map<string, number>(
-      assetsForDecimals.map((a) => [a.code, a.decimals]),
-    );
+    const decimalsByCurrency = decimalsMapOf(assetsForDecimals);
 
     let casesCreated = 0;
     let casesUpdated = 0;
