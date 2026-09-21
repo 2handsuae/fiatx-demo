@@ -94,7 +94,7 @@ grep -rn "23:59:59" src/ admin-web/src --include="*.ts" --include="*.tsx" | grep
 
 ### 2.5 划转路由前缀统一 `custody/`（甲案）
 
-- 改 15 处：`App.tsx:227,228` 两条 `path="treasury/internal-transfers*"` → `custody/`；其余 13 处 `/admin/treasury/internal-transfers` 字面（`DashboardLayout.tsx:270`、`caseDetailBits.tsx:39`、`CaseFlowTable.tsx:90`、`auditEntityRoutes.ts:19`、`InternalTransferList.tsx:137`、`FundsOrderDetail.tsx:168`、`approvalEntityRoutes.ts:50`、`IncidentDetailPage.tsx:88,267`、`InternalTransferDetail.tsx:73,128`）→ `custody/`。
+- 改 13 处：`App.tsx:227,228` 两条 `path="treasury/internal-transfers*"` → `custody/`；其余 11 处 `/admin/treasury/internal-transfers` 字面（`DashboardLayout.tsx:270`、`caseDetailBits.tsx:39`、`CaseFlowTable.tsx:90`、`auditEntityRoutes.ts:19`、`InternalTransferList.tsx:137`、`FundsOrderDetail.tsx:168`、`approvalEntityRoutes.ts:50`、`IncidentDetailPage.tsx:88,267`、`InternalTransferDetail.tsx:73,128`）→ `custody/`。
 - 终态判据（复现命令）：`grep -rn "treasury/" admin-web/src client-web/src --include="*.ts" --include="*.tsx"` 路由义命中 **= 0**（`CaseFlowTable.tsx:104` 「initiated by treasury」是文案不是路由，留）。RBAC 零改动（权限码挂后端 API 路由，前端路径非权限载体——plan 里以 `rbac.catalog.ts` 零 `treasury/internal-transfers` 前端路径佐证）。
 - 走查：案件页划转链接、审批回链、审计深链、事故回链、资金单回链五路各点一次到页。销 `BACKLOG:180`。
 

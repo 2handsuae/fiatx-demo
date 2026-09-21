@@ -1,4 +1,6 @@
-// Round3 spec §2.2：钱包级五桶互斥分类（MATCHED 不开 case，其余三桶开）。
+// Round3 spec §2.2：钱包级四桶互斥分类（MATCHED/IN_TRANSIT/COMPENSATING/BREAK；
+// MATCHED 不开 case，其余三桶开。INTERNAL_BREAK 是 run 状态，不是桶——见
+// wallet-recon-run.service.ts 的 invariantStatus，与本文件的钱包级分类无关）。
 // 残差 = delta − Σ在途签名额（IN 为正 / OUT 为负）；命中即止：
 //   ① 残差 ≠ 0                       → BREAK   （在途解释不干净，剩余就是真差异）
 //   ② 残差 = 0 且 在途行 > 0          → IN_TRANSIT（差额被在途完全解释，会自愈）

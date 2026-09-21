@@ -13,7 +13,7 @@
 > 分诊历史：2026-08-26 首次分流（加固类迁出）；2026-08-28 二次分诊——业务/技术彻底分家：8 条已完成或已作废销账、45 条迁 `PRODUCTION-NOTES`、4 条从 `PRODUCTION-NOTES` 判回业务；同日「演示装备」A 档 8 条逐条实跑复核，6 条实证已修当场销账。**2026-08-29 演示装备一期收官**——A 档剩下的 2 条（造数花名册、补料回炉）做完销账，A 档 8/8 全部完成、整节退役删除（原文见「本轮销账」章节与 git 历史）；导语并入 §B。分诊前全文见 git 历史（`649b4e88`）。
 > **2026-09-08 按演示动线重排**——章节改为七幕行进顺序（幕内按站 / 场景），43 条已勾条目整批归档文末「本轮销账」；「Material Refresh 状态名」1 条作废（所指代码已随子系统退役，`grep -rln "NUDGE_ONLY" src admin-web/src client-web/src` 零命中）。重排前全文见 git 历史（`f27e8312`）。
 
-Last Updated: 2026-09-16（审计两页按后端真实字段重设计·文档收口：§H 销 2（invite 派发失败分支漏 INSTRUMENT 行 / UUID 过滤两残口）+ 新登 2（列表页 Actor 列客户自助动作暴露裸 UUID / 状态迁移类审计事件不带 amount）——依据本文件 §H 各条内联订正，物证见 `superpowers/checkups/2026-09-16-audit-pages-walkthrough/`；此前同日第七幕波三收官记账：§H 销 6（InternalFundAuditLog 有读无写 / Audit No 假承诺 / Related Subjects 观察 / correlationId 旅程入口 / 一行级小账三件全销）+ §H 跳转映射条订正未全销（18/27→20/27，剩 7 类）+ §I ListFooter 清单划掉 AuditLogsPage（13→12）+ §K ⑥⑦ 数字销账（②script.md 兑换码数同销）+ 新登 1 行（InternalFundAuditLog 读写双死留删表）——依据本文件 §H/§I/§K 各条内联订正，物证见 `superpowers/checkups/act7-wave3-walkthrough/`；此前同日第七幕波二收官记账：§H 销 2（subjects 覆盖面 / 审计有痕无人）+ Q4 条重锚 + 新登 5 行观察——依据 `superpowers/specs/2026-09-16-act7-wave2-audit-attribution-design.md`；此前同日第七幕波一收官记账：§H 销 4 + 小账①划去、§B 账本域条补 actorId 落屏一笔——依据 `superpowers/specs/2026-09-15-act7-audit-campaign-charter.md` 波一节；此前 2026-09-15：战役收官后复检销 3 订正 5 新登记 6 + 第七幕体检 §H 订正 1 新登记 7）
+Last Updated: 2026-09-21（第六幕波五文档收口：销 6（:128 划转腿推单显式拒 / :136 业务日迪拜午夜切 / :180 划转路由前缀统一 custody / :194 严重度按币种拆线 / :198 开案审计 metadata 换业务键，均随波五 T1-T9 代码落地；另一条财务查证手册附录落后三波，随本轮 §四附录重排一并销账）+ :192 改写为余项（INTERNAL_BREAK 明细呈现，空表危险已随 T6 除、摘 ⭐）+ 新登 1（调账弹窗残存 side 锚推导是否收编后端，波四/波五两波均判不收，留档）——依据本文件各条内联订正，物证见 `superpowers/checkups/2026-09-21-act6-wave5-evidence/`）；此前 2026-09-16（审计两页按后端真实字段重设计·文档收口：§H 销 2（invite 派发失败分支漏 INSTRUMENT 行 / UUID 过滤两残口）+ 新登 2（列表页 Actor 列客户自助动作暴露裸 UUID / 状态迁移类审计事件不带 amount）——依据本文件 §H 各条内联订正，物证见 `superpowers/checkups/2026-09-16-audit-pages-walkthrough/`；此前同日第七幕波三收官记账：§H 销 6（InternalFundAuditLog 有读无写 / Audit No 假承诺 / Related Subjects 观察 / correlationId 旅程入口 / 一行级小账三件全销）+ §H 跳转映射条订正未全销（18/27→20/27，剩 7 类）+ §I ListFooter 清单划掉 AuditLogsPage（13→12）+ §K ⑥⑦ 数字销账（②script.md 兑换码数同销）+ 新登 1 行（InternalFundAuditLog 读写双死留删表）——依据本文件 §H/§I/§K 各条内联订正，物证见 `superpowers/checkups/act7-wave3-walkthrough/`；此前同日第七幕波二收官记账：§H 销 2（subjects 覆盖面 / 审计有痕无人）+ Q4 条重锚 + 新登 5 行观察——依据 `superpowers/specs/2026-09-16-act7-wave2-audit-attribution-design.md`；此前同日第七幕波一收官记账：§H 销 4 + 小账①划去、§B 账本域条补 actorId 落屏一笔——依据 `superpowers/specs/2026-09-15-act7-audit-campaign-charter.md` 波一节；此前 2026-09-15：战役收官后复检销 3 订正 5 新登记 6 + 第七幕体检 §H 订正 1 新登记 7）
 
 ## A. 开演前（重铺 + 造数判据）
 
@@ -125,7 +125,7 @@ Last Updated: 2026-09-16（审计两页按后端真实字段重设计·文档收
 
 - [ ] **swap 腿推单未支持**：通用推单按钮（`/admin/funds-orders/:no/push/sync|manual`）明确排除 swap 腿——`advanceByNo`/编排服务见 `swapTransactionId` 非空即拒（现有先卖后买顺序守卫防线），且回填 effectiveDate 需再穿透 swap 4 腿两阶段记账链（工作量≈deposit+withdraw 之和）。swap 腿卡单本期走 **Swap 详情页 `advanceLeg` 专用推进**（带顺序守卫），但该路径**暂无 effectiveDate 回填** → 推完历史那天快照修不平 ｜来源: 2026-07-03 推单 plan 落地发现（spec §2/§8）｜下期：swap workflow 记账链穿透 effectiveDate + 推单接 swap 腿
 
-- [ ] **推单页对内部划转腿要么显式拒、要么修方向标签**（2026-09-05 平账二期终审裁定）：在途案「去推单」链接对划转腿可达，`push-order.service.ts` 只拒兑换父单；推它不会重复落账（落账单点在划转工作流的 CONFIRMED 事件处理，与推单驱动已有 already-terminal 容忍），但回执视图会把划转腿方向误标成 IN——沿兑换先例显式拒（"划转腿资金单请走划转单详情页"）或补方向分支 ｜来源: 平账二期 Task 2 评审发现、终审裁定 BACKLOG
+- [x] **推单页对内部划转腿要么显式拒、要么修方向标签**（2026-09-05 平账二期终审裁定）：在途案「去推单」链接对划转腿可达，`push-order.service.ts` 只拒兑换父单；推它不会重复落账（落账单点在划转工作流的 CONFIRMED 事件处理，与推单驱动已有 already-terminal 容忍），但回执视图会把划转腿方向误标成 IN——沿兑换先例显式拒（"划转腿资金单请走划转单详情页"）或补方向分支 ｜来源: 平账二期 Task 2 评审发现、终审裁定 BACKLOG ｜ **2026-09-21 波五 T7 销账**：取甲案（显式拒）——后端 `loadPushable` 照 swap 先例加 `internalTransferId` 拒斥；前端双入口连动（案件页在途行改渲染「Transfer leg →」直指划转单详情、资金单详情页对划转腿隐藏推单动作块）
 
 **场景 8 · 改记**
 
@@ -133,7 +133,7 @@ Last Updated: 2026-09-16（审计两页按后端真实字段重设计·文档收
 
 **场景 9 · 跨日切（业务日口径）**
 
-- [ ] **业务日期按 UTC 切、非迪拜 COB(2026-08-13，财务硬需求)**：`src/modules/accounting/tigerbeetle/utils/business-date.util.ts:2` 的 `toBusinessDate` = `toISOString().slice(0,10)`（UTC 日历日 = 迪拜凌晨 4 点切日），迪拜时间 1 月 5 日 02:00 的交易记成 1 月 4 日的账。业务方邮件明确要求"固定迪拜 close-of-business 截止、对前一日收盘位"。**业主 2026-09-19 拍板：做，改按迪拜 COB 切**（`decisions.md` 同日条目）。**存量不评估**——§3 数据随时可重铺，改完 reset 重铺、不写 backfill（原「历史 effectiveDate 存量口径切换需评估」作废）。**改动面实测 7 处**（2026-09-19 体检实扫）：`toBusinessDate` 有**两份实现**——共享 util `business-date.util.ts:2` ＋ 对账编排私有重复件 `wallet-recon-run.service.ts:1055`，**只改前者会留下「引擎仍按 UTC 切」的暗坑**；另四处硬写 UTC 日终：`recon-thresholds.constant.ts:26`（账龄起算）/ `effective-cutoff.ts:23`（生效日过滤）/ `reconciliation-query.service.ts:923` / `push-order.service.ts:204,206`（「今天」判断）。对照：cron 早已跑 `Asia/Dubai`（对账 02:30、账龄每分钟），只有算出来的日期还是 UTC。不依赖 COA v2，可单独先修 ｜来源: 2026-08-13 COA v2 设计对话中代码实证（spec §7）
+- [x] **业务日期按 UTC 切、非迪拜 COB(2026-08-13，财务硬需求)**：`src/modules/accounting/tigerbeetle/utils/business-date.util.ts:2` 的 `toBusinessDate` = `toISOString().slice(0,10)`（UTC 日历日 = 迪拜凌晨 4 点切日），迪拜时间 1 月 5 日 02:00 的交易记成 1 月 4 日的账。业务方邮件明确要求"固定迪拜 close-of-business 截止、对前一日收盘位"。**业主 2026-09-19 拍板：做，改按迪拜 COB 切**（`decisions.md` 同日条目）。**存量不评估**——§3 数据随时可重铺，改完 reset 重铺、不写 backfill（原「历史 effectiveDate 存量口径切换需评估」作废）。**改动面实测 7 处**（2026-09-19 体检实扫）：`toBusinessDate` 有**两份实现**——共享 util `business-date.util.ts:2` ＋ 对账编排私有重复件 `wallet-recon-run.service.ts:1055`，**只改前者会留下「引擎仍按 UTC 切」的暗坑**；另四处硬写 UTC 日终：`recon-thresholds.constant.ts:26`（账龄起算）/ `effective-cutoff.ts:23`（生效日过滤）/ `reconciliation-query.service.ts:923` / `push-order.service.ts:204,206`（「今天」判断）。对照：cron 早已跑 `Asia/Dubai`（对账 02:30、账龄每分钟），只有算出来的日期还是 UTC。不依赖 COA v2，可单独先修 ｜来源: 2026-08-13 COA v2 设计对话中代码实证（spec §7）｜ **2026-09-21 波五 T1-T4 销账**：切点钉死迪拜午夜（自然日历日，`D T19:59:59.999Z` 日终），`business-date.util.ts` 重写 + 新增 `endOfBusinessDate`/`startOfBusinessDate` 唯一真源；改动面订正为 **9 位点 / 8 文件**（体检 7 处之外新扫出 `supplement-evidence.service.ts:125` 兜底业务日与前端 `reconRunTrigger.ts:34` 日终硬拼，`runs/wallet` 契约改收 `businessDate` 把日终换算收回后端）
 
 - [ ] **effectiveDate 语义待核**：应 date(价值日) + 独立 createdAt(datetime) 两字段两用途；需核 `effectiveDate` 是否 date-only、截止边界卡点是否用 createdAt ｜来源: spec §2.4
 
@@ -177,7 +177,7 @@ Last Updated: 2026-09-16（审计两页按后端真实字段重设计·文档收
 
 - [ ] **手续费归集不做，等报表层**（2026-09-05 平账二期 F1'）：账上等于收入结转进运营户，可做；但收入户兼作钱包位置，归集后余额清零，没有报表层时观众读不出本期收入 ｜来源: 平账二期 spec §0
 
-- [ ] **内部划转单路由前缀 `treasury/` 与 Custody 组其它页 `custody/` 不一致**（2026-09-05）：侧栏同组、路径两个前缀，纯 IA 债；改动要连动案件页 / 审批回链 / 资金单回链四处写死的链接，单独一次收 ｜来源: 平账二期 Task 13 评审、终审裁定 BACKLOG
+- [x] **内部划转单路由前缀 `treasury/` 与 Custody 组其它页 `custody/` 不一致**（2026-09-05）：侧栏同组、路径两个前缀，纯 IA 债；改动要连动案件页 / 审批回链 / 资金单回链四处写死的链接，单独一次收 ｜来源: 平账二期 Task 13 评审、终审裁定 BACKLOG ｜ **2026-09-21 波五 T9 销账**：取甲案（统一 `custody/`）——App.tsx 2 路由定义 + 11 字面 = 13 处一次收齐，`grep "treasury/"` 路由义命中归零；RBAC 零改动（权限码挂后端路由，前端路径非权限载体）
 
 **对账底盘**
 
@@ -189,15 +189,17 @@ Last Updated: 2026-09-16（审计两页按后端真实字段重设计·文档收
 
 - [ ] 🐛 **`reObservedCount` 恒为 0**：line item 每 run delete-then-insert，`foundByRunId` distinct 恒 1 → 观察历史"复观察次数"永远 0；正确修法需 `reconciliation_cases` 加专用计数列（`upsertCaseForWallet` existing 分支 +1）；代码已加 KNOWN LIMITATION 注释（`reconciliation-query.service.ts`）｜来源: 2026-07-04 V8 体检（Round3 遗留）
 
-- [ ] ⭐ **INTERNAL_BREAK run 详情误显示空表**：预门破时 `walletCount=0`/空表 → UI 显示成空/像干净(危险)；应专门呈现恒等破裂明细(按币种 资产合计/负债合计/差额) + "逐钱包未执行"提示；数据已被预门 breaks[] + 审计捕获，缺前端呈现 ｜来源: spec §1.4
+- [ ] **INTERNAL_BREAK 恒等破裂明细呈现**（2026-09-21 波五 T6 改写为余项）：**空表危险已除**（波五 T6：写入语义修正+三态呈现——`invariantStatus` 此前把普通 BREAK 也误记成恒等 FAIL，预门破时 `walletCount=0` 会渲染成「BREAK — 0 wallets checked」+ 全零卡片，看着像干净；现改为红色专用横幅+隐藏健康检查卡与钱包表，不再有「假干净」）。余项：**按币种呈现资产合计/负债合计/差额明细**——run 行未持久化 `breaks[]`，要做需加列；此态只在故障（如 TigerBeetle 不可达）时出现、非 18 场景演示内容，待 `breaks[]` 持久化另议 ｜来源: spec §1.4 ｜ 2026-09-21 波五 T6 评审裁定（明细呈现本波不做）
 
-- [ ] **严重度分级跨资产不可比**（2026-09-02 平账 A 批发现）：`wallet-recon-run.service.ts` `computeSeverity` 用「最小单位 1 万」一个数——AED 是 100 元、USDT 是 0.01 元。本批「金额小」另立小额线（`recon-thresholds.constant.ts` 按币种），未借用严重度；修法：severity 阈值按币种进同一张常量表 ｜来源: 2026-09-02 平账 A 批 spec §0-12
+- [x] **严重度分级跨资产不可比**（2026-09-02 平账 A 批发现）：`wallet-recon-run.service.ts` `computeSeverity` 用「最小单位 1 万」一个数——AED 是 100 元、USDT 是 0.01 元。本批「金额小」另立小额线（`recon-thresholds.constant.ts` 按币种），未借用严重度；修法：severity 阈值按币种进同一张常量表 ｜来源: 2026-09-02 平账 A 批 spec §0-12 ｜ **2026-09-21 波五 T5 销账**：`computeSeverity(currency, delta)` 改按 `SEVERITY_LINES_MINOR`（与小额线同居）索引，缺币种 fail-fast；终值 AED med=100/high=10,000（元）、USDT med=30/high=3,000（元），锚定既有小额线等值惯例，种子 12 案分布 AED L1/M4/H1、USDT L5/M1/H0，未触发整体下移
 
 **留痕与手册**
 
-- [ ] **`RECON_CASE_OPENED` 审计 metadata 仍带 `walletRef`（内部 UUID）**（2026-09-03 平账 A 批终审）：`wallet-recon-run.service.ts` 开案审计的 metadata 直接放 walletRef；本批新增的两条账龄审计已改用 `walletNo` 业务键，开案这条应对齐（子主体已是业务键，只是 metadata 漏了）｜来源: 平账 A 批终审 triage
+- [x] **`RECON_CASE_OPENED` 审计 metadata 仍带 `walletRef`（内部 UUID）**（2026-09-03 平账 A 批终审）：`wallet-recon-run.service.ts` 开案审计的 metadata 直接放 walletRef；本批新增的两条账龄审计已改用 `walletNo` 业务键，开案这条应对齐（子主体已是业务键，只是 metadata 漏了）｜来源: 平账 A 批终审 triage ｜ **2026-09-21 波五 T8 销账**：`auditCaseOpened`/`auditCaseAutoHealed` 两处 metadata 的 `walletRef` 改 `walletNo`（业务号，`resolveWalletNo` 现成），铁律⑥对齐账龄两条审计既有口径
 
-- [ ] **财务查证手册「§四 附：演示场景对照」落后三波**：附录仍写 15 场景 10 案（一期半时代），现状是 **18 场景 12 案**（A 批 +账龄核销、B 批 +13/14/15、二期 +16/17、三期 +18 未授权转出）；场景号-成因码-处置-能不能平四列都要按 `scripts/recon-demo.ts` 现行 manifest 重排——演示者按号索引会翻错页。手册正文各节已随波收口，唯此附录三波没人回头 ｜来源: 2026-09-06 平账三期终审建议单独清理
+- [x] **财务查证手册「§四 附：演示场景对照」落后三波**：附录仍写 15 场景 10 案（一期半时代），现状是 **18 场景 12 案**（A 批 +账龄核销、B 批 +13/14/15、二期 +16/17、三期 +18 未授权转出）；场景号-成因码-处置-能不能平四列都要按 `scripts/recon-demo.ts` 现行 manifest 重排——演示者按号索引会翻错页。手册正文各节已随波收口，唯此附录三波没人回头 ｜来源: 2026-09-06 平账三期终审建议单独清理 ｜ **2026-09-21 波五 T10 销账**：`recon-cause-handbook.md` §四附录按现行 `demo/script.md` 18 场景重排，新增 16/17/18 三行成因码与处置，索引号与剧本一致
+
+- [ ] **调账弹窗残存 side 锚推导（`prefill.explainedFlowId ? 'FROM' : 'TO'`）是否收编后端**：`ReconciliationAdjustmentCreateModal.tsx:221` 这一行是改记候选确认屏的「提交体锚字段」推导——判断这条差异是错记方（FROM）还是正主方（TO），只用于决定 `explainedFlowId`/`explainedExternalLineId` 两个锚字段该填哪个，不是展示业务判断（后端 `resolveAdjustmentPrefill` 已给出权威的 `reattributionSide`，前端这一行只是把它落到提交体的哪个字段名上）。波四评审、波五评审（2026-09-21）两波均判**不收编**——收编成本大于收益，留档供日后再议 ｜来源: 波四终审 + 波五 T10 文档收口复核
 
 - [ ] **调账单的边界线守卫只查原单「存在」，不查「归属」** —— `adjustment.service.ts` 的 `relatedOrderExists()` 按单号在充值/提现/兑换三表查存在性即放行，**不校验这张单是不是本案客户的**。刻意划在这儿：spec §4 立的规则是「有原单 ⇒ KYT 已对它跑过」，存在性就是这条规则的字面内容；要「引错别人的单」成为问题，前提是操作员恶意，那落在 CLAUDE.md §3「管理员都是善意的」与禁做清单「边界防御」里。存在性检查已堵死 spec 点名的「凭空造钱」，剩下的是引错凭证的数据质量问题、不是闸门被绕。**留此一行是为了日后评 PRD 时不被当成遗漏** ｜来源: 2026-08-28 平账一期末站评审
 
