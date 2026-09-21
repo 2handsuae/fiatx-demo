@@ -6,7 +6,15 @@
 ## 承接上一波（波四「前端拆分」，2026-09-21 收官）
 
 - **后端读面契约本波有变更**（与波三"零变更"不同，如实记录）：T1 给 `getCase()` 响应新增了 `adjustmentBook` 字段与各 `flowComparison` 行的 `adjustmentPrefill` 字段（非破坏性新增，前端消费点本波已同步迁移完毕）。波五若也要读这个响应，字段集合比波三骨架记录的更大，注意核对。
-- **波五要改的 7 处业务日文件，本波逐一核对是否被拆分挪动过位置**（复现命令：`git diff --name-only 4e3b0ef4..HEAD`，见 Task 7 报告）：
+- **波五要改的 7 处业务日文件，本波逐一核对是否被拆分挪动过位置**（复现命令 `git diff --name-only 4e3b0ef4..HEAD`，只列与本节相关的 6 个候选文件的命中情况——完整改动文件清单见本仓库该 commit 范围的 git 历史，此处不整段贴出）：
+  ```
+  business-date.util.ts                → 未出现在改动列表，零触碰
+  wallet-recon-run.service.ts          → 未出现在改动列表，零触碰
+  recon-thresholds.constant.ts         → 未出现在改动列表，零触碰
+  effective-cutoff.ts                  → 未出现在改动列表，零触碰
+  push-order.service.ts                → 未出现在改动列表，零触碰
+  reconciliation-query.service.ts      → 出现在改动列表（T1 改动，见下）
+  ```
   - `src/modules/clearing-settle/reconciliation/domain/reconciliation-query.service.ts`（总纲记 `:923`）——**本波被 T1 改动**（+12 行：新增 import + `adjustmentBook`/`adjustmentPrefill` 两处挂载，文件从 1022 行涨到 1034 行）。总纲写死的行号 `:923` 大概率已漂移，**波五定位这处硬写 UTC 日终时改按符号名 / 上下文搜，不要直接跳行号**。
   - 其余 6 处（`business-date.util.ts`、`wallet-recon-run.service.ts:1055`、`recon-thresholds.constant.ts:26`、`effective-cutoff.ts:23`、`push-order.service.ts:204,206`）**本波零触碰**——均不在 `git diff --name-only 4e3b0ef4..HEAD` 的改动文件列表里，总纲记录的行号对这 6 处应仍然有效。
 - **实际偏差**（对照波四 spec/plan 与 Task 1-6 实际执行）：
@@ -15,7 +23,7 @@
   - 行数实数超软目标（均已在各任务报告与本波 WRAPUP 给出结构性解释，非遗留未搬）：页面 `ReconciliationCasesDetailPage.tsx` **741 行**（软目标 650，超 91 行——5 个弹层的状态编排/handler/挂载）；弹窗 `ReconciliationAdjustmentCreateModal.tsx` **623 行**（软目标 450，理由=保留既有中文注释）；新组件 `CaseFlowTable.tsx` **568 行**（新件软目标 500，超 68 行——单次迁出的最大整块，491 行原样搬运，含 Ruling R2 的 `renderFunding`/`tableRef`）。
 - **新事实**：
   1. **弹窗里残存一处波前既有的锚存在性 `side` 推导**：`ReconciliationAdjustmentCreateModal.tsx:220` `const side: 'FROM' | 'TO' = prefill.explainedFlowId ? 'FROM' : 'TO';`——这是"提交体"概念（哪个方向的锚字段要塞值），与本波收编的 `matchType`→`direction` 展示字段是两个不同概念，spec 范围未收编。波四未收，登记给波五（或后续波）斟酌是否也收回后端，本骨架不预判。
-  2. **取证方法论缺口**（本波截图比对时发现，非产品代码缺陷）：`checkups/2026-09-21-act6-wave4-evidence/resolve-shot-targets.mjs` 的 `pick('HOLD_INVESTIGATING')` 选的是"尚未被占用、且提供该处置项的第一个案子"，不绑定专属场景——实测 11/12 个 open case 都提供 `HOLD_INVESTIGATING`（近乎通用兜底处置），导致两次独立重铺各自命中不同底层案件，`m4`/`m6a`/`m6b`/`m6-writeoff` 四张截图内容因此有别（非产品代码差异，已在 Task 7 报告根因定位：`directionNoteFor` 等相关函数改动前后逐字节一致）。**波五若也用这套截图脚本取证**（含业务日切换验收），涉及具体 case 内容的部分不要默认"同一变量名 = 同一场景"，需要专属挑选逻辑（例如按 wallet 地址字面或固定 seed 索引）才能保证跨重铺可比。
+  2. **取证方法论缺口**（本波截图比对时发现，非产品代码缺陷）：`checkups/2026-09-21-act6-wave4-evidence/resolve-shot-targets.mjs` 的 `pick('HOLD_INVESTIGATING')` 选的是"尚未被占用、且提供该处置项的第一个案子"，不绑定专属场景——实测 11/12 个 open case 都提供 `HOLD_INVESTIGATING`（近乎通用兜底处置），导致两次独立重铺各自命中不同底层案件，`m4`/`m6a`/`m6b`/`m6-writeoff` 四张截图内容因此有别（非产品代码差异，根因定位见 `checkups/2026-09-21-act6-wave4-evidence/walkthrough.md`「CASE_HOLD 家族根因排查」节：`directionNoteFor` 等相关函数改动前后逐字节一致）。**波五若也用这套截图脚本取证**（含业务日切换验收），涉及具体 case 内容的部分不要默认"同一变量名 = 同一场景"，需要专属挑选逻辑（例如按 wallet 地址字面或固定 seed 索引）才能保证跨重铺可比。
   3. `resolve-shot-targets.mjs` / `shots.sh` 两份可复用脚本已入库 `checkups/2026-09-21-act6-wave4-evidence/`，before/after 全程同一份未改，波五如需截图证据可直接复用（结合上一条的已知缺口）。
 - **判据达成事实**（波五开工前的干净基线）：
   - `BACKLOG.md:176`（提现类 `AMOUNT_MISMATCH` 缺翻符号）已销账：方向公式收回后端 `cause-registry`，前端 `rowAdjustmentPrefill`/`deriveKindDirection` 两处本地推导退役，改读后端下发的 `row.adjustmentPrefill.direction`；出账翻符号用例见 `cause-registry.spec.ts:178`。

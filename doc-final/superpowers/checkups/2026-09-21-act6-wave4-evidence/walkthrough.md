@@ -47,7 +47,7 @@
 2. **resolver 的 `pick('HOLD_INVESTIGATING')` 不具场景排他性**：现场查询当前（after）栈的 12 个 open case，`HOLD_INVESTIGATING` 在其中 **11 个**上都是可用处置项（仅 004 号无任何处置项）：
 
    ```
-   $ curl 逐个查询 12 个 case 的 flowComparison[].dispositions[].kind（Task 7 报告 Step "CASE_HOLD 根因排查"完整贴出）
+   $ curl 逐个查询 12 个 case 的 flowComparison[].dispositions[].kind（本节即完整结果，唯一底本——`.superpowers/` 工作目录随合并不保留，不再另指向别处）
    REC20260921-001 rows=4 RECORD,HOLD_NEXT_PERIOD,HOLD_INVESTIGATING
    REC20260921-002 rows=5 RECORD,HOLD_NEXT_PERIOD,HOLD_INVESTIGATING
    REC20260921-003 rows=2 CORRECT,HOLD_NEXT_PERIOD,HOLD_INVESTIGATING
@@ -75,6 +75,6 @@ $ node scripts/demo-shot.js --api http://127.0.0.1:3100 --url ".../REC20260921-0
 $ node scripts/demo-shot.js --api http://127.0.0.1:3100 --url ".../REC20260921-003" --wait 2500 --out /tmp/recheck-p3-2.png
 ```
 
-第一次截图 ASSET 列显示单行"USDT-TRON · Client book"；第二次截图同一字段折成两行"USDT-TRON · Client" / "book"。两次用的是完全相同的代码、完全相同的数据库状态，唯一变量是截图的时间点——证实这是无头 Chrome 截图工具本身的渲染抖动（推测是字体加载竞态导致文本测量结果偶发性差几像素，从而影响 flex-wrap 断点），与波四代码改动无关，也不是本次 before/after 比对能够控制的变量。
+第一次截图 ASSET 列显示单行"USDT-TRON · Client book"；第二次截图同一字段折成两行"USDT-TRON · Client" / "book"。两次用的是完全相同的代码、完全相同的数据库状态，唯一变量是截图的时间点——证实这是无头 Chrome 截图工具本身的渲染抖动（推测是字体加载竞态导致文本测量结果偶发性差几像素，从而影响 flex-wrap 断点），与波四代码改动无关，也不是本次 before/after 比对能够控制的变量。**诊断图 ×2 已入档**（`p3-flake-recheck-1.png` / `p3-flake-recheck-2.png`，同目录，非 13 张正式清单的一部分）——这条 flake 结论日后被质疑时，两张同 HEAD 不同布局的图就是它的全部证据，可直接复看。
 
 `git show 4e3b0ef4:admin-web/src/pages/ReconciliationCasesDetailPage.tsx` 中"Account"卡片区块（Wallet/Customer/Ledger Account/Asset/Business Date 五列的 grid）与 HEAD 版本逐行 diff 为空，确认该区块本波未被任何任务触碰。
