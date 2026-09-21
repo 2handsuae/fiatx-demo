@@ -224,8 +224,8 @@ function App() {
             <Route path="custody/withdrawal-addresses/:addressNo" element={withPermission(<WithdrawalAddressDetail />, [PERMISSIONS.WITHDRAWAL_ADDRESS_DETAIL_READ])} />
 
             {/* 平账二期：内部划转单（公司 → 客户补款 / 垫款） */}
-            <Route path="treasury/internal-transfers" element={withPermission(<InternalTransferList />, [PERMISSIONS.INTERNAL_TRANSFERS_READ])} />
-            <Route path="treasury/internal-transfers/:transferNo" element={withPermission(<InternalTransferDetail />, [PERMISSIONS.INTERNAL_TRANSFER_DETAIL_READ])} />
+            <Route path="custody/internal-transfers" element={withPermission(<InternalTransferList />, [PERMISSIONS.INTERNAL_TRANSFERS_READ])} />
+            <Route path="custody/internal-transfers/:transferNo" element={withPermission(<InternalTransferDetail />, [PERMISSIONS.INTERNAL_TRANSFER_DETAIL_READ])} />
 
             {/* assets */}
             <Route path="assets" element={withPermission(<AssetList />, [PERMISSIONS.ASSETS_READ])} />

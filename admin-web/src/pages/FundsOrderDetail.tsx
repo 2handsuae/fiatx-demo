@@ -165,7 +165,7 @@ const resolveParent = (
       kind: 'Internal transfer',
       no: data.internalTransfer.transferNo,
       status: data.internalTransfer.status ?? '',
-      route: '/admin/treasury/internal-transfers/' + data.internalTransfer.transferNo,
+      route: '/admin/custody/internal-transfers/' + data.internalTransfer.transferNo,
     };
   }
   return null;

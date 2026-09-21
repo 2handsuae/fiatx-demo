@@ -87,7 +87,7 @@ export const CaseFlowTable = ({
       {row.transfer && (
         <span className="max-w-[220px] font-mono text-[10px] text-adm-t2">
           {row.transfer.purpose === 'CLIENT_ADVANCE' ? 'Advance' : 'Compensation'}{' '}
-          <Link to={`/admin/treasury/internal-transfers/${encodeURIComponent(row.transfer.transferNo)}`} className="text-adm-blue hover:underline">{row.transfer.transferNo}</Link>
+          <Link to={`/admin/custody/internal-transfers/${encodeURIComponent(row.transfer.transferNo)}`} className="text-adm-blue hover:underline">{row.transfer.transferNo}</Link>
           {' · '}{TRANSFER_STATUS_WORD[row.transfer.status] ?? row.transfer.status}
         </span>
       )}

@@ -267,7 +267,7 @@ const DashboardLayout = () => {
         },
         // 平账二期：公司 → 客户的补款 / 垫款划转单
         {
-          path: '/admin/treasury/internal-transfers',
+          path: '/admin/custody/internal-transfers',
           label: 'Internal Transfers',
           icon: <ArrowLeftRight size={13} />,
           requiredPermissions: [PERMISSIONS.INTERNAL_TRANSFERS_READ],
