@@ -1,0 +1,112 @@
+[on-stack/self] DATABASE_URL=file:/tmp/exchange_js_wt_act6_wave4/dev.db
+[on-stack/self] TB_ADDRESS=127.0.0.1:3103
+[on-stack/self] TB_DATA_FILE=/tmp/exchange_js_wt_act6_wave4/0_0.tigerbeetle
+[on-stack/self] script 'demo:all' -> ts-node -r tsconfig-paths/register scripts/demo-all.ts 
+(node:29891) MaxListenersExceededWarning: (node) warning: possible EventEmitter memory leak detected. 11 listeners added. Use emitter.setMaxListeners() to increase limit.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:29891) MaxListenersExceededWarning: (node) warning: possible EventEmitter memory leak detected. 11 listeners added. Use emitter.setMaxListeners() to increase limit.
+(node:29891) MaxListenersExceededWarning: (node) warning: possible EventEmitter memory leak detected. 11 listeners added. Use emitter.setMaxListeners() to increase limit.
+(node:29891) MaxListenersExceededWarning: (node) warning: possible EventEmitter memory leak detected. 11 listeners added. Use emitter.setMaxListeners() to increase limit.
+═══ demo:setup — fees + wallets + TB accounts ═══
+  ✔ TB accounts provisioned: 0 created, 57 already existed, 0 errors
+  setup done: CU2601019430, CU2601017625, CU2601014381, CU2601010403, CU2601016170, CU2601010484
+═══ demo:frank-prestage — FRANK 本金充值 + 兑换建单（须早于 #7 制裁）═══
+  #21 充值 · FRANK 本金（供 #13 建单垫资）: DEP260921528579 → SUCCESS
+  #13 兑换 · 制裁冻结（押锁待处置）: SWP260921659871 AED→USDT 600 (COMPLIANCE_PENDING —— 等 runDeposits 里的 #7 广播连坐冻结)
+═══ demo:deposit — 18 笔按花名册铺（含三条处置弧 + FRANK 预铺本金 #21）═══
+  #1 充值 · 正常入账 USDT: DEP260921663149 → SUCCESS
+  #2 充值 · 正常入账 AED: DEP260921496529 → SUCCESS
+  #3 充值 · 正常入账 AED（二）: DEP260921452914 → SUCCESS
+  #4 充值 · 等客户补料: DEP260921139072 → ACTION_PENDING
+  #5 充值 · 转人工复核: DEP260921241393 → MANUAL_CHECKING
+[33m[Nest] 29891  - [39m09/21/2026, 8:54:23 AM [33m   WARN[39m [38;5;3m[DepositWorkflowService] [39m[33mL1 HOLD marked: deposit 9b873fa7-f7d9-47d8-aaf6-f550669d684d — BELOW_MIN; status stays COMPLIANCE_PENDING, submitting to Sumsub[39m
+[33m[Nest] 29891  - [39m09/21/2026, 8:54:23 AM [33m   WARN[39m [38;5;3m[DepositWorkflowService] [39m[33mHold intact: deposit 9b873fa7-f7d9-47d8-aaf6-f550669d684d approved by compliance but still held (BELOW_MIN) — OPERATION_PENDING[39m
+  #6 充值 · 小额挂起: DEP260921083096 → OPERATION_PENDING
+  #7 充值 · 制裁冻结: DEP260921153110 → FROZEN
+[33m[Nest] 29891  - [39m09/21/2026, 8:54:24 AM [33m   WARN[39m [38;5;3m[DepositWorkflowService] [39m[33mL1 HOLD marked: deposit f998b92b-3888-4744-a0ae-f9082118dd4e — BELOW_MIN; status stays COMPLIANCE_PENDING, submitting to Sumsub[39m
+[33m[Nest] 29891  - [39m09/21/2026, 8:54:24 AM [33m   WARN[39m [38;5;3m[DepositWorkflowService] [39m[33mHold intact: deposit f998b92b-3888-4744-a0ae-f9082118dd4e approved by compliance but still held (BELOW_MIN) — OPERATION_PENDING[39m
+  #8 充值 · 没收（钱进公司）: DEP260921074888 → CONFISCATED
+  #9 充值 · 退回原发款方: DEP260921183492 → RETURNED
+[33m[Nest] 29891  - [39m09/21/2026, 8:54:25 AM [33m   WARN[39m [38;5;3m[DepositWorkflowService] [39m[33mL1 FAIL: deposit 455d764b-da27-4a89-bbd4-9111b9400f06 — customer DEPOSIT capability is blocked (enforcement)[39m
+    ⚡V7_REJECTED_SANCTION_APPLICANT skipped — DEP260921657592 already FROZEN (L1 pre-empted)
+  #10 充值 · 上缴（政府移交）: DEP260921657592 → SEIZED
+  #22 充值 · 素材（Grace USDT）: DEP260921308692 → SUCCESS
+  #24 充值 · 素材（Jack AED 大额）: DEP260921295087 → SUCCESS
+  #25 充值 · 素材（Jack AED 小额）: DEP260921449275 → SUCCESS
+  #26 充值 · 素材（Jack USDT）: DEP260921154397 → SUCCESS
+  #27 充值 · 素材（Kate AED 大额）: DEP260921652388 → SUCCESS
+  #28 充值 · 素材（Kate AED 小额）: DEP260921130258 → SUCCESS
+  #29 充值 · 素材（Kate USDT）: DEP260921998053 → SUCCESS
+═══ demo:swap — 4 笔按花名册铺 ═══
+  #11 兑换 · USDT→AED 成功: SWP260921250152 USDT→AED 1400 (COMPLIANCE_PENDING)
+  #11 兑换 · USDT→AED 成功: SWP260921250152 → SUCCESS
+  #12 兑换 · AED→USDT 成功: SWP260921175127 AED→USDT 2900 (COMPLIANCE_PENDING)
+  #12 兑换 · AED→USDT 成功: SWP260921175127 → SUCCESS
+  #13 兑换 · 制裁冻结（押锁待处置）: SWP260921659871 → FROZEN（pre-stage 建单，#7 广播连坐冻结）
+  #13 兑换 · 制裁冻结（押锁待处置）: 押锁校验通过 — FRANK AED held=600（≥ 冻结单本金 600，锁未随冻结释放）
+  #13 兑换 · 制裁冻结（押锁待处置）: SWP260921659871 → FROZEN
+  #23 兑换 · 素材（Grace AED→USDT）: SWP260921718809 AED→USDT 800 (COMPLIANCE_PENDING)
+  #23 兑换 · 素材（Grace AED→USDT）: SWP260921718809 → SUCCESS
+═══ demo:withdraw — 7 笔按花名册铺(含大额闸 + 在途单) ═══
+  #14 提现 · 法币成功: WDR260921420532 1200 AED (COMPLIANCE_PENDING)
+  #14 提现 · 法币成功: WDR260921420532 → SUCCESS
+  #15 提现 · 虚拟币成功: WDR260921330425 150 USDT (COMPLIANCE_PENDING)
+  #15 提现 · 虚拟币成功: WDR260921330425 → SUCCESS
+  #16 提现 · 法币成功（二）: WDR260921058956 900 AED (COMPLIANCE_PENDING)
+  #16 提现 · 法币成功（二）: WDR260921058956 → SUCCESS
+  #17 提现 · 等客户补料: WDR260921803238 1800 AED (COMPLIANCE_PENDING)
+  #17 提现 · 等客户补料: WDR260921803238 → ACTION_PENDING
+  #18 提现 · 大额待审批: WDR260921738329 250000 AED (COMPLIANCE_PENDING)
+  #18 提现 · 大额待审批: WDR260921738329 → PENDING_APPROVAL
+  #19 提现 · MLRO 冻结: WDR260921523316 1500 AED (COMPLIANCE_PENDING)
+  #19 提现 · MLRO 冻结: WDR260921523316 → FROZEN
+  #20 提现 · 卡在半路（对账用）: WDR260921287713 → PAYOUT_PENDING
+
+═══ verify end-state (spec §6) ═══
+
+── DEPOSIT（18 笔）
+  ✓ # 1 充值 · 正常入账 USDT           DEP260921663149  预期 SUCCESS
+  ✓ # 2 充值 · 正常入账 AED            DEP260921496529  预期 SUCCESS
+  ✓ # 3 充值 · 正常入账 AED（二）         DEP260921452914  预期 SUCCESS
+  ✓ # 4 充值 · 等客户补料               DEP260921139072  预期 ACTION_PENDING
+  ✓ # 5 充值 · 转人工复核               DEP260921241393  预期 MANUAL_CHECKING
+  ✓ # 6 充值 · 小额挂起                DEP260921083096  预期 OPERATION_PENDING
+  ✓ # 7 充值 · 制裁冻结                DEP260921153110  预期 FROZEN
+  ✓ # 8 充值 · 没收（钱进公司）            DEP260921074888  预期 CONFISCATED
+  ✓ # 9 充值 · 退回原发款方              DEP260921183492  预期 RETURNED
+  ✓ #10 充值 · 上缴（政府移交）            DEP260921657592  预期 SEIZED
+  ✓ #21 充值 · FRANK 本金（供 #13 建单垫资） DEP260921528579  预期 SUCCESS
+  ✓ #22 充值 · 素材（Grace USDT）      DEP260921308692  预期 SUCCESS
+  ✓ #24 充值 · 素材（Jack AED 大额）     DEP260921295087  预期 SUCCESS
+  ✓ #25 充值 · 素材（Jack AED 小额）     DEP260921449275  预期 SUCCESS
+  ✓ #26 充值 · 素材（Jack USDT）       DEP260921154397  预期 SUCCESS
+  ✓ #27 充值 · 素材（Kate AED 大额）     DEP260921652388  预期 SUCCESS
+  ✓ #28 充值 · 素材（Kate AED 小额）     DEP260921130258  预期 SUCCESS
+  ✓ #29 充值 · 素材（Kate USDT）       DEP260921998053  预期 SUCCESS
+
+── SWAP（4 笔）
+  ✓ #11 兑换 · USDT→AED 成功         SWP260921250152  预期 SUCCESS
+  ✓ #12 兑换 · AED→USDT 成功         SWP260921175127  预期 SUCCESS
+  ✓ #13 兑换 · 制裁冻结（押锁待处置）         SWP260921659871  预期 FROZEN
+  ✓ #23 兑换 · 素材（Grace AED→USDT）  SWP260921718809  预期 SUCCESS
+
+── WITHDRAW（7 笔）
+  ✓ #14 提现 · 法币成功                WDR260921420532  预期 SUCCESS
+  ✓ #15 提现 · 虚拟币成功               WDR260921330425  预期 SUCCESS
+  ✓ #16 提现 · 法币成功（二）             WDR260921058956  预期 SUCCESS
+  ✓ #17 提现 · 等客户补料               WDR260921803238  预期 ACTION_PENDING
+  ✓ #18 提现 · 大额待审批               WDR260921738329  预期 PENDING_APPROVAL
+  ✓ #19 提现 · MLRO 冻结             WDR260921523316  预期 FROZEN
+  ✓ #20 提现 · 卡在半路（对账用）           WDR260921287713  预期 PAYOUT_PENDING
+
+花名册：29/29 符合预期
+  ✓ 花名册 29 笔逐条符合预期
+  ✓ COA CLIENT(AED): CLIENT_ASSET == Σ(CLIENT_PAYABLE+DEPOSIT_SUSPENSE) (29612565 == 29612565)
+  ✓ COA FIRM(AED): FIRM_ASSET == Σ(FIRM_OPS+FIRM_SET+INCOME_SWAP_FEE+INCOME_WITHDRAW_FEE+INCOME_OTHER) (99870335 == 99870335)
+  ✓ COA CLIENT(USDT): CLIENT_ASSET == Σ(CLIENT_PAYABLE+DEPOSIT_SUSPENSE) (4392571811 == 4392571811)
+  ✓ COA FIRM(USDT): FIRM_ASSET == Σ(FIRM_OPS+FIRM_SET+INCOME_SWAP_FEE+INCOME_WITHDRAW_FEE+INCOME_OTHER) (100413428189 == 100413428189)
+  ✓ data.md 生成区已更新
+
+  asserts: 5/5 PASS
+
+═══ demo:all DONE ✅ (all asserts pass) ═══
