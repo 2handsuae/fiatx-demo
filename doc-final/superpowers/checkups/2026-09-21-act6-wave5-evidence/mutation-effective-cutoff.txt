@@ -1,0 +1,52 @@
+变异实证（Task 2 Step 5）——effective-cutoff.ts 第三支回填判定边界
+=====================================================================
+
+变异操作：把 effective-cutoff.ts 里 effectiveCutoffFilter 第三支的
+`createdAt: { gt: endOfBiz }`（消费 business-date.util 的迪拜日终 19:59:59.999Z）
+临时改回硬拼 UTC 日终：
+`createdAt: { gt: new Date(`${businessDate}T23:59:59.999Z`) }`
+
+命令：
+export PATH="$(ls -d $HOME/.nvm/versions/node/v20* | tail -1)/bin:$PATH" && \
+cd /Users/songshengwei/Documents/Project/fiatx.com/.claude/worktrees/act6_wave5 && \
+DATABASE_URL="file:/tmp/exchange_js_wt_act6_wave5/dev.db" \
+  npx jest src/modules/clearing-settle/reconciliation/engine/v2/effective-cutoff.spec.ts
+
+结果（变异后，退出码非零）：
+FAIL src/modules/clearing-settle/reconciliation/engine/v2/effective-cutoff.spec.ts
+  effectiveCutoffFilter
+    ✕ 三支形状：更早业务日全进 / 同日按物理时刻卡 / 同日回填全进 (4 ms)
+    ✓ 更早业务日的分录：进
+    ✓ 同日、截止时刻之前写的：进
+    ✓ 同日、截止时刻之后当天写的：不进（日内精度） (1 ms)
+    ✓ 同日、事后回填（写入时刻越过该业务日日终）：进
+    ✓ 更晚业务日的分录：不进
+
+  ● effectiveCutoffFilter › 三支形状：更早业务日全进 / 同日按物理时刻卡 / 同日回填全进
+
+    expect(received).toEqual(expected) // deep equality
+    - Expected  - 1
+    + Received  + 1
+    @@ -11,11 +11,11 @@
+            "effectiveDate": "2026-06-26",
+          },
+          Object {
+            "createdAt": Object {
+    -         "gt": 2026-06-26T19:59:59.999Z,
+    +         "gt": 2026-06-26T23:59:59.999Z,
+            },
+            "effectiveDate": "2026-06-26",
+          },
+        ],
+      }
+
+Test Suites: 1 failed, 1 total
+Tests:       1 failed, 5 passed, 6 total
+
+判读：形状断言（第一条 it，直接 toEqual 整个 OR 结构）精确抓住了回填边界从
+23:59:59.999Z（UTC 日终）回退到 19:59:59.999Z（迪拜日终）这条变异——检查有效。
+其余 5 条行为化用例（admits() 谓词）本身的采样点（12:00 cutoff、13:00/6-28
+10:00 createdAt 等）都不落在 [19:59:59.999, 23:59:59.999] 这个窄区间内，
+因此对本次变异不敏感，属预期内（形状断言已覆盖该窄区间，无需额外采样点）。
+
+还原：改回 `createdAt: { gt: endOfBiz }`，复跑同一命令，退出码 0（6/6 passed）。

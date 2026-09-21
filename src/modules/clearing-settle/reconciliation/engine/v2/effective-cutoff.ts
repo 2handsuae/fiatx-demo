@@ -16,16 +16,16 @@
 // ⚠ 此前只有 ①②，注释写明 ② 是为了「保持现行为逐笔等价」的迁移期夹层。它的实际
 // 效果是把所有回填挡在外面：调账单落了账、重跑对账内部余额一分没动、差额永远归不
 // 了零、案子永远平不掉（2026-08-29 业主走查实证）。
-import { toBusinessDate } from '../../../../accounting/tigerbeetle/utils/business-date.util';
+import { toBusinessDate, endOfBusinessDate } from '../../../../accounting/tigerbeetle/utils/business-date.util';
 
 export function effectiveCutoffFilter(cutoff: Date) {
   const businessDate = toBusinessDate(cutoff);
-  const endOfBusinessDate = new Date(`${businessDate}T23:59:59.999Z`);
+  const endOfBiz = endOfBusinessDate(businessDate);
   return {
     OR: [
       { effectiveDate: { lt: businessDate } },
       { effectiveDate: businessDate, createdAt: { lte: cutoff } },
-      { effectiveDate: businessDate, createdAt: { gt: endOfBusinessDate } },
+      { effectiveDate: businessDate, createdAt: { gt: endOfBiz } },
     ],
   };
 }

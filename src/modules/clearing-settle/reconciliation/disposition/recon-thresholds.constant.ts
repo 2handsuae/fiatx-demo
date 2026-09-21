@@ -2,6 +2,8 @@
 // 不做管理台可配（同 TR 阈值先例 decisions.md 2026-07-31）。演示靠 ⚡拨钟。
 // 容差本批不做（decisions.md 2026-09-02「一分不差，一分也追」），故这里只有两条线。
 
+import { endOfBusinessDate } from '../../../accounting/tigerbeetle/utils/business-date.util';
+
 /** 账龄线：案件业务日日终起算，到线置「超期」标记（软破线，状态不动）。 */
 export const RECON_AGING_DAYS = 3;
 
@@ -21,8 +23,7 @@ export function isSmallAmount(currency: string, minor: bigint): boolean {
   return mag <= line;
 }
 
-/** 截止时刻 = 业务日日终（UTC，与 effective-cutoff.ts 的日终口径一致）+ 账龄线天数。 */
+/** 截止时刻 = 业务日日终（迪拜午夜，business-date.util 单一口径）+ 账龄线天数。 */
 export function computeAgingDeadline(businessDate: string): Date {
-  const endOfDay = new Date(`${businessDate}T23:59:59.999Z`);
-  return new Date(endOfDay.getTime() + RECON_AGING_DAYS * 86_400_000);
+  return new Date(endOfBusinessDate(businessDate).getTime() + RECON_AGING_DAYS * 86_400_000);
 }

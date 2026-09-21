@@ -19,7 +19,7 @@ describe('effectiveCutoffFilter', () => {
       OR: [
         { effectiveDate: { lt: '2026-06-26' } },
         { effectiveDate: '2026-06-26', createdAt: { lte: cutoff } },
-        { effectiveDate: '2026-06-26', createdAt: { gt: new Date('2026-06-26T23:59:59.999Z') } },
+        { effectiveDate: '2026-06-26', createdAt: { gt: new Date('2026-06-26T19:59:59.999Z') } },
       ],
     });
   });

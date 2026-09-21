@@ -812,9 +812,9 @@ describe('平账 A 批：开案设账龄截止（spec §2.1）', () => {
     await svc.run({ cutoff: new Date('2026-09-01T10:00:00Z') });
 
     const created = deps.prisma.reconciliationCase.create.mock.calls[0][0].data;
-    expect(created.slaDeadline.toISOString()).toBe('2026-09-04T23:59:59.999Z');
+    expect(created.slaDeadline.toISOString()).toBe('2026-09-04T19:59:59.999Z');
     const opened = deps.auditLogs.recordSystem.mock.calls.find((c: any[]) => c[0].action === 'RECON_CASE_OPENED')![0];
-    expect(opened.metadata.slaDeadline).toBe('2026-09-04T23:59:59.999Z');
+    expect(opened.metadata.slaDeadline).toBe('2026-09-04T19:59:59.999Z');
   });
   it('既有 OPEN 案件被复观察——update 的 data 不带 slaDeadline、也不新建 case（spec §2.1 复观察不重置）', async () => {
     const deps = makeDeps();

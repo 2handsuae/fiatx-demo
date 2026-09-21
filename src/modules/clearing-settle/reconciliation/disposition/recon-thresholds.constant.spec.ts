@@ -18,7 +18,7 @@ describe('recon-thresholds —— 三条数字线写死代码（spec §2.7），
   it('未登记币种直接 throw，不兜底', () => {
     expect(() => isSmallAmount('BTC', 1n)).toThrow(/BTC/);
   });
-  it('computeAgingDeadline = 业务日日终（UTC）+ 3 天', () => {
-    expect(computeAgingDeadline('2026-09-01').toISOString()).toBe('2026-09-04T23:59:59.999Z');
+  it('computeAgingDeadline = 业务日日终（迪拜）+ 3 天', () => {
+    expect(computeAgingDeadline('2026-09-01').toISOString()).toBe('2026-09-04T19:59:59.999Z');
   });
 });

@@ -42,6 +42,7 @@ import {
   explainedBy,
 } from '../disposition/explained-difference.service';
 import { computeAgingDeadline } from '../disposition/recon-thresholds.constant';
+import { toBusinessDate } from '../../../accounting/tigerbeetle/utils/business-date.util';
 import { AuditLogsService } from '../../../audit-logging/audit-logs.service';
 import { AuditActorContext, AuditCategory, AuditSubjectRole } from '../../../audit-logging/dto/audit-log.dto';
 import {
@@ -114,7 +115,7 @@ export class WalletReconRunService {
 
   async run(input: WalletReconRunInput, actor?: AuditActorContext): Promise<WalletReconRunResult> {
     const { cutoff } = input;
-    const businessDate = this.toBusinessDate(cutoff);
+    const businessDate = toBusinessDate(cutoff);
     // 平账 A 批（spec §2.1）：本轮新开的案子一律以本轮业务日起算账龄——同一轮同一只钟。
     const slaDeadline = computeAgingDeadline(businessDate);
 
@@ -151,7 +152,7 @@ export class WalletReconRunService {
     // Round3: no longer filter out walletRef=null heads — those are
     // "unattributed" external accounts (no internal wallet claims them) and
     // must surface as BREAK cases instead of being silently skipped.
-    const cutoffDate = this.toBusinessDate(cutoff);
+    const cutoffDate = toBusinessDate(cutoff);
     const externalBalances = (await this.prisma.externalBalance.findMany({
       where: { cutoffDate },
       select: { walletRef: true, closingBalance: true, book: true, currency: true, accountRef: true },
@@ -1084,8 +1085,4 @@ export class WalletReconRunService {
     else await this.auditLogs.recordSystem(envelope);
   }
 
-  // ── Helpers ───────────────────────────────────────────────────────────────
-  private toBusinessDate(cutoff: Date): string {
-    return cutoff.toISOString().slice(0, 10);
-  }
 }
