@@ -131,8 +131,9 @@ export interface AdjustmentLocked {
 
 export interface AdjustmentPrefill {
   amountMinor: string;                       // 最小单位（分）整数字符串，来自 flowComparison 行
-  direction: AdjustmentDirection | '';        // 猜测性默认值，表单里仍可改
-  relatedOrderNo: string;                     // 仅 IN_TRANSIT 行有（该行的 fundsOrderNo）
+  relatedOrderNo: string;                     // 所有写入点恒传 ''（IN_TRANSIT 预填路径已于波四证死并随
+                                               // rowAdjustmentPrefill 删除），字段保留给 kind 模式内部
+                                               // setRelatedOrderNo(row.internalFlow?.sourceNo) 之外的锁定路径占位
   // ④ 这张单在解释哪一条差异——锚在真实证据 id 上（内部流水 / 外部对账单行），
   // 后端据此在下一轮对账里把这条差异从异常数里摘掉，案子才平得下来。
   // 从案件级入口开单时两个都空：那是纯补余额，不摘任何差异行。
@@ -153,7 +154,7 @@ interface ReconciliationAdjustmentCreateModalProps {
   ownerNo?: string | null;
   walletNo?: string | null;
   prefill: AdjustmentPrefill;
-  /** T9：处置弹层交回的锁定态；缺省 = Task 7 原样的自由选择表单。 */
+  /** T9：处置弹层交回的锁定态；缺省仅剩 kind 模式一路（自由选择表单已于波四 T6 删除）。 */
   locked?: AdjustmentLocked;
   // Task 8（调账四族一窗到底）：CORRECT/REVERSE/RECORD 三族的「按处置进入」模式——
   // 点差异行按钮直接开本弹层，不再先 POST /dispositions 走两段流。kind + row 成对

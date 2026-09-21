@@ -14,8 +14,8 @@ import type { DispositionRecordResult } from '../ReconciliationHoldModal';
 // Task 7（差异行按钮组）：CORRECT/REVERSE/RECORD/REATTRIBUTE/SUPPLEMENT/INCIDENT
 // 六个非挂起处置共用的「选成因 + 查证说明」小弹层——取代旧两屏处置弹层
 // （ReconciliationDispositionModal，已断线、读 row.menu 这个死字段，Task 13 已删文件）
-// 的第一屏，数据源换成 row.dispositions（Task 5 读面）。不导出、不另开文件：
-// 与 HOLD_NEXT_PERIOD/HOLD_INVESTIGATING 两个挂起 kind 用的
+// 的第一屏，数据源换成 row.dispositions（Task 5 读面）。波四 T4 外迁成独立文件、
+// 具名导出：与 HOLD_NEXT_PERIOD/HOLD_INVESTIGATING 两个挂起 kind 用的
 // ReconciliationHoldModal 结构相近但提交后的下一步完全不同（挂起是终态，这六个
 // 都要接力到别处——调账弹层 / 补单弹层 / 事故登记），拆开两个组件比硬塞一个通用
 // kind 联合类型更不容易读错。

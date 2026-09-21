@@ -99,7 +99,6 @@ const rowTimestamp = (r: FlowComparisonRow): number => {
 // 对账里把这条差异从异常数里摘掉。案件级入口开单时两个都空：纯补余额，不摘差异行。
 const prefillFromRow = (row: FlowComparisonRow, ap: NonNullable<FlowComparisonRow['adjustmentPrefill']>): AdjustmentPrefill => ({
   amountMinor: ap.amountMinor,
-  direction: ap.direction,
   relatedOrderNo: '',
   explainedFlowId: row.internalFlow?.id,
   explainedExternalLineId: row.externalLine?.id,
@@ -366,7 +365,7 @@ const ReconciliationCasesDetailPage = () => {
     const ns = row.nextStep;
     const incidentNo = row.disposition.incidentNo ?? undefined;
     setCreatePrefill({
-      amountMinor: ns.amount ?? '0', direction: ns.direction ?? '', relatedOrderNo: '',
+      amountMinor: ns.amount ?? '0', relatedOrderNo: '',
       explainedFlowId: row.internalFlow?.id, explainedExternalLineId: row.externalLine?.id,
     });
     setAdjustLocked({
