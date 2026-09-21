@@ -12,13 +12,15 @@
 
 ## Global Constraints（每个任务隐含遵守）
 
+- **通用交付清单见 `rules/delivery-checklist.md`，全部适用**（各任务末尾的「收尾过检」行列出本任务命中的触发行，由本 plan 写死，执行者不得自行判省）
+- 本轮特有：
 - **演示系统纪律**（CLAUDE.md §0–§2）：只做演示者带同事走流程时看得到、讲得到的东西；幂等/去重/重试/并发锁/兼容层/防御性校验/性能优化一律不做；数据随时可重铺，禁 backfill/双写。
 - **六条铁律**（CLAUDE.md §5）：操作必留痕｜门不可绕｜各管各的｜状态只能沿边走｜钱动必过账｜**对外用业务键**（本波 §2.4 正是它）。
 - **Node 20**：本机 shell 默认 node18，**每条 Bash 命令前置** `export PATH="$(ls -d $HOME/.nvm/versions/node/v20* | tail -1)/bin:$PATH" && `；zsh 管道取退出码用 `${pipestatus[1]}` 或不走管道。
 - **worktree 隔离**：一律在 `.claude/worktrees/act6_wave5`（分支 `worktree-act6_wave5`）干活；栈命令 worktree 内用 `bash scripts/stack.sh up|reset`（=self），跑 `demo:*`/`recon:*`/`verify:*` 必经 `bash scripts/on-stack.sh self <script>`，绝不裸跑、绝不碰 main 栈端口。
 - **测试判据**：绿必须来自行为；禁「扫源码文本」断言；禁两种恒真形态（返回类型即断言集合 / mock 原样回显）；新增关键检查须做一次失效验证（变异让它红）再报绿。
 - **jest 基线**：对账三域 29 suites / 567 tests（波前），只增不减。跑法：`DATABASE_URL="file:/tmp/exchange_js_wt_act6_wave5/dev.db" npx jest src/modules/clearing-settle src/modules/governance/incidents src/modules/asset-treasury/internal-transfers`，在仓库根（worktree 根）下跑。
-- **UI 全英文**；改前端必 preview 渲染 + 截图，tsc 过不算数。
+- **UI 全英文**。
 - **闸门**：每任务收尾跑闸①②③（根 tsc / admin tsc -b / client tsc -b）+ 本任务相关 jest；commit 用具名文件 `git add`，不用 `git add -A`。
 - **派发分层**：任务执行/走查/文档收口 subagent 用 `model: sonnet`；任务级评审与终审**省略 model 字段**（继承主会话，不降档）。
 - 位点行号以 spec 清册为锚，但**定位一律按符号/上下文搜**，不盲跳行号（波四判例：行号会漂）。
@@ -52,6 +54,8 @@ const { PrismaClient } = require('@prisma/client');
 
 （字段名以 schema 为准，跑不通先查 `prisma/schema.prisma` 的 ReconciliationCase）。输出存 `evidence/severity-distribution.txt`，附一行小结：各币种 |delta| 的量级范围、现状三档分布。
 - [ ] **Step 6: Commit**（只 evidence 目录）：`docs(波五T0): 波前基线取证与严重度取数`
+
+**收尾过检**（delivery-checklist）：零代码取证任务，无触发行。
 
 ### Task 1: business-date.util 重写（迪拜午夜切唯一真源）
 
@@ -120,6 +124,8 @@ export function startOfBusinessDate(businessDate: string): Date {
 - [ ] **Step 5: 变异实证**：临时把 `DUBAI_UTC_OFFSET_MS` 改 `0`，重跑 spec 必红（「20:00 → 次日」「迪拜凌晨」两条挂）；截关键输出行存 `evidence/mutation-business-date.txt`，还原。
 - [ ] **Step 6: Commit**：`feat(波五T1): business-date.util 迪拜午夜切——toBusinessDate 重写+endOf/startOfBusinessDate 唯一真源`
 
+**收尾过检**：纯后端 util+测试，无触发行（记账口径变更的 `verify:coa` 由 Task 11 统一过——本任务不落账，只改边界函数）。
+
 ### Task 2: 对账域日终位点改造之一（私有重复件删除 + 账龄线 + 回填判定）
 
 **Files:**
@@ -166,6 +172,8 @@ export function effectiveCutoffFilter(cutoff: Date) {
 - [ ] **Step 5: 变异实证（回填边界）**：临时把 effective-cutoff 第三支的 `gt: endOfBiz` 改回 `gt: new Date(\`${businessDate}T23:59:59.999Z\`)`，effective-cutoff.spec 必红；记录、还原。
 - [ ] **Step 6: 闸①②③ + 三域 jest 全绿；Commit**：`feat(波五T2): 私有 toBusinessDate 删除+账龄线/回填判定改走迪拜日终 util`
 
+**收尾过检**：纯后端边界函数改造，无触发行（`verify:coa` 由 Task 11 统一过）。
+
 ### Task 3: 对账域日终位点改造之二（查询回落/日窗 + 推单「今天」 + 补单兜底）
 
 **Files:**
@@ -197,6 +205,8 @@ private assertValidExternalDate(d: string, orderCreatedAt: Date) {
 - [ ] **Step 5: 修四个 spec 到迪拜口径**（方法同 Task 2 Step 4）；全绿。
 - [ ] **Step 6: 同款清点复跑**：spec §1.2 的两条复现命令重跑，确认 `src/` 内业务日位点仅剩「判不改」清单（假单号/日志两类）；结果存 `evidence/sweep-after-t3.txt`。
 - [ ] **Step 7: 闸①②③ + 三域 jest；Commit**：`feat(波五T3): 查询回落/日窗+推单今天判定+补单兜底改走迪拜口径`
+
+**收尾过检**：纯后端边界改造，无触发行（`verify:coa` 由 Task 11 统一过）。
 
 ### Task 4: runs/wallet 契约收 businessDate（前端不算日终）
 
@@ -232,6 +242,8 @@ async createWalletRun(@Body() dto: { cutoff?: string; businessDate?: string }, @
 - [ ] **Step 3: 调用方清点复核**：`grep -rn "runs/wallet" admin-web/src client-web/src scripts src --include="*.ts" --include="*.tsx"`——预期命中仅 reconRunTrigger（已改）、verify-act1（传 cutoff，兼容不动）、rbac.catalog/verify-rbac（路由登记）。结果入 evidence。
 - [ ] **Step 4: 行为验证**：worktree 栈上开任一案件详情点「Re-reconcile」，确认 200 且 run 落库 `businessDate` = 迪拜今日（`sqlite3` 查最新 run 行）；admin-web 无 console 报错。
 - [ ] **Step 5: 闸①②③；Commit**：`feat(波五T4): runs/wallet 契约收 businessDate——Re-reconcile 日终换算收回后端`
+
+**收尾过检**：非新增端点（路由与权限码不变，RBAC 零动、不触发 sync/重启行）；改了前端但**视觉零变化**——行为实点代截图（Step 4 Re-reconcile 200 + run 落库迪拜业务日）。
 
 ### Task 5: 严重度按币种拆线（fail-fast 注册表）
 
@@ -302,6 +314,8 @@ export function computeSeverity(currency: string, delta: bigint): CaseSeverity {
 - [ ] **Step 7: 变异实证**：临时把 AED 的 `high` 改成 `1n`，跨币种用例/档位用例必红；记录还原。
 - [ ] **Step 8: 闸①②③ + 三域 jest；Commit**：`feat(波五T5): 严重度按币种拆线——SEVERITY_LINES_MINOR 注册表+fail-fast（销 BACKLOG:194 代码侧）`
 
+**收尾过检**：「涉及金额→最小单位存」✓（注册表 minor 单位）；前端零改（徽章由后端值驱动），徽章变化截图在 Task 11 after 集统一过。
+
 ### Task 6: INTERNAL_BREAK 不再装干净（写入语义 + 三态呈现）
 
 **Files:**
@@ -329,6 +343,8 @@ export function computeSeverity(currency: string, delta: bigint): CaseSeverity {
 
 - [ ] **Step 5: 实拍取证**：`cat .stackports` 找 TB 端口 → `kill $(lsof -ti:<TB口>)` → 案件页点 Re-reconcile（或 curl 触发 run）→ Runs 详情出 INTERNAL_BREAK 横幅，截图 `evidence/after/run-internal-break.png` → `bash scripts/stack.sh up` 复活栈 → 再触发正常 run，截 BREAK/PASS 对照图。preview console 零报错。
 - [ ] **Step 6: 闸①②③ + 三域 jest；Commit**：`feat(波五T6): INTERNAL_BREAK 写入语义修正+run 详情三态呈现（销 BACKLOG:192 空表危险）`
+
+**收尾过检**：「改了前端→preview + 截图」✓（Step 5 实拍 INTERNAL_BREAK 横幅 + 正常对照）。
 
 ### Task 7: 划转腿推单显式拒（后端 + 前端两处连动）
 
@@ -374,6 +390,8 @@ if (order.internalTransferId) {
 - [ ] **Step 5: 渲染取证**：场景 16-18 的划转腿案件详情（Task 0 锚定的同一案）——在途行现显「Transfer leg →」，点进划转详情页 200；该腿资金单详情——推单块消失、说明行 + 既有关联链接在。截图 before/after 对照入 evidence。
 - [ ] **Step 6: 闸①②③ + 三域 jest；Commit**：`feat(波五T7): 划转腿推单显式拒（甲案）——后端照 swap 先例+前端双入口连动（销 BACKLOG:128）`
 
+**收尾过检**：「退役业务动作→前端入口同步删」✓（Step 3/4 双入口）；「改了前端→截图」✓（Step 5）；三域对称之问已答——照 swap 腿既有拒斥先例对齐，充值/提现腿保持可推是设计本意。
+
 ### Task 8: 开案/自愈审计留痕换业务键（walletRef UUID → walletNo）
 
 **Files:**
@@ -386,6 +404,8 @@ if (order.internalTransferId) {
 - [ ] **Step 4: 落库实证**：worktree 栈 `rm -f /tmp/exchange_js_wt_act6_wave5/dev.db` → `bash scripts/stack.sh reset` → `bash scripts/on-stack.sh self demo:all` → sqlite 查 `RECON_CASE_OPENED`/`RECON_CASE_AUTO_HEALED` 各≥1 条，metadata 里 `grep -E '[0-9a-f]{8}-[0-9a-f]{4}'` 零命中（**审计表判据必须全新库**——reset 不清 audit 表的判例）。命令+关键行入 evidence。
 - [ ] **Step 5: 闸①②③ + 三域 jest；Commit**：`feat(波五T8): 开案/自愈审计 metadata 换 walletNo 业务键（铁律⑥，销 BACKLOG:198）`
 
+**收尾过检**：「对外识别用业务键」✓（本任务主旨）；「持久状态变化写审计」——改的就是既有审计本身，`requestId` 原样保留不动。
+
 ### Task 9: 划转路由前缀统一 custody/（15 处一次收）
 
 **Files:**
@@ -396,6 +416,8 @@ if (order.internalTransferId) {
 - [ ] **Step 3: 终态校验**：`grep -rn "treasury/" admin-web/src client-web/src --include="*.ts" --include="*.tsx"` 路由义命中 = **0**（`CaseFlowTable.tsx:104` 「initiated by treasury」是文案，留）；`grep -n "treasury/internal-transfers" src/modules/identity/access-control/rbac.catalog.ts` = 0（佐证前端路径非权限载体，RBAC 零改动）。
 - [ ] **Step 4: 五路走查**（worktree 栈 preview）：侧栏 Custody→Internal Transfers｜案件页划转链接｜审批详情回链｜审计页深链｜事故页回链——各点一次到划转页 200，URL 均 `custody/` 前缀；截图列表页 URL 入镜对照 Task 0 before。
 - [ ] **Step 5: 闸②（admin tsc）+ 闸①③；Commit**：`feat(波五T9): 划转路由前缀统一 custody/（甲案，15 处一次收，销 BACKLOG:180）`
+
+**收尾过检**：「改了前端→preview + 截图」✓（Step 4 五路走查 + URL 入镜截图）。
 
 ### Task 10: 文档收口（数字腐烂 + 附录重排 + 台账三册）
 
@@ -413,19 +435,24 @@ if (order.internalTransferId) {
 - [ ] **Step 6: baseline.md**：按 Task 5 终值更新严重度分布预期；`grep -n "invariantStatus\|Invariant" doc-final/demo/baseline.md` 如有相关判据按 Task 6 新语义修订。
 - [ ] **Step 7: BACKLOG**：销 `:128`/`:136`/`:180`/`:194`/`:198`（`[x]` + 一句收口注）；`:192` 改写为余项「恒等破裂明细呈现（按币种 资产/负债/差额）——空表危险已除（波五横幅），明细待 run 持久化 breaks[] 另议」；新登一行「调账弹窗残存 side 锚推导（`ReconciliationAdjustmentCreateModal.tsx` `prefill.explainedFlowId ? 'FROM' : 'TO'`）是否收编后端——波四/波五两波均判不收，留档」。
 - [ ] **Step 8: decisions.md 复核**：三条 2026-09-21 拍板（切点/划转腿/前缀）已随 spec 落档 commit 入册——确认在，不重复添。
-- [ ] **Step 9: Commit**：`docs(波五T10): 文档收口——五处数字腐烂+附录 18 场景 12 案+CHANGELOG 去重+台账销登`
+- [ ] **Step 9: data.md 同步核**：`grep -n -i "severity\|严重度\|businessDate\|业务日" doc-final/demo/data.md`——2026-09-21 预扫零命中（"Frank HighRisk" 是客户名，无关）；复跑确认仍零命中即免改，如有命中按新口径同步手写区（生成区由 `demo:all` 自己写，不手改）。
+- [ ] **Step 10: Commit**：`docs(波五T10): 文档收口——五处数字腐烂+附录 18 场景 12 案+CHANGELOG 去重+台账销登`
+
+**收尾过检**：「改页面或种子→同步 `demo/data.md` + `demo/script.md`」✓（Step 5 script.md:193、Step 9 data.md 零命中核）；「每轮收尾」的 CHANGELOG/BACKLOG 行在本任务 Step 4/7 与 Task 11 Step 8 分担。
 
 ### Task 11: 收尾闸 + 场景 9 实走 + 战役收官复验
 
 - [ ] **Step 1: 全量闸**：闸①②③ + 三域 jest（≥ 29/567，实数记录）。
 - [ ] **Step 2: 重铺闸**：`rm -f /tmp/exchange_js_wt_act6_wave5/dev.db` → `bash scripts/stack.sh reset` → `bash scripts/stack.sh up` → 等就绪 → `bash scripts/on-stack.sh self demo:all` → `bash scripts/on-stack.sh self recon:demo:break` → 对照**修订后** baseline.md 逐条全绿 → `bash scripts/on-stack.sh self verify:coa` 全绿。命令+退出码+关键行入 `evidence/gates-final.txt`。
 - [ ] **Step 3: 场景 9 剧本实走**：按 `demo/script.md` 步骤 9——treasury@ 进 Grace USDT 案 → Hold · Next period 定性（案仍红，截图）→ Re-reconcile → 外部行被迪拜日终截止收回、案子自愈 Resolved（截图）。若铺场时刻已过迪拜 18:00 导致当日收不回，照 script.md:193 新文案如实记录并改日重验，不粉饰。
-- [ ] **Step 4: after 截图集**：Task 0 的五张对位重拍（案件列表严重度徽章 / run 详情 / 划转腿案件详情 / 划转腿资金单 / 划转列表 custody URL），加 INTERNAL_BREAK 横幅图（Task 6 已拍）；逐张与 before 对照写差异说明——**本波差异是预期行为变更**，每处差异须能指回 spec 章节。
+- [ ] **Step 4: after 截图集**：Task 0 的五张对位重拍（案件列表严重度徽章 / run 详情 / 划转腿案件详情 / 划转腿资金单 / 划转列表 custody URL），加 INTERNAL_BREAK 横幅图（Task 6 已拍）；逐张与 before 对照写差异说明——**本波差异是预期行为变更**，每处差异须能指回 spec 章节。顺带客户端看一眼：任一充值详情页 `Value date` 字段仍正常直显（`DepositDetail.tsx:91` 纯字符串展示，业务日切换只改边界时刻的归属值、不该改渲染）。
 - [ ] **Step 5: 战役级六判据复验表**（总纲 §0，末波义务；存 `evidence/campaign-final-audit.md`）：①对账域 `(this.prisma as any)` 归零——复跑波一复现命令 ②三恒真断言已换——指波一物证 + 本波未回退（grep 三处断言现状）③五页截图无假数据——本波 after 集 ④Case 主体/迁移表——指波三物证 + `status` 写点复扫仍收敛 ⑤COB 七处改完+重铺闸+coa——本波 Step 1-3 ⑥文档逐数——Task 10 复核清单。每条给复跑命令或物证指针。
 - [ ] **Step 6: WRAPUP**：`evidence/WRAPUP.md`——承诺逐条对代码（spec §1-§3 每项指 commit/文件）、偏差如实记录；对照 `rules/delivery-checklist.md` 逐触发条件核。
 - [ ] **Step 7: 终审**（主会话模型不降档）：逐条问「spec 每条承诺的代码在哪」+ 抽查否定性结论复现命令。
 - [ ] **Step 8: 合并**：superpowers:finishing-a-development-branch——并进 main 快进；**合并后必做**：主栈重启后端 + `npm run db:base:sync`（惯例保险，本波权限零改动）+ `bash scripts/stack.sh reset main`（行为变更波，主栈重铺）+ 主栈 `on-stack main demo:all` 复绿；CHANGELOG 一行；总纲状态行写波五收官 + 战役收官注；spec/plan 移入 `doc-final/archive/superpowers/`（总纲随末波一并归档与否听业主）；清 worktree + 分支。
 - [ ] **Step 9: Thread 完成行**：`Documentation updated: modules§0-4 / demo / decisions / BACKLOG / CHANGELOG — 波五业务日迪拜午夜切+§G 五条+文档收口，第六幕清残留战役收官`
+
+**收尾过检**：「动了钱→`verify:coa`」✓（Step 2，永不豁免②；负余额断言单独看，不因恒等式绿放行）；「改了前端→截图」✓（Step 4，永不豁免①）；「每轮收尾→文档分层报告 + CHANGELOG + BACKLOG」✓（Step 8/9）；「多波中的一波」——末波无下一波 spec，对应物 = 总纲状态行收官注 + spec/plan 归档（Step 8）。
 
 ---
 
