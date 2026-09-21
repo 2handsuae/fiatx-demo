@@ -11,7 +11,7 @@ import { adminButtonClass } from './common/adminButtonStyles';
 import { AdminSessionError, adminFetch, getApiErrorMessage } from '../utils/adminFetch';
 import { rowFacts } from '../utils/causeRegistry';
 import { useSimulationMode } from '../utils/simulationMode';
-import type { FlowComparisonRow } from '../pages/ReconciliationCasesDetailPage';
+import type { FlowComparisonRow } from '../utils/reconTypes';
 
 export type HoldKind = 'HOLD_NEXT_PERIOD' | 'HOLD_INVESTIGATING';
 

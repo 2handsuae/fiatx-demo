@@ -4,7 +4,8 @@
 import { useState } from 'react';
 import { adminFetch, AdminSessionError, getApiErrorMessage } from '../utils/adminFetch';
 import { adminButtonClass } from './common/adminButtonStyles';
-import { formatAmount, type FlowComparisonRow } from '../pages/ReconciliationCasesDetailPage';
+import { formatAmount } from '../utils/reconAmount';
+import type { FlowComparisonRow } from '../utils/reconTypes';
 
 interface Props { open: boolean; caseNo: string; row: FlowComparisonRow | null; assetCode: string; decimals: number; onClose: () => void; onDone: () => void }
 
