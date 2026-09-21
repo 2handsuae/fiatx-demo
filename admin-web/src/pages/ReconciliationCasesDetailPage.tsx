@@ -30,7 +30,7 @@
 // rows) is read-only this release too — no advance/sync/confirm actions.
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useParams, useNavigate, useSearchParams } from 'react-router-dom';
-import { RefreshCw, Check, AlertTriangle, ArrowRight, ExternalLink, Plus, Clock, Zap, PenLine } from 'lucide-react';
+import { RefreshCw, Check, AlertTriangle, ArrowRight, ExternalLink, Clock, Zap } from 'lucide-react';
 import {
   DetailPageHeader,
   DetailCard,
@@ -40,8 +40,6 @@ import { StatusPill } from '../components/ui/StatusPill';
 import { BUCKET_LABELS, formatBucket, TONE_CLASSES } from '../utils/reconBucketMap';
 import type { FlowMatchType, FlowComparisonRow, ReconCaseDetail } from '../utils/reconTypes';
 import { formatAmount, minorToMajorPlain, isZeroAmount } from '../utils/reconAmount';
-// 平账二期：划转单状态人话——与列表 / 详情页同一份词表（Task 13）
-import { INTERNAL_TRANSFER_STATUS_LABEL as TRANSFER_STATUS_WORD } from '../utils/internalTransferStatusMap';
 import { buildCaseConclusion } from '../utils/caseConclusion';
 import {
   AdminSessionError,
@@ -51,7 +49,6 @@ import {
 import { triggerWalletReconRun } from '../utils/reconRunTrigger';
 import { useSimulationMode } from '../utils/simulationMode';
 import ReconciliationAdjustmentCreateModal, {
-  REASON_LABEL,
   type AdjustmentBook,
   type AdjustmentPrefill,
   type AdjustmentLocked,
@@ -63,11 +60,12 @@ import ReconciliationHoldModal, {
 import InternalTransferInitiateModal from '../components/InternalTransferInitiateModal';
 import { useAdminSession } from '../contexts/AdminSessionContext';
 import { PERMISSIONS } from '../rbac/permissions';
-import { OUTLET_TONE, directionNoteFor, COA_PHRASE } from '../utils/causeRegistry';
+import { directionNoteFor, COA_PHRASE } from '../utils/causeRegistry';
 import { DispositionFindingModal } from '../components/reconciliation/DispositionFindingModal';
 import { CaseHistory } from '../components/reconciliation/CaseHistory';
 import { CaseBalanceTiles } from '../components/reconciliation/CaseBalanceTiles';
-import { ShortRef, SOURCE_TYPE_HREF, buildIncidentHref, IncidentBadge, MatchChip } from '../components/reconciliation/caseDetailBits';
+import { CaseFlowTable } from '../components/reconciliation/CaseFlowTable';
+import { buildIncidentHref } from '../components/reconciliation/caseDetailBits';
 
 /* ── Constants & helpers ────────────────────────────────────── */
 
@@ -78,17 +76,6 @@ const deltaSign = (raw: string | null | undefined): '+' | '-' | '' => {
 };
 
 const fmtTime = (v: string | null) => (v ? new Date(v).toLocaleString() : null);
-
-// Compact timestamp for flow-row cells (the table is dense — full timestamps blow it up).
-const shortTimestamp = (iso: string): string => {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return iso;
-  const mm = String(d.getMonth() + 1).padStart(2, '0');
-  const dd = String(d.getDate()).padStart(2, '0');
-  const hh = String(d.getHours()).padStart(2, '0');
-  const mi = String(d.getMinutes()).padStart(2, '0');
-  return `${mm}-${dd} ${hh}:${mi}`;
-};
 
 // Sort priority for the single mixed-bucket flow table (layout 乙): break-class
 // rows (mismatch/orphan) first, then in-transit, then matched last (collapsed
@@ -209,8 +196,6 @@ const ReconciliationCasesDetailPage = () => {
   const canSimulateAging = hasPermission(PERMISSIONS.DEMO_CLOCK_WRITE);
   const [agingSubmitting, setAgingSubmitting] = useState(false);
   const [agingNotice, setAgingNotice] = useState('');
-
-  const tableRef = useRef<HTMLTableElement | null>(null);
 
   // Task 7: 返回刚拉到的案件（不只是 setKase）——handleFindingRecorded 的
   // SUPPLEMENT 分支需要刷新后「这一行」的最新 disposition.dispositionNo 才能
@@ -436,65 +421,6 @@ const ReconciliationCasesDetailPage = () => {
   // showMatched 切换变化（切开显示已匹配行不该让标题的"open"字样失真）。
   const openRowsCount = kase?.flowComparison?.filter((r) => r.matchType !== 'MATCHED').length ?? 0;
 
-  // 平账二期：行上的划转回挂 + 补款 / 垫款按钮。案子 RESOLVED 之后照样给（认损让案子愈了，补款是对客户的交代）。
-  const renderFunding = (row: FlowComparisonRow) => (
-    <>
-      {row.transfer && (
-        <span className="max-w-[220px] font-mono text-[10px] text-adm-t2">
-          {row.transfer.purpose === 'CLIENT_ADVANCE' ? 'Advance' : 'Compensation'}{' '}
-          <Link to={`/admin/treasury/internal-transfers/${encodeURIComponent(row.transfer.transferNo)}`} className="text-adm-blue hover:underline">{row.transfer.transferNo}</Link>
-          {' · '}{TRANSFER_STATUS_WORD[row.transfer.status] ?? row.transfer.status}
-        </span>
-      )}
-      {(row.nextStep?.kind === 'COMPENSATION' || row.nextStep?.kind === 'ADVANCE') && kase && (
-        canFundClient ? (
-          <button type="button" onClick={() => setFundingRow(row)} className="inline-flex max-w-[220px] items-start gap-1 font-mono text-[10px] font-medium text-adm-blue hover:underline">
-            <Plus size={10} />
-            {row.nextStep.kind === 'COMPENSATION'
-              ? `Initiate compensation ${formatAmount(row.nextStep.amount, kase.decimals)} ${kase.assetCode}`
-              : `Insufficient balance ${formatAmount(row.nextStep.amount, kase.decimals)} ${kase.assetCode} — Initiate advance`}
-          </button>
-        ) : (
-          <span className="max-w-[220px] font-mono text-[10px] text-adm-amber">
-            {row.nextStep.kind === 'COMPENSATION' ? 'Pending compensation (initiated by treasury)' : `Insufficient balance ${formatAmount(row.nextStep.amount, kase.decimals)} — pending treasury advance`}
-          </span>
-        )
-      )}
-      {/* Recon phase 3 (Task 12): B batch deposit-recall claim insufficient
-          balance (ADVANCE) — add "Register shortfall" next to the advance button,
-          prefilled with CLIENT_SHORTFALL/customer/shortfall amount/advance
-          transfer no (only when row.transfer is already a CLIENT_ADVANCE
-          transfer). Once registered it becomes a badge, not a second entry
-          point — the dedup check keys on kase.incidents (case-level, by
-          sourceCaseNo), so the case no MUST be included here or the dedup
-          check can never find it and the button never converges. */}
-      {row.nextStep?.kind === 'ADVANCE' && kase && (
-        existingClientShortfall ? (
-          <IncidentBadge incidentNo={existingClientShortfall.incidentNo} />
-        ) : canRegisterIncident ? (
-          <button
-            type="button"
-            onClick={() => navigate(buildIncidentHref({
-              type: 'CLIENT_SHORTFALL',
-              sourceCaseNo: kase.caseNo,
-              customerNo: row.nextStep!.customerNo,
-              assetCode: kase.assetCode,
-              amount: minorToMajorPlain(row.nextStep!.amount, kase.decimals),
-              sourceAdvanceTransferNo: row.transfer?.purpose === 'CLIENT_ADVANCE' ? row.transfer.transferNo : undefined,
-              title: `Deposit-recall shortfall · customer ${row.nextStep!.customerNo ?? '—'}`,
-              description: `After the deposit-recall claim, customer wallet ${row.nextStep!.walletNo ?? '—'} has insufficient balance. `
-                + `The firm advances the shortfall of ${minorToMajorPlain(row.nextStep!.amount, kase.decimals)} ${kase.assetCode} first; register the shortfall for later recovery.`,
-            }))}
-            className="inline-flex items-center gap-1 whitespace-nowrap font-mono text-[10px] font-medium text-adm-red hover:underline"
-          >
-            <Plus size={10} />
-            Register shortfall
-          </button>
-        ) : null
-      )}
-    </>
-  );
-
   if (loading && !kase) {
     return (
       <div className="flex min-h-[400px] flex-col items-center justify-center">
@@ -656,427 +582,27 @@ const ReconciliationCasesDetailPage = () => {
             <CaseHistory kase={kase} agingReferenceMs={agingReferenceMs} />
           </DetailCard>
 
-          {/* 5. Differences (renamed from the old Flow Drilldown card, Task 8) —
-              single mixed table, no grouped sections: orphans/mismatches sort
-              first, then in-transit, then MATCHED collapsed behind a toggle
-              below. Disposition column pinned to 250px + Reference truncated
-              via ShortRef — the two changes that cure horizontal scroll at
-              1280px (long externalRefs were the main overflow cause). Title
-              count is the "open" (non-MATCHED) count, independent of the
-              showMatched toggle — matches design/Main.dc.html §4 wording. */}
-          <DetailCard
-            title={`Differences · ${openRowsCount} open row${openRowsCount === 1 ? '' : 's'}`}
-            columns={1}
-          >
-            <div className="overflow-x-auto rounded-lg border border-adm-border">
-              <table ref={tableRef} className="w-full text-left text-sm">
-                <thead className="border-b border-adm-border bg-adm-bg">
-                  <tr>
-                    <th className="px-3 py-2 font-mono text-[9px] font-semibold uppercase tracking-[0.1em] text-adm-t3">
-                      Type
-                    </th>
-                    <th className="px-3 py-2 font-mono text-[9px] font-semibold uppercase tracking-[0.1em] text-adm-t3">
-                      Dir
-                    </th>
-                    <th className="px-3 py-2 text-right font-mono text-[9px] font-semibold uppercase tracking-[0.1em] text-adm-t3">
-                      Amount
-                    </th>
-                    <th className="px-3 py-2 font-mono text-[9px] font-semibold uppercase tracking-[0.1em] text-adm-t3">
-                      Reference
-                    </th>
-                    <th className="px-3 py-2 font-mono text-[9px] font-semibold uppercase tracking-[0.1em] text-adm-t3">
-                      Source
-                    </th>
-                    <th className="px-3 py-2 font-mono text-[9px] font-semibold uppercase tracking-[0.1em] text-adm-t3">
-                      Time
-                    </th>
-                    <th className="w-[250px] px-3 py-2 font-mono text-[9px] font-semibold uppercase tracking-[0.1em] text-adm-t3">
-                      Disposition
-                    </th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-adm-border">
-                  {sortedFlows.length === 0 ? (
-                    <tr>
-                      <td colSpan={7} className="px-3 py-8 text-center font-mono text-[11px] text-adm-t3">
-                        No flow rows for this case.
-                      </td>
-                    </tr>
-                  ) : (
-                    sortedFlows.map((row, idx) => {
-                      const ext = row.externalLine;
-                      const intl = row.internalFlow;
-                      const isMismatch = row.matchType === 'AMOUNT_MISMATCH';
-                      const isInTransit = row.matchType === 'IN_TRANSIT';
-                      const direction = ext?.direction ?? intl?.direction ?? null;
-                      const timestamp = ext?.timestamp ?? intl?.timestamp ?? null;
-                      return (
-                        <tr
-                          key={`${row.matchType}-${ext?.id ?? '_'}-${intl?.id ?? '_'}-${idx}`}
-                          className="align-top"
-                        >
-                          {/* Type badge */}
-                          <td className="px-3 py-3">
-                            <MatchChip row={row} />
-                          </td>
-                          {/* Direction */}
-                          <td className="px-3 py-3 font-mono text-[11px]">
-                            {direction ? (
-                              <span
-                                className={`rounded border px-1 text-[9px] font-semibold ${
-                                  direction === 'IN'
-                                    ? 'border-adm-green/30 bg-adm-green/10 text-adm-green'
-                                    : 'border-adm-red/30 bg-adm-red/10 text-adm-red'
-                                }`}
-                              >
-                                {direction}
-                              </span>
-                            ) : (
-                              <span className="text-adm-t3">—</span>
-                            )}
-                          </td>
-                          {/* Amount — mismatch shows both sides "internal ≠ external" */}
-                          <td className={`px-3 py-3 text-right font-mono text-[11px] ${isMismatch ? 'font-bold text-adm-red' : 'text-adm-t1'}`}>
-                            {isMismatch
-                              ? `${formatAmount(intl?.amount, kase.decimals)} ≠ ${formatAmount(ext?.amount, kase.decimals)}`
-                              : formatAmount(ext?.amount ?? intl?.amount, kase.decimals)}
-                          </td>
-                          {/* Reference — truncated + copy (ShortRef); the main
-                              lever that cures horizontal scroll (raw refs can
-                              be long on-chain hashes). */}
-                          <td className="px-3 py-3">
-                            <ShortRef value={ext?.externalRef ?? null} />
-                          </td>
-                          {/* Source — IN_TRANSIT links to the funds order. When
-                              that funds order is already CLEARED but this case
-                              is still OPEN, badge "Pushed · re-reconcile": a
-                              rerun will close the case (Re-reconcile action in
-                              the sidebar). Other rows show the internal
-                              business number (DEP/WD/SWP/…) linked via
-                              SOURCE_TYPE_HREF, eventCode moved to title; a
-                              sourceType with no route mapping falls back to
-                              plain text. External-only orphan rows have no
-                              internal side → em dash. */}
-                          <td className="px-3 py-3 font-mono text-[11px] text-adm-t2">
-                            {isInTransit && row.fundsOrderNo ? (
-                              <span className="inline-flex flex-wrap items-center gap-1.5">
-                                <Link
-                                  to={`/admin/funds-orders/${encodeURIComponent(row.fundsOrderNo)}`}
-                                  className="text-adm-blue hover:underline"
-                                >
-                                  {row.fundsOrderNo}
-                                </Link>
-                                {kase.status === 'OPEN' && row.fundsOrderStatus === 'CLEARED' && (
-                                  <span className="inline-flex items-center gap-1 rounded border border-adm-blue/30 bg-adm-blue/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-adm-blue">
-                                    <Check size={9} /> Pushed · re-reconcile
-                                  </span>
-                                )}
-                              </span>
-                            ) : intl ? (
-                              SOURCE_TYPE_HREF[intl.sourceType] ? (
-                                <Link to={SOURCE_TYPE_HREF[intl.sourceType](intl.sourceNo)} title={intl.eventCode} className="text-adm-blue hover:underline">
-                                  {intl.sourceNo}
-                                </Link>
-                              ) : (
-                                <span title={intl.eventCode}>{intl.sourceNo}</span>
-                              )
-                            ) : (
-                              <span className="text-adm-t3">—</span>
-                            )}
-                          </td>
-                          {/* Time */}
-                          <td className="px-3 py-3 font-mono text-[11px] text-adm-t3">
-                            {timestamp ? shortTimestamp(timestamp) : '—'}
-                          </td>
-                          {/* Recon phase 1.5 (spec §3.1): six-state action column.
-                              Same shape, same button — giving different buttons
-                              would pretend the machine knows something it
-                              doesn't; the differentiation happens once a human
-                              picks a cause in the disposition modal. */}
-                          <td className="px-3 py-3">
-                            {row.explainedByAdjustmentNo ? (
-                              // ① 已解释——这条差异已经被一张落了账的调账单解释掉，
-                              // 引擎算桶时已把它从异常数里摘掉，改为指回那张单。
-                              <div className="flex flex-col gap-1">
-                                <Link
-                                  to={`/admin/reconciliation/adjustments/${encodeURIComponent(row.explainedByAdjustmentNo)}`}
-                                  className="inline-flex items-center gap-1 whitespace-nowrap rounded border border-adm-green/30 bg-adm-green/10 px-1.5 py-0.5 font-mono text-[10px] font-medium text-adm-green hover:underline"
-                                >
-                                  <Check size={10} />
-                                  Explained · {row.explainedByAdjustmentNo}
-                                </Link>
-                                {renderFunding(row)}
-                              </div>
-                            ) : row.matchType === 'MATCHED' ? (
-                              // ② 已匹配——两边一致，没有可处置的东西。
-                              null
-                            ) : row.matchType === 'IN_TRANSIT' ? (
-                              // ③ 在途——差异会随资金单落地自然消失，动作是推单不是处置。
-                              row.fundsOrderNo ? (
-                                <Link
-                                  to={`/admin/funds-orders/${encodeURIComponent(row.fundsOrderNo)}`}
-                                  className="whitespace-nowrap font-mono text-[10px] font-medium text-adm-blue hover:underline"
-                                >
-                                  Push order →
-                                </Link>
-                              ) : (
-                                <span className="text-[10px] text-adm-t3">In-transit · no funds order</span>
-                              )
-                            ) : (
-                              // ④/⑤/⑥ 统一渲染（Task 7 差异行按钮组，取代旧的「已定性 vs
-                              // 未定性」两分支）：结论 chip（如有）+ 处置按钮组（未锁定时）。
-                              // 覆盖/重定语义——挂起是临时状态：已定性也照样给全套按钮，
-                              // 再点一次就是换一个结论（承接④）。锁定 = 行上已经挂着一张
-                              // 走不掉的单（调账单 / 补单）——那条单号本身就是唯一出口，
-                              // 不该再给别的按钮制造「两条并行结论」的假象；未挂单（含
-                              // 从未定性）都不锁。按钮词 = 后端下发的 label（row.dispositions，
-                              // Task 5 读面），不前端另编。
-                              <div className="flex flex-col gap-1.5">
-                                {row.disposition && (
-                                  <span
-                                    title={row.disposition.findingNote}
-                                    className={[
-                                      // 与设计稿同款 max-width 换行（design/Main.dc.html §4
-                                      // Row B 该徽标就带 max-width: 230px）——不用 nowrap，
-                                      // 否则长成因/长操作者名会把 250px 定宽的 Disposition
-                                      // 列撑宽，Differences 表就横滚了（治横滚是本任务判据）。
-                                      'inline-flex max-w-[220px] items-start gap-1 rounded border px-1.5 py-0.5 font-mono text-[10px] leading-snug',
-                                      TONE_CLASSES[OUTLET_TONE[row.disposition.outlet]].border,
-                                      TONE_CLASSES[OUTLET_TONE[row.disposition.outlet]].bg,
-                                      TONE_CLASSES[OUTLET_TONE[row.disposition.outlet]].text,
-                                    ].join(' ')}
-                                  >
-                                    Finding: {row.disposition.causeLabel} → {row.disposition.outletLabel} · {row.disposition.createdBy} {row.disposition.createdAt.slice(5, 10)}
-                                  </span>
-                                )}
-
-                                {!(row.disposition?.adjustmentNo || row.disposition?.supplementNo)
-                                  && kase.status === 'OPEN' && canRecordDisposition && (row.dispositions?.length ?? 0) > 0 && (
-                                  <>
-                                    {/* ⚡ 差异行级推荐（本任务）：仅模拟开关开启时展示——关掉模拟
-                                        开关即消失，与列表页气泡同一开关（useSimulationMode）。 */}
-                                    {simEnabled && row.demoRecommended && (
-                                      <div className="font-mono text-[10px] font-medium text-adm-amber">
-                                        ⚡ #{row.demoRecommended.scenarioId} Recommended: {row.demoRecommended.dispositionLabel} — {row.demoRecommended.causeLabel}
-                                      </div>
-                                    )}
-                                    <div className="flex flex-wrap gap-1">
-                                      {row.dispositions!.map((d) => {
-                                        const isHold = d.kind === 'HOLD_NEXT_PERIOD' || d.kind === 'HOLD_INVESTIGATING';
-                                        // 每个处置种类跟进动作各自的写权限——按钮组本身已被
-                                        // canRecordDisposition 整体门控，这里只筛后续动作走
-                                        // 不通的那几种（同既有 canCreateAdjustment/canSupplement/
-                                        // canRegisterIncident 三个变量的既有约定，不新开权限口径）。
-                                        const allowed = d.kind === 'SUPPLEMENT' ? canSupplement
-                                          : d.kind === 'INCIDENT' ? canRegisterIncident
-                                          : isHold ? true
-                                          : canCreateAdjustment; // CORRECT/REVERSE/RECORD/REATTRIBUTE
-                                        if (!allowed) return null;
-                                        const tone: 'amber' | 'red' | 'blue' = d.kind === 'INCIDENT' ? 'red' : isHold || d.kind === 'SUPPLEMENT' ? 'amber' : 'blue';
-                                        // ⚡ 推荐的那颗处置按钮加轻量高亮——非推荐按钮不动。
-                                        const isRecommended = simEnabled && row.demoRecommended?.disposition === d.kind;
-                                        return (
-                                          <button
-                                            key={d.kind}
-                                            type="button"
-                                            onClick={() => {
-                                              if (isHold) setHoldPicker({ row, kind: d.kind as 'HOLD_NEXT_PERIOD' | 'HOLD_INVESTIGATING' });
-                                              // Task 8：CORRECT/REVERSE/RECORD 三族原子一窗——直接开调账
-                                              // 弹层的 kind 模式，不再先记一遍定性（拆两段流）。
-                                              else if (d.kind === 'CORRECT' || d.kind === 'REVERSE' || d.kind === 'RECORD') openAdjustKind(row, d.kind);
-                                              else setFindingPicker({ row, kind: d.kind, label: d.label });
-                                            }}
-                                            className={[
-                                              'inline-flex items-center gap-1 whitespace-nowrap rounded border px-1.5 py-0.5 font-mono text-[10px] font-medium',
-                                              TONE_CLASSES[tone].border, TONE_CLASSES[tone].bg, TONE_CLASSES[tone].text,
-                                              isRecommended ? 'ring-1 ring-adm-amber ring-offset-1 ring-offset-adm-panel' : '',
-                                            ].join(' ')}
-                                          >
-                                            <PenLine size={9} />
-                                            {d.label}
-                                          </button>
-                                        );
-                                      })}
-                                    </div>
-                                  </>
-                                )}
-
-                                {row.disposition?.outlet === 'SUPPLEMENT' && row.disposition.supplementNo && (
-                                  <span className="max-w-[220px] font-mono text-[10px] text-adm-t2">
-                                    Transferred ·{' '}
-                                    {row.disposition.supplementRef?.kind === 'DEPOSIT' && row.disposition.supplementRef.id
-                                      ? <Link to={`/admin/trading/deposits/${row.disposition.supplementRef.no}`} className="text-adm-blue hover:underline">{row.disposition.supplementNo}</Link>
-                                      : row.disposition.supplementRef?.kind === 'WITHDRAW' && row.disposition.supplementRef.id
-                                        ? <Link to={`/admin/trading/withdrawals/${row.disposition.supplementRef.no}`} className="text-adm-blue hover:underline">{row.disposition.supplementNo}</Link>
-                                        : <span>{row.disposition.supplementNo} (Pending CFO review)</span>}
-                                  </span>
-                                )}
-
-                                {/* Recon phase 3 (Task 12): outlet = INCIDENT
-                                    (unauthorized outflow), already registered — badge
-                                    to the incident detail. incidentNo does NOT lock the
-                                    row (承接④：only adjustmentNo/supplementNo do), so this
-                                    renders alongside the button group, not instead of it. */}
-                                {row.disposition?.outlet === 'INCIDENT' && row.disposition.incidentNo && (
-                                  <IncidentBadge incidentNo={row.disposition.incidentNo} />
-                                )}
-
-                                {row.nextStep?.kind === 'WRITE_OFF' && kase.status === 'OPEN' && (
-                                  canCreateAdjustment ? (
-                                    <button
-                                      type="button"
-                                      onClick={() => openWriteOff(row)}
-                                      className="inline-flex items-center gap-1 whitespace-nowrap font-mono text-[10px] font-medium text-adm-red hover:underline"
-                                    >
-                                      <Plus size={10} />
-                                      {row.nextStep.reasonCode === 'UNEXPLAINED_CLIENT_LOSS' ? 'Recognize loss' : 'Write off'}
-                                    </button>
-                                  ) : (
-                                    // 行挂了事故号（事故已定损公司承损）不是「超期」——那句话在这里是撒谎。
-                                    // C1 挂接链评审修复：判据从单看 outlet==='INCIDENT' 改成看 incidentNo——
-                                    // 大额升级路的定性行 outlet 一直留在 HOLD_INVESTIGATING，只有 incidentNo
-                                    // 会被 attachIncident 写上，纯 outlet 判据永远照不到那条路。
-                                    <span className="max-w-[220px] font-mono text-[10px] text-adm-red">
-                                      {row.disposition?.incidentNo
-                                        // 终审修复批 Item 6：事故已定损（公司簿也有事故升级路，见
-                                        // adjustment.service.ts assertIncidentWriteOffAllowed）不代表
-                                        // 一定是"认损"——公司池事故定损后走的是核销，「eligible to
-                                        // recognize loss」是客户簿专属措辞，公司簿讲"认损"文不对题。
-                                        ? (row.nextStep.reasonCode === 'UNEXPLAINED_CLIENT_LOSS' ? 'Incident assessed · eligible to recognize loss' : 'Incident assessed · eligible to write off')
-                                        : (row.nextStep.reasonCode === 'UNEXPLAINED_CLIENT_LOSS' ? 'Overdue · eligible to recognize loss' : 'Overdue · eligible to write off')}
-                                    </span>
-                                  )
-                                )}
-                                {row.nextStep?.kind === 'INCIDENT_DEFERRED' && (
-                                  existingLargeUnexplained ? (
-                                    <IncidentBadge incidentNo={existingLargeUnexplained.incidentNo} />
-                                  ) : canRegisterIncident ? (
-                                    <button
-                                      type="button"
-                                      onClick={() => navigate(buildIncidentHref({
-                                        type: 'LARGE_UNEXPLAINED',
-                                        sourceCaseNo: kase.caseNo,
-                                        // C1 挂接链评审修复：不带这个号，后端 attachIncident 的唯一
-                                        // 调用点（前提是 dto.sourceDispositionNo 存在）永远不会触发——
-                                        // 事故定了损也回写不到这行上。该按钮出现的前提本就是行已定性
-                                        // 挂起·调查中（INCIDENT_DEFERRED），disposition 必在。
-                                        sourceDispositionNo: row.disposition!.dispositionNo,
-                                        customerNo: kase.ownerNo,
-                                        assetCode: kase.assetCode,
-                                        amount: minorToMajorPlain(row.nextStep!.amount, kase.decimals),
-                                        title: `Large unexplained · case ${kase.caseNo}`,
-                                        description: `Wallet ${kase.walletNo ?? '—'}'s difference is overdue and its cause could not be determined. Amount ${minorToMajorPlain(row.nextStep!.amount, kase.decimals)} ${kase.assetCode} `
-                                          + `exceeds the small-amount threshold — escalating to an incident. Finding: ${row.disposition!.findingNote}`,
-                                      }))}
-                                      className="inline-flex items-center gap-1 whitespace-nowrap font-mono text-[10px] font-medium text-adm-red hover:underline"
-                                    >
-                                      <Plus size={10} />
-                                      Escalate to incident
-                                    </button>
-                                  ) : (
-                                    <span className="max-w-[220px] font-mono text-[10px] text-adm-red">Overdue · pending escalation to incident</span>
-                                  )
-                                )}
-                                {row.nextStep?.kind === 'CLIENT_SURPLUS' && (
-                                  <span className="max-w-[220px] font-mono text-[10px] text-adm-amber">Overdue · surplus pending attribution, route via supplement</span>
-                                )}
-                                {renderFunding(row)}
-                              </div>
-                            )}
-                          </td>
-                        </tr>
-                      );
-                    })
-                  )}
-                </tbody>
-              </table>
-            </div>
-            {matchedCount > 0 && (
-              <button
-                type="button"
-                onClick={() => setShowMatched((v) => !v)}
-                className="mt-3 inline-flex items-center gap-1 font-mono text-[11px] text-adm-blue hover:underline"
-              >
-                {showMatched ? `Hide ${matchedCount} matched rows` : `Show ${matchedCount} matched rows`}
-              </button>
-            )}
-          </DetailCard>
-
-          {/* This Case's Adjustments (Task 7 controller ruling) — case-level
-              list so operations can see at a glance which adjustments have
-              already been opened for this case; that's how duplicate-adjustment
-              prevention is achieved (not by graying out the whole difference
-              row — flowComparison row ids and ReconciliationLineItem.id are not
-              the same table, so that's not possible). Click the number to go to
-              the adjustment detail page. */}
-          <DetailCard
-            title={`This Case's Adjustments · ${kase.adjustments?.length ?? 0}`}
-            columns={1}
-          >
-            {!kase.adjustments || kase.adjustments.length === 0 ? (
-              <div className="py-4 text-center font-mono text-[11px] text-adm-t3">
-                No adjustments opened yet.
-              </div>
-            ) : (
-              <div className="overflow-x-auto rounded-lg border border-adm-border">
-                <table className="w-full text-left text-sm">
-                  <thead className="border-b border-adm-border bg-adm-bg">
-                    <tr>
-                      <th className="px-3 py-2 font-mono text-[9px] font-semibold uppercase tracking-[0.1em] text-adm-t3">
-                        Adjustment No
-                      </th>
-                      <th className="px-3 py-2 font-mono text-[9px] font-semibold uppercase tracking-[0.1em] text-adm-t3">
-                        Status
-                      </th>
-                      <th className="px-3 py-2 font-mono text-[9px] font-semibold uppercase tracking-[0.1em] text-adm-t3">
-                        Reason
-                      </th>
-                      <th className="px-3 py-2 font-mono text-[9px] font-semibold uppercase tracking-[0.1em] text-adm-t3">
-                        Dir
-                      </th>
-                      <th className="px-3 py-2 text-right font-mono text-[9px] font-semibold uppercase tracking-[0.1em] text-adm-t3">
-                        Amount
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-adm-border">
-                    {kase.adjustments.map((adj) => (
-                      <tr key={adj.adjustmentNo}>
-                        <td className="px-3 py-2.5">
-                          <Link
-                            to={`/admin/reconciliation/adjustments/${encodeURIComponent(adj.adjustmentNo)}`}
-                            className="font-mono text-[11px] font-semibold text-adm-amber hover:underline"
-                          >
-                            {adj.adjustmentNo}
-                          </Link>
-                        </td>
-                        <td className="px-3 py-2.5">
-                          <StatusPill value={adj.status} />
-                        </td>
-                        <td className="px-3 py-2.5 font-mono text-[11px] text-adm-t2">
-                          {REASON_LABEL[adj.reasonCode] ?? adj.reasonCode}
-                        </td>
-                        <td className="px-3 py-2.5 font-mono text-[11px]">
-                          <span
-                            className={`rounded border px-1 text-[9px] font-semibold ${
-                              adj.direction === 'INCREASE'
-                                ? 'border-adm-green/30 bg-adm-green/10 text-adm-green'
-                                : 'border-adm-red/30 bg-adm-red/10 text-adm-red'
-                            }`}
-                          >
-                            {adj.direction}
-                          </span>
-                        </td>
-                        <td className="px-3 py-2.5 text-right font-mono text-[11px] text-adm-t1">
-                          {formatAmount(adj.amount, kase.decimals)}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </DetailCard>
+          <CaseFlowTable
+            kase={kase}
+            sortedFlows={sortedFlows}
+            showMatched={showMatched}
+            setShowMatched={setShowMatched}
+            simEnabled={simEnabled}
+            onOpenAdjustKind={openAdjustKind}
+            onOpenFinding={(row, kind, label) => setFindingPicker({ row, kind, label })}
+            onOpenHold={(row, kind) => setHoldPicker({ row, kind })}
+            onOpenWriteOff={openWriteOff}
+            onOpenFunding={setFundingRow}
+            canRecordDisposition={canRecordDisposition}
+            canCreateAdjustment={canCreateAdjustment}
+            canSupplement={canSupplement}
+            canRegisterIncident={canRegisterIncident}
+            canFundClient={canFundClient}
+            matchedCount={matchedCount}
+            openRowsCount={openRowsCount}
+            existingLargeUnexplained={existingLargeUnexplained}
+            existingClientShortfall={existingClientShortfall}
+          />
 
           {/* 6. Bottom utility — deep link to Account Flows */}
           <DetailCard title="Related Views" columns={1}>
