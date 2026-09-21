@@ -1,5 +1,5 @@
 import { IsIn, IsOptional, IsString } from 'class-validator';
-import type { DispositionKind } from '../disposition/cause-registry';
+import type { DispositionKind, AdjustmentPrefill } from '../disposition/cause-registry';
 export class ReconRunQueryDto {
   @IsOptional() @IsString() businessDate?: string;
   @IsOptional() @IsString() layer?: string;
@@ -155,6 +155,10 @@ export interface FlowComparisonRow {
   fundsOrderStatus?: string | null; // T4: current status of the explaining funds order
                                     // (IN_TRANSIT only) — CLEARED here + case OPEN means
                                     // "已推进·待重对账": a rerun will close the case.
+  // 波四：开单预填三件（金额/方向/改记 side）——唯一真相在 disposition/cause-registry.ts
+  // resolveAdjustmentPrefill（出账翻符号见其头注释）。只在三类异常行下发；MATCHED/
+  // IN_TRANSIT 行开不了调账弹窗（按钮唯一入口挂在 dispositions 上），不挂即不造死字段。
+  adjustmentPrefill?: AdjustmentPrefill;
   // ④ 这条差异已被哪张已落账的调账单解释（三类异常行才有；MATCHED/IN_TRANSIT 恒 null）。
   // 有值 = 引擎算桶时已把它从异常数里摘掉，案子可以平下去。
   explainedByAdjustmentNo?: string | null;

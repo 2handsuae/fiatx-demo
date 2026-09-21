@@ -192,3 +192,21 @@ export function resolveWriteOff(facts: WriteOffFacts): {
   const direction: 'REDUCE' | 'INCREASE' = facts.externalDirection === 'IN' ? 'INCREASE' : 'REDUCE';
   return { reasonCode, family: 'WRITE_OFF', direction, amountMinor: abs(facts.externalAmount) };
 }
+
+/**
+ * 开单预填（波四）：差异行「开调账单」的金额/方向/改记 side——方向与金额直接委托
+ * resolveWriteOff（同一条「让内部等于外部」公式：出账翻符号/内部反向/外部照搬），
+ * side 与 disposition.service.ts listReattributionCandidates 的约定同源：错记方=FROM、
+ * 正主方=TO。此前这三个值由前端两处各算一遍（页面 rowAdjustmentPrefill 漏了出账
+ * 翻符号 = BACKLOG:176，弹窗 deriveKindDirection 是本文件的手抄镜像），波四起收回
+ * 本文件单一来源，由 reconciliation-query.service 随行下发。
+ */
+export interface AdjustmentPrefill {
+  amountMinor: string;
+  direction: 'REDUCE' | 'INCREASE';
+  reattributionSide: 'FROM' | 'TO';
+}
+export function resolveAdjustmentPrefill(facts: WriteOffFacts): AdjustmentPrefill {
+  const { direction, amountMinor } = resolveWriteOff(facts);
+  return { amountMinor, direction, reattributionSide: facts.matchType === 'ORPHAN_INTERNAL' ? 'FROM' : 'TO' };
+}

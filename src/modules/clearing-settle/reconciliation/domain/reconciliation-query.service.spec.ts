@@ -334,6 +334,13 @@ describe('getCase — walletNo / linkedRunNo / slaDeadline / book', () => {
     expect(result.linkedRunNo).toBe('REC-A');
   });
 
+  it('波四：case 级下发 adjustmentBook（book null → CLIENT）', async () => {
+    const prisma = mkPrismaCase({ book: null });
+    const svc = mkSvc(prisma);
+    const result: any = await svc.getCase('CASE-001');
+    expect(result.adjustmentBook).toBe('CLIENT');
+  });
+
   it('returns null walletNo for XREF synthetic walletRef', async () => {
     const prisma = {
       reconciliationCase: {
@@ -1188,6 +1195,55 @@ describe('getCase 行注解（spec §3/§8）', () => {
     expect(inTransitRow).toBeDefined();
     expect(inTransitRow.dispositions).toBeUndefined();
     expect(inTransitRow.menu).toBeUndefined();
+  });
+
+  it('波四：AMOUNT_MISMATCH 行下发 adjustmentPrefill（出账翻符号：OUT + delta 正 → REDUCE）', async () => {
+    // 内部 WITHDRAW 记 95（OUT），银行实扣 100（IN 视角的外部行）——原始差 external(100) −
+    // internal(95) = +5，内部方向 OUT 触发 resolveWriteOff 的出账翻符号 → REDUCE
+    // （旧前端 rowAdjustmentPrefill 漏了这一步会算成 INCREASE，回显 mock 骗不过这条断言）。
+    const externalLines = [
+      { id: 'ext-match', direction: 'IN', amount: new Prisma.Decimal(200), externalRef: 'REF-MATCH', datetime: new Date('2026-06-27T08:00:00Z'), description: null },
+      { id: 'ext-am',    direction: 'IN', amount: new Prisma.Decimal(100), externalRef: 'REF-AM',    datetime: new Date('2026-06-27T09:00:00Z'), description: null },
+    ];
+    const internalFlows = [
+      { id: 'int-match', direction: 'IN',  amount: new Prisma.Decimal(200), externalRef: 'REF-MATCH', eventCode: 'DEPOSIT_IN',   sourceType: 'DEPOSIT',  sourceNo: 'PAY-MATCH', createdAt: new Date('2026-06-27T08:00:05Z') },
+      { id: 'int-am',    direction: 'OUT', amount: new Prisma.Decimal(95),  externalRef: 'REF-AM',    eventCode: 'WITHDRAW_OUT', sourceType: 'WITHDRAW', sourceNo: 'WD-AM',     createdAt: new Date('2026-06-27T09:00:05Z') },
+    ];
+    const prisma = mkBasePrisma({
+      externalBalance: { findMany: jest.fn().mockResolvedValue([{ accountRef: 'ACC-ANNO' }]) },
+      externalStatementLine: { findMany: jest.fn().mockResolvedValue(externalLines) },
+      accountFlow: { findMany: jest.fn().mockResolvedValue(internalFlows) },
+      // 案件带一条 IN_TRANSIT line item——同款附加行也要验一遍不带 adjustmentPrefill。
+      reconciliationCase: {
+        findUnique: jest.fn().mockResolvedValue({
+          ...baseKase,
+          lineItems: [{
+            id: 'li-it-am', matchStatus: 'IN_TRANSIT', externalDirection: 'IN',
+            externalAmount: new Prisma.Decimal(50), internalSourceNo: 'FO-AM-1',
+            foundByRunId: 'run-anno',
+          }],
+        }),
+      },
+    });
+    const flowMatcher = {
+      matchFlows: jest.fn().mockResolvedValue({
+        matched: [{ internalFlowId: 'int-match', externalLineId: 'ext-match' }],
+        orphanInternal: [], orphanExternal: [],
+        mismatch: [{ internalFlowId: 'int-am', externalLineId: 'ext-am' }],
+      }),
+    };
+    const svc = mkSvc(prisma, { flowMatcher });
+    const result: any = await svc.getCase(baseKase.caseNo);
+
+    const mismatch = result.flowComparison.find((r: any) => r.matchType === 'AMOUNT_MISMATCH');
+    expect(mismatch.adjustmentPrefill).toEqual({ amountMinor: '5', direction: 'REDUCE', reattributionSide: 'TO' });
+
+    const matchedRow = result.flowComparison.find((r: any) => r.matchType === 'MATCHED');
+    expect(matchedRow.adjustmentPrefill).toBeUndefined();
+
+    const inTransitRow = result.flowComparison.find((r: any) => r.matchType === 'IN_TRANSIT');
+    expect(inTransitRow).toBeDefined();
+    expect(inTransitRow.adjustmentPrefill).toBeUndefined();
   });
 
   // 缺口 1（Task 9）：SUPPLEMENT 三码（MISSED_DEPOSIT/BOUNCED_FUNDS/PAYOUT_RETURNED）
