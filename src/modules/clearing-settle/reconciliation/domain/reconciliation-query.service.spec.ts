@@ -846,6 +846,32 @@ describe('getCase — explain / observation / bucket (T6)', () => {
     const inTransitRow = result.flowComparison.find((r: any) => r.matchType === 'IN_TRANSIT');
     expect(inTransitRow).toBeDefined();
     expect(inTransitRow.fundsOrderNo).toBe('FO-2026-000123');
+    // Task 7：该案例的资金单不是划转腿（fundsOrder.findMany 默认 mock 返回 []），
+    // r.transfer 必须是 null——前端据此判断走「Push order →」而非「Transfer leg →」。
+    expect(inTransitRow.transfer).toBeNull();
+  });
+
+  // Task 7：在途行背后的资金单本身是一条划转腿（internalTransferId 非空）→
+  // appendInTransitRows 要把该腿的 internalTransfer 关联原样回填到 r.transfer
+  // （与既有「补款/垫款回挂」用的同一字段、同一形状），CaseFlowTable 在途分支
+  // 据此优先渲染「Transfer leg →」而不是「Push order →」（后端 push-order.service
+  // 已对划转腿显式拒推）。
+  it('IN_TRANSIT line item 的资金单是划转腿 → 下发 r.transfer（供前端渲染 Transfer leg →）', async () => {
+    const prisma = mkPrismaCase();
+    prisma.fundsOrder.findMany = jest.fn().mockResolvedValue([
+      {
+        fundsOrderNo: 'FO-2026-000123',
+        status: 'SUBMITTED',
+        internalTransfer: { transferNo: 'ITR260921996176', purpose: 'CLIENT_COMPENSATION', status: 'EXECUTING' },
+      },
+    ]);
+    const svc = mkSvc(prisma);
+    const result: any = await svc.getCase('REC20260630-005');
+
+    const inTransitRow = result.flowComparison.find((r: any) => r.matchType === 'IN_TRANSIT');
+    expect(inTransitRow.transfer).toEqual({
+      transferNo: 'ITR260921996176', purpose: 'CLIENT_COMPENSATION', status: 'EXECUTING',
+    });
   });
 
   it('IN_TRANSIT line item 带 externalTimestamp → 下发真实 ISO 串（红3甲·读端）', async () => {

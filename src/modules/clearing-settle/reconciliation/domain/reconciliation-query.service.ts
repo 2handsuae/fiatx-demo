@@ -850,12 +850,28 @@ export class ReconciliationQueryService {
         .filter((no: string | null): no is string => !!no),
     ));
     const fundsOrderStatusByNo = new Map<string, string>();
+    // Task 7：在途行要能优先指向划转详情（`Transfer leg →`），前提是知道这条
+    // 在途行背后的资金单是不是一条划转腿——同一批查询顺手带上 internalTransfer
+    // 关联（transferNo/purpose/status，与既有 r.transfer 字段同形状，CaseFlowTable
+    // 两处渲染共用一套结构），非划转腿（充值/提现/swap 腿）该关联恒 null。
+    const transferByFundsOrderNo = new Map<string, { transferNo: string; purpose: string; status: string }>();
     if (inTransitFundsOrderNos.length > 0) {
       const fundsOrders = (await this.prisma.fundsOrder.findMany({
         where: { fundsOrderNo: { in: inTransitFundsOrderNos } },
-        select: { fundsOrderNo: true, status: true },
-      })) as Array<{ fundsOrderNo: string; status: string }>;
-      for (const fo of fundsOrders) fundsOrderStatusByNo.set(fo.fundsOrderNo, fo.status);
+        select: {
+          fundsOrderNo: true,
+          status: true,
+          internalTransfer: { select: { transferNo: true, purpose: true, status: true } },
+        },
+      })) as Array<{
+        fundsOrderNo: string;
+        status: string;
+        internalTransfer: { transferNo: string; purpose: string; status: string } | null;
+      }>;
+      for (const fo of fundsOrders) {
+        fundsOrderStatusByNo.set(fo.fundsOrderNo, fo.status);
+        if (fo.internalTransfer) transferByFundsOrderNo.set(fo.fundsOrderNo, fo.internalTransfer);
+      }
     }
 
     for (const li of inTransitLineItems) {
@@ -873,6 +889,7 @@ export class ReconciliationQueryService {
         matchType: 'IN_TRANSIT',
         fundsOrderNo,
         fundsOrderStatus: fundsOrderNo ? (fundsOrderStatusByNo.get(fundsOrderNo) ?? null) : null,
+        transfer: fundsOrderNo ? (transferByFundsOrderNo.get(fundsOrderNo) ?? null) : null,
       });
     }
 

@@ -1,0 +1,33 @@
+Task 7：划转腿推单显式拒——后端实证（curl 直捅推单端点，treasury 身份 token）
+
+复现场景：REC20260921-013（Alice USDT wallet 7c04d37e-f77d-4913-87c7-512684629546）
+在途行背后的划转腿资金单 FDO260921448448（internalTransferId → ITR260921996176，
+purpose=CLIENT_COMPENSATION）。自 self 栈（http://127.0.0.1:3100）取 treasury@fiatx.com
+的登录态 token 后，直接 POST 两个推单端点。
+
+── push/sync ──────────────────────────────────────────────────────────────
+命令：
+  curl -s -o resp.json -w "HTTP_STATUS:%{http_code}\n" -X POST \
+    http://127.0.0.1:3100/admin/funds-orders/FDO260921448448/push/sync \
+    -H "Authorization: Bearer $TOKEN"
+
+结果：
+  HTTP_STATUS:400
+  {"message":"Internal-transfer-leg funds orders are advanced by the transfer workflow — push order is not supported for them; open the internal transfer detail page instead","error":"Bad Request","statusCode":400}
+
+── push/manual ────────────────────────────────────────────────────────────
+命令：
+  curl -s -o resp.json -w "HTTP_STATUS:%{http_code}\n" -X POST \
+    http://127.0.0.1:3100/admin/funds-orders/FDO260921448448/push/manual \
+    -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+    -d '{"receiptRef":"R-1","externalDate":"2026-09-21","reason":"test"}'
+
+结果：
+  HTTP_STATUS:400
+  {"message":"Internal-transfer-leg funds orders are advanced by the transfer workflow — push order is not supported for them; open the internal transfer detail page instead","error":"Bad Request","statusCode":400}
+
+── 小结 ───────────────────────────────────────────────────────────────────
+两个推单端点（sync/manual 共用 loadPushable）均对划转腿资金单显式拒斥，
+message 与 push-order.service.ts brief 给定文案逐字一致，且含 "transfer workflow"。
+未绕过前端隐藏——后端本身就是硬闸，与 swap 腿既有拒斥同一套机制（loadPushable
+两个 if 分支并列）。

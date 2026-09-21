@@ -298,7 +298,17 @@ export const CaseFlowTable = ({
                               null
                             ) : row.matchType === 'IN_TRANSIT' ? (
                               // ③ 在途——差异会随资金单落地自然消失，动作是推单不是处置。
-                              row.fundsOrderNo ? (
+                              // Task 7：划转腿由划转工作流推进、资金单页无替代动作（推单已在
+                              // 后端 loadPushable 显式拒），行上不再给「Push order →」诱饵，
+                              // 改指向划转详情——row.transfer 存在即是划转腿，优先于 fundsOrderNo 判断。
+                              row.transfer ? (
+                                <Link
+                                  to={`/admin/custody/internal-transfers/${encodeURIComponent(row.transfer.transferNo)}`}
+                                  className="whitespace-nowrap font-mono text-[10px] font-medium text-adm-blue hover:underline"
+                                >
+                                  Transfer leg →
+                                </Link>
+                              ) : row.fundsOrderNo ? (
                                 <Link
                                   to={`/admin/funds-orders/${encodeURIComponent(row.fundsOrderNo)}`}
                                   className="whitespace-nowrap font-mono text-[10px] font-medium text-adm-blue hover:underline"

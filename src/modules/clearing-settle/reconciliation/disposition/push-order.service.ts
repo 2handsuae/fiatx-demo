@@ -108,6 +108,11 @@ export class PushOrderService {
         'Swap-leg funds orders must be advanced leg by leg from the Swap detail page (sequence guard) — push order is not supported for them this round',
       );
     }
+    if (order.internalTransferId) {
+      throw new BadRequestException(
+        'Internal-transfer-leg funds orders are advanced by the transfer workflow — push order is not supported for them; open the internal transfer detail page instead',
+      );
+    }
     if (TERMINAL.has(order.status)) {
       throw new BadRequestException(`FundsOrder ${fundsOrderNo} is already in a terminal state (${order.status}) — nothing to advance`);
     }
@@ -116,7 +121,7 @@ export class PushOrderService {
 
   /**
    * 真实资金单行 → 归一化回执视图。direction 由 deposit/withdraw FK 派生（swap 已在
-   * loadPushable 拒绝）；IN 用贷记钱包 toWalletId、OUT 用借记钱包 fromWalletId
+   * loadPushable 拒绝，transfer 腿同）；IN 用贷记钱包 toWalletId、OUT 用借记钱包 fromWalletId
    * （与 findNonTerminalByWallet 的方向约定一致）；externalRefs 取三字段
    * [txHash, referenceNo, providerTxnId].filter(Boolean)，与对账 matcher refsOf 同源。
    */
