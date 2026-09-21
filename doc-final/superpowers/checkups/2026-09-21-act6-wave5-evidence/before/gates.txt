@@ -1,0 +1,69 @@
+波五 Task 0 · 波前闸门基线（第六幕波五开工首任务）
+worktree: /Users/songshengwei/Documents/Project/fiatx.com/.claude/worktrees/act6_wave5
+分支: worktree-act6_wave5，基线 = main HEAD 234f3287
+栈: self（act6_wave5），端口 backend=3100 admin=3101 client=3102 tb=3103（.stackports=3100；main 栈 3000-3003 全程未碰）
+DB: /tmp/exchange_js_wt_act6_wave5/dev.db
+
+前置：Step 2 起栈重铺
+  rm -f /tmp/exchange_js_wt_act6_wave5/dev.db
+  bash scripts/stack.sh reset      → 0（business reset complete，verify:demo-data ALL PASS）
+  bash scripts/stack.sh up         → 0（backend/admin/client/tb 四进程 listening）
+
+说明：本文件记录的四条闸门命令是在 Step 4 截图取证（含一轮完整 Alice USDT 案 Hold→核销→CFO
+批→补款划转→资金单推单闭环的活工作流操作，用于产出 before-3/before-4/before-5 三张截图）
+之后，为了给 Step 5 严重度取数留一份不受那轮操作污染的纯净基线，重新执行了一次
+rm dev.db → stack.sh reset → stack.sh up → 以下四条命令，即下面四条命令的输出对应的是
+「重铺后的纯净 12 案基线」，不含 Step 4 截图取证过程中额外产生的 REC20260921-013 等状态。
+Step 4 的截图本身（PNG 文件）不受这次重铺影响，仍是当时真实渲染的产物。
+
+────────────────────────────────────────────────────────────
+① 三域 jest
+命令: DATABASE_URL="file:/tmp/exchange_js_wt_act6_wave5/dev.db" npx jest src/modules/clearing-settle src/modules/governance/incidents src/modules/asset-treasury/internal-transfers
+退出码: 0
+关键行:
+  Test Suites: 29 passed, 29 total
+  Tests:       567 passed, 567 total
+  Time:        10.824 s
+（与 brief 预期「29 suites / 567 tests 全绿」完全一致；本命令实际跑过两次——第一次在活工作流之前
+   （同样 0/29/567），第二次是本文件收录的这次，均全绿，jest 本身不依赖 demo 种子数据。）
+
+────────────────────────────────────────────────────────────
+② demo:all
+命令: bash scripts/on-stack.sh self demo:all
+退出码: 0
+关键行:
+  花名册：29/29 符合预期
+  ✓ COA CLIENT(AED): CLIENT_ASSET == Σ(CLIENT_PAYABLE+DEPOSIT_SUSPENSE) (29612565 == 29612565)
+  ✓ COA FIRM(AED): FIRM_ASSET == Σ(FIRM_OPS+FIRM_SET+INCOME_SWAP_FEE+INCOME_WITHDRAW_FEE+INCOME_OTHER) (99870335 == 99870335)
+  ✓ COA CLIENT(USDT): CLIENT_ASSET == Σ(CLIENT_PAYABLE+DEPOSIT_SUSPENSE) (4392571811 == 4392571811)
+  ✓ COA FIRM(USDT): FIRM_ASSET == Σ(FIRM_OPS+FIRM_SET+INCOME_SWAP_FEE+INCOME_WITHDRAW_FEE+INCOME_OTHER) (100413428189 == 100413428189)
+  asserts: 5/5 PASS
+  ═══ demo:all DONE ✅ (all asserts pass) ═══
+
+────────────────────────────────────────────────────────────
+③ recon:demo:break
+命令: bash scripts/on-stack.sh self recon:demo:break
+退出码: 0
+关键行:
+  status=BREAK  walletsChecked=19  casesOpened=12
+  scenarios: 18/18 DETECTED
+  wallets:   12/12 bucket OK
+  identity① walletCount(19) == matched(7) + inTransit(1) + softFlag(2) + break(9)  OK
+  identity② opened(12) + reObserved(0) == inTransit+softFlag+break(12)  OK
+  break-mode asserts: status==BREAK / scenarios 18/18 / wallets 12/12 / casesOpened 12/12 / identities OK
+  ALL 18 SCENARIOS DETECTED PER MANIFEST
+
+────────────────────────────────────────────────────────────
+④ verify:coa
+命令: bash scripts/on-stack.sh self verify:coa
+退出码: 0
+关键行:
+  ✓ ledger 1 CLIENT 恒等 29812565
+  ✓ ledger 1 FIRM 恒等 99870335
+  ✓ ledger 2 CLIENT 恒等 4392571811
+  ✓ ledger 2 FIRM 恒等 100413428189
+  ✓ 负余额检查 通过 (57 个科目全部 ≥ 0)
+  ALL INVARIANTS PASS
+
+────────────────────────────────────────────────────────────
+四条闸门全绿，退出码均为 0，与 brief 预期一致。
