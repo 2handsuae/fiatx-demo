@@ -73,11 +73,16 @@ function makeDeps(overrides: any = {}) {
     }),
     findFirst: jest.fn().mockResolvedValue(null),
   };
+  // 波五 T8：ReconciliationCaseService 的开案/自愈审计现经 resolveWalletNo 查
+  // wallet 表换 walletNo——这些用例不断言 audit.metadata.walletNo 具体值，
+  // 给个固定回显即可，避免 undefined.findUnique 炸穿。
+  const wallet = { findUnique: jest.fn().mockResolvedValue({ walletNo: 'WA-STUB' }) };
 
   const prisma: any = {
     $transaction: jest.fn(async (cb: any) => cb(prisma)),
     reconciliationRun,
     reconciliationCase,
+    wallet,
     reconciliationLineItem,
     reconciliationRunWallet,
     externalBalance,

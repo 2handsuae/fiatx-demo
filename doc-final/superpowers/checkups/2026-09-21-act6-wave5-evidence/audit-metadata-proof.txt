@@ -1,0 +1,124 @@
+波五 T8 落库实证——开案/自愈审计 metadata walletRef(UUID) → walletNo(业务键)
+=====================================================================
+worktree: act6_wave5（self 栈，端口段 3100）｜DB: /tmp/exchange_js_wt_act6_wave5/dev.db
+
+## 1. 全新库重铺（brief Step 4 要求）
+
+命令 1 — 建后端最新代码（Task 5/6/7 源码已变，重铺前先 build）：
+  export PATH="$(ls -d $HOME/.nvm/versions/node/v20* | tail -1)/bin:$PATH" && npm run build
+退出码：0（nest build 无报错）
+
+命令 2 — 删旧库：
+  rm -f /tmp/exchange_js_wt_act6_wave5/dev.db
+退出码：0
+
+命令 3 — 业务重铺（从零建库，reset-stack.sh 内含迁移 + db:base:sync + db:biz:reset + db:seed:business）：
+  bash scripts/stack.sh reset
+退出码：0
+关键行：
+  [wt_act6_wave5] business reset complete
+  Database: /tmp/exchange_js_wt_act6_wave5/dev.db
+  verify:demo-data ALL PASS
+
+命令 4 — 起栈（4 服务：backend/admin/client/TigerBeetle，backend 从新 dist 起）：
+  bash scripts/stack.sh up
+退出码：0
+关键行：
+  [wt_act6_wave5] building backend runtime
+  [wt_act6_wave5] all services started
+
+命令 5 — 花名册铺数：
+  bash scripts/on-stack.sh self demo:all
+退出码：0
+关键行：
+  花名册：29/29 符合预期
+  asserts: 5/5 PASS
+  ═══ demo:all DONE ✅ (all asserts pass) ═══
+
+## 2. 生成 RECON_CASE_OPENED（demo:all 不触发对账引擎，需另跑 recon:demo:break）
+
+命令 6：
+  bash scripts/on-stack.sh self recon:demo:break
+退出码：0
+关键行：
+  status=BREAK  walletsChecked=19  casesOpened=12
+  scenarios: 18/18 DETECTED
+  wallets:   12/12 bucket OK
+  ALL 18 SCENARIOS DETECTED PER MANIFEST
+（本任务收尾前又重跑一次 recon:demo:break——见下节说明，故最终库里 RECON_CASE_OPENED
+  合计 24 条，历史两轮开案都是真实、非伪造的引擎调用产物，无需去重。）
+
+## 3. 生成 RECON_CASE_AUTO_HEALED（recon-demo.ts 的 pass/break 两模式各自 self-clean，
+##    不构成"先破后愈"的组合；demo-in-transit.ts 头部注释也明确记录了这一点：
+##    "案自愈到 RESOLVED/AUTO_HEALED 需钱包干净……不在复用钱包上硬断言 AUTO_HEALED"。
+##    为拿到一条真实的自愈审计，走的是运营侧真实场景：银行更正对账单（外部数据本该
+##    与内部一致，此前 break 场景人为压低了金额），随后 Re-reconcile（= admin 按钮
+##    /runs/wallet 同款调用，recon:rerun 是它的离线等价物）当场发现钱包已恢复清洁，
+##    引擎按既有 autoHealCases 判据（本轮查过 + 不在破口集合）自动关案。
+
+3.1 复跑 recon:demo:break，重新拿到 12 张新开案件（含场景 #5 AMT_FEE_NETTED，
+    wallet=1b5c948f-855e-4067-8e4f-e9ef259bb7a1，手续费轧差 fee=97，对应案件
+    REC20260921-006，deltaAmount=-97）：
+  bash scripts/on-stack.sh self recon:demo:break
+退出码：0（同命令 6 输出形状，case 编号沿用 businessDate 计数续号）
+
+复核该钱包受影响的两行（sqlite，只读）：
+  external_statement_lines: id=f25a6eb3-c555-4386-bad1-3dd4e0488862  amount=25999903（原 26000000 − 97）
+  external_balances:        id=fb749a9c-154e-4720-8e69-3f88a63b1987  closing_balance=26219903（原 26220000 − 97）
+  reconciliation_cases:     REC20260921-006  walletRef=1b5c948f…  status=OPEN  deltaAmount=-97
+
+3.2 撤销该单一场景的人为压低（银行更正对账单的等价操作——只改这两行，不碰其余
+    18 场景 / 11 个仍在破口的钱包）：
+  sqlite3 dev.db "UPDATE external_statement_lines SET amount = amount + 97 WHERE id = 'f25a6eb3-c555-4386-bad1-3dd4e0488862';"
+  sqlite3 dev.db "UPDATE external_balances SET closing_balance = closing_balance + 97 WHERE id = 'fb749a9c-154e-4720-8e69-3f88a63b1987';"
+复核：amount=26000000，closing_balance=26220000（与该钱包内部总额一致）
+
+3.3 触发引擎重跑（= 管理台 Re-reconcile 按钮 POST /admin/reconciliation/runs/wallet
+    的离线等价物，不经 HTTP/登录，直接调用同一个 WalletReconRunService.run）：
+  bash scripts/on-stack.sh self recon:rerun
+退出码：0
+关键行（JSON 输出）：
+  "status": "BREAK", "walletsChecked": 19, "casesOpened": 0,
+  "casesReObserved": 11, "casesAutoHealed": 1,
+  "orphanInternal": 4, "orphanExternal": 8, "mismatch": 5
+  → 仅 1b5c948f 这一个钱包由 BREAK 变回 MATCHED，触发 autoHealCases 关掉
+    REC20260921-006（其余 11 个破口钱包原样保留，未受干扰）。
+
+## 4. sqlite 判据核验
+
+命令：
+  sqlite3 dev.db "select action, count(*) from audit_log_events where action in ('RECON_CASE_OPENED','RECON_CASE_AUTO_HEALED') group by action;"
+输出：
+  RECON_CASE_AUTO_HEALED|1
+  RECON_CASE_OPENED|24
+
+命令：
+  sqlite3 dev.db "select eventNo, action, metadata from audit_log_events where action = 'RECON_CASE_AUTO_HEALED';"
+输出：
+  AUD260921430740|RECON_CASE_AUTO_HEALED|{"walletNo":"WA2601014725","caseNo":"REC20260921-006"}
+
+命令（RECON_CASE_OPENED 最新 3 条抽样）：
+  sqlite3 dev.db "select eventNo, action, metadata from audit_log_events where action = 'RECON_CASE_OPENED' order by seq desc limit 3;"
+输出：
+  AUD260921100430|RECON_CASE_OPENED|{"walletNo":"WA2601014255","bucket":"BREAK","deltaAmount":"-730000","caseNo":"REC20260921-012","slaDeadline":"2026-09-24T19:59:59.999Z"}
+  AUD260921408206|RECON_CASE_OPENED|{"walletNo":"WA2601016943","bucket":"BREAK","deltaAmount":"380000","caseNo":"REC20260921-011","slaDeadline":"2026-09-24T19:59:59.999Z"}
+  AUD260921086851|RECON_CASE_OPENED|{"walletNo":"WA2601011252","bucket":"BREAK","deltaAmount":"-500000","caseNo":"REC20260921-010","slaDeadline":"2026-09-24T19:59:59.999Z"}
+
+命令（全量 25 条 metadata 落盘 + 三条 grep 判据）：
+  sqlite3 dev.db "select metadata from audit_log_events where action in ('RECON_CASE_OPENED','RECON_CASE_AUTO_HEALED');" > /tmp/wave5_t8_metadata_dump.txt
+  wc -l /tmp/wave5_t8_metadata_dump.txt                              → 25
+  grep -E '[0-9a-f]{8}-[0-9a-f]{4}' /tmp/wave5_t8_metadata_dump.txt  → 零命中（exit 1）
+  grep -cv '"walletNo":"WA' /tmp/wave5_t8_metadata_dump.txt          → 0（25 条全部带 walletNo 值）
+  grep -c "walletRef" /tmp/wave5_t8_metadata_dump.txt                → 0（键名已换）
+
+判据：RECON_CASE_OPENED ≥1（实得 24）、RECON_CASE_AUTO_HEALED ≥1（实得 1）、
+metadata 里 UUID 模式零命中、walletNo 全部有值、walletRef 键名零残留——四项全部满足。
+
+## 5. 备注
+
+- 本轮落库用的是 Task 5/6/7 之后、Task 8 改动之前后端最新代码（步骤 1 已 build，
+  步骤 4 stack.sh up 内置的 npm run build 再次确认），故这批审计事件走的是本任务
+  改完后的 auditCaseOpened / auditCaseAutoHealed 实现。
+- 本轮重铺会清掉 Task 7 走查造的划转腿状态——预期内，Task 7 证据已单独入 commit。
+- 收尾 Task 11 还会再整体重铺一次，本轮 DB 状态（12 案基线之外多出的场景/案件）
+  不需要保留。
