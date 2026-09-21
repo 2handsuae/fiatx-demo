@@ -13,6 +13,9 @@
 //
 // 正确口径：重对账 = 拿**同一份对账单**重新跑一遍，所以截止点固定在这张案件
 // （或这次运行）的业务日日终。
+//
+// 2026-09-21 波五 T4：日终换算收回后端（迪拜口径，business-date.util）——前端不
+// 算业务日边界，只送 businessDate，由 controller 调 endOfBusinessDate 换算 cutoff。
 import {
   AdminSessionError,
   adminFetch,
@@ -31,7 +34,7 @@ export async function triggerWalletReconRun(businessDate: string): Promise<boole
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ cutoff: `${businessDate}T23:59:59.999Z` }),
+        body: JSON.stringify({ businessDate }),
       },
     );
     if (!res.ok) {

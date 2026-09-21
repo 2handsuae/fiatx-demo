@@ -1,0 +1,20 @@
+$ grep -rn "runs/wallet" admin-web/src client-web/src scripts src --include="*.ts" --include="*.tsx"
+admin-web/src/utils/reconRunTrigger.ts:33:      `${import.meta.env.VITE_API_URL}/admin/reconciliation/runs/wallet`,
+scripts/verify-rbac.ts:820:    routePattern: '/admin/reconciliation/runs/wallet', path: '/admin/reconciliation/runs/wallet',
+scripts/verify-rbac.ts:929:    routePattern: '/admin/reconciliation/runs/wallet', path: '/admin/reconciliation/runs/wallet',
+scripts/verify-rbac.ts:934:    routePattern: '/admin/reconciliation/runs/wallet', path: '/admin/reconciliation/runs/wallet',
+scripts/verify-act1.ts:423:  precheckRoute('POST', '/admin/reconciliation/runs/wallet');
+scripts/verify-act1.ts:424:  const b11 = await call('POST', '/admin/reconciliation/runs/wallet', tokens.auditor, { cutoff: new Date().toISOString() });
+scripts/verify-act1.ts:433:    `POST recon/runs/wallet(auditor) → ${b11.status}；ADMIN_ACCESS_DENIED 行 actorNo=${b11row?.actorNo ?? '(无)'}`,
+src/modules/identity/access-control/rbac.catalog.ts:417:  route('POST', '/admin/reconciliation/runs/wallet', 'Trigger per-wallet reconciliation run', ['RECON_RUN_WRITE']),
+src/modules/clearing-settle/reconciliation/controllers/reconciliation-admin.controller.ts:26:  @Post('runs/wallet')
+src/modules/clearing-settle/reconciliation/controllers/reconciliation-admin.controller.ts:28:  @RequirePermissions(buildPermissionCode('POST', '/admin/reconciliation/runs/wallet'))
+
+判读：
+- admin-web/src/utils/reconRunTrigger.ts:33 — 本任务已改，只送 businessDate。
+- scripts/verify-act1.ts:423-433 — 传 cutoff（RBAC 拒绝场景：以 auditor 身份触发，预期 403 ADMIN_ACCESS_DENIED，不关心 cutoff/businessDate 语义走哪条分支）。dto 仍兼容 cutoff 单独一项传参，不动。
+- scripts/verify-rbac.ts:820/929/934 — 路由登记（routePattern 字符串），非调用方，不动。
+- src/modules/identity/access-control/rbac.catalog.ts:417 — 路由登记（RBAC catalog route()），非调用方，不动。
+- src/modules/clearing-settle/reconciliation/controllers/reconciliation-admin.controller.ts:26/28 — 被改动的 controller 自身（@Post 装饰器 + 权限码），非另一个调用方。
+
+结论：命中范围与 brief 预期一致（仅 reconRunTrigger 改动，verify-act1 兼容 cutoff 不动，rbac.catalog/verify-rbac 为路由登记不动）。
