@@ -1,0 +1,55 @@
+波五 Task 5 · 严重度按币种拆线 · 终值决策（逐案演算）
+决策时间: 2026-09-21
+输入: 同目录 severity-distribution.txt 的原始 12 行（Task 0 波前基线，重铺后纯净数据）
+
+一、spec §2.2 规则复述
+  1. 初值先套：AED med=10_000n(100.00 AED) high=1_000_000n(10,000.00 AED)；
+     USDT med=30_000_000n(30 USDT) high=3_000_000_000n(3,000 USDT)——等值锚 100 AED ↔ 30 USDT。
+  2. IF 某币种案件在初值下"全塌单档"（6 案全部落在同一档，失去演示密度）
+     THEN 该币种两档线按同一系数整体下移（不破坏两币种间等值比例），
+     直到种子分布每币种至少出现两档。
+  3. 终值写回注册表注释 + 本文件存改前/改后对照表。
+
+二、逐案演算（|delta| 用最小单位，按初值套用 severityLinesFor 判定；currency 列用 asset.currency，
+   而 severity-distribution.txt 的 assetCode 列实为 asset.code 'USDT-TRON'——本文件按币种口径统一写 USDT）
+
+  caseNo              currency  delta(minor)   |delta|(minor)  OLD(旧单阈值10000/100)  NEW(初值10_000/1_000_000 或 30_000_000/3_000_000_000)
+  REC20260921-001     USDT           -7                 7      LOW                     LOW
+  REC20260921-002     USDT            0                 0      LOW                     LOW
+  REC20260921-003     USDT     -7500000           7500000      HIGH                    LOW      （7.5 USDT，< USDT med 30）
+  REC20260921-004     AED        -49800             49800      HIGH                    MEDIUM   （498.00 AED，∈[100,10000) AED）
+  REC20260921-005     USDT           61                61      LOW                     LOW
+  REC20260921-006     AED           -97                97      LOW                     LOW
+  REC20260921-007     USDT            0                 0      LOW                     LOW
+  REC20260921-008     AED      63790135          63790135      HIGH                    HIGH     （637,901.35 AED，≥10,000 AED）
+  REC20260921-009     USDT   -400000000         400000000      HIGH                    MEDIUM   （400 USDT，∈[30,3000) USDT）
+  REC20260921-010     AED       -500000            500000      HIGH                    MEDIUM   （5,000.00 AED）
+  REC20260921-011     AED        380000            380000      HIGH                    MEDIUM   （3,800.00 AED）
+  REC20260921-012     AED       -930000            930000      HIGH                    MEDIUM   （9,300.00 AED）
+
+三、改前/改后各档案件数对照表
+
+  币种         OLD(单阈值 10_000n/100n 跨币种硬套)          NEW(按币种初值 severityLinesFor)
+               LOW   MEDIUM   HIGH                          LOW   MEDIUM   HIGH
+  AED           1      0       5                             1      4       1
+  USDT          4      0       2                             5      1       0
+
+四、判定：是否需要触发"整体下移"调档？
+  规则条件是"某币种案件全塌单档（6 案全落一档）"。用初值 severityLinesFor 套用后：
+    - AED：出现 3 档（LOW=1 / MEDIUM=4 / HIGH=1）——未全塌单档。
+    - USDT：出现 2 档（LOW=5 / MEDIUM=1）——未全塌单档；HIGH=0 但规则要求的是
+      "至少出现两档"，2 档已达标，条件不成立。
+  两币种均未触发"全塌单档"条件（旧单阈值口径下才是全塌 HIGH/LOW 两极、MEDIUM 空——
+  这正是本任务要修的问题；改成按币种初值后 MEDIUM 档已经露出，问题已解）。
+  结论：终值 = 初值，不做整体下移，系数 ×1。
+
+五、终值（写回 recon-thresholds.constant.ts 的 SEVERITY_LINES_MINOR）
+  AED:  med = 10_000n   (100.00 AED)     high = 1_000_000n     (10,000.00 AED)
+  USDT: med = 30_000_000n (30 USDT)      high = 3_000_000_000n (3,000 USDT)
+  等值比例：high(AED)/high(USDT 元值) = 10,000/3,000 ≈ 3.33；med(AED)/med(USDT 元值) = 100/30 ≈ 3.33——
+  两档比例一致，与波前既有小额线 100 AED↔30 USDT 锚点同一换算率，未破坏币种间等值比例。
+
+六、遗留观察（供后续参考，非本任务缺陷）
+  当前 12 案种子下 USDT 的 HIGH 档为 0——不是规则要求必须避免的情形（规则只要求
+  "至少两档"），但若后续想让 USDT 也露出 HIGH 徽章，需要种子层面补一个 |delta| ≥ 3,000 USDT
+  的案例（属数据/演示密度范畴，不在本任务改动阈值代码的范围内）。

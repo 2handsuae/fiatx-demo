@@ -57,11 +57,20 @@ function makeDeps(overrides: any = {}) {
   };
   const tbAccountRegistry = { findMany: jest.fn().mockResolvedValue([]) };
   // canonical-minor: run body batch-loads asset.decimals per currency
-  // (asset.findMany). Default → empty so decimalsByCurrency.get(...) ?? 0
-  // yields 0 (identity 元→分) for these fully-stubbed matcher tests.
+  // (asset.findMany). decimals default → 0 (identity 元→分) for these
+  // fully-stubbed matcher tests — decimalsByCurrency.get(...) ?? 0 covers
+  // the actual fallback, this mock just never sends a nonzero value.
   // findFirst kept for resolveAssetId callers that aren't spied over.
+  // 波五 T5：severity 按 asset.currency 索引，但 run() 传给 severity 的
+  // key 实存 asset.code——这些测试里 currency 字段直接用裸币种字符串
+  // （'USDT'/'AED'，见各用例 external balance 行），本就等于真实币种，
+  // 故默认 code→currency 自映射（fail-fast 的 assetCurrencyByCode.get(...)
+  // 需要这条映射才查得到，否则每个开案用例都会在 run() 里当场 throw）。
   const asset = {
-    findMany: jest.fn().mockResolvedValue([]),
+    findMany: jest.fn(async ({ where }: any = {}) => {
+      const codes: string[] = where?.code?.in ?? [];
+      return codes.map((code) => ({ code, decimals: 0, currency: code }));
+    }),
     findFirst: jest.fn().mockResolvedValue(null),
   };
 
@@ -669,27 +678,43 @@ describe('WalletReconRunService', () => {
       expect(c.bucket).toBe('BREAK');
     });
 
-    it('severity bucketing: delta>=10000 → HIGH, >=100 → MEDIUM, else LOW', async () => {
+    it('severity bucketing（波五 T5，按币种线）: AED med=10_000n/high=1_000_000n；USDT med=30_000_000n/high=3_000_000_000n', async () => {
       const cases = [
-        { delta: 15_000n, expected: 'HIGH' },
-        { delta: -15_000n, expected: 'HIGH' },
-        { delta: 500n, expected: 'MEDIUM' },
-        { delta: -100n, expected: 'MEDIUM' },
-        { delta: 10n, expected: 'LOW' },
-        { delta: 0n, expected: 'LOW' },
+        { currency: 'AED', delta: 1_500_000n, expected: 'HIGH' },
+        { currency: 'AED', delta: -1_500_000n, expected: 'HIGH' },
+        { currency: 'AED', delta: 500_000n, expected: 'MEDIUM' },
+        { currency: 'AED', delta: -10_000n, expected: 'MEDIUM' },
+        { currency: 'AED', delta: 5_000n, expected: 'LOW' },
+        { currency: 'AED', delta: 0n, expected: 'LOW' },
+        { currency: 'USDT', delta: 4_000_000_000n, expected: 'HIGH' },
+        { currency: 'USDT', delta: -4_000_000_000n, expected: 'HIGH' },
+        { currency: 'USDT', delta: 50_000_000n, expected: 'MEDIUM' },
+        { currency: 'USDT', delta: -30_000_000n, expected: 'MEDIUM' },
+        { currency: 'USDT', delta: 1_000_000n, expected: 'LOW' },
+        { currency: 'USDT', delta: 0n, expected: 'LOW' },
       ] as const;
 
       // Pure unit test of the exported helper — no run plumbing needed.
       const { computeSeverity } = await import('./wallet-recon-run.service');
       for (const tc of cases) {
-        expect(computeSeverity(tc.delta)).toBe(tc.expected);
+        expect(computeSeverity(tc.currency, tc.delta)).toBe(tc.expected);
       }
+
+      // 跨币种可比性：等值锚 100 AED ↔ 30 USDT（med 线）与 10,000 AED ↔ 3,000
+      // USDT（high 线）——同一量级下两币种落同档，单一阈值跨币种硬套已不再成立。
+      expect(computeSeverity('AED', 10_000n)).toBe('MEDIUM');
+      expect(computeSeverity('USDT', 30_000_000n)).toBe('MEDIUM');
+      expect(computeSeverity('AED', 1_000_000n)).toBe('HIGH');
+      expect(computeSeverity('USDT', 3_000_000_000n)).toBe('HIGH');
+
+      // 未注册币种 fail-fast，不静默兜底。
+      expect(() => computeSeverity('BTC', 1n)).toThrow(/Severity lines not registered/);
 
       // And one round-trip through the upsert path to prove severity lands
       // on the persisted Case row.
       const harness = makeRunHarness();
       const cutoff = new Date('2026-06-26T23:59:59Z');
-      const { svc } = harness.drive({ cutoff, breakingWallet: { walletRef: 'w-sev-1', assetCode: 'USDT', delta: 15_000n } });
+      const { svc } = harness.drive({ cutoff, breakingWallet: { walletRef: 'w-sev-1', assetCode: 'AED', delta: 1_500_000n } });
       await svc.run({ cutoff });
       const c: any = Array.from(harness.getStore().values())[0];
       expect(c.severity).toBe('HIGH');
