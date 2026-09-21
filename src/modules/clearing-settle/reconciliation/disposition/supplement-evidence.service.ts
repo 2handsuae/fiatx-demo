@@ -4,6 +4,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../core/prisma/prisma.service';
+import { toBusinessDate } from '../../../accounting/tigerbeetle/utils/business-date.util';
 
 type SupplementKind = 'SUPPLEMENT_DEPOSIT' | 'SUPPLEMENT_BOUNCE' | 'SUPPLEMENT_PAYOUT_RETURN';
 
@@ -122,7 +123,7 @@ export class SupplementEvidenceService {
     });
     return {
       externalLineId, externalRef: line.externalRef ?? null, channelRef: line.channelRef ?? null,
-      businessDate: li?.case?.businessDate ?? line.datetime.toISOString().slice(0, 10),
+      businessDate: li?.case?.businessDate ?? toBusinessDate(line.datetime),
       caseNo: li?.case?.caseNo ?? null, amountMinor: line.amount.toString(), direction: line.direction as 'IN' | 'OUT',
     };
   }

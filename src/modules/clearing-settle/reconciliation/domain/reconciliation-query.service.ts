@@ -4,6 +4,7 @@ import { PrismaService } from '../../../../core/prisma/prisma.service';
 import { AccountingService } from '../../../accounting/tigerbeetle/accounting.service';
 import { resolveWalletNo } from './wallet-no.util';
 import { decimalsMapOf } from './asset-decimals.util';
+import { endOfBusinessDate, startOfBusinessDate } from '../../../accounting/tigerbeetle/utils/business-date.util';
 // 波三 T6：flowComparison 的四段查询/匹配全部搬进 FlowComparisonBuilder——本文件
 // 只留 getCase 的编排调用，不再直接依赖 WalletFlowMatcherService / ExplainedDifferenceService。
 import { FlowComparisonBuilder } from './flow-comparison.builder';
@@ -525,11 +526,11 @@ export class ReconciliationQueryService {
     lastObservedRun: { businessDate: string; cutoffAt: Date | null } | null,
   ): { cutoffBusinessDate: string; cutoff: Date } {
     // 平账 A 批（spec §6.1）：截止 = 最近一次观察它的那轮跑批**实际用的截止时刻**，
-    // 不再是当天 23:59:59——跑批用精确时刻（演示传的 cutoff / 手动触发的 ISO），
+    // 不再是业务日日终（迪拜口径）——跑批用精确时刻（演示传的 cutoff / 手动触发的 ISO），
     // 页面按日终重建会把「截止点后 6 小时」的跨日切外部行落回窗内，孤儿消失、无行可处置。
     // 历史 run 没记 cutoffAt 时回落日终（改动前的行为）。
     const cutoffBusinessDate = lastObservedRun?.businessDate ?? kase.businessDate;
-    const cutoff: Date = lastObservedRun?.cutoffAt ?? new Date(`${cutoffBusinessDate}T23:59:59.999Z`);
+    const cutoff: Date = lastObservedRun?.cutoffAt ?? endOfBusinessDate(cutoffBusinessDate);
     return { cutoffBusinessDate, cutoff };
   }
 
@@ -1006,8 +1007,8 @@ export class ReconciliationQueryService {
     });
     if (!balance) throw new NotFoundException(`no external balance for ${walletNo} on ${cutoffDate}`);
 
-    const dayLo = new Date(`${cutoffDate}T00:00:00.000Z`);
-    const dayHi = new Date(`${cutoffDate}T23:59:59.999Z`);
+    const dayLo = startOfBusinessDate(cutoffDate);
+    const dayHi = endOfBusinessDate(cutoffDate);
     const lines = await this.prisma.externalStatementLine.findMany({
       where: {
         source: balance.source,

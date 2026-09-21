@@ -12,6 +12,7 @@ import {
 import { FundsOrderService } from '../../../funds-orders/funds-order.service';
 import { FundsOrderAction, FundsOrderStatus } from '../../../funds-orders/dto/funds-order.dto';
 import { ReceiptLookupService, PushableOrderView } from './receipt-lookup.service';
+import { toBusinessDate } from '../../../accounting/tigerbeetle/utils/business-date.util';
 
 // A3(2026-08-13):推单只把资金单推到 CONFIRMED 就停手，**不再自己 CLEAR**。
 // 原因:CLEAR 是 workflow 记完账之后的产物,不是一个可以外部驱动的推进动作。推单一口气
@@ -201,9 +202,9 @@ export class PushOrderService {
 
   private assertValidExternalDate(d: string, orderCreatedAt: Date) {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) throw new BadRequestException('External value date must be in YYYY-MM-DD format');
-    const today = new Date().toISOString().slice(0, 10);
+    const today = toBusinessDate(new Date());
     if (d > today) throw new BadRequestException('External value date cannot be in the future');
-    if (d < orderCreatedAt.toISOString().slice(0, 10)) {
+    if (d < toBusinessDate(orderCreatedAt)) {
       throw new BadRequestException('External value date cannot be earlier than the order creation date');
     }
   }

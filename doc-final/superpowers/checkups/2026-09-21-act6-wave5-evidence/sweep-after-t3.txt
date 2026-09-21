@@ -1,0 +1,33 @@
+同款清点复扫（Task 3 Step 6）——query 回落/日窗 + 推单「今天」 + 补单兜底 改完后重跑
+=====================================================================
+
+命令 1（spec §1.2）：
+export PATH="$(ls -d $HOME/.nvm/versions/node/v20* | tail -1)/bin:$PATH" && \
+cd /Users/songshengwei/Documents/Project/fiatx.com/.claude/worktrees/act6_wave5 && \
+grep -rn "toISOString().slice(0, *10)" src/ --include="*.ts" | grep -v ".spec.ts"
+
+输出：
+src/common/utils/fake-external-refs.util.ts:23:  const ymd = (typeof date === 'string' ? date : date.toISOString().slice(0, 10)).replace(/-/g, '');
+src/modules/accounting/tigerbeetle/utils/business-date.util.ts:8:  return new Date(at.getTime() + DUBAI_UTC_OFFSET_MS).toISOString().slice(0, 10);
+src/modules/clearing-settle/reconciliation/sweep/reconciliation-sweep.service.ts:32:        `Recon ${cutoff.toISOString().slice(0, 10)}: runId=${res.runId} status=${res.status} wallets=${res.walletsChecked} opened=${res.casesOpened} reObserved=${res.casesReObserved} autoHealed=${res.casesAutoHealed}`,
+src/modules/clearing-settle/reconciliation/sweep/reconciliation-sweep.service.ts:36:        `Recon ${cutoff.toISOString().slice(0, 10)} failed`,
+
+命令 2（spec §1.2）：
+grep -rn "23:59:59" src/ admin-web/src --include="*.ts" --include="*.tsx" | grep -v spec
+
+输出：
+src/modules/accounting/tigerbeetle/utils/business-date.util.ts:4:// 全仓表达业务日边界只许经本文件，不许手拼 T23:59:59.999Z / T00:00:00Z。
+admin-web/src/utils/reconRunTrigger.ts:34:        body: JSON.stringify({ cutoff: `${businessDate}T23:59:59.999Z` }),
+
+判读（对照 brief「判不改」清单，逐条核对）：
+- business-date.util.ts:8（命令1）——Task 1 已立的唯一真源 toBusinessDate 自身实现，不是「待迁移位点」，是位点应该收敛到的目的地。
+- business-date.util.ts:4（命令2）——同一文件顶部的守则注释，文字里提到被禁用的字面量模式（用来警示别的位置别再手拼），不是实际调用点。
+- fake-external-refs.util.ts:23（命令1）——假外部单号生成，brief 预判「判不改」，本任务未动。
+- reconciliation-sweep.service.ts:32/36（命令1）——sweep 完成日志字符串，brief 预判「判不改」，本任务未动。
+- admin-web/reconRunTrigger.ts:34（命令2）——Task 4 范围（管理台跑批触发），本任务不越界改。
+- AdjustmentListPage 过滤边界——brief 预判「判不改」；未出现在本次两条命令的命中里（其边界写法不是这两种字面模式），与 brief 预判一致，非漏改。
+
+结论：本任务四个改动位点（query 回落 :532、query 日窗 :1009-1010、push-order
+assertValidExternalDate、supplement-evidence :125 兜底）改完后，src/ 内业务日
+判定位点的两条复现命令命中，全部落在 brief 预先圈定的「判不改」清单（假单号 +
+sweep 日志 + util 自身 + util 顶部守则注释）内，未发现新的遗漏位点。

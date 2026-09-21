@@ -74,8 +74,8 @@ describe('getExternalBalanceByWallet — statement lines scoped to the balance b
           accountRef: 'C_CMA-AED-0001',
           currency: 'AED',
           datetime: {
-            gte: new Date('2026-06-22T00:00:00.000Z'),
-            lte: new Date('2026-06-22T23:59:59.999Z'),
+            gte: new Date('2026-06-21T20:00:00.000Z'),
+            lte: new Date('2026-06-22T19:59:59.999Z'),
           },
         }),
       }),
@@ -1654,7 +1654,7 @@ describe('平账 A 批：案件页按跑批截止时刻重建差异行（spec §
     const prisma: any = prismaForCase(null);
     await mkSvc(prisma).getCase('REC20260902-007');
     expect(prisma.externalStatementLine.findMany).toHaveBeenCalledWith(expect.objectContaining({
-      where: expect.objectContaining({ datetime: { lte: new Date('2026-09-02T23:59:59.999Z') } }),
+      where: expect.objectContaining({ datetime: { lte: new Date('2026-09-02T19:59:59.999Z') } }),
     }));
   });
 });
