@@ -302,16 +302,22 @@ const ReconciliationRunsDetailPage = () => {
               <div className="mt-3 rounded-md border border-adm-border bg-adm-bg px-4 py-3 font-mono text-[13px] text-adm-t2">
                 Legacy run — no snapshot data (pre-Round3)
               </div>
+            ) : run.invariantStatus === 'FAIL' ? (
+              // 波五 T6：INTERNAL_BREAK — 恒等预门本身破裂，per-wallet 检查整体没跑，
+              // 不能落到下面 matchedCount===walletCount 的判断（两者都是 0，会误判成 PASS）。
+              <div className="mt-3 rounded-md border border-adm-red/30 bg-adm-red/10 px-4 py-3 text-[14px] font-semibold text-adm-red">
+                INTERNAL BREAK — internal ledger identity failed; per-wallet reconciliation did not run
+              </div>
             ) : (
               <div
                 className={[
                   'mt-3 rounded-md border px-4 py-3 text-[14px] font-semibold',
-                  run.invariantStatus === 'PASS'
+                  summary.matchedCount === summary.walletCount
                     ? 'border-adm-green/30 bg-adm-green/10 text-adm-green'
                     : 'border-adm-red/30 bg-adm-red/10 text-adm-red',
                 ].join(' ')}
               >
-                {run.invariantStatus === 'PASS'
+                {summary.matchedCount === summary.walletCount
                   ? `PASS — ${summary.walletCount} wallets checked: all matched`
                   : `BREAK — ${summary.walletCount} wallets checked: ${summary.matchedCount} matched, ${summary.inTransitCount} in transit, ${needsAttention} need attention`}
               </div>
@@ -319,69 +325,73 @@ const ReconciliationRunsDetailPage = () => {
           </div>
 
           {/* 2. Health Check — five bucket cards. Click to filter the table below
-              (local filter, no refetch). Total card clears the filter. */}
-          <DetailCard title="Health Check" columns={1}>
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-5">
-              {/* Total — clears filter */}
-              <button
-                type="button"
-                onClick={() => setBucketFilter(null)}
-                className={[
-                  'rounded-lg border p-4 text-left transition-colors',
-                  bucketFilter === null
-                    ? 'border-adm-t1 bg-adm-bg'
-                    : 'border-adm-border bg-adm-bg hover:border-adm-t3',
-                ].join(' ')}
-              >
-                <div className="font-mono text-[9px] uppercase tracking-wider text-adm-t3">
-                  Total Wallets
-                </div>
-                <div className="mt-1 text-[28px] font-bold leading-tight text-adm-t1">
-                  {summary.walletCount}
-                </div>
-              </button>
+              (local filter, no refetch). Total card clears the filter.
+              波五 T6：INTERNAL_BREAK 时钱包比对整体没跑，五张卡全是 0——藏起来，
+              别让「0 wallets checked」看着像干净的 PASS。 */}
+          {run.invariantStatus !== 'FAIL' && (
+            <DetailCard title="Health Check" columns={1}>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-5">
+                {/* Total — clears filter */}
+                <button
+                  type="button"
+                  onClick={() => setBucketFilter(null)}
+                  className={[
+                    'rounded-lg border p-4 text-left transition-colors',
+                    bucketFilter === null
+                      ? 'border-adm-t1 bg-adm-bg'
+                      : 'border-adm-border bg-adm-bg hover:border-adm-t3',
+                  ].join(' ')}
+                >
+                  <div className="font-mono text-[9px] uppercase tracking-wider text-adm-t3">
+                    Total Wallets
+                  </div>
+                  <div className="mt-1 text-[28px] font-bold leading-tight text-adm-t1">
+                    {summary.walletCount}
+                  </div>
+                </button>
 
-              {(['MATCHED', 'IN_TRANSIT', 'COMPENSATING', 'BREAK'] as const).map((bucket) => {
-                const label = BUCKET_LABELS[bucket];
-                const tone = TONE_CLASSES[label.tone];
-                const count =
-                  bucket === 'MATCHED' ? summary.matchedCount :
-                  bucket === 'IN_TRANSIT' ? summary.inTransitCount :
-                  bucket === 'COMPENSATING' ? summary.softFlagCount :
-                  summary.breakCount;
-                const active = bucketFilter === bucket;
-                const hasCount = count > 0;
-                const Icon = bucket === 'MATCHED' ? Check : bucket === 'IN_TRANSIT' ? Clock : AlertTriangle;
-                return (
-                  <button
-                    type="button"
-                    key={bucket}
-                    onClick={() => setBucketFilter(bucket)}
-                    className={[
-                      'rounded-lg border p-4 text-left transition-colors',
-                      active
-                        ? `${tone.border} ${tone.bg}`
-                        : hasCount
-                          ? `${tone.border} bg-adm-bg`
-                          : 'border-adm-border bg-adm-bg hover:border-adm-t3',
-                    ].join(' ')}
-                  >
-                    <div
-                      className={`flex items-center gap-1.5 font-mono text-[9px] uppercase tracking-wider ${hasCount ? tone.text : 'text-adm-t3'}`}
+                {(['MATCHED', 'IN_TRANSIT', 'COMPENSATING', 'BREAK'] as const).map((bucket) => {
+                  const label = BUCKET_LABELS[bucket];
+                  const tone = TONE_CLASSES[label.tone];
+                  const count =
+                    bucket === 'MATCHED' ? summary.matchedCount :
+                    bucket === 'IN_TRANSIT' ? summary.inTransitCount :
+                    bucket === 'COMPENSATING' ? summary.softFlagCount :
+                    summary.breakCount;
+                  const active = bucketFilter === bucket;
+                  const hasCount = count > 0;
+                  const Icon = bucket === 'MATCHED' ? Check : bucket === 'IN_TRANSIT' ? Clock : AlertTriangle;
+                  return (
+                    <button
+                      type="button"
+                      key={bucket}
+                      onClick={() => setBucketFilter(bucket)}
+                      className={[
+                        'rounded-lg border p-4 text-left transition-colors',
+                        active
+                          ? `${tone.border} ${tone.bg}`
+                          : hasCount
+                            ? `${tone.border} bg-adm-bg`
+                            : 'border-adm-border bg-adm-bg hover:border-adm-t3',
+                      ].join(' ')}
                     >
-                      <Icon size={11} />
-                      {label.en}
-                    </div>
-                    <div
-                      className={`mt-1 text-[28px] font-bold leading-tight ${hasCount ? tone.text : 'text-adm-t1'}`}
-                    >
-                      {count}
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
-          </DetailCard>
+                      <div
+                        className={`flex items-center gap-1.5 font-mono text-[9px] uppercase tracking-wider ${hasCount ? tone.text : 'text-adm-t3'}`}
+                      >
+                        <Icon size={11} />
+                        {label.en}
+                      </div>
+                      <div
+                        className={`mt-1 text-[28px] font-bold leading-tight ${hasCount ? tone.text : 'text-adm-t1'}`}
+                      >
+                        {count}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            </DetailCard>
+          )}
 
           {/* 3. Case Flow — opened / re-observed / closed this run, compressed to
               one slim strip: three inline numbers + a right-aligned link to the
@@ -423,7 +433,17 @@ const ReconciliationRunsDetailPage = () => {
 
           {/* 4. Account Status snapshot table — filter state now lives in the
               card title (no separate utilities row); "view all cases" only
-              lives in the Case Flow strip above, not duplicated here. */}
+              lives in the Case Flow strip above, not duplicated here.
+              波五 T6：INTERNAL_BREAK 时这张表本就是空的（per-wallet 检查没跑）——
+              空表比没有表更危险，看着像"查过、都对"。原位换成一块说明文案。 */}
+          {run.invariantStatus === 'FAIL' ? (
+            <DetailCard title="Wallet Comparison" columns={1}>
+              <div className="rounded-md border border-adm-border bg-adm-bg px-4 py-3 font-mono text-[13px] text-adm-t2">
+                Wallet comparison was skipped: the internal ledger identity pre-gate failed for this run.
+                Fix the ledger imbalance and trigger a fresh run — per-wallet results would be meaningless here.
+              </div>
+            </DetailCard>
+          ) : (
           <DetailCard
             title={`Account Status · ${bucketFilter ? `Filtered: ${BUCKET_LABELS[bucketFilter].en}` : `All buckets (${accountTable.length})`}`}
             columns={1}
@@ -595,6 +615,7 @@ const ReconciliationRunsDetailPage = () => {
               </div>
             )}
           </DetailCard>
+          )}
 
         </div>
 

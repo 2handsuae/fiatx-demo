@@ -127,7 +127,13 @@ export class ReconciliationQueryService {
       caseNo: string | null;
     }>;
 
-    const legacy = runWallets.length === 0;
+    // 波五 T6：光靠「零快照行」判不了 legacy——INTERNAL_BREAK 的 run 同样零快照
+    // 行（per-wallet 检查整体没跑，按设计从不写 reconciliation_run_wallets），
+    // 不是 pre-Round3 老格式缺数据。T6 写入语义已把 invariantStatus==='FAIL'
+    // 钉死为「只有 INTERNAL_BREAK 才是这个值」，用它把两种成因分开：真
+    // INTERNAL_BREAK 不算 legacy，让前端红横幅 + 说明块正常显示，不被灰色
+    // 「Legacy run — no snapshot data」盖住。
+    const legacy = runWallets.length === 0 && run.invariantStatus !== 'FAIL';
 
     // walletRef → walletNo/walletRole join (mirrors the pattern used by
     // listExternalBalances / listCases); XREF synthetic refs never resolve.

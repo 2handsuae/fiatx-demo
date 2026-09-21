@@ -605,7 +605,11 @@ export class WalletReconRunService {
       where: { id: runId },
       data: {
         status: 'COMPLETED',
-        invariantStatus: data.status === 'PASS' ? 'PASS' : 'FAIL',
+        // 波五 T6：invariantStatus 只反映内部恒等预门（computeInternalIdentity）
+        // 破没破——普通 BREAK（每钱包比对跑过、发现破口）不是预门破裂，仍写
+        // 'PASS'；只有 INTERNAL_BREAK（预门破裂、per-wallet 检查整体跳过）才
+        // 写 'FAIL'，前端靠这个字段判断要不要拉红横幅、藏五卡与钱包表。
+        invariantStatus: data.status === 'INTERNAL_BREAK' ? 'FAIL' : 'PASS',
         openedCount: data.casesOpened,
         reObservedCount: data.casesReObserved,
         closedCount: data.casesAutoHealed,

@@ -172,6 +172,12 @@ describe('WalletReconRunService', () => {
     expect(result.walletsChecked).toBe(0);
     expect(deps.balanceChecker.checkBalance).not.toHaveBeenCalled();
     expect(deps.flowMatcher.matchFlows).not.toHaveBeenCalled();
+    // 波五 T6：写入语义——只有 INTERNAL_BREAK（恒等预门破裂）才写 invariantStatus:'FAIL'，
+    // 前端靠这个字段判断要不要藏五卡/钱包表、拉红横幅。
+    const updateCall = (deps.prisma.reconciliationRun.update as jest.Mock).mock.calls.find(
+      ([arg]: any) => arg.data.status === 'COMPLETED',
+    );
+    expect(updateCall[0].data.invariantStatus).toBe('FAIL');
   });
 
   it('one wallet balance mismatch → 1 case opened, status=BREAK', async () => {
@@ -215,6 +221,12 @@ describe('WalletReconRunService', () => {
         }),
       }),
     );
+    // 波五 T6：普通 BREAK（每钱包比对跑过、发现破口）不是恒等预门破裂——
+    // invariantStatus 仍写 'PASS'，与 status:'BREAK' 是两条独立的轴。
+    const updateCall = (deps.prisma.reconciliationRun.update as jest.Mock).mock.calls.find(
+      ([arg]: any) => arg.data.status === 'COMPLETED',
+    );
+    expect(updateCall[0].data.invariantStatus).toBe('PASS');
   });
 
   it('wallet has flow orphan_internal → case opened with line items', async () => {

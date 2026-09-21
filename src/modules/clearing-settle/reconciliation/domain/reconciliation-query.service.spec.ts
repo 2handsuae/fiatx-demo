@@ -737,6 +737,26 @@ describe('getRun — reads reconciliationRunWallet snapshot rows (T6)', () => {
     expect(result.legacy).toBe(true);
     expect(result.accountStatusTable).toEqual([]);
   });
+
+  // 波五 T6（实拍取证时发现的连带缺陷）：INTERNAL_BREAK 的 run 同样零快照行
+  // （per-wallet 检查整体没跑，reconciliationRunWallet 从没写过）——单靠「零快照
+  // 行」判 legacy 会把它跟「pre-Round3 老格式 run」混为一谈，落到前端渲染灰色
+  // 「Legacy run — no snapshot data」，把 T6 刚做的红色 INTERNAL BREAK 横幅 +
+  // 说明块整个盖住，等于新装了一层「看着干净」。用 invariantStatus==='FAIL'
+  // （T6 写入语义已保证只有 INTERNAL_BREAK 才是这个值）把两种「零快照行」的成因
+  // 分开：真 INTERNAL_BREAK 不算 legacy。
+  it('getRun：INTERNAL_BREAK run（零快照行 + invariantStatus=FAIL）不算 legacy——不能被灰色「旧 run」文案盖住红横幅', async () => {
+    const internalBreakRun = { ...run, runNo: 'RUN-IB-1', id: 'run-ib-1', invariantStatus: 'FAIL', walletCount: 0, matchedCount: 0 };
+    const prisma: any = {
+      reconciliationRun: { findUnique: jest.fn().mockResolvedValue(internalBreakRun) },
+      reconciliationCase: { findMany: jest.fn().mockResolvedValue([]) },
+      reconciliationRunWallet: { findMany: jest.fn().mockResolvedValue([]) },
+    };
+    const svc = mkSvc(prisma);
+    const result: any = await svc.getRun('RUN-IB-1');
+    expect(result.legacy).toBe(false);
+    expect(result.accountStatusTable).toEqual([]);
+  });
 });
 
 describe('getCase — explain / observation / bucket (T6)', () => {
