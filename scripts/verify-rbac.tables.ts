@@ -36,7 +36,7 @@ export const DETAIL_READ_GROUP_BY_POLICY: Record<string, string> = {
   ADMIN_ROLE_BINDING_CHANGE_APPROVAL: 'IAM_ROLE_READ', // → /admin/iam/role-change-requests/:id，读端点挂 IAM_ROLE_READ
   RECON_ADJUSTMENT_POST: 'RECON_CASE_READ', // → /admin/reconciliation/adjustments/:id，读端点挂 RECON_CASE_READ
   // 平账二期（2026-09-05）：内部划转单（entityRef = transferNo）
-  INTERNAL_TRANSFER_APPROVAL: 'INTERNAL_TRANSFER_READ', // → /admin/treasury/internal-transfers/:transferNo
+  INTERNAL_TRANSFER_APPROVAL: 'INTERNAL_TRANSFER_READ', // → /admin/custody/internal-transfers/:transferNo
   // 平账三期（2026-09-06）：事故登记结案，两个动作类型都指向事故详情路由（entityRef = incidentNo）
   INCIDENT_CLOSE_SECURITY: 'INCIDENT_READ', // → /admin/governance/incidents/:incidentNo
   INCIDENT_CLOSE_FINANCIAL: 'INCIDENT_READ', // → /admin/governance/incidents/:incidentNo

@@ -17,7 +17,7 @@ Test Suites: 29 passed, 29 total
 Tests:       572 passed, 572 total
 Time:        7.359 s
 EXIT=0
-（波前基线 29 suites / 567 tests，本轮 572 = 567 + T5 新增 2 + T7 新增 2 + T1 新增 1；只增不减，满足总纲 §3 波五行判据）
+（波前基线 29 suites / 567 tests，本轮 572 = 567 →(T5 新增 2)→ 569 →(T6 新增 1，reconciliation-query.service.spec 新增 legacy-INTERNAL_BREAK 用例)→ 570 →(T7 新增 2)→ 572；只增不减，满足总纲 §3 波五行判据。订正：此前误记最后 +1 为「T1 新增」——business-date.util.spec 在 accounting 域、不在三域 jest 路径内，不可能计入这条统计，实为 T6 的贡献，见本轮终审修复 addendum）
 
 ════════ §2 重铺闸 ════════
 

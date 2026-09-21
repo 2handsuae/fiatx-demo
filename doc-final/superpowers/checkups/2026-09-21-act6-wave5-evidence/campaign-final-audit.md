@@ -63,6 +63,8 @@ grep -rn "(this.prisma as any)" src/modules/clearing-settle src/modules/governan
 
 **结论：通过。**
 
+**Addendum（波五终审修复后追记）**：终审复扫（whole-branch review）在「9 位点」之外逮回第 10 位点——`reconciliation-sweep.service.ts:17-24` 的 `cutoffForYesterday()` 手拼 `d.setUTCHours(23, 59, 59, 999)`（Date-mutator 形态），逃逸了本判据 T9 的两条字面 grep。已在终审修复 commit 中改走 `toBusinessDate`/`endOfBusinessDate`，新增 RED/GREEN 聚焦用例 `reconciliation-sweep.service.spec.ts`。复现命令终态：`grep -rn "setUTCHours" src/ --include="*.ts" | grep -v spec` → 0 命中。本判据"通过"结论不变，第 10 位点已随本次修复补齐。
+
 ## ⑥ 文档与代码对得上：体检点名的 5 处数字腐烂清零，`modules/v8-recon.md` 与代码逐数复核
 
 判据原文：「体检点名的 5 处数字腐烂清零，`modules/v8-recon.md` 与代码逐数复核」

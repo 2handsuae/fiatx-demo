@@ -88,6 +88,7 @@
 12. **T10 复核清单 minor 偏差**：#24 记「五桶残留注释 3 文件」实为 4 文件（`wallet-recon-run.service.ts:382,601` 漏计）——残留注释本身超出 T10 brief 改动范围，未强改，终审 triage 后留档。
 13. **T10 minor 偏差**：`v8-recon.md`「第 8 码 CUSTOMER_REATTRIBUTION」序数与声明顺序不符——「第8码」或指历史新增序而非声明序，待业主释义，正文未加行内旗标（不影响判据，纯文档表述存疑）。
 14. **本任务（T11）自身偏差**：`demo/baseline.md` 💡 注记的严重度分布（T5/T10 取数轮：AED 1/4/1、USDT 5/1/0）与本任务重铺后实测（AED 2/4/1、USDT 4/1/0）存在一案跨币种边界偏移（总案数一致均为 12，`recon:demo:break` 自身硬判据 18/18+12/12+casesOpened 12/12 不受影响）——已在 `gates-final.txt` §3 如实记录，未回改 `demo/baseline.md`（该数字为参考性 💡 注记，非自动化断言判据）。
+15. **波五终审逮回的第 10 位点**：`reconciliation-sweep.service.ts:17-24` 的 `cutoffForYesterday()` 手拼 `d.setUTCHours(23, 59, 59, 999)`（Date-mutator 形态），T9 的两条字面 grep（`treasury/` 前缀 + 迪拜口径关键字）均未覆盖此形态，T10 文档收口也未捕获——本波内部评审链条漏检，由波五终审（whole-branch review）逮回。修复见本 commit：改走 `toBusinessDate`/`endOfBusinessDate`，新增聚焦 RED/GREEN 用例 `reconciliation-sweep.service.spec.ts`，`grep -rn "setUTCHours" src/ --include="*.ts" | grep -v spec` 终态 0。
 
 ## 三、对照 `rules/delivery-checklist.md` 逐触发条件核
 

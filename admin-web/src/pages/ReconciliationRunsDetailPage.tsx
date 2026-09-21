@@ -1,9 +1,9 @@
 // admin-web/src/pages/ReconciliationRunsDetailPage.tsx
 //
 // Round3 cockpit — Run detail. Layout 甲 (confirmed in brainstorm): verdict
-// banner → five-bucket Health Check → Case Flow triple → snapshot detail table.
+// banner → four-bucket Health Check → Case Flow triple → snapshot detail table.
 //
-// Five-bucket classification (T4 bucket-classifier; replaces the old
+// Four-bucket classification (T4 bucket-classifier; replaces the old
 // MATCH/FLOW_REVIEW/BREAK three-tier status):
 //   • MATCHED    — balance OK AND flows OK                        (green)
 //   • IN_TRANSIT — delta fully explained by non-terminal funds_order (blue)
@@ -13,7 +13,7 @@
 // Layout (top → bottom):
 //   1. Nav header (back + refresh)
 //   2. Verdict banner
-//   3. Health Check — five bucket cards (click to filter the table below)
+//   3. Health Check — four bucket cards (click to filter the table below)
 //   4. Case Flow — opened / re-observed / closed this run (click → cases list)
 //   5. Account Status snapshot table — one row per wallet; click any non-MATCHED row to its case
 //   6. Sidebar (identity + lifecycle)
@@ -118,7 +118,7 @@ const TRIGGER_LABELS: Record<string, string> = {
 const fmtTrigger = (t: string) => TRIGGER_LABELS[t] || t;
 const fmtTime = (v: string | null) => (v ? new Date(v).toLocaleString() : null);
 
-// Status badge for the AccountStatusRow.bucket enum (Round3 five-bucket
+// Status badge for the AccountStatusRow.bucket enum (Round3 four-bucket
 // classification). Labels sourced from BUCKET_LABELS (single source of truth).
 const StatusBadge = ({ value }: { value: ReconBucket }) => {
   const label = BUCKET_LABELS[value];
@@ -324,7 +324,7 @@ const ReconciliationRunsDetailPage = () => {
             )}
           </div>
 
-          {/* 2. Health Check — five bucket cards. Click to filter the table below
+          {/* 2. Health Check — four bucket cards. Click to filter the table below
               (local filter, no refetch). Total card clears the filter.
               波五 T6：INTERNAL_BREAK 时钱包比对整体没跑，五张卡全是 0——藏起来，
               别让「0 wallets checked」看着像干净的 PASS。 */}

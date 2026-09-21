@@ -379,7 +379,7 @@ export class WalletReconRunService {
     const orphanExternal = matcherResult.orphanExternal.length;
     const mismatch = matcherResult.mismatch.length;
 
-    // Round3: five-bucket classification — replaces the old binary
+    // Round3: four-bucket classification — replaces the old binary
     // (balance-pass && no-flow-break) gate. In-transit flows explain part
     // of the delta before we decide whether the residual is a real break.
     const inTransitSigned = matcherResult.inTransit.reduce(
@@ -598,7 +598,7 @@ export class WalletReconRunService {
     // T2: populate ReconciliationRun summary counters so the UI cockpit can
     // render meaningful totals (the old single-counter `openedCount` lumped
     // create+update together; here we split them and surface auto-heal).
-    // Round3: also persist the five-bucket wallet counts (walletCount/
+    // Round3: also persist the four-bucket wallet counts (walletCount/
     // matchedCount/inTransitCount/softFlagCount/breakCount) — the run-detail
     // page (T6) reads these instead of recomputing from line items.
     await this.prisma.reconciliationRun.update({
