@@ -20,6 +20,7 @@ import {
   causesFor,
   dispositionsFor,
   resolveWriteOff,
+  resolveAdjustmentPrefill,
 } from '../disposition/cause-registry';
 import { REASON_SPECS, ReasonCode } from '../disposition/adjustment-rules';
 import { isSmallAmount } from '../disposition/recon-thresholds.constant';
@@ -503,6 +504,9 @@ export class ReconciliationQueryService {
       linkedRunNo: linkedRunRow?.runNo ?? null,
       decimals: assetRow?.decimals ?? 0,
       bucket: kase.bucket ?? null,
+      // 波四：CLIENT|FIRM 归一化下发——与 adjustment.service.ts createDraft 同一句
+      // 归一化（ctx.caseBook 即它），前端不再本地镜像（镜像不一致 = 表单选得进去提交 400）。
+      adjustmentBook: ctx.caseBook,
       flowComparison,
       flowSummary,
       explain,
@@ -698,6 +702,14 @@ export class ReconciliationQueryService {
           .filter((c) => CAUSE_REGISTRY[c.code].requiredDirection === rowFacts.externalDirection)
         : causesFor(kind, rowFacts.matchType, rowFacts.book),
     }));
+    // 波四：开单预填随行下发——与上面 dispositions 同一份 rowFacts，金额三选一交给
+    // resolveAdjustmentPrefill（与核销 nextStep 同源公式）；页面与弹窗自此不再各算一遍。
+    r.adjustmentPrefill = resolveAdjustmentPrefill({
+      ...rowFacts,
+      internalAmount: r.internalFlow?.amount,
+      externalAmount: r.externalLine?.amount,
+      deltaAmount: r.deltaAmount,
+    });
     // ⚡ 差异行级推荐（本任务）：按行的匹配键（externalLine.externalRef ??
     // internalFlow.externalRef，旧 WIP 同款）反查种子成因，取该成因 usableIn[0]
     // 的处置种类作为推荐。MISATTRIBUTED_FROM/TO 同一 rootCause 铺两侧（发出端

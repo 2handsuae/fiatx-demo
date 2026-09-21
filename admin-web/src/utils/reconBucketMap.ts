@@ -17,3 +17,13 @@ export const BUCKET_LABELS: Record<ReconBucket, { en: string; tone: 'green' | 'b
 export function formatBucket(bucket: ReconBucket): string {
   return BUCKET_LABELS[bucket].en;
 }
+
+// adm-* tone tokens for the four bucket tones (BUCKET_LABELS[].tone), shared
+// by the Health Check cards and the table's status badge — single mapping so
+// card colour and badge colour never drift apart.
+export const TONE_CLASSES: Record<'green' | 'blue' | 'amber' | 'red', { border: string; bg: string; text: string }> = {
+  green: { border: 'border-adm-green/30', bg: 'bg-adm-green/10', text: 'text-adm-green' },
+  blue:  { border: 'border-adm-blue/30',  bg: 'bg-adm-blue/10',  text: 'text-adm-blue' },
+  amber: { border: 'border-adm-amber/30', bg: 'bg-adm-amber/10', text: 'text-adm-amber' },
+  red:   { border: 'border-adm-red/30',   bg: 'bg-adm-red/10',   text: 'text-adm-red' },
+};

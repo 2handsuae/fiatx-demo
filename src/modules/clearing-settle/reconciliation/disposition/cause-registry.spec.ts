@@ -1,4 +1,4 @@
-import { CAUSE_REGISTRY, CauseCode, resolveWriteOff } from './cause-registry';
+import { CAUSE_REGISTRY, CauseCode, resolveWriteOff, resolveAdjustmentPrefill } from './cause-registry';
 import { dispositionsFor, causesFor, outletOf } from './cause-registry';
 
 describe('cause-registry —— six-cell cause menu (spec §4, registry is the single source of truth)', () => {
@@ -171,5 +171,24 @@ describe('dispositionsFor — AMOUNT_MISMATCH×FIRM 硬边界（波三，spec §
     const kinds = dispositionsFor({ matchType: 'AMOUNT_MISMATCH', book: 'FIRM', internalSourceType: 'SWAP' });
     expect(kinds).toContain('RECORD');
     expect(kinds).not.toContain('REVERSE');
+  });
+});
+
+describe('resolveAdjustmentPrefill（波四：开单预填单一来源）', () => {
+  it('AMOUNT_MISMATCH 出账翻符号：内部 OUT、原始差 +10 → REDUCE（BACKLOG:176 组合首次入网）', () => {
+    expect(resolveAdjustmentPrefill({ matchType: 'AMOUNT_MISMATCH', book: 'CLIENT', deltaSign: 1, internalDirection: 'OUT', deltaAmount: '10' }))
+      .toEqual({ amountMinor: '10', direction: 'REDUCE', reattributionSide: 'TO' });
+  });
+  it('AMOUNT_MISMATCH 入账不翻：内部 IN、原始差 -10 → REDUCE、金额取绝对值', () => {
+    expect(resolveAdjustmentPrefill({ matchType: 'AMOUNT_MISMATCH', book: 'FIRM', deltaSign: -1, internalDirection: 'IN', deltaAmount: '-10' }))
+      .toEqual({ amountMinor: '10', direction: 'REDUCE', reattributionSide: 'TO' });
+  });
+  it('ORPHAN_INTERNAL：内部 IN → REDUCE、side=FROM、金额取内部行', () => {
+    expect(resolveAdjustmentPrefill({ matchType: 'ORPHAN_INTERNAL', book: 'CLIENT', internalDirection: 'IN', internalAmount: '77' }))
+      .toEqual({ amountMinor: '77', direction: 'REDUCE', reattributionSide: 'FROM' });
+  });
+  it('ORPHAN_EXTERNAL：外部 IN → INCREASE、side=TO、金额取外部行', () => {
+    expect(resolveAdjustmentPrefill({ matchType: 'ORPHAN_EXTERNAL', book: 'CLIENT', externalDirection: 'IN', externalAmount: '55' }))
+      .toEqual({ amountMinor: '55', direction: 'INCREASE', reattributionSide: 'TO' });
   });
 });

@@ -1,57 +1,41 @@
-// admin-web/src/components/ReconciliationHoldModal.tsx
+// admin-web/src/components/reconciliation/DispositionFindingModal.tsx
 //
-// 平账处置改版（Task 7，样机 M8/M9）：挂起两弹窗，一个组件按 kind 切——
-// Hold · Next period（等下期，零账务，下期自愈）/ Hold · Investigating（调查中，
-// 零账务，启动 3 天账龄倒计时）。数据来源唯一真相在后端：causes 从
-// row.dispositions 里按 kind 取该格当下合法的成因清单（Task 5 读面），不前端镜像。
-// 提交 = POST /admin/reconciliation/cases/:caseNo/dispositions（Task 3 契约，
-// disposition 字段必填=本挂起的 kind）；挂起类出口不落任何分录。
+// 第六幕波四（Task 4）：从 ReconciliationCasesDetailPage.tsx 剪切粘贴外迁——
+// props interface 与上方注释块、函数组件整段。逐字搬运，注释随行；不改
+// JSX/className/文案。
 import { useEffect, useState } from 'react';
-import { adminButtonClass } from './common/adminButtonStyles';
-import { AdminSessionError, adminFetch, getApiErrorMessage } from '../utils/adminFetch';
-import { rowFacts } from '../utils/causeRegistry';
-import { useSimulationMode } from '../utils/simulationMode';
-import type { FlowComparisonRow } from '../utils/reconTypes';
+import { adminButtonClass } from '../common/adminButtonStyles';
+import { AdminSessionError, adminFetch, getApiErrorMessage } from '../../utils/adminFetch';
+import { rowFacts } from '../../utils/causeRegistry';
+import { useSimulationMode } from '../../utils/simulationMode';
+import type { FlowComparisonRow } from '../../utils/reconTypes';
+import type { DispositionRecordResult } from '../ReconciliationHoldModal';
 
-export type HoldKind = 'HOLD_NEXT_PERIOD' | 'HOLD_INVESTIGATING';
-
-// POST /dispositions 的实际返回形状（disposition.service.ts record()）——没有
-// family/reasonCode/direction：那三个字段现在只在「开调账单」那一步才定下来
-// （见 reconciliation-query.service.ts 读面注释），写端不再现算。
-export interface DispositionRecordResult {
-  dispositionNo: string;
-  outlet: string;
-  outletLabel: string;
-  deferredTarget?: string | null;
-}
-
-interface ReconciliationHoldModalProps {
+// Task 7（差异行按钮组）：CORRECT/REVERSE/RECORD/REATTRIBUTE/SUPPLEMENT/INCIDENT
+// 六个非挂起处置共用的「选成因 + 查证说明」小弹层——取代旧两屏处置弹层
+// （ReconciliationDispositionModal，已断线、读 row.menu 这个死字段，Task 13 已删文件）
+// 的第一屏，数据源换成 row.dispositions（Task 5 读面）。波四 T4 外迁成独立文件、
+// 具名导出：与 HOLD_NEXT_PERIOD/HOLD_INVESTIGATING 两个挂起 kind 用的
+// ReconciliationHoldModal 结构相近但提交后的下一步完全不同（挂起是终态，这六个
+// 都要接力到别处——调账弹层 / 补单弹层 / 事故登记），拆开两个组件比硬塞一个通用
+// kind 联合类型更不容易读错。
+interface DispositionFindingModalProps {
   open: boolean;
   caseNo: string;
   row: FlowComparisonRow | null;
-  kind: HoldKind;
+  kind: string;
+  label: string;
   onClose: () => void;
-  onDone: (result: DispositionRecordResult) => void;
+  onRecorded: (result: DispositionRecordResult, findingNote: string) => void;
 }
 
-const HOLD_TITLE: Record<HoldKind, string> = {
-  HOLD_NEXT_PERIOD: 'Hold · Next period',
-  HOLD_INVESTIGATING: 'Hold · Investigating',
-};
-
-// 样机 M8/M9 逐字静态提示行——零账务的后果说清楚，不能让人读成「已解决」。
-const HOLD_HINT: Record<HoldKind, string> = {
-  HOLD_NEXT_PERIOD: 'Zero accounting. The case stays red; next period’s statement heals it.',
-  HOLD_INVESTIGATING: 'Zero accounting. Starts the 3-day aging clock.',
-};
-
-const ReconciliationHoldModal = ({ open, caseNo, row, kind, onClose, onDone }: ReconciliationHoldModalProps) => {
+export const DispositionFindingModal = ({ open, caseNo, row, kind, label, onClose, onRecorded }: DispositionFindingModalProps) => {
   const [causeCode, setCauseCode] = useState('');
   const [otherReason, setOtherReason] = useState('');
   const [note, setNote] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
-  // ⚡ 演示推荐徽标只在模拟模式下显示——与案件页其它 ⚡ 件同一开关。
+  // ⚡ 演示推荐徽标只在模拟模式下显示——与本页其它 ⚡ 件同一开关。
   const { enabled: simEnabled } = useSimulationMode();
 
   const causes = row?.dispositions?.find((d) => d.kind === kind)?.causes ?? [];
@@ -91,13 +75,13 @@ const ReconciliationHoldModal = ({ open, caseNo, row, kind, onClose, onDone }: R
         },
       );
       if (!res.ok) {
-        throw new Error(await getApiErrorMessage(res, 'Failed to record hold.'));
+        throw new Error(await getApiErrorMessage(res, 'Failed to record finding.'));
       }
       const result = (await res.json()) as DispositionRecordResult;
-      onDone(result);
+      onRecorded(result, findingNote);
     } catch (e) {
       if (e instanceof AdminSessionError) throw e;
-      setError(e instanceof Error ? e.message : 'Failed to record hold.');
+      setError(e instanceof Error ? e.message : 'Failed to record finding.');
     } finally {
       setSubmitting(false);
     }
@@ -109,7 +93,7 @@ const ReconciliationHoldModal = ({ open, caseNo, row, kind, onClose, onDone }: R
         className="w-[520px] max-h-[80vh] overflow-y-auto rounded-lg border border-adm-border bg-adm-panel p-5"
         onClick={(e) => e.stopPropagation()}
       >
-        <h3 className="mb-1 text-sm font-semibold text-adm-t1">{HOLD_TITLE[kind]}</h3>
+        <h3 className="mb-1 text-sm font-semibold text-adm-t1">{label} · What caused this difference?</h3>
         <p className="mb-3 font-mono text-[11px] text-adm-t3">{caseNo}</p>
 
         <div className="space-y-1.5">
@@ -122,14 +106,14 @@ const ReconciliationHoldModal = ({ open, caseNo, row, kind, onClose, onDone }: R
             >
               <input
                 type="radio"
-                name="hold-cause"
+                name="finding-cause"
                 checked={causeCode === c.code}
                 onChange={() => setCauseCode(c.code)}
                 className="mt-0.5"
               />
               <span className="flex-1">
                 <span className="text-adm-t1">{c.label}</span>
-                {simEnabled && row.demoRecommended?.causeCode === c.code && (
+                {simEnabled && row?.demoRecommended?.causeCode === c.code && (
                   <span className="ml-2 rounded border border-adm-amber/30 bg-adm-amber/10 px-1.5 py-0.5 text-[10px] font-medium text-adm-amber">⚡ Recommended</span>
                 )}
                 <div className="mt-0.5 text-[11px] text-adm-t3">Clue: {c.clue}</div>
@@ -151,7 +135,7 @@ const ReconciliationHoldModal = ({ open, caseNo, row, kind, onClose, onDone }: R
         )}
 
         <div className="mt-3">
-          <label className="mb-1 block text-[11px] text-adm-t3">Investigation note (required)</label>
+          <label className="mb-1 block text-[11px] text-adm-t3">Finding note (required — describe what was checked and the basis for the conclusion)</label>
           <textarea
             value={note}
             onChange={(e) => setNote(e.target.value)}
@@ -159,10 +143,6 @@ const ReconciliationHoldModal = ({ open, caseNo, row, kind, onClose, onDone }: R
             className="w-full rounded border border-adm-border bg-adm-bg p-2 text-xs text-adm-t1"
           />
         </div>
-
-        <p className="mt-3 rounded border border-adm-amber/30 bg-adm-amber/10 p-2 text-[11px] text-adm-t2">
-          {HOLD_HINT[kind]}
-        </p>
 
         {error && <p className="mt-2 text-xs text-adm-red">{error}</p>}
 
@@ -176,12 +156,10 @@ const ReconciliationHoldModal = ({ open, caseNo, row, kind, onClose, onDone }: R
             disabled={!canSubmit || submitting}
             className={adminButtonClass('modalConfirm')}
           >
-            {submitting ? 'Recording…' : 'Record hold'}
+            {submitting ? 'Submitting…' : 'Continue'}
           </button>
         </div>
       </div>
     </div>
   );
 };
-
-export default ReconciliationHoldModal;

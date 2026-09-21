@@ -7,7 +7,7 @@
 //
 // English-only page (this wave converts new admin pages to English); reuses
 // REASON_LABEL is already English (translated by Task 9)
-// and formatAmount from their single sources rather than forking a third copy.
+// and formatAmount from utils/reconAmount (single source) rather than forking a third copy.
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { RefreshCw } from 'lucide-react';
@@ -16,7 +16,7 @@ import { PageTitleBar } from '../components/ui/PageTitleBar';
 import { StatusPill } from '../components/ui/StatusPill';
 import Pagination from '../components/common/Pagination';
 import { REASON_LABEL } from '../components/ReconciliationAdjustmentCreateModal';
-import { formatAmount } from './ReconciliationCasesDetailPage';
+import { formatAmount } from '../utils/reconAmount';
 
 /* ── Interfaces ──────────────────────────────────────────────── */
 // Mirrors AdjustmentListRow (adjustment.dto.ts) — business keys only, no UUIDs.

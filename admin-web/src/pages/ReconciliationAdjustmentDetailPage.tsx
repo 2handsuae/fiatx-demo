@@ -16,6 +16,7 @@ import {
 import { SidebarGroup, SidebarKV } from '../components/ui/SidebarPrimitives';
 import { StatusPill } from '../components/ui/StatusPill';
 import { REASON_LABEL } from '../components/ReconciliationAdjustmentCreateModal';
+import { formatAmount } from '../utils/reconAmount';
 import {
   AdminSessionError,
   adminFetch,
@@ -56,18 +57,6 @@ interface AdjustmentDetail {
 }
 
 /* ── Helpers ────────────────────────────────────────────────── */
-// 同款 分→元 展示缩放（与 ReconciliationCasesDetailPage 的 formatAmount 一致写法，
-// 两处各自本地一份——本仓库既有约定，跨页面共享格式化器不是本任务范围）。
-const formatAmount = (raw: string | null | undefined, decimals: number): string => {
-  const s = String(raw ?? '0');
-  let neg = false; let body = s;
-  if (body.startsWith('-')) { neg = true; body = body.slice(1); }
-  const padded = body.padStart(decimals + 1, '0');
-  const intPart = padded.slice(0, padded.length - decimals) || '0';
-  const fracPart = decimals > 0 ? padded.slice(padded.length - decimals) : '';
-  const intGrouped = intPart.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
-  return `${neg ? '-' : ''}${intGrouped}${fracPart ? `.${fracPart}` : ''}`;
-};
 
 const fmtTime = (v: string | null) => (v ? new Date(v).toLocaleString() : null);
 

@@ -26,7 +26,8 @@ import {
 } from '../components/compliance/DetailPageComponents';
 import { SidebarGroup, SidebarKV } from '../components/ui/SidebarPrimitives';
 import { StatusPill } from '../components/ui/StatusPill';
-import { BUCKET_LABELS, type ReconBucket } from '../utils/reconBucketMap';
+import { BUCKET_LABELS, TONE_CLASSES, type ReconBucket } from '../utils/reconBucketMap';
+import { formatAmount, isZeroAmount } from '../utils/reconAmount';
 import {
   AdminSessionError,
   adminFetch,
@@ -116,40 +117,6 @@ const TRIGGER_LABELS: Record<string, string> = {
 
 const fmtTrigger = (t: string) => TRIGGER_LABELS[t] || t;
 const fmtTime = (v: string | null) => (v ? new Date(v).toLocaleString() : null);
-
-// T4 (canon2): amounts arrive as integer base units (分); scale 分→元 by each
-// wallet's own asset decimals (getRun returns per-row `decimals` from the asset
-// table — a run spans multiple assets, AED=2/USDT=6). bigint-safe string padding
-// (no float) so USDT (6dp) shows every digit right; decimals=0 → no fraction.
-const formatAmount = (raw: string, decimals: number): string => {
-  // Treat input as integer string of base units; do bigint-safe division.
-  // Negative ok; locale comma grouping; min/max fraction = decimals.
-  const s = String(raw ?? '0');
-  let neg = false;
-  let body = s;
-  if (body.startsWith('-')) { neg = true; body = body.slice(1); }
-  const padded = body.padStart(decimals + 1, '0');
-  const intPart = padded.slice(0, padded.length - decimals) || '0';
-  const fracPart = decimals > 0 ? padded.slice(padded.length - decimals) : '';
-  // Group thousands in the integer part.
-  const intGrouped = intPart.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
-  return `${neg ? '-' : ''}${intGrouped}${fracPart ? `.${fracPart}` : ''}`;
-};
-
-const isZeroAmount = (raw: string): boolean => {
-  const s = String(raw ?? '0').replace(/^-/, '');
-  return s === '' || /^0+$/.test(s);
-};
-
-// adm-* tone tokens for the four bucket tones (BUCKET_LABELS[].tone), shared
-// by the Health Check cards and the table's status badge — single mapping so
-// card colour and badge colour never drift apart.
-const TONE_CLASSES: Record<'green' | 'blue' | 'amber' | 'red', { border: string; bg: string; text: string }> = {
-  green: { border: 'border-adm-green/30', bg: 'bg-adm-green/10', text: 'text-adm-green' },
-  blue:  { border: 'border-adm-blue/30',  bg: 'bg-adm-blue/10',  text: 'text-adm-blue' },
-  amber: { border: 'border-adm-amber/30', bg: 'bg-adm-amber/10', text: 'text-adm-amber' },
-  red:   { border: 'border-adm-red/30',   bg: 'bg-adm-red/10',   text: 'text-adm-red' },
-};
 
 // Status badge for the AccountStatusRow.bucket enum (Round3 five-bucket
 // classification). Labels sourced from BUCKET_LABELS (single source of truth).

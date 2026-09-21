@@ -21,11 +21,12 @@ import {
 } from '../utils/adminFetch';
 import { PageTitleBar } from '../components/ui/PageTitleBar';
 import Pagination from '../components/common/Pagination';
-// 分→元展示格式化：复用详情页既有的 formatAmount（带千分位，展示专用），
+// 分→元展示格式化：复用 utils/reconAmount 的 formatAmount（带千分位，展示专用），
 // 不再造第三个同类工具（同类先例：ReconciliationAdjustmentCreateModal /
 // ReconciliationDispositionModal 都已这样引用）。Task 15：COA 人话短语同理复用
-// 详情页已导出的 COA_PHRASE，不重抄一份映射。
-import { formatAmount, COA_PHRASE } from './ReconciliationCasesDetailPage';
+// utils/causeRegistry 已导出的 COA_PHRASE，不重抄一份映射。
+import { formatAmount } from '../utils/reconAmount';
+import { COA_PHRASE } from '../utils/causeRegistry';
 // 门控一致性小补（本任务）：气泡此前只按数据在场显示——补上与详情页行级推荐同一个
 // 模拟开关（业主原话「依然是模拟开关下展示」）。
 import { useSimulationMode } from '../utils/simulationMode';

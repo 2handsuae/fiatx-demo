@@ -21,9 +21,9 @@
 // 「按处置进入」模式（props: kind + row，见 isKindMode）——原来「先 POST
 // /dispositions 记定性 → 再开本弹层自由填表」两段流已拆掉（案件页不再为这三族调
 // /dispositions），原因码单选来自 row.dispositions[kind].causes，方向/金额/生效日
-// 全部只读推导（deriveKindDirection），提交一次性走原子端点（causeCode+findingNote+
-// disposition+行事实，Task 3 已建）。`locked` 优先于 `kind`——REATTRIBUTE/WRITE_OFF
-// 两族仍走锁定视图，不受影响。
+// 全部只读（方向读行上 adjustmentPrefill.direction，波四起后端单一来源判死），
+// 提交一次性走原子端点（causeCode+findingNote+disposition+行事实，Task 3 已建）。
+// `locked` 优先于 `kind`——REATTRIBUTE/WRITE_OFF 两族仍走锁定视图，不受影响。
 import { useEffect, useState } from 'react';
 import { adminButtonClass } from './common/adminButtonStyles';
 import {
@@ -31,35 +31,23 @@ import {
   adminFetch,
   getApiErrorMessage,
 } from '../utils/adminFetch';
-// 循环 import——ReconciliationDispositionModal.tsx 已有同款先例（page 引 modal，
-// modal 引 page 的具名导出），Vite/esbuild 对这种「模块顶层不互相求值」的循环没问题。
-import { formatAmount, type FlowComparisonRow } from '../pages/ReconciliationCasesDetailPage';
+import { formatAmount, minorToDisplay, displayToMinor } from '../utils/reconAmount';
+import type { FlowComparisonRow } from '../utils/reconTypes';
 // Task 8：kind 模式复用行事实推导（deltaSign/internalDirection/…）与方向依据文案，
 // 与案件页 DispositionFindingModal 同一份工具，不另抄一份。
 import { directionNoteFor, rowFacts } from '../utils/causeRegistry';
 import { useSimulationMode } from '../utils/simulationMode';
+// 波四 Task 6：改记候选选择器 / 核销前提区外迁成独立文件，本文件只负责组装。
+import ReattributionCandidatePicker, {
+  type ReattributionCandidateRow,
+} from './reconciliation/ReattributionCandidatePicker';
+import WriteOffPrereqPanel from './reconciliation/WriteOffPrereqPanel';
 
 export type AdjustmentBook = 'CLIENT' | 'FIRM';
 export type AdjustmentDirection = 'REDUCE' | 'INCREASE';
 
-interface ReasonMeta {
-  book: AdjustmentBook;
-  directions: AdjustmentDirection[];
-  label: string;
-}
-
-// 前端镜像 backend REASON_SPECS（src/modules/clearing-settle/reconciliation/
-// disposition/adjustment-rules.ts）**旧八码**下拉数据源——「运营自己选成因」那条
-// 老通道（!locked && !isKindMode 分支，见下方 reasonOptions）。Task 8 起
-// CORRECT/REVERSE/RECORD 三族改走 kind 模式（原因码来自 row.dispositions[kind].causes，
-// 不读这张表）、REATTRIBUTE/WRITE_OFF 两族走锁定视图（同样不读）——现存调用点已无人
-// 传空 locked+空 kind 打开这条自由选择分支，故它结构性地留空（Task 13 退役旧八码时
-// 未见真实消费者，见 task-13-report.md 零残余证明）。留着这张空表 + 下方分支只是不
-// 越界删掉一整个表单模式；若以后要接一个新的「自由选成因」入口，往这里加条目即可。
-export const REASON_META: Record<string, ReasonMeta> = {};
-
 // 展示用成因词表（超集，铁律⑥ demo-visible：详情页 / 调账单列表 / 锁定视图回显用）。
-// Task 13：REASON_META 旧八码清空后不能再从它派生——直接列出单码制 11 码（词取
+// Task 13：旧八码下拉数据源清空后不能再从它派生——直接列出单码制 11 码（词取
 // cause-registry.ts CAUSE_REGISTRY 同名 label）+ OTHER + 第四/五族三码，与
 // adjustment-rules.ts REASON_SPECS 的 15 个 ReasonCode 一一对应，缺一个这里就会有
 // 一行调账单 Reason 列显示裸码（Task 12 发现的真实回归）。
@@ -102,7 +90,7 @@ const LOCKED_TITLE: Record<string, string> = {
 // （唯一真相在后端 cause-registry.ts CAUSE_REGISTRY），这里只镜像它们的客户面文案
 // （backend adjustment-rules.ts REASON_SPECS.customerLabel）——Customer-facing note
 // 预填用。公司侧成因客户看不到（customerLabel 为 null），预填一句中性内部备注。
-// 镜像约定同 REASON_META 头注释：业务规则变了两边都要改，这是本仓库既有取舍。
+// 镜像约定同 REASON_LABEL 头注释：业务规则变了两边都要改，这是本仓库既有取舍。
 const CAUSE_CUSTOMER_LABEL: Record<string, string | null> = {
   AMT_MISBOOKED: 'Balance correction',
   AMT_FEE_NETTED: 'Balance correction',
@@ -119,31 +107,11 @@ const CAUSE_CUSTOMER_LABEL: Record<string, string | null> = {
 };
 const FIRM_SIDE_CUSTOMER_NOTE = '(Firm-side entry; not visible to the customer)';
 
-// Task 8：方向推导——镜像后端 cause-registry.ts 的 signedDeltaSign/resolveOutlet 公式。
-// 原子路径下 record() 只校验「码是否归属所选处置」，不重算方向对不对——Direction 一旦
-// 在这个模式下锁定只读，就是唯一权威，算错会静默把钱记反、无人拦（交接清单原话）。
-// resolveOutlet 逐支验证过：这条公式只看 matchType（+ deltaSign/internalDirection/
-// externalDirection 行事实），与具体选中哪个原因码、甚至哪个 family（CORRECT/
-// REVERSE/RECORD）都无关——AMOUNT_MISMATCH 格三族共用 signedDeltaSign，
-// ORPHAN_INTERNAL 格（只有 REVERSE 落这格）共用内部方向取反，ORPHAN_EXTERNAL 格
-// （只有 RECORD 落这格）共用外部方向照搬。故不需要 kind/causeCode 入参。
-const deriveKindDirection = (row: FlowComparisonRow): AdjustmentDirection => {
-  const signedDeltaSign = (): 1 | -1 => {
-    const raw: 1 | -1 = row.deltaAmount?.startsWith('-') ? -1 : 1;
-    // 出账流水翻符号：提现内部记 90、银行实扣 100，原始差 +10，但这 10 是客户余额
-    // 多出来的，得减——与 cause-registry.ts signedDeltaSign 同一段推导。
-    return row.internalFlow?.direction === 'OUT' ? (raw === 1 ? -1 : 1) : raw;
-  };
-  if (row.matchType === 'AMOUNT_MISMATCH') return signedDeltaSign() === -1 ? 'REDUCE' : 'INCREASE';
-  if (row.matchType === 'ORPHAN_INTERNAL') return row.internalFlow?.direction === 'OUT' ? 'INCREASE' : 'REDUCE';
-  return row.externalLine?.direction === 'IN' ? 'INCREASE' : 'REDUCE'; // ORPHAN_EXTERNAL
-};
-
 // T9：处置弹层（Task 8）交回来的锁定态——成因/方向已由后端判死，这里只回显。
-// toCandidatesUrl 只在 family === 'REATTRIBUTE' 时有值（父组件按 row.matchType
-// 算好 side、按 rowAdjustmentPrefill 算好 amount 拼出的候选查询路径，见
-// ReconciliationCasesDetailPage.tsx buildAdjustLocked）——本组件不重算这两个值，
-// 避免「查候选用一个数、开单用另一个数」两处各算一遍出现分歧。
+// toCandidatesUrl 只在 family === 'REATTRIBUTE' 时有值（父组件读行上
+// adjustmentPrefill 拼出的候选查询路径，见 ReconciliationCasesDetailPage.tsx
+// buildAdjustLocked）——本组件不重算这两个值，避免「查候选用一个数、开单用另一个数」
+// 两处各算一遍出现分歧。
 export interface AdjustmentLocked {
   dispositionNo: string;
   family: string;
@@ -161,47 +129,11 @@ export interface AdjustmentLocked {
   writeOff?: { findingNote: string; source: 'AGING' | 'INCIDENT'; incidentNo?: string; assessedDisplay?: string };
 }
 
-// 改记对端候选——GET reattribution-candidates 的返回行（disposition.service.ts
-// ReattributionCandidate 同形状）。anchorId 是内部证据 id（account_flows.id /
-// external_statement_lines.id），只用于选中后拼提交体，不在界面上展示（铁律⑥）。
-interface ReattributionCandidateRow {
-  caseNo: string;
-  walletNo: string | null;
-  ownerNo: string | null;
-  anchorId: string;
-  externalRef: string | null;
-  amount: string;
-}
-
-// 分→元 的可编辑显示值（区别于 formatAmount：那个是千分位展示用，不能拿来回填
-// input——逗号会把用户输入搅乱）。bigint-safe：只做字符串切分，不过一次浮点。
-const minorToDisplay = (raw: string, decimals: number): string => {
-  const s = String(raw ?? '0');
-  let neg = false; let body = s;
-  if (body.startsWith('-')) { neg = true; body = body.slice(1); }
-  if (decimals === 0) return `${neg ? '-' : ''}${body || '0'}`;
-  const padded = body.padStart(decimals + 1, '0');
-  const intPart = padded.slice(0, padded.length - decimals) || '0';
-  const fracPart = padded.slice(padded.length - decimals);
-  return `${neg ? '-' : ''}${intPart}.${fracPart}`;
-};
-
-// 反向：操作员输入的元 → 分（最小单位整数字符串，CreateAdjustmentDto.amount 要
-// 的形状）。非法输入（非数字/小数位超过资产精度）返回 null，调用方据此禁用提交
-// ——这是把"输入还原成数字"这件事做对，不是防御性校验（没有它表单根本不能用）。
-const displayToMinor = (display: string, decimals: number): string | null => {
-  const trimmed = display.trim();
-  if (!/^\d+(\.\d+)?$/.test(trimmed)) return null;
-  const [intPart, fracPart = ''] = trimmed.split('.');
-  if (fracPart.length > decimals) return null;
-  const combined = `${intPart}${fracPart.padEnd(decimals, '0')}`.replace(/^0+(?=\d)/, '');
-  return combined || '0';
-};
-
 export interface AdjustmentPrefill {
   amountMinor: string;                       // 最小单位（分）整数字符串，来自 flowComparison 行
-  direction: AdjustmentDirection | '';        // 猜测性默认值，表单里仍可改
-  relatedOrderNo: string;                     // 仅 IN_TRANSIT 行有（该行的 fundsOrderNo）
+  relatedOrderNo: string;                     // 所有写入点恒传 ''（IN_TRANSIT 预填路径已于波四证死并随
+                                               // rowAdjustmentPrefill 删除），字段保留给 kind 模式内部
+                                               // setRelatedOrderNo(row.internalFlow?.sourceNo) 之外的锁定路径占位
   // ④ 这张单在解释哪一条差异——锚在真实证据 id 上（内部流水 / 外部对账单行），
   // 后端据此在下一轮对账里把这条差异从异常数里摘掉，案子才平得下来。
   // 从案件级入口开单时两个都空：那是纯补余额，不摘任何差异行。
@@ -222,7 +154,7 @@ interface ReconciliationAdjustmentCreateModalProps {
   ownerNo?: string | null;
   walletNo?: string | null;
   prefill: AdjustmentPrefill;
-  /** T9：处置弹层交回的锁定态；缺省 = Task 7 原样的自由选择表单。 */
+  /** T9：处置弹层交回的锁定态；缺省仅剩 kind 模式一路（自由选择表单已于波四 T6 删除）。 */
   locked?: AdjustmentLocked;
   // Task 8（调账四族一窗到底）：CORRECT/REVERSE/RECORD 三族的「按处置进入」模式——
   // 点差异行按钮直接开本弹层，不再先 POST /dispositions 走两段流。kind + row 成对
@@ -270,13 +202,10 @@ const ReconciliationAdjustmentCreateModal = ({
   const [error, setError] = useState('');
   // ⚡ 演示推荐徽标只在模拟模式下显示——与案件页其它 ⚡ 件同一开关。
   const { enabled: simEnabled } = useSimulationMode();
-  // T9 改记视图：对端候选（GET reattribution-candidates）+ 单选状态。用下标而不是
-  // caseNo 当选中键——候选理论上可能同案件多行命中同金额（同一对端案子里凑巧有
-  // 两笔孤儿同额），caseNo 不保证唯一，下标总唯一。
-  const [candidates, setCandidates] = useState<ReattributionCandidateRow[]>([]);
-  const [candidatesLoading, setCandidatesLoading] = useState(false);
-  const [candidatesError, setCandidatesError] = useState('');
-  const [selectedCandidateIdx, setSelectedCandidateIdx] = useState<number | null>(null);
+  // T9 改记视图：选中的对端候选——候选列表本身外迁进 ReattributionCandidatePicker
+  // （波四 Task 6），本组件只接它 onPick 回调交回的整行，摘要行「From A to B」与
+  // submit() 的提交体拼装仍在这里，不重算 side/amount（避免两处各算一遍出现分歧）。
+  const [selectedCandidate, setSelectedCandidate] = useState<ReattributionCandidateRow | null>(null);
 
   const isReattribute = locked?.family === 'REATTRIBUTE';
   const isWriteOff = locked?.family === 'WRITE_OFF';
@@ -295,11 +224,11 @@ const ReconciliationAdjustmentCreateModal = ({
     if (!open) return;
     // Task 8：kind 模式——单选项直接预选（同 DispositionFindingModal 既有惯例，
     // menuFor 只剩一个选项时不用让人多点一次）；多选项留空，等人挑。方向不看选了
-    // 哪个原因码（同 family × matchType 组合下公式一致，见 deriveKindDirection 头
-    // 注释），行一到手就能算，不用等选码。
+    // 哪个原因码——行上 adjustmentPrefill.direction 已由后端判死，行一到手就能读，
+    // 不用等选码。
     const initialKindCause = isKindMode && kindCauses.length === 1 ? kindCauses[0].code : '';
     setReasonCode(locked ? (locked.reasonCode ?? 'CUSTOMER_REATTRIBUTION') : (isKindMode ? initialKindCause : ''));
-    setDirection(locked ? (locked.direction ?? '') : (isKindMode && row ? deriveKindDirection(row) : ''));
+    setDirection(locked ? (locked.direction ?? '') : (isKindMode && row ? (row.adjustmentPrefill?.direction ?? '') : ''));
     setAmountDisplay(prefill.amountMinor ? minorToDisplay(prefill.amountMinor, decimals) : '');
     setEffectiveDate(caseBusinessDate);
     // kind 模式：原单号不是手填的——同一条行的内部流水自带的业务单号（sourceNo），
@@ -313,9 +242,7 @@ const ReconciliationAdjustmentCreateModal = ({
         : (isKindMode && initialKindCause ? (CAUSE_CUSTOMER_LABEL[initialKindCause] ?? FIRM_SIDE_CUSTOMER_NOTE) : ''),
     );
     setError('');
-    setCandidates([]);
-    setCandidatesError('');
-    setSelectedCandidateIdx(null);
+    setSelectedCandidate(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
@@ -326,34 +253,6 @@ const ReconciliationAdjustmentCreateModal = ({
     setReasonCustomer(CAUSE_CUSTOMER_LABEL[code] ?? FIRM_SIDE_CUSTOMER_NOTE);
   };
 
-  // T9 改记视图：打开时拉一次对端候选。toCandidatesUrl 由父组件按这一行的
-  // matchType 算好 side、按 rowAdjustmentPrefill 算好 amount 拼好——本组件原样
-  // fetch，不重算 side/amount（避免查候选与开单两处各算一遍出现分歧）。
-  useEffect(() => {
-    if (!open || !isReattribute || !locked?.toCandidatesUrl) return;
-    let cancelled = false;
-    setCandidatesLoading(true);
-    setCandidatesError('');
-    (async () => {
-      try {
-        const res = await adminFetch(`${import.meta.env.VITE_API_URL}${locked.toCandidatesUrl}`);
-        if (!res.ok) {
-          throw new Error(await getApiErrorMessage(res, 'Failed to load reattribution candidates.'));
-        }
-        const list = (await res.json()) as ReattributionCandidateRow[];
-        if (!cancelled) setCandidates(list);
-      } catch (e) {
-        if (e instanceof AdminSessionError) return;
-        if (!cancelled) setCandidatesError(e instanceof Error ? e.message : 'Failed to load reattribution candidates.');
-      } finally {
-        if (!cancelled) setCandidatesLoading(false);
-      }
-    })();
-    return () => { cancelled = true; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open]);
-
-  const selectedCandidate = selectedCandidateIdx != null ? candidates[selectedCandidateIdx] : null;
   // 摘要行左右两方——side=FROM 时本案是错记方、候选是正主；side=TO 时对调。
   const fromParty = side === 'FROM'
     ? { ownerNo: ownerNo ?? '—', walletNo: walletNo ?? '—' }
@@ -361,28 +260,6 @@ const ReconciliationAdjustmentCreateModal = ({
   const toParty = side === 'FROM'
     ? { ownerNo: selectedCandidate?.ownerNo ?? '—', walletNo: selectedCandidate?.walletNo ?? '—' }
     : { ownerNo: ownerNo ?? '—', walletNo: walletNo ?? '—' };
-
-  // 只列当前案件账簿下的成因——客户账簿案件不该看到公司侧成因，反之亦然。
-  // Task 13：REASON_META 现为空表（头注释），这条分支结构性地渲染不出任何选项。
-  const reasonOptions = Object.entries(REASON_META).filter(([, meta]) => meta.book === book);
-  // 改记族锁定态把 reasonCode 初始化成 'CUSTOMER_REATTRIBUTION'——它不在这份前端
-  // 镜像表里（改记走独立视图，不用「成因下拉→方向下拉」这条老路），直接下标会
-  // 炸（对象 undefined 取 .directions）。这条分支本就不渲染方向下拉
-  // （isReattribute 时方向区整段隐藏），空数组只是让这行算式本身不再崩。
-  const directionOptions = reasonCode ? (REASON_META[reasonCode]?.directions ?? []) : [];
-
-  const pickReason = (code: string) => {
-    setReasonCode(code);
-    if (!code) { setDirection(''); return; }
-    const dirs = REASON_META[code].directions;
-    if (dirs.length === 1) {
-      setDirection(dirs[0]);
-    } else if (prefill.direction && dirs.includes(prefill.direction)) {
-      setDirection(prefill.direction);
-    } else {
-      setDirection(dirs[0]);
-    }
-  };
 
   // 改记必须指向一张已存在的原单——与「客户账簿加钱」同一条边界线守卫（KYT 对这
   // 笔钱跑过才放行），backend createReattributionDraft 无条件要求，不看 direction
@@ -402,7 +279,10 @@ const ReconciliationAdjustmentCreateModal = ({
     (needsRelatedOrder && !relatedOrderNo.trim()) ||
     !reasonInternal.trim() ||
     !reasonCustomer.trim() ||
-    (isReattribute && (candidatesLoading || !selectedCandidate)) ||
+    // candidatesLoading 外迁进 ReattributionCandidatePicker 后不再由本组件持有——
+    // 加载中 selectedCandidate 必为 null（子组件加载完成前不会回调 onPick），
+    // 这条闸单靠 !selectedCandidate 已经等价覆盖，不用再重复收一份 loading 状态。
+    (isReattribute && !selectedCandidate) ||
     // Task 8：kind 模式选 Other 时手写框必填（同 DispositionFindingModal 既有惯例）。
     (isKindMode && reasonCode === 'OTHER' && !otherReason.trim());
 
@@ -495,8 +375,6 @@ const ReconciliationAdjustmentCreateModal = ({
 
   if (!open) return null;
 
-  const selectCls =
-    'w-full rounded border border-adm-border bg-adm-bg px-2.5 py-2 font-mono text-[11px] text-adm-t1 outline-none transition-colors focus:border-adm-amber disabled:opacity-50';
   const labelCls = 'mb-1.5 block font-mono text-[9px] font-semibold uppercase tracking-[0.12em] text-adm-t3';
 
   return (
@@ -537,31 +415,18 @@ const ReconciliationAdjustmentCreateModal = ({
             </div>
           )}
 
-          {/* 平账处置改版 Task 10（M10–M12）：核销/认损锁定视图的前提清单区——
-              账龄路四前提（v8-recon.md §核销/认损行）原样保留；事故路（spec §4
-              M12）换成三前提，说明这张单为什么此刻能开、金额为什么锁定在这个数。
-              纯展示，不参与提交体——闸真正卡在后端（assertWriteOffAllowed /
-              assertIncidentWriteOffAllowed），这里只是让人看懂门是怎么开的。 */}
+          {/* 平账处置改版 Task 10（M10–M12）：核销/认损锁定视图的前提清单区——外迁
+              见 WriteOffPrereqPanel（波四 Task 6）。纯展示，不参与提交体——闸真正
+              卡在后端（assertWriteOffAllowed / assertIncidentWriteOffAllowed），
+              这里只是让人看懂门是怎么开的。 */}
           {locked?.writeOff && (
-            <div className="mb-4 space-y-1 rounded border border-adm-border bg-adm-bg px-2.5 py-2 font-mono text-[11px] text-adm-t2">
-              <div className="mb-0.5 font-mono text-[9px] font-semibold uppercase tracking-[0.12em] text-adm-t3">
-                {locked.writeOff.source === 'INCIDENT' ? 'Unlocked by · Incident loss assessment' : 'Unlocked by · Aging'}
-              </div>
-              {locked.writeOff.source === 'INCIDENT' ? (
-                <>
-                  <div>✓ Incident {locked.writeOff.incidentNo ?? '—'} · loss assessed (FIRM_LOSS)</div>
-                  <div>✓ Amount locked = {locked.writeOff.assessedDisplay ?? `${formatAmount(prefill.amountMinor, decimals)} ${assetCode}`}</div>
-                  <div>✓ Small-amount threshold not applicable (incident process is the large-amount control)</div>
-                </>
-              ) : (
-                <>
-                  <div>✓ Case overdue</div>
-                  <div>✓ Finding = Hold · Investigating</div>
-                  <div>✓ Amount ≤ small-amount threshold</div>
-                  <div>✓ {book === 'CLIENT' ? 'Client book' : 'Firm book'}</div>
-                </>
-              )}
-            </div>
+            <WriteOffPrereqPanel
+              writeOff={locked.writeOff}
+              amountMinor={prefill.amountMinor}
+              decimals={decimals}
+              assetCode={assetCode}
+              book={book}
+            />
           )}
 
           <label className={labelCls}>Reason</label>
@@ -571,10 +436,11 @@ const ReconciliationAdjustmentCreateModal = ({
             <div className="mb-4 rounded border border-adm-border bg-adm-bg px-2.5 py-2 font-mono text-[11px] text-adm-t1">
               [{locked.reasonCode === 'UNEXPLAINED_CLIENT_LOSS' ? 'Recognize loss' : (FAMILY_WORD[locked.family] ?? locked.family)}] {REASON_LABEL[locked.reasonCode ?? ''] ?? locked.reasonCode}
             </div>
-          ) : isKindMode ? (
+          ) : (
             // Task 8：kind 模式——原因码单选，数据来自 row.dispositions[kind].causes
-            // （唯一真相在后端 cause-registry.ts）；不用 REASON_META（旧 8 码表，三族
-            // 在这个模式下不用它，见文件头 T9 注释）。
+            // （唯一真相在后端 cause-registry.ts）。旧「运营自由选成因」下拉分支
+            // （旧八码空表 + 其取值/选码两个 helper）已随波四 Task 6 删除——现存
+            // 调用点已无人打开那条自由选择分支（判死双证见 spec §1.4）。
             <div className="mb-4 space-y-1.5">
               {kindCauses.map((c) => (
                 <label
@@ -618,20 +484,6 @@ const ReconciliationAdjustmentCreateModal = ({
                 </div>
               )}
             </div>
-          ) : (
-            <select
-              value={reasonCode}
-              onChange={(e) => pickReason(e.target.value)}
-              disabled={submitting}
-              className={`mb-4 ${selectCls}`}
-            >
-              <option value="">Select a cause…</option>
-              {reasonOptions.map(([code, meta]) => (
-                <option key={code} value={code}>
-                  {meta.label} · {code}
-                </option>
-              ))}
-            </select>
           )}
 
           {!isReattribute && (
@@ -641,75 +493,26 @@ const ReconciliationAdjustmentCreateModal = ({
                 // T9：方向本来就能从行推出来（差额符号 / 内外部流水方向），给人改
                 // 是错的——只读文本 + 一句推导依据（directionNote 由后端行事实
                 // 算出，见 causeRegistry.ts directionNoteFor）。Task 8：kind 模式同款
-                // 只读展示，值由 deriveKindDirection 在打开弹层时算好写进 state。
+                // 只读展示，值读行上 adjustmentPrefill.direction，打开弹层时写进 state。
                 <div className="mb-1 rounded border border-adm-border bg-adm-bg px-2.5 py-2 font-mono text-[11px] text-adm-t1">
                   {direction === 'REDUCE' ? 'Reduce' : direction === 'INCREASE' ? 'Increase' : '—'}
                 </div>
-              ) : (
-                <select
-                  value={direction}
-                  onChange={(e) => setDirection(e.target.value as AdjustmentDirection)}
-                  disabled={submitting || directionOptions.length <= 1}
-                  className={`mb-1 ${selectCls}`}
-                >
-                  {directionOptions.length === 0 && <option value="">Select a cause first</option>}
-                  {directionOptions.map((d) => (
-                    <option key={d} value={d}>
-                      {d === 'REDUCE' ? 'Reduce' : 'Increase'}
-                    </option>
-                  ))}
-                </select>
-              )}
+              ) : null}
               {locked ? (
                 <p className="mb-4 font-mono text-[9px] text-adm-t3">{locked.directionNote}</p>
               ) : isKindMode && row ? (
                 <p className="mb-4 font-mono text-[9px] text-adm-t3">{directionNoteFor(row.matchType)}</p>
-              ) : (
-                <>
-                  {reasonCode && directionOptions.length === 1 && (
-                    <p className="mb-4 font-mono text-[9px] text-adm-t3">This cause only allows one direction — locked.</p>
-                  )}
-                  {(!reasonCode || directionOptions.length !== 1) && <div className="mb-4" />}
-                </>
-              )}
+              ) : null}
             </>
           )}
 
-          {isReattribute && (
+          {isReattribute && locked?.toCandidatesUrl && (
             <div className="mb-4">
-              <label className={labelCls}>Counterparty Case (single choice)</label>
-              {candidatesLoading ? (
-                <p className="font-mono text-[11px] text-adm-t3">Loading candidates…</p>
-              ) : candidatesError ? (
-                <p className="font-mono text-[11px] text-adm-red">{candidatesError}</p>
-              ) : candidates.length === 0 ? (
-                <p className="font-mono text-[11px] text-adm-red">
-                  No same-day, same-amount opposite orphan found — confirm the counterparty case has produced a difference row first
-                </p>
-              ) : (
-                <div className="space-y-1.5">
-                  {candidates.map((c, idx) => (
-                    <label
-                      key={`${c.caseNo}-${idx}`}
-                      className={`flex cursor-pointer items-start gap-2 rounded border p-2 font-mono text-[11px] ${
-                        selectedCandidateIdx === idx ? 'border-adm-blue/50 bg-adm-blue/10' : 'border-adm-border'
-                      }`}
-                    >
-                      <input
-                        type="radio"
-                        name="reattribution-candidate"
-                        checked={selectedCandidateIdx === idx}
-                        onChange={() => setSelectedCandidateIdx(idx)}
-                        disabled={submitting}
-                        className="mt-0.5"
-                      />
-                      <span className="flex-1 text-adm-t1">
-                        {c.caseNo} · Customer {c.ownerNo ?? '—'} · Wallet {c.walletNo ?? '—'} · ref {c.externalRef ?? '—'}
-                      </span>
-                    </label>
-                  ))}
-                </div>
-              )}
+              <ReattributionCandidatePicker
+                url={locked.toCandidatesUrl}
+                disabled={submitting}
+                onPick={setSelectedCandidate}
+              />
               {selectedCandidate && (
                 <p className="mt-2 rounded border border-adm-blue/30 bg-adm-blue/10 px-2 py-1.5 font-mono text-[11px] text-adm-t2">
                   From {fromParty.ownerNo} ({fromParty.walletNo}) reattributed to {toParty.ownerNo} ({toParty.walletNo}) ·

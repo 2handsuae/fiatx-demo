@@ -1,0 +1,95 @@
+[on-stack/self] DATABASE_URL=file:/tmp/exchange_js_wt_act6_wave4/dev.db
+[on-stack/self] TB_ADDRESS=127.0.0.1:3103
+[on-stack/self] TB_DATA_FILE=/tmp/exchange_js_wt_act6_wave4/0_0.tigerbeetle
+[on-stack/self] script 'recon:demo:break' -> ts-node -r tsconfig-paths/register scripts/recon-demo.ts --mode=break 
+════════ recon:demo  mode=break  cutoff=2026-09-21T04:54:39.350Z ════════
+(node:29931) MaxListenersExceededWarning: (node) warning: possible EventEmitter memory leak detected. 11 listeners added. Use emitter.setMaxListeners() to increase limit.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:29931) MaxListenersExceededWarning: (node) warning: possible EventEmitter memory leak detected. 11 listeners added. Use emitter.setMaxListeners() to increase limit.
+(node:29931) MaxListenersExceededWarning: (node) warning: possible EventEmitter memory leak detected. 11 listeners added. Use emitter.setMaxListeners() to increase limit.
+(node:29931) MaxListenersExceededWarning: (node) warning: possible EventEmitter memory leak detected. 11 listeners added. Use emitter.setMaxListeners() to increase limit.
+self-clean: runs=0 cases=0 line_items=0 balances=1 lines=1 fundsOrders=1
+planned 19 wallet(s):
+  1f8a20ea-3c33-4ddc-b41e-99fa03d89e17  USDT-TRON  book=FIRM  internal=100399428189  lines=4  coa=E.FIRM_OPS  owner=PLATFORM
+  70cc5c16-dbfe-4f3c-addc-05e66f04024d  AED  book=FIRM  internal=99858935  lines=4  coa=E.FIRM_OPS  owner=PLATFORM
+  84c62619-cff5-4f1f-85e3-9dc3d0240eda  AED  book=FIRM  internal=0  lines=6  coa=E.FIRM_SET  owner=PLATFORM
+  bcfa94c8-a174-4f22-ab3c-18d91a4d01e7  USDT-TRON  book=FIRM  internal=14000000  lines=3  coa=E.INCOME_SWAP_FEE  owner=PLATFORM
+  e72a3337-62a9-4a4a-a4f2-4f69403c951d  AED  book=FIRM  internal=11400  lines=3  coa=E.INCOME_OTHER  owner=PLATFORM
+  6f6040ad-e192-48a2-8b7b-9b0565b8c792  USDT-TRON  book=FIRM  internal=0  lines=0  coa=  owner=PLATFORM
+  ebc5a441-5cb5-49b2-9794-fc89bb25d968  AED  book=FIRM  internal=0  lines=0  coa=  owner=PLATFORM
+  9e776d7b-3152-45ea-a914-a6f95809d7a6  USDT-TRON  book=CLIENT  internal=1600000000  lines=2  coa=L.CLIENT_PAYABLE+L.DEPOSIT_SUSPENSE  owner=CU2601019430
+  6c779594-fbf4-4a55-970d-ec105da2a96d  AED  book=CLIENT  internal=809065  lines=7  coa=L.CLIENT_PAYABLE+L.DEPOSIT_SUSPENSE  owner=CU2601019430
+  398a8737-4e8e-4d0d-b16c-02944441b551  USDT-TRON  book=CLIENT  internal=629914899  lines=4  coa=L.CLIENT_PAYABLE+L.DEPOSIT_SUSPENSE  owner=CU2601017625
+  49f4d54c-b3ba-4eef-b54c-9846753bf487  AED  book=CLIENT  internal=26220000  lines=3  coa=L.CLIENT_PAYABLE+L.DEPOSIT_SUSPENSE  owner=CU2601017625
+  b9273e67-5226-4124-bcaf-31b35a4a6fcc  USDT-TRON  book=CLIENT  internal=1412656912  lines=3  coa=L.CLIENT_PAYABLE+L.DEPOSIT_SUSPENSE  owner=CU2601014381
+  9bdfbf0a-c191-45a3-af96-950528688561  AED  book=CLIENT  internal=483500  lines=6  coa=L.CLIENT_PAYABLE+L.DEPOSIT_SUSPENSE  owner=CU2601014381
+  17a126e3-46b1-4aab-91b5-d0ed78e9a8da  USDT-TRON  book=CLIENT  internal=400000000  lines=1  coa=L.CLIENT_PAYABLE+L.DEPOSIT_SUSPENSE  owner=CU2601010403
+  b993058c-4f85-4769-aa18-35c32430f7ad  AED  book=CLIENT  internal=650000  lines=2  coa=L.CLIENT_PAYABLE+L.DEPOSIT_SUSPENSE  owner=CU2601010403
+  6db788f1-dce8-453c-a7c5-35cbb74714f1  USDT-TRON  book=CLIENT  internal=350000000  lines=1  coa=L.CLIENT_PAYABLE+L.DEPOSIT_SUSPENSE  owner=CU2601016170
+  4d37b43f-6f1e-4d26-b385-66aefc461b30  AED  book=CLIENT  internal=520000  lines=2  coa=L.CLIENT_PAYABLE+L.DEPOSIT_SUSPENSE  owner=CU2601016170
+  b9bb6b71-06bd-4398-996f-1d6acdc4a141  USDT-TRON  book=CLIENT  internal=0  lines=0  coa=  owner=CU2601010484
+  85dd4310-0d81-4fdf-95ce-8808df950a15  AED  book=CLIENT  internal=930000  lines=4  coa=L.CLIENT_PAYABLE+L.DEPOSIT_SUSPENSE  owner=CU2601010484
+mirror written: external_balances=19  external_statement_lines=55
+  场景 17：Grace AED 当刻可用 3300.00，退汇 6500.00，差额 3200.00（铺场时点；演到 17 时以案件页显示为准）
+manifest written to /tmp/exchange_js_main/recon-demo-manifest.json  (18 scenarios, 12 wallets)
+  [#1 IN_TRANSIT_TIMING] wallet=6c779594-fbf4-4a55-970d-ec105da2a96d
+  [#5 AMT_FEE_NETTED] wallet=49f4d54c-b3ba-4eef-b54c-9846753bf487
+  [#6 DUP_BOOKING] wallet=85dd4310-0d81-4fdf-95ce-8808df950a15
+  [#7 PHANTOM_BOOKING] wallet=85dd4310-0d81-4fdf-95ce-8808df950a15
+  [#2 AMT_MISBOOKED] wallet=9bdfbf0a-c191-45a3-af96-950528688561
+  [#3 AMT_MISBOOKED] wallet=9bdfbf0a-c191-45a3-af96-950528688561
+  [#4 AMT_ROUNDING] wallet=9bdfbf0a-c191-45a3-af96-950528688561
+  [#10 UNEXPLAINED] wallet=70cc5c16-dbfe-4f3c-addc-05e66f04024d
+  [#11 BANK_CHARGE_UNBOOKED] wallet=1f8a20ea-3c33-4ddc-b41e-99fa03d89e17
+  [#13 MISSED_DEPOSIT] wallet=398a8737-4e8e-4d0d-b16c-02944441b551
+  [#9 CUTOFF_STRADDLE] wallet=b9273e67-5226-4124-bcaf-31b35a4a6fcc
+  [#8 MISATTRIBUTED_FROM] wallet=b993058c-4f85-4769-aa18-35c32430f7ad,4d37b43f-6f1e-4d26-b385-66aefc461b30
+  [#12 BANK_INTEREST_UNBOOKED] wallet=1f8a20ea-3c33-4ddc-b41e-99fa03d89e17
+  [#14 BOUNCED_FUNDS] wallet=4d37b43f-6f1e-4d26-b385-66aefc461b30
+  [#15 PAYOUT_RETURNED] wallet=9bdfbf0a-c191-45a3-af96-950528688561
+  [#16 UNEXPLAINED] wallet=9e776d7b-3152-45ea-a914-a6f95809d7a6
+  [#17 BOUNCED_FUNDS] wallet=9bdfbf0a-c191-45a3-af96-950528688561
+  [#18 UNAUTHORIZED_OUTFLOW] wallet=17a126e3-46b1-4aab-91b5-d0ed78e9a8da
+balanceAfter populated on 62 line(s)
+
+──── engine result ────
+runId=315d7ff6-3052-41ad-81f2-5a3e56f3939e
+status=BREAK  walletsChecked=19  casesOpened=12
+orphanInternal=4  orphanExternal=8  mismatch=6
+
+──── manifest verification ────
+  # 1  IN_TRANSIT_TIMING          wallet=6c779594  DETECTED
+  # 5  AMT_FEE_NETTED             wallet=49f4d54c  DETECTED
+  # 6  DUP_BOOKING                wallet=85dd4310  DETECTED
+  # 7  PHANTOM_BOOKING            wallet=85dd4310  DETECTED
+  # 2  AMT_MISBOOKED              wallet=9bdfbf0a  DETECTED
+  # 3  AMT_MISBOOKED              wallet=9bdfbf0a  DETECTED
+  # 4  AMT_ROUNDING               wallet=9bdfbf0a  DETECTED
+  #10  UNEXPLAINED                wallet=70cc5c16  DETECTED
+  #11  BANK_CHARGE_UNBOOKED       wallet=1f8a20ea  DETECTED
+  #13  MISSED_DEPOSIT             wallet=398a8737  DETECTED
+  # 9  CUTOFF_STRADDLE            wallet=b9273e67  DETECTED
+  # 8  MISATTRIBUTED_FROM         wallet=b993058c,4d37b43f  DETECTED
+  #12  BANK_INTEREST_UNBOOKED     wallet=1f8a20ea  DETECTED
+  #14  BOUNCED_FUNDS              wallet=4d37b43f  DETECTED
+  #15  PAYOUT_RETURNED            wallet=9bdfbf0a  DETECTED
+  #16  UNEXPLAINED                wallet=9e776d7b  DETECTED
+  #17  BOUNCED_FUNDS              wallet=9bdfbf0a  DETECTED
+  #18  UNAUTHORIZED_OUTFLOW       wallet=17a126e3  DETECTED
+  scenarios: 18/18 DETECTED
+  wallets:   12/12 bucket OK
+
+──── identity self-check ────
+  OK  identity① walletCount(19) == matched(7) + inTransit(1) + softFlag(2) + break(9)
+  OK  identity② opened(12) + reObserved(0) == inTransit+softFlag+break(12)
+
+──── break-mode asserts ────
+  OK  status==BREAK
+  OK  scenarios 18/18
+  OK  wallets 12/12
+  OK  casesOpened 12/12
+  OK  identities OK
+
+ALL 18 SCENARIOS DETECTED PER MANIFEST
+
+════════ recon:demo break DONE — OK ════════

@@ -173,7 +173,7 @@ Last Updated: 2026-09-16（审计两页按后端真实字段重设计·文档收
 
 - [x] ~~⭐ **对账复核签核未做**：应干净 run 自动认证 + 人工平账动作走复核签核(maker-checker 推≠批，可按 severity 分级)~~ —— **业主裁定不做**（2026-09-19 第六幕体检后拍板，`decisions.md` 同日条目）：人手就这些，不再往流程里加人。**现状即终态**——动钱的八类处置（冲正/冲销/补记/改记/核销/认损/补单三路/划转）本就是金库开单 → CFO 批两个人，事故结案是 MLRO → CFO 两步；本条要加的是在这之上再挂一层。**推单与挂起两种维持一人完成、不送审**（挂起零账务；推单只推状态机不直写账）。捆绑的「干净 run 自动认证」一并不做。⚠️ 别再当待办翻出来 ｜来源: spec §6
 
-- [ ] **`rowAdjustmentPrefill().direction` 提现类 AMOUNT_MISMATCH 缺翻符号**：`ReconciliationCasesDetailPage.tsx:327` 的 AMOUNT_MISMATCH 分支按「符号即答案」的固定惯例推方向（`deltaAmount` 为负→REDUCE、为正→INCREASE），这条惯例只按存款语义推导，没有为提现类流水的方向语义翻符号；现状下当前种子数据未产出该组合（非结构性排除——`ADJUSTABLE_SOURCES` 收提现来源、差异行生成也不挑方向，真实数据可能凑出），先记一行留档，防止日后这个组合被激活时悄悄预填错方向 ｜来源: 2026-09-08 平账处置改版终审
+- [x] ~~**`rowAdjustmentPrefill().direction` 提现类 AMOUNT_MISMATCH 缺翻符号**：`ReconciliationCasesDetailPage.tsx:327` 的 AMOUNT_MISMATCH 分支按「符号即答案」的固定惯例推方向（`deltaAmount` 为负→REDUCE、为正→INCREASE），这条惯例只按存款语义推导，没有为提现类流水的方向语义翻符号；现状下当前种子数据未产出该组合（非结构性排除——`ADJUSTABLE_SOURCES` 收提现来源、差异行生成也不挑方向，真实数据可能凑出），先记一行留档，防止日后这个组合被激活时悄悄预填错方向~~ —— **已修**（2026-09-21 第六幕波四）：波四收编修复：方向公式收回后端 cause-registry，出账翻符号用例入 cause-registry.spec（`cause-registry.spec.ts:178` "AMOUNT_MISMATCH 出账翻符号：内部 OUT、原始差 +10 → REDUCE（BACKLOG:176 组合首次入网）"）；前端 `rowAdjustmentPrefill`/`deriveKindDirection` 两处本地推导随之退役，改读后端下发的 `row.adjustmentPrefill.direction` ｜来源: 2026-09-08 平账处置改版终审
 
 - [ ] **手续费归集不做，等报表层**（2026-09-05 平账二期 F1'）：账上等于收入结转进运营户，可做；但收入户兼作钱包位置，归集后余额清零，没有报表层时观众读不出本期收入 ｜来源: 平账二期 spec §0
 
