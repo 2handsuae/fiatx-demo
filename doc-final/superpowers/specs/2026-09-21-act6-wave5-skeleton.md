@@ -31,7 +31,7 @@
   - `admin-web/src/components/reconciliation/` 目录新立 7 个文件（`CaseFlowTable.tsx` / `CaseBalanceTiles.tsx` / `CaseHistory.tsx` / `DispositionFindingModal.tsx` / `ReattributionCandidatePicker.tsx` / `WriteOffPrereqPanel.tsx` / `caseDetailBits.tsx`），案件详情页与调账弹窗的 JSX 已迁出对应板块。
   - jest 对账三域基线：**29 suites / 567 tests**（波前 561 → T1 在既有的 `cause-registry.spec.ts` 与 `reconciliation-query.service.spec.ts` 两个文件内新增用例 +6 tests，suite 数不变）。
   - `verify:coa` 全绿（4 条恒等式 + 57 科目负余额检查）；栈级输出（`demo:all`/`recon:demo:break`）归一后与波前基线逐字节比对为空。
-  - 13 对页面/弹层截图逐张比对：12 张结构/文案/按钮组/布局零差异（允许差异仅单号与时间戳字面）；1 组 4 张（`m4`/`m6a`/`m6b`/`m6-writeoff`）因上述取证方法论缺口两侧命中不同底层案件，已根因定位为非代码回归。
+  - 13 对页面/弹层截图逐张比对：**9 张**结构/文案/按钮组/布局零差异（允许差异仅单号与时间戳字面）；1 组 4 张（`m4`/`m6a`/`m6b`/`m6-writeoff`）因上述取证方法论缺口两侧命中不同底层案件，已根因定位为非代码回归。
 
 ## 已定事实（波四带过来的，波五开工前必须知道）
 
