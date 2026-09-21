@@ -135,6 +135,9 @@ export interface FlowComparisonRow {
     kind: string; label: string;
     causes: Array<{ code: string; label: string; clue: string }>;
   }>;
+  // 波四：开单预填——后端 cause-registry.resolveAdjustmentPrefill 单一来源，
+  // 只在三类异常行下发（MATCHED/IN_TRANSIT 无消费点）。
+  adjustmentPrefill?: { amountMinor: string; direction: 'REDUCE' | 'INCREASE'; reattributionSide: 'FROM' | 'TO' };
   // ⚡ 差异行级推荐（模拟开关门控）：唯一真相在后端 reconciliation-query.service.ts
   // ——已经校验过推荐真的在上面 dispositions 清单里，前端只管展示，不自己算。
   demoRecommended?: {
@@ -196,6 +199,7 @@ interface ReconCaseDetail {
   decimals: number;                   // T4 — asset.decimals; display scales 分→元 by 10^decimals
   layer: string;
   book: string | null;
+  adjustmentBook: 'CLIENT' | 'FIRM';   // 波四：后端归一化下发（createDraft 同一句），前端不再镜像
   // Wallet-engine locators (T7 / T1)
   walletRef: string | null;
   walletNo: string | null;            // NEW — resolved business key via wallets table
@@ -305,55 +309,17 @@ const rowTimestamp = (r: FlowComparisonRow): number => {
   return t ? new Date(t).getTime() : 0;
 };
 
-// Task 7（控制方裁定 Step 4）：开单入口挂在 flowComparison 行上，点击用该行的数据
-// 预填「能预填的字段」——金额、方向；lineItemId 不传（该行的 id 来自
-// ExternalStatementLine/AccountFlow，与 ReconciliationLineItem.id 不是一张表）。
-// 方向是猜测性默认值，表单里仍是可编辑下拉，猜错不影响正确性。推导依据：
-// deltaAmount／案件级 delta 的符号惯例统一是「外部 − 内部」（buildFlowComparison
-// 里 ext.amount.minus(intl.amount)，reconciliation-query.service.ts）：
-//   AMOUNT_MISMATCH  — 符号即答案：正→内部偏低→INCREASE，负→REDUCE
-//   ORPHAN_EXTERNAL / IN_TRANSIT — 外部有我没记，按外部方向直接入账：IN→INCREASE，OUT→REDUCE
-//   ORPHAN_INTERNAL  — 内部记了外部没有，这笔要冲销，方向与它自己相反：IN→REDUCE，OUT→INCREASE
-//   MATCHED          — 两边一致，没有「要改什么」的信号，不猜
-const rowAdjustmentPrefill = (row: FlowComparisonRow): AdjustmentPrefill => {
-  const ext = row.externalLine;
-  const intl = row.internalFlow;
-
-  // ④ 两个解释锚一律按行原样带上——它们是这条差异的真实证据 id，后端据此在下一轮
-  // 对账里把这条差异从异常数里摘掉（没有它们，调账只补得平余额，案子仍卡在
-  // COMPENSATING 关不掉）。哪类行带哪个锚由行自身决定，这里不做筛选。
-  const anchors = {
-    explainedFlowId: intl?.id,
-    explainedExternalLineId: ext?.id,
-  };
-
-  if (row.matchType === 'AMOUNT_MISMATCH' && row.deltaAmount != null) {
-    return {
-      amountMinor: row.deltaAmount.replace(/^-/, ''),
-      direction: row.deltaAmount.startsWith('-') ? 'REDUCE' : 'INCREASE',
-      relatedOrderNo: '',
-      ...anchors,
-    };
-  }
-  if (row.matchType === 'ORPHAN_INTERNAL' && intl) {
-    return {
-      amountMinor: intl.amount,
-      direction: intl.direction === 'IN' ? 'REDUCE' : 'INCREASE',
-      relatedOrderNo: '',
-      ...anchors,
-    };
-  }
-  if ((row.matchType === 'ORPHAN_EXTERNAL' || row.matchType === 'IN_TRANSIT') && ext) {
-    return {
-      amountMinor: ext.amount,
-      direction: ext.direction === 'IN' ? 'INCREASE' : 'REDUCE',
-      relatedOrderNo: row.matchType === 'IN_TRANSIT' ? (row.fundsOrderNo ?? '') : '',
-      ...anchors,
-    };
-  }
-  // MATCHED（或兜底）：只给金额，不猜方向。
-  return { amountMinor: ext?.amount ?? intl?.amount ?? '0', direction: '', relatedOrderNo: '', ...anchors };
-};
+// 波四：预填交接（非判断）——金额/方向由行上 adjustmentPrefill 判死（后端
+// cause-registry.resolveAdjustmentPrefill 单一来源），这里只补两个解释锚。
+// ④ 两个解释锚一律按行原样带上——它们是这条差异的真实证据 id，后端据此在下一轮
+// 对账里把这条差异从异常数里摘掉。案件级入口开单时两个都空：纯补余额，不摘差异行。
+const prefillFromRow = (row: FlowComparisonRow, ap: NonNullable<FlowComparisonRow['adjustmentPrefill']>): AdjustmentPrefill => ({
+  amountMinor: ap.amountMinor,
+  direction: ap.direction,
+  relatedOrderNo: '',
+  explainedFlowId: row.internalFlow?.id,
+  explainedExternalLineId: row.externalLine?.id,
+});
 
 // Task 7（差异行按钮组）：记完一条定性 → 调账弹层锁定态所需的最小信息。取代旧的
 // 两屏处置弹层（ReconciliationDispositionModal，已断线，Task 13 已删文件）导出的同形
@@ -371,22 +337,17 @@ interface AdjustHandoff {
   row: FlowComparisonRow;
 }
 
-// T9：处置结论 → 调账弹层的锁定态。改记族（REATTRIBUTE）额外拼一个候选查询路径——
-// side 由行的 matchType 决定（ORPHAN_INTERNAL=我有外无=错记方=FROM，其余=正主方=TO，
-// 与 disposition.service.ts listReattributionCandidates 的约定同源）；amount 用同一份
-// rowAdjustmentPrefill 算出的金额——与调账弹层最终提交给后端的金额同一个数，
-// 避免「查候选用一个数、开单用另一个数」两处各算一遍出现分歧。
+// side/金额读行上 adjustmentPrefill——与查候选、开单同一个数，单一来源在后端。
 const buildAdjustLocked = (handoff: AdjustHandoff, currentCaseNo: string): AdjustmentLocked => {
-  const side = handoff.row.matchType === 'ORPHAN_INTERNAL' ? 'FROM' : 'TO';
-  const amountMinor = rowAdjustmentPrefill(handoff.row).amountMinor;
+  const ap = handoff.row.adjustmentPrefill;
   return {
     dispositionNo: handoff.dispositionNo,
     family: handoff.family,
     reasonCode: handoff.reasonCode,
     direction: handoff.direction,
     directionNote: handoff.directionNote,
-    toCandidatesUrl: handoff.family === 'REATTRIBUTE'
-      ? `/admin/reconciliation/cases/${encodeURIComponent(currentCaseNo)}/reattribution-candidates?side=${side}&amount=${amountMinor}`
+    toCandidatesUrl: handoff.family === 'REATTRIBUTE' && ap
+      ? `/admin/reconciliation/cases/${encodeURIComponent(currentCaseNo)}/reattribution-candidates?side=${ap.reattributionSide}&amount=${ap.amountMinor}`
       : undefined,
   };
 };
@@ -752,7 +713,7 @@ const ReconciliationCasesDetailPage = () => {
   // not grouped sections). Toggled by the "Show matched" button below the table.
   const [showMatched, setShowMatched] = useState(false);
   const [reconciling, setReconciling] = useState(false);
-  // Task 7: 开调账单弹层——prefill 来自被点击的那一行（rowAdjustmentPrefill）。
+  // Task 7: 开调账单弹层——prefill 来自被点击的那一行（row.adjustmentPrefill）。
   // null = 弹层关闭；非 null = 弹层打开且带着这一行算出来的预填值。
   const [createPrefill, setCreatePrefill] = useState<AdjustmentPrefill | null>(null);
   // T9：调账弹层的锁定态——非 null 时弹层渲染锁定视图（成因/方向只读，改记额外
@@ -868,7 +829,9 @@ const ReconciliationCasesDetailPage = () => {
   // 再开单、再挂号（Task 3 已建）。若这一行早已有未挂单的定性（旧数据/被取消的），
   // 后端沿用 heldDispositionNo 路径覆盖——前端无需特判（交接清单⑤）。
   const openAdjustKind = (row: FlowComparisonRow, kind: 'CORRECT' | 'REVERSE' | 'RECORD') => {
-    setCreatePrefill(rowAdjustmentPrefill(row));
+    const ap = row.adjustmentPrefill;
+    if (!ap) return; // 按钮只在带 dispositions 的行上渲染——守卫与 openWriteOff 同款
+    setCreatePrefill(prefillFromRow(row, ap));
     setAdjustLocked(null);
     setAdjustKind({ kind, row });
   };
@@ -897,7 +860,9 @@ const ReconciliationCasesDetailPage = () => {
     setFindingPicker(null);
     if (!kase) return;
     if (kind === 'REATTRIBUTE') {
-      setCreatePrefill(rowAdjustmentPrefill(row));
+      const ap = row.adjustmentPrefill;
+      if (!ap) return;
+      setCreatePrefill(prefillFromRow(row, ap));
       setAdjustLocked(buildAdjustLocked(
         { dispositionNo: result.dispositionNo, family: 'REATTRIBUTE', reasonCode: 'CUSTOMER_REATTRIBUTION', direction: undefined, directionNote: directionNoteFor(row.matchType), row },
         kase.caseNo,
@@ -1084,22 +1049,19 @@ const ReconciliationCasesDetailPage = () => {
     ? `/admin/ledger/flows?walletRef=${encodeURIComponent(kase.walletRef)}`
     : null;
 
-  // Task 7: 开单表单要的是 CLIENT|FIRM 二选一——与后端 createDraft 同款归一化
-  // （kase.book === 'FIRM' ? 'FIRM' : 'CLIENT'，adjustment.service.ts），legacy
-  // 非 wallet 案件 book=null 时落 CLIENT。两边归一化写法必须一致，否则表单让选的
-  // 成因，后端会用不同的账簿去校验，出现「表单选得进去，提交却 400」。
-  const adjustmentBook: AdjustmentBook = kase.book === 'FIRM' ? 'FIRM' : 'CLIENT';
+  // 波四：CLIENT|FIRM 归一化由后端随 case 下发（createDraft 同一句），前端不再镜像。
+  const adjustmentBook: AdjustmentBook = kase.adjustmentBook;
 
   // Minor #5（终审）：结案后的超期天数要在结案那一刻冻结，不能继续跟着 Date.now() 涨。
   const agingReferenceMs = kase.status === 'RESOLVED' && kase.resolvedAt ? new Date(kase.resolvedAt).getTime() : Date.now();
 
   // Task 8（Hero 结论句）：残差已被哪些落账调账单解释掉的金额合计——只数
-  // explainedByAdjustmentNo 非空的行，金额用与「开单」预填同一份 rowAdjustmentPrefill
-  // 算出的 amountMinor（mismatch 取差额、orphan 取该行本身金额），避免结论句这里
-  // 另算一套出现分歧。整数最小单位字符串求和用 BigInt——金额不含小数点，安全。
+  // explainedByAdjustmentNo 非空的行，金额读行上 adjustmentPrefill——与开单同一个数
+  // （mismatch 取差额、orphan 取该行本身金额），避免结论句这里另算一套出现分歧。
+  // 整数最小单位字符串求和用 BigInt——金额不含小数点，安全。
   const explainedSumMinor = (kase.flowComparison ?? [])
     .filter((r) => r.explainedByAdjustmentNo)
-    .reduce((sum, r) => sum + BigInt(rowAdjustmentPrefill(r).amountMinor || '0'), 0n)
+    .reduce((sum, r) => sum + BigInt(r.adjustmentPrefill?.amountMinor ?? '0'), 0n)
     .toString();
 
   // 平账三期（Task 12）：「升级事故」/「登记欠款」按钮的防重复入口——案子已经登记过

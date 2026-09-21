@@ -21,9 +21,9 @@
 // 「按处置进入」模式（props: kind + row，见 isKindMode）——原来「先 POST
 // /dispositions 记定性 → 再开本弹层自由填表」两段流已拆掉（案件页不再为这三族调
 // /dispositions），原因码单选来自 row.dispositions[kind].causes，方向/金额/生效日
-// 全部只读推导（deriveKindDirection），提交一次性走原子端点（causeCode+findingNote+
-// disposition+行事实，Task 3 已建）。`locked` 优先于 `kind`——REATTRIBUTE/WRITE_OFF
-// 两族仍走锁定视图，不受影响。
+// 全部只读（方向读行上 adjustmentPrefill.direction，波四起后端单一来源判死），
+// 提交一次性走原子端点（causeCode+findingNote+disposition+行事实，Task 3 已建）。
+// `locked` 优先于 `kind`——REATTRIBUTE/WRITE_OFF 两族仍走锁定视图，不受影响。
 import { useEffect, useState } from 'react';
 import { adminButtonClass } from './common/adminButtonStyles';
 import {
@@ -119,31 +119,11 @@ const CAUSE_CUSTOMER_LABEL: Record<string, string | null> = {
 };
 const FIRM_SIDE_CUSTOMER_NOTE = '(Firm-side entry; not visible to the customer)';
 
-// Task 8：方向推导——镜像后端 cause-registry.ts 的 signedDeltaSign/resolveOutlet 公式。
-// 原子路径下 record() 只校验「码是否归属所选处置」，不重算方向对不对——Direction 一旦
-// 在这个模式下锁定只读，就是唯一权威，算错会静默把钱记反、无人拦（交接清单原话）。
-// resolveOutlet 逐支验证过：这条公式只看 matchType（+ deltaSign/internalDirection/
-// externalDirection 行事实），与具体选中哪个原因码、甚至哪个 family（CORRECT/
-// REVERSE/RECORD）都无关——AMOUNT_MISMATCH 格三族共用 signedDeltaSign，
-// ORPHAN_INTERNAL 格（只有 REVERSE 落这格）共用内部方向取反，ORPHAN_EXTERNAL 格
-// （只有 RECORD 落这格）共用外部方向照搬。故不需要 kind/causeCode 入参。
-const deriveKindDirection = (row: FlowComparisonRow): AdjustmentDirection => {
-  const signedDeltaSign = (): 1 | -1 => {
-    const raw: 1 | -1 = row.deltaAmount?.startsWith('-') ? -1 : 1;
-    // 出账流水翻符号：提现内部记 90、银行实扣 100，原始差 +10，但这 10 是客户余额
-    // 多出来的，得减——与 cause-registry.ts signedDeltaSign 同一段推导。
-    return row.internalFlow?.direction === 'OUT' ? (raw === 1 ? -1 : 1) : raw;
-  };
-  if (row.matchType === 'AMOUNT_MISMATCH') return signedDeltaSign() === -1 ? 'REDUCE' : 'INCREASE';
-  if (row.matchType === 'ORPHAN_INTERNAL') return row.internalFlow?.direction === 'OUT' ? 'INCREASE' : 'REDUCE';
-  return row.externalLine?.direction === 'IN' ? 'INCREASE' : 'REDUCE'; // ORPHAN_EXTERNAL
-};
-
 // T9：处置弹层（Task 8）交回来的锁定态——成因/方向已由后端判死，这里只回显。
-// toCandidatesUrl 只在 family === 'REATTRIBUTE' 时有值（父组件按 row.matchType
-// 算好 side、按 rowAdjustmentPrefill 算好 amount 拼出的候选查询路径，见
-// ReconciliationCasesDetailPage.tsx buildAdjustLocked）——本组件不重算这两个值，
-// 避免「查候选用一个数、开单用另一个数」两处各算一遍出现分歧。
+// toCandidatesUrl 只在 family === 'REATTRIBUTE' 时有值（父组件读行上
+// adjustmentPrefill 拼出的候选查询路径，见 ReconciliationCasesDetailPage.tsx
+// buildAdjustLocked）——本组件不重算这两个值，避免「查候选用一个数、开单用另一个数」
+// 两处各算一遍出现分歧。
 export interface AdjustmentLocked {
   dispositionNo: string;
   family: string;
@@ -295,11 +275,11 @@ const ReconciliationAdjustmentCreateModal = ({
     if (!open) return;
     // Task 8：kind 模式——单选项直接预选（同 DispositionFindingModal 既有惯例，
     // menuFor 只剩一个选项时不用让人多点一次）；多选项留空，等人挑。方向不看选了
-    // 哪个原因码（同 family × matchType 组合下公式一致，见 deriveKindDirection 头
-    // 注释），行一到手就能算，不用等选码。
+    // 哪个原因码——行上 adjustmentPrefill.direction 已由后端判死，行一到手就能读，
+    // 不用等选码。
     const initialKindCause = isKindMode && kindCauses.length === 1 ? kindCauses[0].code : '';
     setReasonCode(locked ? (locked.reasonCode ?? 'CUSTOMER_REATTRIBUTION') : (isKindMode ? initialKindCause : ''));
-    setDirection(locked ? (locked.direction ?? '') : (isKindMode && row ? deriveKindDirection(row) : ''));
+    setDirection(locked ? (locked.direction ?? '') : (isKindMode && row ? (row.adjustmentPrefill?.direction ?? '') : ''));
     setAmountDisplay(prefill.amountMinor ? minorToDisplay(prefill.amountMinor, decimals) : '');
     setEffectiveDate(caseBusinessDate);
     // kind 模式：原单号不是手填的——同一条行的内部流水自带的业务单号（sourceNo），
@@ -326,9 +306,9 @@ const ReconciliationAdjustmentCreateModal = ({
     setReasonCustomer(CAUSE_CUSTOMER_LABEL[code] ?? FIRM_SIDE_CUSTOMER_NOTE);
   };
 
-  // T9 改记视图：打开时拉一次对端候选。toCandidatesUrl 由父组件按这一行的
-  // matchType 算好 side、按 rowAdjustmentPrefill 算好 amount 拼好——本组件原样
-  // fetch，不重算 side/amount（避免查候选与开单两处各算一遍出现分歧）。
+  // T9 改记视图：打开时拉一次对端候选。toCandidatesUrl 由父组件读这一行的
+  // adjustmentPrefill 拼好 side/amount——本组件原样 fetch，不重算 side/amount
+  // （避免查候选与开单两处各算一遍出现分歧）。
   useEffect(() => {
     if (!open || !isReattribute || !locked?.toCandidatesUrl) return;
     let cancelled = false;
@@ -641,7 +621,7 @@ const ReconciliationAdjustmentCreateModal = ({
                 // T9：方向本来就能从行推出来（差额符号 / 内外部流水方向），给人改
                 // 是错的——只读文本 + 一句推导依据（directionNote 由后端行事实
                 // 算出，见 causeRegistry.ts directionNoteFor）。Task 8：kind 模式同款
-                // 只读展示，值由 deriveKindDirection 在打开弹层时算好写进 state。
+                // 只读展示，值读行上 adjustmentPrefill.direction，打开弹层时写进 state。
                 <div className="mb-1 rounded border border-adm-border bg-adm-bg px-2.5 py-2 font-mono text-[11px] text-adm-t1">
                   {direction === 'REDUCE' ? 'Reduce' : direction === 'INCREASE' ? 'Increase' : '—'}
                 </div>
