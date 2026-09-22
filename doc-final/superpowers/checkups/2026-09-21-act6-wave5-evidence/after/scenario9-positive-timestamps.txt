@@ -1,0 +1,71 @@
+合并后场景 9 正向分支（自愈）实走 · 时间戳算式
+（承接 scenario9-timestamps.txt 波五负分支记录——本轮铺场时刻在迪拜 14:00 门槛内，
+ 故过门槛条件不成立，走的是正向"下期自然平"分支）
+
+案件：REC20260922-007（wallet WA2601014831 / walletRef 61aa8777-d83d-4b48-8325-60cc4e27729d，
+owner CU2601014381 = Grace，USDT-TRON，bucket=COMPENSATING，severity=LOW）
+差异行来源：DEP260922806154（内部行 1,200.000000 IN，无外部对应行——orphan internal）
+场景 9 外部行：shiftedLineId=6392d5b3-eff6-4807-875b-bfa15959a3c7
+  external_ref=0xbad6e8ca96d3e84bd3c1c2f37bbee3311d0dcfbc4334e6371213b2cbd390ea69
+
+── 铺场时刻（本轮实测）──
+主栈复位：build+prisma generate+down+rm dev.db+reset+up（全新库）
+demo:all 开始 UTC 2026-09-22T03:4x（详见 demo-all.log）
+recon:demo:break cutoff=2026-09-22T03:44:49.688Z（脚本打印）
+RUN20260922-1.cutoffAt（DB 实值）= 2026-09-22T03:44:50.892Z
+换算迪拜时刻：03:44:50.892Z + 4h = 2026-09-22 07:44:50.892（迪拜）
+—— 早于 script.md:193 要求的「迪拜 18:00（UTC 14:00）前铺」门槛，属"未过门槛"分支
+（本轮 UTC 铺场时刻 03:44 < 14:00 门槛，充裕）。
+
+── 三个关键时间戳（sqlite 直查）──
+1. 场景 9 外部行 shifted 时间戳（external_statement_lines.datetime，epoch ms 1790070289688）
+   = 2026-09-22T09:44:49.688Z（UTC）
+   = 2026-09-22T13:44:49.688（迪拜，+4h）
+   描述字段原文："Demo cutoff straddle — landed in the counterparty's NEXT business day"
+   （= 铺场 cutoff 03:44:49.688Z 按 §1.2 规则加 6h 偏移得到）
+
+2. 案件 businessDate（reconciliation_cases.businessDate，REC20260922-007）
+   D = toBusinessDate(cutoff) = date(cutoff + 4h) = date(2026-09-22T07:44:50.892Z) = 2026-09-22
+
+3. 业务日 D 的日终（endOfBusinessDate('2026-09-22')，business-date.util.ts 公式）
+   = D T19:59:59.999Z = 2026-09-22T19:59:59.999Z（UTC）
+   —— 与 RUN20260922-2.cutoffAt（DB 实值 1790107199999 = 2026-09-22T19:59:59.999Z）完全吻合，
+   证实 Re-reconcile 确实按业务日 D 的日终截止重跑（不是按"现在"重跑）。
+
+── 比较算式 ──
+shifted(2026-09-22T09:44:49.688Z) ≤ 日终(2026-09-22T19:59:59.999Z)
+  → 外部行落在业务日 D 的窗口【startOfBusinessDate(D), endOfBusinessDate(D)】之内
+  → 预测：Re-reconcile 按 D 日日终重跑会把该行纳入匹配窗口
+  → 预测结局：案子自愈 Resolved（"下期自然平"）
+
+── 实走结果（本轮实测，treasury@fiatx.com）──
+1. Hold · Next period 定性：选「Cross-period timing」，填查证说明，Record hold
+   → 徽标 "Finding: Cross-period timing → Hold · Next period · ADM2501010011 09-22"
+   → 案子状态仍 Open（红），Bucket Compensating
+   → 截图 after/scenario9-positive-1-hold.png
+2. Re-reconcile（点击后新 run 落库）
+   → LAST RE-CHECKED 变为 RUN20260922-2（Sep 22, 07:49 · closed，迪拜本地显示）
+   → Case Status 变为 Resolved；Updated 2026/9/22 07:49:36（迪拜本地）= 2026-09-22T03:49:36.819Z（UTC）
+   → BALANCE EXPLAINED：Internal 1,412.656912 == External 1,412.656912，Difference 0.000000，
+     Unexplained 0.000000 "explained"
+   → 截图 after/scenario9-positive-2-resolved.png
+
+── DB 层复核（不只信 UI）──
+reconciliation_runs 两轮对比：
+  RUN20260922-1: triggerType=SCHEDULED walletCount=19 matched=7 inTransit=1 softFlag=2 break=9
+                 opened=12 reObserved=0 closed=0  cutoffAt=2026-09-22T03:44:50.892Z
+  RUN20260922-2: triggerType=MANUAL    walletCount=19 matched=8 inTransit=1 softFlag=1 break=9
+                 opened=0  reObserved=11 closed=1  cutoffAt=2026-09-22T19:59:59.999Z
+  → matchedCount 7→8（+1）、softFlagCount 2→1（-1）、closedCount=1：
+    唯一从 OPEN 转出的案子即 REC20260922-007（reconciliation_cases 全表核对，
+    status != 'OPEN' 只有这一条，status=RESOLVED，updatedAt=2026-09-22T03:49:36.819Z）。
+  → break=9 两轮不变（其余 9 张真断案未受影响，不是全表误判成绿）。
+
+── 判据核验 ──
+结局（自愈 Resolved）与时间戳算式（shifted ≤ 日终）一致 —— 验收通过。
+本轮属 script.md:193 明文预判的「铺场未过 UTC 14:00 门槛」分支：Re-reconcile 按业务日 D 的
+日终（非"现在"）重跑，把场景 9 的跨账期外部行收回匹配窗口，wallet 从 softFlag 转 matched，
+案子唯一地从 OPEN 转为 RESOLVED——这就是"下期自然平"的正向分支，与波五 2026-09-21 记录的
+负向分支（scenario9-timestamps.txt，铺场过门槛、shifted 落入 D+1、Re-reconcile 仍红）互为对照，
+两轮合起来完整覆盖场景 9 的两个分支。
+BACKLOG §G 波五终审登记的"场景 9 正向分支待合并后补走"，本轮实走收口。

@@ -205,7 +205,7 @@ Last Updated: 2026-09-21（第六幕波五文档收口：销 6（:128 划转腿�
 
 - [ ] **跨钱包合成案件（`walletRef` 为空）不能记定性、不能开调账单**：`ReconciliationCase.walletRef` 可空，但 `ReconciliationDisposition` / `ReconciliationAdjustment` 的同名列不可空——波一摘类型逃逸时暴露（此前由 `(this.prisma as any)` 盖住，真撞上会在运行期炸成 Prisma 校验错）。波一已补显式 400 拒绝，**但"这类案子该怎么处置"业务上没有答案**：现状是开了案子却一个处置都点不了。需业主定：① 这类案子本来就不该开？② 还是该给它一套自己的处置？｜来源: 2026-09-19 清残留波一 Task 6
 
-- [ ] **场景 9 正向分支（自愈）本波未实走，只走了负向分支**：场景 9 完整剧本是 UTC 14:00 / 迪拜 18:00 前铺场 → Hold·Next period → Re-reconcile → 外部行被迪拜日终收回、案子自愈；本波（波五）铺场时刻只覆盖了负向分支的实测截图，正向分支因铺场时刻错过迪拜日终窗口未能实走。合并后在 main 栈任一上午（迪拜日终窗口内）补走一次场景 9 正向分支并截图归档 evidence ｜来源: 波五终审 Important #2
+- [x] ~~**场景 9 正向分支（自愈）本波未实走，只走了负向分支**：场景 9 完整剧本是 UTC 14:00 / 迪拜 18:00 前铺场 → Hold·Next period → Re-reconcile → 外部行被迪拜日终收回、案子自愈；本波（波五）铺场时刻只覆盖了负向分支的实测截图，正向分支因铺场时刻错过迪拜日终窗口未能实走。合并后在 main 栈任一上午（迪拜日终窗口内）补走一次场景 9 正向分支并截图归档 evidence ｜来源: 波五终审 Important #2~~ —— **已补走**（2026-09-22 主栈合并后复位）：UTC 03:44 铺场（未过 14:00 门槛）→ REC20260922-007（Grace USDT）Hold·Next period（Cross-period timing）→ Re-reconcile（RUN20260922-2，cutoffAt 实测=业务日日终 2026-09-22T19:59:59.999Z）→ 案子唯一地从 OPEN 转 RESOLVED（matchedCount 7→8、softFlagCount 2→1，reconciliation_cases 全表核对仅此一条转出 OPEN）；证据 `doc-final/superpowers/checkups/2026-09-21-act6-wave5-evidence/after/scenario9-positive-{1-hold,2-resolved}.png` + `scenario9-positive-timestamps.txt`
 
 ## H. 第七幕 · 事后说得清（审计追溯）
 
