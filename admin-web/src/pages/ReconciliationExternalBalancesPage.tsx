@@ -77,9 +77,11 @@ const ReconciliationExternalBalancesPage = () => {
   const fetchList = async (d: string) => {
     setLoadingList(true);
     try {
-      const url = new URL(`${import.meta.env.VITE_API_URL}/admin/reconciliation/external-balances`);
-      url.searchParams.set('cutoffDate', d);
-      const res = await adminFetch(url.toString());
+      // 不用 new URL()：云端构建的 VITE_API_URL 是相对路径（/api），无 base 会抛
+      // Invalid URL——本地绝对 URL 掩盖了这一点（2026-09-22 云端实证）。照下方
+      // Task 15 探测请求的字符串拼接写法。
+      const url = `${import.meta.env.VITE_API_URL}/admin/reconciliation/external-balances?cutoffDate=${encodeURIComponent(d)}`;
+      const res = await adminFetch(url);
       if (res.ok) setRows((await res.json()) as ExternalBalanceRow[]);
       else alert(await getApiErrorMessage(res, 'Failed to load external balances'));
     } catch (e) {
@@ -127,9 +129,9 @@ const ReconciliationExternalBalancesPage = () => {
     setLoadingDetail(true);
     setExpanded(new Set());
     try {
-      const url = new URL(`${import.meta.env.VITE_API_URL}/admin/reconciliation/external-balances/${encodeURIComponent(walletNo)}`);
-      url.searchParams.set('date', d);
-      const res = await adminFetch(url.toString());
+      // 同上：禁 new URL()，相对 VITE_API_URL 下会抛 Invalid URL。
+      const url = `${import.meta.env.VITE_API_URL}/admin/reconciliation/external-balances/${encodeURIComponent(walletNo)}?date=${encodeURIComponent(d)}`;
+      const res = await adminFetch(url);
       if (res.ok) setDetail((await res.json()) as ExternalBalanceDetail);
       else { setDetail(null); alert(await getApiErrorMessage(res, 'Failed to load wallet statement')); }
     } catch (e) {
