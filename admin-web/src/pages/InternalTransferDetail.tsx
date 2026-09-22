@@ -70,7 +70,7 @@ const InternalTransferDetail = () => {
       if (res.ok) setDetail((await res.json()) as Detail);
       else {
         alert(await getApiErrorMessage(res, 'Failed to load internal transfer'));
-        navigate('/admin/treasury/internal-transfers');
+        navigate('/admin/custody/internal-transfers');
       }
     } catch (e) {
       if (e instanceof AdminSessionError) return;
@@ -125,7 +125,7 @@ const InternalTransferDetail = () => {
       <DetailPageHeader
         title="Internal Transfer"
         subtitle={detail.transferNo}
-        onBack={() => navigate('/admin/treasury/internal-transfers')}
+        onBack={() => navigate('/admin/custody/internal-transfers')}
         onRefresh={() => void fetchDetail()}
         refreshing={loading}
         backLabel="Internal Transfers"

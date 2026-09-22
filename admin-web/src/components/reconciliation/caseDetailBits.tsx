@@ -36,7 +36,7 @@ export const SOURCE_TYPE_HREF: Record<string, (no: string) => string> = {
   DEPOSIT: (no) => `/admin/trading/deposits?depositNo=${encodeURIComponent(no)}`,
   WITHDRAWAL: (no) => `/admin/trading/withdrawals?withdrawNo=${encodeURIComponent(no)}`,
   SWAP: (no) => `/admin/trading/swaps?swapNo=${encodeURIComponent(no)}`,
-  INTERNAL_TRANSFER: (no) => `/admin/treasury/internal-transfers/${encodeURIComponent(no)}`,
+  INTERNAL_TRANSFER: (no) => `/admin/custody/internal-transfers/${encodeURIComponent(no)}`,
   RECON_ADJUSTMENT: (no) => `/admin/reconciliation/adjustments/${encodeURIComponent(no)}`,
 };
 

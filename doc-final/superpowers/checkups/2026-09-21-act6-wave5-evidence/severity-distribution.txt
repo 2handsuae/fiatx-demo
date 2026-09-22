@@ -1,0 +1,32 @@
+波五 Task 0 · 严重度取数（波前基线，Task 5 的取数输入）
+取数时间: 2026-09-21 (worktree act6_wave5, self 栈 DB /tmp/exchange_js_wt_act6_wave5/dev.db)
+取数命令:
+  DATABASE_URL="file:/tmp/exchange_js_wt_act6_wave5/dev.db" npx ts-node -r tsconfig-paths/register -e "
+  const { PrismaClient } = require('@prisma/client');
+  (async () => {
+    const p = new PrismaClient();
+    const cases = await p.reconciliationCase.findMany({ select: { caseNo: true, assetCode: true, deltaAmount: true, severity: true } });
+    for (const c of cases) console.log([c.assetCode, c.deltaAmount.toString(), c.severity, c.caseNo].join('\t'));
+    await p.$disconnect();
+  })();"
+取数前提：先 rm dev.db → stack.sh reset → stack.sh up → on-stack self demo:all → on-stack self recon:demo:break（12 案，18/18 场景全 DETECTED），确保读到的是纯净波前基线，不含 Task 0 Step 4 截图取证过程中额外跑出的活工作流状态（那一轮跑了 Alice USDT 案的完整 Hold→核销→CFO 批→补款划转→推单闭环，会多出第 13 张案子且案 -003 的 delta/severity 随之改变，此文件不用那一份，只用重铺后的纯净 12 案）。
+
+原始输出（assetCode / deltaAmount(最小单位) / severity / caseNo）：
+USDT-TRON	-7	LOW	REC20260921-001
+USDT-TRON	0	LOW	REC20260921-002
+USDT-TRON	-7500000	HIGH	REC20260921-003
+AED	-49800	HIGH	REC20260921-004
+USDT-TRON	61	LOW	REC20260921-005
+AED	-97	LOW	REC20260921-006
+USDT-TRON	0	LOW	REC20260921-007
+AED	63790135	HIGH	REC20260921-008
+USDT-TRON	-400000000	HIGH	REC20260921-009
+AED	-500000	HIGH	REC20260921-010
+AED	380000	HIGH	REC20260921-011
+AED	-930000	HIGH	REC20260921-012
+
+小结（各币种 |delta| 量级范围 + 现状三档分布，n=按币种案件数）：
+- USDT-TRON: n=6，|delta| 范围 [0, 400000000]（最小单位，decimals=6，即 0 ~ 400 USDT）——tiers HIGH=2 MEDIUM=0 LOW=4
+- AED: n=6，|delta| 范围 [97, 63790135]（最小单位，decimals=2，即 0.97 ~ 637,901.35 AED）——tiers HIGH=5 MEDIUM=0 LOW=1
+
+现状观察（供 Task 5 定阈值参考）：两个币种目前都是 MEDIUM 档完全塌空（0 案）——不是"全塌 LOW"而是"LOW/HIGH 两极分化、中间档空"。USDT-TRON 的 LOW 档四案 |delta| 都 ≤ 61（近乎归零噪声），HIGH 档两案跳到 750 万/4 亿量级（7.5 USDT / 400 USDT 出头，注意 decimals=6 故实际金额远小于看起来的最小单位数字）；AED 的 LOW 档仅一案 0.97 AED，HIGH 档五案从 498 AED 到 637,901.35 AED 跨度极大。若 Task 5 想在种子分布里露出 MEDIUM 档演示密度，两币种都需要在现有 LOW 上沿与 HIGH 下沿之间插入一条线，而不是简单下移现有两条线（现有两条线之间目前是空的，下移会让 HIGH 线越过更多案子而不是新增 MEDIUM 案子——按 spec §2.2 规则「按同一系数整体下移」具体怎么定，留给 Task 5 对照这份数据判断）。

@@ -193,6 +193,13 @@ describe('PushOrderService', () => {
     await expect(s2.syncPush('FO-1', 'a')).rejects.toThrow(BadRequestException);
   });
 
+  // Task 7：划转腿由划转工作流推进，无本页替代端点——镜像既有 swap-leg 拒斥用例。
+  it('rejects internal-transfer-leg orders (push order is not supported for them)', async () => {
+    const { svc } = build({ order: makeOrder({ internalTransferId: 'itr-1' }) });
+    await expect(svc.syncPush('FO-1', 'a')).rejects.toThrow(BadRequestException);
+    await expect(svc.syncPush('FO-1', 'a')).rejects.toThrow(/transfer workflow/);
+  });
+
   it('driveToCleared rethrows non-transition advance errors (e.g. row deleted) — not masked as "no legal advance action"', async () => {
     // M-1: a narrowed catch only continues on "Invalid transition"; a NotFound (row vanished mid-drive)
     // must propagate verbatim, not be swallowed into the generic "no legal advance" BadRequest.

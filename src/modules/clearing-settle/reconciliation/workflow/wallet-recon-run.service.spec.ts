@@ -57,18 +57,32 @@ function makeDeps(overrides: any = {}) {
   };
   const tbAccountRegistry = { findMany: jest.fn().mockResolvedValue([]) };
   // canonical-minor: run body batch-loads asset.decimals per currency
-  // (asset.findMany). Default → empty so decimalsByCurrency.get(...) ?? 0
-  // yields 0 (identity 元→分) for these fully-stubbed matcher tests.
+  // (asset.findMany). decimals default → 0 (identity 元→分) for these
+  // fully-stubbed matcher tests — decimalsByCurrency.get(...) ?? 0 covers
+  // the actual fallback, this mock just never sends a nonzero value.
   // findFirst kept for resolveAssetId callers that aren't spied over.
+  // 波五 T5：severity 按 asset.currency 索引，但 run() 传给 severity 的
+  // key 实存 asset.code——这些测试里 currency 字段直接用裸币种字符串
+  // （'USDT'/'AED'，见各用例 external balance 行），本就等于真实币种，
+  // 故默认 code→currency 自映射（fail-fast 的 assetCurrencyByCode.get(...)
+  // 需要这条映射才查得到，否则每个开案用例都会在 run() 里当场 throw）。
   const asset = {
-    findMany: jest.fn().mockResolvedValue([]),
+    findMany: jest.fn(async ({ where }: any = {}) => {
+      const codes: string[] = where?.code?.in ?? [];
+      return codes.map((code) => ({ code, decimals: 0, currency: code }));
+    }),
     findFirst: jest.fn().mockResolvedValue(null),
   };
+  // 波五 T8：ReconciliationCaseService 的开案/自愈审计现经 resolveWalletNo 查
+  // wallet 表换 walletNo——这些用例不断言 audit.metadata.walletNo 具体值，
+  // 给个固定回显即可，避免 undefined.findUnique 炸穿。
+  const wallet = { findUnique: jest.fn().mockResolvedValue({ walletNo: 'WA-STUB' }) };
 
   const prisma: any = {
     $transaction: jest.fn(async (cb: any) => cb(prisma)),
     reconciliationRun,
     reconciliationCase,
+    wallet,
     reconciliationLineItem,
     reconciliationRunWallet,
     externalBalance,
@@ -163,6 +177,12 @@ describe('WalletReconRunService', () => {
     expect(result.walletsChecked).toBe(0);
     expect(deps.balanceChecker.checkBalance).not.toHaveBeenCalled();
     expect(deps.flowMatcher.matchFlows).not.toHaveBeenCalled();
+    // 波五 T6：写入语义——只有 INTERNAL_BREAK（恒等预门破裂）才写 invariantStatus:'FAIL'，
+    // 前端靠这个字段判断要不要藏五卡/钱包表、拉红横幅。
+    const updateCall = (deps.prisma.reconciliationRun.update as jest.Mock).mock.calls.find(
+      ([arg]: any) => arg.data.status === 'COMPLETED',
+    );
+    expect(updateCall[0].data.invariantStatus).toBe('FAIL');
   });
 
   it('one wallet balance mismatch → 1 case opened, status=BREAK', async () => {
@@ -206,6 +226,12 @@ describe('WalletReconRunService', () => {
         }),
       }),
     );
+    // 波五 T6：普通 BREAK（每钱包比对跑过、发现破口）不是恒等预门破裂——
+    // invariantStatus 仍写 'PASS'，与 status:'BREAK' 是两条独立的轴。
+    const updateCall = (deps.prisma.reconciliationRun.update as jest.Mock).mock.calls.find(
+      ([arg]: any) => arg.data.status === 'COMPLETED',
+    );
+    expect(updateCall[0].data.invariantStatus).toBe('PASS');
   });
 
   it('wallet has flow orphan_internal → case opened with line items', async () => {
@@ -669,27 +695,43 @@ describe('WalletReconRunService', () => {
       expect(c.bucket).toBe('BREAK');
     });
 
-    it('severity bucketing: delta>=10000 → HIGH, >=100 → MEDIUM, else LOW', async () => {
+    it('severity bucketing（波五 T5，按币种线）: AED med=10_000n/high=1_000_000n；USDT med=30_000_000n/high=3_000_000_000n', async () => {
       const cases = [
-        { delta: 15_000n, expected: 'HIGH' },
-        { delta: -15_000n, expected: 'HIGH' },
-        { delta: 500n, expected: 'MEDIUM' },
-        { delta: -100n, expected: 'MEDIUM' },
-        { delta: 10n, expected: 'LOW' },
-        { delta: 0n, expected: 'LOW' },
+        { currency: 'AED', delta: 1_500_000n, expected: 'HIGH' },
+        { currency: 'AED', delta: -1_500_000n, expected: 'HIGH' },
+        { currency: 'AED', delta: 500_000n, expected: 'MEDIUM' },
+        { currency: 'AED', delta: -10_000n, expected: 'MEDIUM' },
+        { currency: 'AED', delta: 5_000n, expected: 'LOW' },
+        { currency: 'AED', delta: 0n, expected: 'LOW' },
+        { currency: 'USDT', delta: 4_000_000_000n, expected: 'HIGH' },
+        { currency: 'USDT', delta: -4_000_000_000n, expected: 'HIGH' },
+        { currency: 'USDT', delta: 50_000_000n, expected: 'MEDIUM' },
+        { currency: 'USDT', delta: -30_000_000n, expected: 'MEDIUM' },
+        { currency: 'USDT', delta: 1_000_000n, expected: 'LOW' },
+        { currency: 'USDT', delta: 0n, expected: 'LOW' },
       ] as const;
 
       // Pure unit test of the exported helper — no run plumbing needed.
       const { computeSeverity } = await import('./wallet-recon-run.service');
       for (const tc of cases) {
-        expect(computeSeverity(tc.delta)).toBe(tc.expected);
+        expect(computeSeverity(tc.currency, tc.delta)).toBe(tc.expected);
       }
+
+      // 跨币种可比性：等值锚 100 AED ↔ 30 USDT（med 线）与 10,000 AED ↔ 3,000
+      // USDT（high 线）——同一量级下两币种落同档，单一阈值跨币种硬套已不再成立。
+      expect(computeSeverity('AED', 10_000n)).toBe('MEDIUM');
+      expect(computeSeverity('USDT', 30_000_000n)).toBe('MEDIUM');
+      expect(computeSeverity('AED', 1_000_000n)).toBe('HIGH');
+      expect(computeSeverity('USDT', 3_000_000_000n)).toBe('HIGH');
+
+      // 未注册币种 fail-fast，不静默兜底。
+      expect(() => computeSeverity('BTC', 1n)).toThrow(/Severity lines not registered/);
 
       // And one round-trip through the upsert path to prove severity lands
       // on the persisted Case row.
       const harness = makeRunHarness();
       const cutoff = new Date('2026-06-26T23:59:59Z');
-      const { svc } = harness.drive({ cutoff, breakingWallet: { walletRef: 'w-sev-1', assetCode: 'USDT', delta: 15_000n } });
+      const { svc } = harness.drive({ cutoff, breakingWallet: { walletRef: 'w-sev-1', assetCode: 'AED', delta: 1_500_000n } });
       await svc.run({ cutoff });
       const c: any = Array.from(harness.getStore().values())[0];
       expect(c.severity).toBe('HIGH');
@@ -812,9 +854,9 @@ describe('平账 A 批：开案设账龄截止（spec §2.1）', () => {
     await svc.run({ cutoff: new Date('2026-09-01T10:00:00Z') });
 
     const created = deps.prisma.reconciliationCase.create.mock.calls[0][0].data;
-    expect(created.slaDeadline.toISOString()).toBe('2026-09-04T23:59:59.999Z');
+    expect(created.slaDeadline.toISOString()).toBe('2026-09-04T19:59:59.999Z');
     const opened = deps.auditLogs.recordSystem.mock.calls.find((c: any[]) => c[0].action === 'RECON_CASE_OPENED')![0];
-    expect(opened.metadata.slaDeadline).toBe('2026-09-04T23:59:59.999Z');
+    expect(opened.metadata.slaDeadline).toBe('2026-09-04T19:59:59.999Z');
   });
   it('既有 OPEN 案件被复观察——update 的 data 不带 slaDeadline、也不新建 case（spec §2.1 复观察不重置）', async () => {
     const deps = makeDeps();

@@ -81,6 +81,7 @@ interface FundsOrderDetail {
   fromWallet: FoWallet | null;
   toWallet: FoWallet | null;
   swapTransactionId?: string | null;
+  internalTransferId?: string | null;
   deposit?: FoParent | null;
   withdrawTransaction?: FoParent | null;
   swapTransaction?: FoParent | null;
@@ -165,7 +166,7 @@ const resolveParent = (
       kind: 'Internal transfer',
       no: data.internalTransfer.transferNo,
       status: data.internalTransfer.status ?? '',
-      route: '/admin/treasury/internal-transfers/' + data.internalTransfer.transferNo,
+      route: '/admin/custody/internal-transfers/' + data.internalTransfer.transferNo,
     };
   }
   return null;
@@ -356,13 +357,17 @@ const FundsOrderDetail = () => {
   const parentLinkAllowed =
     !parent || parent.kind !== 'Internal transfer' || hasPermission(PERMISSIONS.INTERNAL_TRANSFERS_READ);
 
-  // 平账·推单处置门控（Task 4）：swap 腿走 Swap 详情页逐腿推进（顺序守卫），
-  // 本区不渲染；终态无可推进。两条件与后端 loadPushable 拒绝语义一致。
+  // 平账·推单处置门控（Task 4；Task 7 补划转腿）：swap 腿走 Swap 详情页逐腿推进
+  // （顺序守卫，本页 ⚡ 模拟面板的 isSwap 分支也走同一个 swap advance 端点——本页
+  // 已经给了替代驱动方式），故静默隐藏、不再另加说明；划转腿由划转工作流自驱推进，
+  // 本页没有任何替代端点（无 isSwap 那种分支），静默隐藏会像死路，故改为显式渲染一行
+  // 说明（见下方 isTransferLeg 分支）。三条件与后端 loadPushable 拒绝语义一致。
   const isSwapLeg = !!data.swapTransactionId || !!data.swapNo;
+  const isTransferLeg = !!data.internalTransferId;
   const isTerminalStatus = ['CLEARED', 'FAILED', 'TIMEOUT'].includes(
     String(data.status || '').toUpperCase(),
   );
-  const canPush = canAct && !isSwapLeg && !isTerminalStatus;
+  const canPush = canAct && !isSwapLeg && !isTransferLeg && !isTerminalStatus;
 
   const decimals = data.asset?.decimals;
   const assetCode = data.asset?.code || data.asset?.currency || '—';
@@ -603,6 +608,17 @@ const FundsOrderDetail = () => {
               </button>
               <p className="mt-2 text-[10px] leading-relaxed text-adm-t3">
                 Push to a terminal state so the next reconciliation run closes this case. Sync: auto-advances from the unique receipt. Manual: force-advances with the evidence trio.
+              </p>
+            </SidebarGroup>
+          )}
+
+          {/* Task 7：划转腿——推单动作块隐藏，原位说明改走划转工作流（见上方
+              isTransferLeg 注释）；与 Sync/Manual 区互斥（canPush 已排除
+              isTransferLeg），不会同屏出现。 */}
+          {isTransferLeg && (
+            <SidebarGroup title="Actions">
+              <p className="text-[10px] leading-relaxed text-adm-t3">
+                Internal-transfer leg — advanced by the transfer workflow; see the linked transfer.
               </p>
             </SidebarGroup>
           )}

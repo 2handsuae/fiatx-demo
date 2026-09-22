@@ -12,6 +12,7 @@ import {
 import { FundsOrderService } from '../../../funds-orders/funds-order.service';
 import { FundsOrderAction, FundsOrderStatus } from '../../../funds-orders/dto/funds-order.dto';
 import { ReceiptLookupService, PushableOrderView } from './receipt-lookup.service';
+import { toBusinessDate } from '../../../accounting/tigerbeetle/utils/business-date.util';
 
 // A3(2026-08-13):推单只把资金单推到 CONFIRMED 就停手，**不再自己 CLEAR**。
 // 原因:CLEAR 是 workflow 记完账之后的产物,不是一个可以外部驱动的推进动作。推单一口气
@@ -107,6 +108,11 @@ export class PushOrderService {
         'Swap-leg funds orders must be advanced leg by leg from the Swap detail page (sequence guard) — push order is not supported for them this round',
       );
     }
+    if (order.internalTransferId) {
+      throw new BadRequestException(
+        'Internal-transfer-leg funds orders are advanced by the transfer workflow — push order is not supported for them; open the internal transfer detail page instead',
+      );
+    }
     if (TERMINAL.has(order.status)) {
       throw new BadRequestException(`FundsOrder ${fundsOrderNo} is already in a terminal state (${order.status}) — nothing to advance`);
     }
@@ -115,7 +121,7 @@ export class PushOrderService {
 
   /**
    * 真实资金单行 → 归一化回执视图。direction 由 deposit/withdraw FK 派生（swap 已在
-   * loadPushable 拒绝）；IN 用贷记钱包 toWalletId、OUT 用借记钱包 fromWalletId
+   * loadPushable 拒绝，transfer 腿同）；IN 用贷记钱包 toWalletId、OUT 用借记钱包 fromWalletId
    * （与 findNonTerminalByWallet 的方向约定一致）；externalRefs 取三字段
    * [txHash, referenceNo, providerTxnId].filter(Boolean)，与对账 matcher refsOf 同源。
    */
@@ -201,9 +207,9 @@ export class PushOrderService {
 
   private assertValidExternalDate(d: string, orderCreatedAt: Date) {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) throw new BadRequestException('External value date must be in YYYY-MM-DD format');
-    const today = new Date().toISOString().slice(0, 10);
+    const today = toBusinessDate(new Date());
     if (d > today) throw new BadRequestException('External value date cannot be in the future');
-    if (d < orderCreatedAt.toISOString().slice(0, 10)) {
+    if (d < toBusinessDate(orderCreatedAt)) {
       throw new BadRequestException('External value date cannot be earlier than the order creation date');
     }
   }

@@ -85,7 +85,7 @@ const fmt = (v?: string | null): string => {
 const remediationLink = (kind: string, referenceNo: string): string | null => {
   switch (kind) {
     case 'ADJUSTMENT': return `/admin/reconciliation/adjustments/${encodeURIComponent(referenceNo)}`;
-    case 'TRANSFER': return `/admin/treasury/internal-transfers/${encodeURIComponent(referenceNo)}`;
+    case 'TRANSFER': return `/admin/custody/internal-transfers/${encodeURIComponent(referenceNo)}`;
     case 'SUPPLEMENT':
     case 'CLAIM': return `/admin/trading/deposits?keyword=${encodeURIComponent(referenceNo)}`;
     default: return null;
@@ -264,7 +264,7 @@ const IncidentDetailPage = () => {
                 label="Source Advance Transfer"
                 value={detail.sourceAdvanceTransferNo}
                 mono
-                link={`/admin/treasury/internal-transfers/${encodeURIComponent(detail.sourceAdvanceTransferNo)}`}
+                link={`/admin/custody/internal-transfers/${encodeURIComponent(detail.sourceAdvanceTransferNo)}`}
               />
             )}
             <InfoField

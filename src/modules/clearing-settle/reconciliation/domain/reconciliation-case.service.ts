@@ -200,6 +200,7 @@ export class ReconciliationCaseService {
 
   // ── Audit (DI — never `new AuditLogsService`) ─────────────────────────────
   private async auditCaseOpened(input: { traceId: string | null; walletRef: string; bucket: ReconBucket; delta: bigint; caseNo: string; slaDeadline: Date }): Promise<void> {
+    const walletNo = await resolveWalletNo(this.prisma, input.walletRef);
     await this.auditLogs.recordSystem({
       action: 'RECON_CASE_OPENED',
       actionDomain: 'RECON',
@@ -212,7 +213,7 @@ export class ReconciliationCaseService {
       traceId: input.traceId ?? undefined,
       requestId: `RECON_CASE_OPENED_${input.caseNo}_${randomUUID()}`,
       metadata: {
-        walletRef: input.walletRef,
+        walletNo,
         bucket: input.bucket,
         deltaAmount: input.delta.toString(),
         caseNo: input.caseNo,
@@ -222,6 +223,7 @@ export class ReconciliationCaseService {
   }
 
   private async auditCaseAutoHealed(input: { traceId: string | null; walletRef: string; caseNo: string }): Promise<void> {
+    const walletNo = await resolveWalletNo(this.prisma, input.walletRef);
     await this.auditLogs.recordSystem({
       action: 'RECON_CASE_AUTO_HEALED',
       actionDomain: 'RECON',
@@ -233,7 +235,7 @@ export class ReconciliationCaseService {
       ],
       traceId: input.traceId ?? undefined,
       requestId: `RECON_CASE_AUTO_HEALED_${input.caseNo}_${randomUUID()}`,
-      metadata: { walletRef: input.walletRef, caseNo: input.caseNo },
+      metadata: { walletNo, caseNo: input.caseNo },
     });
   }
 }

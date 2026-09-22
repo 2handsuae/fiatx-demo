@@ -11,7 +11,7 @@ export class ReconCaseQueryDto {
   @IsOptional() @IsString() status?: string;
   @IsOptional() @IsString() assetCode?: string;
   @IsOptional() @IsString() runNo?: string;  // filter to cases touched by a specific run
-  // T6: filter by five-bucket classification (Round3) — IN_TRANSIT | COMPENSATING | BREAK.
+  // T6: filter by four-bucket classification (Round3) — IN_TRANSIT | COMPENSATING | BREAK.
   @IsOptional() @IsIn(['IN_TRANSIT', 'COMPENSATING', 'BREAK']) bucket?: string;
 }
 export class ReconExternalBalanceQueryDto {
@@ -28,7 +28,7 @@ export class ReconExternalBalanceQueryDto {
 // All numeric fields are serialised as strings to dodge JSON BigInt issues.
 // ─────────────────────────────────────────────────────────────────────────────
 
-// Round3 five-bucket classification (T4 bucket-classifier). MATCHED doesn't
+// Round3 four-bucket classification (T4 bucket-classifier). MATCHED doesn't
 // open a Case; the other three do. Replaces the old three-tier
 // MATCH/FLOW_REVIEW/BREAK status (T6 — getRun now reads the run-wallet
 // snapshot table instead of recomputing via the balance checker).
@@ -60,7 +60,7 @@ export interface AccountStatusRow {
 }
 
 export interface RunDetailSummary {
-  // Round3 five-bucket wallet counts, taken straight from the run row
+  // Round3 four-bucket wallet counts, taken straight from the run row
   // (ReconciliationRun.walletCount/matchedCount/inTransitCount/softFlagCount/
   // breakCount) — no per-wallet recompute.
   walletCount: number;
@@ -216,7 +216,9 @@ export interface FlowComparisonRow {
     customerNo?: string | null; walletNo?: string | null;
     available?: string; lineAmount?: string; // ADVANCE：客户可用 / 账单行金额（最小单位）
   };
-  // 平账二期：这条差异行牵出的划转单（补款 / 垫款）回挂——只在客户账簿行上出现
+  // 平账二期：这条差异行牵出的划转单（补款 / 垫款）回挂——只在客户账簿行上出现。
+  // Task 7：IN_TRANSIT 行也复用同一字段——该行背后的资金单若本身就是一条划转腿
+  // （internalTransferId 非空），这里回填对应划转单，供前端优先渲染「Transfer leg →」。
   transfer?: { transferNo: string; purpose: string; status: string } | null;
 }
 

@@ -1,0 +1,145 @@
+Task 9：划转路由前缀统一 custody/ —— 证据文件
+2026-09-21 · worktree act6_wave5 · self 栈 backend=3100 admin=3101 client=3102 tb=3103
+
+======================================================================
+Step 1：改前清点
+======================================================================
+
+$ grep -rn "treasury/internal-transfers" admin-web/src client-web/src --include="*.ts" --include="*.tsx" | wc -l
+13
+
+$ grep -rn "treasury/internal-transfers" admin-web/src client-web/src --include="*.ts" --include="*.tsx"
+admin-web/src/App.tsx:227:            <Route path="treasury/internal-transfers" element={withPermission(<InternalTransferList />, [PERMISSIONS.INTERNAL_TRANSFERS_READ])} />
+admin-web/src/App.tsx:228:            <Route path="treasury/internal-transfers/:transferNo" element={withPermission(<InternalTransferDetail />, [PERMISSIONS.INTERNAL_TRANSFER_DETAIL_READ])} />
+admin-web/src/components/DashboardLayout.tsx:270:          path: '/admin/treasury/internal-transfers',
+admin-web/src/components/reconciliation/caseDetailBits.tsx:39:  INTERNAL_TRANSFER: (no) => `/admin/treasury/internal-transfers/${encodeURIComponent(no)}`,
+admin-web/src/components/reconciliation/CaseFlowTable.tsx:90:          <Link to={`/admin/treasury/internal-transfers/${encodeURIComponent(row.transfer.transferNo)}`} className="text-adm-blue hover:underline">{row.transfer.transferNo}</Link>
+admin-web/src/pages/auditEntityRoutes.ts:19:  INTERNAL_TRANSFER: (no) => `/admin/treasury/internal-transfers/${no}`,
+admin-web/src/pages/InternalTransferList.tsx:137:                  navigate(`/admin/treasury/internal-transfers/${encodeURIComponent(it.transferNo)}`)
+admin-web/src/pages/FundsOrderDetail.tsx:168:      route: '/admin/treasury/internal-transfers/' + data.internalTransfer.transferNo,
+admin-web/src/pages/approvalEntityRoutes.ts:50:  INTERNAL_TRANSFER_APPROVAL: (r) => `/admin/treasury/internal-transfers/${r}`,
+admin-web/src/pages/IncidentDetailPage.tsx:88:    case 'TRANSFER': return `/admin/treasury/internal-transfers/${encodeURIComponent(referenceNo)}`;
+admin-web/src/pages/IncidentDetailPage.tsx:267:                link={`/admin/treasury/internal-transfers/${encodeURIComponent(detail.sourceAdvanceTransferNo)}`}
+admin-web/src/pages/InternalTransferDetail.tsx:73:        navigate('/admin/treasury/internal-transfers');
+admin-web/src/pages/InternalTransferDetail.tsx:128:        onBack={() => navigate('/admin/treasury/internal-transfers')}
+
+差异记录：brief Step 1 文字写「预期 15」，但 brief 自己在「Files」段列出的具名清单实扫只有 11 条（App.tsx:227,228 之外，DashboardLayout×1 + caseDetailBits×1 + CaseFlowTable×1 + auditEntityRoutes×1 + InternalTransferList×1 + FundsOrderDetail×1 + approvalEntityRoutes×1 + IncidentDetailPage×2 + InternalTransferDetail×2 = 11），2+11=13，brief 正文「13 处」与其自身列表也对不上（列表只有 11 条却称「13 处」）。
+本次实扫（plain 字面 + 用例内大小写不敏感 "treasury" 泛搜两轮，见下）命中 13 处，与 brief 具名清单逐行核对完全一致（App.tsx 2 处 + 11 处文件字面）。判定：brief「预期15」是正文自身算术笔误（11≠13），不是遗漏文件——具名清单是唯一有歧义时的权威依据，已用两种搜法核对过，按 13 处（brief 具名清单的真实合计）推进，未停单独确认。
+
+补充搜法（换角度核实无遗漏）：
+$ grep -rn "treasury" admin-web/src client-web/src --include="*.ts" --include="*.tsx" -i
+（结果：除上述 13 处外，另有 4 处与本任务无关，均未改动——
+  admin-web/src/components/reconciliation/CaseFlowTable.tsx:104  "initiated by treasury" 文案（brief 明确要求保留）
+  admin-web/src/pages/AuditLogsPage.tsx:88  'TREASURY' 审计分类枚举值（与路由无关）
+  admin-web/src/pages/WithdrawalAddressList.tsx:173  "· Treasury" 页面 meta 文案（与路由无关）
+  admin-web/src/pages/CustodianWalletList.tsx:172  "· Treasury" 页面 meta 文案（与路由无关）
+  client-web/src/pages/LandingPage.tsx:18,446  营销文案 "treasury" 一词（与路由无关）
+）
+rbac.catalog.ts 提前查过（见 Step 3），零命中，确认前端路径非权限载体。
+
+======================================================================
+Step 2：逐处替换（sed 精确字面替换，treasury/internal-transfers → custody/internal-transfers）
+======================================================================
+改动文件（10 个，13 处）：
+  admin-web/src/App.tsx                                    (2 处，相对路由段 path="…")
+  admin-web/src/components/DashboardLayout.tsx              (1 处)
+  admin-web/src/components/reconciliation/caseDetailBits.tsx (1 处)
+  admin-web/src/components/reconciliation/CaseFlowTable.tsx  (1 处；:104 的文案未动)
+  admin-web/src/pages/auditEntityRoutes.ts                   (1 处)
+  admin-web/src/pages/InternalTransferList.tsx                (1 处)
+  admin-web/src/pages/FundsOrderDetail.tsx                    (1 处)
+  admin-web/src/pages/approvalEntityRoutes.ts                 (1 处)
+  admin-web/src/pages/IncidentDetailPage.tsx                  (2 处)
+  admin-web/src/pages/InternalTransferDetail.tsx               (2 处)
+
+======================================================================
+Step 3：终态校验
+======================================================================
+
+--- 校验1：路由义命中（预期 0，CaseFlowTable.tsx:104 因不含斜杠 "treasury/" 本就不会命中，不特意排除也是 0）---
+$ grep -rn "treasury/" admin-web/src client-web/src --include="*.ts" --include="*.tsx"
+（无输出，exit 1）
+→ 0 命中，达标。
+
+--- 校验2：RBAC 零动 ---
+$ grep -n "treasury/internal-transfers" src/modules/identity/access-control/rbac.catalog.ts
+（无输出，exit 1）
+→ 0 命中，达标，佐证前端路径非权限载体、本任务未碰 RBAC。
+
+--- 附加校验：新前缀落地计数（应等于改前的 13）---
+$ grep -rn "custody/internal-transfers" admin-web/src client-web/src --include="*.ts" --include="*.tsx" | wc -l
+13
+（13 处逐行核对，与 Step 1 清点清单一一对应，行号不变，仅 treasury→custody 一词之差；git diff 见 commit）
+
+======================================================================
+Step 4：五路走查（self 栈 preview，treasury@fiatx.com / 123456 真实登录 + scripts/demo-shot.js 真实点击/导航，非 curl/tsc 充数）
+======================================================================
+
+【当前 DB 真实数据状况（sqlite3 直查 /tmp/exchange_js_wt_act6_wave5/dev.db，用于判定哪几路有真实数据可走、哪几路是真空态）】
+  internal_transfers 表：0 行（Task 0 建的 ITR260921756381 在后续 reset 中已清空，之后 T2-T6 未重建）
+  incidents 表：0 行
+  approval_cases 表：actionType 分布 = DEPOSIT_CONFISCATION×1 / DEPOSIT_RETURN×1 / DEPOSIT_SEIZE×1 / WITHDRAW_LARGE_VALUE_APPROVAL×1，无 INTERNAL_TRANSFER_APPROVAL
+  audit_log_subjects 表：subjectType 分布覆盖 19 种类型（ACCESS_CONTROL/APPROVAL_CASE/.../WITHDRAW_TRANSACTION 等），无 INTERNAL_TRANSFER
+  reconciliation_cases 表：12 案基线（REC20260921-001~012 等），OPEN 状态
+
+结论：路径②③④⑤所需的「INTERNAL_TRANSFER 专属真实数据」在当前 DB 快照里客观不存在（不是查漏，是真空态）。按任务说明预案——①照常真实走查；②案件页划转链接空态跳过、如实记录；③④改点同一路由映射表的其它已有真实条目（验证映射机制本身工作正常，INTERNAL_TRANSFER 那一行已由 Step 3 的字面 grep + diff + tsc 类型检查覆盖）；⑤事故域全表 0 行，连列表页都进不去详情，如实记录空态。
+
+--- 路①：侧栏 Custody → Internal Transfers（真实数据路径，完整走通）---
+命令：node scripts/demo-shot.js --url http://localhost:3101/admin --as treasury@fiatx.com --password 123456 --api http://127.0.0.1:3100 --click "Internal Transfers" --wait 1500 --out .../t9-1-sidebar-internal-transfers-list.png
+stdout：wrote .../t9-1-sidebar-internal-transfers-list.png (80774 bytes) title="Exchange Admin" url=http://localhost:3101/admin/custody/internal-transfers
+结果：点侧栏 CUSTODY 分组下「Internal Transfers」→ 落地 URL 前缀确认 custody/，页面正常渲染（真实空态"No transfers yet — initiate a compensation / advance from a reconciliation case"，0 transfer(s)，与 sqlite 直查 0 行一致，非报错页）。截图：t9/t9-1-sidebar-internal-transfers-list.png。
+对照 Task 0 before-5：before-5 是 treasury/ 前缀 + 1 条记录（ITR260921756381）；本轮是 custody/ 前缀 + 0 条记录（该记录已在 Task 0 之后的 reset 中清空，非本任务改动导致）——前缀切换本身对照吻合，记录数差异为环境事实、非本任务回归。
+
+--- 路②：案件页划转链接（CaseFlowTable row.transfer）—— 空态，如实记录 ---
+internal_transfers 表 0 行 ⇒ 所有 12 张既存案子都不可能有 row.transfer（后端按 sourceCaseNo 关联查询，无源即无关联行）。
+做了替代验证：打开真实案件 REC20260921-001 详情页，确认 CaseFlowTable 组件本身渲染正常（Differences 表只有 1 行 Mismatch，无 In-transit/划转关联行——与 0 划转记录的事实一致，非渲染异常）。
+命令：node scripts/demo-shot.js --url http://localhost:3101/admin/reconciliation/cases/REC20260921-001 --as treasury@fiatx.com --password 123456 --api http://127.0.0.1:3100 --wait 1200 --out .../t9-2-case-detail-no-transfer.png
+stdout：wrote .../t9-2-case-detail-no-transfer.png (148325 bytes) title="Exchange Admin" url=http://localhost:3101/admin/reconciliation/cases/REC20260921-001
+结论：该文件（CaseFlowTable.tsx:90）的 custody/ 替换已由 Step 3 字面 grep + git diff 逐行核对 + tsc 类型检查覆盖；端到端点击验证因当前 DB 无划转关联案子而无法执行，如实记录为空态跳过，未造数据。截图：t9/t9-2-case-detail-no-transfer.png。
+
+--- 路③：审批详情回链（approvalEntityRoutes.ts INTERNAL_TRANSFER_APPROVAL）—— 空态，改点同表其它条目验证机制 ---
+approval_cases 无 INTERNAL_TRANSFER_APPROVAL 记录，改点同一张路由映射表里已有真实数据的 WITHDRAW_LARGE_VALUE_APPROVAL 条目（APR260921022158，PENDING），验证 ENTITY_ROUTE_BY_ACTION 映射机制与审批详情页整体正常工作。
+命令：node scripts/demo-shot.js --url http://localhost:3101/admin/governance/approvals/APR260921022158 --as treasury@fiatx.com --password 123456 --api http://127.0.0.1:3100 --wait 1200 --out .../t9-3-approval-detail-substitute.png
+stdout：wrote .../t9-3-approval-detail-substitute.png (114443 bytes) title="Exchange Admin" url=http://localhost:3101/admin/governance/approvals/APR260921022158
+结果：详情页正常渲染，ENTITY REF 区块正确回链到 WDR260921366819（该 action 对应的路由函数）。INTERNAL_TRANSFER_APPROVAL 那一行的 custody/ 替换已由 Step 3 字面 grep + diff 覆盖，本条无真实审批实例可端到端点入，如实记录为空态改路验证。截图：t9/t9-3-approval-detail-substitute.png。
+
+--- 路④：审计页深链（auditEntityRoutes.ts INTERNAL_TRANSFER）—— 空态，改点同表其它条目验证机制 ---
+audit_log_subjects 无 subjectType=INTERNAL_TRANSFER 记录，改点同一张路由映射表里已有真实数据的 RECONCILIATION_CASE 条目（AUD260921563011 → REC20260921-001）。
+命令：node scripts/demo-shot.js --url http://localhost:3101/admin/audit/logs/AUD260921563011 --as treasury@fiatx.com --password 123456 --api http://127.0.0.1:3100 --wait 1200 --out .../t9-4-audit-detail-substitute.png
+stdout：wrote .../t9-4-audit-detail-substitute.png (118130 bytes) title="Exchange Admin" url=http://localhost:3101/admin/audit/logs/AUD260921563011
+结果：审计详情页正常渲染，ENTITY 区块正确回链到 REC20260921-001（AUDIT_ENTITY_ROUTE_BY_SUBJECT_TYPE 映射机制工作正常）。INTERNAL_TRANSFER 那一行的 custody/ 替换已由 Step 3 字面 grep + diff 覆盖，本条无真实审计事件可端到端点入，如实记录为空态改路验证。截图：t9/t9-4-audit-detail-substitute.png。
+
+--- 路⑤：事故页回链（IncidentDetailPage.tsx TRANSFER 分支 / sourceAdvanceTransferNo）—— 全表 0 行，纯空态，连列表都进不到详情 ---
+incidents 表 0 行，Incident Register 列表本身就是空的，没有任何事故记录可点入详情页，因此连"改点其它条目"的替代验证都做不到（整个 IncidentDetailPage 在当前 DB 快照下不可达）。
+命令：node scripts/demo-shot.js --url http://localhost:3101/admin/governance/incidents --as treasury@fiatx.com --password 123456 --api http://127.0.0.1:3100 --wait 1200 --out .../t9-5-incidents-list-empty.png
+stdout：wrote .../t9-5-incidents-list-empty.png (83923 bytes) title="Exchange Admin" url=http://localhost:3101/admin/governance/incidents
+结果：列表页正常渲染，真实空态"No incidents yet — escalate from a reconciliation case's disposition, or click 'Register Incident' to register one manually"，0 incident(s)，与 sqlite 直查 0 行一致。IncidentDetailPage.tsx:88,267 两处 custody/ 替换已由 Step 3 字面 grep + diff + tsc 类型检查覆盖，端到端点击验证因全表无数据而完全不可执行，如实记录空态，未造数据。截图：t9/t9-5-incidents-list-empty.png。
+
+======================================================================
+闸门 + jest
+======================================================================
+
+--- 闸②：admin-web tsc -b --noEmit ---
+$ cd admin-web && npx tsc -b --noEmit
+exit=0（零输出，全绿）
+
+--- 闸①：backend tsc --noEmit -p tsconfig.json ---
+$ npx tsc --noEmit -p tsconfig.json
+exit=0（零输出，全绿）
+
+--- 闸③：client-web tsc -b --noEmit ---
+$ cd client-web && npx tsc -b --noEmit
+exit=0（零输出，全绿）
+
+--- jest：任务相关三域范围（对照 Task 0 基线 29 suites / 567 tests；本任务 brief 引用为「基线 29 suites / 570 tests」）---
+$ DATABASE_URL="file:/tmp/exchange_js_wt_act6_wave5/dev.db" npx jest src/modules/clearing-settle src/modules/governance/incidents src/modules/asset-treasury/internal-transfers
+Test Suites: 29 passed, 29 total
+Tests:       570 passed, 570 total
+exit=0，与 brief 引用基线（29/570）完全一致，不受本任务影响。
+
+--- jest：全仓库额外确认（非要求项，顺手多跑一遍留证）---
+$ npx jest
+Test Suites: 203 passed, 203 total
+Tests:       2701 passed, 2 skipped, 5 todo, 2708 total
+exit=0，全绿，无一失败。
+（注：此数字 203/2708 远大于「29/570」，因为不带路径参数的 npx jest 会跑全仓库含 admin-web/client-web 全部 spec；「29/570」是 Task 0 定的窄口径——backend 三个与本波强相关的模块目录，brief 沿用同一口径，两者不是同一命令、不可直接比大小，均已如实列出。）

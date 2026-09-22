@@ -1,0 +1,41 @@
+波五 Task 5 · 严重度按币种拆线 · 变异实证
+时间: 2026-09-21
+变异点: src/modules/clearing-settle/reconciliation/disposition/recon-thresholds.constant.ts
+  SEVERITY_LINES_MINOR.AED.high 由 1_000_000n 临时改为 1n（还原前）
+
+命令:
+  export PATH="$(ls -d $HOME/.nvm/versions/node/v20* | tail -1)/bin:$PATH"
+  cd /Users/songshengwei/Documents/Project/fiatx.com/.claude/worktrees/act6_wave5
+  npx jest src/modules/clearing-settle/reconciliation/disposition/recon-thresholds.constant.spec.ts \
+           src/modules/clearing-settle/reconciliation/workflow/wallet-recon-run.service.spec.ts
+
+结果（变异后，必红）：
+  FAIL src/modules/clearing-settle/reconciliation/disposition/recon-thresholds.constant.spec.ts
+    ● severityLinesFor（按币种，fail-fast） › AED 与 USDT 线已注册且 high > med
+      expect(received).toBe(expected)
+      Expected: true
+      Received: false
+        29 |     for (const c of ['AED', 'USDT']) {
+        30 |       const { med, high } = severityLinesFor(c);
+      > 31 |       expect(high > med).toBe(true);
+
+  FAIL src/modules/clearing-settle/reconciliation/workflow/wallet-recon-run.service.spec.ts
+    ● WalletReconRunService › T2 idempotent upsert + auto-heal › severity bucketing（波五 T5，按币种线）:
+      AED med=10_000n/high=1_000_000n；USDT med=30_000_000n/high=3_000_000_000n
+      expect(received).toBe(expected)
+      Expected: "MEDIUM"
+      Received: "HIGH"
+        698 |       const { computeSeverity } = await import('./wallet-recon-run.service');
+        699 |       for (const tc of cases) {
+      > 700 |         expect(computeSeverity(tc.currency, tc.delta)).toBe(tc.expected);
+
+  Test Suites: 2 failed, 2 total
+  Tests:       2 failed, 23 passed, 25 total
+
+结论: 档位用例（AED med/high 判定）与跨币种可比性用例同时必红（AED 1_500_000n minor
+本应 HIGH，high 线塌到 1n 后仍判 HIGH——但 high>med 恒真断言先炸；且 med 档用例
+med=10_000n high=1n 时 high<med，med 判定分支被绕过，10_000n minor 直接命中 HIGH，
+预期 MEDIUM 落空）——两处闸都真的会红，不是自证型绿灯。
+
+还原: SEVERITY_LINES_MINOR.AED.high 改回 1_000_000n，重跑同一组 spec 复绿
+（见闸①②③与三域 jest 结果，本任务报告「测试与闸结果」节）。

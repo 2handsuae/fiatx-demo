@@ -1,0 +1,42 @@
+波五 Task 1 变异实证：business-date.util.ts
+
+变异：DUBAI_UTC_OFFSET_MS 从 `4 * 60 * 60 * 1000` 临时改为 `0`（还原前的过渡态，未 commit）。
+
+命令：
+export PATH="$(ls -d $HOME/.nvm/versions/node/v20* | tail -1)/bin:$PATH" && \
+DATABASE_URL="file:/tmp/exchange_js_wt_act6_wave5/dev.db" \
+npx jest src/modules/accounting/tigerbeetle/utils/business-date.util.spec.ts
+
+关键输出（变异后，必红）：
+FAIL src/modules/accounting/tigerbeetle/utils/business-date.util.spec.ts
+  business-date.util（迪拜午夜切）
+    ✓ UTC 19:59:59.999 仍属当日业务日 (2 ms)
+    ✕ UTC 20:00:00.000 已属次日业务日（迪拜零点） (2 ms)
+    ✕ 迪拜凌晨归当日——修 UTC 切日把迪拜 1/5 02:00 记成 1/4 的病（BACKLOG:136 原文场景）
+    ✕ endOfBusinessDate = D T19:59:59.999Z
+    ✕ startOfBusinessDate = (D-1) T20:00:00.000Z (1 ms)
+    ✓ 三函数闭环：日始/日终归属 D，日终 +1ms 归属 D+1
+
+  ● business-date.util（迪拜午夜切） › UTC 20:00:00.000 已属次日业务日（迪拜零点）
+    Expected: "2026-09-22"
+    Received: "2026-09-21"
+
+  ● business-date.util（迪拜午夜切） › 迪拜凌晨归当日——修 UTC 切日把迪拜 1/5 02:00 记成 1/4 的病（BACKLOG:136 原文场景）
+    Expected: "2026-01-05"
+    Received: "2026-01-04"
+
+  ● business-date.util（迪拜午夜切） › endOfBusinessDate = D T19:59:59.999Z
+    Expected: "2026-09-21T19:59:59.999Z"
+    Received: "2026-09-21T23:59:59.999Z"
+
+  ● business-date.util（迪拜午夜切） › startOfBusinessDate = (D-1) T20:00:00.000Z
+    Expected: "2026-09-20T20:00:00.000Z"
+    Received: "2026-09-21T00:00:00.000Z"
+
+Test Suites: 1 failed, 1 total
+Tests:       4 failed, 2 passed, 6 total
+
+说明：brief Step 5 原预期只挂「20:00 → 次日」「迪拜凌晨」两条（针对 toBusinessDate 单函数的变异描述）。实测因 endOfBusinessDate / startOfBusinessDate 同样消费 DUBAI_UTC_OFFSET_MS，offset=0 时这两条也随之挂红（共 4 条失败）。「三函数闭环」一条仍绿——它只断言三函数之间的相对一致性（start/end 互相闭环），不断言与迪拜偏移量的绝对关系，offset=0 时三函数仍内部自洽，故该条不受此变异影响，属预期内的正常现象，不是漏检。
+
+还原后复跑（DUBAI_UTC_OFFSET_MS 改回 4 * 60 * 60 * 1000）：
+Tests: 6 passed, 6 total

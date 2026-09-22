@@ -36,6 +36,9 @@ describe('ReconciliationCaseService（波三判据 4）', () => {
     const audit = d.auditLogs.recordSystem.mock.calls[0][0];
     expect(audit.action).toBe('RECON_CASE_OPENED');
     expect(audit.metadata.deltaAmount).toBe('-10');                   // bigint→string 是服务干的活
+    expect(audit.metadata.walletNo).toBe('WA2601017168');             // 铁律⑥：换业务键，非回显 walletRef
+    expect(audit.metadata.walletRef).toBeUndefined();
+    expect(JSON.stringify(audit.metadata)).not.toContain('w-1');      // UUID 不落 metadata
   });
   it('resolveAutoHealed：OPEN → RESOLVED 落 AUTO_HEALED 五字段，发 RECON_CASE_AUTO_HEALED', async () => {
     const d = makeDeps();
@@ -47,7 +50,11 @@ describe('ReconciliationCaseService（波三判据 4）', () => {
       where: { id: 'c1' },
       data: { status: 'RESOLVED', resolutionReason: 'AUTO_HEALED', resolvedAt: at, lastUpdatedRunId: 'run-2', closedByRunId: 'run-2' },
     });
-    expect(d.auditLogs.recordSystem.mock.calls[0][0].action).toBe('RECON_CASE_AUTO_HEALED');
+    const audit = d.auditLogs.recordSystem.mock.calls[0][0];
+    expect(audit.action).toBe('RECON_CASE_AUTO_HEALED');
+    expect(audit.metadata.walletNo).toBe('WA2601017168');             // 铁律⑥：换业务键，非回显 walletRef
+    expect(audit.metadata.walletRef).toBeUndefined();
+    expect(JSON.stringify(audit.metadata)).not.toContain('w-1');      // UUID 不落 metadata
   });
   it('resolveAutoHealed：已 RESOLVED 的案再 resolve 被显式拒（迁移表真调用）', async () => {
     const d = makeDeps();

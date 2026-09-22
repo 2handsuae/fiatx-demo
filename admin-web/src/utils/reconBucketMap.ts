@@ -1,6 +1,6 @@
 // admin-web/src/utils/reconBucketMap.ts
 //
-// Single source of truth for the Round3 five-bucket wallet classification
+// Single source of truth for the Round3 four-bucket wallet classification
 // labels (MATCHED excluded from "needs attention"; IN_TRANSIT/COMPENSATING/BREAK
 // are the three that can open a Case). Authoritative bucket enum:
 // ReconWalletBucket in src/modules/clearing-settle/reconciliation/dto/reconciliation.dto.ts.

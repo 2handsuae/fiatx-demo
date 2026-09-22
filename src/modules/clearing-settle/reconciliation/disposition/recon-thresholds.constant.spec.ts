@@ -1,5 +1,6 @@
 import {
   RECON_AGING_DAYS, SMALL_AMOUNT_LINE_MINOR, isSmallAmount, computeAgingDeadline,
+  severityLinesFor,
 } from './recon-thresholds.constant';
 
 describe('recon-thresholds —— 三条数字线写死代码（spec §2.7），改动走发版评审', () => {
@@ -18,7 +19,19 @@ describe('recon-thresholds —— 三条数字线写死代码（spec §2.7），
   it('未登记币种直接 throw，不兜底', () => {
     expect(() => isSmallAmount('BTC', 1n)).toThrow(/BTC/);
   });
-  it('computeAgingDeadline = 业务日日终（UTC）+ 3 天', () => {
-    expect(computeAgingDeadline('2026-09-01').toISOString()).toBe('2026-09-04T23:59:59.999Z');
+  it('computeAgingDeadline = 业务日日终（迪拜）+ 3 天', () => {
+    expect(computeAgingDeadline('2026-09-01').toISOString()).toBe('2026-09-04T19:59:59.999Z');
+  });
+});
+
+describe('severityLinesFor（按币种，fail-fast）', () => {
+  it('AED 与 USDT 线已注册且 high > med', () => {
+    for (const c of ['AED', 'USDT']) {
+      const { med, high } = severityLinesFor(c);
+      expect(high > med).toBe(true);
+    }
+  });
+  it('未注册币种当场抛错，不静默兜底', () => {
+    expect(() => severityLinesFor('BTC')).toThrow(/Severity lines not registered/);
   });
 });

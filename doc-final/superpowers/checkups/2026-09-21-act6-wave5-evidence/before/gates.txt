@@ -1,0 +1,131 @@
+波五 Task 0 · 波前闸门基线（第六幕波五开工首任务）
+worktree: /Users/songshengwei/Documents/Project/fiatx.com/.claude/worktrees/act6_wave5
+分支: worktree-act6_wave5，基线 = main HEAD 234f3287
+栈: self（act6_wave5），端口 backend=3100 admin=3101 client=3102 tb=3103（.stackports=3100；main 栈 3000-3003 全程未碰）
+DB: /tmp/exchange_js_wt_act6_wave5/dev.db
+
+前置：Step 2 起栈重铺
+  rm -f /tmp/exchange_js_wt_act6_wave5/dev.db
+  bash scripts/stack.sh reset      → 0（business reset complete，verify:demo-data ALL PASS）
+  bash scripts/stack.sh up         → 0（backend/admin/client/tb 四进程 listening）
+
+说明：本文件记录的四条闸门命令是在 Step 4 截图取证（含一轮完整 Alice USDT 案 Hold→核销→CFO
+批→补款划转→资金单推单闭环的活工作流操作，用于产出 before-3/before-4/before-5 三张截图）
+之后，为了给 Step 5 严重度取数留一份不受那轮操作污染的纯净基线，重新执行了一次
+rm dev.db → stack.sh reset → stack.sh up → 以下四条命令，即下面四条命令的输出对应的是
+「重铺后的纯净 12 案基线」，不含 Step 4 截图取证过程中额外产生的 REC20260921-013 等状态。
+Step 4 的截图本身（PNG 文件）不受这次重铺影响，仍是当时真实渲染的产物。
+
+────────────────────────────────────────────────────────────
+① 三域 jest
+命令: DATABASE_URL="file:/tmp/exchange_js_wt_act6_wave5/dev.db" npx jest src/modules/clearing-settle src/modules/governance/incidents src/modules/asset-treasury/internal-transfers
+退出码: 0
+关键行:
+  Test Suites: 29 passed, 29 total
+  Tests:       567 passed, 567 total
+  Time:        10.824 s
+（与 brief 预期「29 suites / 567 tests 全绿」完全一致；本命令实际跑过两次——第一次在活工作流之前
+   （同样 0/29/567），第二次是本文件收录的这次，均全绿，jest 本身不依赖 demo 种子数据。）
+
+────────────────────────────────────────────────────────────
+② demo:all
+命令: bash scripts/on-stack.sh self demo:all
+退出码: 0
+关键行:
+  花名册：29/29 符合预期
+  ✓ COA CLIENT(AED): CLIENT_ASSET == Σ(CLIENT_PAYABLE+DEPOSIT_SUSPENSE) (29612565 == 29612565)
+  ✓ COA FIRM(AED): FIRM_ASSET == Σ(FIRM_OPS+FIRM_SET+INCOME_SWAP_FEE+INCOME_WITHDRAW_FEE+INCOME_OTHER) (99870335 == 99870335)
+  ✓ COA CLIENT(USDT): CLIENT_ASSET == Σ(CLIENT_PAYABLE+DEPOSIT_SUSPENSE) (4392571811 == 4392571811)
+  ✓ COA FIRM(USDT): FIRM_ASSET == Σ(FIRM_OPS+FIRM_SET+INCOME_SWAP_FEE+INCOME_WITHDRAW_FEE+INCOME_OTHER) (100413428189 == 100413428189)
+  asserts: 5/5 PASS
+  ═══ demo:all DONE ✅ (all asserts pass) ═══
+
+────────────────────────────────────────────────────────────
+③ recon:demo:break
+命令: bash scripts/on-stack.sh self recon:demo:break
+退出码: 0
+关键行:
+  status=BREAK  walletsChecked=19  casesOpened=12
+  scenarios: 18/18 DETECTED
+  wallets:   12/12 bucket OK
+  identity① walletCount(19) == matched(7) + inTransit(1) + softFlag(2) + break(9)  OK
+  identity② opened(12) + reObserved(0) == inTransit+softFlag+break(12)  OK
+  break-mode asserts: status==BREAK / scenarios 18/18 / wallets 12/12 / casesOpened 12/12 / identities OK
+  ALL 18 SCENARIOS DETECTED PER MANIFEST
+
+────────────────────────────────────────────────────────────
+④ verify:coa
+命令: bash scripts/on-stack.sh self verify:coa
+退出码: 0
+关键行:
+  ✓ ledger 1 CLIENT 恒等 29812565
+  ✓ ledger 1 FIRM 恒等 99870335
+  ✓ ledger 2 CLIENT 恒等 4392571811
+  ✓ ledger 2 FIRM 恒等 100413428189
+  ✓ 负余额检查 通过 (57 个科目全部 ≥ 0)
+  ALL INVARIANTS PASS
+
+────────────────────────────────────────────────────────────
+四条闸门全绿，退出码均为 0，与 brief 预期一致。
+
+────────────────────────────────────────────────────────────
+附录：截图轮（第一次重铺）recon:demo:break 输出摘录
+──────────────────────────────────────────────────────────
+评审修复（1/5）：上面①-④四条命令记录的是**取数轮**（第二次重铺，Step 5 之前那次
+rm dev.db → stack.sh reset → stack.sh up → 四条命令）的输出，与截图③④⑤所在的**截图轮**
+（第一次重铺，Step 4 那一轮，产出 before-1 ~ before-5 五张 PNG 的那次 recon:demo:break）
+不是同一次运行——两轮 wallet UUID 因随机种子略有不同但场景号→wallet 的映射规律一致。
+截图③的锚定依据「wallet 2718e25d 属于场景 #16 UNEXPLAINED」原文只存在于截图轮的
+recon:demo:break 终端输出里，之前只写进了 task-0-report.md（该目录被 .gitignore，不入库），
+物证目录里零命中——现补录截图轮的原始终端输出（命令与退出码同上面③一致，只是运行批次不同）：
+
+命令: bash scripts/on-stack.sh self recon:demo:break（截图轮，早于取数轮的那次）
+退出码: 0
+runId=d9530721-3114-48ac-a629-4a19076b676b（截图轮专属，与取数轮的 runId 不同，用于区分两轮）
+
+场景清单（manifest written to .../recon-demo-manifest.json  (18 scenarios, 12 wallets)）：
+  [#1 IN_TRANSIT_TIMING] wallet=6e97b620-a645-44ee-8ebe-bb9e7f289d0e
+  [#5 AMT_FEE_NETTED] wallet=3259857f-be57-498c-9911-776829a3bdfb
+  [#6 DUP_BOOKING] wallet=beb42b12-5cbe-47bc-b73f-8cd503a5fc37
+  [#7 PHANTOM_BOOKING] wallet=beb42b12-5cbe-47bc-b73f-8cd503a5fc37
+  [#2 AMT_MISBOOKED] wallet=6270bc51-cd06-452d-bbfc-3a85ae951dc4
+  [#3 AMT_MISBOOKED] wallet=6270bc51-cd06-452d-bbfc-3a85ae951dc4
+  [#4 AMT_ROUNDING] wallet=6270bc51-cd06-452d-bbfc-3a85ae951dc4
+  [#10 UNEXPLAINED] wallet=5afd8533-49a3-4a00-9966-4fa77cc4ece3
+  [#11 BANK_CHARGE_UNBOOKED] wallet=11d06ead-7145-408e-9db5-f174a285a74d
+  [#13 MISSED_DEPOSIT] wallet=63e10e58-c4b3-47e7-8e53-f758352ec5b7
+  [#9 CUTOFF_STRADDLE] wallet=c4ae4c4b-4b4c-404d-bcea-a3357809afe7
+  [#8 MISATTRIBUTED_FROM] wallet=4cba8c82-0afb-4e8c-96fd-09e8c73064b0,613fc202-7007-44e2-b035-bcce7f3d782d
+  [#12 BANK_INTEREST_UNBOOKED] wallet=11d06ead-7145-408e-9db5-f174a285a74d
+  [#14 BOUNCED_FUNDS] wallet=613fc202-7007-44e2-b035-bcce7f3d782d
+  [#15 PAYOUT_RETURNED] wallet=6270bc51-cd06-452d-bbfc-3a85ae951dc4
+  [#16 UNEXPLAINED] wallet=2718e25d-e3bd-4ff2-8bc6-4764f9a7e267        ← 截图③锚定的钱包
+  [#17 BOUNCED_FUNDS] wallet=6270bc51-cd06-452d-bbfc-3a85ae951dc4
+  [#18 UNAUTHORIZED_OUTFLOW] wallet=cc5ca1b2-454a-4f42-ad4c-07f4d255d7bc
+
+manifest verification（同一批输出，二次确认 #16 的 wallet 前缀一致）：
+  #16  UNEXPLAINED                wallet=2718e25d  DETECTED
+  scenarios: 18/18 DETECTED
+  wallets:   12/12 bucket OK
+
+wallet 2718e25d 对应 case（截图轮同一会话内查 GET /admin/reconciliation/cases?status=OPEN，
+treasury@ token）：
+  REC20260921-003  2718e25d-e3bd-4ff2-8bc6-4764f9a7e267  USDT-TRON  CUSTOMER  CU2601019430  BREAK  HIGH
+
+该案 AMOUNT_MISMATCH 行 delta=-7500000（最小单位，decimals=6，即 7.5 USDT）与 script.md 场景
+16 原文「差额 7.5 USDT」一致，确认锚对了案子。此案经报告里记录的处置闭环（Hold→核销→CFO
+批→补款划转→⚡Broadcast 推单→Re-reconcile）后，衍生出截图③实际拍的 REC20260921-013
+（同一 wallet 2718e25d 的新在途案）——锚点是 wallet，不是 pick 出来的案号。
+
+────────────────────────────────────────────────────────────
+附录：截图⑤ URL 证据（demo-shot.js stdout，评审 Minor 修复）
+──────────────────────────────────────────────────────────
+命令: node scripts/demo-shot.js --api http://127.0.0.1:3100 --as treasury@fiatx.com
+  --url "http://localhost:3101/admin/treasury/internal-transfers" --wait 1500
+  --out doc-final/superpowers/checkups/2026-09-21-act6-wave5-evidence/before/before-5-internal-transfers-list.png
+stdout:
+  wrote doc-final/superpowers/checkups/2026-09-21-act6-wave5-evidence/before/before-5-internal-transfers-list.png
+  (91805 bytes) title="Exchange Admin" url=http://localhost:3101/admin/treasury/internal-transfers
+退出码: 0（demo-shot.js 成功即 0，找不到点击目标才会非 0）
+——url= 那段是 puppeteer 截图当时页面的真实 page.url()，`treasury/` 前缀清晰可见，供 Task 11
+after 集对比是否已换成 `custody/` 前缀时核对。

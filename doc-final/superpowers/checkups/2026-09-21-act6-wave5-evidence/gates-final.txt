@@ -1,0 +1,109 @@
+波五 Task 11 · 收尾闸全绿物证
+执行环境：worktree act6_wave5，self 栈（3100/3101/3102/3103），Node 20.20.2
+
+════════ §1 随手闸（闸①②③ + 三域 jest）════════
+
+$ npx tsc --noEmit -p tsconfig.json
+EXIT=0（后端，含 src/test/scripts/prisma 四目录）
+
+$ cd admin-web && npx tsc -b --noEmit
+EXIT=0（管理台，含 .spec.ts）
+
+$ cd client-web && npx tsc -b --noEmit
+EXIT=0（客户端）
+
+$ npx jest src/modules/clearing-settle src/modules/governance/incidents src/modules/asset-treasury/internal-transfers
+Test Suites: 29 passed, 29 total
+Tests:       572 passed, 572 total
+Time:        7.359 s
+EXIT=0
+（波前基线 29 suites / 567 tests，本轮 572 = 567 →(T5 新增 2)→ 569 →(T6 新增 1，reconciliation-query.service.spec 新增 legacy-INTERNAL_BREAK 用例)→ 570 →(T7 新增 2)→ 572；只增不减，满足总纲 §3 波五行判据。订正：此前误记最后 +1 为「T1 新增」——business-date.util.spec 在 accounting 域、不在三域 jest 路径内，不可能计入这条统计，实为 T6 的贡献，见本轮终审修复 addendum）
+
+════════ §2 重铺闸 ════════
+
+$ npm run build
+EXIT=0（prebuild: prisma generate 成功，nest build 成功）
+
+$ rm -f /tmp/exchange_js_wt_act6_wave5/dev.db
+
+$ bash scripts/stack.sh reset
+...
+✔ TB accounts provisioned: 57 created, 0 already existed, 0 errors
+✔ Capital injection: 2 transfer(s) created, 0 already existed
+✔ Capital injection evidence: 2 evidence row(s) + 4 flow row(s)
+✅ Business data seeded.
+verify:demo-data ALL PASS
+[wt_act6_wave5] business reset complete
+EXIT=0
+（"Capital injection: 2 transfer(s)" 一行在场，排除 baseline.md 记录的资本注入被静默跳过假红坑）
+
+$ bash scripts/stack.sh up
+[wt_act6_wave5/tb] listening on 3103
+[wt_act6_wave5/backend] listening on 3100
+[wt_act6_wave5/admin] listening on 3101
+[wt_act6_wave5/client] listening on 3102
+[wt_act6_wave5] all services started
+EXIT=0
+
+就绪确认：curl admin(3101)=200 / client(3102)=200 / backend 进程监听 3100（无根路由，404 属预期，非探针项）
+
+$ bash scripts/on-stack.sh self demo:all
+花名册：29/29 符合预期
+  ✓ COA CLIENT(AED): 29612565 == 29612565
+  ✓ COA FIRM(AED): 99870335 == 99870335
+  ✓ COA CLIENT(USDT): 4392571811 == 4392571811
+  ✓ COA FIRM(USDT): 100413428189 == 100413428189
+  ✓ data.md 生成区已更新
+asserts: 5/5 PASS
+═══ demo:all DONE ✅ (all asserts pass) ═══
+EXIT=0
+
+$ bash scripts/on-stack.sh self recon:demo:break
+cutoff=2026-09-21T19:59:02.363Z
+──── engine result ────
+status=BREAK  walletsChecked=19  casesOpened=12
+orphanInternal=4  orphanExternal=8  mismatch=6
+──── manifest verification ────
+  scenarios: 18/18 DETECTED
+  wallets:   12/12 bucket OK
+──── identity self-check ────
+  OK  identity① walletCount(19) == matched(7) + inTransit(1) + softFlag(2) + break(9)
+  OK  identity② opened(12) + reObserved(0) == inTransit+softFlag+break(12)
+──── break-mode asserts ────
+  OK  status==BREAK
+  OK  scenarios 18/18
+  OK  wallets 12/12
+  OK  casesOpened 12/12
+  OK  identities OK
+ALL 18 SCENARIOS DETECTED PER MANIFEST
+════════ recon:demo break DONE — OK ════════
+EXIT=0
+（对照修订后 demo/baseline.md：18/18 场景 + 12/12 桶 + casesOpened 12/12 判据逐条全绿；严重度分布本轮见下方
+"严重度分布本轮实测" 一节，与 baseline.md 💡 注记的取数轮分布存在币种间 1 案偏移，判据本身
+（recon:demo:break 自身断言）不含严重度分布硬判据，偏移属数据细节差异，已在下方单独记录不掩盖）
+
+$ bash scripts/on-stack.sh self verify:coa
+✓ ledger 1 CLIENT 恒等 29812565
+✓ ledger 1 FIRM 恒等 99870335
+✓ ledger 2 CLIENT 恒等 4392571811
+✓ ledger 2 FIRM 恒等 100413428189
+✓ 负余额检查 通过 (57 个科目全部 ≥ 0)
+ALL INVARIANTS PASS
+EXIT=0
+
+════════ §3 严重度分布本轮实测（供 baseline.md 💡 注记对照，如实记录差异）════════
+
+$ sqlite3 dev.db "SELECT assetCode, severity, count(*) FROM reconciliation_cases GROUP BY assetCode, severity"
+AED        HIGH      1
+AED        LOW       2
+AED        MEDIUM    4
+USDT-TRON  LOW       4
+USDT-TRON  MEDIUM    1
+
+baseline.md 💡 注记（T5/T10 取数轮）：AED LOW=1/MEDIUM=4/HIGH=1（合 6）｜ USDT LOW=5/MEDIUM=1/HIGH=0（合 6）
+本轮实测：         AED LOW=2/MEDIUM=4/HIGH=1（合 7）｜ USDT LOW=4/MEDIUM=1/HIGH=0（合 5）
+总案数一致（12），AED/USDT 案件总数比例（7:5）与 wallet-场景固定映射一致（7 个 AED 钱包 + 5 个 USDT
+钱包命中场景，逐条核对见下）；差异落在 AED LOW 由 1→2、USDT LOW 由 5→4——即恰好一案从"USDT LOW"
+挪到"AED LOW"分类。判定为文档记录轮次差异，非本任务范围（严重度阈值代码 T5 已定案且本轮未改动，
+retest 用同一份代码算出的结果），如实记录，不当场改 baseline.md（该数字仅为参考性 💡 注记，非
+recon:demo:break 自身断言判据，不影响 §2 判据全绿结论）。

@@ -9,6 +9,7 @@ import { ReconciliationQueryService } from '../domain/reconciliation-query.servi
 import { ReconRunQueryDto, ReconCaseQueryDto, ReconExternalBalanceQueryDto } from '../dto/reconciliation.dto';
 import { WalletReconRunService } from '../workflow/wallet-recon-run.service';
 import { ReconciliationCaseService } from '../domain/reconciliation-case.service';
+import { endOfBusinessDate } from '../../../accounting/tigerbeetle/utils/business-date.util';
 
 @ApiTags('Admin - Reconciliation (V8)')
 @ApiBearerAuth()
@@ -25,10 +26,20 @@ export class ReconciliationAdminController {
   @Post('runs/wallet')
   @ApiOperation({ summary: 'Trigger a per-wallet reconciliation run' })
   @RequirePermissions(buildPermissionCode('POST', '/admin/reconciliation/runs/wallet'))
-  async createWalletRun(@Body() dto: { cutoff: string }, @Req() req: any) {
-    if (!dto?.cutoff) throw new BadRequestException('cutoff is required (ISO timestamp)');
-    const cutoff = new Date(dto.cutoff);
-    if (Number.isNaN(cutoff.getTime())) throw new BadRequestException('cutoff is not a valid ISO timestamp');
+  async createWalletRun(@Body() dto: { cutoff?: string; businessDate?: string }, @Req() req: any) {
+    const hasCutoff = !!dto?.cutoff;
+    const hasBusinessDate = !!dto?.businessDate;
+    if (hasCutoff === hasBusinessDate) {
+      throw new BadRequestException('Provide exactly one of cutoff (ISO timestamp) or businessDate (YYYY-MM-DD)');
+    }
+    let cutoff: Date;
+    if (hasBusinessDate) {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(dto.businessDate!)) throw new BadRequestException('businessDate must be YYYY-MM-DD');
+      cutoff = endOfBusinessDate(dto.businessDate!);
+    } else {
+      cutoff = new Date(dto.cutoff!);
+      if (Number.isNaN(cutoff.getTime())) throw new BadRequestException('cutoff is not a valid ISO timestamp');
+    }
     // 铁律①：管理员手动触发跑批要记他名字（cron 路径不传 actor,走系统通道）。
     const operatorId = req.user?.userNo || req.user?.sub || 'ADMIN';
     return this.walletReconRun.run(

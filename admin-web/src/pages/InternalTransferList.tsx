@@ -134,7 +134,7 @@ const InternalTransferList = () => {
               <tr
                 key={it.transferNo}
                 onClick={() =>
-                  navigate(`/admin/treasury/internal-transfers/${encodeURIComponent(it.transferNo)}`)
+                  navigate(`/admin/custody/internal-transfers/${encodeURIComponent(it.transferNo)}`)
                 }
                 className="cursor-pointer border-b border-adm-border/60 hover:bg-adm-hover/40"
               >

@@ -130,8 +130,9 @@ function parseArgs(argv: string[]): { mode: Mode; cutoffIso: string | null } {
   return { mode, cutoffIso };
 }
 
-// 15-scenario model（2026-09-01 平账一期半重排，分组表见文件头；2026-09-03
-// 平账 B 批补场景 ⑭⑮，14→15）：每个场景
+// 18-scenario model（2026-09-01 平账一期半重排，分组表见文件头；2026-09-03
+// 平账 B 批补场景 ⑭⑮，14→15；后续波次续补至 18，详见 demo/script.md 剧本
+// 与本文件场景注册表）：每个场景
 // 重现一个**成因**，成因码 = disposition/cause-registry.ts 的注册表码——
 // 种子答案键与注册表**编译期同源**，改错码、漏改码这里直接编译不过。
 //

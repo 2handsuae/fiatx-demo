@@ -41,7 +41,8 @@ import {
   ExplainedIndex,
   explainedBy,
 } from '../disposition/explained-difference.service';
-import { computeAgingDeadline } from '../disposition/recon-thresholds.constant';
+import { computeAgingDeadline, severityLinesFor } from '../disposition/recon-thresholds.constant';
+import { toBusinessDate } from '../../../accounting/tigerbeetle/utils/business-date.util';
 import { AuditLogsService } from '../../../audit-logging/audit-logs.service';
 import { AuditActorContext, AuditCategory, AuditSubjectRole } from '../../../audit-logging/dto/audit-log.dto';
 import {
@@ -52,19 +53,17 @@ import { ReconciliationCaseService } from '../domain/reconciliation-case.service
 
 const RUN_LAYER = 'WALLET';
 
-// T2: severity thresholds (absolute delta in minor-unit ints; hard-coded this
-// version, configurable later per plan §Deferred). Used to triage cases in the
-// cockpit UI. Magnitude is computed on the raw bigint (no asset-scale lookup);
-// since recon caps run inside a single asset, the threshold is comparable
-// across runs for that asset.
-const SEVERITY_HIGH_THRESHOLD = 10_000n;
-const SEVERITY_MED_THRESHOLD = 100n;
+// T2: severity thresholds used to triage cases in the cockpit UI.
+// 波五 T5：单一阈值跨币种硬套（AED 100 元与 USDT 0.01 元同判 HIGH，跨资产不可比）
+// 已改为按 asset.currency 索引的注册表，见 recon-thresholds.constant.ts
+// SEVERITY_LINES_MINOR / severityLinesFor（fail-fast，不静默兜底）。
 type CaseSeverity = 'HIGH' | 'MEDIUM' | 'LOW';
 
-export function computeSeverity(delta: bigint): CaseSeverity {
+export function computeSeverity(currency: string, delta: bigint): CaseSeverity {
+  const { med, high } = severityLinesFor(currency);
   const mag = delta < 0n ? -delta : delta;
-  if (mag >= SEVERITY_HIGH_THRESHOLD) return 'HIGH';
-  if (mag >= SEVERITY_MED_THRESHOLD) return 'MEDIUM';
+  if (mag >= high) return 'HIGH';
+  if (mag >= med) return 'MEDIUM';
   return 'LOW';
 }
 
@@ -114,7 +113,7 @@ export class WalletReconRunService {
 
   async run(input: WalletReconRunInput, actor?: AuditActorContext): Promise<WalletReconRunResult> {
     const { cutoff } = input;
-    const businessDate = this.toBusinessDate(cutoff);
+    const businessDate = toBusinessDate(cutoff);
     // 平账 A 批（spec §2.1）：本轮新开的案子一律以本轮业务日起算账龄——同一轮同一只钟。
     const slaDeadline = computeAgingDeadline(businessDate);
 
@@ -151,7 +150,7 @@ export class WalletReconRunService {
     // Round3: no longer filter out walletRef=null heads — those are
     // "unattributed" external accounts (no internal wallet claims them) and
     // must surface as BREAK cases instead of being silently skipped.
-    const cutoffDate = this.toBusinessDate(cutoff);
+    const cutoffDate = toBusinessDate(cutoff);
     const externalBalances = (await this.prisma.externalBalance.findMany({
       where: { cutoffDate },
       select: { walletRef: true, closingBalance: true, book: true, currency: true, accountRef: true },
@@ -170,14 +169,20 @@ export class WalletReconRunService {
     // 元 this round, so ONLY they get ×10^decimals. The in-transit output is minor,
     // to compare against balanceCheck.delta (already minor). One query, keyed by
     // currency=asset.code. (Same pattern as reconciliation-query.service.ts.)
-    const runCurrencies = Array.from(new Set(attributedBalances.map((b) => b.currency)));
+    // 波五 T5：runCurrencies 覆盖 attributed + unattributed 两类头——严重度的
+    // currency 映射两类都要用（unattributed 头也会开案、算严重度）。
+    const runCurrencies = Array.from(new Set(externalBalances.map((b) => b.currency)));
     const assetsForDecimals = runCurrencies.length === 0
       ? []
       : ((await this.prisma.asset.findMany({
           where: { code: { in: runCurrencies } },
-          select: { code: true, decimals: true },
-        })) as Array<{ code: string; decimals: number }>);
+          select: { code: true, decimals: true, currency: true },
+        })) as Array<{ code: string; decimals: number; currency: string }>);
     const decimalsByCurrency = decimalsMapOf(assetsForDecimals);
+    // 波五 T5：severityLinesFor 按 asset.currency 索引，但这里的 bal.currency 实存
+    // asset.code（如 'USDT-TRON'）——同一批 asset.findMany 顺手补 currency 字段，
+    // 建 code→currency 映射；取不到就地 throw，不静默兜底（陷阱见 :328 附近注释）。
+    const assetCurrencyByCode = new Map(assetsForDecimals.map((a) => [a.code, a.currency]));
 
     let casesCreated = 0;
     let casesUpdated = 0;
@@ -205,6 +210,8 @@ export class WalletReconRunService {
 
     for (const walletRef of walletRefs) {
       const bal = attributedBalances.find((b) => b.walletRef === walletRef)!;
+      const assetCurrency = assetCurrencyByCode.get(bal.currency);
+      if (!assetCurrency) throw new Error(`Asset currency not found for code: ${bal.currency}`);
       const outcome = await this.processAttributedWallet({
         walletRef,
         bal,
@@ -214,6 +221,7 @@ export class WalletReconRunService {
         businessDate,
         slaDeadline,
         decimals: decimalsByCurrency.get(bal.currency) ?? 0,
+        assetCurrency,
       });
       if (!outcome.observed) continue;
       observedWallets.add(walletRef);
@@ -231,12 +239,15 @@ export class WalletReconRunService {
     // to compare against, so neither engine runs. Always BREAK; case keyed
     // on accountRef standing in for walletRef.
     for (const bal of unattributedBalances) {
+      const assetCurrency = assetCurrencyByCode.get(bal.currency);
+      if (!assetCurrency) throw new Error(`Asset currency not found for code: ${bal.currency}`);
       const outcome = await this.processUnattributedHead({
         bal,
         runId: run.id,
         traceId: run.traceId ?? null,
         businessDate,
         slaDeadline,
+        assetCurrency,
       });
       if (!outcome.observed) continue;
       const walletRef = bal.accountRef;
@@ -313,6 +324,7 @@ export class WalletReconRunService {
     businessDate: string;
     slaDeadline: Date;
     decimals: number;
+    assetCurrency: string;
   }): Promise<{
     observed: boolean;
     snapshotRow: Prisma.ReconciliationRunWalletCreateManyInput | null;
@@ -323,7 +335,7 @@ export class WalletReconRunService {
     orphanExternal: number;
     mismatch: number;
   }> {
-    const { walletRef, bal, cutoff, runId, traceId, businessDate, slaDeadline, decimals } = args;
+    const { walletRef, bal, cutoff, runId, traceId, businessDate, slaDeadline, decimals, assetCurrency } = args;
     const currency = bal.currency;
     const assetId = await this.resolveAssetId(currency);
     if (!assetId) {
@@ -367,7 +379,7 @@ export class WalletReconRunService {
     const orphanExternal = matcherResult.orphanExternal.length;
     const mismatch = matcherResult.mismatch.length;
 
-    // Round3: five-bucket classification — replaces the old binary
+    // Round3: four-bucket classification — replaces the old binary
     // (balance-pass && no-flow-break) gate. In-transit flows explain part
     // of the delta before we decide whether the residual is a real break.
     const inTransitSigned = matcherResult.inTransit.reduce(
@@ -412,6 +424,7 @@ export class WalletReconRunService {
         businessDate,
         assetId,
         assetCode: currency,
+        currency: assetCurrency,
         book: enriched.book,
         walletRef,
         coaCode: enriched.coaCode,
@@ -471,12 +484,13 @@ export class WalletReconRunService {
     traceId: string | null;
     businessDate: string;
     slaDeadline: Date;
+    assetCurrency: string;
   }): Promise<{
     observed: boolean;
     snapshotRow: Prisma.ReconciliationRunWalletCreateManyInput | null;
     caseOutcome: 'CREATED' | 'REOBSERVED' | null;
   }> {
-    const { bal, runId, traceId, businessDate, slaDeadline } = args;
+    const { bal, runId, traceId, businessDate, slaDeadline, assetCurrency } = args;
     const currency = bal.currency;
     const assetId = await this.resolveAssetId(currency);
     if (!assetId) {
@@ -490,6 +504,7 @@ export class WalletReconRunService {
       businessDate,
       assetId,
       assetCode: currency,
+      currency: assetCurrency,
       book: 'FIRM',
       walletRef,
       coaCode: null,
@@ -583,14 +598,18 @@ export class WalletReconRunService {
     // T2: populate ReconciliationRun summary counters so the UI cockpit can
     // render meaningful totals (the old single-counter `openedCount` lumped
     // create+update together; here we split them and surface auto-heal).
-    // Round3: also persist the five-bucket wallet counts (walletCount/
+    // Round3: also persist the four-bucket wallet counts (walletCount/
     // matchedCount/inTransitCount/softFlagCount/breakCount) — the run-detail
     // page (T6) reads these instead of recomputing from line items.
     await this.prisma.reconciliationRun.update({
       where: { id: runId },
       data: {
         status: 'COMPLETED',
-        invariantStatus: data.status === 'PASS' ? 'PASS' : 'FAIL',
+        // 波五 T6：invariantStatus 只反映内部恒等预门（computeInternalIdentity）
+        // 破没破——普通 BREAK（每钱包比对跑过、发现破口）不是预门破裂，仍写
+        // 'PASS'；只有 INTERNAL_BREAK（预门破裂、per-wallet 检查整体跳过）才
+        // 写 'FAIL'，前端靠这个字段判断要不要拉红横幅、藏五卡与钱包表。
+        invariantStatus: data.status === 'INTERNAL_BREAK' ? 'FAIL' : 'PASS',
         openedCount: data.casesOpened,
         reObservedCount: data.casesReObserved,
         closedCount: data.casesAutoHealed,
@@ -803,6 +822,7 @@ export class WalletReconRunService {
     businessDate: string;
     assetId: string;
     assetCode: string;
+    currency: string;
     book: 'CUSTOMER' | 'FIRM';
     walletRef: string;
     coaCode: string | null;
@@ -823,7 +843,7 @@ export class WalletReconRunService {
     const externalDecimal = new Prisma.Decimal(input.actualExternal.toString());
     const inTransitDecimal = new Prisma.Decimal(input.inTransitSigned.toString());
     const expectedDecimal = externalDecimal.minus(deltaDecimal);
-    const severity = computeSeverity(input.delta);
+    const severity = computeSeverity(input.currency, input.delta);
 
     // Idempotency probe: cross-day unique — (walletRef, status:OPEN) only.
     // Round3 T5 Step③: businessDate intentionally dropped from the probe so
@@ -1084,8 +1104,4 @@ export class WalletReconRunService {
     else await this.auditLogs.recordSystem(envelope);
   }
 
-  // ── Helpers ───────────────────────────────────────────────────────────────
-  private toBusinessDate(cutoff: Date): string {
-    return cutoff.toISOString().slice(0, 10);
-  }
 }

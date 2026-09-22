@@ -4,6 +4,7 @@ import { PrismaService } from '../../../../core/prisma/prisma.service';
 import { AccountingService } from '../../../accounting/tigerbeetle/accounting.service';
 import { resolveWalletNo } from './wallet-no.util';
 import { decimalsMapOf } from './asset-decimals.util';
+import { endOfBusinessDate, startOfBusinessDate } from '../../../accounting/tigerbeetle/utils/business-date.util';
 // 波三 T6：flowComparison 的四段查询/匹配全部搬进 FlowComparisonBuilder——本文件
 // 只留 getCase 的编排调用，不再直接依赖 WalletFlowMatcherService / ExplainedDifferenceService。
 import { FlowComparisonBuilder } from './flow-comparison.builder';
@@ -126,7 +127,13 @@ export class ReconciliationQueryService {
       caseNo: string | null;
     }>;
 
-    const legacy = runWallets.length === 0;
+    // 波五 T6：光靠「零快照行」判不了 legacy——INTERNAL_BREAK 的 run 同样零快照
+    // 行（per-wallet 检查整体没跑，按设计从不写 reconciliation_run_wallets），
+    // 不是 pre-Round3 老格式缺数据。T6 写入语义已把 invariantStatus==='FAIL'
+    // 钉死为「只有 INTERNAL_BREAK 才是这个值」，用它把两种成因分开：真
+    // INTERNAL_BREAK 不算 legacy，让前端红横幅 + 说明块正常显示，不被灰色
+    // 「Legacy run — no snapshot data」盖住。
+    const legacy = runWallets.length === 0 && run.invariantStatus !== 'FAIL';
 
     // walletRef → walletNo/walletRole join (mirrors the pattern used by
     // listExternalBalances / listCases); XREF synthetic refs never resolve.
@@ -525,11 +532,11 @@ export class ReconciliationQueryService {
     lastObservedRun: { businessDate: string; cutoffAt: Date | null } | null,
   ): { cutoffBusinessDate: string; cutoff: Date } {
     // 平账 A 批（spec §6.1）：截止 = 最近一次观察它的那轮跑批**实际用的截止时刻**，
-    // 不再是当天 23:59:59——跑批用精确时刻（演示传的 cutoff / 手动触发的 ISO），
+    // 不再是业务日日终（迪拜口径）——跑批用精确时刻（演示传的 cutoff / 手动触发的 ISO），
     // 页面按日终重建会把「截止点后 6 小时」的跨日切外部行落回窗内，孤儿消失、无行可处置。
     // 历史 run 没记 cutoffAt 时回落日终（改动前的行为）。
     const cutoffBusinessDate = lastObservedRun?.businessDate ?? kase.businessDate;
-    const cutoff: Date = lastObservedRun?.cutoffAt ?? new Date(`${cutoffBusinessDate}T23:59:59.999Z`);
+    const cutoff: Date = lastObservedRun?.cutoffAt ?? endOfBusinessDate(cutoffBusinessDate);
     return { cutoffBusinessDate, cutoff };
   }
 
@@ -843,12 +850,28 @@ export class ReconciliationQueryService {
         .filter((no: string | null): no is string => !!no),
     ));
     const fundsOrderStatusByNo = new Map<string, string>();
+    // Task 7：在途行要能优先指向划转详情（`Transfer leg →`），前提是知道这条
+    // 在途行背后的资金单是不是一条划转腿——同一批查询顺手带上 internalTransfer
+    // 关联（transferNo/purpose/status，与既有 r.transfer 字段同形状，CaseFlowTable
+    // 两处渲染共用一套结构），非划转腿（充值/提现/swap 腿）该关联恒 null。
+    const transferByFundsOrderNo = new Map<string, { transferNo: string; purpose: string; status: string }>();
     if (inTransitFundsOrderNos.length > 0) {
       const fundsOrders = (await this.prisma.fundsOrder.findMany({
         where: { fundsOrderNo: { in: inTransitFundsOrderNos } },
-        select: { fundsOrderNo: true, status: true },
-      })) as Array<{ fundsOrderNo: string; status: string }>;
-      for (const fo of fundsOrders) fundsOrderStatusByNo.set(fo.fundsOrderNo, fo.status);
+        select: {
+          fundsOrderNo: true,
+          status: true,
+          internalTransfer: { select: { transferNo: true, purpose: true, status: true } },
+        },
+      })) as Array<{
+        fundsOrderNo: string;
+        status: string;
+        internalTransfer: { transferNo: string; purpose: string; status: string } | null;
+      }>;
+      for (const fo of fundsOrders) {
+        fundsOrderStatusByNo.set(fo.fundsOrderNo, fo.status);
+        if (fo.internalTransfer) transferByFundsOrderNo.set(fo.fundsOrderNo, fo.internalTransfer);
+      }
     }
 
     for (const li of inTransitLineItems) {
@@ -866,6 +889,7 @@ export class ReconciliationQueryService {
         matchType: 'IN_TRANSIT',
         fundsOrderNo,
         fundsOrderStatus: fundsOrderNo ? (fundsOrderStatusByNo.get(fundsOrderNo) ?? null) : null,
+        transfer: fundsOrderNo ? (transferByFundsOrderNo.get(fundsOrderNo) ?? null) : null,
       });
     }
 
@@ -1006,8 +1030,8 @@ export class ReconciliationQueryService {
     });
     if (!balance) throw new NotFoundException(`no external balance for ${walletNo} on ${cutoffDate}`);
 
-    const dayLo = new Date(`${cutoffDate}T00:00:00.000Z`);
-    const dayHi = new Date(`${cutoffDate}T23:59:59.999Z`);
+    const dayLo = startOfBusinessDate(cutoffDate);
+    const dayHi = endOfBusinessDate(cutoffDate);
     const lines = await this.prisma.externalStatementLine.findMany({
       where: {
         source: balance.source,

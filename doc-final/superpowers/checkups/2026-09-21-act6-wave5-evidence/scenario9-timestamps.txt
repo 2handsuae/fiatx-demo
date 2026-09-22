@@ -1,0 +1,47 @@
+波五 Task 11 · 场景 9（Grace USDT · Cross-period timing）剧本实走 · 时间戳算式
+
+案件：REC20260921-007（wallet WA2601014831 / walletRef 51b4bb0b-f9a3-45ea-9abb-761730b49fad，owner CU2601014381，USDT-TRON，bucket=COMPENSATING，severity=LOW）
+差异行来源：DEP260921770342（external_ref 0xbad6e8ca96d3e84bd3c1c2f37bbee3311d0dcfbc4334e6371213b2cbd390ea69）
+
+── 铺场时刻（本轮实测）──
+demo:all      开始 UTC 2026-09-21T19:58:35Z
+recon:demo:break  cutoff=2026-09-21T19:59:02.363Z（脚本打印，= 铺场那一刻的 UTC "now"）
+换算迪拜时刻：19:59:02.363Z + 4h = 2026-09-21 23:59:02.363（迪拜）—— 已经过 script.md:193 要求的
+「迪拜 18:00（UTC 14:00）前铺」门槛，属"过门槛"分支。
+
+── 三个关键时间戳（sqlite 直查 external_statement_lines，account_ref=51b4bb0b-...）──
+1. 场景 9 外部行 shifted 时间戳（datetime 列，epoch ms 1790042342363）
+   = 2026-09-22T01:59:02.363Z（UTC）
+   = 2026-09-22T05:59:02.363（迪拜，+4h）
+   描述字段原文："Demo cutoff straddle — landed in the counterparty's NEXT business day"
+   （= 铺场 cutoff 19:59:02.363Z 按 §1.2 规则加 6h 偏移得到）
+
+2. 案件 businessDate（reconciliation_cases.businessDate，REC20260921-007）
+   D = 2026-09-21
+
+3. 业务日 D 的日终（endOfBusinessDate('2026-09-21')，business-date.util.ts 公式）
+   = D T19:59:59.999Z = 2026-09-21T19:59:59.999Z（UTC）
+
+── 比较算式 ──
+shifted(2026-09-22T01:59:02.363Z) > 日终(2026-09-21T19:59:59.999Z)
+  → 外部行落在业务日 D 的窗口【startOfBusinessDate(D), endOfBusinessDate(D)】之外，落入 D+1(2026-09-22) 业务日
+  → 预测：Re-reconcile 按 D 日日终重跑（runs/wallet 收 { businessDate: kase.businessDate='2026-09-21' }，
+    后端 endOfBusinessDate 换算截止=2026-09-21T19:59:59.999Z）不会把该行纳入匹配窗口
+  → 预测结局：案子 Re-reconcile 后**仍红**（不自愈）
+
+── 实走结果（本轮实测，treasury@fiatx.com）──
+1. Hold · Next period 定性：选「Cross-period timing」，填查证说明，Record hold
+   → 徽标 "Finding: Cross-period timing → Hold · Next period · ADM250101081109-21"
+   → 案子状态 Open（红），截图 after/scenario9-1-hold-next-period-case-red.png
+2. Re-reconcile（点击时刻 UTC 2026-09-21T20:05:16Z～20:05:27Z）
+   → LAST RE-CHECKED 变为 RUN20260921-2（Sep 22, 00:05 本地迪拜显示）
+   → Case History 仍写 "still unmatched"；Status 仍 Open；Bucket 仍 Compensating；差异行仍 1 Open Row
+   → 截图 after/scenario9-2-re-reconcile-still-red.png
+
+── 判据核验 ──
+结局（仍红）与时间戳算式（shifted > 日终）一致 —— 验收通过。
+本轮属 script.md:193 明文预判的「铺场过 UTC 14:00 门槛」分支：不是缺陷，是迪拜业务日
+COB 边界的正确行为——"下期自然平"要等到业务日 D+1（2026-09-22）的 Re-reconcile 才会触发
+（D+1 日终 = 2026-09-22T19:59:59.999Z ≥ shifted 2026-09-22T01:59:02.363Z，届时该行落入窗口内）。
+本轮不追加验证 D+1 分支（那要等到真实时钟走到 2026-09-22 19:59:59.999Z 之后重铺才能实测，超出本任务
+窗口）——照实记录，不粉饰、不硬凑另一个结局。
