@@ -446,6 +446,12 @@ export class IncidentService {
    */
   async linkRemediation(incidentNo: string, dto: LinkRemediationDto, actor: ApprovalActorContext): Promise<{ incidentNo: string }> {
     const row = await this.assertOperatorForIncident(incidentNo, actor);
+    const cfg = getIncidentTypeConfig(row.type);
+    if (!cfg.allowedRemediationKinds.includes(dto.kind)) {
+      throw new BadRequestException(
+        `Remediation kind ${dto.kind} is not allowed for ${row.type} incidents (allowed: ${cfg.allowedRemediationKinds.join(', ') || 'none'})`,
+      );
+    }
     if (row.status !== IncidentStatus.ASSESSED && row.status !== IncidentStatus.RESOLVING) {
       if (row.status === IncidentStatus.CLOSED) {
         throw new BadRequestException(`Incident ${incidentNo} is already closed — no more remediation can be linked`);
@@ -497,6 +503,12 @@ export class IncidentService {
         if (!row) throw new NotFoundException(`Deposit not found: ${referenceNo}`);
         return;
       }
+      // 战役甲波一 Task 7 +2：以下两种只登记引用，不做存在性查询——ASSET_SUSPENSION_REF
+      // 指向审批主体的既有暂停单号（事件侧不代办不越域查询，铁律③）；CUSTOMER_NOTICE_LOGGED
+      // 是自由留痕串（通知本体是死码，丙战役后升级）。
+      case IncidentRemediationKinds.ASSET_SUSPENSION_REF:
+      case IncidentRemediationKinds.CUSTOMER_NOTICE_LOGGED:
+        return;
       default:
         throw new BadRequestException(`Unknown remediation type: ${kind}`);
     }

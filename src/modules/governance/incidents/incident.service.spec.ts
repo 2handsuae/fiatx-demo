@@ -406,6 +406,46 @@ describe('IncidentService (Task 5)', () => {
     });
   });
 
+  // 战役甲波一 Task 7：处置动作白名单 +2——每类型按注册表 allowedRemediationKinds 收窄
+  // linkRemediation 可挂的 kind；ASSET_SUSPENSION_REF/CUSTOMER_NOTICE_LOGGED 不校验引用是否
+  // 真存在（brief 行为合同）。
+  describe('linkRemediation — allowedRemediationKinds whitelist (Task 7 +2)', () => {
+    it('CYBER_BCDR (allowedRemediationKinds: []) + SUPPLEMENT → 400, no create/audit', async () => {
+      const { svc, prisma, auditLogs } = makeService({
+        heldMarkers: ['cap.incident.tech'],
+        incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', type: T.CYBER_BCDR, status: S.ASSESSED },
+      });
+      await expect(svc.linkRemediation('INC1', { kind: 'SUPPLEMENT', referenceNo: 'DEP1' }, ops)).rejects.toThrow(BadRequestException);
+      expect(prisma.incidentRemediation.create).not.toHaveBeenCalled();
+      expect(auditLogs.recordByActor).not.toHaveBeenCalled();
+    });
+
+    it('ASSET_NONCOMPLIANCE + ASSET_SUSPENSION_REF → linked (no existence lookup) + audit metadata.kind', async () => {
+      const { svc, prisma, auditLogs } = makeService({
+        heldMarkers: ['cap.incident.ops'],
+        incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', type: T.ASSET_NONCOMPLIANCE, status: S.ASSESSED },
+      });
+      await svc.linkRemediation('INC1', { kind: 'ASSET_SUSPENSION_REF', referenceNo: 'APR-SUSP-1' }, ops);
+      expect(prisma.incidentRemediation.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({ incidentId: 'uuid-inc', kind: 'ASSET_SUSPENSION_REF', referenceNo: 'APR-SUSP-1' }),
+      });
+      const call = auditLogs.recordByActor.mock.calls[0][0];
+      expect(call).toMatchObject({ action: 'INCIDENT_REMEDIATION_LINKED', referenceNo: 'APR-SUSP-1' });
+      expect(call.metadata).toMatchObject({ kind: 'ASSET_SUSPENSION_REF' });
+    });
+
+    it('regression: UNAUTHORIZED_OUTFLOW (存量四钱单) + TRANSFER still passes the whitelist', async () => {
+      const { svc, prisma } = makeService({
+        transfer: { transferNo: 'ITR1' },
+        incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', type: T.UNAUTHORIZED_OUTFLOW, status: S.ASSESSED },
+      });
+      await svc.linkRemediation('INC1', { kind: 'TRANSFER', referenceNo: 'ITR1' }, ops);
+      expect(prisma.incidentRemediation.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({ incidentId: 'uuid-inc', kind: 'TRANSFER', referenceNo: 'ITR1' }),
+      });
+    });
+  });
+
   describe('one audit entry per action (recordByActor + explicit requestId)', () => {
     it('register/startInvestigation/addNote/escalate/withdraw/linkRemediation each call recordByActor exactly once', async () => {
       const { svc: s1, auditLogs: a1 } = makeService();

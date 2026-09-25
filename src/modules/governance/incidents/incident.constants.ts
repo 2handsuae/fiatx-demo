@@ -54,12 +54,19 @@ export const IncidentEscalationTargets = {
 } as const;
 type IncidentEscalationTarget = (typeof IncidentEscalationTargets)[keyof typeof IncidentEscalationTargets];
 
-/** 善后单类型（IncidentRemediation.kind，spec §5）。 */
+/** 善后单类型（IncidentRemediation.kind，spec §5）。战役甲波一 Task 7 +2：
+ * `ASSET_SUSPENSION_REF`——referenceNo 是既有资产暂停审批单号，本服务只登记引用，不校验
+ * 该单号存在（事件侧不代办不越域查询审批主体，铁律③；见 IncidentService.
+ * assertRemediationReferenceExists）；`CUSTOMER_NOTICE_LOGGED`——referenceNo 是自由留痕串
+ * （如 `NOTICE-2026-09-25`），通知本体是死码，丙战役后升级为真发送。两值按类型收窄的白名单
+ * 见 incident-type-registry.ts 的 allowedRemediationKinds。 */
 export const IncidentRemediationKinds = {
   SUPPLEMENT: 'SUPPLEMENT',
   CLAIM: 'CLAIM',
   ADJUSTMENT: 'ADJUSTMENT',
   TRANSFER: 'TRANSFER',
+  ASSET_SUSPENSION_REF: 'ASSET_SUSPENSION_REF',
+  CUSTOMER_NOTICE_LOGGED: 'CUSTOMER_NOTICE_LOGGED',
 } as const;
 type IncidentRemediationKind = (typeof IncidentRemediationKinds)[keyof typeof IncidentRemediationKinds];
 
