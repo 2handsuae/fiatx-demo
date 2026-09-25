@@ -12,6 +12,8 @@
 
 ## Global Constraints
 
+- **通用交付清单见 `rules/delivery-checklist.md`，全部适用。**
+- **本轮特有**：①零账务（`verify:coa` 不触发）②**零客户面暴露**——所有新面均管理台侧，client-web 零变更（闸③不触发；DATA_BREACH 的"波及客户"只是管理台锚字段，不通知不展示给客户）③`shortfallAmount` 与存量 `amount` 同口径（元、字符串，对齐 `CreateInternalTransferInput.amountMajor`）④不新增审计码、不新增领域事件、不加状态边。
 - **worktree 隔离执行**（项目总纲 §10）：一会话=一 worktree=一分支=自动分栈；不在主树跑。
 - **Node 20**：本机 shell 默认 node18——每次跑 npm/npx/jest 前先 `node -v` 核对，若是 v18 执行 `export PATH="$(ls -d ~/.nvm/versions/node/v20* | tail -1)/bin:$PATH"`。zsh 下管道退出码用 `${pipestatus[1]}` 或不走管道。
 - **jest 必须在仓库根目录跑**，且带 `DATABASE_URL`（缺则假红，判例在案）：`DATABASE_URL="file:/tmp/exchange_js_wt_<树名>/dev.db" npx jest src/modules/governance/incidents`。
@@ -377,7 +379,8 @@ it.each([
 ```
 
 - [ ] **Step 2-4: 红→实现→绿**（含既有"未标记已通报不许结案"守卫回归）
-- [ ] **Step 5: 闸① + commit** `feat(甲波一T8): 结案四链——CISO单步/高管单步入审批常量+handler·三元退役为注册表查链`
+- [ ] **Step 5: MAKER_GROUP_BY_POLICY 加两行**（delivery-checklist 硬条款——S5 自批死锁闸只遍历这张人工表，表外策略不受保护）：打开 `scripts/verify-rbac.ts` 找到 `MAKER_GROUP_BY_POLICY`，照既有 `INCIDENT_CLOSE_SECURITY`/`INCIDENT_CLOSE_FINANCIAL` 两行的形状追加：`INCIDENT_CLOSE_TECHSEC` → maker 组 `['INCIDENT_TECH_WRITE','INCIDENT_DATA_WRITE','INCIDENT_OPS_WRITE']`（三族经办均走此链）；`INCIDENT_CLOSE_PRUDENTIAL` → `['INCIDENT_FIN_WRITE']`。随后跑 S5 确认：CISO 不持三个经办桶、SMO 不持财务经办桶（按 T9 绑定本应天然成立，S5 红了说明绑定错）
+- [ ] **Step 6: 闸① + commit** `feat(甲波一T8): 结案四链——CISO单步/高管单步入审批常量+handler·三元退役为注册表查链·MAKER表两行`
 
 ---
 
@@ -431,8 +434,10 @@ it.each([
 - [ ] **Step 2:** 九个启用类型全生命周期实走（登记→调查→定损→处置→结案审批→关单），每类审计事件链抽查（fromStatus/toStatus）
 - [ ] **Step 3:** MANUAL 零残留：`grep -rn "IncidentTypes.MANUAL" src admin-web/src` 零命中 + `grep -rn "'MANUAL'" src/modules/governance/incidents admin-web/src/pages/Incident* admin-web/src/utils/incidentStatusMap.ts` 零命中（范围限定防同名字面量误伤客户限制/对账触发的 MANUAL）
 - [ ] **Step 4:** 变异实证三点（改注册表链指向→T8 探针红；注掉一条 RBAC 绑定→verify:rbac 红；registry 删一锚键→T5 用例红），恢复后全绿留痕
-- [ ] **Step 5:** 闸①②④ + jest 全量基线数记录 → Commit `chore(甲波一T11): 种子四样例·truth同步(66桶/三新经办位)·PRODUCTION-NOTES一行·四闸物证`
-- [ ] **Step 6:** 按 delivery-checklist 写**波二承接记录**进波二骨架（通报单槽→工单交接、PRUDENTIAL 联动、V8 通报收编岔口②）
+- [ ] **Step 5:** **script.md 核对**：`grep -n -i "incident\|事故" doc-final/demo/script.md`——既有事故步骤（平账三期场景系）必须仍可走；若步骤文案引用 MANUAL 或旧四类口径则同步修；**不加新幕**（波五编排）
+- [ ] **Step 6:** 收尾三件套：`CHANGELOG.md` 一行（合并时）；`BACKLOG.md` 扫事故相关行销账/改锚；轮末按 CLAUDE.md §9 报告 `Documentation updated: modules§0-4 / demo — <一句话>`
+- [ ] **Step 7:** 闸①②④ + jest 全量基线数记录 → Commit `chore(甲波一T11): 种子四样例·truth同步(66桶/三新经办位)·PRODUCTION-NOTES一行·收尾三件套·四闸物证`
+- [ ] **Step 8:** 按 delivery-checklist 写**波二承接记录**进波二骨架（通报单槽→工单交接、PRUDENTIAL 联动、V8 通报收编岔口②）；只写承接不展开波二 spec
 
 ---
 
