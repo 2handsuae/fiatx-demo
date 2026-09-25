@@ -542,9 +542,10 @@ describe('Incident register e2e (平账三期 · 事故登记, Task 13)', () => 
     const cfoToken = await loginAdmin('cfo@fiatx.com');
 
     // 运营持 INCIDENT_WRITE——真实 HTTP 走真实 RBAC 闸，登记成功。
+    // MANUAL 已于甲波一 T2 退役，改用最简单的存量类型（CLIENT_SHORTFALL 只需 customerNo+amount）。
     const regRes = await request(server).post('/admin/incidents')
       .set('Authorization', `Bearer ${opsToken}`)
-      .send({ type: 'MANUAL', title: 'e2e 权限探针：运营登记', description: '验证运营能登记但不能裁决自己开的结案单' });
+      .send({ type: 'CLIENT_SHORTFALL', title: 'e2e 权限探针：运营登记', description: '验证运营能登记但不能裁决自己开的结案单', customerNo: 'E2E-PROBE-CUST', amount: '1' });
     expect(regRes.status).toBe(201);
     const probeIncidentNo = regRes.body.incidentNo as string;
     expect(probeIncidentNo).toMatch(/^INC/);
@@ -554,7 +555,7 @@ describe('Incident register e2e (平账三期 · 事故登记, Task 13)', () => 
     await incidents.assess(probeIncidentNo, { assessedAmount: '0', assessmentBasis: 'NO_LOSS', reportRequired: false } as any, ops());
     const closeReq = await closeWorkflow.requestClose(probeIncidentNo, ops());
 
-    // 运营拿着 GOV_APPROVAL_READ 能点到 approve 端点，但角色不在候选人里（MANUAL→单步 CFO）——403。
+    // 运营拿着 GOV_APPROVAL_READ 能点到 approve 端点，但角色不在候选人里（CLIENT_SHORTFALL→INCIDENT_CLOSE_FINANCIAL→单步 CFO）——403。
     const opsDecideRes = await request(server)
       .post(`/admin/control-gates/approvals/${closeReq.approvalNo}/approve`)
       .set('Authorization', `Bearer ${opsToken}`)
@@ -571,9 +572,10 @@ describe('Incident register e2e (平账三期 · 事故登记, Task 13)', () => 
     expect(cfoCloseRes.status).toBe(403);
   });
 
-  it('8 · MANUAL 登记 → 撤回（必填理由）→ WITHDRAWN', async () => {
+  it('8 · CLIENT_SHORTFALL 登记（MANUAL 已于甲波一 T2 退役，改用最简单的存量类型）→ 撤回（必填理由）→ WITHDRAWN', async () => {
     const reg = await registrationWorkflow.register({
-      type: IncidentTypes.MANUAL, title: '误登记的对账观察', description: '运营手滑，实际是正常波动，登记后即撤回',
+      type: IncidentTypes.CLIENT_SHORTFALL, title: '误登记的对账观察', description: '运营手滑，实际是正常波动，登记后即撤回',
+      customerNo: 'E2E-WD-CUST', amount: '1',
     } as any, ops());
     await expect(incidents.withdraw(reg.incidentNo, '', ops())).rejects.toThrow(/Withdrawal requires a reason/);
     const wd = await incidents.withdraw(reg.incidentNo, '经复核，属误报，无实际事故', ops());
@@ -634,7 +636,9 @@ describe('Incident register e2e (平账三期 · 事故登记, Task 13)', () => 
     expect(before).toBe(500_000_000n);
 
     const reg = await registrationWorkflow.register({
-      type: IncidentTypes.MANUAL, title: '零账务验证', description: '验证事故登记与调查动作不触碰账本', customerNo: cust.customerNo,
+      // MANUAL 已于甲波一 T2 退役，改用最简单的存量类型（CLIENT_SHORTFALL 只需 customerNo+amount）。
+      type: IncidentTypes.CLIENT_SHORTFALL, title: '零账务验证', description: '验证事故登记与调查动作不触碰账本',
+      customerNo: cust.customerNo, amount: '0',
     } as any, ops());
     expect(await available()).toBe(before);
 

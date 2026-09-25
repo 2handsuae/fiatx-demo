@@ -43,7 +43,7 @@ describe('IncidentsController (Task 8: thin forwarding)', () => {
 
   it('register: forwards to IncidentRegistrationWorkflowService.register (not IncidentService.register)', async () => {
     registrationWorkflow.register.mockResolvedValue({ incidentNo: 'INC1' });
-    const dto = { type: 'MANUAL', title: 't', description: 'd' } as any;
+    const dto = { type: 'CYBER_BCDR', title: 't', description: 'd' } as any;
     const r = await controller.register(dto, adminReq);
     expect(registrationWorkflow.register).toHaveBeenCalledWith(dto, expectedActor);
     expect(r).toEqual({ incidentNo: 'INC1' });

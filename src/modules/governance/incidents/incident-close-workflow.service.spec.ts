@@ -26,53 +26,53 @@ function makeWorkflow(o: Partial<Record<'incidentRow' | 'remediations', any>> = 
 describe('IncidentCloseWorkflowService (Task 7)', () => {
   describe('requestClose — preconditions', () => {
     it('REGISTERED → 400 (mutation target 1: removing this guard must turn this case red)', async () => {
-      const { wf } = makeWorkflow({ incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', type: T.MANUAL, status: S.REGISTERED, traceId: 't' } });
+      const { wf } = makeWorkflow({ incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', type: T.CLIENT_SHORTFALL, status: S.REGISTERED, traceId: 't' } });
       await expect(wf.requestClose('INC1', treasury)).rejects.toThrow(BadRequestException);
     });
 
     it('INVESTIGATING → 400 (mutation target 1)', async () => {
-      const { wf } = makeWorkflow({ incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', type: T.MANUAL, status: S.INVESTIGATING, traceId: 't' } });
+      const { wf } = makeWorkflow({ incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', type: T.CLIENT_SHORTFALL, status: S.INVESTIGATING, traceId: 't' } });
       await expect(wf.requestClose('INC1', treasury)).rejects.toThrow(BadRequestException);
     });
 
     it('CLOSED (already terminal) → 400', async () => {
-      const { wf } = makeWorkflow({ incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', type: T.MANUAL, status: S.CLOSED, traceId: 't' } });
+      const { wf } = makeWorkflow({ incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', type: T.CLIENT_SHORTFALL, status: S.CLOSED, traceId: 't' } });
       await expect(wf.requestClose('INC1', treasury)).rejects.toThrow(BadRequestException);
     });
 
     it('ASSESSED but assessment basis is not NO_LOSS → 400 (must enter Resolving first)', async () => {
-      const { wf } = makeWorkflow({ incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', type: T.MANUAL, status: S.ASSESSED, assessmentBasis: 'FIRM_LOSS', traceId: 't' } });
+      const { wf } = makeWorkflow({ incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', type: T.CLIENT_SHORTFALL, status: S.ASSESSED, assessmentBasis: 'FIRM_LOSS', traceId: 't' } });
       await expect(wf.requestClose('INC1', treasury)).rejects.toThrow(/enter Resolving/);
     });
 
     it('ASSESSED and NO_LOSS but already has remediation linked → 400', async () => {
       const { wf } = makeWorkflow({
-        incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', type: T.MANUAL, status: S.ASSESSED, assessmentBasis: 'NO_LOSS', traceId: 't' },
+        incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', type: T.CLIENT_SHORTFALL, status: S.ASSESSED, assessmentBasis: 'NO_LOSS', traceId: 't' },
         remediations: ['ADJ1'],
       });
       await expect(wf.requestClose('INC1', treasury)).rejects.toThrow(/enter Resolving/);
     });
 
     it('ASSESSED + NO_LOSS + zero remediation → allowed (the CLOSE_NO_ACTION path)', async () => {
-      const { wf } = makeWorkflow({ incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', type: T.MANUAL, status: S.ASSESSED, assessmentBasis: 'NO_LOSS', reportRequired: false, traceId: 't' } });
+      const { wf } = makeWorkflow({ incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', type: T.CLIENT_SHORTFALL, status: S.ASSESSED, assessmentBasis: 'NO_LOSS', reportRequired: false, traceId: 't' } });
       await expect(wf.requestClose('INC1', treasury)).resolves.toBeDefined();
     });
 
     it('RESOLVING → allowed (assessmentBasis/remediation links are not checked)', async () => {
       const { wf } = makeWorkflow({
-        incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', type: T.MANUAL, status: S.RESOLVING, assessmentBasis: 'FIRM_LOSS', reportRequired: false, traceId: 't' },
+        incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', type: T.CLIENT_SHORTFALL, status: S.RESOLVING, assessmentBasis: 'FIRM_LOSS', reportRequired: false, traceId: 't' },
         remediations: ['ADJ1'],
       });
       await expect(wf.requestClose('INC1', treasury)).resolves.toBeDefined();
     });
 
     it('reportRequired=true but not yet markReported → 400 (cannot close without a reporting trace)', async () => {
-      const { wf } = makeWorkflow({ incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', type: T.MANUAL, status: S.RESOLVING, reportRequired: true, reportedAt: null, traceId: 't' } });
+      const { wf } = makeWorkflow({ incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', type: T.CLIENT_SHORTFALL, status: S.RESOLVING, reportRequired: true, reportedAt: null, traceId: 't' } });
       await expect(wf.requestClose('INC1', treasury)).rejects.toThrow(/regulator reporting/);
     });
 
     it('reportRequired=true and already markReported → allowed', async () => {
-      const { wf } = makeWorkflow({ incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', type: T.MANUAL, status: S.RESOLVING, reportRequired: true, reportedAt: new Date(), traceId: 't' } });
+      const { wf } = makeWorkflow({ incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', type: T.CLIENT_SHORTFALL, status: S.RESOLVING, reportRequired: true, reportedAt: new Date(), traceId: 't' } });
       await expect(wf.requestClose('INC1', treasury)).resolves.toBeDefined();
     });
   });
@@ -84,7 +84,7 @@ describe('IncidentCloseWorkflowService (Task 7)', () => {
       expect(approvals.createAndSubmit.mock.calls[0][0].actionType).toBe('INCIDENT_CLOSE_SECURITY');
     });
 
-    it.each([T.LARGE_UNEXPLAINED, T.CLIENT_SHORTFALL, T.MANUAL])('%s → INCIDENT_CLOSE_FINANCIAL', async (type) => {
+    it.each([T.LARGE_UNEXPLAINED, T.CLIENT_SHORTFALL, T.CYBER_BCDR])('%s → INCIDENT_CLOSE_FINANCIAL', async (type) => {
       const { wf, approvals } = makeWorkflow({ incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', type, status: S.RESOLVING, traceId: 't' } });
       await wf.requestClose('INC1', treasury);
       expect(approvals.createAndSubmit.mock.calls[0][0].actionType).toBe('INCIDENT_CLOSE_FINANCIAL');
@@ -137,7 +137,7 @@ describe('IncidentCloseWorkflowService (Task 7)', () => {
 
   describe('onDecided — decision landing', () => {
     it('APPROVED → close() is called + INCIDENT_CLOSED audit (fromStatus/toStatus/approvalNo/causationId)', async () => {
-      const { wf, incidents, auditLogs } = makeWorkflow({ incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', type: T.MANUAL, status: S.RESOLVING, traceId: 'trace-1' } });
+      const { wf, incidents, auditLogs } = makeWorkflow({ incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', type: T.CLIENT_SHORTFALL, status: S.RESOLVING, traceId: 'trace-1' } });
       await wf.onDecided({
         decision: 'APPROVED', actionType: 'INCIDENT_CLOSE_FINANCIAL', entityRef: 'INC1',
         approvalId: 'A1', approvalNo: 'AC1', traceId: 'trace-1', workflowType: 'INCIDENT',
@@ -149,7 +149,7 @@ describe('IncidentCloseWorkflowService (Task 7)', () => {
     });
 
     it('DECLINED → status left unchanged: close() is not called, no audit written', async () => {
-      const { wf, incidents, auditLogs } = makeWorkflow({ incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', type: T.MANUAL, status: S.RESOLVING, traceId: 'trace-1' } });
+      const { wf, incidents, auditLogs } = makeWorkflow({ incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', type: T.CLIENT_SHORTFALL, status: S.RESOLVING, traceId: 'trace-1' } });
       await wf.onDecided({
         decision: 'DECLINED', actionType: 'INCIDENT_CLOSE_FINANCIAL', entityRef: 'INC1',
         approvalId: 'A1', approvalNo: 'AC1', traceId: 'trace-1', workflowType: 'INCIDENT', metadata: {},

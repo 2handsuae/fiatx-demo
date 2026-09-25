@@ -143,8 +143,6 @@ export class IncidentService {
       case IncidentTypes.CLIENT_SHORTFALL:
         await this.assertClientShortfall(dto);
         break;
-      case IncidentTypes.MANUAL:
-        break; // 只要 title+description，上面已校验
       default:
         throw new BadRequestException(`Unknown incident type: ${dto.type}`);
     }

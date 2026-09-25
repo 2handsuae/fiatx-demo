@@ -23,7 +23,7 @@ describe('IncidentRegistrationWorkflowService (Task 5, Rule 3 orchestration poin
     expect(dispositionLink.attachIncident).toHaveBeenCalledWith('RCD1', 'INC1');
   });
 
-  it.each([T.LARGE_UNEXPLAINED, T.CLIENT_SHORTFALL, T.MANUAL])('%s: does not write back a disposition line (there is no such thing as dispositionNo here)', async (type) => {
+  it.each([T.LARGE_UNEXPLAINED, T.CLIENT_SHORTFALL, T.CYBER_BCDR])('%s: does not write back a disposition line (there is no such thing as dispositionNo here)', async (type) => {
     const { wf, dispositionLink } = makeWorkflow('INC2');
     await wf.register({ type, title: 't', description: 'd' } as any, ops);
     expect(dispositionLink.attachIncident).not.toHaveBeenCalled();

@@ -6,7 +6,7 @@ const ops = { actorType: 'ADMIN' as const, userId: 'uuid-ops', userNo: 'ADM-OPS'
 
 function makeService(o: Partial<Record<'incidentRow' | 'disposition' | 'kase' | 'transfer' | 'adjustment' | 'adjustments' | 'deposit' | 'remediations' | 'notes' | 'listRows' | 'listTotal', any>> = {}) {
   const incidentRow = o.incidentRow ?? {
-    id: 'uuid-inc', incidentNo: 'INC1', type: T.MANUAL, status: S.REGISTERED,
+    id: 'uuid-inc', incidentNo: 'INC1', type: T.CLIENT_SHORTFALL, status: S.REGISTERED,
     title: 't', description: 'd', customerNo: null, sourceCaseNo: null, traceId: 'trace-seed',
   };
   const prisma: any = {
@@ -61,21 +61,27 @@ describe('IncidentService (Task 5)', () => {
     });
   });
 
-  describe('register — MANUAL', () => {
-    it('missing title/description → 400', async () => {
+  describe('register — MANUAL retired / audit envelope', () => {
+    it('missing title/description → 400 (checked before the type switch, any type hits it)', async () => {
       const { svc } = makeService();
-      await expect(svc.register({ type: T.MANUAL, title: '', description: 'd' } as any, ops)).rejects.toThrow(BadRequestException);
+      await expect(svc.register({ type: T.CLIENT_SHORTFALL, title: '', description: 'd' } as any, ops)).rejects.toThrow(BadRequestException);
     });
 
-    it('happy path: generates an INC number, REGISTERED, audit type top-level + correlationId=traceId', async () => {
+    // 甲波一 T2：MANUAL 退役——switch 不再有它的分支，落 default → 400（brief 要求确认）。
+    it('MANUAL is retired: falls to default → 400 Unknown incident type', async () => {
+      const { svc } = makeService();
+      await expect(svc.register({ type: 'MANUAL', title: 't', description: 'd' } as any, ops)).rejects.toThrow(/Unknown incident type/);
+    });
+
+    it('happy path (CLIENT_SHORTFALL, minimal DTO): generates an INC number, REGISTERED, audit type top-level + correlationId=traceId', async () => {
       const { svc, prisma, auditLogs } = makeService();
-      const r = await svc.register({ type: T.MANUAL, title: 'Service disruption', description: 'Custodian security notice' }, ops);
+      const r = await svc.register({ type: T.CLIENT_SHORTFALL, title: 'Service disruption', description: 'Custodian security notice', customerNo: 'CU1', amount: '900' }, ops);
       expect(r.incidentNo).toMatch(/^INC\d+/);
       expect(prisma.incident.create).toHaveBeenCalledWith(expect.objectContaining({
-        data: expect.objectContaining({ type: T.MANUAL, status: S.REGISTERED, title: 'Service disruption', description: 'Custodian security notice' }),
+        data: expect.objectContaining({ type: T.CLIENT_SHORTFALL, status: S.REGISTERED, title: 'Service disruption', description: 'Custodian security notice' }),
       }));
       const call = auditLogs.recordByActor.mock.calls[0][0];
-      expect(call).toMatchObject({ action: 'INCIDENT_REGISTERED', actionDomain: 'GOVERNANCE', type: T.MANUAL, correlationId: r.traceId });
+      expect(call).toMatchObject({ action: 'INCIDENT_REGISTERED', actionDomain: 'GOVERNANCE', type: T.CLIENT_SHORTFALL, correlationId: r.traceId });
       expect(call.requestId).toMatch(/^INCIDENT_REGISTERED_/);
     });
   });
@@ -313,7 +319,7 @@ describe('IncidentService (Task 5)', () => {
   describe('one audit entry per action (recordByActor + explicit requestId)', () => {
     it('register/startInvestigation/addNote/escalate/withdraw/linkRemediation each call recordByActor exactly once', async () => {
       const { svc: s1, auditLogs: a1 } = makeService();
-      await s1.register({ type: T.MANUAL, title: 't', description: 'd' }, ops);
+      await s1.register({ type: T.CLIENT_SHORTFALL, title: 't', description: 'd', customerNo: 'CU1', amount: '900' }, ops);
       expect(a1.recordByActor).toHaveBeenCalledTimes(1);
 
       const { svc: s2, auditLogs: a2 } = makeService();
@@ -498,7 +504,7 @@ describe('IncidentService (Task 5)', () => {
 
     it('list: filters by status/type/customerNo/sourceCaseNo and projects to the business-key view', async () => {
       const row = {
-        incidentNo: 'INC1', type: T.MANUAL, status: S.REGISTERED, title: 't',
+        incidentNo: 'INC1', type: T.CLIENT_SHORTFALL, status: S.REGISTERED, title: 't',
         customerNo: null, assetCode: null, amount: null, sourceCaseNo: null,
         reportRequired: false, reportedAt: null, reportDeadlineAt: null, createdAt,
       };
@@ -506,7 +512,7 @@ describe('IncidentService (Task 5)', () => {
       const r = await svc.list({ status: S.REGISTERED, take: 10, skip: 0 });
       expect(r.total).toBe(1);
       expect(r.items).toEqual([{
-        incidentNo: 'INC1', type: T.MANUAL, status: S.REGISTERED, title: 't',
+        incidentNo: 'INC1', type: T.CLIENT_SHORTFALL, status: S.REGISTERED, title: 't',
         customerNo: null, assetCode: null, amount: null, sourceCaseNo: null,
         reportRequired: false, reportedAt: null, reportDeadlineAt: null, createdAt: createdAt.toISOString(),
       }]);
@@ -516,7 +522,7 @@ describe('IncidentService (Task 5)', () => {
 
     it('getView: entity fields + notes + remediations, zero id/incidentId', async () => {
       const incidentRow = {
-        id: 'uuid-inc', incidentNo: 'INC1', type: T.MANUAL, status: S.INVESTIGATING,
+        id: 'uuid-inc', incidentNo: 'INC1', type: T.CLIENT_SHORTFALL, status: S.INVESTIGATING,
         title: 't', description: 'd', customerNo: null, sourceCaseNo: null, sourceDispositionNo: null,
         sourceAdvanceTransferNo: null, assetCode: null, amount: null,
         assessedAmount: null, assessmentBasis: null, reportRequired: false, reportBasisCodes: null,
@@ -540,7 +546,7 @@ describe('IncidentService (Task 5)', () => {
 
     it('getView: a non-ADJUSTMENT remediation does not query adjustment status, status is always null', async () => {
       const incidentRow = {
-        id: 'uuid-inc', incidentNo: 'INC1', type: T.MANUAL, status: S.RESOLVING,
+        id: 'uuid-inc', incidentNo: 'INC1', type: T.CLIENT_SHORTFALL, status: S.RESOLVING,
         title: 't', description: 'd', customerNo: null, sourceCaseNo: null, sourceDispositionNo: null,
         sourceAdvanceTransferNo: null, assetCode: null, amount: null,
         assessedAmount: null, assessmentBasis: null, reportRequired: false, reportBasisCodes: null,

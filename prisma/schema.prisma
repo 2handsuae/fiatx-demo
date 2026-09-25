@@ -1633,7 +1633,7 @@ model ReconciliationDisposition {
 model Incident {
   id                 String    @id @default(uuid())
   incidentNo         String    @unique
-  type               String    // UNAUTHORIZED_OUTFLOW | LARGE_UNEXPLAINED | CLIENT_SHORTFALL | MANUAL
+  type               String    // 十类终盘（MANUAL 已退役）：见 incident.constants.ts IncidentTypes
   status             String    @default("REGISTERED") // REGISTERED | INVESTIGATING | ASSESSED | RESOLVING | CLOSED | WITHDRAWN
   title              String
   description        String

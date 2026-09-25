@@ -1,12 +1,22 @@
 // 平账三期 · 事故登记（spec §2/§5）：主体 Incident 的类型、状态、显式迁移表、方法入参形状。
 // 本文件只放常量与纯类型——不含任何 Prisma / NestJS 依赖。
 
-/** 首批四类（spec §5）。 */
+/**
+ * 十类终盘（战役甲波一 spec §1，MANUAL 已退役）——键集由 incident-type-registry.ts
+ * 的 INCIDENT_TYPE_REGISTRY 手写同构派生（本文件不 import 该文件，防环；键集一致性由
+ * incident-type-registry.spec.ts 的第一条测试钉死）。
+ */
 export const IncidentTypes = {
   UNAUTHORIZED_OUTFLOW: 'UNAUTHORIZED_OUTFLOW',
   LARGE_UNEXPLAINED: 'LARGE_UNEXPLAINED',
   CLIENT_SHORTFALL: 'CLIENT_SHORTFALL',
-  MANUAL: 'MANUAL',
+  CYBER_BCDR: 'CYBER_BCDR',
+  DATA_BREACH: 'DATA_BREACH',
+  OUTSOURCING_FAILURE: 'OUTSOURCING_FAILURE',
+  ASSET_NONCOMPLIANCE: 'ASSET_NONCOMPLIANCE',
+  STUCK_TRANSACTION_MAJOR: 'STUCK_TRANSACTION_MAJOR',
+  PRUDENTIAL_BREACH: 'PRUDENTIAL_BREACH',
+  COMPLAINT_ESCALATION: 'COMPLAINT_ESCALATION',
 } as const;
 type IncidentType = (typeof IncidentTypes)[keyof typeof IncidentTypes];
 

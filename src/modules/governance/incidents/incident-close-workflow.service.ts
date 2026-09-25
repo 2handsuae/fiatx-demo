@@ -27,7 +27,6 @@ const INCIDENT_TYPE_IMPACT_LABEL: Record<string, string> = {
   [IncidentTypes.UNAUTHORIZED_OUTFLOW]: 'Unauthorized outflow',
   [IncidentTypes.LARGE_UNEXPLAINED]: 'Large unexplained',
   [IncidentTypes.CLIENT_SHORTFALL]: 'Client shortfall',
-  [IncidentTypes.MANUAL]: 'Manual registration',
 };
 const ASSESSMENT_BASIS_IMPACT_VERB: Record<string, string> = {
   RECOVERED: 'recovered', FIRM_LOSS: 'loss recognized', CLIENT_COLLECTION: 'pursuing collection', NO_LOSS: 'no loss',
