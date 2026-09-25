@@ -79,6 +79,9 @@ export interface RegisterIncidentDto {
   // 见 incident-registration-workflow.service.ts。
   explainedExternalLineId?: string;
   findingNote?: string;
+  // 战役甲波一 Task 5：新七类锚键值（INCIDENT_TYPE_REGISTRY.requiredAnchors 按类型点名的
+  // 键集）——服务层 JSON.stringify 存入 Incident.subjectRefs（T3 新列）；存量三类不使用。
+  subjectRefs?: Record<string, string | number | boolean>;
 }
 
 export interface EscalateIncidentDto {

@@ -5,26 +5,49 @@
 // case / internalTransfer / reconciliationAdjustment / depositTransaction）是登记 / 挂载
 // 前的存在性与口径校验，读不算跨主体写，留在本文件。
 import { randomUUID } from 'node:crypto';
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../core/prisma/prisma.service';
 import { generateReferenceNo } from '../../../common/utils/no-generator.util';
 import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import { AuditActions, AuditBusinessWorkflowTypes, AuditEntityTypes } from '../../audit-logging/constants/audit-actions.constant';
 import { AuditCategory, AuditSubjectInput, AuditSubjectRole } from '../../audit-logging/dto/audit-log.dto';
+import { AccessControlService } from '../../identity/access-control/access-control.service';
 import { ApprovalActorContext } from '../approvals/constants/approval.constants';
 import {
   AssessIncidentDto, EscalateIncidentDto, INCIDENT_REPORT_BASES, INCIDENT_TRANSITIONS,
   IncidentRemediationKinds, IncidentStatus, IncidentTypes, LinkRemediationDto,
   MarkReportedDto, RegisterIncidentDto,
 } from './incident.constants';
+import { getIncidentTypeConfig, IncidentTypeConfig } from './incident-type-registry';
 
 @Injectable()
 export class IncidentService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly auditLogs: AuditLogsService,
+    private readonly accessControl: AccessControlService,
   ) {}
+
+  // ── 经办桶断言（战役甲波一 T5，高危面）：register 与七个经办入口共用的门——
+  // 按事故当前类型（或登记时的目标类型）取注册表 operatorGroup，校验 actor 持有该组。
+  // 裁决 Ruling-5：不给 SUPER_ADMIN 开特例，纯组包含检查（超管的种子绑定本就展开为
+  // 全量组，天然通过，不用代码里特判）。本方法保持 public——IncidentCloseWorkflowService
+  // 的 requestClose（结案入口，铁律③跨主体协作只在 workflow）复用它，省去第二次注入
+  // AccessControlService（task-5-brief Ruling：选改动最小方案）。
+  async assertOperator(cfg: IncidentTypeConfig, actor: ApprovalActorContext): Promise<void> {
+    const groups = await this.accessControl.getUserPermissionGroups(actor.userId);
+    if (!groups.includes(cfg.operatorGroup)) {
+      throw new ForbiddenException(`Actor lacks operator group "${cfg.operatorGroup}" required for ${cfg.family} incidents (${cfg.label})`);
+    }
+  }
+
+  /** 取现有事故行 + 按其现有类型做经办桶断言——investigation/notes/escalate/assess/remediations/withdraw 共用。 */
+  private async assertOperatorForIncident(incidentNo: string, actor: ApprovalActorContext) {
+    const row = await this.findByNo(incidentNo);
+    await this.assertOperator(getIncidentTypeConfig(row.type), actor);
+    return row;
+  }
 
   assertTransition(from: string, to: string): void {
     const allowed = INCIDENT_TRANSITIONS[from] ?? [];
@@ -133,6 +156,11 @@ export class IncidentService {
    */
   async register(dto: RegisterIncidentDto, actor: ApprovalActorContext): Promise<{ incidentNo: string; traceId: string }> {
     if (!dto.title || !dto.description) throw new BadRequestException('Incident registration requires a title and a description');
+    // 未知/停用类型在这里先 400（getIncidentTypeConfig，T2）；经办桶断言先于任何类型专属
+    // 校验（门不可绕）——存量三类维持原 switch 分支不变（行为回归），新七类落 default 分支
+    // 走注册表锚键校验。
+    const cfg = getIncidentTypeConfig(dto.type);
+    await this.assertOperator(cfg, actor);
     switch (dto.type) {
       case IncidentTypes.UNAUTHORIZED_OUTFLOW:
         await this.assertUnauthorizedOutflow(dto);
@@ -144,7 +172,7 @@ export class IncidentService {
         await this.assertClientShortfall(dto);
         break;
       default:
-        throw new BadRequestException(`Unknown incident type: ${dto.type}`);
+        this.assertAnchors(cfg, dto);
     }
 
     const traceId = randomUUID();
@@ -161,6 +189,7 @@ export class IncidentService {
         customerNo: dto.customerNo ?? null,
         assetCode: dto.assetCode ?? null,
         amount: dto.amount != null ? new Prisma.Decimal(dto.amount) : null,
+        subjectRefs: dto.subjectRefs ? JSON.stringify(dto.subjectRefs) : null,
         registeredByUserId: actor.userNo ?? actor.userId,
         traceId,
       },
@@ -216,9 +245,20 @@ export class IncidentService {
     }
   }
 
+  /** 新七类锚键校验（注册表 requiredAnchors 驱动）：缺键/空串一律 400，报缺哪个键。 */
+  private assertAnchors(cfg: IncidentTypeConfig, dto: RegisterIncidentDto): void {
+    for (const key of cfg.requiredAnchors) {
+      const value = dto.subjectRefs?.[key];
+      if (value == null || value === '') {
+        throw new BadRequestException(`Incident type ${dto.type} requires anchor "${key}" in subjectRefs`);
+      }
+    }
+  }
+
   // ── 调查（spec §2）────────────────────────────────────────────────────
 
   async startInvestigation(incidentNo: string, actor: ApprovalActorContext): Promise<{ incidentNo: string; status: string }> {
+    await this.assertOperatorForIncident(incidentNo, actor);
     const { row, updated } = await this.transition(incidentNo, IncidentStatus.INVESTIGATING);
     // fromStatus/toStatus 是 CreateAuditLogEventDto 的原生字段，requiredFields 校验直接读得到，不需要 extra。
     await this.recordAudit(updated, AuditActions.INCIDENT_INVESTIGATION_STARTED, actor, {
@@ -229,7 +269,7 @@ export class IncidentService {
 
   async addNote(incidentNo: string, body: string, actor: ApprovalActorContext): Promise<{ incidentNo: string }> {
     if (!body) throw new BadRequestException('An investigation note requires content');
-    const row = await this.findByNo(incidentNo);
+    const row = await this.assertOperatorForIncident(incidentNo, actor);
     await this.prisma.incidentNote.create({
       data: { incidentId: row.id, kind: 'NOTE', body, authorUserId: actor.userNo ?? actor.userId },
     });
@@ -239,7 +279,7 @@ export class IncidentService {
 
   async escalate(incidentNo: string, dto: EscalateIncidentDto, actor: ApprovalActorContext): Promise<{ incidentNo: string }> {
     if (!dto.to) throw new BadRequestException('Escalation requires a target');
-    const row = await this.findByNo(incidentNo);
+    const row = await this.assertOperatorForIncident(incidentNo, actor);
     await this.prisma.incidentNote.create({
       data: { incidentId: row.id, kind: 'ESCALATION', escalatedTo: dto.to, body: dto.note, authorUserId: actor.userNo ?? actor.userId },
     });
@@ -254,6 +294,7 @@ export class IncidentService {
 
   async withdraw(incidentNo: string, reason: string, actor: ApprovalActorContext): Promise<{ incidentNo: string; status: string }> {
     if (!reason) throw new BadRequestException('Withdrawal requires a reason');
+    await this.assertOperatorForIncident(incidentNo, actor);
     const { row, updated } = await this.transition(incidentNo, IncidentStatus.WITHDRAWN, { withdrawnReason: reason });
     // reason 也是原生字段，INCIDENT_WITHDRAWN 的 requiredFields=['reason'] 直接读得到，不需要 extra。
     await this.recordAudit(updated, AuditActions.INCIDENT_WITHDRAWN, actor, {
@@ -279,7 +320,7 @@ export class IncidentService {
         if (!(code in INCIDENT_REPORT_BASES)) throw new BadRequestException(`Unknown basis code: ${code}`);
       }
     }
-    const row = await this.findByNo(incidentNo);
+    const row = await this.assertOperatorForIncident(incidentNo, actor);
     this.assertTransition(row.status, IncidentStatus.ASSESSED);
     const updated = await this.prisma.incident.update({
       where: { incidentNo },
@@ -357,7 +398,7 @@ export class IncidentService {
    * `INCIDENT_REMEDIATION_LINKED` 一条（不加码），发生迁移时 metadata 带 statusAdvanced。
    */
   async linkRemediation(incidentNo: string, dto: LinkRemediationDto, actor: ApprovalActorContext): Promise<{ incidentNo: string }> {
-    const row = await this.findByNo(incidentNo);
+    const row = await this.assertOperatorForIncident(incidentNo, actor);
     if (row.status !== IncidentStatus.ASSESSED && row.status !== IncidentStatus.RESOLVING) {
       if (row.status === IncidentStatus.CLOSED) {
         throw new BadRequestException(`Incident ${incidentNo} is already closed — no more remediation can be linked`);

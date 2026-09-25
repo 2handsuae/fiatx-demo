@@ -16,6 +16,7 @@ import { ApprovalDecidedEvent } from '../approvals/approval-handler.base';
 import { ApprovalsService } from '../approvals/approvals.service';
 import { ApprovalActionTypes, ApprovalActorContext } from '../approvals/constants/approval.constants';
 import { IncidentStatus, IncidentTypes } from './incident.constants';
+import { getIncidentTypeConfig } from './incident-type-registry';
 import { IncidentService } from './incident.service';
 
 // 走查发现 Fix 1：结案审批页是 MLRO/CFO 的最后一道人闸，其余审批类型（模板见
@@ -48,6 +49,9 @@ export class IncidentCloseWorkflowService {
    */
   async requestClose(incidentNo: string, actor: ApprovalActorContext): Promise<{ incidentNo: string; approvalNo: string }> {
     const row = await this.incidents.findByNo(incidentNo);
+    // 战役甲波一 T5（经办桶断言，门不可绕）：结案入口复用 IncidentService.assertOperator
+    // ——不在本服务另注入 AccessControlService（改动最小方案，见 task-5-brief Ruling）。
+    await this.incidents.assertOperator(getIncidentTypeConfig(row.type), actor);
     const remediationReferenceNos = await this.incidents.findRemediations(incidentNo);
 
     if (row.status === IncidentStatus.ASSESSED) {

@@ -11,6 +11,10 @@ import { ApprovalsModule } from '../approvals/approvals.module';
 // 双向真环时的解法，这里不成立）。
 import { ReconciliationModule } from '../../clearing-settle/reconciliation/reconciliation.module';
 import { DispositionService } from '../../clearing-settle/reconciliation/disposition/disposition.service';
+// 战役甲波一 T5（经办桶断言）：IncidentService 注入 AccessControlService。该模块本身
+// 是 @Global()（access-control.module.ts），此处显式 import 是按 Ruling-2 接线，不依赖
+// 全局隐式可见性。
+import { AccessControlModule } from '../../identity/access-control/access-control.module';
 import { IncidentService } from './incident.service';
 import { DISPOSITION_INCIDENT_LINK, DispositionIncidentLink, IncidentRegistrationWorkflowService } from './incident-registration-workflow.service';
 import { IncidentCloseWorkflowService } from './incident-close-workflow.service';
@@ -27,7 +31,7 @@ const _dispositionIncidentLinkWitness: _AssertDispositionIncidentLink = true;
 void _dispositionIncidentLinkWitness;
 
 @Module({
-  imports: [PrismaModule, AuditLogsModule, ApprovalsModule, ReconciliationModule],
+  imports: [PrismaModule, AuditLogsModule, ApprovalsModule, ReconciliationModule, AccessControlModule],
   controllers: [IncidentsController],
   providers: [
     IncidentService,

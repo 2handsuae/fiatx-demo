@@ -13,6 +13,10 @@ function makeWorkflow(o: Partial<Record<'incidentRow' | 'remediations', any>> = 
   const remediations = o.remediations ?? [];
   const incidents: any = {
     findByNo: jest.fn(async () => incidentRow),
+    // 甲波一 T5 连锁修复：requestClose 现在复用 IncidentService.assertOperator（经办桶
+    // 断言）——本文件测的是结案编排本身（Task 7），不重测断言行为（那是
+    // incident.service.spec.ts 的职责），故恒放行。
+    assertOperator: jest.fn(async () => undefined),
     findRemediations: jest.fn(async () => remediations),
     markCloseRequested: jest.fn(async () => undefined),
     close: jest.fn(async () => ({ incidentNo: incidentRow.incidentNo, status: S.CLOSED })),

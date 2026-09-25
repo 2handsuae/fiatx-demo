@@ -1,10 +1,10 @@
-import { BadRequestException, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { IncidentService } from './incident.service';
 import { IncidentStatus as S, IncidentTypes as T, INCIDENT_REPORT_BASES as REPORT_BASES } from './incident.constants';
 
 const ops = { actorType: 'ADMIN' as const, userId: 'uuid-ops', userNo: 'ADM-OPS', roleCodes: ['OPS_OFFICER'] };
 
-function makeService(o: Partial<Record<'incidentRow' | 'disposition' | 'kase' | 'transfer' | 'adjustment' | 'adjustments' | 'deposit' | 'remediations' | 'notes' | 'listRows' | 'listTotal', any>> = {}) {
+function makeService(o: Partial<Record<'incidentRow' | 'disposition' | 'kase' | 'transfer' | 'adjustment' | 'adjustments' | 'deposit' | 'remediations' | 'notes' | 'listRows' | 'listTotal' | 'operatorGroups', any>> = {}) {
   const incidentRow = o.incidentRow ?? {
     id: 'uuid-inc', incidentNo: 'INC1', type: T.CLIENT_SHORTFALL, status: S.REGISTERED,
     title: 't', description: 'd', customerNo: null, sourceCaseNo: null, traceId: 'trace-seed',
@@ -35,8 +35,11 @@ function makeService(o: Partial<Record<'incidentRow' | 'disposition' | 'kase' | 
     depositTransaction: { findUnique: jest.fn(async () => o.deposit ?? null) },
   };
   const auditLogs: any = { recordByActor: jest.fn(async () => ({})) };
-  const svc = new IncidentService(prisma, auditLogs);
-  return { svc, prisma, auditLogs, incidentRow };
+  // 甲波一 T5：经办桶断言——存量三类 operatorGroup 均为 INCIDENT_WRITE（注册表 T2），
+  // 默认放行；测新族（DATA/TECH/...）或"actor 不持该组"时用 operatorGroups 覆盖。
+  const accessControl: any = { getUserPermissionGroups: jest.fn(async () => o.operatorGroups ?? ['INCIDENT_WRITE']) };
+  const svc = new IncidentService(prisma, auditLogs, accessControl);
+  return { svc, prisma, auditLogs, accessControl, incidentRow };
 }
 
 describe('IncidentService (Task 5)', () => {
@@ -83,6 +86,41 @@ describe('IncidentService (Task 5)', () => {
       const call = auditLogs.recordByActor.mock.calls[0][0];
       expect(call).toMatchObject({ action: 'INCIDENT_REGISTERED', actionDomain: 'GOVERNANCE', type: T.CLIENT_SHORTFALL, correlationId: r.traceId });
       expect(call.requestId).toMatch(/^INCIDENT_REGISTERED_/);
+    });
+  });
+
+  // 甲波一 T5（高危面）：新七类走注册表锚键校验 + 经办桶断言（服务层，路由层五桶 OR
+  // 只做粗门，见 task-5-brief）。四条测试逐字落地 brief Step 1。
+  describe('register — wave1 new types: registry anchors + operator group assertion (Task 5)', () => {
+    const dpoActor = { actorType: 'ADMIN' as const, userId: 'uuid-dpo', userNo: 'ADM-DPO', roleCodes: ['DPO'] };
+    const treasuryActor = { actorType: 'ADMIN' as const, userId: 'uuid-treasury', userNo: 'ADM-TREASURY', roleCodes: ['TREASURY_OFFICER'] };
+    const validCyberDto = { type: T.CYBER_BCDR, title: 't', description: 'd', subjectRefs: { affectedSystem: 'core-ledger', bcdrTriggered: false } };
+
+    it('rejects DATA_BREACH registration missing affectedCustomerCount', async () => {
+      const { svc } = makeService({ operatorGroups: ['INCIDENT_DATA_WRITE'] });
+      await expect(svc.register({ type: 'DATA_BREACH', title: 't', description: 'd',
+        subjectRefs: { dataCategories: 'ID_DOCUMENT' } } as any, dpoActor))
+        .rejects.toThrow(/affectedCustomerCount/);
+    });
+
+    it('rejects registration when actor lacks the family operator group', async () => {
+      const { svc, accessControl } = makeService({ operatorGroups: ['INCIDENT_TECH_WRITE'] });
+      accessControl.getUserPermissionGroups.mockResolvedValue(['INCIDENT_WRITE']); // 金库
+      await expect(svc.register(validCyberDto as any, treasuryActor)).rejects.toThrow(ForbiddenException);
+    });
+
+    it('registers CYBER_BCDR with anchors persisted into subjectRefs', async () => {
+      const { svc, prisma } = makeService({ operatorGroups: ['INCIDENT_TECH_WRITE'] });
+      const r = await svc.register(validCyberDto as any, ops);
+      expect(r.incidentNo).toMatch(/^INC/);
+      const createCall = prisma.incident.create.mock.calls[0][0];
+      expect(JSON.parse(createCall.data.subjectRefs)).toMatchObject({ affectedSystem: 'core-ledger', bcdrTriggered: false });
+    });
+
+    it('MANUAL and COMPLAINT_ESCALATION are rejected', async () => {
+      const { svc } = makeService();
+      await expect(svc.register({ type: 'MANUAL', title: 't', description: 'd' } as any, ops)).rejects.toThrow(BadRequestException);
+      await expect(svc.register({ type: T.COMPLAINT_ESCALATION, title: 't', description: 'd' } as any, ops)).rejects.toThrow(BadRequestException);
     });
   });
 
@@ -200,7 +238,7 @@ describe('IncidentService (Task 5)', () => {
       expect(call.requestId).toMatch(/^INCIDENT_INVESTIGATION_STARTED_INC1_/);
     });
     it('not starting from REGISTERED → 400', async () => {
-      const { svc } = makeService({ incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', status: S.WITHDRAWN } });
+      const { svc } = makeService({ incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', type: T.CLIENT_SHORTFALL, status: S.WITHDRAWN } });
       await expect(svc.startInvestigation('INC1', ops)).rejects.toThrow(/Illegal incident status transition/);
     });
   });
@@ -235,7 +273,7 @@ describe('IncidentService (Task 5)', () => {
       await expect(svc.withdraw('INC1', '', ops)).rejects.toThrow(BadRequestException);
     });
     it('only allowed from REGISTERED', async () => {
-      const { svc } = makeService({ incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', status: S.INVESTIGATING } });
+      const { svc } = makeService({ incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', type: T.CLIENT_SHORTFALL, status: S.INVESTIGATING } });
       await expect(svc.withdraw('INC1', 'Registered in error', ops)).rejects.toThrow(/Illegal incident status transition/);
     });
     it('happy path: REGISTERED → WITHDRAWN + withdrawnReason persisted + audit reason top-level', async () => {
@@ -249,23 +287,23 @@ describe('IncidentService (Task 5)', () => {
 
   describe('linkRemediation — validates referenceNo exists in its own domain (status must be ASSESSED/RESOLVING, see the Task 7 guard cases below)', () => {
     it('ADJUSTMENT not found → 404', async () => {
-      const { svc } = makeService({ adjustment: null, incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', status: S.ASSESSED } });
+      const { svc } = makeService({ adjustment: null, incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', type: T.CLIENT_SHORTFALL, status: S.ASSESSED } });
       await expect(svc.linkRemediation('INC1', { kind: 'ADJUSTMENT', referenceNo: 'ADJ1' }, ops)).rejects.toBeInstanceOf(NotFoundException);
     });
     it('TRANSFER not found → 404', async () => {
-      const { svc } = makeService({ transfer: null, incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', status: S.ASSESSED } });
+      const { svc } = makeService({ transfer: null, incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', type: T.CLIENT_SHORTFALL, status: S.ASSESSED } });
       await expect(svc.linkRemediation('INC1', { kind: 'TRANSFER', referenceNo: 'ITR1' }, ops)).rejects.toBeInstanceOf(NotFoundException);
     });
     it('SUPPLEMENT not found → 404', async () => {
-      const { svc } = makeService({ deposit: null, incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', status: S.ASSESSED } });
+      const { svc } = makeService({ deposit: null, incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', type: T.CLIENT_SHORTFALL, status: S.ASSESSED } });
       await expect(svc.linkRemediation('INC1', { kind: 'SUPPLEMENT', referenceNo: 'DEP1' }, ops)).rejects.toBeInstanceOf(NotFoundException);
     });
     it('CLAIM not found → 404', async () => {
-      const { svc } = makeService({ deposit: null, incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', status: S.ASSESSED } });
+      const { svc } = makeService({ deposit: null, incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', type: T.CLIENT_SHORTFALL, status: S.ASSESSED } });
       await expect(svc.linkRemediation('INC1', { kind: 'CLAIM', referenceNo: 'DEP2' }, ops)).rejects.toBeInstanceOf(NotFoundException);
     });
     it('happy path: ADJUSTMENT exists → linked + audit referenceNo top-level', async () => {
-      const { svc, prisma, auditLogs } = makeService({ adjustment: { adjustmentNo: 'ADJ1' }, incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', status: S.RESOLVING } });
+      const { svc, prisma, auditLogs } = makeService({ adjustment: { adjustmentNo: 'ADJ1' }, incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', type: T.CLIENT_SHORTFALL, status: S.RESOLVING } });
       await svc.linkRemediation('INC1', { kind: 'ADJUSTMENT', referenceNo: 'ADJ1' }, ops);
       expect(prisma.incidentRemediation.create).toHaveBeenCalledWith({ data: expect.objectContaining({ incidentId: 'uuid-inc', kind: 'ADJUSTMENT', referenceNo: 'ADJ1' }) });
       expect(auditLogs.recordByActor.mock.calls[0][0]).toMatchObject({ action: 'INCIDENT_REMEDIATION_LINKED', referenceNo: 'ADJ1' });
@@ -276,7 +314,7 @@ describe('IncidentService (Task 5)', () => {
     it('linking while ASSESSED → status advances to RESOLVING + link succeeds + audit metadata.statusAdvanced', async () => {
       const { svc, prisma, auditLogs } = makeService({
         adjustment: { adjustmentNo: 'ADJ1' },
-        incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', status: S.ASSESSED },
+        incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', type: T.CLIENT_SHORTFALL, status: S.ASSESSED },
       });
       await svc.linkRemediation('INC1', { kind: 'ADJUSTMENT', referenceNo: 'ADJ1' }, ops);
       expect(prisma.incident.update).toHaveBeenCalledWith(expect.objectContaining({
@@ -291,7 +329,7 @@ describe('IncidentService (Task 5)', () => {
     it('linking while RESOLVING → status unchanged, pure append, audit metadata has no statusAdvanced', async () => {
       const { svc, prisma, auditLogs } = makeService({
         transfer: { transferNo: 'ITR1' },
-        incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', status: S.RESOLVING },
+        incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', type: T.CLIENT_SHORTFALL, status: S.RESOLVING },
       });
       await svc.linkRemediation('INC1', { kind: 'TRANSFER', referenceNo: 'ITR1' }, ops);
       expect(prisma.incident.update).not.toHaveBeenCalled();
@@ -304,13 +342,13 @@ describe('IncidentService (Task 5)', () => {
     });
 
     it('linking while REGISTERED → 400 (not assessed yet, remediation cannot be linked)', async () => {
-      const { svc, prisma } = makeService({ incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', status: S.REGISTERED } });
+      const { svc, prisma } = makeService({ incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', type: T.CLIENT_SHORTFALL, status: S.REGISTERED } });
       await expect(svc.linkRemediation('INC1', { kind: 'ADJUSTMENT', referenceNo: 'ADJ1' }, ops)).rejects.toThrow(BadRequestException);
       expect(prisma.incidentRemediation.create).not.toHaveBeenCalled();
     });
 
     it('linking while INVESTIGATING → 400 (not assessed yet, remediation cannot be linked)', async () => {
-      const { svc, prisma } = makeService({ incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', status: S.INVESTIGATING } });
+      const { svc, prisma } = makeService({ incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', type: T.CLIENT_SHORTFALL, status: S.INVESTIGATING } });
       await expect(svc.linkRemediation('INC1', { kind: 'ADJUSTMENT', referenceNo: 'ADJ1' }, ops)).rejects.toThrow(BadRequestException);
       expect(prisma.incidentRemediation.create).not.toHaveBeenCalled();
     });
@@ -340,7 +378,7 @@ describe('IncidentService (Task 5)', () => {
 
       const { svc: s6, auditLogs: a6 } = makeService({
         adjustment: { adjustmentNo: 'ADJ1' },
-        incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', status: S.ASSESSED },
+        incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', type: T.CLIENT_SHORTFALL, status: S.ASSESSED },
       });
       await s6.linkRemediation('INC1', { kind: 'ADJUSTMENT', referenceNo: 'ADJ1' }, ops);
       expect(a6.recordByActor).toHaveBeenCalledTimes(1);
@@ -360,7 +398,7 @@ describe('IncidentService (Task 5)', () => {
 
   describe('assess — assessment + basis codes + 72h countdown (Task 6)', () => {
     it('only allowed from INVESTIGATING (400)', async () => {
-      const { svc } = makeService({ incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', status: S.REGISTERED, createdAt: new Date('2026-09-01T00:00:00.000Z') } });
+      const { svc } = makeService({ incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', type: T.CLIENT_SHORTFALL, status: S.REGISTERED, createdAt: new Date('2026-09-01T00:00:00.000Z') } });
       await expect(svc.assess('INC1', { assessedAmount: '100', assessmentBasis: 'NO_LOSS', reportRequired: false }, ops)).rejects.toThrow(/Illegal incident status transition/);
     });
 
@@ -381,7 +419,7 @@ describe('IncidentService (Task 5)', () => {
 
     it('happy path: selecting only TIR_K_H → reportDeadlineAt = createdAt + 72h (mutation target 2) + audit top-level assessmentBasis', async () => {
       const createdAt = new Date('2026-09-01T00:00:00.000Z');
-      const { svc, prisma, auditLogs } = makeService({ incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', status: S.INVESTIGATING, createdAt } });
+      const { svc, prisma, auditLogs } = makeService({ incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', type: T.CLIENT_SHORTFALL, status: S.INVESTIGATING, createdAt } });
       const r = await svc.assess('INC1', { assessedAmount: '5000', assessmentBasis: 'FIRM_LOSS', reportRequired: true, reportBasisCodes: ['TIR_K_H'] }, ops);
       expect(r.status).toBe(S.ASSESSED);
       const updateCall = prisma.incident.update.mock.calls[0][0];
@@ -394,14 +432,14 @@ describe('IncidentService (Task 5)', () => {
 
     it('selecting only a clockless basis (CRM_IV_E_5) → reportDeadlineAt stays null (no invented deadline)', async () => {
       const createdAt = new Date('2026-09-01T00:00:00.000Z');
-      const { svc, prisma } = makeService({ incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', status: S.INVESTIGATING, createdAt } });
+      const { svc, prisma } = makeService({ incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', type: T.CLIENT_SHORTFALL, status: S.INVESTIGATING, createdAt } });
       await svc.assess('INC1', { assessedAmount: '5000', assessmentBasis: 'CLIENT_COLLECTION', reportRequired: true, reportBasisCodes: ['CRM_IV_E_5'] }, ops);
       const updateCall = prisma.incident.update.mock.calls[0][0];
       expect(updateCall.data.reportDeadlineAt).toBeNull();
     });
 
     it('reportRequired=false → reportBasisCodes/reportDeadlineAt both persist as null', async () => {
-      const { svc, prisma } = makeService({ incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', status: S.INVESTIGATING, createdAt: new Date() } });
+      const { svc, prisma } = makeService({ incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', type: T.CLIENT_SHORTFALL, status: S.INVESTIGATING, createdAt: new Date() } });
       await svc.assess('INC1', { assessedAmount: '0', assessmentBasis: 'RECOVERED', reportRequired: false }, ops);
       const updateCall = prisma.incident.update.mock.calls[0][0];
       expect(updateCall.data.reportRequired).toBe(false);

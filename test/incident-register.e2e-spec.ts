@@ -80,10 +80,16 @@ describe('Incident register e2e (平账三期 · 事故登记, Task 13)', () => 
   let aedAssetId: string; let aedCode: string; let aedDecimals: number; let aedNetwork: string;
   let usdtAssetId: string; let usdtCode: string; let usdtDecimals: number; let usdtNetwork: string;
   let TODAY: string;
-  const ops = () => makeActor('E2E_INC_OPS', 'OPS_OFFICER');
-  const cfo = () => makeActor('E2E_INC_CFO', 'CFO');
-  const mlro = () => makeActor('E2E_INC_MLRO', 'MLRO');
-  const treasury = () => makeActor('E2E_INC_TREASURY', 'TREASURY_OFFICER');
+  // 甲波一 T5 连锁修复：assertOperator（经办桶断言）经 AccessControlService.getUserPermissionGroups
+  // 真查 userRole/rolePermission 表——makeActor 原来的 `uuid-${userNo}` 是纯捏造 id，查不到任何
+  // 绑定，会让本文件里所有直调 IncidentService/IncidentCloseWorkflowService 的用例改为清一色
+  // ForbiddenException。改用 beforeAll 里查到的真种子管理员 id（userNo 仍保留 E2E_INC_* 展示串，
+  // 不影响 registeredByUserId 等既有断言——本文件此前未断言过该字符串，见 grep 核实）。
+  let opsUserId: string; let cfoUserId: string; let mlroUserId: string; let treasuryUserId: string;
+  const ops = () => makeActor(opsUserId, 'E2E_INC_OPS', 'OPS_OFFICER');
+  const cfo = () => makeActor(cfoUserId, 'E2E_INC_CFO', 'CFO');
+  const mlro = () => makeActor(mlroUserId, 'E2E_INC_MLRO', 'MLRO');
+  const treasury = () => makeActor(treasuryUserId, 'E2E_INC_TREASURY', 'TREASURY_OFFICER');
 
   beforeAll(async () => {
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
@@ -103,6 +109,16 @@ describe('Incident register e2e (平账三期 · 事故登记, Task 13)', () => 
     const aed = await (prisma as any).asset.findFirst({ where: { currency: 'AED' } });
     const usdt = await (prisma as any).asset.findFirst({ where: { currency: 'USDT' } });
     if (!aed?.tbLedgerId || !usdt?.tbLedgerId) throw new Error('Fixture assets AED/USDT not seeded — run `bash scripts/stack.sh reset self` first.');
+    // 甲波一 T5 连锁修复：真查种子管理员 id（同 scenario 7 loginAdmin 用的四个邮箱），
+    // 供上面四个 makeActor(...) 工厂用——assertOperator 走的是真 DB 查询，捏造 id 查不到组。
+    const [opsUser, cfoUser, mlroUser, treasuryUser] = await Promise.all([
+      (prisma as any).user.findFirst({ where: { email: 'ops_officer@fiatx.com' } }),
+      (prisma as any).user.findFirst({ where: { email: 'cfo@fiatx.com' } }),
+      (prisma as any).user.findFirst({ where: { email: 'mlro@fiatx.com' } }),
+      (prisma as any).user.findFirst({ where: { email: 'treasury@fiatx.com' } }),
+    ]);
+    if (!opsUser || !cfoUser || !mlroUser || !treasuryUser) throw new Error('Fixture role-seed admins (OPS_OFFICER/CFO/MLRO/TREASURY_OFFICER) not seeded — run `bash scripts/stack.sh reset self` first.');
+    opsUserId = opsUser.id; cfoUserId = cfoUser.id; mlroUserId = mlroUser.id; treasuryUserId = treasuryUser.id;
     aedAssetId = aed.id; aedCode = aed.code; aedDecimals = aed.decimals; aedNetwork = aed.network;
     usdtAssetId = usdt.id; usdtCode = usdt.code; usdtDecimals = usdt.decimals; usdtNetwork = usdt.network;
   });
@@ -110,8 +126,8 @@ describe('Incident register e2e (平账三期 · 事故登记, Task 13)', () => 
 
   // ── helpers（照抄 test/recon-internal-transfer.e2e-spec.ts，前缀 E2E-ITR → E2E-INC）──
 
-  function makeActor(userNo: string, role: string): ApprovalActorContext {
-    return { actorType: 'ADMIN', userId: `uuid-${userNo}`, userNo, role, roleCodes: [role] };
+  function makeActor(userId: string, userNo: string, role: string): ApprovalActorContext {
+    return { actorType: 'ADMIN', userId, userNo, role, roleCodes: [role] };
   }
 
   async function waitUntil(predicate: () => Promise<boolean>, timeoutMs = 30000, intervalMs = 50): Promise<void> {
