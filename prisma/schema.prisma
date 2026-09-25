@@ -1695,6 +1695,51 @@ model IncidentRemediation {
   @@map("incident_remediations")
 }
 
+// 战役甲波二（2026-09-26）：监管报送单——事故通报单槽收编后的权威记录（spec §1）。
+model RegulatoryFiling {
+  id                String    @id @default(uuid())
+  filingNo          String    @unique
+  direction         String    // OUTBOUND | INBOUND（由类型行决定）
+  type              String    // FILING_TYPE_REGISTRY 键
+  authority         String    // RegulatoryAuthorities 键
+  ccAuthorities     String?   // 逗号分隔机构键（照 reportBasisCodes 轻量存储先例）
+  basisCode         String?   // 单码=一项通报义务，仅 INCIDENT_REPORT 有值
+  incidentNo        String?   // 一事故多单（双钟即两单）
+  title             String
+  body              String?   // 报文正文草稿；SUBMITTED 后即已提交内容快照
+  receivedAt        DateTime? // INBOUND 来函收到时刻，48h 钟锚它
+  deadlineAt        DateTime? // null=无钟/即时义务/钟链未落定（spec §1）
+  externalRef       String?   // 对外编号，标已提交必填
+  submittedAt       DateTime?
+  submittedByUserId String?
+  overdueMarkedAt   DateTime? // 超时持久软标（spec §8）
+  status            String    @default("DRAFT")
+  approvalNo        String?   // 签发审批单
+  closedAt          DateTime?
+  cancelledReason   String?
+  createdByUserId   String
+  traceId           String
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+  entries RegulatoryFilingEntry[]
+  @@index([incidentNo])
+  @@index([status])
+  @@map("regulatory_filings")
+}
+
+model RegulatoryFilingEntry {
+  id               String   @id @default(uuid())
+  filingId         String
+  kind             String   // RECEIPT_ACK | REGULATOR_INQUIRY | OUR_SUPPLEMENT
+  body             String
+  externalRef      String?
+  recordedByUserId String
+  createdAt        DateTime @default(now())
+  filing RegulatoryFiling @relation(fields: [filingId], references: [id])
+  @@index([filingId])
+  @@map("regulatory_filing_entries")
+}
+
 model ReconciliationRunWallet {
   id               String   @id @default(uuid())
   runId            String
