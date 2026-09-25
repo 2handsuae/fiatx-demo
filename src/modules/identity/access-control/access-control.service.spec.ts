@@ -106,4 +106,25 @@ describe('AccessControlService', () => {
     expect(codes).toEqual(['api.post.admin_incidents']);
     expect(groups).toEqual(['INCIDENT_WRITE']);
   });
+
+  it('T4修：两个不同权限码映射到重叠的权限组 → getUserPermissionGroups 去重后该组名只出现一次', async () => {
+    // 对照 rbac.catalog.ts 的 route() 定义：GET /admin/incidents → ['INCIDENT_READ','INCIDENT_WRITE']，
+    // POST /admin/incidents → ['INCIDENT_WRITE']——两个不同权限码在 INCIDENT_WRITE 上重叠。
+    prisma.userRole.findMany.mockResolvedValue([
+      {
+        role: {
+          code: 'INCIDENT_HANDLER',
+          rolePermissions: [
+            { permission: { code: 'api.get.admin_incidents' } },
+            { permission: { code: 'api.post.admin_incidents' } },
+          ],
+        },
+      },
+    ]);
+
+    const groups = await service.getUserPermissionGroups('user-1');
+
+    expect(groups.filter((g) => g === 'INCIDENT_WRITE')).toHaveLength(1);
+    expect(groups).toEqual(['INCIDENT_READ', 'INCIDENT_WRITE']);
+  });
 });
