@@ -296,6 +296,9 @@ function runStaticChecks(): void {
     // 数据/运营经办桶，closeActionType 相同但 operatorGroup 按类型三分）。
     INCIDENT_CLOSE_PRUDENTIAL: 'INCIDENT_FIN_WRITE',
     INCIDENT_CLOSE_TECHSEC: ['INCIDENT_TECH_WRITE', 'INCIDENT_DATA_WRITE', 'INCIDENT_OPS_WRITE'],
+    // 战役甲波二 Task 5：报送签发——提单唯合规官（REG_FILING_WRITE），裁决唯高管
+    // （SENIOR_MANAGEMENT_OFFICER，不持 REG_FILING_WRITE），maker/checker 天然不相交。
+    REG_FILING_SUBMIT: 'REG_FILING_WRITE',
   };
 
   // 有意不进上表的策略——maker 组本身不可判定（不是某个角色权限组闸住的，是系统自己在
@@ -1064,6 +1067,52 @@ const PROBES: DirectionalProbe[] = [
     role: 'tech_admin', expect: 'DENY',
     body: { type: 'UNAUTHORIZED_OUTFLOW', title: 'RBAC probe', description: 'verify:rbac negative probe' },
   },
+
+  // ── 报送台经办唯合规官、签发唯高管（战役甲波二 Task 5）───────────────────
+  // 正向：合规官持 REG_FILING_WRITE，手工开一条 MATERIAL_CHANGE_NOTIFICATION（不要求
+  // incidentNo，defaultAuthority=VARA，走 openManual 的非 requiresIncident 分支）。开单
+  // 成功即真建出一条 DRAFT 行，照 M4 先例用同一 token 立即 cancel 收脚印（DRAFT→CANCELLED
+  // 是显式迁移表允许的边），不留业务行撞后续 demo 剧本。反向：ops/treasury/tech_admin
+  // 三个不持 REG_FILING_WRITE 的角色（spec §6 点名的三反面）各挡一条。
+  {
+    section: '报送台经办唯合规官', name: '合规官 可以 手工开单(MATERIAL_CHANGE_NOTIFICATION)', method: 'POST',
+    routePattern: '/admin/regulatory-filings', path: '/admin/regulatory-filings',
+    role: 'compliance_lead', expect: 'ALLOW',
+    body: { type: 'MATERIAL_CHANGE_NOTIFICATION', title: 'RBAC probe — material change filing' },
+    cleanup: async ({ json, token }) => {
+      const filingNo = json?.filingNo;
+      if (!filingNo) {
+        check('[报送台经办唯合规官] 探针收尾清理', false, '响应体没有 filingNo，无法作废');
+        return;
+      }
+      const { status } = await call('POST', `/admin/regulatory-filings/${filingNo}/cancel`, token, {
+        reason: 'probe cleanup',
+      });
+      check(
+        '[报送台经办唯合规官] 探针收尾清理 · 作废自建报送单',
+        status === 201,
+        `POST /admin/regulatory-filings/${filingNo}/cancel → ${status}（期望 201，把探针建出的 ${filingNo} 转 CANCELLED）`,
+      );
+    },
+  },
+  {
+    section: '报送台经办唯合规官', name: '运营 不得 手工开单', method: 'POST',
+    routePattern: '/admin/regulatory-filings', path: '/admin/regulatory-filings',
+    role: 'ops_officer', expect: 'DENY',
+    body: { type: 'MATERIAL_CHANGE_NOTIFICATION', title: 'RBAC probe — material change filing' },
+  },
+  {
+    section: '报送台经办唯合规官', name: '金库 不得 手工开单', method: 'POST',
+    routePattern: '/admin/regulatory-filings', path: '/admin/regulatory-filings',
+    role: 'treasury', expect: 'DENY',
+    body: { type: 'MATERIAL_CHANGE_NOTIFICATION', title: 'RBAC probe — material change filing' },
+  },
+  {
+    section: '报送台经办唯合规官', name: '技术官 不得 手工开单', method: 'POST',
+    routePattern: '/admin/regulatory-filings', path: '/admin/regulatory-filings',
+    role: 'tech_admin', expect: 'DENY',
+    body: { type: 'MATERIAL_CHANGE_NOTIFICATION', title: 'RBAC probe — material change filing' },
+  },
 ];
 
 async function runDirectionalProbe(tokens: Record<string, string>, p: DirectionalProbe): Promise<void> {
@@ -1337,7 +1386,7 @@ async function main(): Promise<void> {
   check('路径预检', true, `${usages.length} 条探针 + 支撑调用的 method+routePattern 均在真实路由清单（${liveRoutes.size} 条）里找到`);
   console.log('');
 
-  console.log('── 行为部分：矩阵头条主张（真登录 + 真 HTTP）──');
+  console.log('── 行为部分：矩阵头条主张（真登录 + 真 HTTP；报送台经办唯合规官、签发唯高管）──');
   for (const p of PROBES) {
     await runDirectionalProbe(tokens, p);
   }

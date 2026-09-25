@@ -84,7 +84,10 @@ export type PermissionGroup =
   | 'INCIDENT_TECH_WRITE'
   | 'INCIDENT_DATA_WRITE'
   | 'INCIDENT_OPS_WRITE'
-  | 'INCIDENT_FIN_WRITE';
+  | 'INCIDENT_FIN_WRITE'
+  // 战役甲波二 Task 5：报送台骨架——单经办组（合规官），无族分裂，不需要 cap.* 标记码。
+  | 'REG_FILING_READ'
+  | 'REG_FILING_WRITE';
 
 export interface RbacPermissionDefinition {
   code: string;
@@ -461,6 +464,19 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
   route('POST', '/admin/incidents/:incidentNo/regulator-report/mark', 'Mark regulator report as filed', ['INCIDENT_WRITE', 'INCIDENT_TECH_WRITE', 'INCIDENT_DATA_WRITE', 'INCIDENT_OPS_WRITE', 'INCIDENT_FIN_WRITE']),
   route('POST', '/admin/incidents/:incidentNo/close', 'Request incident closure (opens approval)', ['INCIDENT_WRITE', 'INCIDENT_TECH_WRITE', 'INCIDENT_DATA_WRITE', 'INCIDENT_OPS_WRITE', 'INCIDENT_FIN_WRITE']),
   route('POST', '/admin/incidents/:incidentNo/withdraw', 'Withdraw a mis-registered incident', ['INCIDENT_WRITE', 'INCIDENT_TECH_WRITE', 'INCIDENT_DATA_WRITE', 'INCIDENT_OPS_WRITE', 'INCIDENT_FIN_WRITE']),
+
+  // Regulatory Filings（战役甲波二 Task 5）：单经办组（合规官），POST 全九条仅挂
+  // REG_FILING_WRITE——路由门即精确门，不设 cap.* 标记码（Ruling-6 是多组共享路由码
+  // 时的解法，本域不成立，见 ACTION_BUCKET_CATALOG 新域块头注释）。
+  route('POST', '/admin/regulatory-filings', 'Open a filing (manual)', ['REG_FILING_WRITE']),
+  route('GET', '/admin/regulatory-filings', 'List regulatory filings', ['REG_FILING_READ', 'REG_FILING_WRITE']),
+  route('GET', '/admin/regulatory-filings/:filingNo', 'View regulatory filing detail', ['REG_FILING_READ', 'REG_FILING_WRITE']),
+  route('POST', '/admin/regulatory-filings/:filingNo/draft', 'Save filing draft body', ['REG_FILING_WRITE']),
+  route('POST', '/admin/regulatory-filings/:filingNo/signoff', 'Request sign-off (opens approval)', ['REG_FILING_WRITE']),
+  route('POST', '/admin/regulatory-filings/:filingNo/mark-submitted', 'Mark filing as submitted to the regulator', ['REG_FILING_WRITE']),
+  route('POST', '/admin/regulatory-filings/:filingNo/entries', 'Log a correspondence entry', ['REG_FILING_WRITE']),
+  route('POST', '/admin/regulatory-filings/:filingNo/close', 'Close a submitted filing', ['REG_FILING_WRITE']),
+  route('POST', '/admin/regulatory-filings/:filingNo/cancel', 'Cancel a draft filing', ['REG_FILING_WRITE']),
 
   // 甲波一 T5 修1（Ruling-6，C1 修复）：五个族独占能力码——不是路由，是
   // IncidentService.assertOperator 的服务层门标记。裁决背景：反查"权限码属于哪些组"在码
@@ -951,6 +967,16 @@ export const ACTION_BUCKET_CATALOG: ActionDomain[] = [
       { key: 'incidents.manage-fin', label: 'Register & manage financial incidents', description: 'Register, investigate, assess, request closure — FINANCIAL family (prudential/NLA breach)', groups: ['INCIDENT_FIN_WRITE'] },
     ],
   },
+  // ─── Domain: Regulatory Filings ──────────────────────
+  // 战役甲波二：报送台——单经办组（合规官），view 桶照 Ruling-13 只挂单组；
+  // 不设 cap.* 标记码（Ruling-6 是多组共享路由码时的解法，本域 POST 码只挂一组，路由门即精确门）。
+  {
+    id: 'filings', label: 'Regulatory Filings', icon: '📨',
+    buckets: [
+      { key: 'filings.view', label: 'View regulatory filings', description: 'Browse the regulatory filing desk and correspondence trail', groups: ['REG_FILING_READ'] },
+      { key: 'filings.desk', label: 'Operate the regulatory filing desk', description: 'Open filings, draft, submit for sign-off, mark submitted, log correspondence, close — the compliance desk', groups: ['REG_FILING_WRITE'] },
+    ],
+  },
   // ─── Domain: Pricing ─────────────────────────────────
   {
     id: 'pricing',
@@ -1004,6 +1030,9 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
     'RECON_RUN_READ', 'RECON_CASE_READ', 'RECON_EXTERNAL_BALANCE_READ', 'INTERNAL_TRANSFER_READ',
     'WITHDRAWAL_FEE_LEVEL_READ', 'SWAP_FEE_LEVEL_READ',
     'INCIDENT_READ',
+    // 战役甲波二 Task 5：签发唯高管——高管是 REG_FILING_SUBMIT 的唯一裁决人，需要读得到
+    // 报送台详情页（同 CISO 批事故拿 INCIDENT_READ 先例）。
+    'REG_FILING_READ',
   ],
 
   CISO: [
@@ -1058,6 +1087,8 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
     'RECON_RUN_READ', 'RECON_CASE_READ', 'RECON_EXTERNAL_BALANCE_READ', 'INTERNAL_TRANSFER_READ',
     'WITHDRAWAL_FEE_LEVEL_READ', 'SWAP_FEE_LEVEL_READ',
     'INCIDENT_READ',
+    // 战役甲波二 Task 5：内审要看得见报送台（照 CISO 批事故拿 INCIDENT_READ 先例）。
+    'REG_FILING_READ',
   ],
 
   // 拦的手：开/解限制、贴撕标签、提解冻；管理台里推不动任何交易单据（D-不翻案）
@@ -1074,6 +1105,11 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
     'DEMO_VERDICT_WRITE',
     'ASSET_CONFIG_READ', 'WITHDRAWAL_ADDRESS_READ', 'TRANSACTION_LIMIT_READ',
     'RECON_RUN_READ', 'RECON_CASE_READ', 'RECON_EXTERNAL_BALANCE_READ',
+    // 战役甲波二 Task 5：报送台经办唯合规官——开单/草稿/送签/标已提交/往来记录/办结/作废。
+    'REG_FILING_WRITE',
+    // 起草事故通报要读得到事故（spec §6；合规官现况不持 INCIDENT_READ，起草报送前必须
+    // 能看事故详情与留痕，照「裁决人要看得见」同款理由）。
+    'INCIDENT_READ',
   ],
 
   // 定价的主人：费率两族的写权限全仓仅此一处（提由他提，运营复核）。

@@ -71,6 +71,8 @@ const ACTION_TYPE_LABELS: Record<string, string> = {
   DEPOSIT_CLAWBACK: 'Deposit recall (clawback)',
   WITHDRAW_RETURN_CLAIM: 'Withdrawal return claim',
   INTERNAL_TRANSFER_APPROVAL: 'Internal transfer',
+  // 战役甲波二：报送签发——合规官提、高管批。
+  REG_FILING_SUBMIT: 'Regulatory Filing · Sign-off',
 };
 
 export default function ApprovalPoliciesPage() {

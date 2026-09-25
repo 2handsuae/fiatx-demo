@@ -57,4 +57,6 @@ export const ENTITY_ROUTE_BY_ACTION: Record<string, (ref: string) => string | nu
   // 客户域（entityRef = customerNo）
   CUSTOMER_ONBOARDING_ACCEPTANCE: (r) => `/admin/customers/${r}`,
   CUSTOMER_TIER_UPGRADE: (r) => `/admin/customers/${r}`,
+  // 战役甲波二（entityRef = filingNo）：报送签发，详情路由 Task 9 落地。
+  REG_FILING_SUBMIT: (r) => `/admin/governance/regulatory-filings/${r}`,
 };

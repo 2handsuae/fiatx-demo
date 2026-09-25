@@ -47,4 +47,6 @@ export const DETAIL_READ_GROUP_BY_POLICY: Record<string, string> = {
   // 客户域（entityRef = customerNo）
   CUSTOMER_ONBOARDING_ACCEPTANCE: 'CUSTOMER_READ', // → /admin/customers/:customerNo（SMO 持 CUSTOMER_READ）
   CUSTOMER_TIER_UPGRADE: 'CUSTOMER_READ', // → /admin/customers/:customerNo（SMO 持 CUSTOMER_READ）
+  // 战役甲波二（entityRef = filingNo）：报送签发，裁决人高管持 REG_FILING_READ。
+  REG_FILING_SUBMIT: 'REG_FILING_READ', // → /admin/governance/regulatory-filings/:filingNo
 };
