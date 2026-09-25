@@ -73,6 +73,8 @@ export const ApprovalActionTypes = {
   // incident-close-workflow.service.ts 直接查注册表取值，不再按事故类型手写三元。
   INCIDENT_CLOSE_TECHSEC: 'INCIDENT_CLOSE_TECHSEC',
   INCIDENT_CLOSE_PRUDENTIAL: 'INCIDENT_CLOSE_PRUDENTIAL',
+  // 战役甲波二（2026-09-26）：报送签发——合规官提、高管单步批（spec §4）
+  REG_FILING_SUBMIT: 'REG_FILING_SUBMIT',
   // 客户域波二·准入审批线（2026-09-07）：高风险客户准入核准，运营提、高管批
   CUSTOMER_ONBOARDING_ACCEPTANCE: 'CUSTOMER_ONBOARDING_ACCEPTANCE',
   // 客户域波三·档位升级审批线（2026-09-07）：BASIC→PREMIUM 档位升级核准，运营提、高管批
@@ -385,6 +387,9 @@ export const DEFAULT_APPROVAL_POLICIES: Record<
   [ApprovalActionTypes.INCIDENT_CLOSE_PRUDENTIAL]: {
     steps: [{ stepNo: 1, roles: ['SENIOR_MANAGEMENT_OFFICER'] }], timeoutHours: 48, allowCancel: true,
   },
+  [ApprovalActionTypes.REG_FILING_SUBMIT]: {
+    steps: [{ stepNo: 1, roles: ['SENIOR_MANAGEMENT_OFFICER'] }], timeoutHours: 48, allowCancel: true,
+  },
   // ─── 高风险客户准入核准（波二 2026-09-07）：审的是「接不接这个客户关系」，
   // 不是重审尽调（MLRO 的活 100% 在 Sumsub）。maker=运营，checker=高管。───
   [ApprovalActionTypes.CUSTOMER_ONBOARDING_ACCEPTANCE]: {
@@ -437,6 +442,7 @@ export const V1_APPROVAL_ACTION_TYPES: readonly string[] = [
   ApprovalActionTypes.INCIDENT_CLOSE_FINANCIAL,
   ApprovalActionTypes.INCIDENT_CLOSE_TECHSEC,
   ApprovalActionTypes.INCIDENT_CLOSE_PRUDENTIAL,
+  ApprovalActionTypes.REG_FILING_SUBMIT,
 ] as const;
 
 export function isSuperAdminRoleContext(roleCodes: string[]): boolean {
