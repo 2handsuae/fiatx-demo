@@ -61,12 +61,6 @@ export const ASSESSMENT_BASIS_LABEL: Record<string, string> = {
   SHORTFALL: 'Shortfall assessed',
 };
 
-export const ASSESSMENT_BASIS_VALUES = [
-  'RECOVERED', 'FIRM_LOSS', 'CLIENT_COLLECTION', 'NO_LOSS',
-  'SERVICE_IMPACT', 'DATA_IMPACT',
-  'SHORTFALL',
-] as const;
-
 export type AssessmentScheme = 'MONETARY' | 'IMPACT' | 'SHORTFALL';
 
 /** 定损口径按类型收窄的合法取值集（战役甲波一 Task 6 服务层同名常量镜像）。 */
@@ -93,8 +87,6 @@ export const REMEDIATION_KIND_LABEL: Record<string, string> = {
   ASSET_SUSPENSION_REF: 'Asset suspension reference',
   CUSTOMER_NOTICE_LOGGED: 'Customer notice logged',
 };
-
-export const REMEDIATION_KINDS = ['SUPPLEMENT', 'CLAIM', 'ADJUSTMENT', 'TRANSFER', 'ASSET_SUSPENSION_REF', 'CUSTOMER_NOTICE_LOGGED'] as const;
 
 /**
  * 依据条款目录（spec §5）——镜像后端 incident.constants.ts 的 INCIDENT_REPORT_BASES。

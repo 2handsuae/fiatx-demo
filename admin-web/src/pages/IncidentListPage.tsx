@@ -12,7 +12,6 @@ import { useAdminSession } from '../contexts/AdminSessionContext';
 import { PERMISSIONS } from '../rbac/permissions';
 import { AdminSessionError, adminFetch, getApiErrorMessage } from '../utils/adminFetch';
 import {
-  INCIDENT_OPERATOR_CAP_CODE,
   INCIDENT_STATUS_LABEL,
   INCIDENT_STATUSES,
   INCIDENT_SUBJECT_REF_FIELDS,
@@ -313,15 +312,8 @@ const NewIncidentModal = ({ open, prefill, onClose, onCreated }: { open: boolean
 const IncidentListPage = () => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const { hasAnyPermission } = useAdminSession();
-  // 战役甲波一 T10（item8 延伸）：这颗按钮只是开手工登记弹层——弹层里的类型下拉覆盖全部
-  // enabled 类型（九类），任一族经办能力码都该能看到入口，不再只用被五组共享而失去区分力
-  // 的路由级码（PERMISSIONS.INCIDENT_WRITE，见 incidentStatusMap.ts 里 INCIDENT_OPERATOR_
-  // CAP_CODE 头注释同款诊断）；具体某类型是否真能提交仍由后端 assertOperator 按族裁决。
-  const canWrite = hasAnyPermission([
-    PERMISSIONS.INCIDENT_WRITE,
-    ...Array.from(new Set(Object.values(INCIDENT_OPERATOR_CAP_CODE))),
-  ]);
+  const { hasPermission } = useAdminSession();
+  const canWrite = hasPermission(PERMISSIONS.INCIDENT_WRITE);
   const [items, setItems] = useState<Item[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
