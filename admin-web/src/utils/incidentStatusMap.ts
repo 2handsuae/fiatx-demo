@@ -167,6 +167,17 @@ export const OUTSOURCING_VENDOR_OPTIONS: readonly IncidentAnchorOption[] = [
   { value: 'OTHER', label: 'Other' },
 ];
 
+/** Ruling-14（终审）：受影响系统改回受控枚举+OTHER（spec §1 格值），不许静默降级成自由文本。 */
+export const AFFECTED_SYSTEM_OPTIONS: readonly IncidentAnchorOption[] = [
+  { value: 'BACKEND_API', label: 'Backend API' },
+  { value: 'ADMIN_PORTAL', label: 'Admin portal' },
+  { value: 'CLIENT_PORTAL', label: 'Client portal' },
+  { value: 'LEDGER', label: 'Ledger' },
+  { value: 'DATABASE', label: 'Database' },
+  { value: 'CLOUD_INFRA', label: 'Cloud infrastructure' },
+  { value: 'OTHER', label: 'Other' },
+];
+
 /**
  * 动态锚字段渲染规格——键=类型，值=该类型除顶层锚（assetCode/customerNo/amount）外，需要
  * 落进 subjectRefs 的字段清单（brief 行为合同①逐字段写死；ASSET_NONCOMPLIANCE 的唯一锚
@@ -184,7 +195,7 @@ export const INCIDENT_SUBJECT_REF_FIELDS: Record<string, readonly IncidentAnchor
   LARGE_UNEXPLAINED: [],
   CLIENT_SHORTFALL: [],
   CYBER_BCDR: [
-    { key: 'affectedSystem', label: 'Affected system', kind: 'text' },
+    { key: 'affectedSystem', label: 'Affected system', kind: 'select', options: AFFECTED_SYSTEM_OPTIONS },
     { key: 'bcdrTriggered', label: 'BCDR triggered', kind: 'checkbox' },
   ],
   DATA_BREACH: [

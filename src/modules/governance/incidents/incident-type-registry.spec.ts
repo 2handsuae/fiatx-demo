@@ -1,5 +1,6 @@
 // 战役甲波一 Task 2：类型注册表——spec §1 十类终盘（MANUAL 退役）。
 import { INCIDENT_TYPE_REGISTRY, getIncidentTypeConfig } from './incident-type-registry';
+import { IncidentTypes } from './incident.constants';
 
 describe('INCIDENT_TYPE_REGISTRY (spec §1 十类终盘)', () => {
   it('has exactly the 10 chartered types and MANUAL is gone', () => {
@@ -8,6 +9,9 @@ describe('INCIDENT_TYPE_REGISTRY (spec §1 十类终盘)', () => {
       'DATA_BREACH', 'LARGE_UNEXPLAINED', 'OUTSOURCING_FAILURE', 'PRUDENTIAL_BREACH',
       'STUCK_TRANSACTION_MAJOR', 'UNAUTHORIZED_OUTFLOW',
     ]);
+    // 终审 M5：incident.constants.ts:6 的注释声称"键集一致性由本文件第一条测试钉死"——
+    // 此前那句话只是承诺，实际没有断言 IncidentTypes 键集，这条把它兑现成真的。
+    expect(Object.keys(IncidentTypes).sort()).toEqual(Object.keys(INCIDENT_TYPE_REGISTRY).sort());
   });
   it('DATA_BREACH: DPO 经办、CISO 单步结案、双码候选、影响口径', () => {
     const c = INCIDENT_TYPE_REGISTRY.DATA_BREACH;

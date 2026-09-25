@@ -975,8 +975,9 @@ async function seedMaterialRequest(prisma: PrismaClient): Promise<void> {
 }
 
 // ─────────────────────────────────────────────────────────────
-// ③c Incidents layer — 战役甲波一 Task 11：四条非初始态样例（十类终盘的四个族各挑一个，
-// 覆盖 IMPACT/MONETARY 两档口径与 REGISTERED/INVESTIGATING/ASSESSED/RESOLVING 四个状态）。
+// ③c Incidents layer — 战役甲波一 Task 11（终审补 PRUDENTIAL_BREACH）：五条非初始态样例
+// （十类终盘的五个族各挑一个，覆盖 IMPACT/MONETARY/SHORTFALL 三档口径与
+// REGISTERED/INVESTIGATING/ASSESSED/RESOLVING 四个状态）。
 // 与上方限制账 / 材料请求 fixture 同一性质：种子直接铺终态数据，不走
 // IncidentService/IncidentRegistrationWorkflowService（没有 operator、没有审批案、不写
 // 审计）——CYBER_BCDR 那一类故意不进种子，留给演示脚本现场走一遍完整登记流程，演
@@ -995,7 +996,6 @@ type DemoIncidentSample = {
   amount?: string;
   subjectRefs?: Record<string, string | number | boolean>;
   assessmentBasis?: string;
-  assessedAmount?: string;
   impactSummary?: string;
   impactCount?: number;
   reportRequired?: boolean;
@@ -1011,7 +1011,7 @@ const DEMO_INCIDENTS: DemoIncidentSample[] = [
     type: 'DATA_BREACH', status: 'ASSESSED',
     title: 'CRM export exposed customer contact fields to an unauthorized third-party analytics endpoint',
     description: 'Weekly CRM segmentation export job was misconfigured to POST a customer contact-fields extract to a decommissioned analytics vendor endpoint for three consecutive runs before being caught by an egress alert.',
-    subjectRefs: { affectedCustomerCount: 46, dataCategories: 'Contact info,ID document' },
+    subjectRefs: { affectedCustomerCount: 46, dataCategories: 'CONTACT,ID_DOCUMENT' },
     assessmentBasis: 'DATA_IMPACT',
     impactSummary: '46 customer records (name, phone, partial ID document metadata) sent to a decommissioned third-party analytics endpoint across 3 export runs; vendor has confirmed non-retention but no independent verification yet.',
     impactCount: 46,
@@ -1024,7 +1024,7 @@ const DEMO_INCIDENTS: DemoIncidentSample[] = [
     type: 'OUTSOURCING_FAILURE', status: 'INVESTIGATING',
     title: 'Outsourced KYC webhook relay degraded — applicant status updates delayed',
     description: 'The third-party webhook relay that forwards Sumsub applicant status callbacks into our KYC pipeline began queueing instead of delivering in real time; onboarding team noticed a backlog of stale PENDING applicants.',
-    subjectRefs: { vendor: 'RelayBridge Managed Services', serviceImpact: 'Sumsub applicant status webhooks delayed 30-90 minutes; no callbacks lost, all recovered from the vendor replay queue after escalation' },
+    subjectRefs: { vendor: 'SUMSUB', serviceImpact: 'Sumsub applicant status webhooks delayed 30-90 minutes; no callbacks lost, all recovered from the vendor replay queue after escalation' },
   },
   // OPERATIONS 族·IMPACT 口径·RESOLVING：已定损、已挂一条 ASSET_SUSPENSION_REF 善后单，
   // 结案前还差结案审批这一步（走查/剧本可以从这里直接演「提结案」）。
@@ -1049,6 +1049,17 @@ const DEMO_INCIDENTS: DemoIncidentSample[] = [
     customerEmail: 'demo_alice@example.com',
     amount: '15000.00',
     // orderNo（唯一非顶层锚）在函数体内用确定性号回填，这里不占位。
+  },
+  // FINANCIAL 族·SHORTFALL 口径·INVESTIGATING（终审补场景）：NLA（net liquid assets）跌破
+  // VARA 监管线，CFO 经办——十类终盘里唯一挂 cap.incident.fin 独占能力码的族，closeActionType
+  // 是唯一单步走 SENIOR_MANAGEMENT_OFFICER 核准的 INCIDENT_CLOSE_PRUDENTIAL（其余族结案链
+  // 要么两步 MLRO→CFO，要么单步 CFO/CISO），演示位见 demo/data.md。
+  {
+    seedKey: 'nla-shortfall-q3',
+    type: 'PRUDENTIAL_BREACH', status: 'INVESTIGATING',
+    title: 'Net liquid assets fell below the VARA prudential floor after a same-day FX settlement shortfall',
+    description: 'CFO flagged during the Wednesday liquidity review that net liquid assets (NLA) dropped below the regulatory floor after an FX settlement leg failed to net down same-day; still quantifying the shortfall before it can be assessed.',
+    subjectRefs: { metric: 'NLA', shortfallAmount: '250000' },
   },
 ];
 
@@ -1088,7 +1099,6 @@ async function seedIncidents(prisma: PrismaClient): Promise<void> {
         amount: sample.amount != null ? new Prisma.Decimal(sample.amount) : null,
         subjectRefs: subjectRefs ? JSON.stringify(subjectRefs) : null,
         assessmentBasis: sample.assessmentBasis ?? null,
-        assessedAmount: sample.assessedAmount != null ? new Prisma.Decimal(sample.assessedAmount) : null,
         impactSummary: sample.impactSummary ?? null,
         impactCount: sample.impactCount ?? null,
         reportRequired: sample.reportRequired ?? false,

@@ -1030,7 +1030,7 @@ const PROBES: DirectionalProbe[] = [
       type: 'CYBER_BCDR',
       title: 'RBAC probe — cyber/BCDR incident',
       description: 'verify:rbac positive probe for CYBER_BCDR registration by TECH_OFFICER',
-      subjectRefs: { affectedSystem: 'RBAC-PROBE-SYS', bcdrTriggered: true },
+      subjectRefs: { affectedSystem: 'OTHER', bcdrTriggered: true },
     },
     // M4 修复（T9 修1）：这条探针真建出一条 CYBER_BCDR 事故（REGISTERED），不是只读探测——
     // 不清理会在库里留一条真实事故行，撞 T11 demo 剧本按事故清单遍历/计数。登记成功后立即
