@@ -1644,7 +1644,10 @@ model Incident {
   assetCode          String?
   amount             Decimal?  // 元（对齐 InternalTransfer.amount 口径）
   assessedAmount     Decimal?
-  assessmentBasis    String?   // RECOVERED | FIRM_LOSS | CLIENT_COLLECTION | NO_LOSS
+  assessmentBasis    String?   // RECOVERED | FIRM_LOSS | CLIENT_COLLECTION | NO_LOSS | SERVICE_IMPACT | DATA_IMPACT | SHORTFALL
+  subjectRefs        String?   // JSON 串存新类型锚键值，如 {"affectedSystem":"...",...}，仿 reportBasisCodes 轻量存储先例；存量列不动
+  impactSummary      String?   // IMPACT 口径类型的定损摘要（人话，非结构化）
+  impactCount        Int?      // IMPACT 口径类型的受影响计数（如 affectedCustomerCount）
   reportRequired     Boolean   @default(false)
   reportBasisCodes   String?   // 逗号分隔依据码，如 "TIR_K_H,CRM_V_D_2"
   reportDeadlineAt   DateTime?
