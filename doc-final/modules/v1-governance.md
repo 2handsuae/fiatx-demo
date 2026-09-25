@@ -1,6 +1,6 @@
 # V1 · 治理底座（审批 / 审计 / 权限 / 管理员生命周期）
 
-> 对应 PRD：待写 ｜ 技术节点 Last Verified：2026-09-12（波三红项修复：审计页实体跳转甲案落地 + 幽灵字段清除，见 §5）
+> 对应 PRD：待写 ｜ 技术节点 Last Verified：2026-09-25（战役甲波一：事故登记 §7 四类→十类终盘、结案两链→四链、权限两桶→六桶，见 §7）；此前 2026-09-12（波三红项修复：审计页实体跳转甲案落地 + 幽灵字段清除，见 §5）
 > 演示幕次：第一幕「开业」+ 第六幕「账对」（事故登记末段）+ 第七幕「事后说得清」 ｜ 验收：第一幕 + 第七幕走查（`demo/script.md`）+ 本篇 §4；事故登记见第六幕末段 + `modules/v8-recon.md` §4
 
 ## 0. 一句话定位
@@ -68,37 +68,61 @@
 - **停用非即时**：下次请求才失效——演示时刷一下页面再看效果
 - ADVANCED 8 项未做（Break-Glass、定期权限复审、审批超时预警等），演示不承诺
 
-## 7. 事故登记（平账三期，2026-09-06）
+## 7. 事故登记（平账三期 2026-09-06 立，2026-09-25 战役甲波一扩至十类终盘）
 
-**定位。** 治理件，不是账务件——对账（V8）发现的性质严重的差异（未经授权的资金转出、大额长期查不出、客户欠款收不回来），或人工发现的其它情况，先正式登记成一个独立的「事故」，走自己的调查 / 定损 / 通报 / 结案生命周期。**全程零账务**：登记、调查、升级、定损、通报草案与标记已通报、提结案、结案 / 撤回一笔分录都不产生；真正动钱的两步（认损、补款）挂在既有的调账单（V8 核销通道）与内部划转单（V7）上，事故详情页只「挂载」这两张单的单号做引用，不重复记账。四类登记：`UNAUTHORIZED_OUTFLOW`（未授权转出）｜ `LARGE_UNEXPLAINED`（大额长期查不出）｜ `CLIENT_SHORTFALL`（客户欠款）｜ `MANUAL`（人工登记，不锚任何案子）。
+**定位。** 治理件，不是账务件——对账（V8）发现的性质严重的差异，或安全 / 数据 / 外包 / 资产 / 审慎五个非对账触发面的其它情况，先正式登记成一个独立的「事故」，走自己的调查 / 定损 / 通报 / 结案生命周期。**全程零账务**：登记、调查、升级、定损、通报草案与标记已通报、提结案、结案 / 撤回一笔分录都不产生；FUNDS 族真正动钱的两步（认损、补款）挂在既有的调账单（V8 核销通道）与内部划转单（V7）上，事故详情页只「挂载」这两张单的单号做引用，不重复记账；OPERATIONS 族的 `ASSET_NONCOMPLIANCE` 挂载的是资产暂停审批单引用（纯留痕，不越域校验该单存在）；DATA 族的 `DATA_BREACH` 挂载的是客户通知留痕串。
 
-**状态机。** 五态 + 一旁支，终态零出边：
+**十类终盘、按族分组**（`incident-type-registry.ts` 注册表是唯一真相；`MANUAL` 已退役、`COMPLAINT_ESCALATION` 未启用为波五占位）：
+
+| 族 FAMILY | 经办组（独占） | 类型 | 定损口径 | 结案善后白名单 |
+|---|---|---|---|---|
+| FUNDS | `INCIDENT_WRITE`（金库专员） | `UNAUTHORIZED_OUTFLOW`（未授权转出）｜ `LARGE_UNEXPLAINED`（大额长期查不出）｜ `CLIENT_SHORTFALL`（客户欠款） | MONETARY（追回/认损/追索/无损失） | `SUPPLEMENT`/`CLAIM`/`ADJUSTMENT`/`TRANSFER` |
+| TECH_SECURITY | `INCIDENT_TECH_WRITE`（技术官） | `CYBER_BCDR`（网安/BCDR）｜ `OUTSOURCING_FAILURE`（外包故障） | IMPACT（服务影响摘要，无金额） | 空集——定损即可直接结案（Ruling-10 乙案） |
+| DATA | `INCIDENT_DATA_WRITE`（DPO） | `DATA_BREACH`（个人数据泄露） | IMPACT（数据影响摘要 + 受影响人数） | `CUSTOMER_NOTICE_LOGGED`（客户通知留痕） |
+| OPERATIONS | `INCIDENT_OPS_WRITE`（运营） | `ASSET_NONCOMPLIANCE`（资产不合规，职责=立即暂停不是通报）｜ `STUCK_TRANSACTION_MAJOR`（大额卡单） | IMPACT（资产不合规）/ MONETARY（卡单） | `ASSET_SUSPENSION_REF`（资产不合规）/ 空集（卡单，乙案直接结案） |
+| FINANCIAL | `INCIDENT_FIN_WRITE`（CFO） | `PRUDENTIAL_BREACH`（审慎/NLA 缺口） | SHORTFALL（缺口金额） | 空集——定损即可直接结案（Ruling-10 乙案） |
+| CUSTOMER（未启用） | — | `COMPLAINT_ESCALATION` | — | 波五占位，`enabled:false` 当场 400 |
+
+**状态机。** 五态 + 一旁支，终态零出边（十类共用同一张迁移表，未随族改变）：
 
 | 状态 | 含义 |
 |---|---|
 | REGISTERED | 已登记，未开始调查 |
 | INVESTIGATING | 调查中——加调查记录、升级 MLRO / CFO / 高管 |
-| ASSESSED | 已定损——金额 + 口径（追回 / 认损 / 追索（客户欠公司，只登记不入账） / 无损失）+ 是否需要监管通报 |
-| RESOLVING | 处置中——已挂载至少一张善后单（调账单 / 划转单） |
+| ASSESSED | 已定损——按类型所属口径（MONETARY/IMPACT/SHORTFALL 三档，见上表）填对应字段 + 是否需要监管通报 |
+| RESOLVING | 处置中——已挂载至少一张该类型白名单内的善后单 |
 | CLOSED | 已结案（终态，走审批） |
 | WITHDRAWN | 已撤回（终态，仅限 REGISTERED 态、须填理由，误登记专用出口） |
 
-`ASSESSED` 有两条出边：挂了善后单 → `RESOLVING`；无损失且零善后单 → 直接 `CLOSED`（`CLOSE_NO_ACTION`，走财务类单步审批而不是走完整处置链）。
+`ASSESSED` 有两条出边：**乙案**（Ruling-10，2026-09-25 战役甲波一 T8 修）——`assessmentBasis==='NO_LOSS'` 或该类型 `allowedRemediationKinds` 为空集（上表右列「空集」的四类）→ 直接 `CLOSED`（`CLOSE_NO_ACTION`）；否则须先挂至少一张善后单 → `RESOLVING`，收尾再结案。旧版（迁移前）曾把这条边误判成「`assessmentBasis` 字面等于 `NO_LOSS` 才放行」，导致 IMPACT/SHORTFALL 口径四类（无 `NO_LOSS` 取值）永远走不到直接结案，是 T8 修复轮 1 的 Critical 修复。
 
-**审批（结案按性质分两条链）。** `UNAUTHORIZED_OUTFLOW` 走 `INCIDENT_CLOSE_SECURITY`——两步 MLRO→CFO，安全性质事件双人高层背书；其余三类走 `INCIDENT_CLOSE_FINANCIAL`——单步 CFO，同调账单 / 内部划转单同一裁决人。结案前置两道闸，少一道都是 400：① 定损未完成（`REGISTERED`/`INVESTIGATING`）不许结案；② 判定需要监管通报但尚未标记「已通报」不许结案。
+**审批（结案按性质分四条链，2026-09-25 战役甲波一由两条扩至四条）**：
 
-**通报留痕。** 定损时可勾「需要监管通报」，勾了必须选依据条款——目录固定三条（`hours=null` 代表没有法定钟，界面显式「未设时限」，不杜撰）：
-
-| 依据码 | 依据 | 时限 |
+| 结案链 | 步数 · 裁决人 | 覆盖类型 |
 |---|---|---|
-| `TIR_K_H` | TIR Rulebook Section K + H —— 网安 / BCDR 事件报 VARA | 72 小时，**从登记时刻起算** |
-| `CRM_IV_E_5` | CRM IV.E.5 —— Client Money 重大未平差异 | 未设时限 |
-| `CRM_V_D_2` | CRM V.D.2 —— Client VAs 重大未平差异 | 未设时限 |
+| `INCIDENT_CLOSE_SECURITY` | 两步：MLRO → CFO | `UNAUTHORIZED_OUTFLOW` |
+| `INCIDENT_CLOSE_FINANCIAL` | 单步：CFO | `LARGE_UNEXPLAINED`/`CLIENT_SHORTFALL`/`STUCK_TRANSACTION_MAJOR` |
+| `INCIDENT_CLOSE_TECHSEC` | 单步：CISO（新增） | `CYBER_BCDR`/`OUTSOURCING_FAILURE`/`DATA_BREACH`/`ASSET_NONCOMPLIANCE` |
+| `INCIDENT_CLOSE_PRUDENTIAL` | 单步：高管 SENIOR_MANAGEMENT_OFFICER（新增） | `PRUDENTIAL_BREACH` |
 
-多选依据取时限最短的一条为倒计时。留痕两步各自独立：先保存通报草案，再填对外编号标记「已通报」——两步都记审计，不能跳过草案直接标已通报。
+每类在注册表里显式点名归属链（`closeActionType` 字段），不再是「未授权转出 vs 其余全部」的二元判断。结案前置两道闸，少一道都是 400：① 定损未完成（`REGISTERED`/`INVESTIGATING`）不许结案；② 判定需要监管通报但尚未标记「已通报」不许结案。开单人（金库/技术官/DPO/运营/CFO 五族经办人）与裁决人（MLRO/CFO/CISO/高管）职务互斥，无自批死锁。
 
-**四入口。** ① 对账案件页「登记事故」——定性行出口 = `INCIDENT`（未授权转出）时出现；② 对账案件页「升级事故」——公司池差异超小额线、账龄到线时出现（`LARGE_UNEXPLAINED`）；③ 对账案件页「登记欠款」——退汇认领后客户余额不足、已走「发起垫款」时出现（`CLIENT_SHORTFALL`）；④ 事故列表页「登记事故」——人工登记（`MANUAL`），不锚任何案子。四个入口共用同一套登记表单、同一条生命周期；登记后定性行 / 案件回填事故号可点回跳。
+**通报留痕。** 定损时可勾「需要监管通报」，勾了必须选依据条款——目录从三条扩到七条（`hours=null` 代表没有法定钟，界面显式「未设时限」，不杜撰；每码只对它所属类型的 `reportBasisCandidates` 候选集开放，如 `UNAUTHORIZED_OUTFLOW` 只能勾 `CRM_IV_E_5`/`CRM_V_D_2`，勾其它类型的码 400）：
 
-**权限。** 两枚权限组：`INCIDENT_READ`（只读，MLRO / CFO / 内审 / DPO / 高管持有）、`INCIDENT_WRITE`（登记 + 全部动作，2026-09-10 对账平账两角色定案起金库专员独持，运营清零）；`Incident Register` 域两桶（查看 / 登记与处置），13 域 58 桶（较三期前 12 域 56 桶新增本域）。
+| 依据码 | 依据 | 时限 | 适用族/类型 |
+|---|---|---|---|
+| `TIR_K_H` | TIR Rulebook Section K + H —— 网安/BCDR 与大额卡单事件报 VARA | 72 小时，从登记时刻起算 | `CYBER_BCDR`/`STUCK_TRANSACTION_MAJOR` |
+| `CRM_IV_E_5` | CRM IV.E.5 —— Client Money 重大未平差异 | 未设时限 | FUNDS 三类 |
+| `CRM_V_D_2` | CRM V.D.2 —— Client VAs 重大未平差异 | 未设时限 | FUNDS 三类 |
+| `PDPL_ART_9` | PDPL（联邦第 45/2021 号法令）第 9 条 —— 个人数据泄露报 UAE 数据办公室 | 未设时限（法条未载明钟） | `DATA_BREACH` |
+| `TIR_II_C_24H` | VARA TIR Part II Section C + CRM I.1.4 —— 泄露通知发出后 24 小时内向 VARA 二次上报 | 24 小时，**钟链起点是另一码触发的"通知发出"时刻，不参与本码自身的倒计时计算**（新增机制） | `DATA_BREACH` |
+| `COMPANY_IV_H_1` | Company Rulebook IV.H.1 —— 重大外包故障，立即通知 VARA | 即时义务，无小时钟 | `OUTSOURCING_FAILURE` |
+| `COMPANY_VI_C_F` | Company Rulebook VI.C / VI.F —— NLA 审慎缺口，立即通知 VARA（每日更新直到 VARA 满意，日历义务留待波四） | 即时义务，无小时钟 | `PRUDENTIAL_BREACH` |
 
-**关键代码**：`governance/incidents/`：`incident.service.ts`（登记/调查/升级/撤回/善后挂载）｜ `incident-close-workflow.service.ts`（定损后结案，双类型路由）｜ `incidents.controller.ts`（12 端点）｜ 常量 `incident.constants.ts`（类型 / 状态 / 迁移表 / 通报依据目录）；对账侧接线 `clearing-settle/reconciliation/disposition/cause-registry.ts`（`UNAUTHORIZED_OUTFLOW` 出口 = `INCIDENT`）+ `disposition.service.ts → attachIncident()`（定性行回填 `incidentNo`）；认损调账事故分支 `disposition/adjustment.service.ts → assertIncidentWriteOffAllowed()`（锁定金额=定损额，免账龄线/小额线）；审计 11 码（`INCIDENT_*`，见 `audit-actions.constant.ts`）；前端 `pages/IncidentListPage.tsx` / `IncidentDetailPage.tsx`，案件页三入口在 `pages/ReconciliationCasesDetailPage.tsx`。
+多选依据取时限最短、且非 `chainStart='NOTICE'` 钟链码的一条为倒计时；全部符合条件的码为 null 时倒计时保持 null，不杜撰时限。留痕两步各自独立：先保存通报草案，再填对外编号标记「已通报」——两步都记审计，不能跳过草案直接标已通报。
+
+**登记入口。** 三个对账触发入口不变（均落 FUNDS 族类型）：① 对账案件页「登记事故」——定性行出口 = `INCIDENT`（`UNAUTHORIZED_OUTFLOW`）时出现；② 对账案件页「升级事故」——公司池差异超小额线、账龄到线时出现（`LARGE_UNEXPLAINED`）；③ 对账案件页「登记欠款」——退汇认领后客户余额不足、已走「发起垫款」时出现（`CLIENT_SHORTFALL`）。**第四入口已改版**（2026-09-25 战役甲波一）：事故列表页「Register Incident」不再是不锚案子的自由文本 `MANUAL`（已退役）——改为九个启用类型的下拉，选中类型后表单按注册表 `requiredAnchors` 动态渲染必填锚字段（顶层列 `assetCode`/`customerNo`/`amount` 或 `subjectRefs` 内的类型专属键，如 `affectedSystem`/`vendor`/`dataCategories`），不允许裸标题描述登记。四入口共用同一条生命周期；登记后定性行 / 案件回填事故号可点回跳。
+
+**权限（六桶、五族独占经办组 + 一枚只读组，2026-09-25 战役甲波一从两桶拆至六桶）**：`incidents.view`（`INCIDENT_READ`，只读，MLRO / CFO / 内审 / DPO / 高管 / CISO 持有——CISO 新增，裁决人要看得见事故才能批）；`incidents.manage`（`INCIDENT_WRITE`，FUNDS 族，金库专员独持）；`incidents.manage-tech`（`INCIDENT_TECH_WRITE`，TECH_SECURITY 族，技术官独持）；`incidents.manage-data`（`INCIDENT_DATA_WRITE`，DATA 族，DPO 独持）；`incidents.manage-ops`（`INCIDENT_OPS_WRITE`，OPERATIONS 族，运营独持）；`incidents.manage-fin`（`INCIDENT_FIN_WRITE`，FINANCIAL 族，CFO 独持）。路由层五个写组 OR 放行是粗门（`POST /admin/incidents` 等端点五桶任一持有即可进），真正的族边界在服务层——`IncidentService.assertOperator` 按事故类型的 `operatorMarkerCode`（`cap.incident.{funds,tech,data,ops,fin}` 五枚族独占能力码，`rbac.catalog.ts` 里每码只挂一个组）精确判定，不走「权限码反查所属组」（码被多组共享时会把持有人一并错误抬进所有共享组）；`Incident Register` 域 6 桶，13 域 66 桶。
+
+**关键代码**：`governance/incidents/`：`incident.service.ts`（登记/调查/升级/撤回/善后挂载/经办桶断言）｜ `incident-type-registry.ts`（新增，十类终盘的单一注册表——族/经办组/独占能力码/结案链/通报候选码集/必填锚键/定损口径/善后白名单/启用位，八格一行）｜ `incident-close-workflow.service.ts`（定损后结案，四类型路由，从注册表 `closeActionType` 查链而非硬编码分支）｜ `incidents.controller.ts` ｜ 常量 `incident.constants.ts`（类型键集 / 状态 / 迁移表 / 通报依据目录七条）；对账侧接线 `clearing-settle/reconciliation/disposition/cause-registry.ts`（`UNAUTHORIZED_OUTFLOW` 出口 = `INCIDENT`）+ `disposition.service.ts → attachIncident()`（定性行回填 `incidentNo`）；认损调账事故分支 `disposition/adjustment.service.ts → assertIncidentWriteOffAllowed()`（锁定金额=定损额，免账龄线/小额线，仅 FUNDS 族适用）；审计 11 码不变（`INCIDENT_*`，见 `audit-actions.constant.ts`，十类共用同一份名册，未随扩类新增码位）；前端 `pages/IncidentListPage.tsx`（按类型动态渲染登记表单）/ `IncidentDetailPage.tsx`（定损表单按口径过滤、依据码按候选集过滤、善后下拉按白名单过滤、`Type-Specific Details` 卡片渲染 `subjectRefs`），案件页三入口在 `pages/ReconciliationCasesDetailPage.tsx`。

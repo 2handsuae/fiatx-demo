@@ -56,6 +56,17 @@ admin@fiatx.com 超管 ｜ sm@ 高管(SMO) ｜ ciso@ ｜ mlro@ ｜ dpo@ ｜ comp
 
 **档位升级站（第二幕⑤，波三新增）参数**：客户沿用②CDD 直通那位现场客户，不额外注册；充值 40000 USDT，卖出 30000 USDT→AED 撞 `BASIC · SWAP · DAILY` 上限 100000 AED（`GET /swap-transactions/rate` 实测 30000 USDT→AED 净额 ≈109944.65 AED，落在 BASIC 上限 100000 AED 之上、PREMIUM 上限 1000000 AED 之下，撞限不空转；充值量 = 卖出量 + 10000 缓冲）。两档限额对照（AED，Profile 页四行表）：SWAP DAILY 100000/1000000、SWAP MONTHLY 1000000/10000000、WITHDRAWAL DAILY 50000/500000、WITHDRAWAL MONTHLY 500000/5000000（BASIC/PREMIUM）。
 
+## 事故种子（business seed，四条非初始态样例，2026-09-25 战役甲波一）
+
+`seedIncidents()`（`prisma/seed.business.ts`）直接铺终态数据（不走 `IncidentService`，没有 operator、没有审批案、不写审计——与限制账 / 材料请求两组 fixture 同一性质），`incidentNo` 用 `buildDeterministicNo` 派生、reset 重铺后逐字不变。十类终盘里四个族各挑一个非初始态样例，覆盖 IMPACT/MONETARY 两档口径与 REGISTERED/INVESTIGATING/ASSESSED/RESOLVING 四个状态；**`CYBER_BCDR`（TECH_SECURITY 族）故意不进种子**，留给演示脚本现场走一遍完整登记流程，演"登记会留痕"这件事（见 `demo/script.md`）。
+
+| 类型 | 状态 | 族 | 关键字段 |
+|---|---|---|---|
+| `DATA_BREACH` | ASSESSED | DATA | `subjectRefs`（受影响客户数 46 / 数据类别 Contact info,ID document）+ `impactSummary`；双通报依据码已勾（`PDPL_ART_9`+`TIR_II_C_24H`）但未标记已通报——Request Close 因通报未完成仍灰态 |
+| `OUTSOURCING_FAILURE` | INVESTIGATING | TECH_SECURITY | `subjectRefs`（vendor + serviceImpact，登记时必填的两个锚）——还没定损 |
+| `ASSET_NONCOMPLIANCE` | RESOLVING | OPERATIONS | 顶层 `assetCode=USDT-TRON`（唯一必填锚，命中顶层锚分流规则、不进 `subjectRefs`）+ 已挂一条 `ASSET_SUSPENSION_REF` 善后单——结案前只差提结案这一步 |
+| `STUCK_TRANSACTION_MAJOR` | REGISTERED | OPERATIONS | 顶层 `customerNo`（Alice）+ `amount=15000.00` + `subjectRefs.orderNo`（动态锚）——刚登记，四态里最早的一态 |
+
 ## 各脚本造什么
 
 | 命令 | 产出 |
