@@ -106,14 +106,14 @@ export interface LinkRemediationDto {
  * chainStart='NOTICE'（战役甲波一 Task 6）：钟链起点是另一码触发的"通知发出"时刻，不是定损/
  * 登记时刻——本码即便带 hours，也不参与 IncidentService.computeReportDeadline 的
  * reportDeadlineAt 计算（波一不落这只钟的目标时刻，只留痕依据码本身）。 */
-export const INCIDENT_REPORT_BASES: Record<string, { label: string; hours: number | null; immediate?: true; chainStart?: 'NOTICE' }> = {
-  TIR_K_H: { label: 'TIR Rulebook Section K + H — material incident (cyber/BCDR, major stuck-transaction) reporting to VARA within 72 hours', hours: 72 },
-  CRM_IV_E_5: { label: 'CRM IV.E.5 — Material Client Money discrepancy', hours: null },
-  CRM_V_D_2: { label: 'CRM V.D.2 — Material Client VA discrepancy', hours: null },
-  PDPL_ART_9: { label: 'PDPL (Federal Decree-Law 45/2021) Art.9 — personal data breach report to UAE Data Office (statute states no hour clock)', hours: null },
-  TIR_II_C_24H: { label: 'VARA TIR Part II Section C + CRM I.1.4 — re-report to VARA within 24 hours AFTER the breach notice is issued (clock starts at first notice, not detection)', hours: 24, chainStart: 'NOTICE' },
-  COMPANY_IV_H_1: { label: 'Company Rulebook IV.H.1 — material outsourcing failure, notify VARA immediately', hours: null, immediate: true },
-  COMPANY_VI_C_F: { label: 'Company Rulebook VI.C / VI.F — NLA prudential breach, notify VARA immediately; daily updates until VARA is satisfied (calendar duty → wave 4)', hours: null, immediate: true },
+export const INCIDENT_REPORT_BASES: Record<string, { label: string; hours: number | null; immediate?: true; chainStart?: 'NOTICE'; authority: string }> = {
+  TIR_K_H: { label: 'TIR Rulebook Section K + H — material incident (cyber/BCDR, major stuck-transaction) reporting to VARA within 72 hours', hours: 72, authority: 'VARA' },
+  CRM_IV_E_5: { label: 'CRM IV.E.5 — Material Client Money discrepancy', hours: null, authority: 'VARA' },
+  CRM_V_D_2: { label: 'CRM V.D.2 — Material Client VA discrepancy', hours: null, authority: 'VARA' },
+  PDPL_ART_9: { label: 'PDPL (Federal Decree-Law 45/2021) Art.9 — personal data breach report to UAE Data Office (statute states no hour clock)', hours: null, authority: 'UAE_DATA_OFFICE' },
+  TIR_II_C_24H: { label: 'VARA TIR Part II Section C + CRM I.1.4 — re-report to VARA within 24 hours AFTER the breach notice is issued (clock starts at first notice, not detection)', hours: 24, chainStart: 'NOTICE', authority: 'VARA' },
+  COMPANY_IV_H_1: { label: 'Company Rulebook IV.H.1 — material outsourcing failure, notify VARA immediately', hours: null, immediate: true, authority: 'VARA' },
+  COMPANY_VI_C_F: { label: 'Company Rulebook VI.C / VI.F — NLA prudential breach, notify VARA immediately; daily updates until VARA is satisfied (calendar duty → wave 4)', hours: null, immediate: true, authority: 'VARA' },
 };
 
 /** 定损入参（战役甲波一 Task 6，brief Interfaces）。三档口径（MONETARY/IMPACT/SHORTFALL）
