@@ -928,12 +928,22 @@ export const ACTION_BUCKET_CATALOG: ActionDomain[] = [
   // 战役甲波一 T9：十类终盘按族拆经办桶——FUNDS 族仍是 incidents.manage（存量键名不动，
   // T5/T8 已在跑的策略/引用不必跟着改名），另四族各开一个新桶，见 incident-type-registry.ts
   // 的 family → operatorGroup 映射。
+  // 甲波一 T9 修2（评审 Ruling-13）：incidents.view 桶原带 ['INCIDENT_READ','INCIDENT_WRITE']
+  // 两个组——Modify 提交按"选中桶展开全部组"（RoleDetailPage.tsx 的 proposedPermissionGroups
+  // 计算），任何只读展示这个桶（子集完备推导下，持有五个经办组任一个的角色都会看到它勾选，
+  // 见 heldGroups.ts 头注释）的角色，善意提交一次（哪怕只改描述）就会把 INCIDENT_WRITE（连
+  // 带 cap.incident.funds）一并塞进请求——CISO/MLRO/SM/INTERNAL_AUDITOR 这类只该读不该写的
+  // 角色因此会被授出整个 FUNDS 族登记/结案能力，是 C1 子集完备修复之后仍未堵上的最后一条
+  // 越权尾巴。改为只挂 ['INCIDENT_READ']：桶的"是否显示为已持有"不受影响（写组持有人的
+  // 持码集合天然包含 INCIDENT_READ 名下的两个 GET 码，子集判据照样判定为持有），但提交时
+  // 这个桶只贡献 INCIDENT_READ——对写组持有人这是无害冗余（授的码他们本就有，见
+  // scratchpad/submit.ts 模拟：修复后 gainedCodes 归零)，对纯读角色更是直接消掉了越权面。
   {
     id: 'incidents',
     label: 'Incident Register',
     icon: '🚨',
     buckets: [
-      { key: 'incidents.view', label: 'View incidents', description: 'Browse the incident register and reporting trail', groups: ['INCIDENT_READ', 'INCIDENT_WRITE'] },
+      { key: 'incidents.view', label: 'View incidents', description: 'Browse the incident register and reporting trail', groups: ['INCIDENT_READ'] },
       { key: 'incidents.manage', label: 'Register & manage funds-family incidents', description: 'Register, investigate, assess, link remediations, request closure — FUNDS family (unauthorized outflow, large unexplained discrepancy, client shortfall)', groups: ['INCIDENT_WRITE'] },
       { key: 'incidents.manage-tech', label: 'Register & manage tech/security incidents', description: 'Register, investigate, assess, request closure — TECH_SECURITY family (cyber/BCDR, outsourcing failure)', groups: ['INCIDENT_TECH_WRITE'] },
       { key: 'incidents.manage-data', label: 'Register & manage data-breach incidents', description: 'Register, investigate, assess, log customer notice, request closure — DATA family (personal data breach)', groups: ['INCIDENT_DATA_WRITE'] },
