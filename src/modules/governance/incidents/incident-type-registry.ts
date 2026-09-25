@@ -34,6 +34,16 @@ export interface IncidentTypeConfig {
 // subjectRefs 区块，故挪成注册表的公共导出，不留在 service 私有实现里。
 export const TOP_LEVEL_ANCHOR_KEYS: ReadonlySet<string> = new Set(['assetCode', 'customerNo', 'amount']);
 
+// 战役甲波一 Task 6：定损口径按类型的 assessmentScheme 收窄——assess() 的
+// AssessIncidentDto.assessmentBasis 不再是全类型共用的四选一，而是按类型所属口径集
+// 合法取值（brief 行为合同①）。三档口径与 incident.constants.ts 的
+// AssessIncidentDto.assessmentBasis 联合类型逐字对应。
+export const ASSESSMENT_BASIS_BY_SCHEME: Record<AssessmentScheme, readonly string[]> = {
+  MONETARY: ['RECOVERED', 'FIRM_LOSS', 'CLIENT_COLLECTION', 'NO_LOSS'],
+  IMPACT: ['SERVICE_IMPACT', 'DATA_IMPACT'],
+  SHORTFALL: ['SHORTFALL'],
+};
+
 export const INCIDENT_TYPE_REGISTRY: Record<string, IncidentTypeConfig> = {
   UNAUTHORIZED_OUTFLOW: {
     family: 'FUNDS', label: 'Unauthorized outflow', establishedBy: 'CRM IV.E.5 / V.D.2',

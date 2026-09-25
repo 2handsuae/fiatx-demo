@@ -3,14 +3,20 @@
 // saveReportDraft 的 draft 非空）——不加其余防御性校验（CLAUDE.md §2）。
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { IsArray, IsBoolean, IsIn, IsNotEmpty, IsObject, IsOptional, IsString } from 'class-validator';
+import { IsArray, IsBoolean, IsIn, IsInt, IsNotEmpty, IsObject, IsOptional, IsString } from 'class-validator';
 import { IncidentEscalationTargets, IncidentRemediationKinds, IncidentTypes } from '../incident.constants';
 
 const INCIDENT_TYPE_VALUES = Object.values(IncidentTypes);
 const ESCALATION_TARGET_VALUES = Object.values(IncidentEscalationTargets);
 const REMEDIATION_KIND_VALUES = Object.values(IncidentRemediationKinds);
-/** 定损结论四选一（spec §4）——服务层刻意没做的枚举校验，上游点名要求补在这一层。 */
-export const ASSESSMENT_BASIS_VALUES = ['RECOVERED', 'FIRM_LOSS', 'CLIENT_COLLECTION', 'NO_LOSS'] as const;
+/** 定损结论七选一（战役甲波一 Task 6：三档口径 MONETARY/IMPACT/SHORTFALL 合并集）——服务层
+ * 刻意没做的枚举白名单校验，上游点名要求补在这一层；具体某类型合法取哪几个由
+ * IncidentService.assess 按 assessmentScheme 再收窄（400）。 */
+export const ASSESSMENT_BASIS_VALUES = [
+  'RECOVERED', 'FIRM_LOSS', 'CLIENT_COLLECTION', 'NO_LOSS', // MONETARY
+  'SERVICE_IMPACT', 'DATA_IMPACT',                          // IMPACT
+  'SHORTFALL',                                              // SHORTFALL
+] as const;
 
 export class RegisterIncidentBodyDto {
   @ApiProperty({ enum: INCIDENT_TYPE_VALUES }) @IsIn(INCIDENT_TYPE_VALUES) type!: (typeof INCIDENT_TYPE_VALUES)[number];
@@ -44,8 +50,13 @@ export class EscalateIncidentBodyDto {
 }
 
 export class AssessIncidentBodyDto {
-  @ApiProperty() @IsString() @IsNotEmpty() assessedAmount!: string;
   @ApiProperty({ enum: ASSESSMENT_BASIS_VALUES }) @IsIn(ASSESSMENT_BASIS_VALUES) assessmentBasis!: (typeof ASSESSMENT_BASIS_VALUES)[number];
+  // MONETARY/SHORTFALL 必填、IMPACT 可选——服务层按类型 assessmentScheme 精确校验（400），
+  // 这一层只做"字符串类型"的形状校验，不做哪个口径必填。
+  @ApiPropertyOptional() @IsOptional() @IsString() assessedAmount?: string;
+  // IMPACT 必填——同上，必填与否留给服务层。
+  @ApiPropertyOptional() @IsOptional() @IsString() impactSummary?: string;
+  @ApiPropertyOptional() @IsOptional() @IsInt() impactCount?: number;
   @ApiProperty() @IsBoolean() reportRequired!: boolean;
   @ApiPropertyOptional({ type: [String] }) @IsOptional() @IsArray() @IsString({ each: true }) reportBasisCodes?: string[];
 }

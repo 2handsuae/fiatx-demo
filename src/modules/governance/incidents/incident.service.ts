@@ -19,7 +19,7 @@ import {
   IncidentRemediationKinds, IncidentStatus, IncidentTypes, LinkRemediationDto,
   MarkReportedDto, RegisterIncidentDto,
 } from './incident.constants';
-import { getIncidentTypeConfig, IncidentTypeConfig, TOP_LEVEL_ANCHOR_KEYS } from './incident-type-registry';
+import { ASSESSMENT_BASIS_BY_SCHEME, getIncidentTypeConfig, IncidentTypeConfig, TOP_LEVEL_ANCHOR_KEYS } from './incident-type-registry';
 
 @Injectable()
 export class IncidentService {
@@ -327,28 +327,49 @@ export class IncidentService {
   // ── 定损 + 通报留痕（spec §4/§7：72h 倒计时从事故登记时刻起算——Task 6）───────
 
   /**
-   * 定损：INVESTIGATING → ASSESSED。reportRequired=true 必带非空且在
-   * `INCIDENT_REPORT_BASES` 目录内的 reportBasisCodes；reportDeadlineAt = 事故登记时刻
-   * （`incident.createdAt`，不是定损时刻——条款措辞"检测后 72h"，登记即检测记录）
-   * + min(所选依据里有钟的 hours)；只选无钟依据（hours=null）时保持 null，不杜撰时限。
+   * 定损：INVESTIGATING → ASSESSED。三档口径（MONETARY/IMPACT/SHORTFALL）共用一个入口
+   * （战役甲波一 Task 6，brief 行为合同四条）：
+   * ① assessmentBasis 必须属于该事故类型 assessmentScheme 的合法集
+   *   （`ASSESSMENT_BASIS_BY_SCHEME`，registry 文件）；
+   * ② reportRequired=true 时 reportBasisCodes 必须是该类型 `cfg.reportBasisCandidates` 的子集
+   *   （空候选集类型勾任何码即 400，如 ASSET_NONCOMPLIANCE）；
+   * ③ reportDeadlineAt = 事故登记时刻（`incident.createdAt`，不是定损时刻——条款措辞
+   *   "检测后 72h"，登记即检测记录）+ min(所选依据里"从定损起算的数字钟"码的 hours)；
+   *   全为 null/immediate/chainStart='NOTICE'（钟链起点是另一码的通知发出时刻，非本次
+   *   起算点）时保持 null，不杜撰时限；
+   * ④ MONETARY/SHORTFALL 口径必填 assessedAmount，IMPACT 口径必填 impactSummary。
+   * 新增校验放在经办门（`assertOperatorForIncident`）之后、迁移守卫（`assertTransition`）
+   * 之前——需要 `row.type` 才能取 cfg，经办门的 `findByNo` 顺带把行取到，不重复查询。
    */
   async assess(incidentNo: string, dto: AssessIncidentDto, actor: ApprovalActorContext): Promise<{ incidentNo: string; status: string; reportDeadlineAt: Date | null }> {
-    if (!dto.assessedAmount || !dto.assessmentBasis) throw new BadRequestException('Assessment requires an assessed amount and a conclusion');
+    const row = await this.assertOperatorForIncident(incidentNo, actor);
+    const cfg = getIncidentTypeConfig(row.type);
+    const allowedBases = ASSESSMENT_BASIS_BY_SCHEME[cfg.assessmentScheme];
+    if (!dto.assessmentBasis || !allowedBases.includes(dto.assessmentBasis)) {
+      throw new BadRequestException(`assessmentBasis must be one of [${allowedBases.join(', ')}] for ${cfg.assessmentScheme}-scheme incident type ${row.type}`);
+    }
+    if (cfg.assessmentScheme === 'IMPACT') {
+      if (!dto.impactSummary) throw new BadRequestException('Assessment requires an impact summary');
+    } else if (!dto.assessedAmount) {
+      throw new BadRequestException('Assessment requires an assessed amount');
+    }
     const basisCodes = dto.reportRequired ? (dto.reportBasisCodes ?? []) : [];
     if (dto.reportRequired) {
       if (!basisCodes.length) throw new BadRequestException('A determination requiring reporting must include basis codes');
       for (const code of basisCodes) {
         if (!(code in INCIDENT_REPORT_BASES)) throw new BadRequestException(`Unknown basis code: ${code}`);
+        if (!cfg.reportBasisCandidates.includes(code)) throw new BadRequestException(`Basis code ${code} is not a valid reporting basis for incident type ${row.type}`);
       }
     }
-    const row = await this.assertOperatorForIncident(incidentNo, actor);
     this.assertTransition(row.status, IncidentStatus.ASSESSED);
     const updated = await this.prisma.incident.update({
       where: { incidentNo },
       data: {
         status: IncidentStatus.ASSESSED,
-        assessedAmount: new Prisma.Decimal(dto.assessedAmount),
+        assessedAmount: dto.assessedAmount ? new Prisma.Decimal(dto.assessedAmount) : null,
         assessmentBasis: dto.assessmentBasis,
+        impactSummary: dto.impactSummary ?? null,
+        impactCount: dto.impactCount ?? null,
         reportRequired: dto.reportRequired,
         reportBasisCodes: basisCodes.length ? basisCodes.join(',') : null,
         reportDeadlineAt: this.computeReportDeadline(row.createdAt, basisCodes),
@@ -358,16 +379,21 @@ export class IncidentService {
     await this.recordAudit(updated, AuditActions.INCIDENT_ASSESSED, actor, {
       fromStatus: row.status, toStatus: updated.status,
       extra: { assessmentBasis: dto.assessmentBasis },
-      metadata: { assessedAmount: dto.assessedAmount, reportRequired: dto.reportRequired, reportBasisCodes: basisCodes },
+      metadata: {
+        assessedAmount: dto.assessedAmount ?? null, impactSummary: dto.impactSummary ?? null,
+        impactCount: dto.impactCount ?? null, reportRequired: dto.reportRequired, reportBasisCodes: basisCodes,
+      },
     });
     return { incidentNo, status: updated.status as string, reportDeadlineAt: updated.reportDeadlineAt ?? null };
   }
 
-  /** 只对选中依据里 hours 非 null 的取 min；全无钟则返回 null（界面显式「未设时限」）。 */
+  /** 只对选中依据里 hours 非 null 且不是 chainStart='NOTICE' 钟链码的取 min；
+   * 全无符合条件的钟则返回 null（界面显式「未设时限」）。 */
   private computeReportDeadline(createdAt: Date, basisCodes: string[]): Date | null {
     const hours = basisCodes
-      .map((code) => (INCIDENT_REPORT_BASES as Record<string, { hours: number | null }>)[code]?.hours)
-      .filter((h): h is number => h != null);
+      .map((code) => (INCIDENT_REPORT_BASES as Record<string, { hours: number | null; chainStart?: 'NOTICE' }>)[code])
+      .filter((b): b is { hours: number; chainStart?: 'NOTICE' } => !!b && b.hours != null && b.chainStart !== 'NOTICE')
+      .map((b) => b.hours);
     if (!hours.length) return null;
     return new Date(createdAt.getTime() + Math.min(...hours) * 3600 * 1000);
   }

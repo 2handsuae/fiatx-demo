@@ -455,23 +455,30 @@ describe('IncidentService (Task 5)', () => {
     });
 
     it('missing assessedAmount/assessmentBasis → 400', async () => {
-      const { svc } = makeService({ incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', status: S.INVESTIGATING, createdAt: new Date() } });
+      const { svc } = makeService({ incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', type: T.CLIENT_SHORTFALL, status: S.INVESTIGATING, createdAt: new Date() } });
       await expect(svc.assess('INC1', { assessedAmount: '', assessmentBasis: 'NO_LOSS', reportRequired: false } as any, ops)).rejects.toThrow(BadRequestException);
     });
 
     it('reportRequired=true but reportBasisCodes is empty → 400', async () => {
-      const { svc } = makeService({ incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', status: S.INVESTIGATING, createdAt: new Date() } });
+      const { svc } = makeService({ incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', type: T.CLIENT_SHORTFALL, status: S.INVESTIGATING, createdAt: new Date() } });
       await expect(svc.assess('INC1', { assessedAmount: '5000', assessmentBasis: 'FIRM_LOSS', reportRequired: true, reportBasisCodes: [] }, ops)).rejects.toThrow(BadRequestException);
     });
 
     it('reportBasisCodes contains a code outside the directory → 400', async () => {
-      const { svc } = makeService({ incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', status: S.INVESTIGATING, createdAt: new Date() } });
+      const { svc } = makeService({ incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', type: T.CLIENT_SHORTFALL, status: S.INVESTIGATING, createdAt: new Date() } });
       await expect(svc.assess('INC1', { assessedAmount: '5000', assessmentBasis: 'FIRM_LOSS', reportRequired: true, reportBasisCodes: ['NOT_A_BASIS'] }, ops)).rejects.toThrow(BadRequestException);
     });
 
+    // 甲波一 T6：改用 STUCK_TRANSACTION_MAJOR（reportBasisCandidates=['TIR_K_H']）——
+    // CLIENT_SHORTFALL 的候选集只有 ['CRM_IV_E_5','CRM_V_D_2']，勾 TIR_K_H 在新增的口径②
+    // （reportBasisCodes ⊆ cfg.reportBasisCandidates）下会变成 400，原用例的类型/码组合
+    // 已不成立，换一个合法组合延续同一断言意图（72h 倒计时 + 审计顶层 assessmentBasis）。
     it('happy path: selecting only TIR_K_H → reportDeadlineAt = createdAt + 72h (mutation target 2) + audit top-level assessmentBasis', async () => {
       const createdAt = new Date('2026-09-01T00:00:00.000Z');
-      const { svc, prisma, auditLogs } = makeService({ incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', type: T.CLIENT_SHORTFALL, status: S.INVESTIGATING, createdAt } });
+      const { svc, prisma, auditLogs } = makeService({
+        incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', type: T.STUCK_TRANSACTION_MAJOR, status: S.INVESTIGATING, createdAt },
+        heldMarkers: ['cap.incident.ops'],
+      });
       const r = await svc.assess('INC1', { assessedAmount: '5000', assessmentBasis: 'FIRM_LOSS', reportRequired: true, reportBasisCodes: ['TIR_K_H'] }, ops);
       expect(r.status).toBe(S.ASSESSED);
       const updateCall = prisma.incident.update.mock.calls[0][0];
@@ -497,6 +504,78 @@ describe('IncidentService (Task 5)', () => {
       expect(updateCall.data.reportRequired).toBe(false);
       expect(updateCall.data.reportBasisCodes).toBeNull();
       expect(updateCall.data.reportDeadlineAt).toBeNull();
+    });
+
+    // 甲波一 T6（brief 行为合同①②③④）：三档口径按类型 assessmentScheme 收窄 + 码候选集过滤
+    // + 钟链码不入 deadline。五条：四条新行为 + 一条存量回归锚。
+    it('ASSET_NONCOMPLIANCE (empty reportBasisCandidates) — checking any basis code → 400 (behavior contract ②, empty candidate set)', async () => {
+      const { svc } = makeService({
+        incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', type: T.ASSET_NONCOMPLIANCE, status: S.INVESTIGATING, createdAt: new Date() },
+        heldMarkers: ['cap.incident.ops'],
+      });
+      await expect(svc.assess('INC1', {
+        assessmentBasis: 'SERVICE_IMPACT', impactSummary: 'Asset suspended pending review',
+        reportRequired: true, reportBasisCodes: ['TIR_K_H'],
+      }, ops)).rejects.toThrow(BadRequestException);
+    });
+
+    it('DATA_BREACH — checking both PDPL_ART_9 (no clock) and TIR_II_C_24H (chainStart=NOTICE, excluded) → reportDeadlineAt stays null', async () => {
+      const createdAt = new Date('2026-09-01T00:00:00.000Z');
+      const { svc, prisma } = makeService({
+        incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', type: T.DATA_BREACH, status: S.INVESTIGATING, createdAt },
+        heldMarkers: ['cap.incident.data'],
+      });
+      // 目录条目本身携带 chainStart='NOTICE'（钟链起点是通知发出，不是本次定损起算点）。
+      expect(REPORT_BASES.TIR_II_C_24H.chainStart).toBe('NOTICE');
+      expect(REPORT_BASES.TIR_II_C_24H.hours).toBe(24);
+      const r = await svc.assess('INC1', {
+        assessmentBasis: 'DATA_IMPACT', impactSummary: 'Customer PII exposed',
+        reportRequired: true, reportBasisCodes: ['PDPL_ART_9', 'TIR_II_C_24H'],
+      }, ops);
+      expect(r.status).toBe(S.ASSESSED);
+      const updateCall = prisma.incident.update.mock.calls[0][0];
+      expect(updateCall.data.reportDeadlineAt).toBeNull();
+      expect(r.reportDeadlineAt).toBeNull();
+    });
+
+    it('CYBER_BCDR — checking only TIR_K_H → reportDeadlineAt = createdAt + 72h (behavior contract ③)', async () => {
+      const createdAt = new Date('2026-09-01T00:00:00.000Z');
+      const { svc, prisma } = makeService({
+        incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', type: T.CYBER_BCDR, status: S.INVESTIGATING, createdAt },
+        heldMarkers: ['cap.incident.tech'],
+      });
+      const r = await svc.assess('INC1', {
+        assessmentBasis: 'SERVICE_IMPACT', impactSummary: 'Trading platform outage',
+        reportRequired: true, reportBasisCodes: ['TIR_K_H'],
+      }, ops);
+      const updateCall = prisma.incident.update.mock.calls[0][0];
+      expect(updateCall.data.reportDeadlineAt.getTime()).toBe(createdAt.getTime() + 72 * 3600 * 1000);
+      expect(r.reportDeadlineAt!.getTime()).toBe(createdAt.getTime() + 72 * 3600 * 1000);
+    });
+
+    it('PRUDENTIAL_BREACH — SHORTFALL scheme missing assessedAmount → 400 (behavior contract ④)', async () => {
+      const { svc } = makeService({
+        incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', type: T.PRUDENTIAL_BREACH, status: S.INVESTIGATING, createdAt: new Date() },
+        heldMarkers: ['cap.incident.fin'],
+      });
+      await expect(svc.assess('INC1', { assessmentBasis: 'SHORTFALL', reportRequired: false } as any, ops)).rejects.toThrow(BadRequestException);
+    });
+
+    it('regression anchor: legacy UNAUTHORIZED_OUTFLOW MONETARY scheme still assesses cleanly under the new type-scoped rules', async () => {
+      const createdAt = new Date('2026-09-01T00:00:00.000Z');
+      const { svc, prisma, auditLogs } = makeService({
+        incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', type: T.UNAUTHORIZED_OUTFLOW, status: S.INVESTIGATING, createdAt },
+      });
+      const r = await svc.assess('INC1', {
+        assessedAmount: '2500', assessmentBasis: 'FIRM_LOSS', reportRequired: true, reportBasisCodes: ['CRM_IV_E_5'],
+      }, ops);
+      expect(r.status).toBe(S.ASSESSED);
+      expect(r.reportDeadlineAt).toBeNull(); // CRM_IV_E_5 hours=null，不杜撰时限
+      const updateCall = prisma.incident.update.mock.calls[0][0];
+      expect(updateCall.data.assessmentBasis).toBe('FIRM_LOSS');
+      expect(updateCall.data.assessedAmount.toString()).toBe('2500');
+      const call = auditLogs.recordByActor.mock.calls[0][0];
+      expect(call).toMatchObject({ action: 'INCIDENT_ASSESSED', assessmentBasis: 'FIRM_LOSS' });
     });
   });
 
@@ -715,6 +794,9 @@ describe('INCIDENT_REPORT_BASES catalog (wave1)', () => {
     expect(REPORT_BASES.PDPL_ART_9.hours).toBeNull();
     expect(REPORT_BASES.PDPL_ART_9.immediate).toBeUndefined();
     expect(REPORT_BASES.TIR_II_C_24H.hours).toBe(24);
+    // 甲波一 T6：钟链起点是通知发出而非定损时刻——本码不参与 reportDeadlineAt 计算。
+    expect(REPORT_BASES.TIR_II_C_24H.chainStart).toBe('NOTICE');
+    expect(REPORT_BASES.TIR_K_H.chainStart).toBeUndefined();
     expect(REPORT_BASES.COMPANY_IV_H_1.immediate).toBe(true);
     expect(REPORT_BASES.COMPANY_IV_H_1.hours).toBeNull();
     expect(REPORT_BASES.COMPANY_VI_C_F.immediate).toBe(true);
