@@ -14,7 +14,7 @@ import { AuditActions, AuditBusinessWorkflowTypes, AuditEntityTypes } from '../.
 import { AuditCategory, AuditSubjectInput, AuditSubjectRole } from '../../audit-logging/dto/audit-log.dto';
 import { ApprovalDecidedEvent } from '../approvals/approval-handler.base';
 import { ApprovalsService } from '../approvals/approvals.service';
-import { ApprovalActionTypes, ApprovalActorContext } from '../approvals/constants/approval.constants';
+import { ApprovalActorContext } from '../approvals/constants/approval.constants';
 import { IncidentStatus, IncidentTypes } from './incident.constants';
 import { getIncidentTypeConfig } from './incident-type-registry';
 import { IncidentService } from './incident.service';
@@ -29,8 +29,12 @@ const INCIDENT_TYPE_IMPACT_LABEL: Record<string, string> = {
   [IncidentTypes.LARGE_UNEXPLAINED]: 'Large unexplained',
   [IncidentTypes.CLIENT_SHORTFALL]: 'Client shortfall',
 };
+// 战役甲波一 Task 8 追加指令②：T6 新增的 IMPACT/SHORTFALL 两档口径此前没有对应人话动词，
+// 结案摘要遇到 SERVICE_IMPACT/DATA_IMPACT/SHORTFALL 会退化成生码（basisVerb ?? row.assessmentBasis
+// 分支兜底），本轮补齐三值，与既有 MONETARY 四值同构措辞。
 const ASSESSMENT_BASIS_IMPACT_VERB: Record<string, string> = {
   RECOVERED: 'recovered', FIRM_LOSS: 'loss recognized', CLIENT_COLLECTION: 'pursuing collection', NO_LOSS: 'no loss',
+  SERVICE_IMPACT: 'service impact assessed', DATA_IMPACT: 'data impact assessed', SHORTFALL: 'shortfall assessed',
 };
 
 @Injectable()
@@ -71,9 +75,9 @@ export class IncidentCloseWorkflowService {
       throw new BadRequestException(`Incident ${incidentNo} is determined to require regulator reporting but has not been marked as reported — it cannot be closed`);
     }
 
-    const actionType = row.type === IncidentTypes.UNAUTHORIZED_OUTFLOW
-      ? ApprovalActionTypes.INCIDENT_CLOSE_SECURITY
-      : ApprovalActionTypes.INCIDENT_CLOSE_FINANCIAL;
+    // 战役甲波一 Task 8：三元退役——结案链按类型分流不再手写两支判断，改查注册表的
+    // closeActionType（十类终盘每一类都在 INCIDENT_TYPE_REGISTRY 里显式点名归属链）。
+    const actionType = getIncidentTypeConfig(row.type).closeActionType;
     const impact = this.describeCloseImpact(row, remediationReferenceNos);
 
     const approval = await this.approvals.createAndSubmit(

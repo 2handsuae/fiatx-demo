@@ -91,17 +91,49 @@ describe('IncidentCloseWorkflowService (Task 7)', () => {
     });
   });
 
-  describe('requestClose — type → action type routing', () => {
-    it('UNAUTHORIZED_OUTFLOW → INCIDENT_CLOSE_SECURITY', async () => {
-      const { wf, approvals } = makeWorkflow({ incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', type: T.UNAUTHORIZED_OUTFLOW, status: S.RESOLVING, traceId: 't' } });
+  // 战役甲波一 Task 8（变异测试点①的常驻化）：三元退役为注册表查链后，十类终盘每一类都要
+  // 逐条验证路由到 INCIDENT_TYPE_REGISTRY 里点名的 closeActionType——不再是旧两支判断
+  // （UNAUTHORIZED_OUTFLOW→SECURITY，其余全部→FINANCIAL）。CYBER_BCDR 此前被旧三元误判为
+  // FINANCIAL，是本任务要修的错（见 incident-type-registry.ts closeActionType 字段）。
+  describe('requestClose — type → close action type routing (registry-driven, Task 8)', () => {
+    it.each([
+      [T.CYBER_BCDR, 'INCIDENT_CLOSE_TECHSEC'],
+      [T.DATA_BREACH, 'INCIDENT_CLOSE_TECHSEC'],
+      [T.OUTSOURCING_FAILURE, 'INCIDENT_CLOSE_TECHSEC'],
+      [T.ASSET_NONCOMPLIANCE, 'INCIDENT_CLOSE_TECHSEC'],
+      [T.STUCK_TRANSACTION_MAJOR, 'INCIDENT_CLOSE_FINANCIAL'],
+      [T.PRUDENTIAL_BREACH, 'INCIDENT_CLOSE_PRUDENTIAL'],
+      [T.UNAUTHORIZED_OUTFLOW, 'INCIDENT_CLOSE_SECURITY'],
+      [T.LARGE_UNEXPLAINED, 'INCIDENT_CLOSE_FINANCIAL'],
+      [T.CLIENT_SHORTFALL, 'INCIDENT_CLOSE_FINANCIAL'],
+    ])('%s requests closure via %s', async (type, expected) => {
+      const { wf, approvals } = makeWorkflow({
+        incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', type, status: S.ASSESSED, assessmentBasis: 'NO_LOSS', reportRequired: false, traceId: 't' },
+      });
       await wf.requestClose('INC1', treasury);
-      expect(approvals.createAndSubmit.mock.calls[0][0].actionType).toBe('INCIDENT_CLOSE_SECURITY');
+      expect(approvals.createAndSubmit.mock.calls[0][0].actionType).toBe(expected);
     });
+  });
 
-    it.each([T.LARGE_UNEXPLAINED, T.CLIENT_SHORTFALL, T.CYBER_BCDR])('%s → INCIDENT_CLOSE_FINANCIAL', async (type) => {
-      const { wf, approvals } = makeWorkflow({ incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', type, status: S.RESOLVING, traceId: 't' } });
+  // 战役甲波一 Task 8 追加指令②：IMPACT/SHORTFALL 口径的人话动词此前缺失，退化成裸
+  // assessmentBasis 生码（basisVerb ?? row.assessmentBasis 兜底分支）。补齐后断言摘要里
+  // 出现人话短语、不出现生码本身。
+  describe('describeCloseImpact — IMPACT/SHORTFALL verbs no longer degrade to raw codes (Task 8)', () => {
+    it.each([
+      [T.CYBER_BCDR, 'SERVICE_IMPACT', 'service impact assessed'],
+      [T.DATA_BREACH, 'DATA_IMPACT', 'data impact assessed'],
+      [T.PRUDENTIAL_BREACH, 'SHORTFALL', 'shortfall assessed'],
+    ])('%s + %s → impact contains "%s", not the raw code', async (type, assessmentBasis, humanVerb) => {
+      const { wf, approvals } = makeWorkflow({
+        incidentRow: {
+          id: 'uuid-inc', incidentNo: 'INC1', type, status: S.RESOLVING,
+          assessmentBasis, assessedAmount: null, reportRequired: false, traceId: 't',
+        },
+      });
       await wf.requestClose('INC1', treasury);
-      expect(approvals.createAndSubmit.mock.calls[0][0].actionType).toBe('INCIDENT_CLOSE_FINANCIAL');
+      const impact = approvals.createAndSubmit.mock.calls[0][0].objectSnapshot.impact;
+      expect(impact).toContain(humanVerb);
+      expect(impact).not.toContain(`Assessment: ${assessmentBasis}`);
     });
   });
 

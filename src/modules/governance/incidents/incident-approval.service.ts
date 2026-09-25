@@ -29,3 +29,25 @@ export class IncidentCloseFinancialApprovalService extends ApprovalHandlerBase {
     super(eventEmitter);
   }
 }
+
+// 战役甲波一 Task 8：十类终盘新增两族结案链——技安/数据/运营三族共用 CISO 单步裁决，
+// 财务类（NLA 审慎缺口）单步 SENIOR_MANAGEMENT_OFFICER 裁决。逐字照抄上面两个 handler 的形状。
+@Injectable()
+export class IncidentCloseTechsecApprovalService extends ApprovalHandlerBase {
+  readonly actionType = ApprovalActionTypes.INCIDENT_CLOSE_TECHSEC;
+  readonly workflowType = AuditBusinessWorkflowTypes.INCIDENT;
+
+  constructor(eventEmitter: EventEmitter2) {
+    super(eventEmitter);
+  }
+}
+
+@Injectable()
+export class IncidentClosePrudentialApprovalService extends ApprovalHandlerBase {
+  readonly actionType = ApprovalActionTypes.INCIDENT_CLOSE_PRUDENTIAL;
+  readonly workflowType = AuditBusinessWorkflowTypes.INCIDENT;
+
+  constructor(eventEmitter: EventEmitter2) {
+    super(eventEmitter);
+  }
+}

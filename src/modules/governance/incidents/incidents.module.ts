@@ -18,7 +18,12 @@ import { AccessControlModule } from '../../identity/access-control/access-contro
 import { IncidentService } from './incident.service';
 import { DISPOSITION_INCIDENT_LINK, DispositionIncidentLink, IncidentRegistrationWorkflowService } from './incident-registration-workflow.service';
 import { IncidentCloseWorkflowService } from './incident-close-workflow.service';
-import { IncidentCloseFinancialApprovalService, IncidentCloseSecurityApprovalService } from './incident-approval.service';
+import {
+  IncidentCloseFinancialApprovalService,
+  IncidentCloseSecurityApprovalService,
+  IncidentCloseTechsecApprovalService,
+  IncidentClosePrudentialApprovalService,
+} from './incident-approval.service';
 import { IncidentsController } from './incidents.controller';
 
 // `useExisting: DispositionService` 换实现后没有编译期接口检查（Nest 的 DI token
@@ -39,6 +44,8 @@ void _dispositionIncidentLinkWitness;
     IncidentCloseWorkflowService,
     IncidentCloseSecurityApprovalService,
     IncidentCloseFinancialApprovalService,
+    IncidentCloseTechsecApprovalService,
+    IncidentClosePrudentialApprovalService,
     // Task 9 落地：DISPOSITION_INCIDENT_LINK 接对账侧真实现（原占位类
     // InterimDispositionIncidentLink 已删，行为迁到 DispositionService.attachIncident）。
     { provide: DISPOSITION_INCIDENT_LINK, useExisting: DispositionService },

@@ -68,6 +68,11 @@ export const ApprovalActionTypes = {
   // 平账三期·事故登记（2026-09-06）：结案审批按性质分链——安全类（未授权转出）两步 MLRO→CFO，资金类单步 CFO
   INCIDENT_CLOSE_SECURITY: 'INCIDENT_CLOSE_SECURITY',
   INCIDENT_CLOSE_FINANCIAL: 'INCIDENT_CLOSE_FINANCIAL',
+  // 战役甲波一 Task 8：十类终盘新增两族结案链——技安/数据/运营三族共用 CISO 单步裁决，
+  // 财务类（NLA 审慎缺口）单步 SENIOR_MANAGEMENT_OFFICER 裁决。closeActionType 值与本键同名，
+  // incident-close-workflow.service.ts 直接查注册表取值，不再按事故类型手写三元。
+  INCIDENT_CLOSE_TECHSEC: 'INCIDENT_CLOSE_TECHSEC',
+  INCIDENT_CLOSE_PRUDENTIAL: 'INCIDENT_CLOSE_PRUDENTIAL',
   // 客户域波二·准入审批线（2026-09-07）：高风险客户准入核准，运营提、高管批
   CUSTOMER_ONBOARDING_ACCEPTANCE: 'CUSTOMER_ONBOARDING_ACCEPTANCE',
   // 客户域波三·档位升级审批线（2026-09-07）：BASIC→PREMIUM 档位升级核准，运营提、高管批
@@ -373,6 +378,13 @@ export const DEFAULT_APPROVAL_POLICIES: Record<
   [ApprovalActionTypes.INCIDENT_CLOSE_FINANCIAL]: {
     steps: [{ stepNo: 1, roles: ['CFO'] }], timeoutHours: 48, allowCancel: true,
   },
+  // ─── 战役甲波一 Task 8：十类终盘新增两族结案链 ───
+  [ApprovalActionTypes.INCIDENT_CLOSE_TECHSEC]: {
+    steps: [{ stepNo: 1, roles: ['CISO'] }], timeoutHours: 48, allowCancel: true,
+  },
+  [ApprovalActionTypes.INCIDENT_CLOSE_PRUDENTIAL]: {
+    steps: [{ stepNo: 1, roles: ['SENIOR_MANAGEMENT_OFFICER'] }], timeoutHours: 48, allowCancel: true,
+  },
   // ─── 高风险客户准入核准（波二 2026-09-07）：审的是「接不接这个客户关系」，
   // 不是重审尽调（MLRO 的活 100% 在 Sumsub）。maker=运营，checker=高管。───
   [ApprovalActionTypes.CUSTOMER_ONBOARDING_ACCEPTANCE]: {
@@ -423,6 +435,8 @@ export const V1_APPROVAL_ACTION_TYPES: readonly string[] = [
   ApprovalActionTypes.INTERNAL_TRANSFER_APPROVAL,
   ApprovalActionTypes.INCIDENT_CLOSE_SECURITY,
   ApprovalActionTypes.INCIDENT_CLOSE_FINANCIAL,
+  ApprovalActionTypes.INCIDENT_CLOSE_TECHSEC,
+  ApprovalActionTypes.INCIDENT_CLOSE_PRUDENTIAL,
 ] as const;
 
 export function isSuperAdminRoleContext(roleCodes: string[]): boolean {

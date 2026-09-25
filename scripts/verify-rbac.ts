@@ -240,7 +240,12 @@ function runStaticChecks(): void {
   // ⚠️ 这张表是**人工维护**的 policy→maker 组映射——代码里没有可推导的关联
   // （谁能提某个审批，取决于哪个端点会建这张单，那是 workflow 的事）。新增
   // maker-checker 型审批策略时**必须往这里加一行**，否则新策略不受本闸门保护。
-  const MAKER_GROUP_BY_POLICY: Record<string, string> = {
+  // 战役甲波一 Task 8：INCIDENT_CLOSE_TECHSEC 的 maker 横跨三个经办组（技安/数据/运营，
+  // 单一动作类型服务四类事故的结案），一个 policy 键装不下一个组名——值类型放宽为
+  // `string | string[]`，下方两处消费循环对数组逐组做同一校验（每个组独立跑一遍原有的
+  // 单组判据，不是把多个组的持有人并成一个集合再判），语义上等价于"这条策略实际有
+  // 几个互不相干的提单人群体，每个群体各自都不能被唯一裁决人一勺烩"。
+  const MAKER_GROUP_BY_POLICY: Record<string, string | string[]> = {
     ASSET_SUSPENSION: 'ASSET_CONFIG_WRITE',
     ASSET_REACTIVATION: 'ASSET_CONFIG_WRITE',
     TRANSACTION_LIMIT_CHANGE: 'TRANSACTION_LIMIT_WRITE',
@@ -282,6 +287,10 @@ function runStaticChecks(): void {
     CUSTOMER_RESTRICTION_RELEASE_MLRO: 'CUSTOMER_RESTRICTION_RELEASE',
     CUSTOMER_ONBOARDING_ACCEPTANCE: 'CUSTOMER_ONBOARDING_ACCEPT_WRITE',
     CUSTOMER_TIER_UPGRADE: 'CUSTOMER_TIER_UPGRADE_WRITE',
+    // 战役甲波一 Task 8：两条新结案链。PRUDENTIAL 单组（财务经办桶）；TECHSEC 三组（技安/
+    // 数据/运营经办桶，closeActionType 相同但 operatorGroup 按类型三分）。
+    INCIDENT_CLOSE_PRUDENTIAL: 'INCIDENT_FIN_WRITE',
+    INCIDENT_CLOSE_TECHSEC: ['INCIDENT_TECH_WRITE', 'INCIDENT_DATA_WRITE', 'INCIDENT_OPS_WRITE'],
   };
 
   // 有意不进上表的策略——maker 组本身不可判定（不是某个角色权限组闸住的，是系统自己在
@@ -340,42 +349,50 @@ function runStaticChecks(): void {
       .filter(([role, groups]) => role !== 'SUPER_ADMIN' && (groups as string[]).includes(group))
       .map(([role]) => role);
 
+  // MAKER_GROUP_BY_POLICY 的值现在是 `string | string[]`——统一成数组，标量条目退化成
+  // 单元素数组，下游循环对两种形状一视同仁（逐组跑同一判据）。
+  const asGroupList = (value: string | string[]): string[] => (Array.isArray(value) ? value : [value]);
+
   const deadlocks: string[] = [];
   const registeredDeadlocks: string[] = [];
   const missingFromTable: string[] = [];
   const staleDeadlocks: string[] = [];
   let gatedPolicies = 0;
 
-  for (const [actionType, makerGroup] of Object.entries(MAKER_GROUP_BY_POLICY)) {
+  for (const [actionType, makerGroupValue] of Object.entries(MAKER_GROUP_BY_POLICY)) {
     const policy = (DEFAULT_APPROVAL_POLICIES as Record<string, any>)[actionType];
     if (!policy) {
       missingFromTable.push(`${actionType}（表里有、策略里没有——策略被删或改名了？）`);
       continue;
     }
     gatedPolicies += 1;
-    const makers = new Set(holdersOf(makerGroup));
     const checkers = new Set<string>(policy.steps.flatMap((st: any) => st.roles as string[]));
-    // 安全 maker = 持有 maker 组、但不在裁决人集合里的角色——这种角色永远能正常提单，
-    // 不会被 SoD 卡死。集合为空才是真死锁（见上方判据说明）。
-    const safeMakers = [...makers].filter((r) => !checkers.has(r));
-    if (safeMakers.length === 0) {
-      // makers.size === 0 是另一种坏：不是「唯一提单人也是裁决人」，是压根没人持有这个
-      // maker 组——没人能提单，跟"能提但会被自批拦"是两件不同的事，措辞不能混为一谈。
-      const msg = makers.size === 0
-        ? `${actionType}: 持 ${makerGroup} 的角色集合为空——没有任何角色持有这个 maker 组，没人能提单`
-        : `${actionType}: 持 ${makerGroup} 的角色 {${[...makers].join(',')}} 全部同时在裁决人集合 {${[...checkers].join(',')}} 里——没有一个角色能提但不能批，唯一提单人必自批（SoD 拒绝）`;
-      if (actionType in S5_KNOWN_DEADLOCKS) {
-        registeredDeadlocks.push(`${msg} —— 已登记：${S5_KNOWN_DEADLOCKS[actionType]}`);
-      } else {
-        deadlocks.push(msg);
+    // 逐组跑同一判据——数组型条目（如 INCIDENT_CLOSE_TECHSEC 的三个经办组）里每个组
+    // 各自独立判定，不是把多组持有人并成一个集合；标量条目退化成单元素数组，行为不变。
+    for (const makerGroup of asGroupList(makerGroupValue)) {
+      const makers = new Set(holdersOf(makerGroup));
+      // 安全 maker = 持有 maker 组、但不在裁决人集合里的角色——这种角色永远能正常提单，
+      // 不会被 SoD 卡死。集合为空才是真死锁（见上方判据说明）。
+      const safeMakers = [...makers].filter((r) => !checkers.has(r));
+      if (safeMakers.length === 0) {
+        // makers.size === 0 是另一种坏：不是「唯一提单人也是裁决人」，是压根没人持有这个
+        // maker 组——没人能提单，跟"能提但会被自批拦"是两件不同的事，措辞不能混为一谈。
+        const msg = makers.size === 0
+          ? `${actionType}: 持 ${makerGroup} 的角色集合为空——没有任何角色持有这个 maker 组，没人能提单`
+          : `${actionType}: 持 ${makerGroup} 的角色 {${[...makers].join(',')}} 全部同时在裁决人集合 {${[...checkers].join(',')}} 里——没有一个角色能提但不能批，唯一提单人必自批（SoD 拒绝）`;
+        if (actionType in S5_KNOWN_DEADLOCKS) {
+          registeredDeadlocks.push(`${msg} —— 已登记：${S5_KNOWN_DEADLOCKS[actionType]}`);
+        } else {
+          deadlocks.push(msg);
+        }
+      } else if (actionType in S5_KNOWN_DEADLOCKS) {
+        // S5b 的核心：登记表说这是死锁，但按当前绑定算出来已经不是了（比如业主已经把
+        // 候选修法之一落地，给了另一个角色安全提单的能力）——登记条目过期了，必须报出来
+        // 要求清理，不能悄悄放行，否则未来有人真把重叠改回来，登记表会把新死锁也一并吞掉。
+        staleDeadlocks.push(
+          `${actionType}（现在存在安全 maker {${safeMakers.join(',')}}，已不再是死锁，应从 S5_KNOWN_DEADLOCKS 删除）`,
+        );
       }
-    } else if (actionType in S5_KNOWN_DEADLOCKS) {
-      // S5b 的核心：登记表说这是死锁，但按当前绑定算出来已经不是了（比如业主已经把
-      // 候选修法之一落地，给了另一个角色安全提单的能力）——登记条目过期了，必须报出来
-      // 要求清理，不能悄悄放行，否则未来有人真把重叠改回来，登记表会把新死锁也一并吞掉。
-      staleDeadlocks.push(
-        `${actionType}（现在存在安全 maker {${safeMakers.join(',')}}，已不再是死锁，应从 S5_KNOWN_DEADLOCKS 删除）`,
-      );
     }
   }
 
@@ -430,26 +447,29 @@ function runStaticChecks(): void {
   let overlapChecked = 0;
   let exemptApplied = 0; // 豁免表里实际被这个循环用到（consulted）的条目数，见下方判据说明
   let p1SkippedCount = 0; // 已由上方 P1（S5/S5b）报过、这里不重复计入的条数
-  for (const [actionType, makerGroup] of Object.entries(MAKER_GROUP_BY_POLICY)) {
+  for (const [actionType, makerGroupValue] of Object.entries(MAKER_GROUP_BY_POLICY)) {
     if (actionType in MAKER_CHECKER_OVERLAP_EXEMPT) {
       exemptApplied += 1;
       continue;
     }
     const policy = (DEFAULT_APPROVAL_POLICIES as Record<string, any>)[actionType];
     if (!policy) continue; // 已由上方 missingFromTable 报过，这里不重复报
-    const makers = new Set(holdersOf(makerGroup));
     const checkers = new Set<string>(policy.steps.flatMap((st: any) => st.roles as string[]));
-    const safeMakers = [...makers].filter((r) => !checkers.has(r));
-    if (safeMakers.length === 0) {
-      p1SkippedCount += 1;
-      continue; // 已由上方 P1（S5/S5b）报过，见上方注释
-    }
-    overlapChecked += 1;
-    const overlap = [...makers].filter((r) => checkers.has(r));
-    if (overlap.length > 0) {
-      overlapViolations.push(
-        `${actionType}: ${overlap.join('/')} 既持 ${makerGroup}（能提）又在裁决人集合 {${[...checkers].join(',')}} 里（能批）——若确系刻意保留的双持豁免，加进 MAKER_CHECKER_OVERLAP_EXEMPT 并写明理由；若不是，就是真实 SoD 缺口，应上报给上级会话处理，禁止为了让闸门变绿而把它塞进豁免表`,
-      );
+    // 逐组跑同一判据，理由同 S5（P1）上方注释。
+    for (const makerGroup of asGroupList(makerGroupValue)) {
+      const makers = new Set(holdersOf(makerGroup));
+      const safeMakers = [...makers].filter((r) => !checkers.has(r));
+      if (safeMakers.length === 0) {
+        p1SkippedCount += 1;
+        continue; // 已由上方 P1（S5/S5b）报过，见上方注释
+      }
+      overlapChecked += 1;
+      const overlap = [...makers].filter((r) => checkers.has(r));
+      if (overlap.length > 0) {
+        overlapViolations.push(
+          `${actionType}: ${overlap.join('/')} 既持 ${makerGroup}（能提）又在裁决人集合 {${[...checkers].join(',')}} 里（能批）——若确系刻意保留的双持豁免，加进 MAKER_CHECKER_OVERLAP_EXEMPT 并写明理由；若不是，就是真实 SoD 缺口，应上报给上级会话处理，禁止为了让闸门变绿而把它塞进豁免表`,
+        );
+      }
     }
   }
   check(
@@ -473,13 +493,16 @@ function runStaticChecks(): void {
   const exemptGhosts: string[] = [];
   const exemptStale: string[] = [];
   for (const actionType of Object.keys(MAKER_CHECKER_OVERLAP_EXEMPT)) {
-    const makerGroup = MAKER_GROUP_BY_POLICY[actionType];
+    const makerGroupValue = MAKER_GROUP_BY_POLICY[actionType];
     const policy = (DEFAULT_APPROVAL_POLICIES as Record<string, any>)[actionType];
-    if (!makerGroup || !policy) {
+    if (!makerGroupValue || !policy) {
       exemptGhosts.push(`${actionType}（不在 MAKER_GROUP_BY_POLICY 或 DEFAULT_APPROVAL_POLICIES 里，应删除）`);
       continue;
     }
-    const makers = new Set(holdersOf(makerGroup));
+    // 本表目前只登记标量条目（见上方 S5d 头注释），union 展开对标量退化为原逻辑；数组型
+    // 条目一旦将来被登记进这张豁免表，取的是跨组持有人并集，与本判据"是否仍真实重叠"
+    // 的语义一致（不区分是哪个组重叠）。
+    const makers = new Set(asGroupList(makerGroupValue).flatMap((g) => holdersOf(g)));
     const checkers = new Set<string>(policy.steps.flatMap((st: any) => st.roles as string[]));
     const overlap = [...makers].filter((r) => checkers.has(r));
     if (overlap.length === 0) {
