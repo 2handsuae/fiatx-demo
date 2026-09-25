@@ -1,5 +1,6 @@
 // src/modules/accounting/tigerbeetle/tb-evidence.service.spec.ts
 import { TbEvidenceService } from './tb-evidence.service';
+import { toBusinessDate } from './utils/business-date.util';
 
 describe('TbEvidenceService', () => {
   let service: TbEvidenceService;
@@ -178,13 +179,15 @@ describe('TbEvidenceService', () => {
       expect(mockPrisma.tbTransferEvidence.create).toHaveBeenCalled();
     });
 
-    it('stamps effectiveDate = UTC date of the same instant as createdAt', async () => {
+    it('stamps effectiveDate = Dubai business date of the same instant as createdAt (act6 wave5 COB)', async () => {
       mockPrisma.tbTransferEvidence.create.mockResolvedValue(params);
 
       await service.writeEvidence(params);
 
       const data = mockPrisma.tbTransferEvidence.create.mock.calls[0][0].data;
-      expect(data.effectiveDate).toBe(data.createdAt.toISOString().slice(0, 10));
+      // 波五业务日=迪拜午夜切：UTC 20:00-24:00 窗口内迪拜日期=UTC+1 天，
+      // 旧断言（UTC 日期）在该四小时窗口每日必红——按服务同一换算函数断言。
+      expect(data.effectiveDate).toBe(toBusinessDate(data.createdAt));
     });
 
     it('honors an explicit effectiveDate (back-value funnel) while createdAt stays now', async () => {
