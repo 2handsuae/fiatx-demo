@@ -34,6 +34,7 @@
 - 岔口③（卡单 72h 事件类型做不做）已解——`STUCK_TRANSACTION_MAJOR` 已落地为启用类型，用 `TIR_K_H`（72 小时）依据码。
 - 岔口⑥（同事外来投诉域代码收编）已裁——代码不收编，只收编设计（字段模型与流程决策）供波一/波五参考；波一未消费（`COMPLAINT_ESCALATION` 波一只留占位、未启用）。
 - `INCIDENT_REPORT_BASES` 目录七条码的 `hours`/`immediate`/`chainStart` 三种时限形态（数字钟 / 即时义务无钟 / 钟链起点在另一码），波二新增受文机构目录时若也有类似时限差异，可复用同一套建模，不必另起炉灶。
+- Ruling-14（终审已修）：`CYBER_BCDR` 的 `affectedSystem` 是受控枚举+OTHER（spec §1），成员固定为 `BACKEND_API`/`ADMIN_PORTAL`/`CLIENT_PORTAL`/`LEDGER`/`DATABASE`/`CLOUD_INFRA`/`OTHER`（`admin-web/src/utils/incidentStatusMap.ts` 的 `AFFECTED_SYSTEM_OPTIONS`）。教训：T10 落地时把它画成了自由文本输入框，把 spec 写明的受控枚举悄悄降级成自由文本——**格值不许静默降级**，波二新增任何"受控枚举+OTHER"字段时按 spec 原文的枚举成员实现，不要图省事先上文本框再"以后再补"。
 
 ## 待定岔口（波二 spec 开工时要么脑暴定案、要么向业主要一句话）
 
