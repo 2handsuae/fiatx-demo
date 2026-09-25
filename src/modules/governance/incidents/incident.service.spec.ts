@@ -346,7 +346,9 @@ describe('IncidentService (Task 5)', () => {
       expect(REPORT_BASES.TIR_K_H.hours).toBe(72);
       expect(REPORT_BASES.CRM_IV_E_5.hours).toBeNull();
       expect(REPORT_BASES.CRM_V_D_2.hours).toBeNull();
-      expect(Object.keys(REPORT_BASES)).toEqual(['TIR_K_H', 'CRM_IV_E_5', 'CRM_V_D_2']);
+      expect(Object.keys(REPORT_BASES)).toEqual([
+        'TIR_K_H', 'CRM_IV_E_5', 'CRM_V_D_2', 'PDPL_ART_9', 'TIR_II_C_24H', 'COMPANY_IV_H_1', 'COMPANY_VI_C_F',
+      ]);
     });
   });
 
@@ -558,5 +560,20 @@ describe('IncidentService (Task 5)', () => {
       prisma.incident.findUnique.mockResolvedValueOnce(null);
       await expect(svc.getView('NOPE')).rejects.toThrow(NotFoundException);
     });
+  });
+});
+
+describe('INCIDENT_REPORT_BASES catalog (wave1)', () => {
+  it('carries the four new obligation codes with correct clock semantics', () => {
+    expect(REPORT_BASES.PDPL_ART_9.hours).toBeNull();
+    expect(REPORT_BASES.PDPL_ART_9.immediate).toBeUndefined();
+    expect(REPORT_BASES.TIR_II_C_24H.hours).toBe(24);
+    expect(REPORT_BASES.COMPANY_IV_H_1.immediate).toBe(true);
+    expect(REPORT_BASES.COMPANY_IV_H_1.hours).toBeNull();
+    expect(REPORT_BASES.COMPANY_VI_C_F.immediate).toBe(true);
+  });
+  it('TIR_K_H remains a single 72h obligation covering both cyber and stuck-order triggers', () => {
+    expect(REPORT_BASES.TIR_K_H.hours).toBe(72);
+    expect(REPORT_BASES.TIR_K_H.label).toContain('72');
   });
 });

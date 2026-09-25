@@ -81,12 +81,17 @@ export interface LinkRemediationDto {
   referenceNo: string;
 }
 
-/** 依据条款目录（spec §4）。hours=null 的依据没有法定钟——界面显式「未设时限」，不杜撰。 */
-export const INCIDENT_REPORT_BASES = {
-  TIR_K_H:    { label: 'TIR Rulebook Section K + H — Cyber / BCDR incident reporting to VARA', hours: 72 },
+/** 依据条款目录（spec §4/波一 §5）。一码=一项通报义务（一只钟+一个受文机构）。
+ * hours=null 且无 immediate → 条款未载明时限（不杜撰）；immediate=true → 即时义务（无小时钟）。 */
+export const INCIDENT_REPORT_BASES: Record<string, { label: string; hours: number | null; immediate?: true }> = {
+  TIR_K_H: { label: 'TIR Rulebook Section K + H — material incident (cyber/BCDR, major stuck-transaction) reporting to VARA within 72 hours', hours: 72 },
   CRM_IV_E_5: { label: 'CRM IV.E.5 — Material Client Money discrepancy', hours: null },
-  CRM_V_D_2:  { label: 'CRM V.D.2 — Material Client VA discrepancy', hours: null },
-} as const;
+  CRM_V_D_2: { label: 'CRM V.D.2 — Material Client VA discrepancy', hours: null },
+  PDPL_ART_9: { label: 'PDPL (Federal Decree-Law 45/2021) Art.9 — personal data breach report to UAE Data Office (statute states no hour clock)', hours: null },
+  TIR_II_C_24H: { label: 'VARA TIR Part II Section C + CRM I.1.4 — re-report to VARA within 24 hours AFTER the breach notice is issued (clock starts at first notice, not detection)', hours: 24 },
+  COMPANY_IV_H_1: { label: 'Company Rulebook IV.H.1 — material outsourcing failure, notify VARA immediately', hours: null, immediate: true },
+  COMPANY_VI_C_F: { label: 'Company Rulebook VI.C / VI.F — NLA prudential breach, notify VARA immediately; daily updates until VARA is satisfied (calendar duty → wave 4)', hours: null, immediate: true },
+};
 
 export interface AssessIncidentDto {
   assessedAmount: string;
