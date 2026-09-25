@@ -1,5 +1,6 @@
 import {
   RBAC_PERMISSION_DEFINITIONS,
+  buildRolePermissionCodeMap,
 } from './rbac.catalog';
 import { buildPermissionCode } from './permission-code.util';
 
@@ -125,6 +126,32 @@ describe('rbac.catalog', () => {
         buildPermissionCode('POST', '/deposit-transactions/my/inbound-signals/scan'),
       ),
     ).toBe(true);
+  });
+
+  // 甲波一 T5 修2（复审新 Important：族区分性质零红测，点 3 纯函数测试）：C1 修复的
+  // 前提是这五个标记码各自只挂一个组、且互不相同——如果哪个码不小心挂了两个组，或两个码
+  // 挂了同一个组，"族独占"的假设就塌了，assertOperator 的精确判定也就名不副实。
+  describe('cap.incident.* family-exclusive capability markers (甲波一 T5 修1 C1 / 修2)', () => {
+    const CAP_CODES = ['cap.incident.funds', 'cap.incident.tech', 'cap.incident.data', 'cap.incident.ops', 'cap.incident.fin'];
+
+    it('each cap.incident.* definition has exactly one group', () => {
+      for (const code of CAP_CODES) {
+        const def = RBAC_PERMISSION_DEFINITIONS.find((item) => item.code === code);
+        expect(def).toBeDefined();
+        expect(def!.groups).toHaveLength(1);
+      }
+    });
+
+    it('the five cap.incident.* definitions map to five distinct groups (no overlap)', () => {
+      const groups = CAP_CODES.map((code) => RBAC_PERMISSION_DEFINITIONS.find((item) => item.code === code)!.groups[0]);
+      expect(new Set(groups).size).toBe(groups.length);
+    });
+
+    it('buildRolePermissionCodeMap: TREASURY_OFFICER holds cap.incident.funds but not cap.incident.tech (family exclusivity, not "any incident write")', () => {
+      const map = buildRolePermissionCodeMap();
+      expect(map.TREASURY_OFFICER).toContain('cap.incident.funds');
+      expect(map.TREASURY_OFFICER).not.toContain('cap.incident.tech');
+    });
   });
 
 });

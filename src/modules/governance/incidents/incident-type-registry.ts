@@ -27,6 +27,13 @@ export interface IncidentTypeConfig {
   operatorMarkerCode: string;
 }
 
+// 甲波一 T5 修2（小修 a）：顶层锚分流规则从 incident.service.ts 挪到这里导出——requiredAnchors
+// 里凡是命中这个集合的键，语义上是存量列（assetCode/customerNo/amount，审计主体挂载与按客户
+// 筛选靠它们），必须从 DTO 顶层取、落存量列，不许塞进 subjectRefs（Ruling-8，I2 修复）。
+// service 端引用它做校验；T10 前端渲染动态锚字段时也要按这份口径决定字段画在表单顶层还是
+// subjectRefs 区块，故挪成注册表的公共导出，不留在 service 私有实现里。
+export const TOP_LEVEL_ANCHOR_KEYS: ReadonlySet<string> = new Set(['assetCode', 'customerNo', 'amount']);
+
 export const INCIDENT_TYPE_REGISTRY: Record<string, IncidentTypeConfig> = {
   UNAUTHORIZED_OUTFLOW: {
     family: 'FUNDS', label: 'Unauthorized outflow', establishedBy: 'CRM IV.E.5 / V.D.2',

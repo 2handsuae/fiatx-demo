@@ -19,7 +19,7 @@ import {
   IncidentRemediationKinds, IncidentStatus, IncidentTypes, LinkRemediationDto,
   MarkReportedDto, RegisterIncidentDto,
 } from './incident.constants';
-import { getIncidentTypeConfig, IncidentTypeConfig } from './incident-type-registry';
+import { getIncidentTypeConfig, IncidentTypeConfig, TOP_LEVEL_ANCHOR_KEYS } from './incident-type-registry';
 
 @Injectable()
 export class IncidentService {
@@ -29,15 +29,16 @@ export class IncidentService {
     private readonly accessControl: AccessControlService,
   ) {}
 
-  // ── 经办桶断言（战役甲波一 T5，高危面；修1 Ruling-6 重设计）：register 与九个经办
+  // ── 经办桶断言（战役甲波一 T5，高危面；修1 Ruling-6 重设计）：register 与十个经办
   // 入口共用的门——按事故当前类型（或登记时的目标类型）取注册表 operatorMarkerCode
   // （族独占能力码，rbac.catalog.ts 的 cap.incident.* 五行，每码只挂一个组），
-  // 用 hasPermission 精确判定 actor 是否持有该码。原设计用 getUserPermissionGroups
-  // "权限码反查所属组"，在码被多组共享时会把持有人一并抬进所有共享组（GET 路由码同属
-  // READ/WRITE 两组、T9 后 12 条incident路由码同属五桶）——门形同虚设（C1 Critical）。
-  // 裁决 Ruling-5：不给 SUPER_ADMIN 开特例——hasPermission 内部对 SUPER_ADMIN 走
-  // getUserPermissionCodes 全码捷径，天然通过，不用代码里特判。本方法保持 public——
-  // IncidentCloseWorkflowService 的 requestClose（结案入口，铁律③跨主体协作只在
+  // 用 hasPermission(userId, code) 精确判定 actor 是否持有这一个码（不做"权限码反查
+  // 所属组"——码被多组共享时会把持有人一并抬进所有共享组，GET 路由码同属 READ/WRITE
+  // 两组、T9 后 12 条 incident 路由码同属五桶，门就形同虚设，见 C1 Critical）。
+  // 裁决 Ruling-5：不给 SUPER_ADMIN 开特例——`hasPermission` 自己对 SUPER_ADMIN 有角色码
+  // 捷径（access-control.service.ts:216-218，直接 `roleCodes.includes('SUPER_ADMIN')` 返回
+  // true，不需要真去查这一个 marker 码），天然通过，不用代码里特判。本方法保持
+  // public——IncidentCloseWorkflowService 的 requestClose（结案入口，铁律③跨主体协作只在
   // workflow）复用它，省去第二次注入 AccessControlService（改动最小方案）。
   async assertOperator(cfg: IncidentTypeConfig, actor: ApprovalActorContext): Promise<void> {
     const allowed = await this.accessControl.hasPermission(actor.userId, cfg.operatorMarkerCode);
@@ -250,20 +251,27 @@ export class IncidentService {
   }
 
   // 甲波一 T5 修1（Ruling-8，I2 修复）：requiredAnchors 里与存量列同名的三个键
-  // （assetCode/customerNo/amount）改源——这三列是审计主体挂载与按客户筛选靠的存量列
-  // （见 recordAudit/list()），值必须从 DTO 顶层取、落存量列，不许塞进 subjectRefs
-  // 造出"同一份数据两个存放位置"的分裂。其余键（新类型专属，如
-  // affectedSystem/dataCategories/orderNo/metric 等）继续从 subjectRefs 取。
-  private static readonly TOP_LEVEL_ANCHOR_KEYS = new Set(['assetCode', 'customerNo', 'amount']);
+  // （assetCode/customerNo/amount，见 incident-type-registry.ts 导出的 TOP_LEVEL_ANCHOR_KEYS）
+  // 改源——这三列是审计主体挂载与按客户筛选靠的存量列（见 recordAudit/list()），值必须从
+  // DTO 顶层取、落存量列，不许塞进 subjectRefs 造出"同一份数据两个存放位置"的分裂。其余键
+  // （新类型专属，如 affectedSystem/dataCategories/orderNo/metric 等）继续从 subjectRefs 取。
 
-  /** 新七类锚键校验（注册表 requiredAnchors 驱动）：缺键/空串一律 400，报缺哪个键。 */
+  /**
+   * 新七类锚键校验（注册表 requiredAnchors 驱动）：缺键/空串一律 400，报缺哪个键。
+   * 甲波一 T5 修2（Ruling-8 修订，小修 b）：报错文案按取值位置分流——顶层键（存量列）说
+   * "missing required field"，subjectRefs 键仍说"... in subjectRefs"（此前统一说
+   * "in subjectRefs"，对顶层键是指错位置）。
+   */
   private assertAnchors(cfg: IncidentTypeConfig, dto: RegisterIncidentDto): void {
     for (const key of cfg.requiredAnchors) {
-      const value = IncidentService.TOP_LEVEL_ANCHOR_KEYS.has(key)
-        ? (dto as unknown as Record<string, unknown>)[key]
-        : dto.subjectRefs?.[key];
+      const isTopLevel = TOP_LEVEL_ANCHOR_KEYS.has(key);
+      const value = isTopLevel ? (dto as unknown as Record<string, unknown>)[key] : dto.subjectRefs?.[key];
       if (value == null || value === '') {
-        throw new BadRequestException(`Incident type ${dto.type} requires anchor "${key}" in subjectRefs`);
+        throw new BadRequestException(
+          isTopLevel
+            ? `Incident type ${dto.type} is missing required field ${key}`
+            : `Incident type ${dto.type} requires anchor "${key}" in subjectRefs`,
+        );
       }
     }
   }

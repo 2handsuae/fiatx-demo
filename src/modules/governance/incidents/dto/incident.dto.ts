@@ -3,7 +3,7 @@
 // saveReportDraft 的 draft 非空）——不加其余防御性校验（CLAUDE.md §2）。
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { IsArray, IsBoolean, IsIn, IsNotEmpty, IsOptional, IsString } from 'class-validator';
+import { IsArray, IsBoolean, IsIn, IsNotEmpty, IsObject, IsOptional, IsString } from 'class-validator';
 import { IncidentEscalationTargets, IncidentRemediationKinds, IncidentTypes } from '../incident.constants';
 
 const INCIDENT_TYPE_VALUES = Object.values(IncidentTypes);
@@ -25,6 +25,13 @@ export class RegisterIncidentBodyDto {
   // 平账三期 Task 3 续作：事故登记原子入口两个新字段，见 incident.constants.ts RegisterIncidentDto 注释。
   @ApiPropertyOptional() @IsOptional() @IsString() explainedExternalLineId?: string;
   @ApiPropertyOptional() @IsOptional() @IsString() findingNote?: string;
+  // 甲波一 T5 修2（复审确认的实缺口）：新七类锚键值——不加这个字段，main.ts/controller 的
+  // ValidationPipe（whitelist:true）会把 subjectRefs 整个剥掉，HTTP 登记新类型永远 400
+  // 缺锚（服务层 register() 早就消费 dto.subjectRefs 了，只是 HTTP 这一层没声明）。形状对齐
+  // incident.constants.ts 的 RegisterIncidentDto.subjectRefs。HTTP 真链路验证（真实
+  // POST /admin/incidents 带 subjectRefs 走通）由 T9 正向探针与 T11 e2e 承接，本任务只保证
+  // ValidationPipe 不再剥字段。
+  @ApiPropertyOptional() @IsOptional() @IsObject() subjectRefs?: Record<string, string | number | boolean>;
 }
 
 export class AddIncidentNoteDto {

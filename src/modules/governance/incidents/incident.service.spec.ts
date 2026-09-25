@@ -4,7 +4,7 @@ import { IncidentStatus as S, IncidentTypes as T, INCIDENT_REPORT_BASES as REPOR
 
 const ops = { actorType: 'ADMIN' as const, userId: 'uuid-ops', userNo: 'ADM-OPS', roleCodes: ['OPS_OFFICER'] };
 
-function makeService(o: Partial<Record<'incidentRow' | 'disposition' | 'kase' | 'transfer' | 'adjustment' | 'adjustments' | 'deposit' | 'remediations' | 'notes' | 'listRows' | 'listTotal' | 'operatorAllowed', any>> = {}) {
+function makeService(o: Partial<Record<'incidentRow' | 'disposition' | 'kase' | 'transfer' | 'adjustment' | 'adjustments' | 'deposit' | 'remediations' | 'notes' | 'listRows' | 'listTotal' | 'heldMarkers', any>> = {}) {
   const incidentRow = o.incidentRow ?? {
     id: 'uuid-inc', incidentNo: 'INC1', type: T.CLIENT_SHORTFALL, status: S.REGISTERED,
     title: 't', description: 'd', customerNo: null, sourceCaseNo: null, traceId: 'trace-seed',
@@ -35,11 +35,15 @@ function makeService(o: Partial<Record<'incidentRow' | 'disposition' | 'kase' | 
     depositTransaction: { findUnique: jest.fn(async () => o.deposit ?? null) },
   };
   const auditLogs: any = { recordByActor: jest.fn(async () => ({})) };
-  // 甲波一 T5 修1（Ruling-6）：assertOperator 改用族独占能力码 + hasPermission 精确判定
-  // （不再是"权限码反查所属组"）。默认放行（hasPermission 对任意 code 都 true）——测试
-  // 只关心"当门关上时会不会真的挡住"，不需要按族分别喂 groups 数组；显式拒绝用
-  // operatorAllowed: false 覆盖（M2：清理死参数 operatorGroups）。
-  const accessControl: any = { hasPermission: jest.fn(async () => o.operatorAllowed ?? true) };
+  // 甲波一 T5 修2（复审新 Important：族区分性质零红测）：mock 必须按 code 参数真判断，
+  // 不能无脑放行——否则把 assertOperator 的实参改成常量、或把注册表某族的 marker 码改错，
+  // 176 条测试照样全绿（自证型绿灯）。默认持有 'cap.incident.funds'（存量三类的码）——
+  // 大多数既有用例走存量类型，不需要逐个显式喂；新族类型的用例必须显式传 heldMarkers
+  // 覆盖成该族自己的码，否则会在 assertOperator 这一步就被拦下（而不是走到它们真正想测的
+  // 锚校验/状态机分支）。
+  const accessControl: any = {
+    hasPermission: jest.fn(async (_userId: string, code: string) => (o.heldMarkers ?? ['cap.incident.funds']).includes(code)),
+  };
   const svc = new IncidentService(prisma, auditLogs, accessControl);
   return { svc, prisma, auditLogs, accessControl, incidentRow };
 }
@@ -93,30 +97,37 @@ describe('IncidentService (Task 5)', () => {
 
   // 甲波一 T5（高危面）：新七类走注册表锚键校验 + 经办桶断言（服务层，路由层五桶 OR
   // 只做粗门，见 task-5-brief）。四条测试逐字落地 brief Step 1（修1 Ruling-6 起改吃
-  // hasPermission mock，不再是 groups 数组）。
-  describe('register — wave1 new types: registry anchors + operator capability assertion (Task 5, 修1 C1/I3)', () => {
+  // hasPermission mock；修2 起 mock 真按 code 判断，见 heldMarkers）。
+  describe('register — wave1 new types: registry anchors + operator capability assertion (Task 5, 修1 C1/I3, 修2 族区分)', () => {
     const dpoActor = { actorType: 'ADMIN' as const, userId: 'uuid-dpo', userNo: 'ADM-DPO', roleCodes: ['DPO'] };
     const treasuryActor = { actorType: 'ADMIN' as const, userId: 'uuid-treasury', userNo: 'ADM-TREASURY', roleCodes: ['TREASURY_OFFICER'] };
+    const techActor = { actorType: 'ADMIN' as const, userId: 'uuid-tech', userNo: 'ADM-TECH', roleCodes: ['TECH_OFFICER'] };
     const validCyberDto = { type: T.CYBER_BCDR, title: 't', description: 'd', subjectRefs: { affectedSystem: 'core-ledger', bcdrTriggered: false } };
 
     it('rejects DATA_BREACH registration missing affectedCustomerCount', async () => {
-      const { svc } = makeService();
+      const { svc } = makeService({ heldMarkers: ['cap.incident.data'] });
       await expect(svc.register({ type: 'DATA_BREACH', title: 't', description: 'd',
         subjectRefs: { dataCategories: 'ID_DOCUMENT' } } as any, dpoActor))
-        .rejects.toThrow(/affectedCustomerCount/);
+        .rejects.toThrow(/requires anchor "affectedCustomerCount" in subjectRefs/);
     });
 
     it('rejects registration when actor lacks the family operator capability (create/audit untouched)', async () => {
-      const { svc, prisma, auditLogs } = makeService({ operatorAllowed: false }); // 金库无 cap.incident.tech
+      // 金库真实持有的是 cap.incident.funds（存量三类），不是 cap.incident.tech——mock 按码真判断，
+      // 喂它真实的持有集，而不是"什么都没有"，才证明门确实在按族区分，不是无差别拦截。
+      const { svc, prisma, auditLogs, accessControl } = makeService({ heldMarkers: ['cap.incident.funds'] });
       await expect(svc.register(validCyberDto as any, treasuryActor)).rejects.toThrow(ForbiddenException);
+      expect(accessControl.hasPermission).toHaveBeenCalledWith(treasuryActor.userId, 'cap.incident.tech');
       expect(prisma.incident.create).not.toHaveBeenCalled();
       expect(auditLogs.recordByActor).not.toHaveBeenCalled();
     });
 
-    it('registers CYBER_BCDR with anchors persisted into subjectRefs', async () => {
-      const { svc, prisma } = makeService();
-      const r = await svc.register(validCyberDto as any, ops);
+    // 复审 I3（族区分正向）：技术官登记 CYBER_BCDR——断言 hasPermission 真的是拿
+    // 'cap.incident.tech'（该类型的 operatorMarkerCode）去查，不是拿常量或别的族的码。
+    it('registers CYBER_BCDR with anchors persisted into subjectRefs (tech officer, positive: hasPermission called with cap.incident.tech)', async () => {
+      const { svc, prisma, accessControl } = makeService({ heldMarkers: ['cap.incident.tech'] });
+      const r = await svc.register(validCyberDto as any, techActor);
       expect(r.incidentNo).toMatch(/^INC/);
+      expect(accessControl.hasPermission).toHaveBeenCalledWith(techActor.userId, 'cap.incident.tech');
       const createCall = prisma.incident.create.mock.calls[0][0];
       expect(JSON.parse(createCall.data.subjectRefs)).toMatchObject({ affectedSystem: 'core-ledger', bcdrTriggered: false });
     });
@@ -130,9 +141,11 @@ describe('IncidentService (Task 5)', () => {
 
   // 甲波一 T5 修1（Ruling-8，I2 修复）：requiredAnchors 里与存量列同名的键
   // （assetCode/customerNo/amount）必须从 DTO 顶层读、落存量列——不许塞进 subjectRefs。
+  // ASSET_NONCOMPLIANCE/STUCK_TRANSACTION_MAJOR 都是 OPERATIONS 族（cap.incident.ops），
+  // assertOperator 先于锚校验跑，故本描述块所有用例都要喂 heldMarkers: ['cap.incident.ops']。
   describe('register — same-name anchors are sourced from the DTO top level, not subjectRefs (Task 5 修1 I2)', () => {
     it('ASSET_NONCOMPLIANCE: assetCode anchor sourced from top-level field, persisted to the assetCode column (not subjectRefs)', async () => {
-      const { svc, prisma } = makeService();
+      const { svc, prisma } = makeService({ heldMarkers: ['cap.incident.ops'] });
       const r = await svc.register({ type: T.ASSET_NONCOMPLIANCE, title: 't', description: 'd', assetCode: 'USDT-TRON' } as any, ops);
       expect(r.incidentNo).toMatch(/^INC/);
       const createCall = prisma.incident.create.mock.calls[0][0];
@@ -140,14 +153,14 @@ describe('IncidentService (Task 5)', () => {
       expect(createCall.data.subjectRefs).toBeNull();
     });
 
-    it('ASSET_NONCOMPLIANCE: assetCode only in subjectRefs (not top-level) still counts as missing → 400', async () => {
-      const { svc } = makeService();
+    it('ASSET_NONCOMPLIANCE: assetCode only in subjectRefs (not top-level) still counts as missing → 400 "missing required field" (Ruling-8 修订, 小修b)', async () => {
+      const { svc } = makeService({ heldMarkers: ['cap.incident.ops'] });
       await expect(svc.register({ type: T.ASSET_NONCOMPLIANCE, title: 't', description: 'd', subjectRefs: { assetCode: 'USDT-TRON' } } as any, ops))
-        .rejects.toThrow(/assetCode/);
+        .rejects.toThrow(/missing required field assetCode/);
     });
 
     it('STUCK_TRANSACTION_MAJOR: customerNo/amount from top level, orderNo from subjectRefs', async () => {
-      const { svc, prisma } = makeService();
+      const { svc, prisma } = makeService({ heldMarkers: ['cap.incident.ops'] });
       const r = await svc.register({ type: T.STUCK_TRANSACTION_MAJOR, title: 't', description: 'd', customerNo: 'CU1', amount: '100', subjectRefs: { orderNo: 'ORD1' } } as any, ops);
       expect(r.incidentNo).toMatch(/^INC/);
       const createCall = prisma.incident.create.mock.calls[0][0];
@@ -156,10 +169,10 @@ describe('IncidentService (Task 5)', () => {
       expect(JSON.parse(createCall.data.subjectRefs)).toEqual({ orderNo: 'ORD1' });
     });
 
-    it('STUCK_TRANSACTION_MAJOR: missing top-level customerNo → 400 naming customerNo (orderNo present in subjectRefs does not paper over it)', async () => {
-      const { svc } = makeService();
+    it('STUCK_TRANSACTION_MAJOR: missing top-level customerNo → 400 "missing required field customerNo" (orderNo present in subjectRefs does not paper over it)', async () => {
+      const { svc } = makeService({ heldMarkers: ['cap.incident.ops'] });
       await expect(svc.register({ type: T.STUCK_TRANSACTION_MAJOR, title: 't', description: 'd', amount: '100', subjectRefs: { orderNo: 'ORD1' } } as any, ops))
-        .rejects.toThrow(/customerNo/);
+        .rejects.toThrow(/missing required field customerNo/);
     });
   });
 
@@ -510,7 +523,7 @@ describe('IncidentService (Task 5)', () => {
     it('actor lacks the operator capability → Forbidden, update untouched', async () => {
       const { svc, prisma } = makeService({
         incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', type: T.CLIENT_SHORTFALL, status: S.ASSESSED, reportDraft: null },
-        operatorAllowed: false,
+        heldMarkers: [],
       });
       await expect(svc.saveReportDraft('INC1', 'Report draft v1', ops)).rejects.toThrow(ForbiddenException);
       expect(prisma.incident.update).not.toHaveBeenCalled();
@@ -546,7 +559,7 @@ describe('IncidentService (Task 5)', () => {
     it('actor lacks the operator capability → Forbidden, update untouched', async () => {
       const { svc, prisma } = makeService({
         incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', type: T.CLIENT_SHORTFALL, status: S.ASSESSED, reportRequired: true, reportDraft: 'Draft', reportBasisCodes: 'TIR_K_H' },
-        operatorAllowed: false,
+        heldMarkers: [],
       });
       await expect(svc.markReported('INC1', { reference: 'VARA-2026-001' }, ops)).rejects.toThrow(ForbiddenException);
       expect(prisma.incident.update).not.toHaveBeenCalled();
@@ -576,7 +589,7 @@ describe('IncidentService (Task 5)', () => {
     ];
 
     it.each(cases)('%s: actor lacks operator capability → Forbidden, no write, no audit', async (_name, invoke, assertWriteUntouched) => {
-      const { svc, prisma, auditLogs } = makeService({ incidentRow: cyberRow, operatorAllowed: false });
+      const { svc, prisma, auditLogs } = makeService({ incidentRow: cyberRow, heldMarkers: [] });
       await expect(invoke(svc)).rejects.toThrow(ForbiddenException);
       assertWriteUntouched(prisma);
       expect(prisma.incident.create).not.toHaveBeenCalled();
