@@ -5,7 +5,7 @@
 
 ## 承接上一波（波一收尾时填写，2026-09-25）
 
-- 波一合并基线：commit 待补（本骨架写于波一 T11 收尾会话内、合并尚未发生——波二开工会话核实补记，同波五先例）
+- 波一合并基线：main `cd288051`（2026-09-26 波二开工会话核实补记——甲波一以**线性快进**落 main，无 merge commit，T1–T11+终审+收官归档共 28 个提交，起点 `842a09ab` spec、收口 `cd288051` 归档；合并时顺手修存量 flake `e3dd8bd0`，tb-evidence effectiveDate 断言改迪拜业务日；worktree 与分支已清，main 工作树 clean）
 - 波一实际交付：事故分类十类终盘（`MANUAL` 退役、新增 7 类 + 1 占位 `COMPLAINT_ESCALATION`）；结案审批两链扩四链（新增 `INCIDENT_CLOSE_TECHSEC`/CISO 单步、`INCIDENT_CLOSE_PRUDENTIAL`/高管单步）；权限两桶扩六桶、五族独立经办组（金库/技术官/DPO/运营/CFO）；通报依据码目录三条扩七条（新增 `PDPL_ART_9`/`TIR_II_C_24H`/`COMPANY_IV_H_1`/`COMPANY_VI_C_F`，`TIR_II_C_24H` 引入 `chainStart` 钟链机制）；`incident-type-registry.ts` 单一注册表落地，十类各自的族/经办组/结案链/通报候选码集/必填锚键/定损口径/善后白名单一行一格。
 
 ### 实际偏差四条（波一执行期相对总纲/骨架原始设想的设计演进，波二排期时按现状读）
@@ -46,4 +46,4 @@
 
 ## 0. 本波做 / 不做
 
-（未展开——波二新会话读总纲 §3 波二行 + 本骨架，跟业主脑暴后立 plan/spec 时填。）
+已展开——2026-09-26 波二开工会话与业主脑暴定案（三刀：岔口②＝甲统一工单 ｜ 合规官经办 + 高管签发 ｜ 设计稿八节通过），见 `2026-09-26-campaign-a-wave2-regulatory-filing-spec.md` §0；本骨架五条待定岔口的处置对照该 spec §14。
