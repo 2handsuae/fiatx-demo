@@ -1,5 +1,5 @@
 // 平账三期 · 事故登记（Task 8）：HTTP 层 DTO。校验只做既有惯例的必填/类型，
-// 外加上游点名的两条服务层刻意没做的枚举校验（assessmentBasis 四选一、
+// 外加上游点名的两条服务层刻意没做的枚举校验（assessmentBasis 七选一、
 // saveReportDraft 的 draft 非空）——不加其余防御性校验（CLAUDE.md §2）。
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
