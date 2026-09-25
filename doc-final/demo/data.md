@@ -62,7 +62,7 @@ admin@fiatx.com 超管 ｜ sm@ 高管(SMO) ｜ ciso@ ｜ mlro@ ｜ dpo@ ｜ comp
 
 | 类型 | 状态 | 族 | 关键字段 |
 |---|---|---|---|
-| `DATA_BREACH` | ASSESSED | DATA | `subjectRefs`（受影响客户数 46 / 数据类别 Contact info,ID document）+ `impactSummary`；双通报依据码已勾（`PDPL_ART_9`+`TIR_II_C_24H`）但未标记已通报——Request Close 因通报未完成仍灰态 |
+| `DATA_BREACH` | ASSESSED | DATA | `subjectRefs`（受影响客户数 46 / 数据类别 Contact info,ID document）+ `impactSummary`；双通报依据码已勾（`PDPL_ART_9`+`TIR_II_C_24H`）但未标记已通报——Request Close 灰态，**按 `closeGateReason` 真实判断顺序**：先命中"该类型白名单非空（`CUSTOMER_NOTICE_LOGGED`）且未挂载善后单，须先进 Resolving"（`IncidentDetailPage.tsx:121-122`），通报未完成的检查（:128）排在其后、这次未触发到；两个未完成项都真实存在，但灰态 tooltip 显示的是前一条 |
 | `OUTSOURCING_FAILURE` | INVESTIGATING | TECH_SECURITY | `subjectRefs`（vendor + serviceImpact，登记时必填的两个锚）——还没定损 |
 | `ASSET_NONCOMPLIANCE` | RESOLVING | OPERATIONS | 顶层 `assetCode=USDT-TRON`（唯一必填锚，命中顶层锚分流规则、不进 `subjectRefs`）+ 已挂一条 `ASSET_SUSPENSION_REF` 善后单——结案前只差提结案这一步 |
 | `STUCK_TRANSACTION_MAJOR` | REGISTERED | OPERATIONS | 顶层 `customerNo`（Alice）+ `amount=15000.00` + `subjectRefs.orderNo`（动态锚）——刚登记，四态里最早的一态 |
