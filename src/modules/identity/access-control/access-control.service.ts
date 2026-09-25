@@ -168,12 +168,7 @@ export class AccessControlService {
     }));
   }
 
-  async getUserPermissionCodes(userId: string): Promise<string[]> {
-    const roleCodes = await this.getUserRoleCodes(userId);
-    if (roleCodes.includes('SUPER_ADMIN')) {
-      return RBAC_PERMISSION_DEFINITIONS.map((item) => item.code).sort();
-    }
-
+  private async getActiveRolePermissions(userId: string): Promise<Array<{ code: string }>> {
     const userRoles = await (this.prisma as any).userRole.findMany({
       where: {
         userId,
@@ -192,11 +187,26 @@ export class AccessControlService {
       },
     });
 
-    const set = new Set<string>();
+    const permissions: Array<{ code: string }> = [];
     for (const userRole of userRoles) {
       for (const rolePermission of userRole.role.rolePermissions || []) {
-        set.add(rolePermission.permission.code);
+        permissions.push(rolePermission.permission);
       }
+    }
+    return permissions;
+  }
+
+  async getUserPermissionCodes(userId: string): Promise<string[]> {
+    const roleCodes = await this.getUserRoleCodes(userId);
+    if (roleCodes.includes('SUPER_ADMIN')) {
+      return RBAC_PERMISSION_DEFINITIONS.map((item) => item.code).sort();
+    }
+
+    const permissions = await this.getActiveRolePermissions(userId);
+
+    const set = new Set<string>();
+    for (const permission of permissions) {
+      set.add(permission.code);
     }
 
     return Array.from(set).sort();
@@ -210,6 +220,20 @@ export class AccessControlService {
 
     const permissionCodes = await this.getUserPermissionCodes(userId);
     return permissionCodes.includes(permissionCode);
+  }
+
+  async getUserPermissionGroups(userId: string): Promise<string[]> {
+    const permissions = await this.getActiveRolePermissions(userId);
+    const permCodeToGroups = buildPermCodeToGroups();
+
+    const set = new Set<string>();
+    for (const permission of permissions) {
+      for (const group of permCodeToGroups[permission.code] || []) {
+        set.add(group);
+      }
+    }
+
+    return Array.from(set).sort();
   }
 
   isManagedPermission(permissionCode: string): boolean {

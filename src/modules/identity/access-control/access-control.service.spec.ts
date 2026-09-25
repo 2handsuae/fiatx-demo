@@ -62,4 +62,48 @@ describe('AccessControlService', () => {
       ),
     ).rejects.toBeInstanceOf(NotFoundException);
   });
+
+  it('T4：getUserPermissionGroups 绑了含 INCIDENT_WRITE 权限码的角色 → 返回数组含该组名', async () => {
+    prisma.userRole.findMany.mockResolvedValue([
+      {
+        role: {
+          code: 'INCIDENT_HANDLER',
+          rolePermissions: [
+            { permission: { code: 'api.post.admin_incidents' } },
+          ],
+        },
+      },
+    ]);
+
+    const groups = await service.getUserPermissionGroups('user-1');
+
+    expect(groups).toContain('INCIDENT_WRITE');
+  });
+
+  it('T4：getUserPermissionGroups 无角色 → 返回空数组', async () => {
+    prisma.userRole.findMany.mockResolvedValue([]);
+
+    const groups = await service.getUserPermissionGroups('user-2');
+
+    expect(groups).toEqual([]);
+  });
+
+  it('T4：getUserPermissionGroups 与 getUserPermissionCodes 同源——同一 mock 数据下各自返回正确形状', async () => {
+    prisma.userRole.findMany.mockResolvedValue([
+      {
+        role: {
+          code: 'INCIDENT_HANDLER',
+          rolePermissions: [
+            { permission: { code: 'api.post.admin_incidents' } },
+          ],
+        },
+      },
+    ]);
+
+    const codes = await service.getUserPermissionCodes('user-1');
+    const groups = await service.getUserPermissionGroups('user-1');
+
+    expect(codes).toEqual(['api.post.admin_incidents']);
+    expect(groups).toEqual(['INCIDENT_WRITE']);
+  });
 });
