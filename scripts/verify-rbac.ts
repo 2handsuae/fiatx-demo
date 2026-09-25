@@ -642,7 +642,17 @@ function runS6FrontendBackendCodeDiff(): void {
 // 平账二期（2026-09-05，Task 3/8）：五条 route() 与 Task 3 一起登记、Task 8 落地控制器后清空——
 // 与 B 批「暂未出生」同类，不是腐烂死行。
 // 平账二期 Task 8（2026-09-05）落地五条控制器后清空——白名单再次为空。
-const S7_PENDING_DEAD_ROWS = new Set<string>([]);
+//
+// 战役甲波一 T9（Ruling-9）：以下五个 cap.incident.* 码是 IncidentService.assertOperator
+// 的服务层门标记（rbac.catalog.ts :469-473 附近，method: 'MARKER'），不是真实路由——
+// 设计如此，不是腐烂死行，S7 判定逻辑本身不放宽，只在这张白名单里显式点名这五个码。
+const S7_PENDING_DEAD_ROWS = new Set<string>([
+  'cap.incident.funds',
+  'cap.incident.tech',
+  'cap.incident.data',
+  'cap.incident.ops',
+  'cap.incident.fin',
+]);
 
 /** 镜像 admin-permission.guard.ts#buildRequestPermissionCode 的拼接算法——不是重新
  *  发明；两处若不一致，S7 会跟着不准，见上方大注释的已知取舍。 */
@@ -986,6 +996,41 @@ const PROBES: DirectionalProbe[] = [
       role, expect: 'DENY',
     },
   ])),
+
+  // ── 事故登记按族分权（战役甲波一 T9）：路由是五桶 OR 的粗门，真正把关的是
+  //    IncidentService.assertOperator 按 cfg.operatorMarkerCode 精确判定持有人所在族
+  //    （incident-type-registry.ts）。正向：技术官持 INCIDENT_TECH_WRITE，登得进
+  //    TECH_SECURITY 族；反向两条互证"粗门放行、细门仍挡"不是摆设——金库持 INCIDENT_WRITE
+  //    （FUNDS 族）却挡不住登 CYBER_BCDR，技术官反过来也登不了 FUNDS 族的
+  //    UNAUTHORIZED_OUTFLOW。assertOperator 在 workflow.register() 里先于任何 DTO 内容
+  //    校验跑（见 incident-registration-workflow.service.ts），DENY 两条不需要凑满 title/
+  //    description 等其余必填——403 会先于 400 出现。ALLOW 一条需要凑满 CYBER_BCDR 的两个
+  //    必填锚（affectedSystem/bcdrTriggered，见 incident-type-registry.ts），验证的正是
+  //    RegisterIncidentBodyDto.subjectRefs 这条此前从未有真实 HTTP 走过的链路
+  //    （T5 修2 头注释：HTTP 真链路验证由 T9 正向探针承接）。
+  {
+    section: '事故登记按族(T9)', name: '技术官 可以 登记技安事故(CYBER_BCDR)', method: 'POST',
+    routePattern: '/admin/incidents', path: '/admin/incidents',
+    role: 'tech_admin', expect: 'ALLOW',
+    body: {
+      type: 'CYBER_BCDR',
+      title: 'RBAC probe — cyber/BCDR incident',
+      description: 'verify:rbac positive probe for CYBER_BCDR registration by TECH_OFFICER',
+      subjectRefs: { affectedSystem: 'RBAC-PROBE-SYS', bcdrTriggered: true },
+    },
+  },
+  {
+    section: '事故登记按族(T9)', name: '金库 不得 登记技安事故(CYBER_BCDR)', method: 'POST',
+    routePattern: '/admin/incidents', path: '/admin/incidents',
+    role: 'treasury', expect: 'DENY',
+    body: { type: 'CYBER_BCDR', title: 'RBAC probe', description: 'verify:rbac negative probe' },
+  },
+  {
+    section: '事故登记按族(T9)', name: '技术官 不得 登记资金族事故(UNAUTHORIZED_OUTFLOW)', method: 'POST',
+    routePattern: '/admin/incidents', path: '/admin/incidents',
+    role: 'tech_admin', expect: 'DENY',
+    body: { type: 'UNAUTHORIZED_OUTFLOW', title: 'RBAC probe', description: 'verify:rbac negative probe' },
+  },
 ];
 
 async function runDirectionalProbe(tokens: Record<string, string>, p: DirectionalProbe): Promise<void> {

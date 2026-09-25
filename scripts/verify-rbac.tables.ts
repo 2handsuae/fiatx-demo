@@ -40,9 +40,8 @@ export const DETAIL_READ_GROUP_BY_POLICY: Record<string, string> = {
   // 平账三期（2026-09-06）：事故登记结案，两个动作类型都指向事故详情路由（entityRef = incidentNo）
   INCIDENT_CLOSE_SECURITY: 'INCIDENT_READ', // → /admin/governance/incidents/:incidentNo
   INCIDENT_CLOSE_FINANCIAL: 'INCIDENT_READ', // → /admin/governance/incidents/:incidentNo
-  // 战役甲波一 Task 8（结案四链，2026-09-25）：新两条动作类型同样指向事故详情路由。CISO（
-  // TECHSEC 裁决人）目前不持 INCIDENT_READ——S9 会为这条报红，这是 T9 待补的读权绑定，不在
-  // 本任务范围（同 S5 对经办组绑定的处理）。
+  // 战役甲波一 Task 8（结案四链，2026-09-25）：新两条动作类型同样指向事故详情路由。T9 已给
+  // CISO（TECHSEC 裁决人）补上 INCIDENT_READ（rbac.catalog.ts CISO 绑定区）。
   INCIDENT_CLOSE_TECHSEC: 'INCIDENT_READ', // → /admin/governance/incidents/:incidentNo
   INCIDENT_CLOSE_PRUDENTIAL: 'INCIDENT_READ', // → /admin/governance/incidents/:incidentNo（SMO 已持 INCIDENT_READ）
   // 客户域（entityRef = customerNo）

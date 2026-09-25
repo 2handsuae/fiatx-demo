@@ -78,8 +78,9 @@ export type PermissionGroup =
   | 'INCIDENT_READ'
   | 'INCIDENT_WRITE'
   // 甲波一 T5 修1（Ruling-6）：本轮只加这四个组名的类型成员，供五个族独占能力码
-  // （下方 cap.incident.* 五行）各自归组用；桶目录/路由五桶 OR/角色绑定仍是 T9 的范围，
-  // 这四组眼下没有任何 route() 引用、没有任何角色持有——只是类型层占位。
+  // （下方 cap.incident.* 五行）各自归组用；甲波一 T9 把桶目录/路由五桶 OR/角色绑定
+  // 补齐——四组现各挂一个经办桶、12 条 incidents 路由的组数组、且各自被一个职务持有
+  // （TECH_OFFICER/DPO/OPS_OFFICER/CFO），不再是类型层占位。
   | 'INCIDENT_TECH_WRITE'
   | 'INCIDENT_DATA_WRITE'
   | 'INCIDENT_OPS_WRITE'
@@ -444,19 +445,22 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
   // 平账 A 批：⚡拨钟——把案件账龄截止拨到过去（演示件，挂现有拨钟组，桶 demo.act_clock 已涵盖 SLA timers）
   route('POST', '/admin/reconciliation/cases/:caseNo/simulate-aging-timeout', 'Fast-forward a reconciliation case past its aging line (demo only)', ['DEMO_CLOCK_WRITE']),
 
-  // Incident Register（平账三期）：controller 在 Task 8，本任务只登记 route（占位 404 无妨）
-  route('POST', '/admin/incidents', 'Register an incident (from a recon case or manually)', ['INCIDENT_WRITE']),
-  route('GET', '/admin/incidents', 'List incidents', ['INCIDENT_READ', 'INCIDENT_WRITE']),
-  route('GET', '/admin/incidents/:incidentNo', 'View incident detail', ['INCIDENT_READ', 'INCIDENT_WRITE']),
-  route('POST', '/admin/incidents/:incidentNo/investigation', 'Start investigation', ['INCIDENT_WRITE']),
-  route('POST', '/admin/incidents/:incidentNo/notes', 'Add investigation note', ['INCIDENT_WRITE']),
-  route('POST', '/admin/incidents/:incidentNo/escalate', 'Record an escalation (MLRO / CFO / senior management)', ['INCIDENT_WRITE']),
-  route('POST', '/admin/incidents/:incidentNo/assess', 'Record loss assessment and reporting decision', ['INCIDENT_WRITE']),
-  route('POST', '/admin/incidents/:incidentNo/remediations', 'Link a remediation order', ['INCIDENT_WRITE']),
-  route('POST', '/admin/incidents/:incidentNo/regulator-report', 'Save regulator report draft', ['INCIDENT_WRITE']),
-  route('POST', '/admin/incidents/:incidentNo/regulator-report/mark', 'Mark regulator report as filed', ['INCIDENT_WRITE']),
-  route('POST', '/admin/incidents/:incidentNo/close', 'Request incident closure (opens approval)', ['INCIDENT_WRITE']),
-  route('POST', '/admin/incidents/:incidentNo/withdraw', 'Withdraw a mis-registered incident', ['INCIDENT_WRITE']),
+  // Incident Register（平账三期）：controller 在 Task 8 落地。战役甲波一 Task 9：粗门放行、
+  // 服务层细分——12 条路由的组数组从单一 INCIDENT_WRITE 扩为五桶 OR（INCIDENT_WRITE 仍是
+  // FUNDS 族经办组），真正把关的是 IncidentService.assertOperator 按 cfg.operatorMarkerCode
+  // 精确判定持有人所在族（见下方 cap.incident.* 五行标记码），不是这里的路由级粗门。
+  route('POST', '/admin/incidents', 'Register an incident (from a recon case or manually)', ['INCIDENT_WRITE', 'INCIDENT_TECH_WRITE', 'INCIDENT_DATA_WRITE', 'INCIDENT_OPS_WRITE', 'INCIDENT_FIN_WRITE']),
+  route('GET', '/admin/incidents', 'List incidents', ['INCIDENT_READ', 'INCIDENT_WRITE', 'INCIDENT_TECH_WRITE', 'INCIDENT_DATA_WRITE', 'INCIDENT_OPS_WRITE', 'INCIDENT_FIN_WRITE']),
+  route('GET', '/admin/incidents/:incidentNo', 'View incident detail', ['INCIDENT_READ', 'INCIDENT_WRITE', 'INCIDENT_TECH_WRITE', 'INCIDENT_DATA_WRITE', 'INCIDENT_OPS_WRITE', 'INCIDENT_FIN_WRITE']),
+  route('POST', '/admin/incidents/:incidentNo/investigation', 'Start investigation', ['INCIDENT_WRITE', 'INCIDENT_TECH_WRITE', 'INCIDENT_DATA_WRITE', 'INCIDENT_OPS_WRITE', 'INCIDENT_FIN_WRITE']),
+  route('POST', '/admin/incidents/:incidentNo/notes', 'Add investigation note', ['INCIDENT_WRITE', 'INCIDENT_TECH_WRITE', 'INCIDENT_DATA_WRITE', 'INCIDENT_OPS_WRITE', 'INCIDENT_FIN_WRITE']),
+  route('POST', '/admin/incidents/:incidentNo/escalate', 'Record an escalation (MLRO / CFO / senior management)', ['INCIDENT_WRITE', 'INCIDENT_TECH_WRITE', 'INCIDENT_DATA_WRITE', 'INCIDENT_OPS_WRITE', 'INCIDENT_FIN_WRITE']),
+  route('POST', '/admin/incidents/:incidentNo/assess', 'Record loss assessment and reporting decision', ['INCIDENT_WRITE', 'INCIDENT_TECH_WRITE', 'INCIDENT_DATA_WRITE', 'INCIDENT_OPS_WRITE', 'INCIDENT_FIN_WRITE']),
+  route('POST', '/admin/incidents/:incidentNo/remediations', 'Link a remediation order', ['INCIDENT_WRITE', 'INCIDENT_TECH_WRITE', 'INCIDENT_DATA_WRITE', 'INCIDENT_OPS_WRITE', 'INCIDENT_FIN_WRITE']),
+  route('POST', '/admin/incidents/:incidentNo/regulator-report', 'Save regulator report draft', ['INCIDENT_WRITE', 'INCIDENT_TECH_WRITE', 'INCIDENT_DATA_WRITE', 'INCIDENT_OPS_WRITE', 'INCIDENT_FIN_WRITE']),
+  route('POST', '/admin/incidents/:incidentNo/regulator-report/mark', 'Mark regulator report as filed', ['INCIDENT_WRITE', 'INCIDENT_TECH_WRITE', 'INCIDENT_DATA_WRITE', 'INCIDENT_OPS_WRITE', 'INCIDENT_FIN_WRITE']),
+  route('POST', '/admin/incidents/:incidentNo/close', 'Request incident closure (opens approval)', ['INCIDENT_WRITE', 'INCIDENT_TECH_WRITE', 'INCIDENT_DATA_WRITE', 'INCIDENT_OPS_WRITE', 'INCIDENT_FIN_WRITE']),
+  route('POST', '/admin/incidents/:incidentNo/withdraw', 'Withdraw a mis-registered incident', ['INCIDENT_WRITE', 'INCIDENT_TECH_WRITE', 'INCIDENT_DATA_WRITE', 'INCIDENT_OPS_WRITE', 'INCIDENT_FIN_WRITE']),
 
   // 甲波一 T5 修1（Ruling-6，C1 修复）：五个族独占能力码——不是路由，是
   // IncidentService.assertOperator 的服务层门标记。裁决背景：反查"权限码属于哪些组"在码
@@ -464,8 +468,9 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
   // INCIDENT_WRITE 两组；T9 后 12 条路由码同属五桶），门就失效了。这五码分别只挂一个组，
   // hasPermission(userId, code) 精确判定"持有人是否真在这一个组"，不走反查。
   // method/path 是占位描述字段（不产生真实路由，S7 catalog-dead-row 检查会因此把这五行
-  // 判成"无对应 controller 端点"——这是设计如此，S7 是 verify-rbac.ts 的静态判据，需要 Task 9
-  // 或专门的 S7 豁免处理，本轮未动 verify-rbac.ts，见 task-5-report.md 修复轮说明）。
+  // 判成"无对应 controller 端点"——这是设计如此。甲波一 T9 起这五码已进
+  // scripts/verify-rbac.ts 的 S7_PENDING_DEAD_ROWS 白名单（Ruling-6：服务层门标记码，
+  // 非路由），不许放宽 S7 本身的判定逻辑。
   { code: 'cap.incident.funds', name: 'Incident operator capability: FUNDS family', description: 'Incident family operator capability (service-layer gate marker, not a route)', method: 'MARKER', path: '/internal/incident-capability/funds', groups: ['INCIDENT_WRITE'] },
   { code: 'cap.incident.tech', name: 'Incident operator capability: TECH_SECURITY family', description: 'Incident family operator capability (service-layer gate marker, not a route)', method: 'MARKER', path: '/internal/incident-capability/tech', groups: ['INCIDENT_TECH_WRITE'] },
   { code: 'cap.incident.data', name: 'Incident operator capability: DATA family', description: 'Incident family operator capability (service-layer gate marker, not a route)', method: 'MARKER', path: '/internal/incident-capability/data', groups: ['INCIDENT_DATA_WRITE'] },
@@ -920,13 +925,20 @@ export const ACTION_BUCKET_CATALOG: ActionDomain[] = [
     ],
   },
   // ─── Domain: Incident Register ───────────────────────
+  // 战役甲波一 T9：十类终盘按族拆经办桶——FUNDS 族仍是 incidents.manage（存量键名不动，
+  // T5/T8 已在跑的策略/引用不必跟着改名），另四族各开一个新桶，见 incident-type-registry.ts
+  // 的 family → operatorGroup 映射。
   {
     id: 'incidents',
     label: 'Incident Register',
     icon: '🚨',
     buckets: [
       { key: 'incidents.view', label: 'View incidents', description: 'Browse the incident register and reporting trail', groups: ['INCIDENT_READ', 'INCIDENT_WRITE'] },
-      { key: 'incidents.manage', label: 'Register & manage incidents', description: 'Register, investigate, assess, link remediations, request closure', groups: ['INCIDENT_WRITE'] },
+      { key: 'incidents.manage', label: 'Register & manage funds-family incidents', description: 'Register, investigate, assess, link remediations, request closure — FUNDS family (unauthorized outflow, large unexplained discrepancy, client shortfall)', groups: ['INCIDENT_WRITE'] },
+      { key: 'incidents.manage-tech', label: 'Register & manage tech/security incidents', description: 'Register, investigate, assess, request closure — TECH_SECURITY family (cyber/BCDR, outsourcing failure)', groups: ['INCIDENT_TECH_WRITE'] },
+      { key: 'incidents.manage-data', label: 'Register & manage data-breach incidents', description: 'Register, investigate, assess, log customer notice, request closure — DATA family (personal data breach)', groups: ['INCIDENT_DATA_WRITE'] },
+      { key: 'incidents.manage-ops', label: 'Register & manage operations incidents', description: 'Register, investigate, assess, link asset suspension, request closure — OPERATIONS family (asset non-compliance, major stuck transaction)', groups: ['INCIDENT_OPS_WRITE'] },
+      { key: 'incidents.manage-fin', label: 'Register & manage financial incidents', description: 'Register, investigate, assess, request closure — FINANCIAL family (prudential/NLA breach)', groups: ['INCIDENT_FIN_WRITE'] },
     ],
   },
   // ─── Domain: Pricing ─────────────────────────────────
@@ -991,6 +1003,10 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
     'GOV_APPROVAL_READ', 'GOV_APPROVAL_POLICY_READ', 'GOV_APPROVAL_POLICY_WRITE',
     'AUDIT_READ', 'AUDIT_EXPORT_READ',
     'ASSET_CONFIG_READ', 'TRANSACTION_LIMIT_READ',
+    // 战役甲波一 T9：CISO 是 INCIDENT_CLOSE_TECHSEC 的唯一裁决人（技安/数据/运营三族结案，
+    // T8 已入审批常量）——不带任何 *_WRITE 经办组（裁决人不是经办人），只带 INCIDENT_READ
+    // 让审批详情页的 entityRef 回链能点开事故详情（S9 守着这条，此前是红）。
+    'INCIDENT_READ',
   ],
 
   MLRO: [
@@ -1013,6 +1029,9 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
     'AUDIT_READ', 'AUDIT_EXPORT_READ', 'AUDIT_EXPORT_CREATE',
     'CUSTOMER_READ', 'CUSTOMER_RESTRICTION_READ', 'CUSTOMER_TAG_VIEW',
     'INCIDENT_READ',
+    // 战役甲波一 T9：DATA 族事故经办组——唯一持有人，DATA_BREACH（PDPL Art.9）登记/调查/
+    // 定损/结案请求全靠这个组。
+    'INCIDENT_DATA_WRITE',
   ],
 
   // 全域只读 + 建证据包；一个 manage / act 包都不给 —— 这是本职务的全部意义
@@ -1068,6 +1087,10 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
     // 不带 CUSTOMER_READ——CFO 不查客户资料。
     'CUSTOMER_TAG_VIEW',
     'INCIDENT_READ',
+    // 战役甲波一 T9：FINANCIAL 族事故经办组——唯一持有人，PRUDENTIAL_BREACH（NLA 审慎缺口）
+    // 登记/调查/定损/结案请求全靠这个组；结案裁决人是 SENIOR_MANAGEMENT_OFFICER（T8），
+    // CFO 不是自己的裁决人，无自批死锁。
+    'INCIDENT_FIN_WRITE',
   ],
 
   // 提现地址的写权限全仓仅此一处；钱包地址行只从种子来，管理台只读。
@@ -1123,6 +1146,10 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
     'FUNDS_ORDER_VIEW',
     'RECON_RUN_READ', 'RECON_CASE_READ', 'RECON_EXTERNAL_BALANCE_READ',
     'WITHDRAWAL_FEE_LEVEL_READ', 'SWAP_FEE_LEVEL_READ',
+    // 战役甲波一 T9：TECH_SECURITY 族事故经办组——唯一持有人，CYBER_BCDR/OUTSOURCING_FAILURE
+    // 登记/调查/定损/结案请求全靠这个组；结案裁决人是 CISO（T8），TECH_OFFICER 不是自己
+    // 的裁决人，无自批死锁。
+    'INCIDENT_TECH_WRITE',
   ],
 
   // 动钱的手 —— 唯独没有任何 *_UNFREEZE_WRITE（业主 2026-08-30 定）
@@ -1147,6 +1174,10 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
     // 同收（「他不需要知道」）——补齐两角色定案的漏网一组，剧本注③「运营只剩 Funds Orders」自此成立。
     'FUNDS_ORDER_VIEW',
     'WITHDRAWAL_FEE_LEVEL_READ', 'SWAP_FEE_LEVEL_READ',
+    // 战役甲波一 T9：OPERATIONS 族事故经办组——唯一持有人，ASSET_NONCOMPLIANCE/
+    // STUCK_TRANSACTION_MAJOR 登记/调查/定损/结案请求全靠这个组；结案裁决人按 closeActionType
+    // 分流到 CISO（TECHSEC）或 CFO（FINANCIAL），OPS_OFFICER 都不是自己的裁决人，无自批死锁。
+    'INCIDENT_OPS_WRITE',
   ],
 };
 

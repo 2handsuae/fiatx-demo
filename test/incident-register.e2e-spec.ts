@@ -86,8 +86,12 @@ describe('Incident register e2e (平账三期 · 事故登记, Task 13)', () => 
   // 清一色 ForbiddenException。改用 beforeAll 里查到的真种子管理员 id（userNo 仍保留
   // E2E_INC_* 展示串，不影响 registeredByUserId 等既有断言——本文件此前未断言过该字符串，
   // 见 grep 核实）。
-  let opsUserId: string; let cfoUserId: string; let mlroUserId: string; let treasuryUserId: string;
-  const ops = () => makeActor(opsUserId, 'E2E_INC_OPS', 'OPS_OFFICER');
+  // 战役甲波一 T9（角色改派，T5 遗留）：本文件全程只造 UNAUTHORIZED_OUTFLOW / CLIENT_SHORTFALL
+  // 两类（均属 FUNDS 族，operatorGroup=INCIDENT_WRITE），T9 前 INCIDENT_WRITE 已随两角色定案
+  // （2026-09-10）整体迁到 TREASURY_OFFICER，OPS_OFFICER 早不持有——原来那个按 OPS_OFFICER
+  // 造 actor 的工厂函数从写下那天起就没对上真实持有人，故全文件改派 treasury()，原
+  // opsUserId 与那个工厂函数随之删除（不留孤儿）。
+  let cfoUserId: string; let mlroUserId: string; let treasuryUserId: string;
   const cfo = () => makeActor(cfoUserId, 'E2E_INC_CFO', 'CFO');
   const mlro = () => makeActor(mlroUserId, 'E2E_INC_MLRO', 'MLRO');
   const treasury = () => makeActor(treasuryUserId, 'E2E_INC_TREASURY', 'TREASURY_OFFICER');
@@ -112,14 +116,13 @@ describe('Incident register e2e (平账三期 · 事故登记, Task 13)', () => 
     if (!aed?.tbLedgerId || !usdt?.tbLedgerId) throw new Error('Fixture assets AED/USDT not seeded — run `bash scripts/stack.sh reset self` first.');
     // 甲波一 T5 连锁修复：真查种子管理员 id（同 scenario 7 loginAdmin 用的四个邮箱），
     // 供上面四个 makeActor(...) 工厂用——assertOperator 走的是真 DB 查询，捏造 id 查不到组。
-    const [opsUser, cfoUser, mlroUser, treasuryUser] = await Promise.all([
-      (prisma as any).user.findFirst({ where: { email: 'ops_officer@fiatx.com' } }),
+    const [cfoUser, mlroUser, treasuryUser] = await Promise.all([
       (prisma as any).user.findFirst({ where: { email: 'cfo@fiatx.com' } }),
       (prisma as any).user.findFirst({ where: { email: 'mlro@fiatx.com' } }),
       (prisma as any).user.findFirst({ where: { email: 'treasury@fiatx.com' } }),
     ]);
-    if (!opsUser || !cfoUser || !mlroUser || !treasuryUser) throw new Error('Fixture role-seed admins (OPS_OFFICER/CFO/MLRO/TREASURY_OFFICER) not seeded — run `bash scripts/stack.sh reset self` first.');
-    opsUserId = opsUser.id; cfoUserId = cfoUser.id; mlroUserId = mlroUser.id; treasuryUserId = treasuryUser.id;
+    if (!cfoUser || !mlroUser || !treasuryUser) throw new Error('Fixture role-seed admins (CFO/MLRO/TREASURY_OFFICER) not seeded — run `bash scripts/stack.sh reset self` first.');
+    cfoUserId = cfoUser.id; mlroUserId = mlroUser.id; treasuryUserId = treasuryUser.id;
     aedAssetId = aed.id; aedCode = aed.code; aedDecimals = aed.decimals; aedNetwork = aed.network;
     usdtAssetId = usdt.id; usdtCode = usdt.code; usdtDecimals = usdt.decimals; usdtNetwork = usdt.network;
   });
@@ -382,7 +385,7 @@ describe('Incident register e2e (平账三期 · 事故登记, Task 13)', () => 
 
   // ── scenarios ────────────────────────────────────────────────────────────
 
-  it('1 · 造未授权转出破口 → 定性 UNAUTHORIZED_OUTFLOW → 定性行 outlet===INCIDENT → 登记事故（运营）→ 定性行 incidentNo 写回、案子照旧 OPEN', async () => {
+  it('1 · 造未授权转出破口 → 定性 UNAUTHORIZED_OUTFLOW → 定性行 outlet===INCIDENT → 登记事故（金库）→ 定性行 incidentNo 写回、案子照旧 OPEN', async () => {
     mainCustomer = await createIsolatedCustomer('MAIN');
     mainWallet = await ensureDepositWallet(mainCustomer.id, usdtNetwork);
     const outflowRef = `0xe2einc${randomUUID().replace(/-/g, '').slice(0, 16)}`;
@@ -410,7 +413,7 @@ describe('Incident register e2e (平账三期 · 事故登记, Task 13)', () => 
       matchType: 'ORPHAN_EXTERNAL', explainedExternalLineId: outLine.id,
       causeCode: 'UNAUTHORIZED_OUTFLOW', disposition: 'INCIDENT', externalDirection: 'OUT',
       findingNote: 'e2e：外部托管方对账单出现一笔我方无任何内部记录的转出，疑似盗转',
-    } as any, ops());
+    } as any, treasury());
     expect(disp.outlet).toBe('INCIDENT');
     mainDispositionNo = disp.dispositionNo;
 
@@ -418,7 +421,7 @@ describe('Incident register e2e (平账三期 · 事故登记, Task 13)', () => 
       type: IncidentTypes.UNAUTHORIZED_OUTFLOW, title: '疑似未授权转出',
       description: '外部托管方对账单显示一笔转出，我方无任何内部记录',
       sourceCaseNo: mainCaseNo, sourceDispositionNo: mainDispositionNo,
-    } as any, ops());
+    } as any, treasury());
     mainIncidentNo = reg.incidentNo;
     expect(mainIncidentNo).toMatch(/^INC/);
 
@@ -428,11 +431,11 @@ describe('Incident register e2e (平账三期 · 事故登记, Task 13)', () => 
   });
 
   it('2 · 调查 → 两条 note + 一条升级（MLRO）→ 时间线可读', async () => {
-    const started = await incidents.startInvestigation(mainIncidentNo, ops());
+    const started = await incidents.startInvestigation(mainIncidentNo, treasury());
     expect(started.status).toBe('INVESTIGATING');
-    await incidents.addNote(mainIncidentNo, '核对托管方转账记录，暂未定位收款地址归属', ops());
-    await incidents.addNote(mainIncidentNo, '已联系托管方 HexTrust 索取交易签名信息', ops());
-    await incidents.escalate(mainIncidentNo, { to: IncidentEscalationTargets.MLRO, note: '涉嫌盗转，升级 MLRO 关注' }, ops());
+    await incidents.addNote(mainIncidentNo, '核对托管方转账记录，暂未定位收款地址归属', treasury());
+    await incidents.addNote(mainIncidentNo, '已联系托管方 HexTrust 索取交易签名信息', treasury());
+    await incidents.escalate(mainIncidentNo, { to: IncidentEscalationTargets.MLRO, note: '涉嫌盗转，升级 MLRO 关注' }, treasury());
 
     const view = await incidents.getView(mainIncidentNo);
     expect(view.status).toBe('INVESTIGATING');
@@ -444,7 +447,7 @@ describe('Incident register e2e (平账三期 · 事故登记, Task 13)', () => 
 
   it('3 · REGISTERED/INVESTIGATING 状态下 close → 400（变异靶子①的 e2e 面）', async () => {
     expect((await incidents.findByNo(mainIncidentNo)).status).toBe('INVESTIGATING');
-    await expect(closeWorkflow.requestClose(mainIncidentNo, ops())).rejects.toThrow(/close cannot be requested/);
+    await expect(closeWorkflow.requestClose(mainIncidentNo, treasury())).rejects.toThrow(/close cannot be requested/);
     // 拒绝是纯校验、不落库：状态原地不动。
     expect((await incidents.findByNo(mainIncidentNo)).status).toBe('INVESTIGATING');
   });
@@ -456,7 +459,7 @@ describe('Incident register e2e (平账三期 · 事故登记, Task 13)', () => 
     const assessed = await incidents.assess(mainIncidentNo, {
       assessedAmount: mainAssessedAmountMajor, assessmentBasis: 'FIRM_LOSS',
       reportRequired: true, reportBasisCodes: ['TIR_K_H', 'CRM_V_D_2'],
-    } as any, ops());
+    } as any, treasury());
     expect(assessed.status).toBe('ASSESSED');
 
     // TIR_K_H 有钟（72h）、CRM_V_D_2 无钟（null）——deadline 取有钟依据的 min，锚在
@@ -465,8 +468,8 @@ describe('Incident register e2e (平账三期 · 事故登记, Task 13)', () => 
     expect(assessed.reportDeadlineAt).not.toBeNull();
     expect(assessed.reportDeadlineAt!.getTime()).toBe(expectedDeadline.getTime());
 
-    await incidents.saveReportDraft(mainIncidentNo, '事件时间线与影响范围说明（草案）：托管方转出未经授权，已定损 25 USDT。', ops());
-    await incidents.markReported(mainIncidentNo, { reference: 'VARA-REG-2026-001' }, ops());
+    await incidents.saveReportDraft(mainIncidentNo, '事件时间线与影响范围说明（草案）：托管方转出未经授权，已定损 25 USDT。', treasury());
+    await incidents.markReported(mainIncidentNo, { reference: 'VARA-REG-2026-001' }, treasury());
 
     const view = await incidents.getView(mainIncidentNo);
     expect(view.reportedAt).not.toBeNull();
@@ -518,9 +521,9 @@ describe('Incident register e2e (平账三期 · 事故登记, Task 13)', () => 
 
     // ③ 挂载两单到事故：ADJUSTMENT 先挂（ASSESSED → RESOLVING 自动迁移），TRANSFER 后挂（原地 RESOLVING）。
     expect((await incidents.findByNo(mainIncidentNo)).status).toBe('ASSESSED');
-    await incidents.linkRemediation(mainIncidentNo, { kind: IncidentRemediationKinds.ADJUSTMENT, referenceNo: mainAdjustmentNo } as any, ops());
+    await incidents.linkRemediation(mainIncidentNo, { kind: IncidentRemediationKinds.ADJUSTMENT, referenceNo: mainAdjustmentNo } as any, treasury());
     expect((await incidents.findByNo(mainIncidentNo)).status).toBe('RESOLVING');
-    await incidents.linkRemediation(mainIncidentNo, { kind: IncidentRemediationKinds.TRANSFER, referenceNo: mainCompensationTransferNo } as any, ops());
+    await incidents.linkRemediation(mainIncidentNo, { kind: IncidentRemediationKinds.TRANSFER, referenceNo: mainCompensationTransferNo } as any, treasury());
     expect((await incidents.findByNo(mainIncidentNo)).status).toBe('RESOLVING');
 
     const view = await incidents.getView(mainIncidentNo);
@@ -528,7 +531,7 @@ describe('Incident register e2e (平账三期 · 事故登记, Task 13)', () => 
   });
 
   it('6 · 提结案 → 审批类型 INCIDENT_CLOSE_SECURITY；MLRO 未批时 CFO 批不动；MLRO 批 → CFO 批 → 事故 CLOSED', async () => {
-    const closeReq = await closeWorkflow.requestClose(mainIncidentNo, ops());
+    const closeReq = await closeWorkflow.requestClose(mainIncidentNo, treasury());
     expect(closeReq.approvalNo).toBeTruthy();
     const apr = await (prisma as any).approvalCase.findFirst({ where: { approvalNo: closeReq.approvalNo } });
     expect(apr.actionType).toBe(ApprovalActionTypes.INCIDENT_CLOSE_SECURITY);
@@ -548,36 +551,37 @@ describe('Incident register e2e (平账三期 · 事故登记, Task 13)', () => 
     expect(closed.closedAt).not.toBeNull();
   });
 
-  it('7 · 权限探针：运营能登记不能裁决（403）；CFO 无 INCIDENT_WRITE 提不了结案（403，自批死锁不存在的行为证明）', async () => {
+  it('7 · 权限探针：金库能登记不能裁决（403）；CFO 无 INCIDENT_WRITE 提不了结案（403，自批死锁不存在的行为证明）', async () => {
     const server = app.getHttpServer();
     async function loginAdmin(email: string): Promise<string> {
       const res = await request(server).post('/auth/login').send({ email, password: '123456' });
       if (!res.body?.access_token) throw new Error(`login ${email} failed: ${JSON.stringify(res.body)}`);
       return res.body.access_token as string;
     }
-    const opsToken = await loginAdmin('ops_officer@fiatx.com');
+    const treasuryToken = await loginAdmin('treasury@fiatx.com');
     const cfoToken = await loginAdmin('cfo@fiatx.com');
 
-    // 运营持 INCIDENT_WRITE——真实 HTTP 走真实 RBAC 闸，登记成功。
-    // MANUAL 已于甲波一 T2 退役，改用最简单的存量类型（CLIENT_SHORTFALL 只需 customerNo+amount）。
+    // 金库持 INCIDENT_WRITE（两角色定案 2026-09-10 起，FUNDS 族经办组）——真实 HTTP 走真实
+    // RBAC 闸，登记成功。MANUAL 已于甲波一 T2 退役，改用最简单的存量类型（CLIENT_SHORTFALL
+    // 只需 customerNo+amount）。
     const regRes = await request(server).post('/admin/incidents')
-      .set('Authorization', `Bearer ${opsToken}`)
-      .send({ type: 'CLIENT_SHORTFALL', title: 'e2e 权限探针：运营登记', description: '验证运营能登记但不能裁决自己开的结案单', customerNo: 'E2E-PROBE-CUST', amount: '1' });
+      .set('Authorization', `Bearer ${treasuryToken}`)
+      .send({ type: 'CLIENT_SHORTFALL', title: 'e2e 权限探针：金库登记', description: '验证金库能登记但不能裁决自己开的结案单', customerNo: 'E2E-PROBE-CUST', amount: '1' });
     expect(regRes.status).toBe(201);
     const probeIncidentNo = regRes.body.incidentNo as string;
     expect(probeIncidentNo).toMatch(/^INC/);
 
     // 铺垫（走服务方法，不是本条断言的对象）：推到可结案态，提交结案。
-    await incidents.startInvestigation(probeIncidentNo, ops());
-    await incidents.assess(probeIncidentNo, { assessedAmount: '0', assessmentBasis: 'NO_LOSS', reportRequired: false } as any, ops());
-    const closeReq = await closeWorkflow.requestClose(probeIncidentNo, ops());
+    await incidents.startInvestigation(probeIncidentNo, treasury());
+    await incidents.assess(probeIncidentNo, { assessedAmount: '0', assessmentBasis: 'NO_LOSS', reportRequired: false } as any, treasury());
+    const closeReq = await closeWorkflow.requestClose(probeIncidentNo, treasury());
 
-    // 运营拿着 GOV_APPROVAL_READ 能点到 approve 端点，但角色不在候选人里（CLIENT_SHORTFALL→INCIDENT_CLOSE_FINANCIAL→单步 CFO）——403。
-    const opsDecideRes = await request(server)
+    // 金库拿着 GOV_APPROVAL_READ 能点到 approve 端点，但角色不在候选人里（CLIENT_SHORTFALL→INCIDENT_CLOSE_FINANCIAL→单步 CFO）——403。
+    const treasuryDecideRes = await request(server)
       .post(`/admin/control-gates/approvals/${closeReq.approvalNo}/approve`)
-      .set('Authorization', `Bearer ${opsToken}`)
-      .send({ reason: 'ops 尝试裁决自己开的结案单' });
-    expect(opsDecideRes.status).toBe(403);
+      .set('Authorization', `Bearer ${treasuryToken}`)
+      .send({ reason: 'treasury 尝试裁决自己开的结案单' });
+    expect(treasuryDecideRes.status).toBe(403);
     expect((await incidents.findByNo(probeIncidentNo)).status).not.toBe('CLOSED');
 
     // CFO 没有 INCIDENT_WRITE——守卫层直接拦下，压根进不了控制器逻辑；
@@ -591,11 +595,11 @@ describe('Incident register e2e (平账三期 · 事故登记, Task 13)', () => 
 
   it('8 · CLIENT_SHORTFALL 登记（MANUAL 已于甲波一 T2 退役，改用最简单的存量类型）→ 撤回（必填理由）→ WITHDRAWN', async () => {
     const reg = await registrationWorkflow.register({
-      type: IncidentTypes.CLIENT_SHORTFALL, title: '误登记的对账观察', description: '运营手滑，实际是正常波动，登记后即撤回',
+      type: IncidentTypes.CLIENT_SHORTFALL, title: '误登记的对账观察', description: '金库手滑，实际是正常波动，登记后即撤回',
       customerNo: 'E2E-WD-CUST', amount: '1',
-    } as any, ops());
-    await expect(incidents.withdraw(reg.incidentNo, '', ops())).rejects.toThrow(/Withdrawal requires a reason/);
-    const wd = await incidents.withdraw(reg.incidentNo, '经复核，属误报，无实际事故', ops());
+    } as any, treasury());
+    await expect(incidents.withdraw(reg.incidentNo, '', treasury())).rejects.toThrow(/Withdrawal requires a reason/);
+    const wd = await incidents.withdraw(reg.incidentNo, '经复核，属误报，无实际事故', treasury());
     expect(wd.status).toBe('WITHDRAWN');
     const row = await incidents.findByNo(reg.incidentNo);
     expect(row.withdrawnReason).toBe('经复核，属误报，无实际事故');
@@ -617,7 +621,7 @@ describe('Incident register e2e (平账三期 · 事故登记, Task 13)', () => 
       caseNo: kase.caseNo,
       explainedExternalLineId: line.id, matchType: 'ORPHAN_EXTERNAL', causeCode: 'BOUNCED_FUNDS',
       disposition: 'SUPPLEMENT', externalDirection: 'OUT', findingNote: 'e2e：银行撤回，客户已花掉一部分',
-    } as any, ops());
+    } as any, treasury());
     expect(disp.deferredTarget).toBe('SUPPLEMENT_BOUNCE');
 
     // 真造一张垫款单（purpose 天然是 CLIENT_ADVANCE），不落地到 SUCCESS——锚定校验只看 purpose。
@@ -628,13 +632,13 @@ describe('Incident register e2e (平账三期 · 事故登记, Task 13)', () => 
     await expect(incidents.register({
       type: IncidentTypes.CLIENT_SHORTFALL, title: '客户欠款登记（负例）', description: '锚定一张非垫款单，验证拒绝',
       customerNo: cust.customerNo, amount: '900', sourceAdvanceTransferNo: mainCompensationTransferNo,
-    } as any, ops())).rejects.toThrow(/not an advance transfer/);
+    } as any, treasury())).rejects.toThrow(/not an advance transfer/);
 
     // 正例：锚定真实垫款单，登记成功。
     const reg = await registrationWorkflow.register({
       type: IncidentTypes.CLIENT_SHORTFALL, title: '客户欠款登记', description: '银行撤回导致客户余额透支，垫款追索中',
       customerNo: cust.customerNo, amount: '900', sourceAdvanceTransferNo: advance.transferNo,
-    } as any, ops());
+    } as any, treasury());
     expect(reg.incidentNo).toMatch(/^INC/);
     const view = await incidents.getView(reg.incidentNo);
     expect(view.sourceAdvanceTransferNo).toBe(advance.transferNo);
@@ -656,20 +660,20 @@ describe('Incident register e2e (平账三期 · 事故登记, Task 13)', () => 
       // MANUAL 已于甲波一 T2 退役，改用最简单的存量类型（CLIENT_SHORTFALL 只需 customerNo+amount）。
       type: IncidentTypes.CLIENT_SHORTFALL, title: '零账务验证', description: '验证事故登记与调查动作不触碰账本',
       customerNo: cust.customerNo, amount: '0',
-    } as any, ops());
+    } as any, treasury());
     expect(await available()).toBe(before);
 
-    await incidents.startInvestigation(reg.incidentNo, ops());
+    await incidents.startInvestigation(reg.incidentNo, treasury());
     expect(await available()).toBe(before);
-    await incidents.addNote(reg.incidentNo, '排查中，暂无资金异动', ops());
+    await incidents.addNote(reg.incidentNo, '排查中，暂无资金异动', treasury());
     expect(await available()).toBe(before);
-    await incidents.escalate(reg.incidentNo, { to: IncidentEscalationTargets.MLRO, note: '知会 MLRO' }, ops());
-    expect(await available()).toBe(before);
-
-    await incidents.assess(reg.incidentNo, { assessedAmount: '0', assessmentBasis: 'NO_LOSS', reportRequired: false } as any, ops());
+    await incidents.escalate(reg.incidentNo, { to: IncidentEscalationTargets.MLRO, note: '知会 MLRO' }, treasury());
     expect(await available()).toBe(before);
 
-    const closeReq = await closeWorkflow.requestClose(reg.incidentNo, ops());
+    await incidents.assess(reg.incidentNo, { assessedAmount: '0', assessmentBasis: 'NO_LOSS', reportRequired: false } as any, treasury());
+    expect(await available()).toBe(before);
+
+    const closeReq = await closeWorkflow.requestClose(reg.incidentNo, treasury());
     expect(await available()).toBe(before);
     await approvalsService.approve(closeReq.approvalNo, { reason: 'e2e CFO approve NO_LOSS close' }, cfo());
     await waitUntil(async () => (await incidents.findByNo(reg.incidentNo)).status === 'CLOSED');
