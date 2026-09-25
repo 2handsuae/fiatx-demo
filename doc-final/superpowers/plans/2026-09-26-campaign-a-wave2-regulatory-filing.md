@@ -199,18 +199,19 @@ class RegulatoryFilingService {
 export const REG_FILING_AUDIT_ACTIONS: Record<string, AuditActionSpec> = {
   FILING_OPENED:            { domain: 'GOVERNANCE', correlationMode: S, requiredFields: ['type'], requiresCausation: false },
   FILING_DRAFT_SAVED:       { domain: 'GOVERNANCE', correlationMode: N, requiredFields: [], requiresCausation: false },
-  FILING_SIGNOFF_REQUESTED: { domain: 'GOVERNANCE', correlationMode: I, requiredFields: [], requiresCausation: false },
+  FILING_SIGNOFF_REQUESTED: { domain: 'GOVERNANCE', correlationMode: I, requiredFields: ['approvalNo'], requiresCausation: false },
   FILING_SIGNED_OFF:        { domain: 'GOVERNANCE', correlationMode: I, requiredFields: ['approvalNo'], requiresCausation: true },
   FILING_SIGNOFF_REJECTED:  { domain: 'GOVERNANCE', correlationMode: I, requiredFields: ['approvalNo', 'reason'], requiresCausation: true },
   FILING_SUBMITTED:         { domain: 'GOVERNANCE', correlationMode: N, requiredFields: ['externalRef'], requiresCausation: false },
   FILING_ENTRY_LOGGED:      { domain: 'GOVERNANCE', correlationMode: N, requiredFields: ['kind'], requiresCausation: false },
-  FILING_OVERDUE_MARKED:    { domain: 'GOVERNANCE', correlationMode: N, requiredFields: [], requiresCausation: false },
+  FILING_OVERDUE_MARKED:    { domain: 'GOVERNANCE', correlationMode: N, requiredFields: ['deadlineAt'], requiresCausation: false },
+  // ↑ 评审白2 收口：spec §7「带 approvalNo / 带 deadlineAt」落成 requiredFields（extra 顶层展开可过闸），终审逐条追承诺时口径一致。
   FILING_CLOSED:            { domain: 'GOVERNANCE', correlationMode: N, requiredFields: [], requiresCausation: false },
   FILING_CANCELLED:         { domain: 'GOVERNANCE', correlationMode: N, requiredFields: ['reason'], requiresCausation: false },
 };
 ```
 
-- [ ] **Step 2: 写红测** `regulatory-filing.service.spec.ts`（Test.createTestingModule + 真 PrismaService，mock AuditLogsService 为行为化 spy——记录 action 序列，照 incident.service.spec.ts 的 mock 口径）：①`openForIncident` 两码开两单，`TIR_K_H` 单 deadline=createdAt+72h、`TIR_II_C_24H` 单 deadline=null ②`openManual` INBOUND 类型 deadline=receivedAt+48h、authority 必须给且 ∈ 目录 ③`openManual('INCIDENT_REPORT')` 缺 incidentNo/basisCode 拒、basisCode 不在该事故类型 `reportBasisCandidates` 拒（入参带 incident 类型由 workflow 校验——服务侧只验码在 `INCIDENT_REPORT_BASES`；见 Task 6 workflow 分工）④`saveDraft` 首次记 `FILING_DRAFT_SAVED`、再存不重记 ⑤非法跃迁显式拒（DRAFT 直接 markSubmitted → BadRequest 报 `Invalid filing transition`）⑥`markSubmitted` 缺 externalRef 拒；成功后**同事故钟链单** deadline 落定为 submittedAt+24h 且返回 `chainDeadlineSetFor` ⑦`addEntry` 非 SUBMITTED 拒、kind 越枚举拒 ⑧`cancel` 仅 DRAFT ⑨`close` 仅 SUBMITTED。
+- [ ] **Step 2: 写红测** `regulatory-filing.service.spec.ts`（Test.createTestingModule + 真 PrismaService，mock AuditLogsService 为行为化 spy——记录 action 序列，照 incident.service.spec.ts 的 mock 口径）：①`openForIncident` 两码开两单，`TIR_K_H` 单 deadline=createdAt+72h、`TIR_II_C_24H` 单 deadline=null ②`openManual` INBOUND 类型 deadline=receivedAt+48h、authority 必须给且 ∈ 目录 ③`openManual('INCIDENT_REPORT')` 缺 incidentNo/basisCode 拒、basisCode 不在该事故类型 `reportBasisCandidates` 拒——**校验全在 service 内**（评审黄4 修正：手工开单是 controller 直调 service、不经 workflow，校验没有别处可放）：横向只读 `prisma.incident` 拿 type（铁律③读放行；找不到事故 → NotFound），查 `INCIDENT_TYPE_REGISTRY[type].reportBasisCandidates`（跨 import incidents 的纯常量文件，无模块环）④`saveDraft` 首次记 `FILING_DRAFT_SAVED`、再存不重记 ⑤非法跃迁显式拒（DRAFT 直接 markSubmitted → BadRequest 报 `Invalid filing transition`）⑥`markSubmitted` 缺 externalRef 拒；成功后**同事故钟链单** deadline 落定为 submittedAt+24h 且返回 `chainDeadlineSetFor` ⑦`addEntry` 非 SUBMITTED 拒、kind 越枚举拒 ⑧`cancel` 仅 DRAFT ⑨`close` 仅 SUBMITTED。
 - [ ] **Step 3: 跑红。**
 - [ ] **Step 4: 实现 service**。要点（模板：`incident.service.ts` 的 transition/recordAudit 形状）：
   - `generateReferenceNo('FIL')` 出单号（`src/common/utils/no-generator.util.ts`）；`traceId = randomUUID()`（OPENED 铸旅程）。
@@ -267,7 +268,9 @@ ApprovalActionTypes.REG_FILING_SUBMIT,
 - Create: `src/modules/governance/regulatory-filings/regulatory-filings.module.ts`
 - Modify: `src/modules/governance/governance.module.ts`（imports/exports 加 `RegulatoryFilingsModule`）
 - Modify: `src/modules/identity/access-control/rbac.catalog.ts` 四处
-- Modify: `scripts/verify-rbac.ts`（探针 + 矩阵头条）
+- Modify: `scripts/verify-rbac.ts`（探针 + 矩阵头条 + **`MAKER_GROUP_BY_POLICY` 表加一行**——评审黄3：头注释明写新增 maker-checker 策略必须登记，漏加则 S8「策略全集=表∪豁免」断言红，verify:rbac 全绿不可达）
+- Modify: `scripts/verify-rbac.tables.ts`（`DETAIL_READ_GROUP_BY_POLICY` 加一行，S9 用）
+- Modify: `admin-web/src/pages/approvalEntityRoutes.ts` + `admin-web/src/pages/ApprovalPoliciesPage.tsx`（评审黄3：审批类型登记点**共四处**，且 `approvalEntityRoutes.spec.ts` 断言前端路由表与 `verify-rbac.tables.ts` 两表键集相等——四处必须同任务落，不能拆给 T9）
 
 **Interfaces (Produces):** 9 条 HTTP 路由（spec §6 清单原文），路径拼写全仓唯一真源在 rbac.catalog 的 route() 行。
 
@@ -288,9 +291,10 @@ ApprovalActionTypes.REG_FILING_SUBMIT,
 ```
 
 ④`RBAC_ROLE_GROUP_BINDINGS`：`COMPLIANCE_OFFICER` 加 `'REG_FILING_WRITE', 'INCIDENT_READ'`（后者带注释：起草事故通报要读得到事故，spec §6）；`SENIOR_MANAGEMENT_OFFICER`、`INTERNAL_AUDITOR` 各加 `'REG_FILING_READ'`。
-- [ ] **Step 3: verify:rbac 探针**（照 T9 事故探针形状，`scripts/verify-rbac.ts` 事故区块后加）：①正向：`compliance`（合规官种子号）`POST /admin/regulatory-filings` body `{ type: 'MATERIAL_CHANGE_NOTIFICATION', title: 'RBAC probe — material change filing' }` expect ALLOW，`cleanup` 用同 token `POST /:filingNo/cancel { reason: 'probe cleanup' }`（DRAFT→CANCELLED 收脚印，照 M4 修复先例）②反向：`ops`、`treasury` 各一条同 body expect DENY ③矩阵头条句子补「报送台经办唯合规官、签发唯高管」。
-- [ ] **Step 4: 起栈实证**：`bash scripts/stack.sh up`（self）→ `npm run db:base:sync` → 重启后端 →（只 seed 不重启=403 判例）→ `npx ts-node -r tsconfig-paths/register scripts/verify-rbac.ts` 全绿。
-- [ ] **Step 5: 随手闸① + jest 本目录，commit** `feat(甲波二T5): 报送controller九路由+RBAC新域两桶两组+探针`
+- [ ] **Step 3: 审批类型四处登记**（评审黄3，同任务落齐）：`scripts/verify-rbac.ts` 的 `MAKER_GROUP_BY_POLICY` 加 `REG_FILING_SUBMIT: 'REG_FILING_WRITE'`；`scripts/verify-rbac.tables.ts` 的 `DETAIL_READ_GROUP_BY_POLICY` 加 `REG_FILING_SUBMIT: 'REG_FILING_READ'`；`approvalEntityRoutes.ts` 加 ``REG_FILING_SUBMIT: (r) => `/admin/governance/regulatory-filings/${r}` ``；`ApprovalPoliciesPage.tsx` 标签表加 `REG_FILING_SUBMIT: 'Regulatory Filing · Sign-off'`。落完跑根 jest 的 `approvalEntityRoutes` 相关 spec（纯 .spec.ts 被根 jest 实跑判例）确认两表键集相等。
+- [ ] **Step 4: verify:rbac 探针**（照 T9 事故探针形状，`scripts/verify-rbac.ts` 事故区块后加）：①正向：`compliance`（合规官种子号）`POST /admin/regulatory-filings` body `{ type: 'MATERIAL_CHANGE_NOTIFICATION', title: 'RBAC probe — material change filing' }` expect ALLOW，`cleanup` 用同 token `POST /:filingNo/cancel { reason: 'probe cleanup' }`（DRAFT→CANCELLED 收脚印，照 M4 修复先例）②反向：`ops`、`treasury`、`tech_admin` **三条**（评审白1 对齐 spec 点名的三角色）同 body expect DENY ③矩阵头条句子补「报送台经办唯合规官、签发唯高管」。
+- [ ] **Step 5: 起栈实证**：`bash scripts/stack.sh up`（self）→ `npm run db:base:sync` → 重启后端 →（只 seed 不重启=403 判例）→ `npx ts-node -r tsconfig-paths/register scripts/verify-rbac.ts` 全绿。
+- [ ] **Step 6: 随手闸①③ + jest 本目录，commit** `feat(甲波二T5): 报送controller九路由+RBAC新域两桶两组+审批类型四处登记+探针`
 
 ---
 
@@ -307,6 +311,9 @@ ApprovalActionTypes.REG_FILING_SUBMIT,
 - Modify: `src/modules/audit-logging/constants/audit-actions.constant.ts`（`INCIDENT_AUDIT_ACTIONS` 删两码、`AuditActions` 删两键，11→9）
 - Modify: `prisma/schema.prisma`（Incident 删 `reportDeadlineAt`/`reportDraft`/`reportDraftedAt`/`reportedAt`/`reportedByUserId`/`reportReference` 六列；保留 `reportRequired`/`reportBasisCodes`）＋迁移 `incident_wave2_drop_report_slot`
 - Modify: `test/incident-register.e2e-spec.ts` 用例④ + 相关直调处、`src/modules/governance/incidents/incident.service.spec.ts`、`incidents.controller.spec.ts`
+- Modify: `src/modules/governance/incidents/incident-close-workflow.service.spec.ts`（评审黄1：:10,81,86,262,290 存有旧守卫「reportedAt=null→400」行为测试——改判为报送单口径，并 mock `summaryForIncident`）
+- Modify: `src/modules/audit-logging/constants/incident-audit-codes.spec.ts`（评审黄2：:12-24 用 `toEqual` 冻结 11 码名单——改断言 9 码，删两退役码）
+- 顺手清两处注释残留（评审否定性结论附带）：`incident.service.ts:551`、`incident-close-workflow.service.ts:148` 提及退役码/字段的注释随方法删除一并改写
 
 **Interfaces:**
 - Consumes: Task 3 `openForIncident`/`summaryForIncident`。
@@ -350,7 +357,7 @@ if (row.reportRequired) {
   - controller：assess 改 `this.assessmentWorkflow.assess(...)`；删两端点与 DTO；`incidents.module.ts` providers 加 workflow、imports 加 `RegulatoryFilingsModule`。
   - schema 六列删除 + `npx prisma migrate dev --name incident_wave2_drop_report_slot` + generate（此时 tsc 会揪出所有残余引用——`grep -rn "reportDraft\|reportedAt\|reportDeadlineAt\|reportReference" src/ test/ admin-web/src/` 逐处清点，前端引用留给 Task 9 的先在本任务用 `git grep` 出清单贴任务报告，**后端与 test/ 必须本任务清零**）。
 - [ ] **Step 3: e2e 用例④改写**（`test/incident-register.e2e-spec.ts:456-478`）：定损勾 `CRM_IV_E_5`+`CRM_V_D_2` → 断言 `filingsOpened.length===2`、两单 `deadlineAt` 均 null（两码均无钟）、authority 均 VARA；再走一单 saveDraft→submitForSignoff→高管批（直调 ApprovalsService 裁决，照本文件既有审批直调先例）→markSubmitted(externalRef 'VARA-REG-2026-001')→第二单同样提交→requestClose 通过；中途在仅一单提交时 requestClose 断言 400。其余用例里 `reportRequired:false` 的直调处只需跟着 assess 新入口改（搜 `incidents.assess(` 全换 `assessmentWorkflow.assess(`——或保留服务直调处不动，仅④走 workflow；以**编译与语义**为准逐处判断）。
-- [ ] **Step 4: 跑** `npx jest src/modules/governance --colors` + `bash scripts/on-stack.sh self <e2e 跑法照 jest-e2e 惯例>`（integration spec 必经 on-stack 判例）。
+- [ ] **Step 4: 跑** `npx jest src/modules/governance src/modules/audit-logging --colors`（audit-logging 必须进范围——黄2 的冻结名单 spec 住那边，只跑 governance 照不到）+ `bash scripts/on-stack.sh self <e2e 跑法照 jest-e2e 惯例>`（integration spec 必经 on-stack 判例）。
 - [ ] **Step 5: 随手闸①③（admin-web 此刻应还绿——前端仍读旧字段的话说明 Step 2 清点漏了前端豁免边界，核对清单）+ commit** `feat(甲波二T6): assess联动自动开单·结案守卫改判报送单·单槽六列退役(审计11→9码)`
 
 ---
@@ -391,12 +398,12 @@ if (row.reportRequired) {
 - Create: `admin-web/src/utils/regulatoryFilingMap.ts`（词表镜像：`FILING_STATUS_LABEL` 六值人话（Draft/Pending sign-off/Signed off — to submit/Submitted/Closed/Cancelled）、`FILING_ENTRY_KIND_LABEL` 三值、`AUTHORITY_LABEL` 五值、`FILING_TYPE_MIRROR` 五行（label/direction/requiresIncident/defaultAuthority）、deadline 显示与色调 helper——把 `incidentStatusMap.ts` 的 `reportDeadlineDisplay`/`reportBasisClockText`/`REPORT_DEADLINE_TONE_CLASS` **迁移**过来（事故页不再用；immediate 码显示「Immediate」不是「未设时限」，spec §1））
 - Create: `admin-web/src/pages/RegulatoryFilingListPage.tsx`、`admin-web/src/pages/RegulatoryFilingDetailPage.tsx`
 - Modify: `admin-web/src/App.tsx:264` 附近（两条 Route）、`admin-web/src/components/DashboardLayout.tsx:390` 附近（Incident Register 条目后加 nav 项）、`admin-web/src/rbac/permissions.ts`（`REG_FILINGS_READ: 'api.get.admin_regulatory_filings'`、`REG_FILING_DETAIL_READ: 'api.get.admin_regulatory_filings_filingno'`——拼写按 `normalizePermissionPath` 规则：连字符转下划线）
-- Modify: `admin-web/src/pages/IncidentDetailPage.tsx`（通报区块换脸）、`admin-web/src/utils/incidentStatusMap.ts`（摘走迁移的三个 helper；`INCIDENT_REPORT_BASES` 镜像**保留**——定损弹窗还在用）
-- Modify: `admin-web/src/pages/approvalEntityRoutes.ts`（`REG_FILING_SUBMIT: (r) => \`/admin/governance/regulatory-filings/${r}\``）、`admin-web/src/pages/ApprovalPoliciesPage.tsx:68` 附近（`REG_FILING_SUBMIT: 'Regulatory Filing · Sign-off'`）
+- Modify: `admin-web/src/pages/IncidentDetailPage.tsx`（通报区块换脸）、`admin-web/src/pages/IncidentListPage.tsx`（评审黄1：:40-41,424,436-438 的「Report status」「Deadline」两列退役，换单列「Reporting」读 `reportRequired`（Required / —）——spec §9 补裁）、`admin-web/src/utils/incidentStatusMap.ts`（摘走迁移的三个 helper；`INCIDENT_REPORT_BASES` 镜像**保留**——定损弹窗还在用）
+- （审批中心两处前端登记已随评审黄3 移入 Task 5，本任务不再碰）
 
 - [ ] **Step 1: ListPage**——模板 `IncidentListPage.tsx`：列 = filingNo（链接）/ Type / Direction / Authority / Status（StatusPill + 词表）/ Deadline（超时行 `overdueMarkedAt` 非空标红，用迁移来的 tone helper）/ Incident（incidentNo 链接到事故页，可空显 `—`）；顶部筛选 status/type；「Open filing」按钮（持 `REG_FILING_WRITE` 路由码即 `api.post.admin_regulatory_filings` 显示）弹开单表单：type 下拉（registry 镜像五行，选 INCIDENT_REPORT 时显 incidentNo+basisCode 输入、INBOUND 类型显 receivedAt+authority 下拉、双头类显 cc 多选）——**全下拉受控，零自由文本机构**。
 - [ ] **Step 2: DetailPage**——模板 `IncidentDetailPage.tsx` 六块改五块：基本信息（含 basisCode 依据码 label、deadline 倒计时、关联事故链接）｜正文草稿（textarea，DRAFT 态可编辑 + Save draft）｜签发区（DRAFT 显「Submit for sign-off」；PENDING_SIGNOFF 显审批单号链接；SIGNED_OFF 显「Mark submitted」弹窗必填 externalRef）｜往来记录时间线（SUBMITTED 态显「Log entry」，kind 受控下拉）｜办结/作废（SUBMITTED→Close；DRAFT→Cancel 需 reason）。动作按钮可见性 = 状态机边 × 持码（adminFetch + PERMISSIONS，照事故页 `canWrite` 口径）。
-- [ ] **Step 3: IncidentDetailPage 通报区块换脸**：删草稿 textarea/「Mark reported」按钮/`canSaveDraft`/`canMarkReported`/detail 接口 72-76 行五个退役字段/`closeBlockReason` 里 128-129 行判断改为「有未提交报送单则显示 filings 表内红字提示」；新区块 = 「Regulatory filings」表（读 getView 新 `filings` 键：filingNo/status/authority/deadline，行链接到报送详情页）。定损弹窗保持——`reportRequired`/`reportBasisCodes` 判定 UI 不动，提交后 toast 显示 `filingsOpened` 单号。
+- [ ] **Step 3: IncidentDetailPage 通报区块换脸**：删草稿 textarea/「Mark reported」按钮/`canSaveDraft`/`canMarkReported`/detail 接口 72-76 行五个退役字段/`closeGateReason`（实名以 IncidentDetailPage.tsx:110 为准，评审白4 订正）里 128-129 行判断改为「有未提交报送单则显示 filings 表内红字提示」；新区块 = 「Regulatory filings」表（读 getView 新 `filings` 键：filingNo/status/authority/deadline，行链接到报送详情页）。定损弹窗保持——`reportRequired`/`reportBasisCodes` 判定 UI 不动，提交后 toast 显示 `filingsOpened` 单号。
 - [ ] **Step 4: 闸③ + 闸⑤**：`cd admin-web && npx tsc -b --noEmit`；起 self 栈 preview 渲染，截图四张：报送列表（含超时红行）/ 报送详情（SIGNED_OFF 态）/ 开单弹窗 / 事故详情新通报区块——落盘 `doc-final/superpowers/checkups/2026-09-26-act-a-wave2-evidence/`（物证必须写明落盘路径判例）。
 - [ ] **Step 5: commit** `feat(甲波二T9): 报送台两页+事故通报区块换脸+审批中心两登记+词表镜像`
 
@@ -409,11 +416,12 @@ if (row.reportRequired) {
 - Modify: `doc-final/demo/data.md`（事故样例节后加报送台节——先 `grep -n "事故\|Incident" doc-final/demo/data.md` 找准手写节位置；生成区 GENERATED 标记内**不动**）
 - Modify: `doc-final/demo/script.md`（`grep -n "通报\|regulator" doc-final/demo/script.md` 命中处同步改为开单流程措辞；无命中则只在 data.md 记）
 
-- [ ] **Step 1: seed**——照 `DEMO_INCIDENTS` 直铺快照先例（不走服务、不写审计，注释声明「登记会留痕由 e2e 证」；`buildDeterministicNo('FIL', seedKey)` 出稳定单号）：
-  样例一（挂既有 CYBER_BCDR 种子事故——先读 `DEMO_INCIDENTS` 找 CYBER_BCDR 样例的 seedKey 与状态；若该样例非 ASSESSED+reportRequired，**新增一条** ASSESSED 态 CYBER_BCDR 事故样例避免改动波一样例的既有断言，判据=重铺后 `demo/data.md` 手写节描述与库一致）：一单 `INCIDENT_REPORT`/`TIR_K_H`/VARA/SUBMITTED，externalRef `VARA-ACK-2026-0001`，带一条 RECEIPT_ACK entry；
+- [ ] **Step 1: seed**——照 `DEMO_INCIDENTS` 直铺快照先例（不走服务、不写审计，注释声明「登记会留痕由 e2e 证」；`buildDeterministicNo('FIL', seedKey)` 出稳定单号）。**评审黄5 改判（spec §10 已同步）**：
+  样例一挂**既有 `data-breach-crm-export`**（seed.business.ts:1013-1019，ASSESSED＋reportRequired 双码）——甲案后它是「零单」不可达态，必须补单归位：`PDPL_ART_9` 单 SUBMITTED（authority UAE_DATA_OFFICE，externalRef `DATAOFFICE-ACK-2026-0001`，submittedAt=now-20h）＋一条 RECEIPT_ACK entry；`TIR_II_C_24H` 链单 SIGNED_OFF 或 DRAFT，deadline＝前者 submittedAt＋24h（还剩约 4h，倒计时在跑）。种子即演双钟链。**不新增 CYBER_BCDR 种子**——seed 头注释（:978-984）明写该类故意留给演示现场登记，波一设计不动。
   样例二：一单 `REG_INFO_REQUEST_RESPONSE`/VARA/DRAFT，receivedAt=now-6h（48h 钟在跑）。
 - [ ] **Step 2: 重铺闸⑧**：`bash scripts/stack.sh reset self` → 起栈 → `bash scripts/on-stack.sh self demo:all` 全绿（旧库重跑必红判例：reset 先行）。
-- [ ] **Step 3: data.md/script.md 同步 + commit** `feat(甲波二T10): 种子两样例+demo文档同步`
+- [ ] **Step 3: data.md/script.md 同步**（评审白3 量级订正：不是措辞级）：`demo/data.md:65` 附近 `data-breach-crm-export` 描述行整行改写（旧「双倒计时徽章」等已失真）＋新增报送台节；`demo/script.md` 场景 18 走查**编排重写**——收编后「保存通报草案→标已通报」两步换成「定损自动开单→切合规官起草送签→切高管批→切回合规官标已提交」，:189/199/203 附近「全程 treasury@」注③注⑤不再成立，**账号切换总表**同步改（treasury→compliance→senior management→treasury）。
+- [ ] **Step 4: commit** `feat(甲波二T10): 种子双钟链样例归位+来函样例+demo两文档重编排`
 
 ---
 

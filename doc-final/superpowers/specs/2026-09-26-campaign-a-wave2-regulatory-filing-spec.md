@@ -149,15 +149,15 @@ DRAFT ──送签(合规官)──► PENDING_SIGNOFF ──高管批准(审批
 
 - 新页 `RegulatoryFilingListPage`（列表：filingNo/类型/方向/机构/状态/截止时间/超时红标/关联事故）+ `RegulatoryFilingDetailPage`（详情：正文草稿编辑、送签、标已提交（填对外编号）、往来记录时间线（受控 kind 下拉）、办结/作废、审计留痕区照惯例）。侧边栏入治理组。
 - `IncidentDetailPage` 通报区块改造：删草稿 textarea 与「标已通报」按钮，改「关联报送单」表（读 getView 新摘要），行点击跳单据详情（有读权限者）。
+- `IncidentListPage` 的「Report status」「Deadline」两列随单槽退役（评审黄1 补裁）：换单列「Reporting」读保留字段 `reportRequired`（Required / —）；截止时间与超时红标的可视面统一在报送台列表页，事故列表不再重复。
 - 受控枚举纪律（Ruling-14）：authority、cc、entry kind 全下拉受控；basisCode 自动带出只读。
 - 词表：状态六标签 + entry kind 三标签入词表；对外一律 filingNo（铁律⑥，UUID 不出前端）。
 
 ## §10 种子与演示数据
 
-种子铺两条样例（`prisma/seed.business.ts` 惯例位，`demo/data.md` 生成区同步）：
-1. **出站全链**：一条 `CYBER_BCDR` 事故定损勾 `TIR_K_H` → 自动开单 → 已签发 → 已提交（externalRef `VARA-ACK-2026-xxxx` 样式）→ 一条 `RECEIPT_ACK` 往来记录。演示「事件→工单→已提交→回执」验收主线。复用波一五条种子样例之一还是新增一条，以**不破坏 `demo/data.md` 既有生成区断言**为判据，plan 时实测定。
+种子铺两条样例（`prisma/seed.business.ts` 惯例位，`demo/data.md` 手写节同步）：
+1. **出站全链＋双钟链**（评审黄5 补裁）：挂**既有** `DATA_BREACH` 种子样例 `data-breach-crm-export`——该样例是波一直铺的 ASSESSED＋reportRequired 双码态，甲案落地后「零报送单」成为 workflow 不可达状态（详情页关联表空、结案报 no filing opened），**必须补单归位**：`PDPL_ART_9` 单走完全链 SUBMITTED（externalRef `DATAOFFICE-ACK-2026-0001` 样式）＋一条 `RECEIPT_ACK` 往来记录；`TIR_II_C_24H` 链单 deadline＝前者 submittedAt＋24h、倒计时在跑。种子即演示「事件→工单→已提交→回执」主线与双钟链。`demo/data.md` 该样例的既有描述行（双倒计时徽章等已失真措辞）同步改写。**`CYBER_BCDR` 维持波一「故意不进种子、留演示现场登记留痕」的设计不动**（seed 头注释明写，不与之相抵）。
 2. **入站在途**：一张 `REG_INFO_REQUEST_RESPONSE`（authority VARA，`receivedAt` 近期）草拟中，48h 倒计时在跑。
-双钟链（DATA_BREACH 两单）不入种子，留 demo 现场走（modules 新篇 §4 演示脚本编排）。
 
 ## §11 测试与闸
 
