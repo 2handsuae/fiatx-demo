@@ -108,6 +108,7 @@ DRAFT ──送签(合规官)──► PENDING_SIGNOFF ──高管批准(审批
 4. 审计码 `INCIDENT_REGULATOR_REPORT_DRAFTED`/`INCIDENT_REGULATOR_REPORTED` 出名册：事故名册 11 码→9 码（动审计集，收尾过 delivery 触碰检查）。历史行不迁（重铺后无旧码行）；`audit:vocab` 词表脚本重跑入库，差集 fail-fast 按 act7 波三惯例处置。
 5. `test/incident-register.e2e-spec.ts` 用例④改写：断言从「草案→标已通报」改为「定损→自动开单（两码两单）→ deadlineAt 按码」，原「reportDeadlineAt===null（两码均无钟）」的断言语义平移到单据上。
 6. 事故 `getView` 增 `filings` 摘要（filingNo/status/authority/deadlineAt/overdueMarkedAt）——事故侧**横向只读** filing 行（读放行、写仍禁，铁律③），事故读权限即可看到摘要，免得五族经办人开事故页撞 403；单据详情页才要 §6 的读权限。
+7. **结案守卫改判**（plan 摸底补充，2026-09-26）：`IncidentCloseWorkflowService.requestClose` 现有前置「`reportRequired && !reportedAt` → 400（通报没留痕不许关）」随 `reportedAt` 退役改判为——`reportRequired=true` 时，该事故名下全部 `INCIDENT_REPORT` 报送单须已提交（`submittedAt` 非空，即状态 ∈ {SUBMITTED, CLOSED}），任一未提交或名下零单均 400。语义不变（没向监管交差不许关事故），证据源从事故单槽换成报送单。结案审批快照的 `reported` 布尔同步改从该判定取值。
 
 ## §6 RBAC（新域两桶两组）
 
@@ -117,7 +118,7 @@ DRAFT ──送签(合规官)──► PENDING_SIGNOFF ──高管批准(审批
 - 组两个（PermissionGroup 74→76）：`REG_FILING_READ` 含两条 GET 码；`REG_FILING_WRITE` 含 GET+全部 POST 码（写组码集包含读码，子集完备推导先例）。
 - **不设 `cap.*` 标记码**：Ruling-6 的标记码解决「多组共享路由码时服务层按族独占」；本域经办组唯一（合规官），POST 路由码只挂 `REG_FILING_WRITE` 一组，路由门即精确门，服务层不再重复造门（YAGNI）。
 - 路由：`GET /admin/regulatory-filings`、`GET /admin/regulatory-filings/:filingNo` → 两组 OR；`POST /admin/regulatory-filings`（手工开单）、`POST /:filingNo/draft`、`/:filingNo/signoff`、`/:filingNo/mark-submitted`、`/:filingNo/entries`、`/:filingNo/close`、`/:filingNo/cancel` → 仅 WRITE。
-- 角色绑定：`COMPLIANCE_OFFICER` += `REG_FILING_WRITE`；`SENIOR_MANAGEMENT_OFFICER`、`INTERNAL_AUDITOR` += `REG_FILING_READ`（签字人与内审要看得见，照 CISO 批事故拿 `INCIDENT_READ` 先例）。MLRO 本波不给（波三报文族随其瘦身包一并设计）。
+- 角色绑定：`COMPLIANCE_OFFICER` += `REG_FILING_WRITE` **及 `INCIDENT_READ`**（plan 摸底补充：合规官现况不持 `INCIDENT_READ`，但起草事故通报必须读得到事故详情与留痕，照「裁决人要看得见」同款理由）；`SENIOR_MANAGEMENT_OFFICER`、`INTERNAL_AUDITOR` += `REG_FILING_READ`（签字人与内审要看得见，照 CISO 批事故拿 `INCIDENT_READ` 先例）。MLRO 本波不给（波三报文族随其瘦身包一并设计）。
 - `verify:rbac` 扩判据：正探针（合规官开单/送签打真端点）＋反探针（运营/金库/技术官 POST 403）＋签发链唯高管；矩阵头条补一句「报送台经办唯合规官、签发唯高管」。
 - 惯例收尾：route() 登记 + `db:base:sync` + 重启（只 seed 不重启＝403 判例）。
 
