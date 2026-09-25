@@ -28,6 +28,8 @@ export const AuditEntityTypes = {
   INCIDENT: 'INCIDENT',
   // 波三收编（2026-09-16）：此前 push-order/advance-workflow 等 9 处字面量
   FUNDS_ORDER: 'FUNDS_ORDER',
+  // 战役甲波二（2026-09-26）：报送台骨架
+  REGULATORY_FILING: 'REGULATORY_FILING',
 } as const;
 
 export const AuditWorkflowTypes = {
@@ -114,6 +116,8 @@ export const AuditBusinessWorkflowTypes = {
   INCIDENT: 'INCIDENT',
   CUSTOMER_ONBOARDING_ACCEPTANCE: 'CUSTOMER_ONBOARDING_ACCEPTANCE',
   CUSTOMER_TIER_UPGRADE: 'CUSTOMER_TIER_UPGRADE',
+  // 战役甲波二（2026-09-26）：报送台骨架（治理件，独立主体 RegulatoryFiling）
+  REGULATORY_FILING: 'REGULATORY_FILING',
 } as const;
 
 // Task 28：退役清单扫尾——原 15 键仅 2 键（REQUEST_CREATED/SUBMITTED）经
@@ -398,6 +402,17 @@ export const AuditActions = {
   INCIDENT_CLOSE_REQUESTED: 'INCIDENT_CLOSE_REQUESTED',
   INCIDENT_CLOSED: 'INCIDENT_CLOSED',
   INCIDENT_WITHDRAWN: 'INCIDENT_WITHDRAWN',
+  // ── 战役甲波二（2026-09-26）：报送台骨架（治理件，域 GOVERNANCE）──
+  FILING_OPENED: 'FILING_OPENED',
+  FILING_DRAFT_SAVED: 'FILING_DRAFT_SAVED',
+  FILING_SIGNOFF_REQUESTED: 'FILING_SIGNOFF_REQUESTED',
+  FILING_SIGNED_OFF: 'FILING_SIGNED_OFF',
+  FILING_SIGNOFF_REJECTED: 'FILING_SIGNOFF_REJECTED',
+  FILING_SUBMITTED: 'FILING_SUBMITTED',
+  FILING_ENTRY_LOGGED: 'FILING_ENTRY_LOGGED',
+  FILING_OVERDUE_MARKED: 'FILING_OVERDUE_MARKED',
+  FILING_CLOSED: 'FILING_CLOSED',
+  FILING_CANCELLED: 'FILING_CANCELLED',
 } as const;
 
 // 站4 清扫:十条死词映射(APPROVAL_APPROVED/EXECUTED、ADMIN_INVITATION_*、USER_*、
@@ -957,6 +972,22 @@ export const INCIDENT_AUDIT_ACTIONS: Record<string, AuditActionSpec> = {
   INCIDENT_CLOSE_REQUESTED:          { domain: 'GOVERNANCE', correlationMode: I, requiredFields: [], requiresCausation: false },
   INCIDENT_CLOSED:                   { domain: 'GOVERNANCE', correlationMode: I, requiredFields: ['approvalNo'], requiresCausation: true },
   INCIDENT_WITHDRAWN:                { domain: 'GOVERNANCE', correlationMode: N, requiredFields: ['reason'], requiresCausation: false },
+};
+
+/** 战役甲波二（spec §7）：报送台十码。OPENED 铸旅程（S）；签发三码走审批旅程（I，
+ * SIGNED_OFF/SIGNOFF_REJECTED 由审批裁决驱动带因果）；其余直接单步操作照事故先例老实标 N。 */
+export const REG_FILING_AUDIT_ACTIONS: Record<string, AuditActionSpec> = {
+  FILING_OPENED:            { domain: 'GOVERNANCE', correlationMode: S, requiredFields: ['type'], requiresCausation: false },
+  FILING_DRAFT_SAVED:       { domain: 'GOVERNANCE', correlationMode: N, requiredFields: [], requiresCausation: false },
+  FILING_SIGNOFF_REQUESTED: { domain: 'GOVERNANCE', correlationMode: I, requiredFields: ['approvalNo'], requiresCausation: false },
+  FILING_SIGNED_OFF:        { domain: 'GOVERNANCE', correlationMode: I, requiredFields: ['approvalNo'], requiresCausation: true },
+  FILING_SIGNOFF_REJECTED:  { domain: 'GOVERNANCE', correlationMode: I, requiredFields: ['approvalNo', 'reason'], requiresCausation: true },
+  FILING_SUBMITTED:         { domain: 'GOVERNANCE', correlationMode: N, requiredFields: ['externalRef'], requiresCausation: false },
+  FILING_ENTRY_LOGGED:      { domain: 'GOVERNANCE', correlationMode: N, requiredFields: ['kind'], requiresCausation: false },
+  FILING_OVERDUE_MARKED:    { domain: 'GOVERNANCE', correlationMode: N, requiredFields: ['deadlineAt'], requiresCausation: false },
+  // ↑ 评审白2 收口：spec §7「带 approvalNo / 带 deadlineAt」落成 requiredFields（extra 顶层展开可过闸），终审逐条追承诺时口径一致。
+  FILING_CLOSED:            { domain: 'GOVERNANCE', correlationMode: N, requiredFields: [], requiresCausation: false },
+  FILING_CANCELLED:         { domain: 'GOVERNANCE', correlationMode: N, requiredFields: ['reason'], requiresCausation: false },
 };
 
 /** 动态迁移码族（<域>_<从>_TO_<到>，充值站1b-β/提现站2-β 整族废除；站7 扩面治理五簿+监管闸——

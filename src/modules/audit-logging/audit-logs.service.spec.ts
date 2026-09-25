@@ -126,6 +126,8 @@ describe('AuditLogsService', () => {
       CUSTOMER_ONBOARDING_ACCEPTANCE: 'CUSTOMER_ONBOARDING_ACCEPTANCE',
       // 档位升级波三（2026-09-07）：BASIC→PREMIUM 档位升级 maker-checker
       CUSTOMER_TIER_UPGRADE: 'CUSTOMER_TIER_UPGRADE',
+      // 战役甲波二（2026-09-26）：报送台骨架
+      REGULATORY_FILING: 'REGULATORY_FILING',
     });
 
     expect(AuditUserActions).toEqual({
