@@ -51,6 +51,9 @@ export const ENTITY_ROUTE_BY_ACTION: Record<string, (ref: string) => string | nu
   // 平账三期（entityRef = incidentNo）：结案拆两个动作类型，都指向同一事故详情路由
   INCIDENT_CLOSE_SECURITY: (r) => `/admin/governance/incidents/${r}`,
   INCIDENT_CLOSE_FINANCIAL: (r) => `/admin/governance/incidents/${r}`,
+  // 战役甲波一 Task 8（结案四链）：新两条动作类型同样指向事故详情路由
+  INCIDENT_CLOSE_TECHSEC: (r) => `/admin/governance/incidents/${r}`,
+  INCIDENT_CLOSE_PRUDENTIAL: (r) => `/admin/governance/incidents/${r}`,
   // 客户域（entityRef = customerNo）
   CUSTOMER_ONBOARDING_ACCEPTANCE: (r) => `/admin/customers/${r}`,
   CUSTOMER_TIER_UPGRADE: (r) => `/admin/customers/${r}`,

@@ -242,9 +242,10 @@ function runStaticChecks(): void {
   // maker-checker 型审批策略时**必须往这里加一行**，否则新策略不受本闸门保护。
   // 战役甲波一 Task 8：INCIDENT_CLOSE_TECHSEC 的 maker 横跨三个经办组（技安/数据/运营，
   // 单一动作类型服务四类事故的结案），一个 policy 键装不下一个组名——值类型放宽为
-  // `string | string[]`，下方两处消费循环对数组逐组做同一校验（每个组独立跑一遍原有的
-  // 单组判据，不是把多个组的持有人并成一个集合再判），语义上等价于"这条策略实际有
-  // 几个互不相干的提单人群体，每个群体各自都不能被唯一裁决人一勺烩"。
+  // `string | string[]`，下方三处消费循环（S5/P1、S5c/P2、S5d 豁免名副其实校验）都要跟着
+  // 改：S5/S5c 对数组逐组做同一校验（每个组独立跑一遍原有的单组判据，不是把多个组的持有人
+  // 并成一个集合再判），语义上等价于"这条策略实际有几个互不相干的提单人群体，每个群体各自
+  // 都不能被唯一裁决人一勺烩"；S5d 取跨组并集（见该处头注释，语义不同）。
   const MAKER_GROUP_BY_POLICY: Record<string, string | string[]> = {
     ASSET_SUSPENSION: 'ASSET_CONFIG_WRITE',
     ASSET_REACTIVATION: 'ASSET_CONFIG_WRITE',
@@ -269,7 +270,11 @@ function runStaticChecks(): void {
     WITHDRAW_RETURN_CLAIM: 'WITHDRAW_RETURN_CLAIM_WRITE',
     INTERNAL_TRANSFER_APPROVAL: 'INTERNAL_TRANSFER_WRITE',
     INCIDENT_CLOSE_SECURITY: 'INCIDENT_WRITE',
-    INCIDENT_CLOSE_FINANCIAL: 'INCIDENT_WRITE',
+    // 战役甲波一 T8 修复轮 1（评审 I2）：INCIDENT_CLOSE_FINANCIAL 服务两个不相干的提单群体——
+    // LARGE_UNEXPLAINED/CLIENT_SHORTFALL（FUNDS 族，INCIDENT_WRITE）与 STUCK_TRANSACTION_MAJOR
+    // （OPERATIONS 族，INCIDENT_OPS_WRITE，见 incident-type-registry.ts 的 operatorGroup）。此前
+    // 只登记了 INCIDENT_WRITE，STUCK 的提单群体不受自批死锁闸门保护——改数组，两组逐组校验。
+    INCIDENT_CLOSE_FINANCIAL: ['INCIDENT_WRITE', 'INCIDENT_OPS_WRITE'],
     ADMIN_SUSPENSION_APPROVAL: 'IAM_MEMBER_MANAGE',
     ADMIN_REACTIVATION_APPROVAL: 'IAM_MEMBER_MANAGE',
     ADMIN_ROLE_BINDING_CHANGE_APPROVAL: 'IAM_ROLE_ASSIGN',
@@ -342,6 +347,10 @@ function runStaticChecks(): void {
   // 拍板甲案（给 TECH_OFFICER 加 IAM_ROLE_ASSIGN）真正修掉，按上面写的"唯一合法清空方式"删除。
   // 那条策略随即转登记进 MAKER_CHECKER_OVERLAP_EXEMPT——CISO 双持是刻意的，能提不能批的
   // 安全 maker 由 TECH_OFFICER 提供，P1 继续守着。
+  // 战役甲波一 T8 修复轮 1（评审 M2）：本表键仍是 actionType（策略），不是"策略+组"的复合键——
+  // MAKER_GROUP_BY_POLICY 数组化后，若某个数组条目（如 INCIDENT_CLOSE_TECHSEC 的某一组）
+  // 出现真死锁而要登记，登记的是整个 actionType，覆盖面是该策略名下**所有**组（下面 S5 循环
+  // 按 `actionType in S5_KNOWN_DEADLOCKS` 判定，不区分是数组里哪一组），不能只登记"某一组"。
   const S5_KNOWN_DEADLOCKS: Record<string, string> = {};
 
   const holdersOf = (group: string): string[] =>
@@ -444,9 +453,13 @@ function runStaticChecks(): void {
   // 是那条真死锁本身报出来的同一件事，这里不再算作新发现，避免同一根因被两条判据各报
   // 一次、稀释掉"这是同一个问题"的信号。
   const overlapViolations: string[] = [];
-  let overlapChecked = 0;
-  let exemptApplied = 0; // 豁免表里实际被这个循环用到（consulted）的条目数，见下方判据说明
-  let p1SkippedCount = 0; // 已由上方 P1（S5/S5b）报过、这里不重复计入的条数
+  // 战役甲波一 T8 修复轮 1（评审 M2）：MAKER_GROUP_BY_POLICY 数组化后，下面两个计数器的单位
+  // 是 maker 组，不是策略——一条 TECHSEC 策略贡献 3 组。exemptApplied 仍是策略级（豁免判定
+  // 发生在进入逐组循环之前，见上面 continue）。三个计数器混着用"条"会谎报（3 组的策略被
+  // 数成 3 条），下面 check() 文案按各自真实单位措辞，不统一成"条策略"。
+  let overlapChecked = 0; // 组级：通过不相交校验的 maker 组数
+  let exemptApplied = 0; // 策略级：豁免表里实际被这个循环用到（consulted）的条目数，见下方判据说明
+  let p1SkippedCount = 0; // 组级：已由上方 P1（S5/S5b）报过、这里不重复计入的组数
   for (const [actionType, makerGroupValue] of Object.entries(MAKER_GROUP_BY_POLICY)) {
     if (actionType in MAKER_CHECKER_OVERLAP_EXEMPT) {
       exemptApplied += 1;
@@ -476,7 +489,7 @@ function runStaticChecks(): void {
     'S5c maker≠checker（不相交判据：同一职务不得既是提单人又是裁决人；MAKER_CHECKER_OVERLAP_EXEMPT 显式豁免的 6 条站点演示策略除外）',
     overlapViolations.length === 0,
     overlapViolations.length === 0
-      ? `${overlapChecked} 条策略逐条验证 maker 与 checker 角色集合不相交（豁免 ${exemptApplied} 条，另有 ${p1SkippedCount} 条已被 P1 判定无安全 maker 的策略不重复计入）`
+      ? `豁免 ${exemptApplied} 条策略；其余按 maker 组逐组验证 maker 与 checker 角色集合不相交：${overlapChecked} 组确认不相交，另有 ${p1SkippedCount} 组已被 P1 判定无安全 maker、不重复计入`
       : overlapViolations.join(' ｜ '),
   );
 

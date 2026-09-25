@@ -14,21 +14,21 @@ import { AuditActions, AuditBusinessWorkflowTypes, AuditEntityTypes } from '../.
 import { AuditCategory, AuditSubjectInput, AuditSubjectRole } from '../../audit-logging/dto/audit-log.dto';
 import { ApprovalDecidedEvent } from '../approvals/approval-handler.base';
 import { ApprovalsService } from '../approvals/approvals.service';
-import { ApprovalActorContext } from '../approvals/constants/approval.constants';
-import { IncidentStatus, IncidentTypes } from './incident.constants';
-import { getIncidentTypeConfig } from './incident-type-registry';
+import { ApprovalActorContext, DEFAULT_APPROVAL_POLICIES } from '../approvals/constants/approval.constants';
+import { IncidentStatus } from './incident.constants';
+import { getIncidentTypeConfig, INCIDENT_TYPE_REGISTRY } from './incident-type-registry';
 import { IncidentService } from './incident.service';
 
 // 走查发现 Fix 1：结案审批页是 MLRO/CFO 的最后一道人闸，其余审批类型（模板见
 // internal-transfer-workflow.service.ts 的 impact 串）都给裁决人一句人话后果描述，
-// 事故结案此前没有——裁决人只看得到裸字段，读不出"批下去会怎样"。这两张表只用来
-// 把类型 / 定损口径译成人话，镜像 admin-web/src/utils/incidentStatusMap.ts 的
-// INCIDENT_TYPE_LABEL / ASSESSMENT_BASIS_LABEL（前后端各自维护展示词，无共享路径）。
-const INCIDENT_TYPE_IMPACT_LABEL: Record<string, string> = {
-  [IncidentTypes.UNAUTHORIZED_OUTFLOW]: 'Unauthorized outflow',
-  [IncidentTypes.LARGE_UNEXPLAINED]: 'Large unexplained',
-  [IncidentTypes.CLIENT_SHORTFALL]: 'Client shortfall',
-};
+// 事故结案此前没有——裁决人只看得到裸字段，读不出"批下去会怎样"。
+// 战役甲波一 T8 修复轮 1（评审 I1 d）：类型人话标签改从 INCIDENT_TYPE_REGISTRY 派生，不再
+// 手抄——手抄只覆盖了旧三类且措辞与注册表 label 不同字（"Large unexplained" vs 注册表的
+// "Large unexplained discrepancy"），十类终盘另外七类此前会掉进下面 `?? row.type` 兜底、
+// 摘要里直接出现生码（如 "CYBER_BCDR"）。派生方式保证永远与注册表同步，不会再次漂移。
+const INCIDENT_TYPE_IMPACT_LABEL: Record<string, string> = Object.fromEntries(
+  Object.entries(INCIDENT_TYPE_REGISTRY).map(([type, cfg]) => [type, cfg.label]),
+);
 // 战役甲波一 Task 8 追加指令②：T6 新增的 IMPACT/SHORTFALL 两档口径此前没有对应人话动词，
 // 结案摘要遇到 SERVICE_IMPACT/DATA_IMPACT/SHORTFALL 会退化成生码（basisVerb ?? row.assessmentBasis
 // 分支兜底），本轮补齐三值，与既有 MONETARY 四值同构措辞。
@@ -47,20 +47,34 @@ export class IncidentCloseWorkflowService {
 
   /**
    * 申请结案（真正入口，HTTP 层调这个，不直接调 IncidentService）。
-   * 前置：状态 ∈ {ASSESSED（仅定损口径 NO_LOSS 且零善后挂载——无善后径）, RESOLVING}；
-   * REGISTERED/INVESTIGATING（还没定损）→ 400（变异靶子①：这条守卫必须单独测）。
-   * reportRequired=true 而未 markReported → 400（通报没留痕不许关）。
+   * 前置：状态 ∈ {ASSESSED（仅"无善后径"——定损口径 NO_LOSS，或该类型压根没有可挂载的善后
+   * 动作——且零善后挂载）, RESOLVING}；REGISTERED/INVESTIGATING（还没定损）→ 400（变异靶子①：
+   * 这条守卫必须单独测）。reportRequired=true 而未 markReported → 400（通报没留痕不许关）。
+   *
+   * 战役甲波一 T8 修复轮 1（评审 C1·Critical，裁决 Ruling-10 采乙案）：ASSESSED→CLOSED 这条边
+   * 语义是"无善后"，不是"assessmentBasis 字面等于 NO_LOSS"——旧写法把两者当同一件事，导致
+   * CYBER_BCDR/OUTSOURCING_FAILURE/STUCK_TRANSACTION_MAJOR/PRUDENTIAL_BREACH 四类（注册表
+   * allowedRemediationKinds 为空集，压根没有善后动作可挂）永远无法从 ASSESSED 直接结案——
+   * 它们的 assessmentScheme 是 IMPACT/MONETARY/SHORTFALL，assessmentBasis 取值集里根本没有
+   * 'NO_LOSS'（见 incident-type-registry.ts 的 ASSESSMENT_BASIS_BY_SCHEME），旧守卫会把它们
+   * 全部错误地打回"必须先进 RESOLVING"，而 RESOLVING 本该是"有善后动作要挂"的状态，这四类
+   * 根本挂不了任何善后（白名单为空），变成结案不可达的死结。spec §1：处置（善后）可选；
+   * ASSESSED→CLOSED 边本为"无善后"而设，不是"MONETARY 口径认定无损失"专属。DATA_BREACH/
+   * ASSET_NONCOMPLIANCE 的 allowedRemediationKinds 非空（各自可挂 CUSTOMER_NOTICE_LOGGED /
+   * ASSET_SUSPENSION_REF），故仍须先进 RESOLVING 挂动作，不受本次放宽影响。
    */
   async requestClose(incidentNo: string, actor: ApprovalActorContext): Promise<{ incidentNo: string; approvalNo: string }> {
     const row = await this.incidents.findByNo(incidentNo);
     // 战役甲波一 T5（经办桶断言，门不可绕）：结案入口复用 IncidentService.assertOperator
     // ——不在本服务另注入 AccessControlService（改动最小方案，见 task-5-brief Ruling）。
-    await this.incidents.assertOperator(getIncidentTypeConfig(row.type), actor);
+    const typeConfig = getIncidentTypeConfig(row.type);
+    await this.incidents.assertOperator(typeConfig, actor);
     const remediationReferenceNos = await this.incidents.findRemediations(incidentNo);
 
     if (row.status === IncidentStatus.ASSESSED) {
-      if (row.assessmentBasis !== 'NO_LOSS' || remediationReferenceNos.length > 0) {
-        throw new BadRequestException(`Incident ${incidentNo} assessment conclusion is not "no loss" or already has remediation linked — it must enter Resolving before close can be requested`);
+      const noRemediationPath = row.assessmentBasis === 'NO_LOSS' || typeConfig.allowedRemediationKinds.length === 0;
+      if (!noRemediationPath || remediationReferenceNos.length > 0) {
+        throw new BadRequestException(`Incident ${incidentNo} assessment conclusion is not "no loss" (or this type allows no remediation) or already has remediation linked — it must enter Resolving before close can be requested`);
       }
     } else if (row.status !== IncidentStatus.RESOLVING) {
       if (row.status === IncidentStatus.CLOSED) {
@@ -77,7 +91,7 @@ export class IncidentCloseWorkflowService {
 
     // 战役甲波一 Task 8：三元退役——结案链按类型分流不再手写两支判断，改查注册表的
     // closeActionType（十类终盘每一类都在 INCIDENT_TYPE_REGISTRY 里显式点名归属链）。
-    const actionType = getIncidentTypeConfig(row.type).closeActionType;
+    const actionType = typeConfig.closeActionType;
     const impact = this.describeCloseImpact(row, remediationReferenceNos);
 
     const approval = await this.approvals.createAndSubmit(
@@ -85,7 +99,12 @@ export class IncidentCloseWorkflowService {
         actionType,
         entityRef: row.incidentNo,
         traceId: row.traceId,
-        // 铁律⑥：快照零 UUID——审批页把 objectSnapshot 原样渲染
+        // 铁律⑥：快照零 UUID——审批页把 objectSnapshot 原样渲染。战役甲波一 T8 修复轮 1
+        // （评审 I1 c，Ruling-11）：IMPACT 口径类型定损时落的 impactSummary（人话摘要）与
+        // subjectRefs（新类型锚键值，如 affectedSystem/dataCategories，业务值非 UUID）此前
+        // 结案快照没带，裁决人看不到——只在有值时带（`?? undefined` 会被 JS 引擎序列化掉，
+        // 等价于"有值才带"）；subjectRefs 落库是 JSON 字符串，这里解回结构化对象供审批页
+        // 原样渲染，不是再包一层字符串。
         objectSnapshot: {
           incidentNo: row.incidentNo, customerNo: row.customerNo ?? null,
           type: row.type,
@@ -94,6 +113,8 @@ export class IncidentCloseWorkflowService {
           remediationReferenceNos,
           reported: !!row.reportedAt,
           impact,
+          ...(row.impactSummary ? { impactSummary: row.impactSummary } : {}),
+          ...(row.subjectRefs ? { subjectRefs: JSON.parse(row.subjectRefs) } : {}),
         },
       },
       { reason: `Close requested for incident ${row.incidentNo}`, traceId: row.traceId },
@@ -125,10 +146,16 @@ export class IncidentCloseWorkflowService {
 
     const row = await this.incidents.findByNo(event.entityRef);
     const updated = await this.incidents.close(row.incidentNo);
+    // 战役甲波一 T8 修复轮 1（评审 M4）：四条结案链裁决人不再只有 CFO（TECHSEC→CISO，
+    // PRUDENTIAL→SENIOR_MANAGEMENT_OFFICER），硬编码兜底会在事件没带 decisionByRole 时把
+    // 审计文案写错。改从该类型实际的结案链配置取第一步第一个角色；查不到（理论上不会发生，
+    // 每类都在 DEFAULT_APPROVAL_POLICIES 里注册）才落回 'CFO'，纯防御，不代表业务默认值。
+    const actionType = getIncidentTypeConfig(row.type).closeActionType;
+    const defaultDeciderRole = (DEFAULT_APPROVAL_POLICIES as Record<string, any>)[actionType]?.steps?.[0]?.roles?.[0] ?? 'CFO';
     await this.closeAudit(row, {
       action: AuditActions.INCIDENT_CLOSED, approvalNo: event.approvalNo, causationId: event.approvalId,
       fromStatus: row.status, toStatus: updated.status,
-      reason: `Close approved by ${event.decisionByRole ?? 'CFO'}`,
+      reason: `Close approved by ${event.decisionByRole ?? defaultDeciderRole}`,
     });
   }
 
