@@ -12,6 +12,7 @@ import { adminButtonClass } from '../components/common/adminButtonStyles';
 import { AdminBadge } from '../components/ui/AdminBadge';
 import { SidebarGroup, SidebarKV } from '../components/ui/SidebarPrimitives';
 import { PERMISSIONS } from '../rbac/permissions';
+import { deriveHeldGroups } from '../rbac/heldGroups';
 import { useAdminSession } from '../contexts/AdminSessionContext';
 
 /* ── Types ────────────────────────────────────────────────────── */
@@ -208,18 +209,15 @@ const RoleDetailPage = () => {
     return () => window.clearTimeout(t);
   }, [notice]);
 
-  /* ── Derive held permission groups from returned routes ── */
-
+  /* ── Derive held permission groups from returned routes ──
+   * 子集完备判据（评审 Ruling-12，C1 修复）：纯函数 deriveHeldGroups 见
+   * admin-web/src/rbac/heldGroups.ts 头注释——组 G 持有 ⟺ G 的全部码 ⊆ 角色持码集，
+   * 不是"持有任一码即持有该组"（后者在同一码属多个组时会误判）。
+   */
   const heldGroups = useMemo(() => {
-    const s = new Set<string>();
-    if (!catalog) return s;
-    for (const p of detail?.permissions ?? []) {
-      const groups = catalog.permCodeToGroups[p.code];
-      if (groups) {
-        for (const g of groups) s.add(g);
-      }
-    }
-    return s;
+    if (!catalog) return new Set<string>();
+    const heldCodes = (detail?.permissions ?? []).map((p) => p.code);
+    return deriveHeldGroups(heldCodes, catalog.permCodeToGroups);
   }, [detail, catalog]);
 
   /* ── Visible domains: only those with at least one held bucket ── */

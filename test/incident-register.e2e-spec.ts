@@ -114,8 +114,9 @@ describe('Incident register e2e (平账三期 · 事故登记, Task 13)', () => 
     const aed = await (prisma as any).asset.findFirst({ where: { currency: 'AED' } });
     const usdt = await (prisma as any).asset.findFirst({ where: { currency: 'USDT' } });
     if (!aed?.tbLedgerId || !usdt?.tbLedgerId) throw new Error('Fixture assets AED/USDT not seeded — run `bash scripts/stack.sh reset self` first.');
-    // 甲波一 T5 连锁修复：真查种子管理员 id（同 scenario 7 loginAdmin 用的四个邮箱），
-    // 供上面四个 makeActor(...) 工厂用——assertOperator 走的是真 DB 查询，捏造 id 查不到组。
+    // 甲波一 T5 连锁修复：真查种子管理员 id（CFO/MLRO/TREASURY_OFFICER 三个邮箱——T9 修1
+    // 起 OPS_OFFICER 已随 ops() 工厂一并删除，见上方 T9 注释），供上面三个 makeActor(...)
+    // 工厂用——assertOperator 走的是真 DB 查询，捏造 id 查不到组。
     const [cfoUser, mlroUser, treasuryUser] = await Promise.all([
       (prisma as any).user.findFirst({ where: { email: 'cfo@fiatx.com' } }),
       (prisma as any).user.findFirst({ where: { email: 'mlro@fiatx.com' } }),
@@ -584,7 +585,11 @@ describe('Incident register e2e (平账三期 · 事故登记, Task 13)', () => 
     expect(treasuryDecideRes.status).toBe(403);
     expect((await incidents.findByNo(probeIncidentNo)).status).not.toBe('CLOSED');
 
-    // CFO 没有 INCIDENT_WRITE——守卫层直接拦下，压根进不了控制器逻辑；
+    // M1 修准（T9 修1）：CFO 持 INCIDENT_FIN_WRITE（T9 绑定），route 层五桶 OR 放行，能
+    // 进控制器；真正挡它的是 IncidentCloseWorkflowService.requestClose() 里的
+    // IncidentService.assertOperator（服务层门，见 incident.service.ts）——这张探针是
+    // CLIENT_SHORTFALL（FUNDS 族，需 cap.incident.funds），CFO 只持 cap.incident.fin，
+    // 家族不对，403 在服务层而非守卫层。
     // 「开结案单的人」与「批结案单的人」角色互斥，证明自批死锁不存在。
     const cfoCloseRes = await request(server)
       .post(`/admin/incidents/${probeIncidentNo}/close`)

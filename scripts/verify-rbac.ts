@@ -644,7 +644,7 @@ function runS6FrontendBackendCodeDiff(): void {
 // 平账二期 Task 8（2026-09-05）落地五条控制器后清空——白名单再次为空。
 //
 // 战役甲波一 T9（Ruling-9）：以下五个 cap.incident.* 码是 IncidentService.assertOperator
-// 的服务层门标记（rbac.catalog.ts :469-473 附近，method: 'MARKER'），不是真实路由——
+// 的服务层门标记（rbac.catalog.ts :474-478，method: 'MARKER'），不是真实路由——
 // 设计如此，不是腐烂死行，S7 判定逻辑本身不放宽，只在这张白名单里显式点名这五个码。
 const S7_PENDING_DEAD_ROWS = new Set<string>([
   'cap.incident.funds',
@@ -715,7 +715,9 @@ function runS7CatalogDeadRows(): void {
     'S7 catalog 字典真实性（死行仅限 S7_PENDING_DEAD_ROWS 白名单）',
     unexpectedDeadRows.length === 0,
     unexpectedDeadRows.length === 0
-      ? `catalog ${RBAC_PERMISSION_DEFINITIONS.length} 行中死行 ${deadRows.length} 个（白名单已清零，字典 100% 对应真实端点）`
+      // M3 修准（T9 修1）：白名单不再恒为空——T9 起常驻 5 条 cap.incident.* 服务层门标记码
+      // （Ruling-6），如实报"白名单外零死行"，不再说"已清零"。
+      ? `catalog ${RBAC_PERMISSION_DEFINITIONS.length} 行中死行 ${deadRows.length} 个，白名单外零死行（白名单 ${S7_PENDING_DEAD_ROWS.size} 条，见 Ruling-6：cap.incident.* 服务层门标记码，非路由）`
       : `以下 catalog 行找不到对应的真实 controller 端点，且不在白名单内: ${unexpectedDeadRows.map((d) => d.code).join(', ')}`,
   );
 }
@@ -778,6 +780,13 @@ interface DirectionalProbe {
   role: string; // ROLE_LOGIN 的前缀值
   expect: 'DENY' | 'ALLOW';
   body?: unknown;
+  /**
+   * 仅 ALLOW 探针可选（战役甲波一 T9 修1，评审 M4）：请求成功（非 403）后做收尾清理——
+   * 本脚本一贯的行为化写法会真建出业务行（ALLOW 探针不是只读探测），不清理就留一条真实
+   * 事故单残留在库里，撞 T11 demo 剧本按事故清单遍历/计数。清理本身失败只报一条独立的
+   * check() 失败，不影响探针本身的 ALLOW/DENY 判据。
+   */
+  cleanup?: (ctx: { json: any; token: string }) => Promise<void>;
 }
 
 const PROBES: DirectionalProbe[] = [
@@ -1002,12 +1011,17 @@ const PROBES: DirectionalProbe[] = [
   //    （incident-type-registry.ts）。正向：技术官持 INCIDENT_TECH_WRITE，登得进
   //    TECH_SECURITY 族；反向两条互证"粗门放行、细门仍挡"不是摆设——金库持 INCIDENT_WRITE
   //    （FUNDS 族）却挡不住登 CYBER_BCDR，技术官反过来也登不了 FUNDS 族的
-  //    UNAUTHORIZED_OUTFLOW。assertOperator 在 workflow.register() 里先于任何 DTO 内容
-  //    校验跑（见 incident-registration-workflow.service.ts），DENY 两条不需要凑满 title/
-  //    description 等其余必填——403 会先于 400 出现。ALLOW 一条需要凑满 CYBER_BCDR 的两个
-  //    必填锚（affectedSystem/bcdrTriggered，见 incident-type-registry.ts），验证的正是
-  //    RegisterIncidentBodyDto.subjectRefs 这条此前从未有真实 HTTP 走过的链路
-  //    （T5 修2 头注释：HTTP 真链路验证由 T9 正向探针承接）。
+  //    UNAUTHORIZED_OUTFLOW。
+  //    M2 修准（T9 修1）：请求顺序其实是 ValidationPipe（controller 级
+  //    `@UsePipes(new ValidationPipe(...))`，框架层，先于控制器方法体跑）→ 控制器方法体
+  //    → workflow.register() 里的 assertOperator（业务层，见
+  //    incident-registration-workflow.service.ts）——ValidationPipe 先于 assertOperator，
+  //    不是反过来。下面两条 DENY 探针特意把 title/description 一并带全（满足
+  //    ValidationPipe 的必填校验），才能真正跑到 assertOperator 那一步拿到 403；若省掉
+  //    title/description，ValidationPipe 会先吐 400，探针就测不到族门这件事了。ALLOW 一条
+  //    额外带 CYBER_BCDR 的两个必填锚（affectedSystem/bcdrTriggered，见
+  //    incident-type-registry.ts），验证的正是 RegisterIncidentBodyDto.subjectRefs 这条
+  //    此前从未有真实 HTTP 走过的链路（T5 修2 头注释：HTTP 真链路验证由 T9 正向探针承接）。
   {
     section: '事故登记按族(T9)', name: '技术官 可以 登记技安事故(CYBER_BCDR)', method: 'POST',
     routePattern: '/admin/incidents', path: '/admin/incidents',
@@ -1017,6 +1031,25 @@ const PROBES: DirectionalProbe[] = [
       title: 'RBAC probe — cyber/BCDR incident',
       description: 'verify:rbac positive probe for CYBER_BCDR registration by TECH_OFFICER',
       subjectRefs: { affectedSystem: 'RBAC-PROBE-SYS', bcdrTriggered: true },
+    },
+    // M4 修复（T9 修1）：这条探针真建出一条 CYBER_BCDR 事故（REGISTERED），不是只读探测——
+    // 不清理会在库里留一条真实事故行，撞 T11 demo 剧本按事故清单遍历/计数。登记成功后立即
+    // 用同一 token（tech_admin 持 cap.incident.tech，REGISTERED→WITHDRAWN 是显式迁移表允许
+    // 的边）撤回，reason 写明"probe cleanup"，把探针自己的脚印收干净。
+    cleanup: async ({ json, token }) => {
+      const incidentNo = json?.incidentNo;
+      if (!incidentNo) {
+        check('[事故登记按族(T9)] 探针收尾清理', false, '响应体没有 incidentNo，无法撤回');
+        return;
+      }
+      const { status } = await call('POST', `/admin/incidents/${incidentNo}/withdraw`, token, {
+        reason: 'probe cleanup',
+      });
+      check(
+        '[事故登记按族(T9)] 探针收尾清理 · 撤回自建事故',
+        status === 201,
+        `POST /admin/incidents/${incidentNo}/withdraw → ${status}（期望 201，把探针建出的 ${incidentNo} 转 WITHDRAWN）`,
+      );
     },
   },
   {
@@ -1039,7 +1072,7 @@ async function runDirectionalProbe(tokens: Record<string, string>, p: Directiona
     check(`[${p.section}] ${p.name}`, false, `角色 ${p.role} 没有可用 token（登录步骤失败？）`);
     return;
   }
-  const { status } = await call(p.method, p.path, token, p.body);
+  const { status, json } = await call(p.method, p.path, token, p.body);
 
   if (p.expect === 'DENY') {
     const ok = status === 403;
@@ -1063,6 +1096,14 @@ async function runDirectionalProbe(tokens: Record<string, string>, p: Directiona
     expectLabel = '2xx';
   }
   check(`[${p.section}] ${p.name}`, ok, `${p.role}@ ${p.method} ${p.path} → ${status}（期望 ${expectLabel}）`);
+
+  if (ok && p.cleanup) {
+    try {
+      await p.cleanup({ json, token });
+    } catch (e: any) {
+      check(`[${p.section}] ${p.name} · 探针收尾清理`, false, `清理失败: ${String(e?.message ?? e)}`);
+    }
+  }
 }
 
 // ══════════════════════ 档位升级读安全（波三终审修三）══════════════════════
