@@ -379,7 +379,7 @@ it.each([
 ```
 
 - [ ] **Step 2-4: 红→实现→绿**（含既有"未标记已通报不许结案"守卫回归）
-- [ ] **Step 5: MAKER_GROUP_BY_POLICY 加两行**（delivery-checklist 硬条款——S5 自批死锁闸只遍历这张人工表，表外策略不受保护）：打开 `scripts/verify-rbac.ts` 找到 `MAKER_GROUP_BY_POLICY`，照既有 `INCIDENT_CLOSE_SECURITY`/`INCIDENT_CLOSE_FINANCIAL` 两行的形状追加：`INCIDENT_CLOSE_TECHSEC` → maker 组 `['INCIDENT_TECH_WRITE','INCIDENT_DATA_WRITE','INCIDENT_OPS_WRITE']`（三族经办均走此链）；`INCIDENT_CLOSE_PRUDENTIAL` → `['INCIDENT_FIN_WRITE']`。随后跑 S5 确认：CISO 不持三个经办桶、SMO 不持财务经办桶（按 T9 绑定本应天然成立，S5 红了说明绑定错）
+- [ ] **Step 5: MAKER_GROUP_BY_POLICY 扩表**（delivery-checklist 硬条款——S5 自批死锁闸只遍历这张人工表，表外策略不受保护）：`scripts/verify-rbac.ts:243` 该表形状为 `Record<string, string>`（一策略一 maker 组，既有 `INCIDENT_CLOSE_SECURITY: 'INCIDENT_WRITE'` 在 :266）。`INCIDENT_CLOSE_PRUDENTIAL: 'INCIDENT_FIN_WRITE'` 直接加一行；`INCIDENT_CLOSE_TECHSEC` 的 maker 横跨三个经办组（技安/数据/运营），单串装不下——**把该表值类型放宽为 `string | string[]`，消费处（S5 遍历逻辑，约 :266 后）对数组逐组做同一校验**（改动最小、语义不变），然后 `INCIDENT_CLOSE_TECHSEC: ['INCIDENT_TECH_WRITE','INCIDENT_DATA_WRITE','INCIDENT_OPS_WRITE']`。跑 S5 确认：CISO 不持三个经办桶、SMO 不持财务经办桶（按 T9 绑定本应天然成立，S5 红了说明绑定错）；**先注掉一行绑定证明 S5 会红再恢复**（报绿先证红）
 - [ ] **Step 6: 闸① + commit** `feat(甲波一T8): 结案四链——CISO单步/高管单步入审批常量+handler·三元退役为注册表查链·MAKER表两行`
 
 ---
