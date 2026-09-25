@@ -12,19 +12,25 @@ export interface IncidentTypeConfig {
   family: IncidentFamily;
   label: string;
   establishedBy: string; // 设立出处（注记级，非依据码）
-  operatorGroup: string; // 经办桶（Task 9 的组名）
+  operatorGroup: string; // 经办桶（Task 9 路由五桶 OR / 角色绑定用的组名——文档性字段，
+  // 甲波一 T5 修1 起服务层断言不再读它，见 operatorMarkerCode）
   closeActionType: string; // ApprovalActionTypes.* 键
   reportBasisCandidates: readonly string[]; // INCIDENT_REPORT_BASES 键，空集=不可勾通报
   requiredAnchors: readonly string[]; // 锚键：存量列名或 subjectRefs 内键
   assessmentScheme: AssessmentScheme;
   allowedRemediationKinds: readonly string[];
   enabled: boolean;
+  // 甲波一 T5 修1（Ruling-6，C1 修复）：族独占能力码——rbac.catalog.ts 里 RBAC_PERMISSION_
+  // DEFINITIONS 新增的五个 cap.incident.* 标记码之一，每码只挂一个组，IncidentService.
+  // assertOperator 用 accessControl.hasPermission(userId, operatorMarkerCode) 精确判定，
+  // 不走"权限码反查所属组"（该反查在码被多组共享时会把持有人一并抬进所有共享组）。
+  operatorMarkerCode: string;
 }
 
 export const INCIDENT_TYPE_REGISTRY: Record<string, IncidentTypeConfig> = {
   UNAUTHORIZED_OUTFLOW: {
     family: 'FUNDS', label: 'Unauthorized outflow', establishedBy: 'CRM IV.E.5 / V.D.2',
-    operatorGroup: 'INCIDENT_WRITE', closeActionType: 'INCIDENT_CLOSE_SECURITY',
+    operatorGroup: 'INCIDENT_WRITE', operatorMarkerCode: 'cap.incident.funds', closeActionType: 'INCIDENT_CLOSE_SECURITY',
     reportBasisCandidates: ['CRM_IV_E_5', 'CRM_V_D_2'],
     requiredAnchors: [], // 存量：现有 service 校验原样保留（Task 5），锚声明空=沿用旧校验
     assessmentScheme: 'MONETARY',
@@ -32,7 +38,7 @@ export const INCIDENT_TYPE_REGISTRY: Record<string, IncidentTypeConfig> = {
   },
   LARGE_UNEXPLAINED: {
     family: 'FUNDS', label: 'Large unexplained discrepancy', establishedBy: 'CRM IV.E.5 / V.D.2',
-    operatorGroup: 'INCIDENT_WRITE', closeActionType: 'INCIDENT_CLOSE_FINANCIAL',
+    operatorGroup: 'INCIDENT_WRITE', operatorMarkerCode: 'cap.incident.funds', closeActionType: 'INCIDENT_CLOSE_FINANCIAL',
     reportBasisCandidates: ['CRM_IV_E_5', 'CRM_V_D_2'],
     requiredAnchors: [],
     assessmentScheme: 'MONETARY',
@@ -40,7 +46,7 @@ export const INCIDENT_TYPE_REGISTRY: Record<string, IncidentTypeConfig> = {
   },
   CLIENT_SHORTFALL: {
     family: 'FUNDS', label: 'Client shortfall', establishedBy: 'CRM Client Money',
-    operatorGroup: 'INCIDENT_WRITE', closeActionType: 'INCIDENT_CLOSE_FINANCIAL',
+    operatorGroup: 'INCIDENT_WRITE', operatorMarkerCode: 'cap.incident.funds', closeActionType: 'INCIDENT_CLOSE_FINANCIAL',
     reportBasisCandidates: ['CRM_IV_E_5', 'CRM_V_D_2'],
     requiredAnchors: [],
     assessmentScheme: 'MONETARY',
@@ -48,48 +54,49 @@ export const INCIDENT_TYPE_REGISTRY: Record<string, IncidentTypeConfig> = {
   },
   CYBER_BCDR: {
     family: 'TECH_SECURITY', label: 'Cyber / BCDR incident', establishedBy: 'TIR Rulebook K + H',
-    operatorGroup: 'INCIDENT_TECH_WRITE', closeActionType: 'INCIDENT_CLOSE_TECHSEC',
+    operatorGroup: 'INCIDENT_TECH_WRITE', operatorMarkerCode: 'cap.incident.tech', closeActionType: 'INCIDENT_CLOSE_TECHSEC',
     reportBasisCandidates: ['TIR_K_H'],
     requiredAnchors: ['affectedSystem', 'bcdrTriggered'], assessmentScheme: 'IMPACT',
     allowedRemediationKinds: [], enabled: true,
   },
   DATA_BREACH: {
     family: 'DATA', label: 'Personal data breach', establishedBy: 'PDPL 45/2021 Art.9 + TIR II.C',
-    operatorGroup: 'INCIDENT_DATA_WRITE', closeActionType: 'INCIDENT_CLOSE_TECHSEC',
+    operatorGroup: 'INCIDENT_DATA_WRITE', operatorMarkerCode: 'cap.incident.data', closeActionType: 'INCIDENT_CLOSE_TECHSEC',
     reportBasisCandidates: ['PDPL_ART_9', 'TIR_II_C_24H'],
     requiredAnchors: ['affectedCustomerCount', 'dataCategories'], assessmentScheme: 'IMPACT',
     allowedRemediationKinds: ['CUSTOMER_NOTICE_LOGGED'], enabled: true,
   },
   OUTSOURCING_FAILURE: {
     family: 'TECH_SECURITY', label: 'Outsourcing failure', establishedBy: 'Company IV.H.1',
-    operatorGroup: 'INCIDENT_TECH_WRITE', closeActionType: 'INCIDENT_CLOSE_TECHSEC',
+    operatorGroup: 'INCIDENT_TECH_WRITE', operatorMarkerCode: 'cap.incident.tech', closeActionType: 'INCIDENT_CLOSE_TECHSEC',
     reportBasisCandidates: ['COMPANY_IV_H_1'],
     requiredAnchors: ['vendor', 'serviceImpact'], assessmentScheme: 'IMPACT',
     allowedRemediationKinds: [], enabled: true,
   },
   ASSET_NONCOMPLIANCE: {
     family: 'OPERATIONS', label: 'Asset non-compliance', establishedBy: 'BD IV.E (duty = immediate suspension, not reporting)',
-    operatorGroup: 'INCIDENT_OPS_WRITE', closeActionType: 'INCIDENT_CLOSE_TECHSEC',
+    operatorGroup: 'INCIDENT_OPS_WRITE', operatorMarkerCode: 'cap.incident.ops', closeActionType: 'INCIDENT_CLOSE_TECHSEC',
     reportBasisCandidates: [], requiredAnchors: ['assetCode'], assessmentScheme: 'IMPACT',
     allowedRemediationKinds: ['ASSET_SUSPENSION_REF'], enabled: true,
   },
   STUCK_TRANSACTION_MAJOR: {
     family: 'OPERATIONS', label: 'Major stuck transaction', establishedBy: 'TIR K.1 + I.H.1 + CRM I.E.4',
-    operatorGroup: 'INCIDENT_OPS_WRITE', closeActionType: 'INCIDENT_CLOSE_FINANCIAL',
+    operatorGroup: 'INCIDENT_OPS_WRITE', operatorMarkerCode: 'cap.incident.ops', closeActionType: 'INCIDENT_CLOSE_FINANCIAL',
     reportBasisCandidates: ['TIR_K_H'],
     requiredAnchors: ['orderNo', 'customerNo', 'amount'], assessmentScheme: 'MONETARY',
     allowedRemediationKinds: [], enabled: true,
   },
   PRUDENTIAL_BREACH: {
     family: 'FINANCIAL', label: 'Prudential (NLA) breach', establishedBy: 'Company VI.C / VI.F',
-    operatorGroup: 'INCIDENT_FIN_WRITE', closeActionType: 'INCIDENT_CLOSE_PRUDENTIAL',
+    operatorGroup: 'INCIDENT_FIN_WRITE', operatorMarkerCode: 'cap.incident.fin', closeActionType: 'INCIDENT_CLOSE_PRUDENTIAL',
     reportBasisCandidates: ['COMPANY_VI_C_F'],
     requiredAnchors: ['metric', 'shortfallAmount'], assessmentScheme: 'SHORTFALL',
     allowedRemediationKinds: [], enabled: true,
   },
   COMPLAINT_ESCALATION: {
     family: 'CUSTOMER', label: 'Complaint escalation (wave-5 placeholder)', establishedBy: 'Market Conduct III.A',
-    operatorGroup: 'INCIDENT_OPS_WRITE', closeActionType: 'INCIDENT_CLOSE_FINANCIAL', // 占位值，enabled=false 使其不可达；波五改
+    // 占位值，enabled=false 使其不可达；波五改。operatorMarkerCode 占位给 cap.incident.ops（裁决点名）。
+    operatorGroup: 'INCIDENT_OPS_WRITE', operatorMarkerCode: 'cap.incident.ops', closeActionType: 'INCIDENT_CLOSE_FINANCIAL',
     reportBasisCandidates: [], requiredAnchors: [], assessmentScheme: 'IMPACT',
     allowedRemediationKinds: [], enabled: false,
   },

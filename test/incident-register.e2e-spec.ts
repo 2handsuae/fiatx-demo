@@ -80,11 +80,12 @@ describe('Incident register e2e (平账三期 · 事故登记, Task 13)', () => 
   let aedAssetId: string; let aedCode: string; let aedDecimals: number; let aedNetwork: string;
   let usdtAssetId: string; let usdtCode: string; let usdtDecimals: number; let usdtNetwork: string;
   let TODAY: string;
-  // 甲波一 T5 连锁修复：assertOperator（经办桶断言）经 AccessControlService.getUserPermissionGroups
-  // 真查 userRole/rolePermission 表——makeActor 原来的 `uuid-${userNo}` 是纯捏造 id，查不到任何
-  // 绑定，会让本文件里所有直调 IncidentService/IncidentCloseWorkflowService 的用例改为清一色
-  // ForbiddenException。改用 beforeAll 里查到的真种子管理员 id（userNo 仍保留 E2E_INC_* 展示串，
-  // 不影响 registeredByUserId 等既有断言——本文件此前未断言过该字符串，见 grep 核实）。
+  // 甲波一 T5 连锁修复（修1 Ruling-6 起改吃 AccessControlService.hasPermission，不再是
+  // getUserPermissionGroups）：assertOperator（经办桶断言）真查 userRole/rolePermission
+  // 表——makeActor 原来的 `uuid-${userNo}` 是纯捏造 id，查不到任何绑定，会让本文件里所有
+  // 直调 IncidentService/IncidentCloseWorkflowService 的用例改为清一色 ForbiddenException。
+  // 改用 beforeAll 里查到的真种子管理员 id（userNo 仍保留 E2E_INC_* 展示串，不影响
+  // registeredByUserId 等既有断言——本文件此前未断言过该字符串，见 grep 核实）。
   let opsUserId: string; let cfoUserId: string; let mlroUserId: string; let treasuryUserId: string;
   const ops = () => makeActor(opsUserId, 'E2E_INC_OPS', 'OPS_OFFICER');
   const cfo = () => makeActor(cfoUserId, 'E2E_INC_CFO', 'CFO');

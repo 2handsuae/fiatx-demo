@@ -76,7 +76,14 @@ export type PermissionGroup =
   | 'SWAP_FEE_LEVEL_READ'
   | 'SWAP_FEE_LEVEL_WRITE'
   | 'INCIDENT_READ'
-  | 'INCIDENT_WRITE';
+  | 'INCIDENT_WRITE'
+  // 甲波一 T5 修1（Ruling-6）：本轮只加这四个组名的类型成员，供五个族独占能力码
+  // （下方 cap.incident.* 五行）各自归组用；桶目录/路由五桶 OR/角色绑定仍是 T9 的范围，
+  // 这四组眼下没有任何 route() 引用、没有任何角色持有——只是类型层占位。
+  | 'INCIDENT_TECH_WRITE'
+  | 'INCIDENT_DATA_WRITE'
+  | 'INCIDENT_OPS_WRITE'
+  | 'INCIDENT_FIN_WRITE';
 
 export interface RbacPermissionDefinition {
   code: string;
@@ -450,6 +457,20 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
   route('POST', '/admin/incidents/:incidentNo/regulator-report/mark', 'Mark regulator report as filed', ['INCIDENT_WRITE']),
   route('POST', '/admin/incidents/:incidentNo/close', 'Request incident closure (opens approval)', ['INCIDENT_WRITE']),
   route('POST', '/admin/incidents/:incidentNo/withdraw', 'Withdraw a mis-registered incident', ['INCIDENT_WRITE']),
+
+  // 甲波一 T5 修1（Ruling-6，C1 修复）：五个族独占能力码——不是路由，是
+  // IncidentService.assertOperator 的服务层门标记。裁决背景：反查"权限码属于哪些组"在码
+  // 被多组共享时会把持有人一并抬进所有共享组（GET /admin/incidents 码同属 INCIDENT_READ/
+  // INCIDENT_WRITE 两组；T9 后 12 条路由码同属五桶），门就失效了。这五码分别只挂一个组，
+  // hasPermission(userId, code) 精确判定"持有人是否真在这一个组"，不走反查。
+  // method/path 是占位描述字段（不产生真实路由，S7 catalog-dead-row 检查会因此把这五行
+  // 判成"无对应 controller 端点"——这是设计如此，S7 是 verify-rbac.ts 的静态判据，需要 Task 9
+  // 或专门的 S7 豁免处理，本轮未动 verify-rbac.ts，见 task-5-report.md 修复轮说明）。
+  { code: 'cap.incident.funds', name: 'Incident operator capability: FUNDS family', description: 'Incident family operator capability (service-layer gate marker, not a route)', method: 'MARKER', path: '/internal/incident-capability/funds', groups: ['INCIDENT_WRITE'] },
+  { code: 'cap.incident.tech', name: 'Incident operator capability: TECH_SECURITY family', description: 'Incident family operator capability (service-layer gate marker, not a route)', method: 'MARKER', path: '/internal/incident-capability/tech', groups: ['INCIDENT_TECH_WRITE'] },
+  { code: 'cap.incident.data', name: 'Incident operator capability: DATA family', description: 'Incident family operator capability (service-layer gate marker, not a route)', method: 'MARKER', path: '/internal/incident-capability/data', groups: ['INCIDENT_DATA_WRITE'] },
+  { code: 'cap.incident.ops', name: 'Incident operator capability: OPERATIONS family', description: 'Incident family operator capability (service-layer gate marker, not a route)', method: 'MARKER', path: '/internal/incident-capability/ops', groups: ['INCIDENT_OPS_WRITE'] },
+  { code: 'cap.incident.fin', name: 'Incident operator capability: FINANCIAL family', description: 'Incident family operator capability (service-layer gate marker, not a route)', method: 'MARKER', path: '/internal/incident-capability/fin', groups: ['INCIDENT_FIN_WRITE'] },
 
   // TB Ledger
   route('GET', '/admin/tb/accounts', 'List TB account registry', ['LEDGER_ACCOUNT_READ']),

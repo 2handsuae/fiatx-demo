@@ -29,20 +29,24 @@ export class IncidentService {
     private readonly accessControl: AccessControlService,
   ) {}
 
-  // ── 经办桶断言（战役甲波一 T5，高危面）：register 与七个经办入口共用的门——
-  // 按事故当前类型（或登记时的目标类型）取注册表 operatorGroup，校验 actor 持有该组。
-  // 裁决 Ruling-5：不给 SUPER_ADMIN 开特例，纯组包含检查（超管的种子绑定本就展开为
-  // 全量组，天然通过，不用代码里特判）。本方法保持 public——IncidentCloseWorkflowService
-  // 的 requestClose（结案入口，铁律③跨主体协作只在 workflow）复用它，省去第二次注入
-  // AccessControlService（task-5-brief Ruling：选改动最小方案）。
+  // ── 经办桶断言（战役甲波一 T5，高危面；修1 Ruling-6 重设计）：register 与九个经办
+  // 入口共用的门——按事故当前类型（或登记时的目标类型）取注册表 operatorMarkerCode
+  // （族独占能力码，rbac.catalog.ts 的 cap.incident.* 五行，每码只挂一个组），
+  // 用 hasPermission 精确判定 actor 是否持有该码。原设计用 getUserPermissionGroups
+  // "权限码反查所属组"，在码被多组共享时会把持有人一并抬进所有共享组（GET 路由码同属
+  // READ/WRITE 两组、T9 后 12 条incident路由码同属五桶）——门形同虚设（C1 Critical）。
+  // 裁决 Ruling-5：不给 SUPER_ADMIN 开特例——hasPermission 内部对 SUPER_ADMIN 走
+  // getUserPermissionCodes 全码捷径，天然通过，不用代码里特判。本方法保持 public——
+  // IncidentCloseWorkflowService 的 requestClose（结案入口，铁律③跨主体协作只在
+  // workflow）复用它，省去第二次注入 AccessControlService（改动最小方案）。
   async assertOperator(cfg: IncidentTypeConfig, actor: ApprovalActorContext): Promise<void> {
-    const groups = await this.accessControl.getUserPermissionGroups(actor.userId);
-    if (!groups.includes(cfg.operatorGroup)) {
-      throw new ForbiddenException(`Actor lacks operator group "${cfg.operatorGroup}" required for ${cfg.family} incidents (${cfg.label})`);
+    const allowed = await this.accessControl.hasPermission(actor.userId, cfg.operatorMarkerCode);
+    if (!allowed) {
+      throw new ForbiddenException(`Actor lacks operator capability "${cfg.operatorMarkerCode}" required for ${cfg.family} incidents (${cfg.label})`);
     }
   }
 
-  /** 取现有事故行 + 按其现有类型做经办桶断言——investigation/notes/escalate/assess/remediations/withdraw 共用。 */
+  /** 取现有事故行 + 按其现有类型做经办桶断言——investigation/notes/escalate/assess/remediations/withdraw/saveReportDraft/markReported 共用。 */
   private async assertOperatorForIncident(incidentNo: string, actor: ApprovalActorContext) {
     const row = await this.findByNo(incidentNo);
     await this.assertOperator(getIncidentTypeConfig(row.type), actor);
@@ -245,10 +249,19 @@ export class IncidentService {
     }
   }
 
+  // 甲波一 T5 修1（Ruling-8，I2 修复）：requiredAnchors 里与存量列同名的三个键
+  // （assetCode/customerNo/amount）改源——这三列是审计主体挂载与按客户筛选靠的存量列
+  // （见 recordAudit/list()），值必须从 DTO 顶层取、落存量列，不许塞进 subjectRefs
+  // 造出"同一份数据两个存放位置"的分裂。其余键（新类型专属，如
+  // affectedSystem/dataCategories/orderNo/metric 等）继续从 subjectRefs 取。
+  private static readonly TOP_LEVEL_ANCHOR_KEYS = new Set(['assetCode', 'customerNo', 'amount']);
+
   /** 新七类锚键校验（注册表 requiredAnchors 驱动）：缺键/空串一律 400，报缺哪个键。 */
   private assertAnchors(cfg: IncidentTypeConfig, dto: RegisterIncidentDto): void {
     for (const key of cfg.requiredAnchors) {
-      const value = dto.subjectRefs?.[key];
+      const value = IncidentService.TOP_LEVEL_ANCHOR_KEYS.has(key)
+        ? (dto as unknown as Record<string, unknown>)[key]
+        : dto.subjectRefs?.[key];
       if (value == null || value === '') {
         throw new BadRequestException(`Incident type ${dto.type} requires anchor "${key}" in subjectRefs`);
       }
@@ -356,7 +369,7 @@ export class IncidentService {
    * （勘定结论：审计只证"何时开始起草"与"何时通报"两个时点）；再次保存只更新草案字段，不重记该码。
    */
   async saveReportDraft(incidentNo: string, draft: string, actor: ApprovalActorContext): Promise<{ incidentNo: string }> {
-    const row = await this.findByNo(incidentNo);
+    const row = await this.assertOperatorForIncident(incidentNo, actor);
     const isFirst = !row.reportDraft;
     const patch: Record<string, unknown> = { reportDraft: draft };
     if (isFirst) patch.reportDraftedAt = new Date();
@@ -371,7 +384,7 @@ export class IncidentService {
 
   /** 标已通报：前置 reportRequired && reportDraft 非空；落 reportedAt/reportedByUserId，软标不推状态。 */
   async markReported(incidentNo: string, dto: MarkReportedDto, actor: ApprovalActorContext): Promise<{ incidentNo: string }> {
-    const row = await this.findByNo(incidentNo);
+    const row = await this.assertOperatorForIncident(incidentNo, actor);
     if (!row.reportRequired || !row.reportDraft) {
       throw new BadRequestException('Reporting must be determined required, and a report draft must already exist, before marking as reported');
     }

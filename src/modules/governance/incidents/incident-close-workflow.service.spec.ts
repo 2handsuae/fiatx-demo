@@ -1,4 +1,4 @@
-import { BadRequestException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException } from '@nestjs/common';
 import { IncidentCloseWorkflowService } from './incident-close-workflow.service';
 import { IncidentStatus as S, IncidentTypes as T } from './incident.constants';
 
@@ -78,6 +78,16 @@ describe('IncidentCloseWorkflowService (Task 7)', () => {
     it('reportRequired=true and already markReported → allowed', async () => {
       const { wf } = makeWorkflow({ incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', type: T.CLIENT_SHORTFALL, status: S.RESOLVING, reportRequired: true, reportedAt: new Date(), traceId: 't' } });
       await expect(wf.requestClose('INC1', treasury)).resolves.toBeDefined();
+    });
+
+    // 甲波一 T5 修1（Ruling-7/I3 修复）：close 是十入口第 7 个——assertOperator 拒绝时，
+    // 结案入口必须在提交审批之前就短路，不许先造出一份审批实例再拒绝。
+    it('actor lacks the operator capability → Forbidden, createAndSubmit untouched (十门失效验证之close)', async () => {
+      const { wf, incidents, approvals } = makeWorkflow({ incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', type: T.CLIENT_SHORTFALL, status: S.RESOLVING, assessmentBasis: 'NO_LOSS', reportRequired: false, traceId: 't' } });
+      incidents.assertOperator.mockRejectedValueOnce(new ForbiddenException('no capability'));
+      await expect(wf.requestClose('INC1', treasury)).rejects.toThrow(ForbiddenException);
+      expect(approvals.createAndSubmit).not.toHaveBeenCalled();
+      expect(incidents.markCloseRequested).not.toHaveBeenCalled();
     });
   });
 

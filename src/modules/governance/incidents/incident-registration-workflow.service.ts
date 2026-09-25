@@ -6,6 +6,7 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { IncidentTypes, RegisterIncidentDto } from './incident.constants';
 import { IncidentService } from './incident.service';
+import { getIncidentTypeConfig } from './incident-type-registry';
 import { ApprovalActorContext } from '../approvals/constants/approval.constants';
 import { RecordDispositionDto } from '../../clearing-settle/reconciliation/dto/disposition.dto';
 
@@ -38,6 +39,13 @@ export class IncidentRegistrationWorkflowService {
 
   /** 事故登记的真正入口（HTTP 层调这个，不直接调 IncidentService.register）。 */
   async register(dto: RegisterIncidentDto, actor: ApprovalActorContext): Promise<{ incidentNo: string }> {
+    // 甲波一 T5 修1（M1 修复）：经办桶断言必须先于任何跨主体写。下面的原子路
+    // （UNAUTHORIZED_OUTFLOW 缺 sourceDispositionNo 时）会先调 dispositionLink.record()
+    // 把定性行落库，再拿新出的 dispositionNo 顶上走 incidents.register()——若断言留在
+    // IncidentService.register() 内部才做，一个不持经办桶的 actor 会先把定性行写出来，
+    // 才在下一步 403，留下一条永远等不到 incidentNo 回填的孤儿定性行。断言前移到这里，
+    // 防在任何写之前（IncidentService.register() 内部仍保留同一断言，两处都过、非互斥）。
+    await this.incidents.assertOperator(getIncidentTypeConfig(dto.type), actor);
     let effectiveDto = dto;
     // 原子路（Task 3 续作）：UNAUTHORIZED_OUTFLOW 且没带 sourceDispositionNo，但带了
     // 定性所需的两个新字段——先落定性，再拿新出的 dispositionNo 顶上，走回原有校验/建单。

@@ -222,20 +222,6 @@ export class AccessControlService {
     return permissionCodes.includes(permissionCode);
   }
 
-  async getUserPermissionGroups(userId: string): Promise<string[]> {
-    const permissions = await this.getActiveRolePermissions(userId);
-    const permCodeToGroups = buildPermCodeToGroups();
-
-    const set = new Set<string>();
-    for (const permission of permissions) {
-      for (const group of permCodeToGroups[permission.code] || []) {
-        set.add(group);
-      }
-    }
-
-    return Array.from(set).sort();
-  }
-
   isManagedPermission(permissionCode: string): boolean {
     return RBAC_PERMISSION_CODE_SET.has(permissionCode);
   }

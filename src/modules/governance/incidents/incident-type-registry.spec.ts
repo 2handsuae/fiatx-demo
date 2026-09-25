@@ -12,6 +12,8 @@ describe('INCIDENT_TYPE_REGISTRY (spec §1 十类终盘)', () => {
   it('DATA_BREACH: DPO 经办、CISO 单步结案、双码候选、影响口径', () => {
     const c = INCIDENT_TYPE_REGISTRY.DATA_BREACH;
     expect(c.operatorGroup).toBe('INCIDENT_DATA_WRITE');
+    // 甲波一 T5 修1（Ruling-6）：族独占能力码——assertOperator 实际消费的是这个，不是 operatorGroup。
+    expect(c.operatorMarkerCode).toBe('cap.incident.data');
     expect(c.closeActionType).toBe('INCIDENT_CLOSE_TECHSEC');
     expect([...c.reportBasisCandidates].sort()).toEqual(['PDPL_ART_9', 'TIR_II_C_24H']);
     expect(c.assessmentScheme).toBe('IMPACT');
@@ -26,6 +28,7 @@ describe('INCIDENT_TYPE_REGISTRY (spec §1 十类终盘)', () => {
   it('PRUDENTIAL_BREACH: CFO 经办不可自批 → 高管链', () => {
     const c = INCIDENT_TYPE_REGISTRY.PRUDENTIAL_BREACH;
     expect(c.operatorGroup).toBe('INCIDENT_FIN_WRITE');
+    expect(c.operatorMarkerCode).toBe('cap.incident.fin');
     expect(c.closeActionType).toBe('INCIDENT_CLOSE_PRUDENTIAL');
     expect(c.assessmentScheme).toBe('SHORTFALL');
   });

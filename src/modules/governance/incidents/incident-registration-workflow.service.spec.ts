@@ -1,10 +1,16 @@
+import { ForbiddenException } from '@nestjs/common';
 import { IncidentRegistrationWorkflowService } from './incident-registration-workflow.service';
 import { IncidentTypes as T } from './incident.constants';
 
 const ops = { actorType: 'ADMIN' as const, userId: 'uuid-ops', userNo: 'ADM-OPS', roleCodes: ['OPS_OFFICER'] };
 
 function makeWorkflow(incidentNo = 'INC1') {
-  const incidents: any = { register: jest.fn(async () => ({ incidentNo, traceId: 'trace-1' })) };
+  const incidents: any = {
+    register: jest.fn(async () => ({ incidentNo, traceId: 'trace-1' })),
+    // 甲波一 T5 修1（M1 修复）：register() 现在一开头就调 assertOperator——本文件测的是
+    // 编排本身（定性行写回顺序），不重测断言行为，恒放行；M1 的失效路径单独一条用例覆盖。
+    assertOperator: jest.fn(async () => undefined),
+  };
   const dispositionLink: any = {
     attachIncident: jest.fn(async () => undefined),
     record: jest.fn(async () => ({ dispositionNo: 'RCD-DEFAULT' })),
@@ -71,6 +77,22 @@ describe('IncidentRegistrationWorkflowService (Task 5, Rule 3 orchestration poin
       ops,
     );
     expect(dispositionLink.attachIncident).toHaveBeenCalledWith('RCD-NEW', 'INC3');
+  });
+
+  // 甲波一 T5 修1（M1 修复）：断言前移到 workflow 开头——actor 不持经办能力时，必须在
+  // dispositionLink.record()（落定性）之前就 403，不许先写一行永远等不到 incidentNo
+  // 回填的孤儿定性行。
+  it('actor lacks the operator capability: assertOperator rejects before any disposition write (M1, 防孤儿定性行)', async () => {
+    const { wf, incidents, dispositionLink } = makeWorkflow();
+    incidents.assertOperator.mockRejectedValueOnce(new ForbiddenException('no capability'));
+    const dto = {
+      type: T.UNAUTHORIZED_OUTFLOW, title: 't', description: 'd',
+      sourceCaseNo: 'REC9', explainedExternalLineId: 'EXT-1', findingNote: 'found it',
+    };
+    await expect(wf.register(dto as any, ops)).rejects.toThrow(ForbiddenException);
+    expect(dispositionLink.record).not.toHaveBeenCalled();
+    expect(incidents.register).not.toHaveBeenCalled();
+    expect(dispositionLink.attachIncident).not.toHaveBeenCalled();
   });
 
   it('UNAUTHORIZED_OUTFLOW: neither sourceDispositionNo nor explainedExternalLineId+findingNote present — record() is never called, falls straight through to the original 400', async () => {

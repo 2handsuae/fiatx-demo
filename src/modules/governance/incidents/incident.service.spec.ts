@@ -4,7 +4,7 @@ import { IncidentStatus as S, IncidentTypes as T, INCIDENT_REPORT_BASES as REPOR
 
 const ops = { actorType: 'ADMIN' as const, userId: 'uuid-ops', userNo: 'ADM-OPS', roleCodes: ['OPS_OFFICER'] };
 
-function makeService(o: Partial<Record<'incidentRow' | 'disposition' | 'kase' | 'transfer' | 'adjustment' | 'adjustments' | 'deposit' | 'remediations' | 'notes' | 'listRows' | 'listTotal' | 'operatorGroups', any>> = {}) {
+function makeService(o: Partial<Record<'incidentRow' | 'disposition' | 'kase' | 'transfer' | 'adjustment' | 'adjustments' | 'deposit' | 'remediations' | 'notes' | 'listRows' | 'listTotal' | 'operatorAllowed', any>> = {}) {
   const incidentRow = o.incidentRow ?? {
     id: 'uuid-inc', incidentNo: 'INC1', type: T.CLIENT_SHORTFALL, status: S.REGISTERED,
     title: 't', description: 'd', customerNo: null, sourceCaseNo: null, traceId: 'trace-seed',
@@ -35,9 +35,11 @@ function makeService(o: Partial<Record<'incidentRow' | 'disposition' | 'kase' | 
     depositTransaction: { findUnique: jest.fn(async () => o.deposit ?? null) },
   };
   const auditLogs: any = { recordByActor: jest.fn(async () => ({})) };
-  // 甲波一 T5：经办桶断言——存量三类 operatorGroup 均为 INCIDENT_WRITE（注册表 T2），
-  // 默认放行；测新族（DATA/TECH/...）或"actor 不持该组"时用 operatorGroups 覆盖。
-  const accessControl: any = { getUserPermissionGroups: jest.fn(async () => o.operatorGroups ?? ['INCIDENT_WRITE']) };
+  // 甲波一 T5 修1（Ruling-6）：assertOperator 改用族独占能力码 + hasPermission 精确判定
+  // （不再是"权限码反查所属组"）。默认放行（hasPermission 对任意 code 都 true）——测试
+  // 只关心"当门关上时会不会真的挡住"，不需要按族分别喂 groups 数组；显式拒绝用
+  // operatorAllowed: false 覆盖（M2：清理死参数 operatorGroups）。
+  const accessControl: any = { hasPermission: jest.fn(async () => o.operatorAllowed ?? true) };
   const svc = new IncidentService(prisma, auditLogs, accessControl);
   return { svc, prisma, auditLogs, accessControl, incidentRow };
 }
@@ -90,27 +92,29 @@ describe('IncidentService (Task 5)', () => {
   });
 
   // 甲波一 T5（高危面）：新七类走注册表锚键校验 + 经办桶断言（服务层，路由层五桶 OR
-  // 只做粗门，见 task-5-brief）。四条测试逐字落地 brief Step 1。
-  describe('register — wave1 new types: registry anchors + operator group assertion (Task 5)', () => {
+  // 只做粗门，见 task-5-brief）。四条测试逐字落地 brief Step 1（修1 Ruling-6 起改吃
+  // hasPermission mock，不再是 groups 数组）。
+  describe('register — wave1 new types: registry anchors + operator capability assertion (Task 5, 修1 C1/I3)', () => {
     const dpoActor = { actorType: 'ADMIN' as const, userId: 'uuid-dpo', userNo: 'ADM-DPO', roleCodes: ['DPO'] };
     const treasuryActor = { actorType: 'ADMIN' as const, userId: 'uuid-treasury', userNo: 'ADM-TREASURY', roleCodes: ['TREASURY_OFFICER'] };
     const validCyberDto = { type: T.CYBER_BCDR, title: 't', description: 'd', subjectRefs: { affectedSystem: 'core-ledger', bcdrTriggered: false } };
 
     it('rejects DATA_BREACH registration missing affectedCustomerCount', async () => {
-      const { svc } = makeService({ operatorGroups: ['INCIDENT_DATA_WRITE'] });
+      const { svc } = makeService();
       await expect(svc.register({ type: 'DATA_BREACH', title: 't', description: 'd',
         subjectRefs: { dataCategories: 'ID_DOCUMENT' } } as any, dpoActor))
         .rejects.toThrow(/affectedCustomerCount/);
     });
 
-    it('rejects registration when actor lacks the family operator group', async () => {
-      const { svc, accessControl } = makeService({ operatorGroups: ['INCIDENT_TECH_WRITE'] });
-      accessControl.getUserPermissionGroups.mockResolvedValue(['INCIDENT_WRITE']); // 金库
+    it('rejects registration when actor lacks the family operator capability (create/audit untouched)', async () => {
+      const { svc, prisma, auditLogs } = makeService({ operatorAllowed: false }); // 金库无 cap.incident.tech
       await expect(svc.register(validCyberDto as any, treasuryActor)).rejects.toThrow(ForbiddenException);
+      expect(prisma.incident.create).not.toHaveBeenCalled();
+      expect(auditLogs.recordByActor).not.toHaveBeenCalled();
     });
 
     it('registers CYBER_BCDR with anchors persisted into subjectRefs', async () => {
-      const { svc, prisma } = makeService({ operatorGroups: ['INCIDENT_TECH_WRITE'] });
+      const { svc, prisma } = makeService();
       const r = await svc.register(validCyberDto as any, ops);
       expect(r.incidentNo).toMatch(/^INC/);
       const createCall = prisma.incident.create.mock.calls[0][0];
@@ -121,6 +125,41 @@ describe('IncidentService (Task 5)', () => {
       const { svc } = makeService();
       await expect(svc.register({ type: 'MANUAL', title: 't', description: 'd' } as any, ops)).rejects.toThrow(BadRequestException);
       await expect(svc.register({ type: T.COMPLAINT_ESCALATION, title: 't', description: 'd' } as any, ops)).rejects.toThrow(BadRequestException);
+    });
+  });
+
+  // 甲波一 T5 修1（Ruling-8，I2 修复）：requiredAnchors 里与存量列同名的键
+  // （assetCode/customerNo/amount）必须从 DTO 顶层读、落存量列——不许塞进 subjectRefs。
+  describe('register — same-name anchors are sourced from the DTO top level, not subjectRefs (Task 5 修1 I2)', () => {
+    it('ASSET_NONCOMPLIANCE: assetCode anchor sourced from top-level field, persisted to the assetCode column (not subjectRefs)', async () => {
+      const { svc, prisma } = makeService();
+      const r = await svc.register({ type: T.ASSET_NONCOMPLIANCE, title: 't', description: 'd', assetCode: 'USDT-TRON' } as any, ops);
+      expect(r.incidentNo).toMatch(/^INC/);
+      const createCall = prisma.incident.create.mock.calls[0][0];
+      expect(createCall.data.assetCode).toBe('USDT-TRON');
+      expect(createCall.data.subjectRefs).toBeNull();
+    });
+
+    it('ASSET_NONCOMPLIANCE: assetCode only in subjectRefs (not top-level) still counts as missing → 400', async () => {
+      const { svc } = makeService();
+      await expect(svc.register({ type: T.ASSET_NONCOMPLIANCE, title: 't', description: 'd', subjectRefs: { assetCode: 'USDT-TRON' } } as any, ops))
+        .rejects.toThrow(/assetCode/);
+    });
+
+    it('STUCK_TRANSACTION_MAJOR: customerNo/amount from top level, orderNo from subjectRefs', async () => {
+      const { svc, prisma } = makeService();
+      const r = await svc.register({ type: T.STUCK_TRANSACTION_MAJOR, title: 't', description: 'd', customerNo: 'CU1', amount: '100', subjectRefs: { orderNo: 'ORD1' } } as any, ops);
+      expect(r.incidentNo).toMatch(/^INC/);
+      const createCall = prisma.incident.create.mock.calls[0][0];
+      expect(createCall.data.customerNo).toBe('CU1');
+      expect(createCall.data.amount.toString()).toBe('100');
+      expect(JSON.parse(createCall.data.subjectRefs)).toEqual({ orderNo: 'ORD1' });
+    });
+
+    it('STUCK_TRANSACTION_MAJOR: missing top-level customerNo → 400 naming customerNo (orderNo present in subjectRefs does not paper over it)', async () => {
+      const { svc } = makeService();
+      await expect(svc.register({ type: T.STUCK_TRANSACTION_MAJOR, title: 't', description: 'd', amount: '100', subjectRefs: { orderNo: 'ORD1' } } as any, ops))
+        .rejects.toThrow(/customerNo/);
     });
   });
 
@@ -450,7 +489,7 @@ describe('IncidentService (Task 5)', () => {
 
   describe('saveReportDraft — first save records the draft audit, later saves only update the draft (per spec conclusion)', () => {
     it('first draft saved: reportDraftedAt + audit INCIDENT_REGULATOR_REPORT_DRAFTED', async () => {
-      const { svc, prisma, auditLogs } = makeService({ incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', status: S.ASSESSED, reportDraft: null } });
+      const { svc, prisma, auditLogs } = makeService({ incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', type: T.CLIENT_SHORTFALL, status: S.ASSESSED, reportDraft: null } });
       await svc.saveReportDraft('INC1', 'Report draft v1', ops);
       expect(prisma.incident.update).toHaveBeenCalledWith(expect.objectContaining({
         where: { incidentNo: 'INC1' },
@@ -461,27 +500,37 @@ describe('IncidentService (Task 5)', () => {
     });
 
     it('saving again: only updates the draft field, does not record that audit code again', async () => {
-      const { svc, prisma, auditLogs } = makeService({ incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', status: S.ASSESSED, reportDraft: 'Existing draft' } });
+      const { svc, prisma, auditLogs } = makeService({ incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', type: T.CLIENT_SHORTFALL, status: S.ASSESSED, reportDraft: 'Existing draft' } });
       await svc.saveReportDraft('INC1', 'Report draft v2', ops);
       expect(prisma.incident.update).toHaveBeenCalledWith({ where: { incidentNo: 'INC1' }, data: { reportDraft: 'Report draft v2' } });
       expect(auditLogs.recordByActor).not.toHaveBeenCalled();
+    });
+
+    // 甲波一 T5 修1（Ruling-7，I1 修复）：saveReportDraft 纳入经办门（十入口第 9 个）。
+    it('actor lacks the operator capability → Forbidden, update untouched', async () => {
+      const { svc, prisma } = makeService({
+        incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', type: T.CLIENT_SHORTFALL, status: S.ASSESSED, reportDraft: null },
+        operatorAllowed: false,
+      });
+      await expect(svc.saveReportDraft('INC1', 'Report draft v1', ops)).rejects.toThrow(ForbiddenException);
+      expect(prisma.incident.update).not.toHaveBeenCalled();
     });
   });
 
   describe('markReported — precondition reportRequired && reportDraft non-empty', () => {
     it('reportRequired=false → 400', async () => {
-      const { svc } = makeService({ incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', status: S.ASSESSED, reportRequired: false, reportDraft: 'Draft' } });
+      const { svc } = makeService({ incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', type: T.CLIENT_SHORTFALL, status: S.ASSESSED, reportRequired: false, reportDraft: 'Draft' } });
       await expect(svc.markReported('INC1', {}, ops)).rejects.toThrow(BadRequestException);
     });
 
     it('reportDraft is empty → 400', async () => {
-      const { svc } = makeService({ incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', status: S.ASSESSED, reportRequired: true, reportDraft: null } });
+      const { svc } = makeService({ incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', type: T.CLIENT_SHORTFALL, status: S.ASSESSED, reportRequired: true, reportDraft: null } });
       await expect(svc.markReported('INC1', {}, ops)).rejects.toThrow(BadRequestException);
     });
 
     it('happy path: persists reportedAt/reportedByUserId/reportReference + audit metadata.basisCodes', async () => {
       const { svc, prisma, auditLogs } = makeService({
-        incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', status: S.ASSESSED, reportRequired: true, reportDraft: 'Draft', reportBasisCodes: 'TIR_K_H' },
+        incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', type: T.CLIENT_SHORTFALL, status: S.ASSESSED, reportRequired: true, reportDraft: 'Draft', reportBasisCodes: 'TIR_K_H' },
       });
       await svc.markReported('INC1', { reference: 'VARA-2026-001' }, ops);
       expect(prisma.incident.update).toHaveBeenCalledWith(expect.objectContaining({
@@ -491,6 +540,47 @@ describe('IncidentService (Task 5)', () => {
       const call = auditLogs.recordByActor.mock.calls[0][0];
       expect(call).toMatchObject({ action: 'INCIDENT_REGULATOR_REPORTED', basisCodes: 'TIR_K_H' });
       expect(call.metadata).toMatchObject({ basisCodes: 'TIR_K_H' });
+    });
+
+    // 甲波一 T5 修1（Ruling-7，I1 修复）：markReported 纳入经办门（十入口第 10 个）。
+    it('actor lacks the operator capability → Forbidden, update untouched', async () => {
+      const { svc, prisma } = makeService({
+        incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', type: T.CLIENT_SHORTFALL, status: S.ASSESSED, reportRequired: true, reportDraft: 'Draft', reportBasisCodes: 'TIR_K_H' },
+        operatorAllowed: false,
+      });
+      await expect(svc.markReported('INC1', { reference: 'VARA-2026-001' }, ops)).rejects.toThrow(ForbiddenException);
+      expect(prisma.incident.update).not.toHaveBeenCalled();
+    });
+  });
+
+  // 甲波一 T5 修1（Ruling-6/7，I3 修复）：十门失效验证——覆盖 investigation/notes/escalate/
+  // assess/remediations/withdraw 六个入口（register 在上面自己的 describe 里已断言 create/
+  // 审计未调；saveReportDraft/markReported 已在各自 describe 里断言 update 未调；close
+  // 走 requestClose，在 incident-close-workflow.service.spec.ts 单独断言 createAndSubmit
+  // 未调——十入口全覆盖）。预铺一条 CYBER_BCDR 行，hasPermission mock 返回 false，断言抛
+  // Forbidden 且相应的 create/update 均未被调。失效验证证据（先证红）见 task-5-report.md：
+  // 临时注掉 IncidentService 六处 assertOperatorForIncident 调用，本 it.each 全红；恢复后全绿。
+  describe('ten-gate failure mode: Forbidden closes the door before any write (甲波一T5修1 I3)', () => {
+    const cyberRow = {
+      id: 'uuid-cyber', incidentNo: 'INC-CYBER', type: T.CYBER_BCDR, status: S.INVESTIGATING,
+      createdAt: new Date('2026-09-01T00:00:00.000Z'), reportRequired: false, reportDraft: null,
+    };
+
+    const cases: Array<[string, (svc: IncidentService) => Promise<unknown>, (prisma: any) => void]> = [
+      ['startInvestigation', (svc) => svc.startInvestigation('INC-CYBER', ops), (prisma) => expect(prisma.incident.update).not.toHaveBeenCalled()],
+      ['addNote', (svc) => svc.addNote('INC-CYBER', 'note body', ops), (prisma) => expect(prisma.incidentNote.create).not.toHaveBeenCalled()],
+      ['escalate', (svc) => svc.escalate('INC-CYBER', { to: 'MLRO', note: 'x' }, ops), (prisma) => expect(prisma.incidentNote.create).not.toHaveBeenCalled()],
+      ['assess', (svc) => svc.assess('INC-CYBER', { assessedAmount: '10', assessmentBasis: 'NO_LOSS', reportRequired: false }, ops), (prisma) => expect(prisma.incident.update).not.toHaveBeenCalled()],
+      ['linkRemediation', (svc) => svc.linkRemediation('INC-CYBER', { kind: 'ADJUSTMENT', referenceNo: 'ADJ1' }, ops), (prisma) => expect(prisma.incidentRemediation.create).not.toHaveBeenCalled()],
+      ['withdraw', (svc) => svc.withdraw('INC-CYBER', 'Registered in error', ops), (prisma) => expect(prisma.incident.update).not.toHaveBeenCalled()],
+    ];
+
+    it.each(cases)('%s: actor lacks operator capability → Forbidden, no write, no audit', async (_name, invoke, assertWriteUntouched) => {
+      const { svc, prisma, auditLogs } = makeService({ incidentRow: cyberRow, operatorAllowed: false });
+      await expect(invoke(svc)).rejects.toThrow(ForbiddenException);
+      assertWriteUntouched(prisma);
+      expect(prisma.incident.create).not.toHaveBeenCalled();
+      expect(auditLogs.recordByActor).not.toHaveBeenCalled();
     });
   });
 
