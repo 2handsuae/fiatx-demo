@@ -50,6 +50,8 @@ export async function seedBusiness(
   await seedCustomers(prisma);
   // ③b Material requests layer (needs seedCustomers' restriction rows for Ivy)
   await seedMaterialRequest(prisma);
+  // ③c Incidents layer (needs seedCustomers' customerNo for the STUCK_TRANSACTION_MAJOR sample)
+  await seedIncidents(prisma);
   // Final: push all registry rows (system + customer) into TigerBeetle.
   await provisionTbAccounts(prisma);
   // Firm capital bootstrap: DR FIRM_ASSET / CR FIRM_OPS per currency.
@@ -970,6 +972,145 @@ async function seedMaterialRequest(prisma: PrismaClient): Promise<void> {
     count += 1;
   }
   console.log(`Seeded ${count} material request rows.`);
+}
+
+// ─────────────────────────────────────────────────────────────
+// ③c Incidents layer — 战役甲波一 Task 11：四条非初始态样例（十类终盘的四个族各挑一个，
+// 覆盖 IMPACT/MONETARY 两档口径与 REGISTERED/INVESTIGATING/ASSESSED/RESOLVING 四个状态）。
+// 与上方限制账 / 材料请求 fixture 同一性质：种子直接铺终态数据，不走
+// IncidentService/IncidentRegistrationWorkflowService（没有 operator、没有审批案、不写
+// 审计）——CYBER_BCDR 那一类故意不进种子，留给演示脚本现场走一遍完整登记流程，演
+// "登记会留痕"这件事（brief 明文）。incidentNo 用 buildDeterministicNo 派生，reset 重铺后
+// 逐字不变，幂等重铺手法同 seedMaterialRequest（先 deleteMany 该号再 create）。
+// ─────────────────────────────────────────────────────────────
+
+type DemoIncidentSample = {
+  seedKey: string; // buildDeterministicNo 的派生种子，同时用作日志标识
+  type: string;
+  status: string;
+  title: string;
+  description: string;
+  customerEmail?: string; // 需要落 customerNo 顶层列时给
+  assetCode?: string;
+  amount?: string;
+  subjectRefs?: Record<string, string | number | boolean>;
+  assessmentBasis?: string;
+  assessedAmount?: string;
+  impactSummary?: string;
+  impactCount?: number;
+  reportRequired?: boolean;
+  reportBasisCodes?: string[];
+  remediation?: { kind: string; referenceNoSeed: string };
+};
+
+const DEMO_INCIDENTS: DemoIncidentSample[] = [
+  // DATA 族·IMPACT 口径·ASSESSED：双通报依据码已勾选但尚未标记「已通报」——界面上
+  // 应看到两枚倒计时/无时限徽章同时挂着、Request Close 因 reportRequired 未 markReported 仍灰态。
+  {
+    seedKey: 'data-breach-crm-export',
+    type: 'DATA_BREACH', status: 'ASSESSED',
+    title: 'CRM export exposed customer contact fields to an unauthorized third-party analytics endpoint',
+    description: 'Weekly CRM segmentation export job was misconfigured to POST a customer contact-fields extract to a decommissioned analytics vendor endpoint for three consecutive runs before being caught by an egress alert.',
+    subjectRefs: { affectedCustomerCount: 46, dataCategories: 'Contact info,ID document' },
+    assessmentBasis: 'DATA_IMPACT',
+    impactSummary: '46 customer records (name, phone, partial ID document metadata) sent to a decommissioned third-party analytics endpoint across 3 export runs; vendor has confirmed non-retention but no independent verification yet.',
+    impactCount: 46,
+    reportRequired: true,
+    reportBasisCodes: ['PDPL_ART_9', 'TIR_II_C_24H'],
+  },
+  // TECH_SECURITY 族·IMPACT 口径·INVESTIGATING：还没到定损，只有登记时就必填的两个锚。
+  {
+    seedKey: 'outsourcing-kyc-relay-degraded',
+    type: 'OUTSOURCING_FAILURE', status: 'INVESTIGATING',
+    title: 'Outsourced KYC webhook relay degraded — applicant status updates delayed',
+    description: 'The third-party webhook relay that forwards Sumsub applicant status callbacks into our KYC pipeline began queueing instead of delivering in real time; onboarding team noticed a backlog of stale PENDING applicants.',
+    subjectRefs: { vendor: 'RelayBridge Managed Services', serviceImpact: 'Sumsub applicant status webhooks delayed 30-90 minutes; no callbacks lost, all recovered from the vendor replay queue after escalation' },
+  },
+  // OPERATIONS 族·IMPACT 口径·RESOLVING：已定损、已挂一条 ASSET_SUSPENSION_REF 善后单，
+  // 结案前还差结案审批这一步（走查/剧本可以从这里直接演「提结案」）。
+  {
+    seedKey: 'asset-noncompliance-usdt-tron',
+    type: 'ASSET_NONCOMPLIANCE', status: 'RESOLVING',
+    title: 'USDT-TRON flagged non-compliant after counterparty travel-rule list update',
+    description: 'A routine counterparty VASP list refresh flagged the TRON network route for USDT as no longer meeting our travel-rule counterparty screening bar — duty is immediate suspension, not a reporting obligation.',
+    assetCode: 'USDT-TRON', // 唯一 requiredAnchor 且命中 TOP_LEVEL_ANCHOR_KEYS——只落顶层列，
+    // 不重复塞进 subjectRefs（Ruling-8：顶层锚分流，同一个键不许两处都写）。
+    assessmentBasis: 'SERVICE_IMPACT',
+    impactSummary: 'USDT-TRON deposits/withdrawals suspended pending counterparty re-screening; no customer funds at risk, in-flight orders drained before suspension took effect.',
+    remediation: { kind: 'ASSET_SUSPENSION_REF', referenceNoSeed: 'asset-suspension-usdt-tron' },
+  },
+  // OPERATIONS 族·MONETARY 口径·REGISTERED：顶层锚（customerNo/amount）+ subjectRefs.orderNo
+  // 动态锚，刚登记、还没开始调查——覆盖四态里最早的一态。
+  {
+    seedKey: 'stuck-withdraw-alice',
+    type: 'STUCK_TRANSACTION_MAJOR', status: 'REGISTERED',
+    title: 'Withdrawal payout leg stuck in CONFIRMING for 6+ hours, no chain confirmation',
+    description: 'A customer AED withdrawal payout leg has been sitting in CONFIRMING since this morning with no bank confirmation callback — past the point where a stuck-order determination is warranted per TIR K.1/I.H.1/CRM I.E.4.',
+    customerEmail: 'demo_alice@example.com',
+    amount: '15000.00',
+    // orderNo（唯一非顶层锚）在函数体内用确定性号回填，这里不占位。
+  },
+];
+
+async function seedIncidents(prisma: PrismaClient): Promise<void> {
+  let count = 0;
+  for (const sample of DEMO_INCIDENTS) {
+    const incidentNo = buildDeterministicNo('INC', sample.seedKey);
+
+    let customerNo: string | null = null;
+    if (sample.customerEmail) {
+      const customer = await prisma.customerMain.findUnique({
+        where: { email: sample.customerEmail }, select: { customerNo: true },
+      });
+      if (!customer) {
+        console.log(`  ⚠ Skipping incident seed ${sample.seedKey} — customer ${sample.customerEmail} missing`);
+        continue;
+      }
+      customerNo = customer.customerNo;
+    }
+
+    // STUCK_TRANSACTION_MAJOR 样例的 subjectRefs.orderNo 是动态锚（不落顶层列），用同一
+    // 前缀（WDR，见 withdraw-workflow.service.ts）派生一个确定性单号，只作留痕引用，不校验存在。
+    const subjectRefs = sample.type === 'STUCK_TRANSACTION_MAJOR'
+      ? { ...sample.subjectRefs, orderNo: buildDeterministicNo('WDR', `seed-${sample.seedKey}`) }
+      : sample.subjectRefs;
+
+    await prisma.incident.deleteMany({ where: { incidentNo } });
+    const incident = await prisma.incident.create({
+      data: {
+        incidentNo,
+        type: sample.type,
+        status: sample.status,
+        title: sample.title,
+        description: sample.description,
+        customerNo,
+        assetCode: sample.assetCode ?? null,
+        amount: sample.amount != null ? new Prisma.Decimal(sample.amount) : null,
+        subjectRefs: subjectRefs ? JSON.stringify(subjectRefs) : null,
+        assessmentBasis: sample.assessmentBasis ?? null,
+        assessedAmount: sample.assessedAmount != null ? new Prisma.Decimal(sample.assessedAmount) : null,
+        impactSummary: sample.impactSummary ?? null,
+        impactCount: sample.impactCount ?? null,
+        reportRequired: sample.reportRequired ?? false,
+        reportBasisCodes: sample.reportBasisCodes?.length ? sample.reportBasisCodes.join(',') : null,
+        registeredByUserId: 'SEED',
+        traceId: `seed-${incidentNo}`,
+      },
+    });
+
+    if (sample.remediation) {
+      await prisma.incidentRemediation.create({
+        data: {
+          incidentId: incident.id,
+          kind: sample.remediation.kind,
+          referenceNo: buildDeterministicNo('APR', `seed-${sample.remediation.referenceNoSeed}`),
+          linkedByUserId: 'SEED',
+        },
+      });
+    }
+    count += 1;
+  }
+  console.log(`Seeded ${count} incident sample rows (non-initial states; CYBER_BCDR left for the live demo script).`);
 }
 
 // ─────────────────────────────────────────────────────────────

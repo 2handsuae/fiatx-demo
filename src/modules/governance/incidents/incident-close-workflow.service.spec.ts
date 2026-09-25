@@ -130,8 +130,11 @@ describe('IncidentCloseWorkflowService (Task 7)', () => {
   });
 
   // 战役甲波一 T8 修复轮 1（评审 C1·Critical，裁决 Ruling-10 采乙案）：三条指名行为用例——
-  // 改动前（basis===NO_LOSS 才放行）这三条全部先证红（前两条见修复轮 1 报告"先证红"记录，
-  // 第三条同理：STUCK_TRANSACTION_MAJOR + FIRM_LOSS 旧逻辑下必然落入"enter Resolving"分支）。
+  // T11 修（注释失真）：不是"三条全部先证红"。真正先证红（改动前 basis===NO_LOSS 才放行，
+  // 这两类的 assessmentScheme 里没有 NO_LOSS 取值，永远进不了 ASSESSED→CLOSED）的只有
+  // CYBER_BCDR 与 STUCK_TRANSACTION_MAJOR 两条（见修复轮 1 报告"先证红"记录）；第三条
+  // DATA_BREACH 是方向相反的守卫用例——它在改动前后都应被拒绝（白名单非空，必须先挂
+  // CUSTOMER_NOTICE_LOGGED 走 Resolving），证明乙案放宽没有误伤这一类。
   describe('requestClose — ASSESSED→CLOSED reachability, empty-whitelist types (T8 修复轮 1 C1)', () => {
     it('CYBER_BCDR @ ASSESSED + SERVICE_IMPACT → allowed, generates an INCIDENT_CLOSE_TECHSEC approval (previously unreachable)', async () => {
       const { wf, approvals } = makeWorkflow({
@@ -311,13 +314,30 @@ describe('IncidentCloseWorkflowService (Task 7)', () => {
     // PRUDENTIAL→SENIOR_MANAGEMENT_OFFICER），事件缺 decisionByRole 时的兜底改从该链配置
     // 动态取，不再硬编码 'CFO'。
     it('APPROVED without decisionByRole on a TECHSEC-routed incident → audit reason falls back to the chain\'s actual decider (CISO), not a hardcoded "CFO" (T8 修复轮 1 M4)', async () => {
-      const { wf, auditLogs } = makeWorkflow({ incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', type: T.CYBER_BCDR, status: S.RESOLVING, traceId: 'trace-1' } });
+      // T11 修（fixture 用了不可达态）：CYBER_BCDR 的 allowedRemediationKinds 是空集，
+      // 按 Ruling-10 乙案永远走不到 RESOLVING（唯一入口 linkRemediation 被白名单挡住）——
+      // 它能提结案的唯一路径是 ASSESSED 直接结案，故 onDecided 落地时这一行的真实
+      // status 只可能是 ASSESSED，不是 RESOLVING（原 fixture 用了该类型不可达的状态）。
+      const { wf, auditLogs } = makeWorkflow({ incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', type: T.CYBER_BCDR, status: S.ASSESSED, traceId: 'trace-1' } });
       await wf.onDecided({
         decision: 'APPROVED', actionType: 'INCIDENT_CLOSE_TECHSEC', entityRef: 'INC1',
         approvalId: 'A1', approvalNo: 'AC1', traceId: 'trace-1', workflowType: 'INCIDENT', metadata: {},
       } as any);
       const audit = auditLogs.recordSystem.mock.calls[0][0];
       expect(audit.reason).toBe('Close approved by CISO');
+    });
+
+    // T11 补（M4 遗留缺口）：TECHSEC/PRUDENTIAL/FINANCIAL 三条结案链都是单步，"取第一步"
+    // 和"取末步"在它们身上算出同一个角色，测不出 M4 的真实修复——SECURITY 是唯一的两步链
+    // （MLRO→CFO，见 approval.constants.ts），取首步会把末票裁决人错记成 MLRO。
+    it('APPROVED without decisionByRole on a SECURITY-routed (two-step MLRO→CFO) incident → audit reason falls back to the LAST step\'s role (CFO), not the first step (MLRO)', async () => {
+      const { wf, auditLogs } = makeWorkflow({ incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', type: T.UNAUTHORIZED_OUTFLOW, status: S.RESOLVING, traceId: 'trace-1' } });
+      await wf.onDecided({
+        decision: 'APPROVED', actionType: 'INCIDENT_CLOSE_SECURITY', entityRef: 'INC1',
+        approvalId: 'A1', approvalNo: 'AC1', traceId: 'trace-1', workflowType: 'INCIDENT', metadata: {},
+      } as any);
+      const audit = auditLogs.recordSystem.mock.calls[0][0];
+      expect(audit.reason).toBe('Close approved by CFO');
     });
 
     it('DECLINED → status left unchanged: close() is not called, no audit written', async () => {

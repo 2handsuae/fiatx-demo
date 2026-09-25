@@ -453,21 +453,21 @@ describe('Incident register e2e (平账三期 · 事故登记, Task 13)', () => 
     expect((await incidents.findByNo(mainIncidentNo)).status).toBe('INVESTIGATING');
   });
 
-  it('4 · 定损 FIRM_LOSS + 需通报（TIR_K_H + CRM_V_D_2）→ reportDeadlineAt===createdAt+72h（变异靶子②的 e2e 面）；草案 → 标已通报', async () => {
-    const before = await incidents.findByNo(mainIncidentNo);
+  it('4 · 定损 FIRM_LOSS + 需通报（CRM_IV_E_5 + CRM_V_D_2，UNAUTHORIZED_OUTFLOW 唯二合法码）→ reportDeadlineAt===null（两码均无钟）；草案 → 标已通报', async () => {
+    // T11 修：T6 落地按类型收窄 reportBasisCandidates 后，UNAUTHORIZED_OUTFLOW（FUNDS 族）
+    // 只认 CRM_IV_E_5/CRM_V_D_2，原先勾的 TIR_K_H 不在候选集内会被 assess() 400 拒绝
+    // （见 incident.service.ts:370）。72h 钟的行为路径（变异靶子②）已在
+    // incident.service.spec.ts:516"happy path: selecting only TIR_K_H..."改用
+    // STUCK_TRANSACTION_MAJOR 覆盖，此处不重复用不合法码硬凑；本用例改为验证两码均无钟时
+    // deadline 保持 null（同一 computeReportDeadline 分支的另一条路径，非空跑）。
     mainAssessedAmountMajor = bigintToDecimal(LOSS_MINOR, usdtDecimals).toFixed(usdtDecimals);
 
     const assessed = await incidents.assess(mainIncidentNo, {
       assessedAmount: mainAssessedAmountMajor, assessmentBasis: 'FIRM_LOSS',
-      reportRequired: true, reportBasisCodes: ['TIR_K_H', 'CRM_V_D_2'],
+      reportRequired: true, reportBasisCodes: ['CRM_IV_E_5', 'CRM_V_D_2'],
     } as any, treasury());
     expect(assessed.status).toBe('ASSESSED');
-
-    // TIR_K_H 有钟（72h）、CRM_V_D_2 无钟（null）——deadline 取有钟依据的 min，锚在
-    // 登记时刻（before.createdAt），不是定损时刻。
-    const expectedDeadline = new Date(before.createdAt.getTime() + 72 * 3600 * 1000);
-    expect(assessed.reportDeadlineAt).not.toBeNull();
-    expect(assessed.reportDeadlineAt!.getTime()).toBe(expectedDeadline.getTime());
+    expect(assessed.reportDeadlineAt).toBeNull();
 
     await incidents.saveReportDraft(mainIncidentNo, '事件时间线与影响范围说明（草案）：托管方转出未经授权，已定损 25 USDT。', treasury());
     await incidents.markReported(mainIncidentNo, { reference: 'VARA-REG-2026-001' }, treasury());

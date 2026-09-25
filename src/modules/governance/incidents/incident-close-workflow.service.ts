@@ -72,9 +72,18 @@ export class IncidentCloseWorkflowService {
     const remediationReferenceNos = await this.incidents.findRemediations(incidentNo);
 
     if (row.status === IncidentStatus.ASSESSED) {
+      // T11 修（T8 遗留：拒绝文案歧义）：两条真实失败原因分开报，不再把"该类型压根没有
+      // 处置动作"包装成挡在 noRemediationPath 判断里的又一个理由词——那样读起来像是
+      // "conclusion is not no-loss（或者这个类型没善后动作，这也算一个理由）"，误导裁决
+      // 之外的读者以为"允许无善后"本身就是被拒的原因。真正的两支互斥原因：①这类事故的
+      // 定损结论或类型白名单要求它走善后（noRemediationPath 为假）；②虽然按口径可以无
+      // 善后直接关单，但已经有善后单挂在事故上，必须先进 Resolving 收尾这些挂载。
       const noRemediationPath = row.assessmentBasis === 'NO_LOSS' || typeConfig.allowedRemediationKinds.length === 0;
-      if (!noRemediationPath || remediationReferenceNos.length > 0) {
-        throw new BadRequestException(`Incident ${incidentNo} assessment conclusion is not "no loss" (or this type allows no remediation) or already has remediation linked — it must enter Resolving before close can be requested`);
+      if (!noRemediationPath) {
+        throw new BadRequestException(`Incident ${incidentNo} assessment concluded remediation is required for this type — it must enter Resolving and link remediation before close can be requested`);
+      }
+      if (remediationReferenceNos.length > 0) {
+        throw new BadRequestException(`Incident ${incidentNo} already has remediation linked — it must enter Resolving before close can be requested`);
       }
     } else if (row.status !== IncidentStatus.RESOLVING) {
       if (row.status === IncidentStatus.CLOSED) {
@@ -102,9 +111,10 @@ export class IncidentCloseWorkflowService {
         // 铁律⑥：快照零 UUID——审批页把 objectSnapshot 原样渲染。战役甲波一 T8 修复轮 1
         // （评审 I1 c，Ruling-11）：IMPACT 口径类型定损时落的 impactSummary（人话摘要）与
         // subjectRefs（新类型锚键值，如 affectedSystem/dataCategories，业务值非 UUID）此前
-        // 结案快照没带，裁决人看不到——只在有值时带（`?? undefined` 会被 JS 引擎序列化掉，
-        // 等价于"有值才带"）；subjectRefs 落库是 JSON 字符串，这里解回结构化对象供审批页
-        // 原样渲染，不是再包一层字符串。
+        // 结案快照没带，裁决人看不到——只在有值时带。T11 修（注释失真）：下面两行用的是
+        // 条件展开 `...(x ? { key: x } : {})`，不是 `?? undefined`——没值时整个键都不出现在
+        // 展开结果里（等价于"有值才带"，但机制是三元展开，不是 nullish 合并）；subjectRefs
+        // 落库是 JSON 字符串，这里解回结构化对象供审批页原样渲染，不是再包一层字符串。
         objectSnapshot: {
           incidentNo: row.incidentNo, customerNo: row.customerNo ?? null,
           type: row.type,
@@ -146,12 +156,15 @@ export class IncidentCloseWorkflowService {
 
     const row = await this.incidents.findByNo(event.entityRef);
     const updated = await this.incidents.close(row.incidentNo);
-    // 战役甲波一 T8 修复轮 1（评审 M4）：四条结案链裁决人不再只有 CFO（TECHSEC→CISO，
+    // 战役甲波一 T8 修复轮 1（评审 M4，T11 订正）：四条结案链裁决人不再只有 CFO（TECHSEC→CISO，
     // PRUDENTIAL→SENIOR_MANAGEMENT_OFFICER），硬编码兜底会在事件没带 decisionByRole 时把
-    // 审计文案写错。改从该类型实际的结案链配置取第一步第一个角色；查不到（理论上不会发生，
-    // 每类都在 DEFAULT_APPROVAL_POLICIES 里注册）才落回 'CFO'，纯防御，不代表业务默认值。
+    // 审计文案写错。改从该类型实际的结案链配置取**末步**第一个角色——触发本 onDecided（案子
+    // 转 APPROVED）的永远是最后一步的裁决人，SECURITY 链是两步（MLRO→CFO，见 e2e 用例⑥）：
+    // 取首步会把末票 CFO 的裁决错记成 MLRO。查不到（理论上不会发生，每类都在
+    // DEFAULT_APPROVAL_POLICIES 里注册）才落回 'CFO'，纯防御，不代表业务默认值。
     const actionType = getIncidentTypeConfig(row.type).closeActionType;
-    const defaultDeciderRole = (DEFAULT_APPROVAL_POLICIES as Record<string, any>)[actionType]?.steps?.[0]?.roles?.[0] ?? 'CFO';
+    const steps = (DEFAULT_APPROVAL_POLICIES as Record<string, any>)[actionType]?.steps;
+    const defaultDeciderRole = (steps?.length ? steps[steps.length - 1]?.roles?.[0] : undefined) ?? 'CFO';
     await this.closeAudit(row, {
       action: AuditActions.INCIDENT_CLOSED, approvalNo: event.approvalNo, causationId: event.approvalId,
       fromStatus: row.status, toStatus: updated.status,

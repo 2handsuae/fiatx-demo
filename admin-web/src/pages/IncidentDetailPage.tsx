@@ -114,10 +114,15 @@ const closeGateReason = (d: Detail): string | null => {
     return 'Not yet assessed — complete the assessment first (must reach Assessed or Resolving)';
   }
   if (d.status === 'ASSESSED') {
+    // T11 修（同步后端 incident-close-workflow.service.ts 的拒绝文案拆分）：两条互斥原因
+    // 分开报，不再把"该类型没有处置动作"包装成又一个被拒理由。
     const allowedKinds = INCIDENT_TYPE_REGISTRY_MIRROR[d.type]?.allowedRemediationKinds ?? [];
     const noRemediationPath = d.assessmentBasis === 'NO_LOSS' || allowedKinds.length === 0;
-    if (!noRemediationPath || d.remediations.length > 0) {
-      return 'Assessment conclusion is not "no loss" (or this type allows no remediation) or a remediation item is already linked — link a remediation item and reach Resolving first before requesting close';
+    if (!noRemediationPath) {
+      return 'Assessment concluded remediation is required for this type — link a remediation item and reach Resolving first before requesting close';
+    }
+    if (d.remediations.length > 0) {
+      return 'A remediation item is already linked — reach Resolving first before requesting close';
     }
   }
   if (d.reportRequired && !d.reportedAt) {
