@@ -123,6 +123,15 @@ export class IncidentService {
       amount: row.amount != null ? row.amount.toString() : null,
       assessedAmount: row.assessedAmount != null ? row.assessedAmount.toString() : null,
       assessmentBasis: row.assessmentBasis ?? null,
+      // 战役甲波一 T10（前端渲染必需，补 getView 投影缺口）：IMPACT 口径类型（CYBER_BCDR/
+      // DATA_BREACH/OUTSOURCING_FAILURE/ASSET_NONCOMPLIANCE）的定损结果落在 impactSummary/
+      // impactCount，此前只写不读（assess() 已落库，getView 未投影）——详情页判断"是否已
+      // 定损"与渲染定损结果都读不到。subjectRefs 同理：register() 已落库（JSON 字符串），
+      // close-workflow 的结案快照已经在解析回传（incident-close-workflow.service.ts:104），
+      // 详情页锚字段区块（新七类）此前同样读不到。铁律⑥：三者业务值均非 UUID。
+      impactSummary: row.impactSummary ?? null,
+      impactCount: row.impactCount ?? null,
+      subjectRefs: row.subjectRefs ? JSON.parse(row.subjectRefs) : null,
       reportRequired: row.reportRequired,
       reportBasisCodes: row.reportBasisCodes ? row.reportBasisCodes.split(',') : [],
       reportDeadlineAt: row.reportDeadlineAt ? row.reportDeadlineAt.toISOString() : null,

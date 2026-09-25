@@ -12,14 +12,21 @@ import { useAdminSession } from '../contexts/AdminSessionContext';
 import { PERMISSIONS } from '../rbac/permissions';
 import { AdminSessionError, adminFetch, getApiErrorMessage } from '../utils/adminFetch';
 import {
+  INCIDENT_OPERATOR_CAP_CODE,
   INCIDENT_STATUS_LABEL,
   INCIDENT_STATUSES,
+  INCIDENT_SUBJECT_REF_FIELDS,
   INCIDENT_TYPE_LABEL,
+  INCIDENT_TYPE_REGISTRY_MIRROR,
   INCIDENT_TYPES,
   REPORT_DEADLINE_TONE_CLASS,
+  TOP_LEVEL_ANCHOR_KEYS,
   reportDeadlineDisplay,
   reportStatusLabel,
 } from '../utils/incidentStatusMap';
+
+/** subjectRefs 单个字段值——checkbox 是 boolean，multiselect 是选中值数组（提交时 join(',')），其余是字符串。 */
+type AnchorValue = string | boolean | string[];
 
 interface Item {
   incidentNo: string;
@@ -51,7 +58,7 @@ export interface NewIncidentPrefill {
  * 另三个入口——案子定性升级 / 大额到线 / 退汇欠款——在案子详情页，通过 `prefill`
  * 带着业务键跳到这里，Task 12）。 */
 const NewIncidentModal = ({ open, prefill, onClose, onCreated }: { open: boolean; prefill?: NewIncidentPrefill; onClose: () => void; onCreated: (incidentNo: string) => void }) => {
-  const [type, setType] = useState<string>('MANUAL');
+  const [type, setType] = useState<string>(INCIDENT_TYPES[0]);
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [sourceCaseNo, setSourceCaseNo] = useState('');
@@ -60,6 +67,8 @@ const NewIncidentModal = ({ open, prefill, onClose, onCreated }: { open: boolean
   const [customerNo, setCustomerNo] = useState('');
   const [assetCode, setAssetCode] = useState('');
   const [amount, setAmount] = useState('');
+  // 战役甲波一 T10：新七类动态锚字段（非顶层键）——键=INCIDENT_SUBJECT_REF_FIELDS 的 field.key。
+  const [anchorValues, setAnchorValues] = useState<Record<string, AnchorValue>>({});
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
 
@@ -67,7 +76,7 @@ const NewIncidentModal = ({ open, prefill, onClose, onCreated }: { open: boolean
   // 之间复用，不重置就会把上一次的预填带进下一次打开。
   useEffect(() => {
     if (!open) return;
-    setType(prefill?.type ?? 'MANUAL');
+    setType(prefill?.type ?? INCIDENT_TYPES[0]);
     setTitle(prefill?.title ?? '');
     setDescription(prefill?.description ?? '');
     setSourceCaseNo(prefill?.sourceCaseNo ?? '');
@@ -76,6 +85,7 @@ const NewIncidentModal = ({ open, prefill, onClose, onCreated }: { open: boolean
     setCustomerNo(prefill?.customerNo ?? '');
     setAssetCode(prefill?.assetCode ?? '');
     setAmount(prefill?.amount ?? '');
+    setAnchorValues({});
     setError('');
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, prefill]);
@@ -83,12 +93,45 @@ const NewIncidentModal = ({ open, prefill, onClose, onCreated }: { open: boolean
   if (!open) return null;
 
   const reset = () => {
-    setType('MANUAL'); setTitle(''); setDescription('');
+    setType(INCIDENT_TYPES[0]); setTitle(''); setDescription('');
     setSourceCaseNo(''); setSourceDispositionNo(''); setSourceAdvanceTransferNo('');
-    setCustomerNo(''); setAssetCode(''); setAmount(''); setError('');
+    setCustomerNo(''); setAssetCode(''); setAmount(''); setAnchorValues({}); setError('');
+  };
+
+  const changeType = (next: string) => { setType(next); setAnchorValues({}); };
+
+  const anchorFields = INCIDENT_SUBJECT_REF_FIELDS[type] ?? [];
+
+  const setAnchorText = (key: string, v: string) => setAnchorValues((prev) => ({ ...prev, [key]: v }));
+  const setAnchorCheckbox = (key: string, v: boolean) => setAnchorValues((prev) => ({ ...prev, [key]: v }));
+  const toggleAnchorMulti = (key: string, value: string) => setAnchorValues((prev) => {
+    const cur = Array.isArray(prev[key]) ? (prev[key] as string[]) : [];
+    const next = cur.includes(value) ? cur.filter((v) => v !== value) : [...cur, value];
+    return { ...prev, [key]: next };
+  });
+
+  /** 该锚键是否已填——checkbox 恒真（false 是合法值，后端 assertAnchors 只拒 null/''）；
+   * 其余按当前值判非空，镜像 IncidentService.assertAnchors 的判据。 */
+  const isAnchorFilled = (key: string): boolean => {
+    if (TOP_LEVEL_ANCHOR_KEYS.has(key)) {
+      const v = key === 'assetCode' ? assetCode : key === 'customerNo' ? customerNo : amount;
+      return !!v.trim();
+    }
+    const spec = anchorFields.find((f) => f.key === key);
+    if (spec?.kind === 'checkbox') return true;
+    const raw = anchorValues[key];
+    if (Array.isArray(raw)) return raw.length > 0;
+    return !!(typeof raw === 'string' && raw.trim());
   };
 
   const close = () => { reset(); onClose(); };
+
+  // 战役甲波一 T10：新七类顶层锚（assetCode/customerNo/amount 三键之一）是否必填——
+  // 存量三类维持既有硬编码判据（CLIENT_SHORTFALL），新类型按注册表镜像的 requiredAnchors。
+  const cfgAnchors = INCIDENT_TYPE_REGISTRY_MIRROR[type]?.requiredAnchors ?? [];
+  const customerRequired = type === 'CLIENT_SHORTFALL' || cfgAnchors.includes('customerNo');
+  const amountRequired = type === 'CLIENT_SHORTFALL' || cfgAnchors.includes('amount');
+  const assetRequired = cfgAnchors.includes('assetCode');
 
   const submit = async () => {
     setError('');
@@ -102,6 +145,10 @@ const NewIncidentModal = ({ open, prefill, onClose, onCreated }: { open: boolean
     if (type === 'CLIENT_SHORTFALL' && (!customerNo.trim() || !amount.trim())) {
       setError('Client shortfall requires a customer number and amount'); return;
     }
+    // 新七类锚键校验（前端友好提示；真正裁决仍在后端 IncidentService.assertAnchors）。
+    for (const key of cfgAnchors) {
+      if (!isAnchorFilled(key)) { setError(`This incident type requires "${key}"`); return; }
+    }
     setSubmitting(true);
     try {
       const body: Record<string, unknown> = { type, title: title.trim(), description: description.trim() };
@@ -111,6 +158,18 @@ const NewIncidentModal = ({ open, prefill, onClose, onCreated }: { open: boolean
       if (customerNo.trim()) body.customerNo = customerNo.trim();
       if (assetCode.trim()) body.assetCode = assetCode.trim();
       if (amount.trim()) body.amount = amount.trim();
+      // 新七类锚键值——顶层键（assetCode/customerNo/amount）已经在上面落顶层字段，这里只收
+      // subjectRefs 键（TOP_LEVEL_ANCHOR_KEYS 之外的），镜像后端 TOP_LEVEL_ANCHOR_KEYS 分流。
+      if (anchorFields.length > 0) {
+        const subjectRefs: Record<string, string | number | boolean> = {};
+        for (const f of anchorFields) {
+          const raw = anchorValues[f.key];
+          if (f.kind === 'checkbox') subjectRefs[f.key] = !!raw;
+          else if (f.kind === 'multiselect') subjectRefs[f.key] = Array.isArray(raw) ? raw.join(',') : '';
+          else subjectRefs[f.key] = typeof raw === 'string' ? raw.trim() : '';
+        }
+        body.subjectRefs = subjectRefs;
+      }
       const res = await adminFetch(`${import.meta.env.VITE_API_URL}/admin/incidents`, {
         method: 'POST', body: JSON.stringify(body),
       });
@@ -132,7 +191,7 @@ const NewIncidentModal = ({ open, prefill, onClose, onCreated }: { open: boolean
         <h3 className="mb-3 text-sm font-semibold text-adm-t1">Register Incident</h3>
 
         <label className="mb-3 block text-xs">Type
-          <select value={type} onChange={(e) => setType(e.target.value)} className="mt-1 w-full rounded border border-adm-border bg-adm-panel px-2 py-1 text-xs">
+          <select value={type} onChange={(e) => changeType(e.target.value)} className="mt-1 w-full rounded border border-adm-border bg-adm-panel px-2 py-1 text-xs">
             {INCIDENT_TYPES.map((t) => <option key={t} value={t}>{INCIDENT_TYPE_LABEL[t]}</option>)}
           </select>
         </label>
@@ -162,16 +221,82 @@ const NewIncidentModal = ({ open, prefill, onClose, onCreated }: { open: boolean
         )}
 
         <div className="mb-3 grid grid-cols-3 gap-2">
-          <label className="block text-xs">Customer No{type === 'CLIENT_SHORTFALL' ? '*' : ' (optional)'}
-            <input value={customerNo} onChange={(e) => setCustomerNo(e.target.value)} className="mt-1 w-full rounded border border-adm-border bg-adm-panel px-2 py-1 text-xs font-mono" />
+          <label className="block text-xs">Customer No{customerRequired ? '*' : ' (optional)'}
+            <input value={customerNo} onChange={(e) => setCustomerNo(e.target.value)} placeholder="Customer No" className="mt-1 w-full rounded border border-adm-border bg-adm-panel px-2 py-1 text-xs font-mono" />
           </label>
-          <label className="block text-xs">Asset (optional)
-            <input value={assetCode} onChange={(e) => setAssetCode(e.target.value)} className="mt-1 w-full rounded border border-adm-border bg-adm-panel px-2 py-1 text-xs font-mono" />
+          <label className="block text-xs">Asset{assetRequired ? '*' : ' (optional)'}
+            <input value={assetCode} onChange={(e) => setAssetCode(e.target.value)} placeholder="Asset code" className="mt-1 w-full rounded border border-adm-border bg-adm-panel px-2 py-1 text-xs font-mono" />
           </label>
-          <label className="block text-xs">Amount{type === 'CLIENT_SHORTFALL' ? '*' : ' (optional)'}
-            <input value={amount} onChange={(e) => setAmount(e.target.value)} className="mt-1 w-full rounded border border-adm-border bg-adm-panel px-2 py-1 text-xs font-mono" />
+          <label className="block text-xs">Amount{amountRequired ? '*' : ' (optional)'}
+            <input value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="Amount" className="mt-1 w-full rounded border border-adm-border bg-adm-panel px-2 py-1 text-xs font-mono" />
           </label>
         </div>
+
+        {/* 战役甲波一 T10：新七类动态锚字段（subjectRefs 键，顶层键 assetCode/customerNo/
+            amount 不在这里——复用上面已有的输入位）。 */}
+        {anchorFields.length > 0 && (
+          <div className="mb-3 space-y-2 border-t border-adm-border pt-3">
+            <p className="font-mono text-[9px] uppercase tracking-[0.1em] text-adm-t3">Type-specific details</p>
+            {anchorFields.map((f) => {
+              if (f.kind === 'checkbox') {
+                return (
+                  <label key={f.key} className="flex items-center gap-1.5 text-xs">
+                    <input
+                      type="checkbox"
+                      checked={!!anchorValues[f.key]}
+                      onChange={(e) => setAnchorCheckbox(f.key, e.target.checked)}
+                    />
+                    {f.label}
+                  </label>
+                );
+              }
+              if (f.kind === 'select') {
+                return (
+                  <label key={f.key} className="block text-xs">{f.label}*
+                    <select
+                      value={typeof anchorValues[f.key] === 'string' ? (anchorValues[f.key] as string) : ''}
+                      onChange={(e) => setAnchorText(f.key, e.target.value)}
+                      className="mt-1 w-full rounded border border-adm-border bg-adm-panel px-2 py-1 text-xs"
+                    >
+                      <option value="">Select…</option>
+                      {(f.options ?? []).map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                    </select>
+                  </label>
+                );
+              }
+              if (f.kind === 'multiselect') {
+                const selected = Array.isArray(anchorValues[f.key]) ? (anchorValues[f.key] as string[]) : [];
+                return (
+                  <div key={f.key}>
+                    <p className="mb-1 text-xs">{f.label}*</p>
+                    <div className="flex flex-wrap gap-2">
+                      {(f.options ?? []).map((o) => (
+                        <label key={o.value} className="flex items-center gap-1 text-[11px]">
+                          <input
+                            type="checkbox"
+                            checked={selected.includes(o.value)}
+                            onChange={() => toggleAnchorMulti(f.key, o.value)}
+                          />
+                          {o.label}
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                );
+              }
+              return (
+                <label key={f.key} className="block text-xs">{f.label}*
+                  <input
+                    value={typeof anchorValues[f.key] === 'string' ? (anchorValues[f.key] as string) : ''}
+                    onChange={(e) => setAnchorText(f.key, e.target.value)}
+                    placeholder={f.label}
+                    className="mt-1 w-full rounded border border-adm-border bg-adm-panel px-2 py-1 text-xs font-mono"
+                  />
+                </label>
+              );
+            })}
+          </div>
+        )}
 
         {error && <p className="mb-2 text-xs text-adm-red">{error}</p>}
         <div className="flex justify-end gap-2">
@@ -188,8 +313,15 @@ const NewIncidentModal = ({ open, prefill, onClose, onCreated }: { open: boolean
 const IncidentListPage = () => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const { hasPermission } = useAdminSession();
-  const canWrite = hasPermission(PERMISSIONS.INCIDENT_WRITE);
+  const { hasAnyPermission } = useAdminSession();
+  // 战役甲波一 T10（item8 延伸）：这颗按钮只是开手工登记弹层——弹层里的类型下拉覆盖全部
+  // enabled 类型（九类），任一族经办能力码都该能看到入口，不再只用被五组共享而失去区分力
+  // 的路由级码（PERMISSIONS.INCIDENT_WRITE，见 incidentStatusMap.ts 里 INCIDENT_OPERATOR_
+  // CAP_CODE 头注释同款诊断）；具体某类型是否真能提交仍由后端 assertOperator 按族裁决。
+  const canWrite = hasAnyPermission([
+    PERMISSIONS.INCIDENT_WRITE,
+    ...Array.from(new Set(Object.values(INCIDENT_OPERATOR_CAP_CODE))),
+  ]);
   const [items, setItems] = useState<Item[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);

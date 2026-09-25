@@ -66,6 +66,7 @@ import { CaseHistory } from '../components/reconciliation/CaseHistory';
 import { CaseBalanceTiles } from '../components/reconciliation/CaseBalanceTiles';
 import { CaseFlowTable } from '../components/reconciliation/CaseFlowTable';
 import { buildIncidentHref } from '../components/reconciliation/caseDetailBits';
+import { INCIDENT_CAP_FUNDS } from '../utils/incidentStatusMap';
 
 /* ── Constants & helpers ────────────────────────────────────── */
 
@@ -153,8 +154,11 @@ const ReconciliationCasesDetailPage = () => {
   ]);
   // 平账二期：补款 / 垫款发起归金库——持两个写码任一即可看到按钮；运营只看到指路文字。
   const canFundClient = hasAnyPermission([PERMISSIONS.INTERNAL_TRANSFER_COMPENSATION_WRITE, PERMISSIONS.INTERNAL_TRANSFER_ADVANCE_WRITE]);
-  // 平账三期（Task 12）：案件页三入口共用——登记事故写权。
-  const canRegisterIncident = hasPermission(PERMISSIONS.INCIDENT_WRITE);
+  // 平账三期（Task 12）：案件页三入口共用——登记事故写权。战役甲波一 T10（item8）：本页
+  // 两个登记按钮只会创建 FUNDS 族类型（LARGE_UNEXPLAINED/CLIENT_SHORTFALL），改用族独占
+  // 能力码而不是被五组共享而失去区分力的路由级码 PERMISSIONS.INCIDENT_WRITE（见
+  // incidentStatusMap.ts INCIDENT_OPERATOR_CAP_CODE 头注释的同款诊断）。
+  const canRegisterIncident = hasPermission(INCIDENT_CAP_FUNDS);
   // Task 7 承接①：Re-reconcile 此前无权限门（OPS 点了 403）——与后端端点一致的门控。
   const canReReconcile = hasPermission(PERMISSIONS.RECON_RUN_WRITE);
   const [fundingRow, setFundingRow] = useState<FlowComparisonRow | null>(null);

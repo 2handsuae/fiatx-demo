@@ -13,16 +13,20 @@ import { AdminSessionError, adminFetch, getApiErrorMessage } from '../utils/admi
 import { useAdminSession } from '../contexts/AdminSessionContext';
 import { PERMISSIONS } from '../rbac/permissions';
 import {
+  ANCHOR_FIELD_LABEL,
+  ASSESSMENT_BASIS_BY_SCHEME,
   ASSESSMENT_BASIS_LABEL,
-  ASSESSMENT_BASIS_VALUES,
   ESCALATION_TARGETS,
   ESCALATION_TARGET_LABEL,
+  formatSubjectRefValue,
+  INCIDENT_OPERATOR_CAP_CODE,
   INCIDENT_REPORT_BASES,
   INCIDENT_STATUS_LABEL,
   INCIDENT_TYPE_LABEL,
-  REMEDIATION_KINDS,
+  INCIDENT_TYPE_REGISTRY_MIRROR,
   REMEDIATION_KIND_LABEL,
   REPORT_DEADLINE_TONE_CLASS,
+  reportBasisClockText,
   reportDeadlineDisplay,
 } from '../utils/incidentStatusMap';
 
@@ -58,6 +62,11 @@ interface Detail {
   amount: string | null;
   assessedAmount: string | null;
   assessmentBasis: string | null;
+  // 战役甲波一 T10：IMPACT 口径定损结果（getView 投影补齐，见 incident.service.ts 注释）。
+  impactSummary: string | null;
+  impactCount: number | null;
+  // 新七类锚键值（顶层锚 assetCode/customerNo/amount 不在这里——本就是上面几个顶层字段）。
+  subjectRefs: Record<string, string | number | boolean> | null;
   reportRequired: boolean;
   reportBasisCodes: string[];
   reportDeadlineAt: string | null;
@@ -93,15 +102,23 @@ const remediationLink = (kind: string, referenceNo: string): string | null => {
 };
 
 /** 提结案守卫——镜像 incident-close-workflow.service.ts 的 requestClose 前置判断，
- * 用于按钮禁用态的原因 tooltip；实际裁决仍在后端，前端只是不让人白点。 */
+ * 用于按钮禁用态的原因 tooltip；实际裁决仍在后端，前端只是不让人白点。
+ * 战役甲波一 T8 修复轮 1（Ruling-10）之后，ASSESSED→CLOSED 这条边的语义是"无善后"，不是
+ * "assessmentBasis 字面等于 NO_LOSS"——CYBER_BCDR/OUTSOURCING_FAILURE/STUCK_TRANSACTION_
+ * MAJOR/PRUDENTIAL_BREACH 四类（注册表 allowedRemediationKinds 为空集，压根没有善后动作
+ * 可挂）在 ASSESSED 状态、零挂载时也该能直接结案，不必先进 RESOLVING（T10 镜像乙案）。 */
 const closeGateReason = (d: Detail): string | null => {
   if (d.status === 'CLOSED') return 'Already closed — cannot request close again';
   if (d.status === 'WITHDRAWN') return 'Already withdrawn — cannot request close';
   if (d.status === 'REGISTERED' || d.status === 'INVESTIGATING') {
     return 'Not yet assessed — complete the assessment first (must reach Assessed or Resolving)';
   }
-  if (d.status === 'ASSESSED' && (d.assessmentBasis !== 'NO_LOSS' || d.remediations.length > 0)) {
-    return 'Assessment basis is not "No loss" or a remediation item is already linked — link a remediation item and reach Resolving first before requesting close';
+  if (d.status === 'ASSESSED') {
+    const allowedKinds = INCIDENT_TYPE_REGISTRY_MIRROR[d.type]?.allowedRemediationKinds ?? [];
+    const noRemediationPath = d.assessmentBasis === 'NO_LOSS' || allowedKinds.length === 0;
+    if (!noRemediationPath || d.remediations.length > 0) {
+      return 'Assessment conclusion is not "no loss" (or this type allows no remediation) or a remediation item is already linked — link a remediation item and reach Resolving first before requesting close';
+    }
   }
   if (d.reportRequired && !d.reportedAt) {
     return 'A regulatory report is required but not yet marked as reported — cannot close';
@@ -113,7 +130,6 @@ const IncidentDetailPage = () => {
   const { incidentNo } = useParams<{ incidentNo: string }>();
   const navigate = useNavigate();
   const { hasPermission } = useAdminSession();
-  const canWrite = hasPermission(PERMISSIONS.INCIDENT_WRITE);
 
   const [detail, setDetail] = useState<Detail | null>(null);
   const [loading, setLoading] = useState(true);
@@ -125,14 +141,19 @@ const IncidentDetailPage = () => {
   const [escalateTo, setEscalateTo] = useState<string>(ESCALATION_TARGETS[0]);
   const [escalateNote, setEscalateNote] = useState('');
 
-  // 定损
+  // 定损——口径按类型收窄（战役甲波一 T10）：assessmentBasis/remediationKind 的初值是
+  // MONETARY 口径的合理默认（资金族三存量类型最常见），真实合法值待 detail 加载后由下面
+  // 的 useEffect 按该事故类型的 assessmentScheme/allowedRemediationKinds 纠正——不能在这里
+  // 直接读 detail.type，因为 Hooks 必须无条件跑在 `if (!detail) return null;` 之前。
   const [assessedAmount, setAssessedAmount] = useState('');
-  const [assessmentBasis, setAssessmentBasis] = useState<string>(ASSESSMENT_BASIS_VALUES[0]);
+  const [assessmentBasis, setAssessmentBasis] = useState<string>(ASSESSMENT_BASIS_BY_SCHEME.MONETARY[0]);
+  const [impactSummary, setImpactSummary] = useState('');
+  const [impactCount, setImpactCount] = useState('');
   const [reportRequired, setReportRequired] = useState(false);
   const [reportBasisCodes, setReportBasisCodes] = useState<string[]>([]);
 
   // 善后
-  const [remediationKind, setRemediationKind] = useState<string>(REMEDIATION_KINDS[0]);
+  const [remediationKind, setRemediationKind] = useState<string>('SUPPLEMENT');
   const [remediationRef, setRemediationRef] = useState('');
 
   // 通报
@@ -165,6 +186,18 @@ const IncidentDetailPage = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [incidentNo]);
 
+  // 战役甲波一 T10：口径/善后下拉按类型收窄后，一旦事故类型加载出来，把 stale 的初值
+  // 纠正成该类型合法集合里的第一个（口径七选一/善后六选一此前是全类型共用的固定选项）。
+  useEffect(() => {
+    if (!detail) return;
+    const cfg = INCIDENT_TYPE_REGISTRY_MIRROR[detail.type];
+    const basisOptions = ASSESSMENT_BASIS_BY_SCHEME[cfg?.assessmentScheme ?? 'MONETARY'];
+    setAssessmentBasis((prev) => (basisOptions.includes(prev) ? prev : basisOptions[0]));
+    const allowedKinds = cfg?.allowedRemediationKinds ?? [];
+    setRemediationKind((prev) => (allowedKinds.includes(prev) ? prev : (allowedKinds[0] ?? '')));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [detail?.type]);
+
   const post = async (path: string, body?: Record<string, unknown>) => {
     if (!detail) return false;
     setBusy(true); setError('');
@@ -195,14 +228,29 @@ const IncidentDetailPage = () => {
   }
   if (!detail) return null;
 
+  // 战役甲波一 T10（item8）：按"所视事故类型所属族"门控写按钮，不用被五组共享而失去区分力
+  // 的路由级码（PERMISSIONS.INCIDENT_WRITE）——见 incidentStatusMap.ts 里
+  // INCIDENT_OPERATOR_CAP_CODE 头注释的同款诊断（一个 DPO 打开资金族事故会看见一整排
+  // "能点但一点就 403" 的按钮，只有换成按当前事故类型取族独占能力码才会正确收起）。
+  const canWrite = hasPermission(INCIDENT_OPERATOR_CAP_CODE[detail.type] ?? PERMISSIONS.INCIDENT_WRITE);
+  const cfg = INCIDENT_TYPE_REGISTRY_MIRROR[detail.type];
+  const scheme = cfg?.assessmentScheme ?? 'MONETARY';
+  const basisOptions = ASSESSMENT_BASIS_BY_SCHEME[scheme];
+  const reportBasisOptions = cfg?.reportBasisCandidates ?? [];
+  const allowedRemediationKinds = cfg?.allowedRemediationKinds ?? [];
+
   const closeReason = closeGateReason(detail);
   const canRequestClose = canWrite && !closeReason;
   const canWithdraw = canWrite && detail.status === 'REGISTERED';
   const canStartInvestigation = canWrite && detail.status === 'REGISTERED';
   const canInvestigate = canWrite && detail.status === 'INVESTIGATING';
   const canAssess = canWrite && detail.status === 'INVESTIGATING';
-  const canLinkRemediation = canWrite && (detail.status === 'ASSESSED' || detail.status === 'RESOLVING');
-  const assessed = detail.assessedAmount != null;
+  const canLinkRemediation = canWrite && allowedRemediationKinds.length > 0 && (detail.status === 'ASSESSED' || detail.status === 'RESOLVING');
+  // 定损结果是否已落——不能只看 assessedAmount（IMPACT 口径类型定损时不填这个字段，只填
+  // impactSummary，见 IncidentService.assess），改看永远会填的 assessmentBasis（三档口径
+  // 都必填），否则 CYBER_BCDR/DATA_BREACH/OUTSOURCING_FAILURE/ASSET_NONCOMPLIANCE 四类
+  // 定损完仍会被当成"未定损"，Assessment 卡片会一直显示表单而不是结果。
+  const assessed = detail.assessmentBasis != null;
   // Task 12：善后区「发起补款」——事故处置中 + 挂载里有一张已落账（POSTED）认损调账单，
   // 说明认损已过审批入账，该由公司补齐客户了。跳到对账案子页，复用那里已有的补款
   // 发起入口（案件页会按 disposition.adjustmentNo 自动算出同一张单的 COMPENSATION
@@ -286,6 +334,17 @@ const IncidentDetailPage = () => {
             </div>
           )}
 
+          {/* ①b 类型专属锚（新七类，subjectRefs 键值区块——顶层锚 assetCode/customerNo/
+              amount 已经在 Basic Info 里，这里只放剩下那些，铁律⑥零 UUID：业务值全是文本/
+              受控枚举/布尔）。 */}
+          {detail.subjectRefs && Object.keys(detail.subjectRefs).length > 0 && (
+            <DetailCard title="Type-Specific Details" columns={3}>
+              {Object.entries(detail.subjectRefs).map(([key, value]) => (
+                <InfoField key={key} label={ANCHOR_FIELD_LABEL[key] ?? key} value={formatSubjectRefValue(key, value)} />
+              ))}
+            </DetailCard>
+          )}
+
           {/* ② 调查时间线 */}
           <DetailCard title="Investigation Timeline" columns={1}>
             <div className="col-span-full space-y-3">
@@ -336,40 +395,83 @@ const IncidentDetailPage = () => {
             </div>
           </DetailCard>
 
-          {/* ③ 定损 */}
+          {/* ③ 定损——口径按类型收窄（战役甲波一 Task 6/T10）：MONETARY/SHORTFALL 填金额，
+              IMPACT 填影响摘要，assessmentBasis 下拉与依据码候选集都按 assessmentScheme
+              过滤（brief 行为合同①）。 */}
           <DetailCard title="Assessment" columns={assessed ? 3 : 1}>
             {assessed ? (
               <>
-                <InfoField label="Assessed Amount" value={`${detail.assessedAmount} ${detail.assetCode ?? ''}`} mono accent />
+                {detail.assessedAmount != null && (
+                  <InfoField label="Assessed Amount" value={`${detail.assessedAmount} ${detail.assetCode ?? ''}`} mono accent />
+                )}
+                {detail.impactSummary != null && <InfoField label="Impact Summary" value={detail.impactSummary} />}
+                {detail.impactCount != null && <InfoField label="Impact Count" value={String(detail.impactCount)} mono />}
                 <InfoField label="Assessment Basis" value={ASSESSMENT_BASIS_LABEL[detail.assessmentBasis ?? ''] ?? detail.assessmentBasis} />
                 <InfoField label="Reporting Required" value={detail.reportRequired ? 'Yes' : 'No'} />
               </>
             ) : canAssess ? (
               <div className="col-span-full space-y-2">
-                <div className="flex gap-2">
-                  <input value={assessedAmount} onChange={(e) => setAssessedAmount(e.target.value)} placeholder="Assessed amount" className="w-40 rounded border border-adm-border bg-adm-panel px-2 py-1 text-xs font-mono" />
+                <div className="flex flex-wrap items-center gap-2">
+                  {scheme === 'IMPACT' ? (
+                    <input value={impactCount} onChange={(e) => setImpactCount(e.target.value)} placeholder="Impact count (optional)" className="w-44 rounded border border-adm-border bg-adm-panel px-2 py-1 text-xs font-mono" />
+                  ) : (
+                    <input value={assessedAmount} onChange={(e) => setAssessedAmount(e.target.value)} placeholder="Assessed amount" className="w-40 rounded border border-adm-border bg-adm-panel px-2 py-1 text-xs font-mono" />
+                  )}
                   <select value={assessmentBasis} onChange={(e) => setAssessmentBasis(e.target.value)} className="rounded border border-adm-border bg-adm-panel px-2 py-1 text-xs">
-                    {ASSESSMENT_BASIS_VALUES.map((v) => <option key={v} value={v}>{ASSESSMENT_BASIS_LABEL[v]}</option>)}
+                    {basisOptions.map((v) => <option key={v} value={v}>{ASSESSMENT_BASIS_LABEL[v]}</option>)}
                   </select>
                   <label className="flex items-center gap-1 text-xs">
-                    <input type="checkbox" checked={reportRequired} onChange={(e) => setReportRequired(e.target.checked)} /> Regulatory report required
+                    <input
+                      type="checkbox"
+                      checked={reportRequired}
+                      disabled={reportBasisOptions.length === 0}
+                      onChange={(e) => setReportRequired(e.target.checked)}
+                    /> Regulatory report required
                   </label>
                 </div>
-                {reportRequired && (
+                {scheme === 'IMPACT' && (
+                  <textarea
+                    value={impactSummary}
+                    onChange={(e) => setImpactSummary(e.target.value)}
+                    rows={2}
+                    className="w-full rounded border border-adm-border bg-adm-panel px-2 py-1 text-xs"
+                    placeholder="Impact summary (required for this incident type)"
+                  />
+                )}
+                {reportBasisOptions.length === 0 && (
+                  <p className="font-mono text-[10px] text-adm-t3">This incident type has no statutory reporting basis to select.</p>
+                )}
+                {reportRequired && reportBasisOptions.length > 0 && (
                   <div className="space-y-1">
                     <p className="font-mono text-[9px] uppercase tracking-[0.1em] text-adm-t3">Report Basis (multi-select)</p>
-                    {Object.entries(INCIDENT_REPORT_BASES).map(([code, b]) => (
-                      <label key={code} className="flex items-start gap-1.5 text-[11px]">
-                        <input type="checkbox" checked={reportBasisCodes.includes(code)} onChange={() => toggleBasisCode(code)} className="mt-0.5" />
-                        <span>{b.label}</span>
-                      </label>
-                    ))}
+                    {reportBasisOptions.map((code) => {
+                      const b = INCIDENT_REPORT_BASES[code];
+                      return (
+                        <label key={code} className="flex items-start gap-1.5 text-[11px]">
+                          <input type="checkbox" checked={reportBasisCodes.includes(code)} onChange={() => toggleBasisCode(code)} className="mt-0.5" />
+                          <span>
+                            {b?.label ?? code}
+                            {' — '}
+                            <span className="font-mono text-[10px] text-adm-amber">{reportBasisClockText(code)}</span>
+                          </span>
+                        </label>
+                      );
+                    })}
                   </div>
                 )}
                 <button
                   type="button"
-                  disabled={busy || !assessedAmount.trim() || (reportRequired && reportBasisCodes.length === 0)}
-                  onClick={() => void post('/assess', { assessedAmount: assessedAmount.trim(), assessmentBasis, reportRequired, reportBasisCodes: reportRequired ? reportBasisCodes : undefined })}
+                  disabled={
+                    busy
+                    || (scheme === 'IMPACT' ? !impactSummary.trim() : !assessedAmount.trim())
+                    || (reportRequired && reportBasisCodes.length === 0)
+                  }
+                  onClick={() => void post('/assess', {
+                    assessedAmount: scheme === 'IMPACT' ? undefined : assessedAmount.trim(),
+                    impactSummary: scheme === 'IMPACT' ? impactSummary.trim() : undefined,
+                    impactCount: scheme === 'IMPACT' && impactCount.trim() ? Number(impactCount.trim()) : undefined,
+                    assessmentBasis, reportRequired, reportBasisCodes: reportRequired ? reportBasisCodes : undefined,
+                  })}
                   className={adminButtonClass('workflowPrimary')}
                 >
                   Submit Assessment
@@ -412,7 +514,7 @@ const IncidentDetailPage = () => {
               {canLinkRemediation ? (
                 <div className="flex gap-2 border-t border-adm-border pt-3">
                   <select value={remediationKind} onChange={(e) => setRemediationKind(e.target.value)} className="rounded border border-adm-border bg-adm-panel px-2 py-1 text-xs">
-                    {REMEDIATION_KINDS.map((k) => <option key={k} value={k}>{REMEDIATION_KIND_LABEL[k]}</option>)}
+                    {allowedRemediationKinds.map((k) => <option key={k} value={k}>{REMEDIATION_KIND_LABEL[k]}</option>)}
                   </select>
                   <input value={remediationRef} onChange={(e) => setRemediationRef(e.target.value)} placeholder="Reference No" className="flex-1 rounded border border-adm-border bg-adm-panel px-2 py-1 text-xs font-mono" />
                   <button
@@ -424,6 +526,10 @@ const IncidentDetailPage = () => {
                     Link
                   </button>
                 </div>
+              ) : allowedRemediationKinds.length === 0 ? (
+                (detail.status === 'ASSESSED' || detail.status === 'RESOLVING') && (
+                  <p className="border-t border-adm-border pt-3 font-mono text-[11px] text-adm-t3">This incident type has no remediation actions to attach — it can be closed directly once assessed.</p>
+                )
               ) : (
                 (detail.status === 'REGISTERED' || detail.status === 'INVESTIGATING') && (
                   <p className="border-t border-adm-border pt-3 font-mono text-[11px] text-adm-t3">Complete the assessment first before linking a remediation item</p>
@@ -459,7 +565,13 @@ const IncidentDetailPage = () => {
                 <div>
                   <p className="mb-1 font-mono text-[9px] uppercase tracking-[0.1em] text-adm-t3">Basis</p>
                   <ul className="list-disc space-y-0.5 pl-4 text-[11px] text-adm-t2">
-                    {detail.reportBasisCodes.map((code) => <li key={code}>{INCIDENT_REPORT_BASES[code]?.label ?? code}</li>)}
+                    {detail.reportBasisCodes.map((code) => (
+                      <li key={code}>
+                        {INCIDENT_REPORT_BASES[code]?.label ?? code}
+                        {' — '}
+                        <span className="font-mono text-[10px] text-adm-amber">{reportBasisClockText(code)}</span>
+                      </li>
+                    ))}
                   </ul>
                 </div>
                 <div>

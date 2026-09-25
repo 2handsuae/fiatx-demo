@@ -64,6 +64,9 @@ const ACTION_TYPE_LABELS: Record<string, string> = {
   // 平账三期：事故结案拆两个动作类型（安全类两步 MLRO→CFO / 资金类单步 CFO）
   INCIDENT_CLOSE_SECURITY: 'Incident Close · Security',
   INCIDENT_CLOSE_FINANCIAL: 'Incident Close · Financial',
+  // 战役甲波一 T8：结案矩阵四条链新增两条（CISO 单步 / 高管单步）——T10 补策略中心人话标签。
+  INCIDENT_CLOSE_TECHSEC: 'Incident Close · Tech/Security',
+  INCIDENT_CLOSE_PRUDENTIAL: 'Incident Close · Prudential',
   DEPOSIT_SUPPLEMENT: 'Deposit supplement',
   DEPOSIT_CLAWBACK: 'Deposit recall (clawback)',
   WITHDRAW_RETURN_CLAIM: 'Withdrawal return claim',
