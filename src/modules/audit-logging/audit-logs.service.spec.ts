@@ -128,6 +128,10 @@ describe('AuditLogsService', () => {
       CUSTOMER_TIER_UPGRADE: 'CUSTOMER_TIER_UPGRADE',
       // 战役甲波二（2026-09-26）：报送台骨架
       REGULATORY_FILING: 'REGULATORY_FILING',
+      // 战役甲波三 T4（2026-09-26）：制裁定性裁决——常量早已存在，本清单当时漏登记，
+      // 该断言自波三合入起即红；随波四 T2 回归复跑 `src/modules/audit-logging` 全量
+      // 测试时发现并补齐（与波四 T2 本身的改动无关，独立修复）。
+      SANCTION_DISPOSITION: 'SANCTION_DISPOSITION',
     });
 
     expect(AuditUserActions).toEqual({
