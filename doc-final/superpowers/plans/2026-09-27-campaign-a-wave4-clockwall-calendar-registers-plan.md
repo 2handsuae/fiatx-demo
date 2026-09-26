@@ -20,6 +20,8 @@
 - **测试的绿必须来自行为**；禁止扫源码文本型断言。单测 mock 要行为化（mock 无视 where 会假绿——波一判例）。
 - **worktree 环境**：本会话 worktree `.claude/worktrees/act-a-wave4`（分支 `worktree-act-a-wave4`），栈=self（端口在 `.stackports`，DB `/tmp/exchange_js_wt_act_a_wave4/`）。首次跑任何 prisma/jest 前先 `npm install && npx prisma generate`；e2e / demo 类脚本必须经 `bash scripts/on-stack.sh self <script>`，禁止裸跑（裸跑会漏 `DATABASE_URL`/`TB_ADDRESS`，脚本会 fail-fast）。
 - **派发档位**：任务执行与任务级 review = sonnet；终审回主会话不降档。本波非高危波，评审常规档。
+- 通用交付清单见 `rules/delivery-checklist.md`，全部适用；**每任务尾行已写死「本任务过清单哪几条」，执行者收尾时逐条报**。
+- 本轮特有：审计码 13 枚**出生即冻结四属性**（含义/actionDomain/correlationMode/特有必填）且每次写入带显式 `requestId`（漏了被静默去重）；新审批策略必须同步 `verify-rbac.ts` 的 `MAKER_GROUP_BY_POLICY` 加行；rbac.catalog 改动后**必须 reset/重启 self 栈再打探针**（只 seed 不重启 = 403 假阴，SUPER_ADMIN 走内存看不出来）。
 - 收尾对照 `doc-final/rules/review-rubric.md` 评审、`doc-final/rules/delivery-checklist.md` 交付（T10 引用，不重抄）。
 
 **预期终态数量（T10 收口时逐项核对，对不上就停）**：RBAC 14→15 域、69→73 桶、77→81 组｜报送类型行 11→12｜审批类型 +1（`RI_REPLACEMENT`）｜Prisma 新表 3｜审计现役码 273→286（§T2/T5 名册合计 13 新码，以 `audit:vocab` 实跑数为准）｜场景 +2（21/22 暂编）。
@@ -110,6 +112,8 @@ PERIODIC_RETURN: { direction: 'OUTBOUND', label: 'Periodic regulatory return',
 - [ ] **Step 6: 闸**：`npx tsc --noEmit -p tsconfig.json` ＋ `npx jest src/modules/governance/regulatory-filings --silent` 全绿。
 - [ ] **Step 7: Commit** `feat(甲波四T1): 合规办公室三表迁移+PERIODIC_RETURN类型行(11→12,EXTERNAL锚0工作日=期末即截止)`
 
+**本任务过清单**：改 schema（迁移新增、空库能建、无 backfill）。
+
 ### Task 2: 义务主体服务（CRUD + 翻期纯函数 + 审计名册）
 
 **Files:**
@@ -136,9 +140,11 @@ export function advanceDueDate(due: Date, frequency: ObligationFrequency): Date 
 ```
 
 - [ ] **Step 2: 状态迁移表**（铁律④显式）：`OBLIGATION_TRANSITIONS = { ACTIVE: ['DISABLED'], DISABLED: ['ACTIVE'] }`，服务层非法跃迁显式 `BadRequestException`；spec 断言两方向 + 同态自转拒绝。
-- [ ] **Step 3: service 先测后写**。要点：单号 `generateReferenceNo('OBL')`（`src/common/utils/no-generator.util.ts`）；每方法一条审计（照 `regulatory-filing.service.ts` 的 recordAudit 私有 helper 形状，actor 走 `AuditLogsService.record`，`claimDue` 系统动作走 `recordSystem`）；`claimDue` 语义 = 读行→`nextDueAt = advanceDueDate(旧值, frequency)` 落库→审计 `OBLIGATION_FILING_GENERATED`（携旧 `dueAt`）→返回旧 dueAt 供开单（**翻期在生成时**，一期一单由构造保证——spec §3.2）；`simulateDue` 把 `nextDueAt` 拨到 `now`（挂 ⚡ 路由在 T5）。单测用行为化 Prisma mock（照 `regulatory-filing.service.spec.ts` 的 makeAccessControl/内存行模式），覆盖：CRUD 审计逐码、非法迁移 400、claimDue 翻期算对（月末例）。
+- [ ] **Step 3: service 先测后写**。要点：单号 `generateReferenceNo('OBL')`（`src/common/utils/no-generator.util.ts`）；每方法一条审计（照 `regulatory-filing.service.ts` 的 recordAudit 私有 helper 形状，actor 走 `AuditLogsService.record`，`claimDue` 系统动作走 `recordSystem`，**每次带显式 `requestId`**；五枚新码出生即冻结四属性——含义/actionDomain/correlationMode/特有必填，`assertActionSpec` 校验得到）；`claimDue` 语义 = 读行→`nextDueAt = advanceDueDate(旧值, frequency)` 落库→审计 `OBLIGATION_FILING_GENERATED`（携旧 `dueAt`）→返回旧 dueAt 供开单（**翻期在生成时**，一期一单由构造保证——spec §3.2）；`simulateDue` 把 `nextDueAt` 拨到 `now`（挂 ⚡ 路由在 T5）。单测用行为化 Prisma mock（照 `regulatory-filing.service.spec.ts` 的 makeAccessControl/内存行模式），覆盖：CRUD 审计逐码、非法迁移 400、claimDue 翻期算对（月末例）。
 - [ ] **Step 4: 闸**：根 tsc + `npx jest src/modules/governance/compliance-office --silent` 全绿；先破坏一次断言确认会红再复绿（报绿前先验红）。
 - [ ] **Step 5: Commit** `feat(甲波四T2): 周期义务主体——CRUD/显式迁移表/advanceDueDate月末钳制/审计五码`
+
+**本任务过清单**：持久状态变化写审计（显式 requestId）｜新审计码四属性冻结｜新状态显式迁移表（计时=nextDueAt 即本主体的钟，已答）｜对外业务键 OBL。
 
 ### Task 3: 到期开单联动（openForObligation + 义务 sweep）
 
@@ -161,6 +167,8 @@ export function advanceDueDate(due: Date, frequency: ObligationFrequency): Date 
 - [ ] **Step 4: 闸**：根 tsc + `npx jest src/modules/governance --silent` 全绿。
 - [ ] **Step 5: Commit** `feat(甲波四T3): 义务到期sweep+openForObligation——EXTERNAL锚deadline=期末日,一期一单翻期在生成时`
 
+**本任务过清单**：持久状态变化写审计（系统动作 recordSystem＋显式 requestId）｜技术兜底缺口登 PRODUCTION-NOTES 一行放下。
+
 ### Task 4: 登记册两本（vendor + RI 主体服务）
 
 **Files:**
@@ -177,6 +185,8 @@ export function advanceDueDate(due: Date, frequency: ObligationFrequency): Date 
 - [ ] **Step 2: RI 先测后写**（建席位、在途重复提 400、apply 换人三字段并清 pending、clear 只清不换人）。`proposeReplacement` 本 task 只落本表字段与审计，**不开审批单**——审批联动在 T5，接缝签名以本 task Interfaces 为准。
 - [ ] **Step 3: 闸**：根 tsc + `npx jest src/modules/governance/compliance-office --silent`。
 - [ ] **Step 4: Commit** `feat(甲波四T4): 登记册两本——vendor三态审计/RI席位+换人落地方法(一席一在途)`
+
+**本任务过清单**：持久状态变化写审计（显式 requestId）｜新审计码七枚四属性冻结｜新状态显式迁移表（vendor 两态无钟、RI 无状态机变更——计时问题已答：两册不计时）｜对外业务键 VEN/RI。
 
 ### Task 5: RI 换人审批链 + 控制器 + RBAC 目录 + 闹钟墙聚合
 
@@ -210,12 +220,14 @@ POST /admin/responsible-individuals/:riNo/replacement       [RI_REGISTER_WRITE]
 POST /admin/regulatory-filings/:filingNo/simulate-deadline-timeout   [DEMO_CLOCK_WRITE]
 ```
 
-- [ ] **Step 1: 审批常量与事件键**先落（两处形状照抄先例，注释写明「波四：合规官提、高管单步批」）。
+- [ ] **Step 1: 审批常量与事件键**先落（两处形状照抄先例，注释写明「波四：合规官提、高管单步批」）。**同一 commit 内**往 `scripts/verify-rbac.ts` 的 `MAKER_GROUP_BY_POLICY` 加一行（`RI_REPLACEMENT` → maker 组 `RI_REGISTER_WRITE`）——人工维护表，S5 自批死锁闸只遍历它，表外策略不受保护（2026-09-01 调账单判例，delivery-checklist 第 6 行）。
 - [ ] **Step 2: workflow 先测后写**：批准→applyReplacement、驳回/撤单/过期→clearReplacement；maker≠checker 由审批引擎保证，spec 只断言分发正确。
 - [ ] **Step 3: clock-wall 先测后写**：行为化 mock 两表，断言行集判据（按时提交的单不上墙、overdue 红标位、DISABLED 义务不上墙、行含 refNo/kind/deadlineAt/overdue）。
 - [ ] **Step 4: 控制器 + rbac.catalog 四处**。新域块插在 `Regulatory Filings` 域块之后；每个写路由的 controller 方法从 token 取 actor 照 `regulatory-filings.controller.ts` 既有写法。**新端点必须 route() 登记**（本仓判例：只 seed 不重启/不登记 = 403）。
 - [ ] **Step 5: 闸**：根 tsc + `npx jest src/modules/governance src/modules/identity/access-control --silent`。
-- [ ] **Step 6: Commit** `feat(甲波四T5): RI换人审批链(合规官提·高管单步批)+合规办公室域4桶4组+闹钟墙聚合端点+⚡两条快进`
+- [ ] **Step 6: Commit** `feat(甲波四T5): RI换人审批链(合规官提·高管单步批)+合规办公室域4桶4组+闹钟墙聚合端点+⚡两条快进+MAKER_GROUP_BY_POLICY加行`
+
+**本任务过清单**：maker-checker 走 ApprovalsService 正门｜新审批策略入 MAKER_GROUP_BY_POLICY｜新权限组四处齐｜新 admin 端点 route() 登记｜新事件先登记 domain-events.constants.ts。
 
 ### Task 6: verify:rbac 扩判据 + audit:vocab 入库
 
@@ -227,9 +239,11 @@ POST /admin/regulatory-filings/:filingNo/simulate-deadline-timeout   [DEMO_CLOCK
 
 - [ ] **Step 1: 静态判据**：新域四处齐（`route()` / `ACTION_BUCKET_CATALOG` / 职务绑定三处同现，照波三 S10a/S10b 写法）；四组唯一持有断言——`OBLIGATION_WRITE`/`VENDOR_REGISTER_WRITE`/`RI_REGISTER_WRITE` 唯合规官，`COMPLIANCE_OFFICE_VIEW` 恰为 {合规官, MLRO, 高管, 内审, CISO}。
 - [ ] **Step 2: 行为探针**（真端点打真 403/200，照既有 47 条探针形状）：合规官 POST obligations 200 ｜ 金库 POST obligations 403 ｜ 内审 POST vendors 403（内审零写人设不破）｜ 合规官提 RI 换人 200、重复提 400 ｜ 高管批换人经审批中心 200 ｜ 运营 GET clock-wall 403 ｜ ⚡ simulate-due 唯金库 200、合规官 403。
-- [ ] **Step 3: 跑**：`bash scripts/on-stack.sh self verify:rbac` 全绿；**先注释掉一处绑定跑一次确认探针会红**，恢复后复绿（报绿前先验红）。
+- [ ] **Step 3: 跑**：先 `bash scripts/stack.sh reset self`（rbac.catalog 动过——只 seed 不重启后端 = 探针打到旧内存字典 403 假阴，SUPER_ADMIN 走内存看不出来），再 `bash scripts/on-stack.sh self verify:rbac` 全绿；**先注释掉一处绑定跑一次确认探针会红**，恢复后复绿（报绿前先验红）。
 - [ ] **Step 4: `bash scripts/on-stack.sh self audit:vocab`**，记录现役码终数（预期 286，若不符，先对名册再动数字）。
 - [ ] **Step 5: Commit** `feat(甲波四T6): verify:rbac新域四处齐+8行为探针;audit:vocab 273→286入库`
+
+**本任务过清单**：新权限组四处齐的机器判据｜新端点重启后端再验（reset self）。
 
 ### Task 7: 种子 + demo/data.md 同步
 
@@ -245,6 +259,8 @@ POST /admin/regulatory-filings/:filingNo/simulate-deadline-timeout   [DEMO_CLOCK
 - [ ] **Step 3: 重铺闸**：`bash scripts/stack.sh reset self` 从零建库全绿（动过 schema/seed 必跑——收尾闸⑧提前到本 task 首验），`demo/data.md` 生成区零 diff 或按脚本重生成后 commit（生成区 diff 是脏库探针——第七幕判例，起栈前必 reset）。
 - [ ] **Step 4: baseline.md 补三表断言行**（行数与关键行值）。
 - [ ] **Step 5: Commit** `feat(甲波四T7): 种子三义务/三vendor/四RI席位+data.md·baseline.md同步+重铺闸首验`
+
+**本任务过清单**：改种子同步 data.md/script.md（生成区由 demo:all 写、不手改）｜改 schema 后重铺闸。
 
 ### Task 8: e2e 全链（真 AppModule 零 mock）
 
@@ -262,6 +278,8 @@ POST /admin/regulatory-filings/:filingNo/simulate-deadline-timeout   [DEMO_CLOCK
 - [ ] **Step 3: 波二波三既有 e2e 回归**：`regulatory-filing.e2e-spec.ts` + `aml-reporting-family.e2e-spec.ts` 复绿（本波动了共享的类型目录与 service）。
 - [ ] **Step 4: Commit** `test(甲波四T8): compliance-office e2e四段全链+波二三报送e2e回归复绿`
 
+**本任务过清单**：行为绿（真 AppModule 零 mock、integration 必经 on-stack）。
+
 ### Task 9: 前端三页（admin-web）
 
 **Files:**
@@ -273,9 +291,12 @@ POST /admin/regulatory-filings/:filingNo/simulate-deadline-timeout   [DEMO_CLOCK
 
 - [ ] **Step 1: Clock Wall 页**：列 = 类型（Filing/Obligation 徽标）/ 单号或义务号（业务键，可点跳）/ 标题 / 受文机构 / 到期时刻 / 剩余倒计时 / 状态色徽标（绿黄红，判据照 spec §2：红=overdue，黄=剩余≤25% 或 ≤24h、义务进生成窗；阈值常量置顶可调）；「Only overdue」过滤开关。全站英文文案（平账收尾轮惯例）。
 - [ ] **Step 2: Obligations 页**：列表（名/频率/机构/下次到期/最近工单号可点跳+状态）＋ 建/改/停用弹窗 ＋ ⚡ Fast-forward due（`useSimulationMode` 门控——照资金单模拟面板惯例，非模拟态不渲染）。
+- [ ] **Step 2b: 报送单 ⚡ Fast-forward deadline 前端入口**（清单第 9 行：没有入口 = 功能不存在）：闹钟墙 FILING 行加 ⚡ 按钮（同门控），调 T5 的 `simulate-deadline-timeout`——场景 21 的「⚡ 报送单超时」就点它。
 - [ ] **Step 3: Registers 页**：vendors tab（登记/修改/终止，终止二次确认）；RI tab（席位列表：岗位/现任/VARA ref/生效日/在途审批号链接到审批中心详情；「Propose replacement」弹窗）。UUID 不出现在任何列。
 - [ ] **Step 4: 闸**：`cd admin-web && npx tsc -b --noEmit`；起 self 栈 preview 渲染三页 + 截图（闸⑤——tsc 通过不算数，UI 一致性靠渲染截图验证）；截图落盘 `doc-final/superpowers/checkups/2026-09-27-act-a-wave4-evidence/`（物证必须写明落盘路径——波五判例）。
-- [ ] **Step 5: Commit** `feat(甲波四T9): 管理台三页——闹钟墙/义务台账(⚡门控)/登记册两tab,权限键4枚,截图物证入档`
+- [ ] **Step 5: Commit** `feat(甲波四T9): 管理台三页——闹钟墙(含⚡拨deadline)/义务台账(⚡门控)/登记册两tab,权限键4枚,截图物证入档`
+
+**本任务过清单**：新业务动作前端全有入口（含两枚 ⚡）｜UUID 不暴露｜改前端必 preview 截图（永不豁免①）。
 
 ### Task 10: 文档收口 + 场景走查 + 收尾闸
 
@@ -293,9 +314,11 @@ POST /admin/regulatory-filings/:filingNo/simulate-deadline-timeout   [DEMO_CLOCK
 - [ ] **Step 1: 场景 21/22 写入 script.md 并全程实走**（预铺态实走——动作指令必须真点过：场景 21 = 墙→⚡义务→工单全弧→⚡超时标红→口播升级出口；场景 22 = vendor 增改止→RI 换人审批全弧→审计链回查），四组截图入 T9 同一物证目录。
 - [ ] **Step 2: 收尾闸**：三 tsc ＋ `npx jest src/modules/governance src/modules/identity --silent` ＋ `bash scripts/on-stack.sh self demo:all`（⑥，断言终态照花名册）＋ `bash scripts/stack.sh reset self` 后复跑 ⑥（⑧，动过 schema/seed 必跑，判据对照 baseline.md 全绿）。本波零账务，⑦ 不触发。
 - [ ] **Step 3: 预期终态数量逐项核对**（Global Constraints 表）：域/桶/组/类型行/审批类型/审计码/新表/场景，任何一项对不上就停，找出漏改位点再收口。
-- [ ] **Step 4: 对照 `doc-final/rules/delivery-checklist.md` 逐条过**；对照 spec 逐条问「这条承诺的代码在哪」（spec 承诺无 diff 是终审必逮项——判例在案）。
+- [ ] **Step 4: 对照 `doc-final/rules/delivery-checklist.md` 逐条过**；对照 spec 逐条问「这条承诺的代码在哪」（spec 承诺无 diff 是终审必逮项——判例在案）；**BACKLOG 扫一遍**：本波有无可销账行（销则划掉注明），本波新登的两行（报文表单/HRC 窗）确认在档。
 - [ ] **Step 5: 波五骨架立档**（承接记录含：本波实际交付清单、偏差、悬挂项、波五岔口——投诉字段模型参考外来包评估 `checkups/2026-09-25-raymond-stage4-intake-assessment.md`、对撞点「escalate 走系统外文案 vs 升级=转事件」、场景编号定稿岔口）。
 - [ ] **Step 6: Commit** `docs(甲波四T10): modules两篇+overview计数15域73桶81组+场景21/22实走+收尾闸⑥⑧全绿+波五骨架立档`
+
+**本任务过清单**：多波承接写进波五骨架（不代写波五 spec）｜每轮收尾三件套（文档分层收口＋CHANGELOG 一行＋BACKLOG 销账）｜改页面/种子同步 demo 两文档。
 
 ---
 
