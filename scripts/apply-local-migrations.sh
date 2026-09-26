@@ -40,7 +40,7 @@ sqlite_scalar_or_fail() {
   local sql="$2"
   local output
   local error_output
-  error_output="$(mktemp -t exchange-js-sqlite-error)"
+  error_output="$(mktemp "${TMPDIR:-/tmp}/exchange-js-sqlite-error.XXXXXX")"
 
   if ! output="$(sqlite3 "${DB_FILE}" "${sql}" 2>"${error_output}")"; then
     local detail
@@ -70,7 +70,7 @@ run_sql_file() {
 
 create_migration_table() {
   local temp_sql
-  temp_sql="$(mktemp -t exchange-js-migration-table)"
+  temp_sql="$(mktemp "${TMPDIR:-/tmp}/exchange-js-migration-table.XXXXXX")"
   cat >"${temp_sql}" <<'SQL'
 CREATE TABLE IF NOT EXISTS "_prisma_migrations" (
   "id" TEXT NOT NULL PRIMARY KEY,
@@ -156,7 +156,7 @@ while IFS= read -r migration_file; do
     continue
   fi
 
-  wrapped_sql="$(mktemp -t exchange-js-migration-apply)"
+  wrapped_sql="$(mktemp "${TMPDIR:-/tmp}/exchange-js-migration-apply.XXXXXX")"
   create_wrapped_sql "${migration_name}" "${migration_file}" "${checksum}" "${wrapped_sql}"
 
   echo "[migrate] apply ${migration_name}"
