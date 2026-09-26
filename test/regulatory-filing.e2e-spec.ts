@@ -64,8 +64,14 @@ describe('Regulatory filing e2e (战役甲波二 · 报送台骨架, Task 8)', (
   const smo = () => makeActor(smoUserId, 'E2E_FIL_SMO', 'SENIOR_MANAGEMENT_OFFICER');
   const cisoUserId = randomUUID();
   const ciso = () => makeActor(cisoUserId, 'E2E_FIL_CISO', 'CISO');
-  // 只经 RegulatoryFilingService（不查权限）——同样随机造 id。
-  const complianceUserId = randomUUID();
+  // 战役甲波三 T3 承接修订（T8）：原注释"只经 RegulatoryFilingService（不查权限）、
+  // 随机造 id 即可"已被 T3 的服务层族独占门（assertFamily → hasPermission(userId,
+  // 'cap.filing.general') 真查 DB 角色绑定）打穿——本文件所有直调
+  // openManual/saveDraft/markSubmitted/close/cancel 的 GENERAL 族写动作现在都会先过
+  // 这道真权限门，随机 uuid 查不到任何角色绑定，一律 403。契约变了（这是 T3 明文设计的
+  // 族独占，不是缺陷），改用真实种子 COMPLIANCE_OFFICER（compliance_lead@fiatx.com），
+  // 同 techOfficer()/dpo() 已有先例。
+  let complianceUserId: string;
   const compliance = () => makeActor(complianceUserId, 'E2E_FIL_COMPLIANCE', 'COMPLIANCE_OFFICER');
 
   beforeAll(async () => {
@@ -83,14 +89,16 @@ describe('Regulatory filing e2e (战役甲波二 · 报送台骨架, Task 8)', (
     sweepService = app.get(RegulatoryFilingSweepService);
     approvalsService = app.get(ApprovalsService);
 
-    // 真查种子管理员 id（TECH_OFFICER/DPO 两个邮箱）——assertOperator 走真实 DB 查询，
-    // 捏造 id 查不到任何角色绑定（同 incident-register.e2e-spec.ts 判例）。
-    const [techUser, dpoUser] = await Promise.all([
+    // 真查种子管理员 id（TECH_OFFICER/DPO/COMPLIANCE_OFFICER 三个邮箱）——assertOperator/
+    // assertFamily 都走真实 DB 查询，捏造 id 查不到任何角色绑定（同
+    // incident-register.e2e-spec.ts 判例；COMPLIANCE_OFFICER 一项是 T8 承接修订新增，见上）。
+    const [techUser, dpoUser, complianceUser] = await Promise.all([
       (prisma as any).user.findFirst({ where: { email: 'tech_admin@fiatx.com' } }),
       (prisma as any).user.findFirst({ where: { email: 'dpo@fiatx.com' } }),
+      (prisma as any).user.findFirst({ where: { email: 'compliance_lead@fiatx.com' } }),
     ]);
-    if (!techUser || !dpoUser) throw new Error('Fixture role-seed admins (TECH_OFFICER/DPO) not seeded — run `bash scripts/stack.sh reset self` first.');
-    techOfficerUserId = techUser.id; dpoUserId = dpoUser.id;
+    if (!techUser || !dpoUser || !complianceUser) throw new Error('Fixture role-seed admins (TECH_OFFICER/DPO/COMPLIANCE_OFFICER) not seeded — run `bash scripts/stack.sh reset self` first.');
+    techOfficerUserId = techUser.id; dpoUserId = dpoUser.id; complianceUserId = complianceUser.id;
   });
   afterAll(async () => { if (app) await app.close(); });
 
@@ -153,20 +161,25 @@ describe('Regulatory filing e2e (战役甲波二 · 报送台骨架, Task 8)', (
     expect(filingRow.authority).toBe('VARA');
     expect(filingRow.status).toBe('DRAFT');
 
-    await filings.saveDraft(filingNo, '事件时间线：核心账本服务于 T 时刻检测到异常访问，已启用 BCDR 预案。', techOfficer());
+    // 战役甲波三 T3 承接修订（T8）：报送台经办唯合规官（rbac.catalog.ts :974 域块头，
+    // 战役甲波二 Task 5 已定案），T3 的 assertFamily 头一次在服务层真正把这条规矩钉死——
+    // techOfficer 开事故/定损，但草稿/送签/标已提交/往来/办结这五步落到合规官手上
+    // （同一张 INCIDENT_REPORT 单，openForIncident 开单本身不受 cap.filing.general
+    // 门限制，是给事故经办人的既有豁免；下游报送台操作不豁免）。
+    await filings.saveDraft(filingNo, '事件时间线：核心账本服务于 T 时刻检测到异常访问，已启用 BCDR 预案。', compliance());
 
-    const signoff = await filingWorkflow.submitForSignoff(filingNo, techOfficer());
+    const signoff = await filingWorkflow.submitForSignoff(filingNo, compliance());
     const approvalRow = await (prisma as any).approvalCase.findFirst({ where: { approvalNo: signoff.approvalNo } });
     expect(approvalRow.actionType).toBe(ApprovalActionTypes.REG_FILING_SUBMIT);
 
     await approvalsService.approve(signoff.approvalNo, { reason: 'e2e SMO signoff filing 1' }, smo());
     await waitUntil(async () => (await filings.findByNo(filingNo)).status === 'SIGNED_OFF');
 
-    await filings.markSubmitted(filingNo, { externalRef: 'VARA-REG-E2E-001' }, techOfficer());
+    await filings.markSubmitted(filingNo, { externalRef: 'VARA-REG-E2E-001' }, compliance());
     expect((await filings.findByNo(filingNo)).status).toBe('SUBMITTED');
 
-    await filings.addEntry(filingNo, { kind: FilingEntryKinds.RECEIPT_ACK, body: 'VARA 已确认收到本次通报' }, techOfficer());
-    await filings.close(filingNo, techOfficer());
+    await filings.addEntry(filingNo, { kind: FilingEntryKinds.RECEIPT_ACK, body: 'VARA 已确认收到本次通报' }, compliance());
+    await filings.close(filingNo, compliance());
     expect((await filings.findByNo(filingNo)).status).toBe('CLOSED');
 
     const actions = await auditActionsFor(filingNo);
@@ -226,12 +239,13 @@ describe('Regulatory filing e2e (战役甲波二 · 报送台骨架, Task 8)', (
     expect(pdplRow.deadlineAt).toBeNull();
     expect(chainRow.deadlineAt).toBeNull();
 
-    await filings.saveDraft(pdplFilingNo, '事件说明：客户 KYC 材料存储桶配置错误导致短暂公开可访问。', dpo());
-    const signoff = await filingWorkflow.submitForSignoff(pdplFilingNo, dpo());
+    // 战役甲波三 T3 承接修订（T8，同①注释）：报送台操作改用合规官，DPO 只留在事故侧。
+    await filings.saveDraft(pdplFilingNo, '事件说明：客户 KYC 材料存储桶配置错误导致短暂公开可访问。', compliance());
+    const signoff = await filingWorkflow.submitForSignoff(pdplFilingNo, compliance());
     await approvalsService.approve(signoff.approvalNo, { reason: 'e2e SMO signoff PDPL filing' }, smo());
     await waitUntil(async () => (await filings.findByNo(pdplFilingNo)).status === 'SIGNED_OFF');
 
-    const submitResult = await filings.markSubmitted(pdplFilingNo, { externalRef: 'UAE-DATA-OFFICE-E2E-001' }, dpo());
+    const submitResult = await filings.markSubmitted(pdplFilingNo, { externalRef: 'UAE-DATA-OFFICE-E2E-001' }, compliance());
     expect(submitResult.chainDeadlineSetFor).toEqual([chainFilingNo]);
 
     const pdplAfterSubmit = await filings.findByNo(pdplFilingNo);
@@ -289,12 +303,12 @@ describe('Regulatory filing e2e (战役甲波二 · 报送台骨架, Task 8)', (
     expect((await filings.findByNo(chainFilingNo)).status).toBe('DRAFT');
     await expect(closeWorkflow.requestClose(dataBreachIncidentNo, dpo())).rejects.toThrow(/have not yet been submitted/);
 
-    // 补齐链单的签发链：草拟 → 送签 → 高管批 → SIGNED_OFF → 标提交。
-    await filings.saveDraft(chainFilingNo, '后续通知（24h 内）：PDPL 通报后的强制再报，补充影响范围核实结果。', dpo());
-    const signoff = await filingWorkflow.submitForSignoff(chainFilingNo, dpo());
+    // 补齐链单的签发链：草拟 → 送签 → 高管批 → SIGNED_OFF → 标提交（同③注释，报送台操作用合规官）。
+    await filings.saveDraft(chainFilingNo, '后续通知（24h 内）：PDPL 通报后的强制再报，补充影响范围核实结果。', compliance());
+    const signoff = await filingWorkflow.submitForSignoff(chainFilingNo, compliance());
     await approvalsService.approve(signoff.approvalNo, { reason: 'e2e SMO signoff chain filing' }, smo());
     await waitUntil(async () => (await filings.findByNo(chainFilingNo)).status === 'SIGNED_OFF');
-    await filings.markSubmitted(chainFilingNo, { externalRef: 'VARA-REG-E2E-002' }, dpo());
+    await filings.markSubmitted(chainFilingNo, { externalRef: 'VARA-REG-E2E-002' }, compliance());
     expect((await filings.findByNo(chainFilingNo)).status).toBe('SUBMITTED');
 
     // 两单均已提交：结案入口放行——DATA_BREACH.closeActionType===INCIDENT_CLOSE_TECHSEC，单步 CISO。
