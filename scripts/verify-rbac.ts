@@ -1439,6 +1439,7 @@ async function verifyAmlFilingNoApprovalChain(tokens: Record<string, string>): P
   const openRes = await call('POST', '/admin/regulatory-filings', mlroToken, {
     type: 'STR',
     title: 'RBAC probe — AML lifecycle no-approval-chain (STR)',
+    externalCaseRef: 'RBAC-PROBE-CASE-REF', // STR requiresExternalCaseRef（T3 业务闸）；缺则 400 探针中止——终审红1修
   });
   const filingNo = openRes.json?.filingNo;
   check(

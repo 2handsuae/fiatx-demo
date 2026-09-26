@@ -89,7 +89,7 @@ DRAFT ──标已提交+externalRef(MLRO)──► SUBMITTED ──办结(MLRO)
 
 ## 3. 权限与审批
 
-**RBAC 新域（14 域 69 桶 77 组，`overview.md` §4）**：`filings.view`「View regulatory filings」→ 三组 OR 只读（`REG_FILING_READ`/`REG_FILING_WRITE`/`REG_FILING_AML_WRITE`，波三新增第三组 OR）；`filings.desk`「Operate the regulatory filing desk」→ `REG_FILING_WRITE`（GENERAL 族全部写动作，合规官独占）；**`filings.aml-desk`「Operate AML reporting desk」（波三新增第三桶）→ `REG_FILING_AML_WRITE`（MLRO 独占：开单/正文/标已提交/往来/决定不报/办结/作废六类型全在他手上，无签发链）**。写路由现为两组 OR 的粗门（既有 9 条 POST + 波三新增 `POST /admin/regulatory-filings/:filingNo/close-no-filing` 共 10 条，均挂 `['REG_FILING_WRITE', 'REG_FILING_AML_WRITE']`）；GET 两条挂三组 OR（含 AML 组）。
+**RBAC 新域（14 域 69 桶 77 组，`overview.md` §4）**：`filings.view`「View regulatory filings」→ 三组 OR 只读（`REG_FILING_READ`/`REG_FILING_WRITE`/`REG_FILING_AML_WRITE`，波三新增第三组 OR）；`filings.desk`「Operate the regulatory filing desk」→ `REG_FILING_WRITE`（GENERAL 族全部写动作，合规官独占）；**`filings.aml-desk`「Operate AML reporting desk」（波三新增第三桶）→ `REG_FILING_AML_WRITE`（MLRO 独占：开单/正文/标已提交/往来/决定不报/办结/作废六类型全在他手上，无签发链）**。写路由现为两组 OR 的粗门（既有 7 条 POST + 波三新增 `POST /admin/regulatory-filings/:filingNo/close-no-filing` 共 **8 条 POST**，均挂 `['REG_FILING_WRITE', 'REG_FILING_AML_WRITE']`；波二"9 条"计的是含 2 条 GET 的路由总数，2026-09-26 终审订正口径）；GET 两条挂三组 OR（含 AML 组）。
 
 **共享路由、服务层按族独占才是真把关**（波三 T3，照 `cap.incident.*` 先例——`v1-governance.md` §7 Ruling-6）：路由层的两组 OR 只放行「你是报送台某一个经办人」，真正判定「这张单是不是你那族」的在服务层——`RegulatoryFilingService` 精确判定 actor 是否持有该单据类型所属族的能力码 `cap.filing.general`（合规官持有）/`cap.filing.aml`（MLRO 持有），跨族一律 403。不走「权限码反查所属组」这条老路（码被多组共享时会把持有人一并错误抬进所有共享组）。
 
