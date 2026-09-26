@@ -32,6 +32,9 @@ export const AuditEntityTypes = {
   REGULATORY_FILING: 'REGULATORY_FILING',
   // 战役甲波四 T2（2026-09-27）：合规办公室义务主体
   COMPLIANCE_OBLIGATION: 'COMPLIANCE_OBLIGATION',
+  // 战役甲波四 T4（2026-09-27）：合规办公室两本登记册
+  OUTSOURCING_VENDOR: 'OUTSOURCING_VENDOR',
+  RESPONSIBLE_INDIVIDUAL: 'RESPONSIBLE_INDIVIDUAL',
 } as const;
 
 export const AuditWorkflowTypes = {
@@ -125,6 +128,10 @@ export const AuditBusinessWorkflowTypes = {
   SANCTION_DISPOSITION: 'SANCTION_DISPOSITION',
   // 战役甲波四 T2（2026-09-27）：合规办公室义务主体（治理件，独立主体 ComplianceObligation）
   COMPLIANCE_OBLIGATION: 'COMPLIANCE_OBLIGATION',
+  // 战役甲波四 T4（2026-09-27）：合规办公室两本登记册（治理件，独立主体 OutsourcingVendor/
+  // ResponsibleIndividual，各自一个 workflowType，同 COMPLIANCE_OBLIGATION 先例）
+  OUTSOURCING_VENDOR: 'OUTSOURCING_VENDOR',
+  RESPONSIBLE_INDIVIDUAL: 'RESPONSIBLE_INDIVIDUAL',
 } as const;
 
 // Task 28：退役清单扫尾——原 15 键仅 2 键（REQUEST_CREATED/SUBMITTED）经
@@ -430,6 +437,14 @@ export const AuditActions = {
   OBLIGATION_STATUS_CHANGED: 'OBLIGATION_STATUS_CHANGED',
   OBLIGATION_FILING_GENERATED: 'OBLIGATION_FILING_GENERATED',
   OBLIGATION_DUE_FASTFORWARDED: 'OBLIGATION_DUE_FASTFORWARDED',
+  // ── 战役甲波四 T4（2026-09-27）：合规办公室两本登记册 ──────────────
+  VENDOR_REGISTERED: 'VENDOR_REGISTERED',
+  VENDOR_UPDATED: 'VENDOR_UPDATED',
+  VENDOR_TERMINATED: 'VENDOR_TERMINATED',
+  RI_SEAT_REGISTERED: 'RI_SEAT_REGISTERED',
+  RI_REPLACEMENT_PROPOSED: 'RI_REPLACEMENT_PROPOSED',
+  RI_REPLACEMENT_APPLIED: 'RI_REPLACEMENT_APPLIED',
+  RI_REPLACEMENT_REJECTED: 'RI_REPLACEMENT_REJECTED',
 } as const;
 
 // 站4 清扫:十条死词映射(APPROVAL_APPROVED/EXECUTED、ADMIN_INVITATION_*、USER_*、
@@ -1038,6 +1053,21 @@ export const COMPLIANCE_OFFICE_AUDIT_ACTIONS: Record<string, AuditActionSpec> = 
   OBLIGATION_FILING_GENERATED:  { domain: 'GOVERNANCE', correlationMode: N, requiredFields: ['dueAt', 'filingType'], requiresCausation: false },
   // ⚡ 演示装置（挂路由在 T5）：把 nextDueAt 拨到 now，供演示者立刻触发生成。
   OBLIGATION_DUE_FASTFORWARDED: { domain: 'GOVERNANCE', correlationMode: N, requiredFields: ['nextDueAt'], requiresCausation: false },
+
+  // ── 战役甲波四 T4（2026-09-27）：两本登记册七码，同组共用（域 GOVERNANCE）。
+  // vendor：REGISTERED 铸旅程（S），UPDATED/TERMINATED 是对已存在行的直接一次性操作，
+  // 同 OBLIGATION_UPDATED/STATUS_CHANGED 先例标 N。
+  VENDOR_REGISTERED:  { domain: 'GOVERNANCE', correlationMode: S, requiredFields: ['criticality'], requiresCausation: false },
+  VENDOR_UPDATED:     { domain: 'GOVERNANCE', correlationMode: N, requiredFields: [], requiresCausation: false },
+  VENDOR_TERMINATED:  { domain: 'GOVERNANCE', correlationMode: N, requiredFields: ['fromStatus', 'toStatus'], requiresCausation: false },
+  // RI：SEAT_REGISTERED 铸旅程（S）。PROPOSED/APPLIED/REJECTED 是换人流程三步——本 task
+  // 只落本表字段与审计、不开审批单（T5 的事），故不强制 requiresCausation/INHERIT；
+  // 三码都老实标 N，同 OBLIGATION 中段先例。APPLIED 携 fromIncumbent/toIncumbent（brief
+  // 明确要求的两个必填字段，供「谁换了谁」的机器可读断言）。
+  RI_SEAT_REGISTERED:      { domain: 'GOVERNANCE', correlationMode: S, requiredFields: ['position'], requiresCausation: false },
+  RI_REPLACEMENT_PROPOSED: { domain: 'GOVERNANCE', correlationMode: N, requiredFields: ['approvalNo'], requiresCausation: false },
+  RI_REPLACEMENT_APPLIED:  { domain: 'GOVERNANCE', correlationMode: N, requiredFields: ['fromIncumbent', 'toIncumbent'], requiresCausation: false },
+  RI_REPLACEMENT_REJECTED: { domain: 'GOVERNANCE', correlationMode: N, requiredFields: ['approvalNo'], requiresCausation: false },
 };
 
 /** 动态迁移码族（<域>_<从>_TO_<到>，充值站1b-β/提现站2-β 整族废除；站7 扩面治理五簿+监管闸——

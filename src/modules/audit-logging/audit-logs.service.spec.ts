@@ -134,6 +134,9 @@ describe('AuditLogsService', () => {
       SANCTION_DISPOSITION: 'SANCTION_DISPOSITION',
       // 战役甲波四 T2（2026-09-27）：合规办公室义务主体
       COMPLIANCE_OBLIGATION: 'COMPLIANCE_OBLIGATION',
+      // 战役甲波四 T4（2026-09-27）：合规办公室两本登记册
+      OUTSOURCING_VENDOR: 'OUTSOURCING_VENDOR',
+      RESPONSIBLE_INDIVIDUAL: 'RESPONSIBLE_INDIVIDUAL',
     });
 
     expect(AuditUserActions).toEqual({

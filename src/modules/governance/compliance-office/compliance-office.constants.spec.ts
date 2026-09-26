@@ -1,10 +1,19 @@
-import { advanceDueDate, OBLIGATION_TRANSITIONS, ObligationStatus } from './compliance-office.constants';
+import { advanceDueDate, OBLIGATION_TRANSITIONS, ObligationStatus, VENDOR_TRANSITIONS, VendorStatus } from './compliance-office.constants';
 
 describe('OBLIGATION_TRANSITIONS（铁律④显式迁移表，Task 2）', () => {
   it('只有 ACTIVE ↔ DISABLED 两条边，两态互为彼此的唯一出边', () => {
     expect(OBLIGATION_TRANSITIONS).toEqual({
       [ObligationStatus.ACTIVE]: [ObligationStatus.DISABLED],
       [ObligationStatus.DISABLED]: [ObligationStatus.ACTIVE],
+    });
+  });
+});
+
+describe('VENDOR_TRANSITIONS（铁律④显式迁移表，Task 4：终态零出边，无硬删）', () => {
+  it('只有 ACTIVE → TERMINATED 一条边，TERMINATED 没有任何出边', () => {
+    expect(VENDOR_TRANSITIONS).toEqual({
+      [VendorStatus.ACTIVE]: [VendorStatus.TERMINATED],
+      [VendorStatus.TERMINATED]: [],
     });
   });
 });

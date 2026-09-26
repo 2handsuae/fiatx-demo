@@ -50,3 +50,14 @@ export interface UpdateObligationDto {
   basisNote?: string;
   leadBusinessDays?: number;
 }
+
+// ── 战役甲波四 T4：外包供应商登记册 ──────────────────────────────────
+
+export const VendorStatus = { ACTIVE: 'ACTIVE', TERMINATED: 'TERMINATED' } as const;
+
+/** 铁律④显式迁移表：终态零出边——TERMINATED 之后没有任何合法目的地（无硬删，
+ *  「删」这个操作本身就不存在，只有 ACTIVE→TERMINATED 这一条边）。 */
+export const VENDOR_TRANSITIONS: Record<string, readonly string[]> = {
+  [VendorStatus.ACTIVE]: [VendorStatus.TERMINATED],
+  [VendorStatus.TERMINATED]: [],
+};
