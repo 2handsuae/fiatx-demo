@@ -1715,6 +1715,8 @@ model RegulatoryFiling {
   approvalNo        String?   // 签发审批单
   closedAt          DateTime?
   cancelledReason   String?
+  externalCaseRef   String?   // 外部案件/名单条目引用（Sumsub 案件号或 EOCN 名单条目号，报文族四类型用）
+  noFilingReason    String?   // STR/SAR「决定不报」结案理由
   createdByUserId   String
   traceId           String
   createdAt         DateTime  @default(now())
@@ -1731,6 +1733,7 @@ model RegulatoryFilingEntry {
   kind             String   // RECEIPT_ACK | REGULATOR_INQUIRY | OUR_SUPPLEMENT
   body             String
   externalRef      String?
+  commDraftedBy    String?  // CUSTOMER_COMM 拟稿人自由文本
   recordedByUserId String
   createdAt        DateTime @default(now())
   filing RegulatoryFiling @relation(fields: [filingId], references: [id])
