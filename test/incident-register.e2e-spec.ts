@@ -96,10 +96,14 @@ describe('Incident register e2e (平账三期 · 事故登记, Task 13)', () => 
   // （2026-09-10）整体迁到 TREASURY_OFFICER，OPS_OFFICER 早不持有——原来那个按 OPS_OFFICER
   // 造 actor 的工厂函数从写下那天起就没对上真实持有人，故全文件改派 treasury()，原
   // opsUserId 与那个工厂函数随之删除（不留孤儿）。
-  let cfoUserId: string; let mlroUserId: string; let treasuryUserId: string;
+  let cfoUserId: string; let mlroUserId: string; let treasuryUserId: string; let complianceUserId: string;
   const cfo = () => makeActor(cfoUserId, 'E2E_INC_CFO', 'CFO');
   const mlro = () => makeActor(mlroUserId, 'E2E_INC_MLRO', 'MLRO');
   const treasury = () => makeActor(treasuryUserId, 'E2E_INC_TREASURY', 'TREASURY_OFFICER');
+  // 甲波三收尾修复：T3 起报送台写动作过服务层族门（cap.filing.general），金库真实账号
+  // 不持任何 FILING 组——报送台动作改由真实种子合规官承接（照 regulatory-filing.e2e-spec.ts
+  // 同款修法）；事故侧动作仍归 treasury()（事故 FUNDS 族经办不变）。
+  const compliance = () => makeActor(complianceUserId, 'E2E_INC_COMPLIANCE', 'COMPLIANCE_OFFICER');
   // 甲波二 T6 用例④续作：报送单签发链单步 SENIOR_MANAGEMENT_OFFICER（approval.constants.ts
   // REG_FILING_SUBMIT）——approve() 的 SoD 检查只比对 actor.userId 与 approval.createdByUserId
   // 是否相同（approvals.service.ts:502），不查真实 DB 行，故这里不必像 cfo/mlro/treasury
@@ -130,13 +134,14 @@ describe('Incident register e2e (平账三期 · 事故登记, Task 13)', () => 
     // 甲波一 T5 连锁修复：真查种子管理员 id（CFO/MLRO/TREASURY_OFFICER 三个邮箱——T9 修1
     // 起 OPS_OFFICER 已随 ops() 工厂一并删除，见上方 T9 注释），供上面三个 makeActor(...)
     // 工厂用——assertOperator 走的是真 DB 查询，捏造 id 查不到组。
-    const [cfoUser, mlroUser, treasuryUser] = await Promise.all([
+    const [cfoUser, mlroUser, treasuryUser, complianceUser] = await Promise.all([
       (prisma as any).user.findFirst({ where: { email: 'cfo@fiatx.com' } }),
       (prisma as any).user.findFirst({ where: { email: 'mlro@fiatx.com' } }),
       (prisma as any).user.findFirst({ where: { email: 'treasury@fiatx.com' } }),
+      (prisma as any).user.findFirst({ where: { email: 'compliance_lead@fiatx.com' } }),
     ]);
-    if (!cfoUser || !mlroUser || !treasuryUser) throw new Error('Fixture role-seed admins (CFO/MLRO/TREASURY_OFFICER) not seeded — run `bash scripts/stack.sh reset self` first.');
-    cfoUserId = cfoUser.id; mlroUserId = mlroUser.id; treasuryUserId = treasuryUser.id;
+    if (!cfoUser || !mlroUser || !treasuryUser || !complianceUser) throw new Error('Fixture role-seed admins (CFO/MLRO/TREASURY_OFFICER/COMPLIANCE_OFFICER) not seeded — run `bash scripts/stack.sh reset self` first.');
+    cfoUserId = cfoUser.id; mlroUserId = mlroUser.id; treasuryUserId = treasuryUser.id; complianceUserId = complianceUser.id;
     aedAssetId = aed.id; aedCode = aed.code; aedDecimals = aed.decimals; aedNetwork = aed.network;
     usdtAssetId = usdt.id; usdtCode = usdt.code; usdtDecimals = usdt.decimals; usdtNetwork = usdt.network;
   });
@@ -496,11 +501,11 @@ describe('Incident register e2e (平账三期 · 事故登记, Task 13)', () => 
 
     // 第一单：草拟 → 申请签发（PENDING_SIGNOFF）→ 高管批（直调 ApprovalsService 裁决，照
     // 本文件既有审批直调先例）→ 落 SIGNED_OFF → 标已提交。
-    await filings.saveDraft(filingNo1, '事件时间线与影响范围说明（草案）：托管方转出未经授权，已定损 25 USDT。', treasury());
-    const signoff1 = await filingWorkflow.submitForSignoff(filingNo1, treasury());
+    await filings.saveDraft(filingNo1, '事件时间线与影响范围说明（草案）：托管方转出未经授权，已定损 25 USDT。', compliance());
+    const signoff1 = await filingWorkflow.submitForSignoff(filingNo1, compliance());
     await approvalsService.approve(signoff1.approvalNo, { reason: 'e2e SMO signoff filing 1' }, smo());
     await waitUntil(async () => (await filings.findByNo(filingNo1)).status === 'SIGNED_OFF');
-    await filings.markSubmitted(filingNo1, { externalRef: 'VARA-REG-2026-001' }, treasury());
+    await filings.markSubmitted(filingNo1, { externalRef: 'VARA-REG-2026-001' }, compliance());
     expect((await filings.findByNo(filingNo1)).status).toBe('SUBMITTED');
 
     // 中途只有一单提交：事故仍处 ASSESSED（第二单未提交 + 此类型定损结论非 NO_LOSS 也未挂
@@ -508,11 +513,11 @@ describe('Incident register e2e (平账三期 · 事故登记, Task 13)', () => 
     await expect(closeWorkflow.requestClose(mainIncidentNo, treasury())).rejects.toThrow(BadRequestException);
 
     // 第二单：同样走一遍签发链，独立的 externalRef。
-    await filings.saveDraft(filingNo2, '事件时间线与影响范围说明（草案）：客户虚拟资产差异，已定损 25 USDT。', treasury());
-    const signoff2 = await filingWorkflow.submitForSignoff(filingNo2, treasury());
+    await filings.saveDraft(filingNo2, '事件时间线与影响范围说明（草案）：客户虚拟资产差异，已定损 25 USDT。', compliance());
+    const signoff2 = await filingWorkflow.submitForSignoff(filingNo2, compliance());
     await approvalsService.approve(signoff2.approvalNo, { reason: 'e2e SMO signoff filing 2' }, smo());
     await waitUntil(async () => (await filings.findByNo(filingNo2)).status === 'SIGNED_OFF');
-    await filings.markSubmitted(filingNo2, { externalRef: 'VARA-REG-2026-002' }, treasury());
+    await filings.markSubmitted(filingNo2, { externalRef: 'VARA-REG-2026-002' }, compliance());
     expect((await filings.findByNo(filingNo2)).status).toBe('SUBMITTED');
 
     const view = await incidents.getView(mainIncidentNo);
