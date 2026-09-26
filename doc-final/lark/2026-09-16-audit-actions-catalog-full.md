@@ -1,10 +1,10 @@
 # 审计动作码全量导出 —— 按域 × 按工作流（最全版）
 
-> 生成于 2026-09-26 ｜ 基线 main `368e5eb1` ｜ 机器列来源 `src/modules/audit-logging/constants/audit-actions.constant.ts`（8 份名册程序化导出）｜ 说明列来源 `doc-final/lark/2026-09-15-audit-actions-catalog-by-domain-workflow.md`
-> 现役 **259 码**（较 2026-09-15 版少 4：CUSTOMER_DELETED、CUSTOMER_UPDATED、INCIDENT_REGULATOR_REPORTED、INCIDENT_REGULATOR_REPORT_DRAFTED 已退役，进拒写闸），另有退役 117 码进拒写闸（附录全列）。
+> 生成于 2026-09-26 ｜ 基线 main `22a59ed8` ｜ 机器列来源 `src/modules/audit-logging/constants/audit-actions.constant.ts`（9 份名册程序化导出）｜ 说明列来源 `doc-final/lark/2026-09-15-audit-actions-catalog-by-domain-workflow.md`
+> 现役 **269 码**（较 2026-09-15 版少 4：CUSTOMER_DELETED、CUSTOMER_UPDATED、INCIDENT_REGULATOR_REPORTED、INCIDENT_REGULATOR_REPORT_DRAFTED 已退役，进拒写闸），另有退役 117 码进拒写闸（附录全列）。
 > **旅程**列：S 起点=该码铸 correlationId 开启一段旅程 ｜ I 继承=延续同一旅程 ｜ N 单步=无旅程可挂（守卫拒绝、单步动作、报价先于订单等）。**异步**=✓ 表示由审批/事件驱动、必须带 causationId。**subjects**=✓ 表示该码在 SUBJECTS_COVERED_ACTIONS 名册（治理域+横切审批 47 码，verify:audit Q2 断言面）；交易域码运行时也写子表行但不在名册故留白；Related No 检索走 OR 语义（主表∨子表）不受此列影响。⚡=演示装置。
 
-**分域计数**：APPROVAL 8 ｜ IAM 30 ｜ CONFIG 60 ｜ AUDIT 4 ｜ CUSTOMER 26 ｜ DEPOSIT 47 ｜ WITHDRAW 33 ｜ SWAP 26 ｜ TREASURY 7 ｜ RECON 9 ｜ GOVERNANCE 9 ｜ 合计 259
+**分域计数**：APPROVAL 8 ｜ IAM 30 ｜ CONFIG 60 ｜ AUDIT 4 ｜ CUSTOMER 26 ｜ DEPOSIT 47 ｜ WITHDRAW 33 ｜ SWAP 26 ｜ TREASURY 7 ｜ RECON 9 ｜ GOVERNANCE 19 ｜ 合计 269
 
 ## APPROVAL 域 —— 审批引擎（横切）（8 码）
 
@@ -561,7 +561,7 @@
 | `RECON_CASE_AGING_BREACHED` | 账龄到线（系统通道，actor=AGING_TIMER，核销/认损按钮由此解锁） | N 单步 | — |  |  |
 | `RECON_AGING_TIMEOUT_SIMULATED` | ⚡ 拨钟：把账龄截止拨到过去（拨钟一条、到线一条，各说各的事） | N 单步 | — |  |  |
 
-## GOVERNANCE 域 —— 事故登记（平账三期）（9 码）
+## GOVERNANCE 域 —— 事故登记（平账三期）（19 码）
 
 性质严重的差异正式立「事故」：登记 / 调查 / 定损 / 通报 / 善后 / 结案，全程零账务；动钱挂调账单与划转单引用。
 
@@ -578,6 +578,21 @@
 | `INCIDENT_CLOSE_REQUESTED` | 提结案（安全类两步 MLRO→CFO / 财务类单步 CFO） | I 继承 | — |  |  |
 | `INCIDENT_CLOSED` | 审批通过、事故 CLOSED | I 继承 | approvalNo | ✓ |  |
 | `INCIDENT_WITHDRAWN` | 撤回误登记（仅 REGISTERED 态，理由留痕，不是删除） | N 单步 | reason |  |  |
+
+### 报送台生命周期（10） — 战役甲波二新增，事故定损批量开单 / 合规官手动开单两条入口共用
+
+| 动作码 | 说明 | 旅程 | 必填字段 | 异步 | subjects |
+|---|---|---|---|---|---|
+| `FILING_OPENED` | 开一张报送单（事故定损批量开单 / 合规官手动开单，选定报送类型与依据） | S 起点 | type |  |  |
+| `FILING_DRAFT_SAVED` | 保存报送正文草稿（首次记审计，续存不重记） | N 单步 | — |  |  |
+| `FILING_SIGNOFF_REQUESTED` | 送签（草稿转入待签核，进审批旅程） | I 继承 | approvalNo |  |  |
+| `FILING_SIGNED_OFF` | 签核通过（审批裁决驱动） | I 继承 | approvalNo | ✓ |  |
+| `FILING_SIGNOFF_REJECTED` | 签核被拒，退回起草（审批裁决驱动） | I 继承 | approvalNo, reason | ✓ |  |
+| `FILING_SUBMITTED` | 标记已提交监管机构（落外部编号；同事故钟链兄弟单在此落定时限） | N 单步 | externalRef |  |  |
+| `FILING_ENTRY_LOGGED` | 记一条往来记录（仅 SUBMITTED 可记，如监管来函 / 我方回复） | N 单步 | kind |  |  |
+| `FILING_OVERDUE_MARKED` | 扫描到期未提交，标记逾期（系统通道） | N 单步 | deadlineAt |  |  |
+| `FILING_CLOSED` | 结案（仅 SUBMITTED 可结） | N 单步 | — |  |  |
+| `FILING_CANCELLED` | 作废（仅 DRAFT 可撤，理由留痕） | N 单步 | reason |  |  |
 
 ## 附录 · 退役码（拒写闸名单，历史可读、不再允许写入）
 

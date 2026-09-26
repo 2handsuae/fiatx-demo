@@ -583,6 +583,21 @@
 | `INCIDENT_CLOSED` | 审批通过、事故 CLOSED | I 继承 | approvalNo | ✓ |
 | `INCIDENT_WITHDRAWN` | 撤回误登记（仅 REGISTERED 态，理由留痕，不是删除） | N 单步 | reason |  |
 
+### 报送台生命周期（10） — 战役甲波二新增，事故定损批量开单 / 合规官手动开单两条入口共用
+
+| 动作码 | 说明 | 旅程 | 必填字段 | 异步 |
+|---|---|---|---|---|
+| `FILING_OPENED` | 开一张报送单（事故定损批量开单 / 合规官手动开单，选定报送类型与依据） | S 起点 | type |  |
+| `FILING_DRAFT_SAVED` | 保存报送正文草稿（首次记审计，续存不重记） | N 单步 | — |  |
+| `FILING_SIGNOFF_REQUESTED` | 送签（草稿转入待签核，进审批旅程） | I 继承 | approvalNo |  |
+| `FILING_SIGNED_OFF` | 签核通过（审批裁决驱动） | I 继承 | approvalNo | ✓ |
+| `FILING_SIGNOFF_REJECTED` | 签核被拒，退回起草（审批裁决驱动） | I 继承 | approvalNo, reason | ✓ |
+| `FILING_SUBMITTED` | 标记已提交监管机构（落外部编号；同事故钟链兄弟单在此落定时限） | N 单步 | externalRef |  |
+| `FILING_ENTRY_LOGGED` | 记一条往来记录（仅 SUBMITTED 可记，如监管来函 / 我方回复） | N 单步 | kind |  |
+| `FILING_OVERDUE_MARKED` | 扫描到期未提交，标记逾期（系统通道） | N 单步 | deadlineAt |  |
+| `FILING_CLOSED` | 结案（仅 SUBMITTED 可结） | N 单步 | — |  |
+| `FILING_CANCELLED` | 作废（仅 DRAFT 可撤，理由留痕） | N 单步 | reason |  |
+
 ## 附录 · 退役码（拒写闸名单，历史可读、不再允许写入）
 
 共 113 码：

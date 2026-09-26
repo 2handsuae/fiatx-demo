@@ -43,7 +43,7 @@ describe('FILING_TRANSITIONS (spec §3 六态六边)', () => {
   });
 });
 
-describe('INCIDENT_REPORT_BASES authority 回填 (spec §? 依据码目录)', () => {
+describe('INCIDENT_REPORT_BASES authority 回填 (spec §2 依据码目录)', () => {
   const authorityKeys = new Set(Object.keys(RegulatoryAuthorities));
 
   it('每条 authority 都落在 RegulatoryAuthorities 键集内', () => {

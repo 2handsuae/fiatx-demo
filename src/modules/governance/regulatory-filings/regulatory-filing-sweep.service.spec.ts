@@ -132,8 +132,10 @@ describe('RegulatoryFilingSweepService (Task 7)', () => {
     expect(result.marked).toBe(1);
     const failingRow = await prisma.regulatoryFiling.findUnique({ where: { filingNo: failingFilingNo } });
     const okRow = await prisma.regulatoryFiling.findUnique({ where: { filingNo: okFilingNo } });
-    // 失败单：审计抛错发生在 update 之后（同 swap-sla.service.ts 先例——状态变了但审计
-    // 写入失败也不回滚，逐笔 try/catch 只防止拖垮批次，不做跨行原子性）。
+    // 失败单：审计抛错发生在 update 之后（同本模块 regulatory-filing.service.ts（T3）的
+    // 先例——先落库、审计序列另写，状态变了但审计写入失败也不回滚；逐笔 try/catch 只防止
+    // 拖垮批次，不做跨行原子性。swap-sla.service.ts 不是同款先例——它把状态更新与审计写入
+    // 包在同一个 $transaction 里，审计失败会连状态一起回滚，是相反的模式，勿再误引）。
     expect(failingRow?.overdueMarkedAt).not.toBeNull();
     expect(okRow?.overdueMarkedAt?.toISOString()).toBe(now.toISOString());
   });

@@ -70,7 +70,7 @@ DRAFT ──送签(合规官)──► PENDING_SIGNOFF ──高管批准──�
 
 **双钟链现场走法**（两种都可用于演示）：
 
-1. **现场登记走一遍**：管理台事故列表页登记一个 `DATA_BREACH` 类型事故 → 调查 → 定损时勾 `PDPL_ART_9` + `TIR_II_C_24H` 两个依据码、需要通报 → 提交，联动开出两张报送单——`PDPL_ART_9` 那张即时无钟（deadline 为 null，因为该依据码本身法条未载明时限），`TIR_II_C_24H` 那张 `deadlineAt=null`（钟链未落定）→ 把 `PDPL_ART_9` 那张走完全链标已提交 → 回看 `TIR_II_C_24H` 那张，`deadlineAt` 已经落定为「刚才那次提交时刻 + 24h」，倒计时随之出现——这一步是钟链机制唯一直观可见的证据。
+1. **现场登记走一遍**：管理台事故列表页登记一个 `DATA_BREACH` 类型事故 → 调查 → 定损时勾 `PDPL_ART_9` + `TIR_II_C_24H` 两个依据码、需要通报 → 提交，联动开出两张报送单——`PDPL_ART_9` 那张无钟（deadline 为 null，因为该依据码本身法条未载明时限，前端显示「No deadline set」；不是 immediate 类即时义务，两者词表二分不可混用），`TIR_II_C_24H` 那张 `deadlineAt=null`（钟链未落定）→ 把 `PDPL_ART_9` 那张走完全链标已提交 → 回看 `TIR_II_C_24H` 那张，`deadlineAt` 已经落定为「刚才那次提交时刻 + 24h」，倒计时随之出现——这一步是钟链机制唯一直观可见的证据。
 2. **用种子样例直接讲解**（`data-breach-crm-export` 事故，`incidentNo=INC2601011480`）：省去现场操作时间，种子已经铺好两张单——`FIL...`（`PDPL_ART_9`）态 `SUBMITTED`，挂一条 `RECEIPT_ACK` 往来记录，`externalRef` 形如 `DATAOFFICE-ACK-2026-0001`；`FIL...`（`TIR_II_C_24H`）链单态 `SIGNED_OFF` 待提交，`deadlineAt` = 前者 `submittedAt`+24h，铺场时还剩约 4 小时在跑——直接打开这两张单的详情页对照讲「同一泄露事件、两项独立的监管义务、两只独立的钟」。种子另铺一张 **入站在途**样例：`REG_INFO_REQUEST_RESPONSE`（`authority=VARA`，`receivedAt` 近期）草拟中，48h 倒计时在跑，用于讲解 INBOUND 方向共用同一条生命周期。
 
-三种类型（`MATERIAL_CHANGE_NOTIFICATION`/`AUDITOR_APPOINTMENT_NOTICE`/`MARKET_OFFENCE_DUAL_REPORT`）本波不建种子，演示时可现场手工开单讲解（合规官账号，报送台列表页「+ New filing」，类型下拉选中后按 `requiresIncident`/`defaultAuthority` 决定表单字段显隐）。
+三种类型（`MATERIAL_CHANGE_NOTIFICATION`/`AUDITOR_APPOINTMENT_NOTICE`/`MARKET_OFFENCE_DUAL_REPORT`）本波不建种子，演示时可现场手工开单讲解（合规官账号，报送台列表页「Open Filing」，类型下拉选中后按 `requiresIncident`/`defaultAuthority` 决定表单字段显隐）。

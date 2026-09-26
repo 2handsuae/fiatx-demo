@@ -10,7 +10,7 @@ import { execSync } from 'child_process';
 import {
   V1_AUDIT_ACTIONS, V4_DEPOSIT_AUDIT_ACTIONS, V5_WITHDRAW_AUDIT_ACTIONS,
   V6_SWAP_AUDIT_ACTIONS, V8_RECON_AUDIT_ACTIONS, V2_CUSTOMER_AUDIT_ACTIONS,
-  V7_TREASURY_AUDIT_ACTIONS, INCIDENT_AUDIT_ACTIONS,
+  V7_TREASURY_AUDIT_ACTIONS, INCIDENT_AUDIT_ACTIONS, REG_FILING_AUDIT_ACTIONS,
   DEPRECATED_AUDIT_ACTIONS, SUBJECTS_COVERED_ACTIONS, AuditActionSpec,
 } from '../src/modules/audit-logging/constants/audit-actions.constant';
 import { AuditCorrelationMode } from '../src/modules/audit-logging/dto/audit-log.dto';
@@ -27,6 +27,7 @@ const ALL: Record<string, AuditActionSpec> = {
   ...V2_CUSTOMER_AUDIT_ACTIONS,
   ...V7_TREASURY_AUDIT_ACTIONS,
   ...INCIDENT_AUDIT_ACTIONS,
+  ...REG_FILING_AUDIT_ACTIONS,
 };
 
 // ── 种子解析：域节头 / 分组头 / 表行 ──────────────────────────────
@@ -118,7 +119,7 @@ const today = new Date().toISOString().slice(0, 10);
 const out: string[] = [];
 out.push('# 审计动作码全量导出 —— 按域 × 按工作流（最全版）');
 out.push('');
-out.push(`> 生成于 ${today} ｜ 基线 main \`${commit}\` ｜ 机器列来源 \`src/modules/audit-logging/constants/audit-actions.constant.ts\`（8 份名册程序化导出）｜ 说明列来源 \`${SEED}\``);
+out.push(`> 生成于 ${today} ｜ 基线 main \`${commit}\` ｜ 机器列来源 \`src/modules/audit-logging/constants/audit-actions.constant.ts\`（9 份名册程序化导出）｜ 说明列来源 \`${SEED}\``);
 const deltaClause = toleratedRetired.length > 0
   ? `（较 ${seedDateLabel} 版少 ${toleratedRetired.length}：${toleratedRetired.join('、')} 已退役，进拒写闸）`
   : '';
