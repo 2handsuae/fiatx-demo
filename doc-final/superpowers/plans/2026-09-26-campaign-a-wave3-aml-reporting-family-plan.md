@@ -10,6 +10,12 @@
 2. PARTIAL 出口补料请求由定性 workflow **自动发**（官方时序"暂停即取证"的一部分）。
 3. 单波推进；超限牺牲顺序：SAR 种子 → HRCA 类型行 → 演示编排细化（HRC/HRCA 行本身成本极低，尽量保）。
 
+## Global Constraints（checklist 复核 2026-09-26 补，逮到 4 处遗漏一并入任务）
+
+- 通用交付清单见 `rules/delivery-checklist.md`，全部适用
+- 本轮特有：DB 型 jest 一律独立库＋`--runInBand`（波二已登记债的 workaround）；报文族全程零账务（动钱行不触发）；新审计码出生即冻结四属性过 `assertActionSpec`，全部写法带显式 `requestId`
+- **各任务收尾过哪几条（plan 写死）**：T1→迁移表加边+SLA 回答｜T2→改 schema 行｜T3→审计码行+新端点行+业务键行｜T4→审计码行+maker-checker 正门行+**新审批策略入 `verify-rbac.ts` `MAKER_GROUP_BY_POLICY` 加一行（checklist 点名的调账单事故款，补进本任务）**+**新事件先登记 `src/common/events/domain-events.constants.ts`（如 `workflow.sanction-disposition.decided`）**+客户面可见性行（SANCTION_CONFIRMED=刻意露出）｜T5→客户面可见性行+审计码行｜T6→新权限组四处行+新端点行｜T7→审计行+**⚡ 新业务动作的管理台前端入口（Simulation/Demo instruments 面板加"EOCN 名单更新命中"操作，归 T9 实做、T7 出接口）**｜T8→无独有行（验收本体）｜T9→前端截图永不豁免行+新动作前端入口行（含 ⚡ 入口）｜T10→改种子同步 demo 两文档行（`data.md` 生成区由 `demo:all` 写，不手改）｜T11→收尾行（§9 报告+CHANGELOG+BACKLOG）+多波承接行（承接写进波四骨架开头，不展开波四 spec）
+
 ## T0 预检
 
 - ✅ 预检已跑（2026-09-26）：三仓 `npm install` 均通；`prisma generate` 后波前基线全绿——tsc×3 绿、governance+identity/customers jest **25 套件 346 过 1 跳**。⚠️ DB 型 spec 跑法：独立 SQLite（`DATABASE_URL=file:/tmp/exchange_js_wt_cloud/dev.db` + `prisma migrate deploy`）＋ **`--runInBand`**——共库并行会触发 `TOOLING-DEBT.md` 已登记的 sweep 全表扫描计数污染（波二 T10 登记那条，非新债），本波 jest 一律带此参数。收尾闸⑥⑧（起栈/TigerBeetle/重铺）本容器未验证，T10 前试跑，不通则该两闸转本地。
