@@ -2,7 +2,7 @@
 // 战役甲波三 Task 1：族字段回填断言 + 六行 AML 新类型断言 + 两族边集穷举断言。
 import { FILING_TYPE_REGISTRY, getFilingTypeConfig } from './filing-type-registry';
 import {
-  FILING_TRANSITIONS, FILING_TRANSITIONS_BY_FAMILY, FilingEntryKinds, FilingStatus, RegulatoryAuthorities,
+  FILING_TRANSITIONS_BY_FAMILY, FilingEntryKinds, FilingStatus, RegulatoryAuthorities,
 } from './regulatory-filing.constants';
 import { INCIDENT_REPORT_BASES } from '../incidents/incident.constants';
 
@@ -102,19 +102,13 @@ describe('FILING_TYPE_REGISTRY (spec §2 类型目录五行 + 波三六行)', ()
   });
 });
 
-describe('FILING_TRANSITIONS (spec §3 六态六边，GENERAL 族原样)', () => {
-  it('恰好六态，CLOSED / CANCELLED 出边为空', () => {
-    expect(Object.keys(FILING_TRANSITIONS).sort()).toEqual(Object.values(FilingStatus).sort());
-    expect(FILING_TRANSITIONS[FilingStatus.CLOSED]).toEqual([]);
-    expect(FILING_TRANSITIONS[FilingStatus.CANCELLED]).toEqual([]);
+describe('FILING_TRANSITIONS_BY_FAMILY (spec §3 点 2：两族边集穷举；T3 删了 FILING_TRANSITIONS 别名，GENERAL 六态六边的断言并入本块第一条)', () => {
+  it('GENERAL 族恰好六态，CLOSED / CANCELLED 出边为空', () => {
+    expect(Object.keys(FILING_TRANSITIONS_BY_FAMILY.GENERAL).sort()).toEqual(Object.values(FilingStatus).sort());
+    expect(FILING_TRANSITIONS_BY_FAMILY.GENERAL[FilingStatus.CLOSED]).toEqual([]);
+    expect(FILING_TRANSITIONS_BY_FAMILY.GENERAL[FilingStatus.CANCELLED]).toEqual([]);
   });
 
-  it('是 FILING_TRANSITIONS_BY_FAMILY.GENERAL 的同一引用（别名，非拷贝）', () => {
-    expect(FILING_TRANSITIONS).toBe(FILING_TRANSITIONS_BY_FAMILY.GENERAL);
-  });
-});
-
-describe('FILING_TRANSITIONS_BY_FAMILY (spec §3 点 2：两族边集穷举)', () => {
   it('两族键集都覆盖 FilingStatus 六态', () => {
     expect(Object.keys(FILING_TRANSITIONS_BY_FAMILY.GENERAL).sort()).toEqual(Object.values(FilingStatus).sort());
     expect(Object.keys(FILING_TRANSITIONS_BY_FAMILY.AML).sort()).toEqual(Object.values(FilingStatus).sort());

@@ -2,8 +2,9 @@
 // （校验/状态机/审计全在 Task 3-4 服务层）。模板逐处照抄 incidents.controller.ts
 // （buildActor/assertAdmin/@RequirePermissions(buildPermissionCode(...)) 三件套）。
 // 签发端点走 RegulatoryFilingWorkflowService（铁律③跨主体协作只在 workflow——审批是
-// 另一个主体）；其余八条直调 RegulatoryFilingService，本控制器不经 workflow。路径与
-// rbac.catalog.ts 登记的 9 条 route() 逐条一致。
+// 另一个主体）；其余九条直调 RegulatoryFilingService，本控制器不经 workflow。路径与
+// rbac.catalog.ts 登记的 route() 逐条一致（战役甲波三 T3 新增 close-no-filing 第 10 条，
+// route() 登记随 T6，本文件不改 rbac.catalog.ts）。
 import { Body, Controller, ForbiddenException, Get, Param, Post, Query, Req, UseGuards, UsePipes, ValidationPipe } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { AuthGuard } from '@nestjs/passport';
@@ -14,7 +15,7 @@ import { ApprovalActorContext } from '../approvals/constants/approval.constants'
 import { RegulatoryFilingService } from './regulatory-filing.service';
 import { RegulatoryFilingWorkflowService } from './regulatory-filing-workflow.service';
 import {
-  CancelFilingDto, CloseFilingDto, FilingEntryBodyDto, FilingListQueryDto,
+  CancelFilingDto, CloseFilingDto, CloseNoFilingDto, FilingEntryBodyDto, FilingListQueryDto,
   MarkFilingSubmittedBodyDto, OpenFilingBodyDto, SaveFilingDraftDto,
 } from './dto/regulatory-filing.dto';
 
@@ -110,5 +111,16 @@ export class RegulatoryFilingsController {
   cancel(@Param('filingNo') filingNo: string, @Body() dto: CancelFilingDto, @Req() req: any) {
     this.assertAdmin(req);
     return this.filings.cancel(filingNo, dto.reason, this.buildActor(req));
+  }
+
+  // 战役甲波三 T3：DRAFT→CLOSED「决定不报」新边，唯本端点可走（既有 /close 维持仅
+  // SUBMITTED 语义）——仅 allowNoFilingClose 类型（STR/SAR）真放行，服务层把关。
+  // rbac.catalog.ts 的 route() 登记随 T6，路径与本端点完全一致。
+  @Post(':filingNo/close-no-filing')
+  @ApiOperation({ summary: 'Close a filing with a no-filing decision (STR/SAR only)' })
+  @RequirePermissions(buildPermissionCode('POST', '/admin/regulatory-filings/:filingNo/close-no-filing'))
+  closeNoFiling(@Param('filingNo') filingNo: string, @Body() dto: CloseNoFilingDto, @Req() req: any) {
+    this.assertAdmin(req);
+    return this.filings.closeNoFiling(filingNo, dto.noFilingReason, this.buildActor(req));
   }
 }

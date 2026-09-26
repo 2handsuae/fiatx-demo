@@ -6,6 +6,10 @@ import { Module } from '@nestjs/common';
 import { PrismaModule } from '../../../core/prisma/prisma.module';
 import { AuditLogsModule } from '../../audit-logging/audit-logs.module';
 import { ApprovalsModule } from '../approvals/approvals.module';
+// 战役甲波三 T3：assertFamily 注入 AccessControlService 判 cap.filing.*。该模块本身是
+// @Global()（access-control.module.ts），此处显式 import 是按 Ruling-2 接线（照
+// incidents.module.ts 同款先例），不依赖全局隐式可见性。
+import { AccessControlModule } from '../../identity/access-control/access-control.module';
 import { RegulatoryFilingService } from './regulatory-filing.service';
 import { RegulatoryFilingWorkflowService } from './regulatory-filing-workflow.service';
 import { RegFilingSubmitApprovalService } from './regulatory-filing-approval.service';
@@ -13,7 +17,7 @@ import { RegulatoryFilingSweepService } from './regulatory-filing-sweep.service'
 import { RegulatoryFilingsController } from './regulatory-filings.controller';
 
 @Module({
-  imports: [PrismaModule, AuditLogsModule, ApprovalsModule],
+  imports: [PrismaModule, AuditLogsModule, ApprovalsModule, AccessControlModule],
   controllers: [RegulatoryFilingsController],
   providers: [RegulatoryFilingService, RegulatoryFilingWorkflowService, RegFilingSubmitApprovalService, RegulatoryFilingSweepService],
   exports: [RegulatoryFilingService],

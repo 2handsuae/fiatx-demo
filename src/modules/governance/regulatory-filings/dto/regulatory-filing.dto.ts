@@ -23,6 +23,10 @@ export class OpenFilingBodyDto {
   // 手工开单不给 title 的情况。
   @ApiProperty() @IsString() @IsNotEmpty() title!: string;
   @ApiPropertyOptional() @IsOptional() @IsString() receivedAt?: string;
+  // 战役甲波三 T3：外部案件/名单条目引用（Sumsub 案件号或 EOCN 名单条目号）——
+  // requiresExternalCaseRef 类型（STR/SAR/CNMR/PNMR）在 service 层缺失即 400，
+  // 本字段 DTO 层只做类型/非空校验，是否必填留给 service（因类型而异，不在此穷举）。
+  @ApiPropertyOptional() @IsOptional() @IsString() externalCaseRef?: string;
 }
 
 export class SaveFilingDraftDto {
@@ -45,6 +49,12 @@ export class CancelFilingDto {
 
 export class CloseFilingDto {
   @ApiPropertyOptional() @IsOptional() @IsString() note?: string;
+}
+
+// 战役甲波三 T3：「决定不报」结案——noFilingReason 必填闸（DTO 层 + service 层双闸，
+// service 层是真闸：DTO 校验只挡空字符串/非字符串，service 侧仍会再判一次)。
+export class CloseNoFilingDto {
+  @ApiProperty() @IsString() @IsNotEmpty() noFilingReason!: string;
 }
 
 // 只带 service.list() 实际消费的三个筛选键——不预铸 skip/take（service 层未支持分页，

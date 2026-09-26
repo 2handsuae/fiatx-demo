@@ -411,6 +411,8 @@ export const AuditActions = {
   FILING_OVERDUE_MARKED: 'FILING_OVERDUE_MARKED',
   FILING_CLOSED: 'FILING_CLOSED',
   FILING_CANCELLED: 'FILING_CANCELLED',
+  // ── 战役甲波三 T3（2026-09-26）：报文族「决定不报」结案 ──
+  FILING_CLOSED_NO_FILING: 'FILING_CLOSED_NO_FILING',
 } as const;
 
 // 站4 清扫:十条死词映射(APPROVAL_APPROVED/EXECUTED、ADMIN_INVITATION_*、USER_*、
@@ -973,7 +975,8 @@ export const INCIDENT_AUDIT_ACTIONS: Record<string, AuditActionSpec> = {
   INCIDENT_WITHDRAWN:                { domain: 'GOVERNANCE', correlationMode: N, requiredFields: ['reason'], requiresCausation: false },
 };
 
-/** 战役甲波二（spec §7）：报送台十码。OPENED 铸旅程（S）；签发三码走审批旅程（I，
+/** 战役甲波二（spec §7）：报送台十码；战役甲波三 T3 加 FILING_CLOSED_NO_FILING（十码→
+ * 十一码，spec §3 点 2「决定不报」新边）。OPENED 铸旅程（S）；签发三码走审批旅程（I，
  * SIGNED_OFF/SIGNOFF_REJECTED 由审批裁决驱动带因果）；其余直接单步操作照事故先例老实标 N。 */
 export const REG_FILING_AUDIT_ACTIONS: Record<string, AuditActionSpec> = {
   FILING_OPENED:            { domain: 'GOVERNANCE', correlationMode: S, requiredFields: ['type'], requiresCausation: false },
@@ -987,6 +990,9 @@ export const REG_FILING_AUDIT_ACTIONS: Record<string, AuditActionSpec> = {
   // ↑ 评审白2 收口：spec §7「带 approvalNo / 带 deadlineAt」落成 requiredFields（extra 顶层展开可过闸），终审逐条追承诺时口径一致。
   FILING_CLOSED:            { domain: 'GOVERNANCE', correlationMode: N, requiredFields: [], requiresCausation: false },
   FILING_CANCELLED:         { domain: 'GOVERNANCE', correlationMode: N, requiredFields: ['reason'], requiresCausation: false },
+  // T3：AML 族「决定不报」结案（DRAFT→CLOSED 新边，唯 closeNoFiling 可走）——单步操作，
+  // 没有旅程可继承，同 FILING_CLOSED 先例标 N；noFilingReason 是必填闸的字面落点。
+  FILING_CLOSED_NO_FILING: { domain: 'GOVERNANCE', correlationMode: N, requiredFields: ['noFilingReason'], requiresCausation: false },
 };
 
 /** 动态迁移码族（<域>_<从>_TO_<到>，充值站1b-β/提现站2-β 整族废除；站7 扩面治理五簿+监管闸——

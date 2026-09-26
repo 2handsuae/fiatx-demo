@@ -1,17 +1,35 @@
 import { randomUUID } from 'node:crypto';
 import { Test } from '@nestjs/testing';
-import { BadRequestException, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { RegulatoryFilingService } from './regulatory-filing.service';
 import { PrismaService } from '../../../core/prisma/prisma.service';
 import { AuditLogsService } from '../../audit-logging/audit-logs.service';
+import { AccessControlService } from '../../identity/access-control/access-control.service';
 import { ApprovalActorContext } from '../approvals/constants/approval.constants';
+import { addBusinessDays } from './business-days';
 
 const ops: ApprovalActorContext = { actorType: 'ADMIN', userId: 'uuid-ops', userNo: 'ADM-OPS', roleCodes: ['COMPLIANCE_OFFICER'] };
+// T3：族独占的第二个 actor——MLRO，只持 cap.filing.aml（见下方 makeAccessControl）。
+const mlro: ApprovalActorContext = { actorType: 'ADMIN', userId: 'uuid-mlro', userNo: 'ADM-MLRO', roleCodes: ['MLRO'] };
+
+/** T3：mock 必须按 (userId, code) 真判断（照 incidents 先例，甲波一 T5 修2）——不能无脑
+ * 放行，否则把服务层的 family 判据改错、或把两个能力码搞反，测试照样全绿（自证型绿灯）。
+ * ops=合规官只持 cap.filing.general；mlro=MLRO 只持 cap.filing.aml；其余 userId 零权限。 */
+function makeAccessControl(): { hasPermission: jest.Mock } {
+  return {
+    hasPermission: jest.fn(async (userId: string, code: string) => {
+      if (userId === ops.userId) return code === 'cap.filing.general';
+      if (userId === mlro.userId) return code === 'cap.filing.aml';
+      return false;
+    }),
+  };
+}
 
 describe('RegulatoryFilingService (Task 3)', () => {
   let prisma: PrismaService;
   let service: RegulatoryFilingService;
   let auditLogs: { recordByActor: jest.Mock; recordSystem: jest.Mock };
+  let accessControl: { hasPermission: jest.Mock };
   const createdFilingNos: string[] = [];
   const createdIncidentNos: string[] = [];
 
@@ -34,11 +52,13 @@ describe('RegulatoryFilingService (Task 3)', () => {
 
   beforeEach(async () => {
     auditLogs = { recordByActor: jest.fn(async () => ({})), recordSystem: jest.fn(async () => ({})) };
+    accessControl = makeAccessControl();
     const mod = await Test.createTestingModule({
       providers: [
         RegulatoryFilingService,
         { provide: PrismaService, useValue: prisma },
         { provide: AuditLogsService, useValue: auditLogs },
+        { provide: AccessControlService, useValue: accessControl },
       ],
     }).compile();
     service = mod.get(RegulatoryFilingService);
@@ -73,6 +93,13 @@ describe('RegulatoryFilingService (Task 3)', () => {
     await service.markSignoffRequested(filingNo, `APR_${filingNo}`, ops);
     await service.applySignoffDecision(filingNo, 'APPROVED', { approvalNo: `APR_${filingNo}`, approvalId: `apid_${filingNo}` });
     await service.markSubmitted(filingNo, { externalRef: `EXT_${filingNo}` }, ops);
+    return filingNo;
+  }
+
+  /** T3：MLRO 手工开一张 AML 族 DRAFT 单（默认 STR，allowNoFilingClose+requiresExternalCaseRef）。 */
+  async function openAmlDraftFiling(type: string = 'STR'): Promise<string> {
+    const { filingNo } = await service.openManual({ type, title: `${type} case`, externalCaseRef: `CASE_${type}_${randomUUID().slice(0, 6)}` }, mlro);
+    createdFilingNos.push(filingNo);
     return filingNo;
   }
 
@@ -260,6 +287,198 @@ describe('RegulatoryFilingService (Task 3)', () => {
       expect(row.status).toBe('CLOSED');
       expect(row.closedAt).not.toBeNull();
     });
+
+    // T3 评审黄项：DRAFT→CLOSED 是 AML 族表级合法边（供 closeNoFiling 走），但 close()
+    // 是另一个动作，动作级只认 SUBMITTED——防「法定必报单被无理由 Close」。
+    it('rejects closing a DRAFT AML filing via close() even though DRAFT→CLOSED is a legal family edge (action-level guard, not table-level)', async () => {
+      const filingNo = await openAmlDraftFiling('STR');
+      await expect(service.close(filingNo, mlro)).rejects.toThrow(BadRequestException);
+      await expect(service.close(filingNo, mlro)).rejects.toThrow(/Invalid filing transition/);
+      const row = await service.findByNo(filingNo);
+      expect(row.status).toBe('DRAFT');
+    });
+  });
+
+  // ── T3 ①：服务层按族独占（cap.filing.general/cap.filing.aml）双向 403 ──────
+  describe('family exclusivity (cap.filing.general / cap.filing.aml) — cross-family writes are explicitly rejected', () => {
+    it('a compliance officer (cap.filing.general only) cannot openManual an AML type (STR) — T1 review white-4', async () => {
+      await expect(service.openManual({ type: 'STR', title: 'Should be blocked', externalCaseRef: 'CASE_X' }, ops))
+        .rejects.toThrow(ForbiddenException);
+      expect(accessControl.hasPermission).toHaveBeenCalledWith(ops.userId, 'cap.filing.aml');
+    });
+
+    it('MLRO (cap.filing.aml only) cannot openManual a GENERAL type (MATERIAL_CHANGE_NOTIFICATION)', async () => {
+      await expect(service.openManual({ type: 'MATERIAL_CHANGE_NOTIFICATION', title: 'Should be blocked' }, mlro))
+        .rejects.toThrow(ForbiddenException);
+      expect(accessControl.hasPermission).toHaveBeenCalledWith(mlro.userId, 'cap.filing.general');
+    });
+
+    it('MLRO cannot saveDraft/markSubmitted/addEntry/close/cancel a GENERAL filing (403, not the actor who opened it)', async () => {
+      const filingNo = await openDraftFiling(); // GENERAL, opened by ops
+      await expect(service.saveDraft(filingNo, 'x', mlro)).rejects.toThrow(ForbiddenException);
+      await expect(service.markSubmitted(filingNo, { externalRef: 'E' }, mlro)).rejects.toThrow(ForbiddenException);
+      await expect(service.addEntry(filingNo, { kind: 'RECEIPT_ACK', body: 'x' }, mlro)).rejects.toThrow(ForbiddenException);
+      await expect(service.cancel(filingNo, 'x', mlro)).rejects.toThrow(ForbiddenException);
+    });
+
+    it('a compliance officer cannot saveDraft/markSubmitted/addEntry/close/cancel an AML filing', async () => {
+      const filingNo = await openAmlDraftFiling('STR');
+      await expect(service.saveDraft(filingNo, 'x', ops)).rejects.toThrow(ForbiddenException);
+      await expect(service.markSubmitted(filingNo, { externalRef: 'E' }, ops)).rejects.toThrow(ForbiddenException);
+      await expect(service.cancel(filingNo, 'x', ops)).rejects.toThrow(ForbiddenException);
+    });
+  });
+
+  // ── T3 ②③：AML 族全生命周期——自 DRAFT 直达 SUBMITTED，无签发链 ──────────
+  describe('AML family lifecycle (spec §3 点 2: DRAFT→SUBMITTED direct, no signoff chain)', () => {
+    it('MLRO opens an STR and marks it submitted straight from DRAFT (no signoff step)', async () => {
+      const filingNo = await openAmlDraftFiling('STR');
+      const row0 = await service.findByNo(filingNo);
+      expect(row0.status).toBe('DRAFT');
+      const result = await service.markSubmitted(filingNo, { externalRef: 'GOAML_ACK_1' }, mlro);
+      expect(result.filingNo).toBe(filingNo);
+      const row = await service.findByNo(filingNo);
+      expect(row.status).toBe('SUBMITTED');
+      expect(row.externalRef).toBe('GOAML_ACK_1');
+    });
+
+    it('signoff on an AML filing is an explicit illegal transition (no signoff chain for AML — spec §2 A line)', async () => {
+      const filingNo = await openAmlDraftFiling('STR');
+      await expect(service.markSignoffRequested(filingNo, 'APR_AML_1', mlro)).rejects.toThrow(BadRequestException);
+      await expect(service.markSignoffRequested(filingNo, 'APR_AML_1', mlro)).rejects.toThrow(/Invalid filing transition/);
+      const row = await service.findByNo(filingNo);
+      expect(row.status).toBe('DRAFT');
+    });
+
+    it('close() after a real SUBMITTED AML filing still works (SUBMITTED→CLOSED is legal for both families)', async () => {
+      const filingNo = await openAmlDraftFiling('STR');
+      await service.markSubmitted(filingNo, { externalRef: 'GOAML_ACK_2' }, mlro);
+      const r = await service.close(filingNo, mlro, 'Correspondence complete');
+      expect(r.filingNo).toBe(filingNo);
+      const row = await service.findByNo(filingNo);
+      expect(row.status).toBe('CLOSED');
+    });
+  });
+
+  // ── T3 ③：closeNoFiling ────────────────────────────────────────────────
+  describe('closeNoFiling (spec §3 点 2: DRAFT→CLOSED "decided not to file", noFilingReason required gate)', () => {
+    it('rejects an empty noFilingReason (400, before even looking up the filing)', async () => {
+      await expect(service.closeNoFiling('FIL_DOES_NOT_MATTER', '', mlro)).rejects.toThrow(BadRequestException);
+      await expect(service.closeNoFiling('FIL_DOES_NOT_MATTER', '', mlro)).rejects.toThrow(/noFilingReason/);
+    });
+
+    it('closes an STR (allowNoFilingClose=true) from DRAFT with a reason', async () => {
+      const filingNo = await openAmlDraftFiling('STR');
+      const r = await service.closeNoFiling(filingNo, 'Insufficient grounds to suspect after review', mlro);
+      expect(r.filingNo).toBe(filingNo);
+      const row = await service.findByNo(filingNo);
+      expect(row.status).toBe('CLOSED');
+      expect(row.noFilingReason).toBe('Insufficient grounds to suspect after review');
+      expect(row.closedAt).not.toBeNull();
+    });
+
+    // T1 评审白5：CNMR/PNMR/HRC/HRCA 都不是 allowNoFilingClose 类型——法定必报单不许用
+    // 「决定不报」这条边溜走。
+    it.each(['CNMR', 'PNMR', 'HRC', 'HRCA'])('rejects %s (allowNoFilingClose is not set) with 400', async (type) => {
+      const filingNo = await openAmlDraftFiling(type);
+      await expect(service.closeNoFiling(filingNo, 'Trying to dodge a mandatory filing', mlro)).rejects.toThrow(BadRequestException);
+      await expect(service.closeNoFiling(filingNo, 'Trying to dodge a mandatory filing', mlro)).rejects.toThrow(/does not allow a no-filing close/);
+      const row = await service.findByNo(filingNo);
+      expect(row.status).toBe('DRAFT');
+    });
+
+    it('a compliance officer cannot closeNoFiling an AML filing (family-exclusive, 403 before the allowNoFilingClose check)', async () => {
+      const filingNo = await openAmlDraftFiling('STR');
+      await expect(service.closeNoFiling(filingNo, 'x', ops)).rejects.toThrow(ForbiddenException);
+    });
+  });
+
+  // ── T3 ④：openForSanction（供 T4 workflow 调用，本任务不建 workflow）────────
+  describe('openForSanction (spec §2 B line PARTIAL/CONFIRMED outlets; EXTERNAL anchor + business-day clock)', () => {
+    it('opens a CNMR anchored on anchorAt, deadline = anchorAt + 5 business days (EOCN TFS Guidelines 2025)', async () => {
+      const anchorAt = new Date('2026-09-24T09:00:00.000Z'); // 迪拜周四
+      const { filingNo } = await service.openForSanction('CNMR', 'CU_SANCTION_1', 'EOCN_LIST_ENTRY_1', anchorAt, `REQ_${randomUUID()}`, mlro);
+      createdFilingNos.push(filingNo);
+      const row = await service.findByNo(filingNo);
+      expect(row.type).toBe('CNMR');
+      expect(row.authority).toBe('EOCN');
+      expect(row.externalCaseRef).toBe('EOCN_LIST_ENTRY_1');
+      expect(row.status).toBe('DRAFT');
+      expect(row.deadlineAt?.toISOString()).toBe(addBusinessDays(anchorAt, 5).toISOString());
+    });
+
+    it('opens a PNMR the same way (self-certified partial match, 5 business days from suspension)', async () => {
+      const anchorAt = new Date('2026-09-24T09:00:00.000Z');
+      const { filingNo } = await service.openForSanction('PNMR', 'CU_SANCTION_2', 'EOCN_LIST_ENTRY_2', anchorAt, `REQ_${randomUUID()}`, mlro);
+      createdFilingNos.push(filingNo);
+      const row = await service.findByNo(filingNo);
+      expect(row.type).toBe('PNMR');
+      expect(row.deadlineAt?.toISOString()).toBe(addBusinessDays(anchorAt, 5).toISOString());
+    });
+
+    it('rejects a type other than CNMR/PNMR', async () => {
+      await expect(service.openForSanction('STR', 'CU_X', 'REF', new Date(), 'REQ_X', mlro)).rejects.toThrow(BadRequestException);
+    });
+
+    it('rejects a missing externalCaseRef', async () => {
+      await expect(service.openForSanction('CNMR', 'CU_X', '', new Date(), 'REQ_X', mlro)).rejects.toThrow(BadRequestException);
+    });
+
+    it('rejects a missing requestId', async () => {
+      await expect(service.openForSanction('CNMR', 'CU_X', 'REF', new Date(), '', mlro)).rejects.toThrow(BadRequestException);
+    });
+
+    it('rejects a compliance officer (family-exclusive: openForSanction opens AML types only)', async () => {
+      await expect(service.openForSanction('CNMR', 'CU_X', 'REF', new Date(), 'REQ_X', ops)).rejects.toThrow(ForbiddenException);
+    });
+
+    it('propagates the caller-supplied requestId onto the FILING_OPENED audit write verbatim (not auto-minted) — ties the sanction disposition and the filing write together', async () => {
+      const anchorAt = new Date('2026-09-24T09:00:00.000Z');
+      const requestId = `REQ_SANCTION_${randomUUID()}`;
+      const { filingNo } = await service.openForSanction('CNMR', 'CU_SANCTION_3', 'EOCN_LIST_ENTRY_3', anchorAt, requestId, mlro);
+      createdFilingNos.push(filingNo);
+      const call = auditLogs.recordByActor.mock.calls.find((c) => c[0].primarySubjectNo === filingNo);
+      expect(call[0].requestId).toBe(requestId);
+      expect(call[0].action).toBe('FILING_OPENED');
+      const customerSubject = call[0].subjects.find((s: any) => s.subjectType === 'CUSTOMER');
+      expect(customerSubject).toMatchObject({ subjectNo: 'CU_SANCTION_3', subjectRole: 'OWNER' });
+    });
+  });
+
+  // ── T3 ④：computeDeadline EXTERNAL 分支 + 手工开单不传锚留 null（不杜撰）───────
+  describe('computeDeadline EXTERNAL branch (manual open vs. workflow-anchored open)', () => {
+    it('openManual on an EXTERNAL-anchor type (CNMR) leaves deadlineAt null — no anchorAt to compute from, not fabricated', async () => {
+      const filingNo = await openAmlDraftFiling('CNMR');
+      const row = await service.findByNo(filingNo);
+      expect(row.deadlineAt).toBeNull();
+      expect(row.externalCaseRef).not.toBeNull();
+    });
+
+    // 回归断言（T3 交付要求）：GENERAL 族既有小时钟行为零漂移——EXTERNAL 分支的加入
+    // 不改变 REG_INFO_REQUEST_RESPONSE 的 receivedAt+48h 既有算法（见上方②描述块的
+    // 同名断言；此处只重申回归口径，不重复整条用例）。
+    it('regression: GENERAL family hour-clock (REG_INFO_REQUEST_RESPONSE, receivedAt+48h) is unaffected by the EXTERNAL branch', async () => {
+      const receivedAt = '2026-09-20T00:00:00.000Z';
+      const { filingNo } = await service.openManual({ type: 'REG_INFO_REQUEST_RESPONSE', authority: 'UAE_FIU', receivedAt }, ops);
+      createdFilingNos.push(filingNo);
+      const row = await service.findByNo(filingNo);
+      expect(row.deadlineAt?.toISOString()).toBe(new Date(new Date(receivedAt).getTime() + 48 * 3600 * 1000).toISOString());
+    });
+  });
+
+  // ── T3：openManual 的 requiresExternalCaseRef 缺失即 400 ─────────────────
+  describe('openManual — requiresExternalCaseRef gate (STR/SAR/CNMR/PNMR)', () => {
+    it.each(['STR', 'SAR', 'CNMR', 'PNMR'])('rejects %s with no externalCaseRef', async (type) => {
+      await expect(service.openManual({ type, title: `${type} missing case ref` }, mlro)).rejects.toThrow(BadRequestException);
+      await expect(service.openManual({ type, title: `${type} missing case ref` }, mlro)).rejects.toThrow(/externalCaseRef/);
+    });
+
+    it.each(['HRC', 'HRCA'])('%s does not require externalCaseRef', async (type) => {
+      const { filingNo } = await service.openManual({ type, title: `${type} case` }, mlro);
+      createdFilingNos.push(filingNo);
+      const row = await service.findByNo(filingNo);
+      expect(row.type).toBe(type);
+    });
   });
 
   // ── applySignoffDecision 反向分支（DECLINED → DRAFT，system 记账）────
@@ -294,6 +513,7 @@ describe('RegulatoryFilingService (Task 3)', () => {
           RegulatoryFilingService,
           { provide: PrismaService, useValue: prisma },
           AuditLogsService,
+          { provide: AccessControlService, useValue: makeAccessControl() },
         ],
       }).compile();
       realService = mod.get(RegulatoryFilingService);
@@ -328,6 +548,46 @@ describe('RegulatoryFilingService (Task 3)', () => {
 
       const events = await prisma.auditLogEvent.findMany({ where: { primarySubjectType: 'REGULATORY_FILING', primarySubjectNo: filingNo }, orderBy: { seq: 'asc' } });
       expect(events.map((e) => e.action)).toEqual(['FILING_OPENED', 'FILING_SIGNOFF_REQUESTED', 'FILING_SIGNOFF_REJECTED', 'FILING_CANCELLED']);
+    });
+
+    // T3：AML 族全生命周期走真 assertActionSpec——DRAFT 直达 SUBMITTED（无签发三码）。
+    it('walks the AML lifecycle (open→submitted direct from DRAFT→entry→close) without the real assertActionSpec rejecting any code (no signoff codes in the sequence)', async () => {
+      const { filingNo } = await realService.openManual({ type: 'STR', title: 'Real-audit AML lifecycle', externalCaseRef: 'CASE_REAL_1' }, mlro);
+      createdFilingNos.push(filingNo);
+      await realService.markSubmitted(filingNo, { externalRef: `GOAML_REAL_${filingNo}` }, mlro);
+      await realService.addEntry(filingNo, { kind: 'RECEIPT_ACK', body: 'goAML receipt' }, mlro);
+      await realService.close(filingNo, mlro, 'Real AML close');
+
+      const events = await prisma.auditLogEvent.findMany({ where: { primarySubjectType: 'REGULATORY_FILING', primarySubjectNo: filingNo }, orderBy: { seq: 'asc' } });
+      expect(events.map((e) => e.action)).toEqual(['FILING_OPENED', 'FILING_SUBMITTED', 'FILING_ENTRY_LOGGED', 'FILING_CLOSED']);
+    });
+
+    // T3：FILING_CLOSED_NO_FILING 的四属性（domain/correlationMode/requiredFields=
+    // [noFilingReason]/requiresCausation）真的被 closeNoFiling 的调用点喂对。
+    it('walks the no-filing-decision branch (FILING_CLOSED_NO_FILING, requiredFields=[noFilingReason]) without rejection', async () => {
+      const { filingNo } = await realService.openManual({ type: 'SAR', title: 'Real-audit no-filing decision', externalCaseRef: 'CASE_REAL_2' }, mlro);
+      createdFilingNos.push(filingNo);
+      await realService.closeNoFiling(filingNo, 'Reviewed and found no suspicion after all', mlro);
+
+      const events = await prisma.auditLogEvent.findMany({ where: { primarySubjectType: 'REGULATORY_FILING', primarySubjectNo: filingNo }, orderBy: { seq: 'asc' } });
+      expect(events.map((e) => e.action)).toEqual(['FILING_OPENED', 'FILING_CLOSED_NO_FILING']);
+      const closeEvent = events[1] as any;
+      expect(closeEvent.actionDomain).toBe('GOVERNANCE');
+    });
+
+    // T3：openForSanction 的 FILING_OPENED 走 EXTERNAL 锚 + 调用方显式 requestId，真的
+    // 落库且未被 assertActionSpec 拒绝（type 仍是必填顶层字段）。
+    it('walks openForSanction (EXTERNAL-anchored CNMR, caller-supplied requestId) without rejection', async () => {
+      const anchorAt = new Date('2026-09-24T09:00:00.000Z');
+      const requestId = `REQ_REAL_${randomUUID()}`;
+      const { filingNo } = await realService.openForSanction('CNMR', 'CU_REAL_SANCTION', 'EOCN_REAL_ENTRY', anchorAt, requestId, mlro);
+      createdFilingNos.push(filingNo);
+
+      const events = await prisma.auditLogEvent.findMany({ where: { primarySubjectType: 'REGULATORY_FILING', primarySubjectNo: filingNo }, orderBy: { seq: 'asc' } });
+      expect(events.map((e) => e.action)).toEqual(['FILING_OPENED']);
+      expect((events[0] as any).requestId).toBe(requestId);
+      const row = await realService.findByNo(filingNo);
+      expect(row.deadlineAt?.toISOString()).toBe(addBusinessDays(anchorAt, 5).toISOString());
     });
   });
 });

@@ -1,6 +1,9 @@
 // 战役甲波二 · 报送台骨架（spec §3/§4/§5）：主体 RegulatoryFiling 的状态、显式迁移表、
 // 往来记录类型、监管机构目录、方法入参形状。
 // 战役甲波三 Task 1：迁移表按族拆分（spec §3 点 2）＋两种新往来记录 kind（spec §5）。
+// 战役甲波三 Task 3：GENERAL 表别名导出 FILING_TRANSITIONS 已删（迁移守卫改读
+// FILING_TRANSITIONS_BY_FAMILY，见 regulatory-filing.service.ts）——留着就是兼容层，
+// 有人拿它判 AML 单会按 GENERAL 放行（T1 评审白3）。
 // 本文件只放常量与纯类型——不含任何 Prisma / NestJS 依赖。
 
 export const FilingStatus = {
@@ -27,9 +30,14 @@ export const FILING_TRANSITIONS_BY_FAMILY: Record<'GENERAL' | 'AML', Record<stri
   },
 };
 
-/** 既有导出保留为 GENERAL 表的别名引用——服务层迁移守卫本任务不改（T3 才接管按族读表），
- *  这样闸①逐任务保持绿；这是任务分期，不是兼容层（族拆分已在 FILING_TRANSITIONS_BY_FAMILY 落地）。 */
-export const FILING_TRANSITIONS: Record<string, readonly string[]> = FILING_TRANSITIONS_BY_FAMILY.GENERAL;
+/** T3：服务层按族独占的能力码（cap.filing.*，照 incidents 的 cap.incident.* 先例，
+ *  Ruling-6）——路由 OR 两组（REG_FILING_WRITE/REG_FILING_AML_WRITE）只是粗门，这里才是
+ *  真把关：合规官只推得动 GENERAL 族、MLRO 只推得动 AML 族，跨族一律 403。rbac.catalog.ts
+ *  的标记码登记与分组绑定随 T6（不在本任务改动范围，本任务只把判据钉死在服务层）。 */
+export const FILING_FAMILY_CAPABILITY_CODE: Record<'GENERAL' | 'AML', string> = {
+  GENERAL: 'cap.filing.general',
+  AML: 'cap.filing.aml',
+};
 
 export const FilingDirections = { OUTBOUND: 'OUTBOUND', INBOUND: 'INBOUND' } as const;
 export const FilingEntryKinds = {
@@ -44,6 +52,6 @@ export const REGULATORY_AUTHORITY_LABELS: Record<string, string> = {
   CBUAE: 'Central Bank of the UAE',
 };
 
-export interface OpenFilingDto { type: string; authority?: string; ccAuthorities?: string[]; incidentNo?: string; basisCode?: string; title?: string; receivedAt?: string; }
+export interface OpenFilingDto { type: string; authority?: string; ccAuthorities?: string[]; incidentNo?: string; basisCode?: string; title?: string; receivedAt?: string; externalCaseRef?: string; }
 export interface FilingEntryDto { kind: string; body: string; externalRef?: string; }
 export interface MarkFilingSubmittedDto { externalRef: string; }
