@@ -10,8 +10,11 @@ import { CustomerRestrictionWorkflowService } from './customer-restriction-workf
 import { CustomerLifecycleService } from './customer-lifecycle.service';
 import { CustomerRestrictionReleaseMlroApprovalService } from './customer-restriction-release-mlro-approval.service';
 import { CustomerRestrictionReleaseOpsApprovalService } from './customer-restriction-release-ops-approval.service';
+import { SanctionDispositionWorkflowService } from './sanction-disposition-workflow.service';
+import { SanctionDispositionApprovalService } from './sanction-disposition-approval.service';
 import { MaterialRequestsModule } from '../material-requests/material-requests.module';
 import { ApprovalsModule } from '../../governance/approvals/approvals.module';
+import { RegulatoryFilingsModule } from '../../governance/regulatory-filings/regulatory-filings.module';
 import { CustomerRestrictionsAdminController } from './customer-restrictions.admin.controller';
 import { CustomerRestrictionsClientController } from './customer-restrictions.client.controller';
 
@@ -23,6 +26,9 @@ import { CustomerRestrictionsClientController } from './customer-restrictions.cl
     // 认领」（同一件事不出两条横幅）。MaterialRequestsModule 反过来也 forwardRef
     // 引了本模块，是环，两边都必须 forwardRef。
     forwardRef(() => MaterialRequestsModule),
+    // 战役甲波三 T4：SanctionDispositionWorkflowService 横向调
+    // RegulatoryFilingService.openForSanction()（铁律③，本模块不反向被引，无需 forwardRef）。
+    RegulatoryFilingsModule,
     PrismaModule,
     NotificationsModule,
   ],
@@ -30,6 +36,8 @@ import { CustomerRestrictionsClientController } from './customer-restrictions.cl
     CustomerRestrictionWorkflowService,
     CustomerRestrictionReleaseMlroApprovalService,
     CustomerRestrictionReleaseOpsApprovalService,
+    SanctionDispositionWorkflowService,
+    SanctionDispositionApprovalService,
     CustomerLifecycleService,
     CustomersService,
     CustomerRestrictionsService,

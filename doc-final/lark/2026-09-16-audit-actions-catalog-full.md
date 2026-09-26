@@ -1,10 +1,10 @@
 # 审计动作码全量导出 —— 按域 × 按工作流（最全版）
 
-> 生成于 2026-09-26 ｜ 基线 main `ce06185` ｜ 机器列来源 `src/modules/audit-logging/constants/audit-actions.constant.ts`（9 份名册程序化导出）｜ 说明列来源 `doc-final/lark/2026-09-15-audit-actions-catalog-by-domain-workflow.md`
-> 现役 **270 码**（较 2026-09-15 版少 4：CUSTOMER_DELETED、CUSTOMER_UPDATED、INCIDENT_REGULATOR_REPORTED、INCIDENT_REGULATOR_REPORT_DRAFTED 已退役，进拒写闸），另有退役 117 码进拒写闸（附录全列）。
+> 生成于 2026-09-26 ｜ 基线 main `74e3943` ｜ 机器列来源 `src/modules/audit-logging/constants/audit-actions.constant.ts`（9 份名册程序化导出）｜ 说明列来源 `doc-final/lark/2026-09-15-audit-actions-catalog-by-domain-workflow.md`
+> 现役 **273 码**（较 2026-09-15 版少 4：CUSTOMER_DELETED、CUSTOMER_UPDATED、INCIDENT_REGULATOR_REPORTED、INCIDENT_REGULATOR_REPORT_DRAFTED 已退役，进拒写闸），另有退役 117 码进拒写闸（附录全列）。
 > **旅程**列：S 起点=该码铸 correlationId 开启一段旅程 ｜ I 继承=延续同一旅程 ｜ N 单步=无旅程可挂（守卫拒绝、单步动作、报价先于订单等）。**异步**=✓ 表示由审批/事件驱动、必须带 causationId。**subjects**=✓ 表示该码在 SUBJECTS_COVERED_ACTIONS 名册（治理域+横切审批 47 码，verify:audit Q2 断言面）；交易域码运行时也写子表行但不在名册故留白；Related No 检索走 OR 语义（主表∨子表）不受此列影响。⚡=演示装置。
 
-**分域计数**：APPROVAL 8 ｜ IAM 30 ｜ CONFIG 60 ｜ AUDIT 4 ｜ CUSTOMER 26 ｜ DEPOSIT 47 ｜ WITHDRAW 33 ｜ SWAP 26 ｜ TREASURY 7 ｜ RECON 9 ｜ GOVERNANCE 20 ｜ 合计 270
+**分域计数**：APPROVAL 8 ｜ IAM 30 ｜ CONFIG 60 ｜ AUDIT 4 ｜ CUSTOMER 29 ｜ DEPOSIT 47 ｜ WITHDRAW 33 ｜ SWAP 26 ｜ TREASURY 7 ｜ RECON 9 ｜ GOVERNANCE 20 ｜ 合计 273
 
 ## APPROVAL 域 —— 审批引擎（横切）（8 码）
 
@@ -239,7 +239,7 @@
 |---|---|---|---|---|---|
 | `AUDIT_LOG_QUERIED` | 每次查询审计列表自动记一条（重铺后 Q6 靠它转绿） | N 单步 | — |  |  |
 
-## CUSTOMER 域 —— V2 客户与合规（26 码）
+## CUSTOMER 域 —— V2 客户与合规（29 码）
 
 客户主档、限制便签（含制裁冻人）、材料请求账、现场开户（CDD/EDD）、档位升级。客户级件无订单旅程，全册单步。
 
@@ -257,6 +257,14 @@
 | `CUSTOMER_RESTRICTION_CLEARED` | 限制解除（MLRO 批准后落地） | N 单步 | — |  |  |
 | `CUSTOMER_FROZEN` | 客户级冻结（制裁便签连带） | N 单步 | — |  |  |
 | `CUSTOMER_UNFROZEN` | 客户级解冻 | N 单步 | — |  |  |
+
+### 制裁定性裁决（3） — 战役甲波三 T4 新增，合规官提 / MLRO 单步批 / workflow 三出口落地共用
+
+| 动作码 | 说明 | 旅程 | 必填字段 | 异步 | subjects |
+|---|---|---|---|---|---|
+| `SANCTION_DISPOSITION_REQUESTED` | 合规官对 OPEN 的 SANCTION 便签提定性（CLEARED/PARTIAL/CONFIRMED 三选一），开 MLRO 单步审批 | N 单步 | outcome |  |  |
+| `SANCTION_DISPOSITION_DECIDED` | MLRO 裁决（拒绝=维持待裁，只留本条审计） | N 单步 | outcome |  |  |
+| `SANCTION_DISPOSITION_LANDED` | 批准后三出口落地（CLEARED 解冻 / PARTIAL 开 PNMR+补料 / CONFIRMED 便签翻牌+开 CNMR） | N 单步 | outcome |  |  |
 
 ### 材料请求账（7）
 

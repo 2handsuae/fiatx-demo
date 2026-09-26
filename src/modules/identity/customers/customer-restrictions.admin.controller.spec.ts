@@ -7,6 +7,7 @@ import {
 import { CustomerRestrictionsAdminController } from './customer-restrictions.admin.controller';
 import { CustomerRestrictionsService } from './customer-restrictions.service';
 import { CustomerRestrictionWorkflowService } from './customer-restriction-workflow.service';
+import { SanctionDispositionWorkflowService } from './sanction-disposition-workflow.service';
 import { PrismaService } from '../../../core/prisma/prisma.service';
 import { OpenRestrictionDto } from './dto/customer-restriction.dto';
 
@@ -19,6 +20,7 @@ describe('CustomerRestrictionsAdminController', () => {
   let controller: CustomerRestrictionsAdminController;
   let restrictions: { listAll: jest.Mock; findByNo: jest.Mock };
   let workflow: { openRestriction: jest.Mock; initiateRelease: jest.Mock };
+  let dispositionWorkflow: { initiateDisposition: jest.Mock };
   let prisma: { customerMain: { findFirst: jest.Mock } };
 
   beforeEach(async () => {
@@ -30,6 +32,9 @@ describe('CustomerRestrictionsAdminController', () => {
       openRestriction: jest.fn().mockResolvedValue({ restrictionNo: 'RST-1', created: true }),
       initiateRelease: jest.fn().mockResolvedValue({ approvalNo: 'APR-1' }),
     };
+    dispositionWorkflow = {
+      initiateDisposition: jest.fn().mockResolvedValue({ approvalNo: 'APR-SD-1', restrictionNo: 'RST-1' }),
+    };
     prisma = { customerMain: { findFirst: jest.fn().mockResolvedValue({ id: 'cust-1' }) } };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -37,6 +42,7 @@ describe('CustomerRestrictionsAdminController', () => {
       providers: [
         { provide: CustomerRestrictionsService, useValue: restrictions },
         { provide: CustomerRestrictionWorkflowService, useValue: workflow },
+        { provide: SanctionDispositionWorkflowService, useValue: dispositionWorkflow },
         { provide: PrismaService, useValue: prisma },
       ],
     }).compile();
@@ -72,6 +78,36 @@ describe('CustomerRestrictionsAdminController', () => {
         controller.release(CUSTOMER_REQ, 'C0001', 'RST-1', { reason: 'x' }),
       ).rejects.toThrow(ForbiddenException);
       expect(workflow.initiateRelease).not.toHaveBeenCalled();
+    });
+
+    it('POST 制裁定性 → 403，且不进 workflow', async () => {
+      await expect(
+        controller.submitSanctionDisposition(CUSTOMER_REQ, 'C0001', {
+          outcome: 'CLEARED',
+          summary: 'x',
+          externalCaseRef: 'EOCN_1',
+        }),
+      ).rejects.toThrow(ForbiddenException);
+      expect(dispositionWorkflow.initiateDisposition).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('制裁定性提单', () => {
+    it('转发 outcome/summary/externalCaseRef 与 actor，回传 workflow 的结果', async () => {
+      const result = await controller.submitSanctionDisposition(ADMIN_REQ, 'C0001', {
+        outcome: 'PARTIAL',
+        summary: 'partial match, needs ID',
+        externalCaseRef: 'EOCN_ENTRY_1',
+      });
+
+      expect(result).toEqual({ approvalNo: 'APR-SD-1', restrictionNo: 'RST-1' });
+      expect(dispositionWorkflow.initiateDisposition).toHaveBeenCalledWith(
+        'C0001',
+        'PARTIAL',
+        'partial match, needs ID',
+        'EOCN_ENTRY_1',
+        expect.objectContaining({ actorType: 'ADMIN', userId: 'admin-1', roleCodes: ['MLRO'] }),
+      );
     });
   });
 

@@ -79,6 +79,9 @@ export const ApprovalActionTypes = {
   CUSTOMER_ONBOARDING_ACCEPTANCE: 'CUSTOMER_ONBOARDING_ACCEPTANCE',
   // 客户域波三·档位升级审批线（2026-09-07）：BASIC→PREMIUM 档位升级核准，运营提、高管批
   CUSTOMER_TIER_UPGRADE: 'CUSTOMER_TIER_UPGRADE',
+  // 战役甲波三 T4（2026-09-26）：制裁定性裁决——合规官提（CLEARED/PARTIAL/CONFIRMED
+  // 三选一 + 依据摘要），MLRO 单步批。挂在 SANCTION 便签（customerLevel，entityRef=customerNo）。
+  SANCTION_DISPOSITION: 'SANCTION_DISPOSITION',
 } as const;
 
 export const ApprovalStatuses = {
@@ -399,6 +402,13 @@ export const DEFAULT_APPROVAL_POLICIES: Record<
   },
   [ApprovalActionTypes.CUSTOMER_TIER_UPGRADE]: {
     steps: [{ stepNo: 1, roles: ['SENIOR_MANAGEMENT_OFFICER'] }],
+    timeoutHours: 48,
+    allowCancel: true,
+  },
+  // 战役甲波三 T4：制裁定性——单步 MLRO 裁决，照 REG_FILING_SUBMIT 形状定
+  // timeoutHours/allowCancel（同为高危治理动作，无理由另定档位）。
+  [ApprovalActionTypes.SANCTION_DISPOSITION]: {
+    steps: [{ stepNo: 1, roles: ['MLRO'] }],
     timeoutHours: 48,
     allowCancel: true,
   },

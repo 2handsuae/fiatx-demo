@@ -118,6 +118,9 @@ export const AuditBusinessWorkflowTypes = {
   CUSTOMER_TIER_UPGRADE: 'CUSTOMER_TIER_UPGRADE',
   // 战役甲波二（2026-09-26）：报送台骨架（治理件，独立主体 RegulatoryFiling）
   REGULATORY_FILING: 'REGULATORY_FILING',
+  // 战役甲波三 T4（2026-09-26）：制裁定性裁决（SANCTION_DISPOSITION 审批 workflowType，
+  // buildSecondaryEventName() 派生 workflow.sanction-disposition.decided）
+  SANCTION_DISPOSITION: 'SANCTION_DISPOSITION',
 } as const;
 
 // Task 28：退役清单扫尾——原 15 键仅 2 键（REQUEST_CREATED/SUBMITTED）经
@@ -413,6 +416,10 @@ export const AuditActions = {
   FILING_CANCELLED: 'FILING_CANCELLED',
   // ── 战役甲波三 T3（2026-09-26）：报文族「决定不报」结案 ──
   FILING_CLOSED_NO_FILING: 'FILING_CLOSED_NO_FILING',
+  // ── 战役甲波三 T4（2026-09-26）：制裁定性裁决（提/批/落地三码） ──
+  SANCTION_DISPOSITION_REQUESTED: 'SANCTION_DISPOSITION_REQUESTED',
+  SANCTION_DISPOSITION_DECIDED: 'SANCTION_DISPOSITION_DECIDED',
+  SANCTION_DISPOSITION_LANDED: 'SANCTION_DISPOSITION_LANDED',
 } as const;
 
 // 站4 清扫:十条死词映射(APPROVAL_APPROVED/EXECUTED、ADMIN_INVITATION_*、USER_*、
@@ -930,6 +937,14 @@ export const V2_CUSTOMER_AUDIT_ACTIONS: Record<string, AuditActionSpec> = {
   TIER_UPGRADE_ACCEPTANCE_SUBMITTED: { domain: 'CUSTOMER', correlationMode: N, requiredFields: ['approvalNo', 'reason'], requiresCausation: false },
   TIER_UPGRADE_ACCEPTANCE_DECIDED:   { domain: 'CUSTOMER', correlationMode: N, requiredFields: ['approvalNo'], requiresCausation: false },
   CUSTOMER_LEDGER_PROVISIONED:       { domain: 'CUSTOMER', correlationMode: N, requiredFields: ['afterData'], requiresCausation: false },
+  // ── 制裁定性裁决（3，战役甲波三 T4，2026-09-26）：客户级件，correlationMode 全 N（同域惯例）。
+  // requiredFields 三码统一含 'outcome'——本域的 outcome 列固有语义是「动作执行成没成」
+  // （AuditOutcome：SUCCESS/DENIED/FAILED/PARTIAL），不是 CLEARED/PARTIAL/CONFIRMED 那个
+  // 业务定性值（后者塞不进这个枚举列，落 metadata.outcome）；这里强制显式传，不许调用方
+  // 漏传落到隐式默认 SUCCESS。 ──
+  SANCTION_DISPOSITION_REQUESTED: { domain: 'CUSTOMER', correlationMode: N, requiredFields: ['outcome'], requiresCausation: false },
+  SANCTION_DISPOSITION_DECIDED:   { domain: 'CUSTOMER', correlationMode: N, requiredFields: ['outcome'], requiresCausation: false },
+  SANCTION_DISPOSITION_LANDED:    { domain: 'CUSTOMER', correlationMode: N, requiredFields: ['outcome'], requiresCausation: false },
 };
 
 /**

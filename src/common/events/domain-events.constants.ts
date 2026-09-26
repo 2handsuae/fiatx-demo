@@ -88,6 +88,20 @@ export const DOMAIN_EVENTS = {
     subscribers: ['MfaBindingWorkflowService'],
     payload: '{ userId: string, userNo: string }',
   },
+
+  // ── Sanction Disposition（战役甲波三 T4，2026-09-26）──
+  // ApprovalHandlerBase 派生的二级事件（SANCTION_DISPOSITION 审批裁决后）。既有的
+  // CUSTOMER_RESTRICTION_RELEASE_*/REGULATORY_FILING 的 decided 事件此前都没登记本表
+  // （本表历来只收「域服务/接入层直发」的一手事件）——checklist 复核 2026-09-26 起，
+  // 制裁定性这条横跨限制便签+报送两个主体的落地事件先例性地补登，供后续同类审计。
+  SANCTION_DISPOSITION_DECIDED: {
+    name: 'workflow.sanction-disposition.decided',
+    emitter: 'SanctionDispositionApprovalService',
+    subscribers: ['SanctionDispositionWorkflowService'],
+    payload:
+      'ApprovalDecidedEvent — { decision, actionType, entityRef(customerNo), approvalNo, ' +
+      'decisionByUserId, decisionByUserNo, decisionByRole, decisionReason, traceId }',
+  },
 } as const;
 
 /** Type-safe event name accessor */
@@ -108,4 +122,6 @@ export const DomainEventNames = {
   // Admin Login Lockout
   ADMIN_LOGIN_CONSECUTIVE_FAILURE: DOMAIN_EVENTS.ADMIN_LOGIN_CONSECUTIVE_FAILURE.name,
   ADMIN_LOGIN_AUTO_UNLOCKED: DOMAIN_EVENTS.ADMIN_LOGIN_AUTO_UNLOCKED.name,
+  // Sanction Disposition
+  SANCTION_DISPOSITION_DECIDED: DOMAIN_EVENTS.SANCTION_DISPOSITION_DECIDED.name,
 } as const;

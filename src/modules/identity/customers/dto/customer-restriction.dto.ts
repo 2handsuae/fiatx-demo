@@ -44,3 +44,20 @@ export class ReleaseRestrictionDto {
   @IsString()
   releaseOrderRef?: string;
 }
+
+/** 战役甲波三 T4：制裁定性提单入参（spec §4）——outcome 三选一由合规官定，
+ * MLRO 单步批；summary/externalCaseRef 校验在此，前置存在性校验（该客户须有 OPEN
+ * 的 SANCTION 便签）在 workflow.initiateDisposition 里做。 */
+export class SanctionDispositionDto {
+  @IsIn(['CLEARED', 'PARTIAL', 'CONFIRMED'])
+  outcome!: 'CLEARED' | 'PARTIAL' | 'CONFIRMED';
+
+  @IsString()
+  @MinLength(1)
+  summary!: string;
+
+  /** EOCN 名单条目引用——PNMR/CNMR 开单必填（复用 T3 的 requiresExternalCaseRef 口径）。 */
+  @IsString()
+  @MinLength(1)
+  externalCaseRef!: string;
+}

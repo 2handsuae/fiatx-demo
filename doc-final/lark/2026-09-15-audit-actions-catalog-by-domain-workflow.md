@@ -260,6 +260,14 @@
 | `CUSTOMER_FROZEN` | 客户级冻结（制裁便签连带） | N 单步 | — |  |
 | `CUSTOMER_UNFROZEN` | 客户级解冻 | N 单步 | — |  |
 
+### 制裁定性裁决（3） — 战役甲波三 T4 新增，合规官提 / MLRO 单步批 / workflow 三出口落地共用
+
+| 动作码 | 说明 | 旅程 | 必填字段 | 异步 |
+|---|---|---|---|---|
+| `SANCTION_DISPOSITION_REQUESTED` | 合规官对 OPEN 的 SANCTION 便签提定性（CLEARED/PARTIAL/CONFIRMED 三选一），开 MLRO 单步审批 | N 单步 | outcome |  |
+| `SANCTION_DISPOSITION_DECIDED` | MLRO 裁决（拒绝=维持待裁，只留本条审计） | N 单步 | outcome |  |
+| `SANCTION_DISPOSITION_LANDED` | 批准后三出口落地（CLEARED 解冻 / PARTIAL 开 PNMR+补料 / CONFIRMED 便签翻牌+开 CNMR） | N 单步 | outcome |  |
+
 ### 材料请求账（7）
 
 | 动作码 | 说明 | 旅程 | 必填字段 | 异步 |

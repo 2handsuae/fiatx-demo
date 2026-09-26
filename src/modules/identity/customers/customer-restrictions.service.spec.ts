@@ -9,7 +9,7 @@ const eventEmitterStub = { emit: jest.fn() };
 
 
 describe('RESTRICTION_CAUSE_POLICY', () => {
-  it('七条 cause 的 defaultScopes / visibility / releasePolicy / scopeSelectable / customerLabel / customerLevel 逐字固定（防漂移）', () => {
+  it('八条 cause 的 defaultScopes / visibility / releasePolicy / scopeSelectable / customerLabel / customerLevel 逐字固定（防漂移；战役甲波三 T4 加 SANCTION_CONFIRMED，七→八）', () => {
     expect(RESTRICTION_CAUSE_POLICY).toEqual({
       SANCTION: {
         defaultScopes: ['ALL'],
@@ -67,12 +67,20 @@ describe('RESTRICTION_CAUSE_POLICY', () => {
         customerLevel: false,
         customerLabel: 'Document required',
       },
+      SANCTION_CONFIRMED: {
+        defaultScopes: ['ALL'],
+        visibility: 'DISCLOSED',
+        releasePolicy: 'MLRO_APPROVAL',
+        scopeSelectable: false,
+        customerLevel: true,
+        customerLabel: 'Account restricted — confirmed sanctions match',
+      },
     });
   });
 
   it('SILENT 的 cause 一律没有 customerLabel（客户面结构性无痕）', () => {
     const causes = Object.keys(RESTRICTION_CAUSE_POLICY) as RestrictionCause[];
-    expect(causes).toHaveLength(7);
+    expect(causes).toHaveLength(8);
     for (const cause of causes) {
       const policy = RESTRICTION_CAUSE_POLICY[cause];
       if (policy.visibility === 'SILENT') expect(policy.customerLabel).toBe('');
@@ -151,7 +159,7 @@ function createStatefulPrismaMock() {
 }
 
 describe('CustomerRestrictionsService.open', () => {
-  it('七个 cause 落库的 scope / visibility / releasePolicy 与注册表逐字一致', async () => {
+  it('八个 cause 落库的 scope / visibility / releasePolicy 与注册表逐字一致', async () => {
     for (const cause of Object.keys(RESTRICTION_CAUSE_POLICY) as RestrictionCause[]) {
       const { prisma, tx } = createPrismaMock();
       const svc = new CustomerRestrictionsService(prisma, createAuditMock(), eventEmitterStub as any);

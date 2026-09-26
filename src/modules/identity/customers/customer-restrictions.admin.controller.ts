@@ -21,8 +21,13 @@ import { ApprovalActorContext } from '../../governance/approvals/constants/appro
 import { PrismaService } from '../../../core/prisma/prisma.service';
 import { CustomerRestrictionsService } from './customer-restrictions.service';
 import { CustomerRestrictionWorkflowService } from './customer-restriction-workflow.service';
+import { SanctionDispositionWorkflowService } from './sanction-disposition-workflow.service';
 import { RESTRICTION_CAUSE_POLICY } from './constants/restriction-cause.constant';
-import { OpenRestrictionDto, ReleaseRestrictionDto } from './dto/customer-restriction.dto';
+import {
+  OpenRestrictionDto,
+  ReleaseRestrictionDto,
+  SanctionDispositionDto,
+} from './dto/customer-restriction.dto';
 
 /**
  * 全局 ValidationPipe（main.ts:38）是 { transform, whitelist } —— 没有
@@ -44,6 +49,7 @@ export class CustomerRestrictionsAdminController {
   constructor(
     private readonly restrictions: CustomerRestrictionsService,
     private readonly workflow: CustomerRestrictionWorkflowService,
+    private readonly dispositionWorkflow: SanctionDispositionWorkflowService,
     private readonly prisma: PrismaService,
   ) {}
 
@@ -158,5 +164,34 @@ export class CustomerRestrictionsAdminController {
     }
 
     return this.workflow.initiateRelease(restrictionNo, dto, this.buildAdminActor(req));
+  }
+
+  /**
+   * 战役甲波三 T4：制裁定性提单——合规官对一张 OPEN 的 SANCTION 便签选定
+   * CLEARED/PARTIAL/CONFIRMED 三出口之一，走 ApprovalsService 正门开 MLRO 单步审批
+   * （铁律②门不可绕）。前置存在性校验（该客户须有 OPEN 的 SANCTION 便签）与三出口
+   * 落地在 SanctionDispositionWorkflowService 里做，本端点只负责业务键换 id + 转发。
+   */
+  @Post('customers/:customerNo/sanction-disposition')
+  @ApiOperation({
+    summary: '提交制裁定性裁决（CLEARED/PARTIAL/CONFIRMED），走 MLRO 单步审批正门',
+  })
+  @RequirePermissions(
+    buildPermissionCode('POST', '/admin/customers/:customerNo/sanction-disposition'),
+  )
+  @UsePipes(RESTRICTION_BODY_PIPE)
+  async submitSanctionDisposition(
+    @Req() req: any,
+    @Param('customerNo') customerNo: string,
+    @Body() dto: SanctionDispositionDto,
+  ) {
+    this.assertAdmin(req);
+    return this.dispositionWorkflow.initiateDisposition(
+      customerNo,
+      dto.outcome,
+      dto.summary,
+      dto.externalCaseRef,
+      this.buildAdminActor(req),
+    );
   }
 }

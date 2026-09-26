@@ -16,7 +16,8 @@ export type RestrictionCause =
   | 'TIER_UPGRADE_PENDING'
   | 'KYT_REJECTED_SOFT'
   | 'KYT_REJECTED_HARD'
-  | 'PENDING_DOCUMENT';
+  | 'PENDING_DOCUMENT'
+  | 'SANCTION_CONFIRMED';
 
 export type RestrictionVisibility = 'SILENT' | 'DISCLOSED';
 
@@ -97,5 +98,17 @@ export const RESTRICTION_CAUSE_POLICY: Record<RestrictionCause, RestrictionCause
     scopeSelectable: true,
     customerLevel: false,
     customerLabel: 'Document required',
+  },
+  // 战役甲波三 T4（2026-09-26）：制裁定性 CONFIRMED 出口的落地便签——SILENT 的 SANCTION
+  // 便签解列后开的新便签，DISCLOSED 是刻意的（spec §2 B 线：确认后横幅可见即依据）；
+  // 解除仍走 MLRO_APPROVAL（照 SANCTION 同款政府解除令闸，见 customer-restriction-
+  // workflow.service.ts:143-148，本因由未改动那条手工链）。
+  SANCTION_CONFIRMED: {
+    defaultScopes: ['ALL'],
+    visibility: 'DISCLOSED',
+    releasePolicy: 'MLRO_APPROVAL',
+    scopeSelectable: false,
+    customerLevel: true,
+    customerLabel: 'Account restricted — confirmed sanctions match',
   },
 };

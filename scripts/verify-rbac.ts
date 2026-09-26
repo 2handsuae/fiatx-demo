@@ -300,6 +300,10 @@ function runStaticChecks(): void {
     // 战役甲波二 Task 5：报送签发——提单唯合规官（REG_FILING_WRITE），裁决唯高管
     // （SENIOR_MANAGEMENT_OFFICER，不持 REG_FILING_WRITE），maker/checker 天然不相交。
     REG_FILING_SUBMIT: 'REG_FILING_WRITE',
+    // 战役甲波三 T4：制裁定性——maker 组同 CUSTOMER_RESTRICTION_RELEASE_MLRO/OPS 复用
+    // CUSTOMER_RESTRICTION_RELEASE（合规官持有；MLRO 也持有同组，但 checker 恰是 MLRO
+    // 本人——P1 判据要求的"安全 maker 非空"由合规官满足，同款先例，非新增死锁）。
+    SANCTION_DISPOSITION: 'CUSTOMER_RESTRICTION_RELEASE',
   };
 
   // 有意不进上表的策略——maker 组本身不可判定（不是某个角色权限组闸住的，是系统自己在
@@ -333,6 +337,11 @@ function runStaticChecks(): void {
     CUSTOMER_RESTRICTION_RELEASE_MLRO:
       '提单组 CUSTOMER_RESTRICTION_RELEASE 由 MLRO 与合规官双持，裁决人 MLRO 在其中（合规官' +
       '提、MLRO 批；MLRO 自提自批被 SoD 拒），COMPLIANCE_OFFICER 是安全 maker，P1 已验证',
+    SANCTION_DISPOSITION:
+      '战役甲波三 T4：定性提单复用「解限制」提单组 CUSTOMER_RESTRICTION_RELEASE（合规官已' +
+      '持有，不新增组）——同 CUSTOMER_RESTRICTION_RELEASE_MLRO 一样的双持结构，裁决人 MLRO ' +
+      '恰在该组内（合规官提、MLRO 批；MLRO 自提自批被 SoD 拒），COMPLIANCE_OFFICER 是安全 ' +
+      'maker，P1 已验证',
     ADMIN_ROLE_BINDING_CHANGE_APPROVAL:
       '提单组 IAM_ROLE_ASSIGN 由 CISO 与技术官双持，裁决人 CISO 刻意在其中——自批由 ' +
       'approvals.service 的 SoD 当场拒（业主拍板甲案，形状同 ADMIN_INVITE_APPROVAL），' +

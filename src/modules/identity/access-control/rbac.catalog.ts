@@ -267,6 +267,15 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
     'Request restriction release',
     ['CUSTOMER_RESTRICTION_RELEASE'],
   ),
+  // 战役甲波三 T4：制裁定性提单——复用「解限制」提单组（合规官已持有 CUSTOMER_RESTRICTION_RELEASE，
+  // MLRO 也持有同组作为唯一裁决人，maker/checker 天然不相交，见 verify-rbac.ts
+  // MAKER_GROUP_BY_POLICY 的 SANCTION_DISPOSITION 行），不新增组。
+  route(
+    'POST',
+    '/admin/customers/:customerNo/sanction-disposition',
+    'Submit a sanction disposition (CLEARED/PARTIAL/CONFIRMED) for MLRO approval',
+    ['CUSTOMER_RESTRICTION_RELEASE'],
+  ),
 
   // Onboarding acceptance（客户域波二·准入审批线，2026-09-07）
   route(
