@@ -17,7 +17,7 @@
 | ② 时限口径 | **总纲需订正**（已随本 spec 订正）：CNMR 与 PNMR 的报送时限**都是 5 个工作日**（CNMR 自冻结、PNMR 自暂停）；**10 个工作日是补证窗**（partial match 下取证件排除/坐实的合理期），不是"排除后才报 PNMR"——官方时序是**先暂停即报 PNMR，补证窗并行走**；10 工作日拿不到证件→拒绝交易并 5 工作日内再报 PNMR（本波作叙事，不建二次单）；**暂停/冻结的解除须等 EOCN 经 goAML 回指令**。工作日=周一至周五（UAE 联邦周末周六日） | 二手多源交叉一致 |
 | ③ SAR | goAML 独立报文类型（STR=具体交易；SAR=无交易的可疑行为），**单列一行**：STR 锚交易单号、SAR 锚客户 | 坐实 |
 | ④ 上游触发点 | V5「KYT→STR」：冻结单证据留存已在（`decideVerdictLanding` FROZEN 一律 IGNORE 保护制裁证据），MLRO 读证据→手工开 STR 锚该单即接上，无需 V5 侧改动；V2「CDD→STR」：销户流程未建（v2 §6 缺口），维持移交，STR 手工开单锚客户即为将来接口 | 查库坐实 |
-| ⑤ Sumsub 案件引用 | 新增列 `externalCaseRef`（STR/SAR 记 Sumsub 案件/applicant 引用；CNMR/PNMR 记名单条目引用），报文族必填 | 设计定 |
+| ⑤ Sumsub 案件引用 | 新增列 `externalCaseRef`（STR/SAR 记 Sumsub 案件/applicant 引用；CNMR/PNMR 记名单条目引用），**STR/SAR/CNMR/PNMR 四类型必填**（HRC/HRCA 锚交易属性，无外部案件可引，不填——评审白项收窄） | 设计定 |
 | ⑥ HRC/HRCA | 受文机构 **UAE FIU**（goAML），非 EOCN；HRC 有"报后 3 个工作日 FIU 不反对方可执行"真规则——**属交易 HOLD 边，移交注记**，台账行无钟（类型行备注该窗）；HRCA=交易属性不全时的替代报文 | 二手多源交叉 |
 | ⑦ 法律锚 | tipping-off 刑事禁令：Federal Decree-Law 20/2018（禁止向被报告人或第三方披露 STR 已报或在研判）；VARA 条款号（合规官职责条/T&I Rule H）官方站被拦，二手一致，留业主本机一手复核 | 二手交叉 |
 
@@ -30,13 +30,13 @@
   └► SANCTION 便签（SILENT，现状机制）＝命中待裁，客户面零痕迹（三层防线不动）
         └► 制裁定性裁决：合规官提，MLRO 单步批（新审批类型 SANCTION_DISPOSITION），三出口——
              ├─ 排除 CLEARED：批准即联动既有解除执行（同一次 maker/checker，不叠第二道解冻审批），客户全程无感
-             ├─ 部分 PARTIAL：维持 SILENT ＋ 自动开 PNMR 单（5 工作日钟，锚定性时刻）＋ 补料请求（既有通道，中性话术；10 工作日补证窗为剧本叙事）
+             ├─ 部分 PARTIAL：维持 SILENT ＋ 自动开 PNMR 单（5 工作日钟，**锚 SANCTION 便签开立时刻**＝暂停落地 `restrictionOpenedAt`——官方口径"自暂停起算"，评审红项订正，原"锚定性时刻"不确）＋ 补料请求（既有通道，中性话术；10 工作日补证窗为剧本叙事）
              │     └► EOCN 指令经 PNMR 单往来记录落痕（新 kind，见 §5）→ 据指令走 CLEARED（二次定性）或升 CONFIRMED
-             └─ 确认 CONFIRMED：SILENT 便签解列、开 SANCTION_CONFIRMED 便签（新 DISCLOSED 因由，横幅可见依据）＋ 自动开 CNMR 单（5 工作日钟，锚定性时刻）
+             └─ 确认 CONFIRMED：SILENT 便签解列、开 SANCTION_CONFIRMED 便签（新 DISCLOSED 因由，横幅可见依据）＋ 自动开 CNMR 单（5 工作日钟，**锚同上便签开立时刻**＝冻结落地——官方口径"自冻结起算"）
 ```
 
 - 定性落地走单一 workflow（限制域翻牌/解除 ＋ 报送域开单，铁律③各写各的）；定性动作/出口全量审计（铁律①）。
-- 「24h 冻结」不建钟：⚡ 命中即冻瞬时完成，CNMR/PNMR 单 metadata 留 `restrictionOpenedAt`；表盘归波四。
+- 「24h 冻结」不建钟：⚡ 命中即冻瞬时完成；`restrictionOpenedAt`（＝台账所称 freezeAt，统一用此名）即 `openForSanction` 外传的 `anchorAt` 钟锚数据源，兼作留痕；表盘归波四。
 - 误冻结申诉（裁定⑤）：部分线的补料+解除就是申诉的全部落地；确认后的申诉对象是 EOCN（叙事）。
 
 ### A 线 · STR/SAR
@@ -64,7 +64,7 @@
 
 ## §5 tipping-off 登记本 ＋ EOCN 指令
 
-- 往来记录新增两种受控 kind：**`CUSTOMER_COMM`**（客户沟通预审：拟稿人/放行人 MLRO/放行话术三留痕；仅 AML 族）＋ **`AUTHORITY_INSTRUCTION`**（EOCN/FIU 指令留痕；记录不推状态——解除/升级动作走 §4 各自的链）。
+- 往来记录新增两种受控 kind，**均仅 AML 族**（GENERAL 族监管指令维持既有 `REGULATOR_INQUIRY`，评审白项定口径）：**`CUSTOMER_COMM`**（客户沟通预审三留痕——拟稿人为录入数据字段 `commDraftedBy` 自由文本、放行人＝`recordedByUserId`＝MLRO 实名、body＝放行话术；报文族唯 MLRO 可写，故演示话术即「MLRO 亲录预审」，两签不装作两人——评审黄项定案）＋ **`AUTHORITY_INSTRUCTION`**（EOCN/FIU 指令留痕；记录不推状态——解除/升级动作走 §4 各自的链）。
 - 态限放宽：这两种 kind 在**非终态**均可追加（波二三种 kind 维持仅 SUBMITTED）。
 - 行为测试：客户面 DTO 全量断言零 STR/报文/filingNo 引用（三层防线契约测试扩展）＋ tipping-off 违禁词断言（总纲验收口径）。
 
@@ -77,7 +77,7 @@
 
 ## §7 ⚡、种子与演示
 
-- ⚡ 新入口一个：「EOCN 名单更新→存量 ACTIVE 客户命中」（落点 plan 定：demo-ops 或沿 sumsub-ingestion applicant 通道；最终调 identity 限制工作流贴 SANCTION 便签——与 `deposit-workflow.service.ts` 488/866 同一服务方法）。A 线不新增 ⚡（案件裁决为叙事＋手工开单）。
+- ⚡ 新入口一个：「EOCN 名单更新→存量 ACTIVE 客户命中」（落点 plan 定：demo-ops 或沿 sumsub-ingestion applicant 通道；最终调 `CustomerRestrictionWorkflowService.openRestriction()` 贴 SANCTION 便签——自带 `CUSTOMER_RESTRICTION_ADDED`/`CUSTOMER_FROZEN` 审计与 ⚡ actor 留痕；**不走** `deposit-workflow.service.ts` 488/866 的域服务裸 `open()`（其留痕搭在 KYT 审计上，⚡ 场景无 KYT 单可搭——评审黄项订正））。A 线不新增 ⚡（案件裁决为叙事＋手工开单）。
 - 种子三张：STR 已提交（带回执＋一条 CUSTOMER_COMM 预审样例）｜ PNMR 在途（5 工作日钟在跑＋一条 AUTHORITY_INSTRUCTION 待决样例）｜ CNMR 已提交（锚一名 SANCTION_CONFIRMED 客户，客户端可见横幅）。SAR/HRC/HRCA 不铺种子，现场手工开单讲解（照波二三类先例）。
 - 演示编排：B 线两分支＋A 线一条写入 `demo/script.md`（场景暂编，幕次编号波五收官统一）；`demo/data.md` 同步种子。
 
