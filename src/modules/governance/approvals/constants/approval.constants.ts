@@ -82,6 +82,9 @@ export const ApprovalActionTypes = {
   // 战役甲波三 T4（2026-09-26）：制裁定性裁决——合规官提（CLEARED/PARTIAL/CONFIRMED
   // 三选一 + 依据摘要），MLRO 单步批。挂在 SANCTION 便签（customerLevel，entityRef=customerNo）。
   SANCTION_DISPOSITION: 'SANCTION_DISPOSITION',
+  // 战役甲波四 T5（2026-09-27）：RI 换人——合规官提（新任姓名+生效日+理由+varaRef?），
+  // 高管单步批。挂在 ResponsibleIndividual 席位（entityRef=riNo）。
+  RI_REPLACEMENT: 'RI_REPLACEMENT',
 } as const;
 
 export const ApprovalStatuses = {
@@ -409,6 +412,12 @@ export const DEFAULT_APPROVAL_POLICIES: Record<
   // timeoutHours/allowCancel（同为高危治理动作，无理由另定档位）。
   [ApprovalActionTypes.SANCTION_DISPOSITION]: {
     steps: [{ stepNo: 1, roles: ['MLRO'] }],
+    timeoutHours: 48,
+    allowCancel: true,
+  },
+  // 战役甲波四 T5（spec §4.2）：RI 换人——波四：合规官提、高管单步批。
+  [ApprovalActionTypes.RI_REPLACEMENT]: {
+    steps: [{ stepNo: 1, roles: ['SENIOR_MANAGEMENT_OFFICER'] }],
     timeoutHours: 48,
     allowCancel: true,
   },

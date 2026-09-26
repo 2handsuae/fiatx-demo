@@ -54,6 +54,14 @@ export const FilingEntryKinds = {
  *  NON_TERMINAL 态限规则据此判。 */
 export const FILING_TERMINAL_STATUSES: readonly string[] = [FilingStatus.CLOSED, FilingStatus.CANCELLED];
 
+/** 战役甲波四 T5（spec §2）：闹钟墙在墙状态集——deadlineAt 生效中的三态。三处消费者共用
+ *  同一份常量，不各自另起字面量（找齐同款，纪律五）：clock-wall 聚合的 FILING 行集判据、
+ *  simulate-deadline-timeout 的"仅墙上状态可拨"判据、既有 sweep 的扫描状态集
+ *  （regulatory-filing-sweep.service.ts，本次未改，逐字对齐）。 */
+export const FILING_CLOCK_WALL_STATUSES: readonly string[] = [
+  FilingStatus.DRAFT, FilingStatus.PENDING_SIGNOFF, FilingStatus.SIGNED_OFF,
+];
+
 /** spec §5：addEntry 分 kind 规则表——显式列出「哪些族能打这个 kind／态限是什么／要不要
  *  commDraftedBy」，服务层按表查（T5，替代散 if）。
  *  - 旧三 kind（RECEIPT_ACK/REGULATOR_INQUIRY/OUR_SUPPLEMENT）：两族皆可、仅 SUBMITTED

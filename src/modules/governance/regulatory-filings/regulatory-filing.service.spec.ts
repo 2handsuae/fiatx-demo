@@ -96,6 +96,20 @@ describe('RegulatoryFilingService (Task 3)', () => {
     return filingNo;
   }
 
+  /** 甲波四 T5：立即清掉一张仍停在 DRAFT/PENDING_SIGNOFF/SIGNED_OFF 且 deadlineAt 已在
+   *  过去的单——这三态 + 过去时间正是 regulatory-filing-sweep.service.spec.ts 的真实
+   *  sweep() 扫描目标（同一份共享 dev.db，jest 多进程并发跑文件）。若指望文件级 afterAll
+   *  才清（整份文件跑完才触发,可能几秒之后）,这张单会在窗口期被并发跑的 sweep 套件
+   *  真扫到、真标记 overdueMarkedAt,把它的 `marked` 计数污染成 "自己的 1 条 + 我们这边
+   *  漏网的几条"——不是本仓库的假设，是本次任务加测试时实测复现过的真实竞态（第 2 条
+   *  纪律：报绿前先确认检查真的会红——这里反过来，是"报绿前确认清理是否真的堵住了红"）。
+   *  simulateDeadlineTimeout 测试用完立刻显式删表，不留到 afterAll。 */
+  async function cleanupFiling(filingNo: string): Promise<void> {
+    await prisma.auditLogEvent.deleteMany({ where: { primarySubjectType: 'REGULATORY_FILING', primarySubjectNo: filingNo } });
+    await prisma.regulatoryFilingEntry.deleteMany({ where: { filing: { filingNo } } });
+    await prisma.regulatoryFiling.deleteMany({ where: { filingNo } });
+  }
+
   /** T3：MLRO 手工开一张 AML 族 DRAFT 单（默认 STR，allowNoFilingClose+requiresExternalCaseRef）。 */
   async function openAmlDraftFiling(type: string = 'STR'): Promise<string> {
     const { filingNo } = await service.openManual({ type, title: `${type} case`, externalCaseRef: `CASE_${type}_${randomUUID().slice(0, 6)}` }, mlro);
@@ -670,6 +684,69 @@ describe('RegulatoryFilingService (Task 3)', () => {
     });
   });
 
+  // ── 战役甲波四 T5（spec §2 ⚡）：simulateDeadlineTimeout ─────────────────
+  describe('simulateDeadlineTimeout (clock wall ⚡ fast-forward)', () => {
+    it.each(['DRAFT', 'PENDING_SIGNOFF', 'SIGNED_OFF'])(
+      'from wall status %s: rolls deadlineAt to now-1h and records FILING_DEADLINE_FASTFORWARDED',
+      async (status) => {
+        const filingNo = await openDraftFiling();
+        if (status === 'PENDING_SIGNOFF' || status === 'SIGNED_OFF') {
+          await service.markSignoffRequested(filingNo, `APR_CW_${filingNo}`, ops);
+        }
+        if (status === 'SIGNED_OFF') {
+          await service.applySignoffDecision(filingNo, 'APPROVED', { approvalNo: `APR_CW_${filingNo}`, approvalId: `apid_cw_${filingNo}` });
+        }
+        auditLogs.recordByActor.mockClear();
+
+        const before = Date.now();
+        const result = await service.simulateDeadlineTimeout(filingNo, ops);
+        expect(result).toEqual({ filingNo });
+
+        const row = await service.findByNo(filingNo);
+        expect(row.status).toBe(status);
+        expect(row.deadlineAt).not.toBeNull();
+        expect((row.deadlineAt as Date).getTime()).toBeLessThan(before);
+
+        expect(auditLogs.recordByActor).toHaveBeenCalledTimes(1);
+        const [input] = auditLogs.recordByActor.mock.calls[0];
+        expect(input.action).toBe('FILING_DEADLINE_FASTFORWARDED');
+        expect(input.actionDomain).toBe('GOVERNANCE');
+        expect(input.deadlineAt).toBe((row.deadlineAt as Date).toISOString());
+
+        // 见 cleanupFiling 注释：这张单仍停在墙上状态 + deadlineAt 已过去，是并发跑的
+        // sweep 套件的真实扫描目标，不留到文件级 afterAll。
+        await cleanupFiling(filingNo);
+      },
+    );
+
+    it('rejects a SUBMITTED filing with 400 (already off the wall, sweep would never catch it)', async () => {
+      const filingNo = await toSubmittedFiling();
+      auditLogs.recordByActor.mockClear();
+      await expect(service.simulateDeadlineTimeout(filingNo, ops)).rejects.toThrow(BadRequestException);
+      expect(auditLogs.recordByActor).not.toHaveBeenCalled();
+    });
+
+    it('rejects a CANCELLED (terminal) filing with 400', async () => {
+      const filingNo = await openDraftFiling();
+      await service.cancel(filingNo, 'withdrawn before simulate', ops);
+      auditLogs.recordByActor.mockClear();
+      await expect(service.simulateDeadlineTimeout(filingNo, ops)).rejects.toThrow(BadRequestException);
+      expect(auditLogs.recordByActor).not.toHaveBeenCalled();
+    });
+
+    it('rejects a CLOSED (terminal) filing with 400', async () => {
+      const filingNo = await toSubmittedFiling();
+      await service.close(filingNo, ops, 'closed before simulate');
+      auditLogs.recordByActor.mockClear();
+      await expect(service.simulateDeadlineTimeout(filingNo, ops)).rejects.toThrow(BadRequestException);
+      expect(auditLogs.recordByActor).not.toHaveBeenCalled();
+    });
+
+    it('throws NotFoundException for an unknown filingNo', async () => {
+      await expect(service.simulateDeadlineTimeout('FIL_DOES_NOT_EXIST', ops)).rejects.toThrow(NotFoundException);
+    });
+  });
+
   // ── 审计信封真实过闸（真 AuditLogsService，不 mock）：mock 版 recordByActor 是行为化
   // spy，不跑 assertActionSpec——REG_FILING_AUDIT_ACTIONS 的 requiredFields/causation/
   // correlationMode 声明是否真的被本服务的调用点喂对，只有让真校验跑一遍才知道
@@ -780,6 +857,24 @@ describe('RegulatoryFilingService (Task 3)', () => {
       expect((events[0] as any).sourcePlatform).toBe('SYSTEM');
       const row = await realService.findByNo(filingNo);
       expect(row.deadlineAt?.toISOString()).toBe(dueAt.toISOString());
+    });
+
+    // 甲波四 T5：FILING_DEADLINE_FASTFORWARDED 是在 COMPLIANCE_OFFICE_AUDIT_ACTIONS 组注册
+    // 的（brief 明确要求，非 REG_FILING_AUDIT_ACTIONS），assertActionSpec 的查表链按
+    // `?? COMPLIANCE_OFFICE_AUDIT_ACTIONS[input.action]` 兜底命中——真的跑一遍确认
+    // requiredFields=['deadlineAt'] 被 simulateDeadlineTimeout 的 extra 顶层展开喂对
+    // （第 2 条纪律：报绿前先确认检查真的会红——本码的 spec 声明域在别的常量组里，
+    // 拼错了不会被本文件其余测试捞到）。
+    it('walks simulateDeadlineTimeout without the real assertActionSpec rejecting FILING_DEADLINE_FASTFORWARDED', async () => {
+      const { filingNo } = await realService.openManual({ type: 'MATERIAL_CHANGE_NOTIFICATION', title: 'Real-audit clock wall fast-forward' }, ops);
+      await realService.simulateDeadlineTimeout(filingNo, ops);
+
+      const events = await prisma.auditLogEvent.findMany({ where: { primarySubjectType: 'REGULATORY_FILING', primarySubjectNo: filingNo }, orderBy: { seq: 'asc' } });
+      expect(events.map((e) => e.action)).toEqual(['FILING_OPENED', 'FILING_DEADLINE_FASTFORWARDED']);
+      expect((events[1] as any).deadlineAt).not.toBeNull();
+
+      // 见 cleanupFiling 注释：本单仍是 DRAFT + deadlineAt 已过去，立即清掉，不留到 afterAll。
+      await cleanupFiling(filingNo);
     });
   });
 });

@@ -445,6 +445,8 @@ export const AuditActions = {
   RI_REPLACEMENT_PROPOSED: 'RI_REPLACEMENT_PROPOSED',
   RI_REPLACEMENT_APPLIED: 'RI_REPLACEMENT_APPLIED',
   RI_REPLACEMENT_REJECTED: 'RI_REPLACEMENT_REJECTED',
+  // ── 战役甲波四 T5（2026-09-27）：闹钟墙 ⚡ 演示装置——报送单钟拨快进 ──────
+  FILING_DEADLINE_FASTFORWARDED: 'FILING_DEADLINE_FASTFORWARDED',
 } as const;
 
 // 站4 清扫:十条死词映射(APPROVAL_APPROVED/EXECUTED、ADMIN_INVITATION_*、USER_*、
@@ -1068,6 +1070,12 @@ export const COMPLIANCE_OFFICE_AUDIT_ACTIONS: Record<string, AuditActionSpec> = 
   RI_REPLACEMENT_PROPOSED: { domain: 'GOVERNANCE', correlationMode: N, requiredFields: ['approvalNo'], requiresCausation: false },
   RI_REPLACEMENT_APPLIED:  { domain: 'GOVERNANCE', correlationMode: N, requiredFields: ['fromIncumbent', 'toIncumbent'], requiresCausation: false },
   RI_REPLACEMENT_REJECTED: { domain: 'GOVERNANCE', correlationMode: N, requiredFields: ['approvalNo'], requiresCausation: false },
+
+  // 战役甲波四 T5（spec §2 ⚡）：闹钟墙演示装置——把 REGULATORY_FILING 的 deadlineAt 回拨
+  // 到 now-1h，供 sweep 当场标红。挂在本组（brief 明确要求），而非 REG_FILING_AUDIT_ACTIONS——
+  // 单步演示动作，没有旅程可继承，同 OBLIGATION_DUE_FASTFORWARDED 先例标 N；必填字段
+  // deadlineAt（拨后的新值）落在 recordAudit 的 extra 顶层展开，同 noFilingReason 先例。
+  FILING_DEADLINE_FASTFORWARDED: { domain: 'GOVERNANCE', correlationMode: N, requiredFields: ['deadlineAt'], requiresCausation: false },
 };
 
 /** 动态迁移码族（<域>_<从>_TO_<到>，充值站1b-β/提现站2-β 整族废除；站7 扩面治理五簿+监管闸——

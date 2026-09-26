@@ -32,6 +32,28 @@ export class ComplianceObligationsService {
     return row;
   }
 
+  /** 战役甲波四 T5：列表/详情投影——铁律⑥零 id（controller GET 两端点消费，T2 未建，
+   *  本任务按需补）。 */
+  async list() {
+    const rows = await this.prisma.complianceObligation.findMany({ orderBy: { createdAt: 'desc' } });
+    return rows.map((r) => this.toListItem(r));
+  }
+
+  async getView(obligationNo: string) {
+    const row = await this.findByNo(obligationNo);
+    return this.toListItem(row);
+  }
+
+  private toListItem(row: ComplianceObligation) {
+    return {
+      obligationNo: row.obligationNo, name: row.name, description: row.description ?? null,
+      frequency: row.frequency, authority: row.authority, basisNote: row.basisNote,
+      leadBusinessDays: row.leadBusinessDays, nextDueAt: row.nextDueAt.toISOString(),
+      status: row.status, lastFilingNo: row.lastFilingNo ?? null,
+      createdByUserId: row.createdByUserId, createdAt: row.createdAt.toISOString(),
+    };
+  }
+
   // ── 建档（spec §3.2：义务登记铸旅程） ─────────────────────────────
 
   async create(actor: ApprovalActorContext, dto: CreateObligationDto): Promise<{ obligationNo: string }> {

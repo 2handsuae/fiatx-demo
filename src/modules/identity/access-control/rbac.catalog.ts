@@ -92,7 +92,13 @@ export type PermissionGroup =
   // （无签发链，DRAFT→SUBMITTED 直达）。路由与 REG_FILING_WRITE 共享 OR（粗门），服务层
   // cap.filing.aml 按族独占才是真把关（照 Ruling-6 / cap.incident.* 先例，见下方
   // cap.filing.* 服务层门标记码）。
-  | 'REG_FILING_AML_WRITE';
+  | 'REG_FILING_AML_WRITE'
+  // 战役甲波四 T5（spec §5）：合规办公室骨架——三个写面各自单一经办人（合规官独占），
+  // 一组一门，路由门即精确门，不需要 cap.* 服务层族独占（与波三的差异见 spec §5）。
+  | 'COMPLIANCE_OFFICE_VIEW'
+  | 'OBLIGATION_WRITE'
+  | 'VENDOR_REGISTER_WRITE'
+  | 'RI_REGISTER_WRITE';
 
 export interface RbacPermissionDefinition {
   code: string;
@@ -500,6 +506,35 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
   // 的类型可走，见 regulatory-filing.service.ts closeNoFiling）。T3 controller 已落地，
   // S7_PENDING_DEAD_ROWS 里原先的「暂未出生」白名单项已按约删除（ce06185）。
   route('POST', '/admin/regulatory-filings/:filingNo/close-no-filing', 'Close an AML filing with a no-filing decision', ['REG_FILING_WRITE', 'REG_FILING_AML_WRITE']),
+  // 战役甲波四 T5（spec §2 ⚡）：闹钟墙快进——挂既有 Demo Instruments 组（金库），非报送台
+  // 经办组；不属于合规官/MLRO 的两经办组 OR。
+  route('POST', '/admin/regulatory-filings/:filingNo/simulate-deadline-timeout', 'Fast-forward filing deadline into the past (demo only)', ['DEMO_CLOCK_WRITE']),
+
+  // 战役甲波四 T5（spec §2/§3/§4）：合规办公室骨架——闹钟墙聚合 + 周期义务（合规日历）+
+  // 两本登记册（外包商 / RI）。三个写面各自单一经办人（合规官独占，`COMPLIANCE_OFFICE_
+  // VIEW`/`OBLIGATION_WRITE`/`VENDOR_REGISTER_WRITE`/`RI_REGISTER_WRITE` 四组一组一门），
+  // 不需要 cap.* 服务层族独占（与波三报送台的差异见 spec §5：本域没有"两个经办人共享同一组
+  // 写路由"的情形）。
+  route('GET', '/admin/compliance-office/clock-wall', 'Compliance clock wall — aggregate filing deadlines and obligation due dates', ['COMPLIANCE_OFFICE_VIEW']),
+  route('GET', '/admin/compliance-obligations', 'List compliance obligations', ['COMPLIANCE_OFFICE_VIEW']),
+  route('GET', '/admin/compliance-obligations/:obligationNo', 'Compliance obligation detail', ['COMPLIANCE_OFFICE_VIEW']),
+  route('POST', '/admin/compliance-obligations', 'Register a compliance obligation', ['OBLIGATION_WRITE']),
+  route('PATCH', '/admin/compliance-obligations/:obligationNo', 'Update a compliance obligation', ['OBLIGATION_WRITE']),
+  route('POST', '/admin/compliance-obligations/:obligationNo/status', 'Change obligation status (ACTIVE/DISABLED)', ['OBLIGATION_WRITE']),
+  // ⚡ 演示装置——挂 Demo Instruments 组（金库），非 OBLIGATION_WRITE（合规官不是自己的裁决人，
+  // 快进是演示者操作，同报送单⚡先例）。
+  route('POST', '/admin/compliance-obligations/:obligationNo/simulate-due', 'Fast-forward obligation nextDueAt to now (demo only)', ['DEMO_CLOCK_WRITE']),
+  route('GET', '/admin/outsourcing-vendors', 'List outsourcing vendors', ['COMPLIANCE_OFFICE_VIEW']),
+  route('GET', '/admin/outsourcing-vendors/:vendorNo', 'Outsourcing vendor detail', ['COMPLIANCE_OFFICE_VIEW']),
+  route('POST', '/admin/outsourcing-vendors', 'Register an outsourcing vendor', ['VENDOR_REGISTER_WRITE']),
+  route('PATCH', '/admin/outsourcing-vendors/:vendorNo', 'Update an outsourcing vendor', ['VENDOR_REGISTER_WRITE']),
+  route('POST', '/admin/outsourcing-vendors/:vendorNo/terminate', 'Terminate an outsourcing vendor', ['VENDOR_REGISTER_WRITE']),
+  route('GET', '/admin/responsible-individuals', 'List responsible individual seats', ['COMPLIANCE_OFFICE_VIEW']),
+  route('GET', '/admin/responsible-individuals/:riNo', 'Responsible individual seat detail', ['COMPLIANCE_OFFICE_VIEW']),
+  route('POST', '/admin/responsible-individuals', 'Register a responsible individual seat', ['RI_REGISTER_WRITE']),
+  // 事前审批——高管是 RI_REPLACEMENT 的唯一裁决人，不持 RI_REGISTER_WRITE（maker/checker
+  // 天然不相交，见 scripts/verify-rbac.ts MAKER_GROUP_BY_POLICY）。
+  route('POST', '/admin/responsible-individuals/:riNo/replacement', 'Propose a responsible individual replacement (opens an approval)', ['RI_REGISTER_WRITE']),
 
   // 战役甲波三 T6：cap.filing.* 服务层门标记码——不是路由，是 RegulatoryFilingService.
   // assertFamily 的服务层门标记（照 cap.incident.* 先例，Ruling-6；码本身由 T1 在
@@ -1015,6 +1050,19 @@ export const ACTION_BUCKET_CATALOG: ActionDomain[] = [
       { key: 'filings.aml-desk', label: 'Operate AML reporting desk', description: 'STR/SAR/CNMR/PNMR/HRC/HRCA — MLRO personally handles the AML reporting family, DRAFT→SUBMITTED direct (no sign-off chain)', groups: ['REG_FILING_AML_WRITE'] },
     ],
   },
+  // ─── Domain: Compliance Office ────────────────────────
+  // 战役甲波四 T5（spec §5）：闹钟墙 + 合规日历（周期义务）+ 两本登记册（外包商 / RI）。
+  // 三个写面各自单一经办人（合规官独占），一组一门，不需要 cap.* 服务层族独占
+  // （与上方 Regulatory Filings 域的差异：本域没有"两个经办人共享同一组写路由"的情形）。
+  {
+    id: 'compliance-office', label: 'Compliance Office', icon: '📋',
+    buckets: [
+      { key: 'compliance-office.view', label: 'View clock wall, calendar & registers', description: 'Browse the compliance clock wall, the periodic-obligation calendar, and both registers (vendors / responsible individuals)', groups: ['COMPLIANCE_OFFICE_VIEW'] },
+      { key: 'compliance-office.obligations', label: 'Manage periodic obligations', description: 'Register, update, enable/disable periodic regulatory obligations — the compliance calendar', groups: ['OBLIGATION_WRITE'] },
+      { key: 'compliance-office.vendors', label: 'Manage the outsourcing register', description: 'Register, update and terminate outsourcing vendors', groups: ['VENDOR_REGISTER_WRITE'] },
+      { key: 'compliance-office.ri', label: 'Manage the responsible individual register', description: 'Register seats and propose replacements (senior management approves)', groups: ['RI_REGISTER_WRITE'] },
+    ],
+  },
   // ─── Domain: Pricing ─────────────────────────────────
   {
     id: 'pricing',
@@ -1034,7 +1082,7 @@ export const ACTION_BUCKET_CATALOG: ActionDomain[] = [
     icon: '⚡',
     buckets: [
       { key: 'demo.act_verdict', label: 'Feed compliance verdicts', description: 'Stand in for the Sumsub console — the only way a compliance officer moves an order', groups: ['DEMO_VERDICT_WRITE'] },
-      { key: 'demo.act_clock', label: 'Fast-forward clocks', description: 'Trip SLA timers and material expiry for demonstration', groups: ['DEMO_CLOCK_WRITE'] },
+      { key: 'demo.act_clock', label: 'Fast-forward clocks', description: 'Trip SLA timers and material expiry for demonstration — incl. regulatory filing deadlines and compliance obligation due dates (战役甲波四 T5)', groups: ['DEMO_CLOCK_WRITE'] },
     ],
   },
 ];
@@ -1071,6 +1119,9 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
     // 战役甲波二 Task 5：签发唯高管——高管是 REG_FILING_SUBMIT 的唯一裁决人，需要读得到
     // 报送台详情页（同 CISO 批事故拿 INCIDENT_READ 先例）。
     'REG_FILING_READ',
+    // 战役甲波四 T5：高管新增 RI_REPLACEMENT 裁决位——需要读得到闹钟墙/合规日历/两册
+    // （同上 REG_FILING_READ 先例，裁决人要看得见）。
+    'COMPLIANCE_OFFICE_VIEW',
   ],
 
   CISO: [
@@ -1084,6 +1135,9 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
     // T8 已入审批常量）——不带任何 *_WRITE 经办组（裁决人不是经办人），只带 INCIDENT_READ
     // 让审批详情页的 entityRef 回链能点开事故详情（S9 守着这条，此前是红）。
     'INCIDENT_READ',
+    // 战役甲波四 T5（spec §5）：CISO 是 VARA Responsible Individual 候选人之一，需要看得见
+    // 闹钟墙/合规日历/两册（合规官、MLRO、高管、内审、CISO 五职务共持 COMPLIANCE_OFFICE_VIEW）。
+    'COMPLIANCE_OFFICE_VIEW',
   ],
 
   MLRO: [
@@ -1102,6 +1156,9 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
     // 内审持 REG_FILING_READ，MLRO 漏了，裁决人/亲办人要看得见列表详情，这里补齐。
     'REG_FILING_READ',
     'REG_FILING_AML_WRITE',
+    // 战役甲波四 T5：MLRO 是 VARA Responsible Individual 候选人之一，需要看得见闹钟墙/
+    // 合规日历/两册（同 SENIOR_MANAGEMENT_OFFICER/CISO 先例）。
+    'COMPLIANCE_OFFICE_VIEW',
   ],
 
   DPO: [
@@ -1132,6 +1189,8 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
     'INCIDENT_READ',
     // 战役甲波二 Task 5：内审要看得见报送台（照 CISO 批事故拿 INCIDENT_READ 先例）。
     'REG_FILING_READ',
+    // 战役甲波四 T5：内审全域只读人设——闹钟墙/合规日历/两册同样只读，不建 manage/act 包。
+    'COMPLIANCE_OFFICE_VIEW',
   ],
 
   // 拦的手：开/解限制、贴撕标签、提解冻；管理台里推不动任何交易单据（D-不翻案）
@@ -1153,6 +1212,9 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
     // 起草事故通报要读得到事故（spec §6；合规官现况不持 INCIDENT_READ，起草报送前必须
     // 能看事故详情与留痕，照「裁决人要看得见」同款理由）。
     'INCIDENT_READ',
+    // 战役甲波四 T5（spec §5）：合规办公室骨架三写面全归合规官独占——闹钟墙/合规日历/
+    // 两册（外包商/RI）全部由合规官经办，RI 换人事前审批也由合规官提单（高管裁决）。
+    'COMPLIANCE_OFFICE_VIEW', 'OBLIGATION_WRITE', 'VENDOR_REGISTER_WRITE', 'RI_REGISTER_WRITE',
   ],
 
   // 定价的主人：费率两族的写权限全仓仅此一处（提由他提，运营复核）。

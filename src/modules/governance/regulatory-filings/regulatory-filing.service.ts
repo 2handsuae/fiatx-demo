@@ -23,8 +23,9 @@ import { AuditCategory, AuditSubjectInput, AuditSubjectRole } from '../../audit-
 import { AccessControlService } from '../../identity/access-control/access-control.service';
 import { ApprovalActorContext } from '../approvals/constants/approval.constants';
 import {
-  FILING_ENTRY_KIND_RULES, FILING_FAMILY_CAPABILITY_CODE, FILING_TERMINAL_STATUSES, FILING_TRANSITIONS_BY_FAMILY,
-  FilingEntryDto, FilingStatus, MarkFilingSubmittedDto, OpenFilingDto, RegulatoryAuthorities,
+  FILING_CLOCK_WALL_STATUSES, FILING_ENTRY_KIND_RULES, FILING_FAMILY_CAPABILITY_CODE, FILING_TERMINAL_STATUSES,
+  FILING_TRANSITIONS_BY_FAMILY, FilingEntryDto, FilingStatus, MarkFilingSubmittedDto, OpenFilingDto,
+  RegulatoryAuthorities,
 } from './regulatory-filing.constants';
 import { FilingTypeConfig, getFilingTypeConfig } from './filing-type-registry';
 import { addBusinessDays } from './business-days';
@@ -576,7 +577,30 @@ export class RegulatoryFilingService {
     return { filingNo: row.filingNo };
   }
 
-  // ── 审计（十码共用信封；primarySubject 恒为 REGULATORY_FILING/filingNo，
+  /** 战役甲波四 T5（spec §2 ⚡ 快进）：把 deadlineAt 回拨到 now-1h，供演示者立刻触发
+   *  既有 sweep（30 秒内）把该单标红。仅墙上在场状态（DRAFT/PENDING_SIGNOFF/SIGNED_OFF）
+   *  可拨；终态（CLOSED/CANCELLED）与已提交（SUBMITTED）已经不在墙上，拨了也不会被 sweep
+   *  捡到，显式 400（不误导演示）。不经 assertFamily——两族单据均可能挂钟，演示装置
+   *  不分族（同既有 ⚡ 装置先例：DEMO_CLOCK_WRITE 是金库持有的通用演示能力，不是报送台
+   *  经办能力）。 */
+  async simulateDeadlineTimeout(filingNo: string, actor: ApprovalActorContext): Promise<{ filingNo: string }> {
+    const row = await this.findByNo(filingNo);
+    if (!FILING_CLOCK_WALL_STATUSES.includes(row.status)) {
+      throw new BadRequestException(
+        `Filing ${filingNo} is in status ${row.status}, which is not on the clock wall ` +
+          '(only DRAFT/PENDING_SIGNOFF/SIGNED_OFF can have their deadline fast-forwarded)',
+      );
+    }
+    const deadlineAt = new Date(Date.now() - 3600 * 1000);
+    const updated = await this.prisma.regulatoryFiling.update({ where: { filingNo: row.filingNo }, data: { deadlineAt } });
+    await this.recordAudit(updated, AuditActions.FILING_DEADLINE_FASTFORWARDED, actor, {
+      extra: { deadlineAt: deadlineAt.toISOString() },
+    });
+    return { filingNo };
+  }
+
+  // ── 审计（十一码共用信封——十码 + 战役甲波四 T5 新增 FILING_DEADLINE_FASTFORWARDED；
+  //     primarySubject 恒为 REGULATORY_FILING/filingNo，
   //     correlationId 恒继承 row.traceId——OPENED 铸的旅程）────────────────
 
   private async recordAudit(row: RegulatoryFiling, action: string, actor: ApprovalActorContext | null, patch: {

@@ -123,4 +123,13 @@ export class RegulatoryFilingsController {
     this.assertAdmin(req);
     return this.filings.closeNoFiling(filingNo, dto.noFilingReason, this.buildActor(req));
   }
+
+  // 战役甲波四 T5（spec §2 ⚡）：闹钟墙快进——挂 DEMO_CLOCK_WRITE（金库），非报送台经办组。
+  @Post(':filingNo/simulate-deadline-timeout')
+  @ApiOperation({ summary: 'Fast-forward filing deadline into the past (demo only)' })
+  @RequirePermissions(buildPermissionCode('POST', '/admin/regulatory-filings/:filingNo/simulate-deadline-timeout'))
+  simulateDeadlineTimeout(@Param('filingNo') filingNo: string, @Req() req: any) {
+    this.assertAdmin(req);
+    return this.filings.simulateDeadlineTimeout(filingNo, this.buildActor(req));
+  }
 }

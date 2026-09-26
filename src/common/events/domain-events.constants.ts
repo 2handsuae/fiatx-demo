@@ -102,6 +102,19 @@ export const DOMAIN_EVENTS = {
       'ApprovalDecidedEvent — { decision, actionType, entityRef(customerNo), approvalNo, ' +
       'decisionByUserId, decisionByUserNo, decisionByRole, decisionReason, traceId }',
   },
+
+  // ── RI Replacement（战役甲波四 T5，2026-09-27）──
+  // ApprovalHandlerBase 派生的二级事件（RI_REPLACEMENT 审批裁决后）——workflowType 复用
+  // AuditBusinessWorkflowTypes.RESPONSIBLE_INDIVIDUAL（T4 已登记），派生事件名照
+  // buildSecondaryEventName 的 kebab 规则算出 'workflow.responsible-individual.decided'。
+  RI_REPLACEMENT_DECIDED: {
+    name: 'workflow.responsible-individual.decided',
+    emitter: 'RiReplacementApprovalService',
+    subscribers: ['RiReplacementWorkflowService'],
+    payload:
+      'ApprovalDecidedEvent — { decision, actionType, entityRef(riNo), approvalNo, ' +
+      'decisionByUserId, decisionByUserNo, decisionByRole, decisionReason, traceId }',
+  },
 } as const;
 
 /** Type-safe event name accessor */
@@ -124,4 +137,6 @@ export const DomainEventNames = {
   ADMIN_LOGIN_AUTO_UNLOCKED: DOMAIN_EVENTS.ADMIN_LOGIN_AUTO_UNLOCKED.name,
   // Sanction Disposition
   SANCTION_DISPOSITION_DECIDED: DOMAIN_EVENTS.SANCTION_DISPOSITION_DECIDED.name,
+  // RI Replacement
+  RI_REPLACEMENT_DECIDED: DOMAIN_EVENTS.RI_REPLACEMENT_DECIDED.name,
 } as const;

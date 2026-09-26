@@ -304,6 +304,9 @@ function runStaticChecks(): void {
     // CUSTOMER_RESTRICTION_RELEASE（合规官持有；MLRO 也持有同组，但 checker 恰是 MLRO
     // 本人——P1 判据要求的"安全 maker 非空"由合规官满足，同款先例，非新增死锁）。
     SANCTION_DISPOSITION: 'CUSTOMER_RESTRICTION_RELEASE',
+    // 战役甲波四 T5：RI 换人——提单唯合规官（RI_REGISTER_WRITE），裁决唯高管
+    // （SENIOR_MANAGEMENT_OFFICER，不持 RI_REGISTER_WRITE），maker/checker 天然不相交。
+    RI_REPLACEMENT: 'RI_REGISTER_WRITE',
   };
 
   // 有意不进上表的策略——maker 组本身不可判定（不是某个角色权限组闸住的，是系统自己在

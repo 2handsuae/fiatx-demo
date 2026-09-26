@@ -50,6 +50,29 @@ export class OutsourcingVendorsService {
     return row;
   }
 
+  /** 战役甲波四 T5：列表/详情投影——铁律⑥零 id（controller GET 两端点消费，T4 未建，
+   *  本任务按需补）。 */
+  async list() {
+    const rows = await this.prisma.outsourcingVendor.findMany({ orderBy: { createdAt: 'desc' } });
+    return rows.map((r) => this.toListItem(r));
+  }
+
+  async getView(vendorNo: string) {
+    const row = await this.findByNo(vendorNo);
+    return this.toListItem(row);
+  }
+
+  private toListItem(row: OutsourcingVendor) {
+    return {
+      vendorNo: row.vendorNo, name: row.name, serviceDescription: row.serviceDescription,
+      criticality: row.criticality,
+      contractStart: row.contractStart.toISOString(),
+      contractEnd: row.contractEnd ? row.contractEnd.toISOString() : null,
+      status: row.status, notes: row.notes ?? null,
+      createdByUserId: row.createdByUserId, createdAt: row.createdAt.toISOString(),
+    };
+  }
+
   // ── 建档 ────────────────────────────────────────────────────────────
 
   async register(actor: ApprovalActorContext, dto: CreateVendorDto): Promise<{ vendorNo: string }> {

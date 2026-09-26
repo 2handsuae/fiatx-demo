@@ -66,6 +66,27 @@ export class ResponsibleIndividualsService {
     return row;
   }
 
+  /** 战役甲波四 T5：列表/详情投影——铁律⑥零 id（controller GET 两端点消费，T4 未建，
+   *  本任务按需补）。 */
+  async list() {
+    const rows = await this.prisma.responsibleIndividual.findMany({ orderBy: { createdAt: 'desc' } });
+    return rows.map((r) => this.toListItem(r));
+  }
+
+  async getView(riNo: string) {
+    const row = await this.findByNo(riNo);
+    return this.toListItem(row);
+  }
+
+  private toListItem(row: ResponsibleIndividual) {
+    return {
+      riNo: row.riNo, position: row.position, incumbentName: row.incumbentName,
+      varaRef: row.varaRef ?? null, effectiveFrom: row.effectiveFrom.toISOString(),
+      status: row.status, pendingApprovalNo: row.pendingApprovalNo ?? null,
+      createdByUserId: row.createdByUserId, createdAt: row.createdAt.toISOString(),
+    };
+  }
+
   // ── 建席位 ──────────────────────────────────────────────────────────
 
   async createSeat(actor: ApprovalActorContext, dto: CreateSeatDto): Promise<{ riNo: string }> {
