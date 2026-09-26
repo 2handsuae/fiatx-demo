@@ -1,4 +1,4 @@
-import { BadRequestException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException } from '@nestjs/common';
 import { RegulatoryFilingWorkflowService } from './regulatory-filing-workflow.service';
 import { FilingStatus } from './regulatory-filing.constants';
 
@@ -14,6 +14,9 @@ function makeWorkflow(rowOverrides: Partial<Record<string, any>> = {}) {
   };
   const filings: any = {
     findByNo: jest.fn(async () => row),
+    // T3修1（评审红1）：默认放行——各用例按需 mockRejectedValueOnce 模拟族门/边校验拒绝，
+    // 验证 submitForSignoff 在 approvals.createAndSubmit 之前就先吃到这个预检的拒绝。
+    assertSignoffAllowed: jest.fn(async () => row),
     markSignoffRequested: jest.fn(async () => undefined),
     applySignoffDecision: jest.fn(async () => undefined),
   };
@@ -42,6 +45,11 @@ describe('RegulatoryFilingWorkflowService (Task 4)', () => {
       expect(JSON.stringify(call.objectSnapshot)).not.toMatch(/uuid-/);
 
       expect(filings.markSignoffRequested).toHaveBeenCalledWith('FIL1', 'APR-1', officer);
+      // T3修1（评审红1）：预检确实被调用，且在 createAndSubmit 之前（顺序断言）。
+      expect(filings.assertSignoffAllowed).toHaveBeenCalledWith('FIL1', officer);
+      const assertOrder = filings.assertSignoffAllowed.mock.invocationCallOrder[0];
+      const createOrder = approvals.createAndSubmit.mock.invocationCallOrder[0];
+      expect(assertOrder).toBeLessThan(createOrder);
     });
 
     it('ccAuthorities present → split into an array in the snapshot', async () => {
@@ -78,6 +86,40 @@ describe('RegulatoryFilingWorkflowService (Task 4)', () => {
       const { wf, approvals } = makeWorkflow({ status });
       await expect(wf.submitForSignoff('FIL1', officer)).rejects.toThrow(BadRequestException);
       expect(approvals.createAndSubmit).not.toHaveBeenCalled();
+    });
+
+    // T3修1（评审红1）：assertSignoffAllowed 的拒绝必须挡在 createAndSubmit 之前——否则
+    // 被拒的送签会先在 approvals 表留一张真审批单，AML 单内容漏进高管审批链。这里用 mock
+    // 直接模拟 RegulatoryFilingService 侧的两类真实拒绝（族门 403 / 族边非法跃迁 400），
+    // 本文件不复制那两个判据本身的逻辑（判据的行为正确性在 regulatory-filing.service.spec.ts
+    // 里验证），只验证 workflow 层的调用顺序与"拒绝后 approvals 分毫未动"。
+    describe('assertSignoffAllowed rejection blocks createAndSubmit (evidence for review red-1)', () => {
+      it('AML filing still in DRAFT (no signoff chain — illegal transition): BadRequest from the precheck, approvals never touched', async () => {
+        const { wf, filings, approvals } = makeWorkflow({ type: 'STR' });
+        filings.assertSignoffAllowed.mockRejectedValueOnce(new BadRequestException('Invalid filing transition DRAFT → PENDING_SIGNOFF'));
+        await expect(wf.submitForSignoff('FIL1', officer)).rejects.toThrow(BadRequestException);
+        expect(filings.assertSignoffAllowed).toHaveBeenCalledWith('FIL1', officer);
+        expect(approvals.createAndSubmit).not.toHaveBeenCalled();
+        expect(filings.markSignoffRequested).not.toHaveBeenCalled();
+      });
+
+      it('a compliance officer submitting an AML filing (STR): Forbidden from the precheck (cap.filing.aml missing), approvals never touched', async () => {
+        const { wf, filings, approvals } = makeWorkflow({ type: 'STR' });
+        filings.assertSignoffAllowed.mockRejectedValueOnce(new ForbiddenException('Actor lacks filing capability "cap.filing.aml" required for AML filings'));
+        await expect(wf.submitForSignoff('FIL1', officer)).rejects.toThrow(ForbiddenException);
+        expect(approvals.createAndSubmit).not.toHaveBeenCalled();
+        expect(filings.markSignoffRequested).not.toHaveBeenCalled();
+      });
+
+      it('an MLRO submitting a GENERAL filing: Forbidden from the precheck (cap.filing.general missing), approvals never touched', async () => {
+        const mlro = { actorType: 'ADMIN' as const, userId: 'uuid-mlro', userNo: 'ADM-MLRO', roleCodes: ['MLRO'] };
+        const { wf, filings, approvals } = makeWorkflow();
+        filings.assertSignoffAllowed.mockRejectedValueOnce(new ForbiddenException('Actor lacks filing capability "cap.filing.general" required for GENERAL filings'));
+        await expect(wf.submitForSignoff('FIL1', mlro)).rejects.toThrow(ForbiddenException);
+        expect(filings.assertSignoffAllowed).toHaveBeenCalledWith('FIL1', mlro);
+        expect(approvals.createAndSubmit).not.toHaveBeenCalled();
+        expect(filings.markSignoffRequested).not.toHaveBeenCalled();
+      });
     });
   });
 

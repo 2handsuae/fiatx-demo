@@ -485,11 +485,9 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
   route('POST', '/admin/regulatory-filings/:filingNo/entries', 'Log a correspondence entry', ['REG_FILING_WRITE', 'REG_FILING_AML_WRITE']),
   route('POST', '/admin/regulatory-filings/:filingNo/close', 'Close a submitted filing', ['REG_FILING_WRITE', 'REG_FILING_AML_WRITE']),
   route('POST', '/admin/regulatory-filings/:filingNo/cancel', 'Cancel a draft filing', ['REG_FILING_WRITE', 'REG_FILING_AML_WRITE']),
-  // T3 并行在建同路径控制器端点（AML 族「决定不报」出口：DRAFT→CLOSED + noFilingReason
-  // 必填闸，仅 allowNoFilingClose=true 的类型可走，见 regulatory-filing.service.ts
-  // closeNoFiling）。本任务只登记 catalog 行，控制器落地前 S7 会把这行判成死行——已入
-  // S7_PENDING_DEAD_ROWS 白名单（「暂未出生」，同平账二期先例，非腐烂死行），T3 落地
-  // controller 后应把这条从白名单删掉。
+  // AML 族「决定不报」出口（DRAFT→CLOSED + noFilingReason 必填闸，仅 allowNoFilingClose=true
+  // 的类型可走，见 regulatory-filing.service.ts closeNoFiling）。T3 controller 已落地，
+  // S7_PENDING_DEAD_ROWS 里原先的「暂未出生」白名单项已按约删除（ce06185）。
   route('POST', '/admin/regulatory-filings/:filingNo/close-no-filing', 'Close an AML filing with a no-filing decision', ['REG_FILING_WRITE', 'REG_FILING_AML_WRITE']),
 
   // 战役甲波三 T6：cap.filing.* 服务层门标记码——不是路由，是 RegulatoryFilingService.

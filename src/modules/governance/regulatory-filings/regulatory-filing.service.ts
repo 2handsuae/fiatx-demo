@@ -89,6 +89,9 @@ export class RegulatoryFilingService {
       receivedAt: row.receivedAt ? row.receivedAt.toISOString() : null,
       deadlineAt: row.deadlineAt ? row.deadlineAt.toISOString() : null,
       externalRef: row.externalRef ?? null,
+      // T3修1（评审黄2）：报文族外部案件引用（Sumsub/EOCN，openManual/openForSanction 落库）
+      // 此前只落库、投影不吐，T9 报送台前端拿不到数据源——加进列表投影（开单即有值）。
+      externalCaseRef: row.externalCaseRef ?? null,
       submittedAt: row.submittedAt ? row.submittedAt.toISOString() : null,
       overdueMarkedAt: row.overdueMarkedAt ? row.overdueMarkedAt.toISOString() : null,
       createdAt: row.createdAt.toISOString(),
@@ -106,6 +109,10 @@ export class RegulatoryFilingService {
       approvalNo: row.approvalNo ?? null,
       closedAt: row.closedAt ? row.closedAt.toISOString() : null,
       cancelledReason: row.cancelledReason ?? null,
+      // T3修1（评审黄2）：「决定不报」理由——同 cancelledReason 一样是终态专属字段，
+      // 只在详情投影出现（列表页不需要）；closeNoFiling 落库后此前 getView 不吐，T9
+      // 报送台前端渲染不报结案理由拿不到数据源。
+      noFilingReason: row.noFilingReason ?? null,
       createdByUserId: row.createdByUserId,
       entries: entries.map((e) => ({
         kind: e.kind, body: e.body, externalRef: e.externalRef ?? null,
@@ -297,11 +304,23 @@ export class RegulatoryFilingService {
 
   // ── 签发（spec §5：DRAFT→PENDING_SIGNOFF→SIGNED_OFF/DRAFT，审批裁决驱动）───────
 
-  async markSignoffRequested(filingNo: string, approvalNo: string, actor: ApprovalActorContext): Promise<void> {
+  /** T3修1（评审红1）：workflow 的 submitForSignoff 在 approvals.createAndSubmit（造一张
+   * 真审批单，一旦造出就留痕在案）之前必须先过这道只读预检——否则被拒的送签（族门/边
+   * 校验）会先留下一张真审批单，AML 单内容漏进高管审批链。判据与 markSignoffRequested
+   * 真正推进时用的完全一致（assertFamily + 族表 DRAFT→PENDING_SIGNOFF 边），本方法只是
+   * 抽出来给 workflow 单独调用——不落库、不推进状态、不记审计，workflow 里不复制判据。 */
+  async assertSignoffAllowed(filingNo: string, actor: ApprovalActorContext): Promise<RegulatoryFiling> {
     const row = await this.findByNo(filingNo);
-    await this.assertFamily(getFilingTypeConfig(row.type), actor);
-    // AML 族的 DRAFT 出边不含 PENDING_SIGNOFF（T1 族边集拆分）——送签即非法跃迁，
-    // transition() 内的迁移守卫按族读表会显式拒绝（spec §3 点 2：AML 无签发链）。
+    const cfg = getFilingTypeConfig(row.type);
+    await this.assertFamily(cfg, actor);
+    // AML 族的 DRAFT 出边不含 PENDING_SIGNOFF（T1 族边集拆分）——送签即非法跃迁，显式拒绝
+    // （spec §3 点 2：AML 无签发链）。
+    this.assertFilingTransition(cfg.family, row.status, FilingStatus.PENDING_SIGNOFF);
+    return row;
+  }
+
+  async markSignoffRequested(filingNo: string, approvalNo: string, actor: ApprovalActorContext): Promise<void> {
+    const row = await this.assertSignoffAllowed(filingNo, actor);
     const updated = await this.transition(row, FilingStatus.PENDING_SIGNOFF, { approvalNo });
     await this.recordAudit(updated, AuditActions.FILING_SIGNOFF_REQUESTED, actor, {
       fromStatus: row.status, toStatus: updated.status, approvalNo,
@@ -419,7 +438,10 @@ export class RegulatoryFilingService {
   /** T3 新方法（spec §3 点 2：「决定不报」新边）：DRAFT→CLOSED 唯本方法可走——close() 动作级
    * 只认 SUBMITTED（见上）。仅 allowNoFilingClose=true 的类型（STR/SAR）可走；CNMR/PNMR/
    * HRC/HRCA 等其余 AML 类型调用必须 400（T1 评审白5）。noFilingReason 空则 400——no-file
-   * decision 的法定可辩护留痕（spec §2 A 线）。 */
+   * decision 的法定可辩护留痕（spec §2 A 线）。T3修1（评审黄1）：动作级另加显式 DRAFT-only
+   * 守卫——AML 族表里 SUBMITTED→CLOSED 也是合法边（供既有 close() 走），若不加这道门，
+   * 一张已提交带回执的 STR 也能被"决定不报"结案，跟"已提交"这个事实自相矛盾；已提交的单
+   * 只能走 close()。 */
   async closeNoFiling(filingNo: string, noFilingReason: string, actor: ApprovalActorContext): Promise<{ filingNo: string }> {
     if (!noFilingReason) throw new BadRequestException('Closing a filing with a no-filing decision requires a noFilingReason');
     const row = await this.findByNo(filingNo);
@@ -428,9 +450,18 @@ export class RegulatoryFilingService {
     if (!cfg.allowNoFilingClose) {
       throw new BadRequestException(`Filing type ${row.type} does not allow a no-filing close`);
     }
+    if (row.status !== FilingStatus.DRAFT) {
+      throw new BadRequestException(`Invalid filing transition ${row.status} → ${FilingStatus.CLOSED} via closeNoFiling() (only a DRAFT filing can be closed this way; a SUBMITTED filing uses close() instead)`);
+    }
     const updated = await this.transition(row, FilingStatus.CLOSED, { closedAt: new Date(), noFilingReason });
+    // T3修1（评审黄2）：noFilingReason 除了满足 assertActionSpec 的顶层必填字段（extra），
+    // 还要落进 reason 这一真实审计列（audit-logs.service.ts#recordByActor 只把白名单已知
+    // 字段写进 AuditLogEvent 行，extra 里未在白名单的键——如这里的 noFilingReason 本身——
+    // 只用来过 assertActionSpec 检查，不会被持久化；不带 reason 会让这条审计事件在
+    // AuditLogEvent.reason 列上留空，「为什么决定不报」在审计台查不到）。
     await this.recordAudit(updated, AuditActions.FILING_CLOSED_NO_FILING, actor, {
       fromStatus: row.status, toStatus: updated.status,
+      reason: noFilingReason,
       extra: { noFilingReason },
     });
     return { filingNo };

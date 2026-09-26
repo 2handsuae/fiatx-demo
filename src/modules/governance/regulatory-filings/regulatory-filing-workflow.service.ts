@@ -42,6 +42,12 @@ export class RegulatoryFilingWorkflowService {
     if (!row.body || !row.body.trim()) {
       throw new BadRequestException(`Filing ${filingNo} has no body — signoff cannot be requested for an empty filing`);
     }
+    // T3修1（评审红1）：族门/边校验必须先于 approvals.createAndSubmit（造一张真审批单）——
+    // 否则被拒的送签（MLRO 对 STR 的非法跃迁 400 / 合规官对 STR 的族门 403 / MLRO 对通用单
+    // 的族门 403）都会先留下一张真审批单，AML 单内容漏进高管审批链。assertSignoffAllowed
+    // 复用 RegulatoryFilingService 自己的 assertFamily + 族表判据（同 markSignoffRequested
+    // 稍后真正推进时用的判据一致），本文件不复制判据。
+    await this.filings.assertSignoffAllowed(filingNo, actor);
 
     const impact = this.describeSignoffImpact(row);
     const approval = await this.approvals.createAndSubmit(

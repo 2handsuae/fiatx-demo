@@ -259,6 +259,8 @@ Last Updated: 2026-09-26（战役甲波二报送台骨架文档收口：销 1（
 
 - [ ] **状态迁移类审计事件不带 amount/currency**（2026-09-16 审计两页重设计走查）：全库只有 `*_CREATED` 三码写金额（旧主库 187/1198），`DEPOSIT_APPROVED` 等状态边审计恒 null，详情页金额行条件不渲染（行为正确）；若要"这笔批了多少钱"在审计详情直读，需状态边写入点补 amount。观察级，演示可从 Entity 蓝链跳单据详情看金额，不急｜来源: 2026-09-16 审计两页重设计走查
 
+- [ ] **波二遗留：`FILING_SUBMITTED` 的 `externalRef`、`FILING_ENTRY_LOGGED` 的 `kind` 只进审计 `extra` 顶层、不落库**（2026-09-26 战役甲波三 T3 升档评审白2）：`audit-logs.service.ts#recordByActor` 建 `AuditLogEvent` 行时只认一份白名单已知列（`reason`/`fromStatus`/`toStatus`/`metadata`/`approvalNo`/...），调用点塞进 `extra` 顶层的键只用来过 `assertActionSpec` 的必填字段检查，不在白名单里的键（如 `externalRef`、`kind`）不会写进任何真实列——审计详情页这两条事件本身查不到该值（数据没丢：`externalRef`/`kind` 各自落在 `RegulatoryFiling.externalRef`/`RegulatoryFilingEntry.kind` 主表列，只是这一条审计事件自己没有）。波三 T3 修 1 已把同族新码 `FILING_CLOSED_NO_FILING` 的 `noFilingReason` 改成两条腿都走（`extra` 顶层过闸 + `reason` 真实列落库），波二这两处原样未动，非本波引入、也未在本波修 ｜ **复现**：`prisma.auditLogEvent.findMany({ where: { action: 'FILING_SUBMITTED' } })` 任取一条，`reason`/`metadata` 均为空，即便调用点当时传了 `externalRef` ｜来源: 2026-09-26 战役甲波三 T3 升档评审白2
+
 ## I. 贯穿多幕（通知 ｜ SLA ｜ 杂项）
 
 - [ ] **处置标签（dispoTag）无优先级表，多标签同发时"数组最后一个赢"**：`kyt-verdict-handler.base.ts:120` 与 swap 侧同款循环均为纯赋值覆盖——同一条拒绝裁决同时带 FROZEN_BY_MLRO 与 RETURN_TO_SENDER（充值）/ FINAL_REJECTED（提现）时，单据结局取决于 Sumsub 发送数组的顺序。业主 2026-09-13 已裁定**要给优先级表**，内容待定（建议照场景标签"收紧方向优先"先例：冻结 > 退回 / 终局拒绝）；《交易合规裁决》v2.0 §4.2 与 §10 Q1 在引 ｜来源: 2026-09-13 业主 webhook 四规则会话裁定⑦

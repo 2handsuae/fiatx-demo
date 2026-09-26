@@ -313,19 +313,40 @@ describe('RegulatoryFilingService (Task 3)', () => {
       expect(accessControl.hasPermission).toHaveBeenCalledWith(mlro.userId, 'cap.filing.general');
     });
 
+    // T3修1（评审黄3）：标题原列了 close，正文没测——补上（用 DRAFT 单即可：assertFamily
+    // 在 close() 里跑在 SUBMITTED 状态检查之前，DRAFT 单一样能验证族门先拦）。
     it('MLRO cannot saveDraft/markSubmitted/addEntry/close/cancel a GENERAL filing (403, not the actor who opened it)', async () => {
       const filingNo = await openDraftFiling(); // GENERAL, opened by ops
       await expect(service.saveDraft(filingNo, 'x', mlro)).rejects.toThrow(ForbiddenException);
       await expect(service.markSubmitted(filingNo, { externalRef: 'E' }, mlro)).rejects.toThrow(ForbiddenException);
       await expect(service.addEntry(filingNo, { kind: 'RECEIPT_ACK', body: 'x' }, mlro)).rejects.toThrow(ForbiddenException);
+      await expect(service.close(filingNo, mlro)).rejects.toThrow(ForbiddenException);
       await expect(service.cancel(filingNo, 'x', mlro)).rejects.toThrow(ForbiddenException);
     });
 
+    // T3修1（评审黄3）：标题原列了 addEntry/close，正文没测——补上。
     it('a compliance officer cannot saveDraft/markSubmitted/addEntry/close/cancel an AML filing', async () => {
       const filingNo = await openAmlDraftFiling('STR');
       await expect(service.saveDraft(filingNo, 'x', ops)).rejects.toThrow(ForbiddenException);
       await expect(service.markSubmitted(filingNo, { externalRef: 'E' }, ops)).rejects.toThrow(ForbiddenException);
+      await expect(service.addEntry(filingNo, { kind: 'RECEIPT_ACK', body: 'x' }, ops)).rejects.toThrow(ForbiddenException);
+      await expect(service.close(filingNo, ops)).rejects.toThrow(ForbiddenException);
       await expect(service.cancel(filingNo, 'x', ops)).rejects.toThrow(ForbiddenException);
+    });
+
+    // T3修1（评审黄3）：补两方向的送签（markSignoffRequested）跨族断言——此前只有
+    // 「AML 全生命周期」块里用 mlro 打 AML 单验证族边非法跃迁（400），没有验证族门本身
+    // （403）在两个方向上都真挡；两条都用 DRAFT 单（assertSignoffAllowed 里 assertFamily
+    // 跑在族边校验之前，DRAFT 状态本身对两族都是 PENDING_SIGNOFF 的合法/非法出发点之一，
+    // 不影响先命中族门）。
+    it('MLRO cannot request signoff for a GENERAL filing (403, family gate before the transition table)', async () => {
+      const filingNo = await openDraftFiling(); // GENERAL, opened by ops
+      await expect(service.markSignoffRequested(filingNo, 'APR_X', mlro)).rejects.toThrow(ForbiddenException);
+    });
+
+    it('a compliance officer cannot request signoff for an AML filing (403, family gate before the transition table)', async () => {
+      const filingNo = await openAmlDraftFiling('STR');
+      await expect(service.markSignoffRequested(filingNo, 'APR_X', ops)).rejects.toThrow(ForbiddenException);
     });
   });
 
@@ -367,7 +388,10 @@ describe('RegulatoryFilingService (Task 3)', () => {
       await expect(service.closeNoFiling('FIL_DOES_NOT_MATTER', '', mlro)).rejects.toThrow(/noFilingReason/);
     });
 
-    it('closes an STR (allowNoFilingClose=true) from DRAFT with a reason', async () => {
+    // T3修1（评审黄2）：DB 落库值（noFilingReason 走 transition() 的 patch，本就落库，
+    // 该断言此前已在）+ 视图投影值（getView 此前不吐 noFilingReason/externalCaseRef，
+    // T9 报送台前端没有数据源——本轮新增）双重核对。
+    it('closes an STR (allowNoFilingClose=true) from DRAFT with a reason, persists it, and surfaces it (with externalCaseRef) via getView', async () => {
       const filingNo = await openAmlDraftFiling('STR');
       const r = await service.closeNoFiling(filingNo, 'Insufficient grounds to suspect after review', mlro);
       expect(r.filingNo).toBe(filingNo);
@@ -375,6 +399,28 @@ describe('RegulatoryFilingService (Task 3)', () => {
       expect(row.status).toBe('CLOSED');
       expect(row.noFilingReason).toBe('Insufficient grounds to suspect after review');
       expect(row.closedAt).not.toBeNull();
+
+      const view = await service.getView(filingNo);
+      expect(view.noFilingReason).toBe('Insufficient grounds to suspect after review');
+      expect(view.externalCaseRef).toMatch(/^CASE_STR_/);
+
+      const listItems = await service.list({});
+      const listItem = listItems.find((it) => it.filingNo === filingNo)!;
+      expect(listItem.externalCaseRef).toBe(view.externalCaseRef);
+    });
+
+    // T3修1（评审黄1）：DRAFT→CLOSED 是 AML 族表级合法边（供本方法走），但 AML 族表里
+    // SUBMITTED→CLOSED 同样合法（供既有 close() 走）——若 closeNoFiling 不加动作级
+    // DRAFT-only 守卫，一张已提交带回执的 STR 也能被「决定不报」结案，跟"已提交"这个
+    // 事实自相矛盾（审计上一边说已提交、一边说决定不报）。
+    it('rejects closeNoFiling on a SUBMITTED STR (already filed — must use close() instead) with 400', async () => {
+      const filingNo = await openAmlDraftFiling('STR');
+      await service.markSubmitted(filingNo, { externalRef: 'GOAML_ACK_NOFILE' }, mlro);
+      await expect(service.closeNoFiling(filingNo, 'Too late, already submitted', mlro)).rejects.toThrow(BadRequestException);
+      await expect(service.closeNoFiling(filingNo, 'Too late, already submitted', mlro)).rejects.toThrow(/Invalid filing transition/);
+      const row = await service.findByNo(filingNo);
+      expect(row.status).toBe('SUBMITTED');
+      expect(row.noFilingReason).toBeNull();
     });
 
     // T1 评审白5：CNMR/PNMR/HRC/HRCA 都不是 allowNoFilingClose 类型——法定必报单不许用
@@ -573,6 +619,9 @@ describe('RegulatoryFilingService (Task 3)', () => {
       expect(events.map((e) => e.action)).toEqual(['FILING_OPENED', 'FILING_CLOSED_NO_FILING']);
       const closeEvent = events[1] as any;
       expect(closeEvent.actionDomain).toBe('GOVERNANCE');
+      // T3修1（评审黄2）：不只过 assertActionSpec 的顶层字段检查——noFilingReason 得真的
+      // 落进 AuditLogEvent.reason 这一真实列（不落库的话审计台的 reason 列查这条事件是空的）。
+      expect(closeEvent.reason).toBe('Reviewed and found no suspicion after all');
     });
 
     // T3：openForSanction 的 FILING_OPENED 走 EXTERNAL 锚 + 调用方显式 requestId，真的
