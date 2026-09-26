@@ -1,6 +1,6 @@
 # 系统一页纸（overview）
 
-> 对应 PRD：待写 ｜ 技术节点 Last Verified：2026-09-26（战役甲波二：报送台骨架落地，14 域 68 桶）；此前 2026-09-25（战役甲波一：事故分类十类终盘，13 域 66 桶）；此前 2026-09-14（波五「订单可见面」：swap FROZEN 5 态 7 边、13 域 62 桶）｜ agent 首读文档
+> 对应 PRD：待写 ｜ 技术节点 Last Verified：2026-09-26（战役甲波三：报文族台账与联动，14 域 69 桶 77 组）；此前 2026-09-26（战役甲波二：报送台骨架落地，14 域 68 桶）；此前 2026-09-25（战役甲波一：事故分类十类终盘，13 域 66 桶）；此前 2026-09-14（波五「订单可见面」：swap FROZEN 5 态 7 边、13 域 62 桶）｜ agent 首读文档
 
 ## 0. 这是什么系统
 
@@ -18,7 +18,7 @@
 | V6 兑换 | 币币/法币兑换（四腿记账、合规裁决） | 钱怎么换 |
 | V7 财资 | 公司自有资金 + 内部划转单（公司 → 客户补款 / 垫款，2026-09-05） | 公司的钱怎么给客户 |
 | V8 对账 | 账本 vs 外部余额核对、破口分案处置、补单回业务域 | 账对不对得上 |
-| V9 监管报送 | 事故通报 / 监管来函应答 / 重大变更等对外报送单据，六态状态机 + 高管签发 | 跟监管交差记录在哪（2026-09-26 战役甲波二） |
+| V9 监管报送 | 事故通报 / 监管来函应答 / 重大变更等对外报送单据（GENERAL 族，六态六边+高管签发）＋ STR/SAR/CNMR/PNMR/HRC/HRCA 反洗钱报文（AML 族，四边+MLRO 无签发链亲办） | 跟监管交差记录在哪（2026-09-26 战役甲波二骨架 + 战役甲波三报文族） |
 | 共享域 | 账本（TigerBeetle 复式记账）/ 资金单（物理转账镜像）/ Sumsub 接入 | 三条交易流程共用的地基 |
 
 依赖：V1+V2+V3 是地基；V4/V5/V6 是三条平行的交易流程；V8 在事后核对；V9 挂在 V1 治理域的事故登记之后（一码一单自动开）；账本与资金单被三条流程共用。
@@ -47,9 +47,9 @@
 
 铁律：对外识别一律用业务键，不用内部 id；管理台不暴露 UUID。
 
-## 4. 权限包拆分（14 域 68 桶）
+## 4. 权限包拆分（14 域 69 桶）
 
-角色可随时在管理台创建，所以**不做角色矩阵**；稳定的是**权限包**（PermissionGroup）——角色由包组合出来，SoD（职责分离）靠包的边界演示。2026-08-31 第一幕职权重划后，权限包目录按**域**（Domain）组织，**14 域、68 桶、零空域**（每个域至少一个桶——此前 15 域仅 6 域有桶，9 个空壳域已铺满或整域退役；2026-09-06 平账三期新增 `Incident Register` 域，12→13 域、56→58 桶；58→60 桶为第二幕客户域波二「入驻准入核准」、波三「档位升级准入」两波各加一桶；60→62 桶为波五 swap FROZEN 中间态翻案新增「提解冻」「提拒退」两桶，Trading 域 17→19 桶；62→66 桶为 2026-09-25 战役甲波一事故分类十类终盘——`Incident Register` 域从 2 桶拆到 6 桶：原「登记与处置事故」一桶按事故所属族拆成四桶「登记与管理 FUNDS/TECH_SECURITY/DATA/OPERATIONS/FINANCIAL 族事故」各自独立经办组，事故类型从四类（含人工登记 `MANUAL`）扩到十类，`MANUAL` 退役、新增 `CYBER_BCDR`/`DATA_BREACH`/`OUTSOURCING_FAILURE`/`ASSET_NONCOMPLIANCE`/`STUCK_TRANSACTION_MAJOR`/`PRUDENTIAL_BREACH`/`COMPLAINT_ESCALATION`（后者未启用，波五占位）；结案审批由两条链扩到四条链（安全 SECURITY / 财务 FINANCIAL / 技安 TECHSEC / 审慎 PRUDENTIAL）；**66→68 桶为 2026-09-26 战役甲波二报送台骨架**——新增 `Regulatory Filings` 域两桶（`filings.view`/`filings.desk`），13→14 域；事故通报单槽退役，六个过程列改由报送台新主体接手，详见下方「Regulatory Filings」行）：
+角色可随时在管理台创建，所以**不做角色矩阵**；稳定的是**权限包**（PermissionGroup）——角色由包组合出来，SoD（职责分离）靠包的边界演示。2026-08-31 第一幕职权重划后，权限包目录按**域**（Domain）组织，**14 域、69 桶、零空域**（每个域至少一个桶——此前 15 域仅 6 域有桶，9 个空壳域已铺满或整域退役；2026-09-06 平账三期新增 `Incident Register` 域，12→13 域、56→58 桶；58→60 桶为第二幕客户域波二「入驻准入核准」、波三「档位升级准入」两波各加一桶；60→62 桶为波五 swap FROZEN 中间态翻案新增「提解冻」「提拒退」两桶，Trading 域 17→19 桶；62→66 桶为 2026-09-25 战役甲波一事故分类十类终盘——`Incident Register` 域从 2 桶拆到 6 桶：原「登记与处置事故」一桶按事故所属族拆成四桶「登记与管理 FUNDS/TECH_SECURITY/DATA/OPERATIONS/FINANCIAL 族事故」各自独立经办组，事故类型从四类（含人工登记 `MANUAL`）扩到十类，`MANUAL` 退役、新增 `CYBER_BCDR`/`DATA_BREACH`/`OUTSOURCING_FAILURE`/`ASSET_NONCOMPLIANCE`/`STUCK_TRANSACTION_MAJOR`/`PRUDENTIAL_BREACH`/`COMPLAINT_ESCALATION`（后者未启用，波五占位）；结案审批由两条链扩到四条链（安全 SECURITY / 财务 FINANCIAL / 技安 TECHSEC / 审慎 PRUDENTIAL）；**66→68 桶为 2026-09-26 战役甲波二报送台骨架**——新增 `Regulatory Filings` 域两桶（`filings.view`/`filings.desk`），13→14 域；事故通报单槽退役，六个过程列改由报送台新主体接手；**68→69 桶为 2026-09-26 战役甲波三报文族台账与联动**——`Regulatory Filings` 域加第三桶 `filings.aml-desk`（`REG_FILING_AML_WRITE`，MLRO 独占，STR/SAR/CNMR/PNMR/HRC/HRCA 六类型无签发链亲办），域数不变仍 14；权限组同批 76→77（仅新增这一个组，`REG_FILING_READ` 是既有组新增 MLRO 持有，不算新组），详见下方「Regulatory Filings」行）：
 
 | 域 | 桶 | 说明 |
 |---|---|---|
@@ -64,7 +64,7 @@
 | Funds Orders | 看资金单 / 推资金单 | 2 桶；看得到 ≠ 推得动，这条 SoD 靠 VIEW/ACT 分家 |
 | Reconciliation | 看跑批/案件/外部余额 / 触发跑批 | 2 桶 |
 | Incident Register | 看事故 / 登记与管理 FUNDS 族 / TECH_SECURITY 族 / DATA 族 / OPERATIONS 族 / FINANCIAL 族事故（各族独立经办组，动作均含登记 / 调查 / 定损 / 通报 / 挂善后单 / 提结案 / 撤回）| 6 桶（2026-09-06 平账三期新增，原 2 桶；2026-09-25 战役甲波一按族拆到 6 桶）；十类登记（`UNAUTHORIZED_OUTFLOW`/`LARGE_UNEXPLAINED`/`CLIENT_SHORTFALL`→FUNDS 族 ｜ `CYBER_BCDR`/`OUTSOURCING_FAILURE`→TECH_SECURITY 族 ｜ `DATA_BREACH`→DATA 族 ｜ `ASSET_NONCOMPLIANCE`/`STUCK_TRANSACTION_MAJOR`→OPERATIONS 族 ｜ `PRUDENTIAL_BREACH`→FINANCIAL 族 ｜ `COMPLAINT_ESCALATION` 未启用，波五占位；原人工登记 `MANUAL` 已退役），全程零账务，结案走四条审批链（见 `modules/v1-governance.md` §7）；「该不该通报」判定仍在这里，通报的过程搬去下一行 |
-| Regulatory Filings | 看报送单 / 经办报送台（开单 / 起草 / 送签 / 标已提交 / 往来记录 / 办结 / 作废） | 2 桶（`filings.view`/`filings.desk`，2026-09-26 战役甲波二新增）；单经办组（合规官独占写权），对外提交前必经高管单步签发（`REG_FILING_SUBMIT`）；事故 `reportRequired=true` 时按依据码自动开单，一码一单，详见 `modules/v9-regulatory-filing.md` |
+| Regulatory Filings | 看报送单 / 经办 GENERAL 族报送台（开单 / 起草 / 送签 / 标已提交 / 往来记录 / 办结 / 作废）/ 经办 AML 报文族报送台（STR/SAR/CNMR/PNMR/HRC/HRCA：开单 / 正文 / 标已提交 / 往来 / 决定不报 / 办结 / 作废，无签发链） | 3 桶（`filings.view`/`filings.desk`，2026-09-26 战役甲波二新增；`filings.aml-desk`，2026-09-26 战役甲波三新增）；GENERAL 族合规官独占写权，对外提交前必经高管单步签发（`REG_FILING_SUBMIT`）；AML 族 MLRO 独占写权，法定无签发链；两族共享写路由（OR 粗门），服务层按 `cap.filing.general`/`cap.filing.aml` 精确分权（照 `cap.incident.*` 先例）；事故 `reportRequired=true` 时按依据码自动开单，一码一单，详见 `modules/v9-regulatory-filing.md` |
 | Pricing | 查费率 / 改费率 | 2 桶；「改费率」现独属财务负责人（原运营持有，2026-08-30 起改判防自批死锁；2026-09-04 起涵盖创建 / 变更 / 退役三种单） |
 | Demo Instruments | 喂裁决 ⚡ / 拨钟 ⚡ | 2 桶；站在 Sumsub 那一侧的模拟能力，不是我方职务的业务能力，单独成域 |
 
@@ -77,24 +77,25 @@
 | SUPER_ADMIN（超管） | 全部——应急账号，不用于日常演示 |
 | SENIOR_MANAGEMENT_OFFICER（高管） | 无独有权限包——身份体现在**裁决人**位：限额规则创建/变更、大额提现放行、管理员停用/恢复、上缴第一步、**事故结案审慎类（`PRUDENTIAL_BREACH`）单步裁决人**（2026-09-25 战役甲波一新增，见 `modules/v1-governance.md` §7）、**报送台对外提交前的单步签发裁决人**（`REG_FILING_SUBMIT`，2026-09-26 战役甲波二新增，随之持 `REG_FILING_READ`，见 `modules/v9-regulatory-filing.md`）。⚠️ 审批策略变更他是**提单人**（持 `GOV_APPROVAL_POLICY_WRITE`），裁决人是 CISO |
 | CISO | 授角色（`IAM_ROLE_ASSIGN`）——2026-09-04 起与技术官双持，但**裁决人仍唯 CISO**；另是角色定义创建/修改、成员邀请、资产暂停/恢复、**审批策略变更**的裁决人（资产上架与托管钱包创建两条路 2026-09-04 V3 波一已退役，CISO 不再有这两个裁决位）；**事故结案技安类（`INCIDENT_CLOSE_TECHSEC`）单步裁决人**（2026-09-25 战役甲波一新增），随之持 `INCIDENT_READ`（裁决人要看得见事故留痕才能批）。⚠️ 管理员停用/恢复的裁决人是**高管**，不是 CISO |
-| MLRO | 无独有权限包——身份体现在充值/提现解冻、部分限制解除的**裁决人**位；事故结案安全类审批两步（`INCIDENT_CLOSE_SECURITY`，2026-09-06 平账三期新增）的**第一步裁决人** |
+| MLRO | **AML 报文族经办组独持**（`REG_FILING_AML_WRITE`，2026-09-26 战役甲波三新增）——STR/SAR/CNMR/PNMR/HRC/HRCA 六类型开单/正文/标已提交/往来/决定不报/办结/作废全程亲办、法定无签发链，随之补持 `REG_FILING_READ`。此外无独有 Manage 类权限包，身份另体现在**裁决人**位：充值/提现解冻、部分限制解除、**制裁定性裁决**（`SANCTION_DISPOSITION` 单步，2026-09-26 战役甲波三新增，合规官提、排除/部分/确认三选一）、事故结案安全类审批两步（`INCIDENT_CLOSE_SECURITY`，2026-09-06 平账三期新增）的**第一步裁决人** |
 | DPO | **事故 DATA 族经办组独持**（`INCIDENT_DATA_WRITE`，2026-09-25 战役甲波一新增）——登记 / 调查 / 定损 / 挂客户通知留痕 / 提结案 `DATA_BREACH`（个人数据泄露）事故；此外数据保护监督，读权限与内审/合规重叠 |
 | INTERNAL_AUDITOR（内审） | 无独有权限包——**28 组里零 Manage、零业务 Act**；唯一的写是「建证据包」（`AUDIT_EXPORT_CREATE`，监管上门他得能打包），且导出仍要 MLRO 背书。独有性正是"不能动手"；2026-09-26 战役甲波二起补持 `REG_FILING_READ`（要看得见报送台，见 `modules/v9-regulatory-filing.md`），仍是只读 |
-| COMPLIANCE_OFFICER（合规官） | 改客户档案与标签、提充值解冻、提提现解冻、**提兑换解冻**（2026-09-14 波五新增）、⚡ 喂裁决（4 项）——管理台里推不动任何交易单，但持 ⚡；**报送台唯一经办人**（`REG_FILING_WRITE`，2026-09-26 战役甲波二新增：开单/起草/送签/标已提交/往来记录/办结/作废全在他手上，对外提交须高管另批），随之补持 `INCIDENT_READ`（起草通报须读得到事故详情，见 `modules/v9-regulatory-filing.md`） |
+| COMPLIANCE_OFFICER（合规官） | 改客户档案与标签、提充值解冻、提提现解冻、**提兑换解冻**（2026-09-14 波五新增）、⚡ 喂裁决（5 项，2026-09-26 战役甲波三新增「EOCN 名单更新命中」）——管理台里推不动任何交易单，但持 ⚡；**GENERAL 族报送台唯一经办人**（`REG_FILING_WRITE`，2026-09-26 战役甲波二新增：开单/起草/送签/标已提交/往来记录/办结/作废全在他手上，对外提交须高管另批），随之补持 `INCIDENT_READ`（起草通报须读得到事故详情）；**提制裁定性裁决**（`SANCTION_DISPOSITION`，2026-09-26 战役甲波三新增，MLRO 单步批，排除/部分/确认三选一出口）；⚠️ **AML 报文族（STR/SAR/CNMR/PNMR/HRC/HRCA）该职务零角色**——报文族全程归 MLRO 独办（见上方 MLRO 行，见 `modules/v9-regulatory-filing.md`） |
 | CFO（财务负责人） | 改费率（提现/兑换两族费率写权限，全系统唯一）；充值没收的裁决人；**平账一切审批的裁决人**（调账单四族 + 核销 + **补单三路复核** + **补款 / 垫款划转**，2026-09-02 起，原运营；补单三路为 2026-09-03 平账 B 批新增，补款 / 垫款划转为 2026-09-05 平账二期新增）；事故结案审批**安全类两步的第二步 + 财务类单步**裁决人（`INCIDENT_CLOSE_SECURITY`/`INCIDENT_CLOSE_FINANCIAL`，2026-09-06 平账三期新增；⚠️ 2026-09-25 战役甲波一新增技安/审慎两条链后，CFO **不再是事故结案唯一裁决人**，见 CISO/高管两行）；**事故 FINANCIAL 族经办组独持**（`INCIDENT_FIN_WRITE`，2026-09-25 战役甲波一新增）——登记 / 调查 / 定损 / 提结案 `PRUDENTIAL_BREACH`（审慎/NLA 缺口）事故（自己开、高管批，不自批） |
 | TREASURY_OFFICER（金库专员） | 管提现地址（暂停 / 恢复 / 跳过冷却）——钱往哪提归他；钱包地址行只读；**发起补款 / 垫款**（案子上，2026-09-05 平账二期）；**事故 FUNDS 族经办组独持**（`INCIDENT_WRITE`，2026-09-10 对账平账两角色定案起独持、运营清零）——登记 / 调查 / 定损 / 通报 / 挂善后单 / 提结案 `UNAUTHORIZED_OUTFLOW`/`LARGE_UNEXPLAINED`/`CLIENT_SHORTFALL` 三类事故，不再借道认损开单 / 发起补款两个既有通道旁敲；**⚠️ 2026-09-25 战役甲波一起该组只是十类里的一族**——事故域整体已按五族经办组（FUNDS/TECH_SECURITY/DATA/OPERATIONS/FINANCIAL）拆到金库 / 技术官 / DPO / 运营 / CFO 五个职务各管一族，不再是金库独占整个事故域 |
 | TECH_OFFICER（技术官） | 无独有权限包——资产管控 2026-09-04 起划归运营，此前唯一的独有包随之退役；IAM 侧仍是邀请成员 / 定义角色 / 重置凭据的提单人，2026-09-04 起加授角色（`IAM_ROLE_ASSIGN`），但四项均与 CISO 双持、CISO 才是裁决人——加授角色正是为解开角色绑定变更审批曾经的自批死锁；**事故 TECH_SECURITY 族经办组独持**（`INCIDENT_TECH_WRITE`，2026-09-25 战役甲波一新增）——登记 / 调查 / 定损 / 通报 / 提结案 `CYBER_BCDR`/`OUTSOURCING_FAILURE` 两类事故，结案裁决人是 CISO，不自批 |
 | OPS_OFFICER（运营） | 管限额、暂停/恢复资产、放行/没收/退回/上缴充值、建提现单与退票/裁决退款、处理兑换、**提兑换拒退**（`SWAP_REFUND_WRITE`，2026-09-14 波五新增）、**发起补单**（三路：充值补录 / 退汇认领 / 退回认领，2026-09-03 平账 B 批）、**提准入核准**（EDD 高风险客户入驻放行，2026-09-07 波二新增，此前遗漏未记入本行）、**提档位升级准入**（BASIC→PREMIUM，2026-09-08 波三新增）——日常动钱的手，唯独没有任何 `*_UNFREEZE_WRITE`；不再是平账审批的裁决人（改 CFO）；推资金单 / 跑对账批次 / ⚡ 拨钟（`DEMO_CLOCK_WRITE` 等，2026-09-08 起分批迁出、2026-09-10 对账平账两角色定案收官）整组归金库，运营只留 `FUNDS_ORDER_VIEW` 只读；**⚠️ 2026-09-25 战役甲波一新增事故 OPERATIONS 族经办组独持**（`INCIDENT_OPS_WRITE`）——登记 / 调查 / 定损 / 挂资产暂停引用 / 提结案 `ASSET_NONCOMPLIANCE`/`STUCK_TRANSACTION_MAJOR` 两类事故，事故域运营不再是整体归零，而是拆出这一族重新持有 |
 
-矩阵头条（机器验证 + 行为探针双证，判据在 `scripts/verify-rbac.ts`——S1/S2 静态、S5 家族守自批死锁与 maker≠checker、47 条行为探针逐条打真端点）：解冻只在合规官提、**MLRO 裁决**（与财务无关；财务的裁决位是充值没收） ｜ 费率改动只在财务 ｜ 提现地址只在金库专员 ｜ 资产暂停 / 恢复只在运营 ｜ 授予角色提单在 CISO 与技术官、**裁决唯 CISO** ｜ 内审 28 组零 Manage、零业务 Act（唯一的写是建证据包）｜ 合规官推不动任何交易单但持 ⚡ ｜ 推资金单与跑对账批次只在金库 ｜ 平账审批只在 CFO（金库开单 / CFO 裁决两角色分立）｜ 事故登记按族分权，五族各一名独占经办人（金库/技术官/DPO/运营/CFO），跨族既登不了也批不了（路由层五桶 OR 是粗门，服务层按族独占能力码 `cap.incident.*` 才是真正把关，2026-09-25 战役甲波一）｜ **报送台经办唯合规官、对外提交前签发唯高管**（`REG_FILING_WRITE`/`REG_FILING_SUBMIT`，maker≠checker 两角色天然分立，2026-09-26 战役甲波二）。
+矩阵头条（机器验证 + 行为探针双证，判据在 `scripts/verify-rbac.ts`——S1/S2 静态、S5 家族守自批死锁与 maker≠checker、47 条行为探针逐条打真端点）：解冻只在合规官提、**MLRO 裁决**（与财务无关；财务的裁决位是充值没收） ｜ 费率改动只在财务 ｜ 提现地址只在金库专员 ｜ 资产暂停 / 恢复只在运营 ｜ 授予角色提单在 CISO 与技术官、**裁决唯 CISO** ｜ 内审 28 组零 Manage、零业务 Act（唯一的写是建证据包）｜ 合规官推不动任何交易单但持 ⚡ ｜ 推资金单与跑对账批次只在金库 ｜ 平账审批只在 CFO（金库开单 / CFO 裁决两角色分立）｜ 事故登记按族分权，五族各一名独占经办人（金库/技术官/DPO/运营/CFO），跨族既登不了也批不了（路由层五桶 OR 是粗门，服务层按族独占能力码 `cap.incident.*` 才是真正把关，2026-09-25 战役甲波一）｜ **报送台经办唯合规官、对外提交前签发唯高管**（`REG_FILING_WRITE`/`REG_FILING_SUBMIT`，maker≠checker 两角色天然分立，2026-09-26 战役甲波二）｜ **AML 报文族经办唯 MLRO、法定无签发链**（`REG_FILING_AML_WRITE`，服务层 `cap.filing.aml` 独占，2026-09-26 战役甲波三；与 GENERAL 族「高管签发」刻意同屏对比）。
 
-> 包与桶的权威清单在代码 `src/modules/identity/access-control/rbac.catalog.ts`（`PermissionGroup` 类型 76 个、`ACTION_BUCKET_CATALOG` 14 域 68 桶、`RBAC_ROLE_GROUP_BINDINGS` 11 职务）；本节是其业务口径快照，权限点变动时由 agent 同步。
+> 包与桶的权威清单在代码 `src/modules/identity/access-control/rbac.catalog.ts`（`PermissionGroup` 类型 77 个、`ACTION_BUCKET_CATALOG` 14 域 69 桶、`RBAC_ROLE_GROUP_BINDINGS` 11 职务）；本节是其业务口径快照，权限点变动时由 agent 同步。
 
 ## 5. 关键技术节点（overview 级）
 
 - 后端模块根 `src/modules/`：trading（三域交易，`trading/shared/` 存三域公共纯函数工具 + fee-level 公共基类，2026-09-13 波四共享抽离）、identity（客户+IAM）、governance（审批 / 事故登记 `governance/incidents/`，2026-09-06 平账三期 / 监管报送 `governance/regulatory-filings/`，2026-09-26 战役甲波二——新主体 `RegulatoryFiling`，横向只读事故域、事故域横向只读它，两域各自唯一写点）、asset-treasury（资产钱包）、accounting（账本）、clearing-settle（对账）、audit-logging、funds-orders、deposit/swap/withdraw-sumsub + sumsub-ingestion（合规接入）+ sumsub-shared（充提两域 SLA/KYT裁决落地/demo 场景公共基类，兑换域独立演进不参与，2026-09-13 波四共享抽离）
 - 内部划转 `asset-treasury/internal-transfers/`（第四类订单，2026-09-05 平账二期，详见 `modules/v7-treasury.md`）
 - 客户档位升级 `identity/tier-upgrade/`（2026-09-08 第二幕客户域波三，详见 `modules/v2-customer-compliance.md`）：申请→补料→高管准入核准→`tradingTier` BASIC→PREMIUM 单向翻转；同批接上 TB 客户账本户运行时开户钩子（挂客户首次进 ACTIVE，此前只有种子脚本会开户）
+- 制裁定性裁决 `identity/customers/sanction-disposition-workflow.service.ts`（2026-09-26 战役甲波三）：合规官提、MLRO 单步批，排除/部分/确认三选一出口横向联动限制账（`CustomerRestrictionsService`）与报送台 AML 族（`RegulatoryFilingService.openForSanction()`），铁律③各写各的；详见 `modules/v2-customer-compliance.md`/`modules/v9-regulatory-filing.md`
 - 状态机：各域 service 内显式迁移表（如 `withdraw-transactions.service.ts` 的 10 态 23 边、`swap-transactions.service.ts` 的 5 态 7 边——2026-09-13 波四共享抽离清除 `FAILED`/`REVERSED` 两个不可达死枚举后，兑换域枚举与可达状态数首次一致；2026-09-14 波五 FROZEN 从零出边终态翻案为押锁不放的中间态，补 `RESUME`/`REJECT_REFUND` 两条出边，5 边→7 边，见 `modules/v6-swap.md` §2）；工作流（`*-workflow.service.ts`）串主体
 - 账本：TigerBeetle 复式记账，9 码科目表，实时 1:1 逐腿 post；对账引擎在 `clearing-settle`
 - 权限：`rbac.catalog.ts` 集中登记端点 × 权限包
