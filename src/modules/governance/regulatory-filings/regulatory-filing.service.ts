@@ -541,6 +541,41 @@ export class RegulatoryFilingService {
     return { filingNo: row.filingNo };
   }
 
+  /** 战役甲波四 T3（spec §3.1/§4.1，供 ComplianceObligationSweepService 调用）：合规办公室
+   * 周期义务到期开单——系统动作，无 actor（调用方是 cron sweep，没有人在场按按钮，同
+   * ComplianceObligationsService.claimDue 的 recordSystem 先例，不走 assertFamily）。
+   * type 恒 PERIODIC_RETURN；anchorAt=dueAt（EXTERNAL 锚 + deadlineBusinessDays=0，
+   * addBusinessDays 加零天原样返回锚——期末即截止，无宽限期，不杜撰）。title 的日期串
+   * 直接从 dueAt 这个 Date 实例用 toISOString 格式化（UTC 口径），不走 new Date(字符串)
+   * 反解析——客户端波判例：纯日期串经本地时区 Date 反解析会漂移一天。 */
+  async openForObligation(
+    obligation: { obligationNo: string; name: string; authority: string; basisNote: string },
+    dueAt: Date,
+  ): Promise<{ filingNo: string }> {
+    const cfg = getFilingTypeConfig('PERIODIC_RETURN');
+    const deadlineAt = this.computeDeadline(cfg, undefined, { externalAnchorAt: dueAt });
+    const traceId = randomUUID();
+    const dueDateStr = dueAt.toISOString().slice(0, 10);
+    const row = await this.prisma.regulatoryFiling.create({
+      data: {
+        filingNo: generateReferenceNo('FIL'), direction: cfg.direction, type: 'PERIODIC_RETURN',
+        authority: obligation.authority,
+        title: `${obligation.name} — due ${dueDateStr}`,
+        deadlineAt, status: FilingStatus.DRAFT,
+        createdByUserId: 'SYSTEM', traceId,
+      },
+    });
+
+    await this.recordAudit(row, AuditActions.FILING_OPENED, null, {
+      metadata: {
+        source: 'COMPLIANCE_OBLIGATION', obligationNo: obligation.obligationNo,
+        authority: row.authority, deadlineAt: deadlineAt ? deadlineAt.toISOString() : null,
+      },
+      extra: { type: 'PERIODIC_RETURN' },
+    });
+    return { filingNo: row.filingNo };
+  }
+
   // ── 审计（十码共用信封；primarySubject 恒为 REGULATORY_FILING/filingNo，
   //     correlationId 恒继承 row.traceId——OPENED 铸的旅程）────────────────
 

@@ -582,6 +582,39 @@ describe('RegulatoryFilingService (Task 3)', () => {
     });
   });
 
+  // ── 甲波四 T3：openForObligation（供 ComplianceObligationSweepService 调用，本任务
+  //    不建 sweep 与本文件的耦合——按 obligation 快照直传，同 openForSanction 先例）────
+  describe('openForObligation (spec §3.1/§4.1; EXTERNAL anchor + 0 business days ⇒ deadline===dueAt)', () => {
+    const obligation = { obligationNo: 'OBL_T3_TEST_1', name: 'VARA quarterly prudential return', authority: 'VARA', basisNote: 'spec §9 row 3' };
+
+    it('opens a PERIODIC_RETURN filing with deadline===dueAt (0 business days), authority/createdBy taken from the obligation snapshot, no actor', async () => {
+      const dueAt = new Date('2026-09-24T09:00:00.000Z'); // 迪拜周四
+      const { filingNo } = await service.openForObligation(obligation, dueAt);
+      createdFilingNos.push(filingNo);
+      const row = await service.findByNo(filingNo);
+      expect(row.type).toBe('PERIODIC_RETURN');
+      expect(row.authority).toBe('VARA');
+      expect(row.createdByUserId).toBe('SYSTEM');
+      expect(row.status).toBe('DRAFT');
+      // 0 工作日：addBusinessDays 不入 while，原样返回锚——期末即截止。
+      expect(row.deadlineAt?.toISOString()).toBe(dueAt.toISOString());
+      // title 含期别：纯日期串直接从 dueAt 这个 Date 实例格式化，不经 new Date(字符串) 反解析。
+      expect(row.title).toBe(`${obligation.name} — due 2026-09-24`);
+    });
+
+    it('records FILING_OPENED via recordSystem (no actor, metadata carries obligationNo)', async () => {
+      const dueAt = new Date('2026-12-31T00:00:00.000Z');
+      const { filingNo } = await service.openForObligation(obligation, dueAt);
+      createdFilingNos.push(filingNo);
+      expect(auditLogs.recordSystem).toHaveBeenCalledTimes(1);
+      expect(auditLogs.recordByActor).not.toHaveBeenCalled();
+      const call = auditLogs.recordSystem.mock.calls[0][0];
+      expect(call.action).toBe('FILING_OPENED');
+      expect(call.primarySubjectNo).toBe(filingNo);
+      expect(call.metadata).toMatchObject({ obligationNo: obligation.obligationNo });
+    });
+  });
+
   // ── T3 ④：computeDeadline EXTERNAL 分支 + 手工开单不传锚留 null（不杜撰）───────
   describe('computeDeadline EXTERNAL branch (manual open vs. workflow-anchored open)', () => {
     it('openManual on an EXTERNAL-anchor type (CNMR) leaves deadlineAt null — no anchorAt to compute from, not fabricated', async () => {
@@ -728,6 +761,25 @@ describe('RegulatoryFilingService (Task 3)', () => {
       expect((events[0] as any).requestId).toBe(requestId);
       const row = await realService.findByNo(filingNo);
       expect(row.deadlineAt?.toISOString()).toBe(addBusinessDays(anchorAt, 5).toISOString());
+    });
+
+    // 甲波四 T3：openForObligation 是本文件里第一个对 FILING_OPENED 走 recordSystem（无
+    // actor）的调用点——真的验一次 requiredFields=['type'] 在 actor=null 分支下同样过闸
+    // （assertActionSpec 不区分 actor 有无，但没有既有先例覆盖过这条路径，第 2 条纪律：
+    // 报绿前先确认检查真的会红）。
+    it('walks openForObligation (PERIODIC_RETURN, system actor) without the real assertActionSpec rejecting FILING_OPENED', async () => {
+      const dueAt = new Date('2026-06-30T00:00:00.000Z');
+      const { filingNo } = await realService.openForObligation(
+        { obligationNo: 'OBL_REAL_1', name: 'Real-audit periodic return', authority: 'VARA', basisNote: 'spec §9 row 1' },
+        dueAt,
+      );
+      createdFilingNos.push(filingNo);
+
+      const events = await prisma.auditLogEvent.findMany({ where: { primarySubjectType: 'REGULATORY_FILING', primarySubjectNo: filingNo }, orderBy: { seq: 'asc' } });
+      expect(events.map((e) => e.action)).toEqual(['FILING_OPENED']);
+      expect((events[0] as any).sourcePlatform).toBe('SYSTEM');
+      const row = await realService.findByNo(filingNo);
+      expect(row.deadlineAt?.toISOString()).toBe(dueAt.toISOString());
     });
   });
 });
