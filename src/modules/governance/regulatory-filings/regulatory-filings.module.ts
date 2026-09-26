@@ -9,12 +9,13 @@ import { ApprovalsModule } from '../approvals/approvals.module';
 import { RegulatoryFilingService } from './regulatory-filing.service';
 import { RegulatoryFilingWorkflowService } from './regulatory-filing-workflow.service';
 import { RegFilingSubmitApprovalService } from './regulatory-filing-approval.service';
+import { RegulatoryFilingSweepService } from './regulatory-filing-sweep.service';
 import { RegulatoryFilingsController } from './regulatory-filings.controller';
 
 @Module({
   imports: [PrismaModule, AuditLogsModule, ApprovalsModule],
   controllers: [RegulatoryFilingsController],
-  providers: [RegulatoryFilingService, RegulatoryFilingWorkflowService, RegFilingSubmitApprovalService],
+  providers: [RegulatoryFilingService, RegulatoryFilingWorkflowService, RegFilingSubmitApprovalService, RegulatoryFilingSweepService],
   exports: [RegulatoryFilingService],
 })
 export class RegulatoryFilingsModule {}

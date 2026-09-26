@@ -139,7 +139,7 @@ export class RegulatoryFilingService {
 
   // ── 开单（spec §4：一码=一单，双钟即两单）──────────────────────────
 
-  /** 定损/登记流程按已勾选的依据码逐码开单（Task 5 由 IncidentService.assess 调用，不经
+  /** 定损/登记流程按已勾选的依据码逐码开单（由 IncidentAssessmentWorkflowService.assess 调用，不经
    * workflow——通报是事故自己定损结论的直接产物，不是跨主体协作）。 */
   async openForIncident(incident: OpenForIncidentInput, basisCodes: string[], actor: ApprovalActorContext): Promise<{ filingNos: string[] }> {
     const cfg = getFilingTypeConfig('INCIDENT_REPORT');
