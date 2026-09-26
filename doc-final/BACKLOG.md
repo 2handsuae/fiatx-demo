@@ -462,3 +462,5 @@ Last Updated: 2026-09-26（战役甲波二报送台骨架文档收口：销 1（
 - [x] 兑换域 V7/V8 demo 按钮缺"先交材料"前置，真按会 500 —— 已解（2026-08-28 打过前置补丁；2026-08-29 整个按钮删除）：材料审核（原⑦⑧）移出交易面板，改走客户详情页 Verification Requests 区块的独立入口（三域共用，见 `modules/v6-swap.md` §5）
 - [x] **A7**：充值/提现域不监听 `MATERIAL_REQUEST_REVIEWED`，材料审过、便签已撕，但订单不回炉，永久停 `ACTION_PENDING` —— 已解（2026-08-29）：两域各补 `@OnEvent(MATERIAL_REQUEST_REVIEWED)` 监听器（只认 GREEN → RESUME 回 `COMPLIANCE_PENDING`）；提现转移表补齐 `ACTION_PENDING --RESUME--> COMPLIANCE_PENDING`（充值侧这条边一直有，21→22 边）；新增审计码 `DEPOSIT_MATERIAL_APPROVED_RESUMED`/`WITHDRAW_MATERIAL_APPROVED_RESUMED`；实证：单测 `deposit-workflow.service.spec.ts`「`onMaterialRequestReviewed` — 材料审过后充值单回炉 (A7)」与 `withdraw-workflow.service.spec.ts`「同 (B3)」均绿（`npx jest ... -t 回炉` 10 例通过）
 - [x] 材料账 `externalActionId` 全表 `@unique`，demo fixture 固定字面量两次点同按钮撞 P2002 —— 已解（2026-08-28）：三域 fixture 均改 `randomUUID()` 动态生成
+- [ ] 报送单结构化正文表单（按报文类型）：现行通用形式 = `body` 自由文本快照 + 外部引用号（Sumsub 报告号 / goAML 回执号），2026-09-27 波四脑暴业主定调「等合规同事提各报文具体字段需求后按类型追加」——届时逐类型加表单，不改台账骨架（波四 spec §10）
+- [ ] HRC/HRCA 报后 3 工作日 FIU 不反对窗上闹钟墙：随交易 HOLD 边（三域细化总纲范围）一起做——波四裁定不单独上墙（光挂倒计时、窗口到期无动作演不圆，波四 spec §0 裁定 8）；波三移交时称登 BACKLOG 但未落行，本行补登
