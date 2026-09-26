@@ -1741,6 +1741,60 @@ model RegulatoryFilingEntry {
   @@map("regulatory_filing_entries")
 }
 
+model ComplianceObligation {
+  id               String    @id @default(uuid())
+  obligationNo     String    @unique
+  name             String
+  description      String?
+  frequency        String    // MONTHLY | QUARTERLY | SEMIANNUAL | ANNUAL
+  authority        String    // RegulatoryAuthorities 键
+  basisNote        String    // 依据条款自由文本，只写 spec §9 查实条款号
+  leadBusinessDays Int       @default(5)
+  nextDueAt        DateTime
+  status           String    @default("ACTIVE") // ACTIVE | DISABLED
+  lastFilingNo     String?
+  createdByUserId  String
+  traceId          String
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+  @@index([status])
+  @@map("compliance_obligations")
+}
+
+model OutsourcingVendor {
+  id                 String    @id @default(uuid())
+  vendorNo           String    @unique
+  name               String
+  serviceDescription String
+  criticality        String    // MATERIAL | NON_MATERIAL
+  contractStart      DateTime
+  contractEnd        DateTime?
+  status             String    @default("ACTIVE") // ACTIVE | TERMINATED
+  notes              String?
+  createdByUserId    String
+  traceId            String
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+  @@index([status])
+  @@map("outsourcing_vendors")
+}
+
+model ResponsibleIndividual {
+  id                String    @id @default(uuid())
+  riNo              String    @unique
+  position          String
+  incumbentName     String
+  varaRef           String?
+  effectiveFrom     DateTime
+  status            String    @default("ACTIVE")
+  pendingApprovalNo String?
+  createdByUserId   String
+  traceId           String
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+  @@map("responsible_individuals")
+}
+
 model ReconciliationRunWallet {
   id               String   @id @default(uuid())
   runId            String

@@ -11,7 +11,7 @@ export interface FilingTypeConfig {
   /** 服务层按族独占的判据（T3 接管迁移守卫）。 */
   family: 'GENERAL' | 'AML';
   /** 钟的起算点：BASIS=依据码事故创建时刻｜RECEIVED_AT=收件时刻（现状默认到当前时刻）｜
-   *  EXTERNAL=workflow 外传 anchorAt（如制裁便签 openedAt）｜NONE=无钟，不杜撰时限。 */
+   *  EXTERNAL=编排方显式外传 anchorAt（CNMR/PNMR/PERIODIC_RETURN）｜NONE=无钟，不杜撰时限。 */
   anchorKind: 'BASIS' | 'RECEIVED_AT' | 'EXTERNAL' | 'NONE';
   /** 工作日钟（周一至五，UAE 联邦周末周六日）；与 defaultHours 互斥，两者不得同时设值。 */
   deadlineBusinessDays?: number;
@@ -37,6 +37,14 @@ export const FILING_TYPE_REGISTRY: Record<string, FilingTypeConfig> = {
   // 报后 3 工作日 FIU 不反对方可执行——交易 HOLD 边移交三域细化，本台账只记报了没有，不建钟。
   HRC: { direction: 'OUTBOUND', label: 'High-Risk Country/Transaction Report (HRC)', establishedBy: 'UAE FIU goAML — high-risk country/transaction report (post-filing 3 business-day FIU non-objection hold governs the transaction HOLD edge, tracked outside this ledger)', defaultAuthority: 'UAE_FIU', defaultCcAuthorities: [], defaultHours: null, requiresIncident: false, enabled: true, family: 'AML', anchorKind: 'NONE' },
   HRCA: { direction: 'OUTBOUND', label: 'High-Risk Country/Transaction Report — Alternative (HRCA)', establishedBy: 'UAE FIU goAML — alternative filing when transaction attributes are incomplete (same post-filing 3 business-day FIU non-objection hold)', defaultAuthority: 'UAE_FIU', defaultCcAuthorities: [], defaultHours: null, requiresIncident: false, enabled: true, family: 'AML', anchorKind: 'NONE' },
+
+  // --- 波四 Task 1：合规办公室周期义务报送（spec §3.1/§4.1/§4.2）。锚=义务下一到期日
+  // （编排方外传 anchorAt），0 工作日=期末即截止（无宽限期，不杜撰宽限天数）。
+  PERIODIC_RETURN: { direction: 'OUTBOUND', label: 'Periodic regulatory return',
+    establishedBy: 'Per obligation registry (compliance_obligations.basisNote)',
+    defaultAuthority: null, defaultCcAuthorities: [], defaultHours: null,
+    requiresIncident: false, enabled: true, family: 'GENERAL',
+    anchorKind: 'EXTERNAL', deadlineBusinessDays: 0 },
 };
 
 export function getFilingTypeConfig(type: string): FilingTypeConfig {

@@ -1,17 +1,18 @@
 // 战役甲波二 Task 1：报送类型注册表 + 依据码目录 authority 回填。
 // 战役甲波三 Task 1：族字段回填断言 + 六行 AML 新类型断言 + 两族边集穷举断言。
+// 战役甲波四 Task 1：新增 PERIODIC_RETURN（GENERAL 族 5→6、EXTERNAL 锚集合 +1）。
 import { FILING_TYPE_REGISTRY, getFilingTypeConfig } from './filing-type-registry';
 import {
   FILING_TRANSITIONS_BY_FAMILY, FilingEntryKinds, FilingStatus, RegulatoryAuthorities,
 } from './regulatory-filing.constants';
 import { INCIDENT_REPORT_BASES } from '../incidents/incident.constants';
 
-describe('FILING_TYPE_REGISTRY (spec §2 类型目录五行 + 波三六行)', () => {
-  it('恰好 11 键，且全部 enabled', () => {
+describe('FILING_TYPE_REGISTRY (spec §2 类型目录五行 + 波三六行 + 波四一行)', () => {
+  it('恰好 12 键，且全部 enabled', () => {
     const keys = Object.keys(FILING_TYPE_REGISTRY).sort();
     expect(keys).toEqual([
       'AUDITOR_APPOINTMENT_NOTICE', 'CNMR', 'HRC', 'HRCA', 'INCIDENT_REPORT', 'MARKET_OFFENCE_DUAL_REPORT',
-      'MATERIAL_CHANGE_NOTIFICATION', 'PNMR', 'REG_INFO_REQUEST_RESPONSE', 'SAR', 'STR',
+      'MATERIAL_CHANGE_NOTIFICATION', 'PERIODIC_RETURN', 'PNMR', 'REG_INFO_REQUEST_RESPONSE', 'SAR', 'STR',
     ]);
     for (const key of keys) {
       expect(FILING_TYPE_REGISTRY[key].enabled).toBe(true);
@@ -46,6 +47,36 @@ describe('FILING_TYPE_REGISTRY (spec §2 类型目录五行 + 波三六行)', ()
       expect(FILING_TYPE_REGISTRY[type].family).toBe('GENERAL');
       expect(FILING_TYPE_REGISTRY[type].anchorKind).toBe('NONE');
     }
+  });
+
+  it('GENERAL 族恰好六行（波四 +PERIODIC_RETURN）', () => {
+    const generalTypes = Object.entries(FILING_TYPE_REGISTRY)
+      .filter(([, c]) => c.family === 'GENERAL')
+      .map(([type]) => type)
+      .sort();
+    expect(generalTypes).toEqual([
+      'AUDITOR_APPOINTMENT_NOTICE', 'INCIDENT_REPORT', 'MARKET_OFFENCE_DUAL_REPORT',
+      'MATERIAL_CHANGE_NOTIFICATION', 'PERIODIC_RETURN', 'REG_INFO_REQUEST_RESPONSE',
+    ]);
+  });
+
+  it('EXTERNAL 锚集合恰好三行（CNMR/PNMR + 波四 PERIODIC_RETURN）', () => {
+    const externalAnchored = Object.entries(FILING_TYPE_REGISTRY)
+      .filter(([, c]) => c.anchorKind === 'EXTERNAL')
+      .map(([type]) => type)
+      .sort();
+    expect(externalAnchored).toEqual(['CNMR', 'PERIODIC_RETURN', 'PNMR']);
+  });
+
+  it('PERIODIC_RETURN：GENERAL 族、EXTERNAL 锚、0 工作日（期末即截止，不设宽限）、无默认依据机关', () => {
+    const cfg = FILING_TYPE_REGISTRY.PERIODIC_RETURN;
+    expect(cfg.direction).toBe('OUTBOUND');
+    expect(cfg.requiresIncident).toBe(false);
+    expect(cfg.family).toBe('GENERAL');
+    expect(cfg.anchorKind).toBe('EXTERNAL');
+    expect(cfg.deadlineBusinessDays).toBe(0);
+    expect(cfg.defaultHours).toBeNull();
+    expect(cfg.defaultAuthority).toBeNull();
   });
 
   it('六行 AML 新类型：全 OUTBOUND、requiresIncident=false、family=AML', () => {
