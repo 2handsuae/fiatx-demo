@@ -323,6 +323,8 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
   route('POST', '/admin/sumsub/simulate/onboarding-review-result', 'Feed a simulated Sumsub applicant-review verdict for onboarding (demo only)', ['DEMO_VERDICT_WRITE']),
   route('POST', '/admin/sumsub/simulate/onboarding-level-change', 'Escalate a simulated onboarding applicant to the EDD level (demo only)', ['DEMO_VERDICT_WRITE']),
   route('POST', '/admin/sumsub/simulate/tier-upgrade-review-result', 'Feed a simulated Sumsub applicant-review verdict for tier upgrade (demo only)', ['DEMO_VERDICT_WRITE']),
+  // 战役甲波三 T7：⚡ EOCN 存量命中——挂既有 Demo Instruments「喂裁决」组，不新增组不新增桶。
+  route('POST', '/admin/sumsub/simulate/eocn-sanctions-hit', 'Feed a simulated EOCN sanctions list hit into an existing ACTIVE customer (demo only)', ['DEMO_VERDICT_WRITE']),
 
   // Risk assessments
 

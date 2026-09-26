@@ -1,5 +1,5 @@
 // admin-sumsub-simulation.controller.ts
-import { Controller, Post, Body, ForbiddenException, NotFoundException, BadRequestException, UseGuards, Req, Inject } from '@nestjs/common';
+import { Controller, Post, Body, ForbiddenException, NotFoundException, BadRequestException, ConflictException, UseGuards, Req, Inject } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { SumsubIngestionService } from './sumsub-ingestion.service';
@@ -8,6 +8,9 @@ import { MaterialRequestsService } from '../identity/material-requests/material-
 import { AdminPermissionGuard } from '../identity/access-control/admin-permission.guard';
 import { RequirePermissions } from '../identity/access-control/require-permissions.decorator';
 import { buildPermissionCode } from '../identity/access-control/permission-code.util';
+import { CustomerRestrictionWorkflowService } from '../identity/customers/customer-restriction-workflow.service';
+import { CustomerRestrictionsService } from '../identity/customers/customer-restrictions.service';
+import { ApprovalActorContext } from '../governance/approvals/constants/approval.constants';
 
 @ApiTags('Admin - Sumsub Simulation')
 @Controller('admin/sumsub/simulate')
@@ -19,6 +22,11 @@ export class AdminSumsubSimulationController {
     @Inject(PrismaService)
     private readonly prisma: PrismaService & Record<string, any>,
     private readonly materialRequests: MaterialRequestsService,
+    // 战役甲波三 T7：EOCN 存量命中 —— 不走 ingestionService.ingest()（那条链的落地
+    // 留痕搭在 KYT 审计上，⚡ 场景无 KYT 单可搭，评审黄项订正），直接调客户域
+    // workflow 正门，自带 CUSTOMER_RESTRICTION_ADDED/CUSTOMER_FROZEN 审计。
+    private readonly restrictionWorkflow: CustomerRestrictionWorkflowService,
+    private readonly restrictions: CustomerRestrictionsService,
   ) {}
 
   private ensureAdmin(req: any) {
@@ -155,6 +163,79 @@ export class AdminSumsubSimulationController {
       { type: 'applicantLevelChanged', applicantId: customer.sumsubApplicantId, levelName: 'edd-sof-sow-level', createdAtMs: String(Date.now()) },
       { isSimulated: true, simulatedByUserId: 'ADMIN_SIMULATION' },
     );
+  }
+
+  /**
+   * 战役甲波三 T7：模拟 EOCN 名单更新命中一名存量 ACTIVE 客户 —— 贴 SANCTION 便签。
+   * 语义站在 Sumsub 那一侧的持续监控/复筛（ongoing AML monitoring 对已入驻申请人
+   * 重新过新名单），不是充值/提现/兑换某笔订单的 KYT 裁决，故不喂 ingestionService.
+   * ingest()：那条链的落地留痕搭在具体订单的 KYT 审计上（DEPOSIT_FROZEN 等），
+   * ⚡ 场景没有订单可搭。改为直接调 CustomerRestrictionWorkflowService.openRestriction()
+   * ——workflow 正门自带 CUSTOMER_RESTRICTION_ADDED / CUSTOMER_FROZEN 审计，且把
+   * 真实点击 ⚡ 按钮的 admin 记成 actor（比系统内部 actor 更强的留痕）。
+   *
+   * 两道业务闸（评审口径明确要求报错，不是 open() 自带的静默幂等）：
+   *  - 客户须 ACTIVE 生命周期——非存量客户不适用这条模拟命中；
+   *  - 客户不得已有 OPEN 的 SANCTION 便签——重复命中要显式拒绝，让演示者看见
+   *    "先走完一轮定性再打下一次 ⚡"，而不是被 open() 的幂等悄悄吞掉。
+   */
+  @Post('eocn-sanctions-hit')
+  @ApiOperation({ summary: '模拟 EOCN 名单更新命中存量 ACTIVE 客户 —— 贴 SANCTION 便签（demo only）' })
+  @RequirePermissions(buildPermissionCode('POST', '/admin/sumsub/simulate/eocn-sanctions-hit'))
+  async simulateEocnSanctionsHit(
+    @Req() req: any,
+    @Body() body: { customerNo: string; listRef: string },
+  ) {
+    this.ensureAdmin(req);
+    if (!body.customerNo) throw new BadRequestException('customerNo is required');
+    if (!body.listRef?.trim()) throw new BadRequestException('listRef is required');
+
+    const customer = await this.prisma.customerMain.findFirst({
+      where: { customerNo: body.customerNo },
+      select: { id: true, lifecycle: true },
+    });
+    if (!customer) throw new NotFoundException(`Customer not found: ${body.customerNo}`);
+    if (customer.lifecycle !== 'ACTIVE') {
+      throw new BadRequestException(
+        `Customer ${body.customerNo} is not ACTIVE (lifecycle=${customer.lifecycle}) — EOCN hit simulation only applies to an existing active customer`,
+      );
+    }
+
+    const existing = await this.restrictions.findOpenByCause(customer.id, 'SANCTION', null);
+    if (existing) {
+      throw new ConflictException(
+        `Customer ${body.customerNo} already has an OPEN SANCTION restriction (${existing.restrictionNo}) — resolve it via sanction disposition before simulating another EOCN hit`,
+      );
+    }
+
+    const actor: ApprovalActorContext = {
+      actorType: 'ADMIN',
+      userId: req.user.userId || req.user.sub,
+      userNo: req.user.userNo,
+      role: req.user.role,
+      roleCodes: req.user.roleCodes || (req.user.role ? [req.user.role] : []),
+    };
+
+    const { restrictionNo, created } = await this.restrictionWorkflow.openRestriction(
+      {
+        customerId: customer.id,
+        cause: 'SANCTION',
+        reason: `EOCN sanctions list update (simulated): existing ACTIVE customer hit against list entry ${body.listRef}`,
+        // caseRef 传了也会被 open() 按 R4 归一成 customerNo（SANCTION 是 customerLevel
+        // 因由）；listRef 的可追溯性由 reason 承载,供后续定性开单时人工抄作 externalCaseRef。
+        caseRef: body.listRef,
+        openedBy: actor.userNo ?? actor.userId,
+      },
+      actor,
+    );
+
+    return {
+      restrictionNo,
+      created,
+      customerNo: body.customerNo,
+      cause: 'SANCTION' as const,
+      listRef: body.listRef,
+    };
   }
 
   // withdraw-kyt/withdraw-tr endpoints retired with the old preKyt/travelRule mock
