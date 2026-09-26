@@ -5,7 +5,7 @@
 
 ## 承接上一波（波三收尾时填写，2026-09-26）
 
-- **波三合并基线**：本波尚未合并 main（收尾闸未跑通，见下方悬挂项）；分支 `claude/vibrant-dirac-73kwrs`，`git log --oneline 8f2b51f..HEAD`（8f2b51f=波三 plan checklist 复核提交，作执行段 diff 基线；波二收官在 main 为 `44b1639`）共 **20 笔提交**（T1-T10 主线 + T3/T4 评审修复 + 随记 + T11 收口两笔 + 终审修一笔——终审白2 订正计数）。main HEAD 仍是波二收官的 `44b1639`，本波尚未线性快进合入。
+- **波三合并基线**：分支 `claude/vibrant-dirac-73kwrs` 自 `44b1639`（波二收官=波三开工时的 main HEAD）线性生长，`git log --oneline 44b1639..<收官提交>` 含骨架/spec/plan 三件套、T1-T10 主线、T1/T3/T4 三轮升档评审修复、终审修、收尾闸全绿期的四笔实证与修复、收官归档一笔；收官提交即快进目标，合并后 main HEAD 应等于分支 HEAD（下一波开工先 `git log main -1` 核实，若业主尚未合并则显式指向本分支读波三版文档）。
 - **波三实际交付**：类型目录从五行扩到**十一行**（GENERAL 五行不动 + AML 六行新增：STR/SAR/CNMR/PNMR/HRC/HRCA）；`FilingTypeConfig` 新增四维度——`family:'GENERAL'|'AML'`（服务层按族独占判据）、`anchorKind:'BASIS'|'RECEIVED_AT'|'EXTERNAL'|'NONE'`（钟起算点四值穷举，`EXTERNAL` 为波三新增——workflow 显式外传 `anchorAt`）、`deadlineBusinessDays`（工作日制钟，与小时制 `defaultHours` 互斥）、`allowNoFilingClose`/`requiresExternalCaseRef`；族边集从单表改**两张显式表**（`FILING_TRANSITIONS_BY_FAMILY`，波二遗留的单表别名 `FILING_TRANSITIONS` 已物理删除）——GENERAL 六态六边不动，AML 四边（`DRAFT→SUBMITTED/CLOSED/CANCELLED`、`SUBMITTED→CLOSED`，不经过 `PENDING_SIGNOFF`/`SIGNED_OFF` 两态）；新增工作日钟纯函数 `addBusinessDays`（迪拜日历判周末，`business-days.ts`）；服务层按族独占能力码 `cap.filing.general`/`cap.filing.aml`（照 `cap.incident.*`/Ruling-6 先例）；`RegulatoryFilingService` 新增 `closeNoFiling()`/`openForSanction()` 两方法 + 新端点 `close-no-filing`；审计名册十码→**十一码**（新增 `FILING_CLOSED_NO_FILING`）。制裁定性裁决 `SANCTION_DISPOSITION` 审批类型（合规官提、MLRO 单步批）+ 三出口 workflow（CLEARED 直调解除 / PARTIAL 开 PNMR+自动补料 / CONFIRMED 便签翻牌+开 CNMR）；限制因由扩到 **8 条**（新增 `SANCTION_CONFIRMED`，DISCLOSED/customerLevel=true）。往来记录新增两种 kind（`CUSTOMER_COMM`/`AUTHORITY_INSTRUCTION`，仅 AML 族、非终态可记，态限查 `FILING_ENTRY_KIND_RULES` 显式表）。RBAC `Regulatory Filings` 域加第三桶 `filings.aml-desk`（`REG_FILING_AML_WRITE`，MLRO 独占，14 域 **69 桶 77 组**）；⚡ 新路由 `POST /admin/sumsub/simulate/eocn-sanctions-hit`。审计词表全量 269→**273** 现役码（GOVERNANCE 20 / CUSTOMER 29）。e2e：新 `aml-reporting-family.e2e-spec.ts` 21 条六段全绿 + 波二 `regulatory-filing.e2e-spec.ts` 回归复绿；前端报送台按族渲染 / 定性弹窗 / ⚡ 入口 / 客户端横幅；种子四组（STR/PNMR/CNMR 已提交样例 + 一名 PARTIAL 在途客户）+ 场景 19/20（暂编）。详见 `modules/v9-regulatory-filing.md`、`modules/v2-customer-compliance.md`。
 - **实际偏差**：
   ① MLRO 角色定位业主改判——骨架立档时的首版提案是「合规官经办、MLRO 签发」，脑暴阶段被推翻为「MLRO 亲办全程、无签发链」；已在 spec/plan 定稿阶段吸收，未构成执行期返工。
@@ -13,13 +13,12 @@
   ③ T9 前端截图走查因容器无 TigerBeetle 二进制未能执行——环境限制，非代码缺陷。
   ④ 收尾闸⑥⑧、`demo:all`、`verify:rbac` 行为探针、场景 19/20 现场走查均未能在本容器验证，全部转本地待跑。
 - **悬挂项**（波四开工前应先处理或确认，不能带着假设直接展开波四 spec）：
-  ① T9 四组截图待补（容器无 TigerBeetle，出站策略同时拒 `tigerbeetle.com`/`github`，无法离线补装二进制）。
-  ② 收尾闸⑥⑧ + `demo:all` + 场景 19/20 现场走查 + `verify:rbac` 行为探针 = 本地必跑（T10 报告的四条清单，T11 收尾时仍未验证）。
-  ③ 合并进 main 后必做 `db:base:sync` + 重启后端（权限字典与内存 `RBAC_PERMISSION_DEFINITIONS` 都是旧的会 403，CLAUDE.md §10 惯例）。
-  ④ HRCA 官方名业主一手核（T1 评审白项 6——本波沿用二手多源交叉结论，未见 goAML/EOCN 一手材料）。
-  ⑤ EOCN TFS Guidelines 2025 原文建议存 `reference/`（CNMR 更名出处钉一手；本会话网络策略拦截 `uaeiec.gov.ae`，未能下载存档）。
-  ⑥ `incident-register.e2e-spec.ts` 的 `treasury()` 直调报送台预计撞族门 403（未验证预测——静态读码发现该测试用非真实角色绑定的 `treasury()` 直调 `filings.saveDraft/submitForSignoff/markSubmitted`，大概率撞上 T3 新增的 `cap.filing.general` 服务层族门；因容器无 TigerBeetle 该 suite 根本跑不到 `beforeAll` 之后，**本波未能验证也未代修**，见 `TOOLING-DEBT.md` 对应条目，需回本地栈确认+补丁）。
-  ⑦ 本 T11 文档收口尚未合并 main——波四新会话若从 main 起，读到的 `modules/` 仍是波二版本；需先确认本分支（或其收口的等价提交）已合并，或显式指向本分支读取波三版文档。
+  （2026-09-26 收官清账：原 ①②⑥ 三条已在云环境当日销掉——放行 `tigerbeetle.com`/`github` 装入 TB 0.17.3 后，收尾闸⑥⑧、`demo:all`、场景 19/20 走查、`verify:rbac` 行为探针、T9 四组截图全数跑绿，`incident-register.e2e-spec.ts` 的族门 403 预测验证命中并已修（10/10），物证在 `superpowers/checkups/2026-09-26-act-a-wave3-evidence/`。）
+  ① 业主本地拉取 main 后必做三件套：重启后端 + `db:base:sync` + `stack.sh reset main`（权限字典/内存定义/schema+seed 都动过，CLAUDE.md §10 惯例）。
+  ② HRCA 官方名业主一手核（T1 评审白项 6——本波沿用二手多源交叉结论，未见 goAML/EOCN 一手材料）。
+  ③ EOCN TFS Guidelines 2025 原文建议存 `reference/`（CNMR 更名出处钉一手；云容器网络策略拦截 `uaeiec.gov.ae`，未能下载存档）。
+  ④ 云环境 setup script 建议加一行安装 TigerBeetle 0.17.3（免每会话手装；安装路径实测见 `TOOLING-DEBT.md` 对应条目）。
+  ⑤ 给同事看新版：业主本机 `npm run cloud:deploy`。
 
 ## 已定事实（波四可以直接假设成立、不必重新论证）
 
