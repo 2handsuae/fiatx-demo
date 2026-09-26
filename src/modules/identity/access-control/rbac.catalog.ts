@@ -87,7 +87,12 @@ export type PermissionGroup =
   | 'INCIDENT_FIN_WRITE'
   // 战役甲波二 Task 5：报送台骨架——单经办组（合规官），无族分裂，不需要 cap.* 标记码。
   | 'REG_FILING_READ'
-  | 'REG_FILING_WRITE';
+  | 'REG_FILING_WRITE'
+  // 战役甲波三 T6：AML 报送族独立经办组——MLRO 亲办 STR/SAR/CNMR/PNMR/HRC/HRCA 六类型
+  // （无签发链，DRAFT→SUBMITTED 直达）。路由与 REG_FILING_WRITE 共享 OR（粗门），服务层
+  // cap.filing.aml 按族独占才是真把关（照 Ruling-6 / cap.incident.* 先例，见下方
+  // cap.filing.* 服务层门标记码）。
+  | 'REG_FILING_AML_WRITE';
 
 export interface RbacPermissionDefinition {
   code: string;
@@ -465,18 +470,39 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
   route('POST', '/admin/incidents/:incidentNo/close', 'Request incident closure (opens approval)', ['INCIDENT_WRITE', 'INCIDENT_TECH_WRITE', 'INCIDENT_DATA_WRITE', 'INCIDENT_OPS_WRITE', 'INCIDENT_FIN_WRITE']),
   route('POST', '/admin/incidents/:incidentNo/withdraw', 'Withdraw a mis-registered incident', ['INCIDENT_WRITE', 'INCIDENT_TECH_WRITE', 'INCIDENT_DATA_WRITE', 'INCIDENT_OPS_WRITE', 'INCIDENT_FIN_WRITE']),
 
-  // Regulatory Filings（战役甲波二 Task 5）：单经办组（合规官），POST 全九条仅挂
-  // REG_FILING_WRITE——路由门即精确门，不设 cap.* 标记码（Ruling-6 是多组共享路由码
-  // 时的解法，本域不成立，见 ACTION_BUCKET_CATALOG 新域块头注释）。
-  route('POST', '/admin/regulatory-filings', 'Open a filing (manual)', ['REG_FILING_WRITE']),
-  route('GET', '/admin/regulatory-filings', 'List regulatory filings', ['REG_FILING_READ', 'REG_FILING_WRITE']),
-  route('GET', '/admin/regulatory-filings/:filingNo', 'View regulatory filing detail', ['REG_FILING_READ', 'REG_FILING_WRITE']),
-  route('POST', '/admin/regulatory-filings/:filingNo/draft', 'Save filing draft body', ['REG_FILING_WRITE']),
-  route('POST', '/admin/regulatory-filings/:filingNo/signoff', 'Request sign-off (opens approval)', ['REG_FILING_WRITE']),
-  route('POST', '/admin/regulatory-filings/:filingNo/mark-submitted', 'Mark filing as submitted to the regulator', ['REG_FILING_WRITE']),
-  route('POST', '/admin/regulatory-filings/:filingNo/entries', 'Log a correspondence entry', ['REG_FILING_WRITE']),
-  route('POST', '/admin/regulatory-filings/:filingNo/close', 'Close a submitted filing', ['REG_FILING_WRITE']),
-  route('POST', '/admin/regulatory-filings/:filingNo/cancel', 'Cancel a draft filing', ['REG_FILING_WRITE']),
+  // Regulatory Filings（战役甲波二 Task 5 骨架；战役甲波三 T6 起报送台两经办组共享
+  // 路由）：写路由与两条 GET 路由挂合规官/MLRO 两组 OR——路由 OR 是粗门，真正把关的是
+  // 服务层 RegulatoryFilingService.assertFamily 按被操作那条单的 filing type family
+  // 独占判定（cap.filing.general 合规官 / cap.filing.aml MLRO，见下方 cap.filing.* 服务层
+  // 门标记码，照 Ruling-6 / cap.incident.* 先例）——本域不再是「路由门即精确门」的单组
+  // 格局，见 ACTION_BUCKET_CATALOG 域块头注释同步订正。
+  route('POST', '/admin/regulatory-filings', 'Open a filing (manual)', ['REG_FILING_WRITE', 'REG_FILING_AML_WRITE']),
+  route('GET', '/admin/regulatory-filings', 'List regulatory filings', ['REG_FILING_READ', 'REG_FILING_WRITE', 'REG_FILING_AML_WRITE']),
+  route('GET', '/admin/regulatory-filings/:filingNo', 'View regulatory filing detail', ['REG_FILING_READ', 'REG_FILING_WRITE', 'REG_FILING_AML_WRITE']),
+  route('POST', '/admin/regulatory-filings/:filingNo/draft', 'Save filing draft body', ['REG_FILING_WRITE', 'REG_FILING_AML_WRITE']),
+  route('POST', '/admin/regulatory-filings/:filingNo/signoff', 'Request sign-off (opens approval)', ['REG_FILING_WRITE', 'REG_FILING_AML_WRITE']),
+  route('POST', '/admin/regulatory-filings/:filingNo/mark-submitted', 'Mark filing as submitted to the regulator', ['REG_FILING_WRITE', 'REG_FILING_AML_WRITE']),
+  route('POST', '/admin/regulatory-filings/:filingNo/entries', 'Log a correspondence entry', ['REG_FILING_WRITE', 'REG_FILING_AML_WRITE']),
+  route('POST', '/admin/regulatory-filings/:filingNo/close', 'Close a submitted filing', ['REG_FILING_WRITE', 'REG_FILING_AML_WRITE']),
+  route('POST', '/admin/regulatory-filings/:filingNo/cancel', 'Cancel a draft filing', ['REG_FILING_WRITE', 'REG_FILING_AML_WRITE']),
+  // T3 并行在建同路径控制器端点（AML 族「决定不报」出口：DRAFT→CLOSED + noFilingReason
+  // 必填闸，仅 allowNoFilingClose=true 的类型可走，见 regulatory-filing.service.ts
+  // closeNoFiling）。本任务只登记 catalog 行，控制器落地前 S7 会把这行判成死行——已入
+  // S7_PENDING_DEAD_ROWS 白名单（「暂未出生」，同平账二期先例，非腐烂死行），T3 落地
+  // controller 后应把这条从白名单删掉。
+  route('POST', '/admin/regulatory-filings/:filingNo/close-no-filing', 'Close an AML filing with a no-filing decision', ['REG_FILING_WRITE', 'REG_FILING_AML_WRITE']),
+
+  // 战役甲波三 T6：cap.filing.* 服务层门标记码——不是路由，是 RegulatoryFilingService.
+  // assertFamily 的服务层门标记（照 cap.incident.* 先例，Ruling-6；码本身由 T1 在
+  // regulatory-filing.constants.ts 的 FILING_FAMILY_CAPABILITY_CODE 先行占位，登记与
+  // 分组绑定随本任务落地，见该常量文件头注释）。写路由现在是合规官/MLRO 两组 OR 的粗门，
+  // 真正的 family 独占判定发生在服务层：assertFamily 按被操作那条单的 type family
+  // （GENERAL/AML，filing-type-registry.ts）取对应标记码，
+  // hasPermission(actor.userId, code) 精确判定操作者是否真在那一个组——不走「组共享
+  // 路由码」的反查。method/path 是占位描述字段（不产生真实路由），S7 已把这两码列入
+  // S7_PENDING_DEAD_ROWS 白名单（同 cap.incident.* 先例，非腐烂死行）。
+  { code: 'cap.filing.general', name: 'Regulatory filing operator capability: GENERAL family', description: 'Filing family operator capability (service-layer gate marker, not a route)', method: 'MARKER', path: '/internal/filing-capability/general', groups: ['REG_FILING_WRITE'] },
+  { code: 'cap.filing.aml', name: 'Regulatory filing operator capability: AML family', description: 'Filing family operator capability (service-layer gate marker, not a route)', method: 'MARKER', path: '/internal/filing-capability/aml', groups: ['REG_FILING_AML_WRITE'] },
 
   // 甲波一 T5 修1（Ruling-6，C1 修复）：五个族独占能力码——不是路由，是
   // IncidentService.assertOperator 的服务层门标记。裁决背景：反查"权限码属于哪些组"在码
@@ -968,13 +994,16 @@ export const ACTION_BUCKET_CATALOG: ActionDomain[] = [
     ],
   },
   // ─── Domain: Regulatory Filings ──────────────────────
-  // 战役甲波二：报送台——单经办组（合规官），view 桶照 Ruling-13 只挂单组；
-  // 不设 cap.* 标记码（Ruling-6 是多组共享路由码时的解法，本域 POST 码只挂一组，路由门即精确门）。
+  // 战役甲波二：报送台骨架——单经办组（合规官），view 桶照 Ruling-13 只挂单组。
+  // 战役甲波三 T6 起报送台两经办组共享路由（合规官 GENERAL 族 / MLRO AML 族）：路由 OR
+  // 是粗门，服务层 cap.filing.general/cap.filing.aml 按族独占才是真把关（照 Ruling-6 /
+  // cap.incident.* 先例，见上方 route() 段 cap.filing.* 服务层门标记码）。
   {
     id: 'filings', label: 'Regulatory Filings', icon: '📨',
     buckets: [
       { key: 'filings.view', label: 'View regulatory filings', description: 'Browse the regulatory filing desk and correspondence trail', groups: ['REG_FILING_READ'] },
       { key: 'filings.desk', label: 'Operate the regulatory filing desk', description: 'Open filings, draft, submit for sign-off, mark submitted, log correspondence, close — the compliance desk', groups: ['REG_FILING_WRITE'] },
+      { key: 'filings.aml-desk', label: 'Operate AML reporting desk', description: 'STR/SAR/CNMR/PNMR/HRC/HRCA — MLRO personally handles the AML reporting family, DRAFT→SUBMITTED direct (no sign-off chain)', groups: ['REG_FILING_AML_WRITE'] },
     ],
   },
   // ─── Domain: Pricing ─────────────────────────────────
@@ -1059,6 +1088,11 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
     'FUNDS_ORDER_VIEW',
     'TRANSACTION_LIMIT_READ',
     'INCIDENT_READ',
+    // 战役甲波三 T6：MLRO 亲办 AML 报送族（STR/SAR/CNMR/PNMR/HRC/HRCA），需要读得到
+    // 报送台列表/详情页（同 CISO 批事故拿 INCIDENT_READ 先例）——此前只有合规官/高管/
+    // 内审持 REG_FILING_READ，MLRO 漏了，裁决人/亲办人要看得见列表详情，这里补齐。
+    'REG_FILING_READ',
+    'REG_FILING_AML_WRITE',
   ],
 
   DPO: [

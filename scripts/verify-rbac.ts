@@ -25,6 +25,7 @@ import {
   RBAC_ROLE_GROUP_BINDINGS,
   ACTION_BUCKET_CATALOG,
   RBAC_ROLE_DEFINITIONS,
+  PermissionGroup,
 } from '../src/modules/identity/access-control/rbac.catalog';
 import { DEFAULT_APPROVAL_POLICIES } from '../src/modules/governance/approvals/constants/approval.constants';
 import { buildPermissionCode } from '../src/modules/identity/access-control/permission-code.util';
@@ -574,6 +575,35 @@ function runStaticChecks(): void {
       ? `${Object.keys(DETAIL_READ_GROUP_BY_POLICY).length} 条带回链的策略，裁决人都看得见要批的对象`
       : blindCheckers.join(' ｜ '),
   );
+
+  // ── S10：新权限组「四处齐」+ 唯 MLRO 持有（战役甲波三 T6：REG_FILING_AML_WRITE）──
+  // 项目铁律（CLAUDE.md 派发要点）：新权限组必须四处齐——PermissionGroup 联合类型成员｜
+  // 至少一条 route() 挂载｜ACTION_BUCKET_CATALOG 某桶挂载｜至少一个职务持有——少一处
+  // 这个组在演示里就点不到（有码没入口、有入口没权限、或压根没人能拿到）。联合类型这一处
+  // 由 tsc 在编译期收口（下方任一处 `groups: [...]` 字面量若写了不是类型成员的字符串，
+  // `groups: PermissionGroup[]` 的类型标注就通不过 tsc——本脚本靠 npx tsc --noEmit 那道
+  // 随手闸兜底，这里只做另外三处运行时可验的）。
+  const AML_WRITE_GROUP: PermissionGroup = 'REG_FILING_AML_WRITE';
+  const amlRoutes = RBAC_PERMISSION_DEFINITIONS.filter((d) => d.groups.includes(AML_WRITE_GROUP));
+  const amlBuckets = ACTION_BUCKET_CATALOG.flatMap((domain) => domain.buckets).filter((b) =>
+    b.groups.includes(AML_WRITE_GROUP),
+  );
+  const amlHolders = Object.entries(RBAC_ROLE_GROUP_BINDINGS).filter(([, groups]) =>
+    (groups as PermissionGroup[]).includes(AML_WRITE_GROUP),
+  );
+  check(
+    'S10a REG_FILING_AML_WRITE 四处齐（route() / ACTION_BUCKET_CATALOG 桶 / 职务持有；联合类型由 tsc 收口）',
+    amlRoutes.length >= 1 && amlBuckets.length >= 1 && amlHolders.length >= 1,
+    `route ${amlRoutes.length} 条（含 cap.filing.aml 标记码）、bucket ${amlBuckets.length} 个（filings.aml-desk）、` +
+      `持有职务 ${amlHolders.length} 个（${amlHolders.map(([r]) => r).join(',') || '无'}）`,
+  );
+  check(
+    'S10b REG_FILING_AML_WRITE 唯 MLRO 持有（AML 报送族无签发链，非 MLRO 一律不得亲办）',
+    amlHolders.length === 1 && amlHolders[0][0] === 'MLRO',
+    amlHolders.length === 1 && amlHolders[0][0] === 'MLRO'
+      ? '持有职务集合恰为 {MLRO}'
+      : `持有职务集合为 {${amlHolders.map(([r]) => r).join(',')}}，期望恰好 {MLRO}`,
+  );
 }
 
 // ══════════════════════ S6：前后端权限码表差集 ══════════════════════
@@ -649,12 +679,24 @@ function runS6FrontendBackendCodeDiff(): void {
 // 战役甲波一 T9（Ruling-9）：以下五个 cap.incident.* 码是 IncidentService.assertOperator
 // 的服务层门标记（rbac.catalog.ts :474-478，method: 'MARKER'），不是真实路由——
 // 设计如此，不是腐烂死行，S7 判定逻辑本身不放宽，只在这张白名单里显式点名这五个码。
+//
+// 战役甲波三 T6：两类新增例外，理由不同，都不是腐烂死行——
+//   · cap.filing.general / cap.filing.aml：同上，RegulatoryFilingService.assertFamily 的
+//     服务层门标记码，method: 'MARKER'，永久性例外（跟 cap.incident.* 同类，不会「出生」
+//     成真路由）。
+//   · api.post.admin_regulatory_filings_filingno_close_no_filing：close-no-filing 端点的
+//     真实 controller 由并行任务 T3 落地，本任务只登记 catalog 行——「暂未出生」，同平账
+//     二期「先立地基」先例（见上方大注释），不是永久例外：T3 的 controller 合并后这行会
+//     变成真实端点，届时应把这条从白名单删掉，不能留在这里长期蒙混。
 const S7_PENDING_DEAD_ROWS = new Set<string>([
   'cap.incident.funds',
   'cap.incident.tech',
   'cap.incident.data',
   'cap.incident.ops',
   'cap.incident.fin',
+  'cap.filing.general',
+  'cap.filing.aml',
+  'api.post.admin_regulatory_filings_filingno_close_no_filing',
 ]);
 
 /** 镜像 admin-permission.guard.ts#buildRequestPermissionCode 的拼接算法——不是重新
@@ -783,6 +825,16 @@ interface DirectionalProbe {
   role: string; // ROLE_LOGIN 的前缀值
   expect: 'DENY' | 'ALLOW';
   body?: unknown;
+  /**
+   * 仅 DENY 探针可选（战役甲波三 T6：报送台按族独占）。默认只认精确 403（见上方红线
+   * 注释）；报送台的 family 独占门是 RegulatoryFilingService.assertFamily 在 DTO
+   * ValidationPipe 之后跑的业务层判定（ForbiddenException → 403），但 T6 登记这两条
+   * 探针时 T3 的服务层实现仍在并行推进，不能保证请求体每个字段都刚好绕过校验管线走到
+   * assertFamily 那一步——若校验管线先拦一步会吐 400，不是族门本身的信号但同样是
+   * "这个族被挡住了"。显式放宽到 [403, 400] 两个族独占探针专用，不改其余探针的默认
+   * 行为（未设置此字段一律仍是精确 403）。
+   */
+  denyStatuses?: number[];
   /**
    * 仅 ALLOW 探针可选（战役甲波一 T9 修1，评审 M4）：请求成功（非 403）后做收尾清理——
    * 本脚本一贯的行为化写法会真建出业务行（ALLOW 探针不是只读探测），不清理就留一条真实
@@ -1113,6 +1165,27 @@ const PROBES: DirectionalProbe[] = [
     role: 'tech_admin', expect: 'DENY',
     body: { type: 'MATERIAL_CHANGE_NOTIFICATION', title: 'RBAC probe — material change filing' },
   },
+
+  // ── 报送台按族独占（战役甲波三 T6，spec §6 / plan T3）───────────────────────
+  // 波三起报送台不再是「单经办组」：写路由对合规官（REG_FILING_WRITE）与 MLRO
+  // （REG_FILING_AML_WRITE）两组 OR 放行——上面「报送台经办唯合规官」几条测的是路由级
+  // 粗门，还成立（ops/treasury/tech_admin 两组都不持）。这里测的是路由放过之后、服务层
+  // RegulatoryFilingService.assertFamily 按被开单 type 的 family 做的族独占判定：合规官
+  // 推得动 GENERAL 族、推不动 AML 族；MLRO 反过来。双向各一条，互证"粗门放行、细门仍挡"
+  // 不是摆设（同 T9 事故按族分权先例）。expect DENY 用 denyStatuses:[403,400]——见
+  // DirectionalProbe.denyStatuses 头注释，T3 服务层落地前/校验管线顺序未定时的显式容差。
+  {
+    section: '报送台按族独占(T6)', name: '合规官 不得 开 AML 单(STR)', method: 'POST',
+    routePattern: '/admin/regulatory-filings', path: '/admin/regulatory-filings',
+    role: 'compliance_lead', expect: 'DENY', denyStatuses: [403, 400],
+    body: { type: 'STR', title: 'RBAC probe — AML family probe (STR), must be denied for compliance officer' },
+  },
+  {
+    section: '报送台按族独占(T6)', name: 'MLRO 不得 开 GENERAL 单(MATERIAL_CHANGE_NOTIFICATION)', method: 'POST',
+    routePattern: '/admin/regulatory-filings', path: '/admin/regulatory-filings',
+    role: 'mlro', expect: 'DENY', denyStatuses: [403, 400],
+    body: { type: 'MATERIAL_CHANGE_NOTIFICATION', title: 'RBAC probe — GENERAL family probe, must be denied for MLRO' },
+  },
 ];
 
 async function runDirectionalProbe(tokens: Record<string, string>, p: DirectionalProbe): Promise<void> {
@@ -1124,15 +1197,17 @@ async function runDirectionalProbe(tokens: Record<string, string>, p: Directiona
   const { status, json } = await call(p.method, p.path, token, p.body);
 
   if (p.expect === 'DENY') {
-    const ok = status === 403;
+    const acceptable = p.denyStatuses ?? [403];
+    const ok = acceptable.includes(status);
+    const expectLabel = acceptable.join('/');
     if (!ok && (status === 404 || status === 500)) {
       guardOpenCount += 1;
       check(
         `[${p.section}] ${p.name}`, false,
-        `GUARD_OPEN —— 期望 403（权限应挡），实得 ${status}（守卫在此处 fail-open，技术兜底，见 CLAUDE.md §2，不修守卫，记 PRODUCTION-NOTES）`,
+        `GUARD_OPEN —— 期望 ${expectLabel}（权限应挡），实得 ${status}（守卫在此处 fail-open，技术兜底，见 CLAUDE.md §2，不修守卫，记 PRODUCTION-NOTES）`,
       );
     } else {
-      check(`[${p.section}] ${p.name}`, ok, `${p.role}@ ${p.method} ${p.path} → ${status}（期望 403）`);
+      check(`[${p.section}] ${p.name}`, ok, `${p.role}@ ${p.method} ${p.path} → ${status}（期望 ${expectLabel}）`);
     }
     return;
   }
@@ -1334,6 +1409,75 @@ async function verifyPricingCfoAndPolicySoD(tokens: Record<string, string>): Pro
   );
 }
 
+// ══════════════════════ AML 单全生命周期零审批单（战役甲波三 T6，spec §6 / plan T3）══════
+//
+// spec §6：「报送台单不产生签发审批单（无链断言）」——AML 族（STR/SAR/CNMR/PNMR/HRC/
+// HRCA）MLRO 亲办，DRAFT→SUBMITTED 直达，不经 GENERAL 族那条「提单唯合规官、裁决唯
+// 高管」的 REG_FILING_SUBMIT 审批策略（该策略只服务 GENERAL 族的 signoff 端点）。用真实
+// HTTP 走一遍 STR 全生命周期（open → mark-submitted → close），核验全程不产生任何审批
+// 单——GET /admin/control-gates/approvals?entityRef=filingNo 应命中零条（ApprovalQueryDto
+// 原生支持 entityRef 精确过滤，见 approvals.service.ts list()，不是客户端分页兜底）。
+//
+// 依赖 T3 落地的服务层（RegulatoryFilingService.assertFamily 放行 MLRO 开 AML 单、
+// markSubmitted AML 族跳过 signoff 前置闸）——T6 登记本函数时 T3 仍在并行推进（同一
+// worktree 内可见未提交改动），本函数只用 T3 计划改动范围内、已确认落地的三个既有端点
+// （open/mark-submitted/close，均无需 T3 新增的 close-no-filing controller 或
+// externalCaseRef 字段），headless 环境（无真栈）会在更早的登录步骤就失败退出，本函数
+// 实际不会被跑到——留给收尾闸联跑，不在本任务伪造通过。
+async function verifyAmlFilingNoApprovalChain(tokens: Record<string, string>): Promise<void> {
+  const mlroToken = tokens.mlro;
+  if (!mlroToken) {
+    check('[AML单零签发链(T6)] 前置条件', false, 'mlro token 不可用（登录步骤失败？）');
+    return;
+  }
+
+  const openRes = await call('POST', '/admin/regulatory-filings', mlroToken, {
+    type: 'STR',
+    title: 'RBAC probe — AML lifecycle no-approval-chain (STR)',
+  });
+  const filingNo = openRes.json?.filingNo;
+  check(
+    '[AML单零签发链(T6)] MLRO 开 STR 单（AML 族，assertFamily 应放行）',
+    openRes.status === 201 && !!filingNo,
+    `POST /admin/regulatory-filings(type=STR) → ${openRes.status}（期望 201）`,
+  );
+  if (openRes.status !== 201 || !filingNo) {
+    return; // 开单本身失败，后续步骤无 filingNo 可用，不继续往下跑
+  }
+
+  const submitRes = await call('POST', `/admin/regulatory-filings/${filingNo}/mark-submitted`, mlroToken, {
+    externalRef: 'RBAC-PROBE-EXTERNAL-REF',
+  });
+  check(
+    '[AML单零签发链(T6)] MLRO 标已提交（DRAFT→SUBMITTED 直达，不经 signoff）',
+    submitRes.status === 201,
+    `POST /admin/regulatory-filings/${filingNo}/mark-submitted → ${submitRes.status}（期望 201）`,
+  );
+
+  const closeRes = await call('POST', `/admin/regulatory-filings/${filingNo}/close`, mlroToken, {
+    note: 'verify:rbac probe cleanup',
+  });
+  check(
+    '[AML单零签发链(T6)] MLRO 关闭 STR 单（收尾清理，SUBMITTED→CLOSED 是族内合法边）',
+    closeRes.status === 201,
+    `POST /admin/regulatory-filings/${filingNo}/close → ${closeRes.status}（期望 201）`,
+  );
+
+  const approvalsRes = await call(
+    'GET',
+    `/admin/control-gates/approvals?entityRef=${encodeURIComponent(filingNo)}`,
+    mlroToken,
+  );
+  const total = approvalsRes.json?.total;
+  check(
+    '[AML单零签发链(T6)] 全生命周期零审批单（无签发链断言）',
+    approvalsRes.status === 200 && total === 0,
+    approvalsRes.status !== 200
+      ? `GET /admin/control-gates/approvals?entityRef=${filingNo} → ${approvalsRes.status}（期望 200）`
+      : `entityRef=${filingNo} 命中审批单 ${total} 条（期望 0——AML 族 DRAFT→SUBMITTED 不经 REG_FILING_SUBMIT 审批策略）`,
+  );
+}
+
 // ══════════════════════ main ══════════════════════
 
 async function main(): Promise<void> {
@@ -1398,6 +1542,10 @@ async function main(): Promise<void> {
 
   console.log('── V3 裁决只认审批策略 + 费率只在CFO(ALLOW半) ──');
   await verifyPricingCfoAndPolicySoD(tokens);
+  console.log('');
+
+  console.log('── AML 单全生命周期零审批单（战役甲波三 T6，无签发链断言）──');
+  await verifyAmlFilingNoApprovalChain(tokens);
   console.log('');
 
   console.log('── V2 改角色不丢权限（对每个内建角色跑一次 modify→approve 往返）──');
