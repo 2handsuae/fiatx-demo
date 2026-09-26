@@ -58,7 +58,7 @@
 | 客户 | 结果 | 备注 |
 |---|---|---|
 | Leo（`FIL2601015358` 锚，种子终态） | ✓ | Profile 页横幅「ACCOUNT RESTRICTED — CONFIRMED SANCTIONS MATCH」+ 正文「Confirmed match against EOCN sanctions list — MLRO sanction disposition CONFIRMED; SILENT SANCTION restriction delisted and replaced by this DISCLOSED one.」 |
-| **出入**：Mona / Carol 客户端交易列表 | ✗→已替换 | 剧本原文让用「Mona 或 Carol 的客户端视图」演「冻结客户交易列表 PROCESSING 不可区分」；**实测 Carol 与 Mona 两人交易记录数均为 0**（`GET /deposit-transactions?ownerNo=…&ownerType=CUSTOMER` 两人均返回空数组，客户端 History 页也显示「No transactions in this range」），两人身上根本演不出这张截图。改用 **Frank**（`demo_frank@example.com`）：他持一张 OPEN 的 SILENT SANCTION 便签（系统侧自动开，`reason=Deposit DEP260926395049 KYT rejected: applicant sanctioned`），名下 3 笔充值中 2 笔（`SEIZED` 9,100 AED、`FROZEN` 7,300 AED）在客户端 Deposit→History 列表里都显示为统一的 **PROCESSING**（真实第 3 笔 `SUCCESS` 2,000 AED 则显示 SUCCESS）——两种截然不同的处置结局在客户端外观上确实不可区分，判据本身成立，只是剧本点名的两个客户没有可演示的数据 |
+| **出入**：Mona / Carol 客户端交易列表 | ✗→已替换 | 截图任务书（非剧本原文——主会话核对：`demo/script.md` 场景 19 并无此步，此点名出自派发指令，出入对象是指令不是剧本）让用「Mona 或 Carol 的客户端视图」演「冻结客户交易列表 PROCESSING 不可区分」；**实测 Carol 与 Mona 两人交易记录数均为 0**（`GET /deposit-transactions?ownerNo=…&ownerType=CUSTOMER` 两人均返回空数组，客户端 History 页也显示「No transactions in this range」），两人身上根本演不出这张截图。改用 **Frank**（`demo_frank@example.com`）：他持一张 OPEN 的 SILENT SANCTION 便签（系统侧自动开，`reason=Deposit DEP260926395049 KYT rejected: applicant sanctioned`），名下 3 笔充值中 2 笔（`SEIZED` 9,100 AED、`FROZEN` 7,300 AED）在客户端 Deposit→History 列表里都显示为统一的 **PROCESSING**（真实第 3 笔 `SUCCESS` 2,000 AED 则显示 SUCCESS）——两种截然不同的处置结局在客户端外观上确实不可区分，判据本身成立，只是剧本点名的两个客户没有可演示的数据 |
 
 截图：`04a-leo-client-sanction-confirmed-banner.png`（必交，Leo）、`04b-frank-client-transactions-processing.png`（必交，改用 Frank，见上）、`extra-carol-client-transactions-empty-discrepancy.png`（留档证明 Carol 确无交易，佐证上面的出入记录）、`extra-bob-client-transactions-after-confirm.png`（bonus：Bob 确认后 DISCLOSED 态下同样看到 PROCESSING + 顶部横幅并存，与 Frank 的 SILENT 态对照）
 
@@ -116,7 +116,7 @@
 
 ## 出入清单汇总（本任务最重要产出）
 
-1. **剧本点名客户与实际数据不符**：`demo/script.md` 场景 19 B 线收尾要求用「Mona 或 Carol 的客户端视图」演示冻结客户交易列表 PROCESSING 不可区分，但两人名下交易记录数均为 0（无任何充值/提现/兑换记录），无法用来演示该判据。走查改用 Frank（`demo_frank@example.com`，持 OPEN SILENT SANCTION 便签、名下有 FROZEN/SEIZED 充值单），判据本身在他身上成立且效果更好（两种不同处置结局同样显示 PROCESSING）。**建议**：`demo/script.md` 场景 19 收尾一行的客户名单改成 Frank，或在报文族种子里给 Mona/Carol 各铺一笔小额充值供该步骤直接使用。
+1. **剧本点名客户与实际数据不符**：截图任务书要求用「Mona 或 Carol 的客户端视图」演示冻结客户交易列表 PROCESSING 不可区分（主会话核对：此点名出自派发指令而非 `demo/script.md`——剧本场景 19 无此步，剧本无误、无需改），但两人名下交易记录数均为 0（无任何充值/提现/兑换记录），无法用来演示该判据。走查改用 Frank（`demo_frank@example.com`，持 OPEN SILENT SANCTION 便签、名下有 FROZEN/SEIZED 充值单），判据本身在他身上成立且效果更好（两种不同处置结局同样显示 PROCESSING）。**建议**：`demo/script.md` 场景 19 收尾一行的客户名单改成 Frank，或在报文族种子里给 Mona/Carol 各铺一笔小额充值供该步骤直接使用。
 2. 其余所有步骤均与剧本描述一致，未发现按钮点不动、状态机跳转错误、文案不符等问题。
 
 ---
