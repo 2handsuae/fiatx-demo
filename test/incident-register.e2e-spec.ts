@@ -13,7 +13,7 @@ dotenv.config({ path: path.resolve(__dirname, '../.env') });
 import { randomUUID } from 'node:crypto';
 import request from 'supertest';
 import { Test } from '@nestjs/testing';
-import { ForbiddenException, INestApplication } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, INestApplication } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { Prisma } from '@prisma/client';
 
@@ -46,7 +46,10 @@ import { toBusinessDate } from '../src/modules/accounting/tigerbeetle/utils/busi
 import { IncidentService } from '../src/modules/governance/incidents/incident.service';
 import { IncidentRegistrationWorkflowService } from '../src/modules/governance/incidents/incident-registration-workflow.service';
 import { IncidentCloseWorkflowService } from '../src/modules/governance/incidents/incident-close-workflow.service';
+import { IncidentAssessmentWorkflowService } from '../src/modules/governance/incidents/incident-assessment-workflow.service';
 import { IncidentEscalationTargets, IncidentRemediationKinds, IncidentTypes } from '../src/modules/governance/incidents/incident.constants';
+import { RegulatoryFilingService } from '../src/modules/governance/regulatory-filings/regulatory-filing.service';
+import { RegulatoryFilingWorkflowService } from '../src/modules/governance/regulatory-filings/regulatory-filing-workflow.service';
 
 /**
  * 平账三期 · 事故登记（Task 13）e2e：真 AppModule 零 mock，与四份既有 recon e2e 串行
@@ -77,6 +80,8 @@ describe('Incident register e2e (平账三期 · 事故登记, Task 13)', () => 
   let withdrawWf: WithdrawWorkflowService; let withdraws: WithdrawTransactionsService; let withdrawQuoteService: WithdrawQuoteService;
   let depositWallets: CustomerDepositWalletService;
   let incidents: IncidentService; let registrationWorkflow: IncidentRegistrationWorkflowService; let closeWorkflow: IncidentCloseWorkflowService;
+  let assessmentWorkflow: IncidentAssessmentWorkflowService;
+  let filings: RegulatoryFilingService; let filingWorkflow: RegulatoryFilingWorkflowService;
   let aedAssetId: string; let aedCode: string; let aedDecimals: number; let aedNetwork: string;
   let usdtAssetId: string; let usdtCode: string; let usdtDecimals: number; let usdtNetwork: string;
   let TODAY: string;
@@ -95,6 +100,12 @@ describe('Incident register e2e (平账三期 · 事故登记, Task 13)', () => 
   const cfo = () => makeActor(cfoUserId, 'E2E_INC_CFO', 'CFO');
   const mlro = () => makeActor(mlroUserId, 'E2E_INC_MLRO', 'MLRO');
   const treasury = () => makeActor(treasuryUserId, 'E2E_INC_TREASURY', 'TREASURY_OFFICER');
+  // 甲波二 T6 用例④续作：报送单签发链单步 SENIOR_MANAGEMENT_OFFICER（approval.constants.ts
+  // REG_FILING_SUBMIT）——approve() 的 SoD 检查只比对 actor.userId 与 approval.createdByUserId
+  // 是否相同（approvals.service.ts:502），不查真实 DB 行，故这里不必像 cfo/mlro/treasury
+  // 那样反查种子管理员，随机造一个与 treasuryUserId（本文件的 maker）不同的 id 即可。
+  const smoUserId = randomUUID();
+  const smo = () => makeActor(smoUserId, 'E2E_INC_SMO', 'SENIOR_MANAGEMENT_OFFICER');
 
   beforeAll(async () => {
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
@@ -110,6 +121,8 @@ describe('Incident register e2e (平账三期 · 事故登记, Task 13)', () => 
     withdrawWf = app.get(WithdrawWorkflowService); withdraws = app.get(WithdrawTransactionsService); withdrawQuoteService = app.get(WithdrawQuoteService);
     depositWallets = app.get(CustomerDepositWalletService);
     incidents = app.get(IncidentService); registrationWorkflow = app.get(IncidentRegistrationWorkflowService); closeWorkflow = app.get(IncidentCloseWorkflowService);
+    assessmentWorkflow = app.get(IncidentAssessmentWorkflowService);
+    filings = app.get(RegulatoryFilingService); filingWorkflow = app.get(RegulatoryFilingWorkflowService);
     TODAY = toBusinessDate(new Date());
     const aed = await (prisma as any).asset.findFirst({ where: { currency: 'AED' } });
     const usdt = await (prisma as any).asset.findFirst({ where: { currency: 'USDT' } });
@@ -453,29 +466,57 @@ describe('Incident register e2e (平账三期 · 事故登记, Task 13)', () => 
     expect((await incidents.findByNo(mainIncidentNo)).status).toBe('INVESTIGATING');
   });
 
-  it('4 · 定损 FIRM_LOSS + 需通报（CRM_IV_E_5 + CRM_V_D_2，UNAUTHORIZED_OUTFLOW 唯二合法码）→ reportDeadlineAt===null（两码均无钟）；草案 → 标已通报', async () => {
-    // T11 修：T6 落地按类型收窄 reportBasisCandidates 后，UNAUTHORIZED_OUTFLOW（FUNDS 族）
-    // 只认 CRM_IV_E_5/CRM_V_D_2，原先勾的 TIR_K_H 不在候选集内会被 assess() 400 拒绝
-    // （见 incident.service.ts:370）。72h 钟的行为路径（变异靶子②）已在
-    // incident.service.spec.ts:516"happy path: selecting only TIR_K_H..."改用
-    // STUCK_TRANSACTION_MAJOR 覆盖，此处不重复用不合法码硬凑；本用例改为验证两码均无钟时
-    // deadline 保持 null（同一 computeReportDeadline 分支的另一条路径，非空跑）。
+  // 甲波二 T6（事件联动 + 事故侧收编）：assess 改经 IncidentAssessmentWorkflowService——
+  // reportRequired=true 按勾选的依据码逐码自动开报送单（不再是事故自己收草案/自己标已通报，
+  // 单槽退役，统一走报送单主体）。两码均无钟（CRM_IV_E_5/CRM_V_D_2 唯二合法码，hours=null）
+  // → 两单 deadlineAt 均 null、authority 均 VARA；逐单走真实签发链（草拟→申请签发→高管
+  // 批→标提交），中途只提交一单时结案仍被拒；两单都提交后（连同 Test 5 的善后挂载）Test 6
+  // 的真实结案才能通过——filingsOpened 与结案守卫的联动在这一条 e2e 里首尾闭环。
+  it('4 · 定损 FIRM_LOSS + 需通报（CRM_IV_E_5 + CRM_V_D_2，UNAUTHORIZED_OUTFLOW 唯二合法码）→ assess 联动自动开两单（deadlineAt 均 null、authority 均 VARA）；逐单走签发链提交，仅一单提交时结案仍拒', async () => {
     mainAssessedAmountMajor = bigintToDecimal(LOSS_MINOR, usdtDecimals).toFixed(usdtDecimals);
 
-    const assessed = await incidents.assess(mainIncidentNo, {
+    const assessed = await assessmentWorkflow.assess(mainIncidentNo, {
       assessedAmount: mainAssessedAmountMajor, assessmentBasis: 'FIRM_LOSS',
       reportRequired: true, reportBasisCodes: ['CRM_IV_E_5', 'CRM_V_D_2'],
     } as any, treasury());
     expect(assessed.status).toBe('ASSESSED');
-    expect(assessed.reportDeadlineAt).toBeNull();
+    expect(assessed.filingsOpened).toHaveLength(2);
+    const [filingNo1, filingNo2] = assessed.filingsOpened;
 
-    await incidents.saveReportDraft(mainIncidentNo, '事件时间线与影响范围说明（草案）：托管方转出未经授权，已定损 25 USDT。', treasury());
-    await incidents.markReported(mainIncidentNo, { reference: 'VARA-REG-2026-001' }, treasury());
+    const summaryAfterAssess = await filings.summaryForIncident(mainIncidentNo);
+    expect(summaryAfterAssess).toHaveLength(2);
+    for (const f of summaryAfterAssess) {
+      expect(f.deadlineAt).toBeNull(); // 两码 hours 均为 null，不杜撰时限
+      expect(f.authority).toBe('VARA');
+      expect(f.submittedAt).toBeNull();
+    }
+    // getView 联动（Task 6 交付点）：事故详情页横向读报送单摘要，不再读自己的 reportedAt 等六列。
+    const viewAfterAssess = await incidents.getView(mainIncidentNo);
+    expect(viewAfterAssess.filings.map((f: any) => f.filingNo).sort()).toEqual([filingNo1, filingNo2].sort());
+
+    // 第一单：草拟 → 申请签发（PENDING_SIGNOFF）→ 高管批（直调 ApprovalsService 裁决，照
+    // 本文件既有审批直调先例）→ 落 SIGNED_OFF → 标已提交。
+    await filings.saveDraft(filingNo1, '事件时间线与影响范围说明（草案）：托管方转出未经授权，已定损 25 USDT。', treasury());
+    const signoff1 = await filingWorkflow.submitForSignoff(filingNo1, treasury());
+    await approvalsService.approve(signoff1.approvalNo, { reason: 'e2e SMO signoff filing 1' }, smo());
+    await waitUntil(async () => (await filings.findByNo(filingNo1)).status === 'SIGNED_OFF');
+    await filings.markSubmitted(filingNo1, { externalRef: 'VARA-REG-2026-001' }, treasury());
+    expect((await filings.findByNo(filingNo1)).status).toBe('SUBMITTED');
+
+    // 中途只有一单提交：事故仍处 ASSESSED（第二单未提交 + 此类型定损结论非 NO_LOSS 也未挂
+    // 善后，两条理由都能挡——结案入口就该拒，不需要区分挡在哪一步）。
+    await expect(closeWorkflow.requestClose(mainIncidentNo, treasury())).rejects.toThrow(BadRequestException);
+
+    // 第二单：同样走一遍签发链，独立的 externalRef。
+    await filings.saveDraft(filingNo2, '事件时间线与影响范围说明（草案）：客户虚拟资产差异，已定损 25 USDT。', treasury());
+    const signoff2 = await filingWorkflow.submitForSignoff(filingNo2, treasury());
+    await approvalsService.approve(signoff2.approvalNo, { reason: 'e2e SMO signoff filing 2' }, smo());
+    await waitUntil(async () => (await filings.findByNo(filingNo2)).status === 'SIGNED_OFF');
+    await filings.markSubmitted(filingNo2, { externalRef: 'VARA-REG-2026-002' }, treasury());
+    expect((await filings.findByNo(filingNo2)).status).toBe('SUBMITTED');
 
     const view = await incidents.getView(mainIncidentNo);
-    expect(view.reportedAt).not.toBeNull();
-    expect(view.reportReference).toBe('VARA-REG-2026-001');
-    expect(view.reportDraft).toContain('托管方转出未经授权');
+    expect(view.filings.every((f: any) => f.submittedAt !== null)).toBe(true);
   });
 
   it('5 · 认损调账（金库开、金额=定损额、CFO 批、落账）→ 补款（adjustmentNo 通道、CFO 批、⚡ 推腿到 SUCCESS）→ 重对账案愈 → 挂载两单到事故', async () => {

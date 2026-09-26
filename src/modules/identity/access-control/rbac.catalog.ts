@@ -449,9 +449,11 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
   route('POST', '/admin/reconciliation/cases/:caseNo/simulate-aging-timeout', 'Fast-forward a reconciliation case past its aging line (demo only)', ['DEMO_CLOCK_WRITE']),
 
   // Incident Register（平账三期）：controller 在 Task 8 落地。战役甲波一 Task 9：粗门放行、
-  // 服务层细分——12 条路由的组数组从单一 INCIDENT_WRITE 扩为五桶 OR（INCIDENT_WRITE 仍是
+  // 服务层细分——路由的组数组从单一 INCIDENT_WRITE 扩为五桶 OR（INCIDENT_WRITE 仍是
   // FUNDS 族经办组），真正把关的是 IncidentService.assertOperator 按 cfg.operatorMarkerCode
   // 精确判定持有人所在族（见下方 cap.incident.* 五行标记码），不是这里的路由级粗门。
+  // 甲波二 T6：regulator-report 两条随 saveReportDraft/markReported 端点退役一并摘除
+  // （12 → 10，两码只经本组集引用，摘 route 行即摘净）。
   route('POST', '/admin/incidents', 'Register an incident (from a recon case or manually)', ['INCIDENT_WRITE', 'INCIDENT_TECH_WRITE', 'INCIDENT_DATA_WRITE', 'INCIDENT_OPS_WRITE', 'INCIDENT_FIN_WRITE']),
   route('GET', '/admin/incidents', 'List incidents', ['INCIDENT_READ', 'INCIDENT_WRITE', 'INCIDENT_TECH_WRITE', 'INCIDENT_DATA_WRITE', 'INCIDENT_OPS_WRITE', 'INCIDENT_FIN_WRITE']),
   route('GET', '/admin/incidents/:incidentNo', 'View incident detail', ['INCIDENT_READ', 'INCIDENT_WRITE', 'INCIDENT_TECH_WRITE', 'INCIDENT_DATA_WRITE', 'INCIDENT_OPS_WRITE', 'INCIDENT_FIN_WRITE']),
@@ -460,8 +462,6 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
   route('POST', '/admin/incidents/:incidentNo/escalate', 'Record an escalation (MLRO / CFO / senior management)', ['INCIDENT_WRITE', 'INCIDENT_TECH_WRITE', 'INCIDENT_DATA_WRITE', 'INCIDENT_OPS_WRITE', 'INCIDENT_FIN_WRITE']),
   route('POST', '/admin/incidents/:incidentNo/assess', 'Record loss assessment and reporting decision', ['INCIDENT_WRITE', 'INCIDENT_TECH_WRITE', 'INCIDENT_DATA_WRITE', 'INCIDENT_OPS_WRITE', 'INCIDENT_FIN_WRITE']),
   route('POST', '/admin/incidents/:incidentNo/remediations', 'Link a remediation order', ['INCIDENT_WRITE', 'INCIDENT_TECH_WRITE', 'INCIDENT_DATA_WRITE', 'INCIDENT_OPS_WRITE', 'INCIDENT_FIN_WRITE']),
-  route('POST', '/admin/incidents/:incidentNo/regulator-report', 'Save regulator report draft', ['INCIDENT_WRITE', 'INCIDENT_TECH_WRITE', 'INCIDENT_DATA_WRITE', 'INCIDENT_OPS_WRITE', 'INCIDENT_FIN_WRITE']),
-  route('POST', '/admin/incidents/:incidentNo/regulator-report/mark', 'Mark regulator report as filed', ['INCIDENT_WRITE', 'INCIDENT_TECH_WRITE', 'INCIDENT_DATA_WRITE', 'INCIDENT_OPS_WRITE', 'INCIDENT_FIN_WRITE']),
   route('POST', '/admin/incidents/:incidentNo/close', 'Request incident closure (opens approval)', ['INCIDENT_WRITE', 'INCIDENT_TECH_WRITE', 'INCIDENT_DATA_WRITE', 'INCIDENT_OPS_WRITE', 'INCIDENT_FIN_WRITE']),
   route('POST', '/admin/incidents/:incidentNo/withdraw', 'Withdraw a mis-registered incident', ['INCIDENT_WRITE', 'INCIDENT_TECH_WRITE', 'INCIDENT_DATA_WRITE', 'INCIDENT_OPS_WRITE', 'INCIDENT_FIN_WRITE']),
 

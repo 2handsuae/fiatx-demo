@@ -4,7 +4,7 @@ import { IncidentStatus as S, IncidentTypes as T, INCIDENT_REPORT_BASES as REPOR
 
 const ops = { actorType: 'ADMIN' as const, userId: 'uuid-ops', userNo: 'ADM-OPS', roleCodes: ['OPS_OFFICER'] };
 
-function makeService(o: Partial<Record<'incidentRow' | 'disposition' | 'kase' | 'transfer' | 'adjustment' | 'adjustments' | 'deposit' | 'remediations' | 'notes' | 'listRows' | 'listTotal' | 'heldMarkers', any>> = {}) {
+function makeService(o: Partial<Record<'incidentRow' | 'disposition' | 'kase' | 'transfer' | 'adjustment' | 'adjustments' | 'deposit' | 'remediations' | 'notes' | 'listRows' | 'listTotal' | 'heldMarkers' | 'filingsSummary', any>> = {}) {
   const incidentRow = o.incidentRow ?? {
     id: 'uuid-inc', incidentNo: 'INC1', type: T.CLIENT_SHORTFALL, status: S.REGISTERED,
     title: 't', description: 'd', customerNo: null, sourceCaseNo: null, traceId: 'trace-seed',
@@ -44,8 +44,11 @@ function makeService(o: Partial<Record<'incidentRow' | 'disposition' | 'kase' | 
   const accessControl: any = {
     hasPermission: jest.fn(async (_userId: string, code: string) => (o.heldMarkers ?? ['cap.incident.funds']).includes(code)),
   };
-  const svc = new IncidentService(prisma, auditLogs, accessControl);
-  return { svc, prisma, auditLogs, accessControl, incidentRow };
+  // 甲波二 T6：getView 横向只读 RegulatoryFilingService.summaryForIncident（铁律③读放行）——
+  // 事故自己不再存 reportedAt/reportDeadlineAt 等六列，通报现状改查报送单主体。
+  const filings: any = { summaryForIncident: jest.fn(async () => o.filingsSummary ?? []) };
+  const svc = new IncidentService(prisma, auditLogs, accessControl, filings);
+  return { svc, prisma, auditLogs, accessControl, filings, incidentRow };
 }
 
 describe('IncidentService (Task 5)', () => {
@@ -509,11 +512,17 @@ describe('IncidentService (Task 5)', () => {
       await expect(svc.assess('INC1', { assessedAmount: '5000', assessmentBasis: 'FIRM_LOSS', reportRequired: true, reportBasisCodes: ['NOT_A_BASIS'] }, ops)).rejects.toThrow(BadRequestException);
     });
 
+    // 甲波二 T6：钟锚计算已随 reportDeadlineAt 列一并迁到 RegulatoryFilingService.
+    // openForIncident/computeDeadline（Task 3，见 regulatory-filing.service.spec.ts），
+    // IncidentService.assess 不再落这一列、也不再回传它——本描述块下方四条保留的是
+    // assess() 自己仍要管的事：按类型收窄 reportBasisCandidates、basisCodes 落库、
+    // 状态机与审计。
+    //
     // 甲波一 T6：改用 STUCK_TRANSACTION_MAJOR（reportBasisCandidates=['TIR_K_H']）——
     // CLIENT_SHORTFALL 的候选集只有 ['CRM_IV_E_5','CRM_V_D_2']，勾 TIR_K_H 在新增的口径②
     // （reportBasisCodes ⊆ cfg.reportBasisCandidates）下会变成 400，原用例的类型/码组合
-    // 已不成立，换一个合法组合延续同一断言意图（72h 倒计时 + 审计顶层 assessmentBasis）。
-    it('happy path: selecting only TIR_K_H → reportDeadlineAt = createdAt + 72h (mutation target 2) + audit top-level assessmentBasis', async () => {
+    // 已不成立，换一个合法组合延续同一断言意图（审计顶层 assessmentBasis）。
+    it('happy path: STUCK_TRANSACTION_MAJOR + TIR_K_H accepted → ASSESSED + basisCodes persisted + audit top-level assessmentBasis', async () => {
       const createdAt = new Date('2026-09-01T00:00:00.000Z');
       const { svc, prisma, auditLogs } = makeService({
         incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', type: T.STUCK_TRANSACTION_MAJOR, status: S.INVESTIGATING, createdAt },
@@ -521,29 +530,30 @@ describe('IncidentService (Task 5)', () => {
       });
       const r = await svc.assess('INC1', { assessedAmount: '5000', assessmentBasis: 'FIRM_LOSS', reportRequired: true, reportBasisCodes: ['TIR_K_H'] }, ops);
       expect(r.status).toBe(S.ASSESSED);
+      expect(r).not.toHaveProperty('reportDeadlineAt');
       const updateCall = prisma.incident.update.mock.calls[0][0];
       expect(updateCall.data.status).toBe(S.ASSESSED);
-      expect(updateCall.data.reportDeadlineAt.getTime()).toBe(createdAt.getTime() + 72 * 3600 * 1000);
-      expect(r.reportDeadlineAt!.getTime()).toBe(createdAt.getTime() + 72 * 3600 * 1000);
+      expect(updateCall.data.reportBasisCodes).toBe('TIR_K_H');
+      expect(updateCall.data).not.toHaveProperty('reportDeadlineAt');
       const call = auditLogs.recordByActor.mock.calls[0][0];
       expect(call).toMatchObject({ action: 'INCIDENT_ASSESSED', assessmentBasis: 'FIRM_LOSS', fromStatus: S.INVESTIGATING, toStatus: S.ASSESSED });
     });
 
-    it('selecting only a clockless basis (CRM_IV_E_5) → reportDeadlineAt stays null (no invented deadline)', async () => {
+    it('selecting a clockless basis (CRM_IV_E_5) → reportBasisCodes persists, assess does not compute a deadline at all', async () => {
       const createdAt = new Date('2026-09-01T00:00:00.000Z');
       const { svc, prisma } = makeService({ incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', type: T.CLIENT_SHORTFALL, status: S.INVESTIGATING, createdAt } });
       await svc.assess('INC1', { assessedAmount: '5000', assessmentBasis: 'CLIENT_COLLECTION', reportRequired: true, reportBasisCodes: ['CRM_IV_E_5'] }, ops);
       const updateCall = prisma.incident.update.mock.calls[0][0];
-      expect(updateCall.data.reportDeadlineAt).toBeNull();
+      expect(updateCall.data.reportBasisCodes).toBe('CRM_IV_E_5');
+      expect(updateCall.data).not.toHaveProperty('reportDeadlineAt');
     });
 
-    it('reportRequired=false → reportBasisCodes/reportDeadlineAt both persist as null', async () => {
+    it('reportRequired=false → reportBasisCodes persists as null', async () => {
       const { svc, prisma } = makeService({ incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', type: T.CLIENT_SHORTFALL, status: S.INVESTIGATING, createdAt: new Date() } });
       await svc.assess('INC1', { assessedAmount: '0', assessmentBasis: 'RECOVERED', reportRequired: false }, ops);
       const updateCall = prisma.incident.update.mock.calls[0][0];
       expect(updateCall.data.reportRequired).toBe(false);
       expect(updateCall.data.reportBasisCodes).toBeNull();
-      expect(updateCall.data.reportDeadlineAt).toBeNull();
     });
 
     // 甲波一 T6（brief 行为合同①②③④）：三档口径按类型 assessmentScheme 收窄 + 码候选集过滤
@@ -559,13 +569,14 @@ describe('IncidentService (Task 5)', () => {
       }, ops)).rejects.toThrow(BadRequestException);
     });
 
-    it('DATA_BREACH — checking both PDPL_ART_9 (no clock) and TIR_II_C_24H (chainStart=NOTICE, excluded) → reportDeadlineAt stays null', async () => {
+    it('DATA_BREACH — checking both PDPL_ART_9 and TIR_II_C_24H (chainStart=NOTICE) → both basis codes accepted and persisted, no deadline column touched', async () => {
       const createdAt = new Date('2026-09-01T00:00:00.000Z');
       const { svc, prisma } = makeService({
         incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', type: T.DATA_BREACH, status: S.INVESTIGATING, createdAt },
         heldMarkers: ['cap.incident.data'],
       });
-      // 目录条目本身携带 chainStart='NOTICE'（钟链起点是通知发出，不是本次定损起算点）。
+      // 目录条目本身携带 chainStart='NOTICE'（钟链起点是通知发出，不是本次定损起算点）——
+      // 该语义只影响 RegulatoryFilingService.computeDeadline（Task 3），本文件不重测。
       expect(REPORT_BASES.TIR_II_C_24H.chainStart).toBe('NOTICE');
       expect(REPORT_BASES.TIR_II_C_24H.hours).toBe(24);
       const r = await svc.assess('INC1', {
@@ -574,11 +585,11 @@ describe('IncidentService (Task 5)', () => {
       }, ops);
       expect(r.status).toBe(S.ASSESSED);
       const updateCall = prisma.incident.update.mock.calls[0][0];
-      expect(updateCall.data.reportDeadlineAt).toBeNull();
-      expect(r.reportDeadlineAt).toBeNull();
+      expect(updateCall.data.reportBasisCodes).toBe('PDPL_ART_9,TIR_II_C_24H');
+      expect(updateCall.data).not.toHaveProperty('reportDeadlineAt');
     });
 
-    it('CYBER_BCDR — checking only TIR_K_H → reportDeadlineAt = createdAt + 72h (behavior contract ③)', async () => {
+    it('CYBER_BCDR — checking TIR_K_H → accepted and persisted (behavior contract ③, deadline computation lives in RegulatoryFilingService now)', async () => {
       const createdAt = new Date('2026-09-01T00:00:00.000Z');
       const { svc, prisma } = makeService({
         incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', type: T.CYBER_BCDR, status: S.INVESTIGATING, createdAt },
@@ -588,9 +599,10 @@ describe('IncidentService (Task 5)', () => {
         assessmentBasis: 'SERVICE_IMPACT', impactSummary: 'Trading platform outage',
         reportRequired: true, reportBasisCodes: ['TIR_K_H'],
       }, ops);
+      expect(r.status).toBe(S.ASSESSED);
       const updateCall = prisma.incident.update.mock.calls[0][0];
-      expect(updateCall.data.reportDeadlineAt.getTime()).toBe(createdAt.getTime() + 72 * 3600 * 1000);
-      expect(r.reportDeadlineAt!.getTime()).toBe(createdAt.getTime() + 72 * 3600 * 1000);
+      expect(updateCall.data.reportBasisCodes).toBe('TIR_K_H');
+      expect(updateCall.data).not.toHaveProperty('reportDeadlineAt');
     });
 
     it('PRUDENTIAL_BREACH — SHORTFALL scheme missing assessedAmount → 400 (behavior contract ④)', async () => {
@@ -610,7 +622,7 @@ describe('IncidentService (Task 5)', () => {
         assessedAmount: '2500', assessmentBasis: 'FIRM_LOSS', reportRequired: true, reportBasisCodes: ['CRM_IV_E_5'],
       }, ops);
       expect(r.status).toBe(S.ASSESSED);
-      expect(r.reportDeadlineAt).toBeNull(); // CRM_IV_E_5 hours=null，不杜撰时限
+      expect(r).not.toHaveProperty('reportDeadlineAt'); // 甲波二 T6：钟锚计算已迁到 RegulatoryFilingService
       const updateCall = prisma.incident.update.mock.calls[0][0];
       expect(updateCall.data.assessmentBasis).toBe('FIRM_LOSS');
       expect(updateCall.data.assessedAmount.toString()).toBe('2500');
@@ -619,83 +631,22 @@ describe('IncidentService (Task 5)', () => {
     });
   });
 
-  describe('saveReportDraft — first save records the draft audit, later saves only update the draft (per spec conclusion)', () => {
-    it('first draft saved: reportDraftedAt + audit INCIDENT_REGULATOR_REPORT_DRAFTED', async () => {
-      const { svc, prisma, auditLogs } = makeService({ incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', type: T.CLIENT_SHORTFALL, status: S.ASSESSED, reportDraft: null } });
-      await svc.saveReportDraft('INC1', 'Report draft v1', ops);
-      expect(prisma.incident.update).toHaveBeenCalledWith(expect.objectContaining({
-        where: { incidentNo: 'INC1' },
-        data: expect.objectContaining({ reportDraft: 'Report draft v1', reportDraftedAt: expect.any(Date) }),
-      }));
-      expect(auditLogs.recordByActor).toHaveBeenCalledTimes(1);
-      expect(auditLogs.recordByActor.mock.calls[0][0]).toMatchObject({ action: 'INCIDENT_REGULATOR_REPORT_DRAFTED' });
-    });
+  // 甲波二 T6：saveReportDraft/markReported 整体退役——事故不再自己收草案/落已通报，
+  // 通报改统一走报送单主体（RegulatoryFilingService.saveDraft/markSubmitted，Task 3，
+  // 已在 regulatory-filing.service.spec.ts 覆盖同款「首次记审计/续存不重记」「前置校验」
+  // 行为），本文件不再保留这两个 describe。
 
-    it('saving again: only updates the draft field, does not record that audit code again', async () => {
-      const { svc, prisma, auditLogs } = makeService({ incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', type: T.CLIENT_SHORTFALL, status: S.ASSESSED, reportDraft: 'Existing draft' } });
-      await svc.saveReportDraft('INC1', 'Report draft v2', ops);
-      expect(prisma.incident.update).toHaveBeenCalledWith({ where: { incidentNo: 'INC1' }, data: { reportDraft: 'Report draft v2' } });
-      expect(auditLogs.recordByActor).not.toHaveBeenCalled();
-    });
-
-    // 甲波一 T5 修1（Ruling-7，I1 修复）：saveReportDraft 纳入经办门（十入口第 9 个）。
-    it('actor lacks the operator capability → Forbidden, update untouched', async () => {
-      const { svc, prisma } = makeService({
-        incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', type: T.CLIENT_SHORTFALL, status: S.ASSESSED, reportDraft: null },
-        heldMarkers: [],
-      });
-      await expect(svc.saveReportDraft('INC1', 'Report draft v1', ops)).rejects.toThrow(ForbiddenException);
-      expect(prisma.incident.update).not.toHaveBeenCalled();
-    });
-  });
-
-  describe('markReported — precondition reportRequired && reportDraft non-empty', () => {
-    it('reportRequired=false → 400', async () => {
-      const { svc } = makeService({ incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', type: T.CLIENT_SHORTFALL, status: S.ASSESSED, reportRequired: false, reportDraft: 'Draft' } });
-      await expect(svc.markReported('INC1', {}, ops)).rejects.toThrow(BadRequestException);
-    });
-
-    it('reportDraft is empty → 400', async () => {
-      const { svc } = makeService({ incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', type: T.CLIENT_SHORTFALL, status: S.ASSESSED, reportRequired: true, reportDraft: null } });
-      await expect(svc.markReported('INC1', {}, ops)).rejects.toThrow(BadRequestException);
-    });
-
-    it('happy path: persists reportedAt/reportedByUserId/reportReference + audit metadata.basisCodes', async () => {
-      const { svc, prisma, auditLogs } = makeService({
-        incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', type: T.CLIENT_SHORTFALL, status: S.ASSESSED, reportRequired: true, reportDraft: 'Draft', reportBasisCodes: 'TIR_K_H' },
-      });
-      await svc.markReported('INC1', { reference: 'VARA-2026-001' }, ops);
-      expect(prisma.incident.update).toHaveBeenCalledWith(expect.objectContaining({
-        where: { incidentNo: 'INC1' },
-        data: expect.objectContaining({ reportedAt: expect.any(Date), reportedByUserId: 'ADM-OPS', reportReference: 'VARA-2026-001' }),
-      }));
-      const call = auditLogs.recordByActor.mock.calls[0][0];
-      expect(call).toMatchObject({ action: 'INCIDENT_REGULATOR_REPORTED', basisCodes: 'TIR_K_H' });
-      expect(call.metadata).toMatchObject({ basisCodes: 'TIR_K_H' });
-    });
-
-    // 甲波一 T5 修1（Ruling-7，I1 修复）：markReported 纳入经办门（十入口第 10 个）。
-    it('actor lacks the operator capability → Forbidden, update untouched', async () => {
-      const { svc, prisma } = makeService({
-        incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', type: T.CLIENT_SHORTFALL, status: S.ASSESSED, reportRequired: true, reportDraft: 'Draft', reportBasisCodes: 'TIR_K_H' },
-        heldMarkers: [],
-      });
-      await expect(svc.markReported('INC1', { reference: 'VARA-2026-001' }, ops)).rejects.toThrow(ForbiddenException);
-      expect(prisma.incident.update).not.toHaveBeenCalled();
-    });
-  });
-
-  // 甲波一 T5 修1（Ruling-6/7，I3 修复）：十门失效验证——覆盖 investigation/notes/escalate/
-  // assess/remediations/withdraw 六个入口（register 在上面自己的 describe 里已断言 create/
-  // 审计未调；saveReportDraft/markReported 已在各自 describe 里断言 update 未调；close
-  // 走 requestClose，在 incident-close-workflow.service.spec.ts 单独断言 createAndSubmit
-  // 未调——十入口全覆盖）。预铺一条 CYBER_BCDR 行，hasPermission mock 返回 false，断言抛
-  // Forbidden 且相应的 create/update 均未被调。失效验证证据（先证红）见 task-5-report.md：
-  // 临时注掉 IncidentService 六处 assertOperatorForIncident 调用，本 it.each 全红；恢复后全绿。
+  // 甲波一 T5 修1（Ruling-6/7，I3 修复；甲波二 T6 更新）：入口失效验证——覆盖
+  // investigation/notes/escalate/assess/remediations/withdraw 六个入口（register 在上面
+  // 自己的 describe 里已断言 create/审计未调；close 走 requestClose，在
+  // incident-close-workflow.service.spec.ts 单独断言 createAndSubmit 未调）。预铺一条
+  // CYBER_BCDR 行，hasPermission mock 返回 false，断言抛 Forbidden 且相应的 create/update
+  // 均未被调。失效验证证据（先证红）见 task-5-report.md：临时注掉 IncidentService 六处
+  // assertOperatorForIncident 调用，本 it.each 全红；恢复后全绿。
   describe('ten-gate failure mode: Forbidden closes the door before any write (甲波一T5修1 I3)', () => {
     const cyberRow = {
       id: 'uuid-cyber', incidentNo: 'INC-CYBER', type: T.CYBER_BCDR, status: S.INVESTIGATING,
-      createdAt: new Date('2026-09-01T00:00:00.000Z'), reportRequired: false, reportDraft: null,
+      createdAt: new Date('2026-09-01T00:00:00.000Z'), reportRequired: false,
     };
 
     const cases: Array<[string, (svc: IncidentService) => Promise<unknown>, (prisma: any) => void]> = [
@@ -766,7 +717,7 @@ describe('IncidentService (Task 5)', () => {
       const row = {
         incidentNo: 'INC1', type: T.CLIENT_SHORTFALL, status: S.REGISTERED, title: 't',
         customerNo: null, assetCode: null, amount: null, sourceCaseNo: null,
-        reportRequired: false, reportedAt: null, reportDeadlineAt: null, createdAt,
+        reportRequired: false, createdAt,
       };
       const { svc, prisma } = makeService({ listRows: [row], listTotal: 1 });
       const r = await svc.list({ status: S.REGISTERED, take: 10, skip: 0 });
@@ -774,33 +725,43 @@ describe('IncidentService (Task 5)', () => {
       expect(r.items).toEqual([{
         incidentNo: 'INC1', type: T.CLIENT_SHORTFALL, status: S.REGISTERED, title: 't',
         customerNo: null, assetCode: null, amount: null, sourceCaseNo: null,
-        reportRequired: false, reportedAt: null, reportDeadlineAt: null, createdAt: createdAt.toISOString(),
+        reportRequired: false, createdAt: createdAt.toISOString(),
       }]);
       expect(prisma.incident.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { status: S.REGISTERED }, skip: 0, take: 10 }));
       expect((prisma.incident.findMany.mock.calls[0][0] as any).where).not.toHaveProperty('id');
     });
 
-    it('getView: entity fields + notes + remediations, zero id/incidentId', async () => {
+    // 甲波二 T6：单槽六列（reportDeadlineAt/reportDraft/reportDraftedAt/reportedAt/
+    // reportedByUserId/reportReference）退役——getView 改横向只读
+    // RegulatoryFilingService.summaryForIncident 投影通报现状，挂 filings 键。
+    it('getView: entity fields + notes + remediations + filings summary, zero id/incidentId', async () => {
       const incidentRow = {
         id: 'uuid-inc', incidentNo: 'INC1', type: T.CLIENT_SHORTFALL, status: S.INVESTIGATING,
         title: 't', description: 'd', customerNo: null, sourceCaseNo: null, sourceDispositionNo: null,
         sourceAdvanceTransferNo: null, assetCode: null, amount: null,
-        assessedAmount: null, assessmentBasis: null, reportRequired: false, reportBasisCodes: null,
-        reportDeadlineAt: null, reportDraft: null, reportDraftedAt: null, reportedAt: null,
-        reportReference: null, approvalNo: null, registeredByUserId: 'ADM-OPS',
+        assessedAmount: null, assessmentBasis: null, reportRequired: true, reportBasisCodes: 'CRM_IV_E_5',
+        approvalNo: null, registeredByUserId: 'ADM-OPS',
         closedAt: null, withdrawnReason: null, createdAt,
       };
       const notes = [{ kind: 'NOTE', escalatedTo: null, body: 'Logged a note', authorUserId: 'ADM-OPS', createdAt }];
       const remediations = [{ kind: 'ADJUSTMENT', referenceNo: 'ADJ1', linkedByUserId: 'ADM-OPS', createdAt }];
       const adjustments = [{ adjustmentNo: 'ADJ1', status: 'POSTED' }];
-      const { svc } = makeService({ incidentRow, notes, remediations, adjustments });
+      const filingsSummary = [{
+        filingNo: 'FIL1', status: 'SUBMITTED', authority: 'VARA', basisCode: 'CRM_IV_E_5',
+        deadlineAt: null, overdueMarkedAt: null, submittedAt: '2026-09-26T00:00:00.000Z',
+      }];
+      const { svc, filings } = makeService({ incidentRow, notes, remediations, adjustments, filingsSummary });
       const view = await svc.getView('INC1');
       expect(view.incidentNo).toBe('INC1');
       expect(view.notes).toEqual([{ kind: 'NOTE', escalatedTo: null, body: 'Logged a note', authorBy: 'ADM-OPS', createdAt: createdAt.toISOString() }]);
       // Task 12：ADJUSTMENT 善后单要带上调账单现状——事故页「发起补款」按钮据此判断
       // 「已落账（POSTED）」，remediations 表本身不存这个会过期的状态快照。
       expect(view.remediations).toEqual([{ kind: 'ADJUSTMENT', referenceNo: 'ADJ1', linkedBy: 'ADM-OPS', createdAt: createdAt.toISOString(), status: 'POSTED' }]);
+      expect(view.filings).toEqual(filingsSummary);
+      expect(filings.summaryForIncident).toHaveBeenCalledWith('INC1');
       expect(view).not.toHaveProperty('id');
+      expect(view).not.toHaveProperty('reportDeadlineAt');
+      expect(view).not.toHaveProperty('reportedAt');
       expect(JSON.stringify(view)).not.toContain('uuid-inc');
     });
 
@@ -810,8 +771,7 @@ describe('IncidentService (Task 5)', () => {
         title: 't', description: 'd', customerNo: null, sourceCaseNo: null, sourceDispositionNo: null,
         sourceAdvanceTransferNo: null, assetCode: null, amount: null,
         assessedAmount: null, assessmentBasis: null, reportRequired: false, reportBasisCodes: null,
-        reportDeadlineAt: null, reportDraft: null, reportDraftedAt: null, reportedAt: null,
-        reportReference: null, approvalNo: null, registeredByUserId: 'ADM-OPS',
+        approvalNo: null, registeredByUserId: 'ADM-OPS',
         closedAt: null, withdrawnReason: null, createdAt,
       };
       const remediations = [{ kind: 'TRANSFER', referenceNo: 'ITR1', linkedByUserId: 'ADM-OPS', createdAt }];
@@ -834,7 +794,8 @@ describe('INCIDENT_REPORT_BASES catalog (wave1)', () => {
     expect(REPORT_BASES.PDPL_ART_9.hours).toBeNull();
     expect(REPORT_BASES.PDPL_ART_9.immediate).toBeUndefined();
     expect(REPORT_BASES.TIR_II_C_24H.hours).toBe(24);
-    // 甲波一 T6：钟链起点是通知发出而非定损时刻——本码不参与 reportDeadlineAt 计算。
+    // 甲波一 T6：钟链起点是通知发出而非定损时刻——本码不参与钟锚计算（甲波二 T6：该计算
+    // 已迁到 RegulatoryFilingService.computeDeadline，事故自己不再落这只钟）。
     expect(REPORT_BASES.TIR_II_C_24H.chainStart).toBe('NOTICE');
     expect(REPORT_BASES.TIR_K_H.chainStart).toBeUndefined();
     expect(REPORT_BASES.COMPANY_IV_H_1.immediate).toBe(true);

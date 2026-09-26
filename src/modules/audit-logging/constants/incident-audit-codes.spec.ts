@@ -6,8 +6,13 @@ const N = AuditCorrelationMode.NONE;
 const S = AuditCorrelationMode.START;
 const I = AuditCorrelationMode.INHERIT;
 
-describe('平账三期 · 事故登记审计十一码（spec §7）', () => {
-  it('十一码全在治理名册，域 GOVERNANCE 已入合同', () => {
+// 甲波二 T6：单槽退役——事故不再自己收通报草案/落已通报，两码
+// INCIDENT_REGULATOR_REPORT_DRAFTED/INCIDENT_REGULATOR_REPORTED 随
+// saveReportDraft/markReported 一并退役（对应行为改由报送单主体自己的
+// FILING_DRAFT_SAVED/FILING_SUBMITTED 覆盖，见 regulatory-filing.service.spec.ts）。
+// 十一码 → 九码。
+describe('平账三期 · 事故登记审计九码（spec §7，甲波二 T6 收窄）', () => {
+  it('九码全在治理名册，域 GOVERNANCE 已入合同', () => {
     expect(CONTRACT_ACTION_DOMAINS).toContain('GOVERNANCE');
     expect(Object.keys(INCIDENT_AUDIT_ACTIONS).sort()).toEqual([
       'INCIDENT_ASSESSED',
@@ -17,8 +22,6 @@ describe('平账三期 · 事故登记审计十一码（spec §7）', () => {
       'INCIDENT_INVESTIGATION_STARTED',
       'INCIDENT_NOTE_ADDED',
       'INCIDENT_REGISTERED',
-      'INCIDENT_REGULATOR_REPORTED',
-      'INCIDENT_REGULATOR_REPORT_DRAFTED',
       'INCIDENT_REMEDIATION_LINKED',
       'INCIDENT_WITHDRAWN',
     ]);
@@ -55,12 +58,6 @@ describe('平账三期 · 事故登记审计十一码（spec §7）', () => {
     });
     expect(INCIDENT_AUDIT_ACTIONS.INCIDENT_REMEDIATION_LINKED).toEqual({
       domain: 'GOVERNANCE', correlationMode: N, requiredFields: ['referenceNo'], requiresCausation: false,
-    });
-    expect(INCIDENT_AUDIT_ACTIONS.INCIDENT_REGULATOR_REPORT_DRAFTED).toEqual({
-      domain: 'GOVERNANCE', correlationMode: N, requiredFields: [], requiresCausation: false,
-    });
-    expect(INCIDENT_AUDIT_ACTIONS.INCIDENT_REGULATOR_REPORTED).toEqual({
-      domain: 'GOVERNANCE', correlationMode: N, requiredFields: ['basisCodes'], requiresCausation: false,
     });
     expect(INCIDENT_AUDIT_ACTIONS.INCIDENT_CLOSE_REQUESTED).toEqual({
       domain: 'GOVERNANCE', correlationMode: I, requiredFields: [], requiresCausation: false,

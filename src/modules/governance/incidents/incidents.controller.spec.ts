@@ -13,14 +13,14 @@ describe('IncidentsController (Task 8: thin forwarding)', () => {
     startInvestigation: jest.fn(),
     addNote: jest.fn(),
     escalate: jest.fn(),
-    assess: jest.fn(),
     linkRemediation: jest.fn(),
-    saveReportDraft: jest.fn(),
-    markReported: jest.fn(),
     withdraw: jest.fn(),
   };
   const registrationWorkflow: any = { register: jest.fn() };
   const closeWorkflow: any = { requestClose: jest.fn() };
+  // 甲波二 T6：assess 端点改调 IncidentAssessmentWorkflowService（不再直调
+  // IncidentService.assess）——定损联动自动开单的编排点，见 incident-assessment-workflow.service.ts。
+  const assessmentWorkflow: any = { assess: jest.fn() };
 
   const adminReq = {
     user: { type: 'ADMIN', userId: 'uuid-ops', userNo: 'ADM-OPS', role: 'OPS_OFFICER', roleCodes: ['OPS_OFFICER'] },
@@ -32,7 +32,7 @@ describe('IncidentsController (Task 8: thin forwarding)', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
-    controller = new IncidentsController(incidents, registrationWorkflow, closeWorkflow);
+    controller = new IncidentsController(incidents, registrationWorkflow, closeWorkflow, assessmentWorkflow);
   });
 
   it('permission guards present: AuthGuard(jwt) + AdminPermissionGuard', () => {
@@ -81,27 +81,17 @@ describe('IncidentsController (Task 8: thin forwarding)', () => {
     expect(incidents.escalate).toHaveBeenCalledWith('INC1', dto, expectedActor);
   });
 
-  it('assess: forwards dto + actor', () => {
+  it('assess: forwards dto + actor to IncidentAssessmentWorkflowService (not IncidentService.assess)', () => {
     const dto = { assessedAmount: '100', assessmentBasis: 'NO_LOSS', reportRequired: false } as any;
     controller.assess('INC1', dto, adminReq);
-    expect(incidents.assess).toHaveBeenCalledWith('INC1', dto, expectedActor);
+    expect(assessmentWorkflow.assess).toHaveBeenCalledWith('INC1', dto, expectedActor);
+    expect(incidents.assess).toBeUndefined();
   });
 
   it('linkRemediation: forwards dto + actor', () => {
     const dto = { kind: 'ADJUSTMENT', referenceNo: 'ADJ1' } as any;
     controller.linkRemediation('INC1', dto, adminReq);
     expect(incidents.linkRemediation).toHaveBeenCalledWith('INC1', dto, expectedActor);
-  });
-
-  it('saveReportDraft: forwards draft field + actor', () => {
-    controller.saveReportDraft('INC1', { draft: 'Draft content' } as any, adminReq);
-    expect(incidents.saveReportDraft).toHaveBeenCalledWith('INC1', 'Draft content', expectedActor);
-  });
-
-  it('markReported: forwards dto + actor', () => {
-    const dto = { reference: 'REF1' } as any;
-    controller.markReported('INC1', dto, adminReq);
-    expect(incidents.markReported).toHaveBeenCalledWith('INC1', dto, expectedActor);
   });
 
   it('requestClose: forwards to IncidentCloseWorkflowService.requestClose + actor', () => {
@@ -120,8 +110,6 @@ describe('IncidentsController (Task 8: thin forwarding)', () => {
     ['escalate', () => controller.escalate('INC1', { to: 'MLRO', note: 'n' } as any, customerReq)],
     ['assess', () => controller.assess('INC1', { assessedAmount: '1', assessmentBasis: 'NO_LOSS', reportRequired: false } as any, customerReq)],
     ['linkRemediation', () => controller.linkRemediation('INC1', { kind: 'ADJUSTMENT', referenceNo: 'A1' } as any, customerReq)],
-    ['saveReportDraft', () => controller.saveReportDraft('INC1', { draft: 'd' } as any, customerReq)],
-    ['markReported', () => controller.markReported('INC1', {} as any, customerReq)],
     ['requestClose', () => controller.requestClose('INC1', customerReq)],
     ['withdraw', () => controller.withdraw('INC1', { reason: 'r' } as any, customerReq)],
   ])('%s: non-ADMIN token → 403 (assertAdmin backstops AdminPermissionGuard fail-open)', (_name, invoke) => {

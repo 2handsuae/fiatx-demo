@@ -1,8 +1,10 @@
 // 平账三期 · 事故登记（Task 8）：HTTP 层。路由→服务转发，不加业务规则
 // （校验/状态机/审计全在 Task 5-7 服务层）。登记端点必须走
 // IncidentRegistrationWorkflowService（铁律③跨主体写回定性行只在 workflow）；
-// 结案同理走 IncidentCloseWorkflowService（审批编排）。路径与 Task 4 在
-// rbac.catalog.ts 登记的 12 条 route() 逐条一致。
+// 结案同理走 IncidentCloseWorkflowService（审批编排）；定损端点同理走
+// IncidentAssessmentWorkflowService（甲波二 T6：reportRequired=true 时联动自动开报送单）。
+// 路径与 rbac.catalog.ts 登记的 route() 逐条一致（甲波二 T6：regulator-report 两条随
+// saveReportDraft/markReported 一并退役，12 → 10）。
 import { Body, Controller, ForbiddenException, Get, Param, Post, Query, Req, UseGuards, UsePipes, ValidationPipe } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { AuthGuard } from '@nestjs/passport';
@@ -13,9 +15,10 @@ import { ApprovalActorContext } from '../approvals/constants/approval.constants'
 import { IncidentService } from './incident.service';
 import { IncidentRegistrationWorkflowService } from './incident-registration-workflow.service';
 import { IncidentCloseWorkflowService } from './incident-close-workflow.service';
+import { IncidentAssessmentWorkflowService } from './incident-assessment-workflow.service';
 import {
   AddIncidentNoteDto, AssessIncidentBodyDto, EscalateIncidentBodyDto, IncidentListQueryDto,
-  LinkRemediationBodyDto, MarkReportedBodyDto, RegisterIncidentBodyDto, SaveReportDraftDto,
+  LinkRemediationBodyDto, RegisterIncidentBodyDto,
   WithdrawIncidentDto,
 } from './dto/incident.dto';
 
@@ -29,6 +32,7 @@ export class IncidentsController {
     private readonly incidents: IncidentService,
     private readonly registrationWorkflow: IncidentRegistrationWorkflowService,
     private readonly closeWorkflow: IncidentCloseWorkflowService,
+    private readonly assessmentWorkflow: IncidentAssessmentWorkflowService,
   ) {}
 
   /** 同 internal-transfer.controller.ts：整个 actor 往下传。 */
@@ -91,11 +95,11 @@ export class IncidentsController {
   }
 
   @Post(':incidentNo/assess')
-  @ApiOperation({ summary: 'Record assessment and reporting determination' })
+  @ApiOperation({ summary: 'Record assessment and reporting determination (auto-opens regulator filings when required)' })
   @RequirePermissions(buildPermissionCode('POST', '/admin/incidents/:incidentNo/assess'))
   assess(@Param('incidentNo') incidentNo: string, @Body() dto: AssessIncidentBodyDto, @Req() req: any) {
     this.assertAdmin(req);
-    return this.incidents.assess(incidentNo, dto, this.buildActor(req));
+    return this.assessmentWorkflow.assess(incidentNo, dto, this.buildActor(req));
   }
 
   @Post(':incidentNo/remediations')
@@ -104,22 +108,6 @@ export class IncidentsController {
   linkRemediation(@Param('incidentNo') incidentNo: string, @Body() dto: LinkRemediationBodyDto, @Req() req: any) {
     this.assertAdmin(req);
     return this.incidents.linkRemediation(incidentNo, dto, this.buildActor(req));
-  }
-
-  @Post(':incidentNo/regulator-report')
-  @ApiOperation({ summary: 'Save regulator report draft' })
-  @RequirePermissions(buildPermissionCode('POST', '/admin/incidents/:incidentNo/regulator-report'))
-  saveReportDraft(@Param('incidentNo') incidentNo: string, @Body() dto: SaveReportDraftDto, @Req() req: any) {
-    this.assertAdmin(req);
-    return this.incidents.saveReportDraft(incidentNo, dto.draft, this.buildActor(req));
-  }
-
-  @Post(':incidentNo/regulator-report/mark')
-  @ApiOperation({ summary: 'Mark regulator report as completed' })
-  @RequirePermissions(buildPermissionCode('POST', '/admin/incidents/:incidentNo/regulator-report/mark'))
-  markReported(@Param('incidentNo') incidentNo: string, @Body() dto: MarkReportedBodyDto, @Req() req: any) {
-    this.assertAdmin(req);
-    return this.incidents.markReported(incidentNo, dto, this.buildActor(req));
   }
 
   @Post(':incidentNo/close')

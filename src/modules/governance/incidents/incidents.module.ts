@@ -15,9 +15,14 @@ import { DispositionService } from '../../clearing-settle/reconciliation/disposi
 // 是 @Global()（access-control.module.ts），此处显式 import 是按 Ruling-2 接线，不依赖
 // 全局隐式可见性。
 import { AccessControlModule } from '../../identity/access-control/access-control.module';
+// 战役甲波二 T6：assess 联动自动开单要横向调 RegulatoryFilingService（getView 的通报摘要
+// 投影同理）——RegulatoryFilingsModule 不 import IncidentsModule（filing 侧零事故依赖，
+// 入参靠调用方传行），单向依赖不成环，不需要 forwardRef。
+import { RegulatoryFilingsModule } from '../regulatory-filings/regulatory-filings.module';
 import { IncidentService } from './incident.service';
 import { DISPOSITION_INCIDENT_LINK, DispositionIncidentLink, IncidentRegistrationWorkflowService } from './incident-registration-workflow.service';
 import { IncidentCloseWorkflowService } from './incident-close-workflow.service';
+import { IncidentAssessmentWorkflowService } from './incident-assessment-workflow.service';
 import {
   IncidentCloseFinancialApprovalService,
   IncidentCloseSecurityApprovalService,
@@ -36,12 +41,13 @@ const _dispositionIncidentLinkWitness: _AssertDispositionIncidentLink = true;
 void _dispositionIncidentLinkWitness;
 
 @Module({
-  imports: [PrismaModule, AuditLogsModule, ApprovalsModule, ReconciliationModule, AccessControlModule],
+  imports: [PrismaModule, AuditLogsModule, ApprovalsModule, ReconciliationModule, AccessControlModule, RegulatoryFilingsModule],
   controllers: [IncidentsController],
   providers: [
     IncidentService,
     IncidentRegistrationWorkflowService,
     IncidentCloseWorkflowService,
+    IncidentAssessmentWorkflowService,
     IncidentCloseSecurityApprovalService,
     IncidentCloseFinancialApprovalService,
     IncidentCloseTechsecApprovalService,

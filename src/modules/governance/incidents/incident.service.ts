@@ -17,9 +17,14 @@ import { ApprovalActorContext } from '../approvals/constants/approval.constants'
 import {
   AssessIncidentDto, EscalateIncidentDto, INCIDENT_REPORT_BASES, INCIDENT_TRANSITIONS,
   IncidentRemediationKinds, IncidentStatus, IncidentTypes, LinkRemediationDto,
-  MarkReportedDto, RegisterIncidentDto,
+  RegisterIncidentDto,
 } from './incident.constants';
 import { ASSESSMENT_BASIS_BY_SCHEME, getIncidentTypeConfig, IncidentTypeConfig, TOP_LEVEL_ANCHOR_KEYS } from './incident-type-registry';
+// 战役甲波二 T6：getView 横向只读通报现状（铁律③读放行）——单槽六列（reportDeadlineAt/
+// reportDraft/reportDraftedAt/reportedAt/reportedByUserId/reportReference）退役后，
+// 事故详情页改查报送单主体的 summaryForIncident。RegulatoryFilingsModule 不 import
+// IncidentsModule（filing 侧零事故依赖，入参靠调用方传行），单向依赖不成环。
+import { RegulatoryFilingService } from '../regulatory-filings/regulatory-filing.service';
 
 @Injectable()
 export class IncidentService {
@@ -27,6 +32,7 @@ export class IncidentService {
     private readonly prisma: PrismaService,
     private readonly auditLogs: AuditLogsService,
     private readonly accessControl: AccessControlService,
+    private readonly filings: RegulatoryFilingService,
   ) {}
 
   // ── 经办桶断言（战役甲波一 T5，高危面；修1 Ruling-6 重设计）：register 与十个经办
@@ -47,7 +53,7 @@ export class IncidentService {
     }
   }
 
-  /** 取现有事故行 + 按其现有类型做经办桶断言——investigation/notes/escalate/assess/remediations/withdraw/saveReportDraft/markReported 共用。 */
+  /** 取现有事故行 + 按其现有类型做经办桶断言——investigation/notes/escalate/assess/remediations/withdraw 共用（甲波二 T6：saveReportDraft/markReported 随单槽退役，见下方审计块注释）。 */
   private async assertOperatorForIncident(incidentNo: string, actor: ApprovalActorContext) {
     const row = await this.findByNo(incidentNo);
     await this.assertOperator(getIncidentTypeConfig(row.type), actor);
@@ -90,8 +96,7 @@ export class IncidentService {
       customerNo: row.customerNo ?? null, assetCode: row.assetCode ?? null,
       amount: row.amount != null ? row.amount.toString() : null,
       sourceCaseNo: row.sourceCaseNo ?? null,
-      reportRequired: row.reportRequired, reportedAt: row.reportedAt ? row.reportedAt.toISOString() : null,
-      reportDeadlineAt: row.reportDeadlineAt ? row.reportDeadlineAt.toISOString() : null,
+      reportRequired: row.reportRequired,
       createdAt: row.createdAt.toISOString(),
     };
   }
@@ -99,9 +104,10 @@ export class IncidentService {
   /** 详情：主体字段 + 调查时间线（notes）+ 善后单列表——铁律⑥投影，零 id。 */
   async getView(incidentNo: string) {
     const row = await this.findByNo(incidentNo);
-    const [notes, remediations] = await Promise.all([
+    const [notes, remediations, filings] = await Promise.all([
       this.prisma.incidentNote.findMany({ where: { incidentId: row.id }, orderBy: { createdAt: 'asc' } }),
       this.prisma.incidentRemediation.findMany({ where: { incidentId: row.id }, orderBy: { createdAt: 'asc' } }),
+      this.filings.summaryForIncident(row.incidentNo),
     ]);
     // Task 12：ADJUSTMENT 善后单要带上调账单状态——事故页「发起补款」按钮要判
     // 「挂载里有已落账（POSTED）认损调账单」，remediations 表本身不存这个状态
@@ -134,11 +140,9 @@ export class IncidentService {
       subjectRefs: row.subjectRefs ? JSON.parse(row.subjectRefs) : null,
       reportRequired: row.reportRequired,
       reportBasisCodes: row.reportBasisCodes ? row.reportBasisCodes.split(',') : [],
-      reportDeadlineAt: row.reportDeadlineAt ? row.reportDeadlineAt.toISOString() : null,
-      reportDraft: row.reportDraft ?? null,
-      reportDraftedAt: row.reportDraftedAt ? row.reportDraftedAt.toISOString() : null,
-      reportedAt: row.reportedAt ? row.reportedAt.toISOString() : null,
-      reportReference: row.reportReference ?? null,
+      // 甲波二 T6：单槽六列退役——通报现状（草案/已提交/机构/时限）改由报送单主体自己的
+      // 字段承载，横向只读挂这一个键，不再摊平进事故详情页顶层。
+      filings,
       approvalNo: row.approvalNo ?? null,
       registeredBy: row.registeredByUserId,
       closedAt: row.closedAt ? row.closedAt.toISOString() : null,
@@ -333,24 +337,26 @@ export class IncidentService {
     return { incidentNo, status: updated.status as string };
   }
 
-  // ── 定损 + 通报留痕（spec §4/§7：72h 倒计时从事故登记时刻起算——Task 6）───────
+  // ── 定损（spec §4/§7：三档口径共用一个入口——Task 6）──────────────────────
 
   /**
    * 定损：INVESTIGATING → ASSESSED。三档口径（MONETARY/IMPACT/SHORTFALL）共用一个入口
-   * （战役甲波一 Task 6，brief 行为合同四条）：
+   * （战役甲波一 Task 6，brief 行为合同）：
    * ① assessmentBasis 必须属于该事故类型 assessmentScheme 的合法集
    *   （`ASSESSMENT_BASIS_BY_SCHEME`，registry 文件）；
    * ② reportRequired=true 时 reportBasisCodes 必须是该类型 `cfg.reportBasisCandidates` 的子集
    *   （空候选集类型勾任何码即 400，如 ASSET_NONCOMPLIANCE）；
-   * ③ reportDeadlineAt = 事故登记时刻（`incident.createdAt`，不是定损时刻——条款措辞
-   *   "检测后 72h"，登记即检测记录）+ min(所选依据里"从定损起算的数字钟"码的 hours)；
-   *   全为 null/immediate/chainStart='NOTICE'（钟链起点是另一码的通知发出时刻，非本次
-   *   起算点）时保持 null，不杜撰时限；
-   * ④ MONETARY/SHORTFALL 口径必填 assessedAmount，IMPACT 口径必填 impactSummary。
+   * ③ MONETARY/SHORTFALL 口径必填 assessedAmount，IMPACT 口径必填 impactSummary。
    * 新增校验放在经办门（`assertOperatorForIncident`）之后、迁移守卫（`assertTransition`）
    * 之前——需要 `row.type` 才能取 cfg，经办门的 `findByNo` 顺带把行取到，不重复查询。
+   *
+   * 战役甲波二 T6：钟锚计算（原③"reportDeadlineAt = 登记时刻 + min(所选依据里数字钟)"）与
+   * 落库整体迁到 `RegulatoryFilingService.openForIncident`/`computeDeadline`——本方法只管
+   * 判定本身（assessmentBasis/basisCodes 校验 + 落库 + 审计留痕），reportRequired=true 时
+   * 逐码开报送单是 `IncidentAssessmentWorkflowService.assess`（铁律③跨主体协作在
+   * workflow）编排的下一步，不在本方法内做。
    */
-  async assess(incidentNo: string, dto: AssessIncidentDto, actor: ApprovalActorContext): Promise<{ incidentNo: string; status: string; reportDeadlineAt: Date | null }> {
+  async assess(incidentNo: string, dto: AssessIncidentDto, actor: ApprovalActorContext): Promise<{ incidentNo: string; status: string }> {
     const row = await this.assertOperatorForIncident(incidentNo, actor);
     const cfg = getIncidentTypeConfig(row.type);
     const allowedBases = ASSESSMENT_BASIS_BY_SCHEME[cfg.assessmentScheme];
@@ -381,7 +387,6 @@ export class IncidentService {
         impactCount: dto.impactCount ?? null,
         reportRequired: dto.reportRequired,
         reportBasisCodes: basisCodes.length ? basisCodes.join(',') : null,
-        reportDeadlineAt: this.computeReportDeadline(row.createdAt, basisCodes),
       },
     });
     // requiredFields=['assessmentBasis']（INCIDENT_AUDIT_ACTIONS）——顶层传，assertActionSpec 直接读得到。
@@ -393,54 +398,7 @@ export class IncidentService {
         impactCount: dto.impactCount ?? null, reportRequired: dto.reportRequired, reportBasisCodes: basisCodes,
       },
     });
-    return { incidentNo, status: updated.status as string, reportDeadlineAt: updated.reportDeadlineAt ?? null };
-  }
-
-  /** 只对选中依据里 hours 非 null 且不是 chainStart='NOTICE' 钟链码的取 min；
-   * 全无符合条件的钟则返回 null（界面显式「未设时限」）。 */
-  private computeReportDeadline(createdAt: Date, basisCodes: string[]): Date | null {
-    const hours = basisCodes
-      .map((code) => (INCIDENT_REPORT_BASES as Record<string, { hours: number | null; chainStart?: 'NOTICE' }>)[code])
-      .filter((b): b is { hours: number; chainStart?: 'NOTICE' } => !!b && b.hours != null && b.chainStart !== 'NOTICE')
-      .map((b) => b.hours);
-    if (!hours.length) return null;
-    return new Date(createdAt.getTime() + Math.min(...hours) * 3600 * 1000);
-  }
-
-  /**
-   * 存监管通报草案。首次落草案记 `INCIDENT_REGULATOR_REPORT_DRAFTED` 审计 + `reportDraftedAt`
-   * （勘定结论：审计只证"何时开始起草"与"何时通报"两个时点）；再次保存只更新草案字段，不重记该码。
-   */
-  async saveReportDraft(incidentNo: string, draft: string, actor: ApprovalActorContext): Promise<{ incidentNo: string }> {
-    const row = await this.assertOperatorForIncident(incidentNo, actor);
-    const isFirst = !row.reportDraft;
-    const patch: Record<string, unknown> = { reportDraft: draft };
-    if (isFirst) patch.reportDraftedAt = new Date();
-    const updated = await this.prisma.incident.update({ where: { incidentNo }, data: patch });
-    if (isFirst) {
-      await this.recordAudit(updated, AuditActions.INCIDENT_REGULATOR_REPORT_DRAFTED, actor, {
-        reason: 'Drafted regulator report',
-      });
-    }
-    return { incidentNo };
-  }
-
-  /** 标已通报：前置 reportRequired && reportDraft 非空；落 reportedAt/reportedByUserId，软标不推状态。 */
-  async markReported(incidentNo: string, dto: MarkReportedDto, actor: ApprovalActorContext): Promise<{ incidentNo: string }> {
-    const row = await this.assertOperatorForIncident(incidentNo, actor);
-    if (!row.reportRequired || !row.reportDraft) {
-      throw new BadRequestException('Reporting must be determined required, and a report draft must already exist, before marking as reported');
-    }
-    const updated = await this.prisma.incident.update({
-      where: { incidentNo },
-      data: { reportedAt: new Date(), reportedByUserId: actor.userNo ?? actor.userId, reportReference: dto.reference ?? null },
-    });
-    // requiredFields=['basisCodes']（spec §7 硬性要求）——值是落库同款逗号分隔字符串，非数组。
-    await this.recordAudit(updated, AuditActions.INCIDENT_REGULATOR_REPORTED, actor, {
-      reason: 'Regulator report completed', extra: { basisCodes: row.reportBasisCodes },
-      metadata: { basisCodes: row.reportBasisCodes, reference: dto.reference ?? null },
-    });
-    return { incidentNo };
+    return { incidentNo, status: updated.status as string };
   }
 
   // ── 善后挂载（spec §5：只校验单号存在，不管账，不管归属校验之外的东西）────
@@ -547,9 +505,11 @@ export class IncidentService {
     return { incidentNo, status: updated.status as string };
   }
 
-  // ── 审计（十一码共用信封的当前子集：REGISTERED/INVESTIGATION_STARTED/NOTE_ADDED/
-  //     ESCALATED/ASSESSED/REMEDIATION_LINKED/REGULATOR_REPORT_DRAFTED/REGULATOR_REPORTED/
-  //     WITHDRAWN——CLOSE_REQUESTED/CLOSED 由 IncidentCloseWorkflowService 记，见上）──
+  // ── 审计（甲波二 T6：单槽退役后九码共用信封的当前子集：REGISTERED/INVESTIGATION_STARTED/
+  //     NOTE_ADDED/ESCALATED/ASSESSED/REMEDIATION_LINKED/WITHDRAWN——CLOSE_REQUESTED/CLOSED
+  //     由 IncidentCloseWorkflowService 记，见上；原 REGULATOR_REPORT_DRAFTED/
+  //     REGULATOR_REPORTED 两码随 saveReportDraft/markReported 一并退役，对应行为改由
+  //     报送单主体自己的 FILING_DRAFT_SAVED/FILING_SUBMITTED 覆盖）──
 
   private async recordAudit(row: any, action: string, actor: ApprovalActorContext, patch: {
     reason?: string; fromStatus?: string; toStatus?: string; correlationId?: string;

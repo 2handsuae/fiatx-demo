@@ -4,10 +4,10 @@ import { IncidentStatus as S, IncidentTypes as T } from './incident.constants';
 
 const treasury = { actorType: 'ADMIN' as const, userId: 'uuid-treasury', userNo: 'ADM-TRS', roleCodes: ['TREASURY_OFFICER'] };
 
-function makeWorkflow(o: Partial<Record<'incidentRow' | 'remediations', any>> = {}) {
+function makeWorkflow(o: Partial<Record<'incidentRow' | 'remediations' | 'filingsSummary', any>> = {}) {
   const incidentRow = o.incidentRow ?? {
     id: 'uuid-inc', incidentNo: 'INC1', type: T.CLIENT_SHORTFALL, status: S.ASSESSED,
-    assessmentBasis: 'NO_LOSS', assessedAmount: null, reportRequired: false, reportedAt: null,
+    assessmentBasis: 'NO_LOSS', assessedAmount: null, reportRequired: false,
     customerNo: 'CU1', sourceCaseNo: 'REC1', traceId: 'trace-1',
   };
   const remediations = o.remediations ?? [];
@@ -23,8 +23,12 @@ function makeWorkflow(o: Partial<Record<'incidentRow' | 'remediations', any>> = 
   };
   const approvals: any = { createAndSubmit: jest.fn(async () => ({ approvalNo: 'AC1' })) };
   const auditLogs: any = { recordByActor: jest.fn(async () => ({})), recordSystem: jest.fn(async () => ({})) };
-  const wf = new IncidentCloseWorkflowService(incidents, approvals, auditLogs);
-  return { wf, incidents, approvals, auditLogs, incidentRow };
+  // 甲波二 T6：结案守卫改判为报送单口径——事故自己不再存 reportedAt（已退役），改横向只读
+  // RegulatoryFilingService.summaryForIncident（铁律③读放行）。默认零单，reportRequired=true
+  // 的用例必须显式喂 filingsSummary，否则会在这道门被拦（同 heldMarkers 先例）。
+  const filings: any = { summaryForIncident: jest.fn(async () => o.filingsSummary ?? []) };
+  const wf = new IncidentCloseWorkflowService(incidents, approvals, auditLogs, filings);
+  return { wf, incidents, approvals, auditLogs, filings, incidentRow };
 }
 
 describe('IncidentCloseWorkflowService (Task 7)', () => {
@@ -77,24 +81,56 @@ describe('IncidentCloseWorkflowService (Task 7)', () => {
       await expect(wf.requestClose('INC1', treasury)).resolves.toBeDefined();
     });
 
-    it('reportRequired=true but not yet markReported → 400 (cannot close without a reporting trace)', async () => {
-      const { wf } = makeWorkflow({ incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', type: T.CLIENT_SHORTFALL, status: S.RESOLVING, reportRequired: true, reportedAt: null, traceId: 't' } });
-      await expect(wf.requestClose('INC1', treasury)).rejects.toThrow(/regulator reporting/);
+    // 甲波二 T6：结案守卫改判为报送单口径——不再看事故自己的 reportedAt（该列已退役），
+    // 改横向只读 RegulatoryFilingService.summaryForIncident（铁律③读放行）。零单 / 有未
+    // 提交单 / 全部已提交，三条分支各自独立验证。
+    it('reportRequired=true + zero filings opened → 400 ("no filing opened")', async () => {
+      const { wf, filings } = makeWorkflow({ incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', type: T.CLIENT_SHORTFALL, status: S.RESOLVING, reportRequired: true, traceId: 't' } });
+      await expect(wf.requestClose('INC1', treasury)).rejects.toThrow(/have not yet been submitted — it cannot be closed \(no filing opened\)/);
+      expect(filings.summaryForIncident).toHaveBeenCalledWith('INC1');
     });
 
-    it('reportRequired=true and already markReported → allowed', async () => {
-      const { wf } = makeWorkflow({ incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', type: T.CLIENT_SHORTFALL, status: S.RESOLVING, reportRequired: true, reportedAt: new Date(), traceId: 't' } });
+    it('reportRequired=true + one filing still unsubmitted → 400 (names the unsubmitted filingNo)', async () => {
+      const { wf } = makeWorkflow({
+        incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', type: T.CLIENT_SHORTFALL, status: S.RESOLVING, reportRequired: true, traceId: 't' },
+        filingsSummary: [
+          { filingNo: 'FIL1', basisCode: 'CRM_IV_E_5', status: 'SUBMITTED', submittedAt: '2026-09-26T00:00:00.000Z' },
+          { filingNo: 'FIL2', basisCode: 'CRM_V_D_2', status: 'SIGNED_OFF', submittedAt: null },
+        ],
+      });
+      await expect(wf.requestClose('INC1', treasury)).rejects.toThrow(/have not yet been submitted — it cannot be closed \(FIL2\)/);
+    });
+
+    it('reportRequired=true + all filings submitted → allowed', async () => {
+      const { wf } = makeWorkflow({
+        incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', type: T.CLIENT_SHORTFALL, status: S.RESOLVING, reportRequired: true, traceId: 't' },
+        filingsSummary: [
+          { filingNo: 'FIL1', basisCode: 'CRM_IV_E_5', status: 'SUBMITTED', submittedAt: '2026-09-26T00:00:00.000Z' },
+        ],
+      });
+      await expect(wf.requestClose('INC1', treasury)).resolves.toBeDefined();
+    });
+
+    it('reportRequired=true + a CANCELLED filing does not count against the requirement (filtered out before the check)', async () => {
+      const { wf } = makeWorkflow({
+        incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', type: T.CLIENT_SHORTFALL, status: S.RESOLVING, reportRequired: true, traceId: 't' },
+        filingsSummary: [
+          { filingNo: 'FIL1', basisCode: 'CRM_IV_E_5', status: 'SUBMITTED', submittedAt: '2026-09-26T00:00:00.000Z' },
+          { filingNo: 'FIL2', basisCode: 'CRM_V_D_2', status: 'CANCELLED', submittedAt: null },
+        ],
+      });
       await expect(wf.requestClose('INC1', treasury)).resolves.toBeDefined();
     });
 
     // 甲波一 T5 修1（Ruling-7/I3 修复）：close 是十入口第 7 个——assertOperator 拒绝时，
     // 结案入口必须在提交审批之前就短路，不许先造出一份审批实例再拒绝。
     it('actor lacks the operator capability → Forbidden, createAndSubmit untouched (十门失效验证之close)', async () => {
-      const { wf, incidents, approvals } = makeWorkflow({ incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', type: T.CLIENT_SHORTFALL, status: S.RESOLVING, assessmentBasis: 'NO_LOSS', reportRequired: false, traceId: 't' } });
+      const { wf, incidents, approvals, filings } = makeWorkflow({ incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', type: T.CLIENT_SHORTFALL, status: S.RESOLVING, assessmentBasis: 'NO_LOSS', reportRequired: false, traceId: 't' } });
       incidents.assertOperator.mockRejectedValueOnce(new ForbiddenException('no capability'));
       await expect(wf.requestClose('INC1', treasury)).rejects.toThrow(ForbiddenException);
       expect(approvals.createAndSubmit).not.toHaveBeenCalled();
       expect(incidents.markCloseRequested).not.toHaveBeenCalled();
+      expect(filings.summaryForIncident).not.toHaveBeenCalled();
     });
   });
 
@@ -259,9 +295,10 @@ describe('IncidentCloseWorkflowService (Task 7)', () => {
         incidentRow: {
           id: 'uuid-inc', incidentNo: 'INC1', type: T.CLIENT_SHORTFALL, status: S.RESOLVING,
           assessmentBasis: 'CLIENT_COLLECTION', assessedAmount: { toString: () => '900' },
-          reportRequired: true, reportedAt: new Date(), customerNo: 'CU1', sourceCaseNo: 'REC1', traceId: 'trace-9',
+          reportRequired: true, customerNo: 'CU1', sourceCaseNo: 'REC1', traceId: 'trace-9',
         },
         remediations: ['ITR9'],
+        filingsSummary: [{ filingNo: 'FIL1', basisCode: 'CRM_IV_E_5', status: 'SUBMITTED', submittedAt: '2026-09-26T00:00:00.000Z' }],
       });
       const r = await wf.requestClose('INC1', treasury);
       expect(r).toEqual({ incidentNo: 'INC1', approvalNo: 'AC1' });
@@ -287,7 +324,7 @@ describe('IncidentCloseWorkflowService (Task 7)', () => {
         incidentRow: {
           id: 'uuid-inc', incidentNo: 'INC1', type: T.UNAUTHORIZED_OUTFLOW, status: S.RESOLVING,
           assessmentBasis: 'FIRM_LOSS', assessedAmount: { toString: () => '400' }, assetCode: 'USDT-TRON',
-          reportRequired: false, reportedAt: null, customerNo: null, sourceCaseNo: 'REC1', traceId: 'trace-2',
+          reportRequired: false, customerNo: null, sourceCaseNo: 'REC1', traceId: 'trace-2',
         },
         remediations: ['ADJ2'],
       });

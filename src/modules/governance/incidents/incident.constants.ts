@@ -104,8 +104,9 @@ export interface LinkRemediationDto {
 /** 依据条款目录（spec §4/波一 §5）。一码=一项通报义务（一只钟+一个受文机构）。
  * hours=null 且无 immediate → 条款未载明时限（不杜撰）；immediate=true → 即时义务（无小时钟）。
  * chainStart='NOTICE'（战役甲波一 Task 6）：钟链起点是另一码触发的"通知发出"时刻，不是定损/
- * 登记时刻——本码即便带 hours，也不参与 IncidentService.computeReportDeadline 的
- * reportDeadlineAt 计算（波一不落这只钟的目标时刻，只留痕依据码本身）。 */
+ * 登记时刻——本码即便带 hours，也不参与钟锚计算（甲波二 T6：该计算已迁到
+ * RegulatoryFilingService.computeDeadline，见 regulatory-filing.service.ts；本码到期即便带
+ * hours 也不入首次开单的 deadlineAt，起算改由兄弟单提交时补落，见 markSubmitted 的钟链回填）。 */
 export const INCIDENT_REPORT_BASES: Record<string, { label: string; hours: number | null; immediate?: true; chainStart?: 'NOTICE'; authority: string }> = {
   TIR_K_H: { label: 'TIR Rulebook Section K + H — material incident (cyber/BCDR, major stuck-transaction) reporting to VARA within 72 hours', hours: 72, authority: 'VARA' },
   CRM_IV_E_5: { label: 'CRM IV.E.5 — Material Client Money discrepancy', hours: null, authority: 'VARA' },
@@ -131,6 +132,3 @@ export interface AssessIncidentDto {
   reportBasisCodes?: string[];
 }
 
-export interface MarkReportedDto {
-  reference?: string;
-}

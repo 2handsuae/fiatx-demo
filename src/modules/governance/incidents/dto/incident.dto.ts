@@ -1,6 +1,8 @@
 // 平账三期 · 事故登记（Task 8）：HTTP 层 DTO。校验只做既有惯例的必填/类型，
-// 外加上游点名的两条服务层刻意没做的枚举校验（assessmentBasis 七选一、
-// saveReportDraft 的 draft 非空）——不加其余防御性校验（CLAUDE.md §2）。
+// 外加上游点名的服务层刻意没做的枚举校验（assessmentBasis 七选一）——不加其余
+// 防御性校验（CLAUDE.md §2）。甲波二 T6：SaveReportDraftDto/MarkReportedBodyDto
+// 随 saveReportDraft/markReported 端点退役一并删除（草案/已通报改走报送单主体自己的
+// DTO，见 regulatory-filing.dto.ts）。
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import { IsArray, IsBoolean, IsIn, IsInt, IsNotEmpty, IsObject, IsOptional, IsString } from 'class-validator';
@@ -64,14 +66,6 @@ export class AssessIncidentBodyDto {
 export class LinkRemediationBodyDto {
   @ApiProperty({ enum: REMEDIATION_KIND_VALUES }) @IsIn(REMEDIATION_KIND_VALUES) kind!: (typeof REMEDIATION_KIND_VALUES)[number];
   @ApiProperty() @IsString() @IsNotEmpty() referenceNo!: string;
-}
-
-export class SaveReportDraftDto {
-  @ApiProperty() @IsString() @IsNotEmpty() draft!: string;
-}
-
-export class MarkReportedBodyDto {
-  @ApiPropertyOptional() @IsOptional() @IsString() reference?: string;
 }
 
 export class WithdrawIncidentDto {

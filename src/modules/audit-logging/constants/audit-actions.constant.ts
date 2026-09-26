@@ -397,8 +397,6 @@ export const AuditActions = {
   INCIDENT_ESCALATED: 'INCIDENT_ESCALATED',
   INCIDENT_ASSESSED: 'INCIDENT_ASSESSED',
   INCIDENT_REMEDIATION_LINKED: 'INCIDENT_REMEDIATION_LINKED',
-  INCIDENT_REGULATOR_REPORT_DRAFTED: 'INCIDENT_REGULATOR_REPORT_DRAFTED',
-  INCIDENT_REGULATOR_REPORTED: 'INCIDENT_REGULATOR_REPORTED',
   INCIDENT_CLOSE_REQUESTED: 'INCIDENT_CLOSE_REQUESTED',
   INCIDENT_CLOSED: 'INCIDENT_CLOSED',
   INCIDENT_WITHDRAWN: 'INCIDENT_WITHDRAWN',
@@ -949,14 +947,18 @@ export const V7_TREASURY_AUDIT_ACTIONS: Record<string, AuditActionSpec> = {
 };
 
 /**
- * 治理域名册（平账三期 · 事故登记，2026-09-06）——事故 Incident 十一码，域 GOVERNANCE
- * （spec §7 业主拍板）。主对象一律 INCIDENT · incidentNo。
+ * 治理域名册（平账三期 · 事故登记，2026-09-06；甲波二 T6 收窄至九码，2026-09-26）——
+ * 事故 Incident 九码，域 GOVERNANCE（spec §7 业主拍板）。主对象一律 INCIDENT · incidentNo。
  * REGISTERED 起事故自己的旅程（S，铸 traceId）；CLOSE_REQUESTED / CLOSED 是结案两步
  * maker-checker，继承同一旅程（I），CLOSED 由审批裁决驱动带因果、必填 approvalNo。
- * 中段八个（调查开始 / 记笔记 / 升级 / 定损 / 挂善后 / 通报草案 / 已通报 / 撤回）都是
- * 运营对事故单的直接一次性操作——不经 createAndSubmit 审批旅程，没有 START 步铸的
- * correlationId 可继承，correlationMode 定 NONE，不伪造关联（二期判例：同
- * CUSTOMER_TAG_ASSIGNED/REVOKED 一样，单步动作没有旅程可继承时老实标 NONE）。
+ * 中段六个（调查开始 / 记笔记 / 升级 / 定损 / 挂善后 / 撤回）都是运营对事故单的直接一次性
+ * 操作——不经 createAndSubmit 审批旅程，没有 START 步铸的 correlationId 可继承，
+ * correlationMode 定 NONE，不伪造关联（二期判例：同 CUSTOMER_TAG_ASSIGNED/REVOKED 一样，
+ * 单步动作没有旅程可继承时老实标 NONE）。
+ * 甲波二 T6：原十一码收窄两码——INCIDENT_REGULATOR_REPORT_DRAFTED/INCIDENT_REGULATOR_REPORTED
+ * 随 IncidentService.saveReportDraft/markReported 一并退役（事故不再自己收通报草案/自己标
+ * 已通报，改统一走报送单主体，对应行为改由 REG_FILING_AUDIT_ACTIONS 的
+ * FILING_DRAFT_SAVED/FILING_SUBMITTED 覆盖，见下方报送台名册）。
  */
 export const INCIDENT_AUDIT_ACTIONS: Record<string, AuditActionSpec> = {
   INCIDENT_REGISTERED:               { domain: 'GOVERNANCE', correlationMode: S, requiredFields: ['type'], requiresCausation: false },
@@ -966,9 +968,6 @@ export const INCIDENT_AUDIT_ACTIONS: Record<string, AuditActionSpec> = {
   INCIDENT_ESCALATED:                { domain: 'GOVERNANCE', correlationMode: N, requiredFields: ['escalatedTo'], requiresCausation: false },
   INCIDENT_ASSESSED:                 { domain: 'GOVERNANCE', correlationMode: N, requiredFields: ['assessmentBasis'], requiresCausation: false },
   INCIDENT_REMEDIATION_LINKED:       { domain: 'GOVERNANCE', correlationMode: N, requiredFields: ['referenceNo'], requiresCausation: false },
-  INCIDENT_REGULATOR_REPORT_DRAFTED: { domain: 'GOVERNANCE', correlationMode: N, requiredFields: [], requiresCausation: false },
-  // basisCodes：逗号分隔依据码字符串（INCIDENT_REPORT_BASES 目录键，spec §7 必填）
-  INCIDENT_REGULATOR_REPORTED:       { domain: 'GOVERNANCE', correlationMode: N, requiredFields: ['basisCodes'], requiresCausation: false },
   INCIDENT_CLOSE_REQUESTED:          { domain: 'GOVERNANCE', correlationMode: I, requiredFields: [], requiresCausation: false },
   INCIDENT_CLOSED:                   { domain: 'GOVERNANCE', correlationMode: I, requiredFields: ['approvalNo'], requiresCausation: true },
   INCIDENT_WITHDRAWN:                { domain: 'GOVERNANCE', correlationMode: N, requiredFields: ['reason'], requiresCausation: false },

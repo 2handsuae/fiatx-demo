@@ -18,6 +18,9 @@ import { ApprovalActorContext, DEFAULT_APPROVAL_POLICIES } from '../approvals/co
 import { IncidentStatus } from './incident.constants';
 import { getIncidentTypeConfig, INCIDENT_TYPE_REGISTRY } from './incident-type-registry';
 import { IncidentService } from './incident.service';
+// 战役甲波二 T6：结案守卫改判为报送单口径——事故自己的 reportedAt 已退役，通报是否完成
+// 改横向只读 RegulatoryFilingService.summaryForIncident（铁律③读放行）。
+import { RegulatoryFilingService } from '../regulatory-filings/regulatory-filing.service';
 
 // 走查发现 Fix 1：结案审批页是 MLRO/CFO 的最后一道人闸，其余审批类型（模板见
 // internal-transfer-workflow.service.ts 的 impact 串）都给裁决人一句人话后果描述，
@@ -43,13 +46,15 @@ export class IncidentCloseWorkflowService {
     private readonly incidents: IncidentService,
     private readonly approvals: ApprovalsService,
     private readonly auditLogs: AuditLogsService,
+    private readonly filings: RegulatoryFilingService,
   ) {}
 
   /**
    * 申请结案（真正入口，HTTP 层调这个，不直接调 IncidentService）。
    * 前置：状态 ∈ {ASSESSED（仅"无善后径"——定损口径 NO_LOSS，或该类型压根没有可挂载的善后
    * 动作——且零善后挂载）, RESOLVING}；REGISTERED/INVESTIGATING（还没定损）→ 400（变异靶子①：
-   * 这条守卫必须单独测）。reportRequired=true 而未 markReported → 400（通报没留痕不许关）。
+   * 这条守卫必须单独测）。reportRequired=true 而报送单未全部提交（甲波二 T6：改横向只读
+   * RegulatoryFilingService.summaryForIncident，见下方守卫实现）→ 400（通报没留痕不许关）。
    *
    * 战役甲波一 T8 修复轮 1（评审 C1·Critical，裁决 Ruling-10 采乙案）：ASSESSED→CLOSED 这条边
    * 语义是"无善后"，不是"assessmentBasis 字面等于 NO_LOSS"——旧写法把两者当同一件事，导致
@@ -94,8 +99,20 @@ export class IncidentCloseWorkflowService {
       }
       throw new BadRequestException(`Incident ${incidentNo} is in status ${row.status} — close cannot be requested until assessment is complete (Assessed or Resolving)`);
     }
-    if (row.reportRequired && !row.reportedAt) {
-      throw new BadRequestException(`Incident ${incidentNo} is determined to require regulator reporting but has not been marked as reported — it cannot be closed`);
+    // 战役甲波二 T6：结案守卫改判为报送单口径——事故自己不再存 reportedAt（单槽六列已退役），
+    // 通报是否完成改横向只读 RegulatoryFilingService.summaryForIncident（铁律③读放行）。
+    // basisCode!=null 过滤掉非事故通报类型的杂项（本查询按 incidentNo 过滤，理论上不会混入，
+    // 纯防御）；status!=='CANCELLED' 过滤掉已作废单——作废不代表义务免除，但也不该拿一张
+    // 作废单去卡"未提交"，故不计入 unsubmitted 判断。
+    let reported = false;
+    if (row.reportRequired) {
+      const filingRows = (await this.filings.summaryForIncident(incidentNo))
+        .filter((f) => f.basisCode != null && f.status !== 'CANCELLED');
+      const unsubmitted = filingRows.filter((f) => !f.submittedAt);
+      if (filingRows.length === 0 || unsubmitted.length > 0) {
+        throw new BadRequestException(`Incident ${incidentNo} requires regulator reporting but its filing(s) have not yet been submitted — it cannot be closed (${filingRows.length === 0 ? 'no filing opened' : unsubmitted.map((f) => f.filingNo).join(', ')})`);
+      }
+      reported = true;
     }
 
     // 战役甲波一 Task 8：三元退役——结案链按类型分流不再手写两支判断，改查注册表的
@@ -121,7 +138,7 @@ export class IncidentCloseWorkflowService {
           amount: row.assessedAmount != null ? row.assessedAmount.toString() : null,
           assessmentBasis: row.assessmentBasis ?? null,
           remediationReferenceNos,
-          reported: !!row.reportedAt,
+          reported,
           impact,
           ...(row.impactSummary ? { impactSummary: row.impactSummary } : {}),
           ...(row.subjectRefs ? { subjectRefs: JSON.parse(row.subjectRefs) } : {}),
@@ -143,10 +160,11 @@ export class IncidentCloseWorkflowService {
    * 审批裁决落地。非 APPROVED（DECLINED/CANCELLED/EXPIRED）一律留在原状态、不动 incidents
    * 表——ApprovalsService 自己的 APPROVAL_DECLINED/APPROVAL_EXPIRED/APPROVAL_CANCELLED
    * 审计已经记了这次裁决本身，加上申请时已落的 INCIDENT_CLOSE_REQUESTED（带 approvalNo），
-   * 两条对上就能查全链路——事故域的十一码审计名册是 spec §7 业主拍板的固定集合
-   * （REGISTERED/INVESTIGATION_STARTED/NOTE_ADDED/ESCALATED/ASSESSED/REMEDIATION_LINKED/
-   * REGULATOR_REPORT_DRAFTED/REGULATOR_REPORTED/CLOSE_REQUESTED/CLOSED/WITHDRAWN，
-   * 见 audit-actions.constant.ts 头注释），没有第十二码留给"结案被拒"，故不在这里
+   * 两条对上就能查全链路——事故域的九码审计名册是 spec §7 业主拍板的固定集合（甲波二 T6：
+   * 原十一码收窄两码，REGULATOR_REPORT_DRAFTED/REGULATOR_REPORTED 随 saveReportDraft/
+   * markReported 一并退役）：REGISTERED/INVESTIGATION_STARTED/NOTE_ADDED/ESCALATED/
+   * ASSESSED/REMEDIATION_LINKED/CLOSE_REQUESTED/CLOSED/WITHDRAWN，
+   * 见 audit-actions.constant.ts 头注释），没有第十码留给"结案被拒"，故不在这里
    * 另造审计码——与 admin-suspension-workflow.service.ts 的 handleApprovalDecided
    * （只处理 APPROVED，非 APPROVED 直接 no-op）同一先例。
    */
