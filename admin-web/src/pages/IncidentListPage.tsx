@@ -18,10 +18,7 @@ import {
   INCIDENT_TYPE_LABEL,
   INCIDENT_TYPE_REGISTRY_MIRROR,
   INCIDENT_TYPES,
-  REPORT_DEADLINE_TONE_CLASS,
   TOP_LEVEL_ANCHOR_KEYS,
-  reportDeadlineDisplay,
-  reportStatusLabel,
 } from '../utils/incidentStatusMap';
 
 /** subjectRefs 单个字段值——checkbox 是 boolean，multiselect 是选中值数组（提交时 join(',')），其余是字符串。 */
@@ -37,8 +34,6 @@ interface Item {
   amount: string | null;
   sourceCaseNo: string | null;
   reportRequired: boolean;
-  reportedAt: string | null;
-  reportDeadlineAt: string | null;
   createdAt: string;
 }
 
@@ -414,37 +409,32 @@ const IncidentListPage = () => {
         <table className="w-full text-xs">
           <thead className="sticky top-0 bg-adm-panel">
             <tr className="border-b border-adm-border text-left text-adm-t3">
-              {['No.', 'Type', 'Status', 'Amount', 'Source Case', 'Report Status', 'Deadline'].map((h) => (
+              {['No.', 'Type', 'Status', 'Amount', 'Source Case', 'Reporting'].map((h) => (
                 <th key={h} className="px-4 py-2 font-mono text-[10px] uppercase tracking-wide">{h}</th>
               ))}
             </tr>
           </thead>
           <tbody>
-            {items.map((it) => {
-              const deadline = reportDeadlineDisplay(it.reportDeadlineAt, it.reportedAt);
-              return (
-                <tr
-                  key={it.incidentNo}
-                  onClick={() => navigate(`/admin/governance/incidents/${encodeURIComponent(it.incidentNo)}`)}
-                  className="cursor-pointer border-b border-adm-border/60 hover:bg-adm-hover/40"
-                >
-                  <td className="px-4 py-2 font-mono text-adm-blue">{it.incidentNo}</td>
-                  <td className="px-4 py-2">{INCIDENT_TYPE_LABEL[it.type] ?? it.type}</td>
-                  <td className="px-4 py-2"><StatusPill value={it.status} /></td>
-                  <td className="px-4 py-2 font-mono">{it.amount != null ? `${it.amount} ${it.assetCode ?? ''}` : '—'}</td>
-                  <td className="px-4 py-2 font-mono">{it.sourceCaseNo ?? '—'}</td>
-                  <td className="px-4 py-2">{reportStatusLabel(it.reportRequired, it.reportedAt)}</td>
-                  <td className="px-4 py-2">
-                    <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-[10px] font-semibold ${REPORT_DEADLINE_TONE_CLASS[deadline.tone]}`}>
-                      {deadline.text}
-                    </span>
-                  </td>
-                </tr>
-              );
-            })}
+            {items.map((it) => (
+              <tr
+                key={it.incidentNo}
+                onClick={() => navigate(`/admin/governance/incidents/${encodeURIComponent(it.incidentNo)}`)}
+                className="cursor-pointer border-b border-adm-border/60 hover:bg-adm-hover/40"
+              >
+                <td className="px-4 py-2 font-mono text-adm-blue">{it.incidentNo}</td>
+                <td className="px-4 py-2">{INCIDENT_TYPE_LABEL[it.type] ?? it.type}</td>
+                <td className="px-4 py-2"><StatusPill value={it.status} /></td>
+                <td className="px-4 py-2 font-mono">{it.amount != null ? `${it.amount} ${it.assetCode ?? ''}` : '—'}</td>
+                <td className="px-4 py-2 font-mono">{it.sourceCaseNo ?? '—'}</td>
+                {/* 战役甲波二 T9（评审黄1 补裁）：Report Status/Deadline 两列随单槽退役——截止
+                    时间与超时红标的可视面统一搬到报送台列表页，事故列表不再重复；这里只留
+                    「该不该报」这一件事故域自己的判定留痕。 */}
+                <td className="px-4 py-2">{it.reportRequired ? 'Required' : '—'}</td>
+              </tr>
+            ))}
             {!loading && items.length === 0 && (
               <tr>
-                <td colSpan={7} className="px-4 py-8 text-center text-adm-t3">
+                <td colSpan={6} className="px-4 py-8 text-center text-adm-t3">
                   No incidents yet — escalate from a reconciliation case's disposition, or click "Register Incident" to register one manually
                 </td>
               </tr>

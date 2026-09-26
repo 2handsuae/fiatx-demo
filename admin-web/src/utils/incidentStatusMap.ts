@@ -104,16 +104,6 @@ export const INCIDENT_REPORT_BASES: Record<string, { label: string; hours: numbe
   COMPANY_VI_C_F: { label: 'Company Rulebook VI.C / VI.F — NLA prudential breach, notify VARA immediately; daily updates until VARA is satisfied (calendar duty → wave 4)', hours: null, immediate: true },
 };
 
-/** 钟三态文案（brief 行为合同②）：数字钟 / 即时义务（无小时钟）/ 未载明时限。 */
-export function reportBasisClockText(code: string): string {
-  const b = INCIDENT_REPORT_BASES[code];
-  if (!b) return '';
-  if (b.immediate) return 'Immediate obligation (no hour clock)';
-  if (b.hours == null) return 'No statutory deadline stated';
-  const base = `Report within ${b.hours}h`;
-  return b.chainStart === 'NOTICE' ? `${base} (clock starts at first notice)` : base;
-}
-
 /** 事故经办桶族独占能力码（rbac.catalog.ts 的 cap.incident.* 五行镜像）——详情页/案子页
  * 登记入口按"所视事故类型所属族"门控写按钮，不再用被五组共享而失去区分力的路由级码
  * （`api.post.admin_incidents`：route() 把这一个 code 同时挂给 INCIDENT_WRITE/
@@ -290,38 +280,8 @@ export const INCIDENT_TYPE_REGISTRY_MIRROR: Record<string, IncidentTypeMirror> =
   },
 };
 
-export function reportStatusLabel(reportRequired: boolean, reportedAt: string | null): string {
-  if (!reportRequired) return 'Not required';
-  return reportedAt ? 'Reported' : 'Pending report';
-}
-
-export type ReportDeadlineTone = 'none' | 'normal' | 'breached' | 'done';
-
-/**
- * 通报时限展示。刻意不复用共享 `slaDisplay.formatSlaRemaining` 的「—」空态——那是给
- * "尚未配置"看的，事故这里的空态是"依据本身没有法定钟"，业务含义不同，必须显式「未设时限」
- * （spec §4，不许显示成看起来像还没算出来的样子）。
- */
-export function reportDeadlineDisplay(
-  deadlineAt: string | null,
-  reportedAt: string | null,
-): { text: string; tone: ReportDeadlineTone } {
-  if (reportedAt) return { text: 'Reported', tone: 'done' };
-  if (!deadlineAt) return { text: 'No deadline set', tone: 'none' };
-  const ms = new Date(deadlineAt).getTime() - Date.now();
-  if (ms <= 0) return { text: 'Overdue', tone: 'breached' };
-  const totalMinutes = Math.floor(ms / 60_000);
-  const days = Math.floor(totalMinutes / (24 * 60));
-  const hours = Math.floor((totalMinutes % (24 * 60)) / 60);
-  const minutes = totalMinutes % 60;
-  if (days > 0) return { text: `${days}d ${hours}h`, tone: 'normal' };
-  if (hours > 0) return { text: `${hours}h ${minutes}m`, tone: 'normal' };
-  return { text: totalMinutes <= 0 ? '<1m' : `${minutes}m`, tone: 'normal' };
-}
-
-export const REPORT_DEADLINE_TONE_CLASS: Record<ReportDeadlineTone, string> = {
-  none: 'bg-gray-100 text-gray-600',
-  normal: 'bg-blue-100 text-blue-800',
-  breached: 'bg-red-100 text-red-800',
-  done: 'bg-green-100 text-green-800',
-};
+// reportStatusLabel / ReportDeadlineTone / reportDeadlineDisplay / REPORT_DEADLINE_TONE_CLASS
+// 随单槽退役迁到 regulatoryFilingMap.ts（战役甲波二 T9，spec §9）——事故页不再自己算/显示
+// 通报时限，改读报送单自己的 deadlineAt/overdueMarkedAt（见 IncidentDetailPage.tsx 的
+// 「Regulatory Filings」表）；reportStatusLabel 随其唯一调用方（IncidentListPage.tsx 的
+// Report Status 列，评审黄1 已退役换单列 reportRequired）一并删除，不留孤儿。

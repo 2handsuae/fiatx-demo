@@ -12,6 +12,9 @@ export const AUDIT_ENTITY_ROUTE_BY_SUBJECT_TYPE: Record<string, (no: string) => 
   APPROVAL_CASE: (no) => `/admin/governance/approvals/${no}`,
   FUNDS_ORDER: (no) => `/admin/funds-orders/${no}`,
   INCIDENT: (no) => `/admin/governance/incidents/${no}`,
+  // 战役甲波二（Task 9）：报送单十码全部以 REGULATORY_FILING/filingNo 为 primarySubject
+  // （regulatory-filing.service.ts recordAudit），同 INCIDENT 一行的既有登记纪律补齐。
+  REGULATORY_FILING: (no) => `/admin/governance/regulatory-filings/${no}`,
   ASSET: (no) => `/admin/assets/${no}`,
   TRANSACTION_LIMIT_POLICY: (no) => `/admin/assets/transaction-limits/${no}`,
   WALLET: (no) => `/admin/custody/wallets/${no}`,

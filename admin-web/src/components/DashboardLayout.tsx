@@ -29,6 +29,7 @@ import {
   Database,
   FileEdit,
   ChevronDown,
+  Send,
 } from 'lucide-react';
 import { Link, useLocation, useNavigate, Outlet } from 'react-router-dom';
 import { useAdminSession } from '../contexts/AdminSessionContext';
@@ -391,6 +392,13 @@ const DashboardLayout = () => {
           label: 'Incident Register',
           icon: <AlertTriangle size={13} />,
           requiredPermissions: [PERMISSIONS.INCIDENTS_READ],
+        },
+        // 战役甲波二：报送台——独立治理件，与事故登记平级（spec §9）
+        {
+          path: '/admin/governance/regulatory-filings',
+          label: 'Regulatory Filings',
+          icon: <Send size={13} />,
+          requiredPermissions: [PERMISSIONS.REG_FILINGS_READ],
         },
       ],
     },

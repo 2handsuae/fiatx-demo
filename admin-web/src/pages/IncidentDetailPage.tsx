@@ -25,10 +25,15 @@ import {
   INCIDENT_TYPE_LABEL,
   INCIDENT_TYPE_REGISTRY_MIRROR,
   REMEDIATION_KIND_LABEL,
+} from '../utils/incidentStatusMap';
+// 战役甲波二（Task 9）：通报区块改脸为「Regulatory filings」表——deadline/tone helper 与
+// FILING_STATUS_LABEL 迁至报送台词表；事故页不再自己算通报时限，只读报送单自己的字段。
+import {
+  AUTHORITY_LABEL,
   REPORT_DEADLINE_TONE_CLASS,
   reportBasisClockText,
   reportDeadlineDisplay,
-} from '../utils/incidentStatusMap';
+} from '../utils/regulatoryFilingMap';
 
 interface NoteItem {
   kind: string;
@@ -46,6 +51,16 @@ interface RemediationItem {
   // Task 12：只有 kind === 'ADJUSTMENT' 才有值（调账单现状）——「发起补款」按钮据此
   // 判断是否已落账（POSTED）；其余 kind 恒 null。
   status: string | null;
+}
+
+interface FilingSummary {
+  filingNo: string;
+  status: string;
+  authority: string;
+  basisCode: string | null;
+  deadlineAt: string | null;
+  overdueMarkedAt: string | null;
+  submittedAt: string | null;
 }
 
 interface Detail {
@@ -69,11 +84,9 @@ interface Detail {
   subjectRefs: Record<string, string | number | boolean> | null;
   reportRequired: boolean;
   reportBasisCodes: string[];
-  reportDeadlineAt: string | null;
-  reportDraft: string | null;
-  reportDraftedAt: string | null;
-  reportedAt: string | null;
-  reportReference: string | null;
+  // 战役甲波二 T9：单槽六列退役，通报现状改读报送单横向摘要（getView 新 filings 键，
+  // IncidentService.getView 里 this.filings.summaryForIncident 投影，铁律③读放行）。
+  filings: FilingSummary[];
   approvalNo: string | null;
   registeredBy: string;
   closedAt: string | null;
@@ -125,8 +138,17 @@ const closeGateReason = (d: Detail): string | null => {
       return 'A remediation item is already linked — reach Resolving first before requesting close';
     }
   }
-  if (d.reportRequired && !d.reportedAt) {
-    return 'A regulatory report is required but not yet marked as reported — cannot close';
+  // 战役甲波二 T9：证据源从事故单槽换成报送单（镜像 incident-close-workflow.service.ts
+  // requestClose 的新守卫，spec §5 第 7 条）——reportRequired=true 时，名下全部报送单须
+  // 已提交（submittedAt 非空），零单或任一未提交都拒。
+  if (d.reportRequired) {
+    if (d.filings.length === 0) {
+      return 'A regulatory filing is required but none has been opened yet — cannot close';
+    }
+    const unsubmitted = d.filings.find((f) => !f.submittedAt);
+    if (unsubmitted) {
+      return `Regulatory filing ${unsubmitted.filingNo} is not yet submitted — cannot close`;
+    }
   }
   return null;
 };
@@ -140,6 +162,9 @@ const IncidentDetailPage = () => {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  // 战役甲波二 T9：定损提交后展示自动开单结果（filingsOpened 单号）——assess 端点回参见
+  // incident-assessment-workflow.service.ts，草案/已通报的旧手动标记流程已随单槽退役。
+  const [notice, setNotice] = useState<string | null>(null);
 
   // 调查
   const [noteBody, setNoteBody] = useState('');
@@ -161,10 +186,6 @@ const IncidentDetailPage = () => {
   const [remediationKind, setRemediationKind] = useState<string>('SUPPLEMENT');
   const [remediationRef, setRemediationRef] = useState('');
 
-  // 通报
-  const [draftText, setDraftText] = useState('');
-  const [markReference, setMarkReference] = useState('');
-
   const fetchDetail = async () => {
     if (!incidentNo) return;
     setLoading(true);
@@ -173,7 +194,6 @@ const IncidentDetailPage = () => {
       if (res.ok) {
         const data = (await res.json()) as Detail;
         setDetail(data);
-        setDraftText(data.reportDraft ?? '');
       } else {
         alert(await getApiErrorMessage(res, 'Failed to load incident'));
         navigate('/admin/governance/incidents');
@@ -223,6 +243,31 @@ const IncidentDetailPage = () => {
     }
   };
 
+  /** 提交定损——不能复用 post()（丢弃响应体）：assess 端点回参 filingsOpened（自动开单
+   * 结果）要展示给经办人看，见 incident-assessment-workflow.service.ts。 */
+  const submitAssessment = async (body: Record<string, unknown>) => {
+    if (!detail) return;
+    setBusy(true); setError('');
+    try {
+      const res = await adminFetch(
+        `${import.meta.env.VITE_API_URL}/admin/incidents/${encodeURIComponent(detail.incidentNo)}/assess`,
+        { method: 'POST', body: JSON.stringify(body) },
+      );
+      if (!res.ok) { setError(await getApiErrorMessage(res, 'Operation failed')); return; }
+      const data = (await res.json()) as { filingsOpened: string[] };
+      if (data.filingsOpened?.length) {
+        setNotice(`Regulatory filing${data.filingsOpened.length > 1 ? 's' : ''} opened: ${data.filingsOpened.join(', ')}`);
+        setTimeout(() => setNotice(null), 8000);
+      }
+      await fetchDetail();
+    } catch (e) {
+      if (e instanceof AdminSessionError) return;
+      setError(e instanceof Error ? e.message : 'Operation failed');
+    } finally {
+      setBusy(false);
+    }
+  };
+
   if (loading && !detail) {
     return (
       <div className="flex min-h-[400px] flex-col items-center justify-center">
@@ -267,14 +312,10 @@ const IncidentDetailPage = () => {
     : undefined;
   const hasTransferRemediation = detail.remediations.some((r) => r.kind === 'TRANSFER');
   const canInitiateCompensation = canWrite && !!postedAdjustment && !!detail.sourceCaseNo && !hasTransferRemediation;
-  const canSaveDraft = canWrite && assessed && detail.reportRequired && !detail.reportedAt;
-  const canMarkReported = canWrite && assessed && detail.reportRequired && !detail.reportedAt && !!detail.reportDraft;
 
   const toggleBasisCode = (code: string) => {
     setReportBasisCodes((prev) => (prev.includes(code) ? prev.filter((c) => c !== code) : [...prev, code]));
   };
-
-  const deadline = reportDeadlineDisplay(detail.reportDeadlineAt, detail.reportedAt);
 
   return (
     <div className="flex h-full flex-col">
@@ -292,6 +333,11 @@ const IncidentDetailPage = () => {
       {error && (
         <div className="px-6 pt-3">
           <div className="rounded border border-adm-red/30 bg-adm-red/10 px-4 py-2 font-mono text-[11px] text-adm-red">{error}</div>
+        </div>
+      )}
+      {notice && (
+        <div className="px-6 pt-3">
+          <div className="rounded border border-adm-amber/30 bg-adm-amber/10 px-4 py-2 font-mono text-[11px] text-adm-amber">{notice}</div>
         </div>
       )}
 
@@ -471,7 +517,7 @@ const IncidentDetailPage = () => {
                     || (scheme === 'IMPACT' ? !impactSummary.trim() : !assessedAmount.trim())
                     || (reportRequired && reportBasisCodes.length === 0)
                   }
-                  onClick={() => void post('/assess', {
+                  onClick={() => void submitAssessment({
                     assessedAmount: scheme === 'IMPACT' ? undefined : assessedAmount.trim(),
                     impactSummary: scheme === 'IMPACT' ? impactSummary.trim() : undefined,
                     impactCount: scheme === 'IMPACT' && impactCount.trim() ? Number(impactCount.trim()) : undefined,
@@ -555,59 +601,50 @@ const IncidentDetailPage = () => {
             </div>
           </DetailCard>
 
-          {/* ⑤ 通报留痕 */}
-          <DetailCard title="Regulatory Reporting Record" columns={1}>
+          {/* ⑤ 通报留痕——战役甲波二 T9：草案 textarea/「Mark reported」按钮随单槽退役，
+              改「Regulatory filings」表——横向只读报送单摘要（getView 新 filings 键），
+              行点击跳报送单详情页（有读权限者才点得进去，路由自己的 withPermission 门控）。 */}
+          <DetailCard title="Regulatory Filings" columns={1}>
             {!assessed ? (
               <p className="font-mono text-[11px] text-adm-t3">Whether a report is required is determined after assessment</p>
             ) : !detail.reportRequired ? (
               <p className="font-mono text-[11px] text-adm-t3">This incident was determined not to require reporting</p>
+            ) : detail.filings.length === 0 ? (
+              <p className="font-mono text-[11px] text-adm-red">Reporting is required but no filing has been opened yet</p>
             ) : (
-              <div className="col-span-full space-y-3">
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="font-mono text-[9px] uppercase tracking-[0.1em] text-adm-t3">Deadline</span>
-                  <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-[10px] font-semibold ${REPORT_DEADLINE_TONE_CLASS[deadline.tone]}`}>{deadline.text}</span>
-                </div>
-                <div>
-                  <p className="mb-1 font-mono text-[9px] uppercase tracking-[0.1em] text-adm-t3">Basis</p>
-                  <ul className="list-disc space-y-0.5 pl-4 text-[11px] text-adm-t2">
-                    {detail.reportBasisCodes.map((code) => (
-                      <li key={code}>
-                        {INCIDENT_REPORT_BASES[code]?.label ?? code}
-                        {' — '}
-                        <span className="font-mono text-[10px] text-adm-amber">{reportBasisClockText(code)}</span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-                <div>
-                  <p className="mb-1 font-mono text-[9px] uppercase tracking-[0.1em] text-adm-t3">Report Draft</p>
-                  <textarea
-                    value={draftText}
-                    onChange={(e) => setDraftText(e.target.value)}
-                    rows={4}
-                    disabled={!canSaveDraft}
-                    className="w-full rounded border border-adm-border bg-adm-panel px-2 py-1 text-xs disabled:opacity-60"
-                    placeholder="Nature of the incident / scope / impact + mitigation steps + whether other authorities have been notified"
-                  />
-                  {canSaveDraft && (
-                    <button type="button" disabled={busy || !draftText.trim()} onClick={() => void post('/regulator-report', { draft: draftText.trim() })} className={`mt-1.5 ${adminButtonClass('detailUtility')}`}>
-                      Save Draft
-                    </button>
-                  )}
-                  {detail.reportDraftedAt && <p className="mt-1 font-mono text-[9px] text-adm-t3">Drafted {fmt(detail.reportDraftedAt)}</p>}
-                </div>
-                {detail.reportedAt ? (
-                  <InfoField label="Reported" value={`${fmt(detail.reportedAt)}${detail.reportReference ? ` · Reference ${detail.reportReference}` : ''}`} highlight />
-                ) : (
-                  canMarkReported && (
-                    <div className="flex gap-2">
-                      <input value={markReference} onChange={(e) => setMarkReference(e.target.value)} placeholder="External reference (optional)" className="flex-1 rounded border border-adm-border bg-adm-panel px-2 py-1 text-xs font-mono" />
-                      <button type="button" disabled={busy} onClick={() => void post('/regulator-report/mark', { reference: markReference.trim() || undefined })} className={adminButtonClass('workflowPrimary')}>
-                        Mark Reported
-                      </button>
-                    </div>
-                  )
-                )}
+              <div className="col-span-full space-y-2">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="text-left text-adm-t3">
+                      {['Filing No.', 'Basis', 'Authority', 'Status', 'Deadline'].map((h) => (
+                        <th key={h} className="px-2 py-1 font-mono text-[10px]">{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {detail.filings.map((f) => {
+                      const fDeadline = reportDeadlineDisplay(f.deadlineAt, f.submittedAt, f.overdueMarkedAt, f.basisCode);
+                      return (
+                        <tr
+                          key={f.filingNo}
+                          onClick={() => navigate(`/admin/governance/regulatory-filings/${encodeURIComponent(f.filingNo)}`)}
+                          className="cursor-pointer border-t border-adm-border/60 hover:bg-adm-hover/40"
+                        >
+                          <td className="px-2 py-1 font-mono text-adm-blue">{f.filingNo}</td>
+                          <td className="px-2 py-1">{f.basisCode ? (INCIDENT_REPORT_BASES[f.basisCode]?.label ?? f.basisCode) : '—'}</td>
+                          <td className="px-2 py-1">{AUTHORITY_LABEL[f.authority] ?? f.authority}</td>
+                          <td className="px-2 py-1"><StatusPill value={f.status} /></td>
+                          <td className="px-2 py-1">
+                            <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold ${REPORT_DEADLINE_TONE_CLASS[fDeadline.tone]}`}>
+                              {fDeadline.text}
+                            </span>
+                            {!f.submittedAt && <span className="ml-1.5 font-mono text-[9px] text-adm-red">not yet submitted</span>}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
               </div>
             )}
           </DetailCard>

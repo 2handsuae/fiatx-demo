@@ -95,6 +95,15 @@ export const PERMISSIONS = {
   INCIDENT_DETAIL_READ: 'api.get.admin_incidents_incidentno',
   INCIDENT_WRITE: 'api.post.admin_incidents',
 
+  // 战役甲波二（Task 9）：报送台——三个码精确镜像 rbac.catalog.ts route() 的
+  // buildPermissionCode 派生值。spec §6：REG_FILING_WRITE 是唯一写组，挂全部 POST 路由
+  // （开单/草稿/送签/标已提交/往来记录/办结/作废），不设 cap.* 标记码（该域经办人唯合规官，
+  // 无需按族区分）——同 INCIDENT_WRITE 的既有代表码惯例，本页全部写按钮统一用这一个码判断，
+  // 不逐动作各开一码。
+  REG_FILINGS_READ: 'api.get.admin_regulatory_filings',
+  REG_FILING_DETAIL_READ: 'api.get.admin_regulatory_filings_filingno',
+  REG_FILING_WRITE: 'api.post.admin_regulatory_filings',
+
   SUMSUB_EVENTS_READ: 'api.get.admin_sumsub_events',
   AUDIT_LOGS_READ: 'api.get.admin_audit_logs',
   AUDIT_EXPORT_CREATE: 'api.post.admin_audit_evidence_packages',
