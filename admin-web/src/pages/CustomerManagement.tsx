@@ -156,7 +156,12 @@ const CustomerManagement = () => {
             row.customerNo,
             {
               open: openRows.length,
-              sanction: openRows.some((r) => r.cause === 'SANCTION'),
+              // 战役甲波三 T4修（评审黄4）：CONFIRMED 出口把 SILENT 的 SANCTION 便签解列、
+              // 换开 DISCLOSED 的 SANCTION_CONFIRMED 便签（同为 customerLevel 制裁语义，
+              // 见 restriction-cause.constant.ts）——只认 cause==='SANCTION' 会让确认过的
+              // 客户从这里的 Sanction 视图消失、只剩下面板普通的琥珀 "N OPEN"，看不出
+              // 这仍是一起制裁案。两个 cause 都算进「制裁」这个客户端徽章判据。
+              sanction: openRows.some((r) => r.cause === 'SANCTION' || r.cause === 'SANCTION_CONFIRMED'),
             },
           ];
         } catch {

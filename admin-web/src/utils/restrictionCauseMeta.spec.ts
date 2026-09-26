@@ -16,7 +16,8 @@ import {
 describe('restrictionCauseMeta (admin mirror of RESTRICTION_CAUSE_POLICY)', () => {
   it('covers exactly the backend cause set (no more, no less)', () => {
     expect([...RESTRICTION_CAUSES].sort()).toEqual(Object.keys(BACKEND_POLICY).sort());
-    expect(RESTRICTION_CAUSES).toHaveLength(7);
+    // 战役甲波三 T4：SANCTION_CONFIRMED 加入常量表（7 → 8），见 restriction-cause.constant.ts。
+    expect(RESTRICTION_CAUSES).toHaveLength(8);
   });
 
   it('mirrors every backend policy field verbatim', () => {

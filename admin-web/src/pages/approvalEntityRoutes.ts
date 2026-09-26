@@ -57,6 +57,9 @@ export const ENTITY_ROUTE_BY_ACTION: Record<string, (ref: string) => string | nu
   // 客户域（entityRef = customerNo）
   CUSTOMER_ONBOARDING_ACCEPTANCE: (r) => `/admin/customers/${r}`,
   CUSTOMER_TIER_UPGRADE: (r) => `/admin/customers/${r}`,
+  // 战役甲波三 T4修（评审黄4）：制裁定性提单——entityRef = customerNo，裁决人（MLRO）
+  // 批完从审批详情页回链到客户详情页看限制区/定性历史。
+  SANCTION_DISPOSITION: (r) => `/admin/customers/${r}`,
   // 战役甲波二（entityRef = filingNo）：报送签发，详情路由 Task 9 落地。
   REG_FILING_SUBMIT: (r) => `/admin/governance/regulatory-filings/${r}`,
 };

@@ -55,6 +55,9 @@ const OpenFilingModal = ({ open, onClose, onCreated }: { open: boolean; onClose:
   const [receivedAt, setReceivedAt] = useState('');
   const [authority, setAuthority] = useState<string>(REGULATORY_AUTHORITIES[0]);
   const [ccAuthorities, setCcAuthorities] = useState<string[]>([]);
+  // 波三 T3/T9：requiresExternalCaseRef 类型（STR/SAR/CNMR/PNMR）手工开单必填——
+  // Sumsub 案件引用或 EOCN 名单条目引用，服务层缺失即 400（openManual 校验）。
+  const [externalCaseRef, setExternalCaseRef] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
 
@@ -67,6 +70,7 @@ const OpenFilingModal = ({ open, onClose, onCreated }: { open: boolean; onClose:
     setReceivedAt('');
     setAuthority(REGULATORY_AUTHORITIES[0]);
     setCcAuthorities([]);
+    setExternalCaseRef('');
     setError('');
   }, [open]);
 
@@ -85,6 +89,7 @@ const OpenFilingModal = ({ open, onClose, onCreated }: { open: boolean; onClose:
     setError('');
     if (!title.trim()) { setError('Title is required'); return; }
     if (cfg.requiresIncident && !incidentNo.trim()) { setError('Incident No is required for this filing type'); return; }
+    if (cfg.requiresExternalCaseRef && !externalCaseRef.trim()) { setError('External Case Reference is required for this filing type'); return; }
     setSubmitting(true);
     try {
       const body: Record<string, unknown> = { type, title: title.trim() };
@@ -98,6 +103,9 @@ const OpenFilingModal = ({ open, onClose, onCreated }: { open: boolean; onClose:
       }
       if (isDualHeaded && ccAuthorities.length > 0) {
         body.ccAuthorities = ccAuthorities;
+      }
+      if (cfg.requiresExternalCaseRef) {
+        body.externalCaseRef = externalCaseRef.trim();
       }
       const res = await adminFetch(`${import.meta.env.VITE_API_URL}/admin/regulatory-filings`, {
         method: 'POST', body: JSON.stringify(body),
@@ -155,6 +163,12 @@ const OpenFilingModal = ({ open, onClose, onCreated }: { open: boolean; onClose:
               <input type="datetime-local" value={receivedAt} onChange={(e) => setReceivedAt(e.target.value)} className="mt-1 w-full rounded border border-adm-border bg-adm-panel px-2 py-1 text-xs" />
             </label>
           </div>
+        )}
+
+        {cfg.requiresExternalCaseRef && (
+          <label className="mb-3 block text-xs">External Case Reference
+            <input value={externalCaseRef} onChange={(e) => setExternalCaseRef(e.target.value)} className="mt-1 w-full rounded border border-adm-border bg-adm-panel px-2 py-1 text-xs font-mono" placeholder="Sumsub case ref / EOCN list entry ref" />
+          </label>
         )}
 
         {isDualHeaded && (

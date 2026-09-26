@@ -49,4 +49,8 @@ export const DETAIL_READ_GROUP_BY_POLICY: Record<string, string> = {
   CUSTOMER_TIER_UPGRADE: 'CUSTOMER_READ', // → /admin/customers/:customerNo（SMO 持 CUSTOMER_READ）
   // 战役甲波二（entityRef = filingNo）：报送签发，裁决人高管持 REG_FILING_READ。
   REG_FILING_SUBMIT: 'REG_FILING_READ', // → /admin/governance/regulatory-filings/:filingNo
+  // 战役甲波三 T4修（评审黄4，approvalEntityRoutes.ts 同批加行）：制裁定性提单
+  // （entityRef = customerNo），唯一裁决人 MLRO 持 CUSTOMER_READ（rbac.catalog.ts MLRO
+  // 绑定区）——批完看得见 /admin/customers/:customerNo。
+  SANCTION_DISPOSITION: 'CUSTOMER_READ', // → /admin/customers/:customerNo（MLRO 持 CUSTOMER_READ）
 };

@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import { RefreshCw } from 'lucide-react';
 import RestrictionOpenModal from '../components/RestrictionOpenModal';
 import RestrictionReleaseModal from '../components/RestrictionReleaseModal';
+import SanctionDispositionModal from '../components/SanctionDispositionModal';
 import MaterialRequestPanel, { type AdminMaterialRequestRow } from '../components/MaterialRequestPanel';
 import MaterialRequestIssueModal from '../components/MaterialRequestIssueModal';
 import { DetailPageHeader } from '../components/compliance/DetailPageComponents';
@@ -196,6 +197,12 @@ const CustomerDetail = () => {
   const [restrictions, setRestrictions] = useState<AdminRestrictionRow[]>([]);
   const [restrictionsLoading, setRestrictionsLoading] = useState(false);
   const [showReleased, setShowReleased] = useState(false);
+  // 战役甲波三 T9：制裁定性裁决弹窗——有 OPEN 的 SANCTION 便签时才可能打开。
+  const [dispositionModalOpen, setDispositionModalOpen] = useState(false);
+  // 战役甲波三 T7/T9：⚡ EOCN 名单更新命中存量客户模拟。
+  const [eocnListRef, setEocnListRef] = useState('');
+  const [eocnBusy, setEocnBusy] = useState(false);
+  const [eocnError, setEocnError] = useState<string | null>(null);
 
   /* ── Restrictions permissions ── */
   const canReadRestrictions = hasPermission(PERMISSIONS.CUSTOMER_RESTRICTIONS_READ);
@@ -491,6 +498,41 @@ const CustomerDetail = () => {
     }
   };
 
+  /* ── ⚡ EOCN sanctions list hit simulation（战役甲波三 T7/T9） ──
+   * 后端两道业务闸（非幂等静默）：客户须 ACTIVE（否则 400）；不得已有 OPEN 的
+   * SANCTION 便签（否则 409——按钮已用 openRestrictions 提前禁用，这里的分支只是
+   * 把服务端措辞换成中文任务点名的两句话，接口偶发状态不同步时仍给得出准话）。 */
+  const runEocnHit = async () => {
+    if (!detail || !eocnListRef.trim()) return;
+    setEocnBusy(true);
+    setEocnError(null);
+    try {
+      const res = await adminFetch(
+        `${import.meta.env.VITE_API_URL}/admin/sumsub/simulate/eocn-sanctions-hit`,
+        { method: 'POST', body: JSON.stringify({ customerNo: detail.customerNo, listRef: eocnListRef.trim() }) },
+      );
+      if (!res.ok) {
+        if (res.status === 409) {
+          setEocnError('该客户已有待处理的制裁命中，请先走完定性流程。');
+        } else if (res.status === 400) {
+          setEocnError('该客户当前非 ACTIVE 状态，无法模拟存量命中。');
+        } else {
+          setEocnError(await getApiErrorMessage(res, 'EOCN hit simulation failed.'));
+        }
+        return;
+      }
+      const data = (await res.json()) as { restrictionNo: string };
+      setNotice(`EOCN sanctions hit simulated — restriction ${data.restrictionNo} opened (SILENT).`);
+      setEocnListRef('');
+      fetchRestrictions(detail.customerNo);
+    } catch (e: unknown) {
+      if (e instanceof AdminSessionError) return;
+      setEocnError(e instanceof Error ? e.message : 'EOCN hit simulation failed.');
+    } finally {
+      setEocnBusy(false);
+    }
+  };
+
   /* ── Tier upgrade acceptance submit（运营提单，maker→checker，语义对齐上面 submitAcceptance） ── */
   const submitTierUpgradeAcceptance = async () => {
     if (!detail) return;
@@ -632,6 +674,13 @@ const CustomerDetail = () => {
   const canSubmitTierUpgradeAcceptance =
     tierUpgrade?.application?.status === 'MATERIALS_CLEARED' &&
     !(tierUpgrade?.acceptanceCase && ['DRAFT', 'PENDING'].includes(tierUpgrade.acceptanceCase.status));
+  // 战役甲波三 T9：有 OPEN 的 SANCTION 便签（命中待裁）才可能定性；支持二次定性——
+  // PARTIAL 出口维持该便签 OPEN，故按钮在两次定性之间保持可见。
+  const openSanctionRestriction = openRestrictions.find((r) => r.cause === 'SANCTION') ?? null;
+  const canDisposeSanction = canReleaseRestrictions && !!openSanctionRestriction;
+  // ⚡ EOCN 命中模拟可用性（同两道后端闸的前端镜像）：客户须 ACTIVE、不得已有 OPEN
+  // 的 SANCTION 便签。
+  const canEocnHit = detail.lifecycle === 'ACTIVE' && !openSanctionRestriction;
 
   /* ── Render ── */
 
@@ -898,6 +947,47 @@ const CustomerDetail = () => {
             </section>
           )}
 
+          {/* ⚡ EOCN Sanctions List Simulation（战役甲波三 T7/T9）——模拟 EOCN 名单更新
+              命中这名存量 ACTIVE 客户；不走 Sumsub ingest 链（那条链的留痕搭在具体订单的
+              KYT 审计上），直调 CustomerRestrictionWorkflowService.openRestriction()
+              贴 SANCTION 便签（SILENT，命中待裁），自带审计。 */}
+          {simEnabled && (
+            <section className="px-6 py-5">
+              <Cap>⚡ EOCN Sanctions List Simulation</Cap>
+              <p className="mt-1 mb-4 font-mono text-[9px] text-adm-t3">
+                Feed a simulated EOCN sanctions list update hitting this existing ACTIVE customer — opens a SILENT SANCTION restriction (hit pending disposition).
+              </p>
+              {eocnError && (
+                <div className="mb-3 rounded border border-adm-red/30 bg-adm-red/10 px-3 py-2 font-mono text-[10px] text-adm-red">
+                  {eocnError}
+                </div>
+              )}
+              {!canEocnHit && (
+                <p className="mb-1.5 font-mono text-[9px] text-adm-amber">
+                  {detail.lifecycle !== 'ACTIVE'
+                    ? 'Unavailable — the customer is not ACTIVE.'
+                    : '该客户已有待处理的制裁命中，请先走完定性流程。'}
+                </p>
+              )}
+              <div className="flex flex-wrap items-center gap-2">
+                <input
+                  value={eocnListRef}
+                  onChange={(e) => setEocnListRef(e.target.value)}
+                  placeholder="EOCN list entry ref (e.g. EOCN-2026-04213)"
+                  disabled={!canEocnHit || eocnBusy}
+                  className="w-64 rounded border border-adm-border bg-adm-bg px-2.5 py-1.5 font-mono text-[10px] text-adm-t2 focus:border-adm-amber focus:outline-none disabled:opacity-60"
+                />
+                <button
+                  onClick={() => void runEocnHit()}
+                  disabled={!canEocnHit || eocnBusy || !eocnListRef.trim()}
+                  className={adminButtonClass('simulationAction')}
+                >
+                  {eocnBusy ? 'Running…' : 'Simulate EOCN Hit'}
+                </button>
+              </div>
+            </section>
+          )}
+
           {/* Tags */}
           {canViewTags && (
             <section className="px-6 py-5">
@@ -1074,9 +1164,20 @@ const CustomerDetail = () => {
             <section className="px-6 py-5">
               <div className="flex items-baseline justify-between gap-3">
                 <Cap>Restrictions</Cap>
-                <span className="font-mono text-[10px] text-adm-t3">
-                  {restrictionsLoading ? 'Loading…' : `${openRestrictions.length} open`}
-                </span>
+                <div className="flex items-center gap-3">
+                  {canDisposeSanction && (
+                    <button
+                      type="button"
+                      onClick={() => setDispositionModalOpen(true)}
+                      className={adminButtonClass('rowSecondaryUtility')}
+                    >
+                      Sanction disposition →
+                    </button>
+                  )}
+                  <span className="font-mono text-[10px] text-adm-t3">
+                    {restrictionsLoading ? 'Loading…' : `${openRestrictions.length} open`}
+                  </span>
+                </div>
               </div>
               <p className="mt-1 mb-3 font-mono text-[9px] text-adm-t3">
                 One row = one restriction. 🔇 marks SILENT — visible here, never to the customer.
@@ -1375,6 +1476,17 @@ const CustomerDetail = () => {
         onClose={() => setReleaseTarget(null)}
         onSubmitted={async (approvalNo) => {
           setNotice(`Release approval ${approvalNo} opened — restriction stays OPEN until approved.`);
+          fetchRestrictions(detail.customerNo);
+        }}
+      />
+      <SanctionDispositionModal
+        open={dispositionModalOpen}
+        customerNo={detail.customerNo}
+        customerLabel={name}
+        restrictionNo={openSanctionRestriction?.restrictionNo ?? null}
+        onClose={() => setDispositionModalOpen(false)}
+        onSubmitted={async (approvalNo, outcome) => {
+          setNotice(`Sanction disposition (${outcome}) submitted — approval ${approvalNo} opened, awaiting MLRO.`);
           fetchRestrictions(detail.customerNo);
         }}
       />

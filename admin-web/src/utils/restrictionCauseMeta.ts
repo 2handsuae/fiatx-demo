@@ -15,7 +15,8 @@ export type RestrictionCause =
   | 'TIER_UPGRADE_PENDING'
   | 'KYT_REJECTED_SOFT'
   | 'KYT_REJECTED_HARD'
-  | 'PENDING_DOCUMENT';
+  | 'PENDING_DOCUMENT'
+  | 'SANCTION_CONFIRMED';
 
 export type RestrictionVisibility = 'SILENT' | 'DISCLOSED';
 export type RestrictionReleasePolicy = 'MLRO_APPROVAL' | 'OPS_APPROVAL';
@@ -86,6 +87,17 @@ export const RESTRICTION_CAUSE_POLICY: Record<RestrictionCause, RestrictionCause
     scopeSelectable: true,
     customerLevel: false,
     customerLabel: 'Document required',
+  },
+  // 战役甲波三 T4：制裁定性 CONFIRMED 出口的落地便签——SILENT 的 SANCTION 便签解列后
+  // 开的新便签，DISCLOSED 是刻意的（spec §2 B 线：确认后横幅可见即依据）。逐字段镜像
+  // restriction-cause.constant.ts（防漂移测试 restrictionCauseMeta.spec.ts 逐字段比对）。
+  SANCTION_CONFIRMED: {
+    defaultScopes: ['ALL'],
+    visibility: 'DISCLOSED',
+    releasePolicy: 'MLRO_APPROVAL',
+    scopeSelectable: false,
+    customerLevel: true,
+    customerLabel: 'Account restricted — confirmed sanctions match',
   },
 };
 

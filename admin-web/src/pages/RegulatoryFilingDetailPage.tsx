@@ -14,11 +14,13 @@ import { useAdminSession } from '../contexts/AdminSessionContext';
 import { PERMISSIONS } from '../rbac/permissions';
 import { INCIDENT_REPORT_BASES } from '../utils/incidentStatusMap';
 import {
+  AML_FILING_ENTRY_KINDS,
   AUTHORITY_LABEL,
   FILING_ENTRY_KINDS,
   FILING_ENTRY_KIND_LABEL,
   FILING_STATUS_LABEL,
   FILING_TYPE_LABEL,
+  FILING_TYPE_MIRROR,
   REPORT_DEADLINE_TONE_CLASS,
   reportDeadlineDisplay,
 } from '../utils/regulatoryFilingMap';
@@ -27,6 +29,8 @@ interface Entry {
   kind: string;
   body: string;
   externalRef: string | null;
+  // T5：仅 CUSTOMER_COMM 非空——拟稿人自由文本，其余四种 kind 恒 null。
+  commDraftedBy: string | null;
   recordedByUserId: string;
   createdAt: string;
 }
@@ -45,12 +49,16 @@ interface Detail {
   receivedAt: string | null;
   deadlineAt: string | null;
   externalRef: string | null;
+  // 波三 T3：Sumsub 案件引用 / EOCN 名单条目引用（requiresExternalCaseRef 类型必填）。
+  externalCaseRef: string | null;
   submittedAt: string | null;
   submittedByUserId: string | null;
   overdueMarkedAt: string | null;
   approvalNo: string | null;
   closedAt: string | null;
   cancelledReason: string | null;
+  // 波三 T3：「决定不报」结案理由——仅 closeNoFiling 落库，终态专属字段。
+  noFilingReason: string | null;
   createdByUserId: string;
   createdAt: string;
   entries: Entry[];
@@ -89,6 +97,34 @@ const MarkSubmittedModal = ({ open, busy, onClose, onSubmit }: { open: boolean; 
   );
 };
 
+/** 「Close — no filing decision」弹窗——spec §3 点 2/T3：AML 族 DRAFT→CLOSED 新边，
+ * 唯 STR/SAR（allowNoFilingClose）可走，noFilingReason 必填闸（no-file decision 的
+ * 法定可辩护留痕）。仅 DRAFT 态可用，与既有「Close Filing」（仅 SUBMITTED）互斥。 */
+const CloseNoFilingModal = ({ open, busy, onClose, onSubmit }: { open: boolean; busy: boolean; onClose: () => void; onSubmit: (noFilingReason: string) => void }) => {
+  const [reason, setReason] = useState('');
+
+  useEffect(() => { if (open) setReason(''); }, [open]);
+
+  if (!open) return null;
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={onClose}>
+      <div className="w-[420px] rounded-lg border border-adm-border bg-adm-panel p-5" onClick={(e) => e.stopPropagation()}>
+        <h3 className="mb-1 text-sm font-semibold text-adm-t1">Close — No Filing Decision</h3>
+        <p className="mb-3 font-mono text-[10px] text-adm-t3">Records the decision not to file — this is itself a legally defensible decision and must be documented (Federal Decree-Law 20/2018).</p>
+        <label className="mb-3 block text-xs">No-Filing Reason
+          <textarea value={reason} onChange={(e) => setReason(e.target.value)} rows={3} className="mt-1 w-full rounded border border-adm-border bg-adm-panel px-2 py-1 text-xs" placeholder="Why the formed suspicion did not result in a filing" />
+        </label>
+        <div className="flex justify-end gap-2">
+          <button type="button" onClick={onClose} className={adminButtonClass('modalCancel')}>Cancel</button>
+          <button type="button" disabled={busy || !reason.trim()} onClick={() => onSubmit(reason.trim())} className={adminButtonClass('workflowNegative')}>
+            {busy ? 'Closing…' : 'Close — No Filing'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 const RegulatoryFilingDetailPage = () => {
   const { filingNo } = useParams<{ filingNo: string }>();
   const navigate = useNavigate();
@@ -102,9 +138,12 @@ const RegulatoryFilingDetailPage = () => {
 
   const [draftText, setDraftText] = useState('');
   const [showMarkSubmitted, setShowMarkSubmitted] = useState(false);
+  const [showCloseNoFiling, setShowCloseNoFiling] = useState(false);
   const [entryKind, setEntryKind] = useState<string>(FILING_ENTRY_KINDS[0]);
   const [entryBody, setEntryBody] = useState('');
   const [entryRef, setEntryRef] = useState('');
+  // 波三 T5：CUSTOMER_COMM 专属必填字段（拟稿人自由文本，MLRO 代录）。
+  const [entryCommDraftedBy, setEntryCommDraftedBy] = useState('');
 
   const fetchDetail = async () => {
     if (!filingNo) return;
@@ -162,15 +201,38 @@ const RegulatoryFilingDetailPage = () => {
   }
   if (!detail) return null;
 
+  // 波三 T9：族感知（spec §3 点 2）——AML 族无签发链，DRAFT→SUBMITTED 直达；GENERAL 族
+  // 两页零变化，下面每一处都以 isAml 分支，false 分支与波二原样一致。
+  const cfg = FILING_TYPE_MIRROR[detail.type];
+  const isAml = cfg?.family === 'AML';
+
   // 评审终审修复：按钮可见性/可用性回到纯「状态机边 × 持码」公式——不加 draftText 内容/
   // 一致性判断这个第三维（禁做清单：输入防御性校验）。没存草稿就送签，body 空由后端 400 拦，
   // 不是前端的活。
   const canSaveDraft = canWrite && detail.status === 'DRAFT';
-  const canSubmitForSignoff = canWrite && detail.status === 'DRAFT';
+  // AML 族族边集没有 DRAFT→PENDING_SIGNOFF 这条边（T1），送签按钮对 AML 单不出现。
+  const canSubmitForSignoff = canWrite && !isAml && detail.status === 'DRAFT';
   const canCancel = canWrite && detail.status === 'DRAFT';
-  const canMarkSubmitted = canWrite && detail.status === 'SIGNED_OFF';
-  const canLogEntry = canWrite && detail.status === 'SUBMITTED';
+  // AML 族 DRAFT→SUBMITTED 是族边集里的合法边（T3 markSubmitted）：MLRO 对 DRAFT 态
+  // 直接标已提交，不必先过 PENDING_SIGNOFF/SIGNED_OFF 两态。
+  const canMarkSubmitted = canWrite && (detail.status === 'SIGNED_OFF' || (isAml && detail.status === 'DRAFT'));
+  // T3：DRAFT→CLOSED「决定不报」新边——仅 allowNoFilingClose 类型（STR/SAR）、仅 DRAFT。
+  const canCloseNoFiling = canWrite && isAml && !!cfg?.allowNoFilingClose && detail.status === 'DRAFT';
   const canClose = canWrite && detail.status === 'SUBMITTED';
+
+  // T5（spec §5）：往来记录 kind 可选集按族 × 状态查表，不写针对某个 kind 的专属 if——
+  // 旧三种（两族皆可）仅 SUBMITTED；新两种（仅 AML 族）非终态（未 CLOSED/CANCELLED）皆可。
+  const NON_TERMINAL_STATUSES = ['DRAFT', 'PENDING_SIGNOFF', 'SIGNED_OFF', 'SUBMITTED'];
+  const availableEntryKinds = (): string[] => {
+    const base = detail.status === 'SUBMITTED' ? [...FILING_ENTRY_KINDS] : [];
+    if (isAml && NON_TERMINAL_STATUSES.includes(detail.status)) {
+      return [...base, ...AML_FILING_ENTRY_KINDS];
+    }
+    return base;
+  };
+  const entryKindOptions = availableEntryKinds();
+  const canLogEntry = canWrite && entryKindOptions.length > 0;
+  const effectiveEntryKind = entryKindOptions.includes(entryKind) ? entryKind : (entryKindOptions[0] ?? entryKind);
 
   const deadline = reportDeadlineDisplay(detail.deadlineAt, detail.submittedAt, detail.overdueMarkedAt, detail.basisCode);
 
@@ -223,10 +285,12 @@ const RegulatoryFilingDetailPage = () => {
               </div>
             </div>
             {detail.externalRef && <InfoField label="External Reference" value={detail.externalRef} mono accent />}
+            {detail.externalCaseRef && <InfoField label="External Case Reference" value={detail.externalCaseRef} mono />}
             <InfoField label="Created By" value={detail.createdByUserId} mono />
             <InfoField label="Created At" value={fmt(detail.createdAt)} mono />
             {detail.closedAt && <InfoField label="Closed At" value={fmt(detail.closedAt)} mono />}
             {detail.cancelledReason && <InfoField label="Cancelled Reason" value={detail.cancelledReason} highlight />}
+            {detail.noFilingReason && <InfoField label="No-Filing Reason" value={detail.noFilingReason} highlight />}
           </DetailCard>
 
           {/* ② 正文草稿 */}
@@ -253,10 +317,22 @@ const RegulatoryFilingDetailPage = () => {
             </div>
           </DetailCard>
 
-          {/* ③ 签发区 */}
+          {/* ③ 签发区——AML 族（spec §3 点 2）无签发链：DRAFT→SUBMITTED 直达，MLRO 亲办，
+              不经 PENDING_SIGNOFF/SIGNED_OFF 两态；「送签」按钮对 AML 单不出现（族边集里
+              这条边就不存在，不是权限不够）。GENERAL 族原样不动。 */}
           <DetailCard title="Sign-off" columns={1}>
             <div className="col-span-full space-y-2">
-              {detail.status === 'DRAFT' && (
+              {detail.status === 'DRAFT' && isAml && (
+                <>
+                  <p className="font-mono text-[11px] text-adm-t2">No sign-off chain — AML reporting is handled directly by MLRO (FDL 20/2018: goAML filings cannot be held up by anyone else's sign-off).</p>
+                  {canMarkSubmitted && (
+                    <button type="button" onClick={() => setShowMarkSubmitted(true)} className={adminButtonClass('workflowPrimary')}>
+                      Mark Submitted
+                    </button>
+                  )}
+                </>
+              )}
+              {detail.status === 'DRAFT' && !isAml && (
                 <>
                   <button
                     type="button"
@@ -303,7 +379,14 @@ const RegulatoryFilingDetailPage = () => {
                 <div key={i} className="rounded border border-adm-border bg-adm-bg p-3">
                   <div className="mb-1 flex items-center gap-2">
                     <span className="font-mono text-[10px] font-semibold text-adm-t2">{FILING_ENTRY_KIND_LABEL[e.kind] ?? e.kind}</span>
-                    <span className="font-mono text-[9px] text-adm-t3">{e.recordedByUserId} · {fmt(e.createdAt)}</span>
+                    {/* T5/T9：CUSTOMER_COMM 两签一行——拟稿(commDraftedBy 自由文本)／放行
+                        (recordedByUserId 实名) 都是同一次 MLRO 亲录的两个字段，不装作两个
+                        账号；其余四种 kind 维持原样只显 recordedByUserId。 */}
+                    <span className="font-mono text-[9px] text-adm-t3">
+                      {e.kind === 'CUSTOMER_COMM'
+                        ? `Drafted ${e.commDraftedBy} · Cleared ${e.recordedByUserId} · ${fmt(e.createdAt)}`
+                        : `${e.recordedByUserId} · ${fmt(e.createdAt)}`}
+                    </span>
                     {e.externalRef && <span className="font-mono text-[9px] text-adm-amber">Ref {e.externalRef}</span>}
                   </div>
                   <p className="text-[11px] text-adm-t2">{e.body}</p>
@@ -313,16 +396,28 @@ const RegulatoryFilingDetailPage = () => {
               {canLogEntry && (
                 <div className="space-y-2 border-t border-adm-border pt-3">
                   <div className="flex gap-2">
-                    <select value={entryKind} onChange={(e) => setEntryKind(e.target.value)} className="rounded border border-adm-border bg-adm-panel px-2 py-1 text-xs">
-                      {FILING_ENTRY_KINDS.map((k) => <option key={k} value={k}>{FILING_ENTRY_KIND_LABEL[k]}</option>)}
+                    <select value={effectiveEntryKind} onChange={(e) => setEntryKind(e.target.value)} className="rounded border border-adm-border bg-adm-panel px-2 py-1 text-xs">
+                      {entryKindOptions.map((k) => <option key={k} value={k}>{FILING_ENTRY_KIND_LABEL[k]}</option>)}
                     </select>
                     <input value={entryRef} onChange={(e) => setEntryRef(e.target.value)} placeholder="External reference (optional)" className="flex-1 rounded border border-adm-border bg-adm-panel px-2 py-1 text-xs font-mono" />
                   </div>
+                  {/* T5：CUSTOMER_COMM 专属必填字段——拟稿人自由文本（MLRO 代录），放行人
+                      就是 actor 本人（recordedByUserId），两签不装作两人。 */}
+                  {effectiveEntryKind === 'CUSTOMER_COMM' && (
+                    <input value={entryCommDraftedBy} onChange={(e) => setEntryCommDraftedBy(e.target.value)} placeholder="Drafted by (free text — MLRO recording on their behalf)" className="w-full rounded border border-adm-border bg-adm-panel px-2 py-1 text-xs" />
+                  )}
                   <textarea value={entryBody} onChange={(e) => setEntryBody(e.target.value)} rows={2} className="w-full rounded border border-adm-border bg-adm-panel px-2 py-1 text-xs" placeholder="What was received / said / supplemented" />
                   <button
                     type="button"
-                    disabled={busy || !entryBody.trim()}
-                    onClick={() => { void post('/entries', { kind: entryKind, body: entryBody.trim(), externalRef: entryRef.trim() || undefined }).then((ok) => { if (ok) { setEntryBody(''); setEntryRef(''); } }); }}
+                    disabled={busy || !entryBody.trim() || (effectiveEntryKind === 'CUSTOMER_COMM' && !entryCommDraftedBy.trim())}
+                    onClick={() => {
+                      void post('/entries', {
+                        kind: effectiveEntryKind,
+                        body: entryBody.trim(),
+                        externalRef: entryRef.trim() || undefined,
+                        commDraftedBy: effectiveEntryKind === 'CUSTOMER_COMM' ? entryCommDraftedBy.trim() : undefined,
+                      }).then((ok) => { if (ok) { setEntryBody(''); setEntryRef(''); setEntryCommDraftedBy(''); } });
+                    }}
                     className={adminButtonClass('detailUtility')}
                   >
                     Log Entry
@@ -360,7 +455,18 @@ const RegulatoryFilingDetailPage = () => {
                   Cancel Filing
                 </button>
               )}
-              {!canClose && !canCancel && detail.status !== 'CLOSED' && detail.status !== 'CANCELLED' && (
+              {/* T3：DRAFT→CLOSED「决定不报」新边——仅 STR/SAR、仅 DRAFT。 */}
+              {canCloseNoFiling && (
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => setShowCloseNoFiling(true)}
+                  className={`${adminButtonClass('workflowNegative')} ml-2`}
+                >
+                  Close — No Filing Decision
+                </button>
+              )}
+              {!canClose && !canCancel && !canCloseNoFiling && detail.status !== 'CLOSED' && detail.status !== 'CANCELLED' && (
                 <p className="font-mono text-[11px] text-adm-t3">No closeout action available in the current status</p>
               )}
             </div>
@@ -391,6 +497,12 @@ const RegulatoryFilingDetailPage = () => {
         busy={busy}
         onClose={() => setShowMarkSubmitted(false)}
         onSubmit={(externalRef) => { void post('/mark-submitted', { externalRef }).then((ok) => { if (ok) setShowMarkSubmitted(false); }); }}
+      />
+      <CloseNoFilingModal
+        open={showCloseNoFiling}
+        busy={busy}
+        onClose={() => setShowCloseNoFiling(false)}
+        onSubmit={(noFilingReason) => { void post('/close-no-filing', { noFilingReason }).then((ok) => { if (ok) setShowCloseNoFiling(false); }); }}
       />
     </div>
   );
