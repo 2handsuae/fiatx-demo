@@ -36,6 +36,7 @@
 | S21 | **Travel Rule**：判定阈值按币种是代码常量（改动走发版评审）；TR 数据锚订单字段、Sumsub 存真身；不自建 TR 实体表与审核台 | `decisions.md` 2026-07-14 / 2026-07-31 | 禁止：阈值做成运营旋钮；自建交换表 | TR 场景 AC |
 | S22 | **材料零存储**：经 Sumsub 采集的尽调材料我方零存储、只认 webhook 结果；CDD 五列客户主数据例外入主表 | `decisions.md` 2026-09-07 | 禁止：落任何材料文件或名录 | — |
 | S23 | **客户流水三原则**：保净额、保余额（行能加出余额）、每行可追溯回账本分录；不合并客户实际经历过的余额变动 | `decisions.md` 2026-08-28 | 允许：展示层聚合 ｜ 禁止：藏真实余额变动 | 客户流水 AC |
+| S24 | **监管报送留痕不真发**：报送单是否已提交监管一律人工标记（`externalRef` 非空才能标已提交），系统不做真实对外发送；事故通报义务判定后按依据码逐码自动开单（一码一单，一码一钟），结案前置门要求该事故名下全部报送单均已提交 | `src/modules/governance/regulatory-filings/`（`regulatory-filing.constants.ts` FILING_TRANSITIONS 六态六边 ＋ `regulatory-filing.service.ts markSubmitted`）＋ `modules/v9-regulatory-filing.md` | 允许：换后端存储/前端呈现、换受文机构与类型目录（加行不改骨架）｜ 禁止：自动化真实对外提交；标已提交前不要求外部编号；结案放行未提交报送单存在的事故 | `test/regulatory-filing.e2e-spec.ts`；`verify:rbac` 报送台探针 |
 
 ## 第二层 · 语义保真、形式自由
 
