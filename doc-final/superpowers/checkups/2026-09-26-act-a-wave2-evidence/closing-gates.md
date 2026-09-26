@@ -60,6 +60,35 @@
   2. `✗ V2 改角色不丢权限 · COMPLIANCE_OFFICER —— 技术官提交 modify 失败: 400 {"message":"Invalid permission groups: CUSTOMER_WRITE",...}`——`doc-final/BACKLOG.md` 2026-09-16/2026-09-25 登记行，`CUSTOMER_WRITE` 权限组零路由但仍被角色绑定引用的既有缺陷，与本波报送台改动无关
 - `共 2 条 FAIL，其中 GUARD_OPEN（守卫 fail-open，非权限配错）0 条`——两条都不是安全洞，判据"逐字对上登记债即绿判"成立
 
-## 树净收尾
+## 树净收尾（Task 11 主体收尾时点）
 
-`git status --porcelain`（Task 11 全部编辑完成后）：仅文档改动 + 新篇 + evidence 文件，源码 0 改动（变异测试三点全部还原，见 `mutation-tests.md`）。
+`git status --porcelain`（Task 11 文档收口部分完成后）：仅文档改动 + 新篇 + evidence 文件，源码 0 改动（变异测试三点全部还原，见 `mutation-tests.md`）。
+
+## 修 1（主会话打回：audit:vocab 差集必修，不外溢）
+
+**问题**：T6 退役 `INCIDENT_REGULATOR_REPORT_DRAFTED`/`INCIDENT_REGULATOR_REPORTED` 两码时未按本仓退役惯例登记进 `DEPRECATED_AUDIT_ACTIONS`，`npm run audit:vocab` 差集 fail-fast。主会话判定为波内必修（非可外溢的独立任务），当场修复。
+
+**改动**：`src/modules/audit-logging/constants/audit-actions.constant.ts` 的 `DEPRECATED_AUDIT_ACTIONS` 数组追加两码，注释「甲波二 T6 退役（通报单槽收编，事故名册 11→9）」，格式照邻近条目（客户主表裸 CRUD 退役那组）。
+
+**`npm run audit:vocab` 复跑**：
+- EXIT: `0`
+- 关键行：
+  ```
+  note: 4 seed codes retired since 2026-09-15: CUSTOMER_DELETED, CUSTOMER_UPDATED, INCIDENT_REGULATOR_REPORTED, INCIDENT_REGULATOR_REPORT_DRAFTED
+  分域计数（从常量重算）：... GOVERNANCE: 9 ... 合计 259 码
+  已写入 doc-final/lark/2026-09-16-audit-actions-catalog-full.md
+  ```
+- `doc-final/lark/2026-09-16-audit-actions-catalog-full.md` 词表入库确认：现役 261→259（GOVERNANCE 11→9），退役 115→117，两码从「事故一生」现役表移入附录退役码清单；生成头行日期/基线哈希同步更新
+
+**`npx jest src/modules/audit-logging --colors` 复跑**：
+- 第一次：EXIT `1`——`audit-actions.constant.spec.ts` 一条断言红：`第一批 · V1 词表守则 › 退役码 97 个（...）`标题里的叙事没跟数字走，实际断言 `expect(DEPRECATED_AUDIT_ACTIONS).toHaveLength(115)` 与新长度 117 不符——按合同的一部分修正：追加一段叙事「+ 2 甲波二(2026-09-26)T6：INCIDENT_REGULATOR_REPORT_DRAFTED/INCIDENT_REGULATOR_REPORTED 随通报单槽收编退役新入闸，得 117」+ 断言改 `toHaveLength(117)`（**未改动**该测试标题里历史遗留的开头基数「97」——那是早于本次多轮追加就已经与结尾数字不一致的历史标签，非本次改动引入，不在本次修复范围内）
+- 第二次：EXIT `0`——`Test Suites: 8 passed, 8 total` / `Tests: 92 passed, 92 total`
+
+**`npx jest src/modules/governance src/modules/audit-logging --colors` 复跑（全域回归）**：
+- 默认并行：EXIT `1`——`regulatory-filing-sweep.service.spec.ts` 一条断言红（`marked` 期望 1 实收 2）；诊断确认与本次改动无关，是 `doc-final/TOOLING-DEBT.md:151` 已登记的既有并行 worker 假红（多个 spec 共享同一份 self 栈 `dev.db`，sweep 全表扫描互踩）
+- `--runInBand` 复跑：EXIT `0`——`Test Suites: 24 passed, 24 total` / `Tests: 358 passed, 358 total`，确认为已知 flake、非回归
+
+**`npx tsc --noEmit -p tsconfig.json`**：
+- EXIT: `0`（无输出）
+
+**树净**：修复提交前后 `git status --porcelain` 仅列出预期改动文件（`audit-actions.constant.ts` + 对应 spec + 词表生成物 `doc-final/lark/2026-09-16-audit-actions-catalog-full.md`），无源码孤儿改动。

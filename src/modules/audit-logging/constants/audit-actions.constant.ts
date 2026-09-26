@@ -1076,6 +1076,9 @@ export const DEPRECATED_AUDIT_ACTIONS: readonly string[] = [
   // ── 客户主表裸 CRUD 退役（第七幕波二，2026-09-16 岔口②：三端点删除，
   //    CUSTOMER_CREATED 保留——真实写点在注册链 customer-auth.service.ts）──
   'CUSTOMER_UPDATED', 'CUSTOMER_DELETED',
+  // 甲波二 T6 退役（通报单槽收编，事故名册 11→9）：saveReportDraft/markReported 两方法
+  // 随事故表六列一并删除，通报的过程改统一走报送单主体（REG_FILING_AUDIT_ACTIONS 接手）
+  'INCIDENT_REGULATOR_REPORT_DRAFTED', 'INCIDENT_REGULATOR_REPORTED',
 ] as const;
 
 /** 第七幕波二（2026-09-16）：承诺写 audit_log_subjects 子表的码族名册。

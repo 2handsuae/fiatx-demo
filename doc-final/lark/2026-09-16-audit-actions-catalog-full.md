@@ -1,10 +1,10 @@
 # 审计动作码全量导出 —— 按域 × 按工作流（最全版）
 
-> 生成于 2026-09-16 ｜ 基线 main `f2bfeffb` ｜ 机器列来源 `src/modules/audit-logging/constants/audit-actions.constant.ts`（8 份名册程序化导出）｜ 说明列来源 `doc-final/lark/2026-09-15-audit-actions-catalog-by-domain-workflow.md`
-> 现役 **261 码**（较 2026-09-15 版少 2：CUSTOMER_DELETED、CUSTOMER_UPDATED 已退役，进拒写闸），另有退役 115 码进拒写闸（附录全列）。
+> 生成于 2026-09-26 ｜ 基线 main `368e5eb1` ｜ 机器列来源 `src/modules/audit-logging/constants/audit-actions.constant.ts`（8 份名册程序化导出）｜ 说明列来源 `doc-final/lark/2026-09-15-audit-actions-catalog-by-domain-workflow.md`
+> 现役 **259 码**（较 2026-09-15 版少 4：CUSTOMER_DELETED、CUSTOMER_UPDATED、INCIDENT_REGULATOR_REPORTED、INCIDENT_REGULATOR_REPORT_DRAFTED 已退役，进拒写闸），另有退役 117 码进拒写闸（附录全列）。
 > **旅程**列：S 起点=该码铸 correlationId 开启一段旅程 ｜ I 继承=延续同一旅程 ｜ N 单步=无旅程可挂（守卫拒绝、单步动作、报价先于订单等）。**异步**=✓ 表示由审批/事件驱动、必须带 causationId。**subjects**=✓ 表示该码在 SUBJECTS_COVERED_ACTIONS 名册（治理域+横切审批 47 码，verify:audit Q2 断言面）；交易域码运行时也写子表行但不在名册故留白；Related No 检索走 OR 语义（主表∨子表）不受此列影响。⚡=演示装置。
 
-**分域计数**：APPROVAL 8 ｜ IAM 30 ｜ CONFIG 60 ｜ AUDIT 4 ｜ CUSTOMER 26 ｜ DEPOSIT 47 ｜ WITHDRAW 33 ｜ SWAP 26 ｜ TREASURY 7 ｜ RECON 9 ｜ GOVERNANCE 11 ｜ 合计 261
+**分域计数**：APPROVAL 8 ｜ IAM 30 ｜ CONFIG 60 ｜ AUDIT 4 ｜ CUSTOMER 26 ｜ DEPOSIT 47 ｜ WITHDRAW 33 ｜ SWAP 26 ｜ TREASURY 7 ｜ RECON 9 ｜ GOVERNANCE 9 ｜ 合计 259
 
 ## APPROVAL 域 —— 审批引擎（横切）（8 码）
 
@@ -561,11 +561,11 @@
 | `RECON_CASE_AGING_BREACHED` | 账龄到线（系统通道，actor=AGING_TIMER，核销/认损按钮由此解锁） | N 单步 | — |  |  |
 | `RECON_AGING_TIMEOUT_SIMULATED` | ⚡ 拨钟：把账龄截止拨到过去（拨钟一条、到线一条，各说各的事） | N 单步 | — |  |  |
 
-## GOVERNANCE 域 —— 事故登记（平账三期）（11 码）
+## GOVERNANCE 域 —— 事故登记（平账三期）（9 码）
 
 性质严重的差异正式立「事故」：登记 / 调查 / 定损 / 通报 / 善后 / 结案，全程零账务；动钱挂调账单与划转单引用。
 
-### 事故一生（金库操作、结案两步门）（11）
+### 事故一生（金库操作、结案两步门）（9）
 
 | 动作码 | 说明 | 旅程 | 必填字段 | 异步 | subjects |
 |---|---|---|---|---|---|
@@ -575,15 +575,13 @@
 | `INCIDENT_ESCALATED` | 记录升级（MLRO / CFO / 高管） | N 单步 | escalatedTo |  |  |
 | `INCIDENT_ASSESSED` | 提交定损（口径 + 是否需要监管通报） | N 单步 | assessmentBasis |  |  |
 | `INCIDENT_REMEDIATION_LINKED` | 挂载善后单（调账单/划转单引用） | N 单步 | referenceNo |  |  |
-| `INCIDENT_REGULATOR_REPORT_DRAFTED` | 保存通报草案（不能跳过草案直接标已通报） | N 单步 | — |  |  |
-| `INCIDENT_REGULATOR_REPORTED` | 标记已通报（对外编号 + 依据条款） | N 单步 | basisCodes |  |  |
 | `INCIDENT_CLOSE_REQUESTED` | 提结案（安全类两步 MLRO→CFO / 财务类单步 CFO） | I 继承 | — |  |  |
 | `INCIDENT_CLOSED` | 审批通过、事故 CLOSED | I 继承 | approvalNo | ✓ |  |
 | `INCIDENT_WITHDRAWN` | 撤回误登记（仅 REGISTERED 态，理由留痕，不是删除） | N 单步 | reason |  |  |
 
 ## 附录 · 退役码（拒写闸名单，历史可读、不再允许写入）
 
-退役码进拒写闸，共 115 码：
+退役码进拒写闸，共 117 码：
 
 - `FIRST_LOGIN_MFA_VERIFY_FAILED`
 - `DEPOSIT_GATE0_PASSED`
@@ -700,5 +698,7 @@
 - `TRANSACTION_LIMIT_CREATION_CANCELLED`
 - `CUSTOMER_UPDATED`
 - `CUSTOMER_DELETED`
+- `INCIDENT_REGULATOR_REPORT_DRAFTED`
+- `INCIDENT_REGULATOR_REPORTED`
 
 > 另有动态迁移码族按形状拒写：`<域>_<从>_TO_<到>`（RETIRED_DYNAMIC_TRANSITION_PATTERN）。

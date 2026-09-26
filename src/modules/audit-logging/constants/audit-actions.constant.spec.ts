@@ -169,9 +169,11 @@ describe('第一批 · V1 词表守则', () => {
     + ' + 4 波一(2026-09-04)T10：TRANSACTION_LIMIT_CREATION_REQUESTED/APPLIED/APPLY_FAILED/'
     + 'CANCELLED 四码随创建流整条退役新入闸，得 113'
     + ' + 2 波二(2026-09-16)Task8：CUSTOMER_UPDATED/CUSTOMER_DELETED 随客户主表裸 CRUD 三端点删除'
-    + '（岔口②）退役新入闸，CUSTOMER_CREATED 保留（真实写点在注册链），得 115），'
+    + '（岔口②）退役新入闸，CUSTOMER_CREATED 保留（真实写点在注册链），得 115'
+    + ' + 2 甲波二(2026-09-26)T6：INCIDENT_REGULATOR_REPORT_DRAFTED/INCIDENT_REGULATOR_REPORTED'
+    + ' 随通报单槽收编（事故通报改统一走报送单主体）退役新入闸，得 117），'
     + '且与五本在用名册零交集', () => {
-    expect(DEPRECATED_AUDIT_ACTIONS).toHaveLength(115);
+    expect(DEPRECATED_AUDIT_ACTIONS).toHaveLength(117);
     expect(DEPRECATED_AUDIT_ACTIONS.filter((d) => codes.includes(d))).toEqual([]);
     expect(DEPRECATED_AUDIT_ACTIONS.filter((d) => d in V4_DEPOSIT_AUDIT_ACTIONS)).toEqual([]);
     expect(DEPRECATED_AUDIT_ACTIONS.filter((d) => d in V5_WITHDRAW_AUDIT_ACTIONS)).toEqual([]);
