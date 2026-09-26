@@ -57,6 +57,10 @@ const BUSINESS_DELEGATES_FK_SAFE: string[] = [
   'incidentNote',
   'incidentRemediation',
   'incident',
+  // 报送台（战役甲波二 Task 1 加表时漏登记本清单——entries FK → filing(RESTRICT)，
+  // 子先删；否则旧库里 e2e/RBAC 探针建出的 filing 行会在 reset 后原样留存）。
+  'regulatoryFilingEntry',
+  'regulatoryFiling',
   'reconciliationAdjustment',
   'reconciliationLineItem',
   'reconciliationCase',

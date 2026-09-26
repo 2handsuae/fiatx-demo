@@ -23,6 +23,9 @@ import { platformWalletSlots } from '../src/config/manifests/vaults.manifest';
 import { NETWORKS } from '../src/config/manifests/networks.manifest';
 import { fakeTronAddress } from '../src/common/utils/tron-address.util';
 import { writeSeedAudit } from './seed-audit.helper';
+import { FilingStatus, FilingEntryKinds, RegulatoryAuthorities } from '../src/modules/governance/regulatory-filings/regulatory-filing.constants';
+import { getFilingTypeConfig } from '../src/modules/governance/regulatory-filings/filing-type-registry';
+import { INCIDENT_REPORT_BASES } from '../src/modules/governance/incidents/incident.constants';
 
 type SeedBusinessOptions = {
   skipEnsureBase?: boolean;
@@ -52,6 +55,8 @@ export async function seedBusiness(
   await seedMaterialRequest(prisma);
   // ③c Incidents layer (needs seedCustomers' customerNo for the STUCK_TRANSACTION_MAJOR sample)
   await seedIncidents(prisma);
+  // ③d Regulatory filings layer (needs seedIncidents' data-breach-crm-export row)
+  await seedRegulatoryFilings(prisma);
   // Final: push all registry rows (system + customer) into TigerBeetle.
   await provisionTbAccounts(prisma);
   // Firm capital bootstrap: DR FIRM_ASSET / CR FIRM_OPS per currency.
@@ -1004,8 +1009,11 @@ type DemoIncidentSample = {
 };
 
 const DEMO_INCIDENTS: DemoIncidentSample[] = [
-  // DATA 族·IMPACT 口径·ASSESSED：双通报依据码已勾选但尚未标记「已通报」——界面上
-  // 应看到两枚倒计时/无时限徽章同时挂着、Request Close 因 reportRequired 未 markReported 仍灰态。
+  // DATA 族·IMPACT 口径·ASSESSED：双通报依据码已勾（PDPL_ART_9+TIR_II_C_24H）——两张
+  // filing 归位在 seedRegulatoryFilings（战役甲波二 T10，见下方 ③d）：PDPL 单已 SUBMITTED
+  // （无钟）、TIR 链单 SIGNED_OFF 待提交（24h 钟在跑，还剩约 4h）。Request Close 仍灰态——
+  // 现在按 incident-close-workflow.service.ts 的真实守卫判断（甲波二 T6 改判报送单口径）：
+  // 该事故名下非作废 filing 未全部 submittedAt，TIR 那张还没提交，缺一张就不放行。
   {
     seedKey: 'data-breach-crm-export',
     type: 'DATA_BREACH', status: 'ASSESSED',
@@ -1121,6 +1129,112 @@ async function seedIncidents(prisma: PrismaClient): Promise<void> {
     count += 1;
   }
   console.log(`Seeded ${count} incident sample rows (non-initial states; CYBER_BCDR left for the live demo script).`);
+}
+
+// ─────────────────────────────────────────────────────────────
+// ③d Regulatory filings layer — 战役甲波二 Task 10（评审黄5 改判，spec §10）：
+// 甲案后 data-breach-crm-export 是「零单」不可达态（DATA_BREACH ASSESSED 已勾两个
+// 通报依据码却没有一张 filing）——补两张单归位，演双钟链；另加一条入站来函样例。
+// 与 seedIncidents 同一性质：种子直铺快照数据，不走 RegulatoryFilingService/
+// RegulatoryFilingWorkflowService（没有 operator、没有审批案、不写审计——「登记会
+// 留痕」由 e2e 证，同 seedIncidents 头注释先例）。filingNo 用 buildDeterministicNo
+// 派生，reset 重铺后逐字不变；幂等重铺先删 entries 再删 filing（RegulatoryFilingEntry
+// FK → RegulatoryFiling 无 cascade，子先删，同 incidentNote/incidentRemediation 先例）。
+// authority/label/deadline 算法照抄 regulatory-filing.service.ts 的真实逻辑（见该文件
+// computeDeadline/markSubmitted 注释），不重新杜撰一套。
+// ─────────────────────────────────────────────────────────────
+
+async function seedRegulatoryFilings(prisma: PrismaClient): Promise<void> {
+  const incidentNo = buildDeterministicNo('INC', 'data-breach-crm-export');
+  const incident = await prisma.incident.findUnique({ where: { incidentNo }, select: { id: true } });
+  if (!incident) {
+    console.log('  ⚠ Skipping regulatory filing seed — incident data-breach-crm-export missing');
+    return;
+  }
+
+  async function upsertFiling(filingNo: string, data: Prisma.RegulatoryFilingCreateInput) {
+    const existing = await prisma.regulatoryFiling.findUnique({ where: { filingNo }, select: { id: true } });
+    if (existing) {
+      await prisma.regulatoryFilingEntry.deleteMany({ where: { filingId: existing.id } });
+      await prisma.regulatoryFiling.delete({ where: { filingNo } });
+    }
+    return prisma.regulatoryFiling.create({ data });
+  }
+
+  const incidentReportCfg = getFilingTypeConfig('INCIDENT_REPORT'); // direction OUTBOUND
+  const now = Date.now();
+
+  // 样例一 · PDPL_ART_9（SUBMITTED）——statute 无钟（hours=null，见 INCIDENT_REPORT_BASES），
+  // deadlineAt 照真实 computeDeadline 结果留 null。
+  const pdplBase = INCIDENT_REPORT_BASES.PDPL_ART_9;
+  const pdplFilingNo = buildDeterministicNo('FIL', 'data-breach-crm-export-pdpl');
+  const pdplSubmittedAt = new Date(now - 20 * 3600 * 1000);
+  const pdplFiling = await upsertFiling(pdplFilingNo, {
+    filingNo: pdplFilingNo,
+    direction: incidentReportCfg.direction,
+    type: 'INCIDENT_REPORT',
+    authority: pdplBase.authority,
+    basisCode: 'PDPL_ART_9',
+    incidentNo,
+    title: `${incidentReportCfg.label} — ${incidentNo}`,
+    deadlineAt: null,
+    externalRef: 'DATAOFFICE-ACK-2026-0001',
+    submittedAt: pdplSubmittedAt,
+    submittedByUserId: 'SEED',
+    status: FilingStatus.SUBMITTED,
+    createdByUserId: 'SEED',
+    traceId: `seed-${pdplFilingNo}`,
+  });
+  await prisma.regulatoryFilingEntry.create({
+    data: {
+      filingId: pdplFiling.id,
+      kind: FilingEntryKinds.RECEIPT_ACK,
+      body: 'UAE Data Office acknowledged receipt of the Art.9 personal data breach notification.',
+      externalRef: 'DATAOFFICE-ACK-2026-0001',
+      recordedByUserId: 'SEED',
+    },
+  });
+
+  // 样例一 · TIR_II_C_24H（SIGNED_OFF 链单，演示效果：已签发待提交、钟在跑——比 DRAFT
+  // 更能演出"批完了、还剩不到 4 小时"的紧迫感）——deadline = PDPL submittedAt + 24h，
+  // 照真实 markSubmitted 落定兄弟单 deadline 的算法（chainStart='NOTICE'，钟起点是
+  // 通知发出时刻，不是登记/定损时刻）；now-20h+24h ≈ now+4h，还剩约 4 小时在跑。
+  const tirBase = INCIDENT_REPORT_BASES.TIR_II_C_24H;
+  const tirFilingNo = buildDeterministicNo('FIL', 'data-breach-crm-export-tir');
+  const tirDeadlineAt = new Date(pdplSubmittedAt.getTime() + (tirBase.hours as number) * 3600 * 1000);
+  await upsertFiling(tirFilingNo, {
+    filingNo: tirFilingNo,
+    direction: incidentReportCfg.direction,
+    type: 'INCIDENT_REPORT',
+    authority: tirBase.authority,
+    basisCode: 'TIR_II_C_24H',
+    incidentNo,
+    title: `${incidentReportCfg.label} — ${incidentNo}`,
+    deadlineAt: tirDeadlineAt,
+    status: FilingStatus.SIGNED_OFF,
+    createdByUserId: 'SEED',
+    traceId: `seed-${tirFilingNo}`,
+  });
+
+  // 样例二 · 入站来函：VARA 信息请求响应，DRAFT，48h 钟在跑（receivedAt=now-6h）。
+  const infoCfg = getFilingTypeConfig('REG_INFO_REQUEST_RESPONSE'); // direction INBOUND, defaultHours 48
+  const infoFilingNo = buildDeterministicNo('FIL', 'vara-info-request-q3');
+  const infoReceivedAt = new Date(now - 6 * 3600 * 1000);
+  const infoDeadlineAt = new Date(infoReceivedAt.getTime() + (infoCfg.defaultHours as number) * 3600 * 1000);
+  await upsertFiling(infoFilingNo, {
+    filingNo: infoFilingNo,
+    direction: infoCfg.direction,
+    type: 'REG_INFO_REQUEST_RESPONSE',
+    authority: RegulatoryAuthorities.VARA,
+    title: 'VARA information request — Q3 liquidity reporting follow-up',
+    receivedAt: infoReceivedAt,
+    deadlineAt: infoDeadlineAt,
+    status: FilingStatus.DRAFT,
+    createdByUserId: 'SEED',
+    traceId: `seed-${infoFilingNo}`,
+  });
+
+  console.log('Seeded 3 regulatory filing sample rows (2 chained to data-breach-crm-export + 1 inbound VARA info request).');
 }
 
 // ─────────────────────────────────────────────────────────────
