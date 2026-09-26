@@ -264,9 +264,9 @@
 
 | 动作码 | 说明 | 旅程 | 必填字段 | 异步 |
 |---|---|---|---|---|
-| `SANCTION_DISPOSITION_REQUESTED` | 合规官对 OPEN 的 SANCTION 便签提定性（CLEARED/PARTIAL/CONFIRMED 三选一），开 MLRO 单步审批 | N 单步 | outcome |  |
-| `SANCTION_DISPOSITION_DECIDED` | MLRO 裁决（拒绝=维持待裁，只留本条审计） | N 单步 | outcome |  |
-| `SANCTION_DISPOSITION_LANDED` | 批准后三出口落地（CLEARED 解冻 / PARTIAL 开 PNMR+补料 / CONFIRMED 便签翻牌+开 CNMR） | N 单步 | outcome |  |
+| `SANCTION_DISPOSITION_REQUESTED` | 合规官对 OPEN 的 SANCTION 便签提定性（CLEARED/PARTIAL/CONFIRMED 三选一），开 MLRO 单步审批 | N 单步 | approvalNo |  |
+| `SANCTION_DISPOSITION_DECIDED` | MLRO 裁决（拒绝=维持待裁，只留本条审计） | N 单步 | approvalNo |  |
+| `SANCTION_DISPOSITION_LANDED` | 批准后三出口落地（CLEARED 解冻 / PARTIAL 开 PNMR+补料 / CONFIRMED 便签翻牌+开 CNMR） | N 单步 | approvalNo |  |
 
 ### 材料请求账（7）
 

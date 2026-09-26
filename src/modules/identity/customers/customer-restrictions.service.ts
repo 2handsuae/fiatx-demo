@@ -135,7 +135,11 @@ export class CustomerRestrictionsService {
     // CUSTOMER_FROZEN 此前零写入方，本轮由制裁便签激活。同一坑：SANCTION 可经
     // MLRO_APPROVAL 撕便签后再次被命中（新 restrictionNo、created 再次为
     // true），不拼 requestId 会被第一次的 CUSTOMER_FROZEN 幂等键挡住。
-    if (outcome.created && input.cause === 'SANCTION') {
+    // T4 修1（评审黄1）：判据从字面量 cause==='SANCTION' 改成 policy.customerLevel——
+    // SANCTION_CONFIRMED 同样是"这个人被冻住了"的客户级因由（制裁定性 CONFIRMED 出口
+    // 落地时开的新便签），字面量判据会让它被漏判，时间线上只看得到（旧便签的）UNFROZEN
+    // 却没有对应的 FROZEN，演示时是一次假解冻。
+    if (outcome.created && policy.customerLevel) {
       await this.auditLogsService.recordSystem({
         ...auditShell,
         action: AuditActions.CUSTOMER_FROZEN,
@@ -294,7 +298,10 @@ export class CustomerRestrictionsService {
       requestId: `CUSTOMER_RESTRICTION_CLEARED_${restrictionNo}_${randomUUID()}`,
     }, tx);
 
-    if (first.cause === 'SANCTION') {
+    // T4 修1（评审黄1）：判据从字面量 cause==='SANCTION' 改成 policy.customerLevel（同
+    // open() 里 CUSTOMER_FROZEN 那处的修法一致）——SANCTION_CONFIRMED 手工解除（走
+    // 既有 MLRO_APPROVAL 政府解除令闸）时同样该有 CUSTOMER_UNFROZEN 对应。
+    if (RESTRICTION_CAUSE_POLICY[first.cause as RestrictionCause]?.customerLevel) {
       await this.auditLogsService.recordSystem({
         ...auditShell,
         action: AuditActions.CUSTOMER_UNFROZEN,

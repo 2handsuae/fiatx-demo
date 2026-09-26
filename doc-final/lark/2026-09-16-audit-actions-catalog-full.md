@@ -1,6 +1,6 @@
 # 审计动作码全量导出 —— 按域 × 按工作流（最全版）
 
-> 生成于 2026-09-26 ｜ 基线 main `74e3943` ｜ 机器列来源 `src/modules/audit-logging/constants/audit-actions.constant.ts`（9 份名册程序化导出）｜ 说明列来源 `doc-final/lark/2026-09-15-audit-actions-catalog-by-domain-workflow.md`
+> 生成于 2026-09-26 ｜ 基线 main `335e6c0` ｜ 机器列来源 `src/modules/audit-logging/constants/audit-actions.constant.ts`（9 份名册程序化导出）｜ 说明列来源 `doc-final/lark/2026-09-15-audit-actions-catalog-by-domain-workflow.md`
 > 现役 **273 码**（较 2026-09-15 版少 4：CUSTOMER_DELETED、CUSTOMER_UPDATED、INCIDENT_REGULATOR_REPORTED、INCIDENT_REGULATOR_REPORT_DRAFTED 已退役，进拒写闸），另有退役 117 码进拒写闸（附录全列）。
 > **旅程**列：S 起点=该码铸 correlationId 开启一段旅程 ｜ I 继承=延续同一旅程 ｜ N 单步=无旅程可挂（守卫拒绝、单步动作、报价先于订单等）。**异步**=✓ 表示由审批/事件驱动、必须带 causationId。**subjects**=✓ 表示该码在 SUBJECTS_COVERED_ACTIONS 名册（治理域+横切审批 47 码，verify:audit Q2 断言面）；交易域码运行时也写子表行但不在名册故留白；Related No 检索走 OR 语义（主表∨子表）不受此列影响。⚡=演示装置。
 
@@ -262,9 +262,9 @@
 
 | 动作码 | 说明 | 旅程 | 必填字段 | 异步 | subjects |
 |---|---|---|---|---|---|
-| `SANCTION_DISPOSITION_REQUESTED` | 合规官对 OPEN 的 SANCTION 便签提定性（CLEARED/PARTIAL/CONFIRMED 三选一），开 MLRO 单步审批 | N 单步 | outcome |  |  |
-| `SANCTION_DISPOSITION_DECIDED` | MLRO 裁决（拒绝=维持待裁，只留本条审计） | N 单步 | outcome |  |  |
-| `SANCTION_DISPOSITION_LANDED` | 批准后三出口落地（CLEARED 解冻 / PARTIAL 开 PNMR+补料 / CONFIRMED 便签翻牌+开 CNMR） | N 单步 | outcome |  |  |
+| `SANCTION_DISPOSITION_REQUESTED` | 合规官对 OPEN 的 SANCTION 便签提定性（CLEARED/PARTIAL/CONFIRMED 三选一），开 MLRO 单步审批 | N 单步 | approvalNo |  |  |
+| `SANCTION_DISPOSITION_DECIDED` | MLRO 裁决（拒绝=维持待裁，只留本条审计） | N 单步 | approvalNo |  |  |
+| `SANCTION_DISPOSITION_LANDED` | 批准后三出口落地（CLEARED 解冻 / PARTIAL 开 PNMR+补料 / CONFIRMED 便签翻牌+开 CNMR） | N 单步 | approvalNo |  |  |
 
 ### 材料请求账（7）
 

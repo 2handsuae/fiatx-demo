@@ -938,13 +938,15 @@ export const V2_CUSTOMER_AUDIT_ACTIONS: Record<string, AuditActionSpec> = {
   TIER_UPGRADE_ACCEPTANCE_DECIDED:   { domain: 'CUSTOMER', correlationMode: N, requiredFields: ['approvalNo'], requiresCausation: false },
   CUSTOMER_LEDGER_PROVISIONED:       { domain: 'CUSTOMER', correlationMode: N, requiredFields: ['afterData'], requiresCausation: false },
   // ── 制裁定性裁决（3，战役甲波三 T4，2026-09-26）：客户级件，correlationMode 全 N（同域惯例）。
-  // requiredFields 三码统一含 'outcome'——本域的 outcome 列固有语义是「动作执行成没成」
-  // （AuditOutcome：SUCCESS/DENIED/FAILED/PARTIAL），不是 CLEARED/PARTIAL/CONFIRMED 那个
-  // 业务定性值（后者塞不进这个枚举列，落 metadata.outcome）；这里强制显式传，不许调用方
-  // 漏传落到隐式默认 SUCCESS。 ──
-  SANCTION_DISPOSITION_REQUESTED: { domain: 'CUSTOMER', correlationMode: N, requiredFields: ['outcome'], requiresCausation: false },
-  SANCTION_DISPOSITION_DECIDED:   { domain: 'CUSTOMER', correlationMode: N, requiredFields: ['outcome'], requiresCausation: false },
-  SANCTION_DISPOSITION_LANDED:    { domain: 'CUSTOMER', correlationMode: N, requiredFields: ['outcome'], requiresCausation: false },
+  // T4 修·白6（评审）：requiredFields 原定 ['outcome']——本域 outcome 列固有语义是
+  // 「动作执行成没成」（AuditOutcome：SUCCESS/DENIED/FAILED/PARTIAL），三码全是成功路径
+  // 才写（拒绝/维持待裁也算"成功记了一条"），这列在这三码上永远是 SUCCESS，守不出信息量。
+  // 改守 'approvalNo'——照 ONBOARDING_ACCEPTANCE_DECIDED/TIER_UPGRADE_ACCEPTANCE_DECIDED
+  // 同款先例（审批驱动的码守 approvalNo，不是恒定列）；outcome 的业务定性值（CLEARED/
+  // PARTIAL/CONFIRMED，塞不进 AuditOutcome 枚举）继续落 metadata.outcome，三处调用点均已带。
+  SANCTION_DISPOSITION_REQUESTED: { domain: 'CUSTOMER', correlationMode: N, requiredFields: ['approvalNo'], requiresCausation: false },
+  SANCTION_DISPOSITION_DECIDED:   { domain: 'CUSTOMER', correlationMode: N, requiredFields: ['approvalNo'], requiresCausation: false },
+  SANCTION_DISPOSITION_LANDED:    { domain: 'CUSTOMER', correlationMode: N, requiredFields: ['approvalNo'], requiresCausation: false },
 };
 
 /**

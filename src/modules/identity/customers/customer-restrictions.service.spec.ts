@@ -317,7 +317,7 @@ describe('CustomerRestrictionsService.open', () => {
     expect(prisma.customerRestriction.findFirst).not.toHaveBeenCalled();
   });
 
-  it('SANCTION 额外写一条 CUSTOMER_FROZEN；非 SANCTION 只写 ADDED', async () => {
+  it('customerLevel 的 cause 额外写一条 CUSTOMER_FROZEN；非 customerLevel 只写 ADDED', async () => {
     const { prisma } = createPrismaMock();
     const audit = createAuditMock();
     const svc = new CustomerRestrictionsService(prisma, audit, eventEmitterStub as any);
@@ -332,6 +332,24 @@ describe('CustomerRestrictionsService.open', () => {
     await svc.open({ customerId: 'c1', cause: 'ADMIN_SUSPENSION', reason: 'ops hold', openedBy: 'ops@fiatx.com' });
     expect(audit.recordSystem.mock.calls.map((c: any[]) => c[0].action)).toEqual([
       'CUSTOMER_RESTRICTION_ADDED',
+    ]);
+  });
+
+  // T4 修1（评审黄1）：CUSTOMER_FROZEN 的判据从字面量 cause==='SANCTION' 改成
+  // policy.customerLevel——SANCTION_CONFIRMED（制裁定性 CONFIRMED 出口落地开的新便签）
+  // 同样是客户级冻结，漏判会让时间线出现"旧便签 UNFROZEN，新便签却无 FROZEN"的假解冻。
+  it('SANCTION_CONFIRMED（CONFIRMED 出口落地新开的便签）同样额外写 CUSTOMER_FROZEN', async () => {
+    const { prisma } = createPrismaMock();
+    const audit = createAuditMock();
+    const svc = new CustomerRestrictionsService(prisma, audit, eventEmitterStub as any);
+
+    await svc.open({
+      customerId: 'c1', cause: 'SANCTION_CONFIRMED',
+      reason: 'Sanction confirmed via disposition APR-1', openedBy: 'mlro@fiatx.com',
+    });
+    expect(audit.recordSystem.mock.calls.map((c: any[]) => c[0].action)).toEqual([
+      'CUSTOMER_RESTRICTION_ADDED',
+      'CUSTOMER_FROZEN',
     ]);
   });
 
@@ -489,6 +507,29 @@ describe('CustomerRestrictionsService.release', () => {
       'CUSTOMER_UNFROZEN',
     ]);
     expect(audit.recordSystem.mock.calls[0][0].metadata.releaseOrderRef).toBe('GOV-2026-0815');
+  });
+
+  // T4 修1（评审黄1）：手工解除 SANCTION_CONFIRMED（既有 MLRO_APPROVAL 政府解除令闸，
+  // initiateRelease/onReleaseDecided 手工链未改动）同样该有 CUSTOMER_UNFROZEN 对应。
+  it('SANCTION_CONFIRMED 撕的时候同样额外写 CUSTOMER_UNFROZEN', async () => {
+    const { prisma, tx } = createPrismaMock();
+    const audit = createAuditMock();
+    tx.customerRestriction.findMany.mockResolvedValue([
+      { ...openRows('SANCTION_CONFIRMED', 'DISCLOSED')[0], scope: 'ALL' },
+    ]);
+    const svc = new CustomerRestrictionsService(prisma, audit, eventEmitterStub as any);
+
+    await svc.release('RST2608150001', {
+      releasedBy: 'mlro@fiatx.com',
+      releaseMode: 'MANUAL',
+      releaseApprovalNo: 'APR2608150003',
+      releaseOrderRef: 'GOV-2026-0816',
+    });
+
+    expect(audit.recordSystem.mock.calls.map((c: any[]) => c[0].action)).toEqual([
+      'CUSTOMER_RESTRICTION_CLEARED',
+      'CUSTOMER_UNFROZEN',
+    ]);
   });
 
   it('已 RELEASED 的便签幂等成功：不再 update、不重复写审计；号不存在才抛 NotFound', async () => {

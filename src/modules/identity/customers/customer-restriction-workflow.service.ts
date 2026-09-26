@@ -24,6 +24,7 @@ import {
   ApprovalStatuses,
 } from '../../governance/approvals/constants/approval.constants';
 import {
+  RESTRICTION_CAUSE_POLICY,
   RestrictionCause,
   RestrictionReleasePolicy,
 } from './constants/restriction-cause.constant';
@@ -103,7 +104,10 @@ export class CustomerRestrictionWorkflowService {
     );
 
     // 制裁便签额外写 CUSTOMER_FROZEN：客户级冻结在审计上单独可检索。
-    if (created && row.cause === 'SANCTION') {
+    // T4 修1（评审黄1）：判据从字面量 cause==='SANCTION' 改成 policy.customerLevel——
+    // SANCTION_CONFIRMED（制裁定性 CONFIRMED 出口落地开的新便签）同样是客户级冻结，
+    // 字面量判据会漏判，时间线上只见旧便签 UNFROZEN、新便签却没有 FROZEN 对应。
+    if (created && RESTRICTION_CAUSE_POLICY[row.cause]?.customerLevel) {
       await this.audit(
         AuditActions.CUSTOMER_FROZEN,
         row,
@@ -327,7 +331,10 @@ export class CustomerRestrictionWorkflowService {
       tx,
     );
 
-    if (row.cause === 'SANCTION') {
+    // T4 修1（评审黄1）：判据从字面量 cause==='SANCTION' 改成 policy.customerLevel——
+    // SANCTION_CONFIRMED 手工解除（既有 MLRO_APPROVAL 政府解除令闸，initiateRelease/
+    // onReleaseDecided 这条手工链本身未改动）也该有 CUSTOMER_UNFROZEN 对应。
+    if (RESTRICTION_CAUSE_POLICY[row.cause]?.customerLevel) {
       await this.audit(
         AuditActions.CUSTOMER_UNFROZEN,
         row,

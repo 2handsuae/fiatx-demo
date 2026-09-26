@@ -15,9 +15,23 @@
 // ⚠️ actor 口径（T3 评审白3 交接）：openForSanction 的门按
 // hasPermission(userId, 'cap.filing.aml') 查——落地时 actor 必须用审批裁决人（MLRO）的
 // 真实 userId（ApprovalDecidedEvent.decisionByUserId），不能用 userNo、不能用 SYSTEM，
-// 否则 403 且发生在便签已翻之后留半落地。requestId 全链同值串起限制写入与开单写入。
+// 否则 403 且发生在便签已翻之后留半落地。
+//
+// T4 修·白7（评审，措辞收窄）：requestId 全链同值——指本 workflow **自己写的**那几条审计
+// （SANCTION_DISPOSITION_LANDED、CLEARED 出口自写的 CUSTOMER_RESTRICTION_CLEARED/
+// CUSTOMER_UNFROZEN）与传给 openForSanction() 的 requestId 共享同一个字符串，把"哪次
+// 裁决触发了这张单"钉死；**不包括** CustomerRestrictionsService.open()/release() 自己
+// 内部机械写的那条 SYSTEM 通道审计（CUSTOMER_RESTRICTION_ADDED/CLEARED/FROZEN/UNFROZEN，
+// 各自按 restrictionNo+randomUUID 现铸一个独立 requestId，属于那两个方法自己的既有行为，
+// 本 workflow 不改、也管不到）。
 import { randomUUID } from 'crypto';
-import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
 import { OnEvent } from '@nestjs/event-emitter';
 import { PrismaService } from '../../../core/prisma/prisma.service';
 import { AuditLogsService } from '../../audit-logging/audit-logs.service';
@@ -45,7 +59,23 @@ interface DispositionSnapshot {
   outcome: SanctionDispositionOutcome;
   summary: string;
   externalCaseRef: string;
+  /** T4 修3（评审黄3）：管理台审批详情页读 objectSnapshot.impact 展示"批了会怎样"
+   * （admin-web ApprovalDetailPage.tsx:384-388）。三出口各一句人话，批准前用户能看懂。 */
+  impact: string;
 }
+
+/** 三出口各自的"批了会怎样"人话——落进审批快照的 impact 字段，供 MLRO 裁决前读。 */
+const OUTCOME_IMPACT: Record<SanctionDispositionOutcome, string> = {
+  CLEARED:
+    'Approving this releases the SANCTION restriction and restores full account service immediately.',
+  PARTIAL:
+    'Approving this keeps the account suspended, opens a Partial Name Match Report (PNMR) to EOCN ' +
+    '(5 business days from suspension), and sends the customer a neutral supplementary-information request.',
+  CONFIRMED:
+    'Approving this formally confirms the sanctions match (customer-visible), keeps the account frozen ' +
+    'under the new disclosed restriction, and opens a Confirmed Name Match Report (CNMR) to EOCN ' +
+    '(5 business days from freeze).',
+};
 
 /** PARTIAL 出口的中性补料——不点破制裁排查，照 material-request-issuer 既有用法：
  * 身份证件复核用于排除/坐实姓名部分命中，是唯一在场景上说得通、且已在物料策略里
@@ -101,6 +131,24 @@ export class SanctionDispositionWorkflowService {
       );
     }
 
+    // T4 修2（评审黄2）：防重复开案，照 initiateRelease
+    // [customer-restriction-workflow.service.ts:152-163] 先例——不查这一步，
+    // approvalsService.createAndSubmit 对已有 PENDING 案的 actionType+entityRef 组合
+    // 原样返回旧案（不建新案），但下面的 REQUESTED 审计仍会照本次入参的 outcome 落一条
+    // "看似成功"的记录：合规官改主意重提了一次不同的 outcome，审计却说提交成功，
+    // MLRO 实际批的还是旧案里的旧 outcome——两者对不上。当场 409 拒绝，逼先撤/批旧案。
+    const openCases = await this.approvalsService.list({
+      actionType: ApprovalActionTypes.SANCTION_DISPOSITION,
+      entityRef: customerNo,
+      status: ApprovalStatuses.PENDING,
+      take: 1,
+    } as any);
+    if (openCases.total > 0) {
+      throw new ConflictException(
+        `Customer ${customerNo} already has a pending sanction disposition; resolve it before submitting another.`,
+      );
+    }
+
     const traceId = restriction.traceId || randomUUID();
     const snapshot: DispositionSnapshot = {
       customerNo,
@@ -108,6 +156,7 @@ export class SanctionDispositionWorkflowService {
       outcome,
       summary,
       externalCaseRef,
+      impact: OUTCOME_IMPACT[outcome],
     };
     const approvalCase = await this.approvalsService.createAndSubmit(
       {
@@ -168,7 +217,10 @@ export class SanctionDispositionWorkflowService {
         approvalNo: event.approvalNo,
         metadata: { decision: event.decision },
         requestId: `SANCTION_DISPOSITION_DECIDED_${event.approvalNo}_${randomUUID()}`,
-        sourcePlatform: 'ADMIN_API',
+        // EXPIRED 是 cron 判定超时，照 approvals.service.ts#expirePendingApprovalCase 自己
+        // 那条 APPROVAL_EXPIRED 审计的口径落 CRON；其余三种（含 CANCELLED——撤单是 maker
+        // 本人在管理台点的）落 ADMIN_API。
+        sourcePlatform: event.decision === 'EXPIRED' ? 'CRON' : 'ADMIN_API',
       },
       decisionActor,
     );
@@ -181,7 +233,7 @@ export class SanctionDispositionWorkflowService {
       return;
     }
 
-    const snapshot = await this.fetchApprovedSnapshot(event.entityRef);
+    const snapshot = await this.fetchApprovedSnapshot(event.approvalNo);
     const restrictionRow = await this.restrictions.findByNo(snapshot.restrictionNo);
     if (!restrictionRow) {
       throw new Error(
@@ -394,17 +446,23 @@ export class SanctionDispositionWorkflowService {
     };
   }
 
-  private async fetchApprovedSnapshot(customerNo: string): Promise<DispositionSnapshot> {
+  /**
+   * T4 修·白9（评审）：原按 entityRef+status=APPROVED+take:1 查最新一条——隐含"这一定是
+   * 刚决的那一条"的时序假设，二次定性（同客户第二张案）场景下若查询在两条 APPROVED 案
+   * 之间的某个时间点跑（理论上可能，取决于 list() 的排序稳定性），会翻到错的那条快照。
+   * `event.approvalNo` 是本次裁决事件自带的精确案号（ApprovalCase.approvalNo 全局唯一，
+   * approvalsService.list 原生支持按它过滤），直接按它查，不再依赖"最新一条=本次"的假设。
+   */
+  private async fetchApprovedSnapshot(approvalNo: string): Promise<DispositionSnapshot> {
     const { items } = await this.approvalsService.list({
       actionType: ApprovalActionTypes.SANCTION_DISPOSITION,
-      entityRef: customerNo,
+      approvalNo,
       status: ApprovalStatuses.APPROVED,
-      take: 1,
     } as any);
     const snapshot = items[0]?.objectSnapshot as DispositionSnapshot | null | undefined;
     if (!snapshot) {
       throw new Error(
-        `Sanction disposition ${customerNo}: no APPROVED SANCTION_DISPOSITION case with an objectSnapshot found`,
+        `Sanction disposition ${approvalNo}: no APPROVED SANCTION_DISPOSITION case with an objectSnapshot found`,
       );
     }
     return snapshot;
@@ -420,15 +478,31 @@ export class SanctionDispositionWorkflowService {
     };
   }
 
-  /** ApprovalDecidedEvent 的裁决人投影——同 CustomerRestrictionWorkflowService
-   * .onReleaseDecided 的写法一致（decisionByUserNo 优先，取不到落 decisionByUserId）。 */
+  /**
+   * ApprovalDecidedEvent 的裁决人投影——同 CustomerRestrictionWorkflowService
+   * .onReleaseDecided 的写法一致（decisionByUserNo 优先，取不到落 decisionByUserId），
+   * 但角色回退按裁决类型分流（T4 修·白4，评审逮到硬编码 'MLRO' 的问题）：
+   *
+   * - EXPIRED：approvals.service.ts#expirePendingApprovalCase 从不给被超时的 step 落
+   *   decidedByUserId——cron 判定，压根没有"谁"，decisionByUserId/UserNo/Role 三者恒
+   *   null。照 recordSystem 的先例落 SYSTEM 通道，不伪造一个 MLRO 裁决人。
+   * - CANCELLED：approvals.service.ts#cancel 落 decidedByUserId/UserNo（撤单的是 maker
+   *   本人，通常是合规官）但不落 decidedByRole——回退成 'MLRO' 会把"合规官撤了自己提的
+   *   单"记成"MLRO 撤的"，角色张冠李戴。这里回退 'UNKNOWN'，不猜角色。
+   * - APPROVED/DECLINED：DEFAULT_APPROVAL_POLICIES 单步 MLRO，decidedByRole 理论上恒有
+   *   值；回退 'MLRO' 只是兜底不留 undefined 洞，不是常见路径。
+   */
   private decisionAuditActor(event: ApprovalDecidedEvent): AuditActorContext {
+    if (event.decision === 'EXPIRED') {
+      return { actorType: 'SYSTEM', actorNo: 'SYSTEM', actorDisplayName: 'SYSTEM', actorRolesAtTime: [] };
+    }
     const display = event.decisionByUserNo || event.decisionByUserId || 'UNKNOWN';
+    const fallbackRole = event.decision === 'CANCELLED' ? 'UNKNOWN' : 'MLRO';
     return {
       actorType: 'ADMIN',
       actorNo: display,
       actorDisplayName: display,
-      actorRolesAtTime: [event.decisionByRole || 'MLRO'],
+      actorRolesAtTime: [event.decisionByRole || fallbackRole],
     };
   }
 }

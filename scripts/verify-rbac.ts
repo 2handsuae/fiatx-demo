@@ -499,7 +499,7 @@ function runStaticChecks(): void {
     }
   }
   check(
-    'S5c maker≠checker（不相交判据：同一职务不得既是提单人又是裁决人；MAKER_CHECKER_OVERLAP_EXEMPT 显式豁免的 6 条站点演示策略除外）',
+    'S5c maker≠checker（不相交判据：同一职务不得既是提单人又是裁决人；MAKER_CHECKER_OVERLAP_EXEMPT 显式豁免的 7 条站点演示策略除外）',
     overlapViolations.length === 0,
     overlapViolations.length === 0
       ? `豁免 ${exemptApplied} 条策略；其余按 maker 组逐组验证 maker 与 checker 角色集合不相交：${overlapChecked} 组确认不相交，另有 ${p1SkippedCount} 组已被 P1 判定无安全 maker、不重复计入`
