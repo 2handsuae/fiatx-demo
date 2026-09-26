@@ -215,3 +215,55 @@
 **走查**：本幕全程零抄号——每次进审计页都是从单据页一键深链（波三，判据 3）。① 挑第三幕那笔被冻结→处置的充值，充值单**详情页点 View audit trail** → 直接落到审计列表且 Related No 已自动带该充值单号，全链拉出（发起/筛查/冻结/审批/处置，每步谁、何时、结果）——**这条链现在完整包含 `DEPOSIT_FROZEN` 那一步**（2026-09-12 波三红项修复前查不到，见 BACKLOG 销账）；点开其中一条事件详情，除 Entity No（`DEP…`）是蓝字可点链接、直接跳回该充值单的列表页并预填单号（审计跳转甲案，2026-09-12）外，还看得到按角色分组的 **Related Subjects**（命中即可点）与 Action 下方的人话标签（如 "Deposit Seize Requested"）；② **客户详情页（Carol）点 View audit trail** → 她名下所有被动过的事一次拉出，不用回头去审计页手输客户号；③ 点进账本凭证核对钱的最终去向；④ 按 actorNo 查第一幕站 1 那位内审账号（`auditor@`）→ 拉出它当场触发的那条 `ADMIN_ACCESS_DENIED` 越权记录；⑤ 回到第五幕那笔大额待审批的提现，提现单**详情页点 View audit trail** → 捞出的不只是提现自己那条链，连它闯过的那张大额审批单也一起进画面——同一单号跨主体全链一屏可见（Related No 的 OR 语义：主表 primarySubjectNo ∨ 子表 subjectNo，第七幕自此没有查不到的码）。
 **期望**：观众看懂"留痕不是日志文件，是能按人、按单、按旅程检索的证据链"。
 **已知缺口**：三域交易日志**已全部换装新审计合同**（站1b-β/2-β/3-β，充值 47 码 / 提现 33 码 / 兑换 26 码，三查按单号·按客户·按旅程对三域均成立），链不再断在交易域；**V3 配置域词汇（限额/费率/资产/托管钱包/提现地址/客户标签）也已随四模块治愈换名册四批入册**，第一幕改的费率/限额那笔配置变更第七幕按单号查得到（此前"未入册"的缺口已解，见 `modules/v1-governance.md` §5）。剩一处：重铺后 `Q6 谁查过审计日志` 恒红，**管理员现场真查一次审计页当场转绿**——本幕走查①即含此动作，正常走就绿。
+
+---
+
+## 场景 19（暂编）· B 线 · 制裁定性两分支（V9 报文族 + V2 客户限制联动）
+
+> 战役甲波三 T10 暂编——幕次编号（是否并入第二/三幕或独立成幕）留波五收官统一，本节先把走查步骤钉住，不占用第几幕的编号位。
+
+**讲什么**：⚡ 命中只是"待裁"，不是终点——合规官提、MLRO 单步批，三选一出口自动联动限制账（翻牌/维持）与报送台（自动开单），同一个 workflow 两个主体各写各的（铁律③）。
+
+**造数**：种子已铺两个"已经走过这条路"的终态样例可直接翻给观众看——Leo Confirmed（CNMR 已提交、客户端横幅可见）、Mona Partial（PNMR 挂钟在跑、EMIRATES_ID 补料在途、一条 AUTHORITY_INSTRUCTION 待决）；本场景现场再活走一遍两条分支：分支一用 ⚡ 现场命中一位新客户走到"确认"，分支二直接对着 Mona 现成的 PARTIAL 状态走"据指令排除"，不必再等一轮新的 5 工作日钟。
+
+**⚡ EOCN 现场触发**（分支一起点）
+账号：`compliance_lead@`（合规官）；目标客户用一位**当前无任何限制**的 ACTIVE 客户（如 `demo_bob@example.com`——⚠️ 不要用 Carol/Mona/Leo/Frank，他们种子即带便签，命中会撞后端「已有 OPEN 的 SANCTION 便签」闸 409）
+走查：客户详情页「⚡ EOCN Sanctions List Simulation」区，填一个 EOCN 名单条目引用（占位样式如 `EOCN-2026-04213`，随手编）→ Simulate EOCN Hit
+判据：命中即经 `CustomerRestrictionWorkflowService.openRestriction()` 贴一张 SILENT SANCTION 便签（`CUSTOMER_RESTRICTION_ADDED`/`CUSTOMER_FROZEN` 审计，⚡ actor 留痕）——管理台客户详情 Restrictions 区多一行、客户端零痕迹（复用既有三层防线，零新代码）
+
+**分支一 · 确认命中 → 横幅 + CNMR**（对照 Leo 那张现成的）
+账号：`compliance_lead@`（提单）→ `mlro@`（批准）
+走查：① 该客户详情页「Sanction disposition →」→ 弹窗三选一选 **Confirmed match**（后果说明已读："SILENT restriction is replaced with a disclosed one…opens a CNMR filing"）→ 填 Summary（判断依据摘要）+ External Case Reference（EOCN 名单条目引用）→ Submit for MLRO Approval → ② 切 `mlro@` 审批中心批准 → ③ 回该客户详情：SILENT 便签解列、新开一张 `SANCTION_CONFIRMED` 便签（DISCLOSED）→ ④ 切客户端登录该客户：Profile 页出现横幅「Account restricted — confirmed sanctions match」（第一次对他可见——对照 Leo 的种子横幅，长相逐字一致）→ ⑤ 切回管理台报送台：一张 CNMR 单已自动开（同 Leo 那张的形状，锚=便签 `openedAt`、5 工作日钟）→ Mark Submitted（填 externalRef）→ 加一条 RECEIPT_ACK 收尾
+判据：确认命中才翻明示（DISCLOSED）——横幅从无到有那一刻就是分界线；CNMR 单开单/锚定/钟全部自动、无需另外手工建单
+
+**分支二 · 部分命中 → 补料 + 指令 → 二次定性排除**（直接接 Mona 现成状态，不用再等一轮钟）
+账号：`compliance_lead@`（提单）→ `mlro@`（批准）
+走查：① 打开 Mona Partial 客户详情——Restrictions 区能看到她那张仍 OPEN 的 SILENT SANCTION 便签、Verification Requests 区能看到那条 EMIRATES_ID 补料请求（PENDING_SUBMISSION，阻断态 `restrict:false`——讲一句："这条补料不新增限制，便签早已卡住她的全部能力，这只是发一份中性话术"）→ 切报送台打开她那张 PNMR 单，指着那条 `AUTHORITY_INSTRUCTION` 往来记录念一遍——EOCN 已回指令，要求核实姓名/出生日期 → ② 回 Mona 客户详情「Sanction disposition →」（**二次定性**——同一张便签第二次提单）→ 选 **Cleared — false positive**（据 EOCN 指令判定排除）→ 填 Summary（引这条指令的核实结论）+ External Case Reference → Submit → ③ 切 `mlro@` 批准 → ④ 回客户详情：SILENT 便签当场解除，客户全程无感（同一次 maker/checker，不叠第二道解冻审批）
+判据：部分命中全程 SILENT，翻不了明示；PNMR 单本身不因二次定性而改动（钟仍按原锚走完，报送台自己的记录不因限制解除而消失——报送与限制账各管各的状态）
+
+**期望**：观众看懂三件事——① 三出口分别联动限制账与报送台，同一个 workflow 两个主体各写各的；② 确认命中才翻明示、部分命中维持静默，tipping-off 两防不混；③ AML 报文族（CNMR/PNMR）无签发链，MLRO/合规官走完全程零高管审批——与通用族"高管签发"同屏对照，接场景 20。
+
+## 场景 20（暂编）· A 线 · STR/SAR 与 tipping-off 登记本（V9 报文族）
+
+> 战役甲波三 T10 暂编——幕次编号留波五收官统一。
+
+**讲什么**：MLRO 报文族全程亲办、无签发链——与通用族（如第七幕事故通报那条链）"高管签发"同屏对比是本场景的演示点；决定不报也要留痕；客户来问，话术中性但留痕，不泄密。
+
+**造数**：种子已铺 STR 已提交样例（锚 Frank HighRisk，见 `demo/data.md`「报文族种子」）——直接打开即可看"已提交"终态、一条 CUSTOMER_COMM（拟稿×MLRO 放行两签一行）、一条 RECEIPT_ACK。本场景现场再开一张新 STR 走"起草→标已提交→往来"全链，一张"决定不报"独立小单，SAR 现场开一张讲透"锚客户不锚交易"。
+
+**站 A · STR 全链**（对照通用族的高管签发）
+账号：`mlro@`（MLRO，全程一人；对照第七幕事故通报那条链 `compliance_lead@`→`sm@` 的两人两步）
+走查：① 报送台 Open Filing → 类型选 STR → 填 External Case Reference（Sumsub 案件引用样式）→ 提交 → 详情页**没有 Request sign-off 按钮**（AML 族无签发链，直接看到 Mark Submitted）→ ② 填 externalRef（goAML 回执号样式）→ Mark Submitted → 单转 SUBMITTED → ③ 往来记录选 RECEIPT_ACK，记一条回执 → ④ 对照打开种子那张已提交 STR（Frank 那张），往来记录区能看到一条 CUSTOMER_COMM——两签一行「Drafted … · Cleared ADM2501010004」，讲词："拟稿是自由文本、放行是 MLRO 本人实名，两签不装作两个账号，因为这类单法律上就该 MLRO 一人经办"
+判据：全程零 `PENDING_SIGNOFF`/`SIGNED_OFF` 两态、零审批单——`verify:rbac` 的"AML 单全生命周期零签发链"断言就是这条
+
+**站 B · 决定不报**（no-file decision 留痕）
+走查：另开一张 STR → 详情页「Close — No Filing Decision」按钮（仅 STR/SAR、仅 DRAFT 态可点）→ 弹窗必填理由（如"排查后确认为客户本人正常操作，非结构化拆分"）→ 提交 → 单转 CLOSED，详情页 No-Filing Reason 字段可查
+判据：决定不报不是"删除"或"放弃"，是走了 `DRAFT→CLOSED` 这条新边、理由必填留痕——法定可辩护记录
+
+**站 C · SAR**（锚客户不锚交易）
+走查：Open Filing → 类型选 SAR → 同样填 External Case Reference → 讲一句差异："STR 锚的是具体交易单号，SAR 没有交易，锚的是客户本人——这就是为什么台账要分两行，不是同一个类型改个名字"
+判据：SAR 与 STR 同构（同一套状态机/字段），叙事口径不同即可
+
+**⚠️ tipping-off 讲法**（收尾）：全程话术示范——客户来问被冻/被拒的原因，永远不提"报告""调查""合规审查"以外的字眼，不确认也不否认涉及监管报告；CUSTOMER_COMM 记录的正是这句中性话术本身。这是给人看的"怎么说"，客户面 DTO 契约测试断言的是零 `filingNo`/STR 引用泄露到客户可见接口，两层防线不是一回事，讲清不要混。
+
+**期望**：观众看懂两件事——① STR/SAR 是 MLRO 一个人从头到尾的单人链条，唯一在系统里能连高管都拦不住的单据类型；② "决定不报"和"报了"一样要留痕，都是可辩护记录，不是消失。

@@ -11,9 +11,9 @@ admin@fiatx.com 超管 ｜ sm@ 高管(SMO) ｜ ciso@ ｜ mlro@ ｜ dpo@ ｜ comp
 
 邀请新成员时的四个演示细节：邮箱现场编一个，不必真实可达；MFA 绑定用任意 TOTP 认证器 App 扫码，不挑牌子；新人视角必须开一个浏览器隐身窗，与批准人的会话分开；邀请没有真发信——激活链接不走邮件，直接显示在管理台「成员详情」卡片上，复制过去就是新人要点的那个链接（通知本就是空壳，这是演示装置，讲清）。
 
-## 客户矩阵（business seed，11 位，覆盖 8 种状态位）
+## 客户矩阵（business seed，13 位，覆盖 10 种状态位）
 
-9 位 ACTIVE 客户开户日已回填 `onboardingApprovedAt = 2026-06-15T09:00:00Z`、CDD 五列（生日/国籍/证件类型/证件号/住址）已铺——早出新客窗（NEW_CUSTOMER 衍生标签 30 天窗）。Carol、Frank 落 `edd-sof-sow-level`（EDD 档）；其余 7 位 ACTIVE 客户落 `basic-cdd-level`（CDD 档）。Dave（认证中）、Eve（刚注册）本身就是"开户流程中段/起点"的演示位，故意不回填。第二幕②③现场开户走查用的是当场新注册客户，不是这张表；现场注册客户即用即弃，重演换一个新邮箱，不依赖 reset。
+11 位 ACTIVE 客户开户日已回填 `onboardingApprovedAt = 2026-06-15T09:00:00Z`、CDD 五列（生日/国籍/证件类型/证件号/住址）已铺——早出新客窗（NEW_CUSTOMER 衍生标签 30 天窗）。Carol、Frank、Leo、Mona 落 `edd-sof-sow-level`（EDD 档）；其余 7 位 ACTIVE 客户落 `basic-cdd-level`（CDD 档）。Dave（认证中）、Eve（刚注册）本身就是"开户流程中段/起点"的演示位，故意不回填。第二幕②③现场开户走查用的是当场新注册客户，不是这张表；现场注册客户即用即弃，重演换一个新邮箱，不依赖 reset。Leo、Mona 两位是战役甲波三 Task 10 新增（报文族种子锚点，见下方「报文族种子」节）。
 
 | 客户 | 状态位 | 用来演什么 |
 |---|---|---|
@@ -26,6 +26,8 @@ admin@fiatx.com 超管 ｜ sm@ 高管(SMO) ｜ ciso@ ｜ mlro@ ｜ dpo@ ｜ comp
 | Grace Premium | VIP 费率标签（手打 STATIC，与 PREMIUM 交易档位解绑，2026-09-06） | 费率受众谓词（命中 VIP-USDT-AED） |
 | Henry Acme | 企业客户 | 企业形态占位 |
 | Ivy Restricted | **材料过期 · 明示受限**（scopes 仅 WITHDRAW/SWAP，不含 DEPOSIT） | 与 Carol 对照：明示 vs 静默；横幅矩阵下提现/兑换页出条子形态合并横幅、充值页不出（按域过滤演示位，2026-09-13 波三；充值页横幅走第三幕⑥现场限制） |
+| Leo Confirmed | **制裁定性 · 确认命中**（`SANCTION_CONFIRMED`，DISCLOSED，scope=ALL） | 战役甲波三 Task 10：CNMR 已提交样例锚点——客户端 Profile 页横幅可演（`RestrictionBanner` 走既有 DISCLOSED 机制，零代码生效）；与 Ivy 对照：Leo 是全阻（ALL，充值也挡），Ivy 是半阻（WITHDRAW/SWAP，充值不挡） |
+| Mona Partial | **制裁定性 · 部分命中在途**（`SANCTION` SILENT，OPEN；PNMR 挂钟 + 补料在途） | 战役甲波三 Task 10：PNMR 5 工作日钟种子锚点——与 Carol 对照：Carol 是命中待裁（定性之前），Mona 是已出 PARTIAL 结果（定性之后：PNMR 已开、EMIRATES_ID 补料已发，便签仍 SILENT/OPEN 等 EOCN 回指令） |
 | Jack Trader | 快乐路径（对账素材） | 第六幕破口场景的钱包与流水素材 |
 | Kate Trader | 快乐路径（对账素材） | 同上——MATCHED 桶的干净代表 |
 
@@ -79,6 +81,20 @@ admin@fiatx.com 超管 ｜ sm@ 高管(SMO) ｜ ciso@ ｜ mlro@ ｜ dpo@ ｜ comp
 | 二 · 入站来函 | `FIL2601010266` | `REG_INFO_REQUEST_RESPONSE`（无 basisCode） | `VARA` | `DRAFT` | `direction=INBOUND`；`receivedAt`=铺场时刻−6h；`deadlineAt`=`receivedAt`+48h（≈铺场时刻+42h）；标题「VARA information request — Q3 liquidity reporting follow-up」 |
 
 ⚠️ 三行 `deadlineAt`/`submittedAt`/`receivedAt` 都锚在**铺场时刻**（`seedRegulatoryFilings` 运行那一刻的 `Date.now()`），不是固定日期——每次 `stack.sh reset` 重铺，剩余时长会重新从 20h/4h/6h/42h 起算，但 `filingNo` 逐字不变（`buildDeterministicNo` 只吃 seedKey，不吃时间）。
+
+## 报文族种子（business seed，三样例，2026-09-26 战役甲波三 Task 10）
+
+`seedAmlFilingFamily()`（`prisma/seed.business.ts`，紧随 `seedRegulatoryFilings()` 之后）同样直铺快照数据（不走 `RegulatoryFilingService`/`SanctionDispositionWorkflowService`，没有 operator、没有审批案、不写审计——「留痕」由 e2e 证，同报送台种子节先例），`filingNo` 用 `buildDeterministicNo('FIL', seedKey)` 派生、reset 重铺后逐字不变。**三处 actor 改用 MLRO 的真实 `userNo`**（`ADM2501010004`，见 `seed.base.ts`）而非其余种子惯用的 `'SEED'` 占位——本组种子的讲法就是「MLRO 亲办 / MLRO 放行」，报送台页面要认得出办的人是谁。SAR/HRC/HRCA 不铺种子，现场手工开单讲解（照波二三类先例）。
+
+| 样例 | filingNo | type | authority | 状态 | 关键字段 |
+|---|---|---|---|---|---|
+| STR 已提交（锚 Frank HighRisk） | `FIL2601017376` | `STR` | `UAE_FIU` | `SUBMITTED` | `externalCaseRef`=Sumsub 案件引用样式（`SUMSUB-CASE-313b8a36`）；`externalRef`=goAML 回执样式（`GOAML-ACK-2026-45740`）；`submittedAt`=铺场时刻−30h；无钟（`deadlineAt=null`——形成怀疑即报，法定不杜撰时限）；title 锚一个样式提现单号（纯叙事引用，不对应真实建单，同 `seedIncidents` STUCK_TRANSACTION_MAJOR 样例手法）；挂一条 `CUSTOMER_COMM`（`commDraftedBy` 拟稿文本 + MLRO 放行）+ 一条 `RECEIPT_ACK` |
+| PNMR 在途（锚 Mona Partial 的 SILENT SANCTION 便签） | `FIL2601012321` | `PNMR` | `EOCN` | `DRAFT` | 锚=Mona 便签 `openedAt`（铺场时刻回拨 3 个工作日——穷举验证过全部 7 个铺场星期几，唯此取值恒落在"还剩约 2-3 个工作日"区间，回拨 2 个工作日周末铺场会漂到 4）；`deadlineAt`=锚+5 工作日；`externalCaseRef`=EOCN 名单条目引用样式（`EOCN-2026-59206`）；挂一条 `AUTHORITY_INSTRUCTION`（EOCN 指令待决文本——要求核实姓名/出生日期，MLRO 尚未据此二次定性） |
+| CNMR 已提交（锚 Leo Confirmed 的 `SANCTION_CONFIRMED` 便签） | `FIL2601015358` | `CNMR` | `EOCN` | `SUBMITTED` | 锚=Leo 便签 `openedAt`（铺场时刻回拨 1 个工作日）；`deadlineAt`=锚+5 工作日；`submittedAt`=锚+3h；`externalCaseRef`（`EOCN-2026-73267`）/`externalRef`（`EOCN-ACK-2026-36526`）均 EOCN 样式；挂一条 `RECEIPT_ACK`；客户端 Profile 页横幅可演（`SANCTION_CONFIRMED` DISCLOSED，`RestrictionBanner` 走既有机制零代码生效） |
+
+⚠️ 三行 `deadlineAt` 与 PNMR/CNMR 的锚 `openedAt` 都相对**铺场时刻**回拨/前推（`businessDaysBefore`/`addBusinessDays`，迪拜日历工作日），不是固定日期——每次 `stack.sh reset` 重铺，剩余工作日会重新起算，但 `filingNo`/`externalCaseRef`/`externalRef` 逐字不变（确定性哈希派生，只吃 seedKey，不吃时间）。
+
+Mona 的 EMIRATES_ID 补料请求（`requestNo=MRQ2601019867`，PENDING_SUBMISSION）在上方「材料请求账」种子同批铺出（`DEMO_MATERIAL_REQUESTS` 新增一行，不挂 `restrictionCause`——`restrictionNo` 恒 `null`，即「blocking:false」：她已有的 SILENT SANCTION 便签 scope=ALL 早已卡住全部能力，这条补料只是发一份中性话术，照 `sanction-disposition-workflow.service.ts#landPartial` 落地口径 `origin='OPERATOR_ISSUED'`、`issuedBy`=MLRO userNo）。
 
 ## 各脚本造什么
 

@@ -25,6 +25,8 @@ import { fakeTronAddress } from '../src/common/utils/tron-address.util';
 import { writeSeedAudit } from './seed-audit.helper';
 import { FilingStatus, FilingEntryKinds, RegulatoryAuthorities } from '../src/modules/governance/regulatory-filings/regulatory-filing.constants';
 import { getFilingTypeConfig } from '../src/modules/governance/regulatory-filings/filing-type-registry';
+import { addBusinessDays } from '../src/modules/governance/regulatory-filings/business-days';
+import { DUBAI_UTC_OFFSET_MS } from '../src/modules/accounting/tigerbeetle/utils/business-date.util';
 import { INCIDENT_REPORT_BASES } from '../src/modules/governance/incidents/incident.constants';
 
 type SeedBusinessOptions = {
@@ -57,6 +59,9 @@ export async function seedBusiness(
   await seedIncidents(prisma);
   // ③d Regulatory filings layer (needs seedIncidents' data-breach-crm-export row)
   await seedRegulatoryFilings(prisma);
+  // ③e AML reporting family layer（战役甲波三 T10，spec §7）：STR/PNMR/CNMR 三样例，
+  // needs seedCustomers' Frank/Leo/Mona rows + Leo/Mona 的限制账 openedAt 锚。
+  await seedAmlFilingFamily(prisma);
   // Final: push all registry rows (system + customer) into TigerBeetle.
   await provisionTbAccounts(prisma);
   // Firm capital bootstrap: DR FIRM_ASSET / CR FIRM_OPS per currency.
@@ -569,6 +574,10 @@ type DemoRestriction = {
   scopes?: RestrictionScope[];
   reason: string;
   caseRef?: string;
+  /** T10（战役甲波三）：铺场时刻往前推 N 个工作日（迪拜日历）当 openedAt——PNMR/CNMR
+   *  钟种子要"还剩约 N 个工作日在跑"的相对时刻效果，不能像其余客户那样统一用铺场
+   *  "now"（那样钟从零起算，看不出"已经在跑一段时间"）。省略即取 now（既有行为零漂移）。 */
+  openedAtOffsetBusinessDays?: number;
 };
 
 type DemoCustomer = {
@@ -758,12 +767,103 @@ const DEMO_CUSTOMERS: DemoCustomer[] = [
     dateOfBirth: '1991-02-17', nationality: 'AU', idDocType: 'PASSPORT',
     idDocNumber: 'P-AU-9000009', residentialAddress: '1 Martin Place, Sydney',
   },
+  // 1× 制裁定性 · 确认命中（DISCLOSED，客户端横幅可演）—— 战役甲波三 T10（spec §7）。
+  // 不复用 Carol（她是"命中待裁"零痕迹演示位，翻成确认会破坏第二/三/五幕已建立的
+  // 讲法）也不复用 Ivy（她的 MATERIAL_EXPIRED 演示位就是要对照"部分阻断"，SANCTION_
+  // CONFIRMED 的 scope=ALL 会把充值也一并挡住，混进她名下会破坏 3.7 站的对照点）。
+  // 直铺终态：SANCTION_CONFIRMED 便签 OPEN（customerLevel=true，caseRef 由 seedCustomers
+  // 归一成 customerNo）——不再铺一张先被解列的 SILENT SANCTION 便签，同 Ivy/Carol
+  // 先例只铺终态、不铺历史。
+  {
+    email: 'demo_leo@example.com', phone: '+15552000012',
+    firstName: 'Leo', lastName: 'Confirmed', customerType: 'INDIVIDUAL',
+    lifecycle: 'ACTIVE',
+    riskRating: 'HIGH', tradingTier: 'BASIC', eddRequired: true,
+    sumsubApplicantId: mockSumsubApplicantId('demo_leo@example.com'),
+    onboardingApprovedAt: new Date('2026-06-15T09:00:00Z'),
+    sumsubCurrentLevelName: 'edd-sof-sow-level',
+    dateOfBirth: '1982-05-19', nationality: 'IR', idDocType: 'PASSPORT',
+    idDocNumber: 'P-IR-1000010', residentialAddress: 'Al Wasl Road 44, Dubai',
+    restrictions: [
+      {
+        cause: 'SANCTION_CONFIRMED',
+        reason: 'Confirmed match against EOCN sanctions list — MLRO sanction disposition CONFIRMED; SILENT SANCTION restriction delisted and replaced by this DISCLOSED one.',
+        openedAtOffsetBusinessDays: 1,
+      },
+    ],
+  },
+  // 1× 制裁定性 · 部分命中在途（SILENT，PNMR 挂钟 + 中性补料在途）—— 战役甲波三 T10
+  // （spec §7）。维持 SILENT（部分命中不翻牌可见性，官方口径同 Carol）；与 Carol 的
+  // "命中待裁"区分——她是定性裁决**之前**，Mona 是定性裁决**已出 PARTIAL 结果之后**
+  // （PNMR 已开、补料已发，便签仍 OPEN 等 EOCN 回指令）。
+  {
+    email: 'demo_mona@example.com', phone: '+15552000013',
+    firstName: 'Mona', lastName: 'Partial', customerType: 'INDIVIDUAL',
+    lifecycle: 'ACTIVE',
+    riskRating: 'MEDIUM', tradingTier: 'BASIC', eddRequired: true,
+    sumsubApplicantId: mockSumsubApplicantId('demo_mona@example.com'),
+    onboardingApprovedAt: new Date('2026-06-15T09:00:00Z'),
+    sumsubCurrentLevelName: 'edd-sof-sow-level',
+    dateOfBirth: '1988-08-08', nationality: 'PK', idDocType: 'PASSPORT',
+    idDocNumber: 'P-PK-1100011', residentialAddress: 'Jumeirah Beach Road 210, Dubai',
+    restrictions: [
+      {
+        cause: 'SANCTION',
+        reason: 'Sanctions screening hit — MLRO sanction disposition PARTIAL (name match inconclusive); PNMR filed to EOCN, Emirates ID re-verification requested, restriction stays SILENT pending EOCN instruction.',
+        // PNMR 钟锚在这个 openedAt 上（openForSanction 的 EXTERNAL 锚同款口径）——回拨
+        // 3 个工作日，5 工作日钟铺场时还剩约 2-3 个工作日在跑（T10 任务书判据）。实测
+        // 验证跨全部 7 个铺场星期几：offset=3 恒得 remaining∈{2,3}；offset=2 在周末铺场
+        // 会得 4（backward 从非工作日"now"起算不天然对称于 forward），offset=3 是唯一
+        // 在全部铺场日都落在任务书判据区间内的取值——不是拍脑袋，是穷举验证过的。
+        openedAtOffsetBusinessDays: 3,
+      },
+    ],
+  },
 ];
 
 /** 演示客户的 mock Sumsub applicant id——纯 email 确定性哈希，不是真沙盒 applicant。 */
 function mockSumsubApplicantId(email: string): string {
   return createHash('sha256').update(`mock-applicant:${email}`).digest('hex').slice(0, 24);
 }
+
+/** T10（战役甲波三）：铺场时刻往前推 N 个工作日（迪拜日历，周六日为周末，与
+ *  business-days.ts#addBusinessDays 同一套判周末逻辑，独立小函数反向实现——该文件
+ *  只导出正向版本，不为一个种子用途改动生产代码）。days=0 原样返回 from。 */
+function businessDaysBefore(from: Date, days: number): Date {
+  const DAY_MS = 24 * 60 * 60 * 1000;
+  let t = from.getTime();
+  let remaining = days;
+  while (remaining > 0) {
+    t -= DAY_MS;
+    const dubaiDay = new Date(t + DUBAI_UTC_OFFSET_MS).getUTCDay(); // 0=Sun ... 6=Sat
+    if (dubaiDay !== 0 && dubaiDay !== 6) remaining -= 1;
+  }
+  return new Date(t);
+}
+
+/** T10：AML 报文族种子的 Sumsub 案件引用 / EOCN 名单条目引用样式号——确定性派生
+ *  （同一 seedKey 每次重铺逐字不变），不是真号，纯样式演示（STR/SAR 引 Sumsub 案件，
+ *  CNMR/PNMR 引 EOCN 名单条目，见 filing-type-registry.ts requiresExternalCaseRef 注释）。 */
+function mockExternalCaseRef(style: 'SUMSUB' | 'EOCN', seed: string): string {
+  const hex = createHash('sha256').update(`case-ref:${style}:${seed}`).digest('hex');
+  if (style === 'SUMSUB') return `SUMSUB-CASE-${hex.slice(0, 8)}`;
+  const num = parseInt(hex.slice(0, 6), 16) % 100000;
+  return `EOCN-2026-${String(num).padStart(5, '0')}`;
+}
+
+/** T10：goAML/EOCN 回执号样式——同上，确定性派生、纯样式，不是真号。 */
+function mockReceiptRef(style: 'GOAML' | 'EOCN', seed: string): string {
+  const hex = createHash('sha256').update(`receipt-ref:${style}:${seed}`).digest('hex');
+  const num = parseInt(hex.slice(0, 6), 16) % 100000;
+  return `${style}-ACK-2026-${String(num).padStart(5, '0')}`;
+}
+
+/** MLRO 的 seed.base.ts 固定 userNo（mlro@fiatx.com）——AML 报文族种子用真实 userNo
+ *  显式演"MLRO 亲办 / MLRO 放行"（T10 任务书判据），不用其余种子通用的 'SEED' 占位
+ *  （那是"没有 operator、走查看不出谁办的"的通用族/事故域占位风格；本组种子恰恰要
+ *  在管理台上认得出"这是 MLRO 本人办的"，故直取真实 userNo，与 openForSanction() 里
+ *  actor.userNo ?? actor.userId 落库口径一致）。 */
+const MLRO_USER_NO = 'ADM2501010004';
 
 async function seedCustomers(prisma: PrismaClient): Promise<void> {
   const passwordHash = await bcrypt.hash('123456', 10);
@@ -832,7 +932,7 @@ async function seedCustomers(prisma: PrismaClient): Promise<void> {
             // 破坏「一个客户只有最早的一张」这条不变量。
             // seed 不走 open()，归一管不到这里，只能手工对齐。
             caseRef: policy.customerLevel ? customer.customerNo : (r.caseRef ?? null),
-            openedAt: now,
+            openedAt: r.openedAtOffsetBusinessDays != null ? businessDaysBefore(now, r.openedAtOffsetBusinessDays) : now,
             openedBy: 'SEED',
             traceId: `seed-${restrictionNo}`,
           },
@@ -897,6 +997,12 @@ type DemoMaterialRequest = {
   /** 若给了，查该客户名下这个 cause 的 OPEN 便签，挂到这一行上（restrictionNo 后补） */
   restrictionCause?: RestrictionCause;
   reason: string;
+  /** T10（战役甲波三）：省略即 'SYSTEM_SCHEDULED'（既有两行行为零漂移）。Mona 的
+   *  一行是制裁定性 PARTIAL 出口自动发的补料（spec §2：landPartial() 走
+   *  MaterialRequestIssuerService.issue({origin:'OPERATOR_ISSUED', restrict:false})），
+   *  origin/issuedBy 照真实落地口径铺，不是 cron 到期提醒。 */
+  origin?: 'SUMSUB_PUSHED' | 'OPERATOR_ISSUED' | 'SYSTEM_SCHEDULED';
+  issuedBy?: string;
 };
 
 const DEMO_MATERIAL_REQUESTS: DemoMaterialRequest[] = [
@@ -912,6 +1018,18 @@ const DEMO_MATERIAL_REQUESTS: DemoMaterialRequest[] = [
     materialType: 'EMIRATES_ID',
     levelName: 'wave3-action-id-refresh',
     reason: 'Emirates ID renewal due within 30 days — please resubmit ahead of expiry',
+  },
+  // T10（战役甲波三）：PARTIAL 在途客户（Mona）的中性补料——不挂 restrictionCause（不
+  // 新开便签：她已有的 SILENT SANCTION 便签 scope=ALL 早已卡住全部能力，补料只是发
+  // 一份中性话术，见 sanction-disposition-workflow.service.ts#landPartial 头注释）；
+  // blocking:false 即此处 restrictionNo 始终 null——T10 任务书判据。
+  {
+    email: 'demo_mona@example.com',
+    materialType: 'EMIRATES_ID',
+    levelName: 'wave3-sanction-partial-id-recheck',
+    reason: 'Additional identity verification is required to complete an ongoing account review.',
+    origin: 'OPERATOR_ISSUED',
+    issuedBy: MLRO_USER_NO,
   },
 ];
 
@@ -967,10 +1085,10 @@ async function seedMaterialRequest(prisma: PrismaClient): Promise<void> {
         orderDomain: null,
         orderRef: null,
         restrictionNo,
-        origin: 'SYSTEM_SCHEDULED',
+        origin: r.origin ?? 'SYSTEM_SCHEDULED',
         status: 'PENDING_SUBMISSION',
         reason: r.reason,
-        issuedBy: 'SEED',
+        issuedBy: r.issuedBy ?? 'SEED',
         traceId: `seed-${requestNo}`,
       },
     });
@@ -1237,6 +1355,192 @@ async function seedRegulatoryFilings(prisma: PrismaClient): Promise<void> {
   });
 
   console.log('Seeded 3 regulatory filing sample rows (2 chained to data-breach-crm-export + 1 inbound VARA info request).');
+}
+
+// ─────────────────────────────────────────────────────────────
+// ③e AML reporting family layer — 战役甲波三 Task 10（spec §7）：STR 已提交样例
+// （Frank HighRisk，MLRO 亲办）｜ PNMR 在途样例（Mona，5 工作日钟在跑 + EOCN 指令
+// 待决）｜ CNMR 已提交样例（Leo，SANCTION_CONFIRMED，客户端横幅可演）。SAR/HRC/HRCA
+// 不铺种子，现场手工开单讲解（spec §7、照波二三类先例）。
+//
+// 与 seedRegulatoryFilings 同一性质：直铺快照数据，不走 RegulatoryFilingService/
+// SanctionDispositionWorkflowService（没有 operator、没有审批案、不写审计——「留痕」
+// 由 e2e 证，同上方头注释先例）。filingNo 用 buildDeterministicNo(seedKey) 派生，
+// reset 重铺后逐字不变；deadline/anchor 算法照抄 openForSanction() 的真实逻辑
+// （EXTERNAL 锚 = anchorAt + 5 个工作日，anchorAt = 制裁便签 openedAt，spec §1②口径）。
+//
+// createdByUserId/submittedByUserId/recordedByUserId 三处不用其余种子通用的 'SEED'
+// 占位，改用 MLRO 的真实 seed.base.ts userNo（见 MLRO_USER_NO 头注释）——T10 任务书
+// 判据「MLRO 亲办 / MLRO 放行」要在管理台报送台页面上认得出办的人是谁，'SEED' 做不到。
+// ─────────────────────────────────────────────────────────────
+
+async function seedAmlFilingFamily(prisma: PrismaClient): Promise<void> {
+  async function upsertAmlFiling(filingNo: string, data: Prisma.RegulatoryFilingCreateInput) {
+    const existing = await prisma.regulatoryFiling.findUnique({ where: { filingNo }, select: { id: true } });
+    if (existing) {
+      await prisma.regulatoryFilingEntry.deleteMany({ where: { filingId: existing.id } });
+      await prisma.regulatoryFiling.delete({ where: { filingNo } });
+    }
+    return prisma.regulatoryFiling.create({ data });
+  }
+
+  const now = Date.now();
+  let seeded = 0;
+
+  // ── STR 已提交样例（Frank HighRisk）──────────────────────────────────
+  const frank = await prisma.customerMain.findUnique({
+    where: { email: 'demo_frank@example.com' },
+    select: { customerNo: true, sumsubApplicantId: true },
+  });
+  if (!frank) {
+    console.log('  ⚠ Skipping STR filing seed — customer demo_frank@example.com missing');
+  } else {
+    const strCfg = getFilingTypeConfig('STR');
+    const strSeedKey = 'str-frank-structuring';
+    const strFilingNo = buildDeterministicNo('FIL', strSeedKey);
+    // 叙事锚：MLRO 复筛 Sumsub 案件证据时发现的可疑模式，锚一笔样式提现单号（纯叙事，
+    // 不对应任何真实建单——同 seedIncidents STUCK_TRANSACTION_MAJOR 样例的 orderNo 手法）。
+    const strOrderRef = buildDeterministicNo('WDR', `seed-${strSeedKey}`);
+    const strExternalCaseRef = mockExternalCaseRef('SUMSUB', strSeedKey);
+    const strExternalRef = mockReceiptRef('GOAML', strSeedKey);
+    const strSubmittedAt = new Date(now - 30 * 3600 * 1000);
+    const strFiling = await upsertAmlFiling(strFilingNo, {
+      filingNo: strFilingNo,
+      direction: strCfg.direction,
+      type: 'STR',
+      authority: strCfg.defaultAuthority as string,
+      externalCaseRef: strExternalCaseRef,
+      title: `${strCfg.label} — ${strOrderRef} (${frank.customerNo}, suspected structuring)`,
+      body: `MLRO reviewed Sumsub case evidence on ${frank.customerNo} after a pattern of withdrawals structured just under the transaction-review threshold across a short window. Formed suspicion under FDL 20/2018 — filing without delay, no statutory deadline (established by statute, not a service-computed clock).`,
+      deadlineAt: null,
+      submittedAt: strSubmittedAt,
+      submittedByUserId: MLRO_USER_NO,
+      externalRef: strExternalRef,
+      status: FilingStatus.SUBMITTED,
+      createdByUserId: MLRO_USER_NO,
+      traceId: `seed-${strFilingNo}`,
+    });
+    await prisma.regulatoryFilingEntry.create({
+      data: {
+        filingId: strFiling.id,
+        kind: FilingEntryKinds.CUSTOMER_COMM,
+        body: 'Customer called asking why a recent withdrawal took longer than usual. Explained this was a routine compliance review with no fixed timeline — no reference made to any report, investigation, or law-enforcement interest (FDL 20/2018 tipping-off).',
+        commDraftedBy: 'MLRO desk note (pre-cleared script, tipping-off-safe wording)',
+        recordedByUserId: MLRO_USER_NO,
+      },
+    });
+    await prisma.regulatoryFilingEntry.create({
+      data: {
+        filingId: strFiling.id,
+        kind: FilingEntryKinds.RECEIPT_ACK,
+        body: 'UAE FIU goAML portal acknowledged receipt of the STR filing.',
+        externalRef: strExternalRef,
+        recordedByUserId: MLRO_USER_NO,
+      },
+    });
+    seeded += 1;
+  }
+
+  // ── PNMR 在途样例（Mona，SILENT SANCTION 便签 openedAt 锚）─────────────
+  const mona = await prisma.customerMain.findUnique({
+    where: { email: 'demo_mona@example.com' },
+    select: { id: true, customerNo: true },
+  });
+  if (!mona) {
+    console.log('  ⚠ Skipping PNMR filing seed — customer demo_mona@example.com missing');
+  } else {
+    const monaRestriction = await prisma.customerRestriction.findFirst({
+      where: { customerId: mona.id, cause: 'SANCTION', status: 'OPEN' },
+      select: { openedAt: true },
+    });
+    if (!monaRestriction) {
+      console.log('  ⚠ Skipping PNMR filing seed — demo_mona@example.com has no OPEN SANCTION restriction');
+    } else {
+      const pnmrCfg = getFilingTypeConfig('PNMR');
+      const pnmrSeedKey = 'pnmr-mona-partial';
+      const pnmrFilingNo = buildDeterministicNo('FIL', pnmrSeedKey);
+      const pnmrExternalCaseRef = mockExternalCaseRef('EOCN', pnmrSeedKey);
+      const pnmrDeadlineAt = addBusinessDays(monaRestriction.openedAt, pnmrCfg.deadlineBusinessDays as number);
+      const pnmrFiling = await upsertAmlFiling(pnmrFilingNo, {
+        filingNo: pnmrFilingNo,
+        direction: pnmrCfg.direction,
+        type: 'PNMR',
+        authority: pnmrCfg.defaultAuthority as string,
+        externalCaseRef: pnmrExternalCaseRef,
+        title: `${pnmrCfg.label} — ${mona.customerNo}`,
+        body: `Partial name match against the EOCN sanctions list on account opening/KYC details — insufficient to confirm identity. Account suspended pending evidence (Emirates ID re-verification requested); PNMR filed to EOCN within 5 business days of suspension per EOCN TFS Guidelines 2025 (anchor = SANCTION restriction opened ${monaRestriction.openedAt.toISOString()}). 10-business-day evidence window runs in parallel, not a filing deadline.`,
+        deadlineAt: pnmrDeadlineAt,
+        status: FilingStatus.DRAFT,
+        createdByUserId: MLRO_USER_NO,
+        traceId: `seed-${pnmrFilingNo}`,
+      });
+      await prisma.regulatoryFilingEntry.create({
+        data: {
+          filingId: pnmrFiling.id,
+          kind: FilingEntryKinds.AUTHORITY_INSTRUCTION,
+          body: "EOCN acknowledged the PNMR submission and requested confirmation of the customer's full legal name and date of birth against the list entry before advising a final match outcome. Awaiting response before re-disposition (CLEARED or CONFIRMED).",
+          externalRef: mockReceiptRef('EOCN', `${pnmrSeedKey}-instruction`),
+          recordedByUserId: MLRO_USER_NO,
+        },
+      });
+      seeded += 1;
+    }
+  }
+
+  // ── CNMR 已提交样例（Leo，SANCTION_CONFIRMED 便签 openedAt 锚，客户端横幅可演）──
+  const leo = await prisma.customerMain.findUnique({
+    where: { email: 'demo_leo@example.com' },
+    select: { id: true, customerNo: true },
+  });
+  if (!leo) {
+    console.log('  ⚠ Skipping CNMR filing seed — customer demo_leo@example.com missing');
+  } else {
+    const leoRestriction = await prisma.customerRestriction.findFirst({
+      where: { customerId: leo.id, cause: 'SANCTION_CONFIRMED', status: 'OPEN' },
+      select: { openedAt: true },
+    });
+    if (!leoRestriction) {
+      console.log('  ⚠ Skipping CNMR filing seed — demo_leo@example.com has no OPEN SANCTION_CONFIRMED restriction');
+    } else {
+      const cnmrCfg = getFilingTypeConfig('CNMR');
+      const cnmrSeedKey = 'cnmr-leo-confirmed';
+      const cnmrFilingNo = buildDeterministicNo('FIL', cnmrSeedKey);
+      const cnmrExternalCaseRef = mockExternalCaseRef('EOCN', cnmrSeedKey);
+      const cnmrExternalRef = mockReceiptRef('EOCN', cnmrSeedKey);
+      const cnmrDeadlineAt = addBusinessDays(leoRestriction.openedAt, cnmrCfg.deadlineBusinessDays as number);
+      // 提交时刻：冻结（openedAt）后数小时内上报，早于铺场当下——"已提交"要看得出
+      // 已经过去一段时间，不是刚刚才提交。
+      const cnmrSubmittedAt = new Date(leoRestriction.openedAt.getTime() + 3 * 3600 * 1000);
+      const cnmrFiling = await upsertAmlFiling(cnmrFilingNo, {
+        filingNo: cnmrFilingNo,
+        direction: cnmrCfg.direction,
+        type: 'CNMR',
+        authority: cnmrCfg.defaultAuthority as string,
+        externalCaseRef: cnmrExternalCaseRef,
+        title: `${cnmrCfg.label} — ${leo.customerNo}`,
+        body: `Confirmed name match against the EOCN sanctions list — full account freeze in effect (SANCTION_CONFIRMED restriction opened ${leoRestriction.openedAt.toISOString()}). CNMR filed to EOCN within 5 business days of freeze per EOCN TFS Guidelines 2025.`,
+        deadlineAt: cnmrDeadlineAt,
+        submittedAt: cnmrSubmittedAt,
+        submittedByUserId: MLRO_USER_NO,
+        externalRef: cnmrExternalRef,
+        status: FilingStatus.SUBMITTED,
+        createdByUserId: MLRO_USER_NO,
+        traceId: `seed-${cnmrFilingNo}`,
+      });
+      await prisma.regulatoryFilingEntry.create({
+        data: {
+          filingId: cnmrFiling.id,
+          kind: FilingEntryKinds.RECEIPT_ACK,
+          body: 'EOCN acknowledged receipt of the Confirmed Name Match Report.',
+          externalRef: cnmrExternalRef,
+          recordedByUserId: MLRO_USER_NO,
+        },
+      });
+      seeded += 1;
+    }
+  }
+
+  console.log(`Seeded ${seeded} AML reporting family filing sample rows (STR submitted / PNMR in-flight / CNMR submitted).`);
 }
 
 // ─────────────────────────────────────────────────────────────
