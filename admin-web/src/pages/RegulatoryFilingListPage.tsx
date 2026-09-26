@@ -3,7 +3,7 @@
 // 铁律⑥：列表投影零 UUID（后端 RegulatoryFilingService.list 已保证）。
 // 模板：IncidentListPage.tsx 的表格 + 弹层结构。
 import { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { Plus, RefreshCw } from 'lucide-react';
 import { adminButtonClass, adminIconButtonClass } from '../components/common/adminButtonStyles';
 import { PageTitleBar } from '../components/ui/PageTitleBar';
@@ -284,7 +284,17 @@ const RegulatoryFilingListPage = () => {
                       {deadline.text}
                     </span>
                   </td>
-                  <td className="px-4 py-2 font-mono">{it.incidentNo ?? '—'}</td>
+                  <td className="px-4 py-2 font-mono">
+                    {it.incidentNo ? (
+                      <Link
+                        to={`/admin/governance/incidents/${encodeURIComponent(it.incidentNo)}`}
+                        onClick={(e) => e.stopPropagation()}
+                        className="text-adm-blue hover:underline"
+                      >
+                        {it.incidentNo}
+                      </Link>
+                    ) : '—'}
+                  </td>
                 </tr>
               );
             })}

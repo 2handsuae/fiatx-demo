@@ -162,8 +162,11 @@ const RegulatoryFilingDetailPage = () => {
   }
   if (!detail) return null;
 
+  // 评审终审修复：按钮可见性/可用性回到纯「状态机边 × 持码」公式——不加 draftText 内容/
+  // 一致性判断这个第三维（禁做清单：输入防御性校验）。没存草稿就送签，body 空由后端 400 拦，
+  // 不是前端的活。
   const canSaveDraft = canWrite && detail.status === 'DRAFT';
-  const canSubmitForSignoff = canWrite && detail.status === 'DRAFT' && !!draftText.trim() && draftText === (detail.body ?? '');
+  const canSubmitForSignoff = canWrite && detail.status === 'DRAFT';
   const canCancel = canWrite && detail.status === 'DRAFT';
   const canMarkSubmitted = canWrite && detail.status === 'SIGNED_OFF';
   const canLogEntry = canWrite && detail.status === 'SUBMITTED';
@@ -240,7 +243,7 @@ const RegulatoryFilingDetailPage = () => {
               {canSaveDraft && (
                 <button
                   type="button"
-                  disabled={busy || !draftText.trim() || draftText === (detail.body ?? '')}
+                  disabled={busy}
                   onClick={() => void post('/draft', { body: draftText.trim() })}
                   className={adminButtonClass('detailUtility')}
                 >
@@ -258,7 +261,6 @@ const RegulatoryFilingDetailPage = () => {
                   <button
                     type="button"
                     disabled={!canSubmitForSignoff || busy}
-                    title={!draftText.trim() ? 'Draft body is empty — save a draft before requesting sign-off' : draftText !== (detail.body ?? '') ? 'Save the draft first' : undefined}
                     onClick={() => void post('/signoff')}
                     className={adminButtonClass('workflowPrimary')}
                   >
@@ -339,10 +341,7 @@ const RegulatoryFilingDetailPage = () => {
                 <button
                   type="button"
                   disabled={busy}
-                  onClick={() => {
-                    const note = window.prompt('Closeout note (optional)') ?? undefined;
-                    void post('/close', note?.trim() ? { note: note.trim() } : undefined);
-                  }}
+                  onClick={() => void post('/close')}
                   className={adminButtonClass('workflowPrimary')}
                 >
                   Close Filing
