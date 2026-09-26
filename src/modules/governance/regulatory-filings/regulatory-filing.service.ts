@@ -23,8 +23,8 @@ import { AuditCategory, AuditSubjectInput, AuditSubjectRole } from '../../audit-
 import { AccessControlService } from '../../identity/access-control/access-control.service';
 import { ApprovalActorContext } from '../approvals/constants/approval.constants';
 import {
-  FILING_FAMILY_CAPABILITY_CODE, FILING_TRANSITIONS_BY_FAMILY, FilingEntryDto, FilingEntryKinds, FilingStatus,
-  MarkFilingSubmittedDto, OpenFilingDto, RegulatoryAuthorities,
+  FILING_ENTRY_KIND_RULES, FILING_FAMILY_CAPABILITY_CODE, FILING_TERMINAL_STATUSES, FILING_TRANSITIONS_BY_FAMILY,
+  FilingEntryDto, FilingStatus, MarkFilingSubmittedDto, OpenFilingDto, RegulatoryAuthorities,
 } from './regulatory-filing.constants';
 import { FilingTypeConfig, getFilingTypeConfig } from './filing-type-registry';
 import { addBusinessDays } from './business-days';
@@ -116,6 +116,9 @@ export class RegulatoryFilingService {
       createdByUserId: row.createdByUserId,
       entries: entries.map((e) => ({
         kind: e.kind, body: e.body, externalRef: e.externalRef ?? null,
+        // T5（spec §5）：CUSTOMER_COMM 唯一消费者——拟稿人自由文本，其余四种 kind 恒 null
+        // （addEntry 写入时就已按规则表拒绝了非 CUSTOMER_COMM 带这个字段）。
+        commDraftedBy: e.commDraftedBy ?? null,
         recordedByUserId: e.recordedByUserId, createdAt: e.createdAt.toISOString(),
       })),
     };
@@ -390,22 +393,44 @@ export class RegulatoryFilingService {
     return { filingNo, chainDeadlineSetFor };
   }
 
-  // ── 往来记录（spec §6：仅 SUBMITTED 可记）──────────────────────────────
+  // ── 往来记录（spec §5：分 kind 规则表 FILING_ENTRY_KIND_RULES，不散 if）──────
 
+  /** T5：旧三 kind（两族皆可、仅 SUBMITTED）与新两 kind（仅 AML 族、非终态可追加、
+   *  CUSTOMER_COMM 必填 commDraftedBy）统一按 FILING_ENTRY_KIND_RULES 查表判——kind 是
+   *  否存在／该族能不能打这个 kind／态限／commDraftedBy 必填与否，四道闸都读同一张表，
+   *  不写针对某个 kind 的专属 if 分支（spec §5 tipping-off 登记本 + EOCN 指令留痕）。
+   *  commDraftedBy 放行人＝actor（recordedByUserId）＝MLRO 本人——「MLRO 亲录预审」两签
+   *  不装两人（评审黄项定案），故本方法不额外校验 actor 身份，assertFamily 已确保
+   *  只有 cap.filing.aml 持有者（MLRO）能把 CUSTOMER_COMM 打进 AML 单。 */
   async addEntry(filingNo: string, dto: FilingEntryDto, actor: ApprovalActorContext): Promise<{ filingNo: string }> {
     const row = await this.findByNo(filingNo);
-    await this.assertFamily(getFilingTypeConfig(row.type), actor);
-    if (row.status !== FilingStatus.SUBMITTED) {
-      throw new BadRequestException(`Filing ${filingNo} must be SUBMITTED to log a correspondence entry (current status: ${row.status})`);
+    const cfg = getFilingTypeConfig(row.type);
+    await this.assertFamily(cfg, actor);
+    const rule = FILING_ENTRY_KIND_RULES[dto.kind];
+    if (!rule) throw new BadRequestException(`Unknown filing entry kind: ${dto.kind}`);
+    if (!rule.families.includes(cfg.family)) {
+      throw new BadRequestException(`Filing entry kind ${dto.kind} is not available for ${cfg.family} family filings (type ${row.type})`);
     }
-    if (!Object.values(FilingEntryKinds).includes(dto.kind as (typeof FilingEntryKinds)[keyof typeof FilingEntryKinds])) {
-      throw new BadRequestException(`Unknown filing entry kind: ${dto.kind}`);
+    if (rule.stateRule === 'SUBMITTED_ONLY' && row.status !== FilingStatus.SUBMITTED) {
+      throw new BadRequestException(`Filing ${filingNo} must be SUBMITTED to log a ${dto.kind} entry (current status: ${row.status})`);
+    }
+    if (rule.stateRule === 'NON_TERMINAL' && FILING_TERMINAL_STATUSES.includes(row.status)) {
+      throw new BadRequestException(`Filing ${filingNo} is in a terminal state (${row.status}) and cannot log a ${dto.kind} entry`);
+    }
+    if (rule.requiresCommDraftedBy && !dto.commDraftedBy) {
+      throw new BadRequestException(`Filing entry kind ${dto.kind} requires commDraftedBy`);
+    }
+    if (!rule.requiresCommDraftedBy && dto.commDraftedBy) {
+      throw new BadRequestException(`Filing entry kind ${dto.kind} does not accept commDraftedBy`);
     }
     await this.prisma.regulatoryFilingEntry.create({
-      data: { filingId: row.id, kind: dto.kind, body: dto.body, externalRef: dto.externalRef ?? null, recordedByUserId: actor.userNo ?? actor.userId },
+      data: {
+        filingId: row.id, kind: dto.kind, body: dto.body, externalRef: dto.externalRef ?? null,
+        commDraftedBy: dto.commDraftedBy ?? null, recordedByUserId: actor.userNo ?? actor.userId,
+      },
     });
     await this.recordAudit(row, AuditActions.FILING_ENTRY_LOGGED, actor, {
-      extra: { kind: dto.kind }, metadata: { body: dto.body, externalRef: dto.externalRef ?? null },
+      extra: { kind: dto.kind }, metadata: { body: dto.body, externalRef: dto.externalRef ?? null, commDraftedBy: dto.commDraftedBy ?? null },
     });
     return { filingNo };
   }

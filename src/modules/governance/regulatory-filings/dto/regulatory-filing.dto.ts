@@ -41,6 +41,10 @@ export class FilingEntryBodyDto {
   @ApiProperty({ enum: FILING_ENTRY_KIND_VALUES }) @IsIn(FILING_ENTRY_KIND_VALUES) kind!: string;
   @ApiProperty() @IsString() @IsNotEmpty() body!: string;
   @ApiPropertyOptional() @IsOptional() @IsString() externalRef?: string;
+  // 战役甲波三 T5（spec §5）：CUSTOMER_COMM 专属必填字段（拟稿人自由文本，MLRO 代录）；
+  // DTO 层只做类型/非空校验，「哪些 kind 必填/禁填」这道真闸在 service 层
+  // FILING_ENTRY_KIND_RULES 查表判（因 kind 而异，DTO 层不穷举）。
+  @ApiPropertyOptional() @IsOptional() @IsString() commDraftedBy?: string;
 }
 
 export class CancelFilingDto {

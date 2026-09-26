@@ -4,6 +4,9 @@
 // 战役甲波三 Task 3：GENERAL 表别名导出 FILING_TRANSITIONS 已删（迁移守卫改读
 // FILING_TRANSITIONS_BY_FAMILY，见 regulatory-filing.service.ts）——留着就是兼容层，
 // 有人拿它判 AML 单会按 GENERAL 放行（T1 评审白3）。
+// 战役甲波三 Task 5（spec §5）：addEntry 分 kind 规则表 FILING_ENTRY_KIND_RULES——五种
+// kind 的「哪族能用／态限」显式列成表，服务层按表查、不写散 if（旧三 kind 两族皆可、
+// 仅 SUBMITTED；新两 kind 仅 AML 族、非终态皆可）。
 // 本文件只放常量与纯类型——不含任何 Prisma / NestJS 依赖。
 
 export const FilingStatus = {
@@ -45,6 +48,35 @@ export const FilingEntryKinds = {
   /** spec §5：tipping-off 登记本，均仅 AML 族、非终态可追加。 */
   CUSTOMER_COMM: 'CUSTOMER_COMM', AUTHORITY_INSTRUCTION: 'AUTHORITY_INSTRUCTION',
 } as const;
+
+/** 两族共同的终态集合（两族的 FILING_TRANSITIONS_BY_FAMILY 里 CLOSED/CANCELLED 都是零
+ *  出边，见上表与 filing-type-registry.spec.ts「两族终态零出边」断言）——addEntry 的
+ *  NON_TERMINAL 态限规则据此判。 */
+export const FILING_TERMINAL_STATUSES: readonly string[] = [FilingStatus.CLOSED, FilingStatus.CANCELLED];
+
+/** spec §5：addEntry 分 kind 规则表——显式列出「哪些族能打这个 kind／态限是什么／要不要
+ *  commDraftedBy」，服务层按表查（T5，替代散 if）。
+ *  - 旧三 kind（RECEIPT_ACK/REGULATOR_INQUIRY/OUR_SUPPLEMENT）：两族皆可、仅 SUBMITTED
+ *    可追加（行为原样——AML 单的 goAML 回执就靠 RECEIPT_ACK）。
+ *  - 新两 kind（CUSTOMER_COMM/AUTHORITY_INSTRUCTION）：仅 AML 族；GENERAL 族监管指令维持
+ *    既有 REGULATOR_INQUIRY（评审白项定口径，见 spec §5）；非终态（DRAFT/PENDING_SIGNOFF/
+ *    SIGNED_OFF/SUBMITTED）均可追加，CLOSED/CANCELLED 拒。
+ *  - CUSTOMER_COMM 必填 commDraftedBy（自由文本拟稿人，MLRO 代录；放行人＝
+ *    recordedByUserId＝actor，即 MLRO 本人——「MLRO 亲录预审」两签不装两人）；其余四种
+ *    kind 一律不许带 commDraftedBy，显式拒绝，防字段串味到不该有它的往来记录上。 */
+export type FilingEntryStateRule = 'SUBMITTED_ONLY' | 'NON_TERMINAL';
+export interface FilingEntryKindRule {
+  families: readonly ('GENERAL' | 'AML')[];
+  stateRule: FilingEntryStateRule;
+  requiresCommDraftedBy: boolean;
+}
+export const FILING_ENTRY_KIND_RULES: Record<string, FilingEntryKindRule> = {
+  [FilingEntryKinds.RECEIPT_ACK]: { families: ['GENERAL', 'AML'], stateRule: 'SUBMITTED_ONLY', requiresCommDraftedBy: false },
+  [FilingEntryKinds.REGULATOR_INQUIRY]: { families: ['GENERAL', 'AML'], stateRule: 'SUBMITTED_ONLY', requiresCommDraftedBy: false },
+  [FilingEntryKinds.OUR_SUPPLEMENT]: { families: ['GENERAL', 'AML'], stateRule: 'SUBMITTED_ONLY', requiresCommDraftedBy: false },
+  [FilingEntryKinds.CUSTOMER_COMM]: { families: ['AML'], stateRule: 'NON_TERMINAL', requiresCommDraftedBy: true },
+  [FilingEntryKinds.AUTHORITY_INSTRUCTION]: { families: ['AML'], stateRule: 'NON_TERMINAL', requiresCommDraftedBy: false },
+};
 export const RegulatoryAuthorities = { VARA: 'VARA', UAE_FIU: 'UAE_FIU', EOCN: 'EOCN', UAE_DATA_OFFICE: 'UAE_DATA_OFFICE', CBUAE: 'CBUAE' } as const;
 export const REGULATORY_AUTHORITY_LABELS: Record<string, string> = {
   VARA: 'VARA (Dubai Virtual Assets Regulatory Authority)', UAE_FIU: 'UAE Financial Intelligence Unit',
@@ -53,5 +85,5 @@ export const REGULATORY_AUTHORITY_LABELS: Record<string, string> = {
 };
 
 export interface OpenFilingDto { type: string; authority?: string; ccAuthorities?: string[]; incidentNo?: string; basisCode?: string; title?: string; receivedAt?: string; externalCaseRef?: string; }
-export interface FilingEntryDto { kind: string; body: string; externalRef?: string; }
+export interface FilingEntryDto { kind: string; body: string; externalRef?: string; commDraftedBy?: string; }
 export interface MarkFilingSubmittedDto { externalRef: string; }

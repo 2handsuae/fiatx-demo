@@ -265,6 +265,97 @@ describe('RegulatoryFilingService (Task 3)', () => {
     });
   });
 
+  // ── T5（spec §5）：addEntry 分 kind 规则表 FILING_ENTRY_KIND_RULES 矩阵 ─────────
+  // 两新 kind（CUSTOMER_COMM/AUTHORITY_INSTRUCTION）×两族×终态/非终态；commDraftedBy
+  // 必填闸（仅 CUSTOMER_COMM）；旧三 kind 两族皆可仍仅 SUBMITTED（回归，锁住行为原样）。
+  describe('addEntry — FILING_ENTRY_KIND_RULES matrix (T5, spec §5 tipping-off 登记本 + EOCN 指令留痕)', () => {
+    describe('CUSTOMER_COMM / AUTHORITY_INSTRUCTION are AML-family-only', () => {
+      it('a SUBMITTED GENERAL filing rejects CUSTOMER_COMM (400) — GENERAL 族零角色', async () => {
+        const filingNo = await toSubmittedFiling(); // GENERAL, SUBMITTED
+        await expect(service.addEntry(filingNo, { kind: 'CUSTOMER_COMM', body: 'x', commDraftedBy: 'Jane (MLRO)' }, ops))
+          .rejects.toThrow(BadRequestException);
+      });
+
+      it('a SUBMITTED GENERAL filing rejects AUTHORITY_INSTRUCTION (400) — GENERAL 监管指令维持既有 REGULATOR_INQUIRY（评审白项口径）', async () => {
+        const filingNo = await toSubmittedFiling();
+        await expect(service.addEntry(filingNo, { kind: 'AUTHORITY_INSTRUCTION', body: 'x' }, ops)).rejects.toThrow(BadRequestException);
+        // 既有 kind 原样可用——不是「GENERAL 族指令没地方记」，是维持既有口径。
+        const r = await service.addEntry(filingNo, { kind: 'REGULATOR_INQUIRY', body: 'Regulator asked for clarification' }, ops);
+        expect(r.filingNo).toBe(filingNo);
+      });
+
+      it('an AML DRAFT filing accepts CUSTOMER_COMM with commDraftedBy — 非终态即可追加，不必等 SUBMITTED', async () => {
+        const filingNo = await openAmlDraftFiling('STR');
+        const row0 = await service.findByNo(filingNo);
+        expect(row0.status).toBe('DRAFT');
+        const r = await service.addEntry(
+          filingNo,
+          { kind: 'CUSTOMER_COMM', body: 'You are cleared to proceed — standard onboarding language', commDraftedBy: 'Jane Doe (MLRO)' },
+          mlro,
+        );
+        expect(r.filingNo).toBe(filingNo);
+        const view = await service.getView(filingNo);
+        expect(view.entries[0]).toMatchObject({ kind: 'CUSTOMER_COMM', commDraftedBy: 'Jane Doe (MLRO)', recordedByUserId: mlro.userNo });
+      });
+
+      it('an AML SUBMITTED filing accepts AUTHORITY_INSTRUCTION with no commDraftedBy (records, does not push state)', async () => {
+        const filingNo = await openAmlDraftFiling('STR');
+        await service.markSubmitted(filingNo, { externalRef: 'GOAML_AUTH_1' }, mlro);
+        const r = await service.addEntry(filingNo, { kind: 'AUTHORITY_INSTRUCTION', body: 'EOCN: maintain freeze pending further notice' }, mlro);
+        expect(r.filingNo).toBe(filingNo);
+        const view = await service.getView(filingNo);
+        expect(view.entries[0]).toMatchObject({ kind: 'AUTHORITY_INSTRUCTION', commDraftedBy: null });
+        // 记录不推状态——单据仍是 SUBMITTED（解除/升级走 T4 的链，不在本方法）。
+        const row = await service.findByNo(filingNo);
+        expect(row.status).toBe('SUBMITTED');
+      });
+
+      it('an AML filing CLOSED via closeNoFiling (terminal) rejects both new kinds — 非终态放宽不含终态', async () => {
+        const filingNo = await openAmlDraftFiling('STR');
+        await service.closeNoFiling(filingNo, 'Insufficient grounds to suspect after review', mlro);
+        await expect(service.addEntry(filingNo, { kind: 'CUSTOMER_COMM', body: 'x', commDraftedBy: 'Jane' }, mlro)).rejects.toThrow(BadRequestException);
+        await expect(service.addEntry(filingNo, { kind: 'AUTHORITY_INSTRUCTION', body: 'x' }, mlro)).rejects.toThrow(BadRequestException);
+      });
+
+      it('an AML filing CANCELLED (terminal) rejects CUSTOMER_COMM', async () => {
+        const filingNo = await openAmlDraftFiling('STR');
+        await service.cancel(filingNo, 'Filed in error', mlro);
+        await expect(service.addEntry(filingNo, { kind: 'CUSTOMER_COMM', body: 'x', commDraftedBy: 'Jane' }, mlro)).rejects.toThrow(BadRequestException);
+      });
+    });
+
+    describe('commDraftedBy gate — CUSTOMER_COMM only, MLRO 亲录预审留痕', () => {
+      it('CUSTOMER_COMM without commDraftedBy is rejected (400)', async () => {
+        const filingNo = await openAmlDraftFiling('STR');
+        await expect(service.addEntry(filingNo, { kind: 'CUSTOMER_COMM', body: 'x' }, mlro)).rejects.toThrow(BadRequestException);
+        await expect(service.addEntry(filingNo, { kind: 'CUSTOMER_COMM', body: 'x' }, mlro)).rejects.toThrow(/commDraftedBy/);
+      });
+
+      it.each(['RECEIPT_ACK', 'REGULATOR_INQUIRY', 'OUR_SUPPLEMENT', 'AUTHORITY_INSTRUCTION'])(
+        '%s carrying commDraftedBy is rejected (400) — 防字段串味到不该有它的 kind 上',
+        async (kind) => {
+          const filingNo = await openAmlDraftFiling('STR');
+          await service.markSubmitted(filingNo, { externalRef: 'GOAML_CROSS_1' }, mlro);
+          await expect(service.addEntry(filingNo, { kind, body: 'x', commDraftedBy: 'Should not be here' }, mlro)).rejects.toThrow(BadRequestException);
+        },
+      );
+    });
+
+    describe('legacy three kinds: unchanged — both families, SUBMITTED-only (regression)', () => {
+      it('RECEIPT_ACK on a SUBMITTED AML filing (goAML receipt) still works', async () => {
+        const filingNo = await openAmlDraftFiling('STR');
+        await service.markSubmitted(filingNo, { externalRef: 'GOAML_ACK_REG' }, mlro);
+        const r = await service.addEntry(filingNo, { kind: 'RECEIPT_ACK', body: 'goAML acknowledgement receipt' }, mlro);
+        expect(r.filingNo).toBe(filingNo);
+      });
+
+      it('RECEIPT_ACK on a DRAFT AML filing is still rejected — SUBMITTED_ONLY unchanged for legacy kinds', async () => {
+        const filingNo = await openAmlDraftFiling('STR');
+        await expect(service.addEntry(filingNo, { kind: 'RECEIPT_ACK', body: 'x' }, mlro)).rejects.toThrow(BadRequestException);
+      });
+    });
+  });
+
   // ── ⑧ cancel：仅 DRAFT ───────────────────────────────────────────
   describe('cancel', () => {
     it('cancels a DRAFT filing and records the reason', async () => {
