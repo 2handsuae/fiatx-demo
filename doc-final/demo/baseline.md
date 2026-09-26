@@ -194,3 +194,19 @@ test/sla.e2e-spec.ts                         # 私库
 
 **结论：11 条判据全过。此前记录的"main 记账回归"不存在，特此撤销。**
 
+## 战役甲波四合规办公室三表种子断言（reset 判据，2026-09-27 Task 7 起）
+
+`bash scripts/stack.sh reset self` 从零建库重铺后（`seedBusiness()` 随 `db:seed:business` 落地，先于 `demo:all`），三张新表应各自恰好这些行，连跑两次 reset 结果逐字一致（`obligationNo`/`vendorNo`/`riNo` 用 `buildDeterministicNo` 派生，`upsert` 保幂等；已实测两轮独立 reset 数字完全相同）：
+
+| 表 | 行数 | 关键行 |
+|---|---|---|
+| `compliance_obligations` | **3** | `OBL2601015484`（MONTHLY/VARA/ACTIVE）／`OBL2601011955`（QUARTERLY/VARA/ACTIVE）／`OBL2601017307`（ANNUAL/VARA/ACTIVE） |
+| `outsourcing_vendors` | **3** | `VEN2601019644`（Sumsub/MATERIAL/ACTIVE）／`VEN2601017083`（HexTrust/MATERIAL/ACTIVE）／`VEN2601019912`（Gulf Office Systems/NON_MATERIAL/ACTIVE） |
+| `responsible_individuals` | **4** | `RI2601011344`（MLRO）／`RI2601013891`（Compliance Officer）／`RI2601015148`（CFO）／`RI2601019215`（CISO），均 `status=ACTIVE`、`pendingApprovalNo=NULL` |
+
+**闹钟墙开箱判据（Ruling R2 核实结论）**：重铺后 `regulatory_filings` 里已有 3 行落在 `FILING_CLOCK_WALL_STATUSES`（DRAFT/PENDING_SIGNOFF/SIGNED_OFF 且 `deadlineAt` 非空）——`FIL2601010266`（`REG_INFO_REQUEST_RESPONSE`/DRAFT，波二种子）、`FIL2601012321`（`PNMR`/DRAFT，波三种子）、`FIL2601013167`（`INCIDENT_REPORT`/SIGNED_OFF，波二种子），叠加 `compliance_obligations` 三行（`status=ACTIVE` 恒上墙）——闹钟墙聚合端点开箱即非空、且已有 `DRAFT` 态带钟报送单在墙上，无需本任务再补报送单样例。
+
+⚠️ **已发现并修复的重铺闸缺口**：`scripts/reset-business-data.ts` 的 FK-safe 清单原漏登记这三张新表（与 2026-09-26 战役甲波二 T10 补登记 `regulatoryFiling` 那次同款遗漏形态——见该脚本对应注释），导致 `verify:rbac` 的 `OBLIGATION`/`RI` 探针夹具在 `reset self` 后原样留存（首次重铺实测多出 3 条 `OBL260927*` 探针义务行 + 3 条 `RI260927*` 探针席位行）。已在本任务补登记三行 `deleteManyIfDelegateExists`，修复后连跑两次 reset 行数稳定为上表的 3/3/4，不再随 `verify:rbac` 是否跑过而漂移。
+
+**实测口径**：`bash scripts/stack.sh reset self` → 全绿（无失败步骤，`verify:demo-data ALL PASS`）→ `bash scripts/on-stack.sh self demo:all` → 花名册 29/29 + COA 4/4 恒等式全过、`data.md` 生成区零 diff → `bash scripts/on-stack.sh self verify:rbac` → 新增判据（合规办公室四组门 / 合规义务写权 / ⚡拨钟唯金库 / RI 换人审批链）全绿，仅剩两条与本任务无关的既有红（`S7 catalog 字典真实性`——`TOOLING-DEBT.md` 已登记的三域 demo 裁决按钮扫描器盲区；`V2 改角色不丢权限 · COMPLIANCE_OFFICER`——`BACKLOG.md` 已登记的 `CUSTOMER_WRITE` 孤儿权限组），红集与波前基线恒等、无新增。
+

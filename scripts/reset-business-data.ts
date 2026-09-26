@@ -61,6 +61,12 @@ const BUSINESS_DELEGATES_FK_SAFE: string[] = [
   // 子先删；否则旧库里 e2e/RBAC 探针建出的 filing 行会在 reset 后原样留存）。
   'regulatoryFilingEntry',
   'regulatoryFiling',
+  // 合规办公室三表（战役甲波四 T1 加表时同样漏登记本清单——2026-09-27 T7 重铺闸首验
+  // 撞见：verify:rbac 的 OBLIGATION/RI 探针夹具在 reset 后原样留存，与上面 regulatoryFiling
+  // 那次一模一样的遗漏形态。三表互无 FK、彼此独立，删除顺序不敏感。）
+  'complianceObligation',
+  'outsourcingVendor',
+  'responsibleIndividual',
   'reconciliationAdjustment',
   'reconciliationLineItem',
   'reconciliationCase',

@@ -28,6 +28,7 @@ import { getFilingTypeConfig } from '../src/modules/governance/regulatory-filing
 import { addBusinessDays } from '../src/modules/governance/regulatory-filings/business-days';
 import { DUBAI_UTC_OFFSET_MS } from '../src/modules/accounting/tigerbeetle/utils/business-date.util';
 import { INCIDENT_REPORT_BASES } from '../src/modules/governance/incidents/incident.constants';
+import { ObligationFrequencies, ObligationStatus, VendorStatus } from '../src/modules/governance/compliance-office/compliance-office.constants';
 
 type SeedBusinessOptions = {
   skipEnsureBase?: boolean;
@@ -62,6 +63,12 @@ export async function seedBusiness(
   // ③e AML reporting family layer（战役甲波三 T10，spec §7）：STR/PNMR/CNMR 三样例，
   // needs seedCustomers' Frank/Leo/Mona rows + Leo/Mona 的限制账 openedAt 锚。
   await seedAmlFilingFamily(prisma);
+  // ③f Compliance office layer（战役甲波四 T7，spec §7/§9）：合规日历义务台账三行 +
+  // 两本登记册（外包商三行 + RI 席位四行）——各表互不依赖，也不依赖上面任何客户/事件/
+  // 报送单种子行（spec §10：两册与义务台账均无横向外键）。
+  await seedComplianceObligations(prisma);
+  await seedOutsourcingVendors(prisma);
+  await seedResponsibleIndividuals(prisma);
   // Final: push all registry rows (system + customer) into TigerBeetle.
   await provisionTbAccounts(prisma);
   // Firm capital bootstrap: DR FIRM_ASSET / CR FIRM_OPS per currency.
@@ -1541,6 +1548,229 @@ async function seedAmlFilingFamily(prisma: PrismaClient): Promise<void> {
   }
 
   console.log(`Seeded ${seeded} AML reporting family filing sample rows (STR submitted / PNMR in-flight / CNMR submitted).`);
+}
+
+// ─────────────────────────────────────────────────────────────
+// ③f-1 Compliance calendar layer — 战役甲波四 Task 7（spec §7/§9）：合规日历义务台账
+// 三行，全部对外申报（VARA 月/季/年三层监管报送，spec §9 核对表 #1）。MLRO 季报 /
+// EWRA / 牌照年费三条经二手多源交叉调研后判组织件不建（裁定 10，收件方非监管），
+// 不铺种子——总纲 §4 已随 spec 订正。
+//
+// 与 seedRegulatoryFilings 同一性质：直铺快照数据，不走 ComplianceObligationsService
+// （没有 operator、不写审计——「留痕」由 e2e 证，同报送单种子区头注释先例）。
+// obligationNo 用 buildDeterministicNo(seedKey) 派生，reset 重铺后逐字不变；用 upsert
+// 保幂等（本表无子表，不需要 upsertFiling 那种先删子表再删主表的手法）。
+//
+// nextDueAt 相对「当前时钟」取下一自然期末，不锚死某个具体日期——义务台账的钟面是
+// 活的（每次 reset 都保证落在未来），这是它与报送单快照最大的不同：报送单快照的
+// submittedAt/deadlineAt 是固定叙事时刻，义务的 nextDueAt 必须随铺场当下滚动，否则
+// 长期不 reset 的环境会让闹钟墙的义务行集体显示成"早已超期"，与「墙开箱绿/黄可见」
+// 的验收口径矛盾。basisNote 只写 spec §9 查实的条款号，不补想象中的宽限天数
+// （截止天数一手条文未规定——铁律「不杜撰」）。
+// ─────────────────────────────────────────────────────────────
+
+/** 月/季/年三种频率的「下一自然期末」：月度=每个自然月末；季度=3/6/9/12 月末；
+ *  年度=12 月末——用 `months`（1/3/12）统一表达三种频率的期末月对齐步长。与
+ *  `advanceDueDate`（compliance-office.constants.ts）形似但职责不同：那个函数消费
+ *  一个已知起点向后翻一期，这里没有起点、只有「现在」，求的是最近的下一个期末，
+ *  故不复用、各自成一个纯函数。 */
+function nextPeriodEnd(now: Date, months: 1 | 3 | 12): Date {
+  const y = now.getUTCFullYear();
+  let periodEndMonth = Math.ceil((now.getUTCMonth() + 1) / months) * months; // 1-based 月份
+  let periodEndYear = y;
+  if (periodEndMonth > 12) { periodEndMonth -= 12; periodEndYear += 1; }
+  // Date.UTC(year, M, 0) = 第 M 个月（1-based）的最后一天，见 advanceDueDate 同款手法。
+  let candidate = new Date(Date.UTC(periodEndYear, periodEndMonth, 0, 23, 59, 59));
+  if (candidate.getTime() <= now.getTime()) {
+    periodEndMonth += months;
+    if (periodEndMonth > 12) { periodEndMonth -= 12; periodEndYear += 1; }
+    candidate = new Date(Date.UTC(periodEndYear, periodEndMonth, 0, 23, 59, 59));
+  }
+  return candidate;
+}
+
+const COMPLIANCE_OBLIGATION_SEEDS: Array<{
+  seedKey: string; name: string; frequency: keyof typeof ObligationFrequencies; months: 1 | 3 | 12;
+  basisNote: string;
+}> = [
+  {
+    seedKey: 'vara-monthly-return',
+    name: 'VARA Monthly Regulatory Return',
+    frequency: 'MONTHLY', months: 1,
+    basisNote: 'CRM Rulebook Part I, Rule I.H.1',
+  },
+  {
+    seedKey: 'vara-quarterly-report',
+    name: 'VARA Quarterly Report',
+    frequency: 'QUARTERLY', months: 3,
+    basisNote: 'CRM Rulebook Part I, Rule I.H.2',
+  },
+  {
+    seedKey: 'vara-annual-report',
+    name: 'VARA Annual Report incl. audited financials',
+    frequency: 'ANNUAL', months: 12,
+    basisNote: 'CRM Rulebook Part I, Rule I.H.3 + I.G.1',
+  },
+];
+
+async function seedComplianceObligations(prisma: PrismaClient): Promise<void> {
+  const now = new Date();
+  let seeded = 0;
+  for (const sample of COMPLIANCE_OBLIGATION_SEEDS) {
+    const obligationNo = buildDeterministicNo('OBL', sample.seedKey);
+    await prisma.complianceObligation.upsert({
+      where: { obligationNo },
+      update: {
+        name: sample.name,
+        frequency: ObligationFrequencies[sample.frequency],
+        authority: RegulatoryAuthorities.VARA,
+        basisNote: sample.basisNote,
+        leadBusinessDays: 5,
+        nextDueAt: nextPeriodEnd(now, sample.months),
+        status: ObligationStatus.ACTIVE,
+      },
+      create: {
+        obligationNo,
+        name: sample.name,
+        frequency: ObligationFrequencies[sample.frequency],
+        authority: RegulatoryAuthorities.VARA,
+        basisNote: sample.basisNote,
+        leadBusinessDays: 5,
+        nextDueAt: nextPeriodEnd(now, sample.months),
+        status: ObligationStatus.ACTIVE,
+        createdByUserId: 'SEED',
+        traceId: `seed-${obligationNo}`,
+      },
+    });
+    seeded += 1;
+  }
+  console.log(`Seeded ${seeded} compliance obligation rows (VARA monthly/quarterly/annual returns, all ACTIVE, nextDueAt = next natural period end from current clock).`);
+}
+
+// ─────────────────────────────────────────────────────────────
+// ③f-2 Outsourcing vendor register — 战役甲波四 Task 7（spec §4.1/§7）：三行，呼应
+// 波一「外包商断供」事件（`outsourcing-kyc-relay-degraded`，subjectRefs.vendor=SUMSUB）
+// ——呼应是纯叙事，不建外键（spec §4.1：两主体各管各的，YAGNI）。Sumsub / HexTrust 判
+// MATERIAL（分别是 KYC/AML 筛查与客户资产托管的关键职能外包）；一家 office-IT 供应商
+// 判 NON_MATERIAL 对照（非核心行政 IT 支持）。
+//
+// 与 seedComplianceObligations 同一性质：直铺快照数据，不走 OutsourcingVendorsService
+// （没有 operator、不写审计）。vendorNo 用 buildDeterministicNo(seedKey) 派生，upsert
+// 保幂等。
+// ─────────────────────────────────────────────────────────────
+
+const OUTSOURCING_VENDOR_SEEDS: Array<{
+  seedKey: string; name: string; serviceDescription: string;
+  criticality: 'MATERIAL' | 'NON_MATERIAL'; contractStart: string; notes: string;
+}> = [
+  {
+    seedKey: 'vendor-sumsub',
+    name: 'Sumsub',
+    serviceDescription: 'KYC/AML identity verification and applicant screening (onboarding + periodic re-screening)',
+    criticality: 'MATERIAL',
+    contractStart: '2025-01-01',
+    notes: 'Material Outsourcing assessment: core AML/KYC screening function — loss of service directly impairs onboarding and sanctions screening.',
+  },
+  {
+    seedKey: 'vendor-hextrust',
+    name: 'HexTrust',
+    serviceDescription: 'Digital asset custody (TRON network wallet infrastructure)',
+    criticality: 'MATERIAL',
+    contractStart: '2025-01-01',
+    notes: 'Material Outsourcing assessment: custodial control of client digital assets — loss of service directly impairs deposit/withdrawal availability.',
+  },
+  {
+    seedKey: 'vendor-office-it',
+    name: 'Gulf Office Systems',
+    serviceDescription: 'Office IT support (workstation provisioning, network helpdesk)',
+    criticality: 'NON_MATERIAL',
+    contractStart: '2025-06-01',
+    notes: 'Material Outsourcing assessment: non-critical corporate IT support, no client-facing or regulatory-critical function.',
+  },
+];
+
+async function seedOutsourcingVendors(prisma: PrismaClient): Promise<void> {
+  let seeded = 0;
+  for (const sample of OUTSOURCING_VENDOR_SEEDS) {
+    const vendorNo = buildDeterministicNo('VEN', sample.seedKey);
+    await prisma.outsourcingVendor.upsert({
+      where: { vendorNo },
+      update: {
+        name: sample.name,
+        serviceDescription: sample.serviceDescription,
+        criticality: sample.criticality,
+        contractStart: new Date(sample.contractStart),
+        notes: sample.notes,
+        status: VendorStatus.ACTIVE,
+      },
+      create: {
+        vendorNo,
+        name: sample.name,
+        serviceDescription: sample.serviceDescription,
+        criticality: sample.criticality,
+        contractStart: new Date(sample.contractStart),
+        notes: sample.notes,
+        status: VendorStatus.ACTIVE,
+        createdByUserId: 'SEED',
+        traceId: `seed-${vendorNo}`,
+      },
+    });
+    seeded += 1;
+  }
+  console.log(`Seeded ${seeded} outsourcing vendor rows (Sumsub + HexTrust MATERIAL, Gulf Office Systems NON_MATERIAL, all ACTIVE).`);
+}
+
+// ─────────────────────────────────────────────────────────────
+// ③f-3 Responsible individual register — 战役甲波四 Task 7（spec §4.2/§7）：四席位
+// （MLRO / Compliance Officer / CFO / CISO），演示合理集、非法定名录（spec §4.2 钉死）。
+// incumbentName 是自然人姓名，与 IAM 账号无外键、无联动（骨架岔口④）——种子里的现任
+// 人名与本仓既有的角色管理员账号人设（`seed.base.ts` ROLE_SEED_ACCOUNTS 同角色代码）
+// 对齐，不与既有客户演示人名（Alice…Mona）或迪拜团队真实超管人名（Roger…Rhea）撞。
+// varaRef 用演示格式 `VARA-RI-0xx`。四席全 ACTIVE、零在途换人（`pendingApprovalNo`
+// 留空——换人全弧由 e2e 现场演，spec 场景 22）。
+//
+// 与前两个 ③f 区块同一性质：直铺快照数据，不走 ResponsibleIndividualsService（没有
+// operator、不写审计）。riNo 用 buildDeterministicNo(seedKey) 派生，upsert 保幂等。
+// ─────────────────────────────────────────────────────────────
+
+const RESPONSIBLE_INDIVIDUAL_SEEDS: Array<{
+  seedKey: string; position: string; incumbentName: string; varaRef: string; effectiveFrom: string;
+}> = [
+  { seedKey: 'ri-mlro', position: 'MLRO', incumbentName: 'Farah Al Mansoori', varaRef: 'VARA-RI-001', effectiveFrom: '2025-01-01' },
+  { seedKey: 'ri-compliance-officer', position: 'Compliance Officer', incumbentName: 'Youssef Haddad', varaRef: 'VARA-RI-002', effectiveFrom: '2025-01-01' },
+  { seedKey: 'ri-cfo', position: 'CFO', incumbentName: 'Elena Novak', varaRef: 'VARA-RI-003', effectiveFrom: '2025-01-01' },
+  { seedKey: 'ri-ciso', position: 'CISO', incumbentName: 'Marcus Tan', varaRef: 'VARA-RI-004', effectiveFrom: '2025-01-01' },
+];
+
+async function seedResponsibleIndividuals(prisma: PrismaClient): Promise<void> {
+  let seeded = 0;
+  for (const sample of RESPONSIBLE_INDIVIDUAL_SEEDS) {
+    const riNo = buildDeterministicNo('RI', sample.seedKey);
+    await prisma.responsibleIndividual.upsert({
+      where: { riNo },
+      update: {
+        position: sample.position,
+        incumbentName: sample.incumbentName,
+        varaRef: sample.varaRef,
+        effectiveFrom: new Date(sample.effectiveFrom),
+        status: 'ACTIVE',
+        pendingApprovalNo: null,
+      },
+      create: {
+        riNo,
+        position: sample.position,
+        incumbentName: sample.incumbentName,
+        varaRef: sample.varaRef,
+        effectiveFrom: new Date(sample.effectiveFrom),
+        status: 'ACTIVE',
+        pendingApprovalNo: null,
+        createdByUserId: 'SEED',
+        traceId: `seed-${riNo}`,
+      },
+    });
+    seeded += 1;
+  }
+  console.log(`Seeded ${seeded} responsible individual seat rows (MLRO/Compliance Officer/CFO/CISO, all ACTIVE, zero pending replacement).`);
 }
 
 // ─────────────────────────────────────────────────────────────

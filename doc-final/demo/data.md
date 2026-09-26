@@ -96,6 +96,43 @@ admin@fiatx.com 超管 ｜ sm@ 高管(SMO) ｜ ciso@ ｜ mlro@ ｜ dpo@ ｜ comp
 
 Mona 的 EMIRATES_ID 补料请求（`requestNo=MRQ2601019867`，PENDING_SUBMISSION）在上方「材料请求账」种子同批铺出（`DEMO_MATERIAL_REQUESTS` 新增一行，不挂 `restrictionCause`——`restrictionNo` 恒 `null`，即「blocking:false」：她已有的 SILENT SANCTION 便签 scope=ALL 早已卡住全部能力，这条补料只是发一份中性话术，照 `sanction-disposition-workflow.service.ts#landPartial` 落地口径 `origin='OPERATOR_ISSUED'`、`issuedBy`=MLRO userNo）。
 
+## 合规办公室种子（business seed，三义务 + 三供应商 + 四 RI 席位，2026-09-27 战役甲波四 Task 7）
+
+`seedComplianceObligations()` / `seedOutsourcingVendors()` / `seedResponsibleIndividuals()`（`prisma/seed.business.ts`，紧随 `seedAmlFilingFamily()` 之后）同样直铺快照数据（不走各自 Service，没有 operator、不写审计——「留痕」由 e2e 证，同上方两个报送台种子节先例）。三张表互不依赖，也不依赖客户/事件/报送单种子行（spec §10：两册与义务台账均无横向外键）。单号用 `buildDeterministicNo('OBL'|'VEN'|'RI', seedKey)` 派生、`upsert` 保幂等，reset 重铺后逐字不变。
+
+### 合规日历义务台账（三行，全部对外申报）
+
+| 义务 | obligationNo | frequency | authority | basisNote | nextDueAt |
+|---|---|---|---|---|---|
+| VARA Monthly Regulatory Return | `OBL2601015484` | MONTHLY | VARA | CRM Rulebook Part I, Rule I.H.1 | 铺场时刻起下一个自然月末 |
+| VARA Quarterly Report | `OBL2601011955` | QUARTERLY | VARA | CRM Rulebook Part I, Rule I.H.2 | 铺场时刻起下一个自然季末 |
+| VARA Annual Report incl. audited financials | `OBL2601017307` | ANNUAL | VARA | CRM Rulebook Part I, Rule I.H.3 + I.G.1 | 铺场时刻起下一个自然年末 |
+
+⚠️ `nextDueAt` 相对**铺场时刻**取下一自然期末（`nextPeriodEnd()`，`prisma/seed.business.ts`）——不是固定日期，每次 `stack.sh reset` 重铺都保证落在未来（闹钟墙开箱即非空、不会因久未 reset 而集体显示成"已超期"）；`obligationNo` 逐字不变（只吃 seedKey，不吃时间）。MLRO 季报／EWRA（内部风险自评）／牌照年费三条经 spec §9 二手多源交叉调研后判组织件不建（裁定 10，收件方非监管，与内幕名单同判），不铺种子；截止天数一手条文未规定的行，`basisNote` 只写查实的条款号，不补想象中的宽限天数。
+
+### 外包商登记册（三行）
+
+| 供应商 | vendorNo | 外包内容 | criticality | contractStart |
+|---|---|---|---|---|
+| Sumsub | `VEN2601019644` | KYC/AML 身份核验与筛查 | MATERIAL | 2025-01-01 |
+| HexTrust | `VEN2601017083` | 数字资产托管（TRON 网络钱包基础设施） | MATERIAL | 2025-01-01 |
+| Gulf Office Systems | `VEN2601019912` | 办公室 IT 支持 | NON_MATERIAL | 2025-06-01 |
+
+与波一「外包商断供」事件（`outsourcing-kyc-relay-degraded`，`subjectRefs.vendor=SUMSUB`）的呼应是纯叙事，不建外键、不建联动（spec §4.1，YAGNI）。
+
+### RI（受托责任人）登记册（四席位，零在途换人）
+
+| 岗位 | riNo | 现任人 | varaRef | effectiveFrom |
+|---|---|---|---|---|
+| MLRO | `RI2601011344` | Farah Al Mansoori | VARA-RI-001 | 2025-01-01 |
+| Compliance Officer | `RI2601013891` | Youssef Haddad | VARA-RI-002 | 2025-01-01 |
+| CFO | `RI2601015148` | Elena Novak | VARA-RI-003 | 2025-01-01 |
+| CISO | `RI2601019215` | Marcus Tan | VARA-RI-004 | 2025-01-01 |
+
+演示合理集、非法定名录（spec §4.2 钉死）；`incumbentName` 是自然人姓名，与 IAM 账号无外键、无联动——岗位对齐本仓既有角色管理员人设（`seed.base.ts` `ROLE_SEED_ACCOUNTS` 同角色代码：MLRO/COMPLIANCE_OFFICER/CFO/CISO），人名避开与既有客户演示人名（Alice…Mona）及迪拜团队真实超管人名（Roger…Rhea）撞号。四席全 `ACTIVE`、`pendingApprovalNo` 恒 `null`——换人全弧（提案→高管批→落地）由 e2e 现场演（spec 场景 22），不预铺在途态。
+
+⚠️ 闹钟墙开箱判据（Ruling R2）：核实波三 `seedAmlFilingFamily()` 的 PNMR 样例（`FIL2601012321`，见上「报文族种子」表）本身即 `DRAFT` 态、`deadlineAt` 非空——落在 `FILING_CLOCK_WALL_STATUSES`（DRAFT/PENDING_SIGNOFF/SIGNED_OFF）内，重铺后即在墙上；本任务未额外补报送单样例。
+
 ## 各脚本造什么
 
 | 命令 | 产出 |
