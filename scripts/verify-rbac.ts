@@ -684,10 +684,7 @@ function runS6FrontendBackendCodeDiff(): void {
 //   · cap.filing.general / cap.filing.aml：同上，RegulatoryFilingService.assertFamily 的
 //     服务层门标记码，method: 'MARKER'，永久性例外（跟 cap.incident.* 同类，不会「出生」
 //     成真路由）。
-//   · api.post.admin_regulatory_filings_filingno_close_no_filing：close-no-filing 端点的
-//     真实 controller 由并行任务 T3 落地，本任务只登记 catalog 行——「暂未出生」，同平账
-//     二期「先立地基」先例（见上方大注释），不是永久例外：T3 的 controller 合并后这行会
-//     变成真实端点，届时应把这条从白名单删掉，不能留在这里长期蒙混。
+//   （close-no-filing 端点曾以「暂未出生」列此白名单；T3 controller 落地后已按约删除。）
 const S7_PENDING_DEAD_ROWS = new Set<string>([
   'cap.incident.funds',
   'cap.incident.tech',
@@ -696,7 +693,6 @@ const S7_PENDING_DEAD_ROWS = new Set<string>([
   'cap.incident.fin',
   'cap.filing.general',
   'cap.filing.aml',
-  'api.post.admin_regulatory_filings_filingno_close_no_filing',
 ]);
 
 /** 镜像 admin-permission.guard.ts#buildRequestPermissionCode 的拼接算法——不是重新

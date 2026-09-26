@@ -583,7 +583,7 @@
 | `INCIDENT_CLOSED` | 审批通过、事故 CLOSED | I 继承 | approvalNo | ✓ |
 | `INCIDENT_WITHDRAWN` | 撤回误登记（仅 REGISTERED 态，理由留痕，不是删除） | N 单步 | reason |  |
 
-### 报送台生命周期（10） — 战役甲波二新增，事故定损批量开单 / 合规官手动开单两条入口共用
+### 报送台生命周期（11） — 战役甲波二新增，事故定损批量开单 / 合规官手动开单两条入口共用；波三报文族加不报结案
 
 | 动作码 | 说明 | 旅程 | 必填字段 | 异步 |
 |---|---|---|---|---|
@@ -597,6 +597,7 @@
 | `FILING_OVERDUE_MARKED` | 扫描到期未提交，标记逾期（系统通道） | N 单步 | deadlineAt |  |
 | `FILING_CLOSED` | 结案（仅 SUBMITTED 可结） | N 单步 | — |  |
 | `FILING_CANCELLED` | 作废（仅 DRAFT 可撤，理由留痕） | N 单步 | reason |  |
+| `FILING_CLOSED_NO_FILING` | 报文族「决定不报」结案（仅 STR/SAR，理由留痕——no-file decision 法定可辩护，MLRO 亲办） | N 单步 | noFilingReason |  |
 
 ## 附录 · 退役码（拒写闸名单，历史可读、不再允许写入）
 
