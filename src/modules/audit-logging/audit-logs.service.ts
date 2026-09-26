@@ -17,6 +17,7 @@ import {
   V8_RECON_AUDIT_ACTIONS, V7_TREASURY_AUDIT_ACTIONS,
   V2_CUSTOMER_AUDIT_ACTIONS, RETIRED_DYNAMIC_TRANSITION_PATTERN,
   DEPRECATED_AUDIT_ACTIONS, INCIDENT_AUDIT_ACTIONS, REG_FILING_AUDIT_ACTIONS,
+  COMPLIANCE_OFFICE_AUDIT_ACTIONS,
 } from './constants/audit-actions.constant';
 import {
   AuditActorContext,
@@ -835,6 +836,7 @@ export class AuditLogsService {
       V7_TREASURY_AUDIT_ACTIONS[input.action] ??
       INCIDENT_AUDIT_ACTIONS[input.action] ??
       REG_FILING_AUDIT_ACTIONS[input.action] ??
+      COMPLIANCE_OFFICE_AUDIT_ACTIONS[input.action] ??
       V2_CUSTOMER_AUDIT_ACTIONS[input.action];
     if (!spec) return;
 

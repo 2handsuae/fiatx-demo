@@ -132,6 +132,8 @@ describe('AuditLogsService', () => {
       // 该断言自波三合入起即红；随波四 T2 回归复跑 `src/modules/audit-logging` 全量
       // 测试时发现并补齐（与波四 T2 本身的改动无关，独立修复）。
       SANCTION_DISPOSITION: 'SANCTION_DISPOSITION',
+      // 战役甲波四 T2（2026-09-27）：合规办公室义务主体
+      COMPLIANCE_OBLIGATION: 'COMPLIANCE_OBLIGATION',
     });
 
     expect(AuditUserActions).toEqual({

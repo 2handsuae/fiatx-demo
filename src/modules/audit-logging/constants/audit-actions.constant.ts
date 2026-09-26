@@ -30,6 +30,8 @@ export const AuditEntityTypes = {
   FUNDS_ORDER: 'FUNDS_ORDER',
   // 战役甲波二（2026-09-26）：报送台骨架
   REGULATORY_FILING: 'REGULATORY_FILING',
+  // 战役甲波四 T2（2026-09-27）：合规办公室义务主体
+  COMPLIANCE_OBLIGATION: 'COMPLIANCE_OBLIGATION',
 } as const;
 
 export const AuditWorkflowTypes = {
@@ -121,6 +123,8 @@ export const AuditBusinessWorkflowTypes = {
   // 战役甲波三 T4（2026-09-26）：制裁定性裁决（SANCTION_DISPOSITION 审批 workflowType，
   // buildSecondaryEventName() 派生 workflow.sanction-disposition.decided）
   SANCTION_DISPOSITION: 'SANCTION_DISPOSITION',
+  // 战役甲波四 T2（2026-09-27）：合规办公室义务主体（治理件，独立主体 ComplianceObligation）
+  COMPLIANCE_OBLIGATION: 'COMPLIANCE_OBLIGATION',
 } as const;
 
 // Task 28：退役清单扫尾——原 15 键仅 2 键（REQUEST_CREATED/SUBMITTED）经
@@ -420,6 +424,12 @@ export const AuditActions = {
   SANCTION_DISPOSITION_REQUESTED: 'SANCTION_DISPOSITION_REQUESTED',
   SANCTION_DISPOSITION_DECIDED: 'SANCTION_DISPOSITION_DECIDED',
   SANCTION_DISPOSITION_LANDED: 'SANCTION_DISPOSITION_LANDED',
+  // ── 战役甲波四 T2（2026-09-27）：合规办公室义务主体（治理件，域 GOVERNANCE）──
+  OBLIGATION_REGISTERED: 'OBLIGATION_REGISTERED',
+  OBLIGATION_UPDATED: 'OBLIGATION_UPDATED',
+  OBLIGATION_STATUS_CHANGED: 'OBLIGATION_STATUS_CHANGED',
+  OBLIGATION_FILING_GENERATED: 'OBLIGATION_FILING_GENERATED',
+  OBLIGATION_DUE_FASTFORWARDED: 'OBLIGATION_DUE_FASTFORWARDED',
 } as const;
 
 // 站4 清扫:十条死词映射(APPROVAL_APPROVED/EXECUTED、ADMIN_INVITATION_*、USER_*、
@@ -1010,6 +1020,24 @@ export const REG_FILING_AUDIT_ACTIONS: Record<string, AuditActionSpec> = {
   // T3：AML 族「决定不报」结案（DRAFT→CLOSED 新边，唯 closeNoFiling 可走）——单步操作，
   // 没有旅程可继承，同 FILING_CLOSED 先例标 N；noFilingReason 是必填闸的字面落点。
   FILING_CLOSED_NO_FILING: { domain: 'GOVERNANCE', correlationMode: N, requiredFields: ['noFilingReason'], requiresCausation: false },
+};
+
+/** 战役甲波四 T2（spec §3.2）：合规办公室义务主体五码，域 GOVERNANCE。REGISTERED 铸旅程
+ * （S）；其余四码是运营/系统对已存在义务的直接一次性操作——同 INCIDENT 中段六码/
+ * REG_FILING 单步操作先例，没有审批旅程可继承，correlationMode 老实标 N（recordAudit
+ * 仍把 correlationId 继承自 row.traceId，只是不强制断言必须非空）。
+ * FILING_GENERATED/DUE_FASTFORWARDED 的必填字段落在 recordAudit 的 `extra` 顶层展开
+ * （同 FILING_CLOSED_NO_FILING 的 noFilingReason 先例，字段不必声明在 DTO 上，
+ * assertActionSpec 只按 key 查 input 顶层）。 */
+export const COMPLIANCE_OFFICE_AUDIT_ACTIONS: Record<string, AuditActionSpec> = {
+  OBLIGATION_REGISTERED:        { domain: 'GOVERNANCE', correlationMode: S, requiredFields: ['frequency'], requiresCausation: false },
+  OBLIGATION_UPDATED:           { domain: 'GOVERNANCE', correlationMode: N, requiredFields: [], requiresCausation: false },
+  OBLIGATION_STATUS_CHANGED:    { domain: 'GOVERNANCE', correlationMode: N, requiredFields: ['fromStatus', 'toStatus'], requiresCausation: false },
+  // claimDue 翻期落库同一次写入产出：这条码携带的是翻期前的 dueAt（供开单）与固定的
+  // filingType（本主体唯一产物类型，见 T1 filing-type-registry PERIODIC_RETURN 行）。
+  OBLIGATION_FILING_GENERATED:  { domain: 'GOVERNANCE', correlationMode: N, requiredFields: ['dueAt', 'filingType'], requiresCausation: false },
+  // ⚡ 演示装置（挂路由在 T5）：把 nextDueAt 拨到 now，供演示者立刻触发生成。
+  OBLIGATION_DUE_FASTFORWARDED: { domain: 'GOVERNANCE', correlationMode: N, requiredFields: ['nextDueAt'], requiresCausation: false },
 };
 
 /** 动态迁移码族（<域>_<从>_TO_<到>，充值站1b-β/提现站2-β 整族废除；站7 扩面治理五簿+监管闸——
