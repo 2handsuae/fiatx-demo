@@ -1,10 +1,10 @@
 # 审计动作码全量导出 —— 按域 × 按工作流（最全版）
 
-> 生成于 2026-09-26 ｜ 基线 main `335e6c0` ｜ 机器列来源 `src/modules/audit-logging/constants/audit-actions.constant.ts`（9 份名册程序化导出）｜ 说明列来源 `doc-final/lark/2026-09-15-audit-actions-catalog-by-domain-workflow.md`
-> 现役 **273 码**（较 2026-09-15 版少 4：CUSTOMER_DELETED、CUSTOMER_UPDATED、INCIDENT_REGULATOR_REPORTED、INCIDENT_REGULATOR_REPORT_DRAFTED 已退役，进拒写闸），另有退役 117 码进拒写闸（附录全列）。
+> 生成于 2026-09-26 ｜ 基线 main `b4f931c7` ｜ 机器列来源 `src/modules/audit-logging/constants/audit-actions.constant.ts`（9 份名册程序化导出）｜ 说明列来源 `doc-final/lark/2026-09-15-audit-actions-catalog-by-domain-workflow.md`
+> 现役 **286 码**（较 2026-09-15 版少 4：CUSTOMER_DELETED、CUSTOMER_UPDATED、INCIDENT_REGULATOR_REPORTED、INCIDENT_REGULATOR_REPORT_DRAFTED 已退役，进拒写闸），另有退役 117 码进拒写闸（附录全列）。
 > **旅程**列：S 起点=该码铸 correlationId 开启一段旅程 ｜ I 继承=延续同一旅程 ｜ N 单步=无旅程可挂（守卫拒绝、单步动作、报价先于订单等）。**异步**=✓ 表示由审批/事件驱动、必须带 causationId。**subjects**=✓ 表示该码在 SUBJECTS_COVERED_ACTIONS 名册（治理域+横切审批 47 码，verify:audit Q2 断言面）；交易域码运行时也写子表行但不在名册故留白；Related No 检索走 OR 语义（主表∨子表）不受此列影响。⚡=演示装置。
 
-**分域计数**：APPROVAL 8 ｜ IAM 30 ｜ CONFIG 60 ｜ AUDIT 4 ｜ CUSTOMER 29 ｜ DEPOSIT 47 ｜ WITHDRAW 33 ｜ SWAP 26 ｜ TREASURY 7 ｜ RECON 9 ｜ GOVERNANCE 20 ｜ 合计 273
+**分域计数**：APPROVAL 8 ｜ IAM 30 ｜ CONFIG 60 ｜ AUDIT 4 ｜ CUSTOMER 29 ｜ DEPOSIT 47 ｜ WITHDRAW 33 ｜ SWAP 26 ｜ TREASURY 7 ｜ RECON 9 ｜ GOVERNANCE 33 ｜ 合计 286
 
 ## APPROVAL 域 —— 审批引擎（横切）（8 码）
 
@@ -569,7 +569,7 @@
 | `RECON_CASE_AGING_BREACHED` | 账龄到线（系统通道，actor=AGING_TIMER，核销/认损按钮由此解锁） | N 单步 | — |  |  |
 | `RECON_AGING_TIMEOUT_SIMULATED` | ⚡ 拨钟：把账龄截止拨到过去（拨钟一条、到线一条，各说各的事） | N 单步 | — |  |  |
 
-## GOVERNANCE 域 —— 事故登记（平账三期）（20 码）
+## GOVERNANCE 域 —— 事故登记（平账三期）（33 码）
 
 性质严重的差异正式立「事故」：登记 / 调查 / 定损 / 通报 / 善后 / 结案，全程零账务；动钱挂调账单与划转单引用。
 
@@ -602,6 +602,34 @@
 | `FILING_CLOSED` | 结案（仅 SUBMITTED 可结） | N 单步 | — |  |  |
 | `FILING_CANCELLED` | 作废（仅 DRAFT 可撤，理由留痕） | N 单步 | reason |  |  |
 | `FILING_CLOSED_NO_FILING` | 报文族「决定不报」结案（仅 STR/SAR，理由留痕——no-file decision 法定可辩护，MLRO 亲办） | N 单步 | noFilingReason |  |  |
+
+### 周期义务 · 合规日历（战役甲波四 T2）（5）
+
+| 动作码 | 说明 | 旅程 | 必填字段 | 异步 | subjects |
+|---|---|---|---|---|---|
+| `OBLIGATION_REGISTERED` | 登记一条周期性合规义务（频率 + 监管机构 + 依据 + 首期到期日） | S 起点 | frequency |  |  |
+| `OBLIGATION_UPDATED` | 改义务描述性字段（名称/说明/频率/机构/依据/提前量） | N 单步 | — |  |  |
+| `OBLIGATION_STATUS_CHANGED` | 切换义务状态（ACTIVE/DISABLED） | N 单步 | fromStatus, toStatus |  |  |
+| `OBLIGATION_FILING_GENERATED` | 到期翻期时自动开出对应报送单（PERIODIC_RETURN） | N 单步 | dueAt, filingType |  |  |
+| `OBLIGATION_DUE_FASTFORWARDED` | ⚡ 把下次到期日拨到当下（演示装置，唯金库） | N 单步 | nextDueAt |  |  |
+
+### 登记册：外包商 / RI（战役甲波四 T4）（7）
+
+| 动作码 | 说明 | 旅程 | 必填字段 | 异步 | subjects |
+|---|---|---|---|---|---|
+| `VENDOR_REGISTERED` | 登记一个外包供应商（含关键性判定） | S 起点 | criticality |  |  |
+| `VENDOR_UPDATED` | 改供应商描述性字段 | N 单步 | — |  |  |
+| `VENDOR_TERMINATED` | 终止外包关系（终态，零出边） | N 单步 | fromStatus, toStatus |  |  |
+| `RI_SEAT_REGISTERED` | 登记一个 VARA 受托责任人（Responsible Individual）席位 | S 起点 | position |  |  |
+| `RI_REPLACEMENT_PROPOSED` | 合规官提交换人申请（开出审批单，一席一在途） | N 单步 | approvalNo |  |  |
+| `RI_REPLACEMENT_APPLIED` | 高管批准换人，落地生效（携带谁换了谁） | N 单步 | fromIncumbent, toIncumbent |  |  |
+| `RI_REPLACEMENT_REJECTED` | 换人被驳回 / 撤单 / 过期，只清在途标记，不换人 | N 单步 | approvalNo |  |  |
+
+### 闹钟墙 ⚡ 演示装置（战役甲波四 T5）（1）
+
+| 动作码 | 说明 | 旅程 | 必填字段 | 异步 | subjects |
+|---|---|---|---|---|---|
+| `FILING_DEADLINE_FASTFORWARDED` | ⚡ 把报送单截止时限拨到过去（演示装置，唯金库，供 sweep 当场标红） | N 单步 | deadlineAt |  |  |
 
 ## 附录 · 退役码（拒写闸名单，历史可读、不再允许写入）
 

@@ -607,6 +607,34 @@
 | `FILING_CANCELLED` | 作废（仅 DRAFT 可撤，理由留痕） | N 单步 | reason |  |
 | `FILING_CLOSED_NO_FILING` | 报文族「决定不报」结案（仅 STR/SAR，理由留痕——no-file decision 法定可辩护，MLRO 亲办） | N 单步 | noFilingReason |  |
 
+### 周期义务 · 合规日历（战役甲波四 T2）（5）
+
+| 动作码 | 说明 | 旅程 | 必填字段 | 异步 |
+|---|---|---|---|---|
+| `OBLIGATION_REGISTERED` | 登记一条周期性合规义务（频率 + 监管机构 + 依据 + 首期到期日） | S 起点 | frequency |  |
+| `OBLIGATION_UPDATED` | 改义务描述性字段（名称/说明/频率/机构/依据/提前量） | N 单步 | — |  |
+| `OBLIGATION_STATUS_CHANGED` | 切换义务状态（ACTIVE/DISABLED） | N 单步 | fromStatus, toStatus |  |
+| `OBLIGATION_FILING_GENERATED` | 到期翻期时自动开出对应报送单（PERIODIC_RETURN） | N 单步 | dueAt, filingType |  |
+| `OBLIGATION_DUE_FASTFORWARDED` | ⚡ 把下次到期日拨到当下（演示装置，唯金库） | N 单步 | nextDueAt |  |
+
+### 登记册：外包商 / RI（战役甲波四 T4）（7）
+
+| 动作码 | 说明 | 旅程 | 必填字段 | 异步 |
+|---|---|---|---|---|
+| `VENDOR_REGISTERED` | 登记一个外包供应商（含关键性判定） | S 起点 | criticality |  |
+| `VENDOR_UPDATED` | 改供应商描述性字段 | N 单步 | — |  |
+| `VENDOR_TERMINATED` | 终止外包关系（终态，零出边） | N 单步 | fromStatus, toStatus |  |
+| `RI_SEAT_REGISTERED` | 登记一个 VARA 受托责任人（Responsible Individual）席位 | S 起点 | position |  |
+| `RI_REPLACEMENT_PROPOSED` | 合规官提交换人申请（开出审批单，一席一在途） | N 单步 | approvalNo |  |
+| `RI_REPLACEMENT_APPLIED` | 高管批准换人，落地生效（携带谁换了谁） | N 单步 | fromIncumbent, toIncumbent |  |
+| `RI_REPLACEMENT_REJECTED` | 换人被驳回 / 撤单 / 过期，只清在途标记，不换人 | N 单步 | approvalNo |  |
+
+### 闹钟墙 ⚡ 演示装置（战役甲波四 T5）（1）
+
+| 动作码 | 说明 | 旅程 | 必填字段 | 异步 |
+|---|---|---|---|---|
+| `FILING_DEADLINE_FASTFORWARDED` | ⚡ 把报送单截止时限拨到过去（演示装置，唯金库，供 sweep 当场标红） | N 单步 | deadlineAt |  |
+
 ## 附录 · 退役码（拒写闸名单，历史可读、不再允许写入）
 
 共 113 码：

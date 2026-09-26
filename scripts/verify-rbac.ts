@@ -616,6 +616,59 @@ function runStaticChecks(): void {
       ? '持有职务集合恰为 {MLRO}'
       : `持有职务集合为 {${amlHolders.map(([r]) => r).join(',')}}，期望恰好 {MLRO}`,
   );
+
+  // ── S11：合规办公室四组「四处齐」+ 唯一持有断言（战役甲波四 T5/T6）──────
+  // 同 S10 范式：四个新组（COMPLIANCE_OFFICE_VIEW/OBLIGATION_WRITE/VENDOR_REGISTER_
+  // WRITE/RI_REGISTER_WRITE）一次性核验 route() 挂载 / ACTION_BUCKET_CATALOG 桶挂载 /
+  // 职务持有均 >=1（联合类型成员由 tsc 收口，同 S10 头注释）；再加两条唯一持有断言——
+  // 三写组唯合规官（一组一门，与波三报送台"两经办人共享一组"的形状不同，见
+  // rbac.catalog.ts T5 域注释），COMPLIANCE_OFFICE_VIEW 恰为五职务（合规官/MLRO/高管/
+  // 内审/CISO——裁决人或候选 RI 都要看得见闹钟墙/合规日历/两册）。
+  const COMPLIANCE_OFFICE_GROUPS: PermissionGroup[] = [
+    'COMPLIANCE_OFFICE_VIEW', 'OBLIGATION_WRITE', 'VENDOR_REGISTER_WRITE', 'RI_REGISTER_WRITE',
+  ];
+  const groupCoverage = COMPLIANCE_OFFICE_GROUPS.map((g) => {
+    const groupRoutes = RBAC_PERMISSION_DEFINITIONS.filter((d) => d.groups.includes(g));
+    const groupBuckets = ACTION_BUCKET_CATALOG.flatMap((domain) => domain.buckets).filter((b) => b.groups.includes(g));
+    const groupHolders = Object.entries(RBAC_ROLE_GROUP_BINDINGS)
+      .filter(([, groups]) => (groups as PermissionGroup[]).includes(g))
+      .map(([role]) => role);
+    return { group: g, routes: groupRoutes.length, buckets: groupBuckets.length, holders: groupHolders };
+  });
+  const uncoveredGroups = groupCoverage.filter((c) => c.routes < 1 || c.buckets < 1 || c.holders.length < 1);
+  check(
+    'S11a 合规办公室四组四处齐（route() / ACTION_BUCKET_CATALOG 桶 / 职务持有；联合类型由 tsc 收口）',
+    uncoveredGroups.length === 0,
+    uncoveredGroups.length === 0
+      ? groupCoverage.map((c) => `${c.group}: route ${c.routes}/bucket ${c.buckets}/职务 ${c.holders.length}`).join('；')
+      : `未齐全: ${uncoveredGroups.map((c) => `${c.group}(route ${c.routes}/bucket ${c.buckets}/职务 ${c.holders.length})`).join(', ')}`,
+  );
+
+  const groupHoldersOf = (g: PermissionGroup) => groupCoverage.find((c) => c.group === g)!.holders;
+  const WRITE_GROUPS: PermissionGroup[] = ['OBLIGATION_WRITE', 'VENDOR_REGISTER_WRITE', 'RI_REGISTER_WRITE'];
+  const writeMismatch = WRITE_GROUPS.filter((g) => {
+    const holders = groupHoldersOf(g);
+    return !(holders.length === 1 && holders[0] === 'COMPLIANCE_OFFICER');
+  });
+  check(
+    'S11b 三写组唯合规官持有（OBLIGATION_WRITE / VENDOR_REGISTER_WRITE / RI_REGISTER_WRITE，一组一门）',
+    writeMismatch.length === 0,
+    writeMismatch.length === 0
+      ? '三组持有职务集合均恰为 {COMPLIANCE_OFFICER}'
+      : `不符: ${writeMismatch.map((g) => `${g}={${groupHoldersOf(g).join(',') || '空'}}`).join(', ')}`,
+  );
+
+  const viewHolders = new Set(groupHoldersOf('COMPLIANCE_OFFICE_VIEW'));
+  const expectedViewHolders = new Set(['COMPLIANCE_OFFICER', 'MLRO', 'SENIOR_MANAGEMENT_OFFICER', 'INTERNAL_AUDITOR', 'CISO']);
+  const viewSetsEqual = viewHolders.size === expectedViewHolders.size &&
+    [...expectedViewHolders].every((r) => viewHolders.has(r));
+  check(
+    'S11c COMPLIANCE_OFFICE_VIEW 恰为 {合规官,MLRO,高管,内审,CISO}',
+    viewSetsEqual,
+    viewSetsEqual
+      ? `持有职务集合恰为 {${[...viewHolders].join(',')}}`
+      : `持有职务集合为 {${[...viewHolders].join(',')}}，期望恰为 {${[...expectedViewHolders].join(',')}}`,
+  );
 }
 
 // ══════════════════════ S6：前后端权限码表差集 ══════════════════════
@@ -1194,6 +1247,29 @@ const PROBES: DirectionalProbe[] = [
     role: 'mlro', expect: 'DENY', denyStatuses: [403, 400],
     body: { type: 'MATERIAL_CHANGE_NOTIFICATION', title: 'RBAC probe — GENERAL family probe, must be denied for MLRO' },
   },
+
+  // ── 合规办公室四组门（战役甲波四 T6）─────────────────────────────────
+  // 三条纯权限闸 DENY：Guard 先于 Pipe 跑（Nest 请求生命周期 Middleware→Guard→
+  // Interceptor(前)→Pipe→Handler），这三条不持任何一个新组的角色在 body 校验之前就被
+  // 挡下，同「资产管控只在运营」等既有先例不需要造合法业务体。ALLOW 方向（合规官
+  // 建义务、⚡拨钟唯金库、RI 换人事前审批链）涉及跨请求依赖（要用上一步返回的
+  // obligationNo/riNo/approvalNo），走下方专用函数 verifyComplianceObligationsClockProbe /
+  // verifyRiReplacementApprovalChain，不进这张静态表。
+  {
+    section: '合规办公室四组门(T6)', name: '金库 不得 建周期义务', method: 'POST',
+    routePattern: '/admin/compliance-obligations', path: '/admin/compliance-obligations',
+    role: 'treasury', expect: 'DENY',
+  },
+  {
+    section: '合规办公室四组门(T6)', name: '内审 不得 建外包商登记（内审零写人设不破）', method: 'POST',
+    routePattern: '/admin/outsourcing-vendors', path: '/admin/outsourcing-vendors',
+    role: 'auditor', expect: 'DENY',
+  },
+  {
+    section: '合规办公室四组门(T6)', name: '运营 不得 看闹钟墙', method: 'GET',
+    routePattern: '/admin/compliance-office/clock-wall', path: '/admin/compliance-office/clock-wall',
+    role: 'ops_officer', expect: 'DENY',
+  },
 ];
 
 async function runDirectionalProbe(tokens: Record<string, string>, p: DirectionalProbe): Promise<void> {
@@ -1487,6 +1563,127 @@ async function verifyAmlFilingNoApprovalChain(tokens: Record<string, string>): P
   );
 }
 
+// ══════════════════════ 合规义务写权 + ⚡ 拨钟唯金库（战役甲波四 T6）══════════
+//
+// 合规官真建一条周期义务（ALLOW——POST /admin/compliance-obligations 没有 id 路径段，
+// 走合法请求体才能验证"写权确实能落库"而不是只验证 Guard 放行，同 V3 费率夹具/AML单
+// 开单先例）；用同一条 obligationNo 接着测 ⚡ simulate-due 唯金库：金库 ALLOW、合规官
+// （经办人不是这枚 ⚡ 装置的持有者，装置整体挂 Demo Instruments 组，同报送单⚡先例）
+// DENY。不清理——本主体无删除/作废通道（status 只在 ACTIVE/DISABLED 间迁移，语义是
+// "启用/停用"不是"撤销"），同 V3 天文数字 markup 费率夹具先例：name/basisNote 里
+// 明写"探针夹具"，业务上不会被误当真实义务消费。
+async function verifyComplianceObligationsClockProbe(tokens: Record<string, string>): Promise<void> {
+  const complianceToken = tokens.compliance_lead;
+  if (!complianceToken) {
+    check('[合规办公室写权(T6)] 前置条件', false, 'compliance_lead token 不可用（登录步骤失败？）');
+    return;
+  }
+
+  const createRes = await call('POST', '/admin/compliance-obligations', complianceToken, {
+    name: 'RBAC probe obligation — verify:rbac 探针夹具，非真实合规义务',
+    frequency: 'ANNUAL',
+    authority: 'VARA',
+    basisNote: 'verify:rbac probe fixture — not a real regulatory citation',
+    nextDueAt: new Date(Date.now() + 365 * 24 * 3600 * 1000).toISOString(),
+  });
+  const obligationNo = createRes.json?.obligationNo;
+  check(
+    '[合规办公室写权(T6)] 合规官 可以 建周期义务',
+    createRes.status === 201 && !!obligationNo,
+    `compliance_lead@ POST /admin/compliance-obligations → ${createRes.status}（期望 201${createRes.status >= 300 ? ' ' + JSON.stringify(createRes.json) : ''}）`,
+  );
+  if (createRes.status !== 201 || !obligationNo) {
+    check('[合规办公室四组门(T6)] ⚡ simulate-due 唯金库', false, '前置的义务创建没成功，没有真实 obligationNo 可测，跳过');
+    return;
+  }
+
+  const treasuryRes = await call('POST', `/admin/compliance-obligations/${obligationNo}/simulate-due`, tokens.treasury);
+  check(
+    '[合规办公室四组门(T6)] ⚡ 金库 可以 拨快义务到期钟',
+    treasuryRes.status === 201,
+    `treasury@ POST /admin/compliance-obligations/${obligationNo}/simulate-due → ${treasuryRes.status}（期望 201）`,
+  );
+
+  const complianceClockRes = await call('POST', `/admin/compliance-obligations/${obligationNo}/simulate-due`, complianceToken);
+  check(
+    '[合规办公室四组门(T6)] ⚡ 合规官 不得 拨快义务到期钟（装置唯金库，经办人不是自己的裁决人）',
+    complianceClockRes.status === 403,
+    `compliance_lead@ POST /admin/compliance-obligations/${obligationNo}/simulate-due → ${complianceClockRes.status}（期望 403）`,
+  );
+}
+
+// ══════════════════════ RI 换人事前审批链（战役甲波四 T6）══════════════════════
+//
+// 合规官提单唯一入口是 ComplianceOfficeController.proposeReplacement → 正门
+// RiReplacementWorkflowService.initiateReplacement（铁律②门不可绕）。先建一个探针
+// 专用 RI 席位（本主体无删除/退役通道，status 恒 ACTIVE——同上方义务夹具先例，
+// position 里点名 probe，业务上不会被当成真实席位消费），再提换人拿到真实
+// approvalNo；同一席位立刻重复提一次必须 400（assertNoPendingReplacement 在途查
+// 重，一席一在途）；最后高管（DEFAULT_APPROVAL_POLICIES[RI_REPLACEMENT] 策略唯一
+// checkerRole）走审批中心正门批准，验证"合规官提、高管单步批"（spec §4.2）这条主张
+// 的完整往返——不清理，approve 会让探针夹具真正换人，留痕即证据，同 AML 单/V2/V3
+// 先例里"批准后不撤销"的既有做法。
+async function verifyRiReplacementApprovalChain(tokens: Record<string, string>): Promise<void> {
+  const complianceToken = tokens.compliance_lead;
+  if (!complianceToken || !tokens.sm) {
+    check('[RI换人审批链(T6)] 前置条件', false, 'compliance_lead 或 sm token 不可用（登录步骤失败？）');
+    return;
+  }
+
+  const seatRes = await call('POST', '/admin/responsible-individuals', complianceToken, {
+    position: 'RBAC probe seat — verify:rbac 探针夹具，非真实 VARA 责任人席位',
+    incumbentName: 'RBAC Probe Incumbent',
+    effectiveFrom: new Date().toISOString(),
+  });
+  const riNo = seatRes.json?.riNo;
+  check(
+    '[RI换人审批链(T6)] 前置条件 · 合规官建探针专用 RI 席位',
+    seatRes.status === 201 && !!riNo,
+    `compliance_lead@ POST /admin/responsible-individuals → ${seatRes.status}（期望 201）`,
+  );
+  if (seatRes.status !== 201 || !riNo) {
+    check('[RI换人审批链(T6)] 合规官 可以 提 RI 换人', false, '前置的席位创建没成功，没有真实 riNo 可测，跳过');
+    return;
+  }
+
+  const proposeRes = await call('POST', `/admin/responsible-individuals/${riNo}/replacement`, complianceToken, {
+    newIncumbentName: 'RBAC Probe Successor',
+    effectiveFrom: new Date().toISOString(),
+    reason: 'verify:rbac probe — RI replacement chain',
+  });
+  const approvalNo = proposeRes.json?.approvalNo;
+  check(
+    '[RI换人审批链(T6)] 合规官 可以 提 RI 换人（开出审批单）',
+    proposeRes.status === 201 && !!approvalNo,
+    `compliance_lead@ POST /admin/responsible-individuals/${riNo}/replacement → ${proposeRes.status}（期望 201${proposeRes.status >= 300 ? ' ' + JSON.stringify(proposeRes.json) : ''}）`,
+  );
+
+  const dupRes = await call('POST', `/admin/responsible-individuals/${riNo}/replacement`, complianceToken, {
+    newIncumbentName: 'RBAC Probe Successor Duplicate',
+    effectiveFrom: new Date().toISOString(),
+    reason: 'verify:rbac probe — duplicate proposal, must be rejected (一席一在途)',
+  });
+  check(
+    '[RI换人审批链(T6)] 合规官 不得 对同一席位重复提换人（在途查重）',
+    dupRes.status === 400,
+    `compliance_lead@ POST /admin/responsible-individuals/${riNo}/replacement（第二次） → ${dupRes.status}（期望 400）`,
+  );
+
+  if (proposeRes.status !== 201 || !approvalNo) {
+    check('[RI换人审批链(T6)] 高管 可以 经审批中心批准换人', false, '前置的提单没成功，没有真实 approvalNo 可测，跳过');
+    return;
+  }
+
+  const approveRes = await call('POST', `/admin/control-gates/approvals/${approvalNo}/approve`, tokens.sm, {
+    reason: 'verify:rbac probe — RI replacement approval',
+  });
+  check(
+    '[RI换人审批链(T6)] 高管 可以 经审批中心批准换人（策略唯一 checkerRole）',
+    approveRes.status >= 200 && approveRes.status < 300,
+    `sm@ POST /admin/control-gates/approvals/${approvalNo}/approve → ${approveRes.status}（期望 2xx${approveRes.status >= 300 ? ' ' + JSON.stringify(approveRes.json) : ''}）`,
+  );
+}
+
 // ══════════════════════ main ══════════════════════
 
 async function main(): Promise<void> {
@@ -1528,6 +1725,11 @@ async function main(): Promise<void> {
     { section: '支撑调用', name: '客户列表', method: 'GET', routePattern: '/customers' },
     { section: '档位升级读安全', name: '看档位升级全貌', method: 'GET', routePattern: '/admin/customers/:customerNo/tier-upgrade' },
     { section: '档位升级读安全', name: '提档位升级核准', method: 'POST', routePattern: '/admin/customers/:customerNo/tier-upgrade-acceptance' },
+    // 战役甲波四 T6：verifyComplianceObligationsClockProbe / verifyRiReplacementApprovalChain
+    // 打的三条路由不在 PROBES 静态表里（需要跨请求依赖上一步返回值），单独登记预检。
+    { section: '合规办公室写权(T6)', name: '⚡ 拨快义务到期钟', method: 'POST', routePattern: '/admin/compliance-obligations/:obligationNo/simulate-due' },
+    { section: 'RI换人审批链(T6)', name: '建探针专用 RI 席位', method: 'POST', routePattern: '/admin/responsible-individuals' },
+    { section: 'RI换人审批链(T6)', name: '提 RI 换人', method: 'POST', routePattern: '/admin/responsible-individuals/:riNo/replacement' },
   ];
   const missing = findUnregisteredRoutes(liveRoutes, usages);
   if (missing.length > 0) {
@@ -1555,6 +1757,14 @@ async function main(): Promise<void> {
 
   console.log('── AML 单全生命周期零审批单（战役甲波三 T6，无签发链断言）──');
   await verifyAmlFilingNoApprovalChain(tokens);
+  console.log('');
+
+  console.log('── 合规义务写权 + ⚡ 拨钟唯金库（战役甲波四 T6）──');
+  await verifyComplianceObligationsClockProbe(tokens);
+  console.log('');
+
+  console.log('── RI 换人事前审批链：合规官提、高管单步批（战役甲波四 T6）──');
+  await verifyRiReplacementApprovalChain(tokens);
   console.log('');
 
   console.log('── V2 改角色不丢权限（对每个内建角色跑一次 modify→approve 往返）──');
