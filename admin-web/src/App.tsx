@@ -69,6 +69,9 @@ const IncidentListPage = lazy(() => import('./pages/IncidentListPage'));
 const IncidentDetailPage = lazy(() => import('./pages/IncidentDetailPage'));
 const RegulatoryFilingListPage = lazy(() => import('./pages/RegulatoryFilingListPage'));
 const RegulatoryFilingDetailPage = lazy(() => import('./pages/RegulatoryFilingDetailPage'));
+const ComplianceClockWallPage = lazy(() => import('./pages/ComplianceClockWallPage'));
+const ComplianceObligationListPage = lazy(() => import('./pages/ComplianceObligationListPage'));
+const ComplianceRegistersPage = lazy(() => import('./pages/ComplianceRegistersPage'));
 
 const FullPageMessage = ({
   title,
@@ -269,6 +272,12 @@ function App() {
             {/* 战役甲波二：报送台（治理件，与事故登记/审批中心平级） */}
             <Route path="governance/regulatory-filings" element={withPermission(<RegulatoryFilingListPage />, [PERMISSIONS.REG_FILINGS_READ])} />
             <Route path="governance/regulatory-filings/:filingNo" element={withPermission(<RegulatoryFilingDetailPage />, [PERMISSIONS.REG_FILING_DETAIL_READ])} />
+
+            {/* 战役甲波四（Task 9）：合规办公室骨架——闹钟墙/合规日历/两本登记册，
+                与事故登记/报送台平级（treasury governance file 三兄弟）。 */}
+            <Route path="governance/compliance-office/clock-wall" element={withPermission(<ComplianceClockWallPage />, [PERMISSIONS.COMPLIANCE_OFFICE_VIEW])} />
+            <Route path="governance/compliance-office/obligations" element={withPermission(<ComplianceObligationListPage />, [PERMISSIONS.COMPLIANCE_OFFICE_VIEW])} />
+            <Route path="governance/compliance-office/registers" element={withPermission(<ComplianceRegistersPage />, [PERMISSIONS.COMPLIANCE_OFFICE_VIEW])} />
 
             {/* audit */}
             <Route path="audit/logs" element={withPermission(<AuditLogsPage />, [PERMISSIONS.AUDIT_LOGS_READ])} />

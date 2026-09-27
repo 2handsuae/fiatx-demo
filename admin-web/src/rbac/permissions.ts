@@ -104,6 +104,20 @@ export const PERMISSIONS = {
   REG_FILING_DETAIL_READ: 'api.get.admin_regulatory_filings_filingno',
   REG_FILING_WRITE: 'api.post.admin_regulatory_filings',
 
+  // 战役甲波四（Task 9）：合规办公室骨架——闹钟墙 + 合规日历（周期义务）+ 两本登记册
+  // （外包商 / RI）。四个键名精确照 rbac.catalog.ts 的 PermissionGroup 字面量
+  // （COMPLIANCE_OFFICE_VIEW/OBLIGATION_WRITE/VENDOR_REGISTER_WRITE/RI_REGISTER_WRITE，
+  // 见该文件 98-101 行）；值是 buildPermissionCode(method, path) 对该组第一条注册路由的
+  // 派生值——同组内其余路由（见 rbac.catalog.ts 515-537 行）绑定的角色完全一致，按本文件
+  // 既有代表码惯例（REG_FILING_WRITE 等）只登记一个代表码，三个页面全部写按钮/⚡ 按钮
+  // 统一用它判断。⚡ 两枚按钮（obligations simulate-due / regulatory-filings
+  // simulate-deadline-timeout）复用既有 DEMO_CLOCK_WRITE（同组，见 rbac.catalog.ts
+  // 526/511 行），不新增键。
+  COMPLIANCE_OFFICE_VIEW: 'api.get.admin_compliance_office_clock_wall',
+  OBLIGATION_WRITE: 'api.post.admin_compliance_obligations',
+  VENDOR_REGISTER_WRITE: 'api.post.admin_outsourcing_vendors',
+  RI_REGISTER_WRITE: 'api.post.admin_responsible_individuals',
+
   SUMSUB_EVENTS_READ: 'api.get.admin_sumsub_events',
   AUDIT_LOGS_READ: 'api.get.admin_audit_logs',
   AUDIT_EXPORT_CREATE: 'api.post.admin_audit_evidence_packages',

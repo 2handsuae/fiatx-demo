@@ -30,6 +30,10 @@ import {
   FileEdit,
   ChevronDown,
   Send,
+  Building2,
+  Clock,
+  CalendarClock,
+  BookUser,
 } from 'lucide-react';
 import { Link, useLocation, useNavigate, Outlet } from 'react-router-dom';
 import { useAdminSession } from '../contexts/AdminSessionContext';
@@ -399,6 +403,34 @@ const DashboardLayout = () => {
           label: 'Regulatory Filings',
           icon: <Send size={13} />,
           requiredPermissions: [PERMISSIONS.REG_FILINGS_READ],
+        },
+      ],
+    },
+    // ─── Compliance Office ────────────────────────────────────────
+    // 战役甲波四（Task 9）：闹钟墙 + 合规日历（周期义务）+ 两本登记册（外包商/RI）——
+    // 独立治理件，与 Governance 组的事故登记/报送台平级（照 rbac.catalog.ts 的
+    // 'compliance-office' 独立 domain 先例，同 label 字面量）。
+    {
+      label: 'Compliance Office',
+      icon: <Building2 size={12} />,
+      children: [
+        {
+          path: '/admin/governance/compliance-office/clock-wall',
+          label: 'Clock Wall',
+          icon: <Clock size={13} />,
+          requiredPermissions: [PERMISSIONS.COMPLIANCE_OFFICE_VIEW],
+        },
+        {
+          path: '/admin/governance/compliance-office/obligations',
+          label: 'Obligations',
+          icon: <CalendarClock size={13} />,
+          requiredPermissions: [PERMISSIONS.COMPLIANCE_OFFICE_VIEW],
+        },
+        {
+          path: '/admin/governance/compliance-office/registers',
+          label: 'Registers',
+          icon: <BookUser size={13} />,
+          requiredPermissions: [PERMISSIONS.COMPLIANCE_OFFICE_VIEW],
         },
       ],
     },
