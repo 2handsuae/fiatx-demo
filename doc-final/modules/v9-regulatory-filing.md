@@ -1,7 +1,7 @@
 # V9 · 监管报送（报送台，跟监管交差记录在哪）
 
-> 对应 PRD：待写 ｜ 技术节点 Last Verified：2026-09-26（战役甲波三：报文族台账与联动——类型目录扩到十一行、AML 族独立边集与工作日钟、制裁定性裁决三出口联动、tipping-off 登记本、MLRO 无签发链亲办；此前 2026-09-26 战役甲波二：报送台骨架落地，事故通报单槽退役统一收编）
-> 演示幕次：第六幕场景 18（事故通报环节）＋场景 19/20（暂编，AML 报文族）｜ 验收：第六幕走查 + 场景 19/20 走查（`demo/script.md`）+ 本篇 §5
+> 对应 PRD：待写 ｜ 技术节点 Last Verified：2026-09-27（战役甲波四：类型目录扩到十二行——新增 `PERIODIC_RETURN`，周期义务到期自动开单，详见 §2.1 与 `modules/compliance-office.md`；此前 2026-09-26 战役甲波三：报文族台账与联动——类型目录扩到十一行、AML 族独立边集与工作日钟、制裁定性裁决三出口联动、tipping-off 登记本、MLRO 无签发链亲办；此前 2026-09-26 战役甲波二：报送台骨架落地，事故通报单槽退役统一收编）
+> 演示幕次：第六幕场景 18（事故通报环节）＋场景 19/20（暂编，AML 报文族）＋场景 21（暂编，周期申报，主篇在 `modules/compliance-office.md`）｜ 验收：第六幕走查 + 场景 19/20/21 走查（`demo/script.md`）+ 本篇 §5
 
 ## 0. 这是什么
 
@@ -49,7 +49,7 @@ DRAFT ──标已提交+externalRef(MLRO)──► SUBMITTED ──办结(MLRO)
 
 ## 2. 类型目录与钟
 
-十一类（`filing-type-registry.ts`，代码注册表——GENERAL 五类波二原有，AML 六类波三新增）：
+十二类（`filing-type-registry.ts`，代码注册表——GENERAL 五类波二原有、AML 六类波三新增、`PERIODIC_RETURN` 波四新增）：
 
 | 类型键 | 族 | 方向 | 受文机构 | 钟 | 锚 | 备注 |
 |---|---|---|---|---|---|---|
@@ -58,6 +58,7 @@ DRAFT ──标已提交+externalRef(MLRO)──► SUBMITTED ──办结(MLRO)
 | `MATERIAL_CHANGE_NOTIFICATION` | GENERAL | OUTBOUND | VARA | 无 | `NONE` | |
 | `AUDITOR_APPOINTMENT_NOTICE` | GENERAL | OUTBOUND | VARA | 无 | `NONE` | |
 | `MARKET_OFFENCE_DUAL_REPORT` | GENERAL | OUTBOUND | VARA（第二受文机构手工选入 `ccAuthorities`） | 无 | `NONE` | |
+| `PERIODIC_RETURN`（波四） | GENERAL | OUTBOUND | 从义务行带出（种子皆 VARA） | 无（`deadlineBusinessDays:0` → `deadlineAt=` 期末日本身） | `EXTERNAL` | 唯一由**周期义务**（非事故）自动开单的类型，详见 §2.1 与 `modules/compliance-office.md` |
 | `STR`（波三） | AML | OUTBOUND | UAE_FIU | 无（形成怀疑即报，不杜撰法定时限） | `NONE` | `allowNoFilingClose`＋`requiresExternalCaseRef`；叙事锚交易单号，不建列 |
 | `SAR`（波三） | AML | OUTBOUND | UAE_FIU | 无 | `NONE` | 同上；叙事锚客户（无交易可锚——这正是台账要与 STR 分两行的原因） |
 | `CNMR`（波三） | AML | OUTBOUND | EOCN | **5 工作日** | `EXTERNAL` | `requiresExternalCaseRef`；锚制裁便签 `openedAt`（官方口径「自冻结起算」） |
@@ -66,6 +67,10 @@ DRAFT ──标已提交+externalRef(MLRO)──► SUBMITTED ──办结(MLRO)
 | `HRCA`（波三） | AML | OUTBOUND | UAE_FIU | 无 | `NONE` | 交易属性不全时的替代报文，同上钟备注 |
 
 受文机构目录仍五家：`VARA` / `UAE_FIU` / `EOCN` / `UAE_DATA_OFFICE` / `CBUAE`。
+
+### 2.1 `PERIODIC_RETURN` 与合规日历联动（战役甲波四）
+
+`anchorKind='EXTERNAL'` 的语义扩展——此前专供 CNMR/PNMR（workflow 显式外传 `anchorAt`），波四起同样服务义务侧：`ComplianceObligationSweepService`（30 秒 @Cron，主体见 `modules/compliance-office.md` §2）到期即调 `RegulatoryFilingService.openForObligation()`，锚 = 该期 `dueAt`、`deadlineBusinessDays=0`（`addBusinessDays(from,0)` 原样返回 `from`，零改动即可表达「截止日=到期日」）、`createdByUserId='SYSTEM'`。`family='GENERAL'` → 工单走既有六态六边全弧原样（合规官起草 → 高管签发 `REG_FILING_SUBMIT` → 标已提交 → 办结），零新边、零新审批类型。义务台账本身（`ComplianceObligation` 主体、三个新表、两本登记册、闹钟墙聚合端点）的完整机制不在本篇重复，见 `modules/compliance-office.md`——本篇只记类型目录这一行如何接入既有状态机。
 
 **`FilingTypeConfig` 波三新增的族相关字段**：
 
@@ -85,7 +90,7 @@ DRAFT ──标已提交+externalRef(MLRO)──► SUBMITTED ──办结(MLRO)
 
 **手工开单**：合规官可开全部启用 GENERAL 类型；MLRO 可开全部启用 AML 类型（`openManual()` 内先过族独占断言，合规官打不开 STR/SAR，MLRO 打不开 GENERAL 五类，见 §3）；`INCIDENT_REPORT` 手工开单须给 `incidentNo` + 合法 `basisCode`（必须属该事故类型的 `reportBasisCandidates` 候选集）；`requiresExternalCaseRef` 类型（STR/SAR/CNMR/PNMR）手工开单缺 `externalCaseRef` 即 400；CNMR/PNMR 手工开单拿不到 `anchorAt`，`deadlineAt` 留 `null`——现场演示 SAR/HRC/HRCA 就是走这条手工路（§4.2/§5「演示脚本」）。
 
-**超时持久软标**（`regulatory-filing-sweep.service.ts`，@Cron 每 30 秒，两族共用，本波未改）：`deadlineAt < now` 且 `overdueMarkedAt IS NULL` 且状态 ∈ {DRAFT, PENDING_SIGNOFF, SIGNED_OFF}（AML 族因无 `PENDING_SIGNOFF`/`SIGNED_OFF` 两态，实际只在 DRAFT 触发）→ 落 `overdueMarkedAt` + 记一条 `FILING_OVERDUE_MARKED`（系统 actor）。按时提交过的单子永不触发；标记留着不清，迟交的照样红着。
+**超时持久软标**（`regulatory-filing-sweep.service.ts`，@Cron 每 30 秒，三族共用，本波未改）：`deadlineAt < now` 且 `overdueMarkedAt IS NULL` 且状态 ∈ {DRAFT, PENDING_SIGNOFF, SIGNED_OFF}（AML 族因无 `PENDING_SIGNOFF`/`SIGNED_OFF` 两态，实际只在 DRAFT 触发）→ 落 `overdueMarkedAt` + 记一条 `FILING_OVERDUE_MARKED`（系统 actor）。按时提交过的单子永不触发；标记留着不清，迟交的照样红着。**⚡ 演示快进**（战役甲波四新增，挂 `modules/compliance-office.md` 闹钟墙）：`POST /admin/regulatory-filings/:filingNo/simulate-deadline-timeout` 把该单 `deadlineAt` 回拨到过去，30 秒内被本 sweep 标红，供闹钟墙走查现场触发；审计码 `FILING_DEADLINE_FASTFORWARDED` 挂在 `COMPLIANCE_OFFICE_AUDIT_ACTIONS`（域 GOVERNANCE，非本篇 `REG_FILING_AUDIT_ACTIONS`），因为它是单步演示动作、没有旅程可继承。
 
 ## 3. 权限与审批
 

@@ -267,3 +267,53 @@
 **⚠️ tipping-off 讲法**（收尾）：全程话术示范——客户来问被冻/被拒的原因，永远不提"报告""调查""合规审查"以外的字眼，不确认也不否认涉及监管报告；CUSTOMER_COMM 记录的正是这句中性话术本身。这是给人看的"怎么说"，客户面 DTO 契约测试断言的是零 `filingNo`/STR 引用泄露到客户可见接口，两层防线不是一回事，讲清不要混。
 
 **期望**：观众看懂两件事——① STR/SAR 是 MLRO 一个人从头到尾的单人链条，唯一在系统里能连高管都拦不住的单据类型；② "决定不报"和"报了"一样要留痕，都是可辩护记录，不是消失。
+
+---
+
+## 场景 21（暂编）· 闹钟墙与合规日历（V9 周期申报 + 合规办公室）
+
+> 战役甲波四 T10 暂编——幕次编号（是否并入既有幕次或独立成幕）留波五收官统一，本节先把走查步骤钉住。主篇文档 `modules/compliance-office.md`。
+
+**讲什么**：闹钟墙把"对监管的死限期"聚合到一张表，红/黄/绿一眼看出谁快到期；周期义务到期自动开报送单（一期一单，翻期在生成时），走的还是既有六态六边全弧——高管照样要签发。超时不会自动升级成事故，只会标红留痕，升级出口是演示者人工去事故中心登记（不实际登记，只指给观众看入口）。
+
+**造数**：种子已铺三条 VARA 周期义务（月/季/年，见 `demo/data.md`「合规办公室种子」）与既有报送单（波二三种子）。铺场当日若恰好月末/季末落在 `leadBusinessDays`（默认 5 个工作日）以内，Monthly/Quarterly 两条义务会在后端启动后 30 秒内自动开出 `PERIODIC_RETURN` 单——不用等演示者动手，这正是「合规日历不是靠人盯着，是靠钟」的活教材；本节以 Annual（次年到期，远超提前量）现场演示 ⚡ 快进机制。
+
+**账号**：`compliance_lead@`（合规官，看墙/管日历）→ `admin@`（超管，⚡ 快进——金库 `treasury@` 持 `DEMO_CLOCK_WRITE` 但不持 `COMPLIANCE_OFFICE_VIEW`，进不了这几页；合规官持 `COMPLIANCE_OFFICE_VIEW` 但不持 `DEMO_CLOCK_WRITE`，页面上看不到 ⚡ 按钮——现场演示 ⚡ 只能切超管，口播这是本波真实的 RBAC 交叉产物）→ `sm@`（高管，签发）→ 回 `compliance_lead@`（标已提交）。
+
+**走查**：
+① `compliance_lead@` 打开侧栏 Compliance Office → Clock Wall——一屏看到报送单钟（含 PNMR，几天几小时倒计时）与三条义务倒计时（月/季/年），红/黄/绿三色徽标可见。
+② 切 `admin@`，打开 Compliance Office → Obligations，Annual 那行点「Fast-forward due」→ `Next Due` 立刻拉近到当前时刻附近 → 等约 30 秒（后台 sweep）→ 刷新页面：`Last Filing` 列出现新工单号，`Next Due` 已翻到下一自然年末——义务翻期在生成时完成，无需去重机制。
+③ 打开 Regulatory Filings 列表，找到新生成的 `PERIODIC_RETURN` 单（标题含期别，如 "VARA Annual Report incl. audited financials — due 2026-09-27"）→ 点进详情，`Deadline` 徽标可能已经是 Overdue（若义务原定到期日已过，锚点即该期 `dueAt`，属真实行为不是 bug）。
+④ 切回 `compliance_lead@`：填 Filing Draft 正文 → Save Draft → Submit for Sign-off。
+⑤ 切 `sm@`：审批中心打开对应审批单（`REG_FILING_SUBMIT`），Impact 摘要一句话讲清"提交周期报送、法定截止 XXX"→ Approve。
+⑥ 切回 `compliance_lead@`：详情页 Mark Submitted，填 External Reference（如 `VARA-REG-2026-ANNUAL-0027`）→ 单转 Submitted；回 Obligations 页确认该条 `Next Due` 仍是翻期后的下一年，未受本次签发影响。
+⑦ 切 `admin@`：回 Clock Wall，挑一张仍在墙上的 FILING 行（如 PNMR）点「Fast-forward deadline」→ 约 30 秒后刷新，该行变红 Overdue。打开 Audit Log 按 `subjectNo=<该单号>` 搜索——两条审计一屏可见：`Filing Deadline Fastforwarded`（actor=操作人）→ `Filing Overdue Marked`（actor=SYSTEM）。
+⑧ 口播升级出口：指向侧栏 Incident Register「Register Incident」入口——"墙红了，真要升级成事故，走这里人工登记；系统不会替你自动开"（不实际点，只是指给观众看）。
+
+**判据**：⚡ 义务快进 30 秒内 sweep 开单、`type=PERIODIC_RETURN`、`deadlineAt=` 该期 `dueAt`、`authority`/`title` 从义务行带出；义务 `nextDueAt` 已翻下一期、`lastFilingNo` 回填；工单走完六态全弧（起草→送签→签发→标已提交）零新边零新审批类型；⚡ 报送单快进 30 秒内 `overdueMarkedAt` 落值 + `FILING_OVERDUE_MARKED` 审计 + 墙上该行变红。走查截图入 `doc-final/superpowers/checkups/2026-09-27-act-a-wave4-evidence/`（`21-01` 看墙 ～ `21-06` 超时审计）。
+
+**期望**：观众看懂三件事——① 闹钟墙不是新账本，是把两张表（报送单 `deadlineAt`、义务 `nextDueAt`）聚合读出来的一张只读视图；② 周期申报照样要走高管签发，不因为"是自动开的单"就降级；③ 超时止步于标红+留痕，升级成事故永远是人的决定，不是系统自动升级。
+
+## 场景 22（暂编）· 登记册（V9 外包商 / RI 两本册）
+
+> 战役甲波四 T10 暂编——幕次编号留波五收官统一。主篇文档 `modules/compliance-office.md`。
+
+**讲什么**：两本法定登记册——外包商（谁在替我们干活、算不算 Material Outsourcing）与 RI（受托责任人，谁在这个岗位上）。RI 换人不是改个名字就完事，是一次事前审批：合规官提、高管批，换人史靠审计链的 from/to 字段可查，不用另建历史表。
+
+**造数**：种子已铺三家外包商（Sumsub/HexTrust 两家 Material，Gulf Office Systems 一家 Non-material 对照）与四个 RI 席位（MLRO/Compliance Officer/CFO/CISO，全 ACTIVE、零在途换人，见 `demo/data.md`）。
+
+**账号**：`compliance_lead@`（合规官，全程登记/提单）→ `sm@`（高管，批换人）。
+
+**站 A · 外包商册增改止**
+走查：Compliance Office → Registers → Outsourcing Vendors tab → 「Register Vendor」填名称/服务描述/Criticality/Contract Start → Register（新行出现）→ 点该行「Edit」补一句 Notes → Save → 挑另一张 Non-material 行点「Terminate」→ 二次确认弹窗（"This cannot be undone — there is no path back to ACTIVE"）填理由 → Confirm Termination → 该行状态变 Terminated、Terminate 按钮消失（终态零出边）。
+判据：登记/修改/终止逐动作各有一条审计（`VENDOR_REGISTERED`/`VENDOR_UPDATED`/`VENDOR_TERMINATED`）；终止不可逆，界面上不再提供任何回到 ACTIVE 的路径。
+
+**站 B · RI 换人事前审批全弧**
+走查：① Registers → Responsible Individuals tab → 挑一个席位（如 CISO）点「Propose replacement」→ 填 New Incumbent Name / Effective From / Reason（可选 VARA Ref）→ 提交（弹窗提示"This opens an approval — senior management decides"）→ 该席位行 Pending Replacement 列出现审批单号链接 → ② 切 `sm@`，打开审批中心对应 `RI_REPLACEMENT` 单，ObjectSnapshot 里能看到 newIncumbentName/effectiveFrom/reason/varaRef 全量字段 → Approve → ③ 回 Registers 页：该席位 Incumbent 已换成新名字、Effective From 已更新、Pending Replacement 清空。
+判据：在途重复提单 400（一席一在途）；换人全弧四码审计（`RI_REPLACEMENT_PROPOSED`→`Approval Granted`→`RI_REPLACEMENT_APPLIED`）+ 建席位那次的 `RI_SEAT_REGISTERED`，一屏可见。
+
+**站 C · 审计链回查 from/to**
+走查：打开 Audit Log，按 `subjectNo=<该 RI 席位号>` 搜索 → 四条记录从上到下：Submitted（审批开单）→ Ri Replacement Proposed → Approval Granted → Ri Replacement Applied → 点进最后一条详情页，Metadata 区直接看到 `"fromIncumbent": "<旧姓名>"`、`"toIncumbent": "<新姓名>"`——不用去翻审批单或猜，审计行本身就查得到「谁换了谁」（T8 评审修复：此前这两个字段只在写入时校验、不落库，现已镜像进 metadata）。
+判据：`RI_REPLACEMENT_APPLIED` 审计的 `metadata.fromIncumbent`/`toIncumbent` 与实际换人前后姓名逐字一致。走查截图入 `doc-final/superpowers/checkups/2026-09-27-act-a-wave4-evidence/`（`22-01` 外包商增改止 ～ `22-04` 审计 from/to）。
+
+**期望**：观众看懂两件事——① 两本登记册各管各的，互不联动，闹钟墙是唯一跨表读点；② RI 换人是任命权在高管、提名权在合规官的事前审批，不是改字段——换人史留在审计链，不需要另开一张历史表。
