@@ -90,7 +90,7 @@ DRAFT ──标已提交+externalRef(MLRO)──► SUBMITTED ──办结(MLRO)
 
 **手工开单**：合规官可开全部启用 GENERAL 类型；MLRO 可开全部启用 AML 类型（`openManual()` 内先过族独占断言，合规官打不开 STR/SAR，MLRO 打不开 GENERAL 五类，见 §3）；`INCIDENT_REPORT` 手工开单须给 `incidentNo` + 合法 `basisCode`（必须属该事故类型的 `reportBasisCandidates` 候选集）；`requiresExternalCaseRef` 类型（STR/SAR/CNMR/PNMR）手工开单缺 `externalCaseRef` 即 400；CNMR/PNMR 手工开单拿不到 `anchorAt`，`deadlineAt` 留 `null`——现场演示 SAR/HRC/HRCA 就是走这条手工路（§4.2/§5「演示脚本」）。
 
-**超时持久软标**（`regulatory-filing-sweep.service.ts`，@Cron 每 30 秒，三族共用，本波未改）：`deadlineAt < now` 且 `overdueMarkedAt IS NULL` 且状态 ∈ {DRAFT, PENDING_SIGNOFF, SIGNED_OFF}（AML 族因无 `PENDING_SIGNOFF`/`SIGNED_OFF` 两态，实际只在 DRAFT 触发）→ 落 `overdueMarkedAt` + 记一条 `FILING_OVERDUE_MARKED`（系统 actor）。按时提交过的单子永不触发；标记留着不清，迟交的照样红着。**⚡ 演示快进**（战役甲波四新增，挂 `modules/compliance-office.md` 闹钟墙）：`POST /admin/regulatory-filings/:filingNo/simulate-deadline-timeout` 把该单 `deadlineAt` 回拨到过去，30 秒内被本 sweep 标红，供闹钟墙走查现场触发；审计码 `FILING_DEADLINE_FASTFORWARDED` 挂在 `COMPLIANCE_OFFICE_AUDIT_ACTIONS`（域 GOVERNANCE，非本篇 `REG_FILING_AUDIT_ACTIONS`），因为它是单步演示动作、没有旅程可继承。
+**超时持久软标**（`regulatory-filing-sweep.service.ts`，@Cron 每 30 秒，两族十二类共用，本波未改）：`deadlineAt < now` 且 `overdueMarkedAt IS NULL` 且状态 ∈ {DRAFT, PENDING_SIGNOFF, SIGNED_OFF}（AML 族因无 `PENDING_SIGNOFF`/`SIGNED_OFF` 两态，实际只在 DRAFT 触发）→ 落 `overdueMarkedAt` + 记一条 `FILING_OVERDUE_MARKED`（系统 actor）。按时提交过的单子永不触发；标记留着不清，迟交的照样红着。**⚡ 演示快进**（战役甲波四新增，挂 `modules/compliance-office.md` 闹钟墙）：`POST /admin/regulatory-filings/:filingNo/simulate-deadline-timeout` 把该单 `deadlineAt` 回拨到过去，30 秒内被本 sweep 标红，供闹钟墙走查现场触发；审计码 `FILING_DEADLINE_FASTFORWARDED` 挂在 `COMPLIANCE_OFFICE_AUDIT_ACTIONS`（域 GOVERNANCE，非本篇 `REG_FILING_AUDIT_ACTIONS`），因为它是单步演示动作、没有旅程可继承。
 
 ## 3. 权限与审批
 
