@@ -594,7 +594,10 @@ export class RegulatoryFilingService {
     const deadlineAt = new Date(Date.now() - 3600 * 1000);
     const updated = await this.prisma.regulatoryFiling.update({ where: { filingNo: row.filingNo }, data: { deadlineAt } });
     await this.recordAudit(updated, AuditActions.FILING_DEADLINE_FASTFORWARDED, actor, {
+      // R5 修订：deadlineAt 镜像进 metadata——拨到了哪个时刻查审计行本身就能看到，
+      // 不必反查报送单当前值。
       extra: { deadlineAt: deadlineAt.toISOString() },
+      metadata: { deadlineAt: deadlineAt.toISOString() },
     });
     return { filingNo };
   }

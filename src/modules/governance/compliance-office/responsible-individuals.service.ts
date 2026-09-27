@@ -105,8 +105,9 @@ export class ResponsibleIndividualsService {
       },
     });
     await this.recordAuditByActor(row, AuditActions.RI_SEAT_REGISTERED, actor, {
+      // R5 修订：position 镜像进 metadata——建席位时刻的职位快照查审计行本身就能看到。
       extra: { position: row.position },
-      metadata: { incumbentName: row.incumbentName },
+      metadata: { incumbentName: row.incumbentName, position: row.position },
     });
     return { riNo: row.riNo };
   }
@@ -129,8 +130,11 @@ export class ResponsibleIndividualsService {
     await this.assertNoPendingReplacement(riNo);
     const row = await this.prisma.responsibleIndividual.update({ where: { riNo }, data: { pendingApprovalNo: approvalNo } });
     await this.recordAuditByActor(row, AuditActions.RI_REPLACEMENT_PROPOSED, actor, {
+      // R5 修订：approvalNo/reason 镜像进 metadata——即便 approvalNo/reason 各自也有专列
+      // （见 audit-logs.service.ts 的 approvalNo/reason 持久化列），metadata 单独这个 JSON
+      // blob 也该自成一份完整记录，不必联另一列才拼得出"提的是哪单、为什么提"。
       extra: { approvalNo, reason: dto.reason },
-      metadata: { newIncumbentName: dto.newIncumbentName, effectiveFrom: dto.effectiveFrom, varaRef: dto.varaRef ?? null },
+      metadata: { newIncumbentName: dto.newIncumbentName, effectiveFrom: dto.effectiveFrom, varaRef: dto.varaRef ?? null, approvalNo, reason: dto.reason },
     });
     return { riNo };
   }
@@ -152,7 +156,13 @@ export class ResponsibleIndividualsService {
       },
     });
     await this.recordAuditSystem(row, AuditActions.RI_REPLACEMENT_APPLIED, {
+      // R5 修订（控制器裁定）：fromIncumbent/toIncumbent 原先只在 extra（仅供
+      // assertActionSpec 的 requiredFields 校验读取一次，audit-logs.service.ts 的
+      // recordByActor 建库时不落任何专列——真缺陷：spec §4.2 承诺"RI 换人史靠审计链可查
+      // from/to"，之前查不到）。镜像进 metadata 后，RI_REPLACEMENT_APPLIED 这一行本身
+      // 就能查到换的是谁、换成了谁、批的是哪一单，不必反查 RI 表当前值或审批单快照。
       extra: { approvalNo, fromIncumbent, toIncumbent },
+      metadata: { approvalNo, fromIncumbent, toIncumbent },
     });
     return { riNo };
   }
@@ -164,7 +174,10 @@ export class ResponsibleIndividualsService {
     await this.findByNo(riNo);
     const row = await this.prisma.responsibleIndividual.update({ where: { riNo }, data: { pendingApprovalNo: null } });
     await this.recordAuditSystem(row, AuditActions.RI_REPLACEMENT_REJECTED, {
+      // R5 修订：approvalNo/decision 镜像进 metadata——"清的是哪一单、因为什么裁决
+      // （DECLINED/CANCELLED/EXPIRED）"查审计行本身就能看到。
       extra: { approvalNo, decision },
+      metadata: { approvalNo, decision },
     });
     return { riNo };
   }

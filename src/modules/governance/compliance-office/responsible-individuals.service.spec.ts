@@ -77,6 +77,8 @@ describe('ResponsibleIndividualsService (Task 4)', () => {
       expect(actionsOf()).toEqual(['RI_SEAT_REGISTERED']);
       const call = auditLogs.recordByActor.mock.calls[0][0];
       expect(call).toMatchObject({ actionDomain: 'GOVERNANCE', primarySubjectType: 'RESPONSIBLE_INDIVIDUAL', position: 'Compliance Officer' });
+      // R5 修订：position 现在也镜像进 metadata——审计行本身可查建席位时刻的职位快照。
+      expect(call.metadata).toMatchObject({ position: 'Compliance Officer' });
       expect(call.requestId).toEqual(expect.any(String));
     });
   });
@@ -101,6 +103,8 @@ describe('ResponsibleIndividualsService (Task 4)', () => {
 
       const call = auditLogs.recordByActor.mock.calls.find((c) => c[0].action === 'RI_REPLACEMENT_PROPOSED')![0];
       expect(call).toMatchObject({ actionDomain: 'GOVERNANCE', approvalNo: 'APR260101000001' });
+      // R5 修订：approvalNo/reason 现在也镜像进 metadata——审计行本身可查提的是哪单、为什么提。
+      expect(call.metadata).toMatchObject({ approvalNo: 'APR260101000001', reason: 'Alice resigned' });
     });
 
     it('assertNoPendingReplacement now rejects with 400 once a proposal is pending', async () => {
@@ -149,6 +153,11 @@ describe('ResponsibleIndividualsService (Task 4)', () => {
         action: 'RI_REPLACEMENT_APPLIED', actionDomain: 'GOVERNANCE',
         fromIncumbent: 'Alice Tan', toIncumbent: 'Bob Lee', approvalNo: 'APR260101000001',
       });
+      // R5 修订（真缺陷修复）：fromIncumbent/toIncumbent/approvalNo 原先只在顶层 extra
+      // （只供 assertActionSpec 的 requiredFields 校验读取一次，audit-logs.service.ts 建库
+      // 时不落任何专列——审计行查不到"换的是谁、换成了谁"）。现在镜像进 metadata，行为化
+      // 断言查的是真正会持久化的字段。
+      expect(call.metadata).toMatchObject({ fromIncumbent: 'Alice Tan', toIncumbent: 'Bob Lee', approvalNo: 'APR260101000001' });
     });
   });
 
@@ -172,6 +181,8 @@ describe('ResponsibleIndividualsService (Task 4)', () => {
       expect(auditLogs.recordSystem).toHaveBeenCalledTimes(1);
       const call = auditLogs.recordSystem.mock.calls[0][0];
       expect(call).toMatchObject({ action: 'RI_REPLACEMENT_REJECTED', actionDomain: 'GOVERNANCE', approvalNo: 'APR260101000001', decision: 'DECLINED' });
+      // R5 修订：approvalNo/decision 现在也镜像进 metadata——审计行本身可查清的是哪单、因何裁决。
+      expect(call.metadata).toMatchObject({ approvalNo: 'APR260101000001', decision: 'DECLINED' });
     });
 
     it('after clearReplacement, a fresh proposal can be recorded again (pending flag genuinely released)', async () => {

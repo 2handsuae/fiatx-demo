@@ -74,8 +74,10 @@ export class ComplianceObligationsService {
       },
     });
     await this.recordAudit(row, AuditActions.OBLIGATION_REGISTERED, actor, {
+      // R5 修订：extra 仍是 requiredFields 校验形态（不落库），frequency 这个登记时刻的
+      // 展示级快照镜像进 metadata 一份——审计行只读 metadata 也能查到当时登记的频率。
       extra: { frequency: row.frequency },
-      metadata: { name: row.name, authority: row.authority },
+      metadata: { name: row.name, authority: row.authority, frequency: row.frequency },
     });
     return { obligationNo: row.obligationNo };
   }
@@ -127,8 +129,10 @@ export class ComplianceObligationsService {
     const updated = await this.prisma.complianceObligation.update({ where: { obligationNo: row.obligationNo }, data: { nextDueAt } });
     await this.recordAudit(updated, AuditActions.OBLIGATION_FILING_GENERATED, null, {
       occurredAt: now.toISOString(),
+      // R5 修订：dueAt/filingType 原只在 extra（校验用，不落库）——镜像进 metadata，
+      // 「本期是哪个 dueAt 触发的、开的是什么类型」查审计行本身就能看到，不必反查报送单。
       extra: { dueAt: dueAt.toISOString(), filingType: 'PERIODIC_RETURN' },
-      metadata: { nextDueAt: nextDueAt.toISOString() },
+      metadata: { nextDueAt: nextDueAt.toISOString(), dueAt: dueAt.toISOString(), filingType: 'PERIODIC_RETURN' },
     });
     return { dueAt, obligation: updated };
   }
@@ -147,7 +151,9 @@ export class ComplianceObligationsService {
     const now = new Date();
     const updated = await this.prisma.complianceObligation.update({ where: { obligationNo: row.obligationNo }, data: { nextDueAt: now } });
     await this.recordAudit(updated, AuditActions.OBLIGATION_DUE_FASTFORWARDED, actor, {
+      // R5 修订：nextDueAt 镜像进 metadata——审计行本身能查到"拨到了哪个时刻"。
       extra: { nextDueAt: now.toISOString() },
+      metadata: { nextDueAt: now.toISOString() },
     });
     return { obligationNo };
   }

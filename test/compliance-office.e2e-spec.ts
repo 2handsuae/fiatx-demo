@@ -284,11 +284,10 @@ describe('Compliance office e2e (战役甲波四 · 合规办公室骨架, Task 
     expect(afterApply.incumbentName).toBe('e2e Incumbent B');
     expect(afterApply.pendingApprovalNo).toBeNull();
 
-    // RI_REPLACEMENT_APPLIED 审计存在，且携带 approvalNo（fromIncumbent/toIncumbent 只在
-    // requiredFields 校验时短暂经过，schema 未开列——不是持久化列，见
-    // responsible-individuals.service.ts recordAuditSystem/buildAuditInput 形状；实质的
-    // from/to 事实由 incumbentName 本身的迁移值 A→B 承担，这里额外核 approvalNo 这一持久化
-    // 关联字段，把"批的是哪一单"钉死）。
+    // RI_REPLACEMENT_APPLIED 审计存在，且 metadata 携带真实 from/to（R5 修复：
+    // responsible-individuals.service.ts 的 applyReplacement 现在把 fromIncumbent/
+    // toIncumbent/approvalNo 镜像进 metadata，不再只留在校验用的顶层 extra——查审计行
+    // 本身就能看到"换的是谁、换成了谁、批的是哪一单"）。
     const actionsAfterApply = await auditActionsFor('RESPONSIBLE_INDIVIDUAL', riNo);
     expect(actionsAfterApply).toEqual([
       AuditActions.RI_SEAT_REGISTERED, AuditActions.RI_REPLACEMENT_PROPOSED, AuditActions.RI_REPLACEMENT_APPLIED,
@@ -297,6 +296,8 @@ describe('Compliance office e2e (战役甲波四 · 合规办公室骨架, Task 
       where: { primarySubjectType: 'RESPONSIBLE_INDIVIDUAL', primarySubjectNo: riNo, action: AuditActions.RI_REPLACEMENT_APPLIED },
     });
     expect(appliedEvent.approvalNo).toBe(approvalNo1);
+    const appliedMetadata = JSON.parse(appliedEvent.metadata);
+    expect(appliedMetadata).toMatchObject({ fromIncumbent: 'e2e Incumbent A', toIncumbent: 'e2e Incumbent B', approvalNo: approvalNo1 });
 
     // 驳回分支：再提一次换人，高管 DECLINE——pending 清空，incumbent 不变（不是 D）。
     const { approvalNo: approvalNo2 } = await riReplacementWorkflow.initiateReplacement(riNo, {

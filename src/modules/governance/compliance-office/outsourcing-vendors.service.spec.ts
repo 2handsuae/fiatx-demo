@@ -79,6 +79,8 @@ describe('OutsourcingVendorsService (Task 4)', () => {
       expect(actionsOf()).toEqual(['VENDOR_REGISTERED']);
       const call = auditLogs.recordByActor.mock.calls[0][0];
       expect(call).toMatchObject({ actionDomain: 'GOVERNANCE', primarySubjectType: 'OUTSOURCING_VENDOR', criticality: 'MATERIAL' });
+      // R5 修订：criticality 现在也镜像进 metadata——审计行本身可查登记时刻的关键性快照。
+      expect(call.metadata).toMatchObject({ criticality: 'MATERIAL' });
       expect(call.requestId).toEqual(expect.any(String));
       expect(call.requestId.length).toBeGreaterThan(0);
     });

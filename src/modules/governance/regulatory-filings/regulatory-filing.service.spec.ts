@@ -712,6 +712,8 @@ describe('RegulatoryFilingService (Task 3)', () => {
         expect(input.action).toBe('FILING_DEADLINE_FASTFORWARDED');
         expect(input.actionDomain).toBe('GOVERNANCE');
         expect(input.deadlineAt).toBe((row.deadlineAt as Date).toISOString());
+        // R5 修订：deadlineAt 现在也镜像进 metadata——审计行本身可查，不必反查报送单当前值。
+        expect(input.metadata).toMatchObject({ deadlineAt: (row.deadlineAt as Date).toISOString() });
 
         // 见 cleanupFiling 注释：这张单仍停在墙上状态 + deadlineAt 已过去，是并发跑的
         // sweep 套件的真实扫描目标，不留到文件级 afterAll。

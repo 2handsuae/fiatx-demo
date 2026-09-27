@@ -92,8 +92,9 @@ export class OutsourcingVendorsService {
       },
     });
     await this.recordAudit(row, AuditActions.VENDOR_REGISTERED, actor, {
+      // R5 修订：criticality 镜像进 metadata——登记时刻的关键性快照查审计行本身就能看到。
       extra: { criticality: row.criticality },
-      metadata: { name: row.name },
+      metadata: { name: row.name, criticality: row.criticality },
     });
     return { vendorNo: row.vendorNo };
   }

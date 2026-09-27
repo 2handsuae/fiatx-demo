@@ -82,6 +82,8 @@ describe('ComplianceObligationsService (Task 2)', () => {
       expect(actionsOf()).toEqual(['OBLIGATION_REGISTERED']);
       const call = auditLogs.recordByActor.mock.calls[0][0];
       expect(call).toMatchObject({ actionDomain: 'GOVERNANCE', primarySubjectType: 'COMPLIANCE_OBLIGATION', frequency: 'QUARTERLY' });
+      // R5 修订：frequency 现在也镜像进 metadata——审计行本身可查登记时刻的频率快照。
+      expect(call.metadata).toMatchObject({ frequency: 'QUARTERLY' });
       expect(call.requestId).toEqual(expect.any(String));
       expect(call.requestId.length).toBeGreaterThan(0);
     });
@@ -177,6 +179,8 @@ describe('ComplianceObligationsService (Task 2)', () => {
         filingType: 'PERIODIC_RETURN',
         occurredAt: '2026-02-05T00:00:00.000Z',
       });
+      // R5 修订：dueAt/filingType 现在也镜像进 metadata——审计行本身可查，不必反查报送单。
+      expect(call.metadata).toMatchObject({ dueAt: '2026-01-31T00:00:00.000Z', filingType: 'PERIODIC_RETURN' });
       expect(call.requestId).toEqual(expect.any(String));
     });
 
@@ -220,6 +224,8 @@ describe('ComplianceObligationsService (Task 2)', () => {
 
       const call = auditLogs.recordByActor.mock.calls.find((c) => c[0].action === 'OBLIGATION_DUE_FASTFORWARDED')![0];
       expect(call.nextDueAt).toBe(row.nextDueAt.toISOString());
+      // R5 修订：nextDueAt 现在也镜像进 metadata——审计行本身可查拨到了哪个时刻。
+      expect(call.metadata).toMatchObject({ nextDueAt: row.nextDueAt.toISOString() });
     });
   });
 
