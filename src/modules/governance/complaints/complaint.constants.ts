@@ -1,4 +1,4 @@
-// 战役甲波五 T2 · 投诉主体（spec §? Market Conduct III.A）：状态、类别、结论枚举、显式
+// 战役甲波五 T2 · 投诉主体（spec §2.2 Market Conduct III.A）：状态、类别、结论枚举、显式
 // 迁移表、双钟期限常量、方法入参形状。本文件只放常量与纯类型——不含任何 Prisma /
 // NestJS 依赖（同 incident.constants.ts / regulatory-filing.constants.ts 先例）。
 

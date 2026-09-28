@@ -5,7 +5,6 @@ import { ComplaintsService } from './complaints.service';
 import { PrismaService } from '../../../core/prisma/prisma.service';
 import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import { ApprovalActorContext } from '../approvals/constants/approval.constants';
-import { ComplaintStatus } from './complaint.constants';
 
 const ops: ApprovalActorContext = { actorType: 'ADMIN', userId: 'uuid-ops', userNo: 'ADM-OPS', roleCodes: ['COMPLIANCE_OFFICER'] };
 
@@ -134,6 +133,19 @@ describe('ComplaintsService (Task 2)', () => {
       const { complaintNo } = await submitComplaint();
       await expect(service.startInvestigation(ops, complaintNo)).rejects.toThrow(BadRequestException);
     });
+
+    // 评审 Critical 1：共享迁移表里 RESOLUTION_PENDING→INVESTIGATING 这条边是
+    // rejectResolution 的专属驳回回退边——若 startInvestigation 只靠共享表隐式挡，
+    // 能从 RESOLUTION_PENDING 借道跳回 INVESTIGATING，绕开审批中态（pendingApprovalNo
+    // 挂着的门形同虚设）。现有的 RECEIVED 用例拦不住这个洞，本例才是真正的回归覆盖。
+    it('rejects starting investigation on a RESOLUTION_PENDING complaint — the backward edge is reserved for rejectResolution, not a back door here (Critical 1)', async () => {
+      const ctx = await toResolutionPending();
+      await expect(service.startInvestigation(ops, ctx.complaintNo)).rejects.toThrow(BadRequestException);
+      await expect(service.startInvestigation(ops, ctx.complaintNo)).rejects.toThrow(/must be ACKNOWLEDGED/);
+      const row = await service.findByNo(ctx.complaintNo);
+      expect(row.currentStatus).toBe('RESOLUTION_PENDING');
+      expect(row.pendingApprovalNo).toBe(ctx.approvalNo);
+    });
   });
 
   // ── addNote：INTERNAL_NOTE，任意非终态可加 ────────────────────────────
@@ -189,6 +201,21 @@ describe('ComplaintsService (Task 2)', () => {
       const { complaintNo } = await submitComplaint();
       await expect(service.extend(ops, complaintNo, { explanation: 'too early' })).rejects.toThrow(BadRequestException);
     });
+
+    // 评审 Critical 1：共享迁移表里 RESOLUTION_PENDING→INVESTIGATING_EXTENDED 这条边
+    // 也是 rejectResolution 的专属驳回回退边——若 extend 只靠共享表隐式挡，能从
+    // RESOLUTION_PENDING 借道跳到 INVESTIGATING_EXTENDED，同样绕开审批中态，还会顺带
+    // 造出「pendingApprovalNo 仍挂着 + extendedAt 已落」的脏态。现有的 RECEIVED 用例
+    // 拦不住这个洞，本例才是真正的回归覆盖。
+    it('rejects extending a RESOLUTION_PENDING complaint — the backward edge is reserved for rejectResolution, not a back door here (Critical 1)', async () => {
+      const ctx = await toResolutionPending();
+      await expect(service.extend(ops, ctx.complaintNo, { explanation: 'trying to sneak through' })).rejects.toThrow(BadRequestException);
+      await expect(service.extend(ops, ctx.complaintNo, { explanation: 'trying to sneak through' })).rejects.toThrow(/must be INVESTIGATING/);
+      const row = await service.findByNo(ctx.complaintNo);
+      expect(row.currentStatus).toBe('RESOLUTION_PENDING');
+      expect(row.pendingApprovalNo).toBe(ctx.approvalNo);
+      expect(row.extendedAt).toBeNull();
+    });
   });
 
   // ── propose/apply/reject 三步 + 两条驳回边 ────────────────────────────
@@ -217,6 +244,14 @@ describe('ComplaintsService (Task 2)', () => {
     it('proposeResolution on an already-RESOLUTION_PENDING complaint is rejected (state machine blocks re-entry, no separate pending guard needed)', async () => {
       const ctx = await toResolutionPending();
       await expect(service.proposeResolution(ops, ctx.complaintNo, { outcome: 'UPHELD', resolutionText: 'x' }, 'APR_2')).rejects.toThrow(BadRequestException);
+    });
+
+    // 评审 Critical 1：rejectResolution 动作级显式钉死出发态=RESOLUTION_PENDING——
+    // 不靠"表里恰好没有这条自环/来源边"这种消极事实挡重复驳回/串态调用。
+    it('rejects rejectResolution when the complaint is not RESOLUTION_PENDING (e.g. still INVESTIGATING) — explicit guard, dedicated message', async () => {
+      const ctx = await toInvestigating();
+      await expect(service.rejectResolution(ctx.complaintNo, 'APR_NOT_PENDING', 'REJECTED')).rejects.toThrow(BadRequestException);
+      await expect(service.rejectResolution(ctx.complaintNo, 'APR_NOT_PENDING', 'REJECTED')).rejects.toThrow(/must be RESOLUTION_PENDING/);
     });
 
     it('applyResolution moves RESOLUTION_PENDING→RESOLVED, persists outcome/resolutionText/resolvedAt, logs CLIENT_MESSAGE/FINAL_RESPONSE, clears pending, and records via recordSystem (no actor)', async () => {
@@ -356,6 +391,35 @@ describe('ComplaintsService (Task 2)', () => {
       expect(rows.map((r) => r.complaintNo)).toEqual([mine.complaintNo]);
       expect(rows.map((r) => r.complaintNo)).not.toContain(theirs.complaintNo);
     });
+
+    // 评审 Important 2：客户面此前复用了管理台投影，把 pendingApprovalNo/
+    // escalatedIncidentNo 两个内部字段、entries.actorNo 都下发给了客户。三者
+    // 都必须在客户 view/list 里彻底不存在（not toHaveProperty，不是断言为 null——
+    // null 仍然是"这个键存在"，会漏过"投影里压根没这把钥匙"这种更彻底的收口）。
+    it('客户 view/list 不含 pendingApprovalNo/escalatedIncidentNo/entries.actorNo（管理台内部字段）', async () => {
+      const { complaintNo, customerNo } = await submitComplaint();
+      await service.acknowledge(ops, complaintNo, { message: 'ack' });
+      await service.startInvestigation(ops, complaintNo);
+      await service.markEscalated(ops, complaintNo, 'INC_LEAK_CHECK');
+      const approvalNo = `APR_LEAK_${complaintNo}`;
+      await service.proposeResolution(ops, complaintNo, { outcome: 'UPHELD', resolutionText: 'x' }, approvalNo);
+
+      const view = await service.getForCustomer(customerNo, complaintNo);
+      expect(view).not.toHaveProperty('pendingApprovalNo');
+      expect(view).not.toHaveProperty('escalatedIncidentNo');
+      expect(view.entries.every((e) => !('actorNo' in e))).toBe(true);
+
+      const listRows = await service.listForCustomer(customerNo);
+      expect(listRows[0]).not.toHaveProperty('pendingApprovalNo');
+      expect(listRows[0]).not.toHaveProperty('escalatedIncidentNo');
+
+      // 对照：管理台面这两个字段/actorNo 原样在——证明不是全局删掉了这些字段，
+      // 只是客户投影单独收窄。
+      const adminView = await service.getAdmin(complaintNo);
+      expect(adminView.pendingApprovalNo).toBe(approvalNo);
+      expect(adminView.escalatedIncidentNo).toBe('INC_LEAK_CHECK');
+      expect(adminView.entries[0]).toHaveProperty('actorNo');
+    });
   });
 
   // ── 管理台读面 ──────────────────────────────────────────────────
@@ -405,6 +469,13 @@ describe('ComplaintsService (Task 2)', () => {
       ]);
       const correlationIds = new Set(events.map((e) => e.correlationId));
       expect(correlationIds.size).toBe(1);
+
+      // 评审顺手修3：EXTENDED/PROPOSED 的信封 fromStatus/toStatus 每边 from/to 齐
+      // （extend 在这条路径上发生在 INVESTIGATING，propose 发生在 INVESTIGATING_EXTENDED
+      // 之后——两码各自的边不是同一对状态，分开断言才不会漏一边）。
+      const byAction = (a: string) => events.find((e) => e.action === a)!;
+      expect(byAction('COMPLAINT_EXTENDED')).toMatchObject({ fromStatus: 'INVESTIGATING', toStatus: 'INVESTIGATING_EXTENDED' });
+      expect(byAction('COMPLAINT_RESOLUTION_PROPOSED')).toMatchObject({ fromStatus: 'INVESTIGATING_EXTENDED', toStatus: 'RESOLUTION_PENDING' });
     });
 
     it('walks addNote + markEscalated + simulateTimeout + rejectResolution without the real assertActionSpec rejecting any code', async () => {
@@ -425,6 +496,37 @@ describe('ComplaintsService (Task 2)', () => {
         'COMPLAINT_SUBMITTED', 'COMPLAINT_ACKNOWLEDGED', 'COMPLAINT_NOTE_ADDED', 'COMPLAINT_INVESTIGATION_STARTED',
         'COMPLAINT_ESCALATED', 'COMPLAINT_DEADLINE_FASTFORWARDED', 'COMPLAINT_RESOLUTION_PROPOSED', 'COMPLAINT_RESOLUTION_REJECTED',
       ]);
+
+      // 评审顺手修3：PROPOSED（此路径直接从 INVESTIGATING 提案，未经 extend）+ REJECTED
+      // 驳回边一（extendedAt 为空 → 回 INVESTIGATING）的 fromStatus/toStatus 齐。
+      const byAction = (a: string) => events.find((e) => e.action === a)!;
+      expect(byAction('COMPLAINT_RESOLUTION_PROPOSED')).toMatchObject({ fromStatus: 'INVESTIGATING', toStatus: 'RESOLUTION_PENDING' });
+      expect(byAction('COMPLAINT_RESOLUTION_REJECTED')).toMatchObject({ fromStatus: 'RESOLUTION_PENDING', toStatus: 'INVESTIGATING' });
+    });
+
+    // 评审顺手修3：REJECTED 的第二条回退边（extendedAt 有值 → 回 INVESTIGATING_EXTENDED），
+    // 真库 + 真 assertActionSpec 各走一次，fromStatus/toStatus 齐。
+    it('rejectResolution after a prior extend bounces to INVESTIGATING_EXTENDED (REJECTED backward edge two), real envelope', async () => {
+      const customerNo = `CU_REAL_${randomUUID().slice(0, 8)}`;
+      const { complaintNo } = await realService.submit(customerNo, { category: 'FEES', subject: 'Real-audit reject-after-extend', description: 'd' });
+      createdComplaintNos.push(complaintNo);
+      await realService.acknowledge(ops, complaintNo, { message: 'ack' });
+      await realService.startInvestigation(ops, complaintNo);
+      await realService.extend(ops, complaintNo, { explanation: 'need more time' });
+      const approvalNo = `APR_REAL3_${complaintNo}`;
+      await realService.proposeResolution(ops, complaintNo, { outcome: 'PARTIALLY_UPHELD', resolutionText: 'Partial' }, approvalNo);
+      await realService.rejectResolution(complaintNo, approvalNo, 'CANCELLED');
+
+      const row = await realService.findByNo(complaintNo);
+      expect(row.currentStatus).toBe('INVESTIGATING_EXTENDED');
+
+      const events = await prisma.auditLogEvent.findMany({ where: { primarySubjectType: 'COMPLAINT', primarySubjectNo: complaintNo }, orderBy: { seq: 'asc' } });
+      expect(events.map((e) => e.action)).toEqual([
+        'COMPLAINT_SUBMITTED', 'COMPLAINT_ACKNOWLEDGED', 'COMPLAINT_INVESTIGATION_STARTED',
+        'COMPLAINT_EXTENDED', 'COMPLAINT_RESOLUTION_PROPOSED', 'COMPLAINT_RESOLUTION_REJECTED',
+      ]);
+      const rejected = events.find((e) => e.action === 'COMPLAINT_RESOLUTION_REJECTED')!;
+      expect(rejected).toMatchObject({ fromStatus: 'RESOLUTION_PENDING', toStatus: 'INVESTIGATING_EXTENDED' });
     });
   });
 });

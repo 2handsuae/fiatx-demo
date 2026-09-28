@@ -64,6 +64,39 @@ export interface ComplaintView extends ComplaintListItem {
   entries: ComplaintEntryView[];
 }
 
+/** 客户面专属投影（评审 Important 2）：去掉 pendingApprovalNo/escalatedIncidentNo——
+ *  两者都是管理台内部经办状态（在途审批单号 / 升级去向的事故号），客户不该看到；
+ *  entries 额外去掉 actorNo（控制器加裁：客户不需要内部经办身份，管理台面 actorNo
+ *  可能落的是 admin userNo、也可能是 'SYSTEM'，两种都不该对客户暴露）。 */
+export interface ClientComplaintListItem {
+  complaintNo: string;
+  ownerCustomerNo: string;
+  category: string;
+  relatedOrderNo: string | null;
+  subject: string;
+  currentStatus: string;
+  submittedAt: string;
+  ackDeadlineAt: string;
+  acknowledgedAt: string | null;
+  resolveDeadlineAt: string;
+  extendedAt: string | null;
+  resolvedAt: string | null;
+}
+
+export interface ClientComplaintEntryView {
+  kind: string;
+  messageType: string | null;
+  body: string;
+  createdAt: string;
+}
+
+export interface ClientComplaintView extends ClientComplaintListItem {
+  description: string;
+  resolutionOutcome: string | null;
+  resolutionText: string | null;
+  entries: ClientComplaintEntryView[];
+}
+
 @Injectable()
 export class ComplaintsService {
   constructor(
@@ -112,10 +145,43 @@ export class ComplaintsService {
     };
   }
 
+  /** 客户面专属投影（评审 Important 2）：从 toListItem 去掉 pendingApprovalNo（本就不在
+   *  ComplaintListItem 里）/ escalatedIncidentNo；entries 去掉 actorNo。不复用
+   *  toListItem/toView 再事后摘字段——直接照着字段表构造，少一处"漏摘"的可能。 */
+  private toClientListItem(row: Complaint): ClientComplaintListItem {
+    return {
+      complaintNo: row.complaintNo,
+      ownerCustomerNo: row.ownerCustomerNo,
+      category: row.category,
+      relatedOrderNo: row.relatedOrderNo ?? null,
+      subject: row.subject,
+      currentStatus: row.currentStatus,
+      submittedAt: row.submittedAt.toISOString(),
+      ackDeadlineAt: row.ackDeadlineAt.toISOString(),
+      acknowledgedAt: row.acknowledgedAt ? row.acknowledgedAt.toISOString() : null,
+      resolveDeadlineAt: row.resolveDeadlineAt.toISOString(),
+      extendedAt: row.extendedAt ? row.extendedAt.toISOString() : null,
+      resolvedAt: row.resolvedAt ? row.resolvedAt.toISOString() : null,
+    };
+  }
+
+  private toClientView(row: Complaint, entries: ComplaintEntry[]): ClientComplaintView {
+    return {
+      ...this.toClientListItem(row),
+      description: row.description,
+      resolutionOutcome: row.resolutionOutcome ?? null,
+      resolutionText: row.resolutionText ?? null,
+      entries: entries.map((e) => ({
+        kind: e.kind, messageType: e.messageType ?? null, body: e.body, createdAt: e.createdAt.toISOString(),
+      })),
+    };
+  }
+
   /** 客户面：只看自己的号。别人的号 / 不存在的号统一「查无」（NotFoundException），
    *  不回 403——照 material-requests 惯例，403 反而会向客户确认「这个号真实存在」。
-   *  entries 仅 CLIENT_MESSAGE（INTERNAL_NOTE 不对客户开放）。 */
-  async getForCustomer(customerNo: string, complaintNo: string): Promise<ComplaintView> {
+   *  entries 仅 CLIENT_MESSAGE（INTERNAL_NOTE 不对客户开放）；投影走 toClientView，
+   *  不含 pendingApprovalNo/escalatedIncidentNo/entries.actorNo（评审 Important 2）。 */
+  async getForCustomer(customerNo: string, complaintNo: string): Promise<ClientComplaintView> {
     const row = await this.prisma.complaint.findUnique({ where: { complaintNo } });
     if (!row || row.ownerCustomerNo !== customerNo) {
       throw new NotFoundException(`Complaint not found: ${complaintNo}`);
@@ -124,12 +190,12 @@ export class ComplaintsService {
       where: { complaintNo, kind: ComplaintEntryKinds.CLIENT_MESSAGE },
       orderBy: { createdAt: 'asc' },
     });
-    return this.toView(row, entries);
+    return this.toClientView(row, entries);
   }
 
-  async listForCustomer(customerNo: string): Promise<ComplaintListItem[]> {
+  async listForCustomer(customerNo: string): Promise<ClientComplaintListItem[]> {
     const rows = await this.prisma.complaint.findMany({ where: { ownerCustomerNo: customerNo }, orderBy: { createdAt: 'desc' } });
-    return rows.map((r) => this.toListItem(r));
+    return rows.map((r) => this.toClientListItem(r));
   }
 
   /** 管理台面：entries 全量（含 INTERNAL_NOTE）。 */
@@ -204,8 +270,17 @@ export class ComplaintsService {
 
   // ── 立案调查（ACKNOWLEDGED→INVESTIGATING）────────────────────────────
 
+  /** 动作级显式钉死出发态=ACKNOWLEDGED（评审 Critical 1，照 regulatory-filing.service.ts
+   *  的 close() 先例：共享迁移表里 RESOLUTION_PENDING→INVESTIGATING 这条边是留给
+   *  rejectResolution 内部走的驳回回退边，若本方法只靠共享表隐式挡，会把它当成自己的
+   *  合法入口一并借走——从 RESOLUTION_PENDING 直接跳 startInvestigation，能在不清
+   *  pendingApprovalNo（审批门仍挂着）的情况下把状态搬回 INVESTIGATING，等于绕过了
+   *  审批中态）。不靠表隐式挡，显式判一次状态。 */
   async startInvestigation(actor: ApprovalActorContext, complaintNo: string): Promise<{ complaintNo: string }> {
     const row = await this.findByNo(complaintNo);
+    if (row.currentStatus !== ComplaintStatus.ACKNOWLEDGED) {
+      throw new BadRequestException(`Complaint ${complaintNo} must be ACKNOWLEDGED to start investigation (current status: ${row.currentStatus})`);
+    }
     const updated = await this.transition(row, ComplaintStatus.INVESTIGATING);
     await this.recordAudit(updated, AuditActions.COMPLAINT_INVESTIGATION_STARTED, { kind: 'ADMIN', ctx: actor }, {
       fromStatus: row.currentStatus, toStatus: updated.currentStatus,
@@ -230,10 +305,21 @@ export class ComplaintsService {
   // ── 延期（一次性；INVESTIGATING→INVESTIGATING_EXTENDED；resolveDeadlineAt 改
   //     submittedAt+56d；entry CLIENT_MESSAGE/EXTENSION_NOTICE）───────────────
 
+  /** 动作级显式钉死出发态=INVESTIGATING（评审 Critical 1，同 startInvestigation 注释：
+   *  共享表里 RESOLUTION_PENDING→INVESTIGATING_EXTENDED 也是留给 rejectResolution 的驳回
+   *  回退边——若不显式挡，能从 RESOLUTION_PENDING 直接调 extend 在不清 pendingApprovalNo
+   *  的情况下把状态搬到 INVESTIGATING_EXTENDED，同样绕过审批中态，还会顺带造出
+   *  「INVESTIGATING 但 extendedAt 有值」这种破坏 rejectResolution 不变量的脏态）。
+   *  顺序：一次性守卫（extendedAt）先判——同一张单重复调用 extend 时给"已经延过期一次"
+   *  这句更具体的报文；只有从未延期过、但出发态又不对的调用（如直接对 RESOLUTION_PENDING
+   *  下手）才会落到出发态守卫。 */
   async extend(actor: ApprovalActorContext, complaintNo: string, dto: ExtendComplaintDto): Promise<{ complaintNo: string }> {
     const row = await this.findByNo(complaintNo);
     if (row.extendedAt) {
       throw new BadRequestException(`Complaint ${complaintNo} has already been extended once`);
+    }
+    if (row.currentStatus !== ComplaintStatus.INVESTIGATING) {
+      throw new BadRequestException(`Complaint ${complaintNo} must be INVESTIGATING to extend (current status: ${row.currentStatus})`);
     }
     const extendedAt = new Date();
     const newResolveDeadlineAt = new Date(row.submittedAt.getTime() + EXTENDED_DEADLINE_DAYS * 86400000);
@@ -274,7 +360,8 @@ export class ComplaintsService {
     const updated = await this.transition(row, ComplaintStatus.RESOLUTION_PENDING, { pendingApprovalNo: approvalNo });
     await this.recordAudit(updated, AuditActions.COMPLAINT_RESOLUTION_PROPOSED, { kind: 'ADMIN', ctx: actor }, {
       fromStatus: row.currentStatus, toStatus: updated.currentStatus,
-      extra: { resolutionOutcome: dto.outcome },
+      // approvalNo 落信封真列（评审顺手修4，REJECTED 已有——按 approvalNo 查审计三码不漏步）。
+      extra: { resolutionOutcome: dto.outcome, approvalNo },
       metadata: { outcome: dto.outcome, resolutionText: dto.resolutionText, approvalNo },
     });
     return { complaintNo };
@@ -297,17 +384,24 @@ export class ComplaintsService {
     });
     await this.recordAudit(updated, AuditActions.COMPLAINT_RESOLUTION_APPLIED, null, {
       fromStatus: row.currentStatus, toStatus: updated.currentStatus,
-      // 同 proposeResolution 注释：必填字段咬 resolutionOutcome（业务真值），不再借道信封保留键。
-      extra: { resolutionOutcome: dto.outcome },
+      // 同 proposeResolution 注释：必填字段咬 resolutionOutcome（业务真值），不再借道信封保留键；
+      // approvalNo 同样落信封真列（评审顺手修4）。
+      extra: { resolutionOutcome: dto.outcome, approvalNo },
       metadata: { outcome: dto.outcome, resolutionText: dto.resolutionText, approvalNo },
     });
     return { complaintNo };
   }
 
   /** 驳回/撤单/过期：清 pendingApprovalNo，按 extendedAt 有无回 INVESTIGATING_EXTENDED /
-   *  INVESTIGATING 两条显式边（spec 六裁定）。系统动作，无 actor——同 applyResolution。 */
+   *  INVESTIGATING 两条显式边（spec 六裁定）。系统动作，无 actor——同 applyResolution。
+   *  动作级显式钉死出发态=RESOLUTION_PENDING（评审 Critical 1，同 startInvestigation/
+   *  extend 注释：这两条回退边本就是本方法的专属出口，显式判一次比依赖表里恰好没有
+   *  自环更稳——不靠"表里没这条边"这种消极事实挡重复驳回/串态调用）。 */
   async rejectResolution(complaintNo: string, approvalNo: string, decision: 'REJECTED' | 'CANCELLED' | 'EXPIRED'): Promise<{ complaintNo: string }> {
     const row = await this.findByNo(complaintNo);
+    if (row.currentStatus !== ComplaintStatus.RESOLUTION_PENDING) {
+      throw new BadRequestException(`Complaint ${complaintNo} must be RESOLUTION_PENDING to reject a resolution (current status: ${row.currentStatus})`);
+    }
     const backTo = row.extendedAt ? ComplaintStatus.INVESTIGATING_EXTENDED : ComplaintStatus.INVESTIGATING;
     const updated = await this.transition(row, backTo, { pendingApprovalNo: null });
     await this.recordAudit(updated, AuditActions.COMPLAINT_RESOLUTION_REJECTED, null, {
