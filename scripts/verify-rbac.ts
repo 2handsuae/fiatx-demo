@@ -273,6 +273,8 @@ function runStaticChecks(): void {
     // 战役乙波一 T3：LP 档案建档 / 结算坐标变更——maker（金库，LP_WRITE）≠ checker（CFO）。
     LP_PROFILE_APPROVAL: 'LP_WRITE',
     LP_PROFILE_CHANGE: 'LP_WRITE',
+    // 战役乙波一 T5：LP 兑换单发起——同上 maker（金库，LP_WRITE）≠ checker（CFO）。
+    LP_EXCHANGE_APPROVAL: 'LP_WRITE',
     INCIDENT_CLOSE_SECURITY: 'INCIDENT_WRITE',
     // 战役甲波一 T8 修复轮 1（评审 I2）：INCIDENT_CLOSE_FINANCIAL 服务两个不相干的提单群体——
     // LARGE_UNEXPLAINED/CLIENT_SHORTFALL（FUNDS 族，INCIDENT_WRITE）与 STUCK_TRANSACTION_MAJOR

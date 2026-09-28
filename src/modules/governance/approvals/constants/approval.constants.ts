@@ -95,6 +95,10 @@ export const ApprovalActionTypes = {
   // 挂在 LiquidityProvider 主体（entityRef=lpNo），复刻 INTERNAL_TRANSFER_APPROVAL 形状。
   LP_PROFILE_APPROVAL: 'LP_PROFILE_APPROVAL',
   LP_PROFILE_CHANGE: 'LP_PROFILE_CHANGE',
+  // 战役乙波一 T5（2026-09-29）：LP 兑换单发起——金库提、CFO 单步批，复刻
+  // INTERNAL_TRANSFER_APPROVAL/LP_PROFILE_APPROVAL 同形状。挂在 LpExchange 主体
+  // （entityRef=exchangeNo）。
+  LP_EXCHANGE_APPROVAL: 'LP_EXCHANGE_APPROVAL',
 } as const;
 
 export const ApprovalStatuses = {
@@ -446,6 +450,10 @@ export const DEFAULT_APPROVAL_POLICIES: Record<
   [ApprovalActionTypes.LP_PROFILE_CHANGE]: {
     steps: [{ stepNo: 1, roles: ['CFO'] }], timeoutHours: 48, allowCancel: true,
   },
+  // 战役乙波一 T5（task-5-brief.md 原文逐字）：LP 兑换单——CFO 单步 48h 可撤。
+  [ApprovalActionTypes.LP_EXCHANGE_APPROVAL]: {
+    steps: [{ stepNo: 1, roles: ['CFO'] }], timeoutHours: 48, allowCancel: true,
+  },
 };
 
 /**
@@ -499,6 +507,8 @@ export const V1_APPROVAL_ACTION_TYPES: readonly string[] = [
   // 渲染这两行（甲教训，见上方 COMPLAINT_RESOLUTION 注释）。
   ApprovalActionTypes.LP_PROFILE_APPROVAL,
   ApprovalActionTypes.LP_PROFILE_CHANGE,
+  // 战役乙波一 T5：LP 兑换单——同上 LP_PROFILE_* 漏白名单教训，一并登记。
+  ApprovalActionTypes.LP_EXCHANGE_APPROVAL,
 ] as const;
 
 export function isSuperAdminRoleContext(roleCodes: string[]): boolean {

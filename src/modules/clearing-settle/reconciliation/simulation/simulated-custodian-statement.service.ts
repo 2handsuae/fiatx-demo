@@ -10,8 +10,13 @@ import { WalletBalanceCheckerService } from '../engine/v2/wallet-balance-checker
 
 interface LegMovementInput {
   fundsOrderNo: string;
-  fromWalletId: string;
-  toWalletId: string;
+  /**
+   * 战役乙波一 T5：LP 兑换卖出/买入腿一侧是 LP 的外部地址/IBAN（不是我们系统里的钱包，
+   * 不落 externalBalance）——该侧传 null，只写另一侧的行（照划转单 recordLegMovement
+   * 两侧都是内部钱包的先例，本次放宽为「至少一侧」）。两侧都传才两行都写，同划转单不变。
+   */
+  fromWalletId: string | null;
+  toWalletId: string | null;
   /** external_statement_lines.currency / external_balances.currency 存 asset.code（全仓惯例，B 批实证） */
   assetCode: string;
   assetType: 'CRYPTO' | 'FIAT';
@@ -30,14 +35,14 @@ export class SimulatedCustodianStatementService {
     private readonly balanceChecker: WalletBalanceCheckerService,
   ) {}
 
-  async recordLegMovement(input: LegMovementInput): Promise<{ outLineId: string; inLineId: string; cutoffDate: string }> {
+  async recordLegMovement(input: LegMovementInput): Promise<{ outLineId: string | null; inLineId: string | null; cutoffDate: string }> {
     const source = input.assetType === 'CRYPTO' ? 'HEXTRUST' : 'ZAND';
     const cutoffDate = toBusinessDate(input.at);
-    const out = await this.writeLine(input, source, input.fromWalletId, 'OUT');
-    const inn = await this.writeLine(input, source, input.toWalletId, 'IN');
-    await this.bumpClosing(input, source, cutoffDate, input.fromWalletId, -input.amountMinor, out.book);
-    await this.bumpClosing(input, source, cutoffDate, input.toWalletId, input.amountMinor, inn.book);
-    return { outLineId: out.id, inLineId: inn.id, cutoffDate };
+    const out = input.fromWalletId ? await this.writeLine(input, source, input.fromWalletId, 'OUT') : null;
+    const inn = input.toWalletId ? await this.writeLine(input, source, input.toWalletId, 'IN') : null;
+    if (out) await this.bumpClosing(input, source, cutoffDate, input.fromWalletId as string, -input.amountMinor, out.book);
+    if (inn) await this.bumpClosing(input, source, cutoffDate, input.toWalletId as string, input.amountMinor, inn.book);
+    return { outLineId: out?.id ?? null, inLineId: inn?.id ?? null, cutoffDate };
   }
 
   private async walletBook(walletId: string): Promise<Book> {

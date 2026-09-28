@@ -1,0 +1,287 @@
+import { LpExchangeWorkflowService } from './lp-exchange-workflow.service';
+import { LpExchangeStatus as S } from './dto/lp-exchange.dto';
+import { TB_TRANSFER_CODES } from '../../accounting/tigerbeetle/constants/tb-transfer-codes.constant';
+
+const USDT = { id: 'a-usdt', code: 'USDT-TRON', currency: 'USDT', decimals: 6, type: 'CRYPTO' };
+const AED = { id: 'a-aed', code: 'AED', currency: 'AED', decimals: 2, type: 'FIAT' };
+const treasury = { actorType: 'ADMIN' as const, userId: 'uuid-tre', userNo: 'ADM-TRE', roleCodes: ['TREASURY_OFFICER'] };
+const profile = { lpNo: 'LPP1', name: 'Acme LP', fiatBankName: 'Bank', fiatIban: 'AE-LP-IBAN', cryptoNetwork: 'TRON', cryptoAddress: 'TLP-ADDR', agreementRef: 'AGR1', status: 'ACTIVE' };
+
+const exchangeRowBase = {
+  id: 'uuid-lpx', exchangeNo: 'LPX1', lpId: 'uuid-lp', lpNo: 'LPP1',
+  sellAssetId: USDT.id, sellAmount: '20000', sellAsset: USDT,
+  buyAssetId: AED.id, buyAmount: '73280', buyAsset: AED,
+  prudentialPurpose: 'Liquidity management', status: S.PENDING_APPROVAL, reason: 'r',
+  sellFromWalletId: 'w-ops-usdt', buyViaWalletId: 'w-liq-aed', buyToWalletId: 'w-ops-aed',
+  approvalNo: 'APR1', traceId: 'trace-1', createdByUserId: 'ADM-TRE',
+};
+
+function makeWorkflow(o: Partial<Record<'exchangeRow' | 'buyLegs', any>> = {}) {
+  const exchangeRow = o.exchangeRow ?? exchangeRowBase;
+  const walletsById: Record<string, any> = {
+    'w-ops-usdt': { id: 'w-ops-usdt', address: 'Tops-usdt', iban: null },
+    'w-liq-aed': { id: 'w-liq-aed', address: null, iban: 'AE-LIQ' },
+    'w-ops-aed': { id: 'w-ops-aed', address: null, iban: 'AE-OPS-AED' },
+  };
+  const assetsById: Record<string, any> = { [USDT.id]: USDT, [AED.id]: AED };
+  const prisma: any = {
+    asset: { findUnique: jest.fn(async ({ where }: any) => assetsById[where.id] ?? null) },
+    wallet: { findUnique: jest.fn(async ({ where }: any) => walletsById[where.id] ?? null) },
+    lpExchange: { findUnique: jest.fn(async () => exchangeRow) },
+  };
+  const exchanges: any = {
+    assertFirmOpsBalance: jest.fn(async () => undefined),
+    create: jest.fn(async (input: any) => ({ ...exchangeRow, ...input })),
+    findByNo: jest.fn(async () => exchangeRow),
+    transition: jest.fn(async (_no: string, to: string, patch: any = {}) => ({ ...exchangeRow, status: to, ...patch })),
+    stampApprovalNo: jest.fn(async () => undefined),
+  };
+  const lpProfiles: any = { assertActiveByNo: jest.fn(async () => undefined), findByNo: jest.fn(async () => profile) };
+  const approvals: any = { createAndSubmit: jest.fn(async () => ({ approvalNo: 'APR1' })), cancel: jest.fn(async () => ({})) };
+  const accounting: any = {
+    resolveTbAccountId: jest.fn(async ({ code }: any) => BigInt(code)),
+    executeTransfer: jest.fn(async () => ({ tbTransferId: 1n })),
+  };
+  const auditLogs: any = { recordByActor: jest.fn(async () => ({})), recordSystem: jest.fn(async () => ({})) };
+  const buyLegs = o.buyLegs ?? [{ id: 'fo-2', fundsOrderNo: 'FDO2', legSeq: 2, amount: '73280' }];
+  const legsById: Record<string, any> = {
+    'fo-1': { id: 'fo-1', fundsOrderNo: 'FDO1', legSeq: 1, amount: '20000', txHash: null, referenceNo: null, createdAt: new Date(), fromWalletId: 'w-ops-usdt', toWalletId: null },
+    'fo-2': { id: 'fo-2', fundsOrderNo: 'FDO2', legSeq: 2, amount: '73280', txHash: null, referenceNo: 'BANK-2', createdAt: new Date(), fromWalletId: null, toWalletId: 'w-liq-aed' },
+    'fo-3': { id: 'fo-3', fundsOrderNo: 'FDO3', legSeq: 3, amount: '73280', txHash: null, referenceNo: 'BANK-3', createdAt: new Date(), fromWalletId: 'w-liq-aed', toWalletId: 'w-ops-aed' },
+  };
+  const fundsOrders: any = {
+    create: jest.fn(async (input: any) => ({ id: `fo-${input.legSeq}`, fundsOrderNo: `FDO${input.legSeq}`, ...input })),
+    findById: jest.fn(async (id: string) => legsById[id] ?? null),
+    advance: jest.fn(async () => ({})),
+    stampExternalRef: jest.fn(async () => null),
+    resolveExternalRef: jest.fn((row: any) => (row.asset?.type === 'CRYPTO' ? row.txHash ?? null : row.referenceNo ?? null)),
+    findByParent: jest.fn(async () => buyLegs),
+  };
+  const systemWallets: any = {
+    resolve: jest.fn(async (assetId: string, vault: string) => {
+      if (vault === 'F_OPS' && assetId === USDT.id) return walletsById['w-ops-usdt'];
+      if (vault === 'F_LIQ') return walletsById['w-liq-aed'];
+      return walletsById['w-ops-aed'];
+    }),
+  };
+  const custodianStatement: any = { recordLegMovement: jest.fn(async () => ({ outLineId: 'l1', inLineId: 'l2', cutoffDate: '2026-09-29' })) };
+  const wf = new LpExchangeWorkflowService(prisma, exchanges, lpProfiles, approvals, accounting, auditLogs, fundsOrders, systemWallets, custodianStatement);
+  return { wf, prisma, exchanges, lpProfiles, approvals, accounting, auditLogs, fundsOrders, systemWallets, custodianStatement, exchangeRow };
+}
+
+describe('LpExchangeWorkflowService (Task 5)', () => {
+  describe('initiate — birth guards + happy path', () => {
+    const dto = { lpNo: 'LPP1', sellAssetId: USDT.id, sellAmount: '20000', buyAssetId: AED.id, buyAmount: '73280', prudentialPurpose: 'Liquidity management', reason: 'Rebalance USDT into AED' };
+
+    it('operating account balance is not enough → 400 (guard comes from the entity)', async () => {
+      const { wf, exchanges } = makeWorkflow();
+      exchanges.assertFirmOpsBalance.mockRejectedValueOnce(new Error('Insufficient USDT balance in the operating account'));
+      await expect(wf.initiate(dto, treasury)).rejects.toThrow(/Insufficient/);
+    });
+
+    it('happy path: resolves 3 wallets (F_OPS sell / F_LIQ buy / F_OPS buy), creates the row, submits to CFO approval, audit REQUESTED, snapshot has zero UUIDs', async () => {
+      const { wf, exchanges, approvals, auditLogs, systemWallets } = makeWorkflow();
+      const r = await wf.initiate(dto, treasury);
+      expect(r).toEqual({ exchangeNo: 'LPX1', approvalNo: 'APR1', status: 'PENDING_APPROVAL' });
+      expect(exchanges.assertFirmOpsBalance).toHaveBeenCalledWith('USDT', 20_000_000_000n);
+      expect(systemWallets.resolve).toHaveBeenCalledWith(USDT.id, 'F_OPS');
+      expect(systemWallets.resolve).toHaveBeenCalledWith(AED.id, 'F_LIQ');
+      expect(systemWallets.resolve).toHaveBeenCalledWith(AED.id, 'F_OPS');
+      expect(exchanges.create).toHaveBeenCalledWith(expect.objectContaining({ lpNo: 'LPP1', sellFromWalletId: 'w-ops-usdt', buyViaWalletId: 'w-liq-aed', buyToWalletId: 'w-ops-aed' }));
+      expect(exchanges.stampApprovalNo).toHaveBeenCalledWith('LPX1', 'APR1');
+      const snapshot = approvals.createAndSubmit.mock.calls[0][0];
+      expect(snapshot.actionType).toBe('LP_EXCHANGE_APPROVAL');
+      expect(snapshot.entityRef).toBe('LPX1');
+      expect(JSON.stringify(snapshot.objectSnapshot)).not.toMatch(/uuid-|w-ops|w-liq/);
+      expect(snapshot.objectSnapshot.lpName).toBe('Acme LP');
+      expect(snapshot.objectSnapshot.sell).toBe('20000.000000 USDT');
+      expect(snapshot.objectSnapshot.buy).toBe('73280.00 AED');
+      const audit = auditLogs.recordByActor.mock.calls[0][0];
+      expect(audit).toMatchObject({ action: 'LP_EXCHANGE_REQUESTED', actionDomain: 'TREASURY', primarySubjectNo: 'LPX1', amount: '20000.000000', approvalNo: 'APR1' });
+      expect(audit.requestId).toMatch(/^LP_EXCHANGE_REQUESTED_LPX1_/);
+      expect(audit.correlationId).toBeUndefined(); // REQUESTED 起旅程，不显式传 correlationId
+      expect(audit.subjects).toEqual(expect.arrayContaining([
+        expect.objectContaining({ subjectType: 'LP_EXCHANGE', subjectNo: 'LPX1', subjectRole: 'PRIMARY' }),
+        expect.objectContaining({ subjectType: 'LIQUIDITY_PROVIDER', subjectNo: 'LPP1', subjectRole: 'RELATED' }),
+      ]));
+    });
+  });
+
+  describe('onDecided', () => {
+    const decided = (decision: any) => ({ decision, actionType: 'LP_EXCHANGE_APPROVAL', entityRef: 'LPX1', approvalId: 'uuid-apr', approvalNo: 'APR1', traceId: 'trace-1', workflowType: 'LP_EXCHANGE', metadata: {} });
+
+    it('rejected → REJECTED + audit carries fromStatus/toStatus + approval causation + explicit requestId', async () => {
+      const { wf, exchanges, auditLogs } = makeWorkflow();
+      await wf.onDecided(decided('DECLINED') as any);
+      expect(exchanges.transition).toHaveBeenCalledWith('LPX1', 'REJECTED', expect.anything());
+      const audit = auditLogs.recordSystem.mock.calls[0][0];
+      expect(audit).toMatchObject({ action: 'LP_EXCHANGE_REJECTED', approvalNo: 'APR1', causationId: 'uuid-apr', fromStatus: 'PENDING_APPROVAL', toStatus: 'REJECTED' });
+      expect(audit.requestId).toMatch(/^LP_EXCHANGE_REJECTED_LPX1_/);
+    });
+
+    it('a cancellation decision is not handled here (cancel() closes its own loop)', async () => {
+      const { wf, exchanges } = makeWorkflow();
+      await wf.onDecided(decided('CANCELLED') as any);
+      expect(exchanges.transition).not.toHaveBeenCalled();
+    });
+
+    it('approved but operating account balance is not enough → FAILED(INSUFFICIENT_FIRM_BALANCE), no funds order created', async () => {
+      const { wf, exchanges, fundsOrders } = makeWorkflow();
+      exchanges.assertFirmOpsBalance.mockRejectedValueOnce(new Error('Insufficient USDT balance in the operating account'));
+      await wf.onDecided(decided('APPROVED') as any);
+      expect(exchanges.transition).toHaveBeenCalledWith('LPX1', 'FAILED', expect.objectContaining({ failureReasonCode: 'INSUFFICIENT_FIRM_BALANCE' }));
+      expect(fundsOrders.create).not.toHaveBeenCalled();
+    });
+
+    it('approved → creates sell leg 1 (F_OPS → LP crypto address, CREATED) → EXECUTING + audit EXECUTION_STARTED with approvalNo+causationId', async () => {
+      const { wf, exchanges, fundsOrders, auditLogs } = makeWorkflow();
+      await wf.onDecided(decided('APPROVED') as any);
+      expect(fundsOrders.create).toHaveBeenCalledWith(expect.objectContaining({
+        lpExchangeId: 'uuid-lpx', legSeq: 1, initialStatus: 'CREATED', assetId: USDT.id, amount: '20000',
+        fromWalletId: 'w-ops-usdt', fromAddress: 'Tops-usdt', toWalletId: null, toAddress: 'TLP-ADDR', toIban: null,
+      }));
+      expect(exchanges.transition).toHaveBeenCalledWith('LPX1', 'EXECUTING', expect.objectContaining({ executedAt: expect.any(Date) }));
+      const audit = auditLogs.recordSystem.mock.calls[0][0];
+      expect(audit).toMatchObject({ action: 'LP_EXCHANGE_EXECUTION_STARTED', approvalNo: 'APR1', causationId: 'uuid-apr' });
+    });
+  });
+
+  describe('handleFundsOrderChanged — sell leg 1', () => {
+    const executing = { ...exchangeRowBase, status: S.EXECUTING };
+    const evt = (legSeq: number, newStatus: string) => ({ fundsOrderId: 'fo-1', fundsOrderNo: 'FDO1', parent: { lpExchangeId: 'uuid-lpx' }, legSeq, attempt: 1, oldStatus: null, newStatus });
+
+    it('an event that is not for an LP exchange leg is ignored outright', async () => {
+      const { wf, custodianStatement } = makeWorkflow();
+      await wf.handleFundsOrderChanged({ ...evt(1, 'SUBMITTED'), parent: { internalTransferId: 'x' } } as any);
+      expect(custodianStatement.recordLegMovement).not.toHaveBeenCalled();
+    });
+
+    it('SUBMITTED: mints the reference (crypto txHash), then writes one custodian line (toWalletId null — LP external address is not our wallet)', async () => {
+      const { wf, fundsOrders, custodianStatement } = makeWorkflow({ exchangeRow: executing });
+      fundsOrders.stampExternalRef.mockResolvedValueOnce({ txHash: `0x${'ab'.repeat(32)}` });
+      await wf.handleFundsOrderChanged(evt(1, 'SUBMITTED') as any);
+      expect(fundsOrders.stampExternalRef).toHaveBeenCalledWith('fo-1');
+      expect(custodianStatement.recordLegMovement).toHaveBeenCalledWith(expect.objectContaining({
+        fundsOrderNo: 'FDO1', fromWalletId: 'w-ops-usdt', toWalletId: null, assetCode: 'USDT-TRON', assetType: 'CRYPTO', amountMinor: 20_000_000_000n,
+      }));
+    });
+
+    it('CONFIRMED: posts 84 (DR E.FIRM_OPS / CR A.FIRM_ASSET, external-crossing) → CLEAR → AWAITING_DELIVERY + audit PAY_LEG_POSTED carries fromStatus/toStatus', async () => {
+      const { wf, accounting, fundsOrders, exchanges, auditLogs } = makeWorkflow({ exchangeRow: executing });
+      await wf.handleFundsOrderChanged(evt(1, 'CONFIRMED') as any);
+      expect(accounting.executeTransfer).toHaveBeenCalledTimes(1);
+      expect(accounting.executeTransfer.mock.calls[0][0]).toMatchObject({
+        code: TB_TRANSFER_CODES.LP_EXCHANGE_PAY, amount: 20_000_000_000n,
+        evidence: expect.objectContaining({
+          sourceType: 'LP_EXCHANGE', sourceNo: 'LPX1', eventCode: 'LP_EXCHANGE_PAY',
+          debitCode: 'E.FIRM_OPS', creditCode: 'A.FIRM_ASSET',
+          debitWalletRef: 'w-ops-usdt', creditWalletRef: 'w-ops-usdt', isExternalCrossing: true, assetCurrency: 'USDT',
+        }),
+      });
+      expect(fundsOrders.advance).toHaveBeenCalledWith('fo-1', 'CLEAR', 'LP_EXCHANGE_WORKFLOW');
+      expect(exchanges.transition).toHaveBeenCalledWith('LPX1', 'AWAITING_DELIVERY');
+      const audit = auditLogs.recordSystem.mock.calls[0][0];
+      expect(audit).toMatchObject({ action: 'LP_EXCHANGE_PAY_LEG_POSTED', amount: '20000.000000', fromStatus: 'EXECUTING', toStatus: 'AWAITING_DELIVERY' });
+    });
+
+    it('posting throws → audit FAILED(POSTING_FAILED), not cleared, no transition, no retry', async () => {
+      const { wf, accounting, fundsOrders, exchanges, auditLogs } = makeWorkflow({ exchangeRow: executing });
+      accounting.executeTransfer.mockRejectedValueOnce(new Error('TB down'));
+      await wf.handleFundsOrderChanged(evt(1, 'CONFIRMED') as any);
+      expect(fundsOrders.advance).not.toHaveBeenCalled();
+      expect(exchanges.transition).not.toHaveBeenCalled();
+      expect(auditLogs.recordSystem.mock.calls[0][0]).toMatchObject({ action: 'LP_EXCHANGE_FAILED', reasonCode: 'POSTING_FAILED', outcome: 'FAILED' });
+    });
+
+    it('FAILED: sell leg fails → order FAILED(LEG_FAILED), no funds paid to the LP', async () => {
+      const { wf, exchanges, auditLogs } = makeWorkflow({ exchangeRow: executing });
+      await wf.handleFundsOrderChanged(evt(1, 'FAILED') as any);
+      expect(exchanges.transition).toHaveBeenCalledWith('LPX1', 'FAILED', expect.objectContaining({ failureReasonCode: 'LEG_FAILED', failureNote: expect.stringContaining('no funds paid out') }));
+      expect(auditLogs.recordSystem.mock.calls[0][0]).toMatchObject({ action: 'LP_EXCHANGE_FAILED', reasonCode: 'LEG_FAILED', fromStatus: 'EXECUTING', toStatus: 'FAILED' });
+    });
+  });
+
+  describe('simulateDelivery (⚡ buy leg 2 — front desk)', () => {
+    const awaitingDelivery = { ...exchangeRowBase, status: S.AWAITING_DELIVERY };
+
+    it('guard: not awaiting delivery → 400', async () => {
+      const { wf } = makeWorkflow({ exchangeRow: { ...exchangeRowBase, status: S.EXECUTING } });
+      await expect(wf.simulateDelivery('LPX1', treasury)).rejects.toThrow(/not awaiting delivery/);
+    });
+
+    it('creates leg 2 born CONFIRMED (buy asset FIAT → fromIban = LP iban), posts 85 to F_LIQ, CLEARs, records the F_LIQ custodian line, DELIVERED + audit DELIVERED(amount=buy leg)', async () => {
+      const { wf, fundsOrders, accounting, custodianStatement, exchanges, auditLogs } = makeWorkflow({ exchangeRow: awaitingDelivery });
+      const r = await wf.simulateDelivery('LPX1', treasury);
+      expect(fundsOrders.create).toHaveBeenCalledWith(expect.objectContaining({
+        lpExchangeId: 'uuid-lpx', legSeq: 2, initialStatus: 'CONFIRMED', assetId: AED.id, amount: '73280',
+        fromWalletId: null, fromIban: 'AE-LP-IBAN', fromAddress: null, toWalletId: 'w-liq-aed',
+      }));
+      expect(accounting.executeTransfer).toHaveBeenCalledTimes(1);
+      expect(accounting.executeTransfer.mock.calls[0][0]).toMatchObject({
+        code: TB_TRANSFER_CODES.LP_EXCHANGE_RECEIVE, amount: 7_328_000n,
+        evidence: expect.objectContaining({ eventCode: 'LP_EXCHANGE_RECEIVE', debitCode: 'A.FIRM_ASSET', creditCode: 'E.FIRM_LIQ', debitWalletRef: 'w-liq-aed', creditWalletRef: 'w-liq-aed', isExternalCrossing: true, assetCurrency: 'AED' }),
+      });
+      expect(fundsOrders.advance).toHaveBeenCalledWith('fo-2', 'CLEAR', 'LP_EXCHANGE_WORKFLOW');
+      expect(custodianStatement.recordLegMovement).toHaveBeenCalledWith(expect.objectContaining({ fundsOrderNo: 'FDO2', fromWalletId: null, toWalletId: 'w-liq-aed', assetCode: 'AED', assetType: 'FIAT', amountMinor: 7_328_000n }));
+      expect(exchanges.transition).toHaveBeenCalledWith('LPX1', 'DELIVERED', expect.objectContaining({ deliveredAt: expect.any(Date) }));
+      const audit = auditLogs.recordByActor.mock.calls[0][0];
+      // 信封 amount 字段恒填卖出边（brief §Step8）；买入边落 metadata.buyLegAmount。
+      expect(audit).toMatchObject({ action: 'LP_EXCHANGE_DELIVERED', amount: '20000.000000', fromStatus: 'AWAITING_DELIVERY', toStatus: 'DELIVERED' });
+      expect(audit.metadata).toMatchObject({ buyLegAmount: '73280.00' });
+      expect(r.status).toBe('DELIVERED');
+    });
+  });
+
+  describe('accept (leg 3 — internal, front desk → operating, not external-crossing)', () => {
+    const delivered = { ...exchangeRowBase, status: S.DELIVERED };
+
+    it('not yet delivered → 400 (still awaiting delivery)', async () => {
+      const { wf } = makeWorkflow({ exchangeRow: { ...exchangeRowBase, status: S.AWAITING_DELIVERY } });
+      await expect(wf.accept('LPX1', treasury)).rejects.toThrow(/not delivered yet/);
+    });
+
+    it('double accept → 400 (already SUCCESS, transitions table has zero out-edges)', async () => {
+      const { wf } = makeWorkflow({ exchangeRow: { ...exchangeRowBase, status: S.SUCCESS } });
+      await expect(wf.accept('LPX1', treasury)).rejects.toThrow(/not delivered yet/);
+    });
+
+    it('creates leg 3 (F_LIQ → F_OPS, internal), posts 86 (isExternalCrossing=false), CLEARs, SUCCESS + audit ACCEPTED with expected/received', async () => {
+      const { wf, fundsOrders, accounting, exchanges, auditLogs } = makeWorkflow({ exchangeRow: delivered });
+      const r = await wf.accept('LPX1', treasury);
+      expect(fundsOrders.create).toHaveBeenCalledWith(expect.objectContaining({ lpExchangeId: 'uuid-lpx', legSeq: 3, initialStatus: 'CONFIRMED', assetId: AED.id, amount: '73280', fromWalletId: 'w-liq-aed', toWalletId: 'w-ops-aed' }));
+      expect(accounting.executeTransfer.mock.calls[0][0]).toMatchObject({
+        code: TB_TRANSFER_CODES.LP_EXCHANGE_ACCEPT, amount: 7_328_000n,
+        evidence: expect.objectContaining({ eventCode: 'LP_EXCHANGE_ACCEPT', debitCode: 'E.FIRM_LIQ', creditCode: 'E.FIRM_OPS', debitWalletRef: 'w-liq-aed', creditWalletRef: 'w-ops-aed', isExternalCrossing: false }),
+      });
+      expect(fundsOrders.advance).toHaveBeenCalledWith('fo-3', 'CLEAR', 'LP_EXCHANGE_WORKFLOW');
+      expect(exchanges.transition).toHaveBeenCalledWith('LPX1', 'SUCCESS', expect.objectContaining({ settledAt: expect.any(Date) }));
+      const audit = auditLogs.recordByActor.mock.calls[0][0];
+      // 信封 amount 字段恒填卖出边（brief §Step8）；验收两数（expected/received）落 metadata。
+      expect(audit).toMatchObject({ action: 'LP_EXCHANGE_ACCEPTED', amount: '20000.000000', fromStatus: 'DELIVERED', toStatus: 'SUCCESS' });
+      expect(audit.metadata).toMatchObject({ expected: '73280.00', received: '73280.00' });
+      expect(r.status).toBe('SUCCESS');
+    });
+
+    it('received uses leg 2\'s actual amount, not just the row\'s buyAmount restated', async () => {
+      const { wf, auditLogs } = makeWorkflow({ exchangeRow: delivered, buyLegs: [{ id: 'fo-2', fundsOrderNo: 'FDO2', legSeq: 2, amount: '73280' }] });
+      await wf.accept('LPX1', treasury);
+      expect(auditLogs.recordByActor.mock.calls[0][0].metadata.received).toBe('73280.00');
+    });
+  });
+
+  describe('cancel', () => {
+    it('pending-approval exchanges can be cancelled: cancels the approval first, then flips to CANCELLED + audit', async () => {
+      const { wf, approvals, exchanges, auditLogs } = makeWorkflow();
+      const r = await wf.cancel('LPX1', { reason: 'Opened by mistake' }, treasury);
+      expect(approvals.cancel).toHaveBeenCalledWith('APR1', { reason: 'Opened by mistake' }, treasury);
+      expect(exchanges.transition).toHaveBeenCalledWith('LPX1', 'CANCELLED', expect.objectContaining({ failureNote: 'Opened by mistake' }));
+      expect(r.status).toBe('CANCELLED');
+      expect(auditLogs.recordByActor.mock.calls[0][0].action).toBe('LP_EXCHANGE_CANCELLED');
+    });
+
+    it('cannot cancel while executing', async () => {
+      const { wf } = makeWorkflow({ exchangeRow: { ...exchangeRowBase, status: S.EXECUTING } });
+      await expect(wf.cancel('LPX1', { reason: 'x' }, treasury)).rejects.toThrow(/cannot be cancelled/);
+    });
+  });
+});

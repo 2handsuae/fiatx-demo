@@ -43,4 +43,27 @@ describe('SimulatedCustodianStatementService（平账二期 Task 6）', () => {
     await svc.recordLegMovement({ fundsOrderNo: 'FO2', fromWalletId: 'w-ops', toWalletId: 'w-cust', assetCode: 'AED', assetType: 'FIAT', amountMinor: 90_000n, externalRef: 'BANK-1', at, description: 'sim' });
     expect(upserts[0].create.source).toBe('ZAND');
   });
+
+  // 战役乙波一 T5：LP 兑换卖出/买入腿一侧是 LP 的外部地址/IBAN，不是我们系统里的钱包——
+  // 该侧传 null，只写另一侧的行（两侧都是内部钱包时行为不变，见上面三个用例）。
+  describe('一侧是外部坐标（LP，不是我们的钱包）——only-one-side（乙波一 T5）', () => {
+    it('fromWalletId=null（LP 打款进前厅）→ 只写 IN 一行，outLineId 为 null', async () => {
+      const { svc, upserts, creates } = make();
+      const r = await svc.recordLegMovement({ fundsOrderNo: 'FO3', fromWalletId: null, toWalletId: 'w-cust', assetCode: 'AED', assetType: 'FIAT', amountMinor: 50_000n, externalRef: 'BANK-2', at, description: 'sim' });
+      expect(upserts).toHaveLength(1);
+      expect(upserts[0].create).toMatchObject({ accountRef: 'w-cust', direction: 'IN', book: 'CLIENT' });
+      expect(r.outLineId).toBeNull();
+      expect(r.inLineId).toBe('line-1');
+      expect(creates).toHaveLength(1); // 只对 IN 侧建当日余额行，没有 OUT 侧
+    });
+
+    it('toWalletId=null（我们付给 LP 的外部地址）→ 只写 OUT 一行，inLineId 为 null', async () => {
+      const { svc, upserts } = make();
+      const r = await svc.recordLegMovement({ fundsOrderNo: 'FO4', fromWalletId: 'w-ops', toWalletId: null, assetCode: 'USDT-TRON', assetType: 'CRYPTO', amountMinor: 20_000_000n, externalRef: '0xleg2', at, description: 'sim' });
+      expect(upserts).toHaveLength(1);
+      expect(upserts[0].create).toMatchObject({ accountRef: 'w-ops', direction: 'OUT', book: 'FIRM' });
+      expect(r.outLineId).toBe('line-1');
+      expect(r.inLineId).toBeNull();
+    });
+  });
 });
