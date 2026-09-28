@@ -1795,6 +1795,45 @@ model ResponsibleIndividual {
   @@map("responsible_individuals")
 }
 
+model Complaint {
+  id                  String    @id @default(uuid())
+  complaintNo         String    @unique
+  ownerCustomerNo     String
+  category            String    // SERVICE | FEES | ORDER_EXECUTION | FROZEN_FUNDS_APPEAL | OTHER
+  relatedOrderNo      String?
+  subject             String
+  description         String
+  currentStatus       String    @default("RECEIVED")
+  submittedAt         DateTime  @default(now())
+  ackDeadlineAt       DateTime
+  acknowledgedAt      DateTime?
+  resolveDeadlineAt   DateTime
+  extendedAt          DateTime?
+  resolvedAt          DateTime?
+  resolutionOutcome   String?   // UPHELD | PARTIALLY_UPHELD | REJECTED
+  resolutionText      String?
+  escalatedIncidentNo String?
+  pendingApprovalNo   String?
+  traceId             String
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+  @@index([currentStatus])
+  @@index([ownerCustomerNo])
+  @@map("complaints")
+}
+
+model ComplaintEntry {
+  id          String   @id @default(uuid())
+  complaintNo String
+  kind        String   // INTERNAL_NOTE | CLIENT_MESSAGE
+  messageType String?  // CLIENT_MESSAGE 专用: ACK | EXTENSION_NOTICE | FINAL_RESPONSE
+  body        String
+  actorNo     String   // 客户行=customerNo；内部行=admin userId（显示走既有审计 actor 惯例）
+  createdAt   DateTime @default(now())
+  @@index([complaintNo])
+  @@map("complaint_entries")
+}
+
 model ReconciliationRunWallet {
   id               String   @id @default(uuid())
   runId            String

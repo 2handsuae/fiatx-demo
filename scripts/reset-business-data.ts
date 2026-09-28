@@ -67,6 +67,11 @@ const BUSINESS_DELEGATES_FK_SAFE: string[] = [
   'complianceObligation',
   'outsourcingVendor',
   'responsibleIndividual',
+  // 投诉工作流两表（战役甲波五 T1 加表——同上两次遗漏一模一样的形态，这次随手一起
+  // 登记。两表无 FK（complaintEntry.complaintNo 是文本列，非 @relation），删除顺序
+  // 不敏感，子表放前面只是与本节书写习惯保持一致。）
+  'complaintEntry',
+  'complaint',
   'reconciliationAdjustment',
   'reconciliationLineItem',
   'reconciliationCase',
