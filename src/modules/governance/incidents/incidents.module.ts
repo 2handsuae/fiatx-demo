@@ -28,6 +28,7 @@ import {
   IncidentCloseSecurityApprovalService,
   IncidentCloseTechsecApprovalService,
   IncidentClosePrudentialApprovalService,
+  IncidentCloseCustomerApprovalService,
 } from './incident-approval.service';
 import { IncidentsController } from './incidents.controller';
 
@@ -52,6 +53,7 @@ void _dispositionIncidentLinkWitness;
     IncidentCloseFinancialApprovalService,
     IncidentCloseTechsecApprovalService,
     IncidentClosePrudentialApprovalService,
+    IncidentCloseCustomerApprovalService,
     // Task 9 落地：DISPOSITION_INCIDENT_LINK 接对账侧真实现（原占位类
     // InterimDispositionIncidentLink 已删，行为迁到 DispositionService.attachIncident）。
     { provide: DISPOSITION_INCIDENT_LINK, useExisting: DispositionService },

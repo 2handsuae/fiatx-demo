@@ -26,6 +26,11 @@ import { ASSESSMENT_BASIS_BY_SCHEME, getIncidentTypeConfig, IncidentTypeConfig, 
 // IncidentsModule（filing 侧零事故依赖，入参靠调用方传行），单向依赖不成环。
 import { RegulatoryFilingService } from '../regulatory-filings/regulatory-filing.service';
 
+/** 战役甲波五 T4：CUSTOMER 族（当前仅 COMPLAINT_ESCALATION）只能经 registerFromComplaint
+ *  （投诉升级 workflow 编排）落地，人工登记入口（register()）显式拒绝——门不可绕，手工
+ *  登记拒绝清单本身是演示内容。 */
+const MANUAL_REGISTRATION_BLOCKED_TYPES: ReadonlySet<string> = new Set([IncidentTypes.COMPLAINT_ESCALATION]);
+
 @Injectable()
 export class IncidentService {
   constructor(
@@ -174,6 +179,11 @@ export class IncidentService {
    */
   async register(dto: RegisterIncidentDto, actor: ApprovalActorContext): Promise<{ incidentNo: string; traceId: string }> {
     if (!dto.title || !dto.description) throw new BadRequestException('Incident registration requires a title and a description');
+    // 战役甲波五 T4：人工登记拒绝清单——先于 getIncidentTypeConfig（避免 enabled:true 之后
+    // COMPLAINT_ESCALATION 从这道门溜进去）。registerFromComplaint 走独立方法，不受此清单约束。
+    if (MANUAL_REGISTRATION_BLOCKED_TYPES.has(dto.type)) {
+      throw new BadRequestException(`Incident type ${dto.type} cannot be registered manually — it is only created via complaint escalation`);
+    }
     // 未知/停用类型在这里先 400（getIncidentTypeConfig，T2）；经办桶断言先于任何类型专属
     // 校验（门不可绕）——存量三类维持原 switch 分支不变（行为回归），新七类落 default 分支
     // 走注册表锚键校验。
@@ -261,6 +271,51 @@ export class IncidentService {
       if (!transfer) throw new NotFoundException(`Advance transfer not found: ${dto.sourceAdvanceTransferNo}`);
       if (transfer.purpose !== 'CLIENT_ADVANCE') throw new BadRequestException(`Transfer ${dto.sourceAdvanceTransferNo} is not an advance transfer (purpose=${transfer.purpose}) — it cannot anchor a shortfall incident`);
     }
+  }
+
+  /**
+   * 投诉升级专用入口（战役甲波五 T4）：CUSTOMER 族只能经这里创建（register() 的
+   * MANUAL_REGISTRATION_BLOCKED_TYPES 挡了人工登记入口）。铁律③跨主体协作只在
+   * workflow——ComplaintEscalationWorkflowService 调本方法完成事故落库，再自行调
+   * ComplaintsService.markEscalated 回填投诉侧引用列；本方法不碰 complaints 表。
+   * 走同一落库路径（经办桶断言 + 审计），审计复用既有 INCIDENT_REGISTERED 码，
+   * metadata 额外带 complaintNo。注册表 requiredAnchors=['complaintNo','ownerCustomerNo']
+   * 两键取自投诉主体自己的业务号——ownerCustomerNo 落存量 customerNo 列（与其它类型的
+   * 客户锚一致，供审计 OWNER 主体与 list() 按客户过滤复用），complaintNo 落 subjectRefs
+   * （类型专属回链锚，同 STUCK_TRANSACTION_MAJOR 的 orderNo 惯例）；两键名不同构于
+   * TOP_LEVEL_ANCHOR_KEYS，故不复用通用 assertAnchors，改显式必填校验。
+   */
+  async registerFromComplaint(
+    actor: ApprovalActorContext,
+    dto: { complaintNo: string; ownerCustomerNo: string; title: string; description: string },
+  ): Promise<{ incidentNo: string }> {
+    if (!dto.complaintNo || !dto.ownerCustomerNo || !dto.title || !dto.description) {
+      throw new BadRequestException('Complaint escalation registration requires complaintNo, ownerCustomerNo, title and description');
+    }
+    const cfg = getIncidentTypeConfig(IncidentTypes.COMPLAINT_ESCALATION);
+    await this.assertOperator(cfg, actor);
+
+    const traceId = randomUUID();
+    const row = await this.prisma.incident.create({
+      data: {
+        incidentNo: generateReferenceNo('INC'),
+        type: IncidentTypes.COMPLAINT_ESCALATION,
+        status: IncidentStatus.REGISTERED,
+        title: dto.title,
+        description: dto.description,
+        customerNo: dto.ownerCustomerNo,
+        subjectRefs: JSON.stringify({ complaintNo: dto.complaintNo }),
+        registeredByUserId: actor.userNo ?? actor.userId,
+        traceId,
+      },
+    });
+
+    await this.recordAudit(row, AuditActions.INCIDENT_REGISTERED, actor, {
+      reason: dto.title, correlationId: traceId,
+      extra: { type: IncidentTypes.COMPLAINT_ESCALATION },
+      metadata: { complaintNo: dto.complaintNo },
+    });
+    return { incidentNo: row.incidentNo };
   }
 
   // 甲波一 T5 修1（Ruling-8，I2 修复）：requiredAnchors 里与存量列同名的三个键

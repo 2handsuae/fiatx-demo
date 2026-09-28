@@ -4,6 +4,7 @@ import {
   IncidentCloseSecurityApprovalService,
   IncidentCloseTechsecApprovalService,
   IncidentClosePrudentialApprovalService,
+  IncidentCloseCustomerApprovalService,
 } from './incident-approval.service';
 
 describe('IncidentCloseSecurityApprovalService/IncidentCloseFinancialApprovalService (Task 7)', () => {
@@ -27,6 +28,15 @@ describe('IncidentCloseSecurityApprovalService/IncidentCloseFinancialApprovalSer
     expect(techsec.workflowType).toBe('INCIDENT');
     expect(prudential.actionType).toBe('INCIDENT_CLOSE_PRUDENTIAL');
     expect(prudential.workflowType).toBe('INCIDENT');
+  });
+
+  // 战役甲波五 T4（承接项A）：控制点裁定并入本任务——CUSTOMER 族结案链缺 handler 子类，
+  // 批完事件永远不关且不报错（既有机制按 actionType 精确过滤，不会自动覆盖新类型）。
+  it('the wave-5 Customer handler also only claims its own action type, same shared workflowType', () => {
+    const emitter = new EventEmitter2();
+    const customer = new IncidentCloseCustomerApprovalService(emitter);
+    expect(customer.actionType).toBe('INCIDENT_CLOSE_CUSTOMER');
+    expect(customer.workflowType).toBe('INCIDENT');
   });
 
   it('does not act on a decision that is not its own actionType (Security handler receives a Financial decision)', async () => {

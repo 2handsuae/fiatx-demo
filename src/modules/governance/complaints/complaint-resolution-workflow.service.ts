@@ -20,19 +20,20 @@
 // （task-2-brief.md 原文签名）——两处不是同一份词表。onDecided 内把 DECLINED 显式翻译成
 // REJECTED 再往下传，CANCELLED/EXPIRED 原样透传，不假设两个词表恰好同名。
 //
-// ⚠️ 本文件只落 workflow 消费端。派生 COMPLAINT_RESOLUTION_DECIDED 事件的
-// ApprovalHandlerBase 子类（ComplaintResolutionApprovalService，同 ri-replacement-approval
-// .service.ts 形状）与 complaints.module.ts 的 provider 挂载不在本任务范围——module 尚不
-// 存在（T4 创建），此刻建一个无处注册的 handler 会是孤儿 provider。onDecided 本身在本任务
-// 只按 RI 先例做行为化单测（直接构造 ApprovalDecidedEvent 调用，不经真实事件总线）。
+// 派生 COMPLAINT_RESOLUTION_DECIDED 事件的 ApprovalHandlerBase 子类
+// （ComplaintResolutionApprovalService，同 ri-replacement-approval.service.ts 形状）与
+// complaints.module.ts 的 provider 挂载已在战役甲波五 T4 补齐（见
+// complaint-resolution-approval.service.ts / complaints.module.ts）——T3 交付时 module
+// 尚不存在，onDecided 本身仍按 RI 先例做行为化单测（直接构造 ApprovalDecidedEvent 调用，
+// 不经真实事件总线）。
 import { randomUUID } from 'node:crypto';
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import { OnEvent } from '@nestjs/event-emitter';
 import { DOMAIN_EVENTS } from '../../../common/events/domain-events.constants';
 import { ApprovalDecidedEvent } from '../approvals/approval-handler.base';
 import { ApprovalsService } from '../approvals/approvals.service';
 import { ApprovalActionTypes, ApprovalActorContext, ApprovalStatuses } from '../approvals/constants/approval.constants';
-import { ResolutionDto } from './complaint.constants';
+import { COMPLAINT_INVESTIGATING_STATUSES, ResolutionDto } from './complaint.constants';
 import { ComplaintsService } from './complaints.service';
 
 @Injectable()
@@ -44,8 +45,16 @@ export class ComplaintResolutionWorkflowService {
 
   /**
    * 提单：运营对一张投诉的裁决走 ApprovalsService 正门开单（铁律②门不可绕）。
+   * 战役甲波五 T4（承接项B，T3 评审 Minor，照 RI 先例「白开一张单不如提前拦」）：
+   * 开单前先读投诉核状态——不在两调查态（INVESTIGATING/INVESTIGATING_EXTENDED）就
+   * 400、不开单，避免创建一张永远等不到落地的孤儿审批单（ComplaintsService.
+   * proposeResolution 内部的 transition() 也会挡同一条件，但那时审批单已经开出）。
    */
   async propose(actor: ApprovalActorContext, complaintNo: string, dto: ResolutionDto): Promise<{ approvalNo: string }> {
+    const complaint = await this.complaints.findByNo(complaintNo);
+    if (!COMPLAINT_INVESTIGATING_STATUSES.includes(complaint.currentStatus)) {
+      throw new BadRequestException(`Complaint ${complaintNo} must be under investigation (INVESTIGATING or INVESTIGATING_EXTENDED) to propose a resolution (current status: ${complaint.currentStatus})`);
+    }
     const traceId = randomUUID();
     const approvalCase = await this.approvalsService.createAndSubmit(
       {

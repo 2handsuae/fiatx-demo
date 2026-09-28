@@ -110,12 +110,17 @@ export const INCIDENT_TYPE_REGISTRY: Record<string, IncidentTypeConfig> = {
     requiredAnchors: ['metric', 'shortfallAmount'], assessmentScheme: 'SHORTFALL',
     allowedRemediationKinds: [], enabled: true,
   },
+  // 战役甲波五 T4：通电——CUSTOMER 族只能经 IncidentService.registerFromComplaint
+  // （投诉升级 workflow 编排）落地，人工登记入口显式拒绝（见 incident.service.ts
+  // MANUAL_REGISTRATION_BLOCKED_TYPES）。结案改走合规官单步的 INCIDENT_CLOSE_CUSTOMER
+  // 链（T3 已注册）。requiredAnchors 两键取自投诉主体自己的业务号
+  // （Complaint.complaintNo/ownerCustomerNo），不是存量 TOP_LEVEL_ANCHOR_KEYS 里的
+  // customerNo——registerFromComplaint 显式必填两个字段，不复用通用 assertAnchors。
   COMPLAINT_ESCALATION: {
-    family: 'CUSTOMER', label: 'Complaint escalation (wave-5 placeholder)', establishedBy: 'Market Conduct III.A',
-    // 占位值，enabled=false 使其不可达；波五改。operatorMarkerCode 占位给 cap.incident.ops（裁决点名）。
-    operatorGroup: 'INCIDENT_OPS_WRITE', operatorMarkerCode: 'cap.incident.ops', closeActionType: 'INCIDENT_CLOSE_FINANCIAL',
-    reportBasisCandidates: [], requiredAnchors: [], assessmentScheme: 'IMPACT',
-    allowedRemediationKinds: [], enabled: false,
+    family: 'CUSTOMER', label: 'Complaint escalation', establishedBy: 'Market Conduct III.A',
+    operatorGroup: 'INCIDENT_OPS_WRITE', operatorMarkerCode: 'cap.incident.ops', closeActionType: 'INCIDENT_CLOSE_CUSTOMER',
+    reportBasisCandidates: [], requiredAnchors: ['complaintNo', 'ownerCustomerNo'], assessmentScheme: 'IMPACT',
+    allowedRemediationKinds: [], enabled: true,
   },
 };
 

@@ -51,3 +51,18 @@ export class IncidentClosePrudentialApprovalService extends ApprovalHandlerBase 
     super(eventEmitter);
   }
 }
+
+// 战役甲波五 T4（承接项A，前序评审裁定并入本任务）：CUSTOMER 族结案链（COMPLAINT_ESCALATION
+// 类型，合规官单步，T3 已登记 INCIDENT_CLOSE_CUSTOMER 审批策略）此前没有 handler 子类——
+// 既有机制按 `event.actionType !== this.actionType` 精确过滤（base.ts:66 起四个 @OnEvent），
+// 不会自动覆盖新类型，缺这个子类会导致合规官批完结案事件永远不关且不报错。逐字照抄上面
+// 四个 handler 的形状。
+@Injectable()
+export class IncidentCloseCustomerApprovalService extends ApprovalHandlerBase {
+  readonly actionType = ApprovalActionTypes.INCIDENT_CLOSE_CUSTOMER;
+  readonly workflowType = AuditBusinessWorkflowTypes.INCIDENT;
+
+  constructor(eventEmitter: EventEmitter2) {
+    super(eventEmitter);
+  }
+}

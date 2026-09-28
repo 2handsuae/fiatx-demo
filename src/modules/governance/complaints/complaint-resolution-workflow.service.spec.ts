@@ -30,8 +30,11 @@ function makeDecidedEvent(overrides: Partial<ApprovalDecidedEvent> = {}): Approv
 }
 
 /** 行为化 mock——不是无脑 resolve（同 ri-replacement-workflow.service.spec.ts 先例）。 */
-function buildDeps() {
+function buildDeps(o: { complaint?: any } = {}) {
   const complaints = {
+    // 战役甲波五 T4（承接项B，T3 评审 Minor：propose 先开单后迁状态可留孤儿审批单——
+    // 照 RI 先例「白开一张单不如提前拦」，propose() 在 createAndSubmit 之前先读投诉核状态）。
+    findByNo: jest.fn().mockResolvedValue(o.complaint ?? { complaintNo: COMPLAINT_NO, currentStatus: 'INVESTIGATING' }),
     proposeResolution: jest.fn().mockResolvedValue({ complaintNo: COMPLAINT_NO }),
     applyResolution: jest.fn().mockResolvedValue({ complaintNo: COMPLAINT_NO }),
     rejectResolution: jest.fn().mockResolvedValue({ complaintNo: COMPLAINT_NO }),
@@ -63,13 +66,13 @@ describe('ComplaintResolutionWorkflowService.propose', () => {
     const proposeOrder = complaints.proposeResolution.mock.invocationCallOrder[0];
     expect(submitOrder).toBeLessThan(proposeOrder);
 
+    // 战役甲波五 T4（承接项C，T3 评审 Minor）：objectSnapshot 精确 toEqual（恰三键），
+    // 不用 objectContaining——防日后悄悄多塞一个字段（如 UUID）而测试照样绿。
     expect(approvalsService.createAndSubmit).toHaveBeenCalledWith(
       expect.objectContaining({
         actionType: ApprovalActionTypes.COMPLAINT_RESOLUTION,
         entityRef: COMPLAINT_NO,
-        objectSnapshot: expect.objectContaining({
-          complaintNo: COMPLAINT_NO, outcome: ComplaintResolutionOutcomes.UPHELD, resolutionText: 'Refund issued in full.',
-        }),
+        objectSnapshot: { complaintNo: COMPLAINT_NO, outcome: ComplaintResolutionOutcomes.UPHELD, resolutionText: 'Refund issued in full.' },
       }),
       expect.objectContaining({ reason: 'Refund issued in full.' }),
       expect.objectContaining({ userId: 'uuid-ops' }),
@@ -81,6 +84,34 @@ describe('ComplaintResolutionWorkflowService.propose', () => {
       expect.objectContaining({ outcome: ComplaintResolutionOutcomes.UPHELD, resolutionText: 'Refund issued in full.' }),
       'APR-CMP-1',
     );
+  });
+
+  // 战役甲波五 T4（承接项B，T3 评审 Minor，照 RI 先例「白开一张单不如提前拦」）：
+  // propose 在 createAndSubmit 之前先读投诉核 currentStatus ∈ {INVESTIGATING,
+  // INVESTIGATING_EXTENDED}，不满足直接 400、不开单——不留孤儿审批单。
+  it('预拦：投诉不在两调查态时（如 ACKNOWLEDGED）400，不开审批单、不调 T2 proposeResolution', async () => {
+    const { svc, complaints, approvalsService } = buildDeps({
+      complaint: { complaintNo: COMPLAINT_NO, currentStatus: 'ACKNOWLEDGED' },
+    });
+
+    await expect(svc.propose(actorContext(), COMPLAINT_NO, {
+      outcome: ComplaintResolutionOutcomes.UPHELD, resolutionText: 'Refund issued in full.',
+    })).rejects.toThrow(/must be under investigation/);
+
+    expect(approvalsService.createAndSubmit).not.toHaveBeenCalled();
+    expect(complaints.proposeResolution).not.toHaveBeenCalled();
+  });
+
+  it('预拦放行：INVESTIGATING_EXTENDED 也算两调查态之一，正常开单', async () => {
+    const { svc, approvalsService } = buildDeps({
+      complaint: { complaintNo: COMPLAINT_NO, currentStatus: 'INVESTIGATING_EXTENDED' },
+    });
+
+    await svc.propose(actorContext(), COMPLAINT_NO, {
+      outcome: ComplaintResolutionOutcomes.UPHELD, resolutionText: 'Refund issued in full.',
+    });
+
+    expect(approvalsService.createAndSubmit).toHaveBeenCalledTimes(1);
   });
 });
 

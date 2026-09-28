@@ -41,9 +41,13 @@ describe('INCIDENT_TYPE_REGISTRY (spec §1 十类终盘)', () => {
     expect(INCIDENT_TYPE_REGISTRY.LARGE_UNEXPLAINED.closeActionType).toBe('INCIDENT_CLOSE_FINANCIAL');
     expect(INCIDENT_TYPE_REGISTRY.STUCK_TRANSACTION_MAJOR.closeActionType).toBe('INCIDENT_CLOSE_FINANCIAL');
   });
-  it('COMPLAINT_ESCALATION 停用：getIncidentTypeConfig 抛 400', () => {
-    expect(INCIDENT_TYPE_REGISTRY.COMPLAINT_ESCALATION.enabled).toBe(false);
-    expect(() => getIncidentTypeConfig('COMPLAINT_ESCALATION')).toThrow(/disabled/i);
+  // 战役甲波五 T4：通电——enabled:true，结案走 CUSTOMER 链，锚键改投诉侧两号。
+  it('COMPLAINT_ESCALATION 通电：enabled + CUSTOMER 结案链 + complaintNo/ownerCustomerNo 锚', () => {
+    const c = INCIDENT_TYPE_REGISTRY.COMPLAINT_ESCALATION;
+    expect(c.enabled).toBe(true);
+    expect(c.closeActionType).toBe('INCIDENT_CLOSE_CUSTOMER');
+    expect(c.requiredAnchors).toEqual(['complaintNo', 'ownerCustomerNo']);
+    expect(() => getIncidentTypeConfig('COMPLAINT_ESCALATION')).not.toThrow();
     expect(() => getIncidentTypeConfig('MANUAL')).toThrow(/unknown/i);
   });
 });

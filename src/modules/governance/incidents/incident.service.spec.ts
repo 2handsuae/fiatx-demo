@@ -135,10 +135,50 @@ describe('IncidentService (Task 5)', () => {
       expect(JSON.parse(createCall.data.subjectRefs)).toMatchObject({ affectedSystem: 'core-ledger', bcdrTriggered: false });
     });
 
-    it('MANUAL and COMPLAINT_ESCALATION are rejected', async () => {
-      const { svc } = makeService();
+    // 战役甲波五 T4：MANUAL 仍落 default → getIncidentTypeConfig 抛"unknown"；COMPLAINT_ESCALATION
+    // 现已 enabled，但 register()（人工登记入口）显式拒绝清单挡在 getIncidentTypeConfig 之前——
+    // 门不可绕，手工登记拒绝清单本身是演示内容。actor 持 cap.incident.ops（若门缺失会被
+    // assertOperator 放行、误判"门在生效"，故显式喂它持有该族权限，证明挡的是清单本身）。
+    it('register() (manual entry): MANUAL is unknown, COMPLAINT_ESCALATION is explicitly blocked (create/audit untouched)', async () => {
+      const { svc, prisma, auditLogs } = makeService({ heldMarkers: ['cap.incident.ops'] });
       await expect(svc.register({ type: 'MANUAL', title: 't', description: 'd' } as any, ops)).rejects.toThrow(BadRequestException);
-      await expect(svc.register({ type: T.COMPLAINT_ESCALATION, title: 't', description: 'd' } as any, ops)).rejects.toThrow(BadRequestException);
+      await expect(svc.register({ type: T.COMPLAINT_ESCALATION, title: 't', description: 'd' } as any, ops))
+        .rejects.toThrow(/cannot be registered manually/);
+      expect(prisma.incident.create).not.toHaveBeenCalled();
+      expect(auditLogs.recordByActor).not.toHaveBeenCalled();
+    });
+  });
+
+  // 战役甲波五 T4：投诉升级专用入口——register() 的人工登记拒绝清单不适用于它
+  // （门只挡人工登记，不挡 workflow 编排的内部落库路径）。
+  describe('registerFromComplaint (Task 4: complaint escalation internal entry)', () => {
+    const complaintDto = { complaintNo: 'CMP260101000001', ownerCustomerNo: 'CU1', title: 'Complaint escalation — CMP260101000001', description: 'Order disputed, escalating' };
+
+    it('creates a COMPLAINT_ESCALATION incident: customerNo from ownerCustomerNo (top-level column), complaintNo anchored in subjectRefs, audit reuses INCIDENT_REGISTERED with complaintNo in metadata', async () => {
+      const { svc, prisma, auditLogs, accessControl } = makeService({ heldMarkers: ['cap.incident.ops'] });
+      const r = await svc.registerFromComplaint(ops, complaintDto);
+      expect(r.incidentNo).toMatch(/^INC/);
+      expect(accessControl.hasPermission).toHaveBeenCalledWith(ops.userId, 'cap.incident.ops');
+
+      const createCall = prisma.incident.create.mock.calls[0][0];
+      expect(createCall.data.type).toBe(T.COMPLAINT_ESCALATION);
+      expect(createCall.data.customerNo).toBe('CU1');
+      expect(JSON.parse(createCall.data.subjectRefs)).toEqual({ complaintNo: 'CMP260101000001' });
+
+      const auditCall = auditLogs.recordByActor.mock.calls[0][0];
+      expect(auditCall.action).toBe('INCIDENT_REGISTERED');
+      expect(auditCall.metadata.complaintNo).toBe('CMP260101000001');
+    });
+
+    it('rejects when the operator lacks cap.incident.ops (door still guards the internal entry)', async () => {
+      const { svc, prisma } = makeService({ heldMarkers: ['cap.incident.funds'] });
+      await expect(svc.registerFromComplaint(ops, complaintDto)).rejects.toThrow(ForbiddenException);
+      expect(prisma.incident.create).not.toHaveBeenCalled();
+    });
+
+    it('rejects when a required field is missing', async () => {
+      const { svc } = makeService({ heldMarkers: ['cap.incident.ops'] });
+      await expect(svc.registerFromComplaint(ops, { ...complaintDto, ownerCustomerNo: '' } as any)).rejects.toThrow(BadRequestException);
     });
   });
 
