@@ -24,16 +24,17 @@ export class FundsOrderService {
     private readonly eventEmitter: EventEmitter2,
   ) {}
 
-  private parentOf(row: { depositTransactionId?: string | null; withdrawTransactionId?: string | null; swapTransactionId?: string | null; internalTransferId?: string | null }) {
+  private parentOf(row: { depositTransactionId?: string | null; withdrawTransactionId?: string | null; swapTransactionId?: string | null; internalTransferId?: string | null; lpExchangeId?: string | null }) {
     return {
       depositTransactionId: row.depositTransactionId ?? undefined,
       withdrawTransactionId: row.withdrawTransactionId ?? undefined,
       swapTransactionId: row.swapTransactionId ?? undefined,
       internalTransferId: row.internalTransferId ?? undefined,
+      lpExchangeId: row.lpExchangeId ?? undefined,
     };
   }
 
-  private directionOf(row: { depositTransactionId?: string | null; withdrawTransactionId?: string | null; swapTransactionId?: string | null; internalTransferId?: string | null; legSeq?: number | null }): FundsOrderDirection {
+  private directionOf(row: { depositTransactionId?: string | null; withdrawTransactionId?: string | null; swapTransactionId?: string | null; internalTransferId?: string | null; lpExchangeId?: string | null; legSeq?: number | null }): FundsOrderDirection {
     // A deposit's legSeq=1 leg is the inbound payin (IN). A legSeq>1 deposit leg
     // is an internal reclassification move (below-min confiscation: customer wallet
     // → firm F_FEE), born CREATED — it must advance via the INTERNAL/OUT map, not IN
@@ -43,13 +44,16 @@ export class FundsOrderService {
     // 平账二期：内部划转腿（公司 → 客户）从 CREATED 出生，沿出金那套走法表走全程
     //（getTransitionMap 对非 IN 方向一律落 OUT 表，crypto 5 跳 / fiat 4 跳）。
     if (row.internalTransferId) return 'INTERNAL';
+    // 战役乙波一 T4：LP 兑换单三腿——腿 1 卖出（直出，OUT）、腿 2 买入（LP 打款落前厅，IN）、
+    // 腿 3 验收转（前厅→运营户，内转，INTERNAL）。
+    if (row.lpExchangeId) return row.legSeq === 1 ? 'OUT' : row.legSeq === 2 ? 'IN' : 'INTERNAL';
     return 'INTERNAL'; // swap
   }
 
   async create(input: CreateFundsOrderInput, tx?: Tx) {
-    const fks = [input.depositTransactionId, input.withdrawTransactionId, input.swapTransactionId, input.internalTransferId].filter(Boolean);
+    const fks = [input.depositTransactionId, input.withdrawTransactionId, input.swapTransactionId, input.internalTransferId, input.lpExchangeId].filter(Boolean);
     if (fks.length !== 1) {
-      throw new BadRequestException('FundsOrder requires exactly one parent FK (deposit/withdraw/swap/internal-transfer)');
+      throw new BadRequestException('FundsOrder requires exactly one parent FK (deposit/withdraw/swap/internal-transfer/lp-exchange)');
     }
     const client: any = tx ?? this.prisma;
     const status = input.initialStatus ?? FundsOrderStatus.CREATED;
@@ -60,6 +64,7 @@ export class FundsOrderService {
         withdrawTransactionId: input.withdrawTransactionId ?? null,
         swapTransactionId: input.swapTransactionId ?? null,
         internalTransferId: input.internalTransferId ?? null,
+        lpExchangeId: input.lpExchangeId ?? null,
         legSeq: input.legSeq ?? 1,
         attempt: input.attempt ?? 1,
         status,
@@ -219,7 +224,7 @@ export class FundsOrderService {
   }
 
   async findByParent(
-    parent: { depositTransactionId?: string; withdrawTransactionId?: string; swapTransactionId?: string; internalTransferId?: string },
+    parent: { depositTransactionId?: string; withdrawTransactionId?: string; swapTransactionId?: string; internalTransferId?: string; lpExchangeId?: string },
     filter?: { legSeq?: number; attempt?: number; status?: FundsOrderStatus },
     tx?: Tx,
   ) {
@@ -230,6 +235,7 @@ export class FundsOrderService {
         ...(parent.withdrawTransactionId && { withdrawTransactionId: parent.withdrawTransactionId }),
         ...(parent.swapTransactionId && { swapTransactionId: parent.swapTransactionId }),
         ...(parent.internalTransferId && { internalTransferId: parent.internalTransferId }),
+        ...(parent.lpExchangeId && { lpExchangeId: parent.lpExchangeId }),
         ...(filter?.legSeq !== undefined && { legSeq: filter.legSeq }),
         ...(filter?.attempt !== undefined && { attempt: filter.attempt }),
         ...(filter?.status && { status: filter.status }),
@@ -261,6 +267,8 @@ export class FundsOrderService {
   /**
    * 销户前置校验专用：某客户名下全部非终态资金单计数。
    * funds_orders 无 customerId，归属只能经三个 parent FK 的 ownerType/ownerId 反查。
+   * 战役乙波一 T4：LP 兑换单同划转单先例——不在 OR 名单内，天然不计入（LP 单无客户，
+   * 见 funds-order.lp-exchange-parent.spec.ts 的行为断言）。
    */
   async countNonTerminalByCustomer(customerId: string): Promise<number> {
     const owner = { ownerType: 'CUSTOMER', ownerId: customerId };
@@ -282,7 +290,7 @@ export class FundsOrderService {
      withdraw (OUT payout + fee leg), or swap (leg). The parent bucket
      is a virtual filter derived from that FK, not a stored column.     */
 
-  private parentFkWhere(parent?: 'deposit' | 'withdraw' | 'swap' | 'internal-transfer' | 'all') {
+  private parentFkWhere(parent?: 'deposit' | 'withdraw' | 'swap' | 'internal-transfer' | 'lp-exchange' | 'all') {
     switch (parent) {
       case 'deposit':
         return { depositTransactionId: { not: null } };
@@ -292,13 +300,15 @@ export class FundsOrderService {
         return { swapTransactionId: { not: null } };
       case 'internal-transfer':
         return { internalTransferId: { not: null } };
+      case 'lp-exchange':
+        return { lpExchangeId: { not: null } };
       default:
         return {};
     }
   }
 
   async findAllForAdmin(filter: {
-    parent?: 'deposit' | 'withdraw' | 'swap' | 'internal-transfer' | 'all';
+    parent?: 'deposit' | 'withdraw' | 'swap' | 'internal-transfer' | 'lp-exchange' | 'all';
     status?: string;
     assetId?: string;
     fundsOrderNo?: string;
@@ -330,6 +340,7 @@ export class FundsOrderService {
           withdrawTransaction: { select: { withdrawNo: true } },
           swapTransaction: { select: { swapNo: true } },
           internalTransfer: { select: { transferNo: true } },
+          lpExchange: { select: { exchangeNo: true } },
         },
       }),
       this.prisma.fundsOrder.count({ where }),
@@ -342,6 +353,7 @@ export class FundsOrderService {
       withdrawNo: row.withdrawTransaction?.withdrawNo ?? null,
       swapNo: row.swapTransaction?.swapNo ?? null,
       transferNo: row.internalTransfer?.transferNo ?? null,
+      exchangeNo: row.lpExchange?.exchangeNo ?? null,
     }));
 
     return { items, total };
@@ -360,6 +372,7 @@ export class FundsOrderService {
         },
         swapTransaction: { select: { id: true, swapNo: true, status: true } },
         internalTransfer: { select: { id: true, transferNo: true, status: true } },
+        lpExchange: { select: { id: true, exchangeNo: true, status: true } },
       },
     });
     if (!item) {
@@ -370,6 +383,7 @@ export class FundsOrderService {
       depositNo: item.deposit?.depositNo ?? null,
       withdrawNo: item.withdrawTransaction?.withdrawNo ?? null,
       swapNo: item.swapTransaction?.swapNo ?? null,
+      exchangeNo: item.lpExchange?.exchangeNo ?? null,
     };
   }
 }

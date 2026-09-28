@@ -21,11 +21,12 @@ export type FundsOrderDirection = 'IN' | 'OUT' | 'INTERNAL';
 export type FundsOrderAssetType = 'CRYPTO' | 'FIAT';
 
 export interface CreateFundsOrderInput {
-  // 四者恰好一个非空
+  // 五者恰好一个非空
   depositTransactionId?: string;
   withdrawTransactionId?: string;
   swapTransactionId?: string;
   internalTransferId?: string;
+  lpExchangeId?: string; // 战役乙波一 T4：LP 兑换单第五父键
   legSeq?: number; // 默认 1
   attempt?: number; // 默认 1
   assetId: string;

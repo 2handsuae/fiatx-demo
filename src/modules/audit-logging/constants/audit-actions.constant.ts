@@ -39,6 +39,8 @@ export const AuditEntityTypes = {
   COMPLAINT: 'COMPLAINT',
   // 战役乙波一 T2（2026-09-29）：LP 档案主体
   LIQUIDITY_PROVIDER: 'LIQUIDITY_PROVIDER',
+  // 战役乙波一 T4（2026-09-29）：LP 兑换单主体
+  LP_EXCHANGE: 'LP_EXCHANGE',
 } as const;
 
 export const AuditWorkflowTypes = {
@@ -140,6 +142,8 @@ export const AuditBusinessWorkflowTypes = {
   COMPLAINT: 'COMPLAINT',
   // 战役乙波一 T2（2026-09-29）：LP 档案主体（财资件，独立主体 LiquidityProvider）
   LP_PROFILE: 'LP_PROFILE',
+  // 战役乙波一 T4（2026-09-29）：LP 兑换单主体（财资件，独立主体 LpExchange）
+  LP_EXCHANGE: 'LP_EXCHANGE',
 } as const;
 
 // Task 28：退役清单扫尾——原 15 键仅 2 键（REQUEST_CREATED/SUBMITTED）经
@@ -475,6 +479,15 @@ export const AuditActions = {
   LP_PROFILE_CHANGE_REJECTED: 'LP_PROFILE_CHANGE_REJECTED',
   LP_PROFILE_SUSPENDED: 'LP_PROFILE_SUSPENDED',
   LP_PROFILE_REACTIVATED: 'LP_PROFILE_REACTIVATED',
+  // ── 战役乙波一 T4（2026-09-29）：LP 兑换单八码（财资件，域 TREASURY）──────────
+  LP_EXCHANGE_REQUESTED: 'LP_EXCHANGE_REQUESTED',
+  LP_EXCHANGE_CANCELLED: 'LP_EXCHANGE_CANCELLED',
+  LP_EXCHANGE_REJECTED: 'LP_EXCHANGE_REJECTED',
+  LP_EXCHANGE_EXECUTION_STARTED: 'LP_EXCHANGE_EXECUTION_STARTED',
+  LP_EXCHANGE_PAY_LEG_POSTED: 'LP_EXCHANGE_PAY_LEG_POSTED',
+  LP_EXCHANGE_DELIVERED: 'LP_EXCHANGE_DELIVERED',
+  LP_EXCHANGE_ACCEPTED: 'LP_EXCHANGE_ACCEPTED',
+  LP_EXCHANGE_FAILED: 'LP_EXCHANGE_FAILED',
 } as const;
 
 // 站4 清扫:十条死词映射(APPROVAL_APPROVED/EXECUTED、ADMIN_INVITATION_*、USER_*、
@@ -1149,6 +1162,27 @@ export const CAMPAIGN_B_LP_PROFILE_AUDIT_ACTIONS: Record<string, AuditActionSpec
   LP_PROFILE_CHANGE_REJECTED: { domain: 'TREASURY', correlationMode: I, requiredFields: ['approvalNo'], requiresCausation: true },
   LP_PROFILE_SUSPENDED:       { domain: 'TREASURY', correlationMode: I, requiredFields: ['reason'], requiresCausation: false },
   LP_PROFILE_REACTIVATED:     { domain: 'TREASURY', correlationMode: I, requiredFields: ['reason'], requiresCausation: false },
+};
+
+/** 战役乙波一 T4（spec §3/§4/plan Task4 Step4）：LP 兑换单八码，域 TREASURY——同
+ * V7_TREASURY_AUDIT_ACTIONS 的 INTERNAL_TRANSFER 七码挂法（本兑换单多一态多一码），
+ * 独立成表（同 CAMPAIGN_B_LP_PROFILE_AUDIT_ACTIONS 先例，本战役新主体各自一表）。
+ * REQUESTED 起兑换单自己的旅程但老实标 NONE（同 INTERNAL_TRANSFER_REQUESTED 先例：
+ * 写审计时不显式传 correlationId，交给写入方按需继承 row.traceId）；REJECTED/
+ * EXECUTION_STARTED 由审批裁决驱动，requiresCausation 真、必填 approvalNo；
+ * PAY_LEG_POSTED/DELIVERED 是腿事件驱动的直接操作，必填 amount；ACCEPTED 是验收
+ * 动作，必填 amount+effectiveDate（同 INTERNAL_TRANSFER_SETTLED 先例）；FAILED
+ * 必填 reasonCode（INSUFFICIENT_FIRM_BALANCE|LEG_FAILED|POSTING_FAILED）；
+ * CANCELLED 必填 reason。审计实际写入点在 Task 5 workflow，本任务只登记词表。 */
+export const CAMPAIGN_B_LP_EXCHANGE_AUDIT_ACTIONS: Record<string, AuditActionSpec> = {
+  LP_EXCHANGE_REQUESTED:         { domain: 'TREASURY', correlationMode: N, requiredFields: ['amount', 'reason'], requiresCausation: false },
+  LP_EXCHANGE_CANCELLED:         { domain: 'TREASURY', correlationMode: I, requiredFields: ['reason'], requiresCausation: false },
+  LP_EXCHANGE_REJECTED:          { domain: 'TREASURY', correlationMode: I, requiredFields: ['approvalNo'], requiresCausation: true },
+  LP_EXCHANGE_EXECUTION_STARTED: { domain: 'TREASURY', correlationMode: I, requiredFields: ['approvalNo'], requiresCausation: true },
+  LP_EXCHANGE_PAY_LEG_POSTED:    { domain: 'TREASURY', correlationMode: I, requiredFields: ['amount'], requiresCausation: false },
+  LP_EXCHANGE_DELIVERED:         { domain: 'TREASURY', correlationMode: I, requiredFields: ['amount'], requiresCausation: false },
+  LP_EXCHANGE_ACCEPTED:          { domain: 'TREASURY', correlationMode: I, requiredFields: ['amount', 'effectiveDate'], requiresCausation: false },
+  LP_EXCHANGE_FAILED:            { domain: 'TREASURY', correlationMode: I, requiredFields: ['reasonCode'], requiresCausation: false },
 };
 
 /** 动态迁移码族（<域>_<从>_TO_<到>，充值站1b-β/提现站2-β 整族废除；站7 扩面治理五簿+监管闸——

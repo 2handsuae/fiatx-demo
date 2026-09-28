@@ -650,6 +650,8 @@ model Asset {
   withdrawTransactions           WithdrawTransaction[]
   fundsOrders                    FundsOrder[]
   internalTransfers              InternalTransfer[]
+  lpExchangesAsSellAsset         LpExchange[]                    @relation("LpExchangeSellAsset")
+  lpExchangesAsBuyAsset          LpExchange[]                    @relation("LpExchangeBuyAsset")
   reconciliationCases            ReconciliationCase[]
   withdrawalFeeLevels            WithdrawalFeeLevel[]
   swapFeeLevelsFrom              SwapFeeLevel[]                  @relation("SwapFeeLevelFromAsset")
@@ -915,8 +917,44 @@ model LiquidityProvider {
   createdByUserId String
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
+  lpExchanges LpExchange[] @relation("LpProviderExchanges")
   @@index([status])
   @@map("liquidity_providers")
+}
+
+// 战役乙波一：LP 兑换单——公司卖出一种资产、向 LP 买入另一种。先款后货，买入腿落 F_LIQ 前厅验收后入库。
+model LpExchange {
+  id                String   @id @default(uuid())
+  exchangeNo        String   @unique
+  lpId              String
+  lpNo              String
+  sellAssetId       String
+  sellAmount        Decimal  // 元
+  buyAssetId        String
+  buyAmount         Decimal  // 元
+  prudentialPurpose String   // 审慎管理目的（8 年安全港记录，必填）
+  status            String   @default("PENDING_APPROVAL")
+  reason            String
+  sellFromWalletId  String   // F_OPS（卖出币网络行）
+  buyViaWalletId    String   // F_LIQ（买入币网络行，前厅）
+  buyToWalletId     String   // F_OPS（买入币网络行）
+  approvalNo        String?
+  failureReasonCode String?  // INSUFFICIENT_FIRM_BALANCE | LEG_FAILED | POSTING_FAILED
+  failureNote       String?
+  executedAt        DateTime?
+  deliveredAt       DateTime?
+  settledAt         DateTime?
+  traceId           String
+  createdByUserId   String
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  lp         LiquidityProvider @relation("LpProviderExchanges", fields: [lpId], references: [id])
+  sellAsset  Asset @relation("LpExchangeSellAsset", fields: [sellAssetId], references: [id])
+  buyAsset   Asset @relation("LpExchangeBuyAsset", fields: [buyAssetId], references: [id])
+  fundsOrders FundsOrder[] @relation("LpExchangeFundsOrders")
+  @@index([status])
+  @@index([lpNo])
+  @@map("lp_exchanges")
 }
 
 model FundsOrder {
@@ -926,6 +964,7 @@ model FundsOrder {
   swapTransactionId     String?
   withdrawTransactionId String?
   internalTransferId    String?
+  lpExchangeId          String?
   legSeq                Int                    @default(1)
   attempt               Int                    @default(1)
   status                String
@@ -957,6 +996,7 @@ model FundsOrder {
   swapTransaction       SwapTransaction?       @relation("SwapFundsOrders", fields: [swapTransactionId], references: [id], onDelete: Cascade)
   withdrawTransaction   WithdrawTransaction?   @relation("WithdrawFundsOrders", fields: [withdrawTransactionId], references: [id], onDelete: Cascade)
   internalTransfer      InternalTransfer?      @relation("InternalTransferFundsOrders", fields: [internalTransferId], references: [id], onDelete: Cascade)
+  lpExchange            LpExchange?            @relation("LpExchangeFundsOrders", fields: [lpExchangeId], references: [id], onDelete: Cascade)
   asset                 Asset                  @relation(fields: [assetId], references: [id])
   fromWallet            Wallet?                @relation("FundsOrderFromWallet", fields: [fromWalletId], references: [id])
   toWallet              Wallet?                @relation("FundsOrderToWallet", fields: [toWalletId], references: [id])
@@ -964,10 +1004,12 @@ model FundsOrder {
 
   @@unique([swapTransactionId, legSeq, attempt])
   @@unique([internalTransferId, legSeq, attempt])
+  @@unique([lpExchangeId, legSeq, attempt])
   @@index([depositTransactionId])
   @@index([swapTransactionId, legSeq])
   @@index([withdrawTransactionId])
   @@index([internalTransferId])
+  @@index([lpExchangeId])
   @@index([status])
   @@index([txHash])
   @@index([createdAt])
