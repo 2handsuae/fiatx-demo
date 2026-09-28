@@ -168,6 +168,11 @@ describe('IncidentService (Task 5)', () => {
       const auditCall = auditLogs.recordByActor.mock.calls[0][0];
       expect(auditCall.action).toBe('INCIDENT_REGISTERED');
       expect(auditCall.metadata.complaintNo).toBe('CMP260101000001');
+      // 评审 Minor 4（修复轮1）：subjects 加 COMPLAINT 的 RELATED 主体——审计台按投诉号
+      // 能查到这次登记（AuditEntityTypes.COMPLAINT 已在 T2 登记）。
+      expect(auditCall.subjects).toEqual(expect.arrayContaining([
+        { subjectType: 'COMPLAINT', subjectNo: 'CMP260101000001', subjectRole: 'RELATED' },
+      ]));
     });
 
     it('rejects when the operator lacks cap.incident.ops (door still guards the internal entry)', async () => {

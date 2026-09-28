@@ -39,6 +39,10 @@ export class IncidentRegistrationWorkflowService {
 
   /** 事故登记的真正入口（HTTP 层调这个，不直接调 IncidentService.register）。 */
   async register(dto: RegisterIncidentDto, actor: ApprovalActorContext): Promise<{ incidentNo: string }> {
+    // 战役甲波五 T4 修复轮1（评审 Minor 2）：人工登记拒绝清单必须先于 assertOperator——
+    // 否则一个不持经办能力的 actor 会先吃 403，永远到不了 IncidentService.register()
+    // 内部的那条 400，清单对非运营 actor 形同虚设（门被权限检查挡在前面）。
+    this.incidents.assertManuallyRegistrable(dto.type);
     // 甲波一 T5 修1（M1 修复）：经办桶断言必须先于任何跨主体写。下面的原子路
     // （UNAUTHORIZED_OUTFLOW 缺 sourceDispositionNo 时）会先调 dispositionLink.record()
     // 把定性行落库，再拿新出的 dispositionNo 顶上走 incidents.register()——若断言留在

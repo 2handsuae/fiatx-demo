@@ -47,6 +47,9 @@ describe('INCIDENT_TYPE_REGISTRY (spec §1 十类终盘)', () => {
     expect(c.enabled).toBe(true);
     expect(c.closeActionType).toBe('INCIDENT_CLOSE_CUSTOMER');
     expect(c.requiredAnchors).toEqual(['complaintNo', 'ownerCustomerNo']);
+    // 评审 Minor 6（修复轮1）：补钉未改动的两个字段——不可勾通报依据 + IMPACT 口径。
+    expect(c.reportBasisCandidates).toEqual([]);
+    expect(c.assessmentScheme).toBe('IMPACT');
     expect(() => getIncidentTypeConfig('COMPLAINT_ESCALATION')).not.toThrow();
     expect(() => getIncidentTypeConfig('MANUAL')).toThrow(/unknown/i);
   });

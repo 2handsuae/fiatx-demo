@@ -1,6 +1,7 @@
 // 战役甲波五 T4 · 投诉升级 workflow——铁律③只调 IncidentService.registerFromComplaint 与
 // ComplaintsService.markEscalated，零直写零自己审计。行为化 mock（同 T3 ri-replacement/
 // complaint-resolution-workflow 先例），不是无脑 resolve。
+import { BadRequestException } from '@nestjs/common';
 import { ComplaintEscalationWorkflowService } from './complaint-escalation-workflow.service';
 
 const COMPLAINT_NO = 'CMP260101000001';
@@ -48,7 +49,10 @@ describe('ComplaintEscalationWorkflowService.escalate', () => {
     );
   });
 
-  it('does not write to any table directly — only calls the two subject services (rule ③)', async () => {
+  // 评审 Minor 5：原名「does not write to any table directly」说太满——本用例实际只断言
+  // 调用次数（各一次），"不直写表" 这个真保证来自构造函数只注入 ComplaintsService/
+  // IncidentService 两个服务（没有 PrismaService 可注入，编译期就不可能直写任何表）。
+  it('calls each of the two subject services exactly once — the "no direct table write" guarantee is structural (constructor only injects ComplaintsService/IncidentService, no PrismaService)', async () => {
     const { svc, complaints, incidents } = buildDeps();
     await svc.escalate(actorContext(), COMPLAINT_NO);
     expect(complaints.findByNo).toHaveBeenCalledTimes(1);
@@ -56,14 +60,35 @@ describe('ComplaintEscalationWorkflowService.escalate', () => {
     expect(complaints.markEscalated).toHaveBeenCalledTimes(1);
   });
 
-  // T2 守卫（ComplaintsService.markEscalated）：已升级过的投诉二次升级 400——workflow 不
-  // 自己重复这条守卫（门只在 ComplaintsService 一处），只验证 workflow 把错误原样透传。
-  it('propagates the T2 guard rejection when the complaint has already been escalated', async () => {
-    const { svc, complaints } = buildDeps({
-      complaint: { complaintNo: COMPLAINT_NO, ownerCustomerNo: 'CU1', subject: 'Order disputed', currentStatus: 'INVESTIGATING', escalatedIncidentNo: 'INC-OLD' },
+  // 评审 Important 1（修复轮1）：原实现顺序是 findByNo→registerFromComplaint→markEscalated——
+  // 二次升级 / RESOLVED 后升级虽然最终仍 400（T2 markEscalated 内部守卫），但事故单已经
+  // 建好、审计已经写了（门拒了、门后副作用已发生），这单在事件列表可见、可结案，投诉侧却
+  // 不回指它。单人顺序操作就能踩出这条路径，spec 把两条拒列为验收项，属于演示可见的缺陷。
+  // 修法：findByNo 之后、registerFromComplaint 之前就做同一条件的预拦，不满足直接 400、
+  // 不建单——不留孤儿事故。T2 的 markEscalated 守卫原样保留、不删，仍是权威判定（见下方
+  // 「预拦放行后仍原样透传下游错误」用例）。
+  it.each([
+    ['投诉已终态 RESOLVED（不在两调查态）', { currentStatus: 'RESOLVED', escalatedIncidentNo: null }],
+    ['投诉已升级过（escalatedIncidentNo 非空）', { currentStatus: 'INVESTIGATING', escalatedIncidentNo: 'INC-OLD' }],
+  ])('预拦：%s → 400，不建事故单（registerFromComplaint 未调用）、不调 markEscalated', async (_label, overrides) => {
+    const { svc, complaints, incidents } = buildDeps({
+      complaint: { complaintNo: COMPLAINT_NO, ownerCustomerNo: 'CU1', subject: 'Order disputed', ...overrides },
     });
-    complaints.markEscalated.mockRejectedValue(new Error(`Complaint ${COMPLAINT_NO} has already been escalated (INC-OLD)`));
 
-    await expect(svc.escalate(actorContext(), COMPLAINT_NO)).rejects.toThrow(/already been escalated/);
+    await expect(svc.escalate(actorContext(), COMPLAINT_NO)).rejects.toThrow(BadRequestException);
+
+    expect(incidents.registerFromComplaint).not.toHaveBeenCalled();
+    expect(complaints.markEscalated).not.toHaveBeenCalled();
+  });
+
+  // 预拦放行（两调查态 + 未升级过）之后，T2 的 markEscalated 仍是权威判定——workflow 不
+  // 吞掉它可能抛出的错误（证明预拦是"提前拦"，不是"取代下游守卫"）。
+  it('propagates a downstream markEscalated rejection without swallowing it, even when the pre-check passes', async () => {
+    const { svc, complaints } = buildDeps({
+      complaint: { complaintNo: COMPLAINT_NO, ownerCustomerNo: 'CU1', subject: 'Order disputed', currentStatus: 'INVESTIGATING', escalatedIncidentNo: null },
+    });
+    complaints.markEscalated.mockRejectedValue(new Error('downstream guard rejected'));
+
+    await expect(svc.escalate(actorContext(), COMPLAINT_NO)).rejects.toThrow(/downstream guard rejected/);
   });
 });

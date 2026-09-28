@@ -177,13 +177,24 @@ export class IncidentService {
    * 建事故单。写回定性行 `incidentNo` 不在这里做——铁律③跨主体写只在 workflow
    * （见 IncidentRegistrationWorkflowService.register，本方法是它编排的第一步）。
    */
+  /**
+   * 战役甲波五 T4（修复轮1，评审 Minor 2）：人工登记拒绝清单，抽成独立公开方法——
+   * `IncidentRegistrationWorkflowService.register`（HTTP 入口的真正入口）也要在自己的
+   * `assertOperator` 之前调用这个门，否则非运营 actor 会先吃 403、到不了这条 400（门被
+   * 权限检查挡在前面，实质上从未真正生效）。`register()` 内部仍保留同一调用（两处都过、
+   * 非互斥，同 `assertOperator` 双处调用的既有先例）。
+   */
+  assertManuallyRegistrable(type: string): void {
+    if (MANUAL_REGISTRATION_BLOCKED_TYPES.has(type)) {
+      throw new BadRequestException(`Incident type ${type} cannot be registered manually — it is only created via complaint escalation`);
+    }
+  }
+
   async register(dto: RegisterIncidentDto, actor: ApprovalActorContext): Promise<{ incidentNo: string; traceId: string }> {
     if (!dto.title || !dto.description) throw new BadRequestException('Incident registration requires a title and a description');
     // 战役甲波五 T4：人工登记拒绝清单——先于 getIncidentTypeConfig（避免 enabled:true 之后
     // COMPLAINT_ESCALATION 从这道门溜进去）。registerFromComplaint 走独立方法，不受此清单约束。
-    if (MANUAL_REGISTRATION_BLOCKED_TYPES.has(dto.type)) {
-      throw new BadRequestException(`Incident type ${dto.type} cannot be registered manually — it is only created via complaint escalation`);
-    }
+    this.assertManuallyRegistrable(dto.type);
     // 未知/停用类型在这里先 400（getIncidentTypeConfig，T2）；经办桶断言先于任何类型专属
     // 校验（门不可绕）——存量三类维持原 switch 分支不变（行为回归），新七类落 default 分支
     // 走注册表锚键校验。
@@ -314,6 +325,9 @@ export class IncidentService {
       reason: dto.title, correlationId: traceId,
       extra: { type: IncidentTypes.COMPLAINT_ESCALATION },
       metadata: { complaintNo: dto.complaintNo },
+      // 评审 Minor 4（修复轮1）：审计 subjects 加投诉自己的 RELATED 主体——审计台按
+      // 投诉号（complaintNo）能查到这次登记，不必先知道事故号才能反查。
+      extraSubjects: [{ subjectType: AuditEntityTypes.COMPLAINT, subjectNo: dto.complaintNo, subjectRole: AuditSubjectRole.RELATED }],
     });
     return { incidentNo: row.incidentNo };
   }
@@ -569,12 +583,17 @@ export class IncidentService {
   private async recordAudit(row: any, action: string, actor: ApprovalActorContext, patch: {
     reason?: string; fromStatus?: string; toStatus?: string; correlationId?: string;
     metadata?: Record<string, unknown>; extra?: Record<string, unknown>;
+    // 评审 Minor 4（甲波五 T4 修复轮1）：调用方按需追加的主体（如 registerFromComplaint
+    // 的 COMPLAINT/RELATED——事故行本身没有 complaintNo 列，通用的 row.xxx 推断规则覆盖
+    // 不到，只能由调用方显式传入）。
+    extraSubjects?: AuditSubjectInput[];
   }): Promise<void> {
     const subjects: AuditSubjectInput[] = [
       { subjectType: AuditEntityTypes.INCIDENT, subjectNo: row.incidentNo, subjectRole: AuditSubjectRole.PRIMARY },
     ];
     if (row.customerNo) subjects.push({ subjectType: AuditEntityTypes.CUSTOMER, subjectNo: row.customerNo, subjectRole: AuditSubjectRole.OWNER });
     if (row.sourceCaseNo) subjects.push({ subjectType: AuditEntityTypes.RECONCILIATION_CASE, subjectNo: row.sourceCaseNo, subjectRole: AuditSubjectRole.RELATED });
+    if (patch.extraSubjects) subjects.push(...patch.extraSubjects);
     const display = actor.userNo ?? actor.userId;
     const input: any = {
       action, actionDomain: 'GOVERNANCE', category: AuditCategory.GOVERNANCE,

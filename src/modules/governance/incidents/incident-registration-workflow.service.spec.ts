@@ -1,4 +1,4 @@
-import { ForbiddenException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException } from '@nestjs/common';
 import { IncidentRegistrationWorkflowService } from './incident-registration-workflow.service';
 import { IncidentTypes as T } from './incident.constants';
 
@@ -10,6 +10,9 @@ function makeWorkflow(incidentNo = 'INC1') {
     // 甲波一 T5 修1（M1 修复）：register() 现在一开头就调 assertOperator——本文件测的是
     // 编排本身（定性行写回顺序），不重测断言行为，恒放行；M1 的失效路径单独一条用例覆盖。
     assertOperator: jest.fn(async () => undefined),
+    // 战役甲波五 T4 修复轮1（评审 Minor 2）：人工登记拒绝清单门，恒放行——失效路径单独
+    // 一条用例覆盖（见下方"manual registration rejection ... before assertOperator"）。
+    assertManuallyRegistrable: jest.fn(() => undefined),
   };
   const dispositionLink: any = {
     attachIncident: jest.fn(async () => undefined),
@@ -93,6 +96,27 @@ describe('IncidentRegistrationWorkflowService (Task 5, Rule 3 orchestration poin
     expect(dispositionLink.record).not.toHaveBeenCalled();
     expect(incidents.register).not.toHaveBeenCalled();
     expect(dispositionLink.attachIncident).not.toHaveBeenCalled();
+  });
+
+  // 评审修复（Minor 2，修复轮1）：人工登记拒绝清单（IncidentService.
+  // assertManuallyRegistrable，COMPLAINT_ESCALATION 等）此前只挂在 IncidentService.register
+  // 内部、在 assertOperator 之后才检查——HTTP 入口先经本 workflow 的 assertOperator（:47-48），
+  // 一个不持经办能力的 actor 会先吃 403，永远到不了那条 400，等于清单对非运营 actor 从未真正
+  // 生效。修法：workflow 在自己的 assertOperator 之前先调同一个门；本用例证明顺序——
+  // assertOperator 被喂了会抛 403 的 mock，但因为清单门先拦，assertOperator 根本不会被调用，
+  // 抛出的是 400 不是 403。
+  it('manual registration rejection (assertManuallyRegistrable) is checked before assertOperator — a non-operator actor gets 400, not 403', async () => {
+    const { wf, incidents, dispositionLink } = makeWorkflow();
+    incidents.assertManuallyRegistrable = jest.fn(() => {
+      throw new BadRequestException('Incident type COMPLAINT_ESCALATION cannot be registered manually — it is only created via complaint escalation');
+    });
+    incidents.assertOperator.mockRejectedValueOnce(new ForbiddenException('actor lacks capability'));
+
+    await expect(wf.register({ type: T.COMPLAINT_ESCALATION, title: 't', description: 'd' } as any, ops)).rejects.toThrow(BadRequestException);
+
+    expect(incidents.assertOperator).not.toHaveBeenCalled();
+    expect(dispositionLink.record).not.toHaveBeenCalled();
+    expect(incidents.register).not.toHaveBeenCalled();
   });
 
   it('UNAUTHORIZED_OUTFLOW: neither sourceDispositionNo nor explainedExternalLineId+findingNote present — record() is never called, falls straight through to the original 400', async () => {
