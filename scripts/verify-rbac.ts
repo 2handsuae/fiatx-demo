@@ -307,6 +307,12 @@ function runStaticChecks(): void {
     // 战役甲波四 T5：RI 换人——提单唯合规官（RI_REGISTER_WRITE），裁决唯高管
     // （SENIOR_MANAGEMENT_OFFICER，不持 RI_REGISTER_WRITE），maker/checker 天然不相交。
     RI_REPLACEMENT: 'RI_REGISTER_WRITE',
+    // 战役甲波五 T3：波五：运营提、合规官批。maker 组 COMPLAINT_WRITE 唯运营职务持有
+    // （T5 登记），checker 为 COMPLIANCE_OFFICER，两者不相交。
+    COMPLAINT_RESOLUTION: 'COMPLAINT_WRITE',
+    // 战役甲波五 T3：客户族结案：运营提、合规官批。maker 组复用既有 INCIDENT_OPS_WRITE
+    // （运营经办桶），checker 为 COMPLIANCE_OFFICER，两者不相交。
+    INCIDENT_CLOSE_CUSTOMER: 'INCIDENT_OPS_WRITE',
   };
 
   // 有意不进上表的策略——maker 组本身不可判定（不是某个角色权限组闸住的，是系统自己在

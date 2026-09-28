@@ -85,6 +85,12 @@ export const ApprovalActionTypes = {
   // 战役甲波四 T5（2026-09-27）：RI 换人——合规官提（新任姓名+生效日+理由+varaRef?），
   // 高管单步批。挂在 ResponsibleIndividual 席位（entityRef=riNo）。
   RI_REPLACEMENT: 'RI_REPLACEMENT',
+  // 战役甲波五 T3（2026-09-28）：波五：运营提、合规官批。挂在 Complaint 主体
+  // （entityRef=complaintNo）。
+  COMPLAINT_RESOLUTION: 'COMPLAINT_RESOLUTION',
+  // 战役甲波五 T3（2026-09-28）：客户族结案：运营提、合规官批。挂在 Incident（客户族），
+  // closeActionType 值与本键同名（同 INCIDENT_CLOSE_TECHSEC/PRUDENTIAL 先例）。
+  INCIDENT_CLOSE_CUSTOMER: 'INCIDENT_CLOSE_CUSTOMER',
 } as const;
 
 export const ApprovalStatuses = {
@@ -421,6 +427,14 @@ export const DEFAULT_APPROVAL_POLICIES: Record<
     timeoutHours: 48,
     allowCancel: true,
   },
+  // 战役甲波五 T3（task-3-brief.md 原文逐字）：波五：运营提、合规官批。
+  [ApprovalActionTypes.COMPLAINT_RESOLUTION]: {
+    steps: [{ stepNo: 1, roles: ['COMPLIANCE_OFFICER'] }], timeoutHours: 48, allowCancel: true,
+  },
+  // 战役甲波五 T3（task-3-brief.md 原文逐字）：客户族结案：运营提、合规官批。
+  [ApprovalActionTypes.INCIDENT_CLOSE_CUSTOMER]: {
+    steps: [{ stepNo: 1, roles: ['COMPLIANCE_OFFICER'] }], timeoutHours: 48, allowCancel: true,
+  },
 };
 
 /**
@@ -461,6 +475,7 @@ export const V1_APPROVAL_ACTION_TYPES: readonly string[] = [
   ApprovalActionTypes.INCIDENT_CLOSE_FINANCIAL,
   ApprovalActionTypes.INCIDENT_CLOSE_TECHSEC,
   ApprovalActionTypes.INCIDENT_CLOSE_PRUDENTIAL,
+  ApprovalActionTypes.INCIDENT_CLOSE_CUSTOMER,
   ApprovalActionTypes.REG_FILING_SUBMIT,
 ] as const;
 

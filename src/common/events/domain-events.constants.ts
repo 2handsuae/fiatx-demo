@@ -115,6 +115,22 @@ export const DOMAIN_EVENTS = {
       'ApprovalDecidedEvent — { decision, actionType, entityRef(riNo), approvalNo, ' +
       'decisionByUserId, decisionByUserNo, decisionByRole, decisionReason, traceId }',
   },
+
+  // ── Complaint Resolution（战役甲波五 T3，2026-09-28）──
+  // ApprovalHandlerBase 派生的二级事件（COMPLAINT_RESOLUTION 审批裁决后）——workflowType
+  // 复用 AuditBusinessWorkflowTypes.COMPLAINT（T2 已登记），派生事件名照
+  // buildSecondaryEventName 的 kebab 规则算出 'workflow.complaint.decided'。登记先于使用
+  // （本表规则）：派生该事件的 ApprovalHandlerBase 子类（ComplaintResolutionApprovalService）
+  // 尚未创建——T3 只落常量/事件键/workflow 消费端，handler 子类与 complaints.module.ts
+  // 挂载留给后续任务（module 尚不存在，创建无处注册的 handler 会是孤儿 provider）。
+  COMPLAINT_RESOLUTION_DECIDED: {
+    name: 'workflow.complaint.decided',
+    emitter: 'ComplaintResolutionApprovalService',
+    subscribers: ['ComplaintResolutionWorkflowService'],
+    payload:
+      'ApprovalDecidedEvent — { decision, actionType, entityRef(complaintNo), approvalNo, ' +
+      'decisionByUserId, decisionByUserNo, decisionByRole, decisionReason, traceId }',
+  },
 } as const;
 
 /** Type-safe event name accessor */
@@ -139,4 +155,6 @@ export const DomainEventNames = {
   SANCTION_DISPOSITION_DECIDED: DOMAIN_EVENTS.SANCTION_DISPOSITION_DECIDED.name,
   // RI Replacement
   RI_REPLACEMENT_DECIDED: DOMAIN_EVENTS.RI_REPLACEMENT_DECIDED.name,
+  // Complaint Resolution
+  COMPLAINT_RESOLUTION_DECIDED: DOMAIN_EVENTS.COMPLAINT_RESOLUTION_DECIDED.name,
 } as const;
