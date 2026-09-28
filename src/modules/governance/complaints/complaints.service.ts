@@ -19,7 +19,7 @@ import { PrismaService } from '../../../core/prisma/prisma.service';
 import { generateReferenceNo } from '../../../common/utils/no-generator.util';
 import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import { AuditActions, AuditBusinessWorkflowTypes, AuditEntityTypes } from '../../audit-logging/constants/audit-actions.constant';
-import { AuditCategory, AuditOutcome, AuditSubjectInput, AuditSubjectRole } from '../../audit-logging/dto/audit-log.dto';
+import { AuditCategory, AuditSubjectInput, AuditSubjectRole } from '../../audit-logging/dto/audit-log.dto';
 import { ApprovalActorContext } from '../approvals/constants/approval.constants';
 import {
   ACK_DEADLINE_DAYS, AcknowledgeComplaintDto, COMPLAINT_INVESTIGATING_STATUSES, COMPLAINT_TERMINAL_STATUSES,
@@ -261,19 +261,20 @@ export class ComplaintsService {
    *  workflow 在开出真审批单之后传入（同 RI recordProposal 先例，此处不再重复
    *  assertNoPendingReplacement 式查重——状态机本身已保证 RESOLUTION_PENDING 无自环，
    *  二次提案会在 transition() 里被 assertTransition 显式拒）。
-   *  注（真-RED 实测发现）：requiredFields=['outcome'] 的 'outcome' 与审计信封自身的
-   *  保留字段 outcome（AuditOutcome：SUCCESS/DENIED/FAILED/PARTIAL，assertActionSpec
-   *  用它判定成败分支）撞名——若把业务结论（UPHELD 等）塞进这个键，isSuccess 判定会
-   *  被判成"非成功"，转而强制要求 reasonCode，且会把这条百分百成功的写入误标成
-   *  失败态。真实解法（brief 原文"展示级字段…outcome…镜像进 metadata"已点明业务结论
-   *  的落点是 metadata）：extra.outcome 显式给真实的 AuditOutcome.SUCCESS（满足必填闸 +
-   *  如实反映"这次写入确实成功"），业务结论只落 metadata.outcome。 */
+   *  注（真-RED 实测发现，控制器裁定修正）：COMPLAINT_AUDIT_ACTIONS 的必填字段原名
+   *  `outcome`，与审计信封自身的保留字段 outcome（AuditOutcome：SUCCESS/DENIED/FAILED/
+   *  PARTIAL，assertActionSpec 用它判定成败分支）撞名——第一版把该键塞成
+   *  AuditOutcome.SUCCESS 常量绕过撞名，但那样必填检查对任何业务结论都恒真，是自证型
+   *  绿灯，已被控制器打回。现改名 `resolutionOutcome`（常量组同步改名，见
+   *  audit-actions.constant.ts 头注释），必填检查重新咬住 dto.outcome 这个真业务值；
+   *  信封顶层 outcome 不再显式传（不传即 undefined，走 assertActionSpec 默认的成功分支，
+   *  不需要常量硬编码）；展示级镜像仍落 metadata.outcome（R5 惯例不变）。 */
   async proposeResolution(actor: ApprovalActorContext, complaintNo: string, dto: ResolutionDto, approvalNo: string): Promise<{ complaintNo: string }> {
     const row = await this.findByNo(complaintNo);
     const updated = await this.transition(row, ComplaintStatus.RESOLUTION_PENDING, { pendingApprovalNo: approvalNo });
     await this.recordAudit(updated, AuditActions.COMPLAINT_RESOLUTION_PROPOSED, { kind: 'ADMIN', ctx: actor }, {
       fromStatus: row.currentStatus, toStatus: updated.currentStatus,
-      extra: { outcome: AuditOutcome.SUCCESS },
+      extra: { resolutionOutcome: dto.outcome },
       metadata: { outcome: dto.outcome, resolutionText: dto.resolutionText, approvalNo },
     });
     return { complaintNo };
@@ -296,8 +297,8 @@ export class ComplaintsService {
     });
     await this.recordAudit(updated, AuditActions.COMPLAINT_RESOLUTION_APPLIED, null, {
       fromStatus: row.currentStatus, toStatus: updated.currentStatus,
-      // 同 proposeResolution 注释：outcome 必填闸给真实 AuditOutcome.SUCCESS，业务结论落 metadata。
-      extra: { outcome: AuditOutcome.SUCCESS },
+      // 同 proposeResolution 注释：必填字段咬 resolutionOutcome（业务真值），不再借道信封保留键。
+      extra: { resolutionOutcome: dto.outcome },
       metadata: { outcome: dto.outcome, resolutionText: dto.resolutionText, approvalNo },
     });
     return { complaintNo };

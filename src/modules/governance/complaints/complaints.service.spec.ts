@@ -206,9 +206,11 @@ describe('ComplaintsService (Task 2)', () => {
       expect(row.resolutionText).toBeNull();
 
       const call = auditLogs.recordByActor.mock.calls.find((c) => c[0].action === 'COMPLAINT_RESOLUTION_PROPOSED')[0];
-      // 必填闸 outcome 撞了审计信封自身的保留字段（AuditOutcome），真实业务结论镜像
-      // 进 metadata.outcome，顶层 outcome 显式给 AuditOutcome.SUCCESS（见 service 内注释）。
-      expect(call.outcome).toBe('SUCCESS');
+      // 必填闸改咬 resolutionOutcome（业务真值，控制器裁定修正——原 outcome 与审计信封
+      // 保留字段撞名，见 audit-actions.constant.ts 头注释）；outcome 顶层不再显式传
+      // （undefined 走默认成功分支）；展示级镜像仍落 metadata.outcome。
+      expect(call.outcome).toBeUndefined();
+      expect(call.resolutionOutcome).toBe('PARTIALLY_UPHELD');
       expect(call.metadata.outcome).toBe('PARTIALLY_UPHELD');
     });
 
@@ -238,7 +240,8 @@ describe('ComplaintsService (Task 2)', () => {
       expect(auditLogs.recordSystem).toHaveBeenCalledTimes(1);
       const call = auditLogs.recordSystem.mock.calls[0][0];
       expect(call.action).toBe('COMPLAINT_RESOLUTION_APPLIED');
-      expect(call.outcome).toBe('SUCCESS');
+      expect(call.outcome).toBeUndefined();
+      expect(call.resolutionOutcome).toBe('UPHELD');
       expect(call.metadata.outcome).toBe('UPHELD');
     });
 

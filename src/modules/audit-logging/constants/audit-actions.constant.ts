@@ -1100,16 +1100,23 @@ export const COMPLIANCE_OFFICE_AUDIT_ACTIONS: Record<string, AuditActionSpec> = 
  * 照 RI_REPLACEMENT_APPLIED/REJECTED 先例不强制 requiresCausation/INHERIT——本 task 只落
  * 本表字段与审计、不建 workflow（T3 的事）。EXTENDED/RESOLUTION_PROPOSED/APPLIED/
  * ESCALATED/DEADLINE_FASTFORWARDED 的必填字段落在 recordAudit 的 `extra` 顶层展开
- * （同 FILING_CLOSED_NO_FILING 的 noFilingReason 先例：outcome 不是 Complaint 表的列，
- *   proposeResolution 阶段只住审批载荷，字段落点仍是审计信封顶层，不必先有 DB 列）。 */
+ * （同 FILING_CLOSED_NO_FILING 的 noFilingReason 先例：字段不是 Complaint 表的列也无妨，
+ *   proposeResolution 阶段只住审批载荷，落点仍是审计信封顶层，不必先有 DB 列）。
+ * 控制器修（2026-09-28）：RESOLUTION_PROPOSED/APPLIED 的必填字段本名 `outcome`，与审计
+ * 信封自身的保留字段 outcome（AuditOutcome：SUCCESS/DENIED/FAILED/PARTIAL，assertActionSpec
+ * 用它判定成败分支）撞名——第一版把该键塞成 AuditOutcome.SUCCESS 常量绕过撞名，但那样
+ * 必填检查变成恒真（不管业务结论是什么，SUCCESS 常量永远满足"非空"），是本仓明令禁止
+ * 的自证型绿灯形态。改名 `resolutionOutcome`（避开保留键，必填重新咬住业务值：UPHELD/
+ * PARTIALLY_UPHELD/REJECTED 中的一个），信封顶层 outcome 不再显式传，走默认（未设即
+ * undefined）的 SUCCESS 判定分支；展示级镜像仍落 metadata.outcome（R5 惯例不变）。 */
 export const COMPLAINT_AUDIT_ACTIONS: Record<string, AuditActionSpec> = {
   COMPLAINT_SUBMITTED:              { domain: 'GOVERNANCE', correlationMode: S, requiredFields: [], requiresCausation: false },
   COMPLAINT_ACKNOWLEDGED:           { domain: 'GOVERNANCE', correlationMode: N, requiredFields: [], requiresCausation: false },
   COMPLAINT_INVESTIGATION_STARTED:  { domain: 'GOVERNANCE', correlationMode: N, requiredFields: [], requiresCausation: false },
   COMPLAINT_NOTE_ADDED:             { domain: 'GOVERNANCE', correlationMode: N, requiredFields: [], requiresCausation: false },
   COMPLAINT_EXTENDED:               { domain: 'GOVERNANCE', correlationMode: N, requiredFields: ['newResolveDeadlineAt'], requiresCausation: false },
-  COMPLAINT_RESOLUTION_PROPOSED:    { domain: 'GOVERNANCE', correlationMode: N, requiredFields: ['outcome'], requiresCausation: false },
-  COMPLAINT_RESOLUTION_APPLIED:     { domain: 'GOVERNANCE', correlationMode: N, requiredFields: ['outcome'], requiresCausation: false },
+  COMPLAINT_RESOLUTION_PROPOSED:    { domain: 'GOVERNANCE', correlationMode: N, requiredFields: ['resolutionOutcome'], requiresCausation: false },
+  COMPLAINT_RESOLUTION_APPLIED:     { domain: 'GOVERNANCE', correlationMode: N, requiredFields: ['resolutionOutcome'], requiresCausation: false },
   COMPLAINT_RESOLUTION_REJECTED:    { domain: 'GOVERNANCE', correlationMode: N, requiredFields: [], requiresCausation: false },
   COMPLAINT_ESCALATED:              { domain: 'GOVERNANCE', correlationMode: N, requiredFields: ['escalatedIncidentNo'], requiresCausation: false },
   COMPLAINT_DEADLINE_FASTFORWARDED: { domain: 'GOVERNANCE', correlationMode: N, requiredFields: ['target'], requiresCausation: false },
