@@ -60,7 +60,7 @@ admin@fiatx.com 超管 ｜ sm@ 高管(SMO) ｜ ciso@ ｜ mlro@ ｜ dpo@ ｜ comp
 
 ## 事故种子（business seed，五条非初始态样例，2026-09-25 战役甲波一，终审补第五条）
 
-`seedIncidents()`（`prisma/seed.business.ts`）直接铺终态数据（不走 `IncidentService`，没有 operator、没有审批案、不写审计——与限制账 / 材料请求两组 fixture 同一性质），`incidentNo` 用 `buildDeterministicNo` 派生、reset 重铺后逐字不变。十类终盘里五个族各挑一个非初始态样例，覆盖 IMPACT/MONETARY/SHORTFALL 三档口径与 REGISTERED/INVESTIGATING/ASSESSED/RESOLVING 四个状态；**`CYBER_BCDR`（TECH_SECURITY 族）故意不进种子**，留给演示脚本现场走一遍完整登记流程，演"登记会留痕"这件事（见 `demo/script.md`）。
+`seedIncidents()`（`prisma/seed.business.ts`）直接铺终态数据（不走 `IncidentService`，没有 operator、没有审批案、不写审计——与限制账 / 材料请求两组 fixture 同一性质），`incidentNo` 用 `buildDeterministicNo` 派生、reset 重铺后逐字不变。十类终盘里五个族各挑一个非初始态样例，覆盖 IMPACT/MONETARY/SHORTFALL 三档口径与 REGISTERED/INVESTIGATING/ASSESSED/RESOLVING 四个状态；**`CYBER_BCDR`（TECH_SECURITY 族）故意不进种子**，留给演示脚本现场走一遍完整登记流程，演"登记会留痕"这件事（见 `demo/script.md` 第八幕场景 25，2026-09-28 战役甲收官补齐）。
 
 | 类型 | 状态 | 族 | 关键字段 |
 |---|---|---|---|

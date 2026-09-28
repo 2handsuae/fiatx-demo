@@ -1,7 +1,7 @@
 # V9 · 监管报送（报送台，跟监管交差记录在哪）
 
-> 对应 PRD：待写 ｜ 技术节点 Last Verified：2026-09-27（战役甲波四：类型目录扩到十二行——新增 `PERIODIC_RETURN`，周期义务到期自动开单，详见 §2.1 与 `modules/compliance-office.md`；此前 2026-09-26 战役甲波三：报文族台账与联动——类型目录扩到十一行、AML 族独立边集与工作日钟、制裁定性裁决三出口联动、tipping-off 登记本、MLRO 无签发链亲办；此前 2026-09-26 战役甲波二：报送台骨架落地，事故通报单槽退役统一收编）
-> 演示幕次：第六幕场景 18（事故通报环节）＋场景 19/20（暂编，AML 报文族）＋场景 21（暂编，周期申报，主篇在 `modules/compliance-office.md`）｜ 验收：第六幕走查 + 场景 19/20/21 走查（`demo/script.md`）+ 本篇 §5
+> 对应 PRD：待写 ｜ 技术节点 Last Verified：2026-09-28（战役甲波五收官：第八幕「异常与监管」定稿，场景 19/20/21 编号终定 + 新增场景 25 补齐 `CYBER_BCDR` 网安事件 72h 单钟全链走查，详见 `demo/script.md`）；此前 2026-09-27（战役甲波四：类型目录扩到十二行——新增 `PERIODIC_RETURN`，周期义务到期自动开单，详见 §2.1 与 `modules/compliance-office.md`；此前 2026-09-26 战役甲波三：报文族台账与联动——类型目录扩到十一行、AML 族独立边集与工作日钟、制裁定性裁决三出口联动、tipping-off 登记本、MLRO 无签发链亲办；此前 2026-09-26 战役甲波二：报送台骨架落地，事故通报单槽退役统一收编）
+> 演示幕次：第六幕场景 18（事故通报环节）＋第八幕场景 19/20（AML 报文族）＋场景 21（周期申报，主篇在 `modules/compliance-office.md`）＋场景 25（`CYBER_BCDR` 网安事件 72h 单钟全链，GENERAL 族通用签发对照）｜ 验收：第六幕走查 + 第八幕场景 19/20/21/25 走查（`demo/script.md`）+ 本篇 §5
 
 ## 0. 这是什么
 
@@ -163,7 +163,9 @@ MLRO 开 STR（叙事上锚交易单号）或 SAR（叙事上锚客户，无交�
 
 三种类型（`MATERIAL_CHANGE_NOTIFICATION`/`AUDITOR_APPOINTMENT_NOTICE`/`MARKET_OFFENCE_DUAL_REPORT`）本波不建种子，演示时可现场手工开单讲解（合规官账号，报送台列表页「Open Filing」，类型下拉选中后按 `requiresIncident`/`defaultAuthority` 决定表单字段显隐）。
 
-**AML 报文族**（场景 19/20，暂编——战役甲波三 T10 新增，幕次编号是否并入既有幕次留波五收官统一，本节先把走查步骤钉住，详见 `demo/script.md`）：
+**`CYBER_BCDR` 单钟全链**（第八幕场景 25，2026-09-28 战役甲收官补齐）：与上面 `DATA_BREACH` 的"双钟链"对照——`CYBER_BCDR` 的 `reportBasisCandidates` 只有 `TIR_K_H` 一码、一只 72h 钟，定损勾选后只开一张报送单，全程走 GENERAL 族标准六态六边（含高管签发），演示时正好与 §4 AML 族"零签发"对照。
+
+**AML 报文族**（第八幕场景 19/20，战役甲波三交付、波五收官定稿，详见 `demo/script.md`）：
 
 - **场景 19 · B 线**（制裁定性两分支）：种子已铺两个终态样例可直接翻给观众看——Leo Confirmed（CNMR 已提交 `FIL2601015358`、客户端横幅可见）、Mona Partial（PNMR 挂钟 `FIL2601012321`、EMIRATES_ID 补料在途、一条 `AUTHORITY_INSTRUCTION` 待决）；现场再活走两条分支——分支一 ⚡ 现场命中一位新客户走到「确认命中→横幅+CNMR」，分支二直接对着 Mona 现成的 PARTIAL 状态走「据指令排除」（二次定性）。观众看懂三件事：① 三出口分别联动限制账与报送台，同一个 workflow 两个主体各写各的；② 确认命中才翻明示、部分命中维持静默，tipping-off 两防不混；③ AML 报文族（CNMR/PNMR）无签发链，MLRO/合规官走完全程零高管审批——与通用族「高管签发」同屏对照。
 - **场景 20 · A 线**（STR/SAR 与 tipping-off 登记本）：种子已铺 STR 已提交样例（锚 Frank HighRisk，`FIL2601017376`，挂一条 `CUSTOMER_COMM` + 一条 `RECEIPT_ACK`）；现场再开一张新 STR 走「起草→标已提交→往来」全链，一张「决定不报」独立小单，SAR 现场开一张讲透「锚客户不锚交易」。`mlro@` 全程一人对照第七幕事故通报那条链 `compliance_lead@`→`sm@` 的两人两步。

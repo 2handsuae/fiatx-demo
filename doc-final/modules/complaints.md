@@ -1,7 +1,7 @@
 # 投诉工作流（Complaint）
 
 > 对应 PRD：待写 ｜ 技术节点 Last Verified：2026-09-28（战役甲波五：投诉全弧上线，`Incident Register` 域加两桶：15 域 75 桶，组数见 §2）
-> 演示幕次：场景 23/24（暂编，幕次编号与是否并入既有幕次留波五收官统一定稿）｜ 验收：场景 23/24 走查（`demo/script.md`）+ 本篇 §4
+> 演示幕次：第八幕场景 23/24（战役甲波五收官定稿）｜ 验收：场景 23/24 走查（`demo/script.md`）+ 本篇 §4
 
 ## 0. 这是什么
 
@@ -91,9 +91,9 @@ RECEIVED ──acknowledge──▶ ACKNOWLEDGED ──startInvestigation──�
 
 完整走查步骤见 `demo/script.md`「场景 23」「场景 24」两节；走查截图（真实 self 栈渲染，含账号切换）入 `doc-final/superpowers/checkups/2026-09-28-act-a-wave5-evidence/`（`08`~`13`，续 T9 的 `01`~`07`）。
 
-**场景 23（暂编）· 投诉全弧含延期**：客户提交 → 运营确认（1 周钟停）→ 立案调查 → ⚡ 拨过裁决钟 → 运营延期（强制解释，4→8 周）→ 提裁决（`COMPLAINT_RESOLUTION` 审批）→ 合规官批 → 客户端详情看三类书面齐全（确认函 / 延期说明 / 最终答复）。
+**场景 23 · 投诉全弧含延期**：客户提交 → 运营确认（1 周钟停）→ 立案调查 → ⚡ 拨过裁决钟 → 运营延期（强制解释，4→8 周）→ 提裁决（`COMPLAINT_RESOLUTION` 审批）→ 合规官批 → 客户端详情看三类书面齐全（确认函 / 延期说明 / 最终答复）。
 
-**场景 24（暂编）· 升级转事件**：（承接一张 INVESTIGATING 种子投诉）运营先延期到 8 周 → ⚡ 拨过裁决钟 → 闹钟墙该行变红 Overdue → 运营点 Escalate to Incident → 事件生成（`COMPLAINT_ESCALATION`，anchors 齐）→ 事件调查 + 定损（IMPACT 口径，无需善后单）→ 提结案（`INCIDENT_CLOSE_CUSTOMER` 审批）→ 合规官批 → 事件 CLOSED、投诉侧 `escalatedIncidentNo` 回填、投诉/事件详情页双向跳转可点；口播「手工登记这类事件仍被拒绝，只有投诉侧内部入口能开」。
+**场景 24 · 升级转事件**：（承接一张 INVESTIGATING 种子投诉）运营先延期到 8 周 → ⚡ 拨过裁决钟 → 闹钟墙该行变红 Overdue → 运营点 Escalate to Incident → 事件生成（`COMPLAINT_ESCALATION`，anchors 齐）→ 事件调查 + 定损（IMPACT 口径，无需善后单）→ 提结案（`INCIDENT_CLOSE_CUSTOMER` 审批）→ 合规官批 → 事件 CLOSED、投诉侧 `escalatedIncidentNo` 回填、投诉/事件详情页双向跳转可点；口播「手工登记这类事件仍被拒绝，只有投诉侧内部入口能开」。
 
 **⚡ 换号话术（两幕都要用）**：运营（受理调查的经办人）**不持 `DEMO_CLOCK_WRITE`**——投诉详情页看不到 Fast-forward 按钮；能拨钟的是**金库或超管**（`DEMO_CLOCK_WRITE` 持有者），但金库不持 `COMPLAINT_READ`/`COMPLAINT_WRITE`、进不了投诉详情/列表页，实测能同时看到页面又点得动按钮的只有超管（`admin@fiatx.com`）——与场景 21 闹钟墙 ⚡ 同款 RBAC 交叉现象，T6 探针已实证（金库 simulate-timeout 200、运营 403）。剧本步骤：运营立案后 → 切超管 → 详情页点 ⚡ → 切回运营继续走延期/裁决。
 
