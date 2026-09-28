@@ -1,7 +1,7 @@
 # 战役甲收官销账快照（总纲 §4/§7 终闸 2）
 
 > 对应总纲 `superpowers/specs/2026-09-25-campaign-a-incident-regulatory-charter.md` §4（V9 36 条 + 跨版本 5 处）。
-> **本表是快照，不是销账动作**——表尾「待业主确认后销账」：业主看过、点头，才去 `reference/roadmap.md` 翻勾（agent 不主动读写该文件，翻勾候选清单见 §3，落笔由业主或业主指定会话执行）。
+> **本表是快照，不是销账动作**——表尾「待业主确认后销账」：业主看过、点头，才去 `reference/roadmap.md` 翻勾（agent 不主动读写该文件，翻勾候选清单见 §6，落笔由业主或业主指定会话执行）。
 > 生成方法：逐条对照总纲 §4 原文 + 五波交付物（spec/代码/modules 篇）+ `checkups/2026-09-22-roadmap-219-ideal-vs-actual.md`（roadmap 行号底账）,一条不漏、一条不重复核对。
 
 ## §1 四态定义
@@ -140,8 +140,8 @@ V9 36 条 = C 桶 14 + E① 桶 22
 
 | 悬挂项 | 来源波次 | 当前登记位置 | 备注 |
 |---|---|---|---|
-| HRCA 官方名一手核 | 波三 | `doc-final/archive/superpowers/specs/2026-09-26-campaign-a-wave3-aml-reporting-family-spec.md:21`（"⑥ HRC/HRCA…｜二手多源交叉"——与同表 CNMR 那行"二手多源交叉一致"的核实强度并列，均未见一手材料） | ⚠️ **未登记在 BACKLOG/TOOLING-DEBT**，只在已归档的波三 spec 文件里；按文档路由表 `archive/` 不被日常读取，事实上处于"孤悬"状态，本表按брief"不新增登记只点名去向"要求原样点出，不代为登记 |
-| EOCN TFS Guidelines 2025 原文存 reference/ | 波三 | 同上文件 `:16`（"残留：EOCN TFS Guidelines 2025 原文（uaeiec.gov.ae 被会话网络策略拦，建议业主本机存档一份入 reference/）"） | 同上，未登记在 BACKLOG/TOOLING-DEBT，只在已归档 spec 里；业主本机若已下载存档，此项可视为已解，本表无法验证 |
+| HRCA 官方名一手核 | 波三，波四/波五两波接力未销 | `doc-final/BACKLOG.md:336`（2026-09-28 战役甲波五收官改判补登） | 原先只记于已归档的波三 spec（`archive/superpowers/specs/2026-09-26-campaign-a-wave3-aml-reporting-family-spec.md:21`），`archive/` 不被日常读取、形同失踪；本次移出归档文件正式补登入 BACKLOG，性质=业主亲办考证项 |
+| EOCN TFS Guidelines 2025 原文存 reference/ | 波三，波四/波五两波接力未销 | `doc-final/BACKLOG.md:338`（2026-09-28 战役甲波五收官改判补登） | 原先只记于同上归档文件 `:16`；本次移出归档文件正式补登入 BACKLOG，性质=业主亲办考证项（业主本机访问 `uaeiec.gov.ae` 下载后存入 `reference/`） |
 | 云 setup script 加装 TigerBeetle 行 | 波三 | `doc-final/TOOLING-DEBT.md:159`（"本 Claude Code Remote 容器不带 tigerbeetle 服务端二进制…根治=云环境 setup script 加一行安装同版本 TB，免每会话手装"） | ✅ 已在 TOOLING-DEBT 正式登记，本表仅点名去向，未修改该文件 |
 
 ## §8 归档与合并后必做（备忘，本任务不执行）
