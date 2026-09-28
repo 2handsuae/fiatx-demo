@@ -133,6 +133,18 @@ Mona 的 EMIRATES_ID 补料请求（`requestNo=MRQ2601019867`，PENDING_SUBMISSI
 
 ⚠️ 闹钟墙开箱判据（Ruling R2）：核实波三 `seedAmlFilingFamily()` 的 PNMR 样例（`FIL2601012321`，见上「报文族种子」表）本身即 `DRAFT` 态、`deadlineAt` 非空——落在 `FILING_CLOCK_WALL_STATUSES`（DRAFT/PENDING_SIGNOFF/SIGNED_OFF）内，重铺后即在墙上；本任务未额外补报送单样例。
 
+## 投诉种子（business seed，三样例，2026-09-28 战役甲波五 Task 7）
+
+`seedComplaints()`（`prisma/seed.business.ts`，紧随 `seedResponsibleIndividuals()` 之后）同样直铺快照数据（不走 `ComplaintsService`，没有 operator、不写审计——「留痕」由 e2e 证，同上方各种子节先例）。三张单全挂在 **Bob Happy**（既有 happy 客户，唯一另挂的演示位是材料请求黄档提醒，域不重叠）名下，演一位客户在三个不同投诉阶段的剧本；`complaintNo` 用 `buildDeterministicNo('CMP', seedKey)` 派生、reset 重铺后逐字不变；时间戳全部相对**铺场时刻**取（同义务台账 `nextDueAt` 先例），不锚死日历日期。
+
+| 样例 | complaintNo | category | 状态 | submittedAt | 关键字段 |
+|---|---|---|---|---|---|
+| ① 新到 | `CMP2601014294` | FEES | RECEIVED | 铺场时刻−1 天 | 确认钟（7 天）在跑；零 entries（照 `submit()` 真实行为） |
+| ② 临近死线 | `CMP2601017476` | SERVICE | INVESTIGATING | 铺场时刻−26 天 | 已确认（`acknowledgedAt`=submittedAt+1 天）已立案；裁决钟（submittedAt+28 天）还剩 2 天——⚡/延期演示起点；一条 ACK entry |
+| ③ 全档 | `CMP2601012261` | ORDER_EXECUTION | RESOLVED | 铺场时刻−40 天 | 确认（+2 天）→内部备注（+10 天）→延期（+21 天，钟改判 submittedAt+56 天）→裁决 `PARTIALLY_UPHELD`（+34 天，在延期后 56 天窗口内）；entries 三类 CLIENT_MESSAGE（ACK/EXTENSION_NOTICE/FINAL_RESPONSE）齐 + 一条 INTERNAL_NOTE |
+
+⚠️ 三行 `submittedAt`/`ackDeadlineAt`/`resolveDeadlineAt`/`acknowledgedAt`/`extendedAt`/`resolvedAt` 都相对**铺场时刻**回拨，不是固定日期——每次 `stack.sh reset` 重铺，②的"还剩 2 天"效果会重新从铺场当下起算，但 `complaintNo` 逐字不变（`buildDeterministicNo` 只吃 seedKey，不吃时间）。entries 的 `actorNo`：ACK/EXTENSION_NOTICE/INTERNAL_NOTE 落 `ops_officer@fiatx.com` 的固定 `userNo`（`ADM2501010008`，rbac.catalog.ts `COMPLAINT_WRITE` 唯一持有职务）；FINAL_RESPONSE 落 `'SYSTEM'` 字面量，同 `applyResolution()` 真实行为（裁决生效是系统动作，无 actor）。
+
 ## 各脚本造什么
 
 | 命令 | 产出 |

@@ -29,6 +29,7 @@ import { addBusinessDays } from '../src/modules/governance/regulatory-filings/bu
 import { DUBAI_UTC_OFFSET_MS } from '../src/modules/accounting/tigerbeetle/utils/business-date.util';
 import { INCIDENT_REPORT_BASES } from '../src/modules/governance/incidents/incident.constants';
 import { ObligationFrequencies, ObligationStatus, VendorStatus } from '../src/modules/governance/compliance-office/compliance-office.constants';
+import { ComplaintCategories, ComplaintClientMessageTypes, ComplaintEntryKinds, ComplaintResolutionOutcomes, ComplaintStatus } from '../src/modules/governance/complaints/complaint.constants';
 
 type SeedBusinessOptions = {
   skipEnsureBase?: boolean;
@@ -69,6 +70,8 @@ export async function seedBusiness(
   await seedComplianceObligations(prisma);
   await seedOutsourcingVendors(prisma);
   await seedResponsibleIndividuals(prisma);
+  // ③g Complaints register（战役甲波五 T7，spec §7）：needs seedCustomers' Bob row.
+  await seedComplaints(prisma);
   // Final: push all registry rows (system + customer) into TigerBeetle.
   await provisionTbAccounts(prisma);
   // Firm capital bootstrap: DR FIRM_ASSET / CR FIRM_OPS per currency.
@@ -1771,6 +1774,149 @@ async function seedResponsibleIndividuals(prisma: PrismaClient): Promise<void> {
     seeded += 1;
   }
   console.log(`Seeded ${seeded} responsible individual seat rows (MLRO/Compliance Officer/CFO/CISO, all ACTIVE, zero pending replacement).`);
+}
+
+// ─────────────────────────────────────────────────────────────
+// ③g Complaints register — 战役甲波五 Task 7（spec §7）：三张种子投诉，铺在 Bob（既有
+// happy 客户，唯一另挂的演示位是材料请求黄档提醒，域不重叠）名下，演一位客户在三个
+// 不同投诉阶段的剧本：
+//   ① RECEIVED —— 昨天刚提交，确认钟（7 天）在跑，零 entries（照 submit() 真实行为，
+//     它不产生任何 ComplaintEntry）。
+//   ② INVESTIGATING —— 26 天前提交，已确认已立案，裁决钟（submittedAt+28 天）还剩 2
+//     天——⚡/延期演示起点；一条 ACK entry（照 acknowledge() 真实行为）。
+//   ③ RESOLVED 全档 —— 40 天前提交，走完确认→调查→延期（钟改判 submittedAt+56 天）
+//     →裁决四步，entries 三类 CLIENT_MESSAGE（ACK/EXTENSION_NOTICE/FINAL_RESPONSE）
+//     齐 + 一条 INTERNAL_NOTE，PARTIALLY_UPHELD 裁决，提交后第 34 天裁决（在延期后
+//     56 天窗口内）。
+//
+// 与 ③f 三个区块同一性质：直铺快照数据，不走 ComplaintsService（没有 operator、不写
+// 审计——「留痕」由 e2e 证，同 seedIncidents 头注释先例）。complaintNo 用
+// buildDeterministicNo(seedKey) 派生，reset 重铺后逐字不变；ComplaintEntry 无 FK 声明
+// （只靠 complaintNo 字符串挂靠，同 schema 原文），幂等重铺先删 entries 再删
+// complaint（同 RegulatoryFilingEntry 先例）。三段时间戳全部相对铺场当下的 `now` 取，
+// 不锚死具体日历日期（同义务台账 nextDueAt 先例）——长期不 reset 的环境也不会让②的
+// "临近死线"效果漂移成"早已超期"。
+// ─────────────────────────────────────────────────────────────
+
+/** OPS_OFFICER 的 seed.base.ts 固定 userNo（ops_officer@fiatx.com）——rbac.catalog.ts
+ *  COMPLAINT_WRITE 唯一持有职务，ACK/EXTENSION_NOTICE/INTERNAL_NOTE 三类内部经办条目
+ *  落这个号，演"运营是受理调查人"。FINAL_RESPONSE 落 'SYSTEM' 字面量，与
+ *  applyResolution() 真实行为一致（裁决生效是系统动作，无 actor）。 */
+const COMPLAINT_OPS_USER_NO = 'ADM2501010008';
+
+async function seedComplaints(prisma: PrismaClient): Promise<void> {
+  const customer = await prisma.customerMain.findUnique({
+    where: { email: 'demo_bob@example.com' }, select: { customerNo: true },
+  });
+  if (!customer) {
+    console.log('  ⚠ Skipping complaint seed — customer demo_bob@example.com missing');
+    return;
+  }
+  const ownerCustomerNo = customer.customerNo;
+  const now = Date.now();
+  const DAY = 86400000;
+
+  async function upsertComplaint(complaintNo: string, data: Prisma.ComplaintCreateInput) {
+    const existing = await prisma.complaint.findUnique({ where: { complaintNo }, select: { complaintNo: true } });
+    if (existing) {
+      await prisma.complaintEntry.deleteMany({ where: { complaintNo } });
+      await prisma.complaint.delete({ where: { complaintNo } });
+    }
+    return prisma.complaint.create({ data });
+  }
+
+  // ── ① RECEIVED —— 确认钟在跑，零 entries ─────────────────────────────
+  const receivedNo = buildDeterministicNo('CMP', 'complaint-bob-fees-received');
+  const receivedSubmittedAt = new Date(now - 1 * DAY);
+  await upsertComplaint(receivedNo, {
+    complaintNo: receivedNo,
+    ownerCustomerNo,
+    category: ComplaintCategories.FEES,
+    subject: 'Withdrawal fee charged twice on my last AED payout',
+    description: 'My AED withdrawal on Friday shows two separate fee deductions on the statement instead of one — please check and refund the duplicate charge.',
+    currentStatus: ComplaintStatus.RECEIVED,
+    submittedAt: receivedSubmittedAt,
+    ackDeadlineAt: new Date(receivedSubmittedAt.getTime() + 7 * DAY),
+    resolveDeadlineAt: new Date(receivedSubmittedAt.getTime() + 28 * DAY),
+    traceId: `seed-${receivedNo}`,
+  });
+
+  // ── ② INVESTIGATING —— 已确认已立案，裁决钟还剩 2 天（⚡/延期演示起点）───────
+  const investigatingNo = buildDeterministicNo('CMP', 'complaint-bob-service-investigating');
+  const investigatingSubmittedAt = new Date(now - 26 * DAY);
+  const investigatingAckedAt = new Date(investigatingSubmittedAt.getTime() + 1 * DAY);
+  await upsertComplaint(investigatingNo, {
+    complaintNo: investigatingNo,
+    ownerCustomerNo,
+    category: ComplaintCategories.SERVICE,
+    subject: 'No response from support after three follow-up messages',
+    description: 'I opened a support ticket about a delayed deposit three weeks ago and have sent three follow-ups since with no reply — please investigate why this case went silent.',
+    currentStatus: ComplaintStatus.INVESTIGATING,
+    submittedAt: investigatingSubmittedAt,
+    ackDeadlineAt: new Date(investigatingSubmittedAt.getTime() + 7 * DAY),
+    acknowledgedAt: investigatingAckedAt,
+    resolveDeadlineAt: new Date(investigatingSubmittedAt.getTime() + 28 * DAY),
+    traceId: `seed-${investigatingNo}`,
+  });
+  await prisma.complaintEntry.create({
+    data: {
+      complaintNo: investigatingNo, kind: ComplaintEntryKinds.CLIENT_MESSAGE, messageType: ComplaintClientMessageTypes.ACK,
+      body: 'Thanks for flagging this — we have logged your complaint and started reviewing the support ticket history.',
+      actorNo: COMPLAINT_OPS_USER_NO, createdAt: investigatingAckedAt,
+    },
+  });
+
+  // ── ③ RESOLVED 全档 —— 确认→调查→延期(56天钟)→裁决四步，三类 CLIENT_MESSAGE 齐 +
+  //     一条 INTERNAL_NOTE，PARTIALLY_UPHELD，第 34 天裁决（延期后 56 天窗口内）───
+  const resolvedNo = buildDeterministicNo('CMP', 'complaint-bob-order-execution-resolved');
+  const resolvedSubmittedAt = new Date(now - 40 * DAY);
+  const resolvedAckedAt = new Date(resolvedSubmittedAt.getTime() + 2 * DAY);
+  const resolvedNoteAt = new Date(resolvedSubmittedAt.getTime() + 10 * DAY);
+  const resolvedExtendedAt = new Date(resolvedSubmittedAt.getTime() + 21 * DAY);
+  const resolvedResolvedAt = new Date(resolvedSubmittedAt.getTime() + 34 * DAY);
+  const resolutionText = 'We reviewed the order execution logs: the quoted rate had expired by 4 seconds when your swap was submitted due to a client-side retry, which is a shared responsibility. We are refunding half of the spread difference as a goodwill gesture; the order itself executed correctly against the rate available at submission time.';
+  await upsertComplaint(resolvedNo, {
+    complaintNo: resolvedNo,
+    ownerCustomerNo,
+    category: ComplaintCategories.ORDER_EXECUTION,
+    subject: 'Swap order executed at a stale exchange rate',
+    description: 'My USDT→AED swap executed at a rate that looked stale compared to the market a moment later — I think I was quoted a rate that had already expired.',
+    currentStatus: ComplaintStatus.RESOLVED,
+    submittedAt: resolvedSubmittedAt,
+    ackDeadlineAt: new Date(resolvedSubmittedAt.getTime() + 7 * DAY),
+    acknowledgedAt: resolvedAckedAt,
+    resolveDeadlineAt: new Date(resolvedSubmittedAt.getTime() + 56 * DAY),
+    extendedAt: resolvedExtendedAt,
+    resolvedAt: resolvedResolvedAt,
+    resolutionOutcome: ComplaintResolutionOutcomes.PARTIALLY_UPHELD,
+    resolutionText,
+    traceId: `seed-${resolvedNo}`,
+  });
+  await prisma.complaintEntry.createMany({
+    data: [
+      {
+        complaintNo: resolvedNo, kind: ComplaintEntryKinds.CLIENT_MESSAGE, messageType: ComplaintClientMessageTypes.ACK,
+        body: 'Thanks for reaching out — we have logged your complaint and started reviewing the order execution logs.',
+        actorNo: COMPLAINT_OPS_USER_NO, createdAt: resolvedAckedAt,
+      },
+      {
+        complaintNo: resolvedNo, kind: ComplaintEntryKinds.INTERNAL_NOTE,
+        body: 'Pulled the rate-lock and execution timeline from the swap engine logs; timestamps show a 4-second gap between quote expiry and submission caused by a client-side retry. Escalating to the pricing team to confirm whether the expired-quote guard should have caught this.',
+        actorNo: COMPLAINT_OPS_USER_NO, createdAt: resolvedNoteAt,
+      },
+      {
+        complaintNo: resolvedNo, kind: ComplaintEntryKinds.CLIENT_MESSAGE, messageType: ComplaintClientMessageTypes.EXTENSION_NOTICE,
+        body: 'We need more time to confirm the root cause with the pricing team before we can give you a final answer — extending our review by up to four additional weeks.',
+        actorNo: COMPLAINT_OPS_USER_NO, createdAt: resolvedExtendedAt,
+      },
+      {
+        complaintNo: resolvedNo, kind: ComplaintEntryKinds.CLIENT_MESSAGE, messageType: ComplaintClientMessageTypes.FINAL_RESPONSE,
+        body: resolutionText, actorNo: 'SYSTEM', createdAt: resolvedResolvedAt,
+      },
+    ],
+  });
+
+  console.log('Seeded 3 complaint sample rows for Bob (RECEIVED ack-clock-running / INVESTIGATING resolve-clock-2-days-left / RESOLVED full 4-entry timeline).');
 }
 
 // ─────────────────────────────────────────────────────────────

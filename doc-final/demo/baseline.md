@@ -210,3 +210,16 @@ test/sla.e2e-spec.ts                         # 私库
 
 **实测口径**：`bash scripts/stack.sh reset self` → 全绿（无失败步骤，`verify:demo-data ALL PASS`）→ `bash scripts/on-stack.sh self demo:all` → 花名册 29/29 + COA 4/4 恒等式全过、`data.md` 生成区零 diff → `bash scripts/on-stack.sh self verify:rbac` → 新增判据（合规办公室四组门 / 合规义务写权 / ⚡拨钟唯金库 / RI 换人审批链）全绿，仅剩两条与本任务无关的既有红（`S7 catalog 字典真实性`——`TOOLING-DEBT.md` 已登记的三域 demo 裁决按钮扫描器盲区；`V2 改角色不丢权限 · COMPLIANCE_OFFICER`——`BACKLOG.md` 已登记的 `CUSTOMER_WRITE` 孤儿权限组），红集与波前基线恒等、无新增。
 
+## 战役甲波五投诉种子断言（reset 判据，2026-09-28 Task 7 起）
+
+`bash scripts/stack.sh reset self` 从零建库重铺后（`seedBusiness()` 随 `db:seed:business` 落地，`seedComplaints()` 紧随 `seedResponsibleIndividuals()` 之后），两张新表应各自恰好这些行，连跑两次 reset 结果逐字一致（`complaintNo` 用 `buildDeterministicNo('CMP', seedKey)` 派生，幂等重铺先删 entries 再删 complaint；已实测两轮独立 reset 数字与单号完全相同）：
+
+| 表 | 行数 | 关键行 |
+|---|---|---|
+| `complaints` | **3** | `CMP2601014294`（FEES/RECEIVED，Bob，submittedAt=铺场−1天，零 entries）／`CMP2601017476`（SERVICE/INVESTIGATING，Bob，submittedAt=铺场−26天，`acknowledgedAt` 非空，1 条 entry）／`CMP2601012261`（ORDER_EXECUTION/RESOLVED，Bob，submittedAt=铺场−40天，`extendedAt`/`resolvedAt`/`resolutionOutcome=PARTIALLY_UPHELD` 均非空，4 条 entries） |
+| `complaint_entries` | **5** | `CMP2601017476` 1 条（CLIENT_MESSAGE/ACK）；`CMP2601012261` 4 条（CLIENT_MESSAGE/ACK → INTERNAL_NOTE → CLIENT_MESSAGE/EXTENSION_NOTICE → CLIENT_MESSAGE/FINAL_RESPONSE，`createdAt` 严格递增）；`CMP2601014294` 零条 |
+
+**实测口径**：`bash scripts/stack.sh reset self` → 全绿（`verify:demo-data ALL PASS`）→ 直查库：3 complaints / 5 entries，字段与上表逐字相符 → 再次 `reset self` → `complaintNo` 三个值逐字不变（`CMP2601012261`/`CMP2601014294`/`CMP2601017476`），行数仍 3/5 → `bash scripts/on-stack.sh self demo:all`（demo:all 不碰投诉两表）→ 花名册 29/29 + COA 4/4 恒等式全过，`data.md` 生成区零 diff（生成区只收录 DEPOSIT/SWAP/WITHDRAW 花名册 + COA 恒等式，`renderDataMdSnapshot()` 不涉投诉表，本任务未改 `scripts/demo-data-md.ts`）→ `npx tsc --noEmit -p tsconfig.json` 全绿 → `DATABASE_URL=file:/tmp/exchange_js_wt_act_a_wave5/dev.db npx jest src/modules/governance/complaints --silent`：**5 套件 / 58 例全绿**。
+
+⚠️ **环境闸口已知缺口（与本任务无关，未修）**：`admin-web/node_modules` 在本 worktree 为空目录（0 个包），`npx tsc -b --noEmit`/`vite` 均不可执行——`stack.sh up self` 因此起不来 admin 前端（backend 仍正常起、demo:all 走后端直调不受影响）。本任务未改动任何 `admin-web`/`client-web` 文件，`client-web` 侧 `npx tsc -b --noEmit` 已单独实测通过；`admin-web` 侧的 tsc 门槛本任务未能过（环境缺口，非代码红），建议下一次涉及 admin-web 的任务先 `cd admin-web && npm install` 补齐。
+
