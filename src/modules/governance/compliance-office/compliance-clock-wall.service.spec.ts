@@ -34,6 +34,22 @@ function makeFixtures() {
     });
   }
 
+  const complaintRows: any[] = [];
+
+  function addComplaint(overrides: Partial<{
+    complaintNo: string; subject: string; currentStatus: string;
+    ackDeadlineAt: Date; acknowledgedAt: Date | null; resolveDeadlineAt: Date;
+  }> = {}) {
+    complaintRows.push({
+      complaintNo: overrides.complaintNo ?? 'CMP260101000001',
+      subject: overrides.subject ?? 'Order stuck in processing',
+      currentStatus: overrides.currentStatus ?? 'RECEIVED',
+      ackDeadlineAt: overrides.ackDeadlineAt ?? new Date('2026-12-31T00:00:00.000Z'),
+      acknowledgedAt: overrides.acknowledgedAt !== undefined ? overrides.acknowledgedAt : null,
+      resolveDeadlineAt: overrides.resolveDeadlineAt ?? new Date('2027-01-28T00:00:00.000Z'),
+    });
+  }
+
   const prisma = {
     regulatoryFiling: {
       findMany: jest.fn(async ({ where }: any) =>
@@ -47,9 +63,15 @@ function makeFixtures() {
       findMany: jest.fn(async ({ where }: any) =>
         obligationRows.filter((r) => (where?.status ? r.status === where.status : true))),
     },
+    complaint: {
+      // 行为化 mock 真按 where 过滤（本仓判例）：currentStatus.not = 'RESOLVED' 时，
+      // RESOLVED 行必须真的被滤掉，不是靠断言调用参数蒙混过关。
+      findMany: jest.fn(async ({ where }: any) =>
+        complaintRows.filter((r) => (where?.currentStatus?.not ? r.currentStatus !== where.currentStatus.not : true))),
+    },
   };
 
-  return { prisma, addFiling, addObligation };
+  return { prisma, addFiling, addObligation, addComplaint };
 }
 
 describe('ComplianceClockWallService.getWall (Task 5, spec §2)', () => {
@@ -144,6 +166,90 @@ describe('ComplianceClockWallService.getWall (Task 5, spec §2)', () => {
     expect(obligationRow).toEqual({
       kind: 'OBLIGATION', refNo: 'OBL_SHAPE', title: 'Shape check obligation', authority: 'VARA',
       deadlineAt: '2026-12-31T00:00:00.000Z', overdue: false, status: 'ACTIVE', linkKey: 'OBL_SHAPE',
+    });
+  });
+
+  // 战役甲波五 T5（brief §clock-wall）：COMPLAINT 分支——先测后写。
+  describe('COMPLAINT 分支（战役甲波五 T5）', () => {
+    it('未确认件（acknowledgedAt=null）走确认钟：deadlineAt=ackDeadlineAt，clockLabel=ACK (1w)', async () => {
+      const fx = makeFixtures();
+      const ackDeadlineAt = new Date(Date.now() + 6 * 86400000);
+      const resolveDeadlineAt = new Date(Date.now() + 27 * 86400000);
+      fx.addComplaint({
+        complaintNo: 'CMP_UNACKED', currentStatus: 'RECEIVED', acknowledgedAt: null,
+        ackDeadlineAt, resolveDeadlineAt,
+      });
+      const service = new ComplianceClockWallService(fx.prisma as any);
+
+      const rows = await service.getWall();
+      const row = rows.find((r) => r.refNo === 'CMP_UNACKED')!;
+      expect(row).toBeDefined();
+      expect(row.kind).toBe('COMPLAINT');
+      expect(row.deadlineAt).toBe(ackDeadlineAt.toISOString());
+      expect((row as any).clockLabel).toBe('ACK (1w)');
+    });
+
+    it('已确认件（acknowledgedAt 非空）走裁决钟：deadlineAt=resolveDeadlineAt，clockLabel=RESOLVE (4w/8w)', async () => {
+      const fx = makeFixtures();
+      const ackDeadlineAt = new Date(Date.now() + 6 * 86400000);
+      const resolveDeadlineAt = new Date(Date.now() + 20 * 86400000);
+      fx.addComplaint({
+        complaintNo: 'CMP_ACKED', currentStatus: 'INVESTIGATING', acknowledgedAt: new Date(Date.now() - 86400000),
+        ackDeadlineAt, resolveDeadlineAt,
+      });
+      const service = new ComplianceClockWallService(fx.prisma as any);
+
+      const rows = await service.getWall();
+      const row = rows.find((r) => r.refNo === 'CMP_ACKED')!;
+      expect(row).toBeDefined();
+      expect(row.deadlineAt).toBe(resolveDeadlineAt.toISOString());
+      expect((row as any).clockLabel).toBe('RESOLVE (4w/8w)');
+    });
+
+    it('RESOLVED 不上墙', async () => {
+      const fx = makeFixtures();
+      fx.addComplaint({ complaintNo: 'CMP_RESOLVED', currentStatus: 'RESOLVED', acknowledgedAt: new Date() });
+      const service = new ComplianceClockWallService(fx.prisma as any);
+
+      const rows = await service.getWall();
+      expect(rows.some((r) => r.refNo === 'CMP_RESOLVED')).toBe(false);
+    });
+
+    it('overdue 红标位：deadline < now 为真才红——不复用他表的 overdueMarkedAt 列名，现算', async () => {
+      const fx = makeFixtures();
+      fx.addComplaint({
+        complaintNo: 'CMP_OVERDUE', currentStatus: 'RECEIVED', acknowledgedAt: null,
+        ackDeadlineAt: new Date(Date.now() - 3600 * 1000), // 已过期 1 小时（同 simulateTimeout ⚡ 拨法）
+      });
+      fx.addComplaint({
+        complaintNo: 'CMP_ON_TIME', currentStatus: 'RECEIVED', acknowledgedAt: null,
+        ackDeadlineAt: new Date(Date.now() + 3600 * 1000),
+      });
+      const service = new ComplianceClockWallService(fx.prisma as any);
+
+      const rows = await service.getWall();
+      const overdue = rows.find((r) => r.refNo === 'CMP_OVERDUE');
+      const onTime = rows.find((r) => r.refNo === 'CMP_ON_TIME');
+      expect(overdue!.overdue).toBe(true);
+      expect(onTime!.overdue).toBe(false);
+    });
+
+    it('归一行形状：kind=COMPLAINT，refNo=complaintNo，title=subject，linkKey=complaintNo', async () => {
+      const fx = makeFixtures();
+      const ackDeadlineAt = new Date(Date.now() + 6 * 86400000);
+      fx.addComplaint({
+        complaintNo: 'CMP_SHAPE', subject: 'Fee dispute', currentStatus: 'RECEIVED',
+        acknowledgedAt: null, ackDeadlineAt,
+      });
+      const service = new ComplianceClockWallService(fx.prisma as any);
+
+      const rows = await service.getWall();
+      const row = rows.find((r) => r.refNo === 'CMP_SHAPE')!;
+      expect(row.kind).toBe('COMPLAINT');
+      expect(row.refNo).toBe('CMP_SHAPE');
+      expect(row.title).toBe('Fee dispute');
+      expect(row.linkKey).toBe('CMP_SHAPE');
+      expect(row.status).toBe('RECEIVED');
     });
   });
 });

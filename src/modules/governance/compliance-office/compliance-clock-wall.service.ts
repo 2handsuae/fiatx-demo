@@ -7,7 +7,7 @@ import { FILING_CLOCK_WALL_STATUSES } from '../regulatory-filings/regulatory-fil
 import { ObligationStatus } from './compliance-office.constants';
 
 export interface ClockWallRow {
-  kind: 'FILING' | 'OBLIGATION';
+  kind: 'FILING' | 'OBLIGATION' | 'COMPLAINT';
   refNo: string;
   title: string;
   authority: string;
@@ -15,6 +15,9 @@ export interface ClockWallRow {
   overdue: boolean;
   status: string;
   linkKey: string;
+  // 战役甲波五 T5：COMPLAINT 行专属——区分「确认钟」/「裁决钟」，FILING/OBLIGATION 两种
+  // kind 不填这个字段（可选，toEqual 对 undefined 键视同不存在，不破坏既有行断言）。
+  clockLabel?: string;
 }
 
 @Injectable()
@@ -32,7 +35,7 @@ export class ComplianceClockWallService {
    *   承担，故本行 overdue 恒 false。
    */
   async getWall(): Promise<ClockWallRow[]> {
-    const [filings, obligations] = await Promise.all([
+    const [filings, obligations, complaints] = await Promise.all([
       this.prisma.regulatoryFiling.findMany({
         where: { deadlineAt: { not: null }, status: { in: FILING_CLOCK_WALL_STATUSES as string[] } },
         orderBy: { deadlineAt: 'asc' },
@@ -40,6 +43,14 @@ export class ComplianceClockWallService {
       this.prisma.complianceObligation.findMany({
         where: { status: ObligationStatus.ACTIVE },
         orderBy: { nextDueAt: 'asc' },
+      }),
+      // 战役甲波五 T5（brief §clock-wall）：非终态（!= RESOLVED）投诉一行；读投诉自家字段，
+      // 不复用 FILING 的 overdueMarkedAt / authority 列名——投诉没有这两列，overdue 现算
+      // （deadline < now），authority 固定标 'VARA'（双钟出处：Market Conduct Rulebook
+      // III.A.1.a/b，spec §1 已核事实）。
+      this.prisma.complaint.findMany({
+        where: { currentStatus: { not: 'RESOLVED' } },
+        orderBy: { submittedAt: 'asc' },
       }),
     ]);
 
@@ -67,6 +78,23 @@ export class ComplianceClockWallService {
       linkKey: o.obligationNo,
     }));
 
-    return [...filingRows, ...obligationRows];
+    const now = Date.now();
+    const complaintRows: ClockWallRow[] = complaints.map((c) => {
+      const awaitingAck = c.acknowledgedAt == null;
+      const deadlineAt: Date = awaitingAck ? c.ackDeadlineAt : c.resolveDeadlineAt;
+      return {
+        kind: 'COMPLAINT',
+        refNo: c.complaintNo,
+        title: c.subject,
+        authority: 'VARA',
+        deadlineAt: deadlineAt.toISOString(),
+        overdue: deadlineAt.getTime() < now,
+        status: c.currentStatus,
+        linkKey: c.complaintNo,
+        clockLabel: awaitingAck ? 'ACK (1w)' : 'RESOLVE (4w/8w)',
+      };
+    });
+
+    return [...filingRows, ...obligationRows, ...complaintRows];
   }
 }

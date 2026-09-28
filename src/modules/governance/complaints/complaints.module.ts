@@ -13,9 +13,12 @@ import { ComplaintsService } from './complaints.service';
 import { ComplaintResolutionWorkflowService } from './complaint-resolution-workflow.service';
 import { ComplaintResolutionApprovalService } from './complaint-resolution-approval.service';
 import { ComplaintEscalationWorkflowService } from './complaint-escalation-workflow.service';
+import { ComplaintsController } from './complaints.controller';
+import { ComplaintsClientController } from './complaints.client.controller';
 
 @Module({
   imports: [PrismaModule, AuditLogsModule, ApprovalsModule, IncidentsModule],
+  controllers: [ComplaintsController, ComplaintsClientController],
   providers: [
     ComplaintsService,
     ComplaintResolutionWorkflowService,

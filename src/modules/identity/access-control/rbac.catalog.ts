@@ -98,7 +98,12 @@ export type PermissionGroup =
   | 'COMPLIANCE_OFFICE_VIEW'
   | 'OBLIGATION_WRITE'
   | 'VENDOR_REGISTER_WRITE'
-  | 'RI_REGISTER_WRITE';
+  | 'RI_REGISTER_WRITE'
+  // 战役甲波五 T5（spec §7）：投诉工作流——桶挂事件登记域，不新增域。运营受理调查
+  // （COMPLAINT_WRITE，绑 INCIDENT_OPS_WRITE 现持有职务）；裁决走 maker-checker（合规官批，
+  // 审批走角色路由不占本组）、但合规官要看得见列表/详情，COMPLAINT_READ 单独一组。
+  | 'COMPLAINT_READ'
+  | 'COMPLAINT_WRITE';
 
 export interface RbacPermissionDefinition {
   code: string;
@@ -486,6 +491,26 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
   route('POST', '/admin/incidents/:incidentNo/remediations', 'Link a remediation order', ['INCIDENT_WRITE', 'INCIDENT_TECH_WRITE', 'INCIDENT_DATA_WRITE', 'INCIDENT_OPS_WRITE', 'INCIDENT_FIN_WRITE']),
   route('POST', '/admin/incidents/:incidentNo/close', 'Request incident closure (opens approval)', ['INCIDENT_WRITE', 'INCIDENT_TECH_WRITE', 'INCIDENT_DATA_WRITE', 'INCIDENT_OPS_WRITE', 'INCIDENT_FIN_WRITE']),
   route('POST', '/admin/incidents/:incidentNo/withdraw', 'Withdraw a mis-registered incident', ['INCIDENT_WRITE', 'INCIDENT_TECH_WRITE', 'INCIDENT_DATA_WRITE', 'INCIDENT_OPS_WRITE', 'INCIDENT_FIN_WRITE']),
+
+  // Complaints（战役甲波五 T5，spec §4/§7）：投诉工作流骨架，桶挂事件登记域（不新增域）。
+  // 运营受理调查（COMPLAINT_WRITE，绑 INCIDENT_OPS_WRITE 现持有职务——两族都是运营受理/
+  // 调查/裁决提案，同一角色）；两条 GET 挂 COMPLAINT_READ/COMPLAINT_WRITE 两组 OR（合规官/
+  // MLRO/内审只读，运营读写都有）。propose-resolution/escalate 两条只挂 COMPLAINT_WRITE——
+  // 门在 workflow 内部（T3 ApprovalsService 开单走角色路由到合规官，T4 escalate 预拦），
+  // 不是路由级 maker/checker 分裂（同 RI_REPLACEMENT「提单人不持裁决组」先例的镜像：这里
+  // 反过来是「裁决人不必持提单组」——合规官批准走的是审批工单自己的角色路由，不经这张
+  // COMPLAINT_WRITE 路由门）。
+  route('GET', '/admin/complaints', 'List complaints', ['COMPLAINT_READ', 'COMPLAINT_WRITE']),
+  route('GET', '/admin/complaints/:complaintNo', 'Complaint detail', ['COMPLAINT_READ', 'COMPLAINT_WRITE']),
+  route('POST', '/admin/complaints/:complaintNo/acknowledge', 'Acknowledge receipt of a complaint', ['COMPLAINT_WRITE']),
+  route('POST', '/admin/complaints/:complaintNo/investigation', 'Start investigation', ['COMPLAINT_WRITE']),
+  route('POST', '/admin/complaints/:complaintNo/notes', 'Add an internal note', ['COMPLAINT_WRITE']),
+  route('POST', '/admin/complaints/:complaintNo/extend', 'Extend the resolution deadline (once, with a mandatory explanation)', ['COMPLAINT_WRITE']),
+  route('POST', '/admin/complaints/:complaintNo/propose-resolution', 'Propose a resolution (opens an approval — compliance officer decides)', ['COMPLAINT_WRITE']),
+  route('POST', '/admin/complaints/:complaintNo/escalate', 'Escalate a complaint into an incident (COMPLAINT_ESCALATION)', ['COMPLAINT_WRITE']),
+  // ⚡ 演示装置——挂既有 Demo Instruments 组（金库），非 COMPLAINT_WRITE（同报送单/合规
+  // 办公室两处 simulate-*-timeout 先例：拨钟是演示者操作，不是经办人自己的裁决动作）。
+  route('POST', '/admin/complaints/:complaintNo/simulate-timeout', 'Fast-forward a complaint deadline into the past (demo only)', ['DEMO_CLOCK_WRITE']),
 
   // Regulatory Filings（战役甲波二 Task 5 骨架；战役甲波三 T6 起报送台两经办组共享
   // 路由）：写路由与两条 GET 路由挂合规官/MLRO 两组 OR——路由 OR 是粗门，真正把关的是
@@ -1035,6 +1060,10 @@ export const ACTION_BUCKET_CATALOG: ActionDomain[] = [
       { key: 'incidents.manage-data', label: 'Register & manage data-breach incidents', description: 'Register, investigate, assess, log customer notice, request closure — DATA family (personal data breach)', groups: ['INCIDENT_DATA_WRITE'] },
       { key: 'incidents.manage-ops', label: 'Register & manage operations incidents', description: 'Register, investigate, assess, link asset suspension, request closure — OPERATIONS family (asset non-compliance, major stuck transaction)', groups: ['INCIDENT_OPS_WRITE'] },
       { key: 'incidents.manage-fin', label: 'Register & manage financial incidents', description: 'Register, investigate, assess, request closure — FINANCIAL family (prudential/NLA breach)', groups: ['INCIDENT_FIN_WRITE'] },
+      // 战役甲波五 T5（spec §7）：投诉工作流——不新增域，桶挂本域（骨架岔口 4「受理权限」
+      // 裁定：运营受理调查 + 合规官裁决）。
+      { key: 'complaints.view', label: 'View complaints', description: 'Browse the complaint register — status, twin deadline clocks, correspondence trail', groups: ['COMPLAINT_READ', 'COMPLAINT_WRITE'] },
+      { key: 'complaints.manage', label: 'Handle complaints', description: 'Acknowledge, investigate, extend, propose a resolution and escalate into an incident — operations intake', groups: ['COMPLAINT_WRITE'] },
     ],
   },
   // ─── Domain: Regulatory Filings ──────────────────────
@@ -1159,6 +1188,10 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
     // 战役甲波四 T5：MLRO 是 VARA Responsible Individual 候选人之一，需要看得见闹钟墙/
     // 合规日历/两册（同 SENIOR_MANAGEMENT_OFFICER/CISO 先例）。
     'COMPLIANCE_OFFICE_VIEW',
+    // 战役甲波五 T5（spec §7）：COMPLAINT_READ 恰绑合规官/MLRO/内审三职务——MLRO 不是投诉
+    // 裁决人（裁决人是合规官），但同 REG_FILING_READ 先例，治理侧职务要看得见事件登记域
+    // 里发生了什么；不持 COMPLAINT_WRITE（不是经办人）。
+    'COMPLAINT_READ',
   ],
 
   DPO: [
@@ -1191,6 +1224,9 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
     'REG_FILING_READ',
     // 战役甲波四 T5：内审全域只读人设——闹钟墙/合规日历/两册同样只读，不建 manage/act 包。
     'COMPLIANCE_OFFICE_VIEW',
+    // 战役甲波五 T5（spec §7）：COMPLAINT_READ 恰绑合规官/MLRO/内审——内审全域只读人设，
+    // 投诉登记同样只读，不建 manage 包（同本行其余组一致）。
+    'COMPLAINT_READ',
   ],
 
   // 拦的手：开/解限制、贴撕标签、提解冻；管理台里推不动任何交易单据（D-不翻案）
@@ -1215,6 +1251,11 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
     // 战役甲波四 T5（spec §5）：合规办公室骨架三写面全归合规官独占——闹钟墙/合规日历/
     // 两册（外包商/RI）全部由合规官经办，RI 换人事前审批也由合规官提单（高管裁决）。
     'COMPLIANCE_OFFICE_VIEW', 'OBLIGATION_WRITE', 'VENDOR_REGISTER_WRITE', 'RI_REGISTER_WRITE',
+    // 战役甲波五 T5（spec §7）：投诉裁决人——COMPLAINT_READ 恰绑合规官/MLRO/内审三职务，
+    // 让合规官看得见列表/详情；不持 COMPLAINT_WRITE（不是受理调查的经办人，maker=运营/
+    // checker=合规官，裁决走 ComplaintResolutionWorkflowService 提交给 ApprovalsService 的
+    // 角色路由，不经这张写权限组）。
+    'COMPLAINT_READ',
   ],
 
   // 定价的主人：费率两族的写权限全仓仅此一处（提由他提，运营复核）。
@@ -1329,6 +1370,11 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
     // STUCK_TRANSACTION_MAJOR 登记/调查/定损/结案请求全靠这个组；结案裁决人按 closeActionType
     // 分流到 CISO（TECHSEC）或 CFO（FINANCIAL），OPS_OFFICER 都不是自己的裁决人，无自批死锁。
     'INCIDENT_OPS_WRITE',
+    // 战役甲波五 T5（spec §7，骨架岔口 4）：投诉受理调查——绑 INCIDENT_OPS_WRITE 现持有
+    // 职务（唯一持有人）。确认/立案/备注/延期/提裁决/升级全靠这个组；裁决人是合规官
+    // （maker=运营/checker=合规官，走 ApprovalsService 角色路由），OPS_OFFICER 不是自己的
+    // 裁决人，无自批死锁。
+    'COMPLAINT_WRITE',
   ],
 };
 
