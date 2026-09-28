@@ -900,6 +900,25 @@ model InternalTransfer {
   @@map("internal_transfers")
 }
 
+// 战役乙波一（2026-09-29）：LP 档案——流动性提供方名册。结算坐标定义卖出腿的钱打到哪，建档/改坐标走 CFO 审批。
+model LiquidityProvider {
+  id            String   @id @default(uuid())
+  lpNo          String   @unique
+  name          String
+  fiatBankName  String
+  fiatIban      String
+  cryptoNetwork String   // TRON
+  cryptoAddress String
+  agreementRef  String
+  status        String   @default("PENDING_APPROVAL") // PENDING_APPROVAL | ACTIVE | SUSPENDED | REJECTED
+  approvalNo    String?
+  createdByUserId String
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  @@index([status])
+  @@map("liquidity_providers")
+}
+
 model FundsOrder {
   id                    String                 @id @default(uuid())
   fundsOrderNo          String                 @unique

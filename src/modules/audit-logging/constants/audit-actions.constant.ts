@@ -37,6 +37,8 @@ export const AuditEntityTypes = {
   RESPONSIBLE_INDIVIDUAL: 'RESPONSIBLE_INDIVIDUAL',
   // 战役甲波五 T2（2026-09-28）：投诉主体
   COMPLAINT: 'COMPLAINT',
+  // 战役乙波一 T2（2026-09-29）：LP 档案主体
+  LIQUIDITY_PROVIDER: 'LIQUIDITY_PROVIDER',
 } as const;
 
 export const AuditWorkflowTypes = {
@@ -136,6 +138,8 @@ export const AuditBusinessWorkflowTypes = {
   RESPONSIBLE_INDIVIDUAL: 'RESPONSIBLE_INDIVIDUAL',
   // 战役甲波五 T2（2026-09-28）：投诉主体（治理件，独立主体 Complaint）
   COMPLAINT: 'COMPLAINT',
+  // 战役乙波一 T2（2026-09-29）：LP 档案主体（财资件，独立主体 LiquidityProvider）
+  LP_PROFILE: 'LP_PROFILE',
 } as const;
 
 // Task 28：退役清单扫尾——原 15 键仅 2 键（REQUEST_CREATED/SUBMITTED）经
@@ -462,6 +466,15 @@ export const AuditActions = {
   COMPLAINT_RESOLUTION_REJECTED: 'COMPLAINT_RESOLUTION_REJECTED',
   COMPLAINT_ESCALATED: 'COMPLAINT_ESCALATED',
   COMPLAINT_DEADLINE_FASTFORWARDED: 'COMPLAINT_DEADLINE_FASTFORWARDED',
+  // ── 战役乙波一 T2（2026-09-29）：LP 档案八码（财资件，域 TREASURY）──────────
+  LP_PROFILE_CREATED: 'LP_PROFILE_CREATED',
+  LP_PROFILE_APPROVED: 'LP_PROFILE_APPROVED',
+  LP_PROFILE_REJECTED: 'LP_PROFILE_REJECTED',
+  LP_PROFILE_CHANGE_PROPOSED: 'LP_PROFILE_CHANGE_PROPOSED',
+  LP_PROFILE_CHANGE_APPLIED: 'LP_PROFILE_CHANGE_APPLIED',
+  LP_PROFILE_CHANGE_REJECTED: 'LP_PROFILE_CHANGE_REJECTED',
+  LP_PROFILE_SUSPENDED: 'LP_PROFILE_SUSPENDED',
+  LP_PROFILE_REACTIVATED: 'LP_PROFILE_REACTIVATED',
 } as const;
 
 // 站4 清扫:十条死词映射(APPROVAL_APPROVED/EXECUTED、ADMIN_INVITATION_*、USER_*、
@@ -1120,6 +1133,22 @@ export const COMPLAINT_AUDIT_ACTIONS: Record<string, AuditActionSpec> = {
   COMPLAINT_RESOLUTION_REJECTED:    { domain: 'GOVERNANCE', correlationMode: N, requiredFields: [], requiresCausation: false },
   COMPLAINT_ESCALATED:              { domain: 'GOVERNANCE', correlationMode: N, requiredFields: ['escalatedIncidentNo'], requiresCausation: false },
   COMPLAINT_DEADLINE_FASTFORWARDED: { domain: 'GOVERNANCE', correlationMode: N, requiredFields: ['target'], requiresCausation: false },
+};
+
+/** 战役乙波一 T2（spec §2）：LP 档案八码，域 TREASURY（财资件，同 V7_TREASURY 挂法但独立
+ * 成表——LiquidityProvider 没有 traceId 列，CREATED 老实标 NONE，其余 INHERIT 时读
+ * row.lpNo 当 correlationId（lpNo 本身就是稳定业务键，够当锚，不必另开一列）。
+ * APPROVED/REJECTED/CHANGE_APPLIED/CHANGE_REJECTED 由审批裁决驱动，requiresCausation
+ * 真、必填 approvalNo；CHANGE_PROPOSED/SUSPENDED/REACTIVATED 是直接操作，必填 reason。 */
+export const CAMPAIGN_B_LP_PROFILE_AUDIT_ACTIONS: Record<string, AuditActionSpec> = {
+  LP_PROFILE_CREATED:         { domain: 'TREASURY', correlationMode: N, requiredFields: ['reason'], requiresCausation: false },
+  LP_PROFILE_APPROVED:        { domain: 'TREASURY', correlationMode: I, requiredFields: ['approvalNo'], requiresCausation: true },
+  LP_PROFILE_REJECTED:        { domain: 'TREASURY', correlationMode: I, requiredFields: ['approvalNo'], requiresCausation: true },
+  LP_PROFILE_CHANGE_PROPOSED: { domain: 'TREASURY', correlationMode: I, requiredFields: ['reason'], requiresCausation: false },
+  LP_PROFILE_CHANGE_APPLIED:  { domain: 'TREASURY', correlationMode: I, requiredFields: ['approvalNo'], requiresCausation: true },
+  LP_PROFILE_CHANGE_REJECTED: { domain: 'TREASURY', correlationMode: I, requiredFields: ['approvalNo'], requiresCausation: true },
+  LP_PROFILE_SUSPENDED:       { domain: 'TREASURY', correlationMode: I, requiredFields: ['reason'], requiresCausation: false },
+  LP_PROFILE_REACTIVATED:     { domain: 'TREASURY', correlationMode: I, requiredFields: ['reason'], requiresCausation: false },
 };
 
 /** 动态迁移码族（<域>_<从>_TO_<到>，充值站1b-β/提现站2-β 整族废除；站7 扩面治理五簿+监管闸——

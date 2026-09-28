@@ -139,6 +139,8 @@ describe('AuditLogsService', () => {
       RESPONSIBLE_INDIVIDUAL: 'RESPONSIBLE_INDIVIDUAL',
       // 战役甲波五 T2（2026-09-28）：投诉主体
       COMPLAINT: 'COMPLAINT',
+      // 战役乙波一 T2（2026-09-29）：LP 档案主体
+      LP_PROFILE: 'LP_PROFILE',
     });
 
     expect(AuditUserActions).toEqual({
