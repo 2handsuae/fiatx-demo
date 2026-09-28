@@ -317,3 +317,57 @@
 判据：`RI_REPLACEMENT_APPLIED` 审计的 `metadata.fromIncumbent`/`toIncumbent` 与实际换人前后姓名逐字一致。走查截图入 `doc-final/superpowers/checkups/2026-09-27-act-a-wave4-evidence/`（`22-01` 外包商增改止 ～ `22-04` 审计 from/to）。
 
 **期望**：观众看懂两件事——① 两本登记册各管各的，互不联动，闹钟墙是唯一跨表读点；② RI 换人是任命权在高管、提名权在合规官的事前审批，不是改字段——换人史留在审计链，不需要另开一张历史表。
+
+---
+
+## 场景 23（暂编）· 投诉全弧含延期（V1 治理域 · 投诉工作流）
+
+> 战役甲波五 T10 暂编——幕次编号（是否并入既有幕次或独立成幕）留波五收官统一，本节先把走查步骤钉住。主篇文档 `modules/complaints.md`。本场景全程实走（真提交/真点击，非种子摆拍），2026-09-28 T10 已在 self 栈跑通一遍并截图留证。
+
+**讲什么**：客户能自己提交投诉、看进展，但来回聊天/传附件/撤回都不做——只给三类正式书面（确认函/延期说明/最终答复）。受理调查是运营，裁决是合规官，两人分立，maker≠checker；延期只许一次、必须写清理由（VARA 条文强制要求），死线 4→8 周。
+
+**造数**：不用种子，现场客户端提交一张全新投诉，走完整条弧线（种子②留给场景 24 专用）。
+
+**账号**：客户端 `demo_bob@`（或任一种子客户）→ `ops_officer@`（运营，maker：确认/立案/延期/提裁决）→ `admin@`（超管，⚡ 拨钟——见下方换号话术）→ `compliance_lead@`（合规官，checker：批裁决）→ 回客户端核验三类书面。
+
+**走查**：
+① 客户端登录 → 侧栏 Complaints → New Complaint → 填 Category（如 Order execution）/ Subject / 可选 Related Order No. / Description → Submit Complaint → 跳详情页，状态 `Received`，Progress 只有一步「Complaint submitted」。
+② 切 `ops_officer@` → 管理台侧栏 Governance → Complaints → 点开刚提交那张（客户号能对上）→ Workflow 区点 Acknowledge → 填确认函文本 → 提交 → 状态转 `Acknowledged`、确认钟显示 Stopped、裁决钟（4 周）开始倒计时、Correspondence 出现一条「Acknowledgement · visible to customer」。
+③ 仍是 `ops_officer@`：点 Start Investigation → 状态转 `Investigating`，Workflow 按钮变成 Extend / Propose Resolution / Escalate to Incident 三枚。
+④ **⚡ 换号**：切 `admin@`（超管——运营不持 `DEMO_CLOCK_WRITE`，详情页看不到 Fast-forward 按钮）→ 打开同一张投诉详情 → 裁决钟卡片点「⚡ Fast-forward」→ 裁决钟立即变 Overdue。
+⑤ 切回 `ops_officer@` → 点 Extend → 弹窗强制填 Explanation（如「需要更多时间核对成交回执」）→ Extend Deadline → 状态转 `Investigating Extended`，裁决钟改判 8 周、Correspondence 新增一条「Extension notice」。
+⑥ 仍是 `ops_officer@`：点 Propose Resolution → 选 Outcome（如 Partially upheld）+ 填 Final Response Text（写清结论与补偿）→ Propose Resolution → 开出 `COMPLAINT_RESOLUTION` 审批单，Workflow 区显示「Pending compliance officer decision」。
+⑦ 切 `compliance_lead@` → 审批中心打开该单（`ACTION TYPE: COMPLAINT_RESOLUTION`，Entity Ref 链回投诉详情，ObjectSnapshot 能看到 outcome/resolutionText 全量字段）→ Approve → 投诉状态转 `Resolved`，裁决钟 Stopped、Correspondence 新增「Final response」。
+⑧ 回客户端该投诉详情：Progress 四步全人话（Submitted/Acknowledged/Extended/Resolved）、Outcome 卡片显示结论、Correspondence 区三类书面（Acknowledgement / Extension notice / Final response）齐全，无任何内部备注/审批过程痕迹。
+
+**判据**：确认钟 = submittedAt+7d、裁决钟 = submittedAt+28d，延期后改 submittedAt+56d（自然日）；三个动作（acknowledge/extend/applyResolution）各自强制落一条 `CLIENT_MESSAGE` entry；裁决走 `COMPLAINT_RESOLUTION` maker-checker（运营提、合规官批），运营批自己那单会被拒（403，SoD）；客户端读面 entries 只含三类 `CLIENT_MESSAGE`，零 `INTERNAL_NOTE`、零 `pendingApprovalNo`/`escalatedIncidentNo`。走查截图入 `doc-final/superpowers/checkups/2026-09-28-act-a-wave5-evidence/`（`08`~`10`）。
+
+**期望**：观众看懂三件事——① 投诉客户端能自己提、能自己看，但书面往来仍由运营/合规官走正式流程产出，不是聊天框；② 延期是受监管条文强制的动作，不是随便拖时间——必须写理由、只许一次、有硬性死线；③ 裁决走 maker-checker，运营提合规官批，两人分立不能自批。
+
+## 场景 24（暂编）· 投诉超时升级转事件（V1 治理域 · 投诉工作流 + 事件登记）
+
+> 战役甲波五 T10 暂编——幕次编号留波五收官统一，本节呼应终闸主线四「投诉→超时→升级事件」。主篇文档 `modules/complaints.md` §3、`modules/v1-governance.md` §7。2026-09-28 T10 已在 self 栈跑通一遍并截图留证。
+
+**讲什么**：投诉超时不会自动变成事件——闹钟墙只标红留痕，升级永远是运营人工点一下；点了之后是**真事件**，走标准调查/定损/结案三步，结案裁决人是合规官（不是财务，新开的第五条结案链）。升级不等于投诉结束——8 周条文义务照样跑，投诉与事件各自独立收尾、双向可点回查。
+
+**造数**：种子②（`CMP2601017476`，INVESTIGATING，已确认、裁决钟原本临近 4 周）——本场景现场先延期一次拉满到 8 周，再 ⚡ 拨过，制造「延期也救不回来、只能升级」的叙事。
+
+**账号**：`ops_officer@`（运营，延期 + 立案调查 + 升级 + 事件调查/定损/提结案）→ `admin@`（超管，⚡ 拨钟——见下方换号话术）→ `compliance_lead@`（合规官，批事件结案）。
+
+**走查**：
+① `ops_officer@` 打开 Governance → Complaints → 种子②（`CMP2601017476`，Investigating）→ 点 Extend → 填理由 → 状态转 `Investigating Extended`，裁决钟改判 8 周。
+② **⚡ 换号**：切 `admin@` → 打开合规办公室 Clock Wall（或直接回投诉详情页）→ 该投诉裁决钟点「⚡ Fast-forward」→ 裁决钟变 Overdue。
+③ 仍是 `admin@`：Clock Wall 页勾选「Only overdue」→ 一屏只剩这一条 `Complaint` 行，红色 Overdue——与 FILING/OBLIGATION 两类行同一张墙、同一套红黄绿三色语义。
+④ 切回 `ops_officer@` → 回该投诉详情 → Workflow 区点 Escalate to Incident → **单击即生成事件**（无二次确认弹窗）→ 右栏出现「Escalated Incident」链接（`INC…`），投诉状态仍是 `Investigating Extended`（升级不改投诉状态，8 周义务继续跑）。
+⑤ 点「Escalated Incident」链接跳事件详情：类型 `Complaint escalation`，Type-Specific Details 卡片「Complaint No」回链投诉详情（双向验证）。
+⑥ 仍是 `ops_officer@`：点 Start Investigation → 加一条调查笔记 → Assessment 区选 Service impact assessed、填 Impact summary（Regulatory report required 不勾——该类型 `reportBasisCandidates` 为空，页面提示「no statutory reporting basis to select」）→ Submit Assessment → 状态转 `Assessed`，Remediation 卡片提示「no remediation actions to attach — it can be closed directly once assessed」（`allowedRemediationKinds` 空集，Ruling-10 乙案，无需先挂善后单）。
+⑦ 点 Request Close → 直接开出 `INCIDENT_CLOSE_CUSTOMER` 审批单（无需二次表单）。
+⑧ 切 `compliance_lead@` → 审批中心打开该单（`ACTION TYPE: INCIDENT_CLOSE_CUSTOMER`，Entity Ref 链回事件详情）→ Approve → 事件状态转 `Closed`。
+⑨ 回投诉详情（`compliance_lead@` 只读，或切回 `ops_officer@`）：右栏「Escalated Incident」链接仍在，点开确认事件已 `Closed`；投诉本身仍是 `Investigating Extended`——升级出的事件结案不等于投诉结案，两条生命周期各走各的。
+⑩ 口播补一句：事件列表页「Register Incident」的类型下拉里**没有** `Complaint escalation` 选项——手工登记这类事件后端显式拒绝（`cannot be registered manually`），唯一入口就是刚才那次点击（不实际去点手工登记验证 400，指给观众看下拉里确实没有这一项即可）。
+
+**判据**：延期后裁决钟 = submittedAt+56d；⚡ 拨钟只有金库/超管能点（运营/合规官 403，T6 行为探针已实证）；Escalate 守卫 = 两调查态之一 + `escalatedIncidentNo` 为空，二次点击 400；事件 `subjectRefs.complaintNo` 与 anchors 齐；事件结案走 `INCIDENT_CLOSE_CUSTOMER`（合规官单步，第五条结案链）；投诉/事件详情页双向链接可点；手工登记入口对 `COMPLAINT_ESCALATION` 仍显式拒绝（门语义保留）。走查截图入 `doc-final/superpowers/checkups/2026-09-28-act-a-wave5-evidence/`（`11`~`13`）。
+
+**⚡ 换号话术（场景 23/24 通用）**：运营是投诉受理调查的唯一经办人，但**不持 `DEMO_CLOCK_WRITE`**——投诉详情页 / 闹钟墙上看不到 Fast-forward 按钮（不是点了才 403，是压根不渲染）；能拨钟的是持有 `DEMO_CLOCK_WRITE` 的金库或超管，但金库不持 `COMPLAINT_READ`/`COMPLAINT_WRITE`、进不了投诉列表/详情页；实测能同时看到页面又点得动 ⚡ 按钮的只有超管（`admin@fiatx.com`）——与场景 21 闹钟墙 ⚡ 同款 RBAC 交叉现象（T6 探针：金库 simulate-timeout 201、运营 403）。剧本口径：运营做完调查动作 → 切超管拨钟 → 切回运营继续走后续步骤，不临场现编理由。
+
+**期望**：观众看懂三件事——① 超时不会自动变事件，闹钟墙只标红，升级永远是人工决定；② 升级出的事件走完整调查/定损/结案生命周期，跟原生事件类型没有区别，只是结案裁决人换成合规官；③ 升级不是投诉的终点——两条生命周期分开收尾，双向可查。

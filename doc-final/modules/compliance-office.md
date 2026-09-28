@@ -24,6 +24,7 @@
 
 - **FILING 行**：`deadlineAt != null && status ∈ {DRAFT, PENDING_SIGNOFF, SIGNED_OFF}`——按时提交即下墙；被 sweep 标过 `overdueMarkedAt` 的**红着留墙**，直到提交 / 办结 / 作废才消。数据源即 V9 报送台的 `regulatory_filings.deadlineAt`（GENERAL 族 + AML 族 + 本波新增 PERIODIC_RETURN，同一张表、同一套超时软标机制，见 `modules/v9-regulatory-filing.md` §2）。
 - **OBLIGATION 行**：`status = ACTIVE` 的义务全部上墙，按 `nextDueAt` 倒计时；义务行只有绿 / 黄两色，到期即生成工单并翻期（§2），红色由生成的工单行接棒。
+- **COMPLAINT 行**（2026-09-28 战役甲波五新增）：`currentStatus != 'RESOLVED'` 的每张投诉一行，`deadlineAt` 取未确认走确认钟（`ackDeadlineAt`）、已确认走裁决钟（`resolveDeadlineAt`），`clockLabel` 区分两钟，超时同样只软标变红、不自动动作——详见 `modules/complaints.md` §5。
 
 **颜色三档**：红 = `overdue`（FILING 行专属）；黄 = 剩余 ≤ 24h（聚合端点不携带锚时间戳或 `leadBusinessDays`，两种 kind 统一走「总长不可知」分支，见前端实现注释）；绿 = 其余。阈值数字是展示参数，不入验收判据。
 
