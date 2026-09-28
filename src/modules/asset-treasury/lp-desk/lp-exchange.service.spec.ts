@@ -146,6 +146,42 @@ describe('LpExchangeService (乙波一 T4)', () => {
     });
   });
 
+  // 评审 Min1 随轮：8×8=64 组全矩阵穷举——ALLOWED 表独立照 spec §3.2 手写（不 import
+  // LP_EXCHANGE_TRANSITIONS），防止「测试读同一张表」的自我印证；将来有人偷偷在常量
+  // 文件里加一条边、删一条边、或改错某条边的终点，这里都会因为跟本文件独立写死的
+  // 真值表对不上而红。
+  describe('八态八边全矩阵（8×8=64 组穷举，独立真值表，禁止 import 被测常量）', () => {
+    const ALLOWED: ReadonlySet<string> = new Set([
+      `${S.PENDING_APPROVAL}->${S.EXECUTING}`,
+      `${S.PENDING_APPROVAL}->${S.FAILED}`,
+      `${S.PENDING_APPROVAL}->${S.REJECTED}`,
+      `${S.PENDING_APPROVAL}->${S.CANCELLED}`,
+      `${S.EXECUTING}->${S.AWAITING_DELIVERY}`,
+      `${S.EXECUTING}->${S.FAILED}`,
+      `${S.AWAITING_DELIVERY}->${S.DELIVERED}`,
+      `${S.DELIVERED}->${S.SUCCESS}`,
+    ]);
+    const ALL_STATES: readonly string[] = [
+      S.PENDING_APPROVAL, S.EXECUTING, S.AWAITING_DELIVERY, S.DELIVERED,
+      S.SUCCESS, S.FAILED, S.REJECTED, S.CANCELLED,
+    ];
+    const ALL_PAIRS: Array<[string, string]> = ALL_STATES.flatMap((from) => ALL_STATES.map((to) => [from, to] as [string, string]));
+
+    it('sanity：8 态 → 64 组、恰好 8 条允许边', () => {
+      expect(ALL_STATES).toHaveLength(8);
+      expect(ALL_PAIRS).toHaveLength(64);
+      expect(ALLOWED.size).toBe(8);
+    });
+
+    it.each(ALL_PAIRS)('%s → %s', (from, to) => {
+      if (ALLOWED.has(`${from}->${to}`)) {
+        expect(() => svc().assertTransition(from, to)).not.toThrow();
+      } else {
+        expect(() => svc().assertTransition(from, to)).toThrow(/Illegal LP exchange status transition/);
+      }
+    });
+  });
+
   describe('assertFirmOpsBalance — 卖出币运营户可用余额闸（同划转单同名方法形状）', () => {
     const accounting = (creditsPosted: bigint, debitsPosted: bigint, debitsPending = 0n) => ({
       resolveTbAccountId: jest.fn(async () => 1n),

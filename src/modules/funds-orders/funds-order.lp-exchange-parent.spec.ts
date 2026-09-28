@@ -38,31 +38,31 @@ describe('FundsOrderService —— LP 兑换单第五父键（战役乙波一 T4
     await expect(svc.create({ lpExchangeId: 'lpx-1', internalTransferId: 'itr-1', assetId: 'asset-1', amount: '1' } as any)).rejects.toThrow(/exactly one parent/);
   });
 
+  // 评审 Imp#2 修：原 SUBMIT→CONFIRM/CLEAR 路径三条方向都能走通，删掉 lpExchangeId
+  // 分支也不红——换成利用 advance() 报错文案里的 direction=... 字样，拦住方向判错。
   describe('directionOf — 腿 1 卖出 OUT / 腿 2 买入 IN / 腿 3 验收转 INTERNAL', () => {
-    it('腿 1（卖出，legSeq=1）：法币走 OUT 表，CREATED --SUBMIT--> SUBMITTED --CONFIRM--> CONFIRMED', async () => {
+    it('腿 1（卖出，legSeq=1）：direction=OUT——CREATED 下 CLEAR 非法（OUT 表没有 CREATED→CLEAR 边）', async () => {
       const prisma = makePrisma('FIAT');
       prisma.$transaction = async (fn: any) => fn(prisma);
       const svc = new FundsOrderService(prisma, new EventEmitter2());
       const row = await svc.create({ lpExchangeId: 'lpx-1', legSeq: 1, assetId: 'asset-1', amount: '50000' });
-      expect((await svc.advance(row.id, FundsOrderAction.SUBMIT, 'E2E')).status).toBe(FundsOrderStatus.SUBMITTED);
-      expect((await svc.advance(row.id, FundsOrderAction.CONFIRM, 'E2E')).status).toBe(FundsOrderStatus.CONFIRMED);
+      await expect(svc.advance(row.id, FundsOrderAction.CLEAR, 'E2E')).rejects.toThrow(/direction=OUT/);
     });
 
-    it('腿 2（买入，legSeq=2）：法币走 IN 表——born CONFIRMED 可直接 CLEAR（模拟推进先例）', async () => {
+    it('腿 2（买入，legSeq=2）：direction=IN——出生 CREATED 时 SUBMIT 非法（IN 表没有 CREATED 入口，入口是 CONFIRMED）', async () => {
       const prisma = makePrisma('FIAT');
       prisma.$transaction = async (fn: any) => fn(prisma);
       const svc = new FundsOrderService(prisma, new EventEmitter2());
-      const row = await svc.create({ lpExchangeId: 'lpx-1', legSeq: 2, assetId: 'asset-1', amount: '13600', initialStatus: FundsOrderStatus.CONFIRMED });
-      expect((await svc.advance(row.id, FundsOrderAction.CLEAR, 'E2E')).status).toBe(FundsOrderStatus.CLEARED);
+      const row = await svc.create({ lpExchangeId: 'lpx-1', legSeq: 2, assetId: 'asset-1', amount: '13600' });
+      await expect(svc.advance(row.id, FundsOrderAction.SUBMIT, 'E2E')).rejects.toThrow(/direction=IN/);
     });
 
-    it('腿 3（验收转，legSeq=3）：内转走 OUT 表（非 IN 方向一律落 OUT 表），CREATED --SUBMIT--> SUBMITTED --CONFIRM--> CONFIRMED', async () => {
+    it('腿 3（验收转，legSeq=3）：direction=INTERNAL——CREATED 下 CLEAR 非法（同 OUT 表，没有 CREATED→CLEAR 边）', async () => {
       const prisma = makePrisma('FIAT');
       prisma.$transaction = async (fn: any) => fn(prisma);
       const svc = new FundsOrderService(prisma, new EventEmitter2());
       const row = await svc.create({ lpExchangeId: 'lpx-1', legSeq: 3, assetId: 'asset-1', amount: '13600' });
-      expect((await svc.advance(row.id, FundsOrderAction.SUBMIT, 'E2E')).status).toBe(FundsOrderStatus.SUBMITTED);
-      expect((await svc.advance(row.id, FundsOrderAction.CONFIRM, 'E2E')).status).toBe(FundsOrderStatus.CONFIRMED);
+      await expect(svc.advance(row.id, FundsOrderAction.CLEAR, 'E2E')).rejects.toThrow(/direction=INTERNAL/);
     });
   });
 
