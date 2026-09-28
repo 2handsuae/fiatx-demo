@@ -35,6 +35,8 @@ export const AuditEntityTypes = {
   // 战役甲波四 T4（2026-09-27）：合规办公室两本登记册
   OUTSOURCING_VENDOR: 'OUTSOURCING_VENDOR',
   RESPONSIBLE_INDIVIDUAL: 'RESPONSIBLE_INDIVIDUAL',
+  // 战役甲波五 T2（2026-09-28）：投诉主体
+  COMPLAINT: 'COMPLAINT',
 } as const;
 
 export const AuditWorkflowTypes = {
@@ -132,6 +134,8 @@ export const AuditBusinessWorkflowTypes = {
   // ResponsibleIndividual，各自一个 workflowType，同 COMPLIANCE_OBLIGATION 先例）
   OUTSOURCING_VENDOR: 'OUTSOURCING_VENDOR',
   RESPONSIBLE_INDIVIDUAL: 'RESPONSIBLE_INDIVIDUAL',
+  // 战役甲波五 T2（2026-09-28）：投诉主体（治理件，独立主体 Complaint）
+  COMPLAINT: 'COMPLAINT',
 } as const;
 
 // Task 28：退役清单扫尾——原 15 键仅 2 键（REQUEST_CREATED/SUBMITTED）经
@@ -447,6 +451,17 @@ export const AuditActions = {
   RI_REPLACEMENT_REJECTED: 'RI_REPLACEMENT_REJECTED',
   // ── 战役甲波四 T5（2026-09-27）：闹钟墙 ⚡ 演示装置——报送单钟拨快进 ──────
   FILING_DEADLINE_FASTFORWARDED: 'FILING_DEADLINE_FASTFORWARDED',
+  // ── 战役甲波五 T2（2026-09-28）：投诉主体十码（治理件，域 GOVERNANCE）──────
+  COMPLAINT_SUBMITTED: 'COMPLAINT_SUBMITTED',
+  COMPLAINT_ACKNOWLEDGED: 'COMPLAINT_ACKNOWLEDGED',
+  COMPLAINT_INVESTIGATION_STARTED: 'COMPLAINT_INVESTIGATION_STARTED',
+  COMPLAINT_NOTE_ADDED: 'COMPLAINT_NOTE_ADDED',
+  COMPLAINT_EXTENDED: 'COMPLAINT_EXTENDED',
+  COMPLAINT_RESOLUTION_PROPOSED: 'COMPLAINT_RESOLUTION_PROPOSED',
+  COMPLAINT_RESOLUTION_APPLIED: 'COMPLAINT_RESOLUTION_APPLIED',
+  COMPLAINT_RESOLUTION_REJECTED: 'COMPLAINT_RESOLUTION_REJECTED',
+  COMPLAINT_ESCALATED: 'COMPLAINT_ESCALATED',
+  COMPLAINT_DEADLINE_FASTFORWARDED: 'COMPLAINT_DEADLINE_FASTFORWARDED',
 } as const;
 
 // 站4 清扫:十条死词映射(APPROVAL_APPROVED/EXECUTED、ADMIN_INVITATION_*、USER_*、
@@ -1076,6 +1091,28 @@ export const COMPLIANCE_OFFICE_AUDIT_ACTIONS: Record<string, AuditActionSpec> = 
   // 单步演示动作，没有旅程可继承，同 OBLIGATION_DUE_FASTFORWARDED 先例标 N；必填字段
   // deadlineAt（拨后的新值）落在 recordAudit 的 extra 顶层展开，同 noFilingReason 先例。
   FILING_DEADLINE_FASTFORWARDED: { domain: 'GOVERNANCE', correlationMode: N, requiredFields: ['deadlineAt'], requiresCausation: false },
+};
+
+/** 战役甲波五 T2（task-2-brief.md，域 GOVERNANCE）：投诉主体十码，四属性逐字照 brief。
+ * SUBMITTED 铸旅程（S）；其余九码是对已存在投诉的直接一次性操作——同 OBLIGATION/RI 中段
+ * 先例标 N（recordAudit 仍把 correlationId 继承自 row.traceId，只是不强制断言必须非空）。
+ * APPLIED/REJECTED 由 T3 的 workflow 在审批裁决落地后驱动（无 actor，recordSystem），
+ * 照 RI_REPLACEMENT_APPLIED/REJECTED 先例不强制 requiresCausation/INHERIT——本 task 只落
+ * 本表字段与审计、不建 workflow（T3 的事）。EXTENDED/RESOLUTION_PROPOSED/APPLIED/
+ * ESCALATED/DEADLINE_FASTFORWARDED 的必填字段落在 recordAudit 的 `extra` 顶层展开
+ * （同 FILING_CLOSED_NO_FILING 的 noFilingReason 先例：outcome 不是 Complaint 表的列，
+ *   proposeResolution 阶段只住审批载荷，字段落点仍是审计信封顶层，不必先有 DB 列）。 */
+export const COMPLAINT_AUDIT_ACTIONS: Record<string, AuditActionSpec> = {
+  COMPLAINT_SUBMITTED:              { domain: 'GOVERNANCE', correlationMode: S, requiredFields: [], requiresCausation: false },
+  COMPLAINT_ACKNOWLEDGED:           { domain: 'GOVERNANCE', correlationMode: N, requiredFields: [], requiresCausation: false },
+  COMPLAINT_INVESTIGATION_STARTED:  { domain: 'GOVERNANCE', correlationMode: N, requiredFields: [], requiresCausation: false },
+  COMPLAINT_NOTE_ADDED:             { domain: 'GOVERNANCE', correlationMode: N, requiredFields: [], requiresCausation: false },
+  COMPLAINT_EXTENDED:               { domain: 'GOVERNANCE', correlationMode: N, requiredFields: ['newResolveDeadlineAt'], requiresCausation: false },
+  COMPLAINT_RESOLUTION_PROPOSED:    { domain: 'GOVERNANCE', correlationMode: N, requiredFields: ['outcome'], requiresCausation: false },
+  COMPLAINT_RESOLUTION_APPLIED:     { domain: 'GOVERNANCE', correlationMode: N, requiredFields: ['outcome'], requiresCausation: false },
+  COMPLAINT_RESOLUTION_REJECTED:    { domain: 'GOVERNANCE', correlationMode: N, requiredFields: [], requiresCausation: false },
+  COMPLAINT_ESCALATED:              { domain: 'GOVERNANCE', correlationMode: N, requiredFields: ['escalatedIncidentNo'], requiresCausation: false },
+  COMPLAINT_DEADLINE_FASTFORWARDED: { domain: 'GOVERNANCE', correlationMode: N, requiredFields: ['target'], requiresCausation: false },
 };
 
 /** 动态迁移码族（<域>_<从>_TO_<到>，充值站1b-β/提现站2-β 整族废除；站7 扩面治理五簿+监管闸——
