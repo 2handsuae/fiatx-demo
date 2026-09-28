@@ -247,7 +247,7 @@ V7（财资运营）已脱离交易链——旧 EOD 结算/内部转账被实时
 - [x] ACTION_PENDING 补材料闭环 — 接 Sumsub 复审 webhook ｜来源:业务 ｜配对:L2 筛查 ｜(P1) ✅2026-08-06（deposit-action-embed）：`deposit_applicant_actions` 子表（多条 action 集合比对同步、`seq` 稳定进 URL、零未提交行 guard）+ verification-session 会话接口（铸 SDK token / 幂等 submit / 接口不可区分）+ client 详情独立页 + 认证独立页（demo MockUploader / 真接 snsWebSdk）；客户补料后 Sumsub 自动重评发 `applicantKytTxn*` 回流状态机 ｜现状见 modules/v4-deposit.md §4.6 ｜⚠️剩余：admin 侧子表逐条视图未做（两域一起后置，见 BACKLOG）
 
 **P2（依赖真实银行集成或低频）：**
-- [ ] ⚖️ 稳定币发行方冻结应对 — USDT 黑名单事件 runbook + 资产暂停联动 ｜FATF 2025(非法活动多涉稳定币) ｜(P2)
+- [-] ⚖️ 稳定币发行方冻结应对 — USDT 黑名单事件 runbook + 资产暂停联动 ｜FATF 2025(非法活动多涉稳定币) ｜(P2)
 - [~] 法币银行退汇/冲正 — ~~bounce→FAILED~~；**到账后 reversal→扣回已交付（2026-09-03 平账 B 批②）**：`POST :depositNo/clawback`（CFO maker-checker）+ 状态边 `SUCCESS ──CLAWBACK──> CLAWED_BACK`，注释原文「银行/托管方事后退汇」。⚠️**机制与原设想不同**：不是充值域内的 bounce 端点（`grep -n "bounce" src/modules/trading/deposit-transactions/*.ts` 零命中），而是**从 V8 对账认领侧发起**——差异行上点处置，回业务域执行。**仍差**：催收无出口 ｜来源:业务 ｜(P2)
 - [x] ~~EXPIRED 超时回退 — 补材料超时→回退~~ → **2026-07-31 条目作废**：`EXPIRED` 状态已随状态机收窄删除（理由同上「已记账异常终态」——它答不出钱去哪了）。补材料超时现走 `SLA_BREACH → MANUAL_CHECKING` 转人工，不再有「过期」这个终态，本条无对象可做 ｜来源:业务 ｜(原 P2)
 - [ ] 孤儿充值处理 — 无主资金→suspense→人工归属/MLRO；VIBAN 归属校验建议先补 ｜VARA CRM III.A ｜(P2)
@@ -370,7 +370,7 @@ V7（财资运营）已脱离交易链——旧 EOD 结算/内部转账被实时
 - [ ] ⚖️P1 兑换环节市场操纵监控 — 账本内也能 wash/自成交/套陈旧价，须监控+达阈报 FIU/VARA ｜VA & Related Activities Regulations 2023 Part VIII §I/§J（⚠️2026-07-06 纠正:原误标 Market Conduct）｜上报出口在 V9
 - [ ] ⚖️P1 AED 3,500 累计阈值→re-CDD + 大额兑换审批门 — 单笔+滚动累计感知(与拆单共用计数器) ｜CRM III.E
 - [ ] ⚖️P1 高风险/PEP 大额兑换 EDD — L1 门读 riskRating→打 EDD 标记→校验 SOF/SOW 时效(客户层义务，不必逐笔硬闸) ｜CRM III.E.10
-- [ ] ⚖️P1 卡单重大事件 72h 上报判定 — STUCK 严重度分级→达档起 72h 计时 + VARA 通报草案 ｜Tech K.1 + I.H.1
+- [~] ⚖️P1 卡单重大事件 72h 上报判定 — STUCK 严重度分级→达档起 72h 计时 + VARA 通报草案 ｜Tech K.1 + I.H.1
 - [ ] ⚖️P1 卡单期间客户资金保护 SLA — leg1 已扣、买入腿卡→最长停留 SLA、超时强制修复 or 全额回滚释放 + 客户侧可见 ｜CRM I.E.4/I.E.1
 - [ ] ⚖️P1 本金交易 vs 自营禁令边界 — 出「仅即时轧平、禁投机」政策 + 存货敞口台账 ≥8y ｜Market Conduct VII.A.1/A.3 + BD II.B.1
 - [-] ~~⚖️P1 费率/点差变更 30 日历日生效闸 — markup/费率变更审批后强制生效日 ≥T+30 并触发全体客户通知~~ — **⛔ 业主 2026-09-05 裁定不做**（`decisions.md`：该义务不在平台职责内，费率即改即生效）｜MC II.A.7/8+II.B.1(e) + BD II.A.16 ｜**与 V5 提现费率闸同批否决**。⚠️后半句「执行政策重大变更（换价源/调 best-ex 阈值/TTL）同触发通知」**未被该决定覆盖，仍待做**，需要时请另立一行
@@ -487,53 +487,53 @@ V7（财资运营）已脱离交易链——旧 EOD 结算/内部转账被实时
 
 **A. 反洗钱 / 制裁报案（goAML 报文族，MLRO 不可外包）：**
 
-- [ ] ⚖️ **STR/SAR 申报** — Sumsub 告警→案件落地→MLRO 研判→报/不报决策+依据留档→goAML 提交→回执+FIU 追问→事后处置(联动 V2 冻结/改风险评级)；**无固定天数(immediately)**；MLRO 唯一责任人 ｜CRM III.F.3(a)/III.F.4
+- [~] ⚖️ **STR/SAR 申报** — Sumsub 告警→案件落地→MLRO 研判→报/不报决策+依据留档→goAML 提交→回执+FIU 追问→事后处置(联动 V2 冻结/改风险评级)；**无固定天数(immediately)**；MLRO 唯一责任人 ｜CRM III.F.3(a)/III.F.4
   - [ ] ⚖️ **tipping-off 防护门**(随 STR 同生) — STR 案所有对外/跨角色通信强制过防泄密门；泄密=联邦刑事罪(6 月监禁+AED 10-50 万) ｜III.F.3(d) + AML-CFT Law Art.25
   - [ ] **goAML 注册**(上线前置) — 平台/MLRO 在 goAML 门户注册且保持 active，否则无法报任何 AML 事项 ｜CBUAE Rulebook 4.3
-- [ ] ⚖️ 🆕 **制裁确认命中 → CNMR 报文** — 命中制裁名单(本地恐怖/UN 综合)→**≤24h 冻结全部资产+停服+禁 tipping-off**→冻结后**5 个工作日**内经 goAML 交 CNMR(原 FFR)**抄送 EOCN+VARA**(STR 只到 FIU、覆盖不了)→冻结无限期至除名；漏报罚 AED 5 万起+刑责 ｜Cabinet Decision 74/2020 Art.21/22 + EOCN TFS Guidance(2025-07 FFR→CNMR)
-- [ ] ⚖️ 🆕 **制裁部分命中 → PNMR 报文** — 模糊同名排除不了→24h 暂停+10 工作日排除窗口→排除则恢复/否则拒绝交易+5 工作日交 PNMR→**挂起直至 EOCN 经 goAML 下指令**；**无需"怀疑"即触发，STR 状态机接不住** ｜Cabinet Decision 74/2020 Art.21/22
-- [ ] ⚖️ 🆕 **EOCN 名单订阅(NAS)+ 更新全库重筛** — 注册 EOCN 通知系统(与 goAML 注册并列的上线前置)→名单一更新即全库重筛→**24h 冻结时钟从 UNSC/内阁列名起算**(非从发现起) ｜EOCN TFS Guidance 步骤1/2 + Cabinet Decision 74 Art.1
+- [~] ⚖️ 🆕 **制裁确认命中 → CNMR 报文** — 命中制裁名单(本地恐怖/UN 综合)→**≤24h 冻结全部资产+停服+禁 tipping-off**→冻结后**5 个工作日**内经 goAML 交 CNMR(原 FFR)**抄送 EOCN+VARA**(STR 只到 FIU、覆盖不了)→冻结无限期至除名；漏报罚 AED 5 万起+刑责 ｜Cabinet Decision 74/2020 Art.21/22 + EOCN TFS Guidance(2025-07 FFR→CNMR)
+- [~] ⚖️ 🆕 **制裁部分命中 → PNMR 报文** — 模糊同名排除不了→24h 暂停+10 工作日排除窗口→排除则恢复/否则拒绝交易+5 工作日交 PNMR→**挂起直至 EOCN 经 goAML 下指令**；**无需"怀疑"即触发，STR 状态机接不住** ｜Cabinet Decision 74/2020 Art.21/22
+- [~] ⚖️ 🆕 **EOCN 名单订阅(NAS)+ 更新全库重筛** — 注册 EOCN 通知系统(与 goAML 注册并列的上线前置)→名单一更新即全库重筛→**24h 冻结时钟从 UNSC/内阁列名起算**(非从发现起) ｜EOCN TFS Guidance 步骤1/2 + Cabinet Decision 74 Art.1
 
 **B. 向 VARA 主动上报（出事 / 变更 / 自首）：**
 
-- [ ] ⚖️ **VARA 重大变更/合规受损上报** — 变更类=**事前书面审批门**(发生前取批准，非事后通知)；一般合规受损=**immediately 通知**+回执跟踪 ｜Company Rulebook VIII.A.1.a + Section H
-- [ ] ⚖️ **网络安全/BCDR 事件上报** — 材料性网安或触发 BCDR→**检测后 72h 内报 VARA**(性质/范围/影响+缓解+是否已报他机关) ｜TIR Rulebook Section K + H
-- [ ] ⚖️ 🆕 **个人数据泄露上报** — 泄露(含无网安的误发/供应商侧)→报 **UAE Data Office(非 VARA)** + 通知受影响客户(四要素)；Sumsub 等处理方须即报平台、责任在平台不可外包 ｜UAE PDPL(Federal Decree-Law 45/2021) Art.9 + VARA TIR II.A.1
-- [ ] ⚖️ 🆕 **数据泄露后 24h 再报 VARA** — 向 Data Office/客户发出泄露通知后**24h 内**再报 VARA(事件报告摘要+副本)——独立于 72h 网安线的第二只钟、起点更晚更紧 ｜VARA TIR Part II Section C + CRM I.1.4
-- [ ] ⚖️ 🆕 **审慎指标跌破即报** — NLA(≥1.2×月运营支出)**每日核对**、跌破→**immediately** 通知 VARA(缺口/原因/整改/时限四要素)+**每日更新直至 VARA 认可** ｜Company Rulebook VI.C/VI.F
-- [ ] ⚖️ 🆕 **外包商失效即报** — Material Outsourcing 协议重大违约(Sumsub 筛查中断/HexTrust 托管违约)→**immediately** 报 VARA ｜Company Rulebook IV.H.1
+- [~] ⚖️ **VARA 重大变更/合规受损上报** — 变更类=**事前书面审批门**(发生前取批准，非事后通知)；一般合规受损=**immediately 通知**+回执跟踪 ｜Company Rulebook VIII.A.1.a + Section H
+- [~] ⚖️ **网络安全/BCDR 事件上报** — 材料性网安或触发 BCDR→**检测后 72h 内报 VARA**(性质/范围/影响+缓解+是否已报他机关) ｜TIR Rulebook Section K + H
+- [~] ⚖️ 🆕 **个人数据泄露上报** — 泄露(含无网安的误发/供应商侧)→报 **UAE Data Office(非 VARA)** + 通知受影响客户(四要素)；Sumsub 等处理方须即报平台、责任在平台不可外包 ｜UAE PDPL(Federal Decree-Law 45/2021) Art.9 + VARA TIR II.A.1
+- [~] ⚖️ 🆕 **数据泄露后 24h 再报 VARA** — 向 Data Office/客户发出泄露通知后**24h 内**再报 VARA(事件报告摘要+副本)——独立于 72h 网安线的第二只钟、起点更晚更紧 ｜VARA TIR Part II Section C + CRM I.1.4
+- [~] ⚖️ 🆕 **审慎指标跌破即报** — NLA(≥1.2×月运营支出)**每日核对**、跌破→**immediately** 通知 VARA(缺口/原因/整改/时限四要素)+**每日更新直至 VARA 认可** ｜Company Rulebook VI.C/VI.F
+- [~] ⚖️ 🆕 **外包商失效即报** — Material Outsourcing 协议重大违约(Sumsub 筛查中断/HexTrust 托管违约)→**immediately** 报 VARA ｜Company Rulebook IV.H.1
 
 **C. 应监管 / 应客户：**
 
-- [ ] ⚖️ **监管信息请求配合** — FIU/VARA 追加信息→**48h 硬性回复**；证据调取横跨 V1 审计 + V4-V8 交易/对账 ｜CRM Rulebook III.F.3(b)
-- [ ] ⚖️ **客户投诉处理** — 受理→确认(**≤1 周**)→调查→裁决(**≤4 周**，例外**≤8 周**且第 4 周出状态更新)→三段留档(投诉/措施/结果) ｜Market Conduct Rulebook III.A
+- [~] ⚖️ **监管信息请求配合** — FIU/VARA 追加信息→**48h 硬性回复**；证据调取横跨 V1 审计 + V4-V8 交易/对账 ｜CRM Rulebook III.F.3(b)
+- [x] ⚖️ **客户投诉处理** — 受理→确认(**≤1 周**)→调查→裁决(**≤4 周**，例外**≤8 周**且第 4 周出状态更新)→三段留档(投诉/措施/结果) ｜Market Conduct Rulebook III.A
 
 **D. 业务专属：**
 
-- [ ] ⚖️ **资产持续监控**(仅当自行上架/分销资产) — 资产不再合规→immediately 暂停分销；Issuer/资产材料性变更→immediately 重跑尽调 ｜BD Rulebook IV.E
+- [~] ⚖️ **资产持续监控**(仅当自行上架/分销资产) — 资产不再合规→immediately 暂停分销；Issuer/资产材料性变更→immediately 重跑尽调 ｜BD Rulebook IV.E
 - [ ] ⚖️ 🆕 **营销内容发布前合规审批门** — App 内 banner/推送/活动页/KOL 稿出街前过合规 checklist(禁保证收益/禁 FOMO/强制风险声明)+合规官批准留痕；第三方营销须持牌方书面批准 ｜Marketing Regulations 2024 I.B.3.b + I.C.2/I.C.3(违规单次罚至 AED 1000 万)
 
 ### ADVANCED（P1 · VARA 强制但非上线阻断）
 
-- [ ] ⚖️ **MLRO/董事会季度合规报告** — 季度 cadence；含 AML/CFT 有效性评估 + 失效项指认 + 当季**匿名增强交易(AET)摘要** ｜CRM Rulebook III.A.2.f/g/h
-- [ ] ⚖️ 🆕 **全行 AML/CFT 风险评估(EWRA/BRA)** — 公司整体风险评估(VA/技术/产品/渠道，≤3 月频率+重大变更即评)，结果**反哺 V2 CRA 方法论**与资源分配 ｜CRM III.D.1-4 ｜来源:2026-07-06 V2 审计分拣归 V9
-- [ ] ⚖️ 🆕 **制裁误冻结申诉/解冻除名** — 客户申诉误冻→法定 grievance 程序→经 EOCN/goAML 走解冻或除名执行(≠普通客户投诉) ｜EOCN TFS Guidance
-- [ ] ⚖️ 🆕 **市场违法双头上报** — 怀疑内幕/操纵/损害市场公平行为→按法定六字段报 **UAE FIU + VARA 双通道**+备查(触发/对象/报文均异于洗钱 STR) ｜VA & Related Activities Regulations 2023 Part VIII §J.2/J.3/J.4 ｜⚠️纠 V6 引用(误标 Market Conduct)
-- [ ] ⚖️ 🆕 **定期财务申报(月/季)** — 月:资产负债/损益/现金流/自有钱包地址/关联方交易；季:董事会纪要/财务合规声明/风险敞口 报 VARA ｜CRM Rulebook Section H Rule 1/2
-- [ ] ⚖️ 🆕 **年度审计申报** — 经审计年报+内控鉴证+高管合规评估+**首 100 名客户 onboarding 抽样**+集团结构 报 VARA ｜CRM Section H Rule 3 + Company G.1
-- [ ] ⚖️ 🆕 **关键人员(RI)更换事前审批** — 换法定负责人**先批后换**；突发离任才可事后 immediately 通知+接续方案；RI 年度适格复核留痕 ｜Company Rulebook I.C.2/3/4
+- [-] ⚖️ **MLRO/董事会季度合规报告** — 季度 cadence；含 AML/CFT 有效性评估 + 失效项指认 + 当季**匿名增强交易(AET)摘要** ｜CRM Rulebook III.A.2.f/g/h
+- [-] ⚖️ 🆕 **全行 AML/CFT 风险评估(EWRA/BRA)** — 公司整体风险评估(VA/技术/产品/渠道，≤3 月频率+重大变更即评)，结果**反哺 V2 CRA 方法论**与资源分配 ｜CRM III.D.1-4 ｜来源:2026-07-06 V2 审计分拣归 V9
+- [~] ⚖️ 🆕 **制裁误冻结申诉/解冻除名** — 客户申诉误冻→法定 grievance 程序→经 EOCN/goAML 走解冻或除名执行(≠普通客户投诉) ｜EOCN TFS Guidance
+- [~] ⚖️ 🆕 **市场违法双头上报** — 怀疑内幕/操纵/损害市场公平行为→按法定六字段报 **UAE FIU + VARA 双通道**+备查(触发/对象/报文均异于洗钱 STR) ｜VA & Related Activities Regulations 2023 Part VIII §J.2/J.3/J.4 ｜⚠️纠 V6 引用(误标 Market Conduct)
+- [~] ⚖️ 🆕 **定期财务申报(月/季)** — 月:资产负债/损益/现金流/自有钱包地址/关联方交易；季:董事会纪要/财务合规声明/风险敞口 报 VARA ｜CRM Rulebook Section H Rule 1/2
+- [~] ⚖️ 🆕 **年度审计申报** — 经审计年报+内控鉴证+高管合规评估+**首 100 名客户 onboarding 抽样**+集团结构 报 VARA ｜CRM Section H Rule 3 + Company G.1
+- [x] ⚖️ 🆕 **关键人员(RI)更换事前审批** — 换法定负责人**先批后换**；突发离任才可事后 immediately 通知+接续方案；RI 年度适格复核留痕 ｜Company Rulebook I.C.2/3/4
 - [ ] ⚖️ 🆕 **营销激励事前 confirmation** — 注册奖/邀请返佣/充值送等**每场活动事前取 VARA compliance confirmation** 方可上线+持续遵守附加条件 ｜Marketing Regulations 2024 I.C.2.l
 - [ ] ⚖️ 🆕 **营销档案 8 年留存** — 全部营销物料(含 App 推送/活动页快照)+分发明细存 ≥8 年、随 VARA 查随出 ｜Marketing Regulations 2024 I.C.4
-- [ ] ⚖️ 🆕 **Material Outsourcing 事前通知+登记册** — 新签/改约重大外包(Sumsub/HexTrust)先通知 VARA、异议清零才生效+维护外包登记册 ｜Company Rulebook IV.H.3/H.4/F.6 + IV.C.2.b
+- [~] ⚖️ 🆕 **Material Outsourcing 事前通知+登记册** — 新签/改约重大外包(Sumsub/HexTrust)先通知 VARA、异议清零才生效+维护外包登记册 ｜Company Rulebook IV.H.3/H.4/F.6 + IV.C.2.b
 - [ ] ⚖️ 🆕 **吹哨人制度** — 建内部举报渠道(可匿名)+官网显著位置公示(与隐私/投诉政策并列)+年度有效性评估 ｜BD Services Rulebook I.B.1.b + I.A.2
 - [ ] ⚖️ 🆕 **VARA 现场检查配合** — 检查通知→按**通知载明期限**(非固定 48h)开放账簿/系统/场地+verification 回执；上线前置:客户协议预置"同意向 VARA 报送交易信息"条款 ｜VA & Related Activities Regulations 2023 Part IX.B
-- [ ] ⚖️ 🆕 **高危国家交易报文(HRC/HRCA)** — 涉 NAMLCFTC 高风险国家交易→**先扣住**→交 goAML 报文→**报后满 3 个工作日 FIU 不反对方可执行**(阻断型，需交易引擎 HOLD 态) ｜UAEFIU goAML Report Types + NAMLCFTC 名单
+- [~] ⚖️ 🆕 **高危国家交易报文(HRC/HRCA)** — 涉 NAMLCFTC 高风险国家交易→**先扣住**→交 goAML 报文→**报后满 3 个工作日 FIU 不反对方可执行**(阻断型，需交易引擎 HOLD 态) ｜UAEFIU goAML Report Types + NAMLCFTC 名单
 
 ### P2（低频 / 治理）
 
-- [ ] ⚖️ 🆕 **外部审计师任命/更换通知** — 委任/更换审计师 promptly 通知 VARA(名称+联系方式)；VARA 可强制改聘(通知制非批准制) ｜Company Rulebook Section G Rule 1
+- [~] ⚖️ 🆕 **外部审计师任命/更换通知** — 委任/更换审计师 promptly 通知 VARA(名称+联系方式)；VARA 可强制改聘(通知制非批准制) ｜Company Rulebook Section G Rule 1
 - [ ] ⚖️ 🆕 **员工个人交易(PA dealing)制度** — 员工/董事开/改/平任何 VA 头寸须**事前书面批准**+每 6 个月强制申报持仓与交易史+冲突强制处置+入职告知书 ｜Market Conduct VI.B.1-5 ｜来源:2026-07-06 V6 复查分拣(V6 只留抢跑侦测规则)
-- [ ] ⚖️ 🆕 **内幕名单登记册** — 可接触内幕信息(调价计划/价源切换/上下币决策)人员登记+进出留痕+书面知悉确认+8 年留存随查随出 ｜Market Conduct VI.A.1-5 ｜来源:2026-07-06 V6 复查分拣
+- [-] ⚖️ 🆕 **内幕名单登记册** — 可接触内幕信息(调价计划/价源切换/上下币决策)人员登记+进出留痕+书面知悉确认+8 年留存随查随出 ｜Market Conduct VI.A.1-5 ｜来源:2026-07-06 V6 复查分拣
 - [ ] 🆕 **第三方执行返佣禁令政策** — 禁止与兑换成交量/点差收入挂钩的介绍人/affiliate 返佣;涉执行的第三方酬金协议过合规审查+登记留痕 ｜BD II.A.7 ｜来源:2026-07-06 V6 复查分拣
 - [ ] ⚖️ 🆕 **董事 fit & proper 审批+年检** — 每名董事须 VARA 批准为适格人+每年复核+失格即免职补任 ｜Company Rulebook I.B.1
 - [ ] ⚖️ 🆕 **控制权/股权变更审批** — 可能改变 Control 的动作→由拟取得方向 VARA 申请→**30 个工作日**审+新控制人/UBO 尽调+非 PEP/非制裁声明 ｜Company Rulebook VIII.C + I.A.5
@@ -541,8 +541,8 @@ V7（财资运营）已脱离交易链——旧 EOD 结算/内部转账被实时
 
 ### 跨版本基础设施（非独立工作流，服务上面所有 P0/P1）
 
-- [ ] **统一 SLA 监控层（"法定闹钟墙"）** — 收拢全部法定时钟成倒计时+升级告警：immediately(报案/自首) / 24h(制裁冻结·数据泄露报 VARA) / 48h(信息请求) / 72h(网安) / 3 工作日(高危国家阻断) / 5 工作日(制裁 CNMR/PNMR) / 10 工作日(部分命中排除) / 1-4-8 周(投诉) / 每日(NLA 核对) / 月·季·年(定期申报)
-- [ ] **合规日历** — goAML 注册 + EOCN NAS 订阅 + 月/季/年报到期 + 董事年审 + 各监管截止日追踪台账
+- [x] **统一 SLA 监控层（"法定闹钟墙"）** — 收拢全部法定时钟成倒计时+升级告警：immediately(报案/自首) / 24h(制裁冻结·数据泄露报 VARA) / 48h(信息请求) / 72h(网安) / 3 工作日(高危国家阻断) / 5 工作日(制裁 CNMR/PNMR) / 10 工作日(部分命中排除) / 1-4-8 周(投诉) / 每日(NLA 核对) / 月·季·年(定期申报)
+- [x] **合规日历** — goAML 注册 + EOCN NAS 订阅 + 月/季/年报到期 + 董事年审 + 各监管截止日追踪台账
 
 > **⚠️ 调研纠偏（2026-07-04）**：① "72h" 归属**网安/BCDR 事件**(旧版误挂"重大事件上报")；② 材料性变更是**事前审批门**非事后 72h 通知；③ STR **无固定天数**(immediately)；④ **STR 是 MLRO 经 goAML 自报，Sumsub 报不了**。
 > **⚠️ 复查纠偏（2026-07-06，fable-5 遗漏复查，24 条 3:0）**：⑤ **制裁命中必须独立单列**——旧"不单列/STR 交叉点"是错的，命中后只发 STR 会**漏发 CNMR/PNMR**，直接踩 Cabinet Decision 74 罚则；⑥ "定期 regulatory returns 待核"**已锚定**——CRM Section H 月/季/年申报确为硬性义务，不再待核；⑦ 追补 17 条独立义务(制裁报文族/数据泄露双钟/定期申报/审慎跌破/营销/外包/人员治理/市场违法/现场检查/高危国家)——规律=旧调研凡"不单列/待核/顺带一提"处皆为漏。
