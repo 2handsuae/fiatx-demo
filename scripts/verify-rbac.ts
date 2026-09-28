@@ -675,6 +675,57 @@ function runStaticChecks(): void {
       ? `持有职务集合恰为 {${[...viewHolders].join(',')}}`
       : `持有职务集合为 {${[...viewHolders].join(',')}}，期望恰为 {${[...expectedViewHolders].join(',')}}`,
   );
+
+  // ── S12：投诉两组「四处齐」+ 唯一持有断言（战役甲波五 T5/T6）────────────────
+  // 同 S10/S11 范式：两个新组（COMPLAINT_READ/COMPLAINT_WRITE）一次性核验 route() 挂载 /
+  // ACTION_BUCKET_CATALOG 桶挂载 / 职务持有均 >=1（联合类型成员由 tsc 收口，同 S10/S11
+  // 头注释）；不新增域，两个桶挂既有 incidents 域（rbac.catalog.ts T5 域注释）。再加两条
+  // 精确持有断言——COMPLAINT_WRITE 唯 OPS_OFFICER 持有（运营受理调查投诉，裁决人合规官
+  // 走审批工单角色路由，不经这张写权限组，同报送台/RI 换人「提单人不持裁决组」反向先例）；
+  // COMPLAINT_READ 恰为 {COMPLIANCE_OFFICER, MLRO, INTERNAL_AUDITOR}（裁决人 + 两个治理侧
+  // 只读职务要看得见事件登记域里发生了什么，同 REG_FILING_READ/COMPLIANCE_OFFICE_VIEW 先例）。
+  // 两条新审批策略（COMPLAINT_RESOLUTION/INCIDENT_CLOSE_CUSTOMER）在 MAKER_GROUP_BY_POLICY
+  // 里已由 T3 登记（见上方 S5/S8 消费的那张表本体）——策略全集覆盖由已有的 S8「MAKER 表与
+  // 策略一一对应」自动兜住，不必在这里重复一条判据。
+  const COMPLAINT_GROUPS: PermissionGroup[] = ['COMPLAINT_READ', 'COMPLAINT_WRITE'];
+  const complaintCoverage = COMPLAINT_GROUPS.map((g) => {
+    const groupRoutes = RBAC_PERMISSION_DEFINITIONS.filter((d) => d.groups.includes(g));
+    const groupBuckets = ACTION_BUCKET_CATALOG.flatMap((domain) => domain.buckets).filter((b) => b.groups.includes(g));
+    const groupHolders = Object.entries(RBAC_ROLE_GROUP_BINDINGS)
+      .filter(([, groups]) => (groups as PermissionGroup[]).includes(g))
+      .map(([role]) => role);
+    return { group: g, routes: groupRoutes.length, buckets: groupBuckets.length, holders: groupHolders };
+  });
+  const uncoveredComplaintGroups = complaintCoverage.filter((c) => c.routes < 1 || c.buckets < 1 || c.holders.length < 1);
+  check(
+    'S12a 投诉两组四处齐（route() / ACTION_BUCKET_CATALOG 桶 / 职务持有；联合类型由 tsc 收口）',
+    uncoveredComplaintGroups.length === 0,
+    uncoveredComplaintGroups.length === 0
+      ? complaintCoverage.map((c) => `${c.group}: route ${c.routes}/bucket ${c.buckets}/职务 ${c.holders.length}`).join('；')
+      : `未齐全: ${uncoveredComplaintGroups.map((c) => `${c.group}(route ${c.routes}/bucket ${c.buckets}/职务 ${c.holders.length})`).join(', ')}`,
+  );
+
+  const complaintHoldersOf = (g: PermissionGroup) => complaintCoverage.find((c) => c.group === g)!.holders;
+  const complaintWriteHolders = complaintHoldersOf('COMPLAINT_WRITE');
+  check(
+    'S12b COMPLAINT_WRITE 唯运营职务持有',
+    complaintWriteHolders.length === 1 && complaintWriteHolders[0] === 'OPS_OFFICER',
+    complaintWriteHolders.length === 1 && complaintWriteHolders[0] === 'OPS_OFFICER'
+      ? '持有职务集合恰为 {OPS_OFFICER}'
+      : `持有职务集合为 {${complaintWriteHolders.join(',') || '空'}}，期望恰为 {OPS_OFFICER}`,
+  );
+
+  const complaintReadHolders = new Set(complaintHoldersOf('COMPLAINT_READ'));
+  const expectedComplaintReadHolders = new Set(['COMPLIANCE_OFFICER', 'MLRO', 'INTERNAL_AUDITOR']);
+  const complaintReadSetsEqual = complaintReadHolders.size === expectedComplaintReadHolders.size &&
+    [...expectedComplaintReadHolders].every((r) => complaintReadHolders.has(r));
+  check(
+    'S12c COMPLAINT_READ 恰为 {合规官,MLRO,内审}',
+    complaintReadSetsEqual,
+    complaintReadSetsEqual
+      ? `持有职务集合恰为 {${[...complaintReadHolders].join(',')}}`
+      : `持有职务集合为 {${[...complaintReadHolders].join(',')}}，期望恰为 {${[...expectedComplaintReadHolders].join(',')}}`,
+  );
 }
 
 // ══════════════════════ S6：前后端权限码表差集 ══════════════════════
@@ -1276,6 +1327,24 @@ const PROBES: DirectionalProbe[] = [
     routePattern: '/admin/compliance-office/clock-wall', path: '/admin/compliance-office/clock-wall',
     role: 'ops_officer', expect: 'DENY',
   },
+
+  // ── 投诉两组门（战役甲波五 T6）─────────────────────────────────────────
+  // 两条纯权限闸 DENY：同上「合规办公室四组门」先例，Guard 先于 Pipe/Handler 跑，
+  // 不持 COMPLAINT_WRITE/COMPLAINT_READ 的角色在业务层之前就被挡下，不需要真实
+  // complaintNo（NOPE 占位即可）。ALLOW 方向（运营受理/合规官裁决/⚡拨钟门控交叉）涉及
+  // 跨请求依赖（真实 complaintNo/approvalNo），走下方专用函数
+  // verifyComplaintResolutionAndClockCrossProbe，不进这张静态表。
+  {
+    section: '投诉两组门(T6)', name: '合规官 不得 确认收悉投诉（写面不越界）', method: 'POST',
+    routePattern: '/admin/complaints/:complaintNo/acknowledge', path: `/admin/complaints/${NOPE}/acknowledge`,
+    role: 'compliance_lead', expect: 'DENY',
+    body: { message: 'RBAC probe — should be denied for compliance officer' },
+  },
+  {
+    section: '投诉两组门(T6)', name: '金库 不得 看投诉列表', method: 'GET',
+    routePattern: '/admin/complaints', path: '/admin/complaints',
+    role: 'treasury', expect: 'DENY',
+  },
 ];
 
 async function runDirectionalProbe(tokens: Record<string, string>, p: DirectionalProbe): Promise<void> {
@@ -1690,6 +1759,160 @@ async function verifyRiReplacementApprovalChain(tokens: Record<string, string>):
   );
 }
 
+// ══════════════════════ 投诉裁决链 + ⚡拨钟门控交叉（战役甲波五 T6）══════════════════════
+
+/** 客户登录（照 verify-act1.ts customerLogin 先例：/auth/customer/login + 123456 密码
+ *  惯例）——client 面投诉路由零权限码（complaints.client.controller.ts 头注释），不走
+ *  loginAs()/ROLE_LOGIN 花名册（那张表只认 admin 职务前缀）。只在下面的探针里现场造一张
+ *  真实投诉时使用，不单独 check() 登录动作本身（登录失败会在提交那一步的 catch 里报出）。*/
+async function loginAsCustomer(email: string): Promise<string> {
+  const res = await fetch(`${API}/auth/customer/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, password: '123456' }),
+  });
+  const body: any = await res.json().catch(() => ({}));
+  if (!body.access_token) {
+    throw new Error(`客户登录失败: ${email} → ${res.status} ${JSON.stringify(body)}`);
+  }
+  return body.access_token as string;
+}
+
+/**
+ * 两条独立弧，都要真实 complaintNo/approvalNo（跨请求依赖，静态 PROBES 表的 NOPE 占位撑
+ * 不起，同 verifyRiReplacementApprovalChain 先例：现场造数、真登录、真 HTTP 往返）：
+ *
+ *   ① 裁决链：运营受理调查（acknowledge RECEIVED→ACKNOWLEDGED、investigation
+ *      ACKNOWLEDGED→INVESTIGATING）→ 提裁决（propose-resolution，开出 COMPLAINT_RESOLUTION
+ *      审批单）→ 运营自己批同一张单（maker=checker，SoD 当场拒 403）→ 合规官批（策略唯一
+ *      checkerRole，2xx）。onDecided 是异步事件处理器（complaint-resolution-workflow.
+ *      service.ts），本函数不等它把投诉落到 RESOLVED，只验 approve() 这次 HTTP 调用本身
+ *      的状态码——同 verifyRiReplacementApprovalChain「批准后不撤销，留痕即证据」先例。
+ *
+ *   ② ⚡ 拨钟门控交叉：另开一张全新投诉（RECEIVED，非终态——simulateTimeout 对终态投诉
+ *      400，见 complaints.service.ts 终态守卫，不能复用弧①里已经走向 RESOLVED 的那张单）。
+ *      DEMO_CLOCK_WRITE 波五起两族持有方向已翻：金库（现持有者）拨得动、运营（此前持有者，
+ *      波五 T5 未再给它这个组）拨不动——同一枚 ⚡ 按钮两个角色一个能点一个不能点，是本轮
+ *      判据要留的演示话术素材（task-6-brief.md 原话）。
+ */
+async function verifyComplaintResolutionAndClockCrossProbe(tokens: Record<string, string>): Promise<void> {
+  const opsToken = tokens.ops_officer;
+  const complianceToken = tokens.compliance_lead;
+  const treasuryToken = tokens.treasury;
+  if (!opsToken || !complianceToken || !treasuryToken) {
+    check('[投诉裁决链(T6)] 前置条件', false, 'ops_officer / compliance_lead / treasury token 不可用（登录步骤失败？）');
+    return;
+  }
+
+  let customerToken: string;
+  try {
+    customerToken = await loginAsCustomer('demo_alice@example.com');
+  } catch (e: any) {
+    check('[投诉裁决链(T6)] 前置条件 · 客户登录', false, String(e?.message ?? e));
+    return;
+  }
+
+  // ── 弧①：裁决链 ──────────────────────────────────────────────────
+  const submitRes = await call('POST', '/client/me/complaints', customerToken, {
+    category: 'SERVICE', subject: 'RBAC probe complaint (resolution chain)',
+    description: 'verify:rbac probe fixture — 请勿在演示剧本里当真实客诉引用',
+  });
+  const complaintNo = submitRes.json?.complaintNo;
+  check(
+    '[投诉裁决链(T6)] 前置条件 · 客户提交投诉',
+    submitRes.status === 201 && !!complaintNo,
+    `demo_alice@ POST /client/me/complaints → ${submitRes.status}（期望 201${submitRes.status >= 300 ? ' ' + JSON.stringify(submitRes.json) : ''}）`,
+  );
+  if (submitRes.status !== 201 || !complaintNo) {
+    check('[投诉裁决链(T6)] 运营 可以 确认收悉投诉（RECEIVED→ACKNOWLEDGED）', false, '前置的投诉提交没成功，没有真实 complaintNo 可测，跳过');
+    return;
+  }
+
+  const ackRes = await call('POST', `/admin/complaints/${complaintNo}/acknowledge`, opsToken, {
+    message: 'verify:rbac probe — acknowledged',
+  });
+  check(
+    '[投诉裁决链(T6)] 运营 可以 确认收悉投诉（RECEIVED→ACKNOWLEDGED）',
+    ackRes.status >= 200 && ackRes.status < 300,
+    `ops_officer@ POST /admin/complaints/${complaintNo}/acknowledge → ${ackRes.status}（期望 2xx${ackRes.status >= 300 ? ' ' + JSON.stringify(ackRes.json) : ''}）`,
+  );
+
+  const investigateRes = await call('POST', `/admin/complaints/${complaintNo}/investigation`, opsToken, {});
+  check(
+    '[投诉裁决链(T6)] 前置条件 · 运营立案调查（ACKNOWLEDGED→INVESTIGATING）',
+    investigateRes.status >= 200 && investigateRes.status < 300,
+    `ops_officer@ POST /admin/complaints/${complaintNo}/investigation → ${investigateRes.status}（期望 2xx${investigateRes.status >= 300 ? ' ' + JSON.stringify(investigateRes.json) : ''}）`,
+  );
+  if (investigateRes.status >= 300) {
+    check('[投诉裁决链(T6)] 运营 不得 批同一张裁决单（maker≠checker，SoD 拒）', false, '前置的立案调查没成功，链路无法继续，跳过');
+    check('[投诉裁决链(T6)] 合规官 可以 经审批中心批准裁决(COMPLAINT_RESOLUTION)', false, '前置的立案调查没成功，链路无法继续，跳过');
+    return;
+  }
+
+  const proposeRes = await call('POST', `/admin/complaints/${complaintNo}/propose-resolution`, opsToken, {
+    outcome: 'UPHELD', resolutionText: 'verify:rbac probe — resolution text',
+  });
+  const approvalNo = proposeRes.json?.approvalNo;
+  check(
+    '[投诉裁决链(T6)] 前置条件 · 运营提裁决（开出 COMPLAINT_RESOLUTION 审批单）',
+    proposeRes.status >= 200 && proposeRes.status < 300 && !!approvalNo,
+    `ops_officer@ POST /admin/complaints/${complaintNo}/propose-resolution → ${proposeRes.status}（期望 2xx${proposeRes.status >= 300 ? ' ' + JSON.stringify(proposeRes.json) : ''}）`,
+  );
+  if (proposeRes.status >= 300 || !approvalNo) {
+    check('[投诉裁决链(T6)] 运营 不得 批同一张裁决单（maker≠checker，SoD 拒）', false, '前置的提裁决没成功，没有真实 approvalNo 可测，跳过');
+    check('[投诉裁决链(T6)] 合规官 可以 经审批中心批准裁决(COMPLAINT_RESOLUTION)', false, '前置的提裁决没成功，没有真实 approvalNo 可测，跳过');
+    return;
+  }
+
+  const opsApproveRes = await call('POST', `/admin/control-gates/approvals/${approvalNo}/approve`, opsToken, {
+    reason: 'verify:rbac probe — same-role self approve, must be denied (maker≠checker)',
+  });
+  check(
+    '[投诉裁决链(T6)] 运营 不得 批同一张裁决单（maker≠checker，SoD 拒）',
+    opsApproveRes.status === 403,
+    `ops_officer@ POST /admin/control-gates/approvals/${approvalNo}/approve → ${opsApproveRes.status}（期望 403）`,
+  );
+
+  const complianceApproveRes = await call('POST', `/admin/control-gates/approvals/${approvalNo}/approve`, complianceToken, {
+    reason: 'verify:rbac probe — the policy-named checkerRole, expect allowed',
+  });
+  check(
+    '[投诉裁决链(T6)] 合规官 可以 经审批中心批准裁决(COMPLAINT_RESOLUTION)',
+    complianceApproveRes.status >= 200 && complianceApproveRes.status < 300,
+    `compliance_lead@ POST /admin/control-gates/approvals/${approvalNo}/approve → ${complianceApproveRes.status}（期望 2xx${complianceApproveRes.status >= 300 ? ' ' + JSON.stringify(complianceApproveRes.json) : ''}）`,
+  );
+
+  // ── 弧②：⚡ 拨钟门控交叉（第二张全新投诉，避免复用已走向 RESOLVED 的弧①那张单）──────
+  const submitRes2 = await call('POST', '/client/me/complaints', customerToken, {
+    category: 'SERVICE', subject: 'RBAC probe complaint (clock cross)',
+    description: 'verify:rbac probe fixture — 请勿在演示剧本里当真实客诉引用',
+  });
+  const complaintNo2 = submitRes2.json?.complaintNo;
+  check(
+    '[⚡拨钟门控交叉(T6)] 前置条件 · 客户提交第二张投诉',
+    submitRes2.status === 201 && !!complaintNo2,
+    `demo_alice@ POST /client/me/complaints → ${submitRes2.status}（期望 201${submitRes2.status >= 300 ? ' ' + JSON.stringify(submitRes2.json) : ''}）`,
+  );
+  if (submitRes2.status !== 201 || !complaintNo2) {
+    check('[⚡拨钟门控交叉(T6)] 金库 可以 ⚡ 拨快投诉确认钟（现持有者）', false, '前置的第二张投诉提交没成功，没有真实 complaintNo 可测，跳过');
+    return;
+  }
+
+  const treasurySimRes = await call('POST', `/admin/complaints/${complaintNo2}/simulate-timeout`, treasuryToken, { target: 'ACK' });
+  check(
+    '[⚡拨钟门控交叉(T6)] 金库 可以 ⚡ 拨快投诉确认钟（现持有者）',
+    treasurySimRes.status >= 200 && treasurySimRes.status < 300,
+    `treasury@ POST /admin/complaints/${complaintNo2}/simulate-timeout → ${treasurySimRes.status}（期望 2xx${treasurySimRes.status >= 300 ? ' ' + JSON.stringify(treasurySimRes.json) : ''}）`,
+  );
+
+  const opsSimRes = await call('POST', `/admin/complaints/${complaintNo2}/simulate-timeout`, opsToken, { target: 'ACK' });
+  check(
+    '[⚡拨钟门控交叉(T6)] 运营 不得 ⚡ 拨快投诉确认钟（波五起两族拨钟权全归金库，旧持有者已退出）',
+    opsSimRes.status === 403,
+    `ops_officer@ POST /admin/complaints/${complaintNo2}/simulate-timeout → ${opsSimRes.status}（期望 403）`,
+  );
+}
+
 // ══════════════════════ main ══════════════════════
 
 async function main(): Promise<void> {
@@ -1736,6 +1959,14 @@ async function main(): Promise<void> {
     { section: '合规办公室写权(T6)', name: '⚡ 拨快义务到期钟', method: 'POST', routePattern: '/admin/compliance-obligations/:obligationNo/simulate-due' },
     { section: 'RI换人审批链(T6)', name: '建探针专用 RI 席位', method: 'POST', routePattern: '/admin/responsible-individuals' },
     { section: 'RI换人审批链(T6)', name: '提 RI 换人', method: 'POST', routePattern: '/admin/responsible-individuals/:riNo/replacement' },
+    // 战役甲波五 T6：verifyComplaintResolutionAndClockCrossProbe 打的三条路由不在 PROBES
+    // 静态表里（需要跨请求依赖上一步返回的 complaintNo/approvalNo），单独登记预检——同上
+    // T6 波四先例。/client/me/complaints 是客户面路由，零权限码、不进 rbac.catalog（见
+    // complaints.client.controller.ts 头注释），不在 RBAC_PERMISSION_DEFINITIONS 派生的
+    // liveRoutes 集合里，故意不登记（登记了反而会被路径预检误判为「路由写错」）。
+    { section: '投诉裁决链(T6)', name: '运营立案调查', method: 'POST', routePattern: '/admin/complaints/:complaintNo/investigation' },
+    { section: '投诉裁决链(T6)', name: '运营提裁决', method: 'POST', routePattern: '/admin/complaints/:complaintNo/propose-resolution' },
+    { section: '⚡拨钟门控交叉(T6)', name: '⚡ 拨快投诉钟', method: 'POST', routePattern: '/admin/complaints/:complaintNo/simulate-timeout' },
   ];
   const missing = findUnregisteredRoutes(liveRoutes, usages);
   if (missing.length > 0) {
@@ -1771,6 +2002,10 @@ async function main(): Promise<void> {
 
   console.log('── RI 换人事前审批链：合规官提、高管单步批（战役甲波四 T6）──');
   await verifyRiReplacementApprovalChain(tokens);
+  console.log('');
+
+  console.log('── 投诉裁决链 + ⚡ 拨钟门控交叉：运营受理/合规官裁决、拨钟唯金库（战役甲波五 T6）──');
+  await verifyComplaintResolutionAndClockCrossProbe(tokens);
   console.log('');
 
   console.log('── V2 改角色不丢权限（对每个内建角色跑一次 modify→approve 往返）──');

@@ -635,6 +635,21 @@
 |---|---|---|---|---|
 | `FILING_DEADLINE_FASTFORWARDED` | ⚡ 把报送单截止时限拨到过去（演示装置，唯金库，供 sweep 当场标红） | N 单步 | deadlineAt |  |
 
+### 投诉受理与裁决（Market Conduct III.A，战役甲波五 T2-T5）（10）
+
+| 动作码 | 说明 | 旅程 | 必填字段 | 异步 |
+|---|---|---|---|---|
+| `COMPLAINT_SUBMITTED` | 客户提交投诉（双钟起点：确认钟 7 天 / 裁决钟 28 天） | S 起点 | — |  |
+| `COMPLAINT_ACKNOWLEDGED` | 运营确认收悉（RECEIVED→ACKNOWLEDGED，落 CLIENT_MESSAGE/ACK 往来记录） | N 单步 | — |  |
+| `COMPLAINT_INVESTIGATION_STARTED` | 运营立案调查（ACKNOWLEDGED→INVESTIGATING） | N 单步 | — |  |
+| `COMPLAINT_NOTE_ADDED` | 添加内部备注（非终态均可加，不迁状态） | N 单步 | — |  |
+| `COMPLAINT_EXTENDED` | 延期一次性（INVESTIGATING→INVESTIGATING_EXTENDED，裁决钟改 submittedAt+56 天） | N 单步 | newResolveDeadlineAt |  |
+| `COMPLAINT_RESOLUTION_PROPOSED` | 运营提裁决（开出 COMPLAINT_RESOLUTION 审批单，合规官批，maker≠checker） | N 单步 | resolutionOutcome |  |
+| `COMPLAINT_RESOLUTION_APPLIED` | 裁决生效（审批通过，RESOLUTION_PENDING→RESOLVED，落 CLIENT_MESSAGE/FINAL_RESPONSE） | N 单步 | resolutionOutcome |  |
+| `COMPLAINT_RESOLUTION_REJECTED` | 裁决驳回/撤单/过期（回 INVESTIGATING 或 INVESTIGATING_EXTENDED，按是否延期过二选一） | N 单步 | — |  |
+| `COMPLAINT_ESCALATED` | 升级为事故（COMPLAINT_ESCALATION，仅两调查态可升级、一次性） | N 单步 | escalatedIncidentNo |  |
+| `COMPLAINT_DEADLINE_FASTFORWARDED` | ⚡ 把投诉钟（确认/裁决）拨到过去（演示装置，唯金库） | N 单步 | target |  |
+
 ## 附录 · 退役码（拒写闸名单，历史可读、不再允许写入）
 
 共 113 码：

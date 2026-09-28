@@ -1,10 +1,10 @@
 # 审计动作码全量导出 —— 按域 × 按工作流（最全版）
 
-> 生成于 2026-09-27 ｜ 基线 main `8e51e72e` ｜ 机器列来源 `src/modules/audit-logging/constants/audit-actions.constant.ts`（9 份名册程序化导出）｜ 说明列来源 `doc-final/lark/2026-09-15-audit-actions-catalog-by-domain-workflow.md`
-> 现役 **286 码**（较 2026-09-15 版少 4：CUSTOMER_DELETED、CUSTOMER_UPDATED、INCIDENT_REGULATOR_REPORTED、INCIDENT_REGULATOR_REPORT_DRAFTED 已退役，进拒写闸），另有退役 117 码进拒写闸（附录全列）。
+> 生成于 2026-09-28 ｜ 基线 main `b866c3a2` ｜ 机器列来源 `src/modules/audit-logging/constants/audit-actions.constant.ts`（9 份名册程序化导出）｜ 说明列来源 `doc-final/lark/2026-09-15-audit-actions-catalog-by-domain-workflow.md`
+> 现役 **296 码**（较 2026-09-15 版少 4：CUSTOMER_DELETED、CUSTOMER_UPDATED、INCIDENT_REGULATOR_REPORTED、INCIDENT_REGULATOR_REPORT_DRAFTED 已退役，进拒写闸），另有退役 117 码进拒写闸（附录全列）。
 > **旅程**列：S 起点=该码铸 correlationId 开启一段旅程 ｜ I 继承=延续同一旅程 ｜ N 单步=无旅程可挂（守卫拒绝、单步动作、报价先于订单等）。**异步**=✓ 表示由审批/事件驱动、必须带 causationId。**subjects**=✓ 表示该码在 SUBJECTS_COVERED_ACTIONS 名册（治理域+横切审批 47 码，verify:audit Q2 断言面）；交易域码运行时也写子表行但不在名册故留白；Related No 检索走 OR 语义（主表∨子表）不受此列影响。⚡=演示装置。
 
-**分域计数**：APPROVAL 8 ｜ IAM 30 ｜ CONFIG 60 ｜ AUDIT 4 ｜ CUSTOMER 29 ｜ DEPOSIT 47 ｜ WITHDRAW 33 ｜ SWAP 26 ｜ TREASURY 7 ｜ RECON 9 ｜ GOVERNANCE 33 ｜ 合计 286
+**分域计数**：APPROVAL 8 ｜ IAM 30 ｜ CONFIG 60 ｜ AUDIT 4 ｜ CUSTOMER 29 ｜ DEPOSIT 47 ｜ WITHDRAW 33 ｜ SWAP 26 ｜ TREASURY 7 ｜ RECON 9 ｜ GOVERNANCE 43 ｜ 合计 296
 
 ## APPROVAL 域 —— 审批引擎（横切）（8 码）
 
@@ -569,7 +569,7 @@
 | `RECON_CASE_AGING_BREACHED` | 账龄到线（系统通道，actor=AGING_TIMER，核销/认损按钮由此解锁） | N 单步 | — |  |  |
 | `RECON_AGING_TIMEOUT_SIMULATED` | ⚡ 拨钟：把账龄截止拨到过去（拨钟一条、到线一条，各说各的事） | N 单步 | — |  |  |
 
-## GOVERNANCE 域 —— 事故登记（平账三期）（33 码）
+## GOVERNANCE 域 —— 事故登记（平账三期）（43 码）
 
 性质严重的差异正式立「事故」：登记 / 调查 / 定损 / 通报 / 善后 / 结案，全程零账务；动钱挂调账单与划转单引用。
 
@@ -630,6 +630,21 @@
 | 动作码 | 说明 | 旅程 | 必填字段 | 异步 | subjects |
 |---|---|---|---|---|---|
 | `FILING_DEADLINE_FASTFORWARDED` | ⚡ 把报送单截止时限拨到过去（演示装置，唯金库，供 sweep 当场标红） | N 单步 | deadlineAt |  |  |
+
+### 投诉受理与裁决（Market Conduct III.A，战役甲波五 T2-T5）（10）
+
+| 动作码 | 说明 | 旅程 | 必填字段 | 异步 | subjects |
+|---|---|---|---|---|---|
+| `COMPLAINT_SUBMITTED` | 客户提交投诉（双钟起点：确认钟 7 天 / 裁决钟 28 天） | S 起点 | — |  |  |
+| `COMPLAINT_ACKNOWLEDGED` | 运营确认收悉（RECEIVED→ACKNOWLEDGED，落 CLIENT_MESSAGE/ACK 往来记录） | N 单步 | — |  |  |
+| `COMPLAINT_INVESTIGATION_STARTED` | 运营立案调查（ACKNOWLEDGED→INVESTIGATING） | N 单步 | — |  |  |
+| `COMPLAINT_NOTE_ADDED` | 添加内部备注（非终态均可加，不迁状态） | N 单步 | — |  |  |
+| `COMPLAINT_EXTENDED` | 延期一次性（INVESTIGATING→INVESTIGATING_EXTENDED，裁决钟改 submittedAt+56 天） | N 单步 | newResolveDeadlineAt |  |  |
+| `COMPLAINT_RESOLUTION_PROPOSED` | 运营提裁决（开出 COMPLAINT_RESOLUTION 审批单，合规官批，maker≠checker） | N 单步 | resolutionOutcome |  |  |
+| `COMPLAINT_RESOLUTION_APPLIED` | 裁决生效（审批通过，RESOLUTION_PENDING→RESOLVED，落 CLIENT_MESSAGE/FINAL_RESPONSE） | N 单步 | resolutionOutcome |  |  |
+| `COMPLAINT_RESOLUTION_REJECTED` | 裁决驳回/撤单/过期（回 INVESTIGATING 或 INVESTIGATING_EXTENDED，按是否延期过二选一） | N 单步 | — |  |  |
+| `COMPLAINT_ESCALATED` | 升级为事故（COMPLAINT_ESCALATION，仅两调查态可升级、一次性） | N 单步 | escalatedIncidentNo |  |  |
+| `COMPLAINT_DEADLINE_FASTFORWARDED` | ⚡ 把投诉钟（确认/裁决）拨到过去（演示装置，唯金库） | N 单步 | target |  |  |
 
 ## 附录 · 退役码（拒写闸名单，历史可读、不再允许写入）
 
