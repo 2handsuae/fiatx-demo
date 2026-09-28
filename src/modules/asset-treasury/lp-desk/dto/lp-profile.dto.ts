@@ -35,6 +35,15 @@ export class ProposeSettlementChangeDto {
   @ApiProperty() @IsString() @IsNotEmpty() reason!: string;
 }
 
+/** 启停（战役乙波一 T3）：直接迁移 + 审计，不建审批——reason 供 LP_PROFILE_SUSPENDED /
+ *  LP_PROFILE_REACTIVATED 契约（均 requiredFields:['reason']）。 */
+export class SuspendLpProfileDto {
+  @ApiProperty() @IsString() @IsNotEmpty() reason!: string;
+}
+export class ReactivateLpProfileDto {
+  @ApiProperty() @IsString() @IsNotEmpty() reason!: string;
+}
+
 /** 对外投影（铁律⑥）：无 id。 */
 export interface LpProfileView {
   lpNo: string;

@@ -169,10 +169,36 @@ export class LpProfileService {
     return updated;
   }
 
+  // ── 变更审批留痕（控制者裁定 R6）：workflow 只编排、零审计写入——CHANGE_PROPOSED /
+  //     CHANGE_REJECTED 两码收在本服务，复用下方私有 writeAudit（同 create/transition 先例）。──
+
+  /** 变更审批已提交（SUBMITTED）——金库提单人 actor 驱动。snapshot.reason 供
+   *  LP_PROFILE_CHANGE_PROPOSED 契约（requiredFields:['reason']）；before/after 落审计
+   *  metadata，供事后核对「批的是不是当初提的」。 */
+  async recordChangeProposed(
+    row: LiquidityProvider,
+    snapshot: { before: Record<string, unknown>; after: Record<string, unknown>; reason: string },
+    actor: ApprovalActorContext,
+    approvalNo: string,
+  ): Promise<void> {
+    await this.writeAudit(AuditActions.LP_PROFILE_CHANGE_PROPOSED, row, {
+      approvalNo,
+      reason: snapshot.reason,
+      actor,
+      metadata: { before: snapshot.before, after: snapshot.after },
+    });
+  }
+
+  /** 变更审批被拒 / 超时——坐标原样不动，只留痕（workflow 的 onDecided 系统写，无 actor）。
+   *  LP_PROFILE_CHANGE_REJECTED 契约 requiresCausation:true，causationId 必填。 */
+  async recordChangeRejected(row: LiquidityProvider, approvalNo: string, causationId: string, reason: string): Promise<void> {
+    await this.writeAudit(AuditActions.LP_PROFILE_CHANGE_REJECTED, row, { approvalNo, causationId, reason });
+  }
+
   // ── 审计（信封构造可复用；照划转单 transferAudit 的样子——action/subjects/metadata
   //     参数化，patch.actor 有则 recordByActor、无则 recordSystem。primarySubject 恒为
   //     LIQUIDITY_PROVIDER/lpNo；审批单为 INSTRUMENT 子主体；每条带显式 requestId。
-  //     Task 3 会再加 recordChangeProposed，走同一个 writeAudit）──────────────────────
+  //     Task 3 的 recordChangeProposed/recordChangeRejected 走同一个 writeAudit）──────────
 
   private async writeAudit(action: string, row: LiquidityProvider, patch: {
     fromStatus?: string; toStatus?: string; approvalNo?: string; causationId?: string;

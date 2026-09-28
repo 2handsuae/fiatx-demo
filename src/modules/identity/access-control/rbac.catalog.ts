@@ -56,6 +56,10 @@ export type PermissionGroup =
   | 'RECON_DISPOSITION_WRITE'
   | 'INTERNAL_TRANSFER_READ'
   | 'INTERNAL_TRANSFER_WRITE'
+  // 战役乙波一 T3：LP 档案（LiquidityProvider）——建档 / 结算坐标变更 / 启停归金库
+  // （LP_WRITE），CFO/内审读得到列表详情（LP_READ）。
+  | 'LP_READ'
+  | 'LP_WRITE'
   | 'LEDGER_ACCOUNT_READ'
   | 'LEDGER_EVIDENCE_READ'
   | 'LEDGER_FLOW_READ'
@@ -472,6 +476,13 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
   route('POST', '/admin/internal-transfers/:transferNo/cancel', 'Cancel a pending internal transfer (maker only)', ['INTERNAL_TRANSFER_WRITE']),
   route('GET', '/admin/internal-transfers', 'List internal transfers', ['INTERNAL_TRANSFER_READ']),
   route('GET', '/admin/internal-transfers/:transferNo', 'Get internal transfer detail', ['INTERNAL_TRANSFER_READ']),
+  // ─── 战役乙波一 T3 · LP 档案（LiquidityProvider）：建档 / 结算坐标变更均走 CFO 单步批 ───
+  route('POST', '/admin/lp-profiles', 'Register a new liquidity provider', ['LP_WRITE']),
+  route('POST', '/admin/lp-profiles/:lpNo/settlement-change', 'Propose a change to an LP settlement coordinate — CFO signs it off', ['LP_WRITE']),
+  route('POST', '/admin/lp-profiles/:lpNo/suspend', 'Suspend a liquidity provider', ['LP_WRITE']),
+  route('POST', '/admin/lp-profiles/:lpNo/reactivate', 'Reactivate a suspended liquidity provider', ['LP_WRITE']),
+  route('GET', '/admin/lp-profiles', 'List liquidity providers', ['LP_READ']),
+  route('GET', '/admin/lp-profiles/:lpNo', 'Get liquidity provider detail', ['LP_READ']),
   // 平账 A 批：⚡拨钟——把案件账龄截止拨到过去（演示件，挂现有拨钟组，桶 demo.act_clock 已涵盖 SLA timers）
   route('POST', '/admin/reconciliation/cases/:caseNo/simulate-aging-timeout', 'Fast-forward a reconciliation case past its aging line (demo only)', ['DEMO_CLOCK_WRITE']),
 
@@ -937,6 +948,18 @@ export const ACTION_BUCKET_CATALOG: ActionDomain[] = [
         description: 'Initiate or cancel a company → client transfer from a reconciliation case — CFO signs it off',
         groups: ['INTERNAL_TRANSFER_WRITE'],
       },
+      {
+        key: 'treasury.view_lp',
+        label: 'View LP register & exchanges',
+        description: 'Browse liquidity-provider profiles and LP exchange orders with their funds-order legs',
+        groups: ['LP_READ'],
+      },
+      {
+        key: 'treasury.act_lp',
+        label: 'Operate LP desk',
+        description: 'Register/suspend an LP, propose settlement changes, initiate LP exchanges and accept deliveries — CFO signs off',
+        groups: ['LP_WRITE'],
+      },
     ],
   },
   // ─── Domain: Customer ────────────────────────────────
@@ -1227,6 +1250,8 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
     // 战役甲波五 T5（spec §7）：COMPLAINT_READ 恰绑合规官/MLRO/内审——内审全域只读人设，
     // 投诉登记同样只读，不建 manage 包（同本行其余组一致）。
     'COMPLAINT_READ',
+    // 战役乙波一 T3：LP 档案同 INTERNAL_TRANSFER_READ 先例——内审全域只读，不建 LP_WRITE。
+    'LP_READ',
   ],
 
   // 拦的手：开/解限制、贴撕标签、提解冻；管理台里推不动任何交易单据（D-不翻案）
@@ -1283,6 +1308,9 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
     // 登记/调查/定损/结案请求全靠这个组；结案裁决人是 SENIOR_MANAGEMENT_OFFICER（T8），
     // CFO 不是自己的裁决人，无自批死锁。
     'INCIDENT_FIN_WRITE',
+    // 战役乙波一 T3：LP 档案建档 / 结算坐标变更两条链的唯一裁决人——需要读得到列表/详情
+    // （同 INTERNAL_TRANSFER_READ 先例，裁决人要看得见）。
+    'LP_READ',
   ],
 
   // 提现地址的写权限全仓仅此一处；钱包地址行只从种子来，管理台只读。
@@ -1316,6 +1344,9 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
     'TRADING_DEPOSIT_READ', 'TRADING_WITHDRAW_READ',
     // 平账二期：补款 / 垫款开单归金库——maker（金库）≠ checker（CFO），verify:rbac S5 守着；READ 走到列表 / 详情入口。
     'INTERNAL_TRANSFER_READ', 'INTERNAL_TRANSFER_WRITE',
+    // 战役乙波一 T3：LP 档案建档 / 结算坐标变更开单归金库——maker（金库）≠ checker（CFO），
+    // verify:rbac S5 守着（同 INTERNAL_TRANSFER 先例）。
+    'LP_READ', 'LP_WRITE',
     'INCIDENT_WRITE',
     // 对账平账两角色定案（2026-09-10）：DEMO_CLOCK_WRITE 随本组整体迁入——案件页 ⚡Fast-forward
     // aging 按钮，以及充值/提现/兑换 SLA 超时与审批超时的演示拨钟，运营不再持有。

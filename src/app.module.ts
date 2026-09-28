@@ -27,6 +27,7 @@ import { WithdrawalFeeLevelModule } from './modules/trading/withdrawal-fee-level
 import { SwapFeeLevelModule } from './modules/trading/swap-fee-level/swap-fee-level.module';
 import { ReconciliationModule } from './modules/clearing-settle/reconciliation/reconciliation.module';
 import { InternalTransfersModule } from './modules/asset-treasury/internal-transfers/internal-transfers.module';
+import { LpDeskModule } from './modules/asset-treasury/lp-desk/lp-desk.module';
 import { AuditLogsModule } from './modules/audit-logging/audit-logs.module';
 import { GovernanceModule } from './modules/governance/governance.module';
 import { SumsubIngestionModule } from './modules/sumsub-ingestion/sumsub-ingestion.module';
@@ -86,6 +87,7 @@ import { TransactionLimitsModule as TransactionLimitRulesModule } from './module
     SwapFeeLevelModule,
     ReconciliationModule,
     InternalTransfersModule,
+    LpDeskModule,
     AuditLogsModule,
     GovernanceModule,
     SumsubIngestionModule,
