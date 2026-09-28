@@ -41,7 +41,17 @@ function makePrisma(): { liquidityProvider: Record<string, jest.Mock> } {
         return updated;
       }),
       findUnique: jest.fn(async ({ where }: any) => rows.get(where.lpNo) ?? null),
-      findMany: jest.fn(async () => [...rows.values()].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())),
+      // 评审随轮小项：真按调用方传入的 orderBy 排序（不是硬编码 desc）——照本仓
+      // 「mock 无视 where 直接吐行」假绿判例的同款教训,这里换成「mock 无视 orderBy」的
+      // 对应修法,断言的是真行为而不是巧合对上的常量。
+      findMany: jest.fn(async (args: any = {}) => {
+        const list = [...rows.values()];
+        const orderBy = args.orderBy;
+        if (!orderBy) return list;
+        const [field] = Object.keys(orderBy);
+        const dir = orderBy[field] === 'asc' ? 1 : -1;
+        return list.sort((a, b) => dir * (a[field] < b[field] ? -1 : a[field] > b[field] ? 1 : 0));
+      }),
     },
   };
 }
@@ -121,7 +131,7 @@ describe('LpProfileService (乙波一 T2)', () => {
       await activate(lpNo);
       await service.transition(lpNo, LpProfileStatus.SUSPENDED, {}, { actor: treasury, reason: 'Underperforming this quarter' });
       await expect(
-        service.applySettlementChange(lpNo, { fiatIban: 'AE070331234567890999999', approvalNo: 'APR260101000002' }),
+        service.applySettlementChange(lpNo, { fiatIban: 'AE070331234567890999999', approvalNo: 'APR260101000002', causationId: randomUUID() }),
       ).rejects.toThrow(BadRequestException);
     });
 
@@ -206,28 +216,34 @@ describe('LpProfileService (乙波一 T2)', () => {
     it('rejects while PENDING_APPROVAL (profile not yet ACTIVE)', async () => {
       const lpNo = await createProfile();
       await expect(
-        service.applySettlementChange(lpNo, { fiatIban: 'AE070331234567890999999', approvalNo: 'APR260101000002' }),
+        service.applySettlementChange(lpNo, { fiatIban: 'AE070331234567890999999', approvalNo: 'APR260101000002', causationId: randomUUID() }),
       ).rejects.toThrow(BadRequestException);
     });
 
-    it('while ACTIVE: patches only the given coordinate fields, stamps approvalNo, and records LP_PROFILE_CHANGE_APPLIED with before/after in metadata', async () => {
+    it('while ACTIVE: patches only the given coordinate fields, leaves the create-time approvalNo column untouched (评审Imp#1), and records LP_PROFILE_CHANGE_APPLIED carrying the change approvalNo only in the audit envelope', async () => {
       const lpNo = await createProfile();
+      await service.stampApprovalNo(lpNo, 'APR-CREATE-0001'); // 建档审批单号(spec §2.1) —— 真实流程由 Task 3 workflow 在 initiateCreate 里调用
       await activate(lpNo);
       const causationId = randomUUID();
 
       const updated = await service.applySettlementChange(lpNo, {
         fiatIban: 'AE070331234567890999999',
-        approvalNo: 'APR260101000002',
+        approvalNo: 'APR260101000002', // 改坐标这次的审批单号——与建档审批单号不同
         causationId,
       });
       expect(updated.fiatIban).toBe('AE070331234567890999999');
       expect(updated.fiatBankName).toBe('Emirates NBD'); // 未传的坐标字段原样不动
       expect(updated.cryptoAddress).toBe('TXfake00000000000000000000000001');
-      expect(updated.approvalNo).toBe('APR260101000002');
+      // 评审 Imp#1：approvalNo 列是建档审批单号,改坐标不许覆盖它——原样保持建档时的值。
+      expect(updated.approvalNo).toBe('APR-CREATE-0001');
       expect(updated.status).toBe(LpProfileStatus.ACTIVE); // 改坐标不动状态
 
       const call = auditLogs.recordSystem.mock.calls.find((c) => c[0].action === 'LP_PROFILE_CHANGE_APPLIED')![0];
+      // 改坐标这次的审批单号只进审计信封(专列 + INSTRUMENT 子主体),不进主体行。
       expect(call).toMatchObject({ approvalNo: 'APR260101000002', causationId });
+      expect(call.subjects).toEqual(expect.arrayContaining([
+        { subjectType: 'APPROVAL_CASE', subjectNo: 'APR260101000002', subjectRole: 'INSTRUMENT' },
+      ]));
       expect(call.metadata.before).toMatchObject({ fiatIban: 'AE070331234567890123456' });
       expect(call.metadata.after).toMatchObject({ fiatIban: 'AE070331234567890999999' });
     });

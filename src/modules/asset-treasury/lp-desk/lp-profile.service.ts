@@ -20,15 +20,18 @@ export interface LpProfileTransitionAudit {
   reason?: string;
 }
 
-/** applySettlementChange 的 patch——四坐标字段各自可选（哪几项变了传哪几项），approvalNo
- *  必带（本表 approvalNo 列复用为「最近一次落地此坐标变更的审批单」），causationId 供审计。 */
+/** applySettlementChange 的 patch——四坐标字段各自可选（哪几项变了传哪几项）。approvalNo/
+ *  causationId 只喂审计（LP_PROFILE_CHANGE_APPLIED 专列 + INSTRUMENT 子主体），不回写主体
+ *  行的 approvalNo 列——评审 Imp#1：该列 spec §2.1 定义为「建档审批单号」，改坐标不许覆盖它
+ *  （照 RI 换人先例 applyReplacement：换人审批号不回写 RI 表，只落审计）。causationId 必填
+ *  （评审随轮小项：CHANGE_APPLIED 契约 requiresCausation 真，可选会让坐标先落库、审计才炸）。 */
 export interface ApplySettlementChangeInput {
   fiatBankName?: string;
   fiatIban?: string;
   cryptoNetwork?: string;
   cryptoAddress?: string;
   approvalNo: string;
-  causationId?: string;
+  causationId: string;
 }
 
 /** (from→to) 边到审计动作码的映射——与 LP_PROFILE_TRANSITIONS 的四条边一一对应。 */
@@ -118,14 +121,15 @@ export class LpProfileService {
   async transition(lpNo: string, to: LpProfileStatus, patch: Record<string, unknown> = {}, audit?: LpProfileTransitionAudit): Promise<LiquidityProvider> {
     const row = await this.findByNo(lpNo);
     this.assertTransition(row.status, to);
-    const updated = await this.prisma.liquidityProvider.update({ where: { lpNo }, data: { status: to, ...patch } });
     const action = ACTION_BY_EDGE[`${row.status}->${to}`];
     if (!action) {
       // 完整性闸：LP_PROFILE_TRANSITIONS 的每条边都必须在 ACTION_BY_EDGE 登记对应审计码，
       // 否则会静默丢审计（assertActionSpec 对未注册的 action 直接 return，不报错）——
-      // 铁律①操作必留痕不容许这个洞，故显式炸而不是悄悄放过。
+      // 铁律①操作必留痕不容许这个洞，故显式炸而不是悄悄放过。评审随轮小项：闸挪到
+      // update 之前——挪之前闸炸时状态已落库却无审计，恰是本闸自己声称要防的洞。
       throw new InternalServerErrorException(`No audit action registered for LP profile edge ${row.status} → ${to}.`);
     }
+    const updated = await this.prisma.liquidityProvider.update({ where: { lpNo }, data: { status: to, ...patch } });
     await this.writeAudit(action, updated, {
       fromStatus: row.status,
       toStatus: to,
@@ -151,7 +155,9 @@ export class LpProfileService {
     }
     const { approvalNo, causationId, ...coordPatch } = patch;
     const before = { fiatBankName: row.fiatBankName, fiatIban: row.fiatIban, cryptoNetwork: row.cryptoNetwork, cryptoAddress: row.cryptoAddress };
-    const updated = await this.prisma.liquidityProvider.update({ where: { lpNo }, data: { ...coordPatch, approvalNo } });
+    // 评审 Imp#1：approvalNo 列是建档审批单号（spec §2.1），改坐标不回写它——只更新
+    // 传入的坐标字段，变更审批号只进审计（下方 writeAudit 的 approvalNo 专列 + INSTRUMENT 子主体）。
+    const updated = await this.prisma.liquidityProvider.update({ where: { lpNo }, data: coordPatch });
     await this.writeAudit(AuditActions.LP_PROFILE_CHANGE_APPLIED, updated, {
       approvalNo,
       causationId,

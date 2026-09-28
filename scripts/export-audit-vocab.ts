@@ -12,6 +12,7 @@ import {
   V6_SWAP_AUDIT_ACTIONS, V8_RECON_AUDIT_ACTIONS, V2_CUSTOMER_AUDIT_ACTIONS,
   V7_TREASURY_AUDIT_ACTIONS, INCIDENT_AUDIT_ACTIONS, REG_FILING_AUDIT_ACTIONS,
   COMPLIANCE_OFFICE_AUDIT_ACTIONS, COMPLAINT_AUDIT_ACTIONS,
+  CAMPAIGN_B_LP_PROFILE_AUDIT_ACTIONS,
   DEPRECATED_AUDIT_ACTIONS, SUBJECTS_COVERED_ACTIONS, AuditActionSpec,
 } from '../src/modules/audit-logging/constants/audit-actions.constant';
 import { AuditCorrelationMode } from '../src/modules/audit-logging/dto/audit-log.dto';
@@ -31,6 +32,7 @@ const ALL: Record<string, AuditActionSpec> = {
   ...REG_FILING_AUDIT_ACTIONS,
   ...COMPLIANCE_OFFICE_AUDIT_ACTIONS,
   ...COMPLAINT_AUDIT_ACTIONS,
+  ...CAMPAIGN_B_LP_PROFILE_AUDIT_ACTIONS,
 };
 
 // ── 种子解析：域节头 / 分组头 / 表行 ──────────────────────────────
