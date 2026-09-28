@@ -73,7 +73,7 @@ RECEIVED ──acknowledge──▶ ACKNOWLEDGED ──startInvestigation──�
 ## §5 升级联动（对撞点落地）
 
 - `complaint-escalation-workflow.service.ts` 照 `ri-replacement-workflow` 先例：**只编排、零自己的审计写入**——投诉侧 `markEscalated`（记 escalatedIncidentNo + 审计）、事件侧 `registerFromComplaint`（审计落事件服务）。
-- registry 行改动（改行不加行，类型行 12 不变）：enabled:true；closeActionType→`INCIDENT_CLOSE_CUSTOMER`；requiredAnchors→`[complaintNo, ownerCustomerNo]`；reportBasisCandidates 保持空（调研 §2.4 无通报义务）；assessmentScheme=IMPACT 不变。
+- registry 行改动（改行不加行，类型行 10 不变（订正：原误写 12，那是报送类型的行数——评审 2026-09-28 复现命令 grep -cE "^  [A-Z_]+: \{" incident-type-registry.ts = 10））：enabled:true；closeActionType→`INCIDENT_CLOSE_CUSTOMER`；requiredAnchors→`[complaintNo, ownerCustomerNo]`；reportBasisCandidates 保持空（调研 §2.4 无通报义务）；assessmentScheme=IMPACT 不变。
 - **门语义保留**：`/admin/incidents` 手工登记 `COMPLAINT_ESCALATION` 继续 400，只放行投诉侧内部入口——波一测试「MANUAL and COMPLAINT_ESCALATION are rejected」改写为断言此新语义（register 端点拒 + workflow 入口通）。
 
 ## §6 时钟与闹钟墙
@@ -91,7 +91,7 @@ RECEIVED ──acknowledge──▶ ACKNOWLEDGED ──startInvestigation──�
 | RBAC 组 | 81 | **预期 83** | 以 verify:rbac 实测钉数，偏差回填本表 |
 | 审批类型 | — | **+2** | `COMPLAINT_RESOLUTION`（运营提/合规官批/48h 可撤，照 RI_REPLACEMENT 先例）、`INCIDENT_CLOSE_CUSTOMER`（合规官单步/48h 可撤） |
 | 审计现役码 | 286 | **296** | 新 10 码（plan 核定回填，2026-09-28）：COMPLAINT_ `SUBMITTED / ACKNOWLEDGED / INVESTIGATION_STARTED / NOTE_ADDED / EXTENDED / RESOLUTION_PROPOSED / RESOLUTION_APPLIED / RESOLUTION_REJECTED / ESCALATED / DEADLINE_FASTFORWARDED`（内部备注与 ⚡ 拨钟也是持久动作，铁律①补齐）；事件侧登记复用既有码 |
-| 事件类型行 | 12 | **12** | 改行不加行（§5） |
+| 事件类型行 | 10 | **10** | 改行不加行（§5）；原误写 12（报送类型行数），2026-09-28 评审订正 |
 | prisma 表 | — | **+2** | complaints / complaint_entries；**加表必配 reset 登记表**（波二判例） |
 
 审计通则：每条状态边必写 fromStatus/toStatus（判例）；展示级字段（deadline、outcome、解释文本摘要等）镜像进 metadata（R5 判例，extra 校验形态保留）。

@@ -24,7 +24,7 @@
 - 通用交付清单见 `rules/delivery-checklist.md`，全部适用；每任务尾行写死「本任务过清单哪几条」，执行者收尾逐条报。
 - 本轮特有：审计码 **10 枚**出生即冻结四属性 + 每次写入显式 `requestId`；新审批策略两条同步 `verify-rbac.ts` 的 `MAKER_GROUP_BY_POLICY`；rbac.catalog 改后必须 `stack.sh reset self` 再打探针（只 seed 不重启 = 403 假阴）；客户动作审计 actor 传 **customerNo**（审计页留账判例，新码不重蹈 UUID）。
 
-**预期终态数量（T10 收口逐项核对，对不上就停）**：RBAC 域 15 不变、桶 73→75、组 81→83｜审批类型 +2（`COMPLAINT_RESOLUTION` / `INCIDENT_CLOSE_CUSTOMER`）｜Prisma 新表 2｜审计现役码 273→286 为波四终值，本波 286→**296**（10 新码，以 `audit:vocab` 实跑为准）｜事件类型行 12 不变（1 行改 0 行增）｜场景 +2（23/24 暂编）｜页面 client-web +2、admin-web +2。
+**预期终态数量（T10 收口逐项核对，对不上就停）**：RBAC 域 15 不变、桶 73→75、组 81→83｜审批类型 +2（`COMPLAINT_RESOLUTION` / `INCIDENT_CLOSE_CUSTOMER`）｜Prisma 新表 2｜审计现役码 273→286 为波四终值，本波 286→**296**（10 新码，以 `audit:vocab` 实跑为准）｜事件类型行 10 不变（1 行改 0 行增；原误写 12 系报送类型行数，评审订正）｜场景 +2（23/24 暂编）｜页面 client-web +2、admin-web +2。
 
 ---
 
