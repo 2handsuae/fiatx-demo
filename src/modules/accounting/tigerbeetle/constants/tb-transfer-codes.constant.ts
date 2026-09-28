@@ -69,6 +69,11 @@ export const TB_TRANSFER_CODES = {
   INTERNAL_TRANSFER_OPS_TO_SET: 81, // DR FIRM_OPS / CR FIRM_SET（法币腿 1）
   INTERNAL_TRANSFER_FIRM_OUT: 82,   // DR FIRM_SET(法币腿 2) 或 FIRM_OPS(加密币腿 1) / CR FIRM_ASSET
   INTERNAL_TRANSFER_CLIENT_IN: 83,  // DR CLIENT_ASSET / CR CLIENT_PAYABLE(客户)
+
+  // ── 战役乙波一（2026-09-29）：LP 兑换（84–86）。先款后货：卖出直出、买入落前厅、验收入库 ──
+  LP_EXCHANGE_PAY: 84,     // 卖出腿：DR FIRM_OPS / CR FIRM_ASSET（卖出币 ledger，付给 LP，外穿）
+  LP_EXCHANGE_RECEIVE: 85, // 买入腿：DR FIRM_ASSET / CR FIRM_LIQ（买入币 ledger，LP 打来落前厅，外穿）
+  LP_EXCHANGE_ACCEPT: 86,  // 验收转腿：DR FIRM_LIQ / CR FIRM_OPS（买入币 ledger，验收入库，内转）
 } as const;
 
 export type TbTransferCode = (typeof TB_TRANSFER_CODES)[keyof typeof TB_TRANSFER_CODES];

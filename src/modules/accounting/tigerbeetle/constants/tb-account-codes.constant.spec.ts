@@ -4,7 +4,7 @@ import * as path from 'path';
 import { TB_ACCOUNT_CODES, COA_TO_TB_CODE, TB_CODE_TO_COA } from './tb-account-codes.constant';
 
 describe('TB_ACCOUNT_CODES (real-time 1:1 COA)', () => {
-  it('exposes exactly the 9 codes', () => {
+  it('exposes exactly the 10 codes', () => {
     expect(TB_ACCOUNT_CODES).toEqual({
       CLIENT_ASSET: 1,
       FIRM_ASSET: 50,
@@ -12,6 +12,7 @@ describe('TB_ACCOUNT_CODES (real-time 1:1 COA)', () => {
       DEPOSIT_SUSPENSE: 101,
       FIRM_OPS: 200,
       FIRM_SET: 201,
+      FIRM_LIQ: 203,
       INCOME_SWAP_FEE: 210,
       INCOME_WITHDRAW_FEE: 211,
       INCOME_OTHER: 212,
@@ -20,7 +21,7 @@ describe('TB_ACCOUNT_CODES (real-time 1:1 COA)', () => {
 
   it('drops all legacy codes', () => {
     const names = Object.keys(TB_ACCOUNT_CODES);
-    for (const dead of ['CLIENT_BANK','CLIENT_CUSTODY','TRADE_CLEARING','FIRM_TREASURY','FX_POSITION','PAID_IN_CAPITAL','RETAINED_EARNINGS','FEE_INCOME','SPREAD_INCOME','FX_UNREALIZED_PNL','FX_REALIZED_PNL','FIRM_FEE','FIRM_LIQ','FIRM_SEIZED']) {
+    for (const dead of ['CLIENT_BANK','CLIENT_CUSTODY','TRADE_CLEARING','FIRM_TREASURY','FX_POSITION','PAID_IN_CAPITAL','RETAINED_EARNINGS','FEE_INCOME','SPREAD_INCOME','FX_UNREALIZED_PNL','FX_REALIZED_PNL','FIRM_FEE','FIRM_SEIZED']) {
       expect(names).not.toContain(dead);
     }
   });

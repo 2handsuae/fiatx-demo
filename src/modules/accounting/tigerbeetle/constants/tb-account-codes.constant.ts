@@ -15,6 +15,7 @@ export const TB_ACCOUNT_CODES = {
   // ── 权益 E(每公司账户,单例)──
   FIRM_OPS: 200, // 运营/流动性(兑换对手盘)
   FIRM_SET: 201, // 法币结算户(仅法币 ledger,银行约束)
+  FIRM_LIQ: 203, // LP 在途验收户（2026-09-29 战役乙复活；原 2026-08-13 COA v2 退役，翻案见乙总纲 §2）
   // ── COA v2 收入段(210–219,2026-08-13)：取代退役的 202 FIRM_FEE,按业务线三分 ──
   INCOME_SWAP_FEE: 210, // 兑换手续费收入(接类型码 36)
   INCOME_WITHDRAW_FEE: 211, // 提现手续费收入(接类型码 16)
@@ -53,10 +54,12 @@ export const TB_ACCOUNT_NAMES: Record<number, string> = {
 export const accountNameOf = (code: number | null | undefined): string | null =>
   code == null ? null : (TB_ACCOUNT_NAMES[code] ?? null);
 
-/** 202 FIRM_FEE / 203 FIRM_LIQ / 204 FIRM_SEIZED 已于 2026-08-13 COA v2 废弃,
+/** 202 FIRM_FEE / 204 FIRM_SEIZED 已于 2026-08-13 COA v2 废弃,
  *  由 210 INCOME_SWAP_FEE / 211 INCOME_WITHDRAW_FEE / 212 INCOME_OTHER 接班。
+ *  203 FIRM_LIQ 已于 2026-09-29 战役乙复活为 LP 在途验收户(原退役理由不再适用,
+ *  翻案见乙总纲 §2;主表定义见上方 TB_ACCOUNT_CODES.FIRM_LIQ)。
  *  demo 数据随时 reset,不保留任何过渡兼容层(退役码常量/标签映射/迁移脚本均已删除)。
- *  防回归断言见 tb-account-codes.constant.spec.ts —— 这三个名字不得回到主表。 */
+ *  防回归断言见 tb-account-codes.constant.spec.ts —— FIRM_FEE/FIRM_SEIZED 这两个名字不得回到主表。 */
 
 /** Human-readable COA code → TB numeric code */
 export const COA_TO_TB_CODE: Record<string, number> = {
@@ -66,6 +69,7 @@ export const COA_TO_TB_CODE: Record<string, number> = {
   'L.DEPOSIT_SUSPENSE': TB_ACCOUNT_CODES.DEPOSIT_SUSPENSE,
   'E.FIRM_OPS': TB_ACCOUNT_CODES.FIRM_OPS,
   'E.FIRM_SET': TB_ACCOUNT_CODES.FIRM_SET,
+  'E.FIRM_LIQ': TB_ACCOUNT_CODES.FIRM_LIQ,
   'E.INCOME_SWAP_FEE': TB_ACCOUNT_CODES.INCOME_SWAP_FEE,
   'E.INCOME_WITHDRAW_FEE': TB_ACCOUNT_CODES.INCOME_WITHDRAW_FEE,
   'E.INCOME_OTHER': TB_ACCOUNT_CODES.INCOME_OTHER,
