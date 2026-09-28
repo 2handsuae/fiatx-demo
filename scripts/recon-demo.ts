@@ -424,8 +424,9 @@ async function planWallets(
   //
   // Result: closing = opening(0) + Σ(IN − OUT) = TB net, by construction,
   // for every wallet.
-  // COA v2 (2026-08-13): 收入段 210/211/212;202/203/204 已废弃且无兼容层(demo 随时 reset)。
-  const FIRM_CODES = new Set<number>([200, 201, 210, 211, 212]);
+  // COA v2 (2026-08-13): 收入段 210/211/212;202/204 已废弃且无兼容层(demo 随时 reset)。
+  // 203 FIRM_LIQ 已于 2026-09-29 战役乙复活为 LP 在途验收户,回到 FIRM_CODES。
+  const FIRM_CODES = new Set<number>([200, 201, 203, 210, 211, 212]);
   const CUSTOMER_CODES = new Set<number>([100, 101]);
   const assetRows = (await (prisma as any).asset.findMany({ select: { code: true, network: true } })) as Array<{ code: string; network: string }>;
   const assetsByNetwork = new Map<string, Array<{ code: string }>>();

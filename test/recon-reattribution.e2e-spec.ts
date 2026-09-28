@@ -302,7 +302,7 @@ describe('Recon reattribution + disposition behaviour (e2e, Task 12)', () => {
 
   /**
    * 公司钱包铺底（场景 B 用）：DR FIRM_ASSET / CR INCOME_OTHER。
-   * WalletBalanceChecker 对公司钱包只认 200/201/210/211/212，聚合腿 FIRM_ASSET(50)
+   * WalletBalanceChecker 对公司钱包只认 200/201/203/210/211/212，聚合腿 FIRM_ASSET(50)
    * 被丢掉，所以这个钱包的内部余额 = +amount。
    * 这里刻意传 isExternalCrossing:true + externalRef —— 场景 B 要的是一条
    * **能与外部对账单行按单号配上、但金额对不上**的真实流水（AMOUNT_MISMATCH）。

@@ -1282,7 +1282,7 @@ export async function verifyEndState(
 
   // 2. COA invariants: CLIENT and FIRM balance per ledger (real-time 1:1 model proof)
   //    CLIENT: CLIENT_ASSET == Σ(CLIENT_PAYABLE + DEPOSIT_SUSPENSE) per ledger
-  //    FIRM:   FIRM_ASSET == Σ(FIRM_OPS + FIRM_SET + INCOME_SWAP_FEE + INCOME_WITHDRAW_FEE + INCOME_OTHER) per ledger
+  //    FIRM:   FIRM_ASSET == Σ(FIRM_OPS + FIRM_SET + FIRM_LIQ + INCOME_SWAP_FEE + INCOME_WITHDRAW_FEE + INCOME_OTHER) per ledger
   //    (asset accounts are debit-normal; liabilities/equity are credit-normal)
   const coaMap = await buildCoaBalanceMap(ctx);
   const LEDGER_NAMES: Record<number, string> = { [TB_LEDGERS.AED]: 'AED', [TB_LEDGERS.USDT]: 'USDT' };
@@ -1297,8 +1297,8 @@ export async function verifyEndState(
     ok(clientLabel, clientOk, clientDetail);
     coaRows.push({ label: clientLabel, ok: clientOk, detail: clientDetail });
     const firmAsset = m.get(TB_ACCOUNT_CODES.FIRM_ASSET) ?? 0n;
-    const firmEquity = (m.get(TB_ACCOUNT_CODES.FIRM_OPS) ?? 0n) + (m.get(TB_ACCOUNT_CODES.FIRM_SET) ?? 0n) + (m.get(TB_ACCOUNT_CODES.INCOME_SWAP_FEE) ?? 0n) + (m.get(TB_ACCOUNT_CODES.INCOME_WITHDRAW_FEE) ?? 0n) + (m.get(TB_ACCOUNT_CODES.INCOME_OTHER) ?? 0n);
-    const firmLabel = `COA FIRM(${name}): FIRM_ASSET == Σ(FIRM_OPS+FIRM_SET+INCOME_SWAP_FEE+INCOME_WITHDRAW_FEE+INCOME_OTHER)`;
+    const firmEquity = (m.get(TB_ACCOUNT_CODES.FIRM_OPS) ?? 0n) + (m.get(TB_ACCOUNT_CODES.FIRM_SET) ?? 0n) + (m.get(TB_ACCOUNT_CODES.FIRM_LIQ) ?? 0n) + (m.get(TB_ACCOUNT_CODES.INCOME_SWAP_FEE) ?? 0n) + (m.get(TB_ACCOUNT_CODES.INCOME_WITHDRAW_FEE) ?? 0n) + (m.get(TB_ACCOUNT_CODES.INCOME_OTHER) ?? 0n);
+    const firmLabel = `COA FIRM(${name}): FIRM_ASSET == Σ(FIRM_OPS+FIRM_SET+FIRM_LIQ+INCOME_SWAP_FEE+INCOME_WITHDRAW_FEE+INCOME_OTHER)`;
     const firmOk = firmAsset === firmEquity;
     const firmDetail = `${firmAsset} == ${firmEquity}`;
     ok(firmLabel, firmOk, firmDetail);

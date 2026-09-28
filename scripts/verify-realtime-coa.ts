@@ -31,7 +31,7 @@ async function main() {
       const clientAsset = sumBal((r) => r.code === TB_ACCOUNT_CODES.CLIENT_ASSET);
       const clientLiab = sumBal((r) => r.code === TB_ACCOUNT_CODES.CLIENT_PAYABLE || r.code === TB_ACCOUNT_CODES.DEPOSIT_SUSPENSE);
       const firmAsset = sumBal((r) => r.code === TB_ACCOUNT_CODES.FIRM_ASSET);
-      const firmEquity = sumBal((r) => [TB_ACCOUNT_CODES.FIRM_OPS, TB_ACCOUNT_CODES.FIRM_SET, TB_ACCOUNT_CODES.INCOME_SWAP_FEE, TB_ACCOUNT_CODES.INCOME_WITHDRAW_FEE, TB_ACCOUNT_CODES.INCOME_OTHER].includes(r.code));
+      const firmEquity = sumBal((r) => [TB_ACCOUNT_CODES.FIRM_OPS, TB_ACCOUNT_CODES.FIRM_SET, TB_ACCOUNT_CODES.FIRM_LIQ, TB_ACCOUNT_CODES.INCOME_SWAP_FEE, TB_ACCOUNT_CODES.INCOME_WITHDRAW_FEE, TB_ACCOUNT_CODES.INCOME_OTHER].includes(r.code));
 
       if (clientAsset !== clientLiab) { failures++; console.log(`✗ ledger ${ledger} CLIENT: asset=${clientAsset} liab=${clientLiab}`); }
       else console.log(`✓ ledger ${ledger} CLIENT 恒等 ${clientAsset}`);

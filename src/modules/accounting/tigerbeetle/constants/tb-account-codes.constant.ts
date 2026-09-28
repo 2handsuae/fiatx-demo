@@ -45,6 +45,7 @@ export const TB_ACCOUNT_NAMES: Record<number, string> = {
   [TB_ACCOUNT_CODES.DEPOSIT_SUSPENSE]: 'Client Deposits Held – Pending Release',
   [TB_ACCOUNT_CODES.FIRM_OPS]: 'Company Operating Funds',
   [TB_ACCOUNT_CODES.FIRM_SET]: 'Settlement in Transit – Fiat',
+  [TB_ACCOUNT_CODES.FIRM_LIQ]: 'LP Delivery in Transit',
   [TB_ACCOUNT_CODES.INCOME_SWAP_FEE]: 'Trading Fee Income',
   [TB_ACCOUNT_CODES.INCOME_WITHDRAW_FEE]: 'Withdrawal Fee Income',
   [TB_ACCOUNT_CODES.INCOME_OTHER]: 'Other Service Income',

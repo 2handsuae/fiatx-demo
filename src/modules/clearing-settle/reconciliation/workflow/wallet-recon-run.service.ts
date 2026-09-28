@@ -631,7 +631,7 @@ export class WalletReconRunService {
    *   L / E (credit-normal):   credits_posted − debits_posted
    * Then per ledger:
    *   sum(CLIENT_ASSET) == sum(CLIENT_PAYABLE+DEPOSIT_SUSPENSE)
-   *   sum(FIRM_ASSET)   == sum(FIRM_OPS+FIRM_SET+INCOME_SWAP_FEE+INCOME_WITHDRAW_FEE+INCOME_OTHER)
+   *   sum(FIRM_ASSET)   == sum(FIRM_OPS+FIRM_SET+FIRM_LIQ+INCOME_SWAP_FEE+INCOME_WITHDRAW_FEE+INCOME_OTHER)
    *
    * `cutoff` is intentionally NOT honored here — TB doesn't expose historical
    * snapshots without account-history reads, and Phase B treats identity as
@@ -681,6 +681,7 @@ export class WalletReconRunService {
       else if (
         r.code === TB_ACCOUNT_CODES.FIRM_OPS ||
         r.code === TB_ACCOUNT_CODES.FIRM_SET ||
+        r.code === TB_ACCOUNT_CODES.FIRM_LIQ ||
         r.code === TB_ACCOUNT_CODES.INCOME_SWAP_FEE ||
         r.code === TB_ACCOUNT_CODES.INCOME_WITHDRAW_FEE ||
         r.code === TB_ACCOUNT_CODES.INCOME_OTHER

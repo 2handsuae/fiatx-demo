@@ -2,6 +2,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { TB_ACCOUNT_CODES, COA_TO_TB_CODE, TB_CODE_TO_COA } from './tb-account-codes.constant';
+import { systemAccountCodesFor } from '../../../asset-treasury/assets/asset-provisioning.service';
 
 describe('TB_ACCOUNT_CODES (real-time 1:1 COA)', () => {
   it('exposes exactly the 10 codes', () => {
@@ -30,6 +31,14 @@ describe('TB_ACCOUNT_CODES (real-time 1:1 COA)', () => {
     expect(COA_TO_TB_CODE['A.CLIENT_ASSET']).toBe(1);
     expect(COA_TO_TB_CODE['E.INCOME_SWAP_FEE']).toBe(210);
     expect(TB_CODE_TO_COA[212]).toBe('E.INCOME_OTHER');
+    expect(TB_CODE_TO_COA[203]).toBe('E.FIRM_LIQ');
+  });
+
+  it('FIRM_LIQ is provisioned for both fiat and crypto assets (LP 在途验收户不分币种)', () => {
+    const fiatCodes = systemAccountCodesFor('FIAT').map((a) => a.code);
+    const cryptoCodes = systemAccountCodesFor('CRYPTO').map((a) => a.code);
+    expect(fiatCodes).toContain(TB_ACCOUNT_CODES.FIRM_LIQ);
+    expect(cryptoCodes).toContain(TB_ACCOUNT_CODES.FIRM_LIQ);
   });
 });
 

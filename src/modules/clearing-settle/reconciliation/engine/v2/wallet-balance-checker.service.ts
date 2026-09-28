@@ -2,7 +2,7 @@
 //
 // Phase B / T6: per-wallet balance check (1:1 direct, no layered fallback).
 //   Customer wallet:  external == PAYABLE[c] + SUSPENSE[c]
-//   Firm wallet:      external == FIRM_OPS / FIRM_SET / INCOME_SWAP_FEE /
+//   Firm wallet:      external == FIRM_OPS / FIRM_SET / FIRM_LIQ / INCOME_SWAP_FEE /
 //                     INCOME_WITHDRAW_FEE / INCOME_OTHER
 //
 // The spec (design §7) explicitly removes the older "first try == PAYABLE,
@@ -22,7 +22,7 @@
 //      (CLIENT_ASSET code=1 / FIRM_ASSET code=50). Those share walletRef purely
 //      for traceability — they belong to the aggregate book, not this wallet.
 //   3. PAYABLE (100), SUSPENSE (101), and firm equity codes
-//      (200/201/210/211/212) are all
+//      (200/201/203/210/211/212) are all
 //      CREDIT-normal: direction='IN' (credit side) → balance up,
 //      direction='OUT' (debit side) → balance down. No class-flip needed.
 //   4. Classify wallet kind from observed codes; build result.
@@ -44,6 +44,7 @@ const CUSTOMER_CODES: ReadonlySet<number> = new Set<number>([
 const FIRM_CODES: ReadonlySet<number> = new Set<number>([
   TB_ACCOUNT_CODES.FIRM_OPS,          // 200
   TB_ACCOUNT_CODES.FIRM_SET,          // 201
+  TB_ACCOUNT_CODES.FIRM_LIQ,          // 203
   TB_ACCOUNT_CODES.INCOME_SWAP_FEE,   // 210
   TB_ACCOUNT_CODES.INCOME_WITHDRAW_FEE, // 211
   TB_ACCOUNT_CODES.INCOME_OTHER,      // 212
