@@ -477,6 +477,13 @@ export const V1_APPROVAL_ACTION_TYPES: readonly string[] = [
   ApprovalActionTypes.INCIDENT_CLOSE_PRUDENTIAL,
   ApprovalActionTypes.INCIDENT_CLOSE_CUSTOMER,
   ApprovalActionTypes.REG_FILING_SUBMIT,
+  // 战役甲波五 T9 自查发现并修（非本任务 Files 清单，但必要配套——见任务报告「疑虑」）：
+  // COMPLAINT_RESOLUTION 与同批引入的 INCIDENT_CLOSE_CUSTOMER 结构完全对称（同一 T3
+  // 提交，both COMPLIANCE_OFFICER 单步 48h 可撤），后者已在册、前者漏收——原样漏收会让
+  // ApprovalPoliciesPage.tsx 新增的 ACTION_TYPE_LABELS.COMPLAINT_RESOLUTION 成为死标签
+  // （approval-policy.service.ts list() 按 V1_APPROVAL_ACTION_TYPES 过滤，不在册=页面
+  // 永远不渲染这一行）。
+  ApprovalActionTypes.COMPLAINT_RESOLUTION,
 ] as const;
 
 export function isSuperAdminRoleContext(roleCodes: string[]): boolean {

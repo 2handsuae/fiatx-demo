@@ -53,4 +53,11 @@ export const DETAIL_READ_GROUP_BY_POLICY: Record<string, string> = {
   // （entityRef = customerNo），唯一裁决人 MLRO 持 CUSTOMER_READ（rbac.catalog.ts MLRO
   // 绑定区）——批完看得见 /admin/customers/:customerNo。
   SANCTION_DISPOSITION: 'CUSTOMER_READ', // → /admin/customers/:customerNo（MLRO 持 CUSTOMER_READ）
+  // 战役甲波五 Task 9（承接项E，approvalEntityRoutes.ts 同批加行）：两条裁决人都是
+  // COMPLIANCE_OFFICER（approval.constants.ts 431/435 行两条策略），→ /admin/governance/
+  // complaints/:complaintNo 挂 COMPLAINT_READ；→ /admin/governance/incidents/:incidentNo
+  // 挂 INCIDENT_READ（同既有四条 INCIDENT_CLOSE_* 惯例）——两个读权限组合规官均持有
+  // （rbac.catalog.ts COMPLIANCE_OFFICER 绑定区）。
+  COMPLAINT_RESOLUTION: 'COMPLAINT_READ', // → /admin/governance/complaints/:complaintNo（合规官持 COMPLAINT_READ）
+  INCIDENT_CLOSE_CUSTOMER: 'INCIDENT_READ', // → /admin/governance/incidents/:incidentNo（合规官持 INCIDENT_READ）
 };

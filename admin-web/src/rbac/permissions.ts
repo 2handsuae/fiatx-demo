@@ -118,6 +118,16 @@ export const PERMISSIONS = {
   VENDOR_REGISTER_WRITE: 'api.post.admin_outsourcing_vendors',
   RI_REGISTER_WRITE: 'api.post.admin_responsible_individuals',
 
+  // 战役甲波五（Task 9）：投诉工作流——两个键名精确照 rbac.catalog.ts 的 PermissionGroup
+  // 字面量（COMPLAINT_READ/COMPLAINT_WRITE，route() 507-513 行）。列表/详情两个 GET 路由
+  // 的 allowedGroups 同时含 COMPLAINT_READ/COMPLAINT_WRITE，六个写路由（acknowledge/
+  // investigation/notes/extend/propose-resolution/escalate）只挂 COMPLAINT_WRITE——同
+  // INCIDENT_WRITE/REG_FILING_WRITE 既有代表码惯例，一个码代表整组，两个页面 + 全部写
+  // 按钮统一用它们判断，不逐路由各开一码。⚡ 拨钟按钮复用既有 DEMO_CLOCK_WRITE（同组，见
+  // rbac.catalog.ts simulate-timeout 路由），不新增键。
+  COMPLAINT_READ: 'api.get.admin_complaints',
+  COMPLAINT_WRITE: 'api.post.admin_complaints_complaintno_acknowledge',
+
   SUMSUB_EVENTS_READ: 'api.get.admin_sumsub_events',
   AUDIT_LOGS_READ: 'api.get.admin_audit_logs',
   AUDIT_EXPORT_CREATE: 'api.post.admin_audit_evidence_packages',

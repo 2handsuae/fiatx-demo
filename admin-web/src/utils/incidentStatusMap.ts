@@ -26,7 +26,11 @@ export const INCIDENT_STATUSES = [
   'WITHDRAWN',
 ] as const;
 
-/** 十类终盘 − MANUAL − COMPLAINT_ESCALATION（enabled:false，波五占位，不可达）。 */
+/** 十类终盘 − MANUAL（战役甲波五 Task 9，承接项G：COMPLAINT_ESCALATION 已在
+ * incident-type-registry.ts 通电 enabled:true——不再是不可达占位，升级事件会以这个 type
+ * 落库并出现在事故登记列表/详情。人工登记下拉（INCIDENT_TYPES，下方）仍不含它——手工
+ * 登记入口后端显式拒绝（incident.service.ts MANUAL_REGISTRATION_BLOCKED_TYPES），只是
+ * "不可手工创建"，不是"不可见"，展示标签必须有，否则升级事件在列表/详情显示原始码）。 */
 export const INCIDENT_TYPE_LABEL: Record<string, string> = {
   UNAUTHORIZED_OUTFLOW: 'Unauthorized outflow',
   LARGE_UNEXPLAINED: 'Large unexplained discrepancy',
@@ -37,6 +41,7 @@ export const INCIDENT_TYPE_LABEL: Record<string, string> = {
   ASSET_NONCOMPLIANCE: 'Asset non-compliance',
   STUCK_TRANSACTION_MAJOR: 'Major stuck transaction',
   PRUDENTIAL_BREACH: 'Prudential (NLA) breach',
+  COMPLAINT_ESCALATION: 'Complaint escalation',
 };
 
 export const INCIDENT_TYPES = [
@@ -206,10 +211,17 @@ export const INCIDENT_SUBJECT_REF_FIELDS: Record<string, readonly IncidentAnchor
   ],
 };
 
-/** 锚键 → 人话标签的扁平查表（详情页 subjectRefs 区块渲染用），从上表派生，单一来源。 */
-export const ANCHOR_FIELD_LABEL: Record<string, string> = Object.fromEntries(
-  Object.values(INCIDENT_SUBJECT_REF_FIELDS).flat().map((f) => [f.key, f.label]),
-);
+/** 锚键 → 人话标签的扁平查表（详情页 subjectRefs 区块渲染用），从上表派生，单一来源。
+ * +1 手动键（战役甲波五 Task 9，承接项H）：complaintNo——COMPLAINT_ESCALATION 的
+ * requiredAnchors 两键之一（incident-type-registry.ts 119-124 行），落 incident 行的
+ * subjectRefs（另一键 ownerCustomerNo 落顶层 customerNo 列，走 Basic Info 卡既有
+ * "Customer" 字段，不进这张表——见 incident.service.ts registerFromComplaint 注释）。
+ * 该类型不进 INCIDENT_SUBJECT_REF_FIELDS（那张表只服务人工登记表单，COMPLAINT_ESCALATION
+ * 走 registerFromComplaint 专用入口、无人工登记表单），故这一键单独补一行，不从上表派生。 */
+export const ANCHOR_FIELD_LABEL: Record<string, string> = {
+  ...Object.fromEntries(Object.values(INCIDENT_SUBJECT_REF_FIELDS).flat().map((f) => [f.key, f.label])),
+  complaintNo: 'Complaint No',
+};
 
 const ANCHOR_FIELD_BY_KEY: Record<string, IncidentAnchorFieldSpec> = Object.fromEntries(
   Object.values(INCIDENT_SUBJECT_REF_FIELDS).flat().map((f) => [f.key, f]),
@@ -239,8 +251,14 @@ export interface IncidentTypeMirror {
 }
 
 /** 类型注册表镜像（incident-type-registry.ts 的 INCIDENT_TYPE_REGISTRY 同构手抄，仅取前端
- * 渲染需要的四格：口径集、依据码候选集、善后白名单、必填锚键）。COMPLIANCE_ESCALATION
- * 不入表——enabled:false，不出现在任何下拉。 */
+ * 渲染需要的四格：口径集、依据码候选集、善后白名单、必填锚键）。战役甲波五 Task 9
+ * （承接项G自查）：COMPLAINT_ESCALATION 现已通电（enabled:true）补入本表——此前的
+ * "enabled:false 不出现在任何下拉"已不成立：不入表会让详情页/事件资产页 assess 环节
+ * 的 `cfg = INCIDENT_TYPE_REGISTRY_MIRROR[detail.type]` 落空，按错误的 MONETARY 口径
+ * （而非注册表实际的 IMPACT）渲染定损依据下拉——它仍然不出现在人工登记下拉
+ * （INCIDENT_TYPES，见上）里，因为手工登记入口本就被后端拒绝
+ * （incident.service.ts MANUAL_REGISTRATION_BLOCKED_TYPES），"入镜像表"与"入登记下拉"
+ * 是两件事。 */
 export const INCIDENT_TYPE_REGISTRY_MIRROR: Record<string, IncidentTypeMirror> = {
   UNAUTHORIZED_OUTFLOW: {
     assessmentScheme: 'MONETARY', reportBasisCandidates: ['CRM_IV_E_5', 'CRM_V_D_2'],
@@ -277,6 +295,13 @@ export const INCIDENT_TYPE_REGISTRY_MIRROR: Record<string, IncidentTypeMirror> =
   PRUDENTIAL_BREACH: {
     assessmentScheme: 'SHORTFALL', reportBasisCandidates: ['COMPANY_VI_C_F'],
     allowedRemediationKinds: [], requiredAnchors: ['metric', 'shortfallAmount'],
+  },
+  // 战役甲波五 Task 9：逐字镜像 incident-type-registry.ts 119-124 行（assessmentScheme:
+  // 'IMPACT'、reportBasisCandidates: []、allowedRemediationKinds: []、
+  // requiredAnchors: ['complaintNo', 'ownerCustomerNo']）。
+  COMPLAINT_ESCALATION: {
+    assessmentScheme: 'IMPACT', reportBasisCandidates: [],
+    allowedRemediationKinds: [], requiredAnchors: ['complaintNo', 'ownerCustomerNo'],
   },
 };
 

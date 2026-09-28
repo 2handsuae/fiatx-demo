@@ -12,6 +12,7 @@ import {
   ChevronRight,
   Sun,
   Moon,
+  MessageSquare,
 } from 'lucide-react';
 import { Link, useLocation, useNavigate, Outlet } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
@@ -39,6 +40,7 @@ const NAV: NavItem[] = [
   { group: 'MOVEMENT', path: '/deposit',      label: 'Deposit',      icon: <ArrowDownCircle size={14} /> },
   { group: 'MOVEMENT', path: '/swap',         label: 'Swap',         icon: <ArrowLeftRight size={14} /> },
   { group: 'MOVEMENT', path: '/withdraw',     label: 'Withdraw',     icon: <ArrowUpCircle size={14} /> },
+  { group: 'ACCOUNT',  path: '/complaints',   label: 'Complaints',   icon: <MessageSquare size={14} /> },
   { group: 'ACCOUNT',  path: '/profile',      label: 'Profile',      icon: <User size={14} /> },
 ];
 
@@ -273,6 +275,10 @@ const CustomerDashboardLayout = () => {
               onClick={toggleTheme}
               className="text-fx-dust hover:text-fx-brass transition-colors"
               aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+              // title 与 aria-label 同文案——scripts/demo-shot.js 的 --click 只按 innerText/title
+              // 匹配（图标按钮无文本节点时回落 title），本按钮此前只有 aria-label，走查截图器
+              // 点不到它（战役甲波五 T9 截双主题物证时发现，闸⑤必需配套，非无关顺手改）。
+              title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
             >
               {theme === 'dark' ? <Sun size={14} /> : <Moon size={14} />}
             </button>

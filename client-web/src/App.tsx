@@ -21,6 +21,8 @@ const SwapDetail = lazy(() => import('./pages/SwapDetail'));
 const DashboardOverview = lazy(() => import('./pages/DashboardOverview'));
 const TransactionHistory = lazy(() => import('./pages/TransactionHistory'));
 const WithdrawalAddresses = lazy(() => import('./pages/WithdrawalAddresses'));
+const Complaints = lazy(() => import('./pages/Complaints'));
+const ComplaintDetail = lazy(() => import('./pages/ComplaintDetail'));
 
 const RouteLoading = () => (
   <div className="min-h-screen bg-gray-50 flex items-center justify-center px-6">
@@ -57,6 +59,8 @@ function App() {
                  <Route path="/tier-upgrade/verify" element={<AuthGuard><TierUpgradeVerification /></AuthGuard>} />
                  <Route path="/transactions" element={<AuthGuard><TransactionHistory /></AuthGuard>} />
                  <Route path="/withdrawal-addresses" element={<AuthGuard><WithdrawalAddresses /></AuthGuard>} />
+                 <Route path="/complaints" element={<AuthGuard><Complaints /></AuthGuard>} />
+                 <Route path="/complaints/:complaintNo" element={<AuthGuard><ComplaintDetail /></AuthGuard>} />
 
                  {/* Public Dashboard Routes */}
                  <Route path="/profile" element={<CustomerProfile />} />

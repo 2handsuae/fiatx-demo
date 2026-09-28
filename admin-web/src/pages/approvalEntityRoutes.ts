@@ -62,4 +62,9 @@ export const ENTITY_ROUTE_BY_ACTION: Record<string, (ref: string) => string | nu
   SANCTION_DISPOSITION: (r) => `/admin/customers/${r}`,
   // 战役甲波二（entityRef = filingNo）：报送签发，详情路由 Task 9 落地。
   REG_FILING_SUBMIT: (r) => `/admin/governance/regulatory-filings/${r}`,
+  // 战役甲波五 Task 9（承接项E，T6 评审裁定并入）：投诉裁决（entityRef = complaintNo，
+  // complaint-resolution-workflow.service.ts propose() 逐字确认）指向投诉详情页；客户族
+  // 结案（entityRef = incidentNo，同既有四条 INCIDENT_CLOSE_* 惯例）指向既有事故详情路由。
+  COMPLAINT_RESOLUTION: (r) => `/admin/governance/complaints/${r}`,
+  INCIDENT_CLOSE_CUSTOMER: (r) => `/admin/governance/incidents/${r}`,
 };

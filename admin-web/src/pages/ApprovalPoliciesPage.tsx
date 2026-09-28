@@ -73,6 +73,9 @@ const ACTION_TYPE_LABELS: Record<string, string> = {
   INTERNAL_TRANSFER_APPROVAL: 'Internal transfer',
   // 战役甲波二：报送签发——合规官提、高管批。
   REG_FILING_SUBMIT: 'Regulatory Filing · Sign-off',
+  // 战役甲波五 Task 9（承接项F）：投诉裁决/客户族事故结案——运营提、合规官批。
+  COMPLAINT_RESOLUTION: 'Complaint · Resolution',
+  INCIDENT_CLOSE_CUSTOMER: 'Incident Close · Customer',
 };
 
 export default function ApprovalPoliciesPage() {

@@ -72,6 +72,8 @@ const RegulatoryFilingDetailPage = lazy(() => import('./pages/RegulatoryFilingDe
 const ComplianceClockWallPage = lazy(() => import('./pages/ComplianceClockWallPage'));
 const ComplianceObligationListPage = lazy(() => import('./pages/ComplianceObligationListPage'));
 const ComplianceRegistersPage = lazy(() => import('./pages/ComplianceRegistersPage'));
+const ComplaintListPage = lazy(() => import('./pages/ComplaintListPage'));
+const ComplaintDetailPage = lazy(() => import('./pages/ComplaintDetailPage'));
 
 const FullPageMessage = ({
   title,
@@ -272,6 +274,11 @@ function App() {
             {/* 战役甲波二：报送台（治理件，与事故登记/审批中心平级） */}
             <Route path="governance/regulatory-filings" element={withPermission(<RegulatoryFilingListPage />, [PERMISSIONS.REG_FILINGS_READ])} />
             <Route path="governance/regulatory-filings/:filingNo" element={withPermission(<RegulatoryFilingDetailPage />, [PERMISSIONS.REG_FILING_DETAIL_READ])} />
+
+            {/* 战役甲波五（Task 9）：投诉工作流（治理件，与事故登记/报送台平级——三刀「投诉并入
+                事件中心」不另立顶层模块）。 */}
+            <Route path="governance/complaints" element={withPermission(<ComplaintListPage />, [PERMISSIONS.COMPLAINT_READ])} />
+            <Route path="governance/complaints/:complaintNo" element={withPermission(<ComplaintDetailPage />, [PERMISSIONS.COMPLAINT_READ])} />
 
             {/* 战役甲波四（Task 9）：合规办公室骨架——闹钟墙/合规日历/两本登记册，
                 与事故登记/报送台平级（treasury governance file 三兄弟）。 */}

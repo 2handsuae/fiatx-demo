@@ -34,6 +34,7 @@ import {
   Clock,
   CalendarClock,
   BookUser,
+  MessageSquare,
 } from 'lucide-react';
 import { Link, useLocation, useNavigate, Outlet } from 'react-router-dom';
 import { useAdminSession } from '../contexts/AdminSessionContext';
@@ -403,6 +404,14 @@ const DashboardLayout = () => {
           label: 'Regulatory Filings',
           icon: <Send size={13} />,
           requiredPermissions: [PERMISSIONS.REG_FILINGS_READ],
+        },
+        // 战役甲波五（Task 9）：投诉工作流——独立治理件，与事故登记/报送台平级
+        // （三刀「投诉并入事件中心」不另立顶层模块，见 spec §4）。
+        {
+          path: '/admin/governance/complaints',
+          label: 'Complaints',
+          icon: <MessageSquare size={13} />,
+          requiredPermissions: [PERMISSIONS.COMPLAINT_READ],
         },
       ],
     },

@@ -391,7 +391,16 @@ const IncidentDetailPage = () => {
           {detail.subjectRefs && Object.keys(detail.subjectRefs).length > 0 && (
             <DetailCard title="Type-Specific Details" columns={3}>
               {Object.entries(detail.subjectRefs).map(([key, value]) => (
-                <InfoField key={key} label={ANCHOR_FIELD_LABEL[key] ?? key} value={formatSubjectRefValue(key, value)} />
+                <InfoField
+                  key={key}
+                  label={ANCHOR_FIELD_LABEL[key] ?? key}
+                  value={formatSubjectRefValue(key, value)}
+                  mono={key === 'complaintNo'}
+                  // 战役甲波五 Task 9（承接项H）：complaintNo 是 COMPLAINT_ESCALATION 的类型专属
+                  // 回链锚（见 ANCHOR_FIELD_LABEL 头注释）——spec §9 判据2 要求投诉/事件双向
+                  // 跳转可点，这里补链接，同 Source Case/Customer 字段既有 link= 惯例。
+                  link={key === 'complaintNo' && typeof value === 'string' ? `/admin/governance/complaints/${encodeURIComponent(value)}` : undefined}
+                />
               ))}
             </DetailCard>
           )}

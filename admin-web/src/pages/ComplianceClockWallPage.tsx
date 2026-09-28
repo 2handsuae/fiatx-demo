@@ -1,5 +1,6 @@
 // admin-web/src/pages/ComplianceClockWallPage.tsx
 // 战役甲波四 · 合规办公室骨架（Task 9）：闹钟墙——聚合报送单与周期义务的到期钟。
+// 战役甲波五 Task 9：加投诉行（COMPLAINT，两钟互斥：未确认走确认钟、已确认走裁决钟）。
 // 铁律⑥：列表投影零 UUID（后端 ComplianceClockWallService.getWall 已保证，行只有
 // refNo/linkKey 两个业务号字段）。模板：RegulatoryFilingListPage.tsx 的表格结构。
 import { useEffect, useState } from 'react';
@@ -14,7 +15,7 @@ import { useSimulationMode } from '../utils/simulationMode';
 import { AUTHORITY_LABEL } from '../utils/regulatoryFilingMap';
 
 interface ClockWallRow {
-  kind: 'FILING' | 'OBLIGATION';
+  kind: 'FILING' | 'OBLIGATION' | 'COMPLAINT';
   refNo: string;
   title: string;
   authority: string;
@@ -22,6 +23,9 @@ interface ClockWallRow {
   overdue: boolean;
   status: string;
   linkKey: string;
+  // 战役甲波五 T5：COMPLAINT 行专属——哪口钟当前生效（ACK/RESOLVE 两钟互斥）。
+  // FILING/OBLIGATION 行不填（后端 toEqual 视 undefined 键为不存在，不破坏既有行断言）。
+  clockLabel?: string;
 }
 
 /** spec §2 颜色三档：红 = overdue；黄 = 剩余 ≤ 总时长 25%（锚与截止均知时）或 ≤ 24h
@@ -69,11 +73,13 @@ function remainingText(deadlineAt: string, overdue: boolean): string {
 const KIND_BADGE_CLASS: Record<ClockWallRow['kind'], string> = {
   FILING: 'bg-blue-100 text-blue-800',
   OBLIGATION: 'bg-purple-100 text-purple-800',
+  COMPLAINT: 'bg-rose-100 text-rose-800',
 };
 
 const KIND_LABEL: Record<ClockWallRow['kind'], string> = {
   FILING: 'Filing',
   OBLIGATION: 'Obligation',
+  COMPLAINT: 'Complaint',
 };
 
 const ComplianceClockWallPage = () => {
@@ -116,27 +122,36 @@ const ComplianceClockWallPage = () => {
   const handleRowClick = (row: ClockWallRow) => {
     if (row.kind === 'FILING') {
       navigate(`/admin/governance/regulatory-filings/${encodeURIComponent(row.linkKey)}`);
+    } else if (row.kind === 'COMPLAINT') {
+      navigate(`/admin/governance/complaints/${encodeURIComponent(row.linkKey)}`);
     } else {
       navigate(`/admin/governance/compliance-office/obligations?highlight=${encodeURIComponent(row.linkKey)}`);
     }
   };
 
-  const handleFastForward = async (filingNo: string) => {
-    setSimulatingRef(filingNo);
+  // 战役甲波五 T9：COMPLAINT 行的 ⚡ 走独立端点 + body（target 由 clockLabel 判——
+  // 两钟互斥，行上永远只显示当前生效的那一口，见 compliance-clock-wall.service.ts 注释）。
+  const handleFastForward = async (row: ClockWallRow) => {
+    setSimulatingRef(row.refNo);
     setSimError('');
     try {
-      const res = await adminFetch(
-        `${import.meta.env.VITE_API_URL}/admin/regulatory-filings/${encodeURIComponent(filingNo)}/simulate-deadline-timeout`,
-        { method: 'POST' },
-      );
+      const res = row.kind === 'COMPLAINT'
+        ? await adminFetch(
+            `${import.meta.env.VITE_API_URL}/admin/complaints/${encodeURIComponent(row.refNo)}/simulate-timeout`,
+            { method: 'POST', body: JSON.stringify({ target: row.clockLabel?.startsWith('ACK') ? 'ACK' : 'RESOLVE' }) },
+          )
+        : await adminFetch(
+            `${import.meta.env.VITE_API_URL}/admin/regulatory-filings/${encodeURIComponent(row.refNo)}/simulate-deadline-timeout`,
+            { method: 'POST' },
+          );
       if (!res.ok) {
-        setSimError(await getApiErrorMessage(res, 'Failed to fast-forward the filing deadline'));
+        setSimError(await getApiErrorMessage(res, 'Failed to fast-forward the deadline'));
         return;
       }
       await fetchRows();
     } catch (e) {
       if (e instanceof AdminSessionError) return;
-      setSimError(e instanceof Error ? e.message : 'Failed to fast-forward the filing deadline');
+      setSimError(e instanceof Error ? e.message : 'Failed to fast-forward the deadline');
     } finally {
       setSimulatingRef(null);
     }
@@ -148,7 +163,7 @@ const ComplianceClockWallPage = () => {
     <div className="flex h-full flex-col">
       <PageTitleBar
         title="Compliance Clock Wall"
-        subtitle="Every regulatory filing deadline and periodic obligation due date, on one clock"
+        subtitle="Every regulatory filing deadline, periodic obligation due date, and open complaint clock, on one clock"
         meta={`${visible.length} of ${rows.length} row(s)`}
       >
         <label className="flex items-center gap-1.5 font-mono text-[11px] text-adm-t2">
@@ -176,7 +191,7 @@ const ComplianceClockWallPage = () => {
           <tbody>
             {visible.map((row) => {
               const tone = toneOf(row);
-              const canFastForward = row.kind === 'FILING' && !row.overdue && simEnabled && canSimulate;
+              const canFastForward = (row.kind === 'FILING' || row.kind === 'COMPLAINT') && !row.overdue && simEnabled && canSimulate;
               return (
                 <tr
                   key={`${row.kind}-${row.refNo}`}
@@ -203,9 +218,9 @@ const ComplianceClockWallPage = () => {
                       <button
                         type="button"
                         disabled={simulatingRef === row.refNo}
-                        onClick={(e) => { e.stopPropagation(); void handleFastForward(row.refNo); }}
+                        onClick={(e) => { e.stopPropagation(); void handleFastForward(row); }}
                         className="inline-flex items-center gap-1 rounded border border-amber-300 px-2 py-1 font-mono text-[10px] text-amber-700 hover:bg-amber-50 disabled:cursor-not-allowed disabled:opacity-50"
-                        title="Fast-forward this filing's deadline into the past (demo only)"
+                        title="Fast-forward this deadline into the past (demo only)"
                       >
                         <Zap size={11} />
                         {simulatingRef === row.refNo ? 'Working…' : 'Fast-forward deadline'}
