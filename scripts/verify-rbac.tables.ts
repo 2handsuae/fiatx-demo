@@ -68,4 +68,6 @@ export const DETAIL_READ_GROUP_BY_POLICY: Record<string, string> = {
   LP_EXCHANGE_APPROVAL: 'LP_READ', // → /admin/lp-exchanges/:exchangeNo（CFO 持 LP_READ）
   // 战役乙波二 Task 6：注资单，唯一裁决人 CFO 持 FUNDING_READ（rbac.catalog.ts CFO 绑定区）。
   CAPITAL_INJECTION_APPROVAL: 'FUNDING_READ', // → /admin/capital-injections/:cinNo（CFO 持 FUNDING_READ）
+  // 战役乙波二 Task 7：付款单，唯一裁决人 CFO 同样持 FUNDING_READ（同上行先例）。
+  VENDOR_PAYMENT_APPROVAL: 'FUNDING_READ', // → /admin/vendor-payments/:payNo（CFO 持 FUNDING_READ）
 };

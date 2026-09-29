@@ -77,4 +77,7 @@ export const ENTITY_ROUTE_BY_ACTION: Record<string, (ref: string) => string | nu
   // 战役乙波二（Task 6）：注资单——entityRef 是 cinNo
   // （capital-injection-workflow.service.ts initiate() 逐字确认）。
   CAPITAL_INJECTION_APPROVAL: (r) => `/admin/capital-injections/${r}`,
+  // 战役乙波二（Task 7）：付款单——entityRef 是 payNo
+  // （vendor-payment-workflow.service.ts initiate() 逐字确认）。
+  VENDOR_PAYMENT_APPROVAL: (r) => `/admin/vendor-payments/${r}`,
 };

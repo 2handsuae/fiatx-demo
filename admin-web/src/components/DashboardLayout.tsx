@@ -298,7 +298,7 @@ const DashboardLayout = () => {
       ],
     },
     // ─── Treasury（战役乙波二）────────────────────────────────────
-    // 公司自身资金动线——不是客户/LP 域。Task 6：注资单先落地；Task 7 续补付款单。
+    // 公司自身资金动线——不是客户/LP 域。Task 6：注资单先落地；Task 7：付款单续补。
     {
       label: 'Treasury',
       icon: <PiggyBank size={12} />,
@@ -308,6 +308,13 @@ const DashboardLayout = () => {
           label: 'Capital Injections',
           icon: <Banknote size={13} />,
           requiredPermissions: [PERMISSIONS.CAPITAL_INJECTIONS_READ],
+        },
+        // 战役乙波二 Task 7：付款单——金库开单，CFO 单步批，支付在册外包商。
+        {
+          path: '/admin/vendor-payments',
+          label: 'Vendor Payments',
+          icon: <Send size={13} />,
+          requiredPermissions: [PERMISSIONS.VENDOR_PAYMENTS_READ],
         },
       ],
     },

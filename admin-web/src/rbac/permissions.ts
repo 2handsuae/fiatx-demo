@@ -118,6 +118,14 @@ export const PERMISSIONS = {
   // TRANSFERS_READ/LP_EXCHANGES_READ 先例）；付款单自己的 List/Detail 页与其余码归 Task 7。
   VENDOR_PAYMENTS_READ: 'api.get.admin_vendor_payments',
 
+  // 战役乙波二（Task 7）：付款单——四个码精确镜像 rbac.catalog.ts 里 T5 已登记的
+  // buildPermissionCode(method, path) 派生值（同上方 107-114 行 CAPITAL_INJECTION_* 先例）。
+  // 付款单无 simulate-contribution/confirm 端点（腿 1 推进走资金单页 ⚡，落账在腿事件里
+  // 自动收口），故只有四码，比注资单少两个。
+  VENDOR_PAYMENT_DETAIL_READ: 'api.get.admin_vendor_payments_payno',
+  VENDOR_PAYMENT_CREATE: 'api.post.admin_vendor_payments',
+  VENDOR_PAYMENT_CANCEL: 'api.post.admin_vendor_payments_payno_cancel',
+
   // 平账三期（2026-09-06）：事故登记——三个码精确镜像 rbac.catalog.ts route() 的
   // buildPermissionCode 派生值。列表/详情两个 GET 路由的 allowedGroups 同时含
   // INCIDENT_READ/INCIDENT_WRITE（route() 已登记），写动作只有 INCIDENT_WRITE 一组；
