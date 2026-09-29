@@ -22,6 +22,7 @@
   - jest 必须在仓库根跑且带 `DATABASE_URL`（缺则假红——判例在案）；本机 shell 默认 node18，每条命令前置 nvm20 PATH（记忆在案）
   - 前端两条永不豁免：改前端必截图；动钱必 `verify:coa`
   - 看板阈值常量唯一取值判据：**基线在线上方、且一笔演示级动作能可见地拉近水位与线的距离**（spec §5）；候选 AED 900,000 / USDT 100,000（基线 F_OPS AED 950,000 / USDT 113,600，`demo/baseline.md:240` 实测在案）
+  - **SLA 判定（交付清单第 3 行的回答，写死在此）**：两张新单据所有中间态（AWAITING_FUNDS/RECEIVED/EXECUTING）**均不计时**——唯一的钟是审批层 48h timeout（照 LP AWAITING_DELIVERY 无计时先例；⚡驱动的演示态挂着是常态不是事故）；执行者不得自加 SLA 字段或扫钟
 
 **任务模板（照抄对象，全程有效）**：`src/modules/asset-treasury/lp-desk/` 全目录（乙波一刚交付：服务/工作流/审批 handler/控制器/迁移表常量/dto——最近先例优先）＋ `src/modules/asset-treasury/internal-transfers/`（六态骨架与 onDecided/onLeg 纪律）。每个后端任务开工先读这两处。
 
@@ -239,7 +240,7 @@ VENDOR_PAYMENT_FAILED:            { domain: 'TREASURY', correlationMode: I, requ
 VENDOR_PAYMENT_REJECTED:          { domain: 'TREASURY', correlationMode: I, requiredFields: ['approvalNo'], requiresCausation: true },
 VENDOR_PAYMENT_CANCELLED:         { domain: 'TREASURY', correlationMode: I, requiredFields: ['reason'], requiresCausation: false },
 ```
-信封：primary=VENDOR_PAYMENT·payNo，subjects 加外包商（OUTSOURCING_VENDOR 实体码已存在则引用、不存在则以 metadata 记 vendorNo——**开工 grep `AuditEntityTypes` 实测再定**，不臆断）+审批单 INSTRUMENT+资金单 RELATED；vendorName/payeeAccountRef 镜像 metadata。
+信封：primary=VENDOR_PAYMENT·payNo，subjects 加外包商（OUTSOURCING_VENDOR 实体码已存在则引用、不存在则以 metadata 记 vendorNo——**开工 grep `AuditEntityTypes` 实测再定**，不臆断）+审批单 INSTRUMENT+资金单 RELATED；vendorName/payeeAccountRef 镜像 metadata；**每条带显式 `requestId`**（`${action}_${payNo}_${randomUUID()}`，漏了被静默去重——交付清单第 1 行）。
 - [ ] **Step 4: 服务**——create（守卫：`vendors.assertActiveByNo(vendorNo)`、amount>0、三个文本字段非空；vendorId/vendorName 从档案行落快照）/assertFirmOpsBalance/transition/stampApprovalNo/getView/list。
 - [ ] **Step 5: 变异测试先红**（spec §9.3 付款半）：
 ```ts
@@ -301,7 +302,7 @@ it('SUCCESS is terminal — no further transitions', ...);
 - [ ] **Step 1: List**——列：cinNo（链详情）/出资方/`${amount} ${assetCode}`/status 徽章/createdAt；「Initiate injection」按钮（持 `treasury.act_funding` 码显示）开单 modal（出资方/资产/金额/审慎目的必填/reason），提交后提示「已提交 CFO 审批」。
 - [ ] **Step 2: Detail**——金额卡（大字）+ 出资方卡 + 状态时间线（六态人话标签：待审批/等出资方打款/已到款待确认/完成/已拒绝/已撤回）+ 资金单腿区（fundsOrderNo 链接/status/externalRef）+ 动作区（**状态×持码**双维，禁加第三维）：PENDING_APPROVAL→Cancel（+approvalNo 链接审批页）；AWAITING_FUNDS→⚡`Simulate contributor payment`（useSimulationMode 门控）；RECEIVED→**Confirm receipt** modal（并排 Expected=amount vs Received=腿金额，确认即 confirm——两数展示落在这）+ 审计区惯例（按 cinNo 查）。
 - [ ] **Step 3: 联动登记**——approvalEntityRoutes/ACTION_TYPE_LABELS/导航项/permissions.ts 常量。
-- [ ] **Step 4: 闸（两条永不豁免①）**——`cd admin-web && npx tsc -b --noEmit`；起 preview 实点全弧（开单→批→⚡打款→确认，金额铁律：确认后对账本科目页核 F_OPS 同涨）；**截图**存 `doc-final/superpowers/checkups/2026-09-XX-campaign-b-wave2-evidence/`（按实际日期定名，T11 沿用）。
+- [ ] **Step 4: 闸（两条永不豁免①）**——`cd admin-web && npx tsc -b --noEmit`；起 self 栈实测前先 `stack.sh reset self`（含 db:base:sync 效果，保证后端加载 T3 新路由——只 seed 不重启=403，清单第 8 行）；preview 实点全弧（开单→批→⚡打款→确认，金额铁律：确认后对账本科目页核 F_OPS 同涨）；**截图**存 `doc-final/superpowers/checkups/2026-09-XX-campaign-b-wave2-evidence/`（按实际日期定名，T11 沿用）。
 - [ ] **Step 5: Commit** `feat(乙波二T6): 注资List/Detail+开单/确认/⚡打款+六态时间线`
 
 ---
@@ -349,7 +350,7 @@ it('SUCCESS is terminal — no further transitions', ...);
  *  且一笔演示级动作（LP 卖出腿 5 万 AED / 大额客户兑换）能可见地拉近水位与线。 */
 export const COMPANY_FUNDS_THRESHOLDS: Record<string, number> = { AED: 900_000, USDT: 100_000 };
 ```
-- [ ] **Step 3: 页面五区**——① 运营户水位：F_OPS（COA `E.FIRM_OPS`）每币种一张水位卡——余额大字 + 横向水位条 + 阈值刻线 + 低于线时红字「Below threshold」；② F_LIQ 在途待验收格；③ F_SET 结算在途格；④ 三收入格（`E.INCOME_SWAP_FEE`/`E.INCOME_WITHDRAW_FEE`/`E.INCOME_OTHER` 按币种小卡，区题「Income (profit)」）；⑤ 最近资金动态：`/admin/tb/account-flows` 最近 10 条（时间/方向/金额/eventCode 人话标签）。**换算自写并自测**：最小单位→元用资产 decimals（照 `LedgerAccountList.tsx` 的 decimalsOf 机制取数但独立实现换算函数并配一条单测样例断言 `113600000000 → '113,600.000000'`——该页 decimals 显示错是 BACKLOG §M 已知缺口，本页禁复发，spec §9.2）。
+- [ ] **Step 3: 页面五区**——① 运营户水位：F_OPS（COA `E.FIRM_OPS`）每币种一张水位卡——余额大字 + 横向水位条 + 阈值刻线 + 低于线时红字「Below threshold」；② F_LIQ 在途待验收格；③ F_SET 结算在途格；④ 三收入格（码 210/211/212 三科目按币种小卡，区题「Income (profit)」——COA 名**开工 grep `TB_CODE_TO_COA` 实名取用，勿臆写前缀**）；⑤ 最近资金动态：`/admin/tb/account-flows` 最近 10 条（时间/方向/金额/eventCode 人话标签）。**换算自写并自测**：最小单位→元用资产 decimals（照 `LedgerAccountList.tsx` 的 decimalsOf 机制取数但独立实现换算函数并配一条单测样例断言 `113600000000 → '113,600.000000'`——该页 decimals 显示错是 BACKLOG §M 已知缺口，本页禁复发，spec §9.2）。
 - [ ] **Step 4: 阈值实测校准**——self 栈 `reset`→`up`→`demo:all` 后打开看板：若某币种实际水位已低于候选线，下调该线保持「开局绿」口径，改动回填 Step 2 常量注释与 T11 文档；两币种均在线上方则候选值即终值。
 - [ ] **Step 5: 闸**——admin tsc；preview 分别以金库与高管快速登录各截一张（区块齐全、阈值线可见）、以运营登录截「导航无入口」负例一张；截图入 evidence 目录。
 - [ ] **Step 6: Commit** `feat(乙波二T8): 公司资金全景看板五区+阈值常量+view_dashboard桶+四职务组`
@@ -369,7 +370,7 @@ export const COMPANY_FUNDS_THRESHOLDS: Record<string, number> = { AED: 900_000, 
 - [ ] **Step 1: CIN 壳两张**——per SEED_FIRM_CAPITAL 币种：`capitalInjection` 行（status SUCCESS、receivedAt/settledAt=种子时刻、prudentialPurpose=`Initial operating capital under prudential capital plan`）；**APPROVED 审批单**（照乙波一 T9 评审订正先例——种子单据必须配 APPROVED 审批单去死链，approval_cases+approval_steps 直写形态照 LP 种子）；**SUCCESS 资金单一张/币种**（legSeq 1、direction IN、capitalInjectionId 挂、externalRef 复用 `SEED-CAPITAL-<CUR>`、terminal 态照资金单终态枚举现名 grep 定）；**账本零新增**——不再写 TB 转账/evidence/flow（1988-2057 既有行就是这两张单的账，`sourceType='SEED_CAPITAL'` 保持原样不改写，壳单与账的关联靠 externalRef 与 metadata，注释注明）。
 - [ ] **Step 2: PAY 历史单**——`vendorPayment` 行（vendor=seed 里 `vendor-hextrust` 行、status SUCCESS、payeeAccountRef=`AE07 0331 2345 6789 0123 456 (HexTrust AED settlement)`）+ APPROVED 审批单 + SUCCESS 资金单（direction OUT）+ **账本一条**：code 87、DR FIRM_OPS/CR FIRM_ASSET、AED ledger、2,500 元（=250000 分）+ tbTransferEvidence + accountFlow 两行 + effectiveDate 上月末（照 LP 历史单三腿的直写形态裁一腿；`deterministicTransferId('SEED_VENDOR_PAYMENT', 'AED', 'VENDOR_PAYMENT', 0)`）。
 - [ ] **Step 3: baseline.md 同步**——F_OPS(AED) 判据 `95000000` 分改 **`94750000`** 分（= 950,000 − 2,500 = 947,500.00 AED，波一判据行原文连注释一起改）；F_OPS(USDT)/F_LIQ 两行不动；新增「乙波二种子断言」节：`capital_injections=2(SUCCESS)`/`vendor_payments=1(SUCCESS)`/`approval_cases +3(APPROVED)`/资金单 +3；recon 判据注明 F_OPS(AED) 新增一行 OUT 流水由 recon:demo 重铸回单吃进、仍 MATCHED。data.md 手写区加「公司资金」节。
-- [ ] **Step 4: 重铺闸⑧实跑全序**（baseline.md:251 既有口径）——`bash scripts/stack.sh reset self` → `bash scripts/stack.sh up self` → `bash scripts/on-stack.sh self demo:all` → `bash scripts/on-stack.sh self recon:demo:pass`（PASS、casesOpened=0、F_OPS(AED) MATCHED）→ `bash scripts/on-stack.sh self recon:demo:break`（18/18、LP/公司资金流水不干扰）→ `bash scripts/on-stack.sh self verify:coa`（两恒等式+负余额全绿）。⚠️ demo:all 必须全新库+栈已起（判例在案）。另跑一遍 `scripts/recon-demo.ts` 场景⑩候选钱包检查（spec §4 承诺）：确认「查无果」候选逻辑不会选中本波新增流水所在钱包语义（本波零新钱包、F_OPS 本就在检，预期零改动，红了停下上报）。
+- [ ] **Step 4: 重铺闸⑧实跑全序**（baseline.md:251 既有口径）——`bash scripts/stack.sh reset self` → `bash scripts/stack.sh up self` → `bash scripts/on-stack.sh self demo:all` → `bash scripts/on-stack.sh self recon:demo:pass`（PASS、casesOpened=0、F_OPS(AED) MATCHED）→ `bash scripts/on-stack.sh self recon:demo:break`（18/18、LP/公司资金流水不干扰）→ `bash scripts/on-stack.sh self verify:coa`（两恒等式+负余额全绿——**注资/期初缺一笔时恒等式照样全过、只有负余额断言红**，它是种子新加分录接错的唯一探针，不能因恒等式绿放行，交付清单尾注读法）。⚠️ demo:all 必须全新库+栈已起（判例在案）。另跑一遍 `scripts/recon-demo.ts` 场景⑩候选钱包检查（spec §4 承诺）：确认「查无果」候选逻辑不会选中本波新增流水所在钱包语义（本波零新钱包、F_OPS 本就在检，预期零改动，红了停下上报）。
 - [ ] **Step 5: 输出证据**——命令+退出码+关键行摘录记入任务交接（不倾倒全量输出）。
 - [ ] **Step 6: Commit** `feat(乙波二T9): 种子CIN壳两张+PAY历史单+三张APPROVED审批单+baseline新判据——重铺闸⑧/verify:coa全绿`
 
