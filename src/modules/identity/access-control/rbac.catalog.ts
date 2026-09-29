@@ -107,7 +107,11 @@ export type PermissionGroup =
   // （COMPLAINT_WRITE，绑 INCIDENT_OPS_WRITE 现持有职务）；裁决走 maker-checker（合规官批，
   // 审批走角色路由不占本组）、但合规官要看得见列表/详情，COMPLAINT_READ 单独一组。
   | 'COMPLAINT_READ'
-  | 'COMPLAINT_WRITE';
+  | 'COMPLAINT_WRITE'
+  // 战役乙波二 T3：注资单（CapitalInjection）——开单 / 撤回 / ⚡到款 / 确认入账归金库
+  // （FUNDING_WRITE），CFO/内审读得到列表详情（FUNDING_READ），同 LP_READ/LP_WRITE 先例。
+  | 'FUNDING_READ'
+  | 'FUNDING_WRITE';
 
 export interface RbacPermissionDefinition {
   code: string;
@@ -493,6 +497,15 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
   route('POST', '/admin/lp-exchanges/:exchangeNo/simulate-delivery', 'Simulate the LP delivering the buy leg to the front desk (demo only)', ['LP_WRITE']),
   route('GET', '/admin/lp-exchanges', 'List LP exchanges', ['LP_READ']),
   route('GET', '/admin/lp-exchanges/:exchangeNo', 'Get LP exchange detail (with funds-order legs)', ['LP_READ']),
+  // ─── 战役乙波二 T3 · 注资单（CapitalInjection）：单腿进项，写动作全归 FUNDING_WRITE ───
+  // simulate-contribution 是 ⚡演示件，但推的是单据不是时间——归 FUNDING_WRITE，不挂
+  // DEMO_CLOCK_WRITE（同 LP simulate-delivery 归组先例）。静态段先于 :cinNo（同 490 区惯例）。
+  route('POST', '/admin/capital-injections', 'Initiate a capital injection (contribute funds into the operating account) — CFO signs it off', ['FUNDING_WRITE']),
+  route('POST', '/admin/capital-injections/:cinNo/cancel', 'Cancel a pending-approval capital injection', ['FUNDING_WRITE']),
+  route('POST', '/admin/capital-injections/:cinNo/simulate-contribution', 'Simulate the contributor sending the funds into the operating account (demo only)', ['FUNDING_WRITE']),
+  route('POST', '/admin/capital-injections/:cinNo/confirm', "Confirm the contribution (post the entries) — the funds are booked into the firm's own assets", ['FUNDING_WRITE']),
+  route('GET', '/admin/capital-injections', 'List capital injections', ['FUNDING_READ']),
+  route('GET', '/admin/capital-injections/:cinNo', 'Get capital injection detail (with funds-order legs)', ['FUNDING_READ']),
   // 平账 A 批：⚡拨钟——把案件账龄截止拨到过去（演示件，挂现有拨钟组，桶 demo.act_clock 已涵盖 SLA timers）
   route('POST', '/admin/reconciliation/cases/:caseNo/simulate-aging-timeout', 'Fast-forward a reconciliation case past its aging line (demo only)', ['DEMO_CLOCK_WRITE']),
 
@@ -970,6 +983,16 @@ export const ACTION_BUCKET_CATALOG: ActionDomain[] = [
         description: 'Register/suspend an LP, propose settlement changes, initiate LP exchanges and accept deliveries — CFO signs off',
         groups: ['LP_WRITE'],
       },
+      {
+        key: 'treasury.view_funding', label: 'View capital injections & vendor payments',
+        description: 'Browse capital-injection and vendor-payment orders with their funds-order legs',
+        groups: ['FUNDING_READ'],
+      },
+      {
+        key: 'treasury.act_funding', label: 'Operate company funding',
+        description: 'Initiate capital injections and vendor payments, confirm receipts — CFO signs off',
+        groups: ['FUNDING_WRITE'],
+      },
     ],
   },
   // ─── Domain: Customer ────────────────────────────────
@@ -1262,6 +1285,8 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
     'COMPLAINT_READ',
     // 战役乙波一 T3：LP 档案同 INTERNAL_TRANSFER_READ 先例——内审全域只读，不建 LP_WRITE。
     'LP_READ',
+    // 战役乙波二 T3：注资单同 LP_READ 先例——内审全域只读，不建 FUNDING_WRITE。
+    'FUNDING_READ',
   ],
 
   // 拦的手：开/解限制、贴撕标签、提解冻；管理台里推不动任何交易单据（D-不翻案）
@@ -1321,6 +1346,8 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
     // 战役乙波一 T3：LP 档案建档 / 结算坐标变更两条链的唯一裁决人——需要读得到列表/详情
     // （同 INTERNAL_TRANSFER_READ 先例，裁决人要看得见）。
     'LP_READ',
+    // 战役乙波二 T3：注资单发起的唯一裁决人——同上，需要读得到列表/详情。
+    'FUNDING_READ',
   ],
 
   // 提现地址的写权限全仓仅此一处；钱包地址行只从种子来，管理台只读。
@@ -1357,6 +1384,9 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
     // 战役乙波一 T3：LP 档案建档 / 结算坐标变更开单归金库——maker（金库）≠ checker（CFO），
     // verify:rbac S5 守着（同 INTERNAL_TRANSFER 先例）。
     'LP_READ', 'LP_WRITE',
+    // 战役乙波二 T3：注资单开单归金库——maker（金库）≠ checker（CFO），verify:rbac S5 守着
+    // （同 LP_PROFILE/LP_EXCHANGE 先例）。
+    'FUNDING_READ', 'FUNDING_WRITE',
     'INCIDENT_WRITE',
     // 对账平账两角色定案（2026-09-10）：DEMO_CLOCK_WRITE 随本组整体迁入——案件页 ⚡Fast-forward
     // aging 按钮，以及充值/提现/兑换 SLA 超时与审批超时的演示拨钟，运营不再持有。

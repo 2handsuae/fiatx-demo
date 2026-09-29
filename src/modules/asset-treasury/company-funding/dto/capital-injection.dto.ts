@@ -1,7 +1,7 @@
 // 战役乙波二 T2：注资单 DTO/投影/状态枚举。照 lp-exchange.dto.ts 先例。
-import { ApiPropertyOptional } from '@nestjs/swagger';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { IsIn, IsOptional } from 'class-validator';
+import { IsIn, IsNotEmpty, IsOptional, IsString } from 'class-validator';
 
 /** 六态（乙波二 spec §2.2）：批准即进「等到款」；⚡模拟到款必经 RECEIVED（核数前）；
  *  确认入账（核数）落 SUCCESS——先账后状态。无 FAILED 态：进项 ⚡到款在演示里不会
@@ -27,6 +27,23 @@ export interface CreateCapitalInjectionDto {
   toWalletId: string; // F_OPS（注入币网络行）
   traceId?: string | null;
   createdByUserId: string;
+}
+
+/** T3 controller 入参——字段对齐 workflow 的 InitiateCapitalInjectionInput（照
+ *  InitiateLpExchangeDto 先例：只认业务键 assetId，金额是元字符串）。T2 评审交接第 1 条：
+ *  上面的 CreateCapitalInjectionDto 是服务入参 interface，不是请求体——本类才是
+ *  @Body() 装饰器 DTO，ValidationPipe whitelist 需要它。 */
+export class InitiateCapitalInjectionDto {
+  @ApiProperty() @IsString() @IsNotEmpty() contributorName!: string;
+  @ApiProperty() @IsString() @IsNotEmpty() assetId!: string;
+  @ApiProperty() @IsString() @IsNotEmpty() amount!: string;
+  @ApiProperty() @IsString() @IsNotEmpty() prudentialPurpose!: string;
+  @ApiProperty() @IsString() @IsNotEmpty() reason!: string;
+  @ApiPropertyOptional() @IsOptional() @IsString() traceId?: string;
+}
+
+export class CancelCapitalInjectionDto {
+  @ApiProperty() @IsString() @IsNotEmpty() reason!: string;
 }
 
 export class CapitalInjectionListQueryDto {
