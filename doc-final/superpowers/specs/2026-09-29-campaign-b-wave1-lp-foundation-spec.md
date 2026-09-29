@@ -89,11 +89,11 @@ DELIVERED ──accept(金库,验收=核数)──▶ SUCCESS（落验收转腿�
 |---|---|---|---|---|---|
 | 1 卖出腿（直出） | 批准+余额闸过 → 建单，⚡推提交/确认，确认落账 | DR FIRM_OPS / CR FIRM_ASSET | 卖出币 | **84 `LP_EXCHANGE_PAY`** | F_OPS → LP 外部坐标（档案结算坐标，资金单记 to 地址/IBAN） |
 | 2 买入腿（进前厅） | ⚡「模拟 LP 打款」→ 建单落账 | DR FIRM_ASSET / CR FIRM_LIQ | 买入币 | **85 `LP_EXCHANGE_RECEIVE`** | LP 外部 → F_LIQ |
-| 3 验收转腿 | 验收确认 → 建单落账 | DR FIRM_LIQ / CR FIRM_OPS | 买入币 | **86 `LP_EXCHANGE_ACCEPT`** | F_LIQ → F_OPS |
+| 3 验收转腿 | 验收确认 → 建单落账 | DR FIRM_LIQ / CR FIRM_OPS | 买入币 | **86 `LP_EXCHANGE_ACCEPT`** | F_LIQ → F_OPS（**外穿+两侧回单**——订正 2026-09-29 T5 评审：原「内转不外穿」违反逐钱包对账模型，验收后 F_LIQ/F_OPS 双破口；划转单内转腿 81 本就外穿写两侧回单，铁律⑤账实一致为权威） |
 
 - 分录方向与既有先例同款：出=划转单出腿形状（DR 源科目/CR FIRM_ASSET）、进=资本注入形状（DR FIRM_ASSET/CR 目标科目）、内转=兑换腿 2 形状。客户侧科目零触碰，`verify:coa` 两恒等式不受扰。
 - 三腿各一张资金单，第五父键 `lpExchangeId`（`@@unique([lpExchangeId, legSeq, attempt])` + index，照 internalTransferId 模板）；funds-order.service 8 个方法点照体检 §3 清单逐一接入，`directionOf`：腿 1=OUT、腿 2=IN、腿 3=INTERNAL。
-- 腿 1/腿 2 写模拟托管回单（对账吃进，LP 仓位对账被动达成——总纲 §4 收编口径）；腿 3 照划转单内转腿惯例。
+- 三腿全部写模拟托管回单（对账吃进，LP 仓位对账被动达成——总纲 §4 收编口径；腿 3 两侧回单照划转单内转腿惯例）；**回单一律先于落账**（划转单 SUBMITTED 时写回单的既有纪律——订正 2026-09-29 T5 评审：后置会使「当日无余额行」基准含已落账流水，外部余额双计）。
 - ⚡ 门控：推腿与「模拟 LP 打款」挂既有 simulation 门控惯例（useSimulationMode），操作人照资金单页惯例。
 
 ## §5 F_LIQ 科目复活连带（与腿 2 首条记账同 commit）

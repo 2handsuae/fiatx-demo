@@ -267,7 +267,7 @@ it('LP exchange legs never count toward customer closure guard', ...); // countN
 |---|---|---|---|---|---|
 | 卖出 | 1 | 批准+余额闸过 | from=sellFromWalletId(F_OPS)，to=null，toAddress/toIban=档案坐标（卖出币是 CRYPTO→cryptoAddress ｜ FIAT→fiatIban） | 确认时：DR FIRM_OPS / CR FIRM_ASSET，code 84，卖出币 ledger，isExternalCrossing | `LP_EXCHANGE_PAY` |
 | 买入 | 2 | ⚡simulateDelivery | from=null+档案坐标，to=buyViaWalletId(F_LIQ) | 同一动作内：DR FIRM_ASSET / CR FIRM_LIQ，code 85，买入币 ledger，isExternalCrossing | `LP_EXCHANGE_RECEIVE` |
-| 验收转 | 3 | accept | from=buyViaWalletId(F_LIQ)，to=buyToWalletId(F_OPS) | 同一动作内：DR FIRM_LIQ / CR FIRM_OPS，code 86，买入币 ledger，内转不外穿 | `LP_EXCHANGE_ACCEPT` |
+| 验收转 | 3 | accept | from=buyViaWalletId(F_LIQ)，to=buyToWalletId(F_OPS) | 同一动作内：**先写两侧回单再落账**——DR FIRM_LIQ / CR FIRM_OPS，code 86，买入币 ledger，**外穿**（订正 2026-09-29 T5 评审：原「内转不外穿」违反逐钱包对账模型；spec §4 已同步订正，腿 2 回单也一律先于落账） | `LP_EXCHANGE_ACCEPT` |
 
 - [ ] **Step 1: 审批注册三件套 + MAKER 行 + handler**（同 T3 形态，actionType=`LP_EXCHANGE_APPROVAL`，workflowType=`LP_EXCHANGE`）。
 - [ ] **Step 2: initiate**——守卫（assertActiveByNo/资产互异/金额>0/prudentialPurpose）→ `assertFirmOpsBalance(卖出币, sellAmountMinor)` → 解析三钱包（`systemWallets.resolve(sellAssetId,'F_OPS')`、`resolve(buyAssetId,'F_LIQ')`、`resolve(buyAssetId,'F_OPS')`）→ create → createAndSubmit（objectSnapshot：exchangeNo/lpNo/lpName/sell `${amount} ${currency}`/buy `${amount} ${currency}`/prudentialPurpose/impact 一句话——零 UUID）→ stampApprovalNo → 审计 REQUESTED。
